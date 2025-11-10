@@ -217,6 +217,18 @@ event.AddListener("Update", "rendering", function(dt)
 
 	if window_target:BeginFrame() then
 		local cmd = window_target:GetCommandBuffer()
+		camera:SetWorld(renderer.world_matrix)
+		graphics_pipeline:PushConstants(
+			cmd,
+			"vertex",
+			0,
+			MatrixConstants(
+				{
+					projection_view = camera:GetMatrices().projection_view,
+					world = camera:GetMatrices().world,
+				}
+			)
+		)
 		cmd:BeginRenderPass(
 			window_target:GetRenderPass(),
 			window_target:GetFramebuffer(),
@@ -242,3 +254,9 @@ event.AddListener("Shutdown", "test", function()
 	renderer:WaitForIdle()
 	system.ShutDown()
 end)
+
+function renderer.SetWorldMatrix(world)
+	renderer.world_matrix = world
+end
+
+return renderer
