@@ -1,2 +1,2 @@
-require("src.global_environment")
+require("goluwa.global_environment")
 require("main")

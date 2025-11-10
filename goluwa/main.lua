@@ -125,7 +125,7 @@ local index_buffer = renderer:CreateBuffer(
 		data = cube_indices,
 	}
 )
-local img = file_formats.LoadPNG("examples/vulkan/capsadmin.png")
+local img = file_formats.LoadPNG("assets/images/capsadmin.png")
 local texture_image = renderer.device:CreateImage(
 	img.width,
 	img.height,

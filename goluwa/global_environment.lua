@@ -1,5 +1,5 @@
--- only load from src/ directory
-package.path = "src/?.lua"
+-- only load from goluwa/ directory
+package.path = "goluwa/?.lua"
 _G.setmetatable = require("helpers.setmetatable_gc")
 require("helpers.globals")
 require("helpers.debug")
