@@ -5,7 +5,7 @@ local Renderer = require("helpers.renderer")
 local wnd = cocoa.window()
 local renderer = Renderer.New(
 	{
-		surface_handle = assert(wnd:GetMetalLayer()),
+		surface_handle = assert(wnd:GetSurfaceHandle()),
 		present_mode = "fifo",
 		image_count = nil, -- Use default (minImageCount + 1)
 		surface_format_index = 1,
@@ -42,7 +42,6 @@ end
 
 local window_target = renderer:CreateWindowRenderTarget()
 
-
 while true do
 	local events = wnd:ReadEvents()
 
@@ -52,16 +51,16 @@ while true do
 			os.exit()
 		end
 
-		if event.type == "window_resize" then 
-			renderer:RecreateSwapchain() 
-		end
+		if event.type == "window_resize" then renderer:RecreateSwapchain() end
 	end
 
 	if window_target:BeginFrame() then
-		window_target:GetCommandBuffer():ClearColorImage({
-			image = window_target:GetSwapChainImage(),
-			color = {hsv_to_rgb(frame % 1, 1, 1)},
-		})
+		window_target:GetCommandBuffer():ClearColorImage(
+			{
+				image = window_target:GetSwapChainImage(),
+				color = {hsv_to_rgb(frame % 1, 1, 1)},
+			}
+		)
 		window_target:EndFrame()
 	end
 

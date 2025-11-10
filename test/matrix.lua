@@ -1,5 +1,5 @@
 local test = require("test.gambarina")
-local Matrix44f = require("helpers.structs.matrix").Matrix44f
+local Matrix44f = require("structs.matrix").Matrix44f
 
 -- Helper to check if two floats are approximately equal (for floating point comparisons)
 local function approx_eq(a, b, epsilon)

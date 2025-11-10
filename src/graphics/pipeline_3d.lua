@@ -43,127 +43,6 @@ local texture_sampler = renderer.device:CreateSampler(
 		wrap_t = "repeat",
 	}
 )
-
--- Programmatically generate cube geometry
-local function generate_cube(size)
-	size = size or 1.0
-	local half = size / 2
-	-- Define the 6 faces of a cube with their properties
-	-- Each face: {normal, positions for 4 corners, UVs for 4 corners}
-	local faces = {
-		-- Front face (+Z)
-		{
-			normal = {0, 0, 1},
-			positions = {
-				{-half, -half, half},
-				{half, -half, half},
-				{half, half, half},
-				{-half, half, half},
-			},
-		},
-		-- Back face (-Z)
-		{
-			normal = {0, 0, -1},
-			positions = {
-				{half, -half, -half},
-				{-half, -half, -half},
-				{-half, half, -half},
-				{half, half, -half},
-			},
-		},
-		-- Right face (+X)
-		{
-			normal = {1, 0, 0},
-			positions = {
-				{half, -half, half},
-				{half, -half, -half},
-				{half, half, -half},
-				{half, half, half},
-			},
-		},
-		-- Left face (-X)
-		{
-			normal = {-1, 0, 0},
-			positions = {
-				{-half, -half, -half},
-				{-half, -half, half},
-				{-half, half, half},
-				{-half, half, -half},
-			},
-		},
-		-- Top face (+Y)
-		{
-			normal = {0, 1, 0},
-			positions = {
-				{-half, half, half},
-				{half, half, half},
-				{half, half, -half},
-				{-half, half, -half},
-			},
-		},
-		-- Bottom face (-Y)
-		{
-			normal = {0, -1, 0},
-			positions = {
-				{-half, -half, -half},
-				{half, -half, -half},
-				{half, -half, half},
-				{-half, -half, half},
-			},
-		},
-	}
-	local uvs = {{0, 0}, {1, 0}, {1, 1}, {0, 1}}
-	local vertices = {}
-	local indices = {}
-	local vertex_count = 0
-
-	for face_idx, face in ipairs(faces) do
-		-- Add 4 vertices for this face
-		for i = 1, 4 do
-			local pos = face.positions[i]
-			local normal = face.normal
-			local uv = uvs[i]
-			-- Position (vec3)
-			table.insert(vertices, pos[1])
-			table.insert(vertices, pos[2])
-			table.insert(vertices, pos[3])
-			-- Normal (vec3)
-			table.insert(vertices, normal[1])
-			table.insert(vertices, normal[2])
-			table.insert(vertices, normal[3])
-			-- UV (vec2)
-			table.insert(vertices, uv[1])
-			table.insert(vertices, uv[2])
-		end
-
-		-- Add 6 indices for this face (2 triangles) - counter-clockwise winding
-		table.insert(indices, vertex_count + 0)
-		table.insert(indices, vertex_count + 1)
-		table.insert(indices, vertex_count + 2)
-		table.insert(indices, vertex_count + 0)
-		table.insert(indices, vertex_count + 2)
-		table.insert(indices, vertex_count + 3)
-		vertex_count = vertex_count + 4
-	end
-
-	return vertices, indices
-end
-
-local cube_vertices, cube_indices = generate_cube(2.0) -- Make it MUCH bigger
-local vertex_buffer = renderer:CreateBuffer(
-	{
-		buffer_usage = "vertex_buffer",
-		data_type = "float",
-		data = cube_vertices,
-	}
-)
-local index_buffer = renderer:CreateBuffer(
-	{
-		buffer_usage = "index_buffer",
-		data_type = "uint32_t",
-		data = cube_indices,
-	}
-)
 -- Create uniform buffer for MVP matrix
 local MatrixConstants = ffi.typeof([[
 	struct {
@@ -315,10 +194,7 @@ local graphics_pipeline = renderer:CreatePipeline(
 )
 
 event.AddListener("KeyInput", "test", function(key, press)
-	if key == "escape" and press then
-		renderer:WaitForIdle()
-		system.ShutDown()
-	end
+	if key == "escape" and press then system.ShutDown() end
 end)
 
 event.AddListener("FramebufferResized", "test", function(size)
@@ -327,26 +203,18 @@ end)
 
 local camera = require("graphics.camera").CreateCamera()
 wnd:SetMouseTrapped(true)
-local transform = Transform.New()
-
-do
-	local calc_movement = require("graphics.3d_movement")
-
-	event.AddListener("Update", "movement", function(dt)
-		local cam_pos = camera:GetPosition()
-		local cam_ang = camera:GetAngles()
-		local cam_fov = camera:GetFOV()
-		local dir, ang, fov = calc_movement(dt, cam_ang, cam_fov)
-		cam_pos = cam_pos + dir
-		camera:SetPosition(cam_pos)
-		camera:SetAngles(ang)
-		camera:SetFOV(fov)
-		transform:SetAngles(Ang3(system.GetTime(), system.GetTime(), system.GetTime()))
-		camera:SetWorld(transform:GetMatrix())
-	end)
-end
+local calc_movement = require("graphics.3d_movement")
 
 event.AddListener("Update", "rendering", function(dt)
+	local cam_pos = camera:GetPosition()
+	local cam_ang = camera:GetAngles()
+	local cam_fov = camera:GetFOV()
+	local dir, ang, fov = calc_movement(dt, cam_ang, cam_fov)
+	cam_pos = cam_pos + dir
+	camera:SetPosition(cam_pos)
+	camera:SetAngles(ang)
+	camera:SetFOV(fov)
+
 	if window_target:BeginFrame() then
 		local cmd = window_target:GetCommandBuffer()
 		cmd:BeginRenderPass(
@@ -360,29 +228,12 @@ event.AddListener("Update", "rendering", function(dt)
 		local aspect = extent.width / extent.height
 		cmd:SetViewport(0.0, 0.0, extent.width, extent.height, 0.0, 1.0)
 		cmd:SetScissor(0, 0, extent.width, extent.height)
-
-		do
-			graphics_pipeline:PushConstants(
-				cmd,
-				"vertex",
-				0,
-				MatrixConstants(
-					{
-						projection_view = camera:GetMatrices().projection_view,
-						world = camera:GetMatrices().world,
-					}
-				)
-			)
-			cmd:BindVertexBuffer(vertex_buffer, 0)
-			cmd:BindIndexBuffer(index_buffer, 0)
-			cmd:DrawIndexed(36, 1, 0, 0, 0)
-		end
-
+		event.Call("Draw3D", cmd, camera, dt)
 		cmd:EndRenderPass()
 		window_target:EndFrame()
 
 		if wait(1) then
-			wnd:SetTitle("Textured Cube - FPS: " .. math.round(1 / system.GetFrameTime()))
+			wnd:SetTitle("FPS: " .. math.round(1 / system.GetFrameTime()))
 		end
 	end
 end)
@@ -391,5 +242,3 @@ event.AddListener("Shutdown", "test", function()
 	renderer:WaitForIdle()
 	system.ShutDown()
 end)
-
-require("main_loop")

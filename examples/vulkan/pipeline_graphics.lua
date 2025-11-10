@@ -4,7 +4,7 @@ local threads = require("threads")
 local Renderer = require("helpers.renderer")
 local shaderc = require("shaderc")
 local wnd = cocoa.window()
-local Color = require("helpers.structs.color")
+local Color = require("structs.color")
 local PushConstants = ffi.typeof([[
 	struct {
 		struct {
@@ -17,7 +17,7 @@ local PushConstants = ffi.typeof([[
 ]])
 local renderer = Renderer.New(
 	{
-		surface_handle = assert(wnd:GetMetalLayer()),
+		surface_handle = assert(wnd:GetSurfaceHandle()),
 		present_mode = "fifo",
 		image_count = nil, -- Use default (minImageCount + 1)
 		surface_format_index = 1,

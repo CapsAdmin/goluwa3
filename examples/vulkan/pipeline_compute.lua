@@ -7,7 +7,7 @@ local wnd = cocoa.window()
 -- Initialize renderer
 local renderer = Renderer.New(
 	{
-		surface_handle = assert(wnd:GetMetalLayer()),
+		surface_handle = assert(wnd:GetSurfaceHandle()),
 		present_mode = "fifo",
 		image_count = nil,
 		surface_format_index = 1,
@@ -16,7 +16,6 @@ local renderer = Renderer.New(
 )
 -- Create window render target for explicit rendering to the window
 local window_target = renderer:CreateWindowRenderTarget()
-
 -- Game of Life configuration
 local WORKGROUP_SIZE = 16
 local GAME_WIDTH, GAME_HEIGHT -- Will be set based on window size
