@@ -305,12 +305,6 @@ do
 
 		-- Update descriptor sets
 		for i, stage in ipairs(config.shader_stages) do
-			if stage.descriptor_sets then
-				for i, ds in ipairs(stage.descriptor_sets) do
-					renderer.device:UpdateDescriptorSet(ds.type, descriptorSet, ds.binding_index, unpack(ds.args))
-				end
-			end
-
 			if stage.type == "vertex" then
 				vertex_bindings = stage.bindings
 				vertex_attributes = stage.attributes
@@ -343,6 +337,17 @@ do
 		self.uniform_buffers = uniform_buffers
 		self.descriptorSetLayout = descriptorSetLayout
 		self.descriptorPool = descriptorPool
+
+		for i, stage in ipairs(config.shader_stages) do
+			if stage.descriptor_sets then
+				for i, ds in ipairs(stage.descriptor_sets) do
+					if ds.args then
+						self:UpdateDescriptorSet(ds.type, 1, ds.binding_index, unpack(ds.args))
+					end
+				end
+			end
+		end
+
 		return self
 	end
 

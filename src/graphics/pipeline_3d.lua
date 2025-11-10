@@ -20,29 +20,6 @@ local renderer = Renderer.New(
 	}
 )
 local window_target = renderer:CreateWindowRenderTarget()
-local img = file_formats.LoadPNG("examples/vulkan/capsadmin.png")
-local texture_image = renderer.device:CreateImage(
-	img.width,
-	img.height,
-	"R8G8B8A8_UNORM",
-	{"sampled", "transfer_dst", "transfer_src"},
-	"device_local"
-)
-renderer:UploadToImage(
-	texture_image,
-	img.buffer:GetBuffer(),
-	texture_image:GetWidth(),
-	texture_image:GetHeight()
-)
-local texture_view = texture_image:CreateView()
-local texture_sampler = renderer.device:CreateSampler(
-	{
-		min_filter = "nearest",
-		mag_filter = "nearest",
-		wrap_s = "repeat",
-		wrap_t = "repeat",
-	}
-)
 -- Create uniform buffer for MVP matrix
 local MatrixConstants = ffi.typeof([[
 	struct {
@@ -148,7 +125,6 @@ local graphics_pipeline = renderer:CreatePipeline(
 					{
 						type = "combined_image_sampler",
 						binding_index = 0,
-						args = {texture_view, texture_sampler},
 					},
 				},
 			},
@@ -257,6 +233,10 @@ end)
 
 function renderer.SetWorldMatrix(world)
 	renderer.world_matrix = world
+end
+
+function renderer.UpdateDescriptorSet(type, index, binding_index, ...)
+	graphics_pipeline:UpdateDescriptorSet(type, index, binding_index, ...)
 end
 
 return renderer

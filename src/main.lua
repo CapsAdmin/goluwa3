@@ -125,9 +125,33 @@ local index_buffer = renderer:CreateBuffer(
 		data = cube_indices,
 	}
 )
+local img = file_formats.LoadPNG("examples/vulkan/capsadmin.png")
+local texture_image = renderer.device:CreateImage(
+	img.width,
+	img.height,
+	"R8G8B8A8_UNORM",
+	{"sampled", "transfer_dst", "transfer_src"},
+	"device_local"
+)
+renderer:UploadToImage(
+	texture_image,
+	img.buffer:GetBuffer(),
+	texture_image:GetWidth(),
+	texture_image:GetHeight()
+)
+local texture_view = texture_image:CreateView()
+local texture_sampler = renderer.device:CreateSampler(
+	{
+		min_filter = "nearest",
+		mag_filter = "nearest",
+		wrap_s = "repeat",
+		wrap_t = "repeat",
+	}
+)
 -- Create uniform buffer for MVP matrix
 local camera = require("graphics.camera").CreateCamera()
 local transform = Transform.New()
+renderer.UpdateDescriptorSet("combined_image_sampler", 1, 0, texture_view, texture_sampler)
 
 event.AddListener("Draw3D", "cube", function(cmd, camera, dt)
 	transform:SetAngles(Ang3(system.GetTime(), system.GetTime(), system.GetTime()))
