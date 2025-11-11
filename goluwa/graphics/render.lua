@@ -13,7 +13,6 @@ local renderer = Renderer.New(
 	}
 )
 local window_target = renderer:CreateWindowRenderTarget()
-renderer.window_target = window_target
 
 event.AddListener("FramebufferResized", "window_resized", function(size)
 	window_target:RecreateSwapchain()
@@ -43,4 +42,27 @@ event.AddListener("Shutdown", "window_shutdown", function()
 	system.ShutDown()
 end)
 
-return renderer
+local render = {}
+
+function render.CreateBuffer(config)
+	return renderer:CreateBuffer(config)
+end
+
+function render.CreateImage(width, height, format, usage, memory_properties)
+	return renderer.device:CreateImage(width, height, format, usage, memory_properties)
+end
+
+function render.UploadToImage(image, data, width, height)
+	return renderer:UploadToImage(image, data, width, height)
+end
+
+function render.CreateSampler(config)
+	return renderer.device:CreateSampler(config)
+end
+
+function render.CreateGraphicsPipeline(config)
+	config.render_pass = config.render_pass or window_target:GetRenderPass()
+	return renderer:CreatePipeline(config)
+end
+
+return render

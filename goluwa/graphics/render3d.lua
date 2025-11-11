@@ -1,5 +1,5 @@
 local ffi = require("ffi")
-local renderer = require("graphics.renderer")
+local render = require("graphics.render")
 local event = require("event")
 local window = require("graphics.window")
 local camera = require("graphics.camera")
@@ -10,9 +10,8 @@ local MatrixConstants = ffi.typeof([[
 		$ world;
 	}
 ]], Matrix44f, Matrix44f)
-local graphics_pipeline = renderer:CreatePipeline(
+local graphics_pipeline = render.CreateGraphicsPipeline(
 	{
-		render_pass = renderer.window_target:GetRenderPass(),
 		dynamic_states = {"viewport", "scissor"},
 		shader_stages = {
 			{
@@ -150,9 +149,10 @@ local graphics_pipeline = renderer:CreatePipeline(
 		},
 	}
 )
+local world_matrix = Matrix44f()
 
 event.AddListener("Draw", "draw_3d", function(cmd, dt)
-	camera:SetWorld(renderer.world_matrix)
+	camera:SetWorld(world_matrix)
 	graphics_pipeline:PushConstants(
 		cmd,
 		"vertex",
@@ -168,12 +168,14 @@ event.AddListener("Draw", "draw_3d", function(cmd, dt)
 	event.Call("Draw3D", cmd, dt)
 end)
 
-function renderer.SetWorldMatrix(world)
-	renderer.world_matrix = world
+local render3d = {}
+
+function render3d.SetWorldMatrix(world)
+	world_matrix = world
 end
 
-function renderer.UpdateDescriptorSet(type, index, binding_index, ...)
+function render3d.UpdateDescriptorSet(type, index, binding_index, ...)
 	graphics_pipeline:UpdateDescriptorSet(type, index, binding_index, ...)
 end
 
-return renderer
+return render3d
