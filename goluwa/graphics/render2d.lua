@@ -2,8 +2,11 @@ local ffi = require("ffi")
 local utility = require("utility")
 local Color = require("structs.color")
 local Vec3 = require("structs.vec3")
+local Vec2 = require("structs.vec2")
+local Rect = require("structs.rect")
 local Matrix44f = require("structs.matrix").Matrix44f
 local render = require("graphics.render")
+local window = require("graphics.window")
 local event = require("event")
 local Constants = ffi.typeof(
 	[[
@@ -19,12 +22,12 @@ local Constants = ffi.typeof(
         $ world;
 	}
 ]],
-	Matrix44f,
-	Vec3,
-	Color,
-	Color,
-	Vec3,
-	Matrix44f
+	Matrix44f, -- projection_view_world
+	Vec3, -- hsv_mult
+	Color, -- global_color
+	Color, -- color_override
+	Vec2, -- screen_size
+	Matrix44f -- world
 )
 
 local function to_vertex_data(tbl, layout, type)
@@ -103,6 +106,7 @@ function render2d.Initialize()
 	end
 
 	render2d.SetTexture()
+	render2d.UpdateScreenSize(window:GetSize())
 	render2d.ready = true
 end
 
@@ -361,7 +365,7 @@ do -- shader
 			rasterization_samples = "1",
 		},
 		depth_stencil = {
-			depth_test = true,
+			depth_test = false,
 			depth_write = true,
 			depth_compare_op = "less",
 			depth_bounds_test = false,
@@ -493,20 +497,19 @@ do -- shader
 
 	utility.MakePushPopFunction(render2d, "BorderRadius")
 
-	function render2d.BindShader(cmd)
-		render2d.pipeline:Bind(cmd)
-	end
-
 	function render2d.UpdateDescriptorSet(type, index, binding_index, ...)
 		render2d.pipeline:UpdateDescriptorSet(type, index, binding_index, ...)
 	end
 
 	function render2d.UploadConstants(cmd)
-		shader_constants.projection_view_world = render2d.camera:GetMatrices().projection_view
-		shader_constants.screen_size.x = render2d.camera.Viewport.w
-		shader_constants.screen_size.y = render2d.camera.Viewport.h
+		shader_constants.projection_view_world = render2d.camera:GetMatrices().projection_view_world
 		shader_constants.world = render2d.camera:GetMatrices().world
 		render2d.pipeline:PushConstants(cmd, {"vertex", "fragment"}, 0, shader_constants)
+	end
+
+	function render2d.UpdateScreenSize(size)
+		render2d.camera:SetViewport(Rect(0, 0, size.x, size.y))
+		shader_constants.screen_size = size
 	end
 end
 
@@ -825,7 +828,17 @@ event.AddListener("PostDraw", "draw_2d", function(cmd, dt)
 	cmd:BindVertexBuffer(render2d.rectangle, 0)
 	cmd:BindIndexBuffer(render2d.rectangle_indices, 0, "uint16")
 	render2d.cmd = cmd
+
+	do -- test
+		render2d.SetColor(1, 1, 1, 1)
+		render2d.DrawRect(10, 10, 100, 50)
+	end
+
 	event.Call("Draw2D", dt)
+end)
+
+event.AddListener("FramebufferResized", "render2d", function(size)
+	render2d.UpdateScreenSize(size)
 end)
 
 return render2d

@@ -120,20 +120,8 @@ do -- instance
 	Instance.__index = Instance
 
 	function vulkan.CreateInstance(extensions, layers)
-		print("layers available:")
-
-		for k, v in ipairs(vulkan.GetAvailableLayers()) do
-			print("\t" .. v)
-		end
-
-		print("extensions available:")
-
-		for k, v in ipairs(vulkan.GetAvailableExtensions()) do
-			print("\t" .. v)
-		end
-
 		local version = vk.VK_API_VERSION_1_4
-		print("requesting version: " .. vulkan.VersionToString(version))
+		llog("requesting version: " .. vulkan.VersionToString(version))
 		local appInfo = T.Box(
 			vk.VkApplicationInfo,
 			{
@@ -145,7 +133,7 @@ do -- instance
 				apiVersion = version,
 			}
 		)
-		print("version loaded: " .. vulkan.GetVersion())
+		llog("version loaded: " .. vulkan.GetVersion())
 		local extension_names = extensions and
 			T.Array(ffi.typeof("const char*"), #extensions, extensions) or
 			nil

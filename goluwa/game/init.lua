@@ -47,6 +47,7 @@ local texture_sampler = render.CreateSampler(
 		wrap_t = "repeat",
 	}
 )
+_G.refs = {texture_image, texture_view, texture_sampler, vertex_buffer, index_buffer}
 local transforms = {}
 
 for i = 1, 100 do
@@ -80,9 +81,7 @@ event.AddListener("Draw3D", "draw_cube", function(cmd, dt)
 	end
 end)
 
-event.AddListener("Draw2D", "test", function(dt)
-	render2d.DrawRect(10, 10, 100, 50)
-end)
+event.AddListener("Draw2D", "test", function(dt) end)
 
 event.AddListener("KeyInput", "escape_shutdown", function(key, press)
 	if key == "escape" and press then system.ShutDown() end
