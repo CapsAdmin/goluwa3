@@ -141,7 +141,7 @@ local pipeline = render.CreateGraphicsPipeline(
 			rasterization_samples = "1",
 		},
 		depth_stencil = {
-			depth_test = true, -- Disable for debugging
+			depth_test = true,
 			depth_write = true,
 			depth_compare_op = "less",
 			depth_bounds_test = false,
@@ -149,10 +149,19 @@ local pipeline = render.CreateGraphicsPipeline(
 		},
 	}
 )
-local world_matrix = Matrix44f()
 
 event.AddListener("Draw", "draw_3d", function(cmd, dt)
-	camera:SetWorld(world_matrix)
+	pipeline:Bind(cmd)
+	event.Call("Draw3D", cmd, dt)
+end)
+
+local render3d = {}
+
+function render3d.SetWorldMatrix(world)
+	camera:SetWorld(world)
+end
+
+function render3d.UploadConstants(cmd)
 	pipeline:PushConstants(
 		cmd,
 		"vertex",
@@ -164,14 +173,6 @@ event.AddListener("Draw", "draw_3d", function(cmd, dt)
 			}
 		)
 	)
-	pipeline:Bind(cmd)
-	event.Call("Draw3D", cmd, dt)
-end)
-
-local render3d = {}
-
-function render3d.SetWorldMatrix(world)
-	world_matrix = world
 end
 
 function render3d.UpdateDescriptorSet(type, index, binding_index, ...)

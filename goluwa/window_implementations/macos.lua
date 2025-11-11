@@ -55,6 +55,7 @@ return function(META)
 	function META:OnPostUpdate(dt) end
 
 	function META:OnUpdate(dt)
+		self:SetMouseDelta(Vec2(0, 0))
 		-- Read all events from cocoa
 		local events = self.cocoa_window:ReadEvents()
 
@@ -87,8 +88,6 @@ return function(META)
 			end
 		end
 
-		-- Update mouse delta
-		self:UpdateMouseDelta()
 		self:OnPostUpdate(dt)
 
 		-- Handle trapped cursor

@@ -4,6 +4,7 @@ local Vec2 = require("structs.vec2")
 local event = require("event")
 local window = _G.window or {}
 local input = require("input")
+local timer = require("timer")
 window.active = window.active or {}
 window.current = nil
 
@@ -126,17 +127,7 @@ do
 
 	function META:OnMouseScroll(x, y) end
 
-	function META:UpdateMouseDelta()
-		do
-			return
-		end
-
-		local pos = self:GetMousePosition()
-
-		if self.last_mpos then self:SetMouseDelta(pos - self.last_mpos) end
-
-		self.last_mpos = pos
-
+	function META:UpdateMousePosition(pos)
 		if self:OnCursorPosition(self, pos) ~= false then
 			event.Call("WindowCursorPosition", self, pos)
 		end

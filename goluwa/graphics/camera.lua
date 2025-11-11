@@ -306,7 +306,7 @@ do
 				else
 					if self:Get3D() then
 						proj:SetTranslation(self.Viewport.x, self.Viewport.y, 0)
-						proj:Perspective(self.FOV, self.FarZ, self.NearZ, self.Viewport.w / self.Viewport.h)
+						proj:Perspective(self.FOV, self.NearZ, self.FarZ, self.Viewport.w / self.Viewport.h)
 					else
 						proj:Ortho(self.Viewport.x, self.Viewport.w, self.Viewport.h, self.Viewport.y, -1, 1)
 					end
