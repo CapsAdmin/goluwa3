@@ -96,6 +96,20 @@ local NSEventModifierFlags = {
 	Control = 0x40000,
 	Option = 0x80000,
 	Command = 0x100000,
+	-- Device-specific modifier flags (for determining left vs right)
+	DeviceIndependentFlagsMask = 0xFFFF0000,
+}
+
+-- Device-specific modifier key codes (lower bits that distinguish left/right)
+local NSEventModifierDeviceFlags = {
+	LeftShift = 0x0002,
+	RightShift = 0x0004,
+	LeftControl = 0x0001,
+	RightControl = 0x2000,
+	LeftAlt = 0x0020,
+	RightAlt = 0x0040,
+	LeftCommand = 0x0008,
+	RightCommand = 0x0010,
 }
 -- Key code mapping (US keyboard layout)
 local keycodes = {
@@ -151,14 +165,14 @@ local keycodes = {
 	[0x32] = "`",
 	[0x33] = "backspace",
 	[0x35] = "escape",
-	[0x37] = "command",
-	[0x38] = "shift",
+	[0x37] = "left_command",
+	[0x38] = "left_shift",
 	[0x39] = "capslock",
-	[0x3A] = "option",
-	[0x3B] = "control",
-	[0x3C] = "rightshift",
-	[0x3D] = "rightoption",
-	[0x3E] = "rightcontrol",
+	[0x3A] = "left_alt",
+	[0x3B] = "left_control",
+	[0x3C] = "right_shift",
+	[0x3D] = "right_alt",
+	[0x3E] = "right_control",
 	[0x7B] = "left",
 	[0x7C] = "right",
 	[0x7D] = "down",
@@ -184,6 +198,9 @@ local keycodes = {
 	[0x67] = "f11",
 	[0x6F] = "f12",
 }
+
+-- Track previous modifier state for FlagsChanged events
+local last_modifier_flags = 0
 
 -- Helper to convert NSEvent to our event structure
 local function convert_nsevent(nsevent, window)
@@ -227,6 +244,43 @@ local function convert_nsevent(nsevent, window)
 			key = key,
 			modifiers = modifiers,
 		}
+	-- FlagsChanged events (modifier keys)
+	elseif event_type == NSEventType.FlagsChanged then
+		-- Determine which modifier key changed by comparing with previous state
+		local changed = bit.bxor(modifier_flags, last_modifier_flags)
+		local pressed = bit.band(modifier_flags, changed) ~= 0
+
+		-- Check each modifier key
+		local key = nil
+		if bit.band(changed, NSEventModifierDeviceFlags.LeftShift) ~= 0 then
+			key = "left_shift"
+		elseif bit.band(changed, NSEventModifierDeviceFlags.RightShift) ~= 0 then
+			key = "right_shift"
+		elseif bit.band(changed, NSEventModifierDeviceFlags.LeftControl) ~= 0 then
+			key = "left_control"
+		elseif bit.band(changed, NSEventModifierDeviceFlags.RightControl) ~= 0 then
+			key = "right_control"
+		elseif bit.band(changed, NSEventModifierDeviceFlags.LeftAlt) ~= 0 then
+			key = "left_alt"
+		elseif bit.band(changed, NSEventModifierDeviceFlags.RightAlt) ~= 0 then
+			key = "right_alt"
+		elseif bit.band(changed, NSEventModifierDeviceFlags.LeftCommand) ~= 0 then
+			key = "left_command"
+		elseif bit.band(changed, NSEventModifierDeviceFlags.RightCommand) ~= 0 then
+			key = "right_command"
+		end
+
+		last_modifier_flags = modifier_flags
+
+		if key then
+			return {
+				type = pressed and "key_press" or "key_release",
+				key = key,
+				modifiers = modifiers,
+			}
+		end
+
+		return nil
 	-- Mouse button events
 	elseif
 		event_type == NSEventType.LeftMouseDown or
@@ -322,7 +376,9 @@ local function poll_events(app, window, event_list)
 
 		-- Don't send keyboard events to the system (prevents beep)
 		-- But do send mouse events and other events so the window system works properly
-		if event_type ~= NSEventType.KeyDown and event_type ~= NSEventType.KeyUp then
+		if event_type ~= NSEventType.KeyDown and
+		   event_type ~= NSEventType.KeyUp and
+		   event_type ~= NSEventType.FlagsChanged then
 			app:sendEvent_(event)
 		end
 
