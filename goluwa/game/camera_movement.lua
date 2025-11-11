@@ -1,6 +1,6 @@
 local event = require("event")
 local input = require("input")
-local Vec3 = require("structs.vec3")
+local Vec3 = require("structs.vec3").Vec3d
 local window = require("window")
 local render3d = require("graphics.render3d")
 local held_ang

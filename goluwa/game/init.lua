@@ -1,6 +1,6 @@
 local system = require("system")
 local Ang3 = require("structs.ang3")
-local Vec3 = require("structs.vec3")
+local Vec3 = require("structs.vec3").Vec3d
 local event = require("event")
 local file_formats = require("file_formats")
 local Transform = require("transform")

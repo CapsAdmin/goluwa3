@@ -179,6 +179,16 @@ do -- table copy
 	end
 end
 
+function table.shallow_copy(tbl)
+	local new = {}
+
+	for k, v in pairs(tbl) do
+		new[k] = v
+	end
+
+	return new
+end
+
 function table.weak(k, v)
 	if k and v then
 		mode = "kv"

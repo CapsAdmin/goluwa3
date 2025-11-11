@@ -1,8 +1,8 @@
 local ffi = require("ffi")
 local utility = require("utility")
-local Color = require("structs.color")
-local Vec3 = require("structs.vec3")
-local Vec2 = require("structs.vec2")
+local Colorf = require("structs.color").Colorf
+local Vec3f = require("structs.vec3").Vec3f
+local Vec2f = require("structs.vec2").Vec2f
 local Rect = require("structs.rect")
 local Matrix44f = require("structs.matrix").Matrix44f
 local render = require("graphics.render")
@@ -23,10 +23,10 @@ local Constants = ffi.typeof(
 	}
 ]],
 	Matrix44f, -- projection_view_world
-	Vec3, -- hsv_mult
-	Color, -- global_color
-	Color, -- color_override
-	Vec2, -- screen_size
+	Vec3f, -- hsv_mult
+	Colorf, -- global_color
+	Colorf, -- color_override
+	Vec2f, -- screen_size
 	Matrix44f -- world
 )
 
@@ -487,7 +487,7 @@ do -- shader
 
 	function render2d.UpdateScreenSize(size)
 		render2d.camera:SetViewport(Rect(0, 0, size.x, size.y))
-		shader_constants.screen_size = size
+		shader_constants.screen_size = Vec2f(size.x, size.y)
 	end
 end
 
@@ -527,10 +527,10 @@ do -- rectangle
 		local last_ybl = 1
 		local last_xbr = 1
 		local last_ybr = 1
-		local last_color_bottom_left = Color(1, 1, 1, 1)
-		local last_color_top_left = Color(1, 1, 1, 1)
-		local last_color_top_right = Color(1, 1, 1, 1)
-		local last_color_bottom_right = Color(1, 1, 1, 1)
+		local last_color_bottom_left = Colorf(1, 1, 1, 1)
+		local last_color_top_left = Colorf(1, 1, 1, 1)
+		local last_color_top_right = Colorf(1, 1, 1, 1)
+		local last_color_bottom_right = Colorf(1, 1, 1, 1)
 
 		local function update_vbo()
 			if
