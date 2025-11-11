@@ -8,6 +8,8 @@ local Matrix44f = require("structs.matrix").Matrix44f
 local render = require("graphics.render")
 local window = require("graphics.window")
 local event = require("event")
+local VertexBuffer = require("graphics.vertex_buffer")
+local IndexBuffer = require("graphics.index_buffer")
 local Constants = ffi.typeof(
 	[[
 	struct {
@@ -29,72 +31,27 @@ local Constants = ffi.typeof(
 	Vec2f, -- screen_size
 	Matrix44f -- world
 )
-
-local function to_vertex_data(tbl, layout, type)
-	local length = 0
-
-	for _, field in ipairs(layout) do
-		length = length + #tbl[1][field]
-	end
-
-	length = length * #tbl
-	local data = ffi.new(type .. "[?]", length)
-	local offset = 0
-
-	for i, row in ipairs(tbl) do
-		for _, field in ipairs(layout) do
-			for j = 1, #row[field] do
-				data[offset] = row[field][j]
-				offset = offset + 1
-			end
-		end
-	end
-
-	return data, ffi.sizeof(type) * length
-end
-
 local shader_constants = Constants()
 local render2d = {}
 
 function render2d.Initialize()
 	render2d.pipeline = render.CreateGraphicsPipeline(render2d.pipeline_data)
 	local mesh_data = {
-		{pos = {0, 1, 0}, uv = {0, 0}, color = {1, 1, 1, 1}},
-		{pos = {0, 0, 0}, uv = {0, 1}, color = {1, 1, 1, 1}},
-		{pos = {1, 1, 0}, uv = {1, 0}, color = {1, 1, 1, 1}},
-		{pos = {1, 0, 0}, uv = {1, 1}, color = {1, 1, 1, 1}},
-		{pos = {1, 1, 0}, uv = {1, 0}, color = {1, 1, 1, 1}},
-		{pos = {0, 0, 0}, uv = {0, 1}, color = {1, 1, 1, 1}},
+		{pos = Vec3f(0, 1, 0), uv = Vec2f(0, 0), color = Colorf(1, 1, 1, 1)},
+		{pos = Vec3f(0, 0, 0), uv = Vec2f(0, 1), color = Colorf(1, 1, 1, 1)},
+		{pos = Vec3f(1, 1, 0), uv = Vec2f(1, 0), color = Colorf(1, 1, 1, 1)},
+		{pos = Vec3f(1, 0, 0), uv = Vec2f(1, 1), color = Colorf(1, 1, 1, 1)},
+		{pos = Vec3f(1, 1, 0), uv = Vec2f(1, 0), color = Colorf(1, 1, 1, 1)},
+		{pos = Vec3f(0, 0, 0), uv = Vec2f(0, 1), color = Colorf(1, 1, 1, 1)},
 	}
+	local indices = {}
 
-	do
-		local indices = ffi.new("uint16_t[?]", #mesh_data)
-
-		for i in ipairs(mesh_data) do
-			indices[i - 1] = i - 1
-		end
-
-		render2d.rectangle_indices = render.CreateBuffer(
-			{
-				buffer_usage = "index_buffer",
-				data_type = "uint16_t",
-				data = indices,
-				byte_size = ffi.sizeof("uint16_t") * #mesh_data,
-			}
-		)
+	for i = 1, #mesh_data do
+		indices[i] = i - 1
 	end
 
-	do
-		local mesh, size = to_vertex_data(mesh_data, {"pos", "uv", "color"}, "float")
-		render2d.rectangle = render.CreateBuffer(
-			{
-				buffer_usage = "vertex_buffer",
-				data_type = "float",
-				data = mesh,
-				byte_size = size,
-			}
-		)
-	end
+	render2d.rectangle_indices = IndexBuffer.New(indices)
+	render2d.rectangle = VertexBuffer.New(mesh_data, {"pos", "uv", "color"})
 
 	do
 		local buffer = ffi.new("uint8_t[4]", {255, 255, 255, 255})
@@ -357,29 +314,6 @@ do -- shader
 
 	render2d.pipeline = render2d.pipeline or NULL
 
-	local function convert(tbl, layout)
-		local length = 0
-
-		for _, field in ipairs(layout) do
-			length = length + #tbl[1][field]
-		end
-
-		length = length * #tbl
-		local data = ffi.new("float[?]", length)
-		local offset = 0
-
-		for i, row in ipairs(tbl) do
-			for _, field in ipairs(layout) do
-				for j = 1, #row[field] do
-					data[offset] = row[field][j]
-					offset = offset + 1
-				end
-			end
-		end
-
-		return {data, ffi.sizeof("float") * length}
-	end
-
 	function render2d.SetHSV(h, s, v)
 		shader_constants.hsv_mult.x = h
 		shader_constants.hsv_mult.y = s
@@ -533,33 +467,35 @@ do -- rectangle
 		local last_color_bottom_right = Colorf(1, 1, 1, 1)
 
 		local function update_vbo()
+			local vertices = render2d.rectangle:GetData()
+
 			if
-				last_xtl ~= render2d.rectangle.Vertices.Pointer[0].uv[0] or
-				last_ytl ~= render2d.rectangle.Vertices.Pointer[0].uv[1] or
-				last_xtr ~= render2d.rectangle.Vertices.Pointer[4].uv[0] or
-				last_ytr ~= render2d.rectangle.Vertices.Pointer[4].uv[1] or
-				last_xbl ~= render2d.rectangle.Vertices.Pointer[1].uv[0] or
-				last_ybl ~= render2d.rectangle.Vertices.Pointer[0].uv[1] or
-				last_xbr ~= render2d.rectangle.Vertices.Pointer[3].uv[0] or
-				last_ybr ~= render2d.rectangle.Vertices.Pointer[3].uv[1] or
-				last_color_bottom_left ~= render2d.rectangle.Vertices.Pointer[1].color or
-				last_color_top_left ~= render2d.rectangle.Vertices.Pointer[0].color or
-				last_color_top_right ~= render2d.rectangle.Vertices.Pointer[2].color or
-				last_color_bottom_right ~= render2d.rectangle.Vertices.Pointer[3].color
+				last_xtl ~= vertices[1].uv.x or
+				last_ytl ~= vertices[1].uv.y or
+				last_xtr ~= vertices[5].uv.x or
+				last_ytr ~= vertices[5].uv.y or
+				last_xbl ~= vertices[2].uv.x or
+				last_ybl ~= vertices[1].uv.y or
+				last_xbr ~= vertices[4].uv.x or
+				last_ybr ~= vertices[4].uv.y or
+				last_color_bottom_left ~= vertices[2].color or
+				last_color_top_left ~= vertices[1].color or
+				last_color_top_right ~= vertices[3].color or
+				last_color_bottom_right ~= vertices[4].color
 			then
-				render2d.rectangle:UpdateBuffer()
-				last_xtl = render2d.rectangle.Vertices.Pointer[0].uv[0]
-				last_ytl = render2d.rectangle.Vertices.Pointer[0].uv[1]
-				last_xtr = render2d.rectangle.Vertices.Pointer[4].uv[0]
-				last_ytr = render2d.rectangle.Vertices.Pointer[4].uv[1]
-				last_xbl = render2d.rectangle.Vertices.Pointer[1].uv[0]
-				last_ybl = render2d.rectangle.Vertices.Pointer[0].uv[1]
-				last_xbr = render2d.rectangle.Vertices.Pointer[3].uv[0]
-				last_ybr = render2d.rectangle.Vertices.Pointer[3].uv[1]
-				last_color_bottom_left = render2d.rectangle.Vertices.Pointer[1].color
-				last_color_top_left = render2d.rectangle.Vertices.Pointer[0].color
-				last_color_top_right = render2d.rectangle.Vertices.Pointer[2].color
-				last_color_bottom_right = render2d.rectangle.Vertices.Pointer[3].color
+				render2d.rectangle:Upload()
+				last_xtl = vertices[1].uv.x
+				last_ytl = vertices[1].uv.y
+				last_xtr = vertices[5].uv.x
+				last_ytr = vertices[5].uv.y
+				last_xbl = vertices[2].uv.x
+				last_ybl = vertices[1].uv.y
+				last_xbr = vertices[4].uv.x
+				last_ybr = vertices[4].uv.y
+				last_color_bottom_left = vertices[2].color
+				last_color_top_left = vertices[1].color
+				last_color_top_right = vertices[3].color
+				last_color_bottom_right = vertices[4].color
 			end
 		end
 
@@ -567,27 +503,31 @@ do -- rectangle
 			local X, Y, W, H, SX, SY
 
 			function render2d.SetRectUV(x, y, w, h, sx, sy)
+				local vertices = render2d.rectangle:GetData()
+
 				if not x then
-					render2d.rectangle.Vertices.Pointer[1].uv[0] = 0
-					render2d.rectangle.Vertices.Pointer[0].uv[1] = 0
-					render2d.rectangle.Vertices.Pointer[1].uv[1] = 1
-					render2d.rectangle.Vertices.Pointer[2].uv[0] = 1
+					vertices[2].uv.x = 0
+					vertices[1].uv.y = 0
+					vertices[2].uv.y = 1
+					vertices[3].uv.x = 1
 				else
 					sx = sx or 1
 					sy = sy or 1
 					local y = -y - h
-					render2d.rectangle.Vertices.Pointer[1].uv[0] = x / sx
-					render2d.rectangle.Vertices.Pointer[0].uv[1] = y / sy
-					render2d.rectangle.Vertices.Pointer[1].uv[1] = (y + h) / sy
-					render2d.rectangle.Vertices.Pointer[2].uv[0] = (x + w) / sx
+					vertices[2].uv.x = x / sx
+					vertices[1].uv.y = y / sy
+					vertices[2].uv.y = (y + h) / sy
+					vertices[3].uv.x = (x + w) / sx
 				end
 
-				render2d.rectangle.Vertices.Pointer[0].uv[0] = render2d.rectangle.Vertices.Pointer[1].uv[0]
-				render2d.rectangle.Vertices.Pointer[2].uv[1] = render2d.rectangle.Vertices.Pointer[0].uv[1]
-				render2d.rectangle.Vertices.Pointer[4].uv = render2d.rectangle.Vertices.Pointer[2].uv
-				render2d.rectangle.Vertices.Pointer[3].uv[0] = render2d.rectangle.Vertices.Pointer[2].uv[0]
-				render2d.rectangle.Vertices.Pointer[3].uv[1] = render2d.rectangle.Vertices.Pointer[1].uv[1]
-				render2d.rectangle.Vertices.Pointer[5].uv = render2d.rectangle.Vertices.Pointer[1].uv
+				vertices[1].uv.x = vertices[2].uv.x
+				vertices[3].uv.y = vertices[1].uv.y
+				vertices[5].uv.x = vertices[3].uv.x
+				vertices[5].uv.y = vertices[1].uv.y
+				vertices[4].uv.x = vertices[3].uv.x
+				vertices[4].uv.y = vertices[2].uv.y
+				vertices[6].uv.x = vertices[2].uv.x
+				vertices[6].uv.y = vertices[2].uv.y
 				update_vbo()
 				X = x
 				Y = y
@@ -602,32 +542,63 @@ do -- rectangle
 			end
 
 			function render2d.SetRectUV2(u1, v1, u2, v2)
-				render2d.rectangle.Vertices.Pointer[1].uv[0] = u1
-				render2d.rectangle.Vertices.Pointer[0].uv[1] = v1
-				render2d.rectangle.Vertices.Pointer[1].uv[1] = u2
-				render2d.rectangle.Vertices.Pointer[2].uv[0] = v2
-				render2d.rectangle.Vertices.Pointer[0].uv[0] = render2d.rectangle.Vertices.Pointer[1].uv[0]
-				render2d.rectangle.Vertices.Pointer[2].uv[1] = render2d.rectangle.Vertices.Pointer[0].uv[1]
-				render2d.rectangle.Vertices.Pointer[4].uv = render2d.rectangle.Vertices.Pointer[2].uv
-				render2d.rectangle.Vertices.Pointer[3].uv[0] = render2d.rectangle.Vertices.Pointer[2].uv[0]
-				render2d.rectangle.Vertices.Pointer[3].uv[1] = render2d.rectangle.Vertices.Pointer[1].uv[1]
-				render2d.rectangle.Vertices.Pointer[5].uv = render2d.rectangle.Vertices.Pointer[1].uv
+				local vertices = render2d.rectangle:GetData()
+				vertices[2].uv.x = u1
+				vertices[1].uv.y = v1
+				vertices[2].uv.y = u2
+				vertices[3].uv.x = v2
+				vertices[1].uv.x = vertices[2].uv.x
+				vertices[3].uv.y = vertices[1].uv.y
+				vertices[5].uv.x = vertices[3].uv.x
+				vertices[5].uv.y = vertices[1].uv.y
+				vertices[4].uv.x = vertices[3].uv.x
+				vertices[4].uv.y = vertices[2].uv.y
+				vertices[6].uv.x = vertices[2].uv.x
+				vertices[6].uv.y = vertices[2].uv.y
 				update_vbo()
 			end
 		end
 
 		function render2d.SetRectColors(cbl, ctl, ctr, cbr)
+			local vertices = render2d.rectangle:GetData()
+
 			if not cbl then
-				for i = 0, 5 do
-					render2d.rectangle.Vertices.Pointer[i].color = {1, 1, 1, 1}
+				for i = 1, 6 do
+					local r, g, b, a = 1, 1, 1, 1
+					vertices[i].color.r = r
+					vertices[i].color.g = g
+					vertices[i].color.b = b
+					vertices[i].color.a = a
 				end
 			else
-				render2d.rectangle.Vertices.Pointer[1].color = {cbl:Unpack()}
-				render2d.rectangle.Vertices.Pointer[0].color = {ctl:Unpack()}
-				render2d.rectangle.Vertices.Pointer[2].color = {ctr:Unpack()}
-				render2d.rectangle.Vertices.Pointer[4].color = render2d.rectangle.Vertices.Pointer[2].color
-				render2d.rectangle.Vertices.Pointer[3].color = {cbr:Unpack()}
-				render2d.rectangle.Vertices.Pointer[5].color = render2d.rectangle.Vertices.Pointer[0]
+				local r, g, b, a = cbl:Unpack()
+				vertices[2].color.r = r
+				vertices[2].color.g = g
+				vertices[2].color.b = b
+				vertices[2].color.a = a
+				r, g, b, a = ctl:Unpack()
+				vertices[1].color.r = r
+				vertices[1].color.g = g
+				vertices[1].color.b = b
+				vertices[1].color.a = a
+				r, g, b, a = ctr:Unpack()
+				vertices[3].color.r = r
+				vertices[3].color.g = g
+				vertices[3].color.b = b
+				vertices[3].color.a = a
+				vertices[5].color.r = r
+				vertices[5].color.g = g
+				vertices[5].color.b = b
+				vertices[5].color.a = a
+				r, g, b, a = cbr:Unpack()
+				vertices[4].color.r = r
+				vertices[4].color.g = g
+				vertices[4].color.b = b
+				vertices[4].color.a = a
+				vertices[6].color.r = vertices[1].color.r
+				vertices[6].color.g = vertices[1].color.g
+				vertices[6].color.b = vertices[1].color.b
+				vertices[6].color.a = vertices[1].color.a
 			end
 
 			update_vbo()
@@ -803,8 +774,8 @@ render2d.Initialize()
 
 event.AddListener("PostDraw", "draw_2d", function(cmd, dt)
 	render2d.pipeline:Bind(cmd)
-	cmd:BindVertexBuffer(render2d.rectangle, 0)
-	cmd:BindIndexBuffer(render2d.rectangle_indices, 0, "uint16")
+	cmd:BindVertexBuffer(render2d.rectangle:GetBuffer(), 0)
+	cmd:BindIndexBuffer(render2d.rectangle_indices:GetBuffer(), 0, "uint16")
 	render2d.cmd = cmd
 	event.Call("Draw2D", dt)
 end)
