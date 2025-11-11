@@ -6,7 +6,6 @@ local file_formats = require("file_formats")
 local Transform = require("transform")
 local render = require("graphics.render")
 local render3d = require("graphics.render3d")
-local render2d = require("graphics.render2d")
 local build_cube = require("game.build_cube")
 require("game.camera_movement")
 local cube_vertices, cube_indices = build_cube(1.0)
@@ -81,14 +80,21 @@ event.AddListener("Draw3D", "draw_cube", function(cmd, dt)
 	end
 end)
 
-event.AddListener("Draw2D", "test", function(dt)
-	render2d.SetColor(1, 0, 0)
-	render2d.DrawRect(10, 10, 30, 30)
-	render2d.SetColor(0, 1, 0)
-	render2d.DrawRect(50, 50, 30, 30)
-	render2d.SetColor(0, 0, 1)
-	render2d.DrawRect(90, 90, 30, 30)
-end)
+if true then
+	local gfx = require("graphics.gfx")
+	local render2d = require("graphics.render2d")
+
+	event.AddListener("Draw2D", "test", function(dt)
+		render2d.SetColor(1, 0, 0)
+		gfx.DrawFilledCircle(100, 100, 50)
+		render2d.SetColor(1, 0, 0)
+		render2d.DrawRect(10, 10, 30, 30)
+		render2d.SetColor(0, 1, 0)
+		render2d.DrawRect(50, 50, 30, 30)
+		render2d.SetColor(0, 0, 1)
+		render2d.DrawRect(90, 90, 30, 30)
+	end)
+end
 
 event.AddListener("KeyInput", "escape_shutdown", function(key, press)
 	if key == "escape" and press then system.ShutDown() end

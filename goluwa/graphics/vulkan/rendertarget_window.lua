@@ -18,7 +18,12 @@ function WindowRenderTarget.New(renderer)
 	)
 	self.depth_image_view = renderer.device:CreateImageView(self.depth_image.ptr[0], {format = depth_format, aspect = "depth"})
 	-- Create render pass for swapchain format with depth
-	self.render_pass = renderer.device:CreateRenderPass(renderer.surface_formats[renderer.config.surface_format_index], nil, nil, depth_format)
+	self.render_pass = renderer.device:CreateRenderPass(
+		{
+			format = renderer.surface_formats[renderer.config.surface_format_index],
+			depth_format = depth_format,
+		}
+	)
 	-- Create image views for swapchain images
 	self.image_views = {}
 

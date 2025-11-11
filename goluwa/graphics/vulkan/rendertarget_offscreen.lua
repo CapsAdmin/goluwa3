@@ -17,7 +17,11 @@ function OffscreenRenderTarget.New(renderer, width, height, format, config)
 	-- Create image view
 	self.image_view = self.image:CreateView()
 	-- Create render pass for this format (with offscreen-appropriate final layout)
-	self.render_pass = renderer.device:CreateRenderPass({format = format, color_space = "srgb_nonlinear"}, samples, final_layout)
+	self.render_pass = renderer.device:CreateRenderPass({
+		format = format,
+		samples = samples,
+		final_layout = final_layout,
+	})
 	-- Create framebuffer
 	self.framebuffer = renderer.device:CreateFramebuffer(self.render_pass, self.image_view.ptr[0], width, height, nil)
 	-- Create command pool and buffer for offscreen rendering

@@ -128,4 +128,14 @@ function Pipeline:Bind(cmd)
 	cmd:BindDescriptorSets("graphics", self.pipeline_layout, self.descriptor_sets, 0)
 end
 
+function Pipeline:GetVertexAttributes()
+	-- Find the vertex shader stage in config
+	for _, stage in ipairs(self.config.shader_stages) do
+		if stage.type == "vertex" then
+			return stage.attributes
+		end
+	end
+	return nil
+end
+
 return Pipeline

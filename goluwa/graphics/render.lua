@@ -26,7 +26,7 @@ event.AddListener("Update", "window_update", function(dt)
 		window_target:GetRenderPass(),
 		window_target:GetFramebuffer(),
 		window_target:GetExtent(),
-		ffi.new("float[4]", 0.2, 0.2, 0.2, 1.0)
+		{0.2, 0.2, 0.2, 1.0}
 	)
 	local extent = window_target:GetExtent()
 	local aspect = extent.width / extent.height
@@ -90,32 +90,28 @@ end
 
 function render.CreateGraphicsPipeline(config)
 	config.render_pass = config.render_pass or window_target:GetRenderPass()
-	return vulkan_instance:CreatePipeline(config)
+	return vulkan_instance:CreateGraphicsPipeline(config)
 end
 
-function render.CreateTexture(config)
-	local image = render.CreateImage(
-		config.width,
-		config.height,
-		config.format or "R8G8B8A8_UNORM",
-		{"sampled", "transfer_dst", "transfer_src"},
-		"device_local"
-	)
-	render.UploadToImage(image, config.buffer, image:GetWidth(), image:GetHeight())
-	local view = image:CreateView()
-	local sampler = render.CreateSampler(
-		{
-			min_filter = "nearest",
-			mag_filter = "nearest",
-			wrap_s = "repeat",
-			wrap_t = "repeat",
-		}
-	)
-	return {
-		image = image,
-		view = view,
-		sampler = sampler,
-	}
+function render.CreateOffscreenRenderTarget(width, height, format, config)
+	return vulkan_instance:CreateOffscreenRenderTarget(width, height, format, config)
+end
+
+function render.CreateIndexBuffer()
+	local IndexBuffer = require("graphics.index_buffer")
+	return IndexBuffer.New()
+end
+
+function render.GetDevice()
+	return vulkan_instance.device
+end
+
+function render.GetQueue()
+	return vulkan_instance.queue
+end
+
+function render.GetGraphicsQueueFamily()
+	return vulkan_instance.graphics_queue_family
 end
 
 return render

@@ -217,9 +217,13 @@ function debug.trace(skip_print)
 		local info = debug.getinfo(level, "Sln")
 
 		if info then
+			local source = info.source
+
+			if source:sub(1, 1) == "@" then source = source:sub(2) end
+
 			lines[#lines + 1] = (
 				"%i:\t\"%s\"\t%s:%d"
-			):format(level, info.name or "unknown", info.source or "", info.currentline)
+			):format(level, info.name or "unknown", source or "", info.currentline)
 		else
 			break
 		end

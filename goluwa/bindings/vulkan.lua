@@ -6,6 +6,15 @@ local lib = vk.find_library()
 local vulkan = {}
 vulkan.vk = vk
 vulkan.lib = lib
+local DEBUG_GC = true
+
+local function debug_gc(name)
+	if DEBUG_GC then
+		debug.trace()
+		print("GC collected: " .. name)
+	end
+end
+
 local enum_to_string = ffi_helpers.enum_to_string
 local T = {Box = ffi_helpers.Box, Array = ffi_helpers.Array}
 local enums = ffi_helpers.translate_enums(
@@ -157,6 +166,7 @@ do -- instance
 	end
 
 	function Instance:__gc()
+		debug_gc("Instance")
 		lib.vkDestroyInstance(self.ptr[0], nil)
 	end
 
@@ -184,6 +194,8 @@ do -- instance
 		end
 
 		function Instance:__gc()
+			debug_gc("Surface")
+
 			if self.instance then
 				lib.vkDestroySurfaceKHR(self.instance.ptr[0], self.ptr[0], nil)
 			end
@@ -371,10 +383,20 @@ do -- instance
 					}
 				)
 				local deviceExtensions = T.Array(ffi.typeof("const char*"), #finalExtensions, finalExtensions)
+				-- Enable scalar block layout feature for push constants
+				local vulkan12Features = T.Box(
+					vk.VkPhysicalDeviceVulkan12Features,
+					{
+						sType = "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES",
+						pNext = nil,
+						scalarBlockLayout = 1,
+					}
+				)
 				local deviceCreateInfo = T.Box(
 					vk.VkDeviceCreateInfo,
 					{
 						sType = "VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO",
+						pNext = vulkan12Features,
 						queueCreateInfoCount = 1,
 						pQueueCreateInfos = queueCreateInfo,
 						enabledExtensionCount = #finalExtensions,
@@ -394,6 +416,7 @@ do -- instance
 			end
 
 			function Device:__gc()
+				debug_gc("Device")
 				lib.vkDestroyDevice(self.ptr[0], nil)
 			end
 
@@ -420,6 +443,7 @@ do -- instance
 				end
 
 				function ShaderModule:__gc()
+					debug_gc("ShaderModule")
 					lib.vkDestroyShaderModule(self.device.ptr[0], self.ptr[0], nil)
 				end
 			end
@@ -541,6 +565,7 @@ do -- instance
 				end
 
 				function Swapchain:__gc()
+					debug_gc("Swapchain")
 					lib.vkDestroySwapchainKHR(self.device.ptr[0], self.ptr[0], nil)
 				end
 
@@ -628,6 +653,7 @@ do -- instance
 				end
 
 				function CommandPool:__gc()
+					debug_gc("CommandPool")
 					lib.vkDestroyCommandPool(self.device.ptr[0], self.ptr[0], nil)
 				end
 
@@ -744,34 +770,23 @@ do -- instance
 
 						if renderPass.has_depth then
 							-- Render pass has depth attachment, provide 2 clear values
-							clearValues = T.Array(
-								vk.VkClearValue,
-								2,
-								{
-									{
-										color = {
-											float32 = clearColor,
-										},
-									},
-									{
-										depthStencil = {
-											depth = clearDepth,
-											stencil = 0,
-										},
-									},
-								}
-							)
+							clearValues = T.Array(vk.VkClearValue, 2)()
+							-- Set color clear value (first attachment)
+							clearValues[0].color.float32[0] = clearColor[1]
+							clearValues[0].color.float32[1] = clearColor[2]
+							clearValues[0].color.float32[2] = clearColor[3]
+							clearValues[0].color.float32[3] = clearColor[4]
+							-- Set depth/stencil clear value (second attachment)
+							clearValues[1].depthStencil.depth = clearDepth
+							clearValues[1].depthStencil.stencil = 0
 							clearValueCount = 2
 						else
 							-- No depth attachment, only 1 clear value
-							clearValues = T.Box(
-								vk.VkClearValue,
-								{
-									color = {
-										float32 = clearColor,
-									},
-								}
-							)
+							clearValues = T.Box(vk.VkClearValue)()
+							clearValues[0].color.float32[0] = clearColor[1]
+							clearValues[0].color.float32[1] = clearColor[2]
+							clearValues[0].color.float32[2] = clearColor[3]
+							clearValues[0].color.float32[3] = clearColor[4]
 							clearValueCount = 1
 						end
 
@@ -944,6 +959,8 @@ do -- instance
 							transfer = vk.VkPipelineStageFlagBits("VK_PIPELINE_STAGE_TRANSFER_BIT"),
 							vertex = vk.VkPipelineStageFlagBits("VK_PIPELINE_STAGE_VERTEX_SHADER_BIT"),
 							all_commands = vk.VkPipelineStageFlagBits("VK_PIPELINE_STAGE_ALL_COMMANDS_BIT"),
+							top_of_pipe = vk.VkPipelineStageFlagBits("VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT"),
+							color_attachment_output = vk.VkPipelineStageFlagBits("VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT"),
 						}
 						local srcStage = stage_map[config.srcStage or "compute"]
 						local dstStage = stage_map[config.dstStage or "fragment"]
@@ -1133,6 +1150,7 @@ do -- instance
 				end
 
 				function Buffer:__gc()
+					debug_gc("Buffer")
 					lib.vkDestroyBuffer(self.device.ptr[0], self.ptr[0], nil)
 					lib.vkFreeMemory(self.device.ptr[0], self.memory[0], nil)
 				end
@@ -1171,6 +1189,7 @@ do -- instance
 				end
 
 				function DescriptorSetLayout:__gc()
+					debug_gc("DescriptorSetLayout")
 					lib.vkDestroyDescriptorSetLayout(self.device.ptr[0], self.ptr[0], nil)
 				end
 			end
@@ -1224,6 +1243,7 @@ do -- instance
 				end
 
 				function DescriptorPool:__gc()
+					debug_gc("DescriptorPool")
 					lib.vkDestroyDescriptorPool(self.device.ptr[0], self.ptr[0], nil)
 				end
 			end
@@ -1302,6 +1322,7 @@ do -- instance
 				end
 
 				function Semaphore:__gc()
+					debug_gc("Semaphore")
 					lib.vkDestroySemaphore(self.device.ptr[0], self.ptr[0], nil)
 				end
 			end
@@ -1324,6 +1345,7 @@ do -- instance
 				end
 
 				function Fence:__gc()
+					debug_gc("Fence")
 					lib.vkDestroyFence(self.device.ptr[0], self.ptr[0], nil)
 				end
 
@@ -1337,14 +1359,16 @@ do -- instance
 				local RenderPass = {}
 				RenderPass.__index = RenderPass
 
-				function Device:CreateRenderPass(surfaceFormat, samples, final_layout, depth_format)
-					samples = samples or "1"
-					final_layout = final_layout or "present_src_khr"
+				function Device:CreateRenderPass(config)
+					config.samples = config.samples or "1"
+					config.final_layout = config.final_layout or "present_src_khr"
+					-- Normalize format: handle both string and object with .format field
+					local format_string = type(config.format) == "string" and config.format or config.format.format
 					local attachments
 					local attachment_count
-					local has_depth = depth_format ~= nil
+					local has_depth = config.depth_format ~= nil
 
-					if samples == "1" then
+					if config.samples == "1" then
 						if has_depth then
 							attachment_count = 2
 							attachments = T.Array(
@@ -1353,18 +1377,18 @@ do -- instance
 								{
 									-- Attachment 0: Color
 									{
-										format = enums.VK_FORMAT_(surfaceFormat.format),
+										format = enums.VK_FORMAT_(format_string),
 										samples = "VK_SAMPLE_COUNT_1_BIT",
 										loadOp = "VK_ATTACHMENT_LOAD_OP_CLEAR",
 										storeOp = "VK_ATTACHMENT_STORE_OP_STORE",
 										stencilLoadOp = "VK_ATTACHMENT_LOAD_OP_DONT_CARE",
 										stencilStoreOp = "VK_ATTACHMENT_STORE_OP_DONT_CARE",
 										initialLayout = "VK_IMAGE_LAYOUT_UNDEFINED",
-										finalLayout = enums.VK_IMAGE_LAYOUT_(final_layout),
+										finalLayout = enums.VK_IMAGE_LAYOUT_(config.final_layout),
 									},
 									-- Attachment 1: Depth
 									{
-										format = enums.VK_FORMAT_(depth_format),
+										format = enums.VK_FORMAT_(config.depth_format),
 										samples = "VK_SAMPLE_COUNT_1_BIT",
 										loadOp = "VK_ATTACHMENT_LOAD_OP_CLEAR",
 										storeOp = "VK_ATTACHMENT_STORE_OP_DONT_CARE",
@@ -1380,14 +1404,14 @@ do -- instance
 							attachments = T.Box(
 								vk.VkAttachmentDescription,
 								{
-									format = enums.VK_FORMAT_(surfaceFormat.format),
+									format = enums.VK_FORMAT_(format_string),
 									samples = "VK_SAMPLE_COUNT_1_BIT",
 									loadOp = "VK_ATTACHMENT_LOAD_OP_CLEAR",
 									storeOp = "VK_ATTACHMENT_STORE_OP_STORE",
 									stencilLoadOp = "VK_ATTACHMENT_LOAD_OP_DONT_CARE",
 									stencilStoreOp = "VK_ATTACHMENT_STORE_OP_DONT_CARE",
 									initialLayout = "VK_IMAGE_LAYOUT_UNDEFINED",
-									finalLayout = enums.VK_IMAGE_LAYOUT_(final_layout),
+									finalLayout = enums.VK_IMAGE_LAYOUT_(config.final_layout),
 								}
 							)
 						end
@@ -1399,8 +1423,8 @@ do -- instance
 							{
 								-- Attachment 0: MSAA color attachment
 								{
-									format = enums.VK_FORMAT_(surfaceFormat.format),
-									samples = "VK_SAMPLE_COUNT_" .. samples .. "_BIT",
+									format = enums.VK_FORMAT_(format_string),
+									samples = "VK_SAMPLE_COUNT_" .. config.samples .. "_BIT",
 									loadOp = "VK_ATTACHMENT_LOAD_OP_CLEAR",
 									storeOp = "VK_ATTACHMENT_STORE_OP_DONT_CARE", -- Don't need to store MSAA
 									stencilLoadOp = "VK_ATTACHMENT_LOAD_OP_DONT_CARE",
@@ -1410,7 +1434,7 @@ do -- instance
 								},
 								-- Attachment 1: Resolve target (swapchain)
 								{
-									format = enums.VK_FORMAT_(surfaceFormat.format),
+									format = enums.VK_FORMAT_(format_string),
 									samples = "VK_SAMPLE_COUNT_1_BIT",
 									loadOp = "VK_ATTACHMENT_LOAD_OP_DONT_CARE", -- Don't care about initial contents
 									storeOp = "VK_ATTACHMENT_STORE_OP_STORE", -- Store resolved result
@@ -1435,7 +1459,7 @@ do -- instance
 						T.Box(
 							vk.VkAttachmentReference,
 							{
-								attachment = samples == "1" and 1 or 2,
+								attachment = config.samples == "1" and 1 or 2,
 								layout = "VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL",
 							}
 						) or
@@ -1446,7 +1470,7 @@ do -- instance
 							pipelineBindPoint = "VK_PIPELINE_BIND_POINT_GRAPHICS",
 							colorAttachmentCount = 1,
 							pColorAttachments = colorAttachmentRef,
-							pResolveAttachments = samples ~= "1" and
+							pResolveAttachments = config.samples ~= "1" and
 								T.Box(
 									vk.VkAttachmentReference,
 									{
@@ -1501,10 +1525,19 @@ do -- instance
 						lib.vkCreateRenderPass(self.ptr[0], renderPassInfo, nil, ptr),
 						"failed to create render pass with MSAA"
 					)
-					return setmetatable({ptr = ptr, device = self, samples = samples, has_depth = has_depth}, RenderPass)
+					return setmetatable(
+						{
+							ptr = ptr,
+							device = self,
+							samples = config.samples,
+							has_depth = has_depth,
+						},
+						RenderPass
+					)
 				end
 
 				function RenderPass:__gc()
+					debug_gc("RenderPass")
 					lib.vkDestroyRenderPass(self.device.ptr[0], self.ptr[0], nil)
 				end
 			end
@@ -1560,6 +1593,7 @@ do -- instance
 				end
 
 				function Framebuffer:__gc()
+					debug_gc("Framebuffer")
 					lib.vkDestroyFramebuffer(self.device.ptr[0], self.ptr[0], nil)
 				end
 			end
@@ -1604,6 +1638,7 @@ do -- instance
 				end
 
 				function ImageView:__gc()
+					debug_gc("ImageView")
 					lib.vkDestroyImageView(self.device.ptr[0], self.ptr[0], nil)
 				end
 			end
@@ -1683,6 +1718,7 @@ do -- instance
 				end
 
 				function Image:__gc()
+					debug_gc("Image")
 					lib.vkDestroyImage(self.device.ptr[0], self.ptr[0], nil)
 					lib.vkFreeMemory(self.device.ptr[0], self.memory[0], nil)
 				end
@@ -1746,6 +1782,7 @@ do -- instance
 				end
 
 				function Sampler:__gc()
+					debug_gc("Sampler")
 					lib.vkDestroySampler(self.device.ptr[0], self.ptr[0], nil)
 				end
 			end
@@ -1805,6 +1842,7 @@ do -- instance
 				end
 
 				function PipelineLayout:__gc()
+					debug_gc("PipelineLayout")
 					lib.vkDestroyPipelineLayout(self.device.ptr[0], self.ptr[0], nil)
 				end
 			end
@@ -1842,6 +1880,7 @@ do -- instance
 				end
 
 				function ComputePipeline:__gc()
+					debug_gc("ComputePipeline")
 					lib.vkDestroyPipeline(self.device.ptr[0], self.ptr[0], nil)
 				end
 			end
@@ -2086,6 +2125,7 @@ do -- instance
 				end
 
 				function Pipeline:__gc()
+					debug_gc("Pipeline")
 					lib.vkDestroyPipeline(self.device.ptr[0], self.ptr[0], nil)
 				end
 			end

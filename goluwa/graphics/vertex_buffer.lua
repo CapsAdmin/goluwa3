@@ -1,105 +1,102 @@
 local ffi = require("ffi")
 local render = require("graphics.render")
-local Vec3f = require("structs.vec3").Vec3f
-local Vec2f = require("structs.vec2").Vec2f
-local Colorf = require("structs.color").Colorf
 local VertexBuffer = {}
 VertexBuffer.__index = VertexBuffer
 
--- Helper to determine the size and type of a field
-local function get_field_info(value)
-	local t = type(value)
+-- Calculate vertex stride from vertex attributes
+local function calculate_stride(vertex_attributes)
+	local max_offset = 0
+	local last_size = 0
 
-	if t == "cdata" then
-		if ffi.istype(Vec3f, value) then
-			return 3, "float", {"x", "y", "z"}
-		elseif ffi.istype(Vec2f, value) then
-			return 2, "float", {"x", "y"}
-		elseif ffi.istype(Colorf, value) then
-			return 4, "float", {"r", "g", "b", "a"}
+	for _, attr in ipairs(vertex_attributes) do
+		if attr.offset >= max_offset then
+			max_offset = attr.offset
+			last_size = ffi.sizeof(attr.lua_type)
 		end
-	elseif t == "table" then
-		return #value, "float", nil
 	end
 
-	return 1, "float", nil
+	return max_offset + last_size
 end
 
--- Convert structured vertex data to flat float array
-local function vertices_to_flat_array(vertices, layout)
-	-- Calculate total size
-	local vertex_size = 0
-	local field_info = {}
+function VertexBuffer.New(vertices, vertex_attributes)
+	local self = setmetatable({}, VertexBuffer)
 
-	for _, field_name in ipairs(layout) do
-		local value = vertices[1][field_name]
-		local size, dtype, accessors = get_field_info(value)
-		vertex_size = vertex_size + size
-		field_info[field_name] = {size = size, dtype = dtype, accessors = accessors}
+	if not vertex_attributes then
+		error("vertex_attributes parameter is required", 2)
 	end
 
-	local total_floats = vertex_size * #vertices
-	local flat_data = ffi.new("float[?]", total_floats)
-	local offset = 0
+	self.vertex_attributes = vertex_attributes
+	self.stride = calculate_stride(vertex_attributes)
 
-	for i, vertex in ipairs(vertices) do
-		for _, field_name in ipairs(layout) do
-			local value = vertex[field_name]
-			local info = field_info[field_name]
+	if type(vertices) == "number" then
+		-- Allocate zeroed vertex data
+		local count = vertices
+		self.vertex_count = count
+		self.byte_size = self.stride * count
+		self.data = ffi.new("uint8_t[?]", self.byte_size)
+	elseif type(vertices) == "table" then
+		-- Allocate and fill vertex data
+		local count = #vertices
+		self.vertex_count = count
+		self.byte_size = self.stride * count
+		self.data = ffi.new("uint8_t[?]", self.byte_size)
 
-			if info.accessors then
-				-- It's a struct like Vec3f, Vec2f, Colorf
-				for j, accessor in ipairs(info.accessors) do
-					flat_data[offset] = tonumber(value[accessor])
-					offset = offset + 1
+		-- Fill data
+		for i, vertex in ipairs(vertices) do
+			local base_offset = (i - 1) * self.stride
+
+			for _, attr in ipairs(vertex_attributes) do
+				local dst_ptr = self.data + base_offset + attr.offset
+				local src_value = vertex[attr.lua_name]
+
+				if src_value then
+					ffi.copy(dst_ptr, src_value, ffi.sizeof(attr.lua_type))
 				end
-			elseif type(value) == "table" then
-				-- It's a plain table
-				for j = 1, info.size do
-					flat_data[offset] = tonumber(value[j])
-					offset = offset + 1
-				end
-			else
-				-- It's a single value
-				flat_data[offset] = tonumber(value)
-				offset = offset + 1
 			end
 		end
+	else
+		error("vertices must be a number or table", 2)
 	end
 
-	return flat_data, ffi.sizeof("float") * total_floats, vertex_size, field_info
-end
+	do
+		local sorted_attrs = {}
 
-function VertexBuffer.New(vertices, layout)
-	local self = setmetatable({}, VertexBuffer)
-	self.layout = layout
-	self.vertices = vertices
-	self.vertex_count = #vertices
-	-- Convert to flat array for initial upload
-	local flat_data, byte_size, vertex_size, field_info = vertices_to_flat_array(vertices, layout)
-	self.byte_size = byte_size
-	self.vertex_size = vertex_size
-	self.field_info = field_info
-	-- Create the GPU buffer
+		for _, attr in ipairs(vertex_attributes) do
+			table.insert(sorted_attrs, attr)
+		end
+
+		table.sort(sorted_attrs, function(a, b)
+			return a.offset < b.offset
+		end)
+
+		-- Build struct definition with $ placeholders and collect types
+		local fields = {}
+		local types = {}
+
+		for _, attr in ipairs(sorted_attrs) do
+			table.insert(fields, string.format("$ %s;", attr.lua_name))
+			table.insert(types, attr.lua_type)
+		end
+
+		local struct_def = "struct { " .. table.concat(fields, " ") .. " }"
+		local vertex_type = ffi.typeof(struct_def .. "*", unpack(types))
+		self.vertices = ffi.cast(vertex_type, self.data)
+	end
+
+	-- Create GPU buffer
 	self.buffer = render.CreateBuffer(
 		{
 			buffer_usage = "vertex_buffer",
 			data_type = "float",
-			data = flat_data,
-			byte_size = byte_size,
+			data = self.data,
+			byte_size = self.byte_size,
 		}
 	)
 	return self
 end
 
-function VertexBuffer:GetData()
-	return self.vertices
-end
-
 function VertexBuffer:Upload()
-	-- Reflatten the vertex data and upload
-	local flat_data = vertices_to_flat_array(self.vertices, self.layout)
-	self.buffer:CopyData(flat_data, self.byte_size)
+	self.buffer:CopyData(self.data, self.byte_size)
 end
 
 function VertexBuffer:GetBuffer()
@@ -108,6 +105,31 @@ end
 
 function VertexBuffer:GetVertexCount()
 	return self.vertex_count
+end
+
+function VertexBuffer:GetVertices()
+	return self.vertices
+end
+
+function VertexBuffer:Draw(index_buffer, count)
+	local render2d = require("graphics.render2d")
+	count = count or self.vertex_count
+
+	if not render2d.cmd then
+		error(
+			"Cannot draw without active command buffer. Must be called during Draw2D event.",
+			2
+		)
+	end
+
+	render2d.cmd:BindVertexBuffer(self.buffer, 0)
+
+	if index_buffer then
+		render2d.cmd:BindIndexBuffer(index_buffer:GetBuffer(), 0, index_buffer:GetIndexType())
+		render2d.cmd:DrawIndexed(count, 1, 0, 0, 0)
+	else
+		render2d.cmd:Draw(count, 1, 0, 0)
+	end
 end
 
 return VertexBuffer

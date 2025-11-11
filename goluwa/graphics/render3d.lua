@@ -19,12 +19,14 @@ local pipeline = render.CreateGraphicsPipeline(
 				type = "vertex",
 				code = [[
 					#version 450
+					#extension GL_EXT_scalar_block_layout : require
+
 
 					layout(location = 0) in vec3 in_position;
 					layout(location = 1) in vec3 in_normal;
 					layout(location = 2) in vec2 in_uv;
 
-					layout(push_constant) uniform MatrixConstants {
+					layout(push_constant, scalar) uniform MatrixConstants {
 						mat4 projection_view;
 						mat4 world;
 					} pc;

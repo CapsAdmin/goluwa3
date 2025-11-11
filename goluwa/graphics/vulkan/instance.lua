@@ -239,7 +239,7 @@ function VulkanInstance:CreateWindowRenderTarget()
 	return WindowRenderTarget.New(self)
 end
 
-function VulkanInstance:CreatePipeline(...)
+function VulkanInstance:CreateGraphicsPipeline(...)
 	return Pipeline.New(self, ...)
 end
 

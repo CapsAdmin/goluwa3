@@ -10,6 +10,7 @@ local window = require("graphics.window")
 local event = require("event")
 local VertexBuffer = require("graphics.vertex_buffer")
 local IndexBuffer = require("graphics.index_buffer")
+local Texture = require("graphics.texture")
 local Constants = ffi.typeof(
 	[[
 	struct {
@@ -51,11 +52,11 @@ function render2d.Initialize()
 	end
 
 	render2d.rectangle_indices = IndexBuffer.New(indices)
-	render2d.rectangle = VertexBuffer.New(mesh_data, {"pos", "uv", "color"})
+	render2d.rectangle = render2d.CreateMesh(mesh_data)
 
 	do
 		local buffer = ffi.new("uint8_t[4]", {255, 255, 255, 255})
-		render2d.white_texture = render.CreateTexture(
+		render2d.white_texture = Texture.New(
 			{
 				width = 1,
 				height = 1,
@@ -128,18 +129,24 @@ do -- shader
 						location = 0, -- in_position
 						format = "R32G32B32_SFLOAT", -- vec3
 						offset = 0,
+						lua_type = Vec3f,
+						lua_name = "pos",
 					},
 					{
 						binding = 0,
 						location = 1, -- in_uv
 						format = "R32G32_SFLOAT", -- vec2
-						offset = ffi.sizeof("float") * 3,
+						offset = ffi.sizeof(Vec3f),
+						lua_type = Vec2f,
+						lua_name = "uv",
 					},
 					{
 						binding = 0,
 						location = 2, -- in_color
 						format = "R32G32B32A32_SFLOAT", -- vec4
-						offset = ffi.sizeof("float") * 5,
+						offset = ffi.sizeof(Vec3f) + ffi.sizeof(Vec2f),
+						lua_type = Colorf,
+						lua_name = "color",
 					},
 				},
 				input_assembly = {
@@ -312,12 +319,11 @@ do -- shader
 			stencil_test = false,
 		},
 	}
+	render2d.pipeline = render2d.pipeline or NULL
 
 	function render2d.CreateMesh(vertices)
-		return render.CreateVertexBuffer(render2d.pipeline:GetMeshLayout(), vertices)
+		return VertexBuffer.New(vertices, render2d.pipeline:GetVertexAttributes())
 	end
-
-	render2d.pipeline = render2d.pipeline or NULL
 
 	function render2d.SetHSV(h, s, v)
 		shader_constants.hsv_mult.x = h
