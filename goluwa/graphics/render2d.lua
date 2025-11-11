@@ -98,7 +98,7 @@ function render2d.Initialize()
 
 	do
 		local buffer = ffi.new("uint8_t[4]", {255, 255, 255, 255})
-		render2d.white_texture = render2d.CreateTexture({
+		render2d.white_texture = render.CreateTexture({
 			width = 1,
 			height = 1,
 			buffer = buffer,
@@ -106,33 +106,14 @@ function render2d.Initialize()
 	end
 
 	render2d.SetTexture()
+	render2d.SetHSV(1, 1, 1)
+	render2d.SetColor(1, 1, 1, 1)
+	render2d.SetColorOverride(0, 0, 0, 0)
+	render2d.SetAlphaMultiplier(1)
+	render2d.SetAlphaTestReference(0)
+	render2d.SetBorderRadius(0)
 	render2d.UpdateScreenSize(window:GetSize())
 	render2d.ready = true
-end
-
-function render2d.CreateTexture(config)
-	local image = render.CreateImage(
-		config.width,
-		config.height,
-		config.format or "R8G8B8A8_UNORM",
-		{"sampled", "transfer_dst", "transfer_src"},
-		"device_local"
-	)
-	render.UploadToImage(image, config.buffer, image:GetWidth(), image:GetHeight())
-	local view = image:CreateView()
-	local sampler = render.CreateSampler(
-		{
-			min_filter = "nearest",
-			mag_filter = "nearest",
-			wrap_s = "repeat",
-			wrap_t = "repeat",
-		}
-	)
-	return {
-		image = image,
-		view = view,
-		sampler = sampler,
-	}
 end
 
 function render2d.IsReady()
@@ -273,9 +254,6 @@ do -- shader
                         if (hsv_mult != vec3(1,1,1)) {
                             out_color.rgb = hsv2rgb(rgb2hsv(out_color.rgb) * hsv_mult);
                         }
-
-                        vec2 size2 = pc.screen_size*0.25;
-                        vec2 fragCoord = (in_uv - vec2(0.5)) * pc.screen_size;
 
                         vec2 ratio = vec2(1, 1);
 

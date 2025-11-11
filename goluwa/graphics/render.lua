@@ -93,4 +93,29 @@ function render.CreateGraphicsPipeline(config)
 	return vulkan_instance:CreatePipeline(config)
 end
 
+function render.CreateTexture(config)
+	local image = render.CreateImage(
+		config.width,
+		config.height,
+		config.format or "R8G8B8A8_UNORM",
+		{"sampled", "transfer_dst", "transfer_src"},
+		"device_local"
+	)
+	render.UploadToImage(image, config.buffer, image:GetWidth(), image:GetHeight())
+	local view = image:CreateView()
+	local sampler = render.CreateSampler(
+		{
+			min_filter = "nearest",
+			mag_filter = "nearest",
+			wrap_s = "repeat",
+			wrap_t = "repeat",
+		}
+	)
+	return {
+		image = image,
+		view = view,
+		sampler = sampler,
+	}
+end
+
 return render
