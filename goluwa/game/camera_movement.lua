@@ -1,19 +1,13 @@
+local event = require("event")
+local camera = require("graphics.camera")
 local input = require("input")
 local Vec3 = require("structs.Vec3")
 local window = require("window")
 local held_ang
 local held_mpos
 local drag_view = false
-local math_clamp = math.clamp or
-	function(x, min, max)
-		if x < min then return min end
 
-		if x > max then return max end
-
-		return x
-	end
-input.debug = true
-return function(dt, cam_ang, cam_fov)
+local function calc_movement(dt, cam_ang, cam_fov)
 	cam_ang:Normalize()
 	local speed = dt * 10
 	local delta = window.GetMouseDelta() / 2
@@ -113,3 +107,14 @@ return function(dt, cam_ang, cam_fov)
 
 	return forward + side + up, cam_ang, cam_fov
 end
+
+event.AddListener("Update", "camera_movement", function(dt)
+	local cam_pos = camera:GetPosition()
+	local cam_ang = camera:GetAngles()
+	local cam_fov = camera:GetFOV()
+	local dir, ang, fov = calc_movement(dt, cam_ang, cam_fov)
+	cam_pos = cam_pos + dir
+	camera:SetPosition(cam_pos)
+	camera:SetAngles(ang)
+	camera:SetFOV(fov)
+end)

@@ -1,25 +1,9 @@
 local ffi = require("ffi")
-local Renderer = require("graphics.renderer")
-local system = require("system")
-local Matrix44f = require("structs.matrix").Matrix44f
-local Vec3 = require("structs.Vec3")
-local Vec2 = require("structs.Vec2")
-local Ang3 = require("structs.Ang3")
+local renderer = require("graphics.renderer")
 local event = require("event")
-local window = require("window")
-local file_formats = require("file_formats")
-local Transform = require("transform")
-local wnd = window.Open()
-local renderer = Renderer.New(
-	{
-		surface_handle = assert(wnd:GetSurfaceHandle()),
-		present_mode = "fifo",
-		image_count = nil, -- Use default (minImageCount + 1)
-		surface_format_index = 1,
-		composite_alpha = "opaque",
-	}
-)
-local window_target = renderer:CreateWindowRenderTarget()
+local window = require("graphics.window")
+local camera = require("graphics.camera")
+local Matrix44f = require("structs.matrix").Matrix44f
 local MatrixConstants = ffi.typeof([[
 	struct {
 		$ projection_view;
@@ -28,7 +12,7 @@ local MatrixConstants = ffi.typeof([[
 ]], Matrix44f, Matrix44f)
 local graphics_pipeline = renderer:CreatePipeline(
 	{
-		render_pass = window_target:GetRenderPass(),
+		render_pass = renderer.window_target:GetRenderPass(),
 		dynamic_states = {"viewport", "scissor"},
 		shader_stages = {
 			{
@@ -167,31 +151,7 @@ local graphics_pipeline = renderer:CreatePipeline(
 	}
 )
 
-event.AddListener("KeyInput", "test", function(key, press)
-	if key == "escape" and press then system.ShutDown() end
-end)
-
-event.AddListener("FramebufferResized", "test", function(size)
-	window_target:RecreateSwapchain()
-end)
-
-local camera = require("graphics.camera").CreateCamera()
-wnd:SetMouseTrapped(true)
-local calc_movement = require("graphics.3d_movement")
-
-event.AddListener("Update", "rendering", function(dt)
-	local cam_pos = camera:GetPosition()
-	local cam_ang = camera:GetAngles()
-	local cam_fov = camera:GetFOV()
-	local dir, ang, fov = calc_movement(dt, cam_ang, cam_fov)
-	cam_pos = cam_pos + dir
-	camera:SetPosition(cam_pos)
-	camera:SetAngles(ang)
-	camera:SetFOV(fov)
-
-	if not window_target:BeginFrame() then return end
-
-	local cmd = window_target:GetCommandBuffer()
+event.AddListener("Draw", "draw_3d", function(cmd, dt)
 	camera:SetWorld(renderer.world_matrix)
 	graphics_pipeline:PushConstants(
 		cmd,
@@ -204,29 +164,8 @@ event.AddListener("Update", "rendering", function(dt)
 			}
 		)
 	)
-	cmd:BeginRenderPass(
-		window_target:GetRenderPass(),
-		window_target:GetFramebuffer(),
-		window_target:GetExtent(),
-		ffi.new("float[4]", 0.2, 0.2, 0.2, 1.0)
-	)
 	graphics_pipeline:Bind(cmd)
-	local extent = window_target:GetExtent()
-	local aspect = extent.width / extent.height
-	cmd:SetViewport(0.0, 0.0, extent.width, extent.height, 0.0, 1.0)
-	cmd:SetScissor(0, 0, extent.width, extent.height)
-	event.Call("Draw3D", cmd, camera, dt)
-	cmd:EndRenderPass()
-	window_target:EndFrame()
-
-	if wait(1) then
-		wnd:SetTitle("FPS: " .. math.round(1 / system.GetFrameTime()))
-	end
-end)
-
-event.AddListener("Shutdown", "test", function()
-	renderer:WaitForIdle()
-	system.ShutDown()
+	event.Call("Draw3D", cmd, dt)
 end)
 
 function renderer.SetWorldMatrix(world)
