@@ -317,7 +317,7 @@ do -- shader
 			discard = false,
 			polygon_mode = "fill",
 			line_width = 1.0,
-			cull_mode = "back",
+			cull_mode = "front",
 			front_face = "counter_clockwise",
 			depth_bias = 0,
 		},
@@ -806,12 +806,6 @@ event.AddListener("PostDraw", "draw_2d", function(cmd, dt)
 	cmd:BindVertexBuffer(render2d.rectangle, 0)
 	cmd:BindIndexBuffer(render2d.rectangle_indices, 0, "uint16")
 	render2d.cmd = cmd
-
-	do -- test
-		render2d.SetColor(1, 1, 1, 1)
-		render2d.DrawRect(10, 10, 100, 50)
-	end
-
 	event.Call("Draw2D", dt)
 end)
 

@@ -81,7 +81,10 @@ event.AddListener("Draw3D", "draw_cube", function(cmd, dt)
 	end
 end)
 
-event.AddListener("Draw2D", "test", function(dt) end)
+event.AddListener("Draw2D", "test", function(dt)
+	render2d.SetColor(1, 1, 1, 1)
+	render2d.DrawRect(10, 10, 100, 50)
+end)
 
 event.AddListener("KeyInput", "escape_shutdown", function(key, press)
 	if key == "escape" and press then system.ShutDown() end

@@ -308,7 +308,7 @@ do
 						proj:SetTranslation(self.Viewport.x, self.Viewport.y, 0)
 						proj:Perspective(self.FOV, self.NearZ, self.FarZ, self.Viewport.w / self.Viewport.h)
 					else
-						proj:Ortho(self.Viewport.x, self.Viewport.w, self.Viewport.h, self.Viewport.y, -1, 1)
+						proj:Ortho(self.Viewport.x, self.Viewport.w, self.Viewport.y, self.Viewport.h, -1, 1)
 					end
 				end
 
