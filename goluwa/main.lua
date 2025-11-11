@@ -148,7 +148,6 @@ local texture_sampler = renderer.device:CreateSampler(
 		wrap_t = "repeat",
 	}
 )
--- Create uniform buffer for MVP matrix
 local camera = require("graphics.camera").CreateCamera()
 local transform = Transform.New()
 renderer.UpdateDescriptorSet("combined_image_sampler", 1, 0, texture_view, texture_sampler)

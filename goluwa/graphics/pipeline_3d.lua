@@ -20,14 +20,12 @@ local renderer = Renderer.New(
 	}
 )
 local window_target = renderer:CreateWindowRenderTarget()
--- Create uniform buffer for MVP matrix
 local MatrixConstants = ffi.typeof([[
 	struct {
 		$ projection_view;
 		$ world;
 	}
 ]], Matrix44f, Matrix44f)
--- Create pipeline once at startup with dynamic viewport/scissor
 local graphics_pipeline = renderer:CreatePipeline(
 	{
 		render_pass = window_target:GetRenderPass(),
@@ -191,38 +189,38 @@ event.AddListener("Update", "rendering", function(dt)
 	camera:SetAngles(ang)
 	camera:SetFOV(fov)
 
-	if window_target:BeginFrame() then
-		local cmd = window_target:GetCommandBuffer()
-		camera:SetWorld(renderer.world_matrix)
-		graphics_pipeline:PushConstants(
-			cmd,
-			"vertex",
-			0,
-			MatrixConstants(
-				{
-					projection_view = camera:GetMatrices().projection_view,
-					world = camera:GetMatrices().world,
-				}
-			)
-		)
-		cmd:BeginRenderPass(
-			window_target:GetRenderPass(),
-			window_target:GetFramebuffer(),
-			window_target:GetExtent(),
-			ffi.new("float[4]", 0.2, 0.2, 0.2, 1.0)
-		)
-		graphics_pipeline:Bind(cmd)
-		local extent = window_target:GetExtent()
-		local aspect = extent.width / extent.height
-		cmd:SetViewport(0.0, 0.0, extent.width, extent.height, 0.0, 1.0)
-		cmd:SetScissor(0, 0, extent.width, extent.height)
-		event.Call("Draw3D", cmd, camera, dt)
-		cmd:EndRenderPass()
-		window_target:EndFrame()
+	if not window_target:BeginFrame() then return end
 
-		if wait(1) then
-			wnd:SetTitle("FPS: " .. math.round(1 / system.GetFrameTime()))
-		end
+	local cmd = window_target:GetCommandBuffer()
+	camera:SetWorld(renderer.world_matrix)
+	graphics_pipeline:PushConstants(
+		cmd,
+		"vertex",
+		0,
+		MatrixConstants(
+			{
+				projection_view = camera:GetMatrices().projection_view,
+				world = camera:GetMatrices().world,
+			}
+		)
+	)
+	cmd:BeginRenderPass(
+		window_target:GetRenderPass(),
+		window_target:GetFramebuffer(),
+		window_target:GetExtent(),
+		ffi.new("float[4]", 0.2, 0.2, 0.2, 1.0)
+	)
+	graphics_pipeline:Bind(cmd)
+	local extent = window_target:GetExtent()
+	local aspect = extent.width / extent.height
+	cmd:SetViewport(0.0, 0.0, extent.width, extent.height, 0.0, 1.0)
+	cmd:SetScissor(0, 0, extent.width, extent.height)
+	event.Call("Draw3D", cmd, camera, dt)
+	cmd:EndRenderPass()
+	window_target:EndFrame()
+
+	if wait(1) then
+		wnd:SetTitle("FPS: " .. math.round(1 / system.GetFrameTime()))
 	end
 end)
 

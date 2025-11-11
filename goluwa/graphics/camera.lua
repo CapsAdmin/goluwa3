@@ -7,44 +7,25 @@ local Rect = require("structs.Rect")
 local camera = {}
 
 do
-	local variables = {
-		{name = "projection"},
-		{name = "view"},
-		{name = "world"},
-		{name = "projection_inverse", glsl = "inverse($projection^)"},
-		{name = "view_inverse", glsl = "inverse($view^)"},
-		{name = "world_inverse", glsl = "inverse($world^)"},
-		{name = "projection_view", glsl = "$projection^ * $view^"},
-		{name = "view_world", glsl = "$view * $world"},
-		{name = "projection_view_world", glsl = "$projection_view^ * $world^"},
-		{name = "projection_view_inverse", glsl = "inverse($projection_view^)"},
-		{name = "view_world_inverse", glsl = "inverse($view_world^)"},
-		{name = "normal_matrix", glsl = "transpose($view_world_inverse^)"},
-	}
-
-	for i, v in ipairs(variables) do
-		if true or not v.name:find("world", 1, true) and v.name ~= "normal_matrix" then
-			v.glsl = nil -- disable gpu matrix calculation for world matrices
-		end
-	end
-
-	function camera.GetVariables()
-		return variables
-	end
-end
-
-do
 	local META = prototype.CreateTemplate("camera")
 
 	function camera.CreateCamera()
 		local self = prototype.CreateObject("camera")
 		self.matrix_stack = {}
-		self.shader_variables = {}
-
-		for _, info in ipairs(camera.GetVariables()) do
-			if not info.glsl then self.shader_variables[info.name] = Matrix44() end
-		end
-
+		self.shader_variables = {
+			projection = Matrix44(),
+			view = Matrix44(),
+			world = Matrix44(),
+			projection_inverse = Matrix44(),
+			view_inverse = Matrix44(),
+			world_inverse = Matrix44(),
+			projection_view = Matrix44(),
+			view_world = Matrix44(),
+			projection_view_world = Matrix44(),
+			projection_view_inverse = Matrix44(),
+			view_world_inverse = Matrix44(),
+			normal_matrix = Matrix44(),
+		}
 		self:Rebuild()
 		return self
 	end
