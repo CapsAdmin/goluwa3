@@ -55,11 +55,14 @@ function render2d.Initialize()
 
 	do
 		local buffer = ffi.new("uint8_t[4]", {255, 255, 255, 255})
-		render2d.white_texture = render.CreateTexture({
-			width = 1,
-			height = 1,
-			buffer = buffer,
-		})
+		render2d.white_texture = render.CreateTexture(
+			{
+				width = 1,
+				height = 1,
+				buffer = buffer,
+				format = "R8G8B8A8_UNORM",
+			}
+		)
 	end
 
 	render2d.SetTexture()
@@ -85,12 +88,13 @@ do -- shader
 				type = "vertex",
 				code = [[
 					#version 450
+					#extension GL_EXT_scalar_block_layout : require
 
 					layout(location = 0) in vec3 in_pos;
 					layout(location = 1) in vec2 in_uv;
 					layout(location = 2) in vec4 in_color;
 
-					layout(push_constant) uniform Constants {
+					layout(push_constant, scalar) uniform Constants {
 						mat4 projection_view_world;
                         float alpha_multiplier;
                         float alpha_test_ref;
@@ -151,13 +155,14 @@ do -- shader
 				type = "fragment",
 				code = [[
 					#version 450
+					#extension GL_EXT_scalar_block_layout : require
 
 					layout(binding = 0) uniform sampler2D tex_sampler;
 					layout(location = 0) in vec2 in_uv;
 					layout(location = 1) in vec4 in_color;
 					layout(location = 0) out vec4 out_color;
 
-                    layout(push_constant) uniform Constants {
+                    layout(push_constant, scalar) uniform Constants {
 						mat4 projection_view_world;
                         float alpha_multiplier;
                         float alpha_test_ref;
@@ -204,7 +209,7 @@ do -- shader
                         if (override.b > 0) tex_color.b = override.b;
                         if (override.a > 0) tex_color.a = override.a;
 
-                        out_color = tex_color * in_color * pc.global_color;
+                        out_color = vec4(1,1,1,1) * in_color * pc.global_color;
                         out_color.a = out_color.a * pc.alpha_multiplier;
 
                         vec3 hsv_mult = pc.hsv_mult;
@@ -692,6 +697,7 @@ do -- stencil
 		local X, Y, W, H = 0, 0
 
 		function render2d.SetScissor(x, y, w, h)
+			error("NYI", 2)
 			X = x
 			Y = y
 			W = w or render.GetWidth()
@@ -708,6 +714,7 @@ do -- stencil
 		end
 
 		function render2d.GetScissor()
+			error("NYI", 2)
 			return X, Y, W, H
 		end
 
@@ -716,6 +723,7 @@ do -- stencil
 
 	do
 		function render2d.PushStencilRect(x, y, w, h)
+			error("NYI", 2)
 			render.SetStencil(true)
 			render.GetFrameBuffer():ClearStencil(0)
 			render.StencilFunction("always", 1, 0xFFFFFFFF)
@@ -729,6 +737,7 @@ do -- stencil
 		end
 
 		function render2d.PopStencilRect()
+			error("NYI", 2)
 			render.SetStencil(false)
 		end
 	end
@@ -737,6 +746,7 @@ do -- stencil
 		local X, Y, W, H
 
 		function render2d.EnableClipRect(x, y, w, h, i)
+			error("NYI", 2)
 			i = i or 1
 			render.SetStencil(true)
 			render.GetFrameBuffer():ClearStencil(0) -- out = 0
@@ -761,10 +771,12 @@ do -- stencil
 		end
 
 		function render2d.GetClipRect()
+			error("NYI", 2)
 			return X or 0, Y or 0, W or render.GetWidth(), H or render.GetHeight()
 		end
 
 		function render2d.DisableClipRect()
+			error("NYI", 2)
 			render.SetStencil(false)
 		end
 	end
