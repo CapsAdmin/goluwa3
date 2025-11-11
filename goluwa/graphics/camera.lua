@@ -446,4 +446,4 @@ do
 	META:Register()
 end
 
-return camera.CreateCamera()
+return camera

@@ -1,8 +1,8 @@
 local event = require("event")
-local camera = require("graphics.camera")
 local input = require("input")
 local Vec3 = require("structs.vec3")
 local window = require("window")
+local render3d = require("graphics.render3d")
 local held_ang
 local held_mpos
 local drag_view = false
@@ -108,13 +108,15 @@ local function calc_movement(dt, cam_ang, cam_fov)
 	return forward + side + up, cam_ang, cam_fov
 end
 
+local cam = render3d.cam
+
 event.AddListener("Update", "camera_movement", function(dt)
-	local cam_pos = camera:GetPosition()
-	local cam_ang = camera:GetAngles()
-	local cam_fov = camera:GetFOV()
+	local cam_pos = cam:GetPosition()
+	local cam_ang = cam:GetAngles()
+	local cam_fov = cam:GetFOV()
 	local dir, ang, fov = calc_movement(dt, cam_ang, cam_fov)
 	cam_pos = cam_pos + dir
-	camera:SetPosition(cam_pos)
-	camera:SetAngles(ang)
-	camera:SetFOV(fov)
+	cam:SetPosition(cam_pos)
+	cam:SetAngles(ang)
+	cam:SetFOV(fov)
 end)

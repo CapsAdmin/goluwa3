@@ -2,13 +2,13 @@ local structs = require("structs.structs")
 -- not very efficent
 local META = structs.Template("Color")
 META.NumberType = "float"
-META.Args = {{"r", "g", "b"}}
+META.Args = {{"r", "g", "b", "a"}}
 structs.AddAllOperators(META)
 
 function META:Lighter(factor)
 	factor = factor or .5
 	factor = factor + 1
-	return META.CType(self.r * factor, self.g * factor, self.b * factor)
+	return META.CType(self.r * factor, self.g * factor, self.b * factor, self.a)
 end
 
 function META:Darker(factor)
@@ -16,7 +16,7 @@ function META:Darker(factor)
 end
 
 function META:Get255()
-	return META.CType(self.r * 255, self.g * 255, self.b * 255)
+	return META.CType(self.r * 255, self.g * 255, self.b * 255, self.a * 255)
 end
 
 function META:SetHue(h)
@@ -26,6 +26,7 @@ function META:SetHue(h)
 	self.r = new.r
 	self.g = new.g
 	self.b = new.b
+	self.a = new.a
 	return self
 end
 
@@ -50,6 +51,7 @@ function META.Lerp(a, mult, b)
 	a.r = (b.r - a.r) * mult + a.r
 	a.g = (b.g - a.g) * mult + a.g
 	a.b = (b.b - a.b) * mult + a.b
+	a.a = (b.a - a.a) * mult + a.a
 	return a
 end
 
@@ -61,6 +63,7 @@ function META:SetSaturation(s)
 	self.r = new.r
 	self.g = new.g
 	self.b = new.b
+	self.a = new.a
 	return self
 end
 
@@ -70,6 +73,7 @@ function META:SetLightness(l)
 	self.r = new.r
 	self.g = new.g
 	self.b = new.b
+	self.a = new.a
 	return self
 end
 
@@ -155,11 +159,12 @@ function META:GetHSV()
 	return h, s, v
 end
 
-function META.FromBytes(r, g, b)
+function META.FromBytes(r, g, b, a)
 	r = r or 0
 	g = g or 0
 	b = b or 0
-	return META.CType(r / 255, g / 255, b / 255)
+	a = a or 255
+	return META.CType(r / 255, g / 255, b / 255, a / 255)
 end
 
 function META.FromHex(hex)
@@ -167,7 +172,8 @@ function META.FromHex(hex)
 	r = tonumber("0x" .. (r or 0))
 	g = tonumber("0x" .. (g or 0))
 	b = tonumber("0x" .. (b or 0))
-	return META.FromBytes(r, g, b)
+	a = tonumber("0x" .. (a or 255))
+	return META.FromBytes(r, g, b, a)
 end
 
 local names = {
@@ -372,7 +378,7 @@ function META.FromHSV(h, s, v)
 		return META.CType(t, p, v)
 	end
 
-	return META.CType(v, p, q)
+	return META.CType(v, p, q, 1)
 end
 
 return structs.Register(META)

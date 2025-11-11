@@ -4,6 +4,7 @@ local event = require("event")
 local window = require("graphics.window")
 local camera = require("graphics.camera")
 local Matrix44f = require("structs.matrix").Matrix44f
+local cam = camera.CreateCamera()
 local MatrixConstants = ffi.typeof([[
 	struct {
 		$ projection_view;
@@ -156,9 +157,10 @@ event.AddListener("Draw", "draw_3d", function(cmd, dt)
 end)
 
 local render3d = {}
+render3d.cam = cam
 
 function render3d.SetWorldMatrix(world)
-	camera:SetWorld(world)
+	cam:SetWorld(world)
 end
 
 function render3d.UploadConstants(cmd)
@@ -168,8 +170,8 @@ function render3d.UploadConstants(cmd)
 		0,
 		MatrixConstants(
 			{
-				projection_view = camera:GetMatrices().projection_view,
-				world = camera:GetMatrices().world,
+				projection_view = cam:GetMatrices().projection_view,
+				world = cam:GetMatrices().world,
 			}
 		)
 	)

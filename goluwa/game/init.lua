@@ -6,6 +6,7 @@ local file_formats = require("file_formats")
 local Transform = require("transform")
 local render = require("graphics.render")
 local render3d = require("graphics.render3d")
+local render2d = require("graphics.render2d")
 local build_cube = require("game.build_cube")
 require("game.camera_movement")
 local cube_vertices, cube_indices = build_cube(1.0)
@@ -77,6 +78,10 @@ event.AddListener("Draw3D", "draw_cube", function(cmd, dt)
 		render3d.UploadConstants(cmd)
 		cmd:DrawIndexed(36, 1, 0, 0, 0)
 	end
+end)
+
+event.AddListener("Draw2D", "test", function(dt)
+	render2d.DrawRect(10, 10, 100, 50)
 end)
 
 event.AddListener("KeyInput", "escape_shutdown", function(key, press)
