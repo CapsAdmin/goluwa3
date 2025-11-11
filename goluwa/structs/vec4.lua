@@ -5,6 +5,6 @@ META.Args = {{"x", "y", "z", "w"}, {"r", "g", "b", "a"}, {"u", "v", "s", "t"}}
 structs.AddAllOperators(META)
 structs.AddOperator(META, "generic_vector")
 structs.Swizzle(META)
-structs.Swizzle(META, 3, "structs.Vec3")
-structs.Swizzle(META, 2, "structs.Vec2")
+structs.Swizzle(META, 3, "structs.vec3")
+structs.Swizzle(META, 2, "structs.vec2")
 return structs.Register(META)

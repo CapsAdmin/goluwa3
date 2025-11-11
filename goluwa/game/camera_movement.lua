@@ -1,7 +1,7 @@
 local event = require("event")
 local camera = require("graphics.camera")
 local input = require("input")
-local Vec3 = require("structs.Vec3")
+local Vec3 = require("structs.vec3")
 local window = require("window")
 local held_ang
 local held_mpos

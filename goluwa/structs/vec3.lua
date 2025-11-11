@@ -21,7 +21,7 @@ function META:GetAngles()
 	local n = self:GetNormalized()
 	local p = math.atan2(math.sqrt((n.x ^ 2) + (n.y ^ 2)), n.z)
 	local y = math.atan2(self.y, self.x)
-	return structs.Ang3(p, y, 0)
+	return structs.ang3(p, y, 0)
 end
 
 function META:GetRotated(axis, ang)

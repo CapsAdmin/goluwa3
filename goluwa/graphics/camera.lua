@@ -1,9 +1,9 @@
 local prototype = require("prototype")
 local Matrix44 = require("structs.matrix").Matrix44f
 local Matrix33 = require("structs.matrix").Matrix33d
-local Vec3 = require("structs.Vec3")
-local Ang3 = require("structs.Ang3")
-local Rect = require("structs.Rect")
+local Vec3 = require("structs.vec3")
+local Ang3 = require("structs.ang3")
+local Rect = require("structs.rect")
 local camera = {}
 
 do

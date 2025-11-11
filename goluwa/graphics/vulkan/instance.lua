@@ -1,6 +1,6 @@
 local ffi = require("ffi")
-local Renderer = {}
-Renderer.__index = Renderer
+local VulkanInstance = {}
+VulkanInstance.__index = VulkanInstance
 -- Default configuration
 local default_config = {
 	-- Swapchain settings
@@ -16,20 +16,20 @@ local default_config = {
 	pre_transform = nil, -- nil = use currentTransform
 }
 
-function Renderer.New(config)
+function VulkanInstance.New(config)
 	config = config or {}
 
 	for k, v in pairs(default_config) do
 		if config[k] == nil then config[k] = v end
 	end
 
-	local self = setmetatable({}, Renderer)
+	local self = setmetatable({}, VulkanInstance)
 	self.config = config
 	self:Initialize(assert(self.config.surface_handle))
 	return self
 end
 
-function Renderer:Initialize(metal_surface)
+function VulkanInstance:Initialize(metal_surface)
 	local layers = {}
 	local extensions = {"VK_KHR_surface", "VK_EXT_metal_surface"}
 
@@ -53,7 +53,7 @@ function Renderer:Initialize(metal_surface)
 	return self
 end
 
-function Renderer:RecreateSwapchain()
+function VulkanInstance:RecreateSwapchain()
 	-- Wait for device to be idle (skip on initial creation)
 	if self.swapchain then self:WaitForIdle() end
 
@@ -97,7 +97,7 @@ function Renderer:RecreateSwapchain()
 	self.swapchain_images = self.swapchain:GetImages()
 end
 
-function Renderer:TransitionImageLayout(image, old_layout, new_layout, src_stage, dst_stage)
+function VulkanInstance:TransitionImageLayout(image, old_layout, new_layout, src_stage, dst_stage)
 	local cmd = self:GetCommandBuffer()
 	src_stage = src_stage or "all_commands"
 	dst_stage = dst_stage or "all_commands"
@@ -134,15 +134,15 @@ function Renderer:TransitionImageLayout(image, old_layout, new_layout, src_stage
 	)
 end
 
-function Renderer:GetExtent()
+function VulkanInstance:GetExtent()
 	return self.surface_capabilities[0].currentExtent
 end
 
-function Renderer:WaitForIdle()
+function VulkanInstance:WaitForIdle()
 	self.device:WaitIdle()
 end
 
-function Renderer:CreateBuffer(config)
+function VulkanInstance:CreateBuffer(config)
 	local byte_size
 	local data = config.data
 
@@ -162,7 +162,7 @@ function Renderer:CreateBuffer(config)
 	return buffer
 end
 
-function Renderer:UploadToImage(image, data, width, height)
+function VulkanInstance:UploadToImage(image, data, width, height)
 	local pixel_count = width * height
 	-- Create staging buffer
 	local staging_buffer = self.device:CreateBuffer(pixel_count * 4, "transfer_src", {"host_visible", "host_coherent"})
@@ -226,25 +226,25 @@ function Renderer:UploadToImage(image, data, width, height)
 	self.queue:SubmitAndWait(self.device, cmd, fence)
 end
 
-local OffscreenRenderTarget = require("graphics.render.rendertarget_offscreen")
-local WindowRenderTarget = require("graphics.render.rendertarget_window")
-local Pipeline = require("graphics.render.graphics_pipeline")
-local ComputePipeline = require("graphics.render.compute_pipeline")
+local OffscreenRenderTarget = require("graphics.vulkan.rendertarget_offscreen")
+local WindowRenderTarget = require("graphics.vulkan.rendertarget_window")
+local Pipeline = require("graphics.vulkan.graphics_pipeline")
+local ComputePipeline = require("graphics.vulkan.compute_pipeline")
 
-function Renderer:CreateOffscreenRenderTarget(width, height, format, config)
+function VulkanInstance:CreateOffscreenRenderTarget(width, height, format, config)
 	return OffscreenRenderTarget.New(self, width, height, format, config)
 end
 
-function Renderer:CreateWindowRenderTarget()
+function VulkanInstance:CreateWindowRenderTarget()
 	return WindowRenderTarget.New(self)
 end
 
-function Renderer:CreatePipeline(...)
+function VulkanInstance:CreatePipeline(...)
 	return Pipeline.New(self, ...)
 end
 
-function Renderer:CreateComputePipeline(...)
+function VulkanInstance:CreateComputePipeline(...)
 	return ComputePipeline.New(self, ...)
 end
 
-return Renderer
+return VulkanInstance

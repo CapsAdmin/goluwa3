@@ -1,9 +1,9 @@
-local Renderer = require("graphics.render.instance")
+local VulkanInstance = require("graphics.vulkan.instance")
 local window = require("graphics.window")
 local event = require("event")
 local ffi = require("ffi")
 local system = require("system")
-local renderer = Renderer.New(
+local vulkan_instance = VulkanInstance.New(
 	{
 		surface_handle = assert(window:GetSurfaceHandle()),
 		present_mode = "fifo",
@@ -12,7 +12,7 @@ local renderer = Renderer.New(
 		composite_alpha = "opaque",
 	}
 )
-local window_target = renderer:CreateWindowRenderTarget()
+local window_target = vulkan_instance:CreateWindowRenderTarget()
 
 event.AddListener("FramebufferResized", "window_resized", function(size)
 	window_target:RecreateSwapchain()
@@ -38,31 +38,31 @@ event.AddListener("Update", "window_update", function(dt)
 end)
 
 event.AddListener("Shutdown", "window_shutdown", function()
-	renderer:WaitForIdle()
+	vulkan_instance:WaitForIdle()
 	system.ShutDown()
 end)
 
 local render = {}
 
 function render.CreateBuffer(config)
-	return renderer:CreateBuffer(config)
+	return vulkan_instance:CreateBuffer(config)
 end
 
 function render.CreateImage(width, height, format, usage, memory_properties)
-	return renderer.device:CreateImage(width, height, format, usage, memory_properties)
+	return vulkan_instance.device:CreateImage(width, height, format, usage, memory_properties)
 end
 
 function render.UploadToImage(image, data, width, height)
-	return renderer:UploadToImage(image, data, width, height)
+	return vulkan_instance:UploadToImage(image, data, width, height)
 end
 
 function render.CreateSampler(config)
-	return renderer.device:CreateSampler(config)
+	return vulkan_instance.device:CreateSampler(config)
 end
 
 function render.CreateGraphicsPipeline(config)
 	config.render_pass = config.render_pass or window_target:GetRenderPass()
-	return renderer:CreatePipeline(config)
+	return vulkan_instance:CreatePipeline(config)
 end
 
 return render
