@@ -25,21 +25,27 @@ local FragmentConstants = ffi.typeof(
         $ global_color;           // 16 bytes
         $ color_override;         // 16 bytes
         $ hsv_mult;               // 12 bytes
-        float alpha_multiplier;   // 4 bytes
+        //float alpha_multiplier;   // 4 bytes
         $ world_scale;            // 8 bytes
         float alpha_test_ref;     // 4 bytes
         float border_radius;      // 4 bytes
+        int texture_index;        // 4 bytes - for bindless texture selection
 	}
 ]],
 	Colorf, -- global_color
 	Colorf, -- color_override
 	Vec3f, -- hsv_mult
 	Vec2f -- world_scale
--- Total: 64 bytes (offset 64-127, fits within 128 byte max)
+-- Total: 68 bytes (offset 64-131)
 )
 local vertex_constants = VertexConstants()
 local fragment_constants = FragmentConstants()
 local render2d = {}
+-- Bindless texture management
+render2d.texture_registry = {} -- texture_object -> index mapping
+render2d.texture_array = {} -- array of {view, sampler} for descriptor set
+render2d.next_texture_index = 0
+render2d.max_textures = 1024
 -- Blend mode presets
 render2d.blend_modes = {
 	alpha = {
@@ -157,13 +163,8 @@ function render2d.Initialize()
 	render2d.SetAlphaTestReference(0)
 	render2d.SetBorderRadius(0)
 	render2d.UpdateScreenSize(window:GetSize())
-	-- Initialize all descriptor sets with the white texture
-	local tex = render2d.current_texture
-
-	for i = 1, render.GetSwapchainImageCount() do
-		render2d.pipeline:UpdateDescriptorSet("combined_image_sampler", i, 0, tex.view, tex.sampler)
-	end
-
+	-- Register white texture as index 0 for bindless
+	render2d.RegisterTexture(render2d.white_texture)
 	render2d.ready = true
 end
 
@@ -243,25 +244,25 @@ do -- shader
 			{
 				type = "fragment",
 				code = [[
-					#version 450
-					#extension GL_EXT_scalar_block_layout : require
+			#version 450
+			#extension GL_EXT_scalar_block_layout : require
+			#extension GL_EXT_nonuniform_qualifier : require
 
-					layout(binding = 0) uniform sampler2D tex_sampler;
-					layout(location = 0) in vec2 in_uv;
-					layout(location = 1) in vec4 in_color;
-					layout(location = 0) out vec4 out_color;
+			layout(binding = 0) uniform sampler2D textures[1024]; // Bindless texture array
+			layout(location = 0) in vec2 in_uv;
+			layout(location = 1) in vec4 in_color;
+			layout(location = 0) out vec4 out_color;
 
-                    layout(push_constant, scalar) uniform FragmentConstants {
-						layout(offset = 64) vec4 global_color;
-                        vec4 color_override;
-						vec3 hsv_mult;
-						float alpha_multiplier;
-						vec2 world_scale;
-						float alpha_test_ref;
-						float border_radius;
-					} pc;
-
-                    vec3 rgb2hsv(vec3 c)
+			layout(push_constant, scalar) uniform FragmentConstants {
+				layout(offset = 64) vec4 global_color;
+				vec4 color_override;
+				vec3 hsv_mult;
+				//float alpha_multiplier;
+				vec2 world_scale;
+				float alpha_test_ref;
+				float border_radius;
+				int texture_index;
+			} pc;                    vec3 rgb2hsv(vec3 c)
                     {
                         vec4 K = vec4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);
                         vec4 p = mix(vec4(c.bg, K.wz), vec4(c.gb, K.xy), step(c.b, c.g));
@@ -279,25 +280,23 @@ do -- shader
                         return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
                     }
 
-					void main() {
-						
-                        vec4 tex_color = texture(tex_sampler, in_uv);
-                        float alpha_test = pc.alpha_test_ref;
-                        if (alpha_test > 0.0) {
-                            if (tex_color.a < alpha_test) {
-                                discard;
-                            }
-                        }
+				void main() {
+					
+					vec4 tex_color = texture(textures[nonuniformEXT(pc.texture_index)], in_uv);
+					float alpha_test = pc.alpha_test_ref;
+					if (alpha_test > 0.0) {
+						if (tex_color.a < alpha_test) {
+							discard;
+						}
+					}
 
-                        vec4 override = pc.color_override;
-
-                        if (override.r > 0) tex_color.r = override.r;
+					vec4 override = pc.color_override;                        if (override.r > 0) tex_color.r = override.r;
                         if (override.g > 0) tex_color.g = override.g;
                         if (override.b > 0) tex_color.b = override.b;
                         if (override.a > 0) tex_color.a = override.a;
 
                         out_color = tex_color * in_color * pc.global_color;
-                        out_color.a = out_color.a * pc.alpha_multiplier;
+                        out_color.a = out_color.a;// * pc.alpha_multiplier;
 
                         vec3 hsv_mult = pc.hsv_mult;
                         if (hsv_mult != vec3(1,1,1)) {
@@ -356,6 +355,7 @@ do -- shader
 					{
 						type = "combined_image_sampler",
 						binding_index = 0,
+						count = 1024, -- Array of 1024 textures for bindless
 					},
 				},
 				push_constants = {
@@ -456,18 +456,46 @@ do -- shader
 
 	utility.MakePushPopFunction(render2d, "Alpha")
 
-	function render2d.SetAlphaMultiplier(a)
-		fragment_constants.alpha_multiplier = a or fragment_constants.alpha_multiplier
+	function render2d.SetAlphaMultiplier(a) --fragment_constants.alpha_multiplier = a or fragment_constants.alpha_multiplier
 	end
 
-	function render2d.GetAlphaMultiplier()
-		return fragment_constants.alpha_multiplier
+	function render2d.GetAlphaMultiplier() --return fragment_constants.alpha_multiplier
 	end
 
 	utility.MakePushPopFunction(render2d, "AlphaMultiplier")
 
+	-- Bindless texture registration
+	function render2d.RegisterTexture(tex)
+		-- Check if texture is already registered
+		if render2d.texture_registry[tex] then
+			return render2d.texture_registry[tex]
+		end
+
+		-- Check if we have space
+		if render2d.next_texture_index >= render2d.max_textures then
+			error("Texture registry full! Max textures: " .. render2d.max_textures)
+		end
+
+		-- Register the texture
+		local index = render2d.next_texture_index
+		render2d.texture_registry[tex] = index
+		render2d.texture_array[index + 1] = {view = tex.view, sampler = tex.sampler}
+		render2d.next_texture_index = render2d.next_texture_index + 1
+
+		-- Update all descriptor sets with the new texture array
+		for frame_i = 1, render.GetSwapchainImageCount() do
+			render2d.pipeline:UpdateDescriptorSetArray(frame_i, 0, render2d.texture_array)
+		end
+
+		return index
+	end
+
 	function render2d.SetTexture(tex)
-		render2d.current_texture = tex or render2d.white_texture
+		tex = tex or render2d.white_texture
+		render2d.current_texture = tex
+
+		-- Register texture if not already registered (bindless)
+		if not render2d.texture_registry[tex] then render2d.RegisterTexture(tex) end
 	end
 
 	function render2d.GetTexture()
@@ -559,22 +587,16 @@ do -- shader
 	end
 
 	function render2d.UploadConstants(cmd)
-		-- If texture changed, update descriptor set and rebind
-		-- This is safe because we update BEFORE binding the descriptor set in the command buffer
-		if render2d.current_texture and render2d.current_texture ~= render2d.last_texture then
-			local frame_index = render.GetCurrentFrame()
-			local tex = render2d.current_texture
-			-- Update and bind descriptor set atomically
-			render2d.pipeline:UpdateAndBindDescriptorSet(cmd, frame_index, "combined_image_sampler", 0, tex.view, tex.sampler)
-			render2d.last_texture = render2d.current_texture
-		end
-
+		-- With bindless textures, we don't need to rebind descriptor sets
+		-- Just update the texture index in push constants
+		render2d.last_texture = render2d.current_texture
 		-- Update vertex constants
 		vertex_constants.projection_view_world = render2d.camera:GetMatrices().projection_view_world
 		render2d.pipeline:PushConstants(cmd, "vertex", 0, vertex_constants)
-		-- Update fragment constants
+		-- Update fragment constants (including texture index)
 		local world_matrix = render2d.camera:GetMatrices().world
 		fragment_constants.world_scale = Vec2f(world_matrix.m00, world_matrix.m11)
+		fragment_constants.texture_index = render2d.texture_registry[render2d.current_texture] or 0
 		render2d.pipeline:PushConstants(cmd, "fragment", 64, fragment_constants)
 	end
 
@@ -940,8 +962,6 @@ render2d.Initialize()
 
 event.AddListener("PostDraw", "draw_2d", function(cmd, dt)
 	local frame_index = render.GetCurrentFrame()
-	-- Reset descriptor cache for this frame to allow fresh allocations
-	render2d.pipeline:ResetFrameDescriptors(frame_index)
 
 	-- Ensure correct pipeline variant is active if not using dynamic blend
 	if not render2d.has_dynamic_blend then
@@ -949,15 +969,13 @@ event.AddListener("PostDraw", "draw_2d", function(cmd, dt)
 		render2d.pipeline:RebuildPipeline("color_blend", blend_mode)
 	end
 
+	-- Bind pipeline and descriptor set (bindless - one set with all textures)
 	render2d.pipeline:Bind(cmd, frame_index)
-	-- Set initial texture for the frame
-	local tex = render2d.current_texture
-	render2d.pipeline:UpdateAndBindDescriptorSet(cmd, frame_index, "combined_image_sampler", 0, tex.view, tex.sampler)
-	render2d.last_texture = render2d.current_texture
 	cmd:BindVertexBuffer(render2d.rectangle:GetBuffer(), 0)
 	cmd:BindIndexBuffer(render2d.rectangle_indices:GetBuffer(), 0, "uint16")
 	render2d.cmd = cmd
-	render2d.texture_changed = false -- Clear flag since we just bound the initial texture
+	render2d.texture_changed = false
+
 	-- Set initial blend mode for the frame (only if dynamic blend is supported)
 	if render2d.has_dynamic_blend then
 		render2d.SetBlendMode(render2d.current_blend_mode)

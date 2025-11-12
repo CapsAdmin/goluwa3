@@ -64,10 +64,11 @@ if true then
 	local render2d = require("graphics.render2d")
 
 	event.AddListener("Draw2D", "test", function(dt)
-		render2d.SetColor(1, 0, 0)
+		render2d.SetColor(1, 1, 1)
 		render2d.SetTexture(texture)
 		render2d.DrawRect(10, 10, 30, 30)
 		-- gfx
+		render2d.SetColor(1, 0, 1)
 		gfx.DrawFilledCircle(200, 200, 100)
 
 		do

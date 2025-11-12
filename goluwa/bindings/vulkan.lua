@@ -503,12 +503,19 @@ do -- instance
 				end
 
 				-- Enable scalar block layout feature for push constants
+				-- and descriptor indexing features for bindless textures
 				local vulkan12Features = T.Box(
 					vk.VkPhysicalDeviceVulkan12Features,
 					{
 						sType = "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES",
 						pNext = pNextChain,
 						scalarBlockLayout = 1,
+						-- Descriptor indexing features for bindless rendering
+						descriptorIndexing = 1,
+						shaderSampledImageArrayNonUniformIndexing = 1,
+						descriptorBindingPartiallyBound = 1,
+						runtimeDescriptorArray = 1,
+						descriptorBindingSampledImageUpdateAfterBind = 1,
 					}
 				)
 				local queuePriority = ffi.new("float[1]", 1.0)
@@ -1353,6 +1360,7 @@ do -- instance
 				function Device:CreateDescriptorSetLayout(bindings)
 					-- bindings is an array of tables: {{binding, type, stageFlags, count}, ...}
 					local bindingArray = T.Array(vk.VkDescriptorSetLayoutBinding)(#bindings)
+					local bindingFlagsArray = T.Array(vk.VkDescriptorBindingFlags)(#bindings)
 
 					for i, b in ipairs(bindings) do
 						bindingArray[i - 1].binding = assert(b.binding_index)
@@ -1360,12 +1368,32 @@ do -- instance
 						bindingArray[i - 1].descriptorCount = b.count or 1
 						bindingArray[i - 1].stageFlags = enums.VK_SHADER_STAGE_(b.stageFlags)
 						bindingArray[i - 1].pImmutableSamplers = nil
-					end
 
+						-- For bindless (large arrays), set flags for dynamic updates
+						if (b.count or 1) > 1 then
+							bindingFlagsArray[i - 1] = bit.bor(
+								vk.VkDescriptorBindingFlagBits("VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT"),
+								vk.VkDescriptorBindingFlagBits("VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT")
+							)
+						else
+							bindingFlagsArray[i - 1] = 0
+						end
+					end -- Add binding flags for descriptor indexing
+					local bindingFlagsInfo = T.Box(
+						vk.VkDescriptorSetLayoutBindingFlagsCreateInfo,
+						{
+							sType = "VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO",
+							pNext = nil,
+							bindingCount = #bindings,
+							pBindingFlags = bindingFlagsArray,
+						}
+					)
 					local layoutInfo = T.Box(
 						vk.VkDescriptorSetLayoutCreateInfo,
 						{
 							sType = "VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO",
+							flags = vk.VkDescriptorSetLayoutCreateFlagBits("VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT"),
+							pNext = bindingFlagsInfo,
 							bindingCount = #bindings,
 							pBindings = bindingArray,
 						}
@@ -1403,7 +1431,8 @@ do -- instance
 							sType = "VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO",
 							flags = bit.bor(
 								0,
-								vk.VkDescriptorPoolCreateFlagBits("VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT")
+								vk.VkDescriptorPoolCreateFlagBits("VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT"),
+								vk.VkDescriptorPoolCreateFlagBits("VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT")
 							),
 							poolSizeCount = #poolSizes,
 							pPoolSizes = poolSizeArray,
@@ -1500,6 +1529,32 @@ do -- instance
 					error("unsupported descriptor type: " .. tostring(type))
 				end
 
+				lib.vkUpdateDescriptorSets(self.ptr[0], 1, descriptorWrite, 0, nil)
+			end
+
+			function Device:UpdateDescriptorSetArray(descriptorSet, binding_index, texture_array)
+				-- texture_array is an array of {view, sampler} tables
+				local count = #texture_array
+
+				if count == 0 then return end
+
+				-- Create array of VkDescriptorImageInfo
+				local imageInfoArray = T.Array(vk.VkDescriptorImageInfo)(count)
+
+				for i, tex in ipairs(texture_array) do
+					imageInfoArray[i - 1].sampler = tex.sampler.ptr[0]
+					imageInfoArray[i - 1].imageView = tex.view.ptr[0]
+					imageInfoArray[i - 1].imageLayout = "VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL"
+				end
+
+				local descriptorWrite = T.Array(vk.VkWriteDescriptorSet)(1)
+				descriptorWrite[0].sType = "VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET"
+				descriptorWrite[0].dstSet = descriptorSet.ptr[0]
+				descriptorWrite[0].dstBinding = binding_index
+				descriptorWrite[0].dstArrayElement = 0
+				descriptorWrite[0].descriptorType = "VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER"
+				descriptorWrite[0].descriptorCount = count
+				descriptorWrite[0].pImageInfo = imageInfoArray
 				lib.vkUpdateDescriptorSets(self.ptr[0], 1, descriptorWrite, 0, nil)
 			end
 
