@@ -8,6 +8,8 @@ local render = require("graphics.render")
 local render3d = require("graphics.render3d")
 local build_cube = require("game.build_cube")
 local Texture = require("graphics.texture")
+local gfx = require("graphics.gfx")
+local render2d = require("graphics.render2d")
 require("game.camera_movement")
 local cube_vertices, cube_indices = build_cube(1.0)
 local vertex_buffer = render.CreateBuffer(
@@ -52,39 +54,43 @@ event.AddListener("Draw3D", "draw_cube", function(cmd, dt)
 	cmd:BindVertexBuffer(vertex_buffer, 0)
 	cmd:BindIndexBuffer(index_buffer, 0)
 
-	for _, transform in ipairs(transforms) do
+	for i, transform in ipairs(transforms) do
 		render3d.SetWorldMatrix(transform:GetMatrix())
 		render3d.UploadConstants(cmd)
+
+		if i < 10 then
+			render3d.SetTexture(render2d.white_texture)
+		elseif i == 10 then
+			render3d.SetTexture(gfx.quadrant_circle_texture)
+		else
+			render3d.SetTexture(texture)
+		end
+
 		cmd:DrawIndexed(36, 1, 0, 0, 0)
 	end
 end)
 
-if true then
-	local gfx = require("graphics.gfx")
-	local render2d = require("graphics.render2d")
+event.AddListener("Draw2D", "test", function(dt)
+	render2d.SetColor(1, 1, 1)
+	render2d.SetTexture(texture)
+	render2d.DrawRect(10, 10, 30, 30)
+	-- gfx
+	render2d.SetColor(1, 0, 1)
+	gfx.DrawFilledCircle(200, 200, 100)
 
-	event.AddListener("Draw2D", "test", function(dt)
-		render2d.SetColor(1, 1, 1)
-		render2d.SetTexture(texture)
-		render2d.DrawRect(10, 10, 30, 30)
-		-- gfx
-		render2d.SetColor(1, 0, 1)
-		gfx.DrawFilledCircle(200, 200, 100)
+	do
+		return
+	end
 
-		do
-			return
-		end
-
-		render2d.SetColor(1, 0, 0)
-		gfx.DrawFilledCircle(100, 100, 50)
-		render2d.SetColor(1, 0, 0)
-		render2d.DrawRect(10, 10, 30, 30)
-		render2d.SetColor(0, 1, 0)
-		render2d.DrawRect(50, 50, 30, 30)
-		render2d.SetColor(0, 0, 1)
-		render2d.DrawRect(90, 90, 30, 30)
-	end)
-end
+	render2d.SetColor(1, 0, 0)
+	gfx.DrawFilledCircle(100, 100, 50)
+	render2d.SetColor(1, 0, 0)
+	render2d.DrawRect(10, 10, 30, 30)
+	render2d.SetColor(0, 1, 0)
+	render2d.DrawRect(50, 50, 30, 30)
+	render2d.SetColor(0, 0, 1)
+	render2d.DrawRect(90, 90, 30, 30)
+end)
 
 event.AddListener("KeyInput", "escape_shutdown", function(key, press)
 	if key == "escape" and press then system.ShutDown() end
