@@ -31,6 +31,7 @@ function Texture.New(config)
 	end
 
 	local view = image:CreateView()
+	print(view, "!!")
 	local sampler = render.CreateSampler(
 		{
 			min_filter = config.min_filter or "nearest",
@@ -89,7 +90,7 @@ do
 		-- Create framebuffer using the texture's existing image view
 		local framebuffer = device:CreateFramebuffer(
 			render_pass,
-			self.view.ptr[0],
+			self.view,
 			self.image:GetWidth(),
 			self.image:GetHeight(),
 			nil

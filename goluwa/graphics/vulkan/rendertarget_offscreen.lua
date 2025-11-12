@@ -23,7 +23,7 @@ function OffscreenRenderTarget.New(renderer, width, height, format, config)
 		final_layout = final_layout,
 	})
 	-- Create framebuffer
-	self.framebuffer = renderer.device:CreateFramebuffer(self.render_pass, self.image_view.ptr[0], width, height, nil)
+	self.framebuffer = renderer.device:CreateFramebuffer(self.render_pass, self.image_view, width, height, nil)
 	-- Create command pool and buffer for offscreen rendering
 	self.command_pool = renderer.device:CreateCommandPool(renderer.graphics_queue_family)
 	self.command_buffer = self.command_pool:CreateCommandBuffer()

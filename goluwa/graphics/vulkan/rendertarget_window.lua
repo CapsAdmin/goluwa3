@@ -16,7 +16,7 @@ function WindowRenderTarget.New(renderer)
 		{"depth_stencil_attachment"},
 		"device_local"
 	)
-	self.depth_image_view = renderer.device:CreateImageView(self.depth_image.ptr[0], {format = depth_format, aspect = "depth"})
+	self.depth_image_view = renderer.device:CreateImageView(self.depth_image, {format = depth_format, aspect = "depth"})
 	-- Create render pass for swapchain format with depth
 	self.render_pass = renderer.device:CreateRenderPass(
 		{
@@ -45,11 +45,11 @@ function WindowRenderTarget.New(renderer)
 			self.framebuffers,
 			renderer.device:CreateFramebuffer(
 				self.render_pass,
-				imageView.ptr[0],
+				imageView,
 				extent.width,
 				extent.height,
 				nil,
-				self.depth_image_view.ptr[0]
+				self.depth_image_view
 			)
 		)
 	end
@@ -138,7 +138,7 @@ function WindowRenderTarget:RecreateSwapchain()
 		{"depth_stencil_attachment"},
 		"device_local"
 	)
-	self.depth_image_view = self.renderer.device:CreateImageView(self.depth_image.ptr[0], {format = depth_format, aspect = "depth"})
+	self.depth_image_view = self.renderer.device:CreateImageView(self.depth_image, {format = depth_format, aspect = "depth"})
 	-- Recreate image views
 	self.image_views = {}
 
@@ -160,11 +160,11 @@ function WindowRenderTarget:RecreateSwapchain()
 			self.framebuffers,
 			self.renderer.device:CreateFramebuffer(
 				self.render_pass,
-				imageView.ptr[0],
+				imageView,
 				extent.width,
 				extent.height,
 				nil,
-				self.depth_image_view.ptr[0]
+				self.depth_image_view
 			)
 		)
 	end

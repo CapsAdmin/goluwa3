@@ -715,7 +715,9 @@ do -- instance
 					local out = {}
 
 					for i = 0, imageCount[0] - 1 do
-						out[i + 1] = swapchainImages[i]
+						local ptr = T.Box(vk.VkImage)()
+						ptr[0] = swapchainImages[i]
+						out[i + 1] = {ptr = ptr}
 					end
 
 					return out
@@ -1766,21 +1768,21 @@ do -- instance
 					if msaaImageView then
 						-- MSAA: first attachment is MSAA color, second is resolve target (swapchain)
 						local attachment_array = T.Array(vk.VkImageView)(2)
-						attachment_array[0] = msaaImageView
-						attachment_array[1] = imageView
+						attachment_array[0] = msaaImageView.ptr[0]
+						attachment_array[1] = imageView.ptr[0]
 						attachments = attachment_array
 						attachmentCount = 2
 					elseif depthImageView then
 						-- Non-MSAA with depth: color + depth
 						local attachment_array = T.Array(vk.VkImageView)(2)
-						attachment_array[0] = imageView
-						attachment_array[1] = depthImageView
+						attachment_array[0] = imageView.ptr[0]
+						attachment_array[1] = depthImageView.ptr[0]
 						attachments = attachment_array
 						attachmentCount = 2
 					else
 						-- Non-MSAA: single attachment
 						local attachment_array = T.Array(vk.VkImageView)(1)
-						attachment_array[0] = imageView
+						attachment_array[0] = imageView.ptr[0]
 						attachments = attachment_array
 						attachmentCount = 1
 					end
@@ -1835,7 +1837,7 @@ do -- instance
 					local viewInfo = vk.VkImageViewCreateInfo(
 						{
 							sType = "VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO",
-							image = image,
+							image = image.ptr[0],
 							viewType = enums.VK_IMAGE_VIEW_TYPE_(config.view_type or "2d"),
 							format = enums.VK_FORMAT_(config.format),
 							subresourceRange = {
@@ -1930,7 +1932,7 @@ do -- instance
 				end
 
 				function Image:CreateView()
-					return self.device:CreateImageView(self.ptr[0], self.format)
+					return self.device:CreateImageView(self, self.format)
 				end
 
 				function Image:TransitionLayout(old_layout, new_layout)
