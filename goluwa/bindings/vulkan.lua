@@ -1401,6 +1401,10 @@ do -- instance
 						vk.VkDescriptorPoolCreateInfo,
 						{
 							sType = "VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO",
+							flags = bit.bor(
+								0,
+								vk.VkDescriptorPoolCreateFlagBits("VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT")
+							),
 							poolSizeCount = #poolSizes,
 							pPoolSizes = poolSizeArray,
 							maxSets = maxSets or 1,
@@ -1412,6 +1416,13 @@ do -- instance
 						"failed to create descriptor pool"
 					)
 					return setmetatable({device = self, ptr = ptr, poolSizeArray = poolSizeArray}, DescriptorPool)
+				end
+
+				function DescriptorPool:Reset()
+					vk_assert(
+						lib.vkResetDescriptorPool(self.device.ptr[0], self.ptr[0], 0),
+						"failed to reset descriptor pool"
+					)
 				end
 
 				function DescriptorPool:AllocateDescriptorSet(layout)

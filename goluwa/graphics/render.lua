@@ -21,6 +21,7 @@ end)
 event.AddListener("Update", "window_update", function(dt)
 	if not window_target:BeginFrame() then return end
 
+	window_target:BeginCommandBuffer()
 	local cmd = window_target:GetCommandBuffer()
 	cmd:BeginRenderPass(
 		window_target:GetRenderPass(),

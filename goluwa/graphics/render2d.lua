@@ -559,13 +559,13 @@ do -- shader
 	end
 
 	function render2d.UploadConstants(cmd)
-		-- If texture changed since last draw, update descriptor set and rebind pipeline
+		-- If texture changed, update descriptor set and rebind
+		-- This is safe because we update BEFORE binding the descriptor set in the command buffer
 		if render2d.current_texture and render2d.current_texture ~= render2d.last_texture then
 			local frame_index = render.GetCurrentFrame()
 			local tex = render2d.current_texture
-			render2d.pipeline:UpdateDescriptorSet("combined_image_sampler", frame_index, 0, tex.view, tex.sampler)
-			render2d.pipeline:Bind(cmd, frame_index)
-			-- Note: We don't need to rebind vertex/index buffers as they don't change
+			-- Update and bind descriptor set atomically
+			render2d.pipeline:UpdateAndBindDescriptorSet(cmd, frame_index, "combined_image_sampler", 0, tex.view, tex.sampler)
 			render2d.last_texture = render2d.current_texture
 		end
 
@@ -940,10 +940,8 @@ render2d.Initialize()
 
 event.AddListener("PostDraw", "draw_2d", function(cmd, dt)
 	local frame_index = render.GetCurrentFrame()
-	-- Update descriptor set for this frame with the current texture
-	-- This is safe because we've waited on the fence for this frame in BeginFrame()
-	local tex = render2d.current_texture
-	render2d.pipeline:UpdateDescriptorSet("combined_image_sampler", frame_index, 0, tex.view, tex.sampler)
+	-- Reset descriptor cache for this frame to allow fresh allocations
+	render2d.pipeline:ResetFrameDescriptors(frame_index)
 
 	-- Ensure correct pipeline variant is active if not using dynamic blend
 	if not render2d.has_dynamic_blend then
@@ -952,6 +950,10 @@ event.AddListener("PostDraw", "draw_2d", function(cmd, dt)
 	end
 
 	render2d.pipeline:Bind(cmd, frame_index)
+	-- Set initial texture for the frame
+	local tex = render2d.current_texture
+	render2d.pipeline:UpdateAndBindDescriptorSet(cmd, frame_index, "combined_image_sampler", 0, tex.view, tex.sampler)
+	render2d.last_texture = render2d.current_texture
 	cmd:BindVertexBuffer(render2d.rectangle:GetBuffer(), 0)
 	cmd:BindIndexBuffer(render2d.rectangle_indices:GetBuffer(), 0, "uint16")
 	render2d.cmd = cmd

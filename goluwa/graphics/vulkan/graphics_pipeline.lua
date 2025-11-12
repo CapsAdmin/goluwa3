@@ -76,19 +76,32 @@ function Pipeline.New(renderer, config)
 
 	local descriptorSetLayout = renderer.device:CreateDescriptorSetLayout(layout)
 	local pipelineLayout = renderer.device:CreatePipelineLayout({descriptorSetLayout}, push_constant_ranges)
-	-- Create one descriptor set per swapchain image for frame buffering
+	-- VULKAN DESCRIPTOR SET MANAGEMENT:
+	-- Vulkan requires that once a descriptor set is bound to a recording command buffer,
+	-- it cannot be updated again within that command buffer. To support dynamic texture
+	-- changes per draw call, we need multiple descriptor sets per frame.
+	-- 
+	-- Solution: Create one descriptor pool per frame (one per swapchain image).
+	-- Each frame's pool is reset when that frame starts (after fence wait),
+	-- allowing us to allocate fresh descriptor sets throughout the frame.
 	local descriptor_set_count = #renderer.swapchain_images
-
-	-- Multiply pool sizes by descriptor_set_count since we need that many of each descriptor
-	for i, pool_size in ipairs(pool_sizes) do
-		pool_size.count = pool_size.count * descriptor_set_count
-	end
-
-	local descriptorPool = renderer.device:CreateDescriptorPool(pool_sizes, descriptor_set_count)
+	local dynamic_descriptor_pool_size = 1000 -- Max texture bindings per frame
+	local descriptorPools = {}
 	local descriptorSets = {}
 
-	for i = 1, descriptor_set_count do
-		descriptorSets[i] = descriptorPool:AllocateDescriptorSet(descriptorSetLayout)
+	for frame = 1, descriptor_set_count do
+		-- Create a pool for this frame with enough space for many texture changes
+		local frame_pool_sizes = {}
+
+		for i, pool_size in ipairs(pool_sizes) do
+			frame_pool_sizes[i] = {
+				type = pool_size.type,
+				count = pool_size.count * dynamic_descriptor_pool_size,
+			}
+		end
+
+		descriptorPools[frame] = renderer.device:CreateDescriptorPool(frame_pool_sizes, dynamic_descriptor_pool_size)
+		descriptorSets[frame] = descriptorPools[frame]:AllocateDescriptorSet(descriptorSetLayout)
 	end
 
 	local vertex_bindings
@@ -127,12 +140,14 @@ function Pipeline.New(renderer, config)
 	self.config = config
 	self.uniform_buffers = uniform_buffers
 	self.descriptorSetLayout = descriptorSetLayout
-	self.descriptorPool = descriptorPool
+	self.descriptorPools = descriptorPools -- Array of pools, one per frame
 	-- Pipeline variant caching for dynamic state emulation
 	self.pipeline_variants = {}
 	self.current_variant_key = nil
 	self.base_pipeline = pipeline
-
+	-- Dynamic descriptor set tracking for texture changes
+	self.dynamic_descriptor_cache = {} -- texture_key -> descriptor_set mapping per frame
+	self.frame_descriptor_usage = {} -- Track which descriptors are used this frame
 	-- Initialize all descriptor sets with the same initial bindings
 	for frame_index = 1, descriptor_set_count do
 		for i, stage in ipairs(config.shader_stages) do
@@ -151,6 +166,64 @@ end
 
 function Pipeline:UpdateDescriptorSet(type, index, binding_index, ...)
 	self.renderer.device:UpdateDescriptorSet(type, self.descriptor_sets[index], binding_index, ...)
+end
+
+function Pipeline:GetOrCreateDescriptorSetForTexture(frame_index, texture_view, texture_sampler)
+	-- Create a unique key for this texture binding
+	local texture_key = tostring(texture_view) .. "_" .. tostring(texture_sampler)
+
+	-- Initialize frame cache if needed
+	if not self.dynamic_descriptor_cache[frame_index] then
+		self.dynamic_descriptor_cache[frame_index] = {}
+	end
+
+	-- Check if we already have a descriptor set for this texture in this frame
+	local cached_ds = self.dynamic_descriptor_cache[frame_index][texture_key]
+
+	if cached_ds then return cached_ds end
+
+	-- Allocate a new descriptor set from this frame's pool
+	local new_ds = self.descriptorPools[frame_index]:AllocateDescriptorSet(self.descriptorSetLayout)
+	-- Update it with the texture
+	self.renderer.device:UpdateDescriptorSet("combined_image_sampler", new_ds, 0, texture_view, texture_sampler)
+	-- Cache it
+	self.dynamic_descriptor_cache[frame_index][texture_key] = new_ds
+	return new_ds
+end
+
+function Pipeline:ResetFrameDescriptors(frame_index)
+	-- Reset this frame's descriptor pool to free all allocations
+	-- This is safe because we've waited on the fence for this frame
+	self.descriptorPools[frame_index]:Reset()
+	-- Re-allocate the base descriptor set for this frame
+	self.descriptor_sets[frame_index] = self.descriptorPools[frame_index]:AllocateDescriptorSet(self.descriptorSetLayout)
+
+	-- Re-initialize base descriptor set with initial bindings if needed
+	for _, stage in ipairs(self.config.shader_stages) do
+		if stage.descriptor_sets then
+			for _, ds in ipairs(stage.descriptor_sets) do
+				if ds.args then
+					self:UpdateDescriptorSet(ds.type, frame_index, ds.binding_index, unpack(ds.args))
+				end
+			end
+		end
+	end
+
+	-- Clear the cache for this frame
+	self.dynamic_descriptor_cache[frame_index] = {}
+end
+
+function Pipeline:UpdateAndBindDescriptorSet(cmd, frame_index, type, binding_index, ...)
+	-- Get or create a descriptor set for this texture.
+	-- Caches within the frame to avoid redundant allocations for the same texture.
+	-- 
+	-- SIMPLER ALTERNATIVES (not implemented):
+	-- 1. Push descriptors (VK_KHR_push_descriptor) - "push" descriptors like push constants
+	-- 2. Descriptor indexing (VK_EXT_descriptor_indexing) - large array of textures, index in shader
+	-- 3. Bindless rendering - one descriptor set with all textures, use handles
+	local ds = self:GetOrCreateDescriptorSetForTexture(frame_index, ...)
+	-- Bind it
+	cmd:BindDescriptorSets("graphics", self.pipeline_layout, {ds}, 0)
 end
 
 function Pipeline:PushConstants(cmd, stage, binding_index, data, data_size)

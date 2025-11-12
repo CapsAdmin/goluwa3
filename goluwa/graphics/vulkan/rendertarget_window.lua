@@ -93,10 +93,14 @@ function WindowRenderTarget:BeginFrame()
 	end
 
 	self.image_index = image_index + 1
-	-- Reset and begin command buffer for this frame
+	-- Reset command buffer for this frame (but don't begin yet - that happens after descriptor updates)
 	self.command_buffers[self.current_frame]:Reset()
-	self.command_buffers[self.current_frame]:Begin()
 	return true
+end
+
+function WindowRenderTarget:BeginCommandBuffer()
+	-- Begin command buffer recording
+	self.command_buffers[self.current_frame]:Begin()
 end
 
 function WindowRenderTarget:EndFrame()
