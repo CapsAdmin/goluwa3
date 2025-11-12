@@ -50,6 +50,30 @@ function Pipeline.New(renderer, config)
 		end
 	end
 
+	-- Validate push constant ranges don't exceed device limits
+	if #push_constant_ranges > 0 then
+		local device_properties = renderer.physical_device:GetProperties()
+		local max_push_constants_size = device_properties[0].limits.maxPushConstantsSize
+
+		for i, range in ipairs(push_constant_ranges) do
+			local range_end = range.offset + range.size
+
+			if range_end > max_push_constants_size then
+				error(
+					string.format(
+						"Push constant range [%d] for %s stage exceeds device limit: offset(%d) + size(%d) = %d > maxPushConstantsSize(%d)",
+						i,
+						range.stage,
+						range.offset,
+						range.size,
+						range_end,
+						max_push_constants_size
+					)
+				)
+			end
+		end
+	end
+
 	local descriptorSetLayout = renderer.device:CreateDescriptorSetLayout(layout)
 	local pipelineLayout = renderer.device:CreatePipelineLayout({descriptorSetLayout}, push_constant_ranges)
 	-- Create one descriptor set per swapchain image for frame buffering

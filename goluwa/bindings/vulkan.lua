@@ -340,6 +340,12 @@ do -- instance
 			return out
 		end
 
+		function PhysicalDevice:GetProperties()
+			local properties = T.Box(vk.VkPhysicalDeviceProperties)()
+			lib.vkGetPhysicalDeviceProperties(self.ptr, properties)
+			return properties
+		end
+
 		function PhysicalDevice:GetExtendedDynamicStateFeatures()
 			-- Chain v1, v2, and v3 feature queries together
 			local queryFeaturesV3 = T.Box(

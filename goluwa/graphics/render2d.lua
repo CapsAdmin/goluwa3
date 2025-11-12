@@ -11,28 +11,34 @@ local event = require("event")
 local VertexBuffer = require("graphics.vertex_buffer")
 local IndexBuffer = require("graphics.index_buffer")
 local Texture = require("graphics.texture")
-local Constants = ffi.typeof(
-	[[
+-- Vertex shader push constants (64 bytes)
+local VertexConstants = ffi.typeof([[
 	struct {
 		$ projection_view_world;
-        float alpha_multiplier;
-        float alpha_test_ref;
-        $ hsv_mult;
-        $ global_color;
-        $ color_override;
-        float border_radius;
-        $ screen_size;
-        $ world;
+	}
+]], Matrix44f -- projection_view_world
+)
+-- Fragment shader push constants (64 bytes - fits in remaining 64 byte budget)
+local FragmentConstants = ffi.typeof(
+	[[
+	struct {
+        $ global_color;           // 16 bytes
+        $ color_override;         // 16 bytes
+        $ hsv_mult;               // 12 bytes
+        float alpha_multiplier;   // 4 bytes
+        $ world_scale;            // 8 bytes
+        float alpha_test_ref;     // 4 bytes
+        float border_radius;      // 4 bytes
 	}
 ]],
-	Matrix44f, -- projection_view_world
-	Vec3f, -- hsv_mult
 	Colorf, -- global_color
 	Colorf, -- color_override
-	Vec2f, -- screen_size
-	Matrix44f -- world
+	Vec3f, -- hsv_mult
+	Vec2f -- world_scale
+-- Total: 64 bytes (offset 64-127, fits within 128 byte max)
 )
-local shader_constants = Constants()
+local vertex_constants = VertexConstants()
+local fragment_constants = FragmentConstants()
 local render2d = {}
 -- Blend mode presets
 render2d.blend_modes = {
@@ -179,16 +185,8 @@ do -- shader
 					layout(location = 1) in vec2 in_uv;
 					layout(location = 2) in vec4 in_color;
 
-					layout(push_constant, scalar) uniform Constants {
+					layout(push_constant, scalar) uniform VertexConstants {
 						mat4 projection_view_world;
-                        float alpha_multiplier;
-                        float alpha_test_ref;
-                        vec3 hsv_mult;
-                        vec4 global_color;
-                        vec4 color_override;
-                        float border_radius;
-                        vec2 screen_size;
-                        mat4 world;
 					} pc;
 
 					layout(location = 0) out vec2 out_uv;
@@ -238,7 +236,7 @@ do -- shader
 					primitive_restart = false,
 				},
 				push_constants = {
-					size = ffi.sizeof(Constants),
+					size = ffi.sizeof(VertexConstants),
 					offset = 0,
 				},
 			},
@@ -253,16 +251,14 @@ do -- shader
 					layout(location = 1) in vec4 in_color;
 					layout(location = 0) out vec4 out_color;
 
-                    layout(push_constant, scalar) uniform Constants {
-						mat4 projection_view_world;
-                        float alpha_multiplier;
-                        float alpha_test_ref;
-                        vec3 hsv_mult;
-                        vec4 global_color;
+                    layout(push_constant, scalar) uniform FragmentConstants {
+						layout(offset = 64) vec4 global_color;
                         vec4 color_override;
-                        float border_radius;
-                        vec2 screen_size;
-                        mat4 world;
+						vec3 hsv_mult;
+						float alpha_multiplier;
+						vec2 world_scale;
+						float alpha_test_ref;
+						float border_radius;
 					} pc;
 
                     vec3 rgb2hsv(vec3 c)
@@ -308,18 +304,21 @@ do -- shader
                             out_color.rgb = hsv2rgb(rgb2hsv(out_color.rgb) * hsv_mult);
                         }
 
+                        // Calculate screen size from gl_FragCoord instead of push constant
+                        vec2 screen_size = vec2(1.0 / fwidth(gl_FragCoord.x), 1.0 / fwidth(gl_FragCoord.y));
+                        
                         vec2 ratio = vec2(1, 1);
 
-                        if (pc.screen_size.y > pc.screen_size.x) {
-                            ratio = vec2(1, pc.screen_size.y / pc.screen_size.x);
+                        if (screen_size.y > screen_size.x) {
+                            ratio = vec2(1, screen_size.y / screen_size.x);
                         } else {
-                            ratio = vec2(1, pc.screen_size.y / pc.screen_size.x);
+                            ratio = vec2(1, screen_size.y / screen_size.x);
                         }
 
                         float radius = pc.border_radius;
                         if (radius > 0) {
                             float softness = 50;
-                            vec2 scale = vec2(pc.world[0][0], pc.world[1][1]);
+                            vec2 scale = pc.world_scale;
                             vec2 ratio2 = vec2(scale.y / scale.x, 1);
                             vec2 size = scale;
                             radius = min(radius, scale.x/2);
@@ -360,8 +359,8 @@ do -- shader
 					},
 				},
 				push_constants = {
-					size = ffi.sizeof(Constants),
-					offset = 0,
+					size = ffi.sizeof(FragmentConstants),
+					offset = 64, -- Must not overlap with vertex push constants (0-63)
 				},
 			},
 		},
@@ -410,59 +409,59 @@ do -- shader
 	end
 
 	function render2d.SetHSV(h, s, v)
-		shader_constants.hsv_mult.x = h
-		shader_constants.hsv_mult.y = s
-		shader_constants.hsv_mult.z = v
+		fragment_constants.hsv_mult.x = h
+		fragment_constants.hsv_mult.y = s
+		fragment_constants.hsv_mult.z = v
 	end
 
 	function render2d.GetHSV()
-		return shader_constants.hsv_mult:Unpack()
+		return fragment_constants.hsv_mult:Unpack()
 	end
 
 	utility.MakePushPopFunction(render2d, "HSV")
 
 	function render2d.SetColor(r, g, b, a)
-		shader_constants.global_color.r = r
-		shader_constants.global_color.g = g
-		shader_constants.global_color.b = b
-		shader_constants.global_color.a = a or shader_constants.global_color.a
+		fragment_constants.global_color.r = r
+		fragment_constants.global_color.g = g
+		fragment_constants.global_color.b = b
+		fragment_constants.global_color.a = a or fragment_constants.global_color.a
 	end
 
 	function render2d.GetColor()
-		return shader_constants.global_color:Unpack()
+		return fragment_constants.global_color:Unpack()
 	end
 
 	utility.MakePushPopFunction(render2d, "Color")
 
 	function render2d.SetColorOverride(r, g, b, a)
-		shader_constants.color_override.r = r
-		shader_constants.color_override.g = g
-		shader_constants.color_override.b = b
-		shader_constants.color_override.a = a or shader_constants.color_override.a
+		fragment_constants.color_override.r = r
+		fragment_constants.color_override.g = g
+		fragment_constants.color_override.b = b
+		fragment_constants.color_override.a = a or fragment_constants.color_override.a
 	end
 
 	function render2d.GetColorOverride()
-		return shader_constants.color_override:Unpack()
+		return fragment_constants.color_override:Unpack()
 	end
 
 	utility.MakePushPopFunction(render2d, "ColorOverride")
 
 	function render2d.SetAlpha(a)
-		shader_constants.global_color.a = a
+		fragment_constants.global_color.a = a
 	end
 
 	function render2d.GetAlpha()
-		return shader_constants.global_color.a
+		return fragment_constants.global_color.a
 	end
 
 	utility.MakePushPopFunction(render2d, "Alpha")
 
 	function render2d.SetAlphaMultiplier(a)
-		shader_constants.alpha_multiplier = a or shader_constants.alpha_multiplier
+		fragment_constants.alpha_multiplier = a or fragment_constants.alpha_multiplier
 	end
 
 	function render2d.GetAlphaMultiplier()
-		return shader_constants.alpha_multiplier
+		return fragment_constants.alpha_multiplier
 	end
 
 	utility.MakePushPopFunction(render2d, "AlphaMultiplier")
@@ -480,11 +479,11 @@ do -- shader
 	function render2d.SetAlphaTestReference(num)
 		if not num then num = 0 end
 
-		shader_constants.alpha_test_ref = num
+		fragment_constants.alpha_test_ref = num
 	end
 
 	function render2d.GetAlphaTestReference()
-		return shader_constants.alpha_test_ref
+		return fragment_constants.alpha_test_ref
 	end
 
 	utility.MakePushPopFunction(render2d, "AlphaTestReference")
@@ -492,11 +491,11 @@ do -- shader
 	function render2d.SetBorderRadius(num)
 		if not num then num = 0 end
 
-		shader_constants.border_radius = num
+		fragment_constants.border_radius = num
 	end
 
 	function render2d.GetBorderRadius()
-		return shader_constants.border_radius
+		return fragment_constants.border_radius
 	end
 
 	utility.MakePushPopFunction(render2d, "BorderRadius")
@@ -570,14 +569,18 @@ do -- shader
 			render2d.last_texture = render2d.current_texture
 		end
 
-		shader_constants.projection_view_world = render2d.camera:GetMatrices().projection_view_world
-		shader_constants.world = render2d.camera:GetMatrices().world
-		render2d.pipeline:PushConstants(cmd, {"vertex", "fragment"}, 0, shader_constants)
+		-- Update vertex constants
+		vertex_constants.projection_view_world = render2d.camera:GetMatrices().projection_view_world
+		render2d.pipeline:PushConstants(cmd, "vertex", 0, vertex_constants)
+		-- Update fragment constants
+		local world_matrix = render2d.camera:GetMatrices().world
+		fragment_constants.world_scale = Vec2f(world_matrix.m00, world_matrix.m11)
+		render2d.pipeline:PushConstants(cmd, "fragment", 64, fragment_constants)
 	end
 
 	function render2d.UpdateScreenSize(size)
 		render2d.camera:SetViewport(Rect(0, 0, size.x, size.y))
-		shader_constants.screen_size = Vec2f(size.x, size.y)
+	-- screen_size is now calculated in the shader from gl_FragCoord
 	end
 end
 

@@ -65,8 +65,9 @@ if true then
 
 	event.AddListener("Draw2D", "test", function(dt)
 		render2d.SetColor(1, 0, 0)
-		render2d.SetTexture(gfx.quadrant_circle_texture)
+		render2d.SetTexture(texture)
 		render2d.DrawRect(10, 10, 30, 30)
+		-- gfx
 		gfx.DrawFilledCircle(200, 200, 100)
 
 		do
