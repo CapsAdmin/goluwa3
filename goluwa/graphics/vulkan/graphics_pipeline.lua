@@ -141,6 +141,13 @@ function Pipeline.New(renderer, config)
 	self.current_variant_key = nil
 	self.base_pipeline = pipeline
 
+	do
+		self.texture_registry = {} -- texture_object -> index mapping
+		self.texture_array = {} -- array of {view, sampler} for descriptor set
+		self.next_texture_index = 0
+		self.max_textures = 1024
+	end
+
 	-- Initialize all descriptor sets with the same initial bindings
 	for frame_index = 1, descriptor_set_count do
 		for i, stage in ipairs(config.shader_stages) do
@@ -155,6 +162,30 @@ function Pipeline.New(renderer, config)
 	end
 
 	return self
+end
+
+function Pipeline:RegisterTexture(tex)
+	if self.texture_registry[tex] then return self.texture_registry[tex] end
+
+	-- Check if we have space
+	if self.next_texture_index >= self.max_textures then
+		error("Texture registry full! Max textures: " .. self.max_textures)
+	end
+
+	-- Register the texture
+	local index = self.next_texture_index
+	self.texture_registry[tex] = index
+	self.texture_array[index + 1] = {view = tex.view, sampler = tex.sampler}
+	self.next_texture_index = self.next_texture_index + 1
+
+	-- Update all descriptor sets with the new texture array
+	for frame_i = 1, #self.descriptor_sets do
+		self:UpdateDescriptorSetArray(frame_i, 0, self.texture_array)
+	end
+end
+
+function Pipeline:GetTextureIndex(tex)
+	return self.texture_registry[tex] or 0
 end
 
 function Pipeline:UpdateDescriptorSet(type, index, binding_index, ...)

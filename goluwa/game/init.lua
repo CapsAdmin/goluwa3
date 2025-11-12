@@ -25,6 +25,7 @@ local index_buffer = render.CreateBuffer(
 	}
 )
 local texture = Texture.New({path = "assets/images/capsadmin.png"})
+render3d.SetTexture(texture)
 _G.refs = {texture, vertex_buffer, index_buffer}
 local transforms = {}
 
@@ -45,7 +46,6 @@ end
 local center_transform = Transform.New()
 center_transform:SetSize(5)
 table.insert(transforms, center_transform)
-render3d.UpdateDescriptorSet("combined_image_sampler", 1, 0, texture:GetView(), texture:GetSampler())
 
 event.AddListener("Draw3D", "draw_cube", function(cmd, dt)
 	center_transform:SetAngles(Ang3(system.GetTime(), system.GetTime(), system.GetTime()))

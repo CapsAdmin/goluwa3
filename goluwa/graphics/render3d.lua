@@ -5,12 +5,16 @@ local window = require("graphics.window")
 local camera = require("graphics.camera")
 local Matrix44f = require("structs.matrix").Matrix44f
 local cam = camera.CreateCamera()
-local MatrixConstants = ffi.typeof([[
+local VertexConstants = ffi.typeof([[
 	struct {
-		$ projection_view;
-		$ world;
+		$ projection_view_world;
 	}
-]], Matrix44f, Matrix44f)
+]], Matrix44f)
+local FragmentConstants = ffi.typeof([[
+	struct {
+		int texture_index;
+	}
+]])
 local pipeline = render.CreateGraphicsPipeline(
 	{
 		dynamic_states = {"viewport", "scissor"},
@@ -21,21 +25,19 @@ local pipeline = render.CreateGraphicsPipeline(
 					#version 450
 					#extension GL_EXT_scalar_block_layout : require
 
-
 					layout(location = 0) in vec3 in_position;
 					layout(location = 1) in vec3 in_normal;
 					layout(location = 2) in vec2 in_uv;
 
-					layout(push_constant, scalar) uniform MatrixConstants {
-						mat4 projection_view;
-						mat4 world;
+					layout(push_constant, scalar) uniform Constants {
+						mat4 projection_view_world;
 					} pc;
 
 					layout(location = 0) out vec3 out_normal;
 					layout(location = 1) out vec2 out_uv;
 
 					void main() {
-						gl_Position = pc.projection_view * pc.world * vec4(in_position, 1.0);
+						gl_Position = pc.projection_view_world * vec4(in_position, 1.0);
 						out_normal = in_normal;
 						out_uv = in_uv;
 					}
@@ -72,7 +74,7 @@ local pipeline = render.CreateGraphicsPipeline(
 					primitive_restart = false,
 				},
 				push_constants = {
-					size = ffi.sizeof(MatrixConstants),
+					size = ffi.sizeof(VertexConstants),
 					offset = 0,
 				},
 			},
@@ -80,27 +82,33 @@ local pipeline = render.CreateGraphicsPipeline(
 				type = "fragment",
 				code = [[
 					#version 450
+					#extension GL_EXT_nonuniform_qualifier : require
 
-					layout(binding = 0) uniform sampler2D tex_sampler;
+					layout(binding = 0) uniform sampler2D textures[1024]; // Bindless texture array
 
 					// from vertex shader
-					layout(location = 0) in vec3 frag_normal;
-					layout(location = 1) in vec2 frag_uv;
+					layout(location = 0) in vec3 in_normal;
+					layout(location = 1) in vec2 in_uv;
 
 					// output color
 					layout(location = 0) out vec4 out_color;
 
+					layout(push_constant) uniform Constants {
+						layout(offset = ]] .. ffi.sizeof(VertexConstants) .. [[)
+						int texture_index;
+					} pc;
+
 					void main() {
 						// Simple directional light
 						vec3 light_dir = normalize(vec3(0.5, -1.0, 0.3));
-						vec3 normal = normalize(frag_normal);
+						vec3 normal = normalize(in_normal);
 						float diffuse = max(dot(normal, -light_dir), 0.0);
 						
 						// Ambient + diffuse lighting
 						float ambient = 0.3;
 						float lighting = ambient + diffuse * 0.7;
 						
-						vec4 tex_color = texture(tex_sampler, frag_uv);
+						vec4 tex_color = texture(textures[nonuniformEXT(pc.texture_index)], in_uv);
 						out_color.rgb = tex_color.rgb * lighting;
 						out_color.a = tex_color.a;
 					}
@@ -109,7 +117,12 @@ local pipeline = render.CreateGraphicsPipeline(
 					{
 						type = "combined_image_sampler",
 						binding_index = 0,
+						count = 1024,
 					},
+				},
+				push_constants = {
+					size = ffi.sizeof(FragmentConstants),
+					offset = ffi.sizeof(VertexConstants),
 				},
 			},
 		},
@@ -152,29 +165,12 @@ local pipeline = render.CreateGraphicsPipeline(
 		},
 	}
 )
-
 local render3d = {}
 render3d.cam = cam
 render3d.pipeline = pipeline
 render3d.current_texture = nil -- Will be set by user via UpdateDescriptorSet
-
 event.AddListener("Draw", "draw_3d", function(cmd, dt)
 	local frame_index = render.GetCurrentFrame()
-
-	-- Update descriptor set for this frame with the current texture
-	-- If no texture is set, use render2d's white texture as default
-	if render3d.current_texture then
-		local tex = render3d.current_texture
-		pipeline:UpdateDescriptorSet("combined_image_sampler", frame_index, 0, tex.view, tex.sampler)
-	else
-		-- Use render2d's white texture as fallback
-		local render2d = require("graphics.render2d")
-		if render2d.IsReady() then
-			local tex = render2d.white_texture
-			pipeline:UpdateDescriptorSet("combined_image_sampler", frame_index, 0, tex.view, tex.sampler)
-		end
-	end
-
 	pipeline:Bind(cmd, frame_index)
 	event.Call("Draw3D", cmd, dt)
 end)
@@ -184,45 +180,24 @@ function render3d.SetWorldMatrix(world)
 end
 
 function render3d.UploadConstants(cmd)
-	pipeline:PushConstants(
-		cmd,
-		"vertex",
-		0,
-		MatrixConstants(
-			{
-				projection_view = cam:GetMatrices().projection_view,
-				world = cam:GetMatrices().world,
-			}
-		)
-	)
+	local matrices = cam:GetMatrices()
+
+	do
+		local vertex_constants = VertexConstants()
+		vertex_constants.projection_view_world = matrices.projection_view_world
+		pipeline:PushConstants(cmd, "vertex", 0, vertex_constants)
+	end
+
+	do
+		local fragment_constants = FragmentConstants()
+		fragment_constants.texture_index = pipeline:GetTextureIndex(render3d.current_texture)
+		pipeline:PushConstants(cmd, "fragment", ffi.sizeof(VertexConstants), fragment_constants)
+	end
 end
 
 function render3d.SetTexture(tex)
 	render3d.current_texture = tex
-
-	-- If we're in the middle of rendering (frame_index > 0), update the descriptor set immediately
-	-- This allows drawing multiple objects with different textures in the same frame
-	local frame_index = render.GetCurrentFrame()
-	if frame_index > 0 then
-		pipeline:UpdateDescriptorSet("combined_image_sampler", frame_index, 0, tex.view, tex.sampler)
-	end
-end
-
-function render3d.UpdateDescriptorSet(type, index, binding_index, ...)
-	-- For combined_image_sampler, store it and update immediately if we're rendering
-	if type == "combined_image_sampler" and binding_index == 0 then
-		local view, sampler = ...
-		render3d.current_texture = {view = view, sampler = sampler}
-
-		-- If we're in the middle of rendering, update the descriptor set immediately
-		local frame_index = render.GetCurrentFrame()
-		if frame_index > 0 then
-			pipeline:UpdateDescriptorSet(type, frame_index, binding_index, view, sampler)
-		end
-	else
-		-- For other descriptor types, update directly
-		pipeline:UpdateDescriptorSet(type, index, binding_index, ...)
-	end
+	pipeline:RegisterTexture(tex)
 end
 
 return render3d

@@ -16,8 +16,7 @@ local VertexConstants = ffi.typeof([[
 	struct {
 		$ projection_view_world;
 	}
-]], Matrix44f -- projection_view_world
-)
+]], Matrix44f)
 -- Fragment shader push constants (64 bytes - fits in remaining 64 byte budget)
 local FragmentConstants = ffi.typeof(
 	[[
@@ -41,11 +40,6 @@ local FragmentConstants = ffi.typeof(
 local vertex_constants = VertexConstants()
 local fragment_constants = FragmentConstants()
 local render2d = {}
--- Bindless texture management
-render2d.texture_registry = {} -- texture_object -> index mapping
-render2d.texture_array = {} -- array of {view, sampler} for descriptor set
-render2d.next_texture_index = 0
-render2d.max_textures = 1024
 -- Blend mode presets
 render2d.blend_modes = {
 	alpha = {
@@ -163,8 +157,6 @@ function render2d.Initialize()
 	render2d.SetAlphaTestReference(0)
 	render2d.SetBorderRadius(0)
 	render2d.UpdateScreenSize(window:GetSize())
-	-- Register white texture as index 0 for bindless
-	render2d.RegisterTexture(render2d.white_texture)
 	render2d.ready = true
 end
 
@@ -244,25 +236,28 @@ do -- shader
 			{
 				type = "fragment",
 				code = [[
-			#version 450
-			#extension GL_EXT_scalar_block_layout : require
-			#extension GL_EXT_nonuniform_qualifier : require
+					#version 450
+					#extension GL_EXT_scalar_block_layout : require
+					#extension GL_EXT_nonuniform_qualifier : require
 
-			layout(binding = 0) uniform sampler2D textures[1024]; // Bindless texture array
-			layout(location = 0) in vec2 in_uv;
-			layout(location = 1) in vec4 in_color;
-			layout(location = 0) out vec4 out_color;
+					layout(binding = 0) uniform sampler2D textures[1024]; // Bindless texture array
+					layout(location = 0) in vec2 in_uv;
+					layout(location = 1) in vec4 in_color;
+					layout(location = 0) out vec4 out_color;
 
-			layout(push_constant, scalar) uniform FragmentConstants {
-				layout(offset = 64) vec4 global_color;
-				vec4 color_override;
-				vec3 hsv_mult;
-				//float alpha_multiplier;
-				vec2 world_scale;
-				float alpha_test_ref;
-				float border_radius;
-				int texture_index;
-			} pc;                    vec3 rgb2hsv(vec3 c)
+					layout(push_constant, scalar) uniform FragmentConstants {
+						layout(offset = ]] .. ffi.sizeof(VertexConstants) .. [[)
+						vec4 global_color;
+						vec4 color_override;
+						vec3 hsv_mult;
+						//float alpha_multiplier;
+						vec2 world_scale;
+						float alpha_test_ref;
+						float border_radius;
+						int texture_index;
+					} pc;                   
+					
+					vec3 rgb2hsv(vec3 c)
                     {
                         vec4 K = vec4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);
                         vec4 p = mix(vec4(c.bg, K.wz), vec4(c.gb, K.xy), step(c.b, c.g));
@@ -280,87 +275,86 @@ do -- shader
                         return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
                     }
 
-				void main() {
-					
-					vec4 tex_color = texture(textures[nonuniformEXT(pc.texture_index)], in_uv);
-					float alpha_test = pc.alpha_test_ref;
-					if (alpha_test > 0.0) {
-						if (tex_color.a < alpha_test) {
-							discard;
+					void main() {
+						
+						vec4 tex_color = texture(textures[nonuniformEXT(pc.texture_index)], in_uv);
+						float alpha_test = pc.alpha_test_ref;
+						if (alpha_test > 0.0) {
+							if (tex_color.a < alpha_test) {
+								discard;
+							}
 						}
-					}
 
-					vec4 override = pc.color_override;                        if (override.r > 0) tex_color.r = override.r;
-                        if (override.g > 0) tex_color.g = override.g;
-                        if (override.b > 0) tex_color.b = override.b;
-                        if (override.a > 0) tex_color.a = override.a;
+						vec4 override = pc.color_override;                        
+						if (override.r > 0) tex_color.r = override.r;
+							if (override.g > 0) tex_color.g = override.g;
+							if (override.b > 0) tex_color.b = override.b;
+							if (override.a > 0) tex_color.a = override.a;
 
-                        out_color = tex_color * in_color * pc.global_color;
-                        out_color.a = out_color.a;// * pc.alpha_multiplier;
+							out_color = tex_color * in_color * pc.global_color;
+							out_color.a = out_color.a;// * pc.alpha_multiplier;
 
-                        vec3 hsv_mult = pc.hsv_mult;
-                        if (hsv_mult != vec3(1,1,1)) {
-                            out_color.rgb = hsv2rgb(rgb2hsv(out_color.rgb) * hsv_mult);
-                        }
+							vec3 hsv_mult = pc.hsv_mult;
+							if (hsv_mult != vec3(1,1,1)) {
+								out_color.rgb = hsv2rgb(rgb2hsv(out_color.rgb) * hsv_mult);
+							}
 
-                        // Calculate screen size from gl_FragCoord instead of push constant
-                        vec2 screen_size = vec2(1.0 / fwidth(gl_FragCoord.x), 1.0 / fwidth(gl_FragCoord.y));
-                        
-                        vec2 ratio = vec2(1, 1);
+							// Calculate screen size from gl_FragCoord instead of push constant
+							vec2 screen_size = vec2(1.0 / fwidth(gl_FragCoord.x), 1.0 / fwidth(gl_FragCoord.y));
+							
+							vec2 ratio = vec2(1, 1);
 
-                        if (screen_size.y > screen_size.x) {
-                            ratio = vec2(1, screen_size.y / screen_size.x);
-                        } else {
-                            ratio = vec2(1, screen_size.y / screen_size.x);
-                        }
+							if (screen_size.y > screen_size.x) {
+								ratio = vec2(1, screen_size.y / screen_size.x);
+							} else {
+								ratio = vec2(1, screen_size.y / screen_size.x);
+							}
 
-                        float radius = pc.border_radius;
-                        if (radius > 0) {
-                            float softness = 50;
-                            vec2 scale = pc.world_scale;
-                            vec2 ratio2 = vec2(scale.y / scale.x, 1);
-                            vec2 size = scale;
-                            radius = min(radius, scale.x/2);
-                            radius = min(radius, scale.y/2);
+							float radius = pc.border_radius;
+							if (radius > 0) {
+								float softness = 50;
+								vec2 scale = pc.world_scale;
+								vec2 ratio2 = vec2(scale.y / scale.x, 1);
+								vec2 size = scale;
+								radius = min(radius, scale.x/2);
+								radius = min(radius, scale.y/2);
 
-                            if (in_uv.x > 1.0 - radius/scale.x && in_uv.y > 1.0 - radius/scale.y) {
-                                float distance = 0;
-                                distance += length((in_uv - vec2(1, 1) + vec2(radius/scale.x, radius/scale.y)) * scale) * 1/radius;
-                                out_color.a *= -pow(distance, softness)+1;
-                            }
+								if (in_uv.x > 1.0 - radius/scale.x && in_uv.y > 1.0 - radius/scale.y) {
+									float distance = 0;
+									distance += length((in_uv - vec2(1, 1) + vec2(radius/scale.x, radius/scale.y)) * scale) * 1/radius;
+									out_color.a *= -pow(distance, softness)+1;
+								}
 
-                            if (in_uv.x < radius/scale.x && in_uv.y > 1.0 - radius/scale.y) {
-                                float distance = 0;
-                                distance += length((in_uv - vec2(0, 1) + vec2(-radius/scale.x, radius/scale.y)) * scale) * 1/radius;
-                                out_color.a *= -pow(distance, softness)+1;
-                            }
+								if (in_uv.x < radius/scale.x && in_uv.y > 1.0 - radius/scale.y) {
+									float distance = 0;
+									distance += length((in_uv - vec2(0, 1) + vec2(-radius/scale.x, radius/scale.y)) * scale) * 1/radius;
+									out_color.a *= -pow(distance, softness)+1;
+								}
 
-                            if (in_uv.x > 1.0 - radius/scale.x && in_uv.y < radius/scale.y) {
-                                float distance = 0;
-                                distance += length((in_uv - vec2(1, 0) + vec2(radius/scale.x, -radius/scale.y)) * scale) * 1/radius;
-                                out_color.a *= -pow(distance, softness)+1;
-                            }
+								if (in_uv.x > 1.0 - radius/scale.x && in_uv.y < radius/scale.y) {
+									float distance = 0;
+									distance += length((in_uv - vec2(1, 0) + vec2(radius/scale.x, -radius/scale.y)) * scale) * 1/radius;
+									out_color.a *= -pow(distance, softness)+1;
+								}
 
-                            if (in_uv.x < radius/scale.x && in_uv.y < radius/scale.y) {
-                                float distance = 0;
-                                distance += length((in_uv - vec2(0, 0) + vec2(-radius/scale.x, -radius/scale.y)) * scale) * 1/radius;
-                                out_color.a *= -pow(distance, softness)+1;
-                            }
-                        }
-
-
-					}
+								if (in_uv.x < radius/scale.x && in_uv.y < radius/scale.y) {
+									float distance = 0;
+									distance += length((in_uv - vec2(0, 0) + vec2(-radius/scale.x, -radius/scale.y)) * scale) * 1/radius;
+									out_color.a *= -pow(distance, softness)+1;
+								}
+							}
+						}
 				]],
 				descriptor_sets = {
 					{
 						type = "combined_image_sampler",
 						binding_index = 0,
-						count = 1024, -- Array of 1024 textures for bindless
+						count = 1024,
 					},
 				},
 				push_constants = {
 					size = ffi.sizeof(FragmentConstants),
-					offset = 64, -- Must not overlap with vertex push constants (0-63)
+					offset = ffi.sizeof(VertexConstants),
 				},
 			},
 		},
@@ -464,38 +458,10 @@ do -- shader
 
 	utility.MakePushPopFunction(render2d, "AlphaMultiplier")
 
-	-- Bindless texture registration
-	function render2d.RegisterTexture(tex)
-		-- Check if texture is already registered
-		if render2d.texture_registry[tex] then
-			return render2d.texture_registry[tex]
-		end
-
-		-- Check if we have space
-		if render2d.next_texture_index >= render2d.max_textures then
-			error("Texture registry full! Max textures: " .. render2d.max_textures)
-		end
-
-		-- Register the texture
-		local index = render2d.next_texture_index
-		render2d.texture_registry[tex] = index
-		render2d.texture_array[index + 1] = {view = tex.view, sampler = tex.sampler}
-		render2d.next_texture_index = render2d.next_texture_index + 1
-
-		-- Update all descriptor sets with the new texture array
-		for frame_i = 1, render.GetSwapchainImageCount() do
-			render2d.pipeline:UpdateDescriptorSetArray(frame_i, 0, render2d.texture_array)
-		end
-
-		return index
-	end
-
 	function render2d.SetTexture(tex)
 		tex = tex or render2d.white_texture
 		render2d.current_texture = tex
-
-		-- Register texture if not already registered (bindless)
-		if not render2d.texture_registry[tex] then render2d.RegisterTexture(tex) end
+		render2d.pipeline:RegisterTexture(tex)
 	end
 
 	function render2d.GetTexture()
@@ -587,22 +553,22 @@ do -- shader
 	end
 
 	function render2d.UploadConstants(cmd)
-		-- With bindless textures, we don't need to rebind descriptor sets
-		-- Just update the texture index in push constants
-		render2d.last_texture = render2d.current_texture
-		-- Update vertex constants
-		vertex_constants.projection_view_world = render2d.camera:GetMatrices().projection_view_world
-		render2d.pipeline:PushConstants(cmd, "vertex", 0, vertex_constants)
-		-- Update fragment constants (including texture index)
-		local world_matrix = render2d.camera:GetMatrices().world
-		fragment_constants.world_scale = Vec2f(world_matrix.m00, world_matrix.m11)
-		fragment_constants.texture_index = render2d.texture_registry[render2d.current_texture] or 0
-		render2d.pipeline:PushConstants(cmd, "fragment", 64, fragment_constants)
+		local matrices = render2d.camera:GetMatrices()
+
+		do
+			vertex_constants.projection_view_world = matrices.projection_view_world
+			render2d.pipeline:PushConstants(cmd, "vertex", 0, vertex_constants)
+		end
+
+		do
+			fragment_constants.world_scale = Vec2f(matrices.world.m00, matrices.world.m11)
+			fragment_constants.texture_index = render2d.pipeline:GetTextureIndex(render2d.current_texture)
+			render2d.pipeline:PushConstants(cmd, "fragment", ffi.sizeof(fragment_constants), fragment_constants)
+		end
 	end
 
 	function render2d.UpdateScreenSize(size)
 		render2d.camera:SetViewport(Rect(0, 0, size.x, size.y))
-	-- screen_size is now calculated in the shader from gl_FragCoord
 	end
 end
 
@@ -974,7 +940,6 @@ event.AddListener("PostDraw", "draw_2d", function(cmd, dt)
 	cmd:BindVertexBuffer(render2d.rectangle:GetBuffer(), 0)
 	cmd:BindIndexBuffer(render2d.rectangle_indices:GetBuffer(), 0, "uint16")
 	render2d.cmd = cmd
-	render2d.texture_changed = false
 
 	-- Set initial blend mode for the frame (only if dynamic blend is supported)
 	if render2d.has_dynamic_blend then
