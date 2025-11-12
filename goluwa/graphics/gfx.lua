@@ -7,11 +7,11 @@ function gfx.Initialize()
 	gfx.ninepatch_poly = Polygon2D.New(9 * 6)
 	local tex = Texture.New(
 		{
-			width = 4,
-			height = 4,
+			width = 1024,
+			height = 1024,
 			format = "R8G8B8A8_UNORM",
-			min_filter = "nearest",
-			mag_filter = "nearest",
+			min_filter = "linear",
+			mag_filter = "linear",
 			wrap_s = "mirrored_repeat",
 			wrap_t = "mirrored_repeat",
 			mip_map_levels = 32,

@@ -1,10 +1,19 @@
 local ffi = require("ffi")
 local render = require("graphics.render")
+local file_formats = require("file_formats")
 local Vec2f = require("structs.vec2").Vec2f
 local Texture = {}
 Texture.__index = Texture
 
 function Texture.New(config)
+	if config.path then
+		local img = file_formats.LoadPNG(config.path)
+		config.width = img.width
+		config.height = img.height
+		config.format = "R8G8B8A8_UNORM"
+		config.buffer = img.buffer:GetBuffer()
+	end
+
 	local image = render.CreateImage(
 		config.width,
 		config.height,
@@ -43,6 +52,18 @@ function Texture.New(config)
 	)
 end
 
+function Texture:GetImage()
+	return self.image
+end
+
+function Texture:GetView()
+	return self.view
+end
+
+function Texture:GetSampler()
+	return self.sampler
+end
+
 function Texture:GetSize()
 	return Vec2f(self.image:GetWidth(), self.image:GetHeight())
 end
@@ -54,11 +75,7 @@ end
 
 do
 	function Texture:Shade(glsl)
-		do
-			return
-		end
-
-		collectgarbage("stop")
+		collectgarbage("stop") -- TODO, there is a gc bug somewhere, keep this for now
 		local device = render.GetDevice()
 		local queue = render.GetQueue()
 		local graphics_queue_family = render.GetGraphicsQueueFamily()
@@ -169,12 +186,6 @@ do
 				},
 			}
 		)
-		self.refs = {
-			render_pass = render_pass,
-			framebuffer = framebuffer,
-			command_pool = command_pool,
-			pipeline = pipeline,
-		}
 		-- Begin recording commands
 		cmd:Reset()
 		cmd:Begin()
@@ -215,7 +226,6 @@ do
 		cmd:End()
 		-- Submit and wait
 		local fence = device:CreateFence()
-		table.insert(self.refs, fence)
 		queue:SubmitAndWait(device, cmd, fence)
 	end
 end

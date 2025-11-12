@@ -300,7 +300,7 @@ do -- shader
                         if (override.b > 0) tex_color.b = override.b;
                         if (override.a > 0) tex_color.a = override.a;
 
-                        out_color = vec4(1,1,1,1) * in_color * pc.global_color;
+                        out_color = tex_color * in_color * pc.global_color;
                         out_color.a = out_color.a * pc.alpha_multiplier;
 
                         vec3 hsv_mult = pc.hsv_mult;
@@ -468,16 +468,7 @@ do -- shader
 	utility.MakePushPopFunction(render2d, "AlphaMultiplier")
 
 	function render2d.SetTexture(tex)
-		if not tex then tex = render2d.white_texture end
-
-		render2d.current_texture = tex
-		-- If we're in the middle of rendering (frame_index > 0), update the descriptor set immediately
-		-- This allows drawing multiple objects with different textures in the same frame
-		local frame_index = render.GetCurrentFrame()
-
-		if frame_index > 0 then
-			render2d.pipeline:UpdateDescriptorSet("combined_image_sampler", frame_index, 0, tex.view, tex.sampler)
-		end
+		render2d.current_texture = tex or render2d.white_texture
 	end
 
 	function render2d.GetTexture()
@@ -569,6 +560,16 @@ do -- shader
 	end
 
 	function render2d.UploadConstants(cmd)
+		-- If texture changed since last draw, update descriptor set and rebind pipeline
+		if render2d.current_texture and render2d.current_texture ~= render2d.last_texture then
+			local frame_index = render.GetCurrentFrame()
+			local tex = render2d.current_texture
+			render2d.pipeline:UpdateDescriptorSet("combined_image_sampler", frame_index, 0, tex.view, tex.sampler)
+			render2d.pipeline:Bind(cmd, frame_index)
+			-- Note: We don't need to rebind vertex/index buffers as they don't change
+			render2d.last_texture = render2d.current_texture
+		end
+
 		shader_constants.projection_view_world = render2d.camera:GetMatrices().projection_view_world
 		shader_constants.world = render2d.camera:GetMatrices().world
 		render2d.pipeline:PushConstants(cmd, {"vertex", "fragment"}, 0, shader_constants)
@@ -951,7 +952,7 @@ event.AddListener("PostDraw", "draw_2d", function(cmd, dt)
 	cmd:BindVertexBuffer(render2d.rectangle:GetBuffer(), 0)
 	cmd:BindIndexBuffer(render2d.rectangle_indices:GetBuffer(), 0, "uint16")
 	render2d.cmd = cmd
-
+	render2d.texture_changed = false -- Clear flag since we just bound the initial texture
 	-- Set initial blend mode for the frame (only if dynamic blend is supported)
 	if render2d.has_dynamic_blend then
 		render2d.SetBlendMode(render2d.current_blend_mode)
