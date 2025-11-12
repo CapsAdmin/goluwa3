@@ -31,7 +31,6 @@ function Texture.New(config)
 	end
 
 	local view = image:CreateView()
-	print(view, "!!")
 	local sampler = render.CreateSampler(
 		{
 			min_filter = config.min_filter or "nearest",

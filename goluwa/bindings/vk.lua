@@ -17,24 +17,6 @@ ffi.cdef[=[
 		typedef void* xcb_window_t;
 	]=]
 
-function mod.GetExtension(lib, instance, name)
-	local ptr = lib.vkGetInstanceProcAddr(instance, name)
-
-	if ptr == nil then error("extension function not found", 2) end
-
-	local func = ffi.cast(mod["PFN_" .. name], ptr)
-	return func
-end
-
-function mod.GetDeviceExtension(lib, device, name)
-	local ptr = lib.vkGetDeviceProcAddr(device, name)
-
-	if ptr == nil then error("device extension function not found: " .. name, 2) end
-
-	local func = ffi.cast(mod["PFN_" .. name], ptr)
-	return func
-end
-
 function mod.find_library()
 	local function try_load(tbl)
 		local errors = {}

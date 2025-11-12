@@ -180,6 +180,14 @@ do -- instance
 		lib.vkDestroyInstance(self.ptr[0], nil)
 	end
 
+	function Instance:GetExtension(name)
+		local func_ptr = lib.vkGetInstanceProcAddr(self.ptr[0], name)
+
+		if func_ptr == nil then error("extension function not found", 2) end
+
+		return ffi.cast(vk["PFN_" .. name], func_ptr)
+	end
+
 	do -- metal surface
 		local Surface = {}
 		Surface.__index = Surface
@@ -195,7 +203,7 @@ do -- instance
 				}
 			)
 			local ptr = T.Box(vk.VkSurfaceKHR)()
-			local vkCreateMetalSurfaceEXT = vk.GetExtension(lib, self.ptr[0], "vkCreateMetalSurfaceEXT")
+			local vkCreateMetalSurfaceEXT = self:GetExtension("vkCreateMetalSurfaceEXT")
 			vk_assert(
 				vkCreateMetalSurfaceEXT(self.ptr[0], surfaceCreateInfo, nil, ptr),
 				"failed to create metal surface"
@@ -546,11 +554,21 @@ do -- instance
 
 				-- Load extension functions if dynamic blend features are supported
 				if hasDynamicBlendFeatures then
-					vulkan.ext.vkCmdSetColorBlendEnableEXT = vk.GetDeviceExtension(lib, ptr[0], "vkCmdSetColorBlendEnableEXT")
-					vulkan.ext.vkCmdSetColorBlendEquationEXT = vk.GetDeviceExtension(lib, ptr[0], "vkCmdSetColorBlendEquationEXT")
+					vulkan.ext.vkCmdSetColorBlendEnableEXT = device:GetExtension("vkCmdSetColorBlendEnableEXT")
+					vulkan.ext.vkCmdSetColorBlendEquationEXT = device:GetExtension("vkCmdSetColorBlendEquationEXT")
 				end
 
 				return device
+			end
+
+			function Device:GetExtension(name)
+				local func_ptr = lib.vkGetDeviceProcAddr(self.ptr[0], name)
+
+				if func_ptr == nil then
+					error("device extension function not found: " .. name, 2)
+				end
+
+				return ffi.cast(vk["PFN_" .. name], func_ptr)
 			end
 
 			function Device:WaitIdle()
