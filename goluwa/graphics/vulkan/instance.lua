@@ -46,12 +46,13 @@ function VulkanInstance:Initialize(metal_surface)
 	self.graphics_queue_family = self.physical_device:FindGraphicsQueueFamily(self.surface)
 	-- Try to enable dynamic blend extension if available
 	local device_extensions = {"VK_KHR_swapchain"}
-
 	-- Check if VK_EXT_extended_dynamic_state3 is available
 	local available_extensions = self.physical_device:GetAvailableDeviceExtensions()
+
 	for _, ext in ipairs(available_extensions) do
 		if ext == "VK_EXT_extended_dynamic_state3" then
 			table.insert(device_extensions, "VK_EXT_extended_dynamic_state3")
+
 			break
 		end
 	end
@@ -92,7 +93,7 @@ function VulkanInstance:RecreateSwapchain()
 	-- Build swapchain config
 	local swapchain_config = {
 		present_mode = self.config.present_mode,
-		image_count = self.config.image_count or (self.surface_capabilities[0].minImageCount + 1),
+		image_count = self.config.image_count or (self.surface_capabilities.minImageCount + 1),
 		composite_alpha = self.config.composite_alpha,
 		clipped = self.config.clipped,
 		image_usage = self.config.image_usage,
@@ -147,7 +148,7 @@ function VulkanInstance:TransitionImageLayout(image, old_layout, new_layout, src
 end
 
 function VulkanInstance:GetExtent()
-	return self.surface_capabilities[0].currentExtent
+	return self.surface_capabilities.currentExtent
 end
 
 function VulkanInstance:WaitForIdle()

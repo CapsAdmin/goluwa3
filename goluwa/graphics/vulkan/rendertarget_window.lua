@@ -7,7 +7,7 @@ function WindowRenderTarget.New(renderer)
 	self.renderer = renderer
 	self.current_frame = 0
 	-- Create depth buffer
-	local extent = renderer.surface_capabilities[0].currentExtent
+	local extent = renderer.surface_capabilities.currentExtent
 	local depth_format = "D32_SFLOAT"
 	self.depth_image = renderer.device:CreateImage(
 		extent.width,

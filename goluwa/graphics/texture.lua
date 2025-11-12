@@ -75,7 +75,6 @@ end
 
 do
 	function Texture:Shade(glsl)
-		collectgarbage("stop") -- TODO, there is a gc bug somewhere, keep this for now
 		local device = render.GetDevice()
 		local queue = render.GetQueue()
 		local graphics_queue_family = render.GetGraphicsQueueFamily()
@@ -226,7 +225,9 @@ do
 		cmd:End()
 		-- Submit and wait
 		local fence = device:CreateFence()
+		self.refs = {cmd, render_pass, framebuffer, command_pool, pipeline, fence}
 		queue:SubmitAndWait(device, cmd, fence)
+		device:WaitIdle() -- Ensure ALL device operations are complete
 	end
 end
 

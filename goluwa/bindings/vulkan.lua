@@ -143,8 +143,7 @@ do -- instance
 	function vulkan.CreateInstance(extensions, layers)
 		local version = vk.VK_API_VERSION_1_4
 		llog("requesting version: " .. vulkan.VersionToString(version))
-		local appInfo = T.Box(
-			vk.VkApplicationInfo,
+		local appInfo = vk.VkApplicationInfo(
 			{
 				sType = "VK_STRUCTURE_TYPE_APPLICATION_INFO",
 				pApplicationName = "MoltenVK LuaJIT Example",
@@ -159,8 +158,7 @@ do -- instance
 			T.Array(ffi.typeof("const char*"), #extensions, extensions) or
 			nil
 		local layer_names = layers and T.Array(ffi.typeof("const char*"), #layers, layers) or nil
-		local createInfo = T.Box(
-			vk.VkInstanceCreateInfo,
+		local createInfo = vk.VkInstanceCreateInfo(
 			{
 				sType = "VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO",
 				pNext = nil,
@@ -302,7 +300,7 @@ do -- instance
 		end
 
 		function PhysicalDevice:GetSurfaceCapabilities(surface)
-			local surfaceCapabilities = T.Box(vk.VkSurfaceCapabilitiesKHR)()
+			local surfaceCapabilities = vk.VkSurfaceCapabilitiesKHR()
 			vk_assert(
 				lib.vkGetPhysicalDeviceSurfaceCapabilitiesKHR(self.ptr, surface.ptr[0], surfaceCapabilities),
 				"failed to get surface capabilities"
@@ -341,36 +339,32 @@ do -- instance
 		end
 
 		function PhysicalDevice:GetProperties()
-			local properties = T.Box(vk.VkPhysicalDeviceProperties)()
+			local properties = vk.VkPhysicalDeviceProperties()
 			lib.vkGetPhysicalDeviceProperties(self.ptr, properties)
 			return properties
 		end
 
 		function PhysicalDevice:GetExtendedDynamicStateFeatures()
 			-- Chain v1, v2, and v3 feature queries together
-			local queryFeaturesV3 = T.Box(
-				vk.VkPhysicalDeviceExtendedDynamicState3FeaturesEXT,
+			local queryFeaturesV3 = vk.VkPhysicalDeviceExtendedDynamicState3FeaturesEXT(
 				{
 					sType = "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_3_FEATURES_EXT",
 					pNext = nil,
 				}
 			)
-			local queryFeaturesV2 = T.Box(
-				vk.VkPhysicalDeviceExtendedDynamicState2FeaturesEXT,
+			local queryFeaturesV2 = vk.VkPhysicalDeviceExtendedDynamicState2FeaturesEXT(
 				{
 					sType = "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_2_FEATURES_EXT",
 					pNext = queryFeaturesV3,
 				}
 			)
-			local queryFeaturesV1 = T.Box(
-				vk.VkPhysicalDeviceExtendedDynamicStateFeaturesEXT,
+			local queryFeaturesV1 = vk.VkPhysicalDeviceExtendedDynamicStateFeaturesEXT(
 				{
 					sType = "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_FEATURES_EXT",
 					pNext = queryFeaturesV2,
 				}
 			)
-			local queryDeviceFeatures = T.Box(
-				vk.VkPhysicalDeviceFeatures2,
+			local queryDeviceFeatures = vk.VkPhysicalDeviceFeatures2(
 				{
 					sType = "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2",
 					pNext = queryFeaturesV1,
@@ -381,7 +375,7 @@ do -- instance
 			local reflect = require("helpers.ffi_reflect")
 			local tbl = {}
 			-- Extract v1 features
-			local featuresV1 = queryFeaturesV1[0]
+			local featuresV1 = queryFeaturesV1
 
 			for t in reflect.typeof(vk.VkPhysicalDeviceExtendedDynamicStateFeaturesEXT):members() do
 				local key = t.name
@@ -395,7 +389,7 @@ do -- instance
 			end
 
 			-- Extract v2 features
-			local featuresV2 = queryFeaturesV2[0]
+			local featuresV2 = queryFeaturesV2
 
 			for t in reflect.typeof(vk.VkPhysicalDeviceExtendedDynamicState2FeaturesEXT):members() do
 				local key = t.name
@@ -409,7 +403,7 @@ do -- instance
 			end
 
 			-- Extract v3 features
-			local featuresV3 = queryFeaturesV3[0]
+			local featuresV3 = queryFeaturesV3
 
 			for t in reflect.typeof(vk.VkPhysicalDeviceExtendedDynamicState3FeaturesEXT):members() do
 				local key = t.name
@@ -461,8 +455,7 @@ do -- instance
 				-- Only request features that are supported
 				if features.ColorBlendEnable and features.ColorBlendEquation then
 					hasDynamicBlendFeatures = true
-					local extendedDynamicState3Features = T.Box(
-						vk.VkPhysicalDeviceExtendedDynamicState3FeaturesEXT,
+					local extendedDynamicState3Features = vk.VkPhysicalDeviceExtendedDynamicState3FeaturesEXT(
 						{
 							sType = "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_3_FEATURES_EXT",
 							pNext = nil,
@@ -504,8 +497,7 @@ do -- instance
 
 				-- Enable scalar block layout feature for push constants
 				-- and descriptor indexing features for bindless textures
-				local vulkan12Features = T.Box(
-					vk.VkPhysicalDeviceVulkan12Features,
+				local vulkan12Features = vk.VkPhysicalDeviceVulkan12Features(
 					{
 						sType = "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES",
 						pNext = pNextChain,
@@ -519,8 +511,7 @@ do -- instance
 					}
 				)
 				local queuePriority = ffi.new("float[1]", 1.0)
-				local queueCreateInfo = T.Box(
-					vk.VkDeviceQueueCreateInfo,
+				local queueCreateInfo = vk.VkDeviceQueueCreateInfo(
 					{
 						sType = "VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO",
 						queueFamilyIndex = graphicsQueueFamily,
@@ -529,8 +520,7 @@ do -- instance
 					}
 				)
 				local deviceExtensions = T.Array(ffi.typeof("const char*"), #finalExtensions, finalExtensions)
-				local deviceCreateInfo = T.Box(
-					vk.VkDeviceCreateInfo,
+				local deviceCreateInfo = vk.VkDeviceCreateInfo(
 					{
 						sType = "VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO",
 						pNext = vulkan12Features,
@@ -578,8 +568,7 @@ do -- instance
 
 				function Device:CreateShaderModule(glsl, type)
 					local spirv_data, spirv_size = shaderc.compile(glsl, type)
-					local shaderModuleCreateInfo = T.Box(
-						vk.VkShaderModuleCreateInfo,
+					local shaderModuleCreateInfo = vk.VkShaderModuleCreateInfo(
 						{
 							sType = "VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO",
 							codeSize = spirv_size,
@@ -620,8 +609,7 @@ do -- instance
 						"uint32_t[1]",
 						vk.VkPipelineStageFlagBits("VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT")
 					)
-					local submitInfo = T.Box(
-						vk.VkSubmitInfo,
+					local submitInfo = vk.VkSubmitInfo(
 						{
 							sType = "VK_STRUCTURE_TYPE_SUBMIT_INFO",
 							waitSemaphoreCount = 1,
@@ -641,8 +629,7 @@ do -- instance
 
 				function Queue:SubmitAndWait(device, commandBuffer, fence)
 					lib.vkResetFences(device.ptr[0], 1, fence.ptr)
-					local submitInfo = T.Box(
-						vk.VkSubmitInfo,
+					local submitInfo = vk.VkSubmitInfo(
 						{
 							sType = "VK_STRUCTURE_TYPE_SUBMIT_INFO",
 							commandBufferCount = 1,
@@ -670,34 +657,33 @@ do -- instance
 				--   preTransform: VkSurfaceTransformFlagBitsKHR (default: currentTransform)
 				function Device:CreateSwapchain(surface, surfaceFormat, surfaceCapabilities, config, old_swapchain)
 					config = config or {}
-					local imageCount = config.imageCount or surfaceCapabilities[0].minImageCount
+					local imageCount = config.imageCount or surfaceCapabilities.minImageCount
 					local presentMode = enums.VK_PRESENT_MODE_(config.presentMode or "fifo")
 					local compositeAlpha = enums.VK_COMPOSITE_ALPHA_(config.compositeAlpha or "opaque")
 					local clipped = config.clipped ~= nil and (config.clipped and 1 or 0) or 1
-					local preTransform = config.preTransform or surfaceCapabilities[0].currentTransform
+					local preTransform = config.preTransform or surfaceCapabilities.currentTransform
 					local imageUsage = enums.VK_IMAGE_USAGE_(config.imageUsage or {"color_attachment", "transfer_dst"})
 
 					-- Clamp image count to valid range
-					if imageCount < surfaceCapabilities[0].minImageCount then
-						imageCount = surfaceCapabilities[0].minImageCount
+					if imageCount < surfaceCapabilities.minImageCount then
+						imageCount = surfaceCapabilities.minImageCount
 					end
 
 					if
-						surfaceCapabilities[0].maxImageCount > 0 and
-						imageCount > surfaceCapabilities[0].maxImageCount
+						surfaceCapabilities.maxImageCount > 0 and
+						imageCount > surfaceCapabilities.maxImageCount
 					then
-						imageCount = surfaceCapabilities[0].maxImageCount
+						imageCount = surfaceCapabilities.maxImageCount
 					end
 
-					local swapchainCreateInfo = T.Box(
-						vk.VkSwapchainCreateInfoKHR,
+					local swapchainCreateInfo = vk.VkSwapchainCreateInfoKHR(
 						{
 							sType = "VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR",
 							surface = surface.ptr[0],
 							minImageCount = imageCount,
 							imageFormat = enums.VK_FORMAT_(surfaceFormat.format),
 							imageColorSpace = enums.VK_COLOR_SPACE_(surfaceFormat.color_space),
-							imageExtent = surfaceCapabilities[0].currentExtent,
+							imageExtent = surfaceCapabilities.currentExtent,
 							imageArrayLayers = 1,
 							imageUsage = imageUsage,
 							imageSharingMode = "VK_SHARING_MODE_EXCLUSIVE",
@@ -758,8 +744,7 @@ do -- instance
 				end
 
 				function Swapchain:Present(renderFinishedSemaphore, deviceQueue, imageIndex)
-					local presentInfo = T.Box(
-						vk.VkPresentInfoKHR,
+					local presentInfo = vk.VkPresentInfoKHR(
 						{
 							sType = "VK_STRUCTURE_TYPE_PRESENT_INFO_KHR",
 							waitSemaphoreCount = 1,
@@ -788,8 +773,7 @@ do -- instance
 				CommandPool.__index = CommandPool
 
 				function Device:CreateCommandPool(graphicsQueueFamily)
-					local commandPoolCreateInfo = T.Box(
-						vk.VkCommandPoolCreateInfo,
+					local commandPoolCreateInfo = vk.VkCommandPoolCreateInfo(
 						{
 							sType = "VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO",
 							queueFamilyIndex = graphicsQueueFamily,
@@ -814,8 +798,7 @@ do -- instance
 					CommandBuffer.__index = CommandBuffer
 
 					function CommandPool:CreateCommandBuffer()
-						local commandBufferAllocInfo = T.Box(
-							vk.VkCommandBufferAllocateInfo,
+						local commandBufferAllocInfo = vk.VkCommandBufferAllocateInfo(
 							{
 								sType = "VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO",
 								commandPool = self.ptr[0],
@@ -832,8 +815,7 @@ do -- instance
 					end
 
 					function CommandBuffer:Begin()
-						local beginInfo = T.Box(
-							vk.VkCommandBufferBeginInfo,
+						local beginInfo = vk.VkCommandBufferBeginInfo(
 							{
 								sType = "VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO",
 								flags = vk.VkCommandBufferUsageFlagBits("VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT"),
@@ -853,8 +835,7 @@ do -- instance
 						-- For first frame, transition from UNDEFINED
 						-- For subsequent frames, transition from PRESENT_SRC_KHR (what the render pass leaves it in)
 						local oldLayout = isFirstFrame and "VK_IMAGE_LAYOUT_UNDEFINED" or "VK_IMAGE_LAYOUT_PRESENT_SRC_KHR"
-						local barrier = T.Box(
-							vk.VkImageMemoryBarrier,
+						local barrier = vk.VkImageMemoryBarrier(
 							{
 								sType = "VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER",
 								oldLayout = oldLayout,
@@ -934,16 +915,15 @@ do -- instance
 							clearValueCount = 2
 						else
 							-- No depth attachment, only 1 clear value
-							clearValues = T.Box(vk.VkClearValue)()
-							clearValues[0].color.float32[0] = clearColor[1]
-							clearValues[0].color.float32[1] = clearColor[2]
-							clearValues[0].color.float32[2] = clearColor[3]
-							clearValues[0].color.float32[3] = clearColor[4]
+							clearValues = vk.VkClearValue({
+								color = {
+									float32 = clearColor,
+								},
+							})
 							clearValueCount = 1
 						end
 
-						local renderPassInfo = T.Box(
-							vk.VkRenderPassBeginInfo,
+						local renderPassInfo = vk.VkRenderPassBeginInfo(
 							{
 								sType = "VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO",
 								renderPass = renderPass.ptr[0],
@@ -1044,8 +1024,7 @@ do -- instance
 					end
 
 					function CommandBuffer:SetViewport(x, y, width, height, minDepth, maxDepth)
-						local viewport = T.Box(
-							vk.VkViewport,
+						local viewport = vk.VkViewport(
 							{
 								x = x or 0.0,
 								y = y or 0.0,
@@ -1059,8 +1038,7 @@ do -- instance
 					end
 
 					function CommandBuffer:SetScissor(x, y, width, height)
-						local scissor = T.Box(
-							vk.VkRect2D,
+						local scissor = vk.VkRect2D(
 							{
 								offset = {x = x or 0, y = y or 0},
 								extent = {width = width, height = height},
@@ -1100,8 +1078,7 @@ do -- instance
 
 					function CommandBuffer:SetColorBlendEquation(first_attachment, blend_equation)
 						-- blend_equation should be a table with blend factors and ops
-						local equation = T.Box(
-							vk.VkColorBlendEquationEXT,
+						local equation = vk.VkColorBlendEquationEXT(
 							{
 								srcColorBlendFactor = enums.VK_BLEND_FACTOR_(blend_equation.src_color_blend_factor),
 								dstColorBlendFactor = enums.VK_BLEND_FACTOR_(blend_equation.dst_color_blend_factor),
@@ -1119,8 +1096,7 @@ do -- instance
 					end
 
 					function CommandBuffer:ClearColorImage(config)
-						local range = T.Box(
-							vk.VkImageSubresourceRange,
+						local range = vk.VkImageSubresourceRange(
 							{
 								aspectMask = enums.VK_IMAGE_ASPECT_(config.aspect_mask or "color"),
 								baseMipLevel = config.base_mip_level or 0,
@@ -1133,12 +1109,9 @@ do -- instance
 							self.ptr[0],
 							config.image,
 							"VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL",
-							T.Box(
-								vk.VkClearColorValue,
-								{
-									float32 = config.color or {0.0, 0.0, 0.0, 1.0},
-								}
-							),
+							vk.VkClearColorValue({
+								float32 = config.color or {0.0, 0.0, 0.0, 1.0},
+							}),
 							1,
 							range
 						)
@@ -1206,8 +1179,7 @@ do -- instance
 					end
 
 					function CommandBuffer:CopyImageToImage(srcImage, dstImage, width, height)
-						local region = T.Box(
-							vk.VkImageCopy,
+						local region = vk.VkImageCopy(
 							{
 								srcSubresource = {
 									aspectMask = vk.VkImageAspectFlagBits("VK_IMAGE_ASPECT_COLOR_BIT"),
@@ -1238,8 +1210,7 @@ do -- instance
 					end
 
 					function CommandBuffer:CopyBufferToImage(buffer, image, width, height)
-						local region = T.Box(
-							vk.VkBufferImageCopy,
+						local region = vk.VkBufferImageCopy(
 							{
 								bufferOffset = 0,
 								bufferRowLength = 0,
@@ -1271,13 +1242,13 @@ do -- instance
 				Buffer.__index = Buffer
 
 				function Device:FindMemoryType(typeFilter, properties)
-					local memProperties = T.Box(vk.VkPhysicalDeviceMemoryProperties)()
+					local memProperties = vk.VkPhysicalDeviceMemoryProperties()
 					lib.vkGetPhysicalDeviceMemoryProperties(self.physical_device.ptr, memProperties)
 
-					for i = 0, memProperties[0].memoryTypeCount - 1 do
+					for i = 0, memProperties.memoryTypeCount - 1 do
 						if
 							bit.band(typeFilter, bit.lshift(1, i)) ~= 0 and
-							bit.band(memProperties[0].memoryTypes[i].propertyFlags, properties) == properties
+							bit.band(memProperties.memoryTypes[i].propertyFlags, properties) == properties
 						then
 							return i
 						end
@@ -1289,8 +1260,7 @@ do -- instance
 				function Device:CreateBuffer(size, usage, properties)
 					usage = enums.VK_BUFFER_USAGE_(usage)
 					properties = enums.VK_MEMORY_PROPERTY_(properties or {"host_visible", "host_coherent"})
-					local bufferInfo = T.Box(
-						vk.VkBufferCreateInfo,
+					local bufferInfo = vk.VkBufferCreateInfo(
 						{
 							sType = "VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO",
 							size = size,
@@ -1303,14 +1273,13 @@ do -- instance
 						lib.vkCreateBuffer(self.ptr[0], bufferInfo, nil, buffer_ptr),
 						"failed to create buffer"
 					)
-					local memRequirements = T.Box(vk.VkMemoryRequirements)()
+					local memRequirements = vk.VkMemoryRequirements()
 					lib.vkGetBufferMemoryRequirements(self.ptr[0], buffer_ptr[0], memRequirements)
-					local allocInfo = T.Box(
-						vk.VkMemoryAllocateInfo,
+					local allocInfo = vk.VkMemoryAllocateInfo(
 						{
 							sType = "VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO",
-							allocationSize = memRequirements[0].size,
-							memoryTypeIndex = self:FindMemoryType(memRequirements[0].memoryTypeBits, properties),
+							allocationSize = memRequirements.size,
+							memoryTypeIndex = self:FindMemoryType(memRequirements.memoryTypeBits, properties),
 						}
 					)
 					local memory_ptr = T.Box(vk.VkDeviceMemory)()
@@ -1379,8 +1348,7 @@ do -- instance
 							bindingFlagsArray[i - 1] = 0
 						end
 					end -- Add binding flags for descriptor indexing
-					local bindingFlagsInfo = T.Box(
-						vk.VkDescriptorSetLayoutBindingFlagsCreateInfo,
+					local bindingFlagsInfo = vk.VkDescriptorSetLayoutBindingFlagsCreateInfo(
 						{
 							sType = "VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO",
 							pNext = nil,
@@ -1388,8 +1356,7 @@ do -- instance
 							pBindingFlags = bindingFlagsArray,
 						}
 					)
-					local layoutInfo = T.Box(
-						vk.VkDescriptorSetLayoutCreateInfo,
+					local layoutInfo = vk.VkDescriptorSetLayoutCreateInfo(
 						{
 							sType = "VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO",
 							flags = vk.VkDescriptorSetLayoutCreateFlagBits("VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT"),
@@ -1425,8 +1392,7 @@ do -- instance
 						poolSizeArray[i - 1].descriptorCount = ps.count or 1
 					end
 
-					local poolInfo = T.Box(
-						vk.VkDescriptorPoolCreateInfo,
+					local poolInfo = vk.VkDescriptorPoolCreateInfo(
 						{
 							sType = "VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO",
 							flags = bit.bor(
@@ -1455,8 +1421,7 @@ do -- instance
 				end
 
 				function DescriptorPool:AllocateDescriptorSet(layout)
-					local allocInfo = T.Box(
-						vk.VkDescriptorSetAllocateInfo,
+					local allocInfo = vk.VkDescriptorSetAllocateInfo(
 						{
 							sType = "VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO",
 							descriptorPool = self.ptr[0],
@@ -1479,8 +1444,7 @@ do -- instance
 			end
 
 			function Device:UpdateDescriptorSet(type, descriptorSet, binding_index, ...)
-				local descriptorWrite = T.Box(
-					vk.VkWriteDescriptorSet,
+				local descriptorWrite = vk.VkWriteDescriptorSet(
 					{
 						sType = "VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET",
 						dstSet = descriptorSet.ptr[0],
@@ -1494,8 +1458,7 @@ do -- instance
 
 				if type == "uniform_buffer" then
 					local buffer = assert(...)
-					descriptor_info = T.Box(
-						vk.VkDescriptorBufferInfo,
+					descriptor_info = vk.VkDescriptorBufferInfo(
 						{
 							buffer = buffer.ptr[0],
 							offset = 0,
@@ -1505,8 +1468,7 @@ do -- instance
 					descriptorWrite[0].pBufferInfo = descriptor_info
 				elseif type == "storage_image" then
 					local imageView = assert(...)
-					descriptor_info = T.Box(
-						vk.VkDescriptorImageInfo,
+					descriptor_info = vk.VkDescriptorImageInfo(
 						{
 							sampler = nil,
 							imageView = imageView.ptr[0],
@@ -1516,8 +1478,7 @@ do -- instance
 					descriptorWrite[0].pImageInfo = descriptor_info
 				elseif type == "combined_image_sampler" then
 					local imageView, sampler = assert(select(1, ...)), assert(select(2, ...))
-					descriptor_info = T.Box(
-						vk.VkDescriptorImageInfo,
+					descriptor_info = vk.VkDescriptorImageInfo(
 						{
 							sampler = sampler.ptr[0],
 							imageView = imageView.ptr[0],
@@ -1563,12 +1524,9 @@ do -- instance
 				Semaphore.__index = Semaphore
 
 				function Device:CreateSemaphore()
-					local semaphoreCreateInfo = T.Box(
-						vk.VkSemaphoreCreateInfo,
-						{
-							sType = "VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO",
-						}
-					)
+					local semaphoreCreateInfo = vk.VkSemaphoreCreateInfo({
+						sType = "VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO",
+					})
 					local ptr = T.Box(vk.VkSemaphore)()
 					vk_assert(
 						lib.vkCreateSemaphore(self.ptr[0], semaphoreCreateInfo, nil, ptr),
@@ -1588,8 +1546,7 @@ do -- instance
 				Fence.__index = Fence
 
 				function Device:CreateFence()
-					local fenceCreateInfo = T.Box(
-						vk.VkFenceCreateInfo,
+					local fenceCreateInfo = vk.VkFenceCreateInfo(
 						{
 							sType = "VK_STRUCTURE_TYPE_FENCE_CREATE_INFO",
 							flags = vk.VkFenceCreateFlagBits("VK_FENCE_CREATE_SIGNALED_BIT"),
@@ -1657,8 +1614,7 @@ do -- instance
 							)
 						else
 							attachment_count = 1
-							attachments = T.Box(
-								vk.VkAttachmentDescription,
+							attachments = vk.VkAttachmentDescription(
 								{
 									format = enums.VK_FORMAT_(format_string),
 									samples = "VK_SAMPLE_COUNT_1_BIT",
@@ -1704,31 +1660,27 @@ do -- instance
 					--attachments[0].samples = "VK_SAMPLE_COUNT_2_BIT"
 					end
 
-					local colorAttachmentRef = T.Box(
-						vk.VkAttachmentReference,
+					local colorAttachmentRef = vk.VkAttachmentReference(
 						{
 							attachment = 0,
 							layout = "VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL",
 						}
 					)
 					local depthAttachmentRef = has_depth and
-						T.Box(
-							vk.VkAttachmentReference,
+						vk.VkAttachmentReference(
 							{
 								attachment = config.samples == "1" and 1 or 2,
 								layout = "VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL",
 							}
 						) or
 						nil
-					local subpass = T.Box(
-						vk.VkSubpassDescription,
+					local subpass = vk.VkSubpassDescription(
 						{
 							pipelineBindPoint = "VK_PIPELINE_BIND_POINT_GRAPHICS",
 							colorAttachmentCount = 1,
 							pColorAttachments = colorAttachmentRef,
 							pResolveAttachments = config.samples ~= "1" and
-								T.Box(
-									vk.VkAttachmentReference,
+								vk.VkAttachmentReference(
 									{
 										attachment = 1,
 										layout = "VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL",
@@ -1738,8 +1690,7 @@ do -- instance
 							pDepthStencilAttachment = depthAttachmentRef,
 						}
 					)
-					local dependency = T.Box(
-						vk.VkSubpassDependency,
+					local dependency = vk.VkSubpassDependency(
 						{
 							srcSubpass = vk.VK_SUBPASS_EXTERNAL,
 							dstSubpass = 0,
@@ -1764,8 +1715,7 @@ do -- instance
 								vk.VkAccessFlagBits("VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT"),
 						}
 					)
-					local renderPassInfo = T.Box(
-						vk.VkRenderPassCreateInfo,
+					local renderPassInfo = vk.VkRenderPassCreateInfo(
 						{
 							sType = "VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO",
 							attachmentCount = attachment_count,
@@ -1787,6 +1737,13 @@ do -- instance
 							device = self,
 							samples = config.samples,
 							has_depth = has_depth,
+							-- Anchor all temporary FFI structures to prevent premature GC
+							_attachments = attachments,
+							_colorAttachmentRef = colorAttachmentRef,
+							_depthAttachmentRef = depthAttachmentRef,
+							_subpass = subpass,
+							_dependency = dependency,
+							_renderPassInfo = renderPassInfo,
 						},
 						RenderPass
 					)
@@ -1828,8 +1785,7 @@ do -- instance
 						attachmentCount = 1
 					end
 
-					local framebufferInfo = T.Box(
-						vk.VkFramebufferCreateInfo,
+					local framebufferInfo = vk.VkFramebufferCreateInfo(
 						{
 							sType = "VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO",
 							renderPass = renderPass.ptr[0],
@@ -1845,7 +1801,14 @@ do -- instance
 						lib.vkCreateFramebuffer(self.ptr[0], framebufferInfo, nil, ptr),
 						"failed to create framebuffer"
 					)
-					return setmetatable({ptr = ptr, device = self}, Framebuffer)
+					return setmetatable(
+						{
+							ptr = ptr,
+							device = self,
+							_attachments = attachments, -- Keep attachment array alive
+						},
+						Framebuffer
+					)
 				end
 
 				function Framebuffer:__gc()
@@ -1869,8 +1832,7 @@ do -- instance
 						config = format_or_config or {}
 					end
 
-					local viewInfo = T.Box(
-						vk.VkImageViewCreateInfo,
+					local viewInfo = vk.VkImageViewCreateInfo(
 						{
 							sType = "VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO",
 							image = image,
@@ -1905,8 +1867,7 @@ do -- instance
 
 				function Device:CreateImage(width, height, format, usage, properties, samples)
 					samples = samples or "1"
-					local imageInfo = T.Box(
-						vk.VkImageCreateInfo,
+					local imageInfo = vk.VkImageCreateInfo(
 						{
 							sType = "VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO",
 							imageType = "VK_IMAGE_TYPE_2D",
@@ -1930,15 +1891,14 @@ do -- instance
 						lib.vkCreateImage(self.ptr[0], imageInfo, nil, image_ptr),
 						"failed to create image"
 					)
-					local memRequirements = T.Box(vk.VkMemoryRequirements)()
+					local memRequirements = vk.VkMemoryRequirements()
 					lib.vkGetImageMemoryRequirements(self.ptr[0], image_ptr[0], memRequirements)
 					properties = enums.VK_MEMORY_PROPERTY_(properties or "device_local")
-					local allocInfo = T.Box(
-						vk.VkMemoryAllocateInfo,
+					local allocInfo = vk.VkMemoryAllocateInfo(
 						{
 							sType = "VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO",
-							allocationSize = memRequirements[0].size,
-							memoryTypeIndex = self:FindMemoryType(memRequirements[0].memoryTypeBits, properties),
+							allocationSize = memRequirements.size,
+							memoryTypeIndex = self:FindMemoryType(memRequirements.memoryTypeBits, properties),
 						}
 					)
 					local memory_ptr = T.Box(vk.VkDeviceMemory)()
@@ -2044,8 +2004,7 @@ do -- instance
 					local wrap_r = config.wrap_r or "repeat"
 					local anisotropy = config.anisotropy or 1.0
 					local max_lod = config.max_lod or 1000.0
-					local samplerInfo = T.Box(
-						vk.VkSamplerCreateInfo,
+					local samplerInfo = vk.VkSamplerCreateInfo(
 						{
 							sType = "VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO",
 							magFilter = enums.VK_FILTER_(mag_filter),
@@ -2128,8 +2087,7 @@ do -- instance
 						end
 					end
 
-					local pipelineLayoutInfo = T.Box(
-						vk.VkPipelineLayoutCreateInfo,
+					local pipelineLayoutInfo = vk.VkPipelineLayoutCreateInfo(
 						{
 							sType = "VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO",
 							setLayoutCount = setLayoutCount,
@@ -2157,8 +2115,7 @@ do -- instance
 				ComputePipeline.__index = ComputePipeline
 
 				function Device:CreateComputePipeline(shaderModule, pipelineLayout)
-					local computeShaderStageInfo = T.Box(
-						vk.VkPipelineShaderStageCreateInfo,
+					local computeShaderStageInfo = vk.VkPipelineShaderStageCreateInfo(
 						{
 							sType = "VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO",
 							stage = enums.VK_SHADER_STAGE_("compute"),
@@ -2166,8 +2123,7 @@ do -- instance
 							pName = "main",
 						}
 					)
-					local computePipelineCreateInfo = T.Box(
-						vk.VkComputePipelineCreateInfo,
+					local computePipelineCreateInfo = vk.VkComputePipelineCreateInfo(
 						{
 							sType = "VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO",
 							stage = computeShaderStageInfo[0],
@@ -2238,8 +2194,7 @@ do -- instance
 						end
 					end
 
-					local vertexInputInfo = T.Box(
-						vk.VkPipelineVertexInputStateCreateInfo,
+					local vertexInputInfo = vk.VkPipelineVertexInputStateCreateInfo(
 						{
 							sType = "VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO",
 							vertexBindingDescriptionCount = bindingCount,
@@ -2249,8 +2204,7 @@ do -- instance
 						}
 					)
 					config.input_assembly = config.input_assembly or {}
-					local inputAssembly = T.Box(
-						vk.VkPipelineInputAssemblyStateCreateInfo,
+					local inputAssembly = vk.VkPipelineInputAssemblyStateCreateInfo(
 						{
 							sType = "VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO",
 							topology = enums.VK_PRIMITIVE_TOPOLOGY_(config.input_assembly.topology or "triangle_list"),
@@ -2258,8 +2212,7 @@ do -- instance
 						}
 					)
 					config.viewport = config.viewport or {}
-					local viewport = T.Box(
-						vk.VkViewport,
+					local viewport = vk.VkViewport(
 						{
 							x = config.viewport.x or 0.0,
 							y = config.viewport.y or 0.0,
@@ -2270,8 +2223,7 @@ do -- instance
 						}
 					)
 					config.scissor = config.scissor or {}
-					local scissor = T.Box(
-						vk.VkRect2D,
+					local scissor = vk.VkRect2D(
 						{
 							offset = {x = config.scissor.x or 0, y = config.scissor.y or 0},
 							extent = {
@@ -2281,8 +2233,7 @@ do -- instance
 						}
 					)
 					-- TODO: support more than one viewport/scissor
-					local viewportState = T.Box(
-						vk.VkPipelineViewportStateCreateInfo,
+					local viewportState = vk.VkPipelineViewportStateCreateInfo(
 						{
 							sType = "VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO",
 							viewportCount = 1,
@@ -2292,8 +2243,7 @@ do -- instance
 						}
 					)
 					config.rasterizer = config.rasterizer or {}
-					local rasterizer = T.Box(
-						vk.VkPipelineRasterizationStateCreateInfo,
+					local rasterizer = vk.VkPipelineRasterizationStateCreateInfo(
 						{
 							sType = "VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO",
 							depthClampEnable = config.rasterizer.depth_clamp or 0,
@@ -2306,8 +2256,7 @@ do -- instance
 						}
 					)
 					config.multisampling = config.multisampling or {}
-					local multisampling = T.Box(
-						vk.VkPipelineMultisampleStateCreateInfo,
+					local multisampling = vk.VkPipelineMultisampleStateCreateInfo(
 						{
 							sType = "VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO",
 							sampleShadingEnable = config.multisampling.sample_shading or 0,
@@ -2352,8 +2301,7 @@ do -- instance
 						colorBlendAttachment[i - 1] = colorBlendAttachments[i]
 					end
 
-					local colorBlending = T.Box(
-						vk.VkPipelineColorBlendStateCreateInfo,
+					local colorBlending = vk.VkPipelineColorBlendStateCreateInfo(
 						{
 							sType = "VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO",
 							logicOpEnable = config.color_blend.logic_op_enabled or 0,
@@ -2364,8 +2312,7 @@ do -- instance
 						}
 					)
 					config.depth_stencil = config.depth_stencil or {}
-					local depthStencilState = T.Box(
-						vk.VkPipelineDepthStencilStateCreateInfo,
+					local depthStencilState = vk.VkPipelineDepthStencilStateCreateInfo(
 						{
 							sType = "VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO",
 							depthTestEnable = config.depth_stencil.depth_test or 0,
@@ -2386,8 +2333,7 @@ do -- instance
 							dynamicStateArray[i - 1] = enums.VK_DYNAMIC_STATE_(state)
 						end
 
-						dynamicStateInfo = T.Box(
-							vk.VkPipelineDynamicStateCreateInfo,
+						dynamicStateInfo = vk.VkPipelineDynamicStateCreateInfo(
 							{
 								sType = "VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO",
 								dynamicStateCount = dynamicStateCount,
@@ -2400,8 +2346,7 @@ do -- instance
 						error("multiple render passes not supported yet")
 					end
 
-					local pipelineInfo = T.Box(
-						vk.VkGraphicsPipelineCreateInfo,
+					local pipelineInfo = vk.VkGraphicsPipelineCreateInfo(
 						{
 							sType = "VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO",
 							stageCount = #config.shaderModules,

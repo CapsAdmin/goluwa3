@@ -53,7 +53,7 @@ function Pipeline.New(renderer, config)
 	-- Validate push constant ranges don't exceed device limits
 	if #push_constant_ranges > 0 then
 		local device_properties = renderer.physical_device:GetProperties()
-		local max_push_constants_size = device_properties[0].limits.maxPushConstantsSize
+		local max_push_constants_size = device_properties.limits.maxPushConstantsSize
 
 		for i, range in ipairs(push_constant_ranges) do
 			local range_end = range.offset + range.size
@@ -136,6 +136,7 @@ function Pipeline.New(renderer, config)
 	self.uniform_buffers = uniform_buffers
 	self.descriptorSetLayout = descriptorSetLayout
 	self.descriptorPools = descriptorPools -- Array of pools, one per frame
+	self.shader_modules = shader_modules -- Keep shader modules alive to prevent GC
 	-- Pipeline variant caching for dynamic state emulation
 	self.pipeline_variants = {}
 	self.current_variant_key = nil
@@ -345,6 +346,8 @@ function Pipeline:RebuildPipeline(section, changes)
 		{modified_config.render_pass},
 		self.pipeline_layout
 	)
+	-- Store shader modules with the pipeline variant to prevent GC
+	new_pipeline._shader_modules = shader_modules
 	-- Cache the variant
 	self.pipeline_variants[variant_key] = new_pipeline
 	self.current_variant_key = variant_key
