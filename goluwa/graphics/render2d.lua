@@ -34,7 +34,6 @@ local Constants = ffi.typeof(
 )
 local shader_constants = Constants()
 local render2d = {}
-
 -- Blend mode presets
 render2d.blend_modes = {
 	alpha = {
@@ -102,19 +101,18 @@ render2d.blend_modes = {
 function render2d.Initialize()
 	-- Set default blend mode
 	render2d.current_blend_mode = "alpha"
-
 	-- Check if dynamic blend is supported
 	local device = render.GetDevice()
 	render2d.has_dynamic_blend = device.has_dynamic_blend or false
-
 	-- Update dynamic states based on support
 	local dynamic_states = {"viewport", "scissor", "blend_constants"}
+
 	if render2d.has_dynamic_blend then
 		table.insert(dynamic_states, "color_blend_enable_ext")
 		table.insert(dynamic_states, "color_blend_equation_ext")
 	end
-	render2d.pipeline_data.dynamic_states = dynamic_states
 
+	render2d.pipeline_data.dynamic_states = dynamic_states
 	render2d.pipeline = render.CreateGraphicsPipeline(render2d.pipeline_data)
 	local mesh_data = {
 		{pos = Vec3f(0, 1, 0), uv = Vec2f(0, 0), color = Colorf(1, 1, 1, 1)},
@@ -515,29 +513,39 @@ do -- shader
 	function render2d.SetBlendMode(mode_name)
 		if not render2d.blend_modes[mode_name] then
 			local valid_modes = {}
+
 			for k in pairs(render2d.blend_modes) do
 				table.insert(valid_modes, k)
 			end
-			error("Invalid blend mode: " .. tostring(mode_name) .. ". Valid modes: " .. table.concat(valid_modes, ", "))
+
+			error(
+				"Invalid blend mode: " .. tostring(mode_name) .. ". Valid modes: " .. table.concat(valid_modes, ", ")
+			)
 		end
 
 		render2d.current_blend_mode = mode_name
 
-		-- Only apply if dynamic blend is supported
-		if not render2d.has_dynamic_blend then
-			if mode_name ~= "alpha" then
-				print("Warning: Dynamic blend modes not supported on this device. Blend mode '" .. mode_name .. "' will not be applied.")
+		-- Apply blend mode
+		if render2d.has_dynamic_blend then
+			-- Use dynamic state if supported
+			local blend_mode = render2d.blend_modes[mode_name]
+
+			if render2d.cmd then
+				render2d.cmd:SetColorBlendEnable(0, blend_mode.blend)
+
+				if blend_mode.blend then
+					render2d.cmd:SetColorBlendEquation(0, blend_mode)
+				end
 			end
-			return
-		end
+		else
+			-- Rebuild pipeline with new blend mode if dynamic state not supported
+			local blend_mode = render2d.blend_modes[mode_name]
+			render2d.pipeline:RebuildPipeline("color_blend", blend_mode)
 
-		local blend_mode = render2d.blend_modes[mode_name]
-
-		-- Apply blend mode to command buffer
-		if render2d.cmd then
-			render2d.cmd:SetColorBlendEnable(0, blend_mode.blend)
-			if blend_mode.blend then
-				render2d.cmd:SetColorBlendEquation(0, blend_mode)
+			-- Rebind the pipeline if we're in the middle of rendering
+			if render2d.cmd then
+				local frame_index = render.GetCurrentFrame()
+				render2d.pipeline:Bind(render2d.cmd, frame_index)
 			end
 		end
 	end
@@ -548,10 +556,16 @@ do -- shader
 
 	utility.MakePushPopFunction(render2d, "BlendMode")
 
-	function render2d.SetBlendConstants(r, g, b, a)
-		if render2d.cmd then
-			render2d.cmd:SetBlendConstants(r, g, b, a)
+	function render2d.GetPipelineVariantInfo()
+		if render2d.pipeline and render2d.pipeline.GetVariantInfo then
+			return render2d.pipeline:GetVariantInfo()
 		end
+
+		return {count = 0, keys = {}, current = nil}
+	end
+
+	function render2d.SetBlendConstants(r, g, b, a)
+		if render2d.cmd then render2d.cmd:SetBlendConstants(r, g, b, a) end
 	end
 
 	function render2d.UploadConstants(cmd)
@@ -926,6 +940,13 @@ event.AddListener("PostDraw", "draw_2d", function(cmd, dt)
 	-- This is safe because we've waited on the fence for this frame in BeginFrame()
 	local tex = render2d.current_texture
 	render2d.pipeline:UpdateDescriptorSet("combined_image_sampler", frame_index, 0, tex.view, tex.sampler)
+
+	-- Ensure correct pipeline variant is active if not using dynamic blend
+	if not render2d.has_dynamic_blend then
+		local blend_mode = render2d.blend_modes[render2d.current_blend_mode]
+		render2d.pipeline:RebuildPipeline("color_blend", blend_mode)
+	end
+
 	render2d.pipeline:Bind(cmd, frame_index)
 	cmd:BindVertexBuffer(render2d.rectangle:GetBuffer(), 0)
 	cmd:BindIndexBuffer(render2d.rectangle_indices:GetBuffer(), 0, "uint16")

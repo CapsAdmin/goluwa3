@@ -52,7 +52,6 @@ function Pipeline.New(renderer, config)
 
 	local descriptorSetLayout = renderer.device:CreateDescriptorSetLayout(layout)
 	local pipelineLayout = renderer.device:CreatePipelineLayout({descriptorSetLayout}, push_constant_ranges)
-
 	-- Create one descriptor set per swapchain image for frame buffering
 	local descriptor_set_count = #renderer.swapchain_images
 
@@ -63,9 +62,11 @@ function Pipeline.New(renderer, config)
 
 	local descriptorPool = renderer.device:CreateDescriptorPool(pool_sizes, descriptor_set_count)
 	local descriptorSets = {}
+
 	for i = 1, descriptor_set_count do
 		descriptorSets[i] = descriptorPool:AllocateDescriptorSet(descriptorSetLayout)
 	end
+
 	local vertex_bindings
 	local vertex_attributes
 
@@ -103,6 +104,10 @@ function Pipeline.New(renderer, config)
 	self.uniform_buffers = uniform_buffers
 	self.descriptorSetLayout = descriptorSetLayout
 	self.descriptorPool = descriptorPool
+	-- Pipeline variant caching for dynamic state emulation
+	self.pipeline_variants = {}
+	self.current_variant_key = nil
+	self.base_pipeline = pipeline
 
 	-- Initialize all descriptor sets with the same initial bindings
 	for frame_index = 1, descriptor_set_count do
@@ -147,11 +152,158 @@ end
 function Pipeline:GetVertexAttributes()
 	-- Find the vertex shader stage in config
 	for _, stage in ipairs(self.config.shader_stages) do
-		if stage.type == "vertex" then
-			return stage.attributes
+		if stage.type == "vertex" then return stage.attributes end
+	end
+
+	return nil
+end
+
+-- Helper function to deep copy a table (for pipeline config variants)
+local function deep_copy(obj, seen)
+	if type(obj) ~= "table" then return obj end
+
+	if seen and seen[obj] then return seen[obj] end
+
+	local s = seen or {}
+	local res = {}
+	s[obj] = res
+
+	for k, v in pairs(obj) do
+		res[deep_copy(k, s)] = deep_copy(v, s)
+	end
+
+	return setmetatable(res, getmetatable(obj))
+end
+
+-- Generate a hash key from a state table
+local function hash_state(state)
+	local keys = {}
+
+	for k in pairs(state) do
+		table.insert(keys, k)
+	end
+
+	table.sort(keys)
+	local parts = {}
+
+	for _, k in ipairs(keys) do
+		local v = state[k]
+
+		if type(v) == "table" then
+			table.insert(parts, k .. "=" .. hash_state(v))
+		else
+			table.insert(parts, k .. "=" .. tostring(v))
 		end
 	end
-	return nil
+
+	return table.concat(parts, ";")
+end
+
+-- Rebuild pipeline with modified state
+-- section: the config section to modify (e.g., "color_blend", "rasterizer")
+-- changes: table with the changes to apply to that section
+function Pipeline:RebuildPipeline(section, changes)
+	if not changes then return end
+
+	-- Generate a cache key for this variant
+	local variant_key = section .. ":" .. hash_state(changes)
+
+	-- Return cached variant if it exists
+	if self.pipeline_variants[variant_key] then
+		self.current_variant_key = variant_key
+		self.pipeline = self.pipeline_variants[variant_key]
+		return
+	end
+
+	-- Create a modified config
+	local modified_config = deep_copy(self.config)
+
+	-- Apply changes to the specified section
+	if section == "color_blend" then
+		-- For color_blend, we need to handle the attachments array specially
+		modified_config.color_blend = modified_config.color_blend or {}
+		modified_config.color_blend.attachments = modified_config.color_blend.attachments or {{}}
+
+		-- Apply changes to first attachment (index 1)
+		for k, v in pairs(changes) do
+			modified_config.color_blend.attachments[1][k] = v
+		end
+	else
+		-- For other sections, just merge the changes
+		modified_config[section] = modified_config[section] or {}
+
+		for k, v in pairs(changes) do
+			modified_config[section][k] = v
+		end
+	end
+
+	-- Build the new pipeline variant
+	local shader_modules = {}
+
+	for i, stage in ipairs(modified_config.shader_stages) do
+		shader_modules[i] = {
+			type = stage.type,
+			module = self.renderer.device:CreateShaderModule(stage.code, stage.type),
+		}
+	end
+
+	local vertex_bindings
+	local vertex_attributes
+
+	for i, stage in ipairs(modified_config.shader_stages) do
+		if stage.type == "vertex" then
+			vertex_bindings = stage.bindings
+			vertex_attributes = stage.attributes
+
+			break
+		end
+	end
+
+	local new_pipeline = self.renderer.device:CreateGraphicsPipeline(
+		{
+			shaderModules = shader_modules,
+			extent = modified_config.extent,
+			vertexBindings = vertex_bindings,
+			vertexAttributes = vertex_attributes,
+			input_assembly = modified_config.input_assembly,
+			rasterizer = modified_config.rasterizer,
+			viewport = modified_config.viewport,
+			scissor = modified_config.scissor,
+			multisampling = modified_config.multisampling,
+			color_blend = modified_config.color_blend,
+			dynamic_states = modified_config.dynamic_states,
+			depth_stencil = modified_config.depth_stencil,
+		},
+		{modified_config.render_pass},
+		self.pipeline_layout
+	)
+	-- Cache the variant
+	self.pipeline_variants[variant_key] = new_pipeline
+	self.current_variant_key = variant_key
+	self.pipeline = new_pipeline
+end
+
+-- Reset to base pipeline
+function Pipeline:ResetToBase()
+	self.pipeline = self.base_pipeline
+	self.current_variant_key = nil
+end
+
+-- Get information about cached variants (for debugging)
+function Pipeline:GetVariantInfo()
+	local count = 0
+	local keys = {}
+
+	for key, _ in pairs(self.pipeline_variants) do
+		count = count + 1
+		table.insert(keys, key)
+	end
+
+	return {
+		count = count,
+		keys = keys,
+		current = self.current_variant_key,
+	}
 end
 
 return Pipeline
