@@ -56,31 +56,28 @@ function mod.find_library()
 	if ffi.os == "Windows" then
 		return assert(try_load({"vulkan-1.dll"}))
 	elseif ffi.os == "OSX" then
-		-- Try user's home directory first (expand ~ manually)
 		local home = os.getenv("HOME")
 		local vulkan_sdk = os.getenv("VULKAN_SDK")
 		local paths = {}
-
-		-- Try MoltenVK directly first (more reliable on macOS)
-		if home then
-			if vulkan_sdk then
-				table.insert(paths, home .. "/VulkanSDK/1.4.328.1/macOS/lib/libvulkan.1.dylib")
-			end
-
-			table.insert(paths, home .. "/VulkanSDK/1.4.328.1/macOS/lib/libMoltenVK.dylib")
-		end
-
-		-- Try VULKAN_SDK environment variable
-		if vulkan_sdk then
-			table.insert(paths, vulkan_sdk .. "/lib/libMoltenVK.dylib")
-			table.insert(paths, vulkan_sdk .. "/lib/libvulkan.dylib")
-		end
-
-		-- Try standard locations
-		table.insert(paths, "libMoltenVK.dylib")
+		-- Load the Vulkan LOADER (not the ICD directly)
+		-- The loader will automatically find kosmickrisp via the ICD system
+		table.insert(paths, "/opt/homebrew/lib/libvulkan.dylib")
+		table.insert(paths, "/opt/homebrew/lib/libvulkan.1.dylib")
+		table.insert(paths, "/usr/local/lib/libvulkan.dylib")
 		table.insert(paths, "libvulkan.dylib")
 		table.insert(paths, "libvulkan.1.dylib")
-		table.insert(paths, "/usr/local/lib/libvulkan.dylib")
+
+		-- Try VULKAN_SDK paths
+		if vulkan_sdk then
+			table.insert(paths, vulkan_sdk .. "/lib/libvulkan.dylib")
+			table.insert(paths, vulkan_sdk .. "/lib/libvulkan.1.dylib")
+		end
+
+		-- Try VulkanSDK in home directory
+		if home and vulkan_sdk then
+			table.insert(paths, home .. "/VulkanSDK/1.4.328.1/macOS/lib/libvulkan.1.dylib")
+		end
+
 		return assert(try_load(paths))
 	end
 

@@ -8,6 +8,11 @@ vulkan.ext = {}
 vulkan.vk = vk
 vulkan.lib = lib
 local DEBUG_GC = false
+local DEBUG = false
+
+local function dprint(...)
+	if DEBUG then print("[Vulkan] ", ...) end
+end
 
 local function debug_gc(name)
 	if DEBUG_GC then
@@ -124,6 +129,12 @@ do
 		return vulkan.VersionToString(version[0])
 	end
 end
+
+dprint("Vulkan bindings loaded. Vulkan version: " .. vulkan.GetVersion())
+dprint("Available Instance Layers: " .. table.concat(vulkan.GetAvailableLayers(), ", "))
+dprint(
+	"Available Instance Extensions: " .. table.concat(vulkan.GetAvailableExtensions(), ", ")
+)
 
 do -- instance
 	local Instance = {}
@@ -329,28 +340,89 @@ do -- instance
 			return out
 		end
 
+		function PhysicalDevice:GetExtendedDynamicStateFeatures()
+			-- Chain v1, v2, and v3 feature queries together
+			local queryFeaturesV3 = T.Box(
+				vk.VkPhysicalDeviceExtendedDynamicState3FeaturesEXT,
+				{
+					sType = "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_3_FEATURES_EXT",
+					pNext = nil,
+				}
+			)
+			local queryFeaturesV2 = T.Box(
+				vk.VkPhysicalDeviceExtendedDynamicState2FeaturesEXT,
+				{
+					sType = "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_2_FEATURES_EXT",
+					pNext = queryFeaturesV3,
+				}
+			)
+			local queryFeaturesV1 = T.Box(
+				vk.VkPhysicalDeviceExtendedDynamicStateFeaturesEXT,
+				{
+					sType = "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_FEATURES_EXT",
+					pNext = queryFeaturesV2,
+				}
+			)
+			local queryDeviceFeatures = T.Box(
+				vk.VkPhysicalDeviceFeatures2,
+				{
+					sType = "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2",
+					pNext = queryFeaturesV1,
+				}
+			)
+			-- Query all features at once
+			lib.vkGetPhysicalDeviceFeatures2(self.ptr, queryDeviceFeatures)
+			local reflect = require("helpers.ffi_reflect")
+			local tbl = {}
+			-- Extract v1 features
+			local featuresV1 = queryFeaturesV1[0]
+
+			for t in reflect.typeof(vk.VkPhysicalDeviceExtendedDynamicStateFeaturesEXT):members() do
+				local key = t.name
+
+				if key == "extendedDynamicState" then
+
+				-- skip
+				elseif key:find("extendedDynamicState") then
+					tbl[key:replace("extendedDynamicState", "")] = featuresV1[key] == 1
+				end
+			end
+
+			-- Extract v2 features
+			local featuresV2 = queryFeaturesV2[0]
+
+			for t in reflect.typeof(vk.VkPhysicalDeviceExtendedDynamicState2FeaturesEXT):members() do
+				local key = t.name
+
+				if key == "extendedDynamicState2" then
+
+				-- skip
+				elseif key:find("extendedDynamicState") then
+					tbl[key:replace("extendedDynamicState2", "")] = featuresV2[key] == 1
+				end
+			end
+
+			-- Extract v3 features
+			local featuresV3 = queryFeaturesV3[0]
+
+			for t in reflect.typeof(vk.VkPhysicalDeviceExtendedDynamicState3FeaturesEXT):members() do
+				local key = t.name
+
+				if key:find("extendedDynamicState") then
+					tbl[key:replace("extendedDynamicState3", "")] = featuresV3[key] == 1
+				end
+			end
+
+			return tbl
+		end
+
 		do -- device
 			local Device = {}
 			Device.__index = Device
 
 			function PhysicalDevice:CreateDevice(extensions, graphicsQueueFamily)
-				-- Check if VK_KHR_portability_subset is supported and add it if needed
-				local extensionCount = ffi.new("uint32_t[1]", 0)
-				lib.vkEnumerateDeviceExtensionProperties(self.ptr, nil, extensionCount, nil)
-				local availableExtensions = T.Array(vk.VkExtensionProperties)(extensionCount[0])
-				lib.vkEnumerateDeviceExtensionProperties(self.ptr, nil, extensionCount, availableExtensions)
-				local hasPortabilitySubset = false
-
-				for i = 0, extensionCount[0] - 1 do
-					local extName = ffi.string(availableExtensions[i].extensionName)
-
-					if extName == "VK_KHR_portability_subset" then
-						hasPortabilitySubset = true
-
-						break
-					end
-				end
-
+				local available_extensions = self:GetAvailableDeviceExtensions()
+				dprint("Available Device Extensions: " .. table.concat(available_extensions, ", "))
 				-- Add portability subset and its dependency if supported
 				local finalExtensions = {}
 
@@ -358,126 +430,70 @@ do -- instance
 					finalExtensions[i] = ext
 				end
 
-				if hasPortabilitySubset then
+				if table.has_value(available_extensions, "VK_KHR_portability_subset") then
 					-- VK_KHR_portability_subset requires VK_KHR_get_physical_device_properties2
 					-- but this extension is promoted to core in Vulkan 1.1, so it's likely already available
 					table.insert(finalExtensions, "VK_KHR_portability_subset")
+
 					-- Only add the dependency if not already present
-					local hasGetProps2 = false
-
-					for _, ext in ipairs(finalExtensions) do
-						if ext == "VK_KHR_get_physical_device_properties2" then
-							hasGetProps2 = true
-
-							break
-						end
-					end
-
-					if not hasGetProps2 then
+					if not table.has_value(finalExtensions, "VK_KHR_get_physical_device_properties2") then
 						-- Check if this extension is available
-						for i = 0, extensionCount[0] - 1 do
-							local extName = ffi.string(availableExtensions[i].extensionName)
-
-							if extName == "VK_KHR_get_physical_device_properties2" then
-								table.insert(finalExtensions, "VK_KHR_get_physical_device_properties2")
-
-								break
-							end
+						if table.has_value(available_extensions, "VK_KHR_get_physical_device_properties2") then
+							table.insert(finalExtensions, "VK_KHR_get_physical_device_properties2")
 						end
-					end
-				end
-
-				local queuePriority = ffi.new("float[1]", 1.0)
-				local queueCreateInfo = T.Box(
-					vk.VkDeviceQueueCreateInfo,
-					{
-						sType = "VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO",
-						queueFamilyIndex = graphicsQueueFamily,
-						queueCount = 1,
-						pQueuePriorities = queuePriority,
-					}
-				)
-				local deviceExtensions = T.Array(ffi.typeof("const char*"), #finalExtensions, finalExtensions)
-				-- Check if VK_EXT_extended_dynamic_state3 is enabled
-				local hasExtendedDynamicState3Extension = false
-
-				for _, ext in ipairs(finalExtensions) do
-					if ext == "VK_EXT_extended_dynamic_state3" then
-						hasExtendedDynamicState3Extension = true
-
-						break
 					end
 				end
 
 				-- Query available features if extension is present
 				local pNextChain = nil
 				local hasDynamicBlendFeatures = false
+				local features = self:GetExtendedDynamicStateFeatures()
+				dprint("Available Extended Dynamic State Features: ")
 
-				if hasExtendedDynamicState3Extension then
-					-- Query what features are actually supported
-					local queryFeatures = T.Box(
+				if DEBUG then table.print(features) end
+
+				-- Only request features that are supported
+				if features.ColorBlendEnable and features.ColorBlendEquation then
+					hasDynamicBlendFeatures = true
+					local extendedDynamicState3Features = T.Box(
 						vk.VkPhysicalDeviceExtendedDynamicState3FeaturesEXT,
 						{
 							sType = "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_3_FEATURES_EXT",
 							pNext = nil,
+							extendedDynamicState3TessellationDomainOrigin = 0,
+							extendedDynamicState3DepthClampEnable = 0,
+							extendedDynamicState3PolygonMode = 0,
+							extendedDynamicState3RasterizationSamples = 0,
+							extendedDynamicState3SampleMask = 0,
+							extendedDynamicState3AlphaToCoverageEnable = 0,
+							extendedDynamicState3AlphaToOneEnable = 0,
+							extendedDynamicState3LogicOpEnable = 0,
+							extendedDynamicState3ColorBlendEnable = 1,
+							extendedDynamicState3ColorBlendEquation = 1,
+							extendedDynamicState3ColorWriteMask = 0,
+							extendedDynamicState3RasterizationStream = 0,
+							extendedDynamicState3ConservativeRasterizationMode = 0,
+							extendedDynamicState3ExtraPrimitiveOverestimationSize = 0,
+							extendedDynamicState3DepthClipEnable = 0,
+							extendedDynamicState3SampleLocationsEnable = 0,
+							extendedDynamicState3ColorBlendAdvanced = 0,
+							extendedDynamicState3ProvokingVertexMode = 0,
+							extendedDynamicState3LineRasterizationMode = 0,
+							extendedDynamicState3LineStippleEnable = 0,
+							extendedDynamicState3DepthClipNegativeOneToOne = 0,
+							extendedDynamicState3ViewportWScalingEnable = 0,
+							extendedDynamicState3ViewportSwizzle = 0,
+							extendedDynamicState3CoverageToColorEnable = 0,
+							extendedDynamicState3CoverageToColorLocation = 0,
+							extendedDynamicState3CoverageModulationMode = 0,
+							extendedDynamicState3CoverageModulationTableEnable = 0,
+							extendedDynamicState3CoverageModulationTable = 0,
+							extendedDynamicState3CoverageReductionMode = 0,
+							extendedDynamicState3RepresentativeFragmentTestEnable = 0,
+							extendedDynamicState3ShadingRateImageEnable = 0,
 						}
 					)
-					local queryDeviceFeatures = T.Box(
-						vk.VkPhysicalDeviceFeatures2,
-						{
-							sType = "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2",
-							pNext = queryFeatures,
-						}
-					)
-					lib.vkGetPhysicalDeviceFeatures2(self.ptr, queryDeviceFeatures)
-
-					-- Check if the specific blend features we need are supported
-					local blendEnableSupported = queryFeatures[0].extendedDynamicState3ColorBlendEnable ~= 0
-					local blendEquationSupported = queryFeatures[0].extendedDynamicState3ColorBlendEquation ~= 0
-					hasDynamicBlendFeatures = blendEnableSupported and blendEquationSupported
-
-					-- Only request features that are supported
-					if hasDynamicBlendFeatures then
-						local extendedDynamicState3Features = T.Box(
-							vk.VkPhysicalDeviceExtendedDynamicState3FeaturesEXT,
-							{
-								sType = "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_3_FEATURES_EXT",
-								pNext = nil,
-								extendedDynamicState3TessellationDomainOrigin = 0,
-								extendedDynamicState3DepthClampEnable = 0,
-								extendedDynamicState3PolygonMode = 0,
-								extendedDynamicState3RasterizationSamples = 0,
-								extendedDynamicState3SampleMask = 0,
-								extendedDynamicState3AlphaToCoverageEnable = 0,
-								extendedDynamicState3AlphaToOneEnable = 0,
-								extendedDynamicState3LogicOpEnable = 0,
-								extendedDynamicState3ColorBlendEnable = 1,
-								extendedDynamicState3ColorBlendEquation = 1,
-								extendedDynamicState3ColorWriteMask = 0,
-								extendedDynamicState3RasterizationStream = 0,
-								extendedDynamicState3ConservativeRasterizationMode = 0,
-								extendedDynamicState3ExtraPrimitiveOverestimationSize = 0,
-								extendedDynamicState3DepthClipEnable = 0,
-								extendedDynamicState3SampleLocationsEnable = 0,
-								extendedDynamicState3ColorBlendAdvanced = 0,
-								extendedDynamicState3ProvokingVertexMode = 0,
-								extendedDynamicState3LineRasterizationMode = 0,
-								extendedDynamicState3LineStippleEnable = 0,
-								extendedDynamicState3DepthClipNegativeOneToOne = 0,
-								extendedDynamicState3ViewportWScalingEnable = 0,
-								extendedDynamicState3ViewportSwizzle = 0,
-								extendedDynamicState3CoverageToColorEnable = 0,
-								extendedDynamicState3CoverageToColorLocation = 0,
-								extendedDynamicState3CoverageModulationMode = 0,
-								extendedDynamicState3CoverageModulationTableEnable = 0,
-								extendedDynamicState3CoverageModulationTable = 0,
-								extendedDynamicState3CoverageReductionMode = 0,
-								extendedDynamicState3RepresentativeFragmentTestEnable = 0,
-								extendedDynamicState3ShadingRateImageEnable = 0,
-							}
-						)
-						pNextChain = extendedDynamicState3Features
-					end
+					pNextChain = extendedDynamicState3Features
 				end
 
 				-- Enable scalar block layout feature for push constants
@@ -489,6 +505,17 @@ do -- instance
 						scalarBlockLayout = 1,
 					}
 				)
+				local queuePriority = ffi.new("float[1]", 1.0)
+				local queueCreateInfo = T.Box(
+					vk.VkDeviceQueueCreateInfo,
+					{
+						sType = "VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO",
+						queueFamilyIndex = graphicsQueueFamily,
+						queueCount = 1,
+						pQueuePriorities = queuePriority,
+					}
+				)
+				local deviceExtensions = T.Array(ffi.typeof("const char*"), #finalExtensions, finalExtensions)
 				local deviceCreateInfo = T.Box(
 					vk.VkDeviceCreateInfo,
 					{
@@ -505,11 +532,14 @@ do -- instance
 					lib.vkCreateDevice(self.ptr, deviceCreateInfo, nil, ptr),
 					"failed to create device"
 				)
-				local device = setmetatable({
-					ptr = ptr,
-					physical_device = self,
-					has_dynamic_blend = hasDynamicBlendFeatures
-				}, Device)
+				local device = setmetatable(
+					{
+						ptr = ptr,
+						physical_device = self,
+						has_dynamic_blend = hasDynamicBlendFeatures,
+					},
+					Device
+				)
 
 				-- Load extension functions if dynamic blend features are supported
 				if hasDynamicBlendFeatures then
