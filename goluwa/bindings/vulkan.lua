@@ -2167,8 +2167,8 @@ do -- instance
 			end
 
 			do -- graphics pipeline
-				local Pipeline = {}
-				Pipeline.__index = Pipeline
+				local GraphicsPipeline = {}
+				GraphicsPipeline.__index = GraphicsPipeline
 
 				function Device:CreateGraphicsPipeline(config, render_passes, pipelineLayout)
 					local stageArrayType = ffi.typeof("$ [" .. #config.shaderModules .. "]", vk.VkPipelineShaderStageCreateInfo)
@@ -2391,11 +2391,11 @@ do -- instance
 						lib.vkCreateGraphicsPipelines(self.ptr[0], nil, 1, pipelineInfo, nil, ptr),
 						"failed to create graphics pipeline"
 					)
-					return setmetatable({device = self, ptr = ptr, config = config}, Pipeline)
+					return setmetatable({device = self, ptr = ptr, config = config}, GraphicsPipeline)
 				end
 
-				function Pipeline:__gc()
-					debug_gc("Pipeline")
+				function GraphicsPipeline:__gc()
+					debug_gc("GraphicsPipeline")
 					lib.vkDestroyPipeline(self.device.ptr[0], self.ptr[0], nil)
 				end
 			end
