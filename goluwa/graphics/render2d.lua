@@ -35,7 +35,86 @@ local Constants = ffi.typeof(
 local shader_constants = Constants()
 local render2d = {}
 
+-- Blend mode presets
+render2d.blend_modes = {
+	alpha = {
+		blend = true,
+		src_color_blend_factor = "src_alpha",
+		dst_color_blend_factor = "one_minus_src_alpha",
+		color_blend_op = "add",
+		src_alpha_blend_factor = "one",
+		dst_alpha_blend_factor = "zero",
+		alpha_blend_op = "add",
+		color_write_mask = {"r", "g", "b", "a"},
+	},
+	additive = {
+		blend = true,
+		src_color_blend_factor = "src_alpha",
+		dst_color_blend_factor = "one",
+		color_blend_op = "add",
+		src_alpha_blend_factor = "one",
+		dst_alpha_blend_factor = "one",
+		alpha_blend_op = "add",
+		color_write_mask = {"r", "g", "b", "a"},
+	},
+	multiply = {
+		blend = true,
+		src_color_blend_factor = "dst_color",
+		dst_color_blend_factor = "zero",
+		color_blend_op = "add",
+		src_alpha_blend_factor = "dst_alpha",
+		dst_alpha_blend_factor = "zero",
+		alpha_blend_op = "add",
+		color_write_mask = {"r", "g", "b", "a"},
+	},
+	premultiplied = {
+		blend = true,
+		src_color_blend_factor = "one",
+		dst_color_blend_factor = "one_minus_src_alpha",
+		color_blend_op = "add",
+		src_alpha_blend_factor = "one",
+		dst_alpha_blend_factor = "one_minus_src_alpha",
+		alpha_blend_op = "add",
+		color_write_mask = {"r", "g", "b", "a"},
+	},
+	screen = {
+		blend = true,
+		src_color_blend_factor = "one",
+		dst_color_blend_factor = "one_minus_src_color",
+		color_blend_op = "add",
+		src_alpha_blend_factor = "one",
+		dst_alpha_blend_factor = "one_minus_src_alpha",
+		alpha_blend_op = "add",
+		color_write_mask = {"r", "g", "b", "a"},
+	},
+	none = {
+		blend = false,
+		src_color_blend_factor = "one",
+		dst_color_blend_factor = "zero",
+		color_blend_op = "add",
+		src_alpha_blend_factor = "one",
+		dst_alpha_blend_factor = "zero",
+		alpha_blend_op = "add",
+		color_write_mask = {"r", "g", "b", "a"},
+	},
+}
+
 function render2d.Initialize()
+	-- Set default blend mode
+	render2d.current_blend_mode = "alpha"
+
+	-- Check if dynamic blend is supported
+	local device = render.GetDevice()
+	render2d.has_dynamic_blend = device.has_dynamic_blend or false
+
+	-- Update dynamic states based on support
+	local dynamic_states = {"viewport", "scissor", "blend_constants"}
+	if render2d.has_dynamic_blend then
+		table.insert(dynamic_states, "color_blend_enable_ext")
+		table.insert(dynamic_states, "color_blend_equation_ext")
+	end
+	render2d.pipeline_data.dynamic_states = dynamic_states
+
 	render2d.pipeline = render.CreateGraphicsPipeline(render2d.pipeline_data)
 	local mesh_data = {
 		{pos = Vec3f(0, 1, 0), uv = Vec2f(0, 0), color = Colorf(1, 1, 1, 1)},
@@ -74,6 +153,13 @@ function render2d.Initialize()
 	render2d.SetAlphaTestReference(0)
 	render2d.SetBorderRadius(0)
 	render2d.UpdateScreenSize(window:GetSize())
+	-- Initialize all descriptor sets with the white texture
+	local tex = render2d.current_texture
+
+	for i = 1, render.GetSwapchainImageCount() do
+		render2d.pipeline:UpdateDescriptorSet("combined_image_sampler", i, 0, tex.view, tex.sampler)
+	end
+
 	render2d.ready = true
 end
 
@@ -83,7 +169,7 @@ end
 
 do -- shader
 	render2d.pipeline_data = {
-		dynamic_states = {"viewport", "scissor"},
+		dynamic_states = {"viewport", "scissor"}, -- Will be updated in Initialize() based on support
 		shader_stages = {
 			{
 				type = "vertex",
@@ -296,7 +382,7 @@ do -- shader
 			constants = {0.0, 0.0, 0.0, 0.0},
 			attachments = {
 				{
-					blend = false,
+					blend = true,
 					src_color_blend_factor = "src_alpha",
 					dst_color_blend_factor = "one_minus_src_alpha",
 					color_blend_op = "add",
@@ -387,7 +473,13 @@ do -- shader
 		if not tex then tex = render2d.white_texture end
 
 		render2d.current_texture = tex
-		render2d.UpdateDescriptorSet("combined_image_sampler", 1, 0, tex.view, tex.sampler)
+		-- If we're in the middle of rendering (frame_index > 0), update the descriptor set immediately
+		-- This allows drawing multiple objects with different textures in the same frame
+		local frame_index = render.GetCurrentFrame()
+
+		if frame_index > 0 then
+			render2d.pipeline:UpdateDescriptorSet("combined_image_sampler", frame_index, 0, tex.view, tex.sampler)
+		end
 	end
 
 	function render2d.GetTexture()
@@ -420,8 +512,46 @@ do -- shader
 
 	utility.MakePushPopFunction(render2d, "BorderRadius")
 
-	function render2d.UpdateDescriptorSet(type, index, binding_index, ...)
-		render2d.pipeline:UpdateDescriptorSet(type, index, binding_index, ...)
+	function render2d.SetBlendMode(mode_name)
+		if not render2d.blend_modes[mode_name] then
+			local valid_modes = {}
+			for k in pairs(render2d.blend_modes) do
+				table.insert(valid_modes, k)
+			end
+			error("Invalid blend mode: " .. tostring(mode_name) .. ". Valid modes: " .. table.concat(valid_modes, ", "))
+		end
+
+		render2d.current_blend_mode = mode_name
+
+		-- Only apply if dynamic blend is supported
+		if not render2d.has_dynamic_blend then
+			if mode_name ~= "alpha" then
+				print("Warning: Dynamic blend modes not supported on this device. Blend mode '" .. mode_name .. "' will not be applied.")
+			end
+			return
+		end
+
+		local blend_mode = render2d.blend_modes[mode_name]
+
+		-- Apply blend mode to command buffer
+		if render2d.cmd then
+			render2d.cmd:SetColorBlendEnable(0, blend_mode.blend)
+			if blend_mode.blend then
+				render2d.cmd:SetColorBlendEquation(0, blend_mode)
+			end
+		end
+	end
+
+	function render2d.GetBlendMode()
+		return render2d.current_blend_mode
+	end
+
+	utility.MakePushPopFunction(render2d, "BlendMode")
+
+	function render2d.SetBlendConstants(r, g, b, a)
+		if render2d.cmd then
+			render2d.cmd:SetBlendConstants(r, g, b, a)
+		end
 	end
 
 	function render2d.UploadConstants(cmd)
@@ -791,10 +921,21 @@ end
 render2d.Initialize()
 
 event.AddListener("PostDraw", "draw_2d", function(cmd, dt)
-	render2d.pipeline:Bind(cmd)
+	local frame_index = render.GetCurrentFrame()
+	-- Update descriptor set for this frame with the current texture
+	-- This is safe because we've waited on the fence for this frame in BeginFrame()
+	local tex = render2d.current_texture
+	render2d.pipeline:UpdateDescriptorSet("combined_image_sampler", frame_index, 0, tex.view, tex.sampler)
+	render2d.pipeline:Bind(cmd, frame_index)
 	cmd:BindVertexBuffer(render2d.rectangle:GetBuffer(), 0)
 	cmd:BindIndexBuffer(render2d.rectangle_indices:GetBuffer(), 0, "uint16")
 	render2d.cmd = cmd
+
+	-- Set initial blend mode for the frame (only if dynamic blend is supported)
+	if render2d.has_dynamic_blend then
+		render2d.SetBlendMode(render2d.current_blend_mode)
+	end
+
 	event.Call("Draw2D", dt)
 end)
 

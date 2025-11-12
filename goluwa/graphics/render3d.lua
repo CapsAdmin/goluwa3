@@ -153,13 +153,31 @@ local pipeline = render.CreateGraphicsPipeline(
 	}
 )
 
-event.AddListener("Draw", "draw_3d", function(cmd, dt)
-	pipeline:Bind(cmd)
-	event.Call("Draw3D", cmd, dt)
-end)
-
 local render3d = {}
 render3d.cam = cam
+render3d.pipeline = pipeline
+render3d.current_texture = nil -- Will be set by user via UpdateDescriptorSet
+
+event.AddListener("Draw", "draw_3d", function(cmd, dt)
+	local frame_index = render.GetCurrentFrame()
+
+	-- Update descriptor set for this frame with the current texture
+	-- If no texture is set, use render2d's white texture as default
+	if render3d.current_texture then
+		local tex = render3d.current_texture
+		pipeline:UpdateDescriptorSet("combined_image_sampler", frame_index, 0, tex.view, tex.sampler)
+	else
+		-- Use render2d's white texture as fallback
+		local render2d = require("graphics.render2d")
+		if render2d.IsReady() then
+			local tex = render2d.white_texture
+			pipeline:UpdateDescriptorSet("combined_image_sampler", frame_index, 0, tex.view, tex.sampler)
+		end
+	end
+
+	pipeline:Bind(cmd, frame_index)
+	event.Call("Draw3D", cmd, dt)
+end)
 
 function render3d.SetWorldMatrix(world)
 	cam:SetWorld(world)
@@ -179,8 +197,32 @@ function render3d.UploadConstants(cmd)
 	)
 end
 
+function render3d.SetTexture(tex)
+	render3d.current_texture = tex
+
+	-- If we're in the middle of rendering (frame_index > 0), update the descriptor set immediately
+	-- This allows drawing multiple objects with different textures in the same frame
+	local frame_index = render.GetCurrentFrame()
+	if frame_index > 0 then
+		pipeline:UpdateDescriptorSet("combined_image_sampler", frame_index, 0, tex.view, tex.sampler)
+	end
+end
+
 function render3d.UpdateDescriptorSet(type, index, binding_index, ...)
-	pipeline:UpdateDescriptorSet(type, index, binding_index, ...)
+	-- For combined_image_sampler, store it and update immediately if we're rendering
+	if type == "combined_image_sampler" and binding_index == 0 then
+		local view, sampler = ...
+		render3d.current_texture = {view = view, sampler = sampler}
+
+		-- If we're in the middle of rendering, update the descriptor set immediately
+		local frame_index = render.GetCurrentFrame()
+		if frame_index > 0 then
+			pipeline:UpdateDescriptorSet(type, frame_index, binding_index, view, sampler)
+		end
+	else
+		-- For other descriptor types, update directly
+		pipeline:UpdateDescriptorSet(type, index, binding_index, ...)
+	end
 end
 
 return render3d

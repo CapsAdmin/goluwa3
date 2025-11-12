@@ -52,8 +52,20 @@ function Pipeline.New(renderer, config)
 
 	local descriptorSetLayout = renderer.device:CreateDescriptorSetLayout(layout)
 	local pipelineLayout = renderer.device:CreatePipelineLayout({descriptorSetLayout}, push_constant_ranges)
-	local descriptorPool = renderer.device:CreateDescriptorPool(pool_sizes, 1)
-	local descriptorSet = descriptorPool:AllocateDescriptorSet(descriptorSetLayout)
+
+	-- Create one descriptor set per swapchain image for frame buffering
+	local descriptor_set_count = #renderer.swapchain_images
+
+	-- Multiply pool sizes by descriptor_set_count since we need that many of each descriptor
+	for i, pool_size in ipairs(pool_sizes) do
+		pool_size.count = pool_size.count * descriptor_set_count
+	end
+
+	local descriptorPool = renderer.device:CreateDescriptorPool(pool_sizes, descriptor_set_count)
+	local descriptorSets = {}
+	for i = 1, descriptor_set_count do
+		descriptorSets[i] = descriptorPool:AllocateDescriptorSet(descriptorSetLayout)
+	end
 	local vertex_bindings
 	local vertex_attributes
 
@@ -84,7 +96,7 @@ function Pipeline.New(renderer, config)
 		pipelineLayout
 	)
 	self.pipeline = pipeline
-	self.descriptor_sets = {descriptorSet}
+	self.descriptor_sets = descriptorSets
 	self.pipeline_layout = pipelineLayout
 	self.renderer = renderer
 	self.config = config
@@ -92,11 +104,14 @@ function Pipeline.New(renderer, config)
 	self.descriptorSetLayout = descriptorSetLayout
 	self.descriptorPool = descriptorPool
 
-	for i, stage in ipairs(config.shader_stages) do
-		if stage.descriptor_sets then
-			for i, ds in ipairs(stage.descriptor_sets) do
-				if ds.args then
-					self:UpdateDescriptorSet(ds.type, 1, ds.binding_index, unpack(ds.args))
+	-- Initialize all descriptor sets with the same initial bindings
+	for frame_index = 1, descriptor_set_count do
+		for i, stage in ipairs(config.shader_stages) do
+			if stage.descriptor_sets then
+				for i, ds in ipairs(stage.descriptor_sets) do
+					if ds.args then
+						self:UpdateDescriptorSet(ds.type, frame_index, ds.binding_index, unpack(ds.args))
+					end
 				end
 			end
 		end
@@ -123,9 +138,10 @@ function Pipeline:GetUniformBuffer(binding_index)
 	return ub
 end
 
-function Pipeline:Bind(cmd)
+function Pipeline:Bind(cmd, frame_index)
+	frame_index = frame_index or 1
 	cmd:BindPipeline(self.pipeline, "graphics")
-	cmd:BindDescriptorSets("graphics", self.pipeline_layout, self.descriptor_sets, 0)
+	cmd:BindDescriptorSets("graphics", self.pipeline_layout, {self.descriptor_sets[frame_index]}, 0)
 end
 
 function Pipeline:GetVertexAttributes()

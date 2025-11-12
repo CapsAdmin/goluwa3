@@ -26,6 +26,15 @@ function mod.GetExtension(lib, instance, name)
 	return func
 end
 
+function mod.GetDeviceExtension(lib, device, name)
+	local ptr = lib.vkGetDeviceProcAddr(device, name)
+
+	if ptr == nil then error("device extension function not found: " .. name, 2) end
+
+	local func = ffi.cast(mod["PFN_" .. name], ptr)
+	return func
+end
+
 function mod.find_library()
 	local function try_load(tbl)
 		local errors = {}

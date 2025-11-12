@@ -190,6 +190,10 @@ function WindowRenderTarget:GetCommandBuffer()
 	return self.command_buffers[self.current_frame]
 end
 
+function WindowRenderTarget:GetCurrentFrame()
+	return self.current_frame
+end
+
 function WindowRenderTarget:GetFramebuffer()
 	return self.framebuffers[self.image_index]
 end

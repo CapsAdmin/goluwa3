@@ -44,7 +44,19 @@ function VulkanInstance:Initialize(metal_surface)
 	self.surface = self.instance:CreateMetalSurface(metal_surface)
 	self.physical_device = self.instance:GetPhysicalDevices()[1]
 	self.graphics_queue_family = self.physical_device:FindGraphicsQueueFamily(self.surface)
-	self.device = self.physical_device:CreateDevice({"VK_KHR_swapchain"}, self.graphics_queue_family)
+	-- Try to enable dynamic blend extension if available
+	local device_extensions = {"VK_KHR_swapchain"}
+
+	-- Check if VK_EXT_extended_dynamic_state3 is available
+	local available_extensions = self.physical_device:GetAvailableDeviceExtensions()
+	for _, ext in ipairs(available_extensions) do
+		if ext == "VK_EXT_extended_dynamic_state3" then
+			table.insert(device_extensions, "VK_EXT_extended_dynamic_state3")
+			break
+		end
+	end
+
+	self.device = self.physical_device:CreateDevice(device_extensions, self.graphics_queue_family)
 	self.command_pool = self.device:CreateCommandPool(self.graphics_queue_family)
 	-- Get queue
 	self.queue = self.device:GetQueue(self.graphics_queue_family)

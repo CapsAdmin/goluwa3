@@ -114,4 +114,12 @@ function render.GetGraphicsQueueFamily()
 	return vulkan_instance.graphics_queue_family
 end
 
+function render.GetCurrentFrame()
+	return window_target:GetCurrentFrame()
+end
+
+function render.GetSwapchainImageCount()
+	return #vulkan_instance.swapchain_images
+end
+
 return render

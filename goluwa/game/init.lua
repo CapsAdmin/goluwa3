@@ -85,6 +85,21 @@ if true then
 	local render2d = require("graphics.render2d")
 
 	event.AddListener("Draw2D", "test", function(dt)
+		render2d.SetTexture()
+		render2d.SetColor(1, 1, 0, 0.5)
+		render2d.SetBlendMode("additive")
+		render2d.DrawRect(10, 10, 30, 30)
+		render2d.SetColor(1, 0, 1, 0.5)
+		render2d.SetBlendMode("multiply")
+		render2d.DrawRect(50, 50, 30, 30)
+		render2d.SetColor(0, 1, 1, 0.5)
+		render2d.SetBlendMode("alpha")
+		render2d.DrawRect(90, 90, 30, 30)
+
+		do
+			return
+		end
+
 		render2d.SetColor(1, 0, 0)
 		gfx.DrawFilledCircle(100, 100, 50)
 		render2d.SetColor(1, 0, 0)

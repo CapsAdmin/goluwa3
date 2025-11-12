@@ -4,9 +4,10 @@ local ffi_helpers = require("helpers.ffi_helpers")
 local shaderc = require("bindings.shaderc")
 local lib = vk.find_library()
 local vulkan = {}
+vulkan.ext = {}
 vulkan.vk = vk
 vulkan.lib = lib
-local DEBUG_GC = true
+local DEBUG_GC = false
 
 local function debug_gc(name)
 	if DEBUG_GC then
@@ -314,6 +315,20 @@ do -- instance
 			return result
 		end
 
+		function PhysicalDevice:GetAvailableDeviceExtensions()
+			local extensionCount = ffi.new("uint32_t[1]", 0)
+			lib.vkEnumerateDeviceExtensionProperties(self.ptr, nil, extensionCount, nil)
+			local availableExtensions = T.Array(vk.VkExtensionProperties)(extensionCount[0])
+			lib.vkEnumerateDeviceExtensionProperties(self.ptr, nil, extensionCount, availableExtensions)
+			local out = {}
+
+			for i = 0, extensionCount[0] - 1 do
+				table.insert(out, ffi.string(availableExtensions[i].extensionName))
+			end
+
+			return out
+		end
+
 		do -- device
 			local Device = {}
 			Device.__index = Device
@@ -383,12 +398,94 @@ do -- instance
 					}
 				)
 				local deviceExtensions = T.Array(ffi.typeof("const char*"), #finalExtensions, finalExtensions)
+				-- Check if VK_EXT_extended_dynamic_state3 is enabled
+				local hasExtendedDynamicState3Extension = false
+
+				for _, ext in ipairs(finalExtensions) do
+					if ext == "VK_EXT_extended_dynamic_state3" then
+						hasExtendedDynamicState3Extension = true
+
+						break
+					end
+				end
+
+				-- Query available features if extension is present
+				local pNextChain = nil
+				local hasDynamicBlendFeatures = false
+
+				if hasExtendedDynamicState3Extension then
+					-- Query what features are actually supported
+					local queryFeatures = T.Box(
+						vk.VkPhysicalDeviceExtendedDynamicState3FeaturesEXT,
+						{
+							sType = "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_3_FEATURES_EXT",
+							pNext = nil,
+						}
+					)
+					local queryDeviceFeatures = T.Box(
+						vk.VkPhysicalDeviceFeatures2,
+						{
+							sType = "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2",
+							pNext = queryFeatures,
+						}
+					)
+					lib.vkGetPhysicalDeviceFeatures2(self.ptr, queryDeviceFeatures)
+
+					-- Check if the specific blend features we need are supported
+					local blendEnableSupported = queryFeatures[0].extendedDynamicState3ColorBlendEnable ~= 0
+					local blendEquationSupported = queryFeatures[0].extendedDynamicState3ColorBlendEquation ~= 0
+					hasDynamicBlendFeatures = blendEnableSupported and blendEquationSupported
+
+					-- Only request features that are supported
+					if hasDynamicBlendFeatures then
+						local extendedDynamicState3Features = T.Box(
+							vk.VkPhysicalDeviceExtendedDynamicState3FeaturesEXT,
+							{
+								sType = "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_3_FEATURES_EXT",
+								pNext = nil,
+								extendedDynamicState3TessellationDomainOrigin = 0,
+								extendedDynamicState3DepthClampEnable = 0,
+								extendedDynamicState3PolygonMode = 0,
+								extendedDynamicState3RasterizationSamples = 0,
+								extendedDynamicState3SampleMask = 0,
+								extendedDynamicState3AlphaToCoverageEnable = 0,
+								extendedDynamicState3AlphaToOneEnable = 0,
+								extendedDynamicState3LogicOpEnable = 0,
+								extendedDynamicState3ColorBlendEnable = 1,
+								extendedDynamicState3ColorBlendEquation = 1,
+								extendedDynamicState3ColorWriteMask = 0,
+								extendedDynamicState3RasterizationStream = 0,
+								extendedDynamicState3ConservativeRasterizationMode = 0,
+								extendedDynamicState3ExtraPrimitiveOverestimationSize = 0,
+								extendedDynamicState3DepthClipEnable = 0,
+								extendedDynamicState3SampleLocationsEnable = 0,
+								extendedDynamicState3ColorBlendAdvanced = 0,
+								extendedDynamicState3ProvokingVertexMode = 0,
+								extendedDynamicState3LineRasterizationMode = 0,
+								extendedDynamicState3LineStippleEnable = 0,
+								extendedDynamicState3DepthClipNegativeOneToOne = 0,
+								extendedDynamicState3ViewportWScalingEnable = 0,
+								extendedDynamicState3ViewportSwizzle = 0,
+								extendedDynamicState3CoverageToColorEnable = 0,
+								extendedDynamicState3CoverageToColorLocation = 0,
+								extendedDynamicState3CoverageModulationMode = 0,
+								extendedDynamicState3CoverageModulationTableEnable = 0,
+								extendedDynamicState3CoverageModulationTable = 0,
+								extendedDynamicState3CoverageReductionMode = 0,
+								extendedDynamicState3RepresentativeFragmentTestEnable = 0,
+								extendedDynamicState3ShadingRateImageEnable = 0,
+							}
+						)
+						pNextChain = extendedDynamicState3Features
+					end
+				end
+
 				-- Enable scalar block layout feature for push constants
 				local vulkan12Features = T.Box(
 					vk.VkPhysicalDeviceVulkan12Features,
 					{
 						sType = "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES",
-						pNext = nil,
+						pNext = pNextChain,
 						scalarBlockLayout = 1,
 					}
 				)
@@ -408,7 +505,19 @@ do -- instance
 					lib.vkCreateDevice(self.ptr, deviceCreateInfo, nil, ptr),
 					"failed to create device"
 				)
-				return setmetatable({ptr = ptr, physical_device = self}, Device)
+				local device = setmetatable({
+					ptr = ptr,
+					physical_device = self,
+					has_dynamic_blend = hasDynamicBlendFeatures
+				}, Device)
+
+				-- Load extension functions if dynamic blend features are supported
+				if hasDynamicBlendFeatures then
+					vulkan.ext.vkCmdSetColorBlendEnableEXT = vk.GetDeviceExtension(lib, ptr[0], "vkCmdSetColorBlendEnableEXT")
+					vulkan.ext.vkCmdSetColorBlendEquationEXT = vk.GetDeviceExtension(lib, ptr[0], "vkCmdSetColorBlendEquationEXT")
+				end
+
+				return device
 			end
 
 			function Device:WaitIdle()
@@ -915,6 +1024,51 @@ do -- instance
 							}
 						)
 						lib.vkCmdSetScissor(self.ptr[0], 0, 1, scissor)
+					end
+
+					function CommandBuffer:SetBlendConstants(r, g, b, a)
+						local constants = ffi.new("float[4]", {r or 0.0, g or 0.0, b or 0.0, a or 0.0})
+						lib.vkCmdSetBlendConstants(self.ptr[0], constants)
+					end
+
+					function CommandBuffer:SetColorBlendEnable(first_attachment, blend_enable)
+						-- blend_enable should be a boolean (for single attachment) or table of booleans (for multiple)
+						local enable_array
+						local count
+
+						if type(blend_enable) == "boolean" then
+							-- Single attachment
+							enable_array = ffi.new("uint32_t[1]", {blend_enable and 1 or 0})
+							count = 1
+						elseif type(blend_enable) == "table" then
+							-- Multiple attachments
+							count = #blend_enable
+							enable_array = ffi.new("uint32_t[?]", count)
+
+							for i = 1, count do
+								enable_array[i - 1] = blend_enable[i] and 1 or 0
+							end
+						else
+							error("blend_enable must be a boolean or table of booleans")
+						end
+
+						vulkan.ext.vkCmdSetColorBlendEnableEXT(self.ptr[0], first_attachment or 0, count, enable_array)
+					end
+
+					function CommandBuffer:SetColorBlendEquation(first_attachment, blend_equation)
+						-- blend_equation should be a table with blend factors and ops
+						local equation = T.Box(
+							vk.VkColorBlendEquationEXT,
+							{
+								srcColorBlendFactor = enums.VK_BLEND_FACTOR_(blend_equation.src_color_blend_factor),
+								dstColorBlendFactor = enums.VK_BLEND_FACTOR_(blend_equation.dst_color_blend_factor),
+								colorBlendOp = enums.VK_BLEND_OP_(blend_equation.color_blend_op),
+								srcAlphaBlendFactor = enums.VK_BLEND_FACTOR_(blend_equation.src_alpha_blend_factor),
+								dstAlphaBlendFactor = enums.VK_BLEND_FACTOR_(blend_equation.dst_alpha_blend_factor),
+								alphaBlendOp = enums.VK_BLEND_OP_(blend_equation.alpha_blend_op),
+							}
+						)
+						vulkan.ext.vkCmdSetColorBlendEquationEXT(self.ptr[0], first_attachment or 0, 1, equation)
 					end
 
 					function CommandBuffer:PushConstants(layout, stage, binding, data_size, data)
@@ -1715,6 +1869,55 @@ do -- instance
 
 				function Image:CreateView()
 					return self.device:CreateImageView(self.ptr[0], self.format)
+				end
+
+				function Image:TransitionLayout(old_layout, new_layout)
+					-- Get the renderer instance to access queue and command pool
+					-- This is a bit hacky but necessary for one-off transitions
+					local render = require("graphics.render")
+					local device = render.GetDevice()
+					local queue = render.GetQueue()
+					local graphics_queue_family = render.GetGraphicsQueueFamily()
+					-- Create temporary command buffer for the transition
+					local cmd_pool = device:CreateCommandPool(graphics_queue_family)
+					local cmd = cmd_pool:CreateCommandBuffer()
+					cmd:Begin()
+					-- Determine access masks and stages based on layouts
+					local src_access = "none"
+					local dst_access = "none"
+					local src_stage = "top_of_pipe"
+					local dst_stage = "fragment"
+
+					if old_layout == "undefined" then
+						src_access = "none"
+						src_stage = "top_of_pipe"
+					end
+
+					if new_layout == "shader_read_only_optimal" then
+						dst_access = "shader_read"
+						dst_stage = "fragment"
+					end
+
+					-- Transition image layout
+					cmd:PipelineBarrier(
+						{
+							srcStage = src_stage,
+							dstStage = dst_stage,
+							imageBarriers = {
+								{
+									image = self,
+									srcAccessMask = src_access,
+									dstAccessMask = dst_access,
+									oldLayout = old_layout,
+									newLayout = new_layout,
+								},
+							},
+						}
+					)
+					cmd:End()
+					-- Submit and wait for completion
+					local fence = device:CreateFence()
+					queue:SubmitAndWait(device, cmd, fence)
 				end
 
 				function Image:__gc()

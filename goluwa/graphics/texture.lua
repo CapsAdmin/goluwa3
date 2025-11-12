@@ -15,6 +15,10 @@ function Texture.New(config)
 
 	if config.buffer then
 		render.UploadToImage(image, config.buffer, image:GetWidth(), image:GetHeight())
+	else
+		-- If no buffer is provided, transition the image to shader_read_only_optimal
+		-- This is necessary because images start in undefined layout
+		image:TransitionLayout("undefined", "shader_read_only_optimal")
 	end
 
 	local view = image:CreateView()
@@ -54,6 +58,7 @@ do
 			return
 		end
 
+		collectgarbage("stop")
 		local device = render.GetDevice()
 		local queue = render.GetQueue()
 		local graphics_queue_family = render.GetGraphicsQueueFamily()
@@ -110,19 +115,19 @@ do
 					{
 						type = "fragment",
 						code = [[
-						#version 450
+							#version 450
 
-						layout(location = 0) in vec2 in_uv;
-						layout(location = 0) out vec4 out_color;
+							layout(location = 0) in vec2 in_uv;
+							layout(location = 0) out vec4 out_color;
 
-						vec4 shade(vec2 uv) {
-							]] .. glsl .. [[
-						}
+							vec4 shade(vec2 uv) {
+								]] .. glsl .. [[
+							}
 
-						void main() {
-							out_color = shade(in_uv);
-						}
-					]],
+							void main() {
+								out_color = shade(in_uv);
+							}
+						]],
 					},
 				},
 				rasterizer = {
@@ -174,7 +179,7 @@ do
 		cmd:Reset()
 		cmd:Begin()
 		-- Transition image from undefined/shader_read to color_attachment_optimal
-		collectgarbage("stop")
+		--collectgarbage("stop")
 		cmd:PipelineBarrier(
 			{
 				srcStage = "top_of_pipe",
@@ -201,7 +206,7 @@ do
 		-- Draw fullscreen triangle
 		cmd:SetViewport(0.0, 0.0, self.image:GetWidth(), self.image:GetHeight(), 0.0, 1.0)
 		cmd:SetScissor(0, 0, self.image:GetWidth(), self.image:GetHeight())
-		--cmd:Draw(3, 1, 0, 0)
+		cmd:Draw(3, 1, 0, 0)
 		-- End render pass
 		-- Note: The render pass automatically transitions the image to shader_read_only_optimal
 		-- because we set final_layout = "shader_read_only_optimal" in CreateRenderPass
