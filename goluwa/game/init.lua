@@ -28,7 +28,6 @@ local index_buffer = render.CreateBuffer(
 )
 local texture = Texture.New({path = "assets/images/capsadmin.png"})
 render3d.SetTexture(texture)
-_G.refs = {texture, vertex_buffer, index_buffer}
 local transforms = {}
 
 for i = 1, 100 do
@@ -66,30 +65,29 @@ event.AddListener("Draw3D", "draw_cube", function(cmd, dt)
 			render3d.SetTexture(texture)
 		end
 
-		cmd:DrawIndexed(36, 1, 0, 0, 0)
+		cmd:DrawIndexed(36)
 	end
 end)
 
 event.AddListener("Draw2D", "test", function(dt)
 	render2d.SetColor(1, 1, 1)
 	render2d.SetTexture(texture)
-	render2d.DrawRect(10, 10, 30, 30)
-	-- gfx
-	render2d.SetColor(1, 0, 1)
-	gfx.DrawFilledCircle(200, 200, 100)
+	render2d.SetRectUV2(0, 0, 0.5, 0.5)
+	render2d.DrawRect(10, 10, 100, 100)
+	render2d.SetRectUV2(0.5, 0.1, 1, 1)
+	render2d.DrawRect(100, 100, 100, 100)
 
 	do
 		return
 	end
 
-	render2d.SetColor(1, 0, 0)
-	gfx.DrawFilledCircle(100, 100, 50)
-	render2d.SetColor(1, 0, 0)
-	render2d.DrawRect(10, 10, 30, 30)
-	render2d.SetColor(0, 1, 0)
-	render2d.DrawRect(50, 50, 30, 30)
-	render2d.SetColor(0, 0, 1)
-	render2d.DrawRect(90, 90, 30, 30)
+	render2d.SetColor(1, 1, 1)
+	render2d.SetTexture(texture)
+	render2d.DrawRect(100, 100, 50, 50)
+	-- gfx
+	render2d.SetColor(1, 0, 1)
+	gfx.DrawFilledCircle(200, 200, 100)
+	gfx.DrawText("Hello world", 20, 20)
 end)
 
 event.AddListener("KeyInput", "escape_shutdown", function(key, press)

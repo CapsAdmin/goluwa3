@@ -614,35 +614,36 @@ do -- rectangle
 		local last_color_bottom_right = Colorf(1, 1, 1, 1)
 
 		local function update_vbo()
-			local vertices = render2d.rectangle:GetData()
+			local vertices = render2d.rectangle:GetVertices()
 
 			if
-				last_xtl ~= vertices[1].uv.x or
-				last_ytl ~= vertices[1].uv.y or
-				last_xtr ~= vertices[5].uv.x or
-				last_ytr ~= vertices[5].uv.y or
-				last_xbl ~= vertices[2].uv.x or
+				last_xtl ~= vertices[0].uv.x or
+				last_ytl ~= vertices[0].uv.y or
+				last_xtr ~= vertices[2].uv.x or
+				last_ytr ~= vertices[2].uv.y or
+				last_xbl ~= vertices[1].uv.x or
 				last_ybl ~= vertices[1].uv.y or
-				last_xbr ~= vertices[4].uv.x or
-				last_ybr ~= vertices[4].uv.y or
-				last_color_bottom_left ~= vertices[2].color or
-				last_color_top_left ~= vertices[1].color or
-				last_color_top_right ~= vertices[3].color or
-				last_color_bottom_right ~= vertices[4].color
+				last_xbr ~= vertices[3].uv.x or
+				last_ybr ~= vertices[3].uv.y or
+				last_color_bottom_left ~= vertices[1].color or
+				last_color_top_left ~= vertices[0].color or
+				last_color_top_right ~= vertices[2].color or
+				last_color_bottom_right ~= vertices[3].color
 			then
 				render2d.rectangle:Upload()
-				last_xtl = vertices[1].uv.x
-				last_ytl = vertices[1].uv.y
-				last_xtr = vertices[5].uv.x
-				last_ytr = vertices[5].uv.y
-				last_xbl = vertices[2].uv.x
+				--render2d.cmd:BindVertexBuffer(render2d.rectangle:GetBuffer(), 0)
+				last_xtl = vertices[0].uv.x
+				last_ytl = vertices[0].uv.y
+				last_xtr = vertices[2].uv.x
+				last_ytr = vertices[2].uv.y
+				last_xbl = vertices[1].uv.x
 				last_ybl = vertices[1].uv.y
-				last_xbr = vertices[4].uv.x
-				last_ybr = vertices[4].uv.y
-				last_color_bottom_left = vertices[2].color
-				last_color_top_left = vertices[1].color
-				last_color_top_right = vertices[3].color
-				last_color_bottom_right = vertices[4].color
+				last_xbr = vertices[3].uv.x
+				last_ybr = vertices[3].uv.y
+				last_color_bottom_left = vertices[1].color
+				last_color_top_left = vertices[0].color
+				last_color_top_right = vertices[2].color
+				last_color_bottom_right = vertices[3].color
 			end
 		end
 
@@ -650,31 +651,31 @@ do -- rectangle
 			local X, Y, W, H, SX, SY
 
 			function render2d.SetRectUV(x, y, w, h, sx, sy)
-				local vertices = render2d.rectangle:GetData()
+				local vertices = render2d.rectangle:GetVertices()
 
 				if not x then
-					vertices[2].uv.x = 0
-					vertices[1].uv.y = 0
-					vertices[2].uv.y = 1
-					vertices[3].uv.x = 1
+					vertices[1].uv.x = 0
+					vertices[0].uv.y = 0
+					vertices[1].uv.y = 1
+					vertices[2].uv.x = 1
 				else
 					sx = sx or 1
 					sy = sy or 1
 					local y = -y - h
-					vertices[2].uv.x = x / sx
-					vertices[1].uv.y = y / sy
-					vertices[2].uv.y = (y + h) / sy
-					vertices[3].uv.x = (x + w) / sx
+					vertices[1].uv.x = x / sx
+					vertices[0].uv.y = y / sy
+					vertices[1].uv.y = (y + h) / sy
+					vertices[2].uv.x = (x + w) / sx
 				end
 
-				vertices[1].uv.x = vertices[2].uv.x
+				vertices[0].uv.x = vertices[1].uv.x
+				vertices[2].uv.y = vertices[0].uv.y
+				vertices[4].uv.x = vertices[2].uv.x
+				vertices[4].uv.y = vertices[0].uv.y
+				vertices[3].uv.x = vertices[2].uv.x
 				vertices[3].uv.y = vertices[1].uv.y
-				vertices[5].uv.x = vertices[3].uv.x
+				vertices[5].uv.x = vertices[1].uv.x
 				vertices[5].uv.y = vertices[1].uv.y
-				vertices[4].uv.x = vertices[3].uv.x
-				vertices[4].uv.y = vertices[2].uv.y
-				vertices[6].uv.x = vertices[2].uv.x
-				vertices[6].uv.y = vertices[2].uv.y
 				update_vbo()
 				X = x
 				Y = y
@@ -689,19 +690,24 @@ do -- rectangle
 			end
 
 			function render2d.SetRectUV2(u1, v1, u2, v2)
-				local vertices = render2d.rectangle:GetData()
-				vertices[2].uv.x = u1
-				vertices[1].uv.y = v1
-				vertices[2].uv.y = u2
-				vertices[3].uv.x = v2
-				vertices[1].uv.x = vertices[2].uv.x
-				vertices[3].uv.y = vertices[1].uv.y
-				vertices[5].uv.x = vertices[3].uv.x
-				vertices[5].uv.y = vertices[1].uv.y
-				vertices[4].uv.x = vertices[3].uv.x
-				vertices[4].uv.y = vertices[2].uv.y
-				vertices[6].uv.x = vertices[2].uv.x
-				vertices[6].uv.y = vertices[2].uv.y
+				local vertices = render2d.rectangle:GetVertices()
+				-- bottom-left
+				vertices[1].uv.x = u1
+				vertices[1].uv.y = v2
+				-- top-left
+				vertices[0].uv.x = u1
+				vertices[0].uv.y = v1
+				-- top-right
+				vertices[2].uv.x = u2
+				vertices[2].uv.y = v1
+				-- bottom-right
+				vertices[3].uv.x = u2
+				vertices[3].uv.y = v2
+				-- duplicates for second triangle
+				vertices[4].uv.x = u2
+				vertices[4].uv.y = v1
+				vertices[5].uv.x = u1
+				vertices[5].uv.y = v2
 				update_vbo()
 			end
 		end
@@ -710,7 +716,7 @@ do -- rectangle
 			local vertices = render2d.rectangle:GetData()
 
 			if not cbl then
-				for i = 1, 6 do
+				for i = 0, 5 do
 					local r, g, b, a = 1, 1, 1, 1
 					vertices[i].color.r = r
 					vertices[i].color.g = g
@@ -719,33 +725,33 @@ do -- rectangle
 				end
 			else
 				local r, g, b, a = cbl:Unpack()
-				vertices[2].color.r = r
-				vertices[2].color.g = g
-				vertices[2].color.b = b
-				vertices[2].color.a = a
-				r, g, b, a = ctl:Unpack()
 				vertices[1].color.r = r
 				vertices[1].color.g = g
 				vertices[1].color.b = b
 				vertices[1].color.a = a
+				r, g, b, a = ctl:Unpack()
+				vertices[0].color.r = r
+				vertices[0].color.g = g
+				vertices[0].color.b = b
+				vertices[0].color.a = a
 				r, g, b, a = ctr:Unpack()
-				vertices[3].color.r = r
-				vertices[3].color.g = g
-				vertices[3].color.b = b
-				vertices[3].color.a = a
-				vertices[5].color.r = r
-				vertices[5].color.g = g
-				vertices[5].color.b = b
-				vertices[5].color.a = a
-				r, g, b, a = cbr:Unpack()
+				vertices[2].color.r = r
+				vertices[2].color.g = g
+				vertices[2].color.b = b
+				vertices[2].color.a = a
 				vertices[4].color.r = r
 				vertices[4].color.g = g
 				vertices[4].color.b = b
 				vertices[4].color.a = a
-				vertices[6].color.r = vertices[1].color.r
-				vertices[6].color.g = vertices[1].color.g
-				vertices[6].color.b = vertices[1].color.b
-				vertices[6].color.a = vertices[1].color.a
+				r, g, b, a = cbr:Unpack()
+				vertices[3].color.r = r
+				vertices[3].color.g = g
+				vertices[3].color.b = b
+				vertices[3].color.a = a
+				vertices[5].color.r = vertices[0].color.r
+				vertices[5].color.g = vertices[0].color.g
+				vertices[5].color.b = vertices[0].color.b
+				vertices[5].color.a = vertices[0].color.a
 			end
 
 			update_vbo()
