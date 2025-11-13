@@ -72,7 +72,7 @@ function WindowRenderTarget.New(renderer)
 	self.in_flight_fences = {}
 
 	for i = 1, #renderer.swapchain_images do
-		self.command_buffers[i] = renderer.command_pool:CreateCommandBuffer()
+		self.command_buffers[i] = renderer.command_pool:AllocateCommandBuffer()
 		self.image_available_semaphores[i] = Semaphore.New(renderer.device)
 		self.render_finished_semaphores[i] = Semaphore.New(renderer.device)
 		self.in_flight_fences[i] = Fence.New(renderer.device)
@@ -194,7 +194,7 @@ function WindowRenderTarget:RecreateSwapchain()
 		self.in_flight_fences = {}
 
 		for i = 1, new_count do
-			self.command_buffers[i] = self.renderer.command_pool:CreateCommandBuffer()
+			self.command_buffers[i] = self.renderer.command_pool:AllocateCommandBuffer()
 			self.image_available_semaphores[i] = Semaphore.New(self.renderer.device)
 			self.render_finished_semaphores[i] = Semaphore.New(self.renderer.device)
 			self.in_flight_fences[i] = Fence.New(self.renderer.device)

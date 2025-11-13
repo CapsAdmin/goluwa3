@@ -102,7 +102,7 @@ do
 		)
 		-- Create command pool and buffer for this operation
 		local command_pool = CommandPool.New(device, graphics_queue_family)
-		local cmd = command_pool:CreateCommandBuffer()
+		local cmd = command_pool:AllocateCommandBuffer()
 		-- Create graphics pipeline
 		local pipeline = render.CreateGraphicsPipeline(
 			{

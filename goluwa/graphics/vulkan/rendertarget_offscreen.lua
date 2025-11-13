@@ -31,7 +31,7 @@ function OffscreenRenderTarget.New(renderer, width, height, format, config)
 	)
 	self.framebuffer = Framebuffer.New(renderer.device, self.render_pass, self.image_view, width, height, nil)
 	self.command_pool = CommandPool.New(renderer.device, renderer.graphics_queue_family)
-	self.command_buffer = self.command_pool:CreateCommandBuffer()
+	self.command_buffer = self.command_pool:AllocateCommandBuffer()
 	return self
 end
 

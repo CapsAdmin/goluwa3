@@ -203,7 +203,7 @@ function VulkanInstance:UploadToImage(image, data, width, height)
 	staging_buffer:CopyData(data, pixel_count * 4)
 	-- Copy to image using command buffer
 	local cmd_pool = CommandPool.New(self.device, self.graphics_queue_family)
-	local cmd = cmd_pool:CreateCommandBuffer()
+	local cmd = cmd_pool:AllocateCommandBuffer()
 	cmd:Begin()
 	-- Transition image to transfer dst
 	cmd:PipelineBarrier(

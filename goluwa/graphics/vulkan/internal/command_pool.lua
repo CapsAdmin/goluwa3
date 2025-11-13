@@ -2,7 +2,7 @@ local ffi = require("ffi")
 local vulkan = require("graphics.vulkan.internal.vulkan")
 local CommandPool = {}
 CommandPool.__index = CommandPool
-CommandPool.CreateCommandBuffer = require("graphics.vulkan.internal.command_buffer").New
+CommandPool.AllocateCommandBuffer = require("graphics.vulkan.internal.command_buffer").New
 
 function CommandPool.New(device, graphicsQueueFamily)
 	local info = vulkan.vk.VkCommandPoolCreateInfo(
