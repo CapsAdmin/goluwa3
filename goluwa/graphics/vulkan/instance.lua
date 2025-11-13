@@ -47,11 +47,7 @@ function VulkanInstance.New(config)
 
 	local self = setmetatable({}, VulkanInstance)
 	self.config = config
-	self:Initialize(assert(self.config.surface_handle))
-	return self
-end
-
-function VulkanInstance:Initialize(metal_surface)
+	local metal_surface = assert(self.config.surface_handle)
 	local layers = {}
 	local extensions = {"VK_KHR_surface", "VK_EXT_metal_surface"}
 
