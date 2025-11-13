@@ -4,17 +4,20 @@ local CommandBuffer = {}
 CommandBuffer.__index = CommandBuffer
 
 function CommandBuffer.New(command_pool)
-	local info = vulkan.vk.VkCommandBufferAllocateInfo(
-		{
-			sType = "VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO",
-			commandPool = command_pool.ptr[0],
-			level = "VK_COMMAND_BUFFER_LEVEL_PRIMARY",
-			commandBufferCount = 1,
-		}
-	)
 	local ptr = vulkan.T.Box(vulkan.vk.VkCommandBuffer)()
 	vulkan.assert(
-		vulkan.lib.vkAllocateCommandBuffers(command_pool.device.ptr[0], info, ptr),
+		vulkan.lib.vkAllocateCommandBuffers(
+			command_pool.device.ptr[0],
+			vulkan.vk.VkCommandBufferAllocateInfo(
+				{
+					sType = "VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO",
+					commandPool = command_pool.ptr[0],
+					level = "VK_COMMAND_BUFFER_LEVEL_PRIMARY",
+					commandBufferCount = 1,
+				}
+			),
+			ptr
+		),
 		"failed to allocate command buffer"
 	)
 	return setmetatable({ptr = ptr}, CommandBuffer)
@@ -24,13 +27,18 @@ function CommandBuffer:__gc() -- Command buffers are freed when the command pool
 end
 
 function CommandBuffer:Begin()
-	local info = vulkan.vk.VkCommandBufferBeginInfo(
-		{
-			sType = "VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO",
-			flags = vulkan.vk.VkCommandBufferUsageFlagBits("VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT"),
-		}
+	vulkan.assert(
+		vulkan.lib.vkBeginCommandBuffer(
+			self.ptr[0],
+			vulkan.vk.VkCommandBufferBeginInfo(
+				{
+					sType = "VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO",
+					flags = vulkan.vk.VkCommandBufferUsageFlagBits("VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT"),
+				}
+			)
+		),
+		"failed to begin command buffer"
 	)
-	vulkan.assert(vulkan.lib.vkBeginCommandBuffer(self.ptr[0], info), "failed to begin command buffer")
 end
 
 function CommandBuffer:Reset()
@@ -204,8 +212,7 @@ function CommandBuffer:Draw(vertexCount, instanceCount, firstVertex, firstInstan
 end
 
 function CommandBuffer:BindIndexBuffer(buffer, offset, indexType)
-	indexType = indexType or "uint32"
-	vulkan.lib.vkCmdBindIndexBuffer(self.ptr[0], buffer.ptr[0], offset, vulkan.enums.VK_INDEX_TYPE_(indexType))
+	vulkan.lib.vkCmdBindIndexBuffer(self.ptr[0], buffer.ptr[0], offset, vulkan.enums.VK_INDEX_TYPE_(indexType or "uint32"))
 end
 
 function CommandBuffer:DrawIndexed(indexCount, instanceCount, firstIndex, vertexOffset, firstInstance)
@@ -220,27 +227,35 @@ function CommandBuffer:DrawIndexed(indexCount, instanceCount, firstIndex, vertex
 end
 
 function CommandBuffer:SetViewport(x, y, width, height, minDepth, maxDepth)
-	local viewport = vulkan.vk.VkViewport(
-		{
-			x = x or 0.0,
-			y = y or 0.0,
-			width = width,
-			height = height,
-			minDepth = minDepth or 0.0,
-			maxDepth = maxDepth or 1.0,
-		}
+	vulkan.lib.vkCmdSetViewport(
+		self.ptr[0],
+		0,
+		1,
+		vulkan.vk.VkViewport(
+			{
+				x = x or 0.0,
+				y = y or 0.0,
+				width = width,
+				height = height,
+				minDepth = minDepth or 0.0,
+				maxDepth = maxDepth or 1.0,
+			}
+		)
 	)
-	vulkan.lib.vkCmdSetViewport(self.ptr[0], 0, 1, viewport)
 end
 
 function CommandBuffer:SetScissor(x, y, width, height)
-	local scissor = vulkan.vk.VkRect2D(
-		{
-			offset = {x = x or 0, y = y or 0},
-			extent = {width = width, height = height},
-		}
+	vulkan.lib.vkCmdSetScissor(
+		self.ptr[0],
+		0,
+		1,
+		vulkan.vk.VkRect2D(
+			{
+				offset = {x = x or 0, y = y or 0},
+				extent = {width = width, height = height},
+			}
+		)
 	)
-	vulkan.lib.vkCmdSetScissor(self.ptr[0], 0, 1, scissor)
 end
 
 function CommandBuffer:SetBlendConstants(r, g, b, a)
@@ -273,18 +288,21 @@ function CommandBuffer:SetColorBlendEnable(first_attachment, blend_enable)
 end
 
 function CommandBuffer:SetColorBlendEquation(first_attachment, blend_equation)
-	-- blend_equation should be a table with blend factors and ops
-	local equation = vulkan.vk.VkColorBlendEquationEXT(
-		{
-			srcColorBlendFactor = vulkan.enums.VK_BLEND_FACTOR_(blend_equation.src_color_blend_factor),
-			dstColorBlendFactor = vulkan.enums.VK_BLEND_FACTOR_(blend_equation.dst_color_blend_factor),
-			colorBlendOp = vulkan.enums.VK_BLEND_OP_(blend_equation.color_blend_op),
-			srcAlphaBlendFactor = vulkan.enums.VK_BLEND_FACTOR_(blend_equation.src_alpha_blend_factor),
-			dstAlphaBlendFactor = vulkan.enums.VK_BLEND_FACTOR_(blend_equation.dst_alpha_blend_factor),
-			alphaBlendOp = vulkan.enums.VK_BLEND_OP_(blend_equation.alpha_blend_op),
-		}
+	vulkan.ext.vkCmdSetColorBlendEquationEXT(
+		self.ptr[0],
+		first_attachment or 0,
+		1,
+		vulkan.vk.VkColorBlendEquationEXT(
+			{
+				srcColorBlendFactor = vulkan.enums.VK_BLEND_FACTOR_(blend_equation.src_color_blend_factor),
+				dstColorBlendFactor = vulkan.enums.VK_BLEND_FACTOR_(blend_equation.dst_color_blend_factor),
+				colorBlendOp = vulkan.enums.VK_BLEND_OP_(blend_equation.color_blend_op),
+				srcAlphaBlendFactor = vulkan.enums.VK_BLEND_FACTOR_(blend_equation.src_alpha_blend_factor),
+				dstAlphaBlendFactor = vulkan.enums.VK_BLEND_FACTOR_(blend_equation.dst_alpha_blend_factor),
+				alphaBlendOp = vulkan.enums.VK_BLEND_OP_(blend_equation.alpha_blend_op),
+			}
+		)
 	)
-	vulkan.ext.vkCmdSetColorBlendEquationEXT(self.ptr[0], first_attachment or 0, 1, equation)
 end
 
 function CommandBuffer:PushConstants(layout, stage, binding, data_size, data)
@@ -299,15 +317,6 @@ function CommandBuffer:PushConstants(layout, stage, binding, data_size, data)
 end
 
 function CommandBuffer:ClearColorImage(config)
-	local range = vulkan.vk.VkImageSubresourceRange(
-		{
-			aspectMask = vulkan.enums.VK_IMAGE_ASPECT_(config.aspect_mask or "color"),
-			baseMipLevel = config.base_mip_level or 0,
-			levelCount = config.level_count or 1,
-			baseArrayLayer = config.base_array_layer or 0,
-			layerCount = config.layer_count or 1,
-		}
-	)
 	vulkan.lib.vkCmdClearColorImage(
 		self.ptr[0],
 		config.image,
@@ -316,7 +325,15 @@ function CommandBuffer:ClearColorImage(config)
 			float32 = config.color or {0.0, 0.0, 0.0, 1.0},
 		}),
 		1,
-		range
+		vulkan.vk.VkImageSubresourceRange(
+			{
+				aspectMask = vulkan.enums.VK_IMAGE_ASPECT_(config.aspect_mask or "color"),
+				baseMipLevel = config.base_mip_level or 0,
+				levelCount = config.level_count or 1,
+				baseArrayLayer = config.base_array_layer or 0,
+				layerCount = config.layer_count or 1,
+			}
+		)
 	)
 end
 

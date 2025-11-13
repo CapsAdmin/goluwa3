@@ -226,4 +226,16 @@ function Device:UpdateDescriptorSetArray(descriptorSet, binding_index, texture_a
 	vulkan.lib.vkUpdateDescriptorSets(self.ptr[0], 1, descriptorWrite, 0, nil)
 end
 
+function Device:GetImageMemoryRequirements(image)
+	local memRequirements = vulkan.vk.VkMemoryRequirements()
+	vulkan.lib.vkGetImageMemoryRequirements(self.ptr[0], image.ptr[0], memRequirements)
+	return memRequirements
+end
+
+function Device:GetBufferMemoryRequirements(buffer)
+	local memRequirements = vulkan.vk.VkMemoryRequirements()
+	vulkan.lib.vkGetBufferMemoryRequirements(self.ptr[0], buffer.ptr[0], memRequirements)
+	return memRequirements
+end
+
 return Device

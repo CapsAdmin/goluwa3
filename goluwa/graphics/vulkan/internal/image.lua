@@ -3,55 +3,42 @@ local vulkan = require("graphics.vulkan.internal.vulkan")
 local ImageView = require("graphics.vulkan.internal.image_view")
 local CommandPool = require("graphics.vulkan.internal.command_pool")
 local Fence = require("graphics.vulkan.internal.fence")
+local Memory = require("graphics.vulkan.internal.memory")
 local Image = {}
 Image.__index = Image
 
 function Image.New(device, width, height, format, usage, properties, samples)
-	samples = samples or "1"
-	local imageInfo = vulkan.vk.VkImageCreateInfo(
-		{
-			sType = "VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO",
-			imageType = "VK_IMAGE_TYPE_2D",
-			format = vulkan.enums.VK_FORMAT_(format),
-			extent = {
-				width = width,
-				height = height,
-				depth = 1,
-			},
-			mipLevels = 1,
-			arrayLayers = 1,
-			samples = "VK_SAMPLE_COUNT_" .. samples .. "_BIT",
-			tiling = "VK_IMAGE_TILING_OPTIMAL",
-			usage = vulkan.enums.VK_IMAGE_USAGE_(usage),
-			sharingMode = "VK_SHARING_MODE_EXCLUSIVE",
-			initialLayout = "VK_IMAGE_LAYOUT_UNDEFINED",
-		}
-	)
-	local image_ptr = vulkan.T.Box(vulkan.vk.VkImage)()
+	local ptr = vulkan.T.Box(vulkan.vk.VkImage)()
 	vulkan.assert(
-		vulkan.lib.vkCreateImage(device.ptr[0], imageInfo, nil, image_ptr),
+		vulkan.lib.vkCreateImage(
+			device.ptr[0],
+			vulkan.vk.VkImageCreateInfo(
+				{
+					sType = "VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO",
+					imageType = "VK_IMAGE_TYPE_2D",
+					format = vulkan.enums.VK_FORMAT_(format),
+					extent = {
+						width = width,
+						height = height,
+						depth = 1,
+					},
+					mipLevels = 1,
+					arrayLayers = 1,
+					samples = "VK_SAMPLE_COUNT_" .. (samples or "1") .. "_BIT",
+					tiling = "VK_IMAGE_TILING_OPTIMAL",
+					usage = vulkan.enums.VK_IMAGE_USAGE_(usage),
+					sharingMode = "VK_SHARING_MODE_EXCLUSIVE",
+					initialLayout = "VK_IMAGE_LAYOUT_UNDEFINED",
+				}
+			),
+			nil,
+			ptr
+		),
 		"failed to create image"
 	)
-	local memRequirements = vulkan.vk.VkMemoryRequirements()
-	vulkan.lib.vkGetImageMemoryRequirements(device.ptr[0], image_ptr[0], memRequirements)
-	properties = vulkan.enums.VK_MEMORY_PROPERTY_(properties or "device_local")
-	local allocInfo = vulkan.vk.VkMemoryAllocateInfo(
+	local self = setmetatable(
 		{
-			sType = "VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO",
-			allocationSize = memRequirements.size,
-			memoryTypeIndex = device.physical_device:FindMemoryType(memRequirements.memoryTypeBits, properties),
-		}
-	)
-	local memory_ptr = vulkan.T.Box(vulkan.vk.VkDeviceMemory)()
-	vulkan.assert(
-		vulkan.lib.vkAllocateMemory(device.ptr[0], allocInfo, nil, memory_ptr),
-		"failed to allocate image memory"
-	)
-	vulkan.lib.vkBindImageMemory(device.ptr[0], image_ptr[0], memory_ptr[0], 0)
-	return setmetatable(
-		{
-			ptr = image_ptr,
-			memory = memory_ptr,
+			ptr = ptr,
 			device = device,
 			width = width,
 			height = height,
@@ -60,11 +47,25 @@ function Image.New(device, width, height, format, usage, properties, samples)
 		},
 		Image
 	)
+	local requirements = device:GetImageMemoryRequirements(self)
+	self.memory = Memory.New(
+		device,
+		requirements.size,
+		device.physical_device:FindMemoryType(requirements.memoryTypeBits, vulkan.enums.VK_MEMORY_PROPERTY_(properties or "device_local"))
+	)
+	self:BindMemory()
+	return self
+end
+
+function Image:BindMemory()
+	vulkan.assert(
+		vulkan.lib.vkBindImageMemory(self.device.ptr[0], self.ptr[0], self.memory.ptr[0], 0),
+		"failed to bind image memory"
+	)
 end
 
 function Image:__gc()
 	vulkan.lib.vkDestroyImage(self.device.ptr[0], self.ptr[0], nil)
-	vulkan.lib.vkFreeMemory(self.device.ptr[0], self.memory[0], nil)
 end
 
 function Image:GetWidth()
