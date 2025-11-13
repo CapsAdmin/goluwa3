@@ -75,11 +75,16 @@ end
 
 do
 	function Texture:Shade(glsl)
+		local RenderPass = require("graphics.vulkan.internal.render_pass")
+		local Framebuffer = require("graphics.vulkan.internal.framebuffer")
+		local CommandPool = require("graphics.vulkan.internal.command_pool")
+		local Fence = require("graphics.vulkan.internal.fence")
 		local device = render.GetDevice()
 		local queue = render.GetQueue()
 		local graphics_queue_family = render.GetGraphicsQueueFamily()
 		-- Create render pass for this texture's format
-		local render_pass = device:CreateRenderPass(
+		local render_pass = RenderPass.New(
+			device,
 			{
 				format = self.format,
 				samples = "1",
@@ -87,7 +92,8 @@ do
 			}
 		)
 		-- Create framebuffer using the texture's existing image view
-		local framebuffer = device:CreateFramebuffer(
+		local framebuffer = Framebuffer.New(
+			device,
 			render_pass,
 			self.view,
 			self.image:GetWidth(),
@@ -95,7 +101,7 @@ do
 			nil
 		)
 		-- Create command pool and buffer for this operation
-		local command_pool = device:CreateCommandPool(graphics_queue_family)
+		local command_pool = CommandPool.New(device, graphics_queue_family)
 		local cmd = command_pool:CreateCommandBuffer()
 		-- Create graphics pipeline
 		local pipeline = render.CreateGraphicsPipeline(
@@ -224,7 +230,7 @@ do
 		-- End command buffer
 		cmd:End()
 		-- Submit and wait
-		local fence = device:CreateFence()
+		local fence = Fence.New(device)
 		self.refs = {cmd, render_pass, framebuffer, command_pool, pipeline, fence}
 		queue:SubmitAndWait(device, cmd, fence)
 		device:WaitIdle() -- Ensure ALL device operations are complete

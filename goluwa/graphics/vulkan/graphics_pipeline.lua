@@ -1,3 +1,8 @@
+local ShaderModule = require("graphics.vulkan.internal.shader_module")
+local DescriptorSetLayout = require("graphics.vulkan.internal.descriptor_set_layout")
+local PipelineLayout = require("graphics.vulkan.internal.pipeline_layout")
+local GraphicsPipeline = require("graphics.vulkan.internal.graphics_pipeline")
+local DescriptorPool = require("graphics.vulkan.internal.descriptor_pool")
 local ffi = require("ffi")
 local Pipeline = {}
 Pipeline.__index = Pipeline
@@ -13,7 +18,7 @@ function Pipeline.New(renderer, config)
 	for i, stage in ipairs(config.shader_stages) do
 		shader_modules[i] = {
 			type = stage.type,
-			module = renderer.device:CreateShaderModule(stage.code, stage.type),
+			module = ShaderModule.New(renderer.device, stage.code, stage.type),
 		}
 
 		if stage.descriptor_sets then
@@ -74,8 +79,8 @@ function Pipeline.New(renderer, config)
 		end
 	end
 
-	local descriptorSetLayout = renderer.device:CreateDescriptorSetLayout(layout)
-	local pipelineLayout = renderer.device:CreatePipelineLayout({descriptorSetLayout}, push_constant_ranges)
+	local descriptorSetLayout = DescriptorSetLayout.New(renderer.device, layout)
+	local pipelineLayout = PipelineLayout.New(renderer.device, {descriptorSetLayout}, push_constant_ranges)
 	-- BINDLESS DESCRIPTOR SET MANAGEMENT:
 	-- For bindless rendering, we create one descriptor set per frame containing
 	-- an array of all textures. The descriptor sets are updated when new textures
@@ -95,7 +100,7 @@ function Pipeline.New(renderer, config)
 			}
 		end
 
-		descriptorPools[frame] = renderer.device:CreateDescriptorPool(frame_pool_sizes, 1)
+		descriptorPools[frame] = DescriptorPool.New(renderer.device, frame_pool_sizes, 1)
 		descriptorSets[frame] = descriptorPools[frame]:AllocateDescriptorSet(descriptorSetLayout)
 	end
 
@@ -110,7 +115,8 @@ function Pipeline.New(renderer, config)
 		end
 	end
 
-	pipeline = renderer.device:CreateGraphicsPipeline(
+	pipeline = GraphicsPipeline.New(
+		renderer.device,
 		{
 			shaderModules = shader_modules,
 			extent = config.extent,
@@ -312,7 +318,7 @@ function Pipeline:RebuildPipeline(section, changes)
 	for i, stage in ipairs(modified_config.shader_stages) do
 		shader_modules[i] = {
 			type = stage.type,
-			module = self.renderer.device:CreateShaderModule(stage.code, stage.type),
+			module = ShaderModule.New(self.renderer.device, stage.code, stage.type),
 		}
 	end
 
@@ -328,7 +334,8 @@ function Pipeline:RebuildPipeline(section, changes)
 		end
 	end
 
-	local new_pipeline = self.renderer.device:CreateGraphicsPipeline(
+	local new_pipeline = GraphicsPipeline.New(
+		self.renderer.device,
 		{
 			shaderModules = shader_modules,
 			extent = modified_config.extent,

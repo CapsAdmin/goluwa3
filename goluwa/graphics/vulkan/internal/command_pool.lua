@@ -1,0 +1,27 @@
+local ffi = require("ffi")
+local vulkan = require("graphics.vulkan.internal.vulkan")
+local CommandPool = {}
+CommandPool.__index = CommandPool
+CommandPool.CreateCommandBuffer = require("graphics.vulkan.internal.command_buffer").New
+
+function CommandPool.New(device, graphicsQueueFamily)
+	local info = vulkan.vk.VkCommandPoolCreateInfo(
+		{
+			sType = "VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO",
+			queueFamilyIndex = graphicsQueueFamily,
+			flags = vulkan.vk.VkCommandPoolCreateFlagBits("VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT"),
+		}
+	)
+	local ptr = vulkan.T.Box(vulkan.vk.VkCommandPool)()
+	vulkan.assert(
+		vulkan.lib.vkCreateCommandPool(device.ptr[0], info, nil, ptr),
+		"failed to create command pool"
+	)
+	return setmetatable({ptr = ptr, device = device}, CommandPool)
+end
+
+function CommandPool:__gc()
+	vulkan.lib.vkDestroyCommandPool(self.device.ptr[0], self.ptr[0], nil)
+end
+
+return CommandPool

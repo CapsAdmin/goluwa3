@@ -1,4 +1,11 @@
 local ffi = require("ffi")
+local Image = require("graphics.vulkan.internal.image")
+local ImageView = require("graphics.vulkan.internal.image_view")
+local RenderPass = require("graphics.vulkan.internal.render_pass")
+local Framebuffer = require("graphics.vulkan.internal.framebuffer")
+local CommandBuffer = require("graphics.vulkan.internal.command_buffer")
+local Semaphore = require("graphics.vulkan.internal.semaphore")
+local Fence = require("graphics.vulkan.internal.fence")
 local WindowRenderTarget = {}
 WindowRenderTarget.__index = WindowRenderTarget
 
@@ -9,16 +16,18 @@ function WindowRenderTarget.New(renderer)
 	-- Create depth buffer
 	local extent = renderer.surface_capabilities.currentExtent
 	local depth_format = "D32_SFLOAT"
-	self.depth_image = renderer.device:CreateImage(
+	self.depth_image = Image.New(
+		renderer.device,
 		extent.width,
 		extent.height,
 		depth_format,
 		{"depth_stencil_attachment"},
 		"device_local"
 	)
-	self.depth_image_view = renderer.device:CreateImageView(self.depth_image, {format = depth_format, aspect = "depth"})
+	self.depth_image_view = ImageView.New(renderer.device, self.depth_image, {format = depth_format, aspect = "depth"})
 	-- Create render pass for swapchain format with depth
-	self.render_pass = renderer.device:CreateRenderPass(
+	self.render_pass = RenderPass.New(
+		renderer.device,
 		{
 			format = renderer.surface_formats[renderer.config.surface_format_index],
 			depth_format = depth_format,
@@ -30,7 +39,8 @@ function WindowRenderTarget.New(renderer)
 	for _, swapchain_image in ipairs(renderer.swapchain_images) do
 		table.insert(
 			self.image_views,
-			renderer.device:CreateImageView(
+			ImageView.New(
+				renderer.device,
 				swapchain_image,
 				renderer.surface_formats[renderer.config.surface_format_index].format
 			)
@@ -43,7 +53,8 @@ function WindowRenderTarget.New(renderer)
 	for i, imageView in ipairs(self.image_views) do
 		table.insert(
 			self.framebuffers,
-			renderer.device:CreateFramebuffer(
+			Framebuffer.New(
+				renderer.device,
 				self.render_pass,
 				imageView,
 				extent.width,
@@ -62,9 +73,9 @@ function WindowRenderTarget.New(renderer)
 
 	for i = 1, #renderer.swapchain_images do
 		self.command_buffers[i] = renderer.command_pool:CreateCommandBuffer()
-		self.image_available_semaphores[i] = renderer.device:CreateSemaphore()
-		self.render_finished_semaphores[i] = renderer.device:CreateSemaphore()
-		self.in_flight_fences[i] = renderer.device:CreateFence()
+		self.image_available_semaphores[i] = Semaphore.New(renderer.device)
+		self.render_finished_semaphores[i] = Semaphore.New(renderer.device)
+		self.in_flight_fences[i] = Fence.New(renderer.device)
 	end
 
 	return self
@@ -131,21 +142,23 @@ function WindowRenderTarget:RecreateSwapchain()
 	-- Recreate depth buffer with new extent
 	local extent = self.renderer.surface_capabilities[0].currentExtent
 	local depth_format = "D32_SFLOAT"
-	self.depth_image = self.renderer.device:CreateImage(
+	self.depth_image = Image.New(
+		self.renderer.device,
 		extent.width,
 		extent.height,
 		depth_format,
 		{"depth_stencil_attachment"},
 		"device_local"
 	)
-	self.depth_image_view = self.renderer.device:CreateImageView(self.depth_image, {format = depth_format, aspect = "depth"})
+	self.depth_image_view = ImageView.New(self.renderer.device, self.depth_image, {format = depth_format, aspect = "depth"})
 	-- Recreate image views
 	self.image_views = {}
 
 	for _, swapchain_image in ipairs(self.renderer.swapchain_images) do
 		table.insert(
 			self.image_views,
-			self.renderer.device:CreateImageView(
+			ImageView.New(
+				self.renderer.device,
 				swapchain_image,
 				self.renderer.surface_formats[self.renderer.config.surface_format_index].format
 			)
@@ -158,7 +171,8 @@ function WindowRenderTarget:RecreateSwapchain()
 	for i, imageView in ipairs(self.image_views) do
 		table.insert(
 			self.framebuffers,
-			self.renderer.device:CreateFramebuffer(
+			Framebuffer.New(
+				self.renderer.device,
 				self.render_pass,
 				imageView,
 				extent.width,
@@ -181,9 +195,9 @@ function WindowRenderTarget:RecreateSwapchain()
 
 		for i = 1, new_count do
 			self.command_buffers[i] = self.renderer.command_pool:CreateCommandBuffer()
-			self.image_available_semaphores[i] = self.renderer.device:CreateSemaphore()
-			self.render_finished_semaphores[i] = self.renderer.device:CreateSemaphore()
-			self.in_flight_fences[i] = self.renderer.device:CreateFence()
+			self.image_available_semaphores[i] = Semaphore.New(self.renderer.device)
+			self.render_finished_semaphores[i] = Semaphore.New(self.renderer.device)
+			self.in_flight_fences[i] = Fence.New(self.renderer.device)
 		end
 
 		self.current_frame = 0

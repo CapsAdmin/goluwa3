@@ -1,3 +1,6 @@
+local ShaderModule = require("graphics.vulkan.internal.shader_module")
+local DescriptorSetLayout = require("graphics.vulkan.internal.descriptor_set_layout")
+local PipelineLayout = require("graphics.vulkan.internal.pipeline_layout")
 local ComputePipeline = {}
 ComputePipeline.__index = ComputePipeline
 
@@ -6,18 +9,12 @@ function ComputePipeline.New(renderer, config)
 	self.renderer = renderer
 	self.config = config
 	self.current_image_index = 1
-	-- Create shader module
-	local shader = renderer.device:CreateShaderModule(config.shader, "compute")
-	-- Create descriptor set layout
-	local descriptor_set_layout = renderer.device:CreateDescriptorSetLayout(config.descriptor_layout)
-	local pipeline_layout = renderer.device:CreatePipelineLayout({descriptor_set_layout})
-	-- Create compute pipeline
-	local pipeline = renderer.device:CreateComputePipeline(shader, pipeline_layout)
-	-- Determine number of descriptor sets (for ping-pong or single set)
+	local shader = ShaderModule.New(renderer.device, config.shader, "compute")
+	local descriptor_set_layout = DescriptorSetLayout.New(renderer.device, config.descriptor_layout)
+	local pipeline_layout = PipelineLayout.New(renderer.device, {descriptor_set_layout})
+	local pipeline = GraphicsPipeline.New(renderer.device, shader, pipeline_layout)
 	local descriptor_set_count = config.descriptor_set_count or 1
-	-- Create descriptor pool
-	local descriptor_pool = renderer.device:CreateDescriptorPool(config.descriptor_pool, descriptor_set_count)
-	-- Create descriptor sets
+	local descriptor_pool = DescriptorPool.New(renderer.device, config.descriptor_pool, descriptor_set_count)
 	local descriptor_sets = {}
 
 	for i = 1, descriptor_set_count do

@@ -1,4 +1,26 @@
 local ffi = require("ffi")
+local Instance = require("graphics.vulkan.internal.instance")
+local Device = require("graphics.vulkan.internal.device")
+local PhysicalDevice = require("graphics.vulkan.internal.physical_device")
+local Buffer = require("graphics.vulkan.internal.buffer")
+local CommandBuffer = require("graphics.vulkan.internal.command_buffer")
+local CommandPool = require("graphics.vulkan.internal.command_pool")
+local ComputePipeline = require("graphics.vulkan.internal.compute_pipeline")
+local DescriptorPool = require("graphics.vulkan.internal.descriptor_pool")
+local DescriptorSetLayout = require("graphics.vulkan.internal.descriptor_set_layout")
+local Fence = require("graphics.vulkan.internal.fence")
+local Framebuffer = require("graphics.vulkan.internal.framebuffer")
+local GraphicsPipeline = require("graphics.vulkan.internal.graphics_pipeline")
+local Image = require("graphics.vulkan.internal.image")
+local ImageView = require("graphics.vulkan.internal.image_view")
+local PipelineLayout = require("graphics.vulkan.internal.pipeline_layout")
+local Queue = require("graphics.vulkan.internal.queue")
+local RenderPass = require("graphics.vulkan.internal.render_pass")
+local Sampler = require("graphics.vulkan.internal.sampler")
+local Semaphore = require("graphics.vulkan.internal.semaphore")
+local ShaderModule = require("graphics.vulkan.internal.shader_module")
+local SwapChain = require("graphics.vulkan.internal.swap_chain")
+local Surface = require("graphics.vulkan.internal.surface")
 local VulkanInstance = {}
 VulkanInstance.__index = VulkanInstance
 -- Default configuration
@@ -38,10 +60,8 @@ function VulkanInstance:Initialize(metal_surface)
 		table.insert(extensions, "VK_KHR_portability_enumeration")
 	end
 
-	-- Vulkan initialization
-	local vulkan = require("bindings.vulkan")
-	self.instance = vulkan.CreateInstance(extensions, layers)
-	self.surface = self.instance:CreateMetalSurface(metal_surface)
+	self.instance = Instance.New(extensions, layers)
+	self.surface = Surface.New(self.instance, metal_surface)
 	self.physical_device = self.instance:GetPhysicalDevices()[1]
 	self.graphics_queue_family = self.physical_device:FindGraphicsQueueFamily(self.surface)
 	-- Try to enable dynamic blend extension if available
@@ -57,8 +77,8 @@ function VulkanInstance:Initialize(metal_surface)
 		end
 	end
 
-	self.device = self.physical_device:CreateDevice(device_extensions, self.graphics_queue_family)
-	self.command_pool = self.device:CreateCommandPool(self.graphics_queue_family)
+	self.device = Device.New(self.physical_device, device_extensions, self.graphics_queue_family)
+	self.command_pool = CommandPool.New(self.device, self.graphics_queue_family)
 	-- Get queue
 	self.queue = self.device:GetQueue(self.graphics_queue_family)
 	-- Create swapchain
@@ -100,7 +120,8 @@ function VulkanInstance:RecreateSwapchain()
 		pre_transform = self.config.pre_transform,
 	}
 	-- Create new swapchain (pass old swapchain if it exists)
-	self.swapchain = self.device:CreateSwapchain(
+	self.swapchain = SwapChain.New(
+		self.device,
 		self.surface,
 		self.surface_formats[self.config.surface_format_index],
 		self.surface_capabilities,
@@ -168,7 +189,7 @@ function VulkanInstance:CreateBuffer(config)
 		end
 	end
 
-	local buffer = self.device:CreateBuffer(byte_size, config.buffer_usage, config.memory_property)
+	local buffer = Buffer.New(self.device, byte_size, config.buffer_usage, config.memory_property)
 
 	if data then buffer:CopyData(data, byte_size) end
 
@@ -178,10 +199,10 @@ end
 function VulkanInstance:UploadToImage(image, data, width, height)
 	local pixel_count = width * height
 	-- Create staging buffer
-	local staging_buffer = self.device:CreateBuffer(pixel_count * 4, "transfer_src", {"host_visible", "host_coherent"})
+	local staging_buffer = Buffer.New(self.device, pixel_count * 4, "transfer_src", {"host_visible", "host_coherent"})
 	staging_buffer:CopyData(data, pixel_count * 4)
 	-- Copy to image using command buffer
-	local cmd_pool = self.device:CreateCommandPool(self.graphics_queue_family)
+	local cmd_pool = CommandPool.New(self.device, self.graphics_queue_family)
 	local cmd = cmd_pool:CreateCommandBuffer()
 	cmd:Begin()
 	-- Transition image to transfer dst
@@ -235,7 +256,7 @@ function VulkanInstance:UploadToImage(image, data, width, height)
 	)
 	cmd:End()
 	-- Submit and wait
-	local fence = self.device:CreateFence()
+	local fence = Fence.New(self.device)
 	self.queue:SubmitAndWait(self.device, cmd, fence)
 end
 

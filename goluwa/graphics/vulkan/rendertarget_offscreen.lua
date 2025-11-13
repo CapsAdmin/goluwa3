@@ -1,3 +1,10 @@
+local Image = require("graphics.vulkan.internal.image")
+local ImageView = require("graphics.vulkan.internal.image_view")
+local RenderPass = require("graphics.vulkan.internal.render_pass")
+local Framebuffer = require("graphics.vulkan.internal.framebuffer")
+local CommandBuffer = require("graphics.vulkan.internal.command_buffer")
+local Semaphore = require("graphics.vulkan.internal.semaphore")
+local Fence = require("graphics.vulkan.internal.fence")
 local OffscreenRenderTarget = {}
 OffscreenRenderTarget.__index = OffscreenRenderTarget
 
@@ -12,20 +19,18 @@ function OffscreenRenderTarget.New(renderer, width, height, format, config)
 	self.height = height
 	self.format = format
 	self.final_layout = final_layout
-	-- Create the image
-	self.image = renderer.device:CreateImage(width, height, format, usage, "device_local", samples)
-	-- Create image view
-	self.image_view = self.image:CreateView()
-	-- Create render pass for this format (with offscreen-appropriate final layout)
-	self.render_pass = renderer.device:CreateRenderPass({
-		format = format,
-		samples = samples,
-		final_layout = final_layout,
-	})
-	-- Create framebuffer
-	self.framebuffer = renderer.device:CreateFramebuffer(self.render_pass, self.image_view, width, height, nil)
-	-- Create command pool and buffer for offscreen rendering
-	self.command_pool = renderer.device:CreateCommandPool(renderer.graphics_queue_family)
+	self.image = Image.New(renderer.device, width, height, format, usage, "device_local", samples)
+	self.image_view = ImageView.New(renderer.device, self.image, {format = format, aspect = "color"})
+	self.render_pass = RenderPass.New(
+		renderer.device,
+		{
+			format = format,
+			samples = samples,
+			final_layout = final_layout,
+		}
+	)
+	self.framebuffer = Framebuffer.New(renderer.device, self.render_pass, self.image_view, width, height, nil)
+	self.command_pool = CommandPool.New(renderer.device, renderer.graphics_queue_family)
 	self.command_buffer = self.command_pool:CreateCommandBuffer()
 	return self
 end
@@ -82,7 +87,7 @@ end
 
 function OffscreenRenderTarget:EndFrame()
 	self.command_buffer:End()
-	local fence = self.renderer.device:CreateFence()
+	local fence = Fence.New(self.renderer.device)
 	self.renderer.queue:SubmitAndWait(self.renderer.device, self.command_buffer, fence)
 end
 

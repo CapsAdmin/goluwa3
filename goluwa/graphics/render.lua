@@ -3,6 +3,8 @@ local window = require("graphics.window")
 local event = require("event")
 local ffi = require("ffi")
 local system = require("system")
+local Image = require("graphics.vulkan.internal.image")
+local Sampler = require("graphics.vulkan.internal.sampler")
 local vulkan_instance = VulkanInstance.New(
 	{
 		surface_handle = assert(window:GetSurfaceHandle()),
@@ -78,7 +80,7 @@ function render.CreateBuffer(config)
 end
 
 function render.CreateImage(width, height, format, usage, memory_properties)
-	return vulkan_instance.device:CreateImage(width, height, format, usage, memory_properties)
+	return Image.New(vulkan_instance.device, width, height, format, usage, memory_properties)
 end
 
 function render.UploadToImage(image, data, width, height)
@@ -86,7 +88,7 @@ function render.UploadToImage(image, data, width, height)
 end
 
 function render.CreateSampler(config)
-	return vulkan_instance.device:CreateSampler(config)
+	return Sampler.New(vulkan_instance.device, config)
 end
 
 function render.CreateGraphicsPipeline(config)
