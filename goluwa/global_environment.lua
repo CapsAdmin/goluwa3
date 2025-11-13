@@ -19,7 +19,6 @@ do
 	_G.llog = logfile.LibraryLog
 	_G.log = logfile.Log
 	_G.logn = logfile.LogNewline
-	_G.print = logfile.Print
 	_G.errorf = logfile.ErrorFormat
 	_G.logf = logfile.LogFormat
 	_G.logfile = logfile
