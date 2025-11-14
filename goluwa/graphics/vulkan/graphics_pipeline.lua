@@ -115,6 +115,13 @@ function Pipeline.New(renderer, config)
 		end
 	end
 
+	-- Always use render pass sample count to ensure they match
+	local multisampling_config = config.multisampling or {}
+
+	if config.render_pass then
+		multisampling_config.rasterization_samples = config.render_pass.samples
+	end
+
 	pipeline = GraphicsPipeline.New(
 		renderer.device,
 		{
@@ -126,7 +133,7 @@ function Pipeline.New(renderer, config)
 			rasterizer = config.rasterizer,
 			viewport = config.viewport,
 			scissor = config.scissor,
-			multisampling = config.multisampling,
+			multisampling = multisampling_config,
 			color_blend = config.color_blend,
 			dynamic_states = config.dynamic_states,
 			depth_stencil = config.depth_stencil,
@@ -334,6 +341,13 @@ function Pipeline:RebuildPipeline(section, changes)
 		end
 	end
 
+	-- Use render pass sample count if not explicitly specified
+	local multisampling_config = modified_config.multisampling or {}
+
+	if modified_config.render_pass then
+		multisampling_config.rasterization_samples = modified_config.render_pass.samples
+	end
+
 	local new_pipeline = GraphicsPipeline.New(
 		self.renderer.device,
 		{
@@ -345,7 +359,7 @@ function Pipeline:RebuildPipeline(section, changes)
 			rasterizer = modified_config.rasterizer,
 			viewport = modified_config.viewport,
 			scissor = modified_config.scissor,
-			multisampling = modified_config.multisampling,
+			multisampling = multisampling_config,
 			color_blend = modified_config.color_blend,
 			dynamic_states = modified_config.dynamic_states,
 			depth_stencil = modified_config.depth_stencil,

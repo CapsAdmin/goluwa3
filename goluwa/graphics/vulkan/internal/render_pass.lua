@@ -59,36 +59,78 @@ function RenderPass.New(device, config)
 			)
 		end
 	else
-		attachment_count = 2
-		attachments = vulkan.T.Array(
-			vulkan.vk.VkAttachmentDescription,
-			2,
-			{
-				-- Attachment 0: MSAA color attachment
+		if has_depth then
+			attachment_count = 3
+			attachments = vulkan.T.Array(
+				vulkan.vk.VkAttachmentDescription,
+				3,
 				{
-					format = vulkan.enums.VK_FORMAT_(format_string),
-					samples = "VK_SAMPLE_COUNT_" .. config.samples .. "_BIT",
-					loadOp = "VK_ATTACHMENT_LOAD_OP_CLEAR",
-					storeOp = "VK_ATTACHMENT_STORE_OP_DONT_CARE", -- Don't need to store MSAA
-					stencilLoadOp = "VK_ATTACHMENT_LOAD_OP_DONT_CARE",
-					stencilStoreOp = "VK_ATTACHMENT_STORE_OP_DONT_CARE",
-					initialLayout = "VK_IMAGE_LAYOUT_UNDEFINED",
-					finalLayout = "VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL",
-				},
-				-- Attachment 1: Resolve target (swapchain)
+					-- Attachment 0: MSAA color attachment
+					{
+						format = vulkan.enums.VK_FORMAT_(format_string),
+						samples = "VK_SAMPLE_COUNT_" .. config.samples .. "_BIT",
+						loadOp = "VK_ATTACHMENT_LOAD_OP_CLEAR",
+						storeOp = "VK_ATTACHMENT_STORE_OP_DONT_CARE", -- Don't need to store MSAA
+						stencilLoadOp = "VK_ATTACHMENT_LOAD_OP_DONT_CARE",
+						stencilStoreOp = "VK_ATTACHMENT_STORE_OP_DONT_CARE",
+						initialLayout = "VK_IMAGE_LAYOUT_UNDEFINED",
+						finalLayout = "VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL",
+					},
+					-- Attachment 1: Resolve target (swapchain)
+					{
+						format = vulkan.enums.VK_FORMAT_(format_string),
+						samples = "VK_SAMPLE_COUNT_1_BIT",
+						loadOp = "VK_ATTACHMENT_LOAD_OP_DONT_CARE", -- Don't care about initial contents
+						storeOp = "VK_ATTACHMENT_STORE_OP_STORE", -- Store resolved result
+						stencilLoadOp = "VK_ATTACHMENT_LOAD_OP_DONT_CARE",
+						stencilStoreOp = "VK_ATTACHMENT_STORE_OP_DONT_CARE",
+						initialLayout = "VK_IMAGE_LAYOUT_UNDEFINED",
+						finalLayout = "VK_IMAGE_LAYOUT_PRESENT_SRC_KHR",
+					},
+					-- Attachment 2: MSAA depth attachment
+					{
+						format = vulkan.enums.VK_FORMAT_(config.depth_format),
+						samples = "VK_SAMPLE_COUNT_" .. config.samples .. "_BIT",
+						loadOp = "VK_ATTACHMENT_LOAD_OP_CLEAR",
+						storeOp = "VK_ATTACHMENT_STORE_OP_DONT_CARE",
+						stencilLoadOp = "VK_ATTACHMENT_LOAD_OP_DONT_CARE",
+						stencilStoreOp = "VK_ATTACHMENT_STORE_OP_DONT_CARE",
+						initialLayout = "VK_IMAGE_LAYOUT_UNDEFINED",
+						finalLayout = "VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL",
+					},
+				}
+			)
+		else
+			attachment_count = 2
+			attachments = vulkan.T.Array(
+				vulkan.vk.VkAttachmentDescription,
+				2,
 				{
-					format = vulkan.enums.VK_FORMAT_(format_string),
-					samples = "VK_SAMPLE_COUNT_1_BIT",
-					loadOp = "VK_ATTACHMENT_LOAD_OP_DONT_CARE", -- Don't care about initial contents
-					storeOp = "VK_ATTACHMENT_STORE_OP_STORE", -- Store resolved result
-					stencilLoadOp = "VK_ATTACHMENT_LOAD_OP_DONT_CARE",
-					stencilStoreOp = "VK_ATTACHMENT_STORE_OP_DONT_CARE",
-					initialLayout = "VK_IMAGE_LAYOUT_UNDEFINED",
-					finalLayout = "VK_IMAGE_LAYOUT_PRESENT_SRC_KHR",
-				},
-			}
-		)
-	--attachments[0].samples = "VK_SAMPLE_COUNT_2_BIT"
+					-- Attachment 0: MSAA color attachment
+					{
+						format = vulkan.enums.VK_FORMAT_(format_string),
+						samples = "VK_SAMPLE_COUNT_" .. config.samples .. "_BIT",
+						loadOp = "VK_ATTACHMENT_LOAD_OP_CLEAR",
+						storeOp = "VK_ATTACHMENT_STORE_OP_DONT_CARE", -- Don't need to store MSAA
+						stencilLoadOp = "VK_ATTACHMENT_LOAD_OP_DONT_CARE",
+						stencilStoreOp = "VK_ATTACHMENT_STORE_OP_DONT_CARE",
+						initialLayout = "VK_IMAGE_LAYOUT_UNDEFINED",
+						finalLayout = "VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL",
+					},
+					-- Attachment 1: Resolve target (swapchain)
+					{
+						format = vulkan.enums.VK_FORMAT_(format_string),
+						samples = "VK_SAMPLE_COUNT_1_BIT",
+						loadOp = "VK_ATTACHMENT_LOAD_OP_DONT_CARE", -- Don't care about initial contents
+						storeOp = "VK_ATTACHMENT_STORE_OP_STORE", -- Store resolved result
+						stencilLoadOp = "VK_ATTACHMENT_LOAD_OP_DONT_CARE",
+						stencilStoreOp = "VK_ATTACHMENT_STORE_OP_DONT_CARE",
+						initialLayout = "VK_IMAGE_LAYOUT_UNDEFINED",
+						finalLayout = "VK_IMAGE_LAYOUT_PRESENT_SRC_KHR",
+					},
+				}
+			)
+		end
 	end
 
 	local colorAttachmentRef = vulkan.vk.VkAttachmentReference({

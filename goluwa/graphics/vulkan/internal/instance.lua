@@ -39,9 +39,9 @@ local function debug_callback(messageSeverity, messageType, pCallbackData, pUser
 
 	logn(
 		debug.traceback(
-			"[" .. table.concat(severity_flags, "|") .. "] [" .. table.concat(type_flags, "|") .. "] " .. msg,
-			2
-		)
+				"\n[" .. table.concat(severity_flags, "|") .. "] [" .. table.concat(type_flags, "|") .. "]\n" .. msg,
+				2
+			) .. "\n"
 	)
 	return vulkan.vk.VK_FALSE
 end

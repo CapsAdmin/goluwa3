@@ -7,8 +7,16 @@ function Framebuffer.New(device, renderPass, imageView, width, height, msaaImage
 	local attachments
 	local attachmentCount
 
-	if msaaImageView then
-		-- MSAA: first attachment is MSAA color, second is resolve target (swapchain)
+	if msaaImageView and depthImageView then
+		-- MSAA with depth: MSAA color, resolve target (swapchain), MSAA depth
+		local attachment_array = vulkan.T.Array(vulkan.vk.VkImageView)(3)
+		attachment_array[0] = msaaImageView.ptr[0]
+		attachment_array[1] = imageView.ptr[0]
+		attachment_array[2] = depthImageView.ptr[0]
+		attachments = attachment_array
+		attachmentCount = 3
+	elseif msaaImageView then
+		-- MSAA without depth: MSAA color, resolve target (swapchain)
 		local attachment_array = vulkan.T.Array(vulkan.vk.VkImageView)(2)
 		attachment_array[0] = msaaImageView.ptr[0]
 		attachment_array[1] = imageView.ptr[0]

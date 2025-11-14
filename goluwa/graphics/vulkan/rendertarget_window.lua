@@ -13,6 +13,7 @@ function WindowRenderTarget.New(renderer)
 	local self = setmetatable({}, WindowRenderTarget)
 	self.renderer = renderer
 	self.current_frame = 0
+	local samples = "4"
 	-- Create depth buffer
 	local extent = renderer.surface_capabilities.currentExtent
 	local depth_format = "D32_SFLOAT"
@@ -22,15 +23,33 @@ function WindowRenderTarget.New(renderer)
 		extent.height,
 		depth_format,
 		{"depth_stencil_attachment"},
-		"device_local"
+		"device_local",
+		samples
 	)
 	self.depth_image_view = ImageView.New(renderer.device, self.depth_image, {format = depth_format, aspect = "depth"})
+
+	-- Create MSAA color buffer if using MSAA
+	if samples ~= "1" then
+		local format = renderer.surface_formats[renderer.config.surface_format_index].format
+		self.msaa_image = Image.New(
+			renderer.device,
+			extent.width,
+			extent.height,
+			format,
+			{"color_attachment"},
+			"device_local",
+			samples
+		)
+		self.msaa_image_view = ImageView.New(renderer.device, self.msaa_image, format)
+	end
+
 	-- Create render pass for swapchain format with depth
 	self.render_pass = RenderPass.New(
 		renderer.device,
 		{
 			format = renderer.surface_formats[renderer.config.surface_format_index],
 			depth_format = depth_format,
+			samples = samples,
 		}
 	)
 	-- Create image views for swapchain images
@@ -59,7 +78,7 @@ function WindowRenderTarget.New(renderer)
 				imageView,
 				extent.width,
 				extent.height,
-				nil,
+				self.msaa_image_view,
 				self.depth_image_view
 			)
 		)
@@ -142,15 +161,33 @@ function WindowRenderTarget:RecreateSwapchain()
 	-- Recreate depth buffer with new extent
 	local extent = self.renderer.surface_capabilities[0].currentExtent
 	local depth_format = "D32_SFLOAT"
+	local samples = self.render_pass.samples
 	self.depth_image = Image.New(
 		self.renderer.device,
 		extent.width,
 		extent.height,
 		depth_format,
 		{"depth_stencil_attachment"},
-		"device_local"
+		"device_local",
+		samples
 	)
 	self.depth_image_view = ImageView.New(self.renderer.device, self.depth_image, {format = depth_format, aspect = "depth"})
+
+	-- Recreate MSAA color buffer if using MSAA
+	if samples ~= "1" then
+		local format = self.renderer.surface_formats[self.renderer.config.surface_format_index].format
+		self.msaa_image = Image.New(
+			self.renderer.device,
+			extent.width,
+			extent.height,
+			format,
+			{"color_attachment"},
+			"device_local",
+			samples
+		)
+		self.msaa_image_view = ImageView.New(self.renderer.device, self.msaa_image, format)
+	end
+
 	-- Recreate image views
 	self.image_views = {}
 
@@ -177,7 +214,7 @@ function WindowRenderTarget:RecreateSwapchain()
 				imageView,
 				extent.width,
 				extent.height,
-				nil,
+				self.msaa_image_view,
 				self.depth_image_view
 			)
 		)

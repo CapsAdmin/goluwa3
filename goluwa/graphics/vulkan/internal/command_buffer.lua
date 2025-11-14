@@ -119,8 +119,25 @@ function CommandBuffer:BeginRenderPass(renderPass, framebuffer, extent, clearCol
 	local clearValues
 	local clearValueCount
 
-	if renderPass.has_depth then
-		-- Render pass has depth attachment, provide 2 clear values
+	if renderPass.has_depth and renderPass.samples ~= "1" then
+		-- MSAA with depth: need 3 clear values (MSAA color, resolve target, MSAA depth)
+		clearValues = vulkan.T.Array(vulkan.vk.VkClearValue, 3)()
+		-- Attachment 0: MSAA color clear value
+		clearValues[0].color.float32[0] = clearColor[1]
+		clearValues[0].color.float32[1] = clearColor[2]
+		clearValues[0].color.float32[2] = clearColor[3]
+		clearValues[0].color.float32[3] = clearColor[4]
+		-- Attachment 1: Resolve target (ignored, but needs to be present)
+		clearValues[1].color.float32[0] = 0.0
+		clearValues[1].color.float32[1] = 0.0
+		clearValues[1].color.float32[2] = 0.0
+		clearValues[1].color.float32[3] = 0.0
+		-- Attachment 2: MSAA depth/stencil clear value
+		clearValues[2].depthStencil.depth = clearDepth
+		clearValues[2].depthStencil.stencil = 0
+		clearValueCount = 3
+	elseif renderPass.has_depth then
+		-- Non-MSAA with depth: need 2 clear values
 		clearValues = vulkan.T.Array(vulkan.vk.VkClearValue, 2)()
 		-- Set color clear value (first attachment)
 		clearValues[0].color.float32[0] = clearColor[1]
