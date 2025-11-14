@@ -45,6 +45,10 @@ function CommandBuffer:Reset()
 	vulkan.lib.vkResetCommandBuffer(self.ptr[0], 0)
 end
 
+function CommandBuffer:UpdateBuffer(buffer, offset, size, data)
+	vulkan.lib.vkCmdUpdateBuffer(self.ptr[0], buffer.ptr[0], offset, size, data)
+end
+
 function CommandBuffer:CreateImageMemoryBarrier(imageIndex, swapchainImages, isFirstFrame)
 	-- For first frame, transition from UNDEFINED
 	-- For subsequent frames, transition from PRESENT_SRC_KHR (what the render pass leaves it in)
@@ -212,6 +216,8 @@ function CommandBuffer:Draw(vertexCount, instanceCount, firstVertex, firstInstan
 end
 
 function CommandBuffer:BindIndexBuffer(buffer, offset, indexType)
+	if indexType == "uint16_t" then indexType = "uint16" end
+
 	vulkan.lib.vkCmdBindIndexBuffer(self.ptr[0], buffer.ptr[0], offset, vulkan.enums.VK_INDEX_TYPE_(indexType or "uint32"))
 end
 
@@ -348,6 +354,7 @@ function CommandBuffer:PipelineBarrier(config)
 		fragment = vulkan.vk.VkPipelineStageFlagBits("VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT"),
 		transfer = vulkan.vk.VkPipelineStageFlagBits("VK_PIPELINE_STAGE_TRANSFER_BIT"),
 		vertex = vulkan.vk.VkPipelineStageFlagBits("VK_PIPELINE_STAGE_VERTEX_SHADER_BIT"),
+		vertex_input = vulkan.vk.VkPipelineStageFlagBits("VK_PIPELINE_STAGE_VERTEX_INPUT_BIT"),
 		all_commands = vulkan.vk.VkPipelineStageFlagBits("VK_PIPELINE_STAGE_ALL_COMMANDS_BIT"),
 		top_of_pipe = vulkan.vk.VkPipelineStageFlagBits("VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT"),
 		color_attachment_output = vulkan.vk.VkPipelineStageFlagBits("VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT"),
@@ -356,6 +363,8 @@ function CommandBuffer:PipelineBarrier(config)
 	local dstStage = stage_map[config.dstStage or "fragment"]
 	local imageBarriers = nil
 	local imageBarrierCount = 0
+	local bufferBarriers = nil
+	local bufferBarrierCount = 0
 
 	if config.imageBarriers then
 		imageBarrierCount = #config.imageBarriers
@@ -384,6 +393,26 @@ function CommandBuffer:PipelineBarrier(config)
 		end
 	end
 
+	if config.bufferBarriers then
+		bufferBarrierCount = #config.bufferBarriers
+		bufferBarriers = vulkan.T.Array(vulkan.vk.VkBufferMemoryBarrier)(bufferBarrierCount)
+
+		for i, barrier in ipairs(config.bufferBarriers) do
+			bufferBarriers[i - 1] = vulkan.vk.VkBufferMemoryBarrier(
+				{
+					sType = "VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER",
+					srcAccessMask = vulkan.enums.VK_ACCESS_(barrier.srcAccessMask or "host_write"),
+					dstAccessMask = vulkan.enums.VK_ACCESS_(barrier.dstAccessMask or "vertex_attribute_read"),
+					srcQueueFamilyIndex = 0xFFFFFFFF,
+					dstQueueFamilyIndex = 0xFFFFFFFF,
+					buffer = barrier.buffer.ptr[0],
+					offset = barrier.offset or 0,
+					size = barrier.size or 0xFFFFFFFFFFFFFFFF,
+				}
+			)
+		end
+	end
+
 	vulkan.lib.vkCmdPipelineBarrier(
 		self.ptr[0],
 		srcStage,
@@ -391,8 +420,8 @@ function CommandBuffer:PipelineBarrier(config)
 		0,
 		0,
 		nil,
-		0,
-		nil,
+		bufferBarrierCount,
+		bufferBarriers,
 		imageBarrierCount,
 		imageBarriers
 	)
