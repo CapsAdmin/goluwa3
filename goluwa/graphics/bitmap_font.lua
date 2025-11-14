@@ -161,9 +161,9 @@ local function create_font_texture()
 
 			-- Draw each pixel in the row
 			for col = 0, 7 do
-				local bit = bit.band(bit.rshift(byte, 7 - col), 1)
+				local bit = bit.band(bit.rshift(byte, col), 1)
 				local pixel_x = char_x + col
-				local pixel_y = char_y + row
+				local pixel_y = char_y + (7 - row)
 				local pixel_idx = (pixel_y * TEXTURE_WIDTH + pixel_x) * 4
 
 				-- Set RGBA values (white if bit is set, transparent if not)
@@ -211,7 +211,7 @@ local font_texture = nil
 local system = require("system")
 
 function font:DrawString(str, x, y, spacing)
-	spacing = spacing or 1
+	spacing = spacing or 0
 
 	-- Create texture on first use
 	if not font_texture then font_texture = create_font_texture() end
@@ -219,8 +219,7 @@ function font:DrawString(str, x, y, spacing)
 	-- Save current texture and set font texture
 	render2d.PushTexture()
 	render2d.SetTexture(font_texture)
-	-- Ensure we have proper color and blending for text
-	render2d.PushColor(1, 1, 1, 1)
+	render2d.PushRectUV()
 	local current_x = x
 	local current_y = y
 
@@ -243,8 +242,6 @@ function font:DrawString(str, x, y, spacing)
 				local v1 = (char_row * CHAR_HEIGHT) / TEXTURE_HEIGHT
 				local u2 = ((char_col + 1) * CHAR_WIDTH) / TEXTURE_WIDTH
 				local v2 = ((char_row + 1) * CHAR_HEIGHT) / TEXTURE_HEIGHT
-				-- Flip V coordinates since texture appears upside down
-				v1, v2 = 1.0 - v2, 1.0 - v1
 				-- Use SetRectUV2 which takes direct normalized UV coordinates
 				render2d.SetRectUV2(u1, v1, u2, v2)
 				-- Draw the character
@@ -256,8 +253,7 @@ function font:DrawString(str, x, y, spacing)
 	end
 
 	-- Reset UV coordinates and restore texture
-	render2d.SetRectUV()
-	render2d.PopColor()
+	render2d.PopRectUV()
 	render2d.PopTexture()
 end
 

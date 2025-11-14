@@ -57,9 +57,7 @@ event.AddListener("Draw3D", "draw_cube", function(cmd, dt)
 		render3d.SetWorldMatrix(transform:GetMatrix())
 		render3d.UploadConstants(cmd)
 
-		if i < 10 then
-			render3d.SetTexture(render2d.white_texture)
-		elseif i == 10 then
+		if i == 10 then
 			render3d.SetTexture(gfx.quadrant_circle_texture)
 		else
 			render3d.SetTexture(texture)
@@ -69,25 +67,14 @@ event.AddListener("Draw3D", "draw_cube", function(cmd, dt)
 	end
 end)
 
+--local SpriteBatch = require("graphics.sprite_batch")
+--local sprite_batch = SpriteBatch.New(1)
+--sprite_batch:SetAutoFlush(false)
+--sprite_batch:AddRectangle(50, 50, 100, 100)
 event.AddListener("Draw2D", "test", function(dt)
-	render2d.SetColor(1, 1, 1)
-	render2d.SetTexture(texture)
-	render2d.SetRectUV2(0, 0, 0.5, 0.5)
-	render2d.DrawRect(10, 10, 100, 100)
-	render2d.SetRectUV2(0.5, 0.1, 1, 1)
-	render2d.DrawRect(100, 100, 100, 100)
-
-	do
-		return
-	end
-
-	render2d.SetColor(1, 1, 1)
+	gfx.DrawText("Hello world", 20, 400)
 	render2d.SetTexture(texture)
 	render2d.DrawRect(100, 100, 50, 50)
-	-- gfx
-	render2d.SetColor(1, 0, 1)
-	gfx.DrawFilledCircle(200, 200, 100)
-	gfx.DrawText("Hello world", 20, 20)
 end)
 
 event.AddListener("KeyInput", "escape_shutdown", function(key, press)

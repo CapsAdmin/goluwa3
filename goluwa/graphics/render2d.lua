@@ -17,25 +17,19 @@ local VertexConstants = ffi.typeof([[
 		$ projection_view_world;
 	}
 ]], Matrix44f)
--- Fragment shader push constants (64 bytes - fits in remaining 64 byte budget)
 local FragmentConstants = ffi.typeof(
 	[[
 	struct {
-        $ global_color;           // 16 bytes
-        $ color_override;         // 16 bytes
-        $ hsv_mult;               // 12 bytes
-        //float alpha_multiplier;   // 4 bytes
-        $ world_scale;            // 8 bytes
-        float alpha_test_ref;     // 4 bytes
-        float border_radius;      // 4 bytes
-        int texture_index;        // 4 bytes - for bindless texture selection
+        $ global_color;          
+        float alpha_multiplier;  
+        int texture_index;       
+        $ uv_offset;             
+        $ uv_scale;              
 	}
 ]],
-	Colorf, -- global_color
-	Colorf, -- color_override
-	Vec3f, -- hsv_mult
-	Vec2f -- world_scale
--- Total: 68 bytes (offset 64-131)
+	Colorf,
+	Vec2f,
+	Vec2f
 )
 local vertex_constants = VertexConstants()
 local fragment_constants = FragmentConstants()
@@ -120,48 +114,22 @@ function render2d.Initialize()
 
 	render2d.pipeline_data.dynamic_states = dynamic_states
 	render2d.pipeline = render.CreateGraphicsPipeline(render2d.pipeline_data)
+	-- Quad mesh with 4 vertices (reused via indices)
 	local mesh_data = {
-		{pos = Vec3f(0, 1, 0), uv = Vec2f(0, 0), color = Colorf(1, 1, 1, 1)},
-		{pos = Vec3f(0, 0, 0), uv = Vec2f(0, 1), color = Colorf(1, 1, 1, 1)},
-		{pos = Vec3f(1, 1, 0), uv = Vec2f(1, 0), color = Colorf(1, 1, 1, 1)},
-		{pos = Vec3f(1, 0, 0), uv = Vec2f(1, 1), color = Colorf(1, 1, 1, 1)},
-		{pos = Vec3f(1, 1, 0), uv = Vec2f(1, 0), color = Colorf(1, 1, 1, 1)},
-		{pos = Vec3f(0, 0, 0), uv = Vec2f(0, 1), color = Colorf(1, 1, 1, 1)},
+		{pos = Vec3f(0, 1, 0), uv = Vec2f(0, 0), color = Colorf(1, 1, 1, 1)}, -- top-left
+		{pos = Vec3f(0, 0, 0), uv = Vec2f(0, 1), color = Colorf(1, 1, 1, 1)}, -- bottom-left
+		{pos = Vec3f(1, 1, 0), uv = Vec2f(1, 0), color = Colorf(1, 1, 1, 1)}, -- top-right
+		{pos = Vec3f(1, 0, 0), uv = Vec2f(1, 1), color = Colorf(1, 1, 1, 1)}, -- bottom-right
 	}
-	local indices = {}
-
-	for i = 1, #mesh_data do
-		indices[i] = i - 1
-	end
-
-	render2d.rectangle_indices = IndexBuffer.New(indices)
-	render2d.rectangle = render2d.CreateMesh(mesh_data)
-
-	do
-		local buffer = ffi.new("uint8_t[4]", {255, 255, 255, 255})
-		render2d.white_texture = Texture.New(
-			{
-				width = 1,
-				height = 1,
-				buffer = buffer,
-				format = "R8G8B8A8_UNORM",
-			}
-		)
-	end
-
+	-- Two triangles sharing vertices: (0,1,2) and (2,1,3)
+	local indices = {0, 1, 2, 2, 1, 3}
+	render2d.index_buffer = IndexBuffer.New(indices)
+	render2d.vertex_buffer = render2d.CreateMesh(mesh_data)
 	render2d.SetTexture()
-	render2d.SetHSV(1, 1, 1)
 	render2d.SetColor(1, 1, 1, 1)
-	render2d.SetColorOverride(0, 0, 0, 0)
 	render2d.SetAlphaMultiplier(1)
-	render2d.SetAlphaTestReference(0)
-	render2d.SetBorderRadius(0)
+	render2d.SetRectUV()
 	render2d.UpdateScreenSize(window:GetSize())
-	render2d.ready = true
-end
-
-function render2d.IsReady()
-	return render2d.ready == true
 end
 
 do -- shader
@@ -245,105 +213,26 @@ do -- shader
 					layout(location = 1) in vec4 in_color;
 					layout(location = 0) out vec4 out_color;
 
-					layout(push_constant, scalar) uniform FragmentConstants {
+					layout(push_constant, scalar) 
+					uniform FragmentConstants {
 						layout(offset = ]] .. ffi.sizeof(VertexConstants) .. [[)
 						vec4 global_color;
-						vec4 color_override;
-						vec3 hsv_mult;
-						//float alpha_multiplier;
-						vec2 world_scale;
-						float alpha_test_ref;
-						float border_radius;
+						float alpha_multiplier;
 						int texture_index;
+						vec2 uv_offset;
+						vec2 uv_scale;
 					} pc;                   
 					
-					vec3 rgb2hsv(vec3 c)
-                    {
-                        vec4 K = vec4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);
-                        vec4 p = mix(vec4(c.bg, K.wz), vec4(c.gb, K.xy), step(c.b, c.g));
-                        vec4 q = mix(vec4(p.xyw, c.r), vec4(c.r, p.yzx), step(p.x, c.r));
-
-                        float d = q.x - min(q.w, q.y);
-                        float e = 1.0e-10;
-                        return vec3(abs(q.z + (q.w - q.y) / (6.0 * d + e)), d / (q.x + e), q.x);
-                    }
-
-                    vec3 hsv2rgb(vec3 c)
-                    {
-                        vec4 K = vec4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
-                        vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
-                        return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
-                    }
-
-					void main() {
+					void main() 
+					{
+						out_color = in_color * pc.global_color;
 						
-						vec4 tex_color = texture(textures[nonuniformEXT(pc.texture_index)], in_uv);
-						float alpha_test = pc.alpha_test_ref;
-						if (alpha_test > 0.0) {
-							if (tex_color.a < alpha_test) {
-								discard;
-							}
+						if (pc.texture_index >= 0) {
+							out_color *= texture(textures[nonuniformEXT(pc.texture_index)], in_uv * pc.uv_scale + pc.uv_offset);
 						}
 
-						vec4 override = pc.color_override;                        
-						if (override.r > 0) tex_color.r = override.r;
-							if (override.g > 0) tex_color.g = override.g;
-							if (override.b > 0) tex_color.b = override.b;
-							if (override.a > 0) tex_color.a = override.a;
-
-							out_color = tex_color * in_color * pc.global_color;
-							out_color.a = out_color.a;// * pc.alpha_multiplier;
-
-							vec3 hsv_mult = pc.hsv_mult;
-							if (hsv_mult != vec3(1,1,1)) {
-								out_color.rgb = hsv2rgb(rgb2hsv(out_color.rgb) * hsv_mult);
-							}
-
-							// Calculate screen size from gl_FragCoord instead of push constant
-							vec2 screen_size = vec2(1.0 / fwidth(gl_FragCoord.x), 1.0 / fwidth(gl_FragCoord.y));
-							
-							vec2 ratio = vec2(1, 1);
-
-							if (screen_size.y > screen_size.x) {
-								ratio = vec2(1, screen_size.y / screen_size.x);
-							} else {
-								ratio = vec2(1, screen_size.y / screen_size.x);
-							}
-
-							float radius = pc.border_radius;
-							if (radius > 0) {
-								float softness = 50;
-								vec2 scale = pc.world_scale;
-								vec2 ratio2 = vec2(scale.y / scale.x, 1);
-								vec2 size = scale;
-								radius = min(radius, scale.x/2);
-								radius = min(radius, scale.y/2);
-
-								if (in_uv.x > 1.0 - radius/scale.x && in_uv.y > 1.0 - radius/scale.y) {
-									float distance = 0;
-									distance += length((in_uv - vec2(1, 1) + vec2(radius/scale.x, radius/scale.y)) * scale) * 1/radius;
-									out_color.a *= -pow(distance, softness)+1;
-								}
-
-								if (in_uv.x < radius/scale.x && in_uv.y > 1.0 - radius/scale.y) {
-									float distance = 0;
-									distance += length((in_uv - vec2(0, 1) + vec2(-radius/scale.x, radius/scale.y)) * scale) * 1/radius;
-									out_color.a *= -pow(distance, softness)+1;
-								}
-
-								if (in_uv.x > 1.0 - radius/scale.x && in_uv.y < radius/scale.y) {
-									float distance = 0;
-									distance += length((in_uv - vec2(1, 0) + vec2(radius/scale.x, -radius/scale.y)) * scale) * 1/radius;
-									out_color.a *= -pow(distance, softness)+1;
-								}
-
-								if (in_uv.x < radius/scale.x && in_uv.y < radius/scale.y) {
-									float distance = 0;
-									distance += length((in_uv - vec2(0, 0) + vec2(-radius/scale.x, -radius/scale.y)) * scale) * 1/radius;
-									out_color.a *= -pow(distance, softness)+1;
-								}
-							}
-						}
+						out_color.a = out_color.a * pc.alpha_multiplier;
+					}
 				]],
 				descriptor_sets = {
 					{
@@ -402,97 +291,46 @@ do -- shader
 		return VertexBuffer.New(vertices, render2d.pipeline:GetVertexAttributes())
 	end
 
-	function render2d.SetHSV(h, s, v)
-		fragment_constants.hsv_mult.x = h
-		fragment_constants.hsv_mult.y = s
-		fragment_constants.hsv_mult.z = v
+	do
+		function render2d.SetColor(r, g, b, a)
+			fragment_constants.global_color.r = r
+			fragment_constants.global_color.g = g
+			fragment_constants.global_color.b = b
+			fragment_constants.global_color.a = a or fragment_constants.global_color.a
+		end
+
+		function render2d.GetColor()
+			return fragment_constants.global_color:Unpack()
+		end
+
+		utility.MakePushPopFunction(render2d, "Color")
 	end
 
-	function render2d.GetHSV()
-		return fragment_constants.hsv_mult:Unpack()
+	do
+		function render2d.SetAlphaMultiplier(a)
+			fragment_constants.alpha_multiplier = a or fragment_constants.alpha_multiplier
+		end
+
+		function render2d.GetAlphaMultiplier()
+			return fragment_constants.alpha_multiplier
+		end
+
+		utility.MakePushPopFunction(render2d, "AlphaMultiplier")
 	end
 
-	utility.MakePushPopFunction(render2d, "HSV")
+	do
+		function render2d.SetTexture(tex)
+			render2d.current_texture = tex
 
-	function render2d.SetColor(r, g, b, a)
-		fragment_constants.global_color.r = r
-		fragment_constants.global_color.g = g
-		fragment_constants.global_color.b = b
-		fragment_constants.global_color.a = a or fragment_constants.global_color.a
+			if tex then render2d.pipeline:RegisterTexture(tex) end
+		end
+
+		function render2d.GetTexture()
+			return render2d.current_texture
+		end
+
+		utility.MakePushPopFunction(render2d, "Texture")
 	end
-
-	function render2d.GetColor()
-		return fragment_constants.global_color:Unpack()
-	end
-
-	utility.MakePushPopFunction(render2d, "Color")
-
-	function render2d.SetColorOverride(r, g, b, a)
-		fragment_constants.color_override.r = r
-		fragment_constants.color_override.g = g
-		fragment_constants.color_override.b = b
-		fragment_constants.color_override.a = a or fragment_constants.color_override.a
-	end
-
-	function render2d.GetColorOverride()
-		return fragment_constants.color_override:Unpack()
-	end
-
-	utility.MakePushPopFunction(render2d, "ColorOverride")
-
-	function render2d.SetAlpha(a)
-		fragment_constants.global_color.a = a
-	end
-
-	function render2d.GetAlpha()
-		return fragment_constants.global_color.a
-	end
-
-	utility.MakePushPopFunction(render2d, "Alpha")
-
-	function render2d.SetAlphaMultiplier(a) --fragment_constants.alpha_multiplier = a or fragment_constants.alpha_multiplier
-	end
-
-	function render2d.GetAlphaMultiplier() --return fragment_constants.alpha_multiplier
-	end
-
-	utility.MakePushPopFunction(render2d, "AlphaMultiplier")
-
-	function render2d.SetTexture(tex)
-		tex = tex or render2d.white_texture
-		render2d.current_texture = tex
-		render2d.pipeline:RegisterTexture(tex)
-	end
-
-	function render2d.GetTexture()
-		return render2d.current_texture
-	end
-
-	utility.MakePushPopFunction(render2d, "Texture")
-
-	function render2d.SetAlphaTestReference(num)
-		if not num then num = 0 end
-
-		fragment_constants.alpha_test_ref = num
-	end
-
-	function render2d.GetAlphaTestReference()
-		return fragment_constants.alpha_test_ref
-	end
-
-	utility.MakePushPopFunction(render2d, "AlphaTestReference")
-
-	function render2d.SetBorderRadius(num)
-		if not num then num = 0 end
-
-		fragment_constants.border_radius = num
-	end
-
-	function render2d.GetBorderRadius()
-		return fragment_constants.border_radius
-	end
-
-	utility.MakePushPopFunction(render2d, "BorderRadius")
 
 	function render2d.SetBlendMode(mode_name)
 		if not render2d.blend_modes[mode_name] then
@@ -561,9 +399,10 @@ do -- shader
 		end
 
 		do
-			fragment_constants.world_scale = Vec2f(matrices.world.m00, matrices.world.m11)
-			fragment_constants.texture_index = render2d.pipeline:GetTextureIndex(render2d.current_texture)
-			render2d.pipeline:PushConstants(cmd, "fragment", ffi.sizeof(fragment_constants), fragment_constants)
+			fragment_constants.texture_index = render2d.current_texture and
+				render2d.pipeline:GetTextureIndex(render2d.current_texture) or
+				-1
+			render2d.pipeline:PushConstants(cmd, "fragment", ffi.sizeof(vertex_constants), fragment_constants)
 		end
 	end
 
@@ -573,6 +412,24 @@ do -- shader
 end
 
 do -- rectangle
+	function render2d.BindMesh(vertex_buffer, index_buffer)
+		render2d.cmd:BindVertexBuffer(vertex_buffer:GetBuffer(), 0)
+
+		if index_buffer then
+			render2d.cmd:BindIndexBuffer(index_buffer:GetBuffer(), 0, "uint16")
+		end
+	end
+
+	function render2d.DrawMesh(index_count, instance_count, first_index, vertex_offset, first_instance)
+		render2d.cmd:DrawIndexed(
+			index_count or index_buffer:GetIndexCount(),
+			instance_count or 1,
+			first_index or 0,
+			vertex_offset or 0,
+			first_instance or 0
+		)
+	end
+
 	function render2d.DrawRect(x, y, w, h, a, ox, oy)
 		render2d.PushMatrix()
 
@@ -585,177 +442,52 @@ do -- rectangle
 		if w and h then render2d.Scale(w, h) end
 
 		render2d.UploadConstants(render2d.cmd)
-		render2d.cmd:DrawIndexed(6, 1, 0, 0, 0)
+		render2d.DrawMesh(6)
 		render2d.PopMatrix()
 	end
 
 	do
-		--[[{
-		{pos = {0, 0}, uv = {xbl, ybl}, color = color_bottom_left},
-		{pos = {0, 1}, uv = {xtl, ytl}, color = color_top_left},
-		{pos = {1, 1}, uv = {xtr, ytr}, color = color_top_right},
+		local X, Y, W, H, SX, SY
 
-		{pos = {1, 1}, uv = {xtr, ytr}, color = color_top_right},
-		{pos = {1, 0}, uv = {xbr, ybr}, color = mesh_data[1].color},
-		{pos = {0, 0}, uv = {xbl, ybl}, color = color_bottom_left},
-	})]]
-		-- sdasdasd
-		local last_xtl = 0
-		local last_ytl = 0
-		local last_xtr = 1
-		local last_ytr = 0
-		local last_xbl = 0
-		local last_ybl = 1
-		local last_xbr = 1
-		local last_ybr = 1
-		local last_color_bottom_left = Colorf(1, 1, 1, 1)
-		local last_color_top_left = Colorf(1, 1, 1, 1)
-		local last_color_top_right = Colorf(1, 1, 1, 1)
-		local last_color_bottom_right = Colorf(1, 1, 1, 1)
-
-		local function update_vbo()
-			local vertices = render2d.rectangle:GetVertices()
-
-			if
-				last_xtl ~= vertices[0].uv.x or
-				last_ytl ~= vertices[0].uv.y or
-				last_xtr ~= vertices[2].uv.x or
-				last_ytr ~= vertices[2].uv.y or
-				last_xbl ~= vertices[1].uv.x or
-				last_ybl ~= vertices[1].uv.y or
-				last_xbr ~= vertices[3].uv.x or
-				last_ybr ~= vertices[3].uv.y or
-				last_color_bottom_left ~= vertices[1].color or
-				last_color_top_left ~= vertices[0].color or
-				last_color_top_right ~= vertices[2].color or
-				last_color_bottom_right ~= vertices[3].color
-			then
-				render2d.rectangle:Upload()
-				--render2d.cmd:BindVertexBuffer(render2d.rectangle:GetBuffer(), 0)
-				last_xtl = vertices[0].uv.x
-				last_ytl = vertices[0].uv.y
-				last_xtr = vertices[2].uv.x
-				last_ytr = vertices[2].uv.y
-				last_xbl = vertices[1].uv.x
-				last_ybl = vertices[1].uv.y
-				last_xbr = vertices[3].uv.x
-				last_ybr = vertices[3].uv.y
-				last_color_bottom_left = vertices[1].color
-				last_color_top_left = vertices[0].color
-				last_color_top_right = vertices[2].color
-				last_color_bottom_right = vertices[3].color
-			end
-		end
-
-		do
-			local X, Y, W, H, SX, SY
-
-			function render2d.SetRectUV(x, y, w, h, sx, sy)
-				local vertices = render2d.rectangle:GetVertices()
-
-				if not x then
-					vertices[1].uv.x = 0
-					vertices[0].uv.y = 0
-					vertices[1].uv.y = 1
-					vertices[2].uv.x = 1
-				else
-					sx = sx or 1
-					sy = sy or 1
-					local y = -y - h
-					vertices[1].uv.x = x / sx
-					vertices[0].uv.y = y / sy
-					vertices[1].uv.y = (y + h) / sy
-					vertices[2].uv.x = (x + w) / sx
-				end
-
-				vertices[0].uv.x = vertices[1].uv.x
-				vertices[2].uv.y = vertices[0].uv.y
-				vertices[4].uv.x = vertices[2].uv.x
-				vertices[4].uv.y = vertices[0].uv.y
-				vertices[3].uv.x = vertices[2].uv.x
-				vertices[3].uv.y = vertices[1].uv.y
-				vertices[5].uv.x = vertices[1].uv.x
-				vertices[5].uv.y = vertices[1].uv.y
-				update_vbo()
-				X = x
-				Y = y
-				W = w
-				H = h
-				SX = sx
-				SY = sy
-			end
-
-			function render2d.GetRectUV()
-				return X, Y, W, H, SX, SY
-			end
-
-			function render2d.SetRectUV2(u1, v1, u2, v2)
-				local vertices = render2d.rectangle:GetVertices()
-				-- bottom-left
-				vertices[1].uv.x = u1
-				vertices[1].uv.y = v2
-				-- top-left
-				vertices[0].uv.x = u1
-				vertices[0].uv.y = v1
-				-- top-right
-				vertices[2].uv.x = u2
-				vertices[2].uv.y = v1
-				-- bottom-right
-				vertices[3].uv.x = u2
-				vertices[3].uv.y = v2
-				-- duplicates for second triangle
-				vertices[4].uv.x = u2
-				vertices[4].uv.y = v1
-				vertices[5].uv.x = u1
-				vertices[5].uv.y = v2
-				update_vbo()
-			end
-		end
-
-		function render2d.SetRectColors(cbl, ctl, ctr, cbr)
-			local vertices = render2d.rectangle:GetData()
-
-			if not cbl then
-				for i = 0, 5 do
-					local r, g, b, a = 1, 1, 1, 1
-					vertices[i].color.r = r
-					vertices[i].color.g = g
-					vertices[i].color.b = b
-					vertices[i].color.a = a
-				end
+		function render2d.SetRectUV(x, y, w, h, sx, sy)
+			if not x then
+				-- Reset to default (no transformation)
+				fragment_constants.uv_offset.x = 0
+				fragment_constants.uv_offset.y = 0
+				fragment_constants.uv_scale.x = 1
+				fragment_constants.uv_scale.y = 1
 			else
-				local r, g, b, a = cbl:Unpack()
-				vertices[1].color.r = r
-				vertices[1].color.g = g
-				vertices[1].color.b = b
-				vertices[1].color.a = a
-				r, g, b, a = ctl:Unpack()
-				vertices[0].color.r = r
-				vertices[0].color.g = g
-				vertices[0].color.b = b
-				vertices[0].color.a = a
-				r, g, b, a = ctr:Unpack()
-				vertices[2].color.r = r
-				vertices[2].color.g = g
-				vertices[2].color.b = b
-				vertices[2].color.a = a
-				vertices[4].color.r = r
-				vertices[4].color.g = g
-				vertices[4].color.b = b
-				vertices[4].color.a = a
-				r, g, b, a = cbr:Unpack()
-				vertices[3].color.r = r
-				vertices[3].color.g = g
-				vertices[3].color.b = b
-				vertices[3].color.a = a
-				vertices[5].color.r = vertices[0].color.r
-				vertices[5].color.g = vertices[0].color.g
-				vertices[5].color.b = vertices[0].color.b
-				vertices[5].color.a = vertices[0].color.a
+				sx = sx or 1
+				sy = sy or 1
+				local y = -y - h
+				-- Set UV offset and scale
+				fragment_constants.uv_offset.x = x / sx
+				fragment_constants.uv_offset.y = y / sy
+				fragment_constants.uv_scale.x = w / sx
+				fragment_constants.uv_scale.y = h / sy
 			end
 
-			update_vbo()
+			X = x
+			Y = y
+			W = w
+			H = h
+			SX = sx
+			SY = sy
 		end
+
+		function render2d.GetRectUV()
+			return X, Y, W, H, SX, SY
+		end
+
+		function render2d.SetRectUV2(u1, v1, u2, v2)
+			-- Calculate offset and scale from UV coordinates
+			fragment_constants.uv_offset.x = u1
+			fragment_constants.uv_offset.y = v1
+			fragment_constants.uv_scale.x = u2 - u1
+			fragment_constants.uv_scale.y = v2 - v1
+		end
+
+		utility.MakePushPopFunction(render2d, "RectUV")
 	end
 end
 
@@ -840,96 +572,6 @@ do -- camera
 	end
 end
 
-do -- stencil
-	do
-		local X, Y, W, H = 0, 0
-
-		function render2d.SetScissor(x, y, w, h)
-			error("NYI", 2)
-			X = x
-			Y = y
-			W = w or render.GetWidth()
-			H = h or render.GetHeight()
-
-			if not x then
-				X = 0
-				Y = 0
-				render.SetScissor()
-			else
-				x, y = render2d.ScreenToWorld(-x, -y)
-				render.SetScissor(-x, -y, w, h)
-			end
-		end
-
-		function render2d.GetScissor()
-			error("NYI", 2)
-			return X, Y, W, H
-		end
-
-		utility.MakePushPopFunction(render2d, "Scissor")
-	end
-
-	do
-		function render2d.PushStencilRect(x, y, w, h)
-			error("NYI", 2)
-			render.SetStencil(true)
-			render.GetFrameBuffer():ClearStencil(0)
-			render.StencilFunction("always", 1, 0xFFFFFFFF)
-			render.StencilOperation("keep", "keep", "replace")
-			render.SetColorMask(0, 0, 0, 0)
-			render2d.PushTexture()
-			render2d.DrawRect(x, y, w, h)
-			render2d.PopTexture()
-			render.SetColorMask(1, 1, 1, 1)
-			render.StencilFunction("equal", 1)
-		end
-
-		function render2d.PopStencilRect()
-			error("NYI", 2)
-			render.SetStencil(false)
-		end
-	end
-
-	do
-		local X, Y, W, H
-
-		function render2d.EnableClipRect(x, y, w, h, i)
-			error("NYI", 2)
-			i = i or 1
-			render.SetStencil(true)
-			render.GetFrameBuffer():ClearStencil(0) -- out = 0
-			render.StencilOperation("keep", "replace", "replace")
-			-- if true then stencil = 33 return true end
-			render.StencilFunction("always", i)
-			-- on fail, keep zero value
-			-- on success replace it with 33
-			-- write to the stencil buffer
-			-- on fail is probably never reached
-			render2d.PushTexture()
-			render.SetColorMask(0, 0, 0, 0)
-			render2d.DrawRect(x, y, w, h)
-			render.SetColorMask(1, 1, 1, 1)
-			render2d.PopTexture()
-			-- if stencil == 33 then stencil = 33 return true else return false end
-			render.StencilFunction("equal", i)
-			X = x
-			Y = y
-			W = w
-			H = h
-		end
-
-		function render2d.GetClipRect()
-			error("NYI", 2)
-			return X or 0, Y or 0, W or render.GetWidth(), H or render.GetHeight()
-		end
-
-		function render2d.DisableClipRect()
-			error("NYI", 2)
-			render.SetStencil(false)
-		end
-	end
-end
-
 render2d.Initialize()
 
 event.AddListener("PostDraw", "draw_2d", function(cmd, dt)
@@ -942,10 +584,9 @@ event.AddListener("PostDraw", "draw_2d", function(cmd, dt)
 	end
 
 	-- Bind pipeline and descriptor set (bindless - one set with all textures)
-	render2d.pipeline:Bind(cmd, frame_index)
-	cmd:BindVertexBuffer(render2d.rectangle:GetBuffer(), 0)
-	cmd:BindIndexBuffer(render2d.rectangle_indices:GetBuffer(), 0, "uint16")
 	render2d.cmd = cmd
+	render2d.pipeline:Bind(cmd, frame_index)
+	render2d.BindMesh(render2d.vertex_buffer, render2d.index_buffer)
 
 	-- Set initial blend mode for the frame (only if dynamic blend is supported)
 	if render2d.has_dynamic_blend then

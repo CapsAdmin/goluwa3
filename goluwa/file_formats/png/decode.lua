@@ -344,14 +344,23 @@ local function pngImage(inputBuffer, progCallback, verbose)
 	local outputSize = width * height * 4
 	local outputData = ffi.new("uint8_t[?]", outputSize)
 	local outputBuffer = Buffer.New(outputData, outputSize)
-	local outputPos = 0
+	-- Store rows temporarily to flip them
+	local rows = {}
 
 	for y = 1, height do
 		local pixelRow = getPixelRow(pixelDataBuffer, depth, colorType, chunkData.PLTE, width)
 
 		if progCallback ~= nil then progCallback(y, height, pixelRow) end
 
-		-- Write pixel row to output buffer
+		rows[y] = pixelRow
+	end
+
+	-- Write rows in reverse order (flip vertically for Vulkan)
+	local outputPos = 0
+
+	for y = height, 1, -1 do
+		local pixelRow = rows[y]
+
 		for x = 1, width do
 			local pixel = pixelRow[x]
 			outputBuffer.Buffer[outputPos] = pixel.R
