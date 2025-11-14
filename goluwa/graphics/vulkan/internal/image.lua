@@ -7,7 +7,8 @@ local Memory = require("graphics.vulkan.internal.memory")
 local Image = {}
 Image.__index = Image
 
-function Image.New(device, width, height, format, usage, properties, samples)
+function Image.New(device, width, height, format, usage, properties, samples, mip_levels)
+	mip_levels = mip_levels or 1
 	local ptr = vulkan.T.Box(vulkan.vk.VkImage)()
 	vulkan.assert(
 		vulkan.lib.vkCreateImage(
@@ -22,7 +23,7 @@ function Image.New(device, width, height, format, usage, properties, samples)
 						height = height,
 						depth = 1,
 					},
-					mipLevels = 1,
+					mipLevels = mip_levels,
 					arrayLayers = 1,
 					samples = "VK_SAMPLE_COUNT_" .. (samples or "1") .. "_BIT",
 					tiling = "VK_IMAGE_TILING_OPTIMAL",
@@ -44,6 +45,7 @@ function Image.New(device, width, height, format, usage, properties, samples)
 			height = height,
 			format = format,
 			usage = usage,
+			mip_levels = mip_levels,
 		},
 		Image
 	)
@@ -76,8 +78,15 @@ function Image:GetHeight()
 	return self.height
 end
 
+function Image:GetMipLevels()
+	return self.mip_levels or 1
+end
+
 function Image:CreateView()
-	return ImageView.New(self.device, self, self.format)
+	return ImageView.New(self.device, self, {
+		format = self.format,
+		level_count = self.mip_levels or 1,
+	})
 end
 
 function Image:TransitionLayout(old_layout, new_layout)

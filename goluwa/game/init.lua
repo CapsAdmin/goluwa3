@@ -26,7 +26,14 @@ local index_buffer = render.CreateBuffer(
 		data = cube_indices,
 	}
 )
-local texture = Texture.New({path = "assets/images/capsadmin.png"})
+local texture = Texture.New(
+	{
+		path = "assets/images/capsadmin.png",
+		generate_mipmaps = true,
+		min_filter = "linear_mipmap_linear",
+		mag_filter = "linear",
+	}
+)
 render3d.SetTexture(texture)
 local transforms = {}
 
@@ -73,8 +80,11 @@ end)
 --sprite_batch:AddRectangle(50, 50, 100, 100)
 event.AddListener("Draw2D", "test", function(dt)
 	gfx.DrawText("Hello world", 20, 400)
-	render2d.SetTexture(texture)
-	render2d.DrawRect(100, 100, 50, 50)
+	gfx.DrawRoundedRect(100, 100, 50, 50, 10)
+	gfx.DrawCircle(400, 300, 50, 5)
+	gfx.DrawFilledCircle(400, 500, 50)
+	gfx.DrawLine(500, 500, 600, 550, 10)
+	gfx.DrawOutlinedRect(500, 100, 100, 50, 5, 1, 0, 0, 1)
 end)
 
 event.AddListener("KeyInput", "escape_shutdown", function(key, press)

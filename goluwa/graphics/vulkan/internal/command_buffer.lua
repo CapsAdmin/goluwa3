@@ -400,8 +400,8 @@ function CommandBuffer:PipelineBarrier(config)
 					image = barrier.image.ptr[0],
 					subresourceRange = {
 						aspectMask = vulkan.vk.VkImageAspectFlagBits("VK_IMAGE_ASPECT_COLOR_BIT"),
-						baseMipLevel = 0,
-						levelCount = 1,
+						baseMipLevel = barrier.base_mip_level or 0,
+						levelCount = barrier.level_count or barrier.image:GetMipLevels(),
 						baseArrayLayer = 0,
 						layerCount = 1,
 					},
@@ -498,6 +498,43 @@ function CommandBuffer:CopyBufferToImage(buffer, image, width, height)
 		"VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL",
 		1,
 		region
+	)
+end
+
+function CommandBuffer:BlitImage(config)
+	local region = vulkan.vk.VkImageBlit(
+		{
+			srcSubresource = {
+				aspectMask = vulkan.vk.VkImageAspectFlagBits("VK_IMAGE_ASPECT_COLOR_BIT"),
+				mipLevel = config.src_mip_level or 0,
+				baseArrayLayer = 0,
+				layerCount = 1,
+			},
+			srcOffsets = {
+				{x = 0, y = 0, z = 0},
+				{x = config.src_width, y = config.src_height, z = 1},
+			},
+			dstSubresource = {
+				aspectMask = vulkan.vk.VkImageAspectFlagBits("VK_IMAGE_ASPECT_COLOR_BIT"),
+				mipLevel = config.dst_mip_level or 0,
+				baseArrayLayer = 0,
+				layerCount = 1,
+			},
+			dstOffsets = {
+				{x = 0, y = 0, z = 0},
+				{x = config.dst_width, y = config.dst_height, z = 1},
+			},
+		}
+	)
+	vulkan.lib.vkCmdBlitImage(
+		self.ptr[0],
+		config.src_image.ptr[0],
+		vulkan.enums.VK_IMAGE_LAYOUT_(config.src_layout or "transfer_src_optimal"),
+		config.dst_image.ptr[0],
+		vulkan.enums.VK_IMAGE_LAYOUT_(config.dst_layout or "transfer_dst_optimal"),
+		1,
+		region,
+		vulkan.enums.VK_FILTER_(config.filter or "linear")
 	)
 end
 

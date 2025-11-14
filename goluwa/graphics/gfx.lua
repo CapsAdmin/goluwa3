@@ -27,7 +27,7 @@ function gfx.Initialize()
 		float t = smoothstep(disc_radius + border_size, disc_radius - border_size, dist);
 		return vec4(1,1,1,t);
 	]])
-	tex:GenerateMipMap()
+	tex:GenerateMipMap("shader_read_only_optimal")
 	gfx.quadrant_circle_texture = tex
 end
 

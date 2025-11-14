@@ -192,7 +192,7 @@ function VulkanInstance:CreateBuffer(config)
 	return buffer
 end
 
-function VulkanInstance:UploadToImage(image, data, width, height)
+function VulkanInstance:UploadToImage(image, data, width, height, keep_in_transfer_dst)
 	local pixel_count = width * height
 	-- Create staging buffer
 	local staging_buffer = Buffer.New(self.device, pixel_count * 4, "transfer_src", {"host_visible", "host_coherent"})
@@ -201,7 +201,7 @@ function VulkanInstance:UploadToImage(image, data, width, height)
 	local cmd_pool = CommandPool.New(self.device, self.graphics_queue_family)
 	local cmd = cmd_pool:AllocateCommandBuffer()
 	cmd:Begin()
-	-- Transition image to transfer dst
+	-- Transition image to transfer dst (only mip level 0)
 	cmd:PipelineBarrier(
 		{
 			srcStage = "compute",
@@ -213,43 +213,52 @@ function VulkanInstance:UploadToImage(image, data, width, height)
 					dstAccessMask = "transfer_write",
 					oldLayout = "undefined",
 					newLayout = "transfer_dst_optimal",
+					base_mip_level = 0,
+					level_count = 1,
 				},
 			},
 		}
 	)
 	-- Copy buffer to image
 	cmd:CopyBufferToImage(staging_buffer, image, width, height)
-	-- Determine final layout based on image usage
-	local final_layout = "general"
-	local dst_stage = "compute"
 
-	if type(image.usage) == "table" then
-		for _, usage in ipairs(image.usage) do
-			if usage == "sampled" then
-				final_layout = "shader_read_only_optimal"
-				dst_stage = "fragment"
+	-- Only transition to final layout if not keeping in transfer_dst for mipmap generation
+	if not keep_in_transfer_dst then
+		-- Determine final layout based on image usage
+		local final_layout = "general"
+		local dst_stage = "compute"
 
-				break
+		if type(image.usage) == "table" then
+			for _, usage in ipairs(image.usage) do
+				if usage == "sampled" then
+					final_layout = "shader_read_only_optimal"
+					dst_stage = "fragment"
+
+					break
+				end
 			end
 		end
+
+		-- Transition to final layout
+		cmd:PipelineBarrier(
+			{
+				srcStage = "transfer",
+				dstStage = dst_stage,
+				imageBarriers = {
+					{
+						image = image,
+						srcAccessMask = "transfer_write",
+						dstAccessMask = "shader_read",
+						oldLayout = "transfer_dst_optimal",
+						newLayout = final_layout,
+						base_mip_level = 0,
+						level_count = 1,
+					},
+				},
+			}
+		)
 	end
 
-	-- Transition to final layout
-	cmd:PipelineBarrier(
-		{
-			srcStage = "transfer",
-			dstStage = dst_stage,
-			imageBarriers = {
-				{
-					image = image,
-					srcAccessMask = "transfer_write",
-					dstAccessMask = "shader_read",
-					oldLayout = "transfer_dst_optimal",
-					newLayout = final_layout,
-				},
-			},
-		}
-	)
 	cmd:End()
 	-- Submit and wait
 	local fence = Fence.New(self.device)

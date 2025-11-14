@@ -14,16 +14,27 @@ function Texture.New(config)
 		config.buffer = img.buffer:GetBuffer()
 	end
 
+	-- Calculate maximum mip levels if generate_mipmaps is true
+	local mip_levels = 1
+
+	if config.generate_mipmaps then
+		mip_levels = math.floor(math.log(math.max(config.width, config.height), 2)) + 1
+	end
+
 	local image = render.CreateImage(
 		config.width,
 		config.height,
 		config.format or "R8G8B8A8_UNORM",
 		{"sampled", "transfer_dst", "transfer_src", "color_attachment"},
-		"device_local"
+		"device_local",
+		nil,
+		mip_levels
 	)
 
 	if config.buffer then
-		render.UploadToImage(image, config.buffer, image:GetWidth(), image:GetHeight())
+		-- If we're generating mipmaps, keep mip level 0 in transfer_dst after upload
+		local keep_in_transfer = config.generate_mipmaps and mip_levels > 1
+		render.UploadToImage(image, config.buffer, image:GetWidth(), image:GetHeight(), keep_in_transfer)
 	else
 		-- If no buffer is provided, transition the image to shader_read_only_optimal
 		-- This is necessary because images start in undefined layout
@@ -31,25 +42,50 @@ function Texture.New(config)
 	end
 
 	local view = image:CreateView()
+	-- Parse min_filter to separate filter mode and mipmap mode
+	local min_filter = config.min_filter or "nearest"
+	local mipmap_mode = "nearest"
+
+	if min_filter:find("mipmap") then
+		-- Handle formats like "linear_mipmap_linear" or "nearest_mipmap_nearest"
+		local parts = {}
+
+		for part in min_filter:gmatch("[^_]+") do
+			table.insert(parts, part)
+		end
+
+		if #parts == 3 and parts[2] == "mipmap" then
+			min_filter = parts[1]
+			mipmap_mode = parts[3]
+		end
+	end
+
 	local sampler = render.CreateSampler(
 		{
-			min_filter = config.min_filter or "nearest",
+			min_filter = min_filter,
 			mag_filter = config.mag_filter or "nearest",
+			mipmap_mode = mipmap_mode,
 			wrap_s = config.wrap_s or "repeat",
 			wrap_t = config.wrap_t or "repeat",
+			max_lod = mip_levels,
 		}
 	)
-	return setmetatable(
+	local self = setmetatable(
 		{
 			image = image,
 			view = view,
 			sampler = sampler,
-			mip_map_levels = config.mip_map_levels or 1,
+			mip_map_levels = mip_levels,
 			format = config.format or "R8G8B8A8_UNORM",
 			config = config,
 		},
 		Texture
 	)
+
+	-- Generate mipmaps after uploading initial data
+	if config.generate_mipmaps and mip_levels > 1 then self:GenerateMipMap() end
+
+	return self
 end
 
 function Texture:GetImage()
@@ -68,9 +104,123 @@ function Texture:GetSize()
 	return Vec2f(self.image:GetWidth(), self.image:GetHeight())
 end
 
-function Texture:GenerateMipMap()
+function Texture:GenerateMipMap(initial_layout)
 	if self.mip_map_levels <= 1 then return end
---TODO: implement mipmap generation
+
+	local CommandPool = require("graphics.vulkan.internal.command_pool")
+	local Fence = require("graphics.vulkan.internal.fence")
+	local device = render.GetDevice()
+	local queue = render.GetQueue()
+	local graphics_queue_family = render.GetGraphicsQueueFamily()
+	local command_pool = CommandPool.New(device, graphics_queue_family)
+	local cmd = command_pool:AllocateCommandBuffer()
+	cmd:Begin()
+	-- Determine initial layout (can be transfer_dst_optimal from upload, or shader_read_only_optimal from Shade)
+	local old_layout = initial_layout or "transfer_dst_optimal"
+	local src_access = old_layout == "transfer_dst_optimal" and "transfer_write" or "shader_read"
+	local src_stage = old_layout == "transfer_dst_optimal" and "transfer" or "fragment"
+	-- Transition first mip level (0) to transfer_src
+	cmd:PipelineBarrier(
+		{
+			srcStage = src_stage,
+			dstStage = "transfer",
+			imageBarriers = {
+				{
+					image = self.image,
+					srcAccessMask = src_access,
+					dstAccessMask = "transfer_read",
+					oldLayout = old_layout,
+					newLayout = "transfer_src_optimal",
+					base_mip_level = 0,
+					level_count = 1,
+				},
+			},
+		}
+	)
+	local mip_width = self.image:GetWidth()
+	local mip_height = self.image:GetHeight()
+
+	-- Generate each mip level by blitting from the previous level
+	for i = 1, self.mip_map_levels - 1 do
+		local next_mip_width = math.max(1, math.floor(mip_width / 2))
+		local next_mip_height = math.max(1, math.floor(mip_height / 2))
+		-- Transition current mip level to transfer_dst before blitting into it
+		cmd:PipelineBarrier(
+			{
+				srcStage = "transfer",
+				dstStage = "transfer",
+				imageBarriers = {
+					{
+						image = self.image,
+						srcAccessMask = "none",
+						dstAccessMask = "transfer_write",
+						oldLayout = "undefined",
+						newLayout = "transfer_dst_optimal",
+						base_mip_level = i,
+						level_count = 1,
+					},
+				},
+			}
+		)
+		-- Blit from previous mip level to current mip level
+		cmd:BlitImage(
+			{
+				src_image = self.image,
+				dst_image = self.image,
+				src_mip_level = i - 1,
+				dst_mip_level = i,
+				src_width = mip_width,
+				src_height = mip_height,
+				dst_width = next_mip_width,
+				dst_height = next_mip_height,
+				src_layout = "transfer_src_optimal",
+				dst_layout = "transfer_dst_optimal",
+				filter = "linear",
+			}
+		)
+		-- Transition current mip level from transfer_dst to transfer_src
+		cmd:PipelineBarrier(
+			{
+				srcStage = "transfer",
+				dstStage = "transfer",
+				imageBarriers = {
+					{
+						image = self.image,
+						srcAccessMask = "transfer_write",
+						dstAccessMask = "transfer_read",
+						oldLayout = "transfer_dst_optimal",
+						newLayout = "transfer_src_optimal",
+						base_mip_level = i,
+						level_count = 1,
+					},
+				},
+			}
+		)
+		mip_width = next_mip_width
+		mip_height = next_mip_height
+	end
+
+	-- Transition all mip levels to shader_read_only_optimal for sampling
+	cmd:PipelineBarrier(
+		{
+			srcStage = "transfer",
+			dstStage = "fragment",
+			imageBarriers = {
+				{
+					image = self.image,
+					srcAccessMask = "transfer_read",
+					dstAccessMask = "shader_read",
+					oldLayout = "transfer_src_optimal",
+					newLayout = "shader_read_only_optimal",
+					base_mip_level = 0,
+					level_count = self.mip_map_levels,
+				},
+			},
+		}
+	)
+	cmd:End()
+	local fence = Fence.New(device)
+	queue:SubmitAndWait(device, cmd, fence)
 end
 
 do

@@ -79,12 +79,12 @@ function render.CreateBuffer(config)
 	return vulkan_instance:CreateBuffer(config)
 end
 
-function render.CreateImage(width, height, format, usage, memory_properties)
-	return Image.New(vulkan_instance.device, width, height, format, usage, memory_properties)
+function render.CreateImage(width, height, format, usage, memory_properties, samples, mip_levels)
+	return Image.New(vulkan_instance.device, width, height, format, usage, memory_properties, samples, mip_levels)
 end
 
-function render.UploadToImage(image, data, width, height)
-	return vulkan_instance:UploadToImage(image, data, width, height)
+function render.UploadToImage(image, data, width, height, keep_in_transfer_dst)
+	return vulkan_instance:UploadToImage(image, data, width, height, keep_in_transfer_dst)
 end
 
 function render.CreateSampler(config)
