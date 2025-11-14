@@ -21,6 +21,7 @@ local Semaphore = require("graphics.vulkan.internal.semaphore")
 local ShaderModule = require("graphics.vulkan.internal.shader_module")
 local SwapChain = require("graphics.vulkan.internal.swap_chain")
 local Surface = require("graphics.vulkan.internal.surface")
+local process = require("bindings.process")
 local VulkanInstance = {}
 VulkanInstance.__index = VulkanInstance
 -- Default configuration
@@ -49,13 +50,12 @@ function VulkanInstance.New(config)
 	self.config = config
 	local metal_surface = assert(self.config.surface_handle)
 	local layers = {}
+	local VULKAN_SDK = "/Users/caps/VulkanSDK/1.4.328.1"
+	process.setenv("VULKAN_SDK", VULKAN_SDK)
+	process.setenv("VK_LAYER_PATH", VULKAN_SDK .. "/macOS/share/vulkan/explicit_layer.d")
 	local extensions = {"VK_KHR_surface", "VK_EXT_metal_surface"}
-
-	if os.getenv("VULKAN_SDK") then
-		table.insert(layers, "VK_LAYER_KHRONOS_validation")
-		table.insert(extensions, "VK_KHR_portability_enumeration")
-	end
-
+	table.insert(layers, "VK_LAYER_KHRONOS_validation")
+	table.insert(extensions, "VK_KHR_portability_enumeration")
 	self.instance = Instance.New(extensions, layers)
 	self.surface = Surface.New(self.instance, metal_surface)
 	self.physical_device = self.instance:GetPhysicalDevices()[1]
