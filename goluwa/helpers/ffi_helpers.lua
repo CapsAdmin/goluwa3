@@ -106,6 +106,17 @@ function ffi_helpers.enum_to_string(enum_type, enum)
 	return "UNKNOWN_ENUM_VALUE"
 end
 
+function ffi_helpers.bit_enums_to_table(enum_type, flags)
+	local enums = ffi_helpers.get_enums(enum_type)
+	local out = {}
+
+	for name, value in pairs(enums) do
+		if bit.band(flags, value) ~= 0 then table.insert(out, name) end
+	end
+
+	return out
+end
+
 function ffi_helpers.translate_enums(enums)
 	local out = {}
 

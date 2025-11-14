@@ -1,40 +1,46 @@
 local ffi = require("ffi")
+local ffi_helpers = require("helpers.ffi_helpers")
 local vulkan = require("graphics.vulkan.internal.vulkan")
 local PhysicalDevice = require("graphics.vulkan.internal.physical_device")
 local Instance = {}
 Instance.__index = Instance
 
--- Debug callback function
+local function friendly_flags(type, flags, prefix)
+	local flags = ffi_helpers.bit_enums_to_table(type, flags)
+
+	for i, str in ipairs(flags) do
+		if str:find("MAX_ENUM") then
+			table.remove(flags, i)
+
+			break
+		end
+	end
+
+	for i, str in ipairs(flags) do
+		flags[i] = str:gsub(prefix, ""):gsub("_BIT_EXT", "")
+	end
+
+	return flags
+end
+
 local function debug_callback(messageSeverity, messageType, pCallbackData, pUserData)
 	local data = pCallbackData[0]
-	local severity_str = (
-			{
-				[vulkan.vk.VkDebugUtilsMessageSeverityFlagBitsEXT("VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT")] = "VERBOSE",
-				[vulkan.vk.VkDebugUtilsMessageSeverityFlagBitsEXT("VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT")] = "INFO",
-				[vulkan.vk.VkDebugUtilsMessageSeverityFlagBitsEXT("VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT")] = "WARNING",
-				[vulkan.vk.VkDebugUtilsMessageSeverityFlagBitsEXT("VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT")] = "ERROR",
-			}
-		)[messageSeverity] or
-		"UNKNOWN"
-	local type_str = (
-			{
-				[vulkan.vk.VkDebugUtilsMessageTypeFlagBitsEXT("VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT")] = "GENERAL",
-				[vulkan.vk.VkDebugUtilsMessageTypeFlagBitsEXT("VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT")] = "VALIDATION",
-				[vulkan.vk.VkDebugUtilsMessageTypeFlagBitsEXT("VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT")] = "PERFORMANCE",
-			}
-		)[messageType] or
-		"UNKNOWN"
+	local severity_flags = friendly_flags(
+		vulkan.vk.VkDebugUtilsMessageSeverityFlagBitsEXT,
+		messageSeverity,
+		"VK_DEBUG_UTILS_MESSAGE_SEVERITY_"
+	)
+	local type_flags = friendly_flags(vulkan.vk.VkDebugUtilsMessageTypeFlagBitsEXT, messageType, "VK_DEBUG_UTILS_MESSAGE_TYPE_")
 	local msg = ffi.string(data.pMessage)
-	-- Get Lua stack trace
-	local stack = debug.traceback("", 2)
-	-- Log the validation message with Lua stack
-	llog(
-		string.format(
-			"\n[VULKAN %s %s]\n%s\nLua Stack:\n%s",
-			severity_str,
-			type_str,
-			msg,
-			stack
+
+	if msg:find("vk_loader_settings.json", nil, true) then
+		return vulkan.vk.VK_FALSE
+	end
+
+	logn(
+		debug.traceback(
+			"[" .. table.concat(severity_flags, "|") .. "] [" .. table.concat(type_flags, "|") .. "] " .. msg,
+			2
 		)
 	)
 	return vulkan.vk.VK_FALSE
@@ -93,8 +99,8 @@ function Instance.New(extensions, layers)
 			{
 				sType = "VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT",
 				messageSeverity = bit.bor(
-					vulkan.vk.VkDebugUtilsMessageSeverityFlagBitsEXT("VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT"),
-					vulkan.vk.VkDebugUtilsMessageSeverityFlagBitsEXT("VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT"),
+					--vulkan.vk.VkDebugUtilsMessageSeverityFlagBitsEXT("VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT"),
+					--vulkan.vk.VkDebugUtilsMessageSeverityFlagBitsEXT("VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT"),
 					vulkan.vk.VkDebugUtilsMessageSeverityFlagBitsEXT("VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT"),
 					vulkan.vk.VkDebugUtilsMessageSeverityFlagBitsEXT("VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT")
 				),
