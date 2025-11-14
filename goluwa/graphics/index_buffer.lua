@@ -69,26 +69,27 @@ end
 function IndexBuffer:LoadIndices(count)
 	-- Create sequential indices array
 	self.indices = {}
+
 	for i = 1, count do
 		self.indices[i] = i - 1
 	end
 
 	self.index_count = count
-
 	-- Calculate byte size
 	self.byte_size = ffi.sizeof(self.index_type) * count
-
 	-- Convert to array for upload
 	local index_data, byte_size = indices_to_array(self.indices, self.index_type)
 
 	-- Create or recreate the GPU buffer
 	if not self.buffer or self.buffer_size ~= byte_size then
-		self.buffer = render.CreateBuffer({
-			buffer_usage = "index_buffer",
-			data_type = self.index_type,
-			data = index_data,
-			byte_size = byte_size,
-		})
+		self.buffer = render.CreateBuffer(
+			{
+				buffer_usage = "index_buffer",
+				data_type = self.index_type,
+				data = index_data,
+				byte_size = byte_size,
+			}
+		)
 		self.buffer_size = byte_size
 	else
 		self.buffer:CopyData(index_data, byte_size)

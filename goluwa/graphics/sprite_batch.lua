@@ -1,5 +1,6 @@
 local prototype = require("prototype")
 local Polygon2D = require("graphics.polygon_2d")
+local render2d = require("graphics.render2d")
 local META = prototype.CreateTemplate("sprite_batch")
 META:GetSet("AutoFlush", true)
 
@@ -47,7 +48,7 @@ function META:AddRectangle(x, y, w, h, a, ox, oy)
 	if w and h then render2d.Scale(w, h) end
 
 	local r, g, b, a = render2d.GetColor()
-	a = a * render2d.GetAlphaMultiplier()
+	a = a * (render2d.GetAlphaMultiplier() or 1)
 	self.poly:SetColor(r, g, b, a)
 	self.poly:SetUV(render2d.GetRectUV())
 	self.poly:SetRect(self.i, 0, 0, 1, 1)

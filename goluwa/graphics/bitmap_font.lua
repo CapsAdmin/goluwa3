@@ -249,7 +249,6 @@ function font:DrawString(str, x, y, spacing)
 				render2d.SetRectUV2(u1, v1, u2, v2)
 				-- Draw the character
 				render2d.DrawRect(current_x, current_y, CHAR_WIDTH, CHAR_HEIGHT)
-				print("DrawRect:", current_x, current_y, CHAR_WIDTH, CHAR_HEIGHT)
 				-- Move to next character position
 				current_x = current_x + CHAR_WIDTH + spacing
 			end

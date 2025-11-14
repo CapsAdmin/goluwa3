@@ -146,11 +146,11 @@ end
 
 function META:Draw(count)
 	if self.dirty and not self.mapped then
-		self.vertex_buffer:UpdateBuffer()
+		self.vertex_buffer:Upload()
 		self.dirty = false
 	end
 
-	render2d.BindShader()
+	render2d.UploadConstants(render2d.cmd)
 	self.vertex_buffer:Draw(self.index_buffer, count)
 end
 
