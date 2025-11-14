@@ -1,4 +1,5 @@
 local render2d = require("graphics.render2d")
+local Rect = require("structs.rect")
 local Texture = require("graphics.texture")
 local Polygon2D = require("graphics.polygon_2d")
 local gfx = {}
@@ -68,12 +69,12 @@ function gfx.DrawRoundedRect(x, y, w, h, amt)
 	if amt > h / 2 then amt = h / 2 end
 
 	amt = math.ceil(amt)
-	render2d.PushTexture(render.GetWhiteTexture())
-	render2d.DrawRect(x + amt, y + amt, w - amt * 2, h - amt * 2)
-	render2d.DrawRect(x + amt, y, w - amt * 2, amt)
-	render2d.DrawRect(x + amt, y + h - amt, w - amt * 2, amt)
-	render2d.DrawRect(w - amt, amt, amt, h - amt * 2)
-	render2d.DrawRect(x, amt, amt, h - amt * 2)
+	render2d.PushTexture(nil)
+	render2d.DrawRect(x + amt, y + amt, w - amt * 2, h - amt * 2) -- center
+	render2d.DrawRect(x + amt, y, w - amt * 2, amt) -- top
+	render2d.DrawRect(x + amt, y + h - amt, w - amt * 2, amt) -- bottom
+	render2d.DrawRect(x + w - amt, y + amt, amt, h - amt * 2) -- right
+	render2d.DrawRect(x, y + amt, amt, h - amt * 2) -- left
 	render2d.PopTexture()
 	render2d.PushTexture(gfx.quadrant_circle_texture)
 	render2d.DrawRect(x + w - amt, y + h - amt, amt, amt)
@@ -92,7 +93,6 @@ function gfx.DrawRect(x, y, w, h, tex, r, g, b, a)
 
 	if r then render2d.PushColor(r, g, b, a) end
 
-	tex = tex or render.GetWhiteTexture()
 	render2d.PushTexture(tex)
 	render2d.DrawRect(x, y, w, h)
 	render2d.PopTexture()
@@ -105,7 +105,7 @@ function gfx.DrawOutlinedRect(x, y, w, h, r, r_, g, b, a)
 
 	if r_ then render2d.PushColor(r_, g, b, a) end
 
-	render2d.PushTexture(render.GetWhiteTexture())
+	render2d.PushTexture(nil)
 
 	if type(r) == "number" then r = Rect() + r end
 
