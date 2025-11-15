@@ -81,56 +81,7 @@ function VulkanInstance.New(config)
 	self.command_pool = CommandPool.New(self.device, self.graphics_queue_family)
 	-- Get queue
 	self.queue = self.device:GetQueue(self.graphics_queue_family)
-	-- Create swapchain
-	self:RecreateSwapchain()
 	return self
-end
-
-function VulkanInstance:RecreateSwapchain()
-	-- Wait for device to be idle (skip on initial creation)
-	if self.swapchain then self:WaitForIdle() end
-
-	-- Query surface capabilities and formats
-	self.surface_capabilities = self.physical_device:GetSurfaceCapabilities(self.surface)
-	local new_surface_formats = self.physical_device:GetSurfaceFormats(self.surface)
-
-	-- Validate format index
-	if self.config.surface_format_index > #new_surface_formats then
-		error(
-			"Invalid surface_format_index: " .. self.config.surface_format_index .. " (max: " .. (
-					#new_surface_formats
-				) .. ")"
-		)
-	end
-
-	local selected_format = new_surface_formats[self.config.surface_format_index]
-
-	if selected_format.format == "undefined" then
-		error("selected surface format is undefined!")
-	end
-
-	self.surface_formats = new_surface_formats
-	-- Build swapchain config
-	self.swapchain = SwapChain.New(
-		{
-			device = self.device,
-			surface = self.surface,
-			surface_format = self.surface_formats[self.config.surface_format_index],
-			surface_capabilities = self.surface_capabilities,
-			image_count = self.config.image_count or (self.surface_capabilities.minImageCount + 1),
-			present_mode = self.config.present_mode,
-			composite_alpha = self.config.composite_alpha,
-			clipped = self.config.clipped,
-			image_usage = self.config.image_usage,
-			pre_transform = self.config.pre_transform,
-			old_swapchain = self.swapchain,
-		}
-	)
-	self.swapchain_images = self.swapchain:GetImages()
-end
-
-function VulkanInstance:GetExtent()
-	return self.surface_capabilities.currentExtent
 end
 
 function VulkanInstance:WaitForIdle()

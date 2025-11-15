@@ -17,7 +17,7 @@ local vulkan_instance = VulkanInstance.New(
 local window_target = vulkan_instance:CreateWindowRenderTarget()
 
 event.AddListener("FramebufferResized", "window_resized", function(size)
-	window_target:RecreateSwapchain()
+	window_target:RebuildFramebuffers()
 end)
 
 event.AddListener("Update", "window_update", function(dt)
@@ -90,6 +90,7 @@ end
 
 function render.CreateGraphicsPipeline(config)
 	config.render_pass = config.render_pass or window_target:GetRenderPass()
+	config.descriptor_set_count = config.descriptor_set_count or window_target:GetSwapchainImageCount()
 	return vulkan_instance:CreateGraphicsPipeline(config)
 end
 
@@ -114,7 +115,7 @@ function render.GetCurrentFrame()
 end
 
 function render.GetSwapchainImageCount()
-	return #vulkan_instance.swapchain_images
+	return window_target:GetSwapchainImageCount()
 end
 
 return render

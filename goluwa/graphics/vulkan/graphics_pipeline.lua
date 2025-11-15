@@ -85,7 +85,7 @@ function Pipeline.New(render_instance, config)
 	-- For bindless rendering, we create one descriptor set per frame containing
 	-- an array of all textures. The descriptor sets are updated when new textures
 	-- are registered, not per-draw. Each draw just pushes a texture index.
-	local descriptor_set_count = #render_instance.swapchain_images
+	local descriptor_set_count = config.descriptor_set_count or 1
 	local descriptorPools = {}
 	local descriptorSets = {}
 
