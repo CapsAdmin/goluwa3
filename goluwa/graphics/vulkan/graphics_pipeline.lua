@@ -7,7 +7,7 @@ local ffi = require("ffi")
 local Pipeline = {}
 Pipeline.__index = Pipeline
 
-function Pipeline.New(renderer, config)
+function Pipeline.New(render_instance, config)
 	local self = setmetatable({}, Pipeline)
 	local uniform_buffers = {}
 	local shader_modules = {}
@@ -18,7 +18,7 @@ function Pipeline.New(renderer, config)
 	for i, stage in ipairs(config.shader_stages) do
 		shader_modules[i] = {
 			type = stage.type,
-			module = ShaderModule.New(renderer.device, stage.code, stage.type),
+			module = ShaderModule.New(render_instance.device, stage.code, stage.type),
 		}
 
 		if stage.descriptor_sets then
@@ -57,7 +57,7 @@ function Pipeline.New(renderer, config)
 
 	-- Validate push constant ranges don't exceed device limits
 	if #push_constant_ranges > 0 then
-		local device_properties = renderer.physical_device:GetProperties()
+		local device_properties = render_instance.physical_device:GetProperties()
 		local max_push_constants_size = device_properties.limits.maxPushConstantsSize
 
 		for i, range in ipairs(push_constant_ranges) do
@@ -79,13 +79,13 @@ function Pipeline.New(renderer, config)
 		end
 	end
 
-	local descriptorSetLayout = DescriptorSetLayout.New(renderer.device, layout)
-	local pipelineLayout = PipelineLayout.New(renderer.device, {descriptorSetLayout}, push_constant_ranges)
+	local descriptorSetLayout = DescriptorSetLayout.New(render_instance.device, layout)
+	local pipelineLayout = PipelineLayout.New(render_instance.device, {descriptorSetLayout}, push_constant_ranges)
 	-- BINDLESS DESCRIPTOR SET MANAGEMENT:
 	-- For bindless rendering, we create one descriptor set per frame containing
 	-- an array of all textures. The descriptor sets are updated when new textures
 	-- are registered, not per-draw. Each draw just pushes a texture index.
-	local descriptor_set_count = #renderer.swapchain_images
+	local descriptor_set_count = #render_instance.swapchain_images
 	local descriptorPools = {}
 	local descriptorSets = {}
 
@@ -100,7 +100,7 @@ function Pipeline.New(renderer, config)
 			}
 		end
 
-		descriptorPools[frame] = DescriptorPool.New(renderer.device, frame_pool_sizes, 1)
+		descriptorPools[frame] = DescriptorPool.New(render_instance.device, frame_pool_sizes, 1)
 		descriptorSets[frame] = descriptorPools[frame]:AllocateDescriptorSet(descriptorSetLayout)
 	end
 
@@ -123,7 +123,7 @@ function Pipeline.New(renderer, config)
 	end
 
 	pipeline = GraphicsPipeline.New(
-		renderer.device,
+		render_instance.device,
 		{
 			shaderModules = shader_modules,
 			extent = config.extent,
@@ -144,7 +144,7 @@ function Pipeline.New(renderer, config)
 	self.pipeline = pipeline
 	self.descriptor_sets = descriptorSets
 	self.pipeline_layout = pipelineLayout
-	self.renderer = renderer
+	self.render_instance = render_instance
 	self.config = config
 	self.uniform_buffers = uniform_buffers
 	self.descriptorSetLayout = descriptorSetLayout
@@ -203,12 +203,12 @@ function Pipeline:GetTextureIndex(tex)
 end
 
 function Pipeline:UpdateDescriptorSet(type, index, binding_index, ...)
-	self.renderer.device:UpdateDescriptorSet(type, self.descriptor_sets[index], binding_index, ...)
+	self.render_instance.device:UpdateDescriptorSet(type, self.descriptor_sets[index], binding_index, ...)
 end
 
 function Pipeline:UpdateDescriptorSetArray(frame_index, binding_index, texture_array)
 	-- Update a descriptor set with an array of textures for bindless rendering
-	self.renderer.device:UpdateDescriptorSetArray(self.descriptor_sets[frame_index], binding_index, texture_array)
+	self.render_instance.device:UpdateDescriptorSetArray(self.descriptor_sets[frame_index], binding_index, texture_array)
 end
 
 function Pipeline:PushConstants(cmd, stage, binding_index, data, data_size)
@@ -325,7 +325,7 @@ function Pipeline:RebuildPipeline(section, changes)
 	for i, stage in ipairs(modified_config.shader_stages) do
 		shader_modules[i] = {
 			type = stage.type,
-			module = ShaderModule.New(self.renderer.device, stage.code, stage.type),
+			module = ShaderModule.New(self.render_instance.device, stage.code, stage.type),
 		}
 	end
 
@@ -349,7 +349,7 @@ function Pipeline:RebuildPipeline(section, changes)
 	end
 
 	local new_pipeline = GraphicsPipeline.New(
-		self.renderer.device,
+		self.render_instance.device,
 		{
 			shaderModules = shader_modules,
 			extent = modified_config.extent,

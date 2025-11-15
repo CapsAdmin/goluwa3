@@ -90,7 +90,7 @@ function Image:CreateView()
 end
 
 function Image:TransitionLayout(old_layout, new_layout)
-	-- Get the renderer instance to access queue and command pool
+	-- Get the render_instance instance to access queue and command pool
 	-- This is a bit hacky but necessary for one-off transitions
 	local render = require("graphics.render")
 	local device = render.GetDevice()

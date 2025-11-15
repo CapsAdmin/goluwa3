@@ -9,16 +9,16 @@ local Fence = require("graphics.vulkan.internal.fence")
 local WindowRenderTarget = {}
 WindowRenderTarget.__index = WindowRenderTarget
 
-function WindowRenderTarget.New(renderer)
+function WindowRenderTarget.New(render_instance)
 	local self = setmetatable({}, WindowRenderTarget)
-	self.renderer = renderer
+	self.render_instance = render_instance
 	self.current_frame = 0
 	local samples = "4"
 	-- Create depth buffer
-	local extent = renderer.surface_capabilities.currentExtent
+	local extent = render_instance.surface_capabilities.currentExtent
 	local depth_format = "D32_SFLOAT"
 	self.depth_image = Image.New(
-		renderer.device,
+		render_instance.device,
 		extent.width,
 		extent.height,
 		depth_format,
@@ -26,13 +26,13 @@ function WindowRenderTarget.New(renderer)
 		"device_local",
 		samples
 	)
-	self.depth_image_view = ImageView.New(renderer.device, self.depth_image, {format = depth_format, aspect = "depth"})
+	self.depth_image_view = ImageView.New(render_instance.device, self.depth_image, {format = depth_format, aspect = "depth"})
 
 	-- Create MSAA color buffer if using MSAA
 	if samples ~= "1" then
-		local format = renderer.surface_formats[renderer.config.surface_format_index].format
+		local format = render_instance.surface_formats[render_instance.config.surface_format_index].format
 		self.msaa_image = Image.New(
-			renderer.device,
+			render_instance.device,
 			extent.width,
 			extent.height,
 			format,
@@ -40,14 +40,14 @@ function WindowRenderTarget.New(renderer)
 			"device_local",
 			samples
 		)
-		self.msaa_image_view = ImageView.New(renderer.device, self.msaa_image, format)
+		self.msaa_image_view = ImageView.New(render_instance.device, self.msaa_image, format)
 	end
 
 	-- Create render pass for swapchain format with depth
 	self.render_pass = RenderPass.New(
-		renderer.device,
+		render_instance.device,
 		{
-			format = renderer.surface_formats[renderer.config.surface_format_index],
+			format = render_instance.surface_formats[render_instance.config.surface_format_index],
 			depth_format = depth_format,
 			samples = samples,
 		}
@@ -55,13 +55,13 @@ function WindowRenderTarget.New(renderer)
 	-- Create image views for swapchain images
 	self.image_views = {}
 
-	for _, swapchain_image in ipairs(renderer.swapchain_images) do
+	for _, swapchain_image in ipairs(render_instance.swapchain_images) do
 		table.insert(
 			self.image_views,
 			ImageView.New(
-				renderer.device,
+				render_instance.device,
 				swapchain_image,
-				renderer.surface_formats[renderer.config.surface_format_index].format
+				render_instance.surface_formats[render_instance.config.surface_format_index].format
 			)
 		)
 	end
@@ -73,7 +73,7 @@ function WindowRenderTarget.New(renderer)
 		table.insert(
 			self.framebuffers,
 			Framebuffer.New(
-				renderer.device,
+				render_instance.device,
 				self.render_pass,
 				imageView,
 				extent.width,
@@ -90,18 +90,18 @@ function WindowRenderTarget.New(renderer)
 	self.render_finished_semaphores = {}
 	self.in_flight_fences = {}
 
-	for i = 1, #renderer.swapchain_images do
-		self.command_buffers[i] = renderer.command_pool:AllocateCommandBuffer()
-		self.image_available_semaphores[i] = Semaphore.New(renderer.device)
-		self.render_finished_semaphores[i] = Semaphore.New(renderer.device)
-		self.in_flight_fences[i] = Fence.New(renderer.device)
+	for i = 1, #render_instance.swapchain_images do
+		self.command_buffers[i] = render_instance.command_pool:AllocateCommandBuffer()
+		self.image_available_semaphores[i] = Semaphore.New(render_instance.device)
+		self.render_finished_semaphores[i] = Semaphore.New(render_instance.device)
+		self.in_flight_fences[i] = Fence.New(render_instance.device)
 	end
 
 	return self
 end
 
 function WindowRenderTarget:GetSwapChainImage()
-	return self.renderer.swapchain_images[self.image_index]
+	return self.render_instance.swapchain_images[self.image_index]
 end
 
 function WindowRenderTarget:GetRenderPass()
@@ -110,11 +110,11 @@ end
 
 function WindowRenderTarget:BeginFrame()
 	-- Use round-robin frame index
-	self.current_frame = (self.current_frame % #self.renderer.swapchain_images) + 1
+	self.current_frame = (self.current_frame % #self.render_instance.swapchain_images) + 1
 	-- Wait for the fence for this frame FIRST
 	self.in_flight_fences[self.current_frame]:Wait()
 	-- Acquire next image
-	local image_index = self.renderer.swapchain:GetNextImage(self.image_available_semaphores[self.current_frame])
+	local image_index = self.render_instance.swapchain:GetNextImage(self.image_available_semaphores[self.current_frame])
 
 	-- Check if swapchain needs recreation
 	if image_index == nil then
@@ -137,7 +137,7 @@ function WindowRenderTarget:EndFrame()
 	local command_buffer = self.command_buffers[self.current_frame]
 	command_buffer:End()
 	-- Submit command buffer with current frame's semaphores
-	self.renderer.queue:Submit(
+	self.render_instance.queue:Submit(
 		command_buffer,
 		self.image_available_semaphores[self.current_frame],
 		self.render_finished_semaphores[self.current_frame],
@@ -146,9 +146,9 @@ function WindowRenderTarget:EndFrame()
 
 	-- Present and recreate swapchain if needed
 	if
-		not self.renderer.swapchain:Present(
+		not self.render_instance.swapchain:Present(
 			self.render_finished_semaphores[self.current_frame],
-			self.renderer.queue,
+			self.render_instance.queue,
 			ffi.new("uint32_t[1]", self.image_index - 1)
 		)
 	then
@@ -157,13 +157,13 @@ function WindowRenderTarget:EndFrame()
 end
 
 function WindowRenderTarget:RecreateSwapchain()
-	self.renderer:RecreateSwapchain()
+	self.render_instance:RecreateSwapchain()
 	-- Recreate depth buffer with new extent
-	local extent = self.renderer.surface_capabilities[0].currentExtent
+	local extent = self.render_instance.surface_capabilities[0].currentExtent
 	local depth_format = "D32_SFLOAT"
 	local samples = self.render_pass.samples
 	self.depth_image = Image.New(
-		self.renderer.device,
+		self.render_instance.device,
 		extent.width,
 		extent.height,
 		depth_format,
@@ -171,13 +171,13 @@ function WindowRenderTarget:RecreateSwapchain()
 		"device_local",
 		samples
 	)
-	self.depth_image_view = ImageView.New(self.renderer.device, self.depth_image, {format = depth_format, aspect = "depth"})
+	self.depth_image_view = ImageView.New(self.render_instance.device, self.depth_image, {format = depth_format, aspect = "depth"})
 
 	-- Recreate MSAA color buffer if using MSAA
 	if samples ~= "1" then
-		local format = self.renderer.surface_formats[self.renderer.config.surface_format_index].format
+		local format = self.render_instance.surface_formats[self.render_instance.config.surface_format_index].format
 		self.msaa_image = Image.New(
-			self.renderer.device,
+			self.render_instance.device,
 			extent.width,
 			extent.height,
 			format,
@@ -185,19 +185,19 @@ function WindowRenderTarget:RecreateSwapchain()
 			"device_local",
 			samples
 		)
-		self.msaa_image_view = ImageView.New(self.renderer.device, self.msaa_image, format)
+		self.msaa_image_view = ImageView.New(self.render_instance.device, self.msaa_image, format)
 	end
 
 	-- Recreate image views
 	self.image_views = {}
 
-	for _, swapchain_image in ipairs(self.renderer.swapchain_images) do
+	for _, swapchain_image in ipairs(self.render_instance.swapchain_images) do
 		table.insert(
 			self.image_views,
 			ImageView.New(
-				self.renderer.device,
+				self.render_instance.device,
 				swapchain_image,
-				self.renderer.surface_formats[self.renderer.config.surface_format_index].format
+				self.render_instance.surface_formats[self.render_instance.config.surface_format_index].format
 			)
 		)
 	end
@@ -209,7 +209,7 @@ function WindowRenderTarget:RecreateSwapchain()
 		table.insert(
 			self.framebuffers,
 			Framebuffer.New(
-				self.renderer.device,
+				self.render_instance.device,
 				self.render_pass,
 				imageView,
 				extent.width,
@@ -221,7 +221,7 @@ function WindowRenderTarget:RecreateSwapchain()
 	end
 
 	-- Recreate per-frame resources if image count changed
-	local new_count = #self.renderer.swapchain_images
+	local new_count = #self.render_instance.swapchain_images
 	local old_count = #self.command_buffers
 
 	if old_count ~= new_count then
@@ -231,10 +231,10 @@ function WindowRenderTarget:RecreateSwapchain()
 		self.in_flight_fences = {}
 
 		for i = 1, new_count do
-			self.command_buffers[i] = self.renderer.command_pool:AllocateCommandBuffer()
-			self.image_available_semaphores[i] = Semaphore.New(self.renderer.device)
-			self.render_finished_semaphores[i] = Semaphore.New(self.renderer.device)
-			self.in_flight_fences[i] = Fence.New(self.renderer.device)
+			self.command_buffers[i] = self.render_instance.command_pool:AllocateCommandBuffer()
+			self.image_available_semaphores[i] = Semaphore.New(self.render_instance.device)
+			self.render_finished_semaphores[i] = Semaphore.New(self.render_instance.device)
+			self.in_flight_fences[i] = Fence.New(self.render_instance.device)
 		end
 
 		self.current_frame = 0
@@ -254,7 +254,7 @@ function WindowRenderTarget:GetFramebuffer()
 end
 
 function WindowRenderTarget:GetExtent()
-	return self.renderer:GetExtent()
+	return self.render_instance:GetExtent()
 end
 
 return WindowRenderTarget
