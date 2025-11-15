@@ -80,7 +80,18 @@ function render.CreateBuffer(config)
 end
 
 function render.CreateImage(width, height, format, usage, memory_properties, samples, mip_levels)
-	return Image.New(vulkan_instance.device, width, height, format, usage, memory_properties, samples, mip_levels)
+	return Image.New(
+		{
+			device = vulkan_instance.device,
+			width = width,
+			height = height,
+			format = format,
+			usage = usage,
+			properties = memory_properties,
+			samples = samples,
+			mip_levels = mip_levels,
+		}
+	)
 end
 
 function render.UploadToImage(image, data, width, height, keep_in_transfer_dst)

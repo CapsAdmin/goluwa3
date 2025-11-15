@@ -7,8 +7,15 @@ local Memory = require("graphics.vulkan.internal.memory")
 local Image = {}
 Image.__index = Image
 
-function Image.New(device, width, height, format, usage, properties, samples, mip_levels)
-	mip_levels = mip_levels or 1
+function Image.New(config)
+	local device = config.device
+	local width = config.width
+	local height = config.height
+	local format = config.format
+	local usage = config.usage
+	local properties = config.properties or "device_local"
+	local samples = config.samples
+	local mip_levels = config.mip_levels or 1
 	local ptr = vulkan.T.Box(vulkan.vk.VkImage)()
 	vulkan.assert(
 		vulkan.lib.vkCreateImage(
@@ -53,7 +60,7 @@ function Image.New(device, width, height, format, usage, properties, samples, mi
 	self.memory = Memory.New(
 		device,
 		requirements.size,
-		device.physical_device:FindMemoryType(requirements.memoryTypeBits, vulkan.enums.VK_MEMORY_PROPERTY_(properties or "device_local"))
+		device.physical_device:FindMemoryType(requirements.memoryTypeBits, vulkan.enums.VK_MEMORY_PROPERTY_(properties))
 	)
 	self:BindMemory()
 	return self

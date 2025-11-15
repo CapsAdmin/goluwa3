@@ -18,13 +18,15 @@ function WindowRenderTarget.New(render_instance)
 	local extent = render_instance.surface_capabilities.currentExtent
 	local depth_format = "D32_SFLOAT"
 	self.depth_image = Image.New(
-		render_instance.device,
-		extent.width,
-		extent.height,
-		depth_format,
-		{"depth_stencil_attachment"},
-		"device_local",
-		samples
+		{
+			device = render_instance.device,
+			width = extent.width,
+			height = extent.height,
+			format = depth_format,
+			usage = {"depth_stencil_attachment"},
+			properties = "device_local",
+			samples = samples,
+		}
 	)
 	self.depth_image_view = ImageView.New(render_instance.device, self.depth_image, {format = depth_format, aspect = "depth"})
 
@@ -32,13 +34,15 @@ function WindowRenderTarget.New(render_instance)
 	if samples ~= "1" then
 		local format = render_instance.surface_formats[render_instance.config.surface_format_index].format
 		self.msaa_image = Image.New(
-			render_instance.device,
-			extent.width,
-			extent.height,
-			format,
-			{"color_attachment"},
-			"device_local",
-			samples
+			{
+				device = render_instance.device,
+				width = extent.width,
+				height = extent.height,
+				format = format,
+				usage = {"color_attachment"},
+				properties = "device_local",
+				samples = samples,
+			}
 		)
 		self.msaa_image_view = ImageView.New(render_instance.device, self.msaa_image, format)
 	end
@@ -165,13 +169,15 @@ function WindowRenderTarget:RecreateSwapchain()
 	local depth_format = "D32_SFLOAT"
 	local samples = self.render_pass.samples
 	self.depth_image = Image.New(
-		self.render_instance.device,
-		extent.width,
-		extent.height,
-		depth_format,
-		{"depth_stencil_attachment"},
-		"device_local",
-		samples
+		{
+			device = self.render_instance.device,
+			width = extent.width,
+			height = extent.height,
+			format = depth_format,
+			usage = {"depth_stencil_attachment"},
+			properties = "device_local",
+			samples = samples,
+		}
 	)
 	self.depth_image_view = ImageView.New(self.render_instance.device, self.depth_image, {format = depth_format, aspect = "depth"})
 
@@ -179,13 +185,15 @@ function WindowRenderTarget:RecreateSwapchain()
 	if samples ~= "1" then
 		local format = self.render_instance.surface_formats[self.render_instance.config.surface_format_index].format
 		self.msaa_image = Image.New(
-			self.render_instance.device,
-			extent.width,
-			extent.height,
-			format,
-			{"color_attachment"},
-			"device_local",
-			samples
+			{
+				device = self.render_instance.device,
+				width = extent.width,
+				height = extent.height,
+				format = format,
+				usage = {"color_attachment"},
+				properties = "device_local",
+				samples = samples,
+			}
 		)
 		self.msaa_image_view = ImageView.New(self.render_instance.device, self.msaa_image, format)
 	end
