@@ -1,11 +1,11 @@
-local VulkanInstance = require("graphics.vulkan.instance")
+local RenderInstance = require("graphics.vulkan.render_instance")
 local window = require("graphics.window")
 local event = require("event")
 local ffi = require("ffi")
 local system = require("system")
 local Image = require("graphics.vulkan.internal.image")
 local Sampler = require("graphics.vulkan.internal.sampler")
-local vulkan_instance = VulkanInstance.New(
+local vulkan_instance = RenderInstance.New(
 	{
 		surface_handle = assert(window:GetSurfaceHandle()),
 		present_mode = "fifo",

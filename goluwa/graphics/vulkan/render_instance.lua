@@ -22,8 +22,8 @@ local ShaderModule = require("graphics.vulkan.internal.shader_module")
 local SwapChain = require("graphics.vulkan.internal.swap_chain")
 local Surface = require("graphics.vulkan.internal.surface")
 local process = require("bindings.process")
-local VulkanInstance = {}
-VulkanInstance.__index = VulkanInstance
+local RenderInstance = {}
+RenderInstance.__index = RenderInstance
 -- Default configuration
 local default_config = {
 	-- Swapchain settings
@@ -39,14 +39,14 @@ local default_config = {
 	pre_transform = nil, -- nil = use currentTransform
 }
 
-function VulkanInstance.New(config)
+function RenderInstance.New(config)
 	config = config or {}
 
 	for k, v in pairs(default_config) do
 		if config[k] == nil then config[k] = v end
 	end
 
-	local self = setmetatable({}, VulkanInstance)
+	local self = setmetatable({}, RenderInstance)
 	self.config = config
 	local metal_surface = assert(self.config.surface_handle)
 	local layers = {}
@@ -82,7 +82,7 @@ function VulkanInstance.New(config)
 	return self
 end
 
-function VulkanInstance:RecreateSwapchain()
+function RenderInstance:RecreateSwapchain()
 	-- Wait for device to be idle (skip on initial creation)
 	if self.swapchain then self:WaitForIdle() end
 
@@ -125,7 +125,7 @@ function VulkanInstance:RecreateSwapchain()
 	self.swapchain_images = self.swapchain:GetImages()
 end
 
-function VulkanInstance:TransitionImageLayout(image, old_layout, new_layout, src_stage, dst_stage)
+function RenderInstance:TransitionImageLayout(image, old_layout, new_layout, src_stage, dst_stage)
 	local cmd = self:GetCommandBuffer()
 	src_stage = src_stage or "all_commands"
 	dst_stage = dst_stage or "all_commands"
@@ -162,15 +162,15 @@ function VulkanInstance:TransitionImageLayout(image, old_layout, new_layout, src
 	)
 end
 
-function VulkanInstance:GetExtent()
+function RenderInstance:GetExtent()
 	return self.surface_capabilities.currentExtent
 end
 
-function VulkanInstance:WaitForIdle()
+function RenderInstance:WaitForIdle()
 	self.device:WaitIdle()
 end
 
-function VulkanInstance:CreateBuffer(config)
+function RenderInstance:CreateBuffer(config)
 	local byte_size
 	local data = config.data
 
@@ -197,7 +197,7 @@ function VulkanInstance:CreateBuffer(config)
 	return buffer
 end
 
-function VulkanInstance:UploadToImage(image, data, width, height, keep_in_transfer_dst)
+function RenderInstance:UploadToImage(image, data, width, height, keep_in_transfer_dst)
 	local pixel_count = width * height
 	-- Create staging buffer
 	local staging_buffer = Buffer.New(
@@ -282,21 +282,21 @@ local WindowRenderTarget = require("graphics.vulkan.rendertarget_window")
 local Pipeline = require("graphics.vulkan.graphics_pipeline")
 local ComputePipeline = require("graphics.vulkan.compute_pipeline")
 
-function VulkanInstance:CreateOffscreenRenderTarget(config)
+function RenderInstance:CreateOffscreenRenderTarget(config)
 	config.render_instance = self
 	return OffscreenRenderTarget.New(config)
 end
 
-function VulkanInstance:CreateWindowRenderTarget()
+function RenderInstance:CreateWindowRenderTarget()
 	return WindowRenderTarget.New(self)
 end
 
-function VulkanInstance:CreateGraphicsPipeline(...)
+function RenderInstance:CreateGraphicsPipeline(...)
 	return Pipeline.New(self, ...)
 end
 
-function VulkanInstance:CreateComputePipeline(...)
+function RenderInstance:CreateComputePipeline(...)
 	return ComputePipeline.New(self, ...)
 end
 
-return VulkanInstance
+return RenderInstance
