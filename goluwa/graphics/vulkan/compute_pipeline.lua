@@ -4,17 +4,17 @@ local PipelineLayout = require("graphics.vulkan.internal.pipeline_layout")
 local ComputePipeline = {}
 ComputePipeline.__index = ComputePipeline
 
-function ComputePipeline.New(render_instance, config)
+function ComputePipeline.New(vulkan_instance, config)
 	local self = setmetatable({}, ComputePipeline)
-	self.render_instance = render_instance
+	self.vulkan_instance = vulkan_instance
 	self.config = config
 	self.current_image_index = 1
-	local shader = ShaderModule.New(render_instance.device, config.shader, "compute")
-	local descriptor_set_layout = DescriptorSetLayout.New(render_instance.device, config.descriptor_layout)
-	local pipeline_layout = PipelineLayout.New(render_instance.device, {descriptor_set_layout})
-	local pipeline = GraphicsPipeline.New(render_instance.device, shader, pipeline_layout)
+	local shader = ShaderModule.New(vulkan_instance.device, config.shader, "compute")
+	local descriptor_set_layout = DescriptorSetLayout.New(vulkan_instance.device, config.descriptor_layout)
+	local pipeline_layout = PipelineLayout.New(vulkan_instance.device, {descriptor_set_layout})
+	local pipeline = GraphicsPipeline.New(vulkan_instance.device, shader, pipeline_layout)
 	local descriptor_set_count = config.descriptor_set_count or 1
-	local descriptor_pool = DescriptorPool.New(render_instance.device, config.descriptor_pool, descriptor_set_count)
+	local descriptor_pool = DescriptorPool.New(vulkan_instance.device, config.descriptor_pool, descriptor_set_count)
 	local descriptor_sets = {}
 
 	for i = 1, descriptor_set_count do
@@ -32,7 +32,7 @@ function ComputePipeline.New(render_instance, config)
 end
 
 function ComputePipeline:UpdateDescriptorSet(type, index, binding_index, ...)
-	self.render_instance.device:UpdateDescriptorSet(type, self.descriptor_sets[index], binding_index, ...)
+	self.vulkan_instance.device:UpdateDescriptorSet(type, self.descriptor_sets[index], binding_index, ...)
 end
 
 function ComputePipeline:Dispatch(cmd)
@@ -44,7 +44,7 @@ function ComputePipeline:Dispatch(cmd)
 		{self.descriptor_sets[self.current_image_index]},
 		0
 	)
-	local extent = self.render_instance:GetExtent()
+	local extent = self.vulkan_instance:GetExtent()
 	local w = tonumber(extent.width)
 	local h = tonumber(extent.height)
 	-- Dispatch compute shader

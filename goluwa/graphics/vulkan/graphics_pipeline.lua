@@ -7,7 +7,7 @@ local ffi = require("ffi")
 local Pipeline = {}
 Pipeline.__index = Pipeline
 
-function Pipeline.New(render_instance, config)
+function Pipeline.New(vulkan_instance, config)
 	local self = setmetatable({}, Pipeline)
 	local uniform_buffers = {}
 	local shader_modules = {}
@@ -18,7 +18,7 @@ function Pipeline.New(render_instance, config)
 	for i, stage in ipairs(config.shader_stages) do
 		shader_modules[i] = {
 			type = stage.type,
-			module = ShaderModule.New(render_instance.device, stage.code, stage.type),
+			module = ShaderModule.New(vulkan_instance.device, stage.code, stage.type),
 		}
 
 		if stage.descriptor_sets then
@@ -57,7 +57,7 @@ function Pipeline.New(render_instance, config)
 
 	-- Validate push constant ranges don't exceed device limits
 	if #push_constant_ranges > 0 then
-		local device_properties = render_instance.physical_device:GetProperties()
+		local device_properties = vulkan_instance.physical_device:GetProperties()
 		local max_push_constants_size = device_properties.limits.maxPushConstantsSize
 
 		for i, range in ipairs(push_constant_ranges) do
@@ -79,8 +79,8 @@ function Pipeline.New(render_instance, config)
 		end
 	end
 
-	local descriptorSetLayout = DescriptorSetLayout.New(render_instance.device, layout)
-	local pipelineLayout = PipelineLayout.New(render_instance.device, {descriptorSetLayout}, push_constant_ranges)
+	local descriptorSetLayout = DescriptorSetLayout.New(vulkan_instance.device, layout)
+	local pipelineLayout = PipelineLayout.New(vulkan_instance.device, {descriptorSetLayout}, push_constant_ranges)
 	-- BINDLESS DESCRIPTOR SET MANAGEMENT:
 	-- For bindless rendering, we create one descriptor set per frame containing
 	-- an array of all textures. The descriptor sets are updated when new textures
@@ -100,7 +100,7 @@ function Pipeline.New(render_instance, config)
 			}
 		end
 
-		descriptorPools[frame] = DescriptorPool.New(render_instance.device, frame_pool_sizes, 1)
+		descriptorPools[frame] = DescriptorPool.New(vulkan_instance.device, frame_pool_sizes, 1)
 		descriptorSets[frame] = descriptorPools[frame]:AllocateDescriptorSet(descriptorSetLayout)
 	end
 
@@ -123,7 +123,7 @@ function Pipeline.New(render_instance, config)
 	end
 
 	pipeline = GraphicsPipeline.New(
-		render_instance.device,
+		vulkan_instance.device,
 		{
 			shaderModules = shader_modules,
 			extent = config.extent,
@@ -144,7 +144,7 @@ function Pipeline.New(render_instance, config)
 	self.pipeline = pipeline
 	self.descriptor_sets = descriptorSets
 	self.pipeline_layout = pipelineLayout
-	self.render_instance = render_instance
+	self.vulkan_instance = vulkan_instance
 	self.config = config
 	self.uniform_buffers = uniform_buffers
 	self.descriptorSetLayout = descriptorSetLayout
@@ -203,12 +203,12 @@ function Pipeline:GetTextureIndex(tex)
 end
 
 function Pipeline:UpdateDescriptorSet(type, index, binding_index, ...)
-	self.render_instance.device:UpdateDescriptorSet(type, self.descriptor_sets[index], binding_index, ...)
+	self.vulkan_instance.device:UpdateDescriptorSet(type, self.descriptor_sets[index], binding_index, ...)
 end
 
 function Pipeline:UpdateDescriptorSetArray(frame_index, binding_index, texture_array)
 	-- Update a descriptor set with an array of textures for bindless rendering
-	self.render_instance.device:UpdateDescriptorSetArray(self.descriptor_sets[frame_index], binding_index, texture_array)
+	self.vulkan_instance.device:UpdateDescriptorSetArray(self.descriptor_sets[frame_index], binding_index, texture_array)
 end
 
 function Pipeline:PushConstants(cmd, stage, binding_index, data, data_size)
@@ -325,7 +325,7 @@ function Pipeline:RebuildPipeline(section, changes)
 	for i, stage in ipairs(modified_config.shader_stages) do
 		shader_modules[i] = {
 			type = stage.type,
-			module = ShaderModule.New(self.render_instance.device, stage.code, stage.type),
+			module = ShaderModule.New(self.vulkan_instance.device, stage.code, stage.type),
 		}
 	end
 
@@ -349,7 +349,7 @@ function Pipeline:RebuildPipeline(section, changes)
 	end
 
 	local new_pipeline = GraphicsPipeline.New(
-		self.render_instance.device,
+		self.vulkan_instance.device,
 		{
 			shaderModules = shader_modules,
 			extent = modified_config.extent,

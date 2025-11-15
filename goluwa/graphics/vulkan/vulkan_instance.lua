@@ -95,7 +95,7 @@ function VulkanInstance:CreateBuffer(config)
 end
 
 function VulkanInstance:CreateOffscreenRenderTarget(config)
-	config.render_instance = self
+	config.vulkan_instance = self
 	return OffscreenRenderTarget.New(config)
 end
 

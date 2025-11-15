@@ -9,7 +9,7 @@ local OffscreenRenderTarget = {}
 OffscreenRenderTarget.__index = OffscreenRenderTarget
 
 function OffscreenRenderTarget.New(config)
-	local render_instance = config.render_instance
+	local vulkan_instance = config.vulkan_instance
 	local width = config.width
 	local height = config.height
 	local format = config.format
@@ -17,14 +17,14 @@ function OffscreenRenderTarget.New(config)
 	local samples = config.samples or "1"
 	local final_layout = config.final_layout or "color_attachment_optimal"
 	local self = setmetatable({}, OffscreenRenderTarget)
-	self.render_instance = render_instance
+	self.vulkan_instance = vulkan_instance
 	self.width = width
 	self.height = height
 	self.format = format
 	self.final_layout = final_layout
 	self.image = Image.New(
 		{
-			device = render_instance.device,
+			device = vulkan_instance.device,
 			width = width,
 			height = height,
 			format = format,
@@ -35,14 +35,14 @@ function OffscreenRenderTarget.New(config)
 	)
 	self.image_view = ImageView.New(
 		{
-			device = render_instance.device,
+			device = vulkan_instance.device,
 			image = self.image,
 			format = format,
 			aspect = "color",
 		}
 	)
 	self.render_pass = RenderPass.New(
-		render_instance.device,
+		vulkan_instance.device,
 		{
 			format = format,
 			samples = samples,
@@ -51,14 +51,14 @@ function OffscreenRenderTarget.New(config)
 	)
 	self.framebuffer = Framebuffer.New(
 		{
-			device = render_instance.device,
+			device = vulkan_instance.device,
 			render_pass = self.render_pass,
 			image_view = self.image_view,
 			width = width,
 			height = height,
 		}
 	)
-	self.command_buffer = render_instance.command_pool:AllocateCommandBuffer()
+	self.command_buffer = vulkan_instance.command_pool:AllocateCommandBuffer()
 	return self
 end
 
@@ -114,8 +114,8 @@ end
 
 function OffscreenRenderTarget:EndFrame()
 	self.command_buffer:End()
-	local fence = Fence.New(self.render_instance.device)
-	self.render_instance.queue:SubmitAndWait(self.render_instance.device, self.command_buffer, fence)
+	local fence = Fence.New(self.vulkan_instance.device)
+	self.vulkan_instance.queue:SubmitAndWait(self.vulkan_instance.device, self.command_buffer, fence)
 end
 
 function OffscreenRenderTarget:GetCommandBuffer()
