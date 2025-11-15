@@ -8,8 +8,11 @@ local Fence = require("graphics.vulkan.internal.fence")
 local OffscreenRenderTarget = {}
 OffscreenRenderTarget.__index = OffscreenRenderTarget
 
-function OffscreenRenderTarget.New(render_instance, width, height, format, config)
-	config = config or {}
+function OffscreenRenderTarget.New(config)
+	local render_instance = config.render_instance
+	local width = config.width
+	local height = config.height
+	local format = config.format
 	local usage = config.usage or {"color_attachment", "sampled"}
 	local samples = config.samples or "1"
 	local final_layout = config.final_layout or "color_attachment_optimal"

@@ -107,8 +107,8 @@ function render.CreateGraphicsPipeline(config)
 	return vulkan_instance:CreateGraphicsPipeline(config)
 end
 
-function render.CreateOffscreenRenderTarget(width, height, format, config)
-	return vulkan_instance:CreateOffscreenRenderTarget(width, height, format, config)
+function render.CreateOffscreenRenderTarget(config)
+	return vulkan_instance:CreateOffscreenRenderTarget(config)
 end
 
 function render.CreateIndexBuffer()

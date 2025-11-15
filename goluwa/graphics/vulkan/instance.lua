@@ -282,8 +282,9 @@ local WindowRenderTarget = require("graphics.vulkan.rendertarget_window")
 local Pipeline = require("graphics.vulkan.graphics_pipeline")
 local ComputePipeline = require("graphics.vulkan.compute_pipeline")
 
-function VulkanInstance:CreateOffscreenRenderTarget(width, height, format, config)
-	return OffscreenRenderTarget.New(self, width, height, format, config)
+function VulkanInstance:CreateOffscreenRenderTarget(config)
+	config.render_instance = self
+	return OffscreenRenderTarget.New(config)
 end
 
 function VulkanInstance:CreateWindowRenderTarget()
