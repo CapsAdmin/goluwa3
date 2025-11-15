@@ -99,20 +99,6 @@ render2d.blend_modes = {
 }
 
 function render2d.Initialize()
-	-- Set default blend mode
-	render2d.current_blend_mode = "alpha"
-	-- Check if dynamic blend is supported
-	local device = render.GetDevice()
-	render2d.has_dynamic_blend = device.has_dynamic_blend or false
-	-- Update dynamic states based on support
-	local dynamic_states = {"viewport", "scissor", "blend_constants"}
-
-	if render2d.has_dynamic_blend then
-		table.insert(dynamic_states, "color_blend_enable_ext")
-		table.insert(dynamic_states, "color_blend_equation_ext")
-	end
-
-	render2d.pipeline_data.dynamic_states = dynamic_states
 	render2d.pipeline = render.CreateGraphicsPipeline(render2d.pipeline_data)
 	-- Quad mesh with 4 vertices (reused via indices)
 	local mesh_data = {
@@ -130,11 +116,19 @@ function render2d.Initialize()
 	render2d.SetAlphaMultiplier(1)
 	render2d.SetRectUV()
 	render2d.UpdateScreenSize(window:GetSize())
+	render2d.current_blend_mode = "alpha"
 end
 
 do -- shader
+	local dynamic_states = {"viewport", "scissor", "blend_constants"}
+
+	if render.GetDevice().has_extended_dynamic_state3 then
+		table.insert(dynamic_states, "color_blend_enable_ext")
+		table.insert(dynamic_states, "color_blend_equation_ext")
+	end
+
 	render2d.pipeline_data = {
-		dynamic_states = {"viewport", "scissor"}, -- Will be updated in Initialize() based on support
+		dynamic_states = dynamic_states, -- Will be updated in Initialize() based on support
 		shader_stages = {
 			{
 				type = "vertex",
@@ -333,6 +327,8 @@ do -- shader
 	end
 
 	function render2d.SetBlendMode(mode_name)
+		if render2d.current_blend_mode == mode_name then return end
+
 		if not render2d.blend_modes[mode_name] then
 			local valid_modes = {}
 
@@ -346,12 +342,9 @@ do -- shader
 		end
 
 		render2d.current_blend_mode = mode_name
+		local blend_mode = render2d.blend_modes[mode_name]
 
-		-- Apply blend mode
-		if render2d.has_dynamic_blend then
-			-- Use dynamic state if supported
-			local blend_mode = render2d.blend_modes[mode_name]
-
+		if render.GetDevice().has_extended_dynamic_state3 then
 			if render2d.cmd then
 				render2d.cmd:SetColorBlendEnable(0, blend_mode.blend)
 
@@ -360,15 +353,18 @@ do -- shader
 				end
 			end
 		else
-			-- Rebuild pipeline with new blend mode if dynamic state not supported
-			local blend_mode = render2d.blend_modes[mode_name]
-			render2d.pipeline:RebuildPipeline("color_blend", blend_mode)
-
-			-- Rebind the pipeline if we're in the middle of rendering
-			if render2d.cmd then
-				local frame_index = render.GetCurrentFrame()
-				render2d.pipeline:Bind(render2d.cmd, frame_index)
-			end
+			local data = table.copy(render2d.pipeline_data)
+			data.color_blend.attachments[1] = {
+				blend = blend_mode.blend,
+				src_color_blend_factor = blend_mode.src_color_blend_factor,
+				dst_color_blend_factor = blend_mode.dst_color_blend_factor,
+				color_blend_op = blend_mode.color_blend_op,
+				src_alpha_blend_factor = blend_mode.src_alpha_blend_factor,
+				dst_alpha_blend_factor = blend_mode.dst_alpha_blend_factor,
+				alpha_blend_op = blend_mode.alpha_blend_op,
+				color_write_mask = {"r", "g", "b", "a"},
+			}
+			render2d.pipeline = render.CreateGraphicsPipeline(data)
 		end
 	end
 
@@ -576,23 +572,12 @@ render2d.Initialize()
 
 event.AddListener("PostDraw", "draw_2d", function(cmd, dt)
 	local frame_index = render.GetCurrentFrame()
-
-	-- Ensure correct pipeline variant is active if not using dynamic blend
-	if not render2d.has_dynamic_blend then
-		local blend_mode = render2d.blend_modes[render2d.current_blend_mode]
-		render2d.pipeline:RebuildPipeline("color_blend", blend_mode)
-	end
-
 	-- Bind pipeline and descriptor set (bindless - one set with all textures)
 	render2d.cmd = cmd
 	render2d.pipeline:Bind(cmd, frame_index)
 	render2d.BindMesh(render2d.vertex_buffer, render2d.index_buffer)
-
-	-- Set initial blend mode for the frame (only if dynamic blend is supported)
-	if render2d.has_dynamic_blend then
-		render2d.SetBlendMode(render2d.current_blend_mode)
-	end
-
+	-- Set initial blend mode for the frame
+	render2d.SetBlendMode(render2d.current_blend_mode)
 	event.Call("Draw2D", dt)
 end)
 

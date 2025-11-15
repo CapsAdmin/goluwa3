@@ -6,7 +6,6 @@ Device.GetQueue = require("graphics.vulkan.internal.queue").New
 
 function Device.New(physical_device, extensions, graphicsQueueFamily)
 	local available_extensions = physical_device:GetAvailableDeviceExtensions()
-	--dprint("Available Device Extensions: " .. table.concat(available_extensions, ", "))
 	-- Add portability subset and its dependency if supported
 	local finalExtensions = {}
 
@@ -32,51 +31,23 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 		table.insert(finalExtensions, "VK_KHR_dynamic_rendering")
 	end
 
+	if table.has_value(available_extensions, "VK_EXT_extended_dynamic_state3") then
+		table.insert(finalExtensions, "VK_EXT_extended_dynamic_state3")
+	end
+
 	-- Query available features if extension is present
 	local pNextChain = nil
-	local hasDynamicBlendFeatures = false
 	local hasDynamicRenderingFeatures = physical_device:GetDynamicRenderingFeatures()
-	local features = physical_device:GetExtendedDynamicStateFeatures()
+	-- Extended dynamic state 3 features are always enabled when available
+	local has_extended_dynamic_state3 = table.has_value(available_extensions, "VK_EXT_extended_dynamic_state3")
 
-	-- Only request features that are supported
-	if features.ColorBlendEnable and features.ColorBlendEquation then
-		hasDynamicBlendFeatures = true
-		print("HAS DYNAMIC BLEND FEATURES")
+	if has_extended_dynamic_state3 then
 		local extendedDynamicState3Features = vulkan.vk.VkPhysicalDeviceExtendedDynamicState3FeaturesEXT(
 			{
 				sType = "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_3_FEATURES_EXT",
 				pNext = nil,
-				extendedDynamicState3TessellationDomainOrigin = 0,
-				extendedDynamicState3DepthClampEnable = 0,
-				extendedDynamicState3PolygonMode = 0,
-				extendedDynamicState3RasterizationSamples = 0,
-				extendedDynamicState3SampleMask = 0,
-				extendedDynamicState3AlphaToCoverageEnable = 0,
-				extendedDynamicState3AlphaToOneEnable = 0,
-				extendedDynamicState3LogicOpEnable = 0,
 				extendedDynamicState3ColorBlendEnable = 1,
 				extendedDynamicState3ColorBlendEquation = 1,
-				extendedDynamicState3ColorWriteMask = 0,
-				extendedDynamicState3RasterizationStream = 0,
-				extendedDynamicState3ConservativeRasterizationMode = 0,
-				extendedDynamicState3ExtraPrimitiveOverestimationSize = 0,
-				extendedDynamicState3DepthClipEnable = 0,
-				extendedDynamicState3SampleLocationsEnable = 0,
-				extendedDynamicState3ColorBlendAdvanced = 0,
-				extendedDynamicState3ProvokingVertexMode = 0,
-				extendedDynamicState3LineRasterizationMode = 0,
-				extendedDynamicState3LineStippleEnable = 0,
-				extendedDynamicState3DepthClipNegativeOneToOne = 0,
-				extendedDynamicState3ViewportWScalingEnable = 0,
-				extendedDynamicState3ViewportSwizzle = 0,
-				extendedDynamicState3CoverageToColorEnable = 0,
-				extendedDynamicState3CoverageToColorLocation = 0,
-				extendedDynamicState3CoverageModulationMode = 0,
-				extendedDynamicState3CoverageModulationTableEnable = 0,
-				extendedDynamicState3CoverageModulationTable = 0,
-				extendedDynamicState3CoverageReductionMode = 0,
-				extendedDynamicState3RepresentativeFragmentTestEnable = 0,
-				extendedDynamicState3ShadingRateImageEnable = 0,
 			}
 		)
 		pNextChain = extendedDynamicState3Features
@@ -138,15 +109,14 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 	local device = setmetatable(
 		{
 			ptr = ptr,
-			has_dynamic_blend = hasDynamicBlendFeatures,
-			has_dynamic_rendering = hasDynamicRenderingFeatures,
+			has_extended_dynamic_state3 = has_extended_dynamic_state3,
 			physical_device = physical_device,
 		},
 		Device
 	)
 
 	-- Load extension functions if dynamic blend features are supported
-	if hasDynamicBlendFeatures then
+	if has_extended_dynamic_state3 then
 		vulkan.ext.vkCmdSetColorBlendEnableEXT = device:GetExtension("vkCmdSetColorBlendEnableEXT")
 		vulkan.ext.vkCmdSetColorBlendEquationEXT = device:GetExtension("vkCmdSetColorBlendEquationEXT")
 	end
