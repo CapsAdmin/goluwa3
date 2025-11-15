@@ -2,6 +2,9 @@ local ffi = require("ffi")
 local render = require("graphics.render")
 local file_formats = require("file_formats")
 local Vec2f = require("structs.vec2").Vec2f
+local Buffer = require("graphics.vulkan.internal.buffer")
+local CommandPool = require("graphics.vulkan.internal.command_pool")
+local Fence = require("graphics.vulkan.internal.fence")
 local Texture = {}
 Texture.__index = Texture
 
@@ -32,17 +35,6 @@ function Texture.New(config)
 			mip_levels = mip_levels,
 		}
 	)
-
-	if config.buffer then
-		-- If we're generating mipmaps, keep mip level 0 in transfer_dst after upload
-		local keep_in_transfer = mip_levels > 1
-		render.UploadToImage(image, config.buffer, image:GetWidth(), image:GetHeight(), keep_in_transfer)
-	else
-		-- If no buffer is provided, transition the image to shader_read_only_optimal
-		-- This is necessary because images start in undefined layout
-		image:TransitionLayout("undefined", "shader_read_only_optimal")
-	end
-
 	local view = image:CreateView()
 	-- Parse min_filter to separate filter mode and mipmap mode
 	local min_filter = config.min_filter or "nearest"
@@ -83,7 +75,102 @@ function Texture.New(config)
 		},
 		Texture
 	)
+
+	if config.buffer then
+		-- If we're generating mipmaps, keep mip level 0 in transfer_dst after upload
+		self:Upload(config.buffer, mip_levels > 1)
+	else
+		-- If no buffer is provided, transition the image to shader_read_only_optimal
+		-- This is necessary because images start in undefined layout
+		image:TransitionLayout("undefined", "shader_read_only_optimal")
+	end
+
 	return self
+end
+
+function Texture:Upload(data, keep_in_transfer_dst)
+	local device = render.GetDevice()
+	local queue = render.GetQueue()
+	local graphics_queue_family = render.GetGraphicsQueueFamily()
+	local width = self.image:GetWidth()
+	local height = self.image:GetHeight()
+	local pixel_count = width * height
+	-- Create staging buffer
+	local staging_buffer = Buffer.New(
+		{
+			device = device,
+			size = pixel_count * 4,
+			usage = "transfer_src",
+			properties = {"host_visible", "host_coherent"},
+		}
+	)
+	staging_buffer:CopyData(data, pixel_count * 4)
+	-- Copy to image using command buffer
+	local cmd_pool = CommandPool.New(device, graphics_queue_family)
+	local cmd = cmd_pool:AllocateCommandBuffer()
+	cmd:Begin()
+	-- Transition image to transfer dst (only mip level 0)
+	cmd:PipelineBarrier(
+		{
+			srcStage = "compute",
+			dstStage = "transfer",
+			imageBarriers = {
+				{
+					image = self.image,
+					srcAccessMask = "none",
+					dstAccessMask = "transfer_write",
+					oldLayout = "undefined",
+					newLayout = "transfer_dst_optimal",
+					base_mip_level = 0,
+					level_count = 1,
+				},
+			},
+		}
+	)
+	-- Copy buffer to image
+	cmd:CopyBufferToImage(staging_buffer, self.image, width, height)
+
+	-- Only transition to final layout if not keeping in transfer_dst for mipmap generation
+	if not keep_in_transfer_dst then
+		-- Determine final layout based on image usage
+		local final_layout = "general"
+		local dst_stage = "compute"
+
+		if type(self.image.usage) == "table" then
+			for _, usage in ipairs(self.image.usage) do
+				if usage == "sampled" then
+					final_layout = "shader_read_only_optimal"
+					dst_stage = "fragment"
+
+					break
+				end
+			end
+		end
+
+		-- Transition to final layout
+		cmd:PipelineBarrier(
+			{
+				srcStage = "transfer",
+				dstStage = dst_stage,
+				imageBarriers = {
+					{
+						image = self.image,
+						srcAccessMask = "transfer_write",
+						dstAccessMask = "shader_read",
+						oldLayout = "transfer_dst_optimal",
+						newLayout = final_layout,
+						base_mip_level = 0,
+						level_count = 1,
+					},
+				},
+			}
+		)
+	end
+
+	cmd:End()
+	-- Submit and wait
+	local fence = Fence.New(device)
+	queue:SubmitAndWait(device, cmd, fence)
 end
 
 function Texture:GetImage()

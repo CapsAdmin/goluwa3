@@ -84,10 +84,6 @@ function render.CreateImage(config)
 	return Image.New(config)
 end
 
-function render.UploadToImage(image, data, width, height, keep_in_transfer_dst)
-	return vulkan_instance:UploadToImage(image, data, width, height, keep_in_transfer_dst)
-end
-
 function render.CreateSampler(config)
 	return Sampler.New(vulkan_instance.device, config)
 end
