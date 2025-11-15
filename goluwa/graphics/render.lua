@@ -41,9 +41,8 @@ event.AddListener("Update", "window_update", function(dt)
 	window_target:EndFrame()
 end)
 
-event.AddListener("Shutdown", "window_shutdown", function()
+event.AddListener("ShutDown", "window_shutdown", function()
 	vulkan_instance:WaitForIdle()
-	system.ShutDown()
 end)
 
 local render = {}

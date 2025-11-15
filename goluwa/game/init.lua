@@ -89,5 +89,5 @@ event.AddListener("Draw2D", "test", function(dt)
 end)
 
 event.AddListener("KeyInput", "escape_shutdown", function(key, press)
-	if key == "escape" and press then system.ShutDown() end
+	if key == "escape" and press then system.ShutDown(0) end
 end)
