@@ -63,7 +63,6 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 			}
 		)
 		pNextChain = dynamicRenderingFeatures
-		print("DYNAMIC RENDERING ENABLED")
 	end
 
 	-- Enable scalar block layout feature for push constants

@@ -8,8 +8,7 @@ local Fence = require("graphics.vulkan.internal.fence")
 local OffscreenRenderTarget = {}
 OffscreenRenderTarget.__index = OffscreenRenderTarget
 
-function OffscreenRenderTarget.New(config)
-	local vulkan_instance = config.vulkan_instance
+function OffscreenRenderTarget.New(vulkan_instance, config)
 	local width = config.width
 	local height = config.height
 	local format = config.format
