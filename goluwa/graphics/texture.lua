@@ -14,10 +14,11 @@ function Texture.New(config)
 		config.buffer = img.buffer:GetBuffer()
 	end
 
-	-- Calculate maximum mip levels if generate_mipmaps is true
-	local mip_levels = 1
+	local mip_levels = config.mip_map_levels or 1
 
-	if config.generate_mipmaps then
+	if mip_levels == "auto" then mip_levels = 999 end
+
+	if mip_levels > 1 then
 		mip_levels = math.floor(math.log(math.max(config.width, config.height), 2)) + 1
 	end
 
@@ -33,7 +34,7 @@ function Texture.New(config)
 
 	if config.buffer then
 		-- If we're generating mipmaps, keep mip level 0 in transfer_dst after upload
-		local keep_in_transfer = config.generate_mipmaps and mip_levels > 1
+		local keep_in_transfer = mip_levels > 1
 		render.UploadToImage(image, config.buffer, image:GetWidth(), image:GetHeight(), keep_in_transfer)
 	else
 		-- If no buffer is provided, transition the image to shader_read_only_optimal
@@ -81,10 +82,6 @@ function Texture.New(config)
 		},
 		Texture
 	)
-
-	-- Generate mipmaps after uploading initial data
-	if config.generate_mipmaps and mip_levels > 1 then self:GenerateMipMap() end
-
 	return self
 end
 
@@ -227,6 +224,7 @@ do
 	function Texture:Shade(glsl)
 		local RenderPass = require("graphics.vulkan.internal.render_pass")
 		local Framebuffer = require("graphics.vulkan.internal.framebuffer")
+		local ImageView = require("graphics.vulkan.internal.image_view")
 		local CommandPool = require("graphics.vulkan.internal.command_pool")
 		local Fence = require("graphics.vulkan.internal.fence")
 		local device = render.GetDevice()
@@ -241,11 +239,21 @@ do
 				final_layout = "shader_read_only_optimal",
 			}
 		)
-		-- Create framebuffer using the texture's existing image view
+		-- Create a view for only mip level 0 (required for framebuffer attachment)
+		local mip0_view = ImageView.New(
+			device,
+			self.image,
+			{
+				format = self.format,
+				base_mip_level = 0,
+				level_count = 1,
+			}
+		)
+		-- Create framebuffer using the mip level 0 view
 		local framebuffer = Framebuffer.New(
 			device,
 			render_pass,
-			self.view,
+			mip0_view,
 			self.image:GetWidth(),
 			self.image:GetHeight(),
 			nil

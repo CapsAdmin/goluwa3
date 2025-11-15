@@ -29,11 +29,12 @@ local index_buffer = render.CreateBuffer(
 local texture = Texture.New(
 	{
 		path = "assets/images/capsadmin.png",
-		generate_mipmaps = true,
+		mip_map_levels = "auto",
 		min_filter = "linear_mipmap_linear",
 		mag_filter = "linear",
 	}
 )
+texture:GenerateMipMap()
 render3d.SetTexture(texture)
 local transforms = {}
 
