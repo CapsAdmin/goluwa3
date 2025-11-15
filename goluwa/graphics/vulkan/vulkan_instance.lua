@@ -22,6 +22,10 @@ local ShaderModule = require("graphics.vulkan.internal.shader_module")
 local SwapChain = require("graphics.vulkan.internal.swap_chain")
 local Surface = require("graphics.vulkan.internal.surface")
 local process = require("bindings.process")
+local OffscreenRenderTarget = require("graphics.vulkan.rendertarget_offscreen")
+local WindowRenderTarget = require("graphics.vulkan.rendertarget_window")
+local Pipeline = require("graphics.vulkan.graphics_pipeline")
+local ComputePipeline = require("graphics.vulkan.compute_pipeline")
 local VulkanInstance = {}
 VulkanInstance.__index = VulkanInstance
 -- Default configuration
@@ -125,43 +129,6 @@ function VulkanInstance:RecreateSwapchain()
 	self.swapchain_images = self.swapchain:GetImages()
 end
 
-function VulkanInstance:TransitionImageLayout(image, old_layout, new_layout, src_stage, dst_stage)
-	local cmd = self:GetCommandBuffer()
-	src_stage = src_stage or "all_commands"
-	dst_stage = dst_stage or "all_commands"
-	local src_access = "none"
-	local dst_access = "none"
-
-	-- Determine access masks based on layouts
-	if old_layout == "color_attachment_optimal" then
-		src_access = "color_attachment_write"
-	elseif old_layout == "shader_read_only_optimal" then
-		src_access = "shader_read"
-	end
-
-	if new_layout == "color_attachment_optimal" then
-		dst_access = "color_attachment_write"
-	elseif new_layout == "shader_read_only_optimal" then
-		dst_access = "shader_read"
-	end
-
-	cmd:PipelineBarrier(
-		{
-			srcStage = src_stage,
-			dstStage = dst_stage,
-			imageBarriers = {
-				{
-					image = image,
-					srcAccessMask = src_access,
-					dstAccessMask = dst_access,
-					oldLayout = old_layout,
-					newLayout = new_layout,
-				},
-			},
-		}
-	)
-end
-
 function VulkanInstance:GetExtent()
 	return self.surface_capabilities.currentExtent
 end
@@ -196,11 +163,6 @@ function VulkanInstance:CreateBuffer(config)
 
 	return buffer
 end
-
-local OffscreenRenderTarget = require("graphics.vulkan.rendertarget_offscreen")
-local WindowRenderTarget = require("graphics.vulkan.rendertarget_window")
-local Pipeline = require("graphics.vulkan.graphics_pipeline")
-local ComputePipeline = require("graphics.vulkan.compute_pipeline")
 
 function VulkanInstance:CreateOffscreenRenderTarget(config)
 	config.render_instance = self
