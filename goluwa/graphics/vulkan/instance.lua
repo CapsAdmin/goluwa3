@@ -185,7 +185,14 @@ function VulkanInstance:CreateBuffer(config)
 		end
 	end
 
-	local buffer = Buffer.New(self.device, byte_size, config.buffer_usage, config.memory_property)
+	local buffer = Buffer.New(
+		{
+			device = self.device,
+			size = byte_size,
+			usage = config.buffer_usage,
+			properties = config.memory_property,
+		}
+	)
 
 	if data then buffer:CopyData(data, byte_size) end
 
@@ -195,7 +202,14 @@ end
 function VulkanInstance:UploadToImage(image, data, width, height, keep_in_transfer_dst)
 	local pixel_count = width * height
 	-- Create staging buffer
-	local staging_buffer = Buffer.New(self.device, pixel_count * 4, "transfer_src", {"host_visible", "host_coherent"})
+	local staging_buffer = Buffer.New(
+		{
+			device = self.device,
+			size = pixel_count * 4,
+			usage = "transfer_src",
+			properties = {"host_visible", "host_coherent"},
+		}
+	)
 	staging_buffer:CopyData(data, pixel_count * 4)
 	-- Copy to image using command buffer
 	local cmd_pool = CommandPool.New(self.device, self.graphics_queue_family)

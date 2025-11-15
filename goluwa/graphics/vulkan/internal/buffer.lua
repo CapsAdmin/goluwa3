@@ -4,7 +4,11 @@ local Memory = require("graphics.vulkan.internal.memory")
 local Buffer = {}
 Buffer.__index = Buffer
 
-function Buffer.New(device, size, usage, properties)
+function Buffer.New(config)
+	local device = config.device
+	local size = config.size
+	local usage = config.usage
+	local properties = config.properties
 	local ptr = vulkan.T.Box(vulkan.vk.VkBuffer)()
 	vulkan.assert(
 		vulkan.lib.vkCreateBuffer(
