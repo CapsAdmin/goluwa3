@@ -1,11 +1,11 @@
-local RenderInstance = require("graphics.vulkan.render_instance")
+local VulkanInstance = require("graphics.vulkan.vulkan_instance")
 local window = require("graphics.window")
 local event = require("event")
 local ffi = require("ffi")
 local system = require("system")
 local Image = require("graphics.vulkan.internal.image")
 local Sampler = require("graphics.vulkan.internal.sampler")
-local vulkan_instance = RenderInstance.New(
+local vulkan_instance = VulkanInstance.New(
 	{
 		surface_handle = assert(window:GetSurfaceHandle()),
 		present_mode = "fifo",
@@ -79,19 +79,9 @@ function render.CreateBuffer(config)
 	return vulkan_instance:CreateBuffer(config)
 end
 
-function render.CreateImage(width, height, format, usage, memory_properties, samples, mip_levels)
-	return Image.New(
-		{
-			device = vulkan_instance.device,
-			width = width,
-			height = height,
-			format = format,
-			usage = usage,
-			properties = memory_properties,
-			samples = samples,
-			mip_levels = mip_levels,
-		}
-	)
+function render.CreateImage(config)
+	config.device = vulkan_instance.device
+	return Image.New(config)
 end
 
 function render.UploadToImage(image, data, width, height, keep_in_transfer_dst)
@@ -109,11 +99,6 @@ end
 
 function render.CreateOffscreenRenderTarget(config)
 	return vulkan_instance:CreateOffscreenRenderTarget(config)
-end
-
-function render.CreateIndexBuffer()
-	local IndexBuffer = require("graphics.index_buffer")
-	return IndexBuffer.New()
 end
 
 function render.GetDevice()

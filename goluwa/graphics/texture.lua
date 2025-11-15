@@ -23,13 +23,14 @@ function Texture.New(config)
 	end
 
 	local image = render.CreateImage(
-		config.width,
-		config.height,
-		config.format or "R8G8B8A8_UNORM",
-		{"sampled", "transfer_dst", "transfer_src", "color_attachment"},
-		"device_local",
-		nil,
-		mip_levels
+		{
+			width = config.width,
+			height = config.height,
+			format = config.format or "R8G8B8A8_UNORM",
+			usage = {"sampled", "transfer_dst", "transfer_src", "color_attachment"},
+			memory_properties = "device_local",
+			mip_levels = mip_levels,
+		}
 	)
 
 	if config.buffer then

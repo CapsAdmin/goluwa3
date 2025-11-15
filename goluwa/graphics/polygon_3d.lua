@@ -3,6 +3,8 @@ local AABB = require("structs.aabb")
 local Vec2 = require("structs.vec2").Vec2f
 local Vec3 = require("structs.vec3").Vec3f
 local META = prototype.CreateTemplate("polygon_3d")
+local render3d = require("graphics.render3d")
+local IndexBuffer = require("graphics.index_buffer")
 
 function META.NEW()
 	local self = META:CreateObject()
@@ -44,7 +46,7 @@ function META:Upload()
 end
 
 function META:AddSubMesh(val, data)
-	local index_buffer = render.CreateIndexBuffer()
+	local index_buffer = IndexBuffer.New()
 	index_buffer:SetDrawHint("static")
 	local indices = index_buffer:LoadIndices(val)
 	list.insert(self.sub_meshes, {index_buffer = index_buffer, data = data, indices = indices})
