@@ -30,7 +30,14 @@ function OffscreenRenderTarget.New(render_instance, width, height, format, confi
 			samples = samples,
 		}
 	)
-	self.image_view = ImageView.New(render_instance.device, self.image, {format = format, aspect = "color"})
+	self.image_view = ImageView.New(
+		{
+			device = render_instance.device,
+			image = self.image,
+			format = format,
+			aspect = "color",
+		}
+	)
 	self.render_pass = RenderPass.New(
 		render_instance.device,
 		{

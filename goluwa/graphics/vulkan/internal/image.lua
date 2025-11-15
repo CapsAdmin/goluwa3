@@ -90,10 +90,14 @@ function Image:GetMipLevels()
 end
 
 function Image:CreateView()
-	return ImageView.New(self.device, self, {
-		format = self.format,
-		level_count = self.mip_levels or 1,
-	})
+	return ImageView.New(
+		{
+			device = self.device,
+			image = self,
+			format = self.format,
+			level_count = self.mip_levels or 1,
+		}
+	)
 end
 
 function Image:TransitionLayout(old_layout, new_layout)

@@ -28,7 +28,14 @@ function WindowRenderTarget.New(render_instance)
 			samples = samples,
 		}
 	)
-	self.depth_image_view = ImageView.New(render_instance.device, self.depth_image, {format = depth_format, aspect = "depth"})
+	self.depth_image_view = ImageView.New(
+		{
+			device = render_instance.device,
+			image = self.depth_image,
+			format = depth_format,
+			aspect = "depth",
+		}
+	)
 
 	-- Create MSAA color buffer if using MSAA
 	if samples ~= "1" then
@@ -44,7 +51,7 @@ function WindowRenderTarget.New(render_instance)
 				samples = samples,
 			}
 		)
-		self.msaa_image_view = ImageView.New(render_instance.device, self.msaa_image, format)
+		self.msaa_image_view = ImageView.New({device = render_instance.device, image = self.msaa_image, format = format})
 	end
 
 	-- Create render pass for swapchain format with depth
@@ -63,9 +70,11 @@ function WindowRenderTarget.New(render_instance)
 		table.insert(
 			self.image_views,
 			ImageView.New(
-				render_instance.device,
-				swapchain_image,
-				render_instance.surface_formats[render_instance.config.surface_format_index].format
+				{
+					device = render_instance.device,
+					image = swapchain_image,
+					format = render_instance.surface_formats[render_instance.config.surface_format_index].format,
+				}
 			)
 		)
 	end
@@ -179,7 +188,14 @@ function WindowRenderTarget:RecreateSwapchain()
 			samples = samples,
 		}
 	)
-	self.depth_image_view = ImageView.New(self.render_instance.device, self.depth_image, {format = depth_format, aspect = "depth"})
+	self.depth_image_view = ImageView.New(
+		{
+			device = self.render_instance.device,
+			image = self.depth_image,
+			format = depth_format,
+			aspect = "depth",
+		}
+	)
 
 	-- Recreate MSAA color buffer if using MSAA
 	if samples ~= "1" then
@@ -195,7 +211,7 @@ function WindowRenderTarget:RecreateSwapchain()
 				samples = samples,
 			}
 		)
-		self.msaa_image_view = ImageView.New(self.render_instance.device, self.msaa_image, format)
+		self.msaa_image_view = ImageView.New({device = self.render_instance.device, image = self.msaa_image, format = format})
 	end
 
 	-- Recreate image views
@@ -205,9 +221,11 @@ function WindowRenderTarget:RecreateSwapchain()
 		table.insert(
 			self.image_views,
 			ImageView.New(
-				self.render_instance.device,
-				swapchain_image,
-				self.render_instance.surface_formats[self.render_instance.config.surface_format_index].format
+				{
+					device = self.render_instance.device,
+					image = swapchain_image,
+					format = self.render_instance.surface_formats[self.render_instance.config.surface_format_index].format,
+				}
 			)
 		)
 	end

@@ -241,9 +241,9 @@ do
 		)
 		-- Create a view for only mip level 0 (required for framebuffer attachment)
 		local mip0_view = ImageView.New(
-			device,
-			self.image,
 			{
+				device = device,
+				image = self.image,
 				format = self.format,
 				base_mip_level = 0,
 				level_count = 1,
