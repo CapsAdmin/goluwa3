@@ -39,6 +39,10 @@ end
 local meta = {}
 meta.__index = meta
 
+function meta:get_id()
+	return self.pid
+end
+
 if ffi.os == "Windows" then
 	-- Windows implementation
 	ffi.cdef[[
@@ -122,6 +126,11 @@ if ffi.os == "Windows" then
 		BOOL SetHandleInformation(HANDLE hObject, DWORD dwMask, DWORD dwFlags);
 		DWORD GetCurrentDirectoryA(DWORD nBufferLength, char* lpBuffer);
 		int SetEnvironmentVariableA(const char *key, const char *val);
+
+		DWORD GetCurrentProcessId(void);
+		HANDLE GetCurrentProcess(void);
+
+		HANDLE OpenProcess(DWORD dwDesiredAccess, BOOL bInheritHandle, DWORD dwProcessId);
 	]]
 	local INFINITE = 0xFFFFFFFF
 	local WAIT_OBJECT_0 = 0
@@ -136,6 +145,28 @@ if ffi.os == "Windows" then
 		if res == 0 then return nil, lasterror() end
 
 		return true
+	end
+
+	function process.get_current()
+		return setmetatable(
+			{
+				handle = ffi.C.GetCurrentProcess(),
+				pid = tonumber(ffi.C.GetCurrentProcessId()),
+			},
+			meta
+		)
+	end
+
+	function process.from_id(pid)
+		local PROCESS_ALL_ACCESS = 0x1F0FFF
+		local handle = ffi.C.OpenProcess(PROCESS_ALL_ACCESS, 0, pid)
+
+		if handle == nil then return nil, lasterror() end
+
+		return setmetatable({
+			handle = handle,
+			pid = pid,
+		}, meta)
 	end
 
 	function process.spawn(opts)
@@ -406,6 +437,8 @@ else
 		int unsetenv(const char *name);
 		
 		char **environ;
+
+		pid_t getpid(void);
 	]]
 	local WNOHANG = 1
 	local O_NONBLOCK = 0x0004 -- macOS
@@ -468,6 +501,20 @@ else
 
 		envp[count] = nil
 		return envp
+	end
+
+	function process.get_current()
+		return setmetatable({
+			pid = tonumber(ffi.C.getpid()),
+		}, meta)
+	end
+
+	function process.from_id(pid)
+		if ffi.C.kill(pid, 0) < 0 then return nil, lasterror() end
+
+		return setmetatable({
+			pid = pid,
+		}, meta)
 	end
 
 	function process.setenv(key, val)
@@ -710,4 +757,5 @@ else
 	process.SIGQUIT = 3
 end
 
+process.current = process.get_current()
 return process

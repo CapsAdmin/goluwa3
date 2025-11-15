@@ -16,7 +16,7 @@ local vulkan_instance = VulkanInstance.New(
 )
 local window_target = vulkan_instance:CreateWindowRenderTarget()
 
-event.AddListener("FramebufferResized", "window_resized", function(size)
+event.AddListener("WindowFramebufferResized", "window_resized", function(wnd, size)
 	window_target:RebuildFramebuffers()
 end)
 

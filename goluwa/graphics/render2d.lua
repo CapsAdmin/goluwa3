@@ -596,7 +596,7 @@ event.AddListener("PostDraw", "draw_2d", function(cmd, dt)
 	event.Call("Draw2D", dt)
 end)
 
-event.AddListener("FramebufferResized", "render2d", function(size)
+event.AddListener("WindowFramebufferResized", "render2d", function(wnd, size)
 	render2d.UpdateScreenSize(size)
 end)
 

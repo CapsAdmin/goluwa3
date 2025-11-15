@@ -133,7 +133,7 @@ end
 
 function gfx.DrawCircle(x, y, radius, width, resolution)
 	resolution = resolution or 16
-	local spacing = (resolution / radius) - 0.1
+	local spacing = (resolution / radius) - 0.2
 
 	for i = 0, resolution do
 		local i1 = ((i + 0) / resolution) * math.pi * 2
