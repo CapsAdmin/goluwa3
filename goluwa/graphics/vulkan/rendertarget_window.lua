@@ -73,13 +73,15 @@ function WindowRenderTarget.New(render_instance)
 		table.insert(
 			self.framebuffers,
 			Framebuffer.New(
-				render_instance.device,
-				self.render_pass,
-				imageView,
-				extent.width,
-				extent.height,
-				self.msaa_image_view,
-				self.depth_image_view
+				{
+					device = render_instance.device,
+					render_pass = self.render_pass,
+					image_view = imageView,
+					width = extent.width,
+					height = extent.height,
+					msaa_image_view = self.msaa_image_view,
+					depth_image_view = self.depth_image_view,
+				}
 			)
 		)
 	end
@@ -209,13 +211,15 @@ function WindowRenderTarget:RecreateSwapchain()
 		table.insert(
 			self.framebuffers,
 			Framebuffer.New(
-				self.render_instance.device,
-				self.render_pass,
-				imageView,
-				extent.width,
-				extent.height,
-				self.msaa_image_view,
-				self.depth_image_view
+				{
+					device = self.render_instance.device,
+					render_pass = self.render_pass,
+					image_view = imageView,
+					width = extent.width,
+					height = extent.height,
+					msaa_image_view = self.msaa_image_view,
+					depth_image_view = self.depth_image_view,
+				}
 			)
 		)
 	end

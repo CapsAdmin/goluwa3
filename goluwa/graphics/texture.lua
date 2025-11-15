@@ -251,12 +251,13 @@ do
 		)
 		-- Create framebuffer using the mip level 0 view
 		local framebuffer = Framebuffer.New(
-			device,
-			render_pass,
-			mip0_view,
-			self.image:GetWidth(),
-			self.image:GetHeight(),
-			nil
+			{
+				device = device,
+				render_pass = render_pass,
+				image_view = mip0_view,
+				width = self.image:GetWidth(),
+				height = self.image:GetHeight(),
+			}
 		)
 		-- Create command pool and buffer for this operation
 		local command_pool = CommandPool.New(device, graphics_queue_family)
