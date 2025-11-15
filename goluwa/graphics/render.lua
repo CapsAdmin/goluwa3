@@ -42,7 +42,7 @@ event.AddListener("Update", "window_update", function(dt)
 end)
 
 event.AddListener("ShutDown", "window_shutdown", function()
-	vulkan_instance:WaitForIdle()
+	vulkan_instance.device:WaitIdle()
 end)
 
 local render = {}
@@ -105,8 +105,8 @@ function render.GetQueue()
 	return vulkan_instance.queue
 end
 
-function render.GetGraphicsQueueFamily()
-	return vulkan_instance.graphics_queue_family
+function render.GetCommandPool()
+	return vulkan_instance.command_pool
 end
 
 function render.GetCurrentFrame()

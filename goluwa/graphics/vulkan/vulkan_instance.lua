@@ -42,6 +42,9 @@ local default_config = {
 	-- Presentation
 	pre_transform = nil, -- nil = use currentTransform
 }
+local VULKAN_SDK = "/Users/caps/VulkanSDK/1.4.328.1"
+process.setenv("VULKAN_SDK", VULKAN_SDK)
+process.setenv("VK_LAYER_PATH", VULKAN_SDK .. "/macOS/share/vulkan/explicit_layer.d")
 
 function VulkanInstance.New(config)
 	config = config or {}
@@ -50,42 +53,18 @@ function VulkanInstance.New(config)
 		if config[k] == nil then config[k] = v end
 	end
 
-	local self = setmetatable({}, VulkanInstance)
-	self.config = config
-	local metal_surface = assert(self.config.surface_handle)
-	local layers = {}
-	local VULKAN_SDK = "/Users/caps/VulkanSDK/1.4.328.1"
-	process.setenv("VULKAN_SDK", VULKAN_SDK)
-	process.setenv("VK_LAYER_PATH", VULKAN_SDK .. "/macOS/share/vulkan/explicit_layer.d")
-	local extensions = {"VK_KHR_surface", "VK_EXT_metal_surface"}
-	table.insert(layers, "VK_LAYER_KHRONOS_validation")
-	table.insert(extensions, "VK_KHR_portability_enumeration")
-	self.instance = Instance.New(extensions, layers)
-	self.surface = Surface.New(self.instance, metal_surface)
+	local self = setmetatable({config = config}, VulkanInstance)
+	self.instance = Instance.New(
+		{"VK_KHR_surface", "VK_EXT_metal_surface", "VK_KHR_portability_enumeration"},
+		{"VK_LAYER_KHRONOS_validation"}
+	)
+	self.surface = Surface.New(self.instance, assert(self.config.surface_handle))
 	self.physical_device = self.instance:GetPhysicalDevices()[1]
 	self.graphics_queue_family = self.physical_device:FindGraphicsQueueFamily(self.surface)
-	-- Try to enable dynamic blend extension if available
-	local device_extensions = {"VK_KHR_swapchain"}
-	-- Check if VK_EXT_extended_dynamic_state3 is available
-	local available_extensions = self.physical_device:GetAvailableDeviceExtensions()
-
-	for _, ext in ipairs(available_extensions) do
-		if ext == "VK_EXT_extended_dynamic_state3" then
-			table.insert(device_extensions, "VK_EXT_extended_dynamic_state3")
-
-			break
-		end
-	end
-
-	self.device = Device.New(self.physical_device, device_extensions, self.graphics_queue_family)
+	self.device = Device.New(self.physical_device, {"VK_KHR_swapchain"}, self.graphics_queue_family)
 	self.command_pool = CommandPool.New(self.device, self.graphics_queue_family)
-	-- Get queue
 	self.queue = self.device:GetQueue(self.graphics_queue_family)
 	return self
-end
-
-function VulkanInstance:WaitForIdle()
-	self.device:WaitIdle()
 end
 
 function VulkanInstance:CreateBuffer(config)

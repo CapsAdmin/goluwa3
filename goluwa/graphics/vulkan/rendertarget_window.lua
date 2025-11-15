@@ -212,7 +212,7 @@ end
 
 function WindowRenderTarget:RebuildFramebuffers()
 	-- Wait for device to be idle
-	self.render_instance:WaitForIdle()
+	self.render_instance.device:WaitIdle()
 	-- Query surface capabilities and formats
 	self.surface_capabilities = self.render_instance.physical_device:GetSurfaceCapabilities(self.render_instance.surface)
 	self.surface_formats = self.render_instance.physical_device:GetSurfaceFormats(self.render_instance.surface)

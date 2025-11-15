@@ -106,10 +106,7 @@ function Image:TransitionLayout(old_layout, new_layout)
 	local render = require("graphics.render")
 	local device = render.GetDevice()
 	local queue = render.GetQueue()
-	local graphics_queue_family = render.GetGraphicsQueueFamily()
-	-- Create temporary command buffer for the transition
-	local cmd_pool = CommandPool.New(device, graphics_queue_family)
-	local cmd = cmd_pool:AllocateCommandBuffer()
+	local cmd = render.GetCommandPool():AllocateCommandBuffer()
 	cmd:Begin()
 	-- Determine access masks and stages based on layouts
 	local src_access = "none"

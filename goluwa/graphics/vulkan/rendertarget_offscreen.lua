@@ -58,8 +58,7 @@ function OffscreenRenderTarget.New(config)
 			height = height,
 		}
 	)
-	self.command_pool = CommandPool.New(render_instance.device, render_instance.graphics_queue_family)
-	self.command_buffer = self.command_pool:AllocateCommandBuffer()
+	self.command_buffer = render_instance.command_pool:AllocateCommandBuffer()
 	return self
 end
 

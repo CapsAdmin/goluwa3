@@ -91,7 +91,6 @@ end
 function Texture:Upload(data, keep_in_transfer_dst)
 	local device = render.GetDevice()
 	local queue = render.GetQueue()
-	local graphics_queue_family = render.GetGraphicsQueueFamily()
 	local width = self.image:GetWidth()
 	local height = self.image:GetHeight()
 	local pixel_count = width * height
@@ -106,7 +105,7 @@ function Texture:Upload(data, keep_in_transfer_dst)
 	)
 	staging_buffer:CopyData(data, pixel_count * 4)
 	-- Copy to image using command buffer
-	local cmd_pool = CommandPool.New(device, graphics_queue_family)
+	local cmd_pool = render.GetCommandPool()
 	local cmd = cmd_pool:AllocateCommandBuffer()
 	cmd:Begin()
 	-- Transition image to transfer dst (only mip level 0)
@@ -192,12 +191,10 @@ end
 function Texture:GenerateMipMap(initial_layout)
 	if self.mip_map_levels <= 1 then return end
 
-	local CommandPool = require("graphics.vulkan.internal.command_pool")
 	local Fence = require("graphics.vulkan.internal.fence")
 	local device = render.GetDevice()
 	local queue = render.GetQueue()
-	local graphics_queue_family = render.GetGraphicsQueueFamily()
-	local command_pool = CommandPool.New(device, graphics_queue_family)
+	local command_pool = render.GetCommandPool()
 	local cmd = command_pool:AllocateCommandBuffer()
 	cmd:Begin()
 	-- Determine initial layout (can be transfer_dst_optimal from upload, or shader_read_only_optimal from Shade)
@@ -317,7 +314,6 @@ do
 		local Fence = require("graphics.vulkan.internal.fence")
 		local device = render.GetDevice()
 		local queue = render.GetQueue()
-		local graphics_queue_family = render.GetGraphicsQueueFamily()
 		-- Create render pass for this texture's format
 		local render_pass = RenderPass.New(
 			device,
@@ -348,7 +344,7 @@ do
 			}
 		)
 		-- Create command pool and buffer for this operation
-		local command_pool = CommandPool.New(device, graphics_queue_family)
+		local command_pool = render.GetCommandPool()
 		local cmd = command_pool:AllocateCommandBuffer()
 		-- Create graphics pipeline
 		local pipeline = render.CreateGraphicsPipeline(
