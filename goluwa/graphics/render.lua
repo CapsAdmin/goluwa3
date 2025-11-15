@@ -5,16 +5,16 @@ local ffi = require("ffi")
 local system = require("system")
 local Image = require("graphics.vulkan.internal.image")
 local Sampler = require("graphics.vulkan.internal.sampler")
-local vulkan_instance = VulkanInstance.New(
+local surface = assert(window:GetSurfaceHandle())
+local vulkan_instance = VulkanInstance.New(surface)
+local window_target = vulkan_instance:CreateWindowRenderTarget(
 	{
-		surface_handle = assert(window:GetSurfaceHandle()),
 		present_mode = "fifo",
 		image_count = nil, -- Use default (minImageCount + 1)
 		surface_format_index = 1,
 		composite_alpha = "opaque",
 	}
 )
-local window_target = vulkan_instance:CreateWindowRenderTarget()
 
 event.AddListener("WindowFramebufferResized", "window_resized", function(wnd, size)
 	window_target:RebuildFramebuffers()

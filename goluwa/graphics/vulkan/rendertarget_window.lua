@@ -9,25 +9,44 @@ local Fence = require("graphics.vulkan.internal.fence")
 local SwapChain = require("graphics.vulkan.internal.swap_chain")
 local WindowRenderTarget = {}
 WindowRenderTarget.__index = WindowRenderTarget
+local default_config = {
+	-- Swapchain settings
+	present_mode = "fifo", -- FIFO (vsync), IMMEDIATE (no vsync), MAILBOX (triple buffer)
+	image_count = nil, -- nil = minImageCount + 1 (usually triple buffer)
+	surface_format_index = 1, -- Which format from available formats to use
+	composite_alpha = "opaque", -- OPAQUE, PRE_MULTIPLIED, POST_MULTIPLIED, INHERIT
+	clipped = true, -- Clip pixels obscured by other windows
+	image_usage = nil, -- nil = COLOR_ATTACHMENT | TRANSFER_DST, or provide custom flags
+	-- Image acquisition
+	acquire_timeout = ffi.cast("uint64_t", -1), -- Infinite timeout by default
+	-- Presentation
+	pre_transform = nil, -- nil = use currentTransform
+}
 
-function WindowRenderTarget.New(vulkan_instance)
-	local self = setmetatable({}, WindowRenderTarget)
+function WindowRenderTarget.New(vulkan_instance, config)
+	config = config or {}
+
+	for k, v in pairs(default_config) do
+		if config[k] == nil then config[k] = v end
+	end
+
+	local self = setmetatable({config = config}, WindowRenderTarget)
 	self.vulkan_instance = vulkan_instance
 	self.current_frame = 0
 	-- Query surface capabilities and formats
-	self.surface_capabilities = vulkan_instance.physical_device:GetSurfaceCapabilities(vulkan_instance.surface)
-	self.surface_formats = vulkan_instance.physical_device:GetSurfaceFormats(vulkan_instance.surface)
+	self.surface_capabilities = vulkan_instance.physical_device:GetSurfaceCapabilities(self.vulkan_instance.surface)
+	self.surface_formats = vulkan_instance.physical_device:GetSurfaceFormats(self.vulkan_instance.surface)
 
 	-- Validate format index
-	if vulkan_instance.config.surface_format_index > #self.surface_formats then
+	if self.config.surface_format_index > #self.surface_formats then
 		error(
-			"Invalid surface_format_index: " .. vulkan_instance.config.surface_format_index .. " (max: " .. (
+			"Invalid surface_format_index: " .. self.config.surface_format_index .. " (max: " .. (
 					#self.surface_formats
 				) .. ")"
 		)
 	end
 
-	local selected_format = self.surface_formats[vulkan_instance.config.surface_format_index]
+	local selected_format = self.surface_formats[self.config.surface_format_index]
 
 	if selected_format.format == "undefined" then
 		error("selected surface format is undefined!")
@@ -37,18 +56,18 @@ function WindowRenderTarget.New(vulkan_instance)
 	self.swapchain = SwapChain.New(
 		{
 			device = vulkan_instance.device,
-			surface = vulkan_instance.surface,
-			surface_format = self.surface_formats[vulkan_instance.config.surface_format_index],
+			surface = self.vulkan_instance.surface,
+			surface_format = self.surface_formats[self.config.surface_format_index],
 			surface_capabilities = self.surface_capabilities,
-			image_count = vulkan_instance.config.image_count or
+			image_count = self.config.image_count or
 				(
 					self.surface_capabilities.minImageCount + 1
 				),
-			present_mode = vulkan_instance.config.present_mode,
-			composite_alpha = vulkan_instance.config.composite_alpha,
-			clipped = vulkan_instance.config.clipped,
-			image_usage = vulkan_instance.config.image_usage,
-			pre_transform = vulkan_instance.config.pre_transform,
+			present_mode = self.config.present_mode,
+			composite_alpha = self.config.composite_alpha,
+			clipped = self.config.clipped,
+			image_usage = self.config.image_usage,
+			pre_transform = self.config.pre_transform,
 		}
 	)
 	self.swapchain_images = self.swapchain:GetImages()
@@ -78,7 +97,7 @@ function WindowRenderTarget.New(vulkan_instance)
 
 	-- Create MSAA color buffer if using MSAA
 	if samples ~= "1" then
-		local format = self.surface_formats[vulkan_instance.config.surface_format_index].format
+		local format = self.surface_formats[self.config.surface_format_index].format
 		self.msaa_image = Image.New(
 			{
 				device = vulkan_instance.device,
@@ -97,7 +116,7 @@ function WindowRenderTarget.New(vulkan_instance)
 	self.render_pass = RenderPass.New(
 		vulkan_instance.device,
 		{
-			format = self.surface_formats[vulkan_instance.config.surface_format_index],
+			format = self.surface_formats[self.config.surface_format_index],
 			depth_format = depth_format,
 			samples = samples,
 		}
@@ -112,7 +131,7 @@ function WindowRenderTarget.New(vulkan_instance)
 				{
 					device = vulkan_instance.device,
 					image = swapchain_image,
-					format = self.surface_formats[vulkan_instance.config.surface_format_index].format,
+					format = self.surface_formats[self.config.surface_format_index].format,
 				}
 			)
 		)
@@ -218,15 +237,15 @@ function WindowRenderTarget:RebuildFramebuffers()
 	self.surface_formats = self.vulkan_instance.physical_device:GetSurfaceFormats(self.vulkan_instance.surface)
 
 	-- Validate format index
-	if self.vulkan_instance.config.surface_format_index > #self.surface_formats then
+	if self.config.surface_format_index > #self.surface_formats then
 		error(
-			"Invalid surface_format_index: " .. self.vulkan_instance.config.surface_format_index .. " (max: " .. (
+			"Invalid surface_format_index: " .. self.config.surface_format_index .. " (max: " .. (
 					#self.surface_formats
 				) .. ")"
 		)
 	end
 
-	local selected_format = self.surface_formats[self.vulkan_instance.config.surface_format_index]
+	local selected_format = self.surface_formats[self.config.surface_format_index]
 
 	if selected_format.format == "undefined" then
 		error("selected surface format is undefined!")
@@ -237,17 +256,17 @@ function WindowRenderTarget:RebuildFramebuffers()
 		{
 			device = self.vulkan_instance.device,
 			surface = self.vulkan_instance.surface,
-			surface_format = self.surface_formats[self.vulkan_instance.config.surface_format_index],
+			surface_format = self.surface_formats[self.config.surface_format_index],
 			surface_capabilities = self.surface_capabilities,
-			image_count = self.vulkan_instance.config.image_count or
+			image_count = self.config.image_count or
 				(
 					self.surface_capabilities.minImageCount + 1
 				),
-			present_mode = self.vulkan_instance.config.present_mode,
-			composite_alpha = self.vulkan_instance.config.composite_alpha,
-			clipped = self.vulkan_instance.config.clipped,
-			image_usage = self.vulkan_instance.config.image_usage,
-			pre_transform = self.vulkan_instance.config.pre_transform,
+			present_mode = self.config.present_mode,
+			composite_alpha = self.config.composite_alpha,
+			clipped = self.config.clipped,
+			image_usage = self.config.image_usage,
+			pre_transform = self.config.pre_transform,
 			old_swapchain = self.swapchain,
 		}
 	)
@@ -278,7 +297,7 @@ function WindowRenderTarget:RebuildFramebuffers()
 
 	-- Recreate MSAA color buffer if using MSAA
 	if samples ~= "1" then
-		local format = self.surface_formats[self.vulkan_instance.config.surface_format_index].format
+		local format = self.surface_formats[self.config.surface_format_index].format
 		self.msaa_image = Image.New(
 			{
 				device = self.vulkan_instance.device,
@@ -303,7 +322,7 @@ function WindowRenderTarget:RebuildFramebuffers()
 				{
 					device = self.vulkan_instance.device,
 					image = swapchain_image,
-					format = self.surface_formats[self.vulkan_instance.config.surface_format_index].format,
+					format = self.surface_formats[self.config.surface_format_index].format,
 				}
 			)
 		)

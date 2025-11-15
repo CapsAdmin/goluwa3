@@ -28,37 +28,17 @@ local Pipeline = require("graphics.vulkan.graphics_pipeline")
 local ComputePipeline = require("graphics.vulkan.compute_pipeline")
 local VulkanInstance = {}
 VulkanInstance.__index = VulkanInstance
--- Default configuration
-local default_config = {
-	-- Swapchain settings
-	present_mode = "fifo", -- FIFO (vsync), IMMEDIATE (no vsync), MAILBOX (triple buffer)
-	image_count = nil, -- nil = minImageCount + 1 (usually triple buffer)
-	surface_format_index = 1, -- Which format from available formats to use
-	composite_alpha = "opaque", -- OPAQUE, PRE_MULTIPLIED, POST_MULTIPLIED, INHERIT
-	clipped = true, -- Clip pixels obscured by other windows
-	image_usage = nil, -- nil = COLOR_ATTACHMENT | TRANSFER_DST, or provide custom flags
-	-- Image acquisition
-	acquire_timeout = ffi.cast("uint64_t", -1), -- Infinite timeout by default
-	-- Presentation
-	pre_transform = nil, -- nil = use currentTransform
-}
 local VULKAN_SDK = "/Users/caps/VulkanSDK/1.4.328.1"
 process.setenv("VULKAN_SDK", VULKAN_SDK)
 process.setenv("VK_LAYER_PATH", VULKAN_SDK .. "/macOS/share/vulkan/explicit_layer.d")
 
-function VulkanInstance.New(config)
-	config = config or {}
-
-	for k, v in pairs(default_config) do
-		if config[k] == nil then config[k] = v end
-	end
-
-	local self = setmetatable({config = config}, VulkanInstance)
+function VulkanInstance.New(surface_handle)
+	local self = setmetatable({}, VulkanInstance)
 	self.instance = Instance.New(
 		{"VK_KHR_surface", "VK_EXT_metal_surface", "VK_KHR_portability_enumeration"},
 		{"VK_LAYER_KHRONOS_validation"}
 	)
-	self.surface = Surface.New(self.instance, assert(self.config.surface_handle))
+	self.surface = Surface.New(self.instance, surface_handle)
 	self.physical_device = self.instance:GetPhysicalDevices()[1]
 	self.graphics_queue_family = self.physical_device:FindGraphicsQueueFamily(self.surface)
 	self.device = Device.New(self.physical_device, {"VK_KHR_swapchain"}, self.graphics_queue_family)
@@ -99,8 +79,8 @@ function VulkanInstance:CreateOffscreenRenderTarget(config)
 	return OffscreenRenderTarget.New(config)
 end
 
-function VulkanInstance:CreateWindowRenderTarget()
-	return WindowRenderTarget.New(self)
+function VulkanInstance:CreateWindowRenderTarget(config)
+	return WindowRenderTarget.New(self, config)
 end
 
 function VulkanInstance:CreateGraphicsPipeline(...)
