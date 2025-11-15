@@ -203,4 +203,21 @@ function PhysicalDevice:GetExtendedDynamicStateFeatures()
 	return tbl
 end
 
+function PhysicalDevice:GetDynamicRenderingFeatures()
+	local queryDynamicRenderingFeatures = vulkan.vk.VkPhysicalDeviceDynamicRenderingFeatures(
+		{
+			sType = "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES",
+			pNext = nil,
+		}
+	)
+	local queryDeviceFeatures = vulkan.vk.VkPhysicalDeviceFeatures2(
+		{
+			sType = "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2",
+			pNext = queryDynamicRenderingFeatures,
+		}
+	)
+	vulkan.lib.vkGetPhysicalDeviceFeatures2(self.ptr[0], queryDeviceFeatures)
+	return queryDynamicRenderingFeatures.dynamicRendering == 1
+end
+
 return PhysicalDevice

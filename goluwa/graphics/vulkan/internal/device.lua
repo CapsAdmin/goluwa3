@@ -28,14 +28,20 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 		end
 	end
 
+	if table.has_value(available_extensions, "VK_KHR_dynamic_rendering") then
+		table.insert(finalExtensions, "VK_KHR_dynamic_rendering")
+	end
+
 	-- Query available features if extension is present
 	local pNextChain = nil
 	local hasDynamicBlendFeatures = false
+	local hasDynamicRenderingFeatures = physical_device:GetDynamicRenderingFeatures()
 	local features = physical_device:GetExtendedDynamicStateFeatures()
 
 	-- Only request features that are supported
 	if features.ColorBlendEnable and features.ColorBlendEquation then
 		hasDynamicBlendFeatures = true
+		print("HAS DYNAMIC BLEND FEATURES")
 		local extendedDynamicState3Features = vulkan.vk.VkPhysicalDeviceExtendedDynamicState3FeaturesEXT(
 			{
 				sType = "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_3_FEATURES_EXT",
@@ -74,6 +80,19 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 			}
 		)
 		pNextChain = extendedDynamicState3Features
+	end
+
+	-- Enable dynamic rendering if supported
+	if hasDynamicRenderingFeatures then
+		local dynamicRenderingFeatures = vulkan.vk.VkPhysicalDeviceDynamicRenderingFeatures(
+			{
+				sType = "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES",
+				pNext = pNextChain,
+				dynamicRendering = 1,
+			}
+		)
+		pNextChain = dynamicRenderingFeatures
+		print("DYNAMIC RENDERING ENABLED")
 	end
 
 	-- Enable scalar block layout feature for push constants
@@ -120,6 +139,7 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 		{
 			ptr = ptr,
 			has_dynamic_blend = hasDynamicBlendFeatures,
+			has_dynamic_rendering = hasDynamicRenderingFeatures,
 			physical_device = physical_device,
 		},
 		Device

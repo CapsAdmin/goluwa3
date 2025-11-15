@@ -1,8 +1,6 @@
 local ffi = require("ffi")
 local Image = require("graphics.vulkan.internal.image")
 local ImageView = require("graphics.vulkan.internal.image_view")
-local RenderPass = require("graphics.vulkan.internal.render_pass")
-local Framebuffer = require("graphics.vulkan.internal.framebuffer")
 local CommandBuffer = require("graphics.vulkan.internal.command_buffer")
 local Semaphore = require("graphics.vulkan.internal.semaphore")
 local Fence = require("graphics.vulkan.internal.fence")
@@ -71,56 +69,52 @@ function WindowRenderTarget.New(vulkan_instance, config)
 		}
 	)
 	self.swapchain_images = self.swapchain:GetImages()
-	local samples = "4"
-	-- Create depth buffer
+	self.samples = "4"
+	self.depth_format = "D32_SFLOAT"
+	self.color_format = self.surface_formats[self.config.surface_format_index].format
 	local extent = self.surface_capabilities.currentExtent
-	local depth_format = "D32_SFLOAT"
 	self.depth_image = Image.New(
 		{
 			device = vulkan_instance.device,
 			width = extent.width,
 			height = extent.height,
-			format = depth_format,
+			format = self.depth_format,
 			usage = {"depth_stencil_attachment"},
 			properties = "device_local",
-			samples = samples,
+			samples = self.samples,
 		}
 	)
 	self.depth_image_view = ImageView.New(
 		{
 			device = vulkan_instance.device,
 			image = self.depth_image,
-			format = depth_format,
+			format = self.depth_format,
 			aspect = "depth",
 		}
 	)
 
 	-- Create MSAA color buffer if using MSAA
-	if samples ~= "1" then
-		local format = self.surface_formats[self.config.surface_format_index].format
+	if self.samples ~= "1" then
 		self.msaa_image = Image.New(
 			{
 				device = vulkan_instance.device,
 				width = extent.width,
 				height = extent.height,
-				format = format,
+				format = self.color_format,
 				usage = {"color_attachment"},
 				properties = "device_local",
-				samples = samples,
+				samples = self.samples,
 			}
 		)
-		self.msaa_image_view = ImageView.New({device = vulkan_instance.device, image = self.msaa_image, format = format})
+		self.msaa_image_view = ImageView.New(
+			{
+				device = vulkan_instance.device,
+				image = self.msaa_image,
+				format = self.color_format,
+			}
+		)
 	end
 
-	-- Create render pass for swapchain format with depth
-	self.render_pass = RenderPass.New(
-		vulkan_instance.device,
-		{
-			format = self.surface_formats[self.config.surface_format_index],
-			depth_format = depth_format,
-			samples = samples,
-		}
-	)
 	-- Create image views for swapchain images
 	self.image_views = {}
 
@@ -132,26 +126,6 @@ function WindowRenderTarget.New(vulkan_instance, config)
 					device = vulkan_instance.device,
 					image = swapchain_image,
 					format = self.surface_formats[self.config.surface_format_index].format,
-				}
-			)
-		)
-	end
-
-	-- Create framebuffers
-	self.framebuffers = {}
-
-	for i, imageView in ipairs(self.image_views) do
-		table.insert(
-			self.framebuffers,
-			Framebuffer.New(
-				{
-					device = vulkan_instance.device,
-					render_pass = self.render_pass,
-					image_view = imageView,
-					width = extent.width,
-					height = extent.height,
-					msaa_image_view = self.msaa_image_view,
-					depth_image_view = self.depth_image_view,
 				}
 			)
 		)
@@ -177,8 +151,28 @@ function WindowRenderTarget:GetSwapChainImage()
 	return self.swapchain_images[self.image_index]
 end
 
-function WindowRenderTarget:GetRenderPass()
-	return self.render_pass
+function WindowRenderTarget:GetColorFormat()
+	return self.color_format
+end
+
+function WindowRenderTarget:GetDepthFormat()
+	return self.depth_format
+end
+
+function WindowRenderTarget:GetSamples()
+	return self.samples
+end
+
+function WindowRenderTarget:GetImageView()
+	return self.image_views[self.image_index]
+end
+
+function WindowRenderTarget:GetMSAAImageView()
+	return self.msaa_image_view
+end
+
+function WindowRenderTarget:GetDepthImageView()
+	return self.depth_image_view
 end
 
 function WindowRenderTarget:BeginFrame()
@@ -273,43 +267,46 @@ function WindowRenderTarget:RebuildFramebuffers()
 	self.swapchain_images = self.swapchain:GetImages()
 	-- Recreate depth buffer with new extent
 	local extent = self.surface_capabilities.currentExtent
-	local depth_format = "D32_SFLOAT"
-	local samples = self.render_pass.samples
 	self.depth_image = Image.New(
 		{
 			device = self.vulkan_instance.device,
 			width = extent.width,
 			height = extent.height,
-			format = depth_format,
+			format = self.depth_format,
 			usage = {"depth_stencil_attachment"},
 			properties = "device_local",
-			samples = samples,
+			samples = self.samples,
 		}
 	)
 	self.depth_image_view = ImageView.New(
 		{
 			device = self.vulkan_instance.device,
 			image = self.depth_image,
-			format = depth_format,
+			format = self.depth_format,
 			aspect = "depth",
 		}
 	)
 
 	-- Recreate MSAA color buffer if using MSAA
-	if samples ~= "1" then
-		local format = self.surface_formats[self.config.surface_format_index].format
+	if self.samples ~= "1" then
 		self.msaa_image = Image.New(
 			{
 				device = self.vulkan_instance.device,
 				width = extent.width,
 				height = extent.height,
-				format = format,
+				format = self.color_format,
 				usage = {"color_attachment"},
 				properties = "device_local",
-				samples = samples,
+				samples = self.samples,
 			}
 		)
-		self.msaa_image_view = ImageView.New({device = self.vulkan_instance.device, image = self.msaa_image, format = format})
+		self.msaa_image_view = ImageView.New(
+			{
+				device = self.vulkan_instance.device,
+				image = self.msaa_image,
+				format = self.color_format,
+			}
+		)
 	end
 
 	-- Recreate image views
@@ -323,26 +320,6 @@ function WindowRenderTarget:RebuildFramebuffers()
 					device = self.vulkan_instance.device,
 					image = swapchain_image,
 					format = self.surface_formats[self.config.surface_format_index].format,
-				}
-			)
-		)
-	end
-
-	-- Recreate framebuffers
-	self.framebuffers = {}
-
-	for i, imageView in ipairs(self.image_views) do
-		table.insert(
-			self.framebuffers,
-			Framebuffer.New(
-				{
-					device = self.vulkan_instance.device,
-					render_pass = self.render_pass,
-					image_view = imageView,
-					width = extent.width,
-					height = extent.height,
-					msaa_image_view = self.msaa_image_view,
-					depth_image_view = self.depth_image_view,
 				}
 			)
 		)
@@ -375,10 +352,6 @@ end
 
 function WindowRenderTarget:GetCurrentFrame()
 	return self.current_frame
-end
-
-function WindowRenderTarget:GetFramebuffer()
-	return self.framebuffers[self.image_index]
 end
 
 function WindowRenderTarget:GetExtent()

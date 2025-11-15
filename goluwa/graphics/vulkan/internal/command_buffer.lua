@@ -113,69 +113,84 @@ function CommandBuffer:End()
 	vulkan.assert(vulkan.lib.vkEndCommandBuffer(self.ptr[0]), "failed to end command buffer")
 end
 
-function CommandBuffer:BeginRenderPass(renderPass, framebuffer, extent, clearColor, clearDepth)
-	clearColor = clearColor or {0.0, 0.0, 0.0, 1.0}
-	clearDepth = clearDepth or 1.0
-	local clearValues
-	local clearValueCount
-
-	if renderPass.has_depth and renderPass.samples ~= "1" then
-		-- MSAA with depth: need 3 clear values (MSAA color, resolve target, MSAA depth)
-		clearValues = vulkan.T.Array(vulkan.vk.VkClearValue, 3)()
-		-- Attachment 0: MSAA color clear value
-		clearValues[0].color.float32[0] = clearColor[1]
-		clearValues[0].color.float32[1] = clearColor[2]
-		clearValues[0].color.float32[2] = clearColor[3]
-		clearValues[0].color.float32[3] = clearColor[4]
-		-- Attachment 1: Resolve target (ignored, but needs to be present)
-		clearValues[1].color.float32[0] = 0.0
-		clearValues[1].color.float32[1] = 0.0
-		clearValues[1].color.float32[2] = 0.0
-		clearValues[1].color.float32[3] = 0.0
-		-- Attachment 2: MSAA depth/stencil clear value
-		clearValues[2].depthStencil.depth = clearDepth
-		clearValues[2].depthStencil.stencil = 0
-		clearValueCount = 3
-	elseif renderPass.has_depth then
-		-- Non-MSAA with depth: need 2 clear values
-		clearValues = vulkan.T.Array(vulkan.vk.VkClearValue, 2)()
-		-- Set color clear value (first attachment)
-		clearValues[0].color.float32[0] = clearColor[1]
-		clearValues[0].color.float32[1] = clearColor[2]
-		clearValues[0].color.float32[2] = clearColor[3]
-		clearValues[0].color.float32[3] = clearColor[4]
-		-- Set depth/stencil clear value (second attachment)
-		clearValues[1].depthStencil.depth = clearDepth
-		clearValues[1].depthStencil.stencil = 0
-		clearValueCount = 2
-	else
-		-- No depth attachment, only 1 clear value
-		clearValues = vulkan.vk.VkClearValue({
-			color = {
-				float32 = clearColor,
-			},
-		})
-		clearValueCount = 1
-	end
-
-	local renderPassInfo = vulkan.vk.VkRenderPassBeginInfo(
+function CommandBuffer:BeginRendering(config)
+	local clearColor = config.clearColor or {0.0, 0.0, 0.0, 1.0}
+	local clearDepth = config.clearDepth or 1.0
+	local colorAttachmentInfo = vulkan.vk.VkRenderingAttachmentInfo(
 		{
-			sType = "VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO",
-			renderPass = renderPass.ptr[0],
-			framebuffer = framebuffer.ptr[0],
-			renderArea = {
-				offset = {x = 0, y = 0},
-				extent = extent,
+			sType = "VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO",
+			pNext = nil,
+			imageView = config.colorImageView.ptr[0],
+			imageLayout = "VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL",
+			resolveMode = config.msaaImageView and "VK_RESOLVE_MODE_AVERAGE_BIT" or "VK_RESOLVE_MODE_NONE",
+			resolveImageView = config.msaaImageView and config.colorImageView.ptr[0] or nil,
+			resolveImageLayout = config.msaaImageView and
+				"VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL" or
+				"VK_IMAGE_LAYOUT_UNDEFINED",
+			loadOp = "VK_ATTACHMENT_LOAD_OP_CLEAR",
+			storeOp = "VK_ATTACHMENT_STORE_OP_STORE",
+			clearValue = {
+				color = {
+					float32 = {clearColor[1], clearColor[2], clearColor[3], clearColor[4]},
+				},
 			},
-			clearValueCount = clearValueCount,
-			pClearValues = clearValues,
 		}
 	)
-	vulkan.lib.vkCmdBeginRenderPass(self.ptr[0], renderPassInfo, vulkan.vk.VkSubpassContents("VK_SUBPASS_CONTENTS_INLINE"))
+
+	if config.msaaImageView then
+		colorAttachmentInfo.imageView = config.msaaImageView.ptr[0]
+		colorAttachmentInfo.imageLayout = "VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL"
+		colorAttachmentInfo.resolveMode = "VK_RESOLVE_MODE_AVERAGE_BIT"
+		colorAttachmentInfo.resolveImageView = config.colorImageView.ptr[0]
+		colorAttachmentInfo.resolveImageLayout = "VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL"
+	end
+
+	local depthAttachmentInfo = nil
+
+	if config.depthImageView then
+		depthAttachmentInfo = vulkan.vk.VkRenderingAttachmentInfo(
+			{
+				sType = "VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO",
+				pNext = nil,
+				imageView = config.depthImageView.ptr[0],
+				imageLayout = "VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL",
+				resolveMode = "VK_RESOLVE_MODE_NONE",
+				resolveImageView = nil,
+				resolveImageLayout = "VK_IMAGE_LAYOUT_UNDEFINED",
+				loadOp = "VK_ATTACHMENT_LOAD_OP_CLEAR",
+				storeOp = "VK_ATTACHMENT_STORE_OP_DONT_CARE",
+				clearValue = {
+					depthStencil = {
+						depth = clearDepth,
+						stencil = 0,
+					},
+				},
+			}
+		)
+	end
+
+	local renderingInfo = vulkan.vk.VkRenderingInfo(
+		{
+			sType = "VK_STRUCTURE_TYPE_RENDERING_INFO",
+			pNext = nil,
+			flags = 0,
+			renderArea = {
+				offset = {x = 0, y = 0},
+				extent = config.extent,
+			},
+			layerCount = 1,
+			viewMask = 0,
+			colorAttachmentCount = 1,
+			pColorAttachments = colorAttachmentInfo,
+			pDepthAttachment = depthAttachmentInfo,
+			pStencilAttachment = nil,
+		}
+	)
+	vulkan.lib.vkCmdBeginRendering(self.ptr[0], renderingInfo)
 end
 
-function CommandBuffer:EndRenderPass()
-	vulkan.lib.vkCmdEndRenderPass(self.ptr[0])
+function CommandBuffer:EndRendering()
+	vulkan.lib.vkCmdEndRendering(self.ptr[0])
 end
 
 function CommandBuffer:BindPipeline(pipeline, type)
@@ -401,7 +416,12 @@ function CommandBuffer:PipelineBarrier(config)
 					subresourceRange = {
 						aspectMask = vulkan.vk.VkImageAspectFlagBits("VK_IMAGE_ASPECT_COLOR_BIT"),
 						baseMipLevel = barrier.base_mip_level or 0,
-						levelCount = barrier.level_count or barrier.image:GetMipLevels(),
+						levelCount = barrier.level_count or
+							(
+								barrier.image.GetMipLevels and
+								barrier.image:GetMipLevels() or
+								1
+							),
 						baseArrayLayer = 0,
 						layerCount = 1,
 					},

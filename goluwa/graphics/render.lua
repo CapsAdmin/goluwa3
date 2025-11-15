@@ -25,11 +25,31 @@ event.AddListener("Update", "window_update", function(dt)
 
 	window_target:BeginCommandBuffer()
 	local cmd = window_target:GetCommandBuffer()
-	cmd:BeginRenderPass(
-		window_target:GetRenderPass(),
-		window_target:GetFramebuffer(),
-		window_target:GetExtent(),
-		{0.2, 0.2, 0.2, 1.0}
+	-- Transition swapchain image to color attachment optimal
+	cmd:PipelineBarrier(
+		{
+			srcStage = "color_attachment_output",
+			dstStage = "color_attachment_output",
+			imageBarriers = {
+				{
+					image = window_target:GetSwapChainImage(),
+					srcAccessMask = "none",
+					dstAccessMask = "color_attachment_write",
+					oldLayout = "undefined",
+					newLayout = "color_attachment_optimal",
+				},
+			},
+		}
+	)
+	cmd:BeginRendering(
+		{
+			colorImageView = window_target:GetImageView(),
+			msaaImageView = window_target:GetMSAAImageView(),
+			depthImageView = window_target:GetDepthImageView(),
+			extent = window_target:GetExtent(),
+			clearColor = {0.2, 0.2, 0.2, 1.0},
+			clearDepth = 1.0,
+		}
 	)
 	local extent = window_target:GetExtent()
 	local aspect = extent.width / extent.height
@@ -37,7 +57,23 @@ event.AddListener("Update", "window_update", function(dt)
 	cmd:SetScissor(0, 0, extent.width, extent.height)
 	event.Call("Draw", cmd, dt)
 	event.Call("PostDraw", cmd, dt)
-	cmd:EndRenderPass()
+	cmd:EndRendering()
+	-- Transition swapchain image to present src
+	cmd:PipelineBarrier(
+		{
+			srcStage = "color_attachment_output",
+			dstStage = "color_attachment_output",
+			imageBarriers = {
+				{
+					image = window_target:GetSwapChainImage(),
+					srcAccessMask = "color_attachment_write",
+					dstAccessMask = "none",
+					oldLayout = "color_attachment_optimal",
+					newLayout = "present_src_khr",
+				},
+			},
+		}
+	)
 	window_target:EndFrame()
 end)
 
@@ -88,7 +124,9 @@ function render.CreateSampler(config)
 end
 
 function render.CreateGraphicsPipeline(config)
-	config.render_pass = config.render_pass or window_target:GetRenderPass()
+	config.color_format = config.color_format or window_target:GetColorFormat()
+	config.depth_format = config.depth_format or window_target:GetDepthFormat()
+	config.samples = config.samples or window_target:GetSamples()
 	config.descriptor_set_count = config.descriptor_set_count or window_target:GetSwapchainImageCount()
 	return vulkan_instance:CreateGraphicsPipeline(config)
 end

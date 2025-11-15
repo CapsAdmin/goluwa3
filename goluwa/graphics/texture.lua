@@ -307,23 +307,12 @@ end
 
 do
 	function Texture:Shade(glsl)
-		local RenderPass = require("graphics.vulkan.internal.render_pass")
-		local Framebuffer = require("graphics.vulkan.internal.framebuffer")
 		local ImageView = require("graphics.vulkan.internal.image_view")
 		local CommandPool = require("graphics.vulkan.internal.command_pool")
 		local Fence = require("graphics.vulkan.internal.fence")
 		local device = render.GetDevice()
 		local queue = render.GetQueue()
-		-- Create render pass for this texture's format
-		local render_pass = RenderPass.New(
-			device,
-			{
-				format = self.format,
-				samples = "1",
-				final_layout = "shader_read_only_optimal",
-			}
-		)
-		-- Create a view for only mip level 0 (required for framebuffer attachment)
+		-- Create a view for only mip level 0 (required for rendering)
 		local mip0_view = ImageView.New(
 			{
 				device = device,
@@ -333,16 +322,6 @@ do
 				level_count = 1,
 			}
 		)
-		-- Create framebuffer using the mip level 0 view
-		local framebuffer = Framebuffer.New(
-			{
-				device = device,
-				render_pass = render_pass,
-				image_view = mip0_view,
-				width = self.image:GetWidth(),
-				height = self.image:GetHeight(),
-			}
-		)
 		-- Create command pool and buffer for this operation
 		local command_pool = render.GetCommandPool()
 		local cmd = command_pool:AllocateCommandBuffer()
@@ -350,7 +329,8 @@ do
 		local pipeline = render.CreateGraphicsPipeline(
 			{
 				dynamic_states = {"viewport", "scissor"},
-				render_pass = render_pass,
+				color_format = self.format,
+				samples = "1",
 				shader_stages = {
 					{
 						type = "vertex",
@@ -438,7 +418,6 @@ do
 		cmd:Reset()
 		cmd:Begin()
 		-- Transition image from undefined/shader_read to color_attachment_optimal
-		--collectgarbage("stop")
 		cmd:PipelineBarrier(
 			{
 				srcStage = "top_of_pipe",
@@ -455,28 +434,43 @@ do
 			}
 		)
 		pipeline:Bind(cmd)
-		-- Begin render pass
-		cmd:BeginRenderPass(
-			render_pass,
-			framebuffer,
-			{width = self.image:GetWidth(), height = self.image:GetHeight()},
-			{0, 0, 0, 1}
+		-- Begin rendering
+		cmd:BeginRendering(
+			{
+				colorImageView = mip0_view,
+				extent = {width = self.image:GetWidth(), height = self.image:GetHeight()},
+				clearColor = {0, 0, 0, 1},
+			}
 		)
 		-- Draw fullscreen triangle
 		cmd:SetViewport(0.0, 0.0, self.image:GetWidth(), self.image:GetHeight(), 0.0, 1.0)
 		cmd:SetScissor(0, 0, self.image:GetWidth(), self.image:GetHeight())
 		cmd:Draw(3, 1, 0, 0)
-		-- End render pass
-		-- Note: The render pass automatically transitions the image to shader_read_only_optimal
-		-- because we set final_layout = "shader_read_only_optimal" in CreateRenderPass
-		cmd:EndRenderPass()
+		-- End rendering
+		cmd:EndRendering()
+		-- Transition to shader_read_only_optimal
+		cmd:PipelineBarrier(
+			{
+				srcStage = "color_attachment_output",
+				dstStage = "fragment",
+				imageBarriers = {
+					{
+						image = self.image,
+						srcAccessMask = "color_attachment_write",
+						dstAccessMask = "shader_read",
+						oldLayout = "color_attachment_optimal",
+						newLayout = "shader_read_only_optimal",
+					},
+				},
+			}
+		)
 		-- End command buffer
 		cmd:End()
 		-- Submit and wait
 		local fence = Fence.New(device)
-		self.refs = {cmd, render_pass, framebuffer, command_pool, pipeline, fence}
+		self.refs = {cmd, mip0_view, command_pool, pipeline, fence}
 		queue:SubmitAndWait(device, cmd, fence)
-		device:WaitIdle() -- Ensure ALL device operations are complete
+		device:WaitIdle()
 	end
 end
 

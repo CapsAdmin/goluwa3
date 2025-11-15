@@ -115,13 +115,9 @@ function Pipeline.New(vulkan_instance, config)
 		end
 	end
 
-	-- Always use render pass sample count to ensure they match
+	-- Always use format and samples to ensure they match
 	local multisampling_config = config.multisampling or {}
-
-	if config.render_pass then
-		multisampling_config.rasterization_samples = config.render_pass.samples
-	end
-
+	multisampling_config.rasterization_samples = config.samples or "1"
 	pipeline = GraphicsPipeline.New(
 		vulkan_instance.device,
 		{
@@ -138,7 +134,7 @@ function Pipeline.New(vulkan_instance, config)
 			dynamic_states = config.dynamic_states,
 			depth_stencil = config.depth_stencil,
 		},
-		{config.render_pass},
+		{{format = config.color_format, depth_format = config.depth_format}},
 		pipelineLayout
 	)
 	self.pipeline = pipeline
@@ -341,13 +337,9 @@ function Pipeline:RebuildPipeline(section, changes)
 		end
 	end
 
-	-- Use render pass sample count if not explicitly specified
+	-- Use format and samples if not explicitly specified
 	local multisampling_config = modified_config.multisampling or {}
-
-	if modified_config.render_pass then
-		multisampling_config.rasterization_samples = modified_config.render_pass.samples
-	end
-
+	multisampling_config.rasterization_samples = modified_config.samples or "1"
 	local new_pipeline = GraphicsPipeline.New(
 		self.vulkan_instance.device,
 		{
@@ -364,7 +356,12 @@ function Pipeline:RebuildPipeline(section, changes)
 			dynamic_states = modified_config.dynamic_states,
 			depth_stencil = modified_config.depth_stencil,
 		},
-		{modified_config.render_pass},
+		{
+			{
+				format = modified_config.color_format,
+				depth_format = modified_config.depth_format,
+			},
+		},
 		self.pipeline_layout
 	)
 	-- Store shader modules with the pipeline variant to prevent GC

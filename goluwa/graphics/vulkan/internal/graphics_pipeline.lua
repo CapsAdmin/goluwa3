@@ -199,9 +199,25 @@ function GraphicsPipeline.New(device, config, render_passes, pipelineLayout)
 		error("multiple render passes not supported yet")
 	end
 
+	local pipelineRenderingCreateInfo = vulkan.vk.VkPipelineRenderingCreateInfo(
+		{
+			sType = "VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO",
+			pNext = nil,
+			viewMask = 0,
+			colorAttachmentCount = 1,
+			pColorAttachmentFormats = vulkan.T.Array(vulkan.vk.VkFormat, 1)({
+				vulkan.enums.VK_FORMAT_(render_passes[1].format),
+			}),
+			depthAttachmentFormat = render_passes[1].depth_format and
+				vulkan.enums.VK_FORMAT_(render_passes[1].depth_format) or
+				vulkan.enums.VK_FORMAT_("undefined"),
+			stencilAttachmentFormat = vulkan.enums.VK_FORMAT_("undefined"),
+		}
+	)
 	local pipelineInfo = vulkan.vk.VkGraphicsPipelineCreateInfo(
 		{
 			sType = "VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO",
+			pNext = pipelineRenderingCreateInfo,
 			stageCount = #config.shaderModules,
 			pStages = shaderStagesArray,
 			pVertexInputState = vertexInputInfo,
@@ -213,8 +229,8 @@ function GraphicsPipeline.New(device, config, render_passes, pipelineLayout)
 			pColorBlendState = colorBlending,
 			pDynamicState = dynamicStateInfo,
 			layout = pipelineLayout.ptr[0],
-			renderPass = render_passes[1].ptr[0],
-			subpass = config.subpass or 0,
+			renderPass = nil,
+			subpass = 0,
 			basePipelineHandle = nil,
 			basePipelineIndex = -1,
 		}
