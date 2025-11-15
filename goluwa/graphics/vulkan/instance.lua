@@ -107,22 +107,20 @@ function VulkanInstance:RecreateSwapchain()
 
 	self.surface_formats = new_surface_formats
 	-- Build swapchain config
-	local swapchain_config = {
-		present_mode = self.config.present_mode,
-		image_count = self.config.image_count or (self.surface_capabilities.minImageCount + 1),
-		composite_alpha = self.config.composite_alpha,
-		clipped = self.config.clipped,
-		image_usage = self.config.image_usage,
-		pre_transform = self.config.pre_transform,
-	}
-	-- Create new swapchain (pass old swapchain if it exists)
 	self.swapchain = SwapChain.New(
-		self.device,
-		self.surface,
-		self.surface_formats[self.config.surface_format_index],
-		self.surface_capabilities,
-		swapchain_config,
-		self.swapchain -- old swapchain for efficient recreation (nil on initial creation)
+		{
+			device = self.device,
+			surface = self.surface,
+			surface_format = self.surface_formats[self.config.surface_format_index],
+			surface_capabilities = self.surface_capabilities,
+			image_count = self.config.image_count or (self.surface_capabilities.minImageCount + 1),
+			present_mode = self.config.present_mode,
+			composite_alpha = self.config.composite_alpha,
+			clipped = self.config.clipped,
+			image_usage = self.config.image_usage,
+			pre_transform = self.config.pre_transform,
+			old_swapchain = self.swapchain,
+		}
 	)
 	self.swapchain_images = self.swapchain:GetImages()
 end

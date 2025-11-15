@@ -3,58 +3,48 @@ local vulkan = require("graphics.vulkan.internal.vulkan")
 local Swapchain = {}
 Swapchain.__index = Swapchain
 
--- config options:
---   presentMode: VkPresentModeKHR (default: "VK_PRESENT_MODE_FIFO_KHR")
---   imageCount: number of images in swapchain (default: surfaceCapabilities.minImageCount)
---   compositeAlpha: VkCompositeAlphaFlagBitsKHR (default: "VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR")
---   clipped: boolean (default: true)
---   imageUsage: VkImageUsageFlags (default: COLOR_ATTACHMENT_BIT | TRANSFER_DST_BIT)
---   preTransform: VkSurfaceTransformFlagBitsKHR (default: currentTransform)
-function Swapchain.New(device, surface, surfaceFormat, surfaceCapabilities, config, old_swapchain)
-	config = config or {}
-	local imageCount = config.imageCount or surfaceCapabilities.minImageCount
-	local presentMode = vulkan.enums.VK_PRESENT_MODE_(config.presentMode or "fifo")
-	local compositeAlpha = vulkan.enums.VK_COMPOSITE_ALPHA_(config.compositeAlpha or "opaque")
-	local clipped = config.clipped ~= nil and (config.clipped and 1 or 0) or 1
-	local preTransform = config.preTransform or surfaceCapabilities.currentTransform
-	local imageUsage = vulkan.enums.VK_IMAGE_USAGE_(config.imageUsage or {"color_attachment", "transfer_dst"})
-
-	-- Clamp image count to valid range
-	if imageCount < surfaceCapabilities.minImageCount then
-		imageCount = surfaceCapabilities.minImageCount
-	end
-
-	if
-		surfaceCapabilities.maxImageCount > 0 and
-		imageCount > surfaceCapabilities.maxImageCount
-	then
-		imageCount = surfaceCapabilities.maxImageCount
-	end
-
-	local swapchainCreateInfo = vulkan.vk.VkSwapchainCreateInfoKHR(
-		{
-			sType = "VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR",
-			surface = surface.ptr[0],
-			minImageCount = imageCount,
-			imageFormat = vulkan.enums.VK_FORMAT_(surfaceFormat.format),
-			imageColorSpace = vulkan.enums.VK_COLOR_SPACE_(surfaceFormat.color_space),
-			imageExtent = surfaceCapabilities.currentExtent,
-			imageArrayLayers = 1,
-			imageUsage = imageUsage,
-			imageSharingMode = "VK_SHARING_MODE_EXCLUSIVE",
-			preTransform = preTransform,
-			compositeAlpha = vulkan.vk.VkCompositeAlphaFlagBitsKHR(compositeAlpha),
-			presentMode = presentMode,
-			clipped = clipped,
-			oldSwapchain = old_swapchain and old_swapchain.ptr[0],
-		}
-	)
+function Swapchain.New(config)
 	local ptr = vulkan.T.Box(vulkan.vk.VkSwapchainKHR)()
 	vulkan.assert(
-		vulkan.lib.vkCreateSwapchainKHR(device.ptr[0], swapchainCreateInfo, nil, ptr),
+		vulkan.lib.vkCreateSwapchainKHR(
+			config.device.ptr[0],
+			vulkan.vk.VkSwapchainCreateInfoKHR(
+				{
+					sType = "VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR",
+					surface = config.surface.ptr[0],
+					minImageCount = math.clamp(
+						config.image_count or config.surface_capabilities.minImageCount,
+						config.surface_capabilities.minImageCount,
+						config.surface_capabilities.maxImageCount
+					),
+					imageFormat = vulkan.enums.VK_FORMAT_(config.surface_format.format),
+					imageColorSpace = vulkan.enums.VK_COLOR_SPACE_(config.surface_format.color_space),
+					imageExtent = config.surface_capabilities.currentExtent,
+					imageArrayLayers = 1,
+					imageUsage = vulkan.enums.VK_IMAGE_USAGE_(config.image_usage or {"color_attachment", "transfer_dst"}),
+					imageSharingMode = "VK_SHARING_MODE_EXCLUSIVE",
+					preTransform = config.pre_transform or config.surface_capabilities.currentTransform,
+					compositeAlpha = vulkan.enums.VK_COMPOSITE_ALPHA_(config.composite_alpha or "opaque"),
+					presentMode = vulkan.enums.VK_PRESENT_MODE_(config.present_mode or "fifo"),
+					clipped = config.clipped ~= nil and (config.clipped and 1 or 0) or 1,
+					oldSwapchain = config.old_swapchain and config.old_swapchain.ptr[0],
+				}
+			),
+			nil,
+			ptr
+		),
 		"failed to create swapchain"
 	)
-	return setmetatable({ptr = ptr, device = device}, Swapchain)
+	return setmetatable(
+		{
+			ptr = ptr,
+			device = config.device,
+			-- pointer references to prevent GC
+			old_swapchain = config.old_swapchain,
+			surface = config.surface,
+		},
+		Swapchain
+	)
 end
 
 function Swapchain:__gc()
