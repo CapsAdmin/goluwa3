@@ -1,5 +1,6 @@
 local prototype = require("prototype")
-local Polygon2D = require("graphics.polygon_2d")
+local render2d = require("graphics.render2d")
+local Vec2 = require("structs.vec2").Vec2f
 local META = prototype.CreateTemplate("quadric_bezier_curve")
 META:GetSet("JoinLast", true)
 META:GetSet("MaxLines", 0)
@@ -50,7 +51,7 @@ function META:ConvertToPoints(quality)
 		if self.JoinLast then
 			if i == self.MaxLines then next = self.nodes[1] end
 		else
-			if i ~= self.MaxLines then break end
+			if i == self.MaxLines then break end
 		end
 
 		local current_control = current.control or current.point:GetLerped(0.5, next.point)
@@ -76,15 +77,27 @@ function META:CreateOffsetedCurve(offset)
 
 		if self.JoinLast then
 			if i == self.MaxLines then next = self.nodes[1] end
-		else
-			if i ~= self.MaxLines then break end
+		elseif i == self.MaxLines then
+			break
 		end
 
-		local prev = self.nodes[i - 1] or self.nodes[self.MaxLines]
+		if not next then break end
+
+		local prev = self.JoinLast and
+			(
+				self.nodes[i - 1] or
+				self.nodes[self.MaxLines]
+			)
+			or
+			self.nodes[i - 1]
 		local current_control = current.control or current.point:GetLerped(0.5, next.point)
-		local prev_control = prev.control or prev.point:GetLerped(0.5, current.point)
+		local prev_control = prev and (prev.control or prev.point:GetLerped(0.5, current.point))
 		local normal = line_segment_normal(current.point, current_control)
-		normal = normal + line_segment_normal(prev_control, current.point)
+
+		if prev then
+			normal = normal + line_segment_normal(prev_control, current.point)
+		end
+
 		normal:Normalize()
 		local render2d_normal = line_segment_normal(current.point, next.point)
 		offseted:Add(current.point + normal * offset, current_control + render2d_normal * offset)
@@ -101,7 +114,9 @@ function META:ConstructPoly(width, quality, stretch, poly)
 
 	local negative_points = self:CreateOffsetedCurve(width.x):ConvertToPoints(quality)
 	local positive_points = self:CreateOffsetedCurve(width.y):ConvertToPoints(quality)
-	local poly = poly or Polygon2D.New(#positive_points * 2)
+	local vertex_count = #positive_points * 2
+	local poly = poly or render2d.CreateMesh(vertex_count)
+	local vertices = poly:GetVertices()
 	local distance_positive = 0
 
 	for i in ipairs(positive_points) do
@@ -111,11 +126,39 @@ function META:ConstructPoly(width, quality, stretch, poly)
 				) / stretch / 2
 		end
 
-		poly:SetVertex((i - 1) * 2, negative_points[i].x, negative_points[i].y, distance_positive, 0)
-		poly:SetVertex((i - 1) * 2 + 1, positive_points[i].x, positive_points[i].y, distance_positive, 1)
+		local a = vertices[(i - 1) * 2]
+		local b = vertices[(i - 1) * 2 + 1]
+		a.pos.x = negative_points[i].x
+		a.pos.y = negative_points[i].y
+		a.uv.x = distance_positive
+		a.uv.y = 0
+		b.pos.x = positive_points[i].x
+		b.pos.y = positive_points[i].y
+		b.uv.x = distance_positive
+		b.uv.y = 1
 	end
 
-	return poly, #positive_points
+	poly:Upload()
+	-- Create index buffer for triangle strip converted to triangle list
+	local IndexBuffer = require("graphics.index_buffer")
+	local segment_count = #positive_points - 1
+	local index_count = segment_count * 6 -- 2 triangles per segment, 3 indices each
+	local indices = {}
+
+	for i = 0, segment_count - 1 do
+		local base = i * 2
+		-- First triangle (counter-clockwise winding)
+		table.insert(indices, base)
+		table.insert(indices, base + 2)
+		table.insert(indices, base + 1)
+		-- Second triangle (counter-clockwise winding)
+		table.insert(indices, base + 1)
+		table.insert(indices, base + 2)
+		table.insert(indices, base + 3)
+	end
+
+	local index_buffer = IndexBuffer.New(indices, "uint16")
+	return poly, index_buffer, index_count
 end
 
 function META:UpdatePoly(poly, width, quality, stretch)
@@ -123,3 +166,4 @@ function META:UpdatePoly(poly, width, quality, stretch)
 end
 
 META:Register()
+return META

@@ -6,6 +6,9 @@ IndexBuffer.__index = IndexBuffer
 -- Convert indices to appropriate format
 local function indices_to_array(indices, index_type)
 	index_type = index_type or "uint16_t"
+
+	if index_type == "uint16" then index_type = "uint16_t" end
+
 	local index_data = ffi.new(index_type .. "[?]", #indices)
 
 	for i, idx in ipairs(indices) do

@@ -111,6 +111,10 @@ function VertexBuffer:GetVertices()
 	return self.vertices
 end
 
+function VertexBuffer:SetVertex(index, val)
+	self.vertices[index] = val
+end
+
 function VertexBuffer:Draw(index_buffer, count)
 	local render2d = require("graphics.render2d")
 	count = count or self.vertex_count

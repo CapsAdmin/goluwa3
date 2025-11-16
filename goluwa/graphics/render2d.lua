@@ -416,12 +416,21 @@ do -- rectangle
 		end
 	end
 
-	function render2d.DrawMesh(index_count, instance_count, first_index, vertex_offset, first_instance)
+	function render2d.DrawIndexedMesh(index_count, instance_count, first_index, vertex_offset, first_instance)
 		render2d.cmd:DrawIndexed(
 			index_count or index_buffer:GetIndexCount(),
 			instance_count or 1,
 			first_index or 0,
 			vertex_offset or 0,
+			first_instance or 0
+		)
+	end
+
+	function render2d.DrawMesh(vertex_count, instance_count, first_vertex, first_instance)
+		render2d.cmd:Draw(
+			vertex_count or vertex_buffer:GetVertexCount(),
+			instance_count or 1,
+			first_vertex or 0,
 			first_instance or 0
 		)
 	end
@@ -438,7 +447,7 @@ do -- rectangle
 		if w and h then render2d.Scale(w, h) end
 
 		render2d.UploadConstants(render2d.cmd)
-		render2d.DrawMesh(6)
+		render2d.DrawIndexedMesh(6)
 		render2d.PopMatrix()
 	end
 
