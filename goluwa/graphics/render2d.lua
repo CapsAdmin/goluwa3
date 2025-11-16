@@ -100,21 +100,10 @@ render2d.blend_modes = {
 
 function render2d.Initialize()
 	render2d.pipeline = render.CreateGraphicsPipeline(render2d.pipeline_data)
-	-- Quad mesh with 4 vertices (reused via indices)
-	local mesh_data = {
-		{pos = Vec3f(0, 1, 0), uv = Vec2f(0, 0), color = Colorf(1, 1, 1, 1)}, -- top-left
-		{pos = Vec3f(0, 0, 0), uv = Vec2f(0, 1), color = Colorf(1, 1, 1, 1)}, -- bottom-left
-		{pos = Vec3f(1, 1, 0), uv = Vec2f(1, 0), color = Colorf(1, 1, 1, 1)}, -- top-right
-		{pos = Vec3f(1, 0, 0), uv = Vec2f(1, 1), color = Colorf(1, 1, 1, 1)}, -- bottom-right
-	}
-	-- Two triangles sharing vertices: (0,1,2) and (2,1,3)
-	local indices = {0, 1, 2, 2, 1, 3}
-	render2d.index_buffer = IndexBuffer.New(indices)
-	render2d.vertex_buffer = render2d.CreateMesh(mesh_data)
 	render2d.SetTexture()
 	render2d.SetColor(1, 1, 1, 1)
 	render2d.SetAlphaMultiplier(1)
-	render2d.SetRectUV()
+	render2d.SetUV()
 	render2d.UpdateScreenSize(window:GetSize())
 	render2d.current_blend_mode = "alpha"
 end
@@ -281,10 +270,6 @@ do -- shader
 	}
 	render2d.pipeline = render2d.pipeline or NULL
 
-	function render2d.CreateMesh(vertices)
-		return VertexBuffer.New(vertices, render2d.pipeline:GetVertexAttributes())
-	end
-
 	do
 		function render2d.SetColor(r, g, b, a)
 			fragment_constants.global_color.r = r
@@ -407,7 +392,11 @@ do -- shader
 	end
 end
 
-do -- rectangle
+do -- mesh
+	function render2d.CreateMesh(vertices)
+		return VertexBuffer.New(vertices, render2d.pipeline:GetVertexAttributes())
+	end
+
 	function render2d.BindMesh(vertex_buffer, index_buffer)
 		render2d.cmd:BindVertexBuffer(vertex_buffer:GetBuffer(), 0)
 
@@ -434,66 +423,50 @@ do -- rectangle
 			first_instance or 0
 		)
 	end
+end
 
-	function render2d.DrawRect(x, y, w, h, a, ox, oy)
-		render2d.PushMatrix()
+do -- uv
+	local X, Y, W, H, SX, SY
 
-		if x and y then render2d.Translate(x, y) end
+	function render2d.SetUV(x, y, w, h, sx, sy)
+		if not x then
+			-- Reset to default (no transformation)
+			fragment_constants.uv_offset.x = 0
+			fragment_constants.uv_offset.y = 0
+			fragment_constants.uv_scale.x = 1
+			fragment_constants.uv_scale.y = 1
+		else
+			sx = sx or 1
+			sy = sy or 1
+			local y = -y - h
+			-- Set UV offset and scale
+			fragment_constants.uv_offset.x = x / sx
+			fragment_constants.uv_offset.y = y / sy
+			fragment_constants.uv_scale.x = w / sx
+			fragment_constants.uv_scale.y = h / sy
+		end
 
-		if a then render2d.Rotate(a) end
-
-		if ox then render2d.Translate(-ox, -oy) end
-
-		if w and h then render2d.Scale(w, h) end
-
-		render2d.UploadConstants(render2d.cmd)
-		render2d.DrawIndexedMesh(6)
-		render2d.PopMatrix()
+		X = x
+		Y = y
+		W = w
+		H = h
+		SX = sx
+		SY = sy
 	end
 
-	do
-		local X, Y, W, H, SX, SY
-
-		function render2d.SetRectUV(x, y, w, h, sx, sy)
-			if not x then
-				-- Reset to default (no transformation)
-				fragment_constants.uv_offset.x = 0
-				fragment_constants.uv_offset.y = 0
-				fragment_constants.uv_scale.x = 1
-				fragment_constants.uv_scale.y = 1
-			else
-				sx = sx or 1
-				sy = sy or 1
-				local y = -y - h
-				-- Set UV offset and scale
-				fragment_constants.uv_offset.x = x / sx
-				fragment_constants.uv_offset.y = y / sy
-				fragment_constants.uv_scale.x = w / sx
-				fragment_constants.uv_scale.y = h / sy
-			end
-
-			X = x
-			Y = y
-			W = w
-			H = h
-			SX = sx
-			SY = sy
-		end
-
-		function render2d.GetRectUV()
-			return X, Y, W, H, SX, SY
-		end
-
-		function render2d.SetRectUV2(u1, v1, u2, v2)
-			-- Calculate offset and scale from UV coordinates
-			fragment_constants.uv_offset.x = u1
-			fragment_constants.uv_offset.y = v1
-			fragment_constants.uv_scale.x = u2 - u1
-			fragment_constants.uv_scale.y = v2 - v1
-		end
-
-		utility.MakePushPopFunction(render2d, "RectUV")
+	function render2d.GetUV()
+		return X, Y, W, H, SX, SY
 	end
+
+	function render2d.SetUV2(u1, v1, u2, v2)
+		-- Calculate offset and scale from UV coordinates
+		fragment_constants.uv_offset.x = u1
+		fragment_constants.uv_offset.y = v1
+		fragment_constants.uv_scale.x = u2 - u1
+		fragment_constants.uv_scale.y = v2 - v1
+	end
+
+	utility.MakePushPopFunction(render2d, "UV")
 end
 
 do -- camera
@@ -579,13 +552,64 @@ end
 
 render2d.Initialize()
 
+do -- rectangle
+	local mesh_data = {
+		{pos = Vec3f(0, 1, 0), uv = Vec2f(0, 0), color = Colorf(1, 1, 1, 1)}, -- top-left
+		{pos = Vec3f(0, 0, 0), uv = Vec2f(0, 1), color = Colorf(1, 1, 1, 1)}, -- bottom-left
+		{pos = Vec3f(1, 1, 0), uv = Vec2f(1, 0), color = Colorf(1, 1, 1, 1)}, -- top-right
+		{pos = Vec3f(1, 0, 0), uv = Vec2f(1, 1), color = Colorf(1, 1, 1, 1)}, -- bottom-right
+	}
+	local indices = {0, 1, 2, 2, 1, 3}
+	local index_buffer = IndexBuffer.New(indices)
+	local vertex_buffer = render2d.CreateMesh(mesh_data)
+
+	function render2d.DrawRect(x, y, w, h, a, ox, oy)
+		render2d.BindMesh(vertex_buffer, index_buffer)
+		render2d.PushMatrix()
+
+		if x and y then render2d.Translate(x, y) end
+
+		if a then render2d.Rotate(a) end
+
+		if ox then render2d.Translate(-ox, -oy) end
+
+		if w and h then render2d.Scale(w, h) end
+
+		render2d.UploadConstants(render2d.cmd)
+		render2d.DrawIndexedMesh(6)
+		render2d.PopMatrix()
+	end
+end
+
+do -- triangle 
+	local vertex_buffer = render2d.CreateMesh(
+		{
+			{pos = Vec3f(-0.5, -0.5, 0), uv = Vec2f(0, 0), color = Colorf(1, 1, 1, 1)},
+			{pos = Vec3f(0.5, 0.5, 0), uv = Vec2f(1, 1), color = Colorf(1, 1, 1, 1)},
+			{pos = Vec3f(-0.5, 0.5, 0), uv = Vec2f(0, 1), color = Colorf(1, 1, 1, 1)},
+		}
+	)
+
+	function render2d.DrawTriangle(x, y, w, h, a)
+		render2d.BindMesh(vertex_buffer)
+		render2d.PushMatrix()
+
+		if x and y then render2d.Translate(x, y) end
+
+		if a then render2d.Rotate(a) end
+
+		if w and h then render2d.Scale(w, h) end
+
+		render2d.UploadConstants(render2d.cmd)
+		render2d.DrawMesh(3)
+		render2d.PopMatrix()
+	end
+end
+
 event.AddListener("PostDraw", "draw_2d", function(cmd, dt)
 	local frame_index = render.GetCurrentFrame()
-	-- Bind pipeline and descriptor set (bindless - one set with all textures)
 	render2d.cmd = cmd
 	render2d.pipeline:Bind(cmd, frame_index)
-	render2d.BindMesh(render2d.vertex_buffer, render2d.index_buffer)
-	-- Set initial blend mode for the frame
 	render2d.SetBlendMode(render2d.current_blend_mode)
 	event.Call("Draw2D", dt)
 end)

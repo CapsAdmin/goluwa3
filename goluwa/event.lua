@@ -1,4 +1,4 @@
-local system = require("system")
+local system
 local event = _G.event or {}
 event.active = event.active or {}
 event.destroy_tag = {}
@@ -76,6 +76,7 @@ function event.RemoveListener(event_type, id)
 end
 
 function event.Call(event_type, a_, b_, c_, d_, e_)
+	system = system or require("system")
 	local status, a, b, c, d, e
 
 	if event.active[event_type] then

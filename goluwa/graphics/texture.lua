@@ -184,6 +184,14 @@ function Texture:GetSampler()
 	return self.sampler
 end
 
+function Texture:GetWidth()
+	return self.image:GetWidth()
+end
+
+function Texture:GetHeight()
+	return self.image:GetHeight()
+end
+
 function Texture:GetSize()
 	return Vec2f(self.image:GetWidth(), self.image:GetHeight())
 end

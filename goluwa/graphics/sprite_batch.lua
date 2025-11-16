@@ -50,7 +50,7 @@ function META:AddRectangle(x, y, w, h, a, ox, oy)
 	local r, g, b, a = render2d.GetColor()
 	a = a * (render2d.GetAlphaMultiplier() or 1)
 	self.poly:SetColor(r, g, b, a)
-	self.poly:SetUV(render2d.GetRectUV())
+	self.poly:SetUV(render2d.GetUV())
 	self.poly:SetRect(self.i, 0, 0, 1, 1)
 	self.i = self.i + 1
 	render2d.PopMatrix()

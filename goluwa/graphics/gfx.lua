@@ -5,7 +5,6 @@ local Polygon2D = require("graphics.polygon_2d")
 local gfx = {}
 
 function gfx.Initialize()
-	gfx.ninepatch_poly = Polygon2D.New(9 * 6)
 	local tex = Texture.New(
 		{
 			width = 1024,
@@ -33,22 +32,111 @@ end
 
 function gfx.DrawNinePatch(x, y, w, h, patch_size_w, patch_size_h, corner_size, u_offset, v_offset, uv_scale)
 	local size = render2d.GetTexture():GetSize()
-	gfx.ninepatch_poly:SetNinePatch(
-		1,
-		x,
-		y,
-		w,
-		h,
-		patch_size_w,
-		patch_size_h,
-		corner_size,
+	local skin_w = size.x
+	local skin_h = size.y
+	u_offset = u_offset or 0
+	v_offset = v_offset or 0
+	uv_scale = uv_scale or 1
+
+	if w / 2 < corner_size then corner_size = w / 2 end
+
+	if h / 2 < corner_size then corner_size = h / 2 end
+
+	-- 1
+	render2d.SetUV(
 		u_offset,
 		v_offset,
-		uv_scale,
-		size.x,
-		size.y
+		corner_size / uv_scale,
+		corner_size / uv_scale,
+		skin_w,
+		skin_h
 	)
-	gfx.ninepatch_poly:Draw()
+	render2d.DrawRect(x, y, corner_size, corner_size)
+	-- 2
+	render2d.SetUV(
+		u_offset + corner_size,
+		v_offset,
+		(patch_size_w - corner_size * 2) / uv_scale,
+		corner_size / uv_scale,
+		skin_w,
+		skin_h
+	)
+	render2d.DrawRect(x + corner_size, y, w - corner_size * 2, corner_size)
+	-- 3
+	render2d.SetUV(
+		u_offset + patch_size_w - corner_size / uv_scale,
+		v_offset,
+		corner_size / uv_scale,
+		corner_size / uv_scale,
+		skin_w,
+		skin_h
+	)
+	render2d.DrawRect(x + w - corner_size, y, corner_size, corner_size)
+	-- 4
+	render2d.SetUV(
+		u_offset,
+		v_offset + corner_size,
+		corner_size / uv_scale,
+		(patch_size_h - corner_size * 2) / uv_scale,
+		skin_w,
+		skin_h
+	)
+	render2d.DrawRect(x, y + corner_size, corner_size, h - corner_size * 2)
+	-- 5
+	render2d.SetUV(
+		u_offset + corner_size,
+		v_offset + corner_size,
+		patch_size_w - corner_size * 2,
+		patch_size_h - corner_size * 2,
+		skin_w,
+		skin_h
+	)
+	render2d.DrawRect(
+		x + corner_size,
+		y + corner_size,
+		w - corner_size * 2,
+		h - corner_size * 2
+	)
+	-- 6
+	render2d.SetUV(
+		u_offset + patch_size_w - corner_size / uv_scale,
+		v_offset + corner_size / uv_scale,
+		corner_size / uv_scale,
+		(patch_size_h - corner_size * 2) / uv_scale,
+		skin_w,
+		skin_h
+	)
+	render2d.DrawRect(x + w - corner_size, y + corner_size, corner_size, h - corner_size * 2)
+	-- 7
+	render2d.SetUV(
+		u_offset,
+		v_offset + patch_size_h - corner_size / uv_scale,
+		corner_size / uv_scale,
+		corner_size / uv_scale,
+		skin_w,
+		skin_h
+	)
+	render2d.DrawRect(x, y + h - corner_size, corner_size, corner_size)
+	-- 8
+	render2d.SetUV(
+		u_offset + corner_size / uv_scale,
+		v_offset + patch_size_h - corner_size / uv_scale,
+		(patch_size_w - corner_size * 2) / uv_scale,
+		corner_size / uv_scale,
+		skin_w,
+		skin_h
+	)
+	render2d.DrawRect(x + corner_size, y + h - corner_size, w - corner_size * 2, corner_size)
+	-- 9
+	render2d.SetUV(
+		u_offset + patch_size_w - corner_size / uv_scale,
+		v_offset + patch_size_h - corner_size / uv_scale,
+		corner_size / uv_scale,
+		corner_size / uv_scale,
+		skin_w,
+		skin_h
+	)
+	render2d.DrawRect(x + w - corner_size, y + h - corner_size, corner_size, corner_size)
 end
 
 function gfx.DrawFilledCircle(x, y, sx, sy)

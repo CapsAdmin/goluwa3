@@ -1,5 +1,6 @@
 local list = require("helpers.list")
 local get_time = require("bindings.time")
+local event = require("event")
 local system = _G.system or {}
 
 function system.GetTime()
