@@ -395,4 +395,9 @@ function Pipeline:GetVariantInfo()
 	}
 end
 
+function Pipeline:CreateMesh(vertices, indices)
+	local index_buffer = IndexBuffer.New(indices)
+	local vertex_buffer = VertexBuffer.New(vertices, self:GetVertexAttributes())
+end
+
 return Pipeline
