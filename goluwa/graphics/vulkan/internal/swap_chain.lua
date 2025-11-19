@@ -4,6 +4,14 @@ local Swapchain = {}
 Swapchain.__index = Swapchain
 
 function Swapchain.New(config)
+	print("Swapchain.New config:")
+	print("  minImageCount: " .. config.image_count or config.surface_capabilities.minImageCount)
+	print("  imageFormat: " .. config.surface_format.format)
+	print("  imageColorSpace: " .. config.surface_format.color_space)
+	print("  imageExtent: " .. config.surface_capabilities.currentExtent.width .. "x" .. config.surface_capabilities.currentExtent.height)
+	print("  presentMode: " .. (config.present_mode or "fifo"))
+	print("  compositeAlpha: " .. (config.composite_alpha or "opaque"))
+	
 	local ptr = vulkan.T.Box(vulkan.vk.VkSwapchainKHR)()
 	vulkan.assert(
 		vulkan.lib.vkCreateSwapchainKHR(

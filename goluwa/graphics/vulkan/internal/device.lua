@@ -89,7 +89,12 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 			pQueuePriorities = queuePriority,
 		}
 	)
-	local deviceExtensions = vulkan.T.Array(ffi.typeof("const char*"), #finalExtensions, finalExtensions)
+	local deviceExtensions = vulkan.T.Array(ffi.typeof("const char*"))(#finalExtensions)
+
+	for i, ext in ipairs(finalExtensions) do
+		deviceExtensions[i - 1] = ext
+	end
+
 	local deviceCreateInfo = vulkan.vk.VkDeviceCreateInfo(
 		{
 			sType = "VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO",
@@ -134,7 +139,7 @@ function Device:GetExtension(name)
 		error("device extension function not found: " .. name, 2)
 	end
 
-	return ffi.cast(vk["PFN_" .. name], func_ptr)
+	return ffi.cast(vulkan.vk["PFN_" .. name], func_ptr)
 end
 
 function Device:WaitIdle()

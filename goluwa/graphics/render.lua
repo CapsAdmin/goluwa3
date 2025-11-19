@@ -5,14 +5,17 @@ local ffi = require("ffi")
 local system = require("system")
 local Image = require("graphics.vulkan.internal.image")
 local Sampler = require("graphics.vulkan.internal.sampler")
-local surface = assert(window:GetSurfaceHandle())
-local vulkan_instance = VulkanInstance.New(surface)
+local surface_handle, display_handle = assert(window:GetSurfaceHandle())
+local vulkan_instance = VulkanInstance.New(surface_handle, display_handle)
+local size = window:GetSize()
 local window_target = vulkan_instance:CreateWindowRenderTarget(
 	{
 		present_mode = "fifo",
 		image_count = nil, -- Use default (minImageCount + 1)
 		surface_format_index = 1,
 		composite_alpha = "opaque",
+		width = size.x,
+		height = size.y,
 	}
 )
 

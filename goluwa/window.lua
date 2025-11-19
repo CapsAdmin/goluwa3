@@ -146,32 +146,15 @@ do
 		system.ShutDown()
 	end
 
-	if jit.os == "OSX" then require("window_implementations.macos")(META) end
+	if jit.os == "OSX" then
+		require("window_implementations.macos")(META)
+	elseif jit.os == "Linux" then
+		require("window_implementations.linux_wayland")(META)
+	end
 
 	function window.CreateWindow(width, height, title, flags)
 		local self = META:CreateObject()
-		local ok, err = self:Initialize()
-
-		if ok == false then return ok, err end
-
-		if NULL_OPENGL then
-			local gl = require("opengl")
-
-			for k, v in pairs(gl) do
-				if type(v) == "cdata" then gl[k] = function()
-					return 0
-				end end
-			end
-
-			function gl.CheckNamedFramebufferStatus()
-				return 36053
-			end
-
-			function gl.GetString()
-				return nil
-			end
-		end
-
+		self:Initialize()
 		self:SetTitle(title)
 
 		if width and height then self:SetSize(Vec2(width, height)) end
@@ -190,13 +173,7 @@ function window.GetWindows()
 end
 
 function window.Open(...)
-	local ok, wnd = pcall(window.CreateWindow, ...)
-
-	if not ok then
-		print(wnd)
-		return ok, wnd
-	end
-
+	local wnd = window.CreateWindow(...)
 	local key_trigger = input.SetupInputEvent("Key")
 	local mouse_trigger = input.SetupInputEvent("Mouse")
 

@@ -2,3 +2,4 @@
 logs/
 .running_pid
 flake.lock
+lsp_session_*

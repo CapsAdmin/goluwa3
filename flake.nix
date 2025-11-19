@@ -44,14 +44,24 @@
             shaderc             # GLSL to SPIRV compiler - glslc
             vulkan-tools-lunarg # vkconfig
             
+            # Wayland development
+            wayland
+            wayland-protocols
+            wayland-scanner
+            libxkbcommon
+            
             # Development and debugging tools
             renderdoc           # Graphics debugger
             tracy               # Graphics profiler
           ];
 
-          LD_LIBRARY_PATH = with pkgs; "${vulkan-loader}/lib:${vulkan-validation-layers}/lib:${shaderc.lib}/lib";
+          LD_LIBRARY_PATH = with pkgs; "${vulkan-loader}/lib:${vulkan-validation-layers}/lib:${shaderc.lib}/lib:${wayland}/lib:${libxkbcommon}/lib";
           VULKAN_SDK = "${pkgs.vulkan-headers}";
           VK_LAYER_PATH = "${pkgs.vulkan-validation-layers}/share/vulkan/explicit_layer.d";
+          
+          # Wayland environment
+          XDG_RUNTIME_DIR = "/run/user/1000";
+          WAYLAND_DISPLAY = "wayland-0";
         };
       }
     );

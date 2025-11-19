@@ -34,8 +34,30 @@ function WindowRenderTarget.New(vulkan_instance, config)
 	-- Query surface capabilities and formats
 	self.surface_capabilities = vulkan_instance.physical_device:GetSurfaceCapabilities(self.vulkan_instance.surface)
 	self.surface_formats = vulkan_instance.physical_device:GetSurfaceFormats(self.vulkan_instance.surface)
+	
+	-- Handle undefined surface size (Wayland)
+	if self.surface_capabilities.currentExtent.width == 0xFFFFFFFF then
+		print("Surface extent is undefined (0xFFFFFFFF), using window size: " .. (self.config.width or "nil") .. "x" .. (self.config.height or "nil"))
+		if self.config.width and self.config.height then
+			self.surface_capabilities.currentExtent.width = self.config.width
+			self.surface_capabilities.currentExtent.height = self.config.height
+		else
+			error("Surface extent is undefined and no window size provided in config!")
+		end
+	end
+
+	-- Debug: Print available surface formats
+	print("Available surface formats: " .. #self.surface_formats)
+
+	for i, fmt in ipairs(self.surface_formats) do
+		print(string.format("  [%d] format=%s, color_space=%s", i, fmt.format, fmt.color_space))
+	end
 
 	-- Validate format index
+	if #self.surface_formats == 0 then
+		error("No surface formats available! Surface may not be properly initialized.")
+	end
+
 	if self.config.surface_format_index > #self.surface_formats then
 		error(
 			"Invalid surface_format_index: " .. self.config.surface_format_index .. " (max: " .. (
@@ -229,6 +251,17 @@ function WindowRenderTarget:RebuildFramebuffers()
 	-- Query surface capabilities and formats
 	self.surface_capabilities = self.vulkan_instance.physical_device:GetSurfaceCapabilities(self.vulkan_instance.surface)
 	self.surface_formats = self.vulkan_instance.physical_device:GetSurfaceFormats(self.vulkan_instance.surface)
+
+	-- Handle undefined surface size (Wayland)
+	if self.surface_capabilities.currentExtent.width == 0xFFFFFFFF then
+		print("Surface extent is undefined (0xFFFFFFFF) during rebuild, using window size: " .. (self.config.width or "nil") .. "x" .. (self.config.height or "nil"))
+		if self.config.width and self.config.height then
+			self.surface_capabilities.currentExtent.width = self.config.width
+			self.surface_capabilities.currentExtent.height = self.config.height
+		else
+			error("Surface extent is undefined and no window size provided in config!")
+		end
+	end
 
 	-- Validate format index
 	if self.config.surface_format_index > #self.surface_formats then

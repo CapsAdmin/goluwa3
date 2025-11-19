@@ -10,6 +10,34 @@ function PhysicalDevice.New(ptr)
 	return setmetatable({ptr = ptr_boxed}, PhysicalDevice)
 end
 
+function PhysicalDevice:SupportsSurface(surface)
+	-- Check if any queue family supports presentation to this surface
+	local queue_families = self:GetQueueFamilyProperties()
+	print(string.format("  Checking %d queue families for surface support...", #queue_families))
+
+	for i, queueFamily in ipairs(queue_families) do
+		local presentSupport = ffi.new("uint32_t[1]")
+		local result = vulkan.lib.vkGetPhysicalDeviceSurfaceSupportKHR(self.ptr[0], i - 1, surface.ptr[0], presentSupport)
+		print(
+			string.format(
+				"    Queue family %d: result=%s, presentSupport=%d",
+				i - 1,
+				vulkan.enums.VK_.to_string(result),
+				presentSupport[0]
+			)
+		)
+		print(string.format("      result type: %s, value: %s", type(result), tostring(result)))
+		print(string.format("      presentSupport[0] ~= 0: %s", tostring(presentSupport[0] ~= 0)))
+
+		if result == 0 and presentSupport[0] ~= 0 then
+			print("      *** RETURNING TRUE ***")
+			return true
+		end
+	end
+
+	return false
+end
+
 function PhysicalDevice:FindMemoryType(typeFilter, properties)
 	local memProperties = vulkan.vk.VkPhysicalDeviceMemoryProperties()
 	vulkan.lib.vkGetPhysicalDeviceMemoryProperties(self.ptr[0], memProperties)
@@ -54,10 +82,19 @@ end
 
 function PhysicalDevice:GetSurfaceFormats(surface)
 	local formatCount = ffi.new("uint32_t[1]", 0)
-	vulkan.lib.vkGetPhysicalDeviceSurfaceFormatsKHR(self.ptr[0], surface.ptr[0], formatCount, nil)
+	local result_code = vulkan.lib.vkGetPhysicalDeviceSurfaceFormatsKHR(self.ptr[0], surface.ptr[0], formatCount, nil)
+	print("GetSurfaceFormats query result:", vulkan.enums.VK_.to_string(result_code))
+	print("Surface format count:", formatCount[0])
 	local count = formatCount[0]
+
+	if count == 0 then
+		print("WARNING: No surface formats returned!")
+		return {}
+	end
+
 	local formats = vulkan.T.Array(vulkan.vk.VkSurfaceFormatKHR)(count)
-	vulkan.lib.vkGetPhysicalDeviceSurfaceFormatsKHR(self.ptr[0], surface.ptr[0], formatCount, formats)
+	result_code = vulkan.lib.vkGetPhysicalDeviceSurfaceFormatsKHR(self.ptr[0], surface.ptr[0], formatCount, formats)
+	print("GetSurfaceFormats fetch result:", vulkan.enums.VK_.to_string(result_code))
 	-- Convert to Lua table
 	local result = {}
 
