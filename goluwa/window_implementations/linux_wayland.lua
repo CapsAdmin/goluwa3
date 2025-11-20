@@ -13,6 +13,102 @@ wayland.XKB_KEYMAP_FORMAT_TEXT_V1 = 1
 wayland.XKB_KEYMAP_COMPILE_NO_FLAGS = 0
 -- Global active windows table for callbacks
 wayland._active_windows = {}
+local keycodes = {
+	-- Special keys
+	[1] = "escape",
+	[14] = "backspace",
+	[15] = "tab",
+	[28] = "enter",
+	[57] = "space",
+	[58] = "caps_lock",
+	[69] = "num_lock",
+	[70] = "scroll_lock",
+	[99] = "print_screen",
+	[110] = "insert",
+	[111] = "delete",
+	[119] = "pause",
+	-- Numbers (Row above letters)
+	[2] = "1",
+	[3] = "2",
+	[4] = "3",
+	[5] = "4",
+	[6] = "5",
+	[7] = "6",
+	[8] = "7",
+	[9] = "8",
+	[10] = "9",
+	[11] = "0",
+	-- Punctuation
+	[12] = "minus",
+	[13] = "equal",
+	[26] = "left_bracket",
+	[27] = "right_bracket",
+	[39] = "semicolon",
+	[40] = "apostrophe",
+	[41] = "grave_accent",
+	[43] = "backslash",
+	[51] = "comma",
+	[52] = "period",
+	[53] = "slash",
+	-- Alphanumeric (QWERTY)
+	[16] = "q",
+	[17] = "w",
+	[18] = "e",
+	[19] = "r",
+	[20] = "t",
+	[21] = "y",
+	[22] = "u",
+	[23] = "i",
+	[24] = "o",
+	[25] = "p",
+	[30] = "a",
+	[31] = "s",
+	[32] = "d",
+	[33] = "f",
+	[34] = "g",
+	[35] = "h",
+	[36] = "j",
+	[37] = "k",
+	[38] = "l",
+	[44] = "z",
+	[45] = "x",
+	[46] = "c",
+	[47] = "v",
+	[48] = "b",
+	[49] = "n",
+	[50] = "m",
+	-- Modifiers
+	[29] = "left_ctrl",
+	[42] = "left_shift",
+	[56] = "left_alt",
+	[54] = "right_shift",
+	[97] = "right_ctrl",
+	[100] = "right_alt",
+	[125] = "left_super", -- Often Windows/Command key
+	[126] = "right_super",
+	-- Function keys
+	[59] = "f1",
+	[60] = "f2",
+	[61] = "f3",
+	[62] = "f4",
+	[63] = "f5",
+	[64] = "f6",
+	[65] = "f7",
+	[66] = "f8",
+	[67] = "f9",
+	[68] = "f10",
+	[87] = "f11",
+	[88] = "f12",
+	-- Navigation
+	[102] = "home",
+	[103] = "up",
+	[104] = "pageup",
+	[105] = "left",
+	[106] = "right",
+	[107] = "end",
+	[108] = "down",
+	[109] = "pagedown",
+}
 return function(META)
 	-- Button translation from wayland to window system
 	local button_translate = {
@@ -315,8 +411,8 @@ return function(META)
 
 					if not wnd then return end
 
-					local keycode = tonumber(key) + 8
-					table.insert(wnd.events, {type = state == 1 and "key_press" or "key_release", key = keycode})
+					local key_name = keycodes[tonumber(key)] or "unknown"
+					table.insert(wnd.events, {type = state == 1 and "key_press" or "key_release", key = key_name})
 				end,
 				modifiers = function(data, keyboard, serial, depressed, latched, locked, group)
 					local wnd = wayland._active_windows[tonumber(ffi.cast("intptr_t", data))]
@@ -419,17 +515,24 @@ return function(META)
 
 	function META:ReadEvents()
 		local events = {}
+
+		while wayland.wl_client.wl_display_prepare_read(self.display) ~= 0 do
+			wayland.wl_client.wl_display_dispatch_pending(self.display)
+		end
+
+		wayland.wl_client.wl_display_flush(self.display)
+
 		local pollfd = ffi.new("struct pollfd[1]")
 		pollfd[0].fd = wayland.wl_client.wl_display_get_fd(self.display)
 		pollfd[0].events = 1
 
 		if ffi.C.poll(pollfd, 1, 0) > 0 then
-			wayland.wl_client.wl_display_dispatch(self.display)
-		else
+			wayland.wl_client.wl_display_read_events(self.display)
 			wayland.wl_client.wl_display_dispatch_pending(self.display)
+		else
+			wayland.wl_client.wl_display_cancel_read(self.display)
 		end
 
-		wayland.wl_client.wl_display_flush(self.display)
 		events = self.events
 		self.events = {}
 		return events

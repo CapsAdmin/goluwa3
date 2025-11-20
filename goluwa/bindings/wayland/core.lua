@@ -34,6 +34,9 @@ ffi.cdef[[
 	int wl_display_roundtrip(struct wl_display *display);
 	int wl_display_flush(struct wl_display *display);
 	int wl_display_get_fd(struct wl_display *display);
+	int wl_display_prepare_read(struct wl_display *display);
+	void wl_display_cancel_read(struct wl_display *display);
+	int wl_display_read_events(struct wl_display *display);
 	int wl_display_get_error(struct wl_display *display);
 	uint32_t wl_display_get_protocol_error(struct wl_display *display, const struct wl_interface **interface, uint32_t *id);
 	
