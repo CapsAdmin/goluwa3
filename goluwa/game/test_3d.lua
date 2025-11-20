@@ -10,6 +10,7 @@ local render3d = require("graphics.render3d")
 local build_cube = require("game.build_cube")
 local Texture = require("graphics.texture")
 local cube_vertices, cube_indices = build_cube(1.0)
+require("game.camera_movement")
 local vertex_buffer = render.CreateBuffer(
 	{
 		buffer_usage = "vertex_buffer",

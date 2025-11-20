@@ -1,6 +1,8 @@
 local ffi = require("ffi")
 local wayland = require("bindings.wayland.core")
 local xdg_decoration = require("bindings.wayland.xdg_decoration")
+local pointer_constraints = require("bindings.wayland.pointer_constraints")
+local relative_pointer = require("bindings.wayland.relative_pointer")
 local Vec2 = require("structs.vec2").Vec2d
 local system = require("system")
 local event = require("event")
@@ -78,11 +80,11 @@ local keycodes = {
 	[49] = "n",
 	[50] = "m",
 	-- Modifiers
-	[29] = "left_ctrl",
+	[29] = "left_control",
 	[42] = "left_shift",
 	[56] = "left_alt",
 	[54] = "right_shift",
-	[97] = "right_ctrl",
+	[97] = "right_control",
 	[100] = "right_alt",
 	[125] = "left_super", -- Often Windows/Command key
 	[126] = "right_super",
@@ -135,11 +137,17 @@ return function(META)
 		self.xdg_wm_base = nil
 		self.xdg_surface = nil
 		self.xdg_toplevel = nil
+		self.pointer_constraints_manager = nil
+		self.relative_pointer_manager = nil
+		self.locked_pointer = nil
+		self.relative_pointer_obj = nil
 		self.xkb_context = wayland.xkb.xkb_context_new(wayland.XKB_CONTEXT_NO_FLAGS)
 		self.events = {}
 		self.width = (self.Size and self.Size.x > 0) and self.Size.x or 800
 		self.height = (self.Size and self.Size.y > 0) and self.Size.y or 600
 		self.configured = false
+		self.mouse_captured = false
+		self.mouse_delta = Vec2(0, 0)
 		-- Register window for callbacks
 		local self_ptr = tonumber(tostring(self):match("0x(%x+)"), 16) or math.random(1000000)
 		wayland._active_windows[self_ptr] = self
@@ -175,6 +183,12 @@ return function(META)
 					elseif iface == "zxdg_decoration_manager_v1" then
 						wnd.decoration_manager = registry:bind(name, xdg_decoration.get_interface("zxdg_decoration_manager_v1"), 1)
 						wnd.decoration_manager = ffi.cast("struct zxdg_decoration_manager_v1*", wnd.decoration_manager)
+					elseif iface == "zwp_pointer_constraints_v1" then
+						wnd.pointer_constraints_manager = registry:bind(name, pointer_constraints.get_interface("zwp_pointer_constraints_v1"), 1)
+						wnd.pointer_constraints_manager = ffi.cast("struct zwp_pointer_constraints_v1*", wnd.pointer_constraints_manager)
+					elseif iface == "zwp_relative_pointer_manager_v1" then
+						wnd.relative_pointer_manager = registry:bind(name, relative_pointer.get_interface("zwp_relative_pointer_manager_v1"), 1)
+						wnd.relative_pointer_manager = ffi.cast("struct zwp_relative_pointer_manager_v1*", wnd.relative_pointer_manager)
 					end
 				end,
 				global_remove = function(data, registry, name) end,
@@ -331,16 +345,42 @@ return function(META)
 	function META:setup_pointer_listener()
 		self.pointer:add_listener(
 			{
-				enter = function(data, pointer, serial, surface, x, y) end,
+				enter = function(data, pointer, serial, surface, x, y)
+					local wnd = wayland._active_windows[tonumber(ffi.cast("intptr_t", data))]
+
+					if not wnd then return end
+
+					-- Store serial for cursor operations
+					wnd.pointer_serial = serial
+
+					-- If mouse is captured, hide cursor on enter
+					if wnd.mouse_captured and wnd.pointer then
+						wnd.pointer:set_cursor(serial, nil, 0, 0)
+					end
+				end,
 				leave = function(data, pointer, serial, surface) end,
 				motion = function(data, pointer, time, x, y)
 					local wnd = wayland._active_windows[tonumber(ffi.cast("intptr_t", data))]
 
 					if not wnd then return end
 
-					wnd.mouse_x = tonumber(x)
-					wnd.mouse_y = tonumber(y)
-					table.insert(wnd.events, {type = "mouse_move", x = wnd.mouse_x, y = wnd.mouse_y})
+					local new_x = tonumber(x)
+					local new_y = tonumber(y)
+					-- Calculate delta
+					local delta_x = new_x - (wnd.mouse_x or new_x)
+					local delta_y = new_y - (wnd.mouse_y or new_y)
+					wnd.mouse_x = new_x
+					wnd.mouse_y = new_y
+					table.insert(
+						wnd.events,
+						{
+							type = "mouse_move",
+							x = wnd.mouse_x,
+							y = wnd.mouse_y,
+							delta_x = delta_x,
+							delta_y = delta_y,
+						}
+					)
 				end,
 				button = function(data, pointer, serial, time, button, state)
 					local wnd = wayland._active_windows[tonumber(ffi.cast("intptr_t", data))]
@@ -463,6 +503,12 @@ return function(META)
 				self.last_mouse_pos = Vec2(event.x, event.y)
 				self:CallEvent("CursorPosition", self.last_mouse_pos)
 
+				-- Always set delta from motion events
+				if event.delta_x and event.delta_y then
+					self:SetMouseDelta(Vec2(event.delta_x, event.delta_y))
+				end
+			elseif event.type == "mouse_move_relative" then
+				-- Handle relative motion from locked pointer
 				if event.delta_x and event.delta_y then
 					self:SetMouseDelta(Vec2(event.delta_x, event.delta_y))
 				end
@@ -479,61 +525,38 @@ return function(META)
 		end
 
 		self:OnPostUpdate(dt)
-
-		-- Handle trapped cursor
-		if self.Cursor == "trapped" and self:IsFocused() then
-			local pos = self:GetMousePosition()
-			local size = self:GetSize()
-			local changed = false
-
-			if pos.x <= 1 then
-				pos.x = size.x - 2
-				changed = true
-			end
-
-			if pos.y <= 1 then
-				pos.y = size.y - 2
-				changed = true
-			end
-
-			if pos.x >= size.x - 1 then
-				pos.x = 2
-				changed = true
-			end
-
-			if pos.y >= size.y - 1 then
-				pos.y = 2
-				changed = true
-			end
-
-			if changed then
-				self.last_mpos = pos
-				self:SetMousePosition(pos)
-			end
-		end
+	-- Note: Wayland doesn't support cursor warping, so trapped cursor
+	-- relies on the compositor's pointer constraints protocol.
+	-- For now, mouse capture works via delta tracking and cursor hiding.
+	-- When the pointer leaves the window, we stop receiving events,
+	-- but delta tracking continues when it re-enters.
 	end
 
 	function META:ReadEvents()
-		local events = {}
-
-		while wayland.wl_client.wl_display_prepare_read(self.display) ~= 0 do
-			wayland.wl_client.wl_display_dispatch_pending(self.display)
-		end
-
+		-- Dispatch any pending events first
+		wayland.wl_client.wl_display_dispatch_pending(self.display)
+		-- Flush outgoing requests
 		wayland.wl_client.wl_display_flush(self.display)
-
+		-- Check if there are any events to read (non-blocking)
 		local pollfd = ffi.new("struct pollfd[1]")
 		pollfd[0].fd = wayland.wl_client.wl_display_get_fd(self.display)
-		pollfd[0].events = 1
-
+		pollfd[0].events = 1 -- POLLIN
+		-- Poll with 0 timeout for non-blocking check
 		if ffi.C.poll(pollfd, 1, 0) > 0 then
-			wayland.wl_client.wl_display_read_events(self.display)
-			wayland.wl_client.wl_display_dispatch_pending(self.display)
-		else
-			wayland.wl_client.wl_display_cancel_read(self.display)
+			-- Events available, prepare to read
+			if wayland.wl_client.wl_display_prepare_read(self.display) == 0 then
+				-- Read the events
+				wayland.wl_client.wl_display_read_events(self.display)
+				-- Dispatch the events we just read
+				wayland.wl_client.wl_display_dispatch_pending(self.display)
+			else
+				-- Failed to prepare, dispatch pending instead
+				wayland.wl_client.wl_display_dispatch_pending(self.display)
+			end
 		end
 
-		events = self.events
+		-- Return collected events and clear the queue
+		local events = self.events
 		self.events = {}
 		return events
 	end
@@ -544,6 +567,10 @@ return function(META)
 			if self:IsMouseCaptured() then self:ReleaseMouse() end
 
 			-- Clean up wayland resources
+			if self.locked_pointer then self.locked_pointer:destroy() end
+
+			if self.relative_pointer_obj then self.relative_pointer_obj:destroy() end
+
 			if self.xdg_toplevel then self.xdg_toplevel:destroy() end
 
 			if self.xdg_surface then self.xdg_surface:destroy() end
@@ -683,13 +710,68 @@ return function(META)
 	end
 
 	function META:CaptureMouse()
-		-- Wayland doesn't support true mouse capture like X11/Windows
-		-- We can hide cursor and use relative motion events
+		-- Hide cursor by setting null cursor surface
+		if self.pointer and self.pointer_serial then
+			self.pointer:set_cursor(self.pointer_serial, nil, 0, 0)
+		end
+
+		-- Create relative pointer to receive delta events
+		if self.relative_pointer_manager and self.pointer and not self.relative_pointer_obj then
+			local pointer_proxy = ffi.cast("struct wl_proxy*", self.pointer)
+			self.relative_pointer_obj = self.relative_pointer_manager:get_relative_pointer(pointer_proxy)
+			self.relative_pointer_obj = ffi.cast("struct zwp_relative_pointer_v1*", self.relative_pointer_obj)
+			-- Setup listener for relative motion events
+			self.relative_pointer_obj:add_listener(
+				{
+					relative_motion = function(data, relative_pointer, utime_hi, utime_lo, dx, dy, dx_unaccel, dy_unaccel)
+						local wnd = wayland._active_windows[tonumber(ffi.cast("intptr_t", data))]
+
+						if not wnd then return end
+
+						-- Use unaccelerated delta for raw input
+						local delta_x = tonumber(dx_unaccel)
+						local delta_y = tonumber(dy_unaccel)
+						table.insert(wnd.events, {type = "mouse_move_relative", delta_x = delta_x, delta_y = delta_y})
+					end,
+				},
+				ffi.cast("void*", self._ptr)
+			)
+		end
+
+		-- Lock pointer to get relative motion events without position constraints
+		if
+			self.pointer_constraints_manager and
+			self.surface_proxy and
+			self.pointer and
+			not self.locked_pointer
+		then
+			local pointer_proxy = ffi.cast("struct wl_proxy*", self.pointer)
+			self.locked_pointer = self.pointer_constraints_manager:lock_pointer(self.surface_proxy, pointer_proxy, nil, -- region (nil = entire surface)
+			2 -- lifetime: persistent (ZWP_POINTER_CONSTRAINTS_V1_LIFETIME_PERSISTENT)
+			)
+			self.locked_pointer = ffi.cast("struct zwp_locked_pointer_v1*", self.locked_pointer)
+		end
+
 		self.mouse_captured = true
 	end
 
 	function META:ReleaseMouse()
 		self.mouse_captured = false
+
+		-- Destroy the locked pointer to release the constraint
+		if self.locked_pointer then
+			self.locked_pointer:destroy()
+			self.locked_pointer = nil
+		end
+
+		-- Destroy relative pointer
+		if self.relative_pointer_obj then
+			self.relative_pointer_obj:destroy()
+			self.relative_pointer_obj = nil
+		end
+	-- Show cursor again by not setting it (compositor will use default)
+	-- We'd need a proper cursor surface to set a visible cursor
+	-- For now, cursor will show automatically when not captured
 	end
 
 	function META:IsMouseCaptured()

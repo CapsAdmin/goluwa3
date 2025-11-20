@@ -17,3 +17,15 @@ do
 	f:write(bindgen.generate("goluwa/bindings/wayland/xdg-decoration-unstable-v1.xml"))
 	f:close()
 end
+
+do
+	local f = io.open("goluwa/bindings/wayland/pointer_constraints.lua", "w")
+	f:write(bindgen.generate("goluwa/bindings/wayland/pointer-constraints-unstable-v1.xml"))
+	f:close()
+end
+
+do
+	local f = io.open("goluwa/bindings/wayland/relative_pointer.lua", "w")
+	f:write(bindgen.generate("goluwa/bindings/wayland/relative-pointer-unstable-v1.xml"))
+	f:close()
+end
