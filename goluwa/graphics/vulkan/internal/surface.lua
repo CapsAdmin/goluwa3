@@ -24,13 +24,8 @@ function Surface.New(instance, surface_handle, display_handle)
 		-- wayland 
 		assert(surface_handle ~= nil, "surface_handle cannot be nil")
 		assert(display_handle ~= nil, "display_handle cannot be nil")
-		print("Surface.New (Wayland):")
-		print("  surface_handle:", surface_handle)
-		print("  display_handle:", display_handle)
 		local display_ptr = ffi.cast("struct wl_display*", display_handle)
 		local surface_ptr = ffi.cast("struct wl_surface*", surface_handle)
-		print("  display_ptr:", display_ptr)
-		print("  surface_ptr:", surface_ptr)
 		info = vulkan.vk.VkWaylandSurfaceCreateInfoKHR(
 			{
 				sType = "VK_STRUCTURE_TYPE_WAYLAND_SURFACE_CREATE_INFO_KHR",
@@ -40,14 +35,11 @@ function Surface.New(instance, surface_handle, display_handle)
 				surface = surface_ptr,
 			}
 		)
-		print("  VkWaylandSurfaceCreateInfoKHR created")
 		vkCreateSurface = instance:GetExtension("vkCreateWaylandSurfaceKHR")
 	end
 
 	local ptr = vulkan.T.Box(vulkan.vk.VkSurfaceKHR)()
 	local result = vkCreateSurface(instance.ptr[0], info, nil, ptr)
-	print("  vkCreateSurface result:", vulkan.enums.VK_.to_string(result))
-	print("  Surface handle:", ptr[0])
 	vulkan.assert(result, "failed to create surface")
 	return setmetatable(
 		{

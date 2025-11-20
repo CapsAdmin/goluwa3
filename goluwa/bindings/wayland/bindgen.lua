@@ -533,24 +533,28 @@ function scanner.generate(xml_path, output_file)
 			local op = opcode - 1
 			local sig = generate_signature(req.args)
 			local array_size = #sig
-
 			table.insert(output, "\t-- Request: " .. req.name .. "\n")
 			table.insert(output, "\tfunction meta:" .. req.name .. "(...)\n")
 			table.insert(output, "\t\tlocal args = {...}\n")
-			
+
 			if array_size > 0 then
-				table.insert(output, "\t\tlocal args_array = ffi.new('union wl_argument[" .. array_size .. "]')\n")
+				table.insert(
+					output,
+					"\t\tlocal args_array = ffi.new('union wl_argument[" .. array_size .. "]')\n"
+				)
 			else
-				table.insert(output, "\t\tlocal args_array = ffi.new('union wl_argument[1]') -- Dummy for empty args\n")
+				table.insert(
+					output,
+					"\t\tlocal args_array = ffi.new('union wl_argument[1]') -- Dummy for empty args\n"
+				)
 			end
-			
+
 			table.insert(output, "\t\tlocal arg_idx = 1\n")
 			table.insert(output, "\t\tlocal array_idx = 0\n")
 			table.insert(output, "\t\tlocal has_new_id = false\n")
 			table.insert(output, "\t\tlocal new_id_interface = nil\n")
 			table.insert(output, "\t\tlocal generic_new_id = false\n")
 			table.insert(output, "\t\tlocal version_for_generic = nil\n\n")
-
 			-- Check for new_id
 			table.insert(output, "\t\t-- Check if this request has a new_id (constructor)\n")
 			table.insert(output, "\t\tfor _, arg in ipairs(iface.requests[" .. opcode .. "].args) do\n")
@@ -561,7 +565,6 @@ function scanner.generate(xml_path, output_file)
 			table.insert(output, "\t\t\t\tbreak\n")
 			table.insert(output, "\t\t\tend\n")
 			table.insert(output, "\t\tend\n\n")
-
 			-- Process arguments
 			table.insert(output, "\t\t-- Process arguments\n")
 			table.insert(output, "\t\tfor i, arg in ipairs(iface.requests[" .. opcode .. "].args) do\n")
@@ -594,7 +597,10 @@ function scanner.generate(xml_path, output_file)
 			table.insert(output, "\t\t\telseif arg.type == 'object' then\n")
 			table.insert(output, "\t\t\t\tlocal val = args[arg_idx]\n")
 			table.insert(output, "\t\t\t\targ_idx = arg_idx + 1\n")
-			table.insert(output, "\t\t\t\targs_array[array_idx].o = val and ffi.cast('struct wl_object*', val) or nil\n")
+			table.insert(
+				output,
+				"\t\t\t\targs_array[array_idx].o = val and ffi.cast('struct wl_object*', val) or nil\n"
+			)
 			table.insert(output, "\t\t\t\tarray_idx = array_idx + 1\n")
 			table.insert(output, "\t\t\telseif arg.type == 'array' then\n")
 			table.insert(output, "\t\t\t\tlocal val = args[arg_idx]\n")
@@ -641,6 +647,7 @@ function scanner.generate(xml_path, output_file)
 			table.insert(output, "\t\t\t\t)\n")
 			table.insert(output, "\t\t\t\treturn ffi.cast('void*', new_proxy)\n")
 			table.insert(output, "\t\t\telseif new_id_interface then\n")
+
 			if protocol_name == "wayland" then
 				table.insert(
 					output,
@@ -652,6 +659,7 @@ function scanner.generate(xml_path, output_file)
 					"\t\t\t\tlocal target_interface = ffi.cast('struct wl_interface*', interface_ptrs[new_id_interface])\n"
 				)
 			end
+
 			table.insert(output, "\t\t\t\tlocal new_proxy = ffi.C.wl_proxy_marshal_array_constructor(\n")
 			table.insert(output, "\t\t\t\t\tffi.cast('struct wl_proxy*', self),\n")
 			table.insert(output, "\t\t\t\t\t" .. op .. ",\n")
@@ -715,10 +723,8 @@ function scanner.generate(xml_path, output_file)
 		table.insert(output, "\t\t\t\t\tlocal args = {...}\n")
 		table.insert(output, "\t\t\t\t\tlocal lua_args = {}\n")
 		table.insert(output, "\t\t\t\t\tlocal arg_idx = 1\n\n")
-
 		-- Cast proxy to correct interface
 		table.insert(output, "\t\t\t\t\tproxy = ffi.cast('struct " .. iface.name .. "*', proxy)\n\n")
-
 		table.insert(output, "\t\t\t\t\tfor _, arg in ipairs(evt.args) do\n")
 		table.insert(output, "\t\t\t\t\t\tlocal val = args[arg_idx]\n")
 		table.insert(output, "\t\t\t\t\t\targ_idx = arg_idx + 1\n\n")
@@ -754,6 +760,7 @@ function scanner.generate(xml_path, output_file)
 		table.insert(output, "end\n\n")
 	end
 
+	table.insert(output, "output_table._interface_data = interface_data\n")
 	table.insert(output, "return output_table\n")
 	return table.concat(output)
 end

@@ -394,7 +394,8 @@ end
 
 do -- mesh
 	function render2d.CreateMesh(vertices)
-		return render2d.pipeline:CreateMesh()
+		--return render2d.pipeline:CreateMesh(vertices)
+		return VertexBuffer.New(vertices, render2d.pipeline:GetVertexAttributes())
 	end
 
 	function render2d.BindMesh(vertex_buffer, index_buffer)

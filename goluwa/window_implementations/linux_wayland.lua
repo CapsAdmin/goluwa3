@@ -1,5 +1,6 @@
 local ffi = require("ffi")
 local wayland = require("bindings.wayland.core")
+local xdg_decoration = require("bindings.wayland.xdg_decoration")
 local Vec2 = require("structs.vec2").Vec2d
 local system = require("system")
 local event = require("event")
@@ -40,8 +41,8 @@ return function(META)
 		self.xdg_toplevel = nil
 		self.xkb_context = wayland.xkb.xkb_context_new(wayland.XKB_CONTEXT_NO_FLAGS)
 		self.events = {}
-		self.width = self.Size and self.Size.x or 800
-		self.height = self.Size and self.Size.y or 600
+		self.width = (self.Size and self.Size.x > 0) and self.Size.x or 800
+		self.height = (self.Size and self.Size.y > 0) and self.Size.y or 600
 		self.configured = false
 		-- Register window for callbacks
 		local self_ptr = tonumber(tostring(self):match("0x(%x+)"), 16) or math.random(1000000)
@@ -75,6 +76,9 @@ return function(META)
 						wnd.xdg_wm_base = registry:bind(name, wayland.get_xdg_interface("xdg_wm_base"), 1)
 						wnd.xdg_wm_base = ffi.cast("struct xdg_wm_base*", wnd.xdg_wm_base)
 						wnd:setup_xdg_wm_base_listener()
+					elseif iface == "zxdg_decoration_manager_v1" then
+						wnd.decoration_manager = registry:bind(name, xdg_decoration.get_interface("zxdg_decoration_manager_v1"), 1)
+						wnd.decoration_manager = ffi.cast("struct zxdg_decoration_manager_v1*", wnd.decoration_manager)
 					end
 				end,
 				global_remove = function(data, registry, name) end,
@@ -109,40 +113,10 @@ return function(META)
 	function META:OpenWindow()
 		-- Create surface
 		self.surface_proxy = self.compositor:create_surface()
-		print("Created Wayland surface (proxy):", self.surface_proxy)
-		print("  type:", type(self.surface_proxy))
-		print("  tostring:", tostring(self.surface_proxy))
 		self.surface = ffi.cast("struct wl_surface*", self.surface_proxy)
-		print("Created Wayland surface (casted):", self.surface)
-		print("  type:", type(self.surface))
-		-- Create XDG surface using the proxy object
-		print("About to call get_xdg_surface with:", self.surface_proxy)
-		print(
-			"  Checking if surface_proxy can cast to wl_proxy:",
-			ffi.cast("struct wl_proxy*", self.surface_proxy)
-		)
-		print("  Checking surface_proxy interface:")
 		local iface = ffi.C.wl_proxy_get_interface(ffi.cast("struct wl_proxy*", self.surface_proxy))
-
-		if iface ~= nil then
-			print("    interface name:", ffi.string(iface.name))
-			print("    interface version:", iface.version)
-		else
-			print("    ERROR: interface is NULL!")
-		end
-
-		print(
-			"  Checking surface_proxy version:",
-			ffi.C.wl_proxy_get_version(ffi.cast("struct wl_proxy*", self.surface_proxy))
-		)
-		
-		-- self.xdg_surface = self.xdg_wm_base:get_xdg_surface(self.surface_proxy)
-		-- self.xdg_surface = ffi.cast("struct xdg_surface*", self.xdg_surface)
-		
 		self.xdg_surface = self.xdg_wm_base:get_xdg_surface(self.surface_proxy)
 		self.xdg_surface = ffi.cast("struct xdg_surface*", self.xdg_surface)
-		print("xdg_surface created:", self.xdg_surface)
-
 		self:setup_xdg_surface_listener()
 		-- Create toplevel
 		self.xdg_toplevel = self.xdg_surface:get_toplevel()
@@ -150,7 +124,15 @@ return function(META)
 		self:setup_xdg_toplevel_listener()
 
 		-- Set title if provided
-		if self.Title then self.xdg_toplevel:set_title(self.Title) end
+		if self.Title then self.xdg_toplevel:set_title(tostring(self.Title)) end
+
+		-- Request server-side decorations
+		if self.decoration_manager then
+			self.decoration = self.decoration_manager:get_toplevel_decoration(self.xdg_toplevel)
+			self.decoration = ffi.cast("struct zxdg_toplevel_decoration_v1*", self.decoration)
+			self:setup_decoration_listener()
+			self.decoration:set_mode(2) --ZXDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE)
+		end
 
 		-- Commit
 		self.surface_proxy:commit()
@@ -206,6 +188,16 @@ return function(META)
 					if not wnd then return end
 
 					table.insert(wnd.events, {type = "window_close"})
+				end,
+			},
+			ffi.cast("void*", self._ptr)
+		)
+	end
+
+	function META:setup_decoration_listener()
+		self.decoration:add_listener(
+			{
+				configure = function(data, decoration, mode) -- We don't really need to do anything here, just acknowledge it
 				end,
 			},
 			ffi.cast("void*", self._ptr)
@@ -279,6 +271,10 @@ return function(META)
 
 					table.insert(wnd.events, {type = "mouse_scroll", delta_x = dx / 10, delta_y = dy / 10})
 				end,
+				frame = function(data, pointer) end,
+				axis_source = function(data, pointer, axis_source) end,
+				axis_stop = function(data, pointer, time, axis) end,
+				axis_discrete = function(data, pointer, axis, discrete) end,
 			},
 			ffi.cast("void*", self._ptr)
 		)
@@ -560,11 +556,6 @@ return function(META)
 	end
 
 	function META:GetSurfaceHandle()
-		print("GetSurfaceHandle called:")
-		print("  surface:", self.surface)
-		print("  display:", self.display)
-		print("  surface is nil?", self.surface == nil)
-		print("  display is nil?", self.display == nil)
 		return self.surface, self.display
 	end
 

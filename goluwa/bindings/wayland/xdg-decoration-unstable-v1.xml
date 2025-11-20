@@ -1,0 +1,174 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<protocol name="xdg_decoration_unstable_v1">
+  <copyright>
+    Copyright © 2018 Simon Ser
+
+    Permission is hereby granted, free of charge, to any person obtaining a
+    copy of this software and associated documentation files (the "Software"),
+    to deal in the Software without restriction, including without limitation
+    the rights to use, copy, modify, merge, publish, distribute, sublicense,
+    and/or sell copies of the Software, and to permit persons to whom the
+    Software is furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice (including the next
+    paragraph) shall be included in all copies or substantial portions of the
+    Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
+    THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+    FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+    DEALINGS IN THE SOFTWARE.
+  </copyright>
+
+  <interface name="zxdg_decoration_manager_v1" version="1">
+    <description summary="window decoration manager">
+      This interface allows a compositor to announce support for server-side
+      decorations.
+
+      A window decoration is a set of window controls as deemed appropriate by
+      the party managing them, such as user interface components used to move,
+      resize and change a window's state.
+
+      A client can use this protocol to request being decorated by a supporting
+      compositor.
+
+      If compositor and client do not negotiate the use of a server-side
+      decoration using this protocol, clients continue to self-decorate as they
+      see fit.
+
+      Warning! The protocol described in this file is experimental and
+      backward incompatible changes may be made. Backward compatible changes
+      may be added together with the corresponding interface version bump.
+      Backward incompatible changes are done by bumping the version number in
+      the protocol and interface names and resetting the interface version.
+      Once the protocol is to be declared stable, the 'z' prefix and the
+      version number in the protocol and interface names are removed and the
+      interface version number is reset.
+    </description>
+
+    <request name="destroy" type="destructor">
+      <description summary="destroy the decoration manager object">
+        Destroy the decoration manager. This doesn't destroy objects created
+        with the manager.
+      </description>
+    </request>
+
+    <request name="get_toplevel_decoration">
+      <description summary="create a new toplevel decoration object">
+        Create a new decoration object associated with the given toplevel.
+
+        Creating an xdg_toplevel_decoration from an xdg_toplevel which has a
+        buffer attached or committed is a client error, and any attempts by a
+        client to attach or manipulate a buffer prior to the first
+        xdg_toplevel_decoration.configure event must also be treated as
+        errors.
+      </description>
+      <arg name="id" type="new_id" interface="zxdg_toplevel_decoration_v1"/>
+      <arg name="toplevel" type="object" interface="xdg_toplevel"/>
+    </request>
+  </interface>
+
+  <interface name="zxdg_toplevel_decoration_v1" version="1">
+    <description summary="decoration object for a toplevel surface">
+      The decoration object allows the client to negotiate the rendering of
+      the window decorations.
+
+      The client is responsible for creating an xdg_toplevel_decoration object
+      and telling the compositor what mode it wants to use.
+
+      The compositor will deliver to the client the current mode via a
+      configure event.
+
+      The client must use the actual mode received in the configure event.
+
+      A switch to a different mode works as follows:
+      - The client requests a new mode via set_mode.
+      - The compositor receives the request.
+      - The compositor sends a configure event with the new mode.
+      - The client receives the configure event.
+      The client can use the new mode as soon as it receives the configure
+      event.
+
+      The client can also request a preferred mode at any time. The compositor
+      is free to ignore this request.
+
+      The client issues a set_mode request with the desired mode.
+      The compositor replies with a configure event with the new mode.
+
+      The compositor is free to choose its own mode if the client has not
+      requested one.
+
+      The compositor is free to deny the request.
+
+      The compositor must reply to a set_mode request with a configure event.
+      The client must track the new mode.
+
+      The client may also receive a configure event at any time.
+
+      The client can use the mode interface to request a mode.
+    </description>
+
+    <enum name="error">
+      <entry name="unconfigured_buffer" value="0"
+             summary="xdg_toplevel has a buffer attached before configure"/>
+      <entry name="already_constructed" value="1"
+             summary="xdg_toplevel already has a decoration object"/>
+      <entry name="orphaned" value="2"
+             summary="xdg_toplevel destroyed before the decoration object"/>
+    </enum>
+
+    <enum name="mode">
+      <description summary="window decoration modes">
+        These values describe window decoration modes.
+      </description>
+      <entry name="client_side" value="1"
+             summary="no server-side window decoration"/>
+      <entry name="server_side" value="2"
+             summary="server-side window decoration"/>
+    </enum>
+
+    <request name="destroy" type="destructor">
+      <description summary="destroy the decoration object">
+        Switch back to a mode without any server-side decorations at the next
+        commit.
+      </description>
+    </request>
+
+    <request name="set_mode">
+      <description summary="set the decoration mode">
+        Set the preferred decoration mode.
+
+        The compositor will check whether the requested mode is available.
+        If it is, the compositor will send a configure event with the
+        requested mode.
+        If it is not, the compositor will send a configure event with a
+        fallback mode.
+
+        The client must follow the mode received in the configure event.
+      </description>
+      <arg name="mode" type="uint" enum="mode" summary="the decoration mode"/>
+    </request>
+
+    <request name="unset_mode">
+      <description summary="unset the decoration mode">
+        Unset the preferred decoration mode. The compositor will choose a
+        mode.
+      </description>
+    </request>
+
+    <event name="configure">
+      <description summary="suggest a surface change">
+        The configure event asks the client to change its decoration mode.
+        The configured state should not be applied immediately. See
+        xdg_surface.configure for details.
+
+        A configure event can be sent at any time. The specified mode must be
+        obeyed by the client.
+      </description>
+      <arg name="mode" type="uint" enum="mode" summary="the decoration mode"/>
+    </event>
+  </interface>
+</protocol>

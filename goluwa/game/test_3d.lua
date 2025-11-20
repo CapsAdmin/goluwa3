@@ -5,6 +5,7 @@ local Vec3f = require("structs.vec3").Vec3f
 local event = require("event")
 local Transform = require("transform")
 local render = require("graphics.render")
+local gfx = require("graphics.gfx")
 local render3d = require("graphics.render3d")
 local build_cube = require("game.build_cube")
 local Texture = require("graphics.texture")

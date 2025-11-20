@@ -40,11 +40,8 @@ function VulkanInstance.New(surface_handle, display_handle)
 	for i, device in ipairs(physical_devices) do
 		local props = device:GetProperties()
 		local device_name = ffi.string(props.deviceName)
-		print(string.format("Physical device [%d]: %s", i, device_name))
 
 		if device:SupportsSurface(self.surface) then
-			print("  -> Supports surface!")
-			
 			local score = 0
 			-- VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU = 2
 			if props.deviceType == 2 then 
@@ -54,21 +51,22 @@ function VulkanInstance.New(surface_handle, display_handle)
 				score = 100
 			end
 			
-			print("  -> Score: " .. score)
 
 			if score > best_score then
 				self.physical_device = device
 				best_score = score
-				print("  -> Selected as primary device (new best score)")
 			end
-		else
-			print("  -> Does NOT support surface")
 		end
 	end
 
 	if not self.physical_device then
 		error("No physical device supports the Wayland surface!")
 	end
+
+	local props = self.physical_device:GetProperties()
+	local device_name = ffi.string(props.deviceName)
+	print(device_name .. " selected")
+
 
 	self.graphics_queue_family = self.physical_device:FindGraphicsQueueFamily(self.surface)
 	self.device = Device.New(self.physical_device, {"VK_KHR_swapchain"}, self.graphics_queue_family)

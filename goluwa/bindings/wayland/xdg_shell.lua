@@ -5938,4 +5938,5 @@ do
 	ffi.metatype('struct xdg_popup', meta)
 end
 
+output_table._interface_data = interface_data
 return output_table

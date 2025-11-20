@@ -20,6 +20,8 @@ local window_target = vulkan_instance:CreateWindowRenderTarget(
 )
 
 event.AddListener("WindowFramebufferResized", "window_resized", function(wnd, size)
+	window_target.config.width = size.x
+	window_target.config.height = size.y
 	window_target:RebuildFramebuffers()
 end)
 

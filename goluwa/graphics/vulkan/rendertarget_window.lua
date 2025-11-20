@@ -19,6 +19,8 @@ local default_config = {
 	acquire_timeout = ffi.cast("uint64_t", -1), -- Infinite timeout by default
 	-- Presentation
 	pre_transform = nil, -- nil = use currentTransform
+	width = 512,
+	height = 512,
 }
 
 function WindowRenderTarget.New(vulkan_instance, config)
@@ -27,6 +29,9 @@ function WindowRenderTarget.New(vulkan_instance, config)
 	for k, v in pairs(default_config) do
 		if config[k] == nil then config[k] = v end
 	end
+
+	if config.width == 0 then config.width = 512 end
+	if config.height == 0 then config.height = 512 end
 
 	local self = setmetatable({config = config}, WindowRenderTarget)
 	self.vulkan_instance = vulkan_instance
@@ -44,13 +49,6 @@ function WindowRenderTarget.New(vulkan_instance, config)
 		else
 			error("Surface extent is undefined and no window size provided in config!")
 		end
-	end
-
-	-- Debug: Print available surface formats
-	print("Available surface formats: " .. #self.surface_formats)
-
-	for i, fmt in ipairs(self.surface_formats) do
-		print(string.format("  [%d] format=%s, color_space=%s", i, fmt.format, fmt.color_space))
 	end
 
 	-- Validate format index
