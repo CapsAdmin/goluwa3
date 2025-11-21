@@ -9,7 +9,7 @@ local Texture = require("graphics.texture")
 local gfx = require("graphics.gfx")
 local render2d = require("graphics.render2d")
 
-if false then
+if true then
 	local zsnes = Texture.New(
 		{
 			path = "assets/images/zsnes.png",
@@ -97,8 +97,6 @@ if false then
 	local scale = 4
 
 	local function draw(style, x, y, w, h, corner_size)
-		render2d.SetTexture(zsnes)
-		render2d.SetColor(1, 1, 1, 1)
 		corner_size = corner_size or 4
 		local rect = skin[style].rect
 		gfx.DrawNinePatch(x, y, w, h, rect.w, rect.h, corner_size, rect.x, rect.y, scale)
@@ -118,6 +116,8 @@ if false then
 	end)
 
 	event.AddListener("Draw2D", "test", function(dt)
+		render2d.SetTexture(zsnes)
+		render2d.SetColor(1, 1, 1, 1)
 		local x = 10
 		local y = 10
 		local w = 50
@@ -141,7 +141,7 @@ if false then
 	end)
 end
 
-if true then
+if false then
 	local QuadricBezierCurve = require("graphics.quadric_bezier_curve")
 	local curve = QuadricBezierCurve.New()
 	curve:Add(Vec2(0, 0))
@@ -153,7 +153,7 @@ if true then
 	event.AddListener("Draw2D", "test_bezier", function(dt)
 		render2d.SetTexture()
 		render2d.SetColor(1, 1, 1, 1)
-		mesh:Bind(render2d.cmd, 0)
+		render2d.BindMesh(mesh)
 
 		do
 			render2d.PushMatrix(50, 50, 500, 500)

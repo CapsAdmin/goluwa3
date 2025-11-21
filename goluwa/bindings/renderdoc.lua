@@ -75,6 +75,7 @@ ffi.cdef(
 )
 local renderdoc = {}
 local api = nil
+local lib
 
 local function launch_ui(path, args)
 	local renderdoc_lib = os.getenv("RENDERDOC_LIB")
@@ -89,6 +90,7 @@ local function launch_ui(path, args)
 		error("Failed to determine Nix store path from RENDERDOC_LIB")
 	end
 
+	print(table.concat(args, " "))
 	local process = require("bindings.process")
 	return assert(process.spawn({
 		command = store_path .. "/bin/qrenderdoc",
@@ -122,6 +124,9 @@ local function find_renderdoc_lib()
 end
 
 -- Initialize RenderDoc
+local api_ptr = nil
+local API_1_6_0 = ffi.typeof("$*", RENDERDOC_API_1_6_0)
+
 function renderdoc.init()
 	local renderdoc_lib = os.getenv("RENDERDOC_LIB")
 
@@ -137,15 +142,23 @@ function renderdoc.init()
 	end
 
 	do
-		local lib = find_renderdoc_lib()
-		local api_ptr = ffi.new("void*[1]")
+		lib = find_renderdoc_lib()
+		api_ptr = ffi.new("void*[1]")
 		local result = lib.RENDERDOC_GetAPI(RENDERDOC_Version("Version_1_6_0"), api_ptr)
 
 		if result ~= 1 or api_ptr[0] == nil then error("Failed to get RenderDoc API") end
 
-		api = ffi.typeof("$*", RENDERDOC_API_1_6_0)(api_ptr[0])
+		api = ffi.cast(API_1_6_0, api_ptr[0])
+		print(api.GetAPIVersion)
+		print(api.GetNumCaptures)
+
+		if api.GetAPIVersion == nil then
+			error("Failed to cast RenderDoc API to version 1.6.0")
+		end
 	end
 
+	--	api.SetCaptureFilePathTemplate("./renderdoc_captures/frame_{{frame}}.rdc")
+	--print("capturing to ", ffi.string(api.GetCaptureFilePathTemplate()))
 	print(string.format("RenderDoc initialized (v%d.%d.%d)", renderdoc.GetVersion()))
 end
 
@@ -162,7 +175,7 @@ end
 function renderdoc.CaptureFrame()
 	if renderdoc.IsCapturing() then error("Already capturing") end
 
-	api.TriggerCapture()
+	api.TriggerMultiFrameCapture(1)
 end
 
 function renderdoc.StartCapture(device, window)
@@ -185,6 +198,7 @@ function renderdoc.GetCaptures()
 		local timestamp = ffi.new("uint64_t[1]", 0)
 		-- Get capture path length
 		api.GetCapture(i, nil, pathlength, timestamp)
+		print("\t", i, pathlength[0], "?!?!")
 
 		if pathlength[0] > 0 then
 			local filename = ffi.new("char[?]", pathlength[0])
@@ -208,7 +222,10 @@ function renderdoc.GetLastCapture()
 end
 
 function renderdoc.OpenUI(...)
-	launch_ui(path, {...})
+	local args = {...}
+	table.insert(args, 1, "localhost:38920")
+	table.insert(args, 1, "--targetcontrol")
+	launch_ui(nil, args)
 end
 
 return renderdoc

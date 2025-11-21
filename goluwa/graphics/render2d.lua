@@ -397,8 +397,13 @@ do -- mesh
 		return Mesh.New(render2d.pipeline:GetVertexAttributes(), vertices, indices)
 	end
 
+	local last_bound_mesh = nil
+
 	function render2d.BindMesh(mesh)
-		mesh:Bind(render2d.cmd, 0)
+		if last_bound_mesh ~= mesh then
+			mesh:Bind(render2d.cmd, 0)
+			last_bound_mesh = mesh
+		end
 	end
 
 	function render2d.DrawIndexedMesh(index_count, instance_count, first_index, vertex_offset, first_instance)
@@ -559,7 +564,7 @@ do -- rectangle
 	local mesh = render2d.CreateMesh(mesh_data, indices)
 
 	function render2d.DrawRect(x, y, w, h, a, ox, oy)
-		mesh:Bind(render2d.cmd, 0)
+		render2d.BindMesh(mesh)
 		render2d.PushMatrix()
 
 		if x and y then render2d.Translate(x, y) end
@@ -586,7 +591,7 @@ do -- triangle
 	)
 
 	function render2d.DrawTriangle(x, y, w, h, a)
-		mesh:Bind(render2d.cmd, 0)
+		render2d.BindMesh(mesh)
 		render2d.PushMatrix()
 
 		if x and y then render2d.Translate(x, y) end
