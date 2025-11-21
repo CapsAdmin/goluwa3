@@ -99,7 +99,7 @@ end
 
 local color_white = Colorf(1, 1, 1, 1)
 
-function META:ConstructVertexBuffer(width, quality, stretch, vertex_buffer)
+function META:ConstructMesh(width, quality, stretch, mesh)
 	width = width or 30
 	stretch = stretch or 1
 
@@ -107,8 +107,8 @@ function META:ConstructVertexBuffer(width, quality, stretch, vertex_buffer)
 
 	local negative_points = self:CreateOffsetedCurve(width.x):ConvertToPoints(quality)
 	local positive_points = self:CreateOffsetedCurve(width.y):ConvertToPoints(quality)
-	local vertex_buffer = vertex_buffer or render2d.CreateMesh(#positive_points * 2)
-	local vertices = vertex_buffer:GetVertices()
+	local mesh = mesh or render2d.CreateMesh(#positive_points * 2)
+	local vertices = mesh:GetVertices()
 	local distance_positive = 0
 
 	for i in ipairs(positive_points) do
@@ -137,7 +137,6 @@ function META:ConstructVertexBuffer(width, quality, stretch, vertex_buffer)
 	end
 
 	-- Create index buffer for triangle strip converted to triangle list
-	local IndexBuffer = require("graphics.index_buffer")
 	local segment_count = #positive_points - 1
 	local index_count = segment_count * 6 -- 2 triangles per segment, 3 indices each
 	local indices = {}
@@ -154,13 +153,13 @@ function META:ConstructVertexBuffer(width, quality, stretch, vertex_buffer)
 		table.insert(indices, base + 1)
 	end
 
-	local index_buffer = IndexBuffer.New(indices, "uint16")
-	vertex_buffer:Upload()
-	return vertex_buffer, index_buffer, segment_count * 6
+	mesh:Upload()
+	mesh:UploadIndices(indices, "uint16")
+	return mesh, index_count
 end
 
-function META:UpdateVertexBuffer(vertex_buffer, width, quality, stretch)
-	return self:ConstructVertexBuffer(width, quality, stretch, vertex_buffer)
+function META:UpdateMesh(mesh, width, quality, stretch)
+	return self:ConstructMesh(width, quality, stretch, mesh)
 end
 
 META:Register()

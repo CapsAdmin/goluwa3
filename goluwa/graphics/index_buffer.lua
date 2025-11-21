@@ -47,6 +47,14 @@ function IndexBuffer.New(indices, index_type)
 	return self
 end
 
+function IndexBuffer:GetIndexType()
+	local t = self.index_type
+
+	if t == "uint16_t" then t = "uint16" end
+
+	return t
+end
+
 function IndexBuffer:GetData()
 	return self.indices
 end

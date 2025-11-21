@@ -148,17 +148,17 @@ if true then
 	curve:Add(Vec2(1, 0))
 	curve:Add(Vec2(1, 1))
 	curve:Add(Vec2(0, 1))
-	local vertex_buffer, index_buffer, index_count = curve:ConstructVertexBuffer(Vec2(-0.05, 0.05), 8, 1)
+	local mesh, index_count = curve:ConstructMesh(Vec2(-0.05, 0.05), 8, 1)
 
 	event.AddListener("Draw2D", "test_bezier", function(dt)
 		render2d.SetTexture()
 		render2d.SetColor(1, 1, 1, 1)
-		render2d.BindMesh(vertex_buffer, index_buffer)
+		mesh:Bind(render2d.cmd, 0)
 
 		do
 			render2d.PushMatrix(50, 50, 500, 500)
 			render2d.UploadConstants(render2d.cmd)
-			render2d.DrawIndexedMesh(index_count)
+			mesh:DrawIndexed(render2d.cmd, index_count)
 			render2d.PopMatrix()
 		end
 	end)

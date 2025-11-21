@@ -9,7 +9,7 @@ local render = require("graphics.render")
 local window = require("graphics.window")
 local event = require("event")
 local VertexBuffer = require("graphics.vertex_buffer")
-local IndexBuffer = require("graphics.index_buffer")
+local Mesh = require("graphics.mesh")
 local Texture = require("graphics.texture")
 -- Vertex shader push constants (64 bytes)
 local VertexConstants = ffi.typeof([[
@@ -393,17 +393,12 @@ do -- shader
 end
 
 do -- mesh
-	function render2d.CreateMesh(vertices)
-		--return render2d.pipeline:CreateMesh(vertices)
-		return VertexBuffer.New(vertices, render2d.pipeline:GetVertexAttributes())
+	function render2d.CreateMesh(vertices, indices)
+		return Mesh.New(render2d.pipeline:GetVertexAttributes(), vertices, indices)
 	end
 
-	function render2d.BindMesh(vertex_buffer, index_buffer)
-		render2d.cmd:BindVertexBuffer(vertex_buffer:GetBuffer(), 0)
-
-		if index_buffer then
-			render2d.cmd:BindIndexBuffer(index_buffer:GetBuffer(), 0, "uint16")
-		end
+	function render2d.BindMesh(mesh)
+		mesh:Bind(render2d.cmd, 0)
 	end
 
 	function render2d.DrawIndexedMesh(index_count, instance_count, first_index, vertex_offset, first_instance)
@@ -561,11 +556,10 @@ do -- rectangle
 		{pos = Vec3f(1, 0, 0), uv = Vec2f(1, 1), color = Colorf(1, 1, 1, 1)}, -- bottom-right
 	}
 	local indices = {0, 1, 2, 2, 1, 3}
-	local index_buffer = IndexBuffer.New(indices)
-	local vertex_buffer = render2d.CreateMesh(mesh_data)
+	local mesh = render2d.CreateMesh(mesh_data, indices)
 
 	function render2d.DrawRect(x, y, w, h, a, ox, oy)
-		render2d.BindMesh(vertex_buffer, index_buffer)
+		mesh:Bind(render2d.cmd, 0)
 		render2d.PushMatrix()
 
 		if x and y then render2d.Translate(x, y) end
@@ -577,13 +571,13 @@ do -- rectangle
 		if w and h then render2d.Scale(w, h) end
 
 		render2d.UploadConstants(render2d.cmd)
-		render2d.DrawIndexedMesh(6)
+		mesh:DrawIndexed(render2d.cmd, 6)
 		render2d.PopMatrix()
 	end
 end
 
 do -- triangle 
-	local vertex_buffer = render2d.CreateMesh(
+	local mesh = render2d.CreateMesh(
 		{
 			{pos = Vec3f(-0.5, -0.5, 0), uv = Vec2f(0, 0), color = Colorf(1, 1, 1, 1)},
 			{pos = Vec3f(0.5, 0.5, 0), uv = Vec2f(1, 1), color = Colorf(1, 1, 1, 1)},
@@ -592,7 +586,7 @@ do -- triangle
 	)
 
 	function render2d.DrawTriangle(x, y, w, h, a)
-		render2d.BindMesh(vertex_buffer)
+		mesh:Bind(render2d.cmd, 0)
 		render2d.PushMatrix()
 
 		if x and y then render2d.Translate(x, y) end
@@ -602,7 +596,7 @@ do -- triangle
 		if w and h then render2d.Scale(w, h) end
 
 		render2d.UploadConstants(render2d.cmd)
-		render2d.DrawMesh(3)
+		mesh:Draw(render2d.cmd, 3)
 		render2d.PopMatrix()
 	end
 end
