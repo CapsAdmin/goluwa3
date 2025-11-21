@@ -1,7 +1,9 @@
+local ffi = require("ffi")
+local renderdoc = require("bindings.renderdoc")
+renderdoc.init()
 local VulkanInstance = require("graphics.vulkan.vulkan_instance")
 local window = require("graphics.window")
 local event = require("event")
-local ffi = require("ffi")
 local system = require("system")
 local Image = require("graphics.vulkan.internal.image")
 local Sampler = require("graphics.vulkan.internal.sampler")
@@ -18,6 +20,17 @@ local window_target = vulkan_instance:CreateWindowRenderTarget(
 		height = size.y,
 	}
 )
+
+event.AddListener("KeyInput", "renderdoc", function(key, press)
+	if not press then return end
+
+	if key == "f8" then renderdoc.CaptureFrame() end
+
+	if key == "f10" then
+		table.print(renderdoc.GetCaptures())
+		renderdoc.OpenUI()
+	end
+end)
 
 event.AddListener("WindowFramebufferResized", "window_resized", function(wnd, size)
 	window_target.config.width = size.x
