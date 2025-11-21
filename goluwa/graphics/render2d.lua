@@ -372,10 +372,8 @@ do -- shader
 	end
 
 	function render2d.UploadConstants(cmd)
-		local matrices = render2d.camera:GetMatrices()
-
 		do
-			vertex_constants.projection_view_world = matrices.projection_view_world
+			vertex_constants.projection_view_world = render2d.GetMatrix()
 			render2d.pipeline:PushConstants(cmd, "vertex", 0, vertex_constants)
 		end
 
@@ -385,10 +383,6 @@ do -- shader
 				-1
 			render2d.pipeline:PushConstants(cmd, "fragment", ffi.sizeof(vertex_constants), fragment_constants)
 		end
-	end
-
-	function render2d.UpdateScreenSize(size)
-		render2d.camera:SetViewport(Rect(0, 0, size.x, size.y))
 	end
 end
 
@@ -400,7 +394,7 @@ do -- mesh
 	local last_bound_mesh = nil
 
 	function render2d.BindMesh(mesh)
-		if last_bound_mesh ~= mesh then
+		if true or last_bound_mesh ~= mesh then
 			mesh:Bind(render2d.cmd, 0)
 			last_bound_mesh = mesh
 		end
@@ -471,49 +465,85 @@ do -- uv
 end
 
 do -- camera
-	local camera = require("graphics.camera")
-	render2d.camera = camera.CreateCamera()
-	render2d.camera:Set3D(false)
-	render2d._camera = render2d.camera
+	local Matrix44 = require("structs.matrix").Matrix44f
+	local proj = Matrix44()
+	local view = Matrix44()
+	local world = Matrix44()
+	local viewport = Rect(0, 0, 512, 512)
+	local view_pos = Vec2f(0, 0)
+	local view_zoom = Vec2f(1, 1)
+	local view_angle = 0
+	local world_matrix_stack = {Matrix44()}
+	local world_matrix_stack_pos = 1
 
-	function render2d.SetCamera(cam)
-		render2d.camera = cam or render2d._camera
+	local function update_projection()
+		proj:Identity()
+		proj:Ortho(viewport.x, viewport.w, viewport.y, viewport.h, -1, 1)
+	end
+
+	local function update_view()
+		view:Identity()
+		local x, y = viewport.w / 2, viewport.h / 2
+		view:Translate(x, y, 0)
+		view:Rotate(view_angle, 0, 0, 1)
+		view:Translate(-x, -y, 0)
+		view:Translate(view_pos.x, view_pos.y, 0)
+		view:Translate(x, y, 0)
+		view:Scale(view_zoom.x, view_zoom.y, 1)
+		view:Translate(-x, -y, 0)
+	end
+
+	function render2d.UpdateScreenSize(size)
+		viewport.w = size.w
+		viewport.h = size.h
+		update_projection()
+		update_view()
+	end
+
+	function render2d.GetMatrix()
+		return proj * view * world_matrix_stack[world_matrix_stack_pos]
 	end
 
 	function render2d.GetSize()
-		return render2d.camera.Viewport.w, render2d.camera.Viewport.h
+		return viewport.w, viewport.h
 	end
 
 	do
 		local ceil = math.ceil
 
 		function render2d.Translate(x, y, z)
-			render2d.camera:TranslateWorld(ceil(x), ceil(y), z or 0)
+			world_matrix_stack[world_matrix_stack_pos]:Translate(ceil(x), ceil(y), z or 0)
 		end
 	end
 
 	function render2d.Translatef(x, y, z)
-		render2d.camera:TranslateWorld(x, y, z or 0)
+		world_matrix_stack[world_matrix_stack_pos]:Translate(x, y, z or 0)
 	end
 
 	function render2d.Rotate(a)
-		render2d.camera:RotateWorld(a, 0, 0, 1)
+		world_matrix_stack[world_matrix_stack_pos]:Rotate(a, 0, 0, 1)
 	end
 
 	function render2d.Scale(w, h, z)
-		render2d.camera:ScaleWorld(w, h or w, z or 1)
+		world_matrix_stack[world_matrix_stack_pos]:Scale(w, h or w, z or 1)
 	end
 
 	function render2d.Shear(x, y)
-		render2d.camera:ShearWorld(x, y, 0)
+		world_matrix_stack[world_matrix_stack_pos]:Shear(x, y, 0)
 	end
 
 	function render2d.LoadIdentity()
-		render2d.camera:LoadIdentityWorld()
+		world_matrix_stack[world_matrix_stack_pos]:Identity()
 	end
 
 	function render2d.PushMatrix(x, y, w, h, a, dont_multiply)
-		render2d.camera:PushWorld(nil, dont_multiply)
+		world_matrix_stack_pos = world_matrix_stack_pos + 1
+
+		if dont_multiply then
+			world_matrix_stack[world_matrix_stack_pos] = Matrix44()
+		else
+			world_matrix_stack[world_matrix_stack_pos] = world_matrix_stack[world_matrix_stack_pos - 1]:Copy()
+		end
 
 		if x and y then render2d.Translate(x, y) end
 
@@ -523,31 +553,19 @@ do -- camera
 	end
 
 	function render2d.PopMatrix()
-		render2d.camera:PopWorld()
+		if world_matrix_stack_pos > 1 then
+			world_matrix_stack_pos = world_matrix_stack_pos - 1
+		else
+			error("Matrix stack underflow")
+		end
 	end
 
 	function render2d.SetWorldMatrix(mat)
-		render2d.camera:SetWorld(mat)
+		world_matrix_stack[world_matrix_stack_pos] = mat:Copy()
 	end
 
 	function render2d.GetWorldMatrix()
-		return render2d.camera:GetWorld()
-	end
-
-	function render2d.ScreenToWorld(x, y)
-		return render2d.camera:ScreenToWorld(x, y)
-	end
-
-	function render2d.ScreenTo3DWorld(x, y)
-		return render3d.camera:ScreenToWorld(x, y)
-	end
-
-	function render2d.Start3D2D(pos, ang, scale)
-		render2d.camera:Start3D2DEx(pos, ang, scale)
-	end
-
-	function render2d.End3D2D()
-		render2d.camera:End3D2D()
+		return world_matrix_stack[world_matrix_stack_pos]
 	end
 end
 
