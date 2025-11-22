@@ -16,7 +16,6 @@ event.AddListener("KeyInput", "escape_shutdown", function(key, press)
 
 	if key == "escape" then wnd:SetMouseTrapped(not wnd:GetMouseTrapped()) end
 
-	if key == "c" and input.IsKeyDown("left_control") then system.ShutDown(0) end
 end)
 
 return wnd

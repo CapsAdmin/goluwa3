@@ -1,8 +1,8 @@
 local fs = require("bindings.filesystem")
-local event = require("event")
-local tostringx = _G.tostringx
-local tostring_args = _G.tostring_args
-local list_concat = list.concat
+local event
+local tostringx = require("helpers.tostring_object").tostring_object
+local tostring_args = require("helpers.tostring_object").tostring_args
+local list_concat = table.concat
 local select = select
 local logfile = _G.logfile or {}
 logfile.files = {}
@@ -37,6 +37,8 @@ do
 
 	local function can_print(str)
 		if suppress_print then return end
+
+		event = event or require("event")
 
 		if event then
 			suppress_print = true
@@ -105,6 +107,7 @@ do
 end
 
 function logfile.LogSection(type, b)
+	event = event or require("event")
 	event.Call("LogSection", type, b)
 end
 

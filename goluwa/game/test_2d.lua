@@ -135,13 +135,13 @@ if true then
 	end)
 end
 
-if true then
+if false then
 	event.AddListener("Draw2D", "test_bezier", function(dt)
 		render2d.DrawTriangle(100, 100, 50, 50, os.clock())
 	end)
 end
 
-if true then
+if false then
 	local QuadricBezierCurve = require("graphics.quadric_bezier_curve")
 	local curve = QuadricBezierCurve.New()
 	curve:Add(Vec2(0, 0))
@@ -164,7 +164,7 @@ if true then
 	end)
 end
 
-if true then
+if false then
 	event.AddListener("Draw2D", "test", function(dt)
 		gfx.DrawText("Hello world", 20, 400)
 		gfx.DrawRoundedRect(100, 100, 200, 200, 50)

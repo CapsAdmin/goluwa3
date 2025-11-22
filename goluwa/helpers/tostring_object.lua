@@ -242,6 +242,15 @@ end
 --[[#local type print = function=(any)>()]]
 return {
 	tostring_object = tostring_object,
+	tostring_args = function(...)
+		local copy = list.pack(...)
+
+		for i = 1, copy.n do
+			copy[i] = tostring_object(copy[i])
+		end
+
+		return copy
+	end,
 	dump_object = function(
 		tbl--[[#: Table]],
 		max_depth--[[#: 1 .. inf | nil]],

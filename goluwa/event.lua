@@ -1,3 +1,4 @@
+local traceback = require("helpers.traceback")
 local system
 local event = _G.event or {}
 event.active = event.active or {}
@@ -88,9 +89,9 @@ function event.Call(event_type, a_, b_, c_, d_, e_)
 			if data.self_arg then
 				if data.self_arg:IsValid() then
 					if data.self_arg_with_callback then
-						status, a, b, c, d, e = xpcall(data.callback, data.on_error or system.OnError, a_, b_, c_, d_, e_)
+						status, a, b, c, d, e = xpcall(data.callback, data.on_error or traceback.OnError, a_, b_, c_, d_, e_)
 					else
-						status, a, b, c, d, e = xpcall(data.callback, data.on_error or system.OnError, data.self_arg, a_, b_, c_, d_, e_)
+						status, a, b, c, d, e = xpcall(data.callback, data.on_error or traceback.OnError, data.self_arg, a_, b_, c_, d_, e_)
 					end
 				else
 					event.RemoveListener(event_type, data.id)
@@ -100,7 +101,7 @@ function event.Call(event_type, a_, b_, c_, d_, e_)
 					return
 				end
 			else
-				status, a, b, c, d, e = xpcall(data.callback, data.on_error or system.OnError, a_, b_, c_, d_, e_)
+				status, a, b, c, d, e = xpcall(data.callback, data.on_error or traceback.OnError, a_, b_, c_, d_, e_)
 			end
 
 			if a == event.destroy_tag or data.remove_after_one_call then

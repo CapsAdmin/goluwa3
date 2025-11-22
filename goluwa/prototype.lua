@@ -1,5 +1,6 @@
 local event = require("event")
 local system = require("system")
+local traceback = require("helpers.traceback")
 local prototype = _G.prototype or {}
 prototype.registered = prototype.registered or {}
 prototype.prepared_metatables = prototype.prepared_metatables or {}
@@ -1064,7 +1065,7 @@ do -- base object
 				end,
 				{
 					on_error = function(str)
-						system.OnError(str)
+						traceback.OnError(str)
 						self:RemoveEvent(event_type)
 					end,
 				}

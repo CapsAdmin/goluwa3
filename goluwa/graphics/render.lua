@@ -21,17 +21,6 @@ local window_target = vulkan_instance:CreateWindowRenderTarget(
 	}
 )
 
-event.AddListener("KeyInput", "renderdoc", function(key, press)
-	if not press then return end
-
-	if key == "f8" then renderdoc.CaptureFrame() end
-
-	if key == "f10" then
-		table.print(renderdoc.GetCaptures())
-		renderdoc.OpenUI()
-	end
-end)
-
 event.AddListener("WindowFramebufferResized", "window_resized", function(wnd, size)
 	window_target.config.width = size.x
 	window_target.config.height = size.y
@@ -100,6 +89,7 @@ event.AddListener("ShutDown", "window_shutdown", function()
 end)
 
 local render = {}
+render.renderdoc = renderdoc
 
 function render.VertexDataToIndices(val)
 	local tbl

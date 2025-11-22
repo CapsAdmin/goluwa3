@@ -474,11 +474,17 @@ do -- camera
 	local view_zoom = Vec2f(1, 1)
 	local view_angle = 0
 	local world_matrix_stack = {Matrix44()}
-	local world_matrix_stack_pos = 1
+	local world_matrix_stack_pos = 1	
+
+	local proj_view = Matrix44()
+	local function update_proj_view()
+		proj_view = proj * view
+	end
 
 	local function update_projection()
 		proj:Identity()
 		proj:Ortho(viewport.x, viewport.w, viewport.y, viewport.h, -1, 1)
+		update_proj_view()
 	end
 
 	local function update_view()
@@ -491,6 +497,8 @@ do -- camera
 		view:Translate(x, y, 0)
 		view:Scale(view_zoom.x, view_zoom.y, 1)
 		view:Translate(-x, -y, 0)
+
+		update_proj_view()
 	end
 
 	function render2d.UpdateScreenSize(size)
@@ -501,7 +509,7 @@ do -- camera
 	end
 
 	function render2d.GetMatrix()
-		return proj * view * world_matrix_stack[world_matrix_stack_pos]
+		return proj_view * world_matrix_stack[world_matrix_stack_pos]
 	end
 
 	function render2d.GetSize()
