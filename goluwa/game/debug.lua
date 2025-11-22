@@ -40,7 +40,9 @@ timer.Repeat(
 	0.5,
 	math.huge,
 	function()
-		if trace_report then print(jit_trace_track.ToStringTraceInfo(trace_report())) end
+		if trace_report then
+			print(jit_trace_track.ToStringProblematicTraces(trace_report()))
+		end
 
 		if profile_report then print(profile_report()) end
 	end

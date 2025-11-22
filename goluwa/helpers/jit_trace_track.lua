@@ -210,30 +210,68 @@ function trace_track.Start()
 		attach(on_record_event)
 	end,
 	function()
-		for what, traces in pairs({traces = traces, aborted = aborted}) do
-			for k, v in pairs(traces) do
-				do
-					if what == "aborted" then
-						assert(v.stopped == nil)
-						assert(v.DEAD)
-					elseif what == "traces" then
-						assert(v.aborted == nil)
-					end
+		-- Create snapshots to avoid mutating shared state
+		local traces_snapshot = {}
+		local aborted_snapshot = {}
+
+		-- Deep copy traces
+		for id, trace in pairs(traces) do
+			if trace.trace_info then
+				traces_snapshot[id] = {
+					pc_lines = trace.pc_lines,
+					id = trace.id,
+					exit_id = trace.exit_id,
+					parent_id = trace.parent_id,
+					trace_info = trace.trace_info,
+					aborted = trace.aborted,
+					stopped = trace.stopped,
+					DEAD = trace.DEAD,
+				}
+			end
+		end
+
+		-- Deep copy aborted
+		for id, trace in pairs(aborted) do
+			-- Skip if it was eventually successfully traced
+			if not traces[id] then
+				aborted_snapshot[id] = {
+					pc_lines = trace.pc_lines,
+					id = trace.id,
+					exit_id = trace.exit_id,
+					parent_id = trace.parent_id,
+					trace_info = trace.trace_info,
+					aborted = trace.aborted,
+					stopped = trace.stopped,
+					DEAD = trace.DEAD,
+				}
+			end
+		end
+
+		-- Rebuild parent/children relationships on snapshots
+		for id, trace in pairs(traces_snapshot) do
+			local parent = trace.parent_id and traces_snapshot[trace.parent_id]
+
+			if parent then
+				trace.parent = parent
+				parent.children = parent.children or {}
+				parent.children[id] = trace
+			end
+		end
+
+		-- Convert children maps to sorted arrays
+		for id, trace in pairs(traces_snapshot) do
+			if trace.children then
+				local new = {}
+
+				for k, v in pairs(trace.children) do
+					table.insert(new, v)
 				end
 
-				if v.children then
-					local new = {}
+				table.sort(new, function(a, b)
+					return a.exit_id < b.exit_id
+				end)
 
-					for k, v in pairs(v.children) do
-						table.insert(new, v)
-					end
-
-					table.sort(new, function(a, b)
-						return a.exit_id < b.exit_id
-					end)
-
-					v.children = new
-				end
+				trace.children = new
 			end
 		end
 
@@ -299,24 +337,23 @@ function trace_track.Start()
 			trace.lines = lines
 		end
 
-		-- remove aborted traces that were eventually succesfully traced
-		for id, trace in pairs(aborted) do
-			if traces[id] then aborted[id] = nil else unpack_lines(trace) end
+		-- Unpack lines for all snapshot traces
+		for id, trace in pairs(traces_snapshot) do
+			unpack_lines(trace)
 		end
 
-		-- remove that were never stopped or aborted
-		for id, trace in pairs(traces) do
-			if not trace.trace_info then traces[id] = nil else unpack_lines(trace) end
+		for id, trace in pairs(aborted_snapshot) do
+			unpack_lines(trace)
 		end
 
 		local traces_sorted = {}
 		local aborted_sorted = {}
 
-		for _, trace in pairs(traces) do
+		for _, trace in pairs(traces_snapshot) do
 			table_insert(traces_sorted, trace)
 		end
 
-		for _, trace in pairs(aborted) do
+		for _, trace in pairs(aborted_snapshot) do
 			table_insert(aborted_sorted, trace)
 		end
 
