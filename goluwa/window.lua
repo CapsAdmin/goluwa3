@@ -1,6 +1,6 @@
 local prototype = require("prototype")
 local system = require("system")
-local Vec2 = require("structs.vec2").Vec2d
+local Vec2 = require("structs.vec2")
 local event = require("event")
 local window = _G.window or {}
 local input = require("input")

@@ -1,8 +1,8 @@
 local ffi = require("ffi")
 local utility = require("utility")
-local Colorf = require("structs.color").Colorf
-local Vec3f = require("structs.vec3").Vec3f
-local Vec2f = require("structs.vec2").Vec2f
+local Colorf = require("structs.color")
+local Vec3f = require("structs.vec3")
+local Vec2f = require("structs.vec2")
 local Rect = require("structs.rect")
 local Matrix44f = require("structs.matrix").Matrix44f
 local render = require("graphics.render")
@@ -14,23 +14,18 @@ local Texture = require("graphics.texture")
 -- Vertex shader push constants (64 bytes)
 local VertexConstants = ffi.typeof([[
 	struct {
-		$ projection_view_world;
+		float projection_view_world[16];
 	}
-]], Matrix44f)
-local FragmentConstants = ffi.typeof(
-	[[
+]])
+local FragmentConstants = ffi.typeof([[
 	struct {
-        $ global_color;          
+        float global_color[4];          
         float alpha_multiplier;  
         int texture_index;       
-        $ uv_offset;             
-        $ uv_scale;              
+        float uv_offset[2];             
+        float uv_scale[2];              
 	}
-]],
-	Colorf,
-	Vec2f,
-	Vec2f
-)
+]])
 local vertex_constants = VertexConstants()
 local fragment_constants = FragmentConstants()
 local render2d = {}
@@ -272,14 +267,18 @@ do -- shader
 
 	do
 		function render2d.SetColor(r, g, b, a)
-			fragment_constants.global_color.r = r
-			fragment_constants.global_color.g = g
-			fragment_constants.global_color.b = b
-			fragment_constants.global_color.a = a or fragment_constants.global_color.a
+			fragment_constants.global_color[0] = r
+			fragment_constants.global_color[1] = g
+			fragment_constants.global_color[2] = b
+
+			if a then fragment_constants.global_color[3] = a end
 		end
 
 		function render2d.GetColor()
-			return fragment_constants.global_color:Unpack()
+			return fragment_constants.global_color[0],
+			fragment_constants.global_color[1],
+			fragment_constants.global_color[2],
+			fragment_constants.global_color[3]
 		end
 
 		utility.MakePushPopFunction(render2d, "Color")
@@ -287,7 +286,7 @@ do -- shader
 
 	do
 		function render2d.SetAlphaMultiplier(a)
-			fragment_constants.alpha_multiplier = a or fragment_constants.alpha_multiplier
+			fragment_constants.alpha_multiplier = a
 		end
 
 		function render2d.GetAlphaMultiplier()
@@ -426,19 +425,19 @@ do -- uv
 	function render2d.SetUV(x, y, w, h, sx, sy)
 		if not x then
 			-- Reset to default (no transformation)
-			fragment_constants.uv_offset.x = 0
-			fragment_constants.uv_offset.y = 0
-			fragment_constants.uv_scale.x = 1
-			fragment_constants.uv_scale.y = 1
+			fragment_constants.uv_offset[0] = 0
+			fragment_constants.uv_offset[1] = 0
+			fragment_constants.uv_scale[0] = 1
+			fragment_constants.uv_scale[1] = 1
 		else
 			sx = sx or 1
 			sy = sy or 1
 			local y = -y - h
 			-- Set UV offset and scale
-			fragment_constants.uv_offset.x = x / sx
-			fragment_constants.uv_offset.y = y / sy
-			fragment_constants.uv_scale.x = w / sx
-			fragment_constants.uv_scale.y = h / sy
+			fragment_constants.uv_offset[0] = x / sx
+			fragment_constants.uv_offset[1] = y / sy
+			fragment_constants.uv_scale[0] = w / sx
+			fragment_constants.uv_scale[1] = h / sy
 		end
 
 		X = x
@@ -455,10 +454,10 @@ do -- uv
 
 	function render2d.SetUV2(u1, v1, u2, v2)
 		-- Calculate offset and scale from UV coordinates
-		fragment_constants.uv_offset.x = u1
-		fragment_constants.uv_offset.y = v1
-		fragment_constants.uv_scale.x = u2 - u1
-		fragment_constants.uv_scale.y = v2 - v1
+		fragment_constants.uv_offset[0] = u1
+		fragment_constants.uv_offset[1] = v1
+		fragment_constants.uv_scale[0] = u2 - u1
+		fragment_constants.uv_scale[1] = v2 - v1
 	end
 
 	utility.MakePushPopFunction(render2d, "UV")
@@ -474,9 +473,9 @@ do -- camera
 	local view_zoom = Vec2f(1, 1)
 	local view_angle = 0
 	local world_matrix_stack = {Matrix44()}
-	local world_matrix_stack_pos = 1	
-
+	local world_matrix_stack_pos = 1
 	local proj_view = Matrix44()
+
 	local function update_proj_view()
 		proj_view = proj * view
 	end
@@ -497,7 +496,6 @@ do -- camera
 		view:Translate(x, y, 0)
 		view:Scale(view_zoom.x, view_zoom.y, 1)
 		view:Translate(-x, -y, 0)
-
 		update_proj_view()
 	end
 

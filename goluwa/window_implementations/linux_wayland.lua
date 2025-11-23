@@ -3,7 +3,7 @@ local wayland = require("bindings.wayland.core")
 local xdg_decoration = require("bindings.wayland.xdg_decoration")
 local pointer_constraints = require("bindings.wayland.pointer_constraints")
 local relative_pointer = require("bindings.wayland.relative_pointer")
-local Vec2 = require("structs.vec2").Vec2d
+local Vec2 = require("structs.vec2")
 local system = require("system")
 local event = require("event")
 -- Expose libraries

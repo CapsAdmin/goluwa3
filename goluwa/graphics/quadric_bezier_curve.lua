@@ -1,7 +1,7 @@
 local prototype = require("prototype")
 local render2d = require("graphics.render2d")
-local Vec2 = require("structs.vec2").Vec2f
-local Colorf = require("structs.color").Colorf
+local Vec2 = require("structs.vec2")
+local Colorf = require("structs.color")
 local META = prototype.CreateTemplate("quadric_bezier_curve")
 META:GetSet("JoinLast", true)
 META:GetSet("MaxLines", 0)

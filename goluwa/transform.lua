@@ -1,6 +1,6 @@
 local prototype = require("prototype")
 local Matrix44 = require("structs.matrix").Matrix44f
-local Vec3 = require("structs.vec3").Vec3d
+local Vec3 = require("structs.vec3")
 local Quat = require("structs.quat")
 local AABB = require("structs.aabb")
 local META = prototype.CreateTemplate("transform")

@@ -1,4 +1,4 @@
-local Vec3 = require("structs.vec3").Vec3d
+local Vec3 = require("structs.vec3")
 local structs = require("structs.structs")
 local META = structs.Template("Ang3")
 
