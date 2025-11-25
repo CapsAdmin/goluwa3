@@ -111,15 +111,15 @@ ffi.cdef[[
 local lib = mod.find_library()
 
 local function initialize()
-    if mod.compiler then return end
+	if mod.compiler then return end
+
 	mod.compiler = lib.shaderc_compiler_initialize()
 
 	if mod.compiler == nil then error("Failed to initialize shaderc compiler") end
 end
 
 function mod.compile(source, shader_type, entry_point)
-    initialize()
-
+	initialize()
 	-- Initialize shaderc
 	local options = lib.shaderc_compile_options_initialize()
 
@@ -130,6 +130,7 @@ function mod.compile(source, shader_type, entry_point)
 
 	-- Determine shader kind
 	local shader_kind
+
 	if shader_type == "vertex" or shader_type == "vert" then
 		shader_kind = ffi.C.shaderc_glsl_vertex_shader
 	elseif shader_type == "fragment" or shader_type == "frag" then
@@ -157,30 +158,48 @@ function mod.compile(source, shader_type, entry_point)
 		entry_point or "main", -- entry point
 		options
 	)
-
-
 	-- Check for compilation errors
 	local status = lib.shaderc_result_get_compilation_status(result)
 
 	if status ~= ffi.C.shaderc_compilation_status_success then
 		local error_message = ffi.string(lib.shaderc_result_get_error_message(result))
+		local line_start = error_message:find(":")
+		local line_stop = line_start and error_message:find(":", line_start + 1)
+		local line_number = line_stop and tonumber(error_message:sub(line_start + 1, line_stop - 1))
+		local error_start, error_stop
+
+		if line_number then
+			local pos = 1
+
+			for i = 1, line_number - 1 do
+				pos = source:find("\n", pos)
+
+				if not pos then break end
+
+				pos = pos + 1
+			end
+
+			if pos then
+				error_start = pos
+				error_stop = source:find("\n", pos) or #source
+			end
+		end
+
 		lib.shaderc_result_release(result)
 		lib.shaderc_compile_options_release(options)
 		lib.shaderc_compiler_release(mod.compiler)
+		print(source:sub(error_start or 1, error_stop or #source))
 		error(error_message, 2)
 	end
 
 	local spirv_size = lib.shaderc_result_get_length(result)
 	local spirv_data = lib.shaderc_result_get_bytes(result)
-
 	-- Copy the SPIR-V data before releasing the result
 	local spirv_copy = ffi.new("uint8_t[?]", spirv_size)
 	ffi.copy(spirv_copy, spirv_data, spirv_size)
-
-    lib.shaderc_result_release(result)
-    lib.shaderc_compile_options_release(options)
-    --lib.shaderc_compiler_release(mod.compiler)
-
+	lib.shaderc_result_release(result)
+	lib.shaderc_compile_options_release(options)
+	--lib.shaderc_compiler_release(mod.compiler)
 	return spirv_copy, spirv_size
 end
 
