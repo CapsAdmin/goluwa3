@@ -142,16 +142,24 @@ if false then
 end
 
 if false then
+	local rope = Texture.New(
+		{
+			path = "assets/images/rope.png",
+			min_filter = "linear",
+			mag_filter = "linear",
+		}
+	)
 	local QuadricBezierCurve = require("graphics.quadric_bezier_curve")
 	local curve = QuadricBezierCurve.New()
 	curve:Add(Vec2(0, 0))
 	curve:Add(Vec2(1, 0))
 	curve:Add(Vec2(1, 1))
 	curve:Add(Vec2(0, 1))
-	local mesh, index_count = curve:ConstructMesh(Vec2(-0.05, 0.05), 8, 1)
+	local mesh, index_count = curve:ConstructMesh(Vec2(0, 0.1), 8, 0.3)
 
 	event.AddListener("Draw2D", "test_bezier", function(dt)
-		render2d.SetTexture()
+		render2d.SetTexture(rope)
+		render2d.SetBlendMode("alpha")
 		render2d.SetColor(1, 1, 1, 1)
 		render2d.BindMesh(mesh)
 

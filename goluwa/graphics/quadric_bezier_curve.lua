@@ -123,17 +123,23 @@ function META:ConstructMesh(width, quality, stretch, mesh)
 		local i = i - 1
 		i = i * 2
 		local a = vertices[i]
-		a.pos.x = negative.x
-		a.pos.y = negative.y
-		a.uv.x = distance_positive
-		a.uv.y = 0
-		a.color = color_white
+		a.pos[0] = negative.x
+		a.pos[1] = negative.y
+		a.uv[0] = distance_positive
+		a.uv[1] = 0
+		a.color[0] = color_white.r
+		a.color[1] = color_white.g
+		a.color[2] = color_white.b
+		a.color[3] = color_white.a
 		local b = vertices[i + 1]
-		b.pos.x = positive.x
-		b.pos.y = positive.y
-		b.uv.x = distance_positive
-		b.uv.y = 1
-		b.color = color_white
+		b.pos[0] = positive.x
+		b.pos[1] = positive.y
+		b.uv[0] = distance_positive
+		b.uv[1] = 1
+		b.color[0] = color_white.r
+		b.color[1] = color_white.g
+		b.color[2] = color_white.b
+		b.color[3] = color_white.a
 	end
 
 	-- Create index buffer for triangle strip converted to triangle list
