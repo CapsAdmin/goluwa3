@@ -1,14 +1,14 @@
 local ShaderModule = require("graphics.vulkan.internal.shader_module")
 local DescriptorSetLayout = require("graphics.vulkan.internal.descriptor_set_layout")
 local PipelineLayout = require("graphics.vulkan.internal.pipeline_layout")
-local GraphicsPipeline = require("graphics.vulkan.internal.graphics_pipeline")
+local InternalGraphicsPipeline = require("graphics.vulkan.internal.graphics_pipeline")
 local DescriptorPool = require("graphics.vulkan.internal.descriptor_pool")
 local ffi = require("ffi")
-local Pipeline = {}
-Pipeline.__index = Pipeline
+local GraphicsPipeline = {}
+GraphicsPipeline.__index = GraphicsPipeline
 
-function Pipeline.New(vulkan_instance, config)
-	local self = setmetatable({}, Pipeline)
+function GraphicsPipeline.New(vulkan_instance, config)
+	local self = setmetatable({}, GraphicsPipeline)
 	local uniform_buffers = {}
 	local shader_modules = {}
 	local layout = {}
@@ -118,7 +118,7 @@ function Pipeline.New(vulkan_instance, config)
 	-- Always use format and samples to ensure they match
 	local multisampling_config = config.multisampling or {}
 	multisampling_config.rasterization_samples = config.samples or "1"
-	pipeline = GraphicsPipeline.New(
+	pipeline = InternalGraphicsPipeline.New(
 		vulkan_instance.device,
 		{
 			shaderModules = shader_modules,
@@ -146,7 +146,7 @@ function Pipeline.New(vulkan_instance, config)
 	self.descriptorSetLayout = descriptorSetLayout
 	self.descriptorPools = descriptorPools -- Array of pools, one per frame
 	self.shader_modules = shader_modules -- Keep shader modules alive to prevent GC
-	-- Pipeline variant caching for dynamic state emulation
+	-- GraphicsPipeline variant caching for dynamic state emulation
 	self.pipeline_variants = {}
 	self.current_variant_key = nil
 	self.base_pipeline = pipeline
@@ -174,7 +174,7 @@ function Pipeline.New(vulkan_instance, config)
 	return self
 end
 
-function Pipeline:RegisterTexture(tex)
+function GraphicsPipeline:RegisterTexture(tex)
 	if self.texture_registry[tex] then return self.texture_registry[tex] end
 
 	-- Check if we have space
@@ -194,24 +194,24 @@ function Pipeline:RegisterTexture(tex)
 	end
 end
 
-function Pipeline:GetTextureIndex(tex)
+function GraphicsPipeline:GetTextureIndex(tex)
 	return self.texture_registry[tex] or 0
 end
 
-function Pipeline:UpdateDescriptorSet(type, index, binding_index, ...)
+function GraphicsPipeline:UpdateDescriptorSet(type, index, binding_index, ...)
 	self.vulkan_instance.device:UpdateDescriptorSet(type, self.descriptor_sets[index], binding_index, ...)
 end
 
-function Pipeline:UpdateDescriptorSetArray(frame_index, binding_index, texture_array)
+function GraphicsPipeline:UpdateDescriptorSetArray(frame_index, binding_index, texture_array)
 	-- Update a descriptor set with an array of textures for bindless rendering
 	self.vulkan_instance.device:UpdateDescriptorSetArray(self.descriptor_sets[frame_index], binding_index, texture_array)
 end
 
-function Pipeline:PushConstants(cmd, stage, binding_index, data, data_size)
+function GraphicsPipeline:PushConstants(cmd, stage, binding_index, data, data_size)
 	cmd:PushConstants(self.pipeline_layout, stage, binding_index, data_size or ffi.sizeof(data), data)
 end
 
-function Pipeline:GetUniformBuffer(binding_index)
+function GraphicsPipeline:GetUniformBuffer(binding_index)
 	local ub = self.uniform_buffers[binding_index]
 
 	if not ub then
@@ -221,13 +221,13 @@ function Pipeline:GetUniformBuffer(binding_index)
 	return ub
 end
 
-function Pipeline:Bind(cmd, frame_index)
+function GraphicsPipeline:Bind(cmd, frame_index)
 	frame_index = frame_index or 1
 	cmd:BindPipeline(self.pipeline, "graphics")
 	cmd:BindDescriptorSets("graphics", self.pipeline_layout, {self.descriptor_sets[frame_index]}, 0)
 end
 
-function Pipeline:GetVertexAttributes()
+function GraphicsPipeline:GetVertexAttributes()
 	-- Find the vertex shader stage in config
 	for _, stage in ipairs(self.config.shader_stages) do
 		if stage.type == "vertex" then return stage.attributes end
@@ -280,7 +280,7 @@ end
 -- Rebuild pipeline with modified state
 -- section: the config section to modify (e.g., "color_blend", "rasterizer")
 -- changes: table with the changes to apply to that section
-function Pipeline:RebuildPipeline(section, changes)
+function GraphicsPipeline:RebuildPipeline(section, changes)
 	if not changes then return end
 
 	-- Generate a cache key for this variant
@@ -340,7 +340,7 @@ function Pipeline:RebuildPipeline(section, changes)
 	-- Use format and samples if not explicitly specified
 	local multisampling_config = modified_config.multisampling or {}
 	multisampling_config.rasterization_samples = modified_config.samples or "1"
-	local new_pipeline = GraphicsPipeline.New(
+	local new_pipeline = InternalGraphicsPipeline.New(
 		self.vulkan_instance.device,
 		{
 			shaderModules = shader_modules,
@@ -373,13 +373,13 @@ function Pipeline:RebuildPipeline(section, changes)
 end
 
 -- Reset to base pipeline
-function Pipeline:ResetToBase()
+function GraphicsPipeline:ResetToBase()
 	self.pipeline = self.base_pipeline
 	self.current_variant_key = nil
 end
 
 -- Get information about cached variants (for debugging)
-function Pipeline:GetVariantInfo()
+function GraphicsPipeline:GetVariantInfo()
 	local count = 0
 	local keys = {}
 
@@ -395,4 +395,4 @@ function Pipeline:GetVariantInfo()
 	}
 end
 
-return Pipeline
+return GraphicsPipeline

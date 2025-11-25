@@ -30,7 +30,7 @@ function Texture.New(config)
 			width = config.width,
 			height = config.height,
 			format = config.format or "R8G8B8A8_UNORM",
-			usage = {"sampled", "transfer_dst", "transfer_src", "color_attachment"},
+			usage = config.usage or {"sampled", "transfer_dst", "transfer_src", "color_attachment"},
 			memory_properties = "device_local",
 			mip_levels = mip_levels,
 		}

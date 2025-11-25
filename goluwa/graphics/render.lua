@@ -35,6 +35,7 @@ event.AddListener("Update", "window_update", function(dt)
 
 	window_target:BeginCommandBuffer()
 	local cmd = window_target:GetCommandBuffer()
+	event.Call("PreDraw", cmd, dt)
 	-- Transition swapchain image to color attachment optimal
 	cmd:PipelineBarrier(
 		{
@@ -137,6 +138,10 @@ function render.CreateGraphicsPipeline(config)
 	config.samples = config.samples or window_target:GetSamples()
 	config.descriptor_set_count = config.descriptor_set_count or window_target:GetSwapchainImageCount()
 	return vulkan_instance:CreateGraphicsPipeline(config)
+end
+
+function render.CreateComputePipeline(config)
+	return vulkan_instance:CreateComputePipeline(config)
 end
 
 function render.CreateOffscreenRenderTarget(config)

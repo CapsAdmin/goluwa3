@@ -166,7 +166,7 @@ function Device:UpdateDescriptorSet(type, descriptorSet, binding_index, ...)
 			offset = 0,
 			range = buffer.size,
 		})
-		descriptorWrite[0].pBufferInfo = descriptor_info
+		descriptorWrite.pBufferInfo = descriptor_info
 	elseif type == "storage_image" then
 		local imageView = assert(...)
 		descriptor_info = vulkan.vk.VkDescriptorImageInfo(
@@ -176,7 +176,7 @@ function Device:UpdateDescriptorSet(type, descriptorSet, binding_index, ...)
 				imageLayout = "VK_IMAGE_LAYOUT_GENERAL",
 			}
 		)
-		descriptorWrite[0].pImageInfo = descriptor_info
+		descriptorWrite.pImageInfo = descriptor_info
 	elseif type == "combined_image_sampler" then
 		local imageView, sampler = assert(select(1, ...)), assert(select(2, ...))
 		descriptor_info = vulkan.vk.VkDescriptorImageInfo(
@@ -186,7 +186,7 @@ function Device:UpdateDescriptorSet(type, descriptorSet, binding_index, ...)
 				imageLayout = "VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL",
 			}
 		)
-		descriptorWrite[0].pImageInfo = descriptor_info
+		descriptorWrite.pImageInfo = descriptor_info
 	else
 		error("unsupported descriptor type: " .. tostring(type))
 	end

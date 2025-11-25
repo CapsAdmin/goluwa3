@@ -9,7 +9,7 @@ local Texture = require("graphics.texture")
 local gfx = require("graphics.gfx")
 local render2d = require("graphics.render2d")
 
-if true then
+if false then
 	local zsnes = Texture.New(
 		{
 			path = "assets/images/zsnes.png",
@@ -180,5 +180,85 @@ if false then
 		gfx.DrawFilledCircle(400, 500, 50)
 		gfx.DrawLine(500, 500, 600, 550, 10)
 		gfx.DrawOutlinedRect(500, 100, 100, 50, 5, 1, 0, 0, 1)
+	end)
+end
+
+if true then
+	local ffi = require("ffi")
+	local WORKGROUP_SIZE = 16
+	local GAME_WIDTH, GAME_HEIGHT
+	local pipeline = render.CreateComputePipeline(
+		{
+			shader = [[
+				#version 450
+
+				layout (local_size_x = 16, local_size_y = 16) in;
+
+				layout (binding = 0, rgba8) uniform readonly image2D inputImage;
+				layout (binding = 1, rgba8) uniform writeonly image2D outputImage;
+
+				void main() {
+					ivec2 pos = ivec2(gl_GlobalInvocationID.xy);
+					ivec2 size = imageSize(inputImage);
+
+					if (pos.x >= size.x || pos.y >= size.y) {
+						return;
+					}
+
+					// Count alive neighbors (wrapping at edges)
+					int count = 0;
+					for (int dy = -1; dy <= 1; dy++) {
+						for (int dx = -1; dx <= 1; dx++) {
+							if (dx == 0 && dy == 0) continue; 
+
+							ivec2 neighbor = ivec2(
+								(pos.x + dx + size.x) % size.x, 
+								(pos.y + dy + size.y) % size.y
+							);
+
+							vec4 cell = imageLoad(inputImage, neighbor);
+							if (cell.r > 0.5) {
+								count++;
+							}
+						}
+					}
+
+					// Current cell state
+					vec4 current = imageLoad(inputImage, pos);
+					bool alive = current.r > 0.5;
+
+					// Conway's Game of Life rules
+					bool newState = false;
+					if (alive) {
+						newState = (count == 2 || count == 3);
+					} else {
+						newState = (count == 3);
+					}
+
+					// Write result
+					vec4 color = newState ? vec4(1.0, 1.0, 1.0, 1.0) : vec4(0.0, 0.0, 0.0, 1.0);
+					imageStore(outputImage, pos, color);
+				}
+			]],
+			workgroup_size = WORKGROUP_SIZE,
+			descriptor_set_count = 2, -- 2 sets for ping-pong
+			descriptor_layout = {
+				{binding_index = 0, type = "storage_image", stageFlags = "compute", count = 1}, -- input
+				{binding_index = 1, type = "storage_image", stageFlags = "compute", count = 1}, -- output
+			},
+			descriptor_pool = {
+				{type = "storage_image", count = 4}, -- 2 bindings * 2 sets
+			},
+		}
+	)
+
+	event.AddListener("PreDraw", "draw_2d", function(cmd)
+		pipeline:Dispatch(cmd)
+	end)
+
+	event.AddListener("Draw2D", "test_bezier", function(dt)
+		render2d.SetTexture(pipeline.storage_textures[1])
+		render2d.SetColor(1, 1, 1, 1)
+		render2d.DrawRect(0, 0, 512, 512)
 	end)
 end
