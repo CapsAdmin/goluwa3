@@ -50,7 +50,8 @@ function VertexBuffer.New(vertices, vertex_attributes)
 				local src_value = vertex[attr.lua_name]
 
 				if src_value then
-					ffi.copy(dst_ptr, src_value, ffi.sizeof(attr.lua_type))
+					local val = src_value:GetFloatCopy()
+					ffi.copy(dst_ptr, val, ffi.sizeof(val))
 				end
 			end
 		end

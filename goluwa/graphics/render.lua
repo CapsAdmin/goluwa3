@@ -1,6 +1,9 @@
 local ffi = require("ffi")
+local render = {}
 local renderdoc = require("bindings.renderdoc")
-renderdoc.init()
+
+if pcall(renderdoc.init) then render.renderdoc = renderdoc end
+
 local VulkanInstance = require("graphics.vulkan.vulkan_instance")
 local window = require("graphics.window")
 local event = require("event")
@@ -87,9 +90,6 @@ end)
 event.AddListener("ShutDown", "window_shutdown", function()
 	vulkan_instance.device:WaitIdle()
 end)
-
-local render = {}
-render.renderdoc = renderdoc
 
 function render.VertexDataToIndices(val)
 	local tbl

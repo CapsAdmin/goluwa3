@@ -292,48 +292,22 @@ local function matrix_template(X, Y, identity, number_type)
 		end
 
 		function META:__new(...)
-			if not ... then
-				return ffi.new(self, {]==] .. table.concat(identity, ", ") .. [==[})
+			if ... then
+				return ffi.new(self, ...)
 			end
-			return ffi.new(self, {...})
+			
+			return ffi.new(self, ]==] .. table.concat(identity, ", ") .. [==[)
 		end
 		return META
 	]==]
 	local name = "Matrix" .. X .. Y
-
-	if number_type == "double" then
-		name = name .. "d"
-	else
-		name = name .. "f"
-	end
-
 	return name, assert(loadstring(code, name))(structs)
 end
 
 local out = {}
 
-for X = 2, 4 do
-	for Y = 2, 4 do
-		if not (X == 4 and Y == 4) then
-			local identity = {}
-			local i = 1
-
-			for x = 1, X do
-				for y = 1, Y do
-					identity[i] = i % (Y + 1) - 1 == 0 and 1 or 0
-					i = i + 1
-				end
-			end
-
-			local name, META = matrix_template(X, Y, identity)
-			ffi.metatype(META.CType, META)
-			out[name] = META.CType
-		end
-	end
-end
-
-for i, v in ipairs({"double", "float"}) do
-	local name, META = matrix_template(4, 4, {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1}, v)
+do -- 44
+	local name, META = matrix_template(4, 4, {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1}, "double")
 	out[name] = META.CType
 
 	function META.GetInverse(m, o)
@@ -653,6 +627,27 @@ for i, v in ipairs({"double", "float"}) do
 	end
 
 	ffi.metatype(META.CType, META)
+end
+
+-- other variants
+for X = 2, 4 do
+	for Y = 2, 4 do
+		if not (X == 4 and Y == 4) then
+			local identity = {}
+			local i = 1
+
+			for x = 1, X do
+				for y = 1, Y do
+					identity[i] = i % (Y + 1) - 1 == 0 and 1 or 0
+					i = i + 1
+				end
+			end
+
+			local name, META = matrix_template(X, Y, identity)
+			ffi.metatype(META.CType, META)
+			out[name] = META.CType
+		end
+	end
 end
 
 return out

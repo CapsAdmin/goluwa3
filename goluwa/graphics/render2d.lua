@@ -1,10 +1,10 @@
 local ffi = require("ffi")
 local utility = require("utility")
-local Colorf = require("structs.color")
-local Vec3f = require("structs.vec3")
-local Vec2f = require("structs.vec2")
+local Color = require("structs.color")
+local Vec3 = require("structs.vec3")
+local Vec2 = require("structs.vec2")
 local Rect = require("structs.rect")
-local Matrix44f = require("structs.matrix").Matrix44f
+local Matrix44 = require("structs.matrix").Matrix44
 local render = require("graphics.render")
 local window = require("graphics.window")
 local event = require("event")
@@ -150,23 +150,23 @@ do -- shader
 						location = 0, -- in_position
 						format = "R32G32B32_SFLOAT", -- vec3
 						offset = 0,
-						lua_type = Vec3f,
+						lua_type = ffi.typeof("float[3]"),
 						lua_name = "pos",
 					},
 					{
 						binding = 0,
 						location = 1, -- in_uv
 						format = "R32G32_SFLOAT", -- vec2
-						offset = ffi.sizeof(Vec3f),
-						lua_type = Vec2f,
+						offset = ffi.sizeof("float[3]"),
+						lua_type = ffi.typeof("float[2]"),
 						lua_name = "uv",
 					},
 					{
 						binding = 0,
 						location = 2, -- in_color
 						format = "R32G32B32A32_SFLOAT", -- vec4
-						offset = ffi.sizeof(Vec3f) + ffi.sizeof(Vec2f),
-						lua_type = Colorf,
+						offset = ffi.sizeof("float[3]") + ffi.sizeof("float[2]"),
+						lua_type = ffi.typeof("float[4]"),
 						lua_name = "color",
 					},
 				},
@@ -372,7 +372,7 @@ do -- shader
 
 	function render2d.UploadConstants(cmd)
 		do
-			vertex_constants.projection_view_world = render2d.GetMatrix()
+			vertex_constants.projection_view_world = render2d.GetMatrix():GetFloatCopy()
 			render2d.pipeline:PushConstants(cmd, "vertex", 0, vertex_constants)
 		end
 
@@ -464,13 +464,13 @@ do -- uv
 end
 
 do -- camera
-	local Matrix44 = require("structs.matrix").Matrix44f
+	local Matrix44 = require("structs.matrix").Matrix44
 	local proj = Matrix44()
 	local view = Matrix44()
 	local world = Matrix44()
 	local viewport = Rect(0, 0, 512, 512)
-	local view_pos = Vec2f(0, 0)
-	local view_zoom = Vec2f(1, 1)
+	local view_pos = Vec2(0, 0)
+	local view_zoom = Vec2(1, 1)
 	local view_angle = 0
 	local world_matrix_stack = {Matrix44()}
 	local world_matrix_stack_pos = 1
@@ -579,10 +579,10 @@ render2d.Initialize()
 
 do -- rectangle
 	local mesh_data = {
-		{pos = Vec3f(0, 1, 0), uv = Vec2f(0, 0), color = Colorf(1, 1, 1, 1)}, -- top-left
-		{pos = Vec3f(0, 0, 0), uv = Vec2f(0, 1), color = Colorf(1, 1, 1, 1)}, -- bottom-left
-		{pos = Vec3f(1, 1, 0), uv = Vec2f(1, 0), color = Colorf(1, 1, 1, 1)}, -- top-right
-		{pos = Vec3f(1, 0, 0), uv = Vec2f(1, 1), color = Colorf(1, 1, 1, 1)}, -- bottom-right
+		{pos = Vec3(0, 1, 0), uv = Vec2(0, 0), color = Color(1, 1, 1, 1)}, -- top-left
+		{pos = Vec3(0, 0, 0), uv = Vec2(0, 1), color = Color(1, 1, 1, 1)}, -- bottom-left
+		{pos = Vec3(1, 1, 0), uv = Vec2(1, 0), color = Color(1, 1, 1, 1)}, -- top-right
+		{pos = Vec3(1, 0, 0), uv = Vec2(1, 1), color = Color(1, 1, 1, 1)}, -- bottom-right
 	}
 	local indices = {0, 1, 2, 2, 1, 3}
 	local mesh = render2d.CreateMesh(mesh_data, indices)
@@ -608,9 +608,9 @@ end
 do -- triangle 
 	local mesh = render2d.CreateMesh(
 		{
-			{pos = Vec3f(-0.5, -0.5, 0), uv = Vec2f(0, 0), color = Colorf(1, 1, 1, 1)},
-			{pos = Vec3f(0.5, 0.5, 0), uv = Vec2f(1, 1), color = Colorf(1, 1, 1, 1)},
-			{pos = Vec3f(-0.5, 0.5, 0), uv = Vec2f(0, 1), color = Colorf(1, 1, 1, 1)},
+			{pos = Vec3(-0.5, -0.5, 0), uv = Vec2(0, 0), color = Color(1, 1, 1, 1)},
+			{pos = Vec3(0.5, 0.5, 0), uv = Vec2(1, 1), color = Color(1, 1, 1, 1)},
+			{pos = Vec3(-0.5, 0.5, 0), uv = Vec2(0, 1), color = Color(1, 1, 1, 1)},
 		}
 	)
 

@@ -420,6 +420,19 @@ function structs.AddOperator(META, operator, ...)
 		end
 		]]
 		assert(loadstring(lua, META.ClassName .. " operator " .. operator))(META)
+	elseif operator == "float" then
+		local lua = [=[
+		local META = ...
+		local ffi = require("ffi")
+
+		function META.GetFloatCopy(a)
+			return ffi.new("float[]=] .. #META.Args[1] .. [=[]", 
+				a.KEY
+			)
+		end
+		]=]
+		lua = parse_args(META, lua, ", ")
+		assert(loadstring(lua, META.ClassName .. " operator " .. operator))(META)
 	else
 		logn("unhandled operator " .. operator)
 	end
@@ -444,6 +457,7 @@ function structs.AddAllOperators(META)
 	structs.AddOperator(META, "lerp")
 	structs.AddOperator(META, "set")
 	structs.AddOperator(META, "cast")
+	structs.AddOperator(META, "float")
 	structs.AddOperator(META, "math", "abs", "Abs")
 	structs.AddOperator(META, "math", "round", "Round", "Rounded")
 	structs.AddOperator(META, "math", "ceil", "Ceil", "Ceiled")

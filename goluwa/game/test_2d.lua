@@ -1,4 +1,4 @@
-local Vec2f = require("structs.vec2")
+local Vec2 = require("structs.vec2")
 local Vec2 = require("structs.vec2")
 local Color = require("structs.color")
 local Rect = require("structs.rect")
@@ -35,7 +35,7 @@ if true then
 			end
 
 			function meta:no_size()
-				self.size = Vec2f(self.rect.w, self.rect.h)
+				self.size = Vec2(self.rect.w, self.rect.h)
 				return self
 			end
 

@@ -3,13 +3,12 @@ local render = require("graphics.render")
 local event = require("event")
 local window = require("graphics.window")
 local camera = require("graphics.camera")
-local Matrix44f = require("structs.matrix").Matrix44f
 local cam = camera.CreateCamera()
 local VertexConstants = ffi.typeof([[
 	struct {
-		$ projection_view_world;
+		float projection_view_world[16];
 	}
-]], Matrix44f)
+]])
 local FragmentConstants = ffi.typeof([[
 	struct {
 		int texture_index;
@@ -184,7 +183,7 @@ function render3d.UploadConstants(cmd)
 
 	do
 		local vertex_constants = VertexConstants()
-		vertex_constants.projection_view_world = matrices.projection_view_world
+		vertex_constants.projection_view_world = matrices.projection_view_world:GetFloatCopy()
 		pipeline:PushConstants(cmd, "vertex", 0, vertex_constants)
 	end
 
