@@ -42,7 +42,8 @@ function ComputePipeline.New(vulkan_instance, config)
 	self.current_texture_index = 1
 	local shader = ShaderModule.New(vulkan_instance.device, config.shader, "compute")
 	local descriptor_set_layout = DescriptorSetLayout.New(vulkan_instance.device, config.descriptor_layout)
-	local pipeline_layout = PipelineLayout.New(vulkan_instance.device, {descriptor_set_layout})
+	local push_constant_ranges = config.push_constant_ranges or {}
+	local pipeline_layout = PipelineLayout.New(vulkan_instance.device, {descriptor_set_layout}, push_constant_ranges)
 	local pipeline = ComputePipelineInternal.New(vulkan_instance.device, shader, pipeline_layout)
 	local descriptor_set_count = config.descriptor_set_count or 1
 	local descriptor_pool = DescriptorPool.New(vulkan_instance.device, config.descriptor_pool, descriptor_set_count)

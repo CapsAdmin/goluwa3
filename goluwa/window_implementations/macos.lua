@@ -76,6 +76,7 @@ return function(META)
 				self:CallEvent("MouseInput", button, pressed)
 			elseif event.type == "mouse_move" then
 				self:SetMouseDelta(Vec2(event.delta_x, event.delta_y))
+				self:CallEvent("CursorPosition", Vec2(event.x, event.y))
 			elseif event.type == "mouse_scroll" then
 				self:CallEvent("MouseScroll", Vec2(event.delta_x, event.delta_y))
 			elseif event.type == "window_close" then
