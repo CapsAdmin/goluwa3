@@ -23,26 +23,23 @@ local default_config = {
 	height = 512,
 }
 
-function WindowRenderTarget.New(vulkan_instance, config)
-	config = config or {}
-
-	for k, v in pairs(default_config) do
-		if config[k] == nil then config[k] = v end
-	end
-
-	if config.width == 0 then config.width = 512 end
-	if config.height == 0 then config.height = 512 end
-
-	local self = setmetatable({config = config}, WindowRenderTarget)
-	self.vulkan_instance = vulkan_instance
-	self.current_frame = 0
+local function choose_format(self)
 	-- Query surface capabilities and formats
-	self.surface_capabilities = vulkan_instance.physical_device:GetSurfaceCapabilities(self.vulkan_instance.surface)
-	self.surface_formats = vulkan_instance.physical_device:GetSurfaceFormats(self.vulkan_instance.surface)
-	
+	self.surface_capabilities = self.vulkan_instance.physical_device:GetSurfaceCapabilities(self.vulkan_instance.surface)
+	self.surface_formats = self.vulkan_instance.physical_device:GetSurfaceFormats(self.vulkan_instance.surface)
+
 	-- Handle undefined surface size (Wayland)
 	if self.surface_capabilities.currentExtent.width == 0xFFFFFFFF then
-		print("Surface extent is undefined (0xFFFFFFFF), using window size: " .. (self.config.width or "nil") .. "x" .. (self.config.height or "nil"))
+		print(
+			"Surface extent is undefined (0xFFFFFFFF), using window size: " .. (
+					self.config.width or
+					"nil"
+				) .. "x" .. (
+					self.config.height or
+					"nil"
+				)
+		)
+
 		if self.config.width and self.config.height then
 			self.surface_capabilities.currentExtent.width = self.config.width
 			self.surface_capabilities.currentExtent.height = self.config.height
@@ -64,16 +61,20 @@ function WindowRenderTarget.New(vulkan_instance, config)
 		)
 	end
 
-	local selected_format = self.surface_formats[self.config.surface_format_index]
-
-	if selected_format.format == "undefined" then
+	if self.surface_formats[self.config.surface_format_index].format == "undefined" then
 		error("selected surface format is undefined!")
 	end
 
-	-- Create swapchain
+	self.samples = "4"
+	self.depth_format = "D32_SFLOAT"
+	self.color_format = self.surface_formats[self.config.surface_format_index].format
+end
+
+local function create_swapchain(self)
+	-- Recreate swapchain
 	self.swapchain = SwapChain.New(
 		{
-			device = vulkan_instance.device,
+			device = self.vulkan_instance.device,
 			surface = self.vulkan_instance.surface,
 			surface_format = self.surface_formats[self.config.surface_format_index],
 			surface_capabilities = self.surface_capabilities,
@@ -86,16 +87,33 @@ function WindowRenderTarget.New(vulkan_instance, config)
 			clipped = self.config.clipped,
 			image_usage = self.config.image_usage,
 			pre_transform = self.config.pre_transform,
+			old_swapchain = self.swapchain,
 		}
 	)
 	self.swapchain_images = self.swapchain:GetImages()
-	self.samples = "4"
-	self.depth_format = "D32_SFLOAT"
-	self.color_format = self.surface_formats[self.config.surface_format_index].format
+	-- Recreate image views
+	self.image_views = {}
+
+	for _, swapchain_image in ipairs(self.swapchain_images) do
+		table.insert(
+			self.image_views,
+			ImageView.New(
+				{
+					device = self.vulkan_instance.device,
+					image = swapchain_image,
+					format = self.surface_formats[self.config.surface_format_index].format,
+				}
+			)
+		)
+	end
+end
+
+local function create_depth_buffer(self)
+	-- Recreate depth buffer with new extent
 	local extent = self.surface_capabilities.currentExtent
 	self.depth_image = Image.New(
 		{
-			device = vulkan_instance.device,
+			device = self.vulkan_instance.device,
 			width = extent.width,
 			height = extent.height,
 			format = self.depth_format,
@@ -106,18 +124,22 @@ function WindowRenderTarget.New(vulkan_instance, config)
 	)
 	self.depth_image_view = ImageView.New(
 		{
-			device = vulkan_instance.device,
+			device = self.vulkan_instance.device,
 			image = self.depth_image,
 			format = self.depth_format,
 			aspect = "depth",
 		}
 	)
+end
 
-	-- Create MSAA color buffer if using MSAA
+local function create_msaa_buffer(self)
+	local extent = self.surface_capabilities.currentExtent
+
+	-- Recreate MSAA color buffer if using MSAA
 	if self.samples ~= "1" then
 		self.msaa_image = Image.New(
 			{
-				device = vulkan_instance.device,
+				device = self.vulkan_instance.device,
 				width = extent.width,
 				height = extent.height,
 				format = self.color_format,
@@ -128,42 +150,53 @@ function WindowRenderTarget.New(vulkan_instance, config)
 		)
 		self.msaa_image_view = ImageView.New(
 			{
-				device = vulkan_instance.device,
+				device = self.vulkan_instance.device,
 				image = self.msaa_image,
 				format = self.color_format,
 			}
 		)
 	end
+end
 
-	-- Create image views for swapchain images
-	self.image_views = {}
-
-	for _, swapchain_image in ipairs(self.swapchain_images) do
-		table.insert(
-			self.image_views,
-			ImageView.New(
-				{
-					device = vulkan_instance.device,
-					image = swapchain_image,
-					format = self.surface_formats[self.config.surface_format_index].format,
-				}
-			)
-		)
+local function create_per_frame_resources(self)
+	if self.command_buffers and #self.command_buffers == #self.swapchain_images then
+		return
 	end
 
-	-- Initialize per-frame resources
 	self.command_buffers = {}
 	self.image_available_semaphores = {}
 	self.render_finished_semaphores = {}
 	self.in_flight_fences = {}
 
 	for i = 1, #self.swapchain_images do
-		self.command_buffers[i] = vulkan_instance.command_pool:AllocateCommandBuffer()
-		self.image_available_semaphores[i] = Semaphore.New(vulkan_instance.device)
-		self.render_finished_semaphores[i] = Semaphore.New(vulkan_instance.device)
-		self.in_flight_fences[i] = Fence.New(vulkan_instance.device)
+		self.command_buffers[i] = self.vulkan_instance.command_pool:AllocateCommandBuffer()
+		self.image_available_semaphores[i] = Semaphore.New(self.vulkan_instance.device)
+		self.render_finished_semaphores[i] = Semaphore.New(self.vulkan_instance.device)
+		self.in_flight_fences[i] = Fence.New(self.vulkan_instance.device)
 	end
 
+	self.current_frame = 0
+end
+
+function WindowRenderTarget.New(vulkan_instance, config)
+	config = config or {}
+
+	for k, v in pairs(default_config) do
+		if config[k] == nil then config[k] = v end
+	end
+
+	if config.width == 0 then config.width = 512 end
+
+	if config.height == 0 then config.height = 512 end
+
+	local self = setmetatable({config = config}, WindowRenderTarget)
+	self.vulkan_instance = vulkan_instance
+	self.current_frame = 0
+	choose_format(self)
+	create_swapchain(self)
+	create_depth_buffer(self)
+	create_msaa_buffer(self)
+	create_per_frame_resources(self)
 	return self
 end
 
@@ -246,135 +279,11 @@ end
 function WindowRenderTarget:RebuildFramebuffers()
 	-- Wait for device to be idle
 	self.vulkan_instance.device:WaitIdle()
-	-- Query surface capabilities and formats
-	self.surface_capabilities = self.vulkan_instance.physical_device:GetSurfaceCapabilities(self.vulkan_instance.surface)
-	self.surface_formats = self.vulkan_instance.physical_device:GetSurfaceFormats(self.vulkan_instance.surface)
-
-	-- Handle undefined surface size (Wayland)
-	if self.surface_capabilities.currentExtent.width == 0xFFFFFFFF then
-		print("Surface extent is undefined (0xFFFFFFFF) during rebuild, using window size: " .. (self.config.width or "nil") .. "x" .. (self.config.height or "nil"))
-		if self.config.width and self.config.height then
-			self.surface_capabilities.currentExtent.width = self.config.width
-			self.surface_capabilities.currentExtent.height = self.config.height
-		else
-			error("Surface extent is undefined and no window size provided in config!")
-		end
-	end
-
-	-- Validate format index
-	if self.config.surface_format_index > #self.surface_formats then
-		error(
-			"Invalid surface_format_index: " .. self.config.surface_format_index .. " (max: " .. (
-					#self.surface_formats
-				) .. ")"
-		)
-	end
-
-	local selected_format = self.surface_formats[self.config.surface_format_index]
-
-	if selected_format.format == "undefined" then
-		error("selected surface format is undefined!")
-	end
-
-	-- Recreate swapchain
-	self.swapchain = SwapChain.New(
-		{
-			device = self.vulkan_instance.device,
-			surface = self.vulkan_instance.surface,
-			surface_format = self.surface_formats[self.config.surface_format_index],
-			surface_capabilities = self.surface_capabilities,
-			image_count = self.config.image_count or
-				(
-					self.surface_capabilities.minImageCount + 1
-				),
-			present_mode = self.config.present_mode,
-			composite_alpha = self.config.composite_alpha,
-			clipped = self.config.clipped,
-			image_usage = self.config.image_usage,
-			pre_transform = self.config.pre_transform,
-			old_swapchain = self.swapchain,
-		}
-	)
-	self.swapchain_images = self.swapchain:GetImages()
-	-- Recreate depth buffer with new extent
-	local extent = self.surface_capabilities.currentExtent
-	self.depth_image = Image.New(
-		{
-			device = self.vulkan_instance.device,
-			width = extent.width,
-			height = extent.height,
-			format = self.depth_format,
-			usage = {"depth_stencil_attachment"},
-			properties = "device_local",
-			samples = self.samples,
-		}
-	)
-	self.depth_image_view = ImageView.New(
-		{
-			device = self.vulkan_instance.device,
-			image = self.depth_image,
-			format = self.depth_format,
-			aspect = "depth",
-		}
-	)
-
-	-- Recreate MSAA color buffer if using MSAA
-	if self.samples ~= "1" then
-		self.msaa_image = Image.New(
-			{
-				device = self.vulkan_instance.device,
-				width = extent.width,
-				height = extent.height,
-				format = self.color_format,
-				usage = {"color_attachment"},
-				properties = "device_local",
-				samples = self.samples,
-			}
-		)
-		self.msaa_image_view = ImageView.New(
-			{
-				device = self.vulkan_instance.device,
-				image = self.msaa_image,
-				format = self.color_format,
-			}
-		)
-	end
-
-	-- Recreate image views
-	self.image_views = {}
-
-	for _, swapchain_image in ipairs(self.swapchain_images) do
-		table.insert(
-			self.image_views,
-			ImageView.New(
-				{
-					device = self.vulkan_instance.device,
-					image = swapchain_image,
-					format = self.surface_formats[self.config.surface_format_index].format,
-				}
-			)
-		)
-	end
-
-	-- Recreate per-frame resources if image count changed
-	local new_count = #self.swapchain_images
-	local old_count = #self.command_buffers
-
-	if old_count ~= new_count then
-		self.command_buffers = {}
-		self.image_available_semaphores = {}
-		self.render_finished_semaphores = {}
-		self.in_flight_fences = {}
-
-		for i = 1, new_count do
-			self.command_buffers[i] = self.vulkan_instance.command_pool:AllocateCommandBuffer()
-			self.image_available_semaphores[i] = Semaphore.New(self.vulkan_instance.device)
-			self.render_finished_semaphores[i] = Semaphore.New(self.vulkan_instance.device)
-			self.in_flight_fences[i] = Fence.New(self.vulkan_instance.device)
-		end
-
-		self.current_frame = 0
-	end
+	choose_format(self)
+	create_swapchain(self)
+	create_depth_buffer(self)
+	create_msaa_buffer(self)
+	create_per_frame_resources(self)
 end
 
 function WindowRenderTarget:GetCommandBuffer()
