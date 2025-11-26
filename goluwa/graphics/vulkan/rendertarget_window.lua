@@ -67,7 +67,8 @@ local function choose_format(self)
 
 	self.samples = "4"
 	self.depth_format = "D32_SFLOAT"
-	self.color_format = self.surface_formats[self.config.surface_format_index].format
+	self.surface_format = self.surface_formats[self.config.surface_format_index]
+	self.color_format = self.surface_format.format
 end
 
 local function create_swapchain(self)
@@ -76,7 +77,7 @@ local function create_swapchain(self)
 		{
 			device = self.vulkan_instance.device,
 			surface = self.vulkan_instance.surface,
-			surface_format = self.surface_formats[self.config.surface_format_index],
+			surface_format = self.surface_format,
 			surface_capabilities = self.surface_capabilities,
 			image_count = self.config.image_count or
 				(
@@ -101,7 +102,7 @@ local function create_swapchain(self)
 				{
 					device = self.vulkan_instance.device,
 					image = swapchain_image,
-					format = self.surface_formats[self.config.surface_format_index].format,
+					format = self.surface_format.format,
 				}
 			)
 		)
@@ -142,7 +143,7 @@ local function create_msaa_buffer(self)
 				device = self.vulkan_instance.device,
 				width = extent.width,
 				height = extent.height,
-				format = self.color_format,
+				format = self.surface_format.format,
 				usage = {"color_attachment"},
 				properties = "device_local",
 				samples = self.samples,
@@ -152,7 +153,7 @@ local function create_msaa_buffer(self)
 			{
 				device = self.vulkan_instance.device,
 				image = self.msaa_image,
-				format = self.color_format,
+				format = self.surface_format.format,
 			}
 		)
 	end
