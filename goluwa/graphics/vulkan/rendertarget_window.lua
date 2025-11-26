@@ -246,7 +246,39 @@ function WindowRenderTarget:BeginFrame()
 	self.image_index = image_index + 1
 	-- Reset command buffer for this frame (but don't begin yet - that happens after descriptor updates)
 	self.command_buffers[self.current_frame]:Reset()
-	return true
+	self:BeginCommandBuffer()
+	local cmd = self:GetCommandBuffer()
+	-- Transition swapchain image to color attachment optimal
+	cmd:PipelineBarrier(
+		{
+			srcStage = "color_attachment_output",
+			dstStage = "color_attachment_output",
+			imageBarriers = {
+				{
+					image = self:GetSwapChainImage(),
+					srcAccessMask = "none",
+					dstAccessMask = "color_attachment_write",
+					oldLayout = "undefined",
+					newLayout = "color_attachment_optimal",
+				},
+			},
+		}
+	)
+	cmd:BeginRendering(
+		{
+			colorImageView = self:GetImageView(),
+			msaaImageView = self:GetMSAAImageView(),
+			depthImageView = self:GetDepthImageView(),
+			extent = self:GetExtent(),
+			clearColor = {0.2, 0.2, 0.2, 1.0},
+			clearDepth = 1.0,
+		}
+	)
+	local extent = self:GetExtent()
+	local aspect = extent.width / extent.height
+	cmd:SetViewport(0.0, 0.0, extent.width, extent.height, 0.0, 1.0)
+	cmd:SetScissor(0, 0, extent.width, extent.height)
+	return cmd
 end
 
 function WindowRenderTarget:BeginCommandBuffer()
@@ -256,6 +288,23 @@ end
 
 function WindowRenderTarget:EndFrame()
 	local command_buffer = self.command_buffers[self.current_frame]
+	command_buffer:EndRendering()
+	-- Transition swapchain image to present src
+	command_buffer:PipelineBarrier(
+		{
+			srcStage = "color_attachment_output",
+			dstStage = "color_attachment_output",
+			imageBarriers = {
+				{
+					image = self:GetSwapChainImage(),
+					srcAccessMask = "color_attachment_write",
+					dstAccessMask = "none",
+					oldLayout = "color_attachment_optimal",
+					newLayout = "present_src_khr",
+				},
+			},
+		}
+	)
 	command_buffer:End()
 	-- Submit command buffer with current frame's semaphores
 	self.vulkan_instance.queue:Submit(

@@ -31,60 +31,12 @@ event.AddListener("WindowFramebufferResized", "window_resized", function(wnd, si
 end)
 
 event.AddListener("Update", "window_update", function(dt)
-	if not window_target:BeginFrame() then return end
+	local cmd = window_target:BeginFrame()
 
-	window_target:BeginCommandBuffer()
-	local cmd = window_target:GetCommandBuffer()
-	event.Call("PreDraw", cmd, dt)
-	-- Transition swapchain image to color attachment optimal
-	cmd:PipelineBarrier(
-		{
-			srcStage = "color_attachment_output",
-			dstStage = "color_attachment_output",
-			imageBarriers = {
-				{
-					image = window_target:GetSwapChainImage(),
-					srcAccessMask = "none",
-					dstAccessMask = "color_attachment_write",
-					oldLayout = "undefined",
-					newLayout = "color_attachment_optimal",
-				},
-			},
-		}
-	)
-	cmd:BeginRendering(
-		{
-			colorImageView = window_target:GetImageView(),
-			msaaImageView = window_target:GetMSAAImageView(),
-			depthImageView = window_target:GetDepthImageView(),
-			extent = window_target:GetExtent(),
-			clearColor = {0.2, 0.2, 0.2, 1.0},
-			clearDepth = 1.0,
-		}
-	)
-	local extent = window_target:GetExtent()
-	local aspect = extent.width / extent.height
-	cmd:SetViewport(0.0, 0.0, extent.width, extent.height, 0.0, 1.0)
-	cmd:SetScissor(0, 0, extent.width, extent.height)
+	if not cmd then return end
+
 	event.Call("Draw", cmd, dt)
 	event.Call("PostDraw", cmd, dt)
-	cmd:EndRendering()
-	-- Transition swapchain image to present src
-	cmd:PipelineBarrier(
-		{
-			srcStage = "color_attachment_output",
-			dstStage = "color_attachment_output",
-			imageBarriers = {
-				{
-					image = window_target:GetSwapChainImage(),
-					srcAccessMask = "color_attachment_write",
-					dstAccessMask = "none",
-					oldLayout = "color_attachment_optimal",
-					newLayout = "present_src_khr",
-				},
-			},
-		}
-	)
 	window_target:EndFrame()
 end)
 
@@ -166,6 +118,10 @@ end
 
 function render.GetSwapchainImageCount()
 	return window_target:GetSwapchainImageCount()
+end
+
+function render.CreateCommandBuffer()
+	return vulkan_instance.command_pool:AllocateCommandBuffer()
 end
 
 return render

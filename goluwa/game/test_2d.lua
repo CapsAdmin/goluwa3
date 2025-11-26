@@ -291,8 +291,14 @@ if true then
 			float mousePressed;
 		}
 	]])
+	local device = render.GetDevice()
+	local queue = render.GetQueue()
+	local cmd = render.GetCommandPool():AllocateCommandBuffer()
+	local Fence = require("graphics.vulkan.internal.fence")
 
-	event.AddListener("PreDraw", "draw_2d", function(cmd)
+	event.AddListener("Update", "draw_2d", function()
+		cmd:Reset()
+		cmd:Begin()
 		local push_data = PushConstants(
 			{
 				iFrame = frame_count,
@@ -302,7 +308,10 @@ if true then
 		)
 		cmd:PushConstants(pipeline.pipeline_layout, "compute", 0, ffi.sizeof(PushConstants), push_data)
 		pipeline:Dispatch(cmd)
+		cmd:End()
 		frame_count = frame_count + 1
+		local fence = Fence.New(device)
+		queue:SubmitAndWait(device, cmd, fence)
 	end)
 
 	local presentation_texture
