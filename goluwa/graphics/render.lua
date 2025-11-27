@@ -44,33 +44,6 @@ event.AddListener("ShutDown", "window_shutdown", function()
 	vulkan_instance.device:WaitIdle()
 end)
 
-function render.VertexDataToIndices(val)
-	local tbl
-
-	if type(val) == "number" then
-		tbl = {}
-
-		for i = 1, val do
-			tbl[i] = i - 1
-		end
-	elseif type(val[1]) == "table" then
-		tbl = {}
-
-		for i in ipairs(val) do
-			tbl[i] = i - 1
-		end
-	else
-		tbl = val
-		local max = 0
-
-		for _, i in ipairs(val) do
-			max = math.max(max, i)
-		end
-	end
-
-	return tbl
-end
-
 function render.CreateBuffer(config)
 	return vulkan_instance:CreateBuffer(config)
 end
