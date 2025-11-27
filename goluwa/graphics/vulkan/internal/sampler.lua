@@ -3,9 +3,10 @@ local vulkan = require("graphics.vulkan.internal.vulkan")
 local Sampler = {}
 Sampler.__index = Sampler
 
-function Sampler.New(device, config)
+function Sampler.New(config)
 	config = config or {}
 	-- Default values
+	local device = assert(config.device)
 	local min_filter = config.min_filter or "linear"
 	local mag_filter = config.mag_filter or "linear"
 	local mipmap_mode = config.mipmap_mode or "linear"

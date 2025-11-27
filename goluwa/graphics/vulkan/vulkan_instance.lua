@@ -9,9 +9,9 @@ local OffscreenRenderTarget = require("graphics.vulkan.rendertarget_offscreen")
 local WindowRenderTarget = require("graphics.vulkan.rendertarget_window")
 local GraphicsPipeline = require("graphics.vulkan.graphics_pipeline")
 local ComputePipeline = require("graphics.vulkan.compute_pipeline")
+local process = require("bindings.process")
 
 do
-	local process = require("bindings.process")
 	local VULKAN_SDK = "/Users/caps/VulkanSDK/1.4.328.1"
 	process.setenv("VULKAN_SDK", VULKAN_SDK)
 	process.setenv("VK_LAYER_PATH", VULKAN_SDK .. "/macOS/share/vulkan/explicit_layer.d")
@@ -43,14 +43,14 @@ function VulkanInstance.New(surface_handle, display_handle)
 
 		if device:SupportsSurface(self.surface) then
 			local score = 0
+
 			-- VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU = 2
-			if props.deviceType == 2 then 
+			if props.deviceType == 2 then
 				score = 1000
 			-- VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU = 1
-			elseif props.deviceType == 1 then 
+			elseif props.deviceType == 1 then
 				score = 100
 			end
-			
 
 			if score > best_score then
 				self.physical_device = device
@@ -66,8 +66,6 @@ function VulkanInstance.New(surface_handle, display_handle)
 	local props = self.physical_device:GetProperties()
 	local device_name = ffi.string(props.deviceName)
 	print(device_name .. " selected")
-
-
 	self.graphics_queue_family = self.physical_device:FindGraphicsQueueFamily(self.surface)
 	self.device = Device.New(self.physical_device, {"VK_KHR_swapchain"}, self.graphics_queue_family)
 	self.command_pool = CommandPool.New(self.device, self.graphics_queue_family)

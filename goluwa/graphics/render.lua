@@ -10,39 +10,44 @@ local event = require("event")
 local system = require("system")
 local Image = require("graphics.vulkan.internal.image")
 local Sampler = require("graphics.vulkan.internal.sampler")
-local surface_handle, display_handle = assert(window:GetSurfaceHandle())
-local vulkan_instance = VulkanInstance.New(surface_handle, display_handle)
-local size = window:GetSize()
-local window_target = vulkan_instance:CreateWindowRenderTarget(
-	{
-		present_mode = "fifo",
-		image_count = nil, -- Use default (minImageCount + 1)
-		surface_format_index = 1,
-		composite_alpha = "opaque",
-		width = size.x,
-		height = size.y,
-	}
-)
+local vulkan_instance
 
-event.AddListener("WindowFramebufferResized", "window_resized", function(wnd, size)
-	window_target.config.width = size.x
-	window_target.config.height = size.y
-	window_target:RebuildFramebuffers()
-end)
+function render.Initialize()
+	local surface_handle, display_handle = assert(window:GetSurfaceHandle())
+	vulkan_instance = VulkanInstance.New(surface_handle, display_handle)
+	local size = window:GetSize()
+	local window_target = vulkan_instance:CreateWindowRenderTarget(
+		{
+			present_mode = "fifo",
+			image_count = nil, -- Use default (minImageCount + 1)
+			surface_format_index = 1,
+			composite_alpha = "opaque",
+			width = size.x,
+			height = size.y,
+		}
+	)
+	render.window_target = window_target
 
-event.AddListener("Update", "window_update", function(dt)
-	local cmd = window_target:BeginFrame()
+	event.AddListener("WindowFramebufferResized", "window_resized", function(wnd, size)
+		window_target.config.width = size.x
+		window_target.config.height = size.y
+		window_target:RebuildFramebuffers()
+	end)
 
-	if not cmd then return end
+	event.AddListener("Update", "window_update", function(dt)
+		local cmd = window_target:BeginFrame()
 
-	event.Call("Draw", cmd, dt)
-	event.Call("PostDraw", cmd, dt)
-	window_target:EndFrame()
-end)
+		if not cmd then return end
 
-event.AddListener("ShutDown", "window_shutdown", function()
-	vulkan_instance.device:WaitIdle()
-end)
+		event.Call("Draw", cmd, dt)
+		event.Call("PostDraw", cmd, dt)
+		window_target:EndFrame()
+	end)
+
+	event.AddListener("ShutDown", "window_shutdown", function()
+		vulkan_instance.device:WaitIdle()
+	end)
+end
 
 function render.CreateBuffer(config)
 	return vulkan_instance:CreateBuffer(config)
@@ -54,14 +59,15 @@ function render.CreateImage(config)
 end
 
 function render.CreateSampler(config)
-	return Sampler.New(vulkan_instance.device, config)
+	config.device = vulkan_instance.device
+	return Sampler.New(config)
 end
 
 function render.CreateGraphicsPipeline(config)
-	config.color_format = config.color_format or window_target:GetColorFormat()
-	config.depth_format = config.depth_format or window_target:GetDepthFormat()
-	config.samples = config.samples or window_target:GetSamples()
-	config.descriptor_set_count = config.descriptor_set_count or window_target:GetSwapchainImageCount()
+	config.color_format = config.color_format or render.window_target:GetColorFormat()
+	config.depth_format = config.depth_format or render.window_target:GetDepthFormat()
+	config.samples = config.samples or render.window_target:GetSamples()
+	config.descriptor_set_count = config.descriptor_set_count or render.window_target:GetSwapchainImageCount()
 	return vulkan_instance:CreateGraphicsPipeline(config)
 end
 
@@ -86,11 +92,11 @@ function render.GetCommandPool()
 end
 
 function render.GetCurrentFrame()
-	return window_target:GetCurrentFrame()
+	return render.window_target:GetCurrentFrame()
 end
 
 function render.GetSwapchainImageCount()
-	return window_target:GetSwapchainImageCount()
+	return render.window_target:GetSwapchainImageCount()
 end
 
 function render.CreateCommandBuffer()

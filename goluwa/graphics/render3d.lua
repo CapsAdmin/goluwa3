@@ -14,13 +14,13 @@ local FragmentConstants = ffi.typeof([[
 		int texture_index;
 	}
 ]])
-local pipeline = render.CreateGraphicsPipeline(
-	{
-		dynamic_states = {"viewport", "scissor"},
-		shader_stages = {
-			{
-				type = "vertex",
-				code = [[
+local pipeline
+local pipeline_data = {
+	dynamic_states = {"viewport", "scissor"},
+	shader_stages = {
+		{
+			type = "vertex",
+			code = [[
 					#version 450
 					#extension GL_EXT_scalar_block_layout : require
 
@@ -41,45 +41,45 @@ local pipeline = render.CreateGraphicsPipeline(
 						out_uv = in_uv;
 					}
 				]],
-				bindings = {
-					{
-						binding = 0,
-						stride = ffi.sizeof("float") * 8, -- vec3 + vec3 + vec2
-						input_rate = "vertex",
-					},
-				},
-				attributes = {
-					{
-						binding = 0,
-						location = 0, -- in_position
-						format = "R32G32B32_SFLOAT", -- vec3
-						offset = 0,
-					},
-					{
-						binding = 0,
-						location = 1, -- in_normal
-						format = "R32G32B32_SFLOAT", -- vec3
-						offset = ffi.sizeof("float") * 3,
-					},
-					{
-						binding = 0,
-						location = 2, -- in_uv
-						format = "R32G32_SFLOAT", -- vec2
-						offset = ffi.sizeof("float") * 6,
-					},
-				},
-				input_assembly = {
-					topology = "triangle_list",
-					primitive_restart = false,
-				},
-				push_constants = {
-					size = ffi.sizeof(VertexConstants),
-					offset = 0,
+			bindings = {
+				{
+					binding = 0,
+					stride = ffi.sizeof("float") * 8, -- vec3 + vec3 + vec2
+					input_rate = "vertex",
 				},
 			},
-			{
-				type = "fragment",
-				code = [[
+			attributes = {
+				{
+					binding = 0,
+					location = 0, -- in_position
+					format = "R32G32B32_SFLOAT", -- vec3
+					offset = 0,
+				},
+				{
+					binding = 0,
+					location = 1, -- in_normal
+					format = "R32G32B32_SFLOAT", -- vec3
+					offset = ffi.sizeof("float") * 3,
+				},
+				{
+					binding = 0,
+					location = 2, -- in_uv
+					format = "R32G32_SFLOAT", -- vec2
+					offset = ffi.sizeof("float") * 6,
+				},
+			},
+			input_assembly = {
+				topology = "triangle_list",
+				primitive_restart = false,
+			},
+			push_constants = {
+				size = ffi.sizeof(VertexConstants),
+				offset = 0,
+			},
+		},
+		{
+			type = "fragment",
+			code = [[
 					#version 450
 					#extension GL_EXT_nonuniform_qualifier : require
 
@@ -112,67 +112,71 @@ local pipeline = render.CreateGraphicsPipeline(
 						out_color.a = tex_color.a;
 					}
 				]],
-				descriptor_sets = {
-					{
-						type = "combined_image_sampler",
-						binding_index = 0,
-						count = 1024,
-					},
-				},
-				push_constants = {
-					size = ffi.sizeof(FragmentConstants),
-					offset = ffi.sizeof(VertexConstants),
-				},
-			},
-		},
-		rasterizer = {
-			depth_clamp = false,
-			discard = false,
-			polygon_mode = "fill",
-			line_width = 1.0,
-			cull_mode = "back",
-			front_face = "counter_clockwise",
-			depth_bias = 0,
-		},
-		color_blend = {
-			logic_op_enabled = false,
-			logic_op = "copy",
-			constants = {0.0, 0.0, 0.0, 0.0},
-			attachments = {
+			descriptor_sets = {
 				{
-					blend = false,
-					src_color_blend_factor = "src_alpha",
-					dst_color_blend_factor = "one_minus_src_alpha",
-					color_blend_op = "add",
-					src_alpha_blend_factor = "one",
-					dst_alpha_blend_factor = "zero",
-					alpha_blend_op = "add",
-					color_write_mask = {"r", "g", "b", "a"},
+					type = "combined_image_sampler",
+					binding_index = 0,
+					count = 1024,
 				},
 			},
+			push_constants = {
+				size = ffi.sizeof(FragmentConstants),
+				offset = ffi.sizeof(VertexConstants),
+			},
 		},
-		multisampling = {
-			sample_shading = false,
-			rasterization_samples = "1",
+	},
+	rasterizer = {
+		depth_clamp = false,
+		discard = false,
+		polygon_mode = "fill",
+		line_width = 1.0,
+		cull_mode = "back",
+		front_face = "counter_clockwise",
+		depth_bias = 0,
+	},
+	color_blend = {
+		logic_op_enabled = false,
+		logic_op = "copy",
+		constants = {0.0, 0.0, 0.0, 0.0},
+		attachments = {
+			{
+				blend = false,
+				src_color_blend_factor = "src_alpha",
+				dst_color_blend_factor = "one_minus_src_alpha",
+				color_blend_op = "add",
+				src_alpha_blend_factor = "one",
+				dst_alpha_blend_factor = "zero",
+				alpha_blend_op = "add",
+				color_write_mask = {"r", "g", "b", "a"},
+			},
 		},
-		depth_stencil = {
-			depth_test = true,
-			depth_write = true,
-			depth_compare_op = "less",
-			depth_bounds_test = false,
-			stencil_test = false,
-		},
-	}
-)
+	},
+	multisampling = {
+		sample_shading = false,
+		rasterization_samples = "1",
+	},
+	depth_stencil = {
+		depth_test = true,
+		depth_write = true,
+		depth_compare_op = "less",
+		depth_bounds_test = false,
+		stencil_test = false,
+	},
+}
 local render3d = {}
 render3d.cam = cam
-render3d.pipeline = pipeline
-render3d.current_texture = nil -- Will be set by user via UpdateDescriptorSet
-event.AddListener("Draw", "draw_3d", function(cmd, dt)
-	local frame_index = render.GetCurrentFrame()
-	pipeline:Bind(cmd, frame_index)
-	event.Call("Draw3D", cmd, dt)
-end)
+render3d.current_texture = nil
+
+function render3d.Initialize()
+	pipeline = render.CreateGraphicsPipeline(pipeline_data)
+	render3d.pipeline = pipeline
+
+	event.AddListener("Draw", "draw_3d", function(cmd, dt)
+		local frame_index = render.GetCurrentFrame()
+		pipeline:Bind(cmd, frame_index)
+		event.Call("Draw3D", cmd, dt)
+	end)
+end
 
 function render3d.SetWorldMatrix(world)
 	cam:SetWorld(world)

@@ -2,6 +2,7 @@ local ffi = require("ffi")
 local render2d = require("graphics.render2d")
 local Texture = require("graphics.texture")
 local Buffer = require("structs.buffer")
+local system = require("system")
 local bitmap = {
 	{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, -- U+0000 (nul)
 	{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, -- U+0001
@@ -208,7 +209,6 @@ end
 
 -- Initialize the font texture (created lazily)
 local font_texture = nil
-local system = require("system")
 
 function font:DrawString(str, x, y, spacing)
 	spacing = spacing or 0

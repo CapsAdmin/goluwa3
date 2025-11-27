@@ -11,6 +11,7 @@ local event = require("event")
 local VertexBuffer = require("graphics.vertex_buffer")
 local Mesh = require("graphics.mesh")
 local Texture = require("graphics.texture")
+local Matrix44 = require("structs.matrix").Matrix44
 -- Vertex shader push constants (64 bytes)
 local VertexConstants = ffi.typeof([[
 	struct {
@@ -94,16 +95,6 @@ render2d.blend_modes = {
 }
 
 function render2d.Initialize()
-	render2d.pipeline = render.CreateGraphicsPipeline(render2d.pipeline_data)
-	render2d.SetTexture()
-	render2d.SetColor(1, 1, 1, 1)
-	render2d.SetAlphaMultiplier(1)
-	render2d.SetUV()
-	render2d.UpdateScreenSize(window:GetSize())
-	render2d.current_blend_mode = "alpha"
-end
-
-do -- shader
 	local dynamic_states = {"viewport", "scissor", "blend_constants"}
 
 	if render.GetDevice().has_extended_dynamic_state3 then
@@ -111,8 +102,34 @@ do -- shader
 		table.insert(dynamic_states, "color_blend_equation_ext")
 	end
 
+	render2d.pipeline_data.dynamic_states = dynamic_states
+	render2d.pipeline = render.CreateGraphicsPipeline(render2d.pipeline_data)
+	render2d.SetTexture()
+	render2d.SetColor(1, 1, 1, 1)
+	render2d.SetAlphaMultiplier(1)
+	render2d.SetUV()
+	render2d.UpdateScreenSize(window:GetSize())
+	render2d.current_blend_mode = "alpha"
+	render2d.rect_mesh = render2d.CreateMesh(
+		{
+			{pos = Vec3(0, 1, 0), uv = Vec2(0, 0), color = Color(1, 1, 1, 1)},
+			{pos = Vec3(0, 0, 0), uv = Vec2(0, 1), color = Color(1, 1, 1, 1)},
+			{pos = Vec3(1, 1, 0), uv = Vec2(1, 0), color = Color(1, 1, 1, 1)},
+			{pos = Vec3(1, 0, 0), uv = Vec2(1, 1), color = Color(1, 1, 1, 1)},
+		},
+		{0, 1, 2, 2, 1, 3}
+	)
+	render2d.triangle_mesh = render2d.CreateMesh(
+		{
+			{pos = Vec3(-0.5, -0.5, 0), uv = Vec2(0, 0), color = Color(1, 1, 1, 1)},
+			{pos = Vec3(0.5, 0.5, 0), uv = Vec2(1, 1), color = Color(1, 1, 1, 1)},
+			{pos = Vec3(-0.5, 0.5, 0), uv = Vec2(0, 1), color = Color(1, 1, 1, 1)},
+		}
+	)
+end
+
+do
 	render2d.pipeline_data = {
-		dynamic_states = dynamic_states, -- Will be updated in Initialize() based on support
 		shader_stages = {
 			{
 				type = "vertex",
@@ -464,7 +481,6 @@ do -- uv
 end
 
 do -- camera
-	local Matrix44 = require("structs.matrix").Matrix44
 	local proj = Matrix44()
 	local view = Matrix44()
 	local world = Matrix44()
@@ -575,20 +591,9 @@ do -- camera
 	end
 end
 
-render2d.Initialize()
-
-do -- rectangle
-	local mesh_data = {
-		{pos = Vec3(0, 1, 0), uv = Vec2(0, 0), color = Color(1, 1, 1, 1)}, -- top-left
-		{pos = Vec3(0, 0, 0), uv = Vec2(0, 1), color = Color(1, 1, 1, 1)}, -- bottom-left
-		{pos = Vec3(1, 1, 0), uv = Vec2(1, 0), color = Color(1, 1, 1, 1)}, -- top-right
-		{pos = Vec3(1, 0, 0), uv = Vec2(1, 1), color = Color(1, 1, 1, 1)}, -- bottom-right
-	}
-	local indices = {0, 1, 2, 2, 1, 3}
-	local mesh = render2d.CreateMesh(mesh_data, indices)
-
+do
 	function render2d.DrawRect(x, y, w, h, a, ox, oy)
-		render2d.BindMesh(mesh)
+		render2d.BindMesh(render2d.rect_mesh)
 		render2d.PushMatrix()
 
 		if x and y then render2d.Translate(x, y) end
@@ -600,22 +605,14 @@ do -- rectangle
 		if w and h then render2d.Scale(w, h) end
 
 		render2d.UploadConstants(render2d.cmd)
-		mesh:DrawIndexed(render2d.cmd, 6)
+		render2d.rect_mesh:DrawIndexed(render2d.cmd, 6)
 		render2d.PopMatrix()
 	end
 end
 
-do -- triangle 
-	local mesh = render2d.CreateMesh(
-		{
-			{pos = Vec3(-0.5, -0.5, 0), uv = Vec2(0, 0), color = Color(1, 1, 1, 1)},
-			{pos = Vec3(0.5, 0.5, 0), uv = Vec2(1, 1), color = Color(1, 1, 1, 1)},
-			{pos = Vec3(-0.5, 0.5, 0), uv = Vec2(0, 1), color = Color(1, 1, 1, 1)},
-		}
-	)
-
+do
 	function render2d.DrawTriangle(x, y, w, h, a)
-		render2d.BindMesh(mesh)
+		render2d.BindMesh(render2d.triangle_mesh)
 		render2d.PushMatrix()
 
 		if x and y then render2d.Translate(x, y) end
@@ -625,7 +622,7 @@ do -- triangle
 		if w and h then render2d.Scale(w, h) end
 
 		render2d.UploadConstants(render2d.cmd)
-		mesh:Draw(render2d.cmd, 3)
+		render2d.triangle_mesh:Draw(render2d.cmd, 3)
 		render2d.PopMatrix()
 	end
 end

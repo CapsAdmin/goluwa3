@@ -57,7 +57,6 @@ function Mesh:UploadIndices(indices, index_type)
 		-- Update existing index buffer
 		self.index_buffer.indices = indices
 		self.index_buffer.index_count = #indices
-		local ffi = require("ffi")
 		local index_data = ffi.new(self.index_buffer.index_type .. "[?]", #indices)
 
 		for i, idx in ipairs(indices) do

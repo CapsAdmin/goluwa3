@@ -5,6 +5,7 @@ local Vec2 = require("structs.vec2")
 local Buffer = require("graphics.vulkan.internal.buffer")
 local CommandPool = require("graphics.vulkan.internal.command_pool")
 local Fence = require("graphics.vulkan.internal.fence")
+local ImageView = require("graphics.vulkan.internal.image_view")
 local Texture = {}
 Texture.__index = Texture
 
@@ -31,7 +32,8 @@ function Texture.New(config)
 			height = config.height,
 			format = config.format or "R8G8B8A8_UNORM",
 			usage = config.usage or {"sampled", "transfer_dst", "transfer_src", "color_attachment"},
-			memory_properties = "device_local",
+			memory_properties = config.memory_properties or "device_local",
+			samples = config.samples,
 			mip_levels = mip_levels,
 		}
 	)
@@ -199,7 +201,6 @@ end
 function Texture:GenerateMipMap(initial_layout)
 	if self.mip_map_levels <= 1 then return end
 
-	local Fence = require("graphics.vulkan.internal.fence")
 	local device = render.GetDevice()
 	local queue = render.GetQueue()
 	local command_pool = render.GetCommandPool()
@@ -314,9 +315,6 @@ function Texture:GenerateMipMap(initial_layout)
 end
 
 function Texture:Shade(glsl)
-	local ImageView = require("graphics.vulkan.internal.image_view")
-	local CommandPool = require("graphics.vulkan.internal.command_pool")
-	local Fence = require("graphics.vulkan.internal.fence")
 	local device = render.GetDevice()
 	local queue = render.GetQueue()
 	-- Create a view for only mip level 0 (required for rendering)

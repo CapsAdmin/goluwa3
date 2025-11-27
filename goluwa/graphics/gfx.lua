@@ -2,6 +2,7 @@ local render2d = require("graphics.render2d")
 local Rect = require("structs.rect")
 local Texture = require("graphics.texture")
 local Polygon2D = require("graphics.polygon_2d")
+local font = require("graphics.bitmap_font")
 local gfx = {}
 
 function gfx.Initialize()
@@ -91,12 +92,7 @@ function gfx.DrawNinePatch(x, y, w, h, patch_size_w, patch_size_h, corner_size, 
 		skin_w,
 		skin_h
 	)
-	render2d.DrawRect(
-		x + corner_size,
-		y + corner_size,
-		w - corner_size * 2,
-		h - corner_size * 2
-	)
+	render2d.DrawRect(x + corner_size, y + corner_size, w - corner_size * 2, h - corner_size * 2)
 	-- 6
 	render2d.SetUV(
 		u_offset + patch_size_w - corner_size / uv_scale,
@@ -266,8 +262,6 @@ do
 end
 
 do -- text
-	local font = require("graphics.bitmap_font")
-
 	function gfx.GetDefaultFont()
 		return font
 	end
@@ -484,5 +478,4 @@ do -- text
 	end
 end
 
-gfx.Initialize()
 return gfx
