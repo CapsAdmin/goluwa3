@@ -89,13 +89,16 @@ function Image:GetMipLevels()
 	return self.mip_levels or 1
 end
 
-function Image:CreateView()
+function Image:CreateView(config)
 	return ImageView.New(
 		{
 			device = self.device,
 			image = self,
-			format = self.format,
-			level_count = self.mip_levels or 1,
+			view_type = config.view_type,
+			format = config.format or self.format,
+			level_count = config.level_count or self.mip_levels or 1,
+			aspect = config.aspect,
+			layer_count = config.layer_count,
 		}
 	)
 end

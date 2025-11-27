@@ -91,54 +91,47 @@ local function create_swapchain(self)
 			old_swapchain = self.swapchain,
 		}
 	)
-	self.swapchain_images = self.swapchain:GetImages()
-	-- Recreate image views
-	self.image_views = {}
+	local Texture = require("graphics.texture")
+	local textures = {}
 
-	for _, swapchain_image in ipairs(self.swapchain_images) do
-		table.insert(
-			self.image_views,
-			ImageView.New(
-				{
-					device = self.vulkan_instance.device,
-					image = swapchain_image,
-					format = self.surface_format.format,
-				}
-			)
+	for i, img in ipairs(self.swapchain:GetImages()) do
+		local view = ImageView.New(
+			{
+				device = self.vulkan_instance.device,
+				image = img,
+				format = self.surface_format.format,
+			}
 		)
+		textures[i] = setmetatable({image = img, view = view}, Texture)
 	end
+
+	self.textures = textures
 end
 
 local function create_depth_buffer(self)
-	-- Recreate depth buffer with new extent
 	local extent = self.surface_capabilities.currentExtent
-	self.depth_image = Image.New(
+	local Texture = require("graphics.texture")
+	self.depth_texture = Texture.New(
 		{
-			device = self.vulkan_instance.device,
 			width = extent.width,
 			height = extent.height,
 			format = self.depth_format,
 			usage = {"depth_stencil_attachment"},
-			properties = "device_local",
+			memory_properties = "device_local",
 			samples = self.samples,
-		}
-	)
-	self.depth_image_view = ImageView.New(
-		{
-			device = self.vulkan_instance.device,
-			image = self.depth_image,
-			format = self.depth_format,
-			aspect = "depth",
+			view_aspect = "depth",
+			no_sampler = true,
 		}
 	)
 end
 
 local function create_msaa_buffer(self)
 	local extent = self.surface_capabilities.currentExtent
+	local Texture = require("graphics.texture")
 
 	-- Recreate MSAA color buffer if using MSAA
 	if self.samples ~= "1" then
-		self.msaa_image = Image.New(
+		self.msaa_image = Texture.New(
 			{
 				device = self.vulkan_instance.device,
 				width = extent.width,
@@ -147,20 +140,14 @@ local function create_msaa_buffer(self)
 				usage = {"color_attachment"},
 				properties = "device_local",
 				samples = self.samples,
-			}
-		)
-		self.msaa_image_view = ImageView.New(
-			{
-				device = self.vulkan_instance.device,
-				image = self.msaa_image,
-				format = self.surface_format.format,
+				no_sampler = true,
 			}
 		)
 	end
 end
 
 local function create_per_frame_resources(self)
-	if self.command_buffers and #self.command_buffers == #self.swapchain_images then
+	if self.command_buffers and #self.command_buffers == #self.textures then
 		return
 	end
 
@@ -169,7 +156,7 @@ local function create_per_frame_resources(self)
 	self.render_finished_semaphores = {}
 	self.in_flight_fences = {}
 
-	for i = 1, #self.swapchain_images do
+	for i = 1, #self.textures do
 		self.command_buffers[i] = self.vulkan_instance.command_pool:AllocateCommandBuffer()
 		self.image_available_semaphores[i] = Semaphore.New(self.vulkan_instance.device)
 		self.render_finished_semaphores[i] = Semaphore.New(self.vulkan_instance.device)
@@ -202,7 +189,7 @@ function WindowRenderTarget.New(vulkan_instance, config)
 end
 
 function WindowRenderTarget:GetSwapChainImage()
-	return self.swapchain_images[self.image_index]
+	return self.textures[self.texture_index]:GetImage()
 end
 
 function WindowRenderTarget:GetColorFormat()
@@ -218,32 +205,32 @@ function WindowRenderTarget:GetSamples()
 end
 
 function WindowRenderTarget:GetImageView()
-	return self.image_views[self.image_index]
+	return self.textures[self.texture_index]:GetView()
 end
 
 function WindowRenderTarget:GetMSAAImageView()
-	return self.msaa_image_view
+	return self.msaa_image:GetView()
 end
 
 function WindowRenderTarget:GetDepthImageView()
-	return self.depth_image_view
+	return self.depth_texture:GetView()
 end
 
 function WindowRenderTarget:BeginFrame()
 	-- Use round-robin frame index
-	self.current_frame = (self.current_frame % #self.swapchain_images) + 1
+	self.current_frame = (self.current_frame % #self.textures) + 1
 	-- Wait for the fence for this frame FIRST
 	self.in_flight_fences[self.current_frame]:Wait()
 	-- Acquire next image
-	local image_index = self.swapchain:GetNextImage(self.image_available_semaphores[self.current_frame])
+	local texture_index = self.swapchain:GetNextImage(self.image_available_semaphores[self.current_frame])
 
 	-- Check if swapchain needs recreation
-	if image_index == nil then
+	if texture_index == nil then
 		self:RebuildFramebuffers()
 		return nil
 	end
 
-	self.image_index = image_index + 1
+	self.texture_index = texture_index + 1
 	-- Reset command buffer for this frame (but don't begin yet - that happens after descriptor updates)
 	self.command_buffers[self.current_frame]:Reset()
 	self:BeginCommandBuffer()
@@ -319,7 +306,7 @@ function WindowRenderTarget:EndFrame()
 		not self.swapchain:Present(
 			self.render_finished_semaphores[self.current_frame],
 			self.vulkan_instance.queue,
-			ffi.new("uint32_t[1]", self.image_index - 1)
+			ffi.new("uint32_t[1]", self.texture_index - 1)
 		)
 	then
 		self:RebuildFramebuffers()
@@ -349,7 +336,7 @@ function WindowRenderTarget:GetExtent()
 end
 
 function WindowRenderTarget:GetSwapchainImageCount()
-	return #self.swapchain_images
+	return #self.textures
 end
 
 return WindowRenderTarget

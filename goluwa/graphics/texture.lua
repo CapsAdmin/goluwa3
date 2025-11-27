@@ -37,7 +37,13 @@ function Texture.New(config)
 			mip_levels = mip_levels,
 		}
 	)
-	local view = image:CreateView()
+	local view = image:CreateView(
+		{
+			view_type = config.view_type,
+			format = config.view_format,
+			aspect = config.view_aspect,
+		}
+	)
 	-- Parse min_filter to separate filter mode and mipmap mode
 	local min_filter = config.min_filter or "nearest"
 	local mipmap_mode = "nearest"
@@ -56,16 +62,18 @@ function Texture.New(config)
 		end
 	end
 
-	local sampler = render.CreateSampler(
-		{
-			min_filter = min_filter,
-			mag_filter = config.mag_filter or "nearest",
-			mipmap_mode = mipmap_mode,
-			wrap_s = config.wrap_s or "repeat",
-			wrap_t = config.wrap_t or "repeat",
-			max_lod = mip_levels,
-		}
-	)
+	local sampler = not config.no_sampler and
+		render.CreateSampler(
+			{
+				min_filter = min_filter,
+				mag_filter = config.mag_filter or "nearest",
+				mipmap_mode = mipmap_mode,
+				wrap_s = config.wrap_s or "repeat",
+				wrap_t = config.wrap_t or "repeat",
+				max_lod = mip_levels,
+			}
+		) or
+		nil
 	local self = setmetatable(
 		{
 			image = image,
