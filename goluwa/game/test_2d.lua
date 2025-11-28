@@ -313,45 +313,28 @@ if true then
 		compute()
 	end)
 
-	local presentation_texture
+	local presentation_framebuffer
 	local presentation_pipeline
-	local presentation_mip0_view
-	local presentation_command_pool
-	local presentation_cmd
-	local presentation_fence
 
 	local function init_presentation()
-		if presentation_texture then return end
+		if presentation_framebuffer then return end
 
-		local Texture = require("graphics.texture")
-		local ImageView = require("graphics.vulkan.internal.image_view")
-		local CommandPool = require("graphics.vulkan.internal.command_pool")
-		local Fence = require("graphics.vulkan.internal.fence")
+		local Framebuffer = require("graphics.framebuffer")
 		local device = render.GetDevice()
-		presentation_texture = Texture.New(
+		presentation_framebuffer = Framebuffer.New(
 			{
 				width = 512,
 				height = 512,
 				format = "R8G8B8A8_UNORM",
 				min_filter = "linear",
 				mag_filter = "linear",
-				mip_map_levels = 1,
-				usage = {"sampled", "color_attachment", "transfer_src"},
-			}
-		)
-		presentation_mip0_view = ImageView.New(
-			{
-				device = device,
-				image = presentation_texture.image,
-				format = presentation_texture.format,
-				base_mip_level = 0,
-				level_count = 1,
+				clear_color = {0, 0, 0, 1},
 			}
 		)
 		presentation_pipeline = render.CreateGraphicsPipeline(
 			{
 				dynamic_states = {"viewport", "scissor"},
-				color_format = presentation_texture.format,
+				color_format = presentation_framebuffer.format,
 				samples = "1",
 				shader_stages = {
 					{
@@ -464,72 +447,25 @@ if true then
 			pipeline.storage_textures[1]:GetView(),
 			pipeline.storage_textures[1].sampler
 		)
-		presentation_command_pool = render.GetCommandPool()
-		presentation_cmd = presentation_command_pool:AllocateCommandBuffer()
-		presentation_fence = Fence.New(device)
 	end
 
 	local function draw_presentation_effect()
-		local device = render.GetDevice()
-		local queue = render.GetQueue()
-		presentation_cmd:Reset()
-		presentation_cmd:Begin()
-		presentation_cmd:PipelineBarrier(
-			{
-				srcStage = "top_of_pipe",
-				dstStage = "color_attachment_output",
-				imageBarriers = {
-					{
-						image = presentation_texture.image,
-						srcAccessMask = "none",
-						dstAccessMask = "color_attachment_write",
-						oldLayout = "undefined",
-						newLayout = "color_attachment_optimal",
-					},
-				},
-			}
-		)
-		presentation_pipeline:Bind(presentation_cmd)
-		presentation_cmd:BeginRendering(
-			{
-				colorImageView = presentation_mip0_view,
-				extent = {width = 512, height = 512},
-				clearColor = {0, 0, 0, 1},
-			}
-		)
-		presentation_cmd:SetViewport(0.0, 0.0, 512, 512, 0.0, 1.0)
-		presentation_cmd:SetScissor(0, 0, 512, 512)
-		presentation_cmd:BindDescriptorSets(
+		local cmd = presentation_framebuffer:Begin()
+		presentation_pipeline:Bind(cmd)
+		cmd:BindDescriptorSets(
 			"graphics",
 			presentation_pipeline.pipeline_layout,
 			{presentation_pipeline.descriptor_sets[1]},
 			0
 		)
-		presentation_cmd:Draw(3, 1, 0, 0)
-		presentation_cmd:EndRendering()
-		presentation_cmd:PipelineBarrier(
-			{
-				srcStage = "color_attachment_output",
-				dstStage = "fragment",
-				imageBarriers = {
-					{
-						image = presentation_texture.image,
-						srcAccessMask = "color_attachment_write",
-						dstAccessMask = "shader_read",
-						oldLayout = "color_attachment_optimal",
-						newLayout = "shader_read_only_optimal",
-					},
-				},
-			}
-		)
-		presentation_cmd:End()
-		queue:SubmitAndWait(device, presentation_cmd, presentation_fence)
+		cmd:Draw(3, 1, 0, 0)
+		presentation_framebuffer:End()
 	end
 
 	event.AddListener("Draw2D", "test_bezier", function(dt)
 		init_presentation()
 		draw_presentation_effect()
-		render2d.SetTexture(presentation_texture)
+		render2d.SetTexture(presentation_framebuffer:GetAttachment("color"))
 		render2d.SetColor(1, 1, 1, 1)
 		render2d.DrawRect(0, 0, 512, 512)
 	end)
