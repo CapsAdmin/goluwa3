@@ -75,6 +75,8 @@ return function(META)
 				local pressed = event.action == "pressed"
 				self:CallEvent("MouseInput", button, pressed)
 			elseif event.type == "mouse_move" then
+				self.last_mouse_pos.x = event.x
+				self.last_mouse_pos.y = event.y
 				self:SetMouseDelta(Vec2(event.delta_x, event.delta_y))
 				self:CallEvent("CursorPosition", Vec2(event.x, event.y))
 			elseif event.type == "mouse_scroll" then

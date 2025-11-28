@@ -7,6 +7,7 @@ local file_formats = require("file_formats")
 local render = require("graphics.render")
 local Texture = require("graphics.texture")
 local gfx = require("graphics.gfx")
+local system = require("system")
 local render2d = require("graphics.render2d")
 
 if false then
@@ -186,18 +187,6 @@ end
 if true then
 	local ffi = require("ffi")
 	local WORKGROUP_SIZE = 16
-	local frame_count = 0
-	local mouse_x, mouse_y, mouse_pressed = 0, 0, 0
-
-	event.AddListener("WindowCursorPosition", "shader_mouse", function(wnd, pos)
-		mouse_x = pos.x
-		mouse_y = 512 - pos.y
-	end)
-
-	event.AddListener("WindowMouseInput", "shader_mouse", function(wnd, button, pressed)
-		if button == "button_1" then mouse_pressed = pressed and 1 or 0 end
-	end)
-
 	local pipeline = render.CreateComputePipeline(
 		{
 			push_constant_ranges = {
@@ -284,6 +273,7 @@ if true then
 			},
 		}
 	)
+	local mouse_pressed = 0
 	local PushConstants = ffi.typeof([[
 		struct {
 			uint32_t iFrame;
@@ -291,27 +281,36 @@ if true then
 			float mousePressed;
 		}
 	]])
-	local device = render.GetDevice()
-	local queue = render.GetQueue()
 	local cmd = render.GetCommandPool():AllocateCommandBuffer()
 	local Fence = require("graphics.vulkan.internal.fence")
+	local window = require("window")
+	local input = require("input")
 
-	event.AddListener("Update", "draw_2d", function()
+	local function compute()
 		cmd:Reset()
 		cmd:Begin()
-		local push_data = PushConstants(
-			{
-				iFrame = frame_count,
-				iMouse = {mouse_x, mouse_y},
-				mousePressed = mouse_pressed,
-			}
+		cmd:PushConstants(
+			pipeline.pipeline_layout,
+			"compute",
+			0,
+			ffi.sizeof(PushConstants),
+			PushConstants(
+				{
+					iFrame = system.GetFrameNumber(),
+					iMouse = {window.GetMousePosition():Unpack()},
+					mousePressed = input.IsMouseDown("button_1") and 1 or 0,
+				}
+			)
 		)
-		cmd:PushConstants(pipeline.pipeline_layout, "compute", 0, ffi.sizeof(PushConstants), push_data)
 		pipeline:Dispatch(cmd)
 		cmd:End()
-		frame_count = frame_count + 1
+		local device = render.GetDevice()
 		local fence = Fence.New(device)
-		queue:SubmitAndWait(device, cmd, fence)
+		render.GetQueue():SubmitAndWait(device, cmd, fence)
+	end
+
+	event.AddListener("Update", "draw_2d", function()
+		compute()
 	end)
 
 	local presentation_texture
