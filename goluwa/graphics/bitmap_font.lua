@@ -198,10 +198,12 @@ local function create_font_texture()
 			height = TEXTURE_HEIGHT,
 			format = "R8G8B8A8_UNORM",
 			buffer = buffer_data,
-			min_filter = "nearest",
-			mag_filter = "nearest",
-			wrap_s = "clamp_to_edge",
-			wrap_t = "clamp_to_edge",
+			sampler = {
+				min_filter = "nearest",
+				mag_filter = "nearest",
+				wrap_s = "clamp_to_edge",
+				wrap_t = "clamp_to_edge",
+			},
 		}
 	)
 	return texture

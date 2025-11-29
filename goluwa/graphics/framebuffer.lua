@@ -23,11 +23,15 @@ function Framebuffer.New(config)
 			width = width,
 			height = height,
 			format = format,
-			min_filter = config.min_filter or "linear",
-			mag_filter = config.mag_filter or "linear",
 			mip_map_levels = config.mip_map_levels or 1,
-			usage = {"color_attachment", "sampled", "transfer_src"},
-			samples = samples,
+			image = {
+				usage = {"color_attachment", "sampled", "transfer_src"},
+				samples = samples,
+			},
+			sampler = {
+				min_filter = config.min_filter or "linear",
+				mag_filter = config.mag_filter or "linear",
+			},
 		}
 	)
 
@@ -37,11 +41,15 @@ function Framebuffer.New(config)
 				width = width,
 				height = height,
 				format = config.depth_format or "D32_SFLOAT",
-				usage = {"depth_stencil_attachment"},
-				memory_properties = "device_local",
-				view_aspect = "depth",
-				no_sampler = true,
-				samples = samples,
+				image = {
+					usage = {"depth_stencil_attachment"},
+					properties = "device_local",
+					samples = samples,
+				},
+				view = {
+					aspect = "depth",
+				},
+				sampler = false,
 			}
 		)
 	end

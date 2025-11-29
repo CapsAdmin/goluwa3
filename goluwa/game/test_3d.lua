@@ -29,8 +29,11 @@ local texture = Texture.New(
 	{
 		path = "assets/images/capsadmin.png",
 		mip_map_levels = "auto",
-		min_filter = "linear_mipmap_linear",
-		mag_filter = "linear",
+		sampler = {
+			min_filter = "linear",
+			mag_filter = "linear",
+			mipmap_mode = "linear",
+		},
 	}
 )
 texture:GenerateMipMap()

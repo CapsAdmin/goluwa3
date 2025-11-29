@@ -116,11 +116,15 @@ local function create_depth_buffer(self)
 			width = extent.width,
 			height = extent.height,
 			format = self.depth_format,
-			usage = {"depth_stencil_attachment"},
-			memory_properties = "device_local",
-			samples = self.samples,
-			view_aspect = "depth",
-			no_sampler = true,
+			image = {
+				usage = {"depth_stencil_attachment"},
+				properties = "device_local",
+				samples = self.samples,
+			},
+			view = {
+				aspect = "depth",
+			},
+			sampler = false,
 		}
 	)
 end
@@ -137,10 +141,12 @@ local function create_msaa_buffer(self)
 				width = extent.width,
 				height = extent.height,
 				format = self.surface_format.format,
-				usage = {"color_attachment"},
-				properties = "device_local",
-				samples = self.samples,
-				no_sampler = true,
+				image = {
+					usage = {"color_attachment"},
+					properties = "device_local",
+					samples = self.samples,
+				},
+				sampler = false,
 			}
 		)
 	end

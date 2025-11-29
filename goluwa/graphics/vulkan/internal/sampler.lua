@@ -1,59 +1,66 @@
 local ffi = require("ffi")
 local vulkan = require("graphics.vulkan.internal.vulkan")
+local ffi_helpers = require("helpers.ffi_helpers")
+local e = ffi_helpers.translate_enums(
+	{
+		{vulkan.vk.VkSamplerAddressMode, "VK_SAMPLER_ADDRESS_MODE_"},
+		{vulkan.vk.VkSamplerMipmapMode, "VK_SAMPLER_MIPMAP_MODE_"},
+		{vulkan.vk.VkFilter, "VK_FILTER_"},
+		{vulkan.vk.VkSamplerCreateFlagBits, "VK_SAMPLER_CREATE_", "_BIT"},
+		{vulkan.vk.VkCompareOp, "VK_COMPARE_OP_"},
+		{vulkan.vk.VkBorderColor, "VK_BORDER_COLOR_"},
+	}
+)
 local Sampler = {}
 Sampler.__index = Sampler
 
 function Sampler.New(config)
 	config = config or {}
-	-- Default values
-	local device = assert(config.device)
-	local min_filter = config.min_filter or "linear"
-	local mag_filter = config.mag_filter or "linear"
-	local mipmap_mode = config.mipmap_mode or "linear"
-	local wrap_s = config.wrap_s or "repeat"
-	local wrap_t = config.wrap_t or "repeat"
-	local wrap_r = config.wrap_r or "repeat"
-	local anisotropy = config.anisotropy or 1.0
-	local max_lod = config.max_lod or 1000.0
-	local samplerInfo = vulkan.vk.VkSamplerCreateInfo(
-		{
-			sType = "VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO",
-			magFilter = vulkan.enums.VK_FILTER_(mag_filter),
-			minFilter = vulkan.enums.VK_FILTER_(min_filter),
-			mipmapMode = vulkan.enums.VK_SAMPLER_MIPMAP_MODE_(mipmap_mode),
-			addressModeU = vulkan.enums.VK_SAMPLER_ADDRESS_MODE_(wrap_s),
-			addressModeV = vulkan.enums.VK_SAMPLER_ADDRESS_MODE_(wrap_t),
-			addressModeW = vulkan.enums.VK_SAMPLER_ADDRESS_MODE_(wrap_r),
-			anisotropyEnable = anisotropy > 1.0 and 1 or 0,
-			maxAnisotropy = anisotropy,
-			borderColor = "VK_BORDER_COLOR_INT_OPAQUE_BLACK",
-			unnormalizedCoordinates = 0,
-			compareEnable = 0,
-			compareOp = "VK_COMPARE_OP_ALWAYS",
-			mipLodBias = 0.0,
-			minLod = 0.0,
-			maxLod = max_lod,
-		}
-	)
+	assert(config.device)
 	local ptr = vulkan.T.Box(vulkan.vk.VkSampler)()
+	local anisotropy = nil
+
+	if config.anisotropy then
+		assert(type(config.anisotropy) == "number")
+		anisotropy = assert(
+			config.anisotropy >= 1 and config.anisotropy <= 16,
+			"anisotropy must be between 1 and 16"
+		)
+	end
+
 	vulkan.assert(
-		vulkan.lib.vkCreateSampler(device.ptr[0], samplerInfo, nil, ptr),
+		vulkan.lib.vkCreateSampler(
+			config.device.ptr[0],
+			vulkan.vk.VkSamplerCreateInfo(
+				{
+					sType = "VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO",
+					flags = config.flags and e.VK_SAMPLER_CREATE_(config.flags) or 0,
+					magFilter = e.VK_FILTER_(config.mag_filter or "linear"),
+					minFilter = e.VK_FILTER_(config.min_filter or "linear"),
+					mipmapMode = e.VK_SAMPLER_MIPMAP_MODE_(config.mipmap_mode or "linear"),
+					addressModeU = e.VK_SAMPLER_ADDRESS_MODE_(config.wrap_s or "repeat"),
+					addressModeV = e.VK_SAMPLER_ADDRESS_MODE_(config.wrap_t or "repeat"),
+					addressModeW = e.VK_SAMPLER_ADDRESS_MODE_(config.wrap_r or "repeat"),
+					anisotropyEnable = anisotropy and 1 or 0,
+					maxAnisotropy = anisotropy or 0,
+					borderColor = e.VK_BORDER_COLOR_(config.border_color or "int_opaque_black"),
+					unnormalizedCoordinates = config.unnormalized_coordinates and 1 or 0,
+					compareEnable = config.compare_enable and 1 or 0,
+					compareOp = e.VK_COMPARE_OP_(config.compare_op or "always"),
+					mipLodBias = config.mip_lod_bias or 0.0,
+					minLod = config.min_lod or 0,
+					maxLod = config.max_lod or 1000.0,
+				}
+			),
+			nil,
+			ptr
+		),
 		"failed to create sampler"
 	)
-	return setmetatable(
-		{
-			ptr = ptr,
-			device = device,
-			min_filter = min_filter,
-			mag_filter = mag_filter,
-			mipmap_mode = mipmap_mode,
-			wrap_s = wrap_s,
-			wrap_t = wrap_t,
-			wrap_r = wrap_r,
-			anisotropy = anisotropy,
-		},
-		Sampler
-	)
+	return setmetatable({
+		ptr = ptr,
+		device = config.device,
+	}, Sampler)
 end
 
 function Sampler:__gc()

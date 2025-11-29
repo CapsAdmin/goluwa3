@@ -11,11 +11,14 @@ function gfx.Initialize()
 			width = 1024,
 			height = 1024,
 			format = "R8G8B8A8_UNORM",
-			min_filter = "linear_mipmap_linear",
-			mag_filter = "linear",
-			wrap_s = "mirrored_repeat",
-			wrap_t = "mirrored_repeat",
 			mip_map_levels = "auto",
+			sampler = {
+				min_filter = "linear",
+				mag_filter = "linear",
+				mipmap_mode = "linear",
+				wrap_s = "mirrored_repeat",
+				wrap_t = "mirrored_repeat",
+			},
 		}
 	)
 	tex:Shade([[

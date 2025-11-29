@@ -18,12 +18,16 @@ local function create_storage_images(self, extent)
 				width = 512,
 				height = 512,
 				format = "R8G8B8A8_UNORM",
-				min_filter = "linear",
-				mag_filter = "linear",
-				wrap_s = "mirrored_repeat",
-				wrap_t = "mirrored_repeat",
 				mip_map_levels = 1,
-				usage = {"storage", "sampled", "transfer_dst", "transfer_src"},
+				image = {
+					usage = {"storage", "sampled", "transfer_dst", "transfer_src"},
+				},
+				sampler = {
+					min_filter = "linear",
+					mag_filter = "linear",
+					wrap_s = "mirrored_repeat",
+					wrap_t = "mirrored_repeat",
+				},
 			}
 		)
 		tex:Shade([[

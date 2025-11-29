@@ -14,8 +14,10 @@ if false then
 	local zsnes = Texture.New(
 		{
 			path = "assets/images/zsnes.png",
-			min_filter = "nearest",
-			mag_filter = "nearest",
+			sampler = {
+				min_filter = "nearest",
+				mag_filter = "nearest",
+			},
 		}
 	)
 	local skin = {}
@@ -146,8 +148,10 @@ if false then
 	local rope = Texture.New(
 		{
 			path = "assets/images/rope.png",
-			min_filter = "linear",
-			mag_filter = "linear",
+			sampler = {
+				min_filter = "linear",
+				mag_filter = "linear",
+			},
 		}
 	)
 	local QuadricBezierCurve = require("graphics.quadric_bezier_curve")

@@ -1,5 +1,19 @@
 local ffi = require("ffi")
 local vulkan = require("graphics.vulkan.internal.vulkan")
+local ffi_helpers = require("helpers.ffi_helpers")
+local e = ffi_helpers.translate_enums(
+	{
+		{vulkan.vk.VkFormat, "VK_FORMAT_"},
+		{vulkan.vk.VkImageUsageFlagBits, "VK_IMAGE_USAGE_", "_BIT"},
+		{vulkan.vk.VkMemoryPropertyFlagBits, "VK_MEMORY_PROPERTY_", "_BIT"},
+		{vulkan.vk.VkImageType, "VK_IMAGE_TYPE_"},
+		{vulkan.vk.VkImageTiling, "VK_IMAGE_TILING_"},
+		{vulkan.vk.VkSharingMode, "VK_SHARING_MODE_"},
+		{vulkan.vk.VkImageLayout, "VK_IMAGE_LAYOUT_"},
+		{vulkan.vk.VkSampleCountFlagBits, "VK_SAMPLE_COUNT_", "_BIT"},
+		{vulkan.vk.VkImageCreateFlagBits, "VK_IMAGE_CREATE_", "_BIT"},
+	}
+)
 local ImageView = require("graphics.vulkan.internal.image_view")
 local CommandPool = require("graphics.vulkan.internal.command_pool")
 local Fence = require("graphics.vulkan.internal.fence")
@@ -8,35 +22,36 @@ local Image = {}
 Image.__index = Image
 
 function Image.New(config)
-	local device = config.device
-	local width = config.width
-	local height = config.height
-	local format = config.format
-	local usage = config.usage
-	local properties = config.properties or "device_local"
-	local samples = config.samples
-	local mip_levels = config.mip_levels or 1
+	config = config or {}
+	assert(config.device)
+	assert(config.width)
+	assert(config.height)
+	assert(config.format)
+	assert(config.usage)
 	local ptr = vulkan.T.Box(vulkan.vk.VkImage)()
+	local mip_levels = config.mip_levels or 1
+	local samples = config.samples or 1
 	vulkan.assert(
 		vulkan.lib.vkCreateImage(
-			device.ptr[0],
+			config.device.ptr[0],
 			vulkan.vk.VkImageCreateInfo(
 				{
 					sType = "VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO",
-					imageType = "VK_IMAGE_TYPE_2D",
-					format = vulkan.enums.VK_FORMAT_(format),
+					flags = config.flags and e.VK_IMAGE_CREATE_(config.flags) or 0,
+					imageType = e.VK_IMAGE_TYPE_(config.image_type or "2d"),
+					format = e.VK_FORMAT_(config.format),
 					extent = {
-						width = width,
-						height = height,
-						depth = 1,
+						width = config.width,
+						height = config.height,
+						depth = config.depth or 1,
 					},
 					mipLevels = mip_levels,
-					arrayLayers = 1,
-					samples = "VK_SAMPLE_COUNT_" .. (samples or "1") .. "_BIT",
-					tiling = "VK_IMAGE_TILING_OPTIMAL",
-					usage = vulkan.enums.VK_IMAGE_USAGE_(usage),
-					sharingMode = "VK_SHARING_MODE_EXCLUSIVE",
-					initialLayout = "VK_IMAGE_LAYOUT_UNDEFINED",
+					arrayLayers = config.array_layers or 1,
+					samples = e.VK_SAMPLE_COUNT_(tostring(samples)),
+					tiling = e.VK_IMAGE_TILING_(config.tiling or "optimal"),
+					usage = e.VK_IMAGE_USAGE_(config.usage),
+					sharingMode = e.VK_SHARING_MODE_(config.sharing_mode or "exclusive"),
+					initialLayout = e.VK_IMAGE_LAYOUT_(config.initial_layout or "undefined"),
 				}
 			),
 			nil,
@@ -47,20 +62,20 @@ function Image.New(config)
 	local self = setmetatable(
 		{
 			ptr = ptr,
-			device = device,
-			width = width,
-			height = height,
-			format = format,
-			usage = usage,
+			device = config.device,
+			width = config.width,
+			height = config.height,
+			format = config.format,
+			usage = config.usage,
 			mip_levels = mip_levels,
 		},
 		Image
 	)
-	local requirements = device:GetImageMemoryRequirements(self)
+	local requirements = config.device:GetImageMemoryRequirements(self)
 	self.memory = Memory.New(
-		device,
+		config.device,
 		requirements.size,
-		device.physical_device:FindMemoryType(requirements.memoryTypeBits, vulkan.enums.VK_MEMORY_PROPERTY_(properties))
+		config.device.physical_device:FindMemoryType(requirements.memoryTypeBits, e.VK_MEMORY_PROPERTY_(config.properties or "device_local"))
 	)
 	self:BindMemory()
 	return self

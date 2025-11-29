@@ -6,90 +6,149 @@ local Buffer = require("graphics.vulkan.internal.buffer")
 local CommandPool = require("graphics.vulkan.internal.command_pool")
 local Fence = require("graphics.vulkan.internal.fence")
 local ImageView = require("graphics.vulkan.internal.image_view")
+local Image = require("graphics.vulkan.internal.image")
+local Sampler = require("graphics.vulkan.internal.sampler")
 local Texture = {}
 Texture.__index = Texture
 
 function Texture.New(config)
+	config = config or {}
+	-- Handle path parameter for loading images
+	local buffer_data = nil
+
 	if config.path then
 		local img = file_formats.LoadPNG(config.path)
-		config.width = img.width
-		config.height = img.height
-		config.format = "R8G8B8A8_UNORM"
-		config.buffer = img.buffer:GetBuffer()
+		config.width = config.width or img.width
+		config.height = config.height or img.height
+		config.format = config.format or "R8G8B8A8_UNORM"
+		buffer_data = img.buffer:GetBuffer()
 	end
 
+	-- Use buffer from config or from path loading
+	buffer_data = config.buffer or buffer_data
+	-- Calculate mip levels
 	local mip_levels = config.mip_map_levels or 1
 
 	if mip_levels == "auto" then mip_levels = 999 end
 
 	if mip_levels > 1 then
+		assert(config.width and config.height, "width and height required for mipmap generation")
 		mip_levels = math.floor(math.log(math.max(config.width, config.height), 2)) + 1
 	end
 
-	local image = render.CreateImage(
-		{
-			width = config.width,
-			height = config.height,
-			format = config.format or "R8G8B8A8_UNORM",
-			usage = config.usage or {"sampled", "transfer_dst", "transfer_src", "color_attachment"},
-			memory_properties = config.memory_properties or "device_local",
-			samples = config.samples,
-			mip_levels = mip_levels,
-		}
-	)
-	local view = image:CreateView(
-		{
-			view_type = config.view_type,
-			format = config.view_format,
-			aspect = config.view_aspect,
-		}
-	)
-	-- Parse min_filter to separate filter mode and mipmap mode
-	local min_filter = config.min_filter or "nearest"
-	local mipmap_mode = "nearest"
+	-- Shared parameters for overriding
+	local width = config.width
+	local height = config.height
+	local format = config.format or "R8G8B8A8_UNORM"
+	-- Create or use image
+	local image
 
-	if min_filter:find("mipmap") then
-		-- Handle formats like "linear_mipmap_linear" or "nearest_mipmap_nearest"
-		local parts = {}
-
-		for part in min_filter:gmatch("[^_]+") do
-			table.insert(parts, part)
-		end
-
-		if #parts == 3 and parts[2] == "mipmap" then
-			min_filter = parts[1]
-			mipmap_mode = parts[3]
-		end
+	if config.image == false then
+		image = nil
+	elseif config.image and config.image.ptr then
+		-- Already an Image object
+		image = config.image
+	else
+		-- Create image from config
+		local image_config = config.image or {}
+		image = render.CreateImage(
+			{
+				width = image_config.width or width,
+				height = image_config.height or height,
+				format = image_config.format or format,
+				usage = image_config.usage or
+					{"sampled", "transfer_dst", "transfer_src", "color_attachment"},
+				properties = image_config.properties or "device_local",
+				samples = image_config.samples,
+				mip_levels = image_config.mip_levels or mip_levels,
+				tiling = image_config.tiling,
+				image_type = image_config.image_type,
+				depth = image_config.depth,
+				array_layers = image_config.array_layers,
+				sharing_mode = image_config.sharing_mode,
+				initial_layout = image_config.initial_layout,
+				flags = image_config.flags,
+			}
+		)
 	end
 
-	local sampler = not config.no_sampler and
-		render.CreateSampler(
+	-- Create or use view
+	local view
+
+	if config.view == false then
+		view = nil
+	elseif config.view and config.view.ptr then
+		-- Already a View object
+		view = config.view
+	elseif image then
+		-- Create view from config
+		local view_config = config.view or {}
+		view = image:CreateView(
 			{
-				min_filter = min_filter,
-				mag_filter = config.mag_filter or "nearest",
-				mipmap_mode = mipmap_mode,
-				wrap_s = config.wrap_s or "repeat",
-				wrap_t = config.wrap_t or "repeat",
-				max_lod = mip_levels,
+				view_type = view_config.view_type,
+				format = view_config.format or format,
+				aspect = view_config.aspect,
+				base_mip_level = view_config.base_mip_level,
+				level_count = view_config.level_count,
+				base_array_layer = view_config.base_array_layer,
+				layer_count = view_config.layer_count,
+				component_r = view_config.component_r,
+				component_g = view_config.component_g,
+				component_b = view_config.component_b,
+				component_a = view_config.component_a,
+				flags = view_config.flags,
 			}
-		) or
-		nil
+		)
+	end
+
+	-- Create or use sampler
+	local sampler
+
+	if config.sampler == false then
+		sampler = nil
+	elseif config.sampler and config.sampler.ptr then
+		-- Already a Sampler object
+		sampler = config.sampler
+	else
+		-- Create sampler from config
+		local sampler_config = config.sampler or {}
+		sampler = render.CreateSampler(
+			{
+				min_filter = sampler_config.min_filter or "nearest",
+				mag_filter = sampler_config.mag_filter or "nearest",
+				mipmap_mode = sampler_config.mipmap_mode or "nearest",
+				wrap_s = sampler_config.wrap_s or "repeat",
+				wrap_t = sampler_config.wrap_t or "repeat",
+				wrap_r = sampler_config.wrap_r or "repeat",
+				max_lod = sampler_config.max_lod or mip_levels,
+				min_lod = sampler_config.min_lod,
+				mip_lod_bias = sampler_config.mip_lod_bias,
+				anisotropy = sampler_config.anisotropy,
+				border_color = sampler_config.border_color,
+				unnormalized_coordinates = sampler_config.unnormalized_coordinates,
+				compare_enable = sampler_config.compare_enable,
+				compare_op = sampler_config.compare_op,
+				flags = sampler_config.flags,
+			}
+		)
+	end
+
 	local self = setmetatable(
 		{
 			image = image,
 			view = view,
 			sampler = sampler,
 			mip_map_levels = mip_levels,
-			format = config.format or "R8G8B8A8_UNORM",
+			format = format,
 			config = config,
 		},
 		Texture
 	)
 
-	if config.buffer then
+	if buffer_data and image then
 		-- If we're generating mipmaps, keep mip level 0 in transfer_dst after upload
-		self:Upload(config.buffer, mip_levels > 1)
-	else
+		self:Upload(buffer_data, mip_levels > 1)
+	elseif image then
 		-- If no buffer is provided, transition the image to shader_read_only_optimal
 		-- This is necessary because images start in undefined layout
 		image:TransitionLayout("undefined", "shader_read_only_optimal")
@@ -99,6 +158,8 @@ function Texture.New(config)
 end
 
 function Texture:Upload(data, keep_in_transfer_dst)
+	if not self.image then error("Cannot upload: texture has no image") end
+
 	local device = render.GetDevice()
 	local queue = render.GetQueue()
 	local width = self.image:GetWidth()
@@ -195,19 +256,19 @@ function Texture:GetSampler()
 end
 
 function Texture:GetWidth()
-	return self.image:GetWidth()
+	return self.image and self.image:GetWidth() or 0
 end
 
 function Texture:GetHeight()
-	return self.image:GetHeight()
+	return self.image and self.image:GetHeight() or 0
 end
 
 function Texture:GetSize()
-	return Vec2(self.image:GetWidth(), self.image:GetHeight())
+	return self.image and Vec2(self.image:GetWidth(), self.image:GetHeight()) or Vec2(0, 0)
 end
 
 function Texture:GenerateMipMap(initial_layout)
-	if self.mip_map_levels <= 1 then return end
+	if not self.image or self.mip_map_levels <= 1 then return end
 
 	local device = render.GetDevice()
 	local queue = render.GetQueue()
@@ -323,6 +384,8 @@ function Texture:GenerateMipMap(initial_layout)
 end
 
 function Texture:Shade(glsl)
+	if not self.image then error("Cannot shade: texture has no image") end
+
 	local device = render.GetDevice()
 	local queue = render.GetQueue()
 	-- Create a view for only mip level 0 (required for rendering)
