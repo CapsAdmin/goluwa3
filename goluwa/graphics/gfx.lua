@@ -6,6 +6,22 @@ local font = require("graphics.bitmap_font")
 local gfx = {}
 
 function gfx.Initialize()
+	-- Create a 1x1 white texture for use as a default
+	local white_tex = Texture.New(
+		{
+			width = 1,
+			height = 1,
+			format = "R8G8B8A8_UNORM",
+			sampler = {
+				min_filter = "nearest",
+				mag_filter = "nearest",
+			},
+		}
+	)
+	white_tex:Shade([[
+		return vec4(1.0, 1.0, 1.0, 1.0);
+	]])
+	gfx.white_texture = white_tex
 	local tex = Texture.New(
 		{
 			width = 1024,

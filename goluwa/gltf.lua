@@ -413,4 +413,236 @@ function gltf.GetIndices(primitive)
 	return indices.data, indices.count, indices.component_type
 end
 
+local render = require("graphics.render")
+local Texture = require("graphics.texture")
+local file_formats = require("file_formats")
+
+-- Create GPU vertex buffer from primitive
+function gltf.CreateVertexBuffer(primitive)
+	local vertex_data, vertex_count, stride = gltf.GetInterleavedVertices(primitive)
+
+	if not vertex_data then
+		return nil, vertex_count -- vertex_count is error message
+	end
+
+	local byte_size = vertex_count * stride * ffi.sizeof("float")
+	local buffer = render.CreateBuffer(
+		{
+			buffer_usage = "vertex_buffer",
+			data_type = "float",
+			data = vertex_data,
+			byte_size = byte_size,
+		}
+	)
+	return buffer, vertex_count
+end
+
+-- Create GPU index buffer from primitive
+function gltf.CreateIndexBuffer(primitive)
+	if not primitive.indices then return nil, nil, nil end
+
+	local indices = primitive.indices
+	local buffer = render.CreateBuffer(
+		{
+			buffer_usage = "index_buffer",
+			data_type = indices.component_type,
+			data = indices.data,
+			byte_size = indices.byte_size,
+		}
+	)
+	-- Convert component type to Vulkan-style name
+	local index_type = "uint16"
+
+	if indices.component_type == "uint32_t" then index_type = "uint32" end
+
+	return buffer, indices.count, index_type
+end
+
+-- Cache for loaded textures
+local texture_cache = {}
+
+-- Load a texture from glTF image reference
+function gltf.LoadTexture(gltf_result, texture_index)
+	if not texture_index then return nil end
+
+	-- Check cache
+	local cache_key = gltf_result.path .. ":" .. texture_index
+
+	if texture_cache[cache_key] then return texture_cache[cache_key] end
+
+	local texture_info = gltf_result.textures[texture_index + 1]
+
+	if not texture_info then
+		print("Warning: Invalid texture index:", texture_index)
+		return nil
+	end
+
+	local image_info = gltf_result.images[texture_info.source + 1]
+
+	if not image_info then
+		print("Warning: Invalid image source:", texture_info.source)
+		return nil
+	end
+
+	local image_path = image_info.path
+
+	if not image_path then
+		print("Warning: No path for image:", texture_info.source)
+		return nil
+	end
+
+	-- Determine image type and load
+	local img_data, err
+	local mime_type = image_info.mime_type or ""
+	local uri_lower = (image_info.uri or ""):lower()
+	local ok, result, load_err
+
+	if mime_type == "image/png" or uri_lower:match("%.png$") then
+		ok, result, load_err = pcall(file_formats.LoadPNG, image_path)
+
+		if ok then img_data, err = result, load_err else err = result end
+	elseif mime_type == "image/jpeg" or uri_lower:match("%.jpe?g$") then
+		ok, result, load_err = pcall(file_formats.LoadJPG, image_path)
+
+		if ok then img_data, err = result, load_err else err = result end
+	else
+		print("Warning: Unsupported image format:", mime_type or uri_lower)
+		return nil
+	end
+
+	if not img_data then
+		print("Warning: Failed to load image:", image_path, err)
+		return nil
+	end
+
+	-- Get sampler info if available
+	local sampler_info = nil
+
+	if texture_info.sampler and gltf_result.raw.samplers then
+		sampler_info = gltf_result.raw.samplers[texture_info.sampler + 1]
+	end
+
+	-- Map glTF sampler values to our sampler config
+	local min_filter = "linear"
+	local mag_filter = "linear"
+	local wrap_s = "repeat"
+	local wrap_t = "repeat"
+
+	if sampler_info then
+		-- glTF filter values
+		-- 9728 = NEAREST, 9729 = LINEAR
+		-- 9984 = NEAREST_MIPMAP_NEAREST, 9985 = LINEAR_MIPMAP_NEAREST
+		-- 9986 = NEAREST_MIPMAP_LINEAR, 9987 = LINEAR_MIPMAP_LINEAR
+		if sampler_info.minFilter then
+			if
+				sampler_info.minFilter == 9728 or
+				sampler_info.minFilter == 9984 or
+				sampler_info.minFilter == 9986
+			then
+				min_filter = "nearest"
+			end
+		end
+
+		if sampler_info.magFilter then
+			if sampler_info.magFilter == 9728 then mag_filter = "nearest" end
+		end
+
+		-- glTF wrap values
+		-- 33071 = CLAMP_TO_EDGE, 33648 = MIRRORED_REPEAT, 10497 = REPEAT
+		if sampler_info.wrapS then
+			if sampler_info.wrapS == 33071 then
+				wrap_s = "clamp_to_edge"
+			elseif sampler_info.wrapS == 33648 then
+				wrap_s = "mirrored_repeat"
+			end
+		end
+
+		if sampler_info.wrapT then
+			if sampler_info.wrapT == 33071 then
+				wrap_t = "clamp_to_edge"
+			elseif sampler_info.wrapT == 33648 then
+				wrap_t = "mirrored_repeat"
+			end
+		end
+	end
+
+	-- Create texture
+	local texture = Texture.New(
+		{
+			width = img_data.width,
+			height = img_data.height,
+			format = "R8G8B8A8_UNORM",
+			buffer = img_data.buffer:GetBuffer(),
+			mip_map_levels = "auto",
+			sampler = {
+				min_filter = min_filter,
+				mag_filter = mag_filter,
+				wrap_s = wrap_s,
+				wrap_t = wrap_t,
+				mipmap_mode = "linear",
+			},
+		}
+	)
+	-- Generate mipmaps
+	texture:GenerateMipMap()
+	-- Cache the texture
+	texture_cache[cache_key] = texture
+	return texture
+end
+
+-- Create all GPU resources for a glTF model
+-- Returns a table of primitives with vertex_buffer, index_buffer, and texture
+function gltf.CreateGPUResources(gltf_result)
+	local primitives = {}
+
+	for mesh_idx, mesh in ipairs(gltf_result.meshes) do
+		for prim_idx, primitive in ipairs(mesh.primitives) do
+			local vertex_buffer, vertex_count = gltf.CreateVertexBuffer(primitive)
+
+			if not vertex_buffer then
+				print(
+					"Warning: Failed to create vertex buffer for mesh",
+					mesh_idx,
+					"primitive",
+					prim_idx
+				)
+
+				goto continue
+			end
+
+			local index_buffer, index_count, index_type = gltf.CreateIndexBuffer(primitive)
+			-- Load material texture if available
+			local texture = nil
+
+			if primitive.material ~= nil then
+				local material = gltf_result.materials[primitive.material + 1]
+
+				if material and material.base_color_texture then
+					texture = gltf.LoadTexture(gltf_result, material.base_color_texture)
+				end
+			end
+
+			primitives[#primitives + 1] = {
+				vertex_buffer = vertex_buffer,
+				vertex_count = vertex_count,
+				index_buffer = index_buffer,
+				index_count = index_count,
+				index_type = index_type,
+				texture = texture,
+				material_index = primitive.material,
+				mesh_name = mesh.name,
+			}
+
+			::continue::
+		end
+	end
+
+	return primitives
+end
+
+-- Clear the texture cache (useful when reloading models)
+function gltf.ClearTextureCache()
+	texture_cache = {}
+end
+
 return gltf

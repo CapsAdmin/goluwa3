@@ -23,7 +23,13 @@ function META:MakeWritable()
 end
 
 do
+	function META:GetAllocatedSize()
+		return self.ByteSize
+	end
+
 	function META:GetSize()
+		--if self.Writable then return self.Position end
+
 		return self.ByteSize
 	end
 

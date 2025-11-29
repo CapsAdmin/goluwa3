@@ -27,7 +27,7 @@ local index_buffer = render.CreateBuffer(
 )
 local texture = Texture.New(
 	{
-		path = "assets/images/capsadmin.png",
+		path = "/home/caps/projects/glTF-Sample-Assets-main/Models/Sponza/glTF/8481240838833932244.jpg",
 		mip_map_levels = "auto",
 		sampler = {
 			min_filter = "linear",

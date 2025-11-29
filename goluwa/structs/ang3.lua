@@ -1,9 +1,10 @@
 local Vec3 = require("structs.vec3")
 local structs = require("structs.structs")
 local META = structs.Template("Ang3")
+local CTOR
 
 function Deg3(p, y, r)
-	return Ang3(p, y, r):Rad()
+	return CTOR(p, y, r):Rad()
 end
 
 META.NumberType = "double"
@@ -101,4 +102,5 @@ function META:RotateAroundAxis(axis, rad, how)
 	return self
 end
 
-return structs.Register(META)
+CTOR = structs.Register(META)
+return CTOR

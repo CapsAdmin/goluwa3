@@ -17,7 +17,16 @@ function Texture.New(config)
 	local buffer_data = nil
 
 	if config.path then
-		local img = file_formats.LoadPNG(config.path)
+		local img
+
+		if config.path:ends_with(".png") then
+			img = file_formats.LoadPNG(config.path)
+		elseif config.path:ends_with(".jpg") or config.path:ends_with(".jpeg") then
+			img = file_formats.LoadJPG(config.path)
+		else
+			error("Unsupported image format for texture: " .. config.path)
+		end
+
 		config.width = config.width or img.width
 		config.height = config.height or img.height
 		config.format = config.format or "R8G8B8A8_UNORM"

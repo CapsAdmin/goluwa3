@@ -181,14 +181,26 @@ local function HuffmanTable(init, ncodes)
 			end
 		end
 	else
+		-- First, collect all entries with their bit lengths
+		local entries = {}
+		local maxnbits = 0
+
 		for i = 1, #init - 2, 2 do
 			local firstval, nbits, nextval = init[i], init[i + 1], init[i + 2]
 
-			--debug(val, nextval, nbits)
 			if nbits ~= 0 then
+				if nbits > maxnbits then maxnbits = nbits end
+
 				for val = firstval, nextval - 1 do
-					t[#t + 1] = {val = val, nbits = nbits}
+					entries[val] = nbits
 				end
+			end
+		end
+
+		-- Build table sorted by nbits first, then val (same as ncodes branch)
+		for nbits = 1, maxnbits do
+			for val = 0, 511 do -- max possible value in deflate
+				if entries[val] == nbits then t[#t + 1] = {val = val, nbits = nbits} end
 			end
 		end
 	end
