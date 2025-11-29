@@ -1203,17 +1203,7 @@ local function decode(inputBuffer, opts)
 	local channels = formatAsRGBA and 4 or 3
 	local outputSize = width * height * channels
 	local pixelData = getData(width, height)
-	-- Flip vertically for Vulkan (like PNG decoder does)
-	local flippedData = ffi.new("uint8_t[?]", outputSize)
-	local rowSize = width * channels
-
-	for y = 0, height - 1 do
-		local srcRow = y * rowSize
-		local dstRow = (height - 1 - y) * rowSize
-		ffi.copy(flippedData + dstRow, pixelData + srcRow, rowSize)
-	end
-
-	local outputBuffer = Buffer.New(flippedData, outputSize)
+	local outputBuffer = Buffer.New(pixelData, outputSize)
 	return {
 		width = width,
 		height = height,
