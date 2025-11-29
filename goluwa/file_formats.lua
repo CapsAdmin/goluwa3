@@ -1,5 +1,5 @@
 local Buffer = require("structs.buffer")
-local png = require("file_formats.png")
+local png = require("file_formats.png.init")
 local file_formats = {}
 
 function file_formats.LoadPNG(path)

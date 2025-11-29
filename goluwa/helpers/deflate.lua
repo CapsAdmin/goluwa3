@@ -1,6 +1,6 @@
 local DEBUG = false
 local debug_counter = 0
-local M = {_TYPE = "module", _NAME = "compress.deflatelua", _VERSION = "0.3.20111128"}
+local M = {}
 local Buffer = require("structs.buffer")
 local ffi = require("ffi")
 local assert = assert

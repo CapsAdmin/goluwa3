@@ -15,14 +15,7 @@
 -- IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 -- CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 local Buffer = require("structs.buffer")
-local deflate = require("file_formats.png.deflatelua")
-local requiredDeflateVersion = "0.3.20111128"
-
-if (deflate._VERSION ~= requiredDeflateVersion) then
-	error(
-		"Incorrect deflate version: must be " .. requiredDeflateVersion .. ", not " .. deflate._VERSION
-	)
-end
+local deflate = require("helpers.deflate")
 
 local function getDataIHDR(buffer, length)
 	local data = {}
