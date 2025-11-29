@@ -1,14 +1,38 @@
 local Buffer = require("structs.buffer")
-local png = require("file_formats.png.init")
+local png_decode = require("file_formats.png.decode")
+local jpg_decode = require("file_formats.jpg.decode")
 local file_formats = {}
 
-function file_formats.LoadPNG(path)
-	local file = io.open(path, "rb")
+local function buffer_from_path(path)
+	local file, err = io.open(path, "rb")
+
+	if not file then return nil, err end
+
 	local file_data = file:read("*a")
+
+	if not file_data then
+		file:close()
+		return nil, "File is empty"
+	end
+
 	file:close()
-	local file_buffer = Buffer.New(file_data, #file_data)
-	local img = png.decode(file_buffer)
-	return img
+	return Buffer.New(file_data, #file_data)
+end
+
+function file_formats.LoadPNG(path)
+	local buffer, err = buffer_from_path(path)
+
+	if not buffer then return nil, err end
+
+	return png_decode(buffer)
+end
+
+function file_formats.LoadJPG(path)
+	local buffer, err = buffer_from_path(path)
+
+	if not buffer then return nil, err end
+
+	return jpg_decode(buffer)
 end
 
 return file_formats
