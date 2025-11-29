@@ -113,8 +113,13 @@ function render3d.Initialize()
 						float lighting = ambient + diffuse * 0.7;
 						
 						vec4 tex_color = texture(textures[nonuniformEXT(pc.texture_index)], in_uv);
+
+						
 						out_color.rgb = tex_color.rgb * lighting;
 						out_color.a = tex_color.a;
+						if (out_color.a < 0.5) {
+							discard;
+						}
 					}
 				]],
 					descriptor_sets = {
