@@ -188,7 +188,7 @@ if false then
 	end)
 end
 
-if true then
+if false then
 	local ffi = require("ffi")
 	local WORKGROUP_SIZE = 16
 	local pipeline = render.CreateComputePipeline(
