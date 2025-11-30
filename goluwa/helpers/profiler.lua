@@ -7,7 +7,6 @@ function profiler.Start()
 	local profile_stop, profile_report = jit_profiler.Start()
 	return function()
 		if trace_report then
-			print("!!!")
 			print(jit_trace_track.ToStringProblematicTraces(trace_report()))
 		end
 

@@ -12,7 +12,7 @@ event.AddListener("KeyInput", "renderdoc", function(key, press)
 	if not press then return end
 
 	--if key == "f8" then render.renderdoc.CaptureFrame() end
-	if key == "r" then render.renderdoc.OpenUI() end
+	if key == "f11" then render.renderdoc.OpenUI() end
 
 	if key == "t" then
 		if not trace_stop then

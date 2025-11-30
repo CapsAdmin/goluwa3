@@ -87,6 +87,7 @@ function trace_track.Start()
 	local should_warn_abort = create_warn_log(8)
 	local traces--[[#: Map<|number, Trace|>]] = {}
 	local aborted = {}
+	local successfully_compiled = {} -- track IDs that eventually succeeded
 	local trace_count = 0
 
 	local function start(
@@ -96,6 +97,8 @@ function trace_track.Start()
 		parent_id--[[#: nil | number]],
 		exit_id--[[#: nil | number]]
 	)
+		if aborted[id] then aborted[id] = nil end
+
 		-- TODO, both should be nil here
 		local tr = {
 			pc_lines = {{func = func, pc = pc, depth = 0}},
@@ -121,6 +124,7 @@ function trace_track.Start()
 		local trace = assert(traces[id])
 		assert(trace.aborted == nil)
 		trace.trace_info = assert(traceinfo(id), "invalid trace id: " .. id)
+		successfully_compiled[id] = true
 	end
 
 	local function abort(
@@ -179,6 +183,7 @@ function trace_track.Start()
 
 		traces = {}
 		aborted = {}
+		successfully_compiled = {}
 		trace_count = 0
 	end
 
@@ -233,7 +238,7 @@ function trace_track.Start()
 		-- Deep copy aborted
 		for id, trace in pairs(aborted) do
 			-- Skip if it was eventually successfully traced
-			if not traces[id] then
+			if not successfully_compiled[id] then
 				aborted_snapshot[id] = {
 					pc_lines = trace.pc_lines,
 					id = trace.id,
