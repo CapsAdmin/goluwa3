@@ -316,16 +316,18 @@ end
 
 -- Helper to get interleaved vertex data for a primitive
 -- Returns: vertex_data (C array of floats), vertex_count, stride_in_floats
+-- New format: position (3) + normal (3) + texcoord (2) + tangent (4) = 12 floats
 function gltf.GetInterleavedVertices(primitive)
 	local position = primitive.attributes.POSITION
 	local normal = primitive.attributes.NORMAL
 	local texcoord = primitive.attributes.TEXCOORD_0
+	local tangent = primitive.attributes.TANGENT
 
 	if not position then return nil, "POSITION attribute is required" end
 
 	local vertex_count = position.count
-	-- Calculate stride: position (3) + normal (3) + texcoord (2) = 8 floats
-	local stride = 8
+	-- Calculate stride: position (3) + normal (3) + texcoord (2) + tangent (4) = 12 floats
+	local stride = 12
 	local total_floats = vertex_count * stride
 	local vertex_data = ffi.new("float[?]", total_floats)
 
@@ -357,6 +359,20 @@ function gltf.GetInterleavedVertices(primitive)
 		else
 			vertex_data[base + 6] = 0
 			vertex_data[base + 7] = 0
+		end
+
+		-- Tangent (4 floats: xyz + w for handedness)
+		if tangent then
+			vertex_data[base + 8] = tangent.data[i * 4 + 0]
+			vertex_data[base + 9] = tangent.data[i * 4 + 1]
+			vertex_data[base + 10] = tangent.data[i * 4 + 2]
+			vertex_data[base + 11] = tangent.data[i * 4 + 3]
+		else
+			-- Default tangent pointing along X axis with positive handedness
+			vertex_data[base + 8] = 1.0
+			vertex_data[base + 9] = 0.0
+			vertex_data[base + 10] = 0.0
+			vertex_data[base + 11] = 1.0
 		end
 	end
 
@@ -533,8 +549,9 @@ function gltf.LoadTexture(gltf_result, texture_index)
 end
 
 -- Create all GPU resources for a glTF model
--- Returns a table of primitives with vertex_buffer, index_buffer, and texture
+-- Returns a table of primitives with vertex_buffer, index_buffer, and material
 function gltf.CreateGPUResources(gltf_result)
+	local Material = require("graphics.material")
 	local primitives = {}
 
 	for mesh_idx, mesh in ipairs(gltf_result.meshes) do
@@ -553,14 +570,49 @@ function gltf.CreateGPUResources(gltf_result)
 			end
 
 			local index_buffer, index_count, index_type = gltf.CreateIndexBuffer(primitive)
-			-- Load material texture if available
-			local texture = nil
-
+			-- Create Material object with all PBR textures
+			local material = nil
+			local texture = nil -- Legacy support
 			if primitive.material ~= nil then
-				local material = gltf_result.materials[primitive.material + 1]
+				local gltf_mat = gltf_result.materials[primitive.material + 1]
 
-				if material and material.base_color_texture then
-					texture = gltf.LoadTexture(gltf_result, material.base_color_texture)
+				if gltf_mat then
+					-- Load all PBR textures
+					local albedo_tex = gltf_mat.base_color_texture and
+						gltf.LoadTexture(gltf_result, gltf_mat.base_color_texture)
+					local normal_tex = gltf_mat.normal_texture and
+						gltf.LoadTexture(gltf_result, gltf_mat.normal_texture)
+					local metallic_roughness_tex = gltf_mat.metallic_roughness_texture and
+						gltf.LoadTexture(gltf_result, gltf_mat.metallic_roughness_texture)
+					local occlusion_tex = gltf_mat.occlusion_texture and
+						gltf.LoadTexture(gltf_result, gltf_mat.occlusion_texture)
+					local emissive_tex = gltf_mat.emissive_texture and
+						gltf.LoadTexture(gltf_result, gltf_mat.emissive_texture)
+					material = Material.New(
+						{
+							name = gltf_mat.name,
+							albedo_texture = albedo_tex,
+							normal_texture = normal_tex,
+							metallic_roughness_texture = metallic_roughness_tex,
+							occlusion_texture = occlusion_tex,
+							emissive_texture = emissive_tex,
+							base_color_factor = gltf_mat.base_color_factor,
+							metallic_factor = gltf_mat.metallic_factor,
+							roughness_factor = gltf_mat.roughness_factor,
+							normal_scale = gltf_mat.normal_scale,
+							occlusion_strength = gltf_mat.occlusion_strength,
+							emissive_factor = {
+								gltf_mat.emissive_factor[1],
+								gltf_mat.emissive_factor[2],
+								gltf_mat.emissive_factor[3],
+							},
+							double_sided = gltf_mat.double_sided,
+							alpha_mode = gltf_mat.alpha_mode,
+							alpha_cutoff = gltf_mat.alpha_cutoff,
+						}
+					)
+					-- Legacy texture reference
+					texture = albedo_tex
 				end
 			end
 
@@ -570,7 +622,8 @@ function gltf.CreateGPUResources(gltf_result)
 				index_buffer = index_buffer,
 				index_count = index_count,
 				index_type = index_type,
-				texture = texture,
+				texture = texture, -- Legacy support
+				material = material, -- New PBR material
 				material_index = primitive.material,
 				mesh_name = mesh.name,
 			}
