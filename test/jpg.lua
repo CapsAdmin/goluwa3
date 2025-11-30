@@ -1,3 +1,5 @@
+local profiler = require("helpers.profiler")
+local stop_profiler = profiler.Start()
 local file_formats = require("file_formats")
 local ffi = require("ffi")
 -- Add debug version of jpg_decode
@@ -20,7 +22,7 @@ local function buffer_from_path(path)
 end
 
 -- Just load to see component order info
-local path = "/home/caps/projects/glTF-Sample-Assets-main/Models/Sponza/glTF/8481240838833932244.jpg"
+local path = "/home/caps/projects/glTF-Sample-Assets-main/Models/Sponza/glTF/14118779221266351425.jpg"
 -- Debug: Use the standard decoder and check what getData receives
 local jpg_decode = require("file_formats.jpg.decode")
 local inputbuf, err = buffer_from_path(path)
@@ -54,6 +56,7 @@ samplePixel(result.width - 1, result.height - 1)
 samplePixel(10, 10)
 samplePixel(100, 100)
 -- Let's also check what the raw line values are
-print("\nDebug: Checking if lines contain data...")-- Since scaleX, scaleY are 1 for h=1,v=1 and maxH=1,maxV=1
+print("\nDebug: Checking if lines contain data...") -- Since scaleX, scaleY are 1 for h=1,v=1 and maxH=1,maxV=1
 -- the getData loop accesses lines[y] for y from 0 to height-1
 -- Let's see if lines actually have varying data
+stop_profiler()
