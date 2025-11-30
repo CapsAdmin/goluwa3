@@ -192,6 +192,8 @@ function GraphicsPipeline:RegisterTexture(tex)
 	for frame_i = 1, #self.descriptor_sets do
 		self:UpdateDescriptorSetArray(frame_i, 0, self.texture_array)
 	end
+
+	return index
 end
 
 function GraphicsPipeline:GetTextureIndex(tex)

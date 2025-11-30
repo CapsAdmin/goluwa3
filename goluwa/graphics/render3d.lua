@@ -4,8 +4,9 @@ local event = require("event")
 local window = require("graphics.window")
 local camera = require("graphics.camera")
 local Material = require("graphics.material")
+local Light = require("graphics.light")
 local cam = camera.CreateCamera()
--- Push constants for vertex shader
+-- Push constants for vertex shader (128 bytes)
 local VertexConstants = ffi.typeof([[
 	struct {
 		float projection_view_world[16];
@@ -20,15 +21,24 @@ local FragmentConstants = ffi.typeof([[
 		int metallic_roughness_texture_index;
 		int occlusion_texture_index;
 		int emissive_texture_index;
+		int shadow_map_index;
 		float base_color_factor[4];
 		float metallic_factor;
 		float roughness_factor;
 		float normal_scale;
 		float occlusion_strength;
-		float emissive_factor[4];
-		float light_direction[4];
-		float light_color[4];
-		float camera_position[4];
+		float emissive_factor[3];
+		float light_direction[3];
+		float light_color[3];
+		float light_intensity;
+		float camera_position[3];
+		float _pad;
+	}
+]])
+-- UBO for shadow data (light space matrix - 64 bytes)
+local ShadowUBO = ffi.typeof([[
+	struct {
+		float light_space_matrix[16];
 	}
 ]])
 local render3d = {}
@@ -38,6 +48,23 @@ render3d.current_material = nil
 render3d.light_direction = {0.5, -1.0, 0.3}
 render3d.light_color = {1.0, 1.0, 1.0, 2.0} -- RGB + intensity
 function render3d.Initialize()
+	-- Create shadow UBO buffer
+	local shadow_ubo_data = ShadowUBO()
+
+	-- Initialize with identity matrix
+	for i = 0, 15 do
+		shadow_ubo_data.light_space_matrix[i] = (i % 5 == 0) and 1.0 or 0.0
+	end
+
+	render3d.shadow_ubo = render.CreateBuffer(
+		{
+			data = shadow_ubo_data,
+			byte_size = ffi.sizeof(ShadowUBO),
+			buffer_usage = {"uniform_buffer"},
+			memory_property = {"host_visible", "host_coherent"},
+		}
+	)
+	render3d.shadow_ubo_data = shadow_ubo_data
 	render3d.pipeline = render.CreateGraphicsPipeline(
 		{
 			dynamic_states = {"viewport", "scissor"},
@@ -133,6 +160,11 @@ function render3d.Initialize()
 					#extension GL_EXT_scalar_block_layout : require
 
 					layout(binding = 0) uniform sampler2D textures[1024]; // Bindless texture array
+					
+					// UBO for shadow data
+					layout(std140, binding = 1) uniform ShadowData {
+						mat4 light_space_matrix;
+					} shadow;
 
 					// from vertex shader
 					layout(location = 0) in vec3 in_world_pos;
@@ -151,15 +183,17 @@ function render3d.Initialize()
 						int metallic_roughness_texture_index;
 						int occlusion_texture_index;
 						int emissive_texture_index;
+						int shadow_map_index;
 						vec4 base_color_factor;
 						float metallic_factor;
 						float roughness_factor;
 						float normal_scale;
 						float occlusion_strength;
-						vec4 emissive_factor;
-						vec4 light_direction;
-						vec4 light_color;
-						vec4 camera_position;
+						vec3 emissive_factor;
+						vec3 light_direction;
+						vec3 light_color;
+						float light_intensity;
+						vec3 camera_position;
 					} pc;
 
 					const float PI = 3.14159265359;
@@ -193,13 +227,49 @@ function render3d.Initialize()
 						return F0 + (1.0 - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
 					}
 
+					// PCF Shadow calculation
+					float calculateShadow(vec3 world_pos) {
+						// Transform to light space
+						vec4 light_space_pos = shadow.light_space_matrix * vec4(world_pos, 1.0);
+						
+						// Perspective divide
+						vec3 proj_coords = light_space_pos.xyz / light_space_pos.w;
+						
+						// Transform X,Y from NDC [-1,1] to UV [0,1]
+						// Z (depth) is already in [0,1] for Vulkan projection
+						proj_coords.xy = proj_coords.xy * 0.5 + 0.5;
+						
+						// Outside shadow map
+						if (proj_coords.z > 1.0 || proj_coords.z < 0.0 || proj_coords.x < 0.0 || proj_coords.x > 1.0 || proj_coords.y < 0.0 || proj_coords.y > 1.0) {
+							return 1.0;
+						}
+						
+						float current_depth = proj_coords.z;
+						
+						// Bias to reduce shadow acne
+						float bias = 0.005;
+						
+						// PCF - sample 3x3 area
+						float shadow_val = 0.0;
+						vec2 texel_size = 1.0 / textureSize(textures[nonuniformEXT(pc.shadow_map_index)], 0);
+						for (int x = -1; x <= 1; ++x) {
+							for (int y = -1; y <= 1; ++y) {
+								float pcf_depth = texture(textures[nonuniformEXT(pc.shadow_map_index)], proj_coords.xy + vec2(x, y) * texel_size).r;
+								shadow_val += current_depth - bias > pcf_depth ? 0.0 : 1.0;
+							}
+						}
+						shadow_val /= 9.0;
+						
+						return shadow_val;
+					}
+
 					void main() {
 						// Sample textures
 						vec4 albedo = texture(textures[nonuniformEXT(pc.albedo_texture_index)], in_uv) * pc.base_color_factor;
 						vec3 normal_map = texture(textures[nonuniformEXT(pc.normal_texture_index)], in_uv).rgb;
 						vec4 metallic_roughness = texture(textures[nonuniformEXT(pc.metallic_roughness_texture_index)], in_uv);
 						float ao = texture(textures[nonuniformEXT(pc.occlusion_texture_index)], in_uv).r;
-						vec3 emissive = texture(textures[nonuniformEXT(pc.emissive_texture_index)], in_uv).rgb * pc.emissive_factor.rgb;
+						vec3 emissive = texture(textures[nonuniformEXT(pc.emissive_texture_index)], in_uv).rgb * pc.emissive_factor;
 
 						// Alpha test
 						if (albedo.a < 0.5) {
@@ -224,7 +294,7 @@ function render3d.Initialize()
 						// View direction - camera position needs to be negated (view matrix uses negative position)
 						vec3 cam_pos = -vec3(pc.camera_position.y, pc.camera_position.x, pc.camera_position.z);
 						vec3 V = normalize(cam_pos - in_world_pos);
-						vec3 L = normalize(-pc.light_direction.xyz);
+						vec3 L = normalize(-pc.light_direction);
 						vec3 H = normalize(V + L);
 
 						// F0 for dielectrics is 0.04, for metals use albedo
@@ -247,9 +317,15 @@ function render3d.Initialize()
 						float denominator = 4.0 * NdotV * NdotL + 0.0001;
 						vec3 specular = numerator / denominator;
 
+						// Shadow
+						float shadow_factor = 1.0;
+						if (pc.shadow_map_index > 0) {
+							shadow_factor = calculateShadow(in_world_pos);
+						}
+
 						// Final lighting
-						vec3 light_color = pc.light_color.rgb * pc.light_color.w;
-						vec3 Lo = (kD * albedo.rgb / PI + specular) * light_color * NdotL;
+						vec3 radiance = pc.light_color * pc.light_intensity;
+						vec3 Lo = (kD * albedo.rgb / PI + specular) * radiance * NdotL * shadow_factor;
 
 						// Ambient - add simple environment approximation for metals
 						vec3 ambient_diffuse = vec3(0.03) * albedo.rgb * ao;
@@ -272,6 +348,11 @@ function render3d.Initialize()
 							type = "combined_image_sampler",
 							binding_index = 0,
 							count = 1024,
+						},
+						{
+							type = "uniform_buffer",
+							binding_index = 1,
+							args = {render3d.shadow_ubo},
 						},
 					},
 					push_constants = {
@@ -333,10 +414,45 @@ end
 
 function render3d.SetLightDirection(x, y, z)
 	render3d.light_direction = {x, y, z}
+
+	-- Update sun light direction too if exists
+	if render3d.sun_light then render3d.sun_light:SetDirection(x, y, z) end
 end
 
 function render3d.SetLightColor(r, g, b, intensity)
 	render3d.light_color = {r, g, b, intensity or 1.0}
+
+	-- Update sun light color too if exists
+	if render3d.sun_light then
+		render3d.sun_light:SetColor(r, g, b)
+		render3d.sun_light:SetIntensity(intensity or 1.0)
+	end
+end
+
+function render3d.SetSunLight(light)
+	render3d.sun_light = light
+
+	if light then
+		local dir = light:GetDirection()
+		render3d.light_direction = {dir.x, dir.y, dir.z}
+		local color = light:GetColor()
+		local intensity = light:GetIntensity()
+		render3d.light_color = {color.r, color.g, color.b, intensity}
+	end
+end
+
+function render3d.GetSunLight()
+	return render3d.sun_light
+end
+
+-- Update the shadow UBO with the light space matrix
+function render3d.UpdateShadowUBO()
+	if render3d.sun_light and render3d.sun_light:HasShadows() then
+		local shadow_map = render3d.sun_light:GetShadowMap()
+		local matrix_data = shadow_map.light_space_matrix:GetFloatCopy()
+		ffi.copy(render3d.shadow_ubo_data.light_space_matrix, matrix_data, ffi.sizeof("float") * 16)
+		render3d.shadow_ubo:CopyData(render3d.shadow_ubo_data, ffi.sizeof(ShadowUBO))
+	end
 end
 
 function render3d.UploadConstants(cmd)
@@ -358,6 +474,15 @@ function render3d.UploadConstants(cmd)
 		fragment_constants.metallic_roughness_texture_index = indices.metallic_roughness
 		fragment_constants.occlusion_texture_index = indices.occlusion
 		fragment_constants.emissive_texture_index = indices.emissive
+
+		-- Shadow map index
+		if render3d.sun_light and render3d.sun_light:HasShadows() then
+			local shadow_map = render3d.sun_light:GetShadowMap()
+			fragment_constants.shadow_map_index = render3d.pipeline:RegisterTexture(shadow_map.depth_texture)
+		else
+			fragment_constants.shadow_map_index = 0
+		end
+
 		-- Base color factor
 		fragment_constants.base_color_factor[0] = mat.base_color_factor[1]
 		fragment_constants.base_color_factor[1] = mat.base_color_factor[2]
@@ -367,26 +492,23 @@ function render3d.UploadConstants(cmd)
 		fragment_constants.roughness_factor = mat.roughness_factor
 		fragment_constants.normal_scale = mat.normal_scale
 		fragment_constants.occlusion_strength = mat.occlusion_strength
-		-- Emissive factor
+		-- Emissive factor (vec3)
 		fragment_constants.emissive_factor[0] = mat.emissive_factor[1]
 		fragment_constants.emissive_factor[1] = mat.emissive_factor[2]
 		fragment_constants.emissive_factor[2] = mat.emissive_factor[3]
-		fragment_constants.emissive_factor[3] = 1.0
-		-- Light parameters
+		-- Light parameters (vec3)
 		fragment_constants.light_direction[0] = render3d.light_direction[1]
 		fragment_constants.light_direction[1] = render3d.light_direction[2]
 		fragment_constants.light_direction[2] = render3d.light_direction[3]
-		fragment_constants.light_direction[3] = 1.0 -- Flag to use camera position
 		fragment_constants.light_color[0] = render3d.light_color[1]
 		fragment_constants.light_color[1] = render3d.light_color[2]
 		fragment_constants.light_color[2] = render3d.light_color[3]
-		fragment_constants.light_color[3] = render3d.light_color[4]
-		-- Camera position for specular
+		fragment_constants.light_intensity = render3d.light_color[4]
+		-- Camera position for specular (vec3)
 		local cam_pos = cam:GetPosition()
 		fragment_constants.camera_position[0] = cam_pos.x
 		fragment_constants.camera_position[1] = cam_pos.y
 		fragment_constants.camera_position[2] = cam_pos.z
-		fragment_constants.camera_position[3] = 1.0
 		render3d.pipeline:PushConstants(cmd, "fragment", ffi.sizeof(VertexConstants), fragment_constants)
 	end
 end

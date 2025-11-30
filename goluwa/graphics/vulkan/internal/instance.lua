@@ -115,11 +115,18 @@ function Instance.New(extensions, layers)
 		)
 	end
 
+	-- Only use portability enumeration on macOS
+	local instance_flags = 0
+
+	if jit.os == "OSX" then
+		instance_flags = vulkan.vk.VkInstanceCreateFlagBits("VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR")
+	end
+
 	local createInfo = vulkan.vk.VkInstanceCreateInfo(
 		{
 			sType = "VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO",
 			pNext = has_validation and debug_create_info or nil,
-			flags = vulkan.vk.VkInstanceCreateFlagBits("VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR"),
+			flags = instance_flags,
 			pApplicationInfo = appInfo,
 			enabledLayerCount = layers and #layers or 0,
 			ppEnabledLayerNames = layer_names,

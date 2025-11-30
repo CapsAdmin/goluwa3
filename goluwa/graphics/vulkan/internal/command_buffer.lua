@@ -116,33 +116,40 @@ end
 function CommandBuffer:BeginRendering(config)
 	local clearColor = config.clearColor or {0.0, 0.0, 0.0, 1.0}
 	local clearDepth = config.clearDepth or 1.0
-	local colorAttachmentInfo = vulkan.vk.VkRenderingAttachmentInfo(
-		{
-			sType = "VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO",
-			pNext = nil,
-			imageView = config.colorImageView.ptr[0],
-			imageLayout = "VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL",
-			resolveMode = config.msaaImageView and "VK_RESOLVE_MODE_AVERAGE_BIT" or "VK_RESOLVE_MODE_NONE",
-			resolveImageView = config.msaaImageView and config.colorImageView.ptr[0] or nil,
-			resolveImageLayout = config.msaaImageView and
-				"VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL" or
-				"VK_IMAGE_LAYOUT_UNDEFINED",
-			loadOp = "VK_ATTACHMENT_LOAD_OP_CLEAR",
-			storeOp = "VK_ATTACHMENT_STORE_OP_STORE",
-			clearValue = {
-				color = {
-					float32 = {clearColor[1], clearColor[2], clearColor[3], clearColor[4]},
-				},
-			},
-		}
-	)
+	local colorAttachmentInfo = nil
+	local colorAttachmentCount = 0
 
-	if config.msaaImageView then
-		colorAttachmentInfo.imageView = config.msaaImageView.ptr[0]
-		colorAttachmentInfo.imageLayout = "VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL"
-		colorAttachmentInfo.resolveMode = "VK_RESOLVE_MODE_AVERAGE_BIT"
-		colorAttachmentInfo.resolveImageView = config.colorImageView.ptr[0]
-		colorAttachmentInfo.resolveImageLayout = "VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL"
+	-- Only create color attachment if colorImageView is provided
+	if config.colorImageView then
+		colorAttachmentCount = 1
+		colorAttachmentInfo = vulkan.vk.VkRenderingAttachmentInfo(
+			{
+				sType = "VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO",
+				pNext = nil,
+				imageView = config.colorImageView.ptr[0],
+				imageLayout = "VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL",
+				resolveMode = config.msaaImageView and "VK_RESOLVE_MODE_AVERAGE_BIT" or "VK_RESOLVE_MODE_NONE",
+				resolveImageView = config.msaaImageView and config.colorImageView.ptr[0] or nil,
+				resolveImageLayout = config.msaaImageView and
+					"VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL" or
+					"VK_IMAGE_LAYOUT_UNDEFINED",
+				loadOp = "VK_ATTACHMENT_LOAD_OP_CLEAR",
+				storeOp = "VK_ATTACHMENT_STORE_OP_STORE",
+				clearValue = {
+					color = {
+						float32 = {clearColor[1], clearColor[2], clearColor[3], clearColor[4]},
+					},
+				},
+			}
+		)
+
+		if config.msaaImageView then
+			colorAttachmentInfo.imageView = config.msaaImageView.ptr[0]
+			colorAttachmentInfo.imageLayout = "VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL"
+			colorAttachmentInfo.resolveMode = "VK_RESOLVE_MODE_AVERAGE_BIT"
+			colorAttachmentInfo.resolveImageView = config.colorImageView.ptr[0]
+			colorAttachmentInfo.resolveImageLayout = "VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL"
+		end
 	end
 
 	local depthAttachmentInfo = nil
@@ -153,12 +160,14 @@ function CommandBuffer:BeginRendering(config)
 				sType = "VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO",
 				pNext = nil,
 				imageView = config.depthImageView.ptr[0],
-				imageLayout = "VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL",
+				imageLayout = config.depthLayout or "VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL",
 				resolveMode = "VK_RESOLVE_MODE_NONE",
 				resolveImageView = nil,
 				resolveImageLayout = "VK_IMAGE_LAYOUT_UNDEFINED",
 				loadOp = "VK_ATTACHMENT_LOAD_OP_CLEAR",
-				storeOp = "VK_ATTACHMENT_STORE_OP_DONT_CARE",
+				storeOp = config.depthStore and
+					"VK_ATTACHMENT_STORE_OP_STORE" or
+					"VK_ATTACHMENT_STORE_OP_DONT_CARE",
 				clearValue = {
 					depthStencil = {
 						depth = clearDepth,
@@ -180,7 +189,7 @@ function CommandBuffer:BeginRendering(config)
 			},
 			layerCount = 1,
 			viewMask = 0,
-			colorAttachmentCount = 1,
+			colorAttachmentCount = colorAttachmentCount,
 			pColorAttachments = colorAttachmentInfo,
 			pDepthAttachment = depthAttachmentInfo,
 			pStencilAttachment = nil,

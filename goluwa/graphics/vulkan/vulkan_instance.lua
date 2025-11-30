@@ -11,12 +11,13 @@ local GraphicsPipeline = require("graphics.vulkan.graphics_pipeline")
 local ComputePipeline = require("graphics.vulkan.compute_pipeline")
 local process = require("bindings.process")
 
-do
+if jit.os == "OSX" then
 	local VULKAN_SDK = "/Users/caps/VulkanSDK/1.4.328.1"
 	process.setenv("VULKAN_SDK", VULKAN_SDK)
 	process.setenv("VK_LAYER_PATH", VULKAN_SDK .. "/macOS/share/vulkan/explicit_layer.d")
 end
 
+-- On Linux, VK_LAYER_PATH should be set by the environment (e.g., nix develop)
 local VulkanInstance = {}
 VulkanInstance.__index = VulkanInstance
 
@@ -30,7 +31,7 @@ function VulkanInstance.New(surface_handle, display_handle)
 		table.insert(extensions, "VK_KHR_portability_enumeration")
 	end
 
-	self.instance = Instance.New(extensions, {})
+	self.instance = Instance.New(extensions, {"VK_LAYER_KHRONOS_validation"})
 	self.surface = Surface.New(self.instance, surface_handle, display_handle)
 	-- Find a physical device that supports this surface
 	local physical_devices = self.instance:GetPhysicalDevices()

@@ -425,10 +425,29 @@ function gltf.CreateVertexBuffer(primitive)
 end
 
 -- Create GPU index buffer from primitive
-function gltf.CreateIndexBuffer(primitive)
+-- Also validates indices against vertex_count if provided
+function gltf.CreateIndexBuffer(primitive, vertex_count)
 	if not primitive.indices then return nil, nil, nil end
 
 	local indices = primitive.indices
+
+	-- Validate indices if vertex_count provided
+	if vertex_count then
+		local max_index = 0
+
+		for i = 0, indices.count - 1 do
+			local idx = indices.data[i]
+
+			if idx > max_index then max_index = idx end
+
+			if idx >= vertex_count then
+				print(
+					string.format("WARNING: Index %d at position %d exceeds vertex_count %d!", idx, i, vertex_count)
+				)
+			end
+		end
+	end
+
 	local buffer = render.CreateBuffer(
 		{
 			buffer_usage = "index_buffer",
@@ -569,7 +588,7 @@ function gltf.CreateGPUResources(gltf_result)
 				goto continue
 			end
 
-			local index_buffer, index_count, index_type = gltf.CreateIndexBuffer(primitive)
+			local index_buffer, index_count, index_type = gltf.CreateIndexBuffer(primitive, vertex_count)
 			-- Create Material object with all PBR textures
 			local material = nil
 			local texture = nil -- Legacy support

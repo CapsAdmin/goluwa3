@@ -35,6 +35,8 @@ function render.Initialize()
 	end)
 
 	event.AddListener("Update", "window_update", function(dt)
+		-- Shadow passes run before main frame (before swapchain acquire)
+		event.Call("PreFrame", dt)
 		local cmd = window_target:BeginFrame()
 
 		if not cmd then return end
@@ -64,7 +66,13 @@ function render.CreateSampler(config)
 end
 
 function render.CreateGraphicsPipeline(config)
-	config.color_format = config.color_format or render.window_target:GetColorFormat()
+	-- Only set defaults if not explicitly provided (nil check allows explicit nil for depth-only)
+	if config.color_format == nil and config.color_format ~= false then
+		config.color_format = render.window_target:GetColorFormat()
+	elseif config.color_format == false then
+		config.color_format = nil
+	end
+
 	config.depth_format = config.depth_format or render.window_target:GetDepthFormat()
 	config.samples = config.samples or render.window_target:GetSamples()
 	config.descriptor_set_count = config.descriptor_set_count or render.window_target:GetSwapchainImageCount()

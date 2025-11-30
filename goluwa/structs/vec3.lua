@@ -16,12 +16,14 @@ function META.Cross(a, b)
 end
 
 structs.AddGetFunc(META, "Cross")
+local Ang3
 
 function META:GetAngles()
+	Ang3 = Ang3 or require("structs.ang3")
 	local n = self:GetNormalized()
 	local p = math.atan2(math.sqrt((n.x ^ 2) + (n.y ^ 2)), n.z)
 	local y = math.atan2(self.y, self.x)
-	return structs.ang3(p, y, 0)
+	return Ang3(p, y, 0)
 end
 
 function META:GetRotated(axis, ang)

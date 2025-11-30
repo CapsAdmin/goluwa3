@@ -2,12 +2,13 @@ local ffi = require("ffi")
 local render = require("graphics.render")
 local Texture = require("graphics.texture")
 local Fence = require("graphics.vulkan.internal.fence")
-local Matrix = require("structs.matrix")
+local Matrix = require("structs.matrix").Matrix44
 local Vec3 = require("structs.vec3")
+local camera = require("graphics.camera")
 local ShadowMap = {}
 ShadowMap.__index = ShadowMap
 -- Default shadow map settings
-local DEFAULT_SIZE = 2048
+local DEFAULT_SIZE = 800 -- Using 800 to match working viewport
 local DEFAULT_FORMAT = "D32_SFLOAT"
 -- Push constants for shadow pass (just need MVP matrix)
 local ShadowVertexConstants = ffi.typeof([[
@@ -24,6 +25,13 @@ function ShadowMap.New(config)
 	self.near_plane = config.near_plane or 0.1
 	self.far_plane = config.far_plane or 100.0
 	self.ortho_size = config.ortho_size or 50.0 -- Half-size of orthographic projection
+	-- Create a camera for the light
+	self.camera = camera.CreateCamera()
+	self.camera:Set3D(true)
+	self.camera:SetOrtho(true)
+	self.camera:SetViewport(require("structs.rect")(0, 0, self.size, self.size))
+	self.camera:SetNearZ(self.near_plane)
+	self.camera:SetFarZ(self.far_plane)
 	-- Create depth texture for shadow map
 	self.depth_texture = Texture.New(
 		{
@@ -43,8 +51,7 @@ function ShadowMap.New(config)
 				wrap_s = "clamp_to_border",
 				wrap_t = "clamp_to_border",
 				border_color = "float_opaque_white",
-				compare_enable = true,
-				compare_op = "less_or_equal",
+			-- No compare_enable - we do manual PCF in the shader
 			},
 		}
 	)
@@ -52,7 +59,9 @@ function ShadowMap.New(config)
 	self.pipeline = render.CreateGraphicsPipeline(
 		{
 			dynamic_states = {"viewport", "scissor"},
+			color_format = false, -- No color attachment for shadow pass
 			depth_format = self.format,
+			descriptor_set_count = 1, -- Shadow pass doesn't need per-frame descriptor sets
 			shader_stages = {
 				{
 					type = "vertex",
@@ -126,15 +135,15 @@ function ShadowMap.New(config)
 				},
 			},
 			rasterizer = {
-				depth_clamp = true, -- Clamp depth to avoid shadow acne at edges
+				depth_clamp = false,
 				discard = false,
 				polygon_mode = "fill",
 				line_width = 1.0,
-				cull_mode = "front", -- Front-face culling reduces shadow acne
+				cull_mode = "none", -- Disabled - was causing device lost
 				front_face = "counter_clockwise",
-				depth_bias = 1, -- Enable depth bias
-				depth_bias_constant_factor = 1.25,
-				depth_bias_slope_factor = 1.75,
+				depth_bias = 0, -- Disabled - was causing device lost with some primitives
+				depth_bias_constant_factor = 0.0,
+				depth_bias_slope_factor = 0.0,
 			},
 			color_blend = {
 				logic_op_enabled = false,
@@ -156,8 +165,6 @@ function ShadowMap.New(config)
 		}
 	)
 	-- Light space matrix
-	self.light_view_matrix = Matrix()
-	self.light_projection_matrix = Matrix()
 	self.light_space_matrix = Matrix()
 	-- Command buffer for shadow pass
 	self.command_pool = render.GetCommandPool()
@@ -166,29 +173,94 @@ function ShadowMap.New(config)
 	return self
 end
 
--- Update light space matrix based on light direction
+-- Update light space matrix based on light direction  
 function ShadowMap:UpdateLightMatrix(light_direction, scene_center, scene_radius)
 	scene_center = scene_center or Vec3(0, 0, 0)
 	scene_radius = scene_radius or self.ortho_size
 	-- Normalize light direction
 	local dir = light_direction:GetNormalized()
 	-- Calculate light position (far from scene in opposite direction of light)
-	local light_pos = scene_center - dir * (scene_radius * 2)
-	-- Create view matrix (look at scene center from light position)
-	self.light_view_matrix:Identity()
-	self.light_view_matrix:LookAt(light_pos, scene_center, Vec3(0, 1, 0))
-	-- Create orthographic projection matrix
-	self.light_projection_matrix:Identity()
-	self.light_projection_matrix:Ortho(
-		-scene_radius,
-		scene_radius,
-		-scene_radius,
-		scene_radius,
-		self.near_plane,
-		self.far_plane + scene_radius * 2
-	)
-	-- Combine into light space matrix
-	self.light_space_matrix = self.light_projection_matrix * self.light_view_matrix
+	local distance = scene_radius * 4
+	local light_pos = scene_center - dir * distance
+
+	-- Debug: print light setup once
+	if not self._debug_light then
+		print("=== Shadow Light Setup ===")
+		print(string.format("Light dir: (%.2f, %.2f, %.2f)", dir.x, dir.y, dir.z))
+		print(string.format("Light pos: (%.2f, %.2f, %.2f)", light_pos.x, light_pos.y, light_pos.z))
+		print(
+			string.format(
+				"Scene center: (%.2f, %.2f, %.2f)",
+				scene_center.x,
+				scene_center.y,
+				scene_center.z
+			)
+		)
+		print(string.format("Scene radius: %.2f", scene_radius))
+		self._debug_light = true
+	end
+
+	-- Build view matrix (LookAt from light_pos toward scene_center)
+	local forward = dir
+	local world_up = Vec3(0, 0, 1)
+
+	if math.abs(forward.z) > 0.99 then world_up = Vec3(0, 1, 0) end
+
+	local right = world_up:GetCross(forward):GetNormalized()
+	local up = forward:GetCross(right):GetNormalized()
+	local view = Matrix()
+	view:Identity()
+	view.m00 = right.x
+	view.m10 = right.y
+	view.m20 = right.z
+	view.m01 = up.x
+	view.m11 = up.y
+	view.m21 = up.z
+	view.m02 = -forward.x
+	view.m12 = -forward.y
+	view.m22 = -forward.z
+	view.m30 = -right:GetDot(light_pos)
+	view.m31 = -up:GetDot(light_pos)
+	view.m32 = forward:GetDot(light_pos)
+	-- Build orthographic projection matrix for Vulkan (depth [0,1])
+	local near = self.near_plane
+	local far = self.far_plane + distance
+	local projection = Matrix()
+	projection:Identity()
+	projection.m00 = 2 / (2 * scene_radius) -- 1/scene_radius
+	projection.m11 = 2 / (2 * scene_radius) -- 1/scene_radius
+	projection.m22 = 1 / (near - far)
+	projection.m32 = near / (near - far)
+	-- Combine: projection * view
+	self.light_space_matrix = projection * view
+
+	-- Debug: print matrices once
+	if not self._debug_matrices then
+		print("=== Shadow Matrices ===")
+		local m = self.light_space_matrix
+		print(
+			string.format(
+				"Light space matrix:\n[%.3f, %.3f, %.3f, %.3f]\n[%.3f, %.3f, %.3f, %.3f]\n[%.3f, %.3f, %.3f, %.3f]\n[%.3f, %.3f, %.3f, %.3f]",
+				m.m00,
+				m.m10,
+				m.m20,
+				m.m30,
+				m.m01,
+				m.m11,
+				m.m21,
+				m.m31,
+				m.m02,
+				m.m12,
+				m.m22,
+				m.m32,
+				m.m03,
+				m.m13,
+				m.m23,
+				m.m33
+			)
+		)
+		self._debug_matrices = true
+	end
 end
 
 -- Begin shadow pass
@@ -198,8 +270,8 @@ function ShadowMap:Begin()
 	-- Transition depth texture to depth attachment optimal
 	self.cmd:PipelineBarrier(
 		{
-			srcStage = "fragment",
-			dstStage = "early_fragment_tests",
+			srcStage = "all_commands",
+			dstStage = "all_commands",
 			imageBarriers = {
 				{
 					image = self.depth_texture:GetImage(),
@@ -216,14 +288,17 @@ function ShadowMap:Begin()
 	self.cmd:BeginRendering(
 		{
 			depthImageView = self.depth_texture:GetView(),
-			extent = {width = self.size, height = self.size},
+			depthStore = true, -- We need to store the depth for sampling later
+			depthLayout = "VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL",
+			extent = {width = 800, height = 600}, -- Match viewport for now
 			clearDepth = 1.0,
 		}
 	)
-	self.cmd:SetViewport(0.0, 0.0, self.size, self.size, 0.0, 1.0)
-	self.cmd:SetScissor(0, 0, self.size, self.size)
 	-- Bind shadow pipeline
 	self.pipeline:Bind(self.cmd)
+	-- Set viewport and scissor (dynamic states) - use 800x600 for now
+	self.cmd:SetViewport(0.0, 0.0, 800, 600, 0.0, 1.0)
+	self.cmd:SetScissor(0, 0, 800, 600)
 	return self.cmd
 end
 
@@ -241,8 +316,8 @@ function ShadowMap:End()
 	-- Transition depth texture to shader read optimal for sampling
 	self.cmd:PipelineBarrier(
 		{
-			srcStage = "late_fragment_tests",
-			dstStage = "fragment",
+			srcStage = "all_commands",
+			dstStage = "all_commands",
 			imageBarriers = {
 				{
 					image = self.depth_texture:GetImage(),

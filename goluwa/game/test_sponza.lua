@@ -8,6 +8,7 @@ local gfx = require("graphics.gfx")
 local render3d = require("graphics.render3d")
 local gltf = require("gltf")
 local Material = require("graphics.material")
+local Light = require("graphics.light")
 -- Load Sponza model
 local sponza_path = "/home/caps/projects/glTF-Sample-Assets-main/Models/Sponza/glTF/Sponza.gltf"
 print("Loading Sponza model from:", sponza_path)
@@ -37,8 +38,9 @@ for _, prim in ipairs(primitives) do
 	if prim.material then materials_loaded = materials_loaded + 1 end
 end
 
-print("Loaded", textures_loaded, "textures")
-print("Loaded", materials_loaded, "PBR materials")
+-- Access raw gltf data to check index max values
+local mesh_idx = 1
+local prim_idx = 1
 -- Create transform for the model
 local sponza_transform = Transform.New()
 sponza_transform:SetPosition(Vec3(0, 0, 0))
@@ -51,9 +53,58 @@ require("game.camera_movement")
 -- Set initial camera position for Sponza (it's a large architectural scene)
 render3d.cam:SetPosition(Vec3(0, 2, 0))
 render3d.cam:SetAngles(Ang3(0, 0, 0))
--- Configure lighting for the scene
-render3d.SetLightDirection(0.3, -0.8, 0.5)
-render3d.SetLightColor(1.0, 0.98, 0.95, 3.0) -- Warm sunlight with intensity
+-- Create sun light with shadows
+local sun = Light.CreateDirectional(
+	{
+		direction = Vec3(0.3, -0.8, 0.5),
+		color = {1.0, 0.98, 0.95},
+		intensity = 3.0,
+		name = "Sun",
+	}
+)
+-- Enable shadows
+sun:EnableShadows(
+	{
+		-- size = 2048,  -- Use default for now
+		ortho_size = 15.0,
+		near_plane = 0.1,
+		far_plane = 50.0,
+	}
+)
+-- Set as the render3d sun light
+render3d.SetSunLight(sun)
+Light.AddToScene(sun)
+Light.SetSun(sun)
+print("Sun light created with shadows")
+
+-- Shadow pass runs in PreFrame (before swapchain acquire, completely separate)
+event.AddListener("PreFrame", "test_sponza_shadows", function(dt)
+	if sun:HasShadows() then
+		-- Update light matrices centered on the scene
+		sun:UpdateShadowMap(Vec3(0, 0.5, 0), 15.0)
+		-- Render shadow pass
+		local shadow_cmd = sun:GetShadowMap():Begin()
+		-- Upload constants once (same world matrix for all primitives)
+		sun:GetShadowMap():UploadConstants(sponza_transform:GetMatrix())
+
+		-- Draw all primitives
+		for _, prim in ipairs(primitives) do
+			shadow_cmd:BindVertexBuffer(prim.vertex_buffer, 0)
+
+			if prim.index_buffer then
+				shadow_cmd:BindIndexBuffer(prim.index_buffer, 0, prim.index_type)
+				shadow_cmd:DrawIndexed(prim.index_count)
+			else
+				shadow_cmd:Draw(prim.vertex_count)
+			end
+		end
+
+		sun:GetShadowMap():End()
+		-- Update the UBO with the light space matrix
+		render3d.UpdateShadowUBO()
+	end
+end)
+
 event.AddListener("Draw3D", "test_sponza", function(cmd, dt)
 	-- Set world matrix
 	render3d.SetWorldMatrix(sponza_transform:GetMatrix())
@@ -61,8 +112,7 @@ event.AddListener("Draw3D", "test_sponza", function(cmd, dt)
 	-- Draw all primitives
 	for _, prim in ipairs(primitives) do
 		-- Set material (use PBR material or default)
-		local mat = prim.material or default_material
-		render3d.SetMaterial(mat)
+		render3d.SetMaterial(prim.material or default_material)
 		render3d.UploadConstants(cmd)
 		-- Bind vertex buffer
 		cmd:BindVertexBuffer(prim.vertex_buffer, 0)
@@ -77,4 +127,4 @@ event.AddListener("Draw3D", "test_sponza", function(cmd, dt)
 	end
 end)
 
-print("Sponza scene ready with PBR materials!")
+print("Sponza scene ready with PBR materials and shadow mapping!")

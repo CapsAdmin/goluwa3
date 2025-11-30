@@ -1,5 +1,6 @@
 local ffi = require("ffi")
 local Vec3 = require("structs.vec3")
+local ShadowMap = require("graphics.shadow_map")
 local Light = {}
 Light.__index = Light
 -- Light types
@@ -22,6 +23,8 @@ local LightData = ffi.typeof([[
 -- Scene lights collection
 local scene_lights = {}
 local ambient_color = {0.03, 0.03, 0.03}
+-- The sun (primary directional light with shadows)
+local sun = nil
 
 function Light.New(config)
 	config = config or {}
@@ -36,6 +39,8 @@ function Light.New(config)
 	self.outer_cone = config.outer_cone or 0.8
 	self.enabled = config.enabled ~= false
 	self.name = config.name or "unnamed"
+	self.cast_shadows = config.cast_shadows or false
+	self.shadow_map = nil
 	return self
 end
 
@@ -44,7 +49,23 @@ function Light:SetPosition(pos)
 end
 
 function Light:SetDirection(dir)
+	if type(dir) == "table" and not dir.GetNormalized then
+		dir = Vec3(dir[1] or dir.x or 0, dir[2] or dir.y or 0, dir[3] or dir.z or 0)
+	end
+
 	self.direction = dir:GetNormalized()
+end
+
+function Light:GetDirection()
+	return self.direction
+end
+
+function Light:GetColor()
+	return {r = self.color[1], g = self.color[2], b = self.color[3]}
+end
+
+function Light:GetIntensity()
+	return self.intensity
 end
 
 function Light:SetColor(r, g, b)
@@ -61,6 +82,48 @@ end
 
 function Light:SetEnabled(enabled)
 	self.enabled = enabled
+end
+
+function Light:EnableShadows(config)
+	config = config or {}
+	self.cast_shadows = true
+
+	if self.type == Light.TYPE_DIRECTIONAL then
+		self.shadow_map = ShadowMap.New(
+			{
+				size = config.size or 2048,
+				ortho_size = config.ortho_size or 50.0,
+				near_plane = config.near_plane or 1.0,
+				far_plane = config.far_plane or 200.0,
+			}
+		)
+	elseif self.type == Light.TYPE_POINT then
+		-- Point light shadows would need cubemap - not implemented yet
+		print("Warning: Point light shadows not yet implemented")
+		self.cast_shadows = false
+	end
+end
+
+function Light:DisableShadows()
+	self.cast_shadows = false
+	self.shadow_map = nil
+end
+
+function Light:GetShadowMap()
+	return self.shadow_map
+end
+
+function Light:HasShadows()
+	return self.cast_shadows and self.shadow_map ~= nil
+end
+
+-- Update shadow map matrices based on current light direction
+function Light:UpdateShadowMap(scene_center, scene_radius)
+	if not self.shadow_map then return end
+
+	scene_center = scene_center or Vec3(0, 0, 0)
+	scene_radius = scene_radius or 50.0
+	self.shadow_map:UpdateLightMatrix(self.direction, scene_center, scene_radius)
 end
 
 -- Get light data packed for GPU
@@ -132,6 +195,7 @@ end
 
 function Light.ClearScene()
 	scene_lights = {}
+	sun = nil
 end
 
 function Light.GetSceneLights()
@@ -160,8 +224,26 @@ function Light.GetAmbientColor()
 	return ambient_color
 end
 
+-- Set the sun (primary directional light with shadows)
+function Light.SetSun(light)
+	if light and light.type ~= Light.TYPE_DIRECTIONAL then
+		error("Sun must be a directional light")
+	end
+
+	sun = light
+
+	if light and not light.shadow_map then light:EnableShadows() end
+end
+
+-- Get the sun
+function Light.GetSun()
+	return sun
+end
+
 -- Get the primary directional light (sun) for shadow mapping
 function Light.GetPrimaryDirectional()
+	if sun then return sun end
+
 	for _, light in ipairs(scene_lights) do
 		if light.enabled and light.type == Light.TYPE_DIRECTIONAL then
 			return light

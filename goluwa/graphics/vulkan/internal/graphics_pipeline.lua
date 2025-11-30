@@ -199,15 +199,24 @@ function GraphicsPipeline.New(device, config, render_passes, pipelineLayout)
 		error("multiple render passes not supported yet")
 	end
 
+	-- Handle depth-only pipelines (no color attachment)
+	local colorAttachmentCount = 0
+	local pColorAttachmentFormats = nil
+
+	if render_passes[1].format then
+		colorAttachmentCount = 1
+		pColorAttachmentFormats = vulkan.T.Array(vulkan.vk.VkFormat, 1)({
+			vulkan.enums.VK_FORMAT_(render_passes[1].format),
+		})
+	end
+
 	local pipelineRenderingCreateInfo = vulkan.vk.VkPipelineRenderingCreateInfo(
 		{
 			sType = "VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO",
 			pNext = nil,
 			viewMask = 0,
-			colorAttachmentCount = 1,
-			pColorAttachmentFormats = vulkan.T.Array(vulkan.vk.VkFormat, 1)({
-				vulkan.enums.VK_FORMAT_(render_passes[1].format),
-			}),
+			colorAttachmentCount = colorAttachmentCount,
+			pColorAttachmentFormats = pColorAttachmentFormats,
 			depthAttachmentFormat = render_passes[1].depth_format and
 				vulkan.enums.VK_FORMAT_(render_passes[1].depth_format) or
 				vulkan.enums.VK_FORMAT_("undefined"),
