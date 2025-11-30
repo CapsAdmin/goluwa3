@@ -200,106 +200,108 @@ end
 
 local prevPixelRow = {}
 
-local function getPixelRow(buffer, depth, colorType, palette, length)
-	local pixelRow = {}
-	local bpp = math.floor(depth / 8) * bitFromColorType(colorType)
-	local bpl = bpp * length
-	local filterType = buffer:ReadByte()
-	local filteredFields = getFilteredFields(colorType)
+local function getPixels(buffer, depth, colorType, palette, width, height)
+	local pixelRows = {}
 
-	if filterType == 0 then
-		for x = 1, length do
-			pixelRow[x] = makePixel(buffer, depth, colorType, palette)
-		end
-	elseif filterType == 1 then
-		-- Sub: add left pixel
-		local curPixel
-		local lastPixel
-		local newPixel
-		local lastByte
+	for y = 1, height do
+		local pixelRow = {}
+		local bpp = math.floor(depth / 8) * bitFromColorType(colorType)
+		local bpl = bpp * width
+		local filterType = buffer:ReadByte()
+		local filteredFields = getFilteredFields(colorType)
 
-		for x = 1, length do
-			curPixel = makePixel(buffer, depth, colorType, palette)
-			lastPixel = pixelRow[x - 1]
-			newPixel = {A = curPixel.A} -- Preserve alpha (255 for RGB images)
-			for _, fieldName in ipairs(filteredFields) do
-				local curByte = curPixel[fieldName]
-				lastByte = lastPixel and lastPixel[fieldName] or 0
-				newPixel[fieldName] = (curByte + lastByte) % 256
+		if filterType == 0 then
+			for x = 1, width do
+				pixelRow[x] = makePixel(buffer, depth, colorType, palette)
 			end
+		elseif filterType == 1 then
+			-- Sub: add left pixel
+			local curPixel
+			local lastPixel
+			local newPixel
+			local lastByte
 
-			pixelRow[x] = newPixel
-		end
-	elseif filterType == 2 then
-		-- Up: add pixel above
-		for x = 1, length do
-			local curPixel = makePixel(buffer, depth, colorType, palette)
-			local abovePixel = prevPixelRow[x]
-			newPixel = {A = curPixel.A} -- Preserve alpha (255 for RGB images)
-			for _, fieldName in ipairs(filteredFields) do
-				local curByte = curPixel[fieldName]
-				local aboveByte = abovePixel and abovePixel[fieldName] or 0
-				newPixel[fieldName] = (curByte + aboveByte) % 256
+			for x = 1, width do
+				curPixel = makePixel(buffer, depth, colorType, palette)
+				lastPixel = pixelRow[x - 1]
+				newPixel = {A = curPixel.A} -- Preserve alpha (255 for RGB images)
+				for _, fieldName in ipairs(filteredFields) do
+					local curByte = curPixel[fieldName]
+					lastByte = lastPixel and lastPixel[fieldName] or 0
+					newPixel[fieldName] = (curByte + lastByte) % 256
+				end
+
+				pixelRow[x] = newPixel
 			end
+		elseif filterType == 2 then
+			-- Up: add pixel above
+			for x = 1, width do
+				local curPixel = makePixel(buffer, depth, colorType, palette)
+				local abovePixel = prevPixelRow[x]
+				newPixel = {A = curPixel.A} -- Preserve alpha (255 for RGB images)
+				for _, fieldName in ipairs(filteredFields) do
+					local curByte = curPixel[fieldName]
+					local aboveByte = abovePixel and abovePixel[fieldName] or 0
+					newPixel[fieldName] = (curByte + aboveByte) % 256
+				end
 
-			pixelRow[x] = newPixel
-		end
-	elseif filterType == 3 then
-		-- Average: add average of left and above pixels
-		for x = 1, length do
-			local curPixel = makePixel(buffer, depth, colorType, palette)
-			local lastPixel = pixelRow[x - 1]
-			local abovePixel = prevPixelRow[x]
-			newPixel = {A = curPixel.A} -- Preserve alpha (255 for RGB images)
-			for _, fieldName in ipairs(filteredFields) do
-				local curByte = curPixel[fieldName]
-				local lastByte = lastPixel and lastPixel[fieldName] or 0
-				local aboveByte = abovePixel and abovePixel[fieldName] or 0
-				local avgByte = math.floor((lastByte + aboveByte) / 2)
-				newPixel[fieldName] = (curByte + avgByte) % 256
+				pixelRow[x] = newPixel
 			end
+		elseif filterType == 3 then
+			-- Average: add average of left and above pixels
+			for x = 1, width do
+				local curPixel = makePixel(buffer, depth, colorType, palette)
+				local lastPixel = pixelRow[x - 1]
+				local abovePixel = prevPixelRow[x]
+				newPixel = {A = curPixel.A} -- Preserve alpha (255 for RGB images)
+				for _, fieldName in ipairs(filteredFields) do
+					local curByte = curPixel[fieldName]
+					local lastByte = lastPixel and lastPixel[fieldName] or 0
+					local aboveByte = abovePixel and abovePixel[fieldName] or 0
+					local avgByte = math.floor((lastByte + aboveByte) / 2)
+					newPixel[fieldName] = (curByte + avgByte) % 256
+				end
 
-			pixelRow[x] = newPixel
-		end
-	elseif filterType == 4 then
-		-- Paeth: use Paeth predictor
-		for x = 1, length do
-			local curPixel = makePixel(buffer, depth, colorType, palette)
-			local lastPixel = pixelRow[x - 1]
-			local abovePixel = prevPixelRow[x]
-			local upperLeftPixel = prevPixelRow[x - 1]
-			newPixel = {A = curPixel.A} -- Preserve alpha (255 for RGB images)
-			for _, fieldName in ipairs(filteredFields) do
-				local curByte = curPixel[fieldName]
-				local lastByte = lastPixel and lastPixel[fieldName] or 0
-				local aboveByte = abovePixel and abovePixel[fieldName] or 0
-				local upperLeftByte = upperLeftPixel and upperLeftPixel[fieldName] or 0
-				local paethByte = paethPredict(lastByte, aboveByte, upperLeftByte)
-				newPixel[fieldName] = (curByte + paethByte) % 256
+				pixelRow[x] = newPixel
 			end
+		elseif filterType == 4 then
+			-- Paeth: use Paeth predictor
+			for x = 1, width do
+				local curPixel = makePixel(buffer, depth, colorType, palette)
+				local lastPixel = pixelRow[x - 1]
+				local abovePixel = prevPixelRow[x]
+				local upperLeftPixel = prevPixelRow[x - 1]
+				newPixel = {A = curPixel.A} -- Preserve alpha (255 for RGB images)
+				for _, fieldName in ipairs(filteredFields) do
+					local curByte = curPixel[fieldName]
+					local lastByte = lastPixel and lastPixel[fieldName] or 0
+					local aboveByte = abovePixel and abovePixel[fieldName] or 0
+					local upperLeftByte = upperLeftPixel and upperLeftPixel[fieldName] or 0
+					local paethByte = paethPredict(lastByte, aboveByte, upperLeftByte)
+					newPixel[fieldName] = (curByte + paethByte) % 256
+				end
 
-			pixelRow[x] = newPixel
+				pixelRow[x] = newPixel
+			end
+		else
+			error("Unsupported filter type: " .. tostring(filterType))
 		end
-	else
-		error("Unsupported filter type: " .. tostring(filterType))
+
+		prevPixelRow = pixelRow
+		pixelRows[y] = pixelRow
 	end
 
-	prevPixelRow = pixelRow
-	return pixelRow
+	return pixelRows
 end
 
 local ffi = require("ffi")
 
-local function pngImage(inputBuffer, progCallback, verbose)
+local function pngImage(inputBuffer)
 	local chunkData
 	local width = 0
 	local height = 0
 	local depth = 0
 	local colorType = 0
-
-	local function printV(msg)
-		if (verbose) then print(msg) end
-	end
 
 	if inputBuffer:ReadBytes(8) ~= "\137\080\078\071\013\010\026\010" then
 		error("Not a png")
@@ -324,30 +326,16 @@ local function pngImage(inputBuffer, progCallback, verbose)
 		})
 	end)
 
-	if not success then
-		printV("Decompression failed: " .. tostring(result))
-		error(result)
-	end
+	if not success then error(result) end
 
 	local pixelDataBuffer = result
 	pixelDataBuffer:SetPosition(0)
-	printV("Decompressed buffer size: " .. pixelDataBuffer:GetSize())
-	printV("Creating pixelmap...")
 	-- Create output buffer for RGBA pixels (4 bytes per pixel)
 	local outputSize = width * height * 4
 	local outputData = ffi.new("uint8_t[?]", outputSize)
 	local outputBuffer = Buffer.New(outputData, outputSize)
 	-- Store rows temporarily to flip them
-	local rows = {}
-
-	for y = 1, height do
-		local pixelRow = getPixelRow(pixelDataBuffer, depth, colorType, chunkData.PLTE, width)
-
-		if progCallback ~= nil then progCallback(y, height, pixelRow) end
-
-		rows[y] = pixelRow
-	end
-
+	local rows = getPixels(pixelDataBuffer, depth, colorType, chunkData.PLTE, width, height)
 	-- Write rows in reverse order (flip vertically for Vulkan)
 	local outputPos = 0
 
@@ -364,7 +352,6 @@ local function pngImage(inputBuffer, progCallback, verbose)
 		end
 	end
 
-	printV("Done.")
 	return {
 		width = width,
 		height = height,
