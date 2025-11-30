@@ -519,8 +519,8 @@ local function parse_block(buf, outstate)
 		end
 
 		repeat
-			local is_done = parse_compressed_item(buf, outstate, littable, disttable)		
-		until is_done
+		
+		until parse_compressed_item(buf, outstate, littable, disttable)
 	else
 		runtime_error("unrecognized compression type")
 	end
@@ -652,6 +652,7 @@ function M.inflate_zlib(t)
 
 	if not inbuf:TheEnd() then warn("trailing garbage ignored") end
 
+	outbuf:SetPosition(0)
 	return outbuf
 end
 

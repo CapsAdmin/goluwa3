@@ -1,32 +1,19 @@
--- The MIT License (MIT)
--- Copyright (c) 2013 DelusionalLogic
--- Permission is hereby granted, free of charge, to any person obtaining a copy of
--- this software and associated documentation files (the "Software"), to deal in
--- the Software without restriction, including without limitation the rights to
--- use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
--- the Software, and to permit persons to whom the Software is furnished to do so,
--- subject to the following conditions:
--- The above copyright notice and this permission notice shall be included in all
--- copies or substantial portions of the Software.
--- THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
--- IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
--- FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
--- COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
--- IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
--- CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+-- initially based on https://github.com/DelusionalLogic/pngLua
+local ffi = require("ffi")
+local bit_band = require("bit").band
 local Buffer = require("structs.buffer")
 local deflate = require("helpers.deflate")
 
 local function getDataIHDR(buffer, length)
-	local data = {}
-	data["width"] = buffer:ReadU32BE()
-	data["height"] = buffer:ReadU32BE()
-	data["bitDepth"] = buffer:ReadByte()
-	data["colorType"] = buffer:ReadByte()
-	data["compression"] = buffer:ReadByte()
-	data["filter"] = buffer:ReadByte()
-	data["interlace"] = buffer:ReadByte()
-	return data
+	return {
+		width = buffer:ReadU32BE(),
+		height = buffer:ReadU32BE(),
+		bitDepth = buffer:ReadByte(),
+		colorType = buffer:ReadByte(),
+		compression = buffer:ReadByte(),
+		filter = buffer:ReadByte(),
+		interlace = buffer:ReadByte(),
+	}
 end
 
 local function getDataIDAT(buffer, length, oldData)
@@ -83,94 +70,6 @@ local function extractChunkData(buffer)
 	return chunkData
 end
 
-local function makePixel(buffer, depth, colorType, palette)
-	local bps = math.floor(depth / 8) --bits per sample
-	local pixelData = {R = 0, G = 0, B = 0, A = 0}
-	local grey
-	local index
-	local color
-
-	-- Helper function to read value based on bytes per sample
-	local function readValue()
-		if bps == 1 then
-			return buffer:ReadByte()
-		elseif bps == 2 then
-			return buffer:ReadU16BE()
-		else
-			error("Unsupported bit depth: " .. (bps * 8))
-		end
-	end
-
-	if colorType == 0 then
-		grey = readValue()
-		pixelData.R = grey
-		pixelData.G = grey
-		pixelData.B = grey
-		pixelData.A = 255
-	elseif colorType == 2 then
-		pixelData.R = readValue()
-		pixelData.G = readValue()
-		pixelData.B = readValue()
-		pixelData.A = 255
-	elseif colorType == 3 then
-		index = readValue() + 1
-		color = palette.colors[index]
-		pixelData.R = color.R
-		pixelData.G = color.G
-		pixelData.B = color.B
-		pixelData.A = 255
-	elseif colorType == 4 then
-		grey = readValue()
-		pixelData.R = grey
-		pixelData.G = grey
-		pixelData.B = grey
-		pixelData.A = readValue()
-	elseif colorType == 6 then
-		pixelData.R = readValue()
-		pixelData.G = readValue()
-		pixelData.B = readValue()
-		pixelData.A = readValue()
-	end
-
-	return pixelData
-end
-
-local function bitFromColorType(colorType)
-	if colorType == 0 then return 1 end
-
-	if colorType == 2 then return 3 end
-
-	if colorType == 3 then return 1 end
-
-	if colorType == 4 then return 2 end
-
-	if colorType == 6 then return 4 end
-
-	error("Invalid colortype")
-end
-
--- Get the list of fields that should be filtered based on color type
-local function getFilteredFields(colorType)
-	if colorType == 0 then
-		-- Grayscale
-		return {"R", "G", "B"} -- R=G=B for grayscale, but we still filter all three
-	elseif colorType == 2 then
-		-- RGB (no alpha in PNG data)
-		return {"R", "G", "B"}
-	elseif colorType == 3 then
-		-- Indexed (palette)
-		return {"R", "G", "B"}
-	elseif colorType == 4 then
-		-- Grayscale + Alpha
-		return {"R", "G", "B", "A"}
-	elseif colorType == 6 then
-		-- RGBA
-		return {"R", "G", "B", "A"}
-	end
-
-	error("Invalid colortype")
-end
-
 local function paethPredict(a, b, c)
 	local p = a + b - c
 	local varA = math.abs(p - a)
@@ -186,178 +85,179 @@ local function paethPredict(a, b, c)
 	end
 end
 
-local function filterType1(curPixel, lastPixel)
-	local lastByte
-	local newPixel = {}
+local FILTER_NONE = 0
+local FILTER_SUB = 1
+local FILTER_UP = 2
+local FILTER_AVERAGE = 3
+local FILTER_PAETH = 4
+--
+local COLOR_TYPE_GRAYSCALE = 0
+local COLOR_TYPE_RGB = 2
+local COLOR_TYPE_INDEXED = 3
+local COLOR_TYPE_GRAYSCALE_ALPHA = 4
+local COLOR_TYPE_PALETTE_ALPHA = 5
+local COLOR_TYPE_RGBA = 6
+local FLIP_Y = false
 
-	for fieldName, curByte in pairs(curPixel) do
-		lastByte = lastPixel and lastPixel[fieldName] or 0
-		newPixel[fieldName] = (curByte + lastByte) % 256
+-- Helper function to read value based on bytes per sample
+local function readValue(buffer, bps)
+	if bps == 1 then
+		return buffer:ReadByte()
+	elseif bps == 2 then
+		return buffer:ReadU16BE()
+	else
+		error("Unsupported bit depth: " .. (bps * 8))
 	end
-
-	return newPixel
 end
 
-local prevPixelRow = {}
+-- Read raw pixel from input buffer into R, G, B, A values
+local function readPixel(buffer, bps, colorType, palette)
+	local R, G, B, A
 
-local function getPixels(buffer, depth, colorType, palette, width, height)
-	local pixelRows = {}
-
-	for y = 1, height do
-		local pixelRow = {}
-		local bpp = math.floor(depth / 8) * bitFromColorType(colorType)
-		local bpl = bpp * width
-		local filterType = buffer:ReadByte()
-		local filteredFields = getFilteredFields(colorType)
-
-		if filterType == 0 then
-			for x = 1, width do
-				pixelRow[x] = makePixel(buffer, depth, colorType, palette)
-			end
-		elseif filterType == 1 then
-			-- Sub: add left pixel
-			local curPixel
-			local lastPixel
-			local newPixel
-			local lastByte
-
-			for x = 1, width do
-				curPixel = makePixel(buffer, depth, colorType, palette)
-				lastPixel = pixelRow[x - 1]
-				newPixel = {A = curPixel.A} -- Preserve alpha (255 for RGB images)
-				for _, fieldName in ipairs(filteredFields) do
-					local curByte = curPixel[fieldName]
-					lastByte = lastPixel and lastPixel[fieldName] or 0
-					newPixel[fieldName] = (curByte + lastByte) % 256
-				end
-
-				pixelRow[x] = newPixel
-			end
-		elseif filterType == 2 then
-			-- Up: add pixel above
-			for x = 1, width do
-				local curPixel = makePixel(buffer, depth, colorType, palette)
-				local abovePixel = prevPixelRow[x]
-				newPixel = {A = curPixel.A} -- Preserve alpha (255 for RGB images)
-				for _, fieldName in ipairs(filteredFields) do
-					local curByte = curPixel[fieldName]
-					local aboveByte = abovePixel and abovePixel[fieldName] or 0
-					newPixel[fieldName] = (curByte + aboveByte) % 256
-				end
-
-				pixelRow[x] = newPixel
-			end
-		elseif filterType == 3 then
-			-- Average: add average of left and above pixels
-			for x = 1, width do
-				local curPixel = makePixel(buffer, depth, colorType, palette)
-				local lastPixel = pixelRow[x - 1]
-				local abovePixel = prevPixelRow[x]
-				newPixel = {A = curPixel.A} -- Preserve alpha (255 for RGB images)
-				for _, fieldName in ipairs(filteredFields) do
-					local curByte = curPixel[fieldName]
-					local lastByte = lastPixel and lastPixel[fieldName] or 0
-					local aboveByte = abovePixel and abovePixel[fieldName] or 0
-					local avgByte = math.floor((lastByte + aboveByte) / 2)
-					newPixel[fieldName] = (curByte + avgByte) % 256
-				end
-
-				pixelRow[x] = newPixel
-			end
-		elseif filterType == 4 then
-			-- Paeth: use Paeth predictor
-			for x = 1, width do
-				local curPixel = makePixel(buffer, depth, colorType, palette)
-				local lastPixel = pixelRow[x - 1]
-				local abovePixel = prevPixelRow[x]
-				local upperLeftPixel = prevPixelRow[x - 1]
-				newPixel = {A = curPixel.A} -- Preserve alpha (255 for RGB images)
-				for _, fieldName in ipairs(filteredFields) do
-					local curByte = curPixel[fieldName]
-					local lastByte = lastPixel and lastPixel[fieldName] or 0
-					local aboveByte = abovePixel and abovePixel[fieldName] or 0
-					local upperLeftByte = upperLeftPixel and upperLeftPixel[fieldName] or 0
-					local paethByte = paethPredict(lastByte, aboveByte, upperLeftByte)
-					newPixel[fieldName] = (curByte + paethByte) % 256
-				end
-
-				pixelRow[x] = newPixel
-			end
-		else
-			error("Unsupported filter type: " .. tostring(filterType))
-		end
-
-		prevPixelRow = pixelRow
-		pixelRows[y] = pixelRow
+	if colorType == 0 then
+		-- Grayscale
+		local grey = readValue(buffer, bps)
+		R, G, B, A = grey, grey, grey, 255
+	elseif colorType == 2 then
+		-- RGB
+		R = readValue(buffer, bps)
+		G = readValue(buffer, bps)
+		B = readValue(buffer, bps)
+		A = 255
+	elseif colorType == 3 then
+		-- Indexed
+		local index = readValue(buffer, bps) + 1
+		local color = palette.colors[index]
+		R, G, B, A = color.R, color.G, color.B, 255
+	elseif colorType == 4 then
+		-- Grayscale + Alpha
+		local grey = readValue(buffer, bps)
+		R, G, B = grey, grey, grey
+		A = readValue(buffer, bps)
+	elseif colorType == 6 then
+		-- RGBA
+		R = readValue(buffer, bps)
+		G = readValue(buffer, bps)
+		B = readValue(buffer, bps)
+		A = readValue(buffer, bps)
 	end
 
-	return pixelRows
+	return R, G, B, A
 end
 
-local ffi = require("ffi")
-
-local function pngImage(inputBuffer)
-	local chunkData
-	local width = 0
-	local height = 0
-	local depth = 0
-	local colorType = 0
-
-	if inputBuffer:ReadBytes(8) ~= "\137\080\078\071\013\010\026\010" then
-		error("Not a png")
-	end
-
-	local ok, chunks = pcall(extractChunkData, inputBuffer)
-
-	if not ok then
-		print("Chunk extraction failed: " .. tostring(chunks))
-		error(chunks)
-	end
-
-	chunkData = chunks
-	width = chunkData.IHDR.width
-	height = chunkData.IHDR.height
-	depth = chunkData.IHDR.bitDepth
-	colorType = chunkData.IHDR.colorType
-	local success, result = pcall(function()
-		return deflate.inflate_zlib({
-			input = chunkData.IDAT.data,
-			disable_crc = true,
-		})
-	end)
-
-	if not success then error(result) end
-
-	local pixelDataBuffer = result
-	pixelDataBuffer:SetPosition(0)
+-- Optimized getPixels that writes directly to output buffer
+-- Returns the output buffer with RGBA pixels, flipped vertically for Vulkan
+local function getPixels(buffer, data)
+	local colorType = data.IHDR.colorType
+	local width = data.IHDR.width
+	local height = data.IHDR.height
+	local bps = math.floor(data.IHDR.bitDepth / 8) -- bytes per sample
+	local hasAlpha = (colorType == COLOR_TYPE_GRAYSCALE_ALPHA or colorType == COLOR_TYPE_RGBA)
 	-- Create output buffer for RGBA pixels (4 bytes per pixel)
 	local outputSize = width * height * 4
 	local outputData = ffi.new("uint8_t[?]", outputSize)
 	local outputBuffer = Buffer.New(outputData, outputSize)
-	-- Store rows temporarily to flip them
-	local rows = getPixels(pixelDataBuffer, depth, colorType, chunkData.PLTE, width, height)
-	-- Write rows in reverse order (flip vertically for Vulkan)
-	local outputPos = 0
+	local out = outputBuffer.Buffer
+	-- Previous row buffer for filtering (stores RGBA values, 4 bytes per pixel)
+	local prevRow = ffi.new("uint8_t[?]", width * 4)
+	local currRow = ffi.new("uint8_t[?]", width * 4)
 
-	for y = height, 1, -1 do
-		local pixelRow = rows[y]
+	for y = 1, height do
+		local filterType = buffer:ReadByte()
 
 		for x = 1, width do
-			local pixel = pixelRow[x]
-			outputBuffer.Buffer[outputPos] = pixel.R
-			outputBuffer.Buffer[outputPos + 1] = pixel.G
-			outputBuffer.Buffer[outputPos + 2] = pixel.B
-			outputBuffer.Buffer[outputPos + 3] = pixel.A
-			outputPos = outputPos + 4
+			local R, G, B, A = readPixel(buffer, bps, colorType, data.PLTE)
+			local idx = (x - 1) * 4
+
+			if filterType == FILTER_NONE then
+				-- No filter
+				currRow[idx] = R
+				currRow[idx + 1] = G
+				currRow[idx + 2] = B
+				currRow[idx + 3] = A
+			elseif filterType == FILTER_SUB then
+				-- Sub: add left pixel
+				local leftR = x > 1 and currRow[idx - 4] or 0
+				local leftG = x > 1 and currRow[idx - 3] or 0
+				local leftB = x > 1 and currRow[idx - 2] or 0
+				local leftA = x > 1 and currRow[idx - 1] or 0
+				currRow[idx] = bit_band(R + leftR, 255)
+				currRow[idx + 1] = bit_band(G + leftG, 255)
+				currRow[idx + 2] = bit_band(B + leftB, 255)
+				currRow[idx + 3] = hasAlpha and bit_band(A + leftA, 255) or A
+			elseif filterType == FILTER_UP then
+				-- Up: add pixel above
+				currRow[idx] = bit_band(R + prevRow[idx], 255)
+				currRow[idx + 1] = bit_band(G + prevRow[idx + 1], 255)
+				currRow[idx + 2] = bit_band(B + prevRow[idx + 2], 255)
+				currRow[idx + 3] = hasAlpha and bit_band(A + prevRow[idx + 3], 255) or A
+			elseif filterType == FILTER_AVERAGE then
+				-- Average: add average of left and above
+				local leftR = x > 1 and currRow[idx - 4] or 0
+				local leftG = x > 1 and currRow[idx - 3] or 0
+				local leftB = x > 1 and currRow[idx - 2] or 0
+				local leftA = x > 1 and currRow[idx - 1] or 0
+				local floor = math.floor
+				currRow[idx] = bit_band(R + floor((leftR + prevRow[idx]) / 2), 255)
+				currRow[idx + 1] = bit_band(G + floor((leftG + prevRow[idx + 1]) / 2), 255)
+				currRow[idx + 2] = bit_band(B + floor((leftB + prevRow[idx + 2]) / 2), 255)
+				currRow[idx + 3] = hasAlpha and bit_band(A + floor((leftA + prevRow[idx + 3]) / 2), 255) or A
+			elseif filterType == FILTER_PAETH then
+				-- Paeth predictor
+				local leftR = x > 1 and currRow[idx - 4] or 0
+				local leftG = x > 1 and currRow[idx - 3] or 0
+				local leftB = x > 1 and currRow[idx - 2] or 0
+				local leftA = x > 1 and currRow[idx - 1] or 0
+				local upR = prevRow[idx]
+				local upG = prevRow[idx + 1]
+				local upB = prevRow[idx + 2]
+				local upA = prevRow[idx + 3]
+				local upLeftR = x > 1 and prevRow[idx - 4] or 0
+				local upLeftG = x > 1 and prevRow[idx - 3] or 0
+				local upLeftB = x > 1 and prevRow[idx - 2] or 0
+				local upLeftA = x > 1 and prevRow[idx - 1] or 0
+				currRow[idx] = bit_band(R + paethPredict(leftR, upR, upLeftR), 255)
+				currRow[idx + 1] = bit_band(G + paethPredict(leftG, upG, upLeftG), 255)
+				currRow[idx + 2] = bit_band(B + paethPredict(leftB, upB, upLeftB), 255)
+				currRow[idx + 3] = hasAlpha and bit_band(A + paethPredict(leftA, upA, upLeftA), 255) or A
+			else
+				error("Unsupported filter type: " .. tostring(filterType))
+			end
 		end
+
+		if FLIP_Y then
+			-- Optimized write row to output buffer (flipped vertically for Vulkan)
+			local outY = height - y
+			local outRowStart = outY * width * 4
+			ffi.copy(out + outRowStart, currRow, width * 4)
+		else
+			-- Optimized write row to output buffer (normal order)
+			local outRowStart = (y - 1) * width * 4
+			ffi.copy(out + outRowStart, currRow, width * 4)
+		end
+
+		-- Swap buffers for next iteration
+		prevRow, currRow = currRow, prevRow
 	end
 
+	return outputBuffer
+end
+
+local function pngImage(inputBuffer)
+	if inputBuffer:ReadBytes(8) ~= "\137\080\078\071\013\010\026\010" then
+		error("Not a png")
+	end
+
+	local data = extractChunkData(inputBuffer)
 	return {
-		width = width,
-		height = height,
-		depth = depth,
-		colorType = colorType,
-		buffer = outputBuffer,
+		width = data.IHDR.width,
+		height = data.IHDR.height,
+		depth = data.IHDR.bitDepth,
+		colorType = data.IHDR.colorType,
+		buffer = getPixels(deflate.inflate_zlib({
+			input = data.IDAT.data,
+			disable_crc = true,
+		}), data),
 	}
 end
 
