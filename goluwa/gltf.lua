@@ -2,6 +2,7 @@ local ffi = require("ffi")
 local json = require("json")
 local fs = require("fs")
 local Buffer = require("structs.buffer")
+local base64 = require("goluwa.helpers.base64")
 local gltf = {}
 -- glTF component type constants
 local COMPONENT_TYPE = {
@@ -46,36 +47,7 @@ local function load_buffer(base_dir, buffer_info)
 			-- Data URI - base64 encoded
 			local base64_data = buffer_info.uri:match("^data:[^;]+;base64,(.+)$")
 
-			if base64_data then
-				-- Decode base64
-				local decode_table = {}
-				local chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
-
-				for i = 1, #chars do
-					decode_table[chars:sub(i, i)] = i - 1
-				end
-
-				local result = {}
-				local bits = 0
-				local num_bits = 0
-
-				for i = 1, #base64_data do
-					local c = base64_data:sub(i, i)
-
-					if c ~= "=" and decode_table[c] then
-						bits = bits * 64 + decode_table[c]
-						num_bits = num_bits + 6
-
-						while num_bits >= 8 do
-							num_bits = num_bits - 8
-							local byte = math.floor(bits / (2 ^ num_bits)) % 256
-							result[#result + 1] = string.char(byte)
-						end
-					end
-				end
-
-				return table.concat(result)
-			end
+			if base64_data then return base64.decode(base64_data) end
 		else
 			-- File URI
 			local path = base_dir .. buffer_info.uri
