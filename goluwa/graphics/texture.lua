@@ -10,23 +10,86 @@ local Image = require("graphics.vulkan.internal.image")
 local Sampler = require("graphics.vulkan.internal.sampler")
 local Texture = {}
 Texture.__index = Texture
+-- Texture cache for path-based textures
+local texture_cache = {}
+-- Fallback checkerboard texture (pink and black)
+local fallback_texture = nil
+
+local function create_fallback_texture()
+	if fallback_texture then return fallback_texture end
+
+	-- Create 8x8 pink/black checkerboard pattern
+	local size = 8
+	local buffer = ffi.new("uint8_t[?]", size * size * 4)
+	local pink = {255, 0, 255, 255}
+	local black = {0, 0, 0, 255}
+
+	for y = 0, size - 1 do
+		for x = 0, size - 1 do
+			local is_pink = ((x + y) % 2) == 0
+			local color = is_pink and pink or black
+			local idx = (y * size + x) * 4
+			buffer[idx + 0] = color[1]
+			buffer[idx + 1] = color[2]
+			buffer[idx + 2] = color[3]
+			buffer[idx + 3] = color[4]
+		end
+	end
+
+	fallback_texture = Texture.New(
+		{
+			width = size,
+			height = size,
+			format = "R8G8B8A8_UNORM",
+			buffer = buffer,
+			sampler = {
+				min_filter = "nearest",
+				mag_filter = "nearest",
+				wrap_s = "repeat",
+				wrap_t = "repeat",
+			},
+		}
+	)
+	return fallback_texture
+end
+
+function Texture.GetFallback()
+	return create_fallback_texture()
+end
+
+function Texture.ClearCache()
+	texture_cache = {}
+end
 
 function Texture.New(config)
 	config = config or {}
+	-- Check cache if path is provided
+	local cache_key = config.cache_key or config.path
+
+	if cache_key and texture_cache[cache_key] then
+		return texture_cache[cache_key]
+	end
+
 	-- Handle path parameter for loading images
 	local buffer_data = nil
 
 	if config.path then
-		local img
+		local ok, img_or_err = pcall(function()
+			if config.path:lower():match("%.png$") then
+				return file_formats.LoadPNG(config.path)
+			elseif config.path:lower():match("%.jpe?g$") then
+				return file_formats.LoadJPG(config.path)
+			else
+				return nil, "Unsupported image format"
+			end
+		end)
 
-		if config.path:ends_with(".png") then
-			img = file_formats.LoadPNG(config.path)
-		elseif config.path:ends_with(".jpg") or config.path:ends_with(".jpeg") then
-			img = file_formats.LoadJPG(config.path)
-		else
-			error("Unsupported image format for texture: " .. config.path)
+		if not ok or not img_or_err then
+			print("Warning: Failed to load texture:", config.path, img_or_err)
+			return create_fallback_texture()
 		end
 
+		local img = img_or_err
 		config.width = config.width or img.width
 		config.height = config.height or img.height
 		config.format = config.format or "R8G8B8A8_UNORM"
@@ -157,11 +220,17 @@ function Texture.New(config)
 	if buffer_data and image then
 		-- If we're generating mipmaps, keep mip level 0 in transfer_dst after upload
 		self:Upload(buffer_data, mip_levels > 1)
+
+		-- Auto-generate mipmaps if requested
+		if mip_levels > 1 then self:GenerateMipMap() end
 	elseif image then
 		-- If no buffer is provided, transition the image to shader_read_only_optimal
 		-- This is necessary because images start in undefined layout
 		image:TransitionLayout("undefined", "shader_read_only_optimal")
 	end
+
+	-- Cache texture if cache_key is provided
+	if cache_key then texture_cache[cache_key] = self end
 
 	return self
 end

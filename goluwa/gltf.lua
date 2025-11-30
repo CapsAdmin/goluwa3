@@ -387,7 +387,6 @@ end
 
 local render = require("graphics.render")
 local Texture = require("graphics.texture")
-local file_formats = require("file_formats")
 
 -- Create GPU vertex buffer from primitive
 function gltf.CreateVertexBuffer(primitive)
@@ -430,71 +429,8 @@ function gltf.CreateIndexBuffer(primitive)
 	return buffer, indices.count, index_type
 end
 
--- Cache for loaded textures
-local texture_cache = {}
-
--- Load a texture from glTF image reference
-function gltf.LoadTexture(gltf_result, texture_index)
-	if not texture_index then return nil end
-
-	-- Check cache
-	local cache_key = gltf_result.path .. ":" .. texture_index
-
-	if texture_cache[cache_key] then return texture_cache[cache_key] end
-
-	local texture_info = gltf_result.textures[texture_index + 1]
-
-	if not texture_info then
-		print("Warning: Invalid texture index:", texture_index)
-		return nil
-	end
-
-	local image_info = gltf_result.images[texture_info.source + 1]
-
-	if not image_info then
-		print("Warning: Invalid image source:", texture_info.source)
-		return nil
-	end
-
-	local image_path = image_info.path
-
-	if not image_path then
-		print("Warning: No path for image:", texture_info.source)
-		return nil
-	end
-
-	-- Determine image type and load
-	local img_data, err
-	local mime_type = image_info.mime_type or ""
-	local uri_lower = (image_info.uri or ""):lower()
-	local ok, result, load_err
-
-	if mime_type == "image/png" or uri_lower:match("%.png$") then
-		ok, result, load_err = pcall(file_formats.LoadPNG, image_path)
-
-		if ok then img_data, err = result, load_err else err = result end
-	elseif mime_type == "image/jpeg" or uri_lower:match("%.jpe?g$") then
-		ok, result, load_err = pcall(file_formats.LoadJPG, image_path)
-
-		if ok then img_data, err = result, load_err else err = result end
-	else
-		print("Warning: Unsupported image format:", mime_type or uri_lower)
-		return nil
-	end
-
-	if not img_data then
-		print("Warning: Failed to load image:", image_path, err)
-		return nil
-	end
-
-	-- Get sampler info if available
-	local sampler_info = nil
-
-	if texture_info.sampler and gltf_result.raw.samplers then
-		sampler_info = gltf_result.raw.samplers[texture_info.sampler + 1]
-	end
-
-	-- Map glTF sampler values to our sampler config
+-- Translate glTF sampler enums to our sampler config values
+local function translate_gltf_sampler(sampler_info)
 	local min_filter = "linear"
 	local mag_filter = "linear"
 	local wrap_s = "repeat"
@@ -538,27 +474,61 @@ function gltf.LoadTexture(gltf_result, texture_index)
 		end
 	end
 
-	-- Create texture
+	return {
+		min_filter = min_filter,
+		mag_filter = mag_filter,
+		wrap_s = wrap_s,
+		wrap_t = wrap_t,
+		mipmap_mode = "linear",
+	}
+end
+
+-- Load a texture from glTF image reference
+function gltf.LoadTexture(gltf_result, texture_index)
+	if not texture_index then return nil end
+
+	local texture_info = gltf_result.textures[texture_index + 1]
+
+	if not texture_info then
+		print("Warning: Invalid texture index:", texture_index)
+		return Texture.GetFallback()
+	end
+
+	local image_info = gltf_result.images[texture_info.source + 1]
+
+	if not image_info then
+		print("Warning: Invalid image source:", texture_info.source)
+		return Texture.GetFallback()
+	end
+
+	local image_path = image_info.path
+
+	if not image_path then
+		print("Warning: No path for image:", texture_info.source)
+		return Texture.GetFallback()
+	end
+
+	-- Get sampler info if available
+	local sampler_info = nil
+
+	if texture_info.sampler and gltf_result.raw.samplers then
+		sampler_info = gltf_result.raw.samplers[texture_info.sampler + 1]
+	end
+
+	-- Translate glTF sampler enums to our format
+	local sampler_config = translate_gltf_sampler(sampler_info)
+	-- Use cache_key to enable caching in Texture.New
+	local cache_key = gltf_result.path .. ":" .. texture_index
+	-- Create texture using Texture.New (handles caching, loading, mipmaps, and fallback)
 	local texture = Texture.New(
 		{
-			width = img_data.width,
-			height = img_data.height,
+			path = image_path,
+			cache_key = cache_key,
 			format = "R8G8B8A8_UNORM",
-			buffer = img_data.buffer:GetBuffer(),
 			mip_map_levels = "auto",
-			sampler = {
-				min_filter = min_filter,
-				mag_filter = mag_filter,
-				wrap_s = wrap_s,
-				wrap_t = wrap_t,
-				mipmap_mode = "linear",
-			},
+			sampler = sampler_config,
 		}
 	)
-	-- Generate mipmaps
-	texture:GenerateMipMap()
-	-- Cache the texture
-	texture_cache[cache_key] = texture
 	return texture
 end
 
@@ -614,7 +584,7 @@ end
 
 -- Clear the texture cache (useful when reloading models)
 function gltf.ClearTextureCache()
-	texture_cache = {}
+	Texture.ClearCache()
 end
 
 return gltf
