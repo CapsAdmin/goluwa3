@@ -11,7 +11,7 @@ local render2d = require("graphics.render2d")
 local gfx = require("graphics.gfx")
 local render3d = require("graphics.render3d")
 -- Debug: Draw shadow map as picture-in-picture
-local show_shadow_map = true
+local show_shadow_map = false
 
 event.AddListener("Draw2D", "debug_shadow_map", function(cmd, dt)
 	if not show_shadow_map then return end
@@ -24,21 +24,30 @@ event.AddListener("Draw2D", "debug_shadow_map", function(cmd, dt)
 
 	if not shadow_map then return end
 
-	local depth_texture = shadow_map:GetDepthTexture()
-
-	if not depth_texture then return end
-
-	-- Draw in bottom-left corner, 256x256 pixels
-	local size = 256
+	-- Draw all cascade shadow maps
+	local cascade_count = shadow_map:GetCascadeCount()
+	local cascade_splits = shadow_map:GetCascadeSplits()
+	local size = 200
 	local margin = 10
-	-- Draw shadow map depth texture
-	render2d.SetTexture(depth_texture)
-	render2d.SetColor(1, 1, 1, 1)
-	render2d.DrawRect(margin, margin, size, size)
-	-- Draw label
-	render2d.SetTexture(nil)
-	render2d.SetColor(1, 1, 0, 1)
-	gfx.DrawText("Shadow Map", margin, margin + size + 5)
+	local spacing = 10
+
+	for i = 1, cascade_count do
+		local depth_texture = shadow_map:GetDepthTexture(i)
+
+		if depth_texture then
+			local x = margin + (i - 1) * (size + spacing)
+			local y = margin
+			-- Draw shadow map depth texture
+			render2d.SetTexture(depth_texture)
+			render2d.SetColor(1, 1, 1, 1)
+			render2d.DrawRect(x, y, size, size)
+			-- Draw label with cascade info
+			render2d.SetTexture(nil)
+			render2d.SetColor(1, 1, 0, 1)
+			local split_dist = cascade_splits[i] and string.format("%.1f", cascade_splits[i]) or "?"
+			gfx.DrawText("Cascade " .. i .. " (z<" .. split_dist .. ")", x, y + size + 5)
+		end
+	end
 end)
 
 event.AddListener("KeyInput", "renderdoc", function(key, press)

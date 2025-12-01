@@ -91,7 +91,7 @@ function Light:EnableShadows(config)
 	if self.type == Light.TYPE_DIRECTIONAL then
 		self.shadow_map = ShadowMap.New(
 			{
-				--size = config.size or 2048,
+				size = config.size,
 				ortho_size = config.ortho_size or 50.0,
 				near_plane = config.near_plane or 1.0,
 				far_plane = config.far_plane or 200.0,
@@ -117,13 +117,26 @@ function Light:HasShadows()
 	return self.cast_shadows and self.shadow_map ~= nil
 end
 
--- Update shadow map matrices based on current light direction
-function Light:UpdateShadowMap(scene_center, scene_radius)
+-- Update shadow map matrices for directional/sun light
+-- For cascaded shadow maps, pass the view_camera to calculate frustum-based cascades
+-- For legacy single shadow map, pass camera_position and camera_angles
+function Light:UpdateShadowMap(camera_position_or_view_camera, camera_angles)
 	if not self.shadow_map then return end
 
-	scene_center = scene_center or Vec3(0, 0, 0)
-	scene_radius = scene_radius or 50.0
-	self.shadow_map:UpdateLightMatrix(self.direction, scene_center, scene_radius)
+	-- Check if first argument is a camera object (has GetMatrices method)
+	if
+		type(camera_position_or_view_camera) == "table" and
+		camera_position_or_view_camera.GetMatrices
+	then
+		-- Cascaded shadow map mode - use view camera to calculate frustum splits
+		self.shadow_map:UpdateCascadeLightMatrices(self.direction, camera_position_or_view_camera)
+	else
+		-- Legacy mode - use camera position and angles
+		local camera_position = camera_position_or_view_camera or Vec3(0, 0, 0)
+		-- For directional lights, pass direction, camera position, and camera angles
+		-- The shadow map will be centered on the camera, biased toward where they're looking
+		self.shadow_map:UpdateLightMatrix(self.direction, camera_position, camera_angles)
+	end
 end
 
 -- Get light data packed for GPU

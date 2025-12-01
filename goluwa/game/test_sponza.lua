@@ -56,7 +56,7 @@ render3d.cam:SetAngles(Ang3(0, 0, 0))
 -- Create sun light with shadows
 local sun = Light.CreateDirectional(
 	{
-		direction = Vec3(0.3, -0.8, 0.5),
+		direction = Vec3(0.8, -0.6, 0.2),
 		color = {1.0, 0.98, 0.95},
 		intensity = 3.0,
 		name = "Sun",
@@ -66,9 +66,9 @@ local sun = Light.CreateDirectional(
 sun:EnableShadows(
 	{
 		-- size = 2048,  -- Use default for now
-		ortho_size = 15.0,
-		near_plane = 0.1,
-		far_plane = 50.0,
+		ortho_size = 100.0, -- Large enough to cover Sponza
+		near_plane = 1.0,
+		far_plane = 500.0,
 	}
 )
 -- Set as the render3d sun light
@@ -79,26 +79,31 @@ Light.SetSun(sun)
 -- Shadow pass runs in PreFrame (before swapchain acquire, completely separate)
 event.AddListener("PreFrame", "test_sponza_shadows", function(dt)
 	if sun:HasShadows() then
-		-- Update light matrices centered on the scene
-		sun:UpdateShadowMap(Vec3(0, 0.5, 0), 15.0)
-		-- Render shadow pass
-		local shadow_cmd = sun:GetShadowMap():Begin()
-		-- Upload constants once (same world matrix for all primitives)
-		sun:GetShadowMap():UploadConstants(sponza_transform:GetMatrix())
+		local shadow_map = sun:GetShadowMap()
+		-- Update cascade light matrices based on view camera frustum
+		sun:UpdateShadowMap(render3d.cam)
 
-		-- Draw all primitives
-		for _, prim in ipairs(primitives) do
-			shadow_cmd:BindVertexBuffer(prim.vertex_buffer, 0)
+		-- Render shadow pass for each cascade
+		for cascade_idx = 1, shadow_map:GetCascadeCount() do
+			local shadow_cmd = shadow_map:Begin(cascade_idx)
+			-- Upload constants for this cascade
+			shadow_map:UploadConstants(sponza_transform:GetMatrix(), cascade_idx)
 
-			if prim.index_buffer then
-				shadow_cmd:BindIndexBuffer(prim.index_buffer, 0, prim.index_type)
-				shadow_cmd:DrawIndexed(prim.index_count)
-			else
-				shadow_cmd:Draw(prim.vertex_count)
+			-- Draw all primitives
+			for _, prim in ipairs(primitives) do
+				shadow_cmd:BindVertexBuffer(prim.vertex_buffer, 0)
+
+				if prim.index_buffer then
+					shadow_cmd:BindIndexBuffer(prim.index_buffer, 0, prim.index_type)
+					shadow_cmd:DrawIndexed(prim.index_count)
+				else
+					shadow_cmd:Draw(prim.vertex_count)
+				end
 			end
+
+			shadow_map:End(cascade_idx)
 		end
 
-		sun:GetShadowMap():End()
 		-- Update the UBO with the light space matrix
 		render3d.UpdateShadowUBO()
 	end
