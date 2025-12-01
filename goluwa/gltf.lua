@@ -5,6 +5,7 @@ local Buffer = require("structs.buffer")
 local base64 = require("goluwa.helpers.base64")
 local Matrix44 = require("structs.matrix").Matrix44
 local Quat = require("structs.quat")
+local Vec3 = require("structs.vec3")
 local gltf = {}
 -- glTF component type constants
 local COMPONENT_TYPE = {
@@ -416,6 +417,7 @@ end
 -- Helper to get interleaved vertex data for a primitive
 -- Returns: vertex_data (C array of floats), vertex_count, stride_in_floats
 -- New format: position (3) + normal (3) + texcoord (2) + tangent (4) = 12 floats
+-- Converts from glTF Y-up to Source Z-up coordinate system
 function gltf.GetInterleavedVertices(primitive)
 	local position = primitive.attributes.POSITION
 	local normal = primitive.attributes.NORMAL
@@ -430,25 +432,34 @@ function gltf.GetInterleavedVertices(primitive)
 	local total_floats = vertex_count * stride
 	local vertex_data = ffi.new("float[?]", total_floats)
 
+	-- Convert glTF Y-up to Z-up: (x, y, z) -> (x, -z, y)
+	-- This swaps Y and Z, and negates the new Y (which was Z)
 	for i = 0, vertex_count - 1 do
 		local base = i * stride
 
-		-- Position (3 floats)
+		-- Position (3 floats) - convert coordinate system
 		if position then
-			vertex_data[base + 0] = position.data[i * 3 + 0]
-			vertex_data[base + 1] = position.data[i * 3 + 1]
-			vertex_data[base + 2] = position.data[i * 3 + 2]
+			local px = position.data[i * 3 + 0]
+			local py = position.data[i * 3 + 1]
+			local pz = position.data[i * 3 + 2]
+			vertex_data[base + 0] = -pz
+			vertex_data[base + 1] = -px
+			vertex_data[base + 2] = -py
 		end
 
-		-- Normal (3 floats)
+		-- Normal (3 floats) - convert coordinate system
+		-- Direction vectors with negation to match position transform: (x, y, z) -> (-z, -x, y)
 		if normal then
-			vertex_data[base + 3] = normal.data[i * 3 + 0]
-			vertex_data[base + 4] = normal.data[i * 3 + 1]
-			vertex_data[base + 5] = normal.data[i * 3 + 2]
+			local nx = normal.data[i * 3 + 0]
+			local ny = normal.data[i * 3 + 1]
+			local nz = normal.data[i * 3 + 2]
+			vertex_data[base + 3] = -nz
+			vertex_data[base + 4] = -nx
+			vertex_data[base + 5] = -ny
 		else
 			vertex_data[base + 3] = 0
-			vertex_data[base + 4] = 1
-			vertex_data[base + 5] = 0
+			vertex_data[base + 4] = 0
+			vertex_data[base + 5] = 1
 		end
 
 		-- Texcoord (2 floats)
@@ -460,12 +471,17 @@ function gltf.GetInterleavedVertices(primitive)
 			vertex_data[base + 7] = 0
 		end
 
-		-- Tangent (4 floats: xyz + w for handedness)
+		-- Tangent (4 floats: xyz + w for handedness) - convert coordinate system
+		-- Direction vectors: (x, y, z) -> (-z, -x, y) - same pattern as normals
 		if tangent then
-			vertex_data[base + 8] = tangent.data[i * 4 + 0]
-			vertex_data[base + 9] = tangent.data[i * 4 + 1]
-			vertex_data[base + 10] = tangent.data[i * 4 + 2]
-			vertex_data[base + 11] = tangent.data[i * 4 + 3]
+			local tx = tangent.data[i * 4 + 0]
+			local ty = tangent.data[i * 4 + 1]
+			local tz = tangent.data[i * 4 + 2]
+			local tw = tangent.data[i * 4 + 3]
+			vertex_data[base + 8] = -tz
+			vertex_data[base + 9] = -tx
+			vertex_data[base + 10] = -ty
+			vertex_data[base + 11] = tw
 		else
 			-- Default tangent pointing along X axis with positive handedness
 			vertex_data[base + 8] = 1.0
@@ -791,6 +807,174 @@ end
 -- Clear the texture cache (useful when reloading models)
 function gltf.ClearTextureCache()
 	Texture.ClearCache()
+end
+
+-- Create an entity hierarchy from a glTF model using the ECS system
+-- Returns the root entity containing the entire scene
+-- glTF uses Y-up, we use Z-up (Source engine style), so we convert coordinates
+function gltf.CreateEntityHierarchy(gltf_result, parent_entity)
+	local ecs = require("ecs")
+	local Material = require("graphics.material")
+	-- Ensure components are loaded
+	require("components.transform")
+	require("components.model")
+	-- Create root entity for this glTF scene
+	local root_entity = ecs.CreateEntity(gltf_result.path or "gltf_root", parent_entity)
+	root_entity:AddComponent("transform")
+	-- Map from glTF node index to entity
+	local node_to_entity = {}
+
+	-- Helper to convert glTF Y-up to Source Z-up coordinates
+	-- glTF: X right, Y up, Z towards viewer
+	-- Source: X forward, Y left, Z up
+	-- Conversion: (x, y, z) -> (x, -z, y)
+	-- NOTE: Vertex data is already converted in GetInterleavedVertices
+	local function convert_position(gx, gy, gz)
+		return Vec3(gx, gz, gy)
+	end
+
+	local function convert_quat(qx, qy, qz, qw)
+		-- Quaternion imaginary components represent rotation axis (direction)
+		-- Same swap as normals: (x, y, z) -> (z, x, y)
+		return Quat(qz, qx, qy, qw)
+	end
+
+	-- First pass: create all entities with transforms
+	for node_index, node in ipairs(gltf_result.nodes) do
+		local entity = ecs.CreateEntity(node.name or ("node_" .. node_index))
+		entity:AddComponent("transform")
+		-- Set local transform from glTF node
+		local transform = entity.transform
+
+		if node.matrix then
+			if true then
+				transform:SetFromMatrix(compute_node_local_matrix(node))
+			else
+				-- For matrix, we need to convert the entire matrix
+				-- For now, decompose and convert TRS
+				-- glTF matrices are column-major: translation is in m30, m31, m32
+				local tx, ty, tz = node.matrix[13], node.matrix[14], node.matrix[15]
+				local cx, cy, cz = convert_position(tx, ty, tz)
+				transform:SetPosition(Vec3(cx, cy, cz))
+				-- Scale from diagonal (simplified, assumes no rotation in matrix)
+				local sx = math.sqrt(node.matrix[1] ^ 2 + node.matrix[2] ^ 2 + node.matrix[3] ^ 2)
+				local sy = math.sqrt(node.matrix[5] ^ 2 + node.matrix[6] ^ 2 + node.matrix[7] ^ 2)
+				local sz = math.sqrt(node.matrix[9] ^ 2 + node.matrix[10] ^ 2 + node.matrix[11] ^ 2)
+				transform:SetScale(Vec3(sz, sx, sy)) -- Convert scale axes too
+			end
+		else
+			transform:SetPosition(convert_position(unpack(node.translation)))
+			transform:SetRotation(convert_quat(unpack(node.rotation)))
+			transform:SetScale(Vec3(unpack(node.scale)))
+		end
+
+		node_to_entity[node_index] = entity
+	end
+
+	-- Second pass: set up parenting
+	for node_index, node in ipairs(gltf_result.nodes) do
+		local entity = node_to_entity[node_index]
+
+		if node.children then
+			for _, child_index in ipairs(node.children) do
+				local child_entity = node_to_entity[child_index + 1]
+
+				if child_entity then child_entity:SetParent(entity) end
+			end
+		end
+	end
+
+	-- Third pass: attach model components to nodes with meshes
+	for node_index, node in ipairs(gltf_result.nodes) do
+		if node.mesh ~= nil then
+			local entity = node_to_entity[node_index]
+			local mesh = gltf_result.meshes[node.mesh + 1]
+
+			if mesh then
+				local model = entity:AddComponent("model")
+
+				-- Create primitives for this mesh
+				for prim_idx, primitive in ipairs(mesh.primitives) do
+					local vertex_buffer, vertex_count = gltf.CreateVertexBuffer(primitive)
+
+					if vertex_buffer then
+						local index_buffer, index_count, index_type = gltf.CreateIndexBuffer(primitive, vertex_count)
+						-- Create material
+						local material = nil
+						local texture = nil
+
+						if primitive.material ~= nil then
+							local gltf_mat = gltf_result.materials[primitive.material + 1]
+
+							if gltf_mat then
+								local albedo_tex = gltf_mat.base_color_texture and
+									gltf.LoadTexture(gltf_result, gltf_mat.base_color_texture)
+								local normal_tex = gltf_mat.normal_texture and
+									gltf.LoadTexture(gltf_result, gltf_mat.normal_texture)
+								local metallic_roughness_tex = gltf_mat.metallic_roughness_texture and
+									gltf.LoadTexture(gltf_result, gltf_mat.metallic_roughness_texture)
+								local occlusion_tex = gltf_mat.occlusion_texture and
+									gltf.LoadTexture(gltf_result, gltf_mat.occlusion_texture)
+								local emissive_tex = gltf_mat.emissive_texture and
+									gltf.LoadTexture(gltf_result, gltf_mat.emissive_texture)
+								material = Material.New(
+									{
+										name = gltf_mat.name,
+										albedo_texture = albedo_tex,
+										normal_texture = normal_tex,
+										metallic_roughness_texture = metallic_roughness_tex,
+										occlusion_texture = occlusion_tex,
+										emissive_texture = emissive_tex,
+										base_color_factor = gltf_mat.base_color_factor,
+										metallic_factor = gltf_mat.metallic_factor,
+										roughness_factor = gltf_mat.roughness_factor,
+										normal_scale = gltf_mat.normal_scale,
+										occlusion_strength = gltf_mat.occlusion_strength,
+										emissive_factor = {
+											gltf_mat.emissive_factor[1],
+											gltf_mat.emissive_factor[2],
+											gltf_mat.emissive_factor[3],
+										},
+										double_sided = gltf_mat.double_sided,
+										alpha_mode = gltf_mat.alpha_mode,
+										alpha_cutoff = gltf_mat.alpha_cutoff,
+									}
+								)
+								texture = albedo_tex
+							end
+						end
+
+						model:AddPrimitive(
+							{
+								vertex_buffer = vertex_buffer,
+								vertex_count = vertex_count,
+								index_buffer = index_buffer,
+								index_count = index_count,
+								index_type = index_type,
+								texture = texture,
+								material = material,
+								mesh_name = mesh.name,
+							}
+						)
+					end
+				end
+			end
+		end
+	end
+
+	-- Fourth pass: parent root nodes to our root entity
+	local scene_index = gltf_result.scene + 1
+	local scene = gltf_result.scenes[scene_index]
+
+	if scene and scene.nodes then
+		for _, root_node_index in ipairs(scene.nodes) do
+			local entity = node_to_entity[root_node_index + 1]
+
+			if entity then entity:SetParent(root_entity) end
+		end
+	end
+
+	return root_entity, node_to_entity
 end
 
 return gltf

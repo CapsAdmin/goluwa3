@@ -10,6 +10,43 @@ local input = require("input")
 local render2d = require("graphics.render2d")
 local gfx = require("graphics.gfx")
 local render3d = require("graphics.render3d")
+
+-- Debug: Show camera info
+local show_camera_info = true
+
+event.AddListener("Draw2D", "debug_camera_info", function(cmd, dt)
+	if not show_camera_info then return end
+
+	local cam = render3d.cam
+	if not cam then return end
+
+	local pos = cam:GetPosition()
+	local ang = cam:GetAngles()
+
+	local y = 10
+	local x = 10
+
+	render2d.SetTexture(nil)
+	render2d.SetColor(1, 1, 1, 1)
+
+	gfx.DrawText(string.format("Pos: X=%.1f  Y=%.1f  Z=%.1f", pos.x, pos.y, pos.z), x, y)
+	y = y + 20
+	gfx.DrawText(string.format("Ang: P=%.1f  Y=%.1f  R=%.1f", ang.p, ang.y, ang.r), x, y)
+	y = y + 20
+
+	-- Also show which direction each axis points based on Source convention
+	render2d.SetColor(0.7, 0.7, 0.7, 1)
+	gfx.DrawText("(X=forward, Y=left, Z=up | P=pitch, Y=yaw, R=roll)", x, y)
+end)
+
+event.AddListener("KeyInput", "toggle_camera_info", function(key, press)
+	if not press then return end
+	if key == "f10" then
+		show_camera_info = not show_camera_info
+		print("Camera info: " .. (show_camera_info and "ON" or "OFF"))
+	end
+end)
+
 -- Debug: Draw shadow map as picture-in-picture
 local show_shadow_map = false
 

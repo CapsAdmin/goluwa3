@@ -1,18 +1,20 @@
+local Ang3 = require("structs.ang3")
 local structs = require("structs.structs")
 local META = structs.Template("Quat")
 local ffi = require("ffi")
+local CTOR
 META.NumberType = "double"
 META.Args = {{"x", "y", "z", "w"}}
 structs.AddAllOperators(META)
 
 function QuatDeg3(...)
-	return Quat():SetAngles(Deg3(...))
+	return CTOR():SetAngles(Deg3(...))
 end
 
 function QuatFromAxis(rad, axis)
 	rad = rad * 0.5
 	local s = math.sin(rad)
-	return Quat(axis.x * s, axis.y * s, axis.z * s, math.cos(rad))
+	return CTOR(axis.x * s, axis.y * s, axis.z * s, math.cos(rad))
 end
 
 function META:Identity()
@@ -24,14 +26,14 @@ end
 
 function META.__mul(a, b)
 	if type(b) == "number" then
-		return Quat(a.x * b, a.y * b, a.z * b, a.w * b)
+		return CTOR(a.x * b, a.y * b, a.z * b, a.w * b)
 	end
 
 	local w = a.w * b.w - a.x * b.x - a.y * b.y - a.z * b.z
 	local x = a.w * b.x + a.x * b.w + a.y * b.z - a.z * b.y
 	local y = a.w * b.y + a.y * b.w + a.z * b.x - a.x * b.z
 	local z = a.w * b.z + a.z * b.w + a.x * b.y - a.y * b.x
-	return Quat(y, x, z, w)
+	return CTOR(y, x, z, w)
 end
 
 function META.VecMul(a, b)
@@ -306,4 +308,5 @@ do
 	end
 end
 
-return structs.Register(META)
+CTOR = structs.Register(META)
+return CTOR
