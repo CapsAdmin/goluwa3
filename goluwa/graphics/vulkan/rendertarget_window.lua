@@ -111,22 +111,30 @@ end
 local function create_depth_buffer(self)
 	local extent = self.surface_capabilities.currentExtent
 	local Texture = require("graphics.texture")
-	self.depth_texture = Texture.New(
+	-- Create the image
+	local render = require("graphics.render")
+	local Image = require("graphics.vulkan.internal.image")
+	local ImageView = require("graphics.vulkan.internal.image_view")
+	local image = Image.New(
 		{
+			device = render.GetDevice(),
 			width = extent.width,
 			height = extent.height,
 			format = self.depth_format,
-			image = {
-				usage = {"depth_stencil_attachment"},
-				properties = "device_local",
-				samples = self.samples,
-			},
-			view = {
-				aspect = "depth",
-			},
-			sampler = false,
+			usage = {"depth_stencil_attachment"},
+			properties = "device_local",
+			samples = self.samples,
 		}
 	)
+	local view = ImageView.New(
+		{
+			device = render.GetDevice(),
+			image = image,
+			format = self.depth_format,
+			aspect = "depth",
+		}
+	)
+	self.depth_texture = setmetatable({image = image, view = view}, Texture)
 end
 
 local function create_msaa_buffer(self)
@@ -135,20 +143,29 @@ local function create_msaa_buffer(self)
 
 	-- Recreate MSAA color buffer if using MSAA
 	if self.samples ~= "1" then
-		self.msaa_image = Texture.New(
+		-- Create the image directly without transition
+		local render = require("graphics.render")
+		local Image = require("graphics.vulkan.internal.image")
+		local ImageView = require("graphics.vulkan.internal.image_view")
+		local image = Image.New(
 			{
-				device = self.vulkan_instance.device,
+				device = render.GetDevice(),
 				width = extent.width,
 				height = extent.height,
 				format = self.surface_format.format,
-				image = {
-					usage = {"color_attachment"},
-					properties = "device_local",
-					samples = self.samples,
-				},
-				sampler = false,
+				usage = {"color_attachment"},
+				properties = "device_local",
+				samples = self.samples,
 			}
 		)
+		local view = ImageView.New(
+			{
+				device = render.GetDevice(),
+				image = image,
+				format = self.surface_format.format,
+			}
+		)
+		self.msaa_image = setmetatable({image = image, view = view}, Texture)
 	end
 end
 
@@ -227,7 +244,7 @@ function WindowRenderTarget:BeginFrame()
 	self.current_frame = (self.current_frame % #self.textures) + 1
 	-- Wait for the fence for this frame FIRST
 	self.in_flight_fences[self.current_frame]:Wait()
-	-- Acquire next image
+	-- Acquire next image using current_frame semaphore for acquisition
 	local texture_index = self.swapchain:GetNextImage(self.image_available_semaphores[self.current_frame])
 
 	-- Check if swapchain needs recreation

@@ -66,6 +66,7 @@ function ShadowMap.New(config)
 			scissor = {x = 0, y = 0, w = self.size.w, h = self.size.h},
 			color_format = false, -- No color attachment for shadow pass
 			depth_format = self.format,
+			samples = "1", -- Shadow map uses single sample
 			descriptor_set_count = 1, -- Shadow pass doesn't need per-frame descriptor sets
 			shader_stages = {
 				{
@@ -275,8 +276,8 @@ function ShadowMap:Begin()
 	-- Transition depth texture to depth attachment optimal
 	self.cmd:PipelineBarrier(
 		{
-			srcStage = "all_commands",
-			dstStage = "all_commands",
+			srcStage = "fragment",
+			dstStage = "early_fragment_tests",
 			imageBarriers = {
 				{
 					image = self.depth_texture:GetImage(),
@@ -289,11 +290,9 @@ function ShadowMap:Begin()
 			},
 		}
 	)
-	local w = self.size.w
-	local h = self.size.h
-	-- wtf
-	w = 800
-	h = 600
+	-- Use integer values from the depth texture to ensure consistency
+	local w = self.depth_texture:GetWidth()
+	local h = self.depth_texture:GetHeight()
 	-- Begin rendering (depth-only)
 	self.cmd:BeginRendering(
 		{
@@ -310,6 +309,8 @@ function ShadowMap:Begin()
 	-- Set viewport and scissor (dynamic states)
 	self.cmd:SetViewport(0.0, 0.0, w, h, 0.0, 1.0)
 	self.cmd:SetScissor(0, 0, w, h)
+	-- NOTE: Pipeline barriers are not allowed inside dynamic rendering!
+	-- Synchronization between shadow map and main pass happens via fence/submit
 	return self.cmd
 end
 
@@ -327,8 +328,8 @@ function ShadowMap:End()
 	-- Transition depth texture to shader read optimal for sampling
 	self.cmd:PipelineBarrier(
 		{
-			srcStage = "all_commands",
-			dstStage = "all_commands",
+			srcStage = "late_fragment_tests",
+			dstStage = "fragment",
 			imageBarriers = {
 				{
 					image = self.depth_texture:GetImage(),

@@ -412,6 +412,8 @@ function CommandBuffer:PipelineBarrier(config)
 		all_commands = vulkan.vk.VkPipelineStageFlagBits("VK_PIPELINE_STAGE_ALL_COMMANDS_BIT"),
 		top_of_pipe = vulkan.vk.VkPipelineStageFlagBits("VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT"),
 		color_attachment_output = vulkan.vk.VkPipelineStageFlagBits("VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT"),
+		early_fragment_tests = vulkan.vk.VkPipelineStageFlagBits("VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT"),
+		late_fragment_tests = vulkan.vk.VkPipelineStageFlagBits("VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT"),
 	}
 	local srcStage = stage_map[config.srcStage or "compute"]
 	local dstStage = stage_map[config.dstStage or "fragment"]
@@ -425,6 +427,23 @@ function CommandBuffer:PipelineBarrier(config)
 		imageBarriers = vulkan.T.Array(vulkan.vk.VkImageMemoryBarrier)(imageBarrierCount)
 
 		for i, barrier in ipairs(config.imageBarriers) do
+			-- Determine aspect mask based on image format if not explicitly provided
+			local aspect = barrier.aspect
+
+			if not aspect and barrier.image.format then
+				local format = barrier.image.format
+
+				-- Detect depth/stencil formats
+				if format:match("^D%d") or format:match("DEPTH") then
+					aspect = "depth"
+				elseif format:match("S%d") and format:match("D%d") then
+					aspect = "depth_stencil"
+				else
+					aspect = "color"
+				end
+			end
+
+			aspect = aspect or "color"
 			imageBarriers[i - 1] = vulkan.vk.VkImageMemoryBarrier(
 				{
 					sType = "VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER",
@@ -436,7 +455,7 @@ function CommandBuffer:PipelineBarrier(config)
 					dstQueueFamilyIndex = 0xFFFFFFFF,
 					image = barrier.image.ptr[0],
 					subresourceRange = {
-						aspectMask = vulkan.vk.VkImageAspectFlagBits("VK_IMAGE_ASPECT_COLOR_BIT"),
+						aspectMask = vulkan.enums.VK_IMAGE_ASPECT_(aspect),
 						baseMipLevel = barrier.base_mip_level or 0,
 						levelCount = barrier.level_count or
 							(

@@ -327,8 +327,8 @@ do
 		utility.MakePushPopFunction(render2d, "Texture")
 	end
 
-	function render2d.SetBlendMode(mode_name)
-		if render2d.current_blend_mode == mode_name then return end
+	function render2d.SetBlendMode(mode_name, force)
+		if render2d.current_blend_mode == mode_name and not force then return end
 
 		if not render2d.blend_modes[mode_name] then
 			local valid_modes = {}
@@ -631,7 +631,7 @@ event.AddListener("PostDraw", "draw_2d", function(cmd, dt)
 	local frame_index = render.GetCurrentFrame()
 	render2d.cmd = cmd
 	render2d.pipeline:Bind(cmd, frame_index)
-	render2d.SetBlendMode(render2d.current_blend_mode)
+	render2d.SetBlendMode(render2d.current_blend_mode, true) -- force=true to set dynamic state
 	event.Call("Draw2D", dt)
 end)
 

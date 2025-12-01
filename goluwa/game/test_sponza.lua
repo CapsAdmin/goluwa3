@@ -75,7 +75,6 @@ sun:EnableShadows(
 render3d.SetSunLight(sun)
 Light.AddToScene(sun)
 Light.SetSun(sun)
-print("Sun light created with shadows")
 
 -- Shadow pass runs in PreFrame (before swapchain acquire, completely separate)
 event.AddListener("PreFrame", "test_sponza_shadows", function(dt)
@@ -126,5 +125,3 @@ event.AddListener("Draw3D", "test_sponza", function(cmd, dt)
 		end
 	end
 end)
-
-print("Sponza scene ready with PBR materials and shadow mapping!")
