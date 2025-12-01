@@ -257,19 +257,19 @@ function WindowRenderTarget:BeginFrame()
 			},
 		}
 	)
+	local extent = self:GetExtent()
 	cmd:BeginRendering(
 		{
-			colorImageView = self:GetImageView(),
-			msaaImageView = self:GetMSAAImageView(),
-			depthImageView = self:GetDepthImageView(),
-			extent = self:GetExtent(),
-			clearColor = {0.2, 0.2, 0.2, 1.0},
-			clearDepth = 1.0,
+			color_image_view = self:GetImageView(),
+			msaa_image_view = self:GetMSAAImageView(),
+			depth_image_view = self:GetDepthImageView(),
+			w = extent.width,
+			h = extent.height,
+			clear_color = {0.2, 0.2, 0.2, 1.0},
+			clear_depth = 1.0,
 		}
 	)
-	local extent = self:GetExtent()
-	local aspect = extent.width / extent.height
-	cmd:SetViewport(0.0, 0.0, extent.width, extent.height, 0.0, 1.0)
+	cmd:SetViewport(0, 0, extent.width, extent.height, 0, 1)
 	cmd:SetScissor(0, 0, extent.width, extent.height)
 	return cmd
 end

@@ -1,5 +1,9 @@
 local ffi = require("ffi")
 local vulkan = require("graphics.vulkan.internal.vulkan")
+local ffi_helpers = require("helpers.ffi_helpers")
+local e = ffi_helpers.translate_enums({
+	{vulkan.vk.VkImageLayout, "VK_IMAGE_LAYOUT_"},
+})
 local CommandBuffer = {}
 CommandBuffer.__index = CommandBuffer
 
@@ -114,63 +118,66 @@ function CommandBuffer:End()
 end
 
 function CommandBuffer:BeginRendering(config)
-	local clearColor = config.clearColor or {0.0, 0.0, 0.0, 1.0}
-	local clearDepth = config.clearDepth or 1.0
 	local colorAttachmentInfo = nil
 	local colorAttachmentCount = 0
 
 	-- Only create color attachment if colorImageView is provided
-	if config.colorImageView then
+	if config.color_image_view then
 		colorAttachmentCount = 1
 		colorAttachmentInfo = vulkan.vk.VkRenderingAttachmentInfo(
 			{
 				sType = "VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO",
 				pNext = nil,
-				imageView = config.colorImageView.ptr[0],
-				imageLayout = "VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL",
-				resolveMode = config.msaaImageView and "VK_RESOLVE_MODE_AVERAGE_BIT" or "VK_RESOLVE_MODE_NONE",
-				resolveImageView = config.msaaImageView and config.colorImageView.ptr[0] or nil,
-				resolveImageLayout = config.msaaImageView and
-					"VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL" or
-					"VK_IMAGE_LAYOUT_UNDEFINED",
+				imageView = config.color_image_view.ptr[0],
+				imageLayout = e.VK_IMAGE_LAYOUT_("color_attachment_optimal"),
+				resolveMode = config.msaa_image_view and
+					"VK_RESOLVE_MODE_AVERAGE_BIT" or
+					"VK_RESOLVE_MODE_NONE",
+				resolveImageView = config.msaa_image_view and config.color_image_view.ptr[0] or nil,
+				resolveImageLayout = e.VK_IMAGE_LAYOUT_(config.msaa_image_view and "color_attachment_optimal" or "undefined"),
 				loadOp = "VK_ATTACHMENT_LOAD_OP_CLEAR",
 				storeOp = "VK_ATTACHMENT_STORE_OP_STORE",
 				clearValue = {
 					color = {
-						float32 = {clearColor[1], clearColor[2], clearColor[3], clearColor[4]},
+						float32 = {
+							config.clear_color[1],
+							config.clear_color[2],
+							config.clear_color[3],
+							config.clear_color[4],
+						},
 					},
 				},
 			}
 		)
 
-		if config.msaaImageView then
-			colorAttachmentInfo.imageView = config.msaaImageView.ptr[0]
-			colorAttachmentInfo.imageLayout = "VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL"
+		if config.msaa_image_view then
+			colorAttachmentInfo.imageView = config.msaa_image_view.ptr[0]
+			colorAttachmentInfo.imageLayout = e.VK_IMAGE_LAYOUT_("COLOR_ATTACHMENT_OPTIMAL")
 			colorAttachmentInfo.resolveMode = "VK_RESOLVE_MODE_AVERAGE_BIT"
-			colorAttachmentInfo.resolveImageView = config.colorImageView.ptr[0]
-			colorAttachmentInfo.resolveImageLayout = "VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL"
+			colorAttachmentInfo.resolveImageView = config.color_image_view.ptr[0]
+			colorAttachmentInfo.resolveImageLayout = e.VK_IMAGE_LAYOUT_("COLOR_ATTACHMENT_OPTIMAL")
 		end
 	end
 
 	local depthAttachmentInfo = nil
 
-	if config.depthImageView then
+	if config.depth_image_view then
 		depthAttachmentInfo = vulkan.vk.VkRenderingAttachmentInfo(
 			{
 				sType = "VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO",
 				pNext = nil,
-				imageView = config.depthImageView.ptr[0],
-				imageLayout = config.depthLayout or "VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL",
+				imageView = config.depth_image_view.ptr[0],
+				imageLayout = e.VK_IMAGE_LAYOUT_(config.depth_layout or "DEPTH_ATTACHMENT_OPTIMAL"),
 				resolveMode = "VK_RESOLVE_MODE_NONE",
 				resolveImageView = nil,
-				resolveImageLayout = "VK_IMAGE_LAYOUT_UNDEFINED",
+				resolveImageLayout = e.VK_IMAGE_LAYOUT_("UNDEFINED"),
 				loadOp = "VK_ATTACHMENT_LOAD_OP_CLEAR",
-				storeOp = config.depthStore and
+				storeOp = config.depth_store and
 					"VK_ATTACHMENT_STORE_OP_STORE" or
 					"VK_ATTACHMENT_STORE_OP_DONT_CARE",
 				clearValue = {
 					depthStencil = {
-						depth = clearDepth,
+						depth = config.clear_depth or 1.0,
 						stencil = 0,
 					},
 				},
@@ -178,24 +185,26 @@ function CommandBuffer:BeginRendering(config)
 		)
 	end
 
-	local renderingInfo = vulkan.vk.VkRenderingInfo(
-		{
-			sType = "VK_STRUCTURE_TYPE_RENDERING_INFO",
-			pNext = nil,
-			flags = 0,
-			renderArea = {
-				offset = {x = 0, y = 0},
-				extent = config.extent,
-			},
-			layerCount = 1,
-			viewMask = 0,
-			colorAttachmentCount = colorAttachmentCount,
-			pColorAttachments = colorAttachmentInfo,
-			pDepthAttachment = depthAttachmentInfo,
-			pStencilAttachment = nil,
-		}
+	vulkan.lib.vkCmdBeginRendering(
+		self.ptr[0],
+		vulkan.vk.VkRenderingInfo(
+			{
+				sType = "VK_STRUCTURE_TYPE_RENDERING_INFO",
+				pNext = nil,
+				flags = 0,
+				renderArea = {
+					offset = {x = config.x or 0, y = config.y or 0},
+					extent = {width = config.w, height = config.h},
+				},
+				layerCount = 1,
+				viewMask = 0,
+				colorAttachmentCount = colorAttachmentCount,
+				pColorAttachments = colorAttachmentInfo,
+				pDepthAttachment = depthAttachmentInfo,
+				pStencilAttachment = nil,
+			}
+		)
 	)
-	vulkan.lib.vkCmdBeginRendering(self.ptr[0], renderingInfo)
 end
 
 function CommandBuffer:EndRendering()
@@ -274,6 +283,8 @@ function CommandBuffer:DrawIndexed(indexCount, instanceCount, firstIndex, vertex
 end
 
 function CommandBuffer:SetViewport(x, y, width, height, minDepth, maxDepth)
+	assert(width > 0)
+	assert(height > 0)
 	vulkan.lib.vkCmdSetViewport(
 		self.ptr[0],
 		0,
@@ -292,6 +303,8 @@ function CommandBuffer:SetViewport(x, y, width, height, minDepth, maxDepth)
 end
 
 function CommandBuffer:SetScissor(x, y, width, height)
+	assert(width > 0)
+	assert(height > 0)
 	vulkan.lib.vkCmdSetScissor(
 		self.ptr[0],
 		0,

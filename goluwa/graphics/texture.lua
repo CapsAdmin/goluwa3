@@ -591,9 +591,10 @@ function Texture:Shade(glsl)
 	-- Begin rendering
 	cmd:BeginRendering(
 		{
-			colorImageView = mip0_view,
-			extent = {width = self.image:GetWidth(), height = self.image:GetHeight()},
-			clearColor = {0, 0, 0, 1},
+			color_image_view = mip0_view,
+			w = self.image:GetWidth(),
+			h = self.image:GetHeight(),
+			clear_color = {0, 0, 0, 1},
 		}
 	)
 	-- Draw fullscreen triangle

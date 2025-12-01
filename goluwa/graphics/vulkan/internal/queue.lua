@@ -37,15 +37,19 @@ end
 
 function Queue:SubmitAndWait(device, commandBuffer, fence)
 	vulkan.lib.vkResetFences(device.ptr[0], 1, fence.ptr)
-	local submitInfo = vulkan.vk.VkSubmitInfo(
-		{
-			sType = "VK_STRUCTURE_TYPE_SUBMIT_INFO",
-			commandBufferCount = 1,
-			pCommandBuffers = commandBuffer.ptr,
-		}
-	)
 	vulkan.assert(
-		vulkan.lib.vkQueueSubmit(self.ptr[0], 1, submitInfo, fence.ptr[0]),
+		vulkan.lib.vkQueueSubmit(
+			self.ptr[0],
+			1,
+			vulkan.vk.VkSubmitInfo(
+				{
+					sType = "VK_STRUCTURE_TYPE_SUBMIT_INFO",
+					commandBufferCount = 1,
+					pCommandBuffers = commandBuffer.ptr,
+				}
+			),
+			fence.ptr[0]
+		),
 		"failed to submit queue"
 	)
 	vulkan.lib.vkWaitForFences(device.ptr[0], 1, fence.ptr, 1, ffi.cast("uint64_t", -1))

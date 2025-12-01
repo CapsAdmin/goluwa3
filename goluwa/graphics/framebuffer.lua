@@ -86,14 +86,15 @@ function Framebuffer:Begin(cmd)
 	)
 	-- Begin rendering
 	local rendering_info = {
-		colorImageView = self.color_texture:GetView(),
-		extent = {width = self.width, height = self.height},
-		clearColor = self.clear_color,
+		color_image_view = self.color_texture:GetView(),
+		w = self.width,
+		h = self.height,
+		clear_color = self.clear_color,
 	}
 
 	if self.depth_texture then
-		rendering_info.depthImageView = self.depth_texture:GetView()
-		rendering_info.clearDepth = 1.0
+		rendering_info.depth_image_view = self.depth_texture:GetView()
+		rendering_info.clear_depth = 1.0
 	end
 
 	cmd:BeginRendering(rendering_info)

@@ -91,7 +91,7 @@ function Light:EnableShadows(config)
 	if self.type == Light.TYPE_DIRECTIONAL then
 		self.shadow_map = ShadowMap.New(
 			{
-				size = config.size or 2048,
+				--size = config.size or 2048,
 				ortho_size = config.ortho_size or 50.0,
 				near_plane = config.near_plane or 1.0,
 				far_plane = config.far_plane or 200.0,

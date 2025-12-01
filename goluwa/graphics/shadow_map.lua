@@ -4,11 +4,13 @@ local Texture = require("graphics.texture")
 local Fence = require("graphics.vulkan.internal.fence")
 local Matrix = require("structs.matrix").Matrix44
 local Vec3 = require("structs.vec3")
+local Vec2 = require("structs.vec2")
+local Rect = require("structs.rect")
 local camera = require("graphics.camera")
 local ShadowMap = {}
 ShadowMap.__index = ShadowMap
 -- Default shadow map settings
-local DEFAULT_SIZE = 800 -- Using 800 to match working viewport
+local DEFAULT_SIZE = Vec2() + 2048 --Vec2(800, 600) --Vec2() + 2048 -- Shadow map resolution
 local DEFAULT_FORMAT = "D32_SFLOAT"
 -- Push constants for shadow pass (just need MVP matrix)
 local ShadowVertexConstants = ffi.typeof([[
@@ -29,14 +31,14 @@ function ShadowMap.New(config)
 	self.camera = camera.CreateCamera()
 	self.camera:Set3D(true)
 	self.camera:SetOrtho(true)
-	self.camera:SetViewport(require("structs.rect")(0, 0, self.size, self.size))
+	self.camera:SetViewport(Rect(0, 0, self.size.w, self.size.h))
 	self.camera:SetNearZ(self.near_plane)
 	self.camera:SetFarZ(self.far_plane)
 	-- Create depth texture for shadow map
 	self.depth_texture = Texture.New(
 		{
-			width = self.size,
-			height = self.size,
+			width = self.size.w,
+			height = self.size.h,
 			format = self.format,
 			image = {
 				usage = {"depth_stencil_attachment", "sampled"},
@@ -59,6 +61,9 @@ function ShadowMap.New(config)
 	self.pipeline = render.CreateGraphicsPipeline(
 		{
 			dynamic_states = {"viewport", "scissor"},
+			-- Even with dynamic states, must provide initial viewport/scissor matching what we'll use
+			viewport = {x = 0, y = 0, w = self.size.w, h = self.size.h, min_depth = 0, max_depth = 1},
+			scissor = {x = 0, y = 0, w = self.size.w, h = self.size.h},
 			color_format = false, -- No color attachment for shadow pass
 			depth_format = self.format,
 			descriptor_set_count = 1, -- Shadow pass doesn't need per-frame descriptor sets
@@ -284,21 +289,27 @@ function ShadowMap:Begin()
 			},
 		}
 	)
+	local w = self.size.w
+	local h = self.size.h
+	-- wtf
+	w = 800
+	h = 600
 	-- Begin rendering (depth-only)
 	self.cmd:BeginRendering(
 		{
-			depthImageView = self.depth_texture:GetView(),
-			depthStore = true, -- We need to store the depth for sampling later
-			depthLayout = "VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL",
-			extent = {width = 800, height = 600}, -- Match viewport for now
-			clearDepth = 1.0,
+			depth_image_view = self.depth_texture:GetView(),
+			depth_store = true, -- We need to store the depth for sampling later
+			depth_layout = "depth_attachment_optimal",
+			w = w,
+			h = h,
+			clear_depth = 1.0,
 		}
 	)
 	-- Bind shadow pipeline
 	self.pipeline:Bind(self.cmd)
-	-- Set viewport and scissor (dynamic states) - use 800x600 for now
-	self.cmd:SetViewport(0.0, 0.0, 800, 600, 0.0, 1.0)
-	self.cmd:SetScissor(0, 0, 800, 600)
+	-- Set viewport and scissor (dynamic states)
+	self.cmd:SetViewport(0.0, 0.0, w, h, 0.0, 1.0)
+	self.cmd:SetScissor(0, 0, w, h)
 	return self.cmd
 end
 
