@@ -9,26 +9,13 @@ local render3d = require("graphics.render3d")
 local gltf = require("gltf")
 local Material = require("graphics.material")
 local Light = require("graphics.light")
--- Load Sponza model
-local sponza_path = "/home/caps/projects/glTF-Sample-Assets-main/Models/Sponza/glTF/Sponza.gltf"
-print("Loading Sponza model from:", sponza_path)
-local gltf_result, err = gltf.Load(sponza_path)
-
-if not gltf_result then
-	print("ERROR: Failed to load Sponza model:", err)
-	return
-end
-
-print("Loaded glTF file successfully")
-print("  Meshes:", #gltf_result.meshes)
-print("  Materials:", #gltf_result.materials)
-print("  Textures:", #gltf_result.textures)
-print("  Images:", #gltf_result.images)
--- Create GPU resources
-print("Creating GPU resources...")
+local Matrix44 = require("structs.matrix").Matrix44
+local gltf_result = assert(
+	gltf.Load(
+		"/home/caps/projects/glTF-Sample-Assets-main/Models/ABeautifulGame/glTF/ABeautifulGame.gltf"
+	)
+)
 local primitives = gltf.CreateGPUResources(gltf_result)
-print("Created", #primitives, "renderable primitives")
--- Count textures and materials loaded
 local textures_loaded = 0
 local materials_loaded = 0
 
@@ -38,59 +25,53 @@ for _, prim in ipairs(primitives) do
 	if prim.material then materials_loaded = materials_loaded + 1 end
 end
 
--- Access raw gltf data to check index max values
 local mesh_idx = 1
 local prim_idx = 1
--- Create transform for the model
-local sponza_transform = Transform.New()
-sponza_transform:SetPosition(Vec3(0, 0, 0))
-sponza_transform:SetAngles(Deg3(90, 0, 0))
-sponza_transform:SetSize(0.1) -- Sponza is already quite large
--- Default material for primitives without materials
+-- Scene transform that applies to the entire model
+local scene_transform = Transform.New()
+scene_transform:SetPosition(Vec3(0, 0, 0))
+scene_transform:SetAngles(Deg3(90, 0, 0))
+scene_transform:SetSize(800)
 local default_material = Material.GetDefault()
--- Require camera movement
 require("game.camera_movement")
--- Set initial camera position for Sponza (it's a large architectural scene)
 render3d.cam:SetPosition(Vec3(0, 2, 0))
 render3d.cam:SetAngles(Ang3(0, 0, 0))
--- Create sun light with shadows
 local sun = Light.CreateDirectional(
 	{
-		direction = Vec3(0.8, -0.6, 0.2),
+		direction = Vec3(0.8, -0.6, 0.7),
 		color = {1.0, 0.98, 0.95},
 		intensity = 3.0,
 		name = "Sun",
 	}
 )
--- Enable shadows
 sun:EnableShadows(
 	{
-		-- size = 2048,  -- Use default for now
-		ortho_size = 100.0, -- Large enough to cover Sponza
+		-- size = 2048, 
+		ortho_size = 100.0,
 		near_plane = 1.0,
 		far_plane = 500.0,
 	}
 )
--- Set as the render3d sun light
 render3d.SetSunLight(sun)
 Light.AddToScene(sun)
 Light.SetSun(sun)
 
--- Shadow pass runs in PreFrame (before swapchain acquire, completely separate)
-event.AddListener("PreFrame", "test_sponza_shadows", function(dt)
+local function get_combined_matrix(scene_matrix, node_world_matrix)
+	return scene_matrix:GetMultiplied(node_world_matrix)
+end
+
+event.AddListener("PreFrame", "shadows", function(dt)
 	if sun:HasShadows() then
 		local shadow_map = sun:GetShadowMap()
-		-- Update cascade light matrices based on view camera frustum
 		sun:UpdateShadowMap(render3d.cam)
+		local scene_matrix = scene_transform:GetMatrix()
 
-		-- Render shadow pass for each cascade
 		for cascade_idx = 1, shadow_map:GetCascadeCount() do
 			local shadow_cmd = shadow_map:Begin(cascade_idx)
-			-- Upload constants for this cascade
-			shadow_map:UploadConstants(sponza_transform:GetMatrix(), cascade_idx)
 
-			-- Draw all primitives
 			for _, prim in ipairs(primitives) do
+				local combined_matrix = get_combined_matrix(scene_matrix, prim.world_matrix)
+				shadow_map:UploadConstants(combined_matrix, cascade_idx)
 				shadow_cmd:BindVertexBuffer(prim.vertex_buffer, 0)
 
 				if prim.index_buffer then
@@ -104,24 +85,20 @@ event.AddListener("PreFrame", "test_sponza_shadows", function(dt)
 			shadow_map:End(cascade_idx)
 		end
 
-		-- Update the UBO with the light space matrix
 		render3d.UpdateShadowUBO()
 	end
 end)
 
-event.AddListener("Draw3D", "test_sponza", function(cmd, dt)
-	-- Set world matrix
-	render3d.SetWorldMatrix(sponza_transform:GetMatrix())
+event.AddListener("Draw3D", "test_gltf", function(cmd, dt)
+	local scene_matrix = scene_transform:GetMatrix()
 
-	-- Draw all primitives
 	for _, prim in ipairs(primitives) do
-		-- Set material (use PBR material or default)
+		local combined_matrix = get_combined_matrix(scene_matrix, prim.world_matrix)
+		render3d.SetWorldMatrix(combined_matrix)
 		render3d.SetMaterial(prim.material or default_material)
 		render3d.UploadConstants(cmd)
-		-- Bind vertex buffer
 		cmd:BindVertexBuffer(prim.vertex_buffer, 0)
 
-		-- Draw
 		if prim.index_buffer then
 			cmd:BindIndexBuffer(prim.index_buffer, 0, prim.index_type)
 			cmd:DrawIndexed(prim.index_count)

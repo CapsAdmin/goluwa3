@@ -3,6 +3,8 @@ local json = require("json")
 local fs = require("fs")
 local Buffer = require("structs.buffer")
 local base64 = require("goluwa.helpers.base64")
+local Matrix44 = require("structs.matrix").Matrix44
+local Quat = require("structs.quat")
 local gltf = {}
 -- glTF component type constants
 local COMPONENT_TYPE = {
@@ -314,6 +316,103 @@ function gltf.Load(path)
 	return result
 end
 
+-- Compute a node's local transform matrix from TRS or matrix
+local function compute_node_local_matrix(node)
+	local m = Matrix44()
+	m:Identity()
+
+	-- If the node has a matrix, use it directly
+	if node.matrix then
+		-- glTF matrices are column-major, same as our Matrix44
+		m.m00 = node.matrix[1]
+		m.m01 = node.matrix[2]
+		m.m02 = node.matrix[3]
+		m.m03 = node.matrix[4]
+		m.m10 = node.matrix[5]
+		m.m11 = node.matrix[6]
+		m.m12 = node.matrix[7]
+		m.m13 = node.matrix[8]
+		m.m20 = node.matrix[9]
+		m.m21 = node.matrix[10]
+		m.m22 = node.matrix[11]
+		m.m23 = node.matrix[12]
+		m.m30 = node.matrix[13]
+		m.m31 = node.matrix[14]
+		m.m32 = node.matrix[15]
+		m.m33 = node.matrix[16]
+		return m
+	end
+
+	-- Otherwise compute from TRS
+	local t = node.translation
+	local r = node.rotation
+	local s = node.scale
+	-- Apply translation
+	m:SetTranslation(t[1], t[2], t[3])
+	-- Apply rotation (quaternion)
+	local rot_quat = Quat(r[1], r[2], r[3], r[4])
+	local rot_matrix = Matrix44()
+	rot_matrix:Identity()
+	rot_matrix:SetRotation(rot_quat)
+	-- Apply scale
+	local scale_matrix = Matrix44()
+	scale_matrix:Identity()
+	scale_matrix:Scale(s[1], s[2], s[3])
+	-- Combine: T * R * S
+	m = m:GetMultiplied(rot_matrix):GetMultiplied(scale_matrix)
+	return m
+end
+
+-- Compute world transforms for all nodes in the scene
+function gltf.ComputeWorldTransforms(gltf_result)
+	local world_transforms = {}
+
+	-- Initialize all nodes with their local transforms
+	for i, node in ipairs(gltf_result.nodes) do
+		world_transforms[i] = {
+			local_matrix = compute_node_local_matrix(node),
+			world_matrix = nil,
+			node = node,
+		}
+	end
+
+	-- Recursive function to compute world transform
+	local function compute_world_transform(node_index, parent_world)
+		local node_data = world_transforms[node_index]
+
+		if not node_data then return end
+
+		if parent_world then
+			node_data.world_matrix = parent_world:GetMultiplied(node_data.local_matrix)
+		else
+			node_data.world_matrix = node_data.local_matrix:Copy()
+		end
+
+		-- Process children
+		local node = node_data.node
+
+		if node.children then
+			for _, child_index in ipairs(node.children) do
+				-- glTF uses 0-based indices
+				compute_world_transform(child_index + 1, node_data.world_matrix)
+			end
+		end
+	end
+
+	-- Get the current scene
+	local scene_index = gltf_result.scene + 1
+	local scene = gltf_result.scenes[scene_index]
+
+	if scene and scene.nodes then
+		-- Process all root nodes in the scene
+		for _, root_node_index in ipairs(scene.nodes) do
+			compute_world_transform(root_node_index + 1, nil)
+		end
+	end
+
+	return world_transforms
+end
+
 -- Helper to get interleaved vertex data for a primitive
 -- Returns: vertex_data (C array of floats), vertex_count, stride_in_floats
 -- New format: position (3) + normal (3) + texcoord (2) + tangent (4) = 12 floats
@@ -568,86 +667,121 @@ function gltf.LoadTexture(gltf_result, texture_index)
 end
 
 -- Create all GPU resources for a glTF model
--- Returns a table of primitives with vertex_buffer, index_buffer, and material
+-- Returns a table of primitives with vertex_buffer, index_buffer, material, and world_matrix
 function gltf.CreateGPUResources(gltf_result)
 	local Material = require("graphics.material")
 	local primitives = {}
+	-- Compute world transforms for all nodes
+	local world_transforms = gltf.ComputeWorldTransforms(gltf_result)
+	-- Build a map of mesh index to nodes that reference it
+	local mesh_to_nodes = {}
+
+	for node_index, node in ipairs(gltf_result.nodes) do
+		if node.mesh ~= nil then
+			local mesh_index = node.mesh + 1
+			mesh_to_nodes[mesh_index] = mesh_to_nodes[mesh_index] or {}
+			table.insert(mesh_to_nodes[mesh_index], node_index)
+		end
+	end
 
 	for mesh_idx, mesh in ipairs(gltf_result.meshes) do
-		for prim_idx, primitive in ipairs(mesh.primitives) do
-			local vertex_buffer, vertex_count = gltf.CreateVertexBuffer(primitive)
+		-- Get all nodes that reference this mesh
+		local node_indices = mesh_to_nodes[mesh_idx] or {}
 
-			if not vertex_buffer then
-				print(
-					"Warning: Failed to create vertex buffer for mesh",
-					mesh_idx,
-					"primitive",
-					prim_idx
-				)
+		-- If no nodes reference this mesh, create it with identity transform
+		if #node_indices == 0 then node_indices = {nil} end
 
-				goto continue
+		-- Create a primitive instance for each node that references this mesh
+		for _, node_index in ipairs(node_indices) do
+			local world_matrix = nil
+			local node_name = nil
+
+			if node_index and world_transforms[node_index] then
+				world_matrix = world_transforms[node_index].world_matrix
+				node_name = world_transforms[node_index].node.name
+			else
+				-- Identity matrix if no node
+				world_matrix = Matrix44()
+				world_matrix:Identity()
 			end
 
-			local index_buffer, index_count, index_type = gltf.CreateIndexBuffer(primitive, vertex_count)
-			-- Create Material object with all PBR textures
-			local material = nil
-			local texture = nil -- Legacy support
-			if primitive.material ~= nil then
-				local gltf_mat = gltf_result.materials[primitive.material + 1]
+			for prim_idx, primitive in ipairs(mesh.primitives) do
+				local vertex_buffer, vertex_count = gltf.CreateVertexBuffer(primitive)
 
-				if gltf_mat then
-					-- Load all PBR textures
-					local albedo_tex = gltf_mat.base_color_texture and
-						gltf.LoadTexture(gltf_result, gltf_mat.base_color_texture)
-					local normal_tex = gltf_mat.normal_texture and
-						gltf.LoadTexture(gltf_result, gltf_mat.normal_texture)
-					local metallic_roughness_tex = gltf_mat.metallic_roughness_texture and
-						gltf.LoadTexture(gltf_result, gltf_mat.metallic_roughness_texture)
-					local occlusion_tex = gltf_mat.occlusion_texture and
-						gltf.LoadTexture(gltf_result, gltf_mat.occlusion_texture)
-					local emissive_tex = gltf_mat.emissive_texture and
-						gltf.LoadTexture(gltf_result, gltf_mat.emissive_texture)
-					material = Material.New(
-						{
-							name = gltf_mat.name,
-							albedo_texture = albedo_tex,
-							normal_texture = normal_tex,
-							metallic_roughness_texture = metallic_roughness_tex,
-							occlusion_texture = occlusion_tex,
-							emissive_texture = emissive_tex,
-							base_color_factor = gltf_mat.base_color_factor,
-							metallic_factor = gltf_mat.metallic_factor,
-							roughness_factor = gltf_mat.roughness_factor,
-							normal_scale = gltf_mat.normal_scale,
-							occlusion_strength = gltf_mat.occlusion_strength,
-							emissive_factor = {
-								gltf_mat.emissive_factor[1],
-								gltf_mat.emissive_factor[2],
-								gltf_mat.emissive_factor[3],
-							},
-							double_sided = gltf_mat.double_sided,
-							alpha_mode = gltf_mat.alpha_mode,
-							alpha_cutoff = gltf_mat.alpha_cutoff,
-						}
+				if not vertex_buffer then
+					print(
+						"Warning: Failed to create vertex buffer for mesh",
+						mesh_idx,
+						"primitive",
+						prim_idx
 					)
-					-- Legacy texture reference
-					texture = albedo_tex
+
+					goto continue
 				end
+
+				local index_buffer, index_count, index_type = gltf.CreateIndexBuffer(primitive, vertex_count)
+				-- Create Material object with all PBR textures
+				local material = nil
+				local texture = nil -- Legacy support
+				if primitive.material ~= nil then
+					local gltf_mat = gltf_result.materials[primitive.material + 1]
+
+					if gltf_mat then
+						-- Load all PBR textures
+						local albedo_tex = gltf_mat.base_color_texture and
+							gltf.LoadTexture(gltf_result, gltf_mat.base_color_texture)
+						local normal_tex = gltf_mat.normal_texture and
+							gltf.LoadTexture(gltf_result, gltf_mat.normal_texture)
+						local metallic_roughness_tex = gltf_mat.metallic_roughness_texture and
+							gltf.LoadTexture(gltf_result, gltf_mat.metallic_roughness_texture)
+						local occlusion_tex = gltf_mat.occlusion_texture and
+							gltf.LoadTexture(gltf_result, gltf_mat.occlusion_texture)
+						local emissive_tex = gltf_mat.emissive_texture and
+							gltf.LoadTexture(gltf_result, gltf_mat.emissive_texture)
+						material = Material.New(
+							{
+								name = gltf_mat.name,
+								albedo_texture = albedo_tex,
+								normal_texture = normal_tex,
+								metallic_roughness_texture = metallic_roughness_tex,
+								occlusion_texture = occlusion_tex,
+								emissive_texture = emissive_tex,
+								base_color_factor = gltf_mat.base_color_factor,
+								metallic_factor = gltf_mat.metallic_factor,
+								roughness_factor = gltf_mat.roughness_factor,
+								normal_scale = gltf_mat.normal_scale,
+								occlusion_strength = gltf_mat.occlusion_strength,
+								emissive_factor = {
+									gltf_mat.emissive_factor[1],
+									gltf_mat.emissive_factor[2],
+									gltf_mat.emissive_factor[3],
+								},
+								double_sided = gltf_mat.double_sided,
+								alpha_mode = gltf_mat.alpha_mode,
+								alpha_cutoff = gltf_mat.alpha_cutoff,
+							}
+						)
+						-- Legacy texture reference
+						texture = albedo_tex
+					end
+				end
+
+				primitives[#primitives + 1] = {
+					vertex_buffer = vertex_buffer,
+					vertex_count = vertex_count,
+					index_buffer = index_buffer,
+					index_count = index_count,
+					index_type = index_type,
+					texture = texture, -- Legacy support
+					material = material, -- New PBR material
+					material_index = primitive.material,
+					mesh_name = mesh.name,
+					node_name = node_name,
+					world_matrix = world_matrix,
+				}
+
+				::continue::
 			end
-
-			primitives[#primitives + 1] = {
-				vertex_buffer = vertex_buffer,
-				vertex_count = vertex_count,
-				index_buffer = index_buffer,
-				index_count = index_count,
-				index_type = index_type,
-				texture = texture, -- Legacy support
-				material = material, -- New PBR material
-				material_index = primitive.material,
-				mesh_name = mesh.name,
-			}
-
-			::continue::
 		end
 	end
 
