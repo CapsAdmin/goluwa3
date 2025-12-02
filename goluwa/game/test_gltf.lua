@@ -15,12 +15,12 @@ require("components.model")
 local Light = require("components.light")
 -- DEBUG: Enable to test geometry without textures (all white)
 gltf.debug_white_textures = false
-gltf.debug_print_nodes = true
+gltf.debug_print_nodes = false
 -- Load glTF model
 local path = nil
 path = "/home/caps/projects/glTF-Sample-Assets-main/Models/Sponza/glTF/Sponza.gltf"
 path = "/home/caps/projects/glTF-Sample-Assets-main/Models/ABeautifulGame/glTF/ABeautifulGame.gltf"
-path = "/home/caps/projects/RTXDI-Assets/bistro/bistro.gltf"
+--path = "/home/caps/projects/RTXDI-Assets/bistro/bistro.gltf"
 local gltf_result = assert(gltf.Load(path))
 -- Create entity hierarchy from glTF, parented to world so ECS queries find it
 local scene_root = gltf.CreateEntityHierarchy(gltf_result, ecs.GetWorld())
@@ -28,7 +28,7 @@ local default_material = Material.GetDefault()
 require("game.camera_movement")
 -- Set camera to suggested position (camera node if found, otherwise scene center)
 local cam_pos, cam_ang = gltf.GetSuggestedCameraTransform(gltf_result)
-cam_pos = Vec3(0, 1111, -60)
+--cam_pos = Vec3(0, 1111, -60)
 render3d.cam:SetPosition(cam_pos)
 render3d.cam:SetAngles(cam_ang or Ang3(0, 0, 0))
 
