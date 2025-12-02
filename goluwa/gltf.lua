@@ -7,6 +7,9 @@ local Matrix44 = require("structs.matrix").Matrix44
 local Quat = require("structs.quat")
 local Vec3 = require("structs.vec3")
 local gltf = {}
+-- Debug flags
+gltf.debug_white_textures = false -- Set to true to use white textures for all materials
+gltf.debug_print_nodes = false -- Set to true to print node hierarchy
 -- glTF component type constants
 local COMPONENT_TYPE = {
 	[5120] = {type = "int8_t", size = 1},
@@ -155,6 +158,30 @@ function gltf.Load(path)
 		return nil, "Only glTF 2.0 is supported"
 	end
 
+	-- Track supported extensions
+	local SUPPORTED_EXTENSIONS = {
+		MSFT_texture_dds = true,
+		KHR_materials_pbrSpecularGlossiness = true,
+	}
+
+	-- Check required extensions - error if any are unsupported
+	if gltf_data.extensionsRequired then
+		for _, ext in ipairs(gltf_data.extensionsRequired) do
+			if not SUPPORTED_EXTENSIONS[ext] then
+				return nil, "Required extension '" .. ext .. "' is not supported"
+			end
+		end
+	end
+
+	-- Warn about used extensions that aren't fully supported
+	if gltf_data.extensionsUsed then
+		for _, ext in ipairs(gltf_data.extensionsUsed) do
+			if not SUPPORTED_EXTENSIONS[ext] then
+				print("WARNING: glTF extension '" .. ext .. "' is used but not fully supported")
+			end
+		end
+	end
+
 	-- Load all buffers
 	local buffers = {}
 
@@ -200,8 +227,15 @@ function gltf.Load(path)
 	-- Process textures
 	if gltf_data.textures then
 		for i, texture_info in ipairs(gltf_data.textures) do
+			local source = texture_info.source
+
+			-- Check for MSFT_texture_dds extension (prefer DDS over default source)
+			if texture_info.extensions and texture_info.extensions.MSFT_texture_dds then
+				source = texture_info.extensions.MSFT_texture_dds.source
+			end
+
 			result.textures[i] = {
-				source = texture_info.source,
+				source = source,
 				sampler = texture_info.sampler,
 			}
 		end
@@ -216,9 +250,34 @@ function gltf.Load(path)
 				alpha_mode = material_info.alphaMode or "OPAQUE",
 				alpha_cutoff = material_info.alphaCutoff or 0.5,
 			}
+			-- Check for KHR_materials_pbrSpecularGlossiness extension first
+			-- This uses diffuse/specular workflow instead of metallic/roughness
+			local spec_gloss = material_info.extensions and
+				material_info.extensions.KHR_materials_pbrSpecularGlossiness
 
-			-- PBR metallic roughness
-			if material_info.pbrMetallicRoughness then
+			if spec_gloss then
+				-- Convert specular-glossiness to metallic-roughness approximation
+				-- diffuseFactor -> base_color_factor
+				material.base_color_factor = spec_gloss.diffuseFactor or {1, 1, 1, 1}
+				-- glossiness is inverse of roughness
+				material.roughness_factor = 1.0 - (spec_gloss.glossinessFactor or 1.0)
+				-- Approximate metallic from specular (if specular is high and similar to diffuse, it's metallic)
+				local spec = spec_gloss.specularFactor or {1, 1, 1}
+				local avg_spec = (spec[1] + spec[2] + spec[3]) / 3.0
+				material.metallic_factor = avg_spec > 0.5 and avg_spec or 0.0
+
+				-- diffuseTexture -> base_color_texture
+				if spec_gloss.diffuseTexture then
+					material.base_color_texture = spec_gloss.diffuseTexture.index
+				end
+
+				-- specularGlossinessTexture - we don't have a direct equivalent,
+				-- but the glossiness (alpha) can approximate roughness
+				if spec_gloss.specularGlossinessTexture then
+					material.metallic_roughness_texture = spec_gloss.specularGlossinessTexture.index
+				end
+			elseif material_info.pbrMetallicRoughness then
+				-- Standard PBR metallic roughness
 				local pbr = material_info.pbrMetallicRoughness
 				material.base_color_factor = pbr.baseColorFactor or {1, 1, 1, 1}
 				material.metallic_factor = pbr.metallicFactor or 1
@@ -231,6 +290,11 @@ function gltf.Load(path)
 				if pbr.metallicRoughnessTexture then
 					material.metallic_roughness_texture = pbr.metallicRoughnessTexture.index
 				end
+			else
+				-- No PBR info at all, use defaults
+				material.base_color_factor = {1, 1, 1, 1}
+				material.metallic_factor = 0
+				material.roughness_factor = 0.5
 			end
 
 			-- Normal texture
@@ -415,10 +479,12 @@ function gltf.ComputeWorldTransforms(gltf_result)
 end
 
 -- Helper to get interleaved vertex data for a primitive
--- Returns: vertex_data (C array of floats), vertex_count, stride_in_floats
+-- Returns: vertex_data (C array of floats), vertex_count, stride_in_floats, aabb
 -- New format: position (3) + normal (3) + texcoord (2) + tangent (4) = 12 floats
 -- Converts from glTF Y-up to Source Z-up coordinate system
+-- Also computes AABB in our coordinate system
 function gltf.GetInterleavedVertices(primitive)
+	local AABB = require("structs.aabb")
 	local position = primitive.attributes.POSITION
 	local normal = primitive.attributes.NORMAL
 	local texcoord = primitive.attributes.TEXCOORD_0
@@ -431,6 +497,8 @@ function gltf.GetInterleavedVertices(primitive)
 	local stride = 12
 	local total_floats = vertex_count * stride
 	local vertex_data = ffi.new("float[?]", total_floats)
+	-- Initialize AABB with extreme values
+	local aabb = AABB(math.huge, math.huge, math.huge, -math.huge, -math.huge, -math.huge)
 
 	-- Convert glTF Y-up to Z-up: (x, y, z) -> (x, -z, y)
 	-- This swaps Y and Z, and negates the new Y (which was Z)
@@ -442,13 +510,30 @@ function gltf.GetInterleavedVertices(primitive)
 			local px = position.data[i * 3 + 0]
 			local py = position.data[i * 3 + 1]
 			local pz = position.data[i * 3 + 2]
-			vertex_data[base + 0] = -pz
-			vertex_data[base + 1] = -px
-			vertex_data[base + 2] = -py
+			-- Convert: glTF (x, y, z) -> our (-z, -x, -y)
+			local our_x = -pz
+			local our_y = -px
+			local our_z = -py
+			vertex_data[base + 0] = our_x
+			vertex_data[base + 1] = our_y
+			vertex_data[base + 2] = our_z
+
+			-- Expand AABB
+			if our_x < aabb.min_x then aabb.min_x = our_x end
+
+			if our_y < aabb.min_y then aabb.min_y = our_y end
+
+			if our_z < aabb.min_z then aabb.min_z = our_z end
+
+			if our_x > aabb.max_x then aabb.max_x = our_x end
+
+			if our_y > aabb.max_y then aabb.max_y = our_y end
+
+			if our_z > aabb.max_z then aabb.max_z = our_z end
 		end
 
 		-- Normal (3 floats) - convert coordinate system
-		-- Direction vectors with negation to match position transform: (x, y, z) -> (-z, -x, y)
+		-- Direction vectors with negation to match position transform: (x, y, z) -> (-z, -x, -y)
 		if normal then
 			local nx = normal.data[i * 3 + 0]
 			local ny = normal.data[i * 3 + 1]
@@ -472,7 +557,7 @@ function gltf.GetInterleavedVertices(primitive)
 		end
 
 		-- Tangent (4 floats: xyz + w for handedness) - convert coordinate system
-		-- Direction vectors: (x, y, z) -> (-z, -x, y) - same pattern as normals
+		-- Direction vectors: (x, y, z) -> (-z, -x, -y) - same pattern as normals
 		if tangent then
 			local tx = tangent.data[i * 4 + 0]
 			local ty = tangent.data[i * 4 + 1]
@@ -491,37 +576,49 @@ function gltf.GetInterleavedVertices(primitive)
 		end
 	end
 
-	return vertex_data, vertex_count, stride
-end
-
--- Helper to get indices as uint32_t array (for Vulkan compatibility)
-function gltf.GetIndices32(primitive)
-	if not primitive.indices then return nil end
-
-	local indices = primitive.indices
-	local index_data = ffi.new("uint32_t[?]", indices.count)
-
-	for i = 0, indices.count - 1 do
-		index_data[i] = indices.data[i]
-	end
-
-	return index_data, indices.count
-end
-
--- Helper to get indices in their native format
-function gltf.GetIndices(primitive)
-	if not primitive.indices then return nil end
-
-	local indices = primitive.indices
-	return indices.data, indices.count, indices.component_type
+	return vertex_data, vertex_count, stride, aabb
 end
 
 local render = require("graphics.render")
 local Texture = require("graphics.texture")
+-- White debug texture (created on demand)
+local white_texture = nil
+
+local function get_white_texture()
+	if white_texture then return white_texture end
+
+	-- Create 4x4 white texture
+	local size = 4
+	local buffer = ffi.new("uint8_t[?]", size * size * 4)
+
+	for i = 0, size * size - 1 do
+		buffer[i * 4 + 0] = 255 -- R
+		buffer[i * 4 + 1] = 255 -- G
+		buffer[i * 4 + 2] = 255 -- B
+		buffer[i * 4 + 3] = 255 -- A
+	end
+
+	white_texture = Texture.New(
+		{
+			width = size,
+			height = size,
+			format = "R8G8B8A8_UNORM",
+			buffer = buffer,
+			sampler = {
+				min_filter = "nearest",
+				mag_filter = "nearest",
+				wrap_s = "repeat",
+				wrap_t = "repeat",
+			},
+		}
+	)
+	return white_texture
+end
 
 -- Create GPU vertex buffer from primitive
+-- Returns: buffer, vertex_count, aabb (in local/mesh space)
 function gltf.CreateVertexBuffer(primitive)
-	local vertex_data, vertex_count, stride = gltf.GetInterleavedVertices(primitive)
+	local vertex_data, vertex_count, stride, aabb = gltf.GetInterleavedVertices(primitive)
 
 	if not vertex_data then
 		return nil, vertex_count -- vertex_count is error message
@@ -536,7 +633,7 @@ function gltf.CreateVertexBuffer(primitive)
 			byte_size = byte_size,
 		}
 	)
-	return buffer, vertex_count
+	return buffer, vertex_count, aabb
 end
 
 -- Create GPU index buffer from primitive
@@ -637,6 +734,9 @@ end
 function gltf.LoadTexture(gltf_result, texture_index)
 	if not texture_index then return nil end
 
+	-- Debug mode: return white texture instead of loading
+	if gltf.debug_white_textures then return get_white_texture() end
+
 	local texture_info = gltf_result.textures[texture_index + 1]
 
 	if not texture_info then
@@ -674,7 +774,7 @@ function gltf.LoadTexture(gltf_result, texture_index)
 		{
 			path = image_path,
 			cache_key = cache_key,
-			format = "R8G8B8A8_UNORM",
+			format = not image_path:ends_with(".dds") and "R8G8B8A8_UNORM" or nil,
 			mip_map_levels = "auto",
 			sampler = sampler_config,
 		}
@@ -682,11 +782,16 @@ function gltf.LoadTexture(gltf_result, texture_index)
 	return texture
 end
 
--- Create all GPU resources for a glTF model
--- Returns a table of primitives with vertex_buffer, index_buffer, material, and world_matrix
-function gltf.CreateGPUResources(gltf_result)
-	local Material = require("graphics.material")
-	local primitives = {}
+-- Clear the texture cache (useful when reloading models)
+function gltf.ClearTextureCache()
+	Texture.ClearCache()
+end
+
+-- Compute the bounding box of all meshes in the scene, accounting for node transforms
+-- Returns min, max, center as Vec3 (in our coordinate system)
+function gltf.ComputeSceneBounds(gltf_result)
+	local min_x, min_y, min_z = math.huge, math.huge, math.huge
+	local max_x, max_y, max_z = -math.huge, -math.huge, -math.huge
 	-- Compute world transforms for all nodes
 	local world_transforms = gltf.ComputeWorldTransforms(gltf_result)
 	-- Build a map of mesh index to nodes that reference it
@@ -700,119 +805,117 @@ function gltf.CreateGPUResources(gltf_result)
 		end
 	end
 
+	-- For each mesh, transform its bounds by the node's world matrix
 	for mesh_idx, mesh in ipairs(gltf_result.meshes) do
-		-- Get all nodes that reference this mesh
 		local node_indices = mesh_to_nodes[mesh_idx] or {}
 
-		-- If no nodes reference this mesh, create it with identity transform
-		if #node_indices == 0 then node_indices = {nil} end
-
-		-- Create a primitive instance for each node that references this mesh
 		for _, node_index in ipairs(node_indices) do
-			local world_matrix = nil
-			local node_name = nil
+			local world_matrix = world_transforms[node_index] and world_transforms[node_index].world_matrix
 
-			if node_index and world_transforms[node_index] then
-				world_matrix = world_transforms[node_index].world_matrix
-				node_name = world_transforms[node_index].node.name
-			else
-				-- Identity matrix if no node
-				world_matrix = Matrix44()
-				world_matrix:Identity()
-			end
+			if not world_matrix then goto continue end
 
-			for prim_idx, primitive in ipairs(mesh.primitives) do
-				local vertex_buffer, vertex_count = gltf.CreateVertexBuffer(primitive)
+			for _, primitive in ipairs(mesh.primitives) do
+				local pos = primitive.attributes.POSITION
 
-				if not vertex_buffer then
-					print(
-						"Warning: Failed to create vertex buffer for mesh",
-						mesh_idx,
-						"primitive",
-						prim_idx
-					)
+				if pos and pos.min and pos.max then
+					-- Transform all 8 corners of the bounding box
+					local corners = {
+						{pos.min[1], pos.min[2], pos.min[3]},
+						{pos.min[1], pos.min[2], pos.max[3]},
+						{pos.min[1], pos.max[2], pos.min[3]},
+						{pos.min[1], pos.max[2], pos.max[3]},
+						{pos.max[1], pos.min[2], pos.min[3]},
+						{pos.max[1], pos.min[2], pos.max[3]},
+						{pos.max[1], pos.max[2], pos.min[3]},
+						{pos.max[1], pos.max[2], pos.max[3]},
+					}
 
-					goto continue
-				end
-
-				local index_buffer, index_count, index_type = gltf.CreateIndexBuffer(primitive, vertex_count)
-				-- Create Material object with all PBR textures
-				local material = nil
-				local texture = nil -- Legacy support
-				if primitive.material ~= nil then
-					local gltf_mat = gltf_result.materials[primitive.material + 1]
-
-					if gltf_mat then
-						-- Load all PBR textures
-						local albedo_tex = gltf_mat.base_color_texture and
-							gltf.LoadTexture(gltf_result, gltf_mat.base_color_texture)
-						local normal_tex = gltf_mat.normal_texture and
-							gltf.LoadTexture(gltf_result, gltf_mat.normal_texture)
-						local metallic_roughness_tex = gltf_mat.metallic_roughness_texture and
-							gltf.LoadTexture(gltf_result, gltf_mat.metallic_roughness_texture)
-						local occlusion_tex = gltf_mat.occlusion_texture and
-							gltf.LoadTexture(gltf_result, gltf_mat.occlusion_texture)
-						local emissive_tex = gltf_mat.emissive_texture and
-							gltf.LoadTexture(gltf_result, gltf_mat.emissive_texture)
-						material = Material.New(
-							{
-								name = gltf_mat.name,
-								albedo_texture = albedo_tex,
-								normal_texture = normal_tex,
-								metallic_roughness_texture = metallic_roughness_tex,
-								occlusion_texture = occlusion_tex,
-								emissive_texture = emissive_tex,
-								base_color_factor = gltf_mat.base_color_factor,
-								metallic_factor = gltf_mat.metallic_factor,
-								roughness_factor = gltf_mat.roughness_factor,
-								normal_scale = gltf_mat.normal_scale,
-								occlusion_strength = gltf_mat.occlusion_strength,
-								emissive_factor = {
-									gltf_mat.emissive_factor[1],
-									gltf_mat.emissive_factor[2],
-									gltf_mat.emissive_factor[3],
-								},
-								double_sided = gltf_mat.double_sided,
-								alpha_mode = gltf_mat.alpha_mode,
-								alpha_cutoff = gltf_mat.alpha_cutoff,
-							}
-						)
-						-- Legacy texture reference
-						texture = albedo_tex
+					for _, corner in ipairs(corners) do
+						-- Transform by world matrix (in glTF coordinates)
+						local tx, ty, tz = world_matrix:TransformVector(corner[1], corner[2], corner[3])
+						-- Convert to our coordinate system: (x, y, z) -> (-z, -x, -y)
+						local our_x, our_y, our_z = -tz, -tx, -ty
+						min_x = math.min(min_x, our_x)
+						min_y = math.min(min_y, our_y)
+						min_z = math.min(min_z, our_z)
+						max_x = math.max(max_x, our_x)
+						max_y = math.max(max_y, our_y)
+						max_z = math.max(max_z, our_z)
 					end
 				end
+			end
 
-				primitives[#primitives + 1] = {
-					vertex_buffer = vertex_buffer,
-					vertex_count = vertex_count,
-					index_buffer = index_buffer,
-					index_count = index_count,
-					index_type = index_type,
-					texture = texture, -- Legacy support
-					material = material, -- New PBR material
-					material_index = primitive.material,
-					mesh_name = mesh.name,
-					node_name = node_name,
-					world_matrix = world_matrix,
-				}
+			::continue::
+		end
+	end
 
-				::continue::
+	local our_min = Vec3(min_x, min_y, min_z)
+	local our_max = Vec3(max_x, max_y, max_z)
+	local center = Vec3((our_min.x + our_max.x) / 2, (our_min.y + our_max.y) / 2, (our_min.z + our_max.z) / 2)
+	return our_min, our_max, center
+end
+
+-- Get the offset needed to center the scene at origin
+function gltf.GetCenteringOffset(gltf_result)
+	local _, _, center = gltf.ComputeSceneBounds(gltf_result)
+	-- Return negative of center to move scene to origin
+	return Vec3(-center.x, -center.y, -center.z)
+end
+
+-- Get suggested camera position and angles from glTF
+-- Looks for: 1) glTF camera nodes, 2) nodes with "camera" in the name, 3) scene center
+-- Returns position (Vec3), angles (Ang3 or nil)
+function gltf.GetSuggestedCameraTransform(gltf_result)
+	local Ang3 = require("structs.ang3")
+	local world_transforms = gltf.ComputeWorldTransforms(gltf_result)
+
+	-- Helper to convert glTF world position to our coordinate system
+	local function convert_world_pos(world_matrix)
+		-- Get translation from matrix (m30, m31, m32 in column-major)
+		local gx, gy, gz = world_matrix.m30, world_matrix.m31, world_matrix.m32
+		-- Convert: glTF (x, y, z) -> our (-z, -x, -y)
+		return Vec3(-gz, -gx, -gy)
+	end
+
+	-- First, look for nodes with a "camera" property (actual glTF cameras)
+	for node_index, node in ipairs(gltf_result.nodes) do
+		if node.camera ~= nil then
+			local transform = world_transforms[node_index]
+
+			if transform and transform.world_matrix then
+				local pos = convert_world_pos(transform.world_matrix)
+
+				if gltf.debug_print_nodes then
+					print("Found glTF camera node:", node.name or node_index, "at", pos.x, pos.y, pos.z)
+				end
+
+				return pos, nil -- TODO: extract rotation as angles
 			end
 		end
 	end
 
-	return primitives
-end
+	-- Fallback: use scene center from ComputeSceneBounds
+	-- This uses glTF accessor min/max with proper world transforms
+	local _, _, center = gltf.ComputeSceneBounds(gltf_result)
 
--- Clear the texture cache (useful when reloading models)
-function gltf.ClearTextureCache()
-	Texture.ClearCache()
+	if gltf.debug_print_nodes then
+		local bounds_min, bounds_max = gltf.ComputeSceneBounds(gltf_result)
+		print("No camera found, using scene center:", center.x, center.y, center.z)
+		print("  Scene bounds min:", bounds_min.x, bounds_min.y, bounds_min.z)
+		print("  Scene bounds max:", bounds_max.x, bounds_max.y, bounds_max.z)
+	end
+
+	-- Position camera at center, slightly elevated
+	return Vec3(center.x, center.y, center.z + 2), nil
 end
 
 -- Create an entity hierarchy from a glTF model using the ECS system
 -- Returns the root entity containing the entire scene
 -- glTF uses Y-up, we use Z-up (Source engine style), so we convert coordinates
-function gltf.CreateEntityHierarchy(gltf_result, parent_entity)
+-- Options:
+--   center_scene: boolean - if true, translates scene so center is at origin
+function gltf.CreateEntityHierarchy(gltf_result, parent_entity, options)
+	options = options or {}
 	local ecs = require("ecs")
 	local Material = require("graphics.material")
 	-- Ensure components are loaded
@@ -821,6 +924,21 @@ function gltf.CreateEntityHierarchy(gltf_result, parent_entity)
 	-- Create root entity for this glTF scene
 	local root_entity = ecs.CreateEntity(gltf_result.path or "gltf_root", parent_entity)
 	root_entity:AddComponent("transform")
+
+	-- Apply centering offset if requested
+	if options.center_scene then
+		local offset = gltf.GetCenteringOffset(gltf_result)
+		root_entity.transform:SetPosition(offset)
+
+		if gltf.debug_print_nodes then
+			local _, _, center = gltf.ComputeSceneBounds(gltf_result)
+			print("=== Scene Centering ===")
+			print("  Original center:", center.x, center.y, center.z)
+			print("  Applied offset:", offset.x, offset.y, offset.z)
+			print("=======================")
+		end
+	end
+
 	-- Map from glTF node index to entity
 	local node_to_entity = {}
 
@@ -839,9 +957,16 @@ function gltf.CreateEntityHierarchy(gltf_result, parent_entity)
 		return Quat(qz, qx, qy, qw)
 	end
 
+	-- Debug stats
+	local stats = {
+		total_nodes = #gltf_result.nodes,
+		nodes_with_mesh = 0,
+		total_primitives = 0,
+		failed_primitives = 0,
+	}
+
 	-- First pass: create all entities with transforms
 	for node_index, node in ipairs(gltf_result.nodes) do
-		print("Creating entity for node:", node.name or ("node_" .. node_index))
 		local entity = ecs.CreateEntity(node.name or ("node_" .. node_index))
 		entity:AddComponent("transform")
 		-- Set local transform from glTF node
@@ -888,6 +1013,7 @@ function gltf.CreateEntityHierarchy(gltf_result, parent_entity)
 	-- Third pass: attach model components to nodes with meshes
 	for node_index, node in ipairs(gltf_result.nodes) do
 		if node.mesh ~= nil then
+			stats.nodes_with_mesh = stats.nodes_with_mesh + 1
 			local entity = node_to_entity[node_index]
 			local mesh = gltf_result.meshes[node.mesh + 1]
 
@@ -896,7 +1022,8 @@ function gltf.CreateEntityHierarchy(gltf_result, parent_entity)
 
 				-- Create primitives for this mesh
 				for prim_idx, primitive in ipairs(mesh.primitives) do
-					local vertex_buffer, vertex_count = gltf.CreateVertexBuffer(primitive)
+					stats.total_primitives = stats.total_primitives + 1
+					local vertex_buffer, vertex_count, prim_aabb = gltf.CreateVertexBuffer(primitive)
 
 					if vertex_buffer then
 						local index_buffer, index_count, index_type = gltf.CreateIndexBuffer(primitive, vertex_count)
@@ -955,8 +1082,15 @@ function gltf.CreateEntityHierarchy(gltf_result, parent_entity)
 								texture = texture,
 								material = material,
 								mesh_name = mesh.name,
+								aabb = prim_aabb,
 							}
 						)
+					else
+						stats.failed_primitives = stats.failed_primitives + 1
+
+						if gltf.debug_print_nodes then
+							print("  FAILED to create vertex buffer:", vertex_count)
+						end
 					end
 				end
 			end
@@ -973,6 +1107,17 @@ function gltf.CreateEntityHierarchy(gltf_result, parent_entity)
 
 			if entity then entity:SetParent(root_entity) end
 		end
+	end
+
+	-- Print debug stats
+	if gltf.debug_print_nodes then
+		print("=== glTF Load Stats ===")
+		print("  Total nodes:", stats.total_nodes)
+		print("  Nodes with meshes:", stats.nodes_with_mesh)
+		print("  Total primitives:", stats.total_primitives)
+		print("  Failed primitives:", stats.failed_primitives)
+		print("  Successful primitives:", stats.total_primitives - stats.failed_primitives)
+		print("=======================")
 	end
 
 	return root_entity, node_to_entity
