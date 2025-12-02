@@ -20,7 +20,7 @@ gltf.debug_print_nodes = false
 local path = nil
 path = "/home/caps/projects/glTF-Sample-Assets-main/Models/Sponza/glTF/Sponza.gltf"
 path = "/home/caps/projects/glTF-Sample-Assets-main/Models/ABeautifulGame/glTF/ABeautifulGame.gltf"
---path = "/home/caps/projects/RTXDI-Assets/bistro/bistro.gltf"
+path = "/home/caps/projects/RTXDI-Assets/bistro/bistro.gltf"
 local gltf_result = assert(gltf.Load(path))
 -- Create entity hierarchy from glTF, parented to world so ECS queries find it
 local scene_root = gltf.CreateEntityHierarchy(gltf_result, ecs.GetWorld())
@@ -31,23 +31,18 @@ local cam_pos, cam_ang = gltf.GetSuggestedCameraTransform(gltf_result)
 --cam_pos = Vec3(0, 1111, -60)
 render3d.cam:SetPosition(cam_pos)
 render3d.cam:SetAngles(cam_ang or Ang3(0, 0, 0))
-
-do
-	return
-end
-
 -- Create sun light using ECS (direction in Z-up: x=forward, y=left, z=up)
 local sun, sun_entity = Light.CreateDirectional(
 	{
-		direction = Vec3(1, 0.5, 1), -- Shining down and to the side
+		direction = Vec3(0.8, 0.05, 0.4), -- Shining down and to the side
 		color = {1.0, 0.98, 0.95},
 		intensity = 3.0,
 		name = "Sun",
 		cast_shadows = true,
 		shadow_config = {
-			ortho_size = 100.0,
-			near_plane = 1.0,
-			far_plane = 500.0,
+			ortho_size = 5,
+			near_plane = 1,
+			far_plane = 500,
 		},
 	}
 )

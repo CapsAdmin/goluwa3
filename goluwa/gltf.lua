@@ -32,7 +32,7 @@ end
 local function convert_entity_quat(x, y, z, w)
 	if not ENABLE_COORDINATE_CONVERSION then return x, y, z, w end
 
-	return z, x, y, w
+	return z, x, y, -w
 end
 
 local function convert_entity_scale(x, y, z)
