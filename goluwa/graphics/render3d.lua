@@ -32,13 +32,16 @@ local FragmentConstants = ffi.typeof([[
 		float light_color[3];
 		float light_intensity;
 		float camera_position[3];
-		float _pad;
+		int debug_cascade_colors;
 	}
 ]])
--- UBO for shadow data (light space matrix - 64 bytes)
+-- UBO for shadow data (light space matrix + cascade info)
 local ShadowUBO = ffi.typeof([[
 	struct {
 		float light_space_matrix[16];
+		float cascade_splits[4];
+		int cascade_count;
+		float _pad[3];
 	}
 ]])
 local render3d = {}
@@ -164,6 +167,8 @@ function render3d.Initialize()
 					// UBO for shadow data
 					layout(std140, binding = 1) uniform ShadowData {
 						mat4 light_space_matrix;
+						vec4 cascade_splits;
+						int cascade_count;
 					} shadow;
 
 					// from vertex shader
@@ -194,9 +199,31 @@ function render3d.Initialize()
 						vec3 light_color;
 						float light_intensity;
 						vec3 camera_position;
+						int debug_cascade_colors;
 					} pc;
 
 					const float PI = 3.14159265359;
+
+					// Cascade debug colors
+					const vec3 CASCADE_COLORS[4] = vec3[4](
+						vec3(1.0, 0.2, 0.2),  // Red - cascade 1
+						vec3(0.2, 1.0, 0.2),  // Green - cascade 2
+						vec3(0.2, 0.2, 1.0),  // Blue - cascade 3
+						vec3(1.0, 1.0, 0.2)   // Yellow - cascade 4
+					);
+
+					// Get cascade index based on view distance
+					int getCascadeIndex(vec3 world_pos) {
+						vec3 cam_pos = -vec3(pc.camera_position.y, pc.camera_position.x, pc.camera_position.z);
+						float dist = length(world_pos - cam_pos);
+						
+						for (int i = 0; i < shadow.cascade_count; i++) {
+							if (dist < shadow.cascade_splits[i]) {
+								return i;
+							}
+						}
+						return shadow.cascade_count - 1;
+					}
 
 					// GGX/Trowbridge-Reitz NDF
 					float DistributionGGX(vec3 N, vec3 H, float roughness) {
@@ -340,6 +367,13 @@ function render3d.Initialize()
 						color = color / (color + vec3(1.0));
 						color = pow(color, vec3(1.0/2.2));
 
+						// Debug: overlay cascade colors
+						if (pc.debug_cascade_colors != 0) {
+							int cascade_idx = getCascadeIndex(in_world_pos);
+							vec3 cascade_color = CASCADE_COLORS[cascade_idx];
+							color = mix(color, cascade_color, 0.4);
+						}
+
 						out_color = vec4(color, albedo.a);
 					}
 				]],
@@ -445,12 +479,32 @@ function render3d.GetSunLight()
 	return render3d.sun_light
 end
 
--- Update the shadow UBO with the light space matrix
+-- Debug state for cascade visualization
+render3d.debug_cascade_colors = false
+
+function render3d.SetDebugCascadeColors(enabled)
+	render3d.debug_cascade_colors = enabled
+end
+
+function render3d.GetDebugCascadeColors()
+	return render3d.debug_cascade_colors
+end
+
+-- Update the shadow UBO with the light space matrix and cascade info
 function render3d.UpdateShadowUBO()
 	if render3d.sun_light and render3d.sun_light:HasShadows() then
 		local shadow_map = render3d.sun_light:GetShadowMap()
 		local matrix_data = shadow_map.light_space_matrix:GetFloatCopy()
 		ffi.copy(render3d.shadow_ubo_data.light_space_matrix, matrix_data, ffi.sizeof("float") * 16)
+		
+		-- Copy cascade splits
+		local cascade_splits = shadow_map:GetCascadeSplits()
+		local cascade_count = shadow_map:GetCascadeCount()
+		for i = 1, 4 do
+			render3d.shadow_ubo_data.cascade_splits[i - 1] = cascade_splits[i] or 0
+		end
+		render3d.shadow_ubo_data.cascade_count = cascade_count
+		
 		render3d.shadow_ubo:CopyData(render3d.shadow_ubo_data, ffi.sizeof(ShadowUBO))
 	end
 end
@@ -509,6 +563,8 @@ function render3d.UploadConstants(cmd)
 		fragment_constants.camera_position[0] = cam_pos.x
 		fragment_constants.camera_position[1] = cam_pos.y
 		fragment_constants.camera_position[2] = cam_pos.z
+		-- Debug cascade visualization
+		fragment_constants.debug_cascade_colors = render3d.debug_cascade_colors and 1 or 0
 		render3d.pipeline:PushConstants(cmd, "fragment", ffi.sizeof(VertexConstants), fragment_constants)
 	end
 end
