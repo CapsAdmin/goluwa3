@@ -72,6 +72,8 @@ function Texture.New(config)
 
 	-- Handle path parameter for loading images
 	local buffer_data = nil
+	local is_compressed_dds = false
+	local dds_info = nil
 
 	if config.path then
 		local ok, img_or_err = pcall(function()
@@ -79,6 +81,8 @@ function Texture.New(config)
 				return file_formats.LoadPNG(config.path)
 			elseif config.path:lower():match("%.jpe?g$") then
 				return file_formats.LoadJPG(config.path)
+			elseif config.path:lower():match("%.dds$") then
+				return file_formats.LoadDDS(config.path)
 			else
 				return nil, "Unsupported image format"
 			end
@@ -92,8 +96,17 @@ function Texture.New(config)
 		local img = img_or_err
 		config.width = config.width or img.width
 		config.height = config.height or img.height
-		config.format = config.format or "R8G8B8A8_UNORM"
-		buffer_data = img.buffer:GetBuffer()
+		
+		-- Handle DDS files specially - they may be compressed
+		if img.vulkan_format then
+			config.format = config.format or img.vulkan_format
+			is_compressed_dds = img.is_compressed
+			dds_info = img
+			buffer_data = img.data
+		else
+			config.format = config.format or "R8G8B8A8_UNORM"
+			buffer_data = img.buffer:GetBuffer()
+		end
 	end
 
 	-- Use buffer from config or from path loading
@@ -103,7 +116,10 @@ function Texture.New(config)
 
 	if mip_levels == "auto" then mip_levels = 999 end
 
-	if mip_levels > 1 then
+	-- For compressed DDS, use mip count from file and don't generate mipmaps
+	if dds_info and dds_info.mip_count > 1 then
+		mip_levels = dds_info.mip_count
+	elseif mip_levels > 1 then
 		assert(config.width and config.height, "width and height required for mipmap generation")
 		mip_levels = math.floor(math.log(math.max(config.width, config.height), 2)) + 1
 	end
@@ -123,13 +139,17 @@ function Texture.New(config)
 	else
 		-- Create image from config
 		local image_config = config.image or {}
+		-- Compressed formats cannot be used as color attachments or transfer_src
+		local default_usage = {"sampled", "transfer_dst", "transfer_src", "color_attachment"}
+		if is_compressed_dds then
+			default_usage = {"sampled", "transfer_dst"}
+		end
 		image = render.CreateImage(
 			{
 				width = image_config.width or width,
 				height = image_config.height or height,
 				format = image_config.format or format,
-				usage = image_config.usage or
-					{"sampled", "transfer_dst", "transfer_src", "color_attachment"},
+				usage = image_config.usage or default_usage,
 				properties = image_config.properties or "device_local",
 				samples = image_config.samples,
 				mip_levels = image_config.mip_levels or mip_levels,
@@ -213,16 +233,23 @@ function Texture.New(config)
 			mip_map_levels = mip_levels,
 			format = format,
 			config = config,
+			is_compressed = is_compressed_dds,
+			dds_info = dds_info,
 		},
 		Texture
 	)
 
 	if buffer_data and image then
-		-- If we're generating mipmaps, keep mip level 0 in transfer_dst after upload
-		self:Upload(buffer_data, mip_levels > 1)
+		if is_compressed_dds and dds_info then
+			-- Upload compressed DDS data with all mipmaps
+			self:UploadCompressed(buffer_data, dds_info)
+		else
+			-- If we're generating mipmaps, keep mip level 0 in transfer_dst after upload
+			self:Upload(buffer_data, mip_levels > 1)
 
-		-- Auto-generate mipmaps if requested
-		if mip_levels > 1 then self:GenerateMipMap() end
+			-- Auto-generate mipmaps if requested
+			if mip_levels > 1 then self:GenerateMipMap() end
+		end
 	elseif image then
 		-- If no buffer is provided, transition the image to shader_read_only_optimal
 		-- This is necessary because images start in undefined layout
@@ -315,6 +342,90 @@ function Texture:Upload(data, keep_in_transfer_dst)
 		)
 	end
 
+	cmd:End()
+	-- Submit and wait
+	local fence = Fence.New(device)
+	queue:SubmitAndWait(device, cmd, fence)
+end
+
+function Texture:UploadCompressed(data, dds_info)
+	if not self.image then error("Cannot upload: texture has no image") end
+
+	local device = render.GetDevice()
+	local queue = render.GetQueue()
+	local mip_count = dds_info.mip_count
+	local total_size = dds_info.data_size
+	
+	-- Create staging buffer for all data
+	local staging_buffer = Buffer.New(
+		{
+			device = device,
+			size = total_size,
+			usage = "transfer_src",
+			properties = {"host_visible", "host_coherent"},
+		}
+	)
+	staging_buffer:CopyData(data, total_size)
+	
+	-- Copy to image using command buffer
+	local cmd_pool = render.GetCommandPool()
+	local cmd = cmd_pool:AllocateCommandBuffer()
+	cmd:Begin()
+	
+	-- Transition all mip levels to transfer dst
+	cmd:PipelineBarrier(
+		{
+			srcStage = "top_of_pipe",
+			dstStage = "transfer",
+			imageBarriers = {
+				{
+					image = self.image,
+					srcAccessMask = "none",
+					dstAccessMask = "transfer_write",
+					oldLayout = "undefined",
+					newLayout = "transfer_dst_optimal",
+					base_mip_level = 0,
+					level_count = mip_count,
+				},
+			},
+		}
+	)
+	
+	-- Copy each mip level from the staging buffer
+	for mip = 1, mip_count do
+		local mip_info = dds_info.mip_info[mip]
+		if mip_info then
+			cmd:CopyBufferToImageMip(
+				staging_buffer,
+				self.image,
+				mip_info.width,
+				mip_info.height,
+				mip - 1, -- mip level (0-indexed)
+				mip_info.offset,
+				mip_info.size
+			)
+		end
+	end
+	
+	-- Transition all mip levels to shader read optimal
+	cmd:PipelineBarrier(
+		{
+			srcStage = "transfer",
+			dstStage = "fragment",
+			imageBarriers = {
+				{
+					image = self.image,
+					srcAccessMask = "transfer_write",
+					dstAccessMask = "shader_read",
+					oldLayout = "transfer_dst_optimal",
+					newLayout = "shader_read_only_optimal",
+					base_mip_level = 0,
+					level_count = mip_count,
+				},
+			},
+		}
+	)
+	
 	cmd:End()
 	-- Submit and wait
 	local fence = Fence.New(device)

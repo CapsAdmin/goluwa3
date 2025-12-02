@@ -16,7 +16,7 @@ local Light = require("components.light")
 -- Load glTF model
 local gltf_result = assert(
 	gltf.Load(
-		"/home/caps/projects/glTF-Sample-Assets-main/Models/Sponza/glTF/Sponza.gltf"
+		"/home/caps/projects/RTXDI-Assets/bistro/bistro.gltf"
 	)
 )
 -- Create entity hierarchy from glTF, parented to world so ECS queries find it

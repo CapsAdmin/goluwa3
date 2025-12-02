@@ -562,6 +562,34 @@ function CommandBuffer:CopyBufferToImage(buffer, image, width, height)
 	)
 end
 
+function CommandBuffer:CopyBufferToImageMip(buffer, image, width, height, mip_level, buffer_offset, buffer_size)
+	-- For compressed formats, bufferRowLength and bufferImageHeight must be 0
+	-- to indicate tightly packed data
+	local region = vulkan.vk.VkBufferImageCopy(
+		{
+			bufferOffset = buffer_offset or 0,
+			bufferRowLength = 0,
+			bufferImageHeight = 0,
+			imageSubresource = {
+				aspectMask = vulkan.vk.VkImageAspectFlagBits("VK_IMAGE_ASPECT_COLOR_BIT"),
+				mipLevel = mip_level or 0,
+				baseArrayLayer = 0,
+				layerCount = 1,
+			},
+			imageOffset = {x = 0, y = 0, z = 0},
+			imageExtent = {width = width, height = height, depth = 1},
+		}
+	)
+	vulkan.lib.vkCmdCopyBufferToImage(
+		self.ptr[0],
+		buffer.ptr[0],
+		image.ptr[0],
+		"VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL",
+		1,
+		region
+	)
+end
+
 function CommandBuffer:BlitImage(config)
 	local region = vulkan.vk.VkImageBlit(
 		{

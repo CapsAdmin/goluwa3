@@ -841,6 +841,7 @@ function gltf.CreateEntityHierarchy(gltf_result, parent_entity)
 
 	-- First pass: create all entities with transforms
 	for node_index, node in ipairs(gltf_result.nodes) do
+		print("Creating entity for node:", node.name or ("node_" .. node_index))
 		local entity = ecs.CreateEntity(node.name or ("node_" .. node_index))
 		entity:AddComponent("transform")
 		-- Set local transform from glTF node
