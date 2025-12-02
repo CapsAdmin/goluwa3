@@ -26,3 +26,5 @@ do
 	event.Call("ShutDown")
 	fs.remove_file(".running_pid")
 end
+
+os.realexit(0) -- no need to wait for gc!!1

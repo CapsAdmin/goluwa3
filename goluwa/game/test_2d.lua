@@ -474,3 +474,16 @@ if false then
 		render2d.DrawRect(0, 0, 512, 512)
 	end)
 end
+
+if false then
+	local path = "/home/caps/projects/RTXDI-Assets/bistro/textures/shared/tiling/brick_large_01/brick_large_01_diff.dds"
+	local tex = Texture.New({
+		path = path,
+	})
+
+	event.AddListener("Draw2D", "test", function(dt)
+		render2d.SetTexture(tex)
+		render2d.SetColor(1, 1, 1, 1)
+		render2d.DrawRect(0, 0, 512, 512)
+	end)
+end
