@@ -1,12 +1,15 @@
 local jit_profiler = require("helpers.jit_profiler")
-local jit_trace_track = require("helpers.jit_trace_track")
+local TraceTrack = require("helpers.jit_trace_track")
 local timer = require("timer")
 local profile_stop, profile_report
-local trace_stop, trace_report
+local trace_tracker
 local profiler = {}
 
 function profiler.Start()
-	trace_stop, trace_report = jit_trace_track.Start()
+	trace_tracker = TraceTrack.New()
+
+	if trace_tracker then trace_tracker:Start() end
+
 	profile_stop, profile_report = jit_profiler.Start()
 	local f = io.open("logs/profiler.txt", "w")
 
@@ -15,10 +18,8 @@ function profiler.Start()
 		1,
 		math.huge,
 		function()
-			f:write(os.clock() .. "\n")
-
-			if trace_report then
-				f:write(jit_trace_track.ToStringProblematicTraces(trace_report()) .. "\n")
+			if trace_tracker then
+				f:write(trace_tracker:GetReportProblematicTraces() .. "\n")
 			end
 
 			if profile_report then f:write(profile_report() .. "\n") end
@@ -31,7 +32,9 @@ end
 
 function profiler.Stop()
 	profile_stop()
-	trace_stop()
+
+	if trace_tracker then trace_tracker:Stop() end
+
 	timer.RemoveTimer("debug")
 end
 
