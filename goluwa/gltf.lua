@@ -6,6 +6,14 @@ local base64 = require("goluwa.helpers.base64")
 local Matrix44 = require("structs.matrix").Matrix44
 local Quat = require("structs.quat")
 local Vec3 = require("structs.vec3")
+local Ang3 = require("structs.ang3")
+local ecs = require("ecs")
+local Material = require("graphics.material")
+local render = require("graphics.render")
+local Texture = require("graphics.texture")
+require("components.transform")
+require("components.model")
+local AABB = require("structs.aabb")
 local gltf = {}
 gltf.debug_white_textures = false
 gltf.debug_print_nodes = false
@@ -49,6 +57,12 @@ local COMPONENT_TYPE = {
 	[5125] = {type = "uint32_t", size = 4},
 	[5126] = {type = "float", size = 4},
 }
+
+for i, info in pairs(COMPONENT_TYPE) do
+	info.pointer = ffi.typeof(info.type .. "*")
+	info.array = ffi.typeof(info.type .. "[?]")
+end
+
 local ACCESSOR_TYPE = {
 	SCALAR = 1,
 	VEC2 = 2,
@@ -145,8 +159,8 @@ local function read_accessor_raw(gltf_data, accessor_index, buffers)
 	-- Total elements = count * components per element
 	local total_elements = accessor.count * component_count
 	local element_size = component_info.size
-	local c_array = ffi.new(component_info.type .. "[?]", total_elements)
-	local c_type = ffi.typeof(component_info.type .. "*")
+	local c_array = ffi.new(component_info.array, total_elements)
+	local c_type = ffi.new(component_info.pointer)
 
 	for i = 0, accessor.count - 1 do
 		local offset = byte_offset + i * byte_stride
@@ -510,7 +524,6 @@ end
 -- Converts coordinates using the top-level conversion functions (controlled by ENABLE_COORDINATE_CONVERSION)
 -- Also computes AABB in our coordinate system
 function gltf.GetInterleavedVertices(primitive)
-	local AABB = require("structs.aabb")
 	local position = primitive.attributes.POSITION
 	local normal = primitive.attributes.NORMAL
 	local texcoord = primitive.attributes.TEXCOORD_0
@@ -600,8 +613,6 @@ function gltf.GetInterleavedVertices(primitive)
 	return vertex_data, vertex_count, stride, aabb
 end
 
-local render = require("graphics.render")
-local Texture = require("graphics.texture")
 -- White debug texture (created on demand)
 local white_texture = nil
 
@@ -887,7 +898,6 @@ end
 -- Looks for: 1) glTF camera nodes, 2) nodes with "camera" in the name, 3) scene center
 -- Returns position (Vec3), angles (Ang3 or nil)
 function gltf.GetSuggestedCameraTransform(gltf_result)
-	local Ang3 = require("structs.ang3")
 	local world_transforms = gltf.ComputeWorldTransforms(gltf_result)
 
 	-- First, look for nodes with a "camera" property (actual glTF cameras)
@@ -930,11 +940,6 @@ end
 --   center_scene: boolean - if true, translates scene so center is at origin
 function gltf.CreateEntityHierarchy(gltf_result, parent_entity, options)
 	options = options or {}
-	local ecs = require("ecs")
-	local Material = require("graphics.material")
-	-- Ensure components are loaded
-	require("components.transform")
-	require("components.model")
 	-- Create root entity for this glTF scene
 	local root_entity = ecs.CreateEntity(gltf_result.path or "gltf_root", parent_entity)
 	root_entity:AddComponent("transform")

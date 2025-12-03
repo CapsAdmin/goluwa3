@@ -169,33 +169,28 @@ function ecs.ClearWorld()
 	world_entity = nil
 end
 
------------------------------------------------------------
--- Query helpers
------------------------------------------------------------
--- Get all entities with a specific component
-function ecs.GetEntitiesWithComponent(component_name)
-	local result = {}
-	local world = ecs.GetWorld()
-
-	local function collect(entity)
+do
+	local function collect(entity, component_name, result)
 		if entity:HasComponent(component_name) then table.insert(result, entity) end
 
 		for _, child in ipairs(entity:GetChildren()) do
-			collect(child)
+			collect(child, component_name, result)
 		end
 	end
 
-	collect(world)
-	return result
+	function ecs.GetEntitiesWithComponent(component_name)
+		local result = {}
+		collect(ecs.GetWorld(), component_name, result)
+		return result
+	end
 end
 
 -- Get all components of a specific type
 function ecs.GetComponents(component_name)
 	local result = {}
-	local entities = ecs.GetEntitiesWithComponent(component_name)
 
-	for _, entity in ipairs(entities) do
-		table.insert(result, entity:GetComponent(component_name))
+	for i, entity in ipairs(ecs.GetEntitiesWithComponent(component_name)) do
+		result[i] = entity:GetComponent(component_name)
 	end
 
 	return result

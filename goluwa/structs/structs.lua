@@ -3,6 +3,7 @@ local ffi = require("ffi")
 local istype = ffi.istype
 local typeof = ffi.typeof
 local tostring = tostring
+local UNION_SWIZZLE = false
 
 function structs.Template(class_name)
 	local META = {}
@@ -17,19 +18,63 @@ function structs.Register(META)
 	local arg_lines = {}
 	META.ByteSize = ffi.sizeof(META.NumberType) * #META.Args[1]
 	i = i + 1
-	local cdecl = "union {\n"
+	local cdecl
 
-	for arg_i, arg in pairs(META.Args) do
-		cdecl = cdecl .. "\tstruct {\n"
+	if UNION_SWIZZLE then
+		cdecl = "union {\n"
 
-		for i, v in pairs(arg) do
+		for arg_i, arg in pairs(META.Args) do
+			cdecl = cdecl .. "\tstruct {\n"
+
+			for i, v in pairs(arg) do
+				cdecl = cdecl .. "\t" .. META.NumberType .. " " .. v .. ";\n"
+			end
+
+			cdecl = cdecl .. "\t};\n"
+		end
+
+		cdecl = cdecl .. "}\n"
+	else
+		cdecl = "struct {\n"
+
+		for i, v in pairs(META.Args[1]) do
 			cdecl = cdecl .. "\t" .. META.NumberType .. " " .. v .. ";\n"
 		end
 
-		cdecl = cdecl .. "\t};\n"
+		cdecl = cdecl .. "}\n"
+		local lookup = {}
+
+		-- Build lookup table for swizzle aliases
+		for arg_i = 2, #META.Args do
+			local alt_args = META.Args[arg_i]
+
+			for i, alt_key in ipairs(alt_args) do
+				lookup[alt_key] = META.Args[1][i]
+			end
+		end
+
+		function META:__index(key)
+			-- Check if it's a swizzle alias
+			local primary_key = lookup[key]
+
+			if primary_key then return self[primary_key] end
+
+			-- Otherwise, look up in the metatable itself
+			return META[key]
+		end
+
+		function META:__newindex(key, value)
+			-- Check if it's a swizzle alias
+			local primary_key = lookup[key]
+
+			if primary_key then
+				rawset(self, primary_key, value)
+			else
+				rawset(self, key, value)
+			end
+		end
 	end
 
-	cdecl = cdecl .. "}\n"
 	META.CType = ffi.typeof(cdecl)
 	return assert(ffi.metatype(META.CType, META))
 end
@@ -192,9 +237,9 @@ function structs.AddOperator(META, operator, ...)
 		local lua = [==[
 		local META, structs = ...
 		META["Copy"] = function(a)
-			return CTOR(
-				a.KEY
-			)
+			local c = CTOR()
+			c.KEY = a.KEY
+			return c
 		end
 		META["CopyTo"] = function(a, b)
 			a:Set(b:Unpack())
@@ -202,7 +247,7 @@ function structs.AddOperator(META, operator, ...)
 		end
 		META.__copy = META.Copy
 		]==]
-		lua = parse_args(META, lua, ", ")
+		lua = parse_args(META, lua, " ")
 		lua = lua:gsub("CTOR", "META.CType")
 		assert(loadstring(lua, META.ClassName .. " operator " .. operator))(META, structs)
 	elseif operator == "math" then
@@ -265,9 +310,8 @@ function structs.AddOperator(META, operator, ...)
 				return CTOR(
 					a.KEY OPERATOR b.KEY
 				)
-			else
-				error(("%s OPERATOR %s"):format(tostring(a), tostring(b)), 2)
 			end
+			error(("%s OPERATOR %s"):format(tostring(a), tostring(b)), 2)
 		end
 		]==]
 		lua = parse_args(META, lua, ", ", true)

@@ -151,8 +151,11 @@ function Material:NeedsAlphaTest()
 end
 
 -- Create a default material
+local def = nil
+
 function Material.GetDefault()
-	return Material.New()
+	def = def or Material.New()
+	return def
 end
 
 return Material

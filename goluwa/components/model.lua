@@ -107,8 +107,6 @@ function META:OnDraw3D(cmd, dt)
 
 	if not world_matrix then return end
 
-	local default_material = Material.GetDefault()
-
 	for _, prim in ipairs(self.Primitives) do
 		-- If primitive has its own local matrix, combine with world matrix
 		local final_matrix = world_matrix
@@ -118,7 +116,7 @@ function META:OnDraw3D(cmd, dt)
 		end
 
 		render3d.SetWorldMatrix(final_matrix)
-		render3d.SetMaterial(prim.material or default_material)
+		render3d.SetMaterial(prim.material or Material.GetDefault())
 		render3d.UploadConstants(cmd)
 		cmd:BindVertexBuffer(prim.vertex_buffer, 0)
 
