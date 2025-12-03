@@ -87,8 +87,13 @@ function trace_track.Start()
 	local should_warn_abort = create_warn_log(8)
 	local traces--[[#: Map<|number, Trace|>]] = {}
 	local aborted = {}
-	local successfully_compiled = {} -- track IDs that eventually succeeded
+	local successfully_compiled = {} -- track source locations that eventually succeeded
 	local trace_count = 0
+
+	local function get_trace_key(func, pc)
+		local info = funcinfo(func, pc)
+		return format_func_info(info, func)
+	end
 
 	local function start(
 		id--[[#: number]],
@@ -97,8 +102,9 @@ function trace_track.Start()
 		parent_id--[[#: nil | number]],
 		exit_id--[[#: nil | number]]
 	)
-		if aborted[id] then aborted[id] = nil end
-
+		-- Don't clear aborted[id] here - aborted traces should persist until snapshot
+		-- The trace ID being reused doesn't mean the old abort should be forgotten
+		-- (filtering by source location happens in the snapshot function)
 		-- TODO, both should be nil here
 		local tr = {
 			pc_lines = {{func = func, pc = pc, depth = 0}},
@@ -124,7 +130,13 @@ function trace_track.Start()
 		local trace = assert(traces[id])
 		assert(trace.aborted == nil)
 		trace.trace_info = assert(traceinfo(id), "invalid trace id: " .. id)
-		successfully_compiled[id] = true
+		-- Track by source location so we can filter out aborted traces that eventually succeeded
+		local first_pc = trace.pc_lines[1]
+
+		if first_pc then
+			local key = get_trace_key(first_pc.func, first_pc.pc)
+			successfully_compiled[key] = true
+		end
 	end
 
 	local function abort(
@@ -142,7 +154,10 @@ function trace_track.Start()
 			reason = reason,
 		}
 		table_insert(trace.pc_lines, {func = func, pc = pc, depth = 0})
-		aborted[id] = trace
+		-- Key by source location so aborted traces persist even when trace IDs are reused
+		local first_pc = trace.pc_lines[1]
+		local key = first_pc and get_trace_key(first_pc.func, first_pc.pc) or id
+		aborted[key] = trace
 
 		if trace.parent and trace.parent.children then
 			trace.parent.children[id] = nil
@@ -237,8 +252,11 @@ function trace_track.Start()
 
 		-- Deep copy aborted
 		for id, trace in pairs(aborted) do
-			-- Skip if it was eventually successfully traced
-			if not successfully_compiled[id] then
+			-- Skip if it was eventually successfully traced at the same source location
+			local first_pc = trace.pc_lines[1]
+			local key = first_pc and get_trace_key(first_pc.func, first_pc.pc)
+
+			if not key or not successfully_compiled[key] then
 				aborted_snapshot[id] = {
 					pc_lines = trace.pc_lines,
 					id = trace.id,
