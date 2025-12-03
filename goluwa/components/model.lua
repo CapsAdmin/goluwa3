@@ -3,6 +3,7 @@ local ecs = require("ecs")
 local render3d = require("graphics.render3d")
 local Material = require("graphics.material")
 local AABB = require("structs.aabb")
+local Vec3 = require("structs.vec3")
 local META = prototype.CreateTemplate("component", "model")
 META.ComponentName = "model"
 -- Model requires transform component
@@ -163,7 +164,6 @@ ecs.RegisterComponent(META)
 -----------------------------------------------------------
 -- Static helpers
 -----------------------------------------------------------
-local Vec3 = require("structs.vec3")
 local Model = {}
 Model.Component = META
 

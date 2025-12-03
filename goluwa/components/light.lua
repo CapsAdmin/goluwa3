@@ -1,7 +1,10 @@
+local ffi = require("ffi")
 local prototype = require("prototype")
 local ecs = require("ecs")
 local Vec3 = require("structs.vec3")
 local ShadowMap = require("graphics.shadow_map")
+local render3d = require("graphics.render3d")
+local Model = require("components.model")
 local META = prototype.CreateTemplate("component", "light")
 META.ComponentName = "light"
 -- Light requires transform component
@@ -51,7 +54,6 @@ end
 function META:OnPreFrame(dt)
 	if not self:HasShadows() then return end
 
-	local render3d = require("graphics.render3d")
 	self:RenderShadows(render3d.cam, render3d.UpdateShadowUBO)
 end
 
@@ -124,7 +126,6 @@ function META:RenderShadows(camera, update_shadow_ubo_callback)
 
 	local shadow_map = self.ShadowMap
 	self:UpdateShadowMap(camera)
-	local Model = require("components.model")
 
 	for cascade_idx = 1, shadow_map:GetCascadeCount() do
 		local shadow_cmd = shadow_map:Begin(cascade_idx)
@@ -136,7 +137,6 @@ function META:RenderShadows(camera, update_shadow_ubo_callback)
 end
 
 -- Get light data packed for GPU (matches old Light module format)
-local ffi = require("ffi")
 local LightData = ffi.typeof([[
 	struct {
 		float position[4];

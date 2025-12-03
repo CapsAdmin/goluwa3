@@ -1,17 +1,12 @@
 local jutil = require("jit.util")
 local vmdef = require("jit.vmdef")
-local get_mcode_calls = require("helpers.jit_mcode_stats")
 local assert = _G.assert
-local table_insert = _G.table.insert
-local attach = _G.jit and _G.jit.attach
-local traceinfo = jutil.traceinfo
-local funcinfo = jutil.funcinfo
-local ffnames = vmdef.ffnames
-local traceerr = vmdef.traceerr
-local bcnames = vmdef.bcnames
+local table = _G.table
+local jit_attach = _G.jit.attach
+local string = _G.string
 
 local function format_error(err--[[#: number]], arg--[[#: number | nil]])
-	local fmt = traceerr[err]
+	local fmt = vmdef.traceerr[err]
 
 	if not fmt then return "unknown error: " .. err end
 
@@ -19,7 +14,7 @@ local function format_error(err--[[#: number]], arg--[[#: number | nil]])
 
 	if fmt:sub(1, #"NYI: bytecode") == "NYI: bytecode" then
 		local oidx = 6 * arg
-		arg = bcnames:sub(oidx + 1, oidx + 6)
+		arg = vmdef.bcnames:sub(oidx + 1, oidx + 6)
 		fmt = "NYI bytecode %s"
 	end
 
@@ -52,10 +47,10 @@ end
 	stopped = nil | true,
 	aborted = nil | {code = number, reason = number},
 	children = nil | Map<|number, self|>,
-	trace_info = ReturnType<|traceinfo|>[1] ~ nil,
+	trace_info = ReturnType<|jutil.traceinfo|>[1] ~ nil,
 }]]
 
-local function format_func_info(fi--[[#: ReturnType<|funcinfo|>[1] ]], func--[[#: Function]])
+local function format_func_info(fi--[[#: ReturnType<|jutil.funcinfo|>[1] ]], func--[[#: Function]])
 	if fi.loc and fi.currentline ~= 0 then
 		local source = fi.source
 
@@ -65,7 +60,7 @@ local function format_func_info(fi--[[#: ReturnType<|funcinfo|>[1] ]], func--[[#
 
 		return source .. ":" .. fi.currentline
 	elseif fi.ffid then
-		return ffnames[fi.ffid]
+		return vmdef.ffnames[fi.ffid]
 	elseif fi.addr then
 		return string.format("C:%x, %s", fi.addr, tostring(func))
 	else
@@ -78,7 +73,9 @@ local META = {}
 META.__index = META
 
 function TraceTrack.New()
-	if not attach or not funcinfo or not traceinfo then return nil end
+	if not jit_attach or not jutil.funcinfo or not jutil.traceinfo then
+		return nil
+	end
 
 	local self = setmetatable({}, META)
 	self._started = false
@@ -94,7 +91,7 @@ function TraceTrack.New()
 end
 
 function META:_get_trace_key(func, pc)
-	local info = funcinfo(func, pc)
+	local info = jutil.funcinfo(func, pc)
 	return format_func_info(info, func)
 end
 
@@ -132,7 +129,7 @@ end
 function META:_on_stop(id--[[#: number]], func--[[#: Function]])
 	local trace = assert(self._traces[id])
 	assert(trace.aborted == nil)
-	trace.trace_info = assert(traceinfo(id), "invalid trace id: " .. id)
+	trace.trace_info = assert(jutil.traceinfo(id), "invalid trace id: " .. id)
 	-- Track by source location so we can filter out aborted traces that eventually succeeded
 	local first_pc = trace.pc_lines[1]
 
@@ -141,6 +138,8 @@ function META:_on_stop(id--[[#: number]], func--[[#: Function]])
 		self._successfully_compiled[key] = true
 	end
 end
+
+local table_insert = table.insert
 
 function META:_on_abort(
 	id--[[#: number]],
@@ -151,7 +150,7 @@ function META:_on_abort(
 )
 	local trace = assert(self._traces[id])
 	assert(trace.stopped == nil)
-	trace.trace_info = assert(traceinfo(id), "invalid trace id: " .. id)
+	trace.trace_info = assert(jutil.traceinfo(id), "invalid trace id: " .. id)
 	trace.aborted = {
 		code = code,
 		reason = reason,
@@ -228,19 +227,19 @@ function META:Start()
 			error("unknown trace event " .. what)
 		end
 	end
-	attach(self._on_trace_event, "trace")
+	jit_attach(self._on_trace_event, "trace")
 	self._on_record_event = function(tr, func, pc, depth)
 		self_ref:_on_record(tr, func, pc, depth)
 	end
-	attach(self._on_record_event, "record")
+	jit_attach(self._on_record_event, "record")
 end
 
 function META:Stop()
 	if not self._started then return end
 
 	self._started = false
-	attach(self._on_trace_event)
-	attach(self._on_record_event)
+	jit_attach(self._on_trace_event)
+	jit_attach(self._on_record_event)
 end
 
 function META:GetReport()
@@ -356,7 +355,7 @@ function META:GetReport()
 		local lines_i = 1
 
 		for i, pc_line in ipairs(trace.pc_lines) do
-			local info = funcinfo(pc_line.func, pc_line.pc)
+			local info = jutil.funcinfo(pc_line.func, pc_line.pc)
 			local line = format_func_info(info, pc_line.func)
 
 			if not done[line] then
@@ -470,63 +469,265 @@ do
 		return table.concat(lines, "\n")
 	end
 
+	local function compress_trace_path(trace--[[#: Trace]])
+		local path_parts = {}
+
+		for i = 2, #trace.lines do
+			local line = trace.lines[i]
+
+			if line.is_path then table.insert(path_parts, line.line) end
+		end
+
+		if #path_parts == 0 then return "" end
+
+		-- Parse each path:line into {path, line_num}
+		local parsed = {}
+
+		for _, loc in ipairs(path_parts) do
+			local path, line_num = loc:match("^(.+):(%d+)$")
+
+			if path and line_num then
+				table.insert(parsed, {path = path, line = tonumber(line_num), original = loc})
+			else
+				table.insert(parsed, {path = loc, line = nil, original = loc})
+			end
+		end
+
+		-- Compress consecutive lines in the same file
+		local result = {}
+		local i = 1
+
+		while i <= #parsed do
+			local start_entry = parsed[i]
+
+			if start_entry.line then
+				-- Find consecutive sequence
+				local j = i
+
+				while j < #parsed do
+					local next_entry = parsed[j + 1]
+
+					if
+						next_entry.path == start_entry.path and
+						next_entry.line and
+						next_entry.line == parsed[j].line + 1
+					then
+						j = j + 1
+					else
+						break
+					end
+				end
+
+				-- Keep first and last of sequence
+				table.insert(result, start_entry.original)
+
+				if j > i then table.insert(result, parsed[j].original) end
+
+				i = j + 1
+			else
+				table.insert(result, start_entry.original)
+				i = i + 1
+			end
+		end
+
+		return table.concat(result, "\n")
+	end
+
 	function META:GetReportProblematicTraces()
 		local traces, aborted = self:GetReport()
-		local map = {}
+		-- Group by category -> location -> reason -> path -> count
+		-- Categories: "stitch", "aborted", "other"
+		local by_category = {
+			stitch = {},
+			aborted = {},
+			other = {},
+		}
+
+		local function add_issue(category, trace, reason)
+			if not trace.lines or #trace.lines == 0 then return end
+
+			local start_line = trace.lines[1].line
+			local path = compress_trace_path(trace)
+			local by_location = by_category[category]
+			by_location[start_line] = by_location[start_line] or {}
+			by_location[start_line][reason] = by_location[start_line][reason] or {}
+			by_location[start_line][reason][path] = (by_location[start_line][reason][path] or 0) + 1
+		end
 
 		for _, trace in ipairs(traces) do
 			local linktype = trace.trace_info.linktype
 			local nexit = trace.trace_info.nexit or 0
-			-- Check for various problematic patterns
 			local reason
-			local stop_lines_only = false
+			local category = "other"
 
 			if linktype == "stitch" then
-				-- Always problematic - should have been stitched
-				stop_lines_only = true
+				reason = ""
+				category = "stitch"
 			elseif linktype == "interpreter" and nexit > 100 then
-				-- Hot exit to interpreter
 				reason = "HOT_INTERP(exits:" .. nexit .. ")"
 			elseif linktype == "none" then
-				-- No continuation
 				reason = "NO_LINK"
 			elseif linktype == "return" and nexit > 100 then
-				-- Frequently returning
-				stop_lines_only = true -- limit to 10 lines
 				reason = "HOT_RETURN(exits:" .. nexit .. ")"
 			elseif linktype == "loop" and nexit > 1000 then
-				-- Loop exiting frequently
 				reason = "UNSTABLE_LOOP(exits:" .. nexit .. ")"
 			end
 
-			if reason then
-				local res = tostring_trace(trace, traces) .. " - " .. reason .. ":\n" .. tostring_trace_lines_end(trace, " ")
-				map[res] = (map[res] or 0) + 1
+			if reason then add_issue(category, trace, reason) end
+		end
+
+		-- Abort codes to filter out completely (normal retry behavior)
+		local filter_codes = {
+			[6] = true, -- retry recording
+			[8] = true, -- leaving loop in root trace
+			[9] = true, -- inner loop in root trace
+			[14] = true, -- down-recursion, restarting
+		}
+		-- Abort codes to aggregate as summary counts (resource limits)
+		local aggregate_codes = {
+			[4] = true, -- too many snapshots
+			[10] = true, -- loop unroll limit reached
+			[27] = true, -- failed to allocate mcode memory
+		}
+		local aggregate_counts = {}
+
+		for _, trace in ipairs(aborted) do
+			local code = trace.aborted.code
+
+			if filter_codes[code] then
+
+			-- Skip entirely
+			elseif aggregate_codes[code] then
+				-- Just count
+				aggregate_counts[code] = (aggregate_counts[code] or 0) + 1
+			else
+				local reason = format_error(code, trace.aborted.reason)
+				add_issue("aborted", trace, reason)
 			end
 		end
 
-		for _, trace in ipairs(aborted) do
-			local res = tostring_trace(trace, traces) .. ":\n" .. tostring_trace_lines_end(trace, " ")
-			map[res] = (map[res] or 0) + 1
+		local function build_output_for_locations(by_location)
+			-- Sort locations by total issue count
+			local sorted_locations = {}
+
+			for loc, reasons in pairs(by_location) do
+				local total = 0
+
+				for _, paths in pairs(reasons) do
+					for _, count in pairs(paths) do
+						total = total + count
+					end
+				end
+
+				table.insert(sorted_locations, {location = loc, reasons = reasons, total = total})
+			end
+
+			table.sort(sorted_locations, function(a, b)
+				return a.total > b.total
+			end)
+
+			local out = {}
+
+			for _, loc_entry in ipairs(sorted_locations) do
+				table.insert(out, loc_entry.location .. " (" .. loc_entry.total .. " issues):\n")
+				-- Sort reasons by count within this location
+				local sorted_reasons = {}
+
+				for reason, paths in pairs(loc_entry.reasons) do
+					local reason_total = 0
+
+					for _, count in pairs(paths) do
+						reason_total = reason_total + count
+					end
+
+					table.insert(sorted_reasons, {reason = reason, paths = paths, total = reason_total})
+				end
+
+				table.sort(sorted_reasons, function(a, b)
+					return a.total > b.total
+				end)
+
+				for _, reason_entry in ipairs(sorted_reasons) do
+					if reason_entry.reason ~= "" then
+						table.insert(out, "  " .. reason_entry.reason .. ":\n")
+					end
+
+					-- Sort paths by count
+					local sorted_paths = {}
+
+					for path, count in pairs(reason_entry.paths) do
+						table.insert(sorted_paths, {path = path, count = count})
+					end
+
+					table.sort(sorted_paths, function(a, b)
+						return a.count > b.count
+					end)
+
+					for _, path_entry in ipairs(sorted_paths) do
+						local count_str = path_entry.count > 1 and (" (x" .. path_entry.count .. ")") or ""
+
+						if path_entry.path ~= "" then
+							-- Indent each line of the path
+							local indented = path_entry.path:gsub("([^\n]+)", "      %1")
+							table.insert(out, indented .. count_str .. "\n")
+						else
+							table.insert(out, "    (no additional path)" .. count_str .. "\n")
+						end
+					end
+				end
+
+				table.insert(out, "\n")
+			end
+
+			return table.concat(out)
 		end
-
-		local sorted--[[#: List<|{line = string, count = number}|>]] = {}
-
-		for k, v in pairs(map) do
-			table.insert(sorted, {line = k, count = v})
-		end
-
-		table.sort(sorted, function(a, b)
-			return a.count < b.count
-		end)
 
 		local out = {}
 
-		for i, v in ipairs(sorted) do
-			out[i] = v.line .. (v.count > 1 and (" (x" .. v.count .. ")") or "") .. "\n"
+		-- Show resource limit summary first
+		if next(aggregate_counts) then
+			table.insert(out, "=== RESOURCE LIMITS ===\n\n")
+
+			if aggregate_counts[4] then
+				table.insert(
+					out,
+					"  too many snapshots: " .. aggregate_counts[4] .. " traces (consider increasing maxsnap)\n"
+				)
+			end
+
+			if aggregate_counts[10] then
+				table.insert(
+					out,
+					"  loop unroll limit reached: " .. aggregate_counts[10] .. " traces (consider increasing maxunroll)\n"
+				)
+			end
+
+			if aggregate_counts[27] then
+				table.insert(
+					out,
+					"  failed to allocate mcode memory: " .. aggregate_counts[27] .. " traces (consider increasing maxmcode)\n"
+				)
+			end
+
+			table.insert(out, "\n")
 		end
 
-		return table.concat(out, "\n")
+		if next(by_category.stitch) then
+			table.insert(out, "=== STITCH ===\n\n")
+			table.insert(out, build_output_for_locations(by_category.stitch))
+		end
+
+		if next(by_category.aborted) then
+			table.insert(out, "=== ABORTED ===\n\n")
+			table.insert(out, build_output_for_locations(by_category.aborted))
+		end
+
+		if next(by_category.other) then
+			table.insert(out, "=== OTHER ===\n\n")
+			table.insert(out, build_output_for_locations(by_category.other))
+		end
+
+		return table.concat(out)
 	end
 end
 
