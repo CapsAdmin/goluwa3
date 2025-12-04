@@ -634,7 +634,7 @@ local function get_white_texture()
 		{
 			width = size,
 			height = size,
-			format = "R8G8B8A8_UNORM",
+			format = "r8g8b8a8_unorm",
 			buffer = buffer,
 			sampler = {
 				min_filter = "nearest",
@@ -806,7 +806,7 @@ function gltf.LoadTexture(gltf_result, texture_index)
 		{
 			path = image_path,
 			cache_key = cache_key,
-			format = not image_path:ends_with(".dds") and "R8G8B8A8_UNORM" or nil,
+			format = not image_path:ends_with(".dds") and "r8g8b8a8_unorm" or nil,
 			mip_map_levels = "auto",
 			sampler = sampler_config,
 		}

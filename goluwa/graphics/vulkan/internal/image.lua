@@ -52,6 +52,9 @@ function Image.New(config)
 					usage = e.VK_IMAGE_USAGE_(config.usage),
 					sharingMode = e.VK_SHARING_MODE_(config.sharing_mode or "exclusive"),
 					initialLayout = e.VK_IMAGE_LAYOUT_(config.initial_layout or "undefined"),
+					--
+					queueFamilyIndexCount = 0,
+					flags = 0,
 				}
 			),
 			nil,

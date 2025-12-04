@@ -11,7 +11,7 @@ local ShadowMap = {}
 ShadowMap.__index = ShadowMap
 -- Default shadow map settings
 local DEFAULT_SIZE = Vec2() + 2048 --Vec2(800, 600) --Vec2() + 2048 -- Shadow map resolution
-local DEFAULT_FORMAT = "D32_SFLOAT"
+local DEFAULT_FORMAT = "d32_sfloat"
 local DEFAULT_CASCADE_COUNT = 3 -- Default number of cascades for CSM
 -- Push constants for shadow pass (just need MVP matrix)
 local ShadowVertexConstants = ffi.typeof([[

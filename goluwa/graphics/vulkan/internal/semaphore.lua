@@ -6,6 +6,7 @@ Semaphore.__index = Semaphore
 function Semaphore.New(device)
 	local semaphoreCreateInfo = vulkan.vk.VkSemaphoreCreateInfo({
 		sType = "VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO",
+		flags = 0,
 	})
 	local ptr = vulkan.T.Box(vulkan.vk.VkSemaphore)()
 	vulkan.assert(

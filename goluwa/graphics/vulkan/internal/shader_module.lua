@@ -11,6 +11,7 @@ function ShaderModule.New(device, glsl, type)
 			sType = "VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO",
 			codeSize = spirv_size,
 			pCode = ffi.cast("const uint32_t*", spirv_data),
+			flags = 0,
 		}
 	)
 	local ptr = vulkan.T.Box(vulkan.vk.VkShaderModule)()

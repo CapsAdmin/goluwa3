@@ -42,6 +42,7 @@ function PipelineLayout.New(device, descriptorSetLayouts, pushConstantRanges)
 			pSetLayouts = setLayoutArray,
 			pushConstantRangeCount = pushConstantCount,
 			pPushConstantRanges = pushConstantArray,
+			flags = 0,
 		}
 	)
 	local ptr = vulkan.T.Box(vulkan.vk.VkPipelineLayout)()

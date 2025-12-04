@@ -11,7 +11,7 @@ function gfx.Initialize()
 		{
 			width = 1,
 			height = 1,
-			format = "R8G8B8A8_UNORM",
+			format = "r8g8b8a8_unorm",
 			sampler = {
 				min_filter = "nearest",
 				mag_filter = "nearest",
@@ -26,7 +26,7 @@ function gfx.Initialize()
 		{
 			width = 1024,
 			height = 1024,
-			format = "R8G8B8A8_UNORM",
+			format = "r8g8b8a8_unorm",
 			mip_map_levels = "auto",
 			sampler = {
 				min_filter = "linear",

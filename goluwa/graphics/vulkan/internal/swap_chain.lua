@@ -28,6 +28,9 @@ function Swapchain.New(config)
 					presentMode = vulkan.enums.VK_PRESENT_MODE_(config.present_mode or "fifo"),
 					clipped = config.clipped ~= nil and (config.clipped and 1 or 0) or 1,
 					oldSwapchain = config.old_swapchain and config.old_swapchain.ptr[0],
+					--
+					flags = 0,
+					queueFamilyIndexCount = 0,
 				}
 			),
 			nil,

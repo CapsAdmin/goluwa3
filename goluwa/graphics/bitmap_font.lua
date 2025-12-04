@@ -196,7 +196,7 @@ local function create_font_texture()
 		{
 			width = TEXTURE_WIDTH,
 			height = TEXTURE_HEIGHT,
-			format = "R8G8B8A8_UNORM",
+			format = "r8g8b8a8_unorm",
 			buffer = buffer_data,
 			sampler = {
 				min_filter = "nearest",

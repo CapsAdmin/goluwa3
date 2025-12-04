@@ -66,7 +66,7 @@ local function choose_format(self)
 	end
 
 	self.samples = "4"
-	self.depth_format = "D32_SFLOAT"
+	self.depth_format = "d32_sfloat"
 	self.surface_format = self.surface_formats[self.config.surface_format_index]
 	self.color_format = self.surface_format.format
 end

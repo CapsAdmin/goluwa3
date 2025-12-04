@@ -329,7 +329,7 @@ if false then
 			{
 				width = 512,
 				height = 512,
-				format = "R8G8B8A8_UNORM",
+				format = "r8g8b8a8_unorm",
 				min_filter = "linear",
 				mag_filter = "linear",
 				clear_color = {0, 0, 0, 1},

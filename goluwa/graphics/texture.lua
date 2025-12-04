@@ -40,7 +40,7 @@ local function create_fallback_texture()
 		{
 			width = size,
 			height = size,
-			format = "R8G8B8A8_UNORM",
+			format = "r8g8b8a8_unorm",
 			buffer = buffer,
 			sampler = {
 				min_filter = "nearest",
@@ -76,17 +76,7 @@ function Texture.New(config)
 	local dds_info = nil
 
 	if config.path then
-		local ok, img_or_err = pcall(function()
-			if config.path:lower():match("%.png$") then
-				return file_formats.LoadPNG(config.path)
-			elseif config.path:lower():match("%.jpe?g$") then
-				return file_formats.LoadJPG(config.path)
-			elseif config.path:lower():match("%.dds$") then
-				return file_formats.LoadDDS(config.path)
-			else
-				return nil, "Unsupported image format"
-			end
-		end)
+		local ok, img_or_err = pcall(file_formats.Load, config.path)
 
 		if not ok or not img_or_err then
 			print("Warning: Failed to load texture:", config.path, img_or_err)
@@ -96,7 +86,7 @@ function Texture.New(config)
 		local img = img_or_err
 		config.width = config.width or img.width
 		config.height = config.height or img.height
-		
+
 		-- Handle DDS files specially - they may be compressed
 		if img.vulkan_format then
 			config.format = config.format or img.vulkan_format
@@ -104,7 +94,7 @@ function Texture.New(config)
 			dds_info = img
 			buffer_data = img.data
 		else
-			config.format = config.format or "R8G8B8A8_UNORM"
+			config.format = config.format or "r8g8b8a8_unorm"
 			buffer_data = img.buffer:GetBuffer()
 		end
 	end
@@ -127,7 +117,7 @@ function Texture.New(config)
 	-- Shared parameters for overriding
 	local width = config.width
 	local height = config.height
-	local format = config.format or "R8G8B8A8_UNORM"
+	local format = config.format or "r8g8b8a8_unorm"
 	-- Create or use image
 	local image
 
@@ -141,9 +131,9 @@ function Texture.New(config)
 		local image_config = config.image or {}
 		-- Compressed formats cannot be used as color attachments or transfer_src
 		local default_usage = {"sampled", "transfer_dst", "transfer_src", "color_attachment"}
-		if is_compressed_dds then
-			default_usage = {"sampled", "transfer_dst"}
-		end
+
+		if is_compressed_dds then default_usage = {"sampled", "transfer_dst"} end
+
 		image = render.CreateImage(
 			{
 				width = image_config.width or width,
@@ -355,7 +345,6 @@ function Texture:UploadCompressed(data, dds_info)
 	local queue = render.GetQueue()
 	local mip_count = dds_info.mip_count
 	local total_size = dds_info.data_size
-	
 	-- Create staging buffer for all data
 	local staging_buffer = Buffer.New(
 		{
@@ -366,12 +355,10 @@ function Texture:UploadCompressed(data, dds_info)
 		}
 	)
 	staging_buffer:CopyData(data, total_size)
-	
 	-- Copy to image using command buffer
 	local cmd_pool = render.GetCommandPool()
 	local cmd = cmd_pool:AllocateCommandBuffer()
 	cmd:Begin()
-	
 	-- Transition all mip levels to transfer dst
 	cmd:PipelineBarrier(
 		{
@@ -390,10 +377,11 @@ function Texture:UploadCompressed(data, dds_info)
 			},
 		}
 	)
-	
+
 	-- Copy each mip level from the staging buffer
 	for mip = 1, mip_count do
 		local mip_info = dds_info.mip_info[mip]
+
 		if mip_info then
 			cmd:CopyBufferToImageMip(
 				staging_buffer,
@@ -406,7 +394,7 @@ function Texture:UploadCompressed(data, dds_info)
 			)
 		end
 	end
-	
+
 	-- Transition all mip levels to shader read optimal
 	cmd:PipelineBarrier(
 		{
@@ -425,7 +413,6 @@ function Texture:UploadCompressed(data, dds_info)
 			},
 		}
 	)
-	
 	cmd:End()
 	-- Submit and wait
 	local fence = Fence.New(device)

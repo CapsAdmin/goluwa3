@@ -39,6 +39,7 @@ vulkan.enums = ffi_helpers.translate_enums(
 		{vulkan.vk.VkIndexType, "VK_INDEX_TYPE_"},
 		{vulkan.vk.VkBlendFactor, "VK_BLEND_FACTOR_"},
 		{vulkan.vk.VkBlendOp, "VK_BLEND_OP_"},
+		{vulkan.vk.VkStencilOp, "VK_STENCIL_OP_"},
 		{vulkan.vk.VkResult, "VK_"},
 	}
 )

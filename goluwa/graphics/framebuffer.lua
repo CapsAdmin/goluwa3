@@ -9,7 +9,7 @@ Framebuffer.__index = Framebuffer
 function Framebuffer.New(config)
 	local width = config.width or 512
 	local height = config.height or 512
-	local format = config.format or "R8G8B8A8_UNORM"
+	local format = config.format or "r8g8b8a8_unorm"
 	local samples = config.samples or "1"
 	local clear_color = config.clear_color or {0, 0, 0, 1}
 	local self = setmetatable({}, Framebuffer)
@@ -40,7 +40,7 @@ function Framebuffer.New(config)
 			{
 				width = width,
 				height = height,
-				format = config.depth_format or "D32_SFLOAT",
+				format = config.depth_format or "d32_sfloat",
 				image = {
 					usage = {"depth_stencil_attachment"},
 					properties = "device_local",

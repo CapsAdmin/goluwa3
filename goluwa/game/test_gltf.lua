@@ -8,6 +8,8 @@ local render3d = require("graphics.render3d")
 local gltf = require("gltf")
 local Material = require("graphics.material")
 local Matrix44 = require("structs.matrix").Matrix44
+local profiler = require("profiler")
+profiler.Start()
 -- Load ECS system and components
 local ecs = require("ecs")
 require("components.transform")

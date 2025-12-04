@@ -23,7 +23,7 @@ local function get_default_texture(type)
 			{
 				width = 1,
 				height = 1,
-				format = "R8G8B8A8_UNORM",
+				format = "r8g8b8a8_unorm",
 				buffer = ffi.new("uint8_t[4]", {255, 255, 255, 255}),
 			}
 		)
@@ -33,7 +33,7 @@ local function get_default_texture(type)
 			{
 				width = 1,
 				height = 1,
-				format = "R8G8B8A8_UNORM",
+				format = "r8g8b8a8_unorm",
 				buffer = ffi.new("uint8_t[4]", {128, 128, 255, 255}),
 			}
 		)
@@ -44,7 +44,7 @@ local function get_default_texture(type)
 			{
 				width = 1,
 				height = 1,
-				format = "R8G8B8A8_UNORM",
+				format = "r8g8b8a8_unorm",
 				buffer = ffi.new("uint8_t[4]", {0, 255, 0, 255}), -- roughness=1.0, metallic=0.0
 			}
 		)
@@ -54,7 +54,7 @@ local function get_default_texture(type)
 			{
 				width = 1,
 				height = 1,
-				format = "R8G8B8A8_UNORM",
+				format = "r8g8b8a8_unorm",
 				buffer = ffi.new("uint8_t[4]", {255, 255, 255, 255}),
 			}
 		)
@@ -64,7 +64,7 @@ local function get_default_texture(type)
 			{
 				width = 1,
 				height = 1,
-				format = "R8G8B8A8_UNORM",
+				format = "r8g8b8a8_unorm",
 				buffer = ffi.new("uint8_t[4]", {0, 0, 0, 255}),
 			}
 		)

@@ -14,6 +14,7 @@ function GraphicsPipeline.New(device, config, render_passes, pipelineLayout)
 				stage = vulkan.enums.VK_SHADER_STAGE_(stage.type),
 				module = stage.module.ptr[0],
 				pName = "main",
+				flags = 0,
 			}
 		)
 	end
@@ -54,6 +55,7 @@ function GraphicsPipeline.New(device, config, render_passes, pipelineLayout)
 			pVertexBindingDescriptions = bindingArray,
 			vertexAttributeDescriptionCount = attributeCount,
 			pVertexAttributeDescriptions = attributeArray,
+			flags = 0,
 		}
 	)
 	config.input_assembly = config.input_assembly or {}
@@ -62,6 +64,7 @@ function GraphicsPipeline.New(device, config, render_passes, pipelineLayout)
 			sType = "VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO",
 			topology = vulkan.enums.VK_PRIMITIVE_TOPOLOGY_(config.input_assembly.topology or "triangle_list"),
 			primitiveRestartEnable = config.input_assembly.primitive_restart or 0,
+			flags = 0,
 		}
 	)
 	config.viewport = config.viewport or {}
@@ -93,6 +96,7 @@ function GraphicsPipeline.New(device, config, render_passes, pipelineLayout)
 			pViewports = viewport,
 			scissorCount = 1,
 			pScissors = scissor,
+			flags = 0,
 		}
 	)
 	config.rasterizer = config.rasterizer or {}
@@ -106,6 +110,11 @@ function GraphicsPipeline.New(device, config, render_passes, pipelineLayout)
 			cullMode = vulkan.enums.VK_CULL_MODE_(config.rasterizer.cull_mode or "back"),
 			frontFace = vulkan.enums.VK_FRONT_FACE_(config.rasterizer.front_face or "clockwise"),
 			depthBiasEnable = config.rasterizer.depth_bias or 0,
+			-- 
+			flags = 0,
+			depthBiasConstantFactor = 0,
+			depthBiasClamp = 0,
+			depthBiasSlopeFactor = 0,
 		}
 	)
 	config.multisampling = config.multisampling or {}
@@ -114,6 +123,12 @@ function GraphicsPipeline.New(device, config, render_passes, pipelineLayout)
 			sType = "VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO",
 			sampleShadingEnable = config.multisampling.sample_shading or 0,
 			rasterizationSamples = vulkan.enums.VK_SAMPLE_COUNT_(config.multisampling.rasterization_samples or "1"),
+			--
+			flags = 0,
+			minSampleShading = 0,
+			pSampleMask = nil,
+			alphaToCoverageEnable = 0,
+			alphaToOneEnable = 0,
 		}
 	)
 	config.color_blend = config.color_blend or {}
@@ -162,9 +177,21 @@ function GraphicsPipeline.New(device, config, render_passes, pipelineLayout)
 			attachmentCount = #colorBlendAttachments,
 			pAttachments = colorBlendAttachment,
 			blendConstants = config.color_blend.constants or {0.0, 0.0, 0.0, 0.0},
+			flags = 0,
 		}
 	)
 	config.depth_stencil = config.depth_stencil or {}
+	local defaultStencilOpState = vulkan.vk.VkStencilOpState(
+		{
+			failOp = vulkan.enums.VK_STENCIL_OP_("keep"),
+			passOp = vulkan.enums.VK_STENCIL_OP_("keep"),
+			depthFailOp = vulkan.enums.VK_STENCIL_OP_("keep"),
+			compareOp = vulkan.enums.VK_COMPARE_OP_("always"),
+			compareMask = 0,
+			writeMask = 0,
+			reference = 0,
+		}
+	)
 	local depthStencilState = vulkan.vk.VkPipelineDepthStencilStateCreateInfo(
 		{
 			sType = "VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO",
@@ -173,6 +200,11 @@ function GraphicsPipeline.New(device, config, render_passes, pipelineLayout)
 			depthCompareOp = vulkan.enums.VK_COMPARE_OP_(config.depth_stencil.depth_compare_op or "less"),
 			depthBoundsTestEnable = config.depth_stencil.depth_bounds_test or 0,
 			stencilTestEnable = config.depth_stencil.stencil_test or 0,
+			flags = 0,
+			front = defaultStencilOpState,
+			back = defaultStencilOpState,
+			minDepthBounds = 0,
+			maxDepthBounds = 0,
 		}
 	)
 	-- Dynamic state configuration
@@ -189,6 +221,8 @@ function GraphicsPipeline.New(device, config, render_passes, pipelineLayout)
 		dynamicStateInfo = vulkan.vk.VkPipelineDynamicStateCreateInfo(
 			{
 				sType = "VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO",
+				pNext = nil,
+				flags = 0,
 				dynamicStateCount = dynamicStateCount,
 				pDynamicStates = dynamicStateArray,
 			}
@@ -227,10 +261,12 @@ function GraphicsPipeline.New(device, config, render_passes, pipelineLayout)
 		{
 			sType = "VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO",
 			pNext = pipelineRenderingCreateInfo,
+			flags = 0,
 			stageCount = #config.shaderModules,
 			pStages = shaderStagesArray,
 			pVertexInputState = vertexInputInfo,
 			pInputAssemblyState = inputAssembly,
+			pTessellationState = nil,
 			pViewportState = viewportState,
 			pRasterizationState = rasterizer,
 			pMultisampleState = multisampling,

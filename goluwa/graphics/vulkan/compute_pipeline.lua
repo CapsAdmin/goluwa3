@@ -17,7 +17,7 @@ local function create_storage_images(self, extent)
 			{
 				width = 512,
 				height = 512,
-				format = "R8G8B8A8_UNORM",
+				format = "r8g8b8a8_unorm",
 				mip_map_levels = 1,
 				image = {
 					usage = {"storage", "sampled", "transfer_dst", "transfer_src"},

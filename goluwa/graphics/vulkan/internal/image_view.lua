@@ -1,15 +1,5 @@
 local ffi = require("ffi")
 local vulkan = require("graphics.vulkan.internal.vulkan")
-local ffi_helpers = require("helpers.ffi_helpers")
-local e = ffi_helpers.translate_enums(
-	{
-		{vulkan.vk.VkImageViewType, "VK_IMAGE_VIEW_TYPE_"},
-		{vulkan.vk.VkFormat, "VK_FORMAT_"},
-		{vulkan.vk.VkImageAspectFlagBits, "VK_IMAGE_ASPECT_", "_BIT"},
-		{vulkan.vk.VkComponentSwizzle, "VK_COMPONENT_SWIZZLE_"},
-		{vulkan.vk.VkImageViewCreateFlagBits, "VK_IMAGE_VIEW_CREATE_", "_BIT"},
-	}
-)
 local ImageView = {}
 ImageView.__index = ImageView
 
@@ -22,21 +12,20 @@ function ImageView.New(config)
 	vulkan.assert(
 		vulkan.lib.vkCreateImageView(
 			config.device.ptr[0],
-			vulkan.vk.VkImageViewCreateInfo(
+			vulkan.vk.infos.ImageView(
 				{
-					sType = "VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO",
-					flags = config.flags and e.VK_IMAGE_VIEW_CREATE_(config.flags) or 0,
+					flags = config.flags,
 					image = config.image.ptr[0],
-					viewType = e.VK_IMAGE_VIEW_TYPE_(config.view_type or "2d"),
-					format = e.VK_FORMAT_(config.format),
+					viewType = config.view_type or "2d",
+					format = config.format,
 					components = {
-						r = e.VK_COMPONENT_SWIZZLE_(config.component_r or "identity"),
-						g = e.VK_COMPONENT_SWIZZLE_(config.component_g or "identity"),
-						b = e.VK_COMPONENT_SWIZZLE_(config.component_b or "identity"),
-						a = e.VK_COMPONENT_SWIZZLE_(config.component_a or "identity"),
+						r = config.component_r or "identity",
+						g = config.component_g or "identity",
+						b = config.component_b or "identity",
+						a = config.component_a or "identity",
 					},
 					subresourceRange = {
-						aspectMask = e.VK_IMAGE_ASPECT_(config.aspect or "color"),
+						aspectMask = config.aspect or "color",
 						baseMipLevel = config.base_mip_level or 0,
 						levelCount = config.level_count or 1,
 						baseArrayLayer = config.base_array_layer or 0,

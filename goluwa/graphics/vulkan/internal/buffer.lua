@@ -16,9 +16,13 @@ function Buffer.New(config)
 			vulkan.vk.VkBufferCreateInfo(
 				{
 					sType = "VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO",
+					pNext = nil,
+					flags = 0,
 					size = size,
 					usage = vulkan.enums.VK_BUFFER_USAGE_(usage),
 					sharingMode = "VK_SHARING_MODE_EXCLUSIVE",
+					queueFamilyIndexCount = 0,
+					pQueueFamilyIndices = nil,
 				}
 			),
 			nil,

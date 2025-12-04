@@ -20,6 +20,7 @@ function Queue:Submit(commandBuffer, imageAvailableSemaphore, renderFinishedSema
 	local submitInfo = vulkan.vk.VkSubmitInfo(
 		{
 			sType = "VK_STRUCTURE_TYPE_SUBMIT_INFO",
+			pNext = nil,
 			waitSemaphoreCount = 1,
 			pWaitSemaphores = imageAvailableSemaphore.ptr,
 			pWaitDstStageMask = waitStages,
@@ -44,8 +45,14 @@ function Queue:SubmitAndWait(device, commandBuffer, fence)
 			vulkan.vk.VkSubmitInfo(
 				{
 					sType = "VK_STRUCTURE_TYPE_SUBMIT_INFO",
+					pNext = nil,
+					waitSemaphoreCount = 0,
+					pWaitSemaphores = nil,
+					pWaitDstStageMask = nil,
 					commandBufferCount = 1,
 					pCommandBuffers = commandBuffer.ptr,
+					signalSemaphoreCount = 0,
+					pSignalSemaphores = nil,
 				}
 			),
 			fence.ptr[0]

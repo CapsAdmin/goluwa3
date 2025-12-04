@@ -65,13 +65,15 @@ function CommandBuffer:CreateImageMemoryBarrier(imageIndex, swapchainImages, isF
 			srcQueueFamilyIndex = 0xFFFFFFFF,
 			dstQueueFamilyIndex = 0xFFFFFFFF,
 			image = swapchainImages[imageIndex],
-			subresourceRange = {
-				aspectMask = vulkan.vk.VkImageAspectFlagBits("VK_IMAGE_ASPECT_COLOR_BIT"),
-				baseMipLevel = 0,
-				levelCount = 1,
-				baseArrayLayer = 0,
-				layerCount = 1,
-			},
+			subresourceRange = vulkan.vk.VkImageSubresourceRange(
+				{
+					aspectMask = vulkan.vk.VkImageAspectFlagBits("VK_IMAGE_ASPECT_COLOR_BIT"),
+					baseMipLevel = 0,
+					levelCount = 1,
+					baseArrayLayer = 0,
+					layerCount = 1,
+				}
+			),
 			srcAccessMask = 0,
 			dstAccessMask = vulkan.vk.VkAccessFlagBits("VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT"),
 		}
@@ -137,16 +139,21 @@ function CommandBuffer:BeginRendering(config)
 				resolveImageLayout = e.VK_IMAGE_LAYOUT_(config.msaa_image_view and "color_attachment_optimal" or "undefined"),
 				loadOp = "VK_ATTACHMENT_LOAD_OP_CLEAR",
 				storeOp = "VK_ATTACHMENT_STORE_OP_STORE",
-				clearValue = {
-					color = {
-						float32 = {
-							config.clear_color[1],
-							config.clear_color[2],
-							config.clear_color[3],
-							config.clear_color[4],
-						},
-					},
-				},
+				clearValue = vulkan.vk.VkClearValue(
+					{
+						color = vulkan.vk.VkClearColorValue(
+							{
+								float32 = ffi.new(
+									"float[4]",
+									config.clear_color[1],
+									config.clear_color[2],
+									config.clear_color[3],
+									config.clear_color[4]
+								),
+							}
+						),
+					}
+				),
 			}
 		)
 
@@ -175,12 +182,11 @@ function CommandBuffer:BeginRendering(config)
 				storeOp = config.depth_store and
 					"VK_ATTACHMENT_STORE_OP_STORE" or
 					"VK_ATTACHMENT_STORE_OP_DONT_CARE",
-				clearValue = {
-					depthStencil = {
-						depth = config.clear_depth or 1.0,
-						stencil = 0,
-					},
-				},
+				clearValue = vulkan.vk.VkClearValue(
+					{
+						depthStencil = vulkan.vk.VkClearDepthStencilValue({depth = config.clear_depth or 1.0, stencil = 0}),
+					}
+				),
 			}
 		)
 	end
@@ -192,10 +198,12 @@ function CommandBuffer:BeginRendering(config)
 				sType = "VK_STRUCTURE_TYPE_RENDERING_INFO",
 				pNext = nil,
 				flags = 0,
-				renderArea = {
-					offset = {x = config.x or 0, y = config.y or 0},
-					extent = {width = config.w, height = config.h},
-				},
+				renderArea = vulkan.vk.VkRect2D(
+					{
+						offset = vulkan.vk.VkOffset2D({x = config.x or 0, y = config.y or 0}),
+						extent = vulkan.vk.VkExtent2D({width = config.w, height = config.h}),
+					}
+				),
 				layerCount = 1,
 				viewMask = 0,
 				colorAttachmentCount = colorAttachmentCount,
@@ -311,15 +319,15 @@ function CommandBuffer:SetScissor(x, y, width, height)
 		1,
 		vulkan.vk.VkRect2D(
 			{
-				offset = {x = x or 0, y = y or 0},
-				extent = {width = width, height = height},
+				offset = vulkan.vk.VkOffset2D({x = x or 0, y = y or 0}),
+				extent = vulkan.vk.VkExtent2D({width = width, height = height}),
 			}
 		)
 	)
 end
 
 function CommandBuffer:SetBlendConstants(r, g, b, a)
-	local constants = ffi.new("float[4]", {r or 0.0, g or 0.0, b or 0.0, a or 0.0})
+	local constants = ffi.new("float[4]", r or 0.0, g or 0.0, b or 0.0, a or 0.0)
 	vulkan.lib.vkCmdSetBlendConstants(self.ptr[0], constants)
 end
 
@@ -330,7 +338,7 @@ function CommandBuffer:SetColorBlendEnable(first_attachment, blend_enable)
 
 	if type(blend_enable) == "boolean" then
 		-- Single attachment
-		enable_array = ffi.new("uint32_t[1]", {blend_enable and 1 or 0})
+		enable_array = ffi.new("uint32_t[1]", blend_enable and 1 or 0)
 		count = 1
 	elseif type(blend_enable) == "table" then
 		-- Multiple attachments
@@ -454,18 +462,20 @@ function CommandBuffer:PipelineBarrier(config)
 					srcQueueFamilyIndex = 0xFFFFFFFF,
 					dstQueueFamilyIndex = 0xFFFFFFFF,
 					image = barrier.image.ptr[0],
-					subresourceRange = {
-						aspectMask = vulkan.enums.VK_IMAGE_ASPECT_(aspect),
-						baseMipLevel = barrier.base_mip_level or 0,
-						levelCount = barrier.level_count or
-							(
-								barrier.image.GetMipLevels and
-								barrier.image:GetMipLevels() or
-								1
-							),
-						baseArrayLayer = 0,
-						layerCount = 1,
-					},
+					subresourceRange = vulkan.vk.VkImageSubresourceRange(
+						{
+							aspectMask = vulkan.enums.VK_IMAGE_ASPECT_(aspect),
+							baseMipLevel = barrier.base_mip_level or 0,
+							levelCount = barrier.level_count or
+								(
+									barrier.image.GetMipLevels and
+									barrier.image:GetMipLevels() or
+									1
+								),
+							baseArrayLayer = 0,
+							layerCount = 1,
+						}
+					),
 				}
 			)
 		end
@@ -508,21 +518,25 @@ end
 function CommandBuffer:CopyImageToImage(srcImage, dstImage, width, height)
 	local region = vulkan.vk.VkImageCopy(
 		{
-			srcSubresource = {
-				aspectMask = vulkan.vk.VkImageAspectFlagBits("VK_IMAGE_ASPECT_COLOR_BIT"),
-				mipLevel = 0,
-				baseArrayLayer = 0,
-				layerCount = 1,
-			},
-			srcOffset = {x = 0, y = 0, z = 0},
-			dstSubresource = {
-				aspectMask = vulkan.vk.VkImageAspectFlagBits("VK_IMAGE_ASPECT_COLOR_BIT"),
-				mipLevel = 0,
-				baseArrayLayer = 0,
-				layerCount = 1,
-			},
-			dstOffset = {x = 0, y = 0, z = 0},
-			extent = {width = width, height = height, depth = 1},
+			srcSubresource = vulkan.vk.VkImageSubresourceLayers(
+				{
+					aspectMask = vulkan.vk.VkImageAspectFlagBits("VK_IMAGE_ASPECT_COLOR_BIT"),
+					mipLevel = 0,
+					baseArrayLayer = 0,
+					layerCount = 1,
+				}
+			),
+			srcOffset = vulkan.vk.VkOffset3D({x = 0, y = 0, z = 0}),
+			dstSubresource = vulkan.vk.VkImageSubresourceLayers(
+				{
+					aspectMask = vulkan.vk.VkImageAspectFlagBits("VK_IMAGE_ASPECT_COLOR_BIT"),
+					mipLevel = 0,
+					baseArrayLayer = 0,
+					layerCount = 1,
+				}
+			),
+			dstOffset = vulkan.vk.VkOffset3D({x = 0, y = 0, z = 0}),
+			extent = vulkan.vk.VkExtent3D({width = width, height = height, depth = 1}),
 		}
 	)
 	vulkan.lib.vkCmdCopyImage(
@@ -537,28 +551,29 @@ function CommandBuffer:CopyImageToImage(srcImage, dstImage, width, height)
 end
 
 function CommandBuffer:CopyBufferToImage(buffer, image, width, height)
-	local region = vulkan.vk.VkBufferImageCopy(
-		{
-			bufferOffset = 0,
-			bufferRowLength = 0,
-			bufferImageHeight = 0,
-			imageSubresource = {
-				aspectMask = vulkan.vk.VkImageAspectFlagBits("VK_IMAGE_ASPECT_COLOR_BIT"),
-				mipLevel = 0,
-				baseArrayLayer = 0,
-				layerCount = 1,
-			},
-			imageOffset = {x = 0, y = 0, z = 0},
-			imageExtent = {width = width, height = height, depth = 1},
-		}
-	)
 	vulkan.lib.vkCmdCopyBufferToImage(
 		self.ptr[0],
 		buffer.ptr[0],
 		image.ptr[0],
 		"VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL",
 		1,
-		region
+		vulkan.vk.VkBufferImageCopy(
+			{
+				bufferOffset = 0,
+				bufferRowLength = 0,
+				bufferImageHeight = 0,
+				imageSubresource = vulkan.vk.VkImageSubresourceLayers(
+					{
+						aspectMask = vulkan.vk.VkImageAspectFlagBits("VK_IMAGE_ASPECT_COLOR_BIT"),
+						mipLevel = 0,
+						baseArrayLayer = 0,
+						layerCount = 1,
+					}
+				),
+				imageOffset = vulkan.vk.VkOffset3D({x = 0, y = 0, z = 0}),
+				imageExtent = vulkan.vk.VkExtent3D({width = width, height = height, depth = 1}),
+			}
+		)
 	)
 end
 
@@ -570,14 +585,16 @@ function CommandBuffer:CopyBufferToImageMip(buffer, image, width, height, mip_le
 			bufferOffset = buffer_offset or 0,
 			bufferRowLength = 0,
 			bufferImageHeight = 0,
-			imageSubresource = {
-				aspectMask = vulkan.vk.VkImageAspectFlagBits("VK_IMAGE_ASPECT_COLOR_BIT"),
-				mipLevel = mip_level or 0,
-				baseArrayLayer = 0,
-				layerCount = 1,
-			},
-			imageOffset = {x = 0, y = 0, z = 0},
-			imageExtent = {width = width, height = height, depth = 1},
+			imageSubresource = vulkan.vk.VkImageSubresourceLayers(
+				{
+					aspectMask = vulkan.vk.VkImageAspectFlagBits("VK_IMAGE_ASPECT_COLOR_BIT"),
+					mipLevel = mip_level or 0,
+					baseArrayLayer = 0,
+					layerCount = 1,
+				}
+			),
+			imageOffset = vulkan.vk.VkOffset3D({x = 0, y = 0, z = 0}),
+			imageExtent = vulkan.vk.VkExtent3D({width = width, height = height, depth = 1}),
 		}
 	)
 	vulkan.lib.vkCmdCopyBufferToImage(
@@ -593,25 +610,29 @@ end
 function CommandBuffer:BlitImage(config)
 	local region = vulkan.vk.VkImageBlit(
 		{
-			srcSubresource = {
-				aspectMask = vulkan.vk.VkImageAspectFlagBits("VK_IMAGE_ASPECT_COLOR_BIT"),
-				mipLevel = config.src_mip_level or 0,
-				baseArrayLayer = 0,
-				layerCount = 1,
-			},
+			srcSubresource = vulkan.vk.VkImageSubresourceLayers(
+				{
+					aspectMask = vulkan.vk.VkImageAspectFlagBits("VK_IMAGE_ASPECT_COLOR_BIT"),
+					mipLevel = config.src_mip_level or 0,
+					baseArrayLayer = 0,
+					layerCount = 1,
+				}
+			),
 			srcOffsets = {
-				{x = 0, y = 0, z = 0},
-				{x = config.src_width, y = config.src_height, z = 1},
+				vulkan.vk.VkOffset3D({x = 0, y = 0, z = 0}),
+				vulkan.vk.VkOffset3D({x = config.src_width, y = config.src_height, z = 1}),
 			},
-			dstSubresource = {
-				aspectMask = vulkan.vk.VkImageAspectFlagBits("VK_IMAGE_ASPECT_COLOR_BIT"),
-				mipLevel = config.dst_mip_level or 0,
-				baseArrayLayer = 0,
-				layerCount = 1,
-			},
+			dstSubresource = vulkan.vk.VkImageSubresourceLayers(
+				{
+					aspectMask = vulkan.vk.VkImageAspectFlagBits("VK_IMAGE_ASPECT_COLOR_BIT"),
+					mipLevel = config.dst_mip_level or 0,
+					baseArrayLayer = 0,
+					layerCount = 1,
+				}
+			),
 			dstOffsets = {
-				{x = 0, y = 0, z = 0},
-				{x = config.dst_width, y = config.dst_height, z = 1},
+				vulkan.vk.VkOffset3D({x = 0, y = 0, z = 0}),
+				vulkan.vk.VkOffset3D({x = config.dst_width, y = config.dst_height, z = 1}),
 			},
 		}
 	)

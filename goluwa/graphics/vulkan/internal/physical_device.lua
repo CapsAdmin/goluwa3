@@ -17,10 +17,8 @@ function PhysicalDevice:SupportsSurface(surface)
 	for i, queueFamily in ipairs(queue_families) do
 		local presentSupport = ffi.new("uint32_t[1]")
 		local result = vulkan.lib.vkGetPhysicalDeviceSurfaceSupportKHR(self.ptr[0], i - 1, surface.ptr[0], presentSupport)
-		
-		if result == 0 and presentSupport[0] ~= 0 then
-			return true
-		end
+
+		if result == 0 and presentSupport[0] ~= 0 then return true end
 	end
 
 	return false
@@ -148,9 +146,9 @@ function PhysicalDevice:GetAvailableDeviceExtensions()
 end
 
 function PhysicalDevice:GetProperties()
-	local properties = vulkan.vk.VkPhysicalDeviceProperties()
+	local properties = vulkan.T.Box(vulkan.vk.VkPhysicalDeviceProperties)()
 	vulkan.lib.vkGetPhysicalDeviceProperties(self.ptr[0], properties)
-	return properties
+	return properties[0]
 end
 
 function PhysicalDevice:GetExtendedDynamicStateFeatures()
@@ -230,12 +228,14 @@ function PhysicalDevice:GetDynamicRenderingFeatures()
 		{
 			sType = "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES",
 			pNext = nil,
+			dynamicRendering = 0,
 		}
 	)
 	local queryDeviceFeatures = vulkan.vk.VkPhysicalDeviceFeatures2(
 		{
 			sType = "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2",
 			pNext = queryDynamicRenderingFeatures,
+			features = vulkan.vk.VkPhysicalDeviceFeatures(),
 		}
 	)
 	vulkan.lib.vkGetPhysicalDeviceFeatures2(self.ptr[0], queryDeviceFeatures)

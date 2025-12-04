@@ -5,15 +5,12 @@ local dds_decode = require("file_formats.dds.decode")
 local file_formats = {}
 
 local function buffer_from_path(path)
-	local file, err = io.open(path, "rb")
-
-	if not file then return nil, err end
-
+	local file = assert(io.open(path, "rb"))
 	local file_data = file:read("*a")
 
 	if not file_data then
 		file:close()
-		return nil, "File is empty"
+		error("File is empty")
 	end
 
 	file:close()
@@ -21,27 +18,30 @@ local function buffer_from_path(path)
 end
 
 function file_formats.LoadPNG(path)
-	local buffer, err = buffer_from_path(path)
-
-	if not buffer then return nil, err end
-
-	return png_decode(buffer)
+	return png_decode(buffer_from_path(path))
 end
 
 function file_formats.LoadJPG(path)
-	local buffer, err = buffer_from_path(path)
-
-	if not buffer then return nil, err end
-
-	return jpg_decode(buffer)
+	return jpg_decode(buffer_from_path(path))
 end
 
 function file_formats.LoadDDS(path)
-	local buffer, err = buffer_from_path(path)
+	return dds_decode(buffer_from_path(path))
+end
 
-	if not buffer then return nil, err end
+function file_formats.Load(path)
+	local real_path = path
+	local path = path:lower()
 
-	return dds_decode(buffer)
+	if path:ends_with(".png") then
+		return file_formats.LoadPNG(real_path)
+	elseif path:ends_with(".jpg") or path:ends_with(".jpeg") then
+		return file_formats.LoadJPG(real_path)
+	elseif path:ends_with(".dds") then
+		return file_formats.LoadDDS(real_path)
+	end
+
+	error("Unsupported image format: " .. real_path)
 end
 
 return file_formats

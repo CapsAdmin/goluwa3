@@ -98,6 +98,7 @@ function Instance.New(extensions, layers)
 		debug_create_info = vulkan.vk.VkDebugUtilsMessengerCreateInfoEXT(
 			{
 				sType = "VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT",
+				flags = 0,
 				messageSeverity = bit.bor(
 					--vulkan.vk.VkDebugUtilsMessageSeverityFlagBitsEXT("VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT"),
 					--vulkan.vk.VkDebugUtilsMessageSeverityFlagBitsEXT("VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT"),
