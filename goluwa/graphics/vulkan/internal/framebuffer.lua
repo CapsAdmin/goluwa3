@@ -44,20 +44,23 @@ function Framebuffer.New(config)
 		attachmentCount = 1
 	end
 
-	local framebufferInfo = vulkan.vk.VkFramebufferCreateInfo(
-		{
-			sType = "VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO",
-			renderPass = render_pass.ptr[0],
-			attachmentCount = attachmentCount,
-			pAttachments = attachments,
-			width = width,
-			height = height,
-			layers = 1,
-		}
-	)
 	local ptr = vulkan.T.Box(vulkan.vk.VkFramebuffer)()
 	vulkan.assert(
-		vulkan.lib.vkCreateFramebuffer(device.ptr[0], framebufferInfo, nil, ptr),
+		vulkan.lib.vkCreateFramebuffer(
+			device.ptr[0],
+			vulkan.vk.s.FramebufferCreateInfo(
+				{
+					renderPass = render_pass.ptr[0],
+					attachmentCount = attachmentCount,
+					pAttachments = attachments,
+					width = width,
+					height = height,
+					layers = 1,
+				}
+			),
+			nil,
+			ptr
+		),
 		"failed to create framebuffer"
 	)
 	return setmetatable(

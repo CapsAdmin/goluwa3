@@ -8,13 +8,10 @@ function Memory.New(device, size, type_index)
 	vulkan.assert(
 		vulkan.lib.vkAllocateMemory(
 			device.ptr[0],
-			vulkan.vk.VkMemoryAllocateInfo(
-				{
-					sType = "VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO",
-					allocationSize = size,
-					memoryTypeIndex = type_index,
-				}
-			),
+			vulkan.vk.s.MemoryAllocateInfo({
+				allocationSize = size,
+				memoryTypeIndex = type_index,
+			}),
 			nil,
 			ptr
 		),

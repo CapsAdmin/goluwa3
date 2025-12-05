@@ -9,14 +9,10 @@ function Surface.New(instance, surface_handle, display_handle)
 
 	if jit.os == "OSX" then
 		assert(surface_handle ~= nil, "surface_handle cannot be nil")
-		info = vulkan.vk.VkMetalSurfaceCreateInfoEXT(
-			{
-				sType = "VK_STRUCTURE_TYPE_METAL_SURFACE_CREATE_INFO_EXT",
-				pNext = nil,
-				flags = 0,
-				pLayer = ffi.cast("const void*", surface_handle),
-			}
-		)
+		info = vulkan.vk.s.MetalSurfaceCreateInfoEXT({
+			flags = 0,
+			pLayer = ffi.cast("const void*", surface_handle),
+		})
 		vkCreateSurface = instance:GetExtension("vkCreateMetalSurfaceEXT")
 	elseif jit.os == "Windows" then
 		error("Windows surface creation not implemented")
@@ -24,15 +20,11 @@ function Surface.New(instance, surface_handle, display_handle)
 		-- wayland 
 		assert(surface_handle ~= nil, "surface_handle cannot be nil")
 		assert(display_handle ~= nil, "display_handle cannot be nil")
-		local display_ptr = ffi.cast("struct wl_display*", display_handle)
-		local surface_ptr = ffi.cast("struct wl_surface*", surface_handle)
-		info = vulkan.vk.VkWaylandSurfaceCreateInfoKHR(
+		info = vulkan.vk.s.WaylandSurfaceCreateInfoKHR(
 			{
-				sType = "VK_STRUCTURE_TYPE_WAYLAND_SURFACE_CREATE_INFO_KHR",
-				pNext = nil,
 				flags = 0,
-				display = display_ptr,
-				surface = surface_ptr,
+				display = ffi.cast("struct wl_display*", display_handle),
+				surface = ffi.cast("struct wl_surface*", surface_handle),
 			}
 		)
 		vkCreateSurface = instance:GetExtension("vkCreateWaylandSurfaceKHR")

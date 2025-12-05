@@ -21,18 +21,18 @@ function RenderPass.New(device, config)
 				{
 					-- Attachment 0: Color
 					{
-						format = vulkan.enums.VK_FORMAT_(format_string),
+						format = vulkan.vk.e.VkFormat(format_string),
 						samples = "VK_SAMPLE_COUNT_1_BIT",
 						loadOp = "VK_ATTACHMENT_LOAD_OP_CLEAR",
 						storeOp = "VK_ATTACHMENT_STORE_OP_STORE",
 						stencilLoadOp = "VK_ATTACHMENT_LOAD_OP_DONT_CARE",
 						stencilStoreOp = "VK_ATTACHMENT_STORE_OP_DONT_CARE",
 						initialLayout = "VK_IMAGE_LAYOUT_UNDEFINED",
-						finalLayout = vulkan.enums.VK_IMAGE_LAYOUT_(config.final_layout),
+						finalLayout = vulkan.vk.e.VkImageLayout(config.final_layout),
 					},
 					-- Attachment 1: Depth
 					{
-						format = vulkan.enums.VK_FORMAT_(config.depth_format),
+						format = vulkan.vk.e.VkFormat(config.depth_format),
 						samples = "VK_SAMPLE_COUNT_1_BIT",
 						loadOp = "VK_ATTACHMENT_LOAD_OP_CLEAR",
 						storeOp = "VK_ATTACHMENT_STORE_OP_DONT_CARE",
@@ -47,14 +47,14 @@ function RenderPass.New(device, config)
 			attachment_count = 1
 			attachments = vulkan.vk.VkAttachmentDescription(
 				{
-					format = vulkan.enums.VK_FORMAT_(format_string),
+					format = vulkan.vk.e.VkFormat(format_string),
 					samples = "VK_SAMPLE_COUNT_1_BIT",
 					loadOp = "VK_ATTACHMENT_LOAD_OP_CLEAR",
 					storeOp = "VK_ATTACHMENT_STORE_OP_STORE",
 					stencilLoadOp = "VK_ATTACHMENT_LOAD_OP_DONT_CARE",
 					stencilStoreOp = "VK_ATTACHMENT_STORE_OP_DONT_CARE",
 					initialLayout = "VK_IMAGE_LAYOUT_UNDEFINED",
-					finalLayout = vulkan.enums.VK_IMAGE_LAYOUT_(config.final_layout),
+					finalLayout = vulkan.vk.e.VkImageLayout(config.final_layout),
 				}
 			)
 		end
@@ -67,7 +67,7 @@ function RenderPass.New(device, config)
 				{
 					-- Attachment 0: MSAA color attachment
 					{
-						format = vulkan.enums.VK_FORMAT_(format_string),
+						format = vulkan.vk.e.VkFormat(format_string),
 						samples = "VK_SAMPLE_COUNT_" .. config.samples .. "_BIT",
 						loadOp = "VK_ATTACHMENT_LOAD_OP_CLEAR",
 						storeOp = "VK_ATTACHMENT_STORE_OP_DONT_CARE", -- Don't need to store MSAA
@@ -78,7 +78,7 @@ function RenderPass.New(device, config)
 					},
 					-- Attachment 1: Resolve target (swapchain)
 					{
-						format = vulkan.enums.VK_FORMAT_(format_string),
+						format = vulkan.vk.e.VkFormat(format_string),
 						samples = "VK_SAMPLE_COUNT_1_BIT",
 						loadOp = "VK_ATTACHMENT_LOAD_OP_DONT_CARE", -- Don't care about initial contents
 						storeOp = "VK_ATTACHMENT_STORE_OP_STORE", -- Store resolved result
@@ -89,7 +89,7 @@ function RenderPass.New(device, config)
 					},
 					-- Attachment 2: MSAA depth attachment
 					{
-						format = vulkan.enums.VK_FORMAT_(config.depth_format),
+						format = vulkan.vk.e.VkFormat(config.depth_format),
 						samples = "VK_SAMPLE_COUNT_" .. config.samples .. "_BIT",
 						loadOp = "VK_ATTACHMENT_LOAD_OP_CLEAR",
 						storeOp = "VK_ATTACHMENT_STORE_OP_DONT_CARE",
@@ -108,7 +108,7 @@ function RenderPass.New(device, config)
 				{
 					-- Attachment 0: MSAA color attachment
 					{
-						format = vulkan.enums.VK_FORMAT_(format_string),
+						format = vulkan.vk.e.VkFormat(format_string),
 						samples = "VK_SAMPLE_COUNT_" .. config.samples .. "_BIT",
 						loadOp = "VK_ATTACHMENT_LOAD_OP_CLEAR",
 						storeOp = "VK_ATTACHMENT_STORE_OP_DONT_CARE", -- Don't need to store MSAA
@@ -119,7 +119,7 @@ function RenderPass.New(device, config)
 					},
 					-- Attachment 1: Resolve target (swapchain)
 					{
-						format = vulkan.enums.VK_FORMAT_(format_string),
+						format = vulkan.vk.e.VkFormat(format_string),
 						samples = "VK_SAMPLE_COUNT_1_BIT",
 						loadOp = "VK_ATTACHMENT_LOAD_OP_DONT_CARE", -- Don't care about initial contents
 						storeOp = "VK_ATTACHMENT_STORE_OP_STORE", -- Store resolved result
@@ -186,9 +186,8 @@ function RenderPass.New(device, config)
 				vulkan.vk.VkAccessFlagBits("VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT"),
 		}
 	)
-	local renderPassInfo = vulkan.vk.VkRenderPassCreateInfo(
+	local renderPassInfo = vulkan.vk.s.RenderPassCreateInfo(
 		{
-			sType = "VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO",
 			attachmentCount = attachment_count,
 			pAttachments = attachments,
 			subpassCount = 1,

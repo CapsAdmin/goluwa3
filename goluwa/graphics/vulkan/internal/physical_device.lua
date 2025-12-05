@@ -27,11 +27,12 @@ end
 function PhysicalDevice:FindMemoryType(typeFilter, properties)
 	local memProperties = vulkan.vk.VkPhysicalDeviceMemoryProperties()
 	vulkan.lib.vkGetPhysicalDeviceMemoryProperties(self.ptr[0], memProperties)
+	local e = vulkan.vk.e.VkMemoryPropertyFlagBits(properties)
 
 	for i = 0, memProperties.memoryTypeCount - 1 do
 		if
 			bit.band(typeFilter, bit.lshift(1, i)) ~= 0 and
-			bit.band(memProperties.memoryTypes[i].propertyFlags, properties) == properties
+			bit.band(memProperties.memoryTypes[i].propertyFlags, e) == e
 		then
 			return i
 		end
@@ -78,13 +79,12 @@ function PhysicalDevice:GetSurfaceFormats(surface)
 
 	local formats = vulkan.T.Array(vulkan.vk.VkSurfaceFormatKHR)(count)
 	result_code = vulkan.lib.vkGetPhysicalDeviceSurfaceFormatsKHR(self.ptr[0], surface.ptr[0], formatCount, formats)
-	-- Convert to Lua table
 	local result = {}
 
 	for i = 0, count - 1 do
 		result[i + 1] = {
-			format = vulkan.enums.VK_FORMAT_.to_string(formats[i].format),
-			color_space = vulkan.enums.VK_COLOR_SPACE_.to_string(formats[i].colorSpace),
+			format = vulkan.vk.str.VkFormat(formats[i].format),
+			color_space = vulkan.vk.str.VkColorSpaceKHR(formats[i].colorSpace),
 		}
 	end
 

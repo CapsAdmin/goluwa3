@@ -28,16 +28,15 @@ function PipelineLayout.New(device, descriptorSetLayouts, pushConstantRanges)
 
 		for i, range in ipairs(pushConstantRanges) do
 			pushConstantArray[i - 1] = {
-				stageFlags = vulkan.enums.VK_SHADER_STAGE_(range.stage),
+				stageFlags = vulkan.vk.e.VkShaderStageFlagBits(range.stage),
 				offset = range.offset,
 				size = range.size,
 			}
 		end
 	end
 
-	local pipelineLayoutInfo = vulkan.vk.VkPipelineLayoutCreateInfo(
+	local pipelineLayoutInfo = vulkan.vk.s.PipelineLayoutCreateInfo(
 		{
-			sType = "VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO",
 			setLayoutCount = setLayoutCount,
 			pSetLayouts = setLayoutArray,
 			pushConstantRangeCount = pushConstantCount,

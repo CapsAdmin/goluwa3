@@ -15,12 +15,10 @@ end
 function Queue:Submit(commandBuffer, imageAvailableSemaphore, renderFinishedSemaphore, inFlightFence)
 	local waitStages = ffi.new(
 		"uint32_t[1]",
-		vulkan.vk.VkPipelineStageFlagBits("VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT")
+		vulkan.vk.e.VkPipelineStageFlagBits("color_attachment_output")
 	)
-	local submitInfo = vulkan.vk.VkSubmitInfo(
+	local submitInfo = vulkan.vk.s.SubmitInfo(
 		{
-			sType = "VK_STRUCTURE_TYPE_SUBMIT_INFO",
-			pNext = nil,
 			waitSemaphoreCount = 1,
 			pWaitSemaphores = imageAvailableSemaphore.ptr,
 			pWaitDstStageMask = waitStages,
@@ -42,10 +40,8 @@ function Queue:SubmitAndWait(device, commandBuffer, fence)
 		vulkan.lib.vkQueueSubmit(
 			self.ptr[0],
 			1,
-			vulkan.vk.VkSubmitInfo(
+			vulkan.vk.s.SubmitInfo(
 				{
-					sType = "VK_STRUCTURE_TYPE_SUBMIT_INFO",
-					pNext = nil,
 					waitSemaphoreCount = 0,
 					pWaitSemaphores = nil,
 					pWaitDstStageMask = nil,

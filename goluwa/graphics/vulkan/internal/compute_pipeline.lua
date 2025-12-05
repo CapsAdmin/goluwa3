@@ -4,17 +4,15 @@ local ComputePipeline = {}
 ComputePipeline.__index = ComputePipeline
 
 function ComputePipeline.New(device, shaderModule, pipelineLayout)
-	local info = vulkan.vk.VkPipelineShaderStageCreateInfo(
+	local info = vulkan.vk.s.PipelineShaderStageCreateInfo(
 		{
-			sType = "VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO",
-			stage = vulkan.enums.VK_SHADER_STAGE_("compute"),
+			stage = compute,
 			module = shaderModule.ptr[0],
 			pName = "main",
 		}
 	)
-	local computePipelineCreateInfo = vulkan.vk.VkComputePipelineCreateInfo(
+	local computePipelineCreateInfo = vulkan.vk.s.ComputePipelineCreateInfo(
 		{
-			sType = "VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO",
 			stage = info,
 			layout = pipelineLayout.ptr[0],
 			basePipelineHandle = nil,

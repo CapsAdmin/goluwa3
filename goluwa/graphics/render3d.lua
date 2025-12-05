@@ -124,25 +124,25 @@ function render3d.Initialize()
 						{
 							binding = 0,
 							location = 0, -- in_position
-							format = "R32G32B32_SFLOAT", -- vec3
+							format = "r32g32b32_sfloat", -- vec3
 							offset = 0,
 						},
 						{
 							binding = 0,
 							location = 1, -- in_normal
-							format = "R32G32B32_SFLOAT", -- vec3
+							format = "r32g32b32_sfloat", -- vec3
 							offset = ffi.sizeof("float") * 3,
 						},
 						{
 							binding = 0,
 							location = 2, -- in_uv
-							format = "R32G32_SFLOAT", -- vec2
+							format = "r32g32_sfloat", -- vec2
 							offset = ffi.sizeof("float") * 6,
 						},
 						{
 							binding = 0,
 							location = 3, -- in_tangent
-							format = "R32G32B32A32_SFLOAT", -- vec4
+							format = "r32g32b32a32_sfloat", -- vec4
 							offset = ffi.sizeof("float") * 8,
 						},
 					},
@@ -496,15 +496,15 @@ function render3d.UpdateShadowUBO()
 		local shadow_map = render3d.sun_light:GetShadowMap()
 		local matrix_data = shadow_map.light_space_matrix:GetFloatCopy()
 		ffi.copy(render3d.shadow_ubo_data.light_space_matrix, matrix_data, ffi.sizeof("float") * 16)
-		
 		-- Copy cascade splits
 		local cascade_splits = shadow_map:GetCascadeSplits()
 		local cascade_count = shadow_map:GetCascadeCount()
+
 		for i = 1, 4 do
 			render3d.shadow_ubo_data.cascade_splits[i - 1] = cascade_splits[i] or 0
 		end
+
 		render3d.shadow_ubo_data.cascade_count = cascade_count
-		
 		render3d.shadow_ubo:CopyData(render3d.shadow_ubo_data, ffi.sizeof(ShadowUBO))
 	end
 end

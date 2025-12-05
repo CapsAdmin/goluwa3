@@ -8,18 +8,13 @@ function DescriptorPool.New(device, poolSizes, maxSets)
 	local poolSizeArray = vulkan.T.Array(vulkan.vk.VkDescriptorPoolSize)(#poolSizes)
 
 	for i, ps in ipairs(poolSizes) do
-		poolSizeArray[i - 1].type = vulkan.enums.VK_DESCRIPTOR_TYPE_(ps.type)
+		poolSizeArray[i - 1].type = vulkan.vk.e.VkDescriptorType(ps.type)
 		poolSizeArray[i - 1].descriptorCount = ps.count or 1
 	end
 
-	local poolInfo = vulkan.vk.VkDescriptorPoolCreateInfo(
+	local poolInfo = vulkan.vk.s.DescriptorPoolCreateInfo(
 		{
-			sType = "VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO",
-			flags = bit.bor(
-				0,
-				vulkan.vk.VkDescriptorPoolCreateFlagBits("VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT"),
-				vulkan.vk.VkDescriptorPoolCreateFlagBits("VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT")
-			),
+			flags = {"free_descriptor_set", "update_after_bind"},
 			poolSizeCount = #poolSizes,
 			pPoolSizes = poolSizeArray,
 			maxSets = maxSets or 1,
@@ -45,9 +40,8 @@ function DescriptorPool:Reset()
 end
 
 function DescriptorPool:AllocateDescriptorSet(layout)
-	local allocInfo = vulkan.vk.VkDescriptorSetAllocateInfo(
+	local allocInfo = vulkan.vk.s.DescriptorSetAllocateInfo(
 		{
-			sType = "VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO",
 			descriptorPool = self.ptr[0],
 			descriptorSetCount = 1,
 			pSetLayouts = layout.ptr,

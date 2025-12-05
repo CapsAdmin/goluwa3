@@ -20,9 +20,9 @@ gltf.debug_white_textures = false
 gltf.debug_print_nodes = false
 -- Load glTF model
 local path = nil
-path = "/home/caps/projects/glTF-Sample-Assets-main/Models/Sponza/glTF/Sponza.gltf"
 path = "/home/caps/projects/glTF-Sample-Assets-main/Models/ABeautifulGame/glTF/ABeautifulGame.gltf"
 path = "/home/caps/projects/RTXDI-Assets/bistro/bistro.gltf"
+path = "/home/caps/projects/glTF-Sample-Assets-main/Models/Sponza/glTF/Sponza.gltf"
 local gltf_result = assert(gltf.Load(path))
 -- Create entity hierarchy from glTF, parented to world so ECS queries find it
 local scene_root = gltf.CreateEntityHierarchy(gltf_result, ecs.GetWorld())

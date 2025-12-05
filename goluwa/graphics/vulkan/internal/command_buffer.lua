@@ -123,7 +123,6 @@ function CommandBuffer:BeginRendering(config)
 
 		colorAttachmentInfo = vulkan.vk.s.RenderingAttachmentInfo(
 			{
-				sType = "rendering_attachment_info",
 				imageView = imageView,
 				imageLayout = "color_attachment_optimal",
 				resolveMode = resolveMode,
@@ -151,7 +150,6 @@ function CommandBuffer:BeginRendering(config)
 	if config.depth_image_view then
 		depthAttachmentInfo = vulkan.vk.s.RenderingAttachmentInfo(
 			{
-				sType = "rendering_attachment_info",
 				imageView = config.depth_image_view.ptr[0],
 				imageLayout = config.depth_layout or "depth_attachment_optimal",
 				resolveMode = "none",

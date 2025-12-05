@@ -8,10 +8,9 @@ function GraphicsPipeline.New(device, config, render_passes, pipelineLayout)
 	local shaderStagesArray = ffi.new(stageArrayType)
 
 	for i, stage in ipairs(config.shaderModules) do
-		shaderStagesArray[i - 1] = vulkan.vk.VkPipelineShaderStageCreateInfo(
+		shaderStagesArray[i - 1] = vulkan.vk.s.PipelineShaderStageCreateInfo(
 			{
-				sType = "VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO",
-				stage = vulkan.enums.VK_SHADER_STAGE_(stage.type),
+				stage = stage.type,
 				module = stage.module.ptr[0],
 				pName = "main",
 				flags = 0,
@@ -32,7 +31,7 @@ function GraphicsPipeline.New(device, config, render_passes, pipelineLayout)
 		for i, binding in ipairs(config.vertexBindings) do
 			bindingArray[i - 1].binding = binding.binding
 			bindingArray[i - 1].stride = binding.stride
-			bindingArray[i - 1].inputRate = vulkan.enums.VK_VERTEX_INPUT_RATE_(binding.input_rate or "vertex")
+			bindingArray[i - 1].inputRate = vulkan.vk.e.VkVertexInputRate(binding.input_rate or "vertex")
 		end
 	end
 
@@ -43,14 +42,13 @@ function GraphicsPipeline.New(device, config, render_passes, pipelineLayout)
 		for i, attr in ipairs(config.vertexAttributes) do
 			attributeArray[i - 1].location = attr.location
 			attributeArray[i - 1].binding = attr.binding
-			attributeArray[i - 1].format = vulkan.enums.VK_FORMAT_(attr.format)
+			attributeArray[i - 1].format = vulkan.vk.e.VkFormat(attr.format)
 			attributeArray[i - 1].offset = attr.offset
 		end
 	end
 
-	local vertexInputInfo = vulkan.vk.VkPipelineVertexInputStateCreateInfo(
+	local vertexInputInfo = vulkan.vk.s.PipelineVertexInputStateCreateInfo(
 		{
-			sType = "VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO",
 			vertexBindingDescriptionCount = bindingCount,
 			pVertexBindingDescriptions = bindingArray,
 			vertexAttributeDescriptionCount = attributeCount,
@@ -59,10 +57,9 @@ function GraphicsPipeline.New(device, config, render_passes, pipelineLayout)
 		}
 	)
 	config.input_assembly = config.input_assembly or {}
-	local inputAssembly = vulkan.vk.VkPipelineInputAssemblyStateCreateInfo(
+	local inputAssembly = vulkan.vk.s.PipelineInputAssemblyStateCreateInfo(
 		{
-			sType = "VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO",
-			topology = vulkan.enums.VK_PRIMITIVE_TOPOLOGY_(config.input_assembly.topology or "triangle_list"),
+			topology = config.input_assembly.topology or "triangle_list",
 			primitiveRestartEnable = config.input_assembly.primitive_restart or 0,
 			flags = 0,
 		}
@@ -89,9 +86,8 @@ function GraphicsPipeline.New(device, config, render_passes, pipelineLayout)
 		}
 	)
 	-- TODO: support more than one viewport/scissor
-	local viewportState = vulkan.vk.VkPipelineViewportStateCreateInfo(
+	local viewportState = vulkan.vk.s.PipelineViewportStateCreateInfo(
 		{
-			sType = "VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO",
 			viewportCount = 1,
 			pViewports = viewport,
 			scissorCount = 1,
@@ -100,15 +96,14 @@ function GraphicsPipeline.New(device, config, render_passes, pipelineLayout)
 		}
 	)
 	config.rasterizer = config.rasterizer or {}
-	local rasterizer = vulkan.vk.VkPipelineRasterizationStateCreateInfo(
+	local rasterizer = vulkan.vk.s.PipelineRasterizationStateCreateInfo(
 		{
-			sType = "VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO",
 			depthClampEnable = config.rasterizer.depth_clamp or 0,
 			rasterizerDiscardEnable = config.rasterizer.discard or 0,
-			polygonMode = vulkan.enums.VK_POLYGON_MODE_(config.rasterizer.polygon_mode or "fill"),
+			polygonMode = config.rasterizer.polygon_mode or "fill",
 			lineWidth = config.rasterizer.line_width or 1.0,
-			cullMode = vulkan.enums.VK_CULL_MODE_(config.rasterizer.cull_mode or "back"),
-			frontFace = vulkan.enums.VK_FRONT_FACE_(config.rasterizer.front_face or "clockwise"),
+			cullMode = config.rasterizer.cull_mode or "back",
+			frontFace = config.rasterizer.front_face or "clockwise",
 			depthBiasEnable = config.rasterizer.depth_bias or 0,
 			-- 
 			flags = 0,
@@ -118,11 +113,10 @@ function GraphicsPipeline.New(device, config, render_passes, pipelineLayout)
 		}
 	)
 	config.multisampling = config.multisampling or {}
-	local multisampling = vulkan.vk.VkPipelineMultisampleStateCreateInfo(
+	local multisampling = vulkan.vk.s.PipelineMultisampleStateCreateInfo(
 		{
-			sType = "VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO",
 			sampleShadingEnable = config.multisampling.sample_shading or 0,
-			rasterizationSamples = vulkan.enums.VK_SAMPLE_COUNT_(config.multisampling.rasterization_samples or "1"),
+			rasterizationSamples = config.multisampling.rasterization_samples or "1",
 			--
 			flags = 0,
 			minSampleShading = 0,
@@ -136,28 +130,28 @@ function GraphicsPipeline.New(device, config, render_passes, pipelineLayout)
 	local colorBlendAttachments = {}
 
 	for i, color_blend_attachment in ipairs(config.color_blend.attachments) do
-		colorBlendAttachments[i] = vulkan.vk.VkPipelineColorBlendAttachmentState(
+		colorBlendAttachments[i] = vulkan.vk.s.PipelineColorBlendAttachmentState(
 			{
-				colorWriteMask = vulkan.enums.VK_COLOR_COMPONENT_(color_blend_attachment.color_write_mask or {"R", "G", "B", "A"}),
+				colorWriteMask = color_blend_attachment.color_write_mask or {"R", "G", "B", "A"},
 				blendEnable = color_blend_attachment.blend or 0,
 				srcColorBlendFactor = color_blend_attachment.src_color_blend_factor and
-					vulkan.enums.VK_BLEND_FACTOR_(color_blend_attachment.src_color_blend_factor) or
-					vulkan.enums.VK_BLEND_FACTOR_("one"),
+					color_blend_attachment.src_color_blend_factor or
+					"one",
 				dstColorBlendFactor = color_blend_attachment.dst_color_blend_factor and
-					vulkan.enums.VK_BLEND_FACTOR_(color_blend_attachment.dst_color_blend_factor) or
-					vulkan.enums.VK_BLEND_FACTOR_("zero"),
-				colorBlendOp = color_blend_attachment.color_blend_op and
-					vulkan.enums.VK_BLEND_OP_(color_blend_attachment.color_blend_op) or
-					vulkan.enums.VK_BLEND_OP_("add"),
+					color_blend_attachment.dst_color_blend_factor or
+					"zeo",
+				colorlendOp = color_blend_attachment.color_blend_op and
+					color_blend_attachment.color_blend_op or
+					"add",
 				srcAlphaBlendFactor = color_blend_attachment.src_alpha_blend_factor and
-					vulkan.enums.VK_BLEND_FACTOR_(color_blend_attachment.src_alpha_blend_factor) or
-					vulkan.enums.VK_BLEND_FACTOR_("one"),
+					color_blend_attachment.src_alpha_blend_factor or
+					"one",
 				dstAlphaBlendFactor = color_blend_attachment.dst_alpha_blend_factor and
-					vulkan.enums.VK_BLEND_FACTOR_(color_blend_attachment.dst_alpha_blend_factor) or
-					vulkan.enums.VK_BLEND_FACTOR_("zero"),
+					color_blend_attachment.dst_alpha_blend_factor or
+					"zero",
 				alphaBlendOp = color_blend_attachment.alpha_blend_op and
-					vulkan.enums.VK_BLEND_OP_(color_blend_attachment.alpha_blend_op) or
-					vulkan.enums.VK_BLEND_OP_("add"),
+					color_blend_attachment.alpha_blend_op or
+					"add",
 			}
 		)
 	end
@@ -169,11 +163,10 @@ function GraphicsPipeline.New(device, config, render_passes, pipelineLayout)
 		colorBlendAttachment[i - 1] = colorBlendAttachments[i]
 	end
 
-	local colorBlending = vulkan.vk.VkPipelineColorBlendStateCreateInfo(
+	local colorBlending = vulkan.vk.s.PipelineColorBlendStateCreateInfo(
 		{
-			sType = "VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO",
 			logicOpEnable = config.color_blend.logic_op_enabled or 0,
-			logicOp = vulkan.enums.VK_LOGIC_OP_(config.color_blend.logic_op or "copy"),
+			logicOp = config.color_blend.logic_op or "copy",
 			attachmentCount = #colorBlendAttachments,
 			pAttachments = colorBlendAttachment,
 			blendConstants = config.color_blend.constants or {0.0, 0.0, 0.0, 0.0},
@@ -181,23 +174,22 @@ function GraphicsPipeline.New(device, config, render_passes, pipelineLayout)
 		}
 	)
 	config.depth_stencil = config.depth_stencil or {}
-	local defaultStencilOpState = vulkan.vk.VkStencilOpState(
+	local defaultStencilOpState = vulkan.vk.s.StencilOpState(
 		{
-			failOp = vulkan.enums.VK_STENCIL_OP_("keep"),
-			passOp = vulkan.enums.VK_STENCIL_OP_("keep"),
-			depthFailOp = vulkan.enums.VK_STENCIL_OP_("keep"),
-			compareOp = vulkan.enums.VK_COMPARE_OP_("always"),
+			failOp = "keep",
+			passOp = "keep",
+			depthFailOp = "keep",
+			compareOp = "always",
 			compareMask = 0,
 			writeMask = 0,
 			reference = 0,
 		}
 	)
-	local depthStencilState = vulkan.vk.VkPipelineDepthStencilStateCreateInfo(
+	local depthStencilState = vulkan.vk.s.PipelineDepthStencilStateCreateInfo(
 		{
-			sType = "VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO",
 			depthTestEnable = config.depth_stencil.depth_test or 0,
 			depthWriteEnable = config.depth_stencil.depth_write or 0,
-			depthCompareOp = vulkan.enums.VK_COMPARE_OP_(config.depth_stencil.depth_compare_op or "less"),
+			depthCompareOp = config.depth_stencil.depth_compare_op or "less",
 			depthBoundsTestEnable = config.depth_stencil.depth_bounds_test or 0,
 			stencilTestEnable = config.depth_stencil.stencil_test or 0,
 			flags = 0,
@@ -215,12 +207,11 @@ function GraphicsPipeline.New(device, config, render_passes, pipelineLayout)
 		local dynamicStateArray = vulkan.T.Array(vulkan.vk.VkDynamicState)(dynamicStateCount)
 
 		for i, state in ipairs(config.dynamic_states) do
-			dynamicStateArray[i - 1] = vulkan.enums.VK_DYNAMIC_STATE_(state)
+			dynamicStateArray[i - 1] = vulkan.vk.e.VkDynamicState(state)
 		end
 
-		dynamicStateInfo = vulkan.vk.VkPipelineDynamicStateCreateInfo(
+		dynamicStateInfo = vulkan.vk.s.PipelineDynamicStateCreateInfo(
 			{
-				sType = "VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO",
 				pNext = nil,
 				flags = 0,
 				dynamicStateCount = dynamicStateCount,
@@ -240,26 +231,24 @@ function GraphicsPipeline.New(device, config, render_passes, pipelineLayout)
 	if render_passes[1].format then
 		colorAttachmentCount = 1
 		pColorAttachmentFormats = vulkan.T.Array(vulkan.vk.VkFormat, 1)({
-			vulkan.enums.VK_FORMAT_(render_passes[1].format),
+			vulkan.vk.e.VkFormat(render_passes[1].format),
 		})
 	end
 
-	local pipelineRenderingCreateInfo = vulkan.vk.VkPipelineRenderingCreateInfo(
+	local pipelineRenderingCreateInfo = vulkan.vk.s.PipelineRenderingCreateInfo(
 		{
-			sType = "VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO",
 			pNext = nil,
 			viewMask = 0,
 			colorAttachmentCount = colorAttachmentCount,
 			pColorAttachmentFormats = pColorAttachmentFormats,
 			depthAttachmentFormat = render_passes[1].depth_format and
-				vulkan.enums.VK_FORMAT_(render_passes[1].depth_format) or
-				vulkan.enums.VK_FORMAT_("undefined"),
-			stencilAttachmentFormat = vulkan.enums.VK_FORMAT_("undefined"),
+				render_passes[1].depth_format or
+				"undefined",
+			stencilAttachmentFormat = "undefined",
 		}
 	)
-	local pipelineInfo = vulkan.vk.VkGraphicsPipelineCreateInfo(
+	local pipelineInfo = vulkan.vk.s.GraphicsPipelineCreateInfo(
 		{
-			sType = "VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO",
 			pNext = pipelineRenderingCreateInfo,
 			flags = 0,
 			stageCount = #config.shaderModules,

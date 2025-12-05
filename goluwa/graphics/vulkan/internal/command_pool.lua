@@ -5,11 +5,10 @@ CommandPool.__index = CommandPool
 CommandPool.AllocateCommandBuffer = require("graphics.vulkan.internal.command_buffer").New
 
 function CommandPool.New(device, graphicsQueueFamily)
-	local info = vulkan.vk.VkCommandPoolCreateInfo(
+	local info = vulkan.vk.s.CommandPoolCreateInfo(
 		{
-			sType = "VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO",
 			queueFamilyIndex = graphicsQueueFamily,
-			flags = vulkan.vk.VkCommandPoolCreateFlagBits("VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT"),
+			flags = "reset_command_buffer",
 		}
 	)
 	local ptr = vulkan.T.Box(vulkan.vk.VkCommandPool)()

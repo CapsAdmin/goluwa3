@@ -9,10 +9,10 @@ local WindowRenderTarget = {}
 WindowRenderTarget.__index = WindowRenderTarget
 local default_config = {
 	-- Swapchain settings
-	present_mode = "fifo", -- FIFO (vsync), IMMEDIATE (no vsync), MAILBOX (triple buffer)
+	present_mode = "fifo_khr", -- FIFO (vsync), IMMEDIATE (no vsync), MAILBOX (triple buffer)
 	image_count = nil, -- nil = minImageCount + 1 (usually triple buffer)
 	surface_format_index = 1, -- Which format from available formats to use
-	composite_alpha = "opaque", -- OPAQUE, PRE_MULTIPLIED, POST_MULTIPLIED, INHERIT
+	composite_alpha = "opaque_khr", -- OPAQUE, PRE_MULTIPLIED, POST_MULTIPLIED, INHERIT
 	clipped = true, -- Clip pixels obscured by other windows
 	image_usage = nil, -- nil = COLOR_ATTACHMENT | TRANSFER_DST, or provide custom flags
 	-- Image acquisition

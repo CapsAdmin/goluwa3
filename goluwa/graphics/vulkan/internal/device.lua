@@ -152,9 +152,8 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 		}
 	)
 	local queuePriority = ffi.new("float[1]", 1.0)
-	local queueCreateInfo = vulkan.vk.VkDeviceQueueCreateInfo(
+	local queueCreateInfo = vulkan.vk.s.DeviceQueueCreateInfo(
 		{
-			sType = "VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO",
 			queueFamilyIndex = graphicsQueueFamily,
 			queueCount = 1,
 			pQueuePriorities = queuePriority,
@@ -167,9 +166,8 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 		deviceExtensions[i - 1] = ext
 	end
 
-	local deviceCreateInfo = vulkan.vk.VkDeviceCreateInfo(
+	local deviceCreateInfo = vulkan.vk.s.DeviceCreateInfo(
 		{
-			sType = "VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO",
 			pNext = vulkan12Features,
 			queueCreateInfoCount = 1,
 			pQueueCreateInfos = queueCreateInfo,
@@ -223,13 +221,12 @@ function Device:WaitIdle()
 end
 
 function Device:UpdateDescriptorSet(type, descriptorSet, binding_index, ...)
-	local descriptorWrite = vulkan.vk.VkWriteDescriptorSet(
+	local descriptorWrite = vulkan.vk.s.WriteDescriptorSet(
 		{
-			sType = "VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET",
 			dstSet = descriptorSet.ptr[0],
 			dstBinding = binding_index,
 			dstArrayElement = 0,
-			descriptorType = vulkan.enums.VK_DESCRIPTOR_TYPE_(type),
+			descriptorType = type,
 			descriptorCount = 1,
 		}
 	)
@@ -249,17 +246,17 @@ function Device:UpdateDescriptorSet(type, descriptorSet, binding_index, ...)
 			{
 				sampler = nil,
 				imageView = imageView.ptr[0],
-				imageLayout = "VK_IMAGE_LAYOUT_GENERAL",
+				imageLayout = "general",
 			}
 		)
 		descriptorWrite.pImageInfo = descriptor_info
 	elseif type == "combined_image_sampler" then
 		local imageView, sampler = assert(select(1, ...)), assert(select(2, ...))
-		descriptor_info = vulkan.vk.VkDescriptorImageInfo(
+		descriptor_info = vulkan.vk.s.DescriptorImageInfo(
 			{
 				sampler = sampler.ptr[0],
 				imageView = imageView.ptr[0],
-				imageLayout = "VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL",
+				imageLayout = "read_only_optimal",
 			}
 		)
 		descriptorWrite.pImageInfo = descriptor_info

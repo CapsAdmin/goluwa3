@@ -1,36 +1,13 @@
 local ffi = require("ffi")
-local ffi_helpers = require("helpers.ffi_helpers")
 local vulkan = require("graphics.vulkan.internal.vulkan")
 local PhysicalDevice = require("graphics.vulkan.internal.physical_device")
 local Instance = {}
 Instance.__index = Instance
 
-local function friendly_flags(type, flags, prefix)
-	local flags = ffi_helpers.bit_enums_to_table(type, flags)
-
-	for i, str in ipairs(flags) do
-		if str:find("MAX_ENUM") then
-			table.remove(flags, i)
-
-			break
-		end
-	end
-
-	for i, str in ipairs(flags) do
-		flags[i] = str:gsub(prefix, ""):gsub("_BIT_EXT", "")
-	end
-
-	return flags
-end
-
 local function debug_callback(messageSeverity, messageType, pCallbackData, pUserData)
 	local data = pCallbackData[0]
-	local severity_flags = friendly_flags(
-		vulkan.vk.VkDebugUtilsMessageSeverityFlagBitsEXT,
-		messageSeverity,
-		"VK_DEBUG_UTILS_MESSAGE_SEVERITY_"
-	)
-	local type_flags = friendly_flags(vulkan.vk.VkDebugUtilsMessageTypeFlagBitsEXT, messageType, "VK_DEBUG_UTILS_MESSAGE_TYPE_")
+	local type_flags = vulkan.vk.str.VkDebugUtilsMessageTypeFlagBitsEXT(messageType)
+	local severity_flags = vulkan.vk.str.VkDebugUtilsMessageSeverityFlagBitsEXT(messageSeverity)
 	local msg = ffi.string(data.pMessage)
 
 	if msg:find("vk_loader_settings.json", nil, true) then
@@ -49,9 +26,8 @@ end
 function Instance.New(extensions, layers)
 	local version = vulkan.vk.VK_API_VERSION_1_4
 	llog("requesting version: " .. vulkan.VersionToString(version))
-	local appInfo = vulkan.vk.VkApplicationInfo(
+	local appInfo = vulkan.vk.s.ApplicationInfo(
 		{
-			sType = "VK_STRUCTURE_TYPE_APPLICATION_INFO",
 			pApplicationName = "MoltenVK LuaJIT Example",
 			applicationVersion = 1,
 			pEngineName = "No Engine",
@@ -95,21 +71,11 @@ function Instance.New(extensions, layers)
 	local debug_create_info
 
 	if has_validation then
-		debug_create_info = vulkan.vk.VkDebugUtilsMessengerCreateInfoEXT(
+		debug_create_info = vulkan.vk.s.DebugUtilsMessengerCreateInfoEXT(
 			{
-				sType = "VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT",
 				flags = 0,
-				messageSeverity = bit.bor(
-					--vulkan.vk.VkDebugUtilsMessageSeverityFlagBitsEXT("VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT"),
-					--vulkan.vk.VkDebugUtilsMessageSeverityFlagBitsEXT("VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT"),
-					vulkan.vk.VkDebugUtilsMessageSeverityFlagBitsEXT("VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT"),
-					vulkan.vk.VkDebugUtilsMessageSeverityFlagBitsEXT("VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT")
-				),
-				messageType = bit.bor(
-					vulkan.vk.VkDebugUtilsMessageTypeFlagBitsEXT("VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT"),
-					vulkan.vk.VkDebugUtilsMessageTypeFlagBitsEXT("VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT"),
-					vulkan.vk.VkDebugUtilsMessageTypeFlagBitsEXT("VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT")
-				),
+				messageSeverity = {"warning_ext", "error_ext"},
+				messageType = {"general_ext", "validation_ext", "performance_ext"},
 				pfnUserCallback = ffi.cast(vulkan.vk.PFN_vkDebugUtilsMessengerCallbackEXT, debug_callback),
 				pUserData = nil,
 			}
@@ -119,24 +85,27 @@ function Instance.New(extensions, layers)
 	-- Only use portability enumeration on macOS
 	local instance_flags = 0
 
-	if jit.os == "OSX" then
-		instance_flags = vulkan.vk.VkInstanceCreateFlagBits("VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR")
-	end
+	if jit.os == "OSX" then instance_flags = "enumerate_portability_khr" end
 
-	local createInfo = vulkan.vk.VkInstanceCreateInfo(
-		{
-			sType = "VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO",
-			pNext = has_validation and debug_create_info or nil,
-			flags = instance_flags,
-			pApplicationInfo = appInfo,
-			enabledLayerCount = layers and #layers or 0,
-			ppEnabledLayerNames = layer_names,
-			enabledExtensionCount = extensions and #extensions or 0,
-			ppEnabledExtensionNames = extension_names,
-		}
-	)
 	local ptr = vulkan.T.Box(vulkan.vk.VkInstance)()
-	vulkan.assert(vulkan.lib.vkCreateInstance(createInfo, nil, ptr), "failed to create vulkan instance")
+	vulkan.assert(
+		vulkan.lib.vkCreateInstance(
+			vulkan.vk.s.InstanceCreateInfo(
+				{
+					pNext = has_validation and debug_create_info or nil,
+					flags = instance_flags,
+					pApplicationInfo = appInfo,
+					enabledLayerCount = layers and #layers or 0,
+					ppEnabledLayerNames = layer_names,
+					enabledExtensionCount = extensions and #extensions or 0,
+					ppEnabledExtensionNames = extension_names,
+				}
+			),
+			nil,
+			ptr
+		),
+		"failed to create vulkan instance"
+	)
 	local self = setmetatable({ptr = ptr, debug_messenger = nil}, Instance)
 
 	-- Create debug messenger

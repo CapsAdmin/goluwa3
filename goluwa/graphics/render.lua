@@ -18,10 +18,10 @@ function render.Initialize()
 	local size = window:GetSize()
 	local window_target = vulkan_instance:CreateWindowRenderTarget(
 		{
-			present_mode = "fifo",
+			present_mode = "fifo_khr",
 			image_count = nil, -- Use default (minImageCount + 1)
 			surface_format_index = 1,
-			composite_alpha = "opaque",
+			composite_alpha = "opaque_khr",
 			width = size.x,
 			height = size.y,
 		}

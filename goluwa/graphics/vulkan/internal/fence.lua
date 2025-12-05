@@ -4,12 +4,9 @@ local Fence = {}
 Fence.__index = Fence
 
 function Fence.New(device)
-	local fenceCreateInfo = vulkan.vk.VkFenceCreateInfo(
-		{
-			sType = "VK_STRUCTURE_TYPE_FENCE_CREATE_INFO",
-			flags = vulkan.vk.VkFenceCreateFlagBits("VK_FENCE_CREATE_SIGNALED_BIT"),
-		}
-	)
+	local fenceCreateInfo = vulkan.vk.s.FenceCreateInfo({
+		flags = "signaled",
+	})
 	local ptr = vulkan.T.Box(vulkan.vk.VkFence)()
 	vulkan.assert(
 		vulkan.lib.vkCreateFence(device.ptr[0], fenceCreateInfo, nil, ptr),

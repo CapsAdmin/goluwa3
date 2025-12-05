@@ -13,14 +13,12 @@ function Buffer.New(config)
 	vulkan.assert(
 		vulkan.lib.vkCreateBuffer(
 			device.ptr[0],
-			vulkan.vk.VkBufferCreateInfo(
+			vulkan.vk.s.BufferCreateInfo(
 				{
-					sType = "VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO",
-					pNext = nil,
 					flags = 0,
 					size = size,
-					usage = vulkan.enums.VK_BUFFER_USAGE_(usage),
-					sharingMode = "VK_SHARING_MODE_EXCLUSIVE",
+					usage = usage,
+					sharingMode = "exclusive",
 					queueFamilyIndexCount = 0,
 					pQueueFamilyIndices = nil,
 				}
@@ -39,10 +37,7 @@ function Buffer.New(config)
 	self.memory = Memory.New(
 		device,
 		requirements.size,
-		device.physical_device:FindMemoryType(
-			requirements.memoryTypeBits,
-			vulkan.enums.VK_MEMORY_PROPERTY_(properties or {"host_visible", "host_coherent"})
-		)
+		device.physical_device:FindMemoryType(requirements.memoryTypeBits, properties or {"host_visible", "host_coherent"})
 	)
 	self:BindMemory()
 	return self

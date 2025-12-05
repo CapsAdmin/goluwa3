@@ -6,43 +6,6 @@ vulkan.ext = {}
 vulkan.vk = vk
 vulkan.lib = vulkan.vk.find_library()
 vulkan.T = {Box = ffi_helpers.Box, Array = ffi_helpers.Array}
-vulkan.enum_to_string = ffi_helpers.enum_to_string
-vulkan.enums = ffi_helpers.translate_enums(
-	{
-		{vulkan.vk.VkVertexInputRate, "VK_VERTEX_INPUT_RATE_"},
-		{vulkan.vk.VkPrimitiveTopology, "VK_PRIMITIVE_TOPOLOGY_"},
-		{vulkan.vk.VkColorComponentFlagBits, "VK_COLOR_COMPONENT_", "_BIT"},
-		{vulkan.vk.VkPolygonMode, "VK_POLYGON_MODE_"},
-		{vulkan.vk.VkCullModeFlagBits, "VK_CULL_MODE_", "_BIT"},
-		{vulkan.vk.VkFrontFace, "VK_FRONT_FACE_"},
-		{vulkan.vk.VkSampleCountFlagBits, "VK_SAMPLE_COUNT_", "_BIT"},
-		{vulkan.vk.VkLogicOp, "VK_LOGIC_OP_"},
-		{vulkan.vk.VkCompareOp, "VK_COMPARE_OP_"},
-		{vulkan.vk.VkFormat, "VK_FORMAT_"},
-		{vulkan.vk.VkPresentModeKHR, "VK_PRESENT_MODE_", "_KHR"},
-		{vulkan.vk.VkCompositeAlphaFlagBitsKHR, "VK_COMPOSITE_ALPHA_", "_BIT_KHR"},
-		{vulkan.vk.VkImageUsageFlagBits, "VK_IMAGE_USAGE_", "_BIT"},
-		{vulkan.vk.VkBufferUsageFlagBits, "VK_BUFFER_USAGE_", "_BIT"},
-		{vulkan.vk.VkMemoryPropertyFlagBits, "VK_MEMORY_PROPERTY_", "_BIT"},
-		{vulkan.vk.VkShaderStageFlagBits, "VK_SHADER_STAGE_", "_BIT"},
-		{vulkan.vk.VkDescriptorType, "VK_DESCRIPTOR_TYPE_"},
-		{vulkan.vk.VkColorSpaceKHR, "VK_COLOR_SPACE_"},
-		{vulkan.vk.VkImageAspectFlagBits, "VK_IMAGE_ASPECT_", "_BIT"},
-		{vulkan.vk.VkAccessFlagBits, "VK_ACCESS_", "_BIT"},
-		{vulkan.vk.VkImageLayout, "VK_IMAGE_LAYOUT_"},
-		{vulkan.vk.VkPipelineBindPoint, "VK_PIPELINE_BIND_POINT_"},
-		{vulkan.vk.VkDynamicState, "VK_DYNAMIC_STATE_"},
-		{vulkan.vk.VkImageViewType, "VK_IMAGE_VIEW_TYPE_"},
-		{vulkan.vk.VkFilter, "VK_FILTER_"},
-		{vulkan.vk.VkSamplerMipmapMode, "VK_SAMPLER_MIPMAP_MODE_"},
-		{vulkan.vk.VkSamplerAddressMode, "VK_SAMPLER_ADDRESS_MODE_"},
-		{vulkan.vk.VkIndexType, "VK_INDEX_TYPE_"},
-		{vulkan.vk.VkBlendFactor, "VK_BLEND_FACTOR_"},
-		{vulkan.vk.VkBlendOp, "VK_BLEND_OP_"},
-		{vulkan.vk.VkStencilOp, "VK_STENCIL_OP_"},
-		{vulkan.vk.VkResult, "VK_"},
-	}
-)
 
 function vulkan.assert(result, msg)
 	if result ~= 0 then

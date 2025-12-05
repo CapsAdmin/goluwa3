@@ -165,7 +165,7 @@ do
 					{
 						binding = 0,
 						location = 0, -- in_position
-						format = "R32G32B32_SFLOAT", -- vec3
+						format = "r32g32b32_sfloat", -- vec3
 						offset = 0,
 						lua_type = ffi.typeof("float[3]"),
 						lua_name = "pos",
@@ -173,7 +173,7 @@ do
 					{
 						binding = 0,
 						location = 1, -- in_uv
-						format = "R32G32_SFLOAT", -- vec2
+						format = "r32g32_sfloat", -- vec2
 						offset = ffi.sizeof("float[3]"),
 						lua_type = ffi.typeof("float[2]"),
 						lua_name = "uv",
@@ -181,7 +181,7 @@ do
 					{
 						binding = 0,
 						location = 2, -- in_color
-						format = "R32G32B32A32_SFLOAT", -- vec4
+						format = "r32g32b32a32_sfloat", -- vec4
 						offset = ffi.sizeof("float[3]") + ffi.sizeof("float[2]"),
 						lua_type = ffi.typeof("float[4]"),
 						lua_name = "color",
