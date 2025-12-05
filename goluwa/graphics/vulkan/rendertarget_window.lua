@@ -316,18 +316,22 @@ function WindowRenderTarget:EndFrame()
 		}
 	)
 	command_buffer:End()
-	-- Submit command buffer with current frame's semaphores
+	-- Submit command buffer
+	-- Use current_frame for image_available (wait) semaphore and fence
+	-- Use texture_index for render_finished (signal) semaphore - this ensures
+	-- we use a separate semaphore per swapchain image as required by Vulkan spec
 	self.vulkan_instance.queue:Submit(
 		command_buffer,
 		self.image_available_semaphores[self.current_frame],
-		self.render_finished_semaphores[self.current_frame],
+		self.render_finished_semaphores[self.texture_index],
 		self.in_flight_fences[self.current_frame]
 	)
 
 	-- Present and recreate swapchain if needed
+	-- Use texture_index for render_finished semaphore to match the submission
 	if
 		not self.swapchain:Present(
-			self.render_finished_semaphores[self.current_frame],
+			self.render_finished_semaphores[self.texture_index],
 			self.vulkan_instance.queue,
 			ffi.new("uint32_t[1]", self.texture_index - 1)
 		)
