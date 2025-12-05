@@ -303,7 +303,7 @@ function serialize_refct_internal(refct, visited, depth)
 end
 
 function serialize_ctype(ct)
-	local refct = refct_from_id(tonumber(ffi.typeof(ct)))
+	local refct = refct_from_id(type(ct) == "number" and ct or tonumber(ffi.typeof(ct)))
 	local visited = {}
 	return serialize_refct_internal(refct, visited, 0)
 end

@@ -12,7 +12,7 @@ function ImageView.New(config)
 	vulkan.assert(
 		vulkan.lib.vkCreateImageView(
 			config.device.ptr[0],
-			vulkan.vk.infos.ImageView(
+			vulkan.vk.s.ImageViewCreateInfo(
 				{
 					flags = config.flags,
 					image = config.image.ptr[0],
