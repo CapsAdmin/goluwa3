@@ -35,24 +35,20 @@ end
 
 -- Initialize Cocoa application and create window
 local function init_cocoa()
-	local pool = objc.NSAutoreleasePool:alloc():init()
-	local app = objc.NSApplication:sharedApplication()
-	app:setActivationPolicy_(0) -- NSApplicationActivationPolicyRegular
-	app:activateIgnoringOtherApps_(true)
+	local pool = objc.Class("NSAutoreleasePool"):Call("alloc"):Call("init")
+	local app = objc.Class("NSApplication"):Call("sharedApplication")
+	app:Call("setActivationPolicy:", 0)
+	app:Call("activateIgnoringOtherApps:", true)
 	local frame = CGRectMake(100, 100, 800, 600)
-	local styleMask = bit.bor(1, 2, 4, 8) -- Titled | Closable | Miniaturizable | Resizable
-	local window = objc.NSWindow:alloc():initWithContentRect_styleMask_backing_defer_(frame, styleMask, 2, -- NSBackingStoreBuffered
-	false)
-	-- Use msgSend directly with explicit NULL pointer
-	objc.msgSend(window, "makeKeyAndOrderFront:", ffi.cast("id", 0))
-	-- Use msgSend directly for contentView to avoid property lookup
-	local contentView = objc.msgSend(window, "contentView")
-	local metal_layer = objc.CAMetalLayer:layer()
-	-- Set initial drawable size to match the content view bounds
-	local bounds = objc.msgSend(contentView, "bounds")
-	metal_layer:setDrawableSize_(bounds.size)
-	contentView:setWantsLayer_(true)
-	contentView:setLayer_(metal_layer)
+	local styleMask = bit.bor(1, 2, 4, 8)
+	local window = objc.Class("NSWindow"):Call("alloc"):Call("initWithContentRect:styleMask:backing:defer:", frame, styleMask, 2, false)
+	window:Call("makeKeyAndOrderFront:", ffi.cast("id", 0))
+	local contentView = window:GetProperty("contentView")
+	local metal_layer = objc.Class("CAMetalLayer"):Call("layer")
+	local bounds = contentView:GetProperty("bounds")
+	metal_layer:Call("setDrawableSize:", bounds.size)
+	contentView:Call("setWantsLayer:", true)
+	contentView:Call("setLayer:", metal_layer)
 	return window, metal_layer
 end
 
@@ -99,7 +95,6 @@ local NSEventModifierFlags = {
 	-- Device-specific modifier flags (for determining left vs right)
 	DeviceIndependentFlagsMask = 0xFFFF0000,
 }
-
 -- Device-specific modifier key codes (lower bits that distinguish left/right)
 local NSEventModifierDeviceFlags = {
 	LeftShift = 0x0002,
@@ -198,7 +193,6 @@ local keycodes = {
 	[0x67] = "f11",
 	[0x6F] = "f12",
 }
-
 -- Track previous modifier state for FlagsChanged events
 local last_modifier_flags = 0
 
@@ -206,8 +200,8 @@ local last_modifier_flags = 0
 local function convert_nsevent(nsevent, window)
 	if nsevent == nil or nsevent == objc.ptr(nil) then return nil end
 
-	local event_type = tonumber(objc.msgSend(nsevent, "type"))
-	local modifier_flags = tonumber(objc.msgSend(nsevent, "modifierFlags"))
+	local event_type = tonumber(nsevent:Call("type"))
+	local modifier_flags = tonumber(nsevent:Call("modifierFlags"))
 	-- Extract modifiers
 	local modifiers = {
 		shift = bit.band(modifier_flags, NSEventModifierFlags.Shift) ~= 0,
@@ -218,14 +212,13 @@ local function convert_nsevent(nsevent, window)
 
 	-- Keyboard events
 	if event_type == NSEventType.KeyDown then
-		local keycode = tonumber(objc.msgSend(nsevent, "keyCode"))
+		local keycode = tonumber(nsevent:Call("keyCode"))
 		local key = keycodes[keycode] or "unknown"
-		-- Get character representation
-		local chars = objc.msgSend(nsevent, "characters")
+		local chars = nsevent:Call("characters")
 		local char = nil
 
 		if chars ~= nil and chars ~= objc.ptr(nil) then
-			local cstr = objc.msgSend(chars, "UTF8String")
+			local cstr = chars:Call("UTF8String")
 
 			if cstr ~= nil then char = ffi.string(cstr) end
 		end
@@ -237,7 +230,7 @@ local function convert_nsevent(nsevent, window)
 			modifiers = modifiers,
 		}
 	elseif event_type == NSEventType.KeyUp then
-		local keycode = tonumber(objc.msgSend(nsevent, "keyCode"))
+		local keycode = tonumber(nsevent:Call("keyCode"))
 		local key = keycodes[keycode] or "unknown"
 		return {
 			type = "key_release",
@@ -249,9 +242,9 @@ local function convert_nsevent(nsevent, window)
 		-- Determine which modifier key changed by comparing with previous state
 		local changed = bit.bxor(modifier_flags, last_modifier_flags)
 		local pressed = bit.band(modifier_flags, changed) ~= 0
-
 		-- Check each modifier key
 		local key = nil
+
 		if bit.band(changed, NSEventModifierDeviceFlags.LeftShift) ~= 0 then
 			key = "left_shift"
 		elseif bit.band(changed, NSEventModifierDeviceFlags.RightShift) ~= 0 then
@@ -287,7 +280,7 @@ local function convert_nsevent(nsevent, window)
 		event_type == NSEventType.RightMouseDown or
 		event_type == NSEventType.OtherMouseDown
 	then
-		local location = objc.msgSend(nsevent, "locationInWindow")
+		local location = nsevent:Call("locationInWindow")
 		local button = event_type == NSEventType.LeftMouseDown and
 			"left" or
 			event_type == NSEventType.RightMouseDown and
@@ -306,7 +299,7 @@ local function convert_nsevent(nsevent, window)
 		event_type == NSEventType.RightMouseUp or
 		event_type == NSEventType.OtherMouseUp
 	then
-		local location = objc.msgSend(nsevent, "locationInWindow")
+		local location = nsevent:Call("locationInWindow")
 		local button = event_type == NSEventType.LeftMouseUp and
 			"left" or
 			event_type == NSEventType.RightMouseUp and
@@ -327,9 +320,9 @@ local function convert_nsevent(nsevent, window)
 		event_type == NSEventType.RightMouseDragged or
 		event_type == NSEventType.OtherMouseDragged
 	then
-		local location = objc.msgSend(nsevent, "locationInWindow")
-		local delta_x = tonumber(objc.msgSend(nsevent, "deltaX"))
-		local delta_y = tonumber(objc.msgSend(nsevent, "deltaY"))
+		local location = nsevent:Call("locationInWindow")
+		local delta_x = tonumber(nsevent:Call("deltaX"))
+		local delta_y = tonumber(nsevent:Call("deltaY"))
 		return {
 			type = "mouse_move",
 			x = tonumber(location.x),
@@ -340,9 +333,9 @@ local function convert_nsevent(nsevent, window)
 		}
 	-- Scroll wheel
 	elseif event_type == NSEventType.ScrollWheel then
-		local location = objc.msgSend(nsevent, "locationInWindow")
-		local delta_x = tonumber(objc.msgSend(nsevent, "scrollingDeltaX"))
-		local delta_y = tonumber(objc.msgSend(nsevent, "scrollingDeltaY"))
+		local location = nsevent:Call("locationInWindow")
+		local delta_x = tonumber(nsevent:Call("scrollingDeltaX"))
+		local delta_y = tonumber(nsevent:Call("scrollingDeltaY"))
 		return {
 			type = "mouse_scroll",
 			x = tonumber(location.x),
@@ -361,28 +354,31 @@ local dequeue = true
 
 -- Event loop helpers
 local function poll_events(app, window, event_list)
-	-- Create fresh objects each iteration (they're lightweight singletons)
-	local distantPast = objc.NSDate:distantPast()
-	local mode = objc.NSString:stringWithUTF8String_("kCFRunLoopDefaultMode")
-	-- Poll for events without blocking
-	local event = app:nextEventMatchingMask_untilDate_inMode_dequeue_(NSEventMaskAny, distantPast, mode, dequeue)
+	local distantPast = objc.Class("NSDate"):Call("distantPast")
+	local mode = objc.Class("NSString"):Call("stringWithUTF8String:", "kCFRunLoopDefaultMode")
+	local event = app:Call(
+		"nextEventMatchingMask:untilDate:inMode:dequeue:",
+		NSEventMaskAny,
+		distantPast,
+		mode,
+		dequeue
+	)
 
 	if event ~= nil and event ~= objc.ptr(nil) then
-		local event_type = tonumber(objc.msgSend(event, "type"))
-		-- Convert and store event before deciding whether to send to system
+		local event_type = tonumber(event:Call("type"))
 		local converted = convert_nsevent(event, window)
 
 		if converted then table.insert(event_list, converted) end
 
-		-- Don't send keyboard events to the system (prevents beep)
-		-- But do send mouse events and other events so the window system works properly
-		if event_type ~= NSEventType.KeyDown and
-		   event_type ~= NSEventType.KeyUp and
-		   event_type ~= NSEventType.FlagsChanged then
-			app:sendEvent_(event)
+		if
+			event_type ~= NSEventType.KeyDown and
+			event_type ~= NSEventType.KeyUp and
+			event_type ~= NSEventType.FlagsChanged
+		then
+			app:Call("sendEvent:", event)
 		end
 
-		app:updateWindows()
+		app:Call("updateWindows")
 		return true
 	end
 
@@ -391,7 +387,7 @@ end
 
 -- Helper to get the NSApplication singleton
 local function get_app()
-	return objc.NSApplication:sharedApplication()
+	return objc.Class("NSApplication"):Call("sharedApplication")
 end
 
 -- CGDisplayHideCursor / CGDisplayShowCursor
@@ -420,23 +416,21 @@ end
 
 function meta:Initialize()
 	self.app = get_app()
-	self.app:finishLaunching()
-	-- Set up window delegate to catch close events
+	self.app:Call("finishLaunching")
 	setup_window_delegate()
-	local delegate = WindowDelegate:alloc():init()
-	self.window:setDelegate_(delegate)
-	-- Store window pointer for lookup
+	local delegate = WindowDelegate:Call("alloc"):Call("init")
+	self.window:Call("setDelegate:", delegate)
 	self.window_ptr = tostring(self.window)
 	close_flags[self.window_ptr] = false
 end
 
 function meta:SetTitle(str)
-	self.window:setTitle_(objc.NSString:stringWithUTF8String_(str))
+	self.window:Call("setTitle:", objc.Class("NSString"):Call("stringWithUTF8String:", str))
 end
 
 function meta:OpenWindow()
-	self.window:makeKeyAndOrderFront_(ffi.cast("id", 0))
-	self.app:activateIgnoringOtherApps_(true)
+	self.window:Call("makeKeyAndOrderFront:", ffi.cast("id", 0))
+	self.app:Call("activateIgnoringOtherApps:", true)
 end
 
 function meta:GetSurfaceHandle()
@@ -444,12 +438,12 @@ function meta:GetSurfaceHandle()
 end
 
 function meta:IsVisible()
-	local isVisible = objc.msgSend(self.window, "isVisible")
+	local isVisible = self.window:Call("isVisible")
 	return not isVisible or isVisible == 0
 end
 
 function meta:GetSize()
-	local window_frame = objc.msgSend(self.window, "frame")
+	local window_frame = self.window:Call("frame")
 	return tonumber(window_frame.size.width), tonumber(window_frame.size.height)
 end
 
@@ -486,17 +480,16 @@ function meta:ReadEvents()
 		)
 		self.last_width = current_width
 		self.last_height = current_height
-		-- Update metal layer drawable size
-		local content_view = objc.msgSend(self.window, "contentView")
-		local bounds = objc.msgSend(content_view, "bounds")
-		self.metal_layer:setDrawableSize_(bounds.size)
+		local content_view = self.window:GetProperty("contentView")
+		local bounds = content_view:GetProperty("bounds")
+		self.metal_layer:Call("setDrawableSize:", bounds.size)
 	end
 
 	return events
 end
 
 function meta:GetWindowSize()
-	local window_frame = objc.msgSend(self.window, "frame")
+	local window_frame = self.window:Call("frame")
 	return tonumber(window_frame.size.width), tonumber(window_frame.size.height)
 end
 

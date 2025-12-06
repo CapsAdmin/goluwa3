@@ -1,6 +1,5 @@
 local ffi = require("ffi")
 local cocoa = require("bindings.cocoa")
-local objc = require("bindings.objc")
 local Vec2 = require("structs.vec2")
 local system = require("system")
 local event = require("event")

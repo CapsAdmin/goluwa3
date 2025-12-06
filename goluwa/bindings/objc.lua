@@ -84,26 +84,22 @@ local type_encoding = setmetatable(
 		__newindex = nil, -- read only table
 	}
 )
-local cast = setmetatable(
-	{},
-	{
-		---cast an object to C type using cached type
-		---@param self table
-		---@param typedef string C type definition
-		---@param object any object to cast
-		---@return cdata c
-		__call = function(self, typedef, object)
-			local typeobj = self[typedef]
+local cast_cache = {}
 
-			if not typeobj then
-				typeobj = ffi.typeof(typedef)
-				self[typedef] = typeobj
-			end
+---cast an object to C type using cached type
+---@param typedef string C type definition
+---@param object any object to cast
+---@return cdata c
+local function cast(typedef, object)
+	local typeobj = cast_cache[typedef]
 
-			return ffi.cast(typeobj, object)
-		end,
-	}
-)
+	if not typeobj then
+		typeobj = ffi.typeof(typedef)
+		cast_cache[typedef] = typeobj
+	end
+
+	return ffi.cast(typeobj, object)
+end
 
 ---convert a NULL pointer to nil
 ---@param p cdata pointer
@@ -132,70 +128,53 @@ end
 
 ---return SEL from name
 ---@param name string | SEL
----@param num_args? integer
 ---@return SEL
-local function sel(name, num_args)
+local function sel(name)
 	assert(name)
 
-	if type(name) == "cdata" and ffi.istype("SEL", name) then
-		return name -- already a SEL
-	end
+	if type(name) == "cdata" and ffi.istype("SEL", name) then return name end
 
 	assert(type(name) == "string")
+	return C.sel_registerName(name)
+end
 
-	if num_args and num_args > 0 and name:sub(-1) ~= "_" then
-		name = name .. "_"
+---return Method for Class or object and SEL
+---@param self Class | id
+---@param selector SEL
+---@return Method?
+local function getMethod(self, selector) ---@diagnostic disable-line: redefined-local
+	if ffi.istype("Class", self) then
+		return assert(ptr(C.class_getClassMethod(self, selector)))
+	elseif ffi.istype("id", self) then
+		return assert(ptr(C.class_getInstanceMethod(cls(self), selector)))
 	end
 
-	local name, count = name:gsub("_", ":") ---@diagnostic disable-line: redefined-local
-	if num_args then assert(count == num_args) end
+	assert(false, "self not a Class or object")
+end
 
-	return C.sel_registerName(name) -- pointer is never NULL
+---convert a Lua variable to a C type if needed
+---@param lua_var any
+---@param c_type string
+---@return cdata | any
+local function convert(lua_var, c_type)
+	if type(lua_var) == "string" and c_type == "char*" then
+		return cast(c_type, lua_var)
+	elseif type(lua_var) == "cdata" and c_type == "id" and ffi.istype("Class", lua_var) then
+		return cast(c_type, lua_var)
+	elseif lua_var == nil then
+		return ffi.new(c_type)
+	end
+
+	return lua_var
 end
 
 ---call a method for a SEL on a Class or object
----@param self string | Class | id the class or object
----@param selector string | SEL name of method
+---@param self Class | id the class or object
+---@param selector SEL name of method
 ---@param ...? any additional method parameters
 ---@return any
 local function msgSend(self, selector, ...)
-	---return Method for Class or object and SEL
-	---@param self Class | id
-	---@param selector SEL
-	---@return Method?
-	local function getMethod(self, selector) ---@diagnostic disable-line: redefined-local
-		if ffi.istype("Class", self) then
-			return assert(ptr(C.class_getClassMethod(self, selector)))
-		elseif ffi.istype("id", self) then
-			return assert(ptr(C.class_getInstanceMethod(cls(self), selector)))
-		end
-
-		assert(false, "self not a Class or object")
-	end
-
-	---convert a Lua variable to a C type if needed
-	---@param lua_var any
-	---@param c_type string
-	---@return cdata | any
-	local function convert(lua_var, c_type)
-		if type(lua_var) == "string" then
-			if c_type == "SEL" then
-				return sel(lua_var)
-			elseif c_type == "char*" then
-				return cast(c_type, lua_var)
-			end
-		elseif type(lua_var) == "cdata" and c_type == "id" and ffi.istype("Class", lua_var) then
-			return cast(c_type, lua_var) -- sometimes method signatures use id instead of Class
-		elseif lua_var == nil then
-			return ffi.new(c_type) -- convert to a null pointer
-		end
-
-		return lua_var -- no conversion necessary
-	end
-
-	if type(self) == "string" then self = cls(self) end
-
-	local selector = sel(selector) ---@diagnostic disable-line: redefined-local
+	assert(type(self) == "cdata")
 	local method = getMethod(self, selector)
 	local call_args = table_pack(self, selector, ...)
 	local char_ptr = assert(ptr(C.method_copyReturnType(method)))
@@ -253,7 +232,7 @@ end
 ---@return cdata ffi callback
 local function addMethod(class, selector, types, func)
 	assert(type(func) == "function")
-	assert(type(types) == "string") -- and #types - 1 == debug.getinfo(func).nparams)
+	assert(type(types) == "string")
 	local class = cls(class) ---@diagnostic disable-line: redefined-local
 	local selector = sel(selector) ---@diagnostic disable-line: redefined-local
 	local signature = {}
@@ -272,22 +251,32 @@ local function addMethod(class, selector, types, func)
 	return imp
 end
 
-local objc = setmetatable(
-	{
-		Class = cls,
-		SEL = sel,
-		addMethod = addMethod,
-		loadFramework = loadFramework,
-		msgSend = msgSend,
-		newClass = newClass,
-		ptr = ptr,
-	},
-	{
-		__index = function(_, name)
-			return cls(name) -- use key to lookup class by name
-		end,
-	}
-)
+local objc = {
+	Class = cls,
+	SEL = sel,
+	addMethod = addMethod,
+	loadFramework = loadFramework,
+	msgSend = msgSend,
+	newClass = newClass,
+	ptr = ptr,
+}
+local class_methods = {
+	Call = function(class, selector, ...)
+		return msgSend(class, sel(selector), ...)
+	end,
+}
+local object_methods = {
+	Call = function(object, selector, ...)
+		return msgSend(object, sel(selector), ...)
+	end,
+	GetProperty = function(object, property_name)
+		return msgSend(object, sel(property_name))
+	end,
+	SetProperty = function(object, property_name, value)
+		local setter = string.format("set%s%s:", property_name:sub(1, 1):upper(), property_name:sub(2))
+		msgSend(object, sel(setter), value)
+	end,
+}
 ffi.metatype(
 	"struct objc_selector",
 	{
@@ -302,12 +291,7 @@ ffi.metatype(
 		__tostring = function(class)
 			return ffi.string(assert(ptr(C.class_getName(class))))
 		end,
-		__index = function(class, selector)
-			return function(self, ...)
-				assert(class == self)
-				return msgSend(self, sel(selector, select("#", ...)), ...)
-			end
-		end,
+		__index = class_methods,
 	}
 )
 ffi.metatype(
@@ -316,20 +300,7 @@ ffi.metatype(
 		__tostring = function(class)
 			return ffi.string(assert(ptr(C.object_getClassName(class))))
 		end,
-		__index = function(object, selector)
-			if ptr(C.class_getProperty(cls(object), selector)) then
-				return msgSend(object, sel(selector))
-			end
-
-			return function(self, ...)
-				assert(object == self)
-				return msgSend(self, sel(selector, select("#", ...)), ...)
-			end
-		end,
-		__newindex = function(object, selector, value)
-			selector = string.format("set%s%s:", selector:sub(1, 1):upper(), selector:sub(2))
-			msgSend(object, sel(selector), value) -- propertyName to setPropertyName
-		end,
+		__index = object_methods,
 	}
 )
 return objc
