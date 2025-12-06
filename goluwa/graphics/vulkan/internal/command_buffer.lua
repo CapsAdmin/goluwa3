@@ -121,6 +121,11 @@ function CommandBuffer:BeginRendering(config)
 			resolveImageLayout = "color_attachment_optimal"
 		end
 
+		local clearValue = vulkan.vk.VkClearValue()
+		clearValue.color.float32[0] = config.clear_color[1]
+		clearValue.color.float32[1] = config.clear_color[2]
+		clearValue.color.float32[2] = config.clear_color[3]
+		clearValue.color.float32[3] = config.clear_color[4]
 		colorAttachmentInfo = vulkan.vk.s.RenderingAttachmentInfo(
 			{
 				imageView = imageView,
@@ -130,17 +135,7 @@ function CommandBuffer:BeginRendering(config)
 				resolveImageLayout = resolveImageLayout,
 				loadOp = "clear",
 				storeOp = "store",
-				clearValue = {
-					color = {
-						float32 = ffi.new(
-							"float[4]",
-							config.clear_color[1],
-							config.clear_color[2],
-							config.clear_color[3],
-							config.clear_color[4]
-						),
-					},
-				},
+				clearValue = clearValue,
 			}
 		)
 	end
@@ -148,6 +143,9 @@ function CommandBuffer:BeginRendering(config)
 	local depthAttachmentInfo = nil
 
 	if config.depth_image_view then
+		local clearValue = vulkan.vk.VkClearValue()
+		clearValue.depthStencil.depth = config.clear_depth or 1.0
+		clearValue.depthStencil.stencil = 0
 		depthAttachmentInfo = vulkan.vk.s.RenderingAttachmentInfo(
 			{
 				imageView = config.depth_image_view.ptr[0],
@@ -156,14 +154,7 @@ function CommandBuffer:BeginRendering(config)
 				resolveImageLayout = "undefined",
 				loadOp = "clear",
 				storeOp = config.depth_store and "store" or "dont_care",
-				clearValue = vulkan.vk.VkClearValue(
-					{
-						depthStencil = {
-							depth = config.clear_depth or 1.0,
-							stencil = 0,
-						},
-					}
-				),
+				clearValue = clearValue,
 			}
 		)
 	end
@@ -558,34 +549,31 @@ function CommandBuffer:CopyBufferToImageMip(buffer, image, width, height, mip_le
 end
 
 function CommandBuffer:BlitImage(config)
-	local region = vulkan.vk.VkImageBlit(
-		{
-			srcSubresource = vulkan.vk.s.ImageSubresourceLayers(
-				{
-					aspectMask = "color",
-					mipLevel = config.src_mip_level or 0,
-					baseArrayLayer = 0,
-					layerCount = 1,
-				}
-			),
-			srcOffsets = {
-				vulkan.vk.VkOffset3D({x = 0, y = 0, z = 0}),
-				vulkan.vk.VkOffset3D({x = config.src_width, y = config.src_height, z = 1}),
-			},
-			dstSubresource = vulkan.vk.s.ImageSubresourceLayers(
-				{
-					aspectMask = "color",
-					mipLevel = config.dst_mip_level or 0,
-					baseArrayLayer = 0,
-					layerCount = 1,
-				}
-			),
-			dstOffsets = {
-				vulkan.vk.VkOffset3D({x = 0, y = 0, z = 0}),
-				vulkan.vk.VkOffset3D({x = config.dst_width, y = config.dst_height, z = 1}),
-			},
-		}
-	)
+	local srcSubresource = vulkan.vk.VkImageSubresourceLayers()
+	srcSubresource.aspectMask = vulkan.vk.e.VkImageAspectFlagBits("color")
+	srcSubresource.mipLevel = config.src_mip_level or 0
+	srcSubresource.baseArrayLayer = 0
+	srcSubresource.layerCount = 1
+	local dstSubresource = vulkan.vk.VkImageSubresourceLayers()
+	dstSubresource.aspectMask = vulkan.vk.e.VkImageAspectFlagBits("color")
+	dstSubresource.mipLevel = config.dst_mip_level or 0
+	dstSubresource.baseArrayLayer = 0
+	dstSubresource.layerCount = 1
+	local region = vulkan.vk.VkImageBlit()
+	region.srcSubresource = srcSubresource
+	region.srcOffsets[0].x = 0
+	region.srcOffsets[0].y = 0
+	region.srcOffsets[0].z = 0
+	region.srcOffsets[1].x = config.src_width
+	region.srcOffsets[1].y = config.src_height
+	region.srcOffsets[1].z = 1
+	region.dstSubresource = dstSubresource
+	region.dstOffsets[0].x = 0
+	region.dstOffsets[0].y = 0
+	region.dstOffsets[0].z = 0
+	region.dstOffsets[1].x = config.dst_width
+	region.dstOffsets[1].y = config.dst_height
+	region.dstOffsets[1].z = 1
 	vulkan.lib.vkCmdBlitImage(
 		self.ptr[0],
 		config.src_image.ptr[0],
