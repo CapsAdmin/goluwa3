@@ -163,13 +163,15 @@ function GraphicsPipeline.New(device, config, render_passes, pipelineLayout)
 		colorBlendAttachment[i - 1] = colorBlendAttachments[i]
 	end
 
+	local blend_constants_data = (config.color_blend and config.color_blend.constants) or {0.0, 0.0, 0.0, 0.0}
+	local blend_constants = ffi.new("float[4]", blend_constants_data)
 	local colorBlending = vulkan.vk.s.PipelineColorBlendStateCreateInfo(
 		{
 			logicOpEnable = config.color_blend.logic_op_enabled or 0,
 			logicOp = config.color_blend.logic_op or "copy",
 			attachmentCount = #colorBlendAttachments,
 			pAttachments = colorBlendAttachment,
-			blendConstants = config.color_blend.constants or {0.0, 0.0, 0.0, 0.0},
+			blendConstants = blend_constants,
 			flags = 0,
 		}
 	)
