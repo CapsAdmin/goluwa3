@@ -278,6 +278,7 @@ function GraphicsPipeline.New(device, config, render_passes, pipelineLayout)
 end
 
 function GraphicsPipeline:__gc()
+	self.device:WaitIdle()
 	vulkan.lib.vkDestroyPipeline(self.device.ptr[0], self.ptr[0], nil)
 end
 
