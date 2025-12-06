@@ -149,9 +149,10 @@ do -- table copy
 			return obj
 		end
 
-		if ((t == "table" or (t == "cdata" and structs.GetStructMeta(obj))) and obj.__copy) then
-			return obj:__copy()
-		elseif lookup_table[obj] then
+		--if ((t == "table" or (t == "cdata" and structs.GetStructMeta(obj))) and obj.__copy) then
+		--	return obj:__copy()
+		--else
+			if lookup_table[obj] then
 			return lookup_table[obj]
 		elseif t == "table" then
 			local new_table = {}
