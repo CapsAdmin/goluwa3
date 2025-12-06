@@ -80,4 +80,44 @@ else
 	end
 end
 
+do
+	local vmdef = require("jit.vmdef")
+
+	local function replace(id_str)
+		local id = tonumber(id_str)
+
+		if id and vmdef.ffnames[id] then return vmdef.ffnames[id] end
+
+		return "[builtin#" .. id_str .. " (unknown id)]"
+	end
+
+	function callstack.format(callstack_str--[[#: string]])
+		if not callstack_str or callstack_str == "" then return {} end
+
+		callstack_str = callstack_str:gsub("%[builtin#(%d+)%]", replace)
+		local lines = {}
+
+		for line in callstack_str:gmatch("[^\n]+") do
+			table.insert(lines, line)
+		end
+
+		return lines
+	end
+end
+
+do
+	local ffi = require("ffi")
+	ffi.cdef([[
+		int backtrace (void **buffer, int size);
+		char ** backtrace_symbols_fd(void *const *buffer, int size, int fd);
+	]])
+
+	function callstack.c_traceback()
+		local max = 64
+		local array = ffi.new("void *[?]", max)
+		local size = ffi.C.backtrace(array, max)
+		ffi.C.backtrace_symbols_fd(array, size, 1)
+	end
+end
+
 return callstack

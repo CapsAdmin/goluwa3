@@ -42,6 +42,59 @@ function string.buildclass(...)
 	return out
 end
 
+function string.strip_common_prefix_suffix(strings--[[#: List<|string|>]])
+	if #strings == 0 then return 0, 0 end
+
+	if #strings == 1 then return 0, 0 end
+
+	-- Find minimum length
+	local min_len = math.huge
+
+	for _, str in ipairs(strings) do
+		if #str < min_len then min_len = #str end
+	end
+
+	if min_len == 0 then return 0, 0 end
+
+	-- Find common prefix length (in bytes)
+	local prefix_len = 0
+
+	for i = 1, min_len do
+		local first_char = strings[1]:sub(i, i)
+		local all_match = true
+
+		for j = 2, #strings do
+			if strings[j]:sub(i, i) ~= first_char then
+				all_match = false
+
+				break
+			end
+		end
+
+		if all_match then prefix_len = i else break end
+	end
+
+	-- Find common suffix length (in bytes)
+	local suffix_len = 0
+
+	for i = 1, min_len - prefix_len do
+		local first_char = strings[1]:sub(-i, -i)
+		local all_match = true
+
+		for j = 2, #strings do
+			if strings[j]:sub(-i, -i) ~= first_char then
+				all_match = false
+
+				break
+			end
+		end
+
+		if all_match then suffix_len = i else break end
+	end
+
+	return prefix_len, suffix_len
+end
+
 function string.is_whitespace(char)
 	return char == "\32" or
 		char == "\9" or

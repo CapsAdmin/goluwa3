@@ -4,6 +4,13 @@ local assert = _G.assert
 local table = _G.table
 local jit_attach = _G.jit.attach
 local string = _G.string
+local table_insert = table.insert
+local callstack = require("helpers.callstack")
+local trace_errors_reverse = {}
+
+for code, fmt in pairs(vmdef.traceerr) do
+	trace_errors_reverse[fmt] = code
+end
 
 local function format_error(err--[[#: number]], arg--[[#: number | nil]])
 	local fmt = vmdef.traceerr[err]
@@ -48,6 +55,7 @@ end
 	aborted = nil | {code = number, reason = number},
 	children = nil | Map<|number, self|>,
 	trace_info = ReturnType<|jutil.traceinfo|>[1] ~ nil,
+	callstack = nil | string,
 }]]
 
 local function format_func_info(fi--[[#: ReturnType<|jutil.funcinfo|>[1] ]], func--[[#: Function]])
@@ -130,6 +138,7 @@ function META:_on_stop(id--[[#: number]], func--[[#: Function]])
 	local trace = assert(self._traces[id])
 	assert(trace.aborted == nil)
 	trace.trace_info = assert(jutil.traceinfo(id), "invalid trace id: " .. id)
+	trace.callstack = callstack.traceback("")
 	-- Track by source location so we can filter out aborted traces that eventually succeeded
 	local first_pc = trace.pc_lines[1]
 
@@ -138,8 +147,6 @@ function META:_on_stop(id--[[#: number]], func--[[#: Function]])
 		self._successfully_compiled[key] = true
 	end
 end
-
-local table_insert = table.insert
 
 function META:_on_abort(
 	id--[[#: number]],
@@ -156,6 +163,7 @@ function META:_on_abort(
 		reason = reason,
 	}
 	table_insert(trace.pc_lines, {func = func, pc = pc, depth = 0})
+	trace.callstack = callstack.traceback("")
 	-- Key by source location so aborted traces persist even when trace IDs are reused
 	local first_pc = trace.pc_lines[1]
 	local key = first_pc and self:_get_trace_key(first_pc.func, first_pc.pc) or id
@@ -227,11 +235,25 @@ function META:Start()
 			error("unknown trace event " .. what)
 		end
 	end
-	jit_attach(self._on_trace_event, "trace")
+	self._on_trace_event_safe = function(what, tr, func, pc, otr, oex)
+		local ok, err = pcall(self._on_trace_event, what, tr, func, pc, otr, oex)
+
+		if not ok then
+			io.write("error in trace event: " .. tostring(err) .. "\n")
+		end
+	end
+	jit_attach(self._on_trace_event_safe, "trace")
 	self._on_record_event = function(tr, func, pc, depth)
 		self_ref:_on_record(tr, func, pc, depth)
 	end
-	jit_attach(self._on_record_event, "record")
+	self._on_record_event_safe = function(tr, func, pc, depth)
+		local ok, err = pcall(self._on_record_event, tr, func, pc, depth)
+
+		if not ok then
+			io.write("error in record event: " .. tostring(err) .. "\n")
+		end
+	end
+	jit_attach(self._on_record_event_safe, "record")
 end
 
 function META:Stop()
@@ -259,6 +281,7 @@ function META:GetReport()
 				aborted = trace.aborted,
 				stopped = trace.stopped,
 				DEAD = trace.DEAD,
+				callstack = trace.callstack,
 			}
 		end
 	end
@@ -279,6 +302,7 @@ function META:GetReport()
 				aborted = trace.aborted,
 				stopped = trace.stopped,
 				DEAD = trace.DEAD,
+				callstack = trace.callstack,
 			}
 		end
 	end
@@ -469,72 +493,36 @@ do
 		return table.concat(lines, "\n")
 	end
 
-	local function compress_trace_path(trace--[[#: Trace]])
-		local path_parts = {}
+	local function format_traces(traces, filter)
+		local tracebacks = {}
+		local found = {}
 
-		for i = 2, #trace.lines do
-			local line = trace.lines[i]
-
-			if line.is_path then table.insert(path_parts, line.line) end
-		end
-
-		if #path_parts == 0 then return "" end
-
-		-- Parse each path:line into {path, line_num}
-		local parsed = {}
-
-		for _, loc in ipairs(path_parts) do
-			local path, line_num = loc:match("^(.+):(%d+)$")
-
-			if path and line_num then
-				table.insert(parsed, {path = path, line = tonumber(line_num), original = loc})
-			else
-				table.insert(parsed, {path = loc, line = nil, original = loc})
+		for _, trace in ipairs(traces) do
+			if filter(trace) then
+				table.insert(tracebacks, trace.callstack)
+				table.insert(found, trace)
 			end
 		end
 
-		-- Compress consecutive lines in the same file
-		local result = {}
-		local i = 1
+		local prefix, suffix = string.strip_common_prefix_suffix(tracebacks)
 
-		while i <= #parsed do
-			local start_entry = parsed[i]
-
-			if start_entry.line then
-				-- Find consecutive sequence
-				local j = i
-
-				while j < #parsed do
-					local next_entry = parsed[j + 1]
-
-					if
-						next_entry.path == start_entry.path and
-						next_entry.line and
-						next_entry.line == parsed[j].line + 1
-					then
-						j = j + 1
-					else
-						break
-					end
-				end
-
-				-- Keep first and last of sequence
-				table.insert(result, start_entry.original)
-
-				if j > i then table.insert(result, parsed[j].original) end
-
-				i = j + 1
-			else
-				table.insert(result, start_entry.original)
-				i = i + 1
-			end
+		for _, trace in ipairs(found) do
+			local traceback = trace.callstack:sub(prefix + 1, #trace.callstack - suffix)
+			trace.callstack = table.concat(callstack.format(traceback), "\n")
 		end
-
-		return table.concat(result, "\n")
 	end
 
 	function META:GetReportProblematicTraces()
 		local traces, aborted = self:GetReport()
+
+		format_traces(traces, function(trace)
+			return trace.callstack and trace.trace_info.linktype == "stitch"
+		end)
+
+		format_traces(aborted, function(trace)
+			return trace.callstack
+		end)
+
 		-- Group by category -> location -> reason -> path -> count
 		-- Categories: "stitch", "aborted", "other"
 		local by_category = {
@@ -547,7 +535,14 @@ do
 			if not trace.lines or #trace.lines == 0 then return end
 
 			local start_line = trace.lines[1].line
-			local path = compress_trace_path(trace)
+			local path = ""
+
+			if trace.callstack then
+				local lines = trace.callstack
+
+				if lines and #lines > 0 then path = lines end
+			end
+
 			local by_location = by_category[category]
 			by_location[start_line] = by_location[start_line] or {}
 			by_location[start_line][reason] = by_location[start_line][reason] or {}
@@ -576,18 +571,22 @@ do
 			if reason then add_issue(category, trace, reason) end
 		end
 
+		local R = function(s)
+			return assert(trace_errors_reverse[s])
+		end
 		-- Abort codes to filter out completely (normal retry behavior)
 		local filter_codes = {
-			[6] = true, -- retry recording
-			[8] = true, -- leaving loop in root trace
-			[9] = true, -- inner loop in root trace
-			[14] = true, -- down-recursion, restarting
+			[R("retry recording")] = true, -- retry recording
+			[R("leaving loop in root trace")] = true, -- leaving loop in root trace
+			[R("inner loop in root trace")] = true, -- inner loop in root trace
+			[R("down-recursion, restarting")] = true, -- down-recursion, restarting
 		}
 		-- Abort codes to aggregate as summary counts (resource limits)
 		local aggregate_codes = {
-			[4] = true, -- too many snapshots
-			[10] = true, -- loop unroll limit reached
-			[27] = true, -- failed to allocate mcode memory
+			[R("too many snapshots")] = true, -- too many snapshots
+			[R("loop unroll limit reached")] = true, -- loop unroll limit reached
+			[R("failed to allocate mcode memory")] = true, -- failed to allocate mcode memory
+			[R("blacklisted")] = true, -- blacklisted function, just report aggregate because it's caused by other abort reasons
 		}
 		local aggregate_counts = {}
 
@@ -688,38 +687,45 @@ do
 		if next(aggregate_counts) then
 			table.insert(out, "=== RESOURCE LIMITS ===\n\n")
 
-			if aggregate_counts[4] then
+			if aggregate_counts[R("too many snapshots")] then
 				table.insert(
 					out,
-					"  too many snapshots: " .. aggregate_counts[4] .. " traces (consider increasing maxsnap)\n"
+					"  too many snapshots: " .. aggregate_counts[R("too many snapshots")] .. " traces (consider increasing maxsnap)\n"
 				)
 			end
 
-			if aggregate_counts[10] then
+			if aggregate_counts[R("loop unroll limit reached")] then
 				table.insert(
 					out,
-					"  loop unroll limit reached: " .. aggregate_counts[10] .. " traces (consider increasing maxunroll)\n"
+					"  loop unroll limit reached: " .. aggregate_counts[R("loop unroll limit reached")] .. " traces (consider increasing maxunroll)\n"
 				)
 			end
 
-			if aggregate_counts[27] then
+			if aggregate_counts[R("failed to allocate mcode memory")] then
 				table.insert(
 					out,
-					"  failed to allocate mcode memory: " .. aggregate_counts[27] .. " traces (consider increasing maxmcode)\n"
+					"  failed to allocate mcode memory: " .. aggregate_counts[R("failed to allocate mcode memory")] .. " traces (consider increasing maxmcode)\n"
+				)
+			end
+
+			if aggregate_counts[R("blacklisted")] then
+				table.insert(
+					out,
+					"  blacklisted function: " .. aggregate_counts[R("blacklisted")] .. " traces\n"
 				)
 			end
 
 			table.insert(out, "\n")
 		end
 
-		if next(by_category.stitch) then
-			table.insert(out, "=== STITCH ===\n\n")
-			table.insert(out, build_output_for_locations(by_category.stitch))
-		end
-
 		if next(by_category.aborted) then
 			table.insert(out, "=== ABORTED ===\n\n")
 			table.insert(out, build_output_for_locations(by_category.aborted))
+		end
+
+		if next(by_category.stitch) then
+			table.insert(out, "=== STITCH ===\n\n")
+			table.insert(out, build_output_for_locations(by_category.stitch))
 		end
 
 		if next(by_category.other) then
