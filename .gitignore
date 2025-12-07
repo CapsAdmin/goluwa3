@@ -3,4 +3,4 @@ logs/
 .running_pid
 flake.lock
 lsp_session_*
-goluwa_old
+local_stuff
