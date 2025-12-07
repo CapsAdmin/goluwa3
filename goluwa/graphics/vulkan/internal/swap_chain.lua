@@ -85,7 +85,7 @@ function Swapchain:GetNextImage(imageAvailableSemaphore)
 	elseif result == vulkan.vk.VkResult("VK_SUBOPTIMAL_KHR") then
 		return imageIndex[0], "suboptimal"
 	elseif result ~= 0 then
-		error("failed to acquire next image: " .. vulkan.enum_to_string(result))
+		error("failed to acquire next image: " .. vulkan.vk.str.VkResult(result))
 	end
 
 	return imageIndex[0], "ok"
@@ -110,7 +110,7 @@ function Swapchain:Present(renderFinishedSemaphore, deviceQueue, imageIndex)
 	elseif result == vulkan.vk.VkResult("VK_SUBOPTIMAL_KHR") then
 		return false
 	elseif result ~= vulkan.vk.VkResult("VK_SUCCESS") then
-		error("failed to present: " .. vulkan.enum_to_string(result))
+		error("failed to present: " .. vulkan.vk.str.VkResult(result))
 	end
 
 	return true
