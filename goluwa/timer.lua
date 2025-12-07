@@ -3,6 +3,7 @@ local system = require("system")
 local traceback = require("helpers.traceback")
 local logfile = require("logging")
 local timer = {}
+local list = table
 timer.timers = timer.timers or {}
 
 function timer.Thinker(callback, run_now, frequency, iterations, id)
@@ -151,11 +152,11 @@ function timer.UpdateTimers(a_, b_, c_, d_, e_)
 
 				repeat
 					local start = system.GetTime()
-					local ok, res = traceback.pcall(data.callback)
+					local res = data.callback()
 
 					if system.GetFrameTime() >= data.fps then break end
 
-					if not ok or res ~= nil then
+					if res ~= nil then
 						list.insert(remove_these, i)
 
 						break
@@ -170,19 +171,17 @@ function timer.UpdateTimers(a_, b_, c_, d_, e_)
 
 					if extra_iterations == math.huge then extra_iterations = 1 end
 
-					local errored = false
+					local done = false
 
 					for _ = 1, data.iterations + extra_iterations do
-						local ok, res = traceback.pcall(data.callback)
-
-						if not ok or res ~= nil then
-							errored = true
+						if data.callback() ~= nil then
+							done = true
 
 							break
 						end
 					end
 
-					if errored then list.insert(remove_these, i) end
+					if done then list.insert(remove_these, i) end
 
 					data.realtime = cur + data.frequency
 				end
@@ -190,29 +189,22 @@ function timer.UpdateTimers(a_, b_, c_, d_, e_)
 		elseif data.type == "delay" then
 			if data.realtime < cur then
 				if not data.args then
-					traceback.pcall(data.callback)
+					data.callback()
 				else
-					traceback.pcall(data.callback, unpack(data.args))
+					data.callback(unpack(data.args))
 				end
 
 				list.insert(remove_these, i)
 			end
 		elseif data.type == "timer" then
 			if not data.paused and data.realtime < cur then
-				local ran, msg = traceback.pcall(data.callback, data.times_ran - 1, a_, b_, c_, d_, e_)
+				local msg = data.callback(data.times_ran - 1, a_, b_, c_, d_, e_)
 
-				if ran then
-					if msg == "stop" then list.insert(remove_these, i) end
+				if msg == "stop" then list.insert(remove_these, i) end
 
-					if msg == "restart" then data.times_ran = 1 end
+				if msg == "restart" then data.times_ran = 1 end
 
-					if type(msg) == "number" then data.realtime = cur + msg end
-				else
-					if data.error_callback(data.id, msg) == nil then
-						list.insert(remove_these, i)
-					--profiler.RemoveSection(data.id)
-					end
-				end
+				if type(msg) == "number" then data.realtime = cur + msg end
 
 				if data.times_ran == data.repeats then
 					list.insert(remove_these, i)

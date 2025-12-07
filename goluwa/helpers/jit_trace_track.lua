@@ -377,10 +377,12 @@ function META:GetReport()
 		local lines = {}
 		local done = {}
 		local lines_i = 1
-
+		-- Also build a callstack-style representation
+		local current_at_depth = {} -- Track the most recent line at each depth level
 		for i, pc_line in ipairs(trace.pc_lines) do
 			local info = jutil.funcinfo(pc_line.func, pc_line.pc)
 			local line = format_func_info(info, pc_line.func)
+			local depth = pc_line.depth
 
 			if not done[line] then
 				done[line] = true
@@ -392,9 +394,36 @@ function META:GetReport()
 				}
 				lines_i = lines_i + 1
 			end
+
+			-- Track current position at this depth for callstack reconstruction
+			current_at_depth[depth] = {
+				line = line,
+				depth = depth,
+				is_path = info.loc ~= nil,
+			}
+
+			-- Clear deeper levels when we return to a shallower depth
+			for d = depth + 1, #current_at_depth do
+				current_at_depth[d] = nil
+			end
 		end
 
 		trace.lines = lines
+		-- Build final callstack (deepest first, like a traceback)
+		local callstack_lines = {}
+		local max_depth = 0
+
+		for d in pairs(current_at_depth) do
+			if d > max_depth then max_depth = d end
+		end
+
+		for d = max_depth, 0, -1 do
+			if current_at_depth[d] then
+				table.insert(callstack_lines, current_at_depth[d])
+			end
+		end
+
+		trace.callstack_lines = callstack_lines
 	end
 
 	-- Unpack lines for all snapshot traces
@@ -493,6 +522,25 @@ do
 		return table.concat(lines, "\n")
 	end
 
+	-- Format pc_lines as a callstack, showing function entry points
+	-- This is useful when callstack.traceback doesn't capture the full context
+	local function tostring_trace_callstack(trace--[[#: Trace]], line_prefix--[[#: nil | string]])
+		line_prefix = line_prefix or ""
+		local callstack_lines = trace.callstack_lines
+
+		if not callstack_lines or #callstack_lines == 0 then return "" end
+
+		-- Format output similar to a traceback (deepest first)
+		local lines = {}
+
+		for i, entry in ipairs(callstack_lines) do
+			local indent = (" "):rep(i - 1)
+			lines[i] = line_prefix .. indent .. entry.line
+		end
+
+		return table.concat(lines, "\n")
+	end
+
 	local function format_traces(traces, filter)
 		local tracebacks = {}
 		local found = {}
@@ -508,7 +556,28 @@ do
 
 		for _, trace in ipairs(found) do
 			local traceback = trace.callstack:sub(prefix + 1, #trace.callstack - suffix)
-			trace.callstack = table.concat(callstack.format(traceback), "\n")
+			local formatted = table.concat(callstack.format(traceback), "\n")
+
+			-- If the formatted callstack is empty or too short (e.g., all tracebacks were identical
+			-- and got stripped away, or only module-level), fall back to pc_lines callstack
+			if #formatted < 10 or not formatted:find("\n") then
+				local pc_callstack = tostring_trace_callstack(trace)
+
+				if pc_callstack and #pc_callstack > 0 then
+					formatted = pc_callstack
+				end
+			end
+
+			-- If we still have nothing useful but have callstack_lines, use them directly
+			if (#formatted < 5 or formatted == "") and trace.callstack_lines and #trace.callstack_lines > 0 then
+				local lines = {}
+				for i, entry in ipairs(trace.callstack_lines) do
+					lines[i] = entry.line
+				end
+				formatted = table.concat(lines, "\n")
+			end
+
+			trace.callstack = formatted
 		end
 	end
 

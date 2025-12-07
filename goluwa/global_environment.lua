@@ -1,5 +1,8 @@
 -- only load from goluwa/ directory
 package.path = package.path .. ";" .. "goluwa/?.lua"
+
+if _G.PROFILE then require("profiler").Start("init") end
+
 _G.setmetatable = require("helpers.setmetatable_gc")
 require("helpers.globals")
 require("helpers.debug")

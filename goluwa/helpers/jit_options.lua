@@ -24,7 +24,7 @@ local default_options = {
 	maxrecord = 4000, -- Max number of of recorded IR instructions.
 	maxirconst = 500, -- Max number of of IR constants of a trace.
 	maxside = 100, -- Max number of of side traces of a root trace.
-	maxsnap = 500, -- Max number of of snapshots for a trace.
+	maxsnap = 5000, -- Max number of of snapshots for a trace.
 	minstitch = 0, -- Min number of of IR ins for a stitched trace.
 	--
 	hotloop = 56, -- number of iter. to detect a hot loop/call.

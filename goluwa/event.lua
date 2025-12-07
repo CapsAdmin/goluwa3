@@ -1,8 +1,13 @@
 local traceback = require("helpers.traceback")
 local system
+local list = table
 local event = _G.event or {}
 event.active = event.active or {}
 event.destroy_tag = {}
+
+local function sort(a, b)
+	return a.priority > b.priority
+end
 
 local function sort_events()
 	for key, tbl in pairs(event.active) do
@@ -12,10 +17,7 @@ local function sort_events()
 			list.insert(new, v)
 		end
 
-		list.sort(new, function(a, b)
-			return a.priority > b.priority
-		end)
-
+		list.sort(new, sort)
 		event.active[key] = new
 	end
 end
@@ -78,7 +80,7 @@ end
 
 function event.Call(event_type, a_, b_, c_, d_, e_)
 	system = system or require("system")
-	local status, a, b, c, d, e
+	local a, b, c, d, e
 
 	if event.active[event_type] then
 		for index = 1, #event.active[event_type] do
@@ -89,9 +91,9 @@ function event.Call(event_type, a_, b_, c_, d_, e_)
 			if data.self_arg then
 				if data.self_arg:IsValid() then
 					if data.self_arg_with_callback then
-						status, a, b, c, d, e = xpcall(data.callback, data.on_error or traceback.OnError, a_, b_, c_, d_, e_)
+						a, b, c, d, e = data.callback(a_, b_, c_, d_, e_)
 					else
-						status, a, b, c, d, e = xpcall(data.callback, data.on_error or traceback.OnError, data.self_arg, a_, b_, c_, d_, e_)
+						a, b, c, d, e = data.callback(data.self_arg, a_, b_, c_, d_, e_)
 					end
 				else
 					event.RemoveListener(event_type, data.id)
@@ -101,22 +103,13 @@ function event.Call(event_type, a_, b_, c_, d_, e_)
 					return
 				end
 			else
-				status, a, b, c, d, e = xpcall(data.callback, data.on_error or traceback.OnError, a_, b_, c_, d_, e_)
+				a, b, c, d, e = data.callback(a_, b_, c_, d_, e_)
 			end
 
 			if a == event.destroy_tag or data.remove_after_one_call then
 				event.RemoveListener(event_type, data.id)
-			else
-				if status == false then
-					if type(data.on_error) == "function" then
-						data.on_error(a, event_type, data.id)
-					else
-						event.RemoveListener(event_type, data.id)
-						llog("[%q][%q] removed", event_type, data.id)
-					end
-				end
-
-				if a ~= nil then return a, b, c, d, e end
+			elseif a ~= nil then
+				return a, b, c, d, e
 			end
 		end
 	end
