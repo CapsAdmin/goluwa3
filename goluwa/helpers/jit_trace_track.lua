@@ -28,6 +28,18 @@ local function format_error(err--[[#: number]], arg--[[#: number | nil]])
 	return string.format(fmt, arg)
 end
 
+local function format_file_link(loc--[[#: string]])
+	-- Convert "path/to/file.lua:123" to markdown link "[path/to/file.lua:123](../path/to/file.lua#L123)"
+	-- Uses ../ prefix since the markdown file is in logs/ directory
+	local path, line = loc:match("^(.+):(%d+)$")
+	if path and line then
+		local display = loc:gsub("^goluwa/", "")
+		return "[" .. display .. "](../" .. path .. "#L" .. line .. ")"
+	else
+		return "`" .. loc:gsub("^goluwa/", "") .. "`"
+	end
+end
+
 local function create_warn_log(interval)
 	local i = 0
 	local last_time = 0
@@ -680,7 +692,7 @@ do
 		local out = {}
 
 		for _, loc_entry in ipairs(sorted_locations) do
-			table.insert(out, loc_entry.location .. " (" .. loc_entry.total .. " issues):\n")
+			table.insert(out, "### " .. format_file_link(loc_entry.location) .. " (" .. loc_entry.total .. " issues)\n\n")
 			local sorted_reasons = {}
 
 			for reason, paths in pairs(loc_entry.reasons) do
@@ -697,7 +709,7 @@ do
 
 			for _, reason_entry in ipairs(sorted_reasons) do
 				if reason_entry.reason ~= "" then
-					table.insert(out, "  " .. reason_entry.reason .. ":\n")
+					table.insert(out, "**" .. reason_entry.reason .. "**\n\n")
 				end
 
 				-- Sort paths by count
@@ -710,19 +722,22 @@ do
 				table.sort(sorted_paths, sort_locations_count)
 
 				for _, path_entry in ipairs(sorted_paths) do
-					local count_str = path_entry.count > 1 and (" (x" .. path_entry.count .. ")") or ""
+					local count_str = path_entry.count > 1 and (" ×" .. path_entry.count) or ""
 
 					if path_entry.path ~= "" then
-						-- Indent each line of the path
-						local indented = path_entry.path:gsub("([^\n]+)", "      %1")
-						table.insert(out, indented .. count_str .. "\n")
+						-- Format each line of the path as a list with clickable links
+						local lines = {}
+						for line in path_entry.path:gmatch("([^\n]+)") do
+							table.insert(lines, "  - " .. format_file_link(line:match("^%s*(.-)%s*$")))
+						end
+						table.insert(out, table.concat(lines, "\n") .. count_str .. "\n")
 					else
-						table.insert(out, "    (no additional path)" .. count_str .. "\n")
+						table.insert(out, "- *(no additional path)*" .. count_str .. "\n")
 					end
 				end
-			end
 
-			table.insert(out, "\n")
+				table.insert(out, "\n")
+			end
 		end
 
 		return table.concat(out)
@@ -781,35 +796,39 @@ do
 
 		local out = {}
 
+		table.insert(out, "# JIT Trace Report\n\n")
+
 		-- Show resource limit summary first
 		if next(aggregate_counts) then
-			table.insert(out, "=== RESOURCE LIMITS ===\n\n")
+			table.insert(out, "## Resource Limits\n\n")
+			table.insert(out, "| Issue | Count | Suggestion |\n")
+			table.insert(out, "|-------|-------|------------|\n")
 
 			if aggregate_counts[R("too many snapshots")] then
 				table.insert(
 					out,
-					"  too many snapshots: " .. aggregate_counts[R("too many snapshots")] .. " traces (consider increasing maxsnap)\n"
+					"| Too many snapshots | " .. aggregate_counts[R("too many snapshots")] .. " traces | Consider increasing `maxsnap` |\n"
 				)
 			end
 
 			if aggregate_counts[R("loop unroll limit reached")] then
 				table.insert(
 					out,
-					"  loop unroll limit reached: " .. aggregate_counts[R("loop unroll limit reached")] .. " traces (consider increasing maxunroll)\n"
+					"| Loop unroll limit reached | " .. aggregate_counts[R("loop unroll limit reached")] .. " traces | Consider increasing `maxunroll` |\n"
 				)
 			end
 
 			if aggregate_counts[R("failed to allocate mcode memory")] then
 				table.insert(
 					out,
-					"  failed to allocate mcode memory: " .. aggregate_counts[R("failed to allocate mcode memory")] .. " traces (consider increasing maxmcode)\n"
+					"| Failed to allocate mcode memory | " .. aggregate_counts[R("failed to allocate mcode memory")] .. " traces | Consider increasing `maxmcode` |\n"
 				)
 			end
 
 			if aggregate_counts[R("blacklisted")] then
 				table.insert(
 					out,
-					"  blacklisted function: " .. aggregate_counts[R("blacklisted")] .. " traces\n"
+					"| Blacklisted function | " .. aggregate_counts[R("blacklisted")] .. " traces | - |\n"
 				)
 			end
 
@@ -817,17 +836,17 @@ do
 		end
 
 		if next(by_category.aborted) then
-			table.insert(out, "=== ABORTED ===\n\n")
+			table.insert(out, "## Aborted Traces\n\n")
 			table.insert(out, build_output_for_locations(by_category.aborted))
 		end
 
 		if next(by_category.stitch) then
-			table.insert(out, "=== STITCH ===\n\n")
+			table.insert(out, "## Stitch Traces\n\n")
 			table.insert(out, build_output_for_locations(by_category.stitch))
 		end
 
 		if next(by_category.other) then
-			table.insert(out, "=== OTHER ===\n\n")
+			table.insert(out, "## Other Issues\n\n")
 			table.insert(out, build_output_for_locations(by_category.other))
 		end
 

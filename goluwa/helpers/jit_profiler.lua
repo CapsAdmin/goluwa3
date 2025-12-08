@@ -264,12 +264,24 @@ local function process_samples(
 		return result
 	end
 
+	local function format_file_link(loc--[[#: string]])
+		-- Convert "path/to/file.lua:123" to markdown link "[path/to/file.lua:123](../path/to/file.lua#L123)"
+		-- Uses ../ prefix since the markdown file is in logs/ directory
+		local path, line = loc:match("^(.+):(%d+)$")
+		if path and line then
+			local display = loc:gsub("^goluwa/", "")
+			return "[" .. display .. "](../" .. path .. "#L" .. line .. ")"
+		else
+			return "`" .. loc:gsub("^goluwa/", "") .. "`"
+		end
+	end
+
 	local out = {}
 
 	for _, section_data in ipairs(sorted_samples) do
 		-- Add section header if it's not the default section
 		if section_data.section ~= "(no section)" then
-			table_insert(out, "\n" .. section_data.section .. ":\n")
+			table_insert(out, "\n### " .. section_data.section .. "\n\n")
 		end
 
 		for _, data in ipairs(section_data.samples) do
@@ -282,19 +294,20 @@ local function process_samples(
 				else
 					table_insert(
 						str,
-						stacked_barchart(data.vm_states, data.sample_count) .. "\t" .. data.sample_count .. "\t" .. data.path .. "\n"
+						"| `" .. stacked_barchart(data.vm_states, data.sample_count) .. "` | " .. data.sample_count .. " | " .. format_file_link(data.path) .. " |\n"
 					)
 				end
 			end
 
 			if str[1] then
+				table_insert(str, 1, "| VM State | Samples | Location |\n|----------|---------|----------|\n")
 				table_insert(
 					str,
-					stacked_barchart(data.vm_states, data.sample_count) .. "\t" .. data.sample_count .. "\t" .. "total + " .. (
+					"| `" .. stacked_barchart(data.vm_states, data.sample_count) .. "` | " .. data.sample_count .. " | **total** +" .. (
 							other and
 							other.sample_count or
 							0
-						) .. "\n\n"
+						) .. " |\n\n"
 				)
 			end
 
@@ -302,12 +315,7 @@ local function process_samples(
 		end
 	end
 
-	table_insert(out, 1, "\nprofiler statistics:\n")
-	table_insert(
-		out,
-		2,
-		"I = interpreter, G = garbage collection, J = busy tracing, N = native / tracing completed:\n"
-	)
+	table_insert(out, 1, "\n## Profiler Statistics\n\n**Legend:** `I` = interpreter, `G` = garbage collection, `J` = busy tracing, `N` = native/tracing completed, `C` = C code\n\n")
 	return table_concat(out)
 end
 

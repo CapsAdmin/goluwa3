@@ -21,7 +21,7 @@ function profiler.Start(id)
 	trace_tracker = TraceTrack.New()
 	trace_tracker:Start()
 	profile_stop, profile_report = jit_profiler.Start()
-	f = assert(io.open("logs/profiler_" .. id .. ".txt", "w"))
+	f = assert(io.open("logs/profiler_" .. id .. ".md", "w"))
 	timer.Repeat("debug", 1, math.huge, save_progress)
 end
 
