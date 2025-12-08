@@ -87,6 +87,7 @@ function TraceTrack.New()
 
 	local self = setmetatable({}, META)
 	self._started = false
+	self._enable_stack_trace = false
 	self._should_warn_mcode = create_warn_log(2)
 	self._should_warn_abort = create_warn_log(8)
 	self._traces = {}
@@ -101,6 +102,14 @@ end
 function META:_get_trace_key(func, pc)
 	local info = jutil.funcinfo(func, pc)
 	return format_func_info(info, func)
+end
+
+function META:SetEnableStackTrace(enable--[[#: boolean]])
+	self._enable_stack_trace = enable
+end
+
+function META:GetEnableStackTrace()
+	return self._enable_stack_trace
 end
 
 function META:_on_start(
@@ -138,7 +147,9 @@ function META:_on_stop(id--[[#: number]], func--[[#: Function]])
 	local trace = assert(self._traces[id])
 	assert(trace.aborted == nil)
 	trace.trace_info = assert(jutil.traceinfo(id), "invalid trace id: " .. id)
-	trace.callstack = callstack.traceback("")
+
+	if self._enable_stack_trace then trace.callstack = callstack.traceback("") end
+
 	-- Track by source location so we can filter out aborted traces that eventually succeeded
 	local first_pc = trace.pc_lines[1]
 
@@ -163,7 +174,9 @@ function META:_on_abort(
 		reason = reason,
 	}
 	table_insert(trace.pc_lines, {func = func, pc = pc, depth = 0})
-	trace.callstack = callstack.traceback("")
+
+	if self._enable_stack_trace then trace.callstack = callstack.traceback("") end
+
 	-- Key by source location so aborted traces persist even when trace IDs are reused
 	local first_pc = trace.pc_lines[1]
 	local key = first_pc and self:_get_trace_key(first_pc.func, first_pc.pc) or id
@@ -547,7 +560,7 @@ do
 
 		for _, trace in ipairs(traces) do
 			if filter(trace) then
-				table.insert(tracebacks, trace.callstack)
+				table.insert(tracebacks, trace.callstack or "")
 				table.insert(found, trace)
 			end
 		end
@@ -557,8 +570,12 @@ do
 		local prefix, suffix = string.strip_common_prefix_suffix(tracebacks)
 
 		for _, trace in ipairs(found) do
-			local traceback = trace.callstack:sub(prefix + 1, #trace.callstack - suffix)
-			local formatted = table.concat(callstack.format(traceback), "\n")
+			local formatted = ""
+
+			if trace.callstack then
+				local traceback = trace.callstack:sub(prefix + 1, #trace.callstack - suffix)
+				formatted = table.concat(callstack.format(traceback), "\n")
+			end
 
 			-- If the formatted callstack is empty or too short (e.g., all tracebacks were identical
 			-- and got stripped away, or only module-level), fall back to pc_lines callstack
@@ -610,11 +627,11 @@ do
 	}
 
 	local function format_successful_traces(trace)
-		return trace.callstack and trace.trace_info.linktype == "stitch"
+		return trace.trace_info and trace.trace_info.linktype == "stitch"
 	end
 
 	local function format_aborted_traces(trace)
-		return trace.callstack
+		return trace.trace_info ~= nil
 	end
 
 	local function add_issue(by_category, category, trace, reason)
