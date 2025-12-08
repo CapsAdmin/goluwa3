@@ -14,13 +14,17 @@
           name = "luajit";
           src = pkgs.fetchgit {
             url = "https://github.com/LuaJIT/LuaJIT.git";
-            rev = "e17ee83326f73d2bbfce5750ae8dc592a3b63c27";
-            sha256 = "sha256-L76xdhQOeda4rtKJhGHNBkk9CdEpH5t+PZEobHkzzcE=";
+            rev = "45b771bb2c693a4cc7e34e79b7d30ab10bb7776a";
+            sha256 = "sha256-VR69KuUXQD6aICVNuBafdthCD558/Ri4haH2LY9AXcU=";
           };
 
           buildInputs = [pkgs.makeWrapper];
 
-          makeFlags = ["PREFIX=$(out)"];
+          makeFlags = ["PREFIX=$(out)" "XCFLAGS=-DLUAJIT_ENABLE_LUA52COMPAT" "BUILDMODE=static"];
+
+          buildPhase = ''
+            make amalg PREFIX=$out XCFLAGS="-DLUAJIT_ENABLE_LUA52COMPAT" BUILDMODE=static
+          '';
 
           installPhase = ''
             make install PREFIX=$out
