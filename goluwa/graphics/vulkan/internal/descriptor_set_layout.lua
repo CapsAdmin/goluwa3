@@ -18,8 +18,8 @@ function DescriptorSetLayout.New(device, bindings)
 		-- For bindless (large arrays), set flags for dynamic updates
 		if (b.count or 1) > 1 then
 			bindingFlagsArray[i - 1] = bit.bor(
-				vulkan.vk.VkDescriptorBindingFlagBits("VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT"),
-				vulkan.vk.VkDescriptorBindingFlagBits("VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT")
+				vulkan.vk.VkDescriptorBindingFlagBits.VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT,
+				vulkan.vk.VkDescriptorBindingFlagBits.VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT
 			)
 		else
 			bindingFlagsArray[i - 1] = 0

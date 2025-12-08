@@ -46,7 +46,7 @@ function PhysicalDevice:FindGraphicsQueueFamily(surface)
 
 	for i, queueFamily in ipairs(self:GetQueueFamilyProperties()) do
 		local queueFlags = queueFamily.queueFlags
-		local graphicsBit = vulkan.vk.VkQueueFlagBits("VK_QUEUE_GRAPHICS_BIT")
+		local graphicsBit = vulkan.vk.VkQueueFlagBits.VK_QUEUE_GRAPHICS_BIT
 
 		if bit.band(queueFlags, graphicsBit) ~= 0 then
 			if not graphicsQueueFamily then graphicsQueueFamily = i - 1 end
@@ -155,25 +155,25 @@ function PhysicalDevice:GetExtendedDynamicStateFeatures()
 	-- Chain v1, v2, and v3 feature queries together
 	local queryFeaturesV3 = vulkan.vk.VkPhysicalDeviceExtendedDynamicState3FeaturesEXT(
 		{
-			sType = "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_3_FEATURES_EXT",
+			sType = vulkan.vk.VkStructureType.VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_3_FEATURES_EXT,
 			pNext = nil,
 		}
 	)
 	local queryFeaturesV2 = vulkan.vk.VkPhysicalDeviceExtendedDynamicState2FeaturesEXT(
 		{
-			sType = "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_2_FEATURES_EXT",
+			sType = vulkan.vk.VkStructureType.VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_2_FEATURES_EXT,
 			pNext = queryFeaturesV3,
 		}
 	)
 	local queryFeaturesV1 = vulkan.vk.VkPhysicalDeviceExtendedDynamicStateFeaturesEXT(
 		{
-			sType = "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_FEATURES_EXT",
+			sType = vulkan.vk.VkStructureType.VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_FEATURES_EXT,
 			pNext = queryFeaturesV2,
 		}
 	)
 	local queryDeviceFeatures = vulkan.vk.VkPhysicalDeviceFeatures2(
 		{
-			sType = "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2",
+			sType = vulkan.vk.VkStructureType.VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
 			pNext = queryFeaturesV1,
 		}
 	)
@@ -226,14 +226,14 @@ end
 function PhysicalDevice:GetDynamicRenderingFeatures()
 	local queryDynamicRenderingFeatures = vulkan.vk.VkPhysicalDeviceDynamicRenderingFeatures(
 		{
-			sType = "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES",
+			sType = vulkan.vk.VkStructureType.VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES,
 			pNext = nil,
 			dynamicRendering = 0,
 		}
 	)
 	local queryDeviceFeatures = vulkan.vk.VkPhysicalDeviceFeatures2(
 		{
-			sType = "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2",
+			sType = vulkan.vk.VkStructureType.VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
 			pNext = queryDynamicRenderingFeatures,
 			features = vulkan.vk.VkPhysicalDeviceFeatures(),
 		}

@@ -2,6 +2,7 @@ local ffi = require("ffi")
 local vulkan = require("graphics.vulkan.internal.vulkan")
 local GraphicsPipeline = {}
 GraphicsPipeline.__index = GraphicsPipeline
+local EnumArray = ffi.typeof("uint32_t[?]")
 
 function GraphicsPipeline.New(device, config, render_passes, pipelineLayout)
 	local stageArrayType = ffi.typeof("$ [" .. #config.shaderModules .. "]", vulkan.vk.VkPipelineShaderStageCreateInfo)
@@ -206,7 +207,7 @@ function GraphicsPipeline.New(device, config, render_passes, pipelineLayout)
 
 	if config.dynamic_states then
 		local dynamicStateCount = #config.dynamic_states
-		local dynamicStateArray = vulkan.T.Array(vulkan.vk.VkDynamicState)(dynamicStateCount)
+		local dynamicStateArray = EnumArray(dynamicStateCount)
 
 		for i, state in ipairs(config.dynamic_states) do
 			dynamicStateArray[i - 1] = vulkan.vk.e.VkDynamicState(state)
@@ -232,9 +233,7 @@ function GraphicsPipeline.New(device, config, render_passes, pipelineLayout)
 
 	if render_passes[1].format then
 		colorAttachmentCount = 1
-		pColorAttachmentFormats = vulkan.T.Array(vulkan.vk.VkFormat, 1)({
-			vulkan.vk.e.VkFormat(render_passes[1].format),
-		})
+		pColorAttachmentFormats = EnumArray(1, vulkan.vk.e.VkFormat(render_passes[1].format))
 	end
 
 	local pipelineRenderingCreateInfo = vulkan.vk.s.PipelineRenderingCreateInfo(

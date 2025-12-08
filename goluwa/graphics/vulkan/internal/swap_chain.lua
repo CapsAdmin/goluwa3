@@ -80,9 +80,9 @@ function Swapchain:GetNextImage(imageAvailableSemaphore)
 		imageIndex
 	)
 
-	if result == vulkan.vk.VkResult("VK_ERROR_OUT_OF_DATE_KHR") then
+	if result == vulkan.vk.VkResult.VK_ERROR_OUT_OF_DATE_KHR then
 		return nil, "out_of_date"
-	elseif result == vulkan.vk.VkResult("VK_SUBOPTIMAL_KHR") then
+	elseif result == vulkan.vk.VkResult.VK_SUBOPTIMAL_KHR then
 		return imageIndex[0], "suboptimal"
 	elseif result ~= 0 then
 		error("failed to acquire next image: " .. vulkan.vk.str.VkResult(result))
@@ -105,11 +105,11 @@ function Swapchain:Present(renderFinishedSemaphore, deviceQueue, imageIndex)
 		)
 	)
 
-	if result == vulkan.vk.VkResult("VK_ERROR_OUT_OF_DATE_KHR") then
+	if result == vulkan.vk.VkResult.VK_ERROR_OUT_OF_DATE_KHR then
 		return false
-	elseif result == vulkan.vk.VkResult("VK_SUBOPTIMAL_KHR") then
+	elseif result == vulkan.vk.VkResult.VK_SUBOPTIMAL_KHR then
 		return false
-	elseif result ~= vulkan.vk.VkResult("VK_SUCCESS") then
+	elseif result ~= vulkan.vk.VkResult.VK_SUCCESS then
 		error("failed to present: " .. vulkan.vk.str.VkResult(result))
 	end
 

@@ -44,7 +44,7 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 	if has_extended_dynamic_state3 then
 		local extendedDynamicState3Features = vulkan.vk.VkPhysicalDeviceExtendedDynamicState3FeaturesEXT(
 			{
-				sType = "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_3_FEATURES_EXT",
+				sType = vulkan.vk.VkStructureType.VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_3_FEATURES_EXT,
 				pNext = nil,
 				extendedDynamicState3ColorBlendEnable = 1,
 				extendedDynamicState3ColorBlendEquation = 1,
@@ -86,7 +86,7 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 	if hasDynamicRenderingFeatures then
 		local dynamicRenderingFeatures = vulkan.vk.VkPhysicalDeviceDynamicRenderingFeatures(
 			{
-				sType = "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES",
+				sType = vulkan.vk.VkStructureType.VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES,
 				pNext = pNextChain,
 				dynamicRendering = 1,
 			}
@@ -98,7 +98,7 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 	-- and descriptor indexing features for bindless textures
 	local vulkan12Features = vulkan.vk.VkPhysicalDeviceVulkan12Features(
 		{
-			sType = "VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES",
+			sType = vulkan.vk.VkStructureType.VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
 			pNext = pNextChain,
 			scalarBlockLayout = 1,
 			-- Descriptor indexing features for bindless rendering
@@ -279,15 +279,15 @@ function Device:UpdateDescriptorSetArray(descriptorSet, binding_index, texture_a
 	for i, tex in ipairs(texture_array) do
 		imageInfoArray[i - 1].sampler = tex.sampler.ptr[0]
 		imageInfoArray[i - 1].imageView = tex.view.ptr[0]
-		imageInfoArray[i - 1].imageLayout = "VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL"
+		imageInfoArray[i - 1].imageLayout = vulkan.vk.VkImageLayout.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
 	end
 
 	local descriptorWrite = vulkan.T.Array(vulkan.vk.VkWriteDescriptorSet)(1)
-	descriptorWrite[0].sType = "VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET"
+	descriptorWrite[0].sType = vulkan.vk.VkStructureType.VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET
 	descriptorWrite[0].dstSet = descriptorSet.ptr[0]
 	descriptorWrite[0].dstBinding = binding_index
 	descriptorWrite[0].dstArrayElement = 0
-	descriptorWrite[0].descriptorType = "VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER"
+	descriptorWrite[0].descriptorType = vulkan.vk.VkDescriptorType.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER
 	descriptorWrite[0].descriptorCount = count
 	descriptorWrite[0].pImageInfo = imageInfoArray
 	vulkan.lib.vkUpdateDescriptorSets(self.ptr[0], 1, descriptorWrite, 0, nil)

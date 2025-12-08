@@ -22,24 +22,24 @@ function RenderPass.New(device, config)
 					-- Attachment 0: Color
 					{
 						format = vulkan.vk.e.VkFormat(format_string),
-						samples = "VK_SAMPLE_COUNT_1_BIT",
-						loadOp = "VK_ATTACHMENT_LOAD_OP_CLEAR",
-						storeOp = "VK_ATTACHMENT_STORE_OP_STORE",
-						stencilLoadOp = "VK_ATTACHMENT_LOAD_OP_DONT_CARE",
-						stencilStoreOp = "VK_ATTACHMENT_STORE_OP_DONT_CARE",
-						initialLayout = "VK_IMAGE_LAYOUT_UNDEFINED",
+						samples = vulkan.vk.VkSampleCountFlagBits.VK_SAMPLE_COUNT_1_BIT,
+						loadOp = vulkan.vk.VkAttachmentLoadOp.VK_ATTACHMENT_LOAD_OP_CLEAR,
+						storeOp = vulkan.vk.VkAttachmentStoreOp.VK_ATTACHMENT_STORE_OP_STORE,
+						stencilLoadOp = vulkan.vk.VkAttachmentLoadOp.VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+						stencilStoreOp = vulkan.vk.VkAttachmentStoreOp.VK_ATTACHMENT_STORE_OP_DONT_CARE,
+						initialLayout = vulkan.vk.VkImageLayout.VK_IMAGE_LAYOUT_UNDEFINED,
 						finalLayout = vulkan.vk.e.VkImageLayout(config.final_layout),
 					},
 					-- Attachment 1: Depth
 					{
 						format = vulkan.vk.e.VkFormat(config.depth_format),
-						samples = "VK_SAMPLE_COUNT_1_BIT",
-						loadOp = "VK_ATTACHMENT_LOAD_OP_CLEAR",
-						storeOp = "VK_ATTACHMENT_STORE_OP_DONT_CARE",
-						stencilLoadOp = "VK_ATTACHMENT_LOAD_OP_DONT_CARE",
-						stencilStoreOp = "VK_ATTACHMENT_STORE_OP_DONT_CARE",
-						initialLayout = "VK_IMAGE_LAYOUT_UNDEFINED",
-						finalLayout = "VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL",
+						samples = vulkan.vk.VkSampleCountFlagBits.VK_SAMPLE_COUNT_1_BIT,
+						loadOp = vulkan.vk.VkAttachmentLoadOp.VK_ATTACHMENT_LOAD_OP_CLEAR,
+						storeOp = vulkan.vk.VkAttachmentStoreOp.VK_ATTACHMENT_STORE_OP_DONT_CARE,
+						stencilLoadOp = vulkan.vk.VkAttachmentLoadOp.VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+						stencilStoreOp = vulkan.vk.VkAttachmentStoreOp.VK_ATTACHMENT_STORE_OP_DONT_CARE,
+						initialLayout = vulkan.vk.VkImageLayout.VK_IMAGE_LAYOUT_UNDEFINED,
+						finalLayout = vulkan.vk.VkImageLayout.VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
 					},
 				}
 			)
@@ -48,12 +48,12 @@ function RenderPass.New(device, config)
 			attachments = vulkan.vk.VkAttachmentDescription(
 				{
 					format = vulkan.vk.e.VkFormat(format_string),
-					samples = "VK_SAMPLE_COUNT_1_BIT",
-					loadOp = "VK_ATTACHMENT_LOAD_OP_CLEAR",
-					storeOp = "VK_ATTACHMENT_STORE_OP_STORE",
-					stencilLoadOp = "VK_ATTACHMENT_LOAD_OP_DONT_CARE",
-					stencilStoreOp = "VK_ATTACHMENT_STORE_OP_DONT_CARE",
-					initialLayout = "VK_IMAGE_LAYOUT_UNDEFINED",
+					samples = vulkan.vk.VkSampleCountFlagBits.VK_SAMPLE_COUNT_1_BIT,
+					loadOp = vulkan.vk.VkAttachmentLoadOp.VK_ATTACHMENT_LOAD_OP_CLEAR,
+					storeOp = vulkan.vk.VkAttachmentStoreOp.VK_ATTACHMENT_STORE_OP_STORE,
+					stencilLoadOp = vulkan.vk.VkAttachmentLoadOp.VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+					stencilStoreOp = vulkan.vk.VkAttachmentStoreOp.VK_ATTACHMENT_STORE_OP_DONT_CARE,
+					initialLayout = vulkan.vk.VkImageLayout.VK_IMAGE_LAYOUT_UNDEFINED,
 					finalLayout = vulkan.vk.e.VkImageLayout(config.final_layout),
 				}
 			)
@@ -68,35 +68,35 @@ function RenderPass.New(device, config)
 					-- Attachment 0: MSAA color attachment
 					{
 						format = vulkan.vk.e.VkFormat(format_string),
-						samples = "VK_SAMPLE_COUNT_" .. config.samples .. "_BIT",
-						loadOp = "VK_ATTACHMENT_LOAD_OP_CLEAR",
-						storeOp = "VK_ATTACHMENT_STORE_OP_DONT_CARE", -- Don't need to store MSAA
-						stencilLoadOp = "VK_ATTACHMENT_LOAD_OP_DONT_CARE",
-						stencilStoreOp = "VK_ATTACHMENT_STORE_OP_DONT_CARE",
-						initialLayout = "VK_IMAGE_LAYOUT_UNDEFINED",
-						finalLayout = "VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL",
+						samples = vulkan.vk.VkSampleCountFlagBits["VK_SAMPLE_COUNT_" .. config.samples .. "_BIT"],
+						loadOp = vulkan.vk.VkAttachmentLoadOp.VK_ATTACHMENT_LOAD_OP_CLEAR,
+						storeOp = vulkan.vk.VkAttachmentStoreOp.VK_ATTACHMENT_STORE_OP_DONT_CARE, -- Don't need to store MSAA
+						stencilLoadOp = vulkan.vk.VkAttachmentLoadOp.VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+						stencilStoreOp = vulkan.vk.VkAttachmentStoreOp.VK_ATTACHMENT_STORE_OP_DONT_CARE,
+						initialLayout = vulkan.vk.VkImageLayout.VK_IMAGE_LAYOUT_UNDEFINED,
+						finalLayout = vulkan.vk.VkImageLayout.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
 					},
 					-- Attachment 1: Resolve target (swapchain)
 					{
 						format = vulkan.vk.e.VkFormat(format_string),
-						samples = "VK_SAMPLE_COUNT_1_BIT",
-						loadOp = "VK_ATTACHMENT_LOAD_OP_DONT_CARE", -- Don't care about initial contents
-						storeOp = "VK_ATTACHMENT_STORE_OP_STORE", -- Store resolved result
-						stencilLoadOp = "VK_ATTACHMENT_LOAD_OP_DONT_CARE",
-						stencilStoreOp = "VK_ATTACHMENT_STORE_OP_DONT_CARE",
-						initialLayout = "VK_IMAGE_LAYOUT_UNDEFINED",
-						finalLayout = "VK_IMAGE_LAYOUT_PRESENT_SRC_KHR",
+						samples = vulkan.vk.VkSampleCountFlagBits.VK_SAMPLE_COUNT_1_BIT,
+						loadOp = vulkan.vk.VkAttachmentLoadOp.VK_ATTACHMENT_LOAD_OP_DONT_CARE, -- Don't care about initial contents
+						storeOp = vulkan.vk.VkAttachmentStoreOp.VK_ATTACHMENT_STORE_OP_STORE, -- Store resolved result
+						stencilLoadOp = vulkan.vk.VkAttachmentLoadOp.VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+						stencilStoreOp = vulkan.vk.VkAttachmentStoreOp.VK_ATTACHMENT_STORE_OP_DONT_CARE,
+						initialLayout = vulkan.vk.VkImageLayout.VK_IMAGE_LAYOUT_UNDEFINED,
+						finalLayout = vulkan.vk.VkImageLayout.VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
 					},
 					-- Attachment 2: MSAA depth attachment
 					{
 						format = vulkan.vk.e.VkFormat(config.depth_format),
-						samples = "VK_SAMPLE_COUNT_" .. config.samples .. "_BIT",
-						loadOp = "VK_ATTACHMENT_LOAD_OP_CLEAR",
-						storeOp = "VK_ATTACHMENT_STORE_OP_DONT_CARE",
-						stencilLoadOp = "VK_ATTACHMENT_LOAD_OP_DONT_CARE",
-						stencilStoreOp = "VK_ATTACHMENT_STORE_OP_DONT_CARE",
-						initialLayout = "VK_IMAGE_LAYOUT_UNDEFINED",
-						finalLayout = "VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL",
+						samples = vulkan.vk.VkSampleCountFlagBits["VK_SAMPLE_COUNT_" .. config.samples .. "_BIT"],
+						loadOp = vulkan.vk.VkAttachmentLoadOp.VK_ATTACHMENT_LOAD_OP_CLEAR,
+						storeOp = vulkan.vk.VkAttachmentStoreOp.VK_ATTACHMENT_STORE_OP_DONT_CARE,
+						stencilLoadOp = vulkan.vk.VkAttachmentLoadOp.VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+						stencilStoreOp = vulkan.vk.VkAttachmentStoreOp.VK_ATTACHMENT_STORE_OP_DONT_CARE,
+						initialLayout = vulkan.vk.VkImageLayout.VK_IMAGE_LAYOUT_UNDEFINED,
+						finalLayout = vulkan.vk.VkImageLayout.VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
 					},
 				}
 			)
@@ -109,52 +109,54 @@ function RenderPass.New(device, config)
 					-- Attachment 0: MSAA color attachment
 					{
 						format = vulkan.vk.e.VkFormat(format_string),
-						samples = "VK_SAMPLE_COUNT_" .. config.samples .. "_BIT",
-						loadOp = "VK_ATTACHMENT_LOAD_OP_CLEAR",
-						storeOp = "VK_ATTACHMENT_STORE_OP_DONT_CARE", -- Don't need to store MSAA
-						stencilLoadOp = "VK_ATTACHMENT_LOAD_OP_DONT_CARE",
-						stencilStoreOp = "VK_ATTACHMENT_STORE_OP_DONT_CARE",
-						initialLayout = "VK_IMAGE_LAYOUT_UNDEFINED",
-						finalLayout = "VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL",
+						samples = vulkan.vk.VkSampleCountFlagBits["VK_SAMPLE_COUNT_" .. config.samples .. "_BIT"],
+						loadOp = vulkan.vk.VkAttachmentLoadOp.VK_ATTACHMENT_LOAD_OP_CLEAR,
+						storeOp = vulkan.vk.VkAttachmentStoreOp.VK_ATTACHMENT_STORE_OP_DONT_CARE, -- Don't need to store MSAA
+						stencilLoadOp = vulkan.vk.VkAttachmentLoadOp.VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+						stencilStoreOp = vulkan.vk.VkAttachmentStoreOp.VK_ATTACHMENT_STORE_OP_DONT_CARE,
+						initialLayout = vulkan.vk.VkImageLayout.VK_IMAGE_LAYOUT_UNDEFINED,
+						finalLayout = vulkan.vk.VkImageLayout.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
 					},
 					-- Attachment 1: Resolve target (swapchain)
 					{
 						format = vulkan.vk.e.VkFormat(format_string),
-						samples = "VK_SAMPLE_COUNT_1_BIT",
-						loadOp = "VK_ATTACHMENT_LOAD_OP_DONT_CARE", -- Don't care about initial contents
-						storeOp = "VK_ATTACHMENT_STORE_OP_STORE", -- Store resolved result
-						stencilLoadOp = "VK_ATTACHMENT_LOAD_OP_DONT_CARE",
-						stencilStoreOp = "VK_ATTACHMENT_STORE_OP_DONT_CARE",
-						initialLayout = "VK_IMAGE_LAYOUT_UNDEFINED",
-						finalLayout = "VK_IMAGE_LAYOUT_PRESENT_SRC_KHR",
+						samples = vulkan.vk.VkSampleCountFlagBits.VK_SAMPLE_COUNT_1_BIT,
+						loadOp = vulkan.vk.VkAttachmentLoadOp.VK_ATTACHMENT_LOAD_OP_DONT_CARE, -- Don't care about initial contents
+						storeOp = vulkan.vk.VkAttachmentStoreOp.VK_ATTACHMENT_STORE_OP_STORE, -- Store resolved result
+						stencilLoadOp = vulkan.vk.VkAttachmentLoadOp.VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+						stencilStoreOp = vulkan.vk.VkAttachmentStoreOp.VK_ATTACHMENT_STORE_OP_DONT_CARE,
+						initialLayout = vulkan.vk.VkImageLayout.VK_IMAGE_LAYOUT_UNDEFINED,
+						finalLayout = vulkan.vk.VkImageLayout.VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
 					},
 				}
 			)
 		end
 	end
 
-	local colorAttachmentRef = vulkan.vk.VkAttachmentReference({
-		attachment = 0,
-		layout = "VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL",
-	})
+	local colorAttachmentRef = vulkan.vk.VkAttachmentReference(
+		{
+			attachment = 0,
+			layout = vulkan.vk.VkImageLayout.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+		}
+	)
 	local depthAttachmentRef = has_depth and
 		vulkan.vk.VkAttachmentReference(
 			{
 				attachment = config.samples == "1" and 1 or 2,
-				layout = "VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL",
+				layout = vulkan.vk.VkImageLayout.VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
 			}
 		) or
 		nil
 	local subpass = vulkan.vk.VkSubpassDescription(
 		{
-			pipelineBindPoint = "VK_PIPELINE_BIND_POINT_GRAPHICS",
+			pipelineBindPoint = vulkan.vk.VkPipelineBindPoint.VK_PIPELINE_BIND_POINT_GRAPHICS,
 			colorAttachmentCount = 1,
 			pColorAttachments = colorAttachmentRef,
 			pResolveAttachments = config.samples ~= "1" and
 				vulkan.vk.VkAttachmentReference(
 					{
 						attachment = 1,
-						layout = "VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL",
+						layout = vulkan.vk.VkImageLayout.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
 					}
 				) or
 				nil,
@@ -167,23 +169,23 @@ function RenderPass.New(device, config)
 			dstSubpass = 0,
 			srcStageMask = has_depth and
 				bit.bor(
-					vulkan.vk.VkPipelineStageFlagBits("VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT"),
-					vulkan.vk.VkPipelineStageFlagBits("VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT")
+					vulkan.vk.VkPipelineStageFlagBits.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+					vulkan.vk.VkPipelineStageFlagBits.VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT
 				) or
-				vulkan.vk.VkPipelineStageFlagBits("VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT"),
+				vulkan.vk.VkPipelineStageFlagBits.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
 			srcAccessMask = 0,
 			dstStageMask = has_depth and
 				bit.bor(
-					vulkan.vk.VkPipelineStageFlagBits("VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT"),
-					vulkan.vk.VkPipelineStageFlagBits("VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT")
+					vulkan.vk.VkPipelineStageFlagBits.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+					vulkan.vk.VkPipelineStageFlagBits.VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT
 				) or
-				vulkan.vk.VkPipelineStageFlagBits("VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT"),
+				vulkan.vk.VkPipelineStageFlagBits.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
 			dstAccessMask = has_depth and
 				bit.bor(
-					vulkan.vk.VkAccessFlagBits("VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT"),
-					vulkan.vk.VkAccessFlagBits("VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT")
+					vulkan.vk.VkAccessFlagBits.VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+					vulkan.vk.VkAccessFlagBits.VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT
 				) or
-				vulkan.vk.VkAccessFlagBits("VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT"),
+				vulkan.vk.VkAccessFlagBits.VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
 		}
 	)
 	local renderPassInfo = vulkan.vk.s.RenderPassCreateInfo(
