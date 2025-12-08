@@ -1,6 +1,5 @@
 local traceback = require("helpers.traceback")
 local system
-local list = table
 local event = _G.event or {}
 event.active = event.active or {}
 event.destroy_tag = {}

@@ -1,5 +1,6 @@
 -- only load from goluwa/ directory
 package.path = package.path .. ";" .. "goluwa/?.lua"
+_G.list = require("helpers.list")
 
 if _G.PROFILE then require("profiler").Start("init") end
 
@@ -11,7 +12,6 @@ require("helpers.string")
 require("helpers.string_format")
 require("helpers.math")
 _G.table.print = require("helpers.tostring_object").dump_object
-_G.list = require("helpers.list")
 
 do
 	local logfile = require("logging")

@@ -3,7 +3,6 @@ local system = require("system")
 local traceback = require("helpers.traceback")
 local logfile = require("logging")
 local timer = {}
-local list = table
 timer.timers = timer.timers or {}
 
 function timer.Thinker(callback, run_now, frequency, iterations, id)
