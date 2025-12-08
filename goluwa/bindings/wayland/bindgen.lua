@@ -109,7 +109,7 @@ end
 
 -- Helper to escape strings for Lua code generation
 local function escape_string(s)
-	return s:gsub("\\", "\\\\"):gsub("\n", "\\n"):gsub("\r", "\\r"):gsub("\"", "\\\"")
+	return s:replace("\\", "\\\\"):replace("\n", "\\n"):replace("\r", "\\r"):replace("\"", "\\\"")
 end
 
 -- Helper to serialize a Lua table as code
@@ -379,7 +379,7 @@ function scanner.generate(xml_path, output_file)
 									table.insert(output, "\t\ttypes[" .. (ti - 1) .. "] = ffi.C." .. iface_name .. "_interface\n")
 								else
 									-- For xdg protocol, check if it's a wayland core interface or xdg interface
-									if iface_name:match("^wl_") then
+									if iface_name:starts_with("wl_") then
 										table.insert(output, "\t\ttypes[" .. (ti - 1) .. "] = ffi.C." .. iface_name .. "_interface\n")
 									else
 										-- Defer assignment for forward references to xdg interfaces

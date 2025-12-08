@@ -55,7 +55,7 @@ local function process_samples(
 		if not sample.stack_cached then
 			sample.stack_cached = {}
 
-			for line in sample.stack:gmatch("(.-)\n") do
+			for _, line in ipairs(sample.stack:sub(1, -2):split("\n")) do
 				if
 					line:starts_with("[builtin") or
 					line:starts_with("(command line)") or
@@ -64,13 +64,15 @@ local function process_samples(
 
 				-- these can safely be ignored
 				else
-					local path, line_number = line:match("(.+):(.+)")
+					local path_line = line:split(":")
 
-					if not path or not line_number then error("uh oh") end
+					if not path_line[2] then error("uh oh") end
+
+					local path = path_line[1]
 
 					if path:sub(1, 2) == "./" then path = path:sub(3) end
 
-					local line_number = assert(tonumber(line_number))
+					local line_number = assert(tonumber(path_line[2]))
 					list.insert(sample.stack_cached, {path = path, line_number = line_number})
 				end
 			end

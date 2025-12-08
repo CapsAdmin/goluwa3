@@ -55,7 +55,7 @@ do
 		callstack_str = callstack_str:gsub("%[builtin#(%d+)%]", replace)
 		local lines = {}
 
-		for line in callstack_str:gmatch("[^\n]+") do
+		for _, line in ipairs(callstack_str:sub(1, -2):split("\n")) do
 			table.insert(lines, line)
 		end
 

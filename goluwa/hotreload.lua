@@ -1,6 +1,7 @@
 local timer = require("timer")
 local fs = require("fs")
 local last_modified_times = {}
+local map = {}
 
 timer.Repeat(
 	"hotreload",
@@ -8,9 +9,10 @@ timer.Repeat(
 	math.huge,
 	function()
 		for name in pairs(package.loaded) do
-			local path = package.searchpath(name, package.path)
+			local path = map[name] or package.searchpath(name, package.path)
 
-			if path then
+			if path and path ~= "INVALID" then
+				map[name] = path
 				local modified_time = fs.get_attributes(path).last_modified
 
 				if modified_time then
@@ -39,6 +41,8 @@ timer.Repeat(
 						end
 					end
 				end
+			else
+				map[name] = "INVALID"
 			end
 		end
 	end

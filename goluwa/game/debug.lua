@@ -6,7 +6,7 @@ local render2d = require("graphics.render2d")
 local gfx = require("graphics.gfx")
 local render3d = require("graphics.render3d")
 -- Debug: Show camera info
-local show_camera_info = true
+local show_camera_info = false
 
 event.AddListener("Draw2D", "debug_camera_info", function(cmd, dt)
 	if not show_camera_info then return end

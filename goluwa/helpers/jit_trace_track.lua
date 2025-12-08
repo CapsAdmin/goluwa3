@@ -563,17 +563,25 @@ do
 			if #formatted < 10 or not formatted:find("\n") then
 				local pc_callstack = tostring_trace_callstack(trace)
 
-				if pc_callstack and #pc_callstack > 0 then
-					formatted = pc_callstack
-				end
+				if pc_callstack and #pc_callstack > 0 then formatted = pc_callstack end
 			end
 
 			-- If we still have nothing useful but have callstack_lines, use them directly
-			if (#formatted < 5 or formatted == "") and trace.callstack_lines and #trace.callstack_lines > 0 then
+			if
+				(
+					#formatted < 5 or
+					formatted == ""
+				)
+				and
+				trace.callstack_lines and
+				#trace.callstack_lines > 0
+			then
 				local lines = {}
+
 				for i, entry in ipairs(trace.callstack_lines) do
 					lines[i] = entry.line
 				end
+
 				formatted = table.concat(lines, "\n")
 			end
 
@@ -581,17 +589,130 @@ do
 		end
 	end
 
+	local R = function(s)
+		return assert(trace_errors_reverse[s])
+	end
+	-- Abort codes to filter out completely (normal retry behavior)
+	local filter_codes = {
+		[R("retry recording")] = true, -- retry recording
+		[R("leaving loop in root trace")] = true, -- leaving loop in root trace
+		[R("inner loop in root trace")] = true, -- inner loop in root trace
+		[R("down-recursion, restarting")] = true, -- down-recursion, restarting
+	}
+	-- Abort codes to aggregate as summary counts (resource limits)
+	local aggregate_codes = {
+		[R("too many snapshots")] = true, -- too many snapshots
+		[R("loop unroll limit reached")] = true, -- loop unroll limit reached
+		[R("failed to allocate mcode memory")] = true, -- failed to allocate mcode memory
+		[R("blacklisted")] = true, -- blacklisted function, just report aggregate because it's caused by other abort reasons
+	}
+
+	local function format_successful_traces(trace)
+		return trace.callstack and trace.trace_info.linktype == "stitch"
+	end
+
+	local function format_aborted_traces(trace)
+		return trace.callstack
+	end
+
+	local function add_issue(by_category, category, trace, reason)
+		if not trace.lines or #trace.lines == 0 then return end
+
+		local start_line = trace.lines[1].line
+		local path = ""
+
+		if trace.callstack then
+			local lines = trace.callstack
+
+			if lines and #lines > 0 then path = lines end
+		end
+
+		local by_location = by_category[category]
+		by_location[start_line] = by_location[start_line] or {}
+		by_location[start_line][reason] = by_location[start_line][reason] or {}
+		by_location[start_line][reason][path] = (by_location[start_line][reason][path] or 0) + 1
+	end
+
+	local function sort_locations_total(a, b)
+		return a.total > b.total
+	end
+
+	local function sort_locations_count(a, b)
+		return a.count > b.count
+	end
+
+	local function build_output_for_locations(by_location)
+		-- Sort locations by total issue count
+		local sorted_locations = {}
+
+		for loc, reasons in pairs(by_location) do
+			local total = 0
+
+			for _, paths in pairs(reasons) do
+				for _, count in pairs(paths) do
+					total = total + count
+				end
+			end
+
+			table.insert(sorted_locations, {location = loc, reasons = reasons, total = total})
+		end
+
+		table.sort(sorted_locations, sort_locations_total)
+		local out = {}
+
+		for _, loc_entry in ipairs(sorted_locations) do
+			table.insert(out, loc_entry.location .. " (" .. loc_entry.total .. " issues):\n")
+			local sorted_reasons = {}
+
+			for reason, paths in pairs(loc_entry.reasons) do
+				local reason_total = 0
+
+				for _, count in pairs(paths) do
+					reason_total = reason_total + count
+				end
+
+				table.insert(sorted_reasons, {reason = reason, paths = paths, total = reason_total})
+			end
+
+			table.sort(sorted_reasons, sort_locations_total)
+
+			for _, reason_entry in ipairs(sorted_reasons) do
+				if reason_entry.reason ~= "" then
+					table.insert(out, "  " .. reason_entry.reason .. ":\n")
+				end
+
+				-- Sort paths by count
+				local sorted_paths = {}
+
+				for path, count in pairs(reason_entry.paths) do
+					table.insert(sorted_paths, {path = path, count = count})
+				end
+
+				table.sort(sorted_paths, sort_locations_count)
+
+				for _, path_entry in ipairs(sorted_paths) do
+					local count_str = path_entry.count > 1 and (" (x" .. path_entry.count .. ")") or ""
+
+					if path_entry.path ~= "" then
+						-- Indent each line of the path
+						local indented = path_entry.path:gsub("([^\n]+)", "      %1")
+						table.insert(out, indented .. count_str .. "\n")
+					else
+						table.insert(out, "    (no additional path)" .. count_str .. "\n")
+					end
+				end
+			end
+
+			table.insert(out, "\n")
+		end
+
+		return table.concat(out)
+	end
+
 	function META:GetReportProblematicTraces()
 		local traces, aborted = self:GetReport()
-
-		format_traces(traces, function(trace)
-			return trace.callstack and trace.trace_info.linktype == "stitch"
-		end)
-
-		format_traces(aborted, function(trace)
-			return trace.callstack
-		end)
-
+		format_traces(traces, format_successful_traces)
+		format_traces(aborted, format_aborted_traces)
 		-- Group by category -> location -> reason -> path -> count
 		-- Categories: "stitch", "aborted", "other"
 		local by_category = {
@@ -599,24 +720,6 @@ do
 			aborted = {},
 			other = {},
 		}
-
-		local function add_issue(category, trace, reason)
-			if not trace.lines or #trace.lines == 0 then return end
-
-			local start_line = trace.lines[1].line
-			local path = ""
-
-			if trace.callstack then
-				local lines = trace.callstack
-
-				if lines and #lines > 0 then path = lines end
-			end
-
-			local by_location = by_category[category]
-			by_location[start_line] = by_location[start_line] or {}
-			by_location[start_line][reason] = by_location[start_line][reason] or {}
-			by_location[start_line][reason][path] = (by_location[start_line][reason][path] or 0) + 1
-		end
 
 		for _, trace in ipairs(traces) do
 			local linktype = trace.trace_info.linktype
@@ -637,26 +740,9 @@ do
 				reason = "UNSTABLE_LOOP(exits:" .. nexit .. ")"
 			end
 
-			if reason then add_issue(category, trace, reason) end
+			if reason then add_issue(by_category, category, trace, reason) end
 		end
 
-		local R = function(s)
-			return assert(trace_errors_reverse[s])
-		end
-		-- Abort codes to filter out completely (normal retry behavior)
-		local filter_codes = {
-			[R("retry recording")] = true, -- retry recording
-			[R("leaving loop in root trace")] = true, -- leaving loop in root trace
-			[R("inner loop in root trace")] = true, -- inner loop in root trace
-			[R("down-recursion, restarting")] = true, -- down-recursion, restarting
-		}
-		-- Abort codes to aggregate as summary counts (resource limits)
-		local aggregate_codes = {
-			[R("too many snapshots")] = true, -- too many snapshots
-			[R("loop unroll limit reached")] = true, -- loop unroll limit reached
-			[R("failed to allocate mcode memory")] = true, -- failed to allocate mcode memory
-			[R("blacklisted")] = true, -- blacklisted function, just report aggregate because it's caused by other abort reasons
-		}
 		local aggregate_counts = {}
 
 		for _, trace in ipairs(aborted) do
@@ -670,84 +756,8 @@ do
 				aggregate_counts[code] = (aggregate_counts[code] or 0) + 1
 			else
 				local reason = format_error(code, trace.aborted.reason)
-				add_issue("aborted", trace, reason)
+				add_issue(by_category, "aborted", trace, reason)
 			end
-		end
-
-		local function build_output_for_locations(by_location)
-			-- Sort locations by total issue count
-			local sorted_locations = {}
-
-			for loc, reasons in pairs(by_location) do
-				local total = 0
-
-				for _, paths in pairs(reasons) do
-					for _, count in pairs(paths) do
-						total = total + count
-					end
-				end
-
-				table.insert(sorted_locations, {location = loc, reasons = reasons, total = total})
-			end
-
-			table.sort(sorted_locations, function(a, b)
-				return a.total > b.total
-			end)
-
-			local out = {}
-
-			for _, loc_entry in ipairs(sorted_locations) do
-				table.insert(out, loc_entry.location .. " (" .. loc_entry.total .. " issues):\n")
-				-- Sort reasons by count within this location
-				local sorted_reasons = {}
-
-				for reason, paths in pairs(loc_entry.reasons) do
-					local reason_total = 0
-
-					for _, count in pairs(paths) do
-						reason_total = reason_total + count
-					end
-
-					table.insert(sorted_reasons, {reason = reason, paths = paths, total = reason_total})
-				end
-
-				table.sort(sorted_reasons, function(a, b)
-					return a.total > b.total
-				end)
-
-				for _, reason_entry in ipairs(sorted_reasons) do
-					if reason_entry.reason ~= "" then
-						table.insert(out, "  " .. reason_entry.reason .. ":\n")
-					end
-
-					-- Sort paths by count
-					local sorted_paths = {}
-
-					for path, count in pairs(reason_entry.paths) do
-						table.insert(sorted_paths, {path = path, count = count})
-					end
-
-					table.sort(sorted_paths, function(a, b)
-						return a.count > b.count
-					end)
-
-					for _, path_entry in ipairs(sorted_paths) do
-						local count_str = path_entry.count > 1 and (" (x" .. path_entry.count .. ")") or ""
-
-						if path_entry.path ~= "" then
-							-- Indent each line of the path
-							local indented = path_entry.path:gsub("([^\n]+)", "      %1")
-							table.insert(out, indented .. count_str .. "\n")
-						else
-							table.insert(out, "    (no additional path)" .. count_str .. "\n")
-						end
-					end
-				end
-
-				table.insert(out, "\n")
-			end
-
-			return table.concat(out)
 		end
 
 		local out = {}

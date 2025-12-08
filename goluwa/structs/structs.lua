@@ -101,7 +101,10 @@ local function parse_args(META, lua, sep, protect)
 	local count = #META.Args[1]
 
 	for _, line in ipairs(lua:split("\n")) do
-		if line:find("KEY") or line:find("ARG") then
+		local has_key = line:find("KEY", nil, true)
+		local has_arg = line:find("ARG", nil, true)
+
+		if has_key or has_arg then
 			local str = ""
 
 			for i, trans in pairs(META.Args[1]) do
@@ -111,20 +114,20 @@ local function parse_args(META, lua, sep, protect)
 
 				if protect and META.ProtectedFields and META.ProtectedFields[arg] then
 					str = str .. "PROTECT " .. arg
-				elseif line:find("ARG") then
+				elseif has_arg then
 					str = str .. arg
 
 					if i ~= count then str = str .. ", " end
 				else
-					str = str .. line:gsub("KEY", arg)
+					str = str .. line:replace("KEY", arg)
 				end
 
-				if i ~= count and not line:find("ARG") then str = str .. sep end
+				if i ~= count and not has_arg then str = str .. sep end
 
-				if line:find("KEY") then str = str .. "\n" end
+				if has_key then str = str .. "\n" end
 			end
 
-			if line:find("ARG") then str = line:gsub("ARG", str) end
+			if has_arg then str = line:replace("ARG", str) end
 
 			line = str
 		end

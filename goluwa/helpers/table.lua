@@ -152,7 +152,7 @@ do -- table copy
 		--if ((t == "table" or (t == "cdata" and structs.GetStructMeta(obj))) and obj.__copy) then
 		--	return obj:__copy()
 		--else
-			if lookup_table[obj] then
+		if lookup_table[obj] then
 			return lookup_table[obj]
 		elseif t == "table" then
 			local new_table = {}
@@ -243,3 +243,5 @@ function table.equal(o1, o2, ignore_mt)
 
 	return true
 end
+
+table.sort = require("helpers.table_sort")
