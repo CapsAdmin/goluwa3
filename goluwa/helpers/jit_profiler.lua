@@ -31,10 +31,6 @@ function profiler.StopSection()
 	end
 end
 
-local function starts_with(str--[[#: string]], what--[[#: string]])
-	return str:sub(1, #what) == what
-end
-
 local function process_samples(
 	config--[[#: Required<|Config|>]],
 	raw_samples--[[#: List<|
@@ -56,38 +52,44 @@ local function process_samples(
 			section_samples[section_key] = {}
 		end
 
-		local stack = {}
+		if not sample.stack_cached then
+			sample.stack_cached = {}
 
-		for line in sample.stack:gmatch("(.-)\n") do
-			if
-				starts_with(line, "[builtin") or
-				starts_with(line, "(command line)") or
-				starts_with(line, "@0x")
-			then
+			for line in sample.stack:gmatch("(.-)\n") do
+				if
+					line:starts_with("[builtin") or
+					line:starts_with("(command line)") or
+					line:starts_with("@0x")
+				then
 
-			-- these can safely be ignored
-			else
-				local path, line_number = line:match("(.+):(.+)")
+				-- these can safely be ignored
+				else
+					local path, line_number = line:match("(.+):(.+)")
 
-				if not path or not line_number then error("uh oh") end
+					if not path or not line_number then error("uh oh") end
 
-				if path:sub(1, 2) == "./" then path = path:sub(3) end
+					if path:sub(1, 2) == "./" then path = path:sub(3) end
 
-				local line_number = assert(tonumber(line_number))
-
-				do
-					if not section_samples[section_key][path] then
-						section_samples[section_key][path] = {lines = {}}
-					end
-
-					if not section_samples[section_key][path].lines[line_number] then
-						section_samples[section_key][path].lines[line_number] = {}
-					end
-
-					local vm_states = section_samples[section_key][path].lines[line_number]
-					vm_states[sample.vm_state] = (vm_states[sample.vm_state] or 0) + sample.sample_count
+					local line_number = assert(tonumber(line_number))
+					list.insert(sample.stack_cached, {path = path, line_number = line_number})
 				end
 			end
+		end
+
+		for _, line_info in ipairs(sample.stack_cached) do
+			local path = line_info.path
+			local line_number = line_info.line_number
+
+			if not section_samples[section_key][path] then
+				section_samples[section_key][path] = {lines = {}}
+			end
+
+			if not section_samples[section_key][path].lines[line_number] then
+				section_samples[section_key][path].lines[line_number] = {}
+			end
+
+			local vm_states = section_samples[section_key][path].lines[line_number]
+			vm_states[sample.vm_state] = (vm_states[sample.vm_state] or 0) + sample.sample_count
 		end
 	end
 

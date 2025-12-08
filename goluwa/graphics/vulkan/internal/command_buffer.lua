@@ -103,6 +103,8 @@ function CommandBuffer:End()
 	vulkan.assert(vulkan.lib.vkEndCommandBuffer(self.ptr[0]), "failed to end command buffer")
 end
 
+local RECT = vulkan.vk.VkRect2D()
+
 function CommandBuffer:BeginRendering(config)
 	local colorAttachmentInfo = nil
 	local colorAttachmentCount = 0
@@ -159,14 +161,15 @@ function CommandBuffer:BeginRendering(config)
 		)
 	end
 
+	RECT.offset.x = config.x or 0
+	RECT.offset.y = config.y or 0
+	RECT.extent.width = config.w
+	RECT.extent.height = config.h
 	vulkan.lib.vkCmdBeginRendering(
 		self.ptr[0],
 		vulkan.vk.s.RenderingInfo(
 			{
-				renderArea = {
-					offset = {x = config.x or 0, y = config.y or 0},
-					extent = {width = config.w, height = config.h},
-				},
+				renderArea = RECT,
 				viewMask = 0,
 				layerCount = 1,
 				colorAttachmentCount = colorAttachmentCount,

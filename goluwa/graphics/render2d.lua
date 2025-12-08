@@ -408,11 +408,13 @@ do -- mesh
 	end
 
 	local last_bound_mesh = nil
+	local last_cmd = nil
 
 	function render2d.BindMesh(mesh)
-		if true or last_bound_mesh ~= mesh then
+		if last_cmd ~= render2d.cmd or last_bound_mesh ~= mesh then
 			mesh:Bind(render2d.cmd, 0)
 			last_bound_mesh = mesh
+			last_cmd = render2d.cmd
 		end
 	end
 
