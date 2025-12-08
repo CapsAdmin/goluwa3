@@ -4,14 +4,23 @@ local PhysicalDevice = require("graphics.vulkan.internal.physical_device")
 local Instance = {}
 Instance.__index = Instance
 
+-- Patterns to suppress (plain text matching)
+local suppressed_warnings = {
+	"vk_loader_settings.json",
+	"Path to given binary", -- NVIDIA symlink mismatch on NixOS
+	"terminator_CreateInstance", -- Mesa DZN driver incompatible on Linux
+}
+
 local function debug_callback(messageSeverity, messageType, pCallbackData, pUserData)
 	local data = pCallbackData[0]
 	local type_flags = vulkan.vk.str.VkDebugUtilsMessageTypeFlagBitsEXT(messageType)
 	local severity_flags = vulkan.vk.str.VkDebugUtilsMessageSeverityFlagBitsEXT(messageSeverity)
 	local msg = ffi.string(data.pMessage)
 
-	if msg:find("vk_loader_settings.json", nil, true) then
-		return vulkan.vk.VK_FALSE
+	for _, pattern in ipairs(suppressed_warnings) do
+		if msg:find(pattern, nil, true) then
+			return vulkan.vk.VK_FALSE
+		end
 	end
 
 	print(
@@ -25,7 +34,6 @@ end
 
 function Instance.New(extensions, layers)
 	local version = vulkan.vk.VK_API_VERSION_1_4
-	llog("requesting version: " .. vulkan.VersionToString(version))
 	local appInfo = vulkan.vk.s.ApplicationInfo(
 		{
 			pApplicationName = "MoltenVK LuaJIT Example",
@@ -35,7 +43,6 @@ function Instance.New(extensions, layers)
 			apiVersion = version,
 		}
 	)
-	llog("version loaded: " .. vulkan.GetVersion())
 	-- Add debug utils extension if validation layers are enabled
 	local has_validation = layers and #layers > 0
 

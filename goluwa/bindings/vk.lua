@@ -35,7 +35,6 @@ function mod.find_library()
 			local status, lib = pcall(ffi.load, name)
 
 			if status then
-				llog("Loaded Vulkan library:", name)
 				return lib
 			else
 				table.insert(errors, lib)

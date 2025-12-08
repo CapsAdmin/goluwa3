@@ -149,17 +149,11 @@ function renderdoc.init()
 		if result ~= 1 or api_ptr[0] == nil then error("Failed to get RenderDoc API") end
 
 		api = ffi.cast(API_1_6_0, api_ptr[0])
-		print(api.GetAPIVersion)
-		print(api.GetNumCaptures)
 
 		if api.GetAPIVersion == nil then
 			error("Failed to cast RenderDoc API to version 1.6.0")
 		end
 	end
-
-	--	api.SetCaptureFilePathTemplate("./renderdoc_captures/frame_{{frame}}.rdc")
-	--print("capturing to ", ffi.string(api.GetCaptureFilePathTemplate()))
-	print(string.format("RenderDoc initialized (v%d.%d.%d)", renderdoc.GetVersion()))
 end
 
 function renderdoc.GetVersion()

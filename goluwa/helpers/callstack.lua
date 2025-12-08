@@ -12,7 +12,7 @@ do
 
 	function callstack.get_line(level--[[#: 1 .. inf]])
 		level = level + 2
-		local str = prof.dumpstack("pl\n")--[[# as string]]
+		local str = prof.dumpstack("pl\n", 100)--[[# as string]]
 		local pos = 1
 
 		for i = 1, level do

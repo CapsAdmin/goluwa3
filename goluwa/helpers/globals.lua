@@ -157,3 +157,42 @@ function typex(var)
 
 	return t
 end
+
+do
+	local callstack = require("helpers.callstack")
+	local old = print
+	print = function(...)
+		local str = {}
+
+		for i = 1, select("#", ...) do
+			local v = select(i, ...)
+			str[i] = tostring(v)
+		end
+
+		str = table.concat(str, "\t") .. "\n"
+		local path = callstack.get_line(2)
+
+		if path then str = string.format("%s %s", path, str) end
+		io.write(str)
+	end
+end
+
+do
+	local old = print
+	local done = {}
+
+	function print_once(...)
+		local tbl = {}
+
+		for i = 1, select("#", ...) do
+			tbl[i] = tostring((select(i, ...)))
+		end
+
+		local hash = table.concat(tbl, "\t")
+
+		if not done[hash] then
+			old(hash)
+			done[hash] = true
+		end
+	end
+end

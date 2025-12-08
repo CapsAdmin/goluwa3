@@ -30,16 +30,6 @@ local function choose_format(self)
 
 	-- Handle undefined surface size (Wayland)
 	if self.surface_capabilities.currentExtent.width == 0xFFFFFFFF then
-		print(
-			"Surface extent is undefined (0xFFFFFFFF), using window size: " .. (
-					self.config.width or
-					"nil"
-				) .. "x" .. (
-					self.config.height or
-					"nil"
-				)
-		)
-
 		if self.config.width and self.config.height then
 			self.surface_capabilities.currentExtent.width = self.config.width
 			self.surface_capabilities.currentExtent.height = self.config.height

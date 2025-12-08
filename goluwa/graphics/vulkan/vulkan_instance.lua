@@ -66,7 +66,6 @@ function VulkanInstance.New(surface_handle, display_handle)
 
 	local props = self.physical_device:GetProperties()
 	local device_name = ffi.string(props.deviceName)
-	print(device_name .. " selected")
 	self.graphics_queue_family = self.physical_device:FindGraphicsQueueFamily(self.surface)
 	self.device = Device.New(self.physical_device, {"VK_KHR_swapchain"}, self.graphics_queue_family)
 	self.command_pool = CommandPool.New(self.device, self.graphics_queue_family)
