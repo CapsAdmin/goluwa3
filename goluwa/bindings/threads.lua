@@ -187,7 +187,6 @@ end
 threads.STATUS_UNDEFINED = 0
 threads.STATUS_COMPLETED = 1
 threads.STATUS_ERROR = 2
-
 local thread_func_signature = "void *(*)(void *)"
 local thread_data_t = ffi.typeof([[
 	struct {
@@ -274,7 +273,8 @@ do
 			[[
             local run = assert(load(...))
             local ffi = require("ffi")
-			local threads = require("threads")
+			require("goluwa.global_environment")
+			local threads = require("bindings.threads")
 
             local function main(udata)
                 local data = ffi.cast(threads.thread_data_ptr_t, udata)
@@ -362,10 +362,8 @@ do
 			local status = self.input_data.status
 			self.buffer = nil
 			self.input_data = nil
-			
-			if status == threads.STATUS_ERROR then
-				return result[1], result[2]
-			end
+
+			if status == threads.STATUS_ERROR then return result[1], result[2] end
 
 			return result
 		end
