@@ -24,7 +24,7 @@ local default_options = {
 	maxrecord = 4000, -- Max number of of recorded IR instructions.
 	maxirconst = 500, -- Max number of of IR constants of a trace.
 	maxside = 100, -- Max number of of side traces of a root trace.
-	maxsnap = 5000, -- Max number of of snapshots for a trace.
+	maxsnap = 500, -- Max number of of snapshots for a trace.
 	minstitch = 0, -- Min number of of IR ins for a stitched trace.
 	--
 	hotloop = 56, -- number of iter. to detect a hot loop/call.
@@ -148,13 +148,13 @@ function jit_options.SetOptimized()
 		{
 			maxtrace = 65535,
 			maxmcode = 128000,
-			sizemcode = 256,
-			minstitch = 1,
+			sizemcode = 512,
+			minstitch = 3,
 			maxrecord = 50000,
 			maxirconst = 8000,
 			maxside = 100,
-			maxsnap = 100,
-			hotloop = 5,
+			maxsnap = 5000,
+			hotloop = 100,
 			hotexit = 100,
 			tryside = 1,
 			instunroll = 1100,

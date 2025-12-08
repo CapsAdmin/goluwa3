@@ -552,6 +552,8 @@ do
 			end
 		end
 
+		if not found[1] then return end
+
 		local prefix, suffix = string.strip_common_prefix_suffix(tracebacks)
 
 		for _, trace in ipairs(found) do
