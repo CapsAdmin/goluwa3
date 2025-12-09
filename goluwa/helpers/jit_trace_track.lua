@@ -32,6 +32,7 @@ local function format_file_link(loc--[[#: string]])
 	-- Convert "path/to/file.lua:123" to markdown link "[path/to/file.lua:123](../path/to/file.lua#L123)"
 	-- Uses ../ prefix since the markdown file is in logs/ directory
 	local path, line = loc:match("^(.+):(%d+)$")
+
 	if path and line then
 		local display = loc:gsub("^goluwa/", "")
 		return "[" .. display .. "](../" .. path .. "#L" .. line .. ")"
@@ -692,7 +693,10 @@ do
 		local out = {}
 
 		for _, loc_entry in ipairs(sorted_locations) do
-			table.insert(out, "### " .. format_file_link(loc_entry.location) .. " (" .. loc_entry.total .. " issues)\n\n")
+			table.insert(
+				out,
+				"### " .. format_file_link(loc_entry.location) .. " (" .. loc_entry.total .. " issues)\n\n"
+			)
 			local sorted_reasons = {}
 
 			for reason, paths in pairs(loc_entry.reasons) do
@@ -727,9 +731,11 @@ do
 					if path_entry.path ~= "" then
 						-- Format each line of the path as a list with clickable links
 						local lines = {}
+
 						for line in path_entry.path:gmatch("([^\n]+)") do
 							table.insert(lines, "  - " .. format_file_link(line:match("^%s*(.-)%s*$")))
 						end
+
 						table.insert(out, table.concat(lines, "\n") .. count_str .. "\n")
 					else
 						table.insert(out, "- *(no additional path)*" .. count_str .. "\n")
@@ -795,8 +801,6 @@ do
 		end
 
 		local out = {}
-
-		table.insert(out, "# JIT Trace Report\n\n")
 
 		-- Show resource limit summary first
 		if next(aggregate_counts) then
