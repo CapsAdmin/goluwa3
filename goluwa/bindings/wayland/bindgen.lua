@@ -1,111 +1,5 @@
+local xml = require("goluwa.helpers.xml")
 local scanner = {}
-
--- Inlined XML parser
-local function parse_xml(s)
-	local io, string, pairs = io, string, pairs
-	local slashchar = string.byte("/", 1)
-	local E = string.byte("E", 1)
-
-	local function defaultEntityTable()
-		return {
-			quot = "\"",
-			apos = "\'",
-			lt = "<",
-			gt = ">",
-			amp = "&",
-			tab = "\t",
-			nbsp = " ",
-		}
-	end
-
-	local function replaceEntities(s, entities)
-		return s:gsub("&([^;]+);", entities)
-	end
-
-	local function createEntityTable(docEntities, resultEntities)
-		local entities = resultEntities or defaultEntityTable()
-
-		for _, e in pairs(docEntities) do
-			e.value = replaceEntities(e.value, entities)
-			entities[e.name] = e.value
-		end
-
-		return entities
-	end
-
-	-- remove comments
-	s = s:gsub("<!--(.-)-->", "")
-	local entities, tentities = {}
-	local t, l = {}, {}
-	local addtext = function(txt)
-		txt = txt:match("^%s*(.* %S)") or ""
-
-		if #txt ~= 0 then t[#t + 1] = {text = txt} end
-	end
-
-	s:gsub("<([?!/]?)([-:_%w]+)%s*(/?>?)([^<]*)", function(type, name, closed, txt)
-		-- open
-		if #type == 0 then
-			local attrs, orderedattrs = {}, {}
-
-			if #closed == 0 then
-				local len = 0
-
-				for all, aname, _, value, starttxt in string.gmatch(txt, "(.-([-_%w]+)%s*=%s*(.)(.-)%3%s*(/?>?))") do
-					len = len + #all
-					attrs[aname] = value
-					orderedattrs[#orderedattrs + 1] = {name = aname, value = value}
-
-					if #starttxt ~= 0 then
-						txt = txt:sub(len + 1)
-						closed = starttxt
-
-						break
-					end
-				end
-			end
-
-			t[#t + 1] = {tag = name, attrs = attrs, children = {}, orderedattrs = orderedattrs}
-
-			if closed:byte(1) ~= slashchar then
-				l[#l + 1] = t
-				t = t[#t].children
-			end
-
-			addtext(txt)
-		-- close
-		elseif "/" == type then
-			t = l[#l]
-			l[#l] = nil
-			addtext(txt)
-		-- ENTITY
-		elseif "!" == type then
-			if E == name:byte(1) then
-				txt:gsub(
-					"([_%w]+)%s+(.)(.-)%2",
-					function(name, _, entity)
-						entities[#entities + 1] = {name = name, value = entity}
-					end,
-					1
-				)
-			end
-		end
-	end)
-
-	return {children = t, entities = entities, tentities = tentities}
-end
-
-local function parseFile_xml(filename)
-	local f, err = io.open(filename)
-
-	if f then
-		local content = f:read("*a")
-		f:close()
-		return parse_xml(content), nil
-	end
-
-	return f, err
-end
 
 -- Helper to escape strings for Lua code generation
 local function escape_string(s)
@@ -215,7 +109,7 @@ local function generate_types_list(args)
 end
 
 function scanner.generate(xml_path, output_file)
-	local doc = parseFile_xml(xml_path)
+	local doc = xml.parse_file(xml_path)
 	local protocol = doc.children[1] -- <protocol>
 	local protocol_name = protocol.attrs.name
 	local interfaces = {}

@@ -2,13 +2,13 @@ local ffi = require("ffi")
 local fs = {}
 
 if jit.arch ~= "Windows" then
-    ffi.cdef("char *strerror(int);")
+	ffi.cdef("char *strerror(int);")
 
-    local function last_error()
-        local num = ffi.errno()
-        local err = ffi.string(ffi.C.strerror(num))
-        return err == "" and tostring(num) or err
-    end
+	local function last_error()
+		local num = ffi.errno()
+		local err = ffi.string(ffi.C.strerror(num))
+		return err == "" and tostring(num) or err
+	end
 
 	do -- attributes
 		local stat_struct
@@ -214,6 +214,7 @@ if jit.arch ~= "Windows" then
 		end
 
 		function fs.walk(path, tbl, errors, can_traverse, files_only)
+			tbl = tbl or {}
 			local ptr = ffi.C.opendir(path or "")
 
 			if ptr == nil then
@@ -222,8 +223,8 @@ if jit.arch ~= "Windows" then
 			end
 
 			if not files_only then
+				tbl[0] = (tbl[0] or 0) + 1
 				tbl[tbl[0]] = path
-				tbl[0] = tbl[0] + 1
 			end
 
 			while true do
@@ -239,8 +240,8 @@ if jit.arch ~= "Windows" then
 							fs.walk(name .. "/", tbl, errors, can_traverse, files_only)
 						end
 					else
+						tbl[0] = (tbl[0] or 0) + 1
 						tbl[tbl[0]] = name
-						tbl[0] = tbl[0] + 1
 					end
 				end
 			end
@@ -299,8 +300,8 @@ if jit.arch ~= "Windows" then
 		end
 	end
 else
-    ffi.cdef("uint32_t GetLastError();")
-    ffi.cdef[[
+	ffi.cdef("uint32_t GetLastError();")
+	ffi.cdef[[
         uint32_t FormatMessageA(
             uint32_t dwFlags,
             const void* lpSource,
@@ -311,20 +312,20 @@ else
             va_list *Arguments
         );
     ]]
-    local error_str = ffi.new("uint8_t[?]", 1024)
-    local FORMAT_MESSAGE_FROM_SYSTEM = 0x00001000
-    local FORMAT_MESSAGE_IGNORE_INSERTS = 0x00000200
-    local error_flags = bit.bor(FORMAT_MESSAGE_FROM_SYSTEM, FORMAT_MESSAGE_IGNORE_INSERTS)
+	local error_str = ffi.new("uint8_t[?]", 1024)
+	local FORMAT_MESSAGE_FROM_SYSTEM = 0x00001000
+	local FORMAT_MESSAGE_IGNORE_INSERTS = 0x00000200
+	local error_flags = bit.bor(FORMAT_MESSAGE_FROM_SYSTEM, FORMAT_MESSAGE_IGNORE_INSERTS)
 
-    local function last_error()
-        local code = ffi.C.GetLastError()
-        local numout = ffi.C.FormatMessageA(error_flags, nil, code, 0, error_str, 1023, nil)
-        local err = numout ~= 0 and ffi.string(error_str, numout)
+	local function last_error()
+		local code = ffi.C.GetLastError()
+		local numout = ffi.C.FormatMessageA(error_flags, nil, code, 0, error_str, 1023, nil)
+		local err = numout ~= 0 and ffi.string(error_str, numout)
 
-        if err and err:sub(-2) == "\r\n" then return err:sub(0, -3) end
+		if err and err:sub(-2) == "\r\n" then return err:sub(0, -3) end
 
-        return err
-    end
+		return err
+	end
 
 	local DIRECTORY = 0x10
 	local time_struct = ffi.typeof([[
@@ -377,7 +378,6 @@ else
 					"file",
 			}
 		end
-
 	end
 
 	do
@@ -453,6 +453,7 @@ else
 		end
 
 		function fs.walk(path, tbl, errors, can_traverse, files_only)
+			tbl = tbl or {}
 			local handle = ffi.C.FindFirstFileA(path .. "*", data)
 
 			if handle == nil then
@@ -461,8 +462,8 @@ else
 			end
 
 			if not files_only then
+				tbl[0] = (tbl[0] or 0) + 1
 				tbl[tbl[0]] = path
-				tbl[0] = tbl[0] + 1
 			end
 
 			if handle ~= INVALID_FILE then
@@ -477,8 +478,8 @@ else
 								fs.walk(name .. "/", tbl, errors)
 							end
 						else
+							tbl[0] = (tbl[0] or 0) + 1
 							tbl[tbl[0]] = name
-							tbl[0] = tbl[0] + 1
 						end
 					end				
 				until ffi.C.FindNextFileA(handle, data) == 0

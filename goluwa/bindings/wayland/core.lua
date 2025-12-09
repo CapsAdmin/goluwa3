@@ -94,7 +94,7 @@ ffi.cdef[[
 	};
 	int poll(struct pollfd *fds, unsigned long nfds, int timeout);
 ]]
-require("bindings.wayland.rebuild")
+--require("bindings.wayland.rebuild")
 wayland.xkb = ffi.load("xkbcommon", true) -- load globally
 wayland.wl_client = ffi.load("wayland-client", true) -- load globally
 -- Load generated bindings
