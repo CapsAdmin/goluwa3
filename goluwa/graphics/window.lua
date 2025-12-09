@@ -5,17 +5,16 @@ local input = require("input")
 local wnd = window.Open()
 wnd:SetMouseTrapped(false)
 
-event.AddListener("Update", "window_title", function(dt)
+function events.Update.window_title(dt)
 	if wait(1) then
 		wnd:SetTitle("FPS: " .. math.round(1 / system.GetFrameTime()))
 	end
-end)
+end
 
-event.AddListener("KeyInput", "escape_shutdown", function(key, press)
+function events.KeyInput.escape_shutdown(key, press)
 	if not press then return end
 
 	if key == "escape" then wnd:SetMouseTrapped(not wnd:GetMouseTrapped()) end
-
-end)
+end
 
 return wnd

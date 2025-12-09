@@ -8,7 +8,7 @@ local render3d = require("graphics.render3d")
 -- Debug: Show camera info
 local show_camera_info = false
 
-event.AddListener("Draw2D", "debug_camera_info", function(cmd, dt)
+function events.Draw2D.debug_camera_info(dt)
 	if not show_camera_info then return end
 
 	local cam = render3d.cam
@@ -28,16 +28,16 @@ event.AddListener("Draw2D", "debug_camera_info", function(cmd, dt)
 	-- Also show which direction each axis points based on Source convention
 	render2d.SetColor(0.7, 0.7, 0.7, 1)
 	gfx.DrawText("(X=forward, Y=left, Z=up | P=pitch, Y=yaw, R=roll)", x, y)
-end)
+end
 
-event.AddListener("KeyInput", "toggle_camera_info", function(key, press)
+function events.KeyInput.toggle_camera_info(key, press)
 	if not press then return end
 
 	if key == "f10" then
 		show_camera_info = not show_camera_info
 		print("Camera info: " .. (show_camera_info and "ON" or "OFF"))
 	end
-end)
+end
 
 -- Debug: Draw shadow map as picture-in-picture
 local show_shadow_map = false
@@ -49,7 +49,7 @@ local cascade_colors = {
 	{1.0, 1.0, 0.2, 1.0}, -- Yellow for cascade 4
 }
 
-event.AddListener("Draw2D", "debug_shadow_map", function(cmd, dt)
+function events.Draw2D.debug_shadow_map(cmd, dt)
 	if not show_shadow_map then return end
 
 	local sun = render3d.GetSunLight()
@@ -85,9 +85,9 @@ event.AddListener("Draw2D", "debug_shadow_map", function(cmd, dt)
 			gfx.DrawText("Cascade " .. i .. " (z<" .. split_dist .. ")", x, y + size + 5)
 		end
 	end
-end)
+end
 
-event.AddListener("KeyInput", "renderdoc", function(key, press)
+function events.KeyInput.renderdoc(key, press)
 	if not press then return end
 
 	--if key == "f8" then render.renderdoc.CaptureFrame() end
@@ -102,4 +102,4 @@ event.AddListener("KeyInput", "renderdoc", function(key, press)
 	end
 
 	if key == "c" and input.IsKeyDown("left_control") then system.ShutDown(0) end
-end)
+end

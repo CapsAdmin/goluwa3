@@ -435,11 +435,11 @@ function render3d.Initialize()
 		}
 	)
 
-	event.AddListener("Draw", "draw_3d", function(cmd, dt)
+	function events.Draw.draw_3d(cmd, dt)
 		local frame_index = render.GetCurrentFrame()
 		render3d.pipeline:Bind(cmd, frame_index)
 		event.Call("Draw3D", cmd, dt)
-	end)
+	end
 end
 
 function render3d.SetWorldMatrix(world)

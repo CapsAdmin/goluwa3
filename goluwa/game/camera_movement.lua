@@ -110,7 +110,7 @@ end
 
 local cam = render3d.cam
 
-event.AddListener("Update", "camera_movement", function(dt)
+function events.Update.camera_movement(dt)
 	local cam_pos = cam:GetPosition()
 	local cam_ang = cam:GetAngles()
 	local cam_fov = cam:GetFOV()
@@ -119,4 +119,4 @@ event.AddListener("Update", "camera_movement", function(dt)
 	cam:SetPosition(cam_pos)
 	cam:SetAngles(ang)
 	cam:SetFOV(fov)
-end)
+end

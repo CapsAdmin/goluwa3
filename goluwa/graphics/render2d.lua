@@ -629,16 +629,16 @@ do
 	end
 end
 
-event.AddListener("PostDraw", "draw_2d", function(cmd, dt)
+function events.PostDraw.draw_2d(cmd, dt)
 	local frame_index = render.GetCurrentFrame()
 	render2d.cmd = cmd
 	render2d.pipeline:Bind(cmd, frame_index)
 	render2d.SetBlendMode(render2d.current_blend_mode, true) -- force=true to set dynamic state
 	event.Call("Draw2D", dt)
-end)
+end
 
-event.AddListener("WindowFramebufferResized", "render2d", function(wnd, size)
+function events.WindowFramebufferResized.render2d(wnd, size)
 	render2d.UpdateScreenSize(size)
-end)
+end
 
 return render2d

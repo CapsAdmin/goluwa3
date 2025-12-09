@@ -58,7 +58,7 @@ local center_transform = Transform.New()
 center_transform:SetSize(5)
 table.insert(transforms, center_transform)
 
-event.AddListener("Draw3D", "test_3d", function(cmd, dt)
+function events.Draw3D.test_3d(cmd, dt)
 	center_transform:SetAngles(Ang3(system.GetTime(), system.GetTime(), system.GetTime()))
 	cmd:BindVertexBuffer(vertex_buffer, 0)
 	cmd:BindIndexBuffer(index_buffer, 0)
@@ -75,4 +75,4 @@ event.AddListener("Draw3D", "test_3d", function(cmd, dt)
 
 		cmd:DrawIndexed(36)
 	end
-end)
+end

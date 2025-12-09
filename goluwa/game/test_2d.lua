@@ -118,7 +118,7 @@ if false then
 		return a.name > b.name
 	end)
 
-	event.AddListener("Draw2D", "test", function(dt)
+	function events.Draw2D.test(dt)
 		render2d.SetTexture(zsnes)
 		render2d.SetColor(1, 1, 1, 1)
 		local x = 10
@@ -135,13 +135,13 @@ if false then
 				y = y + h + 4
 			end
 		end
-	end)
+	end
 end
 
 if false then
-	event.AddListener("Draw2D", "test_bezier", function(dt)
+	function events.Draw2D.test_bezier(dt)
 		render2d.DrawTriangle(100, 100, 50, 50, os.clock())
-	end)
+	end
 end
 
 if false then
@@ -162,7 +162,7 @@ if false then
 	curve:Add(Vec2(0, 1))
 	local mesh, index_count = curve:ConstructMesh(Vec2(0, 0.1), 8, 0.3)
 
-	event.AddListener("Draw2D", "test_bezier", function(dt)
+	function events.Draw2D.test_bezier(dt)
 		render2d.SetTexture(rope)
 		render2d.SetBlendMode("alpha")
 		render2d.SetColor(1, 1, 1, 1)
@@ -174,18 +174,18 @@ if false then
 			mesh:DrawIndexed(render2d.cmd, index_count)
 			render2d.PopMatrix()
 		end
-	end)
+	end
 end
 
 if false then
-	event.AddListener("Draw2D", "test", function(dt)
+	function events.Draw2D.test(dt)
 		gfx.DrawText("Hello world", 20, 400)
 		gfx.DrawRoundedRect(100, 100, 200, 200, 50)
 		gfx.DrawCircle(400, 300, 50, 5, 6)
 		gfx.DrawFilledCircle(400, 500, 50)
 		gfx.DrawLine(500, 500, 600, 550, 10)
 		gfx.DrawOutlinedRect(500, 100, 100, 50, 5, 1, 0, 0, 1)
-	end)
+	end
 end
 
 if false then
@@ -313,9 +313,9 @@ if false then
 		render.GetQueue():SubmitAndWait(device, cmd, fence)
 	end
 
-	event.AddListener("Update", "draw_2d", function()
+	function events.Update.draw_2d()
 		compute()
-	end)
+	end
 
 	local presentation_framebuffer
 	local presentation_pipeline
@@ -466,13 +466,13 @@ if false then
 		presentation_framebuffer:End()
 	end
 
-	event.AddListener("Draw2D", "test_bezier", function(dt)
+	function events.Draw2D.test_bezier(dt)
 		init_presentation()
 		draw_presentation_effect()
 		render2d.SetTexture(presentation_framebuffer:GetAttachment("color"))
 		render2d.SetColor(1, 1, 1, 1)
 		render2d.DrawRect(0, 0, 512, 512)
-	end)
+	end
 end
 
 if false then
@@ -481,9 +481,9 @@ if false then
 		path = path,
 	})
 
-	event.AddListener("Draw2D", "test", function(dt)
+	function events.Draw2D.test(dt)
 		render2d.SetTexture(tex)
 		render2d.SetColor(1, 1, 1, 1)
 		render2d.DrawRect(0, 0, 512, 512)
-	end)
+	end
 end

@@ -26,3 +26,29 @@ do
 	_G.logf = logfile.LogFormat
 	_G.logfile = logfile
 end
+
+do
+	local event = require("event")
+	local events = {}
+	setmetatable(
+		events,
+		{
+			__index = function(_, event_name)
+				assert(type(event_name) == "string")
+				return setmetatable(
+					{},
+					{
+						__newindex = function(_, id, func_or_nil)
+							if type(func_or_nil) == "function" then
+								event.AddListener(event_name, id, func_or_nil)
+							elseif funcx_or_nil == nil then
+								event.RemoveListener(event_name, id)
+							end
+						end,
+					}
+				)
+			end,
+		}
+	)
+	_G.events = events
+end
