@@ -2,18 +2,18 @@ local ffi = require("ffi")
 local render = require("graphics.render")
 local event = require("event")
 local window = require("graphics.window")
-local camera = require("graphics.camera")
 local Material = require("graphics.material")
 local Light = require("graphics.light")
-local cam = camera.CreateCamera()
--- Push constants for vertex shader (128 bytes)
+local Matrix44 = require("structs.matrix").Matrix44
+local Vec3 = require("structs.vec3")
+local Ang3 = require("structs.ang3")
+local Rect = require("structs.rect")
 local VertexConstants = ffi.typeof([[
 	struct {
 		float projection_view_world[16];
 		float world[16];
 	}
 ]])
--- Push constants for fragment shader - PBR material data
 local FragmentConstants = ffi.typeof([[
 	struct {
 		int albedo_texture_index;
@@ -35,7 +35,6 @@ local FragmentConstants = ffi.typeof([[
 		int debug_cascade_colors;
 	}
 ]])
--- UBO for shadow data (light space matrix + cascade info)
 local ShadowUBO = ffi.typeof([[
 	struct {
 		float light_space_matrix[16];
@@ -441,40 +440,82 @@ function render3d.Initialize()
 	end
 end
 
+local camera_position = Vec3(0, 0, 0)
+local camera_angles = Ang3(0, 0, 0)
+local camera_fov = math.pi / 2
+local camera_zoom = 1
+local camera_near_z = 0.1
+local camera_far_z = 32000
+local camera_viewport = Rect(0, 0, 1000, 1000)
+local camera_world = Matrix44()
+
+function render3d.GetProjectionMatrix()
+	if render3d.projection_matrix then return render3d.projection_matrix end
+
+	render3d.projection_matrix = Matrix44()
+	render3d.projection_matrix:SetTranslation(camera_viewport.x, camera_viewport.y, 0)
+	render3d.projection_matrix:Perspective(camera_fov, camera_near_z, camera_far_z, camera_viewport.w / camera_viewport.h)
+	return render3d.projection_matrix
+end
+
+function render3d.GetViewMatrix()
+	if render3d.view_matrix then return render3d.view_matrix end
+
+	render3d.view_matrix = Matrix44()
+	render3d.view_matrix:Rotate(camera_angles.z, 0, 0, 1)
+	render3d.view_matrix:Rotate(camera_angles.x + math.pi / 2, 1, 0, 0)
+	render3d.view_matrix:Rotate(camera_angles.y, 0, 0, 1)
+	render3d.view_matrix:Translate(camera_position.y, camera_position.x, camera_position.z)
+	return render3d.view_matrix
+end
+
+do
+	local cached = Matrix44()
+
+	function render3d.GetProjectionViewWorldMatrix()
+		render3d.GetProjectionMatrix():GetMultiplied(render3d.GetViewMatrix(), cached)
+		cached:GetMultiplied(camera_world, cached)
+		return cached
+	end
+end
+
 function render3d.SetWorldMatrix(world)
-	cam:SetWorld(world)
+	camera_world = world
 end
 
 function render3d.GetCameraPosition()
-	return cam:GetPosition()
+	return camera_position
 end
 
 function render3d.SetCameraPosition(pos)
-	cam:SetPosition(pos)
+	camera_position = pos
+	render3d.view_matrix = nil
 end
 
 function render3d.GetCameraAngles()
-	return cam:GetAngles()
+	return camera_angles
 end
 
 function render3d.SetCameraAngles(ang)
-	cam:SetAngles(ang)
+	camera_angles = ang
+	render3d.view_matrix = nil
 end
 
 function render3d.GetCameraFOV()
-	return cam:GetFOV()
+	return camera_fov
 end
 
 function render3d.SetCameraFOV(fov)
-	cam:SetFOV(fov)
+	camera_fov = fov
+	render3d.projection_matrix = nil
 end
 
 function render3d.GetCameraNearZ()
-	return cam:GetNearZ()
+	return camera_near_z
 end
 
 function render3d.GetCameraFarZ()
-	return cam:GetFarZ()
+	return camera_far_z
 end
 
 function render3d.SetLightDirection(x, y, z)
@@ -546,8 +587,8 @@ do
 
 	function render3d.UploadConstants(cmd)
 		do
-			vertex_constants.projection_view_world = cam:GetProjectionViewWorldMatrix():GetFloatCopy()
-			vertex_constants.world = cam:GetWorldMatrix():GetFloatCopy()
+			vertex_constants.projection_view_world = render3d.GetProjectionViewWorldMatrix():GetFloatCopy()
+			vertex_constants.world = camera_world:GetFloatCopy()
 			render3d.pipeline:PushConstants(cmd, "vertex", 0, vertex_constants)
 		end
 
@@ -589,10 +630,9 @@ do
 			fragment_constants.light_color[2] = render3d.light_color[3]
 			fragment_constants.light_intensity = render3d.light_color[4]
 			-- Camera position for specular (vec3)
-			local cam_pos = cam:GetPosition()
-			fragment_constants.camera_position[0] = cam_pos.x
-			fragment_constants.camera_position[1] = cam_pos.y
-			fragment_constants.camera_position[2] = cam_pos.z
+			fragment_constants.camera_position[0] = camera_position.x
+			fragment_constants.camera_position[1] = camera_position.y
+			fragment_constants.camera_position[2] = camera_position.z
 			-- Debug cascade visualization
 			fragment_constants.debug_cascade_colors = render3d.debug_cascade_colors and 1 or 0
 			render3d.pipeline:PushConstants(cmd, "fragment", ffi.sizeof(VertexConstants), fragment_constants)
