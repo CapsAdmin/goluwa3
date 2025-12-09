@@ -5,8 +5,7 @@ local Fence = require("graphics.vulkan.internal.fence")
 local Matrix = require("structs.matrix").Matrix44
 local Vec3 = require("structs.vec3")
 local Vec2 = require("structs.vec2")
-local Rect = require("structs.rect")
-local camera = require("graphics.camera")
+local Ang3 = require("structs.ang3")
 local ShadowMap = {}
 ShadowMap.__index = ShadowMap
 -- Default shadow map settings
@@ -33,21 +32,18 @@ function ShadowMap.New(config)
 	self.cascade_split_lambda = config.cascade_split_lambda or 0.75 -- Blend between linear and logarithmic split
 	self.max_shadow_distance = config.max_shadow_distance or 500.0 -- Maximum shadow distance (clamps view far plane)
 	self.cascade_splits = {} -- Will store the split distances
-	self.cascade_cameras = {} -- Camera per cascade
-	self.cascade_depth_textures = {} -- Depth texture per cascade
-	self.cascade_light_space_matrices = {} -- Light space matrix per cascade
+	self.cascade = {} -- Per-cascade data
 	-- Initialize cascades
 	for i = 1, self.cascade_count do
-		-- Create a camera for each cascade
-		local cam = camera.CreateCamera()
-		cam:Set3D(true)
-		cam:SetOrtho(true)
-		cam:SetViewport(Rect(0, 0, self.size.w, self.size.h))
-		cam:SetNearZ(self.near_plane)
-		cam:SetFarZ(self.far_plane)
-		self.cascade_cameras[i] = cam
+		self.cascade[i] = {
+			position = Vec3(0, 0, 0),
+			angles = Ang3(0, 0, 0),
+			projection = nil, -- Will be built when needed
+			view = nil, -- Will be built when needed
+			light_space_matrix = Matrix(),
+		}
 		-- Create depth texture for each cascade
-		self.cascade_depth_textures[i] = Texture.New(
+		self.cascade[i].depth_texture = Texture.New(
 			{
 				width = self.size.w,
 				height = self.size.h,
@@ -69,14 +65,8 @@ function ShadowMap.New(config)
 				},
 			}
 		)
-		-- Initialize light space matrix
-		self.cascade_light_space_matrices[i] = Matrix()
 	end
 
-	-- Legacy single-cascade support (for backwards compatibility)
-	self.camera = self.cascade_cameras[1]
-	self.depth_texture = self.cascade_depth_textures[1]
-	self.light_space_matrix = self.cascade_light_space_matrices[1]
 	-- Create depth-only pipeline for shadow pass
 	self.pipeline = render.CreateGraphicsPipeline(
 		{
@@ -219,98 +209,6 @@ function ShadowMap:CalculateCascadeSplits(view_near, view_far)
 	return self.cascade_splits
 end
 
--- Get frustum corners in world space for a given near/far range
-function ShadowMap:GetFrustumCornersWorldSpace(view_camera, split_near, split_far)
-	local inv_view_proj = view_camera:GetProjectionViewMatrix():GetInverse()
-	-- NDC corners (Vulkan: z goes from 0 to 1)
-	local ndc_corners = {
-		-- Near plane (z = 0 in Vulkan NDC)
-		{-1, -1, 0},
-		{1, -1, 0},
-		{1, 1, 0},
-		{-1, 1, 0},
-		-- Far plane (z = 1 in Vulkan NDC)
-		{-1, -1, 1},
-		{1, -1, 1},
-		{1, 1, 1},
-		{-1, 1, 1},
-	}
-	-- Get the full frustum corners in world space
-	-- Manual 4x4 matrix * vec4 multiplication since TransformVector4 doesn't exist
-	local frustum_corners = {}
-
-	for i, ndc in ipairs(ndc_corners) do
-		local nx, ny, nz = ndc[1], ndc[2], ndc[3]
-		local m = inv_view_proj
-		-- Multiply matrix by vec4(nx, ny, nz, 1.0)
-		local x = m.m00 * nx + m.m10 * ny + m.m20 * nz + m.m30
-		local y = m.m01 * nx + m.m11 * ny + m.m21 * nz + m.m31
-		local z = m.m02 * nx + m.m12 * ny + m.m22 * nz + m.m32
-		local w = m.m03 * nx + m.m13 * ny + m.m23 * nz + m.m33
-		frustum_corners[i] = Vec3(x / w, y / w, z / w)
-	end
-
-	-- Now interpolate to get the cascade-specific frustum
-	-- Near corners are indices 1-4, far corners are indices 5-8
-	local view_near = view_camera:GetNearZ()
-	local view_far = view_camera:GetFarZ()
-	local near_t = (split_near - view_near) / (view_far - view_near)
-	local far_t = (split_far - view_near) / (view_far - view_near)
-	local cascade_corners = {}
-
-	for i = 1, 4 do
-		local near_corner = frustum_corners[i]
-		local far_corner = frustum_corners[i + 4]
-		-- Interpolate to get cascade near corner
-		cascade_corners[i] = near_corner + (far_corner - near_corner) * near_t
-		-- Interpolate to get cascade far corner
-		cascade_corners[i + 4] = near_corner + (far_corner - near_corner) * far_t
-	end
-
-	return cascade_corners
-end
-
--- Update light space matrix for directional/sun light
--- For sun shadows, we center the shadow map on the camera position and orient by light direction
--- camera_angles is used to bias the shadow map center toward where the player is looking
-function ShadowMap:UpdateLightMatrix(light_direction, camera_position, camera_angles)
-	-- Calculate where the shadow map should be centered
-	-- Start at camera position, then offset toward where they're looking
-	local shadow_center = camera_position
-
-	if camera_angles then
-		-- Offset the shadow center forward based on camera yaw
-		-- This biases coverage toward where the player is looking
-		local forward_offset = self.ortho_size * 0.89
-		local yaw = camera_angles.y
-		-- In source-engine style: x is forward/back, y is left/right
-		local forward_x = math.cos(yaw) * forward_offset
-		local forward_y = math.sin(yaw) * forward_offset
-		shadow_center = shadow_center + Vec3(forward_x, forward_y, 0)
-	end
-
-	-- The shadow camera is positioned "behind" the shadow center
-	-- (offset in the opposite direction of the light)
-	local shadow_cam_pos = shadow_center + light_direction * -self.ortho_size
-	-- Set the shadow camera position
-	self.camera:SetPosition(shadow_cam_pos)
-	-- Set angles from light direction
-	self.camera:SetAngles(light_direction:GetAngles())
-	-- Clear any custom view matrix so camera builds it from position/angles
-	self.camera:SetView(nil)
-	-- Build the projection matrix (orthographic for directional lights)
-	local projection = Matrix()
-	local size = self.ortho_size * 2
-	projection:Ortho(-size, size, -size, size, -self.far_plane * 2, self.far_plane * 0.1)
-	self.camera:SetProjection(projection)
-	-- Rebuild the camera to update all matrices
-	self.camera:Rebuild()
-	-- Get the combined projection_view matrix from camera
-	self.light_space_matrix = self.camera:GetProjectionViewMatrix()
-	-- Also update first cascade for backwards compatibility
-	self.cascade_light_space_matrices[1] = self.light_space_matrix
-end
-
 -- Update all cascade light matrices for cascaded shadow mapping
 -- view_camera: the main view camera to calculate frustum splits from
 -- light_direction: normalized direction of the directional light
@@ -338,30 +236,34 @@ function ShadowMap:UpdateCascadeLightMatrices(light_direction, cam_pos, cam_ang,
 
 		-- The shadow camera is positioned "behind" the shadow center
 		local shadow_cam_pos = shadow_center + light_direction * -cascade_ortho_size
-		local cam = self.cascade_cameras[cascade_idx]
-		cam:SetPosition(shadow_cam_pos)
-		cam:SetAngles(light_direction:GetAngles())
-		cam:SetView(nil)
+		local angles = light_direction:GetAngles()
+		-- Build the view matrix
+		local view = Matrix()
+		view:Rotate(angles.z, 0, 0, 1)
+		view:Rotate(angles.x + math.pi / 2, 1, 0, 0)
+		view:Rotate(angles.y, 0, 0, 1)
+		view:Translate(shadow_cam_pos.y, shadow_cam_pos.x, shadow_cam_pos.z)
 		-- Build orthographic projection (same approach as working UpdateLightMatrix)
 		local projection = Matrix()
 		local size = cascade_ortho_size * 2
 		projection:Ortho(-size, size, -size, size, -self.far_plane * 2, self.far_plane * 0.1)
-		cam:SetProjection(projection)
-		-- Rebuild camera
-		cam:Rebuild()
 		-- Store the light space matrix
-		self.cascade_light_space_matrices[cascade_idx] = cam:GetProjectionViewMatrix()
+		local light_space = Matrix()
+		projection:GetMultiplied(view, light_space)
+		-- Store all cascade data
+		self.cascade[cascade_idx].position = shadow_cam_pos
+		self.cascade[cascade_idx].angles = angles
+		self.cascade[cascade_idx].projection = projection
+		self.cascade[cascade_idx].view = view
+		self.cascade[cascade_idx].light_space_matrix = light_space
 	end
-
-	-- Update legacy single matrix for backwards compatibility
-	self.light_space_matrix = self.cascade_light_space_matrices[1]
 end
 
 -- Begin shadow pass for a specific cascade (or all cascades if cascade_index is nil)
 function ShadowMap:Begin(cascade_index)
 	cascade_index = cascade_index or 1
 	self.current_cascade = cascade_index
-	local depth_texture = self.cascade_depth_textures[cascade_index]
+	local depth_texture = self.cascade[cascade_index].depth_texture
 	self.cmd:Reset()
 	self.cmd:Begin()
 	-- Transition depth texture to depth attachment optimal
@@ -421,7 +323,7 @@ end
 function ShadowMap:UploadConstants(world_matrix, cascade_index)
 	cascade_index = cascade_index or self.current_cascade
 	local constants = ShadowVertexConstants()
-	local mvp = self.cascade_light_space_matrices[cascade_index] * world_matrix
+	local mvp = self.cascade[cascade_index].light_space_matrix * world_matrix
 	constants.light_space_matrix = mvp:GetFloatCopy()
 	self.pipeline:PushConstants(self.cmd, "vertex", 0, constants)
 end
@@ -429,7 +331,7 @@ end
 -- End shadow pass for current cascade
 function ShadowMap:End(cascade_index)
 	cascade_index = cascade_index or self.current_cascade
-	local depth_texture = self.cascade_depth_textures[cascade_index]
+	local depth_texture = self.cascade[cascade_index].depth_texture
 	self.cmd:EndRendering()
 	-- Transition depth texture to shader read optimal for sampling
 	self.cmd:PipelineBarrier(
@@ -457,28 +359,34 @@ end
 
 -- Get the depth texture for sampling in main pass
 function ShadowMap:GetDepthTexture(cascade_index)
-	if cascade_index then return self.cascade_depth_textures[cascade_index] end
-
-	return self.depth_texture
+	return self.cascade[cascade_index].depth_texture
 end
 
 -- Get all cascade depth textures
 function ShadowMap:GetCascadeDepthTextures()
-	return self.cascade_depth_textures
+	local textures = {}
+
+	for i = 1, self.cascade_count do
+		textures[i] = self.cascade[i].depth_texture
+	end
+
+	return textures
 end
 
 -- Get the light space matrix for transforming in main pass
 function ShadowMap:GetLightSpaceMatrix(cascade_index)
-	if cascade_index then
-		return self.cascade_light_space_matrices[cascade_index]
-	end
-
-	return self.light_space_matrix
+	return self.cascade[cascade_index].light_space_matrix
 end
 
 -- Get all cascade light space matrices
 function ShadowMap:GetCascadeLightSpaceMatrices()
-	return self.cascade_light_space_matrices
+	local matrices = {}
+
+	for i = 1, self.cascade_count do
+		matrices[i] = self.cascade[i].light_space_matrix
+	end
+
+	return matrices
 end
 
 -- Get cascade split distances (view-space depth values)

@@ -21,7 +21,7 @@ local FragmentConstants = ffi.typeof([[
 		int metallic_roughness_texture_index;
 		int occlusion_texture_index;
 		int emissive_texture_index;
-		int shadow_map_index;
+		int shadow_map_indices[4];
 		float base_color_factor[4];
 		float metallic_factor;
 		float roughness_factor;
@@ -37,7 +37,7 @@ local FragmentConstants = ffi.typeof([[
 ]])
 local ShadowUBO = ffi.typeof([[
 	struct {
-		float light_space_matrix[16];
+		float light_space_matrices[4][16];
 		float cascade_splits[4];
 		int cascade_count;
 		float _pad[3];
@@ -52,9 +52,11 @@ function render3d.Initialize()
 	-- Create shadow UBO buffer
 	local shadow_ubo_data = ShadowUBO()
 
-	-- Initialize with identity matrix
-	for i = 0, 15 do
-		shadow_ubo_data.light_space_matrix[i] = (i % 5 == 0) and 1.0 or 0.0
+	-- Initialize with identity matrices for all cascades
+	for cascade = 0, 3 do
+		for i = 0, 15 do
+			shadow_ubo_data.light_space_matrices[cascade][i] = (i % 5 == 0) and 1.0 or 0.0
+		end
 	end
 
 	render3d.shadow_ubo = render.CreateBuffer(
@@ -164,7 +166,7 @@ function render3d.Initialize()
 					
 					// UBO for shadow data
 					layout(std140, binding = 1) uniform ShadowData {
-						mat4 light_space_matrix;
+						mat4 light_space_matrices[4];
 						vec4 cascade_splits;
 						int cascade_count;
 					} shadow;
@@ -186,7 +188,7 @@ function render3d.Initialize()
 						int metallic_roughness_texture_index;
 						int occlusion_texture_index;
 						int emissive_texture_index;
-						int shadow_map_index;
+						int shadow_map_indices[4];
 						vec4 base_color_factor;
 						float metallic_factor;
 						float roughness_factor;
@@ -254,8 +256,17 @@ function render3d.Initialize()
 
 					// PCF Shadow calculation
 					float calculateShadow(vec3 world_pos) {
-						// Transform to light space
-						vec4 light_space_pos = shadow.light_space_matrix * vec4(world_pos, 1.0);
+						// Get cascade index for this fragment
+						int cascade_idx = getCascadeIndex(world_pos);
+						
+						// Get shadow map index for this cascade
+						int shadow_map_idx = pc.shadow_map_indices[cascade_idx];
+						if (shadow_map_idx <= 0) {
+							return 1.0; // No shadow map for this cascade
+						}
+						
+						// Transform to light space using the cascade's matrix
+						vec4 light_space_pos = shadow.light_space_matrices[cascade_idx] * vec4(world_pos, 1.0);
 						
 						// Perspective divide
 						vec3 proj_coords = light_space_pos.xyz / light_space_pos.w;
@@ -276,10 +287,10 @@ function render3d.Initialize()
 						
 						// PCF - sample 3x3 area
 						float shadow_val = 0.0;
-						vec2 texel_size = 1.0 / textureSize(textures[nonuniformEXT(pc.shadow_map_index)], 0);
+						vec2 texel_size = 1.0 / textureSize(textures[nonuniformEXT(shadow_map_idx)], 0);
 						for (int x = -1; x <= 1; ++x) {
 							for (int y = -1; y <= 1; ++y) {
-								float pcf_depth = texture(textures[nonuniformEXT(pc.shadow_map_index)], proj_coords.xy + vec2(x, y) * texel_size).r;
+								float pcf_depth = texture(textures[nonuniformEXT(shadow_map_idx)], proj_coords.xy + vec2(x, y) * texel_size).r;
 								shadow_val += current_depth - bias > pcf_depth ? 0.0 : 1.0;
 							}
 						}
@@ -342,13 +353,13 @@ function render3d.Initialize()
 						float denominator = 4.0 * NdotV * NdotL + 0.0001;
 						vec3 specular = numerator / denominator;
 
-						// Shadow
-						float shadow_factor = 1.0;
-						if (pc.shadow_map_index > 0) {
-							shadow_factor = calculateShadow(in_world_pos);
-						}
+					// Shadow
+					float shadow_factor = 1.0;
+					if (pc.shadow_map_indices[0] > 0) {
+						shadow_factor = calculateShadow(in_world_pos);
+					}
 
-						// Final lighting
+					// Final lighting
 						vec3 radiance = pc.light_color * pc.light_intensity;
 						vec3 Lo = (kD * albedo.rgb / PI + specular) * radiance * NdotL * shadow_factor;
 
@@ -566,11 +577,16 @@ end
 function render3d.UpdateShadowUBO()
 	if render3d.sun_light and render3d.sun_light:HasShadows() then
 		local shadow_map = render3d.sun_light:GetShadowMap()
-		local matrix_data = shadow_map.light_space_matrix:GetFloatCopy()
-		ffi.copy(render3d.shadow_ubo_data.light_space_matrix, matrix_data, ffi.sizeof("float") * 16)
+		local cascade_count = shadow_map:GetCascadeCount()
+
+		-- Copy all cascade light space matrices
+		for i = 1, cascade_count do
+			local matrix_data = shadow_map:GetLightSpaceMatrix(i):GetFloatCopy()
+			ffi.copy(render3d.shadow_ubo_data.light_space_matrices[i - 1], matrix_data, ffi.sizeof("float") * 16)
+		end
+
 		-- Copy cascade splits
 		local cascade_splits = shadow_map:GetCascadeSplits()
-		local cascade_count = shadow_map:GetCascadeCount()
 
 		for i = 1, 4 do
 			render3d.shadow_ubo_data.cascade_splits[i - 1] = cascade_splits[i] or 0
@@ -600,12 +616,23 @@ do
 			fragment_constants.occlusion_texture_index = render3d.pipeline:GetTextureIndex(mat:GetOcclusionTexture())
 			fragment_constants.emissive_texture_index = render3d.pipeline:GetTextureIndex(mat:GetEmissiveTexture())
 
-			-- Shadow map index
+			-- Shadow map indices (one per cascade)
 			if render3d.sun_light and render3d.sun_light:HasShadows() then
 				local shadow_map = render3d.sun_light:GetShadowMap()
-				fragment_constants.shadow_map_index = render3d.pipeline:RegisterTexture(shadow_map.depth_texture)
+				local cascade_count = shadow_map:GetCascadeCount()
+
+				for i = 1, cascade_count do
+					fragment_constants.shadow_map_indices[i - 1] = render3d.pipeline:RegisterTexture(shadow_map:GetDepthTexture(i))
+				end
+
+				-- Fill remaining slots with 0
+				for i = cascade_count + 1, 4 do
+					fragment_constants.shadow_map_indices[i - 1] = 0
+				end
 			else
-				fragment_constants.shadow_map_index = 0
+				for i = 0, 3 do
+					fragment_constants.shadow_map_indices[i] = 0
+				end
 			end
 
 			-- Base color factor
