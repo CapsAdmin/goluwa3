@@ -1,4 +1,3 @@
-require("helpers.jit_options").SetOptimized()
 local profiler = require("profiler") -- init started in global_environment.lua
 require("game.init")
 

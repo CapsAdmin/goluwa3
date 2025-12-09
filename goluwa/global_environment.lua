@@ -1,5 +1,6 @@
 -- only load from goluwa/ directory
 package.path = package.path .. ";" .. "goluwa/?.lua"
+require("helpers.jit_options").SetOptimized()
 _G.list = require("helpers.list")
 
 if _G.PROFILE then require("profiler").Start("init") end
