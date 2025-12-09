@@ -509,63 +509,65 @@ function render3d.UpdateShadowUBO()
 	end
 end
 
-function render3d.UploadConstants(cmd)
-	local matrices = cam:GetMatrices()
+do
+	local vertex_constants = VertexConstants()
+	local fragment_constants = FragmentConstants()
 
-	do
-		local vertex_constants = VertexConstants()
-		vertex_constants.projection_view_world = matrices.projection_view_world:GetFloatCopy()
-		vertex_constants.world = matrices.world:GetFloatCopy()
-		render3d.pipeline:PushConstants(cmd, "vertex", 0, vertex_constants)
-	end
+	function render3d.UploadConstants(cmd)
+		local matrices = cam:GetMatrices()
 
-	do
-		local fragment_constants = FragmentConstants()
-		local mat = render3d.current_material or Material.GetDefault()
-		local indices = mat:GetTextureIndices(render3d.pipeline)
-		fragment_constants.albedo_texture_index = indices.albedo
-		fragment_constants.normal_texture_index = indices.normal
-		fragment_constants.metallic_roughness_texture_index = indices.metallic_roughness
-		fragment_constants.occlusion_texture_index = indices.occlusion
-		fragment_constants.emissive_texture_index = indices.emissive
-
-		-- Shadow map index
-		if render3d.sun_light and render3d.sun_light:HasShadows() then
-			local shadow_map = render3d.sun_light:GetShadowMap()
-			fragment_constants.shadow_map_index = render3d.pipeline:RegisterTexture(shadow_map.depth_texture)
-		else
-			fragment_constants.shadow_map_index = 0
+		do
+			vertex_constants.projection_view_world = matrices.projection_view_world:GetFloatCopy()
+			vertex_constants.world = matrices.world:GetFloatCopy()
+			render3d.pipeline:PushConstants(cmd, "vertex", 0, vertex_constants)
 		end
 
-		-- Base color factor
-		fragment_constants.base_color_factor[0] = mat.base_color_factor[1]
-		fragment_constants.base_color_factor[1] = mat.base_color_factor[2]
-		fragment_constants.base_color_factor[2] = mat.base_color_factor[3]
-		fragment_constants.base_color_factor[3] = mat.base_color_factor[4]
-		fragment_constants.metallic_factor = mat.metallic_factor
-		fragment_constants.roughness_factor = mat.roughness_factor
-		fragment_constants.normal_scale = mat.normal_scale
-		fragment_constants.occlusion_strength = mat.occlusion_strength
-		-- Emissive factor (vec3)
-		fragment_constants.emissive_factor[0] = mat.emissive_factor[1]
-		fragment_constants.emissive_factor[1] = mat.emissive_factor[2]
-		fragment_constants.emissive_factor[2] = mat.emissive_factor[3]
-		-- Light parameters (vec3)
-		fragment_constants.light_direction[0] = render3d.light_direction[1]
-		fragment_constants.light_direction[1] = render3d.light_direction[2]
-		fragment_constants.light_direction[2] = render3d.light_direction[3]
-		fragment_constants.light_color[0] = render3d.light_color[1]
-		fragment_constants.light_color[1] = render3d.light_color[2]
-		fragment_constants.light_color[2] = render3d.light_color[3]
-		fragment_constants.light_intensity = render3d.light_color[4]
-		-- Camera position for specular (vec3)
-		local cam_pos = cam:GetPosition()
-		fragment_constants.camera_position[0] = cam_pos.x
-		fragment_constants.camera_position[1] = cam_pos.y
-		fragment_constants.camera_position[2] = cam_pos.z
-		-- Debug cascade visualization
-		fragment_constants.debug_cascade_colors = render3d.debug_cascade_colors and 1 or 0
-		render3d.pipeline:PushConstants(cmd, "fragment", ffi.sizeof(VertexConstants), fragment_constants)
+		do
+			local mat = render3d.current_material or Material.GetDefault()
+			fragment_constants.albedo_texture_index = render3d.pipeline:GetTextureIndex(mat:GetAlbedoTexture())
+			fragment_constants.normal_texture_index = render3d.pipeline:GetTextureIndex(mat:GetNormalTexture())
+			fragment_constants.metallic_roughness_texture_index = render3d.pipeline:GetTextureIndex(mat:GetMetallicRoughnessTexture())
+			fragment_constants.occlusion_texture_index = render3d.pipeline:GetTextureIndex(mat:GetOcclusionTexture())
+			fragment_constants.emissive_texture_index = render3d.pipeline:GetTextureIndex(mat:GetEmissiveTexture())
+
+			-- Shadow map index
+			if render3d.sun_light and render3d.sun_light:HasShadows() then
+				local shadow_map = render3d.sun_light:GetShadowMap()
+				fragment_constants.shadow_map_index = render3d.pipeline:RegisterTexture(shadow_map.depth_texture)
+			else
+				fragment_constants.shadow_map_index = 0
+			end
+
+			-- Base color factor
+			fragment_constants.base_color_factor[0] = mat.base_color_factor[1]
+			fragment_constants.base_color_factor[1] = mat.base_color_factor[2]
+			fragment_constants.base_color_factor[2] = mat.base_color_factor[3]
+			fragment_constants.base_color_factor[3] = mat.base_color_factor[4]
+			fragment_constants.metallic_factor = mat.metallic_factor
+			fragment_constants.roughness_factor = mat.roughness_factor
+			fragment_constants.normal_scale = mat.normal_scale
+			fragment_constants.occlusion_strength = mat.occlusion_strength
+			-- Emissive factor (vec3)
+			fragment_constants.emissive_factor[0] = mat.emissive_factor[1]
+			fragment_constants.emissive_factor[1] = mat.emissive_factor[2]
+			fragment_constants.emissive_factor[2] = mat.emissive_factor[3]
+			-- Light parameters (vec3)
+			fragment_constants.light_direction[0] = render3d.light_direction[1]
+			fragment_constants.light_direction[1] = render3d.light_direction[2]
+			fragment_constants.light_direction[2] = render3d.light_direction[3]
+			fragment_constants.light_color[0] = render3d.light_color[1]
+			fragment_constants.light_color[1] = render3d.light_color[2]
+			fragment_constants.light_color[2] = render3d.light_color[3]
+			fragment_constants.light_intensity = render3d.light_color[4]
+			-- Camera position for specular (vec3)
+			local cam_pos = cam:GetPosition()
+			fragment_constants.camera_position[0] = cam_pos.x
+			fragment_constants.camera_position[1] = cam_pos.y
+			fragment_constants.camera_position[2] = cam_pos.z
+			-- Debug cascade visualization
+			fragment_constants.debug_cascade_colors = render3d.debug_cascade_colors and 1 or 0
+			render3d.pipeline:PushConstants(cmd, "fragment", ffi.sizeof(VertexConstants), fragment_constants)
+		end
 	end
 end
 

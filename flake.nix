@@ -20,10 +20,10 @@
 
           buildInputs = [pkgs.makeWrapper];
 
-          makeFlags = ["PREFIX=$(out)" "XCFLAGS=-DLUAJIT_ENABLE_LUA52COMPAT" "BUILDMODE=static"];
+          makeFlags = ["PREFIX=$(out)" "XCFLAGS=-DLUAJIT_ENABLE_LUA52COMPAT -DLUAJIT_ENABLE_TABLE_BUMP" "BUILDMODE=static"];
 
           buildPhase = ''
-            make amalg PREFIX=$out XCFLAGS="-DLUAJIT_ENABLE_LUA52COMPAT" BUILDMODE=static
+            make amalg PREFIX=$out XCFLAGS="-DLUAJIT_ENABLE_LUA52COMPAT -DLUAJIT_ENABLE_TABLE_BUMP" BUILDMODE=static
           '';
 
           installPhase = ''

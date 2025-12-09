@@ -24,7 +24,7 @@ do
 			projection_view_world = Matrix44(),
 			projection_view_inverse = Matrix44(),
 			view_world_inverse = Matrix44(),
-			normal_matrix = Matrix44(),
+			normal_matrix = Matrix33(), -- Use Matrix33 to avoid re-allocation in Rebuild
 		}
 		self:Rebuild()
 		return self
@@ -347,17 +347,17 @@ do
 
 		if what == nil or what == "projection" or what == "view" then
 			if vars.projection_inverse then
-				vars.projection_inverse = vars.projection:GetInverse()
+				vars.projection:GetInverse(vars.projection_inverse)
 			end
 
-			if vars.view_inverse then vars.view_inverse = vars.view:GetInverse() end
+			if vars.view_inverse then vars.view:GetInverse(vars.view_inverse) end
 
 			if vars.projection_view then
-				vars.projection_view = vars.projection * vars.view
+				vars.projection:GetMultiplied(vars.view, vars.projection_view)
 			end
 
 			if vars.projection_view_inverse then
-				vars.projection_view_inverse = vars.projection_view:GetInverse()
+				vars.projection_view:GetInverse(vars.projection_view_inverse)
 			end
 
 			vars.frustum = self:GetFrustum(true, vars.projection_view)
@@ -366,35 +366,37 @@ do
 		if what == nil or what == "view" or what == "world" then
 			vars.world = self.World
 
-			if vars.view_world then vars.view_world = vars.view * vars.world end
+			if vars.view_world then vars.view:GetMultiplied(vars.world, vars.view_world) end
 
 			if vars.view_world_inverse and vars.view_world then
-				vars.view_world_inverse = vars.view_world:GetInverse()
+				vars.view_world:GetInverse(vars.view_world_inverse)
 			end
 
 			if vars.normal_matrix and vars.view_world_inverse then
-				vars.normal_matrix = Matrix33()
-				vars.normal_matrix.m00 = vars.view_world_inverse.m00
-				vars.normal_matrix.m01 = vars.view_world_inverse.m01
-				vars.normal_matrix.m02 = vars.view_world_inverse.m02
-				vars.normal_matrix.m10 = vars.view_world_inverse.m10
-				vars.normal_matrix.m11 = vars.view_world_inverse.m11
-				vars.normal_matrix.m12 = vars.view_world_inverse.m12
-				vars.normal_matrix.m20 = vars.view_world_inverse.m20
-				vars.normal_matrix.m21 = vars.view_world_inverse.m21
-				vars.normal_matrix.m22 = vars.view_world_inverse.m22
-				vars.normal_matrix = vars.normal_matrix:GetTransposed()
+				-- Copy and transpose in one step (transposed: swap row/col)
+				-- normal_matrix[row][col] = view_world_inverse[col][row]
+				local vwi = vars.view_world_inverse
+				local nm = vars.normal_matrix
+				nm.m00 = vwi.m00
+				nm.m01 = vwi.m10 -- transposed
+				nm.m02 = vwi.m20 -- transposed
+				nm.m10 = vwi.m01 -- transposed
+				nm.m11 = vwi.m11
+				nm.m12 = vwi.m21 -- transposed
+				nm.m20 = vwi.m02 -- transposed
+				nm.m21 = vwi.m12 -- transposed
+				nm.m22 = vwi.m22
 			end
 		end
 
 		if vars.world_inverse then
 			if type == nil or type == "world" then
-				vars.world_inverse = vars.world:GetInverse()
+				vars.world:GetInverse(vars.world_inverse)
 			end
 		end
 
 		if vars.projection_view_world then
-			vars.projection_view_world = vars.projection * vars.view_world
+			vars.projection:GetMultiplied(vars.view_world, vars.projection_view_world)
 		end
 	end
 

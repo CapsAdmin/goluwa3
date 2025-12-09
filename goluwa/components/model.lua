@@ -4,6 +4,9 @@ local render3d = require("graphics.render3d")
 local Material = require("graphics.material")
 local AABB = require("structs.aabb")
 local Vec3 = require("structs.vec3")
+local Matrix44 = require("structs.matrix").Matrix44
+-- Cached matrix to avoid allocation in hot drawing loops
+local cached_final_matrix = Matrix44()
 local META = prototype.CreateTemplate("component", "model")
 META.ComponentName = "model"
 -- Model requires transform component
@@ -113,7 +116,8 @@ function META:OnDraw3D(cmd, dt)
 		local final_matrix = world_matrix
 
 		if prim.local_matrix then
-			final_matrix = world_matrix:GetMultiplied(prim.local_matrix)
+			-- Reuse cached matrix to avoid per-draw allocation
+			final_matrix = world_matrix:GetMultiplied(prim.local_matrix, cached_final_matrix)
 		end
 
 		render3d.SetWorldMatrix(final_matrix)
@@ -144,7 +148,8 @@ function META:DrawShadow(shadow_cmd, shadow_map, cascade_idx)
 		local final_matrix = world_matrix
 
 		if prim.local_matrix then
-			final_matrix = world_matrix:GetMultiplied(prim.local_matrix)
+			-- Reuse cached matrix to avoid per-draw allocation
+			final_matrix = world_matrix:GetMultiplied(prim.local_matrix, cached_final_matrix)
 		end
 
 		shadow_map:UploadConstants(final_matrix, cascade_idx)

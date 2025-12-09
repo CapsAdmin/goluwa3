@@ -1,8 +1,8 @@
 local structs = require("structs.structs")
 local ffi = require("ffi")
 
-local function matrix_template(X, Y, identity, number_type)
-	number_type = number_type or "double"
+local function matrix_template(X, Y, identity)
+	local number_type = "double"
 
 	local function generate_generic(cb, no_newline)
 		local str = ""
@@ -307,39 +307,28 @@ end
 local out = {}
 
 do -- 44
-	local name, META = matrix_template(4, 4, {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1}, "double")
+	local name, META = matrix_template(4, 4, {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1})
 	out[name] = META.CType
 
-	-- Optimized GetInverse using local variables to help LuaJIT optimize
-	-- This avoids aliasing issues and allows better register allocation
 	function META.GetInverse(m, o)
-		-- Cache input values in locals - helps LuaJIT avoid re-reading from memory
-		local m00, m01, m02, m03 = m.m00, m.m01, m.m02, m.m03
-		local m10, m11, m12, m13 = m.m10, m.m11, m.m12, m.m13
-		local m20, m21, m22, m23 = m.m20, m.m21, m.m22, m.m23
-		local m30, m31, m32, m33 = m.m30, m.m31, m.m32, m.m33
-		-- Compute cofactors into locals
-		local o00 = m11 * m22 * m33 - m11 * m32 * m23 - m12 * m21 * m33 + m12 * m31 * m23 + m13 * m21 * m32 - m13 * m31 * m22
-		local o01 = -m01 * m22 * m33 + m01 * m32 * m23 + m02 * m21 * m33 - m02 * m31 * m23 - m03 * m21 * m32 + m03 * m31 * m22
-		local o02 = m01 * m12 * m33 - m01 * m32 * m13 - m02 * m11 * m33 + m02 * m31 * m13 + m03 * m11 * m32 - m03 * m31 * m12
-		local o03 = -m01 * m12 * m23 + m01 * m22 * m13 + m02 * m11 * m23 - m02 * m21 * m13 - m03 * m11 * m22 + m03 * m21 * m12
-		local o10 = -m10 * m22 * m33 + m10 * m32 * m23 + m12 * m20 * m33 - m12 * m30 * m23 - m13 * m20 * m32 + m13 * m30 * m22
-		local o11 = m00 * m22 * m33 - m00 * m32 * m23 - m02 * m20 * m33 + m02 * m30 * m23 + m03 * m20 * m32 - m03 * m30 * m22
-		local o12 = -m00 * m12 * m33 + m00 * m32 * m13 + m02 * m10 * m33 - m02 * m30 * m13 - m03 * m10 * m32 + m03 * m30 * m12
-		local o13 = m00 * m12 * m23 - m00 * m22 * m13 - m02 * m10 * m23 + m02 * m20 * m13 + m03 * m10 * m22 - m03 * m20 * m12
-		local o20 = m10 * m21 * m33 - m10 * m31 * m23 - m11 * m20 * m33 + m11 * m30 * m23 + m13 * m20 * m31 - m13 * m30 * m21
-		local o21 = -m00 * m21 * m33 + m00 * m31 * m23 + m01 * m20 * m33 - m01 * m30 * m23 - m03 * m20 * m31 + m03 * m30 * m21
-		local o22 = m00 * m11 * m33 - m00 * m31 * m13 - m01 * m10 * m33 + m01 * m30 * m13 + m03 * m10 * m31 - m03 * m30 * m11
-		local o23 = -m00 * m11 * m23 + m00 * m21 * m13 + m01 * m10 * m23 - m01 * m20 * m13 - m03 * m10 * m21 + m03 * m20 * m11
-		local o30 = -m10 * m21 * m32 + m10 * m31 * m22 + m11 * m20 * m32 - m11 * m30 * m22 - m12 * m20 * m31 + m12 * m30 * m21
-		local o31 = m00 * m21 * m32 - m00 * m31 * m22 - m01 * m20 * m32 + m01 * m30 * m22 + m02 * m20 * m31 - m02 * m30 * m21
-		local o32 = -m00 * m11 * m32 + m00 * m31 * m12 + m01 * m10 * m32 - m01 * m30 * m12 - m02 * m10 * m31 + m02 * m30 * m11
-		local o33 = m00 * m11 * m22 - m00 * m21 * m12 - m01 * m10 * m22 + m01 * m20 * m12 + m02 * m10 * m21 - m02 * m20 * m11
-		-- Compute determinant from locals (no aliasing possible)
-		local det = 1 / (m00 * o00 + m01 * o10 + m02 * o20 + m03 * o30)
-		-- Create or reuse output matrix
-		o = o or META.CType(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1)
-		-- Write results with determinant scaling
+		o = o or META.CType()
+		local o00 = m.m11 * m.m22 * m.m33 - m.m11 * m.m32 * m.m23 - m.m12 * m.m21 * m.m33 + m.m12 * m.m31 * m.m23 + m.m13 * m.m21 * m.m32 - m.m13 * m.m31 * m.m22
+		local o01 = -m.m01 * m.m22 * m.m33 + m.m01 * m.m32 * m.m23 + m.m02 * m.m21 * m.m33 - m.m02 * m.m31 * m.m23 - m.m03 * m.m21 * m.m32 + m.m03 * m.m31 * m.m22
+		local o02 = m.m01 * m.m12 * m.m33 - m.m01 * m.m32 * m.m13 - m.m02 * m.m11 * m.m33 + m.m02 * m.m31 * m.m13 + m.m03 * m.m11 * m.m32 - m.m03 * m.m31 * m.m12
+		local o03 = -m.m01 * m.m12 * m.m23 + m.m01 * m.m22 * m.m13 + m.m02 * m.m11 * m.m23 - m.m02 * m.m21 * m.m13 - m.m03 * m.m11 * m.m22 + m.m03 * m.m21 * m.m12
+		local o10 = -m.m10 * m.m22 * m.m33 + m.m10 * m.m32 * m.m23 + m.m12 * m.m20 * m.m33 - m.m12 * m.m30 * m.m23 - m.m13 * m.m20 * m.m32 + m.m13 * m.m30 * m.m22
+		local o11 = m.m00 * m.m22 * m.m33 - m.m00 * m.m32 * m.m23 - m.m02 * m.m20 * m.m33 + m.m02 * m.m30 * m.m23 + m.m03 * m.m20 * m.m32 - m.m03 * m.m30 * m.m22
+		local o12 = -m.m00 * m.m12 * m.m33 + m.m00 * m.m32 * m.m13 + m.m02 * m.m10 * m.m33 - m.m02 * m.m30 * m.m13 - m.m03 * m.m10 * m.m32 + m.m03 * m.m30 * m.m12
+		local o13 = m.m00 * m.m12 * m.m23 - m.m00 * m.m22 * m.m13 - m.m02 * m.m10 * m.m23 + m.m02 * m.m20 * m.m13 + m.m03 * m.m10 * m.m22 - m.m03 * m.m20 * m.m12
+		local o20 = m.m10 * m.m21 * m.m33 - m.m10 * m.m31 * m.m23 - m.m11 * m.m20 * m.m33 + m.m11 * m.m30 * m.m23 + m.m13 * m.m20 * m.m31 - m.m13 * m.m30 * m.m21
+		local o21 = -m.m00 * m.m21 * m.m33 + m.m00 * m.m31 * m.m23 + m.m01 * m.m20 * m.m33 - m.m01 * m.m30 * m.m23 - m.m03 * m.m20 * m.m31 + m.m03 * m.m30 * m.m21
+		local o22 = m.m00 * m.m11 * m.m33 - m.m00 * m.m31 * m.m13 - m.m01 * m.m10 * m.m33 + m.m01 * m.m30 * m.m13 + m.m03 * m.m10 * m.m31 - m.m03 * m.m30 * m.m11
+		local o23 = -m.m00 * m.m11 * m.m23 + m.m00 * m.m21 * m.m13 + m.m01 * m.m10 * m.m23 - m.m01 * m.m20 * m.m13 - m.m03 * m.m10 * m.m21 + m.m03 * m.m20 * m.m11
+		local o30 = -m.m10 * m.m21 * m.m32 + m.m10 * m.m31 * m.m22 + m.m11 * m.m20 * m.m32 - m.m11 * m.m30 * m.m22 - m.m12 * m.m20 * m.m31 + m.m12 * m.m30 * m.m21
+		local o31 = m.m00 * m.m21 * m.m32 - m.m00 * m.m31 * m.m22 - m.m01 * m.m20 * m.m32 + m.m01 * m.m30 * m.m22 + m.m02 * m.m20 * m.m31 - m.m02 * m.m30 * m.m21
+		local o32 = -m.m00 * m.m11 * m.m32 + m.m00 * m.m31 * m.m12 + m.m01 * m.m10 * m.m32 - m.m01 * m.m30 * m.m12 - m.m02 * m.m10 * m.m31 + m.m02 * m.m30 * m.m11
+		local o33 = m.m00 * m.m11 * m.m22 - m.m00 * m.m21 * m.m12 - m.m01 * m.m10 * m.m22 + m.m01 * m.m20 * m.m12 + m.m02 * m.m10 * m.m21 - m.m02 * m.m20 * m.m11
+		local det = 1 / (m.m00 * o00 + m.m01 * o10 + m.m02 * o20 + m.m03 * o30)
 		o.m00 = o00 * det
 		o.m01 = o01 * det
 		o.m02 = o02 * det
@@ -359,59 +348,45 @@ do -- 44
 		return o
 	end
 
-	-- Optimized GetMultiplied for Matrix44 using local variables
-	-- Overrides the generated template version for better LuaJIT performance
 	function META.GetMultiplied(a, b, o)
-		-- Cache input values in locals for better register allocation
-		local a00, a01, a02, a03 = a.m00, a.m01, a.m02, a.m03
-		local a10, a11, a12, a13 = a.m10, a.m11, a.m12, a.m13
-		local a20, a21, a22, a23 = a.m20, a.m21, a.m22, a.m23
-		local a30, a31, a32, a33 = a.m30, a.m31, a.m32, a.m33
-		local b00, b01, b02, b03 = b.m00, b.m01, b.m02, b.m03
-		local b10, b11, b12, b13 = b.m10, b.m11, b.m12, b.m13
-		local b20, b21, b22, b23 = b.m20, b.m21, b.m22, b.m23
-		local b30, b31, b32, b33 = b.m30, b.m31, b.m32, b.m33
-		-- Compute results into locals (helps with aliasing and register allocation)
-		local o00 = b00 * a00 + b01 * a10 + b02 * a20 + b03 * a30
-		local o01 = b00 * a01 + b01 * a11 + b02 * a21 + b03 * a31
-		local o02 = b00 * a02 + b01 * a12 + b02 * a22 + b03 * a32
-		local o03 = b00 * a03 + b01 * a13 + b02 * a23 + b03 * a33
-		local o10 = b10 * a00 + b11 * a10 + b12 * a20 + b13 * a30
-		local o11 = b10 * a01 + b11 * a11 + b12 * a21 + b13 * a31
-		local o12 = b10 * a02 + b11 * a12 + b12 * a22 + b13 * a32
-		local o13 = b10 * a03 + b11 * a13 + b12 * a23 + b13 * a33
-		local o20 = b20 * a00 + b21 * a10 + b22 * a20 + b23 * a30
-		local o21 = b20 * a01 + b21 * a11 + b22 * a21 + b23 * a31
-		local o22 = b20 * a02 + b21 * a12 + b22 * a22 + b23 * a32
-		local o23 = b20 * a03 + b21 * a13 + b22 * a23 + b23 * a33
-		local o30 = b30 * a00 + b31 * a10 + b32 * a20 + b33 * a30
-		local o31 = b30 * a01 + b31 * a11 + b32 * a21 + b33 * a31
-		local o32 = b30 * a02 + b31 * a12 + b32 * a22 + b33 * a32
-		local o33 = b30 * a03 + b31 * a13 + b32 * a23 + b33 * a33
-		-- Create or reuse output matrix
-		o = o or META.CType(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1)
-		-- Write results
-		o.m00, o.m01, o.m02, o.m03 = o00, o01, o02, o03
-		o.m10, o.m11, o.m12, o.m13 = o10, o11, o12, o13
-		o.m20, o.m21, o.m22, o.m23 = o20, o21, o22, o23
-		o.m30, o.m31, o.m32, o.m33 = o30, o31, o32, o33
+		o = o or META.CType()
+		o.m00 = b.m00 * a.m00 + b.m01 * a.m10 + b.m02 * a.m20 + b.m03 * a.m30
+		o.m01 = b.m00 * a.m01 + b.m01 * a.m11 + b.m02 * a.m21 + b.m03 * a.m31
+		o.m02 = b.m00 * a.m02 + b.m01 * a.m12 + b.m02 * a.m22 + b.m03 * a.m32
+		o.m03 = b.m00 * a.m03 + b.m01 * a.m13 + b.m02 * a.m23 + b.m03 * a.m33
+		o.m10 = b.m10 * a.m00 + b.m11 * a.m10 + b.m12 * a.m20 + b.m13 * a.m30
+		o.m11 = b.m10 * a.m01 + b.m11 * a.m11 + b.m12 * a.m21 + b.m13 * a.m31
+		o.m12 = b.m10 * a.m02 + b.m11 * a.m12 + b.m12 * a.m22 + b.m13 * a.m32
+		o.m13 = b.m10 * a.m03 + b.m11 * a.m13 + b.m12 * a.m23 + b.m13 * a.m33
+		o.m20 = b.m20 * a.m00 + b.m21 * a.m10 + b.m22 * a.m20 + b.m23 * a.m30
+		o.m21 = b.m20 * a.m01 + b.m21 * a.m11 + b.m22 * a.m21 + b.m23 * a.m31
+		o.m22 = b.m20 * a.m02 + b.m21 * a.m12 + b.m22 * a.m22 + b.m23 * a.m32
+		o.m23 = b.m20 * a.m03 + b.m21 * a.m13 + b.m22 * a.m23 + b.m23 * a.m33
+		o.m30 = b.m30 * a.m00 + b.m31 * a.m10 + b.m32 * a.m20 + b.m33 * a.m30
+		o.m31 = b.m30 * a.m01 + b.m31 * a.m11 + b.m32 * a.m21 + b.m33 * a.m31
+		o.m32 = b.m30 * a.m02 + b.m31 * a.m12 + b.m32 * a.m22 + b.m33 * a.m32
+		o.m33 = b.m30 * a.m03 + b.m31 * a.m13 + b.m32 * a.m23 + b.m33 * a.m33
 		return o
 	end
 
-	-- Optimized GetTransposed for Matrix44 using local variables
 	function META.GetTransposed(m, o)
-		-- Cache input values
-		local m00, m01, m02, m03 = m.m00, m.m01, m.m02, m.m03
-		local m10, m11, m12, m13 = m.m10, m.m11, m.m12, m.m13
-		local m20, m21, m22, m23 = m.m20, m.m21, m.m22, m.m23
-		local m30, m31, m32, m33 = m.m30, m.m31, m.m32, m.m33
-		-- Create or reuse output matrix
-		o = o or META.CType(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1)
-		-- Write transposed values
-		o.m00, o.m01, o.m02, o.m03 = m00, m10, m20, m30
-		o.m10, o.m11, o.m12, o.m13 = m01, m11, m21, m31
-		o.m20, o.m21, o.m22, o.m23 = m02, m12, m22, m32
-		o.m30, o.m31, o.m32, o.m33 = m03, m13, m23, m33
+		o = o or META.CType()
+		o.m00 = m.m00
+		o.m01 = m.m10
+		o.m02 = m.m20
+		o.m03 = m.m30
+		o.m10 = m.m01
+		o.m11 = m.m11
+		o.m12 = m.m21
+		o.m13 = m.m31
+		o.m20 = m.m02
+		o.m21 = m.m12
+		o.m22 = m.m22
+		o.m23 = m.m32
+		o.m30 = m.m03
+		o.m31 = m.m13
+		o.m32 = m.m23
+		o.m33 = m.m33
 		return o
 	end
 

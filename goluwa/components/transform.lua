@@ -134,7 +134,8 @@ function META:RebuildLocalMatrix()
 
 	if self.rebuild_tr_matrix or self.rebuild_scale_matrix then
 		if self.temp_scale.x ~= 1 or self.temp_scale.y ~= 1 or self.temp_scale.z ~= 1 then
-			self.LocalMatrix = self.TRMatrix * self.ScaleMatrix
+			self.LocalMatrix = self.LocalMatrix or Matrix44()
+			self.TRMatrix:GetMultiplied(self.ScaleMatrix, self.LocalMatrix)
 		else
 			self.LocalMatrix = self.TRMatrix
 		end
@@ -164,7 +165,9 @@ function META:GetWorldMatrix()
 
 		if parent:HasComponent("transform") then
 			local parent_world = parent.transform:GetWorldMatrix()
-			self.WorldMatrix = parent_world:GetMultiplied(local_matrix)
+			-- Reuse existing WorldMatrix to avoid allocation
+			self.WorldMatrix = self.WorldMatrix or Matrix44()
+			parent_world:GetMultiplied(local_matrix, self.WorldMatrix)
 		else
 			self.WorldMatrix = local_matrix
 		end
