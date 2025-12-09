@@ -120,23 +120,17 @@ end
 -- Update shadow map matrices for directional/sun light
 -- For cascaded shadow maps, pass the view_camera to calculate frustum-based cascades
 -- For legacy single shadow map, pass camera_position and camera_angles
-function Light:UpdateShadowMap(camera_position_or_view_camera, camera_angles)
+function Light:UpdateShadowMap()
 	if not self.shadow_map then return end
 
-	-- Check if first argument is a camera object (has GetMatrices method)
-	if
-		type(camera_position_or_view_camera) == "table" and
-		camera_position_or_view_camera.GetMatrices
-	then
-		-- Cascaded shadow map mode - use view camera to calculate frustum splits
-		self.shadow_map:UpdateCascadeLightMatrices(self.direction, camera_position_or_view_camera)
-	else
-		-- Legacy mode - use camera position and angles
-		local camera_position = camera_position_or_view_camera or Vec3(0, 0, 0)
-		-- For directional lights, pass direction, camera position, and camera angles
-		-- The shadow map will be centered on the camera, biased toward where they're looking
-		self.shadow_map:UpdateLightMatrix(self.direction, camera_position, camera_angles)
-	end
+	self.shadow_map:UpdateCascadeLightMatrices(
+		self.direction,
+		render3d.GetCameraPosition(),
+		render3d.GetCameraAngles(),
+		render3d.GetCameraFOV(),
+		render3d.GetCameraNearZ(),
+		render3d.GetCameraFarZ()
+	)
 end
 
 -- Get light data packed for GPU

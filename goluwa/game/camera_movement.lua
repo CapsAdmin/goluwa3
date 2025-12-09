@@ -108,15 +108,13 @@ local function calc_movement(dt, cam_ang, cam_fov)
 	return forward + side + up, cam_ang, cam_fov
 end
 
-local cam = render3d.cam
-
 function events.Update.camera_movement(dt)
-	local cam_pos = cam:GetPosition()
-	local cam_ang = cam:GetAngles()
-	local cam_fov = cam:GetFOV()
+	local cam_pos = render3d.GetCameraPosition()
+	local cam_ang = render3d.GetCameraAngles()
+	local cam_fov = render3d.GetCameraFOV()
 	local dir, ang, fov = calc_movement(dt, cam_ang, cam_fov)
 	cam_pos = cam_pos + dir
-	cam:SetPosition(cam_pos)
-	cam:SetAngles(ang)
-	cam:SetFOV(fov)
+	render3d.SetCameraPosition(cam_pos)
+	render3d.SetCameraAngles(ang)
+	render3d.SetCameraFOV(fov)
 end

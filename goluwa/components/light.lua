@@ -54,7 +54,7 @@ end
 function META:OnPreFrame(dt)
 	if not self:HasShadows() then return end
 
-	self:RenderShadows(render3d.cam, render3d.UpdateShadowUBO)
+	self:RenderShadows(render3d.UpdateShadowUBO)
 end
 
 function META:SetDirection(dir)
@@ -106,26 +106,25 @@ function META:HasShadows()
 	return self.CastShadows and self.ShadowMap ~= nil
 end
 
-function META:UpdateShadowMap(camera_position_or_view_camera, camera_angles)
+function META:UpdateShadowMap()
 	if not self.ShadowMap then return end
 
-	if
-		type(camera_position_or_view_camera) == "table" and
-		camera_position_or_view_camera.GetMatrices
-	then
-		self.ShadowMap:UpdateCascadeLightMatrices(self.Direction, camera_position_or_view_camera)
-	else
-		local camera_position = camera_position_or_view_camera or Vec3(0, 0, 0)
-		self.ShadowMap:UpdateLightMatrix(self.Direction, camera_position, camera_angles)
-	end
+	self.ShadowMap:UpdateCascadeLightMatrices(
+		self.Direction,
+		render3d.GetCameraPosition(),
+		render3d.GetCameraAngles(),
+		render3d.GetCameraFOV(),
+		render3d.GetCameraNearZ(),
+		render3d.GetCameraFarZ()
+	)
 end
 
 -- Render shadow maps for this light, drawing all model components
-function META:RenderShadows(camera, update_shadow_ubo_callback)
+function META:RenderShadows(update_shadow_ubo_callback)
 	if not self:HasShadows() then return end
 
 	local shadow_map = self.ShadowMap
-	self:UpdateShadowMap(camera)
+	self:UpdateShadowMap()
 
 	for cascade_idx = 1, shadow_map:GetCascadeCount() do
 		local shadow_cmd = shadow_map:Begin(cascade_idx)

@@ -29,8 +29,8 @@ require("game.camera_movement")
 -- Set camera to suggested position (camera node if found, otherwise scene center)
 local cam_pos, cam_ang = gltf.GetSuggestedCameraTransform(gltf_result)
 --cam_pos = Vec3(0, 1111, -60)
-render3d.cam:SetPosition(cam_pos)
-render3d.cam:SetAngles(cam_ang or Ang3(0, 0, 0))
+render3d.SetCameraPosition(cam_pos)
+render3d.SetCameraAngles(cam_ang or Ang3(0, 0, 0))
 -- Create sun light using ECS (direction in Z-up: x=forward, y=left, z=up)
 local sun, sun_entity = Light.CreateDirectional(
 	{

@@ -11,12 +11,8 @@ local show_camera_info = false
 function events.Draw2D.debug_camera_info(dt)
 	if not show_camera_info then return end
 
-	local cam = render3d.cam
-
-	if not cam then return end
-
-	local pos = cam:GetPosition()
-	local ang = cam:GetAngles()
+	local pos = render3d.GetCameraPosition()
+	local ang = render3d.GetCameraAngles()
 	local y = 10
 	local x = 10
 	render2d.SetTexture(nil)

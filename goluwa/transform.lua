@@ -70,9 +70,10 @@ function META:GetBoundingSphere()
 end
 
 function META:GetCameraDistance()
-	local x = self.TRMatrix.m30 - -render3d.camera.Position.y
-	local y = self.TRMatrix.m31 - -render3d.camera.Position.x
-	local z = self.TRMatrix.m32 - -render3d.camera.Position.z
+	local p = render3d.GetCameraPosition()
+	local x = self.TRMatrix.m30 - -p.y
+	local y = self.TRMatrix.m31 - -p.x
+	local z = self.TRMatrix.m32 - -p.z
 	return x * x + y * y + z * z
 end
 

@@ -141,9 +141,9 @@ do
 				)
 			self:Set3D(true)
 			self.oldpos, self.oldang, self.oldfov = self:GetPosition(), self:GetAngles(), self:GetFOV()
-			self:SetPosition(render3d.camera:GetPosition())
-			self:SetAngles(render3d.camera:GetAngles())
-			self:SetFOV(render3d.camera:GetFOV())
+			self:SetPosition(render3d.GetCameraPosition())
+			self:SetAngles(render3d.GetCameraAngles())
+			self:SetFOV(render3d.GetCameraFOV())
 			self:PushWorldEx(pos, ang, Vec3(scale.x / self.Viewport.w, scale.y / self.Viewport.h, 1))
 			self:Rebuild()
 		end

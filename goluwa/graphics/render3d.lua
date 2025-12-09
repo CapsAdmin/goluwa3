@@ -45,7 +45,6 @@ local ShadowUBO = ffi.typeof([[
 	}
 ]])
 local render3d = {}
-render3d.cam = cam
 render3d.current_material = nil
 -- Default light settings
 render3d.light_direction = {0.5, -1.0, 0.3}
@@ -444,6 +443,38 @@ end
 
 function render3d.SetWorldMatrix(world)
 	cam:SetWorld(world)
+end
+
+function render3d.GetCameraPosition()
+	return cam:GetPosition()
+end
+
+function render3d.SetCameraPosition(pos)
+	cam:SetPosition(pos)
+end
+
+function render3d.GetCameraAngles()
+	return cam:GetAngles()
+end
+
+function render3d.SetCameraAngles(ang)
+	cam:SetAngles(ang)
+end
+
+function render3d.GetCameraFOV()
+	return cam:GetFOV()
+end
+
+function render3d.SetCameraFOV(fov)
+	cam:SetFOV(fov)
+end
+
+function render3d.GetCameraNearZ()
+	return cam:GetNearZ()
+end
+
+function render3d.GetCameraFarZ()
+	return cam:GetFarZ()
 end
 
 function render3d.SetLightDirection(x, y, z)
