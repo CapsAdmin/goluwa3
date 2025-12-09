@@ -90,7 +90,7 @@ META.GetBackward = META.Back
 
 function META.__div(a, b)
 	if type(b) == "number" then
-		return Quat(a.x / b, a.y / b, a.z / b, a.w / b)
+		return CTOR(a.x / b, a.y / b, a.z / b, a.w / b)
 	end
 
 	return a:GetConjugated():__div(a:Dot(a))
