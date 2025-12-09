@@ -362,6 +362,31 @@ function CommandBuffer:Dispatch(groupCountX, groupCountY, groupCountZ)
 	vulkan.lib.vkCmdDispatch(self.ptr[0], groupCountX or 1, groupCountY or 1, groupCountZ or 1)
 end
 
+local format_to_aspect = {}
+
+if true then
+	for _, n in pairs(vulkan.vk.VkFormat) do
+		local format = vulkan.vk.str.VkFormat(n)
+
+		if format then
+			if format:match("d%d+.*s%d+") or format:match("s%d+.*d%d+") then
+				-- Depth-stencil format (e.g., D24_UNORM_S8_UINT)
+				aspect = {"depth", "stencil"}
+			elseif format:match("^d%d") or format:match("depth") then
+				-- Depth-only format (e.g., D32_SFLOAT)
+				aspect = "depth"
+			elseif format:match("^s%d") or format:match("stencil") then
+				-- Stencil-only format
+				aspect = "stencil"
+			else
+				aspect = "color"
+			end
+
+			format_to_aspect[format] = aspect
+		end
+	end
+end
+
 function CommandBuffer:PipelineBarrier(config)
 	local stage_map = {
 		compute = "compute_shader",
@@ -390,20 +415,7 @@ function CommandBuffer:PipelineBarrier(config)
 			local aspect = barrier.aspect
 
 			if not aspect and barrier.image.format then
-				local format = barrier.image.format
-
-				if format:match("d%d+.*s%d+") or format:match("s%d+.*d%d+") then
-					-- Depth-stencil format (e.g., D24_UNORM_S8_UINT)
-					aspect = {"depth", "stencil"}
-				elseif format:match("^d%d") or format:match("depth") then
-					-- Depth-only format (e.g., D32_SFLOAT)
-					aspect = "depth"
-				elseif format:match("^s%d") or format:match("stencil") then
-					-- Stencil-only format
-					aspect = "stencil"
-				else
-					aspect = "color"
-				end
+				aspect = assert(format_to_aspect[barrier.image.format])
 			end
 
 			aspect = aspect or "color"
@@ -535,11 +547,11 @@ function CommandBuffer:CopyBufferToImageMip(buffer, image, width, height, mip_le
 		image.ptr[0],
 		vulkan.vk.e.VkImageLayout("transfer_dst_optimal"),
 		1,
-		{
+		vulkan.vk.VkBufferImageCopy({
 			bufferOffset = buffer_offset or 0,
 			bufferRowLength = 0,
 			bufferImageHeight = 0,
-			imageSubresource = {
+			imageSubresource = vulkan.vk.s.ImageSubresourceLayers{
 				aspectMask = "color",
 				mipLevel = mip_level or 0,
 				baseArrayLayer = 0,
@@ -549,44 +561,45 @@ function CommandBuffer:CopyBufferToImageMip(buffer, image, width, height, mip_le
 			imageExtent = {width = width, height = height, depth = 1},
 		}
 	)
+)
 end
 
 function CommandBuffer:BlitImage(config)
-	local srcSubresource = vulkan.vk.VkImageSubresourceLayers()
-	srcSubresource.aspectMask = vulkan.vk.e.VkImageAspectFlagBits("color")
-	srcSubresource.mipLevel = config.src_mip_level or 0
-	srcSubresource.baseArrayLayer = 0
-	srcSubresource.layerCount = 1
-	local dstSubresource = vulkan.vk.VkImageSubresourceLayers()
-	dstSubresource.aspectMask = vulkan.vk.e.VkImageAspectFlagBits("color")
-	dstSubresource.mipLevel = config.dst_mip_level or 0
-	dstSubresource.baseArrayLayer = 0
-	dstSubresource.layerCount = 1
-	local region = vulkan.vk.VkImageBlit()
-	region.srcSubresource = srcSubresource
-	region.srcOffsets[0].x = 0
-	region.srcOffsets[0].y = 0
-	region.srcOffsets[0].z = 0
-	region.srcOffsets[1].x = config.src_width
-	region.srcOffsets[1].y = config.src_height
-	region.srcOffsets[1].z = 1
-	region.dstSubresource = dstSubresource
-	region.dstOffsets[0].x = 0
-	region.dstOffsets[0].y = 0
-	region.dstOffsets[0].z = 0
-	region.dstOffsets[1].x = config.dst_width
-	region.dstOffsets[1].y = config.dst_height
-	region.dstOffsets[1].z = 1
-	vulkan.lib.vkCmdBlitImage(
-		self.ptr[0],
-		config.src_image.ptr[0],
-		vulkan.vk.e.VkImageLayout(config.src_layout or "transfer_src_optimal"),
-		config.dst_image.ptr[0],
-		vulkan.vk.e.VkImageLayout(config.dst_layout or "transfer_dst_optimal"),
-		1,
-		region,
-		vulkan.vk.e.VkFilter(config.filter or "linear")
-	)
+local srcSubresource = vulkan.vk.VkImageSubresourceLayers()
+srcSubresource.aspectMask = vulkan.vk.e.VkImageAspectFlagBits("color")
+srcSubresource.mipLevel = config.src_mip_level or 0
+srcSubresource.baseArrayLayer = 0
+srcSubresource.layerCount = 1
+local dstSubresource = vulkan.vk.VkImageSubresourceLayers()
+dstSubresource.aspectMask = vulkan.vk.e.VkImageAspectFlagBits("color")
+dstSubresource.mipLevel = config.dst_mip_level or 0
+dstSubresource.baseArrayLayer = 0
+dstSubresource.layerCount = 1
+local region = vulkan.vk.VkImageBlit()
+region.srcSubresource = srcSubresource
+region.srcOffsets[0].x = 0
+region.srcOffsets[0].y = 0
+region.srcOffsets[0].z = 0
+region.srcOffsets[1].x = config.src_width
+region.srcOffsets[1].y = config.src_height
+region.srcOffsets[1].z = 1
+region.dstSubresource = dstSubresource
+region.dstOffsets[0].x = 0
+region.dstOffsets[0].y = 0
+region.dstOffsets[0].z = 0
+region.dstOffsets[1].x = config.dst_width
+region.dstOffsets[1].y = config.dst_height
+region.dstOffsets[1].z = 1
+vulkan.lib.vkCmdBlitImage(
+	self.ptr[0],
+	config.src_image.ptr[0],
+	vulkan.vk.e.VkImageLayout(config.src_layout or "transfer_src_optimal"),
+	config.dst_image.ptr[0],
+	vulkan.vk.e.VkImageLayout(config.dst_layout or "transfer_dst_optimal"),
+	1,
+	region,
+	vulkan.vk.e.VkFilter(config.filter or "linear")
+)
 end
 
 return CommandBuffer

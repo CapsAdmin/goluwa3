@@ -204,10 +204,10 @@ function structs.AddOperator(META, operator, ...)
 		local lua = [==[
 		local META, structs = ...
 		META["__unm"] = function(a)
-				return
-				CTOR(
+				local result = CTOR(
 					-a.KEY
 				)
+				return result
 			end
 		]==]
 		lua = parse_args(META, lua, ", ", true)
@@ -301,20 +301,23 @@ function structs.AddOperator(META, operator, ...)
 		local META, structs, istype = ...
 		local type = type
 		META[structs.OperatorTranslate["OPERATOR"]] = function(a, b)
+			local result
 			if type(b) == "number" then
-				return CTOR(
+				result = CTOR(
 					a.KEY OPERATOR b
 				)
 			elseif type(a) == "number" then
-				return CTOR(
+				result = CTOR(
 					a OPERATOR b.KEY
 				)
 			elseif a and istype(a, b) then
-				return CTOR(
+				result = CTOR(
 					a.KEY OPERATOR b.KEY
 				)
+			else
+				error(("%s OPERATOR %s"):format(tostring(a), tostring(b)), 2)
 			end
-			error(("%s OPERATOR %s"):format(tostring(a), tostring(b)), 2)
+			return result
 		end
 		]==]
 		lua = parse_args(META, lua, ", ", true)
