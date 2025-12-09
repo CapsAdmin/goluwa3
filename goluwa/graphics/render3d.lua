@@ -514,11 +514,9 @@ do
 	local fragment_constants = FragmentConstants()
 
 	function render3d.UploadConstants(cmd)
-		local matrices = cam:GetMatrices()
-
 		do
-			vertex_constants.projection_view_world = matrices.projection_view_world:GetFloatCopy()
-			vertex_constants.world = matrices.world:GetFloatCopy()
+			vertex_constants.projection_view_world = cam:GetProjectionViewWorldMatrix():GetFloatCopy()
+			vertex_constants.world = cam:GetWorldMatrix():GetFloatCopy()
 			render3d.pipeline:PushConstants(cmd, "vertex", 0, vertex_constants)
 		end
 

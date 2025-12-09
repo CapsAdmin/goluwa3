@@ -221,8 +221,7 @@ end
 
 -- Get frustum corners in world space for a given near/far range
 function ShadowMap:GetFrustumCornersWorldSpace(view_camera, split_near, split_far)
-	local matrices = view_camera:GetMatrices()
-	local inv_view_proj = matrices.projection_view:GetInverse()
+	local inv_view_proj = view_camera:GetProjectionViewMatrix():GetInverse()
 	-- NDC corners (Vulkan: z goes from 0 to 1)
 	local ndc_corners = {
 		-- Near plane (z = 0 in Vulkan NDC)
@@ -307,8 +306,7 @@ function ShadowMap:UpdateLightMatrix(light_direction, camera_position, camera_an
 	-- Rebuild the camera to update all matrices
 	self.camera:Rebuild()
 	-- Get the combined projection_view matrix from camera
-	local matrices = self.camera:GetMatrices()
-	self.light_space_matrix = matrices.projection_view
+	self.light_space_matrix = self.camera:GetProjectionViewMatrix()
 	-- Also update first cascade for backwards compatibility
 	self.cascade_light_space_matrices[1] = self.light_space_matrix
 end
@@ -357,8 +355,7 @@ function ShadowMap:UpdateCascadeLightMatrices(light_direction, view_camera)
 		-- Rebuild camera
 		cam:Rebuild()
 		-- Store the light space matrix
-		local matrices = cam:GetMatrices()
-		self.cascade_light_space_matrices[cascade_idx] = matrices.projection_view
+		self.cascade_light_space_matrices[cascade_idx] = cam:GetProjectionViewMatrix()
 	end
 
 	-- Update legacy single matrix for backwards compatibility

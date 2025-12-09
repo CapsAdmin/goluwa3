@@ -164,12 +164,12 @@ do
 		end
 
 		function META:ScreenToWorld(x, y)
-			local m = (self:GetMatrices().world * self:GetMatrices().view):GetInverse()
+			local m = (self:GetWorldMatrix() * self:GetViewMatrix()):GetInverse()
 
 			if self:Get3D() then
 				x = ((x / self.Viewport.w) - 0.5) * 2
 				y = ((y / self.Viewport.h) - 0.5) * 2
-				local cursor_x, cursor_y, cursor_z = m:TransformVector(self:GetMatrices().projection:GetInverse():TransformVector(x, -y, 1))
+				local cursor_x, cursor_y, cursor_z = m:TransformVector(self:GetProjectionMatrix():GetInverse():TransformVector(x, -y, 1))
 				local camera_x, camera_y, camera_z = m:TransformVector(0, 0, 0)
 				--local intersect = camera + ( camera.z / ( camera.z - cursor.z ) ) * ( cursor - camera )
 				local z = camera_z / (camera_z - cursor_z)
@@ -193,7 +193,7 @@ do
 		end
 
 		function META:GetFrustum(normalize, mat)
-			mat = mat or self:GetMatrices().projection_view
+			mat = mat or self:GetProjectionViewMatrix()
 			local frustum = {}
 			frustum.left = {
 				x = mat.m03 + mat.m00,
@@ -255,7 +255,7 @@ do
 		function META:IsAABBVisible(aabb, cam_distance, bounding_sphere)
 			if cam_distance > bounding_sphere ^ 6 then return false end
 
-			local frustum = self:GetMatrices().frustum
+			local frustum = self:GetCachedFrustum()
 
 			for i = 1, 6 do
 				local plane = frustum.tbli[i]
@@ -443,6 +443,105 @@ do
 		end
 
 		return self.shader_variables
+	end
+
+	-- Optimized getters that only rebuild what's needed
+	function META:GetProjectionMatrix()
+		if self.rebuild_matrix == "projection" or self.rebuild_matrix == true then
+			self:Rebuild("projection")
+
+			if self.rebuild_matrix == "projection" then
+				self.rebuild_matrix = false
+			end
+		end
+
+		return self.shader_variables.projection
+	end
+
+	function META:GetViewMatrix()
+		if self.rebuild_matrix == "view" or self.rebuild_matrix == true then
+			self:Rebuild("view")
+
+			if self.rebuild_matrix == "view" then self.rebuild_matrix = false end
+		end
+
+		return self.shader_variables.view
+	end
+
+	function META:GetWorldMatrix()
+		if self.rebuild_matrix == "world" or self.rebuild_matrix == true then
+			self:Rebuild("world")
+
+			if self.rebuild_matrix == "world" then self.rebuild_matrix = false end
+		end
+
+		return self.shader_variables.world
+	end
+
+	function META:GetProjectionViewMatrix()
+		if self.rebuild_matrix and self.rebuild_matrix ~= "world" then
+			self:Rebuild(self.rebuild_matrix == true and nil or self.rebuild_matrix)
+
+			if self.rebuild_matrix ~= true then self.rebuild_matrix = false end
+		end
+
+		return self.shader_variables.projection_view
+	end
+
+	function META:GetViewWorldMatrix()
+		if self.rebuild_matrix then
+			if self.rebuild_matrix == true then
+				self:Rebuild()
+			elseif self.rebuild_matrix ~= "projection" then
+				self:Rebuild(self.rebuild_matrix)
+			end
+
+			if self.rebuild_matrix ~= true and self.rebuild_matrix ~= "projection" then
+				self.rebuild_matrix = false
+			end
+		end
+
+		return self.shader_variables.view_world
+	end
+
+	function META:GetProjectionViewWorldMatrix()
+		if self.rebuild_matrix then
+			if self.rebuild_matrix == true then
+				self:Rebuild()
+			else
+				self:Rebuild(self.rebuild_matrix)
+			end
+
+			self.rebuild_matrix = false
+		end
+
+		return self.shader_variables.projection_view_world
+	end
+
+	function META:GetNormalMatrix()
+		if self.rebuild_matrix then
+			if self.rebuild_matrix == true then
+				self:Rebuild()
+			elseif self.rebuild_matrix ~= "projection" then
+				self:Rebuild(self.rebuild_matrix)
+			end
+
+			if self.rebuild_matrix ~= true and self.rebuild_matrix ~= "projection" then
+				self.rebuild_matrix = false
+			end
+		end
+
+		return self.shader_variables.normal_matrix
+	end
+
+	function META:GetCachedFrustum()
+		if self.rebuild_matrix and self.rebuild_matrix ~= "world" then
+			self:Rebuild(self.rebuild_matrix == true and nil or self.rebuild_matrix)
+
+			if self.rebuild_matrix ~= true then self.rebuild_matrix = false end
+		end
+
+		return self.shader_variables.frustum
 	end
 
 	META:Register()
