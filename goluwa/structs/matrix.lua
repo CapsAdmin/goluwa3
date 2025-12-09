@@ -2,7 +2,7 @@ local structs = require("structs.structs")
 local ffi = require("ffi")
 
 local function matrix_template(X, Y, identity)
-	local number_type = "double"
+	local number_type = structs.NumberType
 
 	local function generate_generic(cb, no_newline)
 		local str = ""
@@ -174,27 +174,54 @@ local function matrix_template(X, Y, identity)
 			return "m" .. x .. y .. ", "
 		end, true):sub(0, -3) .. [==[; }", ffi.typeof(META.NumberType))
 
-		local ctype = ffi.typeof("float[]==] .. X * Y .. [==[]")
-		local o = ctype()
+		do
+			local ffi_cast = ffi.cast
 
-		function META.GetFloatPointer(m)
-			]==] .. generate_generic(function(x, y, i)
-			return "o[" .. i .. "] = m.m" .. x .. y .. " "
-		end) .. [==[
-			return o
-		end
+			do
+				local float_array = ffi.typeof("float[]==] .. X * Y .. [==[]")
 
-		function META.GetDoublePointer(m)
-			return m
-		end
-
-		function META.GetFloatCopy(m)
-			return ctype(
-				]==] .. generate_generic(function(x, y)
-			return "m.m" .. x .. y .. ", "
+				function META:GetFloatCopy()
+					return float_array(
+						]==] .. generate_generic(function(x, y)
+			return "self.m" .. x .. y .. ", "
 		end):sub(0, -4) .. [==[
-			)
+						)
+				end
+
+				if META.NumberType == "float" then
+					function META:GetFloatPointer()
+						return ffi_cast(float_array, self)
+					end
+				else
+					function META:GetFloatPointer()
+						return self:GetFloatCopy()
+					end
+				end
+			end
+
+			do
+				local double_array = ffi.typeof("double[]==] .. X * Y .. [==[]")
+
+				function META:GetDoubleCopy()
+					return double_array(
+							]==] .. generate_generic(function(x, y)
+			return "self.m" .. x .. y .. ", "
+		end):sub(0, -4) .. [==[			)
+				end
+
+				if META.NumberType == "double" then
+					function META:GetDoublePointer()
+						return ffi_cast(double_array, self)
+					end
+				else
+					function META:GetDoublePointer()
+						return self:GetDoubleCopy()
+					end
+				end
+
+			end
 		end
+		
 		function META.Unpack(m)
 			return
 				]==] .. generate_generic(function(x, y)
@@ -301,7 +328,14 @@ local function matrix_template(X, Y, identity)
 		return META
 	]==]
 	local name = "Matrix" .. X .. Y
-	return name, assert(loadstring(code, name))(structs)
+	local func, err = loadstring(code, name)
+
+	if not func then
+		print(code)
+		error(err)
+	end
+
+	return name, func(structs)
 end
 
 local out = {}

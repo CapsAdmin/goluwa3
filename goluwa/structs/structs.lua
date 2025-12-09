@@ -4,6 +4,7 @@ local istype = ffi.istype
 local typeof = ffi.typeof
 local tostring = tostring
 local UNION_SWIZZLE = false
+structs.NumberType = "double"
 
 function structs.Template(class_name)
 	local META = {}
@@ -12,6 +13,7 @@ function structs.Template(class_name)
 end
 
 function structs.Register(META)
+	META.NumberType = structs.NumberType
 	META.__index = META
 	META.Type = META.ClassName:lower()
 	local i = 1
@@ -475,11 +477,26 @@ function structs.AddOperator(META, operator, ...)
 		local META = ...
 		local ffi = require("ffi")
 
+		local float_array = ffi.typeof("float[]=] .. #META.Args[1] .. [=[]")
+
 		function META.GetFloatCopy(a)
-			return ffi.new("float[]=] .. #META.Args[1] .. [=[]", 
+			return float_array(
 				a.KEY
 			)
 		end
+
+		local ffi_cast = ffi.cast
+
+		if META.NumberType == "float" then
+			function META:GetFloatPointer()
+				return ffi_cast(float_array, self)
+			end
+		else
+			function META:GetFloatPointer()
+				return self:GetFloatCopy()
+			end
+		end
+
 		]=]
 		lua = parse_args(META, lua, ", ")
 		assert(loadstring(lua, META.ClassName .. " operator " .. operator))(META)

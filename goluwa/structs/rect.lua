@@ -1,6 +1,5 @@
 local structs = require("structs.structs")
 local META = structs.Template("Rect")
-META.NumberType = "double"
 META.Args = {{"x", "y", "w", "h"}, {"left", "top", "right", "bottom"}}
 structs.AddAllOperators(META)
 

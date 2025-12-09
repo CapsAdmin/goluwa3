@@ -1,7 +1,6 @@
 local Vec3 = require("structs.vec3")
 local structs = require("structs.structs")
 local META = structs.Template("AABB")
-META.NumberType = "double"
 META.Args = {{"min_x", "min_y", "min_z", "max_x", "max_y", "max_z"}}
 structs.AddAllOperators(META)
 

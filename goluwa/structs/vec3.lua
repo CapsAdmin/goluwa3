@@ -1,6 +1,5 @@
 local structs = require("structs.structs")
 local META = structs.Template("Vec3")
-META.NumberType = "double"
 META.Args = {{"x", "y", "z"}, {"r", "g", "b"}, {"p", "y", "r"}, {"u", "v", "w"}}
 structs.AddAllOperators(META)
 structs.AddOperator(META, "generic_vector")

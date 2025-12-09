@@ -15,6 +15,10 @@ local b = RandomMatrix()
 local a = RandomMatrix()
 local c = Matrix44()
 
-benchmark.Run("Matrix44: Multiply", 10000, function()
+benchmark.Run("Matrix44 Multiply", function()
 	c = a * b * c
+end)
+
+benchmark.Run("Matrix44 Inverse", function()
+	c = a:GetInverse()
 end)

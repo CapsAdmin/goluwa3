@@ -7,7 +7,6 @@ function Deg3(p, y, r)
 	return CTOR(p, y, r):Rad()
 end
 
-META.NumberType = "double"
 META.Args = {{"x", "y", "z"}, {"p", "y", "r"}, {"pitch", "yaw", "roll"}}
 structs.AddAllOperators(META)
 local sin = math.sin

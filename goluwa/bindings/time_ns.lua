@@ -2,19 +2,19 @@ local ffi = require("ffi")
 
 if ffi.os == "Windows" then
 	ffi.cdef([[
-		int QueryPerformanceFrequency(int64_t *lpFrequency);
-		int QueryPerformanceCounter(int64_t *lpPerformanceCount);
+		int QueryPerformanceFrequency(uint64_t *lpFrequency);
+		int QueryPerformanceCounter(uint64_t *lpPerformanceCount);
 	]])
-	local q = ffi.new("int64_t[1]")
+	local q = ffi.new("uint64_t[1]")
 	ffi.C.QueryPerformanceFrequency(q)
 	local freq = tonumber(q[0])
-	local start_time = ffi.new("int64_t[1]")
+	local start_time = ffi.new("uint64_t[1]")
 	ffi.C.QueryPerformanceCounter(start_time)
 	return function()
-		local time = ffi.new("int64_t[1]")
+		local time = ffi.new("uint64_t[1]")
 		ffi.C.QueryPerformanceCounter(time)
-		time[0] = time[0] - start_time[0]
-		return tonumber(time[0]) / freq
+		local elapsed = time[0] - start_time[0]
+		return ffi.cast("uint64_t", elapsed * 1000000000ULL / freq)
 	end
 elseif ffi.os == "OSX" then
 	ffi.cdef([[
@@ -31,17 +31,16 @@ elseif ffi.os == "OSX" then
 	local orwl_timestart = ffi.C.mach_absolute_time()
 	return function()
 		local diff = ffi.C.mach_absolute_time() - orwl_timestart
-		diff = tonumber(diff) * timebase / 1000000000
-		return diff
+		return ffi.cast("uint64_t", tonumber(diff) * timebase)
 	end
 else
+	local timespec_t = ffi.typeof([[struct {
+        long int tv_sec;
+        long tv_nsec;
+    }]])
 	ffi.cdef([[
-		struct timespec {
-			long int tv_sec;
-			long tv_nsec;
-		};
-		int clock_gettime(int clock_id, struct timespec *tp);
-	]])
+		int clock_gettime(int clock_id, $ *tp);
+	]], timespec_t)
 	local ts = ffi.new("struct timespec")
 	local CLOCK_MONOTONIC_RAW = 4
 	local CLOCK_MONOTONIC = 1
@@ -52,6 +51,6 @@ else
 
 	return function()
 		func(clock_id, ts)
-		return tonumber(ts.tv_sec) + tonumber(ts.tv_nsec) * 0.000000001
+		return ts.tv_sec * 1000000000ULL + ts.tv_nsec
 	end
 end

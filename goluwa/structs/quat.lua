@@ -3,7 +3,6 @@ local structs = require("structs.structs")
 local META = structs.Template("Quat")
 local ffi = require("ffi")
 local CTOR
-META.NumberType = "double"
 META.Args = {{"x", "y", "z", "w"}}
 structs.AddAllOperators(META)
 
@@ -281,30 +280,6 @@ do
 				-2 * (q.x * q.y - q.w * q.z)
 			)
 		end
-	end
-end
-
-do
-	local temp = ffi.new("float[4]")
-
-	function META:GetFloatPointer()
-		temp[0] = self.x
-		temp[1] = self.y
-		temp[2] = self.z
-		temp[3] = self.w
-		return temp
-	end
-end
-
-do
-	local temp = ffi.new("double[4]")
-
-	function META:GetDoublePointer()
-		temp[0] = self.x
-		temp[1] = self.y
-		temp[2] = self.z
-		temp[3] = self.w
-		return temp
 	end
 end
 
