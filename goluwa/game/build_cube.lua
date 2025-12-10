@@ -104,13 +104,13 @@ local function generate_cube(size)
 			table.insert(vertices, tangent[4])
 		end
 
-		-- Add 6 indices for this face (2 triangles) - counter-clockwise winding
+		-- Add 6 indices for this face (2 triangles) - clockwise winding
 		table.insert(indices, vertex_count + 0)
+		table.insert(indices, vertex_count + 2)
 		table.insert(indices, vertex_count + 1)
-		table.insert(indices, vertex_count + 2)
 		table.insert(indices, vertex_count + 0)
-		table.insert(indices, vertex_count + 2)
 		table.insert(indices, vertex_count + 3)
+		table.insert(indices, vertex_count + 2)
 		vertex_count = vertex_count + 4
 	end
 
