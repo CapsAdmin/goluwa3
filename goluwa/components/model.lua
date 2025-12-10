@@ -111,6 +111,13 @@ function META:OnDraw3D(cmd, dt)
 
 	if not world_matrix then return end
 
+	-- Frustum culling: check if model's world-space AABB is visible
+	local world_aabb = self:GetWorldAABB()
+
+	if world_aabb and not render3d.IsAABBVisible(world_aabb) then
+		return -- Model is outside frustum, skip drawing
+	end
+
 	for _, prim in ipairs(self.Primitives) do
 		-- If primitive has its own local matrix, combine with world matrix
 		local final_matrix = world_matrix

@@ -689,4 +689,94 @@ function render3d.SetMaterial(mat)
 	if mat then mat:RegisterTextures(render3d.pipeline) end
 end
 
+-- Frustum culling implementation
+do
+	local system = require("system")
+	local cached_frustum_planes = nil
+	local cached_frustum_frame = -1
+	render3d.noculling = false -- Debug flag to disable culling
+	render3d.freeze_frustum = false -- Debug flag to freeze frustum for culling tests
+	-- Extract 6 frustum planes from projection-view matrix
+	-- Each plane is represented as {a, b, c, d} where ax + by + cz + d = 0
+	local function extract_frustum_planes(proj_view_matrix)
+		local planes = {}
+		local m = proj_view_matrix
+		-- Left plane: row3 + row0
+		planes.left = {m.m03 + m.m00, m.m13 + m.m10, m.m23 + m.m20, m.m33 + m.m30}
+		-- Right plane: row3 - row0
+		planes.right = {m.m03 - m.m00, m.m13 - m.m10, m.m23 - m.m20, m.m33 - m.m30}
+		-- Bottom plane: row3 + row1
+		planes.bottom = {m.m03 + m.m01, m.m13 + m.m11, m.m23 + m.m21, m.m33 + m.m31}
+		-- Top plane: row3 - row1
+		planes.top = {m.m03 - m.m01, m.m13 - m.m11, m.m23 - m.m21, m.m33 - m.m31}
+		-- Near plane: row3 + row2
+		planes.near = {m.m03 + m.m02, m.m13 + m.m12, m.m23 + m.m22, m.m33 + m.m32}
+		-- Far plane: row3 - row2
+		planes.far = {m.m03 - m.m02, m.m13 - m.m12, m.m23 - m.m22, m.m33 - m.m32}
+
+		-- Normalize planes for accurate distance testing
+		for _, plane in pairs(planes) do
+			local len = math.sqrt(plane[1] * plane[1] + plane[2] * plane[2] + plane[3] * plane[3])
+
+			if len > 0 then
+				plane[1] = plane[1] / len
+				plane[2] = plane[2] / len
+				plane[3] = plane[3] / len
+				plane[4] = plane[4] / len
+			end
+		end
+
+		return planes
+	end
+
+	-- Test AABB against frustum planes
+	-- Returns true if AABB is visible (inside or intersecting frustum)
+	local function is_aabb_visible_frustum(aabb, frustum_planes)
+		-- Test AABB against each frustum plane using the "p-vertex" method
+		-- For each plane, find the corner of the AABB that is most along the plane normal
+		for _, plane in pairs(frustum_planes) do
+			-- Select the positive vertex (furthest in direction of plane normal)
+			local px = plane[1] > 0 and aabb.max_x or aabb.min_x
+			local py = plane[2] > 0 and aabb.max_y or aabb.min_y
+			local pz = plane[3] > 0 and aabb.max_z or aabb.min_z
+
+			-- If the positive vertex is outside this plane, AABB is completely outside
+			if plane[1] * px + plane[2] * py + plane[3] * pz + plane[4] < 0 then
+				return false
+			end
+		end
+
+		return true -- AABB is inside or intersecting frustum
+	end
+
+	-- Get cached frustum planes for current frame
+	function render3d.GetFrustumPlanes()
+		-- If frustum is frozen, always return the cached planes
+		if render3d.freeze_frustum and cached_frustum_planes then
+			return cached_frustum_planes
+		end
+
+		local current_frame = system.GetFrameNumber()
+
+		if cached_frustum_frame ~= current_frame then
+			local proj = render3d.GetProjectionMatrix()
+			local view = render3d.GetViewMatrix()
+			local proj_view = proj:GetMultiplied(view)
+			cached_frustum_planes = extract_frustum_planes(proj_view)
+			cached_frustum_frame = current_frame
+		end
+
+		return cached_frustum_planes
+	end
+
+	-- Test if an AABB is visible in the camera frustum
+	function render3d.IsAABBVisible(aabb)
+		if render3d.noculling then return true end
+
+		if not aabb then return false end
+
+		return is_aabb_visible_frustum(aabb, render3d.GetFrustumPlanes())
+	end
+end
+
 return render3d

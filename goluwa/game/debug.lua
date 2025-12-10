@@ -7,6 +7,8 @@ local gfx = require("graphics.gfx")
 local render3d = require("graphics.render3d")
 -- Debug: Show camera info
 local show_camera_info = false
+-- Debug: Freeze frustum for culling
+local freeze_frustum = false
 
 function events.Draw2D.debug_camera_info(dt)
 	if not show_camera_info then return end
@@ -24,6 +26,14 @@ function events.Draw2D.debug_camera_info(dt)
 	-- Also show which direction each axis points based on Source convention
 	render2d.SetColor(0.7, 0.7, 0.7, 1)
 	gfx.DrawText("(X=forward, Y=left, Z=up | P=pitch, Y=yaw, R=roll)", x, y)
+end
+
+function events.Draw2D.debug_freeze_frustum(dt)
+	if not freeze_frustum then return end
+
+	render2d.SetTexture(nil)
+	render2d.SetColor(1, 1, 0, 1)
+	gfx.DrawText("FRUSTUM FROZEN", 10, 60)
 end
 
 function events.KeyInput.toggle_camera_info(key, press)
@@ -95,6 +105,19 @@ function events.KeyInput.renderdoc(key, press)
 		-- Also toggle cascade color visualization in the shader
 		render3d.SetDebugCascadeColors(show_shadow_map)
 		print("Shadow map debug: " .. (show_shadow_map and "ON" or "OFF"))
+	end
+
+	-- Toggle frustum culling
+	if key == "f8" then
+		render3d.noculling = not render3d.noculling
+		print("Frustum culling: " .. (render3d.noculling and "DISABLED" or "ENABLED"))
+	end
+
+	-- Toggle freeze frustum
+	if key == "f" then
+		freeze_frustum = not freeze_frustum
+		render3d.freeze_frustum = freeze_frustum
+		print("Freeze frustum: " .. (freeze_frustum and "ON" or "OFF"))
 	end
 
 	if key == "c" and input.IsKeyDown("left_control") then system.ShutDown(0) end
