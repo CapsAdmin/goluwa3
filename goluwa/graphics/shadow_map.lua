@@ -1,8 +1,9 @@
 local ffi = require("ffi")
 local render = require("graphics.render")
+local render3d = require("graphics.render3d")
 local Texture = require("graphics.texture")
 local Fence = require("graphics.vulkan.internal.fence")
-local Matrix = require("structs.matrix").Matrix44
+local Matrix44 = require("structs.matrix").Matrix44
 local Vec3 = require("structs.vec3")
 local Vec2 = require("structs.vec2")
 local Ang3 = require("structs.ang3")
@@ -40,7 +41,7 @@ function ShadowMap.New(config)
 			angles = Ang3(0, 0, 0),
 			projection = nil, -- Will be built when needed
 			view = nil, -- Will be built when needed
-			light_space_matrix = Matrix(),
+			light_space_matrix = Matrix44(),
 		}
 		-- Create depth texture for each cascade
 		self.cascade[i].depth_texture = Texture.New(
@@ -212,8 +213,8 @@ end
 -- Update all cascade light matrices for cascaded shadow mapping
 -- view_camera: the main view camera to calculate frustum splits from
 -- light_direction: normalized direction of the directional light
-function ShadowMap:UpdateCascadeLightMatrices(light_direction, cam_pos, cam_ang, cam_fov, cam_near, cam_far)
-	self:CalculateCascadeSplits(cam_near, cam_far)
+function ShadowMap:UpdateCascadeLightMatrices(light_direction)
+	self:CalculateCascadeSplits(render3d.GetCameraNearZ(), render3d.GetCameraFarZ())
 
 	for cascade_idx = 1, self.cascade_count do
 		-- Each cascade covers a larger area
@@ -222,13 +223,13 @@ function ShadowMap:UpdateCascadeLightMatrices(light_direction, cam_pos, cam_ang,
 		local cascade_ortho_size = self.ortho_size * (0.5 + cascade_scale * 1.5)
 		-- Calculate where the shadow map should be centered
 		-- Start at camera position, then offset toward where they're looking
-		local shadow_center = cam_pos
+		local shadow_center = render3d.GetCameraPosition()
 
-		if cam_ang then
+		if false then
 			-- Offset the shadow center forward based on camera yaw
 			-- Bias more forward for closer cascades
 			local forward_offset = cascade_ortho_size * (0.5 + (1 - cascade_scale) * 0.4)
-			local yaw = cam_ang.y
+			local yaw = render3d.GetCameraAngles().y
 			local forward_x = math.cos(yaw) * forward_offset
 			local forward_y = math.sin(yaw) * forward_offset
 			shadow_center = shadow_center + Vec3(forward_x, forward_y, 0)
@@ -238,17 +239,17 @@ function ShadowMap:UpdateCascadeLightMatrices(light_direction, cam_pos, cam_ang,
 		local shadow_cam_pos = shadow_center + light_direction * -cascade_ortho_size
 		local angles = light_direction:GetAngles()
 		-- Build the view matrix
-		local view = Matrix()
+		local view = Matrix44()
 		view:Rotate(angles.z, 0, 0, 1)
 		view:Rotate(angles.x + math.pi / 2, 1, 0, 0)
 		view:Rotate(angles.y, 0, 0, 1)
 		view:Translate(shadow_cam_pos.y, shadow_cam_pos.x, shadow_cam_pos.z)
 		-- Build orthographic projection (same approach as working UpdateLightMatrix)
-		local projection = Matrix()
+		local projection = Matrix44()
 		local size = cascade_ortho_size * 2
 		projection:Ortho(-size, size, -size, size, -self.far_plane * 2, self.far_plane * 0.1)
 		-- Store the light space matrix
-		local light_space = Matrix()
+		local light_space = Matrix44()
 		projection:GetMultiplied(view, light_space)
 		-- Store all cascade data
 		self.cascade[cascade_idx].position = shadow_cam_pos

@@ -109,14 +109,7 @@ end
 function META:UpdateShadowMap()
 	if not self.ShadowMap then return end
 
-	self.ShadowMap:UpdateCascadeLightMatrices(
-		self.Direction,
-		render3d.GetCameraPosition(),
-		render3d.GetCameraAngles(),
-		render3d.GetCameraFOV(),
-		render3d.GetCameraNearZ(),
-		render3d.GetCameraFarZ()
-	)
+	self.ShadowMap:UpdateCascadeLightMatrices(self.Direction)
 end
 
 -- Render shadow maps for this light, drawing all model components

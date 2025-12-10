@@ -673,13 +673,4 @@ function render3d.SetMaterial(mat)
 	if mat then mat:RegisterTextures(render3d.pipeline) end
 end
 
--- Legacy API for backwards compatibility
-function render3d.SetTexture(tex)
-	-- Create a simple material with just the albedo texture
-	local mat = Material.New({
-		albedo_texture = tex,
-	})
-	render3d.SetMaterial(mat)
-end
-
 return render3d

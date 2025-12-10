@@ -1,6 +1,5 @@
 local ffi = require("ffi")
 local Vec3 = require("structs.vec3")
-local ShadowMap = require("graphics.shadow_map")
 local Light = {}
 Light.__index = Light
 -- Light types
@@ -85,6 +84,7 @@ function Light:SetEnabled(enabled)
 end
 
 function Light:EnableShadows(config)
+	local ShadowMap = require("graphics.shadow_map")
 	config = config or {}
 	self.cast_shadows = true
 
@@ -123,14 +123,7 @@ end
 function Light:UpdateShadowMap()
 	if not self.shadow_map then return end
 
-	self.shadow_map:UpdateCascadeLightMatrices(
-		self.direction,
-		render3d.GetCameraPosition(),
-		render3d.GetCameraAngles(),
-		render3d.GetCameraFOV(),
-		render3d.GetCameraNearZ(),
-		render3d.GetCameraFarZ()
-	)
+	self.shadow_map:UpdateCascadeLightMatrices(self.direction)
 end
 
 -- Get light data packed for GPU

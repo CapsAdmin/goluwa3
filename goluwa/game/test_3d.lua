@@ -36,8 +36,11 @@ local texture = Texture.New(
 		},
 	}
 )
+local mat = Material.New({
+	albedo_texture = texture,
+})
 texture:GenerateMipMap()
-render3d.SetTexture(texture)
+render3d.SetMaterial(mat)
 local transforms = {}
 
 for i = 1, 100 do
@@ -66,13 +69,7 @@ function events.Draw3D.test_3d(cmd, dt)
 	for i, transform in ipairs(transforms) do
 		render3d.SetWorldMatrix(transform:GetMatrix())
 		render3d.UploadConstants(cmd)
-
-		if i == 10 then
-			render3d.SetTexture(gfx.quadrant_circle_texture)
-		else
-			render3d.SetTexture(texture)
-		end
-
+		render3d.SetMaterial(mat)
 		cmd:DrawIndexed(36)
 	end
 end
