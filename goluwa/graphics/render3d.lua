@@ -529,6 +529,18 @@ function render3d.GetCameraFarZ()
 	return camera_far_z
 end
 
+function render3d.GetCameraViewport()
+	return camera_viewport
+end
+
+function render3d.SetCameraViewport(x, y, w, h)
+	camera_viewport.x = x
+	camera_viewport.y = y
+	camera_viewport.w = w
+	camera_viewport.h = h
+	render3d.projection_matrix = nil
+end
+
 function render3d.SetLightDirection(x, y, z)
 	render3d.light_direction = {x, y, z}
 
@@ -665,6 +677,10 @@ do
 			render3d.pipeline:PushConstants(cmd, "fragment", ffi.sizeof(VertexConstants), fragment_constants)
 		end
 	end
+end
+
+function events.WindowFramebufferResized.render3d(wnd, size)
+	render3d.SetCameraViewport(0, 0, size.x, size.y)
 end
 
 function render3d.SetMaterial(mat)
