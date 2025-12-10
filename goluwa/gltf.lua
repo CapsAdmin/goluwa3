@@ -1025,78 +1025,164 @@ function gltf.CreateEntityHierarchy(gltf_result, parent_entity, options)
 			local mesh = gltf_result.meshes[node.mesh + 1]
 
 			if mesh then
-				local model = entity:AddComponent("model")
+				-- Check if we should split primitives into separate entities
+				local should_split = options.split_primitives and #mesh.primitives > 1
 
-				-- Create primitives for this mesh
-				for prim_idx, primitive in ipairs(mesh.primitives) do
-					stats.total_primitives = stats.total_primitives + 1
-					local vertex_buffer, vertex_count, prim_aabb = gltf.CreateVertexBuffer(primitive)
+				if not should_split then
+					-- Original behavior: all primitives in one model component
+					local model = entity:AddComponent("model")
 
-					if vertex_buffer then
-						local index_buffer, index_count, index_type = gltf.CreateIndexBuffer(primitive, vertex_count)
-						-- Create material
-						local material = nil
-						local texture = nil
+					-- Create primitives for this mesh
+					for prim_idx, primitive in ipairs(mesh.primitives) do
+						stats.total_primitives = stats.total_primitives + 1
+						local vertex_buffer, vertex_count, prim_aabb = gltf.CreateVertexBuffer(primitive)
 
-						if primitive.material ~= nil then
-							local gltf_mat = gltf_result.materials[primitive.material + 1]
+						if vertex_buffer then
+							local index_buffer, index_count, index_type = gltf.CreateIndexBuffer(primitive, vertex_count)
+							-- Create material
+							local material = nil
+							local texture = nil
 
-							if gltf_mat then
-								local albedo_tex = gltf_mat.base_color_texture and
-									gltf.LoadTexture(gltf_result, gltf_mat.base_color_texture)
-								local normal_tex = gltf_mat.normal_texture and
-									gltf.LoadTexture(gltf_result, gltf_mat.normal_texture)
-								local metallic_roughness_tex = gltf_mat.metallic_roughness_texture and
-									gltf.LoadTexture(gltf_result, gltf_mat.metallic_roughness_texture)
-								local occlusion_tex = gltf_mat.occlusion_texture and
-									gltf.LoadTexture(gltf_result, gltf_mat.occlusion_texture)
-								local emissive_tex = gltf_mat.emissive_texture and
-									gltf.LoadTexture(gltf_result, gltf_mat.emissive_texture)
-								material = Material.New(
-									{
-										name = gltf_mat.name,
-										albedo_texture = albedo_tex,
-										normal_texture = normal_tex,
-										metallic_roughness_texture = metallic_roughness_tex,
-										occlusion_texture = occlusion_tex,
-										emissive_texture = emissive_tex,
-										base_color_factor = gltf_mat.base_color_factor,
-										metallic_factor = gltf_mat.metallic_factor,
-										roughness_factor = gltf_mat.roughness_factor,
-										normal_scale = gltf_mat.normal_scale,
-										occlusion_strength = gltf_mat.occlusion_strength,
-										emissive_factor = {
-											gltf_mat.emissive_factor[1],
-											gltf_mat.emissive_factor[2],
-											gltf_mat.emissive_factor[3],
-										},
-										double_sided = gltf_mat.double_sided,
-										alpha_mode = gltf_mat.alpha_mode,
-										alpha_cutoff = gltf_mat.alpha_cutoff,
-									}
-								)
-								texture = albedo_tex
+							if primitive.material ~= nil then
+								local gltf_mat = gltf_result.materials[primitive.material + 1]
+
+								if gltf_mat then
+									local albedo_tex = gltf_mat.base_color_texture and
+										gltf.LoadTexture(gltf_result, gltf_mat.base_color_texture)
+									local normal_tex = gltf_mat.normal_texture and
+										gltf.LoadTexture(gltf_result, gltf_mat.normal_texture)
+									local metallic_roughness_tex = gltf_mat.metallic_roughness_texture and
+										gltf.LoadTexture(gltf_result, gltf_mat.metallic_roughness_texture)
+									local occlusion_tex = gltf_mat.occlusion_texture and
+										gltf.LoadTexture(gltf_result, gltf_mat.occlusion_texture)
+									local emissive_tex = gltf_mat.emissive_texture and
+										gltf.LoadTexture(gltf_result, gltf_mat.emissive_texture)
+									material = Material.New(
+										{
+											name = gltf_mat.name,
+											albedo_texture = albedo_tex,
+											normal_texture = normal_tex,
+											metallic_roughness_texture = metallic_roughness_tex,
+											occlusion_texture = occlusion_tex,
+											emissive_texture = emissive_tex,
+											base_color_factor = gltf_mat.base_color_factor,
+											metallic_factor = gltf_mat.metallic_factor,
+											roughness_factor = gltf_mat.roughness_factor,
+											normal_scale = gltf_mat.normal_scale,
+											occlusion_strength = gltf_mat.occlusion_strength,
+											emissive_factor = {
+												gltf_mat.emissive_factor[1],
+												gltf_mat.emissive_factor[2],
+												gltf_mat.emissive_factor[3],
+											},
+											double_sided = gltf_mat.double_sided,
+											alpha_mode = gltf_mat.alpha_mode,
+											alpha_cutoff = gltf_mat.alpha_cutoff,
+										}
+									)
+									texture = albedo_tex
+								end
+							end
+
+							model:AddPrimitive(
+								{
+									vertex_buffer = vertex_buffer,
+									vertex_count = vertex_count,
+									index_buffer = index_buffer,
+									index_count = index_count,
+									index_type = index_type,
+									texture = texture,
+									material = material,
+									mesh_name = mesh.name,
+									aabb = prim_aabb,
+								}
+							)
+						else
+							stats.failed_primitives = stats.failed_primitives + 1
+
+							if gltf.debug_print_nodes then
+								print("  FAILED to create vertex buffer:", vertex_count)
 							end
 						end
+					end
+				else
+					-- Split primitives: create a child entity for each primitive
+					for prim_idx, primitive in ipairs(mesh.primitives) do
+						stats.total_primitives = stats.total_primitives + 1
+						local vertex_buffer, vertex_count, prim_aabb = gltf.CreateVertexBuffer(primitive)
 
-						model:AddPrimitive(
-							{
-								vertex_buffer = vertex_buffer,
-								vertex_count = vertex_count,
-								index_buffer = index_buffer,
-								index_count = index_count,
-								index_type = index_type,
-								texture = texture,
-								material = material,
-								mesh_name = mesh.name,
-								aabb = prim_aabb,
-							}
-						)
-					else
-						stats.failed_primitives = stats.failed_primitives + 1
+						if vertex_buffer then
+							local index_buffer, index_count, index_type = gltf.CreateIndexBuffer(primitive, vertex_count)
+							-- Create material
+							local material = nil
+							local texture = nil
 
-						if gltf.debug_print_nodes then
-							print("  FAILED to create vertex buffer:", vertex_count)
+							if primitive.material ~= nil then
+								local gltf_mat = gltf_result.materials[primitive.material + 1]
+
+								if gltf_mat then
+									local albedo_tex = gltf_mat.base_color_texture and
+										gltf.LoadTexture(gltf_result, gltf_mat.base_color_texture)
+									local normal_tex = gltf_mat.normal_texture and
+										gltf.LoadTexture(gltf_result, gltf_mat.normal_texture)
+									local metallic_roughness_tex = gltf_mat.metallic_roughness_texture and
+										gltf.LoadTexture(gltf_result, gltf_mat.metallic_roughness_texture)
+									local occlusion_tex = gltf_mat.occlusion_texture and
+										gltf.LoadTexture(gltf_result, gltf_mat.occlusion_texture)
+									local emissive_tex = gltf_mat.emissive_texture and
+										gltf.LoadTexture(gltf_result, gltf_mat.emissive_texture)
+									material = Material.New(
+										{
+											name = gltf_mat.name,
+											albedo_texture = albedo_tex,
+											normal_texture = normal_tex,
+											metallic_roughness_texture = metallic_roughness_tex,
+											occlusion_texture = occlusion_tex,
+											emissive_texture = emissive_tex,
+											base_color_factor = gltf_mat.base_color_factor,
+											metallic_factor = gltf_mat.metallic_factor,
+											roughness_factor = gltf_mat.roughness_factor,
+											normal_scale = gltf_mat.normal_scale,
+											occlusion_strength = gltf_mat.occlusion_strength,
+											emissive_factor = {
+												gltf_mat.emissive_factor[1],
+												gltf_mat.emissive_factor[2],
+												gltf_mat.emissive_factor[3],
+											},
+											double_sided = gltf_mat.double_sided,
+											alpha_mode = gltf_mat.alpha_mode,
+											alpha_cutoff = gltf_mat.alpha_cutoff,
+										}
+									)
+									texture = albedo_tex
+								end
+							end
+
+							-- Create a child entity for this primitive
+							local prim_name = (mesh.name or "mesh") .. "_prim" .. prim_idx
+							local prim_entity = ecs.CreateEntity(prim_name, entity)
+							prim_entity:AddComponent("transform")
+							-- Transform is identity since it inherits from parent node
+							local prim_model = prim_entity:AddComponent("model")
+							prim_model:AddPrimitive(
+								{
+									vertex_buffer = vertex_buffer,
+									vertex_count = vertex_count,
+									index_buffer = index_buffer,
+									index_count = index_count,
+									index_type = index_type,
+									texture = texture,
+									material = material,
+									mesh_name = mesh.name,
+									aabb = prim_aabb,
+								}
+							)
+						else
+							stats.failed_primitives = stats.failed_primitives + 1
+
+							if gltf.debug_print_nodes then
+								print("  FAILED to create vertex buffer:", vertex_count)
+							end
 						end
 					end
 				end
