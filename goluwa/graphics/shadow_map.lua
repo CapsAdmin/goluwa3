@@ -38,9 +38,6 @@ function ShadowMap.New(config)
 	for i = 1, self.cascade_count do
 		self.cascade[i] = {
 			position = Vec3(0, 0, 0),
-			angles = Ang3(0, 0, 0),
-			projection = nil, -- Will be built when needed
-			view = nil, -- Will be built when needed
 			light_space_matrix = Matrix44(),
 		}
 		-- Create depth texture for each cascade
@@ -193,9 +190,9 @@ end
 -- Calculate cascade split distances using practical split scheme
 -- Blends between logarithmic and linear split based on lambda parameter
 function ShadowMap:CalculateCascadeSplits(view_near, view_far)
-	local n = self.cascade_count
 	local lambda = self.cascade_split_lambda
 	self.cascade_splits = {}
+	local n = self.cascade_count
 
 	for i = 1, n do
 		local p = i / n
@@ -206,8 +203,6 @@ function ShadowMap:CalculateCascadeSplits(view_near, view_far)
 		-- Blend between the two
 		self.cascade_splits[i] = lambda * log_split + (1 - lambda) * linear_split
 	end
-
-	return self.cascade_splits
 end
 
 -- Update all cascade light matrices for cascaded shadow mapping
@@ -252,10 +247,6 @@ function ShadowMap:UpdateCascadeLightMatrices(light_direction)
 		local light_space = Matrix44()
 		projection:GetMultiplied(view, light_space)
 		-- Store all cascade data
-		self.cascade[cascade_idx].position = shadow_cam_pos
-		self.cascade[cascade_idx].angles = angles
-		self.cascade[cascade_idx].projection = projection
-		self.cascade[cascade_idx].view = view
 		self.cascade[cascade_idx].light_space_matrix = light_space
 	end
 end
@@ -377,17 +368,6 @@ end
 -- Get the light space matrix for transforming in main pass
 function ShadowMap:GetLightSpaceMatrix(cascade_index)
 	return self.cascade[cascade_index].light_space_matrix
-end
-
--- Get all cascade light space matrices
-function ShadowMap:GetCascadeLightSpaceMatrices()
-	local matrices = {}
-
-	for i = 1, self.cascade_count do
-		matrices[i] = self.cascade[i].light_space_matrix
-	end
-
-	return matrices
 end
 
 -- Get cascade split distances (view-space depth values)
