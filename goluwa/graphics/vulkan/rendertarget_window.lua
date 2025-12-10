@@ -5,6 +5,7 @@ local CommandBuffer = require("graphics.vulkan.internal.command_buffer")
 local Semaphore = require("graphics.vulkan.internal.semaphore")
 local Fence = require("graphics.vulkan.internal.fence")
 local SwapChain = require("graphics.vulkan.internal.swap_chain")
+local event = require("event")
 local WindowRenderTarget = {}
 WindowRenderTarget.__index = WindowRenderTarget
 local default_config = {
@@ -265,6 +266,7 @@ function WindowRenderTarget:BeginFrame()
 		}
 	)
 	local extent = self:GetExtent()
+	event.Call("PreRenderPass", cmd)
 	cmd:BeginRendering(
 		{
 			color_image_view = self:GetImageView(),
@@ -289,6 +291,8 @@ end
 function WindowRenderTarget:EndFrame()
 	local command_buffer = self.command_buffers[self.current_frame]
 	command_buffer:EndRendering()
+	-- Copy query results after render pass ends
+	event.Call("PostRenderPass", command_buffer)
 	-- Transition swapchain image to present src
 	command_buffer:PipelineBarrier(
 		{

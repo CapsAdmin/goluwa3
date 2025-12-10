@@ -308,6 +308,37 @@ function CommandBuffer:SetColorBlendEnable(first_attachment, blend_enable)
 	vulkan.ext.vkCmdSetColorBlendEnableEXT(self.ptr[0], first_attachment or 0, count, enable_array)
 end
 
+function CommandBuffer:BeginConditionalRendering(buffer, offset, inverted)
+	if not buffer then return end
+
+	local flags = inverted and
+		vulkan.vk.VkConditionalRenderingFlagBitsEXT.VK_CONDITIONAL_RENDERING_INVERTED_BIT_EXT or
+		0
+	local conditional_rendering_begin = vulkan.vk.s.ConditionalRenderingBeginInfoEXT({
+		buffer = buffer.ptr[0],
+		offset = offset or 0,
+		flags = flags,
+	})
+	vulkan.ext.vkCmdBeginConditionalRenderingEXT(self.ptr[0], conditional_rendering_begin)
+end
+
+function CommandBuffer:EndConditionalRendering()
+	vulkan.ext.vkCmdEndConditionalRenderingEXT(self.ptr[0])
+end
+
+function CommandBuffer:CopyQueryPoolResults(query_pool, first_query, query_count, dst_buffer, dst_offset, stride, flags)
+	vulkan.lib.vkCmdCopyQueryPoolResults(
+		self.ptr[0],
+		query_pool.ptr[0],
+		first_query,
+		query_count,
+		dst_buffer.ptr[0],
+		dst_offset,
+		stride,
+		flags
+	)
+end
+
 function CommandBuffer:SetColorBlendEquation(first_attachment, blend_equation)
 	vulkan.ext.vkCmdSetColorBlendEquationEXT(
 		self.ptr[0],
@@ -547,16 +578,18 @@ function CommandBuffer:CopyBufferToImageMip(buffer, image, width, height, mip_le
 		image.ptr[0],
 		vulkan.vk.e.VkImageLayout("transfer_dst_optimal"),
 		1,
-		vulkan.vk.VkBufferImageCopy({
-			bufferOffset = buffer_offset or 0,
-			bufferRowLength = 0,
-			bufferImageHeight = 0,
-			imageSubresource = vulkan.vk.s.ImageSubresourceLayers{
-				aspectMask = "color",
-				mipLevel = mip_level or 0,
-				baseArrayLayer = 0,
-				layerCount = 1,
-			},
+		vulkan.vk.VkBufferImageCopy(
+			{
+				bufferOffset = buffer_offset or 0,
+				bufferRowLength = 0,
+				bufferImageHeight = 0,
+				imageSubresource = vulkan.vk.s.ImageSubresourceLayers({
+					aspectMask = "color",
+					mipLevel = mip_level or 0,
+					baseArrayLayer = 0,
+					layerCount = 1,
+				}
+			),
 			imageOffset = {x = 0, y = 0, z = 0},
 			imageExtent = {width = width, height = height, depth = 1},
 		}

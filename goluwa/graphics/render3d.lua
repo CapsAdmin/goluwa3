@@ -751,8 +751,8 @@ do
 
 	-- Get cached frustum planes for current frame
 	function render3d.GetFrustumPlanes()
-		-- If frustum is frozen, always return the cached planes
-		if render3d.freeze_frustum and cached_frustum_planes then
+		-- If culling is frozen, always return the cached planes
+		if render3d.freeze_culling and cached_frustum_planes then
 			return cached_frustum_planes
 		end
 

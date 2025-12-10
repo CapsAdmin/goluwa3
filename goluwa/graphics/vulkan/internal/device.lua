@@ -199,6 +199,9 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 		vulkan.ext.vkCmdSetColorBlendEquationEXT = device:GetExtension("vkCmdSetColorBlendEquationEXT")
 	end
 
+	-- Load conditional rendering extension functions
+	vulkan.ext.vkCmdBeginConditionalRenderingEXT = device:GetExtension("vkCmdBeginConditionalRenderingEXT")
+	vulkan.ext.vkCmdEndConditionalRenderingEXT = device:GetExtension("vkCmdEndConditionalRenderingEXT")
 	return device
 end
 

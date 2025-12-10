@@ -67,22 +67,26 @@ function VulkanInstance.New(surface_handle, display_handle)
 	local props = self.physical_device:GetProperties()
 	local device_name = ffi.string(props.deviceName)
 	self.graphics_queue_family = self.physical_device:FindGraphicsQueueFamily(self.surface)
-	self.device = Device.New(self.physical_device, {"VK_KHR_swapchain"}, self.graphics_queue_family)
+	self.device = Device.New(
+		self.physical_device,
+		{"VK_KHR_swapchain", "VK_EXT_conditional_rendering"},
+		self.graphics_queue_family
+	)
 	self.command_pool = CommandPool.New(self.device, self.graphics_queue_family)
 	self.queue = self.device:GetQueue(self.graphics_queue_family)
 	return self
 end
 
 function VulkanInstance:CreateBuffer(config)
-	local byte_size
+	local byte_size = config.byte_size
 	local data = config.data
 
 	if data then
 		if type(data) == "table" then
 			data = ffi.new((config.data_type or "float") .. "[" .. (#data) .. "]", data)
-			byte_size = ffi.sizeof(data)
+			byte_size = byte_size or ffi.sizeof(data)
 		else
-			byte_size = config.byte_size or ffi.sizeof(data)
+			byte_size = byte_size or ffi.sizeof(data)
 		end
 	end
 
