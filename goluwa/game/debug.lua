@@ -5,42 +5,88 @@ local input = require("input")
 local render2d = require("graphics.render2d")
 local gfx = require("graphics.gfx")
 local render3d = require("graphics.render3d")
--- Debug: Show camera info
-local show_camera_info = false
+local Model = require("components.model")
+-- Debug: Show debug info
+local show_debug_info = false
+
 -- Debug: Freeze frustum for culling
+function events.Draw2D.debug_info(dt)
+	if not show_debug_info then return end
 
-function events.Draw2D.debug_camera_info(dt)
-	if not show_camera_info then return end
-
-	local pos = render3d.GetCameraPosition()
-	local ang = render3d.GetCameraAngles()
 	local y = 10
 	local x = 10
 	render2d.SetTexture(nil)
+	-- Camera info
+	local pos = render3d.GetCameraPosition()
+	local ang = render3d.GetCameraAngles()
 	render2d.SetColor(1, 1, 1, 1)
-	gfx.DrawText(string.format("Pos: X=%.1f  Y=%.1f  Z=%.1f", pos.x, pos.y, pos.z), x, y)
+	gfx.DrawText(string.format("Camera Pos: X=%.1f  Y=%.1f  Z=%.1f", pos.x, pos.y, pos.z), x, y)
 	y = y + 20
-	gfx.DrawText(string.format("Ang: P=%.1f  Y=%.1f  R=%.1f", ang.p, ang.y, ang.r), x, y)
+	gfx.DrawText(string.format("Camera Ang: P=%.1f  Y=%.1f  R=%.1f", ang.p, ang.y, ang.r), x, y)
 	y = y + 20
-	-- Also show which direction each axis points based on Source convention
+	-- Separator
+	y = y + 10
+	-- Frustum culling status
+	local frustum_status = render3d.noculling and "DISABLED" or "ENABLED"
+	local frustum_color = render3d.noculling and {1.0, 0.2, 0.2} or {0.2, 1.0, 0.2}
+	render2d.SetColor(frustum_color[1], frustum_color[2], frustum_color[3], 1)
+	gfx.DrawText(string.format("Frustum Culling: %s", frustum_status), x, y)
+	y = y + 20
+
+	-- Freeze culling status
+	if render3d.freeze_culling then
+		render2d.SetColor(1, 1, 0, 1)
+		gfx.DrawText("CULLING FROZEN (Press F to unfreeze)", x, y)
+		y = y + 20
+		render2d.SetColor(0.8, 0.8, 0.5, 1)
+		gfx.DrawText("  (Occlusion queries not updating)", x, y)
+		y = y + 20
+	end
+
+	-- Separator
+	y = y + 10
+	-- Occlusion culling info
+	local stats = Model.GetOcclusionStats()
+	render2d.SetColor(1, 1, 1, 1)
+	gfx.DrawText(
+		string.format("Models: %d total, %d with occlusion", stats.total, stats.with_occlusion),
+		x,
+		y
+	)
+	y = y + 20
+	-- Frustum culling results
+	local visible_after_frustum = stats.total - stats.frustum_culled
 	render2d.SetColor(0.7, 0.7, 0.7, 1)
-	gfx.DrawText("(X=forward, Y=left, Z=up | P=pitch, Y=yaw, R=roll)", x, y)
+	gfx.DrawText(
+		string.format("  Frustum culled: %d (%d visible)", stats.frustum_culled, visible_after_frustum),
+		x,
+		y
+	)
+	y = y + 20
+	local occlusion_status = stats.occlusion_enabled and "ENABLED" or "DISABLED"
+	local occlusion_color = stats.occlusion_enabled and {0.2, 1.0, 0.2} or {1.0, 0.2, 0.2}
+	render2d.SetColor(occlusion_color[1], occlusion_color[2], occlusion_color[3], 1)
+	y = y + 20
+
+	if stats.occlusion_enabled then
+		render2d.SetColor(0.7, 0.7, 0.7, 1)
+		gfx.DrawText(
+			string.format("  Conditional rendering: %d models", stats.submitted_with_conditional),
+			x,
+			y
+		)
+		y = y + 20
+		render2d.SetColor(1, 1, 0.5, 1)
+		gfx.DrawText("  (GPU decides actual visibility)", x, y)
+	end
 end
 
-function events.Draw2D.debug_freeze_frustum(dt)
-	if not render3d.freeze_culling then return end
-
-	render2d.SetTexture(nil)
-	render2d.SetColor(1, 1, 0, 1)
-	gfx.DrawText("FRUSTUM FROZEN", 10, 60)
-end
-
-function events.KeyInput.toggle_camera_info(key, press)
+function events.KeyInput.toggle_debug_info(key, press)
 	if not press then return end
 
 	if key == "f10" then
-		show_camera_info = not show_camera_info
-		print("Camera info: " .. (show_camera_info and "ON" or "OFF"))
+		show_debug_info = not show_debug_info
+		print("Debug info: " .. (show_debug_info and "ON" or "OFF"))
 	end
 end
 
@@ -112,10 +158,20 @@ function events.KeyInput.renderdoc(key, press)
 		print("Frustum culling: " .. (render3d.noculling and "DISABLED" or "ENABLED"))
 	end
 
-	-- Toggle freeze frustum
-	if key == "f" then
-		render3d.freeze_culling = not render3d.freeze_culling
+	-- Toggle occlusion culling
+	if key == "f6" then
+		Model.SetOcclusionCulling(not Model.IsOcclusionCullingEnabled())
+		print(
+			"Occlusion culling: " .. (
+					Model.IsOcclusionCullingEnabled() and
+					"ENABLED" or
+					"DISABLED"
+				)
+		)
 	end
+
+	-- Toggle freeze frustum
+	if key == "f" then render3d.freeze_culling = not render3d.freeze_culling end
 
 	if key == "c" and input.IsKeyDown("left_control") then system.ShutDown(0) end
 end

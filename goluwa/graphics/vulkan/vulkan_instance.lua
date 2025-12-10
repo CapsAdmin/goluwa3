@@ -9,6 +9,7 @@ local OffscreenRenderTarget = require("graphics.vulkan.rendertarget_offscreen")
 local WindowRenderTarget = require("graphics.vulkan.rendertarget_window")
 local GraphicsPipeline = require("graphics.vulkan.graphics_pipeline")
 local ComputePipeline = require("graphics.vulkan.compute_pipeline")
+local OcclusionQuery = require("graphics.vulkan.internal.occlusion_query")
 local process = require("bindings.process")
 
 if jit.os == "OSX" then
@@ -118,6 +119,10 @@ end
 
 function VulkanInstance:CreateComputePipeline(config)
 	return ComputePipeline.New(self, config)
+end
+
+function VulkanInstance:CreateOcclusionQuery()
+	return OcclusionQuery.New({device = self.device, instance = self.instance})
 end
 
 return VulkanInstance

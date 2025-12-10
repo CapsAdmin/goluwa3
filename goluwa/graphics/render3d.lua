@@ -447,6 +447,7 @@ function render3d.Initialize()
 	function events.Draw.draw_3d(cmd, dt)
 		local frame_index = render.GetCurrentFrame()
 		render3d.pipeline:Bind(cmd, frame_index)
+		event.Call("PreDraw3D", cmd, dt)
 		event.Call("Draw3D", cmd, dt)
 	end
 end

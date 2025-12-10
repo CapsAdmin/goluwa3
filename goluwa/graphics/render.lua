@@ -55,6 +55,10 @@ function render.CreateBuffer(config)
 	return vulkan_instance:CreateBuffer(config)
 end
 
+function render.CreateOcclusionQuery()
+	return vulkan_instance:CreateOcclusionQuery()
+end
+
 function render.CreateImage(config)
 	config.device = vulkan_instance.device
 	return Image.New(config)

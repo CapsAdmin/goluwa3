@@ -27,7 +27,7 @@ local scene_root = gltf.CreateEntityHierarchy(
 	gltf_result,
 	ecs.GetWorld(),
 	{
-		split_primitives = true, -- Split multi-primitive meshes into separate entities for better culling
+		split_primitives = false, -- Split multi-primitive meshes into separate entities for better culling
 	}
 )
 local default_material = Material.GetDefault()
