@@ -8,7 +8,6 @@ local render3d = require("graphics.render3d")
 -- Debug: Show camera info
 local show_camera_info = false
 -- Debug: Freeze frustum for culling
-local freeze_frustum = false
 
 function events.Draw2D.debug_camera_info(dt)
 	if not show_camera_info then return end
@@ -29,7 +28,7 @@ function events.Draw2D.debug_camera_info(dt)
 end
 
 function events.Draw2D.debug_freeze_frustum(dt)
-	if not freeze_frustum then return end
+	if not render3d.freeze_culling then return end
 
 	render2d.SetTexture(nil)
 	render2d.SetColor(1, 1, 0, 1)
@@ -115,9 +114,7 @@ function events.KeyInput.renderdoc(key, press)
 
 	-- Toggle freeze frustum
 	if key == "f" then
-		freeze_frustum = not freeze_frustum
-		render3d.freeze_frustum = freeze_frustum
-		print("Freeze frustum: " .. (freeze_frustum and "ON" or "OFF"))
+		render3d.freeze_culling = not render3d.freeze_culling
 	end
 
 	if key == "c" and input.IsKeyDown("left_control") then system.ShutDown(0) end

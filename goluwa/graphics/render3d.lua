@@ -695,7 +695,7 @@ do
 	local cached_frustum_planes = nil
 	local cached_frustum_frame = -1
 	render3d.noculling = false -- Debug flag to disable culling
-	render3d.freeze_frustum = false -- Debug flag to freeze frustum for culling tests
+	render3d.freeze_culling = false -- Debug flag to freeze frustum for culling tests
 	-- Extract 6 frustum planes from projection-view matrix
 	-- Each plane is represented as {a, b, c, d} where ax + by + cz + d = 0
 	local function extract_frustum_planes(proj_view_matrix)
