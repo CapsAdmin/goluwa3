@@ -409,7 +409,7 @@ function render3d.Initialize()
 				discard = false,
 				polygon_mode = "fill",
 				line_width = 1.0,
-				cull_mode = "none", -- Disable culling for double-sided materials
+				cull_mode = "front",
 				front_face = "counter_clockwise",
 				depth_bias = 0,
 			},
