@@ -10,8 +10,6 @@ local Material = require("graphics.material")
 local Matrix44 = require("structs.matrix").Matrix44
 -- Load ECS system and components
 local ecs = require("ecs")
-require("components.transform")
-require("components.model")
 local Light = require("components.light")
 -- DEBUG: Enable to test geometry without textures (all white)
 gltf.debug_white_textures = false
@@ -31,7 +29,6 @@ local scene_root = gltf.CreateEntityHierarchy(
 	}
 )
 local default_material = Material.GetDefault()
-require("game.camera_movement")
 -- Set camera to suggested position (camera node if found, otherwise scene center)
 local cam_pos, cam_ang = gltf.GetSuggestedCameraTransform(gltf_result)
 --cam_pos = Vec3(0, 1111, -60)

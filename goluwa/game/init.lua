@@ -6,6 +6,14 @@ render.Initialize()
 render2d.Initialize()
 render3d.Initialize()
 gfx.Initialize()
+
+do
+	require("components.transform")
+	require("components.model")
+	require("components.light")
+	require("game.camera_movement")
+end
+
 require("game.test_2d")
 --require("game.test_3d")
 --require("game.test_ecs_debug")

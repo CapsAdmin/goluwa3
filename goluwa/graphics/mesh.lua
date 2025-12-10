@@ -50,6 +50,56 @@ function Mesh:Upload()
 	self.vertex_buffer:Upload()
 end
 
+-- Compute AABB from vertex positions
+function Mesh:ComputeAABB()
+	local AABB = require("structs.aabb")
+	local vertices = self:GetVertices()
+	
+	if not vertices or self.vertex_buffer.vertex_count == 0 then
+		return AABB(0, 0, 0, 0, 0, 0)
+	end
+	
+	local min_x, min_y, min_z = math.huge, math.huge, math.huge
+	local max_x, max_y, max_z = -math.huge, -math.huge, -math.huge
+	
+	-- Check if we have structured vertices or raw float array
+	local attrs = self.vertex_buffer.vertex_attributes
+	local has_lua_type = attrs[1] and attrs[1].lua_type
+	
+	if has_lua_type then
+		-- Structured vertices with position accessor
+		for i = 0, self.vertex_buffer.vertex_count - 1 do
+			local v = vertices[i]
+			-- Access position - assumes first attribute is position (vec3)
+			local x, y, z = v.position[0], v.position[1], v.position[2]
+			
+			if x < min_x then min_x = x end
+			if y < min_y then min_y = y end
+			if z < min_z then min_z = z end
+			if x > max_x then max_x = x end
+			if y > max_y then max_y = y end
+			if z > max_z then max_z = z end
+		end
+	else
+		-- Raw float array - position is first 3 floats of each vertex
+		local stride_floats = self.vertex_buffer.stride / require("ffi").sizeof("float")
+		
+		for i = 0, self.vertex_buffer.vertex_count - 1 do
+			local base = i * stride_floats
+			local x, y, z = vertices[base + 0], vertices[base + 1], vertices[base + 2]
+			
+			if x < min_x then min_x = x end
+			if y < min_y then min_y = y end
+			if z < min_z then min_z = z end
+			if x > max_x then max_x = x end
+			if y > max_y then max_y = y end
+			if z > max_z then max_z = z end
+		end
+	end
+	
+	return AABB(min_x, min_y, min_z, max_x, max_y, max_z)
+end
+
 function Mesh:UploadIndices(indices, index_type)
 	if not self.index_buffer then
 		self.index_buffer = IndexBuffer.New(indices, index_type)

@@ -11,7 +11,28 @@ local function calculate_stride(vertex_attributes)
 	for _, attr in ipairs(vertex_attributes) do
 		if attr.offset >= max_offset then
 			max_offset = attr.offset
-			last_size = ffi.sizeof(attr.lua_type)
+			-- Handle both lua_type (for structured data) and format (for raw data)
+			if attr.lua_type then
+				last_size = ffi.sizeof(attr.lua_type)
+			elseif attr.format then
+				-- Calculate size from Vulkan format string
+				-- e.g., "r32g32b32_sfloat" = vec3 = 3 floats = 12 bytes
+				-- e.g., "r32g32_sfloat" = vec2 = 2 floats = 8 bytes
+				-- e.g., "r32g32b32a32_sfloat" = vec4 = 4 floats = 16 bytes
+				local components = 0
+				if attr.format:match("r32g32b32a32") then
+					components = 4
+				elseif attr.format:match("r32g32b32") then
+					components = 3
+				elseif attr.format:match("r32g32") then
+					components = 2
+				elseif attr.format:match("r32") then
+					components = 1
+				end
+				last_size = components * ffi.sizeof("float")
+			else
+				error("Attribute must have either lua_type or format", 2)
+			end
 		end
 	end
 
@@ -35,23 +56,38 @@ function VertexBuffer.New(vertices, vertex_attributes)
 		self.byte_size = self.stride * count
 		self.data = ffi.new("uint8_t[?]", self.byte_size)
 	elseif type(vertices) == "table" then
-		-- Allocate and fill vertex data
-		local count = #vertices
-		self.vertex_count = count
-		self.byte_size = self.stride * count
-		self.data = ffi.new("uint8_t[?]", self.byte_size)
+		-- Check if it's a raw float array or structured vertex array
+		local is_raw_floats = type(vertices[1]) == "number"
+		
+		if is_raw_floats then
+			-- Raw float array - copy directly
+			self.vertex_count = #vertices / (self.stride / ffi.sizeof("float"))
+			self.byte_size = #vertices * ffi.sizeof("float")
+			self.data = ffi.new("uint8_t[?]", self.byte_size)
+			local float_ptr = ffi.cast("float*", self.data)
+			
+			for i, v in ipairs(vertices) do
+				float_ptr[i - 1] = v
+			end
+		else
+			-- Structured vertex array
+			local count = #vertices
+			self.vertex_count = count
+			self.byte_size = self.stride * count
+			self.data = ffi.new("uint8_t[?]", self.byte_size)
 
-		-- Fill data
-		for i, vertex in ipairs(vertices) do
-			local base_offset = (i - 1) * self.stride
+			-- Fill data
+			for i, vertex in ipairs(vertices) do
+				local base_offset = (i - 1) * self.stride
 
-			for _, attr in ipairs(vertex_attributes) do
-				local dst_ptr = self.data + base_offset + attr.offset
-				local src_value = vertex[attr.lua_name]
+				for _, attr in ipairs(vertex_attributes) do
+					local dst_ptr = self.data + base_offset + attr.offset
+					local src_value = vertex[attr.lua_name]
 
-				if src_value then
-					local val = src_value:GetFloatCopy()
-					ffi.copy(dst_ptr, val, ffi.sizeof(val))
+					if src_value then
+						local val = src_value:GetFloatCopy()
+						ffi.copy(dst_ptr, val, ffi.sizeof(val))
+					end
 				end
 			end
 		end
@@ -70,18 +106,24 @@ function VertexBuffer.New(vertices, vertex_attributes)
 			return a.offset < b.offset
 		end)
 
-		-- Build struct definition with $ placeholders and collect types
-		local fields = {}
-		local types = {}
+		-- Only create structured vertex accessor if attributes have lua_type
+		if sorted_attrs[1] and sorted_attrs[1].lua_type then
+			-- Build struct definition with $ placeholders and collect types
+			local fields = {}
+			local types = {}
 
-		for _, attr in ipairs(sorted_attrs) do
-			table.insert(fields, string.format("$ %s;", attr.lua_name))
-			table.insert(types, attr.lua_type)
+			for _, attr in ipairs(sorted_attrs) do
+				table.insert(fields, string.format("$ %s;", attr.lua_name))
+				table.insert(types, attr.lua_type)
+			end
+
+			local struct_def = "struct { " .. table.concat(fields, " ") .. " }"
+			local vertex_type = ffi.typeof(struct_def .. "*", unpack(types))
+			self.vertices = ffi.cast(vertex_type, self.data)
+		else
+			-- For raw vertex data, just provide a float pointer
+			self.vertices = ffi.cast("float*", self.data)
 		end
-
-		local struct_def = "struct { " .. table.concat(fields, " ") .. " }"
-		local vertex_type = ffi.typeof(struct_def .. "*", unpack(types))
-		self.vertices = ffi.cast(vertex_type, self.data)
 	end
 
 	-- Create GPU buffer

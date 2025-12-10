@@ -1,3 +1,5 @@
+local render3d = require("graphics.render3d")
+
 -- Programmatically generate cube geometry
 -- Output format: position (3) + normal (3) + uv (2) + tangent (4) = 12 floats per vertex
 local function generate_cube(size)
@@ -114,7 +116,8 @@ local function generate_cube(size)
 		vertex_count = vertex_count + 4
 	end
 
-	return vertices, indices
+	-- Create and return Mesh object
+	return render3d.CreateMesh(vertices, indices)
 end
 
 return generate_cube

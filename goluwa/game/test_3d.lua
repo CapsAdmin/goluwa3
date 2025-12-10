@@ -10,7 +10,6 @@ local render3d = require("graphics.render3d")
 local build_cube = require("game.build_cube")
 local Texture = require("graphics.texture")
 local cube_vertices, cube_indices = build_cube(1.0)
-require("game.camera_movement")
 local vertex_buffer = render.CreateBuffer(
 	{
 		buffer_usage = "vertex_buffer",
@@ -67,7 +66,7 @@ function events.Draw3D.test_3d(cmd, dt)
 	cmd:BindIndexBuffer(index_buffer, 0)
 
 	for i, transform in ipairs(transforms) do
-		render3d.SetWorldMatrix(transform:GetMatrix())
+		render3d.SetWorldMatrix(transform:GetWorldMatrix())
 		render3d.UploadConstants(cmd)
 		render3d.SetMaterial(mat)
 		cmd:DrawIndexed(36)

@@ -6,6 +6,7 @@ local Material = require("graphics.material")
 local AABB = require("structs.aabb")
 local Vec3 = require("structs.vec3")
 local Matrix44 = require("structs.matrix").Matrix44
+local system = require("system")
 local Model = {}
 -- Cached matrix to avoid allocation in hot drawing loops
 local cached_final_matrix = Matrix44()
@@ -30,6 +31,28 @@ function META:Initialize(config)
 
 	if config.use_occlusion_culling ~= nil then
 		self.UseOcclusionCulling = config.use_occlusion_culling
+	end
+
+	-- Handle mesh/material shorthand config
+	if config.mesh then
+		local aabb = config.aabb
+
+		-- Auto-compute AABB from mesh if not provided
+		if not aabb and config.mesh.ComputeAABB then
+			aabb = config.mesh:ComputeAABB()
+		end
+
+		self:AddPrimitive(
+			{
+				vertex_buffer = config.mesh.vertex_buffer:GetBuffer(),
+				index_buffer = config.mesh.index_buffer and config.mesh.index_buffer:GetBuffer() or nil,
+				index_count = config.mesh.index_buffer and config.mesh.index_buffer:GetIndexCount() or nil,
+				index_type = config.mesh.index_buffer and config.mesh.index_buffer:GetIndexType() or nil,
+				vertex_count = config.mesh.vertex_buffer:GetVertexCount(),
+				material = config.material or Material.GetDefault(),
+				aabb = aabb,
+			}
+		)
 	end
 
 	-- Create occlusion query object for conditional rendering
@@ -119,20 +142,25 @@ function META:GetWorldMatrix()
 	return nil
 end
 
+function META:GetWorldMatrixInverse()
+	if self.Entity and self.Entity:HasComponent("transform") then
+		return self.Entity.transform:GetWorldMatrixInverse()
+	end
+
+	return nil
+end
+
 -- Draw event handler
 function META:OnDraw3D(cmd, dt)
 	if not self.Visible then return end
 
 	if #self.Primitives == 0 then return end
 
-	local world_matrix = self:GetWorldMatrix()
-
-	if not world_matrix then return end
-
-	-- Frustum culling: check if model's world-space AABB is visible
-	local world_aabb = self:GetWorldAABB()
-
-	if world_aabb and not render3d.IsAABBVisible(world_aabb) then
+	-- Frustum culling: test local AABB against frustum (efficient - no AABB transformation)
+	if
+		self.AABB and
+		not render3d.IsAABBVisibleLocal(self.AABB, self:GetWorldMatrixInverse())
+	then
 		self.frustum_culled = true
 		return -- Model is outside frustum, skip drawing
 	end
@@ -151,6 +179,8 @@ function META:OnDraw3D(cmd, dt)
 	else
 		self.using_conditional_rendering = false
 	end
+
+	local world_matrix = self:GetWorldMatrix()
 
 	for _, prim in ipairs(self.Primitives) do
 		-- If primitive has its own local matrix, combine with world matrix
@@ -183,15 +213,14 @@ end
 function META:DrawOcclusionQuery(cmd)
 	if not self.UseOcclusionCulling or not self.occlusion_query then return end
 
+	if self.frustum_culled then return end
+
 	-- Skip updating queries if culling is frozen
 	if render3d.freeze_culling then return end
 
-	local world_aabb = self:GetWorldAABB()
-
-	if not world_aabb then return end
-
-	-- Frustum culling for the AABB itself
-	if not render3d.IsAABBVisible(world_aabb) then return end
+	if not render3d.IsAABBVisibleLocal(self.AABB, self:GetWorldMatrixInverse()) then
+		return
+	end
 
 	-- Begin occlusion query
 	self.occlusion_query:BeginQuery(cmd)
@@ -278,14 +307,14 @@ end
 
 -- Reset occlusion query pools (must be called outside render pass)
 function Model.ResetOcclusionQueries(cmd)
+	if render3d.freeze_culling then return end
+
 	local models = Model.GetSceneModels()
 
 	-- Reset all query pools that need it
 	for _, model in ipairs(models) do
 		if model.UseOcclusionCulling and model.occlusion_query then
-			if not render3d.freeze_culling then
-				model.occlusion_query:ResetQuery(cmd)
-			end
+			model.occlusion_query:ResetQuery(cmd)
 		end
 	end
 end
@@ -303,14 +332,14 @@ end
 
 -- Copy occlusion query results (must be called outside render pass)
 function Model.CopyOcclusionQueryResults(cmd)
+	if render3d.freeze_culling then return end
+
 	local models = Model.GetSceneModels()
 
 	-- Copy query results for all models
 	for _, model in ipairs(models) do
 		if model.UseOcclusionCulling and model.occlusion_query then
-			if not render3d.freeze_culling then
-				model.occlusion_query:CopyQueryResults(cmd)
-			end
+			model.occlusion_query:CopyQueryResults(cmd)
 		end
 	end
 end
@@ -375,7 +404,9 @@ function Model.GetOcclusionStats()
 end
 
 Model.occlusion_culling_enabled = true
-
+Model.occlusion_query_fps = 1 -- Limit occlusion queries to this FPS
+Model.last_occlusion_query_time = 0
+Model.should_run_queries_this_frame = true -- Cached per-frame flag
 -- Occlusion culling control
 function Model.EnableOcclusionCulling()
 	Model.occlusion_culling_enabled = true
@@ -393,16 +424,55 @@ function Model.SetOcclusionCulling(enabled)
 	Model.occlusion_culling_enabled = enabled
 end
 
+-- Set the FPS limit for occlusion queries (0 = no limit, runs every frame)
+function Model.SetOcclusionQueryFPS(fps)
+	Model.occlusion_query_fps = fps
+end
+
+function Model.GetOcclusionQueryFPS()
+	return Model.occlusion_query_fps
+end
+
+-- Check if we should run occlusion queries this frame
+-- This should only be called once per frame to avoid timing issues
+function Model.UpdateOcclusionQueryTiming()
+	if Model.occlusion_query_fps == 0 then
+		Model.should_run_queries_this_frame = true
+		return
+	end
+
+	local current_time = system.GetElapsedTime()
+	local min_interval = 1.0 / Model.occlusion_query_fps
+
+	if current_time - Model.last_occlusion_query_time >= min_interval then
+		Model.last_occlusion_query_time = current_time
+		Model.should_run_queries_this_frame = true
+	else
+		Model.should_run_queries_this_frame = false
+	end
+end
+
+-- Update timing once at the start of the frame
+function events.PreRenderPass.update_occlusion_timing(cmd)
+	if Model.IsOcclusionCullingEnabled() then
+		Model.UpdateOcclusionQueryTiming()
+	end
+end
+
 function events.PreRenderPass.reset_occlusion_queries(cmd)
-	if Model.IsOcclusionCullingEnabled() then Model.ResetOcclusionQueries(cmd) end
+	if Model.IsOcclusionCullingEnabled() and Model.should_run_queries_this_frame then
+		Model.ResetOcclusionQueries(cmd)
+	end
 end
 
 function events.PreDraw3D.draw_occlusion_queries(cmd, dt)
-	if Model.IsOcclusionCullingEnabled() then Model.RunOcclusionQueries(cmd) end
+	if Model.IsOcclusionCullingEnabled() and Model.should_run_queries_this_frame then
+		Model.RunOcclusionQueries(cmd)
+	end
 end
 
 function events.PostRenderPass.copy_occlusion_results(cmd)
-	if Model.IsOcclusionCullingEnabled() then
+	if Model.IsOcclusionCullingEnabled() and Model.should_run_queries_this_frame then
 		Model.CopyOcclusionQueryResults(cmd)
 	end
 end

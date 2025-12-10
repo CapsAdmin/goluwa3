@@ -10,11 +10,7 @@ local render = require("graphics.render")
 local render3d = require("graphics.render3d")
 local build_cube = require("game.build_cube")
 local Material = require("graphics.material")
--- Load ECS system and components
 local ecs = require("ecs")
-require("components.transform")
-require("game.camera_movement")
--- Create cube mesh resources
 local cube_vertices, cube_indices = build_cube(1.0)
 local vertex_buffer = render.CreateBuffer({
 	buffer_usage = "vertex_buffer",
@@ -167,7 +163,7 @@ function events.Draw3D.test_ecs_debug(cmd, dt)
 
 	for _, data in ipairs(entities) do
 		local transform = data.entity.transform
-		render3d.SetWorldMatrix(transform:GetMatrix())
+		render3d.SetWorldMatrix(transform:GetWorldMatrix())
 		render3d.SetMaterial(data.material)
 		render3d.UploadConstants(cmd)
 		cmd:DrawIndexed(36)
