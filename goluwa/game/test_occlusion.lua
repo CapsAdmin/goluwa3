@@ -1,5 +1,6 @@
 local ecs = require("ecs")
 local Vec3 = require("structs.vec3")
+local Ang3 = require("structs.ang3")
 local Material = require("graphics.material")
 local render3d = require("graphics.render3d")
 local build_cube = require("game.build_cube")
@@ -15,10 +16,12 @@ local materials = {
 	Material.New({base_color_factor = {0.9, 0.9, 0.9, 1}}),
 	Material.New({base_color_factor = {0.5, 0.5, 0.5, 1}}),
 }
+local SIZE = 4
+SIZE = SIZE / 2
 
-for x = -10, 10 do
-	for y = -10, 10 do
-		for z = -10, 10 do
+for x = -SIZE, SIZE do
+	for y = -SIZE, SIZE do
+		for z = -SIZE, SIZE do
 			local entity = ecs.CreateEntity(("cube%i.%i.%i"):format(x, y, z), ecs.GetWorld())
 			entity:AddComponent("transform", {
 				position = Vec3(x, y, z),
@@ -42,3 +45,6 @@ local sun, sun_entity = Light.CreateDirectional(
 	}
 )
 render3d.SetSunLight(sun)
+render3d.SetCameraPosition(Vec3(0, 0, 0))
+render3d.SetCameraAngles(Ang3(0, 0, 0))
+render3d.SetCameraFOV(1.2)

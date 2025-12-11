@@ -1,4 +1,4 @@
-_G.PROFILE = true
+_G.PROFILE = false
 require("goluwa.global_environment")
 
 if ... then

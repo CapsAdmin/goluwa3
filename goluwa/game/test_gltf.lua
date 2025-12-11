@@ -16,25 +16,15 @@ gltf.debug_white_textures = false
 gltf.debug_print_nodes = true
 -- Load glTF model
 local path = nil
-path = "/home/caps/projects/glTF-Sample-Assets-main/Models/ABeautifulGame/glTF/ABeautifulGame.gltf"
 path = "/home/caps/projects/RTXDI-Assets/bistro/bistro.gltf"
 path = "/home/caps/projects/glTF-Sample-Assets-main/Models/Sponza/glTF/Sponza.gltf"
+path = "/home/caps/projects/glTF-Sample-Assets-main/Models/BoomBoxWithAxes/glTF/BoomBoxWithAxes.gltf"
+path = "/home/caps/projects/glTF-Sample-Assets-main/Models/ABeautifulGame/glTF/ABeautifulGame.gltf"
 local gltf_result = assert(gltf.Load(path))
--- Create entity hierarchy from glTF, parented to world so ECS queries find it
-local scene_root = gltf.CreateEntityHierarchy(
-	gltf_result,
-	ecs.GetWorld(),
-	{
-		split_primitives = false, -- Split multi-primitive meshes into separate entities for better culling
-	}
-)
+local scene_root = gltf.CreateEntityHierarchy(gltf_result, ecs.GetWorld(), {
+	split_primitives = false,
+})
 local default_material = Material.GetDefault()
--- Set camera to suggested position (camera node if found, otherwise scene center)
-local cam_pos, cam_ang = gltf.GetSuggestedCameraTransform(gltf_result)
---cam_pos = Vec3(0, 1111, -60)
-render3d.SetCameraPosition(cam_pos)
-render3d.SetCameraAngles(cam_ang or Ang3(0, 0, 0))
--- Create sun light using ECS (direction in Z-up: x=forward, y=left, z=up)
 local sun, sun_entity = Light.CreateDirectional(
 	{
 		direction = Vec3(0.8, 0.05, 0.4), -- Shining down and to the side
@@ -50,3 +40,9 @@ local sun, sun_entity = Light.CreateDirectional(
 	}
 )
 render3d.SetSunLight(sun)
+
+if false then
+	render3d.SetCameraPosition(Vec3(0, 0.5, 0))
+	render3d.SetCameraAngles(Ang3(-0.4, -1.5, 0))
+	render3d.SetCameraFOV(0.9)
+end
