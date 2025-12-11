@@ -160,7 +160,7 @@ local function read_accessor_raw(gltf_data, accessor_index, buffers)
 	local total_elements = accessor.count * component_count
 	local element_size = component_info.size
 	local c_array = ffi.new(component_info.array, total_elements)
-	local c_type = ffi.new(component_info.pointer)
+	local c_type = component_info.pointer
 
 	for i = 0, accessor.count - 1 do
 		local offset = byte_offset + i * byte_stride
