@@ -7,9 +7,24 @@ local held_ang
 local held_mpos
 local drag_view = false
 
-local function calc_movement(dt, cam_ang, cam_fov)
+local function get_speed_multiplier()
+	if input.IsKeyDown("left_shift") and input.IsKeyDown("left_control") then
+		return 32
+	elseif input.IsKeyDown("left_shift") then
+		return 8
+	elseif input.IsKeyDown("left_control") then
+		return 0.25
+	end
+
+	return 10
+end
+
+function events.Update.camera_movement(dt)
+	local cam_pos = render3d.GetCameraPosition()
+	local cam_ang = render3d.GetCameraAngles()
+	local cam_fov = render3d.GetCameraFOV()
 	cam_ang:Normalize()
-	local speed = dt * 10
+	local speed = dt * get_speed_multiplier()
 	local delta = window.GetMouseDelta() / 2
 	local r = cam_ang.z
 	local cs = math.cos(r)
@@ -27,14 +42,6 @@ local function calc_movement(dt, cam_ang, cam_fov)
 
 	delta = delta * (cam_fov / 175)
 
-	if input.IsKeyDown("left_shift") and input.IsKeyDown("left_control") then
-		speed = speed * 32
-	elseif input.IsKeyDown("left_shift") then
-		speed = speed * 8
-	elseif input.IsKeyDown("left_control") then
-		speed = speed / 4
-	end
-
 	if input.IsKeyDown("left") then
 		delta.x = delta.x - speed / 3
 	elseif input.IsKeyDown("right") then
@@ -48,6 +55,7 @@ local function calc_movement(dt, cam_ang, cam_fov)
 	end
 
 	if input.IsMouseDown("button_2") then
+		-- roll
 		cam_ang.z = cam_ang.z + original_delta.x / 100
 		cam_fov = math.clamp(
 			cam_fov + original_delta.y / 100 * (cam_fov / math.pi),
@@ -74,25 +82,38 @@ local function calc_movement(dt, cam_ang, cam_fov)
 	end
 
 	local forward = Vec3(0, 0, 0)
-	local side = Vec3(0, 0, 0)
+	local right = Vec3(0, 0, 0)
 	local up = Vec3(0, 0, 0)
+	local offset
 
-	if input.IsKeyDown("space") then up = up + cam_ang:GetUp() * speed end
+	do
+		local dir = cam_ang:GetUp()
 
-	local offset = cam_ang:GetForward() * speed
-
-	if input.IsKeyDown("w") then
-		side = side + offset
-	elseif input.IsKeyDown("s") then
-		side = side - offset
+		if input.IsKeyDown("z") then
+			up = up + dir
+		elseif input.IsKeyDown("x") then
+			up = up - dir
+		end
 	end
 
-	offset = cam_ang:GetRight() * speed
+	do
+		local dir = cam_ang:GetForward()
 
-	if input.IsKeyDown("a") then
-		forward = forward - offset
-	elseif input.IsKeyDown("d") then
-		forward = forward + offset
+		if input.IsKeyDown("w") then
+			forward = forward + dir
+		elseif input.IsKeyDown("s") then
+			forward = forward - dir
+		end
+	end
+
+	do
+		local dir = cam_ang:GetRight()
+
+		if input.IsKeyDown("a") then
+			right = right - dir
+		elseif input.IsKeyDown("d") then
+			right = right + dir
+		end
 	end
 
 	if input.IsKeyDown("left_alt") then
@@ -100,21 +121,12 @@ local function calc_movement(dt, cam_ang, cam_fov)
 	end
 
 	if cam_fov > math.rad(90) then
-		side = side / ((cam_fov / math.rad(90)) ^ 4)
+		right = right / ((cam_fov / math.rad(90)) ^ 4)
 	else
-		side = side / ((cam_fov / math.rad(90)) ^ 0.25)
+		right = right / ((cam_fov / math.rad(90)) ^ 0.25)
 	end
 
-	return forward + side + up, cam_ang, cam_fov
-end
-
-function events.Update.camera_movement(dt)
-	local cam_pos = render3d.GetCameraPosition()
-	local cam_ang = render3d.GetCameraAngles()
-	local cam_fov = render3d.GetCameraFOV()
-	local dir, ang, fov = calc_movement(dt, cam_ang, cam_fov)
-	cam_pos = cam_pos + dir
-	render3d.SetCameraPosition(cam_pos)
-	render3d.SetCameraAngles(ang)
-	render3d.SetCameraFOV(fov)
+	render3d.SetCameraPosition(cam_pos + (forward + right + up) * speed)
+	render3d.SetCameraAngles(cam_ang)
+	render3d.SetCameraFOV(cam_fov)
 end

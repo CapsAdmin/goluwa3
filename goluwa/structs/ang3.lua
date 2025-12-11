@@ -9,23 +9,34 @@ end
 
 META.Args = {{"x", "y", "z"}, {"p", "y", "r"}, {"pitch", "yaw", "roll"}}
 structs.AddAllOperators(META)
-local sin = math.sin
-local cos = math.cos
 
-function META.GetForward(a)
-	return Vec3(cos(a.y) * cos(a.x), sin(a.y) * cos(a.x), -sin(a.x))
-end
+do
+	local sin = math.sin
+	local cos = math.cos
 
-function META.GetUp(a)
-	return Vec3(
-		sin(a.y) * sin(a.z) + cos(a.y) * sin(a.x) * cos(a.z),
-		-cos(a.y) * sin(a.z) + sin(a.y) * sin(a.x) * cos(a.z),
-		cos(a.x) * cos(a.z)
-	)
-end
+	-- Y-up, X-right, Z-forward coordinate system
+	-- a.x = pitch (rotation around X axis)
+	-- a.y = yaw (rotation around Y axis)
+	-- a.z = roll (rotation around Z axis)
+	function META.GetForward(a)
+		return Vec3(sin(a.y) * cos(a.x), -sin(a.x), cos(a.y) * cos(a.x))
+	end
 
-function META.GetRight(a)
-	return a:GetForward():Cross(a:GetUp())
+	function META.GetUp(a)
+		return Vec3(
+			-sin(a.y) * sin(a.x) * cos(a.z) - cos(a.y) * sin(a.z),
+			cos(a.x) * cos(a.z),
+			-cos(a.y) * sin(a.x) * cos(a.z) + sin(a.y) * sin(a.z)
+		)
+	end
+
+	function META.GetRight(a)
+		return Vec3(
+			sin(a.y) * sin(a.x) * sin(a.z) - cos(a.y) * cos(a.z),
+			cos(a.x) * sin(a.z),
+			cos(a.y) * sin(a.x) * sin(a.z) + sin(a.y) * cos(a.z)
+		)
+	end
 end
 
 local PI1 = math.pi

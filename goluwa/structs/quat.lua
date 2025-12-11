@@ -47,38 +47,39 @@ function META.VecMul(a, b)
 	return vec + uvec + uuvec
 end
 
+-- Y-up, X-right, Z-forward coordinate system
 function META:Right()
-	return self:VecMul(Vec3(0, -1, 0))
+	return self:VecMul(Vec3(1, 0, 0))
 end
 
 META.GetRight = META.Right
 
 function META:Left()
-	return self:VecMul(Vec3(0, 1, 0))
+	return self:VecMul(Vec3(-1, 0, 0))
 end
 
 META.GetLeft = META.Left
 
 function META:Up()
-	return self:VecMul(Vec3(0, 0, 1))
+	return self:VecMul(Vec3(0, 1, 0))
 end
 
 META.GetUp = META.Up
 
 function META:Down()
-	return self:VecMul(Vec3(0, 0, -1))
+	return self:VecMul(Vec3(0, -1, 0))
 end
 
 META.GetDown = META.Down
 
 function META:Front()
-	return self:VecMul(Vec3(1, 0, 0))
+	return self:VecMul(Vec3(0, 0, 1))
 end
 
 META.GetFront = META.Front
 
 function META:Back()
-	return self:VecMul(Vec3(-1, 0, 0))
+	return self:VecMul(Vec3(0, 0, -1))
 end
 
 META.GetBack = META.Back

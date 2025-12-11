@@ -93,14 +93,14 @@ function META:GetLocalMatrix()
 			local pos = self.OverridePosition or self.Position
 			local rot = self.OverrideRotation or self.Rotation
 			self.LocalMatrix:Identity()
-			self.LocalMatrix:SetTranslation(-pos.y, -pos.x, -pos.z)
+			self.LocalMatrix:SetTranslation(pos.x, pos.y, pos.z)
 			self.LocalMatrix:SetRotation(rot)
 
 			-- Apply scale if needed
 			if self.temp_scale.x ~= 1 or self.temp_scale.y ~= 1 or self.temp_scale.z ~= 1 then
 				local scale_matrix = Matrix44()
 				scale_matrix:Identity()
-				scale_matrix:Scale(self.temp_scale.y, self.temp_scale.x, self.temp_scale.z)
+				scale_matrix:Scale(self.temp_scale.x, self.temp_scale.y, self.temp_scale.z)
 				local temp = Matrix44()
 				self.LocalMatrix:GetMultiplied(scale_matrix, temp)
 				self.LocalMatrix = temp

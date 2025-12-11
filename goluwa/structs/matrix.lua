@@ -482,66 +482,28 @@ do -- 44
 			if a == 0 then return self end
 
 			out = out or META.CType(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1)
+			-- Normalize axis vector
+			local mag = sqrt(x * x + y * y + z * z)
+
+			if mag <= 1.0e-4 then return self end
+
+			x = x / mag
+			y = y / mag
+			z = z / mag
+			-- Rodrigues' rotation formula (axis-angle to matrix)
 			local s = sin(a)
 			local c = cos(a)
-
-			if x == 0 and y == 0 then
-				if z == 0 then
-					-- rotate only around y axis
-					out.m00 = c
-					out.m22 = c
-
-					if y < 0 then
-						out.m20 = -s
-						out.m02 = s
-					else
-						out.m20 = s
-						out.m02 = -s
-					end
-				else
-					-- rotate only around z axis
-					out.m00 = c
-					out.m11 = c
-
-					if z < 0 then
-						out.m10 = s
-						out.m01 = -s
-					else
-						out.m10 = -s
-						out.m01 = s
-					end
-				end
-			elseif y == 0 and z == 0 then
-				-- rotate only around x axis
-				out.m11 = c
-				out.m22 = c
-
-				if x < 0 then
-					out.m21 = s
-					out.m12 = -s
-				else
-					out.m21 = -s
-					out.m12 = s
-				end
-			else
-				local mag = sqrt(x * x + y * y + z * z)
-
-				if mag <= 1.0e-4 then return self end
-
-				x = x / mag
-				y = y / mag
-				z = z / mag
-				out.m00 = (1 - c * x * x) + c
-				out.m10 = (1 - c * x * y) - z * s
-				out.m20 = (1 - c * z * x) + y * s
-				out.m01 = (1 - c * x * y) + z * s
-				out.m11 = (1 - c * y * y) + c
-				out.m21 = (1 - c * y * z) - x * s
-				out.m02 = (1 - c * z * x) - y * s
-				out.m12 = (1 - c * y * z) + x * s
-				out.m22 = (1 - c * z * z) + c
-			end
-
+			local t = 1 - c
+			-- Build rotation matrix (branchless, works for any axis)
+			out.m00 = t * x * x + c
+			out.m10 = t * x * y - z * s
+			out.m20 = t * z * x + y * s
+			out.m01 = t * x * y + z * s
+			out.m11 = t * y * y + c
+			out.m21 = t * y * z - x * s
+			out.m02 = t * z * x - y * s
+			out.m12 = t * y * z + x * s
+			out.m22 = t * z * z + c
 			self.GetMultiplied(self:Copy(), out, self)
 			return self
 		end
@@ -573,13 +535,13 @@ do -- 44
 			local xScale = yScale / aspect
 			local nearmfar = far - near
 			-- Row-major layout (will be transposed before sending to GPU)
-			-- Vulkan uses [0, 1] depth range and flipped Y coordinate
+			-- Vulkan uses [0, 1] depth range and Y-down NDC (flip Y for Y-up world)
 			self.m00 = xScale
 			self.m01 = 0
 			self.m02 = 0
 			self.m03 = 0
 			self.m10 = 0
-			self.m11 = -yScale -- Negative for Vulkan Y-flip
+			self.m11 = -yScale
 			self.m12 = 0
 			self.m13 = 0
 			self.m20 = 0

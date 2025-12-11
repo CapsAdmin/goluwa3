@@ -328,7 +328,7 @@ function render3d.Initialize()
 						}
 
 						// View direction - camera position needs to be negated (view matrix uses negative position)
-						vec3 cam_pos = -vec3(pc.camera_position.y, pc.camera_position.x, pc.camera_position.z);
+						vec3 cam_pos = -vec3(pc.camera_position.x, pc.camera_position.y, pc.camera_position.z);
 						vec3 V = normalize(cam_pos - in_world_pos);
 						vec3 L = normalize(-pc.light_direction);
 						vec3 H = normalize(V + L);
@@ -409,7 +409,7 @@ function render3d.Initialize()
 				discard = false,
 				polygon_mode = "fill",
 				line_width = 1.0,
-				cull_mode = "front",
+				cull_mode = "back",
 				front_face = "counter_clockwise",
 				depth_bias = 0,
 			},
@@ -473,12 +473,19 @@ end
 function render3d.GetViewMatrix()
 	if render3d.view_matrix then return render3d.view_matrix end
 
-	render3d.view_matrix = Matrix44()
-	render3d.view_matrix:Rotate(camera_angles.z, 0, 0, 1)
-	render3d.view_matrix:Rotate(camera_angles.x + math.pi / 2, 1, 0, 0)
-	render3d.view_matrix:Rotate(camera_angles.y, 0, 0, 1)
-	render3d.view_matrix:Translate(camera_position.y, camera_position.x, camera_position.z)
+	-- Build camera transform matrix (world space)
+	local view_matrix = Matrix44()
+	view_matrix:Rotate(camera_angles.z, 0, 1, 0)
+	view_matrix:Rotate(camera_angles.y, 0, 1, 0)
+	view_matrix:Rotate(-camera_angles.x, 1, 0, 0)
+	view_matrix:SetTranslation(-camera_position.x, camera_position.y, -camera_position.z)
+	-- View matrix is inverse of camera transform
+	render3d.view_matrix = view_matrix:GetInverse()
 	return render3d.view_matrix
+end
+
+function render3d.SetViewMatrix(view)
+	render3d.view_matrix = view
 end
 
 do

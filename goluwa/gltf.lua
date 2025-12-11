@@ -17,38 +17,6 @@ local AABB = require("structs.aabb")
 local gltf = {}
 gltf.debug_white_textures = false
 gltf.debug_print_nodes = false
-local ENABLE_COORDINATE_CONVERSION = true
-
-local function convert_vertex_position(x, y, z)
-	if not ENABLE_COORDINATE_CONVERSION then return x, y, z end
-
-	return -z, -x, -y
-end
-
-local function convert_vertex_normal(x, y, z)
-	if not ENABLE_COORDINATE_CONVERSION then return x, y, z end
-
-	return convert_vertex_position(x, y, z)
-end
-
-local function convert_entity_position(x, y, z)
-	if not ENABLE_COORDINATE_CONVERSION then return x, y, z end
-
-	return x, z, y
-end
-
-local function convert_entity_quat(x, y, z, w)
-	if not ENABLE_COORDINATE_CONVERSION then return x, y, z, w end
-
-	return z, x, y, -w
-end
-
-local function convert_entity_scale(x, y, z)
-	if not ENABLE_COORDINATE_CONVERSION then return x, y, z end
-
-	return z, x, y
-end
-
 local COMPONENT_TYPE = {
 	[5120] = {type = "int8_t", size = 1},
 	[5121] = {type = "uint8_t", size = 1},
@@ -160,7 +128,7 @@ local function read_accessor_raw(gltf_data, accessor_index, buffers)
 	local total_elements = accessor.count * component_count
 	local element_size = component_info.size
 	local c_array = ffi.new(component_info.array, total_elements)
-	local c_type = component_info.pointer
+	local c_type = ffi.new(component_info.pointer)
 
 	for i = 0, accessor.count - 1 do
 		local offset = byte_offset + i * byte_stride
@@ -448,21 +416,17 @@ local function compute_node_local_matrix(node)
 		return m
 	end
 
-	-- Otherwise compute from TRS
 	local t = node.translation
 	local r = node.rotation
 	local s = node.scale
-	-- Apply translation
 	m:SetTranslation(t[1], t[2], t[3])
-	-- Apply rotation (quaternion)
 	local rot_quat = Quat(r[1], r[2], r[3], r[4])
 	local rot_matrix = Matrix44()
 	rot_matrix:Identity()
 	rot_matrix:SetRotation(rot_quat)
-	-- Apply scale
 	local scale_matrix = Matrix44()
 	scale_matrix:Identity()
-	scale_matrix:Scale(s[1], s[2], s[3])
+	scale_matrix:Scale(s[1], s[2], s[3]) -- Apply same swapping as translation
 	-- Combine: T * R * S
 	m = m:GetMultiplied(rot_matrix):GetMultiplied(scale_matrix)
 	return m
@@ -547,7 +511,7 @@ function gltf.GetInterleavedVertices(primitive)
 			local px = position.data[i * 3 + 0]
 			local py = position.data[i * 3 + 1]
 			local pz = position.data[i * 3 + 2]
-			local our_x, our_y, our_z = convert_vertex_position(px, py, pz)
+			local our_x, our_y, our_z = px, py, pz
 			vertex_data[base + 0] = our_x
 			vertex_data[base + 1] = our_y
 			vertex_data[base + 2] = our_z
@@ -571,7 +535,7 @@ function gltf.GetInterleavedVertices(primitive)
 			local nx = normal.data[i * 3 + 0]
 			local ny = normal.data[i * 3 + 1]
 			local nz = normal.data[i * 3 + 2]
-			local our_nx, our_ny, our_nz = convert_vertex_normal(nx, ny, nz)
+			local our_nx, our_ny, our_nz = nx, ny, nz
 			vertex_data[base + 3] = our_nx
 			vertex_data[base + 4] = our_ny
 			vertex_data[base + 5] = our_nz
@@ -596,7 +560,7 @@ function gltf.GetInterleavedVertices(primitive)
 			local ty = tangent.data[i * 4 + 1]
 			local tz = tangent.data[i * 4 + 2]
 			local tw = tangent.data[i * 4 + 3]
-			local our_tx, our_ty, our_tz = convert_vertex_normal(tx, ty, tz)
+			local our_tx, our_ty, our_tz = tx, ty, tz
 			vertex_data[base + 8] = our_tx
 			vertex_data[base + 9] = our_ty
 			vertex_data[base + 10] = our_tz
@@ -866,7 +830,7 @@ function gltf.ComputeSceneBounds(gltf_result)
 						-- Transform by world matrix (in glTF coordinates)
 						local tx, ty, tz = world_matrix:TransformVector(corner[1], corner[2], corner[3])
 						-- Convert to our coordinate system
-						local our_x, our_y, our_z = convert_vertex_position(tx, ty, tz)
+						local our_x, our_y, our_z = tx, ty, tz
 						min_x = math.min(min_x, our_x)
 						min_y = math.min(min_y, our_y)
 						min_z = math.min(min_z, our_z)
@@ -907,7 +871,7 @@ function gltf.GetSuggestedCameraTransform(gltf_result)
 
 			if transform and transform.world_matrix then
 				local w = transform.world_matrix
-				local pos = Vec3(convert_entity_position(w.m30, w.m31, w.m32))
+				local pos = Vec3(w.m30, w.m31, w.m32)
 
 				if gltf.debug_print_nodes then
 					print("Found glTF camera node:", node.name or node_index, "at", pos.x, pos.y, pos.z)
@@ -974,33 +938,13 @@ function gltf.CreateEntityHierarchy(gltf_result, parent_entity, options)
 		entity:AddComponent("transform")
 		-- Set local transform from glTF node
 		local transform = entity.transform
-
-		if node.matrix then
-			if true then
-				transform:SetFromMatrix(compute_node_local_matrix(node))
-			else
-				-- For matrix, we need to convert the entire matrix
-				-- For now, decompose and convert TRS
-				-- glTF matrices are column-major: translation is in m30, m31, m32
-				local tx, ty, tz = node.matrix[13], node.matrix[14], node.matrix[15]
-				transform:SetPosition(Vec3(convert_entity_position(tx, ty, tz)))
-				-- Scale from diagonal (simplified, assumes no rotation in matrix)
-				local sx = math.sqrt(node.matrix[1] ^ 2 + node.matrix[2] ^ 2 + node.matrix[3] ^ 2)
-				local sy = math.sqrt(node.matrix[5] ^ 2 + node.matrix[6] ^ 2 + node.matrix[7] ^ 2)
-				local sz = math.sqrt(node.matrix[9] ^ 2 + node.matrix[10] ^ 2 + node.matrix[11] ^ 2)
-				local csx, csy, csz = convert_entity_scale(sx, sy, sz)
-				transform:SetScale(Vec3(csx, csy, csz))
-			end
-		else
-			local t = node.translation
-			local r = node.rotation
-			local s = node.scale
-			transform:SetPosition(Vec3(convert_entity_position(t[1], t[2], t[3])))
-			transform:SetRotation(Quat(convert_entity_quat(r[1], r[2], r[3], r[4])))
-			local sx, sy, sz = convert_entity_scale(s[1], s[2], s[3])
-			transform:SetScale(Vec3(sx, sy, sz))
-		end
-
+		-- Extract TRS from node and apply coordinate conversions
+		local t = node.translation
+		transform:SetPosition(Vec3(t[1], t[2], t[3]))
+		local r = node.rotation
+		transform:SetRotation(Quat(r[1], r[2], r[3], r[4]))
+		local s = node.scale
+		transform:SetScale(Vec3(s[1], s[2], s[3]))
 		node_to_entity[node_index] = entity
 	end
 
