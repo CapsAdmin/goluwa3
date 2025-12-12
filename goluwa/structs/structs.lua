@@ -478,9 +478,16 @@ function structs.AddOperator(META, operator, ...)
 		local ffi = require("ffi")
 
 		local float_array = ffi.typeof("float[]=] .. #META.Args[1] .. [=[]")
+		local double_array = ffi.typeof("double[]=] .. #META.Args[1] .. [=[]")
 
 		function META.GetFloatCopy(a)
 			return float_array(
+				a.KEY
+			)
+		end
+
+		function META.GetDoubleCopy(a)
+			return double_array(
 				a.KEY
 			)
 		end
@@ -491,9 +498,17 @@ function structs.AddOperator(META, operator, ...)
 			function META:GetFloatPointer()
 				return ffi_cast(float_array, self)
 			end
+
+			function META:GetDoublePointer()
+				return self:GetDoubleCopy()
+			end
 		else
 			function META:GetFloatPointer()
 				return self:GetFloatCopy()
+			end
+
+			function META:GetDoublePointer()
+				return ffi_cast(double_array, self)
 			end
 		end
 
