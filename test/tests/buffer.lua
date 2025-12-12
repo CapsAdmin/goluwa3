@@ -1,4 +1,3 @@
-local test = require("test.gambarina")
 local ffi = require("ffi")
 local Buffer = require("structs.buffer")
 

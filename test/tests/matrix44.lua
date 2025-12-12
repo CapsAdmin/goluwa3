@@ -1,4 +1,3 @@
-local test = require("test.gambarina")
 require("goluwa.global_environment")
 local Matrix44 = require("structs.matrix").Matrix44
 

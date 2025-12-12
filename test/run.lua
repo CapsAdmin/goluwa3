@@ -1,15 +1,15 @@
 require("goluwa.global_environment")
-local test = require("test.gambarina")
-local fs = require("bindings.filesystem")
-local files = fs.get_files("test/")
-table.sort(files)
+local filter = nil
+local logging = true
+local profiling = false
+local profiling_mode = nil
+require("test.environment")
+_G.begin_tests(logging, profiling, profiling_mode)
+local tests = _G.find_tests(filter)
+_G.set_test_paths(tests)
 
-for _, file in ipairs(files) do
-	if file:match("%.lua$") and file ~= "run.lua" and file ~= "gambarina.lua" then
-		local module_name = "test." .. file:gsub("%.lua$", "")
-		print("\n=== Running " .. module_name .. " ===\n")
-		require(module_name)
-	end
+for _, test in ipairs(tests) do
+	_G.run_single_test(test)
 end
 
-test:report()
+_G.end_tests()

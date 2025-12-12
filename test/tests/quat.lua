@@ -1,4 +1,3 @@
-local test = require("test.gambarina")
 require("goluwa.global_environment")
 local Quat = require("structs.quat")
 local Vec3 = require("structs.vec3")

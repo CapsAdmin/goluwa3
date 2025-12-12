@@ -1,4 +1,3 @@
-local test = require("test.gambarina")
 local threads = require("bindings.threads")
 
 test("thread returns incremented value", function()

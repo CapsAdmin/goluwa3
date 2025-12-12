@@ -1,4 +1,3 @@
-local test = require("test.gambarina")
 local process = require("bindings.process")
 
 do

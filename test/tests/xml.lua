@@ -1,5 +1,4 @@
 -- Tests for the XML parser
-local test = require("test.gambarina")
 local xml = require("goluwa.helpers.xml")
 
 test("parse simple element", function()
@@ -146,5 +145,3 @@ test("doctype declaration", function()
 	local doc = xml.parse("<!DOCTYPE html><html/>")
 	ok(eq(doc.children[1].tag, "html"), "doctype should not break parsing")
 end)
-
-test:report()

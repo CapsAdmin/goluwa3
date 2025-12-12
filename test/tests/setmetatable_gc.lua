@@ -1,4 +1,3 @@
-local test = require("test.gambarina")
 local setmetatable_with_gc = dofile("goluwa/helpers/setmetatable_gc.lua")
 
 test("setmetatable_gc triggers during runtime GC", function()

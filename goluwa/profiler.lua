@@ -47,4 +47,30 @@ function profiler.Stop()
 	timer.RemoveTimer("debug")
 end
 
+local simple_times = {}
+local simple_stack = {}
+
+function profiler.StartSection(name--[[#: string]])
+	simple_times[name] = simple_times[name] or {total = 0}
+	simple_times[name].time = system.GetTime()
+	table.insert(simple_stack, name)
+
+	if not stop_profiler then return end
+
+	jit_profiler.StartSection(name)
+end
+
+function profiler.StopSection()
+	local name = table.remove(simple_stack)
+	simple_times[name].total = simple_times[name].total + (system.GetTime() - simple_times[name].time)
+
+	if not stop_profiler then return end
+
+	jit_profiler.StopSection()
+end
+
+function profiler.GetSimpleSections()
+	return simple_times
+end
+
 return profiler

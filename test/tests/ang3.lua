@@ -1,4 +1,3 @@
-local test = require("test.gambarina")
 require("goluwa.global_environment")
 local Ang3 = require("structs.ang3")
 
