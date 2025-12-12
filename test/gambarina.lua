@@ -9,10 +9,10 @@ local gambiarra = {
 	failed = 0,
 	report = function(self)
 		if self.failed == 0 then
-			print("All " .. self.passed .. " tests passed.")
+			io.write("All " .. self.passed .. " tests passed.")
 		else
 			local total = self.passed + self.failed
-			print(self.failed .. " tests failed out of " .. total)
+			io.write(self.failed .. " tests failed out of " .. total)
 		end
 	end,
 }
