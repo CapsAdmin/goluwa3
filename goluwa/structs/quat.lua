@@ -145,30 +145,48 @@ end
 
 structs.AddGetFunc(META, "Normalize", "Normalized")
 
--- https://github.com/grrrwaaa/gct753/blob/master/modules/quat.lua#L193
 -- ORIENTATION / TRANSFORMATION: Converts Euler angles to quaternion
--- ang.x = pitch (rotation around X/right axis)
--- ang.y = yaw (rotation around Y/up axis)
--- ang.z = roll (rotation around Z/forward axis)
--- Applies rotations in order: Roll * Pitch * Yaw (Z * X * Y)
--- This matches Ang3:GetDirection order for consistency
+-- ang.x = pitch (rotation around orientation.RIGHT_VECTOR axis)
+-- ang.y = yaw (rotation around orientation.UP_VECTOR axis)
+-- ang.z = roll (rotation around orientation.FORWARD_VECTOR axis)
+-- Builds quaternion by composing rotations in same order as Ang3:GetDirection
+-- This ensures Quat():SetAngles(ang):VecMul(v) == ang:GetDirection(v)
 function META:SetAngles(ang)
-	local c1 = math.cos(ang.z * 0.5) -- roll (Z-axis rotation)
-	local c2 = math.cos(ang.x * 0.5) -- pitch (X-axis rotation)
-	local c3 = math.cos(ang.y * 0.5) -- yaw (Y-axis rotation)
-	local s1 = math.sin(ang.z * 0.5)
-	local s2 = math.sin(ang.x * 0.5)
-	local s3 = math.sin(ang.y * 0.5)
-	-- equiv Q1 = Qz * Qx; -- since many terms are zero
-	local tw = c1 * c2
-	local tx = c1 * s2
-	local ty = -s1 * s2
-	local tz = s1 * c2
-	-- equiv Q2 = Q1 * Qy; -- since many terms are zero
-	self.x = tx * c3 + tz * s3
-	self.y = tw * s3 + ty * c3
-	self.z = tz * c3 - tx * s3
-	self.w = tw * c3 - ty * s3
+	-- Build quaternion by composing axis rotations in same order as Ang3.GetDirection
+	-- Ang3.GetDirection applies: Yaw (Y), then Pitch (X, negated), then Roll (Z)
+	-- Start with identity
+	self:Identity()
+
+	-- Apply yaw around UP axis
+	if ang.y ~= 0 then
+		local ux, uy, uz = orientation.GetUpVector()
+		local half = ang.y * 0.5
+		local s = math.sin(half)
+		local yaw_q = CTOR(ux * s, uy * s, uz * s, math.cos(half))
+		local result = yaw_q * self -- reversed: apply in world space
+		self.x, self.y, self.z, self.w = result.x, result.y, result.z, result.w
+	end
+
+	-- Apply pitch around RIGHT axis (negated to match Ang3.GetDirection)
+	if ang.x ~= 0 then
+		local rx, ry, rz = orientation.GetRightVector()
+		local half = -ang.x * 0.5 -- negated
+		local s = math.sin(half)
+		local pitch_q = CTOR(rx * s, ry * s, rz * s, math.cos(half))
+		local result = pitch_q * self -- reversed: apply in world space
+		self.x, self.y, self.z, self.w = result.x, result.y, result.z, result.w
+	end
+
+	-- Apply roll around FORWARD axis
+	if ang.z ~= 0 then
+		local fx, fy, fz = orientation.GetForwardVector()
+		local half = ang.z * 0.5
+		local s = math.sin(half)
+		local roll_q = CTOR(fx * s, fy * s, fz * s, math.cos(half))
+		local result = roll_q * self -- reversed: apply in world space
+		self.x, self.y, self.z, self.w = result.x, result.y, result.z, result.w
+	end
+
 	return self
 end
 
@@ -183,18 +201,20 @@ do
 	end
 
 	function META.GetAngles(q, seq)
-		--seq = seq or "xzy"
+		-- Extract Euler angles from quaternion
+		-- Default extraction matches SetAngles: Yaw (Y) → Pitch (X, negated) → Roll (Z)
+		-- This ensures roundtrip: Quat():SetAngles(ang):GetAngles() == ang
 		if not seq then
-			local sqw = q.w * q.w
-			local sqx = q.x * q.x
-			local sqy = q.y * q.y
-			local sqz = q.z * q.z
-			return Ang3(
-				math.asin(-2.0 * (q.x * q.z - q.w * q.y)),
-				math.atan2(2.0 * (q.x * q.y + q.w * q.z), (sqw + sqx - sqy - sqz)),
-				math.atan2(2.0 * (q.y * q.z + q.w * q.x), (sqw - sqx - sqy + sqz))
-			)
-		elseif seq == "zyx" then
+			-- Use the "zxy" sequence extraction from the library below
+			-- but adjust for our negated pitch convention
+			local pitch = math.asin(math.max(-1, math.min(1, 2.0 * (q.y * q.z + q.w * q.x))))
+			local yaw = math.atan2(-2.0 * (q.x * q.y - q.w * q.z), q.w * q.w - q.x * q.x + q.y * q.y - q.z * q.z)
+			local roll = math.atan2(-2.0 * (q.x * q.z - q.w * q.y), q.w * q.w + q.x * q.x - q.y * q.y - q.z * q.z)
+			return Ang3(-pitch, yaw, roll) -- negate pitch to match Ang3.GetDirection convention
+		end
+
+		-- For other sequences, use the library functions below
+		if seq == "zxy" then
 			return threeaxisrot(
 				2 * (q.x * q.y + q.w * q.z),
 				q.w * q.w + q.x * q.x - q.y * q.y - q.z * q.z,
