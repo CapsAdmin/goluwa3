@@ -96,9 +96,12 @@ function render3d.Initialize()
 
 					void main() {
 						vec4 world_pos = pc.world * vec4(in_position, 1.0);
+
+						// ORIENTATION / TRANSFORMATION
 						gl_Position = pc.projection_view_world * vec4(in_position, 1.0);
 						out_world_pos = world_pos.xyz;
 						
+						// ORIENTATION / TRANSFORMATION
 						// Transform normal to world space
 						mat3 normal_matrix = mat3(pc.world);
 						out_normal = normalize(normal_matrix * in_normal);
@@ -214,8 +217,7 @@ function render3d.Initialize()
 
 					// Get cascade index based on view distance
 					int getCascadeIndex(vec3 world_pos) {
-						vec3 cam_pos = -vec3(pc.camera_position.y, pc.camera_position.x, pc.camera_position.z);
-						float dist = length(world_pos - cam_pos);
+						float dist = length(world_pos - pc.camera_position);
 						
 						for (int i = 0; i < shadow.cascade_count; i++) {
 							if (dist < shadow.cascade_splits[i]) {
@@ -328,8 +330,7 @@ function render3d.Initialize()
 						}
 
 						// View direction - camera position needs to be negated (view matrix uses negative position)
-						vec3 cam_pos = -vec3(pc.camera_position.y, pc.camera_position.x, pc.camera_position.z);
-						vec3 V = normalize(cam_pos - in_world_pos);
+						vec3 V = normalize(pc.camera_position - in_world_pos);
 						vec3 L = normalize(-pc.light_direction);
 						vec3 H = normalize(V + L);
 
@@ -409,7 +410,7 @@ function render3d.Initialize()
 				discard = false,
 				polygon_mode = "fill",
 				line_width = 1.0,
-				cull_mode = "front",
+				cull_mode = "back", -- ORIENTATION / TRANSFORMATION
 				front_face = "counter_clockwise",
 				depth_bias = 0,
 			},
@@ -473,18 +474,25 @@ end
 function render3d.GetViewMatrix()
 	if render3d.view_matrix then return render3d.view_matrix end
 
-	render3d.view_matrix = Matrix44()
-	render3d.view_matrix:Rotate(camera_angles.z, 0, 0, 1)
-	render3d.view_matrix:Rotate(camera_angles.x + math.pi / 2, 1, 0, 0)
-	render3d.view_matrix:Rotate(camera_angles.y, 0, 0, 1)
-	render3d.view_matrix:Translate(camera_position.y, camera_position.x, camera_position.z)
+	-- ORIENTATION / TRANSFORMATION
+	view_matrix:Rotate(camera_angles.z, 0, 1, 0)
+	view_matrix:Rotate(camera_angles.y, 0, 1, 0)
+	view_matrix:Rotate(-camera_angles.x, 1, 0, 0)
+	view_matrix:SetTranslation(-camera_position.x, camera_position.y, -camera_position.z)
+	-- View matrix is inverse of camera transform
+	render3d.view_matrix = view_matrix:GetInverse()
 	return render3d.view_matrix
+end
+
+function render3d.SetViewMatrix(view)
+	render3d.view_matrix = view
 end
 
 do
 	local cached = Matrix44()
 
 	function render3d.GetProjectionViewWorldMatrix()
+		-- ORIENTATION / TRANSFORMATION
 		render3d.GetProjectionMatrix():GetMultiplied(render3d.GetViewMatrix(), cached)
 		cached:GetMultiplied(camera_world, cached)
 		return cached
@@ -671,6 +679,7 @@ do
 			fragment_constants.light_color[2] = render3d.light_color[3]
 			fragment_constants.light_intensity = render3d.light_color[4]
 			-- Camera position for specular (vec3)
+			-- ORIENTATION / TRANSFORMATION
 			fragment_constants.camera_position[0] = camera_position.x
 			fragment_constants.camera_position[1] = camera_position.y
 			fragment_constants.camera_position[2] = camera_position.z
@@ -803,6 +812,7 @@ do
 			local current_frame = system.GetFrameNumber()
 
 			if cached_frustum_frame ~= current_frame then
+				-- ORIENTATION / TRANSFORMATION
 				local proj = render3d.GetProjectionMatrix()
 				local view = render3d.GetViewMatrix()
 				local proj_view = proj:GetMultiplied(view)

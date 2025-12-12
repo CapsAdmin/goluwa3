@@ -35,12 +35,7 @@ end
 
 function META:GetReflected(normal)
 	local proj = self:GetNormalized()
-	local dot = proj:GetDot(normal)
-	return Vec3(
-			2 * (-dot) * normal.x + proj.x,
-			2 * (-dot) * normal.y + proj.y,
-			2 * (-dot) * normal.z + proj.z
-		) * self:GetLength()
+	return (2 * proj:GetDot(normal) * normal + proj) * self:GetLength()
 end
 
 if GRAPHICS then META.ToScreen = math3d.WorldPositionToScreen end

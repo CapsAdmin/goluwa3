@@ -17,38 +17,6 @@ local AABB = require("structs.aabb")
 local gltf = {}
 gltf.debug_white_textures = false
 gltf.debug_print_nodes = false
-local ENABLE_COORDINATE_CONVERSION = true
-
-local function convert_vertex_position(x, y, z)
-	if not ENABLE_COORDINATE_CONVERSION then return x, y, z end
-
-	return -z, -x, -y
-end
-
-local function convert_vertex_normal(x, y, z)
-	if not ENABLE_COORDINATE_CONVERSION then return x, y, z end
-
-	return convert_vertex_position(x, y, z)
-end
-
-local function convert_entity_position(x, y, z)
-	if not ENABLE_COORDINATE_CONVERSION then return x, y, z end
-
-	return x, z, y
-end
-
-local function convert_entity_quat(x, y, z, w)
-	if not ENABLE_COORDINATE_CONVERSION then return x, y, z, w end
-
-	return z, x, y, -w
-end
-
-local function convert_entity_scale(x, y, z)
-	if not ENABLE_COORDINATE_CONVERSION then return x, y, z end
-
-	return z, x, y
-end
-
 local COMPONENT_TYPE = {
 	[5120] = {type = "int8_t", size = 1},
 	[5121] = {type = "uint8_t", size = 1},
@@ -160,7 +128,7 @@ local function read_accessor_raw(gltf_data, accessor_index, buffers)
 	local total_elements = accessor.count * component_count
 	local element_size = component_info.size
 	local c_array = ffi.new(component_info.array, total_elements)
-	local c_type = component_info.pointer
+	local c_type = ffi.new(component_info.pointer)
 
 	for i = 0, accessor.count - 1 do
 		local offset = byte_offset + i * byte_stride
@@ -421,102 +389,8 @@ function gltf.Load(path)
 	return result
 end
 
--- Compute a node's local transform matrix from TRS or matrix
-local function compute_node_local_matrix(node)
-	local m = Matrix44()
-	m:Identity()
-
-	-- If the node has a matrix, use it directly
-	if node.matrix then
-		-- glTF matrices are column-major, same as our Matrix44
-		m.m00 = node.matrix[1]
-		m.m01 = node.matrix[2]
-		m.m02 = node.matrix[3]
-		m.m03 = node.matrix[4]
-		m.m10 = node.matrix[5]
-		m.m11 = node.matrix[6]
-		m.m12 = node.matrix[7]
-		m.m13 = node.matrix[8]
-		m.m20 = node.matrix[9]
-		m.m21 = node.matrix[10]
-		m.m22 = node.matrix[11]
-		m.m23 = node.matrix[12]
-		m.m30 = node.matrix[13]
-		m.m31 = node.matrix[14]
-		m.m32 = node.matrix[15]
-		m.m33 = node.matrix[16]
-		return m
-	end
-
-	-- Otherwise compute from TRS
-	local t = node.translation
-	local r = node.rotation
-	local s = node.scale
-	-- Apply translation
-	m:SetTranslation(t[1], t[2], t[3])
-	-- Apply rotation (quaternion)
-	local rot_quat = Quat(r[1], r[2], r[3], r[4])
-	local rot_matrix = Matrix44()
-	rot_matrix:Identity()
-	rot_matrix:SetRotation(rot_quat)
-	-- Apply scale
-	local scale_matrix = Matrix44()
-	scale_matrix:Identity()
-	scale_matrix:Scale(s[1], s[2], s[3])
-	-- Combine: T * R * S
-	m = m:GetMultiplied(rot_matrix):GetMultiplied(scale_matrix)
-	return m
-end
-
--- Compute world transforms for all nodes in the scene
-function gltf.ComputeWorldTransforms(gltf_result)
-	local world_transforms = {}
-
-	-- Initialize all nodes with their local transforms
-	for i, node in ipairs(gltf_result.nodes) do
-		world_transforms[i] = {
-			local_matrix = compute_node_local_matrix(node),
-			world_matrix = nil,
-			node = node,
-		}
-	end
-
-	-- Recursive function to compute world transform
-	local function compute_world_transform(node_index, parent_world)
-		local node_data = world_transforms[node_index]
-
-		if not node_data then return end
-
-		if parent_world then
-			node_data.world_matrix = parent_world:GetMultiplied(node_data.local_matrix)
-		else
-			node_data.world_matrix = node_data.local_matrix:Copy()
-		end
-
-		-- Process children
-		local node = node_data.node
-
-		if node.children then
-			for _, child_index in ipairs(node.children) do
-				-- glTF uses 0-based indices
-				compute_world_transform(child_index + 1, node_data.world_matrix)
-			end
-		end
-	end
-
-	-- Get the current scene
-	local scene_index = gltf_result.scene + 1
-	local scene = gltf_result.scenes[scene_index]
-
-	if scene and scene.nodes then
-		-- Process all root nodes in the scene
-		for _, root_node_index in ipairs(scene.nodes) do
-			compute_world_transform(root_node_index + 1, nil)
-		end
-	end
-
-	return world_transforms
-end
+-- Set local transform properties from glTF node (TRS or matrix)
+local function set_local_transform(transform, node) end
 
 -- Helper to get interleaved vertex data for a primitive
 -- Returns: vertex_data (C array of floats), vertex_count, stride_in_floats, aabb
@@ -547,7 +421,7 @@ function gltf.GetInterleavedVertices(primitive)
 			local px = position.data[i * 3 + 0]
 			local py = position.data[i * 3 + 1]
 			local pz = position.data[i * 3 + 2]
-			local our_x, our_y, our_z = convert_vertex_position(px, py, pz)
+			local our_x, our_y, our_z = px, py, pz
 			vertex_data[base + 0] = our_x
 			vertex_data[base + 1] = our_y
 			vertex_data[base + 2] = our_z
@@ -571,7 +445,7 @@ function gltf.GetInterleavedVertices(primitive)
 			local nx = normal.data[i * 3 + 0]
 			local ny = normal.data[i * 3 + 1]
 			local nz = normal.data[i * 3 + 2]
-			local our_nx, our_ny, our_nz = convert_vertex_normal(nx, ny, nz)
+			local our_nx, our_ny, our_nz = nx, ny, nz
 			vertex_data[base + 3] = our_nx
 			vertex_data[base + 4] = our_ny
 			vertex_data[base + 5] = our_nz
@@ -596,7 +470,7 @@ function gltf.GetInterleavedVertices(primitive)
 			local ty = tangent.data[i * 4 + 1]
 			local tz = tangent.data[i * 4 + 2]
 			local tw = tangent.data[i * 4 + 3]
-			local our_tx, our_ty, our_tz = convert_vertex_normal(tx, ty, tz)
+			local our_tx, our_ty, our_tz = tx, ty, tz
 			vertex_data[base + 8] = our_tx
 			vertex_data[base + 9] = our_ty
 			vertex_data[base + 10] = our_tz
@@ -821,11 +695,10 @@ end
 
 -- Compute the bounding box of all meshes in the scene, accounting for node transforms
 -- Returns min, max, center as Vec3 (in our coordinate system)
-function gltf.ComputeSceneBounds(gltf_result)
+-- Requires node_to_entity map from CreateEntityHierarchy
+function gltf.ComputeSceneBounds(gltf_result, node_to_entity)
 	local min_x, min_y, min_z = math.huge, math.huge, math.huge
 	local max_x, max_y, max_z = -math.huge, -math.huge, -math.huge
-	-- Compute world transforms for all nodes
-	local world_transforms = gltf.ComputeWorldTransforms(gltf_result)
 	-- Build a map of mesh index to nodes that reference it
 	local mesh_to_nodes = {}
 
@@ -842,7 +715,8 @@ function gltf.ComputeSceneBounds(gltf_result)
 		local node_indices = mesh_to_nodes[mesh_idx] or {}
 
 		for _, node_index in ipairs(node_indices) do
-			local world_matrix = world_transforms[node_index] and world_transforms[node_index].world_matrix
+			local entity = node_to_entity[node_index]
+			local world_matrix = entity and entity.transform and entity.transform:GetWorldMatrix()
 
 			if not world_matrix then goto continue end
 
@@ -866,7 +740,7 @@ function gltf.ComputeSceneBounds(gltf_result)
 						-- Transform by world matrix (in glTF coordinates)
 						local tx, ty, tz = world_matrix:TransformVector(corner[1], corner[2], corner[3])
 						-- Convert to our coordinate system
-						local our_x, our_y, our_z = convert_vertex_position(tx, ty, tz)
+						local our_x, our_y, our_z = tx, ty, tz
 						min_x = math.min(min_x, our_x)
 						min_y = math.min(min_y, our_y)
 						min_z = math.min(min_z, our_z)
@@ -888,8 +762,9 @@ function gltf.ComputeSceneBounds(gltf_result)
 end
 
 -- Get the offset needed to center the scene at origin
-function gltf.GetCenteringOffset(gltf_result)
-	local _, _, center = gltf.ComputeSceneBounds(gltf_result)
+-- Requires node_to_entity map from CreateEntityHierarchy
+function gltf.GetCenteringOffset(gltf_result, node_to_entity)
+	local _, _, center = gltf.ComputeSceneBounds(gltf_result, node_to_entity)
 	-- Return negative of center to move scene to origin
 	return Vec3(-center.x, -center.y, -center.z)
 end
@@ -897,17 +772,16 @@ end
 -- Get suggested camera position and angles from glTF
 -- Looks for: 1) glTF camera nodes, 2) nodes with "camera" in the name, 3) scene center
 -- Returns position (Vec3), angles (Ang3 or nil)
-function gltf.GetSuggestedCameraTransform(gltf_result)
-	local world_transforms = gltf.ComputeWorldTransforms(gltf_result)
-
+-- Requires node_to_entity map from CreateEntityHierarchy
+function gltf.GetSuggestedCameraTransform(gltf_result, node_to_entity)
 	-- First, look for nodes with a "camera" property (actual glTF cameras)
 	for node_index, node in ipairs(gltf_result.nodes) do
 		if node.camera ~= nil then
-			local transform = world_transforms[node_index]
+			local entity = node_to_entity[node_index]
 
-			if transform and transform.world_matrix then
-				local w = transform.world_matrix
-				local pos = Vec3(convert_entity_position(w.m30, w.m31, w.m32))
+			if entity and entity.transform then
+				local world_matrix = entity.transform:GetWorldMatrix()
+				local pos = Vec3(world_matrix.m30, world_matrix.m31, world_matrix.m32)
 
 				if gltf.debug_print_nodes then
 					print("Found glTF camera node:", node.name or node_index, "at", pos.x, pos.y, pos.z)
@@ -920,10 +794,10 @@ function gltf.GetSuggestedCameraTransform(gltf_result)
 
 	-- Fallback: use scene center from ComputeSceneBounds
 	-- This uses glTF accessor min/max with proper world transforms
-	local _, _, center = gltf.ComputeSceneBounds(gltf_result)
+	local _, _, center = gltf.ComputeSceneBounds(gltf_result, node_to_entity)
 
 	if gltf.debug_print_nodes then
-		local bounds_min, bounds_max = gltf.ComputeSceneBounds(gltf_result)
+		local bounds_min, bounds_max = gltf.ComputeSceneBounds(gltf_result, node_to_entity)
 		print("No camera found, using scene center:", center.x, center.y, center.z)
 		print("  Scene bounds min:", bounds_min.x, bounds_min.y, bounds_min.z)
 		print("  Scene bounds max:", bounds_max.x, bounds_max.y, bounds_max.z)
@@ -943,21 +817,6 @@ function gltf.CreateEntityHierarchy(gltf_result, parent_entity, options)
 	-- Create root entity for this glTF scene
 	local root_entity = ecs.CreateEntity(gltf_result.path or "gltf_root", parent_entity)
 	root_entity:AddComponent("transform")
-
-	-- Apply centering offset if requested
-	if options.center_scene then
-		local offset = gltf.GetCenteringOffset(gltf_result)
-		root_entity.transform:SetPosition(offset)
-
-		if gltf.debug_print_nodes then
-			local _, _, center = gltf.ComputeSceneBounds(gltf_result)
-			print("=== Scene Centering ===")
-			print("  Original center:", center.x, center.y, center.z)
-			print("  Applied offset:", offset.x, offset.y, offset.z)
-			print("=======================")
-		end
-	end
-
 	-- Map from glTF node index to entity
 	local node_to_entity = {}
 	-- Debug stats
@@ -976,29 +835,31 @@ function gltf.CreateEntityHierarchy(gltf_result, parent_entity, options)
 		local transform = entity.transform
 
 		if node.matrix then
-			if true then
-				transform:SetFromMatrix(compute_node_local_matrix(node))
-			else
-				-- For matrix, we need to convert the entire matrix
-				-- For now, decompose and convert TRS
-				-- glTF matrices are column-major: translation is in m30, m31, m32
-				local tx, ty, tz = node.matrix[13], node.matrix[14], node.matrix[15]
-				transform:SetPosition(Vec3(convert_entity_position(tx, ty, tz)))
-				-- Scale from diagonal (simplified, assumes no rotation in matrix)
-				local sx = math.sqrt(node.matrix[1] ^ 2 + node.matrix[2] ^ 2 + node.matrix[3] ^ 2)
-				local sy = math.sqrt(node.matrix[5] ^ 2 + node.matrix[6] ^ 2 + node.matrix[7] ^ 2)
-				local sz = math.sqrt(node.matrix[9] ^ 2 + node.matrix[10] ^ 2 + node.matrix[11] ^ 2)
-				local csx, csy, csz = convert_entity_scale(sx, sy, sz)
-				transform:SetScale(Vec3(csx, csy, csz))
-			end
+			local m = Matrix44()
+			m.m00 = node.matrix[1]
+			m.m01 = node.matrix[2]
+			m.m02 = node.matrix[3]
+			m.m03 = node.matrix[4]
+			m.m10 = node.matrix[5]
+			m.m11 = node.matrix[6]
+			m.m12 = node.matrix[7]
+			m.m13 = node.matrix[8]
+			m.m20 = node.matrix[9]
+			m.m21 = node.matrix[10]
+			m.m22 = node.matrix[11]
+			m.m23 = node.matrix[12]
+			m.m30 = node.matrix[13]
+			m.m31 = node.matrix[14]
+			m.m32 = node.matrix[15]
+			m.m33 = node.matrix[16]
+			transform:SetFromMatrix(m)
 		else
 			local t = node.translation
+			transform:SetPosition(Vec3(t[1], t[2], t[3]))
 			local r = node.rotation
+			transform:SetRotation(Quat(r[1], r[2], r[3], r[4]))
 			local s = node.scale
-			transform:SetPosition(Vec3(convert_entity_position(t[1], t[2], t[3])))
-			transform:SetRotation(Quat(convert_entity_quat(r[1], r[2], r[3], r[4])))
-			local sx, sy, sz = convert_entity_scale(s[1], s[2], s[3])
-			transform:SetScale(Vec3(sx, sy, sz))
+			transform:SetScale(Vec3(s[1], s[2], s[3]))
 		end
 
 		node_to_entity[node_index] = entity
@@ -1199,6 +1060,20 @@ function gltf.CreateEntityHierarchy(gltf_result, parent_entity, options)
 			local entity = node_to_entity[root_node_index + 1]
 
 			if entity then entity:SetParent(root_entity) end
+		end
+	end
+
+	-- Apply centering offset if requested (after hierarchy is built)
+	if options.center_scene then
+		local offset = gltf.GetCenteringOffset(gltf_result, node_to_entity)
+		root_entity.transform:SetPosition(offset)
+
+		if gltf.debug_print_nodes then
+			local _, _, center = gltf.ComputeSceneBounds(gltf_result, node_to_entity)
+			print("=== Scene Centering ===")
+			print("  Original center:", center.x, center.y, center.z)
+			print("  Applied offset:", offset.x, offset.y, offset.z)
+			print("=======================")
 		end
 	end
 
