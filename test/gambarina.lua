@@ -20,13 +20,13 @@ local gambiarra = {
 local function default_handler(e, test, msg)
 	if e == "pass" then
 		gambiarra.passed = gambiarra.passed + 1
-		print(("[32mPASS[0m %s: %s"):format(test, msg))
+		io.write(("[32mPASS[0m %s: %s"):format(test, msg), "\n")
 	elseif e == "fail" then
 		gambiarra.failed = gambiarra.failed + 1
-		print(("[31mFAIL[0m %s: %s"):format(test, msg))
+		io.write(("[31mFAIL[0m %s: %s"):format(test, msg), "\n")
 	elseif e == "except" then
 		gambiarra.failed = gambiarra.failed + 1
-		print(("[31mECPT[0m %s: %s"):format(test, msg))
+		io.write(("[31mECPT[0m %s: %s"):format(test, msg), "\n")
 	end
 end
 
@@ -35,9 +35,7 @@ local function deepeq(a, b)
 	if type(a) ~= type(b) then return false end
 
 	-- Functions
-	if type(a) == "function" then
-		return string.dump(a) == string.dump(b)
-	end
+	if type(a) == "function" then return string.dump(a) == string.dump(b) end
 
 	-- Primitives and equal pointers
 	if a == b then return true end
