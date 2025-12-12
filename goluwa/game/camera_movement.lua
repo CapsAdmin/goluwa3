@@ -66,13 +66,10 @@ function events.Update.camera_movement(dt)
 		new_pitch = math.clamp(new_pitch, -math.pi / 2 + 0.01, math.pi / 2 - 0.01)
 		local pitch_delta = new_pitch - pitch
 		pitch = new_pitch
-		-- Apply yaw in world space (prevents gimbal lock)
 		local yaw_quat = Quat()
 		yaw_quat:Identity()
-		local ux, uy, uz = orientation.GetUpVector()
-		yaw_quat:Rotate(-mouse_delta.x, ux, uy, uz)
+		yaw_quat:RotateYaw(-mouse_delta.x)
 		rotation = yaw_quat * rotation
-		-- Apply pitch in local space with clamping
 		rotation:RotatePitch(pitch_delta)
 	end
 
