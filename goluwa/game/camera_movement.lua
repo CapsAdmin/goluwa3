@@ -111,9 +111,9 @@ function events.Update.camera_movement(dt)
 		local dir = cam_ang:GetRight()
 
 		if input.IsKeyDown("a") then
-			right = right - dir
-		elseif input.IsKeyDown("d") then
 			right = right + dir
+		elseif input.IsKeyDown("d") then
+			right = right - dir
 		end
 	end
 

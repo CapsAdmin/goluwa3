@@ -234,11 +234,11 @@ function ShadowMap:UpdateCascadeLightMatrices(light_direction)
 		local shadow_cam_pos = shadow_center + light_direction * -cascade_ortho_size
 		local angles = light_direction:GetAngles()
 		-- Build the view matrix
-		-- ORIENTATION / TRANSFORMATION
+		-- ORIENTATION / TRANSFORMATION: Using rotation helpers from orientation module
 		local view = Matrix44()
-		view:Rotate(angles.z, 0, 1, 0)
-		view:Rotate(angles.y, 0, 1, 0)
-		view:Rotate(-angles.x, 1, 0, 0)
+		view:RotateRoll(angles.z)
+		view:RotateYaw(angles.y)
+		view:RotatePitch(-angles.x)
 		view:SetTranslation(-shadow_cam_pos.x, shadow_cam_pos.y, -shadow_cam_pos.z)
 		-- Build orthographic projection (same approach as working UpdateLightMatrix)
 		local projection = Matrix44()

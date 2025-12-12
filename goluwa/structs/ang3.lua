@@ -1,5 +1,6 @@
 local Vec3 = require("structs.vec3")
 local structs = require("structs.structs")
+local orientation = require("orientation")
 local META = structs.Template("Ang3")
 local CTOR
 
@@ -14,28 +15,47 @@ do -- ORIENTATION / TRANSFORMATION
 	local sin = math.sin
 	local cos = math.cos
 
-	-- Y-up, X-right, Z-forward coordinate system
-	-- a.x = pitch (rotation around X axis)
-	-- a.y = yaw (rotation around Y axis)
-	-- a.z = roll (rotation around Z axis)
+	-- Coordinate system defined in orientation.lua
+	-- a.x = pitch (rotation around pitch axis)
+	-- a.y = yaw (rotation around yaw axis)
+	-- a.z = roll (rotation around roll axis)
+	-- Transform a direction vector by these angles using Euler rotation (no quat overhead)
+	-- ORIENTATION / TRANSFORMATION: Applies rotations in order: roll (Z), pitch (X), yaw (Y)
+	-- This matches the matrix multiplication order for quaternion Y*X*Z (applied right-to-left)
+	function META.GetDirection(a, x, y, z)
+		if type(x) == "table" or type(x) == "cdata" then
+			x, y, z = x.x or x[1], x.y or x[2], x.z or x[3]
+		end
+
+		local sy, cy = sin(a.y), cos(a.y)
+		local sp, cp = sin(a.x), cos(a.x)
+		local sr, cr = sin(a.z), cos(a.z)
+		-- Apply roll rotation (around Z axis)
+		local rx = x * cr - y * sr
+		local ry = x * sr + y * cr
+		local rz = z
+		-- Apply pitch rotation (around X axis)
+		local px = rx
+		local py = ry * cp - rz * sp
+		local pz = ry * sp + rz * cp
+		-- Apply yaw rotation (around Y axis)
+		local yx = px * cy + pz * sy
+		local yy = py
+		local yz = -px * sy + pz * cy
+		return Vec3(yx, yy, yz)
+	end
+
+	-- Use GetDirection with orientation module vectors for convenience
 	function META.GetForward(a)
-		return Vec3(sin(a.y) * cos(a.x), -sin(a.x), cos(a.y) * cos(a.x))
+		return a:GetDirection(orientation.GetForwardVector())
 	end
 
 	function META.GetUp(a)
-		return Vec3(
-			-sin(a.y) * sin(a.x) * cos(a.z) - cos(a.y) * sin(a.z),
-			cos(a.x) * cos(a.z),
-			-cos(a.y) * sin(a.x) * cos(a.z) + sin(a.y) * sin(a.z)
-		)
+		return a:GetDirection(orientation.GetUpVector())
 	end
 
 	function META.GetRight(a)
-		return Vec3(
-			sin(a.y) * sin(a.x) * sin(a.z) - cos(a.y) * cos(a.z),
-			cos(a.x) * sin(a.z),
-			cos(a.y) * sin(a.x) * sin(a.z) + sin(a.y) * cos(a.z)
-		)
+		return a:GetDirection(orientation.GetRightVector())
 	end
 end
 

@@ -2,6 +2,7 @@ local ffi = require("ffi")
 local render = require("graphics.render")
 local event = require("event")
 local window = require("graphics.window")
+local orientation = require("orientation")
 local Material = require("graphics.material")
 local Light = require("graphics.light")
 local Matrix44 = require("structs.matrix").Matrix44
@@ -97,11 +98,11 @@ function render3d.Initialize()
 					void main() {
 						vec4 world_pos = pc.world * vec4(in_position, 1.0);
 
-						// ORIENTATION / TRANSFORMATION
+						// ORIENTATION / TRANSFORMATION: Coordinate system defined in orientation.lua
 						gl_Position = pc.projection_view_world * vec4(in_position, 1.0);
 						out_world_pos = world_pos.xyz;
 						
-						// ORIENTATION / TRANSFORMATION
+						// ORIENTATION / TRANSFORMATION: Transform normal to world space
 						// Transform normal to world space
 						mat3 normal_matrix = mat3(pc.world);
 						out_normal = normalize(normal_matrix * in_normal);
@@ -410,8 +411,8 @@ function render3d.Initialize()
 				discard = false,
 				polygon_mode = "fill",
 				line_width = 1.0,
-				cull_mode = "back", -- ORIENTATION / TRANSFORMATION
-				front_face = "counter_clockwise",
+				cull_mode = orientation.CULL_MODE, -- ORIENTATION / TRANSFORMATION
+				front_face = orientation.FRONT_FACE,
 				depth_bias = 0,
 			},
 			color_blend = {
@@ -474,10 +475,11 @@ end
 function render3d.GetViewMatrix()
 	if render3d.view_matrix then return render3d.view_matrix end
 
-	-- ORIENTATION / TRANSFORMATION
-	view_matrix:Rotate(camera_angles.z, 0, 1, 0)
-	view_matrix:Rotate(camera_angles.y, 0, 1, 0)
-	view_matrix:Rotate(-camera_angles.x, 1, 0, 0)
+	-- ORIENTATION / TRANSFORMATION: Build view matrix using rotation helpers
+	local view_matrix = Matrix44()
+	view_matrix:RotateRoll(camera_angles.z)
+	view_matrix:RotateYaw(camera_angles.y)
+	view_matrix:RotatePitch(-camera_angles.x)
 	view_matrix:SetTranslation(-camera_position.x, camera_position.y, -camera_position.z)
 	-- View matrix is inverse of camera transform
 	render3d.view_matrix = view_matrix:GetInverse()
@@ -492,7 +494,7 @@ do
 	local cached = Matrix44()
 
 	function render3d.GetProjectionViewWorldMatrix()
-		-- ORIENTATION / TRANSFORMATION
+		-- ORIENTATION / TRANSFORMATION: Coordinate system defined in orientation.lua
 		render3d.GetProjectionMatrix():GetMultiplied(render3d.GetViewMatrix(), cached)
 		cached:GetMultiplied(camera_world, cached)
 		return cached
@@ -679,7 +681,7 @@ do
 			fragment_constants.light_color[2] = render3d.light_color[3]
 			fragment_constants.light_intensity = render3d.light_color[4]
 			-- Camera position for specular (vec3)
-			-- ORIENTATION / TRANSFORMATION
+			-- ORIENTATION / TRANSFORMATION: Using camera_position as-is
 			fragment_constants.camera_position[0] = camera_position.x
 			fragment_constants.camera_position[1] = camera_position.y
 			fragment_constants.camera_position[2] = camera_position.z
@@ -812,7 +814,7 @@ do
 			local current_frame = system.GetFrameNumber()
 
 			if cached_frustum_frame ~= current_frame then
-				-- ORIENTATION / TRANSFORMATION
+				-- ORIENTATION / TRANSFORMATION: Extract frustum from projection-view matrix
 				local proj = render3d.GetProjectionMatrix()
 				local view = render3d.GetViewMatrix()
 				local proj_view = proj:GetMultiplied(view)

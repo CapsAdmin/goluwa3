@@ -1,5 +1,6 @@
 local structs = require("structs.structs")
 local ffi = require("ffi")
+local orientation = require("orientation")
 
 -- ORIENTATION / TRANSFORMATION
 -- matrix is row-major or column-major????
@@ -509,6 +510,22 @@ do -- 44
 			self.GetMultiplied(self:Copy(), out, self)
 			return self
 		end
+
+		-- ORIENTATION / TRANSFORMATION: Helper rotation methods using orientation module
+		function META:RotatePitch(angle, out)
+			local x, y, z = orientation.GetRightVector()
+			return self:Rotate(angle, x, y, z, out)
+		end
+
+		function META:RotateYaw(angle, out)
+			local x, y, z = orientation.GetUpVector()
+			return self:Rotate(angle, x, y, z, out)
+		end
+
+		function META:RotateRoll(angle, out)
+			local x, y, z = orientation.GetForwardVector()
+			return self:Rotate(angle, x, y, z, out)
+		end
 	end
 
 	function META:Scale(x, y, z)
@@ -537,13 +554,13 @@ do -- 44
 			local xScale = yScale / aspect
 			local nearmfar = far - near
 			-- Row-major layout (will be transposed before sending to GPU)
-			-- Vulkan uses [0, 1] depth range and Y-down NDC (flip Y for Y-up world)
+			-- ORIENTATION / TRANSFORMATION: Y-flip controlled by orientation module
 			self.m00 = xScale
 			self.m01 = 0
 			self.m02 = 0
 			self.m03 = 0
 			self.m10 = 0
-			self.m11 = -yScale -- ORIENTATION / TRANSFORMATION
+			self.m11 = orientation.PROJECTION_Y_FLIP * yScale
 			self.m12 = 0
 			self.m13 = 0
 			self.m20 = 0

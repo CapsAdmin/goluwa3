@@ -1,5 +1,7 @@
 local Ang3 = require("structs.ang3")
+local Vec3 = require("structs.vec3")
 local structs = require("structs.structs")
+local orientation = require("orientation")
 local META = structs.Template("Quat")
 local ffi = require("ffi")
 local CTOR
@@ -43,44 +45,44 @@ function META.VecMul(a, b)
 	local qvec = Vec3(quat.x, quat.y, quat.z)
 	local uvec = qvec:GetCross(vec)
 	local uuvec = qvec:GetCross(uvec)
-	uvec, uuvec = uvec * 2 * a.x, uuvec * 2
+	uvec, uuvec = uvec * 2 * quat.w, uuvec * 2
 	return vec + uvec + uuvec
 end
 
 do -- ORIENTATION / TRANSFORMATION
-	-- Y-up, X-right, Z-forward coordinate system
+	-- Coordinate system defined in orientation.lua
 	function META:Right()
-		return self:VecMul(Vec3(1, 0, 0))
+		return self:VecMul(Vec3(orientation.GetRightVector()))
 	end
 
 	META.GetRight = META.Right
 
 	function META:Left()
-		return self:VecMul(Vec3(-1, 0, 0))
+		return self:VecMul(Vec3(orientation.GetLeftVector()))
 	end
 
 	META.GetLeft = META.Left
 
 	function META:Up()
-		return self:VecMul(Vec3(0, 1, 0))
+		return self:VecMul(Vec3(orientation.GetUpVector()))
 	end
 
 	META.GetUp = META.Up
 
 	function META:Down()
-		return self:VecMul(Vec3(0, -1, 0))
+		return self:VecMul(Vec3(orientation.GetDownVector()))
 	end
 
 	META.GetDown = META.Down
 
 	function META:Front()
-		return self:VecMul(Vec3(0, 0, 1))
+		return self:VecMul(Vec3(orientation.GetForwardVector()))
 	end
 
 	META.GetFront = META.Front
 
 	function META:Back()
-		return self:VecMul(Vec3(0, 0, -1))
+		return self:VecMul(Vec3(orientation.GetBackwardVector()))
 	end
 
 	META.GetBack = META.Back
@@ -144,13 +146,18 @@ end
 structs.AddGetFunc(META, "Normalize", "Normalized")
 
 -- https://github.com/grrrwaaa/gct753/blob/master/modules/quat.lua#L193
+-- ORIENTATION / TRANSFORMATION: Converts Euler angles to quaternion
+-- ang.x = pitch (rotation around X/right axis)
+-- ang.y = yaw (rotation around Y/up axis)
+-- ang.z = roll (rotation around Z/forward axis)
+-- Applies rotations in order: Yaw * Pitch * Roll (Y * X * Z)
 function META:SetAngles(ang)
-	local c1 = math.cos(ang.z * 0.5)
-	local c2 = math.cos(ang.x * 0.5)
-	local c3 = math.cos(ang.y * 0.5)
-	local s1 = math.sin(ang.z * 0.5)
+	local c1 = math.cos(ang.y * 0.5) -- yaw (Y-axis rotation)
+	local c2 = math.cos(ang.x * 0.5) -- pitch (X-axis rotation)
+	local c3 = math.cos(ang.z * 0.5) -- roll (Z-axis rotation)
+	local s1 = math.sin(ang.y * 0.5)
 	local s2 = math.sin(ang.x * 0.5)
-	local s3 = math.sin(ang.y * 0.5)
+	local s3 = math.sin(ang.z * 0.5)
 	-- equiv Q1 = Qy * Qx; -- since many terms are zero
 	local tw = c1 * c2
 	local tx = c1 * s2
