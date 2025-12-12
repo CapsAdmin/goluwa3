@@ -188,3 +188,98 @@ test("Quat GetDoublePointer", function()
 	ok(ptr[2] == 3, "double pointer z should be 3")
 	ok(ptr[3] == 4, "double pointer w should be 4")
 end)
+
+test("Quat Rotate around X axis", function()
+	local q = Quat()
+	q:Identity()
+	local angle = math.pi / 2 -- 90 degrees
+	q:Rotate(angle, 1, 0, 0) -- Rotate around X axis
+	ok(q.x ~= 0, "x component should be non-zero after X rotation")
+	ok(math.abs(q:GetLength() - 1) < 0.0001, "quat should remain unit length after rotation")
+end)
+
+test("Quat Rotate around Y axis", function()
+	local q = Quat()
+	q:Identity()
+	local angle = math.pi / 2 -- 90 degrees
+	q:Rotate(angle, 0, 1, 0) -- Rotate around Y axis
+	ok(q.y ~= 0, "y component should be non-zero after Y rotation")
+	ok(math.abs(q:GetLength() - 1) < 0.0001, "quat should remain unit length after rotation")
+end)
+
+test("Quat Rotate around Z axis", function()
+	local q = Quat()
+	q:Identity()
+	local angle = math.pi / 2 -- 90 degrees
+	q:Rotate(angle, 0, 0, 1) -- Rotate around Z axis
+	ok(q.z ~= 0, "z component should be non-zero after Z rotation")
+	ok(math.abs(q:GetLength() - 1) < 0.0001, "quat should remain unit length after rotation")
+end)
+
+test("Quat Rotate modifies quaternion in place", function()
+	local q = Quat()
+	q:Identity()
+	local original_w = q.w
+	q:Rotate(0.1, 1, 0, 0) -- Small rotation around X
+	ok(q.w ~= original_w, "w should change after rotation")
+	ok(q.x ~= 0, "x should be non-zero after X rotation")
+end)
+
+test("Quat RotatePitch", function()
+	local q = Quat()
+	q:Identity()
+	local angle = math.pi / 4 -- 45 degrees
+	q:RotatePitch(angle)
+	ok(math.abs(q:GetLength() - 1) < 0.0001, "quat should remain unit length")
+	-- Pitch should modify the quaternion
+	ok(
+		not (q.x == 0 and q.y == 0 and q.z == 0 and q.w == 1),
+		"quat should change from identity"
+	)
+end)
+
+test("Quat RotateYaw", function()
+	local q = Quat()
+	q:Identity()
+	local angle = math.pi / 4 -- 45 degrees
+	q:RotateYaw(angle)
+	ok(math.abs(q:GetLength() - 1) < 0.0001, "quat should remain unit length")
+	ok(
+		not (q.x == 0 and q.y == 0 and q.z == 0 and q.w == 1),
+		"quat should change from identity"
+	)
+end)
+
+test("Quat RotateRoll", function()
+	local q = Quat()
+	q:Identity()
+	local angle = math.pi / 4 -- 45 degrees
+	q:RotateRoll(angle)
+	ok(math.abs(q:GetLength() - 1) < 0.0001, "quat should remain unit length")
+	ok(
+		not (q.x == 0 and q.y == 0 and q.z == 0 and q.w == 1),
+		"quat should change from identity"
+	)
+end)
+
+test("Quat multiple rotations", function()
+	local q = Quat()
+	q:Identity()
+	q:RotatePitch(0.1)
+	q:RotateYaw(0.2)
+	q:RotateRoll(0.3)
+	ok(
+		math.abs(q:GetLength() - 1) < 0.0001,
+		"quat should remain unit length after multiple rotations"
+	)
+end)
+
+test("Quat Rotate with zero angle", function()
+	local q = Quat()
+	q:Identity()
+	q:Rotate(0, 1, 0, 0)
+	ok(
+		q.x == 0 and q.y == 0 and q.z == 0 and q.w == 1,
+		"zero rotation should not change identity quat"
+	)
+end)

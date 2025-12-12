@@ -34,7 +34,7 @@ function META.__mul(a, b)
 	local x = a.w * b.x + a.x * b.w + a.y * b.z - a.z * b.y
 	local y = a.w * b.y + a.y * b.w + a.z * b.x - a.x * b.z
 	local z = a.w * b.z + a.z * b.w + a.x * b.y - a.y * b.x
-	return CTOR(y, x, z, w)
+	return CTOR(x, y, z, w)
 end
 
 function META.VecMul(a, b)
@@ -150,24 +150,25 @@ structs.AddGetFunc(META, "Normalize", "Normalized")
 -- ang.x = pitch (rotation around X/right axis)
 -- ang.y = yaw (rotation around Y/up axis)
 -- ang.z = roll (rotation around Z/forward axis)
--- Applies rotations in order: Yaw * Pitch * Roll (Y * X * Z)
+-- Applies rotations in order: Roll * Pitch * Yaw (Z * X * Y)
+-- This matches Ang3:GetDirection order for consistency
 function META:SetAngles(ang)
-	local c1 = math.cos(ang.y * 0.5) -- yaw (Y-axis rotation)
+	local c1 = math.cos(ang.z * 0.5) -- roll (Z-axis rotation)
 	local c2 = math.cos(ang.x * 0.5) -- pitch (X-axis rotation)
-	local c3 = math.cos(ang.z * 0.5) -- roll (Z-axis rotation)
-	local s1 = math.sin(ang.y * 0.5)
+	local c3 = math.cos(ang.y * 0.5) -- yaw (Y-axis rotation)
+	local s1 = math.sin(ang.z * 0.5)
 	local s2 = math.sin(ang.x * 0.5)
-	local s3 = math.sin(ang.z * 0.5)
-	-- equiv Q1 = Qy * Qx; -- since many terms are zero
+	local s3 = math.sin(ang.y * 0.5)
+	-- equiv Q1 = Qz * Qx; -- since many terms are zero
 	local tw = c1 * c2
 	local tx = c1 * s2
-	local ty = s1 * c2
-	local tz = -s1 * s2
-	-- equiv Q2 = Q1 * Qz; -- since many terms are zero
-	self.x = tx * c3 + ty * s3
-	self.y = ty * c3 - tx * s3
-	self.z = tw * s3 + tz * c3
-	self.w = tw * c3 - tz * s3
+	local ty = -s1 * s2
+	local tz = s1 * c2
+	-- equiv Q2 = Q1 * Qy; -- since many terms are zero
+	self.x = tx * c3 + tz * s3
+	self.y = tw * s3 + ty * c3
+	self.z = tz * c3 - tx * s3
+	self.w = tw * c3 - ty * s3
 	return self
 end
 
@@ -291,6 +292,79 @@ do
 			)
 		end
 	end
+end
+
+-- Convert quaternion to a rotation matrix
+function META:GetMatrix()
+	local Matrix44 = require("structs.matrix").Matrix44
+	local m = Matrix44()
+	local xx = self.x * self.x
+	local xy = self.x * self.y
+	local xz = self.x * self.z
+	local xw = self.x * self.w
+	local yy = self.y * self.y
+	local yz = self.y * self.z
+	local yw = self.y * self.w
+	local zz = self.z * self.z
+	local zw = self.z * self.w
+	m.m00 = 1 - 2 * (yy + zz)
+	m.m01 = 2 * (xy - zw)
+	m.m02 = 2 * (xz + yw)
+	m.m03 = 0
+	m.m10 = 2 * (xy + zw)
+	m.m11 = 1 - 2 * (xx + zz)
+	m.m12 = 2 * (yz - xw)
+	m.m13 = 0
+	m.m20 = 2 * (xz - yw)
+	m.m21 = 2 * (yz + xw)
+	m.m22 = 1 - 2 * (xx + yy)
+	m.m23 = 0
+	m.m30 = 0
+	m.m31 = 0
+	m.m32 = 0
+	m.m33 = 1
+	return m
+end
+
+-- Rotate quaternion by angle around axis
+function META:Rotate(angle, x, y, z)
+	if angle == 0 then return self end
+
+	-- Normalize axis vector
+	local mag = math.sqrt(x * x + y * y + z * z)
+
+	if mag <= 1.0e-4 then return self end
+
+	x = x / mag
+	y = y / mag
+	z = z / mag
+	-- Create rotation quaternion from axis-angle
+	local half_angle = angle * 0.5
+	local s = math.sin(half_angle)
+	local rotation = CTOR(x * s, y * s, z * s, math.cos(half_angle))
+	-- Multiply self by rotation quaternion
+	local result = self * rotation
+	self.x = result.x
+	self.y = result.y
+	self.z = result.z
+	self.w = result.w
+	return self
+end
+
+-- ORIENTATION / TRANSFORMATION: Helper rotation methods using orientation module
+function META:RotatePitch(angle)
+	local x, y, z = orientation.GetRightVector()
+	return self:Rotate(angle, x, y, z)
+end
+
+function META:RotateYaw(angle)
+	local x, y, z = orientation.GetUpVector()
+	return self:Rotate(angle, x, y, z)
+end
+
+function META:RotateRoll(angle)
+	local x, y, z = orientation.GetForwardVector()
+	return self:Rotate(angle, x, y, z)
 end
 
 CTOR = structs.Register(META)

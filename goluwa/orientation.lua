@@ -23,7 +23,7 @@ orientation.ROLL_AXIS = orientation.FORWARD_AXIS -- Rotation around Z (forward) 
 -- Vulkan uses Y-down NDC, so we flip Y for Y-up worlds
 orientation.PROJECTION_Y_FLIP = -1 -- Set to 1 for Y-up NDC (OpenGL), -1 for Y-down NDC (Vulkan)
 -- Face winding order for culling
-orientation.CULL_MODE = "back"
+orientation.CULL_MODE = "front"
 orientation.FRONT_FACE = "counter_clockwise"
 
 -- Helper to get axis vector as unpacked x, y, z

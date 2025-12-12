@@ -677,6 +677,20 @@ do -- 44
 		return self
 	end
 
+	function META:SetRotationFromMatrix(m)
+		-- Copy rotation part (upper-left 3x3) from another matrix
+		self.m00 = m.m00
+		self.m01 = m.m01
+		self.m02 = m.m02
+		self.m10 = m.m10
+		self.m11 = m.m11
+		self.m12 = m.m12
+		self.m20 = m.m20
+		self.m21 = m.m21
+		self.m22 = m.m22
+		return self
+	end
+
 	function META:RotateQuat(q)
 		self:Multiply(Matrix44():SetRotation(q))
 	end

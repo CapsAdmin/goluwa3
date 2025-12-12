@@ -15,6 +15,6 @@ do
 end
 
 require("game.test_2d")
---require("game.test_occlusion")
-require("game.test_gltf")
+require("game.test_occlusion")
+--require("game.test_gltf")
 require("game.debug")

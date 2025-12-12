@@ -45,6 +45,5 @@ local sun, sun_entity = Light.CreateDirectional(
 	}
 )
 render3d.SetSunLight(sun)
-render3d.SetCameraPosition(Vec3(0, 0, 0))
-render3d.SetCameraAngles(Ang3(0, 0, 0))
+--render3d.SetCameraPosition(Vec3(0, 0, 0))
 render3d.SetCameraFOV(1.2)

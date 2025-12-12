@@ -20,32 +20,30 @@ do -- ORIENTATION / TRANSFORMATION
 	-- a.y = yaw (rotation around yaw axis)
 	-- a.z = roll (rotation around roll axis)
 	-- Transform a direction vector by these angles using Euler rotation (no quat overhead)
-	-- ORIENTATION / TRANSFORMATION: Applies rotations in order: roll (Z), pitch (X), yaw (Y)
-	-- This matches the matrix multiplication order for quaternion Y*X*Z (applied right-to-left)
+	-- ORIENTATION / TRANSFORMATION: Applies rotations in order: yaw (Y), pitch (X), roll (Z)
+	-- This matches the view matrix rotation order for consistent camera behavior
 	function META.GetDirection(a, x, y, z)
 		if type(x) == "table" or type(x) == "cdata" then
 			x, y, z = x.x or x[1], x.y or x[2], x.z or x[3]
 		end
 
 		local sy, cy = sin(a.y), cos(a.y)
-		local sp, cp = sin(a.x), cos(a.x)
+		local sp, cp = sin(-a.x), cos(-a.x) -- Negate pitch for correct up/down
 		local sr, cr = sin(a.z), cos(a.z)
-		-- Apply roll rotation (around Z axis)
-		local rx = x * cr - y * sr
-		local ry = x * sr + y * cr
-		local rz = z
-		-- Apply pitch rotation (around X axis)
-		local px = rx
-		local py = ry * cp - rz * sp
-		local pz = ry * sp + rz * cp
 		-- Apply yaw rotation (around Y axis)
-		local yx = px * cy + pz * sy
-		local yy = py
-		local yz = -px * sy + pz * cy
-		return Vec3(yx, yy, yz)
-	end
-
-	-- Use GetDirection with orientation module vectors for convenience
+		local yx = x * cy + z * sy
+		local yy = y
+		local yz = -x * sy + z * cy
+		-- Apply pitch rotation (around X axis)
+		local px = yx
+		local py = yy * cp - yz * sp
+		local pz = yy * sp + yz * cp
+		-- Apply roll rotation (around Z axis)
+		local rx = px * cr - py * sr
+		local ry = px * sr + py * cr
+		local rz = pz
+		return Vec3(rx, ry, rz)
+	end -- Use GetDirection with orientation module vectors for convenience
 	function META.GetForward(a)
 		return a:GetDirection(orientation.GetForwardVector())
 	end

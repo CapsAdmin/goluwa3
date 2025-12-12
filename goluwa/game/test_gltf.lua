@@ -43,6 +43,5 @@ render3d.SetSunLight(sun)
 
 if false then
 	render3d.SetCameraPosition(Vec3(0, 0.5, 0))
-	render3d.SetCameraAngles(Ang3(-0.4, -1.5, 0))
 	render3d.SetCameraFOV(0.9)
 end

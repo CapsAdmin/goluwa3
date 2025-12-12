@@ -8,6 +8,7 @@ local Light = require("graphics.light")
 local Matrix44 = require("structs.matrix").Matrix44
 local Vec3 = require("structs.vec3")
 local Ang3 = require("structs.ang3")
+local Quat = require("structs.quat")
 local Rect = require("structs.rect")
 local VertexConstants = ffi.typeof([[
 	struct {
@@ -454,14 +455,13 @@ function render3d.Initialize()
 	end
 end
 
-local camera_position = Vec3(0, 0, 0)
-local camera_angles = Ang3(0, 0, 0)
 local camera_fov = math.pi / 2
 local camera_zoom = 1
 local camera_near_z = 0.1
 local camera_far_z = 32000
 local camera_viewport = Rect(0, 0, 1000, 1000)
 local camera_world = Matrix44()
+local camera_view = Matrix44()
 
 function render3d.GetProjectionMatrix()
 	if render3d.projection_matrix then return render3d.projection_matrix end
@@ -473,21 +473,11 @@ function render3d.GetProjectionMatrix()
 end
 
 function render3d.GetViewMatrix()
-	if render3d.view_matrix then return render3d.view_matrix end
-
-	-- ORIENTATION / TRANSFORMATION: Build view matrix using rotation helpers
-	local view_matrix = Matrix44()
-	view_matrix:RotateRoll(camera_angles.z)
-	view_matrix:RotateYaw(camera_angles.y)
-	view_matrix:RotatePitch(-camera_angles.x)
-	view_matrix:SetTranslation(-camera_position.x, camera_position.y, -camera_position.z)
-	-- View matrix is inverse of camera transform
-	render3d.view_matrix = view_matrix:GetInverse()
-	return render3d.view_matrix
+	return camera_view
 end
 
 function render3d.SetViewMatrix(view)
-	render3d.view_matrix = view
+	camera_view = view
 end
 
 do
@@ -502,26 +492,15 @@ do
 end
 
 function render3d.SetWorldMatrix(world)
-	assert(world)
 	camera_world = world
 end
 
 function render3d.GetCameraPosition()
-	return camera_position
-end
-
-function render3d.SetCameraPosition(pos)
-	camera_position = pos
-	render3d.view_matrix = nil
+	return Vec3(camera_view:GetTranslation())
 end
 
 function render3d.GetCameraAngles()
-	return camera_angles
-end
-
-function render3d.SetCameraAngles(ang)
-	camera_angles = ang
-	render3d.view_matrix = nil
+	return camera_view:GetAngles()
 end
 
 function render3d.GetCameraFOV()
@@ -682,6 +661,7 @@ do
 			fragment_constants.light_intensity = render3d.light_color[4]
 			-- Camera position for specular (vec3)
 			-- ORIENTATION / TRANSFORMATION: Using camera_position as-is
+			local camera_position = render3d.GetCameraPosition()
 			fragment_constants.camera_position[0] = camera_position.x
 			fragment_constants.camera_position[1] = camera_position.y
 			fragment_constants.camera_position[2] = camera_position.z
