@@ -63,11 +63,8 @@ T.test("sockets HTTP server and client communication", function()
 	local client_response = nil
 	-- Create server
 	local server = sockets.HTTPServer()
-	local ok = server:Host("*", test_port)
+	assert(server:Host("*", test_port))
 	test_port = test_port + 1
-
-	if not ok then -- Skip test if can't bind port
-	return end
 
 	function server:OnReceiveRequest(client, method, path)
 		received_request = {method = method, path = path}
@@ -99,18 +96,23 @@ T.test("sockets HTTP server and client communication", function()
 
 	client:Request("GET", "http://127.0.0.1:" .. (test_port - 1) .. "/test")
 	-- Wait for response
-	local success = T.run_until(function()
-		return done
-	end, 2.0)
-	-- Cleanup
-	server:Close()
-	T(success)["=="](true)
-	T(received_request)["~="](nil)
-	T(received_request.method)["=="]("GET")
-	T(received_request.path)["=="]("/test")
-	T(client_response)["~="](nil)
-	T(client_response.code)["=="](200)
-	T(client_response.body)["=="]("Hello, World!")
+	local success = T.run_until(
+		function()
+			if done then
+				-- Cleanup
+				server:Close()
+				T(success)["=="](true)
+				T(received_request)["~="](nil)
+				T(received_request.method)["=="]("GET")
+				T(received_request.path)["=="]("/test")
+				T(client_response)["~="](nil)
+				T(client_response.code)["=="](200)
+				T(client_response.body)["=="]("Hello, World!")
+				return true
+			end
+		end,
+		2.0
+	)
 end)
 
 T.test("sockets HTTP POST request with body", function()
@@ -148,13 +150,18 @@ T.test("sockets HTTP POST request with body", function()
 	end
 
 	client:Request("POST", "http://127.0.0.1:" .. (test_port - 1) .. "/api", {}, "test data")
-	local success = T.run_until(function()
-		return done
-	end, 2.0)
-	server:Close()
-	T(success)["=="](true)
-	T(received_body)["=="]("test data")
-	T(client_response)["=="]("Received: test data")
+	local success = T.run_until(
+		function()
+			if done then
+				server:Close()
+				T(success)["=="](true)
+				T(received_body)["=="]("test data")
+				T(client_response)["=="]("Received: test data")
+				return true
+			end
+		end,
+		2.0
+	)
 end)
 
 T.test("sockets.Request wrapper function", function()
@@ -163,10 +170,8 @@ T.test("sockets.Request wrapper function", function()
 	local server_got_request = false
 	-- Create server
 	local server = sockets.HTTPServer()
-	local ok = server:Host("*", test_port)
+	assert(server:Host("*", test_port))
 	test_port = test_port + 1
-
-	if not ok then return end
 
 	function server:OnReceiveRequest(client, method, path)
 		server_got_request = true
@@ -190,25 +195,28 @@ T.test("sockets.Request wrapper function", function()
 			end,
 		}
 	)
-	local success = T.run_until(function()
-		return done
-	end, 2.0)
-	server:Close()
-	T(success)["=="](true)
-	T(server_got_request)["=="](true)
-	T(result)["~="](nil)
-	T(result.code)["=="](200)
-	T(result.body)["~="](nil)
+	local success = T.run_until(
+		function()
+			if done then
+				server:Close()
+				T(success)["=="](true)
+				T(server_got_request)["=="](true)
+				T(result)["~="](nil)
+				T(result.code)["=="](200)
+				T(result.body)["~="](nil)
+				return true
+			end
+		end,
+		2.0
+	)
 end)
 
 T.test("sockets.Request with custom headers", function()
 	local done = false
 	local received_headers = nil
 	local server = sockets.HTTPServer()
-	local ok = server:Host("*", test_port)
+	assert(server:Host("*", test_port))
 	test_port = test_port + 1
-
-	if not ok then return end
 
 	function server:OnReceiveHeader(client, header)
 		received_headers = header
@@ -232,14 +240,21 @@ T.test("sockets.Request with custom headers", function()
 			end,
 		}
 	)
-	local success = T.run_until(function()
-		return done
-	end, 2.0)
-	server:Close()
-	T(success)["=="](true)
-	T(received_headers)["~="](nil)
-	T(received_headers["x-custom-header"])["=="]("test-value")
-	T(received_headers["user-agent"])["=="]("Goluwa-Test")
+	local success = T.run_until(
+		function()
+			if done then
+				server:Close()
+				T(success)["=="](true)
+				T(received_headers)["~="](nil)
+				T(received_headers["x-custom-header"])["=="]("test-value")
+				T(received_headers["user-agent"])["=="]("Goluwa-Test")
+				return true
+			end
+
+			return done
+		end,
+		2.0
+	)
 end)
 
 T.test("sockets HTTP chunked body receiving", function()
@@ -247,10 +262,8 @@ T.test("sockets HTTP chunked body receiving", function()
 	local chunks = {}
 	local final_body = nil
 	local server = sockets.HTTPServer()
-	local ok = server:Host("*", test_port)
+	assert(server:Host("*", test_port))
 	test_port = test_port + 1
-
-	if not ok then return end
 
 	function server:OnReceiveHeader(client, header)
 		-- Send a response that will come in chunks
@@ -276,12 +289,17 @@ T.test("sockets HTTP chunked body receiving", function()
 	end
 
 	client:Request("GET", "http://127.0.0.1:" .. (test_port - 1) .. "/test")
-	local success = T.run_until(function()
-		return done
-	end, 2.0)
-	server:Close()
-	T(success)["=="](true)
-	T(#chunks)[">="](1)
-	T(final_body)["~="](nil)
-	T(#final_body)["=="](1000)
+	local success = T.run_until(
+		function()
+			if done then
+				server:Close()
+				T(success)["=="](true)
+				T(#chunks)[">="](1)
+				T(final_body)["~="](nil)
+				T(#final_body)["=="](1000)
+				return true
+			end
+		end,
+		2.0
+	)
 end)

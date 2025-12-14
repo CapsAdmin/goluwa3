@@ -1,4 +1,9 @@
-local tasks = _G.tasks or {}
+local timer = require("timer")
+local event = require("event")
+local system = require("system")
+local prototype = require("prototype")
+local callstack = require("helpers.callstack")
+local tasks = {}
 tasks.max = 4
 tasks.coroutine_lookup = tasks.coroutine_lookup or table.weak()
 tasks.created = tasks.created or table.weak()
@@ -37,7 +42,7 @@ function META:Start(now, ...)
 	self.progress = {}
 
 	if not tasks.IsEnabled() then
-		local ok, err = system.pcall(self.OnStart, self, ...)
+		local ok, err = callstack.pcall(self.OnStart, self, ...)
 
 		if not ok then
 			if self.OnError then
@@ -47,7 +52,7 @@ function META:Start(now, ...)
 			end
 		end
 
-		local ok, err = system.pcall(self.OnFinish, self)
+		local ok, err = callstack.pcall(self.OnFinish, self)
 
 		if not ok then
 			if self.OnError then
@@ -70,13 +75,26 @@ function META:Start(now, ...)
 	self.Running = true
 	self.run_me = nil
 	local co = coroutine.create(function(...)
-		return select(2, system.pcall(self.OnStart, ...))
+		return select(2, callstack.pcall(self.OnStart, ...))
 	end)
 	tasks.coroutine_lookup[co] = self
 	self.co = co
 	local start = function()
+		if self.debug then print("[task debug] start() called") end
+
 		if not self:IsValid() then return false end -- removed
 		local time = system.GetElapsedTime()
+
+		if self.debug then
+			print(
+				string.format(
+					"[task debug] time=%.3f wait=%.3f time>wait=%s",
+					time,
+					self.wait,
+					tostring(time > self.wait)
+				)
+			)
+		end
 
 		if self.debug then
 			if next(self.progress) then
@@ -94,6 +112,9 @@ function META:Start(now, ...)
 		end
 
 		if time > self.wait then
+			-- Check if coroutine is already dead before trying to resume
+			if coroutine.status(co) == "dead" then return false end
+
 			local ok, res, err = coroutine.resume(co, self)
 
 			if coroutine.status(co) == "dead" then
@@ -302,33 +323,6 @@ do
 			return old(arg, ...)
 		end
 	end
-end
-
-if sockets then -- not sure where this belongs
-	tasks.WrapCallback(http, "Download")
-
-	event.AddListener("SocketRequest", "socket_tasks", function(info)
-		if not info.callback and tasks.GetActiveTask() then
-			local data
-			local err
-			info.callback = function(val)
-				data = val
-			end
-			info.error_callback = function(val)
-				err = val
-			end
-			info.timedout_callback = function(val)
-				err = val
-			end
-			sockets.Request(info)
-
-			while not data and not err do
-				tasks.Wait()
-			end
-
-			return data, err
-		end
-	end)
 end
 
 return tasks

@@ -45,7 +45,7 @@ return function(sockets)
 
 		if ok then
 			self.hosting = true
-			return
+			return true
 		end
 
 		return self:Error("Unable host " .. host .. ":" .. service .. " - " .. err)
@@ -76,7 +76,7 @@ return function(sockets)
 
 	function META:Error(message, ...)
 		self:OnError(message, ...)
-		return false
+		return false, message
 	end
 
 	function META:OnError(str, tr)

@@ -1,4 +1,6 @@
 local callback = _G.callback or {}
+local timer = require("timer")
+local tasks = require("tasks")
 
 do
 	local meta = {}
@@ -48,7 +50,7 @@ do
 		end
 
 		for _, cb in ipairs(self.funcs.resolved) do
-			local ok, err, err2 = system.pcall(cb, ...)
+			local ok, err, err2 = pcall(cb, ...)
 
 			if not ok then return self:Reject(err) end
 
@@ -182,7 +184,7 @@ do
 				return self:Reject(...)
 			elseif self.funcs[key] then
 				for _, cb in ipairs(self.funcs[key]) do
-					local ok, ret, err = system.pcall(cb, ...)
+					local ok, ret, err = pcall(cb, ...)
 
 					if not ok or ret == false and err then return self:Reject(err) end
 				end
@@ -249,7 +251,9 @@ function callback.WrapKeyedTask(create_callback, max, queue_callback, start_on_c
 			end
 		end
 
-		if tasks.GetActiveTask() then return callbacks[key]:Get() end
+		if tasks and tasks.GetActiveTask and tasks.GetActiveTask() then
+			return callbacks[key]:Get()
+		end
 
 		return callbacks[key]
 	end

@@ -90,4 +90,17 @@ do
 	end
 end
 
+local function on_error(msg)
+	local sep = "\n  "
+	local lines = callstack.format(callstack.traceback(""))
+
+	if not lines[1] then return msg end
+
+	return msg .. sep .. table.concat(lines, sep)
+end
+
+function callstack.pcall(func, ...)
+	return xpcall(func, on_error, ...)
+end
+
 return callstack

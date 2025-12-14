@@ -5,7 +5,7 @@ list.pack = _G.table.pack or
 		t.n = select("#", ...)
 		return t
 	end
-list.unpack = _G.table.unpack
+list.unpack = _G.table.unpack or _G.unpack
 list.insert = _G.table.insert
 list.remove = _G.table.remove
 list.move = _G.table.move
