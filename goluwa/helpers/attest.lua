@@ -1,3 +1,4 @@
+local diff = require("helpers.diff")
 local attest = {}
 
 function attest.equal(a, b)
@@ -28,7 +29,7 @@ function attest.almost_equal(a, b, epsilon)
 	epsilon = epsilon or 0.0001
 
 	if type(a) ~= "number" or type(b) ~= "number" then
-		error("almost_equal requires numbers, got " .. type(a) .. " and " .. type(b), 2)
+		error("AlmostEqual requires numbers, got " .. type(a) .. " and " .. type(b), 2)
 	end
 
 	if math.abs(a - b) >= epsilon then
@@ -47,7 +48,7 @@ function attest.almost_equal(a, b, epsilon)
 	return true
 end
 
--- Alias for almost_equal
+-- Alias for AlmostEqual
 attest.close = attest.almost_equal
 
 function attest.in_range(value, min, max)
@@ -95,7 +96,7 @@ end
 
 function attest.match(str, pattern)
 	if type(str) ~= "string" then
-		error("match requires a string, got " .. type(str), 2)
+		error("Match requires a string, got " .. type(str), 2)
 	end
 
 	if not str:match(pattern) then
@@ -119,7 +120,7 @@ end
 
 function attest.fails(func, expected_pattern)
 	if type(func) ~= "function" then
-		error("fails requires a function, got " .. type(func), 2)
+		error("Fails requires a function, got " .. type(func), 2)
 	end
 
 	local ok, err = pcall(func)
@@ -136,7 +137,7 @@ function attest.fails(func, expected_pattern)
 	return true
 end
 
--- Alias for fails
+-- Alias for Fails
 attest.throws = attest.fails
 
 function attest.diff(input, expect)
@@ -147,26 +148,35 @@ function attest.ok(b)
 	if not b then error("not ok!", 2) end
 end
 
-function attest.binary_op(a, op, b)
-	if op == "==" then
-		return attest.equal(a, b)
-	elseif op == "~=" then
-		return attest.not_equal(a, b)
-	elseif op == "<" then
-		return attest.less(a, b)
-	elseif op == "<=" then
-		return attest.less_or_equal(a, b)
-	elseif op == ">" then
-		return attest.greater(a, b)
-	elseif op == ">=" then
-		return attest.greater_or_equal(a, b)
-	elseif op == "almost_equal" then
-		return attest.almost_equal(a, b)
-	elseif op == "in_range" then
-		return attest.in_range(a, b[1], b[2])
-	else
-		error("unknown binary operator: " .. tostring(op), 2)
-	end
+function attest.AssertHelper(val)
+	return setmetatable(
+		{},
+		{
+			__index = function(_, op)
+				return function(expected)
+					if op == "==" then
+						attest.equal(val, expected)
+					elseif op == "~=" then
+						attest.not_equal(val, expected)
+					elseif op == ">" then
+						attest.greater(val, expected)
+					elseif op == ">=" then
+						attest.greater_or_equal(val, expected)
+					elseif op == "<" then
+						attest.less(val, expected)
+					elseif op == "<=" then
+						attest.less_or_equal(val, expected)
+					elseif op == "~" or op == "close" then
+						attest.almost_equal(val, expected)
+					elseif op == "match" then
+						attest.match(val, expected)
+					else
+						error("Unknown operator: " .. tostring(op), 2)
+					end
+				end
+			end,
+		}
+	)
 end
 
 --setmetatable(attest, function() end)

@@ -1,15 +1,16 @@
 require("goluwa.global_environment")
+local test = require("goluwa.helpers.test")
+local attest = require("goluwa.helpers.attest")
 local filter = nil
 local logging = true
 local profiling = false
 local profiling_mode = nil
-require("test.environment")
-_G.begin_tests(logging, profiling, profiling_mode)
-local tests = _G.find_tests(filter)
-_G.set_test_paths(tests)
+test.BeginTests(logging, profiling, profiling_mode)
+local tests = test.FindTests(filter)
+test.SetTestPaths(tests)
 
-for _, test in ipairs(tests) do
-	_G.run_single_test(test)
+for _, test_item in ipairs(tests) do
+	test.RunSingleTest(test_item)
 end
 
-_G.end_tests()
+test.EndTests()

@@ -1,4 +1,4 @@
-require("test.environment")
+local T = require("test.t")
 local ffi = require("ffi")
 local Buffer = require("structs.buffer")
 local png_decode = require("file_formats.png.decode")
@@ -13,19 +13,18 @@ local function load_png_file(path)
 	return Buffer.New(file_buffer_data, #file_data)
 end
 
-test("PNG decode basic functionality", function()
+T.test("PNG decode basic functionality", function()
 	local file_buffer = load_png_file("game/assets/images/capsadmin.png")
 	local img = png_decode(file_buffer)
-	attest.ok(img.width > 0)
-	attest.ok(img.height > 0)
-	attest.not_equal(img.depth, nil)
-	attest.not_equal(img.colorType, nil)
-	attest.ok(img.buffer:GetSize() > 0)
-	local expected_size = img.width * img.height * 4
-	attest.equal(img.buffer:GetSize(), expected_size)
+	T(img.width)[">"](0)
+	T(img.height)[">"](0)
+	T(img.depth)["~="](nil)
+	T(img.colorType)["~="](nil)
+	T(img.buffer:GetSize())[">"](0)
+	T(img.buffer:GetSize())["=="](img.width * img.height * 4)
 end)
 
-test("PNG decode capsadmin.png average color", function()
+T.test("PNG decode capsadmin.png average color", function()
 	local file_buffer = load_png_file("game/assets/images/capsadmin.png")
 	local img = png_decode(file_buffer)
 	img.buffer:SetPosition(0)
@@ -46,15 +45,15 @@ test("PNG decode capsadmin.png average color", function()
 		max_b = math.max(max_b, b)
 	end
 
-	attest.ok(non_black_pixels > 0)
+	T(non_black_pixels)[">"](0)
 	local max_channel = math.max(max_r, max_g, max_b)
-	attest.ok(max_channel > 0)
+	T(max_channel)[">"](0)
 end)
 
-test("PNG decode RGB image has correct alpha channel", function()
+T.test("PNG decode RGB image has correct alpha channel", function()
 	local file_buffer = load_png_file("game/assets/images/capsadmin.png")
 	local img = png_decode(file_buffer)
-	attest.equal(img.colorType, 2)
+	T(img.colorType)["=="](2)
 	img.buffer:SetPosition(0)
 	local pixel_count = img.width * img.height
 	local incorrect_alpha_count = 0
@@ -68,5 +67,5 @@ test("PNG decode RGB image has correct alpha channel", function()
 		if a ~= 255 then incorrect_alpha_count = incorrect_alpha_count + 1 end
 	end
 
-	attest.equal(incorrect_alpha_count, 0)
+	T(incorrect_alpha_count)["=="](0)
 end)
