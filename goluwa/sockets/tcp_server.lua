@@ -39,7 +39,6 @@ return function(sockets)
 	end
 
 	function META:Host(host, service)
-		local info = ljsocket.find_first_address(host, service)
 		local ok, err = self.socket:bind(host, service)
 
 		if ok then ok, err = self.socket:listen() end

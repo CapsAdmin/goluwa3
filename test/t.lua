@@ -1,3 +1,4 @@
+require("goluwa.global_environment")
 local test = require("helpers.test")
 local attest = require("helpers.attest")
 local T = setmetatable(

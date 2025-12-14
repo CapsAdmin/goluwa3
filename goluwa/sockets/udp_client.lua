@@ -30,13 +30,15 @@ return function(sockets)
 	end
 
 	function META:SetAddress(host, port)
-		self.address = ljsocket.find_first_address(host, port)
+		self.address = ljsocket.find_first_address_info(host, port, nil, "inet", "dgram", "udp")
 	end
 
 	function META:Send(data, host, port)
 		local address = self.address
 
-		if host then address = ljsocket.find_first_address(host, port) end
+		if host then
+			address = ljsocket.find_first_address_info(host, port, nil, "inet", "dgram", "udp")
+		end
 
 		return self.socket:send_to(address, data)
 	end
