@@ -135,4 +135,9 @@ function system.IsTTY()
 	return true
 end
 
+local sleep = require("bindings.threads").sleep -- in ms
+function system.Sleep(seconds)
+	sleep(seconds * 1000)
+end
+
 return system

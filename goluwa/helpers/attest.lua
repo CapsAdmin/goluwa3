@@ -1,5 +1,6 @@
 local diff = require("helpers.diff")
 local attest = {}
+local LEVEL = 3
 
 function attest.equal(a, b)
 	if a ~= b then
@@ -7,7 +8,7 @@ function attest.equal(a, b)
 
 		if type(b) == "string" then b = string.format("%q", b) end
 
-		error("\n" .. tostring(a) .. " ~= " .. tostring(b), 2)
+		error("\n" .. tostring(a) .. " ~= " .. tostring(b), LEVEL)
 	end
 
 	return true
@@ -19,7 +20,7 @@ function attest.not_equal(a, b)
 
 		if type(b) == "string" then b = string.format("%q", b) end
 
-		error("\n" .. tostring(a) .. " == " .. tostring(b), 2)
+		error("\n" .. tostring(a) .. " == " .. tostring(b), LEVEL)
 	end
 
 	return true
@@ -29,7 +30,7 @@ function attest.almost_equal(a, b, epsilon)
 	epsilon = epsilon or 0.0001
 
 	if type(a) ~= "number" or type(b) ~= "number" then
-		error("AlmostEqual requires numbers, got " .. type(a) .. " and " .. type(b), 2)
+		error("AlmostEqual requires numbers, got " .. type(a) .. " and " .. type(b), LEVEL)
 	end
 
 	if math.abs(a - b) >= epsilon then
@@ -64,7 +65,7 @@ end
 
 function attest.greater(a, b)
 	if not (a > b) then
-		error(string.format("\n%s not > %s", tostring(a), tostring(b)), 2)
+		error(string.format("\n%s not > %s", tostring(a), tostring(b)), LEVEL)
 	end
 
 	return true
@@ -72,7 +73,7 @@ end
 
 function attest.greater_or_equal(a, b)
 	if not (a >= b) then
-		error(string.format("\n%s not >= %s", tostring(a), tostring(b)), 2)
+		error(string.format("\n%s not >= %s", tostring(a), tostring(b)), LEVEL)
 	end
 
 	return true
@@ -80,7 +81,7 @@ end
 
 function attest.less(a, b)
 	if not (a < b) then
-		error(string.format("\n%s not < %s", tostring(a), tostring(b)), 2)
+		error(string.format("\n%s not < %s", tostring(a), tostring(b)), LEVEL)
 	end
 
 	return true
@@ -88,7 +89,7 @@ end
 
 function attest.less_or_equal(a, b)
 	if not (a <= b) then
-		error(string.format("\n%s not <= %s", tostring(a), tostring(b)), 2)
+		error(string.format("\n%s not <= %s", tostring(a), tostring(b)), LEVEL)
 	end
 
 	return true
@@ -96,36 +97,36 @@ end
 
 function attest.match(str, pattern)
 	if type(str) ~= "string" then
-		error("Match requires a string, got " .. type(str), 2)
+		error("Match requires a string, got " .. type(str), LEVEL)
 	end
 
 	if not str:match(pattern) then
-		error(string.format("\n%q does not match pattern %q", str, pattern), 2)
+		error(string.format("\n%q does not match pattern %q", str, pattern), LEVEL)
 	end
 
 	return true
 end
 
 function attest.truthy(value)
-	if not value then error("\nvalue is not truthy: " .. tostring(value), 2) end
+	if not value then error("\nvalue is not truthy: " .. tostring(value), LEVEL) end
 
 	return true
 end
 
 function attest.falsy(value)
-	if value then error("\nvalue is not falsy: " .. tostring(value), 2) end
+	if value then error("\nvalue is not falsy: " .. tostring(value), LEVEL) end
 
 	return true
 end
 
 function attest.fails(func, expected_pattern)
 	if type(func) ~= "function" then
-		error("Fails requires a function, got " .. type(func), 2)
+		error("Fails requires a function, got " .. type(func), LEVEL)
 	end
 
 	local ok, err = pcall(func)
 
-	if ok then error("\nexpected function to fail, but it succeeded", 2) end
+	if ok then error("\nexpected function to fail, but it succeeded", LEVEL) end
 
 	if expected_pattern and not tostring(err):match(expected_pattern) then
 		error(
@@ -145,7 +146,7 @@ function attest.diff(input, expect)
 end
 
 function attest.ok(b)
-	if not b then error("not ok!", 2) end
+	if not b then error("not ok!", LEVEL) end
 end
 
 function attest.AssertHelper(val)
@@ -171,7 +172,7 @@ function attest.AssertHelper(val)
 					elseif op == "match" then
 						attest.match(val, expected)
 					else
-						error("Unknown operator: " .. tostring(op), 2)
+						error("Unknown operator: " .. tostring(op), LEVEL)
 					end
 				end
 			end,

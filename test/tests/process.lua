@@ -1,18 +1,11 @@
-require("test.environment")
+local T = require("test.t")
 local process = require("bindings.process")
 
-do
-	return
-end -- TODO
 -- Helper to read all output with retries
-local function read_all_stdout(proc, timeout)
-	timeout = timeout or 1
+local function read_all_stdout(proc)
 	local result = ""
-	local start = os.time()
-	local iterations = 0
 
-	while os.time() - start < timeout and iterations < 100 do
-		iterations = iterations + 1
+	T.run_until2(function()
 		local chunk = proc:read(4096)
 
 		if chunk and chunk ~= "" then result = result .. chunk end
@@ -26,97 +19,107 @@ local function read_all_stdout(proc, timeout)
 
 			if final and final ~= "" then result = result .. final end
 
-			break
+			return true
 		end
 
-		-- Small delay
-		os.execute("sleep 0.05")
-	end
+		return false
+	end)
 
 	return result
 end
 
-test("echo command with piped output", function()
-	local proc = assert(process.spawn({command = "/bin/echo", args = {"hello", "world"}, stdout = "pipe"}))
-	ok(proc.pid ~= nil, "process should have a PID")
-	-- Give it a moment to execute
-	os.execute("sleep 0.1")
-	-- Read output
-	local output = read_all_stdout(proc, 1)
-	ok(output:match("hello world") ~= nil, "output should contain 'hello world'")
-	-- Wait for completion
-	local exit_code = assert(proc:wait())
-	ok(exit_code == 0, "process should exit with code 0")
+T.test("echo command with piped output", function()
+	local proc = assert(process.spawn({command = "echo", args = {"hello", "world"}, stdout = "pipe"}))
+	T(proc.pid)["~="](nil)
+	T(read_all_stdout(proc):match("hello world"))["~="](nil)
+	T(assert(proc:wait()))["=="](0)
 end)
 
-test("cat with stdin/stdout pipe", function()
-	local proc = assert(process.spawn({command = "/bin/cat", stdin = "pipe", stdout = "pipe"}))
-	-- Write to stdin
+T.test("cat with stdin/stdout pipe", function()
+	local proc = assert(process.spawn({command = "cat", stdin = "pipe", stdout = "pipe"}))
 	local test_msg = "Hello from stdin!"
 	local written = proc:write(test_msg .. "\n")
-	ok(written > 0, "should write bytes to stdin")
-	-- Give cat time to echo
-	os.execute("sleep 0.1")
-	-- Read output (should echo what we wrote)
-	local output = proc:read(4096) or ""
-	ok(output:match("Hello from stdin") ~= nil, "output should echo input")
-	-- Close to signal EOF
+	T(written)[">"](0)
+	local output = ""
+	local success = T.run_until2(function()
+		local chunk = proc:read(4096)
+
+		if chunk and chunk ~= "" then output = output .. chunk end
+
+		return output:match("Hello from stdin") ~= nil
+	end)
+	T(success)["=="](true)
+	T(output:match("Hello from stdin"))["~="](nil)
 	proc:close()
-	local exit_code = proc:wait()
-	ok(exit_code == 0, "process should exit with code 0")
+	T(assert(proc:wait()))["=="](0)
 end)
 
-test("try_wait non-blocking check", function()
-	local proc = assert(process.spawn({command = "/bin/sleep", args = {"1"}}))
-	-- Check immediately (should still be running)
-	local done, code = proc:try_wait()
-	ok(
-		done == false or done == nil,
-		"process should still be running immediately after spawn"
-	)
-	-- Wait for process to finish
-	os.execute("sleep 1.5")
-	done, code = proc:try_wait()
-	ok(done == true, "process should be done after sleep")
-	ok(code == 0, "exit code should be 0")
+T.test("try_wait non-blocking check", function()
+	local proc = assert(process.spawn({command = "sh", args = {"-c", "exit 0"}}))
+	local success = T.run_until2(function()
+		done, code = proc:try_wait()
+		return done == true
+	end)
+	T(success)["=="](true)
+	T(done)["=="](true)
+	T(code)["=="](0)
 end)
 
-test("directory listing with ls", function()
+T.test("directory listing with ls", function()
 	local proc = assert(
 		process.spawn(
 			{
-				command = "/bin/ls",
+				command = "ls",
 				args = {"-1"}, -- one file per line
 				stdout = "pipe",
 			}
 		)
 	)
-	local ls_output = read_all_stdout(proc, 2)
+	local ls_output = read_all_stdout(proc)
 	local lines = {}
 
 	for line in ls_output:gmatch("[^\n]+") do
 		table.insert(lines, line)
 	end
 
-	ok(#lines > 0, "should list at least one item")
-	proc:wait()
+	T(#lines)[">"](0)
+	T(assert(proc:wait()))["=="](0)
 end)
 
-test("stderr capture with invalid path", function()
+T.test("stderr capture with invalid path", function()
 	local proc = assert(
 		process.spawn(
 			{
-				command = "/bin/ls",
+				command = "ls",
 				args = {"/this/path/does/not/exist"},
 				stdout = "pipe",
 				stderr = "pipe",
 			}
 		)
 	)
-	-- Give it time to fail
-	os.execute("sleep 0.1")
+	local stderr = ""
+	local success = T.run_until2(function()
+		local chunk = proc:read_err(4096)
+
+		if chunk and chunk ~= "" then stderr = stderr .. chunk end
+
+		local done = proc:try_wait()
+
+		if done then
+			-- One more read to catch remaining data
+			local final = proc:read_err(4096)
+
+			if final and final ~= "" then stderr = stderr .. final end
+
+			return true
+		end
+
+		return false
+	end)
+	T(success)["=="](true)
 	local stdout = proc:read(4096) or ""
-	local stderr = proc:read_err(4096) or ""
-	ok(#stderr > 0, "stderr should contain error message")
-	proc:wait()
+	T(#stderr)[">"](0)
+	-- ls returns non-zero exit code for errors
+	local exit_code = assert(proc:wait())
+	T(exit_code)["~="](0)
 end)

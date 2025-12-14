@@ -281,10 +281,9 @@ function test.RunFor(duration)
 		system.SetElapsedTime(system.GetElapsedTime() + dt)
 		-- Call update event which triggers timers, sockets, etc.
 		event.Call("Update", dt)
-
 		-- Small sleep to prevent busy loop (optional)
 		-- In real tests you might want to remove this for speed
-		if system.Sleep then system.Sleep(0.001) end
+		system.Sleep(0.001)
 	end
 end
 
@@ -300,8 +299,22 @@ function test.RunUntil(condition, timeout)
 		local dt = 0.016 -- ~60fps simulation
 		system.SetElapsedTime(system.GetElapsedTime() + dt)
 		event.Call("Update", dt)
+		system.Sleep(0.001)
+	end
 
-		if system.Sleep then system.Sleep(0.001) end
+	return false -- timeout
+end
+
+-- Run event loop until condition is met or timeout
+function test.RunUntil2(condition, timeout)
+	timeout = timeout or 5.0
+	local start_time = system.GetTime()
+	local end_time = start_time + timeout
+
+	while system.GetTime() < end_time do
+		if condition() then return true end
+
+		system.Sleep(0.001)
 	end
 
 	return false -- timeout

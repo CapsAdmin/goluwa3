@@ -420,9 +420,10 @@ else
 		typedef long ssize_t;
 		typedef unsigned int mode_t;
 		
-		pid_t fork(void);
-		int execve(const char *pathname, char *const argv[], char *const envp[]);
-		int pipe(int pipefd[2]);
+	pid_t fork(void);
+	int execve(const char *pathname, char *const argv[], char *const envp[]);
+	int execvp(const char *file, char *const argv[]);
+	int pipe(int pipefd[2]);
 		int close(int fd);
 		ssize_t read(int fd, void *buf, size_t count);
 		ssize_t write(int fd, const void *buf, size_t count);
@@ -599,9 +600,16 @@ else
 
 			-- Build argv and envp
 			local argv = build_argv(command, opts.args)
-			local envp = build_envp(opts.env)
+
 			-- Execute
-			ffi.C.execve(command, argv, envp)
+			if opts.env then
+				local envp = build_envp(opts.env)
+				ffi.C.execve(command, argv, envp)
+			else
+				-- Use execvp when no custom environment - it searches PATH
+				ffi.C.execvp(command, argv)
+			end
+
 			-- If we get here, exec failed
 			ffi.C._exit(127)
 		else
