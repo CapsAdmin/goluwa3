@@ -1,0 +1,22 @@
+local serializer = require("serializer")
+
+serializer.AddLibrary(
+	"gunzip",
+	nil,
+	function(gz, str)
+		local out = {}
+		local i = 1
+		gz.gunzip(
+			{
+				input = str,
+				output = function(byte)
+					out[i] = string.char(byte)
+					i = i + 1
+				end,
+				disable_crc = true,
+			}
+		)
+		return list.concat(out)
+	end,
+	require("helpers/deflatelua")
+)

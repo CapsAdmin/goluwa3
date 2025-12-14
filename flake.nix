@@ -54,12 +54,15 @@
             wayland-scanner
             libxkbcommon
             
+            # TLS/SSL support
+            openssl
+            
             # Development and debugging tools
             renderdoc           # Graphics debugger
             tracy               # Graphics profiler
           ];
 
-          LD_LIBRARY_PATH = with pkgs; "${vulkan-loader}/lib:${vulkan-validation-layers}/lib:${shaderc.lib}/lib:${wayland}/lib:${libxkbcommon}/lib:${renderdoc}/lib";
+          LD_LIBRARY_PATH = with pkgs; "${vulkan-loader}/lib:${vulkan-validation-layers}/lib:${shaderc.lib}/lib:${wayland}/lib:${libxkbcommon}/lib:${renderdoc}/lib:${openssl.out}/lib";
           VULKAN_SDK = "${pkgs.vulkan-headers}";
           VK_LAYER_PATH = "${pkgs.vulkan-validation-layers}/share/vulkan/explicit_layer.d";
           RENDERDOC_LIB = "${pkgs.renderdoc}/lib/librenderdoc.so";
