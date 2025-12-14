@@ -13,7 +13,7 @@ local render2d = require("graphics.render2d")
 if false then
 	local zsnes = Texture.New(
 		{
-			path = "assets/images/zsnes.png",
+			path = "game/assets/images/zsnes.png",
 			sampler = {
 				min_filter = "nearest",
 				mag_filter = "nearest",
@@ -147,7 +147,7 @@ end
 if false then
 	local rope = Texture.New(
 		{
-			path = "assets/images/rope.png",
+			path = "game/assets/images/rope.png",
 			sampler = {
 				min_filter = "linear",
 				mag_filter = "linear",

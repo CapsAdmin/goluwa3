@@ -1,6 +1,4 @@
 local profiler = require("profiler") -- init started in global_environment.lua
-require("game.init")
-
 do
 	local system = require("system")
 	local event = require("event")

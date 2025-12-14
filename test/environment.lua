@@ -18,13 +18,43 @@ local callstack = require("goluwa.helpers.callstack")
 local system = require("goluwa.system")
 local total_test_count = 0
 
+local function traceback(msg)
+	local sep = "\n  "
+	local lines = callstack.format(callstack.traceback(""))
+	-- Find the last instance of environment.lua
+	local last_env_index = nil
+
+	for i = 1, #lines do
+		if lines[i]:find("environment%.lua") then last_env_index = i end
+	end
+
+	-- Remove everything up to and including the last environment.lua
+	if last_env_index then
+		for _ = 1, last_env_index do
+			table.remove(lines, 1)
+		end
+	end
+
+	for i = #lines, 1, -1 do
+		local line = lines[i]
+
+		if line:starts_with("@0x") or line:starts_with("test/run.lua") then
+			table.remove(lines, i)
+		end
+	end
+
+	if not lines[1] then return msg end
+
+	return msg .. sep .. table.concat(lines, sep)
+end
+
 function _G.test(name, cb, start, stop)
 	total_test_count = total_test_count + 1
 
 	if start and stop then
-		local ok_start, err_start = xpcall(start, callstack.traceback)
-		local ok_cb, err_cb = xpcall(cb, callstack.traceback)
-		local ok_stop, err_stop = xpcall(stop, callstack.traceback)
+		local ok_start, err_start = xpcall(start, traceback)
+		local ok_cb, err_cb = xpcall(cb, traceback)
+		local ok_stop, err_stop = xpcall(stop, traceback)
 
 		-- Report errors in priority order, but only after all functions have run
 		if not ok_start then
@@ -36,7 +66,7 @@ function _G.test(name, cb, start, stop)
 		end
 	else
 		-- If setup/teardown not provided, just run the test
-		local ok_cb, err_cb = xpcall(cb, callstack.traceback)
+		local ok_cb, err_cb = xpcall(cb, traceback)
 
 		if not ok_cb then
 			error(string.format("Test '%s' failed: %s", name, err_cb), 2)
@@ -155,7 +185,7 @@ do
 	local function run_func(func, ...)
 		local gc = memory.get_usage_kb()
 		local time = system.GetTime()
-		local ok, err = xpcall(func, callstack.traceback, ...)
+		local ok, err = xpcall(func, traceback, ...)
 		time = system.GetTime() - time
 		gc = memory.get_usage_kb() - gc
 		-- Update final result
@@ -173,11 +203,11 @@ do
 
 		local func, err = loadfile(test.path)
 
-		if not func then error("failed to load " .. test.path .. ": " .. err, 2) end
+		if not func then error("failed to load " .. test.name .. ":\n" .. err, 2) end
 
 		local ok, err = run_func(func)
 
-		if not ok then error("failed to run " .. test.path .. ": " .. err, 2) end
+		if not ok then error("failed to run " .. test.name .. ":\n" .. err, 2) end
 
 		test_file_count = test_file_count + 1
 	end
@@ -234,27 +264,12 @@ do
 end
 
 do
-	function _G.ok(b)
-		if not b then error("not ok!", 2) end
-	end
+	local attest = require("goluwa.helpers.attest")
+	_G.attest = attest
 
-	function _G.equal(a, b, level)
-		level = level or 1
-
-		if a ~= b then
-			if type(a) == "string" then a = string.format("%q", a) end
-
-			if type(b) == "string" then b = string.format("%q", b) end
-
-			error("\n" .. tostring(a) .. "\n~=\n" .. tostring(b), level + 1)
-		end
-
-		return true
-	end
-
-	eq = equal
-
-	function _G.diff(input, expect)
-		print(diff.diff(input, expect))
+	do -- backwards compatibility
+		_G.eq = attest.equal
+		_G.equal = attest.equal
+		_G.ok = attest.ok
 	end
 end

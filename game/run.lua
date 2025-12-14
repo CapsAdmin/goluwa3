@@ -1,3 +1,5 @@
+_G.PROFILE = false
+require("goluwa.global_environment")
 local render = require("graphics.render")
 local render2d = require("graphics.render2d")
 local render3d = require("graphics.render3d")
@@ -18,3 +20,4 @@ require("game.test_2d")
 require("game.test_occlusion")
 --require("game.test_gltf")
 require("game.debug")
+require("main")

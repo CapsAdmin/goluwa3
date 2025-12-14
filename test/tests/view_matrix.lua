@@ -1,4 +1,4 @@
-require("goluwa.global_environment")
+require("test.environment")
 local Matrix44 = require("structs.matrix").Matrix44
 local Vec3 = require("structs.vec3")
 local Ang3 = require("structs.ang3")

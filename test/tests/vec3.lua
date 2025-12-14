@@ -1,4 +1,4 @@
-require("goluwa.global_environment")
+require("test.environment")
 local Vec3 = require("structs.vec3")
 
 test("Vec3 construction", function()
