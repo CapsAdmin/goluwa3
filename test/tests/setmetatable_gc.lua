@@ -1,7 +1,7 @@
-require("test.environment")
+local T = require("test.t")
 local setmetatable_with_gc = dofile("goluwa/helpers/setmetatable_gc.lua")
 
-test("setmetatable_gc triggers during runtime GC", function()
+T.test("setmetatable_gc triggers during runtime GC", function()
 	local gc_called = false
 
 	local function create_object()
@@ -20,10 +20,10 @@ test("setmetatable_gc triggers during runtime GC", function()
 		collectgarbage("collect")
 	end
 
-	ok(gc_called, "__gc should be called during runtime GC")
+	T(gc_called)["=="](true)
 end)
 
-test("setmetatable_gc triggers for multiple objects", function()
+T.test("setmetatable_gc triggers for multiple objects", function()
 	local gc_count = 0
 
 	local function create_objects()
@@ -44,10 +44,10 @@ test("setmetatable_gc triggers for multiple objects", function()
 		collectgarbage("collect")
 	end
 
-	ok(gc_count == 5, "all 5 objects should have __gc called")
+	T(gc_count == 5)["=="](true)
 end)
 
-test("setmetatable_gc does not trigger for live objects", function()
+T.test("setmetatable_gc does not trigger for live objects", function()
 	local gc_called = false
 	local t = {}
 	local meta = {
@@ -61,7 +61,7 @@ test("setmetatable_gc does not trigger for live objects", function()
 		collectgarbage("collect")
 	end
 
-	ok(not gc_called, "__gc should NOT be called while object is alive")
+	T(not gc_called)["=="](true)
 	-- Now let it go
 	t = nil
 
@@ -69,10 +69,10 @@ test("setmetatable_gc does not trigger for live objects", function()
 		collectgarbage("collect")
 	end
 
-	ok(gc_called, "__gc should be called after object became unreachable")
+	T(gc_called)["=="](true)
 end)
 
-test("setmetatable_gc receives correct self", function()
+T.test("setmetatable_gc receives correct self", function()
 	local received_value = nil
 
 	local function create_object()
@@ -91,5 +91,5 @@ test("setmetatable_gc receives correct self", function()
 		collectgarbage("collect")
 	end
 
-	ok(received_value == 42, "__gc should receive correct self with secret=42")
+	T(received_value == 42)["=="](true)
 end)
