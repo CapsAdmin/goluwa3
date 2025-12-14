@@ -225,7 +225,7 @@ T.test("callback.WrapTask basic usage", function()
 	-- Result should not be set yet
 	T(result_value)["=="](nil)
 	-- After event loop runs, result should be set
-	T.run_for(0.02)
+	T.sleep(0.02)
 	T(result_value)["=="]("result")
 end)
 
@@ -254,7 +254,7 @@ T.test("callback.WrapKeyedTask basic usage", function()
 	-- Results not yet set
 	T(#results)["=="](0)
 	-- After event loop
-	T.run_for(0.02)
+	T.sleep(0.02)
 	T(results[1])["=="]("key1_result")
 	T(results[2])["=="]("key2_result")
 end)
@@ -272,7 +272,7 @@ T.test("callback.WrapKeyedTask same key reuses callback when resolved", function
 
 	cb1:Then(function() end)
 
-	T.run_for(0.02)
+	T.sleep(0.02)
 	T(execution_count)["=="](1)
 	-- Same key after resolution should create new callback
 	local cb2 = task("same_key")
@@ -341,7 +341,7 @@ T.test("callback.WrapKeyedTask max concurrent limit", function()
 	cb1:Resolve()
 	active_count = active_count - 1
 	-- Third should now start
-	T.run_for(0.01)
+	T.sleep(0.01)
 	T(#started)["=="](3)
 end)
 
@@ -364,7 +364,7 @@ T.test("callback.WrapKeyedTask queue callback notification", function()
 	T(queue_events[1].key)["=="]("key2")
 	-- Complete first, should trigger pop
 	cb1:Resolve()
-	T.run_for(0.01)
+	T.sleep(0.01)
 	T(#queue_events)["=="](2)
 	T(queue_events[2].what)["=="]("pop")
 	T(queue_events[2].key)["=="]("key2")
@@ -404,7 +404,7 @@ T.test("callback.Resolve creates auto-resolving callback", function()
 	-- Should not resolve immediately
 	T(resolved)["=="](false)
 	-- Should resolve after timer delay
-	T.run_for(0.02)
+	T.sleep(0.02)
 	T(resolved)["=="](true)
 	T(value)["=="]("test_value")
 end)
@@ -528,7 +528,7 @@ T.test("callback integration with timer", function()
 	end)
 
 	T(result)["=="](nil)
-	T.run_for(0.15)
+	T.sleep(0.15)
 	T(result)["=="]("delayed_result")
 end)
 

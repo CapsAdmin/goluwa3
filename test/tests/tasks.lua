@@ -25,7 +25,7 @@ T.test("tasks.CreateTask basic execution", function()
 		true
 	)
 	-- Run event loop to execute and complete task
-	T.run_for(0.1)
+	T.sleep(0.1)
 	T(started)["=="](true)
 	T(finished)["=="](true)
 	T(result)["=="]("test_result")
@@ -51,18 +51,18 @@ T.test("tasks.CreateTask with Wait", function()
 	)
 	task.debug = true
 	-- Step 1 should execute initially
-	T.run_for(0.1)
+	T.sleep(0.1)
 	print("After first run_for: step1=", step1, "step2=", step2, "step3=", step3)
 	T(step1)["=="](true)
 	T(step2)["=="](false)
 	T(step3)["=="](false)
 	-- After waiting, step 2 should execute
-	T.run_for(0.1)
+	T.sleep(0.1)
 	print("After second run_for: step1=", step1, "step2=", step2, "step3=", step3)
 	T(step2)["=="](true)
 	T(step3)["=="](false)
 	-- After another wait, step 3 should execute
-	T.run_for(0.1)
+	T.sleep(0.1)
 	print("After third run_for: step1=", step1, "step2=", step2, "step3=", step3)
 	T(step3)["=="](true)
 end)
@@ -80,7 +80,7 @@ T.test("tasks.Wait in task", function()
 		true
 	)
 
-	T.run_for(0.3)
+	T.sleep(0.3)
 	T(end_time)[">="](start_time + 0.2)
 end)
 
@@ -102,15 +102,15 @@ T.test("tasks.WrapCallback with timer.Delay", function()
 	)
 
 	-- Should have started
-	T.run_for(0.1)
+	T.sleep(0.1)
 	T(#execution_order)["=="](1)
 	T(execution_order[1])["=="](1)
 	-- After first delay
-	T.run_for(0.15)
+	T.sleep(0.15)
 	T(#execution_order)["=="](2)
 	T(execution_order[2])["=="](2)
 	-- After second delay
-	T.run_for(0.15)
+	T.sleep(0.15)
 	T(#execution_order)["=="](3)
 	T(execution_order[3])["=="](3)
 end)
@@ -135,13 +135,13 @@ T.test("tasks.WrapCallback async-like behavior", function()
 
 	test_async()
 	-- Value should be 1 after initial execution
-	T.run_for(0.1)
+	T.sleep(0.1)
 	T(value)["=="](1)
 	-- After first delay
-	T.run_for(0.1)
+	T.sleep(0.1)
 	T(value)["=="](2)
 	-- After second delay
-	T.run_for(0.1)
+	T.sleep(0.1)
 	T(value)["=="](3)
 end)
 
@@ -157,10 +157,10 @@ T.test("tasks.ReportProgress tracks progress", function()
 		true
 	)
 	task.debug = true
-	T.run_for(0.1)
+	T.sleep(0.1)
 	local progress = task:GetProgress("test_progress")
 	T(progress ~= "0%")["=="](true)
-	T.run_for(0.2)
+	T.sleep(0.2)
 	-- Should have completed
 	T(task:GetProgress("test_progress"))["=="]("0%") -- reset after completion
 end)
@@ -181,7 +181,7 @@ T.test("multiple tasks run in parallel", function()
 
 	T(task1_done)["=="](false)
 	T(task2_done)["=="](false)
-	T.run_for(0.2)
+	T.sleep(0.2)
 	T(task1_done)["=="](true)
 	T(task2_done)["=="](true)
 end)
@@ -192,7 +192,7 @@ T.test("tasks.GetActiveTask returns current task", function()
 	task_ref = tasks.CreateTask(function(self)
 		active_task_ref = tasks.GetActiveTask()
 	end, nil, true)
-	T.run_for(0.1)
+	T.sleep(0.1)
 	T(active_task_ref)["=="](task_ref)
 end)
 
@@ -206,7 +206,7 @@ T.test("task OnError handler", function()
 		error_caught = true
 		error_message = err
 	end
-	T.run_for(0.1)
+	T.sleep(0.1)
 	T(error_caught)["=="](true)
 	T(error_message ~= nil)["=="](true)
 end)
@@ -225,7 +225,7 @@ T.test("task with IterationsPerTick", function()
 	)
 	task:SetIterationsPerTick(10)
 	-- Should process multiple iterations per tick
-	T.run_for(0.1)
+	T.sleep(0.1)
 	T(iterations > 10)["=="](true)
 end)
 
@@ -234,9 +234,9 @@ T.test("tasks.IsBusy returns correct state", function()
 	local task = tasks.CreateTask(function(self)
 		self:Wait(0.1)
 	end, nil, true)
-	T.run_for(0.05)
+	T.sleep(0.05)
 	T(tasks.IsBusy())["=="](true)
-	T.run_for(0.2)
+	T.sleep(0.2)
 	T(tasks.IsBusy())["=="](false)
 end)
 
@@ -250,7 +250,7 @@ T.test("task with OnUpdate callback", function()
 	task.OnUpdate = function()
 		update_count = update_count + 1
 	end
-	T.run_for(0.1)
+	T.sleep(0.1)
 	T(update_count > 0)["=="](true)
 end)
 
@@ -278,10 +278,10 @@ T.test("tasks.Panic removes all tasks", function()
 		true
 	)
 
-	T.run_for(0.01)
+	T.sleep(0.01)
 	T(tasks.IsBusy())["=="](true)
 	tasks.Panic()
-	T.run_for(0.01)
+	T.sleep(0.01)
 	T(tasks.IsBusy())["=="](false)
 	T(task1_finished)["=="](false)
 	T(task2_finished)["=="](false)
@@ -307,7 +307,7 @@ T.test("task with Frequency setting", function()
 		true
 	)
 	task:SetFrequency(10) -- 10 times per second
-	T.run_for(0.6)
+	T.sleep(0.6)
 	T(execution_count)["=="](5)
 
 	-- Check that intervals are approximately 0.1 seconds
@@ -331,7 +331,7 @@ T.test("WrapCallback with error handling", function()
 	task.OnError = function(self, err)
 		error_handled = true
 	end
-	T.run_for(0.1)
+	T.sleep(0.1)
 	T(error_handled)["=="](true)
 end)
 
@@ -346,7 +346,7 @@ T.test("task Report method (debug mode)", function()
 		true
 	)
 	task.debug = true
-	T.run_for(0.1)
+	T.sleep(0.1)
 	-- Just verify it doesn't crash - logging is internal
 	T(true)["=="](true)
 end)
@@ -367,12 +367,12 @@ T.test("nested WrapCallback calls", function()
 		true
 	)
 
-	T.run_for(0.02)
+	T.sleep(0.02)
 	T(#order)["=="](1)
-	T.run_for(0.05)
+	T.sleep(0.05)
 	T(#order)["=="](2)
 	T(order[2])["=="]("after first delay")
-	T.run_for(0.05)
+	T.sleep(0.05)
 	T(#order)["=="](3)
 	T(order[3])["=="]("after second delay")
 end)
@@ -403,10 +403,10 @@ T.test("task max concurrent limit", function()
 
 	-- Trigger update to start tasks
 	tasks.Update()
-	T.run_for(0.05)
+	T.sleep(0.05)
 	-- Should respect max limit
 	T(max_concurrent)["<="](2)
-	T.run_for(0.5)
+	T.sleep(0.5)
 	-- All tasks should eventually complete
 	T(running_count)["=="](0)
 	tasks.max = original_max

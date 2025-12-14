@@ -77,7 +77,7 @@ T.test("sockets HTTP server and client communication", function()
 	end
 
 	-- Wait a bit for server to start
-	T.run_for(0.05)
+	T.sleep(0.05)
 	-- Create client and make request
 	local client = sockets.HTTPClient()
 
@@ -96,7 +96,7 @@ T.test("sockets HTTP server and client communication", function()
 
 	client:Request("GET", "http://127.0.0.1:" .. (test_port - 1) .. "/test")
 	-- Wait for response
-	local success = T.run_until(
+	local success = T.wait_until(
 		function()
 			if done then
 				-- Cleanup
@@ -136,7 +136,7 @@ T.test("sockets HTTP POST request with body", function()
 		client:Close()
 	end
 
-	T.run_for(0.05)
+	T.sleep(0.05)
 	-- Create client
 	local client = sockets.HTTPClient()
 
@@ -150,7 +150,7 @@ T.test("sockets HTTP POST request with body", function()
 	end
 
 	client:Request("POST", "http://127.0.0.1:" .. (test_port - 1) .. "/api", {}, "test data")
-	local success = T.run_until(
+	local success = T.wait_until(
 		function()
 			if done then
 				server:Close()
@@ -182,7 +182,7 @@ T.test("sockets.Request wrapper function", function()
 		client:Close()
 	end
 
-	T.run_for(0.05)
+	T.sleep(0.05)
 	sockets.Request(
 		{
 			url = "http://127.0.0.1:" .. (test_port - 1) .. "/test",
@@ -195,7 +195,7 @@ T.test("sockets.Request wrapper function", function()
 			end,
 		}
 	)
-	local success = T.run_until(
+	local success = T.wait_until(
 		function()
 			if done then
 				server:Close()
@@ -224,7 +224,7 @@ T.test("sockets.Request with custom headers", function()
 		client:Close()
 	end
 
-	T.run_for(0.05)
+	T.sleep(0.05)
 	sockets.Request(
 		{
 			url = "http://127.0.0.1:" .. (test_port - 1) .. "/test",
@@ -240,7 +240,7 @@ T.test("sockets.Request with custom headers", function()
 			end,
 		}
 	)
-	local success = T.run_until(
+	local success = T.wait_until(
 		function()
 			if done then
 				server:Close()
@@ -272,7 +272,7 @@ T.test("sockets HTTP chunked body receiving", function()
 		client:Close()
 	end
 
-	T.run_for(0.05)
+	T.sleep(0.05)
 	local client = sockets.HTTPClient()
 
 	function client:OnReceiveBodyChunk(chunk)
@@ -289,7 +289,7 @@ T.test("sockets HTTP chunked body receiving", function()
 	end
 
 	client:Request("GET", "http://127.0.0.1:" .. (test_port - 1) .. "/test")
-	local success = T.run_until(
+	local success = T.wait_until(
 		function()
 			if done then
 				server:Close()

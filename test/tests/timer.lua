@@ -14,8 +14,8 @@ T.test("timer.Delay executes callback after 200ms", function()
 
 	-- Timer should not have executed yet
 	T(false)["=="](callback_executed)
-	-- Run event loop for 250ms to ensure timer fires
-	T.run_for(0.25)
+	-- Sleep for 250ms to ensure timer fires
+	T.sleep(0.25)
 	-- Now the callback should have executed
 	T(true)["=="](callback_executed)
 	-- Verify it executed after approximately 200ms
@@ -33,8 +33,8 @@ T.test("timer.Delay with immediate execution", function()
 
 	-- Should not execute immediately
 	T(callback_executed)["=="](false)
-	-- Run one update cycle
-	T.run_for(0.02)
+	-- Sleep one update cycle
+	T.sleep(0.02)
 	-- Now should be executed
 	T(callback_executed)["=="](true)
 end)
@@ -55,9 +55,11 @@ T.test("timer.Repeat executes multiple times", function()
 
 	-- Should not have executed yet
 	T(execution_count)["=="](0)
-	-- Run for enough time to execute all 3 times
-	T.run_for(0.35)
-	-- Should have executed 3 times
+	-- Wait until the timer has fired 3 times
+	local success = T.wait_until(function()
+		return execution_count >= 3
+	end, 2.0)
+	T(success)["=="](true)
 	T(execution_count)["=="](3)
 
 	-- Verify timing between executions
@@ -68,24 +70,41 @@ T.test("timer.Repeat executes multiple times", function()
 	end
 end)
 
-T.test("run_until helper with timer", function()
+T.test("sleep helper with timer", function()
 	local done = false
 
 	timer.Delay(0.15, function()
 		done = true
 	end)
 
-	local success = T.run_until(function()
+	-- Wait until the timer fires
+	local success = T.wait_until(function()
 		return done
 	end, 1.0)
 	T(success)["=="](true)
 	T(done)["=="](true)
 end)
 
-T.test("run_until timeout", function()
-	local never_true = false
-	local success = T.run_until(function()
-		return never_true
-	end, 0.1)
-	T(success)["=="](false)
+T.test("multiple sleeps", function()
+	local count = 0
+
+	timer.Delay(0.05, function()
+		count = count + 1
+	end)
+
+	T.wait_until(function()
+		return count >= 1
+	end, 1.0)
+
+	T(count)["=="](1)
+
+	timer.Delay(0.05, function()
+		count = count + 1
+	end)
+
+	T.wait_until(function()
+		return count >= 2
+	end, 1.0)
+
+	T(count)["=="](2)
 end)

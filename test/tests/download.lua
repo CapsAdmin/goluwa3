@@ -14,7 +14,7 @@ local function host_server(on_receive_header)
 	assert(server:Host("*", test_port))
 	test_port = test_port + 1
 	server.OnReceiveHeader = on_receive_header
-	T.run_for(0.05)
+	T.sleep(0.05)
 	return server, test_port - 1
 end
 
@@ -63,7 +63,7 @@ local function download_and_wait(url, callbacks, timeout)
 		end or
 		nil
 	local client = sockets.Download(url, on_success, on_error, on_chunks, on_header, on_status)
-	local success = T.run_until(function()
+	local success = T.wait_until(function()
 		return done
 	end, timeout)
 	return result, success, client
@@ -200,7 +200,7 @@ T.test("sockets.StopDownload cancels active download", function()
 	local test_url = "http://127.0.0.1:" .. test_port .. "/cancel"
 	local server, port = host_server(function(self, client, header)
 		-- Don't send response immediately - let download be cancelled
-		T.run_for(0.1)
+		T.sleep(0.1)
 		client:Send(sockets.HTTPResponse(200, "OK", {}, "data"))
 		client:Close()
 	end)
@@ -212,7 +212,7 @@ T.test("sockets.StopDownload cancels active download", function()
 		done = true
 	end)
 	-- Wait a bit then cancel
-	T.run_for(0.05)
+	T.sleep(0.05)
 	-- Verify it's in active downloads
 	local was_active = false
 

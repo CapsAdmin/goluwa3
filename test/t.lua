@@ -1,12 +1,15 @@
 require("goluwa.global_environment")
-local test = require("helpers.test")
+local test = require("goluwa.helpers.test")
 local attest = require("helpers.attest")
 local T = setmetatable(
 	{
 		test = test.Test,
 		run_for = test.RunFor,
-		run_until = test.RunUntil,
+		run_until = test.WaitUntil,
 		run_until2 = test.RunUntil2,
+		yield = test.Yield,
+		sleep = test.Sleep,
+		wait_until = test.WaitUntil,
 	},
 	{
 		__call = function(_, val)

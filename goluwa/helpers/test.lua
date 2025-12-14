@@ -19,6 +19,8 @@ local system = require("system")
 local event = require("event")
 local test = {}
 local total_test_count = 0
+local running_tests = {}
+local coroutine = _G.coroutine
 
 local function traceback(msg)
 	local sep = "\n  "
@@ -54,31 +56,54 @@ end
 
 function test.Test(name, cb, start, stop)
 	total_test_count = total_test_count + 1
-
-	if start and stop then
-		local ok_start, err_start = xpcall(start, traceback)
-		local ok_cb, err_cb = xpcall(cb, traceback)
-		local ok_stop, err_stop = xpcall(stop, traceback)
-
-		-- Report errors in priority order, but only after all functions have run
-		if not ok_start then
-			error(string.format("Test '%s' setup failed: %s", name, err_start), 2)
-		elseif not ok_cb then
-			error(string.format("Test '%s' failed: %s", name, err_cb), 2)
-		elseif not ok_stop then
-			error(string.format("Test '%s' teardown failed: %s", name, err_stop), 2)
+	-- Create coroutine for the test
+	local co = coroutine.create(function()
+		if start and stop then
+			-- Call start, cb, and stop without xpcall since we'll handle errors when resuming
+			start()
+			cb()
+			stop()
+		else
+			-- If setup/teardown not provided, just run the test
+			cb()
 		end
-	else
-		-- If setup/teardown not provided, just run the test
-		local ok_cb, err_cb = xpcall(cb, traceback)
-
-		if not ok_cb then
-			error(string.format("Test '%s' failed: %s", name, err_cb), 2)
-		end
-	end
+	end)
+	-- Store the coroutine with metadata
+	table.insert(running_tests, {
+		name = name,
+		coroutine = co,
+		sleep_until = nil,
+	})
 end
 
 function test.Pending(...) end
+
+-- Yield control from a test coroutine
+function test.Yield()
+	coroutine.yield()
+end
+
+-- Sleep for a duration (in seconds) without blocking main thread
+function test.Sleep(duration)
+	local wake_time = system.GetElapsedTime() + duration
+	coroutine.yield(wake_time)
+end
+
+-- Wait until a condition is true, checking every interval, with optional timeout
+function test.WaitUntil(condition, timeout, check_interval)
+	timeout = timeout or 5.0
+	check_interval = check_interval or 0.016 -- ~60fps
+	local start_time = system.GetElapsedTime()
+	local end_time = start_time + timeout
+
+	while system.GetElapsedTime() < end_time do
+		if condition() then return true end
+
+		test.Sleep(check_interval)
+	end
+
+	return false -- timeout
+end
 
 function test.FindTests(filter)
 	local test_directory = fs.get_current_directory() .. "/test/tests/"
@@ -184,6 +209,11 @@ do
 		if PROFILING and not _G.STARTUP_PROFILE then
 			profiler.Start(profiling_mode)
 		end
+
+		-- Add update listener to resume test coroutines
+		event.AddListener("Update", "test_runner", function(dt)
+			test.UpdateTestCoroutines()
+		end)
 	end
 
 	local function run_func(func, ...)
@@ -216,6 +246,53 @@ do
 		if not ok then error("failed to run " .. test_item.name .. ":\n" .. err, 2) end
 
 		test_file_count = test_file_count + 1
+	end
+
+	function test.UpdateTestCoroutines()
+		local current_time = system.GetElapsedTime()
+		local i = 1
+
+		while i <= #running_tests do
+			local test_info = running_tests[i]
+			local should_resume = false
+
+			-- Check if the test is sleeping
+			if test_info.sleep_until then
+				if current_time >= test_info.sleep_until then
+					test_info.sleep_until = nil
+					should_resume = true
+				end
+			else
+				should_resume = true
+			end
+
+			if should_resume then
+				local co = test_info.coroutine
+
+				if coroutine.status(co) ~= "dead" then
+					local ok, result = coroutine.resume(co)
+
+					if not ok then
+						-- Error in test - format it nicely
+						local err_msg = traceback(result)
+						error(string.format("Test '%s' error:\n%s", test_info.name, err_msg), 0)
+					end
+
+					-- If result is a number, it's a sleep_until wake time
+					if type(result) == "number" then test_info.sleep_until = result end
+				end -- Remove completed tests
+				if coroutine.status(co) == "dead" then
+					table.remove(running_tests, i)
+				else
+					i = i + 1
+				end
+			else
+				i = i + 1
+			end
+		end
+
+		-- Check if all tests are done after the loop
+		if #running_tests == 0 then system.run = false end
 	end
 
 	function test.EndTests()
