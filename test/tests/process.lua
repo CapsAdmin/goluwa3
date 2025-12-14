@@ -1,3 +1,4 @@
+require("test.environment")
 local process = require("bindings.process")
 
 do

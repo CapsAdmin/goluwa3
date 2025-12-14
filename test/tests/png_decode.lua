@@ -1,3 +1,4 @@
+require("test.environment")
 local ffi = require("ffi")
 local Buffer = require("structs.buffer")
 local png_decode = require("file_formats.png.decode")

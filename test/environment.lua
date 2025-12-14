@@ -1,7 +1,7 @@
 local io = require("io")
 local io_write = io.write
-local diff = require("goluwa.helpers.diff")
-local fs = require("goluwa.fs")
+local diff = require("helpers.diff")
+local fs = require("fs")
 local debug = require("debug")
 local pcall = _G.pcall
 local type = _G.type
@@ -9,13 +9,13 @@ local ipairs = _G.ipairs
 local xpcall = _G.xpcall
 local assert = _G.assert
 local loadfile = _G.loadfile
-local profiler = require("goluwa.profiler")
+local profiler = require("profiler")
 local jit = _G.jit
 local table = _G.table
-local memory = require("goluwa.bindings.memory")
-local colors = require("goluwa.helpers.colors")
-local callstack = require("goluwa.helpers.callstack")
-local system = require("goluwa.system")
+local memory = require("bindings.memory")
+local colors = require("helpers.colors")
+local callstack = require("helpers.callstack")
+local system = require("system")
 local total_test_count = 0
 
 local function traceback(msg)
@@ -271,5 +271,48 @@ do
 		_G.eq = attest.equal
 		_G.equal = attest.equal
 		_G.ok = attest.ok
+	end
+end
+
+do -- async test helpers
+	local event = require("event")
+	local system = require("system")
+
+	-- Run the event loop for a specific duration
+	function _G.run_for(duration)
+		local start_time = system.GetElapsedTime()
+		local end_time = start_time + duration
+
+		while system.GetElapsedTime() < end_time do
+			local current_time = system.GetTime()
+			local dt = 0.016 -- ~60fps simulation
+			-- Advance elapsed time
+			system.SetElapsedTime(system.GetElapsedTime() + dt)
+			-- Call update event which triggers timers, sockets, etc.
+			event.Call("Update", dt)
+
+			-- Small sleep to prevent busy loop (optional)
+			-- In real tests you might want to remove this for speed
+			if system.Sleep then system.Sleep(0.001) end
+		end
+	end
+
+	-- Run event loop until condition is met or timeout
+	function _G.run_until(condition, timeout)
+		timeout = timeout or 5.0
+		local start_time = system.GetElapsedTime()
+		local end_time = start_time + timeout
+
+		while system.GetElapsedTime() < end_time do
+			if condition() then return true end
+
+			local dt = 0.016 -- ~60fps simulation
+			system.SetElapsedTime(system.GetElapsedTime() + dt)
+			event.Call("Update", dt)
+
+			if system.Sleep then system.Sleep(0.001) end
+		end
+
+		return false -- timeout
 	end
 end

@@ -1,3 +1,4 @@
+require("test.environment")
 local threads = require("bindings.threads")
 
 test("thread returns incremented value", function()

@@ -1,3 +1,4 @@
+require("test.environment")
 -- Tests for the XML parser
 local xml = require("goluwa.helpers.xml")
 
