@@ -1,7 +1,5 @@
 local fs = require("bindings.filesystem")
 local event
-local tostringx = require("helpers.tostring_object").tostring_object
-local tostring_args = require("helpers.tostring_object").tostring_args
 local list_concat = table.concat
 local select = select
 local logfile = _G.logfile or {}
