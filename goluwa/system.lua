@@ -138,20 +138,21 @@ function system.Sleep(seconds)
 end
 
 do
-	local keep_alive_ref = 0
+	local refs = {}
+	local is_running = false
 
-	function system.KeepAliveStart()
-		keep_alive_ref = keep_alive_ref + 1
-	end
+	function system.KeepAlive(name)
+		refs[name] = debug.traceback()
+		is_running = true
+		return function()
+			refs[name] = nil
 
-	function system.KeepAliveStop()
-		keep_alive_ref = math.max(0, keep_alive_ref - 1)
-
-		if keep_alive_ref == 0 then system.ShutDown() end
+			if not next(refs) then is_running = false end
+		end
 	end
 
 	function system.IsRunning()
-		return keep_alive_ref > 0
+		return is_running
 	end
 end
 

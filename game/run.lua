@@ -24,7 +24,7 @@ require("game.test_occlusion")
 require("game.debug")
 
 do
-	system.KeepAliveStart()
-	-- intentionally never stop to keep the game running
+	local unref = system.KeepAlive("game")
 	main_loop()
+	unref()
 end

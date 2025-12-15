@@ -55,21 +55,19 @@ local function traceback(msg)
 end
 
 function test.Test(name, cb, start, stop)
-	system.KeepAliveStart()
+	local unref = system.KeepAlive("test: " .. name)
 	total_test_count = total_test_count + 1
 	-- Create coroutine for the test
 	local co = coroutine.create(function()
 		if start and stop then
-			-- Call start, cb, and stop without xpcall since we'll handle errors when resuming
 			start()
 			cb()
 			stop()
 		else
-			-- If setup/teardown not provided, just run the test
 			cb()
 		end
 
-		system.KeepAliveStop()
+		unref()
 	end)
 	-- Store the coroutine with metadata
 	table.insert(running_tests, {
@@ -151,7 +149,9 @@ do
 
 					-- If result is a number, it's a sleep_until wake time
 					if type(result) == "number" then test_info.sleep_until = result end
-				end -- Remove completed tests
+				end
+
+				-- Remove completed tests
 				if coroutine.status(co) == "dead" then
 					llog("%s DONE", test_info.name)
 					table.remove(running_tests, i)
