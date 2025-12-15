@@ -75,7 +75,7 @@ function META:Start(now, ...)
 	self.Running = true
 	self.run_me = nil
 	local co = coroutine.create(function(...)
-		return select(2, callstack.pcall(self.OnStart, ...))
+		return self:OnStart(...)
 	end)
 	tasks.coroutine_lookup[co] = self
 	self.co = co
@@ -115,8 +115,23 @@ function META:Start(now, ...)
 			-- Check if coroutine is already dead before trying to resume
 			if coroutine.status(co) == "dead" then return false end
 
-			local ok, res, err = coroutine.resume(co, self)
+			local ok, res = coroutine.resume(co, self)
 
+			-- Handle errors
+			if not ok then
+				if self.OnError then
+					self:OnError(res)
+				else
+					logf("%s error: %s\n", self, res)
+				end
+
+				self.Running = false
+				tasks.created[self] = nil
+				self:Remove()
+				return false
+			end
+
+			-- Handle completion
 			if coroutine.status(co) == "dead" then
 				self.Running = false
 				tasks.created[self] = nil
@@ -125,20 +140,6 @@ function META:Start(now, ...)
 				event.Call("TaskFinished", self)
 				self:Remove()
 				return false
-			end
-
-			if ok == false and res then
-				if self.OnError then
-					self:OnError(res)
-				else
-					logf("%s internal error: %s\n", self, res)
-				end
-			elseif ok and res == false and err then
-				if self.OnError then
-					self:OnError(err)
-				else
-					logf("%s user error: %s\n", self, err)
-				end
 			else
 				self:OnUpdate()
 			end
@@ -171,8 +172,6 @@ function META:OnFinish() end
 function META:OnUpdate() end
 
 function META:Report(what)
-	if not self.debug then return end
-
 	if not self.last_report or self.last_report < system.GetElapsedTime() then
 		logf("%s report: %s\n", self, what)
 		self.last_report = system.GetElapsedTime() + 1
@@ -180,8 +179,6 @@ function META:Report(what)
 end
 
 function META:ReportProgress(what, max)
-	if not self.debug then return end
-
 	self.progress[what] = self.progress[what] or {}
 	self.progress[what].i = (self.progress[what].i or 0) + 1
 	self.progress[what].max = max or 100
@@ -204,16 +201,24 @@ end
 
 META:Register()
 
-function tasks.CreateTask(on_start, on_finish, now)
+function tasks.CreateTask(on_start, on_finish, now, on_error)
 	local self = META:CreateObject()
 
-	if on_start then self.OnStart = function(_, ...)
-		return on_start(...)
-	end end
+	if on_start then
+		self.OnStart = function(task_self, ...)
+			return on_start(task_self, ...)
+		end
+	end
 
 	if on_finish then
-		self.OnFinish = function(_, ...)
+		self.OnFinish = function(task_self, ...)
 			return on_finish(...)
+		end
+	end
+
+	if on_error then
+		self.OnError = function(task_self, ...)
+			return on_error(...)
 		end
 	end
 
@@ -223,9 +228,9 @@ function tasks.CreateTask(on_start, on_finish, now)
 
 	if tasks.IsEnabled() and not timer.IsTimer("tasks") then
 		timer.Repeat("tasks", 0.25, 0, tasks.Update)
-		tasks.Update()
 	end
 
+	tasks.Update()
 	return self
 end
 
@@ -300,12 +305,22 @@ do
 		tasks.wrapped_functions[lib] = tasks.wrapped_functions[lib] or {}
 		tasks.wrapped_functions[lib][func] = tasks.wrapped_functions[lib][func] or lib[func]
 		local old = tasks.wrapped_functions[lib][func]
-		lib[func] = function(arg, ...)
+		lib[func] = function(time, ...)
 			if tasks.GetActiveTask() then
 				local data
 				local err
+				-- Lazy load callback to avoid circular dependency
+				local callback = require("callback")
+				-- Create a callback object for async resolution
+				local cb = callback.Create()
 
-				old(arg):Then(function(...)
+				-- Call the original function with time and the callback
+				old(time, function(...)
+					cb:Resolve(...)
+				end, ...)
+
+				-- Wait for resolution
+				cb:Then(function(...)
 					data = {...}
 				end):Catch(function(val)
 					err = val
@@ -320,7 +335,7 @@ do
 				return nil, err
 			end
 
-			return old(arg, ...)
+			return old(time, ...)
 		end
 	end
 end

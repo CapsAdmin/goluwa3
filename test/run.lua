@@ -20,3 +20,5 @@ end)
 event.AddListener("ShutDown", "tests", function()
 	test.EndTests()
 end)
+
+require("main")() -- needed to keep it alive
