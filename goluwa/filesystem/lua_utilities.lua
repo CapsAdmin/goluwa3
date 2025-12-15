@@ -1,3 +1,5 @@
+local utility = require("utility")
+local fs = require("fs")
 return function(vfs)
 	vfs.files_ran_ = vfs.files_ran_ or {}
 

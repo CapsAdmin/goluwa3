@@ -1,3 +1,4 @@
+local callstack = require("helpers.callstack")
 return function(vfs)
 	vfs.loaded_addons = vfs.loaded_addons or {}
 	vfs.disabled_addons = vfs.disabled_addons or {}
@@ -277,7 +278,7 @@ return function(vfs)
 				-- autorun folders
 				for path in vfs.Iterate(info.path .. "lua/autorun/" .. folder, true) do
 					if path:find("%.lua") then
-						local ok, err = system.pcall(vfs.RunFile, path)
+						local ok, err = callstack.pcall(vfs.RunFile, path)
 
 						if not ok then wlog(err) end
 					end
@@ -346,7 +347,6 @@ return function(vfs)
 		end
 
 		list.insert(vfs.loaded_addons, info)
-		e["ADDON_" .. info.name:upper()] = info
 		vfs.SortAddonsAfterPriority()
 
 		if info.load == false and not force then

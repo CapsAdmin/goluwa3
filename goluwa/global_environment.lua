@@ -1,4 +1,29 @@
 -- only load from goluwa/ directory
+if not _G._OLD_G then
+	local _OLD_G = {}
+
+	if pcall(require, "ffi") then _G.ffi = require("ffi") end
+
+	for k, v in pairs(_G) do
+		if k ~= "_G" then
+			local t = type(v)
+
+			if t == "function" then
+				_OLD_G[k] = v
+			elseif t == "table" then
+				_OLD_G[k] = {}
+
+				for k2, v2 in pairs(v) do
+					if type(v2) == "function" then _OLD_G[k][k2] = v2 end
+				end
+			end
+		end
+	end
+
+	_G.ffi = nil
+	_G._OLD_G = _OLD_G
+end
+
 package.path = package.path .. ";" .. "goluwa/?.lua"
 require("helpers.jit_options").SetOptimized()
 _G.list = require("helpers.list")

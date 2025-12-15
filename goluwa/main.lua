@@ -15,7 +15,7 @@ return function()
 		profiler.Start("update")
 	end
 
-	while system.IsRunning() do
+	while system.IsRunning() and not os.exitcode do
 		local time = system.GetTime()
 		local dt = time - (last_time or 0)
 		system.SetFrameTime(dt)

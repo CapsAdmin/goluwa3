@@ -1,4 +1,5 @@
 local fs = require("bindings.filesystem")
+local utility = require("utility")
 
 function fs.write_file(path, data)
 	local file, err = io.open(path, "wb")
@@ -114,7 +115,27 @@ function fs.get_files_recursive(path)
 end
 
 function fs.is_file(path)
-	return fs.get_attributes(path).type == "file"
+	return fs.get_type(path) == "file"
 end
 
+function fs.is_directory(path)
+	return fs.get_type(path) == "directory"
+end
+
+function fs.get_type(path)
+	local stat = fs.get_attributes(path)
+	return stat and stat.type or nil
+end
+
+function fs.exists(path)
+	return fs.get_type(path) ~= nil
+end
+
+do
+	fs.SetWorkingDirectory = fs.set_current_directory
+	fs.GetWorkingDirectory = fs.get_current_directory
+	utility.MakePushPopFunction(fs, "WorkingDirectory")
+end
+
+fs.GetAttributes = fs.get_attributes
 return fs
