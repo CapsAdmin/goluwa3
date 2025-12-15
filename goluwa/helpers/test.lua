@@ -55,6 +55,7 @@ local function traceback(msg)
 end
 
 function test.Test(name, cb, start, stop)
+	system.KeepAliveStart()
 	total_test_count = total_test_count + 1
 	-- Create coroutine for the test
 	local co = coroutine.create(function()
@@ -67,6 +68,8 @@ function test.Test(name, cb, start, stop)
 			-- If setup/teardown not provided, just run the test
 			cb()
 		end
+
+		system.KeepAliveStop()
 	end)
 	-- Store the coroutine with metadata
 	table.insert(running_tests, {
@@ -74,35 +77,95 @@ function test.Test(name, cb, start, stop)
 		coroutine = co,
 		sleep_until = nil,
 	})
+
+	if not event.IsListenerActive("Update", "test_runner") then
+		event.AddListener("Update", "test_runner", test.UpdateTestCoroutines)
+	end
 end
 
 function test.Pending(...) end
 
--- Yield control from a test coroutine
-function test.Yield()
-	coroutine.yield()
-end
-
--- Sleep for a duration (in seconds) without blocking main thread
-function test.Sleep(duration)
-	local wake_time = system.GetElapsedTime() + duration
-	coroutine.yield(wake_time)
-end
-
--- Wait until a condition is true, checking every interval, with optional timeout
-function test.WaitUntil(condition, timeout, check_interval)
-	timeout = timeout or 5.0
-	check_interval = check_interval or 0.016 -- ~60fps
-	local start_time = system.GetElapsedTime()
-	local end_time = start_time + timeout
-
-	while system.GetElapsedTime() < end_time do
-		if condition() then return true end
-
-		test.Sleep(check_interval)
+do
+	-- Yield control from a test coroutine
+	function test.Yield()
+		coroutine.yield()
 	end
 
-	return false -- timeout
+	-- Sleep for a duration (in seconds) without blocking main thread
+	function test.Sleep(duration)
+		local wake_time = system.GetElapsedTime() + duration
+		coroutine.yield(wake_time)
+	end
+
+	-- Wait until a condition is true, checking every interval, with optional timeout
+	function test.WaitUntil(condition, timeout, check_interval)
+		timeout = timeout or 5.0
+		check_interval = check_interval or 0.016 -- ~60fps
+		local start_time = system.GetElapsedTime()
+		local end_time = start_time + timeout
+
+		while system.GetElapsedTime() < end_time do
+			if condition() then return true end
+
+			test.Sleep(check_interval)
+		end
+
+		error("WaitUntil: condition not met within timeout of " .. timeout .. " seconds", 2)
+	end
+
+	function test.UpdateTestCoroutines()
+		local current_time = system.GetElapsedTime()
+		local i = 1
+
+		while i <= #running_tests do
+			local test_info = running_tests[i]
+
+			if not test_info.shown_running then
+				llog("%s RUNNING", test_info.name)
+				test_info.shown_running = true
+			end
+
+			local should_resume = false
+
+			-- Check if the test is sleeping
+			if test_info.sleep_until then
+				if current_time >= test_info.sleep_until then
+					test_info.sleep_until = nil
+					should_resume = true
+				end
+			else
+				should_resume = true
+			end
+
+			if should_resume then
+				local co = test_info.coroutine
+
+				if coroutine.status(co) ~= "dead" then
+					local ok, result = coroutine.resume(co)
+
+					if not ok then
+						-- Error in test - format it nicely
+						local err_msg = traceback(result)
+						error(string.format("Test '%s' error:\n%s", test_info.name, err_msg), 0)
+					end
+
+					-- If result is a number, it's a sleep_until wake time
+					if type(result) == "number" then test_info.sleep_until = result end
+				end -- Remove completed tests
+				if coroutine.status(co) == "dead" then
+					llog("%s DONE", test_info.name)
+					table.remove(running_tests, i)
+				else
+					i = i + 1
+				end
+			else
+				i = i + 1
+			end
+		end
+
+		-- Check if all tests are done after the loop
+		if #running_tests == 0 then system.ShutDown() end
+	end
 end
 
 function test.FindTests(filter)
@@ -209,11 +272,6 @@ do
 		if PROFILING and not _G.STARTUP_PROFILE then
 			profiler.Start(profiling_mode)
 		end
-
-		-- Add update listener to resume test coroutines
-		event.AddListener("Update", "test_runner", function(dt)
-			test.UpdateTestCoroutines()
-		end)
 	end
 
 	local function run_func(func, ...)
@@ -228,7 +286,7 @@ do
 		return ok, err
 	end
 
-	function test.RunSingleTest(test_item)
+	function test.RunSingleTestSet(test_item)
 		current_test_name = test_item.name
 
 		-- You'll need to pass the expected test count somehow, or estimate it
@@ -246,53 +304,6 @@ do
 		if not ok then error("failed to run " .. test_item.name .. ":\n" .. err, 2) end
 
 		test_file_count = test_file_count + 1
-	end
-
-	function test.UpdateTestCoroutines()
-		local current_time = system.GetElapsedTime()
-		local i = 1
-
-		while i <= #running_tests do
-			local test_info = running_tests[i]
-			local should_resume = false
-
-			-- Check if the test is sleeping
-			if test_info.sleep_until then
-				if current_time >= test_info.sleep_until then
-					test_info.sleep_until = nil
-					should_resume = true
-				end
-			else
-				should_resume = true
-			end
-
-			if should_resume then
-				local co = test_info.coroutine
-
-				if coroutine.status(co) ~= "dead" then
-					local ok, result = coroutine.resume(co)
-
-					if not ok then
-						-- Error in test - format it nicely
-						local err_msg = traceback(result)
-						error(string.format("Test '%s' error:\n%s", test_info.name, err_msg), 0)
-					end
-
-					-- If result is a number, it's a sleep_until wake time
-					if type(result) == "number" then test_info.sleep_until = result end
-				end -- Remove completed tests
-				if coroutine.status(co) == "dead" then
-					table.remove(running_tests, i)
-				else
-					i = i + 1
-				end
-			else
-				i = i + 1
-			end
-		end
-
-		-- Check if all tests are done after the loop
-		if #running_tests == 0 then system.run = false end
 	end
 
 	function test.EndTests()

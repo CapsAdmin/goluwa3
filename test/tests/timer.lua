@@ -55,11 +55,12 @@ T.test("timer.Repeat executes multiple times", function()
 
 	-- Should not have executed yet
 	T(execution_count)["=="](0)
+
 	-- Wait until the timer has fired 3 times
-	local success = T.wait_until(function()
+	T.wait_until(function()
 		return execution_count >= 3
 	end, 2.0)
-	T(success)["=="](true)
+
 	T(execution_count)["=="](3)
 
 	-- Verify timing between executions
@@ -78,11 +79,9 @@ T.test("sleep helper with timer", function()
 	end)
 
 	-- Wait until the timer fires
-	local success = T.wait_until(function()
+	T.wait_until(function()
 		return done
 	end, 1.0)
-	T(success)["=="](true)
-	T(done)["=="](true)
 end)
 
 T.test("multiple sleeps", function()

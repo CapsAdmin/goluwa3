@@ -11,3 +11,5 @@ if pid and process.from_id(tonumber(pid)) then
 else
 	assert(loadfile(path))()
 end
+
+require("main")()

@@ -64,12 +64,9 @@ return function(sockets)
 	end
 
 	function META:Request(method, url, header, body)
-		local uri, err = sockets.DecodeURI(url)
-
-		if not uri then return uri, err end
-
+		local uri = assert(sockets.DecodeURI(url))
 		header = header or {}
-		self:Connect(uri.host, uri.scheme)
+		self:Connect(uri.host, uri.port or uri.scheme)
 		self:Send(sockets.HTTPRequest(method, uri, header, body))
 		self:InitializeHTTPParser()
 		self.LocationHistory = self.LocationHistory or {url}

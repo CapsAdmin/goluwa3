@@ -21,9 +21,7 @@ return function(sockets)
 
 	function META:SocketRestart(socket)
 		self.socket = socket or ljsocket.create("inet", "stream", "tcp")
-
-		if not self:assert(self.socket:set_blocking(false)) then return end
-
+		self:assert(self.socket:set_blocking(false))
 		self.socket:set_option("nodelay", true, "tcp")
 		self.socket:set_option("cork", false, "tcp")
 		self.tls_setup = nil
@@ -87,7 +85,7 @@ return function(sockets)
 
 		if ok then
 			self.connecting = true
-			return
+			return true
 		end
 
 		return self:Error("Unable to connect to " .. host .. ":" .. service .. ": " .. err)
@@ -103,22 +101,22 @@ return function(sockets)
 			for i = 1, math.huge do
 				ok, err = self.socket:send(data:sub(pos + 1))
 
-				if t < os.clock() then return false, "timeout" end
+				if t < os.clock() then return false, "tryagain" end
 
-				if not ok and err ~= "timeout" then return self:Error(err) end
+				if not ok and err ~= "tryagain" then return self:Error(err) end
 
-				if err ~= "timeout" then
+				if err ~= "tryagain" then
 					pos = pos + tonumber(ok)
 
 					if pos >= #data then break end
 				end
 			end
 		else
-			ok, err = false, "timeout"
+			ok, err = false, "tryagain"
 		end
 
 		if not ok then
-			if err == "timeout" then
+			if err == "tryagain" then
 				self.buffered_send = self.buffered_send or {}
 				list.insert(self.buffered_send, data)
 				return true
@@ -152,7 +150,7 @@ return function(sockets)
 
 					if ok then
 						list.remove(self.buffered_send)
-					elseif err ~= "timeout" then
+					elseif err ~= "tryagain" then
 						self:Error("error while processing buffered queue: " .. err)
 					end
 				end
@@ -163,7 +161,7 @@ return function(sockets)
 
 				if err == "context not connected" then break end
 
-				if err == "timeout" then break end
+				if err == "tryagain" then break end
 
 				if chunk then
 					self:OnReceiveChunk(chunk)
@@ -172,7 +170,7 @@ return function(sockets)
 						self:OnClose("receive")
 
 						break
-					elseif err ~= "timeout" then
+					elseif err ~= "tryagain" then
 						self:Error(err)
 
 						break
@@ -189,9 +187,8 @@ return function(sockets)
 	end
 
 	function META:OnError(str, tr)
-		logn(tr)
-		llog(str)
 		self:Remove(str)
+		error(str)
 	end
 
 	function META:OnReceiveChunk(str) end

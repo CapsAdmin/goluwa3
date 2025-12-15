@@ -31,6 +31,36 @@
             ln -sf $out/bin/luajit-2.1.ROLLING $out/bin/luajit
           '';
         };
+        
+        openresty-gdb-utils = pkgs.fetchgit {
+          url = "https://github.com/Revolyssup/openresty-gdb-utils.git";
+          rev = "c87bcc56aef37bc823f352b20c8b57ddd979c4e9";
+          sha256 = "sha256-vJEmxquj15Im9q2fjt8qNiuanxh/j8+oqNuZnoQA9I8=";
+        };
+        
+        luajit-debug = pkgs.stdenv.mkDerivation {
+          name = "luajit-debug";
+          src = pkgs.fetchgit {
+            url = "https://github.com/LuaJIT/LuaJIT.git";
+            rev = "45b771bb2c693a4cc7e34e79b7d30ab10bb7776a";
+            sha256 = "sha256-VR69KuUXQD6aICVNuBafdthCD558/Ri4haH2LY9AXcU=";
+          };
+
+          buildInputs = [pkgs.makeWrapper];
+
+          buildPhase = ''
+            make amalg PREFIX=$out \
+              XCFLAGS="-DLUAJIT_ENABLE_LUA52COMPAT -DLUAJIT_ENABLE_TABLE_BUMP -DLUA_USE_ASSERT -DLUA_USE_APICHECK" \
+              CCDEBUG="-g -O0" \
+              BUILDMODE=static
+          '';
+
+          installPhase = ''
+            make install PREFIX=$out
+            mv $out/bin/luajit-2.1.ROLLING $out/bin/luajit_debug
+            rm -f $out/bin/luajit
+          '';
+        };
       in
       {
         devShells.default = pkgs.mkShell {
@@ -39,6 +69,7 @@
           buildInputs = with pkgs; [
             # Lua runtime
             luajit
+            luajit-debug
             
             # Vulkan development
             vulkan-headers
@@ -60,6 +91,7 @@
             # Development and debugging tools
             renderdoc           # Graphics debugger
             tracy               # Graphics profiler
+            gdb                 # GNU debugger
           ];
 
           LD_LIBRARY_PATH = with pkgs; "${vulkan-loader}/lib:${vulkan-validation-layers}/lib:${shaderc.lib}/lib:${wayland}/lib:${libxkbcommon}/lib:${renderdoc}/lib:${openssl.out}/lib";
@@ -74,6 +106,13 @@
           # Prepend RenderDoc bin to PATH so LaunchReplayUI can find qrenderdoc
           shellHook = ''
             export PATH="${pkgs.renderdoc}/bin:$PATH"
+            export OPENRESTY_GDB="${openresty-gdb-utils}"
+            
+            ljgdb() {
+              PYTHONPATH="${openresty-gdb-utils}:$PYTHONPATH" gdb -q \
+                -ex "source ${openresty-gdb-utils}/luajit21.py" \
+                --args luajit_debug "$@"
+            }
           '';
         };
       }

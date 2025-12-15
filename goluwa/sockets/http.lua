@@ -191,9 +191,10 @@ return function(sockets)
 						state.current_body_chunk = decoded
 					else
 						self:WriteBody(chunk)
+						state.current_body_chunk = chunk
 					end
 
-					if state.current_body_chunk ~= "" then
+					if state.current_body_chunk and state.current_body_chunk ~= "" then
 						if self:OnHTTPEvent("chunk") == false then return end
 					end
 

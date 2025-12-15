@@ -1,3 +1,4 @@
+local vfs = require("vfs")
 return function(sockets)
 	local function posixtime2http(posix_time)
 		return require("date")(posix_time):fmt("${http}")
@@ -126,7 +127,7 @@ return function(sockets)
 			list.remove_value(sockets.active_downloads, lookup)
 		end
 
-		client:Request("GET", url, header)
+		client:Request("GET", url)
 		return client
 	end
 

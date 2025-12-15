@@ -20,7 +20,7 @@ return function(sockets)
 
 	function META:SocketRestart()
 		self.socket = ljsocket.create("inet", "stream", "tcp")
-		assert(self.socket:set_blocking(false))
+		self:assert(self.socket:set_blocking(false))
 		self.socket:set_option("nodelay", true, "tcp")
 		self.socket:set_option("reuseaddr", true)
 		self.connected = nil
@@ -41,14 +41,18 @@ return function(sockets)
 	function META:Host(host, service)
 		local ok, err = self.socket:bind(host, service)
 
-		if ok then ok, err = self.socket:listen() end
-
-		if ok then
-			self.hosting = true
-			return true
+		if not ok then
+			return self:Error("Unable to bind " .. host .. ":" .. service .. " - " .. err)
 		end
 
-		return self:Error("Unable host " .. host .. ":" .. service .. " - " .. err)
+		ok, err = self.socket:listen()
+
+		if not ok then
+			return self:Error("Unable to listen on " .. host .. ":" .. service .. " - " .. err)
+		end
+
+		self.hosting = true
+		return true
 	end
 
 	function META:Update()
@@ -57,19 +61,16 @@ return function(sockets)
 		for i = 1, 512 do
 			local client, err = self.socket:accept()
 
-			if not client and err == "Too many open files" then
-				llog("cannot accept more clients: %s", err)
-				return
-			end
+			if err ~= "tryagain" then
+				if client then
+					local client = sockets.TCPClient(client)
+					client.connected = true
+					self:OnClientConnected(client)
+				else
+					self:Error(err)
 
-			if client then
-				local client = sockets.TCPClient(client)
-				client.connected = true
-				self:OnClientConnected(client)
-			else
-				if err and err ~= "timeout" then self:Error(err) end
-
-				break
+					break
+				end
 			end
 		end
 	end
@@ -80,9 +81,8 @@ return function(sockets)
 	end
 
 	function META:OnError(str, tr)
-		logn(tr)
-		llog(str)
 		self:Remove()
+		error(str)
 	end
 
 	function META:OnReceiveChunk(str) end

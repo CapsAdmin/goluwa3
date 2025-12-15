@@ -4,6 +4,8 @@ local render = require("graphics.render")
 local render2d = require("graphics.render2d")
 local render3d = require("graphics.render3d")
 local gfx = require("graphics.gfx")
+local system = require("system")
+local main_loop = require("main")
 render.Initialize()
 render2d.Initialize()
 render3d.Initialize()
@@ -20,4 +22,9 @@ require("game.test_2d")
 require("game.test_occlusion")
 --require("game.test_gltf")
 require("game.debug")
-require("main")
+
+do
+	system.KeepAliveStart()
+	-- intentionally never stop to keep the game running
+	main_loop()
+end

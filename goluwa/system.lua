@@ -1,21 +1,18 @@
 local list = require("helpers.list")
 local get_time = require("bindings.time")
 local event = require("event")
-local system = _G.system or {}
+local system = {}
 
 function system.GetTime()
 	return get_time()
 end
 
 do
-	system.run = true
-
 	function system.ShutDown(code)
 		code = code or 0
 
 		if VERBOSE then logn("shutting down with code ", code) end
 
-		system.run = code
 		os.exitcode = code
 	end
 
@@ -138,6 +135,24 @@ end
 local sleep = require("bindings.threads").sleep -- in ms
 function system.Sleep(seconds)
 	sleep(seconds * 1000)
+end
+
+do
+	local keep_alive_ref = 0
+
+	function system.KeepAliveStart()
+		keep_alive_ref = keep_alive_ref + 1
+	end
+
+	function system.KeepAliveStop()
+		keep_alive_ref = math.max(0, keep_alive_ref - 1)
+
+		if keep_alive_ref == 0 then system.ShutDown() end
+	end
+
+	function system.IsRunning()
+		return keep_alive_ref > 0
+	end
 end
 
 return system

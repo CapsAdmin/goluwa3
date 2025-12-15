@@ -245,7 +245,6 @@ do
 	end
 
 	addrinfo_hints = addrinfo_out
-
 	assert(ffi.sizeof(sockaddr) == 16)
 	assert(ffi.sizeof(sockaddr_in) == 16)
 	pollfd = ffi.typeof([[
@@ -624,7 +623,6 @@ do
 		" *, unsigned int *)"
 	)
 	sockaddr_ptr = ffi.typeof("$*", sockaddr)
-
 	e = {
 		TCP_NODELAY = 1,
 		TCP_MAXSEG = 2,
@@ -822,6 +820,7 @@ do
 		MSG_CMSG_CLOEXEC = 0x40000000,
 	}
 	errno = {
+		EBADF = 9,
 		EAGAIN = 11,
 		EWOULDBLOCK = 11, -- is errno.EAGAIN
 		EINVAL = 22,
@@ -860,6 +859,7 @@ do
 		e.POLLRDNORM = 256
 		e.SO_DONTROUTE = 16
 		e.SO_RCVLOWAT = 4100
+		errno.EBADF = 10009
 		errno.EINVAL = 10022
 		errno.EAGAIN = 10035 -- Note: Does not exist on Windows
 		errno.EWOULDBLOCK = 10035
@@ -887,21 +887,21 @@ do
 		e.SO_RCVTIMEO = 0x1006
 		e.SO_ERROR = 0x1007
 		e.SO_TYPE = 0x1008
-		e.POLLIN = 0x0001     
-		e.POLLPRI = 0x0002    
-		e.POLLOUT = 0x0004    
-		e.POLLRDNORM = 0x0040 
-		e.POLLWRNORM = 0x0004 
-		e.POLLRDBAND = 0x0080 
-		e.POLLWRBAND = 0x0100 
-		e.POLLERR = 0x0008    
-		e.POLLHUP = 0x0010    
-		e.POLLNVAL = 0x0020   
-
-		e.POLLEXTEND = 0x0200  
-		e.POLLATTRIB = 0x0400  
-		e.POLLNLINK = 0x0800   
-		e.POLLWRITE = 0x1000   
+		e.POLLIN = 0x0001
+		e.POLLPRI = 0x0002
+		e.POLLOUT = 0x0004
+		e.POLLRDNORM = 0x0040
+		e.POLLWRNORM = 0x0004
+		e.POLLRDBAND = 0x0080
+		e.POLLWRBAND = 0x0100
+		e.POLLERR = 0x0008
+		e.POLLHUP = 0x0010
+		e.POLLNVAL = 0x0020
+		e.POLLEXTEND = 0x0200
+		e.POLLATTRIB = 0x0400
+		e.POLLNLINK = 0x0800
+		e.POLLWRITE = 0x1000
+		errno.EBADF = 9
 		errno.EINVAL = 22
 		errno.EAGAIN = 35
 		errno.EWOULDBLOCK = errno.EAGAIN
@@ -997,17 +997,19 @@ local pollfd_box = ffi.typeof("$[1]", pollfd)
 
 function M.poll(socks, flags, timeout)
 	-- Transform single socket to array
-	
 	local events = 0
+
 	if flags then
 		-- On Windows, POLLERR and POLLHUP are output-only flags and cannot be requested
 		if ffi.os == "Windows" then
 			local filtered_flags = {}
+
 			for i, flag in ipairs(flags) do
 				if flag ~= "err" and flag ~= "hup" then
 					table.insert(filtered_flags, flag)
 				end
 			end
+
 			events = #filtered_flags > 0 and POLL.table_to_flags(filtered_flags, bit.bor) or 0
 		else
 			events = POLL.table_to_flags(flags, bit.bor)
@@ -1016,6 +1018,7 @@ function M.poll(socks, flags, timeout)
 
 	-- Create pollfd array for all sockets
 	local pfds = {}
+
 	for i, sock in ipairs(socks) do
 		pfds[i] = {
 			fd = sock.fd,
@@ -1023,7 +1026,7 @@ function M.poll(socks, flags, timeout)
 			revents = 0,
 		}
 	end
-	
+
 	local pfd = ffi.new(pollfd_box, pfds)
 	local ok, err = socket.poll(pfd, #socks, timeout or 0)
 
@@ -1031,22 +1034,16 @@ function M.poll(socks, flags, timeout)
 
 	-- Return array of results for each socket
 	local results = {}
+
 	for i = 0, #socks - 1 do
 		results[i + 1] = POLL.flags_to_table(pfd[i].revents, bit.bor)
 	end
-	
+
 	return results, ok
 end
 
 function M.bind(host, service)
-	local info, err = M.find_first_address_info(
-		host,
-		service,
-		{"passive"},
-		"inet",
-		"stream",
-		"tcp"
-	)
+	local info, err = M.find_first_address_info(host, service, {"passive"}, "inet", "stream", "tcp")
 
 	if not info then return info, err end
 
@@ -1087,9 +1084,7 @@ do -- addrinfo
 			info.protocol = IPPROTO.reverse[addrinfo_ptr.ai_protocol]
 			info.flags = AI.flags_to_table(addrinfo_ptr.ai_flags, bit.band)
 			info.addrinfo = addrinfo_ptr
-
 			setmetatable(info, meta)
-
 			return info
 		end
 
@@ -1130,7 +1125,8 @@ do -- addrinfo
 
 		function meta:free()
 			if not self.addrinfo then return end
-			socket.freeaddrinfo(self.addrinfo)
+
+			--socket.freeaddrinfo(self.addrinfo)
 			self.addrinfo = nil
 		end
 
@@ -1149,14 +1145,8 @@ do -- addrinfo
 					ai_flags = flags and AI.table_to_flags(flags, bit.bor) or nil,
 				}
 			)
-
 			local out = addrinfo_out_array_boxed()
-			local ok, err = socket.getaddrinfo(
-				host,
-				service and tostring(service) or nil,
-				hints,
-				out
-			)
+			local ok, err = socket.getaddrinfo(host, service and tostring(service) or nil, hints, out)
 
 			if not ok then return ok, err end
 
@@ -1182,12 +1172,9 @@ do -- addrinfo
 		family = family or "inet"
 		socket_type = socket_type or "stream"
 		protocol = protocol or "tcp"
-
-
 		flags = flags or {}
-		if host == "*" then
-			table.insert(flags, "passive")
-		end
+
+		if host == "*" then table.insert(flags, "passive") end
 
 		local addrinfos, err = M.find_address_info(
 			host ~= "*" and host or nil,
@@ -1272,7 +1259,11 @@ do
 		level = level or "socket"
 
 		-- Windows doesn't support SO_BROADCAST on SOCK_STREAM sockets
-		if ffi.os == "Windows" and key:lower() == "broadcast" and self.socket_type == "stream" then
+		if
+			ffi.os == "Windows" and
+			key:lower() == "broadcast" and
+			self.socket_type == "stream"
+		then
 			-- Store the value for later retrieval and silently succeed
 			if type(val) == "boolean" then
 				self._broadcast_fake = val and 1 or 0
@@ -1281,6 +1272,7 @@ do
 			elseif type(val) == "cdata" then
 				self._broadcast_fake = val[0]
 			end
+
 			return true
 		end
 
@@ -1320,7 +1312,11 @@ do
 		level = level or "socket"
 
 		-- Windows doesn't support SO_BROADCAST on SOCK_STREAM sockets
-		if ffi.os == "Windows" and key:lower() == "broadcast" and self.socket_type == "stream" then
+		if
+			ffi.os == "Windows" and
+			key:lower() == "broadcast" and
+			self.socket_type == "stream"
+		then
 			-- Return the value from our fake storage if it was set, otherwise 0
 			return self._broadcast_fake or 0
 		end
@@ -1462,6 +1458,7 @@ do
 		local results, count = M.poll({self}, {...}, timeout)
 
 		if not results then return results, count end
+
 		if count == 0 then return true end
 
 		return results[1]
@@ -1524,9 +1521,7 @@ do
 		end
 
 		if timeout_messages[num] then
-			if not self.blocking then
-				return nil, "tryagain", num
-			end
+			if not self.blocking then return nil, "tryagain", num end
 
 			return nil, "timeout", num
 		end
@@ -1549,13 +1544,11 @@ do
 		if self.on_receive then return self:on_receive(buff, size, flags) end
 
 		local len, err, num
-
 		local addrinfo
 
 		if return_address then
 			local src_address = sockaddr_in_boxed()
 			local ai_addrlen_res = ffi.new("int[1]", ffi.sizeof(sockaddr_in))
-
 			len, err, num = socket.recvfrom(
 				self.fd,
 				buff,
@@ -1566,17 +1559,21 @@ do
 			)
 
 			if len and len > 0 then
-				addrinfo = M.addressinfo(addrinfo_out({
-					ai_addr = ffi.cast(sockaddr_ptr, src_address),
-					ai_addrlen = ai_addrlen_res[0],
-					ai_family = AF.strict_lookup(self.family),
-				}))
+				addrinfo = M.addressinfo(
+					addrinfo_out(
+						{
+							ai_addr = ffi.cast(sockaddr_ptr, src_address),
+							ai_addrlen = ai_addrlen_res[0],
+							ai_family = AF.strict_lookup(self.family),
+						}
+					)
+				)
 			end
 		else
 			len, err, num = socket.recv(self.fd, buff, size, flags or 0)
 		end
 
-		if num == errno.ECONNRESET then
+		if num == errno.ECONNRESET or num == errno.EBADF then
 			self:close()
 
 			if self.debug then print(tostring(self), ": closed") end
@@ -1603,6 +1600,7 @@ do
 		if len == 0 then
 			-- Connection closed gracefully by remote end (FIN received)
 			if self.debug then print(tostring(self), ": connection closed by peer") end
+
 			return nil, "closed", 0
 		end
 
@@ -1619,5 +1617,4 @@ end
 M.e = e
 M.errno = errno
 M.socket = socket
-
 return M

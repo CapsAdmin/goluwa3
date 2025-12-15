@@ -50,6 +50,16 @@ function event.AddListener(event_type, id, callback, config)
 	if event_type ~= "EventAdded" then event.Call("EventAdded", config) end
 end
 
+function event.IsListenerActive(event_type, id)
+	if event.active[event_type] then
+		for _, data in pairs(event.active[event_type]) do
+			if data.id == id then return true end
+		end
+	end
+
+	return false
+end
+
 event.fix_indices = {}
 
 function event.RemoveListener(event_type, id)
