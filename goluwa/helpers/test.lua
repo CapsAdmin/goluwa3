@@ -21,6 +21,18 @@ local test = {}
 local total_test_count = 0
 local running_tests = {}
 local coroutine = _G.coroutine
+-- Variables for tracking test execution timing
+local current_test_name = ""
+local tests_by_file = {}
+local current_test_start_time = nil
+local current_test_start_gc = nil
+-- Callback for when a test file completes (set by logging system)
+local on_test_file_complete = nil
+-- Logging state (set by BeginTests)
+local LOGGING = false
+local IS_TERMINAL = true or system.IsTTY()
+local completed_test_count = 0
+local shown_running_line = false
 
 local function traceback(msg)
 	local sep = "\n  "
@@ -57,6 +69,15 @@ end
 function test.Test(name, cb, start, stop)
 	local unref = system.KeepAlive("test: " .. name)
 	total_test_count = total_test_count + 1
+	-- Track that this test belongs to the current file
+	tests_by_file[current_test_name] = (tests_by_file[current_test_name] or 0) + 1
+
+	-- Start timing for this file if this is the first test
+	if tests_by_file[current_test_name] == 1 then
+		current_test_start_time = system.GetTime()
+		current_test_start_gc = memory.get_usage_kb()
+	end
+
 	-- Create coroutine for the test
 	local co = coroutine.create(function()
 		if start and stop then
@@ -70,11 +91,17 @@ function test.Test(name, cb, start, stop)
 		unref()
 	end)
 	-- Store the coroutine with metadata
-	table.insert(running_tests, {
-		name = name,
-		coroutine = co,
-		sleep_until = nil,
-	})
+	table.insert(
+		running_tests,
+		{
+			name = name,
+			coroutine = co,
+			sleep_until = nil,
+			test_file = current_test_name,
+			test_file_start_time = current_test_start_time,
+			test_file_start_gc = current_test_start_gc,
+		}
+	)
 
 	if not event.IsListenerActive("Update", "test_runner") then
 		event.AddListener("Update", "test_runner", test.UpdateTestCoroutines)
@@ -118,10 +145,7 @@ do
 		while i <= #running_tests do
 			local test_info = running_tests[i]
 
-			if not test_info.shown_running then
-				llog("%s RUNNING", test_info.name)
-				test_info.shown_running = true
-			end
+			if not test_info.shown_running then test_info.shown_running = true end
 
 			local should_resume = false
 
@@ -153,8 +177,41 @@ do
 
 				-- Remove completed tests
 				if coroutine.status(co) == "dead" then
-					llog("%s DONE", test_info.name)
+					-- Decrement the counter for this file
+					local file = test_info.test_file
+
+					if file and tests_by_file[file] then
+						tests_by_file[file] = tests_by_file[file] - 1
+
+						-- If all tests from this file are done, notify the logging system
+						if tests_by_file[file] == 0 and test_info.test_file_start_time then
+							local time = system.GetTime() - test_info.test_file_start_time
+							local gc = memory.get_usage_kb() - test_info.test_file_start_gc
+
+							if on_test_file_complete then on_test_file_complete(file, time, gc) end
+						end
+					end
+
 					table.remove(running_tests, i)
+					-- Show progress indication
+					completed_test_count = completed_test_count + 1
+
+					if LOGGING and IS_TERMINAL then
+						-- Clear the RUNNING line if it's still there
+						if shown_running_line then
+							io_write("\r" .. string.rep(" ", 80) .. "\r")
+							shown_running_line = false
+						end
+
+						io_write(".")
+						io.flush()
+
+						-- Line break every 50 tests, or show progress counter
+						if completed_test_count % 50 == 0 then
+							io_write(string.format(" %d/%d\n", completed_test_count, total_test_count))
+							io.flush()
+						end
+					end
 				else
 					i = i + 1
 				end
@@ -201,18 +258,15 @@ function test.FindTests(filter)
 end
 
 do
-	local LOGGING = false
 	local PROFILING = false
-	local IS_TERMINAL = system.IsTTY()
 	local max_path_width = 0
-	local current_test_name = ""
 
 	local function format_time(seconds)
 		if seconds < 1 then
 			return string.format("%4d%s", math.floor(seconds * 1000), colors.dim(" ms"))
 		end
 
-		return string.format("%4f%s", seconds, colors.dim(" s"))
+		return string.format("%.2f%s", seconds, colors.dim(" s"))
 	end
 
 	local function format_gc(kb)
@@ -231,8 +285,10 @@ do
 		if status == "RUNNING" and IS_TERMINAL then
 			local spinner = spinner_chars[spinner_index]
 			io_write(string.format("%s%s %s RUNNING...", cr, padded_name, spinner))
+			shown_running_line = true
 		elseif status == "DONE" then
 			io_write(string.format("%s%s %s  %s\n", cr, padded_name, time_str, gc_str))
+			shown_running_line = false
 		end
 
 		io.flush()
@@ -262,32 +318,43 @@ do
 
 	local total_gc = 0
 	local test_file_count = 0
-
+	local test_results = {} -- Store results for each test file
+	local test_order = {} -- Track the order tests were loaded
 	function test.BeginTests(logging, profiling, profiling_mode)
 		LOGGING = logging or false
 		PROFILING = profiling or false
+		completed_test_count = 0
+		shown_running_line = false
 
 		if _G.STARTUP_PROFILE then profiler.StopSection() end
 
 		if PROFILING and not _G.STARTUP_PROFILE then
 			profiler.Start(profiling_mode)
 		end
+
+		-- Set up the callback for test completion
+		on_test_file_complete = function(test_file_name, time, gc)
+			-- Store the result for this test file
+			test_results[test_file_name] = {
+				time = time,
+				gc = gc,
+			}
+			total_gc = total_gc + gc
+		end
 	end
 
 	local function run_func(func, ...)
-		local gc = memory.get_usage_kb()
-		local time = system.GetTime()
 		local ok, err = xpcall(func, traceback, ...)
-		time = system.GetTime() - time
-		gc = memory.get_usage_kb() - gc
-		-- Update final result
-		update_test_line("DONE", format_time(time), format_gc(gc))
-		total_gc = total_gc + gc
-		return ok, err
+
+		if not ok then return false, err end
+
+		return true
 	end
 
 	function test.RunSingleTestSet(test_item)
 		current_test_name = test_item.name
+		-- Track the order for display later
+		table.insert(test_order, test_item.name)
 
 		-- You'll need to pass the expected test count somehow, or estimate it
 		-- For now, setting to 0 means no progress counter shown
@@ -313,6 +380,23 @@ do
 		if PROFILING then profiler.Stop() end
 
 		if test_file_count > 0 then
+			-- Display results for each test file that has completed, in order
+			if LOGGING then
+				-- Add newline after progress dots if needed
+				if IS_TERMINAL and completed_test_count > 0 then io_write("\n") end
+
+				for _, name in ipairs(test_order) do
+					local result = test_results[name]
+
+					if result then
+						local padded_name = name .. string.rep(" ", max_path_width - #name)
+						io_write(
+							string.format("%s %s  %s\n", padded_name, format_time(result.time), format_gc(result.gc))
+						)
+					end
+				end
+			end
+
 			local times = profiler.GetSimpleSections()
 
 			-- base environment time is included in startup time, so remove it

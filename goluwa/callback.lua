@@ -32,6 +32,7 @@ do
 
 	function meta:Resolve(...)
 		if self.is_resolved or self.is_rejected then
+			--[[
 			logn(
 				self,
 				"attempted to resolve " .. (
@@ -41,6 +42,7 @@ do
 					) .. " promise"
 			)
 			logn(self.debug_trace)
+			]]
 			return
 		end
 
