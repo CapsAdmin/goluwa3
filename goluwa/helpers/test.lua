@@ -90,6 +90,9 @@ function test.Test(name, cb, start, stop)
 
 		unref()
 	end)
+	-- Capture start time when test is added to queue
+	local test_start_time = system.GetTime()
+	local test_start_gc = memory.get_usage_kb()
 	-- Store the coroutine with metadata
 	table.insert(
 		running_tests,
@@ -100,6 +103,8 @@ function test.Test(name, cb, start, stop)
 			test_file = current_test_name,
 			test_file_start_time = current_test_start_time,
 			test_file_start_gc = current_test_start_gc,
+			test_start_time = test_start_time,
+			test_start_gc = test_start_gc,
 		}
 	)
 
@@ -125,7 +130,13 @@ do
 	-- Wait until a condition is true, checking every interval, with optional timeout
 	function test.WaitUntil(condition, timeout, check_interval)
 		timeout = timeout or 5.0
-		check_interval = check_interval or 0.016 -- ~60fps
+		-- Use shorter interval when tasks are enabled for faster polling
+		local tasks = package.loaded["tasks"]
+
+		if not check_interval then
+			check_interval = (tasks and tasks.enabled) and 0.001 or 0.016
+		end
+
 		local start_time = system.GetElapsedTime()
 		local end_time = start_time + timeout
 
@@ -141,6 +152,10 @@ do
 	function test.UpdateTestCoroutines()
 		local current_time = system.GetElapsedTime()
 		local i = 1
+		-- Manually update tasks system for faster test execution
+		local tasks = package.loaded["tasks"]
+
+		if tasks and tasks.enabled then tasks.Update() end
 
 		while i <= #running_tests do
 			local test_info = running_tests[i]
@@ -177,18 +192,25 @@ do
 
 				-- Remove completed tests
 				if coroutine.status(co) == "dead" then
+					-- Calculate individual test timing
+					local test_time = system.GetTime() - test_info.test_start_time
+					local test_gc = memory.get_usage_kb() - test_info.test_start_gc
 					-- Decrement the counter for this file
 					local file = test_info.test_file
 
 					if file and tests_by_file[file] then
 						tests_by_file[file] = tests_by_file[file] - 1
 
-						-- If all tests from this file are done, notify the logging system
-						if tests_by_file[file] == 0 and test_info.test_file_start_time then
-							local time = system.GetTime() - test_info.test_file_start_time
-							local gc = memory.get_usage_kb() - test_info.test_file_start_gc
-
-							if on_test_file_complete then on_test_file_complete(file, time, gc) end
+						-- Record individual test result
+						if on_test_file_complete then
+							on_test_file_complete(
+								file,
+								test_info.name,
+								test_time,
+								test_gc,
+								tests_by_file[file] == 0,
+								test_info.test_file_start_time -- Pass file start time
+							)
 						end
 					end
 
@@ -333,13 +355,32 @@ do
 		end
 
 		-- Set up the callback for test completion
-		on_test_file_complete = function(test_file_name, time, gc)
-			-- Store the result for this test file
-			test_results[test_file_name] = {
+		on_test_file_complete = function(test_file_name, test_name, time, gc, is_last, file_start_time)
+			-- Initialize file results if needed
+			if not test_results[test_file_name] then
+				test_results[test_file_name] = {
+					tests = {},
+					total_time = 0,
+					total_gc = 0,
+					file_start_time = file_start_time,
+				}
+			end
+
+			local file_result = test_results[test_file_name]
+			-- Store individual test result
+			table.insert(file_result.tests, {
+				name = test_name,
 				time = time,
 				gc = gc,
-			}
+			})
+			-- Update GC total
+			file_result.total_gc = file_result.total_gc + gc
 			total_gc = total_gc + gc
+
+			-- If this is the last test, calculate actual elapsed time for the file
+			if is_last and file_result.file_start_time then
+				file_result.total_time = system.GetTime() - file_result.file_start_time
+			end
 		end
 	end
 
@@ -385,13 +426,38 @@ do
 				-- Add newline after progress dots if needed
 				if IS_TERMINAL and completed_test_count > 0 then io_write("\n") end
 
-				for _, name in ipairs(test_order) do
-					local result = test_results[name]
+				for _, file_name in ipairs(test_order) do
+					local result = test_results[file_name]
 
 					if result then
-						local padded_name = name .. string.rep(" ", max_path_width - #name)
+						-- Print file name
+						io_write(colors.bold(file_name) .. "\n")
+
+						-- Print individual tests
+						for _, test in ipairs(result.tests) do
+							local time_str = ""
+							local gc_str = ""
+
+							-- Only show time if >= 100ms
+							if test.time >= 0.1 then
+								time_str = " " .. format_time(test.time)
+							end
+
+							-- Only show GC if >= 1MB
+							local gc_mb = math.floor(test.gc / 1024)
+
+							if math.abs(gc_mb) >= 1 then gc_str = "  " .. format_gc(test.gc) end
+
+							io_write(string.format("  %s%s%s\n", test.name, time_str, gc_str))
+						end -- Print file total
 						io_write(
-							string.format("%s %s  %s\n", padded_name, format_time(result.time), format_gc(result.gc))
+							colors.dim(
+								string.format(
+									"  - total %s  %s\n",
+									format_time(result.total_time),
+									format_gc(result.total_gc)
+								)
+							)
 						)
 					end
 				end
