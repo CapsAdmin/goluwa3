@@ -1,4 +1,4 @@
-local T = require("test.t")
+local T = require("test.environment")
 local tasks = require("tasks")
 local timer = require("timer")
 local system = require("system")
@@ -14,7 +14,7 @@ local function cleanup_tasks()
 	local start = system.GetElapsedTime()
 
 	while tasks.IsBusy() and (system.GetElapsedTime() - start) < max_wait do
-		T.sleep(0.01)
+		T.Sleep(0.01)
 	end
 end
 
@@ -33,7 +33,7 @@ local function wrap_timer()
 	return timer_lib
 end
 
-T.test("tasks.CreateTask basic execution", function()
+T.Test("tasks.CreateTask basic execution", function()
 	cleanup_tasks()
 	local started = false
 	local finished = false
@@ -51,7 +51,7 @@ T.test("tasks.CreateTask basic execution", function()
 	)
 
 	-- Run event loop to execute and complete task
-	T.wait_until(function()
+	T.WaitUntil(function()
 		return finished
 	end)
 
@@ -60,7 +60,7 @@ T.test("tasks.CreateTask basic execution", function()
 	T(result)["=="]("test_result")
 end)
 
-T.test("tasks.CreateTask with Wait", function()
+T.Test("tasks.CreateTask with Wait", function()
 	cleanup_tasks()
 	local step1 = false
 	local step2 = false
@@ -78,26 +78,26 @@ T.test("tasks.CreateTask with Wait", function()
 	)
 
 	-- Wait for each step to complete
-	T.wait_until(function()
+	T.WaitUntil(function()
 		return step1
 	end)
 
 	T(step1)["=="](true)
 
-	T.wait_until(function()
+	T.WaitUntil(function()
 		return step2
 	end)
 
 	T(step2)["=="](true)
 
-	T.wait_until(function()
+	T.WaitUntil(function()
 		return step3
 	end)
 
 	T(step3)["=="](true)
 end)
 
-T.test("tasks.Wait in task", function()
+T.Test("tasks.Wait in task", function()
 	cleanup_tasks()
 	local start_time = system.GetElapsedTime()
 	local end_time = nil
@@ -111,14 +111,14 @@ T.test("tasks.Wait in task", function()
 		true
 	)
 
-	T.wait_until(function()
+	T.WaitUntil(function()
 		return end_time ~= nil
 	end)
 
 	T(end_time)[">="](start_time + 0.2)
 end)
 
-T.test("tasks.WrapCallback with timer.Delay", function()
+T.Test("tasks.WrapCallback with timer.Delay", function()
 	cleanup_tasks()
 	-- Create a wrapped timer lib for use in tasks
 	local timer_wrapped = wrap_timer()
@@ -137,12 +137,12 @@ T.test("tasks.WrapCallback with timer.Delay", function()
 		true
 	)
 
-	T.wait_until(function()
+	T.WaitUntil(function()
 		return #execution_order == 3
 	end)
 end)
 
-T.test("tasks.WrapCallback async-like behavior", function()
+T.Test("tasks.WrapCallback async-like behavior", function()
 	cleanup_tasks()
 	local timer_wrapped = wrap_timer()
 	local value = 0
@@ -163,20 +163,20 @@ T.test("tasks.WrapCallback async-like behavior", function()
 
 	test_async()
 
-	T.wait_until(function()
+	T.WaitUntil(function()
 		return value == 1
 	end)
 
-	T.wait_until(function()
+	T.WaitUntil(function()
 		return value == 2
 	end)
 
-	T.wait_until(function()
+	T.WaitUntil(function()
 		return value == 3
 	end)
 end)
 
-T.test("tasks.ReportProgress tracks progress", function()
+T.Test("tasks.ReportProgress tracks progress", function()
 	cleanup_tasks()
 	local task = tasks.CreateTask(
 		function(self)
@@ -189,12 +189,12 @@ T.test("tasks.ReportProgress tracks progress", function()
 		true
 	)
 
-	T.wait_until(function()
+	T.WaitUntil(function()
 		return task:GetProgress("test_progress") ~= "0%"
 	end)
 end)
 
-T.test("multiple tasks run in parallel", function()
+T.Test("multiple tasks run in parallel", function()
 	cleanup_tasks()
 	local task1_done = false
 	local task2_done = false
@@ -212,7 +212,7 @@ T.test("multiple tasks run in parallel", function()
 	T(task1_done)["=="](false)
 	T(task2_done)["=="](false)
 
-	T.wait_until(function()
+	T.WaitUntil(function()
 		return task1_done and task2_done
 	end)
 
@@ -220,7 +220,7 @@ T.test("multiple tasks run in parallel", function()
 	T(task2_done)["=="](true)
 end)
 
-T.test("tasks.GetActiveTask returns current task", function()
+T.Test("tasks.GetActiveTask returns current task", function()
 	cleanup_tasks()
 	local active_task_ref = nil
 	local task_ref = nil
@@ -228,14 +228,14 @@ T.test("tasks.GetActiveTask returns current task", function()
 		active_task_ref = tasks.GetActiveTask()
 	end, nil, true)
 
-	T.wait_until(function()
+	T.WaitUntil(function()
 		return active_task_ref ~= nil
 	end)
 
 	T(active_task_ref)["=="](task_ref)
 end)
 
-T.test("task OnError handler", function()
+T.Test("task OnError handler", function()
 	cleanup_tasks()
 	local error_caught = false
 	local error_message = nil
@@ -251,7 +251,7 @@ T.test("task OnError handler", function()
 		end
 	)
 
-	T.wait_until(function()
+	T.WaitUntil(function()
 		return error_caught
 	end)
 
@@ -259,7 +259,7 @@ T.test("task OnError handler", function()
 	T(error_message ~= nil)["=="](true)
 end)
 
-T.test("task with IterationsPerTick", function()
+T.Test("task with IterationsPerTick", function()
 	cleanup_tasks()
 	local iterations = 0
 	local task = tasks.CreateTask(
@@ -275,20 +275,20 @@ T.test("task with IterationsPerTick", function()
 	task:SetIterationsPerTick(10)
 
 	-- Should process multiple iterations per tick
-	T.wait_until(function()
+	T.WaitUntil(function()
 		return iterations > 10
 	end)
 
 	T(iterations > 10)["=="](true)
 end)
 
-T.test("tasks.IsBusy returns correct state", function() -- Skip this test due to concurrent test execution issues
+T.Test("tasks.IsBusy returns correct state", function() -- Skip this test due to concurrent test execution issues
 -- The global tasks.busy state is shared across all concurrent tests
 -- making it impossible to reliably test in isolation
 end)
 
 --[=[
-T.test("tasks.IsBusy returns correct state (DISABLED)", function()
+T.Test("tasks.IsBusy returns correct state (DISABLED)", function()
 	cleanup_tasks()
 	print("DEBUG: Initial IsBusy:", tasks.IsBusy())
 	-- IsBusy should be false or nil (not busy) after cleanup
@@ -300,17 +300,17 @@ T.test("tasks.IsBusy returns correct state (DISABLED)", function()
 		print("DEBUG: Task finished waiting")
 	end, nil, true)
 	print("DEBUG: After CreateTask, IsBusy:", tasks.IsBusy())
-	T.sleep(0.05)
+	T.Sleep(0.05)
 	print("DEBUG: After 0.05s sleep, IsBusy:", tasks.IsBusy())
 	-- After creating a task and waiting a bit, should be busy
 	T(tasks.IsBusy())["=="](true)
-	T.sleep(0.2)
+	T.Sleep(0.2)
 	print("DEBUG: After 0.2s more sleep, IsBusy:", tasks.IsBusy())
 	-- After task completes, should not be busy (false or nil)
 	T(not tasks.IsBusy())["=="](true)
 end)
 --]=]
-T.test("task with OnUpdate callback", function()
+T.Test("task with OnUpdate callback", function()
 	cleanup_tasks()
 	local update_count = 0
 	local task = tasks.CreateTask(function(self)
@@ -322,14 +322,14 @@ T.test("task with OnUpdate callback", function()
 		update_count = update_count + 1
 	end
 
-	T.wait_until(function()
+	T.WaitUntil(function()
 		return update_count > 0
 	end)
 
 	T(update_count > 0)["=="](true)
 end)
 
-T.test("task with Frequency setting", function()
+T.Test("task with Frequency setting", function()
 	cleanup_tasks()
 	local execution_count = 0
 	local last_time = system.GetTime()
@@ -351,9 +351,9 @@ T.test("task with Frequency setting", function()
 	)
 	task:SetFrequency(60) -- 10 times per second
 	task:Start() -- Start after frequency is set
-	T.sleep(0.05)
+	T.Sleep(0.05)
 
-	T.wait_until(function()
+	T.WaitUntil(function()
 		return execution_count == 5
 	end)
 
@@ -363,7 +363,7 @@ T.test("task with Frequency setting", function()
 	end
 end)
 
-T.test("WrapCallback with error handling", function()
+T.Test("WrapCallback with error handling", function()
 	cleanup_tasks()
 	local timer_wrapped = wrap_timer()
 	local error_handled = false
@@ -379,14 +379,14 @@ T.test("WrapCallback with error handling", function()
 		end
 	)
 
-	T.wait_until(function()
+	T.WaitUntil(function()
 		return error_handled
 	end)
 
 	T(error_handled)["=="](true)
 end)
 
-T.test("nested WrapCallback calls", function()
+T.Test("nested WrapCallback calls", function()
 	cleanup_tasks()
 	local timer_wrapped = wrap_timer()
 	local order = {}
@@ -403,20 +403,20 @@ T.test("nested WrapCallback calls", function()
 		true
 	)
 
-	T.wait_until(function()
+	T.WaitUntil(function()
 		return #order >= 1
 	end)
 
 	T(#order)["=="](1)
 
-	T.wait_until(function()
+	T.WaitUntil(function()
 		return #order >= 2
 	end)
 
 	T(#order)["=="](2)
 	T(order[2])["=="]("after first delay")
 
-	T.wait_until(function()
+	T.WaitUntil(function()
 		return #order >= 3
 	end)
 
@@ -424,7 +424,7 @@ T.test("nested WrapCallback calls", function()
 	T(order[3])["=="]("after second delay")
 end)
 
-T.test("task max concurrent limit", function()
+T.Test("task max concurrent limit", function()
 	cleanup_tasks()
 	local original_max = tasks.max
 	tasks.max = 2
@@ -451,11 +451,11 @@ T.test("task max concurrent limit", function()
 
 	-- Trigger update to start tasks
 	tasks.Update()
-	T.sleep(0.05)
+	T.Sleep(0.05)
 	-- Should respect max limit
 	T(max_concurrent)["<="](2)
 
-	T.wait_until(function()
+	T.WaitUntil(function()
 		return running_count == 0
 	end)
 

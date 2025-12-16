@@ -1,4 +1,4 @@
-local T = require("test.t")
+local T = require("test.environment")
 local ffi = require("ffi")
 local Buffer = require("structs.buffer")
 local zip_decode = require("file_formats.zip.decode")
@@ -13,7 +13,7 @@ local function load_zip_file(path)
 	return Buffer.New(file_buffer_data, #file_data)
 end
 
-T.test("ZIP decode basic functionality", function()
+T.Test("ZIP decode basic functionality", function()
 	local ZIP_PATH = "game/storage/temp_bsp.zip"
 	local file_buffer = load_zip_file(ZIP_PATH)
 	local archive = zip_decode(file_buffer)
@@ -33,7 +33,7 @@ T.test("ZIP decode basic functionality", function()
 	end
 end)
 
-T.test("ZIP decode invalid file", function()
+T.Test("ZIP decode invalid file", function()
 	local invalid_data = "This is not a ZIP file"
 	local file_buffer_data = ffi.new("uint8_t[?]", #invalid_data)
 	ffi.copy(file_buffer_data, invalid_data, #invalid_data)

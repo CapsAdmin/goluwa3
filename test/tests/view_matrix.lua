@@ -1,4 +1,4 @@
-local T = require("test.t")
+local T = require("test.environment")
 local Matrix44 = require("structs.matrix").Matrix44
 local Vec3 = require("structs.vec3")
 local Ang3 = require("structs.ang3")
@@ -19,7 +19,7 @@ local function build_view_matrix(cam_pos, cam_ang)
 end
 
 -- Test: Mouse up/down should rotate pitch (look up/down)
-T.test("Mouse up rotates view up (pitch)", function()
+T.Test("Mouse up rotates view up (pitch)", function()
 	local cam_pos = Vec3(0, 0, 0)
 	local cam_ang = Ang3(0, 0, 0) -- Looking forward along +Z
 	-- Mouse moved up increases pitch (look up toward +Y)
@@ -31,7 +31,7 @@ T.test("Mouse up rotates view up (pitch)", function()
 	T(vz)["<"](0)
 end)
 
-T.test("Mouse down rotates view down (pitch)", function()
+T.Test("Mouse down rotates view down (pitch)", function()
 	local cam_pos = Vec3(0, 0, 0)
 	-- Mouse moved down decreases pitch (look down toward -Y)
 	local pitch_down = Ang3(math.rad(-45), 0, 0)
@@ -43,7 +43,7 @@ T.test("Mouse down rotates view down (pitch)", function()
 end)
 
 -- Test: Mouse left/right should rotate yaw (look left/right)
-T.test("Mouse left rotates view left (yaw)", function()
+T.Test("Mouse left rotates view left (yaw)", function()
 	local cam_pos = Vec3(0, 0, 0)
 	-- Mouse moved left increases yaw (look toward -X)
 	local yaw_left = Ang3(0, math.rad(90), 0)
@@ -54,7 +54,7 @@ T.test("Mouse left rotates view left (yaw)", function()
 	T(vz)["<"](0)
 end)
 
-T.test("Mouse right rotates view right (yaw)", function()
+T.Test("Mouse right rotates view right (yaw)", function()
 	local cam_pos = Vec3(0, 0, 0)
 	-- Mouse moved right decreases yaw (look toward +X)
 	local yaw_right = Ang3(0, math.rad(-90), 0)
@@ -66,7 +66,7 @@ T.test("Mouse right rotates view right (yaw)", function()
 end)
 
 -- Test: Right mouse button + mouse movement should rotate roll
-T.test("Right mouse left rotates roll clockwise", function()
+T.Test("Right mouse left rotates roll clockwise", function()
 	local cam_pos = Vec3(0, 0, 0)
 	-- Roll right (clockwise from camera POV)
 	local roll_cw = Ang3(0, 0, math.rad(45))
@@ -77,7 +77,7 @@ T.test("Right mouse left rotates roll clockwise", function()
 	T(vx)[">"](0)
 end)
 
-T.test("Right mouse right rotates roll counter-clockwise", function()
+T.Test("Right mouse right rotates roll counter-clockwise", function()
 	local cam_pos = Vec3(0, 0, 0)
 	-- Roll left (counter-clockwise from camera POV)
 	local roll_ccw = Ang3(0, 0, math.rad(-45))
@@ -89,7 +89,7 @@ T.test("Right mouse right rotates roll counter-clockwise", function()
 end)
 
 -- Test: Translation based on view rotation
-T.test("W moves camera forward along view direction", function()
+T.Test("W moves camera forward along view direction", function()
 	local cam_pos = Vec3(0, 0, 0)
 	local cam_ang = Ang3(0, 0, 0)
 	-- Get forward direction and move camera
@@ -102,7 +102,7 @@ T.test("W moves camera forward along view direction", function()
 	T(vz)[">"](0)
 end)
 
-T.test("S moves camera backward along view direction", function()
+T.Test("S moves camera backward along view direction", function()
 	local cam_pos = Vec3(0, 0, 0)
 	local cam_ang = Ang3(0, 0, 0)
 	-- Get forward direction and move camera backward
@@ -115,7 +115,7 @@ T.test("S moves camera backward along view direction", function()
 	T(vz)["<"](0)
 end)
 
-T.test("A moves camera left (perpendicular to view)", function()
+T.Test("A moves camera left (perpendicular to view)", function()
 	local cam_pos = Vec3(0, 0, 0)
 	local cam_ang = Ang3(0, 0, 0)
 	-- Get right direction and move camera left (negative right)
@@ -128,7 +128,7 @@ T.test("A moves camera left (perpendicular to view)", function()
 	T(vx)[">"](0)
 end)
 
-T.test("D moves camera right (perpendicular to view)", function()
+T.Test("D moves camera right (perpendicular to view)", function()
 	local cam_pos = Vec3(0, 0, 0)
 	local cam_ang = Ang3(0, 0, 0)
 	-- Get right direction and move camera right
@@ -141,7 +141,7 @@ T.test("D moves camera right (perpendicular to view)", function()
 	T(vx)["<"](0)
 end)
 
-T.test("Z moves camera up along view's up direction", function()
+T.Test("Z moves camera up along view's up direction", function()
 	local cam_pos = Vec3(0, 0, 0)
 	local cam_ang = Ang3(0, 0, 0)
 	-- Get up direction and move camera up
@@ -154,7 +154,7 @@ T.test("Z moves camera up along view's up direction", function()
 	T(vy)["<"](0)
 end)
 
-T.test("X moves camera down along view's up direction", function()
+T.Test("X moves camera down along view's up direction", function()
 	local cam_pos = Vec3(0, 0, 0)
 	local cam_ang = Ang3(0, 0, 0)
 	-- Get up direction and move camera down (negative up)
@@ -168,7 +168,7 @@ T.test("X moves camera down along view's up direction", function()
 end)
 
 -- Test: Z movement when looking down (pitch -90°)
-T.test("Z moves along floor when looking straight down", function()
+T.Test("Z moves along floor when looking straight down", function()
 	local cam_pos = Vec3(0, 5, 0) -- 5 units above floor
 	local cam_ang = Ang3(math.rad(-90), 0, 0) -- Looking straight down
 	-- Get "up" direction from camera's perspective (which points along floor when looking down)
@@ -182,7 +182,7 @@ T.test("Z moves along floor when looking straight down", function()
 end)
 
 -- Test: Movement when upside down (roll 180°)
-T.test("Forward movement works when camera is upside down", function()
+T.Test("Forward movement works when camera is upside down", function()
 	local cam_pos = Vec3(0, 0, 0)
 	local cam_ang = Ang3(0, 0, math.rad(180)) -- Rolled upside down
 	-- Get forward direction (should still point in forward direction)

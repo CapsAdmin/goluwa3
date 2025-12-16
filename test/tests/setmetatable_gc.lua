@@ -1,7 +1,7 @@
-local T = require("test.t")
+local T = require("test.environment")
 local setmetatable_with_gc = dofile("goluwa/helpers/setmetatable_gc.lua")
 
-T.test("setmetatable_gc triggers during runtime GC", function()
+T.Test("setmetatable_gc triggers during runtime GC", function()
 	local gc_called = false
 
 	local function create_object()
@@ -23,7 +23,7 @@ T.test("setmetatable_gc triggers during runtime GC", function()
 	T(gc_called)["=="](true)
 end)
 
-T.test("setmetatable_gc triggers for multiple objects", function()
+T.Test("setmetatable_gc triggers for multiple objects", function()
 	local gc_count = 0
 
 	local function create_objects()
@@ -47,7 +47,7 @@ T.test("setmetatable_gc triggers for multiple objects", function()
 	T(gc_count == 5)["=="](true)
 end)
 
-T.test("setmetatable_gc does not trigger for live objects", function()
+T.Test("setmetatable_gc does not trigger for live objects", function()
 	local gc_called = false
 	local t = {}
 	local meta = {
@@ -72,7 +72,7 @@ T.test("setmetatable_gc does not trigger for live objects", function()
 	T(gc_called)["=="](true)
 end)
 
-T.test("setmetatable_gc receives correct self", function()
+T.Test("setmetatable_gc receives correct self", function()
 	local received_value = nil
 
 	local function create_object()

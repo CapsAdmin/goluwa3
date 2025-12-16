@@ -1,4 +1,4 @@
-local T = require("test.t")
+local T = require("test.environment")
 local sockets = require("sockets.sockets")
 require("http")
 -- Use high port numbers to avoid conflicts
@@ -12,7 +12,7 @@ local function host_server(on_receive_header)
 	assert(server:Host("127.0.0.1", port))
 	server.OnReceiveHeader = on_receive_header
 	-- Give server time to start accepting connections
-	T.sleep(0.1)
+	T.Sleep(0.1)
 	return server, port
 end
 
@@ -61,14 +61,14 @@ local function download_and_wait(url, callbacks, timeout)
 		nil
 	local client = sockets.Download(url, on_success, on_error, on_chunks, on_header, on_status)
 
-	T.wait_until(function()
+	T.WaitUntil(function()
 		return done
 	end, 1)
 
 	return result, client
 end
 
-T.test("sockets.Download basic functionality", function()
+T.Test("sockets.Download basic functionality", function()
 	-- Create test server
 	local server, port = host_server(function(self, client, header)
 		local test_data = "Hello from download test!"
@@ -91,7 +91,7 @@ T.test("sockets.Download basic functionality", function()
 	T(result.data)["=="]("Hello from download test!")
 end)
 
-T.test("sockets.Download with chunks callback", function()
+T.Test("sockets.Download with chunks callback", function()
 	local chunks_received = {}
 	local total_bytes = 0
 	local server, port = host_server(function(self, client, header)
@@ -113,7 +113,7 @@ T.test("sockets.Download with chunks callback", function()
 	T(total_bytes)["=="](500)
 end)
 
-T.test("sockets.Download with header callback", function()
+T.Test("sockets.Download with header callback", function()
 	local received_header = nil
 	local server, port = host_server(function(self, client, header)
 		local headers = {["Content-Type"] = "text/plain", ["X-Custom"] = "test-value"}
@@ -134,7 +134,7 @@ T.test("sockets.Download with header callback", function()
 	T(received_header["x-custom"])["=="]("test-value")
 end)
 
-T.test("sockets.Download with status code callback", function()
+T.Test("sockets.Download with status code callback", function()
 	local status_code = nil
 	local server, port = host_server(function(self, client, header)
 		client:Send(sockets.HTTPResponse(200, "OK", {}, "success"))
@@ -152,7 +152,7 @@ T.test("sockets.Download with status code callback", function()
 	T(status_code)["=="](200)
 end)
 
-T.test("sockets.Download handles 404 error", function()
+T.Test("sockets.Download handles 404 error", function()
 	local server, port = host_server(function(self, client, header)
 		client:Send(sockets.HTTPResponse(404, "Not Found", {}, ""))
 		client:Close()
@@ -163,7 +163,7 @@ T.test("sockets.Download handles 404 error", function()
 	T(result.data)["=="](nil)
 end)
 
-T.test("sockets.Download can be accessed from active_downloads", function()
+T.Test("sockets.Download can be accessed from active_downloads", function()
 	local found_in_active = false
 	local test_url = "http://127.0.0.1:" .. test_port .. "/active"
 	local server, port = host_server(function(self, client, header)
@@ -196,7 +196,7 @@ T.test("sockets.Download can be accessed from active_downloads", function()
 	T(still_active)["=="](false)
 end)
 
-T.test("sockets.StopDownload cancels active download", function()
+T.Test("sockets.StopDownload cancels active download", function()
 	local finished = false
 	local test_url = "http://127.0.0.1:" .. test_port .. "/cancel"
 	local server, port = host_server(function(self, client, header) -- Server will just hold the connection open without responding
@@ -210,7 +210,7 @@ T.test("sockets.StopDownload cancels active download", function()
 		done = true
 	end)
 	-- Wait a bit then cancel
-	T.sleep(0.05)
+	T.Sleep(0.05)
 	-- Verify it's in active downloads
 	local was_active = false
 

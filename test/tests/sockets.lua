@@ -1,8 +1,8 @@
-local T = require("test.t")
+local T = require("test.environment")
 local sockets = require("sockets.sockets")
 require("http") -- This adds sockets.Request to the sockets module
 -- Test basic socket utilities that don't require network
-T.test("sockets.DecodeURI parses HTTP URL correctly", function()
+T.Test("sockets.DecodeURI parses HTTP URL correctly", function()
 	local uri = sockets.DecodeURI("http://example.com:8080/path/to/resource?query=value#fragment")
 	T(uri)["~="](nil)
 	T(uri.scheme)["=="]("http")
@@ -11,7 +11,7 @@ T.test("sockets.DecodeURI parses HTTP URL correctly", function()
 	T(uri.path)["=="]("/path/to/resource?query=value#fragment")
 end)
 
-T.test("sockets.DecodeURI parses simple URL", function()
+T.Test("sockets.DecodeURI parses simple URL", function()
 	local uri = sockets.DecodeURI("http://example.com/test")
 	T(uri)["~="](nil)
 	T(uri.scheme)["=="]("http")
@@ -19,7 +19,7 @@ T.test("sockets.DecodeURI parses simple URL", function()
 	T(uri.path)["=="]("/test")
 end)
 
-T.test("sockets.HTTPRequest builds valid GET request", function()
+T.Test("sockets.HTTPRequest builds valid GET request", function()
 	local uri = sockets.DecodeURI("http://example.com/test")
 	local header = {
 		["User-Agent"] = "Test",
@@ -35,7 +35,7 @@ T.test("sockets.HTTPRequest builds valid GET request", function()
 	T(has_path)["~="](nil)
 end)
 
-T.test("sockets.HTTPRequest builds POST request with body", function()
+T.Test("sockets.HTTPRequest builds POST request with body", function()
 	local uri = sockets.DecodeURI("http://example.com/api")
 	local request = sockets.HTTPRequest("POST", uri, {}, "test body")
 	T(request)["~="](nil)
@@ -48,7 +48,7 @@ T.test("sockets.HTTPRequest builds POST request with body", function()
 	T(has_body)["~="](nil)
 end)
 
-T.test("sockets.HTTPClient can be created", function()
+T.Test("sockets.HTTPClient can be created", function()
 	local client = sockets.HTTPClient()
 	T(client)["~="](nil)
 	T(type(client))["=="]("table")
@@ -58,7 +58,7 @@ end)
 local test_port = 5400
 local test_host = "0.0.0.0"
 
-T.test("sockets HTTP server and client communication", function()
+T.Test("sockets HTTP server and client communication", function()
 	local done = false
 	local received_request = nil
 	local client_response = nil
@@ -92,7 +92,7 @@ T.test("sockets HTTP server and client communication", function()
 	client:Request("GET", "http://localhost:" .. (test_port - 1) .. "/test")
 
 	-- Wait for response
-	T.wait_until(function()
+	T.WaitUntil(function()
 		return done
 	end, 2.0)
 
@@ -106,7 +106,7 @@ T.test("sockets HTTP server and client communication", function()
 	T(client_response.body)["=="]("Hello, World!")
 end)
 
-T.test("sockets HTTP POST request with body", function()
+T.Test("sockets HTTP POST request with body", function()
 	local done = false
 	local received_body = nil
 	local client_response = nil
@@ -141,7 +141,7 @@ T.test("sockets HTTP POST request with body", function()
 
 	client:Request("POST", "http://127.0.0.1:" .. (test_port - 1) .. "/api", {}, "test data")
 
-	T.wait_until(function()
+	T.WaitUntil(function()
 		return done
 	end, 2.0)
 
@@ -150,7 +150,7 @@ T.test("sockets HTTP POST request with body", function()
 	T(client_response)["=="]("Received: test data")
 end)
 
-T.test("sockets.Request wrapper function", function()
+T.Test("sockets.Request wrapper function", function()
 	local done = false
 	local result = nil
 	local server_got_request = false
@@ -181,7 +181,7 @@ T.test("sockets.Request wrapper function", function()
 		}
 	)
 
-	T.wait_until(function()
+	T.WaitUntil(function()
 		return done
 	end, 2.0)
 
@@ -192,7 +192,7 @@ T.test("sockets.Request wrapper function", function()
 	T(result.body)["~="](nil)
 end)
 
-T.test("sockets.Request with custom headers", function()
+T.Test("sockets.Request with custom headers", function()
 	local done = false
 	local received_headers = nil
 	local server = sockets.HTTPServer()
@@ -221,7 +221,7 @@ T.test("sockets.Request with custom headers", function()
 		}
 	)
 
-	T.wait_until(function()
+	T.WaitUntil(function()
 		return done
 	end, 2.0)
 
@@ -231,7 +231,7 @@ T.test("sockets.Request with custom headers", function()
 	T(received_headers["user-agent"])["=="]("Goluwa-Test")
 end)
 
-T.test("sockets HTTP chunked body receiving", function()
+T.Test("sockets HTTP chunked body receiving", function()
 	local done = false
 	local chunks = {}
 	local final_body = nil
@@ -263,7 +263,7 @@ T.test("sockets HTTP chunked body receiving", function()
 
 	client:Request("GET", "http://127.0.0.1:" .. (test_port - 1) .. "/test")
 
-	T.wait_until(function()
+	T.WaitUntil(function()
 		return done
 	end, 2.0)
 

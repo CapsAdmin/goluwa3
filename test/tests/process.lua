@@ -1,11 +1,11 @@
-local T = require("test.t")
+local T = require("test.environment")
 local process = require("bindings.process")
 
 -- Helper to read all output with retries
 local function read_all_stdout(proc)
 	local result = ""
 
-	T.run_until2(function()
+	T.RunUntil2(function()
 		local chunk = proc:read(4096)
 
 		if chunk and chunk ~= "" then result = result .. chunk end
@@ -28,20 +28,20 @@ local function read_all_stdout(proc)
 	return result
 end
 
-T.test("echo command with piped output", function()
+T.Test("echo command with piped output", function()
 	local proc = assert(process.spawn({command = "echo", args = {"hello", "world"}, stdout = "pipe"}))
 	T(proc.pid)["~="](nil)
 	T(read_all_stdout(proc):match("hello world"))["~="](nil)
 	T(assert(proc:wait()))["=="](0)
 end)
 
-T.test("cat with stdin/stdout pipe", function()
+T.Test("cat with stdin/stdout pipe", function()
 	local proc = assert(process.spawn({command = "cat", stdin = "pipe", stdout = "pipe"}))
 	local test_msg = "Hello from stdin!"
 	local written = proc:write(test_msg .. "\n")
 	T(written)[">"](0)
 	local output = ""
-	local success = T.run_until2(function()
+	local success = T.RunUntil2(function()
 		local chunk = proc:read(4096)
 
 		if chunk and chunk ~= "" then output = output .. chunk end
@@ -54,9 +54,9 @@ T.test("cat with stdin/stdout pipe", function()
 	T(assert(proc:wait()))["=="](0)
 end)
 
-T.test("try_wait non-blocking check", function()
+T.Test("try_wait non-blocking check", function()
 	local proc = assert(process.spawn({command = "sh", args = {"-c", "exit 0"}}))
-	local success = T.run_until2(function()
+	local success = T.RunUntil2(function()
 		done, code = proc:try_wait()
 		return done == true
 	end)
@@ -65,7 +65,7 @@ T.test("try_wait non-blocking check", function()
 	T(code)["=="](0)
 end)
 
-T.test("directory listing with ls", function()
+T.Test("directory listing with ls", function()
 	local proc = assert(
 		process.spawn(
 			{
@@ -86,7 +86,7 @@ T.test("directory listing with ls", function()
 	T(assert(proc:wait()))["=="](0)
 end)
 
-T.test("stderr capture with invalid path", function()
+T.Test("stderr capture with invalid path", function()
 	local proc = assert(
 		process.spawn(
 			{
@@ -98,7 +98,7 @@ T.test("stderr capture with invalid path", function()
 		)
 	)
 	local stderr = ""
-	local success = T.run_until2(function()
+	local success = T.RunUntil2(function()
 		local chunk = proc:read_err(4096)
 
 		if chunk and chunk ~= "" then stderr = stderr .. chunk end

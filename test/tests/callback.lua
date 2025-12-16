@@ -1,8 +1,8 @@
-local T = require("test.t")
+local T = require("test.environment")
 local callback = require("callback")
 local timer = require("timer")
 
-T.test("callback.Create basic resolve", function()
+T.Test("callback.Create basic resolve", function()
 	local resolved = false
 	local resolved_value = nil
 	local cb = callback.Create()
@@ -17,7 +17,7 @@ T.test("callback.Create basic resolve", function()
 	T(resolved_value)["=="]("test_value")
 end)
 
-T.test("callback.Create basic reject", function()
+T.Test("callback.Create basic reject", function()
 	local rejected = false
 	local reject_reason = nil
 	local cb = callback.Create()
@@ -32,7 +32,7 @@ T.test("callback.Create basic reject", function()
 	T(reject_reason)["=="]("test_error")
 end)
 
-T.test("callback.Create multiple resolve handlers", function()
+T.Test("callback.Create multiple resolve handlers", function()
 	local count = 0
 	local values = {}
 	local cb = callback.Create()
@@ -53,7 +53,7 @@ T.test("callback.Create multiple resolve handlers", function()
 	T(values[2])["=="]("multi_value")
 end)
 
-T.test("callback.Create chained then", function()
+T.Test("callback.Create chained then", function()
 	local results = {}
 	local cb = callback.Create()
 
@@ -70,7 +70,7 @@ T.test("callback.Create chained then", function()
 	T(results[2])["=="]("initial")
 end)
 
-T.test("callback.Create chained then with returned callback", function()
+T.Test("callback.Create chained then with returned callback", function()
 	local results = {}
 	local inner_cb = callback.Create()
 	local cb = callback.Create()
@@ -90,7 +90,7 @@ T.test("callback.Create chained then with returned callback", function()
 	T(results[2])["=="]("inner")
 end)
 
-T.test("callback.Create reject propagates through chain", function()
+T.Test("callback.Create reject propagates through chain", function()
 	local error_caught = false
 	local error_message = nil
 	local cb = callback.Create()
@@ -109,7 +109,7 @@ T.test("callback.Create reject propagates through chain", function()
 	T(error_message)["=="]("chain_error")
 end)
 
-T.test("callback.Create done callback", function()
+T.Test("callback.Create done callback", function()
 	local done_called = false
 	local cb = callback.Create()
 
@@ -122,7 +122,7 @@ T.test("callback.Create done callback", function()
 	T(done_called)["=="](true)
 end)
 
-T.test("callback.Create done callback on reject", function()
+T.Test("callback.Create done callback on reject", function()
 	local done_called = false
 	local cb = callback.Create()
 
@@ -135,7 +135,7 @@ T.test("callback.Create done callback on reject", function()
 	T(done_called)["=="](true)
 end)
 
-T.test("callback.Create start callback", function()
+T.Test("callback.Create start callback", function()
 	local started = false
 	local resolved = false
 	local cb = callback.Create(function(self)
@@ -154,7 +154,7 @@ T.test("callback.Create start callback", function()
 	T(resolved)["=="](true)
 end)
 
-T.test("callback.Create cannot resolve twice", function()
+T.Test("callback.Create cannot resolve twice", function()
 	local count = 0
 	local cb = callback.Create()
 
@@ -167,7 +167,7 @@ T.test("callback.Create cannot resolve twice", function()
 	T(count)["=="](1)
 end)
 
-T.test("callback.Create cannot reject resolved callback", function()
+T.Test("callback.Create cannot reject resolved callback", function()
 	local rejected = false
 	local cb = callback.Create()
 
@@ -181,7 +181,7 @@ T.test("callback.Create cannot reject resolved callback", function()
 	T(rejected)["=="](false)
 end)
 
-T.test("callback.Create subscribe custom events", function()
+T.Test("callback.Create subscribe custom events", function()
 	local progress_values = {}
 	local cb = callback.Create()
 
@@ -198,7 +198,7 @@ T.test("callback.Create subscribe custom events", function()
 	T(progress_values[3])["=="](100)
 end)
 
-T.test("callback.WrapTask basic usage", function()
+T.Test("callback.WrapTask basic usage", function()
 	local executed = false
 	local passed_value = nil
 	local task = callback.WrapTask(function(self, value)
@@ -221,11 +221,11 @@ T.test("callback.WrapTask basic usage", function()
 	-- Result should not be set yet
 	T(result_value)["=="](nil)
 	-- After event loop runs, result should be set
-	T.sleep(0.02)
+	T.Sleep(0.02)
 	T(result_value)["=="]("result")
 end)
 
-T.test("callback.WrapKeyedTask basic usage", function()
+T.Test("callback.WrapKeyedTask basic usage", function()
 	local executions = {}
 	local task = callback.WrapKeyedTask(function(self, key, value)
 		table.insert(executions, {key = key, value = value})
@@ -250,12 +250,12 @@ T.test("callback.WrapKeyedTask basic usage", function()
 	-- Results not yet set
 	T(#results)["=="](0)
 	-- After event loop
-	T.sleep(0.02)
+	T.Sleep(0.02)
 	T(results[1])["=="]("key1_result")
 	T(results[2])["=="]("key2_result")
 end)
 
-T.test("callback.WrapKeyedTask same key reuses callback when resolved", function()
+T.Test("callback.WrapKeyedTask same key reuses callback when resolved", function()
 	local execution_count = 0
 	local task = callback.WrapKeyedTask(function(self, key)
 		execution_count = execution_count + 1
@@ -268,7 +268,7 @@ T.test("callback.WrapKeyedTask same key reuses callback when resolved", function
 
 	cb1:Then(function() end)
 
-	T.sleep(0.02)
+	T.Sleep(0.02)
 	T(execution_count)["=="](1)
 	-- Same key after resolution should create new callback
 	local cb2 = task("same_key")
@@ -278,7 +278,7 @@ T.test("callback.WrapKeyedTask same key reuses callback when resolved", function
 	T(execution_count)["=="](2)
 end)
 
-T.test("callback.WrapKeyedTask same key shares callback when pending", function()
+T.Test("callback.WrapKeyedTask same key shares callback when pending", function()
 	local execution_count = 0
 	local start_count = 0
 	local task = callback.WrapKeyedTask(function(self, key)
@@ -306,7 +306,7 @@ T.test("callback.WrapKeyedTask same key shares callback when pending", function(
 	T(execution_count)["=="](2)
 end)
 
-T.test("callback.WrapKeyedTask max concurrent limit", function()
+T.Test("callback.WrapKeyedTask max concurrent limit", function()
 	local active_count = 0
 	local max_active = 0
 	local started = {}
@@ -337,11 +337,11 @@ T.test("callback.WrapKeyedTask max concurrent limit", function()
 	cb1:Resolve()
 	active_count = active_count - 1
 	-- Third should now start
-	T.sleep(0.01)
+	T.Sleep(0.01)
 	T(#started)["=="](3)
 end)
 
-T.test("callback.WrapKeyedTask queue callback notification", function()
+T.Test("callback.WrapKeyedTask queue callback notification", function()
 	local queue_events = {}
 	local task = callback.WrapKeyedTask(function(self, key) -- Don't resolve
 	end, 1, function(what, cb, key, queue)
@@ -360,13 +360,13 @@ T.test("callback.WrapKeyedTask queue callback notification", function()
 	T(queue_events[1].key)["=="]("key2")
 	-- Complete first, should trigger pop
 	cb1:Resolve()
-	T.sleep(0.01)
+	T.Sleep(0.01)
 	T(#queue_events)["=="](2)
 	T(queue_events[2].what)["=="]("pop")
 	T(queue_events[2].key)["=="]("key2")
 end)
 
-T.test("callback.WrapKeyedTask start_on_callback delayed start", function()
+T.Test("callback.WrapKeyedTask start_on_callback delayed start", function()
 	local started = false
 	local task = callback.WrapKeyedTask(
 		function(self, key)
@@ -387,7 +387,7 @@ T.test("callback.WrapKeyedTask start_on_callback delayed start", function()
 	T(started)["=="](true)
 end)
 
-T.test("callback.Resolve creates auto-resolving callback", function()
+T.Test("callback.Resolve creates auto-resolving callback", function()
 	local resolved = false
 	local value = nil
 	local cb = callback.Resolve("test_value")
@@ -400,12 +400,12 @@ T.test("callback.Resolve creates auto-resolving callback", function()
 	-- Should not resolve immediately
 	T(resolved)["=="](false)
 	-- Should resolve after timer delay
-	T.sleep(0.02)
+	T.Sleep(0.02)
 	T(resolved)["=="](true)
 	T(value)["=="]("test_value")
 end)
 
-T.test("callback reject in then handler", function()
+T.Test("callback reject in then handler", function()
 	local error_caught = false
 	local error_msg = nil
 	local cb = callback.Create()
@@ -422,7 +422,7 @@ T.test("callback reject in then handler", function()
 	T(error_msg ~= nil)["=="](true)
 end)
 
-T.test("callback stop callback", function()
+T.Test("callback stop callback", function()
 	local stopped = false
 	local started = false
 	local cb = callback.Create(function(self)
@@ -438,7 +438,7 @@ T.test("callback stop callback", function()
 	T(stopped)["=="](true)
 end)
 
-T.test("callback child callbacks inherit parent reject", function()
+T.Test("callback child callbacks inherit parent reject", function()
 	local child_rejected = false
 	local parent = callback.Create()
 	local child = parent:Then(function() end)
@@ -451,7 +451,7 @@ T.test("callback child callbacks inherit parent reject", function()
 	T(child_rejected)["=="](true)
 end)
 
-T.test("callback multiple arguments in resolve", function()
+T.Test("callback multiple arguments in resolve", function()
 	local arg1, arg2, arg3 = nil, nil, nil
 	local cb = callback.Create()
 
@@ -465,7 +465,7 @@ T.test("callback multiple arguments in resolve", function()
 	T(arg3)["=="]("third")
 end)
 
-T.pending("callback Get waits for resolution", function()
+T.Pending("callback Get waits for resolution", function()
 	local cb = callback.Create(function(self)
 		timer.Delay(0.05, function()
 			self.callbacks.resolve("delayed_value")
@@ -477,7 +477,7 @@ T.pending("callback Get waits for resolution", function()
 	T(result)["=="]("delayed_value")
 end)
 
-T.pending("callback Get throws on reject", function()
+T.Pending("callback Get throws on reject", function()
 	local cb = callback.Create(function(self)
 		timer.Delay(0.05, function()
 			self.callbacks.reject("error_value")
@@ -491,7 +491,7 @@ T.pending("callback Get throws on reject", function()
 	T(err ~= nil)["=="](true)
 end)
 
-T.test("callback parent subscribe propagates to children", function()
+T.Test("callback parent subscribe propagates to children", function()
 	local events = {}
 	local parent = callback.Create()
 	local child1 = parent:Then(function() end)
@@ -509,7 +509,7 @@ T.test("callback parent subscribe propagates to children", function()
 	T(events[2])["=="]("event2")
 end)
 
-T.test("callback integration with timer", function()
+T.Test("callback integration with timer", function()
 	local Delay = callback.WrapTask(function(self, delay)
 		local resolve = self.callbacks.resolve
 
@@ -524,11 +524,11 @@ T.test("callback integration with timer", function()
 	end)
 
 	T(result)["=="](nil)
-	T.sleep(0.15)
+	T.Sleep(0.15)
 	T(result)["=="]("delayed_result")
 end)
 
-T.test("callback reject from custom event returning false", function()
+T.Test("callback reject from custom event returning false", function()
 	local rejected = false
 	local reject_msg = nil
 	local cb = callback.Create()

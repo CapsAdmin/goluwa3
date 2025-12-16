@@ -1,7 +1,7 @@
-local T = require("test.t")
+local T = require("test.environment")
 local threads = require("bindings.threads")
 
-T.test("thread returns incremented value", function()
+T.Test("thread returns incremented value", function()
 	local thread = threads.new(function(input)
 		assert(input == 1)
 		return input + 1
@@ -11,7 +11,7 @@ T.test("thread returns incremented value", function()
 	T(ret)["=="](2)
 end)
 
-T.test("thread handles errors", function()
+T.Test("thread handles errors", function()
 	local thread = threads.new(function(input)
 		error("Intentional Error")
 	end)

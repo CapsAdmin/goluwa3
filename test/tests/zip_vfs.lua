@@ -1,9 +1,9 @@
-local T = require("test.t")
+local T = require("test.environment")
 local vfs = require("filesystem.vfs")
 local R = vfs.GetAbsolutePath
 local ZIP_PATH = "/home/caps/projects/goluwa3/game/storage/temp_bsp.zip/"
 
-T.test("ZIP VFS registration", function()
+T.Test("ZIP VFS registration", function()
 	-- Test that the ZIP file system is registered
 	local filesystems = vfs.GetFileSystems()
 	local found_zip = false
@@ -19,7 +19,7 @@ T.test("ZIP VFS registration", function()
 	T(found_zip)["=="](true)
 end)
 
-T.test("ZIP VFS basic functionality", function()
+T.Test("ZIP VFS basic functionality", function()
 	-- Test listing actual files in the ZIP (deeper path to get actual files)
 	local files, err = vfs.Find(ZIP_PATH .. "materials/maps/gm_flatgrass/", nil, nil, nil, nil, true)
 	T(files)["~="](nil)
@@ -32,7 +32,7 @@ T.test("ZIP VFS basic functionality", function()
 	end
 end)
 
-T.test("ZIP VFS file reading", function()
+T.Test("ZIP VFS file reading", function()
 	-- Find a file to open
 	local files = vfs.Find(ZIP_PATH .. "materials/maps/", nil, nil, nil, nil, true)
 	T(files)["~="](nil)
@@ -65,7 +65,7 @@ T.test("ZIP VFS file reading", function()
 	end
 end)
 
-T.test("ZIP VFS directory listing", function()
+T.Test("ZIP VFS directory listing", function()
 	-- Test that we can list directories at different levels
 	local files = vfs.Find(ZIP_PATH .. "materials/maps/", nil, nil, nil, nil, true)
 	T(files)["~="](nil)

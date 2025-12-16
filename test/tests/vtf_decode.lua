@@ -1,4 +1,4 @@
-local T = require("test.t")
+local T = require("test.environment")
 local ffi = require("ffi")
 local Buffer = require("structs.buffer")
 local vtf_decode = require("file_formats.vtf.decode")
@@ -19,7 +19,7 @@ local function load_vtf_file(path)
 end
 
 -- Test basic VTF decoding functionality with real VTF file
-T.test("VTF decode gm_construct grass1.vtf", function()
+T.Test("VTF decode gm_construct grass1.vtf", function()
 	local file_buffer = load_vtf_file(VTF)
 	local img = vtf_decode(file_buffer)
 	T(img)["~="](nil)
@@ -42,7 +42,7 @@ T.test("VTF decode gm_construct grass1.vtf", function()
 	T(img.mip_info[img.mip_count].height)["=="](1)
 end)
 
-T.test("VTF decode validates signature", function()
+T.Test("VTF decode validates signature", function()
 	-- Create invalid VTF data
 	local invalid_data = "INVALID_DATA"
 	local buffer_data = ffi.new("uint8_t[?]", #invalid_data)
@@ -53,5 +53,3 @@ T.test("VTF decode validates signature", function()
 	T(err)["~="](nil)
 	T(tostring(err):find("signature"))["~="](nil)
 end)
-
-require("goluwa.main")()

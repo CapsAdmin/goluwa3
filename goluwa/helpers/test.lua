@@ -128,22 +128,15 @@ do
 	end
 
 	-- Wait until a condition is true, checking every interval, with optional timeout
-	function test.WaitUntil(condition, timeout, check_interval)
+	function test.WaitUntil(condition, timeout)
 		timeout = timeout or 5.0
-		-- Use shorter interval when tasks are enabled for faster polling
-		local tasks = package.loaded["tasks"]
-
-		if not check_interval then
-			check_interval = (tasks and tasks.enabled) and 0.001 or 0.016
-		end
-
 		local start_time = system.GetElapsedTime()
 		local end_time = start_time + timeout
 
 		while system.GetElapsedTime() < end_time do
 			if condition() then return true end
 
-			test.Sleep(check_interval)
+			test.Yield()
 		end
 
 		error("WaitUntil: condition not met within timeout of " .. timeout .. " seconds", 2)
@@ -558,4 +551,10 @@ function test.RunUntil2(condition, timeout)
 	return false -- timeout
 end
 
+local attest = require("helpers.attest")
+setmetatable(test, {
+	__call = function(_, val)
+		return attest.AssertHelper(val)
+	end,
+})
 return test

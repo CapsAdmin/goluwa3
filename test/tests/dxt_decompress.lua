@@ -1,11 +1,11 @@
 require("goluwa.global_environment")
 _G.VERBOSE_TESTS = true
-local T = require("test.t")
+local T = require("test.environment")
 local ffi = require("ffi")
 local dxt = require("helpers.dxt")
 
 -- Test 1: Simple 4x4 block with known pattern
-T.test("DXT1 decompress single block - solid red", function()
+T.Test("DXT1 decompress single block - solid red", function()
 	-- Create a DXT1 block for solid red
 	-- Color0 = RGB(255, 0, 0) = 0xF800 in RGB565
 	-- Color1 = RGB(0, 0, 0) = 0x0000 in RGB565
@@ -49,7 +49,6 @@ T.test("DXT1 decompress single block - solid red", function()
 		end
 	local rgba = dxt.decompress_dxt1(block, 4, 4)
 	-- Debug: print what we actually got
-	print(string.format("First pixel: R=%d G=%d B=%d A=%d", rgba[0], rgba[1], rgba[2], rgba[3]))
 	-- Check first pixel is red
 	T(rgba[0])["=="](255) -- R (31 in 5-bit converts to 255 in 8-bit)
 	T(rgba[1])["=="](0) -- G
@@ -58,7 +57,7 @@ T.test("DXT1 decompress single block - solid red", function()
 end)
 
 -- Test 2: 4x4 block with green color (RGB)
-T.test("DXT1 decompress - solid green (RGB)", function()
+T.Test("DXT1 decompress - solid green (RGB)", function()
 	-- Green = RGB(0, 255, 0) = 0x07E0 in RGB565
 	local block = ffi.new(
 		"uint8_t[8]",
@@ -79,11 +78,10 @@ T.test("DXT1 decompress - solid green (RGB)", function()
 	T(rgba[1])["=="](255) -- G (252 rounded)
 	T(rgba[2])["=="](0) -- B
 	T(rgba[3])["=="](255) -- A
-	print(string.format("Green pixel: R=%d G=%d B=%d", rgba[0], rgba[1], rgba[2]))
 end)
 
 -- Test 3: 4x4 block with green color in BGR format (VTF style)
-T.test("DXT1 decompress - solid green (BGR format)", function()
+T.Test("DXT1 decompress - solid green (BGR format)", function()
 	-- In BGR565, green is still in the middle, but R and B are swapped in bit positions
 	-- Green = BGR(0, 255, 0) = 0x07E0 in BGR565 (same as RGB!)
 	-- But to test BGR parsing, let's use a color that's different in BGR vs RGB
@@ -102,7 +100,6 @@ T.test("DXT1 decompress - solid green (BGR format)", function()
 		}
 	)
 	local rgba = dxt.decompress_dxt1_bgr(block, 4, 4)
-	print(string.format("BGR red pixel: R=%d G=%d B=%d", rgba[0], rgba[1], rgba[2]))
 	-- In BGR mode, 0x001F should decode as red (not blue)
 	T(rgba[0])["=="](255) -- R
 	T(rgba[1])["=="](0) -- G
@@ -111,7 +108,7 @@ T.test("DXT1 decompress - solid green (BGR format)", function()
 end)
 
 -- Test 4: Actual VTF texture first block
-T.test("DXT1 decompress - VTF grass texture first block", function()
+T.Test("DXT1 decompress - VTF grass texture first block", function()
 	local Buffer = require("structs.buffer")
 	local vtf_decode = require("file_formats.vtf.decode")
 	local vfs = require("vfs")
@@ -132,39 +129,8 @@ T.test("DXT1 decompress - VTF grass texture first block", function()
 	-- Get the first block of the largest mip
 	local first_block_offset = img.mip_info[1].offset
 	local block_data = ffi.cast("uint8_t*", img.data) + first_block_offset
-	print("\nFirst block of grass texture (raw bytes):")
-	print(
-		string.format(
-			"  %02x %02x %02x %02x %02x %02x %02x %02x",
-			block_data[0],
-			block_data[1],
-			block_data[2],
-			block_data[3],
-			block_data[4],
-			block_data[5],
-			block_data[6],
-			block_data[7]
-		)
-	)
 	-- Decompress using BGR mode
 	local rgba = dxt.decompress_dxt1_bgr(block_data, 4, 4)
-	-- Print first few pixels
-	print("First 4 pixels decoded:")
-
-	for i = 0, 3 do
-		local offset = i * 4
-		print(
-			string.format(
-				"  Pixel %d: R=%3d G=%3d B=%3d A=%3d",
-				i,
-				rgba[offset],
-				rgba[offset + 1],
-				rgba[offset + 2],
-				rgba[offset + 3]
-			)
-		)
-	end
-
 	-- Grass should be primarily green/brown, so check that green channel is significant
 	local has_green = false
 
@@ -180,5 +146,3 @@ T.test("DXT1 decompress - VTF grass texture first block", function()
 
 	T(has_green)["=="](true)
 end)
-
-require("goluwa.main")()
