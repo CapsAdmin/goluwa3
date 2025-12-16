@@ -1,4 +1,3 @@
-require("goluwa.global_environment")
 local test = require("helpers.test")
 local attest = require("helpers.attest")
 local event = require("event")
@@ -20,5 +19,3 @@ end)
 event.AddListener("ShutDown", "tests", function()
 	test.EndTests()
 end)
-
-require("main")() -- needed to keep it alive
