@@ -11,6 +11,7 @@ local function calculate_stride(vertex_attributes)
 	for _, attr in ipairs(vertex_attributes) do
 		if attr.offset >= max_offset then
 			max_offset = attr.offset
+
 			-- Handle both lua_type (for structured data) and format (for raw data)
 			if attr.lua_type then
 				last_size = ffi.sizeof(attr.lua_type)
@@ -20,6 +21,7 @@ local function calculate_stride(vertex_attributes)
 				-- e.g., "r32g32_sfloat" = vec2 = 2 floats = 8 bytes
 				-- e.g., "r32g32b32a32_sfloat" = vec4 = 4 floats = 16 bytes
 				local components = 0
+
 				if attr.format:match("r32g32b32a32") then
 					components = 4
 				elseif attr.format:match("r32g32b32") then
@@ -29,6 +31,7 @@ local function calculate_stride(vertex_attributes)
 				elseif attr.format:match("r32") then
 					components = 1
 				end
+
 				last_size = components * ffi.sizeof("float")
 			else
 				error("Attribute must have either lua_type or format", 2)
@@ -66,14 +69,14 @@ function VertexBuffer.New(vertices, vertex_attributes)
 	elseif type(vertices) == "table" then
 		-- Check if it's a raw float array or structured vertex array
 		local is_raw_floats = type(vertices[1]) == "number"
-		
+
 		if is_raw_floats then
 			-- Raw float array - copy directly
 			self.vertex_count = #vertices / (self.stride / ffi.sizeof("float"))
 			self.byte_size = #vertices * ffi.sizeof("float")
 			self.data = ffi.new("uint8_t[?]", self.byte_size)
 			local float_ptr = ffi.cast("float*", self.data)
-			
+
 			for i, v in ipairs(vertices) do
 				float_ptr[i - 1] = v
 			end
