@@ -79,6 +79,7 @@ return function(vfs)
 		local cache_path = "os:cache/archive/" .. crypto.CRC32(cache_key)
 
 		if vfs.IsFile(cache_path) then
+			local serializer = require("serializer")
 			never = true
 			local tree_data, err, what = serializer.ReadFile("msgpack", cache_path)
 			never = false

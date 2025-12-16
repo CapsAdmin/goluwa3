@@ -149,25 +149,23 @@ return function(vfs)
 
 	function vfs.MountAddons(dir)
 		for info in vfs.Iterate(dir, true, nil, nil, nil, true) do
-			if info.name ~= e.INTERNAL_ADDON_NAME then
-				if
-					vfs.IsDirectory(info.full_path:sub(#info.filesystem + 2)) and
-					not info.name:starts_with(".")
-					and
-					not info.name:starts_with("__")
-					and
-					(
-						not whitelist or
-						whitelist[info.name:lower():trim()]
-					)
-					and
-					(
-						info.name ~= "data" and
-						info.filesystem == "os"
-					)
-				then
-					vfs.MountAddon(info.full_path:sub(#info.filesystem + 2) .. "/")
-				end
+			if
+				vfs.IsDirectory(info.full_path:sub(#info.filesystem + 2)) and
+				not info.name:starts_with(".")
+				and
+				not info.name:starts_with("__")
+				and
+				(
+					not whitelist or
+					whitelist[info.name:lower():trim()]
+				)
+				and
+				(
+					info.name ~= "data" and
+					info.filesystem == "os"
+				)
+			then
+				vfs.MountAddon(info.full_path:sub(#info.filesystem + 2) .. "/")
 			end
 		end
 	end

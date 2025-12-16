@@ -13,8 +13,10 @@ local function load_png_file(path)
 	return Buffer.New(file_buffer_data, #file_data)
 end
 
+local PNG = "game/addons/test/assets/images/capsadmin.png"
+
 T.test("PNG decode basic functionality", function()
-	local file_buffer = load_png_file("game/assets/images/capsadmin.png")
+	local file_buffer = load_png_file(PNG)
 	local img = png_decode(file_buffer)
 	T(img.width)[">"](0)
 	T(img.height)[">"](0)
@@ -25,7 +27,7 @@ T.test("PNG decode basic functionality", function()
 end)
 
 T.test("PNG decode capsadmin.png average color", function()
-	local file_buffer = load_png_file("game/assets/images/capsadmin.png")
+	local file_buffer = load_png_file(PNG)
 	local img = png_decode(file_buffer)
 	img.buffer:SetPosition(0)
 	local pixel_count = img.width * img.height
@@ -51,7 +53,7 @@ T.test("PNG decode capsadmin.png average color", function()
 end)
 
 T.test("PNG decode RGB image has correct alpha channel", function()
-	local file_buffer = load_png_file("game/assets/images/capsadmin.png")
+	local file_buffer = load_png_file(PNG)
 	local img = png_decode(file_buffer)
 	T(img.colorType)["=="](2)
 	img.buffer:SetPosition(0)

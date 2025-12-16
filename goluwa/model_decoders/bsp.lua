@@ -5,9 +5,14 @@ local vfs = require("vfs")
 local tasks = require("tasks")
 local model_loader = require("model_loader")
 local Polygon3D = require("graphics.polygon_3d")
+local Ang3 = require("structs.ang3")
 local AABB = require("structs.aabb")
 local Material = require("graphics.material")
+local Vec3 = require("structs.vec3")
+local Vec2 = require("structs.vec2")
+local Color = require("structs.color")
 local event = require("event")
+local math3d = require("math3d")
 local R = vfs.GetAbsolutePath
 local ffi = require("ffi")
 local CUBEMAPS = false
@@ -129,7 +134,7 @@ local function read_lump_data(what, bsp_file, header, index, size, struct)
 end
 
 function steam.LoadMap(path)
-	path = R(path)
+	path = assert(R(path) or nil)
 	logn("loading map: ", path)
 	local bsp_file = assert(vfs.Open(path))
 
@@ -224,7 +229,7 @@ function steam.LoadMap(path)
 				if k == "angles" then
 					v = Ang3(unpack_numbers(v))
 				elseif k == "_light" or k == "_ambient" or k:find("color", nil, true) then
-					v = ColorBytes(unpack_numbers(v))
+					v = Color.FromBytes(unpack_numbers(v))
 				elseif
 					k == "origin" or
 					k:find("dir", nil, true) or

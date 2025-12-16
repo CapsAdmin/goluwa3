@@ -257,6 +257,9 @@ do -- translate path to useful data
 
 	function vfs.GetPathInfo(path, is_folder)
 		local out = {}
+
+		if not path then debug.trace() end
+
 		local pos = path:find(":", 0, true)
 
 		if pos then

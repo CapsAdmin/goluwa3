@@ -1,4 +1,5 @@
 local ffi = require("ffi")
+local commands = require("commands")
 local Texture = require("graphics.texture")
 local Material = {}
 Material.__index = Material

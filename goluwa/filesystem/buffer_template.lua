@@ -1,6 +1,7 @@
+local ffi = require("ffi")
+local Vec3 = require("structs.vec3")
+local Ang3 = require("structs.ang3")
 return function(META)
-	local ffi = desire("ffi")
-
 	-- <cmtptr> CapsAdmin, http://codepad.org/uN7qlQTm
 	local function swap_endian(num, size)
 		local result = 0
