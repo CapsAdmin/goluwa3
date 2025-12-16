@@ -226,7 +226,11 @@ end
 function GraphicsPipeline:Bind(cmd, frame_index)
 	frame_index = frame_index or 1
 	cmd:BindPipeline(self.pipeline, "graphics")
-	cmd:BindDescriptorSets("graphics", self.pipeline_layout, {self.descriptor_sets[frame_index]}, 0)
+
+	-- Bind descriptor sets - they should always exist for pipelines with descriptor sets
+	if self.descriptor_sets and self.descriptor_sets[frame_index] then
+		cmd:BindDescriptorSets("graphics", self.pipeline_layout, {self.descriptor_sets[frame_index]}, 0)
+	end
 end
 
 function GraphicsPipeline:GetVertexAttributes()

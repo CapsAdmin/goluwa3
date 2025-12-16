@@ -108,7 +108,14 @@ function render2d.Initialize()
 	render2d.SetColor(1, 1, 1, 1)
 	render2d.SetAlphaMultiplier(1)
 	render2d.SetUV()
-	render2d.UpdateScreenSize(window:GetSize())
+
+	-- In headless mode, window might not exist, so set a default size
+	if window and window.GetSize then
+		render2d.UpdateScreenSize(window:GetSize())
+	else
+		render2d.UpdateScreenSize({w = 800, h = 600}) -- Default for headless
+	end
+
 	render2d.current_blend_mode = "alpha"
 	render2d.rect_mesh = render2d.CreateMesh(
 		{

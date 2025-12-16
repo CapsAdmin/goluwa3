@@ -21,6 +21,7 @@ function RenderPass.New(device, config)
 				{
 					-- Attachment 0: Color
 					{
+						flags = 0,
 						format = vulkan.vk.e.VkFormat(format_string),
 						samples = vulkan.vk.VkSampleCountFlagBits.VK_SAMPLE_COUNT_1_BIT,
 						loadOp = vulkan.vk.VkAttachmentLoadOp.VK_ATTACHMENT_LOAD_OP_CLEAR,
@@ -32,6 +33,7 @@ function RenderPass.New(device, config)
 					},
 					-- Attachment 1: Depth
 					{
+						flags = 0,
 						format = vulkan.vk.e.VkFormat(config.depth_format),
 						samples = vulkan.vk.VkSampleCountFlagBits.VK_SAMPLE_COUNT_1_BIT,
 						loadOp = vulkan.vk.VkAttachmentLoadOp.VK_ATTACHMENT_LOAD_OP_CLEAR,
@@ -47,6 +49,7 @@ function RenderPass.New(device, config)
 			attachment_count = 1
 			attachments = vulkan.vk.VkAttachmentDescription(
 				{
+					flags = 0,
 					format = vulkan.vk.e.VkFormat(format_string),
 					samples = vulkan.vk.VkSampleCountFlagBits.VK_SAMPLE_COUNT_1_BIT,
 					loadOp = vulkan.vk.VkAttachmentLoadOp.VK_ATTACHMENT_LOAD_OP_CLEAR,
@@ -67,6 +70,7 @@ function RenderPass.New(device, config)
 				{
 					-- Attachment 0: MSAA color attachment
 					{
+						flags = 0,
 						format = vulkan.vk.e.VkFormat(format_string),
 						samples = vulkan.vk.VkSampleCountFlagBits["VK_SAMPLE_COUNT_" .. config.samples .. "_BIT"],
 						loadOp = vulkan.vk.VkAttachmentLoadOp.VK_ATTACHMENT_LOAD_OP_CLEAR,
@@ -78,6 +82,7 @@ function RenderPass.New(device, config)
 					},
 					-- Attachment 1: Resolve target (swapchain)
 					{
+						flags = 0,
 						format = vulkan.vk.e.VkFormat(format_string),
 						samples = vulkan.vk.VkSampleCountFlagBits.VK_SAMPLE_COUNT_1_BIT,
 						loadOp = vulkan.vk.VkAttachmentLoadOp.VK_ATTACHMENT_LOAD_OP_DONT_CARE, -- Don't care about initial contents
@@ -89,6 +94,7 @@ function RenderPass.New(device, config)
 					},
 					-- Attachment 2: MSAA depth attachment
 					{
+						flags = 0,
 						format = vulkan.vk.e.VkFormat(config.depth_format),
 						samples = vulkan.vk.VkSampleCountFlagBits["VK_SAMPLE_COUNT_" .. config.samples .. "_BIT"],
 						loadOp = vulkan.vk.VkAttachmentLoadOp.VK_ATTACHMENT_LOAD_OP_CLEAR,
@@ -108,6 +114,7 @@ function RenderPass.New(device, config)
 				{
 					-- Attachment 0: MSAA color attachment
 					{
+						flags = 0,
 						format = vulkan.vk.e.VkFormat(format_string),
 						samples = vulkan.vk.VkSampleCountFlagBits["VK_SAMPLE_COUNT_" .. config.samples .. "_BIT"],
 						loadOp = vulkan.vk.VkAttachmentLoadOp.VK_ATTACHMENT_LOAD_OP_CLEAR,
@@ -119,6 +126,7 @@ function RenderPass.New(device, config)
 					},
 					-- Attachment 1: Resolve target (swapchain)
 					{
+						flags = 0,
 						format = vulkan.vk.e.VkFormat(format_string),
 						samples = vulkan.vk.VkSampleCountFlagBits.VK_SAMPLE_COUNT_1_BIT,
 						loadOp = vulkan.vk.VkAttachmentLoadOp.VK_ATTACHMENT_LOAD_OP_DONT_CARE, -- Don't care about initial contents
@@ -149,7 +157,10 @@ function RenderPass.New(device, config)
 		nil
 	local subpass = vulkan.vk.VkSubpassDescription(
 		{
+			flags = 0,
 			pipelineBindPoint = vulkan.vk.VkPipelineBindPoint.VK_PIPELINE_BIND_POINT_GRAPHICS,
+			inputAttachmentCount = 0,
+			pInputAttachments = nil,
 			colorAttachmentCount = 1,
 			pColorAttachments = colorAttachmentRef,
 			pResolveAttachments = config.samples ~= "1" and
@@ -161,6 +172,8 @@ function RenderPass.New(device, config)
 				) or
 				nil,
 			pDepthStencilAttachment = depthAttachmentRef,
+			preserveAttachmentCount = 0,
+			pPreserveAttachments = nil,
 		}
 	)
 	local dependency = vulkan.vk.VkSubpassDependency(
@@ -186,6 +199,7 @@ function RenderPass.New(device, config)
 					vulkan.vk.VkAccessFlagBits.VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT
 				) or
 				vulkan.vk.VkAccessFlagBits.VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+			dependencyFlags = 0,
 		}
 	)
 	local renderPassInfo = vulkan.vk.s.RenderPassCreateInfo(

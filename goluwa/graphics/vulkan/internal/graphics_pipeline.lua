@@ -242,7 +242,11 @@ function GraphicsPipeline.New(device, config, render_passes, pipelineLayout)
 			viewMask = 0,
 			colorAttachmentCount = colorAttachmentCount,
 			pColorAttachmentFormats = pColorAttachmentFormats,
-			depthAttachmentFormat = render_passes[1].depth_format and
+			depthAttachmentFormat = (
+					render_passes[1].depth_format and
+					render_passes[1].depth_format ~= false
+				)
+				and
 				render_passes[1].depth_format or
 				"undefined",
 			stencilAttachmentFormat = "undefined",

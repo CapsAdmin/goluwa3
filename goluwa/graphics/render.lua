@@ -51,6 +51,12 @@ function render.Initialize()
 	end
 end
 
+-- Initialize headless Vulkan instance for offscreen rendering (no window required)
+function render.InitializeHeadless()
+	vulkan_instance = VulkanInstance.New(nil, nil)
+	render.window_target = nil -- No window target in headless mode
+end
+
 function render.CreateBuffer(config)
 	return vulkan_instance:CreateBuffer(config)
 end
@@ -72,14 +78,22 @@ end
 function render.CreateGraphicsPipeline(config)
 	-- Only set defaults if not explicitly provided (nil check allows explicit nil for depth-only)
 	if config.color_format == nil and config.color_format ~= false then
-		config.color_format = render.window_target:GetColorFormat()
+		if render.window_target then
+			config.color_format = render.window_target:GetColorFormat()
+		end
 	elseif config.color_format == false then
 		config.color_format = nil
 	end
 
-	config.depth_format = config.depth_format or render.window_target:GetDepthFormat()
-	config.samples = config.samples or render.window_target:GetSamples()
-	config.descriptor_set_count = config.descriptor_set_count or render.window_target:GetSwapchainImageCount()
+	if render.window_target then
+		config.depth_format = config.depth_format or render.window_target:GetDepthFormat()
+		config.samples = config.samples or render.window_target:GetSamples()
+		config.descriptor_set_count = config.descriptor_set_count or render.window_target:GetSwapchainImageCount()
+	else
+		-- Headless defaults
+		config.descriptor_set_count = config.descriptor_set_count or 1
+	end
+
 	return vulkan_instance:CreateGraphicsPipeline(config)
 end
 

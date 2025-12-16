@@ -189,6 +189,7 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 			ptr = ptr,
 			has_extended_dynamic_state3 = has_extended_dynamic_state3,
 			physical_device = physical_device,
+			extensions = finalExtensions,
 		},
 		Device
 	)
@@ -199,9 +200,12 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 		vulkan.ext.vkCmdSetColorBlendEquationEXT = device:GetExtension("vkCmdSetColorBlendEquationEXT")
 	end
 
-	-- Load conditional rendering extension functions
-	vulkan.ext.vkCmdBeginConditionalRenderingEXT = device:GetExtension("vkCmdBeginConditionalRenderingEXT")
-	vulkan.ext.vkCmdEndConditionalRenderingEXT = device:GetExtension("vkCmdEndConditionalRenderingEXT")
+	-- Load conditional rendering extension functions only if requested
+	if table.has_value(finalExtensions, "VK_EXT_conditional_rendering") then
+		vulkan.ext.vkCmdBeginConditionalRenderingEXT = device:GetExtension("vkCmdBeginConditionalRenderingEXT")
+		vulkan.ext.vkCmdEndConditionalRenderingEXT = device:GetExtension("vkCmdEndConditionalRenderingEXT")
+	end
+
 	return device
 end
 

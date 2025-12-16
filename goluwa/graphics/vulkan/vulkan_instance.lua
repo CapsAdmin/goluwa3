@@ -24,17 +24,31 @@ VulkanInstance.__index = VulkanInstance
 
 function VulkanInstance.New(surface_handle, display_handle)
 	local self = setmetatable({}, VulkanInstance)
-	-- Platform-specific surface extension
-	local surface_ext = jit.os == "OSX" and "VK_EXT_metal_surface" or "VK_KHR_wayland_surface"
-	local extensions = {"VK_KHR_surface", surface_ext}
+	local is_headless = not surface_handle and not display_handle
+	-- Setup extensions based on headless or windowed mode
+	local extensions = {}
+
+	if not is_headless then
+		-- Platform-specific surface extension
+		local surface_ext = jit.os == "OSX" and "VK_EXT_metal_surface" or "VK_KHR_wayland_surface"
+		table.insert(extensions, "VK_KHR_surface")
+		table.insert(extensions, surface_ext)
+	end
 
 	if jit.os == "OSX" then
 		table.insert(extensions, "VK_KHR_portability_enumeration")
 	end
 
 	self.instance = Instance.New(extensions, {"VK_LAYER_KHRONOS_validation"})
-	self.surface = Surface.New(self.instance, surface_handle, display_handle)
-	-- Find a physical device that supports this surface
+
+	-- Create surface only if not headless
+	if not is_headless then
+		self.surface = Surface.New(self.instance, surface_handle, display_handle)
+	else
+		self.surface = nil
+	end
+
+	-- Find the best physical device
 	local physical_devices = self.instance:GetPhysicalDevices()
 	self.physical_device = nil
 	local best_score = -1
@@ -42,8 +56,10 @@ function VulkanInstance.New(surface_handle, display_handle)
 	for i, device in ipairs(physical_devices) do
 		local props = device:GetProperties()
 		local device_name = ffi.string(props.deviceName)
+		-- Check surface support only if not headless
+		local supports_requirements = is_headless or device:SupportsSurface(self.surface)
 
-		if device:SupportsSurface(self.surface) then
+		if supports_requirements then
 			local score = 0
 
 			-- VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU = 2
@@ -52,6 +68,8 @@ function VulkanInstance.New(surface_handle, display_handle)
 			-- VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU = 1
 			elseif props.deviceType == 1 then
 				score = 100
+			else
+				score = 10
 			end
 
 			if score > best_score then
@@ -62,17 +80,32 @@ function VulkanInstance.New(surface_handle, display_handle)
 	end
 
 	if not self.physical_device then
-		error("No physical device supports the Wayland surface!")
+		local error_msg = is_headless and
+			"No physical device found!" or
+			"No physical device supports the surface!"
+		error(error_msg)
 	end
 
 	local props = self.physical_device:GetProperties()
 	local device_name = ffi.string(props.deviceName)
-	self.graphics_queue_family = self.physical_device:FindGraphicsQueueFamily(self.surface)
-	self.device = Device.New(
-		self.physical_device,
-		{"VK_KHR_swapchain", "VK_EXT_conditional_rendering"},
-		self.graphics_queue_family
-	)
+
+	if is_headless then print("Headless Vulkan: Using device " .. device_name) end
+
+	-- Find graphics queue family
+	if is_headless then
+		self.graphics_queue_family = self.physical_device:FindGraphicsQueueFamilyHeadless()
+	else
+		self.graphics_queue_family = self.physical_device:FindGraphicsQueueFamily(self.surface)
+	end
+
+	-- Setup device extensions based on mode
+	local device_extensions = {"VK_EXT_conditional_rendering"}
+
+	if not is_headless then
+		table.insert(device_extensions, "VK_KHR_swapchain")
+	end
+
+	self.device = Device.New(self.physical_device, device_extensions, self.graphics_queue_family)
 	self.command_pool = CommandPool.New(self.device, self.graphics_queue_family)
 	self.queue = self.device:GetQueue(self.graphics_queue_family)
 	return self
