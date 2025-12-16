@@ -1,5 +1,5 @@
 -- VTF (Valve Texture Format) decoder for LuaJIT
--- Decodes VTF textures to RGBA8888 format
+-- Decodes VTF textures, returning compressed data as-is for GPU upload (like DDS decoder)
 -- Supports DXT1/3/5, RGBA8888, RGB888, BGR888, BGRA8888, and other common formats
 local ffi = require("ffi")
 local bit = require("bit")
@@ -136,403 +136,26 @@ local function compute_image_size(width, height, depth, format)
 	return nil
 end
 
--- DXT1 decompression
-local function decompress_dxt1(input_buffer, width, height)
-	local output_size = width * height * 4
-	local output = ffi.new("uint8_t[?]", output_size)
-	local blocks_x = math.max(1, math.floor((width + 3) / 4))
-	local blocks_y = math.max(1, math.floor((height + 3) / 4))
-
-	for by = 0, blocks_y - 1 do
-		for bx = 0, blocks_x - 1 do
-			-- Read color endpoints
-			local c0 = input_buffer:ReadU16LE()
-			local c1 = input_buffer:ReadU16LE()
-			local indices = input_buffer:ReadU32LE()
-			-- Decode RGB565 colors
-			local r0 = band(rshift(c0, 11), 0x1F)
-			local g0 = band(rshift(c0, 5), 0x3F)
-			local b0 = band(c0, 0x1F)
-			local r1 = band(rshift(c1, 11), 0x1F)
-			local g1 = band(rshift(c1, 5), 0x3F)
-			local b1 = band(c1, 0x1F)
-			-- Expand to 8-bit
-			r0 = bor(lshift(r0, 3), rshift(r0, 2))
-			g0 = bor(lshift(g0, 2), rshift(g0, 4))
-			b0 = bor(lshift(b0, 3), rshift(b0, 2))
-			r1 = bor(lshift(r1, 3), rshift(r1, 2))
-			g1 = bor(lshift(g1, 2), rshift(g1, 4))
-			b1 = bor(lshift(b1, 3), rshift(b1, 2))
-
-			-- Decode 4x4 block
-			for py = 0, 3 do
-				for px = 0, 3 do
-					local x = bx * 4 + px
-					local y = by * 4 + py
-
-					if x < width and y < height then
-						local index = band(rshift(indices, (py * 4 + px) * 2), 0x3)
-						local r, g, b, a
-
-						if c0 > c1 then
-							-- Four-color block
-							if index == 0 then
-								r, g, b = r0, g0, b0
-							elseif index == 1 then
-								r, g, b = r1, g1, b1
-							elseif index == 2 then
-								r = math.floor((2 * r0 + r1) / 3)
-								g = math.floor((2 * g0 + g1) / 3)
-								b = math.floor((2 * b0 + b1) / 3)
-							else
-								r = math.floor((r0 + 2 * r1) / 3)
-								g = math.floor((g0 + 2 * g1) / 3)
-								b = math.floor((b0 + 2 * b1) / 3)
-							end
-
-							a = 255
-						else
-							-- Three-color block with transparency
-							if index == 0 then
-								r, g, b = r0, g0, b0
-							elseif index == 1 then
-								r, g, b = r1, g1, b1
-							elseif index == 2 then
-								r = math.floor((r0 + r1) / 2)
-								g = math.floor((g0 + g1) / 2)
-								b = math.floor((b0 + b1) / 2)
-							else
-								r, g, b = 0, 0, 0
-							end
-
-							a = (index == 3) and 0 or 255
-						end
-
-						local offset = (y * width + x) * 4
-						output[offset + 0] = r
-						output[offset + 1] = g
-						output[offset + 2] = b
-						output[offset + 3] = a
-					end
-				end
-			end
-		end
-	end
-
-	return Buffer.New(output, output_size)
-end
-
--- DXT3 decompression
-local function decompress_dxt3(input_buffer, width, height)
-	local output_size = width * height * 4
-	local output = ffi.new("uint8_t[?]", output_size)
-	local blocks_x = math.max(1, math.floor((width + 3) / 4))
-	local blocks_y = math.max(1, math.floor((height + 3) / 4))
-
-	for by = 0, blocks_y - 1 do
-		for bx = 0, blocks_x - 1 do
-			-- Read alpha data (8 bytes)
-			local alpha_data = {}
-
-			for i = 0, 7 do
-				alpha_data[i] = input_buffer:ReadByte()
-			end
-
-			-- Read color data
-			local c0 = input_buffer:ReadU16LE()
-			local c1 = input_buffer:ReadU16LE()
-			local indices = input_buffer:ReadU32LE()
-			-- Decode RGB565 colors
-			local r0 = band(rshift(c0, 11), 0x1F)
-			local g0 = band(rshift(c0, 5), 0x3F)
-			local b0 = band(c0, 0x1F)
-			local r1 = band(rshift(c1, 11), 0x1F)
-			local g1 = band(rshift(c1, 5), 0x3F)
-			local b1 = band(c1, 0x1F)
-			r0 = bor(lshift(r0, 3), rshift(r0, 2))
-			g0 = bor(lshift(g0, 2), rshift(g0, 4))
-			b0 = bor(lshift(b0, 3), rshift(b0, 2))
-			r1 = bor(lshift(r1, 3), rshift(r1, 2))
-			g1 = bor(lshift(g1, 2), rshift(g1, 4))
-			b1 = bor(lshift(b1, 3), rshift(b1, 2))
-
-			-- Decode 4x4 block
-			for py = 0, 3 do
-				for px = 0, 3 do
-					local x = bx * 4 + px
-					local y = by * 4 + py
-
-					if x < width and y < height then
-						-- Get color index
-						local index = band(rshift(indices, (py * 4 + px) * 2), 0x3)
-						local r, g, b
-
-						if index == 0 then
-							r, g, b = r0, g0, b0
-						elseif index == 1 then
-							r, g, b = r1, g1, b1
-						elseif index == 2 then
-							r = math.floor((2 * r0 + r1) / 3)
-							g = math.floor((2 * g0 + g1) / 3)
-							b = math.floor((2 * b0 + b1) / 3)
-						else
-							r = math.floor((r0 + 2 * r1) / 3)
-							g = math.floor((g0 + 2 * g1) / 3)
-							b = math.floor((b0 + 2 * b1) / 3)
-						end
-
-						-- Get alpha (4 bits per pixel)
-						local alpha_byte_idx = math.floor((py * 4 + px) / 2)
-						local alpha_nibble = band(rshift(alpha_data[alpha_byte_idx], ((py * 4 + px) % 2) * 4), 0xF)
-						local a = bor(lshift(alpha_nibble, 4), alpha_nibble) -- Expand 4-bit to 8-bit
-						local offset = (y * width + x) * 4
-						output[offset + 0] = r
-						output[offset + 1] = g
-						output[offset + 2] = b
-						output[offset + 3] = a
-					end
-				end
-			end
-		end
-	end
-
-	return Buffer.New(output, output_size)
-end
-
--- DXT5 decompression
-local function decompress_dxt5(input_buffer, width, height)
-	local output_size = width * height * 4
-	local output = ffi.new("uint8_t[?]", output_size)
-	local blocks_x = math.max(1, math.floor((width + 3) / 4))
-	local blocks_y = math.max(1, math.floor((height + 3) / 4))
-
-	for by = 0, blocks_y - 1 do
-		for bx = 0, blocks_x - 1 do
-			-- Read alpha endpoints
-			local a0 = input_buffer:ReadByte()
-			local a1 = input_buffer:ReadByte()
-			-- Read alpha indices (6 bytes = 48 bits for 16 pixels, 3 bits each)
-			local alpha_indices = {}
-
-			for i = 0, 5 do
-				alpha_indices[i] = input_buffer:ReadByte()
-			end
-
-			-- Read color data
-			local c0 = input_buffer:ReadU16LE()
-			local c1 = input_buffer:ReadU16LE()
-			local indices = input_buffer:ReadU32LE()
-			-- Decode RGB565 colors
-			local r0 = band(rshift(c0, 11), 0x1F)
-			local g0 = band(rshift(c0, 5), 0x3F)
-			local b0 = band(c0, 0x1F)
-			local r1 = band(rshift(c1, 11), 0x1F)
-			local g1 = band(rshift(c1, 5), 0x3F)
-			local b1 = band(c1, 0x1F)
-			r0 = bor(lshift(r0, 3), rshift(r0, 2))
-			g0 = bor(lshift(g0, 2), rshift(g0, 4))
-			b0 = bor(lshift(b0, 3), rshift(b0, 2))
-			r1 = bor(lshift(r1, 3), rshift(r1, 2))
-			g1 = bor(lshift(g1, 2), rshift(g1, 4))
-			b1 = bor(lshift(b1, 3), rshift(b1, 2))
-
-			-- Decode 4x4 block
-			for py = 0, 3 do
-				for px = 0, 3 do
-					local x = bx * 4 + px
-					local y = by * 4 + py
-
-					if x < width and y < height then
-						-- Get color index
-						local index = band(rshift(indices, (py * 4 + px) * 2), 0x3)
-						local r, g, b
-
-						if index == 0 then
-							r, g, b = r0, g0, b0
-						elseif index == 1 then
-							r, g, b = r1, g1, b1
-						elseif index == 2 then
-							r = math.floor((2 * r0 + r1) / 3)
-							g = math.floor((2 * g0 + g1) / 3)
-							b = math.floor((2 * b0 + b1) / 3)
-						else
-							r = math.floor((r0 + 2 * r1) / 3)
-							g = math.floor((g0 + 2 * g1) / 3)
-							b = math.floor((b0 + 2 * b1) / 3)
-						end
-
-						-- Get alpha index (3 bits per pixel)
-						local pixel_idx = py * 4 + px
-						local bit_offset = pixel_idx * 3
-						local byte_idx = math.floor(bit_offset / 8)
-						local bit_pos = bit_offset % 8
-						local alpha_idx
-
-						if bit_pos <= 5 then
-							alpha_idx = band(rshift(alpha_indices[byte_idx], bit_pos), 0x7)
-						else
-							-- Index spans two bytes
-							local low_bits = rshift(alpha_indices[byte_idx], bit_pos)
-							local high_bits = lshift(alpha_indices[byte_idx + 1], 8 - bit_pos)
-							alpha_idx = band(bor(low_bits, high_bits), 0x7)
-						end
-
-						-- Interpolate alpha
-						local a
-
-						if alpha_idx == 0 then
-							a = a0
-						elseif alpha_idx == 1 then
-							a = a1
-						elseif a0 > a1 then
-							if alpha_idx == 2 then
-								a = math.floor((6 * a0 + 1 * a1) / 7)
-							elseif alpha_idx == 3 then
-								a = math.floor((5 * a0 + 2 * a1) / 7)
-							elseif alpha_idx == 4 then
-								a = math.floor((4 * a0 + 3 * a1) / 7)
-							elseif alpha_idx == 5 then
-								a = math.floor((3 * a0 + 4 * a1) / 7)
-							elseif alpha_idx == 6 then
-								a = math.floor((2 * a0 + 5 * a1) / 7)
-							else
-								a = math.floor((1 * a0 + 6 * a1) / 7)
-							end
-						else
-							if alpha_idx == 2 then
-								a = math.floor((4 * a0 + 1 * a1) / 5)
-							elseif alpha_idx == 3 then
-								a = math.floor((3 * a0 + 2 * a1) / 5)
-							elseif alpha_idx == 4 then
-								a = math.floor((2 * a0 + 3 * a1) / 5)
-							elseif alpha_idx == 5 then
-								a = math.floor((1 * a0 + 4 * a1) / 5)
-							elseif alpha_idx == 6 then
-								a = 0
-							else
-								a = 255
-							end
-						end
-
-						local offset = (y * width + x) * 4
-						output[offset + 0] = r
-						output[offset + 1] = g
-						output[offset + 2] = b
-						output[offset + 3] = a
-					end
-				end
-			end
-		end
-	end
-
-	return Buffer.New(output, output_size)
-end
-
--- Convert uncompressed formats to RGBA8888
-local function convert_to_rgba(input_buffer, width, height, format)
-	local output_size = width * height * 4
-	local output = ffi.new("uint8_t[?]", output_size)
-	local pixel_count = width * height
-
-	for i = 0, pixel_count - 1 do
-		local offset = i * 4
-		local r, g, b, a = 0, 0, 0, 255
-
-		if format == VTF_IMAGE_FORMAT.RGBA8888 then
-			r = input_buffer:ReadByte()
-			g = input_buffer:ReadByte()
-			b = input_buffer:ReadByte()
-			a = input_buffer:ReadByte()
-		elseif format == VTF_IMAGE_FORMAT.ABGR8888 then
-			a = input_buffer:ReadByte()
-			b = input_buffer:ReadByte()
-			g = input_buffer:ReadByte()
-			r = input_buffer:ReadByte()
-		elseif format == VTF_IMAGE_FORMAT.RGB888 then
-			r = input_buffer:ReadByte()
-			g = input_buffer:ReadByte()
-			b = input_buffer:ReadByte()
-		elseif format == VTF_IMAGE_FORMAT.BGR888 or format == VTF_IMAGE_FORMAT.BGR888_BLUESCREEN then
-			b = input_buffer:ReadByte()
-			g = input_buffer:ReadByte()
-			r = input_buffer:ReadByte()
-
-			-- Handle bluescreen alpha
-			if format == VTF_IMAGE_FORMAT.BGR888_BLUESCREEN and r == 0 and g == 0 and b == 255 then
-				a = 0
-			end
-		elseif format == VTF_IMAGE_FORMAT.ARGB8888 then
-			a = input_buffer:ReadByte()
-			r = input_buffer:ReadByte()
-			g = input_buffer:ReadByte()
-			b = input_buffer:ReadByte()
-		elseif format == VTF_IMAGE_FORMAT.BGRA8888 then
-			b = input_buffer:ReadByte()
-			g = input_buffer:ReadByte()
-			r = input_buffer:ReadByte()
-			a = input_buffer:ReadByte()
-		elseif format == VTF_IMAGE_FORMAT.BGRX8888 then
-			b = input_buffer:ReadByte()
-			g = input_buffer:ReadByte()
-			r = input_buffer:ReadByte()
-			input_buffer:ReadByte() -- Skip X
-		elseif format == VTF_IMAGE_FORMAT.I8 then
-			local intensity = input_buffer:ReadByte()
-			r, g, b = intensity, intensity, intensity
-		elseif format == VTF_IMAGE_FORMAT.IA88 then
-			local intensity = input_buffer:ReadByte()
-			a = input_buffer:ReadByte()
-			r, g, b = intensity, intensity, intensity
-		elseif format == VTF_IMAGE_FORMAT.A8 then
-			a = input_buffer:ReadByte()
-			r, g, b = 255, 255, 255
-		elseif format == VTF_IMAGE_FORMAT.RGB565 or format == VTF_IMAGE_FORMAT.BGR565 then
-			local rgb565 = input_buffer:ReadU16LE()
-
-			if format == VTF_IMAGE_FORMAT.RGB565 then
-				r = band(rshift(rgb565, 11), 0x1F)
-				g = band(rshift(rgb565, 5), 0x3F)
-				b = band(rgb565, 0x1F)
-			else
-				b = band(rshift(rgb565, 11), 0x1F)
-				g = band(rshift(rgb565, 5), 0x3F)
-				r = band(rgb565, 0x1F)
-			end
-
-			r = bor(lshift(r, 3), rshift(r, 2))
-			g = bor(lshift(g, 2), rshift(g, 4))
-			b = bor(lshift(b, 3), rshift(b, 2))
-		elseif format == VTF_IMAGE_FORMAT.BGRA5551 then
-			local bgra5551 = input_buffer:ReadU16LE()
-			b = band(rshift(bgra5551, 10), 0x1F)
-			g = band(rshift(bgra5551, 5), 0x1F)
-			r = band(bgra5551, 0x1F)
-			a = band(bgra5551, 0x8000) ~= 0 and 255 or 0
-			r = bor(lshift(r, 3), rshift(r, 2))
-			g = bor(lshift(g, 3), rshift(g, 2))
-			b = bor(lshift(b, 3), rshift(b, 2))
-		elseif format == VTF_IMAGE_FORMAT.BGRA4444 then
-			local bgra4444 = input_buffer:ReadU16LE()
-			b = band(rshift(bgra4444, 12), 0xF)
-			g = band(rshift(bgra4444, 8), 0xF)
-			r = band(rshift(bgra4444, 4), 0xF)
-			a = band(bgra4444, 0xF)
-			r = bor(lshift(r, 4), r)
-			g = bor(lshift(g, 4), g)
-			b = bor(lshift(b, 4), b)
-			a = bor(lshift(a, 4), a)
-		else
-			-- Unsupported format - return black pixel
-			r, g, b, a = 0, 0, 0, 255
-		end
-
-		output[offset + 0] = r
-		output[offset + 1] = g
-		output[offset + 2] = b
-		output[offset + 3] = a
-	end
-
-	return Buffer.New(output, output_size)
+-- Map VTF format to Vulkan format name
+local function vtf_to_vulkan_format(format)
+	local format_map = {
+		[VTF_IMAGE_FORMAT.DXT1] = "bc1_rgb_unorm_block",
+		[VTF_IMAGE_FORMAT.DXT1_ONEBITALPHA] = "bc1_rgba_unorm_block",
+		[VTF_IMAGE_FORMAT.DXT3] = "bc2_unorm_block",
+		[VTF_IMAGE_FORMAT.DXT5] = "bc3_unorm_block",
+		[VTF_IMAGE_FORMAT.ATI1N] = "bc4_unorm_block",
+		[VTF_IMAGE_FORMAT.ATI2N] = "bc5_unorm_block",
+		[VTF_IMAGE_FORMAT.RGBA8888] = "r8g8b8a8_unorm",
+		[VTF_IMAGE_FORMAT.BGRA8888] = "b8g8r8a8_unorm",
+		[VTF_IMAGE_FORMAT.ABGR8888] = "a8b8g8r8_unorm_pack32",
+		[VTF_IMAGE_FORMAT.ARGB8888] = "b8g8r8a8_unorm", -- Close approximation
+		[VTF_IMAGE_FORMAT.RGB888] = "r8g8b8_unorm",
+		[VTF_IMAGE_FORMAT.BGR888] = "b8g8r8_unorm",
+		[VTF_IMAGE_FORMAT.RGBA16161616F] = "r16g16b16a16_sfloat",
+		[VTF_IMAGE_FORMAT.RGBA32323232F] = "r32g32b32a32_sfloat",
+		[VTF_IMAGE_FORMAT.RGB323232F] = "r32g32b32_sfloat",
+	}
+	return format_map[format] or "undefined"
 end
 
 -- Parse VTF header
@@ -598,70 +221,100 @@ local function vtf_decode(input_buffer)
 
 	if not header then return nil, err end
 
-	-- Position at start of image data
-	-- For version 7.3+, we need to skip to the actual image data
-	-- The lowres image comes first (if present)
-	local lowres_size = 0
+	-- Position at start of image data using header_size
+	-- This accounts for variable header sizes (v7.3+ has resources)
+	input_buffer:SetPosition(header.header_size)
 
+	-- The lowres image comes first (if present)
 	if header.lowres_width > 0 and header.lowres_height > 0 then
-		lowres_size = compute_image_size(header.lowres_width, header.lowres_height, 1, header.lowres_image_format)
+		local lowres_size = compute_image_size(header.lowres_width, header.lowres_height, 1, header.lowres_image_format)
 
 		if lowres_size then
 			input_buffer:ReadBytes(lowres_size) -- Skip lowres image
 		end
 	end
 
-	-- Get the main image (highest mipmap level)
-	-- Mipmaps are stored from smallest to largest
 	local width = header.width
 	local height = header.height
+	local depth = header.depth
 	local format = header.image_format
+	local mip_count = header.mip_count
+	local frames = header.frames
+	-- Calculate mipmap info and total data size
+	-- VTF stores mipmaps from smallest to largest in the file
+	-- First pass: calculate sizes for each mip level
+	local mip_sizes = {}
+	local total_size = 0
 
-	-- Skip smaller mipmaps and get to the largest one
-	if header.mip_count > 1 then
-		for mip = header.mip_count - 1, 1, -1 do
-			local mip_width = math.max(1, math.floor(width / math.pow(2, mip)))
-			local mip_height = math.max(1, math.floor(height / math.pow(2, mip)))
-			local mip_size = compute_image_size(mip_width, mip_height, header.depth, format)
+	for mip_level = 0, mip_count - 1 do
+		local mip_width = math.max(1, math.floor(width / math.pow(2, mip_level)))
+		local mip_height = math.max(1, math.floor(height / math.pow(2, mip_level)))
+		local mip_depth = depth
+		local mip_size = compute_image_size(mip_width, mip_height, mip_depth, format)
 
-			if mip_size then input_buffer:ReadBytes(mip_size * header.frames) end
+		if not mip_size then
+			return nil, "Unsupported image format: " .. tostring(format)
 		end
+
+		mip_sizes[mip_level] = {
+			width = mip_width,
+			height = mip_height,
+			depth = mip_depth,
+			size = mip_size,
+		}
+		total_size = total_size + mip_size
 	end
 
-	-- Read the main image data for the first frame
-	local image_size = compute_image_size(width, height, header.depth, format)
-
-	if not image_size then
-		return nil, "Unsupported image format: " .. tostring(format)
+	-- Second pass: calculate offsets in file order (smallest to largest)
+	-- and build mip_info in API order (largest first)
+	-- VTF stores: for each mip level { for each frame { for each face { data } } }
+	local mip_info = {}
+	local file_offset = 0
+	local face_count = 1 -- Most textures have 1 face, cubemaps have 6
+	for file_mip_index = 0, mip_count - 1 do
+		-- File stores smallest first, so file_mip_index 0 = mip level (mip_count-1)
+		local mip_level = mip_count - 1 - file_mip_index
+		local mip_data = mip_sizes[mip_level]
+		-- Store in API order: index 1 = mip level 0 (largest)
+		-- The offset points to frame 0, face 0 of this mip level
+		mip_info[mip_level + 1] = {
+			width = mip_data.width,
+			height = mip_data.height,
+			depth = mip_data.depth,
+			size = mip_data.size,
+			offset = file_offset,
+		}
+		-- Each mip level contains data for ALL frames and faces
+		file_offset = file_offset + (mip_data.size * frames * face_count)
 	end
 
-	-- Extract image data for first frame only
-	local image_data_start = input_buffer:GetPosition()
-	local image_bytes = input_buffer:ReadBytes(image_size)
-	local image_buffer = Buffer.New(ffi.cast("uint8_t*", image_bytes), #image_bytes)
-	-- Decode/convert to RGBA
-	local output_buffer
-
-	if format == VTF_IMAGE_FORMAT.DXT1 or format == VTF_IMAGE_FORMAT.DXT1_ONEBITALPHA then
-		output_buffer = decompress_dxt1(image_buffer, width, height)
-	elseif format == VTF_IMAGE_FORMAT.DXT3 then
-		output_buffer = decompress_dxt3(image_buffer, width, height)
-	elseif format == VTF_IMAGE_FORMAT.DXT5 then
-		output_buffer = decompress_dxt5(image_buffer, width, height)
-	elseif not is_compressed(format) then
-		output_buffer = convert_to_rgba(image_buffer, width, height, format)
-	else
-		return nil, "Unsupported compressed format: " .. tostring(format)
-	end
-
+	-- For multiple frames, we only read the first frame
+	-- Calculate how much data to skip for other frames
+	local frame_data_size = total_size
+	-- Read all mipmap data for the first frame
+	local data_pos = input_buffer:GetPosition()
+	local data_buffer = ffi.new("uint8_t[?]", total_size)
+	ffi.copy(data_buffer, input_buffer:GetBuffer() + data_pos, total_size)
+	-- Get Vulkan format string
+	local vulkan_format = vtf_to_vulkan_format(format)
+	-- Return result matching DDS decoder pattern
 	return {
 		width = width,
 		height = height,
-		depth = header.depth,
+		depth = depth,
 		format = format,
-		mip_count = header.mip_count,
-		frames = header.frames,
-		buffer = output_buffer,
+		vtf_format = format, -- Keep VTF-specific format enum
+		vulkan_format = vulkan_format,
+		mip_count = mip_count,
+		frames = frames,
+		is_compressed = is_compressed(format),
+		block_size = get_block_size(format),
+		bytes_per_pixel = get_bytes_per_pixel(format),
+		mip_info = mip_info,
+		data_size = total_size,
+		data = data_buffer,
+		-- Also provide a Buffer wrapper for consistency
+		buffer = Buffer.New(data_buffer, total_size),
 	}
 end
 
