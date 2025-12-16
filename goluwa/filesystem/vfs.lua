@@ -324,6 +324,7 @@ require("filesystem.storage")(vfs)
 require("filesystem.files.generic_archive")(vfs)
 require("filesystem.files.os")(vfs)
 require("filesystem.files.vpk")(vfs)
+require("filesystem.files.zip")(vfs)
 require("filesystem.files.gma")(vfs)
 
 for _, context in ipairs(vfs.GetFileSystems()) do

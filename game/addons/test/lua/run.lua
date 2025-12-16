@@ -1,4 +1,5 @@
 _G.PROFILE = false
+_G.GRAPHICS = true
 require("goluwa.global_environment")
 local render = require("graphics.render")
 local render2d = require("graphics.render2d")

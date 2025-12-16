@@ -2,6 +2,7 @@ local Buffer = require("structs.buffer")
 local png_decode = require("file_formats.png.decode")
 local jpg_decode = require("file_formats.jpg.decode")
 local dds_decode = require("file_formats.dds.decode")
+local zip_decode = require("file_formats.zip.decode")
 local file_formats = {}
 
 local function buffer_from_path(path)
@@ -29,6 +30,10 @@ function file_formats.LoadDDS(path)
 	return dds_decode(buffer_from_path(path))
 end
 
+function file_formats.LoadZIP(path)
+	return zip_decode(buffer_from_path(path))
+end
+
 function file_formats.Load(path)
 	local real_path = path
 	local path = path:lower()
@@ -39,6 +44,8 @@ function file_formats.Load(path)
 		return file_formats.LoadJPG(real_path)
 	elseif path:ends_with(".dds") then
 		return file_formats.LoadDDS(real_path)
+	elseif path:ends_with(".zip") then
+		return file_formats.LoadZIP(real_path)
 	end
 
 	error("Unsupported image format: " .. real_path)

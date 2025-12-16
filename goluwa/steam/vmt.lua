@@ -1,3 +1,5 @@
+local vfs = require("vfs")
+local resource = require("resource")
 return function(steam)
 	local textures = {
 		basetexture = true,

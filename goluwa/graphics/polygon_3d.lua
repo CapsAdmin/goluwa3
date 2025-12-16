@@ -2,8 +2,9 @@ local prototype = require("prototype")
 local AABB = require("structs.aabb")
 local Vec2 = require("structs.vec2")
 local Vec3 = require("structs.vec3")
-local render3d = require("graphics.render3d")
-local IndexBuffer = require("graphics.index_buffer")
+local Mesh = require("graphics.mesh")
+local ffi = require("ffi")
+local tasks = require("tasks")
 local Polygon3D = prototype.CreateTemplate("polygon_3d")
 
 function Polygon3D.New()
@@ -31,33 +32,181 @@ function Polygon3D:Clear()
 end
 
 function Polygon3D:UnreferenceVertices()
-	if self.vertex_buffer then self.vertex_buffer:UnreferenceMesh() end
+	if self.mesh then self.mesh = nil end
 
 	self:Clear()
 end
 
 function Polygon3D:GetMesh()
-	return self.vertex_buffer
+	return self.mesh
 end
 
 function Polygon3D:Upload()
-	self.vertex_buffer = assert(render3d.CreateMesh(self.Vertices))
-	self.vertex_buffer:SetDrawHint("static")
+	-- Convert Lua table vertices to FFI structured array
+	local vertex_count = #self.Vertices
+
+	if vertex_count == 0 then return end
+
+	-- Define vertex structure matching render3d pipeline: position (vec3), normal (vec3), uv (vec2), tangent (vec4)
+	local VertexType = ffi.typeof([[
+		struct {
+			float position[3];
+			float normal[3];
+			float uv[2];
+			float tangent[4];
+		}[?]
+	]])
+	local vertices = VertexType(vertex_count)
+
+	-- Copy vertex data from Lua tables to FFI array
+	for i = 1, vertex_count do
+		local v = self.Vertices[i]
+		local idx = i - 1
+
+		-- Position
+		if v.pos then
+			vertices[idx].position[0] = v.pos.x or v.pos[1] or 0
+			vertices[idx].position[1] = v.pos.y or v.pos[2] or 0
+			vertices[idx].position[2] = v.pos.z or v.pos[3] or 0
+		end
+
+		-- Normal
+		if v.normal then
+			vertices[idx].normal[0] = v.normal.x or v.normal[1] or 0
+			vertices[idx].normal[1] = v.normal.y or v.normal[2] or 0
+			vertices[idx].normal[2] = v.normal.z or v.normal[3] or 0
+		else
+			vertices[idx].normal[0] = 0
+			vertices[idx].normal[1] = 0
+			vertices[idx].normal[2] = 1
+		end
+
+		-- UV
+		if v.uv then
+			vertices[idx].uv[0] = v.uv.x or v.uv[1] or 0
+			vertices[idx].uv[1] = v.uv.y or v.uv[2] or 0
+		end
+
+		-- Tangent
+		if v.tangent then
+			vertices[idx].tangent[0] = v.tangent.x or v.tangent[1] or 0
+			vertices[idx].tangent[1] = v.tangent.y or v.tangent[2] or 0
+			vertices[idx].tangent[2] = v.tangent.z or v.tangent[3] or 0
+			vertices[idx].tangent[3] = v.tangent.w or v.tangent[4] or 1
+		else
+			vertices[idx].tangent[0] = 1
+			vertices[idx].tangent[1] = 0
+			vertices[idx].tangent[2] = 0
+			vertices[idx].tangent[3] = 1
+		end
+	end
+
+	-- Define vertex attributes matching the render3d pipeline
+	local vertex_attributes = {
+		{
+			binding = 0,
+			location = 0,
+			format = "r32g32b32_sfloat",
+			offset = 0,
+		},
+		{
+			binding = 0,
+			location = 1,
+			format = "r32g32b32_sfloat",
+			offset = ffi.sizeof("float") * 3,
+		},
+		{
+			binding = 0,
+			location = 2,
+			format = "r32g32_sfloat",
+			offset = ffi.sizeof("float") * 6,
+		},
+		{
+			binding = 0,
+			location = 3,
+			format = "r32g32b32a32_sfloat",
+			offset = ffi.sizeof("float") * 8,
+		},
+	}
+	-- Collect indices from sub_meshes if they exist
+	local indices = nil
+
+	if #self.sub_meshes > 0 then
+		local all_indices = {}
+
+		for _, sub_mesh in ipairs(self.sub_meshes) do
+			if sub_mesh.indices then
+				for _, idx in ipairs(sub_mesh.indices) do
+					table.insert(all_indices, idx)
+				end
+			end
+		end
+
+		if #all_indices > 0 then indices = all_indices end
+	end
+
+	self.mesh = Mesh.New(vertex_attributes, vertices, indices)
 end
 
 function Polygon3D:AddSubMesh(val, data)
-	local index_buffer = IndexBuffer.New()
-	index_buffer:SetDrawHint("static")
-	local indices = index_buffer:LoadIndices(val)
-	list.insert(self.sub_meshes, {index_buffer = index_buffer, data = data, indices = indices})
+	-- Handle both vertex count/table (for generating sequential indices) or explicit indices (table of numbers)
+	local indices
+
+	if type(val) == "number" then
+		-- Create sequential indices [0, 1, 2, ...]
+		indices = {}
+
+		for i = 1, val do
+			indices[i] = i - 1
+		end
+	elseif type(val) == "table" then
+		-- Check if it's a vertex table or indices table
+		-- If first element is a table/vertex, treat it as vertices and generate indices
+		if type(val[1]) == "table" then
+			-- It's vertices, generate sequential indices
+			indices = {}
+
+			for i = 1, #val do
+				indices[i] = i - 1
+			end
+		else
+			-- It's already indices
+			indices = val
+		end
+	else
+		error(
+			"AddSubMesh expects a number (vertex count), table of vertices, or table of indices"
+		)
+	end
+
+	table.insert(self.sub_meshes, {indices = indices, data = data})
 end
 
 function Polygon3D:GetSubMeshes()
 	return self.sub_meshes or {}
 end
 
-function Polygon3D:Draw(i)
-	self.vertex_buffer:Draw(self.sub_meshes[i].index_buffer)
+function Polygon3D:Draw(cmd, i)
+	if not self.mesh then return end
+
+	self.mesh:Bind(cmd)
+
+	if i and self.sub_meshes[i] then
+		-- Draw specific submesh (if we support multiple submeshes in the future)
+		-- For now, just draw the whole mesh
+		if self.mesh.index_buffer then
+			self.mesh:DrawIndexed(cmd)
+		else
+			self.mesh:Draw(cmd)
+		end
+	else
+		-- Draw entire mesh
+		if self.mesh.index_buffer then
+			self.mesh:DrawIndexed(cmd)
+		else
+			self.mesh:Draw(cmd)
+		end
+	end
 end
 
 do -- helpers

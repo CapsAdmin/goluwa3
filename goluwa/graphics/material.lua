@@ -258,7 +258,7 @@ do
 
 	function Material.FromVMT(path)
 		local self = Material.New()
-		self:SetName(path)
+		--self:SetName(path)
 		self.vmt = {}
 
 		steam.LoadVMT(path, function(key, val, full_path)

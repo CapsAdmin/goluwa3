@@ -1,3 +1,5 @@
+local Vec3 = require("structs.vec3")
+
 return function(steam)
 	do
 		local function replace(start, stop, def)

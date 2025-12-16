@@ -55,6 +55,14 @@ function VertexBuffer.New(vertices, vertex_attributes)
 		self.vertex_count = count
 		self.byte_size = self.stride * count
 		self.data = ffi.new("uint8_t[?]", self.byte_size)
+	elseif type(vertices) == "cdata" then
+		-- FFI cdata - copy directly
+		-- Calculate vertex count from the data
+		local cdata_size = ffi.sizeof(vertices)
+		self.vertex_count = cdata_size / self.stride
+		self.byte_size = cdata_size
+		self.data = ffi.new("uint8_t[?]", self.byte_size)
+		ffi.copy(self.data, vertices, self.byte_size)
 	elseif type(vertices) == "table" then
 		-- Check if it's a raw float array or structured vertex array
 		local is_raw_floats = type(vertices[1]) == "number"
@@ -92,7 +100,7 @@ function VertexBuffer.New(vertices, vertex_attributes)
 			end
 		end
 	else
-		error("vertices must be a number or table", 2)
+		error("vertices must be a number, cdata, or table", 2)
 	end
 
 	do

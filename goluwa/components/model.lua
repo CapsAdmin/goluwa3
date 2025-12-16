@@ -6,6 +6,7 @@ local Material = require("graphics.material")
 local AABB = require("structs.aabb")
 local Vec3 = require("structs.vec3")
 local Matrix44 = require("structs.matrix").Matrix44
+local model_loader = require("model_loader")
 local system = require("system")
 local Model = {}
 -- Cached matrix to avoid allocation in hot drawing loops
@@ -20,6 +21,9 @@ META:GetSet("Visible", true)
 META:GetSet("CastShadows", true)
 META:GetSet("AABB", nil) -- Local space AABB (combined from all primitives)
 META:GetSet("UseOcclusionCulling", true) -- Enable occlusion culling for this model
+META:GetSet("ModelPath", "")
+META:IsSet("Loading", false)
+
 function META:Initialize(config)
 	config = config or {}
 	self.Primitives = config.primitives or {}
@@ -57,6 +61,39 @@ function META:Initialize(config)
 
 	-- Create occlusion query object for conditional rendering
 	self.occlusion_query = nil
+end
+
+function META:SetModelPath(path)
+	--self:RemoveSubModels()
+	self.ModelPath = path
+	self:SetLoading(true)
+
+	if path == "" then
+		self:SetLoading(false)
+		return
+	end
+
+	model_loader.LoadModel(
+		path,
+		function()
+			self:SetLoading(false)
+			self:BuildAABB()
+		end,
+		function(model)
+			print("?!??!!??!")
+			self:AddPrimitive(model)
+		end,
+		function(err)
+			logf("%s failed to load model %q: %s\n", self, path, err)
+			self:MakeError()
+		end
+	)
+end
+
+function META:MakeError()
+	--self:RemoveSubModels()
+	self:SetLoading(false)
+	self:SetModelPath("models/error.mdl")
 end
 
 function META:OnAdd(entity)

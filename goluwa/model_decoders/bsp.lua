@@ -136,6 +136,7 @@ end
 function steam.LoadMap(path)
 	path = assert(R(path) or nil)
 	logn("loading map: ", path)
+	steam.debug = true
 	local bsp_file = assert(vfs.Open(path))
 
 	if bsp_file:GetSize() == 0 then error("map is empty? (size is 0)") end
