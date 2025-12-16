@@ -2,11 +2,11 @@ local render2d = require("graphics.render2d")
 local VertexBuffer = require("graphics.vertex_buffer")
 local IndexBuffer = require("graphics.index_buffer")
 local prototype = require("prototype")
-local META = prototype.CreateTemplate("polygon_2d")
-META:GetSet("WorldMatrixMultiply", false)
+local Polygon2D = prototype.CreateTemplate("polygon_2d")
+Polygon2D:GetSet("WorldMatrixMultiply", false)
 
-function META.New(vertex_count, map)
-	local self = META:CreateObject()
+function Polygon2D.New(vertex_count, map)
+	local self = Polygon2D:CreateObject()
 	self.vertex_buffer = render2d.CreateMesh(vertex_count)
 
 	do
@@ -19,13 +19,13 @@ function META.New(vertex_count, map)
 	return self
 end
 
-META.X, META.Y = 0, 0
-META.ROT = 0
-META.R, META.G, META.B, META.A = 1, 1, 1, 1
-META.U1, META.V1, META.U2, META.V2 = 0, 0, 1, 1
-META.UVSW, META.UVSH = 1, 1
+Polygon2D.X, Polygon2D.Y = 0, 0
+Polygon2D.ROT = 0
+Polygon2D.R, Polygon2D.G, Polygon2D.B, Polygon2D.A = 1, 1, 1, 1
+Polygon2D.U1, Polygon2D.V1, Polygon2D.U2, Polygon2D.V2 = 0, 0, 1, 1
+Polygon2D.UVSW, Polygon2D.UVSH = 1, 1
 
-function META:SetColor(r, g, b, a)
+function Polygon2D:SetColor(r, g, b, a)
 	self.R = r or 1
 	self.G = g or 1
 	self.B = b or 1
@@ -33,7 +33,7 @@ function META:SetColor(r, g, b, a)
 	self.dirty = true
 end
 
-function META:SetUV(u1, v1, u2, v2, sw, sh)
+function Polygon2D:SetUV(u1, v1, u2, v2, sw, sh)
 	self.U1 = u1
 	self.U2 = u2
 	self.V1 = v1
@@ -76,7 +76,7 @@ local function set_uv(self, i, x, y, w, h, sx, sy)
 	end
 end
 
-function META:SetVertex(i, x, y, u, v)
+function Polygon2D:SetVertex(i, x, y, u, v)
 	--if i > self.vertex_count or i < 0 then logf("i = %i vertex_count = %i\n", i, self.vertex_count) return end
 	x = x or 0
 	y = y or 0
@@ -110,14 +110,14 @@ function META:SetVertex(i, x, y, u, v)
 	self.dirty = true
 end
 
-function META:SetTriangle(i, x1, y1, x2, y2, x3, y3, u1, v1, u2, v2, u3, v3)
+function Polygon2D:SetTriangle(i, x1, y1, x2, y2, x3, y3, u1, v1, u2, v2, u3, v3)
 	i = (i - 1) * 3
 	self:SetVertex(i + 0, x1, y1, u1, v1)
 	self:SetVertex(i + 1, x2, y2, u2, v2)
 	self:SetVertex(i + 2, x3, y3, u3, v3)
 end
 
-function META:SetRect(i, x, y, w, h, r, ox, oy, rx, ry)
+function Polygon2D:SetRect(i, x, y, w, h, r, ox, oy, rx, ry)
 	self.X = x or 0
 	self.Y = y or 0
 	self.ROT = r or 0
@@ -136,7 +136,7 @@ function META:SetRect(i, x, y, w, h, r, ox, oy, rx, ry)
 	self:SetVertex(i + 5, self.X + self.OX, self.Y + self.OY)
 end
 
-function META:DrawLine(i, x1, y1, x2, y2, w)
+function Polygon2D:DrawLine(i, x1, y1, x2, y2, w)
 	w = w or 1
 	local dx, dy = x2 - x1, y2 - y1
 	local ang = math.atan2(dx, dy)
@@ -144,7 +144,7 @@ function META:DrawLine(i, x1, y1, x2, y2, w)
 	self:SetRect(i, x1, y1, w, dst, -ang)
 end
 
-function META:Draw(count)
+function Polygon2D:Draw(count)
 	if self.dirty and not self.mapped then
 		self.vertex_buffer:Upload()
 		self.dirty = false
@@ -154,7 +154,7 @@ function META:Draw(count)
 	self.vertex_buffer:Draw(self.index_buffer, count)
 end
 
-function META:SetNinePatch(
+function Polygon2D:SetNinePatch(
 	i,
 	x,
 	y,
@@ -287,17 +287,17 @@ function META:SetNinePatch(
 	self:SetRect(i + 8, x + w - corner_size, y + h - corner_size, corner_size, corner_size)
 end
 
-function META:AddRect(...)
+function Polygon2D:AddRect(...)
 	self.added = (self.added or 1)
 	self:SetRect(self.added, ...)
 	self.added = self.added + 1
 end
 
-function META:AddNinePatch(...)
+function Polygon2D:AddNinePatch(...)
 	self.added = (self.added or 1)
 	self:SetRect(self.added, ...)
 	self.added = self.added + 9
 end
 
-META:Register()
-return META
+Polygon2D:Register()
+return Polygon2D

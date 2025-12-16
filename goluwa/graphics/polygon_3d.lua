@@ -2,66 +2,66 @@ local prototype = require("prototype")
 local AABB = require("structs.aabb")
 local Vec2 = require("structs.vec2")
 local Vec3 = require("structs.vec3")
-local META = prototype.CreateTemplate("polygon_3d")
 local render3d = require("graphics.render3d")
 local IndexBuffer = require("graphics.index_buffer")
+local Polygon3D = prototype.CreateTemplate("polygon_3d")
 
-function META.NEW()
-	local self = META:CreateObject()
+function Polygon3D.New()
+	local self = Polygon3D:CreateObject()
 	self.sub_meshes = {}
 	return self
 end
 
-function META:__tostring2()
+function Polygon3D:__tostring2()
 	return ("[%i vertices]"):format(#self.Vertices)
 end
 
-META:GetSet("Vertices", {})
-META:GetSet("AABB", AABB())
-META.i = 1
+Polygon3D:GetSet("Vertices", {})
+Polygon3D:GetSet("AABB", AABB())
+Polygon3D.i = 1
 
-function META:AddVertex(vertex)
+function Polygon3D:AddVertex(vertex)
 	self.Vertices[self.i] = vertex
 	self.i = self.i + 1
 end
 
-function META:Clear()
+function Polygon3D:Clear()
 	self.i = 1
 	list.clear(self.Vertices)
 end
 
-function META:UnreferenceVertices()
+function Polygon3D:UnreferenceVertices()
 	if self.vertex_buffer then self.vertex_buffer:UnreferenceMesh() end
 
 	self:Clear()
 end
 
-function META:GetMesh()
+function Polygon3D:GetMesh()
 	return self.vertex_buffer
 end
 
-function META:Upload()
+function Polygon3D:Upload()
 	self.vertex_buffer = assert(render3d.CreateMesh(self.Vertices))
 	self.vertex_buffer:SetDrawHint("static")
 end
 
-function META:AddSubMesh(val, data)
+function Polygon3D:AddSubMesh(val, data)
 	local index_buffer = IndexBuffer.New()
 	index_buffer:SetDrawHint("static")
 	local indices = index_buffer:LoadIndices(val)
 	list.insert(self.sub_meshes, {index_buffer = index_buffer, data = data, indices = indices})
 end
 
-function META:GetSubMeshes()
+function Polygon3D:GetSubMeshes()
 	return self.sub_meshes or {}
 end
 
-function META:Draw(i)
+function Polygon3D:Draw(i)
 	self.vertex_buffer:Draw(self.sub_meshes[i].index_buffer)
 end
 
 do -- helpers
-	function META:BuildBoundingBox()
+	function Polygon3D:BuildBoundingBox()
 		for _, sub_mesh in ipairs(self:GetSubMeshes()) do
 			for i = 1, #sub_mesh.indices do
 				local idx = sub_mesh.indices[i]
@@ -87,7 +87,7 @@ do -- helpers
 		tasks.Wait()
 	end
 
-	function META:BuildNormals()
+	function Polygon3D:BuildNormals()
 		for _, sub_mesh in ipairs(self:GetSubMeshes()) do
 			for i = 1, #sub_mesh.indices, 3 do
 				local a = self.Vertices[sub_mesh.indices[i + 0] + 1]
@@ -124,7 +124,7 @@ do -- helpers
 		tasks.Wait()
 	end
 
-	function META:IterateFaces(cb)
+	function Polygon3D:IterateFaces(cb)
 		for _, sub_mesh in ipairs(self:GetSubMeshes()) do
 			for i = 1, #sub_mesh.indices, 3 do
 				local ai = sub_mesh.indices[i + 0] + 1
@@ -135,7 +135,7 @@ do -- helpers
 		end
 	end
 
-	function META:BuildTangents()
+	function Polygon3D:BuildTangents()
 		local tan1 = {}
 		local tan2 = {}
 
@@ -159,7 +159,7 @@ do -- helpers
 		end
 	end
 
-	function META:SmoothNormals()
+	function Polygon3D:SmoothNormals()
 		local temp = {}
 		local i = 1
 
@@ -198,7 +198,7 @@ do -- helpers
 		|  /
 	   3|/
 	]]
-	function META:LoadObj(data, generate_normals)
+	function Polygon3D:LoadObj(data, generate_normals)
 		local positions = {}
 		local texcoords = {}
 		local normals = {}
@@ -307,7 +307,7 @@ do -- helpers
 		return output
 	end
 
-	function META:CreateCube(size, texture_scale)
+	function Polygon3D:CreateCube(size, texture_scale)
 		size = size or 1
 		texture_scale = texture_scale or 1
 		-- top
@@ -354,7 +354,7 @@ do -- helpers
 		self:AddVertex({pos = Vec3(-size, size, size), uv = Vec2(0, texture_scale)})
 	end
 
-	function META:CreateSphere(res)
+	function Polygon3D:CreateSphere(res)
 		res = 32
 		local sphereMesh = {}
 
@@ -449,7 +449,7 @@ do -- helpers
 		end
 	end
 
-	function META:LoadHeightmap(tex, size, res, height, pow)
+	function Polygon3D:LoadHeightmap(tex, size, res, height, pow)
 		size = size or Vec2(1024, 1024)
 		res = res or Vec2(128, 128)
 		height = height or -64
@@ -572,5 +572,5 @@ do -- helpers
 	end
 end
 
-META:Register()
-return META
+Polygon3D:Register()
+return Polygon3D
