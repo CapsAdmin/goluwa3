@@ -108,10 +108,56 @@ end
 function OffscreenRenderTarget:BeginFrame()
 	self.command_buffer:Reset()
 	self.command_buffer:Begin()
-	return true
+	-- Transition image to color attachment optimal if needed
+	self.command_buffer:PipelineBarrier(
+		{
+			srcStage = "top_of_pipe",
+			dstStage = "color_attachment_output",
+			imageBarriers = {
+				{
+					image = self.image,
+					srcAccessMask = "none",
+					dstAccessMask = "color_attachment_write",
+					oldLayout = "undefined",
+					newLayout = "color_attachment_optimal",
+				},
+			},
+		}
+	)
+	-- Begin rendering pass
+	self.command_buffer:BeginRendering(
+		{
+			color_image_view = self.image_view,
+			w = self.width,
+			h = self.height,
+			clear_color = {0.0, 0.0, 0.0, 1.0},
+		}
+	)
+	-- Set viewport and scissor
+	self.command_buffer:SetViewport(0, 0, self.width, self.height, 0, 1)
+	self.command_buffer:SetScissor(0, 0, self.width, self.height)
+	return self.command_buffer
 end
 
 function OffscreenRenderTarget:EndFrame()
+	-- End rendering pass
+	self.command_buffer:EndRendering()
+	-- Transition to final layout for reading/transfer
+	self.command_buffer:PipelineBarrier(
+		{
+			srcStage = "color_attachment_output",
+			dstStage = "transfer",
+			imageBarriers = {
+				{
+					image = self.image,
+					srcAccessMask = "color_attachment_write",
+					dstAccessMask = "transfer_read",
+					oldLayout = "color_attachment_optimal",
+					newLayout = self.final_layout,
+				},
+			},
+		}
+	)
 	self.command_buffer:End()
 	local fence = Fence.New(self.vulkan_instance.device)
 	self.vulkan_instance.queue:SubmitAndWait(self.vulkan_instance.device, self.command_buffer, fence)

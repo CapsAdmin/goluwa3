@@ -637,7 +637,11 @@ do
 end
 
 function events.PostDraw.draw_2d(cmd, dt)
-	local frame_index = render.GetCurrentFrame()
+	local frame_index = 1 -- Default to 1 for headless mode
+	if render.target and render.target.GetCurrentFrame then
+		frame_index = render.target:GetCurrentFrame()
+	end
+
 	render2d.cmd = cmd
 	render2d.pipeline:Bind(cmd, frame_index)
 	render2d.SetBlendMode(render2d.current_blend_mode, true) -- force=true to set dynamic state

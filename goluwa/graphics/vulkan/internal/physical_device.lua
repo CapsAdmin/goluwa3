@@ -42,6 +42,25 @@ function PhysicalDevice:FindMemoryType(typeFilter, properties)
 end
 
 function PhysicalDevice:FindGraphicsQueueFamily(surface)
+	if not surface then
+		local graphicsQueueFamily = nil
+
+		for i, queueFamily in ipairs(self:GetQueueFamilyProperties()) do
+			local queueFlags = queueFamily.queueFlags
+			local graphicsBit = vulkan.vk.VkQueueFlagBits.VK_QUEUE_GRAPHICS_BIT
+
+			if bit.band(queueFlags, graphicsBit) ~= 0 then
+				graphicsQueueFamily = i - 1
+
+				break
+			end
+		end
+
+		if not graphicsQueueFamily then error("no graphics queue family found") end
+
+		return graphicsQueueFamily
+	end
+
 	local graphicsQueueFamily = nil
 
 	for i, queueFamily in ipairs(self:GetQueueFamilyProperties()) do
@@ -56,26 +75,6 @@ function PhysicalDevice:FindGraphicsQueueFamily(surface)
 		vulkan.lib.vkGetPhysicalDeviceSurfaceSupportKHR(self.ptr[0], i - 1, surface.ptr[0], presentSupport)
 
 		if bit.band(queueFlags, graphicsBit) ~= 0 and presentSupport[0] ~= 0 then
-			graphicsQueueFamily = i - 1
-
-			break
-		end
-	end
-
-	if not graphicsQueueFamily then error("no graphics queue family found") end
-
-	return graphicsQueueFamily
-end
-
--- Find graphics queue family without requiring surface support (for headless)
-function PhysicalDevice:FindGraphicsQueueFamilyHeadless()
-	local graphicsQueueFamily = nil
-
-	for i, queueFamily in ipairs(self:GetQueueFamilyProperties()) do
-		local queueFlags = queueFamily.queueFlags
-		local graphicsBit = vulkan.vk.VkQueueFlagBits.VK_QUEUE_GRAPHICS_BIT
-
-		if bit.band(queueFlags, graphicsBit) ~= 0 then
 			graphicsQueueFamily = i - 1
 
 			break

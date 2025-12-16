@@ -91,14 +91,7 @@ function VulkanInstance.New(surface_handle, display_handle)
 
 	if is_headless then print("Headless Vulkan: Using device " .. device_name) end
 
-	-- Find graphics queue family
-	if is_headless then
-		self.graphics_queue_family = self.physical_device:FindGraphicsQueueFamilyHeadless()
-	else
-		self.graphics_queue_family = self.physical_device:FindGraphicsQueueFamily(self.surface)
-	end
-
-	-- Setup device extensions based on mode
+	self.graphics_queue_family = self.physical_device:FindGraphicsQueueFamily(self.surface)
 	local device_extensions = {"VK_EXT_conditional_rendering"}
 
 	if not is_headless then

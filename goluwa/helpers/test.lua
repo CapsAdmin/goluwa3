@@ -176,14 +176,19 @@ do
 			if should_resume and resumed_count < max_resumes_per_update then
 				resumed_count = resumed_count + 1
 				local co = test_info.coroutine
+				local is_dead = coroutine.status(co) == "dead"
 
-				if coroutine.status(co) ~= "dead" then
+				if not is_dead then
 					local ok, result = coroutine.resume(co)
 
 					if not ok then
-						-- Error in test - format it nicely
-						local err_msg = traceback(result)
-						error(string.format("Test '%s' error:\n%s", test_info.name, err_msg), 0)
+						if result == "cannot resume running coroutine" then
+
+						else
+							-- Error in test - format it nicely
+							local err_msg = traceback(result)
+							error(string.format("Test '%s' error:\n%s", test_info.name, err_msg), 0)
+						end
 					end
 
 					-- If result is a number, it's a sleep_until wake time
@@ -191,7 +196,7 @@ do
 				end
 
 				-- Remove completed tests
-				if coroutine.status(co) == "dead" then
+				if is_dead then
 					-- Calculate individual test timing
 					local test_time = system.GetTime() - test_info.test_start_time
 					local test_gc = memory.get_usage_kb() - test_info.test_start_gc
