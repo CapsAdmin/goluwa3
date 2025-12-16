@@ -1,20 +1,22 @@
+local vfs = require("vfs")
 local Buffer = require("structs.buffer")
 local png_decode = require("file_formats.png.decode")
 local jpg_decode = require("file_formats.jpg.decode")
 local dds_decode = require("file_formats.dds.decode")
 local zip_decode = require("file_formats.zip.decode")
+local vtf_decode = require("file_formats.vtf.decode")
 local file_formats = {}
 
 local function buffer_from_path(path)
-	local file = assert(io.open(path, "rb"))
-	local file_data = file:read("*a")
+	local file = assert(vfs.Open(path))
+	local file_data = file:ReadAll()
 
 	if not file_data then
-		file:close()
+		file:Close()
 		error("File is empty")
 	end
 
-	file:close()
+	file:Close()
 	return Buffer.New(file_data, #file_data)
 end
 
@@ -34,6 +36,10 @@ function file_formats.LoadZIP(path)
 	return zip_decode(buffer_from_path(path))
 end
 
+function file_formats.LoadVTF(path)
+	return vtf_decode(buffer_from_path(path))
+end
+
 function file_formats.Load(path)
 	local real_path = path
 	local path = path:lower()
@@ -44,8 +50,8 @@ function file_formats.Load(path)
 		return file_formats.LoadJPG(real_path)
 	elseif path:ends_with(".dds") then
 		return file_formats.LoadDDS(real_path)
-	elseif path:ends_with(".zip") then
-		return file_formats.LoadZIP(real_path)
+	elseif path:ends_with(".vtf") then
+		return file_formats.LoadVTF(real_path)
 	end
 
 	error("Unsupported image format: " .. real_path)
