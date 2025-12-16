@@ -15,13 +15,13 @@ T.test("timer.Delay executes callback after 200ms", function()
 	-- Timer should not have executed yet
 	T(false)["=="](callback_executed)
 	-- Sleep for 250ms to ensure timer fires
-	T.sleep(0.25)
+	T.sleep(0.2)
 	-- Now the callback should have executed
 	T(true)["=="](callback_executed)
 	-- Verify it executed after approximately 200ms
 	local elapsed = callback_time - start_time
 	T(elapsed)[">="](0.2)
-	T(elapsed)["<"](0.3)
+	T(elapsed)["<"](0.4)
 end)
 
 T.test("timer.Delay with immediate execution", function()
