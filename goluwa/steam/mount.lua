@@ -1,6 +1,8 @@
 local commands = require("commands")
 local pvars = require("pvars")
 local vfs = require("vfs")
+local serializer = require("serializer")
+local utility = require("utility")
 return function(steam)
 	commands.Add("mount=string", function(game)
 		local game_info = assert(steam.MountSourceGame(game))
@@ -127,7 +129,7 @@ return function(steam)
 		if not str then return {} end
 
 		local tbl = {base .. "/steamapps/"}
-		local config = utility.VDFToTable(str, true)
+		local config = steam.VDFToTable(str, true)
 
 		for key, path in pairs(config.installconfigstore.software.valve.steam) do
 			if key:find("baseinstallfolder_") then
@@ -199,10 +201,10 @@ return function(steam)
 							dir = vfs.GetParentFolderFromPath(dir)
 
 							if str then
-								local tbl = utility.VDFToTable(str, true)
+								local tbl = steam.VDFToTable(str, true)
 
 								if tbl and tbl.gameinfo and tbl.gameinfo.game and tbl.gameinfo.filesystem then
-									local core = utility.VDFToTable(vfs.Read("os:" .. game_dir .. "game/core/gameinfo.gi"), true)
+									local core = steam.VDFToTable(vfs.Read("os:" .. game_dir .. "game/core/gameinfo.gi"), true)
 									tbl = tbl.gameinfo
 									tbl = table.merge(core.gameinfo, tbl)
 									tbl.gameinfo_path = path
@@ -229,7 +231,7 @@ return function(steam)
 					dir = vfs.GetParentFolderFromPath(dir)
 
 					if str then
-						local tbl = utility.VDFToTable(str, true)
+						local tbl = steam.VDFToTable(str, true)
 
 						if tbl and tbl.gameinfo and tbl.gameinfo.game and tbl.gameinfo.filesystem then
 							tbl = tbl.gameinfo
@@ -273,12 +275,14 @@ return function(steam)
 						local tbl = type(v) == "string" and {v} or v
 
 						for _, path in pairs(tbl) do
+							-- First, resolve any path variables
 							if path:find("|", nil, true) then
 								path = path:replace("|gameinfo_path|", game_info_dir)
 								path = path:replace("|all_source_engine_paths|", dir)
-							else
-								path = vdf_directory .. path
 							end
+
+							-- Make ALL relative paths absolute by prepending vdf_directory
+							if not vfs.IsPathAbsolutePath(path) then path = vdf_directory .. path end
 
 							path = vfs.FixPathSlashes(path)
 
@@ -291,7 +295,7 @@ return function(steam)
 								if path:ends_with(".") then path = path:sub(0, -2) end
 
 								if path:ends_with("/") then
-									local test = path .. "/"
+									local test = path
 
 									if vfs.IsDirectory(test) then
 										if not done[test] then
@@ -309,7 +313,7 @@ return function(steam)
 										end
 									end
 
-									local test = path .. "/pak01_dir.vpk/"
+									test = path .. "/pak01_dir.vpk/"
 
 									if vfs.IsDirectory(test) then
 										if not done[test] then
@@ -318,38 +322,41 @@ return function(steam)
 										end
 									end
 
-									local test = gameinfo.game_dir .. path
+									-- Only prepend game_dir if path is not already an absolute path
+									if path:sub(1, 1) ~= "/" then
+										test = gameinfo.game_dir .. path
 
-									if not vfs.IsDirectory(path) and vfs.IsDirectory(test) then
-										if not done[test] then
-											list.insert(fixed, test)
-											done[test] = true
+										if not vfs.IsDirectory(path) and vfs.IsDirectory(test) then
+											if not done[test] then
+												list.insert(fixed, test)
+												done[test] = true
+											end
 										end
-									end
 
-									if test:ends_with(".vpk") and not vfs.IsFile("os:" .. test) then
-										local path = test:gsub("(.+/.+)%.vpk", "%1_dir.vpk") .. "/"
+										if test:ends_with(".vpk") and not vfs.IsFile("os:" .. test) then
+											local vpk_path = test:gsub("%.vpk$", "_dir.vpk") .. "/"
 
-										if not done[path] then
-											list.insert(fixed, path)
-											done[path] = true
+											if not done[vpk_path] then
+												list.insert(fixed, vpk_path)
+												done[vpk_path] = true
+											end
 										end
 									end
 								end
 
 								if path:ends_with(".vpk") and not vfs.IsFile("os:" .. path) then
-									local path = path:gsub("(.+/.+)%.vpk", "%1_dir.vpk") .. "/"
+									local vpk_path = path:gsub("%.vpk$", "_dir.vpk") .. "/"
 
-									if not done[path] then
-										list.insert(fixed, path)
-										done[path] = true
+									if not done[vpk_path] then
+										list.insert(fixed, vpk_path)
+										done[vpk_path] = true
 									end
 								end
 							end
 						end
 					end
 
-					-- utility.VDFToTable does not support ordered keys.
+					-- steam.VDFToTable does not support ordered keys.
 					-- lets just prioritize vpk in the meantime
 					local sorted = {}
 

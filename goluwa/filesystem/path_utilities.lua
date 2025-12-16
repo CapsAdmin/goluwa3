@@ -9,7 +9,7 @@ return function(vfs)
 
 	function vfs.GetAddonFromPath(path)
 		local abs = vfs.GetPathInfo(path).full_path
-		local path = abs:sub(#e.ROOT_FOLDER + 1)
+		local path = abs:sub(#vfs.GetStorageDirectory("root") + 1)
 		return path:match("(.-)/")
 	end
 

@@ -64,7 +64,7 @@ return function(vfs)
 			-- for nicer error messages and debug
 			if vfs.modify_chunkname then chunkname = vfs.modify_chunkname(full_path) end
 
-			res, err = loadstring(res, chunkname or "@" .. full_path:replace(e.ROOT_FOLDER, ""))
+			res, err = loadstring(res, chunkname or "@" .. full_path:replace(vfs.GetStorageDirectory("root"), ""))
 
 			if event and res then
 				res = event.Call("PostLoadString", res, full_path) or res
@@ -249,7 +249,7 @@ return function(vfs)
 			if func then
 				dir = path:match("(.+/)(.+)")
 
-				if not full_path:starts_with(e.ROOT_FOLDER) then
+				if not full_path:starts_with(vfs.GetStorageDirectory("root")) then
 					fs.PushWorkingDirectory(dir)
 				end
 
@@ -258,7 +258,7 @@ return function(vfs)
 				_G.FILE_NAME = full_path:match(".*/(.+)%.") or full_path
 				_G.FILE_EXTENSION = full_path:match(".*/.+%.(.+)")
 
-				if full_path:find(e.ROOT_FOLDER, nil, true) then
+				if full_path:find(vfs.GetStorageDirectory("root"), nil, true) then
 					utility.PushTimeWarning()
 				end
 
@@ -270,8 +270,8 @@ return function(vfs)
 					res = {pcall(func, ...)}
 				end
 
-				if VERBOSE and full_path:find(e.ROOT_FOLDER, nil, true) then
-					utility.PopTimeWarning(full_path:gsub(e.ROOT_FOLDER, ""), 0.025, "[runfile]")
+				if VERBOSE and full_path:find(vfs.GetStorageDirectory("root"), nil, true) then
+					utility.PopTimeWarning(full_path:gsub(vfs.GetStorageDirectory("root"), ""), 0.025, "[runfile]")
 				end
 
 				_G.FILE_PATH = nil
@@ -282,7 +282,7 @@ return function(vfs)
 
 				vfs.PopFromFileRunStack()
 
-				if not full_path:starts_with(e.ROOT_FOLDER) then
+				if not full_path:starts_with(vfs.GetStorageDirectory("root")) then
 					fs.PopWorkingDirectory(dir)
 				end
 

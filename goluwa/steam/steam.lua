@@ -1,10 +1,11 @@
 local tasks = require("tasks")
 local serializer = require("serializer")
-local sockets = require("sockets")
+local sockets = require("sockets.sockets")
 local steam = {}
 steam.source2meters = 0.01905
 require("steam.mount")(steam)
 require("steam.vmt")(steam)
+require("steam.vdf")(steam)
 
 function steam.DownloadWorkshop(id, callback, on_error, last_modified)
 	if not tonumber(id) then id = id:match("id=(%d+)") end

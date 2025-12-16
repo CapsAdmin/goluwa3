@@ -8,9 +8,9 @@ return function(vfs)
 	function CONTEXT:CreateFolder(path_info, force)
 		if
 			force or
-			path_info.full_path:starts_with(e.STORAGE_FOLDER) or
-			path_info.full_path:starts_with(e.USERDATA_FOLDER) or
-			path_info.full_path:starts_with(e.ROOT_FOLDER)
+			path_info.full_path:starts_with(vfs.GetStorageDirectory("storage")) or
+			path_info.full_path:starts_with(vfs.GetStorageDirectory("userdata")) or
+			path_info.full_path:starts_with(vfs.GetStorageDirectory("root"))
 		then
 			if self:IsFolder(path_info) then return true end
 

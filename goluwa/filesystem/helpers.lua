@@ -249,12 +249,12 @@ return function(vfs)
 						if path:starts_with("os:") then path = path:sub(4) end
 
 						path = path:sub(#(dir .. "/") + 1)
-						local base = e.USERDATA_FOLDER
+						local base = vfs.GetStorageDirectory("storage")
 
 						if dir == "cache" then
-							base = e.STORAGE_FOLDER .. "cache/"
+							base = vfs.GetStorageDirectory("cache")
 						elseif dir == "shared" then
-							base = e.STORAGE_FOLDER .. "shared/"
+							base = vfs.GetStorageDirectory("shared")
 						end
 
 						local dir = ""
@@ -413,7 +413,7 @@ return function(vfs)
 					for _, path in ipairs(files) do
 						if path:ends_with(".lua") or path:ends_with(".nlua") then
 							if not path:ends_with("core/lua/boot.lua") then
-								list.insert(paths, {path = e.ROOT_FOLDER .. path})
+								list.insert(paths, {path = vfs.GetStorageDirectory("root") .. path})
 							end
 						end
 					end

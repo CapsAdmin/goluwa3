@@ -62,7 +62,7 @@ end
 
 function debug.get_source(func)
 	local info = debug.getinfo(func)
-	local src = vfs.Read(e.ROOT_FOLDER .. "/" .. info.source:sub(2))
+	local src = vfs.Read(vfs.GetStorageDirectory("root") .. "/" .. info.source:sub(2))
 
 	if not src then src = vfs.Read(info.source:sub(2)) end
 
@@ -94,7 +94,7 @@ function debug.get_pretty_source(level, append_line, full_folder)
 			pretty_source = info.source:sub(2)
 
 			if not full_folder and vfs then
-				pretty_source = vfs.FixPathSlashes(pretty_source:replace(e.ROOT_FOLDER, ""))
+				pretty_source = vfs.FixPathSlashes(pretty_source:replace(vfs.GetStorageDirectory("root"), ""))
 			end
 
 			if append_line then
@@ -293,7 +293,7 @@ end
 function debug.dump_call(level, line, info_match)
 	level = level + 1
 	local info = debug.getinfo(level)
-	local path = e.ROOT_FOLDER .. info.source:sub(2)
+	local path = vfs.GetStorageDirectory("root") .. info.source:sub(2)
 	local currentline = line or info.currentline
 
 	if info_match and info.func ~= info_match.func then return end

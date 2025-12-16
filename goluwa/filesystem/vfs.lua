@@ -317,8 +317,11 @@ require("filesystem.find")(vfs)
 require("filesystem.helpers")(vfs)
 require("filesystem.addons")(vfs)
 require("filesystem.lua_utilities")(vfs)
+require("filesystem.storage")(vfs)
 require("filesystem.files.generic_archive")(vfs)
 require("filesystem.files.os")(vfs)
+require("filesystem.files.vpk")(vfs)
+require("filesystem.files.gma")(vfs)
 
 for _, context in ipairs(vfs.GetFileSystems()) do
 	if context.VFSOpened then context:VFSOpened() end

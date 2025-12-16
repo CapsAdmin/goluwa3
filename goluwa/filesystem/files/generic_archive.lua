@@ -1,3 +1,6 @@
+local crypto = require("crypto")
+local utility = require("utility")
+local Tree = require("structs.tree")
 return function(vfs)
 	local CONTEXT = {}
 	CONTEXT.Name = "generic_archive"
@@ -54,7 +57,10 @@ return function(vfs)
 			archive_path, relative = path_info.full_path:slice("." .. self.Extension .. "/", 0, 1)
 		end
 
-		if not archive_path then return false, "not a valid archive path" end
+		if not archive_path then
+			return false,
+			"not a valid " .. self.Extension .. " archive path: " .. path_info.full_path
+		end
 
 		if not modified_cache[archive_path] then
 			never = true
@@ -78,7 +84,7 @@ return function(vfs)
 			never = false
 
 			if tree_data then
-				local tree = utility.CreateTree("/", tree_data)
+				local tree = Tree.New("/", tree_data)
 				cache[cache_key] = tree
 				return cache[cache_key], relative, archive_path
 			end
@@ -92,7 +98,7 @@ return function(vfs)
 
 		if VERBOSE then llog("generating tree data cache for ", archive_path) end
 
-		local tree = utility.CreateTree("/")
+		local tree = Tree.New("/")
 		self.tree = tree
 		local ok, err = self:OnParseArchive(file, archive_path)
 		self.tree.done_directories = nil
@@ -101,6 +107,7 @@ return function(vfs)
 		if not ok then return false, err end
 
 		cache[cache_key] = tree
+		local serializer = require("serializer")
 
 		utility.RunOnNextGarbageCollection(function()
 			serializer.WriteFile("msgpack", cache_path, tree.tree)

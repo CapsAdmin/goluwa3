@@ -156,16 +156,26 @@ do
 	local ran = {}
 
 	function utility.RunOnNextGarbageCollection(callback, id)
+		local tr = debug.traceback()
+
+		local function run()
+			local ok, err = pcall(callback)
+
+			if not ok then
+				logn("error in RunOnNextGarbageCollection callback:\n", err, "\n", tr)
+			end
+		end
+
 		if id then
 			ran[id] = false
-			getmetatable(newproxy(true)).__gc = function(...)
+			getmetatable(newproxy(true)).__gc = function()
 				if not ran[id] then
-					callback(...)
+					run()
 					ran[id] = true
 				end
 			end
 		else
-			getmetatable(newproxy(true)).__gc = callback
+			getmetatable(newproxy(true)).__gc = run
 		end
 	end
 end

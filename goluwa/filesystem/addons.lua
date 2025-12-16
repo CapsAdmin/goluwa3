@@ -15,8 +15,8 @@ return function(vfs)
 
 	function vfs.FetchBniariesForAddon(addon, callback)
 		local signature = jit.os:lower() .. "_" .. jit.arch:lower()
-		local already_downloaded_path = e.ROOT_FOLDER .. addon .. "/bin/" .. signature .. "/binaries_downloaded"
-		local skip_path = e.ROOT_FOLDER .. addon .. "/bin/" .. signature .. "/keep_local_binaries"
+		local already_downloaded_path = vfs.GetStorageDirectory("root") .. addon .. "/bin/" .. signature .. "/binaries_downloaded"
+		local skip_path = vfs.GetStorageDirectory("root") .. addon .. "/bin/" .. signature .. "/keep_local_binaries"
 
 		if fs.IsFile(skip_path) then
 			if callback then callback() end
@@ -40,7 +40,7 @@ return function(vfs)
 			if VERBOSE then llog("found %s binaries for %s", #found, addon) end
 
 			local relative_bin_dir = addon .. "/bin/" .. signature .. "/"
-			local bin_dir = e.ROOT_FOLDER .. relative_bin_dir
+			local bin_dir = vfs.GetStorageDirectory("root") .. relative_bin_dir
 			vfs.CreateDirectoriesFromPath("os:" .. bin_dir)
 			local done = #found
 
@@ -48,7 +48,10 @@ return function(vfs)
 				local to = bin_dir .. v.path:sub(#relative_bin_dir + 1)
 
 				if not fs.IsFile(already_downloaded_path) and fs.IsFile(to) then
-					llog("%q already exists before a fetch was ran, skipping", to:sub(#e.ROOT_FOLDER + 1))
+					llog(
+						"%q already exists before a fetch was ran, skipping",
+						to:sub(#vfs.GetStorageDirectory("root") + 1)
+					)
 					done = done - 1
 
 					if done == 0 then
@@ -69,12 +72,16 @@ return function(vfs)
 							if ok == "deferred" then
 								llog(
 									"%q will be replaced after restart. (%i downloads left)",
-									to:sub(#e.ROOT_FOLDER + 1),
+									to:sub(#vfs.GetStorageDirectory("root") + 1),
 									done
 								)
 							else
 								if VERBOSE then
-									llog("%q was added (%i downloads left)", to:sub(#e.ROOT_FOLDER + 1), done)
+									llog(
+										"%q was added (%i downloads left)",
+										to:sub(#vfs.GetStorageDirectory("root") + 1),
+										done
+									)
 								end
 							end
 						end

@@ -26,12 +26,12 @@ return function(steam)
 				return
 			end
 
-			local vmt, err = utility.VDFToTable(vfs.Read(path), function(key)
+			local vmt, err = steam.VDFToTable(vfs.Read(path), function(key)
 				return (key:lower():gsub("%$", ""))
 			end)
 
 			if err then
-				on_error(path .. " utility.VDFToTable : " .. err)
+				on_error(path .. " steam.VDFToTable : " .. err)
 				return
 			end
 
@@ -50,7 +50,7 @@ return function(steam)
 					v.include = vfs.FindMixedCasePath(v.include) or v.include
 				end
 
-				local vmt2, err2 = utility.VDFToTable(vfs.Read(v.include), function(key)
+				local vmt2, err2 = steam.VDFToTable(vfs.Read(v.include), function(key)
 					return (key:lower():gsub("%$", ""))
 				end)
 

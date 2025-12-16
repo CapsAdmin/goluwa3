@@ -1,3 +1,4 @@
+local vfs = require("vfs")
 local serializer = {}
 serializer.libraries = {}
 
