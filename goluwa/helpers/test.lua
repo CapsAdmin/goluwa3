@@ -118,7 +118,10 @@ function test.Pending(...) end
 do
 	-- Yield control from a test coroutine
 	function test.Yield()
-		coroutine.yield()
+		-- Sleep for a small amount to avoid tight spinning
+		-- This ensures the main loop actually advances time
+		local wake_time = system.GetElapsedTime() + 0.001 -- 1ms minimum
+		coroutine.yield(wake_time)
 	end
 
 	-- Sleep for a duration (in seconds) without blocking main thread
@@ -150,6 +153,9 @@ do
 
 		if tasks and tasks.enabled then tasks.Update() end
 
+		-- Limit how many tests we resume per update to avoid blocking for too long
+		local resumed_count = 0
+		local max_resumes_per_update = 10 -- Resume up to 10 tests per update cycle
 		while i <= #running_tests do
 			local test_info = running_tests[i]
 
@@ -167,7 +173,8 @@ do
 				should_resume = true
 			end
 
-			if should_resume then
+			if should_resume and resumed_count < max_resumes_per_update then
+				resumed_count = resumed_count + 1
 				local co = test_info.coroutine
 
 				if coroutine.status(co) ~= "dead" then

@@ -1,6 +1,6 @@
 require("goluwa.global_environment")
-local test = require("goluwa.helpers.test")
-local attest = require("goluwa.helpers.attest")
+local test = require("helpers.test")
+local attest = require("helpers.attest")
 local event = require("event")
 local filter = nil
 local logging = true
