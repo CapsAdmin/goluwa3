@@ -1,3 +1,7 @@
+do
+	return
+end
+
 local ecs = require("ecs")
 local Vec3 = require("structs.vec3")
 local Ang3 = require("structs.ang3")

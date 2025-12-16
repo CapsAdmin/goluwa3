@@ -1,3 +1,7 @@
+do
+	return
+end
+
 local Texture = require("graphics.texture")
 local render2d = require("graphics.render2d")
 local path = "/home/caps/.steam/steam/steamapps/common/GarrysMod/garrysmod/garrysmod_dir.vpk/materials/gm_construct/grass1.vtf"

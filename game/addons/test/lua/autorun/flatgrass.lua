@@ -1,7 +1,3 @@
-do
-	return
-end
-
 local vfs = require("vfs")
 require("model_loader")
 local steam = require("steam")
