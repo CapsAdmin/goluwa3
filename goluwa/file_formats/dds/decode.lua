@@ -217,25 +217,25 @@ end
 -- Map DXGI format to Vulkan format name
 local function dxgi_to_vulkan_format(dxgi_format)
 	local format_map = {
-		[DXGI_FORMAT.BC1_UNORM] = "BC1_RGBA_UNORM_BLOCK",
-		[DXGI_FORMAT.BC1_UNORM_SRGB] = "BC1_RGBA_SRGB_BLOCK",
-		[DXGI_FORMAT.BC2_UNORM] = "BC2_UNORM_BLOCK",
-		[DXGI_FORMAT.BC2_UNORM_SRGB] = "BC2_SRGB_BLOCK",
-		[DXGI_FORMAT.BC3_UNORM] = "BC3_UNORM_BLOCK",
-		[DXGI_FORMAT.BC3_UNORM_SRGB] = "BC3_SRGB_BLOCK",
-		[DXGI_FORMAT.BC4_UNORM] = "BC4_UNORM_BLOCK",
-		[DXGI_FORMAT.BC4_SNORM] = "BC4_SNORM_BLOCK",
-		[DXGI_FORMAT.BC5_UNORM] = "BC5_UNORM_BLOCK",
-		[DXGI_FORMAT.BC5_SNORM] = "BC5_SNORM_BLOCK",
-		[DXGI_FORMAT.BC6H_UF16] = "BC6H_UFLOAT_BLOCK",
-		[DXGI_FORMAT.BC6H_SF16] = "BC6H_SFLOAT_BLOCK",
+		[DXGI_FORMAT.BC1_UNORM] = "bc1_rgba_unorm_block",
+		[DXGI_FORMAT.BC1_UNORM_SRGB] = "bc1_rgba_srgb_block",
+		[DXGI_FORMAT.BC2_UNORM] = "bc2_unorm_block",
+		[DXGI_FORMAT.BC2_UNORM_SRGB] = "bc2_srgb_block",
+		[DXGI_FORMAT.BC3_UNORM] = "bc3_unorm_block",
+		[DXGI_FORMAT.BC3_UNORM_SRGB] = "bc3_srgb_block",
+		[DXGI_FORMAT.BC4_UNORM] = "bc4_unorm_block",
+		[DXGI_FORMAT.BC4_SNORM] = "bc4_snorm_block",
+		[DXGI_FORMAT.BC5_UNORM] = "bc5_unorm_block",
+		[DXGI_FORMAT.BC5_SNORM] = "bc5_snorm_block",
+		[DXGI_FORMAT.BC6H_UF16] = "bc6h_ufloat_block",
+		[DXGI_FORMAT.BC6H_SF16] = "bc6h_sfloat_block",
 		[DXGI_FORMAT.BC7_UNORM] = "bc7_unorm_block",
 		[DXGI_FORMAT.BC7_UNORM_SRGB] = "bc7_srgb_block",
 		[DXGI_FORMAT.R8G8B8A8_UNORM] = "r8g8b8a8_unorm",
-		[DXGI_FORMAT.R8G8B8A8_UNORM_SRGB] = "R8G8B8A8_SRGB",
-		[DXGI_FORMAT.B8G8R8A8_UNORM] = "B8G8R8A8_UNORM",
-		[DXGI_FORMAT.B8G8R8A8_UNORM_SRGB] = "B8G8R8A8_SRGB",
-		[DXGI_FORMAT.R16G16B16A16_FLOAT] = "R16G16B16A16_SFLOAT",
+		[DXGI_FORMAT.R8G8B8A8_UNORM_SRGB] = "r8g8b8a8_srgb",
+		[DXGI_FORMAT.B8G8R8A8_UNORM] = "b8g8r8a8_unorm",
+		[DXGI_FORMAT.B8G8R8A8_UNORM_SRGB] = "b8g8r8a8_srgb",
+		[DXGI_FORMAT.R16G16B16A16_FLOAT] = "r16g16b16a16_sfloat",
 		[DXGI_FORMAT.R32G32B32A32_FLOAT] = "r32g32b32a32_sfloat",
 		[DXGI_FORMAT.R32G32B32_FLOAT] = "r32g32b32_sfloat",
 	}
@@ -245,27 +245,27 @@ end
 -- Map internal format string to Vulkan format name
 local function format_to_vulkan(format)
 	local format_map = {
-		BC1 = "BC1_RGBA_UNORM_BLOCK",
-		BC1_SRGB = "BC1_RGBA_SRGB_BLOCK",
-		BC2 = "BC2_UNORM_BLOCK",
-		BC2_SRGB = "BC2_SRGB_BLOCK",
-		BC3 = "BC3_UNORM_BLOCK",
-		BC3_SRGB = "BC3_SRGB_BLOCK",
-		BC4 = "BC4_UNORM_BLOCK",
-		BC4_SNORM = "BC4_SNORM_BLOCK",
-		BC5 = "BC5_UNORM_BLOCK",
-		BC5_SNORM = "BC5_SNORM_BLOCK",
-		BC6H_UF16 = "BC6H_UFLOAT_BLOCK",
-		BC6H_SF16 = "BC6H_SFLOAT_BLOCK",
+		BC1 = "bc1_rgba_unorm_block",
+		BC1_SRGB = "bc1_rgba_srgb_block",
+		BC2 = "bc2_unorm_block",
+		BC2_SRGB = "bc2_srgb_block",
+		BC3 = "bc3_unorm_block",
+		BC3_SRGB = "bc3_srgb_block",
+		BC4 = "bc4_unorm_block",
+		BC4_SNORM = "bc4_snorm_block",
+		BC5 = "bc5_unorm_block",
+		BC5_SNORM = "bc5_snorm_block",
+		BC6H_UF16 = "bc6h_ufloat_block",
+		BC6H_SF16 = "bc6h_sfloat_block",
 		BC7 = "bc7_unorm_block",
 		BC7_SRGB = "bc7_srgb_block",
 		R8G8B8A8_UNORM = "r8g8b8a8_unorm",
-		R8G8B8A8_UNORM_SRGB = "R8G8B8A8_SRGB",
-		B8G8R8A8_UNORM = "B8G8R8A8_UNORM",
-		B8G8R8A8_UNORM_SRGB = "B8G8R8A8_SRGB",
-		B8G8R8X8_UNORM = "B8G8R8A8_UNORM", -- Treat X as A
-		B8G8R8X8_UNORM_SRGB = "B8G8R8A8_SRGB",
-		R16G16B16A16_FLOAT = "R16G16B16A16_SFLOAT",
+		R8G8B8A8_UNORM_SRGB = "r8g8b8a8_srgb",
+		B8G8R8A8_UNORM = "b8g8r8a8_unorm",
+		B8G8R8A8_UNORM_SRGB = "b8g8r8a8_srgb",
+		B8G8R8X8_UNORM = "b8g8r8a8_unorm", -- Treat X as A
+		B8G8R8X8_UNORM_SRGB = "b8g8r8a8_srgb",
+		R16G16B16A16_FLOAT = "r16g16b16a16_sfloat",
 		R32G32B32A32_FLOAT = "r32g32b32a32_sfloat",
 		R32G32B32_FLOAT = "r32g32b32_sfloat",
 	}
@@ -390,18 +390,20 @@ local function determine_format(pf, dx10)
 				end
 			end
 		elseif pf.rgbBitCount == 24 then
+			-- 24-bit formats are not widely supported in Vulkan
+			-- Convert to 32-bit equivalents by adding X (unused alpha) channel
 			if
 				pf.rBitMask == 0x00FF0000 and
 				pf.gBitMask == 0x0000FF00 and
 				pf.bBitMask == 0x000000FF
 			then
-				return "B8G8R8_UNORM"
+				return "B8G8R8X8_UNORM" -- Was B8G8R8_UNORM, but that's unsupported
 			elseif
 				pf.rBitMask == 0x000000FF and
 				pf.gBitMask == 0x0000FF00 and
 				pf.bBitMask == 0x00FF0000
 			then
-				return "R8G8B8_UNORM"
+				return "R8G8B8X8_UNORM" -- Was R8G8B8_UNORM, but that's unsupported
 			end
 		end
 	end
@@ -571,8 +573,37 @@ local function decode(inputBuffer, opts)
 	end
 
 	-- Get pointer to the data directly (no copy for efficiency)
-	local data_buffer = ffi.new("uint8_t[?]", total_size)
-	ffi.copy(data_buffer, inputBuffer:GetBuffer() + data_pos, total_size)
+	local data_buffer
+	local actual_data_size = total_size
+	-- Check if we need to convert 24-bit to 32-bit
+	local bpp = get_bytes_per_pixel(format)
+	local needs_conversion_to_32bit = (bpp == 3) -- 24-bit RGB/BGR
+	if needs_conversion_to_32bit then
+		-- Convert 24-bit to 32-bit by adding alpha channel
+		local pixel_count = header.width * header.height * depth * array_size
+		local new_size = pixel_count * 4 -- 4 bytes per pixel
+		data_buffer = ffi.new("uint8_t[?]", new_size)
+		local src = inputBuffer:GetBuffer() + data_pos
+		local dst = data_buffer
+		local src_idx = 0
+		local dst_idx = 0
+
+		-- Copy RGB and add 255 alpha
+		for i = 0, pixel_count - 1 do
+			dst[dst_idx] = src[src_idx] -- R or B
+			dst[dst_idx + 1] = src[src_idx + 1] -- G
+			dst[dst_idx + 2] = src[src_idx + 2] -- B or R
+			dst[dst_idx + 3] = 255 -- A (fully opaque)
+			src_idx = src_idx + 3
+			dst_idx = dst_idx + 4
+		end
+
+		actual_data_size = new_size
+	else
+		data_buffer = ffi.new("uint8_t[?]", total_size)
+		ffi.copy(data_buffer, inputBuffer:GetBuffer() + data_pos, total_size)
+	end
+
 	-- Return result with all the metadata needed for GPU upload
 	return {
 		width = header.width,
@@ -586,12 +617,12 @@ local function decode(inputBuffer, opts)
 		is_volume = is_volume,
 		is_compressed = is_compressed(format),
 		block_size = get_block_size(format),
-		bytes_per_pixel = get_bytes_per_pixel(format),
+		bytes_per_pixel = needs_conversion_to_32bit and 4 or get_bytes_per_pixel(format),
 		mip_info = mip_info,
-		data_size = total_size,
+		data_size = actual_data_size,
 		data = data_buffer,
 		-- Also provide a Buffer wrapper for consistency with other decoders
-		buffer = Buffer.New(data_buffer, total_size),
+		buffer = Buffer.New(data_buffer, actual_data_size),
 	}
 end
 

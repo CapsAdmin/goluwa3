@@ -149,8 +149,9 @@ local function vtf_to_vulkan_format(format)
 		[VTF_IMAGE_FORMAT.BGRA8888] = "b8g8r8a8_unorm",
 		[VTF_IMAGE_FORMAT.ABGR8888] = "a8b8g8r8_unorm_pack32",
 		[VTF_IMAGE_FORMAT.ARGB8888] = "b8g8r8a8_unorm", -- Close approximation
-		[VTF_IMAGE_FORMAT.RGB888] = "r8g8b8_unorm",
-		[VTF_IMAGE_FORMAT.BGR888] = "b8g8r8_unorm",
+		-- 24-bit formats converted to 32-bit (not widely supported)
+		[VTF_IMAGE_FORMAT.RGB888] = "r8g8b8a8_unorm",
+		[VTF_IMAGE_FORMAT.BGR888] = "b8g8r8a8_unorm",
 		[VTF_IMAGE_FORMAT.RGBA16161616F] = "r16g16b16a16_sfloat",
 		[VTF_IMAGE_FORMAT.RGBA32323232F] = "r32g32b32a32_sfloat",
 		[VTF_IMAGE_FORMAT.RGB323232F] = "r32g32b32_sfloat",
@@ -293,8 +294,50 @@ local function vtf_decode(input_buffer)
 	local frame_data_size = total_size
 	-- Read all mipmap data for the first frame
 	local data_pos = input_buffer:GetPosition()
-	local data_buffer = ffi.new("uint8_t[?]", total_size)
-	ffi.copy(data_buffer, input_buffer:GetBuffer() + data_pos, total_size)
+	-- Check if we need to convert 24-bit to 32-bit
+	local bpp = get_bytes_per_pixel(format)
+	local needs_conversion_to_32bit = (bpp == 3) -- 24-bit RGB/BGR
+	local data_buffer
+	local actual_data_size = total_size
+
+	if needs_conversion_to_32bit then
+		-- Convert 24-bit to 32-bit by adding alpha/X channel
+		local pixel_count = 0
+
+		for _, mip_data in ipairs(mip_sizes) do
+			pixel_count = pixel_count + (mip_data.width * mip_data.height * mip_data.depth)
+		end
+
+		local new_size = pixel_count * 4 -- 4 bytes per pixel
+		data_buffer = ffi.new("uint8_t[?]", new_size)
+		local src = input_buffer:GetBuffer() + data_pos
+		local dst = data_buffer
+		local src_idx = 0
+		local dst_idx = 0
+
+		-- Copy RGB and add 255 for X channel (unused alpha)
+		for i = 0, pixel_count - 1 do
+			dst[dst_idx] = src[src_idx] -- R or B
+			dst[dst_idx + 1] = src[src_idx + 1] -- G
+			dst[dst_idx + 2] = src[src_idx + 2] -- B or R
+			dst[dst_idx + 3] = 255 -- X (unused, fully opaque)
+			src_idx = src_idx + 3
+			dst_idx = dst_idx + 4
+		end
+
+		actual_data_size = new_size
+
+		-- Update mip_info sizes to reflect 32-bit
+		for i, mip in ipairs(mip_info) do
+			mip.size = (mip.width * mip.height * mip.depth) * 4
+
+			if i > 1 then mip.offset = mip_info[i - 1].offset + mip_info[i - 1].size end
+		end
+	else
+		data_buffer = ffi.new("uint8_t[?]", total_size)
+		ffi.copy(data_buffer, input_buffer:GetBuffer() + data_pos, total_size)
+	end
+
 	-- Get Vulkan format string
 	local vulkan_format = vtf_to_vulkan_format(format)
 	-- Return result matching DDS decoder pattern
@@ -309,12 +352,12 @@ local function vtf_decode(input_buffer)
 		frames = frames,
 		is_compressed = is_compressed(format),
 		block_size = get_block_size(format),
-		bytes_per_pixel = get_bytes_per_pixel(format),
+		bytes_per_pixel = needs_conversion_to_32bit and 4 or get_bytes_per_pixel(format),
 		mip_info = mip_info,
-		data_size = total_size,
+		data_size = actual_data_size,
 		data = data_buffer,
 		-- Also provide a Buffer wrapper for consistency
-		buffer = Buffer.New(data_buffer, total_size),
+		buffer = Buffer.New(data_buffer, actual_data_size),
 	}
 end
 

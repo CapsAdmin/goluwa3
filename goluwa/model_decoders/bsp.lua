@@ -15,6 +15,8 @@ local event = require("event")
 local math3d = require("math3d")
 local R = vfs.GetAbsolutePath
 local ffi = require("ffi")
+local ecs = require("ecs")
+local utility = require("utility")
 local CUBEMAPS = false
 steam.loaded_bsp = steam.loaded_bsp or {}
 local scale = 1 / 0.0254
@@ -61,10 +63,12 @@ function steam.SetMap(name)
 	end
 
 	local path = "maps/" .. name .. ".bsp"
-	steam.bsp_world = steam.bsp_world or entities.CreateEntity("physical", entities.GetWorld())
+	steam.bsp_world = steam.bsp_world or ecs.CreateEntity("bsp_world", ecs.GetWorld())
 	steam.bsp_world:SetName(name)
-	steam.bsp_world:SetModelPath(path)
-	steam.bsp_world:SetPhysicsModelPath(path)
+	steam.bsp_world:AddComponent("transform")
+	steam.bsp_world:AddComponent("model")
+	steam.bsp_world.model:SetModelPath(path)
+	-- Note: SetPhysicsModelPath removed - physics component not yet ported
 	steam.bsp_world:RemoveChildren()
 
 	-- hack because promises will force SetModelPath to run one frame later
@@ -879,11 +883,17 @@ function steam.SpawnMapEntities(path, parent)
 
 		if CUBEMAPS then
 			for k, v in pairs(data.cubemaps) do
-				local ent = entities.CreateEntity("visual", parent)
-				ent:SetModelPath("models/sphere.obj")
-				ent:SetSize(0.25)
-				ent:SetRoughnessMultiplier(0)
-				ent:SetPosition(v.origin * steam.source2meters)
+				local ent = ecs.CreateEntity("cubemap", parent)
+				ent:AddComponent(
+					"transform",
+					{
+						position = v.origin * steam.source2meters,
+						size = 0.25,
+					}
+				)
+				ent:AddComponent("model")
+				ent.model:SetModelPath("models/sphere.obj")
+			-- Note: SetRoughnessMultiplier removed - material system different in new engine
 			end
 		end
 
@@ -907,17 +917,24 @@ function steam.SpawnMapEntities(path, parent)
 						not GRAPHICS
 					)
 				then
-					parent.light_group = parent.light_group or entities.CreateEntity("group", parent)
+					parent.light_group = parent.light_group or ecs.CreateEntity("lights", parent)
 					parent.light_group:SetName("lights")
-					local ent = entities.CreateEntity("light", parent.light_group)
-					ent:SetPosition(info.origin * steam.source2meters)
-					--					ent:SetHideFromEditor(true)
-					ent:SetColor(Color(info._light.r, info._light.g, info._light.b, 1))
-					ent:SetSize(math.max(info._light.a, 25))
-					ent:SetIntensity(math.clamp(info._light.a / 9, 0.5, 3))
+					local ent = ecs.CreateEntity("light", parent.light_group)
+					ent:AddComponent("transform", {
+						position = info.origin * steam.source2meters,
+					})
+					ent:AddComponent(
+						"light",
+						{
+							type = 2, -- TYPE_POINT
+							color = {info._light.r, info._light.g, info._light.b},
+							intensity = math.clamp(info._light.a / 9, 0.5, 3),
+							range = math.max(info._light.a, 25),
+						}
+					)
 
 					if info._zero_percent_distance then
-						ent:SetSize(ent:GetSize() + info._zero_percent_distance * 0.02)
+						ent.light:SetRange(ent.light:GetRange() + info._zero_percent_distance * 0.02)
 					end
 
 					ent.spawned_from_bsp = true
@@ -938,20 +955,27 @@ function steam.SpawnMapEntities(path, parent)
 				info.classname ~= "env_sprite"
 			then
 				if vfs.IsFile(info.model) then
-					parent[info.classname .. "_group"] = parent[info.classname .. "_group"] or entities.CreateEntity("group", parent)
+					parent[info.classname .. "_group"] = parent[info.classname .. "_group"] or ecs.CreateEntity(info.classname, parent)
 					parent[info.classname .. "_group"]:SetName(info.classname)
-					local ent = entities.CreateEntity("visual", parent[info.classname .. "_group"])
-					ent:SetModelPath(info.model)
-					ent:SetPosition(info.origin * steam.source2meters)
+					local ent = ecs.CreateEntity("prop", parent[info.classname .. "_group"])
+					ent:AddComponent(
+						"transform",
+						{
+							position = info.origin * steam.source2meters,
+							rotation = info.angles:GetQuat(),
+						}
+					)
 
-					if info.rendercolor and not info.rendercolor:IsZero() then
-						ent:SetColor(info.rendercolor)
+					if info.model_size_mult then
+						ent.transform:SetSize(info.model_size_mult)
 					end
 
-					if info.model_size_mult then ent:SetSize(info.model_size_mult) end
-
-					ent:SetAngles(info.angles:GetRad())
-					--ent:SetHideFromEditor(true)
+					ent:AddComponent("model")
+					ent.model:SetModelPath(info.model)
+					-- Note: Color support removed - material system different in new engine
+					-- if info.rendercolor and not info.rendercolor:IsZero() then
+					-- 	ent:SetColor(info.rendercolor)
+					-- end
 					ent.spawned_from_bsp = true
 				end
 			end
