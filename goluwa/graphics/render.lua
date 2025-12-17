@@ -36,8 +36,9 @@ function render.Initialize(config)
 		vulkan_instance = VulkanInstance.New(nil, nil)
 		local width = config.width or 512
 		local height = config.height or 512
-		local target = vulkan_instance:CreateOffscreenRenderTarget(
+		local target = vulkan_instance:CreateWindowRenderTarget(
 			{
+				offscreen = true,
 				width = width,
 				height = height,
 				format = "r8g8b8a8_unorm",
@@ -88,38 +89,20 @@ function render.CreateSampler(config)
 end
 
 function render.CreateGraphicsPipeline(config)
-	-- Only set defaults if not explicitly provided (nil check allows explicit nil for depth-only)
 	if config.color_format == nil and config.color_format ~= false then
-		if render.target and render.target.GetColorFormat then
-			config.color_format = render.target:GetColorFormat()
-		end
+		config.color_format = render.target:GetColorFormat()
 	elseif config.color_format == false then
 		config.color_format = nil
 	end
 
-	if render.target and render.target.GetDepthFormat then
-		config.depth_format = config.depth_format or render.target:GetDepthFormat()
-		config.samples = config.samples or render.target:GetSamples()
-
-		if render.target.GetSwapchainImageCount then
-			config.descriptor_set_count = config.descriptor_set_count or render.target:GetSwapchainImageCount()
-		else
-			config.descriptor_set_count = config.descriptor_set_count or 1
-		end
-	else
-		-- Headless defaults
-		config.descriptor_set_count = config.descriptor_set_count or 1
-	end
-
+	config.depth_format = config.depth_format or render.target:GetDepthFormat()
+	config.samples = config.samples or render.target:GetSamples()
+	config.descriptor_set_count = config.descriptor_set_count or render.target:GetSwapchainImageCount()
 	return vulkan_instance:CreateGraphicsPipeline(config)
 end
 
 function render.CreateComputePipeline(config)
 	return vulkan_instance:CreateComputePipeline(config)
-end
-
-function render.CreateOffscreenRenderTarget(config)
-	return vulkan_instance:CreateOffscreenRenderTarget(config)
 end
 
 function render.GetDevice()

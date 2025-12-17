@@ -241,9 +241,23 @@ function Texture.New(config)
 			if mip_levels > 1 then self:GenerateMipMap() end
 		end
 	elseif image then
-		-- If no buffer is provided, transition the image to shader_read_only_optimal
-		-- This is necessary because images start in undefined layout
-		image:TransitionLayout("undefined", "shader_read_only_optimal")
+		-- If no buffer is provided, transition the image to an appropriate layout
+		-- Only transition to shader_read_only_optimal if the image has sampled usage
+		local has_sampled = false
+
+		if type(image.usage) == "table" then
+			for _, usage in ipairs(image.usage) do
+				if usage == "sampled" then
+					has_sampled = true
+
+					break
+				end
+			end
+		end
+
+		if has_sampled then
+			image:TransitionLayout("undefined", "shader_read_only_optimal")
+		end
 	end
 
 	-- Cache texture if cache_key is provided

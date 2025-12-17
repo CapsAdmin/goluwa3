@@ -130,12 +130,6 @@ function VulkanInstance:CreateBuffer(config)
 	return buffer
 end
 
-function VulkanInstance:CreateOffscreenRenderTarget(config)
-	-- Set offscreen mode to true
-	config.offscreen = true
-	return WindowRenderTarget.New(self, config)
-end
-
 function VulkanInstance:CreateWindowRenderTarget(config)
 	return WindowRenderTarget.New(self, config)
 end

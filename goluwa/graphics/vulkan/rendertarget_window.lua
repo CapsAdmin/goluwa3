@@ -84,33 +84,33 @@ local function choose_format(self)
 end
 
 local function create_swapchain(self)
+	local Texture = require("graphics.texture")
+
 	if self.config.offscreen then
 		-- Offscreen mode: create a single color attachment image
-		local Texture = require("graphics.texture")
 		local usage = self.config.usage or {"color_attachment", "sampled"}
-		self.offscreen_image = Image.New(
+		local texture = Texture.New(
 			{
-				device = self.vulkan_instance.device,
 				width = self.extent.width,
 				height = self.extent.height,
 				format = self.color_format,
-				usage = usage,
-				properties = "device_local",
-				samples = self.samples,
+				buffer = false, -- Don't upload any data, and skip automatic layout transition
+				image = {
+					width = self.extent.width,
+					height = self.extent.height,
+					format = self.color_format,
+					usage = usage,
+					properties = "device_local",
+					samples = self.samples,
+				},
+				view = {
+					format = self.color_format,
+					aspect = "color",
+				},
+				sampler = false,
 			}
 		)
-		self.offscreen_image_view = ImageView.New(
-			{
-				device = self.vulkan_instance.device,
-				image = self.offscreen_image,
-				format = self.color_format,
-				aspect = "color",
-			}
-		)
-		-- Create a single texture for offscreen rendering
-		self.textures = {
-			setmetatable({image = self.offscreen_image, view = self.offscreen_image_view}, Texture),
-		}
+		self.textures = {texture}
 		return
 	end
 
@@ -133,7 +133,6 @@ local function create_swapchain(self)
 			old_swapchain = self.swapchain,
 		}
 	)
-	local Texture = require("graphics.texture")
 	local textures = {}
 
 	for i, img in ipairs(self.swapchain:GetImages()) do
@@ -255,6 +254,7 @@ function WindowRenderTarget.New(vulkan_instance, config)
 	local self = setmetatable({config = config}, WindowRenderTarget)
 	self.vulkan_instance = vulkan_instance
 	self.current_frame = 0
+	self.texture_index = 1
 	choose_format(self)
 	create_swapchain(self)
 	create_depth_buffer(self)
@@ -262,14 +262,12 @@ function WindowRenderTarget.New(vulkan_instance, config)
 	create_per_frame_resources(self)
 
 	-- For backward compatibility with offscreen mode, expose image field
-	if config.offscreen then self.image = self.offscreen_image end
+	if config.offscreen then self.image = self:GetImage() end
 
 	return self
 end
 
-function WindowRenderTarget:GetSwapChainImage()
-	if self.config.offscreen then return self.offscreen_image end
-
+function WindowRenderTarget:GetImage()
 	return self.textures[self.texture_index]:GetImage()
 end
 
@@ -286,8 +284,6 @@ function WindowRenderTarget:GetSamples()
 end
 
 function WindowRenderTarget:GetImageView()
-	if self.config.offscreen then return self.offscreen_image_view end
-
 	return self.textures[self.texture_index]:GetView()
 end
 
@@ -300,71 +296,35 @@ function WindowRenderTarget:GetDepthImageView()
 end
 
 function WindowRenderTarget:BeginFrame()
-	if self.config.offscreen then
-		-- Offscreen mode
-		self.current_frame = 1
-		self.texture_index = 1
-		self.command_buffers[1]:Reset()
-		self.command_buffers[1]:Begin()
-		local cmd = self.command_buffers[1]
-		-- Transition image to color attachment optimal
-		cmd:PipelineBarrier(
-			{
-				srcStage = "top_of_pipe",
-				dstStage = "color_attachment_output",
-				imageBarriers = {
-					{
-						image = self.offscreen_image,
-						srcAccessMask = "none",
-						dstAccessMask = "color_attachment_write",
-						oldLayout = "undefined",
-						newLayout = "color_attachment_optimal",
-					},
-				},
-			}
-		)
-		-- Begin rendering pass
-		cmd:BeginRendering(
-			{
-				color_image_view = self.offscreen_image_view,
-				w = self.extent.width,
-				h = self.extent.height,
-				clear_color = {0.0, 0.0, 0.0, 1.0},
-			}
-		)
-		-- Set viewport and scissor
-		cmd:SetViewport(0, 0, self.extent.width, self.extent.height, 0, 1)
-		cmd:SetScissor(0, 0, self.extent.width, self.extent.height)
-		return cmd
-	end
-
-	-- Windowed mode
-	-- Use round-robin frame index
 	self.current_frame = (self.current_frame % #self.textures) + 1
-	-- Wait for the fence for this frame FIRST
-	self.in_flight_fences[self.current_frame]:Wait()
-	-- Acquire next image using current_frame semaphore for acquisition
-	local texture_index = self.swapchain:GetNextImage(self.image_available_semaphores[self.current_frame])
 
-	-- Check if swapchain needs recreation
-	if texture_index == nil then
-		self:RebuildFramebuffers()
-		return nil
+	if self.in_flight_fences and self.in_flight_fences[self.current_frame] then
+		self.in_flight_fences[self.current_frame]:Wait()
 	end
 
-	self.texture_index = texture_index + 1
-	-- Reset command buffer for this frame (but don't begin yet - that happens after descriptor updates)
-	self.command_buffers[self.current_frame]:Reset()
-	self:BeginCommandBuffer()
+	if self.swapchain then
+		local texture_index = self.swapchain:GetNextImage(self.image_available_semaphores[self.current_frame])
+
+		if texture_index == nil then
+			self:RebuildFramebuffers()
+			return nil
+		end
+
+		self.texture_index = texture_index + 1
+	else
+		self.texture_index = 1
+	end
+
 	local cmd = self:GetCommandBuffer()
-	-- Transition swapchain image to color attachment optimal
+	cmd:Reset()
+	cmd:Begin()
 	cmd:PipelineBarrier(
 		{
-			srcStage = "color_attachment_output",
+			srcStage = self.config.offscreen and "top_of_pipe" or "color_attachment_output",
 			dstStage = "color_attachment_output",
 			imageBarriers = {
 				{
-					image = self:GetSwapChainImage(),
+					image = self:GetImage(),
 					srcAccessMask = "none",
 					dstAccessMask = "color_attachment_write",
 					oldLayout = "undefined",
@@ -375,98 +335,80 @@ function WindowRenderTarget:BeginFrame()
 	)
 	local extent = self:GetExtent()
 	event.Call("PreRenderPass", cmd)
-	cmd:BeginRendering(
-		{
-			color_image_view = self:GetImageView(),
-			msaa_image_view = self:GetMSAAImageView(),
-			depth_image_view = self:GetDepthImageView(),
-			w = extent.width,
-			h = extent.height,
-			clear_color = {0.2, 0.2, 0.2, 1.0},
-			clear_depth = 1.0,
-		}
-	)
+	local render_config = {
+		color_image_view = self:GetImageView(),
+		w = extent.width,
+		h = extent.height,
+		clear_color = self.config.offscreen and {0.0, 0.0, 0.0, 1.0} or {0.2, 0.2, 0.2, 1.0},
+	}
+
+	-- Add MSAA and depth for windowed mode
+	if not self.config.offscreen then
+		render_config.msaa_image_view = self:GetMSAAImageView()
+		render_config.depth_image_view = self:GetDepthImageView()
+		render_config.clear_depth = 1.0
+	end
+
+	cmd:BeginRendering(render_config)
+	-- Set viewport and scissor
 	cmd:SetViewport(0, 0, extent.width, extent.height, 0, 1)
 	cmd:SetScissor(0, 0, extent.width, extent.height)
 	return cmd
 end
 
-function WindowRenderTarget:BeginCommandBuffer()
-	-- Begin command buffer recording
-	self.command_buffers[self.current_frame]:Begin()
-end
-
 function WindowRenderTarget:EndFrame()
-	if self.config.offscreen then
-		-- Offscreen mode
-		local command_buffer = self.command_buffers[1]
-		-- End rendering pass
-		command_buffer:EndRendering()
-		-- Transition to final layout for reading/transfer
-		command_buffer:PipelineBarrier(
-			{
-				srcStage = "color_attachment_output",
-				dstStage = "transfer",
-				imageBarriers = {
-					{
-						image = self.offscreen_image,
-						srcAccessMask = "color_attachment_write",
-						dstAccessMask = "transfer_read",
-						oldLayout = "color_attachment_optimal",
-						newLayout = self.final_layout,
-					},
-				},
-			}
-		)
-		command_buffer:End()
-		local fence = Fence.New(self.vulkan_instance.device)
-		self.vulkan_instance.queue:SubmitAndWait(self.vulkan_instance.device, command_buffer, fence)
-		return
-	end
-
-	-- Windowed mode
 	local command_buffer = self.command_buffers[self.current_frame]
+	-- End rendering pass
 	command_buffer:EndRendering()
-	-- Copy query results after render pass ends
+	-- Copy query results after render pass ends (windowed mode only)
 	event.Call("PostRenderPass", command_buffer)
-	-- Transition swapchain image to present src
+	-- Transition image to final layout
+	local final_layout = self.config.offscreen and self.final_layout or "present_src_khr"
+	local dst_stage = self.config.offscreen and "transfer" or "color_attachment_output"
+	local dst_access = self.config.offscreen and "transfer_read" or "none"
 	command_buffer:PipelineBarrier(
 		{
 			srcStage = "color_attachment_output",
-			dstStage = "color_attachment_output",
+			dstStage = dst_stage,
 			imageBarriers = {
 				{
-					image = self:GetSwapChainImage(),
+					image = self:GetImage(),
 					srcAccessMask = "color_attachment_write",
-					dstAccessMask = "none",
+					dstAccessMask = dst_access,
 					oldLayout = "color_attachment_optimal",
-					newLayout = "present_src_khr",
+					newLayout = final_layout,
 				},
 			},
 		}
 	)
 	command_buffer:End()
-	-- Submit command buffer
-	-- Use current_frame for image_available (wait) semaphore and fence
-	-- Use texture_index for render_finished (signal) semaphore - this ensures
-	-- we use a separate semaphore per swapchain image as required by Vulkan spec
-	self.vulkan_instance.queue:Submit(
-		command_buffer,
-		self.image_available_semaphores[self.current_frame],
-		self.render_finished_semaphores[self.texture_index],
-		self.in_flight_fences[self.current_frame]
-	)
 
-	-- Present and recreate swapchain if needed
-	-- Use texture_index for render_finished semaphore to match the submission
-	if
-		not self.swapchain:Present(
+	-- Submit command buffer
+	if self.config.offscreen then
+		-- Offscreen: simple submit and wait
+		local fence = Fence.New(self.vulkan_instance.device)
+		self.vulkan_instance.queue:SubmitAndWait(self.vulkan_instance.device, command_buffer, fence)
+	else
+		-- Windowed: submit with semaphores
+		-- Use current_frame for image_available (wait) semaphore and fence
+		-- Use texture_index for render_finished (signal) semaphore
+		self.vulkan_instance.queue:Submit(
+			command_buffer,
+			self.image_available_semaphores[self.current_frame],
 			self.render_finished_semaphores[self.texture_index],
-			self.vulkan_instance.queue,
-			ffi.new("uint32_t[1]", self.texture_index - 1)
+			self.in_flight_fences[self.current_frame]
 		)
-	then
-		self:RebuildFramebuffers()
+
+		-- Present and recreate swapchain if needed
+		if
+			not self.swapchain:Present(
+				self.render_finished_semaphores[self.texture_index],
+				self.vulkan_instance.queue,
+				ffi.new("uint32_t[1]", self.texture_index - 1)
+			)
+		then
+			self:RebuildFramebuffers()
+		end
 	end
 end
 
@@ -515,7 +457,7 @@ function WindowRenderTarget:WriteMode(cmd)
 			dstStage = "all_commands",
 			imageBarriers = {
 				{
-					image = self.offscreen_image,
+					image = self:GetImage(),
 					srcAccessMask = "shader_read",
 					dstAccessMask = "color_attachment_write",
 					oldLayout = "shader_read_only_optimal",
@@ -537,7 +479,7 @@ function WindowRenderTarget:ReadMode(cmd)
 			dstStage = "fragment",
 			imageBarriers = {
 				{
-					image = self.offscreen_image,
+					image = self:GetImage(),
 					srcAccessMask = "color_attachment_write",
 					dstAccessMask = "shader_read",
 					oldLayout = "color_attachment_optimal",
