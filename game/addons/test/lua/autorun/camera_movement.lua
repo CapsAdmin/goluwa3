@@ -22,6 +22,40 @@ local function get_speed_multiplier()
 	return 10
 end
 
+do
+	local Vec3 = require("structs.vec3")
+	local ecs = require("ecs")
+	local Ang3 = require("structs.ang3")
+	local Polygon3D = require("graphics.polygon_3d")
+	local Material = require("graphics.material")
+
+	function events.KeyInput.camera_movement(key, down)
+		if key == "o" and down then
+			local poly = Polygon3D.New()
+			poly:CreateCube(1.0, 1.0)
+			poly:AddSubMesh(#poly.Vertices)
+			poly:BuildNormals()
+			poly:BuildBoundingBox()
+			poly:Upload()
+			local entity = ecs.CreateEntity("cube", ecs.GetWorld())
+			entity:AddComponent(
+				"transform",
+				{
+					position = DEBUG_CAMERA_POS,
+					scale = Vec3(1, 1, 1) * 0.1,
+				}
+			)
+			entity:AddComponent(
+				"model",
+				{
+					mesh = poly,
+					material = Material.New({base_color_factor = {1, 0.2, 0.2, 1}}),
+				}
+			)
+		end
+	end
+end
+
 -- Use quaternion for rotation to avoid gimbal lock
 local rotation = Quat()
 rotation:Identity()
@@ -120,4 +154,6 @@ function events.Update.camera_movement(dt)
 	view:Translate(position:Unpack())
 	render3d.SetViewMatrix(view)
 	render3d.SetCameraFOV(cam_fov)
+	DEBUG_CAMERA_POS = position
+	DEBUG_CAMERA_ROT = rotation
 end

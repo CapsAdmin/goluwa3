@@ -17,12 +17,16 @@ function events.Draw2D.debug_info(dt)
 	local x = 10
 	render2d.SetTexture(nil)
 	-- Camera info
-	local pos = render3d.GetCameraPosition()
-	local ang = render3d.GetCameraAngles()
+	local pos = DEBUG_CAMERA_POS or render3d.GetCameraPosition()
+	local rot = DEBUG_CAMERA_ROT or render3d.GetCameraRotation()
 	render2d.SetColor(1, 1, 1, 1)
 	gfx.DrawText(string.format("Camera Pos: X=%.1f  Y=%.1f  Z=%.1f", pos.x, pos.y, pos.z), x, y)
 	y = y + 20
-	gfx.DrawText(string.format("Camera Ang: P=%.1f  Y=%.1f  R=%.1f", ang.p, ang.y, ang.r), x, y)
+	gfx.DrawText(
+		string.format("Camera Rot: X=%.1f  Y=%.1f  Z=%.1f W=%.1f", rot.x, rot.y, rot.z, rot.w),
+		x,
+		y
+	)
 	y = y + 20
 	-- Separator
 	y = y + 10

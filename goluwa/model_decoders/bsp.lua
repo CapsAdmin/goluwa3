@@ -993,14 +993,20 @@ function steam.SpawnMapEntities(path, parent)
 					parent[info.classname .. "_group"] = parent[info.classname .. "_group"] or ecs.CreateEntity(info.classname, parent)
 					parent[info.classname .. "_group"]:SetName(info.classname)
 					local ent = ecs.CreateEntity("prop", parent[info.classname .. "_group"])
-					-- Convert Ang3 to Quat properly
-					local rotation = Quat():SetAngles(info.angles)
-					local position = Vec3(info.origin.y, info.origin.z, info.origin.x) * steam.source2meters * 0.01
+					-- Convert Source angles to our coordinate system
+					-- Source: X=forward, Y=left, Z=up with angles (pitch, yaw, roll)
+					-- Engine: X=right, Y=up, Z=forward with angles (pitch, yaw, roll)
+					-- Source pitch rotates around Y-left axis, yaw around Z-up, roll around X-forward
+					-- We need: pitch around X-right, yaw around Y-up, roll around Z-forward
+					-- Angle remapping: our_pitch=-source_roll, our_yaw=source_yaw, our_roll=source_pitch
+					local remapped_angles = Ang3(-info.angles.z, info.angles.y, info.angles.x)
+					local rotation = Quat():SetAngles(remapped_angles):Normalize()
+					local position = Vec3(info.origin.y, -info.origin.z, -info.origin.x) * steam.source2meters
 					ent:AddComponent(
 						"transform",
 						{
 							position = position,
-							rotation = rotation,
+						--rotation = rotation,
 						}
 					)
 
@@ -1011,8 +1017,9 @@ function steam.SpawnMapEntities(path, parent)
 					ent:AddComponent("model")
 					ent.model:SetModelPath(info.model)
 					logf(
-						"Spawning prop: %s at %s with model %s\n",
+						"Spawning prop: %s (origin is %s) at %s with model %s\n",
 						info.classname,
+						tostring(info.origin),
 						tostring(position),
 						info.model
 					)

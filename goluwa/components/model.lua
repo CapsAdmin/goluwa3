@@ -46,17 +46,7 @@ function META:Initialize(config)
 			aabb = config.mesh:ComputeAABB()
 		end
 
-		self:AddPrimitive(
-			{
-				vertex_buffer = config.mesh.vertex_buffer:GetBuffer(),
-				index_buffer = config.mesh.index_buffer and config.mesh.index_buffer:GetBuffer() or nil,
-				index_count = config.mesh.index_buffer and config.mesh.index_buffer:GetIndexCount() or nil,
-				index_type = config.mesh.index_buffer and config.mesh.index_buffer:GetIndexType() or nil,
-				vertex_count = config.mesh.vertex_buffer:GetVertexCount(),
-				material = config.material or Material.GetDefault(),
-				aabb = aabb,
-			}
-		)
+		self:AddPrimitive(config.mesh)
 	end
 
 	-- Create occlusion query object for conditional rendering
@@ -433,19 +423,10 @@ function Model.GetOcclusionStats()
 	}
 end
 
-Model.occlusion_culling_enabled = true
+Model.occlusion_culling_enabled = false
 Model.occlusion_query_fps = 1 -- Limit occlusion queries to this FPS
 Model.last_occlusion_query_time = 0
 Model.should_run_queries_this_frame = true -- Cached per-frame flag
--- Occlusion culling control
-function Model.EnableOcclusionCulling()
-	Model.occlusion_culling_enabled = true
-end
-
-function Model.DisableOcclusionCulling()
-	Model.occlusion_culling_enabled = false
-end
-
 function Model.IsOcclusionCullingEnabled()
 	return Model.occlusion_culling_enabled
 end

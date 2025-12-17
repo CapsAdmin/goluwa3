@@ -653,9 +653,12 @@ local function load_vvd(path)
 		buffer:Advance((4 * MAX_NUM_BONES_PER_VERT) + MAX_NUM_BONES_PER_VERT + 1)
 		local vertex = {}
 		local x, y, z = buffer:ReadFloat(), buffer:ReadFloat(), buffer:ReadFloat()
-		vertex.pos = Vec3(y * -steam.source2meters, x * -steam.source2meters, z * -steam.source2meters)
+		-- Source: X=forward, Y=left, Z=up
+		-- Engine: X=right, Y=up, Z=forward  
+		-- Transform: our_x = -source_y, our_y = source_z, our_z = source_x
+		vertex.pos = Vec3(y, z, x) * steam.source2meters
 		local x, y, z = buffer:ReadFloat(), buffer:ReadFloat(), buffer:ReadFloat()
-		vertex.normal = Vec3(-y, -x, -z)
+		vertex.normal = Vec3(-y, z, x)
 		vertex.uv = buffer:ReadVec2()
 		vvd.vertices[i] = vertex
 
@@ -776,6 +779,13 @@ model_loader.AddModelDecoder("mdl", function(path, full_path, mesh_callback)
 									indices[index_i] = v
 									index_i = index_i + 1
 								end
+							end
+						end
+
+						-- Reverse winding order for Vulkan (every 3 indices forms a triangle)
+						for i = 1, #indices, 3 do
+							if indices[i] and indices[i + 1] and indices[i + 2] then
+								indices[i], indices[i + 2] = indices[i + 2], indices[i]
 							end
 						end
 

@@ -52,6 +52,7 @@ render3d.light_direction = {0.5, -1.0, 0.3}
 render3d.light_color = {1.0, 1.0, 1.0, 2.0} -- RGB + intensity
 function render3d.Initialize()
 	if render3d.pipeline then return end
+
 	-- Create shadow UBO buffer
 	local shadow_ubo_data = ShadowUBO()
 
@@ -456,6 +457,7 @@ function render3d.Initialize()
 
 	function events.Draw.draw_3d(cmd, dt)
 		if not render3d.pipeline then return end
+
 		render3d.BindPipeline()
 		event.Call("PreDraw3D", cmd, dt)
 		event.Call("Draw3D", cmd, dt)
@@ -508,6 +510,10 @@ end
 
 function render3d.GetCameraAngles()
 	return camera_view:GetAngles()
+end
+
+function render3d.GetCameraRotation()
+	return camera_view:GetRotation()
 end
 
 function render3d.GetCameraFOV()
@@ -699,7 +705,7 @@ end
 
 do
 	local system = require("system")
-	render3d.noculling = false -- Debug flag to disable culling
+	render3d.noculling = true -- Debug flag to disable culling
 	render3d.freeze_culling = false -- Debug flag to freeze frustum for culling tests
 	local function extract_frustum_planes(proj_view_matrix, out_planes)
 		local m = proj_view_matrix
