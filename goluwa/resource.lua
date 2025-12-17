@@ -7,6 +7,7 @@ local sockets = require("sockets.sockets")
 local resource = {}
 resource.providers = {}
 local DOWNLOAD_FOLDER = vfs.GetStorageDirectory("shared") .. "downloads/"
+local R = vfs.GetAbsolutePath
 local etags_file = DOWNLOAD_FOLDER .. "resource_etags.txt"
 --os.execute("rm -rf " .. R(DOWNLOAD_FOLDER))
 print(DOWNLOAD_FOLDER)

@@ -7,8 +7,8 @@ return function(vfs)
 
 	function CONTEXT:AddEntry(entry)
 		self.tree.done_directories = self.tree.done_directories or {}
-		local directory = entry.full_path:match("(.+)/")
-		entry.file_name = entry.full_path:match(".+/(.+)")
+		local directory = entry.full_path:match("(.+)/") or "./"
+		entry.file_name = entry.full_path:match(".+/(.+)") or entry.full_path
 		entry.size = tonumber(entry.size) or 0
 		--entry.crc = entry.crc or 0
 		entry.offset = tonumber(entry.offset) or 0

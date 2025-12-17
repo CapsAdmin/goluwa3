@@ -59,6 +59,7 @@ function Image.New(config)
 		Image
 	)
 	local requirements = config.device:GetImageMemoryRequirements(self)
+	assert(requirements.size > 0)
 	self.memory = Memory.New(
 		config.device,
 		requirements.size,

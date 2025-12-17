@@ -607,7 +607,11 @@ function steam.LoadMap(path)
 				-- Source: X=forward, Y=left, Z=up
 				-- Engine: X=right, Y=up, Z=forward
 				-- Transformation: engine(x, y, z) = source(-y, z, x) * scale
-				pos = Vec3(-pos.y * steam.source2meters, pos.z * steam.source2meters, pos.x * steam.source2meters),
+				pos = Vec3(
+					pos.y * steam.source2meters,
+					pos.z * steam.source2meters,
+					pos.x * steam.source2meters
+				),
 				texture_blend = blend,
 				uv = Vec2(
 					uv_scale * (a[1] * pos.x + a[2] * pos.y + a[3] * pos.z + a[4]) / texdata.width,
@@ -756,7 +760,7 @@ function steam.LoadMap(path)
 			tasks.ReportProgress("generating normals", #models)
 			tasks.Wait()
 		end
-		
+
 		for i, mesh in ipairs(models) do
 			mesh:BuildBoundingBox()
 			tasks.Wait()
@@ -837,10 +841,10 @@ function steam.LoadMap(path)
 	local render_meshes = {}
 
 	for _, v in ipairs(models) do
-		if v.mesh and v.mesh.vertex_buffer then 
-			list.insert(render_meshes, v) 
-		elseif v.vertex_buffer then 
-			list.insert(render_meshes, v) 
+		if v.mesh and v.mesh.vertex_buffer then
+			list.insert(render_meshes, v)
+		elseif v.vertex_buffer then
+			list.insert(render_meshes, v)
 		end
 	end
 

@@ -261,37 +261,39 @@ do
 		--self:SetName(path)
 		self.vmt = {}
 		self.vmt_path = path -- Store path for debugging
-
 		steam.LoadVMT(path, function(key, val, full_path)
 			self.vmt.fullpath = full_path
 			self.vmt[key] = val
 			local unused = false
 
-		if property_translate[key] then
-			local field_name, convert = unpack(property_translate[key])
+			if property_translate[key] then
+				local field_name, convert = unpack(property_translate[key])
 
-			if convert then val = convert(val) end
+				if convert then val = convert(val) end
 
-			-- Convert field name to lowercase with underscore (AlbedoTexture -> albedo_texture)
-			local internal_field = field_name:gsub("(%u)", function(c) return "_" .. c:lower() end):sub(2)
-			
-			-- Directly set the field on the material
-			self[internal_field] = val
-		else
-			unused = true
-		end
+				-- Convert field name to lowercase with underscore (AlbedoTexture -> albedo_texture)
+				local internal_field = field_name:gsub("(%u)", function(c)
+					return "_" .. c:lower()
+				end):sub(2)
+				-- Directly set the field on the material
+				self[internal_field] = val
+			else
+				unused = true
+			end
 
 			if unused then
-			steam.unused_vmt_properties[full_path] = steam.unused_vmt_properties[full_path] or {}
-			steam.unused_vmt_properties[full_path][key] = val
-		end
-	end, function(err)
-		print("Material error for " .. path .. ": " .. err)
+				steam.unused_vmt_properties[full_path] = steam.unused_vmt_properties[full_path] or {}
+				steam.unused_vmt_properties[full_path][key] = val
+			end
+		end, function(err)
+			print("Material error for " .. path .. ": " .. err)
 		--self:SetError(err)
-	end)
-end
+		end)
 
-if RELOAD then
+		return self
+	end
+
+	if RELOAD then
 		for _, v in pairs(prototype.GetCreated()) do
 			if v.Type == "material" and v.ClassName == "model" and v.vmt then
 

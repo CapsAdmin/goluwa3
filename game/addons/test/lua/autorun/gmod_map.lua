@@ -27,5 +27,5 @@ render3d.SetCameraFOV(1.2)
 do
 	local games = steam.GetSourceGames()
 	steam.MountSourceGame("gmod")
-	entity.model:SetModelPath("maps/gm_flatgrass.bsp")
+	entity.model:SetModelPath("maps/gm_construct.bsp")
 end
