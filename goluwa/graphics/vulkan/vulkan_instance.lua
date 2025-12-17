@@ -5,7 +5,6 @@ local PhysicalDevice = require("graphics.vulkan.internal.physical_device")
 local Buffer = require("graphics.vulkan.internal.buffer")
 local CommandPool = require("graphics.vulkan.internal.command_pool")
 local Surface = require("graphics.vulkan.internal.surface")
-local OffscreenRenderTarget = require("graphics.vulkan.rendertarget_offscreen")
 local WindowRenderTarget = require("graphics.vulkan.rendertarget_window")
 local GraphicsPipeline = require("graphics.vulkan.graphics_pipeline")
 local ComputePipeline = require("graphics.vulkan.compute_pipeline")
@@ -132,7 +131,9 @@ function VulkanInstance:CreateBuffer(config)
 end
 
 function VulkanInstance:CreateOffscreenRenderTarget(config)
-	return OffscreenRenderTarget.New(self, config)
+	-- Set offscreen mode to true
+	config.offscreen = true
+	return WindowRenderTarget.New(self, config)
 end
 
 function VulkanInstance:CreateWindowRenderTarget(config)

@@ -5,11 +5,15 @@ local CommandBuffer = require("graphics.vulkan.internal.command_buffer")
 local Semaphore = require("graphics.vulkan.internal.semaphore")
 local Fence = require("graphics.vulkan.internal.fence")
 local SwapChain = require("graphics.vulkan.internal.swap_chain")
+local RenderPass = require("graphics.vulkan.internal.render_pass")
+local Framebuffer = require("graphics.vulkan.internal.framebuffer")
 local event = require("event")
 local WindowRenderTarget = {}
 WindowRenderTarget.__index = WindowRenderTarget
 local default_config = {
-	-- Swapchain settings
+	-- Mode selection
+	offscreen = false, -- Set to true for offscreen rendering
+	-- Swapchain settings (windowed mode only)
 	present_mode = "fifo_khr", -- FIFO (vsync), IMMEDIATE (no vsync), MAILBOX (triple buffer)
 	image_count = nil, -- nil = minImageCount + 1 (usually triple buffer)
 	surface_format_index = 1, -- Which format from available formats to use
@@ -20,12 +24,29 @@ local default_config = {
 	acquire_timeout = ffi.cast("uint64_t", -1), -- Infinite timeout by default
 	-- Presentation
 	pre_transform = nil, -- nil = use currentTransform
+	-- Dimensions
 	width = 512,
 	height = 512,
+	-- Offscreen mode settings
+	format = nil, -- Format for offscreen rendering (defaults to chosen surface format or "r8g8b8a8_unorm")
+	usage = nil, -- Usage flags for offscreen image (defaults to {"color_attachment", "sampled"})
+	samples = nil, -- Sample count (defaults to "1" for offscreen, "4" for windowed)
+	final_layout = "color_attachment_optimal", -- Final layout for offscreen image
 }
 
 local function choose_format(self)
-	-- Query surface capabilities and formats
+	if self.config.offscreen then
+		-- Offscreen mode: use provided format or default
+		self.color_format = self.config.format or "r8g8b8a8_unorm"
+		self.samples = self.config.samples or "1"
+		self.depth_format = "d32_sfloat"
+		self.final_layout = self.config.final_layout or "color_attachment_optimal"
+		-- Set extent directly from config
+		self.extent = {width = self.config.width, height = self.config.height}
+		return
+	end
+
+	-- Windowed mode: query surface capabilities and formats
 	self.surface_capabilities = self.vulkan_instance.physical_device:GetSurfaceCapabilities(self.vulkan_instance.surface)
 	self.surface_formats = self.vulkan_instance.physical_device:GetSurfaceFormats(self.vulkan_instance.surface)
 
@@ -56,14 +77,44 @@ local function choose_format(self)
 		error("selected surface format is undefined!")
 	end
 
-	self.samples = "4"
+	self.samples = self.config.samples or "4"
 	self.depth_format = "d32_sfloat"
 	self.surface_format = self.surface_formats[self.config.surface_format_index]
 	self.color_format = self.surface_format.format
 end
 
 local function create_swapchain(self)
-	-- Recreate swapchain
+	if self.config.offscreen then
+		-- Offscreen mode: create a single color attachment image
+		local Texture = require("graphics.texture")
+		local usage = self.config.usage or {"color_attachment", "sampled"}
+		self.offscreen_image = Image.New(
+			{
+				device = self.vulkan_instance.device,
+				width = self.extent.width,
+				height = self.extent.height,
+				format = self.color_format,
+				usage = usage,
+				properties = "device_local",
+				samples = self.samples,
+			}
+		)
+		self.offscreen_image_view = ImageView.New(
+			{
+				device = self.vulkan_instance.device,
+				image = self.offscreen_image,
+				format = self.color_format,
+				aspect = "color",
+			}
+		)
+		-- Create a single texture for offscreen rendering
+		self.textures = {
+			setmetatable({image = self.offscreen_image, view = self.offscreen_image_view}, Texture),
+		}
+		return
+	end
+
+	-- Windowed mode: recreate swapchain
 	self.swapchain = SwapChain.New(
 		{
 			device = self.vulkan_instance.device,
@@ -100,7 +151,7 @@ local function create_swapchain(self)
 end
 
 local function create_depth_buffer(self)
-	local extent = self.surface_capabilities.currentExtent
+	local extent = self.config.offscreen and self.extent or self.surface_capabilities.currentExtent
 	local Texture = require("graphics.texture")
 	-- Create the image
 	local render = require("graphics.render")
@@ -129,7 +180,7 @@ local function create_depth_buffer(self)
 end
 
 local function create_msaa_buffer(self)
-	local extent = self.surface_capabilities.currentExtent
+	local extent = self.config.offscreen and self.extent or self.surface_capabilities.currentExtent
 	local Texture = require("graphics.texture")
 
 	-- Recreate MSAA color buffer if using MSAA
@@ -143,7 +194,7 @@ local function create_msaa_buffer(self)
 				device = render.GetDevice(),
 				width = extent.width,
 				height = extent.height,
-				format = self.surface_format.format,
+				format = self.config.offscreen and self.color_format or self.surface_format.format,
 				usage = {"color_attachment"},
 				properties = "device_local",
 				samples = self.samples,
@@ -153,7 +204,7 @@ local function create_msaa_buffer(self)
 			{
 				device = render.GetDevice(),
 				image = image,
-				format = self.surface_format.format,
+				format = self.config.offscreen and self.color_format or self.surface_format.format,
 			}
 		)
 		self.msaa_image = setmetatable({image = image, view = view}, Texture)
@@ -161,6 +212,16 @@ local function create_msaa_buffer(self)
 end
 
 local function create_per_frame_resources(self)
+	if self.config.offscreen then
+		-- Offscreen mode: only need one command buffer
+		if self.command_buffers and #self.command_buffers == 1 then return end
+
+		self.command_buffers = {}
+		self.command_buffers[1] = self.vulkan_instance.command_pool:AllocateCommandBuffer()
+		return
+	end
+
+	-- Windowed mode: need resources per swapchain image
 	if self.command_buffers and #self.command_buffers == #self.textures then
 		return
 	end
@@ -199,10 +260,16 @@ function WindowRenderTarget.New(vulkan_instance, config)
 	create_depth_buffer(self)
 	create_msaa_buffer(self)
 	create_per_frame_resources(self)
+
+	-- For backward compatibility with offscreen mode, expose image field
+	if config.offscreen then self.image = self.offscreen_image end
+
 	return self
 end
 
 function WindowRenderTarget:GetSwapChainImage()
+	if self.config.offscreen then return self.offscreen_image end
+
 	return self.textures[self.texture_index]:GetImage()
 end
 
@@ -219,6 +286,8 @@ function WindowRenderTarget:GetSamples()
 end
 
 function WindowRenderTarget:GetImageView()
+	if self.config.offscreen then return self.offscreen_image_view end
+
 	return self.textures[self.texture_index]:GetView()
 end
 
@@ -231,6 +300,45 @@ function WindowRenderTarget:GetDepthImageView()
 end
 
 function WindowRenderTarget:BeginFrame()
+	if self.config.offscreen then
+		-- Offscreen mode
+		self.current_frame = 1
+		self.texture_index = 1
+		self.command_buffers[1]:Reset()
+		self.command_buffers[1]:Begin()
+		local cmd = self.command_buffers[1]
+		-- Transition image to color attachment optimal
+		cmd:PipelineBarrier(
+			{
+				srcStage = "top_of_pipe",
+				dstStage = "color_attachment_output",
+				imageBarriers = {
+					{
+						image = self.offscreen_image,
+						srcAccessMask = "none",
+						dstAccessMask = "color_attachment_write",
+						oldLayout = "undefined",
+						newLayout = "color_attachment_optimal",
+					},
+				},
+			}
+		)
+		-- Begin rendering pass
+		cmd:BeginRendering(
+			{
+				color_image_view = self.offscreen_image_view,
+				w = self.extent.width,
+				h = self.extent.height,
+				clear_color = {0.0, 0.0, 0.0, 1.0},
+			}
+		)
+		-- Set viewport and scissor
+		cmd:SetViewport(0, 0, self.extent.width, self.extent.height, 0, 1)
+		cmd:SetScissor(0, 0, self.extent.width, self.extent.height)
+		return cmd
+	end
+
+	-- Windowed mode
 	-- Use round-robin frame index
 	self.current_frame = (self.current_frame % #self.textures) + 1
 	-- Wait for the fence for this frame FIRST
@@ -289,6 +397,34 @@ function WindowRenderTarget:BeginCommandBuffer()
 end
 
 function WindowRenderTarget:EndFrame()
+	if self.config.offscreen then
+		-- Offscreen mode
+		local command_buffer = self.command_buffers[1]
+		-- End rendering pass
+		command_buffer:EndRendering()
+		-- Transition to final layout for reading/transfer
+		command_buffer:PipelineBarrier(
+			{
+				srcStage = "color_attachment_output",
+				dstStage = "transfer",
+				imageBarriers = {
+					{
+						image = self.offscreen_image,
+						srcAccessMask = "color_attachment_write",
+						dstAccessMask = "transfer_read",
+						oldLayout = "color_attachment_optimal",
+						newLayout = self.final_layout,
+					},
+				},
+			}
+		)
+		command_buffer:End()
+		local fence = Fence.New(self.vulkan_instance.device)
+		self.vulkan_instance.queue:SubmitAndWait(self.vulkan_instance.device, command_buffer, fence)
+		return
+	end
+
+	-- Windowed mode
 	local command_buffer = self.command_buffers[self.current_frame]
 	command_buffer:EndRendering()
 	-- Copy query results after render pass ends
@@ -335,6 +471,11 @@ function WindowRenderTarget:EndFrame()
 end
 
 function WindowRenderTarget:RebuildFramebuffers()
+	if self.config.offscreen then
+		-- Offscreen mode doesn't need rebuilding
+		return
+	end
+
 	-- Wait for device to be idle
 	self.vulkan_instance.device:WaitIdle()
 	choose_format(self)
@@ -353,11 +494,58 @@ function WindowRenderTarget:GetCurrentFrame()
 end
 
 function WindowRenderTarget:GetExtent()
+	if self.config.offscreen then return self.extent end
+
 	return self.surface_capabilities.currentExtent
 end
 
 function WindowRenderTarget:GetSwapchainImageCount()
 	return #self.textures
+end
+
+-- Additional methods for offscreen mode compatibility
+function WindowRenderTarget:WriteMode(cmd)
+	if not self.config.offscreen then
+		return -- Only applicable in offscreen mode
+	end
+
+	cmd:PipelineBarrier(
+		{
+			srcStage = "fragment",
+			dstStage = "all_commands",
+			imageBarriers = {
+				{
+					image = self.offscreen_image,
+					srcAccessMask = "shader_read",
+					dstAccessMask = "color_attachment_write",
+					oldLayout = "shader_read_only_optimal",
+					newLayout = "color_attachment_optimal",
+				},
+			},
+		}
+	)
+end
+
+function WindowRenderTarget:ReadMode(cmd)
+	if not self.config.offscreen then
+		return -- Only applicable in offscreen mode
+	end
+
+	cmd:PipelineBarrier(
+		{
+			srcStage = "all_commands",
+			dstStage = "fragment",
+			imageBarriers = {
+				{
+					image = self.offscreen_image,
+					srcAccessMask = "color_attachment_write",
+					dstAccessMask = "shader_read",
+					oldLayout = "color_attachment_optimal",
+					newLayout = "shader_read_only_optimal",
+				},
+			},
+		}
+	)
 end
 
 return WindowRenderTarget
