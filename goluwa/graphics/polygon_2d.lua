@@ -47,31 +47,31 @@ local function set_uv(self, i, x, y, w, h, sx, sy)
 	local vtx = self.vertex_buffer:GetVertices()
 
 	if not x then
-		vtx[i + 1].uv.x = 0
-		vtx[i + 1].uv.y = 1
-		vtx[i + 0].uv.x = 0
-		vtx[i + 0].uv.y = 0
-		vtx[i + 2].uv.x = 1
-		vtx[i + 2].uv.y = 0
+		vtx[i + 1].uv[0] = 0
+		vtx[i + 1].uv[1] = 1
+		vtx[i + 0].uv[0] = 0
+		vtx[i + 0].uv[1] = 0
+		vtx[i + 2].uv[0] = 1
+		vtx[i + 2].uv[1] = 0
 		--
 		vtx[i + 4].uv = vtx[i + 2].uv
-		vtx[i + 3].uv.x = 1
-		vtx[i + 3].uv.x = 1
+		vtx[i + 3].uv[0] = 1
+		vtx[i + 3].uv[1] = 1
 		vtx[i + 5].uv = vtx[i + 0].uv
 	else
 		sx = sx or 1
 		sy = sy or 1
 		y = -y - h
-		vtx[i + 1].uv.x = x / sx
-		vtx[i + 1].uv.x = (y + h) / sy
-		vtx[i + 0].uv.x = x / sx
-		vtx[i + 0].uv.x = y / sy
-		vtx[i + 2].uv.x = (x + w) / sx
-		vtx[i + 2].uv.x = y / sy
+		vtx[i + 1].uv[0] = x / sx
+		vtx[i + 1].uv[1] = (y + h) / sy
+		vtx[i + 0].uv[0] = x / sx
+		vtx[i + 0].uv[1] = y / sy
+		vtx[i + 2].uv[0] = (x + w) / sx
+		vtx[i + 2].uv[1] = y / sy
 		--
 		vtx[i + 4].uv = vtx[i + 2].uv
-		vtx[i + 3].uv.x = (x + w) / sx
-		vtx[i + 3].uv.x = (y + h) / sy
+		vtx[i + 3].uv[0] = (x + w) / sx
+		vtx[i + 3].uv[1] = (y + h) / sy
 		vtx[i + 5].uv = vtx[i + 1].uv
 	end
 end
@@ -95,16 +95,16 @@ function Polygon2D:SetVertex(i, x, y, u, v)
 	end
 
 	local vtx = self.vertex_buffer:GetVertices()
-	vtx[i].pos.x = x
-	vtx[i].pos.y = y
-	vtx[i].color.r = self.R
-	vtx[i].color.g = self.G
-	vtx[i].color.b = self.B
-	vtx[i].color.a = self.A
+	vtx[i].pos[0] = x
+	vtx[i].pos[1] = y
+	vtx[i].color[0] = self.R
+	vtx[i].color[1] = self.G
+	vtx[i].color[2] = self.B
+	vtx[i].color[3] = self.A
 
 	if u and v then
-		vtx[i].uv.x = u
-		vtx[i].uv.y = v
+		vtx[i].uv[0] = u
+		vtx[i].uv[1] = v
 	end
 
 	self.dirty = true
@@ -150,8 +150,20 @@ function Polygon2D:Draw(count)
 		self.dirty = false
 	end
 
+	if self.WorldMatrixMultiply then
+		-- Vertices are already transformed, use identity matrix
+		render2d.PushMatrix(nil, nil, nil, nil, nil, true)
+		render2d.LoadIdentity()
+	end
+
 	render2d.UploadConstants(render2d.cmd)
-	self.vertex_buffer:Draw(self.index_buffer, count)
+	self.vertex_buffer:Bind(render2d.cmd, 0)
+	render2d.cmd:BindIndexBuffer(self.index_buffer:GetBuffer(), 0, self.index_buffer:GetIndexType())
+	render2d.cmd:DrawIndexed(count or self.vertex_count, 1, 0, 0, 0)
+
+	if self.WorldMatrixMultiply then
+		render2d.PopMatrix()
+	end
 end
 
 function Polygon2D:SetNinePatch(
