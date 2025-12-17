@@ -21,14 +21,14 @@ return function(steam)
 	function steam.LoadVMT(path, on_property, on_error, on_shader)
 		on_error = on_error or logn
 
-		resource.Download(path, nil, true):Then(function(path)
-			if path:ends_with(".vtf") then
-				on_property("basetexture", path, path, {})
+		resource.Download(path, nil, true):Then(function(resolved_path)
+			if resolved_path:ends_with(".vtf") then
+				on_property("basetexture", resolved_path, resolved_path, {})
 				-- default normal map?
 				return
 			end
 
-			local vmt, err = steam.VDFToTable(vfs.Read(path), function(key)
+			local vmt, err = steam.VDFToTable(vfs.Read(resolved_path), function(key)
 				return (key:lower():gsub("%$", ""))
 			end)
 
@@ -116,8 +116,8 @@ return function(steam)
 
 						if not new_path:ends_with(".vtf") then new_path = new_path .. ".vtf" end
 
-						local cb = resource.Download(new_path, nil, true):Then(function(path)
-							on_property(k, path, fullpath, vmt)
+						local cb = resource.Download(new_path, nil, true):Then(function(texture_path)
+							on_property(k, texture_path, fullpath, vmt)
 						end)
 
 						if on_error then

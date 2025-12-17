@@ -603,7 +603,11 @@ function steam.LoadMap(path)
 
 			uv_scale = uv_scale or 1
 			local vertex = {
-				pos = -Vec3(pos.y, pos.x, pos.z) * steam.source2meters, -- copy
+				-- Convert from Source Z-up to engine Y-up
+				-- Source: X=forward, Y=left, Z=up
+				-- Engine: X=right, Y=up, Z=forward
+				-- Transformation: engine(x, y, z) = source(-y, z, x) * scale
+				pos = Vec3(-pos.y * steam.source2meters, pos.z * steam.source2meters, pos.x * steam.source2meters),
 				texture_blend = blend,
 				uv = Vec2(
 					uv_scale * (a[1] * pos.x + a[2] * pos.y + a[3] * pos.z + a[4]) / texdata.width,
@@ -671,9 +675,10 @@ function steam.LoadMap(path)
 
 							if j >= 3 then
 								if header.vertices[first] and header.vertices[current] and header.vertices[previous] then
-									add_vertex(mesh, texinfo, texdata, header.vertices[current])
-									add_vertex(mesh, texinfo, texdata, header.vertices[first])
+									-- Reverse winding order for Vulkan (compared to OpenGL)
 									add_vertex(mesh, texinfo, texdata, header.vertices[previous])
+									add_vertex(mesh, texinfo, texdata, header.vertices[first])
+									add_vertex(mesh, texinfo, texdata, header.vertices[current])
 								end
 							elseif j == 1 then
 								first = current
@@ -707,15 +712,8 @@ function steam.LoadMap(path)
 
 						for x = 1, dims - 1 do
 							for y = 1, dims - 1 do
-								add_vertex(
-									mesh,
-									texinfo,
-									texdata,
-									lerp_corners(dims, corners, start_corner, info, x + 1, y + 1)
-								)
-								add_vertex(mesh, texinfo, texdata, lerp_corners(dims, corners, start_corner, info, x, y))
+								-- Triangle 1 - reversed winding order for Vulkan
 								add_vertex(mesh, texinfo, texdata, lerp_corners(dims, corners, start_corner, info, x, y + 1))
-								add_vertex(mesh, texinfo, texdata, lerp_corners(dims, corners, start_corner, info, x + 1, y))
 								add_vertex(mesh, texinfo, texdata, lerp_corners(dims, corners, start_corner, info, x, y))
 								add_vertex(
 									mesh,
@@ -723,6 +721,15 @@ function steam.LoadMap(path)
 									texdata,
 									lerp_corners(dims, corners, start_corner, info, x + 1, y + 1)
 								)
+								-- Triangle 2 - reversed winding order for Vulkan
+								add_vertex(
+									mesh,
+									texinfo,
+									texdata,
+									lerp_corners(dims, corners, start_corner, info, x + 1, y + 1)
+								)
+								add_vertex(mesh, texinfo, texdata, lerp_corners(dims, corners, start_corner, info, x, y))
+								add_vertex(mesh, texinfo, texdata, lerp_corners(dims, corners, start_corner, info, x + 1, y))
 							end
 						end
 
@@ -742,11 +749,16 @@ function steam.LoadMap(path)
 	end
 
 	if GRAPHICS then
-		for _, mesh in ipairs(models) do
+		for i, mesh in ipairs(models) do
 			mesh:AddSubMesh(mesh:GetVertices(), mesh.material)
 			mesh:BuildNormals()
 			mesh:BuildTangents()
 			tasks.ReportProgress("generating normals", #models)
+			tasks.Wait()
+		end
+		
+		for i, mesh in ipairs(models) do
+			mesh:BuildBoundingBox()
 			tasks.Wait()
 		end
 
@@ -758,7 +770,6 @@ function steam.LoadMap(path)
 		end
 
 		for _, mesh in ipairs(models) do
-			mesh:BuildBoundingBox()
 			mesh:Upload()
 			tasks.ReportProgress("creating meshes", #models)
 			tasks.Wait()
@@ -826,7 +837,11 @@ function steam.LoadMap(path)
 	local render_meshes = {}
 
 	for _, v in ipairs(models) do
-		if v.vertex_buffer then list.insert(render_meshes, v) end
+		if v.mesh and v.mesh.vertex_buffer then 
+			list.insert(render_meshes, v) 
+		elseif v.vertex_buffer then 
+			list.insert(render_meshes, v) 
+		end
 	end
 
 	steam.loaded_bsp[path] = {
@@ -865,7 +880,6 @@ function steam.SpawnMapEntities(path, parent)
 				ent:SetSize(0.25)
 				ent:SetRoughnessMultiplier(0)
 				ent:SetPosition(v.origin * steam.source2meters)
-				print(v.origin * steam.source2meters)
 			end
 		end
 
@@ -947,8 +961,8 @@ function steam.SpawnMapEntities(path, parent)
 end
 
 model_loader.AddModelDecoder("bsp", function(path, full_path, mesh_callback)
-	for _, mesh in ipairs(steam.LoadMap(full_path).render_meshes) do
-		mesh_callback(mesh)
+	for _, poly3d in ipairs(steam.LoadMap(full_path).render_meshes) do
+		mesh_callback(poly3d)
 	end
 end)
 

@@ -80,7 +80,6 @@ function META:SetModelPath(path)
 			self:BuildAABB()
 		end,
 		function(model)
-			print("?!??!!??!")
 			self:AddPrimitive(model)
 		end,
 		function(err)
@@ -112,13 +111,23 @@ function META:OnRemove()
 	self.Primitives = {}
 end
 
--- Add a primitive to this model
--- primitive.aabb should contain the local-space AABB
-function META:AddPrimitive(primitive)
+-- Add a Polygon3D to this model
+function META:AddPrimitive(obj)
+	-- Check if it's a Polygon3D object (has .mesh property)
+	if not (obj.mesh and obj.mesh.vertex_buffer) then
+		error("AddPrimitive requires a Polygon3D object with .mesh.vertex_buffer, got: " .. tostring(obj))
+	end
+	
+	-- Store the Polygon3D
+	local primitive = {
+		polygon3d = obj,
+		material = obj.material,
+		aabb = obj.AABB,
+	}
 	table.insert(self.Primitives, primitive)
-
-	-- Expand model AABB to include this primitive's AABB
-	if primitive.aabb then self.AABB:Expand(primitive.aabb) end
+	if obj.AABB then 
+		self.AABB:Expand(obj.AABB)
+	end
 end
 
 -- Build/rebuild the combined AABB from all primitives
@@ -219,7 +228,7 @@ function META:OnDraw3D(cmd, dt)
 
 	local world_matrix = self:GetWorldMatrix()
 
-	for _, prim in ipairs(self.Primitives) do
+	for i, prim in ipairs(self.Primitives) do
 		-- If primitive has its own local matrix, combine with world matrix
 		local final_matrix = world_matrix
 
@@ -231,14 +240,9 @@ function META:OnDraw3D(cmd, dt)
 		render3d.SetWorldMatrix(final_matrix)
 		render3d.SetMaterial(prim.material or Material.GetDefault())
 		render3d.UploadConstants(cmd)
-		cmd:BindVertexBuffer(prim.vertex_buffer, 0)
-
-		if prim.index_buffer then
-			cmd:BindIndexBuffer(prim.index_buffer, 0, prim.index_type)
-			cmd:DrawIndexed(prim.index_count)
-		else
-			cmd:Draw(prim.vertex_count)
-		end
+		
+		-- Draw using Polygon3D's Draw method
+		prim.polygon3d:Draw(cmd)
 	end
 
 	-- End occlusion culling
@@ -276,14 +280,9 @@ function META:DrawOcclusionQuery(cmd)
 			render3d.SetWorldMatrix(final_matrix)
 			render3d.SetMaterial(prim.material or Material.GetDefault())
 			render3d.UploadConstants(cmd)
-			cmd:BindVertexBuffer(prim.vertex_buffer, 0)
-
-			if prim.index_buffer then
-				cmd:BindIndexBuffer(prim.index_buffer, 0, prim.index_type)
-				cmd:DrawIndexed(prim.index_count)
-			else
-				cmd:Draw(prim.vertex_count)
-			end
+			
+			-- Draw using Polygon3D's Draw method
+			prim.polygon3d:Draw(cmd)
 		end
 	end
 
@@ -310,14 +309,9 @@ function META:DrawShadow(shadow_cmd, shadow_map, cascade_idx)
 		end
 
 		shadow_map:UploadConstants(final_matrix, cascade_idx)
-		shadow_cmd:BindVertexBuffer(prim.vertex_buffer, 0)
-
-		if prim.index_buffer then
-			shadow_cmd:BindIndexBuffer(prim.index_buffer, 0, prim.index_type)
-			shadow_cmd:DrawIndexed(prim.index_count)
-		else
-			shadow_cmd:Draw(prim.vertex_count)
-		end
+		
+		-- Draw using Polygon3D's Draw method
+		prim.polygon3d:Draw(shadow_cmd)
 	end
 end
 
