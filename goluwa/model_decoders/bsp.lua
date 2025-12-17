@@ -7,6 +7,7 @@ local model_loader = require("model_loader")
 local Polygon3D = require("graphics.polygon_3d")
 local Ang3 = require("structs.ang3")
 local AABB = require("structs.aabb")
+local Quat = require("structs.quat")
 local Material = require("graphics.material")
 local Vec3 = require("structs.vec3")
 local Vec2 = require("structs.vec2")
@@ -70,12 +71,21 @@ function steam.SetMap(name)
 	steam.bsp_world.model:SetModelPath(path)
 	-- Note: SetPhysicsModelPath removed - physics component not yet ported
 	steam.bsp_world:RemoveChildren()
+	-- Store the relative path for later lookup
+	steam.bsp_world.bsp_relative_path = path
 
 	-- hack because promises will force SetModelPath to run one frame later
 	timer.Delay(0.1, function()
 		tasks.WaitForTask(path, function()
 			utility.PushTimeWarning()
-			steam.SpawnMapEntities(path, steam.bsp_world)
+
+			-- The resolved path will be available after the model is loaded
+			if steam.bsp_world.bsp_resolved_path then
+				steam.SpawnMapEntities(steam.bsp_world.bsp_resolved_path, steam.bsp_world)
+			else
+				wlog("BSP model loaded but no resolved path available")
+			end
+
 			utility.PopTimeWarning("spawning map entities")
 		end)
 	end)
@@ -83,7 +93,11 @@ end
 
 do
 	local function init()
-		error("NYI")
+		do
+			return
+		end
+
+		--print("NYI")
 		local tex = Texture.New("cube_map")
 		tex:SetMinFilter("linear")
 		tex:SetMagFilter("linear")
@@ -94,6 +108,10 @@ do
 	end
 
 	function steam.LoadSkyTexture(name)
+		do
+			return
+		end
+
 		if not name or name == "painted" then name = "sky_wasteland02" end
 
 		steam.sky_tex = init()
@@ -102,6 +120,10 @@ do
 	end
 
 	function steam.GetSkyTexture()
+		do
+			return nil
+		end
+
 		if not steam.sky_tex then
 			steam.sky_tex = init()
 			steam.LoadSkyTexture()
@@ -139,6 +161,13 @@ end
 
 function steam.LoadMap(path)
 	path = assert(R(path) or nil)
+
+	-- Check if already loaded
+	if steam.loaded_bsp[path] then
+		logn("map already loaded: ", path)
+		return steam.loaded_bsp[path]
+	end
+
 	logn("loading map: ", path)
 	steam.debug = true
 	local bsp_file = assert(vfs.Open(path))
@@ -857,18 +886,24 @@ function steam.LoadMap(path)
 		entities = header.entities,
 		physics_meshes = physics_meshes,
 		cubemaps = header.cubemaps,
+		path = path, -- Store the absolute path
 	}
 	tasks.ReportProgress("finished reading " .. path)
 	return steam.loaded_bsp[path]
 end
 
 function steam.SpawnMapEntities(path, parent)
-	local original_path = path
-	path = R(path)
+	-- path should already be absolute
 	local data = steam.loaded_bsp[path]
 
 	if not data then
-		wlog("cannot spawn map entities because %s is not loaded", path or original_path)
+		logf("cannot spawn map entities because %s is not loaded\n", path)
+		logf("available loaded BSPs:\n")
+
+		for k, v in pairs(steam.loaded_bsp) do
+			logf("  %s\n", tostring(k))
+		end
+
 		return
 	end
 
@@ -958,11 +993,14 @@ function steam.SpawnMapEntities(path, parent)
 					parent[info.classname .. "_group"] = parent[info.classname .. "_group"] or ecs.CreateEntity(info.classname, parent)
 					parent[info.classname .. "_group"]:SetName(info.classname)
 					local ent = ecs.CreateEntity("prop", parent[info.classname .. "_group"])
+					-- Convert Ang3 to Quat properly
+					local rotation = Quat():SetAngles(info.angles)
+					local position = Vec3(info.origin.y, info.origin.z, info.origin.x) * steam.source2meters * 0.01
 					ent:AddComponent(
 						"transform",
 						{
-							position = info.origin * steam.source2meters,
-							rotation = info.angles:GetQuat(),
+							position = position,
+							rotation = rotation,
 						}
 					)
 
@@ -972,11 +1010,21 @@ function steam.SpawnMapEntities(path, parent)
 
 					ent:AddComponent("model")
 					ent.model:SetModelPath(info.model)
+					logf(
+						"Spawning prop: %s at %s with model %s\n",
+						info.classname,
+						tostring(position),
+						info.model
+					)
 					-- Note: Color support removed - material system different in new engine
 					-- if info.rendercolor and not info.rendercolor:IsZero() then
 					-- 	ent:SetColor(info.rendercolor)
 					-- end
 					ent.spawned_from_bsp = true
+				else
+					wlog(
+						"cannot spawn entity of class " .. tostring(info.classname) .. " because model file " .. tostring(info.model) .. " does not exist"
+					)
 				end
 			end
 
@@ -989,7 +1037,20 @@ function steam.SpawnMapEntities(path, parent)
 end
 
 model_loader.AddModelDecoder("bsp", function(path, full_path, mesh_callback)
-	for _, poly3d in ipairs(steam.LoadMap(full_path).render_meshes) do
+	local ok, result = pcall(steam.LoadMap, full_path)
+
+	if not ok then error("Failed to load BSP map: " .. tostring(result)) end
+
+	if not result or not result.render_meshes then
+		error("BSP LoadMap returned invalid data")
+	end
+
+	-- Store the resolved path on the world entity for later use
+	if steam.bsp_world and steam.bsp_world:IsValid() then
+		steam.bsp_world.bsp_resolved_path = full_path
+	end
+
+	for _, poly3d in ipairs(result.render_meshes) do
 		mesh_callback(poly3d)
 	end
 end)

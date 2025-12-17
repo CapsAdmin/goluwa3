@@ -52,7 +52,9 @@ return function(steam)
 
 				return lst
 			end,
-			callback = function(lst)
+			callback = function(lst) 
+				-- TODO
+				do return end
 				for appid, v in pairs(steam.GetMountedSourceGames()) do
 					steam.UnmountSourceGame(appid)
 				end

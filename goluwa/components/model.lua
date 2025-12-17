@@ -80,6 +80,7 @@ function META:SetModelPath(path)
 			self:BuildAABB()
 		end,
 		function(model)
+			print("Model loaded: ", path)
 			self:AddPrimitive(model)
 		end,
 		function(err)
@@ -115,9 +116,11 @@ end
 function META:AddPrimitive(obj)
 	-- Check if it's a Polygon3D object (has .mesh property)
 	if not (obj.mesh and obj.mesh.vertex_buffer) then
-		error("AddPrimitive requires a Polygon3D object with .mesh.vertex_buffer, got: " .. tostring(obj))
+		error(
+			"AddPrimitive requires a Polygon3D object with .mesh.vertex_buffer, got: " .. tostring(obj)
+		)
 	end
-	
+
 	-- Store the Polygon3D
 	local primitive = {
 		polygon3d = obj,
@@ -125,9 +128,8 @@ function META:AddPrimitive(obj)
 		aabb = obj.AABB,
 	}
 	table.insert(self.Primitives, primitive)
-	if obj.AABB then 
-		self.AABB:Expand(obj.AABB)
-	end
+
+	if obj.AABB then self.AABB:Expand(obj.AABB) end
 end
 
 -- Build/rebuild the combined AABB from all primitives
@@ -240,7 +242,6 @@ function META:OnDraw3D(cmd, dt)
 		render3d.SetWorldMatrix(final_matrix)
 		render3d.SetMaterial(prim.material or Material.GetDefault())
 		render3d.UploadConstants(cmd)
-		
 		-- Draw using Polygon3D's Draw method
 		prim.polygon3d:Draw(cmd)
 	end
@@ -280,7 +281,6 @@ function META:DrawOcclusionQuery(cmd)
 			render3d.SetWorldMatrix(final_matrix)
 			render3d.SetMaterial(prim.material or Material.GetDefault())
 			render3d.UploadConstants(cmd)
-			
 			-- Draw using Polygon3D's Draw method
 			prim.polygon3d:Draw(cmd)
 		end
@@ -309,7 +309,6 @@ function META:DrawShadow(shadow_cmd, shadow_map, cascade_idx)
 		end
 
 		shadow_map:UploadConstants(final_matrix, cascade_idx)
-		
 		-- Draw using Polygon3D's Draw method
 		prim.polygon3d:Draw(shadow_cmd)
 	end
