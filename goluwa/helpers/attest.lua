@@ -1,8 +1,7 @@
 local diff = require("helpers.diff")
 local attest = {}
-local LEVEL = 3
 
-function attest.equal(a, b)
+function attest.equal(a, b, LEVEL)
 	if a ~= b then
 		if type(a) == "string" then a = string.format("%q", a) end
 
@@ -14,7 +13,7 @@ function attest.equal(a, b)
 	return true
 end
 
-function attest.not_equal(a, b)
+function attest.not_equal(a, b, LEVEL)
 	if a == b then
 		if type(a) == "string" then a = string.format("%q", a) end
 
@@ -26,7 +25,7 @@ function attest.not_equal(a, b)
 	return true
 end
 
-function attest.almost_equal(a, b, epsilon)
+function attest.almost_equal(a, b, epsilon, LEVEL)
 	epsilon = epsilon or 0.0001
 
 	if type(a) ~= "number" or type(b) ~= "number" then
@@ -52,7 +51,7 @@ end
 -- Alias for AlmostEqual
 attest.close = attest.almost_equal
 
-function attest.in_range(value, min, max)
+function attest.in_range(value, min, max, LEVEL)
 	if value < min or value > max then
 		error(
 			string.format("\n%s not in range [%s, %s]", tostring(value), tostring(min), tostring(max)),
@@ -63,7 +62,7 @@ function attest.in_range(value, min, max)
 	return true
 end
 
-function attest.greater(a, b)
+function attest.greater(a, b, LEVEL)
 	if not (a > b) then
 		error(string.format("\n%s not > %s", tostring(a), tostring(b)), LEVEL)
 	end
@@ -71,7 +70,7 @@ function attest.greater(a, b)
 	return true
 end
 
-function attest.greater_or_equal(a, b)
+function attest.greater_or_equal(a, b, LEVEL)
 	if not (a >= b) then
 		error(string.format("\n%s not >= %s", tostring(a), tostring(b)), LEVEL)
 	end
@@ -79,7 +78,7 @@ function attest.greater_or_equal(a, b)
 	return true
 end
 
-function attest.less(a, b)
+function attest.less(a, b, LEVEL)
 	if not (a < b) then
 		error(string.format("\n%s not < %s", tostring(a), tostring(b)), LEVEL)
 	end
@@ -87,7 +86,7 @@ function attest.less(a, b)
 	return true
 end
 
-function attest.less_or_equal(a, b)
+function attest.less_or_equal(a, b, LEVEL)
 	if not (a <= b) then
 		error(string.format("\n%s not <= %s", tostring(a), tostring(b)), LEVEL)
 	end
@@ -95,7 +94,7 @@ function attest.less_or_equal(a, b)
 	return true
 end
 
-function attest.match(str, pattern)
+function attest.match(str, pattern, LEVEL)
 	if type(str) ~= "string" then
 		error("Match requires a string, got " .. type(str), LEVEL)
 	end
@@ -107,7 +106,7 @@ function attest.match(str, pattern)
 	return true
 end
 
-function attest.contains(str, substr)
+function attest.contains(str, substr, LEVEL)
 	if type(str) ~= "string" then
 		error("Contains requires a string, got " .. type(str), LEVEL)
 	end
@@ -119,19 +118,19 @@ function attest.contains(str, substr)
 	return true
 end
 
-function attest.truthy(value)
+function attest.truthy(value, LEVEL)
 	if not value then error("\nvalue is not truthy: " .. tostring(value), LEVEL) end
 
 	return true
 end
 
-function attest.falsy(value)
+function attest.falsy(value, LEVEL)
 	if value then error("\nvalue is not falsy: " .. tostring(value), LEVEL) end
 
 	return true
 end
 
-function attest.fails(func, expected_pattern)
+function attest.fails(func, expected_pattern, LEVEL)
 	if type(func) ~= "function" then
 		error("Fails requires a function, got " .. type(func), LEVEL)
 	end
@@ -157,7 +156,7 @@ function attest.diff(input, expect)
 	print(diff.diff(input, expect))
 end
 
-function attest.ok(b)
+function attest.ok(b, LEVEL)
 	if not b then error("not ok!", LEVEL) end
 end
 
@@ -167,26 +166,28 @@ function attest.AssertHelper(val)
 		{
 			__index = function(_, op)
 				return function(expected)
+					local LEVEL = 4
+
 					if op == "==" then
-						attest.equal(val, expected)
+						attest.equal(val, expected, LEVEL)
 					elseif op == "~=" then
-						attest.not_equal(val, expected)
+						attest.not_equal(val, expected, LEVEL)
 					elseif op == ">" then
-						attest.greater(val, expected)
+						attest.greater(val, expected, LEVEL)
 					elseif op == ">=" then
-						attest.greater_or_equal(val, expected)
+						attest.greater_or_equal(val, expected, LEVEL)
 					elseif op == "<" then
-						attest.less(val, expected)
+						attest.less(val, expected, LEVEL)
 					elseif op == "<=" then
-						attest.less_or_equal(val, expected)
+						attest.less_or_equal(val, expected, LEVEL)
 					elseif op == "~" or op == "close" then
-						attest.almost_equal(val, expected)
+						attest.almost_equal(val, expected, LEVEL)
 					elseif op == "match" then
-						attest.match(val, expected)
+						attest.match(val, expected, LEVEL)
 					elseif op == "contains" then
-						attest.contains(val, expected)
+						attest.contains(val, expected, LEVEL)
 					else
-						error("Unknown operator: " .. tostring(op), LEVEL)
+						error("Unknown operator: " .. tostring(op), LEVEL - 1)
 					end
 				end
 			end,

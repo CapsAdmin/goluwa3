@@ -34,19 +34,30 @@ local IS_TERMINAL = true -- or system.IsTTY()
 local completed_test_count = 0
 local shown_running_line = false
 
-local function traceback(msg)
+local function traceback(msg, co_lines)
 	local sep = "\n  "
-	local lines = callstack.format(callstack.traceback(""))
-	-- Find the last instance of environment.lua or test.lua
+	local lines
+
+	if co_lines then
+		lines = co_lines
+		lines = lines:replace("stack traceback:"):split("\n")
+
+		for i, line in ipairs(lines) do
+			lines[i] = line:trim()
+		end
+
+		table.remove(lines, 1)
+	else
+		lines = callstack.format(callstack.traceback(""))
+	end
+
+	-- Find the last instance of atttest.lua
 	local last_env_index = nil
 
 	for i = 1, #lines do
-		if lines[i]:find("environment%.lua") or lines[i]:find("test%.lua") then
-			last_env_index = i
-		end
+		if lines[i]:find("attest.lua", 1, true) then last_env_index = i end
 	end
 
-	-- Remove everything up to and including the last environment.lua/test.lua
 	if last_env_index then
 		for _ = 1, last_env_index do
 			table.remove(lines, 1)
@@ -56,7 +67,8 @@ local function traceback(msg)
 	for i = #lines, 1, -1 do
 		local line = lines[i]
 
-		if line:starts_with("@0x") or line:starts_with("test/run.lua") then
+		if not line:find(".lua", 1, true) then
+			-- remove non actionable lines
 			table.remove(lines, i)
 		end
 	end
@@ -186,7 +198,7 @@ do
 
 						else
 							-- Error in test - format it nicely
-							local err_msg = traceback(result)
+							local err_msg = traceback(result, debug.traceback(co))
 							error(string.format("Test '%s' error:\n%s", test_info.name, err_msg), 0)
 						end
 					end

@@ -3,7 +3,7 @@ return function(vfs)
 	local USERNAME = _G.USERNAME or
 		tostring(os.getenv("USERNAME") or os.getenv("USER")):gsub(" ", "_"):gsub("%p", "")
 
-	local function get_root()
+	local function working_directory()
 		local dir = "./"
 		local ffi = require("ffi")
 
@@ -30,14 +30,20 @@ return function(vfs)
 			end
 		end
 
-		return dir .. "game/"
+		return dir
+	end
+
+	local function get_root()
+		return working_directory() .. "game/"
 	end
 
 	local function get(what)
 		local root = get_root()
 		local storage = root .. "storage/"
 
-		if what == "root" then
+		if what == "working_directory" then
+			return working_directory()
+		elseif what == "root" then
 			return root
 		elseif what == "storage" then
 			return storage
