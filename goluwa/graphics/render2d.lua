@@ -95,6 +95,8 @@ render2d.blend_modes = {
 }
 
 function render2d.Initialize()
+	if render2d.pipeline then return end
+
 	local dynamic_states = {"viewport", "scissor", "blend_constants"}
 
 	if render.GetDevice().has_extended_dynamic_state3 then
@@ -280,7 +282,6 @@ do
 			stencil_test = false,
 		},
 	}
-	render2d.pipeline = render2d.pipeline or NULL
 
 	do
 		function render2d.SetColor(r, g, b, a)
@@ -638,6 +639,7 @@ function render2d.BindPipeline()
 end
 
 function events.PostDraw.draw_2d(cmd, dt)
+	if not render2d.pipeline then return end -- not 2d initialized
 	render2d.BindPipeline()
 	event.Call("Draw2D", dt)
 end

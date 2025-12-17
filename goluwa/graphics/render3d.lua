@@ -51,6 +51,7 @@ render3d.current_material = nil
 render3d.light_direction = {0.5, -1.0, 0.3}
 render3d.light_color = {1.0, 1.0, 1.0, 2.0} -- RGB + intensity
 function render3d.Initialize()
+	if render3d.pipeline then return end
 	-- Create shadow UBO buffer
 	local shadow_ubo_data = ShadowUBO()
 
@@ -447,9 +448,15 @@ function render3d.Initialize()
 		}
 	)
 
-	function events.Draw.draw_3d(cmd, dt)
+	function render3d.BindPipeline()
+		local cmd = render.GetCommandBuffer()
 		local frame_index = render.GetCurrentFrame()
 		render3d.pipeline:Bind(cmd, frame_index)
+	end
+
+	function events.Draw.draw_3d(cmd, dt)
+		if not render3d.pipeline then return end
+		render3d.BindPipeline()
 		event.Call("PreDraw3D", cmd, dt)
 		event.Call("Draw3D", cmd, dt)
 	end

@@ -13,6 +13,9 @@ local Vec2 = require("structs.vec2")
 local vulkan_instance
 
 function render.Initialize(config)
+
+	if render.target then return end
+
 	config = config or {}
 	local is_headless = config.headless
 

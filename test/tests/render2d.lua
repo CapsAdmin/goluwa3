@@ -20,18 +20,13 @@ local initialized = false
 
 -- Helper function to initialize render2d
 local function init_render2d()
-	if not initialized then
-		render.Initialize({headless = true, width = width, height = height})
-		render2d.Initialize()
-		initialized = true
-	else
-		render.GetDevice():WaitIdle()
-	end
+	render.Initialize({headless = true, width = width, height = height})
+	render2d.Initialize()
 end
 
 -- Helper function to draw with render2d
 local function draw2d(cb)
-	init_render2d()
+	render2d.Initialize()
 	render.BeginFrame()
 	render2d.BindPipeline()
 	cb()
