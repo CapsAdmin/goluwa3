@@ -108,14 +108,7 @@ function render2d.Initialize()
 	render2d.SetColor(1, 1, 1, 1)
 	render2d.SetAlphaMultiplier(1)
 	render2d.SetUV()
-
-	-- In headless mode, window might not exist, so set a default size
-	if window and window.GetSize then
-		render2d.UpdateScreenSize(window:GetSize())
-	else
-		render2d.UpdateScreenSize({w = 800, h = 600}) -- Default for headless
-	end
-
+	render2d.UpdateScreenSize(render.GetRenderImageSize())
 	render2d.current_blend_mode = "alpha"
 	render2d.rect_mesh = render2d.CreateMesh(
 		{
@@ -414,13 +407,13 @@ do -- mesh
 		return Mesh.New(render2d.pipeline:GetVertexAttributes(), vertices, indices)
 	end
 
-	local last_bound_mesh = nil
+	render2d.last_bound_mesh = nil
 	local last_cmd = nil
 
 	function render2d.BindMesh(mesh)
-		if last_cmd ~= render2d.cmd or last_bound_mesh ~= mesh then
+		if last_cmd ~= render2d.cmd or render2d.last_bound_mesh ~= mesh then
 			mesh:Bind(render2d.cmd, 0)
-			last_bound_mesh = mesh
+			render2d.last_bound_mesh = mesh
 			last_cmd = render2d.cmd
 		end
 	end
@@ -636,15 +629,16 @@ do
 	end
 end
 
-function events.PostDraw.draw_2d(cmd, dt)
-	local frame_index = 1 -- Default to 1 for headless mode
-	if render.target and render.target.GetCurrentFrame then
-		frame_index = render.target:GetCurrentFrame()
-	end
+function render2d.BindPipeline()
+	render2d.cmd = render.GetCommandBuffer()
+	render2d.pipeline:Bind(render2d.cmd, render.GetCurrentFrame())
+	render2d.SetBlendMode(render2d.current_blend_mode, true)
+	-- Reset mesh binding cache since command buffer state was reset
+	render2d.last_bound_mesh = nil
+end
 
-	render2d.cmd = cmd
-	render2d.pipeline:Bind(cmd, frame_index)
-	render2d.SetBlendMode(render2d.current_blend_mode, true) -- force=true to set dynamic state
+function events.PostDraw.draw_2d(cmd, dt)
+	render2d.BindPipeline()
 	event.Call("Draw2D", dt)
 end
 

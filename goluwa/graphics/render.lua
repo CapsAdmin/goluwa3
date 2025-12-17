@@ -9,6 +9,7 @@ local event = require("event")
 local system = require("system")
 local Image = require("graphics.vulkan.internal.image")
 local Sampler = require("graphics.vulkan.internal.sampler")
+local Vec2 = require("structs.vec2")
 local vulkan_instance
 
 function render.Initialize(config)
@@ -59,15 +60,31 @@ function render.Initialize(config)
 	function events.Update.window_update(dt)
 		-- Shadow passes run before main frame (before swapchain acquire)
 		event.Call("PreFrame", dt)
-		local cmd = render.target:BeginFrame()
-		event.Call("Draw", cmd, dt)
-		event.Call("PostDraw", cmd, dt)
-		render.target:EndFrame()
+		render.BeginFrame()
+		event.Call("Draw", render.GetCommandBuffer(), dt)
+		event.Call("PostDraw", render.GetCommandBuffer(), dt)
+		render.EndFrame()
 	end
 
 	function events.ShutDown.window_shutdown()
 		vulkan_instance.device:WaitIdle()
 	end
+end
+
+function render.BeginFrame()
+	render.cmd = render.target:BeginFrame()
+end
+
+function render.GetCommandBuffer()
+	return render.cmd
+end
+
+function render.EndFrame()
+	render.target:EndFrame()
+end
+
+function render.GetRenderImageSize()
+	return Vec2(render.target.config.width, render.target.config.height)
 end
 
 function render.CreateBuffer(config)

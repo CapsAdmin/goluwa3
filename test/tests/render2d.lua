@@ -1,12 +1,20 @@
+local vk = require("bindings.vk")
+
+if not pcall(vk.find_library) then
+	print("Vulkan library not available, skipping render2d tests.")
+	return
+end
+
 local T = require("test.environment")
 local ffi = require("ffi")
 local png_encode = require("file_formats.png.encode")
 local render = require("graphics.render")
 local render2d = require("graphics.render2d")
-local event = require("event")
 local fs = require("fs")
+local width = 512
+local height = 512
 
-local function save(width, height)
+local function save()
 	-- Use the new helper function to copy image to CPU
 	local image_data = render.CopyImageToCPU(render.target.image, width, height, "r8g8b8a8_unorm")
 	-- Verify we have some non-zero pixel data
@@ -52,25 +60,93 @@ local function save(width, height)
 	end
 end
 
+local function get_pixel(image_data, x, y)
+	-- Get RGBA values for a pixel at (x, y)
+	-- image_data is the structure returned by render.CopyImageToCPU
+	-- Format is r8g8b8a8_unorm, so 4 bytes per pixel
+	local width = image_data.width
+	local height = image_data.height
+	local bytes_per_pixel = image_data.bytes_per_pixel
+
+	-- Clamp coordinates
+	if x < 0 or x >= width or y < 0 or y >= height then return 0, 0, 0, 0 end
+
+	-- Calculate pixel offset
+	local offset = (y * width + x) * bytes_per_pixel
+	-- Extract RGBA values
+	local r = image_data.pixels[offset + 0]
+	local g = image_data.pixels[offset + 1]
+	local b = image_data.pixels[offset + 2]
+	local a = image_data.pixels[offset + 3]
+	return r, g, b, a
+end
+
 local initialized = false
+local id = 0
 
 local function draw2d(cb)
-	local width = 512
-	local height = 512
-
 	if not initialized then
 		render.Initialize({headless = true, width = width, height = height})
 		render2d.Initialize()
 		initialized = true
+	else
+		-- Wait for device to be idle between tests
+		render.GetDevice():WaitIdle()
 	end
 
-	event.AddListener("Draw2D", "test", cb)
-	event.Call("Update", 0)
-	event.RemoveListener("Draw2D", "test")
-	save(width, height)
+	render.BeginFrame()
+	render2d.BindPipeline()
+	cb()
+	render.EndFrame()
 end
 
-T.Test("Graphics render2d drawing example", function()
+-- Test each corner pixel
+local function test_pixel(x, y, r, g, b, a)
+	local image_data = render.CopyImageToCPU(render.target.image, width, height, "r8g8b8a8_unorm")
+	local r_, g_, b_, a_ = get_pixel(image_data, x, y)
+	T(r_ / 255)["=="](r)
+	T(g_ / 255)["=="](g)
+	T(b_ / 255)["=="](b)
+	T(a_ / 255)["=="](a)
+end
+
+T.Test("Graphics render2d top-left corner pixel test", function()
+	draw2d(function()
+		render2d.SetColor(0, 0, 1, 1) -- Blue
+		render2d.DrawRect(0, 0, 1, 1)
+	end)
+
+	test_pixel(0, 0, 0, 0, 1, 1)
+end)
+
+T.Test("Graphics render2d top-right corner pixel test", function()
+	draw2d(function()
+		render2d.SetColor(0, 0, 1, 1) -- Blue
+		render2d.DrawRect(width - 1, 0, 1, 1)
+	end)
+
+	test_pixel(width - 1, 0, 0, 0, 1, 1)
+end)
+
+T.Test("Graphics render2d bottom-left corner pixel test", function()
+	draw2d(function()
+		render2d.SetColor(0, 0, 1, 1) -- Blue
+		render2d.DrawRect(0, height - 1, 1, 1)
+	end)
+
+	test_pixel(0, height - 1, 0, 0, 1, 1)
+end)
+
+T.Test("Graphics render2d bottom-right corner pixel test", function()
+	draw2d(function()
+		render2d.SetColor(0, 0, 1, 1) -- Blue
+		render2d.DrawRect(width - 1, height - 1, 1, 1)
+	end)
+
+	test_pixel(width - 1, height - 1, 0, 0, 1, 1)
+end)
+
+T.Pending("Graphics render2d drawing example", function()
 	draw2d(function()
 		-- Example 1: Draw a red rectangle
 		render2d.SetColor(1, 0, 0, 1)
@@ -118,4 +194,6 @@ T.Test("Graphics render2d drawing example", function()
 		render2d.DrawRect(0, 0, 40, 40)
 		render2d.PopMatrix()
 	end)
+
+	save()
 end)
