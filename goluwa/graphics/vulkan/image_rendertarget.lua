@@ -7,9 +7,10 @@ local Fence = require("graphics.vulkan.internal.fence")
 local SwapChain = require("graphics.vulkan.internal.swap_chain")
 local RenderPass = require("graphics.vulkan.internal.render_pass")
 local Framebuffer = require("graphics.vulkan.internal.framebuffer")
+local Texture = require("graphics.texture")
 local event = require("event")
-local WindowRenderTarget = {}
-WindowRenderTarget.__index = WindowRenderTarget
+local ImageRenderTarget = {}
+ImageRenderTarget.__index = ImageRenderTarget
 local default_config = {
 	-- Mode selection
 	offscreen = false, -- Set to true for offscreen rendering
@@ -84,8 +85,6 @@ local function choose_format(self)
 end
 
 local function create_swapchain(self)
-	local Texture = require("graphics.texture")
-
 	if self.config.offscreen then
 		-- Offscreen mode: create a single color attachment image
 		local usage = self.config.usage or {"color_attachment", "sampled"}
@@ -136,14 +135,13 @@ local function create_swapchain(self)
 	local textures = {}
 
 	for i, img in ipairs(self.swapchain:GetImages()) do
-		local view = ImageView.New(
+		textures[i] = Texture.New(
 			{
-				device = self.vulkan_instance.device,
 				image = img,
-				format = self.surface_format.format,
+				view = {format = self.surface_format.format},
+				sampler = false,
 			}
 		)
-		textures[i] = setmetatable({image = img, view = view}, Texture)
 	end
 
 	self.textures = textures
@@ -151,62 +149,53 @@ end
 
 local function create_depth_buffer(self)
 	local extent = self.config.offscreen and self.extent or self.surface_capabilities.currentExtent
-	local Texture = require("graphics.texture")
-	-- Create the image
-	local render = require("graphics.render")
-	local Image = require("graphics.vulkan.internal.image")
-	local ImageView = require("graphics.vulkan.internal.image_view")
-	local image = Image.New(
+	self.depth_texture = Texture.New(
 		{
-			device = render.GetDevice(),
 			width = extent.width,
 			height = extent.height,
 			format = self.depth_format,
-			usage = {"depth_stencil_attachment"},
-			properties = "device_local",
-			samples = self.samples,
+			buffer = false,
+			image = {
+				width = extent.width,
+				height = extent.height,
+				format = self.depth_format,
+				usage = {"depth_stencil_attachment"},
+				properties = "device_local",
+				samples = self.samples,
+			},
+			view = {
+				format = self.depth_format,
+				aspect = "depth",
+			},
+			sampler = false,
 		}
 	)
-	local view = ImageView.New(
-		{
-			device = render.GetDevice(),
-			image = image,
-			format = self.depth_format,
-			aspect = "depth",
-		}
-	)
-	self.depth_texture = setmetatable({image = image, view = view}, Texture)
 end
 
 local function create_msaa_buffer(self)
 	local extent = self.config.offscreen and self.extent or self.surface_capabilities.currentExtent
-	local Texture = require("graphics.texture")
 
 	-- Recreate MSAA color buffer if using MSAA
 	if self.samples ~= "1" then
-		-- Create the image directly without transition
-		local render = require("graphics.render")
-		local Image = require("graphics.vulkan.internal.image")
-		local ImageView = require("graphics.vulkan.internal.image_view")
-		local image = Image.New(
+		local format = self.config.offscreen and self.color_format or self.surface_format.format
+		self.msaa_image = Texture.New(
 			{
-				device = render.GetDevice(),
 				width = extent.width,
 				height = extent.height,
-				format = self.config.offscreen and self.color_format or self.surface_format.format,
-				usage = {"color_attachment"},
-				properties = "device_local",
-				samples = self.samples,
+				format = format,
+				buffer = false,
+				image = {
+					width = extent.width,
+					height = extent.height,
+					format = format,
+					usage = {"color_attachment"},
+					properties = "device_local",
+					samples = self.samples,
+				},
+				view = {format = format},
+				sampler = false,
 			}
 		)
-		local view = ImageView.New(
-			{
-				device = render.GetDevice(),
-				image = image,
-				format = self.config.offscreen and self.color_format or self.surface_format.format,
-			}
-		)
-		self.msaa_image = setmetatable({image = image, view = view}, Texture)
 	end
 end
 
@@ -240,7 +229,7 @@ local function create_per_frame_resources(self)
 	self.current_frame = 0
 end
 
-function WindowRenderTarget.New(vulkan_instance, config)
+function ImageRenderTarget.New(vulkan_instance, config)
 	config = config or {}
 
 	for k, v in pairs(default_config) do
@@ -251,7 +240,7 @@ function WindowRenderTarget.New(vulkan_instance, config)
 
 	if config.height == 0 then config.height = 512 end
 
-	local self = setmetatable({config = config}, WindowRenderTarget)
+	local self = setmetatable({config = config}, ImageRenderTarget)
 	self.vulkan_instance = vulkan_instance
 	self.current_frame = 0
 	self.texture_index = 1
@@ -267,35 +256,35 @@ function WindowRenderTarget.New(vulkan_instance, config)
 	return self
 end
 
-function WindowRenderTarget:GetImage()
+function ImageRenderTarget:GetImage()
 	return self.textures[self.texture_index]:GetImage()
 end
 
-function WindowRenderTarget:GetColorFormat()
+function ImageRenderTarget:GetColorFormat()
 	return self.color_format
 end
 
-function WindowRenderTarget:GetDepthFormat()
+function ImageRenderTarget:GetDepthFormat()
 	return self.depth_format
 end
 
-function WindowRenderTarget:GetSamples()
+function ImageRenderTarget:GetSamples()
 	return self.samples
 end
 
-function WindowRenderTarget:GetImageView()
+function ImageRenderTarget:GetImageView()
 	return self.textures[self.texture_index]:GetView()
 end
 
-function WindowRenderTarget:GetMSAAImageView()
+function ImageRenderTarget:GetMSAAImageView()
 	return self.msaa_image:GetView()
 end
 
-function WindowRenderTarget:GetDepthImageView()
+function ImageRenderTarget:GetDepthImageView()
 	return self.depth_texture:GetView()
 end
 
-function WindowRenderTarget:BeginFrame()
+function ImageRenderTarget:BeginFrame()
 	self.current_frame = (self.current_frame % #self.textures) + 1
 
 	if self.in_flight_fences and self.in_flight_fences[self.current_frame] then
@@ -356,7 +345,7 @@ function WindowRenderTarget:BeginFrame()
 	return cmd
 end
 
-function WindowRenderTarget:EndFrame()
+function ImageRenderTarget:EndFrame()
 	local command_buffer = self.command_buffers[self.current_frame]
 	-- End rendering pass
 	command_buffer:EndRendering()
@@ -412,7 +401,7 @@ function WindowRenderTarget:EndFrame()
 	end
 end
 
-function WindowRenderTarget:RebuildFramebuffers()
+function ImageRenderTarget:RebuildFramebuffers()
 	if self.config.offscreen then
 		-- Offscreen mode doesn't need rebuilding
 		return
@@ -427,26 +416,26 @@ function WindowRenderTarget:RebuildFramebuffers()
 	create_per_frame_resources(self)
 end
 
-function WindowRenderTarget:GetCommandBuffer()
+function ImageRenderTarget:GetCommandBuffer()
 	return self.command_buffers[self.current_frame]
 end
 
-function WindowRenderTarget:GetCurrentFrame()
+function ImageRenderTarget:GetCurrentFrame()
 	return self.current_frame
 end
 
-function WindowRenderTarget:GetExtent()
+function ImageRenderTarget:GetExtent()
 	if self.config.offscreen then return self.extent end
 
 	return self.surface_capabilities.currentExtent
 end
 
-function WindowRenderTarget:GetSwapchainImageCount()
+function ImageRenderTarget:GetSwapchainImageCount()
 	return #self.textures
 end
 
 -- Additional methods for offscreen mode compatibility
-function WindowRenderTarget:WriteMode(cmd)
+function ImageRenderTarget:WriteMode(cmd)
 	if not self.config.offscreen then
 		return -- Only applicable in offscreen mode
 	end
@@ -468,7 +457,7 @@ function WindowRenderTarget:WriteMode(cmd)
 	)
 end
 
-function WindowRenderTarget:ReadMode(cmd)
+function ImageRenderTarget:ReadMode(cmd)
 	if not self.config.offscreen then
 		return -- Only applicable in offscreen mode
 	end
@@ -490,4 +479,4 @@ function WindowRenderTarget:ReadMode(cmd)
 	)
 end
 
-return WindowRenderTarget
+return ImageRenderTarget

@@ -76,6 +76,8 @@ function Image:BindMemory()
 end
 
 function Image:__gc()
+	if self.dont_destroy then return end
+
 	vulkan.lib.vkDestroyImage(self.device.ptr[0], self.ptr[0], nil)
 end
 

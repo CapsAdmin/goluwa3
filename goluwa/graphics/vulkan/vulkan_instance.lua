@@ -5,7 +5,6 @@ local PhysicalDevice = require("graphics.vulkan.internal.physical_device")
 local Buffer = require("graphics.vulkan.internal.buffer")
 local CommandPool = require("graphics.vulkan.internal.command_pool")
 local Surface = require("graphics.vulkan.internal.surface")
-local WindowRenderTarget = require("graphics.vulkan.rendertarget_window")
 local GraphicsPipeline = require("graphics.vulkan.graphics_pipeline")
 local ComputePipeline = require("graphics.vulkan.compute_pipeline")
 local OcclusionQuery = require("graphics.vulkan.internal.occlusion_query")
@@ -131,7 +130,8 @@ function VulkanInstance:CreateBuffer(config)
 end
 
 function VulkanInstance:CreateWindowRenderTarget(config)
-	return WindowRenderTarget.New(self, config)
+	local ImageRenderTarget = require("graphics.vulkan.image_rendertarget")
+	return ImageRenderTarget.New(self, config)
 end
 
 function VulkanInstance:CreateGraphicsPipeline(config)

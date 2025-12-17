@@ -41,6 +41,7 @@ function Swapchain.New(config)
 		{
 			ptr = ptr,
 			device = config.device,
+			format = config.surface_format.format,
 			-- pointer references to prevent GC
 			old_swapchain = config.old_swapchain,
 			surface = config.surface,
@@ -58,12 +59,21 @@ function Swapchain:GetImages()
 	vulkan.lib.vkGetSwapchainImagesKHR(self.device.ptr[0], self.ptr[0], imageCount, nil)
 	local swapchainImages = vulkan.T.Array(vulkan.vk.VkImage)(imageCount[0])
 	vulkan.lib.vkGetSwapchainImagesKHR(self.device.ptr[0], self.ptr[0], imageCount, swapchainImages)
+	local Image = require("graphics.vulkan.internal.image")
 	local out = {}
 
 	for i = 0, imageCount[0] - 1 do
 		local ptr = vulkan.T.Box(vulkan.vk.VkImage)()
 		ptr[0] = swapchainImages[i]
-		out[i + 1] = {ptr = ptr}
+		out[i + 1] = setmetatable(
+			{
+				ptr = ptr,
+				device = self.device,
+				format = self.format,
+				dont_destroy = true,
+			},
+			Image
+		)
 	end
 
 	return out
