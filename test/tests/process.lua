@@ -8,21 +8,9 @@ local function read_all_stdout(proc)
 	T.RunUntil2(function()
 		local chunk = proc:read(4096)
 
-		if chunk and chunk ~= "" then result = result .. chunk end
+		if chunk then result = result .. chunk end
 
-		-- Check if process exited
-		local done = proc:try_wait()
-
-		if done then
-			-- One more read to catch any remaining data
-			local final = proc:read(4096)
-
-			if final and final ~= "" then result = result .. final end
-
-			return true
-		end
-
-		return false
+		return result ~= ""
 	end)
 
 	return result
@@ -31,7 +19,7 @@ end
 T.Test("echo command with piped output", function()
 	local proc = assert(process.spawn({command = "echo", args = {"hello", "world"}, stdout = "pipe"}))
 	T(proc.pid)["~="](nil)
-	T(read_all_stdout(proc):match("hello world"))["~="](nil)
+	T(read_all_stdout(proc))["contains"]("hello world")
 	T(assert(proc:wait()))["=="](0)
 end)
 
@@ -46,10 +34,10 @@ T.Test("cat with stdin/stdout pipe", function()
 
 		if chunk and chunk ~= "" then output = output .. chunk end
 
-		return output:match("Hello from stdin") ~= nil
+		return output:find("Hello from stdin", nil, true) ~= nil
 	end)
 	T(success)["=="](true)
-	T(output:match("Hello from stdin"))["~="](nil)
+	T(output)["contains"]("Hello from stdin")
 	proc:close()
 	T(assert(proc:wait()))["=="](0)
 end)

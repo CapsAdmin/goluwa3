@@ -30,7 +30,7 @@ local current_test_start_gc = nil
 local on_test_file_complete = nil
 -- Logging state (set by BeginTests)
 local LOGGING = false
-local IS_TERMINAL = true or system.IsTTY()
+local IS_TERMINAL = true -- or system.IsTTY()
 local completed_test_count = 0
 local shown_running_line = false
 
@@ -524,9 +524,6 @@ function test.RunFor(duration)
 		system.SetElapsedTime(system.GetElapsedTime() + dt)
 		-- Call update event which triggers timers, sockets, etc.
 		event.Call("Update", dt)
-		-- Small sleep to prevent busy loop (optional)
-		-- In real tests you might want to remove this for speed
-		system.Sleep(0.001)
 	end
 end
 

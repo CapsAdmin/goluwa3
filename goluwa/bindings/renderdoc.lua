@@ -135,7 +135,6 @@ function renderdoc.init()
 
 		if store_path then
 			local current_path = os.getenv("PATH") or ""
-			local current_path = current_path_ptr ~= nil and ffi.string(current_path_ptr) or ""
 			local new_path = store_path .. "/bin:" .. current_path
 			process.setenv("PATH", new_path)
 		end

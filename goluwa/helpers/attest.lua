@@ -107,6 +107,18 @@ function attest.match(str, pattern)
 	return true
 end
 
+function attest.contains(str, substr)
+	if type(str) ~= "string" then
+		error("Contains requires a string, got " .. type(str), LEVEL)
+	end
+
+	if not str:find(substr, 1, true) then
+		error(string.format("\n%q does not contain %q", str, substr), LEVEL)
+	end
+
+	return true
+end
+
 function attest.truthy(value)
 	if not value then error("\nvalue is not truthy: " .. tostring(value), LEVEL) end
 
@@ -171,6 +183,8 @@ function attest.AssertHelper(val)
 						attest.almost_equal(val, expected)
 					elseif op == "match" then
 						attest.match(val, expected)
+					elseif op == "contains" then
+						attest.contains(val, expected)
 					else
 						error("Unknown operator: " .. tostring(op), LEVEL)
 					end
