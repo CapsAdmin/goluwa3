@@ -70,7 +70,6 @@ function META:SetModelPath(path)
 			self:BuildAABB()
 		end,
 		function(model)
-			print("Model loaded: ", path)
 			self:AddPrimitive(model)
 		end,
 		function(err)
