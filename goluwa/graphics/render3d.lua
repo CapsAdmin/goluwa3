@@ -810,8 +810,7 @@ do
 				-- ORIENTATION / TRANSFORMATION: Extract frustum from projection-view matrix
 				local proj = render3d.GetProjectionMatrix()
 				local view = render3d.GetViewMatrix()
-				local proj_view = proj:GetMultiplied(view)
-				extract_frustum_planes(proj_view, cached_frustum_planes)
+				extract_frustum_planes(proj * view, cached_frustum_planes)
 				cached_frustum_frame = current_frame
 			end
 

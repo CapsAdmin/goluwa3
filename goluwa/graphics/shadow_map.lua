@@ -244,11 +244,8 @@ function ShadowMap:UpdateCascadeLightMatrices(light_direction)
 		local projection = Matrix44()
 		local size = cascade_ortho_size * 2
 		projection:Ortho(-size, size, -size, size, -self.far_plane * 2, self.far_plane * 0.1)
-		-- Store the light space matrix
-		local light_space = Matrix44()
-		projection:GetMultiplied(view, light_space)
 		-- Store all cascade data
-		self.cascade[cascade_idx].light_space_matrix = light_space
+		self.cascade[cascade_idx].light_space_matrix = projection * view
 	end
 end
 
