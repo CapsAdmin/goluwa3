@@ -993,22 +993,19 @@ function steam.SpawnMapEntities(path, parent)
 					parent[info.classname .. "_group"] = parent[info.classname .. "_group"] or ecs.CreateEntity(info.classname, parent)
 					parent[info.classname .. "_group"]:SetName(info.classname)
 					local ent = ecs.CreateEntity("prop", parent[info.classname .. "_group"])
-					-- Convert Source angles to our coordinate system
-					-- Source: X=forward, Y=left, Z=up with angles (pitch, yaw, roll)
-					-- Engine: X=right, Y=up, Z=forward with angles (pitch, yaw, roll)
-					-- Source pitch rotates around Y-left axis, yaw around Z-up, roll around X-forward
-					-- We need: pitch around X-right, yaw around Y-up, roll around Z-forward
-					-- Angle remapping: our_pitch=-source_roll, our_yaw=source_yaw, our_roll=source_pitch
-					local remapped_angles = Ang3(-info.angles.z, info.angles.y, info.angles.x)
-					local rotation = Quat():SetAngles(remapped_angles):Normalize()
-					local position = Vec3(info.origin.y, -info.origin.z, -info.origin.x) * steam.source2meters
-					ent:AddComponent(
-						"transform",
-						{
-							position = position,
-						--rotation = rotation,
-						}
+					local rotation = Quat()
+					rotation:SetAngles(
+						Ang3(
+							-math.rad(info.angles.x),
+							math.rad(info.angles.y),
+							math.rad(info.angles.z)
+						)
 					)
+					local position = Vec3(info.origin.y, info.origin.z, info.origin.x) * steam.source2meters
+					ent:AddComponent("transform", {
+						position = position,
+						rotation = rotation,
+					})
 
 					if info.model_size_mult then
 						ent.transform:SetSize(info.model_size_mult)
@@ -1016,17 +1013,21 @@ function steam.SpawnMapEntities(path, parent)
 
 					ent:AddComponent("model")
 					ent.model:SetModelPath(info.model)
-					logf(
-						"Spawning prop: %s (origin is %s) at %s with model %s\n",
-						info.classname,
-						tostring(info.origin),
-						tostring(position),
-						info.model
-					)
-					-- Note: Color support removed - material system different in new engine
-					-- if info.rendercolor and not info.rendercolor:IsZero() then
-					-- 	ent:SetColor(info.rendercolor)
-					-- end
+
+					if false then
+						logf(
+							"Spawning prop: %s at %s / %s with model %s\n",
+							info.classname,
+							tostring(position),
+							tostring(rotation),
+							info.model
+						)
+					end
+
+					if false and info.rendercolor and not info.rendercolor:IsZero() then
+						ent:SetColor(info.rendercolor)
+					end
+
 					ent.spawned_from_bsp = true
 				else
 					wlog(
