@@ -462,31 +462,26 @@ do -- helpers
 		local orientation = require("orientation")
 		-- ORIENTATION / TRANSFORMATION: Cube for Y-up, X-right, Z-forward (right-handed)
 		-- All faces use counter-clockwise winding when viewed from outside
-		
-		-- Top face (+Y)
+		-- Top face (+Y) - viewed from above, CCW winding
 		self:AddVertex({pos = Vec3(-size, size, -size), uv = Vec2(0, 0)})
+		self:AddVertex({pos = Vec3(size, size, size), uv = Vec2(texture_scale, texture_scale)})
 		self:AddVertex({pos = Vec3(size, size, -size), uv = Vec2(texture_scale, 0)})
-		self:AddVertex({pos = Vec3(size, size, size), uv = Vec2(texture_scale, texture_scale)})
 		self:AddVertex({pos = Vec3(-size, size, -size), uv = Vec2(0, 0)})
-		self:AddVertex({pos = Vec3(size, size, size), uv = Vec2(texture_scale, texture_scale)})
 		self:AddVertex({pos = Vec3(-size, size, size), uv = Vec2(0, texture_scale)})
-		
-		-- Bottom face (-Y)
+		self:AddVertex({pos = Vec3(size, size, size), uv = Vec2(texture_scale, texture_scale)})
+		-- Bottom face (-Y) - viewed from below, CCW winding
 		self:AddVertex({pos = Vec3(-size, -size, size), uv = Vec2(0, texture_scale)})
+		self:AddVertex({pos = Vec3(size, -size, -size), uv = Vec2(texture_scale, 0)})
 		self:AddVertex({pos = Vec3(size, -size, size), uv = Vec2(texture_scale, texture_scale)})
-		self:AddVertex({pos = Vec3(size, -size, -size), uv = Vec2(texture_scale, 0)})
 		self:AddVertex({pos = Vec3(-size, -size, size), uv = Vec2(0, texture_scale)})
-		self:AddVertex({pos = Vec3(size, -size, -size), uv = Vec2(texture_scale, 0)})
 		self:AddVertex({pos = Vec3(-size, -size, -size), uv = Vec2(0, 0)})
-		
-		-- Front face (+Z)
+		self:AddVertex({pos = Vec3(size, -size, -size), uv = Vec2(texture_scale, 0)}) -- Front face (+Z)
 		self:AddVertex({pos = Vec3(-size, -size, size), uv = Vec2(0, 0)})
 		self:AddVertex({pos = Vec3(size, -size, size), uv = Vec2(texture_scale, 0)})
 		self:AddVertex({pos = Vec3(size, size, size), uv = Vec2(texture_scale, texture_scale)})
 		self:AddVertex({pos = Vec3(-size, -size, size), uv = Vec2(0, 0)})
 		self:AddVertex({pos = Vec3(size, size, size), uv = Vec2(texture_scale, texture_scale)})
 		self:AddVertex({pos = Vec3(-size, size, size), uv = Vec2(0, texture_scale)})
-		
 		-- Back face (-Z)
 		self:AddVertex({pos = Vec3(size, -size, -size), uv = Vec2(0, 0)})
 		self:AddVertex({pos = Vec3(-size, -size, -size), uv = Vec2(texture_scale, 0)})
@@ -494,7 +489,6 @@ do -- helpers
 		self:AddVertex({pos = Vec3(size, -size, -size), uv = Vec2(0, 0)})
 		self:AddVertex({pos = Vec3(-size, size, -size), uv = Vec2(texture_scale, texture_scale)})
 		self:AddVertex({pos = Vec3(size, size, -size), uv = Vec2(0, texture_scale)})
-		
 		-- Right face (+X)
 		self:AddVertex({pos = Vec3(size, -size, size), uv = Vec2(0, 0)})
 		self:AddVertex({pos = Vec3(size, -size, -size), uv = Vec2(texture_scale, 0)})
@@ -502,7 +496,6 @@ do -- helpers
 		self:AddVertex({pos = Vec3(size, -size, size), uv = Vec2(0, 0)})
 		self:AddVertex({pos = Vec3(size, size, -size), uv = Vec2(texture_scale, texture_scale)})
 		self:AddVertex({pos = Vec3(size, size, size), uv = Vec2(0, texture_scale)})
-		
 		-- Left face (-X)
 		self:AddVertex({pos = Vec3(-size, -size, -size), uv = Vec2(0, 0)})
 		self:AddVertex({pos = Vec3(-size, -size, size), uv = Vec2(texture_scale, 0)})

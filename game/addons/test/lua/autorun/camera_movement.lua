@@ -154,6 +154,6 @@ function events.Update.camera_movement(dt)
 	view:Translate(position:Unpack())
 	render3d.SetViewMatrix(view)
 	render3d.SetCameraFOV(cam_fov)
-	DEBUG_CAMERA_POS = position
+	DEBUG_CAMERA_POS = -position
 	DEBUG_CAMERA_ROT = rotation
 end

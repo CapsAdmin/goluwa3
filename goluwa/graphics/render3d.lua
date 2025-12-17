@@ -369,7 +369,7 @@ function render3d.Initialize()
 						vec3 Lo = (kD * albedo.rgb / PI + specular) * radiance * NdotL * shadow_factor;
 
 						// Ambient - add simple environment approximation for metals
-						vec3 ambient_diffuse = vec3(0.03) * albedo.rgb * ao;
+						vec3 ambient_diffuse = vec3(0.02) * albedo.rgb * ao;
 						// Fake environment reflection for metals (fresnel at grazing angles)
 						vec3 F_ambient = fresnelSchlick(NdotV, F0);
 						vec3 ambient_specular = F_ambient * albedo.rgb * 0.2 * ao; // Approximate IBL
