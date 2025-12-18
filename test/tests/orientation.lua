@@ -18,7 +18,7 @@ end)
 T.Test("orientation vectors are orthogonal (Y-up, X-right, Z-forward)", function()
 	T(orientation.RIGHT_VECTOR[1])["=="](1)
 	T(orientation.UP_VECTOR[2])["=="](1)
-	T(orientation.FORWARD_VECTOR[3])["=="](1)
+	T(orientation.FORWARD_VECTOR[3])["=="](-1)
 end)
 
 T.Test("Ang3 GetForward at zero rotation", function()

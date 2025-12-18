@@ -994,13 +994,7 @@ function steam.SpawnMapEntities(path, parent)
 					parent[info.classname .. "_group"]:SetName(info.classname)
 					local ent = ecs.CreateEntity("prop", parent[info.classname .. "_group"])
 					local rotation = Quat()
-					rotation:SetAngles(
-						Ang3(
-							-math.rad(info.angles.x),
-							math.rad(info.angles.y),
-							math.rad(info.angles.z)
-						)
-					)
+					rotation:SetAngles(Deg3(info.angles.x, -info.angles.y, info.angles.r))
 					local position = Vec3(info.origin.y, info.origin.z, info.origin.x) * steam.source2meters
 					ent:AddComponent("transform", {
 						position = position,

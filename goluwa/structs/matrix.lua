@@ -486,9 +486,10 @@ do -- 44
 	function META:Translate(x, y, z)
 		if x == 0 and y == 0 and z == 0 then return self end
 
-		self.m30 = self.m30 + self.m33 * x
-		self.m31 = self.m31 + self.m33 * y
-		self.m32 = self.m32 + self.m33 * z
+		self.m30 = self.m00 * x + self.m10 * y + self.m20 * z + self.m30
+		self.m31 = self.m01 * x + self.m11 * y + self.m21 * z + self.m31
+		self.m32 = self.m02 * x + self.m12 * y + self.m22 * z + self.m32
+		self.m33 = self.m03 * x + self.m13 * y + self.m23 * z + self.m33
 		return self
 	end
 
@@ -536,7 +537,7 @@ do -- 44
 			out.m02 = t * z * x - y * s
 			out.m12 = t * y * z + x * s
 			out.m22 = t * z * z + c
-			self.GetMultiplied(self:Copy(), out, self)
+			self.GetMultiplied(out, self:Copy(), self)
 			return self
 		end
 
@@ -561,17 +562,17 @@ do -- 44
 		if x == 1 and y == 1 and z == 1 then return self end
 
 		self.m00 = self.m00 * x
-		self.m01 = self.m01 * y
-		self.m02 = self.m02 * z
-		self.m10 = self.m10 * x
+		self.m10 = self.m10 * y
+		self.m20 = self.m20 * z
+		self.m01 = self.m01 * x
 		self.m11 = self.m11 * y
-		self.m12 = self.m12 * z
-		self.m20 = self.m20 * x
-		self.m21 = self.m21 * y
+		self.m21 = self.m21 * z
+		self.m02 = self.m02 * x
+		self.m12 = self.m12 * y
 		self.m22 = self.m22 * z
-		self.m30 = self.m30 * x
-		self.m31 = self.m31 * y
-		self.m32 = self.m32 * z
+		self.m03 = self.m03 * x
+		self.m13 = self.m13 * y
+		self.m23 = self.m23 * z
 		return self
 	end
 

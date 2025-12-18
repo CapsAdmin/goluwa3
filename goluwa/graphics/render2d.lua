@@ -496,7 +496,7 @@ do -- camera
 	local proj_view = Matrix44()
 
 	local function update_proj_view()
-		proj_view = proj * view
+		proj_view = view * proj
 	end
 
 	local function update_projection()
@@ -526,7 +526,7 @@ do -- camera
 	end
 
 	function render2d.GetMatrix()
-		return proj_view * world_matrix_stack[world_matrix_stack_pos]
+		return world_matrix_stack[world_matrix_stack_pos] * proj_view
 	end
 
 	function render2d.GetSize()
