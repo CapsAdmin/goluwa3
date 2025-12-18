@@ -180,7 +180,7 @@ function META:SetAngles(ang)
 	-- Apply yaw around UP axis
 	if ang.y ~= 0 then
 		local ux, uy, uz = orientation.GetUpVector()
-		local half = -ang.y * 0.5
+		local half = ang.y * 0.5
 		local s = math.sin(half)
 		local yaw_q = CTOR(ux * s, uy * s, uz * s, math.cos(half))
 		local result = yaw_q * self -- apply in world space
@@ -205,10 +205,11 @@ do
 		-- Default extraction matches SetAngles: Yaw (Y) → Pitch (X, negated) → Roll (Z)
 		-- This ensures roundtrip: Quat():SetAngles(ang):GetAngles() == ang
 		if not seq then
-			local pitch = math.asin(math.max(-1, math.min(1, 2.0 * (q.y * q.z + q.w * q.x))))
-			local yaw = math.atan2(2.0 * (q.y * q.w - q.x * q.z), q.w * q.w + q.x * q.x - q.y * q.y - q.z * q.z)
-			local roll = math.atan2(2.0 * (q.z * q.w - q.x * q.y), q.w * q.w - q.x * q.x + q.y * q.y - q.z * q.z)
-			return Ang3(pitch, -yaw, roll)
+			local x, y, z, w = q.x, q.y, q.z, q.w
+			local pitch = math.asin(math.max(-1, math.min(1, 2.0 * (w * x - y * z))))
+			local yaw = math.atan2(2.0 * (w * y + x * z), w * w - x * x - y * y + z * z)
+			local roll = math.atan2(2.0 * (w * z + x * y), w * w - x * x + y * y - z * z)
+			return Ang3(pitch, yaw, roll)
 		end
 
 		-- For other sequences, use the library functions below
