@@ -14,6 +14,7 @@ local Polygon3D = require("graphics.polygon_3d")
 local Material = require("graphics.material")
 local Vec3 = require("structs.vec3")
 local Vec2 = require("structs.vec2")
+local Rect = require("structs.rect")
 local Matrix44 = require("structs.matrix").Matrix44
 local fs = require("fs")
 local width = 512
@@ -28,7 +29,7 @@ local function init_render3d()
 	else
 		render.GetDevice():WaitIdle()
 	end
-	
+
 	-- Always call Initialize - it will return early if already initialized
 	render3d.Initialize()
 end
@@ -36,23 +37,17 @@ end
 -- Helper function to draw with render3d
 local function draw3d(cb)
 	init_render3d()
-	
 	-- Set up camera with orthographic-like view for predictable testing
-	local view_matrix = Matrix44()
-	view_matrix:SetTranslation(0, 0, -10)
-	render3d.SetViewMatrix(view_matrix)
-	render3d.SetCameraViewport(0, 0, width, height)
-	render3d.SetCameraFOV(math.pi / 4)
-	
+	render3d.camera:SetPosition(Vec3(0, 0, -10))
+	render3d.camera:SetViewport(Rect(0, 0, width, height))
+	render3d.camera:SetFOV(math.pi / 4)
 	-- Set up basic lighting
 	render3d.SetLightDirection(0.5, -1.0, 0.3)
 	render3d.SetLightColor(1.0, 1.0, 1.0, 1.0)
-	
 	render.BeginFrame()
 	local cmd = render.GetCommandBuffer()
 	local frame_index = render.GetCurrentFrame()
 	render3d.pipeline:Bind(cmd, frame_index)
-	
 	cb(cmd)
 	render.EndFrame()
 	-- Wait for GPU to finish rendering before pixel tests
@@ -135,15 +130,12 @@ end)
 T.Test("Graphics Polygon3D simple triangle", function()
 	init_render3d()
 	local poly = Polygon3D.New()
-	
 	-- Create a simple triangle
 	poly:AddVertex({pos = Vec3(-1, -1, 0), uv = Vec2(0, 0), normal = Vec3(0, 0, 1)})
 	poly:AddVertex({pos = Vec3(1, -1, 0), uv = Vec2(1, 0), normal = Vec3(0, 0, 1)})
 	poly:AddVertex({pos = Vec3(0, 1, 0), uv = Vec2(0.5, 1), normal = Vec3(0, 0, 1)})
-	
 	poly:AddSubMesh(3)
 	poly:Upload()
-	
 	T(poly.mesh)["~="](nil)
 	T(poly.mesh.vertex_buffer)["~="](nil)
 end)
@@ -155,7 +147,6 @@ T.Test("Graphics Polygon3D CreateCube", function()
 	init_render3d()
 	local poly = Polygon3D.New()
 	poly:CreateCube(1.0, 1.0)
-	
 	-- Cube has 6 faces * 6 vertices (2 triangles) = 36 vertices
 	T(#poly.Vertices)["=="](36)
 end)
@@ -164,7 +155,6 @@ T.Test("Graphics Polygon3D CreateCube with different size", function()
 	init_render3d()
 	local poly = Polygon3D.New()
 	poly:CreateCube(2.0, 1.0)
-	
 	T(#poly.Vertices)["=="](36)
 	-- Check first vertex has correct scaled position
 	T(math.abs(poly.Vertices[1].pos.x))["~"](2.0)
@@ -180,7 +170,6 @@ T.Test("Graphics Polygon3D AddSubMesh with count", function()
 	poly:AddVertex({pos = Vec3(1, 0, 0)})
 	poly:AddVertex({pos = Vec3(0, 1, 0)})
 	poly:AddSubMesh(3)
-	
 	T(#poly.sub_meshes)["=="](1)
 	T(#poly.sub_meshes[1].indices)["=="](3)
 end)
@@ -192,7 +181,6 @@ T.Test("Graphics Polygon3D GetSubMeshes", function()
 	poly:AddVertex({pos = Vec3(1, 0, 0)})
 	poly:AddVertex({pos = Vec3(0, 1, 0)})
 	poly:AddSubMesh(3)
-	
 	local submeshes = poly:GetSubMeshes()
 	T(#submeshes)["=="](1)
 end)
@@ -203,15 +191,12 @@ end)
 T.Test("Graphics Polygon3D BuildNormals", function()
 	init_render3d()
 	local poly = Polygon3D.New()
-	
 	-- Create triangle without normals
 	poly:AddVertex({pos = Vec3(0, 0, 0), uv = Vec2(0, 0)})
 	poly:AddVertex({pos = Vec3(1, 0, 0), uv = Vec2(1, 0)})
 	poly:AddVertex({pos = Vec3(0, 1, 0), uv = Vec2(0, 1)})
 	poly:AddSubMesh(3)
-	
 	poly:BuildNormals()
-	
 	-- Check that normals were generated
 	T(poly.Vertices[1].normal)["~="](nil)
 	T(poly.Vertices[2].normal)["~="](nil)
@@ -224,14 +209,11 @@ end)
 T.Test("Graphics Polygon3D Upload creates mesh", function()
 	init_render3d()
 	local poly = Polygon3D.New()
-	
 	poly:AddVertex({pos = Vec3(0, 0, 0), uv = Vec2(0, 0), normal = Vec3(0, 0, 1)})
 	poly:AddVertex({pos = Vec3(1, 0, 0), uv = Vec2(1, 0), normal = Vec3(0, 0, 1)})
 	poly:AddVertex({pos = Vec3(0, 1, 0), uv = Vec2(0, 1), normal = Vec3(0, 0, 1)})
 	poly:AddSubMesh(3)
-	
 	poly:Upload()
-	
 	T(poly.mesh)["~="](nil)
 	T(poly.mesh.vertex_buffer)["~="](nil)
 end)
@@ -240,7 +222,6 @@ T.Test("Graphics Polygon3D Upload with no vertices", function()
 	init_render3d()
 	local poly = Polygon3D.New()
 	poly:Upload()
-	
 	-- Should not create mesh with no vertices
 	T(poly.mesh)["=="](nil)
 end)
@@ -251,24 +232,20 @@ end)
 T.Test("Graphics Polygon3D render simple triangle", function()
 	draw3d(function(cmd)
 		local poly = Polygon3D.New()
-		
 		-- Create a triangle facing camera
 		poly:AddVertex({pos = Vec3(-0.5, -0.5, 0), uv = Vec2(0, 0), normal = Vec3(0, 0, 1)})
 		poly:AddVertex({pos = Vec3(0.5, -0.5, 0), uv = Vec2(1, 0), normal = Vec3(0, 0, 1)})
 		poly:AddVertex({pos = Vec3(0, 0.5, 0), uv = Vec2(0.5, 1), normal = Vec3(0, 0, 1)})
-		
 		poly:AddSubMesh(3)
 		poly:BuildNormals()
 		poly:Upload()
-		
 		-- Set material with a base color
 		local mat = Material.New({base_color_factor = {1.0, 0.0, 0.0, 1.0}})
 		render3d.SetMaterial(mat)
 		render3d.UploadConstants(cmd)
-		
 		poly:Draw(cmd)
 	end)
-	
+
 	-- Test passes if no errors during draw
 	T(true)["=="](true)
 end)
@@ -280,15 +257,13 @@ T.Test("Graphics Polygon3D render cube", function()
 		poly:AddSubMesh(#poly.Vertices)
 		poly:BuildNormals()
 		poly:Upload()
-		
 		-- Set material with green color
 		local mat = Material.New({base_color_factor = {0.0, 1.0, 0.0, 1.0}})
 		render3d.SetMaterial(mat)
 		render3d.UploadConstants(cmd)
-		
 		poly:Draw(cmd)
 	end)
-	
+
 	-- Test passes if no errors during draw
 	T(true)["=="](true)
 end)
@@ -296,31 +271,25 @@ end)
 T.Test("Graphics Polygon3D render with world matrix", function()
 	draw3d(function(cmd)
 		local poly = Polygon3D.New()
-		
 		-- Small triangle
 		poly:AddVertex({pos = Vec3(-0.3, -0.3, 0), uv = Vec2(0, 0), normal = Vec3(0, 0, 1)})
 		poly:AddVertex({pos = Vec3(0.3, -0.3, 0), uv = Vec2(1, 0), normal = Vec3(0, 0, 1)})
 		poly:AddVertex({pos = Vec3(0, 0.3, 0), uv = Vec2(0.5, 1), normal = Vec3(0, 0, 1)})
-		
 		poly:AddSubMesh(3)
 		poly:BuildNormals()
 		poly:Upload()
-		
 		-- Apply world matrix transformation
 		local world = Matrix44()
 		world:SetTranslation(1, 0, 0)
 		render3d.SetWorldMatrix(world)
-		
 		local mat = Material.New({base_color_factor = {0.0, 0.0, 1.0, 1.0}})
 		render3d.SetMaterial(mat)
 		render3d.UploadConstants(cmd)
-		
 		poly:Draw(cmd)
-		
 		-- Reset world matrix
 		render3d.SetWorldMatrix(Matrix44())
 	end)
-	
+
 	T(true)["=="](true)
 end)
 
@@ -334,7 +303,6 @@ T.Test("Graphics Polygon3D render multiple objects", function()
 		poly1:AddSubMesh(3)
 		poly1:BuildNormals()
 		poly1:Upload()
-		
 		-- Second triangle
 		local poly2 = Polygon3D.New()
 		poly2:AddVertex({pos = Vec3(0.4, 0.1, 0), uv = Vec2(0, 0), normal = Vec3(0, 0, 1)})
@@ -343,20 +311,18 @@ T.Test("Graphics Polygon3D render multiple objects", function()
 		poly2:AddSubMesh(3)
 		poly2:BuildNormals()
 		poly2:Upload()
-		
 		-- Draw first with red material
 		local mat1 = Material.New({base_color_factor = {1.0, 0.0, 0.0, 1.0}})
 		render3d.SetMaterial(mat1)
 		render3d.UploadConstants(cmd)
 		poly1:Draw(cmd)
-		
 		-- Draw second with blue material
 		local mat2 = Material.New({base_color_factor = {0.0, 0.0, 1.0, 1.0}})
 		render3d.SetMaterial(mat2)
 		render3d.UploadConstants(cmd)
 		poly2:Draw(cmd)
 	end)
-	
+
 	T(true)["=="](true)
 end)
 
@@ -368,22 +334,19 @@ T.Test("Graphics Polygon3D render cube screenshot", function()
 		poly:AddSubMesh(#poly.Vertices)
 		poly:BuildNormals()
 		poly:Upload()
-		
 		-- Apply rotation
 		local world = Matrix44()
 		world:Rotate(math.rad(25), 1, 0, 0)
 		world:Rotate(math.rad(35), 0, 1, 0)
 		render3d.SetWorldMatrix(world)
-		
 		-- Yellow material
 		local mat = Material.New({base_color_factor = {1.0, 1.0, 0.0, 1.0}})
 		render3d.SetMaterial(mat)
 		render3d.UploadConstants(cmd)
-		
 		poly:Draw(cmd)
 		render3d.SetWorldMatrix(Matrix44())
 	end)
-	
+
 	save_screenshot("polygon_3d_cube_test")
 	T(true)["=="](true)
 end)
@@ -397,9 +360,7 @@ T.Test("Graphics Polygon3D Clear", function()
 	poly:AddVertex({pos = Vec3(0, 0, 0)})
 	poly:AddVertex({pos = Vec3(1, 0, 0)})
 	poly:AddVertex({pos = Vec3(0, 1, 0)})
-	
 	T(#poly.Vertices)["=="](3)
-	
 	poly:Clear()
 	T(#poly.Vertices)["=="](0)
 	T(poly.i)["=="](1)
@@ -411,14 +372,11 @@ end)
 T.Test("Graphics Polygon3D BuildBoundingBox", function()
 	init_render3d()
 	local poly = Polygon3D.New()
-	
 	poly:AddVertex({pos = Vec3(-1, -1, -1)})
 	poly:AddVertex({pos = Vec3(1, 1, 1)})
 	poly:AddVertex({pos = Vec3(0, 0, 0)})
 	poly:AddSubMesh(3)
-	
 	poly:BuildBoundingBox()
-	
 	-- AABB should have been expanded
 	T(poly.AABB)["~="](nil)
 end)

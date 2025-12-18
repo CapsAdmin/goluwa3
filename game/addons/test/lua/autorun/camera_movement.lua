@@ -6,9 +6,6 @@ local Quat = require("structs.quat")
 local window = require("window")
 local render3d = require("graphics.render3d")
 local orientation = require("orientation")
-local held_rot
-local held_mpos
-local drag_view = false
 
 local function get_speed_multiplier()
 	if input.IsKeyDown("left_shift") and input.IsKeyDown("left_control") then
@@ -57,12 +54,11 @@ do
 end
 
 -- Use quaternion for rotation to avoid gimbal lock
-local rotation = Quat()
-rotation:Identity()
-local position = Vec3(0, 0, 0)
 local pitch = 0 -- Track pitch angle for clamping
 function events.Update.camera_movement(dt)
-	local cam_fov = render3d.GetCameraFOV()
+	local rotation = render3d.camera:GetRotation()
+	local position = render3d.camera:GetPosition()
+	local cam_fov = render3d.camera:GetFOV()
 	local speed = dt * get_speed_multiplier()
 	local mouse_delta = window.GetMouseDelta() / 2 -- Mouse sensitivity
 	if input.IsKeyDown("r") then
@@ -149,11 +145,7 @@ function events.Update.camera_movement(dt)
 	end
 
 	position = position + ((forward + right + up) * speed)
-	-- Convert quaternion to matrix and apply translation
-	local view = rotation:GetMatrix()
-	view:Translate(position:Unpack())
-	render3d.SetViewMatrix(view)
-	render3d.SetCameraFOV(cam_fov)
-	DEBUG_CAMERA_POS = -position
-	DEBUG_CAMERA_ROT = rotation
+	render3d.camera:SetFOV(cam_fov)
+	render3d.camera:SetPosition(position)
+	render3d.camera:SetRotation(rotation)
 end

@@ -18,7 +18,7 @@ local sun, sun_entity = Light.CreateDirectional(
 	}
 )
 render3d.SetSunLight(sun)
-render3d.SetCameraFOV(1.2)
+render3d.camera:SetFOV(1.2)
 
 do
 	local Vec3 = require("structs.vec3")
@@ -34,7 +34,7 @@ do
 	poly:Upload()
 	local entity = ecs.CreateEntity("cube", ecs.GetWorld())
 	entity:AddComponent("transform", {
-		position = Vec3(0, 0, -5),
+		position = Vec3(0, 0, 5),
 		scale = Vec3(1, 1, 1),
 	})
 	entity.transform:SetAngles(Deg3(45, 0, 0))

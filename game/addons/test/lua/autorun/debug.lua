@@ -13,12 +13,12 @@ local show_debug_info = false
 function events.Draw2D.debug_info(dt)
 	if not show_debug_info then return end
 
-	local y = 10
+	local y = 50
 	local x = 10
 	render2d.SetTexture(nil)
 	-- Camera info
-	local pos = DEBUG_CAMERA_POS or render3d.GetCameraPosition()
-	local rot = DEBUG_CAMERA_ROT or render3d.GetCameraRotation()
+	local pos = render3d.camera:GetPosition()
+	local rot = render3d.camera:GetRotation()
 	render2d.SetColor(1, 1, 1, 1)
 	gfx.DrawText(string.format("Camera Pos: X=%.1f  Y=%.1f  Z=%.1f", pos.x, pos.y, pos.z), x, y)
 	y = y + 20

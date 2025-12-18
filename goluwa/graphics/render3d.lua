@@ -10,6 +10,7 @@ local Vec3 = require("structs.vec3")
 local Ang3 = require("structs.ang3")
 local Quat = require("structs.quat")
 local Rect = require("structs.rect")
+local Camera3D = require("graphics.camera3d")
 local VertexConstants = ffi.typeof([[
 	struct {
 		float projection_view_world[16];
@@ -465,90 +466,24 @@ function render3d.Initialize()
 end
 
 do
-	local camera_fov = math.pi / 2
-	local camera_near_z = 0.1
-	local camera_far_z = 32000
-	local camera_viewport = Rect(0, 0, 1000, 1000)
-	local camera_world = Matrix44()
-	local camera_view = Matrix44()
+	render3d.camera = Camera3D.New()
+	render3d.world_matrix = Matrix44()
 
-	do
-		function render3d.GetViewMatrix()
-			return camera_view
-		end
-
-		function render3d.SetViewMatrix(view)
-			camera_view = view
-		end
-
-		function render3d.GetProjectionMatrix()
-			if render3d.projection_matrix then return render3d.projection_matrix end
-
-			render3d.projection_matrix = Matrix44()
-			render3d.projection_matrix:SetTranslation(camera_viewport.x, camera_viewport.y, 0)
-			render3d.projection_matrix:Perspective(camera_fov, camera_near_z, camera_far_z, camera_viewport.w / camera_viewport.h)
-			return render3d.projection_matrix
-		end
-
-		do
-			local cached = Matrix44()
-
-			function render3d.GetProjectionViewWorldMatrix()
-				-- ORIENTATION / TRANSFORMATION: Coordinate system defined in orientation.lua
-				render3d.GetProjectionMatrix():GetMultiplied(render3d.GetViewMatrix(), cached)
-				cached:GetMultiplied(camera_world, cached)
-				return cached
-			end
-		end
-
-		function render3d.SetWorldMatrix(world)
-			camera_world = world
-		end
-
-		function render3d.GetWorldMatrix()
-			return camera_world
-		end
+	function render3d.SetWorldMatrix(world)
+		render3d.world_matrix = world
 	end
 
-	function render3d.GetCameraPosition()
-		return Vec3(camera_view:GetTranslation())
+	function render3d.GetWorldMatrix()
+		return render3d.world_matrix
 	end
 
-	function render3d.GetCameraAngles()
-		return camera_view:GetAngles()
-	end
+	local pvm_cached = Matrix44()
 
-	function render3d.GetCameraRotation()
-		return camera_view:GetRotation()
-	end
-
-	function render3d.GetCameraFOV()
-		return camera_fov
-	end
-
-	function render3d.SetCameraFOV(fov)
-		camera_fov = fov
-		render3d.projection_matrix = nil
-	end
-
-	function render3d.GetCameraNearZ()
-		return camera_near_z
-	end
-
-	function render3d.GetCameraFarZ()
-		return camera_far_z
-	end
-
-	function render3d.GetCameraViewport()
-		return camera_viewport
-	end
-
-	function render3d.SetCameraViewport(x, y, w, h)
-		camera_viewport.x = x
-		camera_viewport.y = y
-		camera_viewport.w = w
-		camera_viewport.h = h
-		render3d.projection_matrix = nil
+	function render3d.GetProjectionViewWorldMatrix()
+		-- ORIENTATION / TRANSFORMATION: Coordinate system defined in orientation.lua
+		render3d.camera:BuildProjectionMatrix():GetMultiplied(render3d.camera:BuildViewMatrix(), pvm_cached)
+		pvm_cached:GetMultiplied(render3d.world_matrix, pvm_cached)
+		return pvm_cached
 	end
 end
 
@@ -681,7 +616,7 @@ do
 			fragment_constants.light_intensity = render3d.light_color[4]
 			-- Camera position for specular (vec3)
 			-- ORIENTATION / TRANSFORMATION: Using camera_position as-is
-			local camera_position = render3d.GetCameraPosition()
+			local camera_position = render3d.camera:GetPosition()
 			fragment_constants.camera_position[0] = camera_position.x
 			fragment_constants.camera_position[1] = camera_position.y
 			fragment_constants.camera_position[2] = camera_position.z
@@ -693,7 +628,7 @@ do
 end
 
 function events.WindowFramebufferResized.render3d(wnd, size)
-	render3d.SetCameraViewport(0, 0, size.x, size.y)
+	render3d.camera:SetViewport(Rect(0, 0, size.x, size.y))
 end
 
 function render3d.SetMaterial(mat)
@@ -815,8 +750,8 @@ do
 
 			if cached_frustum_frame ~= current_frame then
 				-- ORIENTATION / TRANSFORMATION: Extract frustum from projection-view matrix
-				local proj = render3d.GetProjectionMatrix()
-				local view = render3d.GetViewMatrix()
+				local proj = render3d.camera:BuildProjectionMatrix()
+				local view = render3d.camera:BuildViewMatrix()
 				extract_frustum_planes(proj * view, cached_frustum_planes)
 				cached_frustum_frame = current_frame
 			end
