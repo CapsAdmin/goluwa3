@@ -37,8 +37,9 @@ do
 		if self.ViewMatrix then return self.ViewMatrix end
 
 		self.ViewMatrix = Matrix44()
-		self.ViewMatrix:SetRotation(self.Rotation) --:GetConjugated())
-		self.ViewMatrix:Translate((self.Position):Unpack())
+		self.ViewMatrix:SetRotation(self.Rotation)
+		local p = self.Position
+		self.ViewMatrix:Translate(p.x, p.y, p.z)
 		return self.ViewMatrix
 	end
 

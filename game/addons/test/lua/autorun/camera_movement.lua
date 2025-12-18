@@ -66,7 +66,7 @@ function events.Update.camera_movement(dt)
 		rotation:Identity()
 		position:Set(0, 0, 0)
 		pitch = 0
-		cam_fov = math.rad(75)
+		cam_fov = math.rad(90)
 	end
 
 	mouse_delta = mouse_delta * (cam_fov / 175)
@@ -110,8 +110,7 @@ function events.Update.camera_movement(dt)
 	local up = Vec3(0, 0, 0)
 
 	do
-		local dir = rotation:GetUp()
-
+		local dir = rotation:GetUp() -- TODO: up is actually down
 		if input.IsKeyDown("z") then
 			up = up - dir
 		elseif input.IsKeyDown("x") then
@@ -130,8 +129,7 @@ function events.Update.camera_movement(dt)
 	end
 
 	do
-		local dir = rotation:GetRight()
-
+		local dir = rotation:GetRight() -- TODO: right is actually left
 		if input.IsKeyDown("a") then
 			right = right + dir
 		elseif input.IsKeyDown("d") then

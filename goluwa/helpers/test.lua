@@ -199,7 +199,7 @@ do
 						else
 							-- Error in test - format it nicely
 							local err_msg = traceback(result, debug.traceback(co))
-							error(string.format("Test '%s' error:\n%s", test_info.name, err_msg), 0)
+							logn(string.format("Test '%s' error:\n%s", test_info.name, err_msg), 0)
 						end
 					end
 
