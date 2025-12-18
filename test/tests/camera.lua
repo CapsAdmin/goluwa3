@@ -275,13 +275,13 @@ T.Test("Camera look forward", function()
 end)
 
 -- Test 2: Look Right (+X)
--- Yaw -90 degrees (-pi/2) should look Right
+-- Yaw 90 degrees (pi/2) should look Right
 T.Test("Camera look right", function()
 	draw3d(function(cmd)
 		local cam = render3d.GetCamera()
 		cam:SetPosition(Vec3(0, 0, 0))
 		local q = Quat()
-		q:SetAngles(Ang3(0, -math.pi / 2, 0))
+		q:SetAngles(Ang3(0, math.pi / 2, 0))
 		cam:SetRotation(q)
 		draw_faces(cmd)
 	end)
@@ -290,18 +290,18 @@ T.Test("Camera look right", function()
 end)
 
 -- Test 3: Look Up (+Y)
--- Pitch -90 degrees (-pi/2) should look Up
+-- Pitch 90 degrees (pi/2) should look Up
 T.Test("Camera look up", function()
 	draw3d(function(cmd)
 		local cam = render3d.GetCamera()
 		cam:SetPosition(Vec3(0, 0, 0))
 		local q = Quat()
-		q:SetAngles(Ang3(-math.pi / 2, 0, 0))
+		q:SetAngles(Ang3(math.pi / 2, 0, 0))
 		cam:SetRotation(q)
 		draw_faces(cmd)
 	end)
 
-	test_color("center", "green") -- Should see Green (+Y)
+	test_color("center", "green")
 end)
 
 T.Test("Camera look left and up", function()
@@ -311,14 +311,14 @@ T.Test("Camera look left and up", function()
 		cam:SetPosition(Vec3(0, 0, 0))
 		local q = Quat()
 		q:Identity()
-		q:RotateYaw(math.rad(90)) -- TODO: known bug, left is actually right here
+		q:RotateYaw(math.rad(90)) -- Turn Left
 		q:RotatePitch(math.rad(90)) -- Look Up
 		cam:SetRotation(q)
 		draw_faces(cmd)
 	end)
 
 	save_screenshot("camera_look_left_and_up")
-	test_color("center", "green") -- Should see Green (+Y)
+	test_color("center", "green")
 end)
 
 T.Test("Camera look left and up", function()
@@ -328,7 +328,7 @@ T.Test("Camera look left and up", function()
 		cam:SetPosition(Vec3(0, 0, 0))
 		local q = Quat()
 		q:Identity()
-		q:RotateYaw(math.rad(180)) -- TODO: known bug, left is actually right here
+		q:RotateYaw(math.rad(180)) -- Turn Backward (to Forward)
 		q:RotatePitch(math.rad(90)) -- Look Up
 		cam:SetRotation(q)
 		draw_faces(cmd)
@@ -341,16 +341,16 @@ T.Test("Camera look left and up", function()
 end)
 
 -- Test 3: Look Up (+Y)
--- Pitch -90 degrees (-pi/2) should look Up
+-- Pitch 90 degrees (pi/2) should look Up
 T.Test("Camera look up and move forward", function()
 	draw3d(function(cmd)
 		local cam = render3d.GetCamera()
 		cam:SetFOV(math.rad(120))
 		cam:SetPosition(Vec3(0, 0, 0))
 		local q = Quat()
-		q:SetAngles(Ang3(-math.pi / 2, 0, 0))
-		cam:SetPosition(cam:GetPosition() + cam:GetRotation():GetForward() * 5)
+		q:SetAngles(Ang3(math.pi / 2, 0, 0))
 		cam:SetRotation(q)
+		cam:SetPosition(cam:GetPosition() + cam:GetRotation():GetForward() * 5)
 		draw_faces(cmd)
 	end)
 
@@ -359,16 +359,16 @@ T.Test("Camera look up and move forward", function()
 end)
 
 -- Test 3: Look Up (+Y)
--- Pitch -90 degrees (-pi/2) should look Up
+-- Pitch -90 degrees (-pi/2) should look Down
 T.Test("Camera look down and move forward", function()
 	draw3d(function(cmd)
 		local cam = render3d.GetCamera()
 		cam:SetFOV(math.rad(120))
 		cam:SetPosition(Vec3(0, 0, 0))
 		local q = Quat()
-		q:SetAngles(Ang3(math.pi / 2, 0, 0))
-		cam:SetPosition(cam:GetPosition() + cam:GetRotation():GetForward() * -5) -- TODO: forward is actually backward here
+		q:SetAngles(Ang3(-math.pi / 2, 0, 0))
 		cam:SetRotation(q)
+		cam:SetPosition(cam:GetPosition() + cam:GetRotation():GetForward() * 5)
 		draw_faces(cmd)
 	end)
 
@@ -382,18 +382,17 @@ T.Test("Camera movement up", function()
 	draw3d(function(cmd)
 		local cam = render3d.GetCamera()
 		cam:SetPosition(Vec3(0, 0, 0))
-		cam:SetRotation(Quat(0, 0, 0, 1)) -- Looking Backward (-Z)
+		cam:SetRotation(Quat(0, 0, 0, 1)) -- Looking Forward (-Z)
 		local up = cam:GetRotation():Up()
-		-- TODO: known bug, up is actually down here
 		T(up.x)["=="](0)
 		T(up.y)["=="](1)
 		T(up.z)["=="](0)
-		cam:SetPosition(cam:GetPosition() + up * -5)
-		T(cam:GetPosition().y)["=="](-5)
+		cam:SetPosition(cam:GetPosition() + up * 5)
+		T(cam:GetPosition().y)["=="](5)
 		draw_faces(cmd)
 	end)
 
-	-- If we moved UP, the Backward face (-Z) should appear shifted DOWN in the view.
+	-- If we moved UP, the Forward face (-Z) should appear shifted DOWN in the view.
 	-- The center should still be Yellow (-Z)
 	test_color("center", "yellow")
 	-- The top of the screen should now show more of the Green ceiling (+Y)
@@ -405,7 +404,7 @@ T.Test("Camera movement backward", function()
 		local cam = render3d.GetCamera()
 		cam:SetFOV(math.rad(120))
 		cam:SetPosition(Vec3(0, 0, 0))
-		cam:SetPosition(Vec3(0, 0, -5))
+		cam:SetPosition(Vec3(0, 0, 5))
 		draw_faces(cmd)
 	end)
 
@@ -418,8 +417,7 @@ T.Test("Camera movement left", function()
 		local cam = render3d.GetCamera()
 		cam:SetFOV(math.rad(120))
 		cam:SetPosition(Vec3(0, 0, 0))
-		-- TODO: known bug, right is actually left here
-		cam:SetPosition(Vec3(10, 0, 0))
+		cam:SetPosition(Vec3(-10, 0, 0))
 		draw_faces(cmd)
 	end)
 
@@ -438,10 +436,9 @@ T.Test("Camera roll", function()
 	draw3d(function(cmd)
 		local cam = render3d.GetCamera()
 		cam:SetFOV(math.rad(120))
-		cam:SetPosition(Vec3(0, 0, -5)) -- Back up a bit to see the center cube
+		cam:SetPosition(Vec3(0, 0, 5)) -- Back up a bit to see the center cube
 		local q = Quat()
-		-- Look at origin (Forward +Z) and roll -90 degrees
-		-- Then roll -90.
+		-- Look at origin (Forward -Z) and roll 90 degrees
 		q:SetAngles(Ang3(0, 0, -math.pi / 2))
 		cam:SetRotation(q)
 		draw_faces(cmd)

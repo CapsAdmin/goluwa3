@@ -225,7 +225,7 @@ function META:OnDraw3D(cmd, dt)
 
 		if prim.local_matrix then
 			-- Reuse cached matrix to avoid per-draw allocation
-			final_matrix = world_matrix:GetMultiplied(prim.local_matrix, cached_final_matrix)
+			final_matrix = prim.local_matrix:GetMultiplied(world_matrix, cached_final_matrix)
 		end
 
 		render3d.SetWorldMatrix(final_matrix)
@@ -264,7 +264,7 @@ function META:DrawOcclusionQuery(cmd)
 			local final_matrix = world_matrix
 
 			if prim.local_matrix then
-				final_matrix = world_matrix:GetMultiplied(prim.local_matrix, cached_final_matrix)
+				final_matrix = prim.local_matrix:GetMultiplied(world_matrix, cached_final_matrix)
 			end
 
 			render3d.SetWorldMatrix(final_matrix)
@@ -294,7 +294,7 @@ function META:DrawShadow(shadow_cmd, shadow_map, cascade_idx)
 
 		if prim.local_matrix then
 			-- Reuse cached matrix to avoid per-draw allocation
-			final_matrix = world_matrix:GetMultiplied(prim.local_matrix, cached_final_matrix)
+			final_matrix = prim.local_matrix:GetMultiplied(world_matrix, cached_final_matrix)
 		end
 
 		shadow_map:UploadConstants(final_matrix, cascade_idx)

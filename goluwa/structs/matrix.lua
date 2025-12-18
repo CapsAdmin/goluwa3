@@ -268,19 +268,33 @@ local function matrix_template(X, Y, identity)
 		function META.GetMultiplied(a, b, o)
 			o = o or META.CType(]==] .. table.concat(identity, ", ") .. [==[)
 
+			local temp = {}
 			]==] .. (
 			function()
 				local str = ""
 
 				for x = 0, X - 1 do
 					for y = 0, Y - 1 do
-						str = str .. "o.m" .. x .. y .. " = b.m" .. x .. "0 * a.m0" .. y
+						str = str .. "temp[" .. (x * Y + y) .. "] = a.m" .. x .. "0 * b.m0" .. y
 
 						for n = 1, Y - 1 do
-							str = str .. " + b.m" .. x .. n .. " * a.m" .. n .. y
+							str = str .. " + a.m" .. x .. n .. " * b.m" .. n .. y
 						end
 
 						str = str .. "\n"
+					end
+				end
+
+				return str
+			end
+		)() .. [==[
+			]==] .. (
+			function()
+				local str = ""
+
+				for x = 0, X - 1 do
+					for y = 0, Y - 1 do
+						str = str .. "o.m" .. x .. y .. " = temp[" .. (x * Y + y) .. "]\n"
 					end
 				end
 
@@ -386,23 +400,39 @@ do -- 44
 	end
 
 	function META.GetMultiplied(a, b, o)
+		local o00 = a.m00 * b.m00 + a.m01 * b.m10 + a.m02 * b.m20 + a.m03 * b.m30
+		local o01 = a.m00 * b.m01 + a.m01 * b.m11 + a.m02 * b.m21 + a.m03 * b.m31
+		local o02 = a.m00 * b.m02 + a.m01 * b.m12 + a.m02 * b.m22 + a.m03 * b.m32
+		local o03 = a.m00 * b.m03 + a.m01 * b.m13 + a.m02 * b.m23 + a.m03 * b.m33
+		local o10 = a.m10 * b.m00 + a.m11 * b.m10 + a.m12 * b.m20 + a.m13 * b.m30
+		local o11 = a.m10 * b.m01 + a.m11 * b.m11 + a.m12 * b.m21 + a.m13 * b.m31
+		local o12 = a.m10 * b.m02 + a.m11 * b.m12 + a.m12 * b.m22 + a.m13 * b.m32
+		local o13 = a.m10 * b.m03 + a.m11 * b.m13 + a.m12 * b.m23 + a.m13 * b.m33
+		local o20 = a.m20 * b.m00 + a.m21 * b.m10 + a.m22 * b.m20 + a.m23 * b.m30
+		local o21 = a.m20 * b.m01 + a.m21 * b.m11 + a.m22 * b.m21 + a.m23 * b.m31
+		local o22 = a.m20 * b.m02 + a.m21 * b.m12 + a.m22 * b.m22 + a.m23 * b.m32
+		local o23 = a.m20 * b.m03 + a.m21 * b.m13 + a.m22 * b.m23 + a.m23 * b.m33
+		local o30 = a.m30 * b.m00 + a.m31 * b.m10 + a.m32 * b.m20 + a.m33 * b.m30
+		local o31 = a.m30 * b.m01 + a.m31 * b.m11 + a.m32 * b.m21 + a.m33 * b.m31
+		local o32 = a.m30 * b.m02 + a.m31 * b.m12 + a.m32 * b.m22 + a.m33 * b.m32
+		local o33 = a.m30 * b.m03 + a.m31 * b.m13 + a.m32 * b.m23 + a.m33 * b.m33
 		o = o or META.CType()
-		o.m00 = b.m00 * a.m00 + b.m01 * a.m10 + b.m02 * a.m20 + b.m03 * a.m30
-		o.m01 = b.m00 * a.m01 + b.m01 * a.m11 + b.m02 * a.m21 + b.m03 * a.m31
-		o.m02 = b.m00 * a.m02 + b.m01 * a.m12 + b.m02 * a.m22 + b.m03 * a.m32
-		o.m03 = b.m00 * a.m03 + b.m01 * a.m13 + b.m02 * a.m23 + b.m03 * a.m33
-		o.m10 = b.m10 * a.m00 + b.m11 * a.m10 + b.m12 * a.m20 + b.m13 * a.m30
-		o.m11 = b.m10 * a.m01 + b.m11 * a.m11 + b.m12 * a.m21 + b.m13 * a.m31
-		o.m12 = b.m10 * a.m02 + b.m11 * a.m12 + b.m12 * a.m22 + b.m13 * a.m32
-		o.m13 = b.m10 * a.m03 + b.m11 * a.m13 + b.m12 * a.m23 + b.m13 * a.m33
-		o.m20 = b.m20 * a.m00 + b.m21 * a.m10 + b.m22 * a.m20 + b.m23 * a.m30
-		o.m21 = b.m20 * a.m01 + b.m21 * a.m11 + b.m22 * a.m21 + b.m23 * a.m31
-		o.m22 = b.m20 * a.m02 + b.m21 * a.m12 + b.m22 * a.m22 + b.m23 * a.m32
-		o.m23 = b.m20 * a.m03 + b.m21 * a.m13 + b.m22 * a.m23 + b.m23 * a.m33
-		o.m30 = b.m30 * a.m00 + b.m31 * a.m10 + b.m32 * a.m20 + b.m33 * a.m30
-		o.m31 = b.m30 * a.m01 + b.m31 * a.m11 + b.m32 * a.m21 + b.m33 * a.m31
-		o.m32 = b.m30 * a.m02 + b.m31 * a.m12 + b.m32 * a.m22 + b.m33 * a.m32
-		o.m33 = b.m30 * a.m03 + b.m31 * a.m13 + b.m32 * a.m23 + b.m33 * a.m33
+		o.m00 = o00
+		o.m01 = o01
+		o.m02 = o02
+		o.m03 = o03
+		o.m10 = o10
+		o.m11 = o11
+		o.m12 = o12
+		o.m13 = o13
+		o.m20 = o20
+		o.m21 = o21
+		o.m22 = o22
+		o.m23 = o23
+		o.m30 = o30
+		o.m31 = o31
+		o.m32 = o32
+		o.m33 = o33
 		return o
 	end
 
@@ -456,10 +486,9 @@ do -- 44
 	function META:Translate(x, y, z)
 		if x == 0 and y == 0 and z == 0 then return self end
 
-		self.m30 = self.m00 * x + self.m10 * y + self.m20 * z + self.m30
-		self.m31 = self.m01 * x + self.m11 * y + self.m21 * z + self.m31
-		self.m32 = self.m02 * x + self.m12 * y + self.m22 * z + self.m32
-		self.m33 = self.m03 * x + self.m13 * y + self.m23 * z + self.m33
+		self.m30 = self.m30 + self.m33 * x
+		self.m31 = self.m31 + self.m33 * y
+		self.m32 = self.m32 + self.m33 * z
 		return self
 	end
 
@@ -532,17 +561,17 @@ do -- 44
 		if x == 1 and y == 1 and z == 1 then return self end
 
 		self.m00 = self.m00 * x
-		self.m10 = self.m10 * y
-		self.m20 = self.m20 * z
-		self.m01 = self.m01 * x
+		self.m01 = self.m01 * y
+		self.m02 = self.m02 * z
+		self.m10 = self.m10 * x
 		self.m11 = self.m11 * y
-		self.m21 = self.m21 * z
-		self.m02 = self.m02 * x
-		self.m12 = self.m12 * y
+		self.m12 = self.m12 * z
+		self.m20 = self.m20 * x
+		self.m21 = self.m21 * y
 		self.m22 = self.m22 * z
-		self.m03 = self.m03 * x
-		self.m13 = self.m13 * y
-		self.m23 = self.m23 * z
+		self.m30 = self.m30 * x
+		self.m31 = self.m31 * y
+		self.m32 = self.m32 * z
 		return self
 	end
 
@@ -664,16 +693,16 @@ do -- 44
 		local tmp1, tmp2
 		tmp1 = q.x * q.y
 		tmp2 = q.z * q.w
-		self.m10 = 2.0 * (tmp1 + tmp2) * invs
-		self.m01 = 2.0 * (tmp1 - tmp2) * invs
+		self.m10 = 2.0 * (tmp1 - tmp2) * invs
+		self.m01 = 2.0 * (tmp1 + tmp2) * invs
 		tmp1 = q.x * q.z
 		tmp2 = q.y * q.w
-		self.m20 = 2.0 * (tmp1 - tmp2) * invs
-		self.m02 = 2.0 * (tmp1 + tmp2) * invs
+		self.m20 = 2.0 * (tmp1 + tmp2) * invs
+		self.m02 = 2.0 * (tmp1 - tmp2) * invs
 		tmp1 = q.y * q.z
 		tmp2 = q.x * q.w
-		self.m21 = 2.0 * (tmp1 + tmp2) * invs
-		self.m12 = 2.0 * (tmp1 - tmp2) * invs
+		self.m21 = 2.0 * (tmp1 - tmp2) * invs
+		self.m12 = 2.0 * (tmp1 + tmp2) * invs
 		return self
 	end
 

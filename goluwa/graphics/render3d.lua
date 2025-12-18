@@ -485,8 +485,9 @@ do
 
 	function render3d.GetProjectionViewWorldMatrix()
 		-- ORIENTATION / TRANSFORMATION: Coordinate system defined in orientation.lua
-		render3d.camera:BuildProjectionMatrix():GetMultiplied(render3d.camera:BuildViewMatrix(), pvm_cached)
-		pvm_cached:GetMultiplied(render3d.world_matrix, pvm_cached)
+		-- Row-major: v * W * V * P
+		render3d.world_matrix:GetMultiplied(render3d.camera:BuildViewMatrix(), pvm_cached)
+		pvm_cached:GetMultiplied(render3d.camera:BuildProjectionMatrix(), pvm_cached)
 		return pvm_cached
 	end
 end

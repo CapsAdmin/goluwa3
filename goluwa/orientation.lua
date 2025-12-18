@@ -7,7 +7,7 @@ local orientation = {}
 -- Primary axis vectors (as {x, y, z} tables)
 orientation.RIGHT_VECTOR = {1, 0, 0}
 orientation.UP_VECTOR = {0, 1, 0}
-orientation.FORWARD_VECTOR = {0, 0, 1}
+orientation.FORWARD_VECTOR = {0, 0, -1}
 -- Inverse vectors (computed from primary vectors)
 orientation.DOWN_VECTOR = {-orientation.UP_VECTOR[1], -orientation.UP_VECTOR[2], -orientation.UP_VECTOR[3]}
 orientation.LEFT_VECTOR = {

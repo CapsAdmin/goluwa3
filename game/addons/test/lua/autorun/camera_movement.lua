@@ -93,7 +93,7 @@ function events.Update.camera_movement(dt)
 		)
 	elseif window.GetMouseTrapped() then
 		-- Clamp pitch to prevent camera flip
-		local new_pitch = pitch - mouse_delta.y
+		local new_pitch = pitch + mouse_delta.y
 		new_pitch = math.clamp(new_pitch, -math.pi / 2 + 0.01, math.pi / 2 - 0.01)
 		local pitch_delta = new_pitch - pitch
 		pitch = new_pitch
@@ -101,7 +101,7 @@ function events.Update.camera_movement(dt)
 		yaw_quat:Identity()
 		yaw_quat:RotateYaw(-mouse_delta.x)
 		rotation = yaw_quat * rotation
-		rotation:RotatePitch(pitch_delta)
+		rotation:RotatePitch(-pitch_delta)
 	end
 
 	-- ORIENTATION / TRANSFORMATION: Use quaternion directions for movement
@@ -110,7 +110,8 @@ function events.Update.camera_movement(dt)
 	local up = Vec3(0, 0, 0)
 
 	do
-		local dir = rotation:GetUp() -- TODO: up is actually down
+		local dir = rotation:GetUp()
+
 		if input.IsKeyDown("z") then
 			up = up - dir
 		elseif input.IsKeyDown("x") then
@@ -129,11 +130,12 @@ function events.Update.camera_movement(dt)
 	end
 
 	do
-		local dir = rotation:GetRight() -- TODO: right is actually left
+		local dir = rotation:GetRight()
+
 		if input.IsKeyDown("a") then
-			right = right + dir
-		elseif input.IsKeyDown("d") then
 			right = right - dir
+		elseif input.IsKeyDown("d") then
+			right = right + dir
 		end
 	end
 

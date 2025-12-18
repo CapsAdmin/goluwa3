@@ -28,21 +28,21 @@ do -- ORIENTATION / TRANSFORMATION
 		end
 
 		local sy, cy = sin(a.y), cos(a.y)
-		local sp, cp = sin(-a.x), cos(-a.x) -- Negate pitch for correct up/down
+		local sp, cp = sin(a.x), cos(a.x)
 		local sr, cr = sin(a.z), cos(a.z)
-		-- Apply yaw rotation (around Y axis)
-		local yx = x * cy + z * sy
-		local yy = y
-		local yz = -x * sy + z * cy
-		-- Apply pitch rotation (around X axis)
-		local px = yx
-		local py = yy * cp - yz * sp
-		local pz = yy * sp + yz * cp
 		-- Apply roll rotation (around Z axis)
-		local rx = px * cr - py * sr
-		local ry = px * sr + py * cr
-		local rz = pz
-		return Vec3(rx, ry, rz)
+		local rx = x * cr - y * sr
+		local ry = x * sr + y * cr
+		local rz = z
+		-- Apply pitch rotation (around X axis)
+		local px = rx
+		local py = ry * cp - rz * sp
+		local pz = ry * sp + rz * cp
+		-- Apply yaw rotation (around Y axis)
+		local yx = px * cy - pz * sy
+		local yy = py
+		local yz = px * sy + pz * cy
+		return Vec3(yx, yy, yz)
 	end -- Use GetDirection with orientation module vectors for convenience
 	function META.GetForward(a)
 		return a:GetDirection(orientation.GetForwardVector())

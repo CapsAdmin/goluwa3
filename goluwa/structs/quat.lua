@@ -153,37 +153,37 @@ structs.AddGetFunc(META, "Normalize", "Normalized")
 -- This ensures Quat():SetAngles(ang):VecMul(v) == ang:GetDirection(v)
 function META:SetAngles(ang)
 	-- Build quaternion by composing axis rotations in same order as Ang3.GetDirection
-	-- Ang3.GetDirection applies: Yaw (Y), then Pitch (X, negated), then Roll (Z)
+	-- Order: Roll (Z), then Pitch (X), then Yaw (Y)
 	-- Start with identity
 	self:Identity()
+
+	-- Apply roll around BACKWARD axis
+	if ang.z ~= 0 then
+		local fx, fy, fz = orientation.GetBackwardVector()
+		local half = ang.z * 0.5
+		local s = math.sin(half)
+		local roll_q = CTOR(fx * s, fy * s, fz * s, math.cos(half))
+		local result = roll_q * self -- apply in world space
+		self.x, self.y, self.z, self.w = result.x, result.y, result.z, result.w
+	end
+
+	-- Apply pitch around RIGHT axis
+	if ang.x ~= 0 then
+		local rx, ry, rz = orientation.GetRightVector()
+		local half = ang.x * 0.5
+		local s = math.sin(half)
+		local pitch_q = CTOR(rx * s, ry * s, rz * s, math.cos(half))
+		local result = pitch_q * self -- apply in world space
+		self.x, self.y, self.z, self.w = result.x, result.y, result.z, result.w
+	end
 
 	-- Apply yaw around UP axis
 	if ang.y ~= 0 then
 		local ux, uy, uz = orientation.GetUpVector()
-		local half = ang.y * 0.5
+		local half = -ang.y * 0.5
 		local s = math.sin(half)
 		local yaw_q = CTOR(ux * s, uy * s, uz * s, math.cos(half))
-		local result = yaw_q * self -- reversed: apply in world space
-		self.x, self.y, self.z, self.w = result.x, result.y, result.z, result.w
-	end
-
-	-- Apply pitch around RIGHT axis (negated to match Ang3.GetDirection)
-	if ang.x ~= 0 then
-		local rx, ry, rz = orientation.GetRightVector()
-		local half = -ang.x * 0.5 -- negated
-		local s = math.sin(half)
-		local pitch_q = CTOR(rx * s, ry * s, rz * s, math.cos(half))
-		local result = pitch_q * self -- reversed: apply in world space
-		self.x, self.y, self.z, self.w = result.x, result.y, result.z, result.w
-	end
-
-	-- Apply roll around FORWARD axis
-	if ang.z ~= 0 then
-		local fx, fy, fz = orientation.GetForwardVector()
-		local half = ang.z * 0.5
-		local s = math.sin(half)
-		local roll_q = CTOR(fx * s, fy * s, fz * s, math.cos(half))
-		local result = roll_q * self -- reversed: apply in world space
+		local result = yaw_q * self -- apply in world space
 		self.x, self.y, self.z, self.w = result.x, result.y, result.z, result.w
 	end
 
@@ -205,12 +205,10 @@ do
 		-- Default extraction matches SetAngles: Yaw (Y) → Pitch (X, negated) → Roll (Z)
 		-- This ensures roundtrip: Quat():SetAngles(ang):GetAngles() == ang
 		if not seq then
-			-- Use the "zxy" sequence extraction from the library below
-			-- but adjust for our negated pitch convention
 			local pitch = math.asin(math.max(-1, math.min(1, 2.0 * (q.y * q.z + q.w * q.x))))
-			local yaw = math.atan2(-2.0 * (q.x * q.y - q.w * q.z), q.w * q.w - q.x * q.x + q.y * q.y - q.z * q.z)
-			local roll = math.atan2(-2.0 * (q.x * q.z - q.w * q.y), q.w * q.w + q.x * q.x - q.y * q.y - q.z * q.z)
-			return Ang3(-pitch, yaw, roll) -- negate pitch to match Ang3.GetDirection convention
+			local yaw = math.atan2(2.0 * (q.y * q.w - q.x * q.z), q.w * q.w + q.x * q.x - q.y * q.y - q.z * q.z)
+			local roll = math.atan2(2.0 * (q.z * q.w - q.x * q.y), q.w * q.w - q.x * q.x + q.y * q.y - q.z * q.z)
+			return Ang3(pitch, -yaw, roll)
 		end
 
 		-- For other sequences, use the library functions below
@@ -328,15 +326,15 @@ function META:GetMatrix()
 	local zz = self.z * self.z
 	local zw = self.z * self.w
 	m.m00 = 1 - 2 * (yy + zz)
-	m.m01 = 2 * (xy - zw)
-	m.m02 = 2 * (xz + yw)
+	m.m01 = 2 * (xy + zw)
+	m.m02 = 2 * (xz - yw)
 	m.m03 = 0
-	m.m10 = 2 * (xy + zw)
+	m.m10 = 2 * (xy - zw)
 	m.m11 = 1 - 2 * (xx + zz)
-	m.m12 = 2 * (yz - xw)
+	m.m12 = 2 * (yz + xw)
 	m.m13 = 0
-	m.m20 = 2 * (xz - yw)
-	m.m21 = 2 * (yz + xw)
+	m.m20 = 2 * (xz + yw)
+	m.m21 = 2 * (yz - xw)
 	m.m22 = 1 - 2 * (xx + yy)
 	m.m23 = 0
 	m.m30 = 0
@@ -383,7 +381,7 @@ function META:RotateYaw(angle)
 end
 
 function META:RotateRoll(angle)
-	local x, y, z = orientation.GetForwardVector()
+	local x, y, z = orientation.GetBackwardVector()
 	return self:Rotate(angle, x, y, z)
 end
 

@@ -123,7 +123,7 @@ function META:GetWorldMatrix()
 			if parent:HasComponent("transform") then
 				local parent_world = parent.transform:GetWorldMatrix()
 				self.WorldMatrix = Matrix44()
-				parent_world:GetMultiplied(local_matrix, self.WorldMatrix)
+				local_matrix:GetMultiplied(parent_world, self.WorldMatrix)
 			else
 				self.WorldMatrix = local_matrix
 			end
