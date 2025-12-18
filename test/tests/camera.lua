@@ -266,6 +266,84 @@ T.Test("Camera look up", function()
 	test_pixel(width / 2, height / 2, 0, 1, 0) -- Should see Green (+Y)
 end)
 
+T.Test("Camera look left and up", function()
+	draw3d(function(cmd)
+		local cam = render3d.GetCamera()
+		cam:SetFOV(math.rad(120))
+		cam:SetPosition(Vec3(0, 0, 0))
+		local q = Quat()
+		q:Identity()
+		q:RotateYaw(math.rad(90)) -- TODO: known bug, left is actually right here
+		q:RotatePitch(math.rad(90)) -- Look Up
+		cam:SetRotation(q)
+		draw_faces(cmd)
+	end)
+
+	save_screenshot("camera_look_left_and_up")
+	test_pixel(width / 2, height / 2, 0, 1, 0) -- Should see Green (+Y)
+end)
+
+T.Test("Camera look left and up", function()
+	draw3d(function(cmd)
+		local cam = render3d.GetCamera()
+		cam:SetFOV(math.rad(120))
+		cam:SetPosition(Vec3(0, 0, 0))
+		local q = Quat()
+		q:Identity()
+		q:RotateYaw(math.rad(180)) -- TODO: known bug, left is actually right here
+		q:RotatePitch(math.rad(90)) -- Look Up
+		cam:SetRotation(q)
+		draw_faces(cmd)
+	end)
+
+	save_screenshot("camera_look_left_and_up")
+	test_pixel(width / 2, height / 2, 0, 1, 0) -- Should see Green (+Y)
+	-- left side is red
+	test_pixel(10, height / 2, 1, 0, 0)
+end)
+
+-- Test 3: Look Up (+Y)
+-- Pitch -90 degrees (-pi/2) should look Up
+T.Test("Camera look up and move forward", function()
+	draw3d(function(cmd)
+		local cam = render3d.GetCamera()
+		cam:SetFOV(math.rad(120))
+		cam:SetPosition(Vec3(0, 0, 0))
+		local q = Quat()
+		q:SetAngles(Ang3(-math.pi / 2, 0, 0))
+		cam:SetPosition(cam:GetPosition() + cam:GetRotation():GetForward() * 5)
+		cam:SetRotation(q)
+		draw_faces(cmd)
+	end)
+
+	test_pixel(width / 2, height / 2, 0, 1, 0) -- Should see Green (+Y)
+	test_pixel(10, height / 2, 0, 1, 0)
+	test_pixel(width - 10, 10, 0, 1, 0)
+	test_pixel(width - 10, height / 2, 0, 1, 0)
+	test_pixel(width - 10, height - 10, 0, 1, 0)
+end)
+
+-- Test 3: Look Up (+Y)
+-- Pitch -90 degrees (-pi/2) should look Up
+T.Test("Camera look down and move forward", function()
+	draw3d(function(cmd)
+		local cam = render3d.GetCamera()
+		cam:SetFOV(math.rad(120))
+		cam:SetPosition(Vec3(0, 0, 0))
+		local q = Quat()
+		q:SetAngles(Ang3(math.pi / 2, 0, 0))
+		cam:SetPosition(cam:GetPosition() + cam:GetRotation():GetForward() * -5) -- TODO: forward is actually backward here
+		cam:SetRotation(q)
+		draw_faces(cmd)
+	end)
+
+	test_pixel(width / 2, height / 2, 1, 0.1, 1) -- Should see Magenta (-Y)
+	test_pixel(10, height / 2, 1, 0.1, 1)
+	test_pixel(width - 10, 10, 1, 0.1, 1)
+	test_pixel(width - 10, height / 2, 1, 0.1, 1)
+	test_pixel(width - 10, height - 10, 1, 0.1, 1)
+end)
+
 -- Test 4: Movement Up
 -- cam:SetPosition(cam:GetPosition() + cam:GetRotation():Up()*2)
 T.Test("Camera movement up", function()
