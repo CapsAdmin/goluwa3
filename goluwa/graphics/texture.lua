@@ -740,4 +740,87 @@ function Texture:Shade(glsl)
 	device:WaitIdle()
 end
 
+do
+	local vulkan = require("graphics.vulkan.internal.vulkan")
+
+	function Texture:Download()
+		local image = self:GetImage()
+		local width = image:GetWidth()
+		local height = image:GetHeight()
+		local format = "r8g8b8a8_unorm"
+		local current_layout = "transfer_src_optimal"
+		local bytes_per_pixel = 4 -- Assume RGBA for now
+		-- Create staging buffer
+		local device = render.GetDevice()
+		local staging_buffer = Buffer.New(
+			{
+				device = device,
+				size = width * height * bytes_per_pixel,
+				usage = "transfer_dst",
+				properties = {"host_visible", "host_coherent"},
+			}
+		)
+		-- Create command buffer for copy
+		local copy_cmd = render.GetCommandPool():AllocateCommandBuffer()
+		copy_cmd:Begin()
+		vulkan.lib.vkCmdCopyImageToBuffer(
+			copy_cmd.ptr[0],
+			image.ptr[0],
+			vulkan.vk.e.VkImageLayout(current_layout),
+			staging_buffer.ptr[0],
+			1,
+			vulkan.vk.VkBufferImageCopy(
+				{
+					bufferOffset = 0,
+					bufferRowLength = 0,
+					bufferImageHeight = 0,
+					imageSubresource = vulkan.vk.s.ImageSubresourceLayers(
+						{
+							aspectMask = "color",
+							mipLevel = 0,
+							baseArrayLayer = 0,
+							layerCount = 1,
+						}
+					),
+					imageOffset = vulkan.vk.VkOffset3D({x = 0, y = 0, z = 0}),
+					imageExtent = vulkan.vk.VkExtent3D({width = width, height = height, depth = 1}),
+				}
+			)
+		)
+		copy_cmd:End()
+		-- Submit and wait
+		local fence = Fence.New(device)
+		render.GetQueue():SubmitAndWait(device, copy_cmd, fence)
+		-- Map staging buffer and copy pixel data
+		local pixel_data = staging_buffer:Map()
+		local pixels = ffi.new("uint8_t[?]", width * height * bytes_per_pixel)
+		ffi.copy(pixels, pixel_data, width * height * bytes_per_pixel)
+		staging_buffer:Unmap()
+		return {
+			pixels = pixels,
+			width = width,
+			height = height,
+			format = format,
+			bytes_per_pixel = bytes_per_pixel,
+			size = width * height * bytes_per_pixel,
+		}
+	end
+
+	function Texture:GetPixel(x, y)
+		local image_data = self:Download()
+		local width = image_data.width
+		local height = image_data.height
+		local bytes_per_pixel = image_data.bytes_per_pixel
+
+		if x < 0 or x >= width or y < 0 or y >= height then return 0, 0, 0, 0 end
+
+		local offset = (y * width + x) * bytes_per_pixel
+		local r = image_data.pixels[offset + 0]
+		local g = image_data.pixels[offset + 1]
+		local b = image_data.pixels[offset + 2]
+		local a = image_data.pixels[offset + 3]
+		return r, g, b, a
+	end
+end
+
 return Texture

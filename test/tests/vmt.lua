@@ -55,7 +55,7 @@ end
 -- Helper function to test pixel color
 local function test_pixel(x, y, r, g, b, a, tolerance)
 	tolerance = tolerance or 0.01
-	local image_data = render.CopyImageToCPU(render.target.image, width, height, "r8g8b8a8_unorm")
+	local image_data = render.target:GetTexture():Download()
 	local r_, g_, b_, a_ = get_pixel(image_data, x, y)
 	local r_norm, g_norm, b_norm, a_norm = r_ / 255, g_ / 255, b_ / 255, a_ / 255
 	-- Check with tolerance
@@ -63,27 +63,6 @@ local function test_pixel(x, y, r, g, b, a, tolerance)
 	T(math.abs(g_norm - g))["<="](tolerance)
 	T(math.abs(b_norm - b))["<="](tolerance)
 	T(math.abs(a_norm - a))["<="](tolerance)
-end
-
--- Helper function to save screenshot
-local function save_screenshot(name)
-	local image_data = render.CopyImageToCPU(render.target.image, width, height, "r8g8b8a8_unorm")
-	local png = png_encode(width, height, "rgba")
-	local pixel_table = {}
-
-	for i = 0, image_data.size - 1 do
-		pixel_table[i + 1] = image_data.pixels[i]
-	end
-
-	png:write(pixel_table)
-	local png_data = png:getData()
-	local screenshot_dir = "./logs/screenshots"
-	fs.create_directory_recursive(screenshot_dir)
-	local screenshot_path = screenshot_dir .. "/" .. name .. ".png"
-	local file = assert(io.open(screenshot_path, "wb"))
-	file:write(png_data)
-	file:close()
-	print("Screenshot saved to: " .. screenshot_path)
 end
 
 T.Test("VMT render", function()
@@ -97,6 +76,4 @@ T.Test("VMT render", function()
 		render2d.SetTexture(mat:GetAlbedoTexture())
 		render2d.DrawRect(0, 0, 50, 50)
 	end)
-
-	save_screenshot("vmt_render_test")
 end)

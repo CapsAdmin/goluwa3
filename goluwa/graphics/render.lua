@@ -13,8 +13,10 @@ local Vec2 = require("structs.vec2")
 local vulkan_instance
 
 function render.Initialize(config)
-
-	if render.target then return end
+	if render.target then
+		render.GetDevice():WaitIdle()
+		return
+	end
 
 	config = config or {}
 	local is_headless = config.headless
@@ -149,66 +151,28 @@ function render.CreateCommandBuffer()
 	return vulkan_instance.command_pool:AllocateCommandBuffer()
 end
 
-function render.CopyImageToCPU(image, width, height, format, current_layout)
-	format = format or "r8g8b8a8_unorm"
-	current_layout = current_layout or "transfer_src_optimal"
-	local bytes_per_pixel = 4 -- Assume RGBA for now
-	local Buffer = require("graphics.vulkan.internal.buffer")
-	local Fence = require("graphics.vulkan.internal.fence")
-	-- Create staging buffer
-	local staging_buffer = Buffer.New(
-		{
-			device = vulkan_instance.device,
-			size = width * height * bytes_per_pixel,
-			usage = "transfer_dst",
-			properties = {"host_visible", "host_coherent"},
-		}
-	)
-	-- Create command buffer for copy
-	local copy_cmd = vulkan_instance.command_pool:AllocateCommandBuffer()
-	copy_cmd:Begin()
-	local vulkan = require("graphics.vulkan.internal.vulkan")
-	vulkan.lib.vkCmdCopyImageToBuffer(
-		copy_cmd.ptr[0],
-		image.ptr[0],
-		vulkan.vk.e.VkImageLayout(current_layout),
-		staging_buffer.ptr[0],
-		1,
-		vulkan.vk.VkBufferImageCopy(
-			{
-				bufferOffset = 0,
-				bufferRowLength = 0,
-				bufferImageHeight = 0,
-				imageSubresource = vulkan.vk.s.ImageSubresourceLayers(
-					{
-						aspectMask = "color",
-						mipLevel = 0,
-						baseArrayLayer = 0,
-						layerCount = 1,
-					}
-				),
-				imageOffset = vulkan.vk.VkOffset3D({x = 0, y = 0, z = 0}),
-				imageExtent = vulkan.vk.VkExtent3D({width = width, height = height, depth = 1}),
-			}
-		)
-	)
-	copy_cmd:End()
-	-- Submit and wait
-	local fence = Fence.New(vulkan_instance.device)
-	vulkan_instance.queue:SubmitAndWait(vulkan_instance.device, copy_cmd, fence)
-	-- Map staging buffer and copy pixel data
-	local pixel_data = staging_buffer:Map()
-	local pixels = ffi.new("uint8_t[?]", width * height * bytes_per_pixel)
-	ffi.copy(pixels, pixel_data, width * height * bytes_per_pixel)
-	staging_buffer:Unmap()
-	return {
-		pixels = pixels,
-		width = width,
-		height = height,
-		format = format,
-		bytes_per_pixel = bytes_per_pixel,
-		size = width * height * bytes_per_pixel,
-	}
+do
+	local png_encode = require("file_formats.png.encode")
+	local fs = require("fs")
+
+	function render.Screenshot(name)
+		local width, height = render.GetRenderImageSize():Unpack()
+		local image_data = render.target:GetTexture():Download()
+		local png = png_encode(width, height, "rgba")
+		local pixel_table = {}
+
+		for i = 0, image_data.size - 1 do
+			pixel_table[i + 1] = image_data.pixels[i]
+		end
+
+		png:write(pixel_table)
+		local screenshot_dir = "./logs/screenshots"
+		fs.create_directory_recursive(screenshot_dir)
+		local screenshot_path = screenshot_dir .. "/" .. name .. ".png"
+		local file = assert(io.open(screenshot_path, "wb"))
+		file:write(png:getData())
+		file:close()
+	end
 end
 
 return render

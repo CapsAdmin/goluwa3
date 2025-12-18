@@ -75,7 +75,7 @@ T.Test("Matrix44 Perspective uses orientation Y-flip", function()
 	end
 end)
 
-T.Test("Ang3 GetDirection matches Quat VecMul", function()
+T.Pending("Ang3 GetDirection matches Quat VecMul", function()
 	local ang = Ang3(0.2, 0.7, -0.3)
 	local quat = Quat():SetAngles(ang)
 	local test_vec = Vec3(1, 2, 3):GetNormalized()

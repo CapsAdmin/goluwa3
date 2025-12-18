@@ -52,7 +52,7 @@ end
 -- Helper function to test pixel color
 local function test_pixel(x, y, r, g, b, a, tolerance)
 	tolerance = tolerance or 0.01
-	local image_data = render.CopyImageToCPU(render.target.image, width, height, "r8g8b8a8_unorm")
+	local image_data = render.target:GetTexture():Download()
 	local r_, g_, b_, a_ = get_pixel(image_data, x, y)
 	local r_norm, g_norm, b_norm, a_norm = r_ / 255, g_ / 255, b_ / 255, a_ / 255
 	-- Check with tolerance
@@ -60,27 +60,6 @@ local function test_pixel(x, y, r, g, b, a, tolerance)
 	T(math.abs(g_norm - g))["<="](tolerance)
 	T(math.abs(b_norm - b))["<="](tolerance)
 	T(math.abs(a_norm - a))["<="](tolerance)
-end
-
--- Helper function to save screenshot
-local function save_screenshot(name)
-	local image_data = render.CopyImageToCPU(render.target.image, width, height, "r8g8b8a8_unorm")
-	local png = png_encode(width, height, "rgba")
-	local pixel_table = {}
-
-	for i = 0, image_data.size - 1 do
-		pixel_table[i + 1] = image_data.pixels[i]
-	end
-
-	png:write(pixel_table)
-	local png_data = png:getData()
-	local screenshot_dir = "./logs/screenshots"
-	fs.create_directory_recursive(screenshot_dir)
-	local screenshot_path = screenshot_dir .. "/" .. name .. ".png"
-	local file = assert(io.open(screenshot_path, "wb"))
-	file:write(png_data)
-	file:close()
-	print("Screenshot saved to: " .. screenshot_path)
 end
 
 -- ============================================================================
@@ -107,8 +86,8 @@ end)
 
 T.Test("Graphics render2d PushColor and PopColor", function()
 	init_render2d()
-	render2d.PushColor(1, 0, 0, 1)
-	render2d.SetColor(0, 1, 0, 1)
+	render2d.SetColor(1, 0, 0, 1)
+	render2d.PushColor(0, 1, 0, 1)
 	local r, g, b, a = render2d.GetColor()
 	T(r)["~"](0)
 	T(g)["~"](1)
@@ -141,8 +120,8 @@ end)
 
 T.Test("Graphics render2d PushAlphaMultiplier and PopAlphaMultiplier", function()
 	init_render2d()
-	render2d.PushAlphaMultiplier(1.0)
-	render2d.SetAlphaMultiplier(0.5)
+	render2d.SetAlphaMultiplier(1.0)
+	render2d.PushAlphaMultiplier(0.5)
 	T(render2d.GetAlphaMultiplier())["~"](0.5)
 	render2d.PopAlphaMultiplier()
 	T(render2d.GetAlphaMultiplier())["~"](1.0)
@@ -184,8 +163,7 @@ end)
 T.Test("Graphics render2d PushUV and PopUV", function()
 	init_render2d()
 	render2d.SetUV(10, 20, 30, 40, 100, 100)
-	render2d.PushUV()
-	render2d.SetUV(50, 60, 70, 80, 200, 200)
+	render2d.PushUV(50, 60, 70, 80, 200, 200)
 	local x, y, w, h, sx, sy = render2d.GetUV()
 	T(x)["=="](50)
 	T(y)["=="](60)
@@ -591,7 +569,7 @@ T.Test("Graphics render2d complex scene", function()
 	end)
 
 	T(true)["=="](true)
-	save_screenshot("render2d_complex_scene")
+	render.Screenshot("render2d_complex_scene")
 end)
 
 T.Test("Graphics render2d blend modes visual", function()
@@ -632,7 +610,6 @@ T.Test("Graphics render2d blend modes visual", function()
 	end)
 
 	T(true)["=="](true)
-	save_screenshot("render2d_blend_modes")
 end)
 
 T.Test("Graphics render2d matrix stack stress test", function()
@@ -655,7 +632,6 @@ T.Test("Graphics render2d matrix stack stress test", function()
 	end)
 
 	T(true)["=="](true)
-	save_screenshot("render2d_matrix_stress")
 end)
 
 T.Test("Graphics render2d performance test", function()
@@ -671,6 +647,5 @@ T.Test("Graphics render2d performance test", function()
 	end)
 
 	local elapsed = os.clock() - start_time
-	print(string.format("Drew 1000 rectangles in %.4f seconds", elapsed))
-	T(elapsed)["<"](5.0) -- Should complete in reasonable time
+	T(elapsed)["<"](0.1) -- Should complete in reasonable time
 end)

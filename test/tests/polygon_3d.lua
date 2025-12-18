@@ -19,90 +19,26 @@ local Matrix44 = require("structs.matrix").Matrix44
 local fs = require("fs")
 local width = 512
 local height = 512
-local initialized = false
 
 -- Helper function to initialize render3d
 local function init_render3d()
-	if not initialized then
-		render.Initialize({headless = true, width = width, height = height})
-		initialized = true
-	else
-		render.GetDevice():WaitIdle()
-	end
-
-	-- Always call Initialize - it will return early if already initialized
+	render.Initialize({headless = true, width = width, height = height})
 	render3d.Initialize()
 end
 
--- Helper function to draw with render3d
 local function draw3d(cb)
 	init_render3d()
 	local cam = render3d.GetCamera()
-	-- Set up camera with orthographic-like view for predictable testing
 	cam:SetPosition(Vec3(0, 0, -10))
 	cam:SetViewport(Rect(0, 0, width, height))
-	cam:SetFOV(math.pi / 4)
-	-- Set up basic lighting
+	cam:SetFOV(math.rad(45))
 	render3d.SetLightDirection(0.5, -1.0, 0.3)
 	render3d.SetLightColor(1.0, 1.0, 1.0, 1.0)
 	render.BeginFrame()
-	local cmd = render.GetCommandBuffer()
-	local frame_index = render.GetCurrentFrame()
-	render3d.pipeline:Bind(cmd, frame_index)
-	cb(cmd)
+	render3d.BindPipeline()
+	cb(render.GetCommandBuffer())
 	render.EndFrame()
-	-- Wait for GPU to finish rendering before pixel tests
 	render.GetDevice():WaitIdle()
-end
-
--- Helper function to get pixel color
-local function get_pixel(image_data, x, y)
-	local width = image_data.width
-	local height = image_data.height
-	local bytes_per_pixel = image_data.bytes_per_pixel
-
-	if x < 0 or x >= width or y < 0 or y >= height then return 0, 0, 0, 0 end
-
-	local offset = (y * width + x) * bytes_per_pixel
-	local r = image_data.pixels[offset + 0]
-	local g = image_data.pixels[offset + 1]
-	local b = image_data.pixels[offset + 2]
-	local a = image_data.pixels[offset + 3]
-	return r, g, b, a
-end
-
--- Helper function to test pixel color
-local function test_pixel(x, y, r, g, b, a, tolerance)
-	tolerance = tolerance or 0.01
-	local image_data = render.CopyImageToCPU(render.target.image, width, height, "r8g8b8a8_unorm")
-	local r_, g_, b_, a_ = get_pixel(image_data, x, y)
-	local r_norm, g_norm, b_norm, a_norm = r_ / 255, g_ / 255, b_ / 255, a_ / 255
-	-- Check with tolerance
-	T(math.abs(r_norm - r))["<="](tolerance)
-	T(math.abs(g_norm - g))["<="](tolerance)
-	T(math.abs(b_norm - b))["<="](tolerance)
-	T(math.abs(a_norm - a))["<="](tolerance)
-end
-
--- Helper function to save screenshot
-local function save_screenshot(name)
-	local image_data = render.CopyImageToCPU(render.target.image, width, height, "r8g8b8a8_unorm")
-	local png = png_encode(width, height, "rgba")
-	local pixel_table = {}
-
-	for i = 0, image_data.size - 1 do
-		pixel_table[i + 1] = image_data.pixels[i]
-	end
-
-	png:write(pixel_table)
-	local png_data = png:getData()
-	local screenshot_dir = "./logs/screenshots"
-	fs.create_directory_recursive(screenshot_dir)
-	local screenshot_path = screenshot_dir .. "/" .. name .. ".png"
-	local file = assert(io.open(screenshot_path, "wb"))
-	file:write(png_data)
-	file:close()
-	print("Screenshot saved to: " .. screenshot_path)
 end
 
 -- ============================================================================
@@ -348,7 +284,6 @@ T.Test("Graphics Polygon3D render cube screenshot", function()
 		render3d.SetWorldMatrix(Matrix44())
 	end)
 
-	save_screenshot("polygon_3d_cube_test")
 	T(true)["=="](true)
 end)
 

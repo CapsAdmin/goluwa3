@@ -572,6 +572,36 @@ function test.RunUntil2(condition, timeout)
 	return false -- timeout
 end
 
+function test.ScreenPixel(x, y, r, g, b, a, tolerance)
+	local render = require("graphics.render")
+	tolerance = tolerance or 0.01
+	local r_, g_, b_, a_ = render.target:GetTexture():GetPixel(x, y)
+	local r_norm, g_norm, b_norm, a_norm = r_ / 255, g_ / 255, b_ / 255, a_ / 255
+
+	if
+		math.abs(r_norm - r) > tolerance or
+		math.abs(g_norm - g) > tolerance or
+		math.abs(b_norm - b) > tolerance or
+		math.abs(a_norm - a) > tolerance
+	then
+		error(
+			string.format(
+				"Pixel (%d,%d) mismatch - Expected: (%.3f,%.3f,%.3f,%.3f), Got: (%.3f,%.3f,%.3f,%.3f)",
+				x,
+				y,
+				r,
+				g,
+				b,
+				a,
+				r_norm,
+				g_norm,
+				b_norm,
+				a_norm
+			)
+		)
+	end
+end
+
 local attest = require("helpers.attest")
 setmetatable(test, {
 	__call = function(_, val)

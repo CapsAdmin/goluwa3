@@ -52,9 +52,12 @@ return function(steam)
 
 				return lst
 			end,
-			callback = function(lst) 
+			callback = function(lst)
 				-- TODO
-				do return end
+				do
+					return
+				end
+
 				for appid, v in pairs(steam.GetMountedSourceGames()) do
 					steam.UnmountSourceGame(appid)
 				end
@@ -415,7 +418,7 @@ return function(steam)
 								and
 								not skip_addons
 							then
-								llog("mounting %s", path)
+								--llog("mounting %s", path)
 								vfs.Mount(path, nil, game_info)
 							else
 
@@ -426,12 +429,12 @@ return function(steam)
 				else
 					if not path:ends_with(".vpk/") then
 						for _, v in ipairs(vfs.Find(path .. "/maps/workshop/")) do
-							llog("mounting workshop map %s", v)
+							--llog("mounting workshop map %s", v)
 							vfs.Mount(path .. "/maps/workshop/" .. v, "maps/", game_info)
 						end
 					end
 
-					llog("mounting %s", path)
+					--llog("mounting %s", path)
 					vfs.Mount(path, nil, game_info)
 				end
 			end
@@ -441,7 +444,7 @@ return function(steam)
 					vfs.Find(lib_folder .. "workshop/content/" .. game_info.filesystem.steamappid .. "/", true)
 				) do
 					if vfs.IsFile(path .. "/temp.gma") then
-						llog("mounting workshop addon %s", path)
+						--llog("mounting workshop addon %s", path)
 						vfs.Mount(path .. "/temp.gma", nil, game_info)
 					end
 				end

@@ -13,106 +13,11 @@ local Polygon3D = require("graphics.polygon_3d")
 local Material = require("graphics.material")
 local Texture = require("graphics.texture")
 local Vec3 = require("structs.vec3")
-local Vec2 = require("structs.vec2")
 local Rect = require("structs.rect")
 local Quat = require("structs.quat")
-local Ang3 = require("structs.ang3")
 local Matrix44 = require("structs.matrix").Matrix44
-local orientation = require("orientation")
-local png_encode = require("file_formats.png.encode")
-local fs = require("fs")
 local width = 512
 local height = 512
-local initialized = false
-
-local function save_screenshot(name)
-	local image_data = render.CopyImageToCPU(render.target.image, width, height, "r8g8b8a8_unorm")
-	local png = png_encode(width, height, "rgba")
-	local pixel_table = {}
-
-	for i = 0, image_data.size - 1 do
-		pixel_table[i + 1] = image_data.pixels[i]
-	end
-
-	png:write(pixel_table)
-	local png_data = png:getData()
-	local screenshot_dir = "./logs/screenshots"
-	fs.create_directory_recursive(screenshot_dir)
-	local screenshot_path = screenshot_dir .. "/" .. name .. ".png"
-	local file = assert(io.open(screenshot_path, "wb"))
-	file:write(png_data)
-	file:close()
-	logn("Screenshot saved to: " .. screenshot_path)
-end
-
-local function init_render3d()
-	if not initialized then
-		render.Initialize({headless = true, width = width, height = height})
-		initialized = true
-	else
-		render.GetDevice():WaitIdle()
-	end
-
-	render3d.Initialize()
-end
-
-local function draw3d(cb)
-	init_render3d()
-	local cam = render3d.GetCamera()
-	cam:SetViewport(Rect(0, 0, width, height))
-	cam:SetFOV(math.rad(90))
-	render.BeginFrame()
-	local cmd = render.GetCommandBuffer()
-	cmd:SetViewport(0, 0, width, height)
-	cmd:SetScissor(0, 0, width, height)
-	local frame_index = render.GetCurrentFrame()
-	render3d.pipeline:Bind(cmd, frame_index)
-	cb(cmd)
-	render.EndFrame()
-	render.GetDevice():WaitIdle()
-end
-
-local function get_pixel_color(x, y)
-	local image_data = render.CopyImageToCPU(render.target.image, width, height, "r8g8b8a8_unorm")
-	local bytes_per_pixel = image_data.bytes_per_pixel
-	local offset = (y * width + x) * bytes_per_pixel
-	return image_data.pixels[offset + 0] / 255,
-	image_data.pixels[offset + 1] / 255,
-	image_data.pixels[offset + 2] / 255
-end
-
-local i = 0
-
-local function test_pixel(x, y, r, g, b, tolerance)
-	tolerance = tolerance or 0.1
-	local r_, g_, b_ = get_pixel_color(x, y)
-
-	if
-		math.abs(r_ - r) > tolerance or
-		math.abs(g_ - g) > tolerance or
-		math.abs(b_ - b) > tolerance
-	then
-		logn(
-			string.format(
-				"Pixel at %d, %d: expected (%.2f, %.2f, %.2f), got (%.2f, %.2f, %.2f)",
-				x,
-				y,
-				r,
-				g,
-				b,
-				r_,
-				g_,
-				b_
-			)
-		)
-	end
-
-	T(math.abs(r_ - r))["<="](tolerance)
-	T(math.abs(g_ - g))["<="](tolerance)
-	T(math.abs(b_ - b))["<="](tolerance)
-	i = i + 1
-end
-
 local colors = {
 	white = {1, 1, 1},
 	black = {0, 0, 0},
@@ -140,7 +45,7 @@ local function test_color(pos_name, color_name, tolerance)
 	local color = colors[color_name]
 	assert(pos, "invalid position: " .. tostring(pos_name))
 	assert(color, "invalid color: " .. tostring(color_name))
-	test_pixel(pos[1], pos[2], color[1], color[2], color[3], tolerance)
+	T.ScreenPixel(pos[1], pos[2], color[1], color[2], color[3], 1, tolerance or 0.1)
 end
 
 local function test_color_all(color)
@@ -246,66 +151,58 @@ local function draw_faces(cmd)
 	center_cube:Draw(cmd)
 end
 
--- Test 1: Initial orientation
--- In this engine, identity rotation looks Backward (-Z)
-T.Test("Camera initial orientation", function()
-	draw3d(function(cmd)
+local function draw3d(cb)
+	render.Initialize({headless = true, width = width, height = height})
+	render3d.Initialize()
+	local cam = render3d.GetCamera()
+	cam:SetViewport(Rect(0, 0, width, height))
+	cam:SetFOV(math.rad(90))
+	render.BeginFrame()
+	render3d.BindPipeline()
+	cb()
+	draw_faces(render.GetCommandBuffer())
+	render.EndFrame()
+	render.GetDevice():WaitIdle()
+end
+
+T.Test("Identity rotation", function()
+	draw3d(function()
 		local cam = render3d.GetCamera()
 		cam:SetPosition(Vec3(0, 0, 0))
 		cam:SetRotation(Quat(0, 0, 0, 1))
-		draw_faces(cmd)
 	end)
 
 	test_color("center", "yellow") -- Should see Yellow (-Z)
 end)
 
--- Test 1.5: Look Forward (+Z)
--- Yaw 180 degrees (pi) should look Forward
-T.Test("Camera look forward", function()
-	draw3d(function(cmd)
+local function setup_camera_angles(ang)
+	draw3d(function()
 		local cam = render3d.GetCamera()
 		cam:SetPosition(Vec3(0, 0, 0))
 		local q = Quat()
-		q:SetAngles(Ang3(0, math.pi, 0))
+		q:SetAngles(ang)
 		cam:SetRotation(q)
-		draw_faces(cmd)
 	end)
+end
 
+T.Test("Yaw 180 degrees should look Forward", function()
+	setup_camera_angles(Deg3(0, 180, 0))
 	test_color("center", "blue") -- Should see Blue (+Z)
 end)
 
--- Test 2: Look Right (+X)
--- Yaw 90 degrees (pi/2) should look Right
-T.Test("Camera look right", function()
-	draw3d(function(cmd)
-		local cam = render3d.GetCamera()
-		cam:SetPosition(Vec3(0, 0, 0))
-		local q = Quat()
-		q:SetAngles(Ang3(0, math.pi / 2, 0))
-		cam:SetRotation(q)
-		draw_faces(cmd)
-	end)
-
+-- 
+T.Test("Yaw 90 degrees should look Right", function()
+	setup_camera_angles(Deg3(0, -90, 0))
 	test_color("center", "red") -- Should see Red (+X)
 end)
 
--- Test 3: Look Up (+Y)
--- Pitch 90 degrees (pi/2) should look Up
-T.Test("Camera look up", function()
-	draw3d(function(cmd)
-		local cam = render3d.GetCamera()
-		cam:SetPosition(Vec3(0, 0, 0))
-		local q = Quat()
-		q:SetAngles(Ang3(math.pi / 2, 0, 0))
-		cam:SetRotation(q)
-		draw_faces(cmd)
-	end)
-
+T.Test("Pitch 90 degrees should look Up", function()
+	setup_camera_angles(Deg3(90, 0, 0))
 	test_color("center", "green")
 end)
 
 T.Test("Camera look left and up", function()
-	draw3d(function(cmd)
+	draw3d(function()
 		local cam = render3d.GetCamera()
 		cam:SetFOV(math.rad(120))
 		cam:SetPosition(Vec3(0, 0, 0))
@@ -314,15 +211,13 @@ T.Test("Camera look left and up", function()
 		q:RotateYaw(math.rad(90)) -- Turn Left
 		q:RotatePitch(math.rad(90)) -- Look Up
 		cam:SetRotation(q)
-		draw_faces(cmd)
 	end)
 
-	save_screenshot("camera_look_left_and_up")
 	test_color("center", "green")
 end)
 
 T.Test("Camera look left and up", function()
-	draw3d(function(cmd)
+	draw3d(function()
 		local cam = render3d.GetCamera()
 		cam:SetFOV(math.rad(120))
 		cam:SetPosition(Vec3(0, 0, 0))
@@ -331,94 +226,68 @@ T.Test("Camera look left and up", function()
 		q:RotateYaw(math.rad(180)) -- Turn Backward (to Forward)
 		q:RotatePitch(math.rad(90)) -- Look Up
 		cam:SetRotation(q)
-		draw_faces(cmd)
 	end)
 
-	save_screenshot("camera_look_left_and_up")
-	test_color("center", "green") -- Should see Green (+Y)
-	-- left side is red
+	test_color("center", "green")
 	test_color("left_center", "red")
 end)
 
--- Test 3: Look Up (+Y)
--- Pitch 90 degrees (pi/2) should look Up
 T.Test("Camera look up and move forward", function()
-	draw3d(function(cmd)
+	draw3d(function()
 		local cam = render3d.GetCamera()
 		cam:SetFOV(math.rad(120))
-		cam:SetPosition(Vec3(0, 0, 0))
-		local q = Quat()
-		q:SetAngles(Ang3(math.pi / 2, 0, 0))
-		cam:SetRotation(q)
-		cam:SetPosition(cam:GetPosition() + cam:GetRotation():GetForward() * 5)
-		draw_faces(cmd)
+		cam:SetRotation(Quat():SetAngles(Deg3(90, 0, 0)))
+		cam:SetPosition(cam:GetRotation():GetForward() * 5)
 	end)
 
-	-- Should see Green (+Y)
 	test_color_all("green")
 end)
 
--- Test 3: Look Up (+Y)
--- Pitch -90 degrees (-pi/2) should look Down
-T.Test("Camera look down and move forward", function()
-	draw3d(function(cmd)
+T.Test("Pitch -90 degrees should look Down", function()
+	draw3d(function()
 		local cam = render3d.GetCamera()
 		cam:SetFOV(math.rad(120))
-		cam:SetPosition(Vec3(0, 0, 0))
-		local q = Quat()
-		q:SetAngles(Ang3(-math.pi / 2, 0, 0))
-		cam:SetRotation(q)
-		cam:SetPosition(cam:GetPosition() + cam:GetRotation():GetForward() * 5)
-		draw_faces(cmd)
+		cam:SetRotation(Quat():SetAngles(Deg3(-90, 0, 0)))
+		cam:SetPosition(cam:GetRotation():GetForward() * 5)
 	end)
 
-	-- Should see Magenta (-Y)
 	test_color_all("magenta")
 end)
 
--- Test 4: Movement Up
--- cam:SetPosition(cam:GetPosition() + cam:GetRotation():Up()*2)
 T.Test("Camera movement up", function()
-	draw3d(function(cmd)
+	draw3d(function()
 		local cam = render3d.GetCamera()
 		cam:SetPosition(Vec3(0, 0, 0))
-		cam:SetRotation(Quat(0, 0, 0, 1)) -- Looking Forward (-Z)
+		cam:SetRotation(Quat(0, 0, 0, 1))
 		local up = cam:GetRotation():Up()
 		T(up.x)["=="](0)
 		T(up.y)["=="](1)
 		T(up.z)["=="](0)
 		cam:SetPosition(cam:GetPosition() + up * 5)
 		T(cam:GetPosition().y)["=="](5)
-		draw_faces(cmd)
 	end)
 
-	-- If we moved UP, the Forward face (-Z) should appear shifted DOWN in the view.
-	-- The center should still be Yellow (-Z)
 	test_color("center", "yellow")
-	-- The top of the screen should now show more of the Green ceiling (+Y)
 	test_color("top_center", "green")
 end)
 
 T.Test("Camera movement backward", function()
-	draw3d(function(cmd)
+	draw3d(function()
 		local cam = render3d.GetCamera()
 		cam:SetFOV(math.rad(120))
 		cam:SetPosition(Vec3(0, 0, 0))
 		cam:SetPosition(Vec3(0, 0, 5))
-		draw_faces(cmd)
 	end)
 
-	-- see the white box
 	test_color("center", "white")
 end)
 
 T.Test("Camera movement left", function()
-	draw3d(function(cmd)
+	draw3d(function()
 		local cam = render3d.GetCamera()
 		cam:SetFOV(math.rad(120))
 		cam:SetPosition(Vec3(0, 0, 0))
 		cam:SetPosition(Vec3(-10, 0, 0))
-		draw_faces(cmd)
 	end)
 
 	-- left half of the screen should be black
@@ -431,40 +300,31 @@ T.Test("Camera movement left", function()
 	test_color("bottom_right", "magenta")
 end)
 
--- Test 6: Camera Roll
 T.Test("Camera roll", function()
-	draw3d(function(cmd)
+	draw3d(function()
 		local cam = render3d.GetCamera()
 		cam:SetFOV(math.rad(120))
-		cam:SetPosition(Vec3(0, 0, 5)) -- Back up a bit to see the center cube
+		cam:SetPosition(Vec3(0, 0, 5))
 		local q = Quat()
-		-- Look at origin (Forward -Z) and roll 90 degrees
-		q:SetAngles(Ang3(0, 0, -math.pi / 2))
+		q:SetAngles(Deg3(0, 0, -90))
 		cam:SetRotation(q)
-		draw_faces(cmd)
 	end)
 
-	-- With 90 degree roll, the "Up" direction is now "Left".
-	-- The Green ceiling (+Y) should now be on the LEFT side of the screen.
 	test_color("left_center", "green")
 end)
 
--- Test 7: FOV Change
 T.Pending("Camera FOV change", function()
 	local pixels_90, pixels_45
 
-	-- 90 degree FOV
-	draw3d(function(cmd)
+	draw3d(function()
 		local cam = render3d.GetCamera()
 		cam:SetFOV(math.rad(90))
 		cam:SetPosition(Vec3(0, 0, 5))
-		cam:SetRotation(Quat(0, 0, 0, 1)) -- Look at center cube (at origin, identity looks -Z)
-		draw_faces(cmd)
+		cam:SetRotation(Quat(0, 0, 0, 1))
 	end)
 
-	test_color("center", "white") -- Should see white center cube
-	-- Count white pixels of the center cube
-	local image_data = render.CopyImageToCPU(render.target.image, width, height, "r8g8b8a8_unorm")
+	test_color("center", "white")
+	local image_data = render.target:GetTexture():Download()
 	pixels_90 = 0
 
 	for i = 0, image_data.size - 1, 4 do
@@ -477,17 +337,15 @@ T.Pending("Camera FOV change", function()
 		end
 	end
 
-	-- 45 degree FOV
-	draw3d(function(cmd)
+	draw3d(function()
 		local cam = render3d.GetCamera()
 		cam:SetFOV(math.rad(45))
 		cam:SetPosition(Vec3(0, 0, 5))
 		cam:SetRotation(Quat(0, 0, 0, 1))
-		draw_faces(cmd)
 	end)
 
 	test_color("center", "white")
-	local image_data = render.CopyImageToCPU(render.target.image, width, height, "r8g8b8a8_unorm")
+	local image_data = render.target:GetTexture():Download()
 	pixels_45 = 0
 
 	for i = 0, image_data.size - 1, 4 do
@@ -500,38 +358,29 @@ T.Pending("Camera FOV change", function()
 		end
 	end
 
-	-- 45 degree FOV should have significantly more pixels for the same object (approx 4x more area)
 	T(pixels_45)[">"](pixels_90 * 2)
 end)
 
--- Test 8: Near Plane Clipping
 T.Test("Camera near plane clipping", function()
-	draw3d(function(cmd)
+	draw3d(function()
 		local cam = render3d.GetCamera()
 		cam:SetNearZ(2.0)
 		cam:SetPosition(Vec3(0, 0, 1)) -- 1 unit away from center cube
 		cam:SetRotation(Quat(0, 0, 0, 1)) -- Look at center cube
-		draw_faces(cmd)
 	end)
 
-	-- Center cube is at origin, camera is at Z=1, near plane is at 2.
-	-- So the cube (at distance 1) should be clipped and we should see the Yellow face (-Z) behind it.
 	test_color("center", "yellow")
 end)
 
--- Test 9: Far Plane Clipping
 T.Test("Camera far plane clipping", function()
-	draw3d(function(cmd)
+	draw3d(function()
 		local cam = render3d.GetCamera()
 		cam:SetFarZ(10 - 0.1) -- Just before the Yellow face
 		cam:SetFOV(math.rad(120))
 		cam:SetPosition(Vec3(0, 0, 0))
 		cam:SetRotation(Quat(0, 0, 0, 1)) -- Look at Yellow face (-Z)
-		draw_faces(cmd)
 	end)
 
-	-- Yellow face is at Z=-10, camera at Z=0, FarZ=5.
-	-- Yellow face should be clipped (not rendered).
 	test_color("center", "black") -- center is clipped, so black
 	test_color("top_center", "green") -- top is green
 	test_color("bottom_center", "magenta") -- bottom is magenta
@@ -539,17 +388,15 @@ T.Test("Camera far plane clipping", function()
 	test_color("right_center", "red") -- right is red
 end)
 
--- Test 10: Orbiting
 T.Pending("Camera orbiting", function()
 	for angle = 0, math.pi * 2 - 0.1, math.pi / 2 do
-		draw3d(function(cmd)
+		draw3d(function()
 			local cam = render3d.GetCamera()
 			local radius = 5
 			local x = math.sin(angle) * radius
 			local z = math.cos(angle) * radius
 			cam:SetPosition(Vec3(x, 0, z))
-			cam:SetAngles(Ang3(0, angle, 0))
-			draw_faces(cmd)
+			cam:SetAngles(Deg3(0, angle, 0))
 		end)
 
 		test_color("center", "white") -- Should always see the white center cube

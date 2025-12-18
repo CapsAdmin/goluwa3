@@ -260,6 +260,10 @@ function ImageRenderTarget:GetImage()
 	return self.textures[self.texture_index]:GetImage()
 end
 
+function ImageRenderTarget:GetTexture()
+	return self.textures[self.texture_index]
+end
+
 function ImageRenderTarget:GetColorFormat()
 	return self.color_format
 end
