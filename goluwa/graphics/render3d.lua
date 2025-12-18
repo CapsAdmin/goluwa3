@@ -469,6 +469,10 @@ do
 	render3d.camera = Camera3D.New()
 	render3d.world_matrix = Matrix44()
 
+	function render3d.GetCamera()
+		return render3d.camera
+	end
+
 	function render3d.SetWorldMatrix(world)
 		render3d.world_matrix = world
 	end

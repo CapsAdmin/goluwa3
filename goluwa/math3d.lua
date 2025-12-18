@@ -1,4 +1,6 @@
-local math3d = _G.math3d or {}
+--local render3d = require("graphics.render3d")
+--local cam = render3d.GetCamera()
+local math3d = {}
 
 function math3d.BilerpVec3(a, b, c, d, alpha1, alpha2)
 	return a:GetLerped(alpha1, b):Lerp(alpha2, c:GetLerped(alpha1, d))
@@ -42,7 +44,7 @@ end
 
 function math3d.LinePlaneIntersection(pos, normal, screen_pos)
 	local ln = math3d.ScreenToWorldDirection(screen_pos)
-	local lp = render3d.camera:GetPosition() - pos
+	local lp = cam:GetPosition() - pos
 	local t = lp:GetDot(normal) / ln:GetDot(normal)
 
 	if t < 0 then return lp + ln * -t end
@@ -57,9 +59,9 @@ function math3d.PointToAxis(pos, axis, screen_pos)
 end
 
 function math3d.ScreenToWorldDirection(screen_pos, cam_pos, cam_ang, cam_fov, screen_width, screen_height)
-	cam_pos = cam_pos or render3d.camera:GetPosition()
-	cam_ang = cam_ang or render3d.camera:GetAngles()
-	cam_fov = cam_fov or render3d.camera:GetFOV()
+	cam_pos = cam_pos or cam:GetPosition()
+	cam_ang = cam_ang or cam:GetAngles()
+	cam_fov = cam_fov or cam:GetFOV()
 	screen_width = screen_width or render.GetWidth()
 	screen_height = screen_height or render.GetHeight()
 	--This code works by basically treating the camera like a frustrum of a pyramid.
@@ -86,11 +88,11 @@ function math3d.ScreenToWorldDirection(screen_pos, cam_pos, cam_ang, cam_fov, sc
 end
 
 function math3d.WorldPositionToScreen(position, cam_pos, cam_ang, screen_width, screen_height, cam_fov)
-	cam_pos = cam_pos or render3d.camera:GetPosition()
-	cam_ang = cam_ang or render3d.camera:GetAngles()
+	cam_pos = cam_pos or cam:GetPosition()
+	cam_ang = cam_ang or cam:GetAngles()
 	screen_width = screen_width or render.GetWidth()
 	screen_height = screen_height or render.GetHeight()
-	cam_fov = cam_fov or render3d.camera:GetFOV()
+	cam_fov = cam_fov or cam:GetFOV()
 	local dir = cam_pos - position
 	dir:Normalize()
 	--Same as we did above, we found distance the camera to a rectangular slice of the camera's frustrum, whose width equals the "4:3" width corresponding to the given screen height.

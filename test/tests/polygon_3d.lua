@@ -37,10 +37,11 @@ end
 -- Helper function to draw with render3d
 local function draw3d(cb)
 	init_render3d()
+	local cam = render3d.GetCamera()
 	-- Set up camera with orthographic-like view for predictable testing
-	render3d.camera:SetPosition(Vec3(0, 0, -10))
-	render3d.camera:SetViewport(Rect(0, 0, width, height))
-	render3d.camera:SetFOV(math.pi / 4)
+	cam:SetPosition(Vec3(0, 0, -10))
+	cam:SetViewport(Rect(0, 0, width, height))
+	cam:SetFOV(math.pi / 4)
 	-- Set up basic lighting
 	render3d.SetLightDirection(0.5, -1.0, 0.3)
 	render3d.SetLightColor(1.0, 1.0, 1.0, 1.0)

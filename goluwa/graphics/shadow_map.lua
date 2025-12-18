@@ -208,8 +208,10 @@ end
 -- Update all cascade light matrices for cascaded shadow mapping
 -- view_camera: the main view camera to calculate frustum splits from
 -- light_direction: normalized direction of the directional light
+local cam = render3d.GetCamera()
+
 function ShadowMap:UpdateCascadeLightMatrices(light_direction)
-	self:CalculateCascadeSplits(render3d.camera:GetNearZ(), render3d.camera:GetFarZ())
+	self:CalculateCascadeSplits(cam:GetNearZ(), cam:GetFarZ())
 
 	for cascade_idx = 1, self.cascade_count do
 		-- Each cascade covers a larger area
@@ -218,13 +220,13 @@ function ShadowMap:UpdateCascadeLightMatrices(light_direction)
 		local cascade_ortho_size = self.ortho_size * (0.5 + cascade_scale * 1.5)
 		-- Calculate where the shadow map should be centered
 		-- Start at camera position, then offset toward where they're looking
-		local shadow_center = render3d.camera:GetPosition()
+		local shadow_center = cam:GetPosition()
 
 		if false then
 			-- Offset the shadow center forward based on camera yaw
 			-- Bias more forward for closer cascades
 			local forward_offset = cascade_ortho_size * (0.5 + (1 - cascade_scale) * 0.4)
-			local yaw = render3d.camera:GetAngles().y
+			local yaw = cam:GetAngles().y
 			local forward_x = math.cos(yaw) * forward_offset
 			local forward_y = math.sin(yaw) * forward_offset
 			shadow_center = shadow_center + Vec3(forward_x, forward_y, 0)

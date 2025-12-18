@@ -18,7 +18,7 @@ local sun, sun_entity = Light.CreateDirectional(
 	}
 )
 render3d.SetSunLight(sun)
-render3d.camera:SetFOV(1.2)
+render3d.GetCamera():SetFOV(1.2)
 
 do
 	local Vec3 = require("structs.vec3")

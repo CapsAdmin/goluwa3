@@ -17,8 +17,9 @@ function events.Draw2D.debug_info(dt)
 	local x = 10
 	render2d.SetTexture(nil)
 	-- Camera info
-	local pos = render3d.camera:GetPosition()
-	local rot = render3d.camera:GetRotation()
+	local cam = render3d.GetCamera()
+	local pos = cam:GetPosition()
+	local rot = cam:GetRotation()
 	render2d.SetColor(1, 1, 1, 1)
 	gfx.DrawText(string.format("Camera Pos: X=%.1f  Y=%.1f  Z=%.1f", pos.x, pos.y, pos.z), x, y)
 	y = y + 20

@@ -56,9 +56,10 @@ end
 -- Use quaternion for rotation to avoid gimbal lock
 local pitch = 0 -- Track pitch angle for clamping
 function events.Update.camera_movement(dt)
-	local rotation = render3d.camera:GetRotation()
-	local position = render3d.camera:GetPosition()
-	local cam_fov = render3d.camera:GetFOV()
+	local cam = render3d.GetCamera()
+	local rotation = cam:GetRotation()
+	local position = cam:GetPosition()
+	local cam_fov = cam:GetFOV()
 	local speed = dt * get_speed_multiplier()
 	local mouse_delta = window.GetMouseDelta() / 2 -- Mouse sensitivity
 	if input.IsKeyDown("r") then
@@ -145,7 +146,7 @@ function events.Update.camera_movement(dt)
 	end
 
 	position = position + ((forward + right + up) * speed)
-	render3d.camera:SetFOV(cam_fov)
-	render3d.camera:SetPosition(position)
-	render3d.camera:SetRotation(rotation)
+	cam:SetFOV(cam_fov)
+	cam:SetPosition(position)
+	cam:SetRotation(rotation)
 end

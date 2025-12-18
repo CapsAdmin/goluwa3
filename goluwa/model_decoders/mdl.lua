@@ -842,6 +842,6 @@ if RELOAD then
 	local mdl = "models/props_interiors/sinkkitchen01a.mdl"
 	local mdl = "models/inventory_items/trophy_majors.mdl"
 	ent:SetModelPath(mdl)
-	ent:SetPosition(render3d.camera:GetPosition() + render3d.camera:GetAngles():GetForward() * 3)
+	ent:SetPosition(render3d.GetCamera():GetPosition() + render3d.GetCamera():GetAngles():GetForward() * 3)
 	utility.PopTimeWarning("mdl", 0)
 end
