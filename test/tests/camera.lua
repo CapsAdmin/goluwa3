@@ -113,6 +113,44 @@ local function test_pixel(x, y, r, g, b, tolerance)
 	i = i + 1
 end
 
+local colors = {
+	white = {1, 1, 1},
+	black = {0, 0, 0},
+	red = {1, 0, 0},
+	green = {0, 1, 0},
+	blue = {0, 0, 1},
+	yellow = {1, 1, 0},
+	magenta = {1, 0.1, 1},
+	cyan = {0, 1, 1},
+}
+local positions = {
+	center = {width / 2, height / 2},
+	top_center = {width / 2, 10},
+	left_center = {10, height / 2},
+	right_center = {width - 10, height / 2},
+	bottom_center = {width / 2, height - 10},
+	top_left = {10, 10},
+	top_right = {width - 10, 10},
+	bottom_left = {10, height - 10},
+	bottom_right = {width - 10, height - 10},
+}
+
+local function test_color(pos_name, color_name, tolerance)
+	local pos = positions[pos_name]
+	local color = colors[color_name]
+	assert(pos, "invalid position: " .. tostring(pos_name))
+	assert(color, "invalid color: " .. tostring(color_name))
+	test_pixel(pos[1], pos[2], color[1], color[2], color[3], tolerance)
+end
+
+local function test_color_all(color)
+	test_color("center", color)
+	test_color("left_center", color)
+	test_color("top_right", color)
+	test_color("right_center", color)
+	test_color("bottom_right", color)
+end
+
 local white_tex
 
 -- Create 6 quads for the inverted cube
@@ -218,7 +256,7 @@ T.Test("Camera initial orientation", function()
 		draw_faces(cmd)
 	end)
 
-	test_pixel(width / 2, height / 2, 1, 1, 0) -- Should see Yellow (-Z)
+	test_color("center", "yellow") -- Should see Yellow (-Z)
 end)
 
 -- Test 1.5: Look Forward (+Z)
@@ -233,7 +271,7 @@ T.Test("Camera look forward", function()
 		draw_faces(cmd)
 	end)
 
-	test_pixel(width / 2, height / 2, 0, 0, 1) -- Should see Blue (+Z)
+	test_color("center", "blue") -- Should see Blue (+Z)
 end)
 
 -- Test 2: Look Right (+X)
@@ -248,7 +286,7 @@ T.Test("Camera look right", function()
 		draw_faces(cmd)
 	end)
 
-	test_pixel(width / 2, height / 2, 1, 0, 0) -- Should see Red (+X)
+	test_color("center", "red") -- Should see Red (+X)
 end)
 
 -- Test 3: Look Up (+Y)
@@ -263,7 +301,7 @@ T.Test("Camera look up", function()
 		draw_faces(cmd)
 	end)
 
-	test_pixel(width / 2, height / 2, 0, 1, 0) -- Should see Green (+Y)
+	test_color("center", "green") -- Should see Green (+Y)
 end)
 
 T.Test("Camera look left and up", function()
@@ -280,7 +318,7 @@ T.Test("Camera look left and up", function()
 	end)
 
 	save_screenshot("camera_look_left_and_up")
-	test_pixel(width / 2, height / 2, 0, 1, 0) -- Should see Green (+Y)
+	test_color("center", "green") -- Should see Green (+Y)
 end)
 
 T.Test("Camera look left and up", function()
@@ -297,9 +335,9 @@ T.Test("Camera look left and up", function()
 	end)
 
 	save_screenshot("camera_look_left_and_up")
-	test_pixel(width / 2, height / 2, 0, 1, 0) -- Should see Green (+Y)
+	test_color("center", "green") -- Should see Green (+Y)
 	-- left side is red
-	test_pixel(10, height / 2, 1, 0, 0)
+	test_color("left_center", "red")
 end)
 
 -- Test 3: Look Up (+Y)
@@ -316,11 +354,8 @@ T.Test("Camera look up and move forward", function()
 		draw_faces(cmd)
 	end)
 
-	test_pixel(width / 2, height / 2, 0, 1, 0) -- Should see Green (+Y)
-	test_pixel(10, height / 2, 0, 1, 0)
-	test_pixel(width - 10, 10, 0, 1, 0)
-	test_pixel(width - 10, height / 2, 0, 1, 0)
-	test_pixel(width - 10, height - 10, 0, 1, 0)
+	-- Should see Green (+Y)
+	test_color_all("green")
 end)
 
 -- Test 3: Look Up (+Y)
@@ -337,11 +372,8 @@ T.Test("Camera look down and move forward", function()
 		draw_faces(cmd)
 	end)
 
-	test_pixel(width / 2, height / 2, 1, 0.1, 1) -- Should see Magenta (-Y)
-	test_pixel(10, height / 2, 1, 0.1, 1)
-	test_pixel(width - 10, 10, 1, 0.1, 1)
-	test_pixel(width - 10, height / 2, 1, 0.1, 1)
-	test_pixel(width - 10, height - 10, 1, 0.1, 1)
+	-- Should see Magenta (-Y)
+	test_color_all("magenta")
 end)
 
 -- Test 4: Movement Up
@@ -363,9 +395,9 @@ T.Test("Camera movement up", function()
 
 	-- If we moved UP, the Backward face (-Z) should appear shifted DOWN in the view.
 	-- The center should still be Yellow (-Z)
-	test_pixel(width / 2, height / 2, 1, 1, 0)
+	test_color("center", "yellow")
 	-- The top of the screen should now show more of the Green ceiling (+Y)
-	test_pixel(width / 2, 10, 0, 1, 0)
+	test_color("top_center", "green")
 end)
 
 T.Test("Camera movement backward", function()
@@ -378,7 +410,7 @@ T.Test("Camera movement backward", function()
 	end)
 
 	-- see the white box
-	test_pixel(width / 2, height / 2, 1, 1, 1)
+	test_color("center", "white")
 end)
 
 T.Test("Camera movement left", function()
@@ -395,10 +427,10 @@ T.Test("Camera movement left", function()
 	-- top right should be green 
 	-- right should be yellow 
 	-- bottom right should be magenta
-	test_pixel(10, height / 2, 0, 0, 0)
-	test_pixel(width - 10, 10, 0, 1, 0)
-	test_pixel(width - 10, height / 2, 1, 1, 0)
-	test_pixel(width - 10, height - 10, 1, 0.11, 1)
+	test_color("left_center", "black")
+	test_color("top_right", "green")
+	test_color("right_center", "yellow")
+	test_color("bottom_right", "magenta")
 end)
 
 -- Test 6: Camera Roll
@@ -417,7 +449,7 @@ T.Test("Camera roll", function()
 
 	-- With 90 degree roll, the "Up" direction is now "Left".
 	-- The Green ceiling (+Y) should now be on the LEFT side of the screen.
-	test_pixel(10, height / 2, 0, 1, 0)
+	test_color("left_center", "green")
 end)
 
 -- Test 7: FOV Change
@@ -433,7 +465,7 @@ T.Pending("Camera FOV change", function()
 		draw_faces(cmd)
 	end)
 
-	test_pixel(width / 2, height / 2, 1, 1, 1) -- Should see white center cube
+	test_color("center", "white") -- Should see white center cube
 	-- Count white pixels of the center cube
 	local image_data = render.CopyImageToCPU(render.target.image, width, height, "r8g8b8a8_unorm")
 	pixels_90 = 0
@@ -457,7 +489,7 @@ T.Pending("Camera FOV change", function()
 		draw_faces(cmd)
 	end)
 
-	test_pixel(width / 2, height / 2, 1, 1, 1)
+	test_color("center", "white")
 	local image_data = render.CopyImageToCPU(render.target.image, width, height, "r8g8b8a8_unorm")
 	pixels_45 = 0
 
@@ -487,7 +519,7 @@ T.Test("Camera near plane clipping", function()
 
 	-- Center cube is at origin, camera is at Z=1, near plane is at 2.
 	-- So the cube (at distance 1) should be clipped and we should see the Yellow face (-Z) behind it.
-	test_pixel(width / 2, height / 2, 1, 1, 0)
+	test_color("center", "yellow")
 end)
 
 -- Test 9: Far Plane Clipping
@@ -503,11 +535,11 @@ T.Test("Camera far plane clipping", function()
 
 	-- Yellow face is at Z=-10, camera at Z=0, FarZ=5.
 	-- Yellow face should be clipped (not rendered).
-	test_pixel(width / 2, height / 2, 0, 0, 0) -- center is clipped, so black
-	test_pixel(width / 2, 1, 0, 1, 0) -- top is green
-	test_pixel(width / 2, height - 2, 1, 0, 1) -- bottom is magenta
-	test_pixel(1, height / 2, 0, 1, 1) -- left is cyan
-	test_pixel(width - 2, height / 2, 1, 0, 0) -- right is red
+	test_color("center", "black") -- center is clipped, so black
+	test_color("top_center", "green") -- top is green
+	test_color("bottom_center", "magenta") -- bottom is magenta
+	test_color("left_center", "cyan") -- left is cyan
+	test_color("right_center", "red") -- right is red
 end)
 
 -- Test 10: Orbiting
@@ -523,6 +555,6 @@ T.Pending("Camera orbiting", function()
 			draw_faces(cmd)
 		end)
 
-		test_pixel(width / 2, height / 2, 1, 1, 1) -- Should always see the white center cube
+		test_color("center", "white") -- Should always see the white center cube
 	end
 end)
