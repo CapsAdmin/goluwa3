@@ -181,7 +181,7 @@ function attest.AssertHelper(val)
 					elseif op == "<=" then
 						attest.less_or_equal(val, expected, LEVEL)
 					elseif op == "~" or op == "close" then
-						attest.almost_equal(val, expected, LEVEL)
+						attest.almost_equal(val, expected, nil, LEVEL)
 					elseif op == "match" then
 						attest.match(val, expected, LEVEL)
 					elseif op == "contains" then
