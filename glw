@@ -1,10 +1,11 @@
-#! /usr/bin/env luajit
+#!/usr/bin/env luajit
 
 require("goluwa.global_environment")
 
 if ... == "-e" then
 	local lua = select(2, ...)
 	assert(loadstring(lua))()
+	return
 else
 	local path = ...
 

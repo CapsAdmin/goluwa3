@@ -464,85 +464,92 @@ function render3d.Initialize()
 	end
 end
 
-local camera_fov = math.pi / 2
-local camera_zoom = 1
-local camera_near_z = 0.1
-local camera_far_z = 32000
-local camera_viewport = Rect(0, 0, 1000, 1000)
-local camera_world = Matrix44()
-local camera_view = Matrix44()
-
-function render3d.GetProjectionMatrix()
-	if render3d.projection_matrix then return render3d.projection_matrix end
-
-	render3d.projection_matrix = Matrix44()
-	render3d.projection_matrix:SetTranslation(camera_viewport.x, camera_viewport.y, 0)
-	render3d.projection_matrix:Perspective(camera_fov, camera_near_z, camera_far_z, camera_viewport.w / camera_viewport.h)
-	return render3d.projection_matrix
-end
-
-function render3d.GetViewMatrix()
-	return camera_view
-end
-
-function render3d.SetViewMatrix(view)
-	camera_view = view
-end
-
 do
-	local cached = Matrix44()
+	local camera_fov = math.pi / 2
+	local camera_near_z = 0.1
+	local camera_far_z = 32000
+	local camera_viewport = Rect(0, 0, 1000, 1000)
+	local camera_world = Matrix44()
+	local camera_view = Matrix44()
 
-	function render3d.GetProjectionViewWorldMatrix()
-		-- ORIENTATION / TRANSFORMATION: Coordinate system defined in orientation.lua
-		render3d.GetProjectionMatrix():GetMultiplied(render3d.GetViewMatrix(), cached)
-		cached:GetMultiplied(camera_world, cached)
-		return cached
+	do
+		function render3d.GetViewMatrix()
+			return camera_view
+		end
+
+		function render3d.SetViewMatrix(view)
+			camera_view = view
+		end
+
+		function render3d.GetProjectionMatrix()
+			if render3d.projection_matrix then return render3d.projection_matrix end
+
+			render3d.projection_matrix = Matrix44()
+			render3d.projection_matrix:SetTranslation(camera_viewport.x, camera_viewport.y, 0)
+			render3d.projection_matrix:Perspective(camera_fov, camera_near_z, camera_far_z, camera_viewport.w / camera_viewport.h)
+			return render3d.projection_matrix
+		end
+
+		do
+			local cached = Matrix44()
+
+			function render3d.GetProjectionViewWorldMatrix()
+				-- ORIENTATION / TRANSFORMATION: Coordinate system defined in orientation.lua
+				render3d.GetProjectionMatrix():GetMultiplied(render3d.GetViewMatrix(), cached)
+				cached:GetMultiplied(camera_world, cached)
+				return cached
+			end
+		end
+
+		function render3d.SetWorldMatrix(world)
+			camera_world = world
+		end
+
+		function render3d.GetWorldMatrix()
+			return camera_world
+		end
 	end
-end
 
-function render3d.SetWorldMatrix(world)
-	camera_world = world
-end
+	function render3d.GetCameraPosition()
+		return Vec3(camera_view:GetTranslation())
+	end
 
-function render3d.GetCameraPosition()
-	return Vec3(camera_view:GetTranslation())
-end
+	function render3d.GetCameraAngles()
+		return camera_view:GetAngles()
+	end
 
-function render3d.GetCameraAngles()
-	return camera_view:GetAngles()
-end
+	function render3d.GetCameraRotation()
+		return camera_view:GetRotation()
+	end
 
-function render3d.GetCameraRotation()
-	return camera_view:GetRotation()
-end
+	function render3d.GetCameraFOV()
+		return camera_fov
+	end
 
-function render3d.GetCameraFOV()
-	return camera_fov
-end
+	function render3d.SetCameraFOV(fov)
+		camera_fov = fov
+		render3d.projection_matrix = nil
+	end
 
-function render3d.SetCameraFOV(fov)
-	camera_fov = fov
-	render3d.projection_matrix = nil
-end
+	function render3d.GetCameraNearZ()
+		return camera_near_z
+	end
 
-function render3d.GetCameraNearZ()
-	return camera_near_z
-end
+	function render3d.GetCameraFarZ()
+		return camera_far_z
+	end
 
-function render3d.GetCameraFarZ()
-	return camera_far_z
-end
+	function render3d.GetCameraViewport()
+		return camera_viewport
+	end
 
-function render3d.GetCameraViewport()
-	return camera_viewport
-end
-
-function render3d.SetCameraViewport(x, y, w, h)
-	camera_viewport.x = x
-	camera_viewport.y = y
-	camera_viewport.w = w
-	camera_viewport.h = h
-	render3d.projection_matrix = nil
+	function render3d.SetCameraViewport(x, y, w, h)
+		camera_viewport.x = x
+		camera_viewport.y = y
+		camera_viewport.w = w
+		camera_viewport.h = h
+		render3d.projection_matrix = nil
+	end
 end
 
 function render3d.SetLightDirection(x, y, z)
@@ -620,7 +627,7 @@ do
 	function render3d.UploadConstants(cmd)
 		do
 			vertex_constants.projection_view_world = render3d.GetProjectionViewWorldMatrix():GetFloatCopy()
-			vertex_constants.world = camera_world:GetFloatCopy()
+			vertex_constants.world = render3d.GetWorldMatrix():GetFloatCopy()
 			render3d.pipeline:PushConstants(cmd, "vertex", 0, vertex_constants)
 		end
 
