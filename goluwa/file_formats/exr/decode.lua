@@ -56,37 +56,37 @@ local function read_null_terminated_string(buffer)
 end
 
 local function predictor(data, size)
+	local ptr = ffi.cast("uint8_t*", data)
+
 	for i = 1, size - 1 do
-		local d = data[i - 1] + data[i] - 128
-		data[i] = bit.band(d, 0xFF)
+		ptr[i] = bit.band(ptr[i] + ptr[i - 1] - 128, 0xFF)
 	end
 end
 
+local reorder_tmp = nil
+local reorder_tmp_size = 0
+
 local function reorder(data, size)
-	local out = ffi.new("uint8_t[?]", size)
+	if not reorder_tmp or reorder_tmp_size < size then
+		reorder_tmp = ffi.new("uint8_t[?]", size)
+		reorder_tmp_size = size
+	end
+
+	local src = ffi.cast("uint8_t*", data)
 	local t1 = 0
 	local t2 = math.floor((size + 1) / 2)
-	local s = 0
 
-	while true do
-		if s < size then
-			out[s] = data[t1]
-			t1 = t1 + 1
-			s = s + 1
-		else
-			break
-		end
+	for i = 0, size - 1, 2 do
+		reorder_tmp[i] = src[t1]
+		t1 = t1 + 1
 
-		if s < size then
-			out[s] = data[t2]
+		if i + 1 < size then
+			reorder_tmp[i + 1] = src[t2]
 			t2 = t2 + 1
-			s = s + 1
-		else
-			break
 		end
 	end
 
-	ffi.copy(data, out, size)
+	ffi.copy(data, reorder_tmp, size)
 end
 
 local function exrImage(inputBuffer)
@@ -193,6 +193,24 @@ local function exrImage(inputBuffer)
 		return a.name < b.name
 	end)
 
+	local channel_map = {}
+
+	for i, ch in ipairs(header.channels) do
+		local name = ch.name
+
+		if name == "R" then
+			channel_map[i] = 0
+		elseif name == "G" then
+			channel_map[i] = 1
+		elseif name == "B" then
+			channel_map[i] = 2
+		elseif name == "A" then
+			channel_map[i] = 3
+		else
+			channel_map[i] = -1
+		end
+	end
+
 	for i = 1, numBlocks do
 		local offset = tonumber(offsets[i])
 		inputBuffer:SetPosition(offset)
@@ -228,47 +246,49 @@ local function exrImage(inputBuffer)
 			error("Unsupported compression: " .. tostring(compression))
 		end
 
-		for ly = 0, numLinesInThisBlock - 1 do
-			local y = block_y - dataWindow.yMin + ly
+		for ch_idx, ch in ipairs(header.channels) do
+			local pixel_type = ch.pixel_type
+			local target_ch_idx = channel_map[ch_idx]
+			local bytes_per_pixel = (pixel_type == 1 and 2 or 4)
 
-			for _, ch in ipairs(header.channels) do
-				local pixel_type = ch.pixel_type
-				local ch_name = ch.name
-				local target_ch_idx = -1
+			for ly = 0, numLinesInThisBlock - 1 do
+				local y = block_y - dataWindow.yMin + ly
 
-				if ch_name == "R" then
-					target_ch_idx = 0
-				elseif ch_name == "G" then
-					target_ch_idx = 1
-				elseif ch_name == "B" then
-					target_ch_idx = 2
-				elseif ch_name == "A" then
-					target_ch_idx = 3
-				end
-
-				if target_ch_idx ~= -1 then
+				if y >= 0 and y < height then
 					local out_row_offset = y * width * 4
 
-					for x = 0, width - 1 do
-						local val
+					if target_ch_idx ~= -1 then
+						local out_ptr = outputData + out_row_offset + target_ch_idx
+						local src_ptr = block_buffer:GetBuffer() + block_buffer:GetPosition()
 
 						if pixel_type == 1 then -- HALF
-							val = half_to_float_table[block_buffer:ReadU16LE()]
-						elseif pixel_type == 2 then -- FLOAT
-							val = block_buffer:ReadFloatLE()
-						elseif pixel_type == 0 then -- UINT
-							val = block_buffer:ReadU32LE() / 4294967295
-						end
+							local src = ffi.cast("uint16_t*", src_ptr)
 
-						outputData[out_row_offset + x * 4 + target_ch_idx] = val
+							for x = 0, width - 1 do
+								out_ptr[x * 4] = half_to_float_table[src[x]]
+							end
+						elseif pixel_type == 2 then -- FLOAT
+							local src = ffi.cast("float*", src_ptr)
+
+							for x = 0, width - 1 do
+								out_ptr[x * 4] = src[x]
+							end
+						elseif pixel_type == 0 then -- UINT
+							local src = ffi.cast("uint32_t*", src_ptr)
+
+							for x = 0, width - 1 do
+								out_ptr[x * 4] = src[x] / 4294967295
+							end
+						end
 					end
-				else
-					-- Skip channel
-					local skip_size = (pixel_type == 1 and 2 or 4) * width
-					block_buffer:Advance(skip_size)
 				end
+
+				block_buffer:Advance(width * bytes_per_pixel)
 			end
 		end
+
+		-- Force GC to free decompressed buffers
+		if i % 10 == 0 then collectgarbage("step") end
 	end
 
 	return {
