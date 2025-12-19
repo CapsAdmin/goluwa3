@@ -574,6 +574,28 @@ end
 
 function test.ScreenPixel(x, y, r, g, b, a, tolerance)
 	local render = require("graphics.render")
+
+	if type(r) == "function" then
+		local r_, g_, b_, a_ = render.target:GetTexture():GetPixel(x, y)
+		local r_norm, g_norm, b_norm, a_norm = r_ / 255, g_ / 255, b_ / 255, a_ / 255
+
+		if not r(r_norm, g_norm, b_norm, a_norm) then
+			error(
+				string.format(
+					"Pixel (%d,%d) mismatch - Got: (%.3f,%.3f,%.3f,%.3f)",
+					x,
+					y,
+					r_norm,
+					g_norm,
+					b_norm,
+					a_norm
+				)
+			)
+		end
+
+		return
+	end
+
 	tolerance = tolerance or 0.01
 	local r_, g_, b_, a_ = render.target:GetTexture():GetPixel(x, y)
 	local r_norm, g_norm, b_norm, a_norm = r_ / 255, g_ / 255, b_ / 255, a_ / 255
