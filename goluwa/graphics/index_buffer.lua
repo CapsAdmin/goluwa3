@@ -47,10 +47,42 @@ function IndexBuffer.New(indices, index_type)
 	return self
 end
 
+function IndexBuffer.FromPointer(ptr, len, index_type)
+	local self = setmetatable({}, IndexBuffer)
+	self.index_type = index_type or "uint16_t"
+	self.indices = ptr
+	self.index_count = len
+	-- Calculate byte size
+	local byte_size = ffi.sizeof(self:GetIndexTypeFFI()) * len
+	self.byte_size = byte_size
+	-- Create the GPU buffer directly from the pointer
+	self.buffer = render.CreateBuffer(
+		{
+			buffer_usage = "index_buffer",
+			data_type = self.index_type,
+			data = ptr,
+			byte_size = byte_size,
+		}
+	)
+	return self
+end
+
 function IndexBuffer:GetIndexType()
 	local t = self.index_type
 
 	if t == "uint16_t" then t = "uint16" end
+
+	if t == "uint32_t" then t = "uint32" end
+
+	return t
+end
+
+function IndexBuffer:GetIndexTypeFFI()
+	local t = self.index_type
+
+	if t == "uint16" then t = "uint16_t" end
+
+	if t == "uint32" then t = "uint32_t" end
 
 	return t
 end

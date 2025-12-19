@@ -327,15 +327,6 @@ local function pngImage(inputBuffer)
 	}), data)
 	-- Cast to uint8_t* for consistency (pixelData might be uint16_t* for 16-bit images)
 	local pixelDataPtr = ffi.cast("uint8_t*", pixelData)
-	table.print(
-		{
-			width = data.IHDR.width,
-			height = data.IHDR.height,
-			depth = bitDepth,
-			colorType = colorType,
-			vulkan_format = vulkan_format,
-		}
-	)
 	return {
 		width = data.IHDR.width,
 		height = data.IHDR.height,

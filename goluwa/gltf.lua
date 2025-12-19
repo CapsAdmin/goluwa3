@@ -10,7 +10,9 @@ local Ang3 = require("structs.ang3")
 local ecs = require("ecs")
 local Material = require("graphics.material")
 local render = require("graphics.render")
+local render3d = require("graphics.render3d")
 local Texture = require("graphics.texture")
+local Polygon3D = require("graphics.polygon_3d")
 require("components.transform")
 require("components.model")
 local AABB = require("structs.aabb")
@@ -896,10 +898,21 @@ function gltf.CreateEntityHierarchy(gltf_result, parent_entity, options)
 					-- Create primitives for this mesh
 					for prim_idx, primitive in ipairs(mesh.primitives) do
 						stats.total_primitives = stats.total_primitives + 1
-						local vertex_buffer, vertex_count, prim_aabb = gltf.CreateVertexBuffer(primitive)
+						-- Get raw vertex data (FFI array)
+						local vertex_data, vertex_count, stride, prim_aabb = gltf.GetInterleavedVertices(primitive)
 
-						if vertex_buffer then
-							local index_buffer, index_count, index_type = gltf.CreateIndexBuffer(primitive, vertex_count)
+						if vertex_data then
+							-- Get raw index data (FFI array) if present
+							local index_data = nil
+							local index_type = nil
+							local index_count = nil
+
+							if primitive.indices then
+								index_data = primitive.indices.data
+								index_count = primitive.indices.count
+								index_type = primitive.indices.component_type == "uint32_t" and "uint32" or "uint16"
+							end
+
 							-- Create material
 							local material = nil
 							local texture = nil
@@ -945,24 +958,17 @@ function gltf.CreateEntityHierarchy(gltf_result, parent_entity, options)
 								end
 							end
 
-							model:AddPrimitive(
-								{
-									vertex_buffer = vertex_buffer,
-									vertex_count = vertex_count,
-									index_buffer = index_buffer,
-									index_count = index_count,
-									index_type = index_type,
-									texture = texture,
-									material = material,
-									mesh_name = mesh.name,
-									aabb = prim_aabb,
-								}
-							)
+							-- Create Polygon3D object
+							local poly = Polygon3D.New()
+							poly:SetAABB(prim_aabb)
+							poly.material = material
+							poly.mesh = render3d.CreateMesh(vertex_data, index_data, index_type, index_count)
+							model:AddPrimitive(poly)
 						else
 							stats.failed_primitives = stats.failed_primitives + 1
 
 							if gltf.debug_print_nodes then
-								print("  FAILED to create vertex buffer:", vertex_count)
+								print("  FAILED to get vertex data:", vertex_count)
 							end
 						end
 					end
@@ -970,10 +976,21 @@ function gltf.CreateEntityHierarchy(gltf_result, parent_entity, options)
 					-- Split primitives: create a child entity for each primitive
 					for prim_idx, primitive in ipairs(mesh.primitives) do
 						stats.total_primitives = stats.total_primitives + 1
-						local vertex_buffer, vertex_count, prim_aabb = gltf.CreateVertexBuffer(primitive)
+						-- Get raw vertex data (FFI array)
+						local vertex_data, vertex_count, stride, prim_aabb = gltf.GetInterleavedVertices(primitive)
 
-						if vertex_buffer then
-							local index_buffer, index_count, index_type = gltf.CreateIndexBuffer(primitive, vertex_count)
+						if vertex_data then
+							-- Get raw index data (FFI array) if present
+							local index_data = nil
+							local index_type = nil
+							local index_count = nil
+
+							if primitive.indices then
+								index_data = primitive.indices.data
+								index_count = primitive.indices.count
+								index_type = primitive.indices.component_type == "uint32_t" and "uint32" or "uint16"
+							end
+
 							-- Create material
 							local material = nil
 							local texture = nil
@@ -1025,24 +1042,14 @@ function gltf.CreateEntityHierarchy(gltf_result, parent_entity, options)
 							prim_entity:AddComponent("transform")
 							-- Transform is identity since it inherits from parent node
 							local prim_model = prim_entity:AddComponent("model")
-							prim_model:AddPrimitive(
-								{
-									vertex_buffer = vertex_buffer,
-									vertex_count = vertex_count,
-									index_buffer = index_buffer,
-									index_count = index_count,
-									index_type = index_type,
-									texture = texture,
-									material = material,
-									mesh_name = mesh.name,
-									aabb = prim_aabb,
-								}
-							)
-						else
-							stats.failed_primitives = stats.failed_primitives + 1
+							-- Create Polygon3D object
+							local poly = Polygon3D.New()
+							poly:SetAABB(prim_aabb)
+							poly.material = material
+							poly.mesh = render3d.CreateMesh(vertex_data, index_data, index_type, index_count)
 
 							if gltf.debug_print_nodes then
-								print("  FAILED to create vertex buffer:", vertex_count)
+								print("  FAILED to get vertex data:", vertex_count)
 							end
 						end
 					end

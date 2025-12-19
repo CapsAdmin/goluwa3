@@ -410,14 +410,14 @@ function render3d.Initialize()
 						float max = log2(max(size.x, size.y));
 						float f = roughness * max;
 
-						vec3 env_color = textureLod(textures[nonuniformEXT(pc.environment_texture_index)], vec2(u, v), f).rgb;
+						vec3 env_color = textureLod(textures[nonuniformEXT(pc.environment_texture_index)], vec2(u, -v), f).rgb;
 						ambient_diffuse = env_color * albedo.rgb * ao;
 						
 						// Sample environment map using reflection vector for specular
 						vec3 R = reflect(-V, N);
 						float u_spec = atan(R.z, R.x) / (2.0 * PI) + 0.5;
 						float v_spec = asin(R.y) / PI + 0.5;
-						vec3 env_spec_color = textureLod(textures[nonuniformEXT(pc.environment_texture_index)], vec2(u_spec, v_spec),  f).rgb;
+						vec3 env_spec_color = textureLod(textures[nonuniformEXT(pc.environment_texture_index)], vec2(u_spec, -v_spec),  f).rgb;
 						vec3 F_ambient = fresnelSchlick(NdotV, F0);
 						ambient_specular = F_ambient * env_spec_color * ao;
 					} else {
@@ -572,7 +572,7 @@ function render3d.Initialize()
 						vec3 dir = normalize(in_direction);
 						float u = atan(dir.z, dir.x) / (2.0 * PI) + 0.5;
 						float v = asin(dir.y) / PI + 0.5;
-						vec3 color = texture(textures[nonuniformEXT(pc.environment_texture_index)], vec2(u, v)).rgb;
+						vec3 color = texture(textures[nonuniformEXT(pc.environment_texture_index)], vec2(u, -v)).rgb;
 						
 						// Tonemapping + gamma
 						color = color / (color + vec3(1.0));
@@ -890,8 +890,8 @@ end
 do -- mesh
 	local Mesh = require("graphics.mesh")
 
-	function render3d.CreateMesh(vertices, indices, index_type)
-		return Mesh.New(render3d.pipeline:GetVertexAttributes(), vertices, indices, index_type)
+	function render3d.CreateMesh(vertices, indices, index_type, index_count)
+		return Mesh.New(render3d.pipeline:GetVertexAttributes(), vertices, indices, index_type, index_count)
 	end
 end
 

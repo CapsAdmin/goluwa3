@@ -11,6 +11,7 @@ function vulkan.assert(result, msg)
 	if result ~= 0 then
 		msg = msg or "Vulkan error"
 		local enum_str = vulkan.vk.str.VkResult(result) or ("error code - " .. tostring(result))
+		debug.trace()
 		print(msg .. " : " .. enum_str, 2)
 	end
 end

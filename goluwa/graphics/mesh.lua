@@ -5,11 +5,18 @@ local render = require("graphics.render")
 local Mesh = {}
 Mesh.__index = Mesh
 
-function Mesh.New(vertex_attributes, vertices, indices, index_type)
+function Mesh.New(vertex_attributes, vertices, indices, index_type, index_count)
 	local self = setmetatable({}, Mesh)
 	self.vertex_buffer = VertexBuffer.New(vertices, vertex_attributes)
 
-	if indices then self.index_buffer = IndexBuffer.New(indices, index_type) end
+	if indices then
+		-- Check if indices is FFI cdata and we have a count
+		if type(indices) == "cdata" and index_count then
+			self.index_buffer = IndexBuffer.FromPointer(indices, index_count, index_type)
+		else
+			self.index_buffer = IndexBuffer.New(indices, index_type)
+		end
+	end
 
 	return self
 end
