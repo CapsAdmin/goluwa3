@@ -1,5 +1,6 @@
 local ffi = require("ffi")
 local commands = require("commands")
+local tasks = require("tasks")
 local Texture = require("graphics.texture")
 local Material = {}
 Material.__index = Material
@@ -261,7 +262,7 @@ do
 		--self:SetName(path)
 		self.vmt = {}
 		self.vmt_path = path -- Store path for debugging
-		steam.LoadVMT(path, function(key, val, full_path)
+		local cb = steam.LoadVMT(path, function(key, val, full_path)
 			self.vmt.fullpath = full_path
 			self.vmt[key] = val
 			local unused = false
@@ -289,6 +290,8 @@ do
 			print("Material error for " .. path .. ": " .. err)
 		--self:SetError(err)
 		end)
+
+		if tasks.GetActiveTask() then cb:Get() end
 
 		return self
 	end

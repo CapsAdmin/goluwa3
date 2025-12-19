@@ -71,7 +71,6 @@ function model_loader.LoadModel(path, callback, callback2, on_fail)
 	resource.Download(path, nil, path:ends_with(".mdl")):Then(function(full_path)
 		local out = {}
 		local thread = tasks.CreateTask()
-		thread.debug = true
 		thread:SetName(path)
 
 		local function mesh_callback(mesh)

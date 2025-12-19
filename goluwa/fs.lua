@@ -104,13 +104,13 @@ function fs.get_files_recursive(path)
 
 	local out = {}
 	local errors = {}
-	out[0] = 1
+	out.n = 0
 
 	if not fs.walk(path, out, errors, nil, true) then
 		return nil, errors[1].error
 	end
 
-	out[0] = nil
+	out.n = nil
 	return out, errors[1] and errors or nil
 end
 

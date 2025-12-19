@@ -51,6 +51,8 @@ do
 			logn(self.debug_trace)
 		end
 
+		self.resolved_values = list.pack(...)
+
 		for _, cb in ipairs(self.funcs.resolved) do
 			local ok, err, err2 = pcall(cb, ...)
 
@@ -76,6 +78,7 @@ do
 		end
 
 		handled = false
+		self.rejected_values = list.pack(...)
 
 		if self.children then
 			for _, cb in ipairs(self.children) do
@@ -105,7 +108,7 @@ do
 		cb.warn_unhandled = false
 		list.insert(self.children, cb)
 
-		list.insert(self.funcs.resolved, function(...)
+		local function resolve(...)
 			local ret = list.pack(func(...))
 			local returned_cb = ret[1]
 
@@ -123,7 +126,11 @@ do
 			end
 
 			return list.unpack(ret)
-		end)
+		end
+
+		list.insert(self.funcs.resolved, resolve)
+
+		if self.is_resolved then resolve(unpack(self.resolved_values)) end
 
 		if self.start_on_callback then
 			self.start_on_callback = nil
@@ -135,6 +142,9 @@ do
 
 	function meta:Catch(func)
 		list.insert(self.funcs.rejected, func)
+
+		if self.is_rejected then func(unpack(self.rejected_values)) end
+
 		return self
 	end
 
@@ -219,6 +229,7 @@ function callback.WrapKeyedTask(create_callback, max, queue_callback, start_on_c
 			callbacks[key] = callback.Create(function(self)
 				create_callback(self, key, list.unpack(args))
 			end)
+			callbacks[key].warn_unhandled = false
 			callbacks[key].start_on_callback = start_on_callback
 
 			if total >= max then
@@ -254,7 +265,7 @@ function callback.WrapKeyedTask(create_callback, max, queue_callback, start_on_c
 		end
 
 		if tasks and tasks.GetActiveTask and tasks.GetActiveTask() then
-			return callbacks[key]:Get()
+			callbacks[key]:Get()
 		end
 
 		return callbacks[key]
@@ -274,14 +285,19 @@ function callback.WrapTask(create_callback)
 	end
 end
 
-function callback.Resolve(...)
-	local args = list.pack(...)
-	local cb = callback.Create(function(self)
-		self.callbacks.resolve(list.unpack(args))
-	end)
+function callback.ResolveImmediate(...)
+	local cb = callback.Create()
+	cb:Resolve(...)
+	return cb
+end
 
-	timer.Delay(function()
-		cb:Start()
+function callback.Resolve(...)
+	local cb = callback.Create()
+	local args = {...}
+	local count = select("#", ...)
+
+	timer.Delay(0, function()
+		cb:Resolve(unpack(args, 1, count))
 	end)
 
 	return cb
@@ -289,7 +305,6 @@ end
 
 if RELOAD then
 	local function await(func)
-		tasks.enabled = true
 		tasks.CreateTask(func)
 	end
 

@@ -208,7 +208,7 @@ do
 				end
 
 				-- Remove completed tests
-				if is_dead then
+				if coroutine.status(co) == "dead" then
 					-- Calculate individual test timing
 					local test_time = system.GetTime() - test_info.test_start_time
 					local test_gc = memory.get_usage_kb() - test_info.test_start_gc

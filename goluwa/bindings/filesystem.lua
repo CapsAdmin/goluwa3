@@ -223,8 +223,8 @@ if jit.arch ~= "Windows" then
 			end
 
 			if not files_only then
-				tbl[0] = (tbl[0] or 0) + 1
-				tbl[tbl[0]] = path
+				tbl.n = (tbl.n or 0) + 1
+				tbl[tbl.n] = path
 			end
 
 			while true do
@@ -240,8 +240,8 @@ if jit.arch ~= "Windows" then
 							fs.walk(name .. "/", tbl, errors, can_traverse, files_only)
 						end
 					else
-						tbl[0] = (tbl[0] or 0) + 1
-						tbl[tbl[0]] = name
+						tbl.n = (tbl.n or 0) + 1
+						tbl[tbl.n] = name
 					end
 				end
 			end
@@ -462,8 +462,8 @@ else
 			end
 
 			if not files_only then
-				tbl[0] = (tbl[0] or 0) + 1
-				tbl[tbl[0]] = path
+				tbl.n = (tbl.n or 0) + 1
+				tbl[tbl.n] = path
 			end
 
 			if handle ~= INVALID_FILE then
@@ -478,8 +478,8 @@ else
 								fs.walk(name .. "/", tbl, errors)
 							end
 						else
-							tbl[0] = (tbl[0] or 0) + 1
-							tbl[tbl[0]] = name
+							tbl.n = (tbl.n or 0) + 1
+							tbl[tbl.n] = name
 						end
 					end				
 				until ffi.C.FindNextFileA(handle, data) == 0

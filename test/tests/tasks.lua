@@ -2,8 +2,6 @@ local T = require("test.environment")
 local tasks = require("tasks")
 local timer = require("timer")
 local system = require("system")
--- Enable tasks for testing
-tasks.enabled = true
 
 -- Helper to clean up tasks between tests
 local function cleanup_tasks()

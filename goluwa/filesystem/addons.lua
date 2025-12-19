@@ -293,7 +293,7 @@ return function(vfs)
 			if info.event then
 				event.AddListener(info.event, "addon_" .. folder, function()
 					run()
-					return e.EVENT_DESTROY
+					return event.destroy_tag
 				end)
 			else
 				run()

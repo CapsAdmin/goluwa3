@@ -1,5 +1,6 @@
 local vfs = require("vfs")
 local resource = require("resource")
+local callback = require("callback")
 return function(steam)
 	local textures = {
 		basetexture = true,
@@ -20,11 +21,15 @@ return function(steam)
 
 	function steam.LoadVMT(path, on_property, on_error, on_shader)
 		on_error = on_error or logn
+		local main_cb = callback.Create()
+		main_cb.warn_unhandled = false
+		local res = resource.Download(path, nil, true)
 
-		resource.Download(path, nil, true):Then(function(resolved_path)
+		res:Then(function(resolved_path)
 			if resolved_path:ends_with(".vtf") then
 				on_property("basetexture", resolved_path, resolved_path, {})
 				-- default normal map?
+				main_cb:Resolve()
 				return
 			end
 
@@ -34,6 +39,7 @@ return function(steam)
 
 			if err then
 				on_error(path .. " steam.VDFToTable : " .. err)
+				main_cb:Reject(err)
 				return
 			end
 
@@ -42,6 +48,7 @@ return function(steam)
 			if type(k) ~= "string" or type(v) ~= "table" then
 				on_error("bad material " .. path)
 				table.print(vmt)
+				main_cb:Reject("bad material")
 				return
 			end
 
@@ -58,6 +65,7 @@ return function(steam)
 
 				if err2 then
 					on_error(err2)
+					main_cb:Reject(err2)
 					return
 				end
 
@@ -66,6 +74,7 @@ return function(steam)
 				if type(k2) ~= "string" or type(v2) ~= "table" then
 					on_error("bad material " .. path)
 					table.print(vmt)
+					main_cb:Reject("bad material")
 					return
 				end
 
@@ -100,6 +109,12 @@ return function(steam)
 				end
 			end
 
+			local pending = 0
+
+			local function check_done()
+				if pending == 0 then main_cb:Resolve() end
+			end
+
 			for k, v in pairs(vmt) do
 				if
 					type(v) == "string" and
@@ -116,13 +131,18 @@ return function(steam)
 
 						if not new_path:ends_with(".vtf") then new_path = new_path .. ".vtf" end
 
+						pending = pending + 1
 						local cb = resource.Download(new_path, nil, true):Then(function(texture_path)
 							on_property(k, texture_path, fullpath, vmt)
+							pending = pending - 1
+							check_done()
 						end)
 
 						if on_error then
 							cb:Catch(function(reason)
 								on_error("texture " .. k .. " " .. new_path .. " not found: " .. reason)
+								pending = pending - 1
+								check_done()
 							end)
 						end
 					end
@@ -130,8 +150,13 @@ return function(steam)
 					on_property(k, v, fullpath, vmt)
 				end
 			end
+
+			check_done()
 		end):Catch(function(reason)
 			on_error("material " .. path .. " not found: " .. reason)
+			main_cb:Reject(reason)
 		end)
+
+		return main_cb
 	end
 end

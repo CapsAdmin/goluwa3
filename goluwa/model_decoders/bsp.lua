@@ -169,7 +169,6 @@ function steam.LoadMap(path)
 	end
 
 	logn("loading map: ", path)
-	steam.debug = true
 	local bsp_file = assert(vfs.Open(path))
 
 	if bsp_file:GetSize() == 0 then error("map is empty? (size is 0)") end
@@ -908,7 +907,6 @@ function steam.SpawnMapEntities(path, parent)
 	end
 
 	local thread = tasks.CreateTask()
-	thread.debug = true
 	logn("spawning map entities: ", path)
 
 	function thread:OnStart()

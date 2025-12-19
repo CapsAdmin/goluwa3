@@ -279,7 +279,6 @@ do
 end
 
 function http.async(func)
-	tasks.enabled = true
 	tasks.CreateTask(func)
 end
 

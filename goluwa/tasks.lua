@@ -7,7 +7,7 @@ local tasks = {}
 tasks.max = 4
 tasks.coroutine_lookup = tasks.coroutine_lookup or table.weak()
 tasks.created = tasks.created or table.weak()
-tasks.enabled = false
+tasks.enabled = true
 
 function tasks.IsEnabled()
 	return tasks.enabled
@@ -22,7 +22,7 @@ function tasks.WaitForTask(name, callback)
 	event.AddListener("TaskFinished", "wait_for_task_" .. name, function(task)
 		if task:GetName() == name then
 			callback()
-			return e.EVENT_DESTROY
+			return event.destroy_tag
 		end
 	end)
 end
@@ -262,8 +262,41 @@ function tasks.Report(what)
 	if thread then thread:Report(what) end
 end
 
-function tasks.IsBusy()
+function tasks.IsBusy(exclude)
+	if exclude then
+		for thread in pairs(tasks.created) do
+			if thread ~= exclude then return true end
+		end
+
+		return false
+	end
+
 	return tasks.busy
+end
+
+function tasks.WaitAll(timeout)
+	if not tasks.IsEnabled() then return end
+
+	if not coroutine.running() then return end
+
+	local current = tasks.GetActiveTask()
+	local start = system.GetElapsedTime()
+
+	while tasks.IsBusy(current) do
+		if timeout and (system.GetElapsedTime() - start) > timeout then
+			for thread in pairs(tasks.created) do
+				if thread ~= current then
+					print("Task still running: " .. tostring(thread) .. " - " .. (thread.what or "unknown"))
+
+					if thread.trace then print(thread.trace) end
+				end
+			end
+
+			error("tasks.WaitAll timed out after " .. timeout .. " seconds", 2)
+		end
+
+		if current then current:Wait() else coroutine.yield() end
+	end
 end
 
 function tasks.Panic()

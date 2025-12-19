@@ -6,6 +6,8 @@ local logging = true
 local profiling = false
 local profiling_mode = nil
 
+if ... == "--filter" then filter = select(2, ...) end
+
 event.AddListener("Initialize", "tests", function()
 	test.BeginTests(logging, profiling, profiling_mode)
 	local tests = test.FindTests(filter)

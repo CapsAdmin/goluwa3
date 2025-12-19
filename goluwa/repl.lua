@@ -478,7 +478,7 @@ function repl.Start()
 		local last_downloaded = 0
 
 		event.AddListener("DownloadChunkReceived", "downprog_title", function(client, data, current_length, header)
-			if WINDOW and window.IsOpen() then return e.EVENT_DESTROY end
+			if WINDOW and window.IsOpen() then return event.destroy_tag end
 
 			if not header["content-length"] then return end
 
@@ -495,7 +495,7 @@ function repl.Start()
 		end)
 
 		event.AddListener("DownloadStop", "downprog_title", function(client, data, msg)
-			if WINDOW and window.IsOpen() then return e.EVENT_DESTROY end
+			if WINDOW and window.IsOpen() then return event.destroy_tag end
 
 			system.SetConsoleTitle(nil, client.url)
 		end)

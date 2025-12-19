@@ -4,7 +4,7 @@ require("goluwa.global_environment")
 
 if ... == "-e" then
 	local lua = select(2, ...)
-	assert(loadstring(lua))()
+	assert(loadstring(lua))(select(3, ...))
 	return
 else
 	local path = ...
@@ -16,7 +16,7 @@ else
 		if path:starts_with(wdir) then path = path:sub(#wdir + 1, #path) end
 	end
 
-	assert(loadfile(path))()
+	assert(loadfile(path))(select(2, ...))
 end
 
 require("main")()
