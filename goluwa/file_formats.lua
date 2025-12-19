@@ -5,6 +5,7 @@ local jpg_decode = require("file_formats.jpg.decode")
 local dds_decode = require("file_formats.dds.decode")
 local zip_decode = require("file_formats.zip.decode")
 local vtf_decode = require("file_formats.vtf.decode")
+local exr_decode = require("file_formats.exr.decode")
 local file_formats = {}
 
 local function buffer_from_path(path)
@@ -40,6 +41,10 @@ function file_formats.LoadVTF(path)
 	return vtf_decode(buffer_from_path(path))
 end
 
+function file_formats.LoadEXR(path)
+	return exr_decode(buffer_from_path(path))
+end
+
 function file_formats.Load(path)
 	local real_path = path
 	local path = path:lower()
@@ -52,6 +57,8 @@ function file_formats.Load(path)
 		return file_formats.LoadDDS(real_path)
 	elseif path:ends_with(".vtf") then
 		return file_formats.LoadVTF(real_path)
+	elseif path:ends_with(".exr") then
+		return file_formats.LoadEXR(real_path)
 	end
 
 	error("Unsupported image format: " .. real_path)
