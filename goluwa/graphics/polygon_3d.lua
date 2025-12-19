@@ -515,97 +515,59 @@ do -- helpers
 		self:AddVertex({pos = Vec3(-size, size, -size), uv = Vec2(0, texture_scale)})
 	end
 
-	function Polygon3D:CreateSphere(res)
-		res = 32
-		local sphereMesh = {}
+	function Polygon3D:CreateSphere(radius, segments, rings, texture_scale)
+		radius = radius or 1
+		segments = segments or 32 -- longitude divisions
+		rings = rings or 16 -- latitude divisions
+		texture_scale = texture_scale or 1
 
-		if false then
-			res = res / 2
-			local pi = math.pi
-			local pi2 = math.pi * 2
-			local size = 1 / res
+		-- ORIENTATION / TRANSFORMATION: Sphere for Y-up, X-right, Z-forward (right-handed)
+		-- Uses UV sphere approach with counter-clockwise winding when viewed from outside
+		for ring = 0, rings - 1 do
+			local theta1 = (ring / rings) * math.pi
+			local theta2 = ((ring + 1) / rings) * math.pi
 
-			for m = 1, res do
-				for n = 1, res do
-					local x = math.sin(pi * m / res) * math.cos(pi2 * n / res)
-					local y = math.sin(pi * m / res) * math.sin(pi2 * n / res)
-					local z = math.cos(pi * m / res)
-					self:AddVertex({pos = Vec3(x + size, y, z)})
-					self:AddVertex({pos = Vec3(x, y, z)})
-					self:AddVertex({pos = Vec3(x, y + size, z)})
-					self:AddVertex({pos = Vec3(x, y + size, z)})
-					self:AddVertex({pos = Vec3(x + size, y + size, z)})
-					self:AddVertex({pos = Vec3(x + size, y, z)})
+			for seg = 0, segments - 1 do
+				local phi1 = (seg / segments) * 2 * math.pi
+				local phi2 = ((seg + 1) / segments) * 2 * math.pi
+				-- Calculate positions for the quad corners
+				-- Using Y-up coordinate system
+				local x1 = radius * math.sin(theta1) * math.sin(phi1)
+				local y1 = radius * math.cos(theta1)
+				local z1 = radius * math.sin(theta1) * math.cos(phi1)
+				local x2 = radius * math.sin(theta1) * math.sin(phi2)
+				local y2 = radius * math.cos(theta1)
+				local z2 = radius * math.sin(theta1) * math.cos(phi2)
+				local x3 = radius * math.sin(theta2) * math.sin(phi2)
+				local y3 = radius * math.cos(theta2)
+				local z3 = radius * math.sin(theta2) * math.cos(phi2)
+				local x4 = radius * math.sin(theta2) * math.sin(phi1)
+				local y4 = radius * math.cos(theta2)
+				local z4 = radius * math.sin(theta2) * math.cos(phi1)
+				-- UV coordinates
+				local u1 = (seg / segments) * texture_scale
+				local u2 = ((seg + 1) / segments) * texture_scale
+				local v1 = (ring / rings) * texture_scale
+				local v2 = ((ring + 1) / rings) * texture_scale
+				-- Normals (normalized position for a sphere centered at origin)
+				local n1 = Vec3(x1, y1, z1):GetNormalized()
+				local n2 = Vec3(x2, y2, z2):GetNormalized()
+				local n3 = Vec3(x3, y3, z3):GetNormalized()
+				local n4 = Vec3(x4, y4, z4):GetNormalized()
+
+				-- First triangle (top-left, top-right, bottom-right)
+				if ring > 0 then -- Skip degenerate triangles at top pole
+					self:AddVertex({pos = Vec3(x1, y1, z1), uv = Vec2(u1, v1), normal = n1})
+					self:AddVertex({pos = Vec3(x2, y2, z2), uv = Vec2(u2, v1), normal = n2})
+					self:AddVertex({pos = Vec3(x3, y3, z3), uv = Vec2(u2, v2), normal = n3})
 				end
-			end
 
-			return sphereMesh
-		end
-
-		local n = math.round(res * 2)
-		local ndiv2 = n / 2
-		--[[
-		Original code by Paul Bourke
-		A more efficient contribution by Federico Dosil (below)
-		Draw a point for zero radius spheres
-		Use CCW facet ordering
-		http://paulbourke.net/texture_colour/texturemap/
-		]]
-		local theta2 = math.pi * 2
-		local phi1 = -math.pi / 2
-		local phi2 = math.pi / 2
-		local r = 1
-		local theta1 = 0
-		local unodivn = 1 / n
-		local cte3 = (theta2 - theta1) / n
-		local cte1 = (phi2 - phi1) / ndiv2
-		local dosdivn = 2 * unodivn
-
-		if n < 0 then
-			n = -n
-			ndiv2 = -ndiv2
-		end
-
-		if n < 4 then
-			n = 4
-			ndiv2 = n / 2
-		end
-
-		if r <= 0 then r = 1 end
-
-		local t2 = phi1
-		local cost2 = math.cos(phi1)
-		local j1divn = 0
-		local jdivn, idivn, t1, t3, cost1
-		local e, p, e2, p2 = Vec3(), Vec3(), Vec3(), Vec3()
-
-		for _ = 1, ndiv2 do
-			t1 = t2
-			t2 = t2 + cte1
-			t3 = theta1 - cte3
-			cost1 = cost2
-			cost2 = math.cos(t2)
-			e.y = math.sin(t1)
-			e2.y = math.sin(t2)
-			p.y = r * e.y
-			p2.y = r * e2.y
-			idivn = 0
-			jdivn = j1divn
-			j1divn = j1divn + dosdivn
-
-			for _ = 1, n do
-				t3 = t3 + cte3
-				e.x = cost1 * math.cos(t3)
-				e.z = cost1 * math.sin(t3)
-				p.x = r * e.x
-				p.z = r * e.z
-				self:AddVertex({normal = e:Copy(), uv = Vec2(idivn, jdivn), pos = p:Copy()})
-				e2.x = cost2 * math.cos(t3)
-				e2.z = cost2 * math.sin(t3)
-				p2.x = r * e2.x
-				p2.z = r * e2.z
-				self:AddVertex({normal = e2:Copy(), uv = Vec2(idivn, jdivn), pos = p2:Copy()})
-				idivn = idivn + unodivn
+				-- Second triangle (top-left, bottom-right, bottom-left)
+				if ring < rings - 1 then -- Skip degenerate triangles at bottom pole
+					self:AddVertex({pos = Vec3(x1, y1, z1), uv = Vec2(u1, v1), normal = n1})
+					self:AddVertex({pos = Vec3(x3, y3, z3), uv = Vec2(u2, v2), normal = n3})
+					self:AddVertex({pos = Vec3(x4, y4, z4), uv = Vec2(u1, v2), normal = n4})
+				end
 			end
 		end
 	end

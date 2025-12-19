@@ -187,8 +187,15 @@ T.Test("Graphics Polygon3D render simple triangle", function()
 	T(true)["=="](true)
 end)
 
+local function setup_view()
+	local Quat = require("structs.quat")
+	render3d.GetCamera():SetPosition(Vec3(2, 2 + 1, 2))
+	render3d.GetCamera():SetRotation(Quat():SetAngles(Deg3(-45, 45, 0)))
+end
+
 T.Test("Graphics Polygon3D render cube", function()
 	draw3d(function(cmd)
+		setup_view()
 		local poly = Polygon3D.New()
 		poly:CreateCube(0.5, 1.0)
 		poly:AddSubMesh(#poly.Vertices)
@@ -200,13 +207,11 @@ T.Test("Graphics Polygon3D render cube", function()
 		render3d.UploadConstants(cmd)
 		poly:Draw(cmd)
 	end)
-
-	-- Test passes if no errors during draw
-	T(true)["=="](true)
 end)
 
 T.Test("Graphics Polygon3D render with world matrix", function()
 	draw3d(function(cmd)
+		setup_view()
 		local poly = Polygon3D.New()
 		-- Small triangle
 		poly:AddVertex({pos = Vec3(-0.3, -0.3, 0), uv = Vec2(0, 0), normal = Vec3(0, 0, 1)})
@@ -226,12 +231,11 @@ T.Test("Graphics Polygon3D render with world matrix", function()
 		-- Reset world matrix
 		render3d.SetWorldMatrix(Matrix44())
 	end)
-
-	T(true)["=="](true)
 end)
 
 T.Test("Graphics Polygon3D render multiple objects", function()
 	draw3d(function(cmd)
+		setup_view()
 		-- First triangle
 		local poly1 = Polygon3D.New()
 		poly1:AddVertex({pos = Vec3(-0.8, -0.5, 0), uv = Vec2(0, 0), normal = Vec3(0, 0, 1)})
@@ -259,32 +263,6 @@ T.Test("Graphics Polygon3D render multiple objects", function()
 		render3d.UploadConstants(cmd)
 		poly2:Draw(cmd)
 	end)
-
-	T(true)["=="](true)
-end)
-
-T.Test("Graphics Polygon3D render cube screenshot", function()
-	draw3d(function(cmd)
-		-- Create a rotated cube for visual testing
-		local poly = Polygon3D.New()
-		poly:CreateCube(0.7, 1.0)
-		poly:AddSubMesh(#poly.Vertices)
-		poly:BuildNormals()
-		poly:Upload()
-		-- Apply rotation
-		local world = Matrix44()
-		world:Rotate(math.rad(25), 1, 0, 0)
-		world:Rotate(math.rad(35), 0, 1, 0)
-		render3d.SetWorldMatrix(world)
-		-- Yellow material
-		local mat = Material.New({base_color_factor = {1.0, 1.0, 0.0, 1.0}})
-		render3d.SetMaterial(mat)
-		render3d.UploadConstants(cmd)
-		poly:Draw(cmd)
-		render3d.SetWorldMatrix(Matrix44())
-	end)
-
-	T(true)["=="](true)
 end)
 
 -- ============================================================================
