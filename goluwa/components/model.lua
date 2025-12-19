@@ -22,6 +22,10 @@ META:GetSet("CastShadows", true)
 META:GetSet("AABB", nil) -- Local space AABB (combined from all primitives)
 META:GetSet("UseOcclusionCulling", true) -- Enable occlusion culling for this model
 META:GetSet("ModelPath", "")
+META:GetSet("MaterialOverride", nil)
+META:GetSet("Color", {1, 1, 1, 1})
+META:GetSet("RoughnessMultiplier", 1)
+META:GetSet("MetallicMultiplier", 1)
 META:IsSet("Loading", false)
 
 function META:Initialize(config)
@@ -113,8 +117,8 @@ function META:AddPrimitive(obj)
 	-- Store the Polygon3D
 	local primitive = {
 		polygon3d = obj,
-		material = obj.material,
 		aabb = obj.AABB,
+		material = obj.material,
 	}
 	table.insert(self.Primitives, primitive)
 
@@ -229,10 +233,24 @@ function META:OnDraw3D(cmd, dt)
 		end
 
 		render3d.SetWorldMatrix(final_matrix)
-		render3d.SetMaterial(prim.material or Material.GetDefault())
-		render3d.UploadConstants(cmd)
-		-- Draw using Polygon3D's Draw method
-		prim.polygon3d:Draw(cmd)
+		render3d.SetColor(self.Color)
+		render3d.SetMetallicMultiplier(self.MetallicMultiplier)
+		render3d.SetRoughnessMultiplier(self.RoughnessMultiplier)
+		prim.polygon3d:Bind(cmd)
+		local sub_meshes = prim.polygon3d:GetSubMeshes()
+
+		if #sub_meshes > 0 then
+			for i, sub_mesh in ipairs(sub_meshes) do
+				render3d.SetMaterial(self.MaterialOverride or sub_mesh.data or prim.material or Material.GetDefault())
+				render3d.UploadConstants(cmd)
+				prim.polygon3d:Draw(cmd, i)
+			end
+		else
+			-- Fallback: draw entire mesh if no sub meshes
+			render3d.SetMaterial(self.MaterialOverride or prim.material or Material.GetDefault())
+			render3d.UploadConstants(cmd)
+			prim.polygon3d:Draw(cmd)
+		end
 	end
 
 	-- End occlusion culling
@@ -268,10 +286,21 @@ function META:DrawOcclusionQuery(cmd)
 			end
 
 			render3d.SetWorldMatrix(final_matrix)
-			render3d.SetMaterial(prim.material or Material.GetDefault())
-			render3d.UploadConstants(cmd)
-			-- Draw using Polygon3D's Draw method
-			prim.polygon3d:Draw(cmd)
+			prim.polygon3d:Bind(cmd)
+			local sub_meshes = prim.polygon3d:GetSubMeshes()
+
+			if #sub_meshes > 0 then
+				for i, sub_mesh in ipairs(sub_meshes) do
+					render3d.SetMaterial(self.MaterialOverride or sub_mesh.data or prim.material or Material.GetDefault())
+					render3d.UploadConstants(cmd)
+					prim.polygon3d:Draw(cmd, i)
+				end
+			else
+				-- Fallback: draw entire mesh if no sub meshes
+				render3d.SetMaterial(self.MaterialOverride or prim.material or Material.GetDefault())
+				render3d.UploadConstants(cmd)
+				prim.polygon3d:Draw(cmd)
+			end
 		end
 	end
 
@@ -297,9 +326,19 @@ function META:DrawShadow(shadow_cmd, shadow_map, cascade_idx)
 			final_matrix = prim.local_matrix:GetMultiplied(world_matrix, cached_final_matrix)
 		end
 
-		shadow_map:UploadConstants(final_matrix, cascade_idx)
-		-- Draw using Polygon3D's Draw method
-		prim.polygon3d:Draw(shadow_cmd)
+		prim.polygon3d:Bind(shadow_cmd)
+		local sub_meshes = prim.polygon3d:GetSubMeshes()
+
+		if #sub_meshes > 0 then
+			for i, sub_mesh in ipairs(sub_meshes) do
+				shadow_map:UploadConstants(final_matrix, cascade_idx)
+				prim.polygon3d:Draw(shadow_cmd, i)
+			end
+		else
+			-- Fallback: draw entire mesh if no sub meshes
+			shadow_map:UploadConstants(final_matrix, cascade_idx)
+			prim.polygon3d:Draw(shadow_cmd)
+		end
 	end
 end
 

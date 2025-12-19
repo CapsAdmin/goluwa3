@@ -812,17 +812,31 @@ model_loader.AddModelDecoder("mdl", function(path, full_path, mesh_callback)
 							material = Material.FromVMT(path)
 						end
 
+						mesh.material = mesh.material or material
 						mesh:AddSubMesh(indices, material)
 					end
 
 					mesh:BuildBoundingBox()
 					mesh:BuildTangents()
 					mesh:Upload()
+					-- Debug: print mesh information
+					logf("MDL Model: %d vertices, %d sub meshes\n", #copy, #mesh.sub_meshes)
+
+					for i, sub_mesh in ipairs(mesh.sub_meshes) do
+						logf(
+							"  Sub mesh %d: %d indices (offset: %d)\n",
+							i,
+							sub_mesh.index_count,
+							sub_mesh.index_offset
+						)
+					end
+
 					mesh_callback(mesh)
 					list.insert(models, mesh)
 				end
 
-				break -- only first lod_model for now
+				-- Only process first LOD per body part for highest quality
+				break
 			end
 		end
 	end

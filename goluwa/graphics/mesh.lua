@@ -5,11 +5,11 @@ local render = require("graphics.render")
 local Mesh = {}
 Mesh.__index = Mesh
 
-function Mesh.New(vertex_attributes, vertices, indices)
+function Mesh.New(vertex_attributes, vertices, indices, index_type)
 	local self = setmetatable({}, Mesh)
 	self.vertex_buffer = VertexBuffer.New(vertices, vertex_attributes)
 
-	if indices then self.index_buffer = IndexBuffer.New(indices) end
+	if indices then self.index_buffer = IndexBuffer.New(indices, index_type) end
 
 	return self
 end

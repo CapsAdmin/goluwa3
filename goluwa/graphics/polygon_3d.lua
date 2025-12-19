@@ -41,6 +41,10 @@ function Polygon3D:GetMesh()
 	return self.mesh
 end
 
+function Polygon3D:Bind(cmd)
+	if self.mesh then self.mesh:Bind(cmd) end
+end
+
 function Polygon3D:Upload()
 	-- Convert Lua table vertices to FFI structured array
 	local vertex_count = #self.Vertices
@@ -133,19 +137,29 @@ function Polygon3D:Upload()
 
 	if #self.sub_meshes > 0 then
 		local all_indices = {}
+		local current_offset = 0
 
 		for _, sub_mesh in ipairs(self.sub_meshes) do
 			if sub_mesh.indices then
+				sub_mesh.index_offset = current_offset
+				sub_mesh.index_count = #sub_mesh.indices
+
 				for _, idx in ipairs(sub_mesh.indices) do
 					table.insert(all_indices, idx)
 				end
+
+				current_offset = current_offset + sub_mesh.index_count
 			end
 		end
 
 		if #all_indices > 0 then indices = all_indices end
 	end
 
-	self.mesh = Mesh.New(vertex_attributes, vertices, indices)
+	local index_type = "uint16_t"
+
+	if vertex_count > 65535 then index_type = "uint32_t" end
+
+	self.mesh = Mesh.New(vertex_attributes, vertices, indices, index_type)
 end
 
 function Polygon3D:AddSubMesh(val, data)
@@ -189,13 +203,11 @@ end
 function Polygon3D:Draw(cmd, i)
 	if not self.mesh then return end
 
-	self.mesh:Bind(cmd)
-
 	if i and self.sub_meshes[i] then
-		-- Draw specific submesh (if we support multiple submeshes in the future)
-		-- For now, just draw the whole mesh
+		local sub_mesh = self.sub_meshes[i]
+
 		if self.mesh.index_buffer then
-			self.mesh:DrawIndexed(cmd)
+			self.mesh:DrawIndexed(cmd, sub_mesh.index_count, 1, sub_mesh.index_offset)
 		else
 			self.mesh:Draw(cmd)
 		end

@@ -48,6 +48,9 @@ local ShadowUBO = ffi.typeof([[
 ]])
 local render3d = {}
 render3d.current_material = nil
+render3d.current_color = {1, 1, 1, 1}
+render3d.current_metallic_multiplier = 1
+render3d.current_roughness_multiplier = 1
 -- Default light settings
 render3d.light_direction = {0.5, -1.0, 0.3}
 render3d.light_color = {1.0, 1.0, 1.0, 2.0} -- RGB + intensity
@@ -315,8 +318,8 @@ function render3d.Initialize()
 						vec3 emissive = texture(textures[nonuniformEXT(pc.emissive_texture_index)], in_uv).rgb * pc.emissive_factor;
 
 						// Alpha test
-						if (albedo.a < 0.5) {
-							discard;
+						if (albedo.a < 0.9) {
+							//discard;
 						}
 
 						// glTF: metallic in B, roughness in G
@@ -599,12 +602,13 @@ do
 			end
 
 			-- Base color factor
-			fragment_constants.base_color_factor[0] = mat.base_color_factor[1]
-			fragment_constants.base_color_factor[1] = mat.base_color_factor[2]
-			fragment_constants.base_color_factor[2] = mat.base_color_factor[3]
-			fragment_constants.base_color_factor[3] = mat.base_color_factor[4]
-			fragment_constants.metallic_factor = mat.metallic_factor
-			fragment_constants.roughness_factor = mat.roughness_factor
+			local c = render3d.current_color
+			fragment_constants.base_color_factor[0] = mat.base_color_factor[1] * (c.r or c[1] or 1)
+			fragment_constants.base_color_factor[1] = mat.base_color_factor[2] * (c.g or c[2] or 1)
+			fragment_constants.base_color_factor[2] = mat.base_color_factor[3] * (c.b or c[3] or 1)
+			fragment_constants.base_color_factor[3] = mat.base_color_factor[4] * (c.a or c[4] or 1)
+			fragment_constants.metallic_factor = mat.metallic_factor * render3d.current_metallic_multiplier
+			fragment_constants.roughness_factor = mat.roughness_factor * render3d.current_roughness_multiplier
 			fragment_constants.normal_scale = mat.normal_scale
 			fragment_constants.occlusion_strength = mat.occlusion_strength
 			-- Emissive factor (vec3)
@@ -640,6 +644,18 @@ function render3d.SetMaterial(mat)
 	render3d.current_material = mat
 
 	if mat then mat:RegisterTextures(render3d.pipeline) end
+end
+
+function render3d.SetColor(c)
+	render3d.current_color = c
+end
+
+function render3d.SetMetallicMultiplier(m)
+	render3d.current_metallic_multiplier = m
+end
+
+function render3d.SetRoughnessMultiplier(r)
+	render3d.current_roughness_multiplier = r
 end
 
 do -- mesh
