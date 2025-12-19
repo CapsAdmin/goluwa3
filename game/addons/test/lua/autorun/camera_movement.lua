@@ -63,7 +63,7 @@ function events.Update.camera_movement(dt)
 	local speed = dt * get_speed_multiplier()
 	local mouse_delta = window.GetMouseDelta() / 2 -- Mouse sensitivity
 	if input.IsKeyDown("r") then
-		--rotation:Identity()
+		rotation:Identity()
 		--position:Set(0, 0, 0)
 		pitch = 0
 		cam_fov = math.rad(90)
