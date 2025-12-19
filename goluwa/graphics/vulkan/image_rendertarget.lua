@@ -311,19 +311,36 @@ function ImageRenderTarget:BeginFrame()
 	local cmd = self:GetCommandBuffer()
 	cmd:Reset()
 	cmd:Begin()
+	local imageBarriers = {
+		{
+			image = self:GetImage(),
+			srcAccessMask = "none",
+			dstAccessMask = "color_attachment_write",
+			oldLayout = "undefined",
+			newLayout = "color_attachment_optimal",
+		},
+	}
+
+	-- Add depth barrier for offscreen mode
+	if self.config.offscreen then
+		table.insert(
+			imageBarriers,
+			{
+				image = self.depth_texture:GetImage(),
+				srcAccessMask = "none",
+				dstAccessMask = "depth_stencil_attachment_write",
+				oldLayout = "undefined",
+				newLayout = "depth_attachment_optimal",
+				aspect = "depth",
+			}
+		)
+	end
+
 	cmd:PipelineBarrier(
 		{
 			srcStage = self.config.offscreen and "top_of_pipe" or "color_attachment_output",
-			dstStage = "color_attachment_output",
-			imageBarriers = {
-				{
-					image = self:GetImage(),
-					srcAccessMask = "none",
-					dstAccessMask = "color_attachment_write",
-					oldLayout = "undefined",
-					newLayout = "color_attachment_optimal",
-				},
-			},
+			dstStage = self.config.offscreen and "early_fragment_tests" or "color_attachment_output",
+			imageBarriers = imageBarriers,
 		}
 	)
 	local extent = self:GetExtent()
@@ -334,12 +351,13 @@ function ImageRenderTarget:BeginFrame()
 		h = extent.height,
 		clear_color = self.config.offscreen and {0.0, 0.0, 0.0, 1.0} or {0.2, 0.2, 0.2, 1.0},
 	}
+	-- Add depth buffer for both offscreen and windowed modes
+	render_config.depth_image_view = self:GetDepthImageView()
+	render_config.clear_depth = 1.0
 
-	-- Add MSAA and depth for windowed mode
+	-- Add MSAA for windowed mode only
 	if not self.config.offscreen then
 		render_config.msaa_image_view = self:GetMSAAImageView()
-		render_config.depth_image_view = self:GetDepthImageView()
-		render_config.clear_depth = 1.0
 	end
 
 	cmd:BeginRendering(render_config)
