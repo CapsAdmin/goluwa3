@@ -23,6 +23,7 @@ render3d.Initialize()
 gfx.Initialize()
 
 do
+	require("model_loader")
 	require("components.transform")
 	require("components.model")
 	require("components.light")

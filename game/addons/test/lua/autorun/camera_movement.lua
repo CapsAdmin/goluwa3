@@ -9,14 +9,14 @@ local orientation = require("orientation")
 
 local function get_speed_multiplier()
 	if input.IsKeyDown("left_shift") and input.IsKeyDown("left_control") then
-		return 32
+		return 16
 	elseif input.IsKeyDown("left_shift") then
 		return 8
 	elseif input.IsKeyDown("left_control") then
 		return 0.25
 	end
 
-	return 10
+	return 1
 end
 
 do
@@ -60,7 +60,6 @@ function events.Update.camera_movement(dt)
 	local rotation = cam:GetRotation()
 	local position = cam:GetPosition()
 	local cam_fov = cam:GetFOV()
-	local speed = dt * get_speed_multiplier()
 	local mouse_delta = window.GetMouseDelta() / 2 -- Mouse sensitivity
 	if input.IsKeyDown("r") then
 		rotation:Identity()
@@ -72,15 +71,15 @@ function events.Update.camera_movement(dt)
 	mouse_delta = mouse_delta * (cam_fov / 175)
 
 	if input.IsKeyDown("left") then
-		mouse_delta.x = mouse_delta.x - speed / 30
+		mouse_delta.x = mouse_delta.x - dt
 	elseif input.IsKeyDown("right") then
-		mouse_delta.x = mouse_delta.x + speed / 30
+		mouse_delta.x = mouse_delta.x + dt
 	end
 
 	if input.IsKeyDown("up") then
-		mouse_delta.y = mouse_delta.y - speed / 30
+		mouse_delta.y = mouse_delta.y - dt
 	elseif input.IsKeyDown("down") then
-		mouse_delta.y = mouse_delta.y + speed / 30
+		mouse_delta.y = mouse_delta.y + dt
 	end
 
 	if input.IsMouseDown("button_2") then
@@ -145,7 +144,7 @@ function events.Update.camera_movement(dt)
 		right = right / ((cam_fov / math.rad(90)) ^ 0.25)
 	end
 
-	position = position + ((forward + right + up) * speed)
+	position = position + ((forward + right + up) * dt * get_speed_multiplier() * 5)
 	cam:SetFOV(cam_fov)
 	cam:SetPosition(position)
 	cam:SetRotation(rotation)

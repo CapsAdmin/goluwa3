@@ -25,6 +25,7 @@ local FragmentConstants = ffi.typeof([[
 		int occlusion_texture_index;
 		int emissive_texture_index;
 		int shadow_map_indices[4];
+		int environment_texture_index;
 		float base_color_factor[4];
 		float metallic_factor;
 		float roughness_factor;
@@ -54,6 +55,8 @@ render3d.current_roughness_multiplier = 1
 -- Default light settings
 render3d.light_direction = {0.5, -1.0, 0.3}
 render3d.light_color = {1.0, 1.0, 1.0, 2.0} -- RGB + intensity
+render3d.environment_texture = nil
+
 function render3d.Initialize()
 	if render3d.pipeline then return end
 
@@ -200,6 +203,7 @@ function render3d.Initialize()
 						int occlusion_texture_index;
 						int emissive_texture_index;
 						int shadow_map_indices[4];
+						int environment_texture_index;
 						vec4 base_color_factor;
 						float metallic_factor;
 						float roughness_factor;
@@ -309,6 +313,25 @@ function render3d.Initialize()
 						return shadow_val;
 					}
 
+					// https://www.shadertoy.com/view/MslGR8
+					bool alpha_discard(vec2 uv, float alpha)
+					{
+						if (false)
+						{
+							if (alpha*alpha > gl_FragCoord.z/10)
+								return false;
+
+							return true;
+						}
+
+						if (true)
+						{
+							return fract(dot(vec2(171.0, 231.0)+alpha*0.00001, gl_FragCoord.xy) / 103.0) > ((alpha * alpha) - 0.001);
+						}
+
+						return false;
+					}
+
 					void main() {
 						// Sample textures
 						vec4 albedo = texture(textures[nonuniformEXT(pc.albedo_texture_index)], in_uv) * pc.base_color_factor;
@@ -316,9 +339,9 @@ function render3d.Initialize()
 						vec4 metallic_roughness = texture(textures[nonuniformEXT(pc.metallic_roughness_texture_index)], in_uv);
 						float ao = texture(textures[nonuniformEXT(pc.occlusion_texture_index)], in_uv).r;
 						vec3 emissive = texture(textures[nonuniformEXT(pc.emissive_texture_index)], in_uv).rgb * pc.emissive_factor;
-albedo.a = 1.0;
+
 						// Alpha test
-						if (albedo.a < 0.5) {
+						if (alpha_discard(in_uv, albedo.a)) {
 							discard;
 						}
 
@@ -369,14 +392,41 @@ albedo.a = 1.0;
 					}
 
 					// Final lighting
-						vec3 radiance = pc.light_color * pc.light_intensity;
-						vec3 Lo = (kD * albedo.rgb / PI + specular) * radiance * NdotL * shadow_factor;
+					vec3 radiance = pc.light_color * pc.light_intensity;
+					vec3 Lo = (kD * albedo.rgb / PI + specular) * radiance * NdotL * shadow_factor;
 
-						// Ambient - add simple environment approximation for metals
-						vec3 ambient_diffuse = vec3(0.02) * albedo.rgb * ao;
-						// Fake environment reflection for metals (fresnel at grazing angles)
+					// Ambient - use environment map if available
+					vec3 ambient_diffuse;
+					vec3 ambient_specular;
+					
+					if (pc.environment_texture_index >= 0) {
+						// Sample environment map using world normal for diffuse
+						vec3 env_dir = normalize(N);
+						// Convert direction to UV (equirectangular mapping)
+						float u = atan(env_dir.z, env_dir.x) / (2.0 * PI) + 0.5;
+						float v = asin(env_dir.y) / PI + 0.5;
+
+						ivec2 size =textureSize(textures[nonuniformEXT(pc.environment_texture_index)], 0);
+						float max = log2(max(size.x, size.y));
+						float f = roughness * max;
+
+						vec3 env_color = textureLod(textures[nonuniformEXT(pc.environment_texture_index)], vec2(u, v), f).rgb;
+						ambient_diffuse = env_color * albedo.rgb * ao;
+						
+						// Sample environment map using reflection vector for specular
+						vec3 R = reflect(-V, N);
+						float u_spec = atan(R.z, R.x) / (2.0 * PI) + 0.5;
+						float v_spec = asin(R.y) / PI + 0.5;
+						vec3 env_spec_color = textureLod(textures[nonuniformEXT(pc.environment_texture_index)], vec2(u_spec, v_spec),  f).rgb;
 						vec3 F_ambient = fresnelSchlick(NdotV, F0);
-						vec3 ambient_specular = F_ambient * albedo.rgb * 0.2 * ao; // Approximate IBL
+						ambient_specular = F_ambient * env_spec_color * ao;
+					} else {
+						// Fallback to simple ambient
+						ambient_diffuse = vec3(0.02) * albedo.rgb * ao;
+						vec3 F_ambient = fresnelSchlick(NdotV, F0);
+						ambient_specular = F_ambient * albedo.rgb * 0.2 * ao;
+					}
+					
 						vec3 ambient = ambient_diffuse * (1.0 - metallic) + ambient_specular * metallic;
 						
 						vec3 color = ambient + Lo + emissive;
@@ -459,8 +509,136 @@ albedo.a = 1.0;
 		render3d.pipeline:Bind(cmd, frame_index)
 	end
 
+	-- Create skybox pipeline
+	render3d.skybox_pipeline = render.CreateGraphicsPipeline(
+		{
+			dynamic_states = {"viewport", "scissor"},
+			shader_stages = {
+				{
+					type = "vertex",
+					code = [[
+					#version 450
+					
+					layout(location = 0) out vec3 out_direction;
+					
+					layout(push_constant) uniform Constants {
+						mat4 inv_projection_view;
+					} pc;
+					
+					vec2 positions[3] = vec2[](
+						vec2(-1.0, -1.0),
+						vec2( 3.0, -1.0),
+						vec2(-1.0,  3.0)
+					);
+					
+					void main() {
+						vec2 pos = positions[gl_VertexIndex];
+						gl_Position = vec4(pos, 1.0, 1.0);
+						
+						// Convert NDC to world direction
+						vec4 world_pos = pc.inv_projection_view * vec4(pos, 1.0, 1.0);
+						out_direction = world_pos.xyz / world_pos.w;
+					}
+				]],
+					push_constants = {
+						size = ffi.sizeof("float") * 16,
+						offset = 0,
+					},
+				},
+				{
+					type = "fragment",
+					code = [[
+					#version 450
+					#extension GL_EXT_nonuniform_qualifier : require
+					
+					layout(binding = 0) uniform sampler2D textures[1024];
+					
+					layout(location = 0) in vec3 in_direction;
+					layout(location = 0) out vec4 out_color;
+					
+					layout(push_constant) uniform Constants {
+						layout(offset = 64)
+						int environment_texture_index;
+					} pc;
+					
+					const float PI = 3.14159265359;
+					
+					void main() {
+						if (pc.environment_texture_index < 0) {
+							out_color = vec4(0.2, 0.2, 0.2, 1.0);
+							return;
+						}
+						
+						vec3 dir = normalize(in_direction);
+						float u = atan(dir.z, dir.x) / (2.0 * PI) + 0.5;
+						float v = asin(dir.y) / PI + 0.5;
+						vec3 color = texture(textures[nonuniformEXT(pc.environment_texture_index)], vec2(u, v)).rgb;
+						
+						// Tonemapping + gamma
+						color = color / (color + vec3(1.0));
+						color = pow(color, vec3(1.0/2.2));
+						
+						out_color = vec4(color, 1.0);
+					}
+				]],
+					descriptor_sets = {
+						{
+							type = "combined_image_sampler",
+							binding_index = 0,
+							count = 1024,
+						},
+					},
+					push_constants = {
+						size = ffi.sizeof("int"),
+						offset = ffi.sizeof("float") * 16,
+					},
+				},
+			},
+			rasterizer = {
+				depth_clamp = false,
+				discard = false,
+				polygon_mode = "fill",
+				line_width = 1.0,
+				cull_mode = {"front"},
+				front_face = orientation.FRONT_FACE,
+				depth_bias = 0,
+			},
+			color_blend = {
+				logic_op_enabled = false,
+				logic_op = "copy",
+				constants = {0.0, 0.0, 0.0, 0.0},
+				attachments = {
+					{
+						blend = false,
+						src_color_blend_factor = "one",
+						dst_color_blend_factor = "zero",
+						color_blend_op = "add",
+						src_alpha_blend_factor = "one",
+						dst_alpha_blend_factor = "zero",
+						alpha_blend_op = "add",
+						color_write_mask = {"r", "g", "b", "a"},
+					},
+				},
+			},
+			multisampling = {
+				sample_shading = false,
+				rasterization_samples = "1",
+			},
+			depth_stencil = {
+				depth_test = true,
+				depth_write = false,
+				depth_compare_op = "less_or_equal",
+				depth_bounds_test = false,
+				stencil_test = false,
+			},
+		}
+	)
+
 	function events.Draw.draw_3d(cmd, dt)
 		if not render3d.pipeline then return end
+
+		-- Draw skybox first
+		if render3d.environment_texture then render3d.DrawSkybox(cmd) end
 
 		render3d.BindPipeline()
 		event.Call("PreDraw3D", cmd, dt)
@@ -601,6 +779,13 @@ do
 				end
 			end
 
+			-- Environment texture
+			if render3d.environment_texture then
+				fragment_constants.environment_texture_index = render3d.pipeline:RegisterTexture(render3d.environment_texture)
+			else
+				fragment_constants.environment_texture_index = -1
+			end
+
 			-- Base color factor
 			local c = render3d.current_color
 			fragment_constants.base_color_factor[0] = mat.base_color_factor[1] * (c.r or c[1] or 1)
@@ -636,6 +821,42 @@ do
 	end
 end
 
+do
+	local inv_proj_view = Matrix44()
+	local SkyboxConstants = ffi.typeof([[
+		struct {
+			float inv_projection_view[16];
+			int environment_texture_index;
+		}
+	]])
+	local skybox_constants = SkyboxConstants()
+
+	function render3d.DrawSkybox(cmd)
+		if not render3d.environment_texture or not render3d.skybox_pipeline then
+			return
+		end
+
+		local frame_index = render.GetCurrentFrame()
+		render3d.skybox_pipeline:Bind(cmd, frame_index)
+		-- Calculate inverse projection-view matrix (without camera translation for skybox)
+		local proj = render3d.camera:BuildProjectionMatrix()
+		local view = render3d.camera:BuildViewMatrix():Copy()
+		-- Remove translation from view matrix for skybox
+		view.m30 = 0
+		view.m31 = 0
+		view.m32 = 0
+		local proj_view = view * proj
+		proj_view:GetInverse(inv_proj_view)
+		-- Upload constants
+		local matrix_copy = inv_proj_view:GetFloatCopy()
+		ffi.copy(skybox_constants.inv_projection_view, matrix_copy, ffi.sizeof("float") * 16)
+		skybox_constants.environment_texture_index = render3d.skybox_pipeline:RegisterTexture(render3d.environment_texture)
+		render3d.skybox_pipeline:PushConstants(cmd, "vertex", 0, skybox_constants)
+		-- Draw fullscreen triangle
+		cmd:Draw(3, 1, 0, 0)
+	end
+end
+
 function events.WindowFramebufferResized.render3d(wnd, size)
 	render3d.camera:SetViewport(Rect(0, 0, size.x, size.y))
 end
@@ -658,11 +879,19 @@ function render3d.SetRoughnessMultiplier(r)
 	render3d.current_roughness_multiplier = r
 end
 
+function render3d.SetEnvironmentTexture(texture)
+	render3d.environment_texture = texture
+end
+
+function render3d.GetEnvironmentTexture()
+	return render3d.environment_texture
+end
+
 do -- mesh
 	local Mesh = require("graphics.mesh")
 
-	function render3d.CreateMesh(vertices, indices)
-		return Mesh.New(render3d.pipeline:GetVertexAttributes(), vertices, indices)
+	function render3d.CreateMesh(vertices, indices, index_type)
+		return Mesh.New(render3d.pipeline:GetVertexAttributes(), vertices, indices, index_type)
 	end
 end
 

@@ -23,7 +23,7 @@ local function get_bytes_per_pixel(format)
 		return 4
 	elseif format == "r32g32b32a32_sfloat" then
 		return 16
-	elseif format == "r16g16b16a16_sfloat" then
+	elseif format == "r16g16b16a16_sfloat" or format == "r16g16b16a16_unorm" then
 		return 8
 	elseif format == "r32_sfloat" then
 		return 4
@@ -222,9 +222,9 @@ function Texture.New(config)
 		local sampler_config = config.sampler or {}
 		sampler = render.CreateSampler(
 			{
-				min_filter = sampler_config.min_filter or "nearest",
-				mag_filter = sampler_config.mag_filter or "nearest",
-				mipmap_mode = sampler_config.mipmap_mode or "nearest",
+				min_filter = sampler_config.min_filter or "linear",
+				mag_filter = sampler_config.mag_filter or "linear",
+				mipmap_mode = sampler_config.mipmap_mode or "linear",
 				wrap_s = sampler_config.wrap_s or "repeat",
 				wrap_t = sampler_config.wrap_t or "repeat",
 				wrap_r = sampler_config.wrap_r or "repeat",
