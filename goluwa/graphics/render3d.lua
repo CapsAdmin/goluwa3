@@ -317,10 +317,8 @@ function render3d.Initialize()
 						float ao = texture(textures[nonuniformEXT(pc.occlusion_texture_index)], in_uv).r;
 						vec3 emissive = texture(textures[nonuniformEXT(pc.emissive_texture_index)], in_uv).rgb * pc.emissive_factor;
 
-						// Alpha test
-						if (albedo.a < 0.9) {
-							//discard;
-						}
+						// For opaque rendering, ensure alpha is 1.0
+						albedo.a = 1.0;
 
 						// glTF: metallic in B, roughness in G
 						float metallic = metallic_roughness.b * pc.metallic_factor;
