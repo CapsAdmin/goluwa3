@@ -236,7 +236,6 @@ function META:OnDraw3D(cmd, dt)
 		render3d.SetColor(self.Color)
 		render3d.SetMetallicMultiplier(self.MetallicMultiplier)
 		render3d.SetRoughnessMultiplier(self.RoughnessMultiplier)
-		prim.polygon3d:Bind(cmd)
 		local sub_meshes = prim.polygon3d:GetSubMeshes()
 
 		if #sub_meshes > 0 then
@@ -286,7 +285,6 @@ function META:DrawOcclusionQuery(cmd)
 			end
 
 			render3d.SetWorldMatrix(final_matrix)
-			prim.polygon3d:Bind(cmd)
 			local sub_meshes = prim.polygon3d:GetSubMeshes()
 
 			if #sub_meshes > 0 then
@@ -326,7 +324,6 @@ function META:DrawShadow(shadow_cmd, shadow_map, cascade_idx)
 			final_matrix = prim.local_matrix:GetMultiplied(world_matrix, cached_final_matrix)
 		end
 
-		prim.polygon3d:Bind(shadow_cmd)
 		local sub_meshes = prim.polygon3d:GetSubMeshes()
 
 		if #sub_meshes > 0 then

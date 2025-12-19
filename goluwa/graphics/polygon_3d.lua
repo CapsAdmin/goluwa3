@@ -41,10 +41,6 @@ function Polygon3D:GetMesh()
 	return self.mesh
 end
 
-function Polygon3D:Bind(cmd)
-	if self.mesh then self.mesh:Bind(cmd) end
-end
-
 function Polygon3D:Upload()
 	-- Convert Lua table vertices to FFI structured array
 	local vertex_count = #self.Vertices
@@ -202,6 +198,8 @@ end
 
 function Polygon3D:Draw(cmd, i)
 	if not self.mesh then return end
+
+	self.mesh:Bind(cmd)
 
 	if i and self.sub_meshes[i] then
 		local sub_mesh = self.sub_meshes[i]
