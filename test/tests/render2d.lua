@@ -33,35 +33,6 @@ local function draw2d(cb)
 	render.EndFrame()
 end
 
--- Helper function to get pixel color
-local function get_pixel(image_data, x, y)
-	local width = image_data.width
-	local height = image_data.height
-	local bytes_per_pixel = image_data.bytes_per_pixel
-
-	if x < 0 or x >= width or y < 0 or y >= height then return 0, 0, 0, 0 end
-
-	local offset = (y * width + x) * bytes_per_pixel
-	local r = image_data.pixels[offset + 0]
-	local g = image_data.pixels[offset + 1]
-	local b = image_data.pixels[offset + 2]
-	local a = image_data.pixels[offset + 3]
-	return r, g, b, a
-end
-
--- Helper function to test pixel color
-local function test_pixel(x, y, r, g, b, a, tolerance)
-	tolerance = tolerance or 0.01
-	local image_data = render.target:GetTexture():Download()
-	local r_, g_, b_, a_ = get_pixel(image_data, x, y)
-	local r_norm, g_norm, b_norm, a_norm = r_ / 255, g_ / 255, b_ / 255, a_ / 255
-	-- Check with tolerance
-	T(math.abs(r_norm - r))["<="](tolerance)
-	T(math.abs(g_norm - g))["<="](tolerance)
-	T(math.abs(b_norm - b))["<="](tolerance)
-	T(math.abs(a_norm - a))["<="](tolerance)
-end
-
 -- ============================================================================
 -- Color Tests
 -- ============================================================================
@@ -104,7 +75,7 @@ T.Test("Graphics render2d color rendering", function()
 		render2d.DrawRect(10, 10, 1, 1)
 	end)
 
-	test_pixel(10, 10, 1, 0, 0, 1)
+	T.ScreenPixel(10, 10, 1, 0, 0, 1)
 end)
 
 -- ============================================================================
@@ -136,7 +107,7 @@ T.Test("Graphics render2d alpha multiplier rendering", function()
 
 	-- With alpha blending, white at 0.5 alpha over black background = gray
 	-- Result: RGB = 1 * 0.5 + 0 * 0.5 = 0.5 (127/255)
-	test_pixel(20, 20, 0.5, 0.5, 0.5, 0.5, 0.01)
+	T.ScreenPixel(20, 20, 0.5, 0.5, 0.5, 0.5, 0.01)
 	-- Reset
 	render2d.SetAlphaMultiplier(1.0)
 end)
@@ -270,7 +241,7 @@ T.Test("Graphics render2d Translate", function()
 	end)
 
 	-- Pixel should be at (50, 50)
-	test_pixel(50, 50, 1, 0, 0, 1)
+	T.ScreenPixel(50, 50, 1, 0, 0, 1)
 end)
 
 T.Test("Graphics render2d Translatef", function()
@@ -283,7 +254,7 @@ T.Test("Graphics render2d Translatef", function()
 	end)
 
 	-- Should be near (60, 60) or (61, 61) due to sub-pixel positioning
-	test_pixel(60, 60, 0, 1, 0, 1, 0.5)
+	T.ScreenPixel(60, 60, 0, 1, 0, 1, 0.5)
 end)
 
 T.Test("Graphics render2d Scale", function()
@@ -296,8 +267,8 @@ T.Test("Graphics render2d Scale", function()
 	end)
 
 	-- Should be scaled to 2x2
-	test_pixel(0, 0, 0, 0, 1, 1)
-	test_pixel(1, 1, 0, 0, 1, 1)
+	T.ScreenPixel(0, 0, 0, 0, 1, 1)
+	T.ScreenPixel(1, 1, 0, 0, 1, 1)
 end)
 
 T.Test("Graphics render2d Rotate", function()
@@ -311,7 +282,7 @@ T.Test("Graphics render2d Rotate", function()
 	end)
 
 	-- Center pixel should be rendered
-	test_pixel(100, 100, 1, 1, 0, 1, 0.1)
+	T.ScreenPixel(100, 100, 1, 1, 0, 1, 0.1)
 end)
 
 -- Note: Matrix44.Shear is not implemented, so render2d.Shear is not available
@@ -327,7 +298,7 @@ T.Test("Graphics render2d combined transforms", function()
 	end)
 
 	-- Center should have the color
-	test_pixel(150, 150, 1, 0, 1, 1, 0.1)
+	T.ScreenPixel(150, 150, 1, 0, 1, 1, 0.1)
 end)
 
 T.Test("Graphics render2d PushMatrix with parameters", function()
@@ -339,7 +310,7 @@ T.Test("Graphics render2d PushMatrix with parameters", function()
 		render2d.PopMatrix()
 	end)
 
-	test_pixel(200, 200, 0, 1, 1, 1, 0.1)
+	T.ScreenPixel(200, 200, 0, 1, 1, 1, 0.1)
 end)
 
 T.Test("Graphics render2d PushMatrix dont_multiply", function()
@@ -362,8 +333,8 @@ T.Test("Graphics render2d DrawRect basic", function()
 		render2d.DrawRect(250, 250, 10, 10)
 	end)
 
-	test_pixel(250, 250, 1, 0.5, 0, 1)
-	test_pixel(259, 259, 1, 0.5, 0, 1)
+	T.ScreenPixel(250, 250, 1, 0.5, 0, 1)
+	T.ScreenPixel(259, 259, 1, 0.5, 0, 1)
 end)
 
 T.Test("Graphics render2d DrawRect with rotation", function()
@@ -379,7 +350,7 @@ T.Test("Graphics render2d DrawRect with rotation", function()
 	end)
 
 	-- Center of rotated rectangle should have the color
-	test_pixel(300, 300, 0.5, 0.5, 1, 1, 0.1)
+	T.ScreenPixel(300, 300, 0.5, 0.5, 1, 1, 0.1)
 end)
 
 T.Test("Graphics render2d DrawRect with offset", function()
@@ -389,7 +360,7 @@ T.Test("Graphics render2d DrawRect with offset", function()
 	end)
 
 	-- Should be offset by (10, 10)
-	test_pixel(340, 340, 1, 1, 1, 1, 0.1)
+	T.ScreenPixel(340, 340, 1, 1, 1, 1, 0.1)
 end)
 
 T.Test("Graphics render2d DrawTriangle basic", function()
@@ -400,7 +371,7 @@ T.Test("Graphics render2d DrawTriangle basic", function()
 
 	-- Triangle vertices at (-0.5,-0.5), (0.5,0.5), (-0.5,0.5) in local space
 	-- Scaled by 20x20 at (400,400): check upper-left area around (395, 405)
-	test_pixel(395, 405, 1, 0, 0.5, 1, 0.1)
+	T.ScreenPixel(395, 405, 1, 0, 0.5, 1, 0.1)
 end)
 
 T.Test("Graphics render2d DrawTriangle with rotation", function()
@@ -410,7 +381,7 @@ T.Test("Graphics render2d DrawTriangle with rotation", function()
 	end)
 
 	-- With rotation, check a point that should be inside
-	test_pixel(445, 455, 0, 1, 0.5, 1, 0.2)
+	T.ScreenPixel(445, 455, 0, 1, 0.5, 1, 0.2)
 end)
 
 -- ============================================================================
@@ -447,7 +418,7 @@ T.Test("Graphics render2d custom mesh rendering", function()
 		render2d.PopMatrix()
 	end)
 
-	test_pixel(105, 105, 0.5, 0, 0.5, 1, 0.1)
+	T.ScreenPixel(105, 105, 0.5, 0, 0.5, 1, 0.1)
 end)
 
 -- ============================================================================
@@ -521,7 +492,7 @@ T.Test("Graphics render2d nested PushMatrix calls", function()
 	end)
 
 	-- Should be at (60, 60)
-	test_pixel(60, 60, 1, 1, 1, 1)
+	T.ScreenPixel(60, 60, 1, 1, 1, 1)
 end)
 
 T.Test("Graphics render2d color clamping", function()

@@ -12,6 +12,32 @@ local Texture = {}
 Texture.__index = Texture
 -- Texture cache for path-based textures
 local texture_cache = {}
+
+local function get_bytes_per_pixel(format)
+	if
+		format == "r8g8b8a8_unorm" or
+		format == "r8g8b8a8_srgb" or
+		format == "b8g8r8a8_unorm" or
+		format == "b8g8r8a8_srgb"
+	then
+		return 4
+	elseif format == "r32g32b32a32_sfloat" then
+		return 16
+	elseif format == "r16g16b16a16_sfloat" then
+		return 8
+	elseif format == "r32_sfloat" then
+		return 4
+	elseif format == "r16_sfloat" then
+		return 2
+	elseif format == "r8_unorm" then
+		return 1
+	elseif format == "r8g8_unorm" then
+		return 2
+	end
+
+	return 4
+end
+
 -- Fallback checkerboard texture (pink and black)
 local fallback_texture = nil
 
@@ -72,8 +98,8 @@ function Texture.New(config)
 
 	-- Handle path parameter for loading images
 	local buffer_data = nil
-	local is_compressed_dds = false
-	local dds_info = nil
+	local is_compressed = false
+	local vulkan_info = nil
 
 	if config.path then
 		local ok, img_or_err = pcall(file_formats.Load, config.path)
@@ -87,11 +113,11 @@ function Texture.New(config)
 		config.width = config.width or img.width
 		config.height = config.height or img.height
 
-		-- Handle DDS files specially - they may be compressed
+		-- Handle images that already have a vulkan format (DDS, EXR, etc.)
 		if img.vulkan_format then
 			config.format = config.format or img.vulkan_format
-			is_compressed_dds = img.is_compressed
-			dds_info = img
+			is_compressed = img.is_compressed
+			vulkan_info = img
 			buffer_data = img.data
 		else
 			config.format = config.format or "r8g8b8a8_unorm"
@@ -106,9 +132,9 @@ function Texture.New(config)
 
 	if mip_levels == "auto" then mip_levels = 999 end
 
-	-- For compressed DDS, use mip count from file and don't generate mipmaps
-	if dds_info and dds_info.mip_count > 1 then
-		mip_levels = dds_info.mip_count
+	-- For compressed images, use mip count from file and don't generate mipmaps
+	if vulkan_info and vulkan_info.mip_count and vulkan_info.mip_count > 1 then
+		mip_levels = vulkan_info.mip_count
 	elseif mip_levels > 1 then
 		assert(config.width and config.height, "width and height required for mipmap generation")
 		mip_levels = math.floor(math.log(math.max(config.width, config.height), 2)) + 1
@@ -132,7 +158,7 @@ function Texture.New(config)
 		-- Compressed formats cannot be used as color attachments or transfer_src
 		local default_usage = {"sampled", "transfer_dst", "transfer_src", "color_attachment"}
 
-		if is_compressed_dds then default_usage = {"sampled", "transfer_dst"} end
+		if is_compressed then default_usage = {"sampled", "transfer_dst"} end
 
 		image = render.CreateImage(
 			{
@@ -223,16 +249,16 @@ function Texture.New(config)
 			mip_map_levels = mip_levels,
 			format = format,
 			config = config,
-			is_compressed = is_compressed_dds,
-			dds_info = dds_info,
+			is_compressed = is_compressed,
+			vulkan_info = vulkan_info,
 		},
 		Texture
 	)
 
 	if buffer_data and image then
-		if is_compressed_dds and dds_info then
-			-- Upload compressed DDS data with all mipmaps
-			self:UploadCompressed(buffer_data, dds_info)
+		if is_compressed and vulkan_info then
+			-- Upload compressed data with all mipmaps
+			self:UploadCompressed(buffer_data, vulkan_info)
 		else
 			-- If we're generating mipmaps, keep mip level 0 in transfer_dst after upload
 			self:Upload(buffer_data, mip_levels > 1)
@@ -274,16 +300,17 @@ function Texture:Upload(data, keep_in_transfer_dst)
 	local width = self.image:GetWidth()
 	local height = self.image:GetHeight()
 	local pixel_count = width * height
+	local bytes_per_pixel = get_bytes_per_pixel(self.format)
 	-- Create staging buffer
 	local staging_buffer = Buffer.New(
 		{
 			device = device,
-			size = pixel_count * 4,
+			size = pixel_count * bytes_per_pixel,
 			usage = "transfer_src",
 			properties = {"host_visible", "host_coherent"},
 		}
 	)
-	staging_buffer:CopyData(data, pixel_count * 4)
+	staging_buffer:CopyData(data, pixel_count * bytes_per_pixel)
 	-- Copy to image using command buffer
 	local cmd_pool = render.GetCommandPool()
 	local cmd = cmd_pool:AllocateCommandBuffer()
@@ -352,13 +379,13 @@ function Texture:Upload(data, keep_in_transfer_dst)
 	queue:SubmitAndWait(device, cmd, fence)
 end
 
-function Texture:UploadCompressed(data, dds_info)
+function Texture:UploadCompressed(data, vulkan_info)
 	if not self.image then error("Cannot upload: texture has no image") end
 
 	local device = render.GetDevice()
 	local queue = render.GetQueue()
-	local mip_count = dds_info.mip_count
-	local total_size = dds_info.data_size
+	local mip_count = vulkan_info.mip_count
+	local total_size = vulkan_info.data_size
 	-- Create staging buffer for all data
 	local staging_buffer = Buffer.New(
 		{
@@ -394,7 +421,7 @@ function Texture:UploadCompressed(data, dds_info)
 
 	-- Copy each mip level from the staging buffer
 	for mip = 1, mip_count do
-		local mip_info = dds_info.mip_info[mip]
+		local mip_info = vulkan_info.mip_info[mip]
 
 		if mip_info then
 			cmd:CopyBufferToImageMip(
@@ -747,9 +774,9 @@ do
 		local image = self:GetImage()
 		local width = image:GetWidth()
 		local height = image:GetHeight()
-		local format = "r8g8b8a8_unorm"
+		local format = self.format
 		local current_layout = "transfer_src_optimal"
-		local bytes_per_pixel = 4 -- Assume RGBA for now
+		local bytes_per_pixel = get_bytes_per_pixel(format)
 		-- Create staging buffer
 		local device = render.GetDevice()
 		local staging_buffer = Buffer.New(
