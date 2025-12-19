@@ -114,6 +114,11 @@ function META:AddPrimitive(obj)
 		)
 	end
 
+	if not obj.material then
+		debug.trace()
+		print(obj, obj.material, "!!!!!!")
+	end
+
 	-- Store the Polygon3D
 	local primitive = {
 		polygon3d = obj,

@@ -1,6 +1,9 @@
 local fs = require("fs")
 local MAP = "gltf_Sponza"
 
+--MAP = nil
+if not MAP then return end
+
 if MAP:starts_with("gltf_") then
 	local gltf = require("gltf")
 	local ecs = require("ecs")

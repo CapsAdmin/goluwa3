@@ -247,7 +247,7 @@ function ShadowMap:UpdateCascadeLightMatrices(light_direction)
 		local size = cascade_ortho_size * 2
 		projection:Ortho(-size, size, -size, size, -self.far_plane * 2, self.far_plane * 0.1)
 		-- Store all cascade data
-		self.cascade[cascade_idx].light_space_matrix = projection * view
+		self.cascade[cascade_idx].light_space_matrix = view * projection
 	end
 end
 

@@ -557,16 +557,16 @@ do -- helpers
 
 				-- First triangle (top-left, top-right, bottom-right)
 				if ring > 0 then -- Skip degenerate triangles at top pole
-					self:AddVertex({pos = Vec3(x1, y1, z1), uv = Vec2(u1, v1), normal = n1})
-					self:AddVertex({pos = Vec3(x2, y2, z2), uv = Vec2(u2, v1), normal = n2})
 					self:AddVertex({pos = Vec3(x3, y3, z3), uv = Vec2(u2, v2), normal = n3})
+					self:AddVertex({pos = Vec3(x2, y2, z2), uv = Vec2(u2, v1), normal = n2})
+					self:AddVertex({pos = Vec3(x1, y1, z1), uv = Vec2(u1, v1), normal = n1})
 				end
 
 				-- Second triangle (top-left, bottom-right, bottom-left)
 				if ring < rings - 1 then -- Skip degenerate triangles at bottom pole
-					self:AddVertex({pos = Vec3(x1, y1, z1), uv = Vec2(u1, v1), normal = n1})
-					self:AddVertex({pos = Vec3(x3, y3, z3), uv = Vec2(u2, v2), normal = n3})
 					self:AddVertex({pos = Vec3(x4, y4, z4), uv = Vec2(u1, v2), normal = n4})
+					self:AddVertex({pos = Vec3(x3, y3, z3), uv = Vec2(u2, v2), normal = n3})
+					self:AddVertex({pos = Vec3(x1, y1, z1), uv = Vec2(u1, v1), normal = n1})
 				end
 			end
 		end

@@ -332,6 +332,25 @@ function render3d.Initialize()
 						return false;
 					}
 
+					vec3 sample_env_map(vec3 V, vec3 N, float roughness) 
+					{
+						ivec2 size = textureSize(textures[nonuniformEXT(pc.environment_texture_index)], 0);
+						float max_mip = log2(max(size.x, size.y));
+						
+						vec3 R = reflect(-V, N);
+						
+						// Based on: mip_level = 0.5 * log2(solid_angle / pixel_solid_angle)
+						// For GGX distribution: solid_angle ≈ π * α²
+						float alpha = roughness * roughness;
+						float mip_level = 0.5 * log2(alpha * alpha * size.x * size.y / PI);
+						mip_level = clamp(mip_level, 0.0, max_mip);
+						
+						float u = atan(R.z, R.x) / (2.0 * PI) + 0.5;
+						float v = asin(R.y) / PI + 0.5;
+						
+						return textureLod(textures[nonuniformEXT(pc.environment_texture_index)], vec2(u, -v), mip_level).rgb;
+					}
+
 					void main() {
 						// Sample textures
 						vec4 albedo = texture(textures[nonuniformEXT(pc.albedo_texture_index)], in_uv) * pc.base_color_factor;
@@ -400,26 +419,10 @@ function render3d.Initialize()
 					vec3 ambient_specular;
 					
 					if (pc.environment_texture_index >= 0) {
-						// Sample environment map using world normal for diffuse
-						vec3 env_dir = normalize(N);
-						// Convert direction to UV (equirectangular mapping)
-						float u = atan(env_dir.z, env_dir.x) / (2.0 * PI) + 0.5;
-						float v = asin(env_dir.y) / PI + 0.5;
-
-						ivec2 size =textureSize(textures[nonuniformEXT(pc.environment_texture_index)], 0);
-						float max = log2(max(size.x, size.y));
-						float f = roughness * max;
-
-						vec3 env_color = textureLod(textures[nonuniformEXT(pc.environment_texture_index)], vec2(u, -v), f).rgb;
-						ambient_diffuse = env_color * albedo.rgb * ao;
+						ambient_diffuse = sample_env_map(V, N, roughness) * albedo.rgb * ao;
 						
-						// Sample environment map using reflection vector for specular
-						vec3 R = reflect(-V, N);
-						float u_spec = atan(R.z, R.x) / (2.0 * PI) + 0.5;
-						float v_spec = asin(R.y) / PI + 0.5;
-						vec3 env_spec_color = textureLod(textures[nonuniformEXT(pc.environment_texture_index)], vec2(u_spec, -v_spec),  f).rgb;
 						vec3 F_ambient = fresnelSchlick(NdotV, F0);
-						ambient_specular = F_ambient * env_spec_color * ao;
+						ambient_specular = F_ambient * sample_env_map(V, N, roughness) * ao;
 					} else {
 						// Fallback to simple ambient
 						ambient_diffuse = vec3(0.02) * albedo.rgb * ao;
@@ -677,7 +680,7 @@ function render3d.SetLightDirection(x, y, z)
 	render3d.light_direction = {x, y, z}
 
 	-- Update sun light direction too if exists
-	if render3d.sun_light then render3d.sun_light:SetDirection(x, y, z) end
+	if render3d.sun_light then render3d.sun_light:SetDirection(Vec3(x, y, z)) end
 end
 
 function render3d.SetLightColor(r, g, b, intensity)
