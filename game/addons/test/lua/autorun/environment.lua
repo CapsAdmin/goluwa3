@@ -18,7 +18,7 @@ local sun = Light.CreateDirectional(
 	}
 )
 render3d.SetSunLight(sun)
-render3d.SetLightDirection(Quat(-0.4, 0.5, 0.3, 0.7):GetForward():Unpack())
+render3d.SetLightDirection(Quat(-0.4, 0.5, 0.3, 0.7):GetUp():Unpack())
 render3d.SetEnvironmentTexture(Texture.New({
 	path = "/home/caps/projects/hdr.png",
 	mip_map_levels = "auto",

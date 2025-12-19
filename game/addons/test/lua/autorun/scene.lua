@@ -1,5 +1,5 @@
 local fs = require("fs")
-local MAP = "gltf_Sponza"
+local MAP = "gm_construct"
 
 --MAP = nil
 if not MAP then return end

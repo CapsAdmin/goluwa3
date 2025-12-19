@@ -5,8 +5,9 @@ local Texture = require("graphics.texture")
 local Fence = require("graphics.vulkan.internal.fence")
 local Matrix44 = require("structs.matrix").Matrix44
 local Vec3 = require("structs.vec3")
-local Vec2 = require("structs.vec2")
 local Ang3 = require("structs.ang3")
+local Vec2 = require("structs.vec2")
+local Quat = require("structs.quat")
 local ShadowMap = {}
 ShadowMap.__index = ShadowMap
 -- Default shadow map settings
@@ -189,7 +190,9 @@ end
 
 -- Calculate cascade split distances using practical split scheme
 -- Blends between logarithmic and linear split based on lambda parameter
-function ShadowMap:CalculateCascadeSplits(view_near, view_far)
+function ShadowMap:CalculateCascadeSplits()
+	local view_near = self.near_plane
+	local view_far = math.min(self.far_plane, self.max_shadow_distance)
 	local lambda = self.cascade_split_lambda
 	self.cascade_splits = {}
 	local n = self.cascade_count
@@ -211,7 +214,7 @@ end
 local cam = render3d.GetCamera()
 
 function ShadowMap:UpdateCascadeLightMatrices(light_direction)
-	self:CalculateCascadeSplits(cam:GetNearZ(), cam:GetFarZ())
+	self:CalculateCascadeSplits()
 
 	for cascade_idx = 1, self.cascade_count do
 		-- Each cascade covers a larger area
@@ -235,17 +238,25 @@ function ShadowMap:UpdateCascadeLightMatrices(light_direction)
 		-- The shadow camera is positioned "behind" the shadow center
 		local shadow_cam_pos = shadow_center + light_direction * -cascade_ortho_size
 		local angles = light_direction:GetAngles()
-		-- Build the view matrix
-		-- ORIENTATION / TRANSFORMATION: Using rotation helpers from orientation module
-		local view = Matrix44()
-		view:RotateRoll(angles.z)
-		view:RotateYaw(angles.y)
-		view:RotatePitch(-angles.x)
-		view:SetTranslation(-shadow_cam_pos.x, shadow_cam_pos.y, -shadow_cam_pos.z)
+		local rot = Quat()
+		rot:Identity()
+		rot:RotateYaw(angles.y) -- Turn Left
+		rot:RotatePitch(-angles.p) -- Look Up
+		local tr = Matrix44()
+		tr:Translate(-shadow_cam_pos.x, -shadow_cam_pos.y, -shadow_cam_pos.z)
+		tr:Multiply(rot:GetConjugated():GetMatrix())
+		local view = tr
 		-- Build orthographic projection (same approach as working UpdateLightMatrix)
 		local projection = Matrix44()
-		local size = cascade_ortho_size * 2
-		projection:Ortho(-size, size, -size, size, -self.far_plane * 2, self.far_plane * 0.1)
+		local size = -cascade_ortho_size * 10
+		projection:Ortho(
+			-size,
+			size,
+			size,
+			-size,
+			-self.max_shadow_distance * 2,
+			self.max_shadow_distance
+		)
 		-- Store all cascade data
 		self.cascade[cascade_idx].light_space_matrix = view * projection
 	end

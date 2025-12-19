@@ -28,27 +28,7 @@ do
 
 	function events.KeyInput.camera_movement(key, down)
 		if key == "o" and down then
-			local poly = Polygon3D.New()
-			poly:CreateCube(1.0, 1.0)
-			poly:AddSubMesh(#poly.Vertices)
-			poly:BuildNormals()
-			poly:BuildBoundingBox()
-			poly:Upload()
-			local entity = ecs.CreateEntity("cube", ecs.GetWorld())
-			entity:AddComponent(
-				"transform",
-				{
-					position = DEBUG_CAMERA_POS,
-					scale = Vec3(1, 1, 1) * 0.1,
-				}
-			)
-			entity:AddComponent(
-				"model",
-				{
-					mesh = poly,
-					material = Material.New({base_color_factor = {1, 0.2, 0.2, 1}}),
-				}
-			)
+			render3d.GetCamera():SetOrthoMode(not render3d.GetCamera():GetOrthoMode())
 		end
 	end
 end

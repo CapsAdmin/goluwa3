@@ -6,6 +6,7 @@ local Rect = require("structs.rect")
 local META = prototype.CreateTemplate("camera3d")
 
 do
+	META:GetSet("OrthoMode", false, {callback = "InvalidateProjectionMatrix"})
 	META:GetSet("FOV", math.rad(90), {callback = "InvalidateProjectionMatrix"})
 	META:GetSet("NearZ", 0.1, {callback = "InvalidateProjectionMatrix"})
 	META:GetSet("FarZ", 32000, {callback = "InvalidateProjectionMatrix"})
@@ -19,8 +20,16 @@ do
 		if self.ProjectionMatrix then return self.ProjectionMatrix end
 
 		self.ProjectionMatrix = Matrix44()
-		self.ProjectionMatrix:SetTranslation(self.Viewport.x, self.Viewport.y, 0)
-		self.ProjectionMatrix:Perspective(self.FOV, self.NearZ, self.FarZ, self.Viewport.w / self.Viewport.h)
+		self.ProjectionMatrix:Translate(self.Viewport.x, self.Viewport.y, 0)
+
+		if self.OrthoMode then
+			local mult = 100 * self.FOV
+			local ratio = self.Viewport.h / self.Viewport.w
+			self.ProjectionMatrix:Ortho(-mult, mult, mult * ratio, -mult * ratio, -32000 * 2, 32000)
+		else
+			self.ProjectionMatrix:Perspective(self.FOV, self.NearZ, self.FarZ, self.Viewport.w / self.Viewport.h)
+		end
+
 		return self.ProjectionMatrix
 	end
 end
