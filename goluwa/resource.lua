@@ -1,4 +1,5 @@
 local vfs = require("vfs")
+local crypto = require("crypto")
 local callback = require("callback")
 local serializer = require("serializer")
 local http = require("http")

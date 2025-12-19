@@ -2,6 +2,12 @@ local META = {}
 META.__index = META
 local ffi = require("ffi")
 local ffi_string = ffi.string
+ffi.cdef[[
+	void* malloc(size_t size);
+	void* realloc(void* ptr, size_t size);
+	void free(void* ptr);
+	void* memcpy(void* dest, const void* src, size_t n);
+]]
 META.CType = ffi.typeof([[
 	struct {
 		uint8_t * Buffer;
@@ -13,6 +19,7 @@ META.CType = ffi.typeof([[
 		uint32_t buf_byte;
 		uint8_t buf_nbit;
 		uint32_t buf_start_pos;
+		bool OwnsMemory;
 	}
 ]])
 local refs = setmetatable({}, {__mode = "k"})
@@ -29,7 +36,6 @@ do
 
 	function META:GetSize()
 		--if self.Writable then return self.Position end
-
 		return self.ByteSize
 	end
 
@@ -39,12 +45,32 @@ do
 		if self.Writable then
 			while self:TheEnd() do
 				local new_size = math.max(self.ByteSize * 2, pos)
-				local new_buffer = ffi.new("uint8_t[?]", new_size)
-				ffi.copy(new_buffer, self.Buffer, self.ByteSize)
-				self.Buffer = new_buffer
+
+				if self.OwnsMemory then
+					-- Use realloc for buffers we own
+					local new_buffer = ffi.C.realloc(self.Buffer, new_size)
+
+					if new_buffer == nil then
+						error("Failed to reallocate buffer to size " .. new_size)
+					end
+
+					self.Buffer = ffi.cast("uint8_t*", new_buffer)
+				else
+					-- Allocate new buffer and copy data
+					local new_buffer = ffi.C.malloc(new_size)
+
+					if new_buffer == nil then
+						error("Failed to allocate buffer of size " .. new_size)
+					end
+
+					ffi.C.memcpy(new_buffer, self.Buffer, self.ByteSize)
+					self.Buffer = ffi.cast("uint8_t*", new_buffer)
+					self.OwnsMemory = true
+				end
+
 				self.ByteSize = new_size
-				-- Update refs to prevent GC of new buffer
-				refs[self] = {new_buffer}
+				-- Update refs to prevent GC
+				refs[self] = true
 			end
 		end
 	end
@@ -79,12 +105,32 @@ do
 		if self.Writable and pos >= self.ByteSize then
 			-- Expand buffer before writing
 			local new_size = math.max(self.ByteSize * 2, pos + 1)
-			local new_buffer = ffi.new("uint8_t[?]", new_size)
-			ffi.copy(new_buffer, self.Buffer, self.ByteSize)
-			self.Buffer = new_buffer
+
+			if self.OwnsMemory then
+				-- Use realloc for buffers we own
+				local new_buffer = ffi.C.realloc(self.Buffer, new_size)
+
+				if new_buffer == nil then
+					error("Failed to reallocate buffer to size " .. new_size)
+				end
+
+				self.Buffer = ffi.cast("uint8_t*", new_buffer)
+			else
+				-- Allocate new buffer and copy data
+				local new_buffer = ffi.C.malloc(new_size)
+
+				if new_buffer == nil then
+					error("Failed to allocate buffer of size " .. new_size)
+				end
+
+				ffi.C.memcpy(new_buffer, self.Buffer, self.ByteSize)
+				self.Buffer = ffi.cast("uint8_t*", new_buffer)
+				self.OwnsMemory = true
+			end
+
 			self.ByteSize = new_size
-			-- Update refs to prevent GC of new buffer
-			refs[self] = {new_buffer}
+			-- Update refs to prevent GC
+			refs[self] = true
 		end
 
 		self.Buffer[pos] = b
@@ -218,6 +264,9 @@ do -- basic data types
 			return self
 		end
 	end
+
+	META.ReadU8 = META.ReadByte
+	META.WriteU8 = META.WriteByte
 
 	-- Add explicit endianness variants for multi-byte types
 	-- Note: We provide both LE and BE methods regardless of native endianness
@@ -787,12 +836,43 @@ do -- read bits
 end
 
 function META.New(data, len)
-	local self = META.CType({
-		Buffer = ffi.cast("uint8_t *", data),
-		ByteSize = len or #data,
-	})
-	refs[self] = {data}
-	return self
+	if data == nil then
+		-- Allocate new buffer with malloc
+		local size = len or 1024
+		local buffer = ffi.C.malloc(size)
+
+		if buffer == nil then
+			error("Failed to allocate buffer of size " .. size)
+		end
+
+		local self = META.CType(
+			{
+				Buffer = ffi.cast("uint8_t*", buffer),
+				ByteSize = size,
+				OwnsMemory = true,
+			}
+		)
+		refs[self] = true
+		return self
+	else
+		-- Use existing data
+		local self = META.CType(
+			{
+				Buffer = ffi.cast("uint8_t *", data),
+				ByteSize = len or #data,
+				OwnsMemory = false,
+			}
+		)
+		refs[self] = {data}
+		return self
+	end
+end
+
+function META:__gc()
+	if self.OwnsMemory and self.Buffer ~= nil then
+		ffi.C.free(self.Buffer)
+		self.Buffer = nil
+	end
 end
 
 ffi.metatype(META.CType, META)

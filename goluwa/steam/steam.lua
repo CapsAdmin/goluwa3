@@ -1,4 +1,5 @@
 local tasks = require("tasks")
+local resource = require("resource")
 local serializer = require("serializer")
 local sockets = require("sockets.sockets")
 local steam = {}

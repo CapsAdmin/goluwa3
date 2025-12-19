@@ -62,6 +62,7 @@ do
 	require("serializers.newline")
 	require("serializers.simple")
 	require("serializers.unzip")
+	require("serializers.lzma")
 end
 
 do

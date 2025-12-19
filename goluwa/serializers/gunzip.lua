@@ -18,5 +18,5 @@ serializer.AddLibrary(
 		)
 		return list.concat(out)
 	end,
-	require("helpers/deflatelua")
+	require("helpers/deflate")
 )
