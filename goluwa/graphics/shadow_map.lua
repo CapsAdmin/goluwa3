@@ -210,10 +210,10 @@ end
 
 -- Update all cascade light matrices for cascaded shadow mapping
 -- view_camera: the main view camera to calculate frustum splits from
--- light_direction: normalized direction of the directional light
+-- light_rotation: quaternion rotation of the directional light
 local cam = render3d.GetCamera()
 
-function ShadowMap:UpdateCascadeLightMatrices(light_direction)
+function ShadowMap:UpdateCascadeLightMatrices(light_rotation)
 	self:CalculateCascadeSplits()
 
 	for cascade_idx = 1, self.cascade_count do
@@ -236,15 +236,10 @@ function ShadowMap:UpdateCascadeLightMatrices(light_direction)
 		end
 
 		-- The shadow camera is positioned "behind" the shadow center
-		local shadow_cam_pos = shadow_center + light_direction * -cascade_ortho_size
-		local angles = light_direction:GetAngles()
-		local rot = Quat()
-		rot:Identity()
-		rot:RotateYaw(angles.y) -- Turn Left
-		rot:RotatePitch(-angles.p) -- Look Up
+		local shadow_cam_pos = shadow_center + light_rotation:GetForward() * -cascade_ortho_size
 		local tr = Matrix44()
 		tr:Translate(-shadow_cam_pos.x, -shadow_cam_pos.y, -shadow_cam_pos.z)
-		tr:Multiply(rot:GetConjugated():GetMatrix())
+		tr:Multiply(light_rotation:GetConjugated():GetMatrix())
 		local view = tr
 		-- Build orthographic projection (same approach as working UpdateLightMatrix)
 		local projection = Matrix44()

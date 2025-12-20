@@ -2,6 +2,7 @@ local ffi = require("ffi")
 local prototype = require("prototype")
 local ecs = require("ecs")
 local Vec3 = require("structs.vec3")
+local Quat = require("structs.quat")
 local ShadowMap = require("graphics.shadow_map")
 local render3d = require("graphics.render3d")
 local Model = require("components.model")
@@ -15,7 +16,7 @@ META.TYPE_DIRECTIONAL = 0
 META.TYPE_POINT = 1
 META.TYPE_SPOT = 2
 META:GetSet("LightType", 0) -- TYPE_DIRECTIONAL
-META:GetSet("Direction", Vec3(0, -1, 0))
+META:GetSet("Rotation", Quat(0, 0, 0, 1))
 META:GetSet("Color", {1.0, 1.0, 1.0})
 META:GetSet("Intensity", 1.0)
 META:GetSet("Range", 10.0)
@@ -30,7 +31,7 @@ function META:Initialize(config)
 
 	if config.type then self:SetLightType(config.type) end
 
-	if config.direction then self:SetDirection(config.direction) end
+	if config.rotation then self:SetRotation(config.rotation) end
 
 	if config.color then self:SetColor(config.color) end
 
@@ -57,12 +58,8 @@ function META:OnPreFrame(dt)
 	self:RenderShadows(render3d.UpdateShadowUBO)
 end
 
-function META:SetDirection(dir)
-	if type(dir) == "table" and not dir.GetNormalized then
-		dir = Vec3(dir[1] or dir.x or 0, dir[2] or dir.y or 0, dir[3] or dir.z or 0)
-	end
-
-	self.Direction = dir:GetNormalized()
+function META:GetDirection()
+	return self.Rotation:GetForward()
 end
 
 -- Return color in format expected by render3d (with .r, .g, .b properties)
@@ -109,7 +106,7 @@ end
 function META:UpdateShadowMap()
 	if not self.ShadowMap then return end
 
-	self.ShadowMap:UpdateCascadeLightMatrices(self.Direction)
+	self.ShadowMap:UpdateCascadeLightMatrices(self.Rotation)
 end
 
 -- Render shadow maps for this light, drawing all model components
@@ -141,7 +138,7 @@ function META:GetGPUData()
 	local data = LightData()
 
 	if self.LightType == META.TYPE_DIRECTIONAL then
-		local dir = self.Direction:GetNormalized()
+		local dir = self.Rotation:GetForward()
 		data.position[0] = dir.x
 		data.position[1] = dir.y
 		data.position[2] = dir.z

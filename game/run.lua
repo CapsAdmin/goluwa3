@@ -7,7 +7,7 @@ local gfx = require("graphics.gfx")
 local system = require("system")
 local vfs = require("vfs")
 vfs.MountStorageDirectories()
-_G.require = vfs.Require
+--_G.require = vfs.Require
 _G.runfile = function(...)
 	local ret = list.pack(vfs.RunFile(...))
 

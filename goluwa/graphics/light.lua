@@ -1,5 +1,6 @@
 local ffi = require("ffi")
 local Vec3 = require("structs.vec3")
+local Quat = require("structs.quat")
 local Light = {}
 Light.__index = Light
 -- Light types
@@ -30,7 +31,7 @@ function Light.New(config)
 	local self = setmetatable({}, Light)
 	self.type = config.type or Light.TYPE_DIRECTIONAL
 	self.position = config.position or Vec3(0, 0, 0)
-	self.direction = config.direction or Vec3(0, -1, 0)
+	self.rotation = config.rotation or Quat(0, 0, 0, 1) --:SetForward(Vec3(0, -1, 0))
 	self.color = config.color or {1.0, 1.0, 1.0}
 	self.intensity = config.intensity or 1.0
 	self.range = config.range or 10.0
@@ -47,16 +48,16 @@ function Light:SetPosition(pos)
 	self.position = pos
 end
 
-function Light:SetDirection(dir)
-	if type(dir) == "table" and not dir.GetNormalized then
-		dir = Vec3(dir[1] or dir.x or 0, dir[2] or dir.y or 0, dir[3] or dir.z or 0)
-	end
+function Light:SetRotation(rotation)
+	self.rotation = rotation
+end
 
-	self.direction = dir:GetNormalized()
+function Light:GetRotation()
+	return self.rotation
 end
 
 function Light:GetDirection()
-	return self.direction
+	return self.rotation:GetForward()
 end
 
 function Light:GetColor()
@@ -123,7 +124,7 @@ end
 function Light:UpdateShadowMap()
 	if not self.shadow_map then return end
 
-	self.shadow_map:UpdateCascadeLightMatrices(self.direction)
+	self.shadow_map:UpdateCascadeLightMatrices(self.rotation)
 end
 
 -- Get light data packed for GPU
@@ -132,7 +133,7 @@ function Light:GetGPUData()
 
 	if self.type == Light.TYPE_DIRECTIONAL then
 		-- For directional lights, store normalized direction
-		local dir = self.direction:GetNormalized()
+		local dir = self.rotation:GetForward()
 		data.position[0] = dir.x
 		data.position[1] = dir.y
 		data.position[2] = dir.z

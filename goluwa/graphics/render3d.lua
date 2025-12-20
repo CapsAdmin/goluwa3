@@ -53,7 +53,7 @@ render3d.current_color = {1, 1, 1, 1}
 render3d.current_metallic_multiplier = 1
 render3d.current_roughness_multiplier = 1
 -- Default light settings
-render3d.light_direction = {0.5, -1.0, 0.3}
+render3d.light_direction = Quat():SetAngles(Vec3(0.5, -1.0, 0.3):GetAngles())
 render3d.light_color = {1.0, 1.0, 1.0, 2.0} -- RGB + intensity
 render3d.environment_texture = nil
 
@@ -676,11 +676,11 @@ do
 	end
 end
 
-function render3d.SetLightDirection(x, y, z)
-	render3d.light_direction = {x, y, z}
+function render3d.SetLightRotation(quat)
+	render3d.light_direction = quat
 
 	-- Update sun light direction too if exists
-	if render3d.sun_light then render3d.sun_light:SetDirection(Vec3(x, y, z)) end
+	if render3d.sun_light then render3d.sun_light:SetRotation(quat) end
 end
 
 function render3d.SetLightColor(r, g, b, intensity)
@@ -697,8 +697,7 @@ function render3d.SetSunLight(light)
 	render3d.sun_light = light
 
 	if light then
-		local dir = light:GetDirection()
-		render3d.light_direction = {dir.x, dir.y, dir.z}
+		render3d.light_direction = light:GetRotation()
 		local color = light:GetColor()
 		local intensity = light:GetIntensity()
 		render3d.light_color = {color.r, color.g, color.b, intensity}
@@ -804,9 +803,10 @@ do
 			fragment_constants.emissive_factor[1] = mat.emissive_factor[2]
 			fragment_constants.emissive_factor[2] = mat.emissive_factor[3]
 			-- Light parameters (vec3)
-			fragment_constants.light_direction[0] = render3d.light_direction[1]
-			fragment_constants.light_direction[1] = render3d.light_direction[2]
-			fragment_constants.light_direction[2] = render3d.light_direction[3]
+			local light_forward = render3d.light_direction:GetForward()
+			fragment_constants.light_direction[0] = light_forward.x
+			fragment_constants.light_direction[1] = light_forward.y
+			fragment_constants.light_direction[2] = light_forward.z
 			fragment_constants.light_color[0] = render3d.light_color[1]
 			fragment_constants.light_color[1] = render3d.light_color[2]
 			fragment_constants.light_color[2] = render3d.light_color[3]
