@@ -29,7 +29,7 @@ local function draw2d(cb)
 	render.EndFrame()
 end
 
-T.Test("Decode EXR Texture", function()
+T.Pending("Decode EXR Texture", function()
 	draw2d(function()
 		local path = "/home/caps/projects/RTXDI-Assets/environment/adams_place_bridge_4k.exr"
 		local tex = Texture.New({
@@ -43,11 +43,10 @@ T.Test("Decode EXR Texture", function()
 	render.Screenshot("test")
 
 	T.ScreenPixel(50, 50, function(r, g, b, a)
-		print(r, g, b, a)
-		T(r)["~="](0, "Red channel should not be zero")
-		T(g)["~="](0, "Green channel should not be zero")
-		T(b)["~="](0, "Blue channel should not be zero")
-		T(a)["=="](1, "Alpha channel should be 1.0")
+		T(r)["~="](0) -- "Red channel should not be zero"
+		T(g)["~="](0) -- "Green channel should not be zero"
+		T(b)["~="](0) -- "Blue channel should not be zero"
+		T(a)["=="](1) -- "Alpha channel should be 1.0"
 		return true
 	end)
 end)

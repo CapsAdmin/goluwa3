@@ -437,7 +437,7 @@ function steam.LoadMap(path)
 		)
 
 		for k, v in ipairs(header.cubemaps) do
-			v.origin = Vec3(unpack(v.origin))
+			v.origin = Vec3(-v.origin[2], v.origin[3], -v.origin[1])
 		end
 	end
 
@@ -638,12 +638,8 @@ function steam.LoadMap(path)
 				-- Convert from Source Z-up to engine Y-up
 				-- Source: X=forward, Y=left, Z=up
 				-- Engine: X=right, Y=up, Z=forward
-				-- Transformation: engine(x, y, z) = source(-y, z, x) * scale
-				pos = Vec3(
-					pos.y * steam.source2meters,
-					pos.z * steam.source2meters,
-					pos.x * steam.source2meters
-				),
+				-- Transformation: engine(x, y, z) = source(-y, z, -x) * scale
+				pos = Vec3(-pos.y, pos.z, -pos.x) * steam.source2meters,
 				texture_blend = blend,
 				uv = Vec2(
 					uv_scale * (a[1] * pos.x + a[2] * pos.y + a[3] * pos.z + a[4]) / texdata.width,
@@ -711,9 +707,8 @@ function steam.LoadMap(path)
 
 							if j >= 3 then
 								if header.vertices[first] and header.vertices[current] and header.vertices[previous] then
-									-- Reverse winding order for Vulkan (compared to OpenGL)
-									add_vertex(mesh, texinfo, texdata, header.vertices[previous])
 									add_vertex(mesh, texinfo, texdata, header.vertices[first])
+									add_vertex(mesh, texinfo, texdata, header.vertices[previous])
 									add_vertex(mesh, texinfo, texdata, header.vertices[current])
 								end
 							elseif j == 1 then
@@ -788,7 +783,7 @@ function steam.LoadMap(path)
 		for i, mesh in ipairs(models) do
 			mesh:AddSubMesh(mesh:GetVertices(), mesh.material)
 			mesh:BuildNormals()
-			--mesh:BuildTangents()
+			mesh:BuildTangents()
 			tasks.ReportProgress("generating normals", #models)
 			tasks.Wait()
 		end
@@ -953,9 +948,12 @@ function steam.SpawnMapEntities(path, parent)
 					parent.light_group = parent.light_group or ecs.CreateEntity("lights", parent)
 					parent.light_group:SetName("lights")
 					local ent = ecs.CreateEntity("light", parent.light_group)
-					ent:AddComponent("transform", {
-						position = info.origin * steam.source2meters,
-					})
+					ent:AddComponent(
+						"transform",
+						{
+							position = Vec3(-info.origin.y, info.origin.z, -info.origin.x) * steam.source2meters,
+						}
+					)
 					ent:AddComponent(
 						"light",
 						{
@@ -993,7 +991,7 @@ function steam.SpawnMapEntities(path, parent)
 					local ent = ecs.CreateEntity("prop", parent[info.classname .. "_group"])
 					local rotation = Quat()
 					rotation:SetAngles(Deg3(info.angles.x, info.angles.y, info.angles.r))
-					local position = Vec3(info.origin.y, info.origin.z, info.origin.x) * steam.source2meters
+					local position = Vec3(-info.origin.y, info.origin.z, -info.origin.x) * steam.source2meters
 					ent:AddComponent("transform", {
 						position = position,
 						rotation = rotation,

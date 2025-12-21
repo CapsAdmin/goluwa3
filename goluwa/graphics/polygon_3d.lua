@@ -259,8 +259,8 @@ do -- helpers
 
 	local function build_tangents(self, ai, bi, ci, tan1, tan2)
 		local a = self.Vertices[ai]
-		local b = self.Vertices[ci]
-		local c = self.Vertices[bi]
+		local b = self.Vertices[bi]
+		local c = self.Vertices[ci]
 		local x1 = b.pos.x - a.pos.x
 		local x2 = c.pos.x - a.pos.x
 		local y1 = b.pos.y - a.pos.y
@@ -276,7 +276,7 @@ do -- helpers
 		local tdir = Vec3((s1 * x2 - s2 * x1) * r, (s1 * y2 - s2 * y1) * r, (s1 * z2 - s2 * z1) * r)
 		tan1[ai] = (tan1[ai] or Vec3()) + sdir
 		tan1[bi] = (tan1[bi] or Vec3()) + sdir
-		tan1[ci] = (tan1[ai] or Vec3()) + sdir
+		tan1[ci] = (tan1[ci] or Vec3()) + sdir
 		tan2[ai] = (tan2[ai] or Vec3()) + tdir
 		tan2[bi] = (tan2[bi] or Vec3()) + tdir
 		tan2[ci] = (tan2[ci] or Vec3()) + tdir

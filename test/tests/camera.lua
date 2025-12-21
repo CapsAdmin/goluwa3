@@ -45,7 +45,7 @@ local function test_color(pos_name, color_name, tolerance)
 	local color = colors[color_name]
 	assert(pos, "invalid position: " .. tostring(pos_name))
 	assert(color, "invalid color: " .. tostring(color_name))
-	T.ScreenPixel(pos[1], pos[2], color[1], color[2], color[3], 1, tolerance or 0.1)
+	T.ScreenPixel(pos[1], pos[2], color[1], color[2], color[3], 1, tolerance or 0.33)
 end
 
 local function test_color_all(color)

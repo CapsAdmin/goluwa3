@@ -573,6 +573,7 @@ function test.RunUntil2(condition, timeout)
 end
 
 function test.ScreenPixel(x, y, r, g, b, a, tolerance)
+	tolerance = tolerance or 0.01
 	local render = require("graphics.render")
 
 	if type(r) == "function" then
@@ -596,7 +597,6 @@ function test.ScreenPixel(x, y, r, g, b, a, tolerance)
 		return
 	end
 
-	tolerance = tolerance or 0.01
 	local r_, g_, b_, a_ = render.target:GetTexture():GetPixel(x, y)
 	local r_norm, g_norm, b_norm, a_norm = r_ / 255, g_ / 255, b_ / 255, a_ / 255
 
@@ -608,7 +608,7 @@ function test.ScreenPixel(x, y, r, g, b, a, tolerance)
 	then
 		error(
 			string.format(
-				"Pixel (%d,%d) mismatch - Expected: (%.3f,%.3f,%.3f,%.3f), Got: (%.3f,%.3f,%.3f,%.3f)",
+				"Pixel (%d,%d) mismatch - Expected: (%.3f,%.3f,%.3f,%.3f), Got: (%.3f,%.3f,%.3f,%.3f) (±%.3f)",
 				x,
 				y,
 				r,
@@ -618,7 +618,8 @@ function test.ScreenPixel(x, y, r, g, b, a, tolerance)
 				r_norm,
 				g_norm,
 				b_norm,
-				a_norm
+				a_norm,
+				tolerance
 			)
 		)
 	end
