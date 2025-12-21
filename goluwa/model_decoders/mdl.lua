@@ -658,7 +658,7 @@ local function load_vvd(path)
 		-- Transform: our_x = -source_y, our_y = source_z, our_z = source_x
 		vertex.pos = Vec3(y, z, x) * steam.source2meters
 		local x, y, z = buffer:ReadFloat(), buffer:ReadFloat(), buffer:ReadFloat()
-		vertex.normal = Vec3(-y, z, x)
+		vertex.normal = Vec3(y, -z, -x)
 		vertex.uv = buffer:ReadVec2()
 		vvd.vertices[i] = vertex
 

@@ -788,7 +788,7 @@ function steam.LoadMap(path)
 		for i, mesh in ipairs(models) do
 			mesh:AddSubMesh(mesh:GetVertices(), mesh.material)
 			mesh:BuildNormals()
-			mesh:BuildTangents()
+			--mesh:BuildTangents()
 			tasks.ReportProgress("generating normals", #models)
 			tasks.Wait()
 		end

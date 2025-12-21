@@ -628,19 +628,24 @@ do -- 44
 			return self
 		end
 
-		function META:Ortho(left, right, bottom, top, near, far)
+		-- flip_y: optional, if true applies orientation.PROJECTION_Y_FLIP (for 3D/shadows)
+		--         defaults to false for 2D compatibility
+		function META:Ortho(left, right, bottom, top, near, far, flip_y)
 			self.m00 = 2 / (right - left)
 			--self.m10 = 0
 			--self.m20 = 0
 			self.m30 = -(right + left) / (right - left)
 			--	self.m01 = 0
-			self.m11 = 2 / (top - bottom)
+			-- ORIENTATION / TRANSFORMATION: Y-flip controlled by flip_y parameter
+			local y_flip = flip_y and orientation.PROJECTION_Y_FLIP or 1
+			self.m11 = y_flip * 2 / (top - bottom)
 			--	self.m21 = 0
 			self.m31 = -(top + bottom) / (top - bottom)
 			--	self.m02 = 0
 			--	self.m12 = 0
-			self.m22 = -2 / (far - near)
-			self.m32 = -(far + near) / (far - near)
+			-- Vulkan depth range [0,1] instead of OpenGL [-1,1]
+			self.m22 = -1 / (far - near)
+			self.m32 = -near / (far - near)
 			--	self.m03 = 0
 			--	self.m13 = 0
 			--	self.m23 = 0

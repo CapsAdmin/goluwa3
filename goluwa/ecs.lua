@@ -141,6 +141,8 @@ ENTITY:Register()
 -- Entity Creation
 -----------------------------------------------------------
 function ecs.CreateEntity(name, parent)
+	if name ~= "world" then parent = parent or ecs.GetWorld() end
+
 	local entity = prototype.CreateObject("entity")
 	entity:Initialize()
 	entity:SetName(name or "")

@@ -18,7 +18,7 @@ local sun = Light.CreateDirectional(
 	}
 )
 render3d.SetSunLight(sun)
-render3d.SetLightRotation(Quat(-0.2, 0.8, 0.4, 0.4))
+render3d.SetLightRotation(Quat(0.4, -0.1, -0.1, -0.9):Normalize())
 render3d.SetEnvironmentTexture(Texture.New({
 	path = "/home/caps/projects/hdr.png",
 	mip_map_levels = "auto",
@@ -29,30 +29,42 @@ do
 	local ffi = require("ffi")
 	local Polygon3D = require("graphics.polygon_3d")
 	local Material = require("graphics.material")
-	local sphere = ecs.CreateEntity("sphere", ecs.GetWorld())
-	sphere:AddComponent("transform", {
-		position = Vec3(0, 5, 0),
-	})
-	local poly = Polygon3D.New()
-	poly:CreateSphere()
-	poly:AddSubMesh(#poly.Vertices)
-	poly:Upload()
-	local M = 1
-	local R = 0.2
-	poly.material = Material.New(
-		{
-			base_color_factor = {1.0, 1.0, 1.0, 1.0},
-			metallic_roughness_texture = Texture.New(
-				{
-					width = 1,
-					height = 1,
-					format = "r8g8b8a8_unorm",
-					buffer = ffi.new("uint8_t[4]", {0, 255 * R, 255 * M}), -- roughness=1.0, metallic=0.0
-				}
-			),
-		}
-	)
-	sphere:AddComponent("model", {
-		mesh = poly,
-	})
+
+	local function debug_ent(pos, rot, cb)
+		local sphere = ecs.CreateEntity("debug_ent", ecs.GetWorld())
+		sphere:AddComponent("transform", {
+			position = pos,
+			rotation = rot,
+		})
+		local poly = Polygon3D.New()
+		cb(poly)
+		poly:AddSubMesh(#poly.Vertices)
+		poly:Upload()
+		local M = 1
+		local R = 0.2
+		poly.material = Material.New(
+			{
+				base_color_factor = {1.0, 1.0, 1.0, 1.0},
+				metallic_roughness_texture = Texture.New(
+					{
+						width = 1,
+						height = 1,
+						format = "r8g8b8a8_unorm",
+						buffer = ffi.new("uint8_t[4]", {0, 255 * R, 255 * M}), -- roughness=1.0, metallic=0.0
+					}
+				),
+			}
+		)
+		sphere:AddComponent("model", {
+			mesh = poly,
+		})
+	end
+
+	debug_ent(Vec3(0, 5, 0), nil, function(poly)
+		poly:CreateSphere()
+	end)
+
+	debug_ent(Vec3(3, 1, 3), nil, function(poly)
+		poly:CreateCube(-1)
+	end)
 end

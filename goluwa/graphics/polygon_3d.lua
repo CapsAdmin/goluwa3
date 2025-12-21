@@ -239,7 +239,7 @@ do -- helpers
 	local function build_normal(a, b, c)
 		if a.normal and b.normal and c.normal then return end
 
-		local normal = -(a.pos - b.pos):Cross(b.pos - c.pos):GetNormalized()
+		local normal = (a.pos - b.pos):Cross(b.pos - c.pos):GetNormalized()
 		a.normal = normal
 		b.normal = normal
 		c.normal = normal

@@ -105,12 +105,12 @@ function GraphicsPipeline.New(device, config, render_passes, pipelineLayout)
 			lineWidth = config.rasterizer.line_width or 1.0,
 			cullMode = config.rasterizer.cull_mode or "back",
 			frontFace = config.rasterizer.front_face or "clockwise",
-			depthBiasEnable = config.rasterizer.depth_bias or 0,
+			depthBiasEnable = (config.rasterizer.depth_bias and config.rasterizer.depth_bias ~= 0) and 1 or 0,
 			-- 
 			flags = 0,
-			depthBiasConstantFactor = 0,
-			depthBiasClamp = 0,
-			depthBiasSlopeFactor = 0,
+			depthBiasConstantFactor = config.rasterizer.depth_bias_constant_factor or 0,
+			depthBiasClamp = config.rasterizer.depth_bias_clamp or 0,
+			depthBiasSlopeFactor = config.rasterizer.depth_bias_slope_factor or 0,
 		}
 	)
 	config.multisampling = config.multisampling or {}

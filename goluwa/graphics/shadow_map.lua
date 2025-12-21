@@ -150,13 +150,13 @@ function ShadowMap.New(config)
 				},
 			},
 			rasterizer = {
-				depth_clamp = false,
+				depth_clamp = true,
 				discard = false,
 				polygon_mode = "fill",
 				line_width = 1.0,
 				cull_mode = "none", -- Disabled - was causing device lost
-				front_face = "counter_clockwise",
-				depth_bias = 0, -- Disabled - was causing device lost with some primitives
+				front_face = "clockwise",
+				depth_bias = 0.2, -- Disabled - was causing device lost with some primitives
 				depth_bias_constant_factor = 0.0,
 				depth_bias_slope_factor = 0.0,
 			},
@@ -173,7 +173,7 @@ function ShadowMap.New(config)
 			depth_stencil = {
 				depth_test = true,
 				depth_write = true,
-				depth_compare_op = "less_or_equal",
+				depth_compare_op = "less",
 				depth_bounds_test = false,
 				stencil_test = false,
 			},
@@ -217,12 +217,7 @@ function ShadowMap:UpdateCascadeLightMatrices(light_rotation)
 	self:CalculateCascadeSplits()
 
 	for cascade_idx = 1, self.cascade_count do
-		-- Each cascade covers a larger area
-		-- Use ortho_size scaled by cascade index for simple, predictable cascades
-		local cascade_scale = cascade_idx / self.cascade_count
-		local cascade_ortho_size = self.ortho_size * (0.5 + cascade_scale * 1.5)
-		-- Calculate where the shadow map should be centered
-		-- Start at camera position, then offset toward where they're looking
+		local cascade_ortho_size = self.cascade_splits[cascade_idx] / 10
 		local shadow_center = cam:GetPosition()
 
 		if false then
@@ -243,15 +238,11 @@ function ShadowMap:UpdateCascadeLightMatrices(light_rotation)
 		local view = tr
 		-- Build orthographic projection (same approach as working UpdateLightMatrix)
 		local projection = Matrix44()
-		local size = -cascade_ortho_size * 10
-		projection:Ortho(
-			-size,
-			size,
-			size,
-			-size,
-			-self.max_shadow_distance * 2,
-			self.max_shadow_distance
-		)
+		local size = cascade_ortho_size * 10
+		-- Standard ortho: left=-size, right=size, bottom=-size, top=size
+		-- Near/far should encompass the shadow volume in front of the light
+		-- flip_y=true for 3D shadow rendering to match perspective projection
+		projection:Ortho(-size, size, -size, size, -cascade_ortho_size * 5, cascade_ortho_size * 20, true)
 		-- Store all cascade data
 		self.cascade[cascade_idx].light_space_matrix = view * projection
 	end
@@ -321,7 +312,7 @@ end
 function ShadowMap:UploadConstants(world_matrix, cascade_index)
 	cascade_index = cascade_index or self.current_cascade
 	local constants = ShadowVertexConstants()
-	local mvp = self.cascade[cascade_index].light_space_matrix * world_matrix
+	local mvp = world_matrix * self.cascade[cascade_index].light_space_matrix
 	constants.light_space_matrix = mvp:GetFloatCopy()
 	self.pipeline:PushConstants(self.cmd, "vertex", 0, constants)
 end

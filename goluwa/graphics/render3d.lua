@@ -269,7 +269,7 @@ function render3d.Initialize()
 					}
 
 					// PCF Shadow calculation
-					float calculateShadow(vec3 world_pos) {
+					float calculateShadow(vec3 world_pos, vec3 normal) {
 						// Get cascade index for this fragment
 						int cascade_idx = getCascadeIndex(world_pos);
 						
@@ -279,8 +279,13 @@ function render3d.Initialize()
 							return 1.0; // No shadow map for this cascade
 						}
 						
+						// Normal offset bias to prevent shadow acne
+						// The amount of offset depends on the angle of the surface to the light
+						float bias_val = max(0.05 * (1.0 - dot(normal, pc.light_direction)), 0.005);
+						vec3 offset_pos = world_pos + normal * (bias_val );
+
 						// Transform to light space using the cascade's matrix
-						vec4 light_space_pos = shadow.light_space_matrices[cascade_idx] * vec4(world_pos, 1.0);
+						vec4 light_space_pos = shadow.light_space_matrices[cascade_idx] * vec4(offset_pos, 1.0);
 						
 						// Perspective divide
 						vec3 proj_coords = light_space_pos.xyz / light_space_pos.w;
@@ -293,19 +298,17 @@ function render3d.Initialize()
 						if (proj_coords.z > 1.0 || proj_coords.z < 0.0 || proj_coords.x < 0.0 || proj_coords.x > 1.0 || proj_coords.y < 0.0 || proj_coords.y > 1.0) {
 							return 1.0;
 						}
-						
+						vec2 texel_size = 1.0 / textureSize(textures[nonuniformEXT(shadow_map_idx)], 0);
+
 						float current_depth = proj_coords.z;
-						
-						// Bias to reduce shadow acne
-						float bias = 0.005;
+						float additional_bias = 0.001;
 						
 						// PCF - sample 3x3 area
 						float shadow_val = 0.0;
-						vec2 texel_size = 1.0 / textureSize(textures[nonuniformEXT(shadow_map_idx)], 0);
 						for (int x = -1; x <= 1; ++x) {
 							for (int y = -1; y <= 1; ++y) {
 								float pcf_depth = texture(textures[nonuniformEXT(shadow_map_idx)], proj_coords.xy + vec2(x, y) * texel_size).r;
-								shadow_val += current_depth - bias > pcf_depth ? 0.0 : 1.0;
+								shadow_val += current_depth - additional_bias > pcf_depth ? 0.0 : 1.0;
 							}
 						}
 						shadow_val /= 9.0;
@@ -407,12 +410,15 @@ function render3d.Initialize()
 					// Shadow
 					float shadow_factor = 1.0;
 					if (pc.shadow_map_indices[0] > 0) {
-						shadow_factor = calculateShadow(in_world_pos);
+						shadow_factor = calculateShadow(in_world_pos, N);
 					}
+
+				
 
 					// Final lighting
 					vec3 radiance = pc.light_color * pc.light_intensity;
 					vec3 Lo = (kD * albedo.rgb / PI + specular) * radiance * NdotL * shadow_factor;
+
 
 					// Ambient - use environment map if available
 					vec3 ambient_diffuse;
@@ -471,7 +477,7 @@ function render3d.Initialize()
 				discard = false,
 				polygon_mode = "fill",
 				line_width = 1.0,
-				cull_mode = orientation.CULL_MODE, -- ORIENTATION / TRANSFORMATION
+				cull_mode = "none", --orientation.CULL_MODE, -- ORIENTATION / TRANSFORMATION
 				front_face = orientation.FRONT_FACE,
 				depth_bias = 0,
 			},
