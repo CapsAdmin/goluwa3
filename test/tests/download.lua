@@ -63,7 +63,7 @@ local function download_and_wait(url, callbacks, timeout)
 
 	T.WaitUntil(function()
 		return done
-	end, 1)
+	end, 3)
 
 	return result, client
 end
