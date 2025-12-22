@@ -149,7 +149,7 @@ local SkyboxConstants = ffi.typeof([[
 	]])
 local skybox_constants = SkyboxConstants()
 
-event.AddListener("DrawSkybox", "skybox", function()
+function skybox.Draw()
 	local cmd = render.GetCommandBuffer()
 
 	if not skybox.texture or not skybox.pipeline then return end
@@ -173,7 +173,9 @@ event.AddListener("DrawSkybox", "skybox", function()
 	skybox.pipeline:PushConstants(cmd, "vertex", 0, skybox_constants)
 	-- Draw fullscreen triangle
 	cmd:Draw(3, 1, 0, 0)
-end)
+end
+
+event.AddListener("DrawSkybox", "skybox", skybox.Draw)
 
 function skybox.SetTexture(texture)
 	skybox.texture = texture
