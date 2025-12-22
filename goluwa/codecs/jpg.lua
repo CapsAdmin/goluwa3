@@ -1278,4 +1278,7 @@ local function decode(inputBuffer, opts)
 	}
 end
 
-return decode
+local jpeg = {}
+jpeg.DecodeBuffer = decode
+jpeg.file_extensions = {".jpg", ".jpeg"}
+return jpeg

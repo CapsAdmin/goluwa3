@@ -330,4 +330,12 @@ local function lzmaFile(inputBuffer)
 	return outputBuffer
 end
 
-return lzmaFile
+local lzma = {}
+lzma.DecodeBuffer = lzmaFile
+
+function lzma.Decode(str)
+	local buf = Buffer.New(str, #str)
+	return lib(buf):GetString()
+end
+
+return lzma

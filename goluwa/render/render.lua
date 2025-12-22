@@ -159,13 +159,13 @@ function render.CreateCommandBuffer()
 end
 
 do
-	local png_encode = require("file_formats.png.encode")
+	local png = require("codecs.png")
 	local fs = require("fs")
 
 	function render.Screenshot(name)
 		local width, height = render.GetRenderImageSize():Unpack()
 		local image_data = render.target:GetTexture():Download()
-		local png = png_encode(width, height, "rgba")
+		local png = png.Encode(width, height, "rgba")
 		local pixel_table = {}
 
 		for i = 0, image_data.size - 1 do

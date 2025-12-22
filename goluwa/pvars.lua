@@ -1,5 +1,5 @@
 local prototype = require("prototype")
-local serializer = require("serializer")
+local codec = require("codec")
 local timer = require("timer")
 local event = require("event")
 local pvars = {}
@@ -29,14 +29,14 @@ local function set(key, val)
 end
 
 function pvars.Initialize()
-	pvars.vars = serializer.ReadFile(mode, path) or {}
+	pvars.vars = codec.ReadFile(mode, path) or {}
 
 	for _, info in pairs(pvars.infos) do
 		set(info.key, pvars.vars[info.key])
 	end
 
 	pvars.init = true
-	serializer.WriteFile(mode, path, pvars.vars)
+	codec.WriteFile(mode, path, pvars.vars)
 end
 
 function pvars.Save()
@@ -50,7 +50,7 @@ function pvars.Save()
 					if v.store then vars[k] = pvars.vars[k] end
 				end
 
-				serializer.WriteFile(mode, path, vars)
+				codec.WriteFile(mode, path, vars)
 			end,
 			"save_pvars"
 		)
@@ -177,9 +177,9 @@ function pvars.SetString(key, val)
 	local info = pvars.infos[key]
 
 	if info.type == "table" then
-		val = serializer.GetLibrary("comma").Decode(val)
+		val = codec.GetLibrary("comma").Decode(val)
 	elseif info.type ~= "string" then
-		val = serializer.GetLibrary(mode).FromString(val)
+		val = codec.GetLibrary(mode).FromString(val)
 	end
 
 	pvars.Set(key, val)
@@ -189,11 +189,9 @@ function pvars.GetString(key)
 	local val = pvars.Get(key)
 	local info = pvars.infos[key]
 
-	if info.type == "table" then
-		return serializer.GetLibrary("comma").Encode(val)
-	end
+	if info.type == "table" then return codec.GetLibrary("comma").Encode(val) end
 
-	return serializer.GetLibrary(mode).Encode(val)
+	return codec.GetLibrary(mode).Encode(val)
 end
 
 return pvars

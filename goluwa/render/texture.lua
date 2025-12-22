@@ -1,6 +1,5 @@
 local ffi = require("ffi")
 local render = require("render.render")
-local file_formats = require("file_formats")
 local Vec2 = require("structs.vec2")
 local Buffer = require("render.vulkan.internal.buffer")
 local CommandPool = require("render.vulkan.internal.command_pool")
@@ -8,6 +7,7 @@ local Fence = require("render.vulkan.internal.fence")
 local ImageView = require("render.vulkan.internal.image_view")
 local Image = require("render.vulkan.internal.image")
 local Sampler = require("render.vulkan.internal.sampler")
+local codec = require("codec")
 local Texture = {}
 Texture.__index = Texture
 -- Texture cache for path-based textures
@@ -102,7 +102,7 @@ function Texture.New(config)
 	local vulkan_info = nil
 
 	if config.path then
-		local ok, img_or_err = pcall(file_formats.Load, config.path)
+		local ok, img_or_err = pcall(codec.DecodeFile, config.path)
 
 		if not ok or not img_or_err then
 			print("Warning: Failed to load texture:", config.path, img_or_err)

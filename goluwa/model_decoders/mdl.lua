@@ -1,4 +1,4 @@
-local serializer = require("serializer")
+local codec = require("codec")
 local timer = require("timer")
 local steam = require("steam")
 local vfs = require("vfs")

@@ -631,4 +631,5 @@ function json.decode(str--[[#: string]])
 	return res
 end
 
+json.file_extensions = {"json", "jsonc"}
 return json

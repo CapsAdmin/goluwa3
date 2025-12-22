@@ -1,6 +1,6 @@
+local fs = require("fs")
+local ffi = desire("ffi")
 return function(vfs)
-	local fs = require("fs")
-	local ffi = desire("ffi")
 	local CONTEXT = {}
 	CONTEXT.Name = "os"
 	CONTEXT.Position = 0

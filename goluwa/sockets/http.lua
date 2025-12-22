@@ -214,7 +214,7 @@ return function(sockets)
 
 						if encoding ~= "identity" then
 							if encoding == "gzip" then
-								local ok, str = pcall(serializer.Decode, "gunzip", body)
+								local ok, str = pcall(codec.Decode, "gunzip", body)
 
 								if ok == false then
 									return self:Error("failed to parse " .. encoding .. " body: " .. str)

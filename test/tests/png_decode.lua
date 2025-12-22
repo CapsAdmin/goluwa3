@@ -1,7 +1,7 @@
 local T = require("test.environment")
 local ffi = require("ffi")
 local Buffer = require("structs.buffer")
-local png_decode = require("file_formats.png.decode")
+local png = require("codecs.png")
 
 -- Helper to load PNG file into buffer
 local function load_png_file(path)
@@ -17,7 +17,7 @@ local PNG = "game/addons/test/assets/images/capsadmin.png"
 
 T.Test("PNG decode basic functionality", function()
 	local file_buffer = load_png_file(PNG)
-	local img = png_decode(file_buffer)
+	local img = png.DecodeBuffer(file_buffer)
 	T(img.width)[">"](0)
 	T(img.height)[">"](0)
 	T(img.depth)["~="](nil)
@@ -28,7 +28,7 @@ end)
 
 T.Test("PNG decode capsadmin.png average color", function()
 	local file_buffer = load_png_file(PNG)
-	local img = png_decode(file_buffer)
+	local img = png.DecodeBuffer(file_buffer)
 	img.buffer:SetPosition(0)
 	local pixel_count = img.width * img.height
 	local non_black_pixels = 0
@@ -54,7 +54,7 @@ end)
 
 T.Test("PNG decode RGB image has correct alpha channel", function()
 	local file_buffer = load_png_file(PNG)
-	local img = png_decode(file_buffer)
+	local img = png.DecodeBuffer(file_buffer)
 	T(img.colorType)["=="](2)
 	img.buffer:SetPosition(0)
 	local pixel_count = img.width * img.height

@@ -1,6 +1,6 @@
 local tasks = require("tasks")
 local resource = require("resource")
-local serializer = require("serializer")
+local codec = require("codec")
 local sockets = require("sockets.sockets")
 local steam = {}
 steam.source2meters = 0.01905
@@ -19,7 +19,7 @@ function steam.DownloadWorkshop(id, callback, on_error, last_modified)
 			post_data = "itemcount=1&publishedfileids[0]=" .. id .. "&format=json",
 			header = {["Content-Type"] = "application/x-www-form-urlencoded"},
 			callback = function(data)
-				local data, err = serializer.Decode("json", data.content)
+				local data, err = codec.Decode("json", data.content)
 
 				if not data then
 					on_error(err)
@@ -35,7 +35,7 @@ function steam.DownloadWorkshop(id, callback, on_error, last_modified)
 					end
 
 					resource.Download(details.file_url, nil, nil, true, details.creator_app_id == 4000 and "gma" or "zip"):Then(function(path)
-						local bin, err = serializer.ReadFile("lzma", path)
+						local bin, err = codec.ReadFile("lzma", path)
 
 						if not bin then
 							on_error("unable to extract data: " .. err)
@@ -73,7 +73,7 @@ function steam.DownloadWorkshopCollection(id, callback, on_error)
 				["Content-Type"] = "application/x-www-form-urlencoded",
 			},
 			callback = function(data)
-				local data, err = serializer.Decode("json", data.content)
+				local data, err = codec.Decode("json", data.content)
 
 				if not data then
 					on_error(err)

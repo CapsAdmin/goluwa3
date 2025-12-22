@@ -54,18 +54,6 @@ do
 end
 
 do
-	require("serializers.comma")
-	require("serializers.gunzip")
-	require("serializers.json")
-	require("serializers.luadata")
-	require("serializers.msgpack")
-	require("serializers.newline")
-	require("serializers.simple")
-	require("serializers.unzip")
-	require("serializers.lzma")
-end
-
-do
 	local event = require("event")
 	local events = {}
 	setmetatable(

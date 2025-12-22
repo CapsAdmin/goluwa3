@@ -361,4 +361,7 @@ local function vtf_decode(input_buffer)
 	}
 end
 
-return vtf_decode
+local vtf = {}
+vtf.DecodeBuffer = vtf_decode
+vtf.file_extensions = {"vtf"}
+return vtf

@@ -1,7 +1,7 @@
 local commands = require("commands")
 local pvars = require("pvars")
 local vfs = require("vfs")
-local serializer = require("serializer")
+local codec = require("codec")
 local utility = require("utility")
 return function(steam)
 	commands.Add("mount=string", function(game)
@@ -174,7 +174,7 @@ return function(steam)
 	end
 
 	function steam.GetSourceGames()
-		local found = serializer.ReadFile("msgpack", "cache/source_games")
+		local found = codec.ReadFile("msgpack", "cache/source_games")
 
 		if found and found[1] then
 			for i, v in ipairs(found) do
@@ -379,7 +379,7 @@ return function(steam)
 			end
 		end
 
-		serializer.WriteFile("msgpack", "cache/source_games", found)
+		codec.WriteFile("msgpack", "cache/source_games", found)
 		return found
 	end
 

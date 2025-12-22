@@ -169,7 +169,7 @@ do
 						local ret = {}
 
 						for i = 1, select("#", ...) do
-							list.insert(ret, serializer.GetLibrary("luadata").ToString((select(i, ...))):sub(0, 20))
+							list.insert(ret, codec.GetLibrary("luadata").ToString((select(i, ...))):sub(0, 20))
 						end
 
 						if #ret ~= 0 then
@@ -195,7 +195,7 @@ do
 							local args = {}
 
 							for i = 1, select("#", ...) do
-								list.insert(args, serializer.GetLibrary("luadata").ToString((select(i, ...))))
+								list.insert(args, codec.GetLibrary("luadata").ToString((select(i, ...))))
 							end
 
 							arg_line = ("%s.%s(%s) "):format(lib_name, name, list.concat(args, ", "):sub(0, 100))
@@ -361,7 +361,7 @@ function debug.dump_call(level, line, info_match)
 				val = val .. " .. " .. utility.FormatFileSize(#data.val)
 			end
 		else
-			val = serializer.GetLibrary("luadata").ToString(data.val)
+			val = codec.GetLibrary("luadata").ToString(data.val)
 		end
 
 		logf("%s = %s\n", data.key, val)

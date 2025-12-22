@@ -7,7 +7,6 @@ end
 
 local T = require("test.environment")
 local ffi = require("ffi")
-local png_encode = require("file_formats.png.encode")
 local render = require("render.render")
 local steam = require("steam")
 local render3d = require("render3d.render3d")

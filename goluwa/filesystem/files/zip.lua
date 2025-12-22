@@ -1,7 +1,7 @@
 local ffi = require("ffi")
 local Buffer = require("structs.buffer")
 local bit = require("bit")
-local deflate = require("helpers.deflate")
+local deflate = require("codecs.deflate")
 local Buffer = require("structs.buffer")
 return function(vfs)
 	local CONTEXT = {}

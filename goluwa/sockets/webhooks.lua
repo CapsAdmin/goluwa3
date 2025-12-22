@@ -45,7 +45,7 @@ return function(sockets)
 		end
 
 		client:Send("HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n")
-		local tbl = serializer.Decode("json", content)
+		local tbl = codec.Decode("json", content)
 
 		if callback then callback(tbl, self) end
 

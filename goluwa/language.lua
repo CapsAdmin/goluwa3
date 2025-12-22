@@ -15,7 +15,7 @@ do
 end
 
 resource.Download("data/countries.lua"):Then(function(path)
-	local tbl, err = serializer.ReadFile("luadata", path)
+	local tbl, err = codec.ReadFile("luadata", path)
 
 	if not tbl then
 		logn(err)
@@ -101,7 +101,7 @@ function language.ShowLanguageEditor()
 					{
 						L("revert"),
 						function()
-							local new = serializer.ReadFile("simple", "translations/" .. lang)[english]
+							local new = codec.ReadFile("simple", "translations/" .. lang)[english]
 							language.current_translation[english] = new
 							line:SetValue(2, new or english)
 							language.SaveCurrentTranslation()
@@ -116,7 +116,7 @@ function language.ShowLanguageEditor()
 end
 
 function language.SaveCurrentTranslation()
-	serializer.WriteFile("simple", "languages/" .. cvar:Get(), language.current_translation)
+	codec.WriteFile("simple", "languages/" .. cvar:Get(), language.current_translation)
 end
 
 function language.Translate(to, nice)
@@ -142,8 +142,8 @@ function language.Translate(to, nice)
 			end
 
 			print(res)
-			local tbl = serializer.Decode("simple", res)
-			serializer.WriteFile("simple", "data/languages/" .. (nice or to), tbl)
+			local tbl = codec.Decode("simple", res)
+			codec.WriteFile("simple", "data/languages/" .. (nice or to), tbl)
 		end
 	)
 
@@ -157,7 +157,7 @@ function language.Set(lang)
 	if lang == "english" then
 		language.current_translation = {}
 	else
-		language.current_translation = serializer.ReadFile("simple", "languages/" .. cvar:Get())
+		language.current_translation = codec.ReadFile("simple", "languages/" .. cvar:Get())
 	end
 end
 

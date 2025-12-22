@@ -1,7 +1,7 @@
 local ffi = require("ffi")
 local bit = require("bit")
 local Buffer = require("structs.buffer")
-local deflate = require("helpers.deflate")
+local deflate = require("codecs.deflate")
 
 local function half_to_float(h)
 	local s = bit.band(bit.rshift(h, 15), 0x00000001)
@@ -300,4 +300,7 @@ local function exrImage(inputBuffer)
 	}
 end
 
-return exrImage
+local exr = {}
+exr.DecodeBuffer = exrImage
+exr.file_extensions = {"exr"}
+return exr

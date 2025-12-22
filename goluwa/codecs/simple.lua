@@ -1,4 +1,3 @@
-local serializer = require("serializer")
 local simple = {}
 
 function simple.Encode(tbl)
@@ -24,13 +23,4 @@ function simple.Decode(str)
 	return out
 end
 
-serializer.AddLibrary(
-	"simple",
-	function(simple, ...)
-		return simple.Encode(...)
-	end,
-	function(simple, ...)
-		return simple.Decode(...)
-	end,
-	simple
-)
+return simple

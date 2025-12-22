@@ -1,7 +1,7 @@
 local T = require("test.environment")
 local ffi = require("ffi")
 local Buffer = require("structs.buffer")
-local vtf_decode = require("file_formats.vtf.decode")
+local vtf = require("codecs.vtf")
 local vfs = require("vfs")
 local VTF = "/home/caps/.steam/steam/steamapps/common/GarrysMod/garrysmod/garrysmod_dir.vpk/materials/gm_construct/grass1.vtf"
 
@@ -21,7 +21,7 @@ end
 -- Test basic VTF decoding functionality with real VTF file
 T.Test("VTF decode gm_construct grass1.vtf", function()
 	local file_buffer = load_vtf_file(VTF)
-	local img = vtf_decode(file_buffer)
+	local img = vtf.DecodeBuffer(file_buffer)
 	T(img)["~="](nil)
 	T(img.width)[">"](0)
 	T(img.height)[">"](0)
@@ -48,7 +48,7 @@ T.Test("VTF decode validates signature", function()
 	local buffer_data = ffi.new("uint8_t[?]", #invalid_data)
 	ffi.copy(buffer_data, invalid_data, #invalid_data)
 	local buffer = Buffer.New(buffer_data, #invalid_data)
-	local img, err = vtf_decode(buffer)
+	local img, err = vtf.DecodeBuffer(buffer)
 	T(img)["=="](nil)
 	T(err)["~="](nil)
 	T(tostring(err):find("signature"))["~="](nil)

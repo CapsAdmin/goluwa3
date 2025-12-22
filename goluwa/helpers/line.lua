@@ -20,7 +20,7 @@ function utility.DownloadLineStickers(id, cb)
 			http.Download(
 				"http://dl.stickershop.line.naver.jp/products/0/0/1/" .. id .. "/android/productInfo.meta"
 			):Then(function(content)
-				local tbl = serializer.Decode("json", content)
+				local tbl = codec.Decode("json", content)
 
 				for i, v in ipairs(tbl.stickers) do
 					list.insert(

@@ -626,4 +626,7 @@ local function decode(inputBuffer, opts)
 	}
 end
 
-return decode
+local dds = {}
+dds.DecodeBuffer = decode
+dds.file_extensions = {"dds"}
+return dds

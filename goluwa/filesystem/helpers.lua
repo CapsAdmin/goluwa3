@@ -71,9 +71,9 @@ return function(vfs)
 
 		if not abs_path then return nil, err end
 
-		local tbl = serializer.LookupInFile("luadata", "vfs_file_attributes", abs_path) or {}
+		local tbl = codec.LookupInFile("luadata", "vfs_file_attributes", abs_path) or {}
 		tbl[key] = val
-		serializer.StoreInFile("luadata", "vfs_file_attributes", abs_path, tbl)
+		codec.StoreInFile("luadata", "vfs_file_attributes", abs_path, tbl)
 	end
 
 	function vfs.GetAttributes(path)
@@ -81,7 +81,7 @@ return function(vfs)
 
 		if not abs_path then return nil, err end
 
-		local tbl = serializer.LookupInFile("luadata", "vfs_file_attributes", abs_path) or {}
+		local tbl = codec.LookupInFile("luadata", "vfs_file_attributes", abs_path) or {}
 		return tbl
 	end
 
@@ -167,13 +167,11 @@ return function(vfs)
 				do
 					local ret
 
-					if serializer then
+					if codec then
 						if name == "Write" then
 							local ext = vfs.GetExtensionFromPath(path)
 
-							if serializer.GetLibrary(ext) then
-								ret = {serializer.Encode(ext, data)}
-							end
+							if codec.GetLibrary(ext) then ret = {codec.Encode(ext, data)} end
 						end
 					end
 
@@ -198,13 +196,11 @@ return function(vfs)
 						if res ~= nil or err then return res, err end
 					end
 
-					if serializer then
+					if codec then
 						if name == "Read" then
 							local ext = vfs.GetExtensionFromPath(path)
 
-							if serializer.GetLibrary(ext) then
-								return serializer.Decode(ext, res)
-							end
+							if codec.GetLibrary(ext) then return codec.Decode(ext, res) end
 						end
 					end
 				end

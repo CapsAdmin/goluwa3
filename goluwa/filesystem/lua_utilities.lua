@@ -436,9 +436,9 @@ return function(vfs)
 
 		local function load(path, full_path)
 			-- look first in the vfs' bin directories
-			serializer.StoreInFile("luadata", "shared/library_crashes.lua", full_path, true)
+			codec.StoreInFile("luadata", "shared/library_crashes.lua", full_path, true)
 			local ok, clib = pcall(_OLD_G.ffi.load, full_path)
-			serializer.StoreInFile("luadata", "shared/library_crashes.lua", full_path, nil)
+			codec.StoreInFile("luadata", "shared/library_crashes.lua", full_path, nil)
 
 			if ok then return handle_windows_symbols(path, clib) end
 
@@ -461,7 +461,7 @@ return function(vfs)
 				)
 
 				for _, full_path in ipairs(files) do
-					if serializer.LookupInFile("luadata", "shared/library_crashes.lua", full_path) then
+					if codec.LookupInFile("luadata", "shared/library_crashes.lua", full_path) then
 						logn("ffi.load: refusing to load ", full_path, " as it crashed last time")
 
 						break

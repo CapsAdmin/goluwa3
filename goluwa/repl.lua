@@ -1,8 +1,6 @@
 local repl = _G.repl or {}
 repl.buffer = repl.buffer or ""
-repl.command_history = repl.command_history or
-	serializer.ReadFile("luadata", "data/cmd_history.txt") or
-	{}
+repl.command_history = repl.command_history or codec.ReadFile("luadata", "data/cmd_history.txt") or {}
 
 for k, v in ipairs(repl.command_history) do
 	if type(v) ~= "string" then
@@ -366,7 +364,7 @@ function repl.KeyPressed(key)
 		end
 
 		list.insert(repl.command_history, str)
-		serializer.WriteFile("luadata", "data/cmd_history.txt", repl.command_history)
+		codec.WriteFile("luadata", "data/cmd_history.txt", repl.command_history)
 		repl.scroll_command_history = 0
 	elseif key == "delete" then
 		repl.buffer = repl.buffer:utf8_sub(0, x - 1) .. repl.buffer:utf8_sub(x + 1, -1)

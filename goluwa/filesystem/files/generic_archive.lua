@@ -79,9 +79,9 @@ return function(vfs)
 		local cache_path = "os:cache/archive/" .. crypto.CRC32(cache_key)
 
 		if vfs.IsFile(cache_path) then
-			local serializer = require("serializer")
+			local codec = require("codec")
 			never = true
-			local tree_data, err, what = serializer.ReadFile("msgpack", cache_path)
+			local tree_data, err, what = codec.ReadFile("msgpack", cache_path)
 			never = false
 
 			if tree_data then
@@ -108,10 +108,10 @@ return function(vfs)
 		if not ok then return false, err end
 
 		cache[cache_key] = tree
-		local serializer = require("serializer")
+		local codec = require("codec")
 
 		utility.RunOnNextGarbageCollection(function()
-			serializer.WriteFile("msgpack", cache_path, tree.tree)
+			codec.WriteFile("msgpack", cache_path, tree.tree)
 		end)
 
 		return tree, relative, archive_path

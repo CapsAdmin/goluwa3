@@ -656,4 +656,20 @@ function M.inflate_zlib(t)
 	return outbuf
 end
 
+function M.Decode(str)
+	local out = {}
+	local i = 1
+	gz.gunzip(
+		{
+			input = str,
+			output = function(byte)
+				out[i] = string.char(byte)
+				i = i + 1
+			end,
+			disable_crc = true,
+		}
+	)
+	return list.concat(out)
+end
+
 return M

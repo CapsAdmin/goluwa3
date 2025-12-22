@@ -71,7 +71,7 @@ do
 
 		if num then return num end
 
-		luadata = luadata or serializer.GetLibrary("luadata")
+		luadata = luadata or codec.GetLibrary("luadata")
 		local res, err = luadata.Decode(str, true)
 
 		if res == nil then return str end
@@ -173,6 +173,7 @@ do
 		local path = callstack.get_line(2)
 
 		if path then str = string.format("%s %s", path, str) end
+
 		io.write(str)
 	end
 end

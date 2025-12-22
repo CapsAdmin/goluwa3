@@ -301,6 +301,8 @@ function xml.parse(s)
 	return {children = t, entities = entities, tentities = tentities}
 end
 
+xml.decode = xml.parse
+
 -- Parse an XML file
 -- Returns parsed document table and nil on success
 -- Returns nil and error message on failure
@@ -343,4 +345,6 @@ if PROFILE then
 	end
 end
 
+xml.Decode = xml.parse
+xml.file_extensions = {"xml"}
 return xml

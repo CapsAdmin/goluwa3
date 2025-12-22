@@ -1,8 +1,8 @@
 local ffi = require("ffi")
-local json = require("json")
+local json = require("codecs.json")
 local fs = require("fs")
 local Buffer = require("structs.buffer")
-local base64 = require("goluwa.helpers.base64")
+local base64 = require("codecs.base64")
 local Matrix44 = require("structs.matrix").Matrix44
 local Quat = require("structs.quat")
 local Vec3 = require("structs.vec3")
@@ -1098,4 +1098,5 @@ function gltf.CreateEntityHierarchy(gltf_result, parent_entity, options)
 	return root_entity, node_to_entity
 end
 
+gltf.file_extensions = {"gltf"}
 return gltf

@@ -7,7 +7,6 @@ end
 
 local T = require("test.environment")
 local ffi = require("ffi")
-local png_encode = require("file_formats.png.encode")
 local render = require("render.render")
 local render2d = require("render2d.render2d")
 local Polygon2D = require("render2d.polygon_2d")

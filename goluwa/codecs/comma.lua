@@ -1,4 +1,3 @@
-local serializer = require("serializer")
 local comma = {}
 
 function comma.Encode(tbl)
@@ -6,7 +5,7 @@ function comma.Encode(tbl)
 
 	for i, v in ipairs(tbl) do
 		if type(v) ~= "string" then
-			list.insert(str, serializer.GetLibrary("luadata").Encode(v))
+			list.insert(str, codec.GetLibrary("luadata").Encode(v))
 		else
 			list.insert(str, v)
 		end
@@ -24,14 +23,3 @@ function comma.Decode(str)
 
 	return out
 end
-
-serializer.AddLibrary(
-	"comma",
-	function(simple, ...)
-		return comma.Encode(...)
-	end,
-	function(simple, ...)
-		return comma.Decode(...)
-	end,
-	comma
-)

@@ -1,7 +1,7 @@
 local vfs = require("vfs")
 local crypto = require("crypto")
 local callback = require("callback")
-local serializer = require("serializer")
+local codec = require("codec")
 local http = require("http")
 local event = require("event")
 local sockets = require("sockets.sockets")
@@ -31,7 +31,7 @@ function resource.AddProvider(provider, no_autodownload)
 	if no_autodownload then return end
 
 	http.Download(provider .. "auto_download.txt"):Then(function(str)
-		for _, v in ipairs(serializer.Decode("newline", str)) do
+		for _, v in ipairs(codec.Decode("newline", str)) do
 			resource.Download(v)
 		end
 	end)
@@ -49,7 +49,7 @@ local function download(
 	ext_override
 )
 	if check_etag then
-		local etag = serializer.LookupInFile("luadata", etags_file, etag_path_override or from)
+		local etag = codec.LookupInFile("luadata", etags_file, etag_path_override or from)
 
 		if VERBOSE then
 			llog("checking if ", etag_path_override or from, " has been modified.")
@@ -173,7 +173,7 @@ local function download(
 		end
 
 		if resource.debug then
-			serializer.WriteFile(
+			codec.WriteFile(
 				"luadata",
 				"os:" .. DOWNLOAD_FOLDER .. dir .. "info.txt",
 				{header = header, url = from}
@@ -193,7 +193,7 @@ local function download(
 		local etag = header.etag or header["last-modified"]
 
 		if etag then
-			serializer.StoreInFile("luadata", etags_file, etag_path_override or from, etag)
+			codec.StoreInFile("luadata", etags_file, etag_path_override or from, etag)
 		end
 
 		on_header(header)
@@ -390,7 +390,7 @@ function resource.ClearDownloads()
 end
 
 function resource.CheckDownloadedFiles()
-	local files = serializer.ReadFile("luadata", etags_file)
+	local files = codec.ReadFile("luadata", etags_file)
 	local count = table.count(files)
 	llog("checking " .. count .. " files for updates..")
 	local i = 0

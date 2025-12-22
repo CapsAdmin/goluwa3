@@ -8,12 +8,12 @@ CONTEXT.Name = "memory"
 local file_tree = {is_folder = true}
 
 function CONTEXT:VFSOpened()
-	file_tree = serializer.ReadFile("luadata", "vfs_memory") or {}
+	file_tree = codec.ReadFile("luadata", "vfs_memory") or {}
 end
 
 function CONTEXT:VFSClosed()
 	-- yeah right as if this is ever going to happen cleanly
-	serializer.WriteFile("luadata", "vfs_memory", file_tree)
+	codec.WriteFile("luadata", "vfs_memory", file_tree)
 end
 
 local function get_folder(path_info, remove_last)

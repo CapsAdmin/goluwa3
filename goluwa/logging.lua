@@ -171,7 +171,7 @@ function logfile.VariablePrint(...)
 			name or "arg" .. i,
 			type(arg),
 			tostring(arg),
-			serializer.Encode("luadata", arg)
+			codec.Encode("luadata", arg)
 		)
 
 		if type(arg) == "string" then logn("\t\tsize: ", #arg) end

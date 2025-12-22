@@ -110,7 +110,7 @@ end)
 -- Test 4: Actual VTF texture first block
 T.Test("DXT1 decompress - VTF grass texture first block", function()
 	local Buffer = require("structs.buffer")
-	local vtf_decode = require("file_formats.vtf.decode")
+	local vtf = require("codecs.vtf")
 	local vfs = require("vfs")
 	local VTF = "/home/caps/.steam/steam/steamapps/common/GarrysMod/garrysmod/garrysmod_dir.vpk/materials/gm_construct/grass1.vtf"
 	local file = vfs.Open(VTF)
@@ -125,7 +125,7 @@ T.Test("DXT1 decompress - VTF grass texture first block", function()
 	local file_buffer_data = ffi.new("uint8_t[?]", #file_data)
 	ffi.copy(file_buffer_data, file_data, #file_data)
 	local file_buffer = Buffer.New(file_buffer_data, #file_data)
-	local img = vtf_decode(file_buffer)
+	local img = vtf.DecodeBuffer(file_buffer)
 	-- Get the first block of the largest mip
 	local first_block_offset = img.mip_info[1].offset
 	local block_data = ffi.cast("uint8_t*", img.data) + first_block_offset

@@ -180,7 +180,7 @@ do
 				table.lowecase_lookup(data.headers, "content-type") and
 				table.lowecase_lookup(data.headers, "content-type"):starts_with("application/json")
 			then
-				post_data = serializer.Encode("json", data.body)
+				post_data = codec.Encode("json", data.body)
 			else
 				post_data = data.body
 			end
@@ -197,7 +197,7 @@ do
 					if
 						table.lowecase_lookup(data.header, "content-type"):starts_with("application/json")
 					then
-						resolve(serializer.Decode("json", data.body))
+						resolve(codec.Decode("json", data.body))
 					else
 						resolve(data.body)
 					end
