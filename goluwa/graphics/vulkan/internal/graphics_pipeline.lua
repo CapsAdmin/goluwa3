@@ -140,8 +140,8 @@ function GraphicsPipeline.New(device, config, render_passes, pipelineLayout)
 					"one",
 				dstColorBlendFactor = color_blend_attachment.dst_color_blend_factor and
 					color_blend_attachment.dst_color_blend_factor or
-					"zeo",
-				colorlendOp = color_blend_attachment.color_blend_op and
+					"zero",
+				colorBlendOp = color_blend_attachment.color_blend_op and
 					color_blend_attachment.color_blend_op or
 					"add",
 				srcAlphaBlendFactor = color_blend_attachment.src_alpha_blend_factor and
@@ -232,8 +232,17 @@ function GraphicsPipeline.New(device, config, render_passes, pipelineLayout)
 	local pColorAttachmentFormats = nil
 
 	if render_passes[1].format then
-		colorAttachmentCount = 1
-		pColorAttachmentFormats = EnumArray(1, vulkan.vk.e.VkFormat(render_passes[1].format))
+		if type(render_passes[1].format) == "table" then
+			colorAttachmentCount = #render_passes[1].format
+			pColorAttachmentFormats = EnumArray(colorAttachmentCount)
+
+			for i = 1, colorAttachmentCount do
+				pColorAttachmentFormats[i - 1] = vulkan.vk.e.VkFormat(render_passes[1].format[i])
+			end
+		else
+			colorAttachmentCount = 1
+			pColorAttachmentFormats = EnumArray(1, {vulkan.vk.e.VkFormat(render_passes[1].format)})
+		end
 	end
 
 	local pipelineRenderingCreateInfo = vulkan.vk.s.PipelineRenderingCreateInfo(
