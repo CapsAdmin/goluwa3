@@ -8,6 +8,7 @@ local Vec3 = require("structs.vec3")
 local Matrix44 = require("structs.matrix").Matrix44
 local model_loader = require("model_loader")
 local system = require("system")
+local ffi = require("ffi")
 local Model = {}
 -- Cached matrix to avoid allocation in hot drawing loops
 local cached_final_matrix = Matrix44()
@@ -192,6 +193,128 @@ function META:GetWorldMatrixInverse()
 	return nil
 end
 
+do
+	Model.noculling = true -- Debug flag to disable culling
+	Model.freeze_culling = false -- Debug flag to freeze frustum for culling tests
+	local function extract_frustum_planes(proj_view_matrix, out_planes)
+		local m = proj_view_matrix
+		-- Left plane: row3 + row0
+		out_planes[0] = m.m03 + m.m00
+		out_planes[1] = m.m13 + m.m10
+		out_planes[2] = m.m23 + m.m20
+		out_planes[3] = m.m33 + m.m30
+		-- Right plane: row3 - row0
+		out_planes[4] = m.m03 - m.m00
+		out_planes[5] = m.m13 - m.m10
+		out_planes[6] = m.m23 - m.m20
+		out_planes[7] = m.m33 - m.m30
+		-- Bottom plane: row3 + row1
+		out_planes[8] = m.m03 + m.m01
+		out_planes[9] = m.m13 + m.m11
+		out_planes[10] = m.m23 + m.m21
+		out_planes[11] = m.m33 + m.m31
+		-- Top plane: row3 - row1
+		out_planes[12] = m.m03 - m.m01
+		out_planes[13] = m.m13 - m.m11
+		out_planes[14] = m.m23 - m.m21
+		out_planes[15] = m.m33 - m.m31
+		-- Near plane: row3 + row2
+		out_planes[16] = m.m03 + m.m02
+		out_planes[17] = m.m13 + m.m12
+		out_planes[18] = m.m23 + m.m22
+		out_planes[19] = m.m33 + m.m32
+		-- Far plane: row3 - row2
+		out_planes[20] = m.m03 - m.m02
+		out_planes[21] = m.m13 - m.m12
+		out_planes[22] = m.m23 - m.m22
+		out_planes[23] = m.m33 - m.m32
+
+		for i = 0, 20, 4 do
+			local a, b, c = out_planes[i], out_planes[i + 1], out_planes[i + 2]
+			local len = math.sqrt(a * a + b * b + c * c)
+
+			if len > 0 then
+				local inv_len = 1.0 / len
+				out_planes[i] = a * inv_len
+				out_planes[i + 1] = b * inv_len
+				out_planes[i + 2] = c * inv_len
+				out_planes[i + 3] = out_planes[i + 3] * inv_len
+			end
+		end
+	end
+
+	local function is_aabb_visible_frustum(aabb, frustum_planes)
+		for i = 0, 20, 4 do
+			local a, b, c, d = frustum_planes[i], frustum_planes[i + 1], frustum_planes[i + 2], frustum_planes[i + 3]
+			local px = a > 0 and aabb.max_x or aabb.min_x
+			local py = b > 0 and aabb.max_y or aabb.min_y
+			local pz = c > 0 and aabb.max_z or aabb.min_z
+
+			if a * px + b * py + c * pz + d < 0 then return false end
+		end
+
+		return true
+	end
+
+	local function transform_plane(plane_offset, frustum_array, inv_matrix, out_offset, out_array)
+		local a = frustum_array[plane_offset]
+		local b = frustum_array[plane_offset + 1]
+		local c = frustum_array[plane_offset + 2]
+		local d = frustum_array[plane_offset + 3]
+		local m = inv_matrix
+		out_array[out_offset] = a * m.m00 + b * m.m01 + c * m.m02
+		out_array[out_offset + 1] = a * m.m10 + b * m.m11 + c * m.m12
+		out_array[out_offset + 2] = a * m.m20 + b * m.m21 + c * m.m22
+		out_array[out_offset + 3] = a * m.m30 + b * m.m31 + c * m.m32 + d
+	end
+
+	local cached_frustum_planes = ffi.new("float[24]")
+	local cached_frustum_frame = -1
+
+	local function get_frustum_planes()
+		if Model.freeze_culling and cached_frustum_frame >= 0 then
+			return cached_frustum_planes
+		end
+
+		local current_frame = system.GetFrameNumber()
+
+		if cached_frustum_frame ~= current_frame then
+			-- ORIENTATION / TRANSFORMATION: Extract frustum from projection-view matrix
+			local camera = render3d.GetCamera()
+			local proj = camera:BuildProjectionMatrix()
+			local view = camera:BuildViewMatrix()
+			extract_frustum_planes(proj * view, cached_frustum_planes)
+			cached_frustum_frame = current_frame
+		end
+
+		return cached_frustum_planes
+	end
+
+	local local_frustum_planes = ffi.new("float[24]")
+
+	local function is_aabb_visible_local(local_aabb, inv_world)
+		if Model.noculling then return true end
+
+		local world_frustum = get_frustum_planes()
+
+		for i = 0, 20, 4 do
+			transform_plane(i, world_frustum, inv_world, i, local_frustum_planes)
+		end
+
+		return is_aabb_visible_frustum(local_aabb, local_frustum_planes)
+	end
+
+	function META:IsAABBVisibleLocal()
+		if not self.AABB then return true end
+
+		local world_matrix_inv = self:GetWorldMatrixInverse()
+
+		if not world_matrix_inv then return true end
+
+		return is_aabb_visible_local(self.AABB, world_matrix_inv)
+	end
+end
+
 -- Draw event handler
 function META:OnDraw3D(cmd, dt)
 	if not self.Visible then return end
@@ -199,10 +322,7 @@ function META:OnDraw3D(cmd, dt)
 	if #self.Primitives == 0 then return end
 
 	-- Frustum culling: test local AABB against frustum (efficient - no AABB transformation)
-	if
-		self.AABB and
-		not render3d.IsAABBVisibleLocal(self.AABB, self:GetWorldMatrixInverse())
-	then
+	if not self:IsAABBVisibleLocal() then
 		self.frustum_culled = true
 		return -- Model is outside frustum, skip drawing
 	end
@@ -257,11 +377,9 @@ function META:DrawOcclusionQuery(cmd)
 	if self.frustum_culled then return end
 
 	-- Skip updating queries if culling is frozen
-	if render3d.freeze_culling then return end
+	if Model.freeze_culling then return end
 
-	if not render3d.IsAABBVisibleLocal(self.AABB, self:GetWorldMatrixInverse()) then
-		return
-	end
+	if not self:IsAABBVisibleLocal() then return end
 
 	-- Begin occlusion query
 	self.occlusion_query:BeginQuery(cmd)
@@ -339,7 +457,7 @@ end
 
 -- Reset occlusion query pools (must be called outside render pass)
 function Model.ResetOcclusionQueries(cmd)
-	if render3d.freeze_culling then return end
+	if Model.freeze_culling then return end
 
 	local models = Model.GetSceneModels()
 
@@ -364,7 +482,7 @@ end
 
 -- Copy occlusion query results (must be called outside render pass)
 function Model.CopyOcclusionQueryResults(cmd)
-	if render3d.freeze_culling then return end
+	if Model.freeze_culling then return end
 
 	local models = Model.GetSceneModels()
 

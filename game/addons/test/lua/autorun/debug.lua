@@ -32,14 +32,14 @@ function events.Draw2D.debug_info(dt)
 	-- Separator
 	y = y + 10
 	-- Frustum culling status
-	local frustum_status = render3d.noculling and "DISABLED" or "ENABLED"
-	local frustum_color = render3d.noculling and {1.0, 0.2, 0.2} or {0.2, 1.0, 0.2}
+	local frustum_status = Model.noculling and "DISABLED" or "ENABLED"
+	local frustum_color = Model.noculling and {1.0, 0.2, 0.2} or {0.2, 1.0, 0.2}
 	render2d.SetColor(frustum_color[1], frustum_color[2], frustum_color[3], 1)
 	gfx.DrawText(string.format("Frustum Culling: %s", frustum_status), x, y)
 	y = y + 20
 
 	-- Freeze culling status
-	if render3d.freeze_culling then
+	if Model.freeze_culling then
 		render2d.SetColor(1, 1, 0, 1)
 		gfx.DrawText("CULLING FROZEN (Press F to unfreeze)", x, y)
 		y = y + 20
@@ -159,8 +159,8 @@ function events.KeyInput.renderdoc(key, press)
 
 	-- Toggle frustum culling
 	if key == "f8" then
-		render3d.noculling = not render3d.noculling
-		print("Frustum culling: " .. (render3d.noculling and "DISABLED" or "ENABLED"))
+		Model.noculling = not Model.noculling
+		print("Frustum culling: " .. (Model.noculling and "DISABLED" or "ENABLED"))
 	end
 
 	-- Toggle occlusion culling

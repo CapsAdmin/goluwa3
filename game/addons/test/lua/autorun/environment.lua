@@ -2,6 +2,7 @@ local Light = require("components.light")
 local Vec3 = require("structs.vec3")
 local Quat = require("structs.quat")
 local render3d = require("graphics.render3d")
+local skybox = require("graphics.skybox")
 local Texture = require("graphics.texture")
 local sun = Light.CreateDirectional(
 	{
@@ -19,7 +20,7 @@ local sun = Light.CreateDirectional(
 )
 render3d.SetSunLight(sun)
 render3d.SetLightRotation(Quat(0.4, -0.1, -0.1, -0.9):Normalize())
-render3d.SetEnvironmentTexture(Texture.New({
+skybox.SetTexture(Texture.New({
 	path = "/home/caps/projects/hdr.png",
 	mip_map_levels = "auto",
 }))
