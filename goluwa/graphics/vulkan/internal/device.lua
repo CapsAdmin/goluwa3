@@ -284,7 +284,7 @@ function Device:UpdateDescriptorSetArray(descriptorSet, binding_index, texture_a
 	local imageInfoArray = vulkan.T.Array(vulkan.vk.VkDescriptorImageInfo)(count)
 
 	for i, tex in ipairs(texture_array) do
-		imageInfoArray[i - 1].sampler = tex.sampler.ptr[0]
+		imageInfoArray[i - 1].sampler = tex.sampler and tex.sampler.ptr[0] or nil
 		imageInfoArray[i - 1].imageView = tex.view.ptr[0]
 		imageInfoArray[i - 1].imageLayout = vulkan.vk.VkImageLayout.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
 	end

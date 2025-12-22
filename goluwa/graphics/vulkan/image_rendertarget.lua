@@ -288,6 +288,17 @@ function ImageRenderTarget:GetDepthImageView()
 	return self.depth_texture:GetView()
 end
 
+function ImageRenderTarget:WaitForPreviousFrame()
+	-- Wait for the next frame's fence (which is the one we'll use next)
+	-- This ensures previous frame work is complete before we start new work
+	-- Don't reset the fence - BeginFrame will do that
+	local next_frame = (self.current_frame % #self.textures) + 1
+
+	if self.in_flight_fences and self.in_flight_fences[next_frame] then
+		self.in_flight_fences[next_frame]:Wait(true) -- skip_reset = true
+	end
+end
+
 function ImageRenderTarget:BeginFrame()
 	self.current_frame = (self.current_frame % #self.textures) + 1
 

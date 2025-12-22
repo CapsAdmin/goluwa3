@@ -19,9 +19,12 @@ function Fence:__gc()
 	vulkan.lib.vkDestroyFence(self.device.ptr[0], self.ptr[0], nil)
 end
 
-function Fence:Wait()
+function Fence:Wait(skip_reset)
 	vulkan.lib.vkWaitForFences(self.device.ptr[0], 1, self.ptr, 1, ffi.cast("uint64_t", -1))
-	vulkan.lib.vkResetFences(self.device.ptr[0], 1, self.ptr)
+
+	if not skip_reset then
+		vulkan.lib.vkResetFences(self.device.ptr[0], 1, self.ptr)
+	end
 end
 
 return Fence

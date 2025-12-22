@@ -197,7 +197,11 @@ function GraphicsPipeline:RegisterTexture(tex)
 end
 
 function GraphicsPipeline:GetTextureIndex(tex)
-	return self.texture_registry[tex] or 0
+	if not tex then return 0 end
+
+	if not self.texture_registry[tex] then return self:RegisterTexture(tex) end
+
+	return self.texture_registry[tex]
 end
 
 function GraphicsPipeline:UpdateDescriptorSet(type, index, binding_index, ...)

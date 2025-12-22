@@ -109,7 +109,44 @@ function CommandBuffer:BeginRendering(config)
 	local colorAttachmentInfo = nil
 	local colorAttachmentCount = 0
 
-	if config.color_image_view then
+	if config.color_attachments then
+		colorAttachmentCount = #config.color_attachments
+		colorAttachmentInfo = vulkan.T.Array(vulkan.vk.VkRenderingAttachmentInfo)(colorAttachmentCount)
+
+		for i = 1, colorAttachmentCount do
+			local attachment = config.color_attachments[i]
+			local imageView = attachment.color_image_view.ptr[0]
+			local resolveImageView = nil
+			local resolveMode = "none"
+			local resolveImageLayout = "undefined"
+
+			if attachment.msaa_image_view then
+				imageView = attachment.msaa_image_view.ptr[0]
+				resolveImageView = attachment.color_image_view.ptr[0]
+				resolveMode = "average"
+				resolveImageLayout = "color_attachment_optimal"
+			end
+
+			local clearValue = vulkan.vk.VkClearValue()
+			local clear_color = attachment.clear_color or {0, 0, 0, 1}
+			clearValue.color.float32[0] = clear_color[1]
+			clearValue.color.float32[1] = clear_color[2]
+			clearValue.color.float32[2] = clear_color[3]
+			clearValue.color.float32[3] = clear_color[4]
+			colorAttachmentInfo[i - 1] = vulkan.vk.s.RenderingAttachmentInfo(
+				{
+					imageView = imageView,
+					imageLayout = "color_attachment_optimal",
+					resolveMode = resolveMode,
+					resolveImageView = resolveImageView,
+					resolveImageLayout = resolveImageLayout,
+					loadOp = attachment.load_op or "clear",
+					storeOp = attachment.store_op or "store",
+					clearValue = clearValue,
+				}
+			)
+		end
+	elseif config.color_image_view then
 		colorAttachmentCount = 1
 		local imageView = config.color_image_view.ptr[0]
 		local resolveImageView = nil
@@ -124,10 +161,11 @@ function CommandBuffer:BeginRendering(config)
 		end
 
 		local clearValue = vulkan.vk.VkClearValue()
-		clearValue.color.float32[0] = config.clear_color[1]
-		clearValue.color.float32[1] = config.clear_color[2]
-		clearValue.color.float32[2] = config.clear_color[3]
-		clearValue.color.float32[3] = config.clear_color[4]
+		local clear_color = config.clear_color or {0, 0, 0, 1}
+		clearValue.color.float32[0] = clear_color[1]
+		clearValue.color.float32[1] = clear_color[2]
+		clearValue.color.float32[2] = clear_color[3]
+		clearValue.color.float32[3] = clear_color[4]
 		colorAttachmentInfo = vulkan.vk.s.RenderingAttachmentInfo(
 			{
 				imageView = imageView,
@@ -135,8 +173,8 @@ function CommandBuffer:BeginRendering(config)
 				resolveMode = resolveMode,
 				resolveImageView = resolveImageView,
 				resolveImageLayout = resolveImageLayout,
-				loadOp = "clear",
-				storeOp = "store",
+				loadOp = config.load_op or "clear",
+				storeOp = config.store_op or "store",
 				clearValue = clearValue,
 			}
 		)
@@ -154,7 +192,7 @@ function CommandBuffer:BeginRendering(config)
 				imageLayout = config.depth_layout or "depth_attachment_optimal",
 				resolveMode = "none",
 				resolveImageLayout = "undefined",
-				loadOp = "clear",
+				loadOp = config.load_op or "clear",
 				storeOp = config.depth_store and "store" or "dont_care",
 				clearValue = clearValue,
 			}
@@ -178,10 +216,14 @@ function CommandBuffer:BeginRendering(config)
 			}
 		)
 	)
+	self.is_rendering = true
 end
 
 function CommandBuffer:EndRendering()
+	if not self.is_rendering then return end
+
 	vulkan.lib.vkCmdEndRendering(self.ptr[0])
+	self.is_rendering = false
 end
 
 function CommandBuffer:BindPipeline(pipeline, type)

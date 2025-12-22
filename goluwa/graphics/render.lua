@@ -63,6 +63,8 @@ function render.Initialize(config)
 	end
 
 	function events.Update.window_update(dt)
+		-- Wait for previous frame before starting shadow passes
+		render.target:WaitForPreviousFrame()
 		-- Shadow passes run before main frame (before swapchain acquire)
 		event.Call("PreFrame", dt)
 		render.BeginFrame()
@@ -117,7 +119,12 @@ function render.CreateGraphicsPipeline(config)
 		config.color_format = nil
 	end
 
-	config.depth_format = config.depth_format or render.target:GetDepthFormat()
+	if config.depth_format == nil and config.depth_format ~= false then
+		config.depth_format = render.target:GetDepthFormat()
+	elseif config.depth_format == false then
+		config.depth_format = nil
+	end
+
 	config.samples = config.samples or render.target:GetSamples()
 	config.descriptor_set_count = config.descriptor_set_count or render.target:GetSwapchainImageCount()
 	return vulkan_instance:CreateGraphicsPipeline(config)
