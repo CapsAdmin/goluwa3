@@ -198,8 +198,8 @@ do
 
 						else
 							-- Error in test - format it nicely
-							local err_msg = traceback(result, debug.traceback(co))
-							logn(string.format("Test '%s' error:\n%s", test_info.name, err_msg), 0)
+							test_info.failed = true
+							test_info.error = traceback(result, debug.traceback(co))
 						end
 					end
 
@@ -226,7 +226,9 @@ do
 								test_time,
 								test_gc,
 								tests_by_file[file] == 0,
-								test_info.test_file_start_time -- Pass file start time
+								test_info.test_file_start_time, -- Pass file start time
+								not test_info.failed,
+								test_info.error
 							)
 						end
 					end
@@ -372,7 +374,7 @@ do
 		end
 
 		-- Set up the callback for test completion
-		on_test_file_complete = function(test_file_name, test_name, time, gc, is_last, file_start_time)
+		on_test_file_complete = function(test_file_name, test_name, time, gc, is_last, file_start_time, success, err)
 			-- Initialize file results if needed
 			if not test_results[test_file_name] then
 				test_results[test_file_name] = {
@@ -385,11 +387,16 @@ do
 
 			local file_result = test_results[test_file_name]
 			-- Store individual test result
-			table.insert(file_result.tests, {
-				name = test_name,
-				time = time,
-				gc = gc,
-			})
+			table.insert(
+				file_result.tests,
+				{
+					name = test_name,
+					time = time,
+					gc = gc,
+					success = success,
+					error = err,
+				}
+			)
 			-- Update GC total
 			file_result.total_gc = file_result.total_gc + gc
 			total_gc = total_gc + gc
@@ -443,6 +450,8 @@ do
 				-- Add newline after progress dots if needed
 				if IS_TERMINAL and completed_test_count > 0 then io_write("\n") end
 
+				local total_failed = 0
+
 				for _, file_name in ipairs(test_order) do
 					local result = test_results[file_name]
 
@@ -465,7 +474,18 @@ do
 
 							if math.abs(gc_mb) >= 1 then gc_str = "  " .. format_gc(test.gc) end
 
-							io_write(string.format("  %s%s%s\n", test.name, time_str, gc_str))
+							local status = colors.green("✓")
+
+							if test.success == false then
+								status = colors.red("✗")
+								total_failed = total_failed + 1
+							end
+
+							io_write(string.format("  %s %s%s%s\n", status, test.name, time_str, gc_str))
+
+							if test.error then
+								io_write(colors.red("    " .. test.error:gsub("\n", "\n    ")) .. "\n")
+							end
 						end -- Print file total
 						io_write(
 							colors.dim(
@@ -477,6 +497,14 @@ do
 							)
 						)
 					end
+				end
+
+				if total_failed > 0 then
+					io_write(
+						"\n" .. colors.red(string.format("FAILED: %d tests failed", total_failed)) .. "\n"
+					)
+				else
+					io_write("\n" .. colors.green("PASSED: all tests passed") .. "\n")
 				end
 			end
 
