@@ -23,6 +23,7 @@ META:GetSet("Range", 10.0)
 META:GetSet("InnerCone", 0.9) -- cos(angle) for spot lights
 META:GetSet("OuterCone", 0.8)
 META:GetSet("Enabled", true)
+META:GetSet("IsSun", false)
 META:GetSet("CastShadows", false)
 META:GetSet("ShadowMap", nil)
 
@@ -45,6 +46,8 @@ function META:Initialize(config)
 
 	if config.enabled ~= nil then self:SetEnabled(config.enabled) end
 
+	if config.is_sun ~= nil then self:SetIsSun(config.is_sun) end
+
 	if config.cast_shadows then self:EnableShadows(config.shadow_config) end
 end
 
@@ -55,7 +58,9 @@ end
 function META:OnPreFrame(dt)
 	if not self:HasShadows() then return end
 
-	self:RenderShadows(render3d.UpdateShadowUBO)
+	self:RenderShadows()
+
+	if self.IsSun then self:UpdateShadowUBO() end
 end
 
 function META:GetDirection()
@@ -110,7 +115,7 @@ function META:UpdateShadowMap()
 end
 
 -- Render shadow maps for this light, drawing all model components
-function META:RenderShadows(update_shadow_ubo_callback)
+function META:RenderShadows()
 	if not self:HasShadows() then return end
 
 	local shadow_map = self.ShadowMap
@@ -121,21 +126,32 @@ function META:RenderShadows(update_shadow_ubo_callback)
 		Model.DrawAllShadows(shadow_cmd, shadow_map, cascade_idx)
 		shadow_map:End(cascade_idx)
 	end
-
-	if update_shadow_ubo_callback then update_shadow_ubo_callback() end
 end
 
--- Get light data packed for GPU (matches old Light module format)
-local LightData = ffi.typeof([[
-	struct {
-		float position[4];
-		float color[4];
-		float params[4];
-	}
-]])
+function META:UpdateShadowUBO()
+	if not self:HasShadows() then return end
+
+	local shadow_map = self.ShadowMap
+	local cascade_count = shadow_map:GetCascadeCount()
+
+	-- Copy all cascade light space matrices
+	for i = 1, cascade_count do
+		local matrix_data = shadow_map:GetLightSpaceMatrix(i):GetFloatCopy()
+		ffi.copy(render3d.light_ubo_data.shadow.light_space_matrices[i - 1], matrix_data, ffi.sizeof("float") * 16)
+	end
+
+	-- Copy cascade splits
+	local cascade_splits = shadow_map:GetCascadeSplits()
+
+	for i = 1, 4 do
+		render3d.light_ubo_data.shadow.cascade_splits[i - 1] = cascade_splits[i] or 0
+	end
+
+	render3d.light_ubo_data.shadow.cascade_count = cascade_count
+end
 
 function META:GetGPUData()
-	local data = LightData()
+	local data = render3d.LightData()
 
 	if self.LightType == META.TYPE_DIRECTIONAL then
 		local dir = self.Rotation:GetForward()

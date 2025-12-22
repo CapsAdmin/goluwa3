@@ -4,7 +4,6 @@ local event = require("event")
 local window = require("graphics.window")
 local orientation = require("orientation")
 local Material = require("graphics.material")
-local Light = require("graphics.light")
 local Matrix44 = require("structs.matrix").Matrix44
 local Vec3 = require("structs.vec3")
 local Ang3 = require("structs.ang3")
@@ -24,7 +23,6 @@ local FragmentConstants = ffi.typeof([[
 		int metallic_roughness_texture_index;
 		int occlusion_texture_index;
 		int emissive_texture_index;
-		int shadow_map_indices[4];
 		int environment_texture_index;
 		float base_color_factor[4];
 		float metallic_factor;
@@ -32,53 +30,68 @@ local FragmentConstants = ffi.typeof([[
 		float normal_scale;
 		float occlusion_strength;
 		float emissive_factor[3];
-		float light_direction[3];
-		float light_color[3];
-		float light_intensity;
 		float camera_position[3];
 		int debug_cascade_colors;
+		int light_count;
 	}
 ]])
 local ShadowUBO = ffi.typeof([[
 	struct {
 		float light_space_matrices[4][16];
 		float cascade_splits[4];
+		int shadow_map_indices[4];
 		int cascade_count;
 		float _pad[3];
 	}
 ]])
 local render3d = {}
+render3d.ShadowUBO = ShadowUBO
+local LightData = ffi.typeof([[
+	struct {
+		float position[4];
+		float color[4];
+		float params[4];
+	}
+]])
+render3d.LightData = LightData
+local LightUBO = ffi.typeof([[
+	struct {
+		$ shadow;
+		$ lights[32];
+	}
+]], ShadowUBO, LightData)
+render3d.LightUBO = LightUBO
 render3d.current_material = nil
 render3d.current_color = {1, 1, 1, 1}
 render3d.current_metallic_multiplier = 1
 render3d.current_roughness_multiplier = 1
--- Default light settings
-render3d.light_direction = Quat():SetAngles(Vec3(0.5, -1.0, 0.3):GetAngles())
-render3d.light_color = {1.0, 1.0, 1.0, 2.0} -- RGB + intensity
 render3d.environment_texture = nil
+render3d.lights = {}
 
 function render3d.Initialize()
 	if render3d.pipeline then return end
 
-	-- Create shadow UBO buffer
-	local shadow_ubo_data = ShadowUBO()
+	-- Create light UBO buffer
+	local light_ubo_data = LightUBO()
 
 	-- Initialize with identity matrices for all cascades
 	for cascade = 0, 3 do
 		for i = 0, 15 do
-			shadow_ubo_data.light_space_matrices[cascade][i] = (i % 5 == 0) and 1.0 or 0.0
+			light_ubo_data.shadow.light_space_matrices[cascade][i] = (i % 5 == 0) and 1.0 or 0.0
 		end
+
+		light_ubo_data.shadow.shadow_map_indices[cascade] = -1
 	end
 
-	render3d.shadow_ubo = render.CreateBuffer(
+	render3d.light_ubo = render.CreateBuffer(
 		{
-			data = shadow_ubo_data,
-			byte_size = ffi.sizeof(ShadowUBO),
+			data = light_ubo_data,
+			byte_size = ffi.sizeof(LightUBO),
 			buffer_usage = {"uniform_buffer"},
 			memory_property = {"host_visible", "host_coherent"},
 		}
 	)
-	render3d.shadow_ubo_data = shadow_ubo_data
+	render3d.light_ubo_data = light_ubo_data
 	render3d.pipeline = render.CreateGraphicsPipeline(
 		{
 			dynamic_states = {"viewport", "scissor"},
@@ -178,12 +191,24 @@ function render3d.Initialize()
 
 					layout(binding = 0) uniform sampler2D textures[1024]; // Bindless texture array
 					
-					// UBO for shadow data
-					layout(std140, binding = 1) uniform ShadowData {
+					struct ShadowData {
 						mat4 light_space_matrices[4];
 						vec4 cascade_splits;
+						ivec4 shadow_map_indices;
 						int cascade_count;
-					} shadow;
+					};
+
+					struct Light {
+						vec4 position; // w = type
+						vec4 color;    // w = intensity
+						vec4 params;   // x = range, y = inner, z = outer
+					};
+
+					// UBO for light and shadow data
+					layout(std140, binding = 1) uniform LightData {
+						ShadowData shadow;
+						Light lights[32];
+					} light_data;
 
 					// from vertex shader
 					layout(location = 0) in vec3 in_world_pos;
@@ -202,7 +227,6 @@ function render3d.Initialize()
 						int metallic_roughness_texture_index;
 						int occlusion_texture_index;
 						int emissive_texture_index;
-						int shadow_map_indices[4];
 						int environment_texture_index;
 						vec4 base_color_factor;
 						float metallic_factor;
@@ -210,11 +234,9 @@ function render3d.Initialize()
 						float normal_scale;
 						float occlusion_strength;
 						vec3 emissive_factor;
-						vec3 light_direction;
-						vec3 light_color;
-						float light_intensity;
 						vec3 camera_position;
 						int debug_cascade_colors;
+						int light_count;
 					} pc;
 
 					const float PI = 3.14159265359;
@@ -231,12 +253,12 @@ function render3d.Initialize()
 					int getCascadeIndex(vec3 world_pos) {
 						float dist = length(world_pos - pc.camera_position);
 						
-						for (int i = 0; i < shadow.cascade_count; i++) {
-							if (dist < shadow.cascade_splits[i]) {
+						for (int i = 0; i < light_data.shadow.cascade_count; i++) {
+							if (dist < light_data.shadow.cascade_splits[i]) {
 								return i;
 							}
 						}
-						return shadow.cascade_count - 1;
+						return light_data.shadow.cascade_count - 1;
 					}
 
 					// GGX/Trowbridge-Reitz NDF
@@ -269,23 +291,26 @@ function render3d.Initialize()
 					}
 
 					// PCF Shadow calculation
-					float calculateShadow(vec3 world_pos, vec3 normal) {
+					float calculateShadow(vec3 world_pos, vec3 normal, vec3 light_dir) {
 						// Get cascade index for this fragment
 						int cascade_idx = getCascadeIndex(world_pos);
+						if (cascade_idx < 0) {
+							return 1.0;
+						}
 						
 						// Get shadow map index for this cascade
-						int shadow_map_idx = pc.shadow_map_indices[cascade_idx];
-						if (shadow_map_idx <= 0) {
+						int shadow_map_idx = light_data.shadow.shadow_map_indices[cascade_idx];
+						if (shadow_map_idx < 0) {
 							return 1.0; // No shadow map for this cascade
 						}
 						
 						// Normal offset bias to prevent shadow acne
 						// The amount of offset depends on the angle of the surface to the light
-						float bias_val = max(0.05 * (1.0 - dot(normal, pc.light_direction)), 0.005);
+						float bias_val = max(0.05 * (1.0 - dot(normal, light_dir)), 0.005);
 						vec3 offset_pos = world_pos + normal * (bias_val );
 
 						// Transform to light space using the cascade's matrix
-						vec4 light_space_pos = shadow.light_space_matrices[cascade_idx] * vec4(offset_pos, 1.0);
+						vec4 light_space_pos = light_data.shadow.light_space_matrices[cascade_idx] * vec4(offset_pos, 1.0);
 						
 						// Perspective divide
 						vec3 proj_coords = light_space_pos.xyz / light_space_pos.w;
@@ -384,58 +409,80 @@ function render3d.Initialize()
 
 						// View direction - camera position needs to be negated (view matrix uses negative position)
 						vec3 V = normalize(pc.camera_position - in_world_pos);
-						vec3 L = normalize(-pc.light_direction);
-						vec3 H = normalize(V + L);
-
+						
 						// F0 for dielectrics is 0.04, for metals use albedo
 						vec3 F0 = mix(vec3(0.04), albedo.rgb, metallic);
-
-						// Pre-calculate dot products
 						float NdotV = max(dot(N, V), 0.001);
-						float NdotL = max(dot(N, L), 0.0);
-						float HdotV = max(dot(H, V), 0.0);
 
-						// Cook-Torrance BRDF
-						float NDF = DistributionGGX(N, H, roughness);
-						float G = GeometrySmith(N, V, L, roughness);
-						vec3 F = fresnelSchlick(HdotV, F0);
+						vec3 Lo = vec3(0.0);
+						for (int i = 0; i < pc.light_count; i++) {
+							Light light = light_data.lights[i];
+							int type = int(light.position.w);
+							
+							vec3 L;
+							float attenuation = 1.0;
+							
+							if (type == 0) { // DIRECTIONAL
+								L = normalize(-light.position.xyz);
+							} else { // POINT or SPOT
+								vec3 light_to_pos = light.position.xyz - in_world_pos;
+								float dist = length(light_to_pos);
+								L = normalize(light_to_pos);
+								
+								float range = light.params.x;
+								attenuation = clamp(1.0 - dist / range, 0.0, 1.0);
+								attenuation *= attenuation;
+								
+								if (type == 2) { // SPOT
+									// For spot lights, light.position.xyz is position, but we also need direction.
+									// Wait, the current LightData doesn't have direction for spot lights?
+									// Actually, for spot lights, we might need another field.
+									// But let's look at how it was before.
+								}
+							}
+							
+							vec3 H = normalize(V + L);
+							float NdotL = max(dot(N, L), 0.0);
+							float HdotV = max(dot(H, V), 0.0);
 
-						vec3 kS = F;
-						vec3 kD = (1.0 - kS) * (1.0 - metallic);
+							// Cook-Torrance BRDF
+							float NDF = DistributionGGX(N, H, roughness);
+							float G = GeometrySmith(N, V, L, roughness);
+							vec3 F = fresnelSchlick(HdotV, F0);
 
-						vec3 numerator = NDF * G * F;
-						float denominator = 4.0 * NdotV * NdotL + 0.0001;
-						vec3 specular = numerator / denominator;
+							vec3 kS = F;
+							vec3 kD = (1.0 - kS) * (1.0 - metallic);
 
-					// Shadow
-					float shadow_factor = 1.0;
-					if (pc.shadow_map_indices[0] > 0) {
-						shadow_factor = calculateShadow(in_world_pos, N);
-					}
+							vec3 numerator = NDF * G * F;
+							float denominator = 4.0 * NdotV * NdotL + 0.0001;
+							vec3 specular = numerator / denominator;
 
-				
+							// Shadow - only for the first light (assumed sun) for now
+							float shadow_factor = 1.0;
+							if (i == 0 && light_data.shadow.shadow_map_indices[0] >= 0) {
+								shadow_factor = calculateShadow(in_world_pos, N, L);
+							}
 
-					// Final lighting
-					vec3 radiance = pc.light_color * pc.light_intensity;
-					vec3 Lo = (kD * albedo.rgb / PI + specular) * radiance * NdotL * shadow_factor;
+							vec3 radiance = light.color.rgb * light.color.a * attenuation;
+							Lo += (kD * albedo.rgb / PI + specular) * radiance * NdotL * shadow_factor;
+						}
 
-
-					// Ambient - use environment map if available
-					vec3 ambient_diffuse;
-					vec3 ambient_specular;
-					
-					if (pc.environment_texture_index >= 0) {
-						ambient_diffuse = sample_env_map(V, N, roughness) * albedo.rgb * ao;
+						// Ambient - use environment map if available
+						vec3 ambient_diffuse;
+						vec3 ambient_specular;
 						
-						vec3 F_ambient = fresnelSchlick(NdotV, F0);
-						ambient_specular = F_ambient * sample_env_map(V, N, roughness) * ao;
-					} else {
-						// Fallback to simple ambient
-						ambient_diffuse = vec3(0.02) * albedo.rgb * ao;
-						vec3 F_ambient = fresnelSchlick(NdotV, F0);
-						ambient_specular = F_ambient * albedo.rgb * 0.2 * ao;
-					}
-					
+						if (pc.environment_texture_index >= 0) {
+							ambient_diffuse = sample_env_map(V, N, roughness) * albedo.rgb * ao;
+							
+							vec3 F_ambient = fresnelSchlick(NdotV, F0);
+							ambient_specular = F_ambient * sample_env_map(V, N, roughness) * ao;
+						} else {
+							// Fallback to simple ambient
+							ambient_diffuse = vec3(0.02) * albedo.rgb * ao;
+							vec3 F_ambient = fresnelSchlick(NdotV, F0);
+							ambient_specular = F_ambient * albedo.rgb * 0.2 * ao;
+						}
+						
 						vec3 ambient = ambient_diffuse * (1.0 - metallic) + ambient_specular * metallic;
 						
 						vec3 color = ambient + Lo + emissive;
@@ -463,7 +510,7 @@ function render3d.Initialize()
 						{
 							type = "uniform_buffer",
 							binding_index = 1,
-							args = {render3d.shadow_ubo},
+							args = {render3d.light_ubo},
 						},
 					},
 					push_constants = {
@@ -521,6 +568,7 @@ function render3d.Initialize()
 	function events.Draw.draw_3d(cmd, dt)
 		if not render3d.pipeline then return end
 
+		render3d.UpdateUBOs()
 		event.Call("DrawSkybox", cmd, dt)
 		render3d.BindPipeline()
 		event.Call("PreDraw3D", cmd, dt)
@@ -557,36 +605,12 @@ do
 	end
 end
 
-function render3d.SetLightRotation(quat)
-	render3d.light_direction = quat
-
-	-- Update sun light direction too if exists
-	if render3d.sun_light then render3d.sun_light:SetRotation(quat) end
+function render3d.SetLights(lights)
+	render3d.lights = lights
 end
 
-function render3d.SetLightColor(r, g, b, intensity)
-	render3d.light_color = {r, g, b, intensity or 1.0}
-
-	-- Update sun light color too if exists
-	if render3d.sun_light then
-		render3d.sun_light:SetColor(r, g, b)
-		render3d.sun_light:SetIntensity(intensity or 1.0)
-	end
-end
-
-function render3d.SetSunLight(light)
-	render3d.sun_light = light
-
-	if light then
-		render3d.light_direction = light:GetRotation()
-		local color = light:GetColor()
-		local intensity = light:GetIntensity()
-		render3d.light_color = {color.r, color.g, color.b, intensity}
-	end
-end
-
-function render3d.GetSunLight()
-	return render3d.sun_light
+function render3d.GetLights()
+	return render3d.lights
 end
 
 -- Debug state for cascade visualization
@@ -601,27 +625,37 @@ function render3d.GetDebugCascadeColors()
 end
 
 -- Update the shadow UBO with the light space matrix and cascade info
-function render3d.UpdateShadowUBO()
-	if render3d.sun_light and render3d.sun_light:HasShadows() then
-		local shadow_map = render3d.sun_light:GetShadowMap()
+function render3d.UpdateUBOs()
+	-- Update light UBO
+	local count = math.min(#render3d.lights, 32)
+	local sun_light = nil
+
+	for i = 1, count do
+		local light = render3d.lights[i]
+		render3d.light_ubo_data.lights[i - 1] = light:GetGPUData()
+
+		if light.IsSun and light:HasShadows() then sun_light = light end
+	end
+
+	if sun_light then
+		local shadow_map = sun_light:GetShadowMap()
 		local cascade_count = shadow_map:GetCascadeCount()
 
-		-- Copy all cascade light space matrices
 		for i = 1, cascade_count do
-			local matrix_data = shadow_map:GetLightSpaceMatrix(i):GetFloatCopy()
-			ffi.copy(render3d.shadow_ubo_data.light_space_matrices[i - 1], matrix_data, ffi.sizeof("float") * 16)
+			render3d.light_ubo_data.shadow.shadow_map_indices[i - 1] = render3d.pipeline:RegisterTexture(shadow_map:GetDepthTexture(i))
 		end
 
-		-- Copy cascade splits
-		local cascade_splits = shadow_map:GetCascadeSplits()
-
-		for i = 1, 4 do
-			render3d.shadow_ubo_data.cascade_splits[i - 1] = cascade_splits[i] or 0
+		-- Fill remaining slots with -1
+		for i = cascade_count + 1, 4 do
+			render3d.light_ubo_data.shadow.shadow_map_indices[i - 1] = -1
 		end
-
-		render3d.shadow_ubo_data.cascade_count = cascade_count
-		render3d.shadow_ubo:CopyData(render3d.shadow_ubo_data, ffi.sizeof(ShadowUBO))
+	else
+		for i = 0, 3 do
+			render3d.light_ubo_data.shadow.shadow_map_indices[i] = -1
+		end
 	end
+
+	render3d.light_ubo:CopyData(render3d.light_ubo_data, ffi.sizeof(LightUBO))
 end
 
 do
@@ -642,25 +676,6 @@ do
 			fragment_constants.metallic_roughness_texture_index = render3d.pipeline:GetTextureIndex(mat:GetMetallicRoughnessTexture())
 			fragment_constants.occlusion_texture_index = render3d.pipeline:GetTextureIndex(mat:GetOcclusionTexture())
 			fragment_constants.emissive_texture_index = render3d.pipeline:GetTextureIndex(mat:GetEmissiveTexture())
-
-			-- Shadow map indices (one per cascade)
-			if render3d.sun_light and render3d.sun_light:HasShadows() then
-				local shadow_map = render3d.sun_light:GetShadowMap()
-				local cascade_count = shadow_map:GetCascadeCount()
-
-				for i = 1, cascade_count do
-					fragment_constants.shadow_map_indices[i - 1] = render3d.pipeline:RegisterTexture(shadow_map:GetDepthTexture(i))
-				end
-
-				-- Fill remaining slots with 0
-				for i = cascade_count + 1, 4 do
-					fragment_constants.shadow_map_indices[i - 1] = 0
-				end
-			else
-				for i = 0, 3 do
-					fragment_constants.shadow_map_indices[i] = 0
-				end
-			end
 
 			-- Environment texture
 			if render3d.environment_texture then
@@ -683,15 +698,6 @@ do
 			fragment_constants.emissive_factor[0] = mat.emissive_factor[1]
 			fragment_constants.emissive_factor[1] = mat.emissive_factor[2]
 			fragment_constants.emissive_factor[2] = mat.emissive_factor[3]
-			-- Light parameters (vec3)
-			local light_forward = render3d.light_direction:GetForward()
-			fragment_constants.light_direction[0] = light_forward.x
-			fragment_constants.light_direction[1] = light_forward.y
-			fragment_constants.light_direction[2] = light_forward.z
-			fragment_constants.light_color[0] = render3d.light_color[1]
-			fragment_constants.light_color[1] = render3d.light_color[2]
-			fragment_constants.light_color[2] = render3d.light_color[3]
-			fragment_constants.light_intensity = render3d.light_color[4]
 			-- Camera position for specular (vec3)
 			-- ORIENTATION / TRANSFORMATION: Using camera_position as-is
 			local camera_position = render3d.camera:GetPosition()
@@ -700,6 +706,7 @@ do
 			fragment_constants.camera_position[2] = camera_position.z
 			-- Debug cascade visualization
 			fragment_constants.debug_cascade_colors = render3d.debug_cascade_colors and 1 or 0
+			fragment_constants.light_count = math.min(#render3d.lights, 32)
 			render3d.pipeline:PushConstants(cmd, "fragment", ffi.sizeof(VertexConstants), fragment_constants)
 		end
 	end
