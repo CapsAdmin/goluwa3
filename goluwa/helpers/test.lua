@@ -664,7 +664,7 @@ end
 
 function test.ScreenPixel(x, y, r, g, b, a, tolerance)
 	tolerance = tolerance or 0.01
-	local render = require("graphics.render")
+	local render = require("render.render")
 
 	if type(r) == "function" then
 		local r_, g_, b_, a_ = render.target:GetTexture():GetPixel(x, y)

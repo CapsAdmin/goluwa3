@@ -8,16 +8,16 @@ end
 local T = require("test.environment")
 local ffi = require("ffi")
 local png_encode = require("file_formats.png.encode")
-local render = require("graphics.render")
-local render2d = require("graphics.render2d")
-local Polygon2D = require("graphics.polygon_2d")
+local render = require("render.render")
+local render2d = require("render2d.render2d")
+local Polygon2D = require("render2d.polygon_2d")
 local fs = require("fs")
 local width = 512
 local height = 512
 
 local function init_render2d()
 	render.Initialize({headless = true, width = width, height = height})
-	render2d.Initialize()
+	render2d.render2dialize()
 end
 
 local function draw2d(cb)

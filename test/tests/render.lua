@@ -6,8 +6,8 @@ if not pcall(vk.find_library) then
 end
 
 local T = require("test.environment")
-local render = require("graphics.render")
-local Texture = require("graphics.texture")
+local render = require("render.render")
+local Texture = require("render.texture")
 
 T.Test("Graphics render multiple outputs", function()
 	local width, height = 512, 512

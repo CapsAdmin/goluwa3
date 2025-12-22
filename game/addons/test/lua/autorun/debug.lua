@@ -1,10 +1,10 @@
 local event = require("event")
-local render = require("graphics.render")
+local render = require("render.render")
 local system = require("system")
 local input = require("input")
-local render2d = require("graphics.render2d")
-local gfx = require("graphics.gfx")
-local render3d = require("graphics.render3d")
+local render2d = require("render2d.render2d")
+local gfx = require("render2d.gfx")
+local render3d = require("render3d.render3d")
 local Model = require("components.model")
 -- Debug: Show debug info
 local show_debug_info = false

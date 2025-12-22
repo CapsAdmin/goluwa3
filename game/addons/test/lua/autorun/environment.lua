@@ -1,9 +1,9 @@
 local Light = require("components.light")
 local Vec3 = require("structs.vec3")
 local Quat = require("structs.quat")
-local render3d = require("graphics.render3d")
-local skybox = require("graphics.skybox")
-local Texture = require("graphics.texture")
+local render3d = require("render3d.render3d")
+local skybox = require("render3d.skybox")
+local Texture = require("render.texture")
 local sun = Light.CreateDirectional(
 	{
 		rotation = Quat(-0.2, 0.8, 0.4, 0.4), --:SetAngles(Deg3(50, -30, 0)),
@@ -29,8 +29,8 @@ skybox.SetTexture(Texture.New({
 do
 	local ecs = require("ecs")
 	local ffi = require("ffi")
-	local Polygon3D = require("graphics.polygon_3d")
-	local Material = require("graphics.material")
+	local Polygon3D = require("render3d.polygon_3d")
+	local Material = require("render3d.material")
 
 	local function debug_ent(pos, rot, cb)
 		local sphere = ecs.CreateEntity("debug_ent", ecs.GetWorld())

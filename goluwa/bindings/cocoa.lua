@@ -398,7 +398,7 @@ ffi.cdef[[
 	typedef struct { double x; double y; } CGPoint;
 	void CGWarpMouseCursorPosition(CGPoint newCursorPosition);
 ]]
-local CG = ffi.load("/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics")
+local CG = ffi.load("/System/Library/Frameworks/Corerender.framework/CoreGraphics")
 local meta = {}
 meta.__index = meta
 

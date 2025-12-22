@@ -1,10 +1,10 @@
 local ffi = require("ffi")
 local prototype = require("prototype")
 local ecs = require("ecs")
-local render = require("graphics.render")
+local render = require("render.render")
 local Vec3 = require("structs.vec3")
 local Quat = require("structs.quat")
-local ShadowMap = require("graphics.shadow_map")
+local ShadowMap = require("render3d.shadow_map")
 require("components.transform")
 local ShadowUBO = ffi.typeof([[
 	struct {

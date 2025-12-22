@@ -1,9 +1,9 @@
 _G.PROFILE = false
 _G.GRAPHICS = true
-local render = require("graphics.render")
-local render2d = require("graphics.render2d")
-local render3d = require("graphics.render3d")
-local gfx = require("graphics.gfx")
+local render = require("render.render")
+local render2d = require("render2d.render2d")
+local render3d = require("render3d.render3d")
+local gfx = require("render2d.gfx")
 local system = require("system")
 local vfs = require("vfs")
 vfs.MountStorageDirectories()
@@ -18,7 +18,7 @@ _G.runfile = function(...)
 end
 _G.R = vfs.GetAbsolutePath
 render.Initialize()
-render2d.Initialize()
+render2d.render2dialize()
 render3d.Initialize()
 gfx.Initialize()
 

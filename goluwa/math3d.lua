@@ -1,4 +1,4 @@
---local render3d = require("graphics.render3d")
+--local render3d = require("render3d.render3d")
 --local cam = render3d.GetCamera()
 local math3d = {}
 

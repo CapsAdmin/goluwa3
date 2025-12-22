@@ -4,11 +4,11 @@ local Color = require("structs.color")
 local Rect = require("structs.rect")
 local event = require("event")
 local file_formats = require("file_formats")
-local render = require("graphics.render")
-local Texture = require("graphics.texture")
-local gfx = require("graphics.gfx")
+local render = require("render.render")
+local Texture = require("render.texture")
+local gfx = require("render2d.gfx")
 local system = require("system")
-local render2d = require("graphics.render2d")
+local render2d = require("render2d.render2d")
 
 if false then
 	local zsnes = Texture.New(
@@ -154,7 +154,7 @@ if false then
 			},
 		}
 	)
-	local QuadricBezierCurve = require("graphics.quadric_bezier_curve")
+	local QuadricBezierCurve = require("render2d.quadric_bezier_curve")
 	local curve = QuadricBezierCurve.New()
 	curve:Add(Vec2(0, 0))
 	curve:Add(Vec2(1, 0))
@@ -286,7 +286,7 @@ if false then
 		}
 	]])
 	local cmd = render.GetCommandPool():AllocateCommandBuffer()
-	local Fence = require("graphics.vulkan.internal.fence")
+	local Fence = require("render.vulkan.internal.fence")
 	local window = require("window")
 	local input = require("input")
 
@@ -323,7 +323,7 @@ if false then
 	local function init_presentation()
 		if presentation_framebuffer then return end
 
-		local Framebuffer = require("graphics.framebuffer")
+		local Framebuffer = require("render.framebuffer")
 		local device = render.GetDevice()
 		presentation_framebuffer = Framebuffer.New(
 			{

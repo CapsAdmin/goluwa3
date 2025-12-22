@@ -4,7 +4,7 @@ local Vec3 = require("structs.vec3")
 local Matrix44 = require("structs.matrix").Matrix44
 local Quat = require("structs.quat")
 local window = require("window")
-local render3d = require("graphics.render3d")
+local render3d = require("render3d.render3d")
 local orientation = require("orientation")
 
 local function get_speed_multiplier()
@@ -23,8 +23,8 @@ do
 	local Vec3 = require("structs.vec3")
 	local ecs = require("ecs")
 	local Ang3 = require("structs.ang3")
-	local Polygon3D = require("graphics.polygon_3d")
-	local Material = require("graphics.material")
+	local Polygon3D = require("render3d.polygon_3d")
+	local Material = require("render3d.material")
 
 	function events.KeyInput.camera_movement(key, down)
 		if key == "o" and down then
