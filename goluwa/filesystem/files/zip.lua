@@ -1,3 +1,8 @@
+local ffi = require("ffi")
+local Buffer = require("structs.buffer")
+local bit = require("bit")
+local deflate = require("helpers.deflate")
+local Buffer = require("structs.buffer")
 return function(vfs)
 	local CONTEXT = {}
 	CONTEXT.Name = "zip archive"
@@ -5,10 +10,6 @@ return function(vfs)
 	CONTEXT.Base = "generic_archive"
 
 	function CONTEXT:OnParseArchive(file, archive_path)
-		local ffi = require("ffi")
-		local Buffer = require("structs.buffer")
-		local bit = require("bit")
-
 		if VERBOSE then print("ZIP: Parsing archive:", archive_path) end
 
 		-- ZIP file signatures
@@ -170,8 +171,6 @@ return function(vfs)
 
 			-- Decompress if needed
 			if file_info.compressionMethod == 8 then -- DEFLATE
-				local deflate = require("helpers.deflate")
-				local Buffer = require("structs.buffer")
 				local decompressed = deflate.inflate_raw({
 					input = compressed_data,
 					disable_crc = true,

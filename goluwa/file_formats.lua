@@ -3,7 +3,6 @@ local Buffer = require("structs.buffer")
 local png_decode = require("file_formats.png.decode")
 local jpg_decode = require("file_formats.jpg.decode")
 local dds_decode = require("file_formats.dds.decode")
-local zip_decode = require("file_formats.zip.decode")
 local vtf_decode = require("file_formats.vtf.decode")
 local exr_decode = require("file_formats.exr.decode")
 local file_formats = {}
