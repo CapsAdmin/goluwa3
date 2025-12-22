@@ -10,6 +10,7 @@ local Ang3 = require("structs.ang3")
 local Quat = require("structs.quat")
 local Rect = require("structs.rect")
 local Camera3D = require("graphics.camera3d")
+local Light = require("components.light")
 local VertexConstants = ffi.typeof([[
 	struct {
 		float projection_view_world[16];
@@ -35,63 +36,16 @@ local FragmentConstants = ffi.typeof([[
 		int light_count;
 	}
 ]])
-local ShadowUBO = ffi.typeof([[
-	struct {
-		float light_space_matrices[4][16];
-		float cascade_splits[4];
-		int shadow_map_indices[4];
-		int cascade_count;
-		float _pad[3];
-	}
-]])
 local render3d = {}
-render3d.ShadowUBO = ShadowUBO
-local LightData = ffi.typeof([[
-	struct {
-		float position[4];
-		float color[4];
-		float params[4];
-	}
-]])
-render3d.LightData = LightData
-local LightUBO = ffi.typeof([[
-	struct {
-		$ shadow;
-		$ lights[32];
-	}
-]], ShadowUBO, LightData)
-render3d.LightUBO = LightUBO
 render3d.current_material = nil
 render3d.current_color = {1, 1, 1, 1}
 render3d.current_metallic_multiplier = 1
 render3d.current_roughness_multiplier = 1
 render3d.environment_texture = nil
-render3d.lights = {}
 
 function render3d.Initialize()
 	if render3d.pipeline then return end
 
-	-- Create light UBO buffer
-	local light_ubo_data = LightUBO()
-
-	-- Initialize with identity matrices for all cascades
-	for cascade = 0, 3 do
-		for i = 0, 15 do
-			light_ubo_data.shadow.light_space_matrices[cascade][i] = (i % 5 == 0) and 1.0 or 0.0
-		end
-
-		light_ubo_data.shadow.shadow_map_indices[cascade] = -1
-	end
-
-	render3d.light_ubo = render.CreateBuffer(
-		{
-			data = light_ubo_data,
-			byte_size = ffi.sizeof(LightUBO),
-			buffer_usage = {"uniform_buffer"},
-			memory_property = {"host_visible", "host_coherent"},
-		}
-	)
-	render3d.light_ubo_data = light_ubo_data
 	render3d.pipeline = render.CreateGraphicsPipeline(
 		{
 			dynamic_states = {"viewport", "scissor"},
@@ -510,7 +464,7 @@ function render3d.Initialize()
 						{
 							type = "uniform_buffer",
 							binding_index = 1,
-							args = {render3d.light_ubo},
+							args = {Light.GetUBO()},
 						},
 					},
 					push_constants = {
@@ -568,7 +522,7 @@ function render3d.Initialize()
 	function events.Draw.draw_3d(cmd, dt)
 		if not render3d.pipeline then return end
 
-		render3d.UpdateUBOs()
+		Light.UpdateUBOs(render3d.pipeline)
 		event.Call("DrawSkybox", cmd, dt)
 		render3d.BindPipeline()
 		event.Call("PreDraw3D", cmd, dt)
@@ -606,11 +560,11 @@ do
 end
 
 function render3d.SetLights(lights)
-	render3d.lights = lights
+	Light.SetLights(lights)
 end
 
 function render3d.GetLights()
-	return render3d.lights
+	return Light.GetLights()
 end
 
 -- Debug state for cascade visualization
@@ -622,40 +576,6 @@ end
 
 function render3d.GetDebugCascadeColors()
 	return render3d.debug_cascade_colors
-end
-
--- Update the shadow UBO with the light space matrix and cascade info
-function render3d.UpdateUBOs()
-	-- Update light UBO
-	local count = math.min(#render3d.lights, 32)
-	local sun_light = nil
-
-	for i = 1, count do
-		local light = render3d.lights[i]
-		render3d.light_ubo_data.lights[i - 1] = light:GetGPUData()
-
-		if light.IsSun and light:HasShadows() then sun_light = light end
-	end
-
-	if sun_light then
-		local shadow_map = sun_light:GetShadowMap()
-		local cascade_count = shadow_map:GetCascadeCount()
-
-		for i = 1, cascade_count do
-			render3d.light_ubo_data.shadow.shadow_map_indices[i - 1] = render3d.pipeline:RegisterTexture(shadow_map:GetDepthTexture(i))
-		end
-
-		-- Fill remaining slots with -1
-		for i = cascade_count + 1, 4 do
-			render3d.light_ubo_data.shadow.shadow_map_indices[i - 1] = -1
-		end
-	else
-		for i = 0, 3 do
-			render3d.light_ubo_data.shadow.shadow_map_indices[i] = -1
-		end
-	end
-
-	render3d.light_ubo:CopyData(render3d.light_ubo_data, ffi.sizeof(LightUBO))
 end
 
 do
@@ -706,7 +626,7 @@ do
 			fragment_constants.camera_position[2] = camera_position.z
 			-- Debug cascade visualization
 			fragment_constants.debug_cascade_colors = render3d.debug_cascade_colors and 1 or 0
-			fragment_constants.light_count = math.min(#render3d.lights, 32)
+			fragment_constants.light_count = math.min(#Light.GetLights(), 32)
 			render3d.pipeline:PushConstants(cmd, "fragment", ffi.sizeof(VertexConstants), fragment_constants)
 		end
 	end

@@ -1,20 +1,46 @@
 local ffi = require("ffi")
 local prototype = require("prototype")
 local ecs = require("ecs")
+local render = require("graphics.render")
 local Vec3 = require("structs.vec3")
 local Quat = require("structs.quat")
 local ShadowMap = require("graphics.shadow_map")
-local render3d = require("graphics.render3d")
-local Model = require("components.model")
+local ShadowUBO = ffi.typeof([[
+	struct {
+		float light_space_matrices[4][16];
+		float cascade_splits[4];
+		int shadow_map_indices[4];
+		int cascade_count;
+		float _pad[3];
+	}
+]])
+local LightData = ffi.typeof([[
+	struct {
+		float position[4];
+		float color[4];
+		float params[4];
+	}
+]])
+local LightUBO = ffi.typeof([[
+	struct {
+		$ shadow;
+		$ lights[32];
+	}
+]], ShadowUBO, LightData)
+local Light = {}
+-- Light types
+Light.TYPE_DIRECTIONAL = 0
+Light.TYPE_POINT = 1
+Light.TYPE_SPOT = 2
 local META = prototype.CreateTemplate("component", "light")
 META.ComponentName = "light"
 -- Light requires transform component
 META.Require = {"transform"}
 META.Events = {"PreFrame"} -- Subscribe to PreFrame for shadow rendering
 -- Light types
-META.TYPE_DIRECTIONAL = 0
-META.TYPE_POINT = 1
-META.TYPE_SPOT = 2
+META.TYPE_DIRECTIONAL = Light.TYPE_DIRECTIONAL
+META.TYPE_POINT = Light.TYPE_POINT
+META.TYPE_SPOT = Light.TYPE_SPOT
 META:GetSet("LightType", 0) -- TYPE_DIRECTIONAL
 META:GetSet("Rotation", Quat(0, 0, 0, 1))
 META:GetSet("Color", {1.0, 1.0, 1.0})
@@ -114,8 +140,11 @@ function META:UpdateShadowMap()
 	self.ShadowMap:UpdateCascadeLightMatrices(self.Rotation)
 end
 
--- Render shadow maps for this light, drawing all model components
+local Model = nil
+
 function META:RenderShadows()
+	Model = Model or require("components.model")
+
 	if not self:HasShadows() then return end
 
 	local shadow_map = self.ShadowMap
@@ -131,27 +160,28 @@ end
 function META:UpdateShadowUBO()
 	if not self:HasShadows() then return end
 
+	Light.Initialize()
 	local shadow_map = self.ShadowMap
 	local cascade_count = shadow_map:GetCascadeCount()
 
 	-- Copy all cascade light space matrices
 	for i = 1, cascade_count do
 		local matrix_data = shadow_map:GetLightSpaceMatrix(i):GetFloatCopy()
-		ffi.copy(render3d.light_ubo_data.shadow.light_space_matrices[i - 1], matrix_data, ffi.sizeof("float") * 16)
+		ffi.copy(Light.ubo_data.shadow.light_space_matrices[i - 1], matrix_data, ffi.sizeof("float") * 16)
 	end
 
 	-- Copy cascade splits
 	local cascade_splits = shadow_map:GetCascadeSplits()
 
 	for i = 1, 4 do
-		render3d.light_ubo_data.shadow.cascade_splits[i - 1] = cascade_splits[i] or 0
+		Light.ubo_data.shadow.cascade_splits[i - 1] = cascade_splits[i] or 0
 	end
 
-	render3d.light_ubo_data.shadow.cascade_count = cascade_count
+	Light.ubo_data.shadow.cascade_count = cascade_count
 end
 
 function META:GetGPUData()
-	local data = render3d.LightData()
+	local data = LightData()
 
 	if self.LightType == META.TYPE_DIRECTIONAL then
 		local dir = self.Rotation:GetForward()
@@ -182,12 +212,83 @@ ecs.RegisterComponent(META)
 -----------------------------------------------------------
 -- Static helpers for scene light management
 -----------------------------------------------------------
-local Light = {}
 Light.Component = META
--- Re-export constants
-Light.TYPE_DIRECTIONAL = META.TYPE_DIRECTIONAL
-Light.TYPE_POINT = META.TYPE_POINT
-Light.TYPE_SPOT = META.TYPE_SPOT
+Light.lights = {}
+Light.ubo = nil
+Light.ubo_data = nil
+
+function Light.Initialize()
+	if Light.ubo then return end
+
+	Light.ubo_data = LightUBO()
+
+	-- Initialize with identity matrices for all cascades
+	for cascade = 0, 3 do
+		for i = 0, 15 do
+			Light.ubo_data.shadow.light_space_matrices[cascade][i] = (i % 5 == 0) and 1.0 or 0.0
+		end
+
+		Light.ubo_data.shadow.shadow_map_indices[cascade] = -1
+	end
+
+	Light.ubo = render.CreateBuffer(
+		{
+			data = Light.ubo_data,
+			byte_size = ffi.sizeof(LightUBO),
+			buffer_usage = {"uniform_buffer"},
+			memory_property = {"host_visible", "host_coherent"},
+		}
+	)
+end
+
+function Light.GetUBO()
+	if not Light.ubo then Light.Initialize() end
+
+	return Light.ubo
+end
+
+function Light.SetLights(lights)
+	Light.lights = lights
+end
+
+function Light.GetLights()
+	return Light.lights
+end
+
+function Light.UpdateUBOs(pipeline)
+	if not Light.ubo then Light.Initialize() end
+
+	-- Update light UBO
+	local count = math.min(#Light.lights, 32)
+	local sun_light = nil
+
+	for i = 1, count do
+		local light = Light.lights[i]
+		Light.ubo_data.lights[i - 1] = light:GetGPUData()
+
+		if light.IsSun and light:HasShadows() then sun_light = light end
+	end
+
+	if sun_light then
+		local shadow_map = sun_light:GetShadowMap()
+		local cascade_count = shadow_map:GetCascadeCount()
+
+		for i = 1, cascade_count do
+			Light.ubo_data.shadow.shadow_map_indices[i - 1] = pipeline:RegisterTexture(shadow_map:GetDepthTexture(i))
+		end
+
+		-- Fill remaining slots with -1
+		for i = cascade_count + 1, 4 do
+			Light.ubo_data.shadow.shadow_map_indices[i - 1] = -1
+		end
+	else
+		for i = 0, 3 do
+			Light.ubo_data.shadow.shadow_map_indices[i] = -1
+		end
+	end
+
+	Light.ubo:CopyData(Light.ubo_data, ffi.sizeof(LightUBO))
+end
 
 -- Create a directional light entity
 function Light.CreateDirectional(config)

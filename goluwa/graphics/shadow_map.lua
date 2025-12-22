@@ -1,6 +1,6 @@
 local ffi = require("ffi")
 local render = require("graphics.render")
-local render3d = require("graphics.render3d")
+local render3d = nil
 local Texture = require("graphics.texture")
 local Fence = require("graphics.vulkan.internal.fence")
 local Matrix44 = require("structs.matrix").Matrix44
@@ -211,9 +211,9 @@ end
 -- Update all cascade light matrices for cascaded shadow mapping
 -- view_camera: the main view camera to calculate frustum splits from
 -- light_rotation: quaternion rotation of the directional light
-local cam = render3d.GetCamera()
-
 function ShadowMap:UpdateCascadeLightMatrices(light_rotation)
+	render3d = render3d or require("graphics.render3d")
+	local cam = render3d.GetCamera()
 	self:CalculateCascadeSplits()
 
 	for cascade_idx = 1, self.cascade_count do
