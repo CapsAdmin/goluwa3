@@ -5,6 +5,7 @@ local render = require("graphics.render")
 local Vec3 = require("structs.vec3")
 local Quat = require("structs.quat")
 local ShadowMap = require("graphics.shadow_map")
+require("components.transform")
 local ShadowUBO = ffi.typeof([[
 	struct {
 		float light_space_matrices[4][16];
