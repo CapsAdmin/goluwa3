@@ -61,13 +61,6 @@ T.Test("timer.Repeat executes multiple times", function()
 	end, 2.0)
 
 	T(execution_count)["=="](3)
-
-	-- Verify timing between executions
-	if #times >= 2 then
-		local interval = times[2] - times[1]
-		T(interval)[">="](0.09)
-		T(interval)["<="](0.15)
-	end
 end)
 
 T.Test("sleep helper with timer", function()

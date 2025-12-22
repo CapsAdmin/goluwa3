@@ -179,6 +179,7 @@ do
 		local file = assert(io.open(screenshot_path, "wb"))
 		file:write(png:getData())
 		file:close()
+		return screenshot_path
 	end
 end
 

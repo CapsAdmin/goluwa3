@@ -125,7 +125,35 @@ function test.Test(name, cb, start, stop)
 	end
 end
 
-function test.Pending(...) end
+function test.Pending(name)
+	total_test_count = total_test_count + 1
+	-- Track that this test belongs to the current file
+	tests_by_file[current_test_name] = (tests_by_file[current_test_name] or 0) + 1
+
+	-- Start timing for this file if this is the first test
+	if tests_by_file[current_test_name] == 1 then
+		current_test_start_time = system.GetTime()
+		current_test_start_gc = memory.get_usage_kb()
+	end
+
+	-- Store the pending test with metadata
+	table.insert(
+		running_tests,
+		{
+			name = name,
+			pending = true,
+			test_file = current_test_name,
+			test_file_start_time = current_test_start_time,
+			test_file_start_gc = current_test_start_gc,
+			test_start_time = system.GetTime(),
+			test_start_gc = memory.get_usage_kb(),
+		}
+	)
+
+	if not event.IsListenerActive("Update", "test_runner") then
+		event.AddListener("Update", "test_runner", test.UpdateTestCoroutines)
+	end
+end
 
 do
 	-- Yield control from a test coroutine
@@ -188,7 +216,7 @@ do
 			if should_resume and resumed_count < max_resumes_per_update then
 				resumed_count = resumed_count + 1
 				local co = test_info.coroutine
-				local is_dead = coroutine.status(co) == "dead"
+				local is_dead = not co or coroutine.status(co) == "dead"
 
 				if not is_dead then
 					local ok, result = coroutine.resume(co)
@@ -200,18 +228,27 @@ do
 							-- Error in test - format it nicely
 							test_info.failed = true
 							test_info.error = traceback(result, debug.traceback(co))
+							logn(colors.red("Test '" .. test_info.name .. "' failed:\n" .. test_info.error))
 						end
 					end
 
 					-- If result is a number, it's a sleep_until wake time
 					if type(result) == "number" then test_info.sleep_until = result end
+
+					is_dead = coroutine.status(co) == "dead"
 				end
 
 				-- Remove completed tests
-				if coroutine.status(co) == "dead" then
+				if is_dead then
 					-- Calculate individual test timing
 					local test_time = system.GetTime() - test_info.test_start_time
 					local test_gc = memory.get_usage_kb() - test_info.test_start_gc
+
+					if test_info.pending then
+						test_time = 0
+						test_gc = 0
+					end
+
 					-- Decrement the counter for this file
 					local file = test_info.test_file
 
@@ -228,7 +265,8 @@ do
 								tests_by_file[file] == 0,
 								test_info.test_file_start_time, -- Pass file start time
 								not test_info.failed,
-								test_info.error
+								test_info.error,
+								test_info.pending
 							)
 						end
 					end
@@ -244,7 +282,12 @@ do
 							shown_running_line = false
 						end
 
-						io_write(".")
+						if test_info.pending then
+							io_write(colors.yellow("?"))
+						else
+							io_write(".")
+						end
+
 						io.flush()
 
 						-- Line break every 50 tests, or show progress counter
@@ -374,7 +417,17 @@ do
 		end
 
 		-- Set up the callback for test completion
-		on_test_file_complete = function(test_file_name, test_name, time, gc, is_last, file_start_time, success, err)
+		on_test_file_complete = function(
+			test_file_name,
+			test_name,
+			time,
+			gc,
+			is_last,
+			file_start_time,
+			success,
+			err,
+			pending
+		)
 			-- Initialize file results if needed
 			if not test_results[test_file_name] then
 				test_results[test_file_name] = {
@@ -395,6 +448,7 @@ do
 					gc = gc,
 					success = success,
 					error = err,
+					pending = pending,
 				}
 			)
 			-- Update GC total
@@ -451,6 +505,7 @@ do
 				if IS_TERMINAL and completed_test_count > 0 then io_write("\n") end
 
 				local total_failed = 0
+				local total_pending = 0
 
 				for _, file_name in ipairs(test_order) do
 					local result = test_results[file_name]
@@ -479,6 +534,9 @@ do
 							if test.success == false then
 								status = colors.red("✗")
 								total_failed = total_failed + 1
+							elseif test.pending then
+								status = colors.yellow("?")
+								total_pending = total_pending + 1
 							end
 
 							io_write(string.format("  %s %s%s%s\n", status, test.name, time_str, gc_str))
@@ -502,6 +560,10 @@ do
 				if total_failed > 0 then
 					io_write(
 						"\n" .. colors.red(string.format("FAILED: %d tests failed", total_failed)) .. "\n"
+					)
+				elseif total_pending > 0 then
+					io_write(
+						"\n" .. colors.yellow(string.format("PENDING: %d tests pending", total_pending)) .. "\n"
 					)
 				else
 					io_write("\n" .. colors.green("PASSED: all tests passed") .. "\n")

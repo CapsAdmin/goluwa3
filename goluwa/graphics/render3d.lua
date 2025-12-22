@@ -478,7 +478,7 @@ function render3d.Initialize()
 				discard = false,
 				polygon_mode = "fill",
 				line_width = 1.0,
-				cull_mode = "none", --orientation.CULL_MODE, -- ORIENTATION / TRANSFORMATION
+				cull_mode = orientation.CULL_MODE, -- ORIENTATION / TRANSFORMATION
 				front_face = orientation.FRONT_FACE,
 				depth_bias = 0,
 			},

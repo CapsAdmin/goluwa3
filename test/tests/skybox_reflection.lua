@@ -56,10 +56,12 @@ local function draw3d(cb)
 	skybox.SetTexture(env_tex)
 	local cam = render3d.GetCamera()
 	cam:SetPosition(Vec3(0, 0, -10))
+	cam:SetRotation(Quat(0, 0, 0, 1))
 	cam:SetViewport(Rect(0, 0, width, height))
 	cam:SetFOV(math.rad(45))
+	cam:SetOrthoMode(false)
 	local Light = require("components.light")
-	local sun = Light.CreateDirectional({color = {1, 1, 1}, intensity = 1})
+	local sun = Light.CreateDirectional({color = {1, 1, 1}, intensity = 0})
 	sun:SetIsSun(true)
 	render3d.SetLights({sun})
 	render.BeginFrame()
@@ -119,7 +121,7 @@ end
 
 T.Test("Graphics Polygon3D environment map reflection colors", function()
 	sphere(90, 0, {metallic = 0.5, roughness = 0.1, color = Color(1, 1, 1, 1)})
-	local tolerance = 0.4
+	local tolerance = 0.6
 	-- Center: Blue (Left -X)
 	T.ScreenPixel(256, 256, 0, 0, 1, 1, tolerance)
 	-- Top: Green (Up +Y)

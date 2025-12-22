@@ -185,6 +185,11 @@ local function setup_camera_angles(ang)
 	end)
 end
 
+T.Test("Pitch 90 degrees should look Up", function()
+	setup_camera_angles(Deg3(90, 0, 0))
+	test_color("center", "green")
+end)
+
 T.Test("Yaw 180 degrees should look Forward", function()
 	setup_camera_angles(Deg3(0, 180, 0))
 	test_color("center", "blue") -- Should see Blue (+Z)
@@ -194,11 +199,6 @@ end)
 T.Test("Yaw 90 degrees should look Right", function()
 	setup_camera_angles(Deg3(0, -90, 0))
 	test_color("center", "red") -- Should see Red (+X)
-end)
-
-T.Test("Pitch 90 degrees should look Up", function()
-	setup_camera_angles(Deg3(90, 0, 0))
-	test_color("center", "green")
 end)
 
 T.Test("Camera look left and up", function()

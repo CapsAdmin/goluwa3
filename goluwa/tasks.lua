@@ -322,12 +322,15 @@ function tasks.Update()
 
 	for thread in pairs(tasks.created) do
 		if thread:IsRunning() then i = i + 1 end
-
-		if i >= tasks.max then return end
 	end
 
 	for thread in pairs(tasks.created) do
-		if thread.run_me then thread:Start(true) end
+		if thread.run_me then
+			if i >= tasks.max then break end
+
+			thread:Start(true)
+			i = i + 1
+		end
 	end
 end
 
