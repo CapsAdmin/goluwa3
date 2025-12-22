@@ -1,5 +1,5 @@
 local T = require("test.environment")
-local Matrix44 = require("structs.matrix").Matrix44
+local Matrix44 = require("structs.matrix44")
 
 T.Test("Matrix44 identity construction", function()
 	local m = Matrix44()

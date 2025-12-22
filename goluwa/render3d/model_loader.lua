@@ -99,7 +99,7 @@ function model_loader.LoadModel(path, callback, callback2, on_fail)
 	return true
 end
 
-package.loaded["model_loader"] = model_loader
-require("model_decoders.mdl")
-require("model_decoders.bsp")
+package.loaded["render3d.model_loader"] = model_loader
+require("render3d.model_decoders.mdl")
+require("render3d.model_decoders.bsp")
 return model_loader

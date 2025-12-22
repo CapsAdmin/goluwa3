@@ -1,9 +1,9 @@
 local T = require("test.environment")
-local orientation = require("orientation")
+local orientation = require("render3d.orientation")
 local Vec3 = require("structs.vec3")
 local Ang3 = require("structs.ang3")
 local Quat = require("structs.quat")
-local Matrix44 = require("structs.matrix").Matrix44
+local Matrix44 = require("structs.matrix44")
 
 T.Test("orientation vectors are normalized", function()
 	local function vec_length(v)

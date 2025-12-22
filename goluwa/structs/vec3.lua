@@ -1,5 +1,5 @@
 local structs = require("structs.structs")
-local math3d = require("math3d")
+local math3d = require("render3d.math3d")
 local META = structs.Template("Vec3")
 META.Args = {{"x", "y", "z"}, {"r", "g", "b"}, {"p", "y", "r"}, {"u", "v", "w"}}
 structs.AddAllOperators(META)

@@ -1,6 +1,6 @@
 local structs = require("structs.structs")
 local ffi = require("ffi")
-local orientation = require("orientation")
+local orientation = require("render3d.orientation")
 
 -- ORIENTATION / TRANSFORMATION
 -- matrix is row-major or column-major????

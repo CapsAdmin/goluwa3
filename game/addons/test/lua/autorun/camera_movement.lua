@@ -1,11 +1,11 @@
 local event = require("event")
 local input = require("input")
 local Vec3 = require("structs.vec3")
-local Matrix44 = require("structs.matrix").Matrix44
+local Matrix44 = require("structs.matrix44")
 local Quat = require("structs.quat")
 local window = require("window")
 local render3d = require("render3d.render3d")
-local orientation = require("orientation")
+local orientation = require("render3d.orientation")
 
 local function get_speed_multiplier()
 	if input.IsKeyDown("left_shift") and input.IsKeyDown("left_control") then

@@ -469,7 +469,7 @@ do -- helpers
 	function Polygon3D:CreateCube(size, texture_scale)
 		size = size or 1
 		texture_scale = texture_scale or 1
-		local orientation = require("orientation")
+		local orientation = require("render3d.orientation")
 		-- ORIENTATION / TRANSFORMATION: Cube for Y-up, X-right, Z-forward (right-handed)
 		-- All faces use counter-clockwise winding when viewed from outside
 		-- Top face (+Y) - viewed from above, CCW winding

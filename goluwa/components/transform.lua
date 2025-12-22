@@ -1,6 +1,6 @@
 local prototype = require("prototype")
 local ecs = require("ecs")
-local Matrix44 = require("structs.matrix").Matrix44
+local Matrix44 = require("structs.matrix44")
 local Ang3 = require("structs.ang3")
 local Vec3 = require("structs.vec3")
 local Quat = require("structs.quat")

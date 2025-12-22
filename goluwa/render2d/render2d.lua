@@ -4,14 +4,14 @@ local Color = require("structs.color")
 local Vec3 = require("structs.vec3")
 local Vec2 = require("structs.vec2")
 local Rect = require("structs.rect")
-local Matrix44 = require("structs.matrix").Matrix44
+local Matrix44 = require("structs.matrix44")
 local render = require("render.render")
 local window = require("render.window")
 local event = require("event")
 local VertexBuffer = require("render.vertex_buffer")
 local Mesh = require("render.mesh")
 local Texture = require("render.texture")
-local Matrix44 = require("structs.matrix").Matrix44
+local Matrix44 = require("structs.matrix44")
 -- Vertex shader push constants (64 bytes)
 local VertexConstants = ffi.typeof([[
 	struct {

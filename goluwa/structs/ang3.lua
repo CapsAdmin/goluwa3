@@ -1,6 +1,6 @@
 local Vec3 = require("structs.vec3")
 local structs = require("structs.structs")
-local orientation = require("orientation")
+local orientation = require("render3d.orientation")
 local META = structs.Template("Ang3")
 local CTOR
 
