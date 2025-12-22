@@ -19,10 +19,11 @@ function CommandBuffer.New(command_pool)
 		),
 		"failed to allocate command buffer"
 	)
-	return setmetatable({ptr = ptr}, CommandBuffer)
+	return setmetatable({ptr = ptr, command_pool = command_pool}, CommandBuffer)
 end
 
-function CommandBuffer:__gc() -- Command buffers are freed when the command pool is destroyed
+function CommandBuffer:__gc()
+	self.command_pool:FreeCommandBuffer(self)
 end
 
 function CommandBuffer:Begin()
@@ -473,8 +474,23 @@ function CommandBuffer:PipelineBarrier(config)
 		early_fragment_tests = "early_fragment_tests",
 		late_fragment_tests = "late_fragment_tests",
 	}
-	local srcStage = vulkan.vk.e.VkPipelineStageFlagBits(stage_map[config.srcStage or "compute"])
-	local dstStage = vulkan.vk.e.VkPipelineStageFlagBits(stage_map[config.dstStage or "fragment"])
+
+	local function translate_stage(stage)
+		if type(stage) == "table" then
+			local out = {}
+
+			for i, v in ipairs(stage) do
+				out[i] = stage_map[v] or v
+			end
+
+			return out
+		end
+
+		return stage_map[stage] or stage
+	end
+
+	local srcStage = vulkan.vk.e.VkPipelineStageFlagBits(translate_stage(config.srcStage or "compute"))
+	local dstStage = vulkan.vk.e.VkPipelineStageFlagBits(translate_stage(config.dstStage or "fragment"))
 	local imageBarriers = nil
 	local imageBarrierCount = 0
 	local bufferBarriers = nil

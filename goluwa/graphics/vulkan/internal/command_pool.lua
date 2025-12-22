@@ -19,6 +19,10 @@ function CommandPool.New(device, graphicsQueueFamily)
 	return setmetatable({ptr = ptr, device = device}, CommandPool)
 end
 
+function CommandPool:FreeCommandBuffer(cmd)
+	vulkan.lib.vkFreeCommandBuffers(self.device.ptr[0], self.ptr[0], 1, cmd.ptr)
+end
+
 function CommandPool:__gc()
 	vulkan.lib.vkDestroyCommandPool(self.device.ptr[0], self.ptr[0], nil)
 end
