@@ -1,7 +1,7 @@
 local ffi = require("ffi")
+local prototype = require("prototype")
 local vulkan = require("render.vulkan.internal.vulkan")
-local CommandPool = {}
-CommandPool.__index = CommandPool
+local CommandPool = prototype.CreateTemplate("vulkan", "command_pool")
 CommandPool.AllocateCommandBuffer = require("render.vulkan.internal.command_buffer").New
 
 function CommandPool.New(device, graphicsQueueFamily)
@@ -16,7 +16,7 @@ function CommandPool.New(device, graphicsQueueFamily)
 		vulkan.lib.vkCreateCommandPool(device.ptr[0], info, nil, ptr),
 		"failed to create command pool"
 	)
-	return setmetatable({ptr = ptr, device = device}, CommandPool)
+	return CommandPool:CreateObject({ptr = ptr, device = device})
 end
 
 function CommandPool:FreeCommandBuffer(cmd)
@@ -27,4 +27,4 @@ function CommandPool:__gc()
 	vulkan.lib.vkDestroyCommandPool(self.device.ptr[0], self.ptr[0], nil)
 end
 
-return CommandPool
+return CommandPool:Register()

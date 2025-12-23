@@ -1,10 +1,10 @@
+local prototype = require("prototype")
 local ShaderModule = require("render.vulkan.internal.shader_module")
 local DescriptorSetLayout = require("render.vulkan.internal.descriptor_set_layout")
 local PipelineLayout = require("render.vulkan.internal.pipeline_layout")
 local ComputePipelineInternal = require("render.vulkan.internal.compute_pipeline")
 local DescriptorPool = require("render.vulkan.internal.descriptor_pool")
-local ComputePipeline = {}
-ComputePipeline.__index = ComputePipeline
+local ComputePipeline = prototype.CreateTemplate("vulkan", "compute_pipeline")
 local storage_images = {}
 local storage_image_views = {}
 
@@ -40,10 +40,13 @@ local function create_storage_images(self, extent)
 end
 
 function ComputePipeline.New(vulkan_instance, config)
-	local self = setmetatable({}, ComputePipeline)
-	self.vulkan_instance = vulkan_instance
-	self.config = config
-	self.current_texture_index = 1
+	local self = ComputePipeline:CreateObject(
+		{
+			vulkan_instance = vulkan_instance,
+			config = config,
+			current_texture_index = 1,
+		}
+	)
 	local shader = ShaderModule.New(vulkan_instance.device, config.shader, "compute")
 	local descriptor_set_layout = DescriptorSetLayout.New(vulkan_instance.device, config.descriptor_layout)
 	local push_constant_ranges = config.push_constant_ranges or {}
@@ -111,4 +114,4 @@ function ComputePipeline:Dispatch(cmd)
 	self.current_texture_index = (self.current_texture_index % #self.storage_textures) + 1
 end
 
-return ComputePipeline
+return ComputePipeline:Register()

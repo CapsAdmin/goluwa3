@@ -1,8 +1,8 @@
 local ffi = require("ffi")
+local prototype = require("prototype")
 local vulkan = require("render.vulkan.internal.vulkan")
 local PhysicalDevice = require("render.vulkan.internal.physical_device")
-local Instance = {}
-Instance.__index = Instance
+local Instance = prototype.CreateTemplate("vulkan", "instance")
 -- Patterns to suppress (plain text matching)
 local suppressed_warnings = {
 	"vk_loader_settings.json",
@@ -110,7 +110,7 @@ function Instance.New(extensions, layers)
 		),
 		"failed to create vulkan instance"
 	)
-	local self = setmetatable({ptr = ptr, debug_messenger = nil}, Instance)
+	local self = Instance:CreateObject({ptr = ptr, debug_messenger = nil})
 
 	-- Create debug messenger
 	if has_validation then
@@ -166,4 +166,4 @@ function Instance:GetExtension(name)
 	return ffi.cast(vulkan.vk["PFN_" .. name], func_ptr)
 end
 
-return Instance
+return Instance:Register()

@@ -1,7 +1,7 @@
 local ffi = require("ffi")
+local prototype = require("prototype")
 local vulkan = require("render.vulkan.internal.vulkan")
-local Sampler = {}
-Sampler.__index = Sampler
+local Sampler = prototype.CreateTemplate("vulkan", "sampler")
 
 function Sampler.New(config)
 	config = config or {}
@@ -45,14 +45,14 @@ function Sampler.New(config)
 		),
 		"failed to create sampler"
 	)
-	return setmetatable({
+	return Sampler:CreateObject({
 		ptr = ptr,
 		device = config.device,
-	}, Sampler)
+	})
 end
 
 function Sampler:__gc()
 	vulkan.lib.vkDestroySampler(self.device.ptr[0], self.ptr[0], nil)
 end
 
-return Sampler
+return Sampler:Register()

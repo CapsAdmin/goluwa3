@@ -1,4 +1,5 @@
 local ffi = require("ffi")
+local prototype = require("prototype")
 local Image = require("render.vulkan.internal.image")
 local ImageView = require("render.vulkan.internal.image_view")
 local CommandBuffer = require("render.vulkan.internal.command_buffer")
@@ -9,8 +10,7 @@ local RenderPass = require("render.vulkan.internal.render_pass")
 local Framebuffer = require("render.vulkan.internal.framebuffer")
 local Texture = require("render.texture")
 local event = require("event")
-local ImageRenderTarget = {}
-ImageRenderTarget.__index = ImageRenderTarget
+local ImageRenderTarget = prototype.CreateTemplate("vulkan", "image_rendertarget")
 local default_config = {
 	-- Mode selection
 	offscreen = false, -- Set to true for offscreen rendering
@@ -240,7 +240,7 @@ function ImageRenderTarget.New(vulkan_instance, config)
 
 	if config.height == 0 then config.height = 512 end
 
-	local self = setmetatable({config = config}, ImageRenderTarget)
+	local self = ImageRenderTarget:CreateObject({config = config})
 	self.vulkan_instance = vulkan_instance
 	self.current_frame = 0
 	self.texture_index = 1
@@ -512,4 +512,4 @@ function ImageRenderTarget:ReadMode(cmd)
 	)
 end
 
-return ImageRenderTarget
+return ImageRenderTarget:Register()

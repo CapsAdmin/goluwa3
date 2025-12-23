@@ -1,7 +1,7 @@
 local ffi = require("ffi")
+local prototype = require("prototype")
 local vulkan = require("render.vulkan.internal.vulkan")
-local Framebuffer = {}
-Framebuffer.__index = Framebuffer
+local Framebuffer = prototype.CreateTemplate("vulkan", "framebuffer")
 
 function Framebuffer.New(config)
 	local device = config.device
@@ -63,13 +63,12 @@ function Framebuffer.New(config)
 		),
 		"failed to create framebuffer"
 	)
-	return setmetatable(
+	return Framebuffer:CreateObject(
 		{
 			ptr = ptr,
 			device = device,
 			_attachments = attachments, -- Keep attachment array alive
-		},
-		Framebuffer
+		}
 	)
 end
 
@@ -77,4 +76,4 @@ function Framebuffer:__gc()
 	vulkan.lib.vkDestroyFramebuffer(self.device.ptr[0], self.ptr[0], nil)
 end
 
-return Framebuffer
+return Framebuffer:Register()

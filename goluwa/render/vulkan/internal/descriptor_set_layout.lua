@@ -1,7 +1,7 @@
 local ffi = require("ffi")
+local prototype = require("prototype")
 local vulkan = require("render.vulkan.internal.vulkan")
-local DescriptorSetLayout = {}
-DescriptorSetLayout.__index = DescriptorSetLayout
+local DescriptorSetLayout = prototype.CreateTemplate("vulkan", "descriptor_set_layout")
 
 function DescriptorSetLayout.New(device, bindings)
 	-- bindings is an array of tables: {{binding, type, stageFlags, count}, ...}
@@ -48,11 +48,11 @@ function DescriptorSetLayout.New(device, bindings)
 		),
 		"failed to create descriptor set layout"
 	)
-	return setmetatable({ptr = ptr, device = device, bindingArray = bindingArray}, DescriptorSetLayout)
+	return DescriptorSetLayout:CreateObject({ptr = ptr, device = device, bindingArray = bindingArray})
 end
 
 function DescriptorSetLayout:__gc()
 	vulkan.lib.vkDestroyDescriptorSetLayout(self.device.ptr[0], self.ptr[0], nil)
 end
 
-return DescriptorSetLayout
+return DescriptorSetLayout:Register()

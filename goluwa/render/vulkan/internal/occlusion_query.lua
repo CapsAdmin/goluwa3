@@ -1,8 +1,8 @@
 local ffi = require("ffi")
+local prototype = require("prototype")
 local vulkan = require("render.vulkan.internal.vulkan")
 local Buffer = require("render.vulkan.internal.buffer")
-local OcclusionQuery = {}
-OcclusionQuery.__index = OcclusionQuery
+local OcclusionQuery = prototype.CreateTemplate("vulkan", "occlusion_query")
 
 function OcclusionQuery.New(config)
 	local device = config.device
@@ -38,15 +38,14 @@ function OcclusionQuery.New(config)
 	-- Initialize buffer to 1 (visible) so objects start visible
 	local initial_value = ffi.new("uint32_t[1]", 1)
 	conditional_buffer:CopyData(initial_value, 4)
-	local self = setmetatable(
+	local self = OcclusionQuery:CreateObject(
 		{
 			query_pool = query_pool_ptr,
 			conditional_buffer = conditional_buffer,
 			device = device,
 			instance = instance,
 			needs_reset = true, -- Track if query needs reset before use
-		},
-		OcclusionQuery
+		}
 	)
 	return self
 end
@@ -131,4 +130,4 @@ function OcclusionQuery:EndConditional(cmd)
 	self.device.vkCmdEndConditionalRenderingEXT(cmd.ptr[0])
 end
 
-return OcclusionQuery
+return OcclusionQuery:Register()

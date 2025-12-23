@@ -1,7 +1,7 @@
 local ffi = require("ffi")
+local prototype = require("prototype")
 local vulkan = require("render.vulkan.internal.vulkan")
-local ImageView = {}
-ImageView.__index = ImageView
+local ImageView = prototype.CreateTemplate("vulkan", "image_view")
 
 function ImageView.New(config)
 	config = config or {}
@@ -38,14 +38,14 @@ function ImageView.New(config)
 		),
 		"failed to create image view"
 	)
-	return setmetatable({
+	return ImageView:CreateObject({
 		ptr = ptr,
 		device = config.device,
-	}, ImageView)
+	})
 end
 
 function ImageView:__gc()
 	vulkan.lib.vkDestroyImageView(self.device.ptr[0], self.ptr[0], nil)
 end
 
-return ImageView
+return ImageView:Register()

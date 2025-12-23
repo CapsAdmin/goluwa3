@@ -1,14 +1,14 @@
+local prototype = require("prototype")
 local ShaderModule = require("render.vulkan.internal.shader_module")
 local DescriptorSetLayout = require("render.vulkan.internal.descriptor_set_layout")
 local PipelineLayout = require("render.vulkan.internal.pipeline_layout")
 local InternalGraphicsPipeline = require("render.vulkan.internal.graphics_pipeline")
 local DescriptorPool = require("render.vulkan.internal.descriptor_pool")
 local ffi = require("ffi")
-local GraphicsPipeline = {}
-GraphicsPipeline.__index = GraphicsPipeline
+local GraphicsPipeline = prototype.CreateTemplate("vulkan", "graphics_pipeline")
 
 function GraphicsPipeline.New(vulkan_instance, config)
-	local self = setmetatable({}, GraphicsPipeline)
+	local self = GraphicsPipeline:CreateObject({})
 	local uniform_buffers = {}
 	local shader_modules = {}
 	local layout = {}
@@ -405,4 +405,4 @@ function GraphicsPipeline:GetVariantInfo()
 	}
 end
 
-return GraphicsPipeline
+return GraphicsPipeline:Register()

@@ -1,7 +1,7 @@
 local ffi = require("ffi")
+local prototype = require("prototype")
 local vulkan = require("render.vulkan.internal.vulkan")
-local Memory = {}
-Memory.__index = Memory
+local Memory = prototype.CreateTemplate("vulkan", "memory")
 
 function Memory.New(device, size, type_index)
 	local ptr = vulkan.T.Box(vulkan.vk.VkDeviceMemory)()
@@ -17,14 +17,14 @@ function Memory.New(device, size, type_index)
 		),
 		"failed to allocate memory"
 	)
-	return setmetatable({
+	return Memory:CreateObject({
 		ptr = ptr,
 		device = device,
-	}, Memory)
+	})
 end
 
 function Memory:__gc()
 	vulkan.lib.vkFreeMemory(self.device.ptr[0], self.ptr[0], nil)
 end
 
-return Memory
+return Memory:Register()

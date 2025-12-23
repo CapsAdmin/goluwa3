@@ -1,12 +1,12 @@
 local ffi = require("ffi")
+local prototype = require("prototype")
 local vulkan = require("render.vulkan.internal.vulkan")
-local Queue = {}
-Queue.__index = Queue
+local Queue = prototype.CreateTemplate("vulkan", "queue")
 
 function Queue.New(device, graphicsQueueFamily)
 	local ptr = vulkan.T.Box(vulkan.vk.VkQueue)()
 	vulkan.lib.vkGetDeviceQueue(device.ptr[0], graphicsQueueFamily, 0, ptr)
-	return setmetatable({ptr = ptr, device = device}, Queue)
+	return Queue:CreateObject({ptr = ptr, device = device})
 end
 
 function Queue:__gc() -- Queues are managed by the device, so nothing to do here
@@ -55,4 +55,4 @@ function Queue:SubmitAndWait(device, commandBuffer, fence)
 	vulkan.lib.vkWaitForFences(device.ptr[0], 1, fence.ptr, 1, ffi.cast("uint64_t", -1))
 end
 
-return Queue
+return Queue:Register()

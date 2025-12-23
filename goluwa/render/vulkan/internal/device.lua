@@ -1,7 +1,7 @@
 local ffi = require("ffi")
+local prototype = require("prototype")
 local vulkan = require("render.vulkan.internal.vulkan")
-local Device = {}
-Device.__index = Device
+local Device = prototype.CreateTemplate("vulkan", "device")
 Device.GetQueue = require("render.vulkan.internal.queue").New
 
 function Device.New(physical_device, extensions, graphicsQueueFamily)
@@ -184,14 +184,13 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 		vulkan.lib.vkCreateDevice(physical_device.ptr[0], deviceCreateInfo, nil, ptr),
 		"failed to create device"
 	)
-	local device = setmetatable(
+	local device = Device:CreateObject(
 		{
 			ptr = ptr,
 			has_extended_dynamic_state3 = has_extended_dynamic_state3,
 			physical_device = physical_device,
 			extensions = finalExtensions,
-		},
-		Device
+		}
 	)
 
 	-- Load extension functions if dynamic blend features are supported
@@ -312,4 +311,4 @@ function Device:GetBufferMemoryRequirements(buffer)
 	return memRequirements
 end
 
-return Device
+return Device:Register()

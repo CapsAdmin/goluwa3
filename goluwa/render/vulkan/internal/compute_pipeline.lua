@@ -1,7 +1,7 @@
 local ffi = require("ffi")
+local prototype = require("prototype")
 local vulkan = require("render.vulkan.internal.vulkan")
-local ComputePipeline = {}
-ComputePipeline.__index = ComputePipeline
+local ComputePipeline = prototype.CreateTemplate("vulkan", "compute_pipeline")
 
 function ComputePipeline.New(device, shaderModule, pipelineLayout)
 	local info = vulkan.vk.s.PipelineShaderStageCreateInfo({
@@ -22,11 +22,11 @@ function ComputePipeline.New(device, shaderModule, pipelineLayout)
 		vulkan.lib.vkCreateComputePipelines(device.ptr[0], nil, 1, computePipelineCreateInfo, nil, ptr),
 		"failed to create compute pipeline"
 	)
-	return setmetatable({device = device, ptr = ptr}, ComputePipeline)
+	return ComputePipeline:CreateObject({device = device, ptr = ptr})
 end
 
 function ComputePipeline:__gc()
 	vulkan.lib.vkDestroyPipeline(self.device.ptr[0], self.ptr[0], nil)
 end
 
-return ComputePipeline
+return ComputePipeline:Register()

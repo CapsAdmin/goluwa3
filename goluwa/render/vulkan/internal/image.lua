@@ -1,11 +1,11 @@
 local ffi = require("ffi")
+local prototype = require("prototype")
 local vulkan = require("render.vulkan.internal.vulkan")
 local ImageView = require("render.vulkan.internal.image_view")
 local CommandPool = require("render.vulkan.internal.command_pool")
 local Fence = require("render.vulkan.internal.fence")
 local Memory = require("render.vulkan.internal.memory")
-local Image = {}
-Image.__index = Image
+local Image = prototype.CreateTemplate("vulkan", "image")
 
 function Image.New(config)
 	config = config or {}
@@ -45,7 +45,7 @@ function Image.New(config)
 		),
 		"failed to create image"
 	)
-	local self = setmetatable(
+	local self = Image:CreateObject(
 		{
 			ptr = ptr,
 			device = config.device,
@@ -54,8 +54,7 @@ function Image.New(config)
 			format = config.format,
 			usage = config.usage,
 			mip_levels = mip_levels,
-		},
-		Image
+		}
 	)
 	local requirements = config.device:GetImageMemoryRequirements(self)
 	assert(requirements.size > 0)
@@ -153,4 +152,4 @@ function Image:TransitionLayout(old_layout, new_layout)
 	queue:SubmitAndWait(device, cmd, fence)
 end
 
-return Image
+return Image:Register()

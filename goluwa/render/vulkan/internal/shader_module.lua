@@ -1,8 +1,8 @@
 local ffi = require("ffi")
+local prototype = require("prototype")
 local vulkan = require("render.vulkan.internal.vulkan")
 local shaderc = require("bindings.shaderc")
-local ShaderModule = {}
-ShaderModule.__index = ShaderModule
+local ShaderModule = prototype.CreateTemplate("vulkan", "shader_module")
 
 function ShaderModule.New(device, glsl, type)
 	local spirv_data, spirv_size = shaderc.compile(glsl, type)
@@ -22,11 +22,11 @@ function ShaderModule.New(device, glsl, type)
 		),
 		"failed to create shader module"
 	)
-	return setmetatable({ptr = ptr, device = device}, ShaderModule)
+	return ShaderModule:CreateObject({ptr = ptr, device = device})
 end
 
 function ShaderModule:__gc()
 	vulkan.lib.vkDestroyShaderModule(self.device.ptr[0], self.ptr[0], nil)
 end
 
-return ShaderModule
+return ShaderModule:Register()

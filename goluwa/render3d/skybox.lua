@@ -5,15 +5,6 @@ local Matrix44 = require("structs.matrix44")
 local render = require("render.render")
 local render3d = require("render3d.render3d")
 local skybox = library()
-setmetatable(
-	skybox,
-	{
-		__newindex = function(s, k, v)
-			print(s, k, v)
-			rawset(s, k, v)
-		end,
-	}
-)
 
 function skybox.Initialize()
 	if skybox.pipeline then return end

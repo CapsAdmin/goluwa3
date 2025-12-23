@@ -1,7 +1,7 @@
 local ffi = require("ffi")
+local prototype = require("prototype")
 local vulkan = require("render.vulkan.internal.vulkan")
-local RenderPass = {}
-RenderPass.__index = RenderPass
+local RenderPass = prototype.CreateTemplate("vulkan", "render_pass")
 
 function RenderPass.New(device, config)
 	config.samples = config.samples or "1"
@@ -217,7 +217,7 @@ function RenderPass.New(device, config)
 		vulkan.lib.vkCreateRenderPass(device.ptr[0], renderPassInfo, nil, ptr),
 		"failed to create render pass with MSAA"
 	)
-	return setmetatable(
+	return RenderPass:CreateObject(
 		{
 			ptr = ptr,
 			device = device,
@@ -230,8 +230,7 @@ function RenderPass.New(device, config)
 			_subpass = subpass,
 			_dependency = dependency,
 			_renderPassInfo = renderPassInfo,
-		},
-		RenderPass
+		}
 	)
 end
 
@@ -239,4 +238,4 @@ function RenderPass:__gc()
 	vulkan.lib.vkDestroyRenderPass(self.device.ptr[0], self.ptr[0], nil)
 end
 
-return RenderPass
+return RenderPass:Register()

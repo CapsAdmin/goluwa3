@@ -1,4 +1,5 @@
 local ffi = require("ffi")
+local prototype = require("prototype")
 local Instance = require("render.vulkan.internal.instance")
 local Device = require("render.vulkan.internal.device")
 local PhysicalDevice = require("render.vulkan.internal.physical_device")
@@ -17,11 +18,10 @@ if jit.os == "OSX" then
 end
 
 -- On Linux, VK_LAYER_PATH should be set by the environment (e.g., nix develop)
-local VulkanInstance = {}
-VulkanInstance.__index = VulkanInstance
+local VulkanInstance = prototype.CreateTemplate("vulkan", "vulkan_instance")
 
 function VulkanInstance.New(surface_handle, display_handle)
-	local self = setmetatable({}, VulkanInstance)
+	local self = VulkanInstance:CreateObject({})
 	local is_headless = not surface_handle and not display_handle
 	-- Setup extensions based on headless or windowed mode
 	local extensions = {}
@@ -143,4 +143,4 @@ function VulkanInstance:CreateOcclusionQuery()
 	return OcclusionQuery.New({device = self.device, instance = self.instance})
 end
 
-return VulkanInstance
+return VulkanInstance:Register()

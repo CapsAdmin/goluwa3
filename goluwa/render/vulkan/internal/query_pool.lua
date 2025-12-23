@@ -1,7 +1,7 @@
 local ffi = require("ffi")
+local prototype = require("prototype")
 local vulkan = require("render.vulkan.internal.vulkan")
-local QueryPool = {}
-QueryPool.__index = QueryPool
+local QueryPool = prototype.CreateTemplate("vulkan", "query_pool")
 
 function QueryPool.New(device, query_type, query_count)
 	local ptr = vulkan.T.Box(vulkan.vk.VkQueryPool)()
@@ -17,11 +17,11 @@ function QueryPool.New(device, query_type, query_count)
 		vulkan.lib.vkCreateQueryPool(device.ptr[0], createInfo, nil, ptr),
 		"failed to create query pool"
 	)
-	return setmetatable({
+	return QueryPool:CreateObject({
 		ptr = ptr,
 		device = device,
 		query_count = query_count or 1,
-	}, QueryPool)
+	})
 end
 
 function QueryPool:__gc()
@@ -54,4 +54,4 @@ function QueryPool:GetResults(first_query, query_count, data_size, flags)
 	return nil
 end
 
-return QueryPool
+return QueryPool:Register()

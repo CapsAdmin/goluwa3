@@ -1,7 +1,7 @@
 local ffi = require("ffi")
+local prototype = require("prototype")
 local vulkan = require("render.vulkan.internal.vulkan")
-local GraphicsPipeline = {}
-GraphicsPipeline.__index = GraphicsPipeline
+local GraphicsPipeline = prototype.CreateTemplate("vulkan", "graphics_pipeline")
 local EnumArray = ffi.typeof("uint32_t[?]")
 
 function GraphicsPipeline.New(device, config, render_passes, pipelineLayout)
@@ -288,7 +288,7 @@ function GraphicsPipeline.New(device, config, render_passes, pipelineLayout)
 		vulkan.lib.vkCreateGraphicsPipelines(device.ptr[0], nil, 1, pipelineInfo, nil, ptr),
 		"failed to create graphics pipeline"
 	)
-	return setmetatable({device = device, ptr = ptr, config = config}, GraphicsPipeline)
+	return GraphicsPipeline:CreateObject({device = device, ptr = ptr, config = config})
 end
 
 function GraphicsPipeline:__gc()
@@ -296,4 +296,4 @@ function GraphicsPipeline:__gc()
 	vulkan.lib.vkDestroyPipeline(self.device.ptr[0], self.ptr[0], nil)
 end
 
-return GraphicsPipeline
+return GraphicsPipeline:Register()

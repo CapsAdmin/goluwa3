@@ -1,7 +1,7 @@
 local ffi = require("ffi")
+local prototype = require("prototype")
 local vulkan = require("render.vulkan.internal.vulkan")
-local Fence = {}
-Fence.__index = Fence
+local Fence = prototype.CreateTemplate("vulkan", "fence")
 
 function Fence.New(device)
 	local fenceCreateInfo = vulkan.vk.s.FenceCreateInfo({
@@ -12,7 +12,7 @@ function Fence.New(device)
 		vulkan.lib.vkCreateFence(device.ptr[0], fenceCreateInfo, nil, ptr),
 		"failed to create fence"
 	)
-	return setmetatable({ptr = ptr, device = device}, Fence)
+	return Fence:CreateObject({ptr = ptr, device = device})
 end
 
 function Fence:__gc()
@@ -27,4 +27,4 @@ function Fence:Wait(skip_reset)
 	end
 end
 
-return Fence
+return Fence:Register()

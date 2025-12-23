@@ -1,7 +1,7 @@
 local ffi = require("ffi")
+local prototype = require("prototype")
 local vulkan = require("render.vulkan.internal.vulkan")
-local DescriptorPool = {}
-DescriptorPool.__index = DescriptorPool
+local DescriptorPool = prototype.CreateTemplate("vulkan", "descriptor_pool")
 
 function DescriptorPool.New(device, poolSizes, maxSets)
 	-- poolSizes is an array of tables: {{type, count}, ...}
@@ -25,7 +25,7 @@ function DescriptorPool.New(device, poolSizes, maxSets)
 		vulkan.lib.vkCreateDescriptorPool(device.ptr[0], poolInfo, nil, ptr),
 		"failed to create descriptor pool"
 	)
-	return setmetatable({device = device, ptr = ptr, poolSizeArray = poolSizeArray}, DescriptorPool)
+	return DescriptorPool:CreateObject({device = device, ptr = ptr, poolSizeArray = poolSizeArray})
 end
 
 function DescriptorPool:__gc()
@@ -56,4 +56,4 @@ function DescriptorPool:AllocateDescriptorSet(layout)
 	return {ptr = ptr, device = self.device}
 end
 
-return DescriptorPool
+return DescriptorPool:Register()

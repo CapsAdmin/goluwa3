@@ -1,7 +1,7 @@
 local ffi = require("ffi")
+local prototype = require("prototype")
 local vulkan = require("render.vulkan.internal.vulkan")
-local Surface = {}
-Surface.__index = Surface
+local Surface = prototype.CreateTemplate("vulkan", "surface")
 
 function Surface.New(instance, surface_handle, display_handle)
 	local info
@@ -33,15 +33,14 @@ function Surface.New(instance, surface_handle, display_handle)
 	local ptr = vulkan.T.Box(vulkan.vk.VkSurfaceKHR)()
 	local result = vkCreateSurface(instance.ptr[0], info, nil, ptr)
 	vulkan.assert(result, "failed to create surface")
-	return setmetatable(
+	return Surface:CreateObject(
 		{
 			ptr = ptr,
 			instance = instance,
 			info = info,
 			surface_handle = surface_handle,
 			display_handle = display_handle,
-		},
-		Surface
+		}
 	)
 end
 
@@ -49,4 +48,4 @@ function Surface:__gc()
 	vulkan.lib.vkDestroySurfaceKHR(self.instance.ptr[0], self.ptr[0], nil)
 end
 
-return Surface
+return Surface:Register()

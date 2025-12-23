@@ -1,7 +1,7 @@
 local ffi = require("ffi")
+local prototype = require("prototype")
 local vulkan = require("render.vulkan.internal.vulkan")
-local PipelineLayout = {}
-PipelineLayout.__index = PipelineLayout
+local PipelineLayout = prototype.CreateTemplate("vulkan", "pipeline_layout")
 
 -- used to pass data to shaders
 function PipelineLayout.New(device, descriptorSetLayouts, pushConstantRanges)
@@ -49,11 +49,11 @@ function PipelineLayout.New(device, descriptorSetLayouts, pushConstantRanges)
 		vulkan.lib.vkCreatePipelineLayout(device.ptr[0], pipelineLayoutInfo, nil, ptr),
 		"failed to create pipeline layout"
 	)
-	return setmetatable({device = device, ptr = ptr}, PipelineLayout)
+	return PipelineLayout:CreateObject({device = device, ptr = ptr})
 end
 
 function PipelineLayout:__gc()
 	vulkan.lib.vkDestroyPipelineLayout(self.device.ptr[0], self.ptr[0], nil)
 end
 
-return PipelineLayout
+return PipelineLayout:Register()

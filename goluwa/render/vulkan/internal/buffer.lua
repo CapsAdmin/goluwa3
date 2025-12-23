@@ -1,8 +1,8 @@
 local ffi = require("ffi")
+local prototype = require("prototype")
 local vulkan = require("render.vulkan.internal.vulkan")
 local Memory = require("render.vulkan.internal.memory")
-local Buffer = {}
-Buffer.__index = Buffer
+local Buffer = prototype.CreateTemplate("vulkan", "buffer")
 
 function Buffer.New(config)
 	local device = config.device
@@ -28,11 +28,11 @@ function Buffer.New(config)
 		),
 		"failed to create buffer"
 	)
-	local self = setmetatable({
+	local self = Buffer:CreateObject({
 		ptr = ptr,
 		size = size,
 		device = device,
-	}, Buffer)
+	})
 	local requirements = device:GetBufferMemoryRequirements(self)
 	self.memory = Memory.New(
 		device,
@@ -70,4 +70,4 @@ function Buffer:CopyData(src_data, size)
 	self:Unmap()
 end
 
-return Buffer
+return Buffer:Register()

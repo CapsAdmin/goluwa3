@@ -1,13 +1,13 @@
 local ffi = require("ffi")
+local prototype = require("prototype")
 local vulkan = require("render.vulkan.internal.vulkan")
-local PhysicalDevice = {}
-PhysicalDevice.__index = PhysicalDevice
+local PhysicalDevice = prototype.CreateTemplate("vulkan", "physical_device")
 
 function PhysicalDevice.New(ptr)
 	assert(type(ptr) == "cdata", "ptr must be a cdata VkPhysicalDevice")
 	local ptr_boxed = vulkan.T.Box(vulkan.vk.VkPhysicalDevice)()
 	ptr_boxed[0] = ptr
-	return setmetatable({ptr = ptr_boxed}, PhysicalDevice)
+	return PhysicalDevice:CreateObject({ptr = ptr_boxed})
 end
 
 function PhysicalDevice:SupportsSurface(surface)
@@ -261,4 +261,4 @@ function PhysicalDevice:GetDynamicRenderingFeatures()
 	return queryDynamicRenderingFeatures.dynamicRendering == 1
 end
 
-return PhysicalDevice
+return PhysicalDevice:Register()

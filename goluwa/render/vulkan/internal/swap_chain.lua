@@ -1,7 +1,7 @@
 local ffi = require("ffi")
+local prototype = require("prototype")
 local vulkan = require("render.vulkan.internal.vulkan")
-local Swapchain = {}
-Swapchain.__index = Swapchain
+local Swapchain = prototype.CreateTemplate("vulkan", "swap_chain")
 
 function Swapchain.New(config)
 	local ptr = vulkan.T.Box(vulkan.vk.VkSwapchainKHR)()
@@ -37,7 +37,7 @@ function Swapchain.New(config)
 		),
 		"failed to create swapchain"
 	)
-	return setmetatable(
+	return Swapchain:CreateObject(
 		{
 			ptr = ptr,
 			device = config.device,
@@ -45,8 +45,7 @@ function Swapchain.New(config)
 			-- pointer references to prevent GC
 			old_swapchain = config.old_swapchain,
 			surface = config.surface,
-		},
-		Swapchain
+		}
 	)
 end
 
@@ -65,14 +64,13 @@ function Swapchain:GetImages()
 	for i = 0, imageCount[0] - 1 do
 		local ptr = vulkan.T.Box(vulkan.vk.VkImage)()
 		ptr[0] = swapchainImages[i]
-		out[i + 1] = setmetatable(
+		out[i + 1] = Image:CreateObject(
 			{
 				ptr = ptr,
 				device = self.device,
 				format = self.format,
 				dont_destroy = true,
-			},
-			Image
+			}
 		)
 	end
 
@@ -126,4 +124,4 @@ function Swapchain:Present(renderFinishedSemaphore, deviceQueue, imageIndex)
 	return true
 end
 
-return Swapchain
+return Swapchain:Register()

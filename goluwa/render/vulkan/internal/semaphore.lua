@@ -1,7 +1,7 @@
 local ffi = require("ffi")
+local prototype = require("prototype")
 local vulkan = require("render.vulkan.internal.vulkan")
-local Semaphore = {}
-Semaphore.__index = Semaphore
+local Semaphore = prototype.CreateTemplate("vulkan", "semaphore")
 
 function Semaphore.New(device)
 	local ptr = vulkan.T.Box(vulkan.vk.VkSemaphore)()
@@ -11,11 +11,11 @@ function Semaphore.New(device)
 		}), nil, ptr),
 		"failed to create semaphore"
 	)
-	return setmetatable({ptr = ptr, device = device}, Semaphore)
+	return Semaphore:CreateObject({ptr = ptr, device = device})
 end
 
 function Semaphore:__gc()
 	vulkan.lib.vkDestroySemaphore(self.device.ptr[0], self.ptr[0], nil)
 end
 
-return Semaphore
+return Semaphore:Register()

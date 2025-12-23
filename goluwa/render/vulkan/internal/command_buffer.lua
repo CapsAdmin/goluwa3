@@ -1,7 +1,7 @@
 local ffi = require("ffi")
+local prototype = require("prototype")
 local vulkan = require("render.vulkan.internal.vulkan")
-local CommandBuffer = {}
-CommandBuffer.__index = CommandBuffer
+local CommandBuffer = prototype.CreateTemplate("vulkan", "command_buffer")
 
 function CommandBuffer.New(command_pool)
 	local ptr = vulkan.T.Box(vulkan.vk.VkCommandBuffer)()
@@ -19,7 +19,7 @@ function CommandBuffer.New(command_pool)
 		),
 		"failed to allocate command buffer"
 	)
-	return setmetatable({ptr = ptr, command_pool = command_pool}, CommandBuffer)
+	return CommandBuffer:CreateObject({ptr = ptr, command_pool = command_pool})
 end
 
 function CommandBuffer:__gc()
@@ -694,4 +694,4 @@ function CommandBuffer:BlitImage(config)
 	)
 end
 
-return CommandBuffer
+return CommandBuffer:Register()
