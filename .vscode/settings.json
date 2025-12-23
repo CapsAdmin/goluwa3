@@ -7,7 +7,7 @@
   "runOnSave.commands": [
     {
       "globMatch": "**/*.{lua,nlua}",
-      "command": "cd ${workspaceFolder} && luajit .vscode/on_editor_save.lua '${file}'",
+      "command": "cd ${workspaceFolder} && luajit .vscode/hotreload.lua '${file}'",
       "runIn": "terminal"
     }
   ]

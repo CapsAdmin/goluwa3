@@ -1,6 +1,5 @@
 local ffi = require("ffi")
 local vulkan = require("render.vulkan.internal.vulkan")
-local ffi_helpers = require("helpers.ffi_helpers")
 local Sampler = {}
 Sampler.__index = Sampler
 

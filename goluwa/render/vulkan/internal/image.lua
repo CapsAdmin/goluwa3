@@ -1,6 +1,5 @@
 local ffi = require("ffi")
 local vulkan = require("render.vulkan.internal.vulkan")
-local ffi_helpers = require("helpers.ffi_helpers")
 local ImageView = require("render.vulkan.internal.image_view")
 local CommandPool = require("render.vulkan.internal.command_pool")
 local Fence = require("render.vulkan.internal.fence")

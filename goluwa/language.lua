@@ -1,7 +1,7 @@
 local vfs = require("vfs")
-local codec = require("goluwa.codec")
-local resource = require("goluwa.resource")
-local pvars = require("goluwa.pvars")
+local codec = require("codec")
+local resource = require("resource")
+local pvars = require("pvars")
 local language = {}
 language.known_strings = {}
 language.current_translation = {}

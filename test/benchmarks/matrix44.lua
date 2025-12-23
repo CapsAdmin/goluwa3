@@ -1,4 +1,4 @@
-local benchmark = require("goluwa.helpers.benchmark")
+local benchmark = require("helpers.benchmark")
 local Matrix44 = require("structs.matrix44")
 
 local function RandomMatrix()

@@ -8,20 +8,20 @@ function codec.GetLibrary(name)
 end
 
 function codec.Encode(lib, ...)
-	local data = require("goluwa.codecs." .. lib)
+	local data = require("codecs." .. lib)
 	local encode = data.encode or data.Encode
 	return encode(...)
 end
 
 function codec.Decode(lib, ...)
-	local data = require("goluwa.codecs." .. lib)
+	local data = require("codecs." .. lib)
 	local decode = data.decode or data.Decode
 	return decode(...)
 end
 
 function codec.GuessFormatFromPath(path)
 	for _, name in ipairs(fs.get_files("goluwa/codecs")) do
-		local mod = require("goluwa.codecs." .. name:sub(1, -5))
+		local mod = require("codecs." .. name:sub(1, -5))
 
 		if mod.file_extensions then
 			for _, ext in ipairs(mod.file_extensions) do
@@ -32,7 +32,7 @@ function codec.GuessFormatFromPath(path)
 end
 
 function codec.DecodeFile(path, lib)
-	local mod = lib and require("goluwa.codecs." .. lib) or codec.GuessFormatFromPath(path)
+	local mod = lib and require("codecs." .. lib) or codec.GuessFormatFromPath(path)
 	local file = assert(vfs.Open(path))
 	local file_content = file:ReadAll()
 

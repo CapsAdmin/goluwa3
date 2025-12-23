@@ -1,11 +1,39 @@
 local ffi = require("ffi")
 local vk = require("bindings.vk")
-local ffi_helpers = require("helpers.ffi_helpers")
 local vulkan = {}
 vulkan.ext = {}
 vulkan.vk = vk
 vulkan.lib = vulkan.vk.find_library()
-vulkan.T = {Box = ffi_helpers.Box, Array = ffi_helpers.Array}
+vulkan.T = {}
+
+do
+	local fixed_len_cache = {}
+	local var_len_cache = {}
+
+	local function array_type(t, len)
+		local key = tonumber(t)
+
+		if len then
+			fixed_len_cache[key] = fixed_len_cache[key] or ffi.typeof("$[" .. len .. "]", t)
+			return fixed_len_cache[key]
+		end
+
+		var_len_cache[key] = var_len_cache[key] or ffi.typeof("$[?]", t)
+		return var_len_cache[key]
+	end
+
+	function vulkan.T.Array(t, len, ctor)
+		if ctor then return array_type(t, len)(ctor) end
+
+		return array_type(t, len)
+	end
+
+	function vulkan.T.Box(t, ctor)
+		if ctor then return array_type(t, 1)({ctor}) end
+
+		return array_type(t, 1)
+	end
+end
 
 function vulkan.assert(result, msg)
 	if result ~= 0 then

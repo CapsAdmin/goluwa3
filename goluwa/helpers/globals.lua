@@ -1,5 +1,4 @@
 local system = require("system")
-local list = require("helpers.list")
 
 do
 	local pretty_prints = {}

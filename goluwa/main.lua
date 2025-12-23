@@ -3,7 +3,32 @@ local profiler = require("profiler") -- init started in global_environment.lua
 local event = require("event")
 local process = require("bindings.process")
 local fs = require("fs")
-return function()
+local vfs = require("vfs")
+
+local function normalize_path(path)
+	local wdir = vfs.GetStorageDirectory("working_directory")
+
+	if path:starts_with(wdir) then path = path:sub(#wdir + 1, #path) end
+
+	return path
+end
+
+return function(...)
+	if ... == "-e" then
+		local lua = select(2, ...)
+		assert(loadstring(lua))(select(3, ...))
+		return
+	elseif ... == "--reload" then
+		local path = select(2, ...)
+		path = normalize_path(path)
+		assert(loadfile(path))(select(3, ...))
+		return
+	else
+		local path = ...
+		path = normalize_path(path)
+		assert(loadfile(path))(select(2, ...))
+	end
+
 	require("hotreload")
 	fs.write_file(".running_pid", tostring(process.current:get_id()))
 	local last_time = 0
