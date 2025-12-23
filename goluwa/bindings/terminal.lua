@@ -1233,6 +1233,7 @@ else
 
 		if not char then return nil end
 
+		local raw_input = char -- Store raw input for debugging
 		-- Handle escape sequences
 		if char == "\27" then
 			escape_buffer = "\27"
@@ -1243,7 +1244,7 @@ else
 				if not next_char then break end
 
 				escape_buffer = escape_buffer .. next_char
-
+				raw_input = escape_buffer -- Update raw input
 				-- Check for SGR mouse sequence: \x1b[<...M or \x1b[<...m
 				if escape_buffer:match("^\27%[<[%d;]+[Mm]$") then
 					if self.mouse_enabled then
@@ -1267,6 +1268,7 @@ else
 					return {
 						key = csi_keys[key_char],
 						modifiers = modifiers,
+						raw_input = raw_input,
 					}
 				end
 
@@ -1287,6 +1289,7 @@ else
 						return {
 							key = key_map[key_code],
 							modifiers = decode_modifier(tonumber(mod_code_tilde)),
+							raw_input = raw_input,
 						}
 					end
 				end
@@ -1296,7 +1299,36 @@ else
 					return {
 						key = escape_sequences[escape_buffer],
 						modifiers = {ctrl = false, shift = false, alt = false},
+						raw_input = raw_input,
 					}
+				end
+
+				-- Check for SS3 sequences (ESC O X)
+				if escape_buffer:match("^\27O[A-Z]$") then
+					local char = escape_buffer:sub(3, 3)
+					local ss3_keys = {
+						A = "up",
+						B = "down",
+						C = "right",
+						D = "left",
+						M = "enter", -- Shift+Enter in many terminals
+					}
+
+					if ss3_keys[char] then
+						-- SS3 M is typically Shift+Enter
+						local is_shift_enter = (char == "M")
+						return {
+							key = ss3_keys[char],
+							modifiers = {
+								ctrl = false,
+								shift = is_shift_enter,
+								alt = false,
+							},
+							raw_input = raw_input,
+						}
+					end
+
+					break
 				end
 
 				-- Check if it's a tilde-terminated sequence
@@ -1304,9 +1336,6 @@ else
 
 				-- Check if it's a letter-terminated CSI sequence
 				if escape_buffer:match("^\27%[[%d;]*[A-Z]$") then break end
-
-				-- Check if it's an SS3 sequence (alt sequences)
-				if escape_buffer:match("^\27O[A-Z]$") then break end
 			end
 
 			-- Alt + key combinations (ESC followed by regular character)
@@ -1322,6 +1351,7 @@ else
 					return {
 						key = "delete",
 						modifiers = {ctrl = true, shift = false, alt = false},
+						raw_input = raw_input,
 					}
 				end
 
@@ -1330,12 +1360,14 @@ else
 					return {
 						key = "backspace",
 						modifiers = {ctrl = false, shift = false, alt = true},
+						raw_input = raw_input,
 					}
 				end
 
 				return {
 					key = key,
 					modifiers = {ctrl = false, shift = false, alt = true},
+					raw_input = raw_input,
 				}
 			end
 
@@ -1344,6 +1376,7 @@ else
 			return {
 				key = "escape",
 				modifiers = {ctrl = false, shift = false, alt = false},
+				raw_input = raw_input,
 			}
 		end
 
@@ -1355,16 +1388,19 @@ else
 			return {
 				key = "backspace",
 				modifiers = {ctrl = false, shift = false, alt = false},
+				raw_input = raw_input,
 			}
 		elseif byte == 9 then -- Tab
 			return {
 				key = "tab",
 				modifiers = {ctrl = false, shift = false, alt = false},
+				raw_input = raw_input,
 			}
 		elseif byte == 13 or byte == 10 then -- Enter
 			return {
 				key = "enter",
 				modifiers = {ctrl = false, shift = false, alt = false},
+				raw_input = raw_input,
 			}
 		end
 
@@ -1373,6 +1409,7 @@ else
 			return {
 				key = char,
 				modifiers = {ctrl = false, shift = false, alt = false},
+				raw_input = raw_input,
 			}
 		end
 
@@ -1383,12 +1420,14 @@ else
 				return {
 					key = "backspace",
 					modifiers = {ctrl = true, shift = false, alt = false},
+					raw_input = raw_input,
 				}
 			end
 
 			return {
 				key = key,
 				modifiers = {ctrl = true, shift = false, alt = false},
+				raw_input = raw_input,
 			}
 		end
 
@@ -1407,6 +1446,7 @@ else
 			return {
 				key = full_char,
 				modifiers = {ctrl = false, shift = false, alt = false},
+				raw_input = raw_input,
 			}
 		end
 
