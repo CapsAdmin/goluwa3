@@ -314,9 +314,9 @@ if false then
 		render.GetQueue():SubmitAndWait(device, cmd, fence)
 	end
 
-	function events.Update.draw_2d()
+	event.AddListener("Update", "draw_2d", function()
 		compute()
-	end
+	end)
 
 	local presentation_framebuffer
 	local presentation_pipeline

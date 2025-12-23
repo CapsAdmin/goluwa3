@@ -1,3 +1,4 @@
+local event = require("event")
 local prototype = require("prototype")
 local ecs = require("ecs")
 local render = require("render.render")
@@ -594,28 +595,28 @@ function Model.UpdateOcclusionQueryTiming()
 end
 
 -- Update timing once at the start of the frame
-function events.PreRenderPass.update_occlusion_timing(cmd)
+event.AddListener("PreRenderPass", "update_occlusion_timing", function(cmd)
 	if Model.IsOcclusionCullingEnabled() then
 		Model.UpdateOcclusionQueryTiming()
 	end
-end
+end)
 
-function events.PreRenderPass.reset_occlusion_queries(cmd)
+event.AddListener("PreRenderPass", "reset_occlusion_queries", function(cmd)
 	if Model.IsOcclusionCullingEnabled() and Model.should_run_queries_this_frame then
 		Model.ResetOcclusionQueries(cmd)
 	end
-end
+end)
 
-function events.PreDraw3D.draw_occlusion_queries(cmd, dt)
+event.AddListener("PreDraw3D", "draw_occlusion_queries", function(cmd, dt)
 	if Model.IsOcclusionCullingEnabled() and Model.should_run_queries_this_frame then
 		Model.RunOcclusionQueries(cmd)
 	end
-end
+end)
 
-function events.PostRenderPass.copy_occlusion_results(cmd)
+event.AddListener("PostRenderPass", "copy_occlusion_results", function(cmd)
 	if Model.IsOcclusionCullingEnabled() and Model.should_run_queries_this_frame then
 		Model.CopyOcclusionQueryResults(cmd)
 	end
-end
+end)
 
 return Model

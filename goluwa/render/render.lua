@@ -56,13 +56,13 @@ function render.Initialize(config)
 		render.target = target
 	end
 
-	function events.WindowFramebufferResized.window_resized(wnd, size)
+	event.AddListener("WindowFramebufferResized", "window_resized", function(wnd, size)
 		render.target.config.width = size.x
 		render.target.config.height = size.y
 		render.target:RebuildFramebuffers()
-	end
+	end)
 
-	function events.Update.window_update(dt)
+	event.AddListener("Update", "window_update", function(dt)
 		-- Wait for previous frame before starting shadow passes
 		render.target:WaitForPreviousFrame()
 		-- Shadow passes run before main frame (before swapchain acquire)
@@ -71,11 +71,11 @@ function render.Initialize(config)
 		event.Call("Draw", render.GetCommandBuffer(), dt)
 		event.Call("PostDraw", render.GetCommandBuffer(), dt)
 		render.EndFrame()
-	end
+	end)
 
-	function events.ShutDown.window_shutdown()
+	event.AddListener("ShutDown", "window_shutdown", function()
 		vulkan_instance.device:WaitIdle()
-	end
+	end)
 end
 
 function render.BeginFrame()

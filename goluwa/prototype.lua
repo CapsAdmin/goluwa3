@@ -296,7 +296,7 @@ do
 	prototype.linked_objects = prototype.linked_objects or {}
 
 	function prototype.AddPropertyLink(...)
-		function events.Update.update_object_properties()
+		event.AddListener("Update", "update_object_properties", function()
 			for i, data in ipairs(prototype.linked_objects) do
 				if type(data.args[1]) == "table" and type(data.args[2]) == "table" then
 					local obj_a = data.args[1]
@@ -377,7 +377,7 @@ do
 					end
 				end
 			end
-		end
+		end)
 
 		list.insert(prototype.linked_objects, {store = table.weak(), args = {...}})
 	end
@@ -914,7 +914,7 @@ do -- base object
 			if self.OnRemove then self:OnRemove(...) end
 
 			if not event_added and _G.event then
-				function events.Update.prototype_remove_objects()
+				event.AddListener("Update", "prototype_remove_objects", function()
 					if #prototype.remove_these > 0 then
 						for _, obj in ipairs(prototype.remove_these) do
 							prototype.created_objects[obj] = nil
@@ -923,7 +923,7 @@ do -- base object
 
 						list.clear(prototype.remove_these)
 					end
-				end
+				end)
 
 				event_added = true
 			end

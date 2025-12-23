@@ -642,14 +642,14 @@ function render2d.BindPipeline()
 	render2d.last_bound_mesh = nil
 end
 
-function events.PostDraw.draw_2d(cmd, dt)
+event.AddListener("PostDraw", "draw_2d", function(cmd, dt)
 	if not render2d.pipeline then return end -- not 2d initialized
 	render2d.BindPipeline()
 	event.Call("Draw2D", dt)
-end
+end)
 
-function events.WindowFramebufferResized.render2d(wnd, size)
+event.AddListener("WindowFramebufferResized", "render2d", function(wnd, size)
 	render2d.UpdateScreenSize(size)
-end
+end)
 
 return render2d

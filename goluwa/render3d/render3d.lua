@@ -519,7 +519,7 @@ function render3d.Initialize()
 		render3d.pipeline:Bind(cmd, frame_index)
 	end
 
-	function events.Draw.draw_3d(cmd, dt)
+	event.AddListener("Draw", "draw_3d", function(cmd, dt)
 		if not render3d.pipeline then return end
 
 		Light.UpdateUBOs(render3d.pipeline)
@@ -527,7 +527,7 @@ function render3d.Initialize()
 		render3d.BindPipeline()
 		event.Call("PreDraw3D", cmd, dt)
 		event.Call("Draw3D", cmd, dt)
-	end
+	end)
 
 	event.Call("Render3DInitialized")
 end
@@ -632,9 +632,9 @@ do
 	end
 end
 
-function events.WindowFramebufferResized.render3d(wnd, size)
+event.AddListener("WindowFramebufferResized", "render3d", function(wnd, size)
 	render3d.camera:SetViewport(Rect(0, 0, size.x, size.y))
-end
+end)
 
 function render3d.SetMaterial(mat)
 	render3d.current_material = mat

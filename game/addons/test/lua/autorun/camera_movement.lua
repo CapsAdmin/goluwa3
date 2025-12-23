@@ -26,16 +26,16 @@ do
 	local Polygon3D = require("render3d.polygon_3d")
 	local Material = require("render3d.material")
 
-	function events.KeyInput.camera_movement(key, down)
+	event.AddListener("KeyInput", "camera_movement", function(key, down)
 		if key == "o" and down then
 			render3d.GetCamera():SetOrthoMode(not render3d.GetCamera():GetOrthoMode())
 		end
-	end
+	end)
 end
 
 -- Use quaternion for rotation to avoid gimbal lock
 local pitch = 0 -- Track pitch angle for clamping
-function events.Update.camera_movement(dt)
+event.AddListener("Update", "camera_movement", function(dt)
 	local cam = render3d.GetCamera()
 	local rotation = cam:GetRotation()
 	local position = cam:GetPosition()
@@ -128,4 +128,4 @@ function events.Update.camera_movement(dt)
 	cam:SetFOV(cam_fov)
 	cam:SetPosition(position)
 	cam:SetRotation(rotation)
-end
+end)
