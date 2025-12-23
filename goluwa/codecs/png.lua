@@ -690,7 +690,7 @@ end
 ---@param width number
 ---@param height number
 ---@param colorMode string One of "rgb" or "rgba"
-function Png.Encode(width, height, colorMode)
+function png.Encode(width, height, colorMode)
 	return begin(width, height, colorMode)
 end
 
