@@ -22,7 +22,8 @@ return function(...)
 		local path = select(2, ...)
 		path = normalize_path(path)
 		assert(loadfile(path))(select(3, ...))
-		return
+
+		if not path:starts_with("test/") then return end
 	else
 		local path = ...
 		path = normalize_path(path)

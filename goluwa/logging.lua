@@ -1,4 +1,5 @@
 local fs = require("bindings.filesystem")
+local repl = require("repl")
 local event
 local list_concat = table.concat
 local select = select
@@ -56,7 +57,7 @@ do
 		logfile.GetOutputFile():write(str)
 
 		if logfile.files.console == logfile.GetOutputFile() and can_print(str) then
-			if repl and repl.started and repl.StyledWrite then
+			if repl.started and repl.StyledWrite then
 				repl.StyledWrite(str)
 			else
 				io.write(str)

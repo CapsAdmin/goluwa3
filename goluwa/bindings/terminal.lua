@@ -1,3 +1,4 @@
+local setmetatable = require("helpers.setmetatable_gc")
 local ffi = require("ffi")
 local terminal = {}
 local meta = {}
@@ -54,9 +55,9 @@ function meta:PopAttribute()
 
 	-- Remove the top attribute
 	table.remove(self.attribute_stack)
-
 	-- Reset everything and reapply all remaining attributes
 	self:NoAttributes()
+
 	for _, attr in ipairs(self.attribute_stack) do
 		if attr.type == "fg" then
 			self:ForegroundColor(attr.r, attr.g, attr.b)
@@ -161,13 +162,14 @@ function meta:EnableMouse(b)
 		-- Disable mouse tracking
 		self:Write("\27[?1006l\27[?1000l") -- Disable SGR mode + mouse reporting
 	end
+
 	self.mouse_enabled = b
 end
 
 do
-	local function read_coordinates()
+	local function read_coordinates(self)
 		while true do
-			local str = terminal.Read()
+			local str = self:Read()
 
 			if str then
 				local a, b = str:match("^\27%[(%d+);(%d+)R$")
@@ -181,7 +183,7 @@ do
 
 	function meta:GetCaretPosition()
 		self:Write("\x1b[6n")
-		local y, x = read_coordinates()
+		local y, x = read_coordinates(self)
 
 		if y then _x, _y = x, y end
 
@@ -378,6 +380,7 @@ if jit.os == "Windows" then
 		local flags = ffi.new("uint16_t[1]")
 
 		if ffi.C.GetConsoleMode(ptr, flags) == 0 then throw_error() end
+
 		local old_flags = tonumber(flags[0])
 		flags[0] = table_to_flags(tbl, mode_flags, function(out, val)
 			return bit.bor(out, val)
@@ -394,11 +397,9 @@ if jit.os == "Windows" then
 		-- Set console to UTF-8 (code page 65001)
 		ffi.C.SetConsoleOutputCP(65001)
 		ffi.C.SetConsoleCP(65001)
-
 		local old_flags_input = add_flags(STD_INPUT_HANDLE, {
 			"ENABLE_INSERT_MODE",
 		}, mode_flags)
-
 		local old_flags_output = add_flags(
 			STD_OUTPUT_HANDLE,
 			{
@@ -677,7 +678,6 @@ if jit.os == "Windows" then
 		FROM_LEFT_3RD_BUTTON_PRESSED = 0x0008,
 		FROM_LEFT_4TH_BUTTON_PRESSED = 0x0010,
 	}
-
 	local mouse_event_flags = {
 		MOUSE_MOVED = 0x0001,
 		DOUBLE_CLICK = 0x0002,
@@ -778,7 +778,6 @@ if jit.os == "Windows" then
 						local button_state = mouse_evt.dwButtonState
 						local event_flags = mouse_evt.dwEventFlags
 						local control_state = mouse_evt.dwControlKeyState
-
 						-- Parse modifiers
 						local mod = flags_to_table(control_state, modifiers)
 						local ctrl = mod.LEFT_CTRL_PRESSED or mod.RIGHT_CTRL_PRESSED
@@ -786,9 +785,7 @@ if jit.os == "Windows" then
 						local alt = mod.LEFT_ALT_PRESSED or mod.RIGHT_ALT_PRESSED
 
 						-- Track previous button state for press/release detection
-						if not self.last_button_state then
-							self.last_button_state = 0
-						end
+						if not self.last_button_state then self.last_button_state = 0 end
 
 						local event = nil
 
@@ -826,13 +823,19 @@ if jit.os == "Windows" then
 								-- Check which button changed
 								if bit.band(changed, mouse_buttons.FROM_LEFT_1ST_BUTTON_PRESSED) ~= 0 then
 									button_name = "left"
-									action = bit.band(button_state, mouse_buttons.FROM_LEFT_1ST_BUTTON_PRESSED) ~= 0 and "pressed" or "released"
+									action = bit.band(button_state, mouse_buttons.FROM_LEFT_1ST_BUTTON_PRESSED) ~= 0 and
+										"pressed" or
+										"released"
 								elseif bit.band(changed, mouse_buttons.RIGHTMOST_BUTTON_PRESSED) ~= 0 then
 									button_name = "right"
-									action = bit.band(button_state, mouse_buttons.RIGHTMOST_BUTTON_PRESSED) ~= 0 and "pressed" or "released"
+									action = bit.band(button_state, mouse_buttons.RIGHTMOST_BUTTON_PRESSED) ~= 0 and
+										"pressed" or
+										"released"
 								elseif bit.band(changed, mouse_buttons.FROM_LEFT_2ND_BUTTON_PRESSED) ~= 0 then
 									button_name = "middle"
-									action = bit.band(button_state, mouse_buttons.FROM_LEFT_2ND_BUTTON_PRESSED) ~= 0 and "pressed" or "released"
+									action = bit.band(button_state, mouse_buttons.FROM_LEFT_2ND_BUTTON_PRESSED) ~= 0 and
+										"pressed" or
+										"released"
 								end
 
 								if button_name then
@@ -850,9 +853,7 @@ if jit.os == "Windows" then
 
 						self.last_button_state = button_state
 
-						if event then
-							table.insert(self.event_queue, event)
-						end
+						if event then table.insert(self.event_queue, event) end
 					end
 				end
 			end
@@ -1085,7 +1086,6 @@ else
 
 	-- Mouse tracking state for Unix
 	local last_mouse_buttons = {}
-
 	-- Escape sequence parser for macOS
 	local escape_buffer = ""
 	local escape_sequences = {
@@ -1169,18 +1169,18 @@ else
 	-- Parse SGR (1006) mouse format: \x1b[<button;x;y[Mm]
 	local function parse_sgr_mouse(seq)
 		local button_code, x, y, action_char = seq:match("^\27%[<(%d+);(%d+);(%d+)([Mm])$")
+
 		if not button_code then return nil end
 
 		button_code = tonumber(button_code)
 		x = tonumber(x)
 		y = tonumber(y)
-
 		-- Check for motion bit (0x20 = 32)
 		local has_motion = bit.band(button_code, 0x20) ~= 0
-
 		-- Parse button
 		local button_base = bit.band(button_code, 0x03)
 		local button_name
+
 		if bit.band(button_code, 0x40) ~= 0 then
 			-- Wheel event
 			button_name = (button_base == 0) and "wheel_up" or "wheel_down"
@@ -1198,15 +1198,21 @@ else
 		local shift = bit.band(button_code, 0x04) ~= 0
 		local alt = bit.band(button_code, 0x08) ~= 0
 		local ctrl = bit.band(button_code, 0x10) ~= 0
-
 		-- Parse action
 		local action
+
 		if has_motion then
 			-- Motion bit is set - this is a drag/move event
 			action = "moved"
 		elseif action_char == "M" then
 			-- 'M' without motion bit = pressed
-			action = (button_name == "wheel_up" or button_name == "wheel_down") and "pressed" or "pressed"
+			action = (
+					button_name == "wheel_up" or
+					button_name == "wheel_down"
+				)
+				and
+				"pressed" or
+				"pressed"
 		else
 			-- 'm' = released
 			action = "released"
@@ -1242,12 +1248,13 @@ else
 				if escape_buffer:match("^\27%[<[%d;]+[Mm]$") then
 					if self.mouse_enabled then
 						local mouse_event = parse_sgr_mouse(escape_buffer)
-						if mouse_event then
-							return mouse_event
-						end
+
+						if mouse_event then return mouse_event end
 					end
+
 					break
 				end
+
 				-- Check for CSI sequence with modifiers: \x1b[1;MODkey or \x1b[MODkey
 				local mod_code, key_char = escape_buffer:match("^\27%[1;(%d+)([A-Z])$")
 
@@ -1261,6 +1268,27 @@ else
 						key = csi_keys[key_char],
 						modifiers = modifiers,
 					}
+				end
+
+				-- Check for tilde-terminated sequence with modifiers: \x1b[KEY;MOD~
+				local key_code, mod_code_tilde = escape_buffer:match("^\27%[(%d+);(%d+)~$")
+
+				if key_code and mod_code_tilde then
+					local key_map = {
+						["3"] = "delete",
+						["2"] = "insert",
+						["5"] = "pageup",
+						["6"] = "pagedown",
+						["1"] = "home",
+						["4"] = "end",
+					}
+
+					if key_map[key_code] then
+						return {
+							key = key_map[key_code],
+							modifiers = decode_modifier(tonumber(mod_code_tilde)),
+						}
+					end
 				end
 
 				-- Check for complete escape sequence
@@ -1287,8 +1315,26 @@ else
 				escape_buffer:byte(2) >= 32 and
 				escape_buffer:byte(2) <= 126
 			then
+				local key = escape_buffer:sub(2, 2)
+
+				-- Special case: Alt+d is often sent by Ctrl+Delete
+				if key == "d" then
+					return {
+						key = "delete",
+						modifiers = {ctrl = true, shift = false, alt = false},
+					}
+				end
+
+				-- Special case: Alt+Backspace/Alt+DEL
+				if key:byte() == 127 or key:byte() == 8 then
+					return {
+						key = "backspace",
+						modifiers = {ctrl = false, shift = false, alt = true},
+					}
+				end
+
 				return {
-					key = escape_buffer:sub(2, 2),
+					key = key,
 					modifiers = {ctrl = false, shift = false, alt = true},
 				}
 			end
@@ -1332,6 +1378,14 @@ else
 
 		if byte >= 1 and byte <= 26 then
 			local key = string.char(byte + 96) -- Convert to lowercase letter
+			-- Special case: Ctrl+w is often sent by Ctrl+Backspace
+			if key == "w" then
+				return {
+					key = "backspace",
+					modifiers = {ctrl = true, shift = false, alt = false},
+				}
+			end
+
 			return {
 				key = key,
 				modifiers = {ctrl = true, shift = false, alt = false},
@@ -1378,7 +1432,7 @@ function meta:GetTerminalType()
 		-- Unix-like systems (macOS, Linux, BSD, etc.)
 		local term_program = os.getenv("TERM_PROGRAM")
 		local term = os.getenv("TERM")
-		
+
 		if term_program == "iTerm.app" then
 			return "iterm2"
 		elseif term_program == "Apple_Terminal" then
@@ -1401,69 +1455,74 @@ end
 
 -- Base64 encoding helper
 local function base64_encode(data)
-	local b = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
-	return ((data:gsub('.', function(x) 
-		local r, b = '', x:byte()
-		for i = 8, 1, -1 do
-			r = r .. (b % 2^i - b % 2^(i-1) > 0 and '1' or '0')
-		end
-		return r
-	end) .. '0000'):gsub('%d%d%d?%d?%d?%d?', function(x)
-		if #x < 6 then return '' end
-		local c = 0
-		for i = 1, 6 do
-			c = c + (x:sub(i, i) == '1' and 2^(6-i) or 0)
-		end
-		return b:sub(c+1, c+1)
-	end) .. ({ '', '==', '=' })[#data % 3 + 1])
+	local b = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+	return (
+			(
+				data:gsub(".", function(x)
+					local r, b = "", x:byte()
+
+					for i = 8, 1, -1 do
+						r = r .. (b % 2 ^ i - b % 2 ^ (i - 1) > 0 and "1" or "0")
+					end
+
+					return r
+				end) .. "0000"
+			):gsub("%d%d%d?%d?%d?%d?", function(x)
+				if #x < 6 then return "" end
+
+				local c = 0
+
+				for i = 1, 6 do
+					c = c + (x:sub(i, i) == "1" and 2 ^ (6 - i) or 0)
+				end
+
+				return b:sub(c + 1, c + 1)
+			end) .. (
+				{"", "==", "="}
+			)[#data % 3 + 1]
+		)
 end
 
 -- Write image to terminal
 function meta:WriteImage(image_data, options)
 	options = options or {}
 	local terminal_type = self:GetTerminalType()
-	
+
 	if terminal_type == "iterm2" or terminal_type == "wezterm" then
 		-- iTerm2 inline images protocol
 		local b64 = base64_encode(image_data)
 		local opts = "inline=1"
-		
+
 		if options.width then
 			opts = opts .. ";width=" .. tostring(options.width)
 		end
+
 		if options.height then
 			opts = opts .. ";height=" .. tostring(options.height)
 		end
+
 		if options.preserveAspectRatio ~= nil then
 			opts = opts .. ";preserveAspectRatio=" .. (options.preserveAspectRatio and "1" or "0")
 		end
-		
+
 		self:Write(string.format("\27]1337;File=%s:%s\7", opts, b64))
-		
 	elseif terminal_type == "kitty" or terminal_type == "konsole" then
 		-- Kitty graphics protocol
 		local b64 = base64_encode(image_data)
 		local cmd = "a=T,f=100" -- action=transmit, format=png
-		
-		if options.width then
-			cmd = cmd .. ",c=" .. tostring(options.width)
-		end
-		if options.height then
-			cmd = cmd .. ",r=" .. tostring(options.height)
-		end
-		
+		if options.width then cmd = cmd .. ",c=" .. tostring(options.width) end
+
+		if options.height then cmd = cmd .. ",r=" .. tostring(options.height) end
+
 		-- For large images, we should chunk, but for now keep it simple
 		self:Write(string.format("\27_G%s;%s\27\\", cmd, b64))
-		
 	elseif terminal_type == "windows-terminal" or terminal_type == "mintty" then
 		-- Sixel graphics (not implemented yet)
 		error("Sixel graphics not yet implemented for " .. terminal_type)
-		
 	elseif terminal_type == "conemu" then
 		-- ConEmu inline images
 		local b64 = base64_encode(image_data)
 		self:Write(string.format("\27]9;4;st=0;sz=%d;%s\27\\", #image_data, b64))
-		
 	else
 		error("Terminal type '" .. terminal_type .. "' does not support image display")
 	end

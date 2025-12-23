@@ -1,3 +1,4 @@
+local repl = require("repl")
 return function(vfs)
 	function vfs.CopyRecursively(from, to)
 		assert(vfs.CreateDirectory(to))
