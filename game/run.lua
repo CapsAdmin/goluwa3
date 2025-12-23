@@ -18,7 +18,7 @@ _G.runfile = function(...)
 end
 _G.R = vfs.GetAbsolutePath
 render.Initialize()
-render2d.render2dialize()
+render2d.Initialize()
 render3d.Initialize()
 gfx.Initialize()
 

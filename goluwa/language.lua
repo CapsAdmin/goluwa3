@@ -1,5 +1,9 @@
-local language = _G.language or {}
-language.known_strings = language.known_strings or {}
+local vfs = require("vfs")
+local codec = require("goluwa.codec")
+local resource = require("goluwa.resource")
+local pvars = require("goluwa.pvars")
+local language = {}
+language.known_strings = {}
 language.current_translation = {}
 
 do

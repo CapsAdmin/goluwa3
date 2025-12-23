@@ -94,7 +94,7 @@ render2d.blend_modes = {
 	},
 }
 
-function render2d.render2dialize()
+function render2d.Initialize()
 	if render2d.pipeline then return end
 
 	local dynamic_states = {"viewport", "scissor", "blend_constants"}
@@ -106,12 +106,7 @@ function render2d.render2dialize()
 
 	render2d.pipeline_data.dynamic_states = dynamic_states
 	render2d.pipeline = render.CreateGraphicsPipeline(render2d.pipeline_data)
-	render2d.SetTexture()
-	render2d.SetColor(1, 1, 1, 1)
-	render2d.SetAlphaMultiplier(1)
-	render2d.SetUV()
-	render2d.UpdateScreenSize(render.GetRenderImageSize())
-	render2d.current_blend_mode = "alpha"
+	render2d.ResetState()
 	render2d.rect_mesh = render2d.CreateMesh(
 		{
 			{pos = Vec3(0, 1, 0), uv = Vec2(0, 0), color = Color(1, 1, 1, 1)},
@@ -128,6 +123,15 @@ function render2d.render2dialize()
 			{pos = Vec3(-0.5, 0.5, 0), uv = Vec2(0, 1), color = Color(1, 1, 1, 1)},
 		}
 	)
+end
+
+function render2d.ResetState()
+	render2d.SetTexture()
+	render2d.SetColor(1, 1, 1, 1)
+	render2d.SetAlphaMultiplier(1)
+	render2d.SetUV()
+	render2d.UpdateScreenSize(render.GetRenderImageSize())
+	render2d.SetBlendMode("alpha", true)
 end
 
 do

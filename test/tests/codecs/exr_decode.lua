@@ -13,23 +13,14 @@ local fs = require("fs")
 local Vec2 = require("structs.vec2")
 local Vec3 = require("structs.vec3")
 local Color = require("structs.color")
+local test2d = require("test.test2d")
 local Texture = require("render.texture")
 local width = 512
 local height = 512
 local initialized = false
 
--- Helper function to draw with render2d
-local function draw2d(cb)
-	render.Initialize({headless = true, width = width, height = height})
-	render2d.render2dialize()
-	render.BeginFrame()
-	render2d.BindPipeline()
-	cb()
-	render.EndFrame()
-end
-
 T.Pending("Decode EXR Texture", function()
-	draw2d(function()
+	test2d.draw(function()
 		local path = "/home/caps/projects/RTXDI-Assets/environment/adams_place_bridge_4k.exr"
 		local tex = Texture.New({
 			path = path,

@@ -23,9 +23,7 @@ return function(steam)
 		on_error = on_error or logn
 		local main_cb = callback.Create()
 		main_cb.warn_unhandled = false
-		local res = resource.Download(path, nil, true)
-
-		res:Then(function(resolved_path)
+		local res = resource.Download(path, nil, true):Then(function(resolved_path)
 			if resolved_path:ends_with(".vtf") then
 				on_property("basetexture", resolved_path, resolved_path, {})
 				-- default normal map?
@@ -156,7 +154,6 @@ return function(steam)
 			on_error("material " .. path .. " not found: " .. reason)
 			main_cb:Reject(reason)
 		end)
-
 		return main_cb
 	end
 end

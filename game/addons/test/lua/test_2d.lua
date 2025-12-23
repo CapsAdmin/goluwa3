@@ -173,6 +173,8 @@ if false then
 			mesh:DrawIndexed(render2d.cmd, index_count)
 			render2d.PopMatrix()
 		end
+
+		T(render2d.GetBlendMode())["=="]("alpha")
 	end
 end
 

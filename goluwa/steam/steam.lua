@@ -6,7 +6,7 @@ local steam = {}
 steam.source2meters = 0.01905
 require("steam.mount")(steam)
 require("steam.vmt")(steam)
-require("steam.vdf")(steam)
+steam.VDFToTable = require("codecs.vdf").Decode
 
 function steam.DownloadWorkshop(id, callback, on_error, last_modified)
 	if not tonumber(id) then id = id:match("id=(%d+)") end
