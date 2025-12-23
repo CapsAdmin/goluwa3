@@ -21,7 +21,7 @@ return function(...)
 	elseif ... == "--reload" then
 		local path = select(2, ...)
 		path = normalize_path(path)
-		--assert(loadfile(path))(select(3, ...))
+		assert(loadfile(path))(select(3, ...))
 		return
 	else
 		local path = ...
