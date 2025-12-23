@@ -1,7 +1,7 @@
 local callback = require("callback")
 local sockets = require("sockets.sockets")
 local event = require("event")
-local http = {}
+local http = library()
 
 do
 	local start = callback.WrapKeyedTask(function(self, url)

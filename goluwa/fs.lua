@@ -1,5 +1,4 @@
 local fs = require("bindings.filesystem")
-local utility = require("utility")
 
 function fs.write_file(path, data)
 	local file, err = io.open(path, "wb")
@@ -134,7 +133,7 @@ end
 do
 	fs.SetWorkingDirectory = fs.set_current_directory
 	fs.GetWorkingDirectory = fs.get_current_directory
-	utility.MakePushPopFunction(fs, "WorkingDirectory")
+	require("utility").MakePushPopFunction(fs, "WorkingDirectory")
 end
 
 fs.GetAttributes = fs.get_attributes

@@ -2,9 +2,9 @@ local vfs = require("vfs")
 local codec = require("codec")
 local resource = require("resource")
 local pvars = require("pvars")
-local language = {}
-language.known_strings = {}
-language.current_translation = {}
+local language = library()
+language.known_strings = language.known_strings or {}
+language.current_translation = language.current_translation or {}
 
 do
 	local available = vfs.Find("languages/")

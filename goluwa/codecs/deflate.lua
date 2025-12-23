@@ -1,6 +1,6 @@
 local DEBUG = false
 local debug_counter = 0
-local M = {}
+local deflate = library()
 local Buffer = require("structs.buffer")
 local ffi = require("ffi")
 local assert = assert
@@ -528,7 +528,7 @@ local function parse_block(buf, outstate)
 	return bfinal ~= 0
 end
 
-function M.inflate(t)
+function deflate.inflate(t)
 	local inbuf = get_input_buffer(t.input)
 	local outbuf = get_output_buffer(t.output)
 	local outstate = make_outstate(outbuf)
@@ -553,9 +553,9 @@ function M.inflate(t)
 	return outbuf
 end
 
-local inflate = M.inflate
+local inflate = deflate.inflate
 
-function M.gunzip(t)
+function deflate.gunzip(t)
 	local inbuf = get_input_buffer(t.input)
 	local outbuf = get_output_buffer(t.output)
 	local disable_crc = t.disable_crc
@@ -600,7 +600,7 @@ function M.gunzip(t)
 	return outbuf
 end
 
-function M.adler32(byte, crc)
+function deflate.adler32(byte, crc)
 	local s1 = crc % 65536
 	local s2 = (crc - s1) / 65536
 	s1 = (s1 + byte) % 65521
@@ -609,7 +609,7 @@ function M.adler32(byte, crc)
 	return s2 * 65536 + s1
 end
 
-function M.inflate_zlib(t)
+function deflate.inflate_zlib(t)
 	local inbuf = get_input_buffer(t.input)
 	local outbuf = get_output_buffer(t.output)
 	local disable_crc = t.disable_crc
@@ -630,7 +630,7 @@ function M.inflate_zlib(t)
 
 		while not crc_outbuf:TheEnd() do
 			local byte = crc_outbuf:ReadByte()
-			data_adler32 = M.adler32(byte, data_adler32)
+			data_adler32 = deflate.adler32(byte, data_adler32)
 			outbuf:WriteByte(byte)
 		end
 	end
@@ -656,7 +656,7 @@ function M.inflate_zlib(t)
 	return outbuf
 end
 
-function M.Decode(str)
+function deflate.Decode(str)
 	local out = {}
 	local i = 1
 	gz.gunzip(
@@ -672,4 +672,4 @@ function M.Decode(str)
 	return list.concat(out)
 end
 
-return M
+return deflate

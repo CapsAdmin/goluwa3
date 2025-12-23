@@ -29,7 +29,7 @@ local FragmentConstants = ffi.typeof([[
 ]])
 local vertex_constants = VertexConstants()
 local fragment_constants = FragmentConstants()
-local render2d = {}
+local render2d = library()
 -- Blend mode presets
 render2d.blend_modes = {
 	alpha = {

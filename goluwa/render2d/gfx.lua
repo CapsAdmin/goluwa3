@@ -3,7 +3,7 @@ local Rect = require("structs.rect")
 local Texture = require("render.texture")
 local Polygon2D = require("render2d.polygon_2d")
 local font = require("render2d.bitmap_font")
-local gfx = {}
+local gfx = library()
 
 function gfx.Initialize()
 	-- Create a 1x1 white texture for use as a default

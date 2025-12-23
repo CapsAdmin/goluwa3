@@ -54,5 +54,4 @@ function META.New(delimiter, tree)
 	return self
 end
 
-META:Register()
-return META
+return META:Register()

@@ -26,6 +26,19 @@ end
 
 package.path = package.path .. ";" .. "goluwa/?.lua"
 require("helpers.jit_options").SetOptimized()
+
+do
+	_G.registered_libs = _G.registered_libs or {}
+
+	function _G.library()
+		local key = debug.getinfo(2).source
+
+		if not _G.registered_libs[key] then _G.registered_libs[key] = {} end
+
+		return _G.registered_libs[key]
+	end
+end
+
 _G.list = require("helpers.list")
 
 if _G.PROFILE then require("profiler").Start("init") end

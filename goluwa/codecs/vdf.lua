@@ -1,4 +1,5 @@
-local vdf = {}
+local Vec3 = require("structs.vec3")
+local vdf = library()
 
 local function replace(start, stop, def)
 	local os = def:match("%$(.+)")

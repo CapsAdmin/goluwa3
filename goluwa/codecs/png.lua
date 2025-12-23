@@ -3,6 +3,8 @@ local ffi = require("ffi")
 local bit_band = require("bit").band
 local Buffer = require("structs.buffer")
 local deflate = require("codecs.deflate")
+local png = library()
+png.file_extensions = {"png"}
 
 local function getDataIHDR(buffer, length)
 	return {
@@ -310,7 +312,7 @@ local function png_to_vulkan_format(colorType, bitDepth)
 	end
 end
 
-local function decode_png(inputBuffer)
+function png.DecodeBuffer(inputBuffer)
 	if inputBuffer:ReadBytes(8) ~= "\137\080\078\071\013\010\026\010" then
 		error("Not a png")
 	end
@@ -688,12 +690,8 @@ end
 ---@param width number
 ---@param height number
 ---@param colorMode string One of "rgb" or "rgba"
-function Png.new(width, height, colorMode)
+function Png.Encode(width, height, colorMode)
 	return begin(width, height, colorMode)
 end
 
-local png = {}
-png.DecodeBuffer = decode_png
-png.Encode = Png.new
-png.file_extensions = {"png"}
 return png

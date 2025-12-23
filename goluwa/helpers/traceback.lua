@@ -1,7 +1,7 @@
 local utility = require("utility")
 local tostringx = require("helpers.tostring_object").tostring_object
 local logfile = require("logging")
-local traceback = {}
+local traceback = library()
 -- this should be used for xpcall
 local suppress = false
 

@@ -4,7 +4,7 @@ local system = require("system")
 local timer = require("timer")
 local profile_stop, profile_report
 local trace_tracker
-local profiler = {}
+local profiler = library()
 local f
 
 local function save_progress()

@@ -1,6 +1,6 @@
 local prototype = require("prototype")
 local timer = require("timer")
-local sockets = {}
+local sockets = library()
 require("sockets.http")(sockets)
 require("sockets.tcp_client")(sockets)
 require("sockets.tcp_server")(sockets)

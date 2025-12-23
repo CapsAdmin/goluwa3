@@ -2,6 +2,8 @@ local ffi = require("ffi")
 local bit = require("bit")
 local Buffer = require("structs.buffer")
 local deflate = require("codecs.deflate")
+local exr = library()
+exr.file_extensions = {"exr"}
 
 local function half_to_float(h)
 	local s = bit.band(bit.rshift(h, 15), 0x00000001)
@@ -89,7 +91,7 @@ local function reorder(data, size)
 	ffi.copy(data, reorder_tmp, size)
 end
 
-local function exrImage(inputBuffer)
+function exr.DecodeBuffer(inputBuffer)
 	if inputBuffer:ReadU32LE() ~= 0x01312f76 then error("Not an EXR file") end
 
 	local version_field = inputBuffer:ReadU32LE()
@@ -300,7 +302,4 @@ local function exrImage(inputBuffer)
 	}
 end
 
-local exr = {}
-exr.DecodeBuffer = exrImage
-exr.file_extensions = {"exr"}
 return exr

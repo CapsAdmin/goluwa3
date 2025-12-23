@@ -5,6 +5,7 @@ local type State = {
 	expand_metatables = boolean,
 	done = Map<|any, string | nil | true|>,
 }]]
+local lib = library()
 
 local function escape_string(str--[[#: string]], quote--[[#: string]])
 	local new_str = {}
@@ -240,30 +241,29 @@ local function tostring_object(obj--[[#: any]], state--[[#: nil | Partial<|State
 end
 
 --[[#local type print = function=(any)>()]]
-return {
-	tostring_object = tostring_object,
-	tostring_args = function(...)
-		local copy = list.pack(...)
+lib.tostring_object = tostring_object
+lib.tostring_args = function(...)
+	local copy = list.pack(...)
 
-		for i = 1, copy.n do
-			copy[i] = tostring_object(copy[i])
-		end
+	for i = 1, copy.n do
+		copy[i] = tostring_object(copy[i])
+	end
 
-		return copy
-	end,
-	dump_object = function(
-		tbl--[[#: Table]],
-		max_depth--[[#: 1 .. inf | nil]],
-		expand_metatables--[[#: boolean | nil]]
-	)
-		print(
-			tostring_object(
-				tbl,
-				{
-					max_depth = max_depth,
-					expand_metatables = expand_metatables,
-				}
-			)
+	return copy
+end
+lib.dump_object = function(
+	tbl--[[#: Table]],
+	max_depth--[[#: 1 .. inf | nil]],
+	expand_metatables--[[#: boolean | nil]]
+)
+	print(
+		tostring_object(
+			tbl,
+			{
+				max_depth = max_depth,
+				expand_metatables = expand_metatables,
+			}
 		)
-	end,
-}
+	)
+end
+return lib

@@ -1,6 +1,6 @@
-local callback = _G.callback or {}
 local timer = require("timer")
 local tasks = require("tasks")
+local callback = library()
 
 do
 	local meta = {}

@@ -3,7 +3,8 @@
 ]]
 --  XML Parser
 -- A simple XML parser that converts XML documents into Lua tables
-local xml = {}
+local xml = library()
+xml.file_extensions = {"xml"}
 local ffi = require("ffi")
 local cast = ffi.cast
 local uint8_ptr_t = ffi.typeof("const uint8_t*")
@@ -151,7 +152,7 @@ end
 --   children: array of parsed elements
 --   entities: document entities
 --   tentities: (reserved)
-function xml.parse(s)
+function xml.Decode(s)
 	local entities, tentities = {n = 0}, nil
 	local t, l = {n = 0}, {n = 0}
 	local pos = 1
@@ -301,8 +302,6 @@ function xml.parse(s)
 	return {children = t, entities = entities, tentities = tentities}
 end
 
-xml.decode = xml.parse
-
 -- Parse an XML file
 -- Returns parsed document table and nil on success
 -- Returns nil and error message on failure
@@ -345,6 +344,4 @@ if PROFILE then
 	end
 end
 
-xml.Decode = xml.parse
-xml.file_extensions = {"xml"}
 return xml

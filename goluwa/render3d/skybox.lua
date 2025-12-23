@@ -4,7 +4,16 @@ local orientation = require("render3d.orientation")
 local Matrix44 = require("structs.matrix44")
 local render = require("render.render")
 local render3d = require("render3d.render3d")
-local skybox = {}
+local skybox = library()
+setmetatable(
+	skybox,
+	{
+		__newindex = function(s, k, v)
+			print(s, k, v)
+			rawset(s, k, v)
+		end,
+	}
+)
 
 function skybox.Initialize()
 	if skybox.pipeline then return end
@@ -175,7 +184,9 @@ function skybox.Draw()
 	cmd:Draw(3, 1, 0, 0)
 end
 
-event.AddListener("DrawSkybox", "skybox", skybox.Draw)
+event.AddListener("DrawSkybox", "skybox", function()
+	skybox.Draw()
+end)
 
 function skybox.SetTexture(texture)
 	skybox.texture = texture

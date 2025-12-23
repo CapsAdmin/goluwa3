@@ -1,4 +1,4 @@
-local utf8 = {}
+local utf8 = library()
 
 function utf8.mid_split(str)
 	local half = math.round(str:utf8_length() / 2 + 1)

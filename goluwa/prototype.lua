@@ -1,7 +1,7 @@
 local event = require("event")
 local system = require("system")
 local traceback = require("helpers.traceback")
-local prototype = _G.prototype or {}
+local prototype = library()
 prototype.registered = prototype.registered or {}
 prototype.prepared_metatables = prototype.prepared_metatables or {}
 local template_functions = {
@@ -109,7 +109,7 @@ do
 			end
 		end
 
-		return super_type, sub_type
+		return meta
 	end
 end
 

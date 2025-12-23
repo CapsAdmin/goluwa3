@@ -16,7 +16,7 @@ local Polygon3D = require("render3d.polygon_3d")
 require("components.transform")
 require("components.model")
 local AABB = require("structs.aabb")
-local gltf = {}
+local gltf = library()
 gltf.debug_white_textures = false
 gltf.debug_print_nodes = false
 local COMPONENT_TYPE = {

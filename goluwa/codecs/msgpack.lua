@@ -1,6 +1,7 @@
 local ffi = require("ffi")
 local bit = require("bit")
 local math = require("math")
+local msgpack = library()
 local IS_LUAFFI = not rawget(_G, "jit")
 -- standard cdefs
 ffi.cdef[[
@@ -627,22 +628,14 @@ local ljp_unpack_raw = function(ptr, size, offset)
 	offset, data = unpackers.dynamic(buf, offset)
 	return offset, data
 end
-return {
-	pack = ljp_pack,
-	unpack = ljp_unpack,
-	pack_raw = ljp_pack_raw,
-	unpack_raw = ljp_unpack_raw,
-	set_fp_type = set_fp_type,
-	table_classifiers = {
-		keys = table_classifier_keys,
-		values = table_classifier_values,
-	},
-	set_table_classifier = set_table_classifier,
-	packers = packers,
-	unpackers = unpackers,
-	encode = ljp_pack,
-	decode = function(data, offset)
-		local _, data = ljp_unpack(data, offset or 0)
-		return data
-	end,
-}
+
+function msgpack.Encode(str)
+	return ljp_pack(str)
+end
+
+function msgpack.Decode(str, offset)
+	local _, data = ljp_unpack(str, offset or 0)
+	return data
+end
+
+return msgpack

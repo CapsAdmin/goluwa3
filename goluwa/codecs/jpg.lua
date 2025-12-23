@@ -2,6 +2,8 @@
 -- Original JavaScript code is MIT licensed
 local ffi = require("ffi")
 local Buffer = require("structs.buffer")
+local jpg = library()
+jpg.file_extensions = {".jpg", ".jpeg"}
 local bit_band = bit.band
 local bit_bor = bit.bor
 local bit_lshift = bit.lshift
@@ -976,7 +978,7 @@ local function getData(w, h, width, height, decodedComponents, formatAsRGBA, col
 end
 
 -- Main decode function
-local function decode(inputBuffer, opts)
+function jpg.DecodeBuffer(inputBuffer, opts)
 	opts = opts or {}
 	local colorTransform = opts.colorTransform
 	local formatAsRGBA = opts.formatAsRGBA ~= false
@@ -1278,7 +1280,4 @@ local function decode(inputBuffer, opts)
 	}
 end
 
-local jpeg = {}
-jpeg.DecodeBuffer = decode
-jpeg.file_extensions = {".jpg", ".jpeg"}
-return jpeg
+return jpg

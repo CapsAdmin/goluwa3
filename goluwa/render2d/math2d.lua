@@ -1,4 +1,4 @@
-local math2d = _G.math2d or {}
+local math2d = library()
 
 function math2d.IsCoordinatesConvex(points)
 	local polygons = {}

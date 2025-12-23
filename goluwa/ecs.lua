@@ -1,6 +1,6 @@
 local prototype = require("prototype")
 local event = require("event")
-local ecs = {}
+local ecs = library()
 -- Component registry
 ecs.registered_components = {}
 

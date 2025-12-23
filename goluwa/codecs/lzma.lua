@@ -3,6 +3,7 @@
 local ffi = require("ffi")
 local bit = require("bit")
 local Buffer = require("structs.buffer")
+local lzma = library()
 local bit_band = bit.band
 local bit_bor = bit.bor
 local bit_rshift = bit.rshift
@@ -312,7 +313,7 @@ local function decompressLZMA(buffer)
 end
 
 -- Main entry point - decode LZMA file
-local function lzmaFile(inputBuffer)
+function lzma.DecodeBuffer(inputBuffer)
 	-- Verify this is an LZMA file
 	local savedPos = inputBuffer:GetPosition()
 	inputBuffer:SetPosition(0)
@@ -329,9 +330,6 @@ local function lzmaFile(inputBuffer)
 	local outputBuffer = decompressLZMA(inputBuffer)
 	return outputBuffer
 end
-
-local lzma = {}
-lzma.DecodeBuffer = lzmaFile
 
 function lzma.Decode(str)
 	local buf = Buffer.New(str, #str)

@@ -1,5 +1,5 @@
 local utf8 = require("utf8")
-local commands = {}
+local commands = library()
 
 do
 	local function vector(str, ctor)

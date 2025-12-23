@@ -1,6 +1,6 @@
 local get_time = require("bindings.time")
 local event = require("event")
-local system = {}
+local system = library()
 
 function system.GetTime()
 	return get_time()

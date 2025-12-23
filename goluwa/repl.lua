@@ -1,4 +1,4 @@
-local repl = _G.repl or {}
+local repl = library()
 repl.buffer = repl.buffer or ""
 repl.command_history = repl.command_history or codec.ReadFile("luadata", "data/cmd_history.txt") or {}
 

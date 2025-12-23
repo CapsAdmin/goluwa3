@@ -1,4 +1,4 @@
-local simple = {}
+local simple = library()
 
 function simple.Encode(tbl)
 	local str = {}

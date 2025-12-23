@@ -1,4 +1,4 @@
-local newline = {}
+local newline = library()
 
 function newline.Encode(tbl)
 	local str = {}

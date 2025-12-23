@@ -1,7 +1,7 @@
 local vfs = require("vfs")
 local fs = require("fs")
 local Buffer = require("structs.buffer")
-local codec = {}
+local codec = library()
 
 function codec.GetLibrary(name)
 	return codec.libraries[name] and codec.libraries[name].lib

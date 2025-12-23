@@ -2,7 +2,7 @@ local fs = require("bindings.filesystem")
 local event
 local list_concat = table.concat
 local select = select
-local logfile = _G.logfile or {}
+local logfile = library()
 logfile.files = {}
 
 do

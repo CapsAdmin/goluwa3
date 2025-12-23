@@ -154,7 +154,8 @@ CALL
 RET1]]
 local is_func_ok = opcode_checker(whitelist)
 -------------------------------
-local luadata = {}
+local luadata = library()
+luadata.file_extensions = {"luadata"}
 local s = luadata
 luadata.is_func_ok = is_func_ok
 luadata.EscapeSequences = {
@@ -296,5 +297,4 @@ function luadata.Decode(str, nojail)
 	return err
 end
 
-luadata.file_extensions = {"luadata"}
 return luadata

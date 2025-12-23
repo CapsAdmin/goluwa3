@@ -25,16 +25,6 @@ timer.Repeat(
 
 						if success then
 							print("reloaded " .. path)
-							local tbl = package.loaded[name]
-
-							if type(tbl) == "table" then
-								table.clear(tbl)
-
-								for k, v in pairs(result) do
-									tbl[k] = v
-								end
-							end
-
 							last_modified_times[path] = modified_time
 						else
 							print("reloading " .. path .. " failed:\n" .. result)

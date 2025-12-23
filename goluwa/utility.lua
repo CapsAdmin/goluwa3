@@ -1,4 +1,4 @@
-local utility = _G.utility or {}
+local utility = library()
 
 function utility.GetLikelyLibraryDependencies(path)
 	local ext = vfs.GetExtensionFromPath(path)

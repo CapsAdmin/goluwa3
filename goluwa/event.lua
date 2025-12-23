@@ -1,8 +1,6 @@
-local traceback = require("helpers.traceback")
-local system
-local event = _G.event or {}
+local event = library()
 event.active = event.active or {}
-event.destroy_tag = {}
+event.destroy_tag = event.destroy_tag or {}
 
 local function sort(a, b)
 	return a.priority > b.priority
@@ -60,7 +58,7 @@ function event.IsListenerActive(event_type, id)
 	return false
 end
 
-event.fix_indices = {}
+event.fix_indices = event.fix_indices or {}
 
 function event.RemoveListener(event_type, id)
 	if type(event_type) == "table" then
@@ -88,7 +86,6 @@ function event.RemoveListener(event_type, id)
 end
 
 function event.Call(event_type, a_, b_, c_, d_, e_)
-	system = system or require("system")
 	local a, b, c, d, e
 
 	if event.active[event_type] then
@@ -130,33 +127,31 @@ function event.Call(event_type, a_, b_, c_, d_, e_)
 	end
 end
 
-do -- helpers
-	function event.CreateRealm(config)
-		if type(config) == "string" then config = {id = config} end
+function event.CreateRealm(config)
+	if type(config) == "string" then config = {id = config} end
 
-		return setmetatable(
-			{},
-			{
-				__index = function(_, key, val)
-					for i, data in ipairs(event.active[key]) do
-						if data.id == config.id then return config.callback end
-					end
-				end,
-				__newindex = function(_, key, val)
-					if type(val) == "function" then
-						config = table.copy(config)
-						config.event_type = key
-						config.callback = val
-						event.AddListener(config)
-					elseif val == nil then
-						config = table.copy(config)
-						config.event_type = key
-						event.RemoveListener(config)
-					end
-				end,
-			}
-		)
-	end
+	return setmetatable(
+		{},
+		{
+			__index = function(_, key, val)
+				for i, data in ipairs(event.active[key]) do
+					if data.id == config.id then return config.callback end
+				end
+			end,
+			__newindex = function(_, key, val)
+				if type(val) == "function" then
+					config = table.copy(config)
+					config.event_type = key
+					config.callback = val
+					event.AddListener(config)
+				elseif val == nil then
+					config = table.copy(config)
+					config.event_type = key
+					event.RemoveListener(config)
+				end
+			end,
+		}
+	)
 end
 
 return event

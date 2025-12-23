@@ -36,7 +36,7 @@ local FragmentConstants = ffi.typeof([[
 		int light_count;
 	}
 ]])
-local render3d = {}
+local render3d = library()
 render3d.current_material = nil
 render3d.current_color = {1, 1, 1, 1}
 render3d.current_metallic_multiplier = 1

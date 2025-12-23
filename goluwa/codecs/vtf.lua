@@ -4,6 +4,8 @@
 local ffi = require("ffi")
 local bit = require("bit")
 local Buffer = require("structs.buffer")
+local vtf = library()
+vtf.file_extensions = {"vtf"}
 local band, bor, lshift, rshift = bit.band, bit.bor, bit.lshift, bit.rshift
 -- VTF image format enum
 local VTF_IMAGE_FORMAT = {
@@ -217,7 +219,7 @@ local function parse_header(buffer)
 end
 
 -- Main VTF decode function
-local function vtf_decode(input_buffer)
+function vtf.DecodeBuffer(input_buffer)
 	local header, err = parse_header(input_buffer)
 
 	if not header then return nil, err end
@@ -361,7 +363,4 @@ local function vtf_decode(input_buffer)
 	}
 end
 
-local vtf = {}
-vtf.DecodeBuffer = vtf_decode
-vtf.file_extensions = {"vtf"}
 return vtf

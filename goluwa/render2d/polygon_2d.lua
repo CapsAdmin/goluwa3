@@ -309,5 +309,4 @@ function Polygon2D:AddNinePatch(...)
 	self.added = self.added + 9
 end
 
-Polygon2D:Register()
-return Polygon2D
+return Polygon2D:Register()

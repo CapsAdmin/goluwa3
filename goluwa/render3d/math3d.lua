@@ -1,6 +1,6 @@
 --local render3d = require("render3d.render3d")
 --local cam = render3d.GetCamera()
-local math3d = {}
+local math3d = library()
 
 function math3d.BilerpVec3(a, b, c, d, alpha1, alpha2)
 	return a:GetLerped(alpha1, b):Lerp(alpha2, c:GetLerped(alpha1, d))

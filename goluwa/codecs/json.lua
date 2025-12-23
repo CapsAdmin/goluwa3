@@ -55,7 +55,8 @@ else
 	math_type = math.type
 end
 
-local json = {}
+local json = library()
+json.file_extensions = {"json", "jsonc"}
 json.supportSparseArray = true
 local objectMt = {}
 
@@ -631,5 +632,4 @@ function json.decode(str--[[#: string]])
 	return res
 end
 
-json.file_extensions = {"json", "jsonc"}
 return json

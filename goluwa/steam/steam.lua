@@ -2,7 +2,7 @@ local tasks = require("tasks")
 local resource = require("resource")
 local codec = require("codec")
 local sockets = require("sockets.sockets")
-local steam = {}
+local steam = library()
 steam.source2meters = 0.01905
 require("steam.mount")(steam)
 require("steam.vmt")(steam)

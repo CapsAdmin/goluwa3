@@ -1,4 +1,4 @@
-local comma = {}
+local comma = library()
 
 function comma.Encode(tbl)
 	local str = {}

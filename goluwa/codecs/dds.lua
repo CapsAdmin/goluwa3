@@ -4,6 +4,8 @@
 local ffi = require("ffi")
 local bit = require("bit")
 local Buffer = require("structs.buffer")
+local dds = library()
+dds.file_extensions = {"dds"}
 local band, bor, lshift, rshift = bit.band, bit.bor, bit.lshift, bit.rshift
 -- DDS magic number
 local DDS_MAGIC = 0x20534444 -- "DDS "
@@ -428,7 +430,7 @@ local function determine_format(pf, dx10)
 end
 
 -- Main decode function
-local function decode(inputBuffer, opts)
+function dds.DecodeBuffer(inputBuffer, opts)
 	opts = opts or {}
 	-- Read and validate magic number
 	local magic = inputBuffer:ReadU32LE()
@@ -626,7 +628,4 @@ local function decode(inputBuffer, opts)
 	}
 end
 
-local dds = {}
-dds.DecodeBuffer = decode
-dds.file_extensions = {"dds"}
 return dds

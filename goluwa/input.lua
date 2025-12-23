@@ -1,5 +1,5 @@
 local system = require("system")
-local input = {}
+local input = library()
 input.PressedThreshold = 0.2
 
 function input.SetupAccessorFunctions(tbl, name, up_id, down_id, on_self)

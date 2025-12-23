@@ -1,4 +1,4 @@
-local crypto = {}
+local crypto = library()
 
 do
 	-- https://github.com/lancelijade/qqwry.lua/blob/master/crc32.lua#L133
