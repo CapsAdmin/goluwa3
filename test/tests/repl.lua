@@ -209,11 +209,11 @@ test.Test("repl multiline navigation", function()
 	-- 2. Home/End on multiline (current line only)
 	reset()
 	repl.input_buffer = "hello\nworld\ntest"
-	repl.input_cursor = 10 -- at 'o' in "world"
+	repl.input_cursor = 10 -- at 'l' in "world"
 	send_key("home")
 	attest.equal(repl.input_cursor, 7) -- start of "world" line
 	send_key("end")
-	attest.equal(repl.input_cursor, 11) -- end of "world" line (before \n)
+	attest.equal(repl.input_cursor, 12) -- end of "world" line (at \n)
 	-- 3. History navigation from first line
 	reset()
 	repl.history = {"prev1", "prev2"}
@@ -222,14 +222,19 @@ test.Test("repl multiline navigation", function()
 	repl.input_cursor = 1
 	send_key("up") -- Should navigate to history
 	attest.equal(repl.input_buffer, "prev2")
-	-- 4. History navigation from last line
+	-- 4. History navigation: pressing down at last history entry restores empty input
 	reset()
 	repl.history = {"prev1"}
-	repl.history_index = 1
+	repl.history_index = 2 -- Currently at fresh input (beyond history)
 	repl.input_buffer = "line1\nline2"
-	repl.input_cursor = #repl.input_buffer + 1
-	send_key("down") -- Should navigate to next history (empty)
-	attest.equal(repl.input_buffer, "")
+	repl.input_cursor = 1 -- On first line so up will navigate to history
+	-- First, go up to enter history
+	send_key("up")
+	attest.equal(repl.input_buffer, "prev1") -- Now viewing history[1]
+	attest.equal(repl.history_index, 1)
+	-- Now press down to go back to fresh input
+	send_key("down")
+	attest.equal(repl.input_buffer, "line1\nline2") -- Should restore saved input
 	-- 5. Saved input restoration
 	reset()
 	repl.history = {"prev1"}
@@ -348,4 +353,93 @@ test.Test("repl output", function()
 	repl.StyledWrite("hello")
 	attest.equal(#repl.output_lines, 1)
 	attest.equal(repl.output_lines[1], "hello")
+end)
+
+test.Test("repl output arrow", function()
+	-- Test that output during command execution gets the < prefix
+	repl.output_lines = {}
+	repl.is_executing = false
+	repl.StyledWrite("normal output")
+	attest.equal(repl.output_lines[1], "normal output")
+	-- Test output during execution gets arrow prefix
+	repl.output_lines = {}
+	repl.is_executing = true
+	repl.StyledWrite("executed output")
+	attest.equal(repl.output_lines[1], "< executed output")
+	-- Test multiple lines during execution
+	repl.output_lines = {}
+	repl.is_executing = true
+	repl.StyledWrite("line1\nline2\nline3")
+	attest.equal(#repl.output_lines, 3)
+	attest.equal(repl.output_lines[1], "< line1")
+	attest.equal(repl.output_lines[2], "< line2")
+	attest.equal(repl.output_lines[3], "< line3")
+	-- Reset state
+	repl.is_executing = false
+end)
+
+test.Test("repl scrolling", function()
+	local function send_key(key, modifiers)
+		repl.HandleEvent(
+			{
+				key = key,
+				modifiers = modifiers or {ctrl = false, shift = false, alt = false},
+			}
+		)
+	end
+
+	local function send_mouse(button, action)
+		repl.HandleEvent({mouse = true, button = button, action = action, x = 1, y = 1})
+	end
+
+	-- Setup some output lines for testing
+	repl.output_lines = {}
+
+	for i = 1, 20 do
+		table.insert(repl.output_lines, "line " .. i)
+	end
+
+	repl.scroll_offset = 0
+	-- Test mouse wheel up scrolling
+	send_mouse("wheel_up", "pressed")
+	attest.equal(repl.scroll_offset, 3)
+	send_mouse("wheel_up", "pressed")
+	attest.equal(repl.scroll_offset, 6)
+	-- Test mouse wheel down scrolling
+	send_mouse("wheel_down", "pressed")
+	attest.equal(repl.scroll_offset, 3)
+	send_mouse("wheel_down", "pressed")
+	attest.equal(repl.scroll_offset, 0)
+	-- Test that scrolling down doesn't go negative
+	send_mouse("wheel_down", "pressed")
+	attest.equal(repl.scroll_offset, 0)
+	send_mouse("wheel_down", "pressed")
+	attest.equal(repl.scroll_offset, 0)
+	-- Test that scrolling up is clamped to max scroll
+	repl.scroll_offset = 0
+
+	for i = 1, 100 do
+		send_mouse("wheel_up", "pressed")
+	end
+
+	local max_scroll = math.max(0, #repl.output_lines - 1)
+	attest.equal(repl.scroll_offset, max_scroll)
+	-- Test pageup/pagedown
+	repl.scroll_offset = 5
+	send_key("pageup")
+	attest.equal(repl.scroll_offset, 15)
+	send_key("pagedown")
+	attest.equal(repl.scroll_offset, 5)
+	send_key("pagedown")
+	send_key("pagedown")
+	attest.equal(repl.scroll_offset, 0)
+	-- Test pageup clamping
+	repl.scroll_offset = 0
+	send_key("pageup")
+	send_key("pageup")
+	send_key("pageup")
+	attest.equal(repl.scroll_offset, max_scroll)
+	-- Clean up
+	repl.output_lines = {}
+	repl.scroll_offset = 0
 end)

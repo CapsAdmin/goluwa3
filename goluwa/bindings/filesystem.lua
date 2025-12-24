@@ -1,10 +1,11 @@
 local ffi = require("ffi")
 local fs = {}
+local last_error
 
 if jit.arch ~= "Windows" then
 	ffi.cdef("char *strerror(int);")
 
-	local function last_error()
+	function last_error()
 		local num = ffi.errno()
 		local err = ffi.string(ffi.C.strerror(num))
 		return err == "" and tostring(num) or err
@@ -317,7 +318,7 @@ else
 	local FORMAT_MESSAGE_IGNORE_INSERTS = 0x00000200
 	local error_flags = bit.bor(FORMAT_MESSAGE_FROM_SYSTEM, FORMAT_MESSAGE_IGNORE_INSERTS)
 
-	local function last_error()
+	function last_error()
 		local code = ffi.C.GetLastError()
 		local numout = ffi.C.FormatMessageA(error_flags, nil, code, 0, error_str, 1023, nil)
 		local err = numout ~= 0 and ffi.string(error_str, numout)
@@ -539,6 +540,553 @@ else
 
 			return true
 		end
+	end
+end
+
+-- File I/O operations (cross-platform)
+do
+	-- FILE* operations (high-level, buffered I/O)
+	ffi.cdef[[
+		typedef struct FILE FILE;
+		
+		// Opening and closing
+		FILE* fopen(const char* path, const char* mode);
+		FILE* fdopen(int fd, const char* mode);
+		FILE* freopen(const char* path, const char* mode, FILE* stream);
+		int fclose(FILE* stream);
+		
+		// Reading
+		size_t fread(void* ptr, size_t size, size_t count, FILE* stream);
+		int fgetc(FILE* stream);
+		char* fgets(char* str, int count, FILE* stream);
+		int getc(FILE* stream);
+		int ungetc(int c, FILE* stream);
+		
+		// Writing
+		size_t fwrite(const void* ptr, size_t size, size_t count, FILE* stream);
+		int fputc(int c, FILE* stream);
+		int fputs(const char* str, FILE* stream);
+		int putc(int c, FILE* stream);
+		int fprintf(FILE* stream, const char* fmt, ...);
+		
+		// Position and seeking
+		int fseek(FILE* stream, long offset, int whence);
+		long ftell(FILE* stream);
+		void rewind(FILE* stream);
+		int fgetpos(FILE* stream, void* pos);
+		int fsetpos(FILE* stream, const void* pos);
+		
+		// Buffering and flushing
+		int fflush(FILE* stream);
+		void setbuf(FILE* stream, char* buffer);
+		int setvbuf(FILE* stream, char* buffer, int mode, size_t size);
+		
+		// Error handling
+		int feof(FILE* stream);
+		int ferror(FILE* stream);
+		void clearerr(FILE* stream);
+		
+		// File descriptor operations
+		int fileno(FILE* stream);
+		
+		// Standard streams
+		extern FILE* stdin;
+		extern FILE* stdout;
+		extern FILE* stderr;
+	]]
+	-- Seek constants
+	fs.SEEK_SET = 0
+	fs.SEEK_CUR = 1
+	fs.SEEK_END = 2
+	-- Buffering modes
+	fs.IOFBF = 0 -- full buffering
+	fs.IOLBF = 1 -- line buffering
+	fs.IONBF = 2 -- no buffering
+	-- File mode helpers
+	fs.FILE_MODES = {
+		read = "r",
+		write = "w",
+		append = "a",
+		read_update = "r+",
+		write_update = "w+",
+		append_update = "a+",
+		read_binary = "rb",
+		write_binary = "wb",
+		append_binary = "ab",
+		read_update_binary = "r+b",
+		write_update_binary = "w+b",
+		append_update_binary = "a+b",
+	}
+
+	function fs.fopen(path, mode)
+		local file = ffi.C.fopen(path, mode or "r")
+
+		if file == nil then return nil, last_error() end
+
+		return file
+	end
+
+	function fs.fdopen(fd, mode)
+		local file = ffi.C.fdopen(fd, mode or "r")
+
+		if file == nil then return nil, last_error() end
+
+		return file
+	end
+
+	function fs.fclose(file)
+		if ffi.C.fclose(file) ~= 0 then return nil, last_error() end
+
+		return true
+	end
+
+	function fs.fread(file, size, count)
+		count = count or 1
+		local buffer = ffi.new("uint8_t[?]", size * count)
+		local bytes_read = ffi.C.fread(buffer, size, count, file)
+
+		if bytes_read == 0 and ffi.C.ferror(file) ~= 0 then
+			return nil, last_error()
+		end
+
+		return ffi.string(buffer, bytes_read * size), bytes_read
+	end
+
+	function fs.fwrite(file, data, size, count)
+		size = size or 1
+		count = count or #data / size
+		local bytes_written = ffi.C.fwrite(data, size, count, file)
+
+		if bytes_written < count then return nil, last_error() end
+
+		return bytes_written
+	end
+
+	function fs.fseek(file, offset, whence)
+		whence = whence or fs.SEEK_SET
+
+		if ffi.C.fseek(file, offset, whence) ~= 0 then return nil, last_error() end
+
+		return true
+	end
+
+	function fs.ftell(file)
+		local pos = ffi.C.ftell(file)
+
+		if pos == -1 then return nil, last_error() end
+
+		return pos
+	end
+
+	function fs.fflush(file)
+		if ffi.C.fflush(file) ~= 0 then return nil, last_error() end
+
+		return true
+	end
+
+	function fs.feof(file)
+		return ffi.C.feof(file) ~= 0
+	end
+
+	function fs.ferror(file)
+		return ffi.C.ferror(file) ~= 0
+	end
+
+	function fs.fileno(file)
+		local fd = ffi.C.fileno(file)
+
+		if fd == -1 then return nil, last_error() end
+
+		return fd
+	end
+
+	do
+		local meta = {}
+		meta.__index = meta
+
+		function meta:close()
+			return fs.fclose(self.file)
+		end
+
+		function meta:read(size, count)
+			return fs.fread(self.file, size, count)
+		end
+
+		function meta:write(data, size, count)
+			return fs.fwrite(self.file, data, size, count)
+		end
+
+		function meta:seek(offset, whence)
+			return fs.fseek(self.file, offset, whence)
+		end
+
+		function meta:tell()
+			return fs.ftell(self.file)
+		end
+
+		function meta:flush()
+			return fs.fflush(self.file)
+		end
+
+		function meta:eof()
+			return fs.feof(self.file)
+		end
+
+		function meta:error()
+			return fs.ferror(self.file)
+		end
+
+		function meta:get_fileno()
+			return fs.fileno(self.file)
+		end
+
+		function fs.file_open(path, mode)
+			local f, err
+
+			if tonumber(path) then
+				f, err = fs.fdopen(path, mode)
+			else
+				f, err = fs.fopen(path, mode)
+			end
+
+			if not f then return nil, err end
+
+			local self = setmetatable({file = f}, meta)
+			return self
+		end
+	end
+end
+
+-- Low-level file descriptor operations
+do
+	if jit.os ~= "Windows" then
+		ffi.cdef[[
+			// File descriptor operations
+			int open(const char* path, int flags, ...);
+			int creat(const char* path, unsigned int mode);
+			ssize_t read(int fd, void* buf, size_t count);
+			ssize_t write(int fd, const void* buf, size_t count);
+			int close(int fd);
+			
+			// File control and duplication
+			int dup(int oldfd);
+			int dup2(int oldfd, int newfd);
+			int fcntl(int fd, int cmd, ...);
+			int ioctl(int fd, unsigned long request, ...);
+			
+			// Seeking
+			long lseek(int fd, long offset, int whence);
+			
+			// Pipe operations
+			int pipe(int pipefd[2]);
+		]]
+		-- Open flags
+		fs.O_RDONLY = 0x0000
+		fs.O_WRONLY = 0x0001
+		fs.O_RDWR = 0x0002
+		fs.O_CREAT = 0x0040
+		fs.O_EXCL = 0x0080
+		fs.O_TRUNC = 0x0200
+		fs.O_APPEND = 0x0400
+		fs.O_NONBLOCK = jit.os == "OSX" and 0x0004 or 0x0800
+		fs.O_SYNC = jit.os == "OSX" and 0x0080 or 0x1000
+		fs.O_CLOEXEC = jit.os == "OSX" and 0x1000000 or 0x80000
+		-- File control commands
+		fs.F_DUPFD = 0
+		fs.F_GETFD = 1
+		fs.F_SETFD = 2
+		fs.F_GETFL = 3
+		fs.F_SETFL = 4
+		fs.F_GETLK = jit.os == "OSX" and 7 or 5
+		fs.F_SETLK = jit.os == "OSX" and 8 or 6
+		fs.F_SETLKW = jit.os == "OSX" and 9 or 7
+		-- File descriptor flags
+		fs.FD_CLOEXEC = 1
+		-- Standard file descriptors
+		fs.STDIN_FILENO = 0
+		fs.STDOUT_FILENO = 1
+		fs.STDERR_FILENO = 2
+
+		function fs.fd_open(path, flags, mode)
+			mode = mode or 0x1B6 -- 0666 octal
+			local fd = ffi.C.open(path, flags, mode)
+
+			if fd == -1 then return nil, last_error() end
+
+			return fd
+		end
+
+		function fs.fd_read(fd, size)
+			local buffer = ffi.new("uint8_t[?]", size)
+			local bytes_read = ffi.C.read(fd, buffer, size)
+
+			if bytes_read == -1 then return nil, last_error() end
+
+			return ffi.string(buffer, bytes_read), bytes_read
+		end
+
+		function fs.fd_write(fd, data)
+			local bytes_written = ffi.C.write(fd, data, #data)
+
+			if bytes_written == -1 then return nil, last_error() end
+
+			return bytes_written
+		end
+
+		function fs.fd_close(fd)
+			if ffi.C.close(fd) ~= 0 then return nil, last_error() end
+
+			return true
+		end
+
+		function fs.fd_dup(oldfd)
+			local newfd = ffi.C.dup(oldfd)
+
+			if newfd == -1 then return nil, last_error() end
+
+			return newfd
+		end
+
+		function fs.fd_dup2(oldfd, newfd)
+			if ffi.C.dup2(oldfd, newfd) == -1 then return nil, last_error() end
+
+			return newfd
+		end
+
+		function fs.fd_pipe()
+			local pipefd = ffi.new("int[2]")
+
+			if ffi.C.pipe(pipefd) == -1 then return nil, last_error() end
+
+			return pipefd[0], pipefd[1]
+		end
+
+		function fs.fd_fcntl(fd, cmd, arg)
+			local result
+
+			if arg ~= nil then
+				result = ffi.C.fcntl(fd, cmd, ffi.cast("int", arg))
+			else
+				result = ffi.C.fcntl(fd, cmd)
+			end
+
+			if result == -1 then return nil, last_error() end
+
+			return result
+		end
+
+		function fs.fd_set_nonblocking(fd, nonblock)
+			local flags = ffi.C.fcntl(fd, fs.F_GETFL)
+
+			if flags == -1 then return nil, last_error() end
+
+			if nonblock then
+				flags = bit.bor(flags, fs.O_NONBLOCK)
+			else
+				flags = bit.band(flags, bit.bnot(fs.O_NONBLOCK))
+			end
+
+			if ffi.C.fcntl(fd, fs.F_SETFL, ffi.cast("int", flags)) == -1 then
+				return nil, last_error()
+			end
+
+			return true
+		end
+
+		function fs.fd_lseek(fd, offset, whence)
+			whence = whence or fs.SEEK_SET
+			local pos = ffi.C.lseek(fd, offset, whence)
+
+			if pos == -1 then return nil, last_error() end
+
+			return pos
+		end
+	else
+		-- Windows file descriptor operations
+		ffi.cdef[[
+			int _open(const char* path, int flags, ...);
+			int _read(int fd, void* buf, unsigned int count);
+			int _write(int fd, const void* buf, unsigned int count);
+			int _close(int fd);
+			int _dup(int fd);
+			int _dup2(int oldfd, int newfd);
+			long _lseek(int fd, long offset, int whence);
+			int _pipe(int* pipefd, unsigned int size, int textmode);
+			int _setmode(int fd, int mode);
+		]]
+		-- Open flags (Windows)
+		fs.O_RDONLY = 0x0000
+		fs.O_WRONLY = 0x0001
+		fs.O_RDWR = 0x0002
+		fs.O_APPEND = 0x0008
+		fs.O_CREAT = 0x0100
+		fs.O_TRUNC = 0x0200
+		fs.O_EXCL = 0x0400
+		fs.O_TEXT = 0x4000
+		fs.O_BINARY = 0x8000
+		fs.O_NOINHERIT = 0x0080
+		-- File modes
+		fs.O_IREAD = 0x0100
+		fs.O_IWRITE = 0x0080
+		-- Standard file descriptors
+		fs.STDIN_FILENO = 0
+		fs.STDOUT_FILENO = 1
+		fs.STDERR_FILENO = 2
+
+		function fs.fd_open(path, flags, mode)
+			mode = mode or bit.bor(fs.O_IREAD, fs.O_IWRITE)
+			local fd = ffi.C._open(path, flags, mode)
+
+			if fd == -1 then return nil, last_error() end
+
+			return fd
+		end
+
+		function fs.fd_read(fd, size)
+			local buffer = ffi.new("uint8_t[?]", size)
+			local bytes_read = ffi.C._read(fd, buffer, size)
+
+			if bytes_read == -1 then return nil, last_error() end
+
+			return ffi.string(buffer, bytes_read), bytes_read
+		end
+
+		function fs.fd_write(fd, data)
+			local bytes_written = ffi.C._write(fd, data, #data)
+
+			if bytes_written == -1 then return nil, last_error() end
+
+			return bytes_written
+		end
+
+		function fs.fd_close(fd)
+			if ffi.C._close(fd) ~= 0 then return nil, last_error() end
+
+			return true
+		end
+
+		function fs.fd_dup(oldfd)
+			local newfd = ffi.C._dup(oldfd)
+
+			if newfd == -1 then return nil, last_error() end
+
+			return newfd
+		end
+
+		function fs.fd_dup2(oldfd, newfd)
+			if ffi.C._dup2(oldfd, newfd) == -1 then return nil, last_error() end
+
+			return newfd
+		end
+
+		function fs.fd_pipe(size, textmode)
+			size = size or 4096
+			textmode = textmode or fs.O_BINARY
+			local pipefd = ffi.new("int[2]")
+
+			if ffi.C._pipe(pipefd, size, textmode) == -1 then
+				return nil, last_error()
+			end
+
+			return pipefd[0], pipefd[1]
+		end
+
+		function fs.fd_lseek(fd, offset, whence)
+			whence = whence or fs.SEEK_SET
+			local pos = ffi.C._lseek(fd, offset, whence)
+
+			if pos == -1 then return nil, last_error() end
+
+			return pos
+		end
+
+		function fs.fd_setmode(fd, mode)
+			if ffi.C._setmode(fd, mode) == -1 then return nil, last_error() end
+
+			return true
+		end
+	end
+
+	do
+		local meta = {}
+		meta.__index = meta
+
+		function meta:close()
+			return fs.fd_close(self.fd)
+		end
+
+		function meta:read(size)
+			return fs.fd_read(self.fd, size)
+		end
+
+		function meta:write(data)
+			return fs.fd_write(self.fd, data)
+		end
+
+		function meta:seek(offset, whence)
+			return fs.fd_lseek(self.fd, offset, whence)
+		end
+
+		function meta:dup(target)
+			if target then
+				-- dup2 behavior: duplicate self into target
+				local new = type(target) == "table" and target.fd or target
+				local fd, err = fs.fd_dup2(self.fd, new)
+
+				if not fd then return nil, err end
+
+				return fd
+			else
+				-- dup behavior: create new duplicate
+				local fd, err = fs.fd_dup(self.fd)
+
+				if not fd then return nil, err end
+
+				return setmetatable({fd = fd}, meta)
+			end
+		end
+
+		function meta:set_nonblocking(nonblock)
+			return fs.fd_set_nonblocking(self.fd, nonblock)
+		end
+
+		if jit.os == "Windows" then
+			function meta:setmode(mode)
+				return fs.fd_setmode(self.fd, mode)
+			end
+		end
+
+		function fs.get_read_write_fd_pipes()
+			local read_fd, write_fd, err = fs.fd_pipe()
+
+			if not read_fd then return nil, err end
+
+			return setmetatable({fd = read_fd}, meta), setmetatable({fd = write_fd}, meta)
+		end
+
+		local fd_open_raw = fs.fd_open
+
+		function fs.fd_open_object(path, flags, mode)
+			local fd, err = fd_open_raw(path, flags, mode)
+
+			if not fd then return nil, err end
+
+			return setmetatable({fd = fd}, meta)
+		end
+
+		-- High-level dup2 that accepts fd objects
+		function fs.dup2(oldfd_obj, newfd_obj)
+			local old = type(oldfd_obj) == "table" and oldfd_obj.fd or oldfd_obj
+			local new = type(newfd_obj) == "table" and newfd_obj.fd or newfd_obj
+			return fs.fd_dup2(old, new)
+		end
+
+		-- Standard file descriptor objects
+		fs.fd = {
+			stdin = setmetatable({fd = fs.STDIN_FILENO}, meta),
+			stdout = setmetatable({fd = fs.STDOUT_FILENO}, meta),
+			stderr = setmetatable({fd = fs.STDERR_FILENO}, meta),
+		}
 	end
 end
 

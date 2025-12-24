@@ -171,6 +171,11 @@ do
 		str = table.concat(str, "\t") .. "\n"
 		local path = callstack.get_line(2)
 
+		if path:starts_with("[string]:1") then
+			io.write(str)
+			return
+		end
+
 		if path then str = string.format("%s %s", path, str) end
 
 		io.write(str)

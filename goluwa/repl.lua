@@ -17,6 +17,7 @@ local repl = {
 	last_event = nil,
 	raw_input = nil,
 	saved_input = "", -- Saves current input when navigating history
+	is_executing = false, -- Tracks if we're executing a command
 }
 
 function repl.CopyText()
@@ -232,7 +233,11 @@ function repl.StyledWrite(str)
 	if not str:match("\n$") then str = str .. "\n" end
 
 	for line in str:gmatch("(.-)\n") do
-		table.insert(repl.output_lines, line)
+		if repl.is_executing then
+			table.insert(repl.output_lines, "< " .. line)
+		else
+			table.insert(repl.output_lines, line)
+		end
 	end
 
 	repl.needs_redraw = true
@@ -242,7 +247,12 @@ function repl.InputLua(str)
 	local func, err = loadstring(str)
 
 	if func then
+		repl.is_executing = true
 		local ok, res = pcall(func)
+		-- Flush stdout to capture any pending print() output
+		local output = require("stdout")
+		output.flush()
+		repl.is_executing = false
 
 		if not ok then
 			logn("Error: " .. tostring(res))
@@ -263,210 +273,220 @@ function repl.HandleEvent(ev)
 	repl.needs_redraw = true
 	local old_cursor = repl.input_cursor
 
-	if ev.key == "enter" then
-		if ev.modifiers.shift then
-			repl.DeleteSelection()
-			repl.input_buffer = repl.input_buffer:sub(1, repl.input_cursor - 1) .. "\n" .. repl.input_buffer:sub(repl.input_cursor)
-			repl.input_cursor = repl.input_cursor + 1
-			-- Auto-scroll to show cursor if needed
-			local cursor_line = get_cursor_pos(repl.input_buffer, repl.input_cursor)
-			local input_lines_count = select(2, repl.input_buffer:gsub("\n", "")) + 1
+	if ev.key then
+		if ev.key == "enter" then
+			if ev.modifiers.shift then
+				repl.DeleteSelection()
+				repl.input_buffer = repl.input_buffer:sub(1, repl.input_cursor - 1) .. "\n" .. repl.input_buffer:sub(repl.input_cursor)
+				repl.input_cursor = repl.input_cursor + 1
+				-- Auto-scroll to show cursor if needed
+				local cursor_line = get_cursor_pos(repl.input_buffer, repl.input_cursor)
+				local input_lines_count = select(2, repl.input_buffer:gsub("\n", "")) + 1
 
-			if input_lines_count > 5 then
-				repl.input_scroll_offset = math.max(0, cursor_line - 5)
-			end
-		else
-			if repl.input_buffer == "exit" then
-				system.ShutDown(0)
-				return
-			end
+				if input_lines_count > 5 then
+					repl.input_scroll_offset = math.max(0, cursor_line - 5)
+				end
+			else
+				if repl.input_buffer == "exit" then
+					system.ShutDown(0)
+					return
+				end
 
-			if repl.input_buffer == "clear" then
-				repl.output_lines = {}
-				repl.scroll_offset = 0
+				if repl.input_buffer == "clear" then
+					repl.output_lines = {}
+					repl.scroll_offset = 0
+					repl.input_buffer = ""
+					repl.input_cursor = 1
+					repl.input_scroll_offset = 0
+					repl.selection_start = nil
+					repl.saved_input = ""
+					return
+				end
+
+				logn("> " .. repl.input_buffer)
+
+				if repl.input_buffer ~= "" then
+					-- Don't add duplicate of the last history entry
+					local is_duplicate = #repl.history > 0 and repl.history[#repl.history] == repl.input_buffer
+
+					if not is_duplicate then
+						table.insert(repl.history, repl.input_buffer)
+					end
+
+					repl.history_index = #repl.history + 1
+					repl.InputLua(repl.input_buffer)
+				end
+
 				repl.input_buffer = ""
 				repl.input_cursor = 1
+				repl.scroll_offset = 0
 				repl.input_scroll_offset = 0
 				repl.selection_start = nil
 				repl.saved_input = ""
-				return
 			end
-
-			logn("> " .. repl.input_buffer)
-
-			if repl.input_buffer ~= "" then
-				-- Don't add duplicate of the last history entry
-				local is_duplicate = #repl.history > 0 and repl.history[#repl.history] == repl.input_buffer
-
-				if not is_duplicate then
-					table.insert(repl.history, repl.input_buffer)
-				end
-
-				repl.history_index = #repl.history + 1
-				repl.InputLua(repl.input_buffer)
-			end
-
-			repl.input_buffer = ""
-			repl.input_cursor = 1
-			repl.scroll_offset = 0
-			repl.input_scroll_offset = 0
-			repl.selection_start = nil
-			repl.saved_input = ""
-		end
-	elseif ev.key == "backspace" then
-		if not repl.DeleteSelection() then
-			if ev.modifiers.ctrl then
-				local new_pos = repl.MoveWord(repl.input_buffer, repl.input_cursor, -1)
-				repl.input_buffer = repl.input_buffer:sub(1, new_pos - 1) .. repl.input_buffer:sub(repl.input_cursor)
-				repl.input_cursor = new_pos
-			elseif repl.input_cursor > 1 then
-				repl.input_buffer = repl.input_buffer:sub(1, repl.input_cursor - 2) .. repl.input_buffer:sub(repl.input_cursor)
-				repl.input_cursor = repl.input_cursor - 1
-			end
-		end
-	elseif ev.key == "delete" then
-		if not repl.DeleteSelection() then
-			if ev.modifiers.ctrl then
-				local new_pos = repl.MoveWord(repl.input_buffer, repl.input_cursor, 1)
-				repl.input_buffer = repl.input_buffer:sub(1, repl.input_cursor - 1) .. repl.input_buffer:sub(new_pos)
-			elseif repl.input_cursor <= #repl.input_buffer then
-				repl.input_buffer = repl.input_buffer:sub(1, repl.input_cursor - 1) .. repl.input_buffer:sub(repl.input_cursor + 1)
-			end
-		end
-	elseif ev.key == "left" or ev.key == "right" or ev.key == "home" or ev.key == "end" then
-		if ev.key == "left" then
-			if ev.modifiers.ctrl then
-				repl.input_cursor = repl.MoveWord(repl.input_buffer, repl.input_cursor, -1)
-			else
-				repl.input_cursor = math.max(1, repl.input_cursor - 1)
-			end
-		elseif ev.key == "right" then
-			if ev.modifiers.ctrl then
-				repl.input_cursor = repl.MoveWord(repl.input_buffer, repl.input_cursor, 1)
-			else
-				repl.input_cursor = math.min(#repl.input_buffer + 1, repl.input_cursor + 1)
-			end
-		elseif ev.key == "home" then
-			-- Move to start of current line
-			local pos = repl.input_cursor
-
-			while pos > 1 and repl.input_buffer:sub(pos - 1, pos - 1) ~= "\n" do
-				pos = pos - 1
-			end
-
-			repl.input_cursor = pos
-		elseif ev.key == "end" then
-			-- Move to end of current line
-			local pos = repl.input_cursor
-
-			while pos <= #repl.input_buffer and repl.input_buffer:sub(pos, pos) ~= "\n" do
-				pos = pos + 1
-			end
-
-			repl.input_cursor = pos
-		end
-
-		if ev.modifiers.shift then
-			if not repl.selection_start then repl.selection_start = old_cursor end
-		else
-			repl.selection_start = nil
-		end
-	elseif ev.key == "up" then
-		local input_lines_count = select(2, repl.input_buffer:gsub("\n", "")) + 1
-		local current_line, current_col = get_cursor_pos(repl.input_buffer, repl.input_cursor)
-
-		if ev.modifiers.ctrl then
-			-- Scroll input view up
-			repl.input_scroll_offset = math.max(0, repl.input_scroll_offset - 1)
-		elseif current_line > 1 then
-			-- Move cursor up one line, preserving column
-			local new_pos = set_cursor_to_line_col(repl.input_buffer, current_line - 1, current_col)
-
-			if new_pos then
-				repl.input_cursor = new_pos
-
-				-- Auto-scroll to show cursor
-				if repl.input_scroll_offset > 0 and current_line - 1 <= repl.input_scroll_offset then
-					repl.input_scroll_offset = math.max(0, current_line - 2)
+		elseif ev.key == "backspace" then
+			if not repl.DeleteSelection() then
+				if ev.modifiers.ctrl then
+					local new_pos = repl.MoveWord(repl.input_buffer, repl.input_cursor, -1)
+					repl.input_buffer = repl.input_buffer:sub(1, new_pos - 1) .. repl.input_buffer:sub(repl.input_cursor)
+					repl.input_cursor = new_pos
+				elseif repl.input_cursor > 1 then
+					repl.input_buffer = repl.input_buffer:sub(1, repl.input_cursor - 2) .. repl.input_buffer:sub(repl.input_cursor)
+					repl.input_cursor = repl.input_cursor - 1
 				end
 			end
-		elseif current_line == 1 and repl.history_index > 1 then
-			-- At first line, trying to go up - navigate history
-			-- Save current input if we're leaving fresh input mode
-			if repl.history_index > #repl.history then
-				repl.saved_input = repl.input_buffer
+		elseif ev.key == "delete" then
+			if not repl.DeleteSelection() then
+				if ev.modifiers.ctrl then
+					local new_pos = repl.MoveWord(repl.input_buffer, repl.input_cursor, 1)
+					repl.input_buffer = repl.input_buffer:sub(1, repl.input_cursor - 1) .. repl.input_buffer:sub(new_pos)
+				elseif repl.input_cursor <= #repl.input_buffer then
+					repl.input_buffer = repl.input_buffer:sub(1, repl.input_cursor - 1) .. repl.input_buffer:sub(repl.input_cursor + 1)
+				end
+			end
+		elseif ev.key == "left" or ev.key == "right" or ev.key == "home" or ev.key == "end" then
+			if ev.key == "left" then
+				if ev.modifiers.ctrl then
+					repl.input_cursor = repl.MoveWord(repl.input_buffer, repl.input_cursor, -1)
+				else
+					repl.input_cursor = math.max(1, repl.input_cursor - 1)
+				end
+			elseif ev.key == "right" then
+				if ev.modifiers.ctrl then
+					repl.input_cursor = repl.MoveWord(repl.input_buffer, repl.input_cursor, 1)
+				else
+					repl.input_cursor = math.min(#repl.input_buffer + 1, repl.input_cursor + 1)
+				end
+			elseif ev.key == "home" then
+				-- Move to start of current line
+				local pos = repl.input_cursor
+
+				while pos > 1 and repl.input_buffer:sub(pos - 1, pos - 1) ~= "\n" do
+					pos = pos - 1
+				end
+
+				repl.input_cursor = pos
+			elseif ev.key == "end" then
+				-- Move to end of current line
+				local pos = repl.input_cursor
+
+				while pos <= #repl.input_buffer and repl.input_buffer:sub(pos, pos) ~= "\n" do
+					pos = pos + 1
+				end
+
+				repl.input_cursor = pos
 			end
 
-			repl.history_index = repl.history_index - 1
-			repl.input_buffer = repl.history[repl.history_index]
-			repl.input_cursor = #repl.input_buffer + 1
-			repl.input_scroll_offset = 0
-			repl.selection_start = nil
-		end
-	elseif ev.key == "down" then
-		local input_lines_count = select(2, repl.input_buffer:gsub("\n", "")) + 1
-		local current_line, current_col = get_cursor_pos(repl.input_buffer, repl.input_cursor)
-
-		if ev.modifiers.ctrl then
-			-- Scroll input view down
-			if input_lines_count > 5 then
-				repl.input_scroll_offset = math.min(input_lines_count - 5, repl.input_scroll_offset + 1)
+			if ev.modifiers.shift then
+				if not repl.selection_start then repl.selection_start = old_cursor end
+			else
+				repl.selection_start = nil
 			end
-		elseif current_line < input_lines_count then
-			-- Move cursor down one line, preserving column
-			local new_pos = set_cursor_to_line_col(repl.input_buffer, current_line + 1, current_col)
+		elseif ev.key == "up" then
+			local input_lines_count = select(2, repl.input_buffer:gsub("\n", "")) + 1
+			local current_line, current_col = get_cursor_pos(repl.input_buffer, repl.input_cursor)
 
-			if new_pos then
-				repl.input_cursor = new_pos
+			if ev.modifiers.ctrl then
+				-- Scroll input view up
+				repl.input_scroll_offset = math.max(0, repl.input_scroll_offset - 1)
+			elseif current_line > 1 then
+				-- Move cursor up one line, preserving column
+				local new_pos = set_cursor_to_line_col(repl.input_buffer, current_line - 1, current_col)
 
-				-- Auto-scroll to show cursor
-				if input_lines_count > 5 and current_line + 1 > repl.input_scroll_offset + 5 then
+				if new_pos then
+					repl.input_cursor = new_pos
+
+					-- Auto-scroll to show cursor
+					if repl.input_scroll_offset > 0 and current_line - 1 <= repl.input_scroll_offset then
+						repl.input_scroll_offset = math.max(0, current_line - 2)
+					end
+				end
+			elseif current_line == 1 and repl.history_index > 1 then
+				-- At first line, trying to go up - navigate history
+				-- Save current input if we're leaving fresh input mode
+				if repl.history_index > #repl.history then
+					repl.saved_input = repl.input_buffer
+				end
+
+				repl.history_index = repl.history_index - 1
+				repl.input_buffer = repl.history[repl.history_index]
+				repl.input_cursor = #repl.input_buffer + 1
+				repl.input_scroll_offset = 0
+				repl.selection_start = nil
+			end
+		elseif ev.key == "down" then
+			local input_lines_count = select(2, repl.input_buffer:gsub("\n", "")) + 1
+			local current_line, current_col = get_cursor_pos(repl.input_buffer, repl.input_cursor)
+
+			if ev.modifiers.ctrl then
+				-- Scroll input view down
+				if input_lines_count > 5 then
 					repl.input_scroll_offset = math.min(input_lines_count - 5, repl.input_scroll_offset + 1)
 				end
+			elseif current_line < input_lines_count then
+				-- Move cursor down one line, preserving column
+				local new_pos = set_cursor_to_line_col(repl.input_buffer, current_line + 1, current_col)
+
+				if new_pos then
+					repl.input_cursor = new_pos
+
+					-- Auto-scroll to show cursor
+					if input_lines_count > 5 and current_line + 1 > repl.input_scroll_offset + 5 then
+						repl.input_scroll_offset = math.min(input_lines_count - 5, repl.input_scroll_offset + 1)
+					end
+				end
+			elseif current_line == input_lines_count and repl.history_index < #repl.history then
+				-- At last line, trying to go down - navigate history
+				repl.history_index = repl.history_index + 1
+				repl.input_buffer = repl.history[repl.history_index]
+				repl.input_cursor = #repl.input_buffer + 1
+				repl.input_scroll_offset = 0
+				repl.selection_start = nil
+			elseif current_line == input_lines_count and repl.history_index == #repl.history then
+				-- Restore saved input when going back to fresh input mode
+				repl.history_index = #repl.history + 1
+				repl.input_buffer = repl.saved_input
+				repl.input_cursor = #repl.input_buffer + 1
+				repl.input_scroll_offset = 0
+				repl.selection_start = nil
+				repl.saved_input = ""
 			end
-		elseif current_line == input_lines_count and repl.history_index < #repl.history then
-			-- At last line, trying to go down - navigate history
-			repl.history_index = repl.history_index + 1
-			repl.input_buffer = repl.history[repl.history_index]
-			repl.input_cursor = #repl.input_buffer + 1
-			repl.input_scroll_offset = 0
-			repl.selection_start = nil
-		elseif current_line == input_lines_count and repl.history_index == #repl.history then
-			-- Restore saved input when going back to fresh input mode
-			repl.history_index = #repl.history + 1
-			repl.input_buffer = repl.saved_input
-			repl.input_cursor = #repl.input_buffer + 1
-			repl.input_scroll_offset = 0
-			repl.selection_start = nil
-			repl.saved_input = ""
+		elseif ev.key == "pageup" then
+			local max_scroll = math.max(0, #repl.output_lines - 1)
+			repl.scroll_offset = math.min(max_scroll, repl.scroll_offset + 10)
+		elseif ev.key == "pagedown" then
+			repl.scroll_offset = math.max(0, repl.scroll_offset - 10)
+		elseif ev.key == "a" and ev.modifiers.ctrl then
+			-- Select all
+			if #repl.input_buffer > 0 then
+				repl.selection_start = 1
+				repl.input_cursor = #repl.input_buffer + 1
+			end
+		elseif ev.key == "c" and ev.modifiers.ctrl then
+			repl.CopyText()
+		elseif ev.key == "d" and ev.modifiers.ctrl then
+			repl.DuplicateLine()
+		elseif ev.key == "q" and ev.modifiers.ctrl then
+			system.ShutDown()
+		elseif ev.key == "x" and ev.modifiers.ctrl then
+			repl.CutText()
+		elseif ev.key == "v" and ev.modifiers.ctrl then
+			repl.PasteText()
+		elseif ev.key == "l" and ev.modifiers.ctrl then
+			repl.output_lines = {}
+			repl.scroll_offset = 0
+		elseif #ev.key == 1 then
+			repl.DeleteSelection()
+			repl.input_buffer = repl.input_buffer:sub(1, repl.input_cursor - 1) .. ev.key .. repl.input_buffer:sub(repl.input_cursor)
+			repl.input_cursor = repl.input_cursor + 1
 		end
-	elseif ev.key == "pageup" then
-		repl.scroll_offset = repl.scroll_offset + 10
-	elseif ev.key == "pagedown" then
-		repl.scroll_offset = math.max(0, repl.scroll_offset - 10)
-	elseif ev.key == "a" and ev.modifiers.ctrl then
-		-- Select all
-		if #repl.input_buffer > 0 then
-			repl.selection_start = 1
-			repl.input_cursor = #repl.input_buffer + 1
+	elseif ev.mouse then
+		if ev.button == "wheel_up" and ev.action == "pressed" then
+			local max_scroll = math.max(0, #repl.output_lines - 1)
+			repl.scroll_offset = math.min(max_scroll, repl.scroll_offset + 3)
+		elseif ev.button == "wheel_down" and ev.action == "pressed" then
+			repl.scroll_offset = math.max(0, repl.scroll_offset - 3)
 		end
-	elseif ev.key == "c" and ev.modifiers.ctrl then
-		repl.CopyText()
-	elseif ev.key == "d" and ev.modifiers.ctrl then
-		repl.DuplicateLine()
-	elseif ev.key == "q" and ev.modifiers.ctrl then
-		system.ShutDown()
-	elseif ev.key == "x" and ev.modifiers.ctrl then
-		repl.CutText()
-	elseif ev.key == "v" and ev.modifiers.ctrl then
-		repl.PasteText()
-	elseif ev.key == "l" and ev.modifiers.ctrl then
-		repl.output_lines = {}
-		repl.scroll_offset = 0
-	elseif #ev.key == 1 then
-		repl.DeleteSelection()
-		repl.input_buffer = repl.input_buffer:sub(1, repl.input_cursor - 1) .. ev.key .. repl.input_buffer:sub(repl.input_cursor)
-		repl.input_cursor = repl.input_cursor + 1
 	end
 end
 
@@ -534,15 +554,6 @@ local function draw(term)
 		end
 	end
 
-	-- Draw separator
-	local sep = string.rep("-", w)
-
-	if repl.scroll_offset > 0 then
-		local scroll_text = " SCROLL: " .. repl.scroll_offset .. " "
-		sep = scroll_text .. string.rep("-", math.max(0, w - #scroll_text))
-	end
-
-	term:WriteStringToScreen(1, h - visible_input_lines, sep)
 	-- Draw input
 	local sel_start, sel_stop = repl.GetSelection()
 	local current_char_idx = 1
@@ -605,12 +616,19 @@ local function draw(term)
 end
 
 function repl.Initialize()
-	local term = terminal.WrapFile(io.stdin, io.stdout)
+	-- Use original stdout for terminal if available (stdout may be redirected)
+	local output = require("stdout")
+	local stdout_handle = output.original_stdout_file or io.stdout
+	local term = terminal.WrapFile(io.stdin, stdout_handle)
 	term:UseAlternateScreen(true)
 	term:Clear()
 	term:EnableCaret(true)
+	term:EnableMouse(true)
 
 	event.AddListener("Update", "repl", function()
+		-- Process any pending stdout data from the pipe
+		output.flush()
+
 		while true do
 			local ev = term:ReadEvent()
 

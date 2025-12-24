@@ -1,5 +1,13 @@
 local setmetatable = require("helpers.setmetatable_gc")
 local ffi = require("ffi")
+-- FILE operations
+ffi.cdef[[
+	typedef struct FILE FILE;
+	int fflush(FILE* stream);
+	size_t fwrite(const void* ptr, size_t size, size_t count, FILE* stream);
+	size_t fread(void* ptr, size_t size, size_t count, FILE* stream);
+	int fileno(FILE* stream);
+]]
 local terminal = {}
 local meta = {}
 meta.__index = meta
@@ -122,7 +130,7 @@ function meta:UseAlternateScreen(enable)
 end
 
 function meta:Flush()
-	self.output:flush()
+	ffi.C.fflush(self.output)
 end
 
 function meta:BeginFrame()
@@ -133,8 +141,8 @@ function meta:EndFrame()
 	if self._frame_buffer then
 		local buffer = table.concat(self._frame_buffer)
 		self._frame_buffer = nil
-		self.output:write(buffer)
-		self.output:flush()
+		ffi.C.fwrite(buffer, 1, #buffer, self.output)
+		ffi.C.fflush(self.output)
 	end
 end
 
@@ -142,7 +150,7 @@ function meta:Write(str)
 	if self._frame_buffer then
 		table.insert(self._frame_buffer, str)
 	else
-		self.output:write(str)
+		ffi.C.fwrite(str, 1, #str, self.output)
 	end
 end
 
@@ -982,9 +990,15 @@ else
 	local termios_boxed = ffi.typeof("$[1]", termios)
 
 	function terminal.WrapFile(input, output)
+		-- Handle wrapped file objects from fs module
+		if type(input) == "table" and input.file then input = input.file end
+
+		if type(output) == "table" and output.file then output = output.file end
+
 		local fd_no = ffi.C.fileno(input)
-		input:setvbuf("no")
-		output:setvbuf("no")
+		-- Note: setvbuf not available on raw FILE* pointers
+		-- input:setvbuf("no")
+		-- output:setvbuf("no")
 		local old_attributes = termios_boxed()
 		ffi.C.tcgetattr(fd_no, old_attributes)
 		local attr = termios_boxed()
