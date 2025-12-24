@@ -171,6 +171,8 @@ do
 		str = table.concat(str, "\t") .. "\n"
 		local path = callstack.get_line(2)
 
+		if path:find("tostring_object") then path = callstack.get_line(3) end
+
 		if path:starts_with("[string]:1") then
 			io.write(str)
 			return

@@ -1,4 +1,3 @@
 #!/usr/bin/env luajit
-
 --require("goluwa.main_wrapped")(...)
 require("goluwa.main")(...)
