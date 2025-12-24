@@ -1,3 +1,5 @@
+require("goluwa.global_environment")
+--
 local system = require("system")
 local profiler = require("profiler") -- init started in global_environment.lua
 local event = require("event")

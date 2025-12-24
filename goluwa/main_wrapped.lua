@@ -1,6 +1,4 @@
--- luajit debug.lua examples/vulkan_game_of_life.lua
 -- this will attempt to print a traceback from C and Lua on segfault
-local path = assert(...)
 local ffi = require("ffi")
 local signals = {
 	SIGSEGV = 11,
@@ -35,44 +33,61 @@ ffi.cdef([[
 	int kill(uint32_t pid, int sig);
 ]])
 local LUA_GLOBALSINDEX = -10002
-local state = ffi.C.luaL_newstate()
-io.stdout:setvbuf("no")
 
-for _, what in ipairs({"SIGSEGV"}) do
-	local enum = signals[what]
+local function wrap(path, ...)
+	local state = ffi.C.luaL_newstate()
+	io.stdout:setvbuf("no")
 
-	ffi.C.signal(enum, function(int)
-		io.write("received signal ", what, "\n")
+	for _, what in ipairs({"SIGSEGV"}) do
+		local enum = signals[what]
 
-		if what == "SIGSEGV" then
-			io.write("C stack traceback:\n")
-			local max = 64
-			local array = ffi.new("void *[?]", max)
-			local size = ffi.C.backtrace(array, max)
-			ffi.C.backtrace_symbols_fd(array, size, 0)
-			io.write()
-			local header = "========== attempting lua traceback =========="
-			io.write("\n\n", header, "\n")
-			ffi.C.luaL_traceback(state, state, nil, 0)
-			local len = ffi.new("uint64_t[1]")
-			local ptr = ffi.C.lua_tolstring(state, -1, len)
-			io.write(ffi.string(ptr, len[0]))
-			io.write("\n", ("="):rep(#header), "\n")
-			ffi.C.signal(int, nil)
-			ffi.C.kill(ffi.C.getpid(), int)
-		end
-	end)
-end
+		ffi.C.signal(enum, function(int)
+			io.write("received signal ", what, "\n")
 
-ffi.C.luaL_openlibs(state)
-
-local function check_error(ok)
-	if ok ~= 0 then
-		error(path .. " errored: \n" .. ffi.string(ffi.C.lua_tolstring(state, -1, nil)))
-		ffi.C.lua_close(state)
+			if what == "SIGSEGV" then
+				io.write("C stack traceback:\n")
+				local max = 64
+				local array = ffi.new("void *[?]", max)
+				local size = ffi.C.backtrace(array, max)
+				ffi.C.backtrace_symbols_fd(array, size, 0)
+				io.write()
+				local header = "========== attempting lua traceback =========="
+				io.write("\n\n", header, "\n")
+				ffi.C.luaL_traceback(state, state, nil, 0)
+				local len = ffi.new("uint64_t[1]")
+				local ptr = ffi.C.lua_tolstring(state, -1, len)
+				io.write(ffi.string(ptr, len[0]))
+				io.write("\n", ("="):rep(#header), "\n")
+				ffi.C.signal(int, nil)
+				ffi.C.kill(ffi.C.getpid(), int)
+			end
+		end)
 	end
+
+	ffi.C.luaL_openlibs(state)
+
+	local function check_error(ok)
+		if ok ~= 0 then
+			error("glw errored: \n" .. ffi.string(ffi.C.lua_tolstring(state, -1, nil)))
+			ffi.C.lua_close(state)
+		end
+	end
+
+	check_error(
+		ffi.C.luaL_loadstring(state, [[
+			require("goluwa.global_environment")
+			require("main")(...)
+		]])
+	)
+	ffi.C.lua_pushlstring(state, path, #path)
+
+	for i = 1, select("#", ...) do
+		local arg = select(i, ...)
+		ffi.C.lua_pushlstring(state, arg, #arg)
+	end
+
+	check_error(ffi.C.lua_pcall(state, 1 + select("#", ...), 0, 0))
+	os.exit(0)
 end
 
-check_error(ffi.C.luaL_loadfile(state, path))
-check_error(ffi.C.lua_pcall(state, 0, 0, 0))
-os.exit(0)
+return wrap

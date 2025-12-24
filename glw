@@ -1,4 +1,4 @@
 #!/usr/bin/env luajit
 
-require("goluwa.global_environment")
-require("main")(...)
+--require("goluwa.main_wrapped")(...)
+require("goluwa.main")(...)
