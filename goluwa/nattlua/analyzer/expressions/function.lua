@@ -1,0 +1,267 @@
+local tostring = tostring
+local Union = require("nattlua.types.union").Union
+local Table = require("nattlua.types.table").Table
+local Nil = require("nattlua.types.symbol").Nil
+local Tuple = require("nattlua.types.tuple").Tuple
+local Function = require("nattlua.types.function").Function
+local Any = require("nattlua.types.any").Any
+local VarArg = require("nattlua.types.tuple").VarArg
+local ipairs = _G.ipairs
+local Emitter = require("nattlua.emitter.emitter").New
+local assert = _G.assert
+
+local function collect_modifiers(modifiers)
+	local out = {}
+
+	for _, mod in ipairs(modifiers) do
+		out[mod.sub_type] = true
+	end
+
+	return out
+end
+
+local function analyze_arguments(self, node, func)
+	local args = {}
+
+	if
+		(
+			node.Type == "statement_function" or
+			node.Type == "statement_type_function" or
+			node.Type == "statement_analyzer_function" or
+			node.Type == "expression_analyzer_function" or
+			node.Type == "expression_type_function" or
+			node.Type == "expression_function"
+		)
+		and
+		node.self_call and
+		node.expression
+	then
+		self:PushAnalyzerEnvironment("runtime")
+		local val = self:GetFirstValue(self:AnalyzeExpression(node.expression.left))
+		self:PopAnalyzerEnvironment()
+
+		if val then
+			if val.Self then
+				args[1] = val.Self
+			elseif val.Self2 then
+				args[1] = val.Self2
+			elseif val:GetContract() then
+				args[1] = val
+			else
+				args[1] = Union({Any(), val})
+			end
+
+			self:MapTypeToNode(self:CreateLocalValue("self", args[1]), node.expression.left)
+		end
+	end
+
+	if
+		node.Type == "expression_function" or
+		node.Type == "statement_function" or
+		node.Type == "statement_local_function"
+	then
+		for i, key in ipairs(node.identifiers) do
+			if node.self_call then i = i + 1 end
+
+			-- stem type so that we can allow
+			-- function(x: foo<x>): nil
+			local ident = key.value:GetValueString()
+			self:MapTypeToNode(self:CreateLocalValue(ident, Any()), key)
+
+			if key.type_expression then
+				if key.modifiers then
+					func:SetInputModifiers((node.self_call and i - 1) or i, collect_modifiers(key.modifiers))
+				end
+
+				args[i] = self:AssertFallback(Nil(), self:AnalyzeExpression(key.type_expression))
+			elseif key.value.sub_type == "..." then
+				args[i] = VarArg(Any())
+			else
+				args[i] = Any()
+			end
+
+			self:MapTypeToNode(self:CreateLocalValue(ident, assert(args[i])), key)
+		end
+	elseif
+		node.Type == "statement_analyzer_function" or
+		node.Type == "expression_analyzer_function" or
+		node.Type == "expression_type_function" or
+		node.Type == "statement_type_function" or
+		node.Type == "statement_local_analyzer_function" or
+		node.Type == "statement_local_type_function" or
+		node.Type == "expression_function_signature"
+	then
+		if node.identifiers_typesystem then
+			for i, generic_type in ipairs(node.identifiers_typesystem) do
+				if generic_type.identifier and not generic_type.identifier.sub_type == "..." then
+					self:MapTypeToNode(
+						self:GetFirstValue(
+							self:CreateLocalValue(generic_type.identifier:GetValueString(), self:AnalyzeExpression(generic_type)) or
+								Nil()
+						),
+						generic_type
+					)
+				elseif generic_type.type_expression then
+					self:MapTypeToNode(
+						self:CreateLocalValue(generic_type.value:GetValueString(), Any(), i),
+						generic_type
+					)
+				end
+			end
+		end
+
+		for i, key in ipairs(node.identifiers) do
+			if
+				node.Type == "statement_function" or
+				node.Type == "statement_type_function" or
+				node.Type == "expression_function" or
+				node.Type == "expression_type_function" or
+				node.Type == "statement_type_function" or
+				node.Type == "statement_analyzer_function" or
+				node.Type == "expression_analyzer_function"
+			then
+				if node.self_call then i = i + 1 end
+			end
+
+			if key.identifier and key.identifier.sub_type ~= "..." then
+				args[i] = self:GetFirstValue(self:AnalyzeExpression(key))
+				self:MapTypeToNode(self:CreateLocalValue(key.identifier:GetValueString(), args[i]), key)
+			elseif key.Type == "expression_vararg" then
+				args[i] = self:AnalyzeExpression(key)
+			elseif key.type_expression then
+				self:MapTypeToNode(self:CreateLocalValue(key.value:GetValueString(), Any(), i), key)
+				args[i] = self:AnalyzeExpression(key.type_expression)
+			elseif key.Type == "expression_value" then
+				if node.Type == "expression_function_signature" then
+					local obj = self:AnalyzeExpression(key)
+
+					if i == 1 and obj.Type == "tuple" and #node.identifiers == 1 then
+						-- if we pass in a tuple we override the argument type
+						-- function(mytuple): string
+						return obj
+					else
+						-- in case the tuple is empty
+						args[i] = obj or Any() -- TODO?
+					end
+				else
+					args[i] = Any()
+				end
+			else
+				local obj = self:AnalyzeExpression(key)
+
+				if i == 1 and obj.Type == "tuple" and #node.identifiers == 1 then
+					-- if we pass in a tuple we override the argument type
+					-- function(mytuple): string
+					return obj
+				else
+					local val = self:Assert(obj)
+
+					-- in case the tuple is empty
+					if val then args[i] = val end
+				end
+			end
+		end
+	else
+		self:FatalError("unhandled statement " .. tostring(node))
+	end
+
+	return Tuple(args)
+end
+
+local function analyze_return_types(self, node, func)
+	local ret = {}
+
+	if node.return_types then
+		-- TODO:
+		-- somethings up with function(): (a,b,c)
+		-- when doing this vesrus function(): a,b,c
+		-- the return tuple becomes a tuple inside a tuple
+		for i, type_exp in ipairs(node.return_types) do
+			local obj = self:AnalyzeExpression(type_exp)
+
+			if type_exp.modifiers then
+				func:SetOutputModifiers(i, collect_modifiers(type_exp.modifiers))
+			end
+
+			if i == 1 and obj.Type == "tuple" and #node.identifiers == 1 and not obj.Repeat then
+				-- if we pass in a tuple, we want to override the return type
+				-- function(): mytuple
+				return obj
+			else
+				ret[i] = obj
+			end
+		end
+	end
+
+	return Tuple(ret)
+end
+
+local function has_explicit_arguments(node)
+	if
+		node.Type == "expression_analyzer_function" or
+		node.Type == "statement_analyzer_function" or
+		node.Type == "statement_local_analyzer_function" or
+		node.Type == "statement_local_type_function" or
+		node.Type == "expression_type_function" or
+		node.Type == "expression_function_signature"
+	then
+		return true
+	end
+
+	if
+		node.Type == "statement_function" or
+		node.Type == "statement_type_function" or
+		node.Type == "expression_function" or
+		node.Type == "statement_local_function" or
+		node.Type == "expression_type_function" or
+		node.Type == "statement_local_type_function"
+	then
+		for i, key in ipairs(node.identifiers) do
+			if key.type_expression then return true end
+		end
+	end
+
+	return false
+end
+
+local function has_explicit_return_type(node)
+	if node.return_types then return true end
+
+	return false
+end
+
+return {
+	AnalyzeFunction = function(self, node)
+		local obj = Function()
+		obj:SetUpvaluePosition(self:IncrementUpvaluePosition())
+		obj:SetScope(self:GetScope())
+		obj:SetInputIdentifiers(node.identifiers)
+		self:PushCurrentTypeFunction(obj)
+		self:CreateAndPushFunctionScope(obj)
+		self:PushAnalyzerEnvironment("typesystem")
+		obj:SetInputSignature(analyze_arguments(self, node, obj))
+		obj:SetOutputSignature(analyze_return_types(self, node, obj))
+		self:PopAnalyzerEnvironment()
+		self:PopScope()
+		self:PopCurrentTypeFunction()
+
+		if
+			node.Type == "expression_analyzer_function" or
+			node.Type == "statement_analyzer_function" or
+			node.Type == "statement_local_analyzer_function"
+		then
+			obj:SetAnalyzerFunction(node.compiled_function)
+		end
+
+		if node.Type ~= "expression_function_signature" then
+			obj:SetFunctionBodyNode(node)
+		end
+
+		obj:SetExplicitInputSignature(has_explicit_arguments(node))
+		obj:SetExplicitOutputSignature(has_explicit_return_type(node))
+
+		if self:IsRuntime() then self:AddToUnreachableCodeAnalysis(obj) end
+
+		return obj
+	end,
+}

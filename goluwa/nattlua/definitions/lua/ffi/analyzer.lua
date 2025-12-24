@@ -1,0 +1,283 @@
+--[[HOTRELOAD
+	run_test("test/tests/nattlua/c_declarations/cdef.nlua")
+]]
+local math = _G.math
+local setmetatable = _G.setmetatable
+local ipairs = _G.ipairs
+local table = _G.table
+local type = _G.type
+local assert = _G.assert
+local tonumber = _G.tonumber
+local class = require("nattlua.other.class")
+local META = class.CreateTemplate("analyzer")
+local Table = require("nattlua.types.table").Table
+local Tuple = require("nattlua.types.tuple").Tuple
+local Function = require("nattlua.types.function").Function
+local Number = require("nattlua.types.number").Number
+local LNumberRange = require("nattlua.types.range").LNumberRange
+local String = require("nattlua.types.string").String
+local LString = require("nattlua.types.string").LString
+local LNumber = require("nattlua.types.number").LNumber
+local Nil = require("nattlua.types.symbol").Nil
+local Boolean = require("nattlua.types.union").Boolean
+local Union = require("nattlua.types.union").Union
+local Any = require("nattlua.types.any").Any
+local ERROR_REDECLARE = false
+local walk_cdeclarations = require("nattlua.definitions.lua.ffi.ast_walker")
+require("nattlua.other.context_mixin")(META)
+local valid_qualifiers = {
+	["double"] = true,
+	["float"] = true,
+	["int8_t"] = true,
+	["uint8_t"] = true,
+	["int16_t"] = true,
+	["uint16_t"] = true,
+	["int32_t"] = true,
+	["uint32_t"] = true,
+	["char"] = true,
+	["signed char"] = true,
+	["unsigned char"] = true,
+	["short"] = true,
+	["short int"] = true,
+	["signed short"] = true,
+	["signed short int"] = true,
+	["unsigned short"] = true,
+	["unsigned short int"] = true,
+	["int"] = true,
+	["signed"] = true,
+	["signed int"] = true,
+	["unsigned"] = true,
+	["unsigned int"] = true,
+	["long"] = true,
+	["long int"] = true,
+	["signed long"] = true,
+	["signed long int"] = true,
+	["unsigned long"] = true,
+	["unsigned long int"] = true,
+	["float"] = true,
+	["double"] = true,
+	["long double"] = true,
+	["size_t"] = true,
+	["intptr_t"] = true,
+	["uintptr_t"] = true,
+	["int64_t"] = true,
+	["uint64_t"] = true,
+	["long long"] = true,
+	["long long int"] = true,
+	["signed long long"] = true,
+	["signed long long int"] = true,
+	["unsigned long long"] = true,
+	["unsigned long long int"] = true,
+}
+
+local function cast(self, decl)
+	if decl.type == "array" then
+		local size
+
+		if decl.size == "?" then
+			size = table.remove(self.dollar_signs_vars)
+		else
+			size = LNumber(tonumber(decl.size) or math.huge)
+		end
+
+		if size.Type == "number" then
+			if size:IsLiteral() then
+				if size:GetData() == 1 then
+					size = LNumber(0)
+				else
+					size = LNumberRange(0, size:GetData() - 1)
+				end
+			else
+				size = Number()
+			end
+		end
+
+		local arr = Table()
+		arr:Set(size, cast(self, assert(decl.of)))
+		return arr
+	elseif decl.type == "pointer" then
+		local arr = Table()
+		arr:Set(Number(), cast(self, assert(decl.of)))
+
+		if self:GetContextRef("function_argument") == true then
+			if
+				decl.of.type == "type" and
+				decl.of.modifiers[1] == "const" and
+				decl.of.modifiers[2] == "char"
+			then
+				arr.is_string = true
+			end
+		end
+
+		return arr
+	elseif decl.type == "type" then
+		for _, v in ipairs(decl.modifiers) do
+			if type(v) == "table" then
+				-- only catch struct, union and enum TYPE declarations
+				if v.type == "struct" or v.type == "union" then
+					local ident = v.identifier
+					local tbl
+
+					if v.fields then
+						tbl = Table()
+
+						if ident then
+							table.insert(self.current_decls, {ident = ident, tbl = tbl})
+						end
+
+						for _, v in ipairs(v.fields) do
+							local obj = cast(self, v)
+
+							if not v.identifier then
+								for _, kv in ipairs(obj:GetData()) do
+									tbl:Set(kv.key, kv.val)
+								end
+							else
+								tbl:Set(LString(v.identifier), obj)
+							end
+						end
+
+						if ident then table.remove(self.current_decls) end
+					elseif ident then
+						local current = self.current_decls and self.current_decls[#self.current_decls]
+
+						if current and current.ident == v.identifier then
+							-- recursion
+							tbl = current.tbl
+						else
+							-- previously defined type or new type {}
+							tbl = self.type_table:Get(LString(ident)) or
+								self.type_table:Get(LString(ident)) or
+								Table()
+						end
+					else
+						error("what")
+					end
+
+					if ident then self.type_table:Set(LString(ident), tbl) end
+
+					return tbl
+				elseif v.type == "enum" then
+					local ident = v.identifier
+					local tbl = Table()
+					local i = 0
+
+					for _, v in ipairs(v.fields) do
+						tbl:Set(LString(v.identifier), LNumber(i))
+						i = i + 1
+					end
+
+					if ident then
+						if ERROR_REDECLARE then
+							local existing = self.type_table:Get(LString(ident))
+
+							if existing and not existing:Equal(tbl) and not existing:IsEmpty() then
+								error(
+									"attempt to redeclare type " .. ident .. " = " .. tostring(existing) .. " as " .. tostring(tbl)
+								)
+							end
+						end
+
+						self.type_table:Set(LString(ident), tbl)
+					end
+
+					return Number()
+				end
+			end
+		end
+
+		local t = decl.modifiers[1]
+
+		if t == "const" then t = assert(decl.modifiers[2]) end
+
+		if valid_qualifiers[t] then
+			return Number()
+		elseif t == "bool" or t == "_Bool" then
+			return Boolean()
+		elseif t == "void" then
+			return Any()
+		elseif t == "$" or t == "?" then
+			return table.remove(self.dollar_signs_vars)
+		elseif t == "va_list" then
+			return Tuple():AddRemainder(Tuple({Any()}):SetRepeat(math.huge))
+		else
+			local s = LString(t)
+			local obj, err = self.type_table:Get(s)
+
+			if not obj then error(tostring(s) .. " is not a declared type") end
+
+			if obj then return obj end
+		end
+
+		return Number()
+	elseif decl.type == "va_list" then
+		return Tuple():AddRemainder(Tuple({Any()}):SetRepeat(math.huge))
+	elseif decl.type == "function" then
+		local args = {}
+		local rets = {}
+
+		if not self.super_hack then self:PushContextRef("function_argument") end
+
+		for i, v in ipairs(decl.args) do
+			table.insert(args, cast(self, v))
+		end
+
+		if not self.super_hack then self:PopContextRef("function_argument") end
+
+		return (Function(Tuple(args), Tuple({cast(self, assert(decl.rets))})))
+	elseif decl.type == "root" then
+		return (cast(self, assert(decl.of)))
+	end
+
+	error("unknown type " .. decl.type)
+end
+
+function META:AnalyzeRoot(ast, vars, typs, process_type, mode)
+	self.type_table = typs or Table()
+	self.vars_table = vars or Table()
+
+	local function callback(decl, ident, typedef)
+		if ident == "TYPEOF_CDECL" then self.super_hack = true -- TODO
+		end
+
+		local obj = cast(self, decl)
+		local key = LString(ident)
+
+		if typedef then
+			obj = process_type(key, obj, true, mode)
+			self.type_table:Set(key, obj)
+		else
+			obj = process_type(key, obj, false, mode)
+			self.vars_table:Set(key, obj)
+		end
+
+		if ident == "TYPEOF_CDECL" then
+			self.captured = obj:GetData()[1].val:GetInputSignature():GetData()[1]
+		end
+
+		if ident == "TYPEOF_CDECL" then self.super_hack = false -- TODO
+		end
+	end
+
+	walk_cdeclarations(ast, callback)
+	return self.vars_table, self.type_table
+end
+
+function META.New()
+	return META.NewObject(
+		{
+			context_values = {},
+			type_table = false,
+			vars_table = false,
+			analyzer = false,
+			context_ref = false,
+			super_hack = false,
+			env = false,
+			dollar_signs_vars = false,
+			dollar_signs_typs = false,
+			current_decls = {},
+		}
+	)
+end
+
+return META

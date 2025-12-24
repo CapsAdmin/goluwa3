@@ -1,0 +1,313 @@
+local Tuple = require("nattlua.types.tuple").Tuple
+local ConstString = require("nattlua.types.string").ConstString
+local Union = require("nattlua.types.union").Union
+local Any = require("nattlua.types.any").Any
+local error_messages = require("nattlua.error_messages")
+local ipairs = _G.ipairs
+local table_insert = _G.table.insert
+local math_huge = _G.math.huge
+
+local function union_call(self, analyzer, input, call_node)
+	if false--[[# as true]] then return end
+
+	if self:IsEmpty() then
+		return false, error_messages.operation("call", nil, "union")
+	end
+
+	do
+		-- make sure the union is callable, we pass the analyzer and 
+		-- it will throw errors if the union contains something that is not callable
+		-- however it will continue and just remove those values from the union
+		local truthy_union = Union()
+
+		for _, v in ipairs(self.Data) do
+			if analyzer:IsRuntime() then
+				if v.Type == "tuple" then v = self:GetFirstValue(v) end
+			end
+
+			if v.Type ~= "function" and v.Type ~= "table" and v.Type ~= "any" then
+				analyzer:Error(error_messages.union_contains_non_callable(self, v))
+			else
+				truthy_union:AddType(v)
+			end
+		end
+
+		truthy_union:SetUpvalue(self:GetUpvalue())
+		self = truthy_union
+	end
+
+	local is_overload = true
+
+	for _, obj in ipairs(self.Data) do
+		if obj.Type ~= "function" or obj:GetFunctionBodyNode() then
+			is_overload = false
+
+			break
+		end
+	end
+
+	if is_overload then
+		local errors = {}
+
+		for _, obj in ipairs(self.Data) do
+			if
+				obj.Type == "function" and
+				input:GetElementCount() < obj:GetInputSignature():GetMinimumLength()
+			then
+				table_insert(
+					errors,
+					{
+						"invalid amount of arguments: ",
+						input,
+						" ~= ",
+						obj:GetInputSignature(),
+					}
+				)
+			else
+				if input:IsSubsetOfTuple(obj:GetInputSignature()) then
+					local res, reason = analyzer:Call(obj, input:Copy(), call_node, true)
+
+					if res then return res end
+
+					table_insert(errors, reason)
+				end
+			end
+		end
+
+		return false, errors
+	end
+
+	local new = Union()
+
+	for _, obj in ipairs(self:GetData()) do
+		if obj.Type == "function" then
+			local recursively_called = analyzer:PushCallFrame(obj, call_node)
+
+			if recursively_called then return recursively_called end
+		end
+
+		local val, err = analyzer:Call(obj, input:Copy(), call_node, true)
+
+		if not val then
+			analyzer:Error(err)
+		else
+			if val.Type == "tuple" and val:HasOneValue() then
+				val, err = val:GetFirstValue()
+			elseif val.Type == "union" and val:GetMinimumLength() == 1 then
+				val, err = val:GetAtTupleIndex(1)
+			end
+
+			if val then new:AddType(val) else analyzer:Error(err) end
+		end
+
+		if obj.Type == "function" then analyzer:PopCallFrame() end
+	end
+
+	return Tuple({new--[[# as any]]})
+end
+
+local function tuple_call(self, analyzer, input, call_node)
+	return analyzer:Call((analyzer:GetFirstValue(self)--[[# as any]]), input, call_node, true)
+end
+
+local function table_call(self, analyzer, input, call_node)
+	if not self:GetMetaTable() then
+		return false,
+		error_messages.because(error_messages.table_index(self, "__call"), {"it has no metatable"})
+	end
+
+	local __call, reason = self:GetMetaTable():Get(ConstString("__call"))
+
+	if __call then
+		local new_input = {self}
+
+		for _, v in ipairs(input:GetData()) do
+			table_insert(new_input, v)
+		end
+
+		return analyzer:Call(__call, Tuple(new_input), call_node, true)
+	end
+
+	return false,
+	error_messages.because(error_messages.table_index(self, "__call"), reason)
+end
+
+local function_call
+
+do
+	local call_analyzer = require("nattlua.analyzer.operators.function_call_analyzer")
+	local call_body = require("nattlua.analyzer.operators.function_call_body")
+	local call_function_signature = require("nattlua.analyzer.operators.function_call_function_signature")
+
+	local function call_function_internal(self, obj, input)
+		-- mark the object as called so the unreachable code step won't call it
+		obj:SetCalled(true)
+
+		-- infer any uncalled functions in the arguments to get their return type
+		for i, b in ipairs(input:GetData()) do
+			if b.Type == "function" and not b:IsCalled() and not b:IsExplicitOutputSignature() then
+				local a = obj:GetInputSignature():GetWithNumber(i)
+
+				if
+					a and
+					(
+						(
+							a.Type == "function" and
+							not a:GetOutputSignature():IsSubsetOf(b:GetOutputSignature())
+						)
+						or
+						not a:IsSubsetOf(b)
+					)
+				then
+					local func = a
+
+					if func.Type == "union" then func = a:GetType("function") end
+
+					if func then
+						b:SetArgumentsInferred(true)
+
+						-- TODO: callbacks with ref arguments should not be called
+						-- mixed ref args make no sense, maybe ref should be a keyword for the function instead?
+						if func.Type == "function" and not b:HasReferenceTypes() and func then
+							local len = b:GetInputSignature():GetTupleLength()
+							local new = func:GetInputSignature():Copy(nil, true)
+
+							if not func:GetInputSignature():IsInfinite() then
+								local val, err = new:Slice(1, len)
+
+								if not val then
+									self:Error(err)
+								else
+									new = val
+								end
+							end
+
+							self:ErrorIfFalse(self:Call(b, new))
+						end
+					end
+				end
+			end
+		end
+
+		if obj:GetAnalyzerFunction() then
+			return call_analyzer(self, obj, input)
+		elseif obj:GetFunctionBodyNode() then
+			return call_body(self, obj, input)
+		end
+
+		return call_function_signature(self, obj, input)
+	end
+
+	function function_call(self, analyzer, input, call_node, not_recursive_call)
+		if
+			analyzer:IsRuntime() and
+			self:IsCalled() and
+			not self:HasReferenceTypes()
+			and
+			self:GetFunctionBodyNode() and
+			self:GetFunctionBodyNode().environment == "runtime" and
+			not self:GetAnalyzerFunction()
+			and
+			self:IsExplicitInputSignature()
+		then
+			if self.scope and self.scope.throws then
+				analyzer:GetScope():CertainReturn()
+			end
+
+			return self:GetOutputSignature():Copy()
+		end
+
+		if
+			not analyzer.config.should_crawl_untyped_functions and
+			analyzer:IsRuntime() and
+			self:IsCalled() and
+			not self:HasReferenceTypes()
+			and
+			self:GetFunctionBodyNode() and
+			self:GetFunctionBodyNode().environment == "runtime" and
+			not self:GetAnalyzerFunction()
+			and
+			not self:IsExplicitInputSignature()
+		then
+			if self.scope and self.scope.throws then
+				analyzer:GetScope():CertainReturn()
+			end
+
+			return self:GetOutputSignature():Copy()
+		end
+
+		local recursively_called = analyzer:PushCallFrame(self, call_node, not_recursive_call)
+
+		if recursively_called then return recursively_called end
+
+		local function_node = self:GetFunctionBodyNode()
+		local is_type_function = function_node and
+			(
+				function_node.Type == "statement_local_type_function" or
+				function_node.Type == "statement_type_function" or
+				function_node.Type == "expression_type_function"
+			)
+
+		if is_type_function then analyzer:PushAnalyzerEnvironment("typesystem") end
+
+		local ok, err = call_function_internal(analyzer, self, input)
+
+		if is_type_function then analyzer:PopAnalyzerEnvironment() end
+
+		analyzer:PopCallFrame()
+		return ok, err
+	end
+end
+
+local function base_call(self, analyzer, input, call_node)
+	return false, error_messages.invalid_type_call(self.Type, self)
+end
+
+local function any_call(self, analyzer, input, call_node)
+	-- it's ok to call any types, it will just return any
+	-- check arguments that can be mutated
+	for _, arg in ipairs(input:GetData()) do
+		if arg.Type == "table" and arg:GetAnalyzerEnvironment() == "runtime" then
+			if arg:GetContract() then
+				-- error if we call any with tables that have contracts
+				-- since anything might happen to them in an any call
+				analyzer:Error(error_messages.argument_contract_mutation(arg:GetContract()))
+			else
+				-- if we pass a table without a contract to an any call, we add any to its key values
+				for _, keyval in ipairs(arg:GetData()) do
+					keyval.key = Union({Any(), keyval.key})
+					keyval.val = Union({Any(), keyval.val})
+				end
+			end
+		end
+	end
+
+	return Tuple():AddRemainder(Tuple({Any()}):SetRepeat(math_huge))
+end
+
+local function call(self, obj, input, call_node, not_recursive_call)
+	if obj.Type == "any" then
+		return any_call(obj, self, input, call_node)
+	elseif obj.Type == "function" then
+		return function_call(obj, self, input, call_node, not_recursive_call)
+	elseif obj.Type == "tuple" then
+		return tuple_call(obj, self, input, call_node)
+	elseif obj.Type == "union" then
+		return union_call(obj, self, input, call_node)
+	elseif obj.Type == "table" then
+		return table_call(obj, self, input, call_node)
+	end
+
+	return base_call(obj, self, input, call_node)
+end
+
+return {
+	Call = function(META)
+		function META:Call(obj, input, call_node, not_recursive_call)
+			self:PushCurrentExpression(call_node)
+			local ret, err = call(self, obj, input, call_node, not_recursive_call)
+			self:PopCurrentExpression()
+			return ret, err
+		end
+	end,
+}

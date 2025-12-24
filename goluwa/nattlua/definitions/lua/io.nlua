@@ -1,0 +1,54 @@
+local type pattern = $"%**[Lanl].*" | number
+
+local function check_read_args<|...: ...pattern|>
+	local out = {}
+
+	for i = 1, select<|"#", ...|> do
+		local v = select(i, ...)
+
+		if type(v) == "string" and (v:sub(1, 1) == "n" or v:sub(1, 2) == "*n") then
+			out[i] = number | nil
+		else
+			out[i] = string | nil
+		end
+	end
+
+	return table.unpack<|out|>
+end
+
+type io = {
+	write = function=(...string)>(nil),
+	flush = function=()>(boolean | nil, string | nil),
+	read = check_read_args,
+	lines = function=()>(function=()>(string)),
+	setvbuf = function=(mode: "no" | "full" | "line", size: number | nil)>(boolean | nil, string | nil),
+	seek = function=(mode: "set" | "cur" | "end", offset: number | nil)>(number | nil, string | nil),
+}
+type File = {
+	close = function=(self)>(boolean | nil, string, number | nil),
+	write = function=(self, ...(number | string))>(self | nil, string | nil),
+	flush = function=(self)>(boolean | nil, string | nil),
+	read = function <|self: File, ...: ...pattern|>
+		return check_read_args<|...|>
+	end,
+	lines = function=(self)>(function=()>(string)),
+	setvbuf = function=(self, mode: "no" | "full" | "line", size: number | nil)>(boolean | nil, string | nil),
+	seek = function=(self, mode: "set" | "cur" | "end" | nil, offset: number | nil)>(number | nil, string | nil),
+}
+type io.open = function=(string, string | nil)>(nil | File)
+type io.popen = function=(string, string | nil)>(nil | File)
+type io.output = function=()>(File)
+type io.type = function=(File)>("file" | "closed file" | nil)
+type io.stdout = File
+type io.stdin = File
+type io.stderr = File
+
+analyzer function io.write(...: ...string)
+	for i, v in ipairs({...}) do
+		if not v:IsLiteral() then return end
+	end
+
+	for i, v in ipairs({...}) do
+		io.write(v:GetData())
+	end
+end

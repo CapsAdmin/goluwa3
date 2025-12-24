@@ -1,0 +1,300 @@
+type string = {}
+
+do -- Basic string functions
+	type ^string.len = ReturnIfNonLiteral<|
+		analyzer function(str: string): number
+			return types.LNumber(#str:GetData())
+		end
+	|>
+	type ^string.lower = ReturnIfNonLiteral<|analyzer function(str: string): string
+		return str:GetData():lower()
+	end|>
+	type ^string.upper = ReturnIfNonLiteral<|analyzer function(str: string): string
+		return str:GetData():upper()
+	end|>
+	type ^string.reverse = ReturnIfNonLiteral<|analyzer function(str: string): string
+		return str:GetData():reverse()
+	end|>
+
+	analyzer function ^string.sub(str: string, a: number, b: number | nil)
+		if not str:IsLiteral() or not a:IsLiteral() then return types.String() end
+
+		if b and b:IsLiteral() then
+			return str:GetData():sub(a:GetData(), b:GetData())
+		end
+
+		return str:GetData():sub(a:GetData())
+	end
+
+	analyzer function ^string.rep(str: string, n: number, sep: nil | string)
+		if n.Type == "number" and n:GetData() and n:GetData() > 1000 then
+			return types.String()
+		end
+
+		if str:IsLiteral() and n:IsLiteral() and n.Type ~= "range" then
+			if sep and sep:IsLiteral() then
+				return types.LString(string.rep(str:GetData(), n:GetData(), sep:GetData()))
+			end
+
+			return types.LString(string.rep(str:GetData(), n:GetData()))
+		end
+
+		return types.String()
+	end
+end
+
+do -- Character conversion functions
+	analyzer function ^string.char(...: ...number)
+		local out = {}
+
+		for i, num in ipairs({...}) do
+			if num.Type ~= "number" or not num:IsLiteral() then
+				return types.String()
+			end
+
+			out[i] = num:GetData()
+
+			if out[i] < 0 or out[i] > 255 then
+				error("character " .. out[i] .. " at index " .. i .. " is out of range", 2)
+			end
+		end
+
+		return string.char(table.unpack(out))
+	end
+
+	analyzer function ^string.byte(str: string, from: number | nil, to: number | nil)
+		if str:IsLiteral() and not from and not to then
+			return string.byte(str:GetData())
+		end
+
+		if str:IsLiteral() and from and from:IsLiteral() and not to then
+			return string.byte(str:GetData(), from:GetData())
+		end
+
+		if str:IsLiteral() and from and from:IsLiteral() and to and to:IsLiteral() then
+			return string.byte(str:GetData(), from:GetData(), to:GetData())
+		end
+
+		if from and from:IsLiteral() and to and to:IsLiteral() then
+			return types.Tuple():AddRemainder(types.Tuple({types.LNumberRange(0, 255)}):SetRepeat(to:GetData() - from:GetData() + 1))
+		end
+
+		return types.Tuple():AddRemainder(types.Tuple({types.LNumberRange(0, 255)}):SetRepeat(math.huge))
+	end
+end
+
+do -- Formatting functions
+	analyzer function ^string.format(s: string, ...: ...any)
+		if not s:IsLiteral() then return types.String() end
+
+		local ret = {...}
+
+		for i, v in ipairs(ret) do
+			if
+				not (
+					v.Type == "string" or
+					v.Type == "number" or
+					v.Type == "symbol"
+				) or
+				not v:IsLiteral()
+			then
+				return types.String()
+			end
+
+			ret[i] = v:GetData()
+		end
+
+		return string.format(s:GetData(), table.unpack(ret))
+	end
+end
+
+do -- Pattern matching functions
+	analyzer function ^string.find(str: string, pattern: string, start_position: number | nil, no_pattern: boolean | nil)
+		str = str:IsLiteral() and str:GetData()
+		pattern = pattern:IsLiteral() and pattern:GetData()
+		start_position = start_position and start_position:IsLiteral() and start_position:GetData() or 1
+		no_pattern = no_pattern and no_pattern:IsLiteral() and no_pattern:GetData() or false
+
+		if not str or not pattern then
+			return types.Tuple(
+				{
+					types.Union({types.Number(), types.Nil()}),
+					types.Union({types.Number(), types.Nil()}),
+					types.Union({types.String(), types.Nil()}),
+				}
+			)
+		end
+
+		local start, stop, found = str:find(pattern, start_position, no_pattern)
+
+		if found then found = types.LString(found) end
+
+		return start, stop, found
+	end
+
+	analyzer function ^string.match(str: string, pattern: string, start_position: number | nil)
+		str = str:IsLiteral() and str:GetData()
+		pattern = pattern:IsLiteral() and pattern:GetData()
+		start_position = start_position and start_position:IsLiteral() and start_position:GetData() or 1
+
+		if str and pattern then
+			local res = {str:match(pattern, start_position)}
+
+			for i, v in ipairs(res) do
+				if type(v) == "string" then
+					res[i] = types.LString(v)
+				else
+					res[i] = types.LNumber(v)
+				end
+			end
+
+			return table.unpack(res)
+		end
+
+		local len = math.huge
+
+		if pattern then len = select(2, pattern:gsub("%b()", "")) end
+
+		len = math.max(len, 1)
+		return types.Tuple():AddRemainder(types.Tuple({types.Union({types.String(), types.Nil()})}):SetRepeat(len))
+	end
+
+	analyzer function ^string.gmatch(s: string, pattern: string)
+		if s:IsLiteral() and pattern:IsLiteral() then
+			local f = s:GetData():gmatch(pattern:GetData())
+			return function()
+				local strings = {f()}
+
+				if strings[1] then
+					for i, v in ipairs(strings) do
+						strings[i] = types.LString(v)
+					end
+
+					return types.Tuple(strings)
+				end
+			end
+		end
+
+		if pattern:IsLiteral() then
+			local _, count = pattern:GetData():gsub("%b()", "")
+			local done = 0
+			return function()
+				if done == 2 then return end
+
+				done = done + 1
+
+				if count == 0 then return types.String() end
+
+				return types.Tuple({types.String()}):SetRepeat(count)
+			end
+		end
+
+		local done = 0
+		return function()
+			if done == 2 then return end
+
+			done = done + 1
+			return types.String()
+		end
+	end
+
+	analyzer function ^string.gsub(
+		str: string,
+		pattern: string,
+		replacement: function=(...string)>(...string) | string | {[string] = string},
+		max_replacements: number | nil
+	)
+		str = str:IsLiteral() and str:GetData()
+		pattern = pattern:IsLiteral() and pattern:GetData()
+		max_replacements = max_replacements and max_replacements:GetData()
+
+		if str and pattern and replacement then
+			if replacement.Type == "string" and replacement:IsLiteral() then
+				return string.gsub(str, pattern, replacement:GetData(), max_replacements)
+			elseif replacement.Type == "table" and replacement:IsLiteral() then
+				local out = {}
+
+				for _, kv in ipairs(replacement:GetData()) do
+					if kv.key:IsLiteral() and kv.val:IsLiteral() then
+						out[kv.key:GetData()] = kv.val:GetData()
+					end
+				end
+
+				return string.gsub(str, pattern, out, max_replacements)
+			elseif replacement.Type == "function" then
+				if not replacement:IsExplicitInputSignature() then
+					replacement:SetInputSignature(types.Tuple({types.String()}):SetRepeat(math.huge))
+				end
+
+				replacement:SetCalled(false)
+				local widen = false
+				local str, count = string.gsub(
+					str,
+					pattern,
+					function(...)
+						local ret = analyzer:Assert(analyzer:Call(replacement, analyzer:LuaTypesToTuple({...})))
+						local out = {}
+
+						for _, val in ipairs(ret:GetData()) do
+							if not val:IsLiteral() then
+								widen = true
+								return nil
+							end
+
+							table.insert(out, val:GetData())
+						end
+
+						return table.unpack(out)
+					end,
+					max_replacements
+				)
+
+				if not widen then return str, count end
+			end
+		end
+
+		return types.String(), types.Number()
+	end
+end
+
+do -- Binary data functions
+	type ^string.dump = function=(Function)>(string)
+	type ^string.pack = ReturnIfNonLiteral<|
+		analyzer function(fmt: string, ...: ...any): string
+			if not string.pack then return types.String() end
+
+			local args = {...}
+			local out = {}
+
+			for i, v in ipairs(args) do
+				if not v:IsLiteral() then return types.String() end
+
+				out[i] = v:GetData()
+			end
+
+			return string.pack(fmt:GetData(), table.unpack(out))
+		end
+	|>
+	type ^string.packsize = ReturnIfNonLiteral<|
+		analyzer function(fmt: string): number
+			if not string.packsize then return types.Number() end
+
+			return string.packsize(fmt:GetData())
+		end
+	|>
+
+	analyzer function ^string.unpack(fmt: string, s: string, pos: number | nil)
+		if not string.unpack then return types.Number() end
+
+		if fmt:IsLiteral() and s:IsLiteral() then
+			if pos and pos:IsLiteral() then
+				return string.unpack(fmt:GetData(), s:GetData(), pos:GetData())
+			else
+				return string.unpack(fmt:GetData(), s:GetData())
+			end
+		end
+
+		-- Return a tuple with unknown number of values
+		return types.Tuple():AddRemainder(types.Tuple({types.Any()}):SetRepeat(math.huge))
+	end
+end

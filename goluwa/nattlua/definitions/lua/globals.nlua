@@ -1,0 +1,620 @@
+_G.arg = _ as List<|any|>
+type _VERSION = string
+type _ = any
+type @Name = "_G"
+type rawlen = function=(v: Table | string)>(number)
+type rawequal = function=(v1: any, v2: any)>(boolean)
+type collectgarbage = function=(opt: string, arg: number)>(...any) | function=(opt: string)>(...any) | function=()>(...any)
+
+analyzer function print(...: ...any)
+	local str = {}
+
+	for i = 1, select("#", ...) do
+		local v = select(i, ...)
+		str[i] = tostring(v)
+	end
+
+	str = table.concat(str, "\t") .. "\n"
+	local tr = analyzer:GetCallInfo(1)
+
+	if tr then
+		local name = tr.source
+		local line = tr.line
+		local col = tr.col
+
+		if name:sub(1, 1) == "@" then name = name:sub(2) end
+
+		str = string.format("%s:%d:%d: %s", name, line, col, str)
+	end
+
+	io.write(require("nattlua.cli.colors").green(str))
+end
+
+SetPreventInputExpansionOnFunction<|print, true|>
+type type_print = print
+type print_once = print
+type tostring = function=(val: any)>(string)
+
+analyzer function next(t: Map<|any, any|>, k: any)
+	if t.Type == "any" then return types.Any(), types.Any() end
+
+	if t:IsLiteral() then
+		if k and not (k.Type == "symbol" and k:IsNil()) then
+			for i, kv in ipairs(t:GetData()) do
+				if kv.key:IsSubsetOf(k) then
+					local kv = t:GetData()[i + 1]
+
+					if kv then
+						if not k:IsLiteral() then
+							return types.Union({types.Nil(), kv.key}), types.Union({types.Nil(), kv.val})
+						end
+
+						return kv.key, kv.val
+					end
+
+					return nil
+				end
+			end
+		else
+			local kv = t:GetData() and t:GetData()[1]
+
+			if kv then return kv.key, kv.val end
+		end
+	end
+
+	if t.Type == "union" then t = t:GetData() else t = {t} end
+
+	local k = types.Union()
+	local v = types.Union()
+
+	for _, t in ipairs(t) do
+		if not t:GetData() then return types.Any(), types.Any() end
+
+		for i, kv in ipairs(t:GetContract() and t:GetContract():GetData() or t:GetData()) do
+			if kv.Type then
+				k:AddType(types.Number())
+				v:AddType(kv)
+			else
+				k:AddType(kv.key)
+				v:AddType(kv.val)
+			end
+		end
+	end
+
+	return k, v
+end
+
+analyzer function pairs(tbl: Table)
+	if tbl.Type == "table" and (tbl:HasLiteralKeys() or analyzer:IsTypesystem()) then
+		local i = 1
+		return function()
+			local kv = tbl:GetData()[i]
+
+			if not kv then return nil end
+
+			i = i + 1
+			local o = analyzer:IsRuntime() and analyzer:GetMutatedTableValue(tbl, kv.key)
+			return kv.key, o or kv.val
+		end
+	end
+
+	analyzer:PushAnalyzerEnvironment("typesystem")
+	local next = analyzer:GetLocalOrGlobalValue(types.ConstString("next"))
+	analyzer:PopAnalyzerEnvironment()
+	local k, v = analyzer:CallLuaTypeFunction(next:GetAnalyzerFunction(), analyzer:GetScope(), {tbl})
+	local done = 1
+
+	if v and v.Type == "union" then v:RemoveType(types.Nil()) end
+
+	return function()
+		if done == 3 then return nil end
+
+		done = done + 1
+		return k, v
+	end
+end
+
+analyzer function ipairs(tbl: {[number] = any} | {})
+	if tbl:IsLiteral() then
+		local i = 1
+		return function(key, val)
+			local kv = tbl:FindKeyValExact(types.LNumber(i))
+
+			if not kv then return nil end
+
+			i = i + 1
+			return kv.key, kv.val
+		end
+	end
+
+	if tbl.Type == "table" and not tbl:IsNumericallyIndexed() then
+		analyzer:Warning({tbl, " is not numerically indexed"})
+		local done = 1
+		return function()
+			if done == 3 then return nil end
+
+			done = done + 1
+			return types.Any(), types.Any()
+		end
+	end
+
+	analyzer:PushAnalyzerEnvironment("typesystem")
+	local next = analyzer:GetLocalOrGlobalValue(types.ConstString("next"))
+	analyzer:PopAnalyzerEnvironment()
+	local k, v = analyzer:CallLuaTypeFunction(next:GetAnalyzerFunction(), analyzer:GetScope(), {tbl})
+	local done = 1
+	return function()
+		if done == 3 then return nil end
+
+		done = done + 1
+
+		-- v must never be nil here
+		if v.Type == "union" then v = v:Copy():RemoveType(types.Nil()) end
+
+		return k, v
+	end
+end
+
+analyzer function require(name: string)
+	if not name:IsLiteral() then return types.Any() end
+
+	local str = name
+	local base_environment = analyzer:GetDefaultEnvironment("typesystem")
+
+	do
+		local val = base_environment:Get(str)
+
+		if val then return val end
+	end
+
+	do
+		local val = base_environment:Get(types.LString("Modules")):Get(str)
+
+		if val then return val end
+	end
+
+	if analyzer:GetLocalOrGlobalValue(str) then
+		return analyzer:GetLocalOrGlobalValue(str)
+	end
+
+	if package.loaders then
+		for i, searcher in ipairs(package.loaders) do
+			local loader = searcher(str:GetData())
+
+			if type(loader) == "function" then
+				local path = debug.getinfo(loader).source
+
+				if path:sub(1, 1) == "@" then
+					path = path:sub(2)
+
+					if path:sub(1, 2) == "./" then path = path:sub(3) end
+
+					if analyzer.loaded_modules[path] then return analyzer.loaded_modules[path] end
+
+					local res = analyzer:AnalyzeRootStatement(analyzer:ParseFile(path))
+					analyzer.loaded_modules[path] = res
+					return res
+				end
+			end
+		end
+	end
+
+	error("module '" .. str:GetData() .. "' not found")
+	return types.Any()
+end
+
+analyzer function type_error(str: string, level: number | nil)
+	error(str:GetData(), level and level:GetData() or nil)
+end
+
+analyzer function load(code: string | function=()>(string | nil), chunk_name: string | nil)
+	if not code:IsLiteral() or code.Type == "union" then
+		return types.Tuple(
+			{
+				types.Union({types.Nil(), types.AnyFunction()}),
+				types.Union({types.Nil(), types.String()}),
+			}
+		)
+	end
+
+	local str = code:GetData()
+	local compiler = nl.Compiler(str, chunk_name and chunk_name:GetData() or nil)
+	assert(compiler:Lex())
+	assert(compiler:Parse())
+	local f = types.Function()
+	code.lua_compiler = compiler
+
+	f:SetAnalyzerFunction(function(...)
+		return analyzer:AnalyzeRootStatement(compiler.SyntaxTree, ...)
+	end)
+
+	f:SetInputSignature(types.VarArg(types.Any()))
+	f:SetOutputSignature(types.VarArg(types.Any()))
+	return f
+end
+
+type loadstring = load
+
+analyzer function dofile(path: string)
+	if not path:IsLiteral() then return types.Any() end
+
+	return analyzer:AnalyzeRootStatement(analyzer:ParseFile(path:GetData()))
+end
+
+analyzer function loadfile(path: string)
+	if not path:IsLiteral() then return types.Any() end
+
+	path = path:GetData()
+	local root = analyzer:ParseFile(path)
+	local f = types.AnyFunction()
+
+	f:SetAnalyzerFunction(function(a, b, c, d, e, f)
+		return analyzer:AnalyzeRootStatement(root, a, b, c, d, e, f)
+	end)
+
+	return f
+end
+
+analyzer function rawset(tbl: {[any] = any} | {}, key: any, val: any)
+	if analyzer:IsTypesystem() then
+		tbl:Set(key, val)
+		return
+	end
+
+	analyzer:NewIndexOperator(tbl, key, val, true)
+end
+
+analyzer function rawget(tbl: {[any] = any} | {}, key: any)
+	if analyzer:IsTypesystem() then return tbl:Get(key) or types.Nil() end
+
+	return analyzer:AssertFallback(types.Nil(), analyzer:IndexOperator(tbl, key, true))
+end
+
+analyzer function assert(...: ...any)
+	local obj = select(1, ...)
+
+	if not obj then
+		analyzer:ThrowError("value expected!")
+		return ...
+	end
+
+	if obj:IsCertainlyFalse() then analyzer:Warning({"redundant assertion"}) end
+
+	local potential_msg = select(2, ...)
+
+	if obj.Type == "union" then
+		analyzer:TrackUpvalueUnion(obj, obj:GetTruthy(), obj:GetFalsy())
+	end
+
+	analyzer:ThrowSilentError(obj)
+
+	if not analyzer:IsDefinetlyReachable() then
+		if obj.Type == "union" then return obj:RemoveCertainlyFalsy(), select(2, ...) end
+
+		return ...
+	end
+
+	if obj.Type == "union" then
+		for _, tup in ipairs(obj:GetData()) do
+			if tup.Type == "tuple" and tup:GetWithNumber(1):IsTruthy() then return tup end
+		end
+	end
+
+	if obj:IsTruthy() and not obj:IsFalsy() then
+		if obj.Type == "union" then return obj:RemoveCertainlyFalsy(), select(2, ...) end
+	end
+
+	if obj:IsFalsy() then
+		analyzer:AssertError(
+			obj,
+			error_messages.plain_error(potential_msg and potential_msg:GetData() or "assertion failed!"),
+			nil,
+			obj:IsTruthy()
+		)
+
+		if obj.Type == "union" then return obj:RemoveCertainlyFalsy(), select(2, ...) end
+	end
+
+	return ...
+end
+
+analyzer function error(msg: string, level: number | nil)
+	if not analyzer:IsDefinetlyReachable() then
+		analyzer:ThrowSilentError()
+
+		if analyzer.LEFT_SIDE_OR then
+			local obj = analyzer.LEFT_SIDE_OR:GetFirstValue()
+
+			if obj and obj.Type == "union" then return obj:GetTruthy() end
+		end
+
+		return
+	end
+
+	if msg:IsLiteral() then
+		analyzer:ThrowError(msg:GetData(), level and level:GetData() or nil)
+	else
+		analyzer:ThrowError("error thrown from expression " .. tostring(analyzer:GetCurrentExpression()))
+	end
+end
+
+analyzer function type_error(msg: LiteralString, level: number | nil)
+	if analyzer.processing_deferred_calls then return end
+
+	analyzer:ThrowError(msg:GetData(), level and level:GetData() or nil)
+end
+
+type pcall = ReturnIfNonLiteral<|
+	analyzer function(callable: Function, ...: ...any): (boolean,
+	...any)
+		local diagnostics_index = #analyzer:GetDiagnostics()
+		analyzer:PushProtectedCall()
+		local tuple = analyzer:Assert(analyzer:Call(callable, types.Tuple({...})))
+		analyzer:PopProtectedCall()
+		local diagnostics = analyzer:GetDiagnostics()
+
+		do
+			local errors = {}
+
+			for i = math.max(diagnostics_index, 1), #diagnostics do
+				local d = diagnostics[i]
+
+				if d.severity == "error" then
+					return types.Boolean(), types.Union({types.LString(d.msg), types.Any()})
+				end
+			end
+		end
+
+		if
+			callable.Type ~= "function" or
+			not callable:GetFunctionBodyNode()
+			or
+			not callable:GetFunctionBodyNode()
+		then
+			return types.Boolean(), tuple
+		end
+
+		return true, tuple
+	end
+|>
+type xpcall = ReturnIfNonLiteral<|
+	analyzer function(callable: Function, error_cb: function=(any)>(), ...: ...any): (boolean,
+	...any)
+		local diagnostics_index = #analyzer:GetDiagnostics()
+		analyzer:PushProtectedCall()
+		local tuple = analyzer:Assert(analyzer:Call(callable, types.Tuple({...})))
+		analyzer:PopProtectedCall()
+		local diagnostics = analyzer:GetDiagnostics()
+
+		do
+			local errors = {}
+
+			for i = math.max(diagnostics_index, 1), #diagnostics do
+				local d = diagnostics[i]
+
+				if d.severity == "error" then
+					analyzer:ErrorIfFalse(analyzer:Call(callable, types.Union({types.LString(d.msg)})))
+					return types.Boolean(), types.Union({types.LString(d.msg), types.Any()})
+				end
+			end
+		end
+
+		if
+			callable.Type ~= "function" or
+			not callable:GetFunctionBodyNode()
+			or
+			not callable:GetFunctionBodyNode()
+		then
+			return types.Boolean(), tuple
+		end
+
+		return true, tuple
+	end
+|>
+type select = ReturnIfNonLiteral<|
+	analyzer function(index: 1 .. inf | "#", ...: ...any): ...any
+		local x = ...
+
+		if x and x.Type == "tuple" then
+			if index:GetData() == "#" then return x:GetSafeLength() end
+
+			return x:GetAtTupleIndex(index:GetData())
+		end
+
+		return select(index:GetData(), ...)
+	end
+|>
+type select_type = analyzer function(index: 1 .. inf | "#", ...: ...any): ...any
+	local x = ...
+
+	if x and x.Type == "tuple" then return x:Slice(index:GetData()) end
+
+	return select(index:GetData(), ...)
+end
+
+analyzer function type(obj: any)
+	if obj.Type == "any" then return types.String() end
+
+	if obj.Type == "union" then
+		analyzer.type_checked = obj
+		local copy = types.Union()
+		copy:SetUpvalue(obj:GetUpvalue())
+
+		for _, v in ipairs(obj:GetData()) do
+			copy:AddType(types.LString(v:GetLuaType()))
+		end
+
+		return copy
+	end
+
+	return obj:GetLuaType()
+end
+
+function MetaTableFunctions<|T: any|>
+	return {
+		__gc = function=(T)>(),
+		__pairs = function=(T)>(function=(T)>(any, any)),
+		__tostring = function=(T)>(string),
+		__call = function=(T, ...any)>(...any),
+		__index = function=(T, key: any)>(any),
+		__newindex = function=(T, key: any, value: any)>(),
+		__len = function=(a: T)>(number),
+		__unm = function=(a: T)>(any),
+		__bnot = function=(a: T)>(any),
+		__add = function=(a: T, b: any)>(any),
+		__sub = function=(a: T, b: any)>(any),
+		__mul = function=(a: T, b: any)>(any),
+		__div = function=(a: T, b: any)>(any),
+		__idiv = function=(a: T, b: any)>(any),
+		__mod = function=(a: T, b: any)>(any),
+		__pow = function=(a: T, b: any)>(any),
+		__band = function=(a: T, b: any)>(any),
+		__bor = function=(a: T, b: any)>(any),
+		__bxor = function=(a: T, b: any)>(any),
+		__shl = function=(a: T, b: any)>(any),
+		__shr = function=(a: T, b: any)>(any),
+		__concat = function=(a: T, b: any)>(any),
+		__eq = function=(a: T, b: any)>(boolean),
+		__lt = function=(a: T, b: any)>(boolean),
+		__le = function=(a: T, b: any)>(boolean),
+	}
+end
+
+analyzer function setmetatable(tbl: Table, meta: Table | nil)
+	if tbl.Type == "any" then return tbl end
+
+	if not meta or meta.Type == "symbol" and meta:IsFalse() then
+		tbl:SetMetaTable(false)
+		return tbl
+	end
+
+	do
+		local meta = tbl:GetMetaTable()
+
+		if meta and meta:Get(types.ConstString("__metatable")) then
+			analyzer:ThrowError("cannot change a protected metatable")
+			return
+		end
+	end
+
+	if meta.Type == "table" then
+		if meta.Self then
+			analyzer:ErrorIfFalse(tbl:FollowsContract(meta.Self))
+			tbl:CopyLiteralness2(meta.Self)
+			tbl:SetContract(meta.Self)
+			-- clear mutations so that when looking up values in the table they won't return their initial value
+			tbl:ClearMutations()
+		elseif analyzer:IsRuntime() then
+			meta.PotentialSelf = meta.PotentialSelf or types.Union()
+			meta.PotentialSelf:AddType(tbl)
+		end
+
+		tbl:SetMetaTable(meta)
+
+		if analyzer:IsTypesystem() then return tbl end
+
+		local metatable_functions = analyzer:CallTypesystemUpvalue(types.ConstString("MetaTableFunctions"), tbl)
+
+		for _, kv in ipairs(metatable_functions:GetData()) do
+			local a = kv.val
+			local b = meta:Get(kv.key)
+
+			if b and b.Type == "function" then
+				local ok = a:IsSubsetOf(b)
+
+				if ok then
+
+				--TODO: enrich callback types
+				--b:SetOutputSignature(a:GetOutputSignature())
+				--b:SetInputSignature(a:GetInputSignature())
+				--b.arguments_inferred = true
+				end
+			end
+		end
+	end
+
+	return tbl
+end
+
+analyzer function setmetatable2(tbl: Table, meta: Table | nil)
+	if not meta or meta.Type == "symbol" and meta:IsFalse() then
+		tbl:SetMetaTable(false)
+		return tbl
+	end
+
+	do
+		local meta = tbl:GetMetaTable()
+
+		if meta and meta:Get(types.ConstString("__metatable")) then
+			analyzer:ThrowError("cannot change a protected metatable")
+			return
+		end
+	end
+
+	tbl:SetMetaTable(meta)
+	return tbl
+end
+
+analyzer function getmetatable(tbl: Table)
+	if tbl.Type ~= "table" then return nil end
+
+	local meta = tbl:GetMetaTable()
+
+	if meta then
+		local val = meta:Get(types.ConstString("__metatable"))
+
+		if val then return val end
+
+		return meta
+	end
+
+	return nil
+end
+
+analyzer function tostring(val: any)
+	if analyzer:IsTypesystem() then return tostring(val) end
+
+	if val.Type == "function" then return "function: 0x000000000000" end
+
+	if not val:IsLiteral() then return types.String() end
+
+	if val.Type == "string" then return val end
+
+	if val.Type == "table" then
+		if val:GetMetaTable() then
+			local func = val:GetMetaTable():Get(types.ConstString("__tostring"))
+
+			if func then
+				return analyzer:Assert(analyzer:Call(func, types.Tuple({val})))
+			end
+		end
+
+		return tostring(val:GetData())
+	end
+
+	return tostring(val:GetData())
+end
+
+analyzer function tonumber(val: string | number | {__is_cdata_number = true}, base: number | nil)
+	if val.Type == "table" then
+		local T = val:Get(types.ConstString("T"))
+		return T or types.Number()
+	end
+
+	if val.Type == "number" and not val:IsLiteral() then return types.Number() end
+
+	if not val:IsLiteral() or base and not base:IsLiteral() then
+		return types.Union({types.Nil(), types.Number()})
+	end
+
+	if val:IsLiteral() then
+		base = base and base:IsLiteral() and base:GetData()
+		return tonumber(val:GetData(), base)
+	end
+
+	return val
+end
+
+function _G.LSX(func: Function, props: Table, children: List<|Table | string | number|>)
+	return {func = func, props = props, children = children}
+end

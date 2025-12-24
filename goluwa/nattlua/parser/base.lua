@@ -1,0 +1,537 @@
+--[[#local type { Token, TokenType } = import("~/nattlua/lexer/token.lua")]]
+
+--[[#local type { NodeKind, Nodes, Node } = import("~/nattlua/parser/node.lua")]]
+
+--[[#local type ParserConfig = import("~/nattlua/parser/config.nlua")]]
+
+--[[#local type { Code } = import<|"~/nattlua/code.lua"|>]]
+
+--[[#local type NodeType = "expression" | "statement"]]
+local NewNode = require("nattlua.parser.node").New
+local ipairs = _G.ipairs
+local assert = _G.assert
+local type = _G.type
+local table = _G.table
+local math_min = math.min
+local select = _G.select
+local class = require("nattlua.other.class")
+local VirtualToken = require("nattlua.lexer.token").NewVirtualToken
+return function()
+	local META = class.CreateTemplate("parser")
+	--[[#type META.@Self = {
+		@Name = "Parser",
+		config = ParserConfig,
+		Code = Code,
+		tokens = List<|Token|>,
+		TokenPosition = number,
+		suppress_on_parsed_node = false | {parent = Node | false, node_stack = List<|Node|>},
+		RootStatement = false | Node,
+		TealCompat = any,
+		dont_hoist_next_import = any,
+		imported = any,
+		statement_count = any,
+		dollar_signs = any,
+		value = any,
+		context_values = any,
+		FFI_DECLARATION_PARSER = boolean,
+		OnPreCreateNode = function=(self: any, node: any)>(),
+		OnError = function=(
+			self: any,
+			code: Code,
+			message: string,
+			start: number,
+			stop: number,
+			...: ...any
+		)>(),
+	}]]
+	--[[#type META.@Name = "Parser"]]
+	require("nattlua.other.context_mixin")(META)
+	--[[#local type Parser = META.@Self]]
+
+	function META:OnPreCreateNode(node--[[#: any]]) end
+
+	function META:OnParsedNode(node--[[#: any]]) end
+
+	function META.New(
+		tokens--[[#: List<|Token|>]],
+		code--[[#: Code]],
+		config--[[#: nil | false | {
+			root = nil | Node,
+			on_parsed_node = nil | function=(Parser, Node)>(Node),
+			path = nil | string,
+		}]]
+	)
+		return META.NewObject(
+			{
+				config = config or {},
+				Code = code,
+				TokenPosition = 1,
+				tokens = tokens,
+				suppress_on_parsed_node = false,
+				RootStatement = false,
+				TealCompat = false,
+				dont_hoist_next_import = false,
+				imported = false,
+				statement_count = false,
+				dollar_signs = false,
+				value = false,
+				FFI_DECLARATION_PARSER = false,
+				OnPreCreateNode = META.OnPreCreateNode,
+				OnError = META.OnError,
+			},
+			true
+		)
+	end
+
+	do
+		local push, get, get_offset, pop = META:SetupContextValue("parser_environment")
+
+		function META:PushParserEnvironment(env--[[#: "typesystem" | "runtime"]])
+			push(self, env)
+		end
+
+		function META:GetCurrentParserEnvironment()
+			return get(self) or "runtime"
+		end
+
+		function META:PopParserEnvironment()
+			pop(self)
+		end
+	end
+
+	do
+		local push, get, get_offset, pop = META:SetupContextValue("parent_node")
+
+		function META:PushParentNode(node--[[#: any]])
+			push(self, node)
+		end
+
+		function META:GetParentNode()
+			return get(self) or false--[[# as Node | false]]
+		end
+
+		function META:GetParentNodeOffset(level--[[#: number]])
+			return get_offset(self, level) or false--[[# as Node | false]]
+		end
+
+		function META:PopParentNode()
+			pop(self)
+		end
+	end
+
+	function META:StartNode(node_type--[[#: ref NodeKind]], start_node--[[#: nil | Node]])--[[#: ref any]]
+		local code_start = start_node and start_node.code_start or assert(self:GetToken()).start
+		local node = NewNode(
+			node_type,
+			self:GetCurrentParserEnvironment(),
+			self.Code,
+			code_start,
+			code_start,
+			self:GetParentNode()
+		)
+		self:OnPreCreateNode(node)
+		self:PushParentNode(node)
+		return node
+	end
+
+	function META:EndNode(node--[[#: Node]])
+		local prev = self:GetTokenOffset(-1)
+
+		if prev then
+			node.code_stop = prev.stop
+		else
+			local cur = self:GetToken()
+
+			if cur then node.code_stop = cur.stop end
+		end
+
+		self:PopParentNode()
+		self:OnParsedNode(node)
+
+		if self.config.on_parsed_node then
+			if
+				node.is_expression and
+				self.suppress_on_parsed_node and
+				self.suppress_on_parsed_node.parent == self:GetParentNode()
+			then
+				table.insert((self.suppress_on_parsed_node--[[# as any]]).node_stack, node)
+			else
+				local new_node = self.config.on_parsed_node(self, node)
+
+				if new_node then
+					node = new_node--[[# as any]]
+					node.parent = self:GetParentNode()
+				end
+			end
+		end
+
+		return node
+	end
+
+	function META:SuppressOnNode()
+		self.suppress_on_parsed_node = {parent = self:GetParentNode(), node_stack = {}}
+	end
+
+	function META:ReRunOnNode(node_stack--[[#: List<|Node|>]])
+		if not self.suppress_on_parsed_node then return end
+
+		for _, node_a in ipairs(self.suppress_on_parsed_node.node_stack) do
+			for i, node_b in ipairs(node_stack) do
+				if node_a == node_b and self.config.on_parsed_node then
+					local new_node = self.config.on_parsed_node(self, node_a)
+
+					if new_node then
+						node_stack[i] = new_node
+						new_node.parent = self:GetParentNode()
+					end
+				end
+			end
+		end
+
+		self.suppress_on_parsed_node = false
+	end
+
+	function META:Error(
+		msg--[[#: string]],
+		start_token--[[#: Token | nil]],
+		stop_token--[[#: Token | nil]],
+		...--[[#: ...any]]
+	)
+		local tk = self:GetToken()
+		local start = 0
+		local stop = 0
+
+		if start_token then
+			start = start_token.start
+		elseif tk then
+			start = tk.start
+		end
+
+		if stop_token then stop = stop_token.stop elseif tk then stop = tk.stop end
+
+		for i = 1, select("#", ...) do
+			if select(i, ...) == "see previous parser error" then return end
+		end
+
+		self:OnError(self.Code, msg, start, stop, ...)
+	end
+
+	function META:OnError(
+		code--[[#: Code]],
+		message--[[#: string]],
+		start--[[#: number]],
+		stop--[[#: number]],
+		...--[[#: ...any]]
+	) end
+
+	function META:GetToken()
+		return self.tokens[self.TokenPosition] or
+			self:NewToken("end_of_file", "see previous parser error")
+	end
+
+	function META:GetTokenOffset(offset--[[#: number]])
+		return self.tokens[self.TokenPosition + offset] or
+			self:NewToken("end_of_file", "see previous parser error")
+	end
+
+	function META:GetPosition()
+		return self.TokenPosition
+	end
+
+	function META:SetPosition(pos--[[#: number]])
+		self.TokenPosition = pos
+	end
+
+	function META:GetLength()
+		return #self.tokens
+	end
+
+	function META:Advance(offset--[[#: number]])
+		self.TokenPosition = self.TokenPosition + offset
+	end
+
+	function META:ConsumeToken()
+		local tk = self:GetToken()
+		self:Advance(1)
+		return tk
+	end
+
+	function META:IsToken(str--[[#: string]])
+		if self.tokens[self.TokenPosition] then
+			return self.tokens[self.TokenPosition].sub_type == str
+		end
+
+		return false
+	end
+
+	function META:IsTokenOffset(str--[[#: string]], offset--[[#: number]])
+		if false--[[# as true]] then return false--[[# as boolean]] end
+
+		if self.tokens[self.TokenPosition + offset] then
+			return self.tokens[self.TokenPosition + offset].sub_type == str
+		end
+
+		return false
+	end
+
+	function META:IsTokenValue(str--[[#: string]])
+		if self.tokens[self.TokenPosition] then
+			return self.tokens[self.TokenPosition]:ValueEquals(str)
+		end
+
+		return false
+	end
+
+	function META:IsTokenType(token_type--[[#: TokenType]])
+		if not self.tokens[self.TokenPosition] then
+			return token_type == "end_of_file"
+		end
+
+		return self.tokens[self.TokenPosition].type == token_type
+	end
+
+	function META:IsTokenValueOffset(str--[[#: string]], offset--[[#: number]])
+		if false--[[# as true]] then return false--[[# as boolean]] end
+
+		if self.tokens[self.TokenPosition + offset] then
+			return self.tokens[self.TokenPosition + offset]:ValueEquals(str)
+		end
+
+		return false
+	end
+
+	function META:IsTokenTypeOffset(token_type--[[#: TokenType]], offset--[[#: number]])
+		if false--[[# as true]] then return false--[[# as boolean]] end
+
+		if not self.tokens[self.TokenPosition + offset] then
+			return token_type == "end_of_file"
+		end
+
+		return self.tokens[self.TokenPosition + offset].type == token_type
+	end
+
+	function META:ParseToken()
+		local tk = self:GetToken()
+		self:Advance(1)
+		tk.parent = self:GetParentNode()
+		return tk
+	end
+
+	function META:RemoveToken(i)
+		local t = self.tokens[i]
+		table.remove(self.tokens, i)
+		return t
+	end
+
+	function META:AddTokens(tokens--[[#: {[1 .. inf] = Token}]])
+		local eof = table.remove(self.tokens)--[[# as Token]]
+
+		for i, token in ipairs(tokens) do
+			if token.type == "end_of_file" then break end
+
+			table.insert(self.tokens, self.TokenPosition + i - 1, token)
+		end
+
+		table.insert(self.tokens, eof)
+	end
+
+	do
+		local function error_expect(
+			self--[[#: META.@Self]],
+			str--[[#: string]],
+			what--[[#: string]],
+			start--[[#: Token | nil]],
+			stop--[[#: Token | nil]]
+		)
+			local tk = self:GetToken()
+			local node = self:GetParentNode()
+			local kind = node and node.Type or "unknown"
+
+			if not tk then
+				self:Error(
+					"expected $1 $2: reached end of code while parsing $3",
+					start,
+					stop,
+					what,
+					str,
+					kind
+				)
+			else
+				local val
+
+				if what == "value" then
+					val = tk:GetValueString()
+				elseif what == "type" then
+					val = tk.type
+				elseif what == "sub_type" then
+					val = tk.sub_type or "UNKNOWN SUBTYPE"
+				end
+
+				self:Error("expected $1 $2: got $3 while parsing $4", start, stop, what, str, val, kind)
+			end
+		end
+
+		function META:ExpectTokenValue(str--[[#: string]], error_start--[[#: Token | nil]], error_stop--[[#: Token | nil]])--[[#: Token]]
+			if not self:IsTokenValue(str) then
+				error_expect(self, str, "value", error_start, error_stop)
+				return self:NewToken("letter", str)
+			end
+
+			return self:ParseToken()--[[# as Token]]
+		end
+
+		function META:ExpectToken(str--[[#: string]], error_start--[[#: Token | nil]], error_stop--[[#: Token | nil]])--[[#: Token]]
+			if not self:IsToken(str) then
+				error_expect(self, str, "sub_type", error_start, error_stop)
+				return self:NewToken("letter", str)
+			end
+
+			return self:ParseToken()--[[# as Token]]
+		end
+
+		function META:ExpectValueTranslate(
+			str--[[#: string]],
+			new_str--[[#: string]],
+			error_start--[[#: Token | nil]],
+			error_stop--[[#: Token | nil]]
+		)--[[#: Token]]
+			if not self:IsTokenValue(str) then
+				error_expect(self, str, "value", error_start, error_stop)
+				return self:NewToken("value", str)
+			end
+
+			local tk = self:ParseToken()--[[# as Token]]
+			tk:ReplaceValue(new_str)
+			return tk
+		end
+
+		function META:ExpectTokenType(
+			str--[[#: TokenType]],
+			error_start--[[#: Token | nil]],
+			error_stop--[[#: Token | nil]]
+		)--[[#: Token]]
+			if not self:IsTokenType(str) then
+				error_expect(self, str, "type", error_start, error_stop)
+				return self:NewToken(str, "")
+			end
+
+			return self:ParseToken()--[[# as Token]]
+		end
+
+		function META:NewToken(type--[[#: TokenType]], value--[[#: string]])
+			return VirtualToken(type, value, 0, 0)
+		end
+	end
+
+	function META:ParseStatementsUntilCondition(condition--[[#: function=(Token)>(boolean)]], out--[[#: List<|any|>]])
+		out = out or {}
+		local i = #out
+
+		for _ = self:GetPosition(), self:GetLength() do
+			local tk = self:GetToken()
+
+			if not tk or (condition and condition(tk)) then break end
+
+			local node = (self--[[# as any]]):ParseStatement()
+
+			if not node then break end
+
+			if node.Type then
+				i = i + 1
+				out[i] = node
+			else
+				for _, v in ipairs(node) do
+					i = i + 1
+					out[i] = v
+				end
+			end
+		end
+
+		return out
+	end
+
+	function META:ParseMultipleValues(
+		reader--[[#: ref function=(Parser, ...: ref ...any)>(ref (nil | Node))]],
+		a--[[#: ref any]],
+		b--[[#: ref any]],
+		c--[[#: ref any]]
+	)
+		local out = {}
+
+		for i = 1, math_min(self:GetLength(), 200) do
+			local node = reader(self, a, b, c)
+
+			if not node then break end
+
+			out[i] = node
+
+			if not self:IsToken(",") then break end
+
+			(node.tokens--[[# as any]])[","] = self:ExpectTokenValue(",")
+		end
+
+		return out
+	end
+
+	function META:ParseFixedMultipleValues(
+		max--[[#: number]],
+		reader--[[#: ref function=(Parser, ...: ref ...any)>(ref (any))]],
+		a--[[#: ref any]],
+		b--[[#: ref any]],
+		c--[[#: ref any]]
+	)
+		local out = {}
+
+		for i = 1, max do
+			local node = reader(self, a, b, c)
+
+			if not node then break end
+
+			out[i] = node
+
+			if not self:IsToken(",") then break end
+
+			(node.tokens--[[# as any]])[","] = self:ExpectTokenValue(",")
+		end
+
+		return out
+	end
+
+	function META:ParseMultipleValuesAppend(
+		reader--[[#: ref function=(Parser, ...: ref ...any)>(ref (nil | Node))]],
+		out--[[#: List<|Node|>]],
+		a--[[#: ref any]],
+		b--[[#: ref any]],
+		c--[[#: ref any]]
+	)
+		for i = #out + 1, math_min(self:GetLength(), 20) do
+			local node = reader(self, a, b, c)
+
+			if not node then break end
+
+			out[i] = node
+
+			if not self:IsToken(",") then break end
+
+			(node.tokens--[[# as any]])[","] = self:ExpectTokenValue(",")
+		end
+
+		return out
+	end
+
+	function META:ErrorExpression()
+		local node = self:StartNode("expression_error")--[[# as any]]
+		node = self:EndNode(node)
+		self:Advance(1)
+		return node
+	end
+
+	function META:ErrorStatement()
+		local node = self:StartNode("statement_error")--[[# as any]]
+		node = self:EndNode(node)
+		self:Advance(1)
+		return node
+	end
+
+	return META
+end

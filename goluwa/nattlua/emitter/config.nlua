@@ -1,0 +1,25 @@
+local type EmitterConfig = {
+	pretty_print = boolean,
+	no_newlines = boolean,
+	extra_indent = {
+		[string] = {to = string} | string,
+	},
+	string_quote = string,
+	type_annotations = boolean,
+	no_semicolon = boolean,
+	comment_type_annotations = boolean,
+	max_argument_length = number,
+	omit_invalid_code = boolean,
+	force_parenthesis = boolean,
+	module_encapsulation_method = "loadstring",
+	blank_invalid_code = boolean,
+	transpile_extensions = boolean,
+	skip_translation = boolean,
+	inside_data_import = boolean,
+	trailing_newline = boolean,
+	max_line_length = number,
+	comment_type_annotations_in_lua_files = boolean,
+	skip_comments = boolean,
+	comment_c_variables = boolean,
+}
+return Partial<|EmitterConfig|>
