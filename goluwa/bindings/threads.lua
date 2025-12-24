@@ -1,5 +1,6 @@
 local ffi = require("ffi")
 local buffer = require("string.buffer")
+local setmetatable = require("helpers.setmetatable_gc")
 local threads = {}
 
 if ffi.os == "Windows" then

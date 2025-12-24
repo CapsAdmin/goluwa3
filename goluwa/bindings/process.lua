@@ -1,4 +1,5 @@
 local ffi = require("ffi")
+local setmetatable = require("helpers.setmetatable_gc")
 local process = {}
 
 -- Platform-specific error handling

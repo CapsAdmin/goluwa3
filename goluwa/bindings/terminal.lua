@@ -383,18 +383,18 @@ if jit.os == "Windows" then
 	local function add_flags(handle, tbl)
 		local ptr = ffi.C.GetStdHandle(handle)
 
-		if ptr == nil then throw_error() end
+		if ptr == nil then error(throw_error()) end
 
 		local flags = ffi.new("uint16_t[1]")
 
-		if ffi.C.GetConsoleMode(ptr, flags) == 0 then throw_error() end
+		if ffi.C.GetConsoleMode(ptr, flags) == 0 then error(throw_error()) end
 
 		local old_flags = tonumber(flags[0])
 		flags[0] = table_to_flags(tbl, mode_flags, function(out, val)
 			return bit.bor(out, val)
 		end)
 
-		if ffi.C.SetConsoleMode(ptr, flags[0]) == 0 then throw_error() end
+		if ffi.C.SetConsoleMode(ptr, flags[0]) == 0 then error(throw_error()) end
 
 		return old_flags
 	end
@@ -435,14 +435,27 @@ if jit.os == "Windows" then
 	local function revert_flags(handle, old_flags)
 		local ptr = ffi.C.GetStdHandle(handle)
 
-		if ptr == nil then throw_error() end
+		if ptr == nil then print(throw_error()) end
 
-		if ffi.C.SetConsoleMode(ptr, old_flags) == 0 then throw_error() end
+		if ffi.C.SetConsoleMode(ptr, old_flags) == 0 then print(throw_error()) end
 	end
 
 	function meta:__gc()
+		self:Close()
+	end
+
+	function meta:Close()
+		if self.closed then return end
+
+		-- Restore terminal state before closing
+		self:NoAttributes() -- Reset text attributes
+		self:EnableMouse(false) -- Disable mouse tracking
+		self:UseAlternateScreen(false) -- Return to main screen
+		self:EnableCaret(true) -- Show cursor
+		self:Flush() -- Flush all output before restoring
 		revert_flags(STD_INPUT_HANDLE, self.old_flags_input)
 		revert_flags(STD_OUTPUT_HANDLE, self.old_flags_output)
+		self.closed = true
 	end
 
 	function meta:GetSize()
@@ -1089,13 +1102,27 @@ else
 		return char
 	end
 
-	function meta:__gc()
+	function meta:Close()
+		if self.closed then return end
+
+		-- Restore terminal state before closing
+		self:NoAttributes() -- Reset text attributes
+		self:EnableMouse(false) -- Disable mouse tracking
+		self:UseAlternateScreen(false) -- Return to main screen
+		self:EnableCaret(true) -- Show cursor
+		self:Flush() -- Flush all output before restoring
 		local fd_no = ffi.C.fileno(self.output)
 		local num = ffi.C.tcsetattr(fd_no, TCSANOW, self.old_attributes)
 
 		if num ~= 0 then
 			print("terminal:__gc: unable to restore terminal attributes: %s", lasterror())
 		end
+
+		self.closed = true
+	end
+
+	function meta:__gc()
+		self:Close()
 	end
 
 	-- Mouse tracking state for Unix

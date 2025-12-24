@@ -1,6 +1,7 @@
 local event = require("event")
 local terminal = require("bindings.terminal")
 local system = require("system")
+local output = require("stdout")
 local repl = {
 	started = true,
 	input_buffer = "",
@@ -250,7 +251,6 @@ function repl.InputLua(str)
 		repl.is_executing = true
 		local ok, res = pcall(func)
 		-- Flush stdout to capture any pending print() output
-		local output = require("stdout")
 		output.flush()
 		repl.is_executing = false
 
@@ -616,8 +616,6 @@ local function draw(term)
 end
 
 function repl.Initialize()
-	-- Use original stdout for terminal if available (stdout may be redirected)
-	local output = require("stdout")
 	local stdout_handle = output.original_stdout_file or io.stdout
 	local term = terminal.WrapFile(io.stdin, stdout_handle)
 	term:UseAlternateScreen(true)
@@ -645,8 +643,8 @@ function repl.Initialize()
 	end)
 
 	event.AddListener("ShutDown", "repl", function()
-		term:UseAlternateScreen(false)
-		term:EnableCaret(true)
+		term:Close()
+		require("stdout").flush()
 	end)
 
 	repl.term = term
