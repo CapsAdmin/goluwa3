@@ -1,13 +1,10 @@
 local utility = require("utility")
 local tostringx = require("helpers.tostring_object").tostring_object
-local logfile = require("logging")
 local traceback = library()
 -- this should be used for xpcall
 local suppress = false
 
 function traceback.OnError(msg, ...)
-	logfile.LogSection("lua error", true)
-
 	if msg then logn(msg) end
 
 	msg = msg or "no error"
@@ -151,7 +148,6 @@ function traceback.OnError(msg, ...)
 		logn("")
 	end
 
-	logfile.LogSection("lua error", false)
 	suppress = false
 end
 

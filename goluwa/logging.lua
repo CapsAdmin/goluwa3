@@ -1,70 +1,10 @@
-local fs = require("bindings.filesystem")
-local repl = require("repl")
-local event
+local output = require("stdout")
 local list_concat = table.concat
 local select = select
 local logfile = library()
-logfile.files = {}
 
-do
-	local base_log_dir = "logs/"
-	fs.create_directory(base_log_dir)
-
-	function logfile.GetOutputPath(name)
-		return base_log_dir .. name .. "_" .. jit.os:lower() .. ".txt"
-	end
-end
-
-function logfile.SetOutputName(name)
-	if not logfile.files[name] then
-		local file = assert(io.open(logfile.GetOutputPath(name), "w"))
-		file:setvbuf("no")
-		logfile.files[name] = file
-	end
-
-	logfile.current = logfile.files[name]
-end
-
-function logfile.GetOutputFile()
-	return logfile.current
-end
-
-logfile.SetOutputName("console")
-
-do
-	local suppress_print = false
-
-	local function can_print(str)
-		if suppress_print then return end
-
-		event = event or require("event")
-
-		if event then
-			suppress_print = true
-
-			if event.Call("ReplPrint", str) == false then
-				suppress_print = false
-				return false
-			end
-
-			suppress_print = false
-		end
-
-		return true
-	end
-
-	function logfile.RawLog(str)
-		logfile.GetOutputFile():write(str)
-
-		if logfile.files.console == logfile.GetOutputFile() and can_print(str) then
-			if repl.started and repl.StyledWrite then
-				repl.StyledWrite(str)
-			else
-				io.write(str)
-				io.flush()
-			end
-		end
-	end
+function logfile.RawLog(str)
+	output.write(str)
 end
 
 function logfile.Log(...)
@@ -103,11 +43,6 @@ do
 	function logfile.ErrorFormat(str, level, ...)
 		error(format(str, ...), level)
 	end
-end
-
-function logfile.LogSection(type, b)
-	event = event or require("event")
-	event.Call("LogSection", type, b)
 end
 
 do
@@ -157,31 +92,36 @@ function logfile.WarningLog(fmt, ...)
 	local level = tonumber(select(fmt:count("%") + 1, ...) or 1) or 1
 	local str = fmt:safe_format(...)
 	local source = debug.get_pretty_source(level + 1, true)
-	logn(source, ": ", str)
+	logfile.LogNewline(source, ": ", str)
 	return fmt, ...
 end
 
-function logfile.VariablePrint(...)
-	logf("%s:\n", debug.getinfo(logfile.SourceLevel() + 1, "n").name or "unknown")
+do
+	local codec = require("codec")
 
-	for i = 1, select("#", ...) do
-		local name = debug.getlocal(logfile.SourceLevel() + 1, i)
-		local arg = select(i, ...)
-		logf(
-			"\t%s:\n\t\ttype: %s\n\t\tprty: %s\n",
-			name or "arg" .. i,
-			type(arg),
-			tostring(arg),
-			codec.Encode("luadata", arg)
-		)
+	function logfile.VariablePrint(...)
+		logf("%s:\n", debug.getinfo(logfile.SourceLevel() + 1, "n").name or "unknown")
 
-		if type(arg) == "string" then logn("\t\tsize: ", #arg) end
+		for i = 1, select("#", ...) do
+			local name = debug.getlocal(logfile.SourceLevel() + 1, i)
+			local arg = select(i, ...)
+			logf(
+				"\t%s:\n\t\ttype: %s\n\t\tprty: %s\n",
+				name or "arg" .. i,
+				type(arg),
+				tostring(arg),
+				codec.Encode("luadata", arg)
+			)
 
-		if typex(arg) ~= type(arg) then logn("\t\ttypx: ", typex(arg)) end
+			if type(arg) == "string" then logfile.LogNewline("\t\tsize: ", #arg) end
+
+			if typex(arg) ~= type(arg) then logfile.LogNewline("\t\ttypx: ", typex(arg)) end
+		end
 	end
 end
 
 do -- nospam
+	local system = require("system")
 	local last = {}
 
 	function logfile.LogFormatNoSpam(str, ...)
@@ -189,7 +129,7 @@ do -- nospam
 		local t = system.GetElapsedTime()
 
 		if not last[str] or last[str] < t then
-			logn(str)
+			logfile.LogNewline(str)
 			last[str] = t + 3
 		end
 	end

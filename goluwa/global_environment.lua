@@ -53,17 +53,17 @@ require("helpers.math")
 _G.table.print = require("helpers.tostring_object").dump_object
 
 do
-	local logfile = require("logging")
-	_G.logf_nospam = logfile.LogFormatNoSpam
-	_G.logn_nospam = logfile.LogNewlineNoSpam
-	_G.vprint = logfile.VariablePrint
-	_G.wlog = logfile.WarningLog
-	_G.llog = logfile.LibraryLog
-	_G.log = logfile.Log
-	_G.logn = logfile.LogNewline
-	_G.errorf = logfile.ErrorFormat
-	_G.logf = logfile.LogFormat
-	_G.logfile = logfile
+	local logging = require("logging")
+	_G.logf_nospam = logging.LogFormatNoSpam
+	_G.logn_nospam = logging.LogNewlineNoSpam
+	_G.vprint = logging.VariablePrint
+	_G.wlog = logging.WarningLog
+	_G.llog = logging.LibraryLog
+	_G.log = logging.Log
+	_G.logn = logging.LogNewline
+	_G.errorf = logging.ErrorFormat
+	_G.logf = logging.LogFormat
+	_G.logging = logging
 end
 
 do

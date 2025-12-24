@@ -182,15 +182,12 @@ do
 					end
 				end
 
-				logfile.SetOutputName("console")
 				return ...
 			end
 
 			for name, func in pairs(library) do
 				if type(func) == "function" or type(func) == "cdata" then
 					library[name] = function(...)
-						logfile.SetOutputName(log_name)
-
 						if not post_calls_only and not filter[name] then
 							local args = {}
 
@@ -388,9 +385,7 @@ function debug.log_calls(b, type)
 	local hook
 	hook = function()
 		debug.sethook()
-		logfile.SetOutputName("lua_calls")
 		logn(debug.traceback())
-		logfile.SetOutputName("console")
 		debug.sethook(hook, type)
 	end
 	debug.sethook(hook, type)

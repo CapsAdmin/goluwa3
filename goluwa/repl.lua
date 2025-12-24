@@ -622,6 +622,10 @@ function repl.Initialize()
 		draw(term)
 	end)
 
+	event.AddListener("StdOutWrite", "repl", function(str)
+		if repl.started then repl.StyledWrite(str) end
+	end)
+
 	event.AddListener("ShutDown", "repl", function()
 		term:UseAlternateScreen(false)
 		term:EnableCaret(true)

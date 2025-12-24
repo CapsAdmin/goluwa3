@@ -1,7 +1,6 @@
 local event = require("event")
 local system = require("system")
 local traceback = require("helpers.traceback")
-local logfile = require("logging")
 local timer = library()
 timer.timers = timer.timers or {}
 
