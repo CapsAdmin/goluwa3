@@ -8,6 +8,14 @@ local render3d = require("render3d.render3d")
 local Model = require("components.model")
 -- Debug: Show debug info
 local show_debug_info = false
+local debug_modes = {
+	"none",
+	"normals",
+	"albedo",
+	"roughness_metallic",
+	"depth",
+	"reflection",
+}
 
 -- Debug: Freeze frustum for culling
 function events.Draw2D.debug_info(dt)
@@ -83,6 +91,16 @@ function events.Draw2D.debug_info(dt)
 		y = y + 20
 		render2d.SetColor(1, 1, 0.5, 1)
 		gfx.DrawText("  (GPU decides actual visibility)", x, y)
+		y = y + 20
+	end
+
+	-- Debug mode
+	local debug_mode = render3d.GetDebugMode()
+
+	if debug_mode ~= "none" then
+		render2d.SetColor(1, 0.5, 1, 1)
+		gfx.DrawText(string.format("Debug Mode: %s", debug_mode), x, y)
+		y = y + 20
 	end
 end
 
@@ -177,6 +195,23 @@ function events.KeyInput.renderdoc(key, press)
 
 	-- Toggle freeze frustum
 	if key == "f" then render3d.freeze_culling = not render3d.freeze_culling end
+
+	-- Toggle debug modes
+	if key == "g" then
+		local current = render3d.GetDebugMode()
+		local next_mode = "none"
+
+		for i, mode in ipairs(debug_modes) do
+			if mode == current then
+				next_mode = debug_modes[i + 1] or debug_modes[1]
+
+				break
+			end
+		end
+
+		render3d.SetDebugMode(next_mode)
+		print("Debug mode: " .. next_mode)
+	end
 
 	if key == "c" and input.IsKeyDown("left_control") then system.ShutDown(0) end
 end

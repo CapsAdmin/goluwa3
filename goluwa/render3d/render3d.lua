@@ -34,6 +34,9 @@ local FragmentConstants = ffi.typeof([[
 		float camera_position[3];
 		int debug_cascade_colors;
 		int light_count;
+		int debug_mode;
+		float near_z;
+		float far_z;
 	}
 ]])
 local render3d = library()
@@ -191,6 +194,9 @@ function render3d.Initialize()
 						vec3 camera_position;
 						int debug_cascade_colors;
 						int light_count;
+						int debug_mode;
+						float near_z;
+						float far_z;
 					} pc;
 
 					const float PI = 3.14159265359;
@@ -452,6 +458,24 @@ function render3d.Initialize()
 							color = mix(color, cascade_color, 0.4);
 						}
 
+						if (pc.debug_mode == 1) { // normals
+							color = N * 0.5 + 0.5;
+						} else if (pc.debug_mode == 2) { // albedo
+							color = albedo.rgb;
+						} else if (pc.debug_mode == 3) { // roughness_metallic
+							color = vec3(roughness, metallic, 0.0);
+						} else if (pc.debug_mode == 4) { // depth
+							float z = gl_FragCoord.z;
+							float linear_depth = (pc.near_z * pc.far_z) / (pc.far_z + z * (pc.near_z - pc.far_z));
+							color = vec3(linear_depth / 100.0); // Scale it so we can actually see something (e.g. 100 units)
+						} else if (pc.debug_mode == 5) { // reflection
+							if (pc.environment_texture_index >= 0) {
+								color = sample_env_map(V, N, roughness);
+							} else {
+								color = vec3(0.0);
+							}
+						}
+
 						out_color = vec4(color, albedo.a);
 					}
 				]],
@@ -578,6 +602,28 @@ function render3d.GetDebugCascadeColors()
 	return render3d.debug_cascade_colors
 end
 
+local debug_modes = {
+	none = 0,
+	normals = 1,
+	albedo = 2,
+	roughness_metallic = 3,
+	depth = 4,
+	reflection = 5,
+}
+render3d.debug_mode = 0
+
+function render3d.SetDebugMode(mode)
+	render3d.debug_mode = debug_modes[mode] or 0
+end
+
+function render3d.GetDebugMode()
+	for k, v in pairs(debug_modes) do
+		if v == render3d.debug_mode then return k end
+	end
+
+	return "none"
+end
+
 do
 	local vertex_constants = VertexConstants()
 	local fragment_constants = FragmentConstants()
@@ -626,6 +672,9 @@ do
 			fragment_constants.camera_position[2] = camera_position.z
 			-- Debug cascade visualization
 			fragment_constants.debug_cascade_colors = render3d.debug_cascade_colors and 1 or 0
+			fragment_constants.debug_mode = render3d.debug_mode or 0
+			fragment_constants.near_z = render3d.camera:GetNearZ()
+			fragment_constants.far_z = render3d.camera:GetFarZ()
 			fragment_constants.light_count = math.min(#Light.GetLights(), 32)
 			render3d.pipeline:PushConstants(cmd, "fragment", ffi.sizeof(VertexConstants), fragment_constants)
 		end
