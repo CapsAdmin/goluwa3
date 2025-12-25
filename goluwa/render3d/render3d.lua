@@ -332,10 +332,13 @@ function render3d.Initialize()
 						// Sample textures
 						vec4 albedo = texture(textures[nonuniformEXT(pc.albedo_texture_index)], in_uv) * pc.base_color_factor;
 						vec3 normal_map = texture(textures[nonuniformEXT(pc.normal_texture_index)], in_uv).rgb;					
-					// Source engine normals have X and Z swapped
-					if (pc.flip_normal_xy != 0) {
-						normal_map = normal_map.bgr;
-					}						vec4 metallic_roughness = texture(textures[nonuniformEXT(pc.metallic_roughness_texture_index)], in_uv);
+						// Source engine normals have X and Z swapped
+						if (pc.flip_normal_xy != 0) {
+							normal_map.g = 1-normal_map.g;
+							normal_map.r = 1-normal_map.r;
+						}						
+						
+						vec4 metallic_roughness = texture(textures[nonuniformEXT(pc.metallic_roughness_texture_index)], in_uv);
 						float ao = texture(textures[nonuniformEXT(pc.occlusion_texture_index)], in_uv).r;
 						vec3 emissive = texture(textures[nonuniformEXT(pc.emissive_texture_index)], in_uv).rgb * pc.emissive_factor;
 

@@ -263,7 +263,7 @@ do
 		--self:SetName(path)
 		self.vmt = {}
 		self.vmt_path = path -- Store path for debugging
-		--self.flip_normal_xy = true -- Source engine normals need XY flip
+		self.flip_normal_xy = true -- Source engine normals need XY flip
 		local cb = steam.LoadVMT(path, function(key, val, full_path)
 			self.vmt.fullpath = full_path
 			self.vmt[key] = val
