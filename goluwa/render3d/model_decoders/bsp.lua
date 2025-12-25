@@ -710,6 +710,7 @@ function steam.LoadMap(path)
 									local a = header.vertices[first]
 									local b = header.vertices[previous]
 									local c = header.vertices[current]
+									-- CW winding (matches coordinate transform from Source)
 									add_vertex(mesh, texinfo, texdata, a)
 									add_vertex(mesh, texinfo, texdata, b)
 									add_vertex(mesh, texinfo, texdata, c)
@@ -752,7 +753,7 @@ function steam.LoadMap(path)
 								local d, d_blend = lerp_corners(dims, corners, start_corner, info, x + 1, y)
 
 								do
-									-- Reversed winding order
+									-- CW winding (matches coordinate transform from Source)
 									add_vertex(mesh, texinfo, texdata, a, a_blend)
 									add_vertex(mesh, texinfo, texdata, c, c_blend)
 									add_vertex(mesh, texinfo, texdata, b, b_blend)
@@ -782,7 +783,23 @@ function steam.LoadMap(path)
 	if GRAPHICS then
 		for i, mesh in ipairs(models) do
 			mesh:AddSubMesh(mesh:GetVertices(), mesh.material)
-			mesh:BuildNormals()
+			-- BSP uses CW winding due to coordinate transform, so build normals accordingly
+			local vertices = mesh:GetVertices()
+
+			for _, sub_mesh in ipairs(mesh:GetSubMeshes()) do
+				for i = 1, #sub_mesh.indices, 3 do
+					local a = vertices[sub_mesh.indices[i + 0] + 1]
+					local b = vertices[sub_mesh.indices[i + 1] + 1]
+					local c = vertices[sub_mesh.indices[i + 2] + 1]
+					-- For CW winding: (C-A) × (B-A) to get outward normal
+					local normal = (c.pos - a.pos):Cross(b.pos - a.pos):GetNormalized()
+					a.normal = normal
+					b.normal = normal
+					c.normal = normal
+					tasks.Wait()
+				end
+			end
+
 			mesh:BuildTangents()
 			tasks.ReportProgress("generating normals", #models)
 			tasks.Wait()

@@ -35,6 +35,7 @@ local FragmentConstants = ffi.typeof([[
 		int debug_cascade_colors;
 		int light_count;
 		int debug_mode;
+		int flip_normal_xy;
 		float near_z;
 		float far_z;
 	}
@@ -72,8 +73,6 @@ function render3d.Initialize()
 					layout(location = 0) out vec3 out_world_pos;
 					layout(location = 1) out vec3 out_normal;
 					layout(location = 2) out vec2 out_uv;
-					layout(location = 3) out vec3 out_tangent;
-					layout(location = 4) out vec3 out_bitangent;
 
 					void main() {
 						vec4 world_pos = pc.world * vec4(in_position, 1.0);
@@ -83,18 +82,9 @@ function render3d.Initialize()
 						out_world_pos = world_pos.xyz;
 						
 						// ORIENTATION / TRANSFORMATION: Transform normal to world space
-						// Transform normal to world space
 						mat3 normal_matrix = mat3(pc.world);
 						out_normal = normalize(normal_matrix * in_normal);
 						out_uv = in_uv;
-						
-						// Calculate tangent and bitangent for normal mapping
-						vec3 T = normalize(normal_matrix * in_tangent.xyz);
-						vec3 N = out_normal;
-						T = normalize(T - dot(T, N) * N);
-						vec3 B = cross(N, T) * in_tangent.w;
-						out_tangent = T;
-						out_bitangent = B;
 					}
 				]],
 					bindings = {
@@ -171,8 +161,6 @@ function render3d.Initialize()
 					layout(location = 0) in vec3 in_world_pos;
 					layout(location = 1) in vec3 in_normal;
 					layout(location = 2) in vec2 in_uv;
-					layout(location = 3) in vec3 in_tangent;
-					layout(location = 4) in vec3 in_bitangent;
 
 					// output color
 					layout(location = 0) out vec4 out_color;
@@ -195,6 +183,7 @@ function render3d.Initialize()
 						int debug_cascade_colors;
 						int light_count;
 						int debug_mode;
+						int flip_normal_xy;
 						float near_z;
 						float far_z;
 					} pc;
@@ -342,8 +331,11 @@ function render3d.Initialize()
 					void main() {
 						// Sample textures
 						vec4 albedo = texture(textures[nonuniformEXT(pc.albedo_texture_index)], in_uv) * pc.base_color_factor;
-						vec3 normal_map = texture(textures[nonuniformEXT(pc.normal_texture_index)], in_uv).rgb;
-						vec4 metallic_roughness = texture(textures[nonuniformEXT(pc.metallic_roughness_texture_index)], in_uv);
+						vec3 normal_map = texture(textures[nonuniformEXT(pc.normal_texture_index)], in_uv).rgb;					
+					// Source engine normals have X and Z swapped
+					if (pc.flip_normal_xy != 0) {
+						normal_map = normal_map.bgr;
+					}						vec4 metallic_roughness = texture(textures[nonuniformEXT(pc.metallic_roughness_texture_index)], in_uv);
 						float ao = texture(textures[nonuniformEXT(pc.occlusion_texture_index)], in_uv).r;
 						vec3 emissive = texture(textures[nonuniformEXT(pc.emissive_texture_index)], in_uv).rgb * pc.emissive_factor;
 
@@ -360,13 +352,28 @@ function render3d.Initialize()
 						vec3 N;
 						if (pc.normal_texture_index > 0) {
 							vec3 tangent_normal = normal_map * 2.0 - 1.0;
-							tangent_normal.xy *= pc.normal_scale;
-							mat3 TBN = mat3(normalize(in_tangent), normalize(in_bitangent), normalize(in_normal));
+							tangent_normal *= pc.normal_scale;
+							
+							// Calculate tangents on-the-fly using screen-space derivatives
+							vec3 dp1 = dFdx(in_world_pos);
+							vec3 dp2 = dFdy(in_world_pos);
+							vec2 duv1 = dFdx(in_uv);
+							vec2 duv2 = dFdy(in_uv);
+							
+							// Solve for tangent and bitangent
+							vec3 dp2perp = cross(dp2, in_normal);
+							vec3 dp1perp = cross(in_normal, dp1);
+							vec3 T = dp2perp * duv1.x + dp1perp * duv2.x;
+							vec3 B = dp2perp * duv1.y + dp1perp * duv2.y;
+							
+							// Construct TBN matrix
+							float invmax = inversesqrt(max(dot(T, T), dot(B, B)));
+							mat3 TBN = mat3(T * invmax, B * invmax, in_normal);
 							N = normalize(TBN * tangent_normal);
 						} else {
 							N = normalize(in_normal);
 						}
-
+						
 						// View direction - camera position needs to be negated (view matrix uses negative position)
 						vec3 V = normalize(pc.camera_position - in_world_pos);
 						
@@ -673,6 +680,7 @@ do
 			-- Debug cascade visualization
 			fragment_constants.debug_cascade_colors = render3d.debug_cascade_colors and 1 or 0
 			fragment_constants.debug_mode = render3d.debug_mode or 0
+			fragment_constants.flip_normal_xy = mat.flip_normal_xy and 1 or 0
 			fragment_constants.near_z = render3d.camera:GetNearZ()
 			fragment_constants.far_z = render3d.camera:GetFarZ()
 			fragment_constants.light_count = math.min(#Light.GetLights(), 32)

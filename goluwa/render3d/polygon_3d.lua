@@ -239,7 +239,8 @@ do -- helpers
 	local function build_normal(a, b, c)
 		if a.normal and b.normal and c.normal then return end
 
-		local normal = (a.pos - b.pos):Cross(b.pos - c.pos):GetNormalized()
+		-- For counter-clockwise winding: (B-A) × (C-A)
+		local normal = (b.pos - a.pos):Cross(c.pos - a.pos):GetNormalized()
 		a.normal = normal
 		b.normal = normal
 		c.normal = normal
@@ -440,7 +441,8 @@ do -- helpers
 
 			for i = 1, count do
 				local a, b, c = output[1 + (i - 1) * 3 + 0], output[1 + (i - 1) * 3 + 1], output[1 + (i - 1) * 3 + 2]
-				local normal = (c.pos - a.pos):Cross(b.pos - a.pos):GetNormalized()
+				-- For counter-clockwise winding: (B-A) × (C-A)
+				local normal = (b.pos - a.pos):Cross(c.pos - a.pos):GetNormalized()
 				vertex_normals[a.pos_index] = vertex_normals[a.pos_index] or Vec3()
 				vertex_normals[a.pos_index] = (vertex_normals[a.pos_index] + normal)
 				vertex_normals[b.pos_index] = vertex_normals[b.pos_index] or Vec3()
@@ -474,10 +476,12 @@ do -- helpers
 		local p2 = pos + right * size_x - up * size_y
 		local p3 = pos + right * size_x + up * size_y
 		local p4 = pos - right * size_x + up * size_y
-		-- CW winding
+		-- Counter-clockwise winding when viewed from outside (along normal direction)
+		-- Triangle 1: p1 -> p3 -> p2 (reversed to match sphere winding)
 		self:AddVertex({pos = p1, uv = Vec2(0, 0), normal = normal})
 		self:AddVertex({pos = p3, uv = Vec2(texture_scale, texture_scale), normal = normal})
 		self:AddVertex({pos = p2, uv = Vec2(texture_scale, 0), normal = normal})
+		-- Triangle 2: p1 -> p4 -> p3 (reversed to match sphere winding)
 		self:AddVertex({pos = p1, uv = Vec2(0, 0), normal = normal})
 		self:AddVertex({pos = p4, uv = Vec2(0, texture_scale), normal = normal})
 		self:AddVertex({pos = p3, uv = Vec2(texture_scale, texture_scale), normal = normal})
@@ -655,7 +659,8 @@ do -- helpers
 				c1.pos = Vec3(x + s2.x, y + s2.y, z5) + offset
 				c1.uv = Vec2(c1.pos.x + offset.x, c1.pos.y + offset.y) / size
 				self:AddVertex(c1)
-				local normal = -(a1.pos - b1.pos):Cross(b1.pos - c1.pos):GetNormalized()
+				-- For counter-clockwise winding: (B-A) × (C-A)
+				local normal = (b1.pos - a1.pos):Cross(c1.pos - a1.pos):GetNormalized()
 				a1.normal = normal
 				b1.normal = normal
 				c1.normal = normal
@@ -676,7 +681,8 @@ do -- helpers
 				c2.pos = Vec3(x, y + s.y, z3) + offset
 				c2.uv = Vec2(c2.pos.x + offset.x, c2.pos.y + offset.y) / size
 				self:AddVertex(c2)
-				local normal = -(a2.pos - b2.pos):Cross(b2.pos - c2.pos):GetNormalized()
+				-- For counter-clockwise winding: (B-A) × (C-A)
+				local normal = (b2.pos - a2.pos):Cross(c2.pos - a2.pos):GetNormalized()
 				a2.normal = normal
 				b2.normal = normal
 				c2.normal = normal
@@ -697,7 +703,8 @@ do -- helpers
 				c3.pos = Vec3(x + s.x, y + s.y, z4) + offset
 				c3.uv = Vec2(c3.pos.x + offset.x, c3.pos.y + offset.y) / size
 				self:AddVertex(c3)
-				local normal = -(a3.pos - b3.pos):Cross(b3.pos - c3.pos):GetNormalized()
+				-- For counter-clockwise winding: (B-A) × (C-A)
+				local normal = (b3.pos - a3.pos):Cross(c3.pos - a3.pos):GetNormalized()
 				a3.normal = normal
 				b3.normal = normal
 				c3.normal = normal
@@ -718,7 +725,8 @@ do -- helpers
 				c4.pos = Vec3(x + s.x, y + s.y, z4) + offset
 				c4.uv = Vec2(c4.pos.x + offset.x, c4.pos.y + offset.y) / size
 				self:AddVertex(c4)
-				local normal = -(a4.pos - b4.pos):Cross(b4.pos - c4.pos):GetNormalized()
+				-- For counter-clockwise winding: (B-A) × (C-A)
+				local normal = (b4.pos - a4.pos):Cross(c4.pos - a4.pos):GetNormalized()
 				a4.normal = normal
 				b4.normal = normal
 				c4.normal = normal

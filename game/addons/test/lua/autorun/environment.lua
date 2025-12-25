@@ -1,7 +1,3 @@
-do
-	return
-end
-
 local Light = require("components.light")
 local Vec3 = require("structs.vec3")
 local Quat = require("structs.quat")
@@ -71,6 +67,7 @@ do
 	end)
 
 	debug_ent(Vec3(3, 1, 3), nil, function(poly)
-		poly:CreateCube(-1)
+		poly:CreateCube(1)
+	-- Don't call BuildNormals - CreateCube already sets correct normals
 	end)
 end

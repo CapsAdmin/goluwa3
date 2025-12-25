@@ -96,6 +96,7 @@ function Material.New(config)
 	self.double_sided = config.double_sided or false
 	self.alpha_mode = config.alpha_mode or "OPAQUE" -- OPAQUE, MASK, BLEND
 	self.alpha_cutoff = config.alpha_cutoff or 0.5
+	self.flip_normal_xy = config.flip_normal_xy or false -- For Source engine normals
 	-- Name for debugging
 	self.name = config.name or "unnamed"
 	return self
@@ -262,6 +263,7 @@ do
 		--self:SetName(path)
 		self.vmt = {}
 		self.vmt_path = path -- Store path for debugging
+		--self.flip_normal_xy = true -- Source engine normals need XY flip
 		local cb = steam.LoadVMT(path, function(key, val, full_path)
 			self.vmt.fullpath = full_path
 			self.vmt[key] = val
