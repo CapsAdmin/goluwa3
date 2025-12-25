@@ -707,9 +707,12 @@ function steam.LoadMap(path)
 
 							if j >= 3 then
 								if header.vertices[first] and header.vertices[current] and header.vertices[previous] then
-									add_vertex(mesh, texinfo, texdata, header.vertices[first])
-									add_vertex(mesh, texinfo, texdata, header.vertices[previous])
-									add_vertex(mesh, texinfo, texdata, header.vertices[current])
+									local a = header.vertices[first]
+									local b = header.vertices[previous]
+									local c = header.vertices[current]
+									add_vertex(mesh, texinfo, texdata, a)
+									add_vertex(mesh, texinfo, texdata, b)
+									add_vertex(mesh, texinfo, texdata, c)
 								end
 							elseif j == 1 then
 								first = current
@@ -743,24 +746,21 @@ function steam.LoadMap(path)
 
 						for x = 1, dims - 1 do
 							for y = 1, dims - 1 do
-								-- Triangle 1 - reversed winding order for Vulkan
-								add_vertex(mesh, texinfo, texdata, lerp_corners(dims, corners, start_corner, info, x, y + 1))
-								add_vertex(mesh, texinfo, texdata, lerp_corners(dims, corners, start_corner, info, x, y))
-								add_vertex(
-									mesh,
-									texinfo,
-									texdata,
-									lerp_corners(dims, corners, start_corner, info, x + 1, y + 1)
-								)
-								-- Triangle 2 - reversed winding order for Vulkan
-								add_vertex(
-									mesh,
-									texinfo,
-									texdata,
-									lerp_corners(dims, corners, start_corner, info, x + 1, y + 1)
-								)
-								add_vertex(mesh, texinfo, texdata, lerp_corners(dims, corners, start_corner, info, x, y))
-								add_vertex(mesh, texinfo, texdata, lerp_corners(dims, corners, start_corner, info, x + 1, y))
+								local a, a_blend = lerp_corners(dims, corners, start_corner, info, x, y + 1)
+								local b, b_blend = lerp_corners(dims, corners, start_corner, info, x, y)
+								local c, c_blend = lerp_corners(dims, corners, start_corner, info, x + 1, y + 1)
+								local d, d_blend = lerp_corners(dims, corners, start_corner, info, x + 1, y)
+
+								do
+									-- Reversed winding order
+									add_vertex(mesh, texinfo, texdata, a, a_blend)
+									add_vertex(mesh, texinfo, texdata, c, c_blend)
+									add_vertex(mesh, texinfo, texdata, b, b_blend)
+									-- 
+									add_vertex(mesh, texinfo, texdata, c, c_blend)
+									add_vertex(mesh, texinfo, texdata, d, d_blend)
+									add_vertex(mesh, texinfo, texdata, b, b_blend)
+								end
 							end
 						end
 
