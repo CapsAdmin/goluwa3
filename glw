@@ -1,3 +1,10 @@
 #!/usr/bin/env luajit
+
+if ... == "test" then
+    _G.NORMAL_STDOUT = true
+
+    require("goluwa.main")("test/run.lua", select(2, ...))
+end
+
 --require("goluwa.main_wrapped")(...)
 require("goluwa.main")(...)
