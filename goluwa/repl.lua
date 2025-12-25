@@ -4,6 +4,7 @@ local system = require("system")
 local output = require("stdout")
 local commands = require("commands")
 local codec = require("codec")
+local clipboard = require("bindings.clipboard")
 local repl = library()
 repl.history = repl.history or codec.ReadFile("luadata", "data/cmd_history.txt") or {}
 repl.started = true
@@ -15,7 +16,6 @@ repl.output_lines = repl.output_lines or {}
 repl.scroll_offset = repl.scroll_offset or 0
 repl.input_scroll_offset = repl.input_scroll_offset or 0
 repl.needs_redraw = repl.needs_redraw or true
-repl.clipboard = repl.clipboard or ""
 repl.debug = false
 repl.last_event = repl.last_event or nil
 repl.raw_input = repl.raw_input or nil
@@ -25,7 +25,7 @@ function repl.CopyText()
 	local start, stop = repl.GetSelection()
 
 	if start then
-		repl.clipboard = repl.input_buffer:sub(start, stop - 1)
+		clipboard.Set(repl.input_buffer:sub(start, stop - 1))
 		return true
 	end
 
@@ -36,7 +36,7 @@ function repl.CutText()
 	local start, stop = repl.GetSelection()
 
 	if start then
-		repl.clipboard = repl.input_buffer:sub(start, stop - 1)
+		clipboard.Set(repl.input_buffer:sub(start, stop - 1))
 		repl.DeleteSelection()
 		return true
 	end
@@ -67,7 +67,7 @@ function repl.CutText()
 	end
 
 	-- Cut the line
-	repl.clipboard = repl.input_buffer:sub(line_start, line_end - 1)
+	clipboard.Set(repl.input_buffer:sub(line_start, line_end - 1))
 	repl.input_buffer = repl.input_buffer:sub(1, line_start - 1) .. repl.input_buffer:sub(line_end)
 	repl.input_cursor = line_start
 	repl.selection_start = nil
@@ -75,10 +75,12 @@ function repl.CutText()
 end
 
 function repl.PasteText()
-	if repl.clipboard ~= "" then
+	local str = clipboard.Get()
+
+	if str ~= "" then
 		repl.DeleteSelection()
-		repl.input_buffer = repl.input_buffer:sub(1, repl.input_cursor - 1) .. repl.clipboard .. repl.input_buffer:sub(repl.input_cursor)
-		repl.input_cursor = repl.input_cursor + #repl.clipboard
+		repl.input_buffer = repl.input_buffer:sub(1, repl.input_cursor - 1) .. str .. repl.input_buffer:sub(repl.input_cursor)
+		repl.input_cursor = repl.input_cursor + #str
 		return true
 	end
 
