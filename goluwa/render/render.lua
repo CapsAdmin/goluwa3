@@ -4,6 +4,18 @@ local renderdoc = require("bindings.renderdoc")
 
 if pcall(renderdoc.init) then render.renderdoc = renderdoc end
 
+-- Check if shaderc is available before loading Vulkan
+local shaderc = require("bindings.shaderc")
+if not shaderc.available then
+	logf("[render] WARNING: shaderc library not found - render will not be initialized\n")
+	logf("[render] %s\n", shaderc.error_message)
+	logf("[render] Running in headless mode without graphics. REPL will be available.\n")
+	logf("[render] To enable graphics, install the Vulkan SDK from: https://vulkan.lunarg.com/\n")
+	render.available = false
+	return render
+end
+
+render.available = true
 local VulkanInstance = require("render.vulkan.vulkan_instance")
 local event = require("event")
 local system = require("system")

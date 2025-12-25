@@ -1,3 +1,4 @@
+local event = require("event")
 local fs = require("fs")
 fs.create_directory("logs/")
 local log_file = assert(fs.file_open("logs/log.txt", "w"))
@@ -39,10 +40,63 @@ if _G.NORMAL_STDOUT then
 end
 
 local ffi = require("ffi")
-local event = require("event")
+
+-- On Windows, save the original console handles before redirecting
+-- This allows terminal.lua to still use console-specific functions
+local original_console_in, original_console_out
+if jit.os == "Windows" then
+	ffi.cdef[[
+		void* GetStdHandle(uint32_t nStdHandle);
+		int DuplicateHandle(
+			void* hSourceProcessHandle,
+			void* hSourceHandle,
+			void* hTargetProcessHandle,
+			void** lpTargetHandle,
+			uint32_t dwDesiredAccess,
+			int bInheritHandle,
+			uint32_t dwOptions
+		);
+		void* GetCurrentProcess(void);
+	]]
+	
+	local STD_INPUT_HANDLE = ffi.cast("uint32_t", -10)
+	local STD_OUTPUT_HANDLE = ffi.cast("uint32_t", -11)
+	local DUPLICATE_SAME_ACCESS = 0x00000002
+	
+	local console_in_ptr = ffi.new("void*[1]")
+	local console_out_ptr = ffi.new("void*[1]")
+	local current_process = ffi.C.GetCurrentProcess()
+	
+	-- Duplicate the console handles so we keep them even after redirecting stdout
+	ffi.C.DuplicateHandle(
+		current_process,
+		ffi.C.GetStdHandle(STD_INPUT_HANDLE),
+		current_process,
+		console_in_ptr,
+		0,
+		0,
+		DUPLICATE_SAME_ACCESS
+	)
+	
+	ffi.C.DuplicateHandle(
+		current_process,
+		ffi.C.GetStdHandle(STD_OUTPUT_HANDLE),
+		current_process,
+		console_out_ptr,
+		0,
+		0,
+		DUPLICATE_SAME_ACCESS
+	)
+	
+	original_console_in = console_in_ptr[0]
+	original_console_out = console_out_ptr[0]
+end
+
 local original_stdout_fd = assert(fs.fd.stdout:dup())
+-- Save the FILE* BEFORE redirecting
 local original_stdout_file = assert(fs.file_open(original_stdout_fd.fd, "w"))
 local read_fd, write_fd = assert(fs.get_read_write_fd_pipes())
+-- Now redirect stdout to the write end of the pipe
 assert(write_fd:dup(fs.fd.stdout))
 assert(read_fd:set_nonblocking(true))
 local READ_BUF_SIZE = 4096
@@ -88,6 +142,8 @@ local output = {}
 output.file = log_file
 output.original_stdout_fd = original_stdout_fd
 output.original_stdout_file = original_stdout_file
+output.original_console_in = original_console_in
+output.original_console_out = original_console_out
 
 function output.write(str)
 	io.write(str)

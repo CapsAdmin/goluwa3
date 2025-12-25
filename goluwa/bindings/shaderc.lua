@@ -54,11 +54,24 @@ function mod.find_library()
 		end
 
 		table.insert(paths, "shaderc_shared.dll") -- Fallback
-		return assert(try_load(paths))
+		local lib, err = try_load(paths)
+		if not lib then return nil, err end
+		return lib
 	else -- Assuming Linux
-		return assert(try_load({"libshaderc_shared.so", "libshaderc_shared.so.1"}))
+		local lib, err = try_load({"libshaderc_shared.so", "libshaderc_shared.so.1"})
+		if not lib then return nil, err end
+		return lib
 	end
 end
+
+local lib, lib_err = mod.find_library()
+if not lib then
+	mod.available = false
+	mod.error_message = lib_err
+	return mod
+end
+
+mod.available = true
 
 -- Define the shaderc C API for LuaJIT
 ffi.cdef[[
@@ -108,7 +121,6 @@ ffi.cdef[[
     shaderc_compilation_status shaderc_result_get_compilation_status(const shaderc_compilation_result_t result);
     const char* shaderc_result_get_error_message(const shaderc_compilation_result_t result);
 ]]
-local lib = mod.find_library()
 
 local function initialize()
 	if mod.compiler then return end

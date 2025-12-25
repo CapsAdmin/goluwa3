@@ -2,7 +2,7 @@ local ffi = require("ffi")
 local fs = {}
 local last_error
 
-if jit.arch ~= "Windows" then
+if jit.os ~= "Windows" then
 	ffi.cdef("char *strerror(int);")
 
 	function last_error()
@@ -546,14 +546,29 @@ end
 -- File I/O operations (cross-platform)
 do
 	-- FILE* operations (high-level, buffered I/O)
+	if jit.os == "Windows" then
+		ffi.cdef[[
+			typedef struct FILE FILE;
+			
+			// Opening and closing
+			FILE* fopen(const char* path, const char* mode);
+			FILE* _fdopen(int fd, const char* mode);
+			FILE* freopen(const char* path, const char* mode, FILE* stream);
+			int fclose(FILE* stream);
+		]]
+	else
+		ffi.cdef[[
+			typedef struct FILE FILE;
+			
+			// Opening and closing
+			FILE* fopen(const char* path, const char* mode);
+			FILE* fdopen(int fd, const char* mode);
+			FILE* freopen(const char* path, const char* mode, FILE* stream);
+			int fclose(FILE* stream);
+		]]
+	end
+	
 	ffi.cdef[[
-		typedef struct FILE FILE;
-		
-		// Opening and closing
-		FILE* fopen(const char* path, const char* mode);
-		FILE* fdopen(int fd, const char* mode);
-		FILE* freopen(const char* path, const char* mode, FILE* stream);
-		int fclose(FILE* stream);
 		
 		// Reading
 		size_t fread(void* ptr, size_t size, size_t count, FILE* stream);
@@ -627,7 +642,8 @@ do
 	end
 
 	function fs.fdopen(fd, mode)
-		local file = ffi.C.fdopen(fd, mode or "r")
+		local fdopen_func = jit.os == "Windows" and ffi.C._fdopen or ffi.C.fdopen
+		local file = fdopen_func(fd, mode or "r")
 
 		if file == nil then return nil, last_error() end
 
@@ -913,6 +929,17 @@ do
 			long _lseek(int fd, long offset, int whence);
 			int _pipe(int* pipefd, unsigned int size, int textmode);
 			int _setmode(int fd, int mode);
+			
+			// For non-blocking pipe reads
+			void* _get_osfhandle(int fd);
+			int PeekNamedPipe(
+				void* hNamedPipe,
+				void* lpBuffer,
+				uint32_t nBufferSize,
+				uint32_t* lpBytesRead,
+				uint32_t* lpTotalBytesAvail,
+				uint32_t* lpBytesLeftThisMessage
+			);
 		]]
 		-- Open flags (Windows)
 		fs.O_RDONLY = 0x0000
@@ -943,12 +970,35 @@ do
 		end
 
 		function fs.fd_read(fd, size)
-			local buffer = ffi.new("uint8_t[?]", size)
-			local bytes_read = ffi.C._read(fd, buffer, size)
+			if jit.os == "Windows" then
+				-- Check if data is available first (non-blocking behavior)
+				local handle = ffi.C._get_osfhandle(fd)
+				local avail = ffi.new("uint32_t[1]")
+				
+				-- PeekNamedPipe to check available bytes
+				local peek_result = ffi.C.PeekNamedPipe(handle, nil, 0, nil, avail, nil)
+				
+				if peek_result == 0 or avail[0] == 0 then
+					-- No data available or error
+					return "", 0
+				end
+				
+				-- Read available data (up to size)
+				local to_read = math.min(size, avail[0])
+				local buffer = ffi.new("uint8_t[?]", to_read)
+				local bytes_read = ffi.C._read(fd, buffer, to_read)
+				
+				if bytes_read == -1 then return nil, last_error() end
+				
+				return ffi.string(buffer, bytes_read), bytes_read
+			else
+				local buffer = ffi.new("uint8_t[?]", size)
+				local bytes_read = ffi.C._read(fd, buffer, size)
 
-			if bytes_read == -1 then return nil, last_error() end
+				if bytes_read == -1 then return nil, last_error() end
 
-			return ffi.string(buffer, bytes_read), bytes_read
+				return ffi.string(buffer, bytes_read), bytes_read
+			end
 		end
 
 		function fs.fd_write(fd, data)
@@ -1047,12 +1097,25 @@ do
 		end
 
 		function meta:set_nonblocking(nonblock)
+			if jit.os == "Windows" then
+				-- On Windows pipes are always blocking, but we can work around this
+				-- by checking data availability before reading
+				return true
+			end
 			return fs.fd_set_nonblocking(self.fd, nonblock)
 		end
 
 		if jit.os == "Windows" then
 			function meta:setmode(mode)
 				return fs.fd_setmode(self.fd, mode)
+			end
+			
+			-- Check if data is available to read without blocking
+			function meta:has_data()
+				-- Try to read 0 bytes to test availability
+				-- On Windows, we'll just return true and handle EAGAIN-like behavior
+				-- by returning empty string on no data
+				return true
 			end
 		end
 

@@ -364,8 +364,22 @@ if jit.os == "Windows" then
 		DISABLE_NEWLINE_AUTO_RETURN = 0x0008,
 		ENABLE_LVB_GRID_WORLDWIDE = 0x0010,
 	}
-	local stdin = ffi.C.GetStdHandle(STD_INPUT_HANDLE)
-	local stdout = ffi.C.GetStdHandle(STD_OUTPUT_HANDLE)
+	
+	-- Helper to get the correct handle (saved console handle if available, otherwise standard handle)
+	local function get_console_handle(handle_type)
+		local output_module = package.loaded["stdout"]
+		if output_module and output_module.original_console_in and output_module.original_console_out then
+			if handle_type == STD_INPUT_HANDLE then
+				return output_module.original_console_in
+			elseif handle_type == STD_OUTPUT_HANDLE then
+				return output_module.original_console_out
+			end
+		end
+		return ffi.C.GetStdHandle(handle_type)
+	end
+	
+	local stdin = get_console_handle(STD_INPUT_HANDLE)
+	local stdout = get_console_handle(STD_OUTPUT_HANDLE)
 
 	-- Convert table of flag names to combined flag value
 	local function table_to_flags(tbl, flags_map, combiner)
@@ -381,7 +395,7 @@ if jit.os == "Windows" then
 	end
 
 	local function add_flags(handle, tbl)
-		local ptr = ffi.C.GetStdHandle(handle)
+		local ptr = get_console_handle(handle)
 
 		if ptr == nil then error(throw_error()) end
 
@@ -400,8 +414,14 @@ if jit.os == "Windows" then
 	end
 
 	function terminal.WrapFile(input, output)
-		input:setvbuf("no")
-		output:setvbuf("no")
+		-- Handle wrapped file objects from fs module
+		if type(input) == "table" and input.file then input = input.file end
+		if type(output) == "table" and output.file then output = output.file end
+		
+		-- Only call setvbuf on Lua file objects (userdata), not raw FILE* pointers (cdata)
+		if type(input) == "userdata" then pcall(function() input:setvbuf("no") end) end
+		if type(output) == "userdata" then pcall(function() output:setvbuf("no") end) end
+		
 		-- Set console to UTF-8 (code page 65001)
 		ffi.C.SetConsoleOutputCP(65001)
 		ffi.C.SetConsoleCP(65001)

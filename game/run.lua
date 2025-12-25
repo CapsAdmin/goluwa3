@@ -3,6 +3,18 @@ _G.GRAPHICS = true
 local vfs = require("vfs")
 vfs.MountStorageDirectories()
 local render = require("render.render")
+
+if not render.available then
+	logf("[game] Graphics not available - running in headless mode\n")
+	local system = require("system")
+	system.KeepAlive("headless_mode")
+	
+	-- Load REPL for headless mode
+	local repl = require("repl")
+	repl.Initialize()
+	return
+end
+
 local render2d = require("render2d.render2d")
 local render3d = require("render3d.render3d")
 local gfx = require("render2d.gfx")
