@@ -466,53 +466,86 @@ do -- helpers
 		return output
 	end
 
+	function Polygon3D:CreatePlane(pos, normal, right, up, size_x, size_y, texture_scale)
+		size_x = size_x or 1
+		size_y = size_y or 1
+		texture_scale = texture_scale or 1
+		local p1 = pos - right * size_x - up * size_y
+		local p2 = pos + right * size_x - up * size_y
+		local p3 = pos + right * size_x + up * size_y
+		local p4 = pos - right * size_x + up * size_y
+		-- CW winding
+		self:AddVertex({pos = p1, uv = Vec2(0, 0), normal = normal})
+		self:AddVertex({pos = p3, uv = Vec2(texture_scale, texture_scale), normal = normal})
+		self:AddVertex({pos = p2, uv = Vec2(texture_scale, 0), normal = normal})
+		self:AddVertex({pos = p1, uv = Vec2(0, 0), normal = normal})
+		self:AddVertex({pos = p4, uv = Vec2(0, texture_scale), normal = normal})
+		self:AddVertex({pos = p3, uv = Vec2(texture_scale, texture_scale), normal = normal})
+	end
+
 	function Polygon3D:CreateCube(size, texture_scale)
 		size = size or 1
 		texture_scale = texture_scale or 1
-		local orientation = require("render3d.orientation")
-		-- ORIENTATION / TRANSFORMATION: Cube for Y-up, X-right, Z-forward (right-handed)
-		-- All faces use counter-clockwise winding when viewed from outside
-		-- Top face (+Y) - viewed from above, CCW winding
-		self:AddVertex({pos = Vec3(-size, size, -size), uv = Vec2(0, 0)})
-		self:AddVertex({pos = Vec3(size, size, size), uv = Vec2(texture_scale, texture_scale)})
-		self:AddVertex({pos = Vec3(size, size, -size), uv = Vec2(texture_scale, 0)})
-		self:AddVertex({pos = Vec3(-size, size, -size), uv = Vec2(0, 0)})
-		self:AddVertex({pos = Vec3(-size, size, size), uv = Vec2(0, texture_scale)})
-		self:AddVertex({pos = Vec3(size, size, size), uv = Vec2(texture_scale, texture_scale)})
-		-- Bottom face (-Y) - viewed from below, CCW winding
-		self:AddVertex({pos = Vec3(-size, -size, size), uv = Vec2(0, texture_scale)})
-		self:AddVertex({pos = Vec3(size, -size, -size), uv = Vec2(texture_scale, 0)})
-		self:AddVertex({pos = Vec3(size, -size, size), uv = Vec2(texture_scale, texture_scale)})
-		self:AddVertex({pos = Vec3(-size, -size, size), uv = Vec2(0, texture_scale)})
-		self:AddVertex({pos = Vec3(-size, -size, -size), uv = Vec2(0, 0)})
-		self:AddVertex({pos = Vec3(size, -size, -size), uv = Vec2(texture_scale, 0)}) -- Front face (+Z)
-		self:AddVertex({pos = Vec3(-size, -size, size), uv = Vec2(0, 0)})
-		self:AddVertex({pos = Vec3(size, -size, size), uv = Vec2(texture_scale, 0)})
-		self:AddVertex({pos = Vec3(size, size, size), uv = Vec2(texture_scale, texture_scale)})
-		self:AddVertex({pos = Vec3(-size, -size, size), uv = Vec2(0, 0)})
-		self:AddVertex({pos = Vec3(size, size, size), uv = Vec2(texture_scale, texture_scale)})
-		self:AddVertex({pos = Vec3(-size, size, size), uv = Vec2(0, texture_scale)})
+		-- Front face (+Z)
+		self:CreatePlane(
+			Vec3(0, 0, size),
+			Vec3(0, 0, 1),
+			Vec3(1, 0, 0),
+			Vec3(0, 1, 0),
+			size,
+			size,
+			texture_scale
+		)
 		-- Back face (-Z)
-		self:AddVertex({pos = Vec3(size, -size, -size), uv = Vec2(0, 0)})
-		self:AddVertex({pos = Vec3(-size, -size, -size), uv = Vec2(texture_scale, 0)})
-		self:AddVertex({pos = Vec3(-size, size, -size), uv = Vec2(texture_scale, texture_scale)})
-		self:AddVertex({pos = Vec3(size, -size, -size), uv = Vec2(0, 0)})
-		self:AddVertex({pos = Vec3(-size, size, -size), uv = Vec2(texture_scale, texture_scale)})
-		self:AddVertex({pos = Vec3(size, size, -size), uv = Vec2(0, texture_scale)})
+		self:CreatePlane(
+			Vec3(0, 0, -size),
+			Vec3(0, 0, -1),
+			Vec3(-1, 0, 0),
+			Vec3(0, 1, 0),
+			size,
+			size,
+			texture_scale
+		)
+		-- Top face (+Y)
+		self:CreatePlane(
+			Vec3(0, size, 0),
+			Vec3(0, 1, 0),
+			Vec3(1, 0, 0),
+			Vec3(0, 0, -1),
+			size,
+			size,
+			texture_scale
+		)
+		-- Bottom face (-Y)
+		self:CreatePlane(
+			Vec3(0, -size, 0),
+			Vec3(0, -1, 0),
+			Vec3(1, 0, 0),
+			Vec3(0, 0, 1),
+			size,
+			size,
+			texture_scale
+		)
 		-- Right face (+X)
-		self:AddVertex({pos = Vec3(size, -size, size), uv = Vec2(0, 0)})
-		self:AddVertex({pos = Vec3(size, -size, -size), uv = Vec2(texture_scale, 0)})
-		self:AddVertex({pos = Vec3(size, size, -size), uv = Vec2(texture_scale, texture_scale)})
-		self:AddVertex({pos = Vec3(size, -size, size), uv = Vec2(0, 0)})
-		self:AddVertex({pos = Vec3(size, size, -size), uv = Vec2(texture_scale, texture_scale)})
-		self:AddVertex({pos = Vec3(size, size, size), uv = Vec2(0, texture_scale)})
+		self:CreatePlane(
+			Vec3(size, 0, 0),
+			Vec3(1, 0, 0),
+			Vec3(0, 0, -1),
+			Vec3(0, 1, 0),
+			size,
+			size,
+			texture_scale
+		)
 		-- Left face (-X)
-		self:AddVertex({pos = Vec3(-size, -size, -size), uv = Vec2(0, 0)})
-		self:AddVertex({pos = Vec3(-size, -size, size), uv = Vec2(texture_scale, 0)})
-		self:AddVertex({pos = Vec3(-size, size, size), uv = Vec2(texture_scale, texture_scale)})
-		self:AddVertex({pos = Vec3(-size, -size, -size), uv = Vec2(0, 0)})
-		self:AddVertex({pos = Vec3(-size, size, size), uv = Vec2(texture_scale, texture_scale)})
-		self:AddVertex({pos = Vec3(-size, size, -size), uv = Vec2(0, texture_scale)})
+		self:CreatePlane(
+			Vec3(-size, 0, 0),
+			Vec3(-1, 0, 0),
+			Vec3(0, 0, 1),
+			Vec3(0, 1, 0),
+			size,
+			size,
+			texture_scale
+		)
 	end
 
 	function Polygon3D:CreateSphere(radius, segments, rings, texture_scale)
@@ -557,16 +590,16 @@ do -- helpers
 
 				-- First triangle (top-left, top-right, bottom-right)
 				if ring > 0 then -- Skip degenerate triangles at top pole
-					self:AddVertex({pos = Vec3(x3, y3, z3), uv = Vec2(u2, v2), normal = n3})
-					self:AddVertex({pos = Vec3(x2, y2, z2), uv = Vec2(u2, v1), normal = n2})
 					self:AddVertex({pos = Vec3(x1, y1, z1), uv = Vec2(u1, v1), normal = n1})
+					self:AddVertex({pos = Vec3(x2, y2, z2), uv = Vec2(u2, v1), normal = n2})
+					self:AddVertex({pos = Vec3(x3, y3, z3), uv = Vec2(u2, v2), normal = n3})
 				end
 
 				-- Second triangle (top-left, bottom-right, bottom-left)
 				if ring < rings - 1 then -- Skip degenerate triangles at bottom pole
-					self:AddVertex({pos = Vec3(x4, y4, z4), uv = Vec2(u1, v2), normal = n4})
-					self:AddVertex({pos = Vec3(x3, y3, z3), uv = Vec2(u2, v2), normal = n3})
 					self:AddVertex({pos = Vec3(x1, y1, z1), uv = Vec2(u1, v1), normal = n1})
+					self:AddVertex({pos = Vec3(x3, y3, z3), uv = Vec2(u2, v2), normal = n3})
+					self:AddVertex({pos = Vec3(x4, y4, z4), uv = Vec2(u1, v2), normal = n4})
 				end
 			end
 		end
