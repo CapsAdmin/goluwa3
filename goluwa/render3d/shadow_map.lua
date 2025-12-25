@@ -14,10 +14,11 @@ ShadowMap.__index = ShadowMap
 local DEFAULT_SIZE = Vec2() + 2048 --Vec2(800, 600) --Vec2() + 2048 -- Shadow map resolution
 local DEFAULT_FORMAT = "d32_sfloat"
 local DEFAULT_CASCADE_COUNT = 3 -- Default number of cascades for CSM
--- Push constants for shadow pass (just need MVP matrix)
+-- Push constants for shadow pass (MVP matrix + texture index for alpha testing)
 local ShadowVertexConstants = ffi.typeof([[
 	struct {
 		float light_space_matrix[16];
+		int albedo_texture_index;
 	}
 ]])
 
@@ -76,7 +77,7 @@ function ShadowMap.New(config)
 			color_format = false, -- No color attachment for shadow pass
 			depth_format = self.format,
 			samples = "1", -- Shadow map uses single sample
-			descriptor_set_count = 1, -- Shadow pass doesn't need per-frame descriptor sets
+			descriptor_set_count = 1, -- Just bindless textures for alpha testing
 			shader_stages = {
 				{
 					type = "vertex",
@@ -91,10 +92,14 @@ function ShadowMap.New(config)
 
 					layout(push_constant, scalar) uniform Constants {
 						mat4 light_space_matrix;
-					} pc;
+					int albedo_texture_index;
+				} pc;
 
-					void main() {
-						gl_Position = pc.light_space_matrix * vec4(in_position, 1.0);
+				layout(location = 0) out vec2 out_uv;
+
+				void main() {
+					gl_Position = pc.light_space_matrix * vec4(in_position, 1.0);
+					out_uv = in_uv;
 					}
 				]],
 					bindings = {
@@ -143,10 +148,49 @@ function ShadowMap.New(config)
 					type = "fragment",
 					code = [[
 					#version 450
+					#extension GL_EXT_nonuniform_qualifier : require
+					#extension GL_EXT_scalar_block_layout : require
+
+					layout(binding = 0) uniform sampler2D textures[1024]; // Bindless texture array
+
+					layout(push_constant, scalar) uniform Constants {
+						mat4 light_space_matrix;
+						int albedo_texture_index;
+					} pc;
+
+					layout(location = 0) in vec2 in_uv;
+
+					// Alpha discard function (same as render3d.lua)
+					bool alpha_discard(vec2 uv, float alpha)
+					{
+						if (true)
+						{
+							return fract(dot(vec2(171.0, 231.0)+alpha*0.00001, gl_FragCoord.xy) / 103.0) > ((alpha * alpha) - 0.001);
+						}
+
+						return false;
+					}
+
 					void main() {
-						// Depth is written automatically
+						// Sample albedo texture if index is valid (> 0)
+						if (pc.albedo_texture_index > 0) {
+							vec4 albedo = texture(textures[nonuniformEXT(pc.albedo_texture_index)], in_uv);
+							
+							// Alpha test - discard transparent fragments
+							if (alpha_discard(in_uv, albedo.a)) {
+								discard;
+							}
+						}
+						// Depth is written automatically for non-discarded fragments
 					}
 				]],
+					descriptor_sets = {
+						{
+							type = "combined_image_sampler",
+							binding_index = 0,
+							count = 1024,
+						},
+					},
 				},
 			},
 			rasterizer = {
@@ -309,11 +353,20 @@ function ShadowMap:BeginAllCascades()
 end
 
 -- Upload shadow pass constants (light space matrix * world matrix)
-function ShadowMap:UploadConstants(world_matrix, cascade_index)
+-- material: optional Material object for alpha testing (will use albedo texture)
+function ShadowMap:UploadConstants(world_matrix, material, cascade_index)
 	cascade_index = cascade_index or self.current_cascade
 	local constants = ShadowVertexConstants()
 	local mvp = world_matrix * self.cascade[cascade_index].light_space_matrix
 	constants.light_space_matrix = mvp:GetFloatCopy()
+
+	-- If material is provided, get its albedo texture index for alpha testing
+	if material then
+		constants.albedo_texture_index = self.pipeline:GetTextureIndex(material:GetAlbedoTexture())
+	else
+		constants.albedo_texture_index = 0 -- No texture, no alpha test
+	end
+
 	self.pipeline:PushConstants(self.cmd, "vertex", 0, constants)
 end
 

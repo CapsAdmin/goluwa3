@@ -429,7 +429,8 @@ function META:DrawShadow(shadow_cmd, shadow_map, cascade_idx)
 		end
 
 		for i, sub_mesh in ipairs(prim.polygon3d:GetSubMeshes()) do
-			shadow_map:UploadConstants(final_matrix, cascade_idx)
+			local material = self.MaterialOverride or sub_mesh.data or prim.material or Material.GetDefault()
+			shadow_map:UploadConstants(final_matrix, material, cascade_idx)
 			prim.polygon3d:Draw(shadow_cmd, i)
 		end
 	end
