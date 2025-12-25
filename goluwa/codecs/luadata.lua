@@ -25,110 +25,79 @@
 local opcode_checker
 
 do
-	local bcnames
-	local jit = jit or require("jit")
-	local ver = jit and jit.version_num or 0
+	local bcnames = require("jit.vmdef").bcnames
+	local jutil = require("jit.util")
+	local band = bit.band
+	local opcodes = {}
 
-	-- what are these magic versions?
-	if ver >= 20000 and ver <= 20009 then
-		bcnames = "ISLT  ISGE  ISLE  ISGT  ISEQV ISNEV ISEQS ISNES ISEQN ISNEN ISEQP ISNEP ISTC  ISFC  IST   ISF   MOV   NOT   UNM   LEN   ADDVN SUBVN MULVN DIVVN MODVN ADDNV SUBNV MULNV DIVNV MODNV ADDVV SUBVV MULVV DIVVV MODVV POW   CAT   KSTR  KCDATAKSHORTKNUM  KPRI  KNIL  UGET  USETV USETS USETN USETP UCLO  FNEW  TNEW  TDUP  GGET  GSET  TGETV TGETS TGETB TSETV TSETS TSETB TSETM CALLM CALL  CALLMTCALLT ITERC ITERN VARG  ISNEXTRETM  RET   RET0  RET1  FORI  JFORI FORL  IFORL JFORL ITERL IITERLJITERLLOOP  ILOOP JLOOP JMP   FUNCF IFUNCFJFUNCFFUNCV IFUNCVJFUNCVFUNCC FUNCCW"
-	elseif ver == 20100 then -- LuaJIT 2.1.0-beta3
-		bcnames = "ISLT  ISGE  ISLE  ISGT  ISEQV ISNEV ISEQS ISNES ISEQN ISNEN ISEQP ISNEP ISTC  ISFC  IST   ISF   ISTYPEISNUM MOV   NOT   UNM   LEN   ADDVN SUBVN MULVN DIVVN MODVN ADDNV SUBNV MULNV DIVNV MODNV ADDVV SUBVV MULVV DIVVV MODVV POW   CAT   KSTR  KCDATAKSHORTKNUM  KPRI  KNIL  UGET  USETV USETS USETN USETP UCLO  FNEW  TNEW  TDUP  GGET  GSET  TGETV TGETS TGETB TGETR TSETV TSETS TSETB TSETM TSETR CALLM CALL  CALLMTCALLT ITERC ITERN VARG  ISNEXTRETM  RET   RET0  RET1  FORI  JFORI FORL  IFORL JFORL ITERL IITERLJITERLLOOP  ILOOP JLOOP JMP   FUNCF IFUNCFJFUNCFFUNCV IFUNCVJFUNCVFUNCC FUNCCW"
+	--extract opcode names
+	for str in bcnames:gmatch("......") do
+		str = str:gsub("%s", "")
+		table.insert(opcodes, str)
 	end
 
-	local jutil = jit.util
+	local function getopnum(opname)
+		for k, v in next, opcodes do
+			if v == opname then return k end
+		end
 
-	if not jutil then
-		local ok, _jutil = pcall(require, "jit.util")
-
-		if not ok then bcnames = nil else jutil = _jutil end
+		error("not found: " .. opname)
 	end
 
-	if not bcnames then
-		if not jutil then
-			print("[luadata] Verifier could not be loaded. luadata may cause infinite loops.")
-		else
-			ErrorNoHalt("LUADATA SECURITY WARNING: Unable to load verifier, update me!\n")
+	local function getop(func, pc)
+		local ins = jutil.funcbc(func, pc)
+		return ins and (band(ins, 0xff) + 1)
+	end
+
+	opcode_checker = function(white)
+		local opwhite = {}
+
+		for i = 0, #opcodes do
+			table.insert(opwhite, false)
 		end
 
-		opcode_checker = function()
-			return function()
-				return true
-			end
-		end
-	else
-		local band = bit.band
-		local opcodes = {}
+		local function iswhitelisted(opnum)
+			local ret = opwhite[opnum]
 
-		--extract opcode names
-		for str in bcnames:gmatch("......") do
-			str = str:gsub("%s", "")
-			table.insert(opcodes, str)
+			if ret == nil then error("opcode not found " .. opnum) end
+
+			return ret
 		end
 
-		local function getopnum(opname)
-			for k, v in next, opcodes do
-				if v == opname then return k end
-			end
+		local function add_whitelist(num)
+			if opwhite[num] == nil then error("invalid opcode num") end
 
-			error("not found: " .. opname)
+			opwhite[num] = true
 		end
 
-		local function getop(func, pc)
-			local ins = jutil.funcbc(func, pc)
-			return ins and (band(ins, 0xff) + 1)
+		for line in white:gmatch("[^\r\n]+") do
+			local opstr_towhite = line:match("[%w]+")
+
+			if opstr_towhite and opstr_towhite:len() > 0 then
+				local whiteopnum = getopnum(opstr_towhite)
+				add_whitelist(whiteopnum)
+				assert(iswhitelisted(whiteopnum))
+			end
 		end
 
-		opcode_checker = function(white)
-			local opwhite = {}
+		local function checker_function(func, max_opcodes)
+			max_opcodes = max_opcodes or math.huge
 
-			for i = 0, #opcodes do
-				table.insert(opwhite, false)
-			end
+			for i = 1, max_opcodes do
+				local ret = getop(func, i)
 
-			local function iswhitelisted(opnum)
-				local ret = opwhite[opnum]
+				if not ret then return true end
 
-				if ret == nil then error("opcode not found " .. opnum) end
-
-				return ret
-			end
-
-			local function add_whitelist(num)
-				if opwhite[num] == nil then error("invalid opcode num") end
-
-				opwhite[num] = true
-			end
-
-			for line in white:gmatch("[^\r\n]+") do
-				local opstr_towhite = line:match("[%w]+")
-
-				if opstr_towhite and opstr_towhite:len() > 0 then
-					local whiteopnum = getopnum(opstr_towhite)
-					add_whitelist(whiteopnum)
-					assert(iswhitelisted(whiteopnum))
+				if not iswhitelisted(ret) then
+					--error("non-whitelisted: " .. )
+					return false, "non-whitelisted: " .. opcodes[ret]
 				end
 			end
 
-			local function checker_function(func, max_opcodes)
-				max_opcodes = max_opcodes or math.huge
-
-				for i = 1, max_opcodes do
-					local ret = getop(func, i)
-
-					if not ret then return true end
-
-					if not iswhitelisted(ret) then
-						--error("non-whitelisted: " .. )
-						return false, "non-whitelisted: " .. opcodes[ret]
-					end
-				end
-
-				return false, "checked max_opcodes"
-			end
-
-			return checker_function
+			return false, "checked max_opcodes"
 		end
+
+		return checker_function
 	end
 end
 
@@ -197,10 +166,10 @@ luadata.Types = {
 	end,
 	["table"] = function(var)
 		if
-			isnumber(var.r) and
-			isnumber(var.g) and
-			isnumber(var.b) and
-			isnumber(var.a)
+			type(var.r) == "number" and
+			type(var.g) == "number" and
+			type(var.b) == "number" and
+			type(var.a) == "number"
 		then
 			return ("Color(%s, %s, %s, %s)"):format(var.r, var.g, var.b, var.a)
 		end
@@ -217,17 +186,7 @@ function luadata.SetModifier(type, callback)
 end
 
 function luadata.Type(var)
-	local t
-
-	if IsEntity(var) then
-		if var:IsValid() then t = "Entity" else t = "NULL" end
-	else
-		t = type(var)
-	end
-
-	if t == "table" then if var.LuaDataType then t = var.LuaDataType end end
-
-	return t
+	return typex(var)
 end
 
 function luadata.ToString(var)
@@ -262,18 +221,18 @@ local env = {
 
 -- TODO: Bytecode analysis for bad loop and string functions?
 function luadata.Decode(str, nojail)
-	local func = CompileString(string.format("return { %s }", str), "luadata_decode", false)
+	local func, err = loadstring(string.format("return { %s }", str), "luadata_decode")
 
-	if isstring(func) then
+	if not func then
 		--ErrorNoHalt("Luadata decode syntax: "..tostring(func):gsub("^luadata_decode","")..'\n')
 		return nil, func
 	end
 
 	if not nojail then
 		setfenv(func, env)
-	elseif istable(nojail) then
+	elseif type(nojail) == "table" then
 		setfenv(func, nojail)
-	elseif isfunction(nojail) then
+	elseif type(nojail) == "function" then
 		nojail(func)
 	end
 
@@ -292,7 +251,7 @@ function luadata.Decode(str, nojail)
 		return nil, err
 	end
 
-	if isfunction(nojail) then nojail(func, err) end
+	if type(nojail) == "function" then nojail(func, err) end
 
 	return err
 end
