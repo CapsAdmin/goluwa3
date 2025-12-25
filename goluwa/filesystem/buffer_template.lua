@@ -1,6 +1,7 @@
 local ffi = require("ffi")
 local Vec3 = require("structs.vec3")
 local Vec2 = require("structs.vec2")
+local Color = require("structs.color")
 local Ang3 = require("structs.ang3")
 return function(META)
 	-- <cmtptr> CapsAdmin, http://codepad.org/uN7qlQTm
@@ -821,7 +822,7 @@ return function(META)
 		end
 
 		function META:ReadByteColor()
-			return ColorBytes(self:ReadByte(), self:ReadByte(), self:ReadByte(), self:ReadByte())
+			return Color.FromBytes(self:ReadByte(), self:ReadByte(), self:ReadByte(), self:ReadByte())
 		end
 
 		-- integer/long

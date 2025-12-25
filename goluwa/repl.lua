@@ -2,6 +2,7 @@ local event = require("event")
 local terminal = require("bindings.terminal")
 local system = require("system")
 local output = require("stdout")
+local commands = require("commands")
 local repl = {
 	started = true,
 	input_buffer = "",
@@ -14,7 +15,7 @@ local repl = {
 	input_scroll_offset = 0,
 	needs_redraw = true,
 	clipboard = "",
-	debug = true,
+	debug = false,
 	last_event = nil,
 	raw_input = nil,
 	saved_input = "", -- Saves current input when navigating history
@@ -247,14 +248,17 @@ do
 	end
 
 	local colors = {
-		comment = "#8e8e8e",
-		number = "#4453da",
-		letter = "#d6d6d6",
-		symbol = "#da4453",
-		error = "#da4453",
-		keyword = "#2980b9",
-		string = "#27ae60",
-		unknown = "#da4453",
+		keyword = "#569cd6",
+		operator = "#d4d4d4",
+		symbol = "#d4d4d4",
+		number = "#b5cea8",
+		string = "#ce9178",
+		comment = "#6a9955",
+		any = "#9cdcfe",
+		["function"] = "#dcdcaa",
+		table = "#4ec9b0",
+		["type"] = "#4ec9b0",
+		letter = "#d4d4d4",
 	}
 
 	for key, hex in pairs(colors) do
@@ -274,7 +278,7 @@ do
 
 			if what ~= last_color then
 				local c = colors[what]
-				term:PushForegroundColor(c[1], c[2], c[3])
+				term:ForegroundColor(c[1], c[2], c[3])
 				last_color = what
 			end
 		end
@@ -291,6 +295,24 @@ do
 
 				if token:IsKeyword() then
 					set_color("keyword")
+				elseif token:IsKeywordValue() then
+					set_color("keyword")
+				elseif token:IsSymbol() then
+					set_color("symbol")
+				elseif token:IsOperator() then
+					set_color("operator")
+				elseif token:IsNumber() then
+					set_color("number")
+				elseif token:IsString() then
+					set_color("string")
+				elseif token:IsAny() then
+					set_color("any")
+				elseif token:IsFunction() then
+					set_color("function")
+				elseif token:IsTable() then
+					set_color("table")
+				elseif token:IsOtherType() then
+					set_color("type")
 				else
 					set_color(token.Type)
 				end
@@ -300,9 +322,6 @@ do
 				if token.Type == "end_of_file" then break end
 			end
 		end
-
-		-- Reset color after writing
-		if last_color then term:PopAttribute() end
 	end
 
 	function repl.StyledWrite(str)
@@ -321,23 +340,11 @@ do
 end
 
 function repl.InputLua(str)
-	local func, err = loadstring(str)
-
-	if func then
-		repl.is_executing = true
-		local ok, res = pcall(func)
-		-- Flush stdout to capture any pending print() output
-		output.flush()
-		repl.is_executing = false
-
-		if not ok then
-			logn("Error: " .. tostring(res))
-		elseif res ~= nil then
-			logn(res)
-		end
-	else
-		logn("Syntax Error: " .. tostring(err))
-	end
+	repl.is_executing = true
+	commands.RunString(str)
+	-- Flush stdout to capture any pending print() output
+	output.flush()
+	repl.is_executing = false
 end
 
 function repl.HandleEvent(ev)

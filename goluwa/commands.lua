@@ -1,4 +1,7 @@
 local utf8 = require("utf8")
+local event = require("event")
+local tasks = require("tasks")
+local prototype = require("prototype")
 local commands = library()
 
 do
@@ -507,7 +510,6 @@ do -- commands
 		end
 
 		function commands.RunLuaString(line, env_name)
-			commands.SetLuaEnvironmentVariable("gl", desire("opengl"))
 			commands.SetLuaEnvironmentVariable("ffi", desire("ffi"))
 			commands.SetLuaEnvironmentVariable("findo", prototype.FindObject)
 
@@ -515,7 +517,7 @@ do -- commands
 				commands.SetLuaEnvironmentVariable("copy", window.SetClipboard)
 			end
 
-			local lua = ""
+			local lua = "local commands = require('commands');"
 
 			for k in pairs(commands.run_lua_environment) do
 				lua = lua .. ("local %s = commands.run_lua_environment.%s;"):format(k, k)
@@ -552,6 +554,8 @@ do -- commands
 
 				return
 			end
+
+			local pvars = require("pvars")
 
 			if pvars then
 				local key, val = line:match("^([%w_]+)%s+(.+)")

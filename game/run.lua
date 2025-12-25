@@ -6,6 +6,7 @@ local render3d = require("render3d.render3d")
 local gfx = require("render2d.gfx")
 local system = require("system")
 local vfs = require("vfs")
+local pvars = require("pvars")
 vfs.MountStorageDirectories()
 --_G.require = vfs.Require
 _G.runfile = function(...)
@@ -21,6 +22,7 @@ render.Initialize()
 render2d.Initialize()
 render3d.Initialize()
 gfx.Initialize()
+pvars.Initialize()
 
 do
 	require("render3d.model_loader")
