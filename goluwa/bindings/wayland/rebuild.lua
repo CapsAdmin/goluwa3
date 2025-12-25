@@ -29,3 +29,17 @@ do
 	f:write(bindgen.generate("goluwa/bindings/wayland/relative-pointer-unstable-v1.xml"))
 	f:close()
 end
+
+do
+	local f = io.open("goluwa/bindings/wayland/wlr_data_control.lua", "w")
+	f:write(bindgen.generate("goluwa/bindings/wayland/wlr-data-control-unstable-v1.xml"))
+	f:close()
+end
+
+do
+	local f = io.open("goluwa/bindings/wayland/ext_data_control.lua", "w")
+	f:write(bindgen.generate("goluwa/bindings/wayland/ext-data-control-v1.xml"))
+	f:close()
+end
+
+print("!")

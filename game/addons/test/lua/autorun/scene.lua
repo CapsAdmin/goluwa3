@@ -1,7 +1,10 @@
+do
+	return
+end
+
 local fs = require("fs")
 local MAP = "gm_construct"
 
---MAP = nil
 if not MAP then return end
 
 if MAP:starts_with("gltf_") then

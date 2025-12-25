@@ -311,7 +311,7 @@ function xml.parse_file(filename)
 	if f then
 		local content = f:read("*a")
 		f:close()
-		return xml.parse(content), nil
+		return xml.Decode(content), nil
 	end
 
 	return nil, err

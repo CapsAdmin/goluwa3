@@ -1,3 +1,7 @@
+do
+	return
+end
+
 local Light = require("components.light")
 local Vec3 = require("structs.vec3")
 local Quat = require("structs.quat")
