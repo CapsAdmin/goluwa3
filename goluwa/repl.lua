@@ -230,18 +230,94 @@ function repl.IsFocused()
 	return true
 end
 
-function repl.StyledWrite(str)
-	if not str:match("\n$") then str = str .. "\n" end
+do
+	local Code = require("nattlua.code")
+	local Lexer = require("nattlua.lexer.lexer")
+	local Color = require("structs.color")
+	local colors = {
+		string = (Color.FromHex("#e99648") * 255):Ceil(),
+		number = (Color.FromHex("#fffa9b") * 255):Ceil(),
+		symbol = (Color.FromHex("#969ebb") * 255):Ceil(),
+		comment = (Color.FromHex("#ff9797") * 255):Ceil(),
+		letter = (Color.FromHex("#ffffff") * 255):Ceil(),
+	}
 
-	for line in str:gmatch("(.-)\n") do
-		if repl.is_executing then
-			table.insert(repl.output_lines, "< " .. line)
-		else
-			table.insert(repl.output_lines, line)
-		end
+	local function get_tokens(str)
+		return Lexer.New(Code.New(str)):GetTokens()
 	end
 
-	repl.needs_redraw = true
+	local colors = {
+		comment = "#8e8e8e",
+		number = "#4453da",
+		letter = "#d6d6d6",
+		symbol = "#da4453",
+		error = "#da4453",
+		keyword = "#2980b9",
+		string = "#27ae60",
+		unknown = "#da4453",
+	}
+
+	for key, hex in pairs(colors) do
+		local r, g, b = hex:match("#?(..)(..)(..)")
+		r = tonumber("0x" .. r)
+		g = tonumber("0x" .. g)
+		b = tonumber("0x" .. b)
+		colors[key] = {r, g, b}
+	end
+
+	function repl.ColorizeAndWrite(term, str)
+		local tokens = Lexer.New(Code.New(str, "repl")):GetTokens()
+		local last_color = nil
+
+		local function set_color(what)
+			if not colors[what] then what = "letter" end
+
+			if what ~= last_color then
+				local c = colors[what]
+				term:PushForegroundColor(c[1], c[2], c[3])
+				last_color = what
+			end
+		end
+
+		for _, token in ipairs(tokens) do
+			if token:HasWhitespace() then
+				for _, v in ipairs(token:GetWhitespace()) do
+					if v.Type == "line_comment" or v.Type == "multiline_comment" then
+						set_color("comment")
+					end
+
+					term:Write(v:GetValueString())
+				end
+
+				if token:IsKeyword() then
+					set_color("keyword")
+				else
+					set_color(token.Type)
+				end
+
+				term:Write(token:GetValueString())
+
+				if token.Type == "end_of_file" then break end
+			end
+		end
+
+		-- Reset color after writing
+		if last_color then term:PopAttribute() end
+	end
+
+	function repl.StyledWrite(str)
+		if not str:match("\n$") then str = str .. "\n" end
+
+		for line in str:gmatch("(.-)\n") do
+			if repl.is_executing then
+				table.insert(repl.output_lines, "< " .. line)
+			else
+				table.insert(repl.output_lines, line)
+			end
+		end
+
+		repl.needs_redraw = true
+	end
 end
 
 function repl.InputLua(str)
@@ -550,7 +626,8 @@ local function draw(term)
 			-- Truncate line if too long
 			if #line > w then line = line:sub(1, w) end
 
-			term:WriteStringToScreen(1, output_start_line + i, line)
+			term:SetCaretPosition(1, output_start_line + i)
+			repl.ColorizeAndWrite(term, line)
 		end
 	end
 
