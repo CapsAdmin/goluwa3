@@ -1,13 +1,13 @@
 _G.PROFILE = false
 _G.GRAPHICS = true
+local vfs = require("vfs")
+vfs.MountStorageDirectories()
 local render = require("render.render")
 local render2d = require("render2d.render2d")
 local render3d = require("render3d.render3d")
 local gfx = require("render2d.gfx")
 local system = require("system")
-local vfs = require("vfs")
 local pvars = require("pvars")
-vfs.MountStorageDirectories()
 --_G.require = vfs.Require
 _G.runfile = function(...)
 	local ret = list.pack(vfs.RunFile(...))

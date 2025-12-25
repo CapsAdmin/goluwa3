@@ -4,6 +4,8 @@ if ... == "test" then
     _G.NORMAL_STDOUT = true
 
     require("goluwa.main")("test/run.lua", select(2, ...))
+elseif not ... then
+    require("goluwa.main")("game/run.lua")
 end
 
 --require("goluwa.main_wrapped")(...)

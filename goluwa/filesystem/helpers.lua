@@ -1,4 +1,3 @@
-local repl = require("repl")
 return function(vfs)
 	function vfs.CopyRecursively(from, to)
 		assert(vfs.CreateDirectory(to))
@@ -429,7 +428,7 @@ return function(vfs)
 				if window then
 					-- TODO: window does not exist in core
 					if window.IsFocused() then return end
-				elseif repl.IsFocused() then
+				elseif require("repl").IsFocused() then
 					return
 				end
 

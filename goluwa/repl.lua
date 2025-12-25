@@ -3,25 +3,24 @@ local terminal = require("bindings.terminal")
 local system = require("system")
 local output = require("stdout")
 local commands = require("commands")
-local repl = {
-	started = true,
-	input_buffer = "",
-	input_cursor = 1,
-	selection_start = nil,
-	history = {},
-	history_index = 1,
-	output_lines = {},
-	scroll_offset = 0,
-	input_scroll_offset = 0,
-	needs_redraw = true,
-	clipboard = "",
-	debug = false,
-	last_event = nil,
-	raw_input = nil,
-	saved_input = "", -- Saves current input when navigating history
-	is_executing = false, -- Tracks if we're executing a command
-}
-
+local codec = require("codec")
+local repl = library()
+repl.history = repl.history or codec.ReadFile("luadata", "data/cmd_history.txt") or {}
+repl.started = true
+repl.input_buffer = repl.input_buffer or ""
+repl.input_cursor = repl.input_cursor or 1
+repl.selection_start = repl.selection_start or nil
+repl.history_index = repl.history_index or 1
+repl.output_lines = repl.output_lines or {}
+repl.scroll_offset = repl.scroll_offset or 0
+repl.input_scroll_offset = repl.input_scroll_offset or 0
+repl.needs_redraw = repl.needs_redraw or true
+repl.clipboard = repl.clipboard or ""
+repl.debug = false
+repl.last_event = repl.last_event or nil
+repl.raw_input = repl.raw_input or nil
+repl.saved_input = repl.saved_input or "" -- Saves current input when navigating history
+repl.is_executing = repl.is_executing or false -- Tracks if we're executing a command
 function repl.CopyText()
 	local start, stop = repl.GetSelection()
 
@@ -270,7 +269,16 @@ do
 	end
 
 	function repl.ColorizeAndWrite(term, str)
-		local tokens = Lexer.New(Code.New(str, "repl")):GetTokens()
+		local ok, tokens = pcall(function()
+			return Lexer.New(Code.New(str, "repl")):GetTokens()
+		end)
+
+		if not ok then
+			-- Lexer failed, just write plain text
+			term:Write(str)
+			return
+		end
+
 		local last_color = nil
 
 		local function set_color(what)
@@ -284,6 +292,7 @@ do
 		end
 
 		for _, token in ipairs(tokens) do
+			-- Write whitespace if present
 			if token:HasWhitespace() then
 				for _, v in ipairs(token:GetWhitespace()) do
 					if v.Type == "line_comment" or v.Type == "multiline_comment" then
@@ -292,35 +301,36 @@ do
 
 					term:Write(v:GetValueString())
 				end
-
-				if token:IsKeyword() then
-					set_color("keyword")
-				elseif token:IsKeywordValue() then
-					set_color("keyword")
-				elseif token:IsSymbol() then
-					set_color("symbol")
-				elseif token:IsOperator() then
-					set_color("operator")
-				elseif token:IsNumber() then
-					set_color("number")
-				elseif token:IsString() then
-					set_color("string")
-				elseif token:IsAny() then
-					set_color("any")
-				elseif token:IsFunction() then
-					set_color("function")
-				elseif token:IsTable() then
-					set_color("table")
-				elseif token:IsOtherType() then
-					set_color("type")
-				else
-					set_color(token.Type)
-				end
-
-				term:Write(token:GetValueString())
-
-				if token.Type == "end_of_file" then break end
 			end
+
+			-- Always write the token itself
+			if token:IsKeyword() then
+				set_color("keyword")
+			elseif token:IsKeywordValue() then
+				set_color("keyword")
+			elseif token:IsSymbol() then
+				set_color("symbol")
+			elseif token:IsOperator() then
+				set_color("operator")
+			elseif token:IsNumber() then
+				set_color("number")
+			elseif token:IsString() then
+				set_color("string")
+			elseif token:IsAny() then
+				set_color("any")
+			elseif token:IsFunction() then
+				set_color("function")
+			elseif token:IsTable() then
+				set_color("table")
+			elseif token:IsOtherType() then
+				set_color("type")
+			else
+				set_color(token.Type)
+			end
+
+			term:Write(token:GetValueString())
+
+			if token.Type == "end_of_file" then break end
 		end
 	end
 
@@ -398,6 +408,7 @@ function repl.HandleEvent(ev)
 
 					repl.history_index = #repl.history + 1
 					repl.InputLua(repl.input_buffer)
+					codec.WriteFile("luadata", "data/cmd_history.txt", repl.history)
 				end
 
 				repl.input_buffer = ""
@@ -705,8 +716,8 @@ function repl.Initialize()
 	term:UseAlternateScreen(true)
 	term:Clear()
 	term:EnableCaret(true)
-	term:EnableMouse(true)
 
+	--term:EnableMouse(true) -- enables mouse wheel scrollback at the cost of not being able to select text with mouse
 	event.AddListener("Update", "repl", function()
 		-- Process any pending stdout data from the pipe
 		output.flush()
