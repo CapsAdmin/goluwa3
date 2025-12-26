@@ -315,7 +315,7 @@ render3d.config = {
 				if (proj_coords.z > 1.0 || proj_coords.z < 0.0 || proj_coords.x < 0.0 || proj_coords.x > 1.0 || proj_coords.y < 0.0 || proj_coords.y > 1.0) {
 					return 1.0;
 				}
-				vec2 texel_size = 1.0 / textureSize(textures[nonuniformEXT(shadow_map_idx)], 0);
+				vec2 texel_size = 1.0 / textureSize(TEXTURE(shadow_map_idx), 0);
 
 				float current_depth = proj_coords.z;
 				float additional_bias = 0.001;
@@ -324,7 +324,7 @@ render3d.config = {
 				float shadow_val = 0.0;
 				for (int x = -1; x <= 1; ++x) {
 					for (int y = -1; y <= 1; ++y) {
-						float pcf_depth = texture(textures[nonuniformEXT(shadow_map_idx)], proj_coords.xy + vec2(x, y) * texel_size).r;
+						float pcf_depth = texture(TEXTURE(shadow_map_idx), proj_coords.xy + vec2(x, y) * texel_size).r;
 						shadow_val += current_depth - additional_bias > pcf_depth ? 0.0 : 1.0;
 					}
 				}
@@ -354,7 +354,7 @@ render3d.config = {
 
 			vec3 sample_env_map(vec3 V, vec3 N, float roughness) 
 			{
-				ivec2 size = textureSize(textures[nonuniformEXT(pc.model.environment_texture_index)], 0);
+				ivec2 size = textureSize(TEXTURE(pc.model.environment_texture_index), 0);
 				float max_mip = log2(max(size.x, size.y));
 				
 				vec3 R = reflect(-V, N);
@@ -368,22 +368,22 @@ render3d.config = {
 				float u = atan(R.z, R.x) / (2.0 * PI) + 0.5;
 				float v = asin(R.y) / PI + 0.5;
 				
-				return textureLod(textures[nonuniformEXT(pc.model.environment_texture_index)], vec2(u, -v), mip_level).rgb;
+				return textureLod(TEXTURE(pc.model.environment_texture_index), vec2(u, -v), mip_level).rgb;
 			}
 
 			void main() {
 				// Sample textures
-				vec4 albedo = texture(textures[nonuniformEXT(pc.model.albedo_texture_index)], in_uv) * pc.model.base_color_factor;
-				vec3 normal_map = texture(textures[nonuniformEXT(pc.model.normal_texture_index)], in_uv).rgb;					
+				vec4 albedo = texture(TEXTURE(pc.model.albedo_texture_index), in_uv) * pc.model.base_color_factor;
+				vec3 normal_map = texture(TEXTURE(pc.model.normal_texture_index), in_uv).rgb;					
 				// Source engine normals have X and Z swapped
 				if (pc.model.flip_normal_xy != 0) {
 					normal_map.g = 1-normal_map.g;
 					normal_map.r = 1-normal_map.r;
 				}						
 				
-				vec4 metallic_roughness = texture(textures[nonuniformEXT(pc.model.metallic_roughness_texture_index)], in_uv);
-				float ao = texture(textures[nonuniformEXT(pc.model.occlusion_texture_index)], in_uv).r;
-				vec3 emissive = texture(textures[nonuniformEXT(pc.model.emissive_texture_index)], in_uv).rgb * pc.model.emissive_factor;
+				vec4 metallic_roughness = texture(TEXTURE(pc.model.metallic_roughness_texture_index), in_uv);
+				float ao = texture(TEXTURE(pc.model.occlusion_texture_index), in_uv).r;
+				vec3 emissive = texture(TEXTURE(pc.model.emissive_texture_index), in_uv).rgb * pc.model.emissive_factor;
 
 				// Alpha test
 				if (alpha_discard(in_uv, albedo.a)) {
@@ -807,6 +807,7 @@ function render3d.Initialize()
 					]] .. vertex_input .. [[
 
 					layout(binding = 0) uniform sampler2D textures[1024];
+					#define TEXTURE(idx) textures[nonuniformEXT(idx)]
 
 					struct ShadowData {
 						mat4 light_space_matrices[4];
