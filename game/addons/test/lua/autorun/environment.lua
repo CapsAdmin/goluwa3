@@ -1,5 +1,6 @@
 local Light = require("components.light")
 local Vec3 = require("structs.vec3")
+local Color = require("structs.color")
 local Quat = require("structs.quat")
 local render3d = require("render3d.render3d")
 local skybox = require("render3d.skybox")
@@ -46,7 +47,7 @@ do
 		local R = 0.2
 		poly.material = Material.New(
 			{
-				base_color_factor = {1.0, 1.0, 1.0, 1.0},
+				base_color_factor = Color(1.0, 1.0, 1.0, 1.0),
 				metallic_roughness_texture = Texture.New(
 					{
 						width = 1,

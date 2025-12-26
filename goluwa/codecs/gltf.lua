@@ -7,6 +7,7 @@ local Matrix44 = require("structs.matrix44")
 local Quat = require("structs.quat")
 local Vec3 = require("structs.vec3")
 local Ang3 = require("structs.ang3")
+local Color = require("structs.color")
 local ecs = require("ecs")
 local Material = require("render3d.material")
 local render = require("render.render")
@@ -268,7 +269,7 @@ function gltf.Load(path)
 			if spec_gloss then
 				-- Convert specular-glossiness to metallic-roughness approximation
 				-- diffuseFactor -> base_color_factor
-				material.base_color_factor = spec_gloss.diffuseFactor or {1, 1, 1, 1}
+				material.base_color_factor = spec_gloss.diffuseFactor or Color(1, 1, 1, 1)
 				-- glossiness is inverse of roughness
 				material.roughness_factor = 1.0 - (spec_gloss.glossinessFactor or 1.0)
 				-- Approximate metallic from specular (if specular is high and similar to diffuse, it's metallic)
@@ -289,7 +290,7 @@ function gltf.Load(path)
 			elseif material_info.pbrMetallicRoughness then
 				-- Standard PBR metallic roughness
 				local pbr = material_info.pbrMetallicRoughness
-				material.base_color_factor = pbr.baseColorFactor or {1, 1, 1, 1}
+				material.base_color_factor = pbr.baseColorFactor or Color(1, 1, 1, 1)
 				material.metallic_factor = pbr.metallicFactor or 1
 				material.roughness_factor = pbr.roughnessFactor or 1
 
@@ -302,7 +303,7 @@ function gltf.Load(path)
 				end
 			else
 				-- No PBR info at all, use defaults
-				material.base_color_factor = {1, 1, 1, 1}
+				material.base_color_factor = Color(1, 1, 1, 1)
 				material.metallic_factor = 0
 				material.roughness_factor = 0.5
 			end
@@ -324,7 +325,7 @@ function gltf.Load(path)
 				material.emissive_texture = material_info.emissiveTexture.index
 			end
 
-			material.emissive_factor = material_info.emissiveFactor or {0, 0, 0}
+			material.emissive_factor = material_info.emissiveFactor or Color(0, 0, 0)
 			result.materials[i] = material
 		end
 	end
@@ -944,11 +945,12 @@ function gltf.CreateEntityHierarchy(gltf_result, parent_entity, options)
 											roughness_factor = gltf_mat.roughness_factor,
 											normal_scale = gltf_mat.normal_scale,
 											occlusion_strength = gltf_mat.occlusion_strength,
-											emissive_factor = {
+											emissive_factor = Color(
 												gltf_mat.emissive_factor[1],
 												gltf_mat.emissive_factor[2],
 												gltf_mat.emissive_factor[3],
-											},
+												1
+											),
 											double_sided = gltf_mat.double_sided,
 											alpha_mode = gltf_mat.alpha_mode,
 											alpha_cutoff = gltf_mat.alpha_cutoff,
@@ -1022,11 +1024,12 @@ function gltf.CreateEntityHierarchy(gltf_result, parent_entity, options)
 											roughness_factor = gltf_mat.roughness_factor,
 											normal_scale = gltf_mat.normal_scale,
 											occlusion_strength = gltf_mat.occlusion_strength,
-											emissive_factor = {
+											emissive_factor = Color(
 												gltf_mat.emissive_factor[1],
 												gltf_mat.emissive_factor[2],
 												gltf_mat.emissive_factor[3],
-											},
+												1
+											),
 											double_sided = gltf_mat.double_sided,
 											alpha_mode = gltf_mat.alpha_mode,
 											alpha_cutoff = gltf_mat.alpha_cutoff,

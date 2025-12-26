@@ -48,7 +48,7 @@ local field_types = {
 		glsl = "int",
 		lua = function(block_var, field_name)
 			return string.format(
-				"%s.%s = render3d.environment_texture and render3d.pipeline:GetTextureIndex(render3d.environment_texture) or -1",
+				"%s.%s = render3d.pipeline:GetTextureIndex(render3d.GetEnvironmentTexture())",
 				block_var,
 				field_name
 			)
@@ -59,11 +59,11 @@ local field_types = {
 		lua = function(block_var, field_name)
 			return string.format(
 				[[
-				local c = render3d.current_color
-				%s.%s[0] = mat.base_color_factor[1] * (c.r or c[1] or 1)
-				%s.%s[1] = mat.base_color_factor[2] * (c.g or c[2] or 1)
-				%s.%s[2] = mat.base_color_factor[3] * (c.b or c[3] or 1)
-				%s.%s[3] = mat.base_color_factor[4] * (c.a or c[4] or 1)
+				local c = render3d.GetColor()
+				%s.%s[0] = mat.base_color_factor.r * c.r
+				%s.%s[1] = mat.base_color_factor.g * c.g
+				%s.%s[2] = mat.base_color_factor.b * c.b
+				%s.%s[3] = mat.base_color_factor.a * c.a
 			]],
 				block_var,
 				field_name,
@@ -129,9 +129,9 @@ local field_types = {
 		lua = function(block_var, field_name)
 			return string.format(
 				[[
-				%s.%s[0] = mat.emissive_factor[1]
-				%s.%s[1] = mat.emissive_factor[2]
-				%s.%s[2] = mat.emissive_factor[3]
+				%s.%s[0] = mat.emissive_factor.r * mat.emissive_factor.a
+				%s.%s[1] = mat.emissive_factor.g * mat.emissive_factor.a
+				%s.%s[2] = mat.emissive_factor.b * mat.emissive_factor.a
 			]],
 				block_var,
 				field_name,
@@ -999,7 +999,12 @@ function render3d.SetMaterial(mat)
 end
 
 function render3d.SetColor(c)
+	assert(type(c) == "cdata")
 	render3d.current_color = c
+end
+
+function render3d.GetColor()
+	return render3d.current_color 
 end
 
 function render3d.SetMetallicMultiplier(m)

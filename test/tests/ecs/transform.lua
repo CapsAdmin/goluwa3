@@ -14,6 +14,7 @@ local Material = require("render3d.material")
 local Vec3 = require("structs.vec3")
 local Ang3 = require("structs.ang3")
 local Quat = require("structs.quat")
+local Color = require("structs.color")
 local Matrix44 = require("structs.matrix44")
 local ecs = require("ecs")
 require("components.transform")
@@ -55,7 +56,7 @@ local function create_cube(pos, ang, scale, color)
 		"model",
 		{
 			mesh = poly,
-			material = Material.New({base_color_factor = color or {1, 1, 1, 1}}),
+			material = Material.New({base_color_factor = color or Color(1, 1, 1, 1)}),
 		}
 	)
 	return entity

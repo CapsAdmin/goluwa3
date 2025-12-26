@@ -40,10 +40,10 @@ if _G.NORMAL_STDOUT then
 end
 
 local ffi = require("ffi")
-
 -- On Windows, save the original console handles before redirecting
 -- This allows terminal.lua to still use console-specific functions
 local original_console_in, original_console_out
+
 if jit.os == "Windows" then
 	ffi.cdef[[
 		void* GetStdHandle(uint32_t nStdHandle);
@@ -58,15 +58,12 @@ if jit.os == "Windows" then
 		);
 		void* GetCurrentProcess(void);
 	]]
-	
 	local STD_INPUT_HANDLE = ffi.cast("uint32_t", -10)
 	local STD_OUTPUT_HANDLE = ffi.cast("uint32_t", -11)
 	local DUPLICATE_SAME_ACCESS = 0x00000002
-	
 	local console_in_ptr = ffi.new("void*[1]")
 	local console_out_ptr = ffi.new("void*[1]")
 	local current_process = ffi.C.GetCurrentProcess()
-	
 	-- Duplicate the console handles so we keep them even after redirecting stdout
 	ffi.C.DuplicateHandle(
 		current_process,
@@ -77,7 +74,6 @@ if jit.os == "Windows" then
 		0,
 		DUPLICATE_SAME_ACCESS
 	)
-	
 	ffi.C.DuplicateHandle(
 		current_process,
 		ffi.C.GetStdHandle(STD_OUTPUT_HANDLE),
@@ -87,7 +83,6 @@ if jit.os == "Windows" then
 		0,
 		DUPLICATE_SAME_ACCESS
 	)
-	
 	original_console_in = console_in_ptr[0]
 	original_console_out = console_out_ptr[0]
 end

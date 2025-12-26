@@ -15,29 +15,31 @@ local Texture = require("render.texture")
 local Vec3 = require("structs.vec3")
 local Rect = require("structs.rect")
 local Quat = require("structs.quat")
+local Color = require("structs.color")
+local Vec2 = require("structs.vec2")
 local Matrix44 = require("structs.matrix44")
 local width = 512
 local height = 512
 local colors = {
-	white = {1, 1, 1},
-	black = {0, 0, 0},
-	red = {1, 0, 0},
-	green = {0, 1, 0},
-	blue = {0, 0, 1},
-	yellow = {1, 1, 0},
-	magenta = {1, 0.1, 1},
-	cyan = {0, 1, 1},
+	white = Color(1, 1, 1),
+	black = Color(0, 0, 0),
+	red = Color(1, 0, 0),
+	green = Color(0, 1, 0),
+	blue = Color(0, 0, 1),
+	yellow = Color(1, 1, 0),
+	magenta = Color(1, 0.1, 1),
+	cyan = Color(0, 1, 1),
 }
 local positions = {
-	center = {width / 2, height / 2},
-	top_center = {width / 2, 10},
-	left_center = {10, height / 2},
-	right_center = {width - 10, height / 2},
-	bottom_center = {width / 2, height - 10},
-	top_left = {10, 10},
-	top_right = {width - 10, 10},
-	bottom_left = {10, height - 10},
-	bottom_right = {width - 10, height - 10},
+	center = Vec2(width / 2, height / 2),
+	top_center = Vec2(width / 2, 10),
+	left_center = Vec2(10, height / 2),
+	right_center = Vec2(width - 10, height / 2),
+	bottom_center = Vec2(width / 2, height - 10),
+	top_left = Vec2(10, 10),
+	top_right = Vec2(width - 10, 10),
+	bottom_left = Vec2(10, height - 10),
+	bottom_right = Vec2(width - 10, height - 10),
 }
 
 local function test_color(pos_name, color_name, tolerance)
@@ -45,7 +47,7 @@ local function test_color(pos_name, color_name, tolerance)
 	local color = colors[color_name]
 	assert(pos, "invalid position: " .. tostring(pos_name))
 	assert(color, "invalid color: " .. tostring(color_name))
-	T.ScreenPixel(pos[1], pos[2], color[1], color[2], color[3], 1, tolerance or 0.33)
+	T.ScreenPixel(pos.x, pos.y, color.r, color.g, color.b, 1, tolerance or 0.33)
 end
 
 local function test_color_all(color)
@@ -93,9 +95,9 @@ local function create_face(pos, normal, up, color)
 		poly = poly,
 		material = Material.New(
 			{
-				base_color_factor = {color.x, color.y, color.z, 1},
+				base_color_factor = Color(color.x, color.y, color.z, 1),
 				emissive_texture = white_tex,
-				emissive_factor = {color.x * 100, color.y * 100, color.z * 100},
+				emissive_factor = Color(color.x * 100, color.y * 100, color.z * 100, 1),
 			}
 		),
 	}

@@ -2,15 +2,16 @@ local ffi = require("ffi")
 local commands = require("commands")
 local tasks = require("tasks")
 local Texture = require("render.texture")
+local Color = require("structs.color")
 local Material = {}
 Material.__index = Material
 -- Default material values (PBR metallic-roughness workflow)
-local DEFAULT_BASE_COLOR = {1.0, 1.0, 1.0, 1.0}
+local DEFAULT_BASE_COLOR = Color(1.0, 1.0, 1.0, 1.0)
 local DEFAULT_METALLIC = 0.0
 local DEFAULT_ROUGHNESS = 1.0
 local DEFAULT_NORMAL_SCALE = 1.0
 local DEFAULT_OCCLUSION_STRENGTH = 1.0
-local DEFAULT_EMISSIVE = {0.0, 0.0, 0.0}
+local DEFAULT_EMISSIVE = Color(0.0, 0.0, 0.0, 0.0)
 -- Cached default textures
 local default_textures = {}
 
