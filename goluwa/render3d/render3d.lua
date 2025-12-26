@@ -47,6 +47,63 @@ render3d.current_color = {1, 1, 1, 1}
 render3d.current_metallic_multiplier = 1
 render3d.current_roughness_multiplier = 1
 render3d.environment_texture = nil
+local vertex_attribute_binding_index = 0
+local vertex_attributes = {
+	{name = "position", type = "vec3", format = "r32g32b32_sfloat"},
+	{name = "normal", type = "vec3", format = "r32g32b32_sfloat"},
+	{name = "uv", type = "vec2", format = "r32g32_sfloat"},
+}
+--
+local attributes = {}
+local vertex_attributes_size = 0
+
+for _, attribute in ipairs(vertex_attributes) do
+	local offset = 0
+
+	do
+		local prev = attributes[#attributes]
+
+		if prev then
+			local size = render.GetVulkanFormatSize(prev.format)
+			offset = prev.offset + size
+		end
+	end
+
+	table.insert(
+		attributes,
+		{
+			binding = vertex_attribute_binding_index,
+			location = #attributes,
+			format = attribute.format,
+			offset = offset,
+		}
+	)
+	vertex_attributes_size = vertex_attributes_size + render.GetVulkanFormatSize(attribute.format)
+end
+
+local bindings = {
+	{
+		binding = vertex_attribute_binding_index,
+		stride = vertex_attributes_size,
+		input_rate = "vertex",
+	},
+}
+local shader_header = [[
+	#version 450
+	#extension GL_EXT_nonuniform_qualifier : require
+	#extension GL_EXT_scalar_block_layout : require
+]]
+local vertex_input = ""
+
+for i, attr in ipairs(vertex_attributes) do
+	vertex_input = vertex_input .. string.format("layout(location = %d) in %s in_%s;\n", i - 1, attr.type, attr.name)
+end
+
+local vertex_output = ""
+
+for i, attr in ipairs(vertex_attributes) do
+	vertex_output = vertex_output .. string.format("layout(location = %d) out %s out_%s;\n", i - 1, attr.type, attr.name)
+end
 
 function render3d.Initialize()
 	if render3d.pipeline then return end
@@ -65,63 +122,26 @@ function render3d.Initialize()
 			shader_stages = {
 				{
 					type = "vertex",
-					code = [[
-					#version 450
-					#extension GL_EXT_scalar_block_layout : require
-
-					layout(location = 0) in vec3 in_position;
-					layout(location = 1) in vec3 in_normal;
-					layout(location = 2) in vec2 in_uv;
-
+					code = shader_header .. [[
+					]] .. vertex_input .. [[	
+					]] .. vertex_output .. [[
+					
 					layout(push_constant, scalar) uniform Constants {
 						mat4 projection_view_world;
 						mat4 world;
 					} pc;
 
-					layout(location = 0) out vec3 out_world_pos;
-					layout(location = 1) out vec3 out_normal;
-					layout(location = 2) out vec2 out_uv;
-
 					void main() {
-						vec4 world_pos = pc.world * vec4(in_position, 1.0);
-
-						// ORIENTATION / TRANSFORMATION: Coordinate system defined in orientation.lua
+						// ORIENTATION / TRANSFORMATION
 						gl_Position = pc.projection_view_world * vec4(in_position, 1.0);
-						out_world_pos = world_pos.xyz;
-						
-						// ORIENTATION / TRANSFORMATION: Transform normal to world space
-						mat3 normal_matrix = mat3(pc.world);
-						out_normal = normalize(normal_matrix * in_normal);
+
+						out_position = (pc.world * vec4(in_position, 1.0)).xyz;						
+						out_normal = normalize(mat3(pc.world) * in_normal);
 						out_uv = in_uv;
 					}
 				]],
-					bindings = {
-						{
-							binding = 0,
-							stride = ffi.sizeof("float") * (3 + 3 + 2), -- vec3 + vec3 + vec2
-							input_rate = "vertex",
-						},
-					},
-					attributes = {
-						{
-							binding = 0,
-							location = 0, -- in_position
-							format = "r32g32b32_sfloat", -- vec3
-							offset = 0,
-						},
-						{
-							binding = 0,
-							location = 1, -- in_normal
-							format = "r32g32b32_sfloat", -- vec3
-							offset = ffi.sizeof("float") * 3,
-						},
-						{
-							binding = 0,
-							location = 2, -- in_uv
-							format = "r32g32_sfloat", -- vec2
-							offset = ffi.sizeof("float") * 6,
-						},
-					},
+					bindings = bindings,
+					attributes = attributes,
 					input_assembly = {
 						topology = "triangle_list",
 						primitive_restart = false,
@@ -133,13 +153,11 @@ function render3d.Initialize()
 				},
 				{
 					type = "fragment",
-					code = [[
-					#version 450
-					#extension GL_EXT_nonuniform_qualifier : require
-					#extension GL_EXT_scalar_block_layout : require
+					code = shader_header .. [[
+					]] .. vertex_input .. [[
+					 
+					layout(binding = 0) uniform sampler2D textures[1024];
 
-					layout(binding = 0) uniform sampler2D textures[1024]; // Bindless texture array
-					
 					struct ShadowData {
 						mat4 light_space_matrices[4];
 						vec4 cascade_splits;
@@ -159,10 +177,6 @@ function render3d.Initialize()
 						Light lights[32];
 					} light_data;
 
-					// from vertex shader
-					layout(location = 0) in vec3 in_world_pos;
-					layout(location = 1) in vec3 in_normal;
-					layout(location = 2) in vec2 in_uv;
 
 					// output color
 					layout(location = 0) out vec4 out_color;
@@ -367,8 +381,8 @@ function render3d.Initialize()
 							tangent_normal *= pc.material.normal_scale;
 							
 							// Calculate tangents on-the-fly using screen-space derivatives
-							vec3 dp1 = dFdx(in_world_pos);
-							vec3 dp2 = dFdy(in_world_pos);
+							vec3 dp1 = dFdx(in_position);
+							vec3 dp2 = dFdy(in_position);
 							vec2 duv1 = dFdx(in_uv);
 							vec2 duv2 = dFdy(in_uv);
 							
@@ -387,7 +401,7 @@ function render3d.Initialize()
 						}
 						
 						// View direction - camera position needs to be negated (view matrix uses negative position)
-						vec3 V = normalize(pc.fragment.camera_position - in_world_pos);
+						vec3 V = normalize(pc.fragment.camera_position - in_position);
 						
 						// F0 for dielectrics is 0.04, for metals use albedo
 						vec3 F0 = mix(vec3(0.04), albedo.rgb, metallic);
@@ -404,7 +418,7 @@ function render3d.Initialize()
 							if (type == 0) { // DIRECTIONAL
 								L = normalize(-light.position.xyz);
 							} else { // POINT or SPOT
-								vec3 light_to_pos = light.position.xyz - in_world_pos;
+								vec3 light_to_pos = light.position.xyz - in_position;
 								float dist = length(light_to_pos);
 								L = normalize(light_to_pos);
 								
@@ -439,7 +453,7 @@ function render3d.Initialize()
 							// Shadow - only for the first light (assumed sun) for now
 							float shadow_factor = 1.0;
 							if (i == 0 && light_data.shadow.shadow_map_indices[0] >= 0) {
-								shadow_factor = calculateShadow(in_world_pos, N, L);
+								shadow_factor = calculateShadow(in_position, N, L);
 							}
 
 							vec3 radiance = light.color.rgb * light.color.a * attenuation;
@@ -472,7 +486,7 @@ function render3d.Initialize()
 
 						// Debug: overlay cascade colors
 						if (debug_data.debug_cascade_colors != 0) {
-							int cascade_idx = getCascadeIndex(in_world_pos);
+							int cascade_idx = getCascadeIndex(in_position);
 							vec3 cascade_color = CASCADE_COLORS[cascade_idx];
 							color = mix(color, cascade_color, 0.4);
 						}

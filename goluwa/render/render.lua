@@ -6,11 +6,14 @@ if pcall(renderdoc.init) then render.renderdoc = renderdoc end
 
 -- Check if shaderc is available before loading Vulkan
 local shaderc = require("bindings.shaderc")
+
 if not shaderc.available then
 	logf("[render] WARNING: shaderc library not found - render will not be initialized\n")
 	logf("[render] %s\n", shaderc.error_message)
 	logf("[render] Running in headless mode without graphics. REPL will be available.\n")
-	logf("[render] To enable graphics, install the Vulkan SDK from: https://vulkan.lunarg.com/\n")
+	logf(
+		"[render] To enable graphics, install the Vulkan SDK from: https://vulkan.lunarg.com/\n"
+	)
 	render.available = false
 	return render
 end
@@ -193,6 +196,25 @@ do
 		file:close()
 		return screenshot_path
 	end
+end
+
+local formats = {
+	r8g8b8a8_unorm = (8 + 8 + 8 + 8) / 8,
+	r8g8b8a8_srgb = (8 + 8 + 8 + 8) / 8,
+	b8g8r8a8_unorm = (8 + 8 + 8 + 8) / 8,
+	b8g8r8a8_srgb = (8 + 8 + 8 + 8) / 8,
+	b8g8r8a8_unorm = (8 + 8 + 8 + 8) / 8,
+	b8g8r8a8_srgb = (8 + 8 + 8 + 8) / 8,
+	r16g16b16a16_sfloat = (16 + 16 + 16 + 16) / 8,
+	r32g32b32a32_sfloat = (32 + 32 + 32 + 32) / 8,
+	r32g32b32_sfloat = (32 + 32 + 32) / 8,
+	r32g32_sfloat = (32 + 32) / 8,
+}
+
+function render.GetVulkanFormatSize(format)
+	if not formats[format] then error("unknown format: " .. tostring(format)) end
+
+	return formats[format]
 end
 
 return render
