@@ -1,5 +1,6 @@
 local ffi = require("ffi")
 local render = require("render.render")
+local UniformBuffer = require("render.uniform_buffer")
 local event = require("event")
 local window = require("render.window")
 local orientation = require("render3d.orientation")
@@ -40,14 +41,6 @@ local FragmentConstants = ffi.typeof([[
 		int light_count;
 	}
 ]])
-local DebugConstants = ffi.typeof([[
-	struct {
-		int debug_cascade_colors;
-		int debug_mode;
-		float near_z;
-		float far_z;
-	}
-]])
 local render3d = library()
 render3d.current_material = nil
 render3d.current_color = {1, 1, 1, 1}
@@ -58,15 +51,14 @@ render3d.environment_texture = nil
 function render3d.Initialize()
 	if render3d.pipeline then return end
 
-	render3d.debug_ubo_data = DebugConstants()
-	render3d.debug_ubo = render.CreateBuffer(
-		{
-			data = render3d.debug_ubo_data,
-			byte_size = ffi.sizeof(DebugConstants),
-			buffer_usage = {"uniform_buffer"},
-			memory_property = {"host_visible", "host_coherent"},
+	render3d.debug_ubo = UniformBuffer.New([[
+		struct {
+			int debug_cascade_colors;
+			int debug_mode;
+			float near_z;
+			float far_z;
 		}
-	)
+	]])
 	render3d.pipeline = render.CreateGraphicsPipeline(
 		{
 			dynamic_states = {"viewport", "scissor"},
@@ -202,13 +194,9 @@ function render3d.Initialize()
 						FragmentConstants fragment;
 					} pc;
 
-					layout(std140, binding = 2) uniform DebugData {
-						int debug_cascade_colors;
-						int debug_mode;
-						float near_z;
-						float far_z;
-					} debug_data;
 
+					]] .. render3d.debug_ubo:GetGLSLDeclaration(2, "debug_data") .. [[
+				
 					const float PI = 3.14159265359;
 
 					// Cascade debug colors
@@ -524,7 +512,7 @@ function render3d.Initialize()
 						{
 							type = "uniform_buffer",
 							binding_index = 2,
-							args = {render3d.debug_ubo},
+							args = {render3d.debug_ubo.buffer},
 						},
 					},
 					push_constants = {
@@ -664,7 +652,6 @@ do
 	local vertex_constants = VertexConstants()
 	local material_constants = MaterialConstants()
 	local fragment_constants = FragmentConstants()
-	local debug_constants = DebugConstants()
 
 	function render3d.UploadConstants(cmd)
 		do
@@ -711,6 +698,7 @@ do
 			fragment_constants.camera_position[2] = camera_position.z
 			fragment_constants.light_count = math.min(#Light.GetLights(), 32)
 			-- Debug cascade visualization
+			local debug_constants = render3d.debug_ubo:GetData()
 			debug_constants.debug_cascade_colors = render3d.debug_cascade_colors and 1 or 0
 			debug_constants.debug_mode = render3d.debug_mode or 0
 			debug_constants.near_z = render3d.camera:GetNearZ()
@@ -719,7 +707,7 @@ do
 			render3d.pipeline:PushConstants(cmd, "fragment", offset, material_constants)
 			offset = offset + ffi.sizeof(MaterialConstants)
 			render3d.pipeline:PushConstants(cmd, "fragment", offset, fragment_constants)
-			render3d.debug_ubo:CopyData(debug_constants, ffi.sizeof(DebugConstants))
+			render3d.debug_ubo:Upload()
 		end
 	end
 end
