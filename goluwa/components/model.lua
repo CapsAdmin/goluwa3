@@ -356,9 +356,6 @@ function META:OnDraw3D(cmd, dt)
 		end
 
 		render3d.SetWorldMatrix(final_matrix)
-		render3d.SetColor(self.Color)
-		render3d.SetMetallicMultiplier(self.MetallicMultiplier)
-		render3d.SetRoughnessMultiplier(self.RoughnessMultiplier)
 
 		for i, sub_mesh in ipairs(prim.polygon3d:GetSubMeshes()) do
 			render3d.SetMaterial(self.MaterialOverride or sub_mesh.data or prim.material or Material.GetDefault())

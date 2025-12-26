@@ -14,9 +14,6 @@ local Camera3D = require("render3d.camera3d")
 local Light = require("components.light")
 local render3d = library()
 render3d.current_material = nil
-render3d.current_color = {1, 1, 1, 1}
-render3d.current_metallic_multiplier = 1
-render3d.current_roughness_multiplier = 1
 render3d.environment_texture = nil
 local field_types = {
 	mat4 = {glsl = "mat4"},
@@ -28,39 +25,30 @@ local field_types = {
 	texture = {
 		glsl = "int",
 		lua = function(block_var, field_name)
-			local tex_name = field_name:match("^(.*)_texture_index$")
-
-			if tex_name then
-				tex_name = tex_name:sub(1, 1):upper() .. tex_name:sub(2)
-
-				if tex_name == "Metallic_roughness" then tex_name = "MetallicRoughness" end
-
-				return string.format(
-					"%s.%s = render3d.pipeline:GetTextureIndex(mat:Get%sTexture())",
-					block_var,
-					field_name,
-					tex_name
-				)
-			end
-		end,
-	},
-	environment_texture = {
-		glsl = "int",
-		lua = function(block_var, field_name)
 			return string.format(
-				"%s.%s = render3d.pipeline:GetTextureIndex(render3d.GetEnvironmentTexture())",
+				"%s.%s = render3d.pipeline:GetTextureIndex(mat:Get%s())",
 				block_var,
+				field_name,
 				field_name
 			)
 		end,
 	},
-	color = {
+	texture_render3d = {
+		glsl = "int",
+		lua = function(block_var, field_name)
+			return string.format(
+				"%s.%s = render3d.pipeline:GetTextureIndex(render3d.Get%s())",
+				block_var,
+				field_name,
+				field_name
+			)
+		end,
+	},
+	struct = {
 		glsl = "vec4",
 		lua = function(block_var, field_name)
-			print(block_var, field_name)
 			return string.format(
-				"render3d.GetColor():CopyToFloatPointer(%s.%s)",
-				block_var,
+				"mat.%s:CopyToFloatPointer(%s.%s)",
 				field_name,
 				block_var,
 				field_name
@@ -83,22 +71,13 @@ local field_types = {
 			return string.format("render3d.GetWorldMatrix():CopyToFloatPointer(%s.%s)", block_var, field_name)
 		end,
 	},
-	metallic_factor = {
+	number = {
 		glsl = "float",
 		lua = function(block_var, field_name)
 			return string.format(
-				"%s.%s = mat.metallic_factor * render3d.current_metallic_multiplier",
+				"%s.%s = mat.%s",
 				block_var,
-				field_name
-			)
-		end,
-	},
-	roughness_factor = {
-		glsl = "float",
-		lua = function(block_var, field_name)
-			return string.format(
-				"%s.%s = mat.roughness_factor * render3d.current_roughness_multiplier",
-				block_var,
+				field_name,
 				field_name
 			)
 		end,
@@ -181,15 +160,16 @@ render3d.config = {
 			{
 				name = "model",
 				block = {
-					{"albedo_texture_index", "texture"},
-					{"normal_texture_index", "texture"},
-					{"metallic_roughness_texture_index", "texture"},
-					{"occlusion_texture_index", "texture"},
-					{"emissive_texture_index", "texture"},
-					{"environment_texture_index", "environment_texture"},
-					{"base_color_factor", "color"},
-					{"metallic_factor", "metallic_factor"},
-					{"roughness_factor", "roughness_factor"},
+					{"AlbedoTexture", "texture"},
+					{"NormalTexture", "texture"},
+					{"MetallicRoughnessTexture", "texture"},
+					{"OcclusionTexture", "texture"},
+					{"EmissiveTexture", "texture"},
+					{"EnvironmentTexture", "texture_render3d"},
+					{"base_color_factor", "struct"},
+					--
+					{"metallic_factor", "number"},
+					{"roughness_factor", "number"},
 					{"normal_scale", "normal_scale"},
 					{"occlusion_strength", "occlusion_strength"},
 					{"emissive_factor", "emissive_factor"},
@@ -328,7 +308,7 @@ render3d.config = {
 
 			vec3 sample_env_map(vec3 V, vec3 N, float roughness) 
 			{
-				ivec2 size = textureSize(TEXTURE(pc.model.environment_texture_index), 0);
+				ivec2 size = textureSize(TEXTURE(pc.model.EnvironmentTexture), 0);
 				float max_mip = log2(max(size.x, size.y));
 				
 				vec3 R = reflect(-V, N);
@@ -342,22 +322,22 @@ render3d.config = {
 				float u = atan(R.z, R.x) / (2.0 * PI) + 0.5;
 				float v = asin(R.y) / PI + 0.5;
 				
-				return textureLod(TEXTURE(pc.model.environment_texture_index), vec2(u, -v), mip_level).rgb;
+				return textureLod(TEXTURE(pc.model.EnvironmentTexture), vec2(u, -v), mip_level).rgb;
 			}
 
 			void main() {
 				// Sample textures
-				vec4 albedo = texture(TEXTURE(pc.model.albedo_texture_index), in_uv) * pc.model.base_color_factor;
-				vec3 normal_map = texture(TEXTURE(pc.model.normal_texture_index), in_uv).rgb;					
+				vec4 albedo = texture(TEXTURE(pc.model.AlbedoTexture), in_uv) * pc.model.base_color_factor;
+				vec3 normal_map = texture(TEXTURE(pc.model.NormalTexture), in_uv).rgb;					
 				// Source engine normals have X and Z swapped
 				if (pc.model.flip_normal_xy != 0) {
 					normal_map.g = 1-normal_map.g;
 					normal_map.r = 1-normal_map.r;
 				}						
 				
-				vec4 metallic_roughness = texture(TEXTURE(pc.model.metallic_roughness_texture_index), in_uv);
-				float ao = texture(TEXTURE(pc.model.occlusion_texture_index), in_uv).r;
-				vec3 emissive = texture(TEXTURE(pc.model.emissive_texture_index), in_uv).rgb * pc.model.emissive_factor;
+				vec4 metallic_roughness = texture(TEXTURE(pc.model.MetallicRoughnessTexture), in_uv);
+				float ao = texture(TEXTURE(pc.model.OcclusionTexture), in_uv).r;
+				vec3 emissive = texture(TEXTURE(pc.model.EmissiveTexture), in_uv).rgb * pc.model.emissive_factor;
 
 				// Alpha test
 				if (alpha_discard(in_uv, albedo.a)) {
@@ -370,7 +350,7 @@ render3d.config = {
 
 				// Calculate normal from normal map
 				vec3 N;
-				if (pc.model.normal_texture_index > 0) {
+				if (pc.model.NormalTexture > 0) {
 					vec3 tangent_normal = normal_map * 2.0 - 1.0;
 					tangent_normal *= pc.model.normal_scale;
 					
@@ -458,7 +438,7 @@ render3d.config = {
 				vec3 ambient_diffuse;
 				vec3 ambient_specular;
 				
-				if (pc.model.environment_texture_index >= 0) {
+				if (pc.model.EnvironmentTexture >= 0) {
 					ambient_diffuse = sample_env_map(V, N, roughness) * albedo.rgb * ao;
 					
 					vec3 F_ambient = fresnelSchlick(NdotV, F0);
@@ -496,7 +476,7 @@ render3d.config = {
 					float linear_depth = (debug_data.near_z * debug_data.far_z) / (debug_data.far_z + z * (debug_data.near_z - debug_data.far_z));
 					color = vec3(linear_depth / 100.0); // Scale it so we can actually see something (e.g. 100 units)
 				} else if (debug_data.debug_mode == 5) { // reflection
-					if (pc.model.environment_texture_index >= 0) {
+					if (pc.model.EnvironmentTexture >= 0) {
 						color = sample_env_map(V, N, roughness);
 					} else {
 						color = vec3(0.0);
@@ -970,23 +950,6 @@ end)
 
 function render3d.SetMaterial(mat)
 	render3d.current_material = mat
-end
-
-function render3d.SetColor(c)
-	assert(type(c) == "cdata")
-	render3d.current_color = c
-end
-
-function render3d.GetColor()
-	return render3d.current_color 
-end
-
-function render3d.SetMetallicMultiplier(m)
-	render3d.current_metallic_multiplier = m
-end
-
-function render3d.SetRoughnessMultiplier(r)
-	render3d.current_roughness_multiplier = r
 end
 
 function render3d.SetEnvironmentTexture(texture)
