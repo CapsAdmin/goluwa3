@@ -44,15 +44,10 @@ local field_types = {
 			)
 		end,
 	},
-	struct = {
+	vec4 = {
 		glsl = "vec4",
 		lua = function(block_var, field_name)
-			return string.format(
-				"mat.%s:CopyToFloatPointer(%s.%s)",
-				field_name,
-				block_var,
-				field_name
-			)
+			return string.format("mat.%s:CopyToFloatPointer(%s.%s)", field_name, block_var, field_name)
 		end,
 	},
 	projection_view_world = {
@@ -74,40 +69,13 @@ local field_types = {
 	number = {
 		glsl = "float",
 		lua = function(block_var, field_name)
-			return string.format(
-				"%s.%s = mat.%s",
-				block_var,
-				field_name,
-				field_name
-			)
+			return string.format("%s.%s = mat.%s", block_var, field_name, field_name)
 		end,
 	},
-	normal_scale = {
-		glsl = "float",
-		lua = function(block_var, field_name)
-			return string.format("%s.%s = mat.normal_scale", block_var, field_name)
-		end,
-	},
-	occlusion_strength = {
-		glsl = "float",
-		lua = function(block_var, field_name)
-			return string.format("%s.%s = mat.occlusion_strength", block_var, field_name)
-		end,
-	},
-	emissive_factor = {
-		glsl = "vec3",
-		lua = function(block_var, field_name)
-			return string.format(
-				"mat.emissive_factor:CopyToFloatPointer(%s.%s)",
-				block_var,
-				field_name
-			)
-		end,
-	},
-	flip_normal_xy = {
+	boolean = {
 		glsl = "int",
 		lua = function(block_var, field_name)
-			return string.format("%s.%s = mat.flip_normal_xy and 1 or 0", block_var, field_name)
+			return string.format("%s.%s = mat.%s and 1 or 0", block_var, field_name, field_name)
 		end,
 	},
 	camera_position = {
@@ -166,14 +134,14 @@ render3d.config = {
 					{"OcclusionTexture", "texture"},
 					{"EmissiveTexture", "texture"},
 					{"EnvironmentTexture", "texture_render3d"},
-					{"base_color_factor", "struct"},
+					{"base_color_factor", "vec4"},
 					--
 					{"metallic_factor", "number"},
 					{"roughness_factor", "number"},
-					{"normal_scale", "normal_scale"},
-					{"occlusion_strength", "occlusion_strength"},
-					{"emissive_factor", "emissive_factor"},
-					{"flip_normal_xy", "flip_normal_xy"},
+					{"normal_scale", "number"},
+					{"occlusion_strength", "number"},
+					{"emissive_factor", "vec4"},
+					{"flip_normal_xy", "boolean"},
 				},
 			},
 			{
@@ -337,7 +305,7 @@ render3d.config = {
 				
 				vec4 metallic_roughness = texture(TEXTURE(pc.model.MetallicRoughnessTexture), in_uv);
 				float ao = texture(TEXTURE(pc.model.OcclusionTexture), in_uv).r;
-				vec3 emissive = texture(TEXTURE(pc.model.EmissiveTexture), in_uv).rgb * pc.model.emissive_factor;
+				vec3 emissive = texture(TEXTURE(pc.model.EmissiveTexture), in_uv).rgb * pc.model.emissive_factor.rgb * pc.model.emissive_factor.a;
 
 				// Alpha test
 				if (alpha_discard(in_uv, albedo.a)) {
