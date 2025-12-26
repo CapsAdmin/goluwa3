@@ -800,7 +800,6 @@ function steam.LoadMap(path)
 				end
 			end
 
-			mesh:BuildTangents()
 			tasks.ReportProgress("generating normals", #models)
 			tasks.Wait()
 		end

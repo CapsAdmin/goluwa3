@@ -810,7 +810,6 @@ model_loader.AddModelDecoder("mdl", function(path, full_path, mesh_callback)
 					end
 
 					mesh:BuildBoundingBox()
-					mesh:BuildTangents()
 					mesh:Upload()
 					mesh_callback(mesh)
 					list.insert(models, mesh)

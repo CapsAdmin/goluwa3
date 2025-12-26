@@ -47,13 +47,12 @@ function Polygon3D:Upload()
 
 	if vertex_count == 0 then return end
 
-	-- Define vertex structure matching render3d pipeline: position (vec3), normal (vec3), uv (vec2), tangent (vec4)
+	-- Define vertex structure matching render3d pipeline: position (vec3), normal (vec3), uv (vec2)
 	local VertexType = ffi.typeof([[
 		struct {
 			float position[3];
 			float normal[3];
 			float uv[2];
-			float tangent[4];
 		}[?]
 	]])
 	local vertices = VertexType(vertex_count)
@@ -85,19 +84,6 @@ function Polygon3D:Upload()
 		if v.uv then
 			vertices[idx].uv[0] = v.uv.x or v.uv[1] or 0
 			vertices[idx].uv[1] = v.uv.y or v.uv[2] or 0
-		end
-
-		-- Tangent
-		if v.tangent then
-			vertices[idx].tangent[0] = v.tangent.x or v.tangent[1] or 0
-			vertices[idx].tangent[1] = v.tangent.y or v.tangent[2] or 0
-			vertices[idx].tangent[2] = v.tangent.z or v.tangent[3] or 0
-			vertices[idx].tangent[3] = v.tangent.w or v.tangent[4] or 1
-		else
-			vertices[idx].tangent[0] = 1
-			vertices[idx].tangent[1] = 0
-			vertices[idx].tangent[2] = 0
-			vertices[idx].tangent[3] = 1
 		end
 	end
 
@@ -258,32 +244,6 @@ do -- helpers
 		end
 	end
 
-	local function build_tangents(self, ai, bi, ci, tan1, tan2)
-		local a = self.Vertices[ai]
-		local b = self.Vertices[bi]
-		local c = self.Vertices[ci]
-		local x1 = b.pos.x - a.pos.x
-		local x2 = c.pos.x - a.pos.x
-		local y1 = b.pos.y - a.pos.y
-		local y2 = c.pos.y - a.pos.y
-		local z1 = b.pos.z - a.pos.z
-		local z2 = c.pos.z - a.pos.z
-		local s1 = b.uv.x - a.uv.x
-		local s2 = c.uv.x - a.uv.x
-		local t1 = b.uv.y - a.uv.y
-		local t2 = c.uv.y - a.uv.y
-		local r = 1 / (s1 * t2 - s2 * t1)
-		local sdir = Vec3((t2 * x1 - t1 * x2) * r, (t2 * y1 - t1 * y2) * r, (t2 * z1 - t1 * z2) * r)
-		local tdir = Vec3((s1 * x2 - s2 * x1) * r, (s1 * y2 - s2 * y1) * r, (s1 * z2 - s2 * z1) * r)
-		tan1[ai] = (tan1[ai] or Vec3()) + sdir
-		tan1[bi] = (tan1[bi] or Vec3()) + sdir
-		tan1[ci] = (tan1[ci] or Vec3()) + sdir
-		tan2[ai] = (tan2[ai] or Vec3()) + tdir
-		tan2[bi] = (tan2[bi] or Vec3()) + tdir
-		tan2[ci] = (tan2[ci] or Vec3()) + tdir
-		tasks.Wait()
-	end
-
 	function Polygon3D:IterateFaces(cb)
 		for _, sub_mesh in ipairs(self:GetSubMeshes()) do
 			for i = 1, #sub_mesh.indices, 3 do
@@ -291,30 +251,6 @@ do -- helpers
 				local bi = sub_mesh.indices[i + 1] + 1
 				local ci = sub_mesh.indices[i + 2] + 1
 				cb(self.Vertices[ai], self.Vertices[bi], self.Vertices[ci])
-			end
-		end
-	end
-
-	function Polygon3D:BuildTangents()
-		local tan1 = {}
-		local tan2 = {}
-
-		for _, sub_mesh in ipairs(self:GetSubMeshes()) do
-			for i = 1, #sub_mesh.indices, 3 do
-				local ai = sub_mesh.indices[i + 0] + 1
-				local bi = sub_mesh.indices[i + 1] + 1
-				local ci = sub_mesh.indices[i + 2] + 1
-				build_tangents(self, ai, bi, ci, tan1, tan2)
-			end
-		end
-
-		for i = 1, #self.Vertices do
-			local n = self.Vertices[i].normal
-			local t = tan1[i]
-
-			if tan1[i] and tan2[i] and not self.Vertices.tangent then
-				self.Vertices[i].tangent = (t - n * n:GetDot(t)):Normalize()
-				tasks.Wait()
 			end
 		end
 	end

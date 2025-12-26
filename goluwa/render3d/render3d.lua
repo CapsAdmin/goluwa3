@@ -63,7 +63,6 @@ function render3d.Initialize()
 					layout(location = 0) in vec3 in_position;
 					layout(location = 1) in vec3 in_normal;
 					layout(location = 2) in vec2 in_uv;
-					layout(location = 3) in vec4 in_tangent;
 
 					layout(push_constant, scalar) uniform Constants {
 						mat4 projection_view_world;
@@ -90,7 +89,7 @@ function render3d.Initialize()
 					bindings = {
 						{
 							binding = 0,
-							stride = ffi.sizeof("float") * 12, -- vec3 + vec3 + vec2 + vec4
+							stride = ffi.sizeof("float") * (3 + 3 + 2), -- vec3 + vec3 + vec2
 							input_rate = "vertex",
 						},
 					},
@@ -112,12 +111,6 @@ function render3d.Initialize()
 							location = 2, -- in_uv
 							format = "r32g32_sfloat", -- vec2
 							offset = ffi.sizeof("float") * 6,
-						},
-						{
-							binding = 0,
-							location = 3, -- in_tangent
-							format = "r32g32b32a32_sfloat", -- vec4
-							offset = ffi.sizeof("float") * 8,
 						},
 					},
 					input_assembly = {
