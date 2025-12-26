@@ -18,6 +18,162 @@ render3d.current_color = {1, 1, 1, 1}
 render3d.current_metallic_multiplier = 1
 render3d.current_roughness_multiplier = 1
 render3d.environment_texture = nil
+local field_types = {
+	mat4 = {glsl = "mat4"},
+	vec4 = {glsl = "vec4"},
+	vec3 = {glsl = "vec3"},
+	vec2 = {glsl = "vec2"},
+	float = {glsl = "float"},
+	int = {glsl = "int"},
+	texture = {
+		glsl = "int",
+		lua = function(block_var, field_name)
+			local tex_name = field_name:match("^(.*)_texture_index$")
+
+			if tex_name then
+				tex_name = tex_name:sub(1, 1):upper() .. tex_name:sub(2)
+
+				if tex_name == "Metallic_roughness" then tex_name = "MetallicRoughness" end
+
+				return string.format(
+					"%s.%s = render3d.pipeline:GetTextureIndex(mat:Get%sTexture())",
+					block_var,
+					field_name,
+					tex_name
+				)
+			end
+		end,
+	},
+	environment_texture = {
+		glsl = "int",
+		lua = function(block_var, field_name)
+			return string.format(
+				"%s.%s = render3d.environment_texture and render3d.pipeline:GetTextureIndex(render3d.environment_texture) or -1",
+				block_var,
+				field_name
+			)
+		end,
+	},
+	color = {
+		glsl = "vec4",
+		lua = function(block_var, field_name)
+			return string.format(
+				[[
+				local c = render3d.current_color
+				%s.%s[0] = mat.base_color_factor[1] * (c.r or c[1] or 1)
+				%s.%s[1] = mat.base_color_factor[2] * (c.g or c[2] or 1)
+				%s.%s[2] = mat.base_color_factor[3] * (c.b or c[3] or 1)
+				%s.%s[3] = mat.base_color_factor[4] * (c.a or c[4] or 1)
+			]],
+				block_var,
+				field_name,
+				block_var,
+				field_name,
+				block_var,
+				field_name,
+				block_var,
+				field_name
+			)
+		end,
+	},
+	projection_view_world = {
+		glsl = "mat4",
+		lua = function(block_var, field_name)
+			return string.format(
+				"%s.%s = render3d.GetProjectionViewWorldMatrix():GetFloatCopy()",
+				block_var,
+				field_name
+			)
+		end,
+	},
+	world = {
+		glsl = "mat4",
+		lua = function(block_var, field_name)
+			return string.format("%s.%s = render3d.GetWorldMatrix():GetFloatCopy()", block_var, field_name)
+		end,
+	},
+	metallic_factor = {
+		glsl = "float",
+		lua = function(block_var, field_name)
+			return string.format(
+				"%s.%s = mat.metallic_factor * render3d.current_metallic_multiplier",
+				block_var,
+				field_name
+			)
+		end,
+	},
+	roughness_factor = {
+		glsl = "float",
+		lua = function(block_var, field_name)
+			return string.format(
+				"%s.%s = mat.roughness_factor * render3d.current_roughness_multiplier",
+				block_var,
+				field_name
+			)
+		end,
+	},
+	normal_scale = {
+		glsl = "float",
+		lua = function(block_var, field_name)
+			return string.format("%s.%s = mat.normal_scale", block_var, field_name)
+		end,
+	},
+	occlusion_strength = {
+		glsl = "float",
+		lua = function(block_var, field_name)
+			return string.format("%s.%s = mat.occlusion_strength", block_var, field_name)
+		end,
+	},
+	emissive_factor = {
+		glsl = "vec3",
+		lua = function(block_var, field_name)
+			return string.format(
+				[[
+				%s.%s[0] = mat.emissive_factor[1]
+				%s.%s[1] = mat.emissive_factor[2]
+				%s.%s[2] = mat.emissive_factor[3]
+			]],
+				block_var,
+				field_name,
+				block_var,
+				field_name,
+				block_var,
+				field_name
+			)
+		end,
+	},
+	flip_normal_xy = {
+		glsl = "int",
+		lua = function(block_var, field_name)
+			return string.format("%s.%s = mat.flip_normal_xy and 1 or 0", block_var, field_name)
+		end,
+	},
+	camera_position = {
+		glsl = "vec3",
+		lua = function(block_var, field_name)
+			return string.format(
+				[[
+				local camera_position = render3d.camera:GetPosition()
+				%s.%s[0] = camera_position.x
+				%s.%s[1] = camera_position.y
+				%s.%s[2] = camera_position.z
+			]],
+				block_var,
+				field_name,
+				block_var,
+				field_name,
+				block_var,
+				field_name
+			)
+		end,
+	},
+	light_count = {
+		glsl = "int",
+		lua = function(block_var, field_name)
+			return string.format("%s.%s = math.min(#Light.GetLights(), 32)", block_var, field_name)
+		end,
+	},
+}
 render3d.config = {
 	vertex = {
 		binding_index = 0,
@@ -30,16 +186,8 @@ render3d.config = {
 			{
 				name = "vertex",
 				block = {
-					{
-						"projection_view_world",
-						"mat4",
-						lua = "vertex_constants.projection_view_world = render3d.GetProjectionViewWorldMatrix():GetFloatCopy()",
-					},
-					{
-						"world",
-						"mat4",
-						lua = "vertex_constants.world = render3d.GetWorldMatrix():GetFloatCopy()",
-					},
+					{"projection_view_world", "projection_view_world"},
+					{"world", "world"},
 				},
 			},
 		},
@@ -57,103 +205,28 @@ render3d.config = {
 	fragment = {
 		push_constants = {
 			{
-				name = "material",
+				name = "model",
 				block = {
-					{
-						"albedo_texture_index",
-						"int",
-						lua = "material_constants.albedo_texture_index = render3d.pipeline:GetTextureIndex(mat:GetAlbedoTexture())",
-					},
-					{
-						"normal_texture_index",
-						"int",
-						lua = "material_constants.normal_texture_index = render3d.pipeline:GetTextureIndex(mat:GetNormalTexture())",
-					},
-					{
-						"metallic_roughness_texture_index",
-						"int",
-						lua = "material_constants.metallic_roughness_texture_index = render3d.pipeline:GetTextureIndex(mat:GetMetallicRoughnessTexture())",
-					},
-					{
-						"occlusion_texture_index",
-						"int",
-						lua = "material_constants.occlusion_texture_index = render3d.pipeline:GetTextureIndex(mat:GetOcclusionTexture())",
-					},
-					{
-						"emissive_texture_index",
-						"int",
-						lua = "material_constants.emissive_texture_index = render3d.pipeline:GetTextureIndex(mat:GetEmissiveTexture())",
-					},
-					{
-						"environment_texture_index",
-						"int",
-						lua = "material_constants.environment_texture_index = render3d.environment_texture and render3d.pipeline:GetTextureIndex(render3d.environment_texture) or -1",
-					},
-					{
-						"base_color_factor",
-						"vec4",
-						lua = [[
-					local c = render3d.current_color
-					material_constants.base_color_factor[0] = mat.base_color_factor[1] * (c.r or c[1] or 1)
-					material_constants.base_color_factor[1] = mat.base_color_factor[2] * (c.g or c[2] or 1)
-					material_constants.base_color_factor[2] = mat.base_color_factor[3] * (c.b or c[3] or 1)
-					material_constants.base_color_factor[3] = mat.base_color_factor[4] * (c.a or c[4] or 1)
-				]],
-					},
-					{
-						"metallic_factor",
-						"float",
-						lua = "material_constants.metallic_factor = mat.metallic_factor * render3d.current_metallic_multiplier",
-					},
-					{
-						"roughness_factor",
-						"float",
-						lua = "material_constants.roughness_factor = mat.roughness_factor * render3d.current_roughness_multiplier",
-					},
-					{
-						"normal_scale",
-						"float",
-						lua = "material_constants.normal_scale = mat.normal_scale",
-					},
-					{
-						"occlusion_strength",
-						"float",
-						lua = "material_constants.occlusion_strength = mat.occlusion_strength",
-					},
-					{
-						"emissive_factor",
-						"vec3",
-						lua = [[
-					material_constants.emissive_factor[0] = mat.emissive_factor[1]
-					material_constants.emissive_factor[1] = mat.emissive_factor[2]
-					material_constants.emissive_factor[2] = mat.emissive_factor[3]
-				]],
-					},
-					{
-						"flip_normal_xy",
-						"int",
-						lua = "material_constants.flip_normal_xy = mat.flip_normal_xy and 1 or 0",
-					},
+					{"albedo_texture_index", "texture"},
+					{"normal_texture_index", "texture"},
+					{"metallic_roughness_texture_index", "texture"},
+					{"occlusion_texture_index", "texture"},
+					{"emissive_texture_index", "texture"},
+					{"environment_texture_index", "environment_texture"},
+					{"base_color_factor", "color"},
+					{"metallic_factor", "metallic_factor"},
+					{"roughness_factor", "roughness_factor"},
+					{"normal_scale", "normal_scale"},
+					{"occlusion_strength", "occlusion_strength"},
+					{"emissive_factor", "emissive_factor"},
+					{"flip_normal_xy", "flip_normal_xy"},
 				},
 			},
 			{
 				name = "fragment",
 				block = {
-					{
-						"camera_position",
-						"vec3",
-						lua = [[
-					local camera_position = render3d.camera:GetPosition()
-					fragment_constants.camera_position[0] = camera_position.x
-					fragment_constants.camera_position[1] = camera_position.y
-					fragment_constants.camera_position[2] = camera_position.z
-				]],
-					},
-					{
-						"light_count",
-						"int",
-						lua = "fragment_constants.light_count = math.min(#Light.GetLights(), 32)",
-					},
+					{"camera_position", "camera_position"},
+					{"light_count", "light_count"},
 				},
 			},
 		},
@@ -281,7 +354,7 @@ render3d.config = {
 
 			vec3 sample_env_map(vec3 V, vec3 N, float roughness) 
 			{
-				ivec2 size = textureSize(textures[nonuniformEXT(pc.material.environment_texture_index)], 0);
+				ivec2 size = textureSize(textures[nonuniformEXT(pc.model.environment_texture_index)], 0);
 				float max_mip = log2(max(size.x, size.y));
 				
 				vec3 R = reflect(-V, N);
@@ -295,22 +368,22 @@ render3d.config = {
 				float u = atan(R.z, R.x) / (2.0 * PI) + 0.5;
 				float v = asin(R.y) / PI + 0.5;
 				
-				return textureLod(textures[nonuniformEXT(pc.material.environment_texture_index)], vec2(u, -v), mip_level).rgb;
+				return textureLod(textures[nonuniformEXT(pc.model.environment_texture_index)], vec2(u, -v), mip_level).rgb;
 			}
 
 			void main() {
 				// Sample textures
-				vec4 albedo = texture(textures[nonuniformEXT(pc.material.albedo_texture_index)], in_uv) * pc.material.base_color_factor;
-				vec3 normal_map = texture(textures[nonuniformEXT(pc.material.normal_texture_index)], in_uv).rgb;					
+				vec4 albedo = texture(textures[nonuniformEXT(pc.model.albedo_texture_index)], in_uv) * pc.model.base_color_factor;
+				vec3 normal_map = texture(textures[nonuniformEXT(pc.model.normal_texture_index)], in_uv).rgb;					
 				// Source engine normals have X and Z swapped
-				if (pc.material.flip_normal_xy != 0) {
+				if (pc.model.flip_normal_xy != 0) {
 					normal_map.g = 1-normal_map.g;
 					normal_map.r = 1-normal_map.r;
 				}						
 				
-				vec4 metallic_roughness = texture(textures[nonuniformEXT(pc.material.metallic_roughness_texture_index)], in_uv);
-				float ao = texture(textures[nonuniformEXT(pc.material.occlusion_texture_index)], in_uv).r;
-				vec3 emissive = texture(textures[nonuniformEXT(pc.material.emissive_texture_index)], in_uv).rgb * pc.material.emissive_factor;
+				vec4 metallic_roughness = texture(textures[nonuniformEXT(pc.model.metallic_roughness_texture_index)], in_uv);
+				float ao = texture(textures[nonuniformEXT(pc.model.occlusion_texture_index)], in_uv).r;
+				vec3 emissive = texture(textures[nonuniformEXT(pc.model.emissive_texture_index)], in_uv).rgb * pc.model.emissive_factor;
 
 				// Alpha test
 				if (alpha_discard(in_uv, albedo.a)) {
@@ -318,14 +391,14 @@ render3d.config = {
 				}
 
 				// glTF: metallic in B, roughness in G
-				float metallic = metallic_roughness.b * pc.material.metallic_factor;
-				float roughness = clamp(metallic_roughness.g * pc.material.roughness_factor, 0.04, 1.0);
+				float metallic = metallic_roughness.b * pc.model.metallic_factor;
+				float roughness = clamp(metallic_roughness.g * pc.model.roughness_factor, 0.04, 1.0);
 
 				// Calculate normal from normal map
 				vec3 N;
-				if (pc.material.normal_texture_index > 0) {
+				if (pc.model.normal_texture_index > 0) {
 					vec3 tangent_normal = normal_map * 2.0 - 1.0;
-					tangent_normal *= pc.material.normal_scale;
+					tangent_normal *= pc.model.normal_scale;
 					
 					// Calculate tangents on-the-fly using screen-space derivatives
 					vec3 dp1 = dFdx(in_position);
@@ -411,7 +484,7 @@ render3d.config = {
 				vec3 ambient_diffuse;
 				vec3 ambient_specular;
 				
-				if (pc.material.environment_texture_index >= 0) {
+				if (pc.model.environment_texture_index >= 0) {
 					ambient_diffuse = sample_env_map(V, N, roughness) * albedo.rgb * ao;
 					
 					vec3 F_ambient = fresnelSchlick(NdotV, F0);
@@ -449,7 +522,7 @@ render3d.config = {
 					float linear_depth = (debug_data.near_z * debug_data.far_z) / (debug_data.far_z + z * (debug_data.near_z - debug_data.far_z));
 					color = vec3(linear_depth / 100.0); // Scale it so we can actually see something (e.g. 100 units)
 				} else if (debug_data.debug_mode == 5) { // reflection
-					if (pc.material.environment_texture_index >= 0) {
+					if (pc.model.environment_texture_index >= 0) {
 						color = sample_env_map(V, N, roughness);
 					} else {
 						color = vec3(0.0);
@@ -466,35 +539,79 @@ render3d.config = {
 function render3d.Initialize()
 	if render3d.pipeline then return end
 
-	local VertexConstants = ffi.typeof([[
-		struct {
-			float projection_view_world[16];
-			float world[16];
+	local glsl_to_ffi = {
+		mat4 = "float",
+		vec4 = "float",
+		vec3 = "float",
+		vec2 = "float",
+		float = "float",
+		int = "int",
+	}
+	local glsl_to_array_size = {
+		mat4 = 16,
+		vec4 = 4,
+		vec3 = 3,
+		vec2 = 2,
+	}
+	local push_constant_types = {}
+	local stage_sizes = {vertex = 0, fragment = 0}
+
+	local function get_field_info(field, block_var)
+		local name = field[1]
+		local glsl_type = field[2]
+		local logic_type = field[3] or glsl_type or name
+
+		if field_types[glsl_type] then
+			logic_type = glsl_type
+			glsl_type = field_types[logic_type].glsl
+		end
+
+		local info = field_types[logic_type] or field_types[name]
+		local res = {
+			name = name,
+			glsl_type = (info and info.glsl) or glsl_type,
+			lua_code = field.lua,
+			array_size = type(field[3]) == "number" and
+				field[3] or
+				type(field[4]) == "number" and
+				field[4] or
+				nil,
 		}
-	]])
-	local MaterialConstants = ffi.typeof([[
-		struct {
-			int albedo_texture_index;
-			int normal_texture_index;
-			int metallic_roughness_texture_index;
-			int occlusion_texture_index;
-			int emissive_texture_index;
-			int environment_texture_index;
-			float base_color_factor[4];
-			float metallic_factor;
-			float roughness_factor;
-			float normal_scale;
-			float occlusion_strength;
-			float emissive_factor[3];
-			int flip_normal_xy;
-		}
-	]])
-	local FragmentConstants = ffi.typeof([[
-		struct {
-			float camera_position[3];
-			int light_count;
-		}
-	]])
+
+		if not res.lua_code and info and info.lua then
+			if type(info.lua) == "function" then
+				res.lua_code = info.lua(block_var, name)
+			else
+				res.lua_code = info.lua
+			end
+		end
+
+		return res
+	end
+
+	for stage, stage_config in pairs(render3d.config) do
+		for _, block in ipairs(stage_config.push_constants) do
+			local struct_name = block.name:sub(1, 1):upper() .. block.name:sub(2) .. "Constants"
+			local ffi_code = "struct {\n"
+
+			for _, field in ipairs(block.block) do
+				local info = get_field_info(field, block.name .. "_constants")
+				local ffi_type = glsl_to_ffi[info.glsl_type] or info.glsl_type
+				local array_size = info.array_size or glsl_to_array_size[info.glsl_type]
+
+				if array_size then
+					ffi_code = ffi_code .. string.format("    %s %s[%d];\n", ffi_type, info.name, array_size)
+				else
+					ffi_code = ffi_code .. string.format("    %s %s;\n", ffi_type, info.name)
+				end
+			end
+
+			ffi_code = ffi_code .. "}"
+			local ctype = ffi.typeof(ffi_code)
+			push_constant_types[struct_name] = ctype
+			stage_sizes[stage] = stage_sizes[stage] + ffi.sizeof(ctype)
+		end
+	end
 
 	local function get_glsl_push_constants(stage)
 		local blocks = render3d.config[stage].push_constants
@@ -505,10 +622,12 @@ function render3d.Initialize()
 			str = str .. "struct " .. struct_name .. " {\n"
 
 			for _, field in ipairs(block.block) do
-				if #field >= 2 then
-					str = str .. string.format("    %s %s;\n", field[2], field[1])
-				elseif #field == 3 then
-					str = str .. string.format("    %s %s[%d];\n", field[2], field[1], field[3])
+				local info = get_field_info(field, block.name .. "_constants")
+
+				if info.array_size then
+					str = str .. string.format("    %s %s[%d];\n", info.glsl_type, info.name, info.array_size)
+				else
+					str = str .. string.format("    %s %s;\n", info.glsl_type, info.name)
 				end
 			end
 
@@ -518,7 +637,7 @@ function render3d.Initialize()
 		str = str .. "layout(push_constant, scalar) uniform Constants {\n"
 
 		if stage == "fragment" then
-			str = str .. "    layout(offset = " .. ffi.sizeof(VertexConstants) .. ")\n"
+			str = str .. "    layout(offset = " .. stage_sizes.vertex .. ")\n"
 		end
 
 		for _, block in ipairs(blocks) do
@@ -532,38 +651,50 @@ function render3d.Initialize()
 
 	local function build_constants()
 		local code = [[
-		local render3d, ffi, Material, Light, math, VertexConstants, MaterialConstants, FragmentConstants = ...
-		local vertex_constants = VertexConstants()
-		local material_constants = MaterialConstants()
-		local fragment_constants = FragmentConstants()
+			local render3d, ffi, Material, Light, math, push_constant_types, stage_sizes = ...
+			]]
 
-		return function(cmd)
-	]]
+		for struct_name, _ in pairs(push_constant_types) do
+			local var_name = struct_name:sub(1, 1):lower() .. struct_name:sub(2, -10):lower() .. "_constants"
+			code = code .. "local " .. var_name .. " = push_constant_types." .. struct_name .. "()\n"
+		end
+
+		code = code .. [[
+
+			return function(cmd)
+		]]
 		-- Vertex stage
 		code = code .. "		do\n"
+		code = code .. "			local offset = 0\n"
 
 		for _, block in ipairs(render3d.config.vertex.push_constants) do
 			for _, field in ipairs(block.block) do
-				if field.lua then code = code .. "			" .. field.lua .. "\n" end
+				local info = get_field_info(field, block.name .. "_constants")
+
+				if info.lua_code then code = code .. "			" .. info.lua_code .. "\n" end
 			end
 
-			code = code .. "			render3d.pipeline:PushConstants(cmd, 'vertex', 0, vertex_constants)\n"
+			local struct_name = block.name:sub(1, 1):upper() .. block.name:sub(2) .. "Constants"
+			code = code .. "			render3d.pipeline:PushConstants(cmd, 'vertex', offset, " .. block.name .. "_constants)\n"
+			code = code .. "			offset = offset + ffi.sizeof(push_constant_types." .. struct_name .. ")\n"
 		end
 
 		code = code .. "		end\n"
 		-- Fragment stage
 		code = code .. "		do\n"
 		code = code .. "			local mat = render3d.current_material or Material.GetDefault()\n"
-		code = code .. "			local offset = ffi.sizeof(VertexConstants)\n"
+		code = code .. "			local offset = stage_sizes.vertex\n"
 
 		for _, block in ipairs(render3d.config.fragment.push_constants) do
 			for _, field in ipairs(block.block) do
-				if field.lua then code = code .. "			" .. field.lua .. "\n" end
+				local info = get_field_info(field, block.name .. "_constants")
+
+				if info.lua_code then code = code .. "			" .. info.lua_code .. "\n" end
 			end
 
 			local struct_name = block.name:sub(1, 1):upper() .. block.name:sub(2) .. "Constants"
 			code = code .. "			render3d.pipeline:PushConstants(cmd, 'fragment', offset, " .. block.name .. "_constants)\n"
-			code = code .. "			offset = offset + ffi.sizeof(" .. struct_name .. ")\n"
+			code = code .. "			offset = offset + ffi.sizeof(push_constant_types." .. struct_name .. ")\n"
 		end
 
 		-- Debug UBO
@@ -583,9 +714,8 @@ function render3d.Initialize()
 			Material,
 			Light,
 			math,
-			VertexConstants,
-			MaterialConstants,
-			FragmentConstants
+			push_constant_types,
+			stage_sizes
 		)
 	end
 
@@ -667,7 +797,7 @@ function render3d.Initialize()
 						primitive_restart = false,
 					},
 					push_constants = {
-						size = ffi.sizeof(VertexConstants),
+						size = stage_sizes.vertex,
 						offset = 0,
 					},
 				},
@@ -726,8 +856,8 @@ function render3d.Initialize()
 						},
 					},
 					push_constants = {
-						size = ffi.sizeof(MaterialConstants) + ffi.sizeof(FragmentConstants),
-						offset = ffi.sizeof(VertexConstants),
+						size = stage_sizes.fragment,
+						offset = stage_sizes.vertex,
 					},
 				},
 			},
