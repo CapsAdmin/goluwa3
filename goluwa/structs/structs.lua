@@ -495,6 +495,7 @@ function structs.AddOperator(META, operator, ...)
 		end
 
 		local ffi_cast = ffi.cast
+		local ffi_copy = ffi.copy
 
 		if META.NumberType == "float" then
 			function META:GetFloatPointer()
@@ -507,6 +508,11 @@ function structs.AddOperator(META, operator, ...)
 		else
 			function META:GetFloatPointer()
 				return self:GetFloatCopy()
+			end
+
+			function META:CopyToFloatPointer(ptr)
+				ffi_copy(ptr, self:GetFloatPointer(), ffi.sizeof(float_array))
+				return self
 			end
 
 			function META:GetDoublePointer()

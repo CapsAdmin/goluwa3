@@ -57,18 +57,9 @@ local field_types = {
 	color = {
 		glsl = "vec4",
 		lua = function(block_var, field_name)
+			print(block_var, field_name)
 			return string.format(
-				[[
-				local c = render3d.GetColor()
-				%s.%s[0] = mat.base_color_factor.r * c.r
-				%s.%s[1] = mat.base_color_factor.g * c.g
-				%s.%s[2] = mat.base_color_factor.b * c.b
-				%s.%s[3] = mat.base_color_factor.a * c.a
-			]],
-				block_var,
-				field_name,
-				block_var,
-				field_name,
+				"render3d.GetColor():CopyToFloatPointer(%s.%s)",
 				block_var,
 				field_name,
 				block_var,
@@ -80,7 +71,7 @@ local field_types = {
 		glsl = "mat4",
 		lua = function(block_var, field_name)
 			return string.format(
-				"%s.%s = render3d.GetProjectionViewWorldMatrix():GetFloatCopy()",
+				"render3d.GetProjectionViewWorldMatrix():CopyToFloatPointer(%s.%s)",
 				block_var,
 				field_name
 			)
@@ -89,7 +80,7 @@ local field_types = {
 	world = {
 		glsl = "mat4",
 		lua = function(block_var, field_name)
-			return string.format("%s.%s = render3d.GetWorldMatrix():GetFloatCopy()", block_var, field_name)
+			return string.format("render3d.GetWorldMatrix():CopyToFloatPointer(%s.%s)", block_var, field_name)
 		end,
 	},
 	metallic_factor = {
@@ -128,15 +119,7 @@ local field_types = {
 		glsl = "vec3",
 		lua = function(block_var, field_name)
 			return string.format(
-				[[
-				%s.%s[0] = mat.emissive_factor.r * mat.emissive_factor.a
-				%s.%s[1] = mat.emissive_factor.g * mat.emissive_factor.a
-				%s.%s[2] = mat.emissive_factor.b * mat.emissive_factor.a
-			]],
-				block_var,
-				field_name,
-				block_var,
-				field_name,
+				"mat.emissive_factor:CopyToFloatPointer(%s.%s)",
 				block_var,
 				field_name
 			)
@@ -152,16 +135,7 @@ local field_types = {
 		glsl = "vec3",
 		lua = function(block_var, field_name)
 			return string.format(
-				[[
-				local camera_position = render3d.camera:GetPosition()
-				%s.%s[0] = camera_position.x
-				%s.%s[1] = camera_position.y
-				%s.%s[2] = camera_position.z
-			]],
-				block_var,
-				field_name,
-				block_var,
-				field_name,
+				"render3d.camera:GetPosition():CopyToFloatPointer(%s.%s)",
 				block_var,
 				field_name
 			)

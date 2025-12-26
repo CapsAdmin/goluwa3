@@ -199,6 +199,11 @@ local function matrix_template(X, Y, identity)
 					function META:GetFloatPointer()
 						return self:GetFloatCopy()
 					end
+
+					function META:CopyToFloatPointer(ptr)
+						ffi.copy(ptr, self:GetFloatCopy(), ffi.sizeof(float_array))
+						return self
+					end
 				end
 			end
 

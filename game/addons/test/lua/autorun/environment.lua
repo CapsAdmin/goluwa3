@@ -47,7 +47,7 @@ do
 		local R = 0.2
 		poly.material = Material.New(
 			{
-				base_color_factor = Color(1.0, 1.0, 1.0, 1.0),
+				base_color_factor = Color(1.0, 0.0, 1.0, 1.0),
 				metallic_roughness_texture = Texture.New(
 					{
 						width = 1,
