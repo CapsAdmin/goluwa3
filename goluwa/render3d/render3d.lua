@@ -12,129 +12,633 @@ local Quat = require("structs.quat")
 local Rect = require("structs.rect")
 local Camera3D = require("render3d.camera3d")
 local Light = require("components.light")
-local VertexConstants = ffi.typeof([[
-	struct {
-		float projection_view_world[16];
-		float world[16];
-	}
-]])
-local MaterialConstants = ffi.typeof([[
-	struct {
-		int albedo_texture_index;
-		int normal_texture_index;
-		int metallic_roughness_texture_index;
-		int occlusion_texture_index;
-		int emissive_texture_index;
-		int environment_texture_index;
-		float base_color_factor[4];
-		float metallic_factor;
-		float roughness_factor;
-		float normal_scale;
-		float occlusion_strength;
-		float emissive_factor[3];
-		int flip_normal_xy;
-	}
-]])
-local FragmentConstants = ffi.typeof([[
-	struct {
-		float camera_position[3];
-		int light_count;
-	}
-]])
 local render3d = library()
 render3d.current_material = nil
 render3d.current_color = {1, 1, 1, 1}
 render3d.current_metallic_multiplier = 1
 render3d.current_roughness_multiplier = 1
 render3d.environment_texture = nil
-local vertex_attribute_binding_index = 0
-local vertex_attributes = {
-	{"position", "vec3", "r32g32b32_sfloat"},
-	{"normal", "vec3", "r32g32b32_sfloat"},
-	{"uv", "vec2", "r32g32_sfloat"},
+render3d.config = {
+	vertex = {
+		binding_index = 0,
+		attributes = {
+			{"position", "vec3", "r32g32b32_sfloat"},
+			{"normal", "vec3", "r32g32b32_sfloat"},
+			{"uv", "vec2", "r32g32_sfloat"},
+		},
+		push_constants = {
+			{
+				name = "vertex",
+				block = {
+					{
+						"projection_view_world",
+						"mat4",
+						lua = "vertex_constants.projection_view_world = render3d.GetProjectionViewWorldMatrix():GetFloatCopy()",
+					},
+					{
+						"world",
+						"mat4",
+						lua = "vertex_constants.world = render3d.GetWorldMatrix():GetFloatCopy()",
+					},
+				},
+			},
+		},
+		shader = [[
+			void main() {
+				// ORIENTATION / TRANSFORMATION
+				gl_Position = pc.vertex.projection_view_world * vec4(in_position, 1.0);
+
+				out_position = (pc.vertex.world * vec4(in_position, 1.0)).xyz;						
+				out_normal = normalize(mat3(pc.vertex.world) * in_normal);
+				out_uv = in_uv;
+			}
+		]],
+	},
+	fragment = {
+		push_constants = {
+			{
+				name = "material",
+				block = {
+					{
+						"albedo_texture_index",
+						"int",
+						lua = "material_constants.albedo_texture_index = render3d.pipeline:GetTextureIndex(mat:GetAlbedoTexture())",
+					},
+					{
+						"normal_texture_index",
+						"int",
+						lua = "material_constants.normal_texture_index = render3d.pipeline:GetTextureIndex(mat:GetNormalTexture())",
+					},
+					{
+						"metallic_roughness_texture_index",
+						"int",
+						lua = "material_constants.metallic_roughness_texture_index = render3d.pipeline:GetTextureIndex(mat:GetMetallicRoughnessTexture())",
+					},
+					{
+						"occlusion_texture_index",
+						"int",
+						lua = "material_constants.occlusion_texture_index = render3d.pipeline:GetTextureIndex(mat:GetOcclusionTexture())",
+					},
+					{
+						"emissive_texture_index",
+						"int",
+						lua = "material_constants.emissive_texture_index = render3d.pipeline:GetTextureIndex(mat:GetEmissiveTexture())",
+					},
+					{
+						"environment_texture_index",
+						"int",
+						lua = "material_constants.environment_texture_index = render3d.environment_texture and render3d.pipeline:GetTextureIndex(render3d.environment_texture) or -1",
+					},
+					{
+						"base_color_factor",
+						"vec4",
+						lua = [[
+					local c = render3d.current_color
+					material_constants.base_color_factor[0] = mat.base_color_factor[1] * (c.r or c[1] or 1)
+					material_constants.base_color_factor[1] = mat.base_color_factor[2] * (c.g or c[2] or 1)
+					material_constants.base_color_factor[2] = mat.base_color_factor[3] * (c.b or c[3] or 1)
+					material_constants.base_color_factor[3] = mat.base_color_factor[4] * (c.a or c[4] or 1)
+				]],
+					},
+					{
+						"metallic_factor",
+						"float",
+						lua = "material_constants.metallic_factor = mat.metallic_factor * render3d.current_metallic_multiplier",
+					},
+					{
+						"roughness_factor",
+						"float",
+						lua = "material_constants.roughness_factor = mat.roughness_factor * render3d.current_roughness_multiplier",
+					},
+					{
+						"normal_scale",
+						"float",
+						lua = "material_constants.normal_scale = mat.normal_scale",
+					},
+					{
+						"occlusion_strength",
+						"float",
+						lua = "material_constants.occlusion_strength = mat.occlusion_strength",
+					},
+					{
+						"emissive_factor",
+						"vec3",
+						lua = [[
+					material_constants.emissive_factor[0] = mat.emissive_factor[1]
+					material_constants.emissive_factor[1] = mat.emissive_factor[2]
+					material_constants.emissive_factor[2] = mat.emissive_factor[3]
+				]],
+					},
+					{
+						"flip_normal_xy",
+						"int",
+						lua = "material_constants.flip_normal_xy = mat.flip_normal_xy and 1 or 0",
+					},
+				},
+			},
+			{
+				name = "fragment",
+				block = {
+					{
+						"camera_position",
+						"vec3",
+						lua = [[
+					local camera_position = render3d.camera:GetPosition()
+					fragment_constants.camera_position[0] = camera_position.x
+					fragment_constants.camera_position[1] = camera_position.y
+					fragment_constants.camera_position[2] = camera_position.z
+				]],
+					},
+					{
+						"light_count",
+						"int",
+						lua = "fragment_constants.light_count = math.min(#Light.GetLights(), 32)",
+					},
+				},
+			},
+		},
+		shader = [[
+			const float PI = 3.14159265359;
+
+			// Cascade debug colors
+			const vec3 CASCADE_COLORS[4] = vec3[4](
+				vec3(1.0, 0.2, 0.2),  // Red - cascade 1
+				vec3(0.2, 1.0, 0.2),  // Green - cascade 2
+				vec3(0.2, 0.2, 1.0),  // Blue - cascade 3
+				vec3(1.0, 1.0, 0.2)   // Yellow - cascade 4
+			);
+
+			// Get cascade index based on view distance
+			int getCascadeIndex(vec3 world_pos) {
+				float dist = length(world_pos - pc.fragment.camera_position);
+				
+				for (int i = 0; i < light_data.shadow.cascade_count; i++) {
+					if (dist < light_data.shadow.cascade_splits[i]) {
+						return i;
+					}
+				}
+				return light_data.shadow.cascade_count - 1;
+			}
+
+			// GGX/Trowbridge-Reitz NDF
+			float DistributionGGX(vec3 N, vec3 H, float roughness) {
+				float a = roughness * roughness;
+				float a2 = a * a;
+				float NdotH = max(dot(N, H), 0.0);
+				float NdotH2 = NdotH * NdotH;
+				float denom = (NdotH2 * (a2 - 1.0) + 1.0);
+				denom = PI * denom * denom;
+				return a2 / max(denom, 0.0001);
+			}
+
+			// Schlick-GGX geometry function
+			float GeometrySchlickGGX(float NdotV, float roughness) {
+				float r = (roughness + 1.0);
+				float k = (r * r) / 8.0;
+				return NdotV / (NdotV * (1.0 - k) + k);
+			}
+
+			float GeometrySmith(vec3 N, vec3 V, vec3 L, float roughness) {
+				float NdotV = max(dot(N, V), 0.0);
+				float NdotL = max(dot(N, L), 0.0);
+				return GeometrySchlickGGX(NdotV, roughness) * GeometrySchlickGGX(NdotL, roughness);
+			}
+
+			// Fresnel-Schlick
+			vec3 fresnelSchlick(float cosTheta, vec3 F0) {
+				return F0 + (1.0 - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
+			}
+
+			// PCF Shadow calculation
+			float calculateShadow(vec3 world_pos, vec3 normal, vec3 light_dir) {
+				// Get cascade index for this fragment
+				int cascade_idx = getCascadeIndex(world_pos);
+				if (cascade_idx < 0) {
+					return 1.0;
+				}
+				
+				// Get shadow map index for this cascade
+				int shadow_map_idx = light_data.shadow.shadow_map_indices[cascade_idx];
+				if (shadow_map_idx < 0) {
+					return 1.0; // No shadow map for this cascade
+				}
+				
+				// Normal offset bias to prevent shadow acne
+				// The amount of offset depends on the angle of the surface to the light
+				float bias_val = max(0.05 * (1.0 - dot(normal, light_dir)), 0.005);
+				vec3 offset_pos = world_pos + normal * (bias_val );
+
+				// Transform to light space using the cascade's matrix
+				vec4 light_space_pos = light_data.shadow.light_space_matrices[cascade_idx] * vec4(offset_pos, 1.0);
+				
+				// Perspective divide
+				vec3 proj_coords = light_space_pos.xyz / light_space_pos.w;
+				
+				// Transform X,Y from NDC [-1,1] to UV [0,1]
+				// Z (depth) is already in [0,1] for Vulkan projection
+				proj_coords.xy = proj_coords.xy * 0.5 + 0.5;
+				
+				// Outside shadow map
+				if (proj_coords.z > 1.0 || proj_coords.z < 0.0 || proj_coords.x < 0.0 || proj_coords.x > 1.0 || proj_coords.y < 0.0 || proj_coords.y > 1.0) {
+					return 1.0;
+				}
+				vec2 texel_size = 1.0 / textureSize(textures[nonuniformEXT(shadow_map_idx)], 0);
+
+				float current_depth = proj_coords.z;
+				float additional_bias = 0.001;
+				
+				// PCF - sample 3x3 area
+				float shadow_val = 0.0;
+				for (int x = -1; x <= 1; ++x) {
+					for (int y = -1; y <= 1; ++y) {
+						float pcf_depth = texture(textures[nonuniformEXT(shadow_map_idx)], proj_coords.xy + vec2(x, y) * texel_size).r;
+						shadow_val += current_depth - additional_bias > pcf_depth ? 0.0 : 1.0;
+					}
+				}
+				shadow_val /= 9.0;
+				
+				return shadow_val;
+			}
+
+			// https://www.shadertoy.com/view/MslGR8
+			bool alpha_discard(vec2 uv, float alpha)
+			{
+				if (false)
+				{
+					if (alpha*alpha > gl_FragCoord.z/10)
+						return false;
+
+					return true;
+				}
+
+				if (true)
+				{
+					return fract(dot(vec2(171.0, 231.0)+alpha*0.00001, gl_FragCoord.xy) / 103.0) > ((alpha * alpha) - 0.001);
+				}
+
+				return false;
+			}
+
+			vec3 sample_env_map(vec3 V, vec3 N, float roughness) 
+			{
+				ivec2 size = textureSize(textures[nonuniformEXT(pc.material.environment_texture_index)], 0);
+				float max_mip = log2(max(size.x, size.y));
+				
+				vec3 R = reflect(-V, N);
+				
+				// Based on: mip_level = 0.5 * log2(solid_angle / pixel_solid_angle)
+				// For GGX distribution: solid_angle ≈ π * α²
+				float alpha = roughness * roughness;
+				float mip_level = 0.5 * log2(alpha * alpha * size.x * size.y / PI);
+				mip_level = clamp(mip_level, 0.0, max_mip);
+				
+				float u = atan(R.z, R.x) / (2.0 * PI) + 0.5;
+				float v = asin(R.y) / PI + 0.5;
+				
+				return textureLod(textures[nonuniformEXT(pc.material.environment_texture_index)], vec2(u, -v), mip_level).rgb;
+			}
+
+			void main() {
+				// Sample textures
+				vec4 albedo = texture(textures[nonuniformEXT(pc.material.albedo_texture_index)], in_uv) * pc.material.base_color_factor;
+				vec3 normal_map = texture(textures[nonuniformEXT(pc.material.normal_texture_index)], in_uv).rgb;					
+				// Source engine normals have X and Z swapped
+				if (pc.material.flip_normal_xy != 0) {
+					normal_map.g = 1-normal_map.g;
+					normal_map.r = 1-normal_map.r;
+				}						
+				
+				vec4 metallic_roughness = texture(textures[nonuniformEXT(pc.material.metallic_roughness_texture_index)], in_uv);
+				float ao = texture(textures[nonuniformEXT(pc.material.occlusion_texture_index)], in_uv).r;
+				vec3 emissive = texture(textures[nonuniformEXT(pc.material.emissive_texture_index)], in_uv).rgb * pc.material.emissive_factor;
+
+				// Alpha test
+				if (alpha_discard(in_uv, albedo.a)) {
+					discard;
+				}
+
+				// glTF: metallic in B, roughness in G
+				float metallic = metallic_roughness.b * pc.material.metallic_factor;
+				float roughness = clamp(metallic_roughness.g * pc.material.roughness_factor, 0.04, 1.0);
+
+				// Calculate normal from normal map
+				vec3 N;
+				if (pc.material.normal_texture_index > 0) {
+					vec3 tangent_normal = normal_map * 2.0 - 1.0;
+					tangent_normal *= pc.material.normal_scale;
+					
+					// Calculate tangents on-the-fly using screen-space derivatives
+					vec3 dp1 = dFdx(in_position);
+					vec3 dp2 = dFdy(in_position);
+					vec2 duv1 = dFdx(in_uv);
+					vec2 duv2 = dFdy(in_uv);
+					
+					// Solve for tangent and bitangent
+					vec3 dp2perp = cross(dp2, in_normal);
+					vec3 dp1perp = cross(in_normal, dp1);
+					vec3 T = dp2perp * duv1.x + dp1perp * duv2.x;
+					vec3 B = dp2perp * duv1.y + dp1perp * duv2.y;
+					
+					// Construct TBN matrix
+					float invmax = inversesqrt(max(dot(T, T), dot(B, B)));
+					mat3 TBN = mat3(T * invmax, B * invmax, in_normal);
+					N = normalize(TBN * tangent_normal);
+				} else {
+					N = normalize(in_normal);
+				}
+				
+				// View direction - camera position needs to be negated (view matrix uses negative position)
+				vec3 V = normalize(pc.fragment.camera_position - in_position);
+				
+				// F0 for dielectrics is 0.04, for metals use albedo
+				vec3 F0 = mix(vec3(0.04), albedo.rgb, metallic);
+				float NdotV = max(dot(N, V), 0.001);
+
+				vec3 Lo = vec3(0.0);
+				for (int i = 0; i < pc.fragment.light_count; i++) {
+					Light light = light_data.lights[i];
+					int type = int(light.position.w);
+					
+					vec3 L;
+					float attenuation = 1.0;
+					
+					if (type == 0) { // DIRECTIONAL
+						L = normalize(-light.position.xyz);
+					} else { // POINT or SPOT
+						vec3 light_to_pos = light.position.xyz - in_position;
+						float dist = length(light_to_pos);
+						L = normalize(light_to_pos);
+						
+						float range = light.params.x;
+						attenuation = clamp(1.0 - dist / range, 0.0, 1.0);
+						attenuation *= attenuation;
+						
+						if (type == 2) { // SPOT
+							// For spot lights, light.position.xyz is position, but we also need direction.
+							// Wait, the current LightData doesn't have direction for spot lights?
+							// Actually, for spot lights, we might need another field.
+							// But let's look at how it was before.
+						}
+					}
+					
+					vec3 H = normalize(V + L);
+					float NdotL = max(dot(N, L), 0.0);
+					float HdotV = max(dot(H, V), 0.0);
+
+					// Cook-Torrance BRDF
+					float NDF = DistributionGGX(N, H, roughness);
+					float G = GeometrySmith(N, V, L, roughness);
+					vec3 F = fresnelSchlick(HdotV, F0);
+
+					vec3 kS = F;
+					vec3 kD = (1.0 - kS) * (1.0 - metallic);
+
+					vec3 numerator = NDF * G * F;
+					float denominator = 4.0 * NdotV * NdotL + 0.0001;
+					vec3 specular = numerator / denominator;
+
+					// Shadow - only for the first light (assumed sun) for now
+					float shadow_factor = 1.0;
+					if (i == 0 && light_data.shadow.shadow_map_indices[0] >= 0) {
+						shadow_factor = calculateShadow(in_position, N, L);
+					}
+
+					vec3 radiance = light.color.rgb * light.color.a * attenuation;
+					Lo += (kD * albedo.rgb / PI + specular) * radiance * NdotL * shadow_factor;
+				}
+
+				// Ambient - use environment map if available
+				vec3 ambient_diffuse;
+				vec3 ambient_specular;
+				
+				if (pc.material.environment_texture_index >= 0) {
+					ambient_diffuse = sample_env_map(V, N, roughness) * albedo.rgb * ao;
+					
+					vec3 F_ambient = fresnelSchlick(NdotV, F0);
+					ambient_specular = F_ambient * sample_env_map(V, N, roughness) * ao;
+				} else {
+					// Fallback to simple ambient
+					ambient_diffuse = vec3(0.02) * albedo.rgb * ao;
+					vec3 F_ambient = fresnelSchlick(NdotV, F0);
+					ambient_specular = F_ambient * albedo.rgb * 0.2 * ao;
+				}
+				
+				vec3 ambient = ambient_diffuse * (1.0 - metallic) + ambient_specular * metallic;
+				
+				vec3 color = ambient + Lo + emissive;
+
+				// Tonemapping + gamma
+				color = color / (color + vec3(1.0));
+				color = pow(color, vec3(1.0/2.2));
+
+				// Debug: overlay cascade colors
+				if (debug_data.debug_cascade_colors != 0) {
+					int cascade_idx = getCascadeIndex(in_position);
+					vec3 cascade_color = CASCADE_COLORS[cascade_idx];
+					color = mix(color, cascade_color, 0.4);
+				}
+
+				if (debug_data.debug_mode == 1) { // normals
+					color = N * 0.5 + 0.5;
+				} else if (debug_data.debug_mode == 2) { // albedo
+					color = albedo.rgb;
+				} else if (debug_data.debug_mode == 3) { // roughness_metallic
+					color = vec3(roughness, metallic, 0.0);
+				} else if (debug_data.debug_mode == 4) { // depth
+					float z = gl_FragCoord.z;
+					float linear_depth = (debug_data.near_z * debug_data.far_z) / (debug_data.far_z + z * (debug_data.near_z - debug_data.far_z));
+					color = vec3(linear_depth / 100.0); // Scale it so we can actually see something (e.g. 100 units)
+				} else if (debug_data.debug_mode == 5) { // reflection
+					if (pc.material.environment_texture_index >= 0) {
+						color = sample_env_map(V, N, roughness);
+					} else {
+						color = vec3(0.0);
+					}
+				}
+
+				out_color = vec4(color, albedo.a);
+			}
+		]],
+	},
 }
 
-local vertex_push_constants = {
-	global = {
-		{"projection_view_world", "float", 16},
-		{"world", "float", 16},
-	}
-}
-local fragment_push_constants = {
-	global = {
-		{"camera_position", "float", 3},
-		{"light_count", "int"}
-	},
-	material = {
-		{"albedo_texture_index", "int"},
-		{"normal_texture_index", "int"},
-		{"metallic_roughness_texture_index", "int"},
-		{"occlusion_texture_index", "int"},
-		{"emissive_texture_index", "int"},
-		{"environment_texture_index", "int"},
-		{"base_color_factor", "float", 4},
-		{"metallic_factor", "float"},
-		{"roughness_factor", "float"},
-		{"normal_scale", "float"},
-		{"occlusion_strength", "float"},
-		{"emissive_factor", "float", 3},
-		{"flip_normal_xy", "int"},
-	},
-}
 --
-local attributes = {}
-local vertex_attributes_size = 0
+function render3d.Initialize()
+	if render3d.pipeline then return end
 
-for _, attribute in ipairs(vertex_attributes) do
-	local offset = 0
+	local VertexConstants = ffi.typeof([[
+		struct {
+			float projection_view_world[16];
+			float world[16];
+		}
+	]])
+	local MaterialConstants = ffi.typeof([[
+		struct {
+			int albedo_texture_index;
+			int normal_texture_index;
+			int metallic_roughness_texture_index;
+			int occlusion_texture_index;
+			int emissive_texture_index;
+			int environment_texture_index;
+			float base_color_factor[4];
+			float metallic_factor;
+			float roughness_factor;
+			float normal_scale;
+			float occlusion_strength;
+			float emissive_factor[3];
+			int flip_normal_xy;
+		}
+	]])
+	local FragmentConstants = ffi.typeof([[
+		struct {
+			float camera_position[3];
+			int light_count;
+		}
+	]])
 
-	do
-		local prev = attributes[#attributes]
+	local function get_glsl_push_constants(stage)
+		local blocks = render3d.config[stage].push_constants
+		local str = ""
 
-		if prev then
-			local size = render.GetVulkanFormatSize(prev.format)
-			offset = prev.offset + size
+		for _, block in ipairs(blocks) do
+			local struct_name = block.name:sub(1, 1):upper() .. block.name:sub(2) .. "Constants"
+			str = str .. "struct " .. struct_name .. " {\n"
+
+			for _, field in ipairs(block.block) do
+				if #field >= 2 then
+					str = str .. string.format("    %s %s;\n", field[2], field[1])
+				elseif #field == 3 then
+					str = str .. string.format("    %s %s[%d];\n", field[2], field[1], field[3])
+				end
+			end
+
+			str = str .. "};\n\n"
 		end
+
+		str = str .. "layout(push_constant, scalar) uniform Constants {\n"
+
+		if stage == "fragment" then
+			str = str .. "    layout(offset = " .. ffi.sizeof(VertexConstants) .. ")\n"
+		end
+
+		for _, block in ipairs(blocks) do
+			local struct_name = block.name:sub(1, 1):upper() .. block.name:sub(2) .. "Constants"
+			str = str .. "    " .. struct_name .. " " .. block.name .. ";\n"
+		end
+
+		str = str .. "} pc;\n\n"
+		return str
 	end
 
-	table.insert(
-		attributes,
-		{
-			binding = vertex_attribute_binding_index,
-			location = #attributes,
-			format = attribute[3],
-			offset = offset,
-		}
-	)
-	vertex_attributes_size = vertex_attributes_size + render.GetVulkanFormatSize(attribute[3])
-end
+	local function build_constants()
+		local code = [[
+		local render3d, ffi, Material, Light, math, VertexConstants, MaterialConstants, FragmentConstants = ...
+		local vertex_constants = VertexConstants()
+		local material_constants = MaterialConstants()
+		local fragment_constants = FragmentConstants()
 
-local bindings = {
-	{
-		binding = vertex_attribute_binding_index,
-		stride = vertex_attributes_size,
-		input_rate = "vertex",
-	},
-}
-local shader_header = [[
+		return function(cmd)
+	]]
+		-- Vertex stage
+		code = code .. "		do\n"
+
+		for _, block in ipairs(render3d.config.vertex.push_constants) do
+			for _, field in ipairs(block.block) do
+				if field.lua then code = code .. "			" .. field.lua .. "\n" end
+			end
+
+			code = code .. "			render3d.pipeline:PushConstants(cmd, 'vertex', 0, vertex_constants)\n"
+		end
+
+		code = code .. "		end\n"
+		-- Fragment stage
+		code = code .. "		do\n"
+		code = code .. "			local mat = render3d.current_material or Material.GetDefault()\n"
+		code = code .. "			local offset = ffi.sizeof(VertexConstants)\n"
+
+		for _, block in ipairs(render3d.config.fragment.push_constants) do
+			for _, field in ipairs(block.block) do
+				if field.lua then code = code .. "			" .. field.lua .. "\n" end
+			end
+
+			local struct_name = block.name:sub(1, 1):upper() .. block.name:sub(2) .. "Constants"
+			code = code .. "			render3d.pipeline:PushConstants(cmd, 'fragment', offset, " .. block.name .. "_constants)\n"
+			code = code .. "			offset = offset + ffi.sizeof(" .. struct_name .. ")\n"
+		end
+
+		-- Debug UBO
+		code = code .. [[
+			local debug_constants = render3d.debug_ubo:GetData()
+			debug_constants.debug_cascade_colors = render3d.debug_cascade_colors and 1 or 0
+			debug_constants.debug_mode = render3d.debug_mode or 0
+			debug_constants.near_z = render3d.camera:GetNearZ()
+			debug_constants.far_z = render3d.camera:GetFarZ()
+			render3d.debug_ubo:Upload()
+		end
+	]]
+		code = code .. "	end"
+		render3d.UploadConstants = loadstring(code)(
+			render3d,
+			ffi,
+			Material,
+			Light,
+			math,
+			VertexConstants,
+			MaterialConstants,
+			FragmentConstants
+		)
+	end
+
+	local attributes = {}
+	local vertex_attributes_size = 0
+
+	for _, attribute in ipairs(render3d.config.vertex.attributes) do
+		local offset = 0
+
+		do
+			local prev = attributes[#attributes]
+
+			if prev then
+				local size = render.GetVulkanFormatSize(prev.format)
+				offset = prev.offset + size
+			end
+		end
+
+		table.insert(
+			attributes,
+			{
+				binding = render3d.config.vertex.binding_index,
+				location = #attributes,
+				format = attribute[3],
+				offset = offset,
+			}
+		)
+		vertex_attributes_size = vertex_attributes_size + render.GetVulkanFormatSize(attribute[3])
+	end
+
+	local bindings = {
+		{
+			binding = render3d.config.vertex.binding_index,
+			stride = vertex_attributes_size,
+			input_rate = "vertex",
+		},
+	}
+	local shader_header = [[
 	#version 450
 	#extension GL_EXT_nonuniform_qualifier : require
 	#extension GL_EXT_scalar_block_layout : require
 ]]
-local vertex_input = ""
+	local vertex_input = ""
 
-for i, attr in ipairs(vertex_attributes) do
-	vertex_input = vertex_input .. string.format("layout(location = %d) in %s in_%s;\n", i - 1, attr[2], attr[1])
-end
+	for i, attr in ipairs(render3d.config.vertex.attributes) do
+		vertex_input = vertex_input .. string.format("layout(location = %d) in %s in_%s;\n", i - 1, attr[2], attr[1])
+	end
 
-local vertex_output = ""
+	local vertex_output = ""
 
-for i, attr in ipairs(vertex_attributes) do
-	vertex_output = vertex_output .. string.format("layout(location = %d) out %s out_%s;\n", i - 1, attr[2], attr[1])
-end
-
-function render3d.Initialize()
-	if render3d.pipeline then return end
+	for i, attr in ipairs(render3d.config.vertex.attributes) do
+		vertex_output = vertex_output .. string.format("layout(location = %d) out %s out_%s;\n", i - 1, attr[2], attr[1])
+	end
 
 	render3d.debug_ubo = UniformBuffer.New([[
 		struct {
@@ -153,20 +657,8 @@ function render3d.Initialize()
 					code = shader_header .. [[
 					]] .. vertex_input .. [[	
 					]] .. vertex_output .. [[
-					
-					layout(push_constant, scalar) uniform Constants {
-						mat4 projection_view_world;
-						mat4 world;
-					} pc;
-
-					void main() {
-						// ORIENTATION / TRANSFORMATION
-						gl_Position = pc.projection_view_world * vec4(in_position, 1.0);
-
-						out_position = (pc.world * vec4(in_position, 1.0)).xyz;						
-						out_normal = normalize(mat3(pc.world) * in_normal);
-						out_uv = in_uv;
-					}
+					]] .. get_glsl_push_constants("vertex") .. [[	
+					]] .. render3d.config.vertex.shader .. [[
 				]],
 					bindings = bindings,
 					attributes = attributes,
@@ -209,336 +701,12 @@ function render3d.Initialize()
 					// output color
 					layout(location = 0) out vec4 out_color;
 
-					struct MaterialConstants {
-						int albedo_texture_index;
-						int normal_texture_index;
-						int metallic_roughness_texture_index;
-						int occlusion_texture_index;
-						int emissive_texture_index;
-						int environment_texture_index;
-						vec4 base_color_factor;
-						float metallic_factor;
-						float roughness_factor;
-						float normal_scale;
-						float occlusion_strength;
-						vec3 emissive_factor;
-						int flip_normal_xy;
-					};
-
-					struct FragmentConstants {
-						vec3 camera_position;
-						int light_count;
-					};
-
-					layout(push_constant, scalar) uniform Constants {
-						layout(offset = ]] .. ffi.sizeof(VertexConstants) .. [[)
-						MaterialConstants material;
-						FragmentConstants fragment;
-					} pc;
+					]] .. get_glsl_push_constants("fragment") .. [[
 
 
 					]] .. render3d.debug_ubo:GetGLSLDeclaration(2, "debug_data") .. [[
 				
-					const float PI = 3.14159265359;
-
-					// Cascade debug colors
-					const vec3 CASCADE_COLORS[4] = vec3[4](
-						vec3(1.0, 0.2, 0.2),  // Red - cascade 1
-						vec3(0.2, 1.0, 0.2),  // Green - cascade 2
-						vec3(0.2, 0.2, 1.0),  // Blue - cascade 3
-						vec3(1.0, 1.0, 0.2)   // Yellow - cascade 4
-					);
-
-					// Get cascade index based on view distance
-					int getCascadeIndex(vec3 world_pos) {
-						float dist = length(world_pos - pc.fragment.camera_position);
-						
-						for (int i = 0; i < light_data.shadow.cascade_count; i++) {
-							if (dist < light_data.shadow.cascade_splits[i]) {
-								return i;
-							}
-						}
-						return light_data.shadow.cascade_count - 1;
-					}
-
-					// GGX/Trowbridge-Reitz NDF
-					float DistributionGGX(vec3 N, vec3 H, float roughness) {
-						float a = roughness * roughness;
-						float a2 = a * a;
-						float NdotH = max(dot(N, H), 0.0);
-						float NdotH2 = NdotH * NdotH;
-						float denom = (NdotH2 * (a2 - 1.0) + 1.0);
-						denom = PI * denom * denom;
-						return a2 / max(denom, 0.0001);
-					}
-
-					// Schlick-GGX geometry function
-					float GeometrySchlickGGX(float NdotV, float roughness) {
-						float r = (roughness + 1.0);
-						float k = (r * r) / 8.0;
-						return NdotV / (NdotV * (1.0 - k) + k);
-					}
-
-					float GeometrySmith(vec3 N, vec3 V, vec3 L, float roughness) {
-						float NdotV = max(dot(N, V), 0.0);
-						float NdotL = max(dot(N, L), 0.0);
-						return GeometrySchlickGGX(NdotV, roughness) * GeometrySchlickGGX(NdotL, roughness);
-					}
-
-					// Fresnel-Schlick
-					vec3 fresnelSchlick(float cosTheta, vec3 F0) {
-						return F0 + (1.0 - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
-					}
-
-					// PCF Shadow calculation
-					float calculateShadow(vec3 world_pos, vec3 normal, vec3 light_dir) {
-						// Get cascade index for this fragment
-						int cascade_idx = getCascadeIndex(world_pos);
-						if (cascade_idx < 0) {
-							return 1.0;
-						}
-						
-						// Get shadow map index for this cascade
-						int shadow_map_idx = light_data.shadow.shadow_map_indices[cascade_idx];
-						if (shadow_map_idx < 0) {
-							return 1.0; // No shadow map for this cascade
-						}
-						
-						// Normal offset bias to prevent shadow acne
-						// The amount of offset depends on the angle of the surface to the light
-						float bias_val = max(0.05 * (1.0 - dot(normal, light_dir)), 0.005);
-						vec3 offset_pos = world_pos + normal * (bias_val );
-
-						// Transform to light space using the cascade's matrix
-						vec4 light_space_pos = light_data.shadow.light_space_matrices[cascade_idx] * vec4(offset_pos, 1.0);
-						
-						// Perspective divide
-						vec3 proj_coords = light_space_pos.xyz / light_space_pos.w;
-						
-						// Transform X,Y from NDC [-1,1] to UV [0,1]
-						// Z (depth) is already in [0,1] for Vulkan projection
-						proj_coords.xy = proj_coords.xy * 0.5 + 0.5;
-						
-						// Outside shadow map
-						if (proj_coords.z > 1.0 || proj_coords.z < 0.0 || proj_coords.x < 0.0 || proj_coords.x > 1.0 || proj_coords.y < 0.0 || proj_coords.y > 1.0) {
-							return 1.0;
-						}
-						vec2 texel_size = 1.0 / textureSize(textures[nonuniformEXT(shadow_map_idx)], 0);
-
-						float current_depth = proj_coords.z;
-						float additional_bias = 0.001;
-						
-						// PCF - sample 3x3 area
-						float shadow_val = 0.0;
-						for (int x = -1; x <= 1; ++x) {
-							for (int y = -1; y <= 1; ++y) {
-								float pcf_depth = texture(textures[nonuniformEXT(shadow_map_idx)], proj_coords.xy + vec2(x, y) * texel_size).r;
-								shadow_val += current_depth - additional_bias > pcf_depth ? 0.0 : 1.0;
-							}
-						}
-						shadow_val /= 9.0;
-						
-						return shadow_val;
-					}
-
-					// https://www.shadertoy.com/view/MslGR8
-					bool alpha_discard(vec2 uv, float alpha)
-					{
-						if (false)
-						{
-							if (alpha*alpha > gl_FragCoord.z/10)
-								return false;
-
-							return true;
-						}
-
-						if (true)
-						{
-							return fract(dot(vec2(171.0, 231.0)+alpha*0.00001, gl_FragCoord.xy) / 103.0) > ((alpha * alpha) - 0.001);
-						}
-
-						return false;
-					}
-
-					vec3 sample_env_map(vec3 V, vec3 N, float roughness) 
-					{
-						ivec2 size = textureSize(textures[nonuniformEXT(pc.material.environment_texture_index)], 0);
-						float max_mip = log2(max(size.x, size.y));
-						
-						vec3 R = reflect(-V, N);
-						
-						// Based on: mip_level = 0.5 * log2(solid_angle / pixel_solid_angle)
-						// For GGX distribution: solid_angle ≈ π * α²
-						float alpha = roughness * roughness;
-						float mip_level = 0.5 * log2(alpha * alpha * size.x * size.y / PI);
-						mip_level = clamp(mip_level, 0.0, max_mip);
-						
-						float u = atan(R.z, R.x) / (2.0 * PI) + 0.5;
-						float v = asin(R.y) / PI + 0.5;
-						
-						return textureLod(textures[nonuniformEXT(pc.material.environment_texture_index)], vec2(u, -v), mip_level).rgb;
-					}
-
-					void main() {
-						// Sample textures
-						vec4 albedo = texture(textures[nonuniformEXT(pc.material.albedo_texture_index)], in_uv) * pc.material.base_color_factor;
-						vec3 normal_map = texture(textures[nonuniformEXT(pc.material.normal_texture_index)], in_uv).rgb;					
-						// Source engine normals have X and Z swapped
-						if (pc.material.flip_normal_xy != 0) {
-							normal_map.g = 1-normal_map.g;
-							normal_map.r = 1-normal_map.r;
-						}						
-						
-						vec4 metallic_roughness = texture(textures[nonuniformEXT(pc.material.metallic_roughness_texture_index)], in_uv);
-						float ao = texture(textures[nonuniformEXT(pc.material.occlusion_texture_index)], in_uv).r;
-						vec3 emissive = texture(textures[nonuniformEXT(pc.material.emissive_texture_index)], in_uv).rgb * pc.material.emissive_factor;
-
-						// Alpha test
-						if (alpha_discard(in_uv, albedo.a)) {
-							discard;
-						}
-
-						// glTF: metallic in B, roughness in G
-						float metallic = metallic_roughness.b * pc.material.metallic_factor;
-						float roughness = clamp(metallic_roughness.g * pc.material.roughness_factor, 0.04, 1.0);
-
-						// Calculate normal from normal map
-						vec3 N;
-						if (pc.material.normal_texture_index > 0) {
-							vec3 tangent_normal = normal_map * 2.0 - 1.0;
-							tangent_normal *= pc.material.normal_scale;
-							
-							// Calculate tangents on-the-fly using screen-space derivatives
-							vec3 dp1 = dFdx(in_position);
-							vec3 dp2 = dFdy(in_position);
-							vec2 duv1 = dFdx(in_uv);
-							vec2 duv2 = dFdy(in_uv);
-							
-							// Solve for tangent and bitangent
-							vec3 dp2perp = cross(dp2, in_normal);
-							vec3 dp1perp = cross(in_normal, dp1);
-							vec3 T = dp2perp * duv1.x + dp1perp * duv2.x;
-							vec3 B = dp2perp * duv1.y + dp1perp * duv2.y;
-							
-							// Construct TBN matrix
-							float invmax = inversesqrt(max(dot(T, T), dot(B, B)));
-							mat3 TBN = mat3(T * invmax, B * invmax, in_normal);
-							N = normalize(TBN * tangent_normal);
-						} else {
-							N = normalize(in_normal);
-						}
-						
-						// View direction - camera position needs to be negated (view matrix uses negative position)
-						vec3 V = normalize(pc.fragment.camera_position - in_position);
-						
-						// F0 for dielectrics is 0.04, for metals use albedo
-						vec3 F0 = mix(vec3(0.04), albedo.rgb, metallic);
-						float NdotV = max(dot(N, V), 0.001);
-
-						vec3 Lo = vec3(0.0);
-						for (int i = 0; i < pc.fragment.light_count; i++) {
-							Light light = light_data.lights[i];
-							int type = int(light.position.w);
-							
-							vec3 L;
-							float attenuation = 1.0;
-							
-							if (type == 0) { // DIRECTIONAL
-								L = normalize(-light.position.xyz);
-							} else { // POINT or SPOT
-								vec3 light_to_pos = light.position.xyz - in_position;
-								float dist = length(light_to_pos);
-								L = normalize(light_to_pos);
-								
-								float range = light.params.x;
-								attenuation = clamp(1.0 - dist / range, 0.0, 1.0);
-								attenuation *= attenuation;
-								
-								if (type == 2) { // SPOT
-									// For spot lights, light.position.xyz is position, but we also need direction.
-									// Wait, the current LightData doesn't have direction for spot lights?
-									// Actually, for spot lights, we might need another field.
-									// But let's look at how it was before.
-								}
-							}
-							
-							vec3 H = normalize(V + L);
-							float NdotL = max(dot(N, L), 0.0);
-							float HdotV = max(dot(H, V), 0.0);
-
-							// Cook-Torrance BRDF
-							float NDF = DistributionGGX(N, H, roughness);
-							float G = GeometrySmith(N, V, L, roughness);
-							vec3 F = fresnelSchlick(HdotV, F0);
-
-							vec3 kS = F;
-							vec3 kD = (1.0 - kS) * (1.0 - metallic);
-
-							vec3 numerator = NDF * G * F;
-							float denominator = 4.0 * NdotV * NdotL + 0.0001;
-							vec3 specular = numerator / denominator;
-
-							// Shadow - only for the first light (assumed sun) for now
-							float shadow_factor = 1.0;
-							if (i == 0 && light_data.shadow.shadow_map_indices[0] >= 0) {
-								shadow_factor = calculateShadow(in_position, N, L);
-							}
-
-							vec3 radiance = light.color.rgb * light.color.a * attenuation;
-							Lo += (kD * albedo.rgb / PI + specular) * radiance * NdotL * shadow_factor;
-						}
-
-						// Ambient - use environment map if available
-						vec3 ambient_diffuse;
-						vec3 ambient_specular;
-						
-						if (pc.material.environment_texture_index >= 0) {
-							ambient_diffuse = sample_env_map(V, N, roughness) * albedo.rgb * ao;
-							
-							vec3 F_ambient = fresnelSchlick(NdotV, F0);
-							ambient_specular = F_ambient * sample_env_map(V, N, roughness) * ao;
-						} else {
-							// Fallback to simple ambient
-							ambient_diffuse = vec3(0.02) * albedo.rgb * ao;
-							vec3 F_ambient = fresnelSchlick(NdotV, F0);
-							ambient_specular = F_ambient * albedo.rgb * 0.2 * ao;
-						}
-						
-						vec3 ambient = ambient_diffuse * (1.0 - metallic) + ambient_specular * metallic;
-						
-						vec3 color = ambient + Lo + emissive;
-
-						// Tonemapping + gamma
-						color = color / (color + vec3(1.0));
-						color = pow(color, vec3(1.0/2.2));
-
-						// Debug: overlay cascade colors
-						if (debug_data.debug_cascade_colors != 0) {
-							int cascade_idx = getCascadeIndex(in_position);
-							vec3 cascade_color = CASCADE_COLORS[cascade_idx];
-							color = mix(color, cascade_color, 0.4);
-						}
-
-						if (debug_data.debug_mode == 1) { // normals
-							color = N * 0.5 + 0.5;
-						} else if (debug_data.debug_mode == 2) { // albedo
-							color = albedo.rgb;
-						} else if (debug_data.debug_mode == 3) { // roughness_metallic
-							color = vec3(roughness, metallic, 0.0);
-						} else if (debug_data.debug_mode == 4) { // depth
-							float z = gl_FragCoord.z;
-							float linear_depth = (debug_data.near_z * debug_data.far_z) / (debug_data.far_z + z * (debug_data.near_z - debug_data.far_z));
-							color = vec3(linear_depth / 100.0); // Scale it so we can actually see something (e.g. 100 units)
-						} else if (debug_data.debug_mode == 5) { // reflection
-							if (pc.material.environment_texture_index >= 0) {
-								color = sample_env_map(V, N, roughness);
-							} else {
-								color = vec3(0.0);
-							}
-						}
-
-						out_color = vec4(color, albedo.a);
-					}
+					]] .. render3d.config.fragment.shader .. [[
 				]],
 					descriptor_sets = {
 						{
@@ -619,6 +787,7 @@ function render3d.Initialize()
 		event.Call("Draw3D", cmd, dt)
 	end)
 
+	build_constants()
 	event.Call("Render3DInitialized")
 end
 
@@ -688,70 +857,6 @@ function render3d.GetDebugMode()
 	end
 
 	return "none"
-end
-
-do
-	local vertex_constants = VertexConstants()
-	local material_constants = MaterialConstants()
-	local fragment_constants = FragmentConstants()
-
-	function render3d.UploadConstants(cmd)
-		do
-			vertex_constants.projection_view_world = render3d.GetProjectionViewWorldMatrix():GetFloatCopy()
-			vertex_constants.world = render3d.GetWorldMatrix():GetFloatCopy()
-			render3d.pipeline:PushConstants(cmd, "vertex", 0, vertex_constants)
-		end
-
-		do
-			local mat = render3d.current_material or Material.GetDefault()
-			material_constants.albedo_texture_index = render3d.pipeline:GetTextureIndex(mat:GetAlbedoTexture())
-			material_constants.normal_texture_index = render3d.pipeline:GetTextureIndex(mat:GetNormalTexture())
-			material_constants.metallic_roughness_texture_index = render3d.pipeline:GetTextureIndex(mat:GetMetallicRoughnessTexture())
-			material_constants.occlusion_texture_index = render3d.pipeline:GetTextureIndex(mat:GetOcclusionTexture())
-			material_constants.emissive_texture_index = render3d.pipeline:GetTextureIndex(mat:GetEmissiveTexture())
-
-			-- Environment texture
-			if render3d.environment_texture then
-				material_constants.environment_texture_index = render3d.pipeline:GetTextureIndex(render3d.environment_texture)
-			else
-				material_constants.environment_texture_index = -1
-			end
-
-			-- Base color factor
-			local c = render3d.current_color
-			material_constants.base_color_factor[0] = mat.base_color_factor[1] * (c.r or c[1] or 1)
-			material_constants.base_color_factor[1] = mat.base_color_factor[2] * (c.g or c[2] or 1)
-			material_constants.base_color_factor[2] = mat.base_color_factor[3] * (c.b or c[3] or 1)
-			material_constants.base_color_factor[3] = mat.base_color_factor[4] * (c.a or c[4] or 1)
-			material_constants.metallic_factor = mat.metallic_factor * render3d.current_metallic_multiplier
-			material_constants.roughness_factor = mat.roughness_factor * render3d.current_roughness_multiplier
-			material_constants.normal_scale = mat.normal_scale
-			material_constants.occlusion_strength = mat.occlusion_strength
-			-- Emissive factor (vec3)
-			material_constants.emissive_factor[0] = mat.emissive_factor[1]
-			material_constants.emissive_factor[1] = mat.emissive_factor[2]
-			material_constants.emissive_factor[2] = mat.emissive_factor[3]
-			material_constants.flip_normal_xy = mat.flip_normal_xy and 1 or 0
-			-- Camera position for specular (vec3)
-			-- ORIENTATION / TRANSFORMATION: Using camera_position as-is
-			local camera_position = render3d.camera:GetPosition()
-			fragment_constants.camera_position[0] = camera_position.x
-			fragment_constants.camera_position[1] = camera_position.y
-			fragment_constants.camera_position[2] = camera_position.z
-			fragment_constants.light_count = math.min(#Light.GetLights(), 32)
-			-- Debug cascade visualization
-			local debug_constants = render3d.debug_ubo:GetData()
-			debug_constants.debug_cascade_colors = render3d.debug_cascade_colors and 1 or 0
-			debug_constants.debug_mode = render3d.debug_mode or 0
-			debug_constants.near_z = render3d.camera:GetNearZ()
-			debug_constants.far_z = render3d.camera:GetFarZ()
-			local offset = ffi.sizeof(VertexConstants)
-			render3d.pipeline:PushConstants(cmd, "fragment", offset, material_constants)
-			offset = offset + ffi.sizeof(MaterialConstants)
-			render3d.pipeline:PushConstants(cmd, "fragment", offset, fragment_constants)
-			render3d.debug_ubo:Upload()
-		end
-	end
 end
 
 event.AddListener("WindowFramebufferResized", "render3d", function(wnd, size)
