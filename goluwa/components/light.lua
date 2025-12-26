@@ -275,7 +275,7 @@ function Light.UpdateUBOs(pipeline)
 		local cascade_count = shadow_map:GetCascadeCount()
 
 		for i = 1, cascade_count do
-			Light.ubo_data.shadow.shadow_map_indices[i - 1] = pipeline:RegisterTexture(shadow_map:GetDepthTexture(i))
+			Light.ubo_data.shadow.shadow_map_indices[i - 1] = pipeline:GetTextureIndex(shadow_map:GetDepthTexture(i))
 		end
 
 		-- Fill remaining slots with -1

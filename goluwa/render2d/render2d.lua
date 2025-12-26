@@ -321,8 +321,6 @@ do
 	do
 		function render2d.SetTexture(tex)
 			render2d.current_texture = tex
-
-			if tex then render2d.pipeline:RegisterTexture(tex) end
 		end
 
 		function render2d.GetTexture()

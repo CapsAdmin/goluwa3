@@ -174,32 +174,28 @@ function GraphicsPipeline.New(vulkan_instance, config)
 	return self
 end
 
-function GraphicsPipeline:RegisterTexture(tex)
-	if self.texture_registry[tex] then return self.texture_registry[tex] end
-
-	-- Check if we have space
-	if self.next_texture_index >= self.max_textures then
-		error("Texture registry full! Max textures: " .. self.max_textures)
-	end
-
-	-- Register the texture
-	local index = self.next_texture_index
-	self.texture_registry[tex] = index
-	self.texture_array[index + 1] = {view = tex.view, sampler = tex.sampler}
-	self.next_texture_index = self.next_texture_index + 1
-
-	-- Update all descriptor sets with the new texture array
-	for frame_i = 1, #self.descriptor_sets do
-		self:UpdateDescriptorSetArray(frame_i, 0, self.texture_array)
-	end
-
-	return index
-end
-
 function GraphicsPipeline:GetTextureIndex(tex)
 	if not tex then return 0 end
 
-	if not self.texture_registry[tex] then return self:RegisterTexture(tex) end
+	if self.texture_registry[tex] then return self.texture_registry[tex] end
+
+	do
+		-- Check if we have space
+		if self.next_texture_index >= self.max_textures then
+			error("Texture registry full! Max textures: " .. self.max_textures)
+		end
+
+		-- Register the texture
+		local index = self.next_texture_index
+		self.texture_registry[tex] = index
+		self.texture_array[index + 1] = {view = tex.view, sampler = tex.sampler}
+		self.next_texture_index = self.next_texture_index + 1
+
+		-- Update all descriptor sets with the new texture array
+		for frame_i = 1, #self.descriptor_sets do
+			self:UpdateDescriptorSetArray(frame_i, 0, self.texture_array)
+		end
+	end
 
 	return self.texture_registry[tex]
 end

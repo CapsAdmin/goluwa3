@@ -334,26 +334,6 @@ do
 	end)
 end
 
--- Register all textures with a pipeline's bindless array
-function Material:RegisterTextures(pipeline)
-	pipeline:RegisterTexture(self:GetAlbedoTexture())
-	pipeline:RegisterTexture(self:GetNormalTexture())
-	pipeline:RegisterTexture(self:GetMetallicRoughnessTexture())
-	pipeline:RegisterTexture(self:GetOcclusionTexture())
-	pipeline:RegisterTexture(self:GetEmissiveTexture())
-end
-
--- Get all texture indices for push constants
-function Material:GetTextureIndices(pipeline)
-	return {
-		albedo = pipeline:GetTextureIndex(self:GetAlbedoTexture()),
-		normal = pipeline:GetTextureIndex(self:GetNormalTexture()),
-		metallic_roughness = pipeline:GetTextureIndex(self:GetMetallicRoughnessTexture()),
-		occlusion = pipeline:GetTextureIndex(self:GetOcclusionTexture()),
-		emissive = pipeline:GetTextureIndex(self:GetEmissiveTexture()),
-	}
-end
-
 -- Check if material needs alpha blending
 function Material:NeedsBlending()
 	return self.alpha_mode == "BLEND"

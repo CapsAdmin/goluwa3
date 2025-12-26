@@ -648,7 +648,7 @@ do
 
 			-- Environment texture
 			if render3d.environment_texture then
-				fragment_constants.environment_texture_index = render3d.pipeline:RegisterTexture(render3d.environment_texture)
+				fragment_constants.environment_texture_index = render3d.pipeline:GetTextureIndex(render3d.environment_texture)
 			else
 				fragment_constants.environment_texture_index = -1
 			end
@@ -691,8 +691,6 @@ end)
 
 function render3d.SetMaterial(mat)
 	render3d.current_material = mat
-
-	if mat then mat:RegisterTextures(render3d.pipeline) end
 end
 
 function render3d.SetColor(c)

@@ -169,7 +169,7 @@ function skybox.Draw()
 	-- Upload constants
 	local matrix_copy = inv_proj_view:GetFloatCopy()
 	ffi.copy(skybox_constants.inv_projection_view, matrix_copy, ffi.sizeof("float") * 16)
-	skybox_constants.texture_index = skybox.pipeline:RegisterTexture(skybox.texture)
+	skybox_constants.texture_index = skybox.pipeline:GetTextureIndex(skybox.texture)
 	skybox.pipeline:PushConstants(cmd, "vertex", 0, skybox_constants)
 	-- Draw fullscreen triangle
 	cmd:Draw(3, 1, 0, 0)
