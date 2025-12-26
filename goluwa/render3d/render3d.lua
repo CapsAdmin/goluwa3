@@ -17,7 +17,7 @@ local VertexConstants = ffi.typeof([[
 		float world[16];
 	}
 ]])
-local FragmentConstants = ffi.typeof([[
+local MaterialConstants = ffi.typeof([[
 	struct {
 		int albedo_texture_index;
 		int normal_texture_index;
@@ -31,11 +31,19 @@ local FragmentConstants = ffi.typeof([[
 		float normal_scale;
 		float occlusion_strength;
 		float emissive_factor[3];
-		float camera_position[3];
-		int debug_cascade_colors;
-		int light_count;
-		int debug_mode;
 		int flip_normal_xy;
+	}
+]])
+local FragmentConstants = ffi.typeof([[
+	struct {
+		float camera_position[3];
+		int light_count;
+	}
+]])
+local DebugConstants = ffi.typeof([[
+	struct {
+		int debug_cascade_colors;
+		int debug_mode;
 		float near_z;
 		float far_z;
 	}
@@ -50,6 +58,15 @@ render3d.environment_texture = nil
 function render3d.Initialize()
 	if render3d.pipeline then return end
 
+	render3d.debug_ubo_data = DebugConstants()
+	render3d.debug_ubo = render.CreateBuffer(
+		{
+			data = render3d.debug_ubo_data,
+			byte_size = ffi.sizeof(DebugConstants),
+			buffer_usage = {"uniform_buffer"},
+			memory_property = {"host_visible", "host_coherent"},
+		}
+	)
 	render3d.pipeline = render.CreateGraphicsPipeline(
 		{
 			dynamic_states = {"viewport", "scissor"},
@@ -158,8 +175,7 @@ function render3d.Initialize()
 					// output color
 					layout(location = 0) out vec4 out_color;
 
-					layout(push_constant, scalar) uniform Constants {
-						layout(offset = ]] .. ffi.sizeof(VertexConstants) .. [[)
+					struct MaterialConstants {
 						int albedo_texture_index;
 						int normal_texture_index;
 						int metallic_roughness_texture_index;
@@ -172,14 +188,26 @@ function render3d.Initialize()
 						float normal_scale;
 						float occlusion_strength;
 						vec3 emissive_factor;
-						vec3 camera_position;
-						int debug_cascade_colors;
-						int light_count;
-						int debug_mode;
 						int flip_normal_xy;
+					};
+
+					struct FragmentConstants {
+						vec3 camera_position;
+						int light_count;
+					};
+
+					layout(push_constant, scalar) uniform Constants {
+						layout(offset = ]] .. ffi.sizeof(VertexConstants) .. [[)
+						MaterialConstants material;
+						FragmentConstants fragment;
+					} pc;
+
+					layout(std140, binding = 2) uniform DebugData {
+						int debug_cascade_colors;
+						int debug_mode;
 						float near_z;
 						float far_z;
-					} pc;
+					} debug_data;
 
 					const float PI = 3.14159265359;
 
@@ -193,7 +221,7 @@ function render3d.Initialize()
 
 					// Get cascade index based on view distance
 					int getCascadeIndex(vec3 world_pos) {
-						float dist = length(world_pos - pc.camera_position);
+						float dist = length(world_pos - pc.fragment.camera_position);
 						
 						for (int i = 0; i < light_data.shadow.cascade_count; i++) {
 							if (dist < light_data.shadow.cascade_splits[i]) {
@@ -304,7 +332,7 @@ function render3d.Initialize()
 
 					vec3 sample_env_map(vec3 V, vec3 N, float roughness) 
 					{
-						ivec2 size = textureSize(textures[nonuniformEXT(pc.environment_texture_index)], 0);
+						ivec2 size = textureSize(textures[nonuniformEXT(pc.material.environment_texture_index)], 0);
 						float max_mip = log2(max(size.x, size.y));
 						
 						vec3 R = reflect(-V, N);
@@ -318,22 +346,22 @@ function render3d.Initialize()
 						float u = atan(R.z, R.x) / (2.0 * PI) + 0.5;
 						float v = asin(R.y) / PI + 0.5;
 						
-						return textureLod(textures[nonuniformEXT(pc.environment_texture_index)], vec2(u, -v), mip_level).rgb;
+						return textureLod(textures[nonuniformEXT(pc.material.environment_texture_index)], vec2(u, -v), mip_level).rgb;
 					}
 
 					void main() {
 						// Sample textures
-						vec4 albedo = texture(textures[nonuniformEXT(pc.albedo_texture_index)], in_uv) * pc.base_color_factor;
-						vec3 normal_map = texture(textures[nonuniformEXT(pc.normal_texture_index)], in_uv).rgb;					
+						vec4 albedo = texture(textures[nonuniformEXT(pc.material.albedo_texture_index)], in_uv) * pc.material.base_color_factor;
+						vec3 normal_map = texture(textures[nonuniformEXT(pc.material.normal_texture_index)], in_uv).rgb;					
 						// Source engine normals have X and Z swapped
-						if (pc.flip_normal_xy != 0) {
+						if (pc.material.flip_normal_xy != 0) {
 							normal_map.g = 1-normal_map.g;
 							normal_map.r = 1-normal_map.r;
 						}						
 						
-						vec4 metallic_roughness = texture(textures[nonuniformEXT(pc.metallic_roughness_texture_index)], in_uv);
-						float ao = texture(textures[nonuniformEXT(pc.occlusion_texture_index)], in_uv).r;
-						vec3 emissive = texture(textures[nonuniformEXT(pc.emissive_texture_index)], in_uv).rgb * pc.emissive_factor;
+						vec4 metallic_roughness = texture(textures[nonuniformEXT(pc.material.metallic_roughness_texture_index)], in_uv);
+						float ao = texture(textures[nonuniformEXT(pc.material.occlusion_texture_index)], in_uv).r;
+						vec3 emissive = texture(textures[nonuniformEXT(pc.material.emissive_texture_index)], in_uv).rgb * pc.material.emissive_factor;
 
 						// Alpha test
 						if (alpha_discard(in_uv, albedo.a)) {
@@ -341,14 +369,14 @@ function render3d.Initialize()
 						}
 
 						// glTF: metallic in B, roughness in G
-						float metallic = metallic_roughness.b * pc.metallic_factor;
-						float roughness = clamp(metallic_roughness.g * pc.roughness_factor, 0.04, 1.0);
+						float metallic = metallic_roughness.b * pc.material.metallic_factor;
+						float roughness = clamp(metallic_roughness.g * pc.material.roughness_factor, 0.04, 1.0);
 
 						// Calculate normal from normal map
 						vec3 N;
-						if (pc.normal_texture_index > 0) {
+						if (pc.material.normal_texture_index > 0) {
 							vec3 tangent_normal = normal_map * 2.0 - 1.0;
-							tangent_normal *= pc.normal_scale;
+							tangent_normal *= pc.material.normal_scale;
 							
 							// Calculate tangents on-the-fly using screen-space derivatives
 							vec3 dp1 = dFdx(in_world_pos);
@@ -371,14 +399,14 @@ function render3d.Initialize()
 						}
 						
 						// View direction - camera position needs to be negated (view matrix uses negative position)
-						vec3 V = normalize(pc.camera_position - in_world_pos);
+						vec3 V = normalize(pc.fragment.camera_position - in_world_pos);
 						
 						// F0 for dielectrics is 0.04, for metals use albedo
 						vec3 F0 = mix(vec3(0.04), albedo.rgb, metallic);
 						float NdotV = max(dot(N, V), 0.001);
 
 						vec3 Lo = vec3(0.0);
-						for (int i = 0; i < pc.light_count; i++) {
+						for (int i = 0; i < pc.fragment.light_count; i++) {
 							Light light = light_data.lights[i];
 							int type = int(light.position.w);
 							
@@ -434,7 +462,7 @@ function render3d.Initialize()
 						vec3 ambient_diffuse;
 						vec3 ambient_specular;
 						
-						if (pc.environment_texture_index >= 0) {
+						if (pc.material.environment_texture_index >= 0) {
 							ambient_diffuse = sample_env_map(V, N, roughness) * albedo.rgb * ao;
 							
 							vec3 F_ambient = fresnelSchlick(NdotV, F0);
@@ -455,24 +483,24 @@ function render3d.Initialize()
 						color = pow(color, vec3(1.0/2.2));
 
 						// Debug: overlay cascade colors
-						if (pc.debug_cascade_colors != 0) {
+						if (debug_data.debug_cascade_colors != 0) {
 							int cascade_idx = getCascadeIndex(in_world_pos);
 							vec3 cascade_color = CASCADE_COLORS[cascade_idx];
 							color = mix(color, cascade_color, 0.4);
 						}
 
-						if (pc.debug_mode == 1) { // normals
+						if (debug_data.debug_mode == 1) { // normals
 							color = N * 0.5 + 0.5;
-						} else if (pc.debug_mode == 2) { // albedo
+						} else if (debug_data.debug_mode == 2) { // albedo
 							color = albedo.rgb;
-						} else if (pc.debug_mode == 3) { // roughness_metallic
+						} else if (debug_data.debug_mode == 3) { // roughness_metallic
 							color = vec3(roughness, metallic, 0.0);
-						} else if (pc.debug_mode == 4) { // depth
+						} else if (debug_data.debug_mode == 4) { // depth
 							float z = gl_FragCoord.z;
-							float linear_depth = (pc.near_z * pc.far_z) / (pc.far_z + z * (pc.near_z - pc.far_z));
+							float linear_depth = (debug_data.near_z * debug_data.far_z) / (debug_data.far_z + z * (debug_data.near_z - debug_data.far_z));
 							color = vec3(linear_depth / 100.0); // Scale it so we can actually see something (e.g. 100 units)
-						} else if (pc.debug_mode == 5) { // reflection
-							if (pc.environment_texture_index >= 0) {
+						} else if (debug_data.debug_mode == 5) { // reflection
+							if (pc.material.environment_texture_index >= 0) {
 								color = sample_env_map(V, N, roughness);
 							} else {
 								color = vec3(0.0);
@@ -493,9 +521,14 @@ function render3d.Initialize()
 							binding_index = 1,
 							args = {Light.GetUBO()},
 						},
+						{
+							type = "uniform_buffer",
+							binding_index = 2,
+							args = {render3d.debug_ubo},
+						},
 					},
 					push_constants = {
-						size = ffi.sizeof(FragmentConstants),
+						size = ffi.sizeof(MaterialConstants) + ffi.sizeof(FragmentConstants),
 						offset = ffi.sizeof(VertexConstants),
 					},
 				},
@@ -629,7 +662,9 @@ end
 
 do
 	local vertex_constants = VertexConstants()
+	local material_constants = MaterialConstants()
 	local fragment_constants = FragmentConstants()
+	local debug_constants = DebugConstants()
 
 	function render3d.UploadConstants(cmd)
 		do
@@ -640,47 +675,51 @@ do
 
 		do
 			local mat = render3d.current_material or Material.GetDefault()
-			fragment_constants.albedo_texture_index = render3d.pipeline:GetTextureIndex(mat:GetAlbedoTexture())
-			fragment_constants.normal_texture_index = render3d.pipeline:GetTextureIndex(mat:GetNormalTexture())
-			fragment_constants.metallic_roughness_texture_index = render3d.pipeline:GetTextureIndex(mat:GetMetallicRoughnessTexture())
-			fragment_constants.occlusion_texture_index = render3d.pipeline:GetTextureIndex(mat:GetOcclusionTexture())
-			fragment_constants.emissive_texture_index = render3d.pipeline:GetTextureIndex(mat:GetEmissiveTexture())
+			material_constants.albedo_texture_index = render3d.pipeline:GetTextureIndex(mat:GetAlbedoTexture())
+			material_constants.normal_texture_index = render3d.pipeline:GetTextureIndex(mat:GetNormalTexture())
+			material_constants.metallic_roughness_texture_index = render3d.pipeline:GetTextureIndex(mat:GetMetallicRoughnessTexture())
+			material_constants.occlusion_texture_index = render3d.pipeline:GetTextureIndex(mat:GetOcclusionTexture())
+			material_constants.emissive_texture_index = render3d.pipeline:GetTextureIndex(mat:GetEmissiveTexture())
 
 			-- Environment texture
 			if render3d.environment_texture then
-				fragment_constants.environment_texture_index = render3d.pipeline:GetTextureIndex(render3d.environment_texture)
+				material_constants.environment_texture_index = render3d.pipeline:GetTextureIndex(render3d.environment_texture)
 			else
-				fragment_constants.environment_texture_index = -1
+				material_constants.environment_texture_index = -1
 			end
 
 			-- Base color factor
 			local c = render3d.current_color
-			fragment_constants.base_color_factor[0] = mat.base_color_factor[1] * (c.r or c[1] or 1)
-			fragment_constants.base_color_factor[1] = mat.base_color_factor[2] * (c.g or c[2] or 1)
-			fragment_constants.base_color_factor[2] = mat.base_color_factor[3] * (c.b or c[3] or 1)
-			fragment_constants.base_color_factor[3] = mat.base_color_factor[4] * (c.a or c[4] or 1)
-			fragment_constants.metallic_factor = mat.metallic_factor * render3d.current_metallic_multiplier
-			fragment_constants.roughness_factor = mat.roughness_factor * render3d.current_roughness_multiplier
-			fragment_constants.normal_scale = mat.normal_scale
-			fragment_constants.occlusion_strength = mat.occlusion_strength
+			material_constants.base_color_factor[0] = mat.base_color_factor[1] * (c.r or c[1] or 1)
+			material_constants.base_color_factor[1] = mat.base_color_factor[2] * (c.g or c[2] or 1)
+			material_constants.base_color_factor[2] = mat.base_color_factor[3] * (c.b or c[3] or 1)
+			material_constants.base_color_factor[3] = mat.base_color_factor[4] * (c.a or c[4] or 1)
+			material_constants.metallic_factor = mat.metallic_factor * render3d.current_metallic_multiplier
+			material_constants.roughness_factor = mat.roughness_factor * render3d.current_roughness_multiplier
+			material_constants.normal_scale = mat.normal_scale
+			material_constants.occlusion_strength = mat.occlusion_strength
 			-- Emissive factor (vec3)
-			fragment_constants.emissive_factor[0] = mat.emissive_factor[1]
-			fragment_constants.emissive_factor[1] = mat.emissive_factor[2]
-			fragment_constants.emissive_factor[2] = mat.emissive_factor[3]
+			material_constants.emissive_factor[0] = mat.emissive_factor[1]
+			material_constants.emissive_factor[1] = mat.emissive_factor[2]
+			material_constants.emissive_factor[2] = mat.emissive_factor[3]
+			material_constants.flip_normal_xy = mat.flip_normal_xy and 1 or 0
 			-- Camera position for specular (vec3)
 			-- ORIENTATION / TRANSFORMATION: Using camera_position as-is
 			local camera_position = render3d.camera:GetPosition()
 			fragment_constants.camera_position[0] = camera_position.x
 			fragment_constants.camera_position[1] = camera_position.y
 			fragment_constants.camera_position[2] = camera_position.z
-			-- Debug cascade visualization
-			fragment_constants.debug_cascade_colors = render3d.debug_cascade_colors and 1 or 0
-			fragment_constants.debug_mode = render3d.debug_mode or 0
-			fragment_constants.flip_normal_xy = mat.flip_normal_xy and 1 or 0
-			fragment_constants.near_z = render3d.camera:GetNearZ()
-			fragment_constants.far_z = render3d.camera:GetFarZ()
 			fragment_constants.light_count = math.min(#Light.GetLights(), 32)
-			render3d.pipeline:PushConstants(cmd, "fragment", ffi.sizeof(VertexConstants), fragment_constants)
+			-- Debug cascade visualization
+			debug_constants.debug_cascade_colors = render3d.debug_cascade_colors and 1 or 0
+			debug_constants.debug_mode = render3d.debug_mode or 0
+			debug_constants.near_z = render3d.camera:GetNearZ()
+			debug_constants.far_z = render3d.camera:GetFarZ()
+			local offset = ffi.sizeof(VertexConstants)
+			render3d.pipeline:PushConstants(cmd, "fragment", offset, material_constants)
+			offset = offset + ffi.sizeof(MaterialConstants)
+			render3d.pipeline:PushConstants(cmd, "fragment", offset, fragment_constants)
+			render3d.debug_ubo:CopyData(debug_constants, ffi.sizeof(DebugConstants))
 		end
 	end
 end
