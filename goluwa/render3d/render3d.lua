@@ -49,9 +49,37 @@ render3d.current_roughness_multiplier = 1
 render3d.environment_texture = nil
 local vertex_attribute_binding_index = 0
 local vertex_attributes = {
-	{name = "position", type = "vec3", format = "r32g32b32_sfloat"},
-	{name = "normal", type = "vec3", format = "r32g32b32_sfloat"},
-	{name = "uv", type = "vec2", format = "r32g32_sfloat"},
+	{"position", "vec3", "r32g32b32_sfloat"},
+	{"normal", "vec3", "r32g32b32_sfloat"},
+	{"uv", "vec2", "r32g32_sfloat"},
+}
+
+local vertex_push_constants = {
+	global = {
+		{"projection_view_world", "float", 16},
+		{"world", "float", 16},
+	}
+}
+local fragment_push_constants = {
+	global = {
+		{"camera_position", "float", 3},
+		{"light_count", "int"}
+	},
+	material = {
+		{"albedo_texture_index", "int"},
+		{"normal_texture_index", "int"},
+		{"metallic_roughness_texture_index", "int"},
+		{"occlusion_texture_index", "int"},
+		{"emissive_texture_index", "int"},
+		{"environment_texture_index", "int"},
+		{"base_color_factor", "float", 4},
+		{"metallic_factor", "float"},
+		{"roughness_factor", "float"},
+		{"normal_scale", "float"},
+		{"occlusion_strength", "float"},
+		{"emissive_factor", "float", 3},
+		{"flip_normal_xy", "int"},
+	},
 }
 --
 local attributes = {}
@@ -74,11 +102,11 @@ for _, attribute in ipairs(vertex_attributes) do
 		{
 			binding = vertex_attribute_binding_index,
 			location = #attributes,
-			format = attribute.format,
+			format = attribute[3],
 			offset = offset,
 		}
 	)
-	vertex_attributes_size = vertex_attributes_size + render.GetVulkanFormatSize(attribute.format)
+	vertex_attributes_size = vertex_attributes_size + render.GetVulkanFormatSize(attribute[3])
 end
 
 local bindings = {
@@ -96,13 +124,13 @@ local shader_header = [[
 local vertex_input = ""
 
 for i, attr in ipairs(vertex_attributes) do
-	vertex_input = vertex_input .. string.format("layout(location = %d) in %s in_%s;\n", i - 1, attr.type, attr.name)
+	vertex_input = vertex_input .. string.format("layout(location = %d) in %s in_%s;\n", i - 1, attr[2], attr[1])
 end
 
 local vertex_output = ""
 
 for i, attr in ipairs(vertex_attributes) do
-	vertex_output = vertex_output .. string.format("layout(location = %d) out %s out_%s;\n", i - 1, attr.type, attr.name)
+	vertex_output = vertex_output .. string.format("layout(location = %d) out %s out_%s;\n", i - 1, attr[2], attr[1])
 end
 
 function render3d.Initialize()
@@ -155,7 +183,7 @@ function render3d.Initialize()
 					type = "fragment",
 					code = shader_header .. [[
 					]] .. vertex_input .. [[
-					 
+
 					layout(binding = 0) uniform sampler2D textures[1024];
 
 					struct ShadowData {
