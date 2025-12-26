@@ -252,6 +252,12 @@ do
 				end
 			end,
 		},
+		envmap = {
+			"HasEnvmap",
+			function(val)
+				return val ~= nil and val ~= ""
+			end,
+		},
 	}
 	local special_textures = {
 		_rt_fullframefb = "error",
@@ -295,6 +301,43 @@ do
 		end)
 
 		if tasks.GetActiveTask() then cb:Get() end
+
+		-- Set alpha_mode based on alphatest and translucent flags
+		if self.alpha_test then
+			self.alpha_mode = "MASK"
+		elseif self.translucent then
+			self.alpha_mode = "BLEND"
+
+			-- Translucent materials (like windows) should be reflective
+			-- Set high metallic and low roughness for glass-like appearance
+			if not self.metallic_factor or self.metallic_factor == DEFAULT_METALLIC then
+				self.metallic_factor = 0.9
+			end
+
+			if not self.roughness_factor or self.roughness_factor == DEFAULT_ROUGHNESS then
+				self.roughness_factor = 0.1
+			end
+		end
+
+		-- If material has an envmap (reflection map), make it more reflective
+		if self.has_envmap then
+			if not self.metallic_factor or self.metallic_factor == DEFAULT_METALLIC then
+				self.metallic_factor = 0.8
+			end
+
+			if not self.roughness_factor or self.roughness_factor == DEFAULT_ROUGHNESS then
+				self.roughness_factor = 0.2
+			end
+		end
+
+		-- Apply metallic/roughness multipliers if present
+		if self.metallic_multiplier then
+			self.metallic_factor = (self.metallic_factor or DEFAULT_METALLIC) * self.metallic_multiplier
+		end
+
+		if self.roughness_multiplier then
+			self.roughness_factor = (self.roughness_factor or DEFAULT_ROUGHNESS) * self.roughness_multiplier
+		end
 
 		return self
 	end
@@ -343,6 +386,17 @@ end
 -- Check if material needs alpha testing
 function Material:NeedsAlphaTest()
 	return self.alpha_mode == "MASK"
+end
+
+-- Get alpha mode as integer for shader (0=OPAQUE, 1=MASK, 2=BLEND)
+function Material:GetAlphaModeInt()
+	if self.alpha_mode == "MASK" then
+		return 1
+	elseif self.alpha_mode == "BLEND" then
+		return 2
+	else
+		return 0 -- OPAQUE
+	end
 end
 
 -- Create a default material

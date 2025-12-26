@@ -94,6 +94,18 @@ local field_types = {
 			return string.format("%s.%s = math.min(#Light.GetLights(), 32)", block_var, field_name)
 		end,
 	},
+	alpha_mode = {
+		glsl = "float",
+		lua = function(block_var, field_name)
+			return string.format("%s.%s = mat:GetAlphaModeInt()", block_var, field_name)
+		end,
+	},
+	alpha_cutoff = {
+		glsl = "float",
+		lua = function(block_var, field_name)
+			return string.format("%s.%s = mat.%s", block_var, field_name, field_name)
+		end,
+	},
 }
 render3d.config = {
 	vertex = {
@@ -135,13 +147,14 @@ render3d.config = {
 					{"EmissiveTexture", "texture"},
 					{"EnvironmentTexture", "texture_render3d"},
 					{"base_color_factor", "vec4"},
-					--
 					{"metallic_factor", "number"},
 					{"roughness_factor", "number"},
 					{"normal_scale", "number"},
 					{"occlusion_strength", "number"},
 					{"emissive_factor", "vec4"},
 					{"flip_normal_xy", "boolean"},
+					{"alpha_mode", "alpha_mode"},
+					{"alpha_cutoff", "alpha_cutoff"},
 				},
 			},
 			{
@@ -255,22 +268,28 @@ render3d.config = {
 				return shadow_val;
 			}
 
-			// https://www.shadertoy.com/view/MslGR8
-			bool alpha_discard(vec2 uv, float alpha)
+			// Alpha test/discard function
+			// alpha_mode: 0=OPAQUE (no discard), 1=MASK (alpha cutoff), 2=BLEND (dithered translucency)
+			// https://www.shadertoy.com/view/MslGR8 (dither pattern)
+			bool alpha_discard(vec2 uv, float alpha, int alpha_mode, float alpha_cutoff)
 			{
-				if (false)
-				{
-					if (alpha*alpha > gl_FragCoord.z/10)
-						return false;
-
-					return true;
+				if (alpha_mode == 0) {
+					// OPAQUE - never discard
+					return false;
 				}
-
-				if (true)
-				{
-					return fract(dot(vec2(171.0, 231.0)+alpha*0.00001, gl_FragCoord.xy) / 103.0) > ((alpha * alpha) - 0.001);
+				else if (alpha_mode == 1) {
+					// MASK - alpha test with cutoff
+					if (alpha < alpha_cutoff) {
+						return true;
+					}
+					return false;
 				}
-
+				else if (alpha_mode == 2) {
+					// BLEND - dithered translucency
+					// Use screen-space dither pattern based on alpha value
+					return fract(dot(vec2(171.0, 231.0) + alpha * 0.00001, gl_FragCoord.xy) / 103.0) > (alpha * alpha);
+				}
+				
 				return false;
 			}
 
@@ -307,8 +326,8 @@ render3d.config = {
 				float ao = texture(TEXTURE(pc.model.OcclusionTexture), in_uv).r;
 				vec3 emissive = texture(TEXTURE(pc.model.EmissiveTexture), in_uv).rgb * pc.model.emissive_factor.rgb * pc.model.emissive_factor.a;
 
-				// Alpha test
-				if (alpha_discard(in_uv, albedo.a)) {
+				// Alpha test/blend
+				if (alpha_discard(in_uv, albedo.a, int(pc.model.alpha_mode), pc.model.alpha_cutoff)) {
 					discard;
 				}
 
