@@ -2,7 +2,6 @@ local ffi = require("ffi")
 local render = require("render.render")
 local UniformBuffer = {}
 UniformBuffer.__index = UniformBuffer
-local id = 0
 
 function UniformBuffer.New(decl)
 	local struct = ffi.typeof(decl)
@@ -18,18 +17,7 @@ function UniformBuffer.New(decl)
 		}
 	)
 	self.size = ffi.sizeof(self.struct)
-	self.glsl_declaration = [[
-        layout(std140, binding = BINDING_INDEX) uniform ubo_type_]] .. id .. [[ {
-            ]] .. decl:match("%b{}"):sub(2, -2) .. [[
-        } VARIABLE_NAME;
-    ]]
-	id = id + 1
 	return self
-end
-
-function UniformBuffer:GetGLSLDeclaration(binding_index, variable_name)
-	local decl = self.glsl_declaration:gsub("BINDING_INDEX", binding_index):gsub("VARIABLE_NAME", variable_name)
-	return decl
 end
 
 function UniformBuffer:GetData()

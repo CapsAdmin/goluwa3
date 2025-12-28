@@ -56,32 +56,170 @@ render3d.config = {
 		]],
 	},
 	fragment = {
+		uniform_buffers = {
+			{
+				name = "debug_data",
+				binding_index = 2,
+				block = {
+					{
+						"debug_cascade_colors",
+						"int",
+						function(constants)
+							return render3d.debug_cascade_colors and 1 or 0
+						end,
+					},
+					{
+						"debug_mode",
+						"int",
+						function(constants)
+							return render3d.debug_mode or 0
+						end,
+					},
+					{
+						"near_z",
+						"float",
+						function(constants)
+							return render3d.camera:GetNearZ()
+						end,
+					},
+					{
+						"far_z",
+						"float",
+						function(constants)
+							return render3d.camera:GetFarZ()
+						end,
+					},
+				},
+			},
+		},
 		push_constants = {
 			{
 				name = "model",
 				block = {
-					{"AlbedoTexture", "int", function(constants) return render3d.pipeline:GetTextureIndex(render3d.GetMaterial():GetAlbedoTexture()) end},
-					{"NormalTexture", "int", function(constants) return render3d.pipeline:GetTextureIndex(render3d.GetMaterial():GetNormalTexture()) end},
-					{"MetallicRoughnessTexture", "int", function(constants) return render3d.pipeline:GetTextureIndex(render3d.GetMaterial():GetMetallicRoughnessTexture()) end},
-					{"OcclusionTexture", "int", function(constants) return render3d.pipeline:GetTextureIndex(render3d.GetMaterial():GetOcclusionTexture()) end},
-					{"EmissiveTexture", "int", function(constants) return render3d.pipeline:GetTextureIndex(render3d.GetMaterial():GetEmissiveTexture()) end},
-					{"EnvironmentTexture", "int", function(constants) return render3d.pipeline:GetTextureIndex(render3d.GetEnvironmentTexture()) end},
-					{"ColorMultiplier", "vec4", function(constants) return render3d.GetMaterial().ColorMultiplier:CopyToFloatPointer(constants.ColorMultiplier) end},
-					{"MetallicMultiplier", "float", function(constants) return render3d.GetMaterial().MetallicMultiplier end},
-					{"RoughnessMultiplier", "float", function(constants) return render3d.GetMaterial().RoughnessMultiplier end},
-					{"NormalMapMultiplier", "float", function(constants) return render3d.GetMaterial().NormalMapMultiplier end},
-					{"AmbientOcclusionMultiplier", "float", function(constants) return render3d.GetMaterial().AmbientOcclusionMultiplier end},
-					{"EmissiveMultiplier", "vec4", function(constants) return render3d.GetMaterial().EmissiveMultiplier:CopyToFloatPointer(constants.EmissiveMultiplier) end},
-					{"ReverseXZNormalMap", "int", function(constants) return render3d.GetMaterial().ReverseXZNormalMap and 1 or 0 end},
-					{"AlphaMode", "float", function(constants) return render3d.GetMaterial():GetAlphaModeInt() end},
-					{"AlphaCutoff", "float", function(constants) return render3d.GetMaterial().AlphaCutoff end},
+					{
+						"AlbedoTexture",
+						"int",
+						function(constants)
+							return render3d.pipeline:GetTextureIndex(render3d.GetMaterial():GetAlbedoTexture())
+						end,
+					},
+					{
+						"NormalTexture",
+						"int",
+						function(constants)
+							return render3d.pipeline:GetTextureIndex(render3d.GetMaterial():GetNormalTexture())
+						end,
+					},
+					{
+						"MetallicRoughnessTexture",
+						"int",
+						function(constants)
+							return render3d.pipeline:GetTextureIndex(render3d.GetMaterial():GetMetallicRoughnessTexture())
+						end,
+					},
+					{
+						"OcclusionTexture",
+						"int",
+						function(constants)
+							return render3d.pipeline:GetTextureIndex(render3d.GetMaterial():GetOcclusionTexture())
+						end,
+					},
+					{
+						"EmissiveTexture",
+						"int",
+						function(constants)
+							return render3d.pipeline:GetTextureIndex(render3d.GetMaterial():GetEmissiveTexture())
+						end,
+					},
+					{
+						"EnvironmentTexture",
+						"int",
+						function(constants)
+							return render3d.pipeline:GetTextureIndex(render3d.GetEnvironmentTexture())
+						end,
+					},
+					{
+						"ColorMultiplier",
+						"vec4",
+						function(constants)
+							return render3d.GetMaterial().ColorMultiplier:CopyToFloatPointer(constants.ColorMultiplier)
+						end,
+					},
+					{
+						"MetallicMultiplier",
+						"float",
+						function(constants)
+							return render3d.GetMaterial().MetallicMultiplier
+						end,
+					},
+					{
+						"RoughnessMultiplier",
+						"float",
+						function(constants)
+							return render3d.GetMaterial().RoughnessMultiplier
+						end,
+					},
+					{
+						"NormalMapMultiplier",
+						"float",
+						function(constants)
+							return render3d.GetMaterial().NormalMapMultiplier
+						end,
+					},
+					{
+						"AmbientOcclusionMultiplier",
+						"float",
+						function(constants)
+							return render3d.GetMaterial().AmbientOcclusionMultiplier
+						end,
+					},
+					{
+						"EmissiveMultiplier",
+						"vec4",
+						function(constants)
+							return render3d.GetMaterial().EmissiveMultiplier:CopyToFloatPointer(constants.EmissiveMultiplier)
+						end,
+					},
+					{
+						"ReverseXZNormalMap",
+						"int",
+						function(constants)
+							return render3d.GetMaterial().ReverseXZNormalMap and 1 or 0
+						end,
+					},
+					{
+						"AlphaMode",
+						"float",
+						function(constants)
+							return render3d.GetMaterial():GetAlphaModeInt()
+						end,
+					},
+					{
+						"AlphaCutoff",
+						"float",
+						function(constants)
+							return render3d.GetMaterial().AlphaCutoff
+						end,
+					},
 				},
 			},
 			{
 				name = "fragment",
 				block = {
-					{"camera_position", "vec3", function(constants) return render3d.camera:GetPosition():CopyToFloatPointer(constants.camera_position) end},
-					{"light_count", "int", function(constants) return math.min(#Light.GetLights(), 32) end},
+					{
+						"camera_position",
+						"vec3",
+						function(constants)
+							return render3d.camera:GetPosition():CopyToFloatPointer(constants.camera_position)
+						end,
+					},
+					{
+						"light_count",
+						"int",
+						function(constants)
+							return math.min(#Light.GetLights(), 32)
+						end,
+					},
 				},
 			},
 		},
@@ -416,13 +554,14 @@ function render3d.Initialize()
 	}
 	local push_constant_types = {}
 	local stage_sizes = {vertex = 0, fragment = 0}
+	local uniform_buffer_types = {}
+	local uniform_buffers = {}
 
 	local function get_field_info(field)
 		local name = field[1]
 		local glsl_type = field[2]
 		local callback = field[3]
 		local array_size = type(field[4]) == "number" and field[4] or nil
-
 		return {
 			name = name,
 			glsl_type = glsl_type,
@@ -432,26 +571,63 @@ function render3d.Initialize()
 	end
 
 	for stage, stage_config in pairs(render3d.config) do
-		for _, block in ipairs(stage_config.push_constants) do
-			local struct_name = block.name:sub(1, 1):upper() .. block.name:sub(2) .. "Constants"
-			local ffi_code = "struct {\n"
+		-- Process push constants
+		if stage_config.push_constants then
+			for _, block in ipairs(stage_config.push_constants) do
+				local struct_name = block.name:sub(1, 1):upper() .. block.name:sub(2) .. "Constants"
+				local ffi_code = "struct {\n"
 
-			for _, field in ipairs(block.block) do
-				local info = get_field_info(field)
-				local ffi_type = glsl_to_ffi[info.glsl_type] or info.glsl_type
-				local array_size = info.array_size or glsl_to_array_size[info.glsl_type]
+				for _, field in ipairs(block.block) do
+					local info = get_field_info(field)
+					local ffi_type = glsl_to_ffi[info.glsl_type] or info.glsl_type
+					local array_size = info.array_size or glsl_to_array_size[info.glsl_type]
 
-				if array_size then
-					ffi_code = ffi_code .. string.format("    %s %s[%d];\n", ffi_type, info.name, array_size)
-				else
-					ffi_code = ffi_code .. string.format("    %s %s;\n", ffi_type, info.name)
+					if array_size then
+						ffi_code = ffi_code .. string.format("    %s %s[%d];\n", ffi_type, info.name, array_size)
+					else
+						ffi_code = ffi_code .. string.format("    %s %s;\n", ffi_type, info.name)
+					end
 				end
-			end
 
-			ffi_code = ffi_code .. "}"
-			local ctype = ffi.typeof(ffi_code)
-			push_constant_types[struct_name] = ctype
-			stage_sizes[stage] = stage_sizes[stage] + ffi.sizeof(ctype)
+				ffi_code = ffi_code .. "}"
+				local ctype = ffi.typeof(ffi_code)
+				push_constant_types[struct_name] = ctype
+				stage_sizes[stage] = stage_sizes[stage] + ffi.sizeof(ctype)
+			end
+		end
+
+		-- Process uniform buffers
+		if stage_config.uniform_buffers then
+			for _, block in ipairs(stage_config.uniform_buffers) do
+				local ffi_code = "struct {\n"
+				local glsl_fields = ""
+
+				for _, field in ipairs(block.block) do
+					local info = get_field_info(field)
+					local ffi_type = glsl_to_ffi[info.glsl_type] or info.glsl_type
+					local array_size = info.array_size or glsl_to_array_size[info.glsl_type]
+
+					if array_size then
+						ffi_code = ffi_code .. string.format("    %s %s[%d];\n", ffi_type, info.name, array_size)
+						glsl_fields = glsl_fields .. string.format("    %s %s[%d];\n", info.glsl_type, info.name, array_size)
+					else
+						ffi_code = ffi_code .. string.format("    %s %s;\n", ffi_type, info.name)
+						glsl_fields = glsl_fields .. string.format("    %s %s;\n", info.glsl_type, info.name)
+					end
+				end
+
+				ffi_code = ffi_code .. "}"
+				local ubo = UniformBuffer.New(ffi_code)
+				local glsl_declaration = string.format(
+					"layout(std140, binding = %d) uniform %s {\n%s} %s;",
+					block.binding_index,
+					block.name:sub(1, 1):upper() .. block.name:sub(2),
+					glsl_fields,
+					block.name
+				)
+				uniform_buffer_types[block.name] = {ubo = ubo, block = block, glsl = glsl_declaration}
+				uniform_buffers[block.name] = ubo
+			end
 		end
 	end
 
@@ -494,6 +670,7 @@ function render3d.Initialize()
 	local function build_constants()
 		-- Create constant structs for each block
 		local constant_structs = {}
+
 		for struct_name, ctype in pairs(push_constant_types) do
 			constant_structs[struct_name] = ctype()
 		end
@@ -502,22 +679,25 @@ function render3d.Initialize()
 			-- Vertex stage
 			do
 				local offset = 0
+
 				for _, block in ipairs(render3d.config.vertex.push_constants) do
 					local struct_name = block.name:sub(1, 1):upper() .. block.name:sub(2) .. "Constants"
 					local constants = constant_structs[struct_name]
 
 					for _, field in ipairs(block.block) do
 						local info = get_field_info(field)
+
 						if info.callback then
 							local value = info.callback(constants)
+
 							if value ~= nil and not info.array_size and not glsl_to_array_size[info.glsl_type] then
 								constants[info.name] = value
 							end
-							-- For arrays (vec4, mat4, etc.), the callback handles CopyToFloatPointer
+						-- For arrays (vec4, mat4, etc.), the callback handles CopyToFloatPointer
 						end
 					end
 
-					render3d.pipeline:PushConstants(cmd, 'vertex', offset, constants)
+					render3d.pipeline:PushConstants(cmd, "vertex", offset, constants)
 					offset = offset + ffi.sizeof(push_constant_types[struct_name])
 				end
 			end
@@ -525,33 +705,52 @@ function render3d.Initialize()
 			-- Fragment stage
 			do
 				local offset = stage_sizes.vertex
+
 				for _, block in ipairs(render3d.config.fragment.push_constants) do
 					local struct_name = block.name:sub(1, 1):upper() .. block.name:sub(2) .. "Constants"
 					local constants = constant_structs[struct_name]
 
 					for _, field in ipairs(block.block) do
 						local info = get_field_info(field)
+
 						if info.callback then
 							local value = info.callback(constants)
+
 							if value ~= nil and not info.array_size and not glsl_to_array_size[info.glsl_type] then
 								constants[info.name] = value
 							end
-							-- For arrays (vec4, mat4, etc.), the callback handles CopyToFloatPointer
+						-- For arrays (vec4, mat4, etc.), the callback handles CopyToFloatPointer
 						end
 					end
 
-					render3d.pipeline:PushConstants(cmd, 'fragment', offset, constants)
+					render3d.pipeline:PushConstants(cmd, "fragment", offset, constants)
 					offset = offset + ffi.sizeof(push_constant_types[struct_name])
 				end
 			end
 
-			-- Debug UBO
-			local debug_constants = render3d.debug_ubo:GetData()
-			debug_constants.debug_cascade_colors = render3d.debug_cascade_colors and 1 or 0
-			debug_constants.debug_mode = render3d.debug_mode or 0
-			debug_constants.near_z = render3d.camera:GetNearZ()
-			debug_constants.far_z = render3d.camera:GetFarZ()
-			render3d.debug_ubo:Upload()
+			-- Update uniform buffers
+			for name, info in pairs(uniform_buffer_types) do
+				local ubo_data = info.ubo:GetData()
+
+				for _, field in ipairs(info.block.block) do
+					local field_info = get_field_info(field)
+
+					if field_info.callback then
+						local value = field_info.callback(ubo_data)
+
+						if
+							value ~= nil and
+							not field_info.array_size and
+							not glsl_to_array_size[field_info.glsl_type]
+						then
+							ubo_data[field_info.name] = value
+						end
+					-- For arrays (vec4, mat4, etc.), the callback handles CopyToFloatPointer
+					end
+				end
+
+				info.ubo:Upload()
+			end
 		end
 	end
 
@@ -606,14 +805,11 @@ function render3d.Initialize()
 		vertex_output = vertex_output .. string.format("layout(location = %d) out %s out_%s;\n", i - 1, attr[2], attr[1])
 	end
 
-	render3d.debug_ubo = UniformBuffer.New([[
-		struct {
-			int debug_cascade_colors;
-			int debug_mode;
-			float near_z;
-			float far_z;
-		}
-	]])
+	-- Store uniform buffers in render3d
+	for name, ubo in pairs(uniform_buffers) do
+		render3d[name .. "_ubo"] = ubo
+	end
+
 	render3d.pipeline = render.CreateGraphicsPipeline(
 		{
 			dynamic_states = {"viewport", "scissor"},
@@ -670,28 +866,53 @@ function render3d.Initialize()
 
 					]] .. get_glsl_push_constants("fragment") .. [[
 
+					]] .. (
+							function()
+								local glsl = ""
 
-					]] .. render3d.debug_ubo:GetGLSLDeclaration(2, "debug_data") .. [[
-				
-					]] .. render3d.config.fragment.shader .. [[
-				]],
-					descriptor_sets = {
-						{
-							type = "combined_image_sampler",
-							binding_index = 0,
-							count = 1024,
-						},
-						{
-							type = "uniform_buffer",
-							binding_index = 1,
-							args = {Light.GetUBO()},
-						},
-						{
-							type = "uniform_buffer",
-							binding_index = 2,
-							args = {render3d.debug_ubo.buffer},
-						},
-					},
+								for _, block in ipairs(render3d.config.fragment.uniform_buffers or {}) do
+									glsl = glsl .. uniform_buffer_types[block.name].glsl .. "\n\n"
+								end
+
+								return glsl
+							end
+						)() .. [[
+					
+						]] .. render3d.config.fragment.shader .. [[
+					]],
+					descriptor_sets = (function()
+						local sets = {
+							{
+								type = "combined_image_sampler",
+								binding_index = 0,
+								count = 1024,
+							},
+							{
+								type = "uniform_buffer",
+								binding_index = 1,
+								args = {Light.GetUBO()},
+							},
+						}
+
+						-- Add uniform buffers from config
+						for _, block in ipairs(render3d.config.fragment.uniform_buffers or {}) do
+							table.insert(
+								sets,
+								{
+									type = "uniform_buffer",
+									binding_index = block.binding_index,
+									args = {uniform_buffers[block.name].buffer},
+								}
+							)
+
+							if block.glsl_declaration then
+
+							-- Store for later use in shader code generation if needed
+							end
+						end
+
+						return sets
+					end)(),
 					push_constants = {
 						size = stage_sizes.fragment,
 						offset = stage_sizes.vertex,
