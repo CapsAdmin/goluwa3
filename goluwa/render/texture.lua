@@ -231,7 +231,7 @@ function Texture.New(config)
 				max_lod = sampler_config.max_lod or mip_levels,
 				min_lod = sampler_config.min_lod,
 				mip_lod_bias = sampler_config.mip_lod_bias,
-				anisotropy = sampler_config.anisotropy,
+				anisotropy = sampler_config.anisotropy or 16,
 				border_color = sampler_config.border_color,
 				unnormalized_coordinates = sampler_config.unnormalized_coordinates,
 				compare_enable = sampler_config.compare_enable,
