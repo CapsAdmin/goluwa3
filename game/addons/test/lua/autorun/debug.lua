@@ -15,6 +15,7 @@ local debug_modes = {
 	"roughness_metallic",
 	"depth",
 	"reflection",
+	"geometry_normals",
 }
 
 -- Debug: Freeze frustum for culling
