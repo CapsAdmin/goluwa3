@@ -56,7 +56,7 @@ local function create_cube(pos, ang, scale, color)
 		"model",
 		{
 			mesh = poly,
-			material = Material.New({base_color_factor = color or Color(1, 1, 1, 1)}),
+			material = Material.New({ColorMultiplier = color or Color(1, 1, 1, 1)}),
 		}
 	)
 	return entity

@@ -86,7 +86,7 @@ local function sphere(lp, ly, config)
 	draw3d(function(cmd)
 		local mat = Material.New(
 			{
-				base_color_factor = {color:Unpack()},
+				ColorMultiplier = {color:Unpack()},
 				metallic_roughness_texture = Texture.New(
 					{
 						width = 1,

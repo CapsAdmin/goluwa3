@@ -33,37 +33,10 @@ local field_types = {
 			)
 		end,
 	},
-	texture_render3d = {
-		glsl = "int",
-		lua = function(block_var, field_name)
-			return string.format(
-				"%s.%s = render3d.pipeline:GetTextureIndex(render3d.Get%s())",
-				block_var,
-				field_name,
-				field_name
-			)
-		end,
-	},
 	vec4 = {
 		glsl = "vec4",
 		lua = function(block_var, field_name)
 			return string.format("mat.%s:CopyToFloatPointer(%s.%s)", field_name, block_var, field_name)
-		end,
-	},
-	projection_view_world = {
-		glsl = "mat4",
-		lua = function(block_var, field_name)
-			return string.format(
-				"render3d.GetProjectionViewWorldMatrix():CopyToFloatPointer(%s.%s)",
-				block_var,
-				field_name
-			)
-		end,
-	},
-	world = {
-		glsl = "mat4",
-		lua = function(block_var, field_name)
-			return string.format("render3d.GetWorldMatrix():CopyToFloatPointer(%s.%s)", block_var, field_name)
 		end,
 	},
 	number = {
@@ -76,34 +49,6 @@ local field_types = {
 		glsl = "int",
 		lua = function(block_var, field_name)
 			return string.format("%s.%s = mat.%s and 1 or 0", block_var, field_name, field_name)
-		end,
-	},
-	camera_position = {
-		glsl = "vec3",
-		lua = function(block_var, field_name)
-			return string.format(
-				"render3d.camera:GetPosition():CopyToFloatPointer(%s.%s)",
-				block_var,
-				field_name
-			)
-		end,
-	},
-	light_count = {
-		glsl = "int",
-		lua = function(block_var, field_name)
-			return string.format("%s.%s = math.min(#Light.GetLights(), 32)", block_var, field_name)
-		end,
-	},
-	alpha_mode = {
-		glsl = "float",
-		lua = function(block_var, field_name)
-			return string.format("%s.%s = mat:GetAlphaModeInt()", block_var, field_name)
-		end,
-	},
-	alpha_cutoff = {
-		glsl = "float",
-		lua = function(block_var, field_name)
-			return string.format("%s.%s = mat.%s", block_var, field_name, field_name)
 		end,
 	},
 }
@@ -119,8 +64,28 @@ render3d.config = {
 			{
 				name = "vertex",
 				block = {
-					{"projection_view_world", "projection_view_world"},
-					{"world", "world"},
+					{
+						"projection_view_world",
+						{
+							glsl = "mat4",
+							lua = function(block_var, field_name)
+								return string.format(
+									"render3d.GetProjectionViewWorldMatrix():CopyToFloatPointer(%s.%s)",
+									block_var,
+									field_name
+								)
+							end,
+						},
+					},
+					{
+						"world",
+						{
+							glsl = "mat4",
+							lua = function(block_var, field_name)
+								return string.format("render3d.GetWorldMatrix():CopyToFloatPointer(%s.%s)", block_var, field_name)
+							end,
+						},
+					},
 				},
 			},
 		},
@@ -145,23 +110,64 @@ render3d.config = {
 					{"MetallicRoughnessTexture", "texture"},
 					{"OcclusionTexture", "texture"},
 					{"EmissiveTexture", "texture"},
-					{"EnvironmentTexture", "texture_render3d"},
-					{"base_color_factor", "vec4"},
-					{"metallic_factor", "number"},
-					{"roughness_factor", "number"},
-					{"normal_scale", "number"},
-					{"occlusion_strength", "number"},
-					{"emissive_factor", "vec4"},
-					{"flip_normal_xy", "boolean"},
-					{"alpha_mode", "alpha_mode"},
-					{"alpha_cutoff", "alpha_cutoff"},
+					{
+						"EnvironmentTexture",
+						{
+							glsl = "int",
+							lua = function(block_var, field_name)
+								return string.format(
+									"%s.%s = render3d.pipeline:GetTextureIndex(render3d.Get%s())",
+									block_var,
+									field_name,
+									field_name
+								)
+							end,
+						},
+					},
+					{"ColorMultiplier", "vec4"},
+					{"MetallicMultiplier", "number"},
+					{"RoughnessMultiplier", "number"},
+					{"NormalMapMultiplier", "number"},
+					{"AmbientOcclusionMultiplier", "number"},
+					{"EmissiveMultiplier", "vec4"},
+					{"ReverseXZNormalMap", "boolean"},
+					{
+						"AlphaMode",
+						{
+							glsl = "float",
+							lua = function(block_var, field_name)
+								return string.format("%s.%s = mat:GetAlphaModeInt()", block_var, field_name)
+							end,
+						},
+					},
+					{"AlphaCutoff", "number"},
 				},
 			},
 			{
 				name = "fragment",
 				block = {
-					{"camera_position", "camera_position"},
-					{"light_count", "light_count"},
+					{
+						"camera_position",
+						{
+							glsl = "vec3",
+							lua = function(block_var, field_name)
+								return string.format(
+									"render3d.camera:GetPosition():CopyToFloatPointer(%s.%s)",
+									block_var,
+									field_name
+								)
+							end,
+						},
+					},
+					{
+						"light_count",
+						{
+							glsl = "int",
+							lua = function(block_var, field_name)
+								return string.format("%s.%s = math.min(#Light.GetLights(), 32)", block_var, field_name)
+							end,
+						},
+					},
 				},
 			},
 		},
@@ -269,22 +275,22 @@ render3d.config = {
 			}
 
 			// Alpha test/discard function
-			// alpha_mode: 0=OPAQUE (no discard), 1=MASK (alpha cutoff), 2=BLEND (dithered translucency)
+			// AlphaMode: 0=OPAQUE (no discard), 1=MASK (alpha cutoff), 2=BLEND (dithered translucency)
 			// https://www.shadertoy.com/view/MslGR8 (dither pattern)
-			bool alpha_discard(vec2 uv, float alpha, int alpha_mode, float alpha_cutoff)
+			bool alpha_discard(vec2 uv, float alpha, int AlphaMode, float AlphaCutoff)
 			{
-				if (alpha_mode == 0) {
+				if (AlphaMode == 0) {
 					// OPAQUE - never discard
 					return false;
 				}
-				else if (alpha_mode == 1) {
+				else if (AlphaMode == 1) {
 					// MASK - alpha test with cutoff
-					if (alpha < alpha_cutoff) {
+					if (alpha < AlphaCutoff) {
 						return true;
 					}
 					return false;
 				}
-				else if (alpha_mode == 2) {
+				else if (AlphaMode == 2) {
 					// BLEND - dithered translucency
 					// Use screen-space dither pattern based on alpha value
 					return fract(dot(vec2(171.0, 231.0) + alpha * 0.00001, gl_FragCoord.xy) / 103.0) > (alpha * alpha);
@@ -314,32 +320,32 @@ render3d.config = {
 
 			void main() {
 				// Sample textures
-				vec4 albedo = texture(TEXTURE(pc.model.AlbedoTexture), in_uv) * pc.model.base_color_factor;
+				vec4 albedo = texture(TEXTURE(pc.model.AlbedoTexture), in_uv) * pc.model.ColorMultiplier;
 				vec3 normal_map = texture(TEXTURE(pc.model.NormalTexture), in_uv).rgb;					
 				// Source engine normals have X and Z swapped
-				if (pc.model.flip_normal_xy != 0) {
-					normal_map.g = 1-normal_map.g;
-					normal_map.r = 1-normal_map.r;
+				if (pc.model.ReverseXZNormalMap != 0) {
+					normal_map.x = 1 - normal_map.x;
+					normal_map.z = 1 - normal_map.z;
 				}						
 				
 				vec4 metallic_roughness = texture(TEXTURE(pc.model.MetallicRoughnessTexture), in_uv);
 				float ao = texture(TEXTURE(pc.model.OcclusionTexture), in_uv).r;
-				vec3 emissive = texture(TEXTURE(pc.model.EmissiveTexture), in_uv).rgb * pc.model.emissive_factor.rgb * pc.model.emissive_factor.a;
+				vec3 emissive = texture(TEXTURE(pc.model.EmissiveTexture), in_uv).rgb * pc.model.EmissiveMultiplier.rgb * pc.model.EmissiveMultiplier.a;
 
 				// Alpha test/blend
-				if (alpha_discard(in_uv, albedo.a, int(pc.model.alpha_mode), pc.model.alpha_cutoff)) {
+				if (alpha_discard(in_uv, albedo.a, int(pc.model.AlphaMode), pc.model.AlphaCutoff)) {
 					discard;
 				}
 
 				// glTF: metallic in B, roughness in G
-				float metallic = metallic_roughness.b * pc.model.metallic_factor;
-				float roughness = clamp(metallic_roughness.g * pc.model.roughness_factor, 0.04, 1.0);
+				float metallic = metallic_roughness.b * pc.model.MetallicMultiplier;
+				float roughness = clamp(metallic_roughness.g * pc.model.RoughnessMultiplier, 0.04, 1.0);
 
 				// Calculate normal from normal map
 				vec3 N;
 				if (pc.model.NormalTexture > 0) {
 					vec3 tangent_normal = normal_map * 2.0 - 1.0;
-					tangent_normal *= pc.model.normal_scale;
+					tangent_normal *= pc.model.NormalMapMultiplier;
 					
 					// Calculate tangents on-the-fly using screen-space derivatives
 					vec3 dp1 = dFdx(in_position);
@@ -507,7 +513,10 @@ function render3d.Initialize()
 			glsl_type = field_types[logic_type].glsl
 		end
 
-		local info = field_types[logic_type] or field_types[name]
+		local info = type(glsl_type) == "table" and
+			glsl_type or
+			field_types[logic_type] or
+			field_types[name]
 		local res = {
 			name = name,
 			glsl_type = (info and info.glsl) or glsl_type,

@@ -95,9 +95,9 @@ local function create_face(pos, normal, up, color)
 		poly = poly,
 		material = Material.New(
 			{
-				base_color_factor = Color(color.x, color.y, color.z, 1),
-				emissive_texture = white_tex,
-				emissive_factor = Color(color.x * 100, color.y * 100, color.z * 100, 1),
+				ColorMultiplier = Color(color.x, color.y, color.z, 1),
+				EmissiveTexture = white_tex,
+				EmissiveMultiplier = Color(color.x * 100, color.y * 100, color.z * 100, 1),
 			}
 		),
 	}
@@ -143,9 +143,9 @@ local function draw_faces(cmd)
 	render3d.SetMaterial(
 		Material.New(
 			{
-				base_color_factor = {1, 1, 1, 1},
-				emissive_texture = white_tex,
-				emissive_factor = {10, 10, 10},
+				ColorMultiplier = {1, 1, 1, 1},
+				EmissiveTexture = white_tex,
+				EmissiveMultiplier = {10, 10, 10},
 			}
 		)
 	)

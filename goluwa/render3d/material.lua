@@ -84,20 +84,20 @@ function Material.New(config)
 	self.albedo_texture = config.albedo_texture
 	self.normal_texture = config.normal_texture
 	self.metallic_roughness_texture = config.metallic_roughness_texture
-	self.occlusion_texture = config.occlusion_texture
-	self.emissive_texture = config.emissive_texture
+	self.AmbientOcclusionTexture = config.AmbientOcclusionTexture
+	self.EmissiveTexture = config.EmissiveTexture
 	-- Factors/multipliers
-	self.base_color_factor = config.base_color_factor or DEFAULT_BASE_COLOR
-	self.metallic_factor = config.metallic_factor or DEFAULT_METALLIC
-	self.roughness_factor = config.roughness_factor or DEFAULT_ROUGHNESS
-	self.normal_scale = config.normal_scale or DEFAULT_NORMAL_SCALE
-	self.occlusion_strength = config.occlusion_strength or DEFAULT_OCCLUSION_STRENGTH
-	self.emissive_factor = config.emissive_factor or DEFAULT_EMISSIVE
+	self.ColorMultiplier = config.ColorMultiplier or DEFAULT_BASE_COLOR
+	self.MetallicMultiplier = config.MetallicMultiplier or DEFAULT_METALLIC
+	self.RoughnessMultiplier = config.RoughnessMultiplier or DEFAULT_ROUGHNESS
+	self.NormalMapMultiplier = config.NormalMapMultiplier or DEFAULT_NORMAL_SCALE
+	self.AmbientOcclusionMultiplier = config.AmbientOcclusionMultiplier or DEFAULT_OCCLUSION_STRENGTH
+	self.EmissiveMultiplier = config.EmissiveMultiplier or DEFAULT_EMISSIVE
 	-- Rendering flags
 	self.double_sided = config.double_sided or false
-	self.alpha_mode = config.alpha_mode or "OPAQUE" -- OPAQUE, MASK, BLEND
-	self.alpha_cutoff = config.alpha_cutoff or 0.5
-	self.flip_normal_xy = config.flip_normal_xy or false -- For Source engine normals
+	self.AlphaMode = config.AlphaMode or "OPAQUE" -- OPAQUE, MASK, BLEND
+	self.AlphaCutoff = config.AlphaCutoff or 0.5
+	self.ReverseXZNormalMap = config.ReverseXZNormalMap or false -- For Source engine normals
 	-- Name for debugging
 	self.name = config.name or "unnamed"
 	return self
@@ -117,11 +117,11 @@ function Material:GetMetallicRoughnessTexture()
 end
 
 function Material:GetOcclusionTexture()
-	return self.occlusion_texture or get_default_texture("occlusion")
+	return self.AmbientOcclusionTexture or get_default_texture("occlusion")
 end
 
 function Material:GetEmissiveTexture()
-	return self.emissive_texture or get_default_texture("emissive")
+	return self.EmissiveTexture or get_default_texture("emissive")
 end
 
 do
@@ -270,7 +270,7 @@ do
 		--self:SetName(path)
 		self.vmt = {}
 		self.vmt_path = path -- Store path for debugging
-		self.flip_normal_xy = true -- Source engine normals need XY flip
+		self.ReverseXZNormalMap = true -- Source engine normals need XY flip
 		local cb = steam.LoadVMT(path, function(key, val, full_path)
 			self.vmt.fullpath = full_path
 			self.vmt[key] = val
@@ -302,41 +302,41 @@ do
 
 		if tasks.GetActiveTask() then cb:Get() end
 
-		-- Set alpha_mode based on alphatest and translucent flags
+		-- Set AlphaMode based on alphatest and translucent flags
 		if self.alpha_test then
-			self.alpha_mode = "MASK"
+			self.AlphaMode = "MASK"
 		elseif self.translucent then
-			self.alpha_mode = "BLEND"
+			self.AlphaMode = "BLEND"
 
 			-- Translucent materials (like windows) should be reflective
 			-- Set high metallic and low roughness for glass-like appearance
-			if not self.metallic_factor or self.metallic_factor == DEFAULT_METALLIC then
-				self.metallic_factor = 0.9
+			if not self.MetallicMultiplier or self.MetallicMultiplier == DEFAULT_METALLIC then
+				self.MetallicMultiplier = 0.9
 			end
 
-			if not self.roughness_factor or self.roughness_factor == DEFAULT_ROUGHNESS then
-				self.roughness_factor = 0.1
+			if not self.RoughnessMultiplier or self.RoughnessMultiplier == DEFAULT_ROUGHNESS then
+				self.RoughnessMultiplier = 0.1
 			end
 		end
 
 		-- If material has an envmap (reflection map), make it more reflective
 		if self.has_envmap then
-			if not self.metallic_factor or self.metallic_factor == DEFAULT_METALLIC then
-				self.metallic_factor = 0.8
+			if not self.MetallicMultiplier or self.MetallicMultiplier == DEFAULT_METALLIC then
+				self.MetallicMultiplier = 0.8
 			end
 
-			if not self.roughness_factor or self.roughness_factor == DEFAULT_ROUGHNESS then
-				self.roughness_factor = 0.2
+			if not self.RoughnessMultiplier or self.RoughnessMultiplier == DEFAULT_ROUGHNESS then
+				self.RoughnessMultiplier = 0.2
 			end
 		end
 
 		-- Apply metallic/roughness multipliers if present
 		if self.metallic_multiplier then
-			self.metallic_factor = (self.metallic_factor or DEFAULT_METALLIC) * self.metallic_multiplier
+			self.MetallicMultiplier = (self.MetallicMultiplier or DEFAULT_METALLIC) * self.metallic_multiplier
 		end
 
 		if self.roughness_multiplier then
-			self.roughness_factor = (self.roughness_factor or DEFAULT_ROUGHNESS) * self.roughness_multiplier
+			self.RoughnessMultiplier = (self.RoughnessMultiplier or DEFAULT_ROUGHNESS) * self.roughness_multiplier
 		end
 
 		return self
@@ -380,19 +380,19 @@ end
 
 -- Check if material needs alpha blending
 function Material:NeedsBlending()
-	return self.alpha_mode == "BLEND"
+	return self.AlphaMode == "BLEND"
 end
 
 -- Check if material needs alpha testing
 function Material:NeedsAlphaTest()
-	return self.alpha_mode == "MASK"
+	return self.AlphaMode == "MASK"
 end
 
 -- Get alpha mode as integer for shader (0=OPAQUE, 1=MASK, 2=BLEND)
 function Material:GetAlphaModeInt()
-	if self.alpha_mode == "MASK" then
+	if self.AlphaMode == "MASK" then
 		return 1
-	elseif self.alpha_mode == "BLEND" then
+	elseif self.AlphaMode == "BLEND" then
 		return 2
 	else
 		return 0 -- OPAQUE
