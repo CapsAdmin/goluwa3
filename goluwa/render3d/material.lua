@@ -3,129 +3,33 @@ local commands = require("commands")
 local tasks = require("tasks")
 local Texture = require("render.texture")
 local Color = require("structs.color")
-local Material = {}
-Material.__index = Material
--- Default material values (PBR metallic-roughness workflow)
-local DEFAULT_BASE_COLOR = Color(1.0, 1.0, 1.0, 1.0)
-local DEFAULT_METALLIC = 0.0
-local DEFAULT_ROUGHNESS = 1.0
-local DEFAULT_NORMAL_SCALE = 1.0
-local DEFAULT_OCCLUSION_STRENGTH = 1.0
-local DEFAULT_EMISSIVE = Color(0.0, 0.0, 0.0, 0.0)
--- Cached default textures
-local default_textures = {}
-
-local function get_default_texture(type)
-	if default_textures[type] then return default_textures[type] end
-
-	local tex
-
-	if type == "albedo" then
-		-- White texture for albedo
-		tex = Texture.New(
-			{
-				width = 1,
-				height = 1,
-				format = "r8g8b8a8_unorm",
-				buffer = ffi.new("uint8_t[4]", {255, 255, 255, 255}),
-			}
-		)
-	elseif type == "normal" then
-		-- Flat normal (pointing up in tangent space: 0.5, 0.5, 1.0)
-		tex = Texture.New(
-			{
-				width = 1,
-				height = 1,
-				format = "r8g8b8a8_unorm",
-				buffer = ffi.new("uint8_t[4]", {128, 128, 255, 255}),
-			}
-		)
-	elseif type == "metallic_roughness" then
-		-- G channel = roughness (1.0), B channel = metallic (0.0)
-		-- Following glTF spec: metallic in B, roughness in G
-		tex = Texture.New(
-			{
-				width = 1,
-				height = 1,
-				format = "r8g8b8a8_unorm",
-				buffer = ffi.new("uint8_t[4]", {0, 255, 0, 255}), -- roughness=1.0, metallic=0.0
-			}
-		)
-	elseif type == "occlusion" then
-		-- White = no occlusion
-		tex = Texture.New(
-			{
-				width = 1,
-				height = 1,
-				format = "r8g8b8a8_unorm",
-				buffer = ffi.new("uint8_t[4]", {255, 255, 255, 255}),
-			}
-		)
-	elseif type == "emissive" then
-		-- Black = no emission
-		tex = Texture.New(
-			{
-				width = 1,
-				height = 1,
-				format = "r8g8b8a8_unorm",
-				buffer = ffi.new("uint8_t[4]", {0, 0, 0, 255}),
-			}
-		)
-	end
-
-	default_textures[type] = tex
-	return tex
-end
-
+local prototype = require("prototype")
+local Material = prototype.CreateTemplate("material")
+Material:GetSet("AlbedoTexture", Texture.FromColor(Color(1, 1, 1, 1)))
+Material:GetSet("NormalTexture", Texture.FromColor(Color(0.5, 0.5, 1, 1))) -- roughness/g=1.0, metallic/b=0.0
+Material:GetSet("MetallicRoughnessTexture", Texture.FromColor(Color(0, 1, 0, 1))) -- roughness/g=1.0, metallic/b=0.0
+Material:GetSet("AmbientOcclusionTexture", Texture.FromColor(Color(1, 1, 1, 1))) -- roughness/g=1.0, metallic/b=0.0
+Material:GetSet("EmissiveTexture", Texture.FromColor(Color(0, 0, 0, 1))) -- roughness/g=1.0, metallic/b=0.0
+Material:GetSet("ColorMultiplier", Color(1.0, 1.0, 1.0, 1.0))
+Material:GetSet("MetallicMultiplier", 0.0)
+Material:GetSet("RoughnessMultiplier", 1.0)
+Material:GetSet("NormalMapMultiplier", 1.0)
+Material:GetSet("AmbientOcclusionMultiplier", 1.0)
+Material:GetSet("EmissiveMultiplier", Color(0.0, 0.0, 0.0, 0.0))
+--
+Material:GetSet("DoubleSided", false) -- no culling?
+Material:GetSet("AlphaMode", "OPAQUE") -- OPAQUE, MASK, BLEND
+Material:GetSet("AlphaCutoff", 0.5)
+Material:GetSet("ReverseXZNormalMap", false) -- For Source engine normals
+Material:GetSet("Name", "unnamed") -- For Source engine normals
 function Material.New(config)
-	config = config or {}
-	local self = setmetatable({}, Material)
-	-- Textures (nil means use default)
-	self.albedo_texture = config.albedo_texture
-	self.normal_texture = config.normal_texture
-	self.metallic_roughness_texture = config.metallic_roughness_texture
-	self.AmbientOcclusionTexture = config.AmbientOcclusionTexture
-	self.EmissiveTexture = config.EmissiveTexture
-	-- Factors/multipliers
-	self.ColorMultiplier = config.ColorMultiplier or DEFAULT_BASE_COLOR
-	self.MetallicMultiplier = config.MetallicMultiplier or DEFAULT_METALLIC
-	self.RoughnessMultiplier = config.RoughnessMultiplier or DEFAULT_ROUGHNESS
-	self.NormalMapMultiplier = config.NormalMapMultiplier or DEFAULT_NORMAL_SCALE
-	self.AmbientOcclusionMultiplier = config.AmbientOcclusionMultiplier or DEFAULT_OCCLUSION_STRENGTH
-	self.EmissiveMultiplier = config.EmissiveMultiplier or DEFAULT_EMISSIVE
-	-- Rendering flags
-	self.double_sided = config.double_sided or false
-	self.AlphaMode = config.AlphaMode or "OPAQUE" -- OPAQUE, MASK, BLEND
-	self.AlphaCutoff = config.AlphaCutoff or 0.5
-	self.ReverseXZNormalMap = config.ReverseXZNormalMap or false -- For Source engine normals
-	-- Name for debugging
-	self.name = config.name or "unnamed"
+	local self = prototype.CreateObject("material")
 	return self
-end
-
--- Get texture or default fallback
-function Material:GetAlbedoTexture()
-	return self.albedo_texture or get_default_texture("albedo")
-end
-
-function Material:GetNormalTexture()
-	return self.normal_texture or get_default_texture("normal")
-end
-
-function Material:GetMetallicRoughnessTexture()
-	return self.metallic_roughness_texture or get_default_texture("metallic_roughness")
-end
-
-function Material:GetOcclusionTexture()
-	return self.AmbientOcclusionTexture or get_default_texture("occlusion")
-end
-
-function Material:GetEmissiveTexture()
-	return self.EmissiveTexture or get_default_texture("emissive")
 end
 
 do
 	local steam = require("steam")
+	local vlg = require("steam/vertex_lit_generic")
 
 	local function unpack_numbers(str)
 		str = str:gsub("%s+", " ")
@@ -138,14 +42,14 @@ do
 		return unpack(t)
 	end
 
-	local get_srgb = function(path)
+	local SRGBTexture = function(path)
 		--return render.CreateTextureFromPath("[srgb]" .. path)
 		return Texture.New({
 			path = path,
 			srgb = true,
 		})
 	end
-	local get_non_srgb = function(path)
+	local LinearTexture = function(path)
 		--return render.CreateTextureFromPath("[~srgb]" .. path)
 		return Texture.New({
 			path = path,
@@ -153,15 +57,15 @@ do
 		})
 	end
 	local property_translate = {
-		basetexture = {"AlbedoTexture", get_srgb},
-		basetexture2 = {"Albedo2Texture", get_srgb},
-		texture2 = {"Albedo2Texture", get_srgb},
-		bumpmap = {"NormalTexture", get_non_srgb},
-		bumpmap2 = {"Normal2Texture", get_non_srgb},
-		envmapmask = {"MetallicTexture", get_non_srgb},
-		phongexponenttexture = {"RoughnessTexture", get_non_srgb},
-		blendmodulatetexture = {"BlendTexture", get_non_srgb},
-		selfillummask = {"SelfIlluminationTexture", get_non_srgb},
+		basetexture = {"AlbedoTexture", SRGBTexture},
+		basetexture2 = {"Albedo2Texture", SRGBTexture},
+		texture2 = {"Albedo2Texture", SRGBTexture},
+		bumpmap = {"NormalTexture", LinearTexture},
+		bumpmap2 = {"Normal2Texture", LinearTexture},
+		envmapmask = {"MetallicTexture", LinearTexture},
+		phongexponenttexture = {"RoughnessTexture", LinearTexture},
+		blendmodulatetexture = {"BlendTexture", LinearTexture},
+		selfillummask = {"SelfIlluminationTexture", LinearTexture},
 		selfillum = {
 			"SelfIllumination",
 			function(num)
@@ -265,13 +169,15 @@ do
 	}
 	steam.unused_vmt_properties = steam.unused_vmt_properties or {}
 
+	function Material:SetError(err) end
+
 	function Material.FromVMT(path)
 		local self = Material.New()
 		--self:SetName(path)
 		self.vmt = {}
 		self.vmt_path = path -- Store path for debugging
-		self.ReverseXZNormalMap = true -- Source engine normals need XY flip
 		local cb = steam.LoadVMT(path, function(key, val, full_path)
+			self:SetReverseXZNormalMap(true) -- Source engine normals need XY flip
 			self.vmt.fullpath = full_path
 			self.vmt[key] = val
 			local unused = false
@@ -279,14 +185,13 @@ do
 			if property_translate[key] then
 				local field_name, convert = unpack(property_translate[key])
 
-				if convert then val = convert(val) end
+				if self["Set" .. field_name] then
+					if convert then val = convert(val) end
 
-				-- Convert field name to lowercase with underscore (AlbedoTexture -> albedo_texture)
-				local internal_field = field_name:gsub("(%u)", function(c)
-					return "_" .. c:lower()
-				end):sub(2)
-				-- Directly set the field on the material
-				self[internal_field] = val
+					self["Set" .. field_name](self, val)
+				else
+					unused = true
+				end
 			else
 				unused = true
 			end
@@ -297,47 +202,10 @@ do
 			end
 		end, function(err)
 			print("Material error for " .. path .. ": " .. err)
-		--self:SetError(err)
+			self:SetError(err)
 		end)
 
 		if tasks.GetActiveTask() then cb:Get() end
-
-		-- Set AlphaMode based on alphatest and translucent flags
-		if self.alpha_test then
-			self.AlphaMode = "MASK"
-		elseif self.translucent then
-			self.AlphaMode = "BLEND"
-
-			-- Translucent materials (like windows) should be reflective
-			-- Set high metallic and low roughness for glass-like appearance
-			if not self.MetallicMultiplier or self.MetallicMultiplier == DEFAULT_METALLIC then
-				self.MetallicMultiplier = 0.9
-			end
-
-			if not self.RoughnessMultiplier or self.RoughnessMultiplier == DEFAULT_ROUGHNESS then
-				self.RoughnessMultiplier = 0.1
-			end
-		end
-
-		-- If material has an envmap (reflection map), make it more reflective
-		if self.has_envmap then
-			if not self.MetallicMultiplier or self.MetallicMultiplier == DEFAULT_METALLIC then
-				self.MetallicMultiplier = 0.8
-			end
-
-			if not self.RoughnessMultiplier or self.RoughnessMultiplier == DEFAULT_ROUGHNESS then
-				self.RoughnessMultiplier = 0.2
-			end
-		end
-
-		-- Apply metallic/roughness multipliers if present
-		if self.metallic_multiplier then
-			self.MetallicMultiplier = (self.MetallicMultiplier or DEFAULT_METALLIC) * self.metallic_multiplier
-		end
-
-		if self.roughness_multiplier then
-			self.RoughnessMultiplier = (self.RoughnessMultiplier or DEFAULT_ROUGHNESS) * self.roughness_multiplier
-		end
 
 		return self
 	end
@@ -351,7 +219,7 @@ do
 		end
 	end
 
-	commands.Add("dump_unused_vmt_properties", function()
+	commands.Add("dump_unused_vmt_materials", function()
 		for k, v in pairs(steam.unused_vmt_properties) do
 			local properties = {}
 
@@ -373,6 +241,35 @@ do
 				for k, v in pairs(properties) do
 					logf("\t%s = %s\n", k, v)
 				end
+			end
+		end
+	end)
+
+	commands.Add("dump_unused_vmt_properties", function()
+		local properties = {}
+
+		for k, v in pairs(steam.unused_vmt_properties) do
+			for k, v in pairs(v) do
+				if
+					k ~= "shader" and
+					k ~= "fullpath" and
+					k ~= "envmap" and
+					k ~= "%keywords" and
+					k ~= "surfaceprop"
+				then
+					properties[k] = properties[k] or {}
+					table.insert(properties[k], v)
+				end
+			end
+		end
+
+		if next(properties) then
+			for k, tbl in pairs(properties) do
+				tbl = list.map(tbl, function(v)
+					return tostring(v)
+				end)
+				tbl = list.unique(tbl)
+				logf("%s = %s\n", k, table.concat(tbl, " | "))
 			end
 		end
 	end)
@@ -407,4 +304,4 @@ function Material.GetDefault()
 	return def
 end
 
-return Material
+return Material:Register()

@@ -292,6 +292,18 @@ function Texture.New(config)
 	return self
 end
 
+function Texture.FromColor(color, config)
+	config = config or {}
+	return Texture.New(
+		{
+			buffer = ffi.new("uint8_t[4]", color:Get255():Unpack()),
+			width = config.width or 1,
+			height = config.height or 1,
+			format = config.format or "r8g8b8a8_unorm",
+		}
+	)
+end
+
 function Texture:Upload(data, keep_in_transfer_dst)
 	if not self.image then error("Cannot upload: texture has no image") end
 

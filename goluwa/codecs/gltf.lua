@@ -257,7 +257,7 @@ function gltf.Load(path)
 		for i, material_info in ipairs(gltf_data.materials) do
 			local material = {
 				name = material_info.name,
-				double_sided = material_info.doubleSided or false,
+				DoubleSided = material_info.doubleSided or false,
 				AlphaMode = material_info.alphaMode or "OPAQUE",
 				AlphaCutoff = material_info.alphaCutoff or 0.5,
 			}
@@ -285,7 +285,7 @@ function gltf.Load(path)
 				-- specularGlossinessTexture - we don't have a direct equivalent,
 				-- but the glossiness (alpha) can approximate roughness
 				if spec_gloss.specularGlossinessTexture then
-					material.metallic_roughness_texture = spec_gloss.specularGlossinessTexture.index
+					material.MetallicRoughnessTexture = spec_gloss.specularGlossinessTexture.index
 				end
 			elseif material_info.pbrMetallicRoughness then
 				-- Standard PBR metallic roughness
@@ -299,7 +299,7 @@ function gltf.Load(path)
 				end
 
 				if pbr.metallicRoughnessTexture then
-					material.metallic_roughness_texture = pbr.metallicRoughnessTexture.index
+					material.MetallicRoughnessTexture = pbr.metallicRoughnessTexture.index
 				end
 			else
 				-- No PBR info at all, use defaults
@@ -310,7 +310,7 @@ function gltf.Load(path)
 
 			-- Normal texture
 			if material_info.normalTexture then
-				material.normal_texture = material_info.normalTexture.index
+				material.NormalTexture = material_info.normalTexture.index
 				material.NormalMapMultiplier = material_info.normalTexture.scale or 1
 			end
 
@@ -924,38 +924,37 @@ function gltf.CreateEntityHierarchy(gltf_result, parent_entity, options)
 								if gltf_mat then
 									local albedo_tex = gltf_mat.base_color_texture and
 										gltf.LoadTexture(gltf_result, gltf_mat.base_color_texture)
-									local normal_tex = gltf_mat.normal_texture and
-										gltf.LoadTexture(gltf_result, gltf_mat.normal_texture)
-									local metallic_roughness_tex = gltf_mat.metallic_roughness_texture and
-										gltf.LoadTexture(gltf_result, gltf_mat.metallic_roughness_texture)
+									local normal_tex = gltf_mat.NormalTexture and
+										gltf.LoadTexture(gltf_result, gltf_mat.NormalTexture)
+									local metallic_roughness_tex = gltf_mat.MetallicRoughnessTexture and
+										gltf.LoadTexture(gltf_result, gltf_mat.MetallicRoughnessTexture)
 									local occlusion_tex = gltf_mat.AmbientOcclusionTexture and
 										gltf.LoadTexture(gltf_result, gltf_mat.AmbientOcclusionTexture)
 									local emissive_tex = gltf_mat.EmissiveTexture and
 										gltf.LoadTexture(gltf_result, gltf_mat.EmissiveTexture)
-									material = Material.New(
-										{
-											name = gltf_mat.name,
-											albedo_texture = albedo_tex,
-											normal_texture = normal_tex,
-											metallic_roughness_texture = metallic_roughness_tex,
-											AmbientOcclusionTexture = occlusion_tex,
-											EmissiveTexture = emissive_tex,
-											ColorMultiplier = gltf_mat.ColorMultiplier,
-											MetallicMultiplier = gltf_mat.MetallicMultiplier,
-											RoughnessMultiplier = gltf_mat.RoughnessMultiplier,
-											NormalMapMultiplier = gltf_mat.NormalMapMultiplier,
-											AmbientOcclusionMultiplier = gltf_mat.AmbientOcclusionMultiplier,
-											EmissiveMultiplier = Color(
-												gltf_mat.EmissiveMultiplier[1],
-												gltf_mat.EmissiveMultiplier[2],
-												gltf_mat.EmissiveMultiplier[3],
-												1
-											),
-											double_sided = gltf_mat.double_sided,
-											AlphaMode = gltf_mat.AlphaMode,
-											AlphaCutoff = gltf_mat.AlphaCutoff,
-										}
+									material = Material.New()
+									material:SetName(gltf_mat.name)
+									material:SetAlbedoTexture(albedo_tex)
+									material:SetNormalTexture(normal_tex)
+									material:SetMetallicRoughnessTexture(metallic_roughness_tex)
+									material:SetAmbientOcclusionTexture(occlusion_tex)
+									material:SetEmissiveTexture(emissive_tex)
+									material:SetColorMultiplier(gltf_mat.ColorMultiplier)
+									material:SetMetallicMultiplier(gltf_mat.MetallicMultiplier)
+									material:SetRoughnessMultiplier(gltf_mat.RoughnessMultiplier)
+									material:SetNormalMapMultiplier(gltf_mat.NormalMapMultiplier)
+									material:SetAmbientOcclusionMultiplier(gltf_mat.AmbientOcclusionMultiplier)
+									material:SetEmissiveMultiplier(
+										Color(
+											gltf_mat.EmissiveMultiplier[1],
+											gltf_mat.EmissiveMultiplier[2],
+											gltf_mat.EmissiveMultiplier[3],
+											1
+										)
 									)
+									material:SetDoubleSided(gltf_mat.DoubleSided)
+									material:SetAlphaMode(gltf_mat.AlphaMode)
+									material:SetAlphaCutoff(gltf_mat.AlphaCutoff)
 									texture = albedo_tex
 								end
 							end
@@ -1003,38 +1002,37 @@ function gltf.CreateEntityHierarchy(gltf_result, parent_entity, options)
 								if gltf_mat then
 									local albedo_tex = gltf_mat.base_color_texture and
 										gltf.LoadTexture(gltf_result, gltf_mat.base_color_texture)
-									local normal_tex = gltf_mat.normal_texture and
-										gltf.LoadTexture(gltf_result, gltf_mat.normal_texture)
-									local metallic_roughness_tex = gltf_mat.metallic_roughness_texture and
-										gltf.LoadTexture(gltf_result, gltf_mat.metallic_roughness_texture)
+									local normal_tex = gltf_mat.NormalTexture and
+										gltf.LoadTexture(gltf_result, gltf_mat.NormalTexture)
+									local metallic_roughness_tex = gltf_mat.MetallicRoughnessTexture and
+										gltf.LoadTexture(gltf_result, gltf_mat.MetallicRoughnessTexture)
 									local occlusion_tex = gltf_mat.AmbientOcclusionTexture and
 										gltf.LoadTexture(gltf_result, gltf_mat.AmbientOcclusionTexture)
 									local emissive_tex = gltf_mat.EmissiveTexture and
 										gltf.LoadTexture(gltf_result, gltf_mat.EmissiveTexture)
-									material = Material.New(
-										{
-											name = gltf_mat.name,
-											albedo_texture = albedo_tex,
-											normal_texture = normal_tex,
-											metallic_roughness_texture = metallic_roughness_tex,
-											AmbientOcclusionTexture = occlusion_tex,
-											EmissiveTexture = emissive_tex,
-											ColorMultiplier = gltf_mat.ColorMultiplier,
-											MetallicMultiplier = gltf_mat.MetallicMultiplier,
-											RoughnessMultiplier = gltf_mat.RoughnessMultiplier,
-											NormalMapMultiplier = gltf_mat.NormalMapMultiplier,
-											AmbientOcclusionMultiplier = gltf_mat.AmbientOcclusionMultiplier,
-											EmissiveMultiplier = Color(
-												gltf_mat.EmissiveMultiplier[1],
-												gltf_mat.EmissiveMultiplier[2],
-												gltf_mat.EmissiveMultiplier[3],
-												1
-											),
-											double_sided = gltf_mat.double_sided,
-											AlphaMode = gltf_mat.AlphaMode,
-											AlphaCutoff = gltf_mat.AlphaCutoff,
-										}
+									material = Material.New()
+									material:SetName(gltf_mat.name)
+									material:SetAlbedoTexture(albedo_tex)
+									material:SetNormalTexture(normal_tex)
+									material:SetMetallicRoughnessTexture(metallic_roughness_tex)
+									material:SetAmbientOcclusionTexture(occlusion_tex)
+									material:SetEmissiveTexture(emissive_tex)
+									material:SetColorMultiplier(gltf_mat.ColorMultiplier)
+									material:SetMetallicMultiplier(gltf_mat.MetallicMultiplier)
+									material:SetRoughnessMultiplier(gltf_mat.RoughnessMultiplier)
+									material:SetNormalMapMultiplier(gltf_mat.NormalMapMultiplier)
+									material:SetAmbientOcclusionMultiplier(gltf_mat.AmbientOcclusionMultiplier)
+									material:SetEmissiveMultiplier(
+										Color(
+											gltf_mat.EmissiveMultiplier[1],
+											gltf_mat.EmissiveMultiplier[2],
+											gltf_mat.EmissiveMultiplier[3],
+											1
+										)
 									)
+									material:SetDoubleSided(gltf_mat.DoubleSided)
+									material:SetAlphaMode(gltf_mat.AlphaMode)
+									material:SetAlphaCutoff(gltf_mat.AlphaCutoff)
 									texture = albedo_tex
 								end
 							end

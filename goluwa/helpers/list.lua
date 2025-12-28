@@ -110,6 +110,20 @@ function list.map(tbl, cb)
 	return tbl
 end
 
+function list.unique(tbl)
+	local seen = {}
+	local out = {}
+
+	for i, v in ipairs(tbl) do
+		if not seen[v] then
+			seen[v] = true
+			out[#out + 1] = v
+		end
+	end
+
+	return out
+end
+
 function list.remove_value(tbl, val)
 	for i, v in ipairs(tbl) do
 		if v == val then

@@ -84,23 +84,22 @@ local function sphere(lp, ly, config)
 	local color = config.color or Color(1, 1, 1, 1)
 
 	draw3d(function(cmd)
-		local mat = Material.New(
-			{
-				ColorMultiplier = {color:Unpack()},
-				metallic_roughness_texture = Texture.New(
-					{
-						width = 1,
-						height = 1,
-						format = "r8g8b8a8_unorm",
-						buffer = ffi.new("uint8_t[4]", {
-							255,
-							255 * R,
-							255 * M,
-							255,
-						}),
-					}
-				),
-			}
+		local mat = Material.New()
+		mat:SetColorMultiplier(color)
+		mat:SetMetallicRoughnessTexture(
+			Texture.New(
+				{
+					width = 1,
+					height = 1,
+					format = "r8g8b8a8_unorm",
+					buffer = ffi.new("uint8_t[4]", {
+						255,
+						255 * R,
+						255 * M,
+						255,
+					}),
+				}
+			)
 		)
 		setup_view()
 		local poly = Polygon3D.New()

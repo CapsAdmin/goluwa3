@@ -91,15 +91,13 @@ local function create_face(pos, normal, up, color)
 	poly:AddVertex({pos = v3, normal = -normal})
 	poly:AddVertex({pos = v2, normal = -normal})
 	poly:Upload()
+	local material = Material.New()
+	material:SetColorMultiplier(Color(color.x, color.y, color.z, 1))
+	material:SetEmissiveTexture(white_tex)
+	material:SetEmissiveMultiplier(Color(color.x * 100, color.y * 100, color.z * 100, 1))
 	return {
 		poly = poly,
-		material = Material.New(
-			{
-				ColorMultiplier = Color(color.x, color.y, color.z, 1),
-				EmissiveTexture = white_tex,
-				EmissiveMultiplier = Color(color.x * 100, color.y * 100, color.z * 100, 1),
-			}
-		),
+		material = material,
 	}
 end
 

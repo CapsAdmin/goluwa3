@@ -150,10 +150,10 @@ render3d.config = {
 						end,
 					},
 					{
-						"OcclusionTexture",
+						"AmbientOcclusionTexture",
 						"int",
 						function(constants)
-							return render3d.pipeline:GetTextureIndex(render3d.GetMaterial():GetOcclusionTexture())
+							return render3d.pipeline:GetTextureIndex(render3d.GetMaterial():GetAmbientOcclusionTexture())
 						end,
 					},
 					{
@@ -408,7 +408,7 @@ render3d.config = {
 				vec3 normal_map = texture(TEXTURE(pc.model.NormalTexture), in_uv).rgb;					
 				
 				vec4 metallic_roughness = texture(TEXTURE(pc.model.MetallicRoughnessTexture), in_uv);
-				float ao = texture(TEXTURE(pc.model.OcclusionTexture), in_uv).r;
+				float ao = texture(TEXTURE(pc.model.AmbientOcclusionTexture), in_uv).r;
 				vec3 emissive = texture(TEXTURE(pc.model.EmissiveTexture), in_uv).rgb * pc.model.EmissiveMultiplier.rgb * pc.model.EmissiveMultiplier.a;
 
 				// Alpha test/blend
@@ -424,13 +424,14 @@ render3d.config = {
 				vec3 N;
 				if (pc.model.NormalTexture > 0) {
 					vec3 tangent_normal = normal_map * 2.0 - 1.0;
-					tangent_normal *= pc.model.NormalMapMultiplier;
-				
+					
 					if (pc.model.ReverseXZNormalMap != 0) {
 						tangent_normal.x = -tangent_normal.x;
 						tangent_normal.y = -tangent_normal.y;
 					}						
-				
+					
+					tangent_normal = normalize(tangent_normal);
+					tangent_normal *= pc.model.NormalMapMultiplier;
 					
 					// Calculate tangents on-the-fly using screen-space derivatives
 					vec3 dp1 = dFdx(in_position);

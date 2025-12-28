@@ -45,18 +45,15 @@ do
 		poly:Upload()
 		local M = 1
 		local R = 0.2
-		poly.material = Material.New(
-			{
-				ColorMultiplier = Color(1.0, 1.0, 1.0, 1.0),
-				metallic_roughness_texture = Texture.New(
-					{
-						width = 1,
-						height = 1,
-						format = "r8g8b8a8_unorm",
-						buffer = ffi.new("uint8_t[4]", {0, 255 * R, 255 * M}), -- roughness=1.0, metallic=0.0
-					}
-				),
-			}
+		poly.material = Material.New():SetColorMultiplier(Color(1, 1, 1, 1)):SetMetallicRoughnessTexture(
+			Texture.New(
+				{
+					width = 1,
+					height = 1,
+					format = "r8g8b8a8_unorm",
+					buffer = ffi.new("uint8_t[4]", {0, 255 * R, 255 * M}), -- roughness=1.0, metallic=0.0
+				}
+			)
 		)
 		sphere:AddComponent("model", {
 			mesh = poly,
