@@ -15,43 +15,6 @@ local Light = require("components.light")
 local render3d = library()
 render3d.current_material = nil
 render3d.environment_texture = nil
-local field_types = {
-	mat4 = {glsl = "mat4"},
-	vec4 = {glsl = "vec4"},
-	vec3 = {glsl = "vec3"},
-	vec2 = {glsl = "vec2"},
-	float = {glsl = "float"},
-	int = {glsl = "int"},
-	texture = {
-		glsl = "int",
-		lua = function(block_var, field_name)
-			return string.format(
-				"%s.%s = render3d.pipeline:GetTextureIndex(mat:Get%s())",
-				block_var,
-				field_name,
-				field_name
-			)
-		end,
-	},
-	vec4 = {
-		glsl = "vec4",
-		lua = function(block_var, field_name)
-			return string.format("mat.%s:CopyToFloatPointer(%s.%s)", field_name, block_var, field_name)
-		end,
-	},
-	number = {
-		glsl = "float",
-		lua = function(block_var, field_name)
-			return string.format("%s.%s = mat.%s", block_var, field_name, field_name)
-		end,
-	},
-	boolean = {
-		glsl = "int",
-		lua = function(block_var, field_name)
-			return string.format("%s.%s = mat.%s and 1 or 0", block_var, field_name, field_name)
-		end,
-	},
-}
 render3d.config = {
 	vertex = {
 		binding_index = 0,
@@ -66,25 +29,17 @@ render3d.config = {
 				block = {
 					{
 						"projection_view_world",
-						{
-							glsl = "mat4",
-							lua = function(block_var, field_name)
-								return string.format(
-									"render3d.GetProjectionViewWorldMatrix():CopyToFloatPointer(%s.%s)",
-									block_var,
-									field_name
-								)
-							end,
-						},
+						"mat4",
+						function(constants)
+							return render3d.GetProjectionViewWorldMatrix():CopyToFloatPointer(constants.projection_view_world)
+						end,
 					},
 					{
 						"world",
-						{
-							glsl = "mat4",
-							lua = function(block_var, field_name)
-								return string.format("render3d.GetWorldMatrix():CopyToFloatPointer(%s.%s)", block_var, field_name)
-							end,
-						},
+						"mat4",
+						function(constants)
+							return render3d.GetWorldMatrix():CopyToFloatPointer(constants.world)
+						end,
 					},
 				},
 			},
@@ -105,69 +60,28 @@ render3d.config = {
 			{
 				name = "model",
 				block = {
-					{"AlbedoTexture", "texture"},
-					{"NormalTexture", "texture"},
-					{"MetallicRoughnessTexture", "texture"},
-					{"OcclusionTexture", "texture"},
-					{"EmissiveTexture", "texture"},
-					{
-						"EnvironmentTexture",
-						{
-							glsl = "int",
-							lua = function(block_var, field_name)
-								return string.format(
-									"%s.%s = render3d.pipeline:GetTextureIndex(render3d.Get%s())",
-									block_var,
-									field_name,
-									field_name
-								)
-							end,
-						},
-					},
-					{"ColorMultiplier", "vec4"},
-					{"MetallicMultiplier", "number"},
-					{"RoughnessMultiplier", "number"},
-					{"NormalMapMultiplier", "number"},
-					{"AmbientOcclusionMultiplier", "number"},
-					{"EmissiveMultiplier", "vec4"},
-					{"ReverseXZNormalMap", "boolean"},
-					{
-						"AlphaMode",
-						{
-							glsl = "float",
-							lua = function(block_var, field_name)
-								return string.format("%s.%s = mat:GetAlphaModeInt()", block_var, field_name)
-							end,
-						},
-					},
-					{"AlphaCutoff", "number"},
+					{"AlbedoTexture", "int", function(constants) return render3d.pipeline:GetTextureIndex(render3d.GetMaterial():GetAlbedoTexture()) end},
+					{"NormalTexture", "int", function(constants) return render3d.pipeline:GetTextureIndex(render3d.GetMaterial():GetNormalTexture()) end},
+					{"MetallicRoughnessTexture", "int", function(constants) return render3d.pipeline:GetTextureIndex(render3d.GetMaterial():GetMetallicRoughnessTexture()) end},
+					{"OcclusionTexture", "int", function(constants) return render3d.pipeline:GetTextureIndex(render3d.GetMaterial():GetOcclusionTexture()) end},
+					{"EmissiveTexture", "int", function(constants) return render3d.pipeline:GetTextureIndex(render3d.GetMaterial():GetEmissiveTexture()) end},
+					{"EnvironmentTexture", "int", function(constants) return render3d.pipeline:GetTextureIndex(render3d.GetEnvironmentTexture()) end},
+					{"ColorMultiplier", "vec4", function(constants) return render3d.GetMaterial().ColorMultiplier:CopyToFloatPointer(constants.ColorMultiplier) end},
+					{"MetallicMultiplier", "float", function(constants) return render3d.GetMaterial().MetallicMultiplier end},
+					{"RoughnessMultiplier", "float", function(constants) return render3d.GetMaterial().RoughnessMultiplier end},
+					{"NormalMapMultiplier", "float", function(constants) return render3d.GetMaterial().NormalMapMultiplier end},
+					{"AmbientOcclusionMultiplier", "float", function(constants) return render3d.GetMaterial().AmbientOcclusionMultiplier end},
+					{"EmissiveMultiplier", "vec4", function(constants) return render3d.GetMaterial().EmissiveMultiplier:CopyToFloatPointer(constants.EmissiveMultiplier) end},
+					{"ReverseXZNormalMap", "int", function(constants) return render3d.GetMaterial().ReverseXZNormalMap and 1 or 0 end},
+					{"AlphaMode", "float", function(constants) return render3d.GetMaterial():GetAlphaModeInt() end},
+					{"AlphaCutoff", "float", function(constants) return render3d.GetMaterial().AlphaCutoff end},
 				},
 			},
 			{
 				name = "fragment",
 				block = {
-					{
-						"camera_position",
-						{
-							glsl = "vec3",
-							lua = function(block_var, field_name)
-								return string.format(
-									"render3d.camera:GetPosition():CopyToFloatPointer(%s.%s)",
-									block_var,
-									field_name
-								)
-							end,
-						},
-					},
-					{
-						"light_count",
-						{
-							glsl = "int",
-							lua = function(block_var, field_name)
-								return string.format("%s.%s = math.min(#Light.GetLights(), 32)", block_var, field_name)
-							end,
-						},
-					},
+					{"camera_position", "vec3", function(constants) return render3d.camera:GetPosition():CopyToFloatPointer(constants.camera_position) end},
+					{"light_count", "int", function(constants) return math.min(#Light.GetLights(), 32) end},
 				},
 			},
 		},
@@ -503,40 +417,18 @@ function render3d.Initialize()
 	local push_constant_types = {}
 	local stage_sizes = {vertex = 0, fragment = 0}
 
-	local function get_field_info(field, block_var)
+	local function get_field_info(field)
 		local name = field[1]
 		local glsl_type = field[2]
-		local logic_type = field[3] or glsl_type or name
+		local callback = field[3]
+		local array_size = type(field[4]) == "number" and field[4] or nil
 
-		if field_types[glsl_type] then
-			logic_type = glsl_type
-			glsl_type = field_types[logic_type].glsl
-		end
-
-		local info = type(glsl_type) == "table" and
-			glsl_type or
-			field_types[logic_type] or
-			field_types[name]
-		local res = {
+		return {
 			name = name,
-			glsl_type = (info and info.glsl) or glsl_type,
-			lua_code = field.lua,
-			array_size = type(field[3]) == "number" and
-				field[3] or
-				type(field[4]) == "number" and
-				field[4] or
-				nil,
+			glsl_type = glsl_type,
+			callback = type(callback) == "function" and callback or nil,
+			array_size = array_size,
 		}
-
-		if not res.lua_code and info and info.lua then
-			if type(info.lua) == "function" then
-				res.lua_code = info.lua(block_var, name)
-			else
-				res.lua_code = info.lua
-			end
-		end
-
-		return res
 	end
 
 	for stage, stage_config in pairs(render3d.config) do
@@ -545,7 +437,7 @@ function render3d.Initialize()
 			local ffi_code = "struct {\n"
 
 			for _, field in ipairs(block.block) do
-				local info = get_field_info(field, block.name .. "_constants")
+				local info = get_field_info(field)
 				local ffi_type = glsl_to_ffi[info.glsl_type] or info.glsl_type
 				local array_size = info.array_size or glsl_to_array_size[info.glsl_type]
 
@@ -572,7 +464,7 @@ function render3d.Initialize()
 			str = str .. "struct " .. struct_name .. " {\n"
 
 			for _, field in ipairs(block.block) do
-				local info = get_field_info(field, block.name .. "_constants")
+				local info = get_field_info(field)
 
 				if info.array_size then
 					str = str .. string.format("    %s %s[%d];\n", info.glsl_type, info.name, info.array_size)
@@ -600,55 +492,60 @@ function render3d.Initialize()
 	end
 
 	local function build_constants()
-		local code = [[
-			local render3d, ffi, Material, Light, math, push_constant_types, stage_sizes = ...
-			]]
-
-		for struct_name, _ in pairs(push_constant_types) do
-			local var_name = struct_name:sub(1, 1):lower() .. struct_name:sub(2, -10):lower() .. "_constants"
-			code = code .. "local " .. var_name .. " = push_constant_types." .. struct_name .. "()\n"
+		-- Create constant structs for each block
+		local constant_structs = {}
+		for struct_name, ctype in pairs(push_constant_types) do
+			constant_structs[struct_name] = ctype()
 		end
 
-		code = code .. [[
+		function render3d.UploadConstants(cmd)
+			-- Vertex stage
+			do
+				local offset = 0
+				for _, block in ipairs(render3d.config.vertex.push_constants) do
+					local struct_name = block.name:sub(1, 1):upper() .. block.name:sub(2) .. "Constants"
+					local constants = constant_structs[struct_name]
 
-			return function(cmd)
-		]]
-		-- Vertex stage
-		code = code .. "		do\n"
-		code = code .. "			local offset = 0\n"
+					for _, field in ipairs(block.block) do
+						local info = get_field_info(field)
+						if info.callback then
+							local value = info.callback(constants)
+							if value ~= nil and not info.array_size and not glsl_to_array_size[info.glsl_type] then
+								constants[info.name] = value
+							end
+							-- For arrays (vec4, mat4, etc.), the callback handles CopyToFloatPointer
+						end
+					end
 
-		for _, block in ipairs(render3d.config.vertex.push_constants) do
-			for _, field in ipairs(block.block) do
-				local info = get_field_info(field, block.name .. "_constants")
-
-				if info.lua_code then code = code .. "			" .. info.lua_code .. "\n" end
+					render3d.pipeline:PushConstants(cmd, 'vertex', offset, constants)
+					offset = offset + ffi.sizeof(push_constant_types[struct_name])
+				end
 			end
 
-			local struct_name = block.name:sub(1, 1):upper() .. block.name:sub(2) .. "Constants"
-			code = code .. "			render3d.pipeline:PushConstants(cmd, 'vertex', offset, " .. block.name .. "_constants)\n"
-			code = code .. "			offset = offset + ffi.sizeof(push_constant_types." .. struct_name .. ")\n"
-		end
+			-- Fragment stage
+			do
+				local offset = stage_sizes.vertex
+				for _, block in ipairs(render3d.config.fragment.push_constants) do
+					local struct_name = block.name:sub(1, 1):upper() .. block.name:sub(2) .. "Constants"
+					local constants = constant_structs[struct_name]
 
-		code = code .. "		end\n"
-		-- Fragment stage
-		code = code .. "		do\n"
-		code = code .. "			local mat = render3d.current_material or Material.GetDefault()\n"
-		code = code .. "			local offset = stage_sizes.vertex\n"
+					for _, field in ipairs(block.block) do
+						local info = get_field_info(field)
+						if info.callback then
+							local value = info.callback(constants)
+							if value ~= nil and not info.array_size and not glsl_to_array_size[info.glsl_type] then
+								constants[info.name] = value
+							end
+							-- For arrays (vec4, mat4, etc.), the callback handles CopyToFloatPointer
+						end
+					end
 
-		for _, block in ipairs(render3d.config.fragment.push_constants) do
-			for _, field in ipairs(block.block) do
-				local info = get_field_info(field, block.name .. "_constants")
-
-				if info.lua_code then code = code .. "			" .. info.lua_code .. "\n" end
+					render3d.pipeline:PushConstants(cmd, 'fragment', offset, constants)
+					offset = offset + ffi.sizeof(push_constant_types[struct_name])
+				end
 			end
 
-			local struct_name = block.name:sub(1, 1):upper() .. block.name:sub(2) .. "Constants"
-			code = code .. "			render3d.pipeline:PushConstants(cmd, 'fragment', offset, " .. block.name .. "_constants)\n"
-			code = code .. "			offset = offset + ffi.sizeof(push_constant_types." .. struct_name .. ")\n"
-		end
-
-		-- Debug UBO
-		code = code .. [[
+			-- Debug UBO
 			local debug_constants = render3d.debug_ubo:GetData()
 			debug_constants.debug_cascade_colors = render3d.debug_cascade_colors and 1 or 0
 			debug_constants.debug_mode = render3d.debug_mode or 0
@@ -656,17 +553,6 @@ function render3d.Initialize()
 			debug_constants.far_z = render3d.camera:GetFarZ()
 			render3d.debug_ubo:Upload()
 		end
-	]]
-		code = code .. "	end"
-		render3d.UploadConstants = loadstring(code)(
-			render3d,
-			ffi,
-			Material,
-			Light,
-			math,
-			push_constant_types,
-			stage_sizes
-		)
 	end
 
 	local attributes = {}
@@ -946,6 +832,10 @@ end)
 
 function render3d.SetMaterial(mat)
 	render3d.current_material = mat
+end
+
+function render3d.GetMaterial(mat)
+	return render3d.current_material or Material.GetDefault()
 end
 
 function render3d.SetEnvironmentTexture(texture)
