@@ -1,7 +1,7 @@
 local event = require("event")
 local terminal = require("bindings.terminal")
 local system = require("system")
-local output = require("stdout")
+local output = require("output")
 local commands = require("commands")
 local codec = require("codec")
 local clipboard = require("bindings.clipboard")
@@ -348,6 +348,7 @@ do
 		end
 
 		repl.needs_redraw = true
+		return false
 	end
 end
 
@@ -355,7 +356,7 @@ function repl.InputLua(str)
 	repl.is_executing = true
 	commands.RunString(str)
 	-- Flush stdout to capture any pending print() output
-	output.flush()
+	output.Flush()
 	repl.is_executing = false
 end
 
@@ -713,6 +714,7 @@ local function draw(term)
 end
 
 function repl.Initialize()
+	require("logging").ReplMode()
 	local stdout_handle = output.original_stdout_file or io.stdout
 	local term = terminal.WrapFile(io.stdin, stdout_handle)
 	term:UseAlternateScreen(true)
@@ -722,7 +724,7 @@ function repl.Initialize()
 	--term:EnableMouse(true) -- enables mouse wheel scrollback at the cost of not being able to select text with mouse
 	event.AddListener("Update", "repl", function()
 		-- Process any pending stdout data from the pipe
-		output.flush()
+		output.Flush()
 
 		while true do
 			local ev = term:ReadEvent()
@@ -736,12 +738,12 @@ function repl.Initialize()
 	end)
 
 	event.AddListener("StdOutWrite", "repl", function(str)
-		if repl.started then repl.StyledWrite(str) end
+		if repl.started then return repl.StyledWrite(str) end
 	end)
 
 	event.AddListener("ShutDown", "repl", function()
 		term:Close()
-		require("stdout").flush()
+		output.Flush()
 	end)
 
 	repl.term = term

@@ -1,24 +1,29 @@
-local output = require("stdout")
+local output = require("output")
 local list_concat = table.concat
 local select = select
-local logfile = library()
+local logging = library()
 
-function logfile.RawLog(str)
-	output.write(str)
+function logging.ReplMode()
+	output.Initialize()
+	logging.RawLog = output.Write
 end
 
-function logfile.Log(...)
-	logfile.RawLog(list_concat(tostring_args(...)))
+function logging.RawLog(str)
+	io.write(str)
+end
+
+function logging.Log(...)
+	logging.RawLog(list_concat(tostring_args(...)))
 	return ...
 end
 
-function logfile.LogNewline(...)
-	logfile.RawLog(list_concat(tostring_args(...)) .. "\n")
+function logging.LogNewline(...)
+	logging.RawLog(list_concat(tostring_args(...)) .. "\n")
 	return ...
 end
 
-function logfile.Print(...)
-	logfile.RawLog(list_concat(tostring_args(...), ",\t") .. "\n")
+function logging.Print(...)
+	logging.RawLog(list_concat(tostring_args(...), ",\t") .. "\n")
 	return ...
 end
 
@@ -35,12 +40,12 @@ do
 		return str:format(unpack(args))
 	end
 
-	function logfile.LogFormat(str, ...)
-		logfile.RawLog(format(str, ...))
+	function logging.LogFormat(str, ...)
+		logging.RawLog(format(str, ...))
 		return ...
 	end
 
-	function logfile.ErrorFormat(str, level, ...)
+	function logging.ErrorFormat(str, level, ...)
 		error(format(str, ...), level)
 	end
 end
@@ -48,7 +53,7 @@ end
 do
 	local level = 1
 
-	function logfile.SourceLevel(n)
+	function logging.SourceLevel(n)
 		if n then level = n end
 
 		return level
@@ -56,7 +61,7 @@ do
 end
 
 -- library log
-function logfile.LibraryLog(fmt, ...)
+function logging.LibraryLog(fmt, ...)
 	fmt = tostringx(fmt)
 	local level = tonumber(select(fmt:count("%") + 1, ...) or 1) or 1
 	local source = debug.get_pretty_source(level + 1, false, true)
@@ -87,23 +92,23 @@ function logfile.LibraryLog(fmt, ...)
 end
 
 -- warning log
-function logfile.WarningLog(fmt, ...)
+function logging.WarningLog(fmt, ...)
 	fmt = tostringx(fmt)
 	local level = tonumber(select(fmt:count("%") + 1, ...) or 1) or 1
 	local str = fmt:safe_format(...)
 	local source = debug.get_pretty_source(level + 1, true)
-	logfile.LogNewline(source, ": ", str)
+	logging.LogNewline(source, ": ", str)
 	return fmt, ...
 end
 
 do
 	local codec = require("codec")
 
-	function logfile.VariablePrint(...)
-		logf("%s:\n", debug.getinfo(logfile.SourceLevel() + 1, "n").name or "unknown")
+	function logging.VariablePrint(...)
+		logf("%s:\n", debug.getinfo(logging.SourceLevel() + 1, "n").name or "unknown")
 
 		for i = 1, select("#", ...) do
-			local name = debug.getlocal(logfile.SourceLevel() + 1, i)
+			local name = debug.getlocal(logging.SourceLevel() + 1, i)
 			local arg = select(i, ...)
 			logf(
 				"\t%s:\n\t\ttype: %s\n\t\tprty: %s\n",
@@ -113,9 +118,9 @@ do
 				codec.Encode("luadata", arg)
 			)
 
-			if type(arg) == "string" then logfile.LogNewline("\t\tsize: ", #arg) end
+			if type(arg) == "string" then logging.LogNewline("\t\tsize: ", #arg) end
 
-			if typex(arg) ~= type(arg) then logfile.LogNewline("\t\ttypx: ", typex(arg)) end
+			if typex(arg) ~= type(arg) then logging.LogNewline("\t\ttypx: ", typex(arg)) end
 		end
 	end
 end
@@ -124,19 +129,19 @@ do -- nospam
 	local system = require("system")
 	local last = {}
 
-	function logfile.LogFormatNoSpam(str, ...)
+	function logging.LogFormatNoSpam(str, ...)
 		local str = string.format(str, ...)
 		local t = system.GetElapsedTime()
 
 		if not last[str] or last[str] < t then
-			logfile.LogNewline(str)
+			logging.LogNewline(str)
 			last[str] = t + 3
 		end
 	end
 
-	function logfile.LogNewlineNoSpam(...)
-		logfile.LogFormatNoSpam(("%s "):rep(select("#", ...)), ...)
+	function logging.LogNewlineNoSpam(...)
+		logging.LogFormatNoSpam(("%s "):rep(select("#", ...)), ...)
 	end
 end
 
-return logfile
+return logging
