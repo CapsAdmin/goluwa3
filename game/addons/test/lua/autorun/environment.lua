@@ -22,8 +22,8 @@ local sun = Light.CreateDirectional(
 sun:SetIsSun(true)
 sun:SetRotation(Quat(0.4, -0.1, -0.1, -0.9):Normalize())
 render3d.SetLights({sun})
-skybox.SetTexture(Texture.New({
-	path = "/home/caps/projects/hdr.png",
+skybox.SetUniverseTexture(Texture.New({
+	path = "/home/caps/projects/hdr.jpg",
 	mip_map_levels = "auto",
 }))
 

@@ -348,7 +348,9 @@ function EasyPipeline.New(config)
 	if config.fragment then
 		local fragment_code = shader_header .. vertex_input .. [[
 			layout(binding = 0) uniform sampler2D textures[1024];
+			layout(binding = 1) uniform samplerCube cubemaps[1024];
 			#define TEXTURE(idx) textures[nonuniformEXT(idx)]
+			#define CUBEMAP(idx) cubemaps[nonuniformEXT(idx)]
 
 		]] .. (
 				config.fragment.custom_declarations or
@@ -363,6 +365,12 @@ function EasyPipeline.New(config)
 			{
 				type = "combined_image_sampler",
 				binding_index = 0,
+				count = 1024,
+			},
+			-- Cubemap array sampler (binding 1)
+			{
+				type = "combined_image_sampler",
+				binding_index = 1,
 				count = 1024,
 			},
 		}

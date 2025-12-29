@@ -530,8 +530,8 @@ function CommandBuffer:PipelineBarrier(config)
 								barrier.image:GetMipLevels() or
 								1
 							),
-						baseArrayLayer = 0,
-						layerCount = 1,
+						baseArrayLayer = barrier.base_array_layer or 0,
+						layerCount = barrier.layer_count or 1,
 					},
 				}
 			)
@@ -664,13 +664,13 @@ function CommandBuffer:BlitImage(config)
 	local srcSubresource = vulkan.vk.VkImageSubresourceLayers()
 	srcSubresource.aspectMask = vulkan.vk.e.VkImageAspectFlagBits("color")
 	srcSubresource.mipLevel = config.src_mip_level or 0
-	srcSubresource.baseArrayLayer = 0
-	srcSubresource.layerCount = 1
+	srcSubresource.baseArrayLayer = config.src_base_array_layer or 0
+	srcSubresource.layerCount = config.src_layer_count or 1
 	local dstSubresource = vulkan.vk.VkImageSubresourceLayers()
 	dstSubresource.aspectMask = vulkan.vk.e.VkImageAspectFlagBits("color")
 	dstSubresource.mipLevel = config.dst_mip_level or 0
-	dstSubresource.baseArrayLayer = 0
-	dstSubresource.layerCount = 1
+	dstSubresource.baseArrayLayer = config.dst_base_array_layer or 0
+	dstSubresource.layerCount = config.dst_layer_count or 1
 	local region = vulkan.vk.VkImageBlit()
 	region.srcSubresource = srcSubresource
 	region.srcOffsets[0].x = 0

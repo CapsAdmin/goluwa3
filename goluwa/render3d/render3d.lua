@@ -395,22 +395,16 @@ render3d.config = {
 
 				vec3 V = normalize(pc.fragment.camera_position - in_position);
 				
-				ivec2 size = textureSize(TEXTURE(pc.model.EnvironmentTexture), 0);
-				float max_mip = log2(max(size.x, size.y));
-				
+				// For cubemaps, we don't need to calculate UVs manually
+				// We can just use the reflection vector
 				vec3 R = reflect(-V, normal);
 				
-				// Based on: mip_level = 0.5 * log2(solid_angle / pixel_solid_angle)
-				// For GGX distribution: solid_angle ≈ π * α²
-				float alpha = roughness * roughness;
-				float mip_level = 0.5 * log2(alpha * alpha * size.x * size.y / PI);
-				mip_level = clamp(mip_level, 0.0, max_mip);
+				// Calculate mip level based on roughness
+				// Cubemaps usually have 5-10 mip levels
+				float max_mip = 8.0; // Default for 256x256 cubemap
+				float mip_level = roughness * max_mip;
 				
-				float u = atan(R.z, R.x) / (2.0 * PI) + 0.5;
-				float v = asin(R.y) / PI + 0.5;
-				
-				return textureLod(TEXTURE(pc.model.EnvironmentTexture), vec2(u, -v), mip_level).rgb;
-
+				return textureLod(CUBEMAP(pc.model.EnvironmentTexture), R, mip_level).rgb;
 			}
 
 			vec3 get_emissive() {

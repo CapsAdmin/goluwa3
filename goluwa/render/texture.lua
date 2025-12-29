@@ -516,6 +516,8 @@ function Texture:GenerateMipMap(initial_layout)
 	local command_pool = render.GetCommandPool()
 	local cmd = command_pool:AllocateCommandBuffer()
 	cmd:Begin()
+	local is_cube = self:IsCubemap()
+	local layers = is_cube and 6 or 1
 	-- Determine initial layout (can be transfer_dst_optimal from upload, or shader_read_only_optimal from Shade)
 	local old_layout = initial_layout or "transfer_dst_optimal"
 	local src_access = old_layout == "transfer_dst_optimal" and "transfer_write" or "shader_read"
@@ -534,6 +536,7 @@ function Texture:GenerateMipMap(initial_layout)
 					newLayout = "transfer_src_optimal",
 					base_mip_level = 0,
 					level_count = 1,
+					layer_count = layers,
 				},
 			},
 		}
@@ -559,6 +562,7 @@ function Texture:GenerateMipMap(initial_layout)
 						newLayout = "transfer_dst_optimal",
 						base_mip_level = i,
 						level_count = 1,
+						layer_count = layers,
 					},
 				},
 			}
@@ -577,6 +581,8 @@ function Texture:GenerateMipMap(initial_layout)
 				src_layout = "transfer_src_optimal",
 				dst_layout = "transfer_dst_optimal",
 				filter = "linear",
+				src_layer_count = layers,
+				dst_layer_count = layers,
 			}
 		)
 		-- Transition current mip level from transfer_dst to transfer_src
@@ -593,6 +599,7 @@ function Texture:GenerateMipMap(initial_layout)
 						newLayout = "transfer_src_optimal",
 						base_mip_level = i,
 						level_count = 1,
+						layer_count = layers,
 					},
 				},
 			}
@@ -615,6 +622,7 @@ function Texture:GenerateMipMap(initial_layout)
 					newLayout = "shader_read_only_optimal",
 					base_mip_level = 0,
 					level_count = self.mip_map_levels,
+					layer_count = layers,
 				},
 			},
 		}
@@ -624,24 +632,85 @@ function Texture:GenerateMipMap(initial_layout)
 	queue:SubmitAndWait(device, cmd, fence)
 end
 
-function Texture:Shade(glsl)
+function Texture:IsCubemap()
+	return (
+			self.config.view and
+			self.config.view.view_type == "cube"
+		)
+		or
+		(
+			self.view and
+			self.view.view_type == "cube"
+		)
+end
+
+function Texture:Shade(glsl, extra_config)
 	if not self.image then error("Cannot shade: texture has no image") end
 
+	extra_config = extra_config or {}
 	local device = render.GetDevice()
 	local queue = render.GetQueue()
-	-- Create a view for only mip level 0 (required for rendering)
-	local mip0_view = ImageView.New(
-		{
-			device = device,
-			image = self.image,
-			format = self.format,
-			base_mip_level = 0,
-			level_count = 1,
-		}
-	)
+	local is_cube = self:IsCubemap()
+	local layers = is_cube and 6 or 1
+	-- Create views for each layer (face) if it's a cubemap, or just one for 2D
+	local views = {}
+
+	for i = 0, layers - 1 do
+		table.insert(
+			views,
+			ImageView.New(
+				{
+					device = device,
+					image = self.image,
+					format = self.format,
+					base_mip_level = 0,
+					level_count = 1,
+					base_array_layer = i,
+					layer_count = 1,
+					view_type = "2d",
+				}
+			)
+		)
+	end
+
 	-- Create command pool and buffer for this operation
 	local command_pool = render.GetCommandPool()
 	local cmd = command_pool:AllocateCommandBuffer()
+	local vertex_code = [[
+		#version 450
+
+		// Full-screen triangle
+		vec2 positions[3] = vec2[](
+			vec2(-1.0, -1.0),
+			vec2( 3.0, -1.0),
+			vec2(-1.0,  3.0)
+		);
+
+		layout(location = 0) out vec2 frag_uv;
+		layout(location = 1) out vec3 frag_dir;
+
+		layout(push_constant) uniform Constants {
+			int face;
+		} pc;
+
+		vec3 get_cube_dir(vec2 uv, int face) {
+			vec3 dir;
+			if (face == 0) dir = vec3(1.0, -uv.y, -uv.x); // +X
+			else if (face == 1) dir = vec3(-1.0, -uv.y, uv.x); // -X
+			else if (face == 2) dir = vec3(uv.x, 1.0, uv.y); // +Y
+			else if (face == 3) dir = vec3(uv.x, -1.0, -uv.y); // -Y
+			else if (face == 4) dir = vec3(uv.x, -uv.y, 1.0); // +Z
+			else if (face == 5) dir = vec3(-uv.x, -uv.y, -1.0); // -Z
+			return normalize(dir);
+		}
+
+		void main() {
+			vec2 pos = positions[gl_VertexIndex];
+			gl_Position = vec4(pos, 0.0, 1.0);
+			frag_uv = pos * 0.5 + 0.5;
+			frag_dir = get_cube_dir(pos, pc.face);
+		}
+	]]
 	-- Create graphics pipeline
 	local pipeline = render.CreateGraphicsPipeline(
 		{
@@ -651,45 +720,54 @@ function Texture:Shade(glsl)
 			shader_stages = {
 				{
 					type = "vertex",
-					code = [[
-						#version 450
-
-						// Full-screen triangle
-						vec2 positions[3] = vec2[](
-							vec2(-1.0, -1.0),
-							vec2( 3.0, -1.0),
-							vec2(-1.0,  3.0)
-						);
-
-						layout(location = 0) out vec2 frag_uv;
-
-						void main() {
-							vec2 pos = positions[gl_VertexIndex];
-							gl_Position = vec4(pos, 0.0, 1.0);
-							frag_uv = pos * 0.5 + 0.5;
-						}
-					]],
+					code = vertex_code,
 					input_assembly = {
 						topology = "triangle_list",
 						primitive_restart = false,
+					},
+					push_constants = {
+						size = 4,
+						offset = 0,
 					},
 				},
 				{
 					type = "fragment",
 					code = [[
 							#version 450
+							#extension GL_EXT_nonuniform_qualifier : require
+
+							layout(binding = 0) uniform sampler2D textures[1024];
+							layout(binding = 1) uniform samplerCube cubemaps[1024];
 
 							layout(location = 0) in vec2 in_uv;
+							layout(location = 1) in vec3 in_dir;
 							layout(location = 0) out vec4 out_color;
 
-							vec4 shade(vec2 uv) {
+							]] .. (
+							extra_config.custom_declarations or
+							""
+						) .. [[
+
+							vec4 shade(vec2 uv, vec3 dir) {
 								]] .. glsl .. [[
 							}
 
 							void main() {
-								out_color = shade(in_uv);
+								out_color = shade(in_uv, in_dir);
 							}
 						]],
+					descriptor_sets = {
+						{
+							type = "combined_image_sampler",
+							binding_index = 0,
+							count = 1024,
+						},
+						{
+							type = "combined_image_sampler",
+							binding_index = 1,
+							count = 1024,
+						},
+					},
 				},
 			},
 			rasterizer = {
@@ -731,6 +809,13 @@ function Texture:Shade(glsl)
 			},
 		}
 	)
+
+	if extra_config.textures then
+		for _, tex in ipairs(extra_config.textures) do
+			pipeline:GetTextureIndex(tex)
+		end
+	end
+
 	-- Begin recording commands
 	cmd:Reset()
 	cmd:Begin()
@@ -746,26 +831,34 @@ function Texture:Shade(glsl)
 					dstAccessMask = "color_attachment_write",
 					oldLayout = "undefined",
 					newLayout = "color_attachment_optimal",
+					level_count = 1,
+					layer_count = layers,
 				},
 			},
 		}
 	)
 	pipeline:Bind(cmd)
-	-- Begin rendering
-	cmd:BeginRendering(
-		{
-			color_image_view = mip0_view,
-			w = self.image:GetWidth(),
-			h = self.image:GetHeight(),
-			clear_color = {0, 0, 0, 1},
-		}
-	)
-	-- Draw fullscreen triangle
-	cmd:SetViewport(0.0, 0.0, self.image:GetWidth(), self.image:GetHeight(), 0.0, 1.0)
-	cmd:SetScissor(0, 0, self.image:GetWidth(), self.image:GetHeight())
-	cmd:Draw(3, 1, 0, 0)
-	-- End rendering
-	cmd:EndRendering()
+
+	for i = 0, layers - 1 do
+		local face_const = ffi.new("int[1]", i)
+		pipeline:PushConstants(cmd, "vertex", 0, face_const)
+		-- Begin rendering
+		cmd:BeginRendering(
+			{
+				color_image_view = views[i + 1],
+				w = self.image:GetWidth(),
+				h = self.image:GetHeight(),
+				clear_color = {0, 0, 0, 1},
+			}
+		)
+		-- Draw fullscreen triangle
+		cmd:SetViewport(0.0, 0.0, self.image:GetWidth(), self.image:GetHeight(), 0.0, 1.0)
+		cmd:SetScissor(0, 0, self.image:GetWidth(), self.image:GetHeight())
+		cmd:Draw(3, 1, 0, 0)
+		-- End rendering
+		cmd:EndRendering()
+	end
+
 	-- Transition to shader_read_only_optimal
 	cmd:PipelineBarrier(
 		{
@@ -778,6 +871,8 @@ function Texture:Shade(glsl)
 					dstAccessMask = "shader_read",
 					oldLayout = "color_attachment_optimal",
 					newLayout = "shader_read_only_optimal",
+					level_count = 1,
+					layer_count = layers,
 				},
 			},
 		}
@@ -786,7 +881,7 @@ function Texture:Shade(glsl)
 	cmd:End()
 	-- Submit and wait
 	local fence = Fence.New(device)
-	self.refs = {cmd, mip0_view, command_pool, pipeline, fence}
+	self.refs = {cmd, views, command_pool, pipeline, fence}
 	queue:SubmitAndWait(device, cmd, fence)
 	device:WaitIdle()
 end
