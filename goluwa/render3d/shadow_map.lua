@@ -2,6 +2,7 @@ local ffi = require("ffi")
 local render = require("render.render")
 local render3d = nil
 local Texture = require("render.texture")
+local Material = require("render3d.material")
 local Fence = require("render.vulkan.internal.fence")
 local Matrix44 = require("structs.matrix44")
 local Vec3 = require("structs.vec3")
@@ -19,6 +20,9 @@ local ShadowVertexConstants = ffi.typeof([[
 	struct {
 		float light_space_matrix[16];
 		int albedo_texture_index;
+		int flags;
+		float color_multiplier_a;
+		float alpha_cutoff;
 	}
 ]])
 
@@ -91,7 +95,10 @@ function ShadowMap.New(config)
 
 					layout(push_constant, scalar) uniform Constants {
 						mat4 light_space_matrix;
-					int albedo_texture_index;
+						int albedo_texture_index;
+						int flags;
+						float color_multiplier_a;
+						float alpha_cutoff;
 				} pc;
 
 				layout(location = 0) out vec2 out_uv;
@@ -149,28 +156,40 @@ function ShadowMap.New(config)
 					layout(push_constant, scalar) uniform Constants {
 						mat4 light_space_matrix;
 						int albedo_texture_index;
+						int flags;
+						float color_multiplier_a;
+						float alpha_cutoff;
 					} pc;
 
 					layout(location = 0) in vec2 in_uv;
+					
+					#define FLAGS pc.flags
+					]] .. Material.BuildGlslFlags() .. [[
 
-					// Alpha discard function (same as render3d.lua)
-					bool alpha_discard(vec2 uv, float alpha)
-					{
-						if (true)
-						{
-							return fract(dot(vec2(171.0, 231.0)+alpha*0.00001, gl_FragCoord.xy) / 103.0) > ((alpha * alpha) - 0.001);
+					// Get alpha using same logic as render3d.lua
+					float get_alpha() {
+						if (AlbedoTextureAlphaIsMetallic || AlbedoTextureAlphaIsRoughness) {
+							return pc.color_multiplier_a;
 						}
 
-						return false;
+						if (pc.albedo_texture_index <= 0) {
+							return pc.color_multiplier_a;
+						}
+
+						float alpha = texture(textures[nonuniformEXT(pc.albedo_texture_index)], in_uv).a * pc.color_multiplier_a;
+						return alpha;
 					}
 
 					void main() {
-						// Sample albedo texture if index is valid (> 0)
-						if (pc.albedo_texture_index > 0) {
-							vec4 albedo = texture(textures[nonuniformEXT(pc.albedo_texture_index)], in_uv);
-							
-							// Alpha test - discard transparent fragments
-							if (alpha_discard(in_uv, albedo.a)) {
+						// Use same alpha logic as render3d.lua
+						float alpha = get_alpha();
+
+						if (AlphaTest) {
+							if (alpha < pc.alpha_cutoff) {
+								discard;
+							}
+						} else if (Translucent) {
+							if (fract(dot(vec2(171.0, 231.0) + alpha * 0.00001, gl_FragCoord.xy) / 103.0) > (alpha * alpha)) {
 								discard;
 							}
 						}
@@ -353,11 +372,17 @@ function ShadowMap:UploadConstants(world_matrix, material, cascade_index)
 	local mvp = world_matrix * self.cascade[cascade_index].light_space_matrix
 	constants.light_space_matrix = mvp:GetFloatCopy()
 
-	-- If material is provided, get its albedo texture index for alpha testing
+	-- If material is provided, get its albedo texture index and flags for alpha testing
 	if material then
 		constants.albedo_texture_index = self.pipeline:GetTextureIndex(material:GetAlbedoTexture())
+		constants.flags = material:GetFlags()
+		constants.color_multiplier_a = material:GetColorMultiplier().a
+		constants.alpha_cutoff = material:GetAlphaCutoff()
 	else
 		constants.albedo_texture_index = 0 -- No texture, no alpha test
+		constants.flags = 0
+		constants.color_multiplier_a = 1.0
+		constants.alpha_cutoff = 0.5
 	end
 
 	self.pipeline:PushConstants(self.cmd, "vertex", 0, constants)

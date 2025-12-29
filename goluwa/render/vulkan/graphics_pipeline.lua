@@ -175,7 +175,7 @@ function GraphicsPipeline.New(vulkan_instance, config)
 end
 
 function GraphicsPipeline:GetTextureIndex(tex)
-	if not tex then return 0 end
+	if not tex then return -1 end
 
 	if self.texture_registry[tex] then return self.texture_registry[tex] end
 

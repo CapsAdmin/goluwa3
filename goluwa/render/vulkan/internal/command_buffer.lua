@@ -289,6 +289,10 @@ function CommandBuffer:DrawIndexed(indexCount, instanceCount, firstIndex, vertex
 	)
 end
 
+function CommandBuffer:SetCullMode(cull_mode)
+	vulkan.lib.vkCmdSetCullMode(self.ptr[0], vulkan.vk.e.VkCullModeFlagBits(cull_mode or "back"))
+end
+
 function CommandBuffer:SetViewport(x, y, width, height, minDepth, maxDepth)
 	assert(width > 0)
 	assert(height > 0)

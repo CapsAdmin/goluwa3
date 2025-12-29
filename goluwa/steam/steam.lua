@@ -614,4 +614,39 @@ function steam.GetAppIdFromName(search)
 	end
 end
 
+do
+	local vfs = require("vfs")
+	local tbl = nil
+
+	function steam.GetSurfaceProps()
+		if not tbl then
+			tbl = {}
+			local surfaceprops_manifest = steam.VDFToTable(vfs.Read("scripts/surfaceproperties_manifest.txt"))
+
+			if
+				surfaceprops_manifest.surfaceproperties_manifest and
+				surfaceprops_manifest.surfaceproperties_manifest.file
+			then
+				for _, path in ipairs(surfaceprops_manifest.surfaceproperties_manifest.file) do
+					local prop_data = steam.VDFToTable(vfs.Read(path))
+
+					for k, v in pairs(prop_data) do
+						v.surfaceprop_name = k
+						tbl[k:lower()] = v
+					end
+				end
+			end
+
+			for k, v in pairs(tbl) do
+				if v.base and type(v.base) == "string" then
+					local base_ref = tbl[v.base:lower()]
+					v.base = base_ref or nil
+				end
+			end
+		end
+
+		return tbl
+	end
+end
+
 return steam

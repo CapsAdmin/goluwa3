@@ -129,6 +129,13 @@ render3d.config = {
 				name = "model",
 				block = {
 					{
+						"Flags",
+						"int",
+						function(constants)
+							return render3d.GetMaterial():GetFlags()
+						end,
+					},
+					{
 						"AlbedoTexture",
 						"int",
 						function(constants)
@@ -174,63 +181,91 @@ render3d.config = {
 						"ColorMultiplier",
 						"vec4",
 						function(constants)
-							return render3d.GetMaterial().ColorMultiplier:CopyToFloatPointer(constants.ColorMultiplier)
+							return render3d.GetMaterial():GetColorMultiplier():CopyToFloatPointer(constants.ColorMultiplier)
 						end,
 					},
 					{
 						"MetallicMultiplier",
 						"float",
 						function(constants)
-							return render3d.GetMaterial().MetallicMultiplier
+							return render3d.GetMaterial():GetMetallicMultiplier()
 						end,
 					},
 					{
 						"RoughnessMultiplier",
 						"float",
 						function(constants)
-							return render3d.GetMaterial().RoughnessMultiplier
+							return render3d.GetMaterial():GetRoughnessMultiplier()
 						end,
 					},
 					{
 						"NormalMapMultiplier",
 						"float",
 						function(constants)
-							return render3d.GetMaterial().NormalMapMultiplier
+							return render3d.GetMaterial():GetNormalMapMultiplier()
 						end,
 					},
 					{
 						"AmbientOcclusionMultiplier",
 						"float",
 						function(constants)
-							return render3d.GetMaterial().AmbientOcclusionMultiplier
+							return render3d.GetMaterial():GetAmbientOcclusionMultiplier()
 						end,
 					},
 					{
 						"EmissiveMultiplier",
 						"vec4",
 						function(constants)
-							return render3d.GetMaterial().EmissiveMultiplier:CopyToFloatPointer(constants.EmissiveMultiplier)
-						end,
-					},
-					{
-						"ReverseXZNormalMap",
-						"int",
-						function(constants)
-							return render3d.GetMaterial().ReverseXZNormalMap and 1 or 0
-						end,
-					},
-					{
-						"AlphaMode",
-						"float",
-						function(constants)
-							return render3d.GetMaterial():GetAlphaModeInt()
+							return render3d.GetMaterial():GetEmissiveMultiplier():CopyToFloatPointer(constants.EmissiveMultiplier)
 						end,
 					},
 					{
 						"AlphaCutoff",
 						"float",
 						function(constants)
-							return render3d.GetMaterial().AlphaCutoff
+							return render3d.GetMaterial():GetAlphaCutoff()
+						end,
+					},
+					{
+						"Albedo2Texture",
+						"int",
+						function(constants)
+							return render3d.pipeline:GetTextureIndex(render3d.GetMaterial():GetAlbedo2Texture())
+						end,
+					},
+					{
+						"Normal2Texture",
+						"int",
+						function(constants)
+							return render3d.pipeline:GetTextureIndex(render3d.GetMaterial():GetNormal2Texture())
+						end,
+					},
+					{
+						"AlbedoBlendTexture",
+						"int",
+						function(constants)
+							return render3d.pipeline:GetTextureIndex(render3d.GetMaterial():GetAlbedoBlendTexture())
+						end,
+					},
+					{
+						"MetallicTexture",
+						"int",
+						function(constants)
+							return render3d.pipeline:GetTextureIndex(render3d.GetMaterial():GetMetallicTexture())
+						end,
+					},
+					{
+						"RoughnessTexture",
+						"int",
+						function(constants)
+							return render3d.pipeline:GetTextureIndex(render3d.GetMaterial():GetRoughnessTexture())
+						end,
+					},
+					{
+						"SelfIlluminationTexture",
+						"int",
+						function(constants)
+							return render3d.pipeline:GetTextureIndex(render3d.GetMaterial():GetSelfIlluminationTexture())
 						end,
 					},
 				},
@@ -256,7 +291,157 @@ render3d.config = {
 			},
 		},
 		shader = [[
+			#define FLAGS pc.model.Flags
+			]] .. Material.BuildGlslFlags() .. [[
 			const float PI = 3.14159265359;
+
+			float get_alpha() {
+				if (
+					AlbedoTextureAlphaIsMetallic ||
+					AlbedoTextureAlphaIsRoughness 
+				) {
+					return pc.model.ColorMultiplier.a;	
+				}
+
+				float alpha = texture(TEXTURE(pc.model.AlbedoTexture), in_uv).a * pc.model.ColorMultiplier.a;
+				return alpha;
+			}
+
+			vec3 get_albedo() {
+				if (pc.model.AlbedoTexture == -1) {
+					return pc.model.ColorMultiplier.rgb;
+				}
+				return texture(TEXTURE(pc.model.AlbedoTexture), in_uv).rgb * pc.model.ColorMultiplier.rgb;
+			}
+
+			vec3 get_normal() {
+				if (pc.model.NormalTexture == -1) {
+					return normalize(in_normal);
+				}
+
+				vec3 tangent_normal = texture(TEXTURE(pc.model.NormalTexture), in_uv).rgb * 2.0 - 1.0;
+				
+				if (ReverseXZNormalMap) {
+					tangent_normal.x = -tangent_normal.x;
+					tangent_normal.y = -tangent_normal.y;
+				}						
+				
+				tangent_normal = normalize(tangent_normal);
+				tangent_normal *= pc.model.NormalMapMultiplier;
+				
+				// Calculate tangents on-the-fly using screen-space derivatives
+				vec3 dp1 = dFdx(in_position);
+				vec3 dp2 = dFdy(in_position);
+				vec2 duv1 = dFdx(in_uv);
+				vec2 duv2 = dFdy(in_uv);
+				
+				// Solve for tangent and bitangent
+				vec3 dp2perp = cross(dp2, in_normal);
+				vec3 dp1perp = cross(in_normal, dp1);
+				vec3 T = dp2perp * duv1.x + dp1perp * duv2.x;
+				vec3 B = dp2perp * duv1.y + dp1perp * duv2.y;
+				
+				// Construct TBN matrix
+				float invmax = inversesqrt(max(dot(T, T), dot(B, B)));
+				mat3 TBN = mat3(T * invmax, B * invmax, in_normal);
+				return normalize(TBN * tangent_normal);
+			}
+
+			float get_metallic() {
+				float val = 0.0;
+			
+				if (pc.model.AlbedoTexture != -1 && AlbedoTextureAlphaIsMetallic) {
+					val = 1.0 - texture(TEXTURE(pc.model.AlbedoTexture), in_uv).a;
+				} else if (pc.model.NormalTexture != -1 && NormalTextureAlphaIsMetallic) {
+					val = 1.0 - texture(TEXTURE(pc.model.NormalTexture), in_uv).a;
+				} else if (pc.model.MetallicTexture != -1) {
+					val = texture(TEXTURE(pc.model.MetallicTexture), in_uv).r;
+				} else if (pc.model.MetallicRoughnessTexture != -1) {
+					val = texture(TEXTURE(pc.model.MetallicRoughnessTexture), in_uv).b;
+				}
+
+				return val * pc.model.MetallicMultiplier;
+			}
+
+			float get_roughness() {
+				float val = 1.0;
+
+				if (pc.model.AlbedoTexture != -1 && AlbedoTextureAlphaIsRoughness) {
+					val = 1.0 - texture(TEXTURE(pc.model.AlbedoTexture), in_uv).a;
+					if (InvertRoughnessTexture) {
+						val = 1.0 - val;
+					}
+				} else if (AlbedoLuminanceIsRoughness) {
+					val = dot(get_albedo(), vec3(0.2126, 0.7152, 0.0722));
+					if (InvertRoughnessTexture) {
+						val = 1.0 - val;
+					}
+				} else if (pc.model.RoughnessTexture != -1) {
+					val = texture(TEXTURE(pc.model.RoughnessTexture), in_uv).r;
+					if (InvertRoughnessTexture) {
+						val = 1.0 - val;
+					}
+				} else if (pc.model.MetallicRoughnessTexture != -1) {
+					val = texture(TEXTURE(pc.model.MetallicRoughnessTexture), in_uv).g;
+				}
+
+				return clamp(val * pc.model.RoughnessMultiplier, 0.04, 1.0);
+			}
+
+			vec3 env_color(vec3 normal, float roughness) {
+				if (pc.model.EnvironmentTexture == -1) {
+					return vec3(0.2);
+				}
+
+				vec3 V = normalize(pc.fragment.camera_position - in_position);
+				
+				ivec2 size = textureSize(TEXTURE(pc.model.EnvironmentTexture), 0);
+				float max_mip = log2(max(size.x, size.y));
+				
+				vec3 R = reflect(-V, normal);
+				
+				// Based on: mip_level = 0.5 * log2(solid_angle / pixel_solid_angle)
+				// For GGX distribution: solid_angle ≈ π * α²
+				float alpha = roughness * roughness;
+				float mip_level = 0.5 * log2(alpha * alpha * size.x * size.y / PI);
+				mip_level = clamp(mip_level, 0.0, max_mip);
+				
+				float u = atan(R.z, R.x) / (2.0 * PI) + 0.5;
+				float v = asin(R.y) / PI + 0.5;
+				
+				return textureLod(TEXTURE(pc.model.EnvironmentTexture), vec2(u, -v), mip_level).rgb;
+
+			}
+
+			vec3 get_emissive() {
+				vec3 emissive = vec3(0.0);
+				
+				if (pc.model.SelfIlluminationTexture != -1) {
+					// Self-illum mask: multiply albedo by mask value
+					float mask = texture(TEXTURE(pc.model.SelfIlluminationTexture), in_uv).r;
+					emissive = get_albedo() * mask;
+				} else if (pc.model.MetallicTexture != -1 && MetallicTextureAlphaIsEmissive) {
+					// Emissive stored in metallic texture alpha (selfillum_envmapmask_alpha)
+					float mask = texture(TEXTURE(pc.model.MetallicTexture), in_uv).a;
+					emissive = get_albedo() * mask;
+				} else if (pc.model.EmissiveTexture != -1) {
+					// Standard glTF emissive texture
+					emissive = texture(TEXTURE(pc.model.EmissiveTexture), in_uv).rgb;
+				}
+
+				return emissive * pc.model.EmissiveMultiplier.rgb * pc.model.EmissiveMultiplier.a;
+			}
+
+			float get_ao() {
+				if (pc.model.AmbientOcclusionTexture == -1) {
+					return 1.0 * pc.model.AmbientOcclusionMultiplier;
+				}
+			
+				return texture(TEXTURE(pc.model.AmbientOcclusionTexture), in_uv).r * pc.model.AmbientOcclusionMultiplier;
+			}
+
+
+
 
 			// Cascade debug colors
 			const vec3 CASCADE_COLORS[4] = vec3[4](
@@ -358,101 +543,31 @@ render3d.config = {
 				return shadow_val;
 			}
 
-			// Alpha test/discard function
-			// AlphaMode: 0=OPAQUE (no discard), 1=MASK (alpha cutoff), 2=BLEND (dithered translucency)
-			// https://www.shadertoy.com/view/MslGR8 (dither pattern)
-			bool alpha_discard(vec2 uv, float alpha, int AlphaMode, float AlphaCutoff)
-			{
-				if (AlphaMode == 0) {
-					// OPAQUE - never discard
-					return false;
-				}
-				else if (AlphaMode == 1) {
-					// MASK - alpha test with cutoff
-					if (alpha < AlphaCutoff) {
-						return true;
-					}
-					return false;
-				}
-				else if (AlphaMode == 2) {
-					// BLEND - dithered translucency
-					// Use screen-space dither pattern based on alpha value
-					return fract(dot(vec2(171.0, 231.0) + alpha * 0.00001, gl_FragCoord.xy) / 103.0) > (alpha * alpha);
-				}
-				
-				return false;
-			}
-
-			vec3 sample_env_map(vec3 V, vec3 N, float roughness) 
-			{
-				ivec2 size = textureSize(TEXTURE(pc.model.EnvironmentTexture), 0);
-				float max_mip = log2(max(size.x, size.y));
-				
-				vec3 R = reflect(-V, N);
-				
-				// Based on: mip_level = 0.5 * log2(solid_angle / pixel_solid_angle)
-				// For GGX distribution: solid_angle ≈ π * α²
-				float alpha = roughness * roughness;
-				float mip_level = 0.5 * log2(alpha * alpha * size.x * size.y / PI);
-				mip_level = clamp(mip_level, 0.0, max_mip);
-				
-				float u = atan(R.z, R.x) / (2.0 * PI) + 0.5;
-				float v = asin(R.y) / PI + 0.5;
-				
-				return textureLod(TEXTURE(pc.model.EnvironmentTexture), vec2(u, -v), mip_level).rgb;
-			}
-
 			void main() {
-				// Sample textures
-				vec4 albedo = texture(TEXTURE(pc.model.AlbedoTexture), in_uv) * pc.model.ColorMultiplier;
-				vec3 normal_map = texture(TEXTURE(pc.model.NormalTexture), in_uv).rgb;					
-				
-				vec4 metallic_roughness = texture(TEXTURE(pc.model.MetallicRoughnessTexture), in_uv);
-				float ao = texture(TEXTURE(pc.model.AmbientOcclusionTexture), in_uv).r;
-				vec3 emissive = texture(TEXTURE(pc.model.EmissiveTexture), in_uv).rgb * pc.model.EmissiveMultiplier.rgb * pc.model.EmissiveMultiplier.a;
+				float alpha = get_alpha();
 
-				// Alpha test/blend
-				if (alpha_discard(in_uv, albedo.a, int(pc.model.AlphaMode), pc.model.AlphaCutoff)) {
-					discard;
+				if (AlphaTest) {
+					if (alpha < pc.model.AlphaCutoff) {
+						discard;
+					}
+				} else if (Translucent) {
+					if (fract(dot(vec2(171.0, 231.0) + alpha * 0.00001, gl_FragCoord.xy) / 103.0) > (alpha * alpha)) {
+						discard;
+					}
 				}
 
-				// glTF: metallic in B, roughness in G
-				float metallic = metallic_roughness.b * pc.model.MetallicMultiplier;
-				float roughness = clamp(metallic_roughness.g * pc.model.RoughnessMultiplier, 0.04, 1.0);
+				vec3 albedo = get_albedo();
+				vec3 N = get_normal();
+				float metallic = get_metallic();
+				float roughness = get_roughness();
+				float ao = get_ao();
+				vec3 emissive = get_emissive();
+				vec3 reflection = env_color(N, roughness);
 
-				// Calculate normal from normal map
-				vec3 N;
-				if (pc.model.NormalTexture > 0) {
-					vec3 tangent_normal = normal_map * 2.0 - 1.0;
-					
-					if (pc.model.ReverseXZNormalMap != 0) {
-						tangent_normal.x = -tangent_normal.x;
-						tangent_normal.y = -tangent_normal.y;
-					}						
-					
-					tangent_normal = normalize(tangent_normal);
-					tangent_normal *= pc.model.NormalMapMultiplier;
-					
-					// Calculate tangents on-the-fly using screen-space derivatives
-					vec3 dp1 = dFdx(in_position);
-					vec3 dp2 = dFdy(in_position);
-					vec2 duv1 = dFdx(in_uv);
-					vec2 duv2 = dFdy(in_uv);
-					
-					// Solve for tangent and bitangent
-					vec3 dp2perp = cross(dp2, in_normal);
-					vec3 dp1perp = cross(in_normal, dp1);
-					vec3 T = dp2perp * duv1.x + dp1perp * duv2.x;
-					vec3 B = dp2perp * duv1.y + dp1perp * duv2.y;
-					
-					// Construct TBN matrix
-					float invmax = inversesqrt(max(dot(T, T), dot(B, B)));
-					mat3 TBN = mat3(T * invmax, B * invmax, in_normal);
-					N = normalize(TBN * tangent_normal);
-				} else {
-					N = normalize(in_normal);
-				}
-				
+				// TODO: texture blending for world textures
+				// TODO: tint albedo based on mask
+				// TODO: emissive textures
+
 				// View direction - camera position needs to be negated (view matrix uses negative position)
 				vec3 V = normalize(pc.fragment.camera_position - in_position);
 				
@@ -514,23 +629,10 @@ render3d.config = {
 				}
 
 				// Ambient - use environment map if available
-				vec3 ambient_diffuse;
-				vec3 ambient_specular;
-				
-				if (pc.model.EnvironmentTexture >= 0) {
-					ambient_diffuse = sample_env_map(V, N, roughness) * albedo.rgb * ao;
-					
-					vec3 F_ambient = fresnelSchlick(NdotV, F0);
-					ambient_specular = F_ambient * sample_env_map(V, N, roughness) * ao;
-				} else {
-					// Fallback to simple ambient
-					ambient_diffuse = vec3(0.02) * albedo.rgb * ao;
-					vec3 F_ambient = fresnelSchlick(NdotV, F0);
-					ambient_specular = F_ambient * albedo.rgb * 0.2 * ao;
-				}
-				
+				vec3 ambient_diffuse = reflection * albedo.rgb * ao;
+				vec3 F_ambient = fresnelSchlick(NdotV, F0);
+				vec3 ambient_specular = F_ambient * reflection * ao;
 				vec3 ambient = ambient_diffuse * (1.0 - metallic) + ambient_specular * metallic;
-				
 				vec3 color = ambient + Lo + emissive;
 
 				// Tonemapping + gamma
@@ -547,7 +649,7 @@ render3d.config = {
 				if (debug_data.debug_mode == 1) { // normals
 					color = N * 0.5 + 0.5;
 				} else if (debug_data.debug_mode == 2) { // albedo
-					color = albedo.rgb;
+					color = albedo;
 				} else if (debug_data.debug_mode == 3) { // roughness_metallic
 					color = vec3(roughness, metallic, 0.0);
 				} else if (debug_data.debug_mode == 4) { // depth
@@ -555,16 +657,12 @@ render3d.config = {
 					float linear_depth = (debug_data.near_z * debug_data.far_z) / (debug_data.far_z + z * (debug_data.near_z - debug_data.far_z));
 					color = vec3(linear_depth / 100.0); // Scale it so we can actually see something (e.g. 100 units)
 				} else if (debug_data.debug_mode == 5) { // reflection
-					if (pc.model.EnvironmentTexture >= 0) {
-						color = sample_env_map(V, N, roughness);
-					} else {
-						color = vec3(0.0);
-					}
+					color = reflection;
 				} else if (debug_data.debug_mode == 6) { // geometry_normals
 					color = normalize(in_normal) * 0.5 + 0.5;
 				}
 
-				out_color = vec4(color, albedo.a);
+				out_color = vec4(color, alpha);
 			}
 		]],
 	},
@@ -577,12 +675,16 @@ render3d.config = {
 		front_face = orientation.FRONT_FACE,
 		depth_bias = 0,
 	},
+	dynamic_state = {
+		"cull_mode",
+	},
 	color_blend = {
 		logic_op_enabled = false,
 		logic_op = "copy",
 		constants = {0.0, 0.0, 0.0, 0.0},
 		attachments = {
 			{
+				-- TODO: Respect Translucent flag from material for blend mode
 				blend = false,
 				src_color_blend_factor = "src_alpha",
 				dst_color_blend_factor = "one_minus_src_alpha",
@@ -637,7 +739,13 @@ function render3d.Initialize()
 end
 
 function render3d.UploadConstants(cmd)
-	if render3d.pipeline then render3d.pipeline:UploadConstants(cmd) end
+	if render3d.pipeline then
+		do
+			cmd:SetCullMode(render3d.GetMaterial():GetDoubleSided() and "none" or orientation.CULL_MODE)
+		end
+
+		render3d.pipeline:UploadConstants(cmd)
+	end
 end
 
 do
@@ -717,8 +825,16 @@ function render3d.SetMaterial(mat)
 	render3d.current_material = mat
 end
 
-function render3d.GetMaterial(mat)
-	return render3d.current_material or Material.GetDefault()
+function render3d.GetMaterial()
+	return render3d.current_material or render3d.GetDefaultMaterial()
+end
+
+do
+	local default = Material.New()
+
+	function render3d.GetDefaultMaterial()
+		return default
+	end
 end
 
 function render3d.SetEnvironmentTexture(texture)

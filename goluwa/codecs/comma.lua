@@ -23,3 +23,5 @@ function comma.Decode(str)
 
 	return out
 end
+
+return comma

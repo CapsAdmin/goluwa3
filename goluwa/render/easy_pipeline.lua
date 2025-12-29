@@ -406,7 +406,7 @@ function EasyPipeline.New(config)
 
 	-- Create pipeline
 	local pipeline_config = {
-		dynamic_states = {"viewport", "scissor"},
+		dynamic_states = {"viewport", "scissor", "cull_mode"},
 		shader_stages = shader_stages,
 		rasterizer = config.rasterizer or
 			{

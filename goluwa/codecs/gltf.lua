@@ -54,6 +54,8 @@ local PRIMITIVE_MODE = {
 }
 
 local function get_directory(path)
+	if not path then debug.trace() end
+
 	return path:match("(.*/)") or ""
 end
 
@@ -881,6 +883,67 @@ function gltf.CreateEntityHierarchy(gltf_result, parent_entity, options)
 		end
 	end
 
+	-- Helper function to create a primitive polygon from glTF data
+	local function create_primitive_polygon(
+		gltf_result,
+		primitive,
+		prim_aabb,
+		vertex_data,
+		index_data,
+		index_type,
+		index_count
+	)
+		-- Create material
+		local material = nil
+
+		if primitive.material ~= nil then
+			local gltf_mat = gltf_result.materials[primitive.material + 1]
+
+			if gltf_mat then
+				local albedo_tex = gltf_mat.base_color_texture and
+					gltf.LoadTexture(gltf_result, gltf_mat.base_color_texture)
+				local normal_tex = gltf_mat.NormalTexture and
+					gltf.LoadTexture(gltf_result, gltf_mat.NormalTexture)
+				local metallic_roughness_tex = gltf_mat.MetallicRoughnessTexture and
+					gltf.LoadTexture(gltf_result, gltf_mat.MetallicRoughnessTexture)
+				local occlusion_tex = gltf_mat.AmbientOcclusionTexture and
+					gltf.LoadTexture(gltf_result, gltf_mat.AmbientOcclusionTexture)
+				local emissive_tex = gltf_mat.EmissiveTexture and
+					gltf.LoadTexture(gltf_result, gltf_mat.EmissiveTexture)
+				material = Material.New()
+				material:SetName(gltf_mat.name)
+				material:SetAlbedoTexture(albedo_tex)
+				material:SetNormalTexture(normal_tex)
+				material:SetMetallicRoughnessTexture(metallic_roughness_tex)
+				material:SetAmbientOcclusionTexture(occlusion_tex)
+				material:SetEmissiveTexture(emissive_tex)
+				material:SetColorMultiplier(gltf_mat.ColorMultiplier)
+				material:SetMetallicMultiplier(gltf_mat.MetallicMultiplier)
+				material:SetRoughnessMultiplier(gltf_mat.RoughnessMultiplier)
+				material:SetNormalMapMultiplier(gltf_mat.NormalMapMultiplier)
+				material:SetAmbientOcclusionMultiplier(gltf_mat.AmbientOcclusionMultiplier)
+				material:SetEmissiveMultiplier(
+					Color(
+						gltf_mat.EmissiveMultiplier[1] or 1,
+						gltf_mat.EmissiveMultiplier[2] or 1,
+						gltf_mat.EmissiveMultiplier[3] or 1,
+						1
+					)
+				)
+				material:SetDoubleSided(gltf_mat.DoubleSided)
+				material:SetAlphaMode(gltf_mat.AlphaMode)
+				material:SetAlphaCutoff(gltf_mat.AlphaCutoff)
+			end
+		end
+
+		-- Create Polygon3D object
+		local poly = Polygon3D.New()
+		poly:SetAABB(prim_aabb)
+		poly.material = material
+		poly.mesh = render3d.CreateMesh(vertex_data, index_data, index_type, index_count)
+		return poly
+	end
+
 	-- Third pass: attach model components to nodes with meshes
 	for node_index, node in ipairs(gltf_result.nodes) do
 		if node.mesh ~= nil then
@@ -914,56 +977,15 @@ function gltf.CreateEntityHierarchy(gltf_result, parent_entity, options)
 								index_type = primitive.indices.component_type == "uint32_t" and "uint32" or "uint16"
 							end
 
-							-- Create material
-							local material = nil
-							local texture = nil
-
-							if primitive.material ~= nil then
-								local gltf_mat = gltf_result.materials[primitive.material + 1]
-
-								if gltf_mat then
-									local albedo_tex = gltf_mat.base_color_texture and
-										gltf.LoadTexture(gltf_result, gltf_mat.base_color_texture)
-									local normal_tex = gltf_mat.NormalTexture and
-										gltf.LoadTexture(gltf_result, gltf_mat.NormalTexture)
-									local metallic_roughness_tex = gltf_mat.MetallicRoughnessTexture and
-										gltf.LoadTexture(gltf_result, gltf_mat.MetallicRoughnessTexture)
-									local occlusion_tex = gltf_mat.AmbientOcclusionTexture and
-										gltf.LoadTexture(gltf_result, gltf_mat.AmbientOcclusionTexture)
-									local emissive_tex = gltf_mat.EmissiveTexture and
-										gltf.LoadTexture(gltf_result, gltf_mat.EmissiveTexture)
-									material = Material.New()
-									material:SetName(gltf_mat.name)
-									material:SetAlbedoTexture(albedo_tex)
-									material:SetNormalTexture(normal_tex)
-									material:SetMetallicRoughnessTexture(metallic_roughness_tex)
-									material:SetAmbientOcclusionTexture(occlusion_tex)
-									material:SetEmissiveTexture(emissive_tex)
-									material:SetColorMultiplier(gltf_mat.ColorMultiplier)
-									material:SetMetallicMultiplier(gltf_mat.MetallicMultiplier)
-									material:SetRoughnessMultiplier(gltf_mat.RoughnessMultiplier)
-									material:SetNormalMapMultiplier(gltf_mat.NormalMapMultiplier)
-									material:SetAmbientOcclusionMultiplier(gltf_mat.AmbientOcclusionMultiplier)
-									material:SetEmissiveMultiplier(
-										Color(
-											gltf_mat.EmissiveMultiplier[1],
-											gltf_mat.EmissiveMultiplier[2],
-											gltf_mat.EmissiveMultiplier[3],
-											1
-										)
-									)
-									material:SetDoubleSided(gltf_mat.DoubleSided)
-									material:SetAlphaMode(gltf_mat.AlphaMode)
-									material:SetAlphaCutoff(gltf_mat.AlphaCutoff)
-									texture = albedo_tex
-								end
-							end
-
-							-- Create Polygon3D object
-							local poly = Polygon3D.New()
-							poly:SetAABB(prim_aabb)
-							poly.material = material
-							poly.mesh = render3d.CreateMesh(vertex_data, index_data, index_type, index_count)
+							local poly = create_primitive_polygon(
+								gltf_result,
+								primitive,
+								prim_aabb,
+								vertex_data,
+								index_data,
+								index_type,
+								index_count
+							)
 							model:AddPrimitive(poly)
 						else
 							stats.failed_primitives = stats.failed_primitives + 1
@@ -992,62 +1014,24 @@ function gltf.CreateEntityHierarchy(gltf_result, parent_entity, options)
 								index_type = primitive.indices.component_type == "uint32_t" and "uint32" or "uint16"
 							end
 
-							-- Create material
-							local material = nil
-							local texture = nil
-
-							if primitive.material ~= nil then
-								local gltf_mat = gltf_result.materials[primitive.material + 1]
-
-								if gltf_mat then
-									local albedo_tex = gltf_mat.base_color_texture and
-										gltf.LoadTexture(gltf_result, gltf_mat.base_color_texture)
-									local normal_tex = gltf_mat.NormalTexture and
-										gltf.LoadTexture(gltf_result, gltf_mat.NormalTexture)
-									local metallic_roughness_tex = gltf_mat.MetallicRoughnessTexture and
-										gltf.LoadTexture(gltf_result, gltf_mat.MetallicRoughnessTexture)
-									local occlusion_tex = gltf_mat.AmbientOcclusionTexture and
-										gltf.LoadTexture(gltf_result, gltf_mat.AmbientOcclusionTexture)
-									local emissive_tex = gltf_mat.EmissiveTexture and
-										gltf.LoadTexture(gltf_result, gltf_mat.EmissiveTexture)
-									material = Material.New()
-									material:SetName(gltf_mat.name)
-									material:SetAlbedoTexture(albedo_tex)
-									material:SetNormalTexture(normal_tex)
-									material:SetMetallicRoughnessTexture(metallic_roughness_tex)
-									material:SetAmbientOcclusionTexture(occlusion_tex)
-									material:SetEmissiveTexture(emissive_tex)
-									material:SetColorMultiplier(gltf_mat.ColorMultiplier)
-									material:SetMetallicMultiplier(gltf_mat.MetallicMultiplier)
-									material:SetRoughnessMultiplier(gltf_mat.RoughnessMultiplier)
-									material:SetNormalMapMultiplier(gltf_mat.NormalMapMultiplier)
-									material:SetAmbientOcclusionMultiplier(gltf_mat.AmbientOcclusionMultiplier)
-									material:SetEmissiveMultiplier(
-										Color(
-											gltf_mat.EmissiveMultiplier[1],
-											gltf_mat.EmissiveMultiplier[2],
-											gltf_mat.EmissiveMultiplier[3],
-											1
-										)
-									)
-									material:SetDoubleSided(gltf_mat.DoubleSided)
-									material:SetAlphaMode(gltf_mat.AlphaMode)
-									material:SetAlphaCutoff(gltf_mat.AlphaCutoff)
-									texture = albedo_tex
-								end
-							end
-
 							-- Create a child entity for this primitive
 							local prim_name = (mesh.name or "mesh") .. "_prim" .. prim_idx
 							local prim_entity = ecs.CreateEntity(prim_name, entity)
 							prim_entity:AddComponent("transform")
 							-- Transform is identity since it inherits from parent node
 							local prim_model = prim_entity:AddComponent("model")
-							-- Create Polygon3D object
-							local poly = Polygon3D.New()
-							poly:SetAABB(prim_aabb)
-							poly.material = material
-							poly.mesh = render3d.CreateMesh(vertex_data, index_data, index_type, index_count)
+							local poly = create_primitive_polygon(
+								gltf_result,
+								primitive,
+								prim_aabb,
+								vertex_data,
+								index_data,
+								index_type,
+								index_count
+							)
+							prim_model:AddPrimitive(poly)
+						else
+							stats.failed_primitives = stats.failed_primitives + 1
 
 							if gltf.debug_print_nodes then
 								print("  FAILED to get vertex data:", vertex_count)

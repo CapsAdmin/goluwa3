@@ -45,7 +45,9 @@ do
 		poly:Upload()
 		local M = 1
 		local R = 0.2
-		poly.material = Material.New():SetColorMultiplier(Color(1, 1, 1, 1)):SetMetallicRoughnessTexture(
+		poly.material = Material.New()
+		poly.material:SetColorMultiplier(Color(1, 1, 1, 1))
+		poly.material:SetMetallicRoughnessTexture(
 			Texture.New(
 				{
 					width = 1,

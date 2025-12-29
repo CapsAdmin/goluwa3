@@ -105,6 +105,7 @@ function Texture.New(config)
 		local ok, img_or_err = pcall(codec.DecodeFile, config.path)
 
 		if not ok or not img_or_err then
+			debug.trace()
 			print("Warning: Failed to load texture:", config.path, img_or_err)
 			return create_fallback_texture()
 		end
@@ -292,9 +293,16 @@ function Texture.New(config)
 	return self
 end
 
+local cache = {}
+
 function Texture.FromColor(color, config)
+	if not config then
+		if cache[tostring(color)] then return cache[tostring(color)] end
+	end
+
+	local has_config = config ~= nil
 	config = config or {}
-	return Texture.New(
+	local tex = Texture.New(
 		{
 			buffer = ffi.new("uint8_t[4]", color:Get255():Unpack()),
 			width = config.width or 1,
@@ -302,6 +310,10 @@ function Texture.FromColor(color, config)
 			format = config.format or "r8g8b8a8_unorm",
 		}
 	)
+
+	if not has_config then cache[tostring(color)] = tex end
+
+	return tex
 end
 
 function Texture:Upload(data, keep_in_transfer_dst)

@@ -358,7 +358,12 @@ function META:OnDraw3D(cmd, dt)
 		render3d.SetWorldMatrix(final_matrix)
 
 		for i, sub_mesh in ipairs(prim.polygon3d:GetSubMeshes()) do
-			render3d.SetMaterial(self.MaterialOverride or sub_mesh.data or prim.material or Material.GetDefault())
+			render3d.SetMaterial(
+				self.MaterialOverride or
+					sub_mesh.data or
+					prim.material or
+					render3d.GetDefaultMaterial()
+			)
 			render3d.UploadConstants(cmd)
 			prim.polygon3d:Draw(cmd, i)
 		end
@@ -397,7 +402,12 @@ function META:DrawOcclusionQuery(cmd)
 			render3d.SetWorldMatrix(final_matrix)
 
 			for i, sub_mesh in ipairs(prim.polygon3d:GetSubMeshes()) do
-				render3d.SetMaterial(self.MaterialOverride or sub_mesh.data or prim.material or Material.GetDefault())
+				render3d.SetMaterial(
+					self.MaterialOverride or
+						sub_mesh.data or
+						prim.material or
+						render3d.GetDefaultMaterial()
+				)
 				render3d.UploadConstants(cmd)
 				prim.polygon3d:Draw(cmd, i)
 			end
@@ -427,7 +437,10 @@ function META:DrawShadow(shadow_cmd, shadow_map, cascade_idx)
 		end
 
 		for i, sub_mesh in ipairs(prim.polygon3d:GetSubMeshes()) do
-			local material = self.MaterialOverride or sub_mesh.data or prim.material or Material.GetDefault()
+			local material = self.MaterialOverride or
+				sub_mesh.data or
+				prim.material or
+				render3d.GetDefaultMaterial()
 			shadow_map:UploadConstants(final_matrix, material, cascade_idx)
 			prim.polygon3d:Draw(shadow_cmd, i)
 		end

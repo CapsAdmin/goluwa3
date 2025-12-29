@@ -55,16 +55,21 @@ function mod.find_library()
 
 		table.insert(paths, "shaderc_shared.dll") -- Fallback
 		local lib, err = try_load(paths)
+
 		if not lib then return nil, err end
+
 		return lib
 	else -- Assuming Linux
 		local lib, err = try_load({"libshaderc_shared.so", "libshaderc_shared.so.1"})
+
 		if not lib then return nil, err end
+
 		return lib
 	end
 end
 
 local lib, lib_err = mod.find_library()
+
 if not lib then
 	mod.available = false
 	mod.error_message = lib_err
@@ -72,7 +77,6 @@ if not lib then
 end
 
 mod.available = true
-
 -- Define the shaderc C API for LuaJIT
 ffi.cdef[[
     // Opaque handles
@@ -201,6 +205,7 @@ function mod.compile(source, shader_type, entry_point)
 		lib.shaderc_compile_options_release(options)
 		lib.shaderc_compiler_release(mod.compiler)
 		print(source:sub(error_start or 1, error_stop or #source))
+		require("fs").write_file("logs/shader_error_source.glsl", source)
 		error(error_message, 2)
 	end
 

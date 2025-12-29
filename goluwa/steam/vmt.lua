@@ -2,7 +2,7 @@ local vfs = require("vfs")
 local resource = require("resource")
 local callback = require("callback")
 return function(steam)
-	local textures = {
+	local texture_paths = {
 		basetexture = true,
 		basetexture2 = true,
 		texture = true,
@@ -19,14 +19,14 @@ return function(steam)
 		[1] = "error", -- huh
 	}
 
-	function steam.LoadVMT(path, on_property, on_error, on_shader)
+	function steam.LoadVMT(path, on_load, on_error)
 		on_error = on_error or logn
 		local main_cb = callback.Create()
 		main_cb.warn_unhandled = false
 		local res = resource.Download(path, nil, true):Then(function(resolved_path)
 			if resolved_path:ends_with(".vtf") then
-				on_property("basetexture", resolved_path, resolved_path, {})
-				-- default normal map?
+				local vmt_data = {shader = "vertexlitgeneric", basetexture = resolved_path}
+				on_load(vmt_data)
 				main_cb:Resolve()
 				return
 			end
@@ -49,8 +49,6 @@ return function(steam)
 				main_cb:Reject("bad material")
 				return
 			end
-
-			if on_shader then on_shader(k) end
 
 			if k == "patch" then
 				if not vfs.IsFile(v.include) then
@@ -76,14 +74,17 @@ return function(steam)
 					return
 				end
 
+				vmt2.shader = k2
 				table.merge(v2, v.replace or v.insert)
 				vmt = vmt2
 				v = v2
 				k = k2
+			else
+				vmt.shader = k
 			end
 
 			vmt = v
-			local fullpath = path
+			vmt.fullpath = path
 
 			for k, v in pairs(vmt) do
 				if type(v) == "string" and (special_textures[v] or special_textures[v:lower()]) then
@@ -91,39 +92,31 @@ return function(steam)
 				end
 			end
 
+			-- Auto-discover normal maps - these will be resolved later by the resource.Download loop
 			if not vmt.bumpmap and vmt.basetexture and not special_textures[vmt.basetexture] then
 				local new_path = vfs.FixPathSlashes(vmt.basetexture)
 
-				if not new_path:ends_with(".vtf") then new_path = new_path .. ".vtf" end
-
-				new_path = new_path:gsub("%.vtf", "_normal.vtf")
-
-				if vfs.IsFile("materials/" .. new_path) then
-					vmt.bumpmap = new_path
-				else
-					new_path = new_path:lower()
-
-					if vfs.IsFile("materials/" .. new_path) then vmt.bumpmap = new_path end
+				if vfs.IsFile("materials/" .. new_path .. "_normal.vtf") then
+					vmt.bumpmap = new_path .. "_normal" -- Set without materials/ prefix or .vtf, will be resolved later
 				end
 			end
 
-			local pending = 0
-
+			local pending = 1 -- Start at 1 to prevent early resolution
 			local function check_done()
-				if pending == 0 then main_cb:Resolve() end
+				if pending == 0 then
+					on_load(vmt)
+					main_cb:Resolve()
+				end
 			end
 
 			for k, v in pairs(vmt) do
-				if
-					type(v) == "string" and
-					textures[k] and
-					(
-						not special_textures[v] and
-						not special_textures[v:lower()]
-					)
-				then
-					if v == "black" or v == "white" then
-						on_property(k, v, v, vmt)
+				if type(v) == "string" and texture_paths[k] then
+					if special_textures[v] or special_textures[v:lower()] then
+
+					-- Keep special textures as-is
+					elseif v == "black" or v == "white" then
+
+					-- Keep the value as-is for black/white
 					else
 						local new_path = vfs.FixPathSlashes("materials/" .. v)
 
@@ -131,24 +124,30 @@ return function(steam)
 
 						pending = pending + 1
 						local cb = resource.Download(new_path, nil, true):Then(function(texture_path)
-							on_property(k, texture_path, fullpath, vmt)
+							vmt[k] = texture_path
 							pending = pending - 1
 							check_done()
 						end)
 
-						if on_error then
-							cb:Catch(function(reason)
+						cb:Catch(function(reason)
+							if on_error then
 								on_error("texture " .. k .. " " .. new_path .. " not found: " .. reason)
-								pending = pending - 1
-								check_done()
-							end)
-						end
+							end
+
+							vmt[k] = nil -- Remove failed texture from vmt
+							pending = pending - 1
+							check_done()
+						end)
 					end
+				elseif k == "surfaceprop" then
+					vmt[k] = steam.GetSurfaceProps()[v:lower()] or v
 				else
-					on_property(k, v, fullpath, vmt)
+					if v == "" then vmt[k] = nil end
 				end
 			end
 
+			-- Decrement the initial pending count now that loop is complete
+			pending = pending - 1
 			check_done()
 		end):Catch(function(reason)
 			on_error("material " .. path .. " not found: " .. reason)
