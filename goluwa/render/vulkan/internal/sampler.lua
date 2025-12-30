@@ -8,13 +8,15 @@ function Sampler.New(config)
 	assert(config.device)
 	local ptr = vulkan.T.Box(vulkan.vk.VkSampler)()
 	local anisotropy = nil
+	local anisotropyEnable = nil
 
 	if config.anisotropy then
 		assert(type(config.anisotropy) == "number")
-		anisotropy = assert(
+		anisotropyEnable = assert(
 			config.anisotropy >= 1 and config.anisotropy <= 16,
 			"anisotropy must be between 1 and 16"
 		)
+		anisotropy = config.anisotropy
 	end
 
 	vulkan.assert(

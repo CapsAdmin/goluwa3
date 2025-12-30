@@ -20,10 +20,11 @@ skybox.temp_camera = nil
 skybox.update_cmd = nil
 local SIZE = 512
 
-function skybox.CreatePipeline(color_format)
+function skybox.CreatePipeline(color_format, samples)
 	return EasyPipeline.New(
 		{
 			color_format = color_format,
+			samples = samples or "1",
 			vertex = {
 				push_constants = {
 					{
@@ -86,7 +87,14 @@ function skybox.CreatePipeline(color_format)
 								"camera_position",
 								"vec4",
 								function(constants)
-									(render3d.camera:GetPosition() * 100):CopyToFloatPointer(constants.camera_position)
+									(render3d.camera:GetPosition()):CopyToFloatPointer(constants.camera_position)
+								end,
+							},
+							{
+								"envmap_rendering",
+								"int",
+								function(constants)
+									constants.envmap_rendering = skybox.envmap_rendering and 1 or 0
 								end,
 							},
 						},
@@ -267,18 +275,25 @@ function skybox.CreatePipeline(color_format)
 							float u = atan(dir.z, dir.x) / (2.0 * PI) + 0.5;
 							float v = asin(dir.y) / PI + 0.5;
 							spaceColor = texture(TEXTURE(pc.fragment.universe_texture_index), vec2(u, -v)).rgb;
+							// exaggerate a little
+							spaceColor *= 1.5;
+							spaceColor = pow(spaceColor, vec3(2.2));
 						}
 						
 						// Blend: show stars when sky is dark, hide them during day
-						vec3 finalColor = mix(spaceColor, skyColor, blendFactor);
+						vec3 color = mix(spaceColor, skyColor, blendFactor);
 						
-						// Tonemapping (ACES-like)
-						finalColor = finalColor / (finalColor + vec3(1.0));
+						if (pc.fragment.envmap_rendering == 1) {
+							out_color = vec4(color, 1.0);
+							return;
+						}
+
+							// Tonemapping + gamma
+						color = color / (color + vec3(1.0));
+						color = pow(color, vec3(1.0/2.2));
+
 						
-						// Gamma correction
-						finalColor = pow(finalColor, vec3(1.0/2.2));
-						
-						out_color = vec4(finalColor, 1.0);
+						out_color = vec4(color, 1.0);
 					}
 				]],
 			},
@@ -302,14 +317,16 @@ function skybox.Initialize()
 		{
 			width = SIZE,
 			height = SIZE,
-			format = "r8g8b8a8_unorm",
+			format = "b10g11r11_ufloat_pack32",
+			mip_map_levels = "auto",
 			image = {
 				array_layers = 6,
 				flags = {"cube_compatible"},
-				usage = {"color_attachment", "sampled", "transfer_src"},
+				usage = {"color_attachment", "sampled", "transfer_src", "transfer_dst"},
 			},
 			view = {
 				view_type = "cube",
+				layer_count = 6,
 			},
 		}
 	)
@@ -323,8 +340,8 @@ function skybox.Initialize()
 		})
 	end
 
-	skybox.pipeline = skybox.CreatePipeline(render.target.color_format)
-	skybox.cubemap_pipeline = skybox.CreatePipeline("r8g8b8a8_unorm")
+	skybox.pipeline = skybox.CreatePipeline(render.target.color_format, render.target:GetSamples())
+	skybox.cubemap_pipeline = skybox.CreatePipeline("r8g8b8a8_unorm", "1")
 end
 
 event.AddListener("Render3DInitialized", "skybox", function()
@@ -370,21 +387,14 @@ function skybox.UpdateEnvironmentTexture()
 	local temp_camera = skybox.temp_camera
 	local old_camera = render3d.camera
 	render3d.camera = temp_camera
+	skybox.envmap_rendering = true
 	local face_angles = {
-		Ang3(0, math.rad(-90), 0), -- +X
-		Ang3(0, math.rad(90), 0), -- -X
-		Ang3(math.rad(90), 0, 0), -- +Y
-		Ang3(math.rad(-90), 0, 0), -- -Y
-		Ang3(0, math.rad(180), 0), -- +Z
-		Ang3(0, 0, 0), -- -Z
-	}
-	local face_colors = {
-		Color(1, 0, 0), -- +X: Red
-		Color(0, 1, 0), -- -X: Green
-		Color(0, 0, 1), -- +Y: Blue
-		Color(1, 1, 0), -- -Y: Yellow
-		Color(1, 0, 1), -- +Z: Magenta
-		Color(0, 1, 1), -- -Z: Cyan
+		Deg3(0, -90 + 180, 0), -- +X
+		Deg3(0, 90 + 180, 0), -- -X
+		Deg3(90, 0 + 180, 0), -- +Y
+		Deg3(-90, 0 + 180, 0), -- -Y
+		Deg3(0, 0 + 180, 0), -- +Z
+		Deg3(0, 180 + 180, 0), -- -Z
 	}
 
 	for i = 0, 5 do
@@ -403,39 +413,16 @@ function skybox.UpdateEnvironmentTexture()
 				clear_color = {0, 0, 0, 1},
 			}
 		)
-		cmd:ClearColorImage(
-			{
-				image = skybox.output_texture:GetImage(),
-				color = {face_colors[i + 1]:Unpack()},
-				base_array_layer = i,
-				layer_count = 1,
-			}
-		)
 		cmd:SetViewport(0, 0, SIZE, SIZE)
 		cmd:SetScissor(0, 0, SIZE, SIZE)
-		skybox.cubemap_pipeline:Bind(cmd, render.GetCurrentFrame())
+		cmd:SetCullMode("none")
+		-- Use fixed frame index 1 to avoid descriptor set conflicts with main render loop
+		skybox.cubemap_pipeline:Bind(cmd, 1)
 		skybox.cubemap_pipeline:UploadConstants(cmd)
-		--cmd:Draw(3, 1, 0, 0)
+		cmd:Draw(3, 1, 0, 0)
 		cmd:EndRendering()
 	end
 
-	-- Transition to shader_read_only_optimal
-	cmd:PipelineBarrier(
-		{
-			srcStage = "color_attachment_output",
-			dstStage = "fragment",
-			imageBarriers = {
-				{
-					image = skybox.output_texture:GetImage(),
-					oldLayout = "color_attachment_optimal",
-					newLayout = "shader_read_only_optimal",
-					srcAccessMask = "color_attachment_write",
-					dstAccessMask = "shader_read",
-					layer_count = 6,
-				},
-			},
-		}
-	)
 	cmd:End()
 
 	if not skybox.temp_fence then
@@ -445,6 +432,9 @@ function skybox.UpdateEnvironmentTexture()
 	render.GetQueue():SubmitAndWait(render.GetDevice(), cmd, skybox.temp_fence)
 	render.GetDevice():WaitIdle()
 	render3d.camera = old_camera
+	-- build mipmaps
+	skybox.output_texture:GenerateMipmaps("color_attachment_optimal")
+	skybox.envmap_rendering = false
 end
 
 event.AddListener("PreFrame", "skybox_update", function()
@@ -454,6 +444,7 @@ end)
 function skybox.Draw(cmd)
 	if not skybox.pipeline then return end
 
+	--render.TriggerValidationError()
 	if skybox.output_texture then
 		render3d.SetEnvironmentTexture(skybox.GetOutputCubemapTexture())
 	end
@@ -467,10 +458,10 @@ function skybox.Draw(cmd)
 	view.m32 = 0
 	local proj_view = view * proj
 	proj_view:GetInverse(skybox.inv_projection_view)
+	cmd:SetCullMode("none")
 	skybox.pipeline:Bind(cmd, render.GetCurrentFrame())
 	skybox.pipeline:UploadConstants(cmd)
 	cmd:Draw(3, 1, 0, 0)
--- update here?
 end
 
 event.AddListener("DrawSkybox", "skybox", skybox.Draw)

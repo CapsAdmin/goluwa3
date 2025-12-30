@@ -170,6 +170,12 @@ function PhysicalDevice:GetProperties()
 	return properties[0]
 end
 
+function PhysicalDevice:GetFeatures()
+	local features = vulkan.T.Box(vulkan.vk.VkPhysicalDeviceFeatures)()
+	vulkan.lib.vkGetPhysicalDeviceFeatures(self.ptr[0], features)
+	return features[0]
+end
+
 function PhysicalDevice:GetExtendedDynamicStateFeatures()
 	-- Chain v1, v2, and v3 feature queries together
 	local queryFeaturesV3 = vulkan.vk.VkPhysicalDeviceExtendedDynamicState3FeaturesEXT(

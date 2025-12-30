@@ -162,12 +162,11 @@ function events.Draw2D.debug_shadow_map(cmd, dt)
 	end
 end
 
-function events.KeyInput.renderdoc(key, press)
+function events.KeyInput.render3d_debug(key, press)
 	if not press then return end
 
 	--if key == "f8" then render.renderdoc.CaptureFrame() end
-	if key == "f11" then render.renderdoc.OpenUI() end
-
+	--if key == "f11" then render.renderdoc.OpenUI() end
 	-- Toggle shadow map debug view
 	if key == "f9" then
 		show_shadow_map = not show_shadow_map

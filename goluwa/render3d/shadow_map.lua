@@ -196,6 +196,10 @@ function ShadowMap.New(config)
 						// Depth is written automatically for non-discarded fragments
 					}
 				]],
+					push_constants = {
+						size = ffi.sizeof(ShadowVertexConstants),
+						offset = 0,
+					},
 					descriptor_sets = {
 						{
 							type = "combined_image_sampler",
@@ -385,7 +389,7 @@ function ShadowMap:UploadConstants(world_matrix, material, cascade_index)
 		constants.alpha_cutoff = 0.5
 	end
 
-	self.pipeline:PushConstants(self.cmd, "vertex", 0, constants)
+	self.pipeline:PushConstants(self.cmd, {"vertex", "fragment"}, 0, constants)
 end
 
 -- End shadow pass for current cascade

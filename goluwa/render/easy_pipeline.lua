@@ -416,6 +416,7 @@ function EasyPipeline.New(config)
 	local pipeline_config = {
 		color_format = config.color_format,
 		depth_format = config.depth_format,
+		samples = config.samples,
 		dynamic_states = {"viewport", "scissor", "cull_mode"},
 		shader_stages = shader_stages,
 		rasterizer = config.rasterizer or

@@ -94,6 +94,17 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 		pNextChain = dynamicRenderingFeatures
 	end
 
+	local physical_features = physical_device:GetFeatures()
+	local enabled_features = vulkan.T.Box(vulkan.vk.VkPhysicalDeviceFeatures)()
+
+	if physical_features.samplerAnisotropy == 1 then
+		enabled_features[0].samplerAnisotropy = 1
+	end
+
+	if physical_features.depthClamp == 1 then
+		enabled_features[0].depthClamp = 1
+	end
+
 	-- Enable scalar block layout feature for push constants
 	-- and descriptor indexing features for bindless textures
 	local vulkan12Features = vulkan.vk.VkPhysicalDeviceVulkan12Features(
@@ -176,7 +187,7 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 			flags = 0,
 			enabledLayerCount = 0,
 			ppEnabledLayerNames = nil,
-			pEnabledFeatures = nil,
+			pEnabledFeatures = enabled_features,
 		}
 	)
 	local ptr = vulkan.T.Box(vulkan.vk.VkDevice)()

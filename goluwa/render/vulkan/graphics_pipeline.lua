@@ -44,14 +44,34 @@ function GraphicsPipeline.New(vulkan_instance, config)
 		end
 
 		if stage.push_constants then
-			table.insert(
-				push_constant_ranges,
-				{
-					stage = stage.type,
-					offset = stage.push_constants.offset or 0,
-					size = stage.push_constants.size,
-				}
-			)
+			local offset = stage.push_constants.offset or 0
+			local size = stage.push_constants.size
+			local found = false
+
+			for _, range in ipairs(push_constant_ranges) do
+				if range.offset == offset and range.size == size then
+					if type(range.stage) == "string" then
+						range.stage = {range.stage, stage.type}
+					else
+						table.insert(range.stage, stage.type)
+					end
+
+					found = true
+
+					break
+				end
+			end
+
+			if not found then
+				table.insert(
+					push_constant_ranges,
+					{
+						stage = stage.type,
+						offset = offset,
+						size = size,
+					}
+				)
+			end
 		end
 	end
 

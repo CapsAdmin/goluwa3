@@ -71,7 +71,7 @@ render3d.config = {
 			};
 
 			// UBO for light and shadow data
-			layout(std140, binding = 1) uniform LightData {
+			layout(std140, binding = 2) uniform LightData {
 				ShadowData shadow;
 				Light lights[32];
 			} light_data;
@@ -82,7 +82,7 @@ render3d.config = {
 		descriptor_sets = {
 			{
 				type = "uniform_buffer",
-				binding_index = 1,
+				binding_index = 2,
 				args = function()
 					return {Light.GetUBO()}
 				end,
@@ -91,7 +91,7 @@ render3d.config = {
 		uniform_buffers = {
 			{
 				name = "debug_data",
-				binding_index = 2,
+				binding_index = 3,
 				block = {
 					{
 						"debug_cascade_colors",
@@ -358,8 +358,9 @@ render3d.config = {
 					val = texture(TEXTURE(pc.model.MetallicTexture), in_uv).r;
 				} else if (pc.model.MetallicRoughnessTexture != -1) {
 					val = texture(TEXTURE(pc.model.MetallicRoughnessTexture), in_uv).b;
+				} else {
+					return pc.model.MetallicMultiplier;
 				}
-
 				return val * pc.model.MetallicMultiplier;
 			}
 
@@ -383,26 +384,29 @@ render3d.config = {
 					}
 				} else if (pc.model.MetallicRoughnessTexture != -1) {
 					val = texture(TEXTURE(pc.model.MetallicRoughnessTexture), in_uv).g;
+				} else  {
+					return pc.model.RoughnessMultiplier;
 				}
 
-				return clamp(val * pc.model.RoughnessMultiplier, 0.04, 1.0);
+				return val * pc.model.RoughnessMultiplier;
 			}
 
 			vec3 env_color(vec3 normal, float roughness) {
 				if (pc.model.EnvironmentTexture == -1) {
 					return vec3(0.2);
 				}
-
 				vec3 V = normalize(pc.fragment.camera_position - in_position);
-				
-				// For cubemaps, we don't need to calculate UVs manually
-				// We can just use the reflection vector
+
+				float NdotV = dot(normal, V);
+				if (NdotV <= 0.0) {
+					return vec3(0.0); // or some fallback
+				}
 				vec3 R = reflect(-V, normal);
+				R = mix(R, normal, roughness * roughness);
+				R = normalize(R);
 				
-				// Calculate mip level based on roughness
-				// Cubemaps usually have 5-10 mip levels
-				float max_mip = 7.0; // Default for 128x128 cubemap
-				float mip_level = roughness * max_mip;
+				float max_mip = float(textureQueryLevels(CUBEMAP(pc.model.EnvironmentTexture)) - 1);
+				float mip_level = sqrt(roughness) * (max_mip - 1.0) + 1.0;
 				
 				return textureLod(CUBEMAP(pc.model.EnvironmentTexture), R, mip_level).rgb;
 			}

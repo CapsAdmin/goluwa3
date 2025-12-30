@@ -1,9 +1,7 @@
 local ffi = require("ffi")
 local render = {}
-local renderdoc = require("bindings.renderdoc")
-
-if pcall(renderdoc.init) then render.renderdoc = renderdoc end
-
+--local renderdoc = require("bindings.renderdoc")
+--if pcall(renderdoc.init) then render.renderdoc = renderdoc end
 -- Check if shaderc is available before loading Vulkan
 local shaderc = require("bindings.shaderc")
 
@@ -215,6 +213,26 @@ function render.GetVulkanFormatSize(format)
 	if not formats[format] then error("unknown format: " .. tostring(format)) end
 
 	return formats[format]
+end
+
+function render.TriggerValidationError()
+	local vulkan = require("render.vulkan.internal.vulkan")
+	local create_info = vulkan.vk.VkBufferCreateInfo(
+		{
+			sType = vulkan.vk.VkStructureType.VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO + 10, -- INVALID STYPE,
+			pNext = nil,
+			flags = 1110, -- INVALID FLAGS
+			size = 0, -- INVALID SIZE
+			usage = vulkan.vk.VkBufferUsageFlagBits.VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+			sharingMode = vulkan.vk.VkSharingMode.VK_SHARING_MODE_EXCLUSIVE,
+			queueFamilyIndexCount = 0,
+			pQueueFamilyIndices = nil,
+		}
+	)
+	local buffer = ffi.new("void*[1]")
+	assert(
+		vulkan.lib.vkCreateBuffer(assert(vulkan_instance.device.ptr[0]), create_info, nil, buffer) ~= 0
+	)
 end
 
 return render
