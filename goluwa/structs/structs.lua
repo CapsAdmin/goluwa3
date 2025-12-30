@@ -202,6 +202,60 @@ function structs.AddOperator(META, operator, ...)
 		]==]
 		lua = parse_args(META, lua, " and ")
 		assert(loadstring(lua, META.ClassName .. " operator IsEqual"))(META, structs)
+	elseif operator == "compare" then
+		local lua = [==[
+		local META, structs, istype = ...
+		local type = type
+		META["__lt"] = function(a, b)
+			if type(b) == "number" then
+				return 
+					a.KEY < b
+			elseif type(a) == "number" then
+				return 
+					a < b.KEY
+			elseif istype(a, b) then
+				return 
+					a.KEY < b.KEY
+			end
+			return false
+		end
+		META["__le"] = function(a, b)
+			if type(b) == "number" then
+				return 
+					a.KEY <= b
+			elseif type(a) == "number" then
+				return 
+					a <= b.KEY
+			elseif istype(a, b) then
+				return 
+					a.KEY <= b.KEY
+			end
+			return false
+		end
+		]==]
+		lua = parse_args(META, lua, " and ")
+		assert(loadstring(lua, META.ClassName .. " operator " .. operator))(META, structs, istype)
+		local lua = [==[
+		local META, structs = ...
+		META["IsLess"] = function(self, ARG)
+			return
+				self.KEY < KEY
+		end
+		META["IsLessOrEqual"] = function(self, ARG)
+			return
+				self.KEY <= KEY
+		end
+		META["IsGreater"] = function(self, ARG)
+			return
+				self.KEY > KEY
+		end
+		META["IsGreaterOrEqual"] = function(self, ARG)
+			return
+				self.KEY >= KEY
+		end
+		]==]
+		lua = parse_args(META, lua, " and ")
+		assert(loadstring(lua, META.ClassName .. " operator compare methods"))(META, structs)
 	elseif operator == "unm" then
 		local lua = [==[
 		local META, structs = ...
@@ -537,6 +591,7 @@ function structs.AddAllOperators(META)
 	structs.AddOperator(META, "unm")
 	structs.AddOperator(META, "%")
 	structs.AddOperator(META, "==")
+	structs.AddOperator(META, "compare")
 	structs.AddOperator(META, "copy")
 	structs.AddOperator(META, "iszero")
 	structs.AddOperator(META, "isvalid")
