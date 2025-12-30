@@ -102,6 +102,8 @@ function Image:CreateView(config)
 			level_count = config.level_count or self.mip_levels or 1,
 			aspect = config.aspect,
 			layer_count = config.layer_count,
+			base_array_layer = config.base_array_layer,
+			base_mip_level = config.base_mip_level,
 		}
 	)
 end

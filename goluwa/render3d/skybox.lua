@@ -3,17 +3,51 @@ local ffi = require("ffi")
 local Color = require("structs.color")
 local orientation = require("render3d.orientation")
 local Matrix44 = require("structs.matrix44")
+local Vec3 = require("structs.vec3")
+local Ang3 = require("structs.ang3")
+local Quat = require("structs.quat")
+local Rect = require("structs.rect")
 local render = require("render.render")
 local render3d = require("render3d.render3d")
+local Camera3D = require("render3d.camera3d")
 local EasyPipeline = require("render.easy_pipeline")
 local skybox = library()
 local Texture = require("render.texture")
 local Fence = require("render.vulkan.internal.fence")
 skybox.inv_projection_view = Matrix44()
+skybox.temp_fence = nil
+skybox.temp_camera = nil
+skybox.update_cmd = nil
 
 function skybox.Initialize()
+	if skybox.output_texture then return end
+
 	-- Create environment cubemap
-	skybox.output_texture = nil -- ??
+	skybox.output_texture = Texture.New(
+		{
+			width = 512,
+			height = 512,
+			format = "r8g8b8a8_unorm",
+			image = {
+				array_layers = 6,
+				flags = {"cube_compatible"},
+				usage = {"color_attachment", "sampled", "transfer_src"},
+			},
+			view = {
+				view_type = "cube",
+			},
+		}
+	)
+	skybox.face_views = {}
+
+	for i = 0, 5 do
+		skybox.face_views[i] = skybox.output_texture:GetImage():CreateView({
+			view_type = "2d",
+			base_array_layer = i,
+			layer_count = 1,
+		})
+	end
+
 	skybox.pipeline = EasyPipeline.New(
 		{
 			vertex = {
@@ -290,8 +324,105 @@ event.AddListener("Render3DInitialized", "skybox", function()
 	skybox.Initialize()
 end)
 
-function skybox.UpdateEnvironmentTexture() -- TODO
+function skybox.UpdateEnvironmentTexture()
+	if not skybox.pipeline or not skybox.output_texture then return end
+
+	if not skybox.update_cmd then
+		skybox.update_cmd = render.GetCommandPool():AllocateCommandBuffer()
+	end
+
+	local cmd = skybox.update_cmd
+	cmd:Reset()
+	cmd:Begin()
+	-- Transition cubemap to color_attachment_optimal
+	cmd:PipelineBarrier(
+		{
+			srcStage = "top_of_pipe",
+			dstStage = "color_attachment_output",
+			imageBarriers = {
+				{
+					image = skybox.output_texture:GetImage(),
+					oldLayout = "undefined",
+					newLayout = "color_attachment_optimal",
+					srcAccessMask = "none",
+					dstAccessMask = "color_attachment_write",
+					layer_count = 6,
+				},
+			},
+		}
+	)
+
+	if not skybox.temp_camera then
+		skybox.temp_camera = Camera3D.New()
+		skybox.temp_camera:SetFOV(math.rad(90))
+		skybox.temp_camera:SetViewport(Rect(0, 0, 512, 512))
+		skybox.temp_camera:SetNearZ(0.1)
+		skybox.temp_camera:SetFarZ(100)
+	end
+
+	local temp_camera = skybox.temp_camera
+	local old_camera = render3d.camera
+	render3d.camera = temp_camera
+	local face_angles = {
+		Ang3(0, math.rad(-90), 0), -- +X
+		Ang3(0, math.rad(90), 0), -- -X
+		Ang3(math.rad(90), 0, 0), -- +Y
+		Ang3(math.rad(-90), 0, 0), -- -Y
+		Ang3(0, math.rad(180), 0), -- +Z
+		Ang3(0, 0, 0), -- -Z
+	}
+
+	for i = 0, 5 do
+		temp_camera:SetAngles(face_angles[i + 1])
+		-- Calculate inverse projection-view matrix
+		local proj = temp_camera:BuildProjectionMatrix()
+		local view = temp_camera:BuildViewMatrix():Copy()
+		view.m30, view.m31, view.m32 = 0, 0, 0
+		local proj_view = view * proj
+		proj_view:GetInverse(skybox.inv_projection_view)
+		cmd:BeginRendering(
+			{
+				color_image_view = skybox.face_views[i],
+				w = 512,
+				h = 512,
+				clear_color = {0, 0, 0, 1},
+			}
+		)
+		skybox.pipeline:Bind(cmd)
+		skybox.pipeline:UploadConstants(cmd)
+		cmd:Draw(3, 1, 0, 0)
+		cmd:EndRendering()
+	end
+
+	-- Transition to shader_read_only_optimal
+	cmd:PipelineBarrier(
+		{
+			srcStage = "color_attachment_output",
+			dstStage = "fragment",
+			imageBarriers = {
+				{
+					image = skybox.output_texture:GetImage(),
+					oldLayout = "color_attachment_optimal",
+					newLayout = "shader_read_only_optimal",
+					srcAccessMask = "color_attachment_write",
+					dstAccessMask = "shader_read",
+					layer_count = 6,
+				},
+			},
+		}
+	)
+	cmd:End()
+
+	if not skybox.temp_fence then
+		skybox.temp_fence = Fence.New(render.GetDevice())
+	end
+
+	render.GetQueue():SubmitAndWait(render.GetDevice(), cmd, skybox.temp_fence)
+	render3d.camera = old_camera
 end
+
+event.AddListener("PreFrame", "skybox_update", function() --skybox.UpdateEnvironmentTexture()
+end)
 
 function skybox.Draw(cmd)
 	if not skybox.pipeline then return end

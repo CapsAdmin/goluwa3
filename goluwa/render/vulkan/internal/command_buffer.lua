@@ -416,13 +416,13 @@ function CommandBuffer:PushConstants(layout, stage, binding, data_size, data)
 end
 
 function CommandBuffer:ClearColorImage(config)
+	local clear_value = vulkan.vk.VkClearColorValue()
+	clear_value.float32 = config.color or {0.0, 0.0, 0.0, 1.0}
 	vulkan.lib.vkCmdClearColorImage(
 		self.ptr[0],
-		config.image,
+		config.image.ptr[0],
 		vulkan.vk.e.VkImageLayout("transfer_dst_optimal"),
-		vulkan.vk.VkClearColorValue({
-			float32 = config.color or {0.0, 0.0, 0.0, 1.0},
-		}),
+		clear_value,
 		1,
 		vulkan.vk.s.ImageSubresourceRange(
 			{
@@ -431,6 +431,37 @@ function CommandBuffer:ClearColorImage(config)
 				levelCount = config.level_count or 1,
 				baseArrayLayer = config.base_array_layer or 0,
 				layerCount = config.layer_count or 1,
+			}
+		)
+	)
+end
+
+function CommandBuffer:CopyImageToBuffer(config)
+	vulkan.lib.vkCmdCopyImageToBuffer(
+		self.ptr[0],
+		config.image.ptr[0],
+		vulkan.vk.e.VkImageLayout(config.image_layout or "transfer_src_optimal"),
+		config.buffer.ptr[0],
+		1,
+		vulkan.vk.VkBufferImageCopy(
+			{
+				bufferOffset = config.buffer_offset or 0,
+				bufferRowLength = 0,
+				bufferImageHeight = 0,
+				imageSubresource = vulkan.vk.s.ImageSubresourceLayers(
+					{
+						aspectMask = config.aspect_mask or "color",
+						mipLevel = config.mip_level or 0,
+						baseArrayLayer = config.base_array_layer or 0,
+						layerCount = config.layer_count or 1,
+					}
+				),
+				imageOffset = {x = 0, y = 0, z = 0},
+				imageExtent = {
+					width = config.width,
+					height = config.height,
+					depth = config.depth or 1,
+				},
 			}
 		)
 	)
