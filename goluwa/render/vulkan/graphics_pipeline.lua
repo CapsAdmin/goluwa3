@@ -249,6 +249,41 @@ function GraphicsPipeline:GetTextureIndex(tex)
 end
 
 function GraphicsPipeline:UpdateDescriptorSet(type, index, binding_index, ...)
+	local count = select("#", ...)
+
+	if type == "combined_image_sampler" then
+		if count > 2 then
+			-- Multiple textures passed, convert to array and use UpdateDescriptorSetArray
+			local textures = {...}
+			local array = {}
+
+			for i, tex in ipairs(textures) do
+				if type(tex) == "table" and tex.view and tex.sampler then
+					array[i] = {view = tex.view, sampler = tex.sampler}
+				else
+					array[i] = tex
+				end
+			end
+
+			self:UpdateDescriptorSetArray(index, binding_index, array)
+			return
+		elseif count == 1 then
+			local tex = ...
+
+			if type(tex) == "table" and tex.view and tex.sampler then
+				-- Single texture object passed, extract view and sampler
+				self.vulkan_instance.device:UpdateDescriptorSet(
+					type,
+					self.descriptor_sets[index],
+					binding_index,
+					tex.view,
+					tex.sampler
+				)
+				return
+			end
+		end
+	end
+
 	self.vulkan_instance.device:UpdateDescriptorSet(type, self.descriptor_sets[index], binding_index, ...)
 end
 

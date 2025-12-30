@@ -24,7 +24,7 @@ _G.runfile = function(...)
 	return list.unpack(ret)
 end
 _G.R = vfs.GetAbsolutePath
-render.Initialize()
+render.Initialize({samples = "1"})
 local render2d = require("render2d.render2d")
 local render3d = require("render3d.render3d")
 local gfx = require("render2d.gfx")

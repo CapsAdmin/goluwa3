@@ -9,31 +9,39 @@ Framebuffer.__index = Framebuffer
 function Framebuffer.New(config)
 	local width = config.width or 512
 	local height = config.height or 512
-	local format = config.format or "r8g8b8a8_unorm"
 	local samples = config.samples or "1"
-	local clear_color = config.clear_color or {0, 0, 0, 1}
 	local self = setmetatable({}, Framebuffer)
 	self.width = width
 	self.height = height
-	self.format = format
 	self.samples = samples
-	self.clear_color = clear_color
-	self.color_texture = Texture.New(
-		{
-			width = width,
-			height = height,
-			format = format,
-			mip_map_levels = config.mip_map_levels or 1,
-			image = {
-				usage = {"color_attachment", "sampled", "transfer_src"},
-				samples = samples,
-			},
-			sampler = {
-				min_filter = config.min_filter or "linear",
-				mag_filter = config.mag_filter or "linear",
-			},
-		}
-	)
+	self.color_textures = {}
+	self.clear_colors = {}
+	local formats = config.formats or {config.format or "r8g8b8a8_unorm"}
+	local clear_colors = config.clear_colors or {config.clear_color or {0, 0, 0, 1}}
+
+	for i, format in ipairs(formats) do
+		local color_texture = Texture.New(
+			{
+				width = width,
+				height = height,
+				format = format,
+				mip_map_levels = config.mip_map_levels or 1,
+				image = {
+					usage = {"color_attachment", "sampled", "transfer_src"},
+					samples = samples,
+				},
+				sampler = {
+					min_filter = config.min_filter or "linear",
+					mag_filter = config.mag_filter or "linear",
+				},
+			}
+		)
+		table.insert(self.color_textures, color_texture)
+		table.insert(self.clear_colors, clear_colors[i] or {0, 0, 0, 1})
+	end
+
+	self.color_texture = self.color_textures[1]
+	self.clear_color = self.clear_colors[1]
 
 	if config.depth then
 		self.depth_texture = Texture.New(
@@ -42,14 +50,17 @@ function Framebuffer.New(config)
 				height = height,
 				format = config.depth_format or "d32_sfloat",
 				image = {
-					usage = {"depth_stencil_attachment"},
+					usage = {"depth_stencil_attachment", "sampled"},
 					properties = "device_local",
 					samples = samples,
 				},
 				view = {
 					aspect = "depth",
 				},
-				sampler = false,
+				sampler = {
+					min_filter = "linear",
+					mag_filter = "linear",
+				},
 			}
 		)
 	end
@@ -68,33 +79,68 @@ function Framebuffer:Begin(cmd)
 		self.cmd:Begin()
 	end
 
-	-- Transition color attachment to optimal layout
+	-- Transition color attachments to optimal layout
+	local imageBarriers = {}
+
+	for _, tex in ipairs(self.color_textures) do
+		table.insert(
+			imageBarriers,
+			{
+				image = tex:GetImage(),
+				srcAccessMask = "none",
+				dstAccessMask = "color_attachment_write",
+				oldLayout = "undefined",
+				newLayout = "color_attachment_optimal",
+			}
+		)
+	end
+
+	if self.depth_texture then
+		table.insert(
+			imageBarriers,
+			{
+				image = self.depth_texture:GetImage(),
+				srcAccessMask = "none",
+				dstAccessMask = "depth_stencil_attachment_write",
+				oldLayout = "undefined",
+				newLayout = "depth_attachment_optimal",
+				aspect = "depth",
+			}
+		)
+	end
+
 	cmd:PipelineBarrier(
 		{
 			srcStage = "top_of_pipe",
-			dstStage = "color_attachment_output",
-			imageBarriers = {
-				{
-					image = self.color_texture:GetImage(),
-					srcAccessMask = "none",
-					dstAccessMask = "color_attachment_write",
-					oldLayout = "undefined",
-					newLayout = "color_attachment_optimal",
-				},
-			},
+			dstStage = {"color_attachment_output", "early_fragment_tests", "late_fragment_tests"},
+			imageBarriers = imageBarriers,
 		}
 	)
 	-- Begin rendering
+	local color_attachments = {}
+
+	for i, tex in ipairs(self.color_textures) do
+		table.insert(
+			color_attachments,
+			{
+				color_image_view = tex:GetView(),
+				clear_color = self.clear_colors[i],
+				load_op = "clear",
+				store_op = "store",
+			}
+		)
+	end
+
 	local rendering_info = {
-		color_image_view = self.color_texture:GetView(),
+		color_attachments = color_attachments,
 		w = self.width,
 		h = self.height,
-		clear_color = self.clear_color,
 	}
 
 	if self.depth_texture then
 		rendering_info.depth_image_view = self.depth_texture:GetView()
 		rendering_info.clear_depth = 1.0
+		rendering_info.depth_store = true
 	end
 
 	cmd:BeginRendering(rendering_info)
@@ -106,20 +152,41 @@ end
 function Framebuffer:End(cmd)
 	cmd = cmd or self.cmd
 	cmd:EndRendering()
-	-- Transition color attachment to shader read layout
+	-- Transition color attachments to shader read layout
+	local imageBarriers = {}
+
+	for _, tex in ipairs(self.color_textures) do
+		table.insert(
+			imageBarriers,
+			{
+				image = tex:GetImage(),
+				srcAccessMask = "color_attachment_write",
+				dstAccessMask = "shader_read",
+				oldLayout = "color_attachment_optimal",
+				newLayout = "shader_read_only_optimal",
+			}
+		)
+	end
+
+	if self.depth_texture then
+		table.insert(
+			imageBarriers,
+			{
+				image = self.depth_texture:GetImage(),
+				srcAccessMask = "depth_stencil_attachment_write",
+				dstAccessMask = "shader_read",
+				oldLayout = "depth_attachment_optimal",
+				newLayout = "shader_read_only_optimal",
+				aspect = "depth",
+			}
+		)
+	end
+
 	cmd:PipelineBarrier(
 		{
-			srcStage = "color_attachment_output",
+			srcStage = {"color_attachment_output", "late_fragment_tests"},
 			dstStage = "fragment",
-			imageBarriers = {
-				{
-					image = self.color_texture:GetImage(),
-					srcAccessMask = "color_attachment_write",
-					dstAccessMask = "shader_read",
-					oldLayout = "color_attachment_optimal",
-					newLayout = "shader_read_only_optimal",
-				},
-			},
+			imageBarriers = imageBarriers,
 		}
 	)
 
@@ -132,8 +199,10 @@ function Framebuffer:End(cmd)
 end
 
 function Framebuffer:GetAttachment(key)
+	if type(key) == "number" then return self.color_textures[key] end
+
 	if key == "color" then
-		return self.color_texture
+		return self.color_textures[1]
 	elseif key == "depth" and self.depth_texture then
 		return self.depth_texture
 	end
@@ -142,7 +211,7 @@ function Framebuffer:GetAttachment(key)
 end
 
 function Framebuffer:GetColorTexture()
-	return self.color_texture
+	return self.color_textures[1]
 end
 
 function Framebuffer:GetDepthTexture()

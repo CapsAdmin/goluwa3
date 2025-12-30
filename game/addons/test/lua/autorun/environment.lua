@@ -54,7 +54,7 @@ do
 		for y = 0, 6 do
 			debug_ent(Vec3(x, y, 0), nil, function(poly, mat)
 				-- gold
-				mat:SetColorMultiplier(Color(1.0, 1, 1))
+				mat:SetColorMultiplier(Color(1.0, 1, 1, 1))
 				local roughness = x / 8
 				local metallic = y / 8
 				mat:SetRoughnessMultiplier(roughness)
@@ -63,4 +63,18 @@ do
 			end)
 		end
 	end
+
+	for y = 1, 10 do
+		debug_ent(Vec3(0, y, 40), nil, function(poly, mat)
+			-- gold
+			mat:SetTranslucent(true)
+			mat:SetColorMultiplier(Color(1, 1, 1.0, y / 10))
+			poly:CreateSphere(0.5)
+		end)
+	end
+
+	debug_ent(Vec3(0, 0, 10), nil, function(poly, mat)
+		mat:SetColorMultiplier(Color(1.0, 1, 1, 1))
+		poly:CreateCube()
+	end)
 end

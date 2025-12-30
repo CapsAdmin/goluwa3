@@ -9,8 +9,8 @@ local Vec3 = require("structs.vec3")
 local Ang3 = require("structs.ang3")
 local Vec2 = require("structs.vec2")
 local Quat = require("structs.quat")
-local ShadowMap = {}
-ShadowMap.__index = ShadowMap
+local prototype = require("prototype")
+local ShadowMap = prototype.CreateTemplate("shadow_map")
 -- Default shadow map settings
 local DEFAULT_SIZE = Vec2() + 2048 --Vec2(800, 600) --Vec2() + 2048 -- Shadow map resolution
 local DEFAULT_FORMAT = "d32_sfloat"
@@ -28,7 +28,7 @@ local ShadowVertexConstants = ffi.typeof([[
 
 function ShadowMap.New(config)
 	config = config or {}
-	local self = setmetatable({}, ShadowMap)
+	local self = prototype.CreateObject("shadow_map")
 	self.size = config.size or DEFAULT_SIZE
 	self.format = config.format or DEFAULT_FORMAT
 	self.near_plane = config.near_plane or 0.1
@@ -164,15 +164,16 @@ function ShadowMap.New(config)
 					layout(location = 0) in vec2 in_uv;
 					
 					#define FLAGS pc.flags
-					]] .. Material.BuildGlslFlags() .. [[
+					]] .. Material.BuildGlslFlags("pc.flags") .. [[
 
 					// Get alpha using same logic as render3d.lua
 					float get_alpha() {
-						if (AlbedoTextureAlphaIsMetallic || AlbedoTextureAlphaIsRoughness) {
-							return pc.color_multiplier_a;
-						}
-
-						if (pc.albedo_texture_index <= 0) {
+						if (
+							pc.albedo_texture_index == -1 ||
+							AlbedoTextureAlphaIsMetallic ||
+							AlbedoTextureAlphaIsRoughness 
+						)
+						{
 							return pc.color_multiplier_a;
 						}
 
@@ -298,7 +299,7 @@ function ShadowMap:UpdateCascadeLightMatrices(light_rotation)
 		local view = tr
 		-- Build orthographic projection (same approach as working UpdateLightMatrix)
 		local projection = Matrix44()
-		local size = cascade_ortho_size * 10
+		local size = cascade_ortho_size * -10
 		-- Standard ortho: left=-size, right=size, bottom=-size, top=size
 		-- Near/far should encompass the shadow volume in front of the light
 		-- flip_y=true for 3D shadow rendering to match perspective projection
@@ -373,13 +374,13 @@ end
 function ShadowMap:UploadConstants(world_matrix, material, cascade_index)
 	cascade_index = cascade_index or self.current_cascade
 	local constants = ShadowVertexConstants()
-	local mvp = world_matrix * self.cascade[cascade_index].light_space_matrix
+	local mvp = self.cascade[cascade_index].light_space_matrix * world_matrix
 	constants.light_space_matrix = mvp:GetFloatCopy()
 
 	-- If material is provided, get its albedo texture index and flags for alpha testing
 	if material then
 		constants.albedo_texture_index = self.pipeline:GetTextureIndex(material:GetAlbedoTexture())
-		constants.flags = material:GetFlags()
+		constants.flags = material:GetFillFlags()
 		constants.color_multiplier_a = material:GetColorMultiplier().a
 		constants.alpha_cutoff = material:GetAlphaCutoff()
 	else
@@ -457,4 +458,4 @@ function ShadowMap:GetSize()
 	return self.size
 end
 
-return ShadowMap
+return ShadowMap:Register()

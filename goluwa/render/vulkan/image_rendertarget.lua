@@ -367,7 +367,7 @@ function ImageRenderTarget:BeginFrame()
 	render_config.clear_depth = 1.0
 
 	-- Add MSAA for windowed mode only
-	if not self.config.offscreen then
+	if not self.config.offscreen and self.samples ~= "1" then
 		render_config.msaa_image_view = self:GetMSAAImageView()
 	end
 

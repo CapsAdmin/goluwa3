@@ -48,6 +48,7 @@ function render.Initialize(config)
 				composite_alpha = "opaque_khr",
 				width = size.x,
 				height = size.y,
+				samples = config.samples,
 			}
 		)
 		render.target = target

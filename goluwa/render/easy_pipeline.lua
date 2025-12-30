@@ -88,7 +88,11 @@ function EasyPipeline.New(config)
 
 					if array_size then
 						ffi_code = ffi_code .. string.format("    %s %s[%d];\n", ffi_type, info.name, array_size)
-						glsl_fields = glsl_fields .. string.format("    %s %s[%d];\n", info.glsl_type, info.name, array_size)
+						if info.array_size then
+							glsl_fields = glsl_fields .. string.format("    %s %s[%d];\n", info.glsl_type, info.name, info.array_size)
+						else
+							glsl_fields = glsl_fields .. string.format("    %s %s;\n", info.glsl_type, info.name)
+						end
 					else
 						ffi_code = ffi_code .. string.format("    %s %s;\n", ffi_type, info.name)
 						glsl_fields = glsl_fields .. string.format("    %s %s;\n", info.glsl_type, info.name)

@@ -63,7 +63,7 @@ T.Pending("MDL Model", function()
 	draw3d(function()
 		local cam = render3d.GetCamera()
 		cam:SetPosition(Vec3(0, 0.25, 1))
-		ent.model:OnDraw3D(render.GetCommandBuffer())
+		ent.model:OnDraw3DGeometry(render.GetCommandBuffer())
 	end)
 
 	render.Screenshot("test")

@@ -95,11 +95,19 @@ function Material:InvalidateFlags()
 	self.Flags = flags
 end
 
-function Material.BuildGlslFlags()
+function Material:GetFillFlags()
+	return self.Flags
+end
+
+function Material:GetLightFlags()
+	return self.Flags
+end
+
+function Material.BuildGlslFlags(var_name)
 	local str = ""
 
 	for i, flag_name in ipairs(FLAGS) do
-		str = str .. "#define " .. flag_name .. " ((FLAGS & " .. tostring(bit.lshift(1, i - 1)) .. ") != 0)\n"
+		str = str .. "#define " .. flag_name .. " ((" .. var_name .. " & " .. tostring(bit.lshift(1, i - 1)) .. ") != 0)\n"
 	end
 
 	return str

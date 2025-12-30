@@ -12,10 +12,19 @@ local Quat = require("structs.quat")
 local Rect = require("structs.rect")
 local Camera3D = require("render3d.camera3d")
 local Light = require("components.light")
+local Framebuffer = require("render.framebuffer")
 local render3d = library()
 render3d.current_material = nil
 render3d.environment_texture = nil
+render3d.gbuffer = nil
 render3d.config = {
+	color_format = {
+		"r8g8b8a8_unorm", -- albedo
+		"r16g16b16a16_sfloat", -- normal
+		"r8g8b8a8_unorm", -- metallic, roughness, ao
+		"r8g8b8a8_unorm", -- emissive
+	},
+	samples = "1",
 	vertex = {
 		binding_index = 0,
 		attributes = {
@@ -46,9 +55,7 @@ render3d.config = {
 		},
 		shader = [[
 			void main() {
-				// ORIENTATION / TRANSFORMATION
 				gl_Position = pc.vertex.projection_view_world * vec4(in_position, 1.0);
-
 				out_position = (pc.vertex.world * vec4(in_position, 1.0)).xyz;						
 				out_normal = normalize(mat3(pc.vertex.world) * in_normal);
 				out_uv = in_uv;
@@ -57,27 +64,10 @@ render3d.config = {
 	},
 	fragment = {
 		custom_declarations = [[
-			struct ShadowData {
-				mat4 light_space_matrices[4];
-				vec4 cascade_splits;
-				ivec4 shadow_map_indices;
-				int cascade_count;
-			};
-
-			struct Light {
-				vec4 position; // w = type
-				vec4 color;    // w = intensity
-				vec4 params;   // x = range, y = inner, z = outer
-			};
-
-			// UBO for light and shadow data
-			layout(std140, binding = 2) uniform LightData {
-				ShadowData shadow;
-				Light lights[32];
-			} light_data;
-
-			// output color
-			layout(location = 0) out vec4 out_color;
+			layout(location = 0) out vec4 out_albedo;
+			layout(location = 1) out vec4 out_normal;
+			layout(location = 2) out vec4 out_metallic_roughness_ao;
+			layout(location = 3) out vec4 out_emissive;
 		]],
 		descriptor_sets = {
 			{
@@ -104,7 +94,7 @@ render3d.config = {
 						"debug_mode",
 						"int",
 						function(constants)
-							return render3d.debug_mode or 0
+							return render3d.debug_mode or 1
 						end,
 					},
 					{
@@ -132,7 +122,7 @@ render3d.config = {
 						"Flags",
 						"int",
 						function(constants)
-							return render3d.GetMaterial():GetFlags()
+							return render3d.GetMaterial():GetFillFlags()
 						end,
 					},
 					{
@@ -171,13 +161,6 @@ render3d.config = {
 						end,
 					},
 					{
-						"EnvironmentTexture",
-						"int",
-						function(constants)
-							return render3d.pipeline:GetTextureIndex(render3d.GetEnvironmentTexture())
-						end,
-					},
-					{
 						"ColorMultiplier",
 						"vec4",
 						function(constants)
@@ -199,13 +182,6 @@ render3d.config = {
 						end,
 					},
 					{
-						"NormalMapMultiplier",
-						"float",
-						function(constants)
-							return render3d.GetMaterial():GetNormalMapMultiplier()
-						end,
-					},
-					{
 						"AmbientOcclusionMultiplier",
 						"float",
 						function(constants)
@@ -224,27 +200,6 @@ render3d.config = {
 						"float",
 						function(constants)
 							return render3d.GetMaterial():GetAlphaCutoff()
-						end,
-					},
-					{
-						"Albedo2Texture",
-						"int",
-						function(constants)
-							return render3d.pipeline:GetTextureIndex(render3d.GetMaterial():GetAlbedo2Texture())
-						end,
-					},
-					{
-						"Normal2Texture",
-						"int",
-						function(constants)
-							return render3d.pipeline:GetTextureIndex(render3d.GetMaterial():GetNormal2Texture())
-						end,
-					},
-					{
-						"AlbedoBlendTexture",
-						"int",
-						function(constants)
-							return render3d.pipeline:GetTextureIndex(render3d.GetMaterial():GetAlbedoBlendTexture())
 						end,
 					},
 					{
@@ -270,42 +225,9 @@ render3d.config = {
 					},
 				},
 			},
-			{
-				name = "fragment",
-				block = {
-					{
-						"camera_position",
-						"vec3",
-						function(constants)
-							return render3d.camera:GetPosition():CopyToFloatPointer(constants.camera_position)
-						end,
-					},
-					{
-						"light_count",
-						"int",
-						function(constants)
-							return math.min(#Light.GetLights(), 32)
-						end,
-					},
-				},
-			},
 		},
 		shader = [[
-			#define FLAGS pc.model.Flags
-			]] .. Material.BuildGlslFlags() .. [[
-			const float PI = 3.14159265359;
-
-			float get_alpha() {
-				if (
-					AlbedoTextureAlphaIsMetallic ||
-					AlbedoTextureAlphaIsRoughness 
-				) {
-					return pc.model.ColorMultiplier.a;	
-				}
-
-				float alpha = texture(TEXTURE(pc.model.AlbedoTexture), in_uv).a * pc.model.ColorMultiplier.a;
-				return alpha;
-			}
+			]] .. Material.BuildGlslFlags("pc.model.Flags") .. [[
 
 			vec3 get_albedo() {
 				if (pc.model.AlbedoTexture == -1) {
@@ -314,42 +236,42 @@ render3d.config = {
 				return texture(TEXTURE(pc.model.AlbedoTexture), in_uv).rgb * pc.model.ColorMultiplier.rgb;
 			}
 
+			float get_alpha() {
+
+				if (
+					pc.model.AlbedoTexture == -1 ||
+					AlbedoTextureAlphaIsMetallic ||
+					AlbedoTextureAlphaIsRoughness 
+				) {
+					return pc.model.ColorMultiplier.a;	
+				}
+
+				return texture(TEXTURE(pc.model.AlbedoTexture), in_uv).a * pc.model.ColorMultiplier.a;
+			}
+
 			vec3 get_normal() {
 				if (pc.model.NormalTexture == -1) {
 					return normalize(in_normal);
 				}
+				
+				vec3 tangent_normal = texture(TEXTURE(pc.model.NormalTexture), in_uv).xyz * 2.0 - 1.0;
+				
+				// Calculate TBN matrix on the fly
+				vec3 Q1 = dFdx(in_position);
+				vec3 Q2 = dFdy(in_position);
+				vec2 st1 = dFdx(in_uv);
+				vec2 st2 = dFdy(in_uv);
 
-				vec3 tangent_normal = texture(TEXTURE(pc.model.NormalTexture), in_uv).rgb * 2.0 - 1.0;
-				
-				if (ReverseXZNormalMap) {
-					tangent_normal.x = -tangent_normal.x;
-					tangent_normal.y = -tangent_normal.y;
-				}						
-				
-				tangent_normal = normalize(tangent_normal);
-				tangent_normal *= pc.model.NormalMapMultiplier;
-				
-				// Calculate tangents on-the-fly using screen-space derivatives
-				vec3 dp1 = dFdx(in_position);
-				vec3 dp2 = dFdy(in_position);
-				vec2 duv1 = dFdx(in_uv);
-				vec2 duv2 = dFdy(in_uv);
-				
-				// Solve for tangent and bitangent
-				vec3 dp2perp = cross(dp2, in_normal);
-				vec3 dp1perp = cross(in_normal, dp1);
-				vec3 T = dp2perp * duv1.x + dp1perp * duv2.x;
-				vec3 B = dp2perp * duv1.y + dp1perp * duv2.y;
-				
-				// Construct TBN matrix
-				float invmax = inversesqrt(max(dot(T, T), dot(B, B)));
-				mat3 TBN = mat3(T * invmax, B * invmax, in_normal);
+				vec3 N = normalize(in_normal);
+				vec3 T = normalize(Q1 * st2.t - Q2 * st1.t);
+				vec3 B = -normalize(cross(N, T));
+				mat3 TBN = mat3(T, B, N);
+
 				return normalize(TBN * tangent_normal);
 			}
 
 			float get_metallic() {
 				float val = 0.0;
-			
 				if (pc.model.AlbedoTexture != -1 && AlbedoTextureAlphaIsMetallic) {
 					val = 1.0 - texture(TEXTURE(pc.model.AlbedoTexture), in_uv).a;
 				} else if (pc.model.NormalTexture != -1 && NormalTextureAlphaIsMetallic) {
@@ -366,66 +288,34 @@ render3d.config = {
 
 			float get_roughness() {
 				float val = 1.0;
-
 				if (pc.model.AlbedoTexture != -1 && AlbedoTextureAlphaIsRoughness) {
 					val = 1.0 - texture(TEXTURE(pc.model.AlbedoTexture), in_uv).a;
-					if (InvertRoughnessTexture) {
-						val = 1.0 - val;
-					}
+					if (InvertRoughnessTexture) val = 1.0 - val;
 				} else if (AlbedoLuminanceIsRoughness) {
 					val = dot(get_albedo(), vec3(0.2126, 0.7152, 0.0722));
-					if (InvertRoughnessTexture) {
-						val = 1.0 - val;
-					}
+					if (InvertRoughnessTexture) val = 1.0 - val;
 				} else if (pc.model.RoughnessTexture != -1) {
 					val = texture(TEXTURE(pc.model.RoughnessTexture), in_uv).r;
-					if (InvertRoughnessTexture) {
-						val = 1.0 - val;
-					}
+					if (InvertRoughnessTexture) val = 1.0 - val;
 				} else if (pc.model.MetallicRoughnessTexture != -1) {
 					val = texture(TEXTURE(pc.model.MetallicRoughnessTexture), in_uv).g;
 				} else  {
 					return pc.model.RoughnessMultiplier;
 				}
-
 				return val * pc.model.RoughnessMultiplier;
-			}
-
-			vec3 env_color(vec3 normal, float roughness) {
-				if (pc.model.EnvironmentTexture == -1) {
-					return vec3(0.2);
-				}
-				vec3 V = normalize(pc.fragment.camera_position - in_position);
-
-				float NdotV = dot(normal, V);
-				if (NdotV <= 0.0) {
-					return vec3(0.0); // or some fallback
-				}
-				vec3 R = reflect(-V, normal);
-				R = mix(R, normal, roughness * roughness);
-				R = normalize(R);
-				
-				float max_mip = float(textureQueryLevels(CUBEMAP(pc.model.EnvironmentTexture)) - 1);
-				float mip_level = sqrt(roughness) * (max_mip - 1.0) + 1.0;
-				
-				return textureLod(CUBEMAP(pc.model.EnvironmentTexture), R, mip_level).rgb;
 			}
 
 			vec3 get_emissive() {
 				if (pc.model.SelfIlluminationTexture != -1) {
-					// Self-illum mask: multiply albedo by mask value
 					float mask = texture(TEXTURE(pc.model.SelfIlluminationTexture), in_uv).r;
 					return get_albedo() * mask * pc.model.EmissiveMultiplier.rgb * pc.model.EmissiveMultiplier.a;
 				} else if (pc.model.MetallicTexture != -1 && MetallicTextureAlphaIsEmissive) {
-					// Emissive stored in metallic texture alpha (selfillum_envmapmask_alpha)
 					float mask = texture(TEXTURE(pc.model.MetallicTexture), in_uv).a;
 					return get_albedo() * mask * pc.model.EmissiveMultiplier.rgb * pc.model.EmissiveMultiplier.a;
 				} else if (pc.model.EmissiveTexture != -1) {
-					// Standard glTF emissive texture
 					vec3 emissive = texture(TEXTURE(pc.model.EmissiveTexture), in_uv).rgb;
 					return emissive * pc.model.EmissiveMultiplier.rgb * pc.model.EmissiveMultiplier.a;
 				}
-
 				return pc.model.EmissiveMultiplier.rgb * pc.model.EmissiveMultiplier.a;
 			}
 
@@ -433,12 +323,211 @@ render3d.config = {
 				if (pc.model.AmbientOcclusionTexture == -1) {
 					return 1.0 * pc.model.AmbientOcclusionMultiplier;
 				}
-			
 				return texture(TEXTURE(pc.model.AmbientOcclusionTexture), in_uv).r * pc.model.AmbientOcclusionMultiplier;
 			}
 
+			void main() {
+				float alpha = get_alpha();
 
+				if (AlphaTest) {
+					if (alpha < pc.model.AlphaCutoff) discard;
+				} else if (Translucent) {
+					if (fract(dot(vec2(171.0, 231.0) + alpha * 0.00001, gl_FragCoord.xy) / 103.0) > (alpha * alpha)) discard;
+				}
 
+				out_albedo = vec4(get_albedo(), alpha);
+				out_normal = vec4(get_normal(), 1.0);
+				out_metallic_roughness_ao = vec4(get_metallic(), get_roughness(), get_ao(), 1.0);
+				out_emissive = vec4(get_emissive(), 1.0);
+			}
+		]],
+	},
+	rasterizer = {
+		depth_clamp = false,
+		discard = false,
+		polygon_mode = "fill",
+		line_width = 1.0,
+		cull_mode = orientation.CULL_MODE,
+		front_face = orientation.FRONT_FACE,
+		depth_bias = 0,
+	},
+	dynamic_state = {
+		"cull_mode",
+	},
+	color_blend = {
+		logic_op_enabled = false,
+		logic_op = "copy",
+		constants = {0.0, 0.0, 0.0, 0.0},
+		attachments = {
+			{blend = false, color_write_mask = {"r", "g", "b", "a"}},
+			{blend = false, color_write_mask = {"r", "g", "b", "a"}},
+			{blend = false, color_write_mask = {"r", "g", "b", "a"}},
+			{blend = false, color_write_mask = {"r", "g", "b", "a"}},
+		},
+	},
+	depth_stencil = {
+		depth_test = true,
+		depth_write = true,
+		depth_compare_op = "less",
+		depth_bounds_test_enabled = false,
+		stencil_test_enabled = false,
+	},
+}
+render3d.lighting_config = {
+	samples = "1",
+	vertex = {
+		custom_declarations = [[
+			layout(location = 0) out vec2 out_uv;
+		]],
+		shader = [[
+			void main() {
+				vec2 uv = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
+				gl_Position = vec4(uv * 2.0 - 1.0, 0.0, 1.0);
+				out_uv = uv;
+			}
+		]],
+	},
+	fragment = {
+		custom_declarations = [[
+			layout(location = 0) in vec2 in_uv;
+
+			struct ShadowData {
+				mat4 light_space_matrices[4];
+				vec4 cascade_splits;
+				ivec4 shadow_map_indices;
+				int cascade_count;
+			};
+
+			struct Light {
+				vec4 position; // w = type
+				vec4 color;    // w = intensity
+				vec4 params;   // x = range, y = inner, z = outer
+			};
+
+			layout(std140, binding = 2) uniform LightData {
+				ShadowData shadow;
+				Light lights[32];
+			} light_data;
+
+			layout(location = 0) out vec4 out_color;
+		]],
+		descriptor_sets = {
+			{
+				type = "uniform_buffer",
+				binding_index = 2,
+				args = function()
+					return {Light.GetUBO()}
+				end,
+			},
+		},
+		uniform_buffers = {
+			{
+				name = "lighting_data",
+				binding_index = 3,
+				block = {
+					{
+						"inv_view",
+						"mat4",
+						function(constants)
+							return render3d.camera:BuildViewMatrix():GetInverse():CopyToFloatPointer(constants.inv_view)
+						end,
+					},
+					{
+						"inv_projection",
+						"mat4",
+						function(constants)
+							return render3d.camera:BuildProjectionMatrix():GetInverse():CopyToFloatPointer(constants.inv_projection)
+						end,
+					},
+					{
+						"camera_position",
+						"vec3",
+						function(constants)
+							return render3d.camera:GetPosition():CopyToFloatPointer(constants.camera_position)
+						end,
+					},
+					{
+						"light_count",
+						"int",
+						function(constants)
+							return math.min(#Light.GetLights(), 32)
+						end,
+					},
+					{
+						"debug_cascade_colors",
+						"int",
+						function(constants)
+							return render3d.debug_cascade_colors and 1 or 0
+						end,
+					},
+					{
+						"debug_mode",
+						"int",
+						function(constants)
+							return render3d.debug_mode or 1
+						end,
+					},
+					{
+						"near_z",
+						"float",
+						function(constants)
+							return render3d.camera:GetNearZ()
+						end,
+					},
+					{
+						"far_z",
+						"float",
+						function(constants)
+							return render3d.camera:GetFarZ()
+						end,
+					},
+					{
+						"albedo_tex",
+						"int",
+						function(constants)
+							return render3d.lighting_pipeline:GetTextureIndex(render3d.gbuffer:GetAttachment(1))
+						end,
+					},
+					{
+						"normal_tex",
+						"int",
+						function(constants)
+							return render3d.lighting_pipeline:GetTextureIndex(render3d.gbuffer:GetAttachment(2))
+						end,
+					},
+					{
+						"mra_tex",
+						"int",
+						function(constants)
+							return render3d.lighting_pipeline:GetTextureIndex(render3d.gbuffer:GetAttachment(3))
+						end,
+					},
+					{
+						"emissive_tex",
+						"int",
+						function(constants)
+							return render3d.lighting_pipeline:GetTextureIndex(render3d.gbuffer:GetAttachment(4))
+						end,
+					},
+					{
+						"depth_tex",
+						"int",
+						function(constants)
+							return render3d.lighting_pipeline:GetTextureIndex(render3d.gbuffer:GetDepthTexture())
+						end,
+					},
+					{
+						"env_tex",
+						"int",
+						function(constants)
+							return render3d.lighting_pipeline:GetTextureIndex(render3d.GetEnvironmentTexture())
+						end,
+					},
+				},
+			},
+		},
+		shader = [[
+			const float PI = 3.14159265359;
 
 			// Cascade debug colors
 			const vec3 CASCADE_COLORS[4] = vec3[4](
@@ -450,7 +539,7 @@ render3d.config = {
 
 			// Get cascade index based on view distance
 			int getCascadeIndex(vec3 world_pos) {
-				float dist = length(world_pos - pc.fragment.camera_position);
+				float dist = length(world_pos - lighting_data.camera_position);
 				
 				for (int i = 0; i < light_data.shadow.cascade_count; i++) {
 					if (dist < light_data.shadow.cascade_splits[i]) {
@@ -491,218 +580,147 @@ render3d.config = {
 
 			// PCF Shadow calculation
 			float calculateShadow(vec3 world_pos, vec3 normal, vec3 light_dir) {
-				// Get cascade index for this fragment
 				int cascade_idx = getCascadeIndex(world_pos);
-				if (cascade_idx < 0) {
-					return 1.0;
-				}
+				if (cascade_idx < 0) return 1.0;
 				
-				// Get shadow map index for this cascade
 				int shadow_map_idx = light_data.shadow.shadow_map_indices[cascade_idx];
-				if (shadow_map_idx < 0) {
-					return 1.0; // No shadow map for this cascade
-				}
+				if (shadow_map_idx < 0) return 1.0;
 				
-				// Normal offset bias to prevent shadow acne
-				// The amount of offset depends on the angle of the surface to the light
 				float bias_val = max(0.05 * (1.0 - dot(normal, light_dir)), 0.005);
-				vec3 offset_pos = world_pos + normal * (bias_val );
-
-				// Transform to light space using the cascade's matrix
+				vec3 offset_pos = world_pos + normal * bias_val;
 				vec4 light_space_pos = light_data.shadow.light_space_matrices[cascade_idx] * vec4(offset_pos, 1.0);
-				
-				// Perspective divide
 				vec3 proj_coords = light_space_pos.xyz / light_space_pos.w;
-				
-				// Transform X,Y from NDC [-1,1] to UV [0,1]
-				// Z (depth) is already in [0,1] for Vulkan projection
 				proj_coords.xy = proj_coords.xy * 0.5 + 0.5;
 				
-				// Outside shadow map
 				if (proj_coords.z > 1.0 || proj_coords.z < 0.0 || proj_coords.x < 0.0 || proj_coords.x > 1.0 || proj_coords.y < 0.0 || proj_coords.y > 1.0) {
 					return 1.0;
 				}
 				vec2 texel_size = 1.0 / textureSize(TEXTURE(shadow_map_idx), 0);
-
 				float current_depth = proj_coords.z;
-				float additional_bias = 0.001;
-				
-				// PCF - sample 3x3 area
 				float shadow_val = 0.0;
 				for (int x = -1; x <= 1; ++x) {
 					for (int y = -1; y <= 1; ++y) {
 						float pcf_depth = texture(TEXTURE(shadow_map_idx), proj_coords.xy + vec2(x, y) * texel_size).r;
-						shadow_val += current_depth - additional_bias > pcf_depth ? 0.0 : 1.0;
+						shadow_val += current_depth - 0.001 > pcf_depth ? 0.0 : 1.0;
 					}
 				}
-				shadow_val /= 9.0;
-				
-				return shadow_val;
+				return shadow_val / 9.0;
+			}
+
+			vec3 env_color(vec3 normal, float roughness, vec3 V, vec3 world_pos) {
+				if (lighting_data.env_tex == -1) return vec3(0.2);
+				float NdotV = dot(normal, V);
+				if (NdotV <= 0.0) return vec3(0.0);
+				vec3 R = reflect(-V, normal);
+				R = mix(R, normal, roughness * roughness);
+				R = normalize(R);
+				float max_mip = float(textureQueryLevels(CUBEMAP(lighting_data.env_tex)) - 1);
+				float mip_level = sqrt(roughness) * (max_mip - 1.0) + 1.0;
+				return textureLod(CUBEMAP(lighting_data.env_tex), R, mip_level).rgb;
 			}
 
 			void main() {
-				float alpha = get_alpha();
+				vec4 albedo_alpha = texture(TEXTURE(lighting_data.albedo_tex), in_uv);
+				//if (albedo_alpha.a == 0.0) discard;
+				float depth = texture(TEXTURE(lighting_data.depth_tex), in_uv).r;
+				vec3 albedo = albedo_alpha.rgb;
 
-				if (AlphaTest) {
-					if (alpha < pc.model.AlphaCutoff) {
-						discard;
-					}
-				} else if (Translucent) {
-					if (fract(dot(vec2(171.0, 231.0) + alpha * 0.00001, gl_FragCoord.xy) / 103.0) > (alpha * alpha)) {
-						discard;
-					}
+				if (depth == 1.0) {
+					// Skybox or background
+					vec3 color = albedo;
+					color = color / (color + vec3(1.0));
+					color = pow(color, vec3(1.0/2.2));
+					out_color = vec4(color, albedo_alpha.a);
+					return;
 				}
 
-				vec3 albedo = get_albedo();
-				vec3 N = get_normal();
-				float metallic = get_metallic();
-				float roughness = get_roughness();
-				float ao = get_ao();
-				vec3 emissive = get_emissive();
-				vec3 reflection = env_color(N, roughness);
+				vec3 N = texture(TEXTURE(lighting_data.normal_tex), in_uv).xyz;
+				vec3 mra = texture(TEXTURE(lighting_data.mra_tex), in_uv).rgb;
+				float metallic = mra.r;
+				float roughness = mra.g;
+				float ao = mra.b;
+				vec3 emissive = texture(TEXTURE(lighting_data.emissive_tex), in_uv).rgb;
 
-				// TODO: texture blending for world textures
-				// TODO: tint albedo based on mask
-				// TODO: emissive textures
+				// Reconstruct world position from depth
+				vec4 clip_pos = vec4(in_uv * 2.0 - 1.0, depth, 1.0);
+				vec4 view_pos = lighting_data.inv_projection * clip_pos;
+				view_pos /= view_pos.w;
+				vec3 world_pos = (lighting_data.inv_view * view_pos).xyz;
 
-				// View direction - camera position needs to be negated (view matrix uses negative position)
-				vec3 V = normalize(pc.fragment.camera_position - in_position);
-				
-				// F0 for dielectrics is 0.04, for metals use albedo
-				vec3 F0 = mix(vec3(0.04), albedo.rgb, metallic);
+				vec3 V = normalize(lighting_data.camera_position - world_pos);
+				vec3 reflection = env_color(N, roughness, V, world_pos);
+				vec3 F0 = mix(vec3(0.04), albedo, metallic);
 				float NdotV = max(dot(N, V), 0.001);
 
 				vec3 Lo = vec3(0.0);
-				for (int i = 0; i < pc.fragment.light_count; i++) {
+				for (int i = 0; i < lighting_data.light_count; i++) {
 					Light light = light_data.lights[i];
 					int type = int(light.position.w);
-					
 					vec3 L;
 					float attenuation = 1.0;
-					
-					if (type == 0) { // DIRECTIONAL
+					if (type == 0) {
 						L = normalize(-light.position.xyz);
-					} else { // POINT or SPOT
-						vec3 light_to_pos = light.position.xyz - in_position;
+					} else {
+						vec3 light_to_pos = light.position.xyz - world_pos;
 						float dist = length(light_to_pos);
 						L = normalize(light_to_pos);
-						
 						float range = light.params.x;
 						attenuation = clamp(1.0 - dist / range, 0.0, 1.0);
 						attenuation *= attenuation;
-						
-						if (type == 2) { // SPOT
-							// For spot lights, light.position.xyz is position, but we also need direction.
-							// Wait, the current LightData doesn't have direction for spot lights?
-							// Actually, for spot lights, we might need another field.
-							// But let's look at how it was before.
-						}
 					}
-					
 					vec3 H = normalize(V + L);
 					float NdotL = max(dot(N, L), 0.0);
 					float HdotV = max(dot(H, V), 0.0);
-
-					// Cook-Torrance BRDF
 					float NDF = DistributionGGX(N, H, roughness);
 					float G = GeometrySmith(N, V, L, roughness);
 					vec3 F = fresnelSchlick(HdotV, F0);
-
 					vec3 kS = F;
 					vec3 kD = (1.0 - kS) * (1.0 - metallic);
-
 					vec3 numerator = NDF * G * F;
 					float denominator = 4.0 * NdotV * NdotL + 0.0001;
 					vec3 specular = numerator / denominator;
-
-					// Shadow - only for the first light (assumed sun) for now
 					float shadow_factor = 1.0;
 					if (i == 0 && light_data.shadow.shadow_map_indices[0] >= 0) {
-						shadow_factor = calculateShadow(in_position, N, L);
+						shadow_factor = calculateShadow(world_pos, N, L);
 					}
-
 					vec3 radiance = light.color.rgb * light.color.a * attenuation;
-					Lo += (kD * albedo.rgb / PI + specular) * radiance * NdotL * shadow_factor;
+					Lo += (kD * albedo / PI + specular) * radiance * NdotL * shadow_factor;
 				}
 
-				// Ambient - use environment map if available
-				vec3 ambient_diffuse = reflection * albedo.rgb * ao;
+				vec3 ambient_diffuse = reflection * albedo * ao;
 				vec3 F_ambient = fresnelSchlick(NdotV, F0);
 				vec3 ambient_specular = F_ambient * reflection * ao;
 				vec3 ambient = ambient_diffuse * (1.0 - metallic) + ambient_specular * metallic;
 				vec3 color = ambient + Lo + emissive;
 
-				// Tonemapping + gamma
 				color = color / (color + vec3(1.0));
 				color = pow(color, vec3(1.0/2.2));
 
-				// Debug: overlay cascade colors
-				if (debug_data.debug_cascade_colors != 0) {
-					int cascade_idx = getCascadeIndex(in_position);
-					vec3 cascade_color = CASCADE_COLORS[cascade_idx];
-					color = mix(color, cascade_color, 0.4);
+				if (lighting_data.debug_cascade_colors != 0) {
+					int cascade_idx = getCascadeIndex(world_pos);
+					color = mix(color, CASCADE_COLORS[cascade_idx], 0.4);
 				}
 
-				if (debug_data.debug_mode == 1) { // normals
+				int mode = lighting_data.debug_mode - 1;
+				
+				if (mode == 1) {
 					color = N * 0.5 + 0.5;
-				} else if (debug_data.debug_mode == 2) { // albedo
-					color = albedo;
-				} else if (debug_data.debug_mode == 3) { // roughness_metallic
-					color = vec3(roughness, metallic, 0.0);
-				} else if (debug_data.debug_mode == 4) { // depth
-					float z = gl_FragCoord.z;
-					float linear_depth = (debug_data.near_z * debug_data.far_z) / (debug_data.far_z + z * (debug_data.near_z - debug_data.far_z));
-					color = vec3(linear_depth / 100.0); // Scale it so we can actually see something (e.g. 100 units)
-				} else if (debug_data.debug_mode == 5) { // reflection
+				} else if (mode == 2) {
 					color = reflection;
-				} else if (debug_data.debug_mode == 6) { // geometry_normals
-					color = normalize(in_normal) * 0.5 + 0.5;
+				} else if (mode == 3) {
+					color = ambient_specular + emissive;
 				}
 
-				out_color = vec4(color, alpha);
+				out_color = vec4(color, albedo_alpha.a);
 			}
 		]],
 	},
 	rasterizer = {
-		depth_clamp = false,
-		discard = false,
-		polygon_mode = "fill",
-		line_width = 1.0,
-		cull_mode = orientation.CULL_MODE,
-		front_face = orientation.FRONT_FACE,
-		depth_bias = 0,
-	},
-	dynamic_state = {
-		"cull_mode",
-	},
-	color_blend = {
-		logic_op_enabled = false,
-		logic_op = "copy",
-		constants = {0.0, 0.0, 0.0, 0.0},
-		attachments = {
-			{
-				-- TODO: Respect Translucent flag from material for blend mode
-				blend = false,
-				src_color_blend_factor = "src_alpha",
-				dst_color_blend_factor = "one_minus_src_alpha",
-				color_blend_op = "add",
-				src_alpha_blend_factor = "one",
-				dst_alpha_blend_factor = "zero",
-				alpha_blend_op = "add",
-				color_write_mask = {"r", "g", "b", "a"},
-			},
-		},
-	},
-	multisampling = {
-		sample_shading = false,
-		rasterization_samples = "1",
+		cull_mode = "none",
 	},
 	depth_stencil = {
-		depth_test = true,
-		depth_write = true,
-		depth_compare_op = "less",
-		depth_bounds_test = false,
-		stencil_test = false,
+		depth_test = false,
+		depth_write = false,
 	},
 }
 
@@ -710,26 +728,86 @@ render3d.config = {
 function render3d.Initialize()
 	if render3d.pipeline then return end
 
+	local function create_gbuffer()
+		local size = window:GetSize()
+		render3d.gbuffer = Framebuffer.New(
+			{
+				width = size.x,
+				height = size.y,
+				formats = render3d.config.color_format,
+				depth = true,
+				depth_format = "d32_sfloat",
+			}
+		)
+	end
+
+	create_gbuffer()
+
 	-- Resolve descriptor set args functions
 	for _, desc in ipairs(render3d.config.fragment.descriptor_sets) do
 		if type(desc.args) == "function" then desc.args = desc.args() end
 	end
 
+	for _, desc in ipairs(render3d.lighting_config.fragment.descriptor_sets) do
+		if type(desc.args) == "function" then desc.args = desc.args() end
+	end
+
 	render3d.pipeline = EasyPipeline.New(render3d.config)
+	render3d.lighting_pipeline = EasyPipeline.New(render3d.lighting_config)
 
 	-- Store uniform buffers in render3d for external access
 	for name, ubo in pairs(render3d.pipeline.uniform_buffers) do
 		render3d[name .. "_ubo"] = ubo
 	end
 
-	event.AddListener("Draw", "draw_3d", function(cmd, dt)
+	event.AddListener("WindowFramebufferResized", "render3d_gbuffer", function(wnd, size)
+		create_gbuffer()
+		-- Update lighting pipeline descriptor sets with new G-buffer textures
+		local textures = {}
+
+		for _, tex in ipairs(render3d.gbuffer.color_textures) do
+			table.insert(textures, {view = tex.view, sampler = tex.sampler})
+		end
+
+		table.insert(
+			textures,
+			{
+				view = render3d.gbuffer.depth_texture.view,
+				sampler = render3d.gbuffer.depth_texture.sampler,
+			}
+		)
+
+		for i = 1, #render3d.lighting_pipeline.pipeline.descriptor_sets do
+			render3d.lighting_pipeline.pipeline:UpdateDescriptorSetArray(i, 0, textures)
+		end
+	end)
+
+	event.AddListener("PreRenderPass", "draw_3d_geometry", function(cmd)
 		if not render3d.pipeline then return end
 
-		Light.UpdateUBOs(render3d.pipeline.pipeline)
-		event.Call("DrawSkybox", cmd, dt)
-		render3d.pipeline:Bind(cmd)
-		event.Call("PreDraw3D", cmd, dt)
-		event.Call("Draw3D", cmd, dt)
+		local dt = 0 -- dt is not easily available here, but usually not needed for draw calls
+		Light.UpdateUBOs(render3d.lighting_pipeline.pipeline)
+		-- 1. Geometry Pass
+		render3d.gbuffer:Begin(cmd)
+
+		do
+			event.Call("DrawSkybox", cmd, dt)
+			render3d.pipeline:Bind(cmd)
+			event.Call("PreDraw3D", cmd, dt)
+			event.Call("Draw3DGeometry", cmd, dt)
+		end
+
+		render3d.gbuffer:End(cmd)
+	end)
+
+	event.AddListener("Draw", "draw_3d_lighting", function(cmd, dt)
+		if not render3d.pipeline then return end
+
+		-- 2. Lighting Pass
+		cmd:SetCullMode("none")
+		render3d.lighting_pipeline:Bind(cmd)
+		render3d.lighting_pipeline:UploadConstants(cmd)
+		cmd:Draw(3, 1, 0, 0)
 	end)
 
 	event.Call("Render3DInitialized")
@@ -795,27 +873,22 @@ function render3d.GetDebugCascadeColors()
 	return render3d.debug_cascade_colors
 end
 
-local debug_modes = {
-	none = 0,
-	normals = 1,
-	albedo = 2,
-	roughness_metallic = 3,
-	depth = 4,
-	reflection = 5,
-	geometry_normals = 6,
-}
-render3d.debug_mode = 0
+do
+	local debug_modes = {"none", "normals", "reflection", "light"}
+	render3d.debug_mode = 1
 
-function render3d.SetDebugMode(mode)
-	render3d.debug_mode = debug_modes[mode] or 0
-end
-
-function render3d.GetDebugMode()
-	for k, v in pairs(debug_modes) do
-		if v == render3d.debug_mode then return k end
+	function render3d.GetDebugModes()
+		return debug_modes
 	end
 
-	return "none"
+	function render3d.CycleDebugMode()
+		render3d.debug_mode = render3d.debug_mode % #debug_modes + 1
+		return debug_modes[render3d.debug_mode]
+	end
+
+	function render3d.GetDebugModeName()
+		return debug_modes[render3d.debug_mode]
+	end
 end
 
 event.AddListener("WindowFramebufferResized", "render3d", function(wnd, size)

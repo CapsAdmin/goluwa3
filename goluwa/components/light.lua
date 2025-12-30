@@ -138,7 +138,7 @@ end
 function META:UpdateShadowMap()
 	if not self.ShadowMap then return end
 
-	self.ShadowMap:UpdateCascadeLightMatrices(self.Rotation)
+	self.ShadowMap:UpdateCascadeLightMatrices(self:GetRotation())
 end
 
 local Model = nil
@@ -181,11 +181,19 @@ function META:UpdateShadowUBO()
 	Light.ubo_data.shadow.cascade_count = cascade_count
 end
 
+function META:GetEntityRotation()
+	if self.Entity and self.Entity:HasComponent("transform") then
+		return self.Entity.transform:GetRotation()
+	end
+
+	return Quat(0, 0, 0, 1)
+end
+
 function META:GetGPUData()
 	local data = LightData()
 
 	if self.LightType == META.TYPE_DIRECTIONAL then
-		local dir = self.Rotation:GetForward()
+		local dir = self:GetRotation():GetForward()
 		data.position[0] = dir.x
 		data.position[1] = dir.y
 		data.position[2] = dir.z
@@ -276,13 +284,19 @@ function Light.UpdateUBOs(pipeline)
 
 		for i = 1, cascade_count do
 			Light.ubo_data.shadow.shadow_map_indices[i - 1] = pipeline:GetTextureIndex(shadow_map:GetDepthTexture(i))
+			shadow_map:GetLightSpaceMatrix(i):CopyToFloatPointer(Light.ubo_data.shadow.light_space_matrices[i - 1])
+			Light.ubo_data.shadow.cascade_splits[i - 1] = shadow_map:GetCascadeSplits()[i]
 		end
+
+		Light.ubo_data.shadow.cascade_count = cascade_count
 
 		-- Fill remaining slots with -1
 		for i = cascade_count + 1, 4 do
 			Light.ubo_data.shadow.shadow_map_indices[i - 1] = -1
 		end
 	else
+		Light.ubo_data.shadow.cascade_count = 0
+
 		for i = 0, 3 do
 			Light.ubo_data.shadow.shadow_map_indices[i] = -1
 		end

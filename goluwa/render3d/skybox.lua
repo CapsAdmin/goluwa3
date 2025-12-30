@@ -21,6 +21,13 @@ skybox.update_cmd = nil
 local SIZE = 512
 
 function skybox.CreatePipeline(color_format, samples)
+	local attachments = {}
+	local num_attachments = type(color_format) == "table" and #color_format or 1
+
+	for i = 1, num_attachments do
+		table.insert(attachments, {blend = false, color_write_mask = {"r", "g", "b", "a"}})
+	end
+
 	return EasyPipeline.New(
 		{
 			color_format = color_format,
@@ -102,7 +109,18 @@ function skybox.CreatePipeline(color_format, samples)
 				},
 				custom_declarations = [[
 					layout(location = 0) in vec3 in_direction;
-					layout(location = 0) out vec4 out_color;
+					]] .. (
+						num_attachments > 1 and
+						[[
+						layout(location = 0) out vec4 out_albedo;
+						layout(location = 1) out vec4 out_normal;
+						layout(location = 2) out vec4 out_metallic_roughness_ao;
+						layout(location = 3) out vec4 out_emissive;
+					]] or
+						[[
+						layout(location = 0) out vec4 out_color;
+					]]
+					) .. [[
 					
 					const float PI = 3.14159265359;
 					
@@ -283,19 +301,23 @@ function skybox.CreatePipeline(color_format, samples)
 						// Blend: show stars when sky is dark, hide them during day
 						vec3 color = mix(spaceColor, skyColor, blendFactor);
 						
-						if (pc.fragment.envmap_rendering == 1) {
+						]] .. (
+						num_attachments > 1 and
+						[[
+							out_albedo = vec4(color, 1.0);
+							out_normal = vec4(0.0, 0.0, 0.0, 0.0);
+							out_metallic_roughness_ao = vec4(0.0, 1.0, 1.0, 1.0);
+							out_emissive = vec4(0.0, 0.0, 0.0, 1.0);
+						]] or
+						[[
 							out_color = vec4(color, 1.0);
-							return;
-						}
-
-							// Tonemapping + gamma
-						color = color / (color + vec3(1.0));
-						color = pow(color, vec3(1.0/2.2));
-
-						
-						out_color = vec4(color, 1.0);
+						]]
+					) .. [[
 					}
 				]],
+			},
+			color_blend = {
+				attachments = attachments,
 			},
 			rasterizer = {
 				cull_mode = "none",
@@ -340,7 +362,7 @@ function skybox.Initialize()
 		})
 	end
 
-	skybox.pipeline = skybox.CreatePipeline(render.target.color_format, render.target:GetSamples())
+	skybox.pipeline = skybox.CreatePipeline(render3d.config.color_format, "1")
 	skybox.cubemap_pipeline = skybox.CreatePipeline("b10g11r11_ufloat_pack32", "1")
 end
 

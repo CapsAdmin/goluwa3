@@ -18,7 +18,7 @@ local META = prototype.CreateTemplate("component", "model")
 META.ComponentName = "model"
 -- Model requires transform component
 META.Require = {"transform"}
-META.Events = {"Draw3D"}
+META.Events = {"Draw3DGeometry"}
 META:GetSet("Primitives", {})
 META:GetSet("Visible", true)
 META:GetSet("CastShadows", true)
@@ -318,7 +318,7 @@ do
 end
 
 -- Draw event handler
-function META:OnDraw3D(cmd, dt)
+function META:OnDraw3DGeometry(cmd, dt)
 	if not self.Visible then return end
 
 	if #self.Primitives == 0 then return end

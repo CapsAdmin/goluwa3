@@ -8,15 +8,6 @@ local render3d = require("render3d.render3d")
 local Model = require("components.model")
 -- Debug: Show debug info
 local show_debug_info = false
-local debug_modes = {
-	"none",
-	"normals",
-	"albedo",
-	"roughness_metallic",
-	"depth",
-	"reflection",
-	"geometry_normals",
-}
 
 -- Debug: Freeze frustum for culling
 function events.Draw2D.debug_info(dt)
@@ -127,7 +118,7 @@ local cascade_colors = {
 function events.Draw2D.debug_shadow_map(cmd, dt)
 	if not show_shadow_map then return end
 
-	local sun = render3d.GetSunLight()
+	local sun = render3d.GetLights()[1]
 
 	if not sun or not sun:HasShadows() then return end
 
@@ -197,21 +188,7 @@ function events.KeyInput.render3d_debug(key, press)
 	if key == "f" then render3d.freeze_culling = not render3d.freeze_culling end
 
 	-- Toggle debug modes
-	if key == "g" then
-		local current = render3d.GetDebugMode()
-		local next_mode = "none"
-
-		for i, mode in ipairs(debug_modes) do
-			if mode == current then
-				next_mode = debug_modes[i + 1] or debug_modes[1]
-
-				break
-			end
-		end
-
-		render3d.SetDebugMode(next_mode)
-		print("Debug mode: " .. next_mode)
-	end
+	if key == "h" then print("Debug mode: " .. render3d.CycleDebugMode()) end
 
 	if key == "c" and input.IsKeyDown("left_control") then system.ShutDown(0) end
 end
