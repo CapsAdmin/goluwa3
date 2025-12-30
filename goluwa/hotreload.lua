@@ -21,7 +21,9 @@ timer.Repeat(
 					if not last_time then
 						last_modified_times[path] = modified_time
 					elseif modified_time > last_time then
+						_G.HOTRELOAD = true
 						local success, result = pcall(dofile, path)
+						_G.HOTRELOAD = nil
 
 						if success then
 							print("reloaded " .. path)

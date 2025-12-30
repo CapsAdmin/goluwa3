@@ -13,10 +13,8 @@ local Rect = require("structs.rect")
 local Camera3D = require("render3d.camera3d")
 local Light = require("components.light")
 local Framebuffer = require("render.framebuffer")
+local system = require("system")
 local render3d = library()
-render3d.current_material = nil
-render3d.environment_texture = nil
-render3d.gbuffer = nil
 render3d.config = {
 	color_format = {
 		"r8g8b8a8_unorm", -- albedo
@@ -24,6 +22,7 @@ render3d.config = {
 		"r8g8b8a8_unorm", -- metallic, roughness, ao
 		"r8g8b8a8_unorm", -- emissive
 	},
+	depth_format = "d32_sfloat",
 	samples = "1",
 	vertex = {
 		binding_index = 0,
@@ -440,6 +439,20 @@ render3d.lighting_config = {
 						end,
 					},
 					{
+						"view",
+						"mat4",
+						function(constants)
+							return render3d.camera:BuildViewMatrix():CopyToFloatPointer(constants.view)
+						end,
+					},
+					{
+						"projection",
+						"mat4",
+						function(constants)
+							return render3d.camera:BuildProjectionMatrix():CopyToFloatPointer(constants.projection)
+						end,
+					},
+					{
 						"camera_position",
 						"vec3",
 						function(constants)
@@ -523,11 +536,39 @@ render3d.lighting_config = {
 							return render3d.lighting_pipeline:GetTextureIndex(render3d.GetEnvironmentTexture())
 						end,
 					},
+					{
+						"last_frame_tex",
+						"int",
+						function(constants)
+							if not render3d.lighting_fbs then return -1 end
+
+							local prev_idx = 3 - render3d.current_lighting_fb_index
+							return render3d.lighting_pipeline:GetTextureIndex(render3d.lighting_fbs[prev_idx]:GetAttachment(1))
+						end,
+					},
+					{
+						"time",
+						"float",
+						function(constants)
+							return system.GetElapsedTime()
+						end,
+					},
 				},
 			},
 		},
 		shader = [[
+			#define SSR 0
 			const float PI = 3.14159265359;
+
+			float hash(vec2 p) {
+				p = fract(p * vec2(123.34, 456.21));
+				p += dot(p, p + 45.32);
+				return fract(p.x * p.y);
+			}
+
+			vec3 random_vec3(vec2 p) {
+				return vec3(hash(p), hash(p + 1.0), hash(p + 2.0)) * 2.0 - 1.0;
+			}
 
 			// Cascade debug colors
 			const vec3 CASCADE_COLORS[4] = vec3[4](
@@ -536,6 +577,52 @@ render3d.lighting_config = {
 				vec3(0.2, 0.2, 1.0),  // Blue - cascade 3
 				vec3(1.0, 1.0, 0.2)   // Yellow - cascade 4
 			);
+
+			#if SSR
+			vec3 get_ssr(vec3 world_pos, vec3 N, vec3 V, float roughness) {
+				if (lighting_data.last_frame_tex == -1) return vec3(0.0);
+				//if (roughness > 0.8) return vec3(0.0);
+
+				vec3 R = reflect(-V, N);
+				vec4 view_pos = lighting_data.view * vec4(world_pos, 1.0);
+				vec3 view_dir = normalize(mat3(lighting_data.view) * R);
+
+				float step_size = 0.1;
+				int max_steps = 256;
+				vec3 current_pos = view_pos.xyz;
+
+				for (int i = 0; i < max_steps; i++) {
+					vec3 jittered_N = random_vec3(gl_FragCoord.xy + vec2(float(i)/256) + vec2(sin(lighting_data.time), -cos(lighting_data.time))) * roughness * 0.0000000001;
+
+					current_pos += view_dir * step_size + jittered_N;
+
+					vec4 projected_pos = lighting_data.projection * vec4(current_pos, 1.0);
+					projected_pos.xyz /= projected_pos.w;
+					vec2 uv = projected_pos.xy * 0.5 + 0.5;
+
+					if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) break;
+
+					float sampled_depth = texture(TEXTURE(lighting_data.depth_tex), uv).r;
+					vec4 sampled_clip_pos = vec4(uv * 2.0 - 1.0, sampled_depth, 1.0);
+					vec4 sampled_view_pos = lighting_data.inv_projection * sampled_clip_pos;
+					sampled_view_pos /= sampled_view_pos.w;
+
+					if (current_pos.z < sampled_view_pos.z) {
+						float depth_diff = abs(current_pos.z - sampled_view_pos.z);
+						if (depth_diff < 0.2) {
+							vec3 hit_color = texture(TEXTURE(lighting_data.last_frame_tex), uv).rgb;
+							float edge_fade = min(1.0, 10.0 * min(min(uv.x, 1.0 - uv.x), min(uv.y, 1.0 - uv.y)));
+							
+							// Fade out based on roughness
+							float roughness_fade = 1.0 - clamp(roughness * 1.2, 0.0, 1.0);
+							return hit_color * edge_fade * roughness_fade;
+						}
+					}
+					step_size *= 1.05;
+				}
+				return vec3(0.0);
+			}
+			#endif
 
 			// Get cascade index based on view distance
 			int getCascadeIndex(vec3 world_pos) {
@@ -608,6 +695,13 @@ render3d.lighting_config = {
 			}
 
 			vec3 env_color(vec3 normal, float roughness, vec3 V, vec3 world_pos) {
+				#if SSR
+				vec3 ssr_color = get_ssr(world_pos, normal, V, roughness);
+				if (length(ssr_color) > 0.0) {
+					return ssr_color;
+				}
+				#endif
+
 				if (lighting_data.env_tex == -1) return vec3(0.2);
 				float NdotV = dot(normal, V);
 				if (NdotV <= 0.0) return vec3(0.0);
@@ -723,10 +817,66 @@ render3d.lighting_config = {
 		depth_write = false,
 	},
 }
+render3d.blit_config = {
+	samples = "1",
+	vertex = {
+		custom_declarations = [[
+			layout(location = 0) out vec2 out_uv;
+		]],
+		shader = [[
+			void main() {
+				vec2 uv = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
+				gl_Position = vec4(uv * 2.0 - 1.0, 0.0, 1.0);
+				out_uv = uv;
+			}
+		]],
+	},
+	fragment = {
+		custom_declarations = [[
+			layout(location = 0) in vec2 in_uv;
+			layout(location = 0) out vec4 out_color;
+		]],
+		push_constants = {
+			{
+				name = "blit",
+				block = {
+					{
+						"tex",
+						"int",
+						function(constants)
+							if not render3d.lighting_fbs then return -1 end
 
---
+							return render3d.blit_pipeline:GetTextureIndex(render3d.lighting_fbs[render3d.current_lighting_fb_index]:GetAttachment(1))
+						end,
+					},
+				},
+			},
+		},
+		shader = [[
+			void main() {
+				if (pc.blit.tex == -1) {
+					out_color = vec4(1.0, 0.0, 1.0, 1.0);
+					return;
+				}
+				vec3 color = texture(TEXTURE(pc.blit.tex), in_uv).rgb;
+				out_color = vec4(color, 1.0);
+			}
+		]],
+	},
+	rasterizer = {
+		cull_mode = "none",
+	},
+	depth_stencil = {
+		depth_test = false,
+		depth_write = false,
+	},
+}
+
 function render3d.Initialize()
-	if render3d.pipeline then return end
+	render3d.lighting_config.color_format = {"r16g16b16a16_sfloat"}
+	render3d.blit_config.color_format = {render.target.color_format}
+	render3d.blit_config.depth_format = render.target.depth_format
+	render3d.blit_config.samples = render.target.samples
 
 	local function create_gbuffer()
 		local size = window:GetSize()
@@ -741,7 +891,31 @@ function render3d.Initialize()
 		)
 	end
 
+	local function create_lighting_fbs()
+		local size = window:GetSize()
+		render3d.lighting_fbs = {
+			Framebuffer.New(
+				{
+					width = size.x,
+					height = size.y,
+					formats = {"r16g16b16a16_sfloat"},
+					depth = false,
+				}
+			),
+			Framebuffer.New(
+				{
+					width = size.x,
+					height = size.y,
+					formats = {"r16g16b16a16_sfloat"},
+					depth = false,
+				}
+			),
+		}
+		render3d.current_lighting_fb_index = 1
+	end
+
 	create_gbuffer()
+	create_lighting_fbs()
 
 	-- Resolve descriptor set args functions
 	for _, desc in ipairs(render3d.config.fragment.descriptor_sets) do
@@ -754,6 +928,7 @@ function render3d.Initialize()
 
 	render3d.pipeline = EasyPipeline.New(render3d.config)
 	render3d.lighting_pipeline = EasyPipeline.New(render3d.lighting_config)
+	render3d.blit_pipeline = EasyPipeline.New(render3d.blit_config)
 
 	-- Store uniform buffers in render3d for external access
 	for name, ubo in pairs(render3d.pipeline.uniform_buffers) do
@@ -762,6 +937,7 @@ function render3d.Initialize()
 
 	event.AddListener("WindowFramebufferResized", "render3d_gbuffer", function(wnd, size)
 		create_gbuffer()
+		create_lighting_fbs()
 		-- Update lighting pipeline descriptor sets with new G-buffer textures
 		local textures = {}
 
@@ -779,6 +955,10 @@ function render3d.Initialize()
 
 		for i = 1, #render3d.lighting_pipeline.pipeline.descriptor_sets do
 			render3d.lighting_pipeline.pipeline:UpdateDescriptorSetArray(i, 0, textures)
+		end
+
+		for i = 1, #render3d.blit_pipeline.pipeline.descriptor_sets do
+			render3d.blit_pipeline.pipeline:UpdateDescriptorSetArray(i, 0, textures)
 		end
 	end)
 
@@ -798,16 +978,26 @@ function render3d.Initialize()
 		end
 
 		render3d.gbuffer:End(cmd)
+		-- 2. Lighting Pass (Offscreen)
+		local current_fb = render3d.lighting_fbs[render3d.current_lighting_fb_index]
+		current_fb:Begin(cmd)
+		cmd:SetCullMode("none")
+		render3d.lighting_pipeline:Bind(cmd)
+		render3d.lighting_pipeline:UploadConstants(cmd)
+		cmd:Draw(3, 1, 0, 0)
+		current_fb:End(cmd)
 	end)
 
 	event.AddListener("Draw", "draw_3d_lighting", function(cmd, dt)
 		if not render3d.pipeline then return end
 
-		-- 2. Lighting Pass
+		-- 3. Blit Lighting to Screen
 		cmd:SetCullMode("none")
-		render3d.lighting_pipeline:Bind(cmd)
-		render3d.lighting_pipeline:UploadConstants(cmd)
+		render3d.blit_pipeline:Bind(cmd)
+		render3d.blit_pipeline:UploadConstants(cmd)
 		cmd:Draw(3, 1, 0, 0)
+		-- Swap framebuffers for next frame
+		render3d.current_lighting_fb_index = 3 - render3d.current_lighting_fb_index
 	end)
 
 	event.Call("Render3DInitialized")
@@ -828,8 +1018,8 @@ function render3d.UploadConstants(cmd)
 end
 
 do
-	render3d.camera = Camera3D.New()
-	render3d.world_matrix = Matrix44()
+	render3d.camera = render3d.camera or Camera3D.New()
+	render3d.world_matrix = render3d.world_matrix or Matrix44()
 
 	function render3d.GetCamera()
 		return render3d.camera
@@ -926,5 +1116,7 @@ do -- mesh
 		return Mesh.New(render3d.pipeline:GetVertexAttributes(), vertices, indices, index_type, index_count)
 	end
 end
+
+if HOTRELOAD then render3d.Initialize() end
 
 return render3d
