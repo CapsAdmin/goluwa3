@@ -1,5 +1,6 @@
 local event = require("event")
 local ffi = require("ffi")
+local Color = require("structs.color")
 local orientation = require("render3d.orientation")
 local Matrix44 = require("structs.matrix44")
 local render = require("render.render")
@@ -11,53 +12,8 @@ local Fence = require("render.vulkan.internal.fence")
 skybox.inv_projection_view = Matrix44()
 
 function skybox.Initialize()
-	if skybox.pipeline then return end
-
 	-- Create environment cubemap
-	skybox.output_texture = Texture.New(
-		{
-			width = 256,
-			height = 256,
-			format = "r16g16b16a16_sfloat",
-			mip_map_levels = "auto",
-			image = {
-				image_type = "2d",
-				array_layers = 6,
-				flags = {"cube_compatible"},
-				usage = {"sampled", "transfer_dst", "transfer_src", "color_attachment"},
-			},
-			view = {
-				view_type = "cube",
-			},
-			sampler = {
-				min_filter = "linear",
-				mag_filter = "linear",
-				mipmap_mode = "linear",
-				wrap_s = "clamp_to_edge",
-				wrap_t = "clamp_to_edge",
-				wrap_r = "clamp_to_edge",
-			},
-		}
-	)
-	-- Create views for each face of the cubemap for rendering
-	skybox.face_views = {}
-
-	for i = 0, 5 do
-		table.insert(
-			skybox.face_views,
-			skybox.output_texture.image:CreateView(
-				{
-					format = skybox.output_texture.format,
-					base_mip_level = 0,
-					level_count = 1,
-					base_array_layer = i,
-					layer_count = 1,
-					view_type = "2d",
-				}
-			)
-		)
-	end
-
+	skybox.output_texture = nil -- ??
 	skybox.pipeline = EasyPipeline.New(
 		{
 			vertex = {
@@ -72,13 +28,6 @@ function skybox.Initialize()
 									skybox.inv_projection_view:CopyToFloatPointer(constants.inv_projection_view)
 								end,
 							},
-							{
-								"face",
-								"int",
-								function()
-									return skybox.current_face or -1
-								end,
-							},
 						},
 					},
 				},
@@ -91,29 +40,13 @@ function skybox.Initialize()
 						vec2( 3.0, -1.0),
 						vec2(-1.0,  3.0)
 					);
-					
-					vec3 get_cube_dir(vec2 uv, int face) {
-						vec3 dir;
-						if (face == 0) dir = vec3(1.0, -uv.y, -uv.x); // +X
-						else if (face == 1) dir = vec3(-1.0, -uv.y, uv.x); // -X
-						else if (face == 2) dir = vec3(uv.x, 1.0, uv.y); // +Y
-						else if (face == 3) dir = vec3(uv.x, -1.0, -uv.y); // -Y
-						else if (face == 4) dir = vec3(uv.x, -uv.y, 1.0); // +Z
-						else if (face == 5) dir = vec3(-uv.x, -uv.y, -1.0); // -Z
-						return normalize(dir);
-					}
 
 					void main() {
 						vec2 pos = positions[gl_VertexIndex];
 						gl_Position = vec4(pos, 1.0, 1.0);
 						
-						if (pc.vertex.face == -1) {
-							// Convert NDC to world direction
-							vec4 world_pos = pc.vertex.inv_projection_view * vec4(pos, 1.0, 1.0);
-							out_direction = world_pos.xyz / world_pos.w;
-						} else {
-							out_direction = get_cube_dir(pos, pc.vertex.face);
-						}
+						vec4 world_pos = pc.vertex.inv_projection_view * vec4(pos, 1.0, 1.0);
+						out_direction = world_pos.xyz / world_pos.w;
 					}
 				]],
 			},
@@ -134,29 +67,18 @@ function skybox.Initialize()
 								"vec4",
 								function(constants)
 									local lights = render3d.GetLights()
-									local sun = lights and lights[1]
-									local sun_dir = sun and sun:GetDirection() or {x = 0, y = 1, z = 0}
+									local sun = lights[1]
 
-									if true then sun_dir = {x = 0, y = 1, z = 0} end
+									if not sun then return end
 
-									constants.sun_direction[0] = sun_dir.x
-									constants.sun_direction[1] = sun_dir.y
-									constants.sun_direction[2] = sun_dir.z
-									constants.sun_direction[3] = 0
+									sun:GetRotation():GetBackward():CopyToFloatPointer(constants.sun_direction)
 								end,
 							},
 							{
 								"camera_position",
 								"vec4",
 								function(constants)
-									local cam_pos = render3d.camera:GetPosition()
-
-									if true then cam_pos = {x = 0, y = 10, z = 0} end
-
-									constants.camera_position[0] = cam_pos.x
-									constants.camera_position[1] = cam_pos.y
-									constants.camera_position[2] = cam_pos.z
-									constants.camera_position[3] = 0
+									(render3d.camera:GetPosition() * 100):CopyToFloatPointer(constants.camera_position)
 								end,
 							},
 						},
@@ -291,7 +213,7 @@ function skybox.Initialize()
 						float sunAngle = acos(clamp(dot(rayDir, sunDir), 0.0, 1.0));
 						float sunRadius = 0.00935; // Angular radius of sun in radians (~0.53 degrees)
 						
-						if (sunAngle < sunRadius) {
+						if (sunAngle < sunRadius+0-00000000001) {
 							// Inside sun disk
 							float limb = 1.0 - pow(sunAngle / sunRadius, 0.5);
 							return vec3(1.0, 0.98, 0.95) * 100.0 * limb;
@@ -362,95 +284,20 @@ function skybox.Initialize()
 			},
 		}
 	)
-	skybox.UpdateEnvironmentTexture()
 end
 
 event.AddListener("Render3DInitialized", "skybox", function()
 	skybox.Initialize()
 end)
 
-function skybox.UpdateEnvironmentTexture()
-	if not skybox.output_texture then return end
-
-	local device = render.GetDevice()
-	local queue = render.GetQueue()
-	local command_pool = render.GetCommandPool()
-	local cmd = command_pool:AllocateCommandBuffer()
-	cmd:Begin()
-	-- Determine old layout based on whether this is first render
-	local oldLayout = skybox.environment_texture_initialized and
-		"shader_read_only_optimal" or
-		"undefined"
-	local srcAccessMask = skybox.environment_texture_initialized and "shader_read" or "none"
-	-- Transition image to color_attachment_optimal
-	cmd:PipelineBarrier(
-		{
-			srcStage = "top_of_pipe",
-			dstStage = "color_attachment_output",
-			imageBarriers = {
-				{
-					image = skybox.output_texture.image,
-					srcAccessMask = srcAccessMask,
-					dstAccessMask = "color_attachment_write",
-					oldLayout = oldLayout,
-					newLayout = "color_attachment_optimal",
-					level_count = 1,
-					layer_count = 6,
-				},
-			},
-		}
-	)
-	skybox.pipeline:Bind(cmd)
-
-	for i = 0, 5 do
-		skybox.current_face = i
-		skybox.pipeline:UploadConstants(cmd)
-		cmd:BeginRendering(
-			{
-				color_image_view = skybox.face_views[i + 1],
-				w = 256,
-				h = 256,
-				clear_color = {0, 0, 0, 1},
-			}
-		)
-		cmd:SetViewport(0, 0, 256, 256, 0, 1)
-		cmd:SetScissor(0, 0, 256, 256)
-		cmd:Draw(3, 1, 0, 0)
-		cmd:EndRendering()
-	end
-
-	-- Transition back to shader_read_only_optimal
-	cmd:PipelineBarrier(
-		{
-			srcStage = "color_attachment_output",
-			dstStage = "fragment",
-			imageBarriers = {
-				{
-					image = skybox.output_texture.image,
-					srcAccessMask = "color_attachment_write",
-					dstAccessMask = "shader_read",
-					oldLayout = "color_attachment_optimal",
-					newLayout = "shader_read_only_optimal",
-					level_count = 1,
-					layer_count = 6,
-				},
-			},
-		}
-	)
-	cmd:End()
-	local fence = Fence.New(device)
-	queue:SubmitAndWait(device, cmd, fence)
-	device:WaitIdle()
-	skybox.output_texture:GenerateMipMap("shader_read_only_optimal")
-	-- Mark as initialized for subsequent calls
-	skybox.environment_texture_initialized = true
+function skybox.UpdateEnvironmentTexture() -- TODO
 end
 
 function skybox.Draw(cmd)
 	if not skybox.pipeline then return end
 
 	if skybox.output_texture then
-		render3d.SetEnvironmentTexture(skybox.GetEnvironmentTexture())
+		render3d.SetEnvironmentTexture(skybox.GetOutputCubemapTexture())
 	end
 
 	-- Calculate inverse projection-view matrix (without camera translation for skybox)
@@ -462,10 +309,10 @@ function skybox.Draw(cmd)
 	view.m32 = 0
 	local proj_view = view * proj
 	proj_view:GetInverse(skybox.inv_projection_view)
-	skybox.current_face = -1
 	skybox.pipeline:Bind(cmd, render.GetCurrentFrame())
 	skybox.pipeline:UploadConstants(cmd)
 	cmd:Draw(3, 1, 0, 0)
+-- update here?
 end
 
 event.AddListener("DrawSkybox", "skybox", skybox.Draw)
@@ -474,7 +321,7 @@ function skybox.SetUniverseTexture(texture)
 	skybox.universe_texture = texture
 end
 
-function skybox.GetEnvironmentTexture()
+function skybox.GetOutputCubemapTexture()
 	return skybox.output_texture
 end
 

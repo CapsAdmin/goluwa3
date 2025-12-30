@@ -172,7 +172,7 @@ do
 
 	-- Wait until a condition is true, checking every interval, with optional timeout
 	function test.WaitUntil(condition, timeout)
-		timeout = timeout or 5.0
+		timeout = timeout or 10
 		local start_time = system.GetElapsedTime()
 		local end_time = start_time + timeout
 

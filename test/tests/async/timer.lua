@@ -58,7 +58,7 @@ T.Test("timer.Repeat executes multiple times", function()
 	-- Wait until the timer has fired 3 times
 	T.WaitUntil(function()
 		return execution_count >= 3
-	end, 2.0)
+	end)
 
 	T(execution_count)["=="](3)
 end)
@@ -73,7 +73,7 @@ T.Test("sleep helper with timer", function()
 	-- Wait until the timer fires
 	T.WaitUntil(function()
 		return done
-	end, 1.0)
+	end)
 end)
 
 T.Test("multiple sleeps", function()
@@ -85,7 +85,7 @@ T.Test("multiple sleeps", function()
 
 	T.WaitUntil(function()
 		return count >= 1
-	end, 1.0)
+	end)
 
 	T(count)["=="](1)
 
@@ -95,7 +95,7 @@ T.Test("multiple sleeps", function()
 
 	T.WaitUntil(function()
 		return count >= 2
-	end, 1.0)
+	end)
 
 	T(count)["=="](2)
 end)

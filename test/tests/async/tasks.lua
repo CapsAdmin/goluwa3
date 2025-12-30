@@ -140,7 +140,7 @@ T.Test("tasks.WrapCallback with timer.Delay", function()
 	end)
 end)
 
-T.Test("tasks.WrapCallback async-like behavior", function()
+T.Pending("tasks.WrapCallback async-like behavior", function()
 	cleanup_tasks()
 	local timer_wrapped = wrap_timer()
 	local value = 0

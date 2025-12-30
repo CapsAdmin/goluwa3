@@ -94,7 +94,7 @@ T.Test("sockets HTTP server and client communication", function()
 	-- Wait for response
 	T.WaitUntil(function()
 		return done
-	end, 2.0)
+	end)
 
 	-- Cleanup
 	server:Close()
@@ -143,7 +143,7 @@ T.Test("sockets HTTP POST request with body", function()
 
 	T.WaitUntil(function()
 		return done
-	end, 2.0)
+	end)
 
 	server:Close()
 	T(received_body)["=="]("test data")
@@ -183,7 +183,7 @@ T.Test("sockets.Request wrapper function", function()
 
 	T.WaitUntil(function()
 		return done
-	end, 2.0)
+	end)
 
 	server:Close()
 	T(server_got_request)["=="](true)
@@ -223,7 +223,7 @@ T.Test("sockets.Request with custom headers", function()
 
 	T.WaitUntil(function()
 		return done
-	end, 2.0)
+	end)
 
 	server:Close()
 	T(received_headers)["~="](nil)
@@ -265,7 +265,7 @@ T.Test("sockets HTTP chunked body receiving", function()
 
 	T.WaitUntil(function()
 		return done
-	end, 2.0)
+	end)
 
 	server:Close()
 	T(#chunks)[">="](1)

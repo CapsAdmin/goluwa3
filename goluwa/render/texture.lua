@@ -12,6 +12,7 @@ local Texture = {}
 Texture.__index = Texture
 -- Texture cache for path-based textures
 local texture_cache = {}
+local temp_fence = nil
 
 local function get_bytes_per_pixel(format)
 	if
@@ -265,7 +266,7 @@ function Texture.New(config)
 			self:Upload(buffer_data, mip_levels > 1)
 
 			-- Auto-generate mipmaps if requested
-			if mip_levels > 1 then self:GenerateMipMap() end
+			if mip_levels > 1 then self:GenerateMipmaps() end
 		end
 	elseif image then
 		-- If no buffer is provided, transition the image to an appropriate layout
@@ -508,20 +509,38 @@ function Texture:GetSize()
 	return self.image and Vec2(self.image:GetWidth(), self.image:GetHeight()) or Vec2(0, 0)
 end
 
-function Texture:GenerateMipMap(initial_layout)
+function Texture:GenerateMipmaps(initial_layout, cmd)
 	if not self.image or self.mip_map_levels <= 1 then return end
 
 	local device = render.GetDevice()
 	local queue = render.GetQueue()
 	local command_pool = render.GetCommandPool()
-	local cmd = command_pool:AllocateCommandBuffer()
-	cmd:Begin()
+	local internal_cmd = false
+
+	if not cmd then
+		cmd = command_pool:AllocateCommandBuffer()
+		cmd:Begin()
+		internal_cmd = true
+	end
+
 	local is_cube = self:IsCubemap()
 	local layers = is_cube and 6 or 1
-	-- Determine initial layout (can be transfer_dst_optimal from upload, or shader_read_only_optimal from Shade)
+	-- Determine initial layout
 	local old_layout = initial_layout or "transfer_dst_optimal"
-	local src_access = old_layout == "transfer_dst_optimal" and "transfer_write" or "shader_read"
-	local src_stage = old_layout == "transfer_dst_optimal" and "transfer" or "fragment"
+	local src_access = "transfer_read"
+	local src_stage = "transfer"
+
+	if old_layout == "transfer_dst_optimal" then
+		src_access = "transfer_write"
+		src_stage = "transfer"
+	elseif old_layout == "shader_read_only_optimal" then
+		src_access = "shader_read"
+		src_stage = "fragment"
+	elseif old_layout == "color_attachment_optimal" then
+		src_access = "color_attachment_write"
+		src_stage = "color_attachment_output"
+	end
+
 	-- Transition first mip level (0) to transfer_src
 	cmd:PipelineBarrier(
 		{
@@ -627,9 +646,15 @@ function Texture:GenerateMipMap(initial_layout)
 			},
 		}
 	)
-	cmd:End()
-	local fence = Fence.New(device)
-	queue:SubmitAndWait(device, cmd, fence)
+
+	if internal_cmd then
+		cmd:End()
+
+		if not temp_fence then temp_fence = Fence.New(device) end
+
+		queue:SubmitAndWait(device, cmd, temp_fence)
+		command_pool:FreeCommandBuffer(cmd)
+	end
 end
 
 function Texture:IsCubemap()

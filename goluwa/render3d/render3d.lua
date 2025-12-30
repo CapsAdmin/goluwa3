@@ -401,7 +401,7 @@ render3d.config = {
 				
 				// Calculate mip level based on roughness
 				// Cubemaps usually have 5-10 mip levels
-				float max_mip = 8.0; // Default for 256x256 cubemap
+				float max_mip = 7.0; // Default for 128x128 cubemap
 				float mip_level = roughness * max_mip;
 				
 				return textureLod(CUBEMAP(pc.model.EnvironmentTexture), R, mip_level).rgb;
@@ -730,6 +730,10 @@ function render3d.Initialize()
 	end)
 
 	event.Call("Render3DInitialized")
+end
+
+function render3d.BindPipeline()
+	render3d.pipeline:Bind(render.GetCommandBuffer())
 end
 
 function render3d.UploadConstants(cmd)

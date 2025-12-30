@@ -548,17 +548,17 @@ do -- 44
 
 		-- ORIENTATION / TRANSFORMATION: Helper rotation methods using orientation module
 		function META:RotatePitch(angle, out)
-			local x, y, z = orientation.GetRightVector()
+			local x, y, z = orientation.RIGHT_VECTOR:Unpack()
 			return self:Rotate(angle, x, y, z, out)
 		end
 
 		function META:RotateYaw(angle, out)
-			local x, y, z = orientation.GetUpVector()
+			local x, y, z = orientation.UP_VECTOR:Unpack()
 			return self:Rotate(angle, x, y, z, out)
 		end
 
 		function META:RotateRoll(angle, out)
-			local x, y, z = orientation.GetForwardVector()
+			local x, y, z = orientation.FORWARD_VECTOR:Unpack()
 			return self:Rotate(angle, x, y, z, out)
 		end
 	end

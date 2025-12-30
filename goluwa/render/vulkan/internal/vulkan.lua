@@ -38,9 +38,15 @@ end
 function vulkan.assert(result, msg)
 	if result ~= 0 then
 		msg = msg or "Vulkan error"
-		local enum_str = vulkan.vk.str.VkResult(result) or ("error code - " .. tostring(result))
+		local enum_str = vulkan.vk.str.VkResult(result) or
+			vulkan.vk.str.VkResult(tonumber(ffi.cast("int32_t", result))) or
+			(
+				"error code - " .. tostring(result)
+			)
 		debug.trace()
-		print(msg .. " : " .. enum_str, 2)
+		print(msg .. " : " .. enum_str)
+
+		if enum_str == "error_device_lost" then os.realexit(1) end
 	end
 end
 

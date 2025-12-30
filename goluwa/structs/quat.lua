@@ -52,37 +52,37 @@ end
 do -- ORIENTATION / TRANSFORMATION
 	-- Coordinate system defined in orientation.lua
 	function META:Right()
-		return self:VecMul(Vec3(orientation.GetRightVector()))
+		return self:VecMul(orientation.RIGHT_VECTOR)
 	end
 
 	META.GetRight = META.Right
 
 	function META:Left()
-		return self:VecMul(Vec3(orientation.GetLeftVector()))
+		return self:VecMul(-orientation.RIGHT_VECTOR)
 	end
 
 	META.GetLeft = META.Left
 
 	function META:Up()
-		return self:VecMul(Vec3(orientation.GetUpVector()))
+		return self:VecMul(orientation.UP_VECTOR)
 	end
 
 	META.GetUp = META.Up
 
 	function META:Down()
-		return self:VecMul(Vec3(orientation.GetDownVector()))
+		return self:VecMul(-orientation.UP_VECTOR)
 	end
 
 	META.GetDown = META.Down
 
 	function META:Front()
-		return self:VecMul(Vec3(orientation.GetForwardVector()))
+		return self:VecMul(orientation.FORWARD_VECTOR)
 	end
 
 	META.GetFront = META.Front
 
 	function META:Back()
-		return self:VecMul(Vec3(orientation.GetBackwardVector()))
+		return self:VecMul(-orientation.FORWARD_VECTOR)
 	end
 
 	META.GetBack = META.Back
@@ -159,7 +159,7 @@ function META:SetAngles(ang)
 
 	-- Apply roll around BACKWARD axis
 	if ang.z ~= 0 then
-		local fx, fy, fz = orientation.GetBackwardVector()
+		local fx, fy, fz = (-orientation.FORWARD_VECTOR):Unpack()
 		local half = ang.z * 0.5
 		local s = math.sin(half)
 		local roll_q = CTOR(fx * s, fy * s, fz * s, math.cos(half))
@@ -169,7 +169,7 @@ function META:SetAngles(ang)
 
 	-- Apply pitch around RIGHT axis
 	if ang.x ~= 0 then
-		local rx, ry, rz = orientation.GetRightVector()
+		local rx, ry, rz = orientation.RIGHT_VECTOR:Unpack()
 		local half = ang.x * 0.5
 		local s = math.sin(half)
 		local pitch_q = CTOR(rx * s, ry * s, rz * s, math.cos(half))
@@ -179,7 +179,7 @@ function META:SetAngles(ang)
 
 	-- Apply yaw around UP axis
 	if ang.y ~= 0 then
-		local ux, uy, uz = orientation.GetUpVector()
+		local ux, uy, uz = orientation.UP_VECTOR:Unpack()
 		local half = ang.y * 0.5
 		local s = math.sin(half)
 		local yaw_q = CTOR(ux * s, uy * s, uz * s, math.cos(half))
@@ -372,17 +372,17 @@ end
 
 -- ORIENTATION / TRANSFORMATION: Helper rotation methods using orientation module
 function META:RotatePitch(angle)
-	local x, y, z = orientation.GetRightVector()
+	local x, y, z = orientation.RIGHT_VECTOR:Unpack()
 	return self:Rotate(angle, x, y, z)
 end
 
 function META:RotateYaw(angle)
-	local x, y, z = orientation.GetUpVector()
+	local x, y, z = orientation.UP_VECTOR:Unpack()
 	return self:Rotate(angle, x, y, z)
 end
 
 function META:RotateRoll(angle)
-	local x, y, z = orientation.GetBackwardVector()
+	local x, y, z = (-orientation.FORWARD_VECTOR):Unpack()
 	return self:Rotate(angle, x, y, z)
 end
 

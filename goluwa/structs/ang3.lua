@@ -45,15 +45,15 @@ do -- ORIENTATION / TRANSFORMATION
 		return Vec3(yx, yy, yz)
 	end -- Use GetDirection with orientation module vectors for convenience
 	function META.GetForward(a)
-		return a:GetDirection(orientation.GetForwardVector())
+		return a:GetDirection(orientation.FORWARD_VECTOR)
 	end
 
 	function META.GetUp(a)
-		return a:GetDirection(orientation.GetUpVector())
+		return a:GetDirection(orientation.UP_VECTOR)
 	end
 
 	function META.GetRight(a)
-		return a:GetDirection(orientation.GetRightVector())
+		return a:GetDirection(orientation.RIGHT_VECTOR)
 	end
 end
 
