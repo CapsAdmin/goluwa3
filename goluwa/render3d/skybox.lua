@@ -341,7 +341,7 @@ function skybox.Initialize()
 	end
 
 	skybox.pipeline = skybox.CreatePipeline(render.target.color_format, render.target:GetSamples())
-	skybox.cubemap_pipeline = skybox.CreatePipeline("r8g8b8a8_unorm", "1")
+	skybox.cubemap_pipeline = skybox.CreatePipeline("b10g11r11_ufloat_pack32", "1")
 end
 
 event.AddListener("Render3DInitialized", "skybox", function()
