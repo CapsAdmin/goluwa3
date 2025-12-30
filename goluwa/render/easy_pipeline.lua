@@ -186,7 +186,7 @@ function EasyPipeline.New(config)
 					local info = get_field_info(field)
 
 					if info.callback then
-						local value = info.callback(constants)
+						local value = info.callback(constants, self)
 
 						if value ~= nil and not info.array_size and not glsl_to_array_size[info.glsl_type] then
 							constants[info.name] = value
@@ -212,7 +212,7 @@ function EasyPipeline.New(config)
 					local info = get_field_info(field)
 
 					if info.callback then
-						local value = info.callback(constants)
+						local value = info.callback(constants, self)
 
 						if value ~= nil and not info.array_size and not glsl_to_array_size[info.glsl_type] then
 							constants[info.name] = value

@@ -18,38 +18,12 @@ skybox.inv_projection_view = Matrix44()
 skybox.temp_fence = nil
 skybox.temp_camera = nil
 skybox.update_cmd = nil
+local SIZE = 512
 
-function skybox.Initialize()
-	if skybox.output_texture then return end
-
-	-- Create environment cubemap
-	skybox.output_texture = Texture.New(
+function skybox.CreatePipeline(color_format)
+	return EasyPipeline.New(
 		{
-			width = 512,
-			height = 512,
-			format = "r8g8b8a8_unorm",
-			image = {
-				array_layers = 6,
-				flags = {"cube_compatible"},
-				usage = {"color_attachment", "sampled", "transfer_src"},
-			},
-			view = {
-				view_type = "cube",
-			},
-		}
-	)
-	skybox.face_views = {}
-
-	for i = 0, 5 do
-		skybox.face_views[i] = skybox.output_texture:GetImage():CreateView({
-			view_type = "2d",
-			base_array_layer = i,
-			layer_count = 1,
-		})
-	end
-
-	skybox.pipeline = EasyPipeline.New(
-		{
+			color_format = color_format,
 			vertex = {
 				push_constants = {
 					{
@@ -92,8 +66,8 @@ function skybox.Initialize()
 							{
 								"universe_texture_index",
 								"int",
-								function()
-									return skybox.pipeline:GetTextureIndex(skybox.universe_texture)
+								function(constants, pipeline)
+									return pipeline:GetTextureIndex(skybox.universe_texture)
 								end,
 							},
 							{
@@ -320,6 +294,39 @@ function skybox.Initialize()
 	)
 end
 
+function skybox.Initialize()
+	if skybox.output_texture then return end
+
+	-- Create environment cubemap
+	skybox.output_texture = Texture.New(
+		{
+			width = SIZE,
+			height = SIZE,
+			format = "r8g8b8a8_unorm",
+			image = {
+				array_layers = 6,
+				flags = {"cube_compatible"},
+				usage = {"color_attachment", "sampled", "transfer_src"},
+			},
+			view = {
+				view_type = "cube",
+			},
+		}
+	)
+	skybox.face_views = {}
+
+	for i = 0, 5 do
+		skybox.face_views[i] = skybox.output_texture:GetImage():CreateView({
+			view_type = "2d",
+			base_array_layer = i,
+			layer_count = 1,
+		})
+	end
+
+	skybox.pipeline = skybox.CreatePipeline(render.target.color_format)
+	skybox.cubemap_pipeline = skybox.CreatePipeline("r8g8b8a8_unorm")
+end
+
 event.AddListener("Render3DInitialized", "skybox", function()
 	skybox.Initialize()
 end)
@@ -355,7 +362,7 @@ function skybox.UpdateEnvironmentTexture()
 	if not skybox.temp_camera then
 		skybox.temp_camera = Camera3D.New()
 		skybox.temp_camera:SetFOV(math.rad(90))
-		skybox.temp_camera:SetViewport(Rect(0, 0, 512, 512))
+		skybox.temp_camera:SetViewport(Rect(0, 0, SIZE, SIZE))
 		skybox.temp_camera:SetNearZ(0.1)
 		skybox.temp_camera:SetFarZ(100)
 	end
@@ -371,6 +378,14 @@ function skybox.UpdateEnvironmentTexture()
 		Ang3(0, math.rad(180), 0), -- +Z
 		Ang3(0, 0, 0), -- -Z
 	}
+	local face_colors = {
+		Color(1, 0, 0), -- +X: Red
+		Color(0, 1, 0), -- -X: Green
+		Color(0, 0, 1), -- +Y: Blue
+		Color(1, 1, 0), -- -Y: Yellow
+		Color(1, 0, 1), -- +Z: Magenta
+		Color(0, 1, 1), -- -Z: Cyan
+	}
 
 	for i = 0, 5 do
 		temp_camera:SetAngles(face_angles[i + 1])
@@ -383,14 +398,24 @@ function skybox.UpdateEnvironmentTexture()
 		cmd:BeginRendering(
 			{
 				color_image_view = skybox.face_views[i],
-				w = 512,
-				h = 512,
+				w = SIZE,
+				h = SIZE,
 				clear_color = {0, 0, 0, 1},
 			}
 		)
-		skybox.pipeline:Bind(cmd)
-		skybox.pipeline:UploadConstants(cmd)
-		cmd:Draw(3, 1, 0, 0)
+		cmd:ClearColorImage(
+			{
+				image = skybox.output_texture:GetImage(),
+				color = {face_colors[i + 1]:Unpack()},
+				base_array_layer = i,
+				layer_count = 1,
+			}
+		)
+		cmd:SetViewport(0, 0, SIZE, SIZE)
+		cmd:SetScissor(0, 0, SIZE, SIZE)
+		skybox.cubemap_pipeline:Bind(cmd, render.GetCurrentFrame())
+		skybox.cubemap_pipeline:UploadConstants(cmd)
+		--cmd:Draw(3, 1, 0, 0)
 		cmd:EndRendering()
 	end
 
@@ -418,10 +443,12 @@ function skybox.UpdateEnvironmentTexture()
 	end
 
 	render.GetQueue():SubmitAndWait(render.GetDevice(), cmd, skybox.temp_fence)
+	render.GetDevice():WaitIdle()
 	render3d.camera = old_camera
 end
 
-event.AddListener("PreFrame", "skybox_update", function() --skybox.UpdateEnvironmentTexture()
+event.AddListener("PreFrame", "skybox_update", function()
+	skybox.UpdateEnvironmentTexture()
 end)
 
 function skybox.Draw(cmd)
