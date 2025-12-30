@@ -405,6 +405,9 @@ do -- helpers
 	end
 
 	function Polygon3D:CreatePlane(pos, normal, right, up, size_x, size_y, texture_scale)
+		normal = normal or Vec3(0, 0, 1)
+		right = right or Vec3(1, 0, 0)
+		up = up or Vec3(0, 1, 0)
 		size_x = size_x or 1
 		size_y = size_y or 1
 		texture_scale = texture_scale or 1

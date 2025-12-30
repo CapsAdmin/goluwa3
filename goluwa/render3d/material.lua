@@ -41,7 +41,19 @@ Material:GetSet("AlphaTest", false, {callback = "InvalidateFlags"})
 Material:GetSet("InvertRoughnessTexture", false, {callback = "InvalidateFlags"})
 
 function Material.New(config)
-	return prototype.CreateObject("material")
+	local self = prototype.CreateObject("material")
+
+	if config then
+		for k, v in pairs(config) do
+			if self["Set" .. k] then
+				self["Set" .. k](self, v)
+			else
+				self[k] = v
+			end
+		end
+	end
+
+	return self
 end
 
 -- just a shortcut for gltf

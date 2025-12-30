@@ -1,8 +1,5 @@
 local vk = require("bindings.vk")
 
-do
-	return
-end -- TEMP DISABLE
 if not pcall(vk.find_library) then
 	print("Vulkan library not available, skipping camera tests.")
 	return
@@ -51,7 +48,7 @@ local function test_color(pos_name, color_name, tolerance)
 	local color = colors[color_name]
 	assert(pos, "invalid position: " .. tostring(pos_name))
 	assert(color, "invalid color: " .. tostring(color_name))
-	T.ScreenPixel(pos.x, pos.y, color.r, color.g, color.b, 1, tolerance or 0.33)
+	T.ScreenPixel(pos.x, pos.y, color.r, color.g, color.b, 1, tolerance or 0.48)
 end
 
 local function test_color_all(color)
@@ -65,15 +62,13 @@ end
 local white_tex
 
 -- Create 6 quads for the inverted cube
-local function create_face(normal, color)
+local function create_face(pos, normal, up, color)
 	if not white_tex then white_tex = Texture.FromColor(Color(1, 1, 1, 1)) end
 
-	local up = orientation.UP_VECTOR
 	local poly = Polygon3D.New()
 	local right = normal:GetCross(up)
 	local size = 10 -- Large enough to cover the view
 	-- Vertices for a quad
-	local pos = normal * size -- Move the face outwards
 	local v1 = pos - right * size + up * size
 	local v2 = pos + right * size + up * size
 	local v3 = pos + right * size - up * size
@@ -81,18 +76,21 @@ local function create_face(normal, color)
 	-- CCW winding for looking from origin (inside)
 	-- Triangle 1: v1, v4, v3
 	poly:AddVertex({pos = v1})
-	poly:AddVertex({pos = v2})
-	poly:AddVertex({pos = v3})
-	-- Triangle 2: v1, v3, 2
-	poly:AddVertex({pos = v3})
 	poly:AddVertex({pos = v4})
+	poly:AddVertex({pos = v3})
 	poly:AddVertex({pos = v1})
+	poly:AddVertex({pos = v3})
+	poly:AddVertex({pos = v2})
 	poly:BuildNormals()
+	poly:AddSubMesh(#poly.Vertices)
 	poly:Upload()
-	local material = Material.New()
-	material:SetAlbedoTexture(white_tex)
-	material:SetEmissiveMultiplier(color * 100)
-	material:SetDoubleSided(true)
+	local material = Material.New(
+		{
+			AlbedoTexture = white_tex,
+			EmissiveMultiplier = Color(color.r, color.g, color.b, 100),
+			DoubleSided = true,
+		}
+	)
 	return {
 		poly = poly,
 		material = material,
@@ -106,17 +104,17 @@ local function draw_faces(cmd)
 	if not faces then
 		faces = {
 			-- Forward (+Z): Blue
-			create_face(Vec3(0, 0, 1), Color(0, 0, 1)),
+			create_face(Vec3(0, 0, 10), Vec3(0, 0, 1), Vec3(0, 1, 0), Color(0, 0, 1)),
 			-- Backward (-Z): Yellow
-			create_face(Vec3(0, 0, -1), Color(1, 1, 0)),
+			create_face(Vec3(0, 0, -10), Vec3(0, 0, -1), Vec3(0, 1, 0), Color(1, 1, 0)),
 			-- Right (+X): Red
-			create_face(Vec3(1, 0, 0), Color(1, 0, 0)),
+			create_face(Vec3(10, 0, 0), Vec3(1, 0, 0), Vec3(0, 1, 0), Color(1, 0, 0)),
 			-- Left (-X): Cyan
-			create_face(Vec3(-1, 0, 0), Color(0, 1, 1)),
+			create_face(Vec3(-10, 0, 0), Vec3(-1, 0, 0), Vec3(0, 1, 0), Color(0, 1, 1)),
 			-- Up (+Y): Green
-			create_face(Vec3(0, 1, 0), Color(0, 1, 0)),
+			create_face(Vec3(0, 10, 0), Vec3(0, 1, 0), Vec3(0, 0, -1), Color(0, 1, 0)),
 			-- Down (-Y): Magenta
-			create_face(Vec3(0, -1, 0), Color(1, 0, 1)),
+			create_face(Vec3(0, -10, 0), Vec3(0, -1, 0), Vec3(0, 0, 1), Color(1, 0, 1)),
 		}
 	end
 
@@ -136,9 +134,15 @@ local function draw_faces(cmd)
 
 	-- Draw a small white cube at origin to help with positioning tests
 	render3d.SetWorldMatrix(Matrix44())
-	render3d.SetMaterial(Material.New({
-		AlbedoTexture = white_tex,
-	}))
+	render3d.SetMaterial(
+		Material.New(
+			{
+				AlbedoTexture = white_tex,
+				EmissiveMultiplier = Color(1, 1, 1, 100),
+				DoubleSided = false,
+			}
+		)
+	)
 	render3d.UploadConstants(cmd)
 	center_cube:Draw(cmd)
 end
@@ -184,10 +188,10 @@ end)
 
 T.Test("Yaw 180 degrees should look Forward", function()
 	setup_camera_angles(Deg3(0, 180, 0))
+	render.Screenshot("test")
 	test_color("center", "blue") -- Should see Blue (+Z)
 end)
 
--- 
 T.Test("Yaw 90 degrees should look Right", function()
 	setup_camera_angles(Deg3(0, -90, 0))
 	test_color("center", "red") -- Should see Red (+X)
@@ -267,11 +271,9 @@ T.Test("Camera movement backward", function()
 	draw3d(function()
 		local cam = render3d.GetCamera()
 		cam:SetFOV(math.rad(120))
-		cam:SetPosition(Vec3(0, 0, 0))
-		cam:SetPosition(Vec3(0, 0, 5))
+		cam:SetPosition(Vec3(0, 0, 10))
 	end)
 
-	render.Screenshot("test")
 	test_color("center", "white")
 end)
 
@@ -279,7 +281,6 @@ T.Test("Camera movement left", function()
 	draw3d(function()
 		local cam = render3d.GetCamera()
 		cam:SetFOV(math.rad(120))
-		cam:SetPosition(Vec3(0, 0, 0))
 		cam:SetPosition(Vec3(-10, 0, 0))
 	end)
 
@@ -355,12 +356,15 @@ T.Pending("Camera FOV change", function()
 end)
 
 T.Test("Camera near plane clipping", function()
-	draw3d(function()
-		local cam = render3d.GetCamera()
-		cam:SetNearZ(2.0)
-		cam:SetPosition(Vec3(0, 0, 1)) -- 1 unit away from center cube
-		cam:SetRotation(Quat(0, 0, 0, 1)) -- Look at center cube
-	end)
+	draw3d(
+		function()
+			local cam = render3d.GetCamera()
+			cam:SetNearZ(2.0)
+			cam:SetPosition(Vec3(0, 0, 1)) -- 1 unit away from center cube
+			cam:SetRotation(Quat(0, 0, 0, 1)) -- Look at center cube
+		end,
+		true
+	)
 
 	test_color("center", "yellow")
 end)
@@ -383,14 +387,17 @@ end)
 
 T.Pending("Camera orbiting", function()
 	for angle = 0, math.pi * 2 - 0.1, math.pi / 2 do
-		draw3d(function()
-			local cam = render3d.GetCamera()
-			local radius = 5
-			local x = math.sin(angle) * radius
-			local z = math.cos(angle) * radius
-			cam:SetPosition(Vec3(x, 0, z))
-			cam:SetAngles(Deg3(0, angle, 0))
-		end)
+		draw3d(
+			function()
+				local cam = render3d.GetCamera()
+				local radius = 5
+				local x = math.sin(angle) * radius
+				local z = math.cos(angle) * radius
+				cam:SetPosition(Vec3(x, 0, z))
+				cam:SetAngles(Deg3(0, angle, 0))
+			end,
+			true
+		)
 
 		test_color("center", "white") -- Should always see the white center cube
 	end

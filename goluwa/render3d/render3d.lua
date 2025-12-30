@@ -408,22 +408,21 @@ render3d.config = {
 			}
 
 			vec3 get_emissive() {
-				vec3 emissive = vec3(0.0);
-				
 				if (pc.model.SelfIlluminationTexture != -1) {
 					// Self-illum mask: multiply albedo by mask value
 					float mask = texture(TEXTURE(pc.model.SelfIlluminationTexture), in_uv).r;
-					emissive = get_albedo() * mask;
+					return get_albedo() * mask * pc.model.EmissiveMultiplier.rgb * pc.model.EmissiveMultiplier.a;
 				} else if (pc.model.MetallicTexture != -1 && MetallicTextureAlphaIsEmissive) {
 					// Emissive stored in metallic texture alpha (selfillum_envmapmask_alpha)
 					float mask = texture(TEXTURE(pc.model.MetallicTexture), in_uv).a;
-					emissive = get_albedo() * mask;
+					return get_albedo() * mask * pc.model.EmissiveMultiplier.rgb * pc.model.EmissiveMultiplier.a;
 				} else if (pc.model.EmissiveTexture != -1) {
 					// Standard glTF emissive texture
-					emissive = texture(TEXTURE(pc.model.EmissiveTexture), in_uv).rgb;
+					vec3 emissive = texture(TEXTURE(pc.model.EmissiveTexture), in_uv).rgb;
+					return emissive * pc.model.EmissiveMultiplier.rgb * pc.model.EmissiveMultiplier.a;
 				}
 
-				return emissive * pc.model.EmissiveMultiplier.rgb * pc.model.EmissiveMultiplier.a;
+				return pc.model.EmissiveMultiplier.rgb * pc.model.EmissiveMultiplier.a;
 			}
 
 			float get_ao() {
