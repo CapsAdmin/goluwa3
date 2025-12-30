@@ -59,10 +59,12 @@ function EasyPipeline.New(config)
 				for _, field in ipairs(block.block) do
 					local info = get_field_info(field)
 					local ffi_type = glsl_to_ffi[info.glsl_type] or info.glsl_type
-					local array_size = info.array_size or glsl_to_array_size[info.glsl_type]
+					local base_size = glsl_to_array_size[info.glsl_type]
 
-					if array_size then
-						ffi_code = ffi_code .. string.format("    %s %s[%d];\n", ffi_type, info.name, array_size)
+					if info.array_size and base_size then
+						ffi_code = ffi_code .. string.format("    %s %s[%d][%d];\n", ffi_type, info.name, info.array_size, base_size)
+					elseif info.array_size or base_size then
+						ffi_code = ffi_code .. string.format("    %s %s[%d];\n", ffi_type, info.name, info.array_size or base_size)
 					else
 						ffi_code = ffi_code .. string.format("    %s %s;\n", ffi_type, info.name)
 					end
@@ -84,17 +86,19 @@ function EasyPipeline.New(config)
 				for _, field in ipairs(block.block) do
 					local info = get_field_info(field)
 					local ffi_type = glsl_to_ffi[info.glsl_type] or info.glsl_type
-					local array_size = info.array_size or glsl_to_array_size[info.glsl_type]
+					local base_size = glsl_to_array_size[info.glsl_type]
 
-					if array_size then
-						ffi_code = ffi_code .. string.format("    %s %s[%d];\n", ffi_type, info.name, array_size)
-						if info.array_size then
-							glsl_fields = glsl_fields .. string.format("    %s %s[%d];\n", info.glsl_type, info.name, info.array_size)
-						else
-							glsl_fields = glsl_fields .. string.format("    %s %s;\n", info.glsl_type, info.name)
-						end
+					if info.array_size and base_size then
+						ffi_code = ffi_code .. string.format("    %s %s[%d][%d];\n", ffi_type, info.name, info.array_size, base_size)
+					elseif info.array_size or base_size then
+						ffi_code = ffi_code .. string.format("    %s %s[%d];\n", ffi_type, info.name, info.array_size or base_size)
 					else
 						ffi_code = ffi_code .. string.format("    %s %s;\n", ffi_type, info.name)
+					end
+
+					if info.array_size then
+						glsl_fields = glsl_fields .. string.format("    %s %s[%d];\n", info.glsl_type, info.name, info.array_size)
+					else
 						glsl_fields = glsl_fields .. string.format("    %s %s;\n", info.glsl_type, info.name)
 					end
 				end

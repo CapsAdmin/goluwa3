@@ -11,6 +11,7 @@ local Ang3 = require("structs.ang3")
 local Quat = require("structs.quat")
 local Rect = require("structs.rect")
 local Camera3D = require("render3d.camera3d")
+local Texture = require("render.texture")
 local Light = require("components.light")
 local Framebuffer = require("render.framebuffer")
 local system = require("system")
@@ -249,24 +250,31 @@ render3d.config = {
 			}
 
 			vec3 get_normal() {
+				vec3 N;
 				if (pc.model.NormalTexture == -1) {
-					return normalize(in_normal);
+					N = normalize(in_normal);
+				} else {
+					vec3 tangent_normal = texture(TEXTURE(pc.model.NormalTexture), in_uv).xyz * 2.0 - 1.0;
+					
+					// Calculate TBN matrix on the fly
+					vec3 Q1 = dFdx(in_position);
+					vec3 Q2 = dFdy(in_position);
+					vec2 st1 = dFdx(in_uv);
+					vec2 st2 = dFdy(in_uv);
+
+					vec3 N_orig = normalize(in_normal);
+					vec3 T = normalize(Q1 * st2.t - Q2 * st1.t);
+					vec3 B = -normalize(cross(N_orig, T));
+					mat3 TBN = mat3(T, B, N_orig);
+
+					N = normalize(TBN * tangent_normal);
 				}
-				
-				vec3 tangent_normal = texture(TEXTURE(pc.model.NormalTexture), in_uv).xyz * 2.0 - 1.0;
-				
-				// Calculate TBN matrix on the fly
-				vec3 Q1 = dFdx(in_position);
-				vec3 Q2 = dFdy(in_position);
-				vec2 st1 = dFdx(in_uv);
-				vec2 st2 = dFdy(in_uv);
 
-				vec3 N = normalize(in_normal);
-				vec3 T = normalize(Q1 * st2.t - Q2 * st1.t);
-				vec3 B = -normalize(cross(N, T));
-				mat3 TBN = mat3(T, B, N);
+				if (DoubleSided && gl_FrontFacing) {
+					N = -N;
+				}
 
-				return normalize(TBN * tangent_normal);
+				return N;
 			}
 
 			float get_metallic() {
@@ -454,10 +462,27 @@ render3d.lighting_config = {
 					},
 					{
 						"camera_position",
-						"vec3",
+						"vec4",
 						function(constants)
-							return render3d.camera:GetPosition():CopyToFloatPointer(constants.camera_position)
+							local p = render3d.camera:GetPosition()
+							constants.camera_position[0] = p.x
+							constants.camera_position[1] = p.y
+							constants.camera_position[2] = p.z
+							constants.camera_position[3] = 0
 						end,
+					},
+					{
+						"ssao_kernel",
+						"vec4",
+						function(constants)
+							for i, v in ipairs(render3d.ssao_kernel) do
+								constants.ssao_kernel[i - 1][0] = v.x
+								constants.ssao_kernel[i - 1][1] = v.y
+								constants.ssao_kernel[i - 1][2] = v.z
+								constants.ssao_kernel[i - 1][3] = 0
+							end
+						end,
+						64,
 					},
 					{
 						"light_count",
@@ -537,6 +562,13 @@ render3d.lighting_config = {
 						end,
 					},
 					{
+						"ssao_noise_tex",
+						"int",
+						function(constants)
+							return render3d.lighting_pipeline:GetTextureIndex(render3d.ssao_noise_tex)
+						end,
+					},
+					{
 						"last_frame_tex",
 						"int",
 						function(constants)
@@ -559,7 +591,7 @@ render3d.lighting_config = {
 		shader = [[
 			#define SSR 0
 			const float PI = 3.14159265359;
-
+			#define uv in_uv
 			float hash(vec2 p) {
 				p = fract(p * vec2(123.34, 456.21));
 				p += dot(p, p + 45.32);
@@ -579,22 +611,152 @@ render3d.lighting_config = {
 			);
 
 			#if SSR
+
+			vec2 _raycast_project(vec3 coord)
+			{
+				vec4 res = lighting_data.projection * vec4(coord, 1.0);
+				return (res.xy / res.w) * 0.5 + 0.5;
+			}
+				
+			float linearize_depth(float depth)
+			{
+				float n = lighting_data.near_z;
+				float f = lighting_data.far_z;
+				return (2.0 * n) / (f + n - depth * (f - n));
+			}
+			float random(vec2 co)
+			{
+				return fract(sin(dot(co.xy ,vec2(12.9898,78.233))) * 43758.5453);
+			}
+			vec3 get_noise3(vec2 uv)
+			{
+				float x = random(uv);
+				float y = random(uv*x);
+				float z = random(uv*y);
+
+				return vec3(x,y,z) * 2 - 1;
+			}
+
+			vec3 get_noise3_world(vec3 world_pos)
+{
+    float x = random(world_pos.xy);
+    float y = random(world_pos.yz * x);
+    float z = random(world_pos.xz * y);
+
+    return vec3(x, y, z) * 2.0 - 1.0;
+}
+
+vec3 get_noise3_world_stable(vec3 world_pos, float scale)
+{
+    vec3 p = floor(world_pos * scale) / scale;  // quantize to grid
+    float x = random(p.xy);
+    float y = random(p.yz * x);
+    float z = random(p.xz * y);
+
+    return vec3(x, y, z) * 2.0 - 1.0;
+}
+
+			vec3 get_view_pos(vec2 uv)
+			{
+				vec4 pos = vec4(uv * 2.0 - 1.0, texture(TEXTURE(lighting_data.depth_tex), uv).r * 2 - 1, 1.0)*lighting_data.inv_projection;
+				return pos.xyz / pos.w;
+			}
+
+			vec2 g_raycast(vec3 viewPos, vec3 dir, const float step_size, const float max_steps, float roughness)
+			{
+				dir *= step_size + linearize_depth(texture(TEXTURE(lighting_data.depth_tex), uv).r);
+
+				for(int i = 0; i < max_steps; i++)
+				{
+					viewPos += dir;
+					//viewPos += get_noise3(viewPos.xy).xyz * pow(roughness, 3)*2;
+
+					float depth = get_view_pos(_raycast_project(viewPos)).z - viewPos.z;
+
+					if(depth > -5 && depth < 5)
+					{
+						return _raycast_project(viewPos).xy;
+					}
+				}
+
+				return vec2(0.0, 0.0);
+			}
+
+			vec3 get_ssr_old2(vec3 world_pos, vec3 N, vec3 V, float roughness) {
+				if (lighting_data.last_frame_tex == -1) return vec3(0.0);
+
+				vec3 R = reflect(-V, N);
+				vec4 view_pos = lighting_data.view * vec4(world_pos, 1.0);
+				vec3 view_dir = normalize(mat3(lighting_data.view) * R);
+
+				vec2 ray_uv = g_raycast(view_pos.xyz, view_dir, 0.5, 2, roughness);
+				return texture(TEXTURE(lighting_data.last_frame_tex), ray_uv).rgb;
+			}
+
+			vec3 get_ssr_old23(vec3 world_pos, vec3 N, vec3 V, float roughness) {
+				roughness = 0;
+				if (lighting_data.last_frame_tex == -1) return vec3(0.0);
+
+				vec3 R = reflect(-V, N);
+				vec4 view_pos = lighting_data.view * vec4(world_pos, 1.0);
+				vec3 dir = -normalize(mat3(lighting_data.view) * R);
+
+				// Scale direction by step_size + linearized depth
+				float depth_sample = texture(TEXTURE(lighting_data.depth_tex), uv).r;
+				float lin_depth = (2.0 * lighting_data.near_z) / 
+					(lighting_data.far_z + lighting_data.near_z - depth_sample * (lighting_data.far_z - lighting_data.near_z));
+				dir *= 0.5 ;
+
+				float roughness3 = roughness * roughness * roughness;
+
+				vec3 pos = view_pos.xyz;
+				for (int i = 0; i < 16; i++) {
+					pos += dir;
+
+					// Add noise based on roughness
+					if (roughness > 0.0) {
+						float rx = fract(sin(dot(pos.xy * float(i), vec2(12.9898, 78.233))) * 43758.5453);
+						float ry = fract(sin(dot(pos.xy * float(i) * rx, vec2(12.9898, 78.233))) * 43758.5453);
+						float rz = fract(sin(dot(pos.xy * float(i) * ry, vec2(12.9898, 78.233))) * 43758.5453);
+						pos += ((vec3(rx, ry, rz) * 2.0 - 1.0) * roughness3 * 2.0)*0.0;
+					}
+
+					// Project to screen UV
+					vec4 proj = lighting_data.projection * vec4(pos, 1.0);
+					vec2 proj_uv = (proj.xy / proj.w) * 0.5 + 0.5;
+
+					// Get view-space depth at that UV
+					vec4 depth_pos = vec4(proj_uv * 2.0 - 1.0, 
+						texture(TEXTURE(lighting_data.depth_tex), proj_uv).r * 2.0 - 1.0, 1.0) * lighting_data.inv_projection;
+					float scene_z = depth_pos.z / depth_pos.w;
+
+					if (abs(scene_z - pos.z) < 5.0) {
+						return texture(TEXTURE(lighting_data.last_frame_tex), proj_uv).rgb;
+					}
+				}
+
+				return vec3(0.0);
+			}
+
 			vec3 get_ssr(vec3 world_pos, vec3 N, vec3 V, float roughness) {
 				if (lighting_data.last_frame_tex == -1) return vec3(0.0);
-				//if (roughness > 0.8) return vec3(0.0);
+				if (roughness > 0.4) return vec3(0.0);
+
+
+				N = N + get_noise3_world(world_pos) * roughness;
 
 				vec3 R = reflect(-V, N);
 				vec4 view_pos = lighting_data.view * vec4(world_pos, 1.0);
 				vec3 view_dir = normalize(mat3(lighting_data.view) * R);
 
 				float step_size = 0.1;
-				int max_steps = 256;
+				int max_steps = 128;
 				vec3 current_pos = view_pos.xyz;
 
 				for (int i = 0; i < max_steps; i++) {
-					vec3 jittered_N = random_vec3(gl_FragCoord.xy + vec2(float(i)/256) + vec2(sin(lighting_data.time), -cos(lighting_data.time))) * roughness * 0.0000000001;
 
-					current_pos += view_dir * step_size + jittered_N;
+					current_pos += view_dir * step_size;
+
 
 					vec4 projected_pos = lighting_data.projection * vec4(current_pos, 1.0);
 					projected_pos.xyz /= projected_pos.w;
@@ -609,7 +771,7 @@ render3d.lighting_config = {
 
 					if (current_pos.z < sampled_view_pos.z) {
 						float depth_diff = abs(current_pos.z - sampled_view_pos.z);
-						if (depth_diff < 0.2) {
+						if (depth_diff < 0.5) {
 							vec3 hit_color = texture(TEXTURE(lighting_data.last_frame_tex), uv).rgb;
 							float edge_fade = min(1.0, 10.0 * min(min(uv.x, 1.0 - uv.x), min(uv.y, 1.0 - uv.y)));
 							
@@ -626,7 +788,7 @@ render3d.lighting_config = {
 
 			// Get cascade index based on view distance
 			int getCascadeIndex(vec3 world_pos) {
-				float dist = length(world_pos - lighting_data.camera_position);
+				float dist = length(world_pos - lighting_data.camera_position.xyz);
 				
 				for (int i = 0; i < light_data.shadow.cascade_count; i++) {
 					if (dist < light_data.shadow.cascade_splits[i]) {
@@ -713,6 +875,45 @@ render3d.lighting_config = {
 				return textureLod(CUBEMAP(lighting_data.env_tex), R, mip_level).rgb;
 			}
 
+			vec3 get_ssao(vec2 uv, vec3 world_pos, vec3 N) {
+				if (lighting_data.ssao_noise_tex == -1) return vec3(1.0);
+
+				vec3 view_pos = (lighting_data.view * vec4(world_pos, 1.0)).xyz;
+				vec3 view_normal = normalize(mat3(lighting_data.view) * N);
+
+				vec2 noise_scale = vec2(textureSize(TEXTURE(lighting_data.albedo_tex), 0)) / 4.0;
+				vec3 random_vec = texture(TEXTURE(lighting_data.ssao_noise_tex), uv * noise_scale).xyz;
+
+				vec3 tangent = normalize(random_vec - view_normal * dot(random_vec, view_normal));
+				vec3 bitangent = cross(view_normal, tangent);
+				mat3 TBN = mat3(tangent, bitangent, view_normal);
+
+				float occlusion = 0.0;
+				float radius = 3.5;
+				float bias = 0.025;
+
+				for (int i = 0; i < 64; i++) {
+					vec3 sample_pos = TBN * lighting_data.ssao_kernel[i].xyz;
+					sample_pos = view_pos + sample_pos * radius;
+
+					vec4 offset = vec4(sample_pos, 1.0);
+					offset = lighting_data.projection * offset;
+					offset.xyz /= offset.w;
+					offset.xyz = offset.xyz * 0.5 + 0.5;
+
+					float sample_depth = texture(TEXTURE(lighting_data.depth_tex), offset.xy).r;
+					vec4 sample_clip_pos = vec4(offset.xy * 2.0 - 1.0, sample_depth, 1.0);
+					vec4 sample_view_pos = lighting_data.inv_projection * sample_clip_pos;
+					sample_view_pos /= sample_view_pos.w;
+
+					float range_check = smoothstep(0.0, 1.0, radius / abs(view_pos.z - sample_view_pos.z));
+					occlusion += (sample_view_pos.z >= sample_pos.z + bias ? 1.0 : 0.0) * range_check;
+				}
+
+				occlusion = 1.0 - (occlusion / 64.0);
+				return vec3(occlusion);
+			}
+
 			void main() {
 				vec4 albedo_alpha = texture(TEXTURE(lighting_data.albedo_tex), in_uv);
 				//if (albedo_alpha.a == 0.0) discard;
@@ -727,11 +928,19 @@ render3d.lighting_config = {
 					out_color = vec4(color, albedo_alpha.a);
 					return;
 				}
+				int debug_mode = lighting_data.debug_mode - 1;
 
 				vec3 N = texture(TEXTURE(lighting_data.normal_tex), in_uv).xyz;
+
 				vec3 mra = texture(TEXTURE(lighting_data.mra_tex), in_uv).rgb;
 				float metallic = mra.r;
 				float roughness = mra.g;
+				if (debug_mode == 2) {
+					metallic = 1.0;
+					roughness = 0.4;
+				}
+
+
 				float ao = mra.b;
 				vec3 emissive = texture(TEXTURE(lighting_data.emissive_tex), in_uv).rgb;
 
@@ -740,8 +949,8 @@ render3d.lighting_config = {
 				vec4 view_pos = lighting_data.inv_projection * clip_pos;
 				view_pos /= view_pos.w;
 				vec3 world_pos = (lighting_data.inv_view * view_pos).xyz;
-
-				vec3 V = normalize(lighting_data.camera_position - world_pos);
+			
+				vec3 V = normalize(lighting_data.camera_position.xyz - world_pos);
 				vec3 reflection = env_color(N, roughness, V, world_pos);
 				vec3 F0 = mix(vec3(0.04), albedo, metallic);
 				float NdotV = max(dot(N, V), 0.001);
@@ -781,9 +990,10 @@ render3d.lighting_config = {
 					Lo += (kD * albedo / PI + specular) * radiance * NdotL * shadow_factor;
 				}
 
-				vec3 ambient_diffuse = reflection * albedo * ao;
+				vec3 ssao = get_ssao(in_uv, world_pos, N);
+				vec3 ambient_diffuse = reflection * albedo * ao * ssao;
 				vec3 F_ambient = fresnelSchlick(NdotV, F0);
-				vec3 ambient_specular = F_ambient * reflection * ao;
+				vec3 ambient_specular = F_ambient * reflection * ao * ssao;
 				vec3 ambient = ambient_diffuse * (1.0 - metallic) + ambient_specular * metallic;
 				vec3 color = ambient + Lo + emissive;
 
@@ -795,14 +1005,15 @@ render3d.lighting_config = {
 					color = mix(color, CASCADE_COLORS[cascade_idx], 0.4);
 				}
 
-				int mode = lighting_data.debug_mode - 1;
 				
-				if (mode == 1) {
+				if (debug_mode == 1) {
 					color = N * 0.5 + 0.5;
-				} else if (mode == 2) {
-					color = reflection;
-				} else if (mode == 3) {
+				} else if (debug_mode == 2) {
+					// do nothing, see up
+				} else if (debug_mode == 3) {
 					color = ambient_specular + emissive;
+				} else if (debug_mode == 4) {
+					color = ssao;
 				}
 
 				out_color = vec4(color, albedo_alpha.a);
@@ -914,8 +1125,51 @@ function render3d.Initialize()
 		render3d.current_lighting_fb_index = 1
 	end
 
+	local function create_ssao_noise()
+		local function lerp(a, b, t)
+			return a + (b - a) * t
+		end
+
+		render3d.ssao_kernel = {}
+
+		for i = 1, 64 do
+			local sample = Vec3(math.random() * 2 - 1, math.random() * 2 - 1, math.random()):Normalize()
+			sample = sample * math.random()
+			local scale = (i - 1) / 64
+			scale = lerp(0.1, 1.0, scale * scale)
+			sample = sample * scale
+			table.insert(render3d.ssao_kernel, sample)
+		end
+
+		local ssao_noise = {}
+
+		for i = 1, 16 do
+			table.insert(ssao_noise, math.random() * 2 - 1)
+			table.insert(ssao_noise, math.random() * 2 - 1)
+			table.insert(ssao_noise, 0)
+			table.insert(ssao_noise, 1)
+		end
+
+		local noise_buffer = ffi.new("float[?]", #ssao_noise, ssao_noise)
+		render3d.ssao_noise_tex = Texture.New(
+			{
+				width = 4,
+				height = 4,
+				format = "r32g32b32a32_sfloat",
+				buffer = noise_buffer,
+				sampler = {
+					min_filter = "nearest",
+					mag_filter = "nearest",
+					wrap_s = "repeat",
+					wrap_t = "repeat",
+				},
+			}
+		)
+	end
+
 	create_gbuffer()
 	create_lighting_fbs()
+	create_ssao_noise()
 
 	-- Resolve descriptor set args functions
 	for _, desc in ipairs(render3d.config.fragment.descriptor_sets) do
@@ -1064,8 +1318,8 @@ function render3d.GetDebugCascadeColors()
 end
 
 do
-	local debug_modes = {"none", "normals", "reflection", "light"}
-	render3d.debug_mode = 1
+	local debug_modes = {"none", "normals", "reflection", "light", "ssao"}
+	render3d.debug_mode = render3d.debug_mode or 1
 
 	function render3d.GetDebugModes()
 		return debug_modes

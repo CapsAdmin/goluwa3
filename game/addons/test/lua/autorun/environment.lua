@@ -73,8 +73,24 @@ do
 		end)
 	end
 
-	debug_ent(Vec3(0, 0, 10), nil, function(poly, mat)
-		mat:SetColorMultiplier(Color(1.0, 1, 1, 1))
+	debug_ent(Vec3(4, 4, 10), nil, function(poly, mat)
+		mat:SetColorMultiplier(Color(1, 0, 0, 1))
+		mat:SetRoughnessMultiplier(1)
+		mat:SetMetallicMultiplier(0)
+		poly:CreateCube()
+	end)
+
+	debug_ent(Vec3(2, 2, 10), nil, function(poly, mat)
+		mat:SetColorMultiplier(Color(0, 1, 0, 1))
+		mat:SetRoughnessMultiplier(0)
+		mat:SetMetallicMultiplier(1)
+		poly:CreateCube()
+	end)
+
+	debug_ent(Vec3(4, 2, 10), nil, function(poly, mat)
+		mat:SetColorMultiplier(Color(0, 0, 1, 1))
+		mat:SetRoughnessMultiplier(0)
+		mat:SetMetallicMultiplier(1)
 		poly:CreateCube()
 	end)
 end

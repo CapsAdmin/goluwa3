@@ -26,7 +26,7 @@ Material:GetSet("NormalMapMultiplier", 1.0)
 Material:GetSet("AmbientOcclusionMultiplier", 1.0)
 -- other
 Material:GetSet("AlphaCutoff", 0.5)
-Material:GetSet("DoubleSided", false) -- todo, disable culling
+Material:GetSet("DoubleSided", false, {callback = "InvalidateFlags"})
 -- flags
 Material:GetSet("Flags", 0)
 Material:GetSet("ReverseXZNormalMap", false, {callback = "InvalidateFlags"})
@@ -81,6 +81,7 @@ local FLAGS = {
 	"AlbedoTextureAlphaIsRoughness",
 	"AlbedoLuminanceIsRoughness",
 	"MetallicTextureAlphaIsEmissive",
+	"DoubleSided",
 }
 
 function Material:InvalidateFlags()
