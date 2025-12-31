@@ -25,11 +25,13 @@ sun:SetIsSun(true)
 --sun:SetRotation(Quat(0.4, -0.1, -0.1, -0.9):Normalize())
 sun:SetRotation(Quat(0.4, -0.1, -0.1, -0.9):Normalize())
 render3d.SetLights({sun})
-skybox.SetUniverseTexture(Texture.New({
-	path = "/home/caps/projects/hdr.png",
+
+--[[
+skybox.SetStarsTexture(Texture.New({
+	path = "/home/caps/projects/hdr.jpg",
 	mip_map_levels = "auto",
 }))
-
+	]]
 event.AddListener("Update", "sun_oientation", function(dt)
 	if input.IsKeyDown("k") then
 		local angles = sun:GetRotation():GetAngles()

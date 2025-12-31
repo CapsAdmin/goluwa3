@@ -384,6 +384,274 @@ render3d.fill_config = {
 		stencil_test_enabled = false,
 	},
 }
+render3d.ssr_config = {
+	samples = "1",
+	vertex = {
+		custom_declarations = [[
+			layout(location = 0) out vec2 out_uv;
+		]],
+		shader = [[
+			void main() {
+				vec2 uv = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
+				gl_Position = vec4(uv * 2.0 - 1.0, 0.0, 1.0);
+				out_uv = uv;
+			}
+		]],
+	},
+	fragment = {
+		custom_declarations = [[
+			layout(location = 0) in vec2 in_uv;
+			layout(location = 0) out vec4 out_ssr;
+		]],
+		uniform_buffers = {
+			{
+				name = "ssr_data",
+				binding_index = 3,
+				block = {
+					{
+						"inv_view",
+						"mat4",
+						function(constants)
+							return render3d.camera:BuildViewMatrix():GetInverse():CopyToFloatPointer(constants.inv_view)
+						end,
+					},
+					{
+						"inv_projection",
+						"mat4",
+						function(constants)
+							return render3d.camera:BuildProjectionMatrix():GetInverse():CopyToFloatPointer(constants.inv_projection)
+						end,
+					},
+					{
+						"view",
+						"mat4",
+						function(constants)
+							return render3d.camera:BuildViewMatrix():CopyToFloatPointer(constants.view)
+						end,
+					},
+					{
+						"projection",
+						"mat4",
+						function(constants)
+							return render3d.camera:BuildProjectionMatrix():CopyToFloatPointer(constants.projection)
+						end,
+					},
+					{
+						"camera_position",
+						"vec4",
+						function(constants)
+							local p = render3d.camera:GetPosition()
+							constants.camera_position[0] = p.x
+							constants.camera_position[1] = p.y
+							constants.camera_position[2] = p.z
+							constants.camera_position[3] = 0
+						end,
+					},
+					{
+						"normal_tex",
+						"int",
+						function(constants)
+							return render3d.ssr_pipeline:GetTextureIndex(render3d.gbuffer:GetAttachment(2))
+						end,
+					},
+					{
+						"mra_tex",
+						"int",
+						function(constants)
+							return render3d.ssr_pipeline:GetTextureIndex(render3d.gbuffer:GetAttachment(3))
+						end,
+					},
+					{
+						"depth_tex",
+						"int",
+						function(constants)
+							return render3d.ssr_pipeline:GetTextureIndex(render3d.gbuffer:GetDepthTexture())
+						end,
+					},
+					{
+						"last_frame_tex",
+						"int",
+						function(constants)
+							if not render3d.lighting_fbs then return -1 end
+
+							local prev_idx = 3 - render3d.current_lighting_fb_index
+							return render3d.ssr_pipeline:GetTextureIndex(render3d.lighting_fbs[prev_idx]:GetAttachment(1))
+						end,
+					},
+					{
+						"time",
+						"float",
+						function(constants)
+							return system.GetElapsedTime()
+						end,
+					},
+				},
+			},
+		},
+		shader = [[
+			#define SSR_ROUGHNESS 1
+			#define SSR_STEPS 200
+			#define SSR_SAMPLES 32
+			#define PI 3.14159265359
+
+			#define saturate(x) clamp(x, 0.0, 1.0)
+
+			float hash(vec2 p) {
+				p = fract(p * vec2(123.34, 456.21));
+				p += dot(p, p + 45.32);
+				return fract(p.x * p.y);
+			}
+
+			float V_SmithGGXCorrelated(float roughness, float NoV, float NoL) {
+				float a2 = roughness * roughness;
+				float lambdaV = NoL * sqrt((NoV - a2 * NoV) * NoV + a2);
+				float lambdaL = NoV * sqrt((NoL - a2 * NoL) * NoL + a2);
+				float v = 0.5 / (lambdaV + lambdaL);
+				return v;
+			}
+
+			vec4 cast_ssr_ray(vec3 world_pos, vec3 N, vec3 V, float roughness, vec2 xi) {
+				if (ssr_data.last_frame_tex == -1) return vec4(0.0);
+
+				#if SSR_ROUGHNESS
+				float a = roughness * roughness;
+				float a2 = a * a;
+				float phi = 2.0 * PI * xi.x;
+				float cosTheta = sqrt(max(0.0, (1.0 - xi.y) / (1.0 + (a2 - 1.0) * xi.y)));
+				float sinTheta = sqrt(max(0.0, 1.0 - cosTheta * cosTheta));
+				
+				vec3 H_local = vec3(cos(phi) * sinTheta, sin(phi) * sinTheta, cosTheta);
+				
+				vec3 up = abs(N.z) < 0.999 ? vec3(0.0, 0.0, 1.0) : vec3(1.0, 0.0, 0.0);
+				vec3 tangent = normalize(cross(up, N));
+				vec3 bitangent = cross(N, tangent);
+				vec3 H = normalize(tangent * H_local.x + bitangent * H_local.y + N * H_local.z);
+				#else
+				if (roughness > 0.2) return vec4(0.0);
+				vec3 H = N;
+				float a = roughness * roughness;
+				#endif
+				
+				vec3 R = reflect(-V, H);
+				float NoL = dot(N, R);
+				if (NoL < 0.0) return vec4(0.0);
+
+				vec4 view_pos = ssr_data.view * vec4(world_pos, 1.0);
+				vec3 view_dir = normalize(mat3(ssr_data.view) * R);
+
+				float step_size = 0.1;
+				int max_steps = SSR_STEPS;
+				int binary_search_steps = 5;
+				vec3 current_pos = view_pos.xyz;
+
+				for (int i = 0; i < max_steps; i++) {
+					current_pos += view_dir * step_size;
+					vec4 projected_pos = ssr_data.projection * vec4(current_pos, 1.0);
+					projected_pos.xyz /= projected_pos.w;
+					vec2 uv = projected_pos.xy * 0.5 + 0.5;
+
+					if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) break;
+
+					float sampled_depth = texture(TEXTURE(ssr_data.depth_tex), uv).r;
+					vec4 sampled_clip_pos = vec4(uv * 2.0 - 1.0, sampled_depth, 1.0);
+					vec4 sampled_view_pos = ssr_data.inv_projection * sampled_clip_pos;
+					sampled_view_pos /= sampled_view_pos.w;
+
+					if (current_pos.z < sampled_view_pos.z) {
+						float depth_diff = abs(current_pos.z - sampled_view_pos.z);
+						float thickness = 0.5 * (1.0 + step_size);
+						if (depth_diff < thickness) {
+							vec3 start_pos = current_pos - view_dir * step_size;
+							vec3 end_pos = current_pos;
+							for (int j = 0; j < binary_search_steps; j++) {
+								vec3 mid_pos = mix(start_pos, end_pos, 0.5);
+								vec4 mid_projected = ssr_data.projection * vec4(mid_pos, 1.0);
+								mid_projected.xyz /= mid_projected.w;
+								vec2 mid_uv = mid_projected.xy * 0.5 + 0.5;
+								
+								float mid_sampled_depth = texture(TEXTURE(ssr_data.depth_tex), mid_uv).r;
+								vec4 mid_sampled_clip = vec4(mid_uv * 2.0 - 1.0, mid_sampled_depth, 1.0);
+								vec4 mid_sampled_view = ssr_data.inv_projection * mid_sampled_clip;
+								mid_sampled_view /= mid_sampled_view.w;
+								
+								if (mid_pos.z < mid_sampled_view.z) {
+									end_pos = mid_pos;
+									uv = mid_uv;
+								} else {
+									start_pos = mid_pos;
+								}
+							}
+
+							vec3 hit_color = texture(TEXTURE(ssr_data.last_frame_tex), uv).rgb;
+							
+							#if SSR_ROUGHNESS
+							if (roughness > 0.05) {
+								vec2 texel_size = 1.0 / vec2(textureSize(TEXTURE(ssr_data.last_frame_tex), 0));
+								float blur_size = roughness * 10.0;
+								hit_color += texture(TEXTURE(ssr_data.last_frame_tex), uv + vec2(1.0, 1.0) * texel_size * blur_size).rgb;
+								hit_color += texture(TEXTURE(ssr_data.last_frame_tex), uv + vec2(-1.0, 1.0) * texel_size * blur_size).rgb;
+								hit_color += texture(TEXTURE(ssr_data.last_frame_tex), uv + vec2(1.0, -1.0) * texel_size * blur_size).rgb;
+								hit_color += texture(TEXTURE(ssr_data.last_frame_tex), uv + vec2(-1.0, -1.0) * texel_size * blur_size).rgb;
+								hit_color /= 5.0;
+							}
+							#endif
+
+							float edge_fade = min(1.0, 10.0 * min(min(uv.x, 1.0 - uv.x), min(uv.y, 1.0 - uv.y)));
+							float NoV = saturate(dot(N, V));
+							float NoH = saturate(dot(N, H));
+							float VoH = saturate(dot(V, H));
+							NoL = saturate(NoL);
+							
+							#if SSR_ROUGHNESS
+							float Vis = V_SmithGGXCorrelated(a, NoV, NoL);
+							float weight = (4.0 * Vis * NoL * VoH) / max(NoH, 0.001);
+							#else
+							float weight = 1.0;
+							#endif
+							
+							float distance_fade = 1.0 - clamp(length(current_pos - view_pos.xyz) / 100.0, 0.0, 1.0);
+							return vec4(hit_color * weight, edge_fade * distance_fade);
+						}
+					}
+					step_size *= 1.05;
+				}
+				return vec4(0.0);
+			}
+
+			void main() {
+				vec3 N = texture(TEXTURE(ssr_data.normal_tex), in_uv).xyz;
+				float roughness = texture(TEXTURE(ssr_data.mra_tex), in_uv).g;
+				float depth = texture(TEXTURE(ssr_data.depth_tex), in_uv).r;
+
+				if (depth == 1.0) {
+					out_ssr = vec4(0.0);
+					return;
+				}
+
+				vec4 clip_pos = vec4(in_uv * 2.0 - 1.0, depth, 1.0);
+				vec4 view_pos = ssr_data.inv_projection * clip_pos;
+				view_pos /= view_pos.w;
+				vec3 world_pos = (ssr_data.inv_view * view_pos).xyz;
+				vec3 V = normalize(ssr_data.camera_position.xyz - world_pos);
+
+				vec4 total = vec4(0.0);
+				for (int i = 0; i < SSR_SAMPLES; i++) {
+					vec2 seed = in_uv + fract(ssr_data.time) + float(i) * 0.123;
+					vec2 xi = vec2(hash(seed), hash(seed + vec2(0.123, 0.456)));
+					total += cast_ssr_ray(world_pos, N, V, roughness, xi);
+				}
+				out_ssr = total / float(SSR_SAMPLES);
+			}
+		]],
+	},
+	rasterizer = {
+		cull_mode = "none",
+	},
+	depth_stencil = {
+		depth_test = false,
+		depth_write = false,
+	},
+}
 render3d.lighting_config = {
 	samples = "1",
 	vertex = {
@@ -590,11 +858,20 @@ render3d.lighting_config = {
 						end,
 					},
 					{
-						"universe_texture_index",
+						"stars_texture_index",
 						"int",
 						function(constants)
 							local skybox = require("render3d.skybox")
-							return render3d.lighting_pipeline:GetTextureIndex(skybox.universe_texture)
+							return render3d.lighting_pipeline:GetTextureIndex(skybox.stars_texture)
+						end,
+					},
+					{
+						"ssr_tex",
+						"int",
+						function(constants)
+							if not render3d.ssr_fb then return -1 end
+
+							return render3d.lighting_pipeline:GetTextureIndex(render3d.ssr_fb:GetAttachment(1))
 						end,
 					},
 				},
@@ -603,9 +880,6 @@ render3d.lighting_config = {
 		shader = [[
 			]] .. require("render3d.skybox").GetGLSLCode() .. [[
 			#define SSR 1
-			#define SSR_ROUGHNESS 1
-			#define SSR_STEPS 64
-			#define SSR_SAMPLES 32
 			#define uv in_uv
 			float hash(vec2 p) {
 				p = fract(p * vec2(123.34, 456.21));
@@ -672,132 +946,6 @@ render3d.lighting_config = {
 				return vec3(x, y, z) * 2.0 - 1.0;
 			}
 
-			vec4 cast_ssr_ray(vec3 world_pos, vec3 N, vec3 V, float roughness, vec2 xi) {
-				if (lighting_data.last_frame_tex == -1) return vec4(0.0);
-
-				#if SSR_ROUGHNESS
-				// Importance sample GGX to get a microfacet normal H
-				float a = roughness * roughness;
-				float a2 = a * a;
-				float phi = 2.0 * PI * xi.x;
-				float cosTheta = sqrt(max(0.0, (1.0 - xi.y) / (1.0 + (a2 - 1.0) * xi.y)));
-				float sinTheta = sqrt(max(0.0, 1.0 - cosTheta * cosTheta));
-				
-				vec3 H_local = vec3(cos(phi) * sinTheta, sin(phi) * sinTheta, cosTheta);
-				
-				// Transform H to world space
-				vec3 up = abs(N.z) < 0.999 ? vec3(0.0, 0.0, 1.0) : vec3(1.0, 0.0, 0.0);
-				vec3 tangent = normalize(cross(up, N));
-				vec3 bitangent = cross(N, tangent);
-				vec3 H = normalize(tangent * H_local.x + bitangent * H_local.y + N * H_local.z);
-				#else
-				if (roughness > 0.2) return vec4(0.0);
-				vec3 H = N;
-				float a = roughness * roughness;
-				#endif
-				
-				vec3 R = reflect(-V, H);
-				
-				// If the reflection vector is below the horizon, skip
-				float NoL = dot(N, R);
-				if (NoL < 0.0) return vec4(0.0);
-
-				vec4 view_pos = lighting_data.view * vec4(world_pos, 1.0);
-				vec3 view_dir = normalize(mat3(lighting_data.view) * R);
-
-				float step_size = 0.1;
-				int max_steps = SSR_STEPS;
-				int binary_search_steps = 5;
-				vec3 current_pos = view_pos.xyz;
-
-				for (int i = 0; i < max_steps; i++) {
-
-					current_pos += view_dir * step_size;
-
-					vec4 projected_pos = lighting_data.projection * vec4(current_pos, 1.0);
-					projected_pos.xyz /= projected_pos.w;
-					vec2 uv = projected_pos.xy * 0.5 + 0.5;
-
-					if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) break;
-
-					float sampled_depth = texture(TEXTURE(lighting_data.depth_tex), uv).r;
-					vec4 sampled_clip_pos = vec4(uv * 2.0 - 1.0, sampled_depth, 1.0);
-					vec4 sampled_view_pos = lighting_data.inv_projection * sampled_clip_pos;
-					sampled_view_pos /= sampled_view_pos.w;
-
-					if (current_pos.z < sampled_view_pos.z) {
-						float depth_diff = abs(current_pos.z - sampled_view_pos.z);
-						
-						// Thickness check
-						float thickness = 3.0 * (1.0 + step_size);
-						if (depth_diff < thickness) {
-							// Binary search to refine
-							vec3 start_pos = current_pos - view_dir * step_size;
-							vec3 end_pos = current_pos;
-							for (int j = 0; j < binary_search_steps; j++) {
-								vec3 mid_pos = mix(start_pos, end_pos, 0.5);
-								vec4 mid_projected = lighting_data.projection * vec4(mid_pos, 1.0);
-								mid_projected.xyz /= mid_projected.w;
-								vec2 mid_uv = mid_projected.xy * 0.5 + 0.5;
-								
-								float mid_sampled_depth = texture(TEXTURE(lighting_data.depth_tex), mid_uv).r;
-								vec4 mid_sampled_clip = vec4(mid_uv * 2.0 - 1.0, mid_sampled_depth, 1.0);
-								vec4 mid_sampled_view = lighting_data.inv_projection * mid_sampled_clip;
-								mid_sampled_view /= mid_sampled_view.w;
-								
-								if (mid_pos.z < mid_sampled_view.z) {
-									end_pos = mid_pos;
-									uv = mid_uv;
-								} else {
-									start_pos = mid_pos;
-								}
-							}
-
-							vec3 hit_color = texture(TEXTURE(lighting_data.last_frame_tex), uv).rgb;
-							
-							#if SSR_ROUGHNESS
-							// Simple 4-tap blur for rough surfaces since we don't have mipmaps
-							if (roughness > 0.05) {
-								vec2 texel_size = 1.0 / vec2(textureSize(TEXTURE(lighting_data.last_frame_tex), 0));
-								float blur_size = roughness * 10.0;
-								hit_color += texture(TEXTURE(lighting_data.last_frame_tex), uv + vec2(1.0, 1.0) * texel_size * blur_size).rgb;
-								hit_color += texture(TEXTURE(lighting_data.last_frame_tex), uv + vec2(-1.0, 1.0) * texel_size * blur_size).rgb;
-								hit_color += texture(TEXTURE(lighting_data.last_frame_tex), uv + vec2(1.0, -1.0) * texel_size * blur_size).rgb;
-								hit_color += texture(TEXTURE(lighting_data.last_frame_tex), uv + vec2(-1.0, -1.0) * texel_size * blur_size).rgb;
-								hit_color /= 5.0;
-							}
-							#endif
-
-							// Physically accurate weighting for importance sampling
-							float NoV = saturate(dot(N, V));
-							float NoH = saturate(dot(N, H));
-							float VoH = saturate(dot(V, H));
-							NoL = saturate(NoL);
-							
-							#if SSR_ROUGHNESS
-							float Vis = V_SmithGGXCorrelated(a, NoV, NoL);
-							float weight = (4.0 * Vis * NoL * VoH) / max(NoH, 0.001);
-							#else
-							float weight = 1.0;
-							#endif
-							
-							return vec4(hit_color * weight, 1.0);
-						}
-					}
-					step_size *= 1.05;
-				}
-				return vec4(0.0);
-			}
-
-			vec4 get_ssr(vec3 world_pos, vec3 N, vec3 V, float roughness) {
-				vec4 total = vec4(0.0);
-				for (int i = 0; i < SSR_SAMPLES; i++) {
-					vec2 seed = in_uv + fract(lighting_data.time) + float(i) * 0.123;
-					vec2 xi = vec2(hash(seed), hash(seed + vec2(0.123, 0.456)));
-					total += cast_ssr_ray(world_pos, N, V, roughness, xi);
-				}
-				return total / float(SSR_SAMPLES);
-			}
 			#endif
 
 			// Get cascade index based on view distance
@@ -856,7 +1004,7 @@ render3d.lighting_config = {
 				}
 
 				#if SSR
-				vec4 ssr = get_ssr(world_pos, normal, V, roughness);
+				vec4 ssr = texture(TEXTURE(lighting_data.ssr_tex), in_uv);
 				return mix(env, ssr.rgb, ssr.a);
 				#else
 				return env;
@@ -922,7 +1070,7 @@ render3d.lighting_config = {
 				"dir",
 				"sunDir",
 				"lighting_data.camera_position.xyz",
-				"lighting_data.universe_texture_index"
+				"lighting_data.stars_texture_index"
 			) .. [[
 					
 					out_color = vec4(sky_color_output, 1.0);
@@ -1014,6 +1162,8 @@ render3d.lighting_config = {
 					color = ambient_specular + emissive;
 				} else if (debug_mode == 4) {
 					color = ssao;
+				} else if (debug_mode == 5) {
+					color = texture(TEXTURE(lighting_data.ssr_tex), in_uv).rgb;
 				}
 
 				out_color = vec4(color, albedo_alpha.a);
@@ -1090,6 +1240,7 @@ render3d.blit_config = {
 }
 
 function render3d.Initialize()
+	render3d.ssr_config.color_format = {"r16g16b16a16_sfloat"}
 	render3d.lighting_config.color_format = {"r16g16b16a16_sfloat"}
 	render3d.blit_config.color_format = {render.target.color_format}
 	render3d.blit_config.depth_format = render.target.depth_format
@@ -1124,6 +1275,18 @@ function render3d.Initialize()
 		end
 
 		render3d.current_lighting_fb_index = 1
+	end
+
+	local function create_ssr_fb()
+		local size = window:GetSize()
+		render3d.ssr_fb = Framebuffer.New(
+			{
+				width = math.floor(size.x / 2),
+				height = math.floor(size.y / 2),
+				formats = {"r16g16b16a16_sfloat"},
+				depth = false,
+			}
+		)
 	end
 
 	local function create_ssao_noise()
@@ -1170,14 +1333,17 @@ function render3d.Initialize()
 
 	create_gbuffer()
 	create_lighting_fbs()
+	create_ssr_fb()
 	create_ssao_noise()
 	render3d.fill_pipeline = EasyPipeline.New(render3d.fill_config)
+	render3d.ssr_pipeline = EasyPipeline.New(render3d.ssr_config)
 	render3d.lighting_pipeline = EasyPipeline.New(render3d.lighting_config)
 	render3d.blit_pipeline = EasyPipeline.New(render3d.blit_config)
 
 	event.AddListener("WindowFramebufferResized", "render3d_gbuffer", function(wnd, size)
 		create_gbuffer()
 		create_lighting_fbs()
+		create_ssr_fb()
 		-- Update lighting pipeline descriptor sets with new G-buffer textures
 		local textures = {}
 
@@ -1195,6 +1361,10 @@ function render3d.Initialize()
 
 		for i = 1, #render3d.lighting_pipeline.pipeline.descriptor_sets do
 			render3d.lighting_pipeline.pipeline:UpdateDescriptorSetArray(i, 0, textures)
+		end
+
+		for i = 1, #render3d.ssr_pipeline.pipeline.descriptor_sets do
+			render3d.ssr_pipeline.pipeline:UpdateDescriptorSetArray(i, 0, textures)
 		end
 
 		for i = 1, #render3d.blit_pipeline.pipeline.descriptor_sets do
@@ -1217,6 +1387,17 @@ function render3d.Initialize()
 		end
 
 		render3d.gbuffer:End(cmd)
+
+		-- 1.5 SSR Pass
+		if render3d.ssr_fb and render3d.ssr_pipeline then
+			render3d.ssr_fb:Begin(cmd)
+			cmd:SetCullMode("none")
+			render3d.ssr_pipeline:Bind(cmd)
+			render3d.ssr_pipeline:UploadConstants(cmd)
+			cmd:Draw(3, 1, 0, 0)
+			render3d.ssr_fb:End(cmd)
+		end
+
 		-- 2. Lighting Pass (Offscreen)
 		local current_fb = render3d.lighting_fbs[render3d.current_lighting_fb_index]
 		current_fb:Begin(cmd)
@@ -1303,7 +1484,7 @@ function render3d.GetDebugCascadeColors()
 end
 
 do
-	local debug_modes = {"none", "normals", "reflection", "light", "ssao"}
+	local debug_modes = {"none", "normals", "reflection", "light", "ssao", "ssr"}
 	render3d.debug_mode = render3d.debug_mode or 1
 
 	function render3d.GetDebugModes()

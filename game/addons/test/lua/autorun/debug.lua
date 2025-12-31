@@ -153,6 +153,30 @@ function events.Draw2D.debug_shadow_map(cmd, dt)
 	end
 end
 
+-- Debug: Draw SSR buffer
+local show_ssr_buffer = false
+
+function events.Draw2D.debug_ssr_buffer(cmd, dt)
+	if not show_ssr_buffer then return end
+
+	if not render3d.ssr_fb then return end
+
+	local tex = render3d.ssr_fb:GetAttachment(1)
+
+	if not tex then return end
+
+	local size = 400
+	local margin = 10
+	local x = window:GetSize().x - size - margin
+	local y = margin
+	render2d.SetTexture(tex)
+	render2d.SetColor(1, 1, 1, 1)
+	render2d.DrawRect(x, y, size, size)
+	render2d.SetTexture(nil)
+	render2d.SetColor(1, 1, 1, 1)
+	gfx.DrawText("SSR Buffer (Half-Res)", x, y + size + 5)
+end
+
 function events.KeyInput.render3d_debug(key, press)
 	if not press then return end
 
@@ -164,6 +188,12 @@ function events.KeyInput.render3d_debug(key, press)
 		-- Also toggle cascade color visualization in the shader
 		render3d.SetDebugCascadeColors(show_shadow_map)
 		print("Shadow map debug: " .. (show_shadow_map and "ON" or "OFF"))
+	end
+
+	-- Toggle SSR buffer debug view
+	if key == "f7" then
+		show_ssr_buffer = not show_ssr_buffer
+		print("SSR buffer debug: " .. (show_ssr_buffer and "ON" or "OFF"))
 	end
 
 	-- Toggle frustum culling

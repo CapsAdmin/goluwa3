@@ -154,10 +154,92 @@ function skybox.GetGLSLCode()
 			
 			return skyColor;
 		}
+
+		float hash( const in float n ) {
+			return fract(sin(n)*4378.5453);
+		}
+
+		float pnoise(in vec3 o) 
+		{
+			vec3 p = floor(o);
+			vec3 fr = fract(o);
+				
+			float n = p.x + p.y*57.0 + p.z * 1009.0;
+
+			float a = hash(n+  0.0);
+			float b = hash(n+  1.0);
+			float c = hash(n+ 57.0);
+			float d = hash(n+ 58.0);
+			
+			float e = hash(n+  0.0 + 1009.0);
+			float f = hash(n+  1.0 + 1009.0);
+			float g = hash(n+ 57.0 + 1009.0);
+			float h = hash(n+ 58.0 + 1009.0);
+			
+			
+			vec3 fr2 = fr * fr;
+			vec3 fr3 = fr2 * fr;
+			
+			vec3 t = 3.0 * fr2 - 2.0 * fr3;
+			
+			float u = t.x;
+			float v = t.y;
+			float w = t.z;
+
+			// this last bit should be refactored to the same form as the rest :)
+			float res1 = a + (b-a)*u +(c-a)*v + (a-b+d-c)*u*v;
+			float res2 = e + (f-e)*u +(g-e)*v + (e-f+h-g)*u*v;
+			
+			float res = res1 * (1.0- w) + res2 * (w);
+			
+			return res;
+		}
+
+		const mat3 m = mat3( 0.00,  0.80,  0.60,
+							-0.80,  0.36, -0.48,
+							-0.60, -0.48,  0.64 );
+
+		float SmoothNoise( vec3 p )
+		{
+			float f;
+			f  = 0.5000*pnoise( p ); p = m*p*2.02;
+			f += 0.2500*pnoise( p ); 
+			
+			return f * (1.0 / (0.5000 + 0.2500));
+		}
+
+		// 2D rotation function
+		mat2 rot2D(float a) {
+			return mat2(cos(a),sin(a),-sin(a),cos(a));	
+		}
+
+		vec3 getStars(in vec3 from, in vec3 dir, int levels, float power) 
+		{
+			vec3 color=vec3(0.0);
+			vec3 st = (dir * 2.+ vec3(0.3,2.5,1.25)) * .3;
+			for (int i = 0; i < levels; i++) st = abs(st) / dot(st,st) - .9;
+			float star = min( 1., pow( min( 5., length(st) ), 3. ) * .0025 )*1.5;
+
+			vec3 randc = vec3(SmoothNoise( dir.xyz*10.0*float(levels) ), SmoothNoise( dir.xzy*10.0*float(levels) ), SmoothNoise( dir.yzx*10.0*float(levels) ));
+			color += star * pow(randc, vec3(0.3));
+
+			return pow(color, vec3(power));
+		}
+
+		vec3 get_stars(vec3 dir) {
+			vec3 from=vec3(0.0);
+			vec3 color=clamp(getStars(from, dir, 1, 0.5) * 1.2, 0.0, 1.0) * vec3(0.0, 0.0, 1.0);
+			vec3 color2=clamp(getStars(from, -dir, 2, 0.5) * 0.9, 0.0, 1.0) * vec3(1.0, 0.0, 0.0);
+			vec3 color3=clamp(getStars(from, -dir, 3, 0.5) * 0.7, 0.0, 1.0) * vec3(1.0, 1.0, 0.0);
+			
+			vec3 colorStars=clamp(getStars(from, dir, 17, 0.9), 0.0, 1.0);
+			color = pow(color + color2 + color3, vec3(2.5)) + colorStars;
+			return max(color - 0.3, vec3(0));
+		}
 	]]
 end
 
-function skybox.GetGLSLMainCode(dir_var, sun_dir_var, cam_pos_var, universe_texture_index_var)
+function skybox.GetGLSLMainCode(dir_var, sun_dir_var, cam_pos_var, stars_texture_index_var)
 	return [[
 		{
 			vec3 dir = normalize(]] .. dir_var .. [[);
@@ -187,13 +269,14 @@ function skybox.GetGLSLMainCode(dir_var, sun_dir_var, cam_pos_var, universe_text
 			
 			// Sample space/stars texture
 			vec3 spaceColor = vec3(0.0);
-			if (]] .. universe_texture_index_var .. [[ != -1) {
+			if (]] .. stars_texture_index_var .. [[ != -1) {
 				float u = atan(dir.z, dir.x) / (2.0 * PI) + 0.5;
 				float v = asin(dir.y) / PI + 0.5;
-				spaceColor = texture(TEXTURE(]] .. universe_texture_index_var .. [[), vec2(u, -v)).rgb;
-				// exaggerate a little
-				spaceColor *= 1.5;
-				spaceColor = pow(spaceColor, vec3(2.2));
+				spaceColor = texture(TEXTURE(]] .. stars_texture_index_var .. [[), vec2(u, -v)).rgb;
+				spaceColor = pow(spaceColor, vec3(10.0));
+				spaceColor *= 0.5;
+			} else {
+				spaceColor = get_stars(dir);
 			}
 			
 			// Blend: show stars when sky is dark, hide them during day
@@ -202,10 +285,7 @@ function skybox.GetGLSLMainCode(dir_var, sun_dir_var, cam_pos_var, universe_text
 	]]
 end
 
-skybox.inv_projection_view = Matrix44()
-skybox.temp_fence = nil
-skybox.temp_camera = nil
-skybox.update_cmd = nil
+skybox.inv_projection_view = skybox.inv_projection_view or Matrix44()
 local SIZE = 512
 
 function skybox.CreatePipeline(color_format, samples)
@@ -260,10 +340,10 @@ function skybox.CreatePipeline(color_format, samples)
 						name = "fragment",
 						block = {
 							{
-								"universe_texture_index",
+								"stars_texture_index",
 								"int",
 								function(constants, pipeline)
-									return pipeline:GetTextureIndex(skybox.universe_texture)
+									return pipeline:GetTextureIndex(skybox.stars_texture)
 								end,
 							},
 							{
@@ -318,7 +398,7 @@ function skybox.CreatePipeline(color_format, samples)
 						"in_direction",
 						"pc.fragment.sun_direction.xyz",
 						"pc.fragment.camera_position.xyz",
-						"pc.fragment.universe_texture_index"
+						"pc.fragment.stars_texture_index"
 					) .. [[
 						vec3 color = sky_color_output;
 						
@@ -356,71 +436,78 @@ function skybox.Initialize()
 	if skybox.output_texture then return end
 
 	-- Create environment cubemap
-	skybox.output_texture = Texture.New(
-		{
-			width = SIZE,
-			height = SIZE,
-			format = "b10g11r11_ufloat_pack32",
-			mip_map_levels = "auto",
-			image = {
-				array_layers = 6,
-				flags = {"cube_compatible"},
-				usage = {"color_attachment", "sampled", "transfer_src", "transfer_dst"},
-			},
-			view = {
-				view_type = "cube",
-				layer_count = 6,
-			},
-		}
-	)
-	skybox.source_texture = Texture.New(
-		{
-			width = SIZE,
-			height = SIZE,
-			format = "b10g11r11_ufloat_pack32",
-			mip_map_levels = "auto",
-			image = {
-				array_layers = 6,
-				flags = {"cube_compatible"},
-				usage = {"color_attachment", "sampled", "transfer_src", "transfer_dst"},
-			},
-			view = {
-				view_type = "cube",
-				layer_count = 6,
-			},
-		}
-	)
-	skybox.mip_face_views = {}
-	local num_mips = skybox.output_texture.mip_map_levels
+	skybox.output_texture = skybox.output_texture or
+		Texture.New(
+			{
+				width = SIZE,
+				height = SIZE,
+				format = "b10g11r11_ufloat_pack32",
+				mip_map_levels = "auto",
+				image = {
+					array_layers = 6,
+					flags = {"cube_compatible"},
+					usage = {"color_attachment", "sampled", "transfer_src", "transfer_dst"},
+				},
+				view = {
+					view_type = "cube",
+					layer_count = 6,
+				},
+			}
+		)
+	skybox.source_texture = skybox.source_texture or
+		Texture.New(
+			{
+				width = SIZE,
+				height = SIZE,
+				format = "b10g11r11_ufloat_pack32",
+				mip_map_levels = "auto",
+				image = {
+					array_layers = 6,
+					flags = {"cube_compatible"},
+					usage = {"color_attachment", "sampled", "transfer_src", "transfer_dst"},
+				},
+				view = {
+					view_type = "cube",
+					layer_count = 6,
+				},
+			}
+		)
 
-	for m = 0, num_mips - 1 do
-		skybox.mip_face_views[m] = {}
+	if not skybox.mip_face_views then
+		skybox.mip_face_views = {}
+		local num_mips = skybox.output_texture.mip_map_levels
+
+		for m = 0, num_mips - 1 do
+			skybox.mip_face_views[m] = {}
+
+			for i = 0, 5 do
+				skybox.mip_face_views[m][i] = skybox.output_texture:GetImage():CreateView(
+					{
+						view_type = "2d",
+						base_array_layer = i,
+						layer_count = 1,
+						base_mip_level = m,
+						level_count = 1,
+					}
+				)
+			end
+		end
+	end
+
+	if not skybox.source_face_views then
+		skybox.source_face_views = {}
 
 		for i = 0, 5 do
-			skybox.mip_face_views[m][i] = skybox.output_texture:GetImage():CreateView(
+			skybox.source_face_views[i] = skybox.source_texture:GetImage():CreateView(
 				{
 					view_type = "2d",
 					base_array_layer = i,
 					layer_count = 1,
-					base_mip_level = m,
+					base_mip_level = 0,
 					level_count = 1,
 				}
 			)
 		end
-	end
-
-	skybox.source_face_views = {}
-
-	for i = 0, 5 do
-		skybox.source_face_views[i] = skybox.source_texture:GetImage():CreateView(
-			{
-				view_type = "2d",
-				base_array_layer = i,
-				layer_count = 1,
-				base_mip_level = 0,
-				level_count = 1,
-			}
-		)
 	end
 
 	skybox.pipeline = skybox.CreatePipeline(render3d.fill_config.color_format, "1")
@@ -731,14 +818,16 @@ event.AddListener("PreFrame", "skybox_update", function()
 	skybox.UpdateEnvironmentTexture()
 end)
 
-function skybox.SetUniverseTexture(texture)
-	skybox.universe_texture = texture
+function skybox.SetStarsTexture(texture)
+	skybox.stars_texture = texture
 end
 
 function skybox.GetOutputCubemapTexture()
 	return skybox.output_texture
 end
 
-if render3d.fill_pipeline then skybox.Initialize() end
+if HOTRELOAD then skybox.Initialize() end
+
+if HOTRELOAD then dofile("goluwa/render3d/render3d.lua") end
 
 return skybox

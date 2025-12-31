@@ -52,7 +52,7 @@ local function draw3d(cb)
 		}
 	]])
 	env_tex:GenerateMipmaps("shader_read_only_optimal")
-	skybox.SetUniverseTexture(env_tex)
+	skybox.SetStarsTexture(env_tex)
 	local cam = render3d.GetCamera()
 	cam:SetPosition(Vec3(0, 0, -10))
 	cam:SetRotation(Quat(0, 0, 0, 1))
