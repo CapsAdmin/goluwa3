@@ -602,7 +602,10 @@ render3d.lighting_config = {
 		},
 		shader = [[
 			]] .. require("render3d.skybox").GetGLSLCode() .. [[
-			#define SSR 0
+			#define SSR 1
+			#define SSR_ROUGHNESS 1
+			#define SSR_STEPS 64
+			#define SSR_SAMPLES 32
 			#define uv in_uv
 			float hash(vec2 p) {
 				p = fract(p * vec2(123.34, 456.21));
@@ -612,202 +615,6 @@ render3d.lighting_config = {
 
 			vec3 random_vec3(vec2 p) {
 				return vec3(hash(p), hash(p + 1.0), hash(p + 2.0)) * 2.0 - 1.0;
-			}
-
-			// Cascade debug colors
-			const vec3 CASCADE_COLORS[4] = vec3[4](
-				vec3(1.0, 0.2, 0.2),  // Red - cascade 1
-				vec3(0.2, 1.0, 0.2),  // Green - cascade 2
-				vec3(0.2, 0.2, 1.0),  // Blue - cascade 3
-				vec3(1.0, 1.0, 0.2)   // Yellow - cascade 4
-			);
-
-			#if SSR
-
-			vec2 _raycast_project(vec3 coord)
-			{
-				vec4 res = lighting_data.projection * vec4(coord, 1.0);
-				return (res.xy / res.w) * 0.5 + 0.5;
-			}
-				
-			float linearize_depth(float depth)
-			{
-				float n = lighting_data.near_z;
-				float f = lighting_data.far_z;
-				return (2.0 * n) / (f + n - depth * (f - n));
-			}
-			float random(vec2 co)
-			{
-				return fract(sin(dot(co.xy ,vec2(12.9898,78.233))) * 43758.5453);
-			}
-			vec3 get_noise3(vec2 uv)
-			{
-				float x = random(uv);
-				float y = random(uv*x);
-				float z = random(uv*y);
-
-				return vec3(x,y,z) * 2 - 1;
-			}
-
-			vec3 get_noise3_world(vec3 world_pos)
-{
-    float x = random(world_pos.xy);
-    float y = random(world_pos.yz * x);
-    float z = random(world_pos.xz * y);
-
-    return vec3(x, y, z) * 2.0 - 1.0;
-}
-
-vec3 get_noise3_world_stable(vec3 world_pos, float scale)
-{
-    vec3 p = floor(world_pos * scale) / scale;  // quantize to grid
-    float x = random(p.xy);
-    float y = random(p.yz * x);
-    float z = random(p.xz * y);
-
-    return vec3(x, y, z) * 2.0 - 1.0;
-}
-
-			vec3 get_view_pos(vec2 uv)
-			{
-				vec4 pos = vec4(uv * 2.0 - 1.0, texture(TEXTURE(lighting_data.depth_tex), uv).r * 2 - 1, 1.0)*lighting_data.inv_projection;
-				return pos.xyz / pos.w;
-			}
-
-			vec2 g_raycast(vec3 viewPos, vec3 dir, const float step_size, const float max_steps, float roughness)
-			{
-				dir *= step_size + linearize_depth(texture(TEXTURE(lighting_data.depth_tex), uv).r);
-
-				for(int i = 0; i < max_steps; i++)
-				{
-					viewPos += dir;
-					//viewPos += get_noise3(viewPos.xy).xyz * pow(roughness, 3)*2;
-
-					float depth = get_view_pos(_raycast_project(viewPos)).z - viewPos.z;
-
-					if(depth > -5 && depth < 5)
-					{
-						return _raycast_project(viewPos).xy;
-					}
-				}
-
-				return vec2(0.0, 0.0);
-			}
-
-			vec3 get_ssr_old2(vec3 world_pos, vec3 N, vec3 V, float roughness) {
-				if (lighting_data.last_frame_tex == -1) return vec3(0.0);
-
-				vec3 R = reflect(-V, N);
-				vec4 view_pos = lighting_data.view * vec4(world_pos, 1.0);
-				vec3 view_dir = normalize(mat3(lighting_data.view) * R);
-
-				vec2 ray_uv = g_raycast(view_pos.xyz, view_dir, 0.5, 2, roughness);
-				return texture(TEXTURE(lighting_data.last_frame_tex), ray_uv).rgb;
-			}
-
-			vec3 get_ssr_old23(vec3 world_pos, vec3 N, vec3 V, float roughness) {
-				roughness = 0;
-				if (lighting_data.last_frame_tex == -1) return vec3(0.0);
-
-				vec3 R = reflect(-V, N);
-				vec4 view_pos = lighting_data.view * vec4(world_pos, 1.0);
-				vec3 dir = -normalize(mat3(lighting_data.view) * R);
-
-				// Scale direction by step_size + linearized depth
-				float depth_sample = texture(TEXTURE(lighting_data.depth_tex), uv).r;
-				float lin_depth = (2.0 * lighting_data.near_z) / 
-					(lighting_data.far_z + lighting_data.near_z - depth_sample * (lighting_data.far_z - lighting_data.near_z));
-				dir *= 0.5 ;
-
-				float roughness3 = roughness * roughness * roughness;
-
-				vec3 pos = view_pos.xyz;
-				for (int i = 0; i < 16; i++) {
-					pos += dir;
-
-					// Add noise based on roughness
-					if (roughness > 0.0) {
-						float rx = fract(sin(dot(pos.xy * float(i), vec2(12.9898, 78.233))) * 43758.5453);
-						float ry = fract(sin(dot(pos.xy * float(i) * rx, vec2(12.9898, 78.233))) * 43758.5453);
-						float rz = fract(sin(dot(pos.xy * float(i) * ry, vec2(12.9898, 78.233))) * 43758.5453);
-						pos += ((vec3(rx, ry, rz) * 2.0 - 1.0) * roughness3 * 2.0)*0.0;
-					}
-
-					// Project to screen UV
-					vec4 proj = lighting_data.projection * vec4(pos, 1.0);
-					vec2 proj_uv = (proj.xy / proj.w) * 0.5 + 0.5;
-
-					// Get view-space depth at that UV
-					vec4 depth_pos = vec4(proj_uv * 2.0 - 1.0, 
-						texture(TEXTURE(lighting_data.depth_tex), proj_uv).r * 2.0 - 1.0, 1.0) * lighting_data.inv_projection;
-					float scene_z = depth_pos.z / depth_pos.w;
-
-					if (abs(scene_z - pos.z) < 5.0) {
-						return texture(TEXTURE(lighting_data.last_frame_tex), proj_uv).rgb;
-					}
-				}
-
-				return vec3(0.0);
-			}
-
-			vec3 get_ssr(vec3 world_pos, vec3 N, vec3 V, float roughness) {
-				if (lighting_data.last_frame_tex == -1) return vec3(0.0);
-				if (roughness > 0.4) return vec3(0.0);
-
-
-				N = N + get_noise3_world(world_pos) * roughness;
-
-				vec3 R = reflect(-V, N);
-				vec4 view_pos = lighting_data.view * vec4(world_pos, 1.0);
-				vec3 view_dir = normalize(mat3(lighting_data.view) * R);
-
-				float step_size = 0.1;
-				int max_steps = 128;
-				vec3 current_pos = view_pos.xyz;
-
-				for (int i = 0; i < max_steps; i++) {
-
-					current_pos += view_dir * step_size;
-
-
-					vec4 projected_pos = lighting_data.projection * vec4(current_pos, 1.0);
-					projected_pos.xyz /= projected_pos.w;
-					vec2 uv = projected_pos.xy * 0.5 + 0.5;
-
-					if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) break;
-
-					float sampled_depth = texture(TEXTURE(lighting_data.depth_tex), uv).r;
-					vec4 sampled_clip_pos = vec4(uv * 2.0 - 1.0, sampled_depth, 1.0);
-					vec4 sampled_view_pos = lighting_data.inv_projection * sampled_clip_pos;
-					sampled_view_pos /= sampled_view_pos.w;
-
-					if (current_pos.z < sampled_view_pos.z) {
-						float depth_diff = abs(current_pos.z - sampled_view_pos.z);
-						if (depth_diff < 0.5) {
-							vec3 hit_color = texture(TEXTURE(lighting_data.last_frame_tex), uv).rgb;
-							float edge_fade = min(1.0, 10.0 * min(min(uv.x, 1.0 - uv.x), min(uv.y, 1.0 - uv.y)));
-							
-							// Fade out based on roughness
-							float roughness_fade = 1.0 - clamp(roughness * 1.2, 0.0, 1.0);
-							return hit_color * edge_fade * roughness_fade;
-						}
-					}
-					step_size *= 1.05;
-				}
-				return vec3(0.0);
-			}
-			#endif
-
-			// Get cascade index based on view distance
-			int getCascadeIndex(vec3 world_pos) {
-				float dist = length(world_pos - lighting_data.camera_position.xyz);
-				
-				for (int i = 0; i < light_data.shadow.cascade_count; i++) {
-					if (dist < light_data.shadow.cascade_splits[i]) {
-						return i;
-					}
-				}
-				return light_data.shadow.cascade_count - 1;
 			}
 
 			#define saturate(x) clamp(x, 0.0, 1.0)
@@ -842,6 +649,169 @@ vec3 get_noise3_world_stable(vec3 world_pos, float scale)
                 return 1.0 / PI;
             }
 
+			// Cascade debug colors
+			const vec3 CASCADE_COLORS[4] = vec3[4](
+				vec3(1.0, 0.2, 0.2),  // Red - cascade 1
+				vec3(0.2, 1.0, 0.2),  // Green - cascade 2
+				vec3(0.2, 0.2, 1.0),  // Blue - cascade 3
+				vec3(1.0, 1.0, 0.2)   // Yellow - cascade 4
+			);
+
+			#if SSR
+
+			float random(vec2 co)
+			{
+				return fract(sin(dot(co.xy ,vec2(12.9898,78.233))) * 43758.5453);
+			}
+			vec3 get_noise3_world(vec3 world_pos)
+			{
+				float x = random(world_pos.xy);
+				float y = random(world_pos.yz * x);
+				float z = random(world_pos.xz * y);
+
+				return vec3(x, y, z) * 2.0 - 1.0;
+			}
+
+			vec4 cast_ssr_ray(vec3 world_pos, vec3 N, vec3 V, float roughness, vec2 xi) {
+				if (lighting_data.last_frame_tex == -1) return vec4(0.0);
+
+				#if SSR_ROUGHNESS
+				// Importance sample GGX to get a microfacet normal H
+				float a = roughness * roughness;
+				float a2 = a * a;
+				float phi = 2.0 * PI * xi.x;
+				float cosTheta = sqrt(max(0.0, (1.0 - xi.y) / (1.0 + (a2 - 1.0) * xi.y)));
+				float sinTheta = sqrt(max(0.0, 1.0 - cosTheta * cosTheta));
+				
+				vec3 H_local = vec3(cos(phi) * sinTheta, sin(phi) * sinTheta, cosTheta);
+				
+				// Transform H to world space
+				vec3 up = abs(N.z) < 0.999 ? vec3(0.0, 0.0, 1.0) : vec3(1.0, 0.0, 0.0);
+				vec3 tangent = normalize(cross(up, N));
+				vec3 bitangent = cross(N, tangent);
+				vec3 H = normalize(tangent * H_local.x + bitangent * H_local.y + N * H_local.z);
+				#else
+				if (roughness > 0.2) return vec4(0.0);
+				vec3 H = N;
+				float a = roughness * roughness;
+				#endif
+				
+				vec3 R = reflect(-V, H);
+				
+				// If the reflection vector is below the horizon, skip
+				float NoL = dot(N, R);
+				if (NoL < 0.0) return vec4(0.0);
+
+				vec4 view_pos = lighting_data.view * vec4(world_pos, 1.0);
+				vec3 view_dir = normalize(mat3(lighting_data.view) * R);
+
+				float step_size = 0.1;
+				int max_steps = SSR_STEPS;
+				int binary_search_steps = 5;
+				vec3 current_pos = view_pos.xyz;
+
+				for (int i = 0; i < max_steps; i++) {
+
+					current_pos += view_dir * step_size;
+
+					vec4 projected_pos = lighting_data.projection * vec4(current_pos, 1.0);
+					projected_pos.xyz /= projected_pos.w;
+					vec2 uv = projected_pos.xy * 0.5 + 0.5;
+
+					if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) break;
+
+					float sampled_depth = texture(TEXTURE(lighting_data.depth_tex), uv).r;
+					vec4 sampled_clip_pos = vec4(uv * 2.0 - 1.0, sampled_depth, 1.0);
+					vec4 sampled_view_pos = lighting_data.inv_projection * sampled_clip_pos;
+					sampled_view_pos /= sampled_view_pos.w;
+
+					if (current_pos.z < sampled_view_pos.z) {
+						float depth_diff = abs(current_pos.z - sampled_view_pos.z);
+						
+						// Thickness check
+						float thickness = 3.0 * (1.0 + step_size);
+						if (depth_diff < thickness) {
+							// Binary search to refine
+							vec3 start_pos = current_pos - view_dir * step_size;
+							vec3 end_pos = current_pos;
+							for (int j = 0; j < binary_search_steps; j++) {
+								vec3 mid_pos = mix(start_pos, end_pos, 0.5);
+								vec4 mid_projected = lighting_data.projection * vec4(mid_pos, 1.0);
+								mid_projected.xyz /= mid_projected.w;
+								vec2 mid_uv = mid_projected.xy * 0.5 + 0.5;
+								
+								float mid_sampled_depth = texture(TEXTURE(lighting_data.depth_tex), mid_uv).r;
+								vec4 mid_sampled_clip = vec4(mid_uv * 2.0 - 1.0, mid_sampled_depth, 1.0);
+								vec4 mid_sampled_view = lighting_data.inv_projection * mid_sampled_clip;
+								mid_sampled_view /= mid_sampled_view.w;
+								
+								if (mid_pos.z < mid_sampled_view.z) {
+									end_pos = mid_pos;
+									uv = mid_uv;
+								} else {
+									start_pos = mid_pos;
+								}
+							}
+
+							vec3 hit_color = texture(TEXTURE(lighting_data.last_frame_tex), uv).rgb;
+							
+							#if SSR_ROUGHNESS
+							// Simple 4-tap blur for rough surfaces since we don't have mipmaps
+							if (roughness > 0.05) {
+								vec2 texel_size = 1.0 / vec2(textureSize(TEXTURE(lighting_data.last_frame_tex), 0));
+								float blur_size = roughness * 10.0;
+								hit_color += texture(TEXTURE(lighting_data.last_frame_tex), uv + vec2(1.0, 1.0) * texel_size * blur_size).rgb;
+								hit_color += texture(TEXTURE(lighting_data.last_frame_tex), uv + vec2(-1.0, 1.0) * texel_size * blur_size).rgb;
+								hit_color += texture(TEXTURE(lighting_data.last_frame_tex), uv + vec2(1.0, -1.0) * texel_size * blur_size).rgb;
+								hit_color += texture(TEXTURE(lighting_data.last_frame_tex), uv + vec2(-1.0, -1.0) * texel_size * blur_size).rgb;
+								hit_color /= 5.0;
+							}
+							#endif
+
+							// Physically accurate weighting for importance sampling
+							float NoV = saturate(dot(N, V));
+							float NoH = saturate(dot(N, H));
+							float VoH = saturate(dot(V, H));
+							NoL = saturate(NoL);
+							
+							#if SSR_ROUGHNESS
+							float Vis = V_SmithGGXCorrelated(a, NoV, NoL);
+							float weight = (4.0 * Vis * NoL * VoH) / max(NoH, 0.001);
+							#else
+							float weight = 1.0;
+							#endif
+							
+							return vec4(hit_color * weight, 1.0);
+						}
+					}
+					step_size *= 1.05;
+				}
+				return vec4(0.0);
+			}
+
+			vec4 get_ssr(vec3 world_pos, vec3 N, vec3 V, float roughness) {
+				vec4 total = vec4(0.0);
+				for (int i = 0; i < SSR_SAMPLES; i++) {
+					vec2 seed = in_uv + fract(lighting_data.time) + float(i) * 0.123;
+					vec2 xi = vec2(hash(seed), hash(seed + vec2(0.123, 0.456)));
+					total += cast_ssr_ray(world_pos, N, V, roughness, xi);
+				}
+				return total / float(SSR_SAMPLES);
+			}
+			#endif
+
+			// Get cascade index based on view distance
+			int getCascadeIndex(vec3 world_pos) {
+				float dist = length(world_pos - lighting_data.camera_position.xyz);
+				
+				for (int i = 0; i < light_data.shadow.cascade_count; i++) {
+					if (dist < light_data.shadow.cascade_splits[i]) {
+						return i;
+					}
+				}
+				return light_data.shadow.cascade_count - 1;
+			}
+
 			// PCF Shadow calculation
 			float calculateShadow(vec3 world_pos, vec3 normal, vec3 light_dir) {
 				int cascade_idx = getCascadeIndex(world_pos);
@@ -872,22 +842,25 @@ vec3 get_noise3_world_stable(vec3 world_pos, float scale)
 			}
 
 			vec3 env_color(vec3 normal, float roughness, vec3 V, vec3 world_pos) {
-				#if SSR
-				vec3 ssr_color = get_ssr(world_pos, normal, V, roughness);
-				if (length(ssr_color) > 0.0) {
-					return ssr_color;
+				vec3 env = vec3(0.2);
+				if (lighting_data.env_tex != -1) {
+					float NdotV = dot(normal, V);
+					if (NdotV > 0.0) {
+						vec3 R = reflect(-V, normal);
+						R = mix(R, normal, roughness * roughness);
+						R = normalize(R);
+						float max_mip = float(textureQueryLevels(CUBEMAP(lighting_data.env_tex)) - 1);
+						float mip_level = roughness * max_mip;
+						env = textureLod(CUBEMAP(lighting_data.env_tex), R, mip_level).rgb;
+					}
 				}
-				#endif
 
-				if (lighting_data.env_tex == -1) return vec3(0.2);
-				float NdotV = dot(normal, V);
-				if (NdotV <= 0.0) return vec3(0.0);
-				vec3 R = reflect(-V, normal);
-				R = mix(R, normal, roughness * roughness);
-				R = normalize(R);
-				float max_mip = float(textureQueryLevels(CUBEMAP(lighting_data.env_tex)) - 1);
-				float mip_level = roughness * max_mip;
-				return textureLod(CUBEMAP(lighting_data.env_tex), R, mip_level).rgb;
+				#if SSR
+				vec4 ssr = get_ssr(world_pos, normal, V, roughness);
+				return mix(env, ssr.rgb, ssr.a);
+				#else
+				return env;
+				#endif
 			}
 
 			vec3 get_ssao(vec2 uv, vec3 world_pos, vec3 N) {
