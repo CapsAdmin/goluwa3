@@ -217,7 +217,7 @@ function ShadowMap.New(config)
 				line_width = 1.0,
 				cull_mode = "none", -- Disabled - was causing device lost
 				front_face = "clockwise",
-				depth_bias = 0.2, -- Disabled - was causing device lost with some primitives
+				depth_bias = 0.1, -- Disabled - was causing device lost with some primitives
 				depth_bias_constant_factor = 0.0,
 				depth_bias_slope_factor = 0.0,
 			},

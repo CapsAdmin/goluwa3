@@ -253,7 +253,7 @@ render3d.fill_config = {
 			vec3 get_normal() {
 				vec3 N;
 				if (pc.model.NormalTexture == -1) {
-					N = normalize(in_normal);
+					N = in_normal;
 				} else {
 					vec3 tangent_normal = texture(TEXTURE(pc.model.NormalTexture), in_uv).xyz * 2.0 - 1.0;
 					
@@ -268,14 +268,14 @@ render3d.fill_config = {
 					vec3 B = -normalize(cross(N_orig, T));
 					mat3 TBN = mat3(T, B, N_orig);
 
-					N = normalize(TBN * tangent_normal);
+					N = TBN * tangent_normal;
 				}
 
 				if (DoubleSided && gl_FrontFacing) {
 					N = -N;
 				}
 
-				return N;
+				return normalize(N);
 			}
 
 			float get_metallic() {
@@ -490,8 +490,8 @@ render3d.ssr_config = {
 		},
 		shader = [[
 			#define SSR_ROUGHNESS 1
-			#define SSR_STEPS 200
-			#define SSR_SAMPLES 32
+			#define SSR_STEPS 150
+			#define SSR_SAMPLES 64
 			#define PI 3.14159265359
 
 			#define saturate(x) clamp(x, 0.0, 1.0)
@@ -596,24 +596,15 @@ render3d.ssr_config = {
 							}
 							#endif
 
-							float edge_fade = min(1.0, 10.0 * min(min(uv.x, 1.0 - uv.x), min(uv.y, 1.0 - uv.y)));
 							float NoV = saturate(dot(N, V));
 							float NoH = saturate(dot(N, H));
 							float VoH = saturate(dot(V, H));
 							NoL = saturate(NoL);
 							
-							#if SSR_ROUGHNESS
-							float Vis = V_SmithGGXCorrelated(a, NoV, NoL);
-							float weight = (4.0 * Vis * NoL * VoH) / max(NoH, 0.001);
-							#else
-							float weight = 1.0;
-							#endif
-							
-							float distance_fade = 1.0 - clamp(length(current_pos - view_pos.xyz) / 100.0, 0.0, 1.0);
-							return vec4(hit_color * weight, edge_fade * distance_fade);
+							return vec4(hit_color, 1.0);
 						}
 					}
-					step_size *= 1.05;
+					step_size *= 1.025;
 				}
 				return vec4(0.0);
 			}
@@ -991,16 +982,15 @@ render3d.lighting_config = {
 
 			vec3 env_color(vec3 normal, float roughness, vec3 V, vec3 world_pos) {
 				vec3 env = vec3(0.2);
+
 				if (lighting_data.env_tex != -1) {
-					float NdotV = dot(normal, V);
-					if (NdotV > 0.0) {
-						vec3 R = reflect(-V, normal);
-						R = mix(R, normal, roughness * roughness);
-						R = normalize(R);
-						float max_mip = float(textureQueryLevels(CUBEMAP(lighting_data.env_tex)) - 1);
-						float mip_level = roughness * max_mip;
-						env = textureLod(CUBEMAP(lighting_data.env_tex), R, mip_level).rgb;
-					}
+					float NdotV = max(dot(normal, V), 0.001);
+					vec3 R = reflect(-V, normal);
+					R = mix(R, normal, roughness * roughness);
+					R = normalize(R);
+					float max_mip = float(textureQueryLevels(CUBEMAP(lighting_data.env_tex)) - 1);
+					float mip_level = roughness * max_mip;
+					env = textureLod(CUBEMAP(lighting_data.env_tex), R, mip_level).rgb;
 				}
 
 				#if SSR
@@ -1025,10 +1015,11 @@ render3d.lighting_config = {
 				mat3 TBN = mat3(tangent, bitangent, view_normal);
 
 				float occlusion = 0.0;
-				float radius = 3.5;
-				float bias = 0.025;
-
-				for (int i = 0; i < 64; i++) {
+				float bias = 0.1;
+				float steps = 64;
+				
+				for (int i = 0; i < int(steps); i++) {
+					float radius = float(i+2) / 2.0;
 					vec3 sample_pos = TBN * lighting_data.ssao_kernel[i].xyz;
 					sample_pos = view_pos + sample_pos * radius;
 
@@ -1046,8 +1037,8 @@ render3d.lighting_config = {
 					occlusion += (sample_view_pos.z >= sample_pos.z + bias ? 1.0 : 0.0) * range_check;
 				}
 
-				occlusion = 1.0 - (occlusion / 64.0);
-				return vec3(occlusion);
+				occlusion = 1.0 - (occlusion / steps);
+				return vec3(pow(occlusion, 1.5));
 			}
 
 			void main() {
@@ -1214,6 +1205,76 @@ render3d.blit_config = {
 			},
 		},
 		shader = [[
+			float gamma = 2.2;
+
+			vec3 linearToneMapping(vec3 color)
+			{
+				float exposure = 1.;
+				color = clamp(exposure * color, 0., 1.);
+				color = pow(color, vec3(1. / gamma));
+				return color;
+			}
+
+			vec3 simpleReinhardToneMapping(vec3 color)
+			{
+				float exposure = 1.5;
+				color *= exposure/(1. + color / exposure);
+				color = pow(color, vec3(1. / gamma));
+				return color;
+			}
+
+			vec3 lumaBasedReinhardToneMapping(vec3 color)
+			{
+				float luma = dot(color, vec3(0.2126, 0.7152, 0.0722));
+				float toneMappedLuma = luma / (1. + luma);
+				color *= toneMappedLuma / luma;
+				color = pow(color, vec3(1. / gamma));
+				return color;
+			}
+
+			vec3 whitePreservingLumaBasedReinhardToneMapping(vec3 color)
+			{
+				float white = 2.;
+				float luma = dot(color, vec3(0.2126, 0.7152, 0.0722));
+				float toneMappedLuma = luma * (1. + luma / (white*white)) / (1. + luma);
+				color *= toneMappedLuma / luma;
+				color = pow(color, vec3(1. / gamma));
+				return color;
+			}
+
+			vec3 RomBinDaHouseToneMapping(vec3 color)
+			{
+				color = exp( -1.0 / ( 2.72*color + 0.15 ) );
+				color = pow(color, vec3(1. / gamma));
+				return color;
+			}
+
+			vec3 filmicToneMapping(vec3 color)
+			{
+				color = max(vec3(0.), color - vec3(0.004));
+				color = (color * (6.2 * color + .5)) / (color * (6.2 * color + 1.7) + 0.06);
+				return color;
+			}
+
+			vec3 Uncharted2ToneMapping(vec3 color)
+			{
+				float A = 0.15;
+				float B = 0.50;
+				float C = 0.10;
+				float D = 0.20;
+				float E = 0.02;
+				float F = 0.30;
+				float W = 11.2;
+				float exposure = 2.;
+				color *= exposure;
+				color = ((color * (A * color + C * B) + D * E) / (color * (A * color + B) + D * F)) - E / F;
+				float white = ((W * (A * W + C * B) + D * E) / (W * (A * W + B) + D * F)) - E / F;
+				color /= white;
+				color = pow(color, vec3(1. / gamma));
+				return color;
+			}
+
+
 			void main() {
 				if (pc.blit.tex == -1) {
 					out_color = vec4(1.0, 0.0, 1.0, 1.0);
@@ -1221,10 +1282,7 @@ render3d.blit_config = {
 				}
 				vec3 color = texture(TEXTURE(pc.blit.tex), in_uv).rgb;
 
-				// Tonemapping (Filmic Narkowicz 2015)
-				color = (color * (2.51 * color + 0.03)) / (color * (2.43 * color + 0.59) + 0.14);
-				color = clamp(color, 0.0, 1.0);
-				color = pow(color, vec3(1.0/2.2));
+				color = simpleReinhardToneMapping(color);
 
 				out_color = vec4(color, 1.0);
 			}
