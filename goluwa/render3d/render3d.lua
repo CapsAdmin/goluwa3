@@ -16,7 +16,7 @@ local Light = require("components.light")
 local Framebuffer = require("render.framebuffer")
 local system = require("system")
 local render3d = library()
-render3d.config = {
+render3d.fill_config = {
 	color_format = {
 		"r8g8b8a8_unorm", -- albedo
 		"r16g16b16a16_sfloat", -- normal
@@ -129,35 +129,35 @@ render3d.config = {
 						"AlbedoTexture",
 						"int",
 						function(constants)
-							return render3d.pipeline:GetTextureIndex(render3d.GetMaterial():GetAlbedoTexture())
+							return render3d.fill_pipeline:GetTextureIndex(render3d.GetMaterial():GetAlbedoTexture())
 						end,
 					},
 					{
 						"NormalTexture",
 						"int",
 						function(constants)
-							return render3d.pipeline:GetTextureIndex(render3d.GetMaterial():GetNormalTexture())
+							return render3d.fill_pipeline:GetTextureIndex(render3d.GetMaterial():GetNormalTexture())
 						end,
 					},
 					{
 						"MetallicRoughnessTexture",
 						"int",
 						function(constants)
-							return render3d.pipeline:GetTextureIndex(render3d.GetMaterial():GetMetallicRoughnessTexture())
+							return render3d.fill_pipeline:GetTextureIndex(render3d.GetMaterial():GetMetallicRoughnessTexture())
 						end,
 					},
 					{
 						"AmbientOcclusionTexture",
 						"int",
 						function(constants)
-							return render3d.pipeline:GetTextureIndex(render3d.GetMaterial():GetAmbientOcclusionTexture())
+							return render3d.fill_pipeline:GetTextureIndex(render3d.GetMaterial():GetAmbientOcclusionTexture())
 						end,
 					},
 					{
 						"EmissiveTexture",
 						"int",
 						function(constants)
-							return render3d.pipeline:GetTextureIndex(render3d.GetMaterial():GetEmissiveTexture())
+							return render3d.fill_pipeline:GetTextureIndex(render3d.GetMaterial():GetEmissiveTexture())
 						end,
 					},
 					{
@@ -206,21 +206,21 @@ render3d.config = {
 						"MetallicTexture",
 						"int",
 						function(constants)
-							return render3d.pipeline:GetTextureIndex(render3d.GetMaterial():GetMetallicTexture())
+							return render3d.fill_pipeline:GetTextureIndex(render3d.GetMaterial():GetMetallicTexture())
 						end,
 					},
 					{
 						"RoughnessTexture",
 						"int",
 						function(constants)
-							return render3d.pipeline:GetTextureIndex(render3d.GetMaterial():GetRoughnessTexture())
+							return render3d.fill_pipeline:GetTextureIndex(render3d.GetMaterial():GetRoughnessTexture())
 						end,
 					},
 					{
 						"SelfIlluminationTexture",
 						"int",
 						function(constants)
-							return render3d.pipeline:GetTextureIndex(render3d.GetMaterial():GetSelfIlluminationTexture())
+							return render3d.fill_pipeline:GetTextureIndex(render3d.GetMaterial():GetSelfIlluminationTexture())
 						end,
 					},
 				},
@@ -1095,7 +1095,7 @@ function render3d.Initialize()
 			{
 				width = size.x,
 				height = size.y,
-				formats = render3d.config.color_format,
+				formats = render3d.fill_config.color_format,
 				depth = true,
 				depth_format = "d32_sfloat",
 			}
@@ -1104,24 +1104,19 @@ function render3d.Initialize()
 
 	local function create_lighting_fbs()
 		local size = window:GetSize()
-		render3d.lighting_fbs = {
-			Framebuffer.New(
+		render3d.lighting_fbs = {}
+
+		for i = 1, 2 do
+			render3d.lighting_fbs[i] = Framebuffer.New(
 				{
 					width = size.x,
 					height = size.y,
 					formats = {"r16g16b16a16_sfloat"},
 					depth = false,
 				}
-			),
-			Framebuffer.New(
-				{
-					width = size.x,
-					height = size.y,
-					formats = {"r16g16b16a16_sfloat"},
-					depth = false,
-				}
-			),
-		}
+			)
+		end
+
 		render3d.current_lighting_fb_index = 1
 	end
 
@@ -1170,24 +1165,9 @@ function render3d.Initialize()
 	create_gbuffer()
 	create_lighting_fbs()
 	create_ssao_noise()
-
-	-- Resolve descriptor set args functions
-	for _, desc in ipairs(render3d.config.fragment.descriptor_sets) do
-		if type(desc.args) == "function" then desc.args = desc.args() end
-	end
-
-	for _, desc in ipairs(render3d.lighting_config.fragment.descriptor_sets) do
-		if type(desc.args) == "function" then desc.args = desc.args() end
-	end
-
-	render3d.pipeline = EasyPipeline.New(render3d.config)
+	render3d.fill_pipeline = EasyPipeline.New(render3d.fill_config)
 	render3d.lighting_pipeline = EasyPipeline.New(render3d.lighting_config)
 	render3d.blit_pipeline = EasyPipeline.New(render3d.blit_config)
-
-	-- Store uniform buffers in render3d for external access
-	for name, ubo in pairs(render3d.pipeline.uniform_buffers) do
-		render3d[name .. "_ubo"] = ubo
-	end
 
 	event.AddListener("WindowFramebufferResized", "render3d_gbuffer", function(wnd, size)
 		create_gbuffer()
@@ -1217,7 +1197,7 @@ function render3d.Initialize()
 	end)
 
 	event.AddListener("PreRenderPass", "draw_3d_geometry", function(cmd)
-		if not render3d.pipeline then return end
+		if not render3d.fill_pipeline then return end
 
 		local dt = 0 -- dt is not easily available here, but usually not needed for draw calls
 		Light.UpdateUBOs(render3d.lighting_pipeline.pipeline)
@@ -1226,7 +1206,7 @@ function render3d.Initialize()
 
 		do
 			event.Call("DrawSkybox", cmd, dt)
-			render3d.pipeline:Bind(cmd)
+			render3d.fill_pipeline:Bind(cmd)
 			event.Call("PreDraw3D", cmd, dt)
 			event.Call("Draw3DGeometry", cmd, dt)
 		end
@@ -1243,7 +1223,7 @@ function render3d.Initialize()
 	end)
 
 	event.AddListener("Draw", "draw_3d_lighting", function(cmd, dt)
-		if not render3d.pipeline then return end
+		if not render3d.fill_pipeline then return end
 
 		-- 3. Blit Lighting to Screen
 		cmd:SetCullMode("none")
@@ -1258,16 +1238,16 @@ function render3d.Initialize()
 end
 
 function render3d.BindPipeline()
-	render3d.pipeline:Bind(render.GetCommandBuffer())
+	render3d.fill_pipeline:Bind(render.GetCommandBuffer())
 end
 
 function render3d.UploadConstants(cmd)
-	if render3d.pipeline then
+	if render3d.fill_pipeline then
 		do
 			cmd:SetCullMode(render3d.GetMaterial():GetDoubleSided() and "none" or orientation.CULL_MODE)
 		end
 
-		render3d.pipeline:UploadConstants(cmd)
+		render3d.fill_pipeline:UploadConstants(cmd)
 	end
 end
 
@@ -1367,7 +1347,7 @@ do -- mesh
 	local Mesh = require("render.mesh")
 
 	function render3d.CreateMesh(vertices, indices, index_type, index_count)
-		return Mesh.New(render3d.pipeline:GetVertexAttributes(), vertices, indices, index_type, index_count)
+		return Mesh.New(render3d.fill_pipeline:GetVertexAttributes(), vertices, indices, index_type, index_count)
 	end
 end
 

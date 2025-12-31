@@ -386,6 +386,8 @@ function EasyPipeline.New(config)
 		-- Add custom descriptor sets if provided
 		if config.fragment.descriptor_sets then
 			for _, desc in ipairs(config.fragment.descriptor_sets) do
+				if type(desc.args) == "function" then desc.args = desc.args() end
+
 				table.insert(descriptor_sets, desc)
 			end
 		end

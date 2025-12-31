@@ -362,7 +362,7 @@ function skybox.Initialize()
 		})
 	end
 
-	skybox.pipeline = skybox.CreatePipeline(render3d.config.color_format, "1")
+	skybox.pipeline = skybox.CreatePipeline(render3d.fill_config.color_format, "1")
 	skybox.cubemap_pipeline = skybox.CreatePipeline("b10g11r11_ufloat_pack32", "1")
 end
 
@@ -496,6 +496,6 @@ function skybox.GetOutputCubemapTexture()
 	return skybox.output_texture
 end
 
-if render3d.pipeline then skybox.Initialize() end
+if render3d.fill_pipeline then skybox.Initialize() end
 
 return skybox
