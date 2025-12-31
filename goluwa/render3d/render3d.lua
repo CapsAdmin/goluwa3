@@ -16,6 +16,7 @@ local Light = require("components.light")
 local Framebuffer = require("render.framebuffer")
 local system = require("system")
 local render3d = library()
+package.loaded["render3d.render3d"] = render3d
 render3d.fill_config = {
 	color_format = {
 		"r8g8b8a8_unorm", -- albedo
@@ -585,12 +586,20 @@ render3d.lighting_config = {
 							return system.GetElapsedTime()
 						end,
 					},
+					{
+						"universe_texture_index",
+						"int",
+						function(constants)
+							local skybox = require("render3d.skybox")
+							return render3d.lighting_pipeline:GetTextureIndex(skybox.universe_texture)
+						end,
+					},
 				},
 			},
 		},
 		shader = [[
+			]] .. require("render3d.skybox").GetGLSLCode() .. [[
 			#define SSR 0
-			const float PI = 3.14159265359;
 			#define uv in_uv
 			float hash(vec2 p) {
 				p = fract(p * vec2(123.34, 456.21));
@@ -922,10 +931,22 @@ vec3 get_noise3_world_stable(vec3 world_pos, float scale)
 
 				if (depth == 1.0) {
 					// Skybox or background
-					vec3 color = albedo;
-					color = color / (color + vec3(1.0));
-					color = pow(color, vec3(1.0/2.2));
-					out_color = vec4(color, albedo_alpha.a);
+					vec3 sky_color_output;
+					vec3 sunDir = normalize(-light_data.lights[0].position.xyz);
+					vec4 clip_pos = vec4(in_uv * 2.0 - 1.0, 1.0, 1.0);
+					vec4 view_pos = lighting_data.inv_projection * clip_pos;
+					view_pos /= view_pos.w;
+					vec3 world_pos = (lighting_data.inv_view * view_pos).xyz;
+					vec3 dir = normalize(world_pos - lighting_data.camera_position.xyz);
+					
+					]] .. require("render3d.skybox").GetGLSLMainCode(
+				"dir",
+				"sunDir",
+				"lighting_data.camera_position.xyz",
+				"lighting_data.universe_texture_index"
+			) .. [[
+					
+					out_color = vec4(sky_color_output, 1.0);
 					return;
 				}
 				int debug_mode = lighting_data.debug_mode - 1;
@@ -997,9 +1018,6 @@ vec3 get_noise3_world_stable(vec3 world_pos, float scale)
 				vec3 ambient = ambient_diffuse * (1.0 - metallic) + ambient_specular * metallic;
 				vec3 color = ambient + Lo + emissive;
 
-				color = color / (color + vec3(1.0));
-				color = pow(color, vec3(1.0/2.2));
-
 				if (lighting_data.debug_cascade_colors != 0) {
 					int cascade_idx = getCascadeIndex(world_pos);
 					color = mix(color, CASCADE_COLORS[cascade_idx], 0.4);
@@ -1070,6 +1088,11 @@ render3d.blit_config = {
 					return;
 				}
 				vec3 color = texture(TEXTURE(pc.blit.tex), in_uv).rgb;
+
+				// Tonemapping
+				color = color / (color + vec3(1.0));
+				color = pow(color, vec3(1.0/2.2));
+
 				out_color = vec4(color, 1.0);
 			}
 		]],
@@ -1205,7 +1228,6 @@ function render3d.Initialize()
 		render3d.gbuffer:Begin(cmd)
 
 		do
-			event.Call("DrawSkybox", cmd, dt)
 			render3d.fill_pipeline:Bind(cmd)
 			event.Call("PreDraw3D", cmd, dt)
 			event.Call("Draw3DGeometry", cmd, dt)
