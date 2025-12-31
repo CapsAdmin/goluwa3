@@ -280,6 +280,7 @@ render3d.fill_config = {
 
 			float get_metallic() {
 				float val = 0.0;
+
 				if (pc.model.AlbedoTexture != -1 && AlbedoTextureAlphaIsMetallic) {
 					val = 1.0 - texture(TEXTURE(pc.model.AlbedoTexture), in_uv).a;
 				} else if (pc.model.NormalTexture != -1 && NormalTextureAlphaIsMetallic) {
@@ -289,13 +290,15 @@ render3d.fill_config = {
 				} else if (pc.model.MetallicRoughnessTexture != -1) {
 					val = texture(TEXTURE(pc.model.MetallicRoughnessTexture), in_uv).b;
 				} else {
-					return pc.model.MetallicMultiplier;
+					val = 1.0;
 				}
-				return val * pc.model.MetallicMultiplier;
+
+				return clamp(val * pc.model.MetallicMultiplier, 0.01, 1.0);
 			}
 
 			float get_roughness() {
 				float val = 1.0;
+
 				if (pc.model.AlbedoTexture != -1 && AlbedoTextureAlphaIsRoughness) {
 					val = 1.0 - texture(TEXTURE(pc.model.AlbedoTexture), in_uv).a;
 					if (InvertRoughnessTexture) val = 1.0 - val;
@@ -308,9 +311,9 @@ render3d.fill_config = {
 				} else if (pc.model.MetallicRoughnessTexture != -1) {
 					val = texture(TEXTURE(pc.model.MetallicRoughnessTexture), in_uv).g;
 				} else  {
-					return pc.model.RoughnessMultiplier;
+					val = 1.0;
 				}
-				return val * pc.model.RoughnessMultiplier;
+				return clamp(val * pc.model.RoughnessMultiplier, 0.01, 1.0);
 			}
 
 			vec3 get_emissive() {
@@ -807,34 +810,37 @@ vec3 get_noise3_world_stable(vec3 world_pos, float scale)
 				return light_data.shadow.cascade_count - 1;
 			}
 
-			// GGX/Trowbridge-Reitz NDF
-			float DistributionGGX(vec3 N, vec3 H, float roughness) {
-				float a = roughness * roughness;
-				float a2 = a * a;
-				float NdotH = max(dot(N, H), 0.0);
-				float NdotH2 = NdotH * NdotH;
-				float denom = (NdotH2 * (a2 - 1.0) + 1.0);
-				denom = PI * denom * denom;
-				return a2 / max(denom, 0.0001);
-			}
+			#define saturate(x) clamp(x, 0.0, 1.0)
 
-			// Schlick-GGX geometry function
-			float GeometrySchlickGGX(float NdotV, float roughness) {
-				float r = (roughness + 1.0);
-				float k = (r * r) / 8.0;
-				return NdotV / (NdotV * (1.0 - k) + k);
-			}
+            float pow5(float x) {
+                float x2 = x * x;
+                return x2 * x2 * x;
+            }
 
-			float GeometrySmith(vec3 N, vec3 V, vec3 L, float roughness) {
-				float NdotV = max(dot(N, V), 0.0);
-				float NdotL = max(dot(N, L), 0.0);
-				return GeometrySchlickGGX(NdotV, roughness) * GeometrySchlickGGX(NdotL, roughness);
-			}
+            float D_GGX(float roughness, float NoH) {
+                float oneMinusNoHSquared = 1.0 - NoH * NoH;
+                float a = NoH * roughness;
+                float k = roughness / (oneMinusNoHSquared + a * a);
+                float d = k * (k * (1.0 / PI));
+                return d;
+            }
 
-			// Fresnel-Schlick
-			vec3 fresnelSchlick(float cosTheta, vec3 F0) {
-				return F0 + (1.0 - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
-			}
+            float V_SmithGGXCorrelated(float roughness, float NoV, float NoL) {
+                float a2 = roughness * roughness;
+                float lambdaV = NoL * sqrt((NoV - a2 * NoV) * NoV + a2);
+                float lambdaL = NoV * sqrt((NoL - a2 * NoL) * NoL + a2);
+                float v = 0.5 / (lambdaV + lambdaL);
+                return v;
+            }
+
+            vec3 F_Schlick(const vec3 f0, float VoH) {
+                float f = pow(1.0 - VoH, 5.0);
+                return f + f0 * (1.0 - f);
+            }
+
+            float Fd_Lambert() {
+                return 1.0 / PI;
+            }
 
 			// PCF Shadow calculation
 			float calculateShadow(vec3 world_pos, vec3 normal, vec3 light_dir) {
@@ -880,7 +886,7 @@ vec3 get_noise3_world_stable(vec3 world_pos, float scale)
 				R = mix(R, normal, roughness * roughness);
 				R = normalize(R);
 				float max_mip = float(textureQueryLevels(CUBEMAP(lighting_data.env_tex)) - 1);
-				float mip_level = sqrt(roughness) * (max_mip - 1.0) + 1.0;
+				float mip_level = roughness * max_mip;
 				return textureLod(CUBEMAP(lighting_data.env_tex), R, mip_level).rgb;
 			}
 
@@ -976,47 +982,50 @@ vec3 get_noise3_world_stable(vec3 world_pos, float scale)
 				vec3 F0 = mix(vec3(0.04), albedo, metallic);
 				float NdotV = max(dot(N, V), 0.001);
 
-				vec3 Lo = vec3(0.0);
-				for (int i = 0; i < lighting_data.light_count; i++) {
-					Light light = light_data.lights[i];
-					int type = int(light.position.w);
-					vec3 L;
-					float attenuation = 1.0;
-					if (type == 0) {
-						L = normalize(-light.position.xyz);
-					} else {
-						vec3 light_to_pos = light.position.xyz - world_pos;
-						float dist = length(light_to_pos);
-						L = normalize(light_to_pos);
-						float range = light.params.x;
-						attenuation = clamp(1.0 - dist / range, 0.0, 1.0);
-						attenuation *= attenuation;
-					}
-					vec3 H = normalize(V + L);
-					float NdotL = max(dot(N, L), 0.0);
-					float HdotV = max(dot(H, V), 0.0);
-					float NDF = DistributionGGX(N, H, roughness);
-					float G = GeometrySmith(N, V, L, roughness);
-					vec3 F = fresnelSchlick(HdotV, F0);
-					vec3 kS = F;
-					vec3 kD = (1.0 - kS) * (1.0 - metallic);
-					vec3 numerator = NDF * G * F;
-					float denominator = 4.0 * NdotV * NdotL + 0.0001;
-					vec3 specular = numerator / denominator;
-					float shadow_factor = 1.0;
-					if (i == 0 && light_data.shadow.shadow_map_indices[0] >= 0) {
-						shadow_factor = calculateShadow(world_pos, N, L);
-					}
-					vec3 radiance = light.color.rgb * light.color.a * attenuation;
-					Lo += (kD * albedo / PI + specular) * radiance * NdotL * shadow_factor;
-				}
+				float r2 = roughness * roughness;
+                vec3 Lo = vec3(0.0);
+                for (int i = 0; i < lighting_data.light_count; i++) {
+                    Light light = light_data.lights[i];
+                    int type = int(light.position.w);
+                    vec3 L;
+                    float attenuation = 1.0;
+                    if (type == 0) {
+                        L = normalize(-light.position.xyz);
+                    } else {
+                        vec3 light_to_pos = light.position.xyz - world_pos;
+                        float dist = length(light_to_pos);
+                        L = normalize(light_to_pos);
+                        float range = light.params.x;
+                        attenuation = saturate(1.0 - dist / range);
+                        attenuation *= attenuation;
+                    }
+                    vec3 H = normalize(V + L);
+                    float NoL = saturate(dot(N, L));
+                    float NoH = saturate(dot(N, H));
+                    float LoH = saturate(dot(L, H));
+
+                    float D = D_GGX(r2, NoH);
+                    float V_func = V_SmithGGXCorrelated(r2, NdotV, NoL);
+                    vec3 F = F_Schlick(F0, LoH);
+
+                    vec3 Fr = (D * V_func) * F;
+                    vec3 kD = vec3(1.0 - metallic);
+                    vec3 Fd = kD * albedo * Fd_Lambert();
+
+                    float shadow_factor = 1.0;
+                    if (i == 0 && light_data.shadow.shadow_map_indices[0] >= 0) {
+                        shadow_factor = calculateShadow(world_pos, N, L);
+                    }
+                    vec3 radiance = light.color.rgb * light.color.a * attenuation;
+                    Lo += (Fd + Fr) * radiance * NoL * shadow_factor;
+                }
 
 				vec3 ssao = get_ssao(in_uv, world_pos, N);
-				vec3 ambient_diffuse = reflection * albedo * ao * ssao;
-				vec3 F_ambient = fresnelSchlick(NdotV, F0);
-				vec3 ambient_specular = F_ambient * reflection * ao * ssao;
-				vec3 ambient = ambient_diffuse * (1.0 - metallic) + ambient_specular * metallic;
-				vec3 color = ambient + Lo + emissive;
+                vec3 ambient_diffuse = reflection * albedo * (1.0 - metallic) * ao * ssao;
+                vec3 F_ambient = F_Schlick(F0, NdotV);
+                vec3 ambient_specular = F_ambient * reflection * ao * ssao;
+                vec3 ambient = ambient_diffuse + ambient_specular;
+                vec3 color = ambient + Lo + emissive;
 
 				if (lighting_data.debug_cascade_colors != 0) {
 					int cascade_idx = getCascadeIndex(world_pos);
@@ -1089,8 +1098,9 @@ render3d.blit_config = {
 				}
 				vec3 color = texture(TEXTURE(pc.blit.tex), in_uv).rgb;
 
-				// Tonemapping
-				color = color / (color + vec3(1.0));
+				// Tonemapping (Filmic Narkowicz 2015)
+				color = (color * (2.51 * color + 0.03)) / (color * (2.43 * color + 0.59) + 0.14);
+				color = clamp(color, 0.0, 1.0);
 				color = pow(color, vec3(1.0/2.2));
 
 				out_color = vec4(color, 1.0);

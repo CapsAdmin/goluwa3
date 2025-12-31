@@ -373,18 +373,210 @@ function skybox.Initialize()
 			},
 		}
 	)
-	skybox.face_views = {}
+	skybox.source_texture = Texture.New(
+		{
+			width = SIZE,
+			height = SIZE,
+			format = "b10g11r11_ufloat_pack32",
+			mip_map_levels = "auto",
+			image = {
+				array_layers = 6,
+				flags = {"cube_compatible"},
+				usage = {"color_attachment", "sampled", "transfer_src", "transfer_dst"},
+			},
+			view = {
+				view_type = "cube",
+				layer_count = 6,
+			},
+		}
+	)
+	skybox.mip_face_views = {}
+	local num_mips = skybox.output_texture.mip_map_levels
+
+	for m = 0, num_mips - 1 do
+		skybox.mip_face_views[m] = {}
+
+		for i = 0, 5 do
+			skybox.mip_face_views[m][i] = skybox.output_texture:GetImage():CreateView(
+				{
+					view_type = "2d",
+					base_array_layer = i,
+					layer_count = 1,
+					base_mip_level = m,
+					level_count = 1,
+				}
+			)
+		end
+	end
+
+	skybox.source_face_views = {}
 
 	for i = 0, 5 do
-		skybox.face_views[i] = skybox.output_texture:GetImage():CreateView({
-			view_type = "2d",
-			base_array_layer = i,
-			layer_count = 1,
-		})
+		skybox.source_face_views[i] = skybox.source_texture:GetImage():CreateView(
+			{
+				view_type = "2d",
+				base_array_layer = i,
+				layer_count = 1,
+				base_mip_level = 0,
+				level_count = 1,
+			}
+		)
 	end
 
 	skybox.pipeline = skybox.CreatePipeline(render3d.fill_config.color_format, "1")
 	skybox.cubemap_pipeline = skybox.CreatePipeline("b10g11r11_ufloat_pack32", "1")
+	skybox.prefilter_pipeline = EasyPipeline.New(
+		{
+			color_format = "b10g11r11_ufloat_pack32",
+			samples = "1",
+			vertex = {
+				push_constants = {
+					{
+						name = "vertex",
+						block = {
+							{
+								"inv_projection_view",
+								"mat4",
+								function(constants)
+									skybox.inv_projection_view:CopyToFloatPointer(constants.inv_projection_view)
+								end,
+							},
+						},
+					},
+				},
+				custom_declarations = [[
+					layout(location = 0) out vec3 out_direction;
+				]],
+				shader = [[
+					vec2 positions[3] = vec2[](
+						vec2(-1.0, -1.0),
+						vec2( 3.0, -1.0),
+						vec2(-1.0,  3.0)
+					);
+
+					void main() {
+						vec2 pos = positions[gl_VertexIndex];
+						gl_Position = vec4(pos, 1.0, 1.0);
+						
+						vec4 world_pos = pc.vertex.inv_projection_view * vec4(pos, 1.0, 1.0);
+						out_direction = world_pos.xyz / world_pos.w;
+					}
+				]],
+			},
+			fragment = {
+				push_constants = {
+					{
+						name = "fragment",
+						block = {
+							{
+								"roughness",
+								"float",
+								function(constants)
+									return skybox.current_roughness or 0
+								end,
+							},
+							{
+								"input_texture_index",
+								"int",
+								function(constants, pipeline)
+									return pipeline:GetTextureIndex(skybox.source_texture)
+								end,
+							},
+						},
+					},
+				},
+				custom_declarations = [[
+					layout(location = 0) in vec3 in_direction;
+					layout(location = 0) out vec4 out_color;
+
+					const float PI = 3.14159265359;
+
+					float D_GGX(float NoH, float roughness) {
+						float a = roughness * roughness;
+						float a2 = a * a;
+						float NoH2 = NoH * NoH;
+						float denom = (NoH2 * (a2 - 1.0) + 1.0);
+						return a2 / (PI * denom * denom);
+					}
+
+					float RadicalInverse_Vdc(uint bits) {
+						bits = (bits << 16u) | (bits >> 16u);
+						bits = ((bits & 0x55555555u) << 1u) | ((bits & 0xAAAAAAAAu) >> 1u);
+						bits = ((bits & 0x33333333u) << 2u) | ((bits & 0xCCCCCCCCu) >> 2u);
+						bits = ((bits & 0x0F0F0F0Fu) << 4u) | ((bits & 0xF0F0F0F0u) >> 4u);
+						bits = ((bits & 0x00FF00FFu) << 8u) | ((bits & 0xFF00FF00u) >> 8u);
+						return float(bits) * 2.3283064365386963e-10;
+					}
+
+					vec2 Hammersley(uint i, uint N) {
+						return vec2(float(i)/float(N), RadicalInverse_Vdc(i));
+					}
+
+					vec3 ImportanceSampleGGX(vec2 Xi, vec3 N, float roughness) {
+						float a = roughness*roughness;
+						float phi = 2.0 * PI * Xi.x;
+						float cosTheta = sqrt((1.0 - Xi.y) / (1.0 + (a*a - 1.0) * Xi.y));
+						float sinTheta = sqrt(1.0 - cosTheta*cosTheta);
+						
+						vec3 H;
+						H.x = cos(phi) * sinTheta;
+						H.y = sin(phi) * sinTheta;
+						H.z = cosTheta;
+						
+						vec3 up = abs(N.z) < 0.999 ? vec3(0.0, 0.0, 1.0) : vec3(1.0, 0.0, 0.0);
+						vec3 tangent = normalize(cross(up, N));
+						vec3 bitangent = cross(N, tangent);
+						
+						vec3 sampleVec = tangent * H.x + bitangent * H.y + N * H.z;
+						return normalize(sampleVec);
+					}
+				]],
+				shader = [[
+					void main() {
+						vec3 N = normalize(in_direction);
+						vec3 R = N;
+						vec3 V = R;
+
+						const uint SAMPLE_COUNT = 1024u;
+						float totalWeight = 0.0;
+						vec3 prefilteredColor = vec3(0.0);
+						float roughness = pc.fragment.roughness;
+
+						for(uint i = 0u; i < SAMPLE_COUNT; ++i) {
+							vec2 Xi = Hammersley(i, SAMPLE_COUNT);
+							vec3 H  = ImportanceSampleGGX(Xi, N, roughness);
+							vec3 L  = normalize(2.0 * dot(V, H) * H - V);
+
+							float NoL = max(dot(N, L), 0.0);
+							if(NoL > 0.0) {
+								float NoH = max(dot(N, H), 0.0);
+								float VoH = max(dot(V, H), 0.0);
+								float D = D_GGX(NoH, roughness);
+								float pdf = (D * NoH / (4.0 * VoH)) + 0.0001;
+
+								float resolution = 512.0; // SIZE
+								float saSample = 1.0 / (float(SAMPLE_COUNT) * pdf + 0.0001);
+								float saTexel  = 4.0 * PI / (6.0 * resolution * resolution);
+
+								float lod = roughness == 0.0 ? 0.0 : 0.5 * log2(saSample / saTexel);
+
+								prefilteredColor += textureLod(CUBEMAP(pc.fragment.input_texture_index), L, lod).rgb * NoL;
+								totalWeight      += NoL;
+							}
+						}
+						out_color = vec4(prefilteredColor / totalWeight, 1.0);
+					}
+				]],
+			},
+			rasterizer = {
+				cull_mode = "none",
+			},
+			depth_stencil = {
+				depth_test = false,
+				depth_write = false,
+			},
+		}
+	)
 	render3d.SetEnvironmentTexture(skybox.output_texture)
 end
 
@@ -402,18 +594,20 @@ function skybox.UpdateEnvironmentTexture()
 	local cmd = skybox.update_cmd
 	cmd:Reset()
 	cmd:Begin()
-	-- Transition cubemap to color_attachment_optimal
+	-- Transition source cubemap mip 0 to color_attachment_optimal
 	cmd:PipelineBarrier(
 		{
 			srcStage = "top_of_pipe",
 			dstStage = "color_attachment_output",
 			imageBarriers = {
 				{
-					image = skybox.output_texture:GetImage(),
+					image = skybox.source_texture:GetImage(),
 					oldLayout = "undefined",
 					newLayout = "color_attachment_optimal",
 					srcAccessMask = "none",
 					dstAccessMask = "color_attachment_write",
+					base_mip_level = 0,
+					level_count = 1,
 					layer_count = 6,
 				},
 			},
@@ -451,7 +645,7 @@ function skybox.UpdateEnvironmentTexture()
 		proj_view:GetInverse(skybox.inv_projection_view)
 		cmd:BeginRendering(
 			{
-				color_image_view = skybox.face_views[i],
+				color_image_view = skybox.source_face_views[i],
 				w = SIZE,
 				h = SIZE,
 				clear_color = {0, 0, 0, 1},
@@ -467,6 +661,60 @@ function skybox.UpdateEnvironmentTexture()
 		cmd:EndRendering()
 	end
 
+	-- Generate mipmaps for source texture
+	skybox.source_texture:GenerateMipmaps("color_attachment_optimal", cmd)
+	local num_mips = skybox.output_texture.mip_map_levels
+
+	for m = 0, num_mips - 1 do
+		local perceptual_roughness = m / (num_mips - 1)
+		skybox.current_roughness = perceptual_roughness * perceptual_roughness
+		local mip_size = math.max(1, math.floor(SIZE / (2 ^ m)))
+
+		for i = 0, 5 do
+			temp_camera:SetAngles(face_angles[i + 1])
+			local proj = temp_camera:BuildProjectionMatrix()
+			local view = temp_camera:BuildViewMatrix():Copy()
+			view.m30, view.m31, view.m32 = 0, 0, 0
+			local proj_view = view * proj
+			proj_view:GetInverse(skybox.inv_projection_view)
+			cmd:BeginRendering(
+				{
+					color_image_view = skybox.mip_face_views[m][i],
+					w = mip_size,
+					h = mip_size,
+					clear_color = {0, 0, 0, 1},
+				}
+			)
+			cmd:SetViewport(0, 0, mip_size, mip_size)
+			cmd:SetScissor(0, 0, mip_size, mip_size)
+			cmd:SetCullMode("none")
+			skybox.prefilter_pipeline:Bind(cmd, 1)
+			skybox.prefilter_pipeline:UploadConstants(cmd)
+			cmd:Draw(3, 1, 0, 0)
+			cmd:EndRendering()
+		end
+
+		-- Transition this mip to shader_read_only_optimal
+		cmd:PipelineBarrier(
+			{
+				srcStage = "color_attachment_output",
+				dstStage = "fragment_shader",
+				imageBarriers = {
+					{
+						image = skybox.output_texture:GetImage(),
+						oldLayout = "undefined",
+						newLayout = "shader_read_only_optimal",
+						srcAccessMask = "none",
+						dstAccessMask = "shader_read",
+						base_mip_level = m,
+						level_count = 1,
+						layer_count = 6,
+					},
+				},
+			}
+		)
+	end
+
 	cmd:End()
 
 	if not skybox.temp_fence then
@@ -476,8 +724,6 @@ function skybox.UpdateEnvironmentTexture()
 	render.GetQueue():SubmitAndWait(render.GetDevice(), cmd, skybox.temp_fence)
 	render.GetDevice():WaitIdle()
 	render3d.camera = old_camera
-	-- build mipmaps
-	skybox.output_texture:GenerateMipmaps("color_attachment_optimal")
 	skybox.envmap_rendering = false
 end
 
