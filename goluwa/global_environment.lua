@@ -41,6 +41,11 @@ end
 
 _G.list = require("helpers.list")
 
+_G.WINDOWS = jit.os == "Windows"
+_G.LINUX = jit.os == "Linux"
+_G.OSX = jit.os == "OSX"
+_G.UNIX = _G.LINUX or _G.OSX
+
 if _G.PROFILE then require("profiler").Start("init") end
 
 _G.setmetatable = require("helpers.setmetatable_gc")

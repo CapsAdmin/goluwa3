@@ -26,6 +26,8 @@ function output.CanWrite(str)
 end
 
 function output.Initialize()
+	if output.initialized then return end
+	output.initialized = true
 	output.normal_stdout = _G.NORMAL_STDOUT
 	fs.create_directory("logs/")
 	log_file = assert(fs.file_open("logs/log.txt", "w"))
@@ -34,10 +36,13 @@ function output.Initialize()
 	if not output.normal_stdout then
 		local ffi = require("ffi")
 		-- Make stdout unbuffered so writes go directly to kernel
-		-- This is already declared in filesystem.lua, so we just call it
-		ffi.C.setvbuf(ffi.C.stdout, nil, 2, 0) -- 2 = _IONBF (no buffering)
+		if jit.os == "Windows" then
+			io.stdout:setvbuf("no")
+		else
+			ffi.C.setvbuf(ffi.C.stdout, nil, 2, 0) -- 2 = _IONBF (no buffering)
+		end
 		-- Also make the log file unbuffered for crash safety
-		ffi.C.setvbuf(log_file.file, nil, 2, 0)
+		pcall(ffi.C.setvbuf, log_file.file, nil, 2, 0)
 
 		-- On Windows, save the original console handles before redirecting
 		-- This allows terminal.lua to still use console-specific functions

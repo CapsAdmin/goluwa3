@@ -247,7 +247,7 @@ do -- translate path to useful data
 		end
 	end
 
-	local WINDOWS = _G.WINDOWS
+	local WINDOWS = jit.os == "Windows"
 
 	function vfs.IsPathAbsolute(path)
 		if WINDOWS then return path:sub(2, 2) == ":" or path:sub(1, 2) == [[//]] end

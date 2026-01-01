@@ -602,13 +602,19 @@ do
 		void clearerr(FILE* stream);
 		
 		// File descriptor operations
-		int fileno(FILE* stream);
-		
-		// Standard streams
-		extern FILE* stdin;
-		extern FILE* stdout;
-		extern FILE* stderr;
+		int _fileno(FILE* stream);
 	]]
+
+	if jit.os ~= "Windows" then
+		ffi.cdef[[
+			int fileno(FILE* stream);
+			// Standard streams
+			extern FILE* stdin;
+			extern FILE* stdout;
+			extern FILE* stderr;
+		]]
+	end
+
 	-- Seek constants
 	fs.SEEK_SET = 0
 	fs.SEEK_CUR = 1
@@ -709,7 +715,12 @@ do
 	end
 
 	function fs.fileno(file)
-		local fd = ffi.C.fileno(file)
+		local fd
+		if jit.os == "Windows" then
+			fd = ffi.C._fileno(file)
+		else
+			fd = ffi.C.fileno(file)
+		end
 
 		if fd == -1 then return nil, last_error() end
 
