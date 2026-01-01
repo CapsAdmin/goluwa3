@@ -85,15 +85,6 @@ function events.Draw2D.debug_info(dt)
 		gfx.DrawText("  (GPU decides actual visibility)", x, y)
 		y = y + 20
 	end
-
-	-- Debug mode
-	local debug_mode = render3d.GetDebugMode()
-
-	if debug_mode ~= "none" then
-		render2d.SetColor(1, 0.5, 1, 1)
-		gfx.DrawText(string.format("Debug Mode: %s", debug_mode), x, y)
-		y = y + 20
-	end
 end
 
 function events.KeyInput.toggle_debug_info(key, press)
@@ -183,7 +174,7 @@ function events.KeyInput.render3d_debug(key, press)
 	--if key == "f8" then render.renderdoc.CaptureFrame() end
 	--if key == "f11" then render.renderdoc.OpenUI() end
 	-- Toggle shadow map debug view
-	if key == "f9" then
+	if false and key == "f9" then
 		show_shadow_map = not show_shadow_map
 		-- Also toggle cascade color visualization in the shader
 		render3d.SetDebugCascadeColors(show_shadow_map)

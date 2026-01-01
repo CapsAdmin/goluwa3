@@ -64,13 +64,13 @@ do
 		sphere:AddComponent("model", {
 			mesh = poly,
 		})
+		return sphere
 	end
 
 	for x = 0, 6 do
 		for y = 0, 6 do
 			debug_ent(Vec3(x, y, 0), nil, function(poly, mat)
-				-- gold
-				mat:SetColorMultiplier(Color(1.0, 1, 1, 1))
+				mat:SetColorMultiplier(Color(1, 1, 1, 1))
 				local roughness = x / 8
 				local metallic = y / 8
 				mat:SetRoughnessMultiplier(roughness)
@@ -82,7 +82,6 @@ do
 
 	for y = 1, 10 do
 		debug_ent(Vec3(0, y, 40), nil, function(poly, mat)
-			-- gold
 			mat:SetTranslucent(true)
 			mat:SetColorMultiplier(Color(1, 1, 1.0, y / 10))
 			poly:CreateSphere(0.5)
@@ -96,17 +95,43 @@ do
 		poly:CreateCube()
 	end)
 
-	debug_ent(Vec3(2, 2, 10), nil, function(poly, mat)
+	debug_ent(Vec3(2, 0, 10), nil, function(poly, mat)
 		mat:SetColorMultiplier(Color(0, 1, 0, 1))
 		mat:SetRoughnessMultiplier(0)
 		mat:SetMetallicMultiplier(1)
 		poly:CreateCube()
 	end)
 
+	local ground = debug_ent(Vec3(2, 0, 10), nil, function(poly, mat)
+		mat:SetColorMultiplier(Color(1, 1, 1, 1))
+		mat:SetRoughnessMultiplier(0)
+		mat:SetMetallicMultiplier(1)
+		poly:CreateCube()
+	end)
+
+	--ground.transform:SetPosition(Vec3(0, -1, 0))
+	--ground.transform:SetScale(Vec3(100, 0.1, 100))
 	debug_ent(Vec3(4, 2, 10), nil, function(poly, mat)
 		mat:SetColorMultiplier(Color(0, 0, 1, 1))
 		mat:SetRoughnessMultiplier(0)
 		mat:SetMetallicMultiplier(1)
 		poly:CreateCube()
 	end)
+
+	do
+		local env_debug = debug_ent(Vec3(2, 0, 10), nil, function(poly, mat)
+			mat:SetColorMultiplier(Color(1, 1, 1, 1))
+			mat:SetRoughnessMultiplier(0)
+			mat:SetMetallicMultiplier(1)
+			poly:CreateSphere(0.25)
+		end)
+
+		event.AddListener("Update", "debug_env", function(dt)
+			local cam = render3d.GetCamera()
+			local rot = cam:GetRotation()
+			env_debug.transform:SetPosition(
+				cam:GetPosition() + rot:GetForward() * 0.85 + rot:GetUp() * -0.5 + rot:GetRight() * 0.75
+			)
+		end)
+	end
 end

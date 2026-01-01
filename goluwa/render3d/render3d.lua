@@ -17,6 +17,8 @@ local Framebuffer = require("render.framebuffer")
 local system = require("system")
 local render3d = library()
 package.loaded["render3d.render3d"] = render3d
+local skybox = require("render3d.skybox")
+local reflection_probe = require("render3d.reflection_probe")
 render3d.fill_config = {
 	color_format = {
 		"r8g8b8a8_unorm", -- albedo
@@ -725,24 +727,17 @@ render3d.lighting_config = {
 					},
 					{
 						"camera_position",
-						"vec4",
+						"vec3",
 						function(constants)
-							local p = render3d.camera:GetPosition()
-							constants.camera_position[0] = p.x
-							constants.camera_position[1] = p.y
-							constants.camera_position[2] = p.z
-							constants.camera_position[3] = 0
+							render3d.camera:GetPosition():CopyToFloatPointer(constants.camera_position)
 						end,
 					},
 					{
 						"ssao_kernel",
-						"vec4",
+						"vec3",
 						function(constants)
 							for i, v in ipairs(render3d.ssao_kernel) do
-								constants.ssao_kernel[i - 1][0] = v.x
-								constants.ssao_kernel[i - 1][1] = v.y
-								constants.ssao_kernel[i - 1][2] = v.z
-								constants.ssao_kernel[i - 1][3] = 0
+								v:CopyToFloatPointer(constants.ssao_kernel[i - 1])
 							end
 						end,
 						64,
@@ -852,7 +847,6 @@ render3d.lighting_config = {
 						"stars_texture_index",
 						"int",
 						function(constants)
-							local skybox = require("render3d.skybox")
 							return render3d.lighting_pipeline:GetTextureIndex(skybox.stars_texture)
 						end,
 					},
@@ -865,12 +859,108 @@ render3d.lighting_config = {
 							return render3d.lighting_pipeline:GetTextureIndex(render3d.ssr_fb:GetAttachment(1))
 						end,
 					},
+					{
+						"probe_indices",
+						"int",
+						function(constants)
+							if not reflection_probe.IsEnabled() then
+								for i = 0, 63 do
+									constants.probe_indices[i] = -1
+								end
+
+								return
+							end
+
+							for i = 0, 63 do
+								local cubemap = reflection_probe.GetCubemap(i)
+								constants.probe_indices[i] = cubemap and render3d.lighting_pipeline:GetTextureIndex(cubemap) or -1
+							end
+						end,
+						64,
+					},
+					{
+						"probe_depth_indices",
+						"int",
+						function(constants)
+							if not reflection_probe.IsEnabled() then
+								for i = 0, 63 do
+									constants.probe_depth_indices[i] = -1
+								end
+
+								return
+							end
+
+							for i = 0, 63 do
+								local depth_cubemap = reflection_probe.GetDepthCubemap(i)
+								constants.probe_depth_indices[i] = depth_cubemap and render3d.lighting_pipeline:GetTextureIndex(depth_cubemap) or -1
+							end
+						end,
+						64,
+					},
+					{
+						"probe_positions",
+						"vec4",
+						function(constants)
+							if not reflection_probe.IsEnabled() then return end
+
+							for i = 0, 63 do
+								local pos = reflection_probe.GetProbePosition(i)
+
+								if pos then
+									constants.probe_positions[i][0] = pos.x
+									constants.probe_positions[i][1] = pos.y
+									constants.probe_positions[i][2] = pos.z
+									constants.probe_positions[i][3] = 0
+								else
+									constants.probe_positions[i][0] = 0
+									constants.probe_positions[i][1] = 0
+									constants.probe_positions[i][2] = 0
+									constants.probe_positions[i][3] = -1 -- Mark as invalid
+								end
+							end
+						end,
+						64,
+					},
+					{
+						"probe_grid_origin",
+						"vec4",
+						function(constants)
+							local origin = reflection_probe.GRID_ORIGIN
+							constants.probe_grid_origin[0] = origin.x
+							constants.probe_grid_origin[1] = origin.y
+							constants.probe_grid_origin[2] = origin.z
+							constants.probe_grid_origin[3] = 0
+						end,
+					},
+					{
+						"probe_grid_spacing",
+						"vec4",
+						function(constants)
+							local spacing = reflection_probe.GRID_SPACING
+							constants.probe_grid_spacing[0] = spacing.x
+							constants.probe_grid_spacing[1] = spacing.y
+							constants.probe_grid_spacing[2] = spacing.z
+							constants.probe_grid_spacing[3] = 0
+						end,
+					},
+					{
+						"probe_grid_counts",
+						"ivec4",
+						function(constants)
+							local counts = reflection_probe.GRID_COUNTS
+							constants.probe_grid_counts[0] = counts.x
+							constants.probe_grid_counts[1] = counts.y
+							constants.probe_grid_counts[2] = counts.z
+							constants.probe_grid_counts[3] = 0
+						end,
+					},
 				},
 			},
 		},
 		shader = [[
 			]] .. require("render3d.skybox").GetGLSLCode() .. [[
-			#define SSR 1
+			#define SSR 0
+			#define PARALLAX_CORRECTION 1
 			#define uv in_uv
 			float hash(vec2 p) {
 				p = fract(p * vec2(123.34, 456.21));
@@ -922,8 +1012,6 @@ render3d.lighting_config = {
 				vec3(1.0, 1.0, 0.2)   // Yellow - cascade 4
 			);
 
-			#if SSR
-
 			float random(vec2 co)
 			{
 				return fract(sin(dot(co.xy ,vec2(12.9898,78.233))) * 43758.5453);
@@ -936,8 +1024,6 @@ render3d.lighting_config = {
 
 				return vec3(x, y, z) * 2.0 - 1.0;
 			}
-
-			#endif
 
 			// Get cascade index based on view distance
 			int getCascadeIndex(vec3 world_pos) {
@@ -981,16 +1067,99 @@ render3d.lighting_config = {
 			}
 
 			vec3 env_color(vec3 normal, float roughness, vec3 V, vec3 world_pos) {
-				vec3 env = vec3(0.2);
+				vec3 R = reflect(-V, normal);
+				R = mix(R, normal, roughness * roughness);
+				R = normalize(R);
 
-				if (lighting_data.env_tex != -1) {
-					float NdotV = max(dot(normal, V), 0.001);
-					vec3 R = reflect(-V, normal);
-					R = mix(R, normal, roughness * roughness);
-					R = normalize(R);
+				float max_mip = float(textureQueryLevels(CUBEMAP(lighting_data.env_tex)) - 1);
+				float mip_level = roughness * max_mip;
+
+				{return textureLod(CUBEMAP(lighting_data.env_tex), R, mip_level).rgb;}
+				// TODO
+
+				vec3 total_env = vec3(0.0);
+				float total_weight = 0.0;
+
+				// DDGI-style grid lookup
+				vec3 grid_pos = (world_pos - lighting_data.probe_grid_origin.xyz) / lighting_data.probe_grid_spacing.xyz;
+				ivec3 base_coord = ivec3(floor(grid_pos));
+				vec3 alpha = fract(grid_pos);
+
+				for (int i = 0; i < 8; i++) {
+					ivec3 offset = ivec3(i & 1, (i >> 1) & 1, (i >> 2) & 1);
+					ivec3 coord = base_coord + offset;
+
+					if (any(lessThan(coord, ivec3(0))) || any(greaterThanEqual(coord, lighting_data.probe_grid_counts.xyz))) {
+						continue;
+					}
+
+					int probe_idx = coord.x + coord.y * lighting_data.probe_grid_counts.x + coord.z * lighting_data.probe_grid_counts.x * lighting_data.probe_grid_counts.y;
+					int tex_idx = lighting_data.probe_indices[probe_idx];
+					if (tex_idx == -1) continue;
+
+					vec3 probe_pos = lighting_data.probe_positions[probe_idx].xyz;
+					vec3 probe_to_point = world_pos - probe_pos;
+					vec3 dir_to_point = normalize(probe_to_point);
+					float dist_to_point = length(probe_to_point);
+
+					// Trilinear weight
+					vec3 trilinear = mix(1.0 - alpha, alpha, vec3(offset));
+					float weight = trilinear.x * trilinear.y * trilinear.z;
+
+					// Smooth backface test
+					float weight_normal = max(0.05, dot(dir_to_point, normal));
+					weight *= weight_normal * weight_normal;
+
+					// Visibility test (using depth cubemap)
+					int depth_tex_idx = lighting_data.probe_depth_indices[probe_idx];
+					if (depth_tex_idx != -1) {
+						float captured_depth = texture(CUBEMAP(depth_tex_idx), dir_to_point).r;
+						// Smooth visibility test to prevent light leaking and hard edges
+						float visibility = smoothstep(captured_depth + 1.0, captured_depth + 0.2, dist_to_point);
+						weight *= visibility;
+					}
+
+					if (weight > 0.0) {
+						float max_mip = float(textureQueryLevels(CUBEMAP(tex_idx)) - 1);
+						float mip_level = roughness * max_mip;
+						
+						// Parallax correction (simple sphere-based)
+						vec3 corrected_R = R;
+						float sphere_radius = 20.0;
+						vec3 ray_origin = world_pos - probe_pos;
+						float b = dot(ray_origin, R);
+						float c = dot(ray_origin, ray_origin) - sphere_radius * sphere_radius;
+						float discriminant = b * b - c;
+						if (discriminant >= 0.0) {
+							float t = -b + sqrt(discriminant);
+							corrected_R = normalize(ray_origin + t * R);
+						}
+
+						vec3 env = textureLod(CUBEMAP(tex_idx), corrected_R, mip_level).rgb;
+						total_env += env * weight;
+						total_weight += weight;
+					}
+				}
+
+				vec3 env = vec3(0.0);
+				if (total_weight > 0.001) {
+					env = total_env / total_weight;
+				}
+				
+				// Blend with global environment if weights are low
+				if (total_weight < 1.0 && lighting_data.env_tex != -1) {
 					float max_mip = float(textureQueryLevels(CUBEMAP(lighting_data.env_tex)) - 1);
 					float mip_level = roughness * max_mip;
-					env = textureLod(CUBEMAP(lighting_data.env_tex), R, mip_level).rgb;
+					vec3 global_env = textureLod(CUBEMAP(lighting_data.env_tex), R, mip_level).rgb;
+					env = mix(global_env, env, clamp(total_weight, 0.0, 1.0));
+				} else if (total_weight <= 0.001) {
+					if (lighting_data.env_tex != -1) {
+						float max_mip = float(textureQueryLevels(CUBEMAP(lighting_data.env_tex)) - 1);
+						float mip_level = roughness * max_mip;
+						env = textureLod(CUBEMAP(lighting_data.env_tex), R, mip_level).rgb;
+					} else {
+						env = vec3(0.2);
+					}
 				}
 
 				#if SSR
@@ -1155,6 +1324,9 @@ render3d.lighting_config = {
 					color = ssao;
 				} else if (debug_mode == 5) {
 					color = texture(TEXTURE(lighting_data.ssr_tex), in_uv).rgb;
+				} else if (debug_mode == 6) {
+					// Probe debug - show probe cubemap contribution
+					color = reflection;
 				}
 
 				out_color = vec4(color, albedo_alpha.a);
@@ -1542,7 +1714,7 @@ function render3d.GetDebugCascadeColors()
 end
 
 do
-	local debug_modes = {"none", "normals", "reflection", "light", "ssao", "ssr"}
+	local debug_modes = {"none", "normals", "reflection", "light", "ssao", "ssr", "probe"}
 	render3d.debug_mode = render3d.debug_mode or 1
 
 	function render3d.GetDebugModes()

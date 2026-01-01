@@ -447,6 +447,38 @@ function META:DrawShadow(shadow_cmd, shadow_map, cascade_idx)
 	end
 end
 
+-- Draw into reflection probe cubemap
+function META:DrawProbeGeometry(cmd, reflection_probe)
+	if not self.Visible then return end
+
+	if #self.Primitives == 0 then return end
+
+	local world_matrix = self:GetWorldMatrix()
+
+	if not world_matrix then return end
+
+	for _, prim in ipairs(self.Primitives) do
+		local final_matrix = world_matrix
+
+		if prim.local_matrix then
+			final_matrix = prim.local_matrix:GetMultiplied(world_matrix, cached_final_matrix)
+		end
+
+		render3d.SetWorldMatrix(final_matrix)
+
+		for i, sub_mesh in ipairs(prim.polygon3d:GetSubMeshes()) do
+			render3d.SetMaterial(
+				self.MaterialOverride or
+					sub_mesh.data or
+					prim.material or
+					render3d.GetDefaultMaterial()
+			)
+			reflection_probe.UploadConstants(cmd)
+			prim.polygon3d:Draw(cmd, i)
+		end
+	end
+end
+
 META:Register()
 ecs.RegisterComponent(META)
 -----------------------------------------------------------
@@ -465,6 +497,15 @@ function Model.DrawAllShadows(shadow_cmd, shadow_map, cascade_idx)
 
 	for _, model in ipairs(models) do
 		model:DrawShadow(shadow_cmd, shadow_map, cascade_idx)
+	end
+end
+
+-- Draw all models into reflection probe
+function Model.DrawAllProbeGeometry(cmd, reflection_probe)
+	local models = Model.GetSceneModels()
+
+	for _, model in ipairs(models) do
+		model:DrawProbeGeometry(cmd, reflection_probe)
 	end
 end
 
@@ -629,6 +670,11 @@ event.AddListener("PostRenderPass", "copy_occlusion_results", function(cmd)
 	if Model.IsOcclusionCullingEnabled() and Model.should_run_queries_this_frame then
 		Model.CopyOcclusionQueryResults(cmd)
 	end
+end)
+
+-- Draw all models into reflection probe when requested
+event.AddListener("DrawProbeGeometry", "model_probe_draw", function(cmd, reflection_probe)
+	Model.DrawAllProbeGeometry(cmd, reflection_probe)
 end)
 
 return Model
