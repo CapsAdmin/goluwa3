@@ -23,6 +23,11 @@ do
 	end
 
 	function os.realexit(code)
+		-- Flush stdout pipe before exiting so any pending output is captured
+		local ok, output = pcall(require, "output")
+
+		if ok and output.Flush then pcall(output.Flush) end
+
 		old(code)
 	end
 end

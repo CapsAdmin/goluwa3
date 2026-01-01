@@ -12,8 +12,6 @@ repl.input_buffer = repl.input_buffer or ""
 repl.input_cursor = repl.input_cursor or 1
 repl.selection_start = repl.selection_start or nil
 repl.history_index = repl.history_index or #repl.history + 1
-repl.output_lines = repl.output_lines or {}
-repl.scroll_offset = repl.scroll_offset or 0
 repl.input_scroll_offset = repl.input_scroll_offset or 0
 repl.needs_redraw = repl.needs_redraw or true
 repl.debug = false
@@ -21,6 +19,7 @@ repl.last_event = repl.last_event or nil
 repl.raw_input = repl.raw_input or nil
 repl.saved_input = repl.saved_input or "" -- Saves current input when navigating history
 repl.is_executing = repl.is_executing or false -- Tracks if we're executing a command
+repl.last_drawn_lines = 0 -- Track how many lines we drew last frame
 function repl.CopyText()
 	local start, stop = repl.GetSelection()
 
@@ -77,7 +76,7 @@ end
 function repl.PasteText()
 	local str = clipboard.Get()
 
-	if str ~= "" then
+	if str and str ~= "" then
 		repl.DeleteSelection()
 		repl.input_buffer = repl.input_buffer:sub(1, repl.input_cursor - 1) .. str .. repl.input_buffer:sub(repl.input_cursor)
 		repl.input_cursor = repl.input_cursor + #str
@@ -235,19 +234,6 @@ end
 do
 	local Code = require("nattlua.code")
 	local Lexer = require("nattlua.lexer.lexer")
-	local Color = require("structs.color")
-	local colors = {
-		string = (Color.FromHex("#e99648") * 255):Ceil(),
-		number = (Color.FromHex("#fffa9b") * 255):Ceil(),
-		symbol = (Color.FromHex("#969ebb") * 255):Ceil(),
-		comment = (Color.FromHex("#ff9797") * 255):Ceil(),
-		letter = (Color.FromHex("#ffffff") * 255):Ceil(),
-	}
-
-	local function get_tokens(str)
-		return Lexer.New(Code.New(str)):GetTokens()
-	end
-
 	local colors = {
 		keyword = "#569cd6",
 		operator = "#d4d4d4",
@@ -335,21 +321,6 @@ do
 			if token.Type == "end_of_file" then break end
 		end
 	end
-
-	function repl.StyledWrite(str)
-		if not str:match("\n$") then str = str .. "\n" end
-
-		for line in str:gmatch("(.-)\n") do
-			if repl.is_executing then
-				table.insert(repl.output_lines, "< " .. line)
-			else
-				table.insert(repl.output_lines, line)
-			end
-		end
-
-		repl.needs_redraw = true
-		return false
-	end
 end
 
 function repl.InputLua(str)
@@ -371,7 +342,7 @@ function repl.HandleEvent(ev)
 
 	if ev.key then
 		if ev.key == "enter" then
-			if ev.modifiers.shift then
+			if ev.modifiers and ev.modifiers.shift then
 				repl.DeleteSelection()
 				repl.input_buffer = repl.input_buffer:sub(1, repl.input_cursor - 1) .. "\n" .. repl.input_buffer:sub(repl.input_cursor)
 				repl.input_cursor = repl.input_cursor + 1
@@ -389,8 +360,6 @@ function repl.HandleEvent(ev)
 				end
 
 				if repl.input_buffer == "clear" then
-					repl.output_lines = {}
-					repl.scroll_offset = 0
 					repl.input_buffer = ""
 					repl.input_cursor = 1
 					repl.input_scroll_offset = 0
@@ -416,14 +385,13 @@ function repl.HandleEvent(ev)
 
 				repl.input_buffer = ""
 				repl.input_cursor = 1
-				repl.scroll_offset = 0
 				repl.input_scroll_offset = 0
 				repl.selection_start = nil
 				repl.saved_input = ""
 			end
 		elseif ev.key == "backspace" then
 			if not repl.DeleteSelection() then
-				if ev.modifiers.ctrl then
+				if ev.modifiers and ev.modifiers.ctrl then
 					local new_pos = repl.MoveWord(repl.input_buffer, repl.input_cursor, -1)
 					repl.input_buffer = repl.input_buffer:sub(1, new_pos - 1) .. repl.input_buffer:sub(repl.input_cursor)
 					repl.input_cursor = new_pos
@@ -434,7 +402,7 @@ function repl.HandleEvent(ev)
 			end
 		elseif ev.key == "delete" then
 			if not repl.DeleteSelection() then
-				if ev.modifiers.ctrl then
+				if ev.modifiers and ev.modifiers.ctrl then
 					local new_pos = repl.MoveWord(repl.input_buffer, repl.input_cursor, 1)
 					repl.input_buffer = repl.input_buffer:sub(1, repl.input_cursor - 1) .. repl.input_buffer:sub(new_pos)
 				elseif repl.input_cursor <= #repl.input_buffer then
@@ -443,13 +411,13 @@ function repl.HandleEvent(ev)
 			end
 		elseif ev.key == "left" or ev.key == "right" or ev.key == "home" or ev.key == "end" then
 			if ev.key == "left" then
-				if ev.modifiers.ctrl then
+				if ev.modifiers and ev.modifiers.ctrl then
 					repl.input_cursor = repl.MoveWord(repl.input_buffer, repl.input_cursor, -1)
 				else
 					repl.input_cursor = math.max(1, repl.input_cursor - 1)
 				end
 			elseif ev.key == "right" then
-				if ev.modifiers.ctrl then
+				if ev.modifiers and ev.modifiers.ctrl then
 					repl.input_cursor = repl.MoveWord(repl.input_buffer, repl.input_cursor, 1)
 				else
 					repl.input_cursor = math.min(#repl.input_buffer + 1, repl.input_cursor + 1)
@@ -474,7 +442,7 @@ function repl.HandleEvent(ev)
 				repl.input_cursor = pos
 			end
 
-			if ev.modifiers.shift then
+			if ev.modifiers and ev.modifiers.shift then
 				if not repl.selection_start then repl.selection_start = old_cursor end
 			else
 				repl.selection_start = nil
@@ -483,7 +451,7 @@ function repl.HandleEvent(ev)
 			local input_lines_count = select(2, repl.input_buffer:gsub("\n", "")) + 1
 			local current_line, current_col = get_cursor_pos(repl.input_buffer, repl.input_cursor)
 
-			if ev.modifiers.ctrl then
+			if ev.modifiers and ev.modifiers.ctrl then
 				-- Scroll input view up
 				repl.input_scroll_offset = math.max(0, repl.input_scroll_offset - 1)
 			elseif current_line > 1 then
@@ -515,7 +483,7 @@ function repl.HandleEvent(ev)
 			local input_lines_count = select(2, repl.input_buffer:gsub("\n", "")) + 1
 			local current_line, current_col = get_cursor_pos(repl.input_buffer, repl.input_cursor)
 
-			if ev.modifiers.ctrl then
+			if ev.modifiers and ev.modifiers.ctrl then
 				-- Scroll input view down
 				if input_lines_count > 5 then
 					repl.input_scroll_offset = math.min(input_lines_count - 5, repl.input_scroll_offset + 1)
@@ -548,42 +516,50 @@ function repl.HandleEvent(ev)
 				repl.selection_start = nil
 				repl.saved_input = ""
 			end
-		elseif ev.key == "pageup" then
-			local max_scroll = math.max(0, #repl.output_lines - 1)
-			repl.scroll_offset = math.min(max_scroll, repl.scroll_offset + 10)
-		elseif ev.key == "pagedown" then
-			repl.scroll_offset = math.max(0, repl.scroll_offset - 10)
-		elseif ev.key == "a" and ev.modifiers.ctrl then
+		elseif ev.key == "a" and ev.modifiers and ev.modifiers.ctrl then
 			-- Select all
 			if #repl.input_buffer > 0 then
 				repl.selection_start = 1
 				repl.input_cursor = #repl.input_buffer + 1
 			end
-		elseif ev.key == "c" and ev.modifiers.ctrl then
+		elseif ev.key == "c" and ev.modifiers and ev.modifiers.ctrl then
 			repl.CopyText()
-		elseif ev.key == "d" and ev.modifiers.ctrl then
+		elseif ev.key == "d" and ev.modifiers and ev.modifiers.ctrl then
 			repl.DuplicateLine()
-		elseif ev.key == "q" and ev.modifiers.ctrl then
+		elseif ev.key == "q" and ev.modifiers and ev.modifiers.ctrl then
 			system.ShutDown()
-		elseif ev.key == "x" and ev.modifiers.ctrl then
+		elseif ev.key == "x" and ev.modifiers and ev.modifiers.ctrl then
 			repl.CutText()
-		elseif ev.key == "v" and ev.modifiers.ctrl then
+		elseif ev.key == "v" and ev.modifiers and ev.modifiers.ctrl then
 			repl.PasteText()
-		elseif ev.key == "l" and ev.modifiers.ctrl then
-			repl.output_lines = {}
-			repl.scroll_offset = 0
 		elseif #ev.key == 1 then
 			repl.DeleteSelection()
 			repl.input_buffer = repl.input_buffer:sub(1, repl.input_cursor - 1) .. ev.key .. repl.input_buffer:sub(repl.input_cursor)
 			repl.input_cursor = repl.input_cursor + 1
 		end
-	elseif ev.mouse then
-		if ev.button == "wheel_up" and ev.action == "pressed" then
-			local max_scroll = math.max(0, #repl.output_lines - 1)
-			repl.scroll_offset = math.min(max_scroll, repl.scroll_offset + 3)
-		elseif ev.button == "wheel_down" and ev.action == "pressed" then
-			repl.scroll_offset = math.max(0, repl.scroll_offset - 3)
+	end
+end
+
+-- Clear the display area we drew last time
+local function clear_display(term)
+	if repl.last_drawn_lines > 0 then
+		-- Move to beginning of current line first
+		term:Write("\r")
+
+		-- Move up to the start of our display area
+		if repl.last_drawn_lines > 1 then term:MoveUp(repl.last_drawn_lines - 1) end
+
+		-- Clear each line
+		for i = 1, repl.last_drawn_lines do
+			term:ClearCurrentLine()
+
+			if i < repl.last_drawn_lines then term:MoveDown(1) end
 		end
+
+		-- Move back to the start
+		if repl.last_drawn_lines > 1 then term:MoveUp(repl.last_drawn_lines - 1) end
+
+		term:Write("\r")
 	end
 end
 
@@ -591,40 +567,10 @@ local function draw(term)
 	if not repl.needs_redraw then return end
 
 	repl.needs_redraw = false
-	term:BeginFrame()
-	term:Clear()
 	local w, h = term:GetSize()
-
-	-- Draw debug info in top left corner
-	if repl.debug and repl.last_event then
-		local debug_info = string.format(
-			"key=%s ctrl=%s shift=%s alt=%s",
-			repl.last_event.key or "nil",
-			tostring(repl.last_event.modifiers and repl.last_event.modifiers.ctrl or false),
-			tostring(repl.last_event.modifiers and repl.last_event.modifiers.shift or false),
-			tostring(repl.last_event.modifiers and repl.last_event.modifiers.alt or false)
-		)
-		term:PushForegroundColor(255, 255, 0)
-		term:WriteStringToScreen(1, 1, debug_info)
-
-		-- Show raw input bytes if available
-		if repl.raw_input then
-			local raw_hex = ""
-
-			for i = 1, #repl.raw_input do
-				raw_hex = raw_hex .. string.format("%02X ", repl.raw_input:byte(i))
-			end
-
-			local raw_info = "raw: " .. raw_hex
-
-			if #raw_info > w then raw_info = raw_info:sub(1, w) end
-
-			term:WriteStringToScreen(1, 2, raw_info)
-		end
-
-		term:PopAttribute()
-	end
-
+	-- Clear previous display
+	clear_display(term)
+	term:BeginFrame()
 	-- Split input into lines
 	local input_lines = {}
 
@@ -634,24 +580,7 @@ local function draw(term)
 
 	-- Calculate visible input lines (max 5)
 	local visible_input_lines = math.min(5, #input_lines)
-	-- Draw output (start from line 3 if debug is enabled with raw, line 1 otherwise)
-	local output_start_line = repl.debug and 3 or 1
-	local max_output_h = h - 1 - visible_input_lines - (repl.debug and 2 or 0)
-	local total_lines = #repl.output_lines
-	local start_idx = math.max(1, total_lines - max_output_h + 1 - repl.scroll_offset)
-
-	for i = 0, max_output_h - 1 do
-		local line = repl.output_lines[start_idx + i]
-
-		if line then
-			-- Truncate line if too long
-			if #line > w then line = line:sub(1, w) end
-
-			term:SetCaretPosition(1, output_start_line + i)
-			repl.ColorizeAndWrite(term, line)
-		end
-	end
-
+	local total_display_lines = visible_input_lines
 	-- Draw input
 	local sel_start, sel_stop = repl.GetSelection()
 	local current_char_idx = 1
@@ -664,64 +593,95 @@ local function draw(term)
 		current_char_idx = current_char_idx + #input_lines[i] + 1 -- +1 for newline
 	end
 
+	local cursor_screen_line = 1
+	local cursor_screen_col = 3
+
 	for i = start_line, end_line do
 		local line = input_lines[i]
 		local prefix = i == 1 and "> " or "  "
-		local y = h - visible_input_lines + (i - start_line) + 1
-		term:SetCaretPosition(1, y)
+		local display_line_num = i - start_line + 1
 		term:Write(prefix)
 
-		for j = 1, #line do
-			local char = line:sub(j, j)
-			local is_selected = sel_start and current_char_idx >= sel_start and current_char_idx < sel_stop
+		-- Use styled rendering if no selection, otherwise render char by char with selection
+		if not sel_start then
+			-- No selection - use syntax highlighting
+			repl.ColorizeAndWrite(term, line)
+			term:NoAttributes()
+			current_char_idx = current_char_idx + #line
+		else
+			-- Has selection - render char by char with selection highlighting
+			for j = 1, #line do
+				local char = line:sub(j, j)
+				local is_selected = current_char_idx >= sel_start and current_char_idx < sel_stop
 
-			if is_selected then
-				term:PushBackgroundColor(100, 100, 100)
-				term:Write(char)
-				term:PopAttribute()
-			else
-				term:Write(char)
+				if is_selected then
+					term:PushBackgroundColor(100, 100, 100)
+					term:Write(char)
+					term:PopAttribute()
+				else
+					term:Write(char)
+				end
+
+				current_char_idx = current_char_idx + 1
 			end
-
-			current_char_idx = current_char_idx + 1
 		end
 
 		-- Handle the newline character at the end of the line (except the last line)
 		if i < #input_lines then
-			local is_selected = sel_start and current_char_idx >= sel_start and current_char_idx < sel_stop
+			if sel_start then
+				local is_selected = current_char_idx >= sel_start and current_char_idx < sel_stop
 
-			if is_selected then
-				term:PushBackgroundColor(100, 100, 100)
-				term:Write(" ")
-				term:PopAttribute()
+				if is_selected then
+					term:PushBackgroundColor(100, 100, 100)
+					term:Write(" ")
+					term:PopAttribute()
+				end
 			end
 
 			current_char_idx = current_char_idx + 1
 		end
+
+		term:ClearLine()
+
+		if display_line_num < visible_input_lines then term:Write("\n") end
 	end
 
+	-- Calculate cursor position
 	local cursor_line, cursor_col = get_cursor_pos(repl.input_buffer, repl.input_cursor)
 
-	-- Only show cursor if it's in the visible range
+	-- Only position cursor if it's in the visible range
 	if cursor_line >= start_line and cursor_line <= end_line then
-		term:SetCaretPosition(
-			math.min(w, 3 + cursor_col - 1),
-			h - visible_input_lines + (cursor_line - start_line) + 1
-		)
+		cursor_screen_line = cursor_line - start_line + 1
+		cursor_screen_col = 3 + cursor_col - 1
 	end
 
 	term:EndFrame()
+	-- Position cursor (move up if we're not on the last line)
+	local lines_to_move_up = visible_input_lines - cursor_screen_line
+
+	if lines_to_move_up > 0 then term:MoveUp(lines_to_move_up) end
+
+	term:MoveToColumn(math.min(w, cursor_screen_col))
+
+	-- Move back down for next frame's reference
+	if lines_to_move_up > 0 then
+		term:SaveCursor()
+		term:MoveDown(lines_to_move_up)
+		term:RestoreCursor()
+	end
+
+	repl.last_drawn_lines = total_display_lines
+	term:Flush()
 end
 
 function repl.Initialize()
 	require("logging").ReplMode()
 	local stdout_handle = output.original_stdout_file or io.stdout
 	local term = terminal.WrapFile(io.stdin, stdout_handle)
-	term:UseAlternateScreen(true)
-	term:Clear()
+	-- Don't use alternate screen - let output flow naturally
 	term:EnableCaret(true)
+	repl.term = term
 
-	--term:EnableMouse(true) -- enables mouse wheel scrollback at the cost of not being able to select text with mouse
 	event.AddListener("Update", "repl", function()
 		-- Process any pending stdout data from the pipe
 		output.Flush()
@@ -738,15 +698,67 @@ function repl.Initialize()
 	end)
 
 	event.AddListener("StdOutWrite", "repl", function(str)
-		if repl.started then return repl.StyledWrite(str) end
+		if repl.started then
+			-- Clear current display before output is written
+			if repl.term then
+				clear_display(repl.term)
+				repl.term:Flush()
+				repl.last_drawn_lines = 0
+			end
+
+			-- Style the output with "< " prefix when executing
+			if repl.is_executing and repl.term then
+				-- Process each line and add the prefix
+				local lines = {}
+
+				for line in (str .. "\n"):gmatch("(.-)\n") do
+					table.insert(lines, line)
+				end
+
+				-- Remove trailing empty line caused by the pattern when string ends with \n
+				if #lines > 0 and lines[#lines] == "" then table.remove(lines) end
+
+				for i, line in ipairs(lines) do
+					-- Output styling: dim cyan "< " prefix
+					-- Output styling: dim cyan "< " prefix
+					repl.term:PushDim()
+					repl.term:PushForegroundColor(100, 180, 180)
+					repl.term:Write("< ")
+					repl.term:PopAttribute()
+					repl.term:PopAttribute()
+					-- Write the actual output line with syntax highlighting
+					repl.ColorizeAndWrite(repl.term, line)
+					repl.term:NoAttributes()
+
+					if i < #lines or str:match("\n$") then repl.term:Write("\n") end
+				end
+
+				repl.term:Flush()
+				repl.needs_redraw = true
+				return false -- We handled the output ourselves (log already written by output.lua)
+			end
+
+			-- Allow output to proceed, prompt will redraw on next update
+			repl.needs_redraw = true
+			return true
+		end
 	end)
 
 	event.AddListener("ShutDown", "repl", function()
-		term:Close()
+		-- Just move to a new line, don't clear the display
+		-- This preserves the output history in the terminal
+		if term then
+			term:NoAttributes()
+			term:Write("\n")
+			term:Flush()
+			term:Close()
+		end
+
 		output.Flush()
 	end)
 
-	repl.term = term
+	-- Initial draw
+	draw(term)
 end
 
 return repl

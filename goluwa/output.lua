@@ -7,6 +7,7 @@ local output = library()
 local event = require("event")
 local fs = require("fs")
 local log_file
+local log_fd -- Raw fd for crash-safe writes
 local suppress_print = false
 local READ_BUF_SIZE = 4096
 -- State for pipe redirection mode
@@ -32,6 +33,11 @@ function output.Initialize()
 
 	if not output.normal_stdout then
 		local ffi = require("ffi")
+		-- Make stdout unbuffered so writes go directly to kernel
+		-- This is already declared in filesystem.lua, so we just call it
+		ffi.C.setvbuf(ffi.C.stdout, nil, 2, 0) -- 2 = _IONBF (no buffering)
+		-- Also make the log file unbuffered for crash safety
+		ffi.C.setvbuf(log_file.file, nil, 2, 0)
 
 		-- On Windows, save the original console handles before redirecting
 		-- This allows terminal.lua to still use console-specific functions
@@ -81,23 +87,28 @@ function output.Initialize()
 		original_stdout_fd = assert(fs.fd.stdout:dup())
 		-- Save the FILE* BEFORE redirecting
 		original_stdout_file = assert(fs.file_open(original_stdout_fd.fd, "w"))
+		-- Get log file's raw fd for crash-safe writes
+		local log_fd_num = log_file:get_fileno()
+		local log_fd_wrapper = setmetatable({fd = log_fd_num}, getmetatable(fs.fd.stdout))
+		-- Create pipe for intercepting stdout
 		read_fd, write_fd = assert(fs.get_read_write_fd_pipes())
-		-- Now redirect stdout to the write end of the pipe
+		-- Redirect stdout to the write end of the pipe
 		assert(write_fd:dup(fs.fd.stdout))
 		assert(read_fd:set_nonblocking(true))
 		output.original_stdout_fd = original_stdout_fd
 		output.original_stdout_file = original_stdout_file
+		output.log_fd = log_fd_wrapper
 		process_pipe = function()
 			while true do
 				local data, n = read_fd:read(READ_BUF_SIZE - 1)
 
 				if not data or n <= 0 then break end
 
-				if output.CanWrite(data) then
-					assert(log_file:write(data, 1, n))
-					assert(log_file:flush())
-					assert(original_stdout_fd:write(data))
-				end
+				-- Write to log file using raw fd (bypasses libc buffering)
+				log_fd_wrapper:write(data)
+
+				-- Styled terminal output via StdOutWrite event
+				if output.CanWrite(data) then assert(original_stdout_fd:write(data)) end
 			end
 		end
 	end

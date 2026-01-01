@@ -117,6 +117,43 @@ function meta:ClearAttributeStack()
 	self:NoAttributes()
 end
 
+-- Readline mode: manages just the input line without full-screen
+-- The prompt stays at the current position; output flows above it naturally
+function meta:ClearLine()
+	-- Clear from cursor to end of line
+	self:Write("\27[K")
+end
+
+function meta:ClearCurrentLine()
+	-- Move to beginning of line and clear it
+	self:Write("\r\27[K")
+end
+
+function meta:MoveToColumn(col)
+	-- Move cursor to specific column (1-based)
+	self:Write(string.format("\27[%dG", col))
+end
+
+function meta:MoveUp(n)
+	n = n or 1
+
+	if n > 0 then self:Write(string.format("\27[%dA", n)) end
+end
+
+function meta:MoveDown(n)
+	n = n or 1
+
+	if n > 0 then self:Write(string.format("\27[%dB", n)) end
+end
+
+function meta:SaveCursor()
+	self:Write("\27[s")
+end
+
+function meta:RestoreCursor()
+	self:Write("\27[u")
+end
+
 function meta:Clear()
 	self:Write("\27[2J\27[3J\27[H")
 end
@@ -124,8 +161,10 @@ end
 function meta:UseAlternateScreen(enable)
 	if enable then
 		self:Write("\27[?1049h") -- Switch to alternate screen
-	else
+		self.in_alternate_screen = true
+	elseif self.in_alternate_screen then
 		self:Write("\27[?1049l") -- Switch back to main screen
+		self.in_alternate_screen = false
 	end
 end
 
@@ -364,20 +403,26 @@ if jit.os == "Windows" then
 		DISABLE_NEWLINE_AUTO_RETURN = 0x0008,
 		ENABLE_LVB_GRID_WORLDWIDE = 0x0010,
 	}
-	
+
 	-- Helper to get the correct handle (saved console handle if available, otherwise standard handle)
 	local function get_console_handle(handle_type)
 		local output_module = package.loaded["stdout"]
-		if output_module and output_module.original_console_in and output_module.original_console_out then
+
+		if
+			output_module and
+			output_module.original_console_in and
+			output_module.original_console_out
+		then
 			if handle_type == STD_INPUT_HANDLE then
 				return output_module.original_console_in
 			elseif handle_type == STD_OUTPUT_HANDLE then
 				return output_module.original_console_out
 			end
 		end
+
 		return ffi.C.GetStdHandle(handle_type)
 	end
-	
+
 	local stdin = get_console_handle(STD_INPUT_HANDLE)
 	local stdout = get_console_handle(STD_OUTPUT_HANDLE)
 
@@ -416,12 +461,18 @@ if jit.os == "Windows" then
 	function terminal.WrapFile(input, output)
 		-- Handle wrapped file objects from fs module
 		if type(input) == "table" and input.file then input = input.file end
+
 		if type(output) == "table" and output.file then output = output.file end
-		
+
 		-- Only call setvbuf on Lua file objects (userdata), not raw FILE* pointers (cdata)
-		if type(input) == "userdata" then pcall(function() input:setvbuf("no") end) end
-		if type(output) == "userdata" then pcall(function() output:setvbuf("no") end) end
-		
+		if type(input) == "userdata" then pcall(function()
+			input:setvbuf("no")
+		end) end
+
+		if type(output) == "userdata" then pcall(function()
+			output:setvbuf("no")
+		end) end
+
 		-- Set console to UTF-8 (code page 65001)
 		ffi.C.SetConsoleOutputCP(65001)
 		ffi.C.SetConsoleCP(65001)
