@@ -3,6 +3,8 @@ local Vec3 = require("structs.vec3")
 local structs = require("structs.structs")
 local orientation = require("render3d.orientation")
 local META = structs.Template("Quat")
+package.loaded["structs.quat"] = META
+local Matrix44 = require("structs.matrix44")
 local ffi = require("ffi")
 local CTOR
 META.Args = {{"x", "y", "z", "w"}}
@@ -313,9 +315,7 @@ do
 	end
 end
 
--- Convert quaternion to a rotation matrix
 function META:GetMatrix()
-	local Matrix44 = require("structs.matrix44")
 	local m = Matrix44()
 	local xx = self.x * self.x
 	local xy = self.x * self.y

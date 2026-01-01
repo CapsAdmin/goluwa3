@@ -9,6 +9,7 @@ local Fence = require("render.vulkan.internal.fence")
 local Matrix44 = require("structs.matrix44")
 local Vec3 = require("structs.vec3")
 local Rect = require("structs.rect")
+local skybox = require("render3d.skybox")
 local reflection_probe = {}
 -- Configuration
 reflection_probe.SIZE = 128 -- Cubemap resolution per face
@@ -349,7 +350,6 @@ function reflection_probe.CreatePipelines()
 								"stars_texture_index",
 								"int",
 								function(constants)
-									local skybox = require("render3d.skybox")
 									return reflection_probe.scene_pipeline:GetTextureIndex(skybox.stars_texture)
 								end,
 							},

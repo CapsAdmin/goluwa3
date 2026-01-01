@@ -365,6 +365,7 @@ local out = {}
 do -- 44
 	local name, META = matrix_template(4, 4, {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1})
 	out[name] = META.CType
+	package.loaded["structs.matrix44"] = META.CType
 
 	function META.GetInverse(m, o)
 		o = o or META.CType()

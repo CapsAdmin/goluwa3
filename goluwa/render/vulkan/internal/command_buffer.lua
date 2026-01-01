@@ -496,34 +496,34 @@ if true then
 	end
 end
 
-function CommandBuffer:PipelineBarrier(config)
-	local stage_map = {
-		compute = "compute_shader",
-		fragment = "fragment_shader",
-		transfer = "transfer",
-		vertex = "vertex_shader",
-		vertex_input = "vertex_input",
-		all_commands = "all_commands",
-		top_of_pipe = "top_of_pipe",
-		color_attachment_output = "color_attachment_output",
-		early_fragment_tests = "early_fragment_tests",
-		late_fragment_tests = "late_fragment_tests",
-	}
+local stage_map = {
+	compute = "compute_shader",
+	fragment = "fragment_shader",
+	transfer = "transfer",
+	vertex = "vertex_shader",
+	vertex_input = "vertex_input",
+	all_commands = "all_commands",
+	top_of_pipe = "top_of_pipe",
+	color_attachment_output = "color_attachment_output",
+	early_fragment_tests = "early_fragment_tests",
+	late_fragment_tests = "late_fragment_tests",
+}
 
-	local function translate_stage(stage)
-		if type(stage) == "table" then
-			local out = {}
+local function translate_stage(stage)
+	if type(stage) == "table" then
+		local out = {}
 
-			for i, v in ipairs(stage) do
-				out[i] = stage_map[v] or v
-			end
-
-			return out
+		for i, v in ipairs(stage) do
+			out[i] = stage_map[v] or v
 		end
 
-		return stage_map[stage] or stage
+		return out
 	end
 
+	return stage_map[stage] or stage
+end
+
+function CommandBuffer:PipelineBarrier(config)
 	local srcStage = vulkan.vk.e.VkPipelineStageFlagBits(translate_stage(config.srcStage or "compute"))
 	local dstStage = vulkan.vk.e.VkPipelineStageFlagBits(translate_stage(config.dstStage or "fragment"))
 	local imageBarriers = nil
