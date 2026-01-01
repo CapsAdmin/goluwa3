@@ -7,6 +7,7 @@ end
 
 local T = require("test.environment")
 local ffi = require("ffi")
+local event = require("event")
 local render = require("render.render")
 local render3d = require("render3d.render3d")
 local Polygon3D = require("render3d.polygon_3d")
@@ -38,10 +39,13 @@ local function draw3d(cb)
 	sun:SetIsSun(true)
 	sun:SetRotation(Quat(0, 0, 0, 1))
 	render3d.SetLights({sun})
+	local draw_listener = event.AddListener("Draw3DGeometry", "test_draw", function(cmd)
+		cb(cmd)
+	end)
 	render.BeginFrame()
-	render3d.BindPipeline()
-	cb(render.GetCommandBuffer())
+	event.Call("Draw", render.GetCommandBuffer(), 0)
 	render.EndFrame()
+	event.RemoveListener("Draw3DGeometry", "test_draw")
 	render.GetDevice():WaitIdle()
 end
 

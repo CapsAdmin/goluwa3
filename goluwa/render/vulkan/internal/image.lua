@@ -54,6 +54,7 @@ function Image.New(config)
 			format = config.format,
 			usage = config.usage,
 			mip_levels = mip_levels,
+			array_layers = config.array_layers or 1,
 		}
 	)
 	local requirements = config.device:GetImageMemoryRequirements(self)
@@ -101,7 +102,7 @@ function Image:CreateView(config)
 			format = config.format or self.format,
 			level_count = config.level_count or self.mip_levels or 1,
 			aspect = config.aspect,
-			layer_count = config.layer_count,
+			layer_count = config.layer_count or self.array_layers or 1,
 			base_array_layer = config.base_array_layer,
 			base_mip_level = config.base_mip_level,
 		}

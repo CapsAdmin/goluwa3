@@ -6,7 +6,13 @@ local logging = true
 local profiling = false
 local profiling_mode = nil
 
-if ... == "--filter" then filter = select(2, ...) end
+if ... then
+	if ... == "--filter" then filter = select(2, ...) end
+
+	if (...):starts_with("--filter=") then filter = assert((...):split("=")[2]) end
+
+	if (...):ends_with("lua") then filter = ... end
+end
 
 event.AddListener("Initialize", "tests", function()
 	test.BeginTests(logging, profiling, profiling_mode)

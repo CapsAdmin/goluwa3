@@ -350,7 +350,9 @@ function ImageRenderTarget:BeginFrame()
 	cmd:PipelineBarrier(
 		{
 			srcStage = self.config.offscreen and "top_of_pipe" or "color_attachment_output",
-			dstStage = self.config.offscreen and "early_fragment_tests" or "color_attachment_output",
+			dstStage = self.config.offscreen and
+				{"early_fragment_tests", "color_attachment_output"} or
+				"color_attachment_output",
 			imageBarriers = imageBarriers,
 		}
 	)

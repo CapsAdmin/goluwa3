@@ -18,9 +18,9 @@ end
 
 function test2d.draw(cb)
 	test2d.initialize()
-	render2d.ResetState()
 	render.BeginFrame()
 	render2d.BindPipeline()
+	render2d.ResetState()
 	local finish = cb(width, height)
 	render.EndFrame()
 
