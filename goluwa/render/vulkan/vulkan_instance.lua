@@ -87,7 +87,10 @@ function VulkanInstance.New(surface_handle, display_handle)
 	local props = self.physical_device:GetProperties()
 	local device_name = ffi.string(props.deviceName)
 	self.graphics_queue_family = self.physical_device:FindGraphicsQueueFamily(self.surface)
-	local device_extensions = {"VK_EXT_conditional_rendering"}
+	local device_extensions = {
+		"VK_EXT_conditional_rendering",
+		"VK_EXT_scalar_block_layout",
+	}
 
 	if not is_headless then
 		table.insert(device_extensions, "VK_KHR_swapchain")

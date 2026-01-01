@@ -13,12 +13,18 @@ function EasyPipeline.New(config)
 		vec2 = "float",
 		float = "float",
 		int = "int",
+		ivec4 = "int",
+		ivec3 = "int",
+		ivec2 = "int",
 	}
 	local glsl_to_array_size = {
 		mat4 = 16,
 		vec4 = 4,
 		vec3 = 3,
 		vec2 = 2,
+		ivec4 = 4,
+		ivec3 = 3,
+		ivec2 = 2,
 	}
 	local push_constant_types = {}
 	local stage_sizes = {vertex = 0, fragment = 0}
@@ -38,6 +44,161 @@ function EasyPipeline.New(config)
 		}
 	end
 
+	local function get_layout_info(layout, glsl_type, array_size)
+		local base_alignment = 4
+		local size = 4
+
+		if glsl_type == "float" or glsl_type == "int" then
+			base_alignment = 4
+			size = 4
+		elseif glsl_type == "vec2" then
+			base_alignment = 8
+			size = 8
+		elseif glsl_type == "vec3" then
+			base_alignment = 16
+			size = 12
+		elseif glsl_type == "vec4" then
+			base_alignment = 16
+			size = 16
+		elseif glsl_type == "mat4" then
+			base_alignment = 16
+			size = 64
+		end
+
+		if layout == "scalar" then
+			if glsl_type == "vec2" then
+				base_alignment = 4
+			elseif glsl_type == "vec3" then
+				base_alignment = 4
+			elseif glsl_type == "vec4" then
+				base_alignment = 4
+			elseif glsl_type == "mat4" then
+				base_alignment = 4
+			end
+		end
+
+		if layout == "std140" then
+			if array_size then
+				-- Rule 4: Each element is aligned to 16 bytes
+				base_alignment = math.max(base_alignment, 16)
+				local element_size = math.max(size, 16) -- Stride is at least 16
+				size = element_size * array_size
+			end
+		else
+			if array_size then size = size * array_size end
+		end
+
+		return base_alignment, size
+	end
+
+	local function verify_layout(layout, struct_name, fields, ctype)
+		local current_offset = 0
+		local max_alignment = (layout == "std140" or layout == "std430") and 16 or 4
+
+		for _, field in ipairs(fields) do
+			local info = get_field_info(field)
+			local base_alignment, size = get_layout_info(layout, info.glsl_type, info.array_size)
+			max_alignment = math.max(max_alignment, base_alignment)
+			-- Round up current_offset to base_alignment
+			current_offset = math.ceil(current_offset / base_alignment) * base_alignment
+			local ffi_offset = tonumber(ffi.offsetof(ctype, info.name))
+
+			if ffi_offset ~= current_offset then
+				error(
+					string.format(
+						"Uniform buffer/Push constant '%s' field '%s' has incorrect alignment for layout '%s'!\n" .. "GLSL expected offset: %d\n" .. "FFI (C) actual offset: %d\n" .. "Type: %s%s",
+						struct_name,
+						info.name,
+						layout,
+						current_offset,
+						ffi_offset,
+						info.glsl_type,
+						info.array_size and ("[" .. info.array_size .. "]") or ""
+					)
+				)
+			end
+
+			current_offset = current_offset + size
+		end
+
+		local expected_total_size = math.ceil(current_offset / max_alignment) * max_alignment
+
+		if layout == "std140" then
+			expected_total_size = math.ceil(expected_total_size / 16) * 16
+		end
+
+		local ffi_size = ffi.sizeof(ctype)
+		local ffi_alignment = ffi.alignof(ctype)
+
+		if ffi_size < expected_total_size then
+			error(
+				string.format(
+					"Uniform buffer/Push constant '%s' has incorrect total size for layout '%s'!\n" .. "GLSL expected size: %d\n" .. "FFI (C) actual size: %d\n" .. "FFI (C) actual alignment: %d\n" .. "Hint: You might need to add padding or use __attribute__((aligned(%d)))",
+					struct_name,
+					layout,
+					expected_total_size,
+					ffi_size,
+					ffi_alignment,
+					max_alignment
+				)
+			)
+		end
+	end
+
+	local function build_ffi_struct(layout, fields)
+		local ffi_code = "struct __attribute__((packed, aligned(16))) {\n"
+		local current_offset = 0
+		local max_alignment = 16
+
+		for _, field in ipairs(fields) do
+			local info = get_field_info(field)
+			local ffi_type = glsl_to_ffi[info.glsl_type] or info.glsl_type
+			local base_size = glsl_to_array_size[info.glsl_type]
+			local base_alignment, size = get_layout_info(layout, info.glsl_type, info.array_size)
+			max_alignment = math.max(max_alignment, base_alignment)
+			local aligned_offset = math.ceil(current_offset / base_alignment) * base_alignment
+
+			if aligned_offset > current_offset then
+				ffi_code = ffi_code .. string.format("    char _pad_%d[%d];\n", current_offset, aligned_offset - current_offset)
+			end
+
+			if info.array_size and base_size then
+				ffi_code = ffi_code .. string.format("    %s %s[%d][%d];\n", ffi_type, info.name, info.array_size, base_size)
+			elseif info.array_size or base_size then
+				ffi_code = ffi_code .. string.format("    %s %s[%d];\n", ffi_type, info.name, info.array_size or base_size)
+			else
+				ffi_code = ffi_code .. string.format("    %s %s;\n", ffi_type, info.name)
+			end
+
+			current_offset = aligned_offset + size
+		end
+
+		local final_size = math.ceil(current_offset / max_alignment) * max_alignment
+
+		if final_size > current_offset then
+			ffi_code = ffi_code .. string.format("    char _pad_end[%d];\n", final_size - current_offset)
+		end
+
+		ffi_code = ffi_code .. "}"
+		return ffi_code
+	end
+
+	local function build_glsl_fields(fields)
+		local glsl_fields = ""
+
+		for _, field in ipairs(fields) do
+			local info = get_field_info(field)
+
+			if info.array_size then
+				glsl_fields = glsl_fields .. string.format("    %s %s[%d];\n", info.glsl_type, info.name, info.array_size)
+			else
+				glsl_fields = glsl_fields .. string.format("    %s %s;\n", info.glsl_type, info.name)
+			end
+		end
+
+		return glsl_fields
+	end
+
 	-- Process push constants and uniform buffers
 	for stage, stage_config in pairs(config) do
 		if
@@ -54,24 +215,9 @@ function EasyPipeline.New(config)
 		if stage_config.push_constants then
 			for _, block in ipairs(stage_config.push_constants) do
 				local struct_name = block.name:sub(1, 1):upper() .. block.name:sub(2) .. "Constants"
-				local ffi_code = "struct {\n"
-
-				for _, field in ipairs(block.block) do
-					local info = get_field_info(field)
-					local ffi_type = glsl_to_ffi[info.glsl_type] or info.glsl_type
-					local base_size = glsl_to_array_size[info.glsl_type]
-
-					if info.array_size and base_size then
-						ffi_code = ffi_code .. string.format("    %s %s[%d][%d];\n", ffi_type, info.name, info.array_size, base_size)
-					elseif info.array_size or base_size then
-						ffi_code = ffi_code .. string.format("    %s %s[%d];\n", ffi_type, info.name, info.array_size or base_size)
-					else
-						ffi_code = ffi_code .. string.format("    %s %s;\n", ffi_type, info.name)
-					end
-				end
-
-				ffi_code = ffi_code .. "}"
+				local ffi_code = build_ffi_struct("scalar", block.block)
 				local ctype = ffi.typeof(ffi_code)
+				verify_layout("scalar", struct_name, block.block, ctype)
 				push_constant_types[struct_name] = ctype
 				stage_sizes[stage] = stage_sizes[stage] + ffi.sizeof(ctype)
 			end
@@ -80,33 +226,12 @@ function EasyPipeline.New(config)
 		-- Process uniform buffers
 		if stage_config.uniform_buffers then
 			for _, block in ipairs(stage_config.uniform_buffers) do
-				local ffi_code = "struct {\n"
-				local glsl_fields = ""
-
-				for _, field in ipairs(block.block) do
-					local info = get_field_info(field)
-					local ffi_type = glsl_to_ffi[info.glsl_type] or info.glsl_type
-					local base_size = glsl_to_array_size[info.glsl_type]
-
-					if info.array_size and base_size then
-						ffi_code = ffi_code .. string.format("    %s %s[%d][%d];\n", ffi_type, info.name, info.array_size, base_size)
-					elseif info.array_size or base_size then
-						ffi_code = ffi_code .. string.format("    %s %s[%d];\n", ffi_type, info.name, info.array_size or base_size)
-					else
-						ffi_code = ffi_code .. string.format("    %s %s;\n", ffi_type, info.name)
-					end
-
-					if info.array_size then
-						glsl_fields = glsl_fields .. string.format("    %s %s[%d];\n", info.glsl_type, info.name, info.array_size)
-					else
-						glsl_fields = glsl_fields .. string.format("    %s %s;\n", info.glsl_type, info.name)
-					end
-				end
-
-				ffi_code = ffi_code .. "}"
+				local ffi_code = build_ffi_struct("scalar", block.block)
+				local glsl_fields = build_glsl_fields(block.block)
 				local ubo = UniformBuffer.New(ffi_code)
+				verify_layout("scalar", block.name, block.block, ubo.struct)
 				local glsl_declaration = string.format(
-					"layout(std140, binding = %d) uniform %s {\n%s} %s;",
+					"layout(scalar, binding = %d) uniform %s {\n%s} %s;",
 					block.binding_index,
 					block.name:sub(1, 1):upper() .. block.name:sub(2),
 					glsl_fields,
