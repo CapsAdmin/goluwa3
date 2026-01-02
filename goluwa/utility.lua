@@ -154,29 +154,29 @@ end
 
 do
 	local ran = {}
+	local meta = {}
+	meta.__index = meta
 
-	function utility.RunOnNextGarbageCollection(callback, id)
-		local tr = debug.traceback()
+	function meta:__gc()
+		if self.id and ran[self.id] then return end
 
-		local function run()
-			local ok, err = pcall(callback)
+		local ok, err = pcall(self.callback, table.unpack(self.args))
 
-			if not ok then
-				logn("error in RunOnNextGarbageCollection callback:\n", err, "\n", tr)
-			end
+		if not ok then
+			logn("error in RunOnNextGarbageCollection callback:\n", err)
 		end
 
-		if id then
-			ran[id] = false
-			getmetatable(newproxy(true)).__gc = function()
-				if not ran[id] then
-					run()
-					ran[id] = true
-				end
-			end
-		else
-			getmetatable(newproxy(true)).__gc = run
-		end
+		if self.id then ran[self.id] = true end
+	end
+
+	function utility.RunOnNextGarbageCollection(callback, ...)
+		local obj = setmetatable({callback = callback, args = table.pack(...)}, meta)
+	-- obj will get collected at some point
+	end
+
+	function utility.RunOnNextGarbageCollectionId(callback, id, ...)
+		local obj = setmetatable({callback = callback, id = id, args = table.pack(...)}, meta)
+	-- obj will get collected at some point
 	end
 end
 

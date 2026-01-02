@@ -48,6 +48,11 @@ return function(vfs)
 	local never
 	local modified_cache = {}
 
+	local function save_cache(cache_path, tree)
+		local codec = require("codec")
+		codec.WriteFile("msgpack", cache_path, tree.tree)
+	end
+
 	function CONTEXT:GetFileTree(path_info)
 		if never then return false, "recursive call to GetFileTree" end
 
@@ -109,11 +114,7 @@ return function(vfs)
 
 		cache[cache_key] = tree
 		local codec = require("codec")
-
-		utility.RunOnNextGarbageCollection(function()
-			codec.WriteFile("msgpack", cache_path, tree.tree)
-		end)
-
+		utility.RunOnNextGarbageCollection(save_cache, cache_path, tree)
 		return tree, relative, archive_path
 	end
 
