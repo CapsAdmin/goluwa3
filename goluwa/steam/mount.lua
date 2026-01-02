@@ -485,9 +485,10 @@ return function(steam)
 				for _, path in ipairs(
 					vfs.Find(lib_folder .. "workshop/content/" .. game_info.filesystem.steamappid .. "/", true)
 				) do
-					if vfs.IsFile(path .. "/temp.gma") then
-						--llog("mounting workshop addon %s", path)
-						vfs.Mount(path .. "/temp.gma", nil, game_info)
+					local gma = vfs.Find(path .. "/")[1]
+
+					if gma and gma:ends_with(".gma") then
+						vfs.Mount(path .. "/" .. gma, nil, game_info)
 					end
 				end
 			end
