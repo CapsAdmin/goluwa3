@@ -274,6 +274,8 @@ function vtf.DecodeBuffer(input_buffer)
 	local mip_info = {}
 	local file_offset = 0
 	local face_count = 1 -- Most textures have 1 face, cubemaps have 6
+	if band(header.flags, 0x00004000) ~= 0 then face_count = 6 end
+
 	for file_mip_index = 0, mip_count - 1 do
 		-- File stores smallest first, so file_mip_index 0 = mip level (mip_count-1)
 		local mip_level = mip_count - 1 - file_mip_index
@@ -285,7 +287,7 @@ function vtf.DecodeBuffer(input_buffer)
 			height = mip_data.height,
 			depth = mip_data.depth,
 			size = mip_data.size,
-			offset = file_offset,
+			file_offset = file_offset,
 		}
 		-- Each mip level contains data for ALL frames and faces
 		file_offset = file_offset + (mip_data.size * frames * face_count)
@@ -306,38 +308,50 @@ function vtf.DecodeBuffer(input_buffer)
 		-- Convert 24-bit to 32-bit by adding alpha/X channel
 		local pixel_count = 0
 
-		for _, mip_data in ipairs(mip_sizes) do
+		for i = 0, mip_count - 1 do
+			local mip_data = mip_sizes[i]
 			pixel_count = pixel_count + (mip_data.width * mip_data.height * mip_data.depth)
 		end
 
 		local new_size = pixel_count * 4 -- 4 bytes per pixel
 		data_buffer = ffi.new("uint8_t[?]", new_size)
-		local src = input_buffer:GetBuffer() + data_pos
 		local dst = data_buffer
-		local src_idx = 0
 		local dst_idx = 0
 
 		-- Copy RGB and add 255 for X channel (unused alpha)
-		for i = 0, pixel_count - 1 do
-			dst[dst_idx] = src[src_idx] -- R or B
-			dst[dst_idx + 1] = src[src_idx + 1] -- G
-			dst[dst_idx + 2] = src[src_idx + 2] -- B or R
-			dst[dst_idx + 3] = 255 -- X (unused, fully opaque)
-			src_idx = src_idx + 3
-			dst_idx = dst_idx + 4
+		for i = 1, mip_count do
+			local mip = mip_info[i]
+			local src = input_buffer:GetBuffer() + data_pos + mip.file_offset
+			local mip_pixel_count = mip.width * mip.height * mip.depth
+
+			for j = 0, mip_pixel_count - 1 do
+				dst[dst_idx] = src[j * 3] -- R or B
+				dst[dst_idx + 1] = src[j * 3 + 1] -- G
+				dst[dst_idx + 2] = src[j * 3 + 2] -- B or R
+				dst[dst_idx + 3] = 255 -- X (unused, fully opaque)
+				dst_idx = dst_idx + 4
+			end
+
+			-- Update mip_info to point to the new buffer
+			mip.offset = dst_idx - (mip_pixel_count * 4)
+			mip.size = mip_pixel_count * 4
 		end
 
 		actual_data_size = new_size
-
-		-- Update mip_info sizes to reflect 32-bit
-		for i, mip in ipairs(mip_info) do
-			mip.size = (mip.width * mip.height * mip.depth) * 4
-
-			if i > 1 then mip.offset = mip_info[i - 1].offset + mip_info[i - 1].size end
-		end
 	else
 		data_buffer = ffi.new("uint8_t[?]", total_size)
-		ffi.copy(data_buffer, input_buffer:GetBuffer() + data_pos, total_size)
+		local current_offset = 0
+
+		for i = 1, mip_count do
+			local mip = mip_info[i]
+			ffi.copy(
+				data_buffer + current_offset,
+				input_buffer:GetBuffer() + data_pos + mip.file_offset,
+				mip.size
+			)
+			mip.offset = current_offset
+			current_offset = current_offset + mip.size
+		end
 	end
 
 	-- Get Vulkan format string
