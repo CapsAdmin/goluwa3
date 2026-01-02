@@ -43,7 +43,9 @@ function vulkan.assert(result, msg)
 			(
 				"error code - " .. tostring(result)
 			)
-		debug.trace()
+
+		if enum_str ~= "error_device_lost" then debug.trace() end
+
 		print(msg .. " : " .. enum_str)
 
 		if enum_str == "error_device_lost" then os.realexit(1) end
