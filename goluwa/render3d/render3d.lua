@@ -504,8 +504,7 @@ render3d.ssr_config = {
 				return fract(p.x * p.y);
 			}
 
-			float V_SmithGGXCorrelated(float roughness, float NoV, float NoL) {
-				float a2 = roughness * roughness;
+			float V_SmithGGXCorrelated(float a2, float NoV, float NoL) {
 				float lambdaV = NoL * sqrt((NoV - a2 * NoV) * NoV + a2);
 				float lambdaL = NoV * sqrt((NoL - a2 * NoL) * NoL + a2);
 				float v = 0.5 / (lambdaV + lambdaL);
@@ -1004,6 +1003,15 @@ render3d.lighting_config = {
                 return 1.0 / PI;
             }
 
+            // Approximate BRDF integration (Karis/Epic Games approximation)
+            vec2 envBRDFApprox(float NdotV, float roughness) {
+                vec4 c0 = vec4(-1.0, -0.0275, -0.572, 0.022);
+                vec4 c1 = vec4(1.0, 0.0425, 1.04, -0.04);
+                vec4 r = roughness * c0 + c1;
+                float a004 = min(r.x * r.x, exp2(-9.28 * NdotV)) * r.x + r.y;
+                return vec2(-1.04, 1.04) * a004 + r.zw;
+            }
+
 			// Cascade debug colors
 			const vec3 CASCADE_COLORS[4] = vec3[4](
 				vec3(1.0, 0.2, 0.2),  // Red - cascade 1
@@ -1074,7 +1082,14 @@ render3d.lighting_config = {
 				float max_mip = float(textureQueryLevels(CUBEMAP(lighting_data.env_tex)) - 1);
 				float mip_level = roughness * max_mip;
 
-				{return textureLod(CUBEMAP(lighting_data.env_tex), R, mip_level).rgb;}
+				vec3 env = textureLod(CUBEMAP(lighting_data.env_tex), R, mip_level).rgb;
+
+				#if SSR
+				vec4 ssr = texture(TEXTURE(lighting_data.ssr_tex), in_uv);
+				env = mix(env, ssr.rgb, ssr.a);
+				#endif
+
+				{return env;}
 				// TODO
 
 				vec3 total_env = vec3(0.0);
@@ -1141,7 +1156,7 @@ render3d.lighting_config = {
 					}
 				}
 
-				vec3 env = vec3(0.0);
+				env = vec3(0.0);
 				if (total_weight > 0.001) {
 					env = total_env / total_weight;
 				}
@@ -1163,7 +1178,7 @@ render3d.lighting_config = {
 				}
 
 				#if SSR
-				vec4 ssr = texture(TEXTURE(lighting_data.ssr_tex), in_uv);
+				ssr = texture(TEXTURE(lighting_data.ssr_tex), in_uv);
 				return mix(env, ssr.rgb, ssr.a);
 				#else
 				return env;
@@ -1176,8 +1191,18 @@ render3d.lighting_config = {
 				vec3 view_pos = (lighting_data.view * vec4(world_pos, 1.0)).xyz;
 				vec3 view_normal = normalize(mat3(lighting_data.view) * N);
 
-				vec2 noise_scale = vec2(textureSize(TEXTURE(lighting_data.albedo_tex), 0)) / 4.0;
+				vec2 noise_scale = vec2(textureSize(TEXTURE(lighting_data.albedo_tex), 0)) / 64.0;
 				vec3 random_vec = texture(TEXTURE(lighting_data.ssao_noise_tex), uv * noise_scale).xyz;
+
+
+				float angle = fract(sin(dot(uv * 1000.0, vec2(12.9898, 78.233))) * 43758.5453) * 6.28318;
+				float c = cos(angle);
+				float s = sin(angle);
+				mat2 rotation = mat2(c, -s, s, c);
+				random_vec.xy = rotation * random_vec.xy;
+
+
+
 
 				vec3 tangent = normalize(random_vec - view_normal * dot(random_vec, view_normal));
 				vec3 bitangent = cross(view_normal, tangent);
@@ -1186,9 +1211,11 @@ render3d.lighting_config = {
 				float occlusion = 0.0;
 				float bias = 0.1;
 				float steps = 64;
+
+		
 				
 				for (int i = 0; i < int(steps); i++) {
-					float radius = float(i+2) / 2.0;
+					float radius = float(i+2) / float(steps) * 4.5;
 					vec3 sample_pos = TBN * lighting_data.ssao_kernel[i].xyz;
 					sample_pos = view_pos + sample_pos * radius;
 
@@ -1243,11 +1270,11 @@ render3d.lighting_config = {
 				vec3 mra = texture(TEXTURE(lighting_data.mra_tex), in_uv).rgb;
 				float metallic = mra.r;
 				float roughness = mra.g;
+
 				if (debug_mode == 2) {
 					metallic = 1.0;
 					roughness = 0.4;
 				}
-
 
 				float ao = mra.b;
 				vec3 emissive = texture(TEXTURE(lighting_data.emissive_tex), in_uv).rgb;
@@ -1303,8 +1330,14 @@ render3d.lighting_config = {
 
 				vec3 ssao = get_ssao(in_uv, world_pos, N);
                 vec3 ambient_diffuse = reflection * albedo * (1.0 - metallic) * ao * ssao;
-                vec3 F_ambient = F_Schlick(F0, NdotV);
+                
+                // Split-sum IBL with BRDF approximation
+                //vec2 envBRDF = envBRDFApprox(NdotV, roughness);
+                //vec3 ambient_specular = reflection * (F0 * envBRDF.x + envBRDF.y) * ao * ssao;
+                
+        		vec3 F_ambient = F_Schlick(F0, NdotV);
                 vec3 ambient_specular = F_ambient * reflection * ao * ssao;
+
                 vec3 ambient = ambient_diffuse + ambient_specular;
                 vec3 color = ambient + Lo + emissive;
 
@@ -1471,6 +1504,7 @@ function render3d.Initialize()
 		render3d.ssao_kernel = {}
 
 		for i = 1, 64 do
+			math.randomseed(i)
 			local sample = Vec3(math.random() * 2 - 1, math.random() * 2 - 1, math.random()):Normalize()
 			sample = sample * math.random()
 			local scale = (i - 1) / 64
@@ -1479,20 +1513,34 @@ function render3d.Initialize()
 			table.insert(render3d.ssao_kernel, sample)
 		end
 
+		local size = 64 -- Much larger than 4x4
 		local ssao_noise = {}
 
-		for i = 1, 16 do
-			table.insert(ssao_noise, math.random() * 2 - 1)
-			table.insert(ssao_noise, math.random() * 2 - 1)
-			table.insert(ssao_noise, 0)
-			table.insert(ssao_noise, 1)
+		for y = 1, size do
+			for x = 1, size do
+				-- Add golden ratio based distribution for better coverage
+				local r1 = (x * 0.7548776662466927) % 1.0 * 2 - 1
+				local r2 = (y * 0.5698402909980532) % 1.0 * 2 - 1
+				-- Mix with some randomness
+				r1 = r1 * 0.5 + (math.random() * 2 - 1) * 0.5
+				r2 = r2 * 0.5 + (math.random() * 2 - 1) * 0.5
+				-- Normalize the 2D vector
+				local len = math.sqrt(r1 * r1 + r2 * r2)
+
+				if len > 0 then r1, r2 = r1 / len, r2 / len end
+
+				table.insert(ssao_noise, r1)
+				table.insert(ssao_noise, r2)
+				table.insert(ssao_noise, 0)
+				table.insert(ssao_noise, 1)
+			end
 		end
 
 		local noise_buffer = ffi.new("float[?]", #ssao_noise, ssao_noise)
 		render3d.ssao_noise_tex = Texture.New(
 			{
-				width = 4,
-				height = 4,
+				width = size,
+				height = size,
 				format = "r32g32b32a32_sfloat",
 				buffer = noise_buffer,
 				sampler = {

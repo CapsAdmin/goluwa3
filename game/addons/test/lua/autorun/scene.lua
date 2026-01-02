@@ -11,8 +11,8 @@ local function shaded_texture(glsl, shared)
 	if type(glsl) ~= "string" then return glsl end -- already a texture
 	local tex = Texture.New(
 		{
-			width = 512,
-			height = 512,
+			width = 1024,
+			height = 1024,
 			format = "r8g8b8a8_unorm",
 			mip_map_levels = "auto",
 			image = {

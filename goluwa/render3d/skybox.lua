@@ -1093,7 +1093,7 @@ function skybox.UpdateEnvironmentTexture()
 
 	for m = 0, num_mips - 1 do
 		local perceptual_roughness = m / (num_mips - 1)
-		skybox.current_roughness = perceptual_roughness * perceptual_roughness
+		skybox.current_roughness = perceptual_roughness
 		local mip_size = math.max(1, math.floor(SIZE / (2 ^ m)))
 
 		for i = 0, 5 do
