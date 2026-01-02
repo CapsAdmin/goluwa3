@@ -918,6 +918,26 @@ function skybox.UpdateEnvironmentTexture()
 	skybox.source_texture:GenerateMipmaps("color_attachment_optimal", cmd)
 	local num_mips = skybox.output_texture.mip_map_levels
 
+	-- Transition output cubemap to color_attachment_optimal
+	cmd:PipelineBarrier(
+		{
+			srcStage = "top_of_pipe",
+			dstStage = "color_attachment_output",
+			imageBarriers = {
+				{
+					image = skybox.output_texture:GetImage(),
+					oldLayout = "undefined",
+					newLayout = "color_attachment_optimal",
+					srcAccessMask = "none",
+					dstAccessMask = "color_attachment_write",
+					base_mip_level = 0,
+					level_count = num_mips,
+					layer_count = 6,
+				},
+			},
+		}
+	)
+
 	for m = 0, num_mips - 1 do
 		local perceptual_roughness = m / (num_mips - 1)
 		skybox.current_roughness = perceptual_roughness * perceptual_roughness
@@ -955,9 +975,9 @@ function skybox.UpdateEnvironmentTexture()
 				imageBarriers = {
 					{
 						image = skybox.output_texture:GetImage(),
-						oldLayout = "undefined",
+						oldLayout = "color_attachment_optimal",
 						newLayout = "shader_read_only_optimal",
-						srcAccessMask = "none",
+						srcAccessMask = "color_attachment_write",
 						dstAccessMask = "shader_read",
 						base_mip_level = m,
 						level_count = 1,

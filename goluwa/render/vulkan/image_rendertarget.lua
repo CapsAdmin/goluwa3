@@ -332,8 +332,8 @@ function ImageRenderTarget:BeginFrame()
 		},
 	}
 
-	-- Add depth barrier for offscreen mode
-	if self.config.offscreen then
+	-- Add depth barrier
+	if self.depth_texture then
 		table.insert(
 			imageBarriers,
 			{
@@ -347,12 +347,24 @@ function ImageRenderTarget:BeginFrame()
 		)
 	end
 
+	-- Add MSAA barrier
+	if self.msaa_image then
+		table.insert(
+			imageBarriers,
+			{
+				image = self.msaa_image:GetImage(),
+				srcAccessMask = "none",
+				dstAccessMask = "color_attachment_write",
+				oldLayout = "undefined",
+				newLayout = "color_attachment_optimal",
+			}
+		)
+	end
+
 	cmd:PipelineBarrier(
 		{
 			srcStage = self.config.offscreen and "top_of_pipe" or "color_attachment_output",
-			dstStage = self.config.offscreen and
-				{"early_fragment_tests", "color_attachment_output"} or
-				"color_attachment_output",
+			dstStage = {"early_fragment_tests", "color_attachment_output"},
 			imageBarriers = imageBarriers,
 		}
 	)
