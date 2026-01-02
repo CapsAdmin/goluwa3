@@ -884,24 +884,29 @@ function Texture:Shade(glsl, extra_config)
 		cmd:EndRendering()
 	end
 
-	-- Transition to shader_read_only_optimal
-	cmd:PipelineBarrier(
-		{
-			srcStage = "color_attachment_output",
-			dstStage = "fragment",
-			imageBarriers = {
-				{
-					image = self.image,
-					srcAccessMask = "color_attachment_write",
-					dstAccessMask = "shader_read",
-					oldLayout = "color_attachment_optimal",
-					newLayout = "shader_read_only_optimal",
-					level_count = 1,
-					layer_count = layers,
+	if self.mip_map_levels > 1 then
+		self:GenerateMipmaps("color_attachment_optimal", cmd)
+	else
+		-- Transition to shader_read_only_optimal
+		cmd:PipelineBarrier(
+			{
+				srcStage = "color_attachment_output",
+				dstStage = "fragment",
+				imageBarriers = {
+					{
+						image = self.image,
+						srcAccessMask = "color_attachment_write",
+						dstAccessMask = "shader_read",
+						oldLayout = "color_attachment_optimal",
+						newLayout = "shader_read_only_optimal",
+						level_count = 1,
+						layer_count = layers,
+					},
 				},
-			},
-		}
-	)
+			}
+		)
+	end
+
 	-- End command buffer
 	cmd:End()
 	-- Submit and wait

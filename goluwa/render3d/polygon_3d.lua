@@ -521,8 +521,8 @@ do -- helpers
 				local y4 = radius * math.cos(theta2)
 				local z4 = radius * math.sin(theta2) * math.cos(phi1)
 				-- UV coordinates
-				local u1 = (seg / segments) * texture_scale
-				local u2 = ((seg + 1) / segments) * texture_scale
+				local u1 = (0.75 - (seg / segments)) * texture_scale
+				local u2 = (0.75 - ((seg + 1) / segments)) * texture_scale
 				local v1 = (ring / rings) * texture_scale
 				local v2 = ((ring + 1) / rings) * texture_scale
 				-- Normals (normalized position for a sphere centered at origin)

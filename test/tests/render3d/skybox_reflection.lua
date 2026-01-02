@@ -51,7 +51,6 @@ local function draw3d(cb)
 			return dir.z > 0.0 ? vec4(1, 0, 0, 1) : vec4(0, 1, 1, 1); // +Z: Red (Back), -Z: Teal (Front)
 		}
 	]])
-	env_tex:GenerateMipmaps("shader_read_only_optimal")
 	skybox.SetStarsTexture(env_tex)
 	local cam = render3d.GetCamera()
 	cam:SetPosition(Vec3(0, 0, -10))

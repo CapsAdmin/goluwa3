@@ -4,6 +4,7 @@ local tasks = require("tasks")
 local Texture = require("render.texture")
 local Color = require("structs.color")
 local prototype = require("prototype")
+local Vec3 = require("structs.vec3")
 local Material = prototype.CreateTemplate("material")
 -- textures
 Material:GetSet("AlbedoTexture", nil)
@@ -495,16 +496,81 @@ do
 		_rt_fullframefb = "error",
 		[1] = "error", -- huh
 	}
-	steam.unused_vmt_properties = steam.unused_vmt_properties or {}
 
 	function Material:SetError(err) end
+
+	local blacklist = {
+		"^surfaceprop",
+		"^detail$",
+		"transform$",
+		"^fullpath$",
+		"^treesway",
+		"^%%compile",
+		"^%%keywords",
+	}
+
+	local function is_blacklisted(key)
+		for _, pattern in ipairs(blacklist) do
+			if key:match(pattern) then return true end
+		end
+
+		return false
+	end
+
+	local function track_vmt(tbl, prefix)
+		prefix = prefix or ""
+
+		for k, v in pairs(tbl) do
+			local full_key = prefix .. k
+
+			if not is_blacklisted(full_key) then
+				steam.vmt_stats.seen[full_key] = (steam.vmt_stats.seen[full_key] or 0) + 1
+
+				if type(v) ~= "table" then
+					steam.vmt_stats.values[full_key] = steam.vmt_stats.values[full_key] or {}
+					steam.vmt_stats.values[full_key][tostring(v)] = true
+				end
+			end
+		end
+
+		return setmetatable(
+			{},
+			{
+				__index = function(_, k)
+					local full_key = prefix .. k
+
+					if not is_blacklisted(full_key) then
+						steam.vmt_stats.used[full_key] = (steam.vmt_stats.used[full_key] or 0) + 1
+					end
+
+					local val = tbl[k]
+
+					if type(val) == "table" then return track_vmt(val, full_key .. ".") end
+
+					return val
+				end,
+				__newindex = function(_, k, v)
+					tbl[k] = v
+				end,
+				__pairs = function()
+					return pairs(tbl)
+				end,
+			}
+		)
+	end
+
+	steam.vmt_stats = steam.vmt_stats or {
+		seen = {},
+		used = {},
+		values = {},
+	}
 
 	function Material.FromVMT(path)
 		local self = Material.New()
 		--self:SetName(path)
 		self.vmt_path = path -- Store path for debugging
 		local cb = steam.LoadVMT(path, function(vmt)
-			on_load_vmt(self, vmt)
+			on_load_vmt(self, track_vmt(vmt))
 		end, function(err)
 			print("Material error for " .. path .. ": " .. err)
 		--self:SetError(err)
@@ -514,6 +580,48 @@ do
 
 		return self
 	end
+
+	commands.Add("dump_unused_vmt_properties", function()
+		local unused = {}
+
+		for k, count in pairs(steam.vmt_stats.seen) do
+			if not steam.vmt_stats.used[k] then
+				local values = {}
+
+				if steam.vmt_stats.values[k] then
+					for val, _ in pairs(steam.vmt_stats.values[k]) do
+						table.insert(values, val)
+					end
+
+					table.sort(values)
+				end
+
+				table.insert(unused, {key = k, count = count, values = values})
+			end
+		end
+
+		table.sort(unused, function(a, b)
+			if a.count ~= b.count then return a.count > b.count end
+
+			return a.key < b.key
+		end)
+
+		print("Unused VMT properties (found in files but never accessed by code):")
+
+		for _, item in ipairs(unused) do
+			local val_str = #item.values > 0 and
+				(
+					" (values: " .. table.concat(item.values, ", ") .. ")"
+				)
+				or
+				""
+			print(string.format("  %-30s %d%s", item.key, item.count, val_str))
+		end
+
+		if #unused == 0 then
+			print("  None! All properties found in VMTs have been accessed at least once.")
+		end
+	end)
 end
 
 return Material:Register()
