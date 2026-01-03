@@ -331,7 +331,8 @@ render3d.fill_config = {
 				if (pc.model.AlbedoTexture == -1) {
 					return pc.model.ColorMultiplier.rgb;
 				}
-				return texture(TEXTURE(pc.model.AlbedoTexture), in_uv).rgb * pc.model.ColorMultiplier.rgb;
+				vec3 rgb = texture(TEXTURE(pc.model.AlbedoTexture), in_uv).rgb * pc.model.ColorMultiplier.rgb;
+				return rgb;
 			}
 
 			float get_alpha() {
@@ -398,7 +399,10 @@ render3d.fill_config = {
 					val = 1.0;
 				}
 
-				return clamp(val * pc.model.MetallicMultiplier, 0.01, 1.0);
+				val *= pc.model.MetallicMultiplier;
+				val = clamp(val, 0, 1);
+
+				return val;
 			}
 
 			float get_roughness() {
@@ -418,7 +422,11 @@ render3d.fill_config = {
 				} else  {
 					val = 1.0;
 				}
-				return clamp(val * pc.model.RoughnessMultiplier, 0.01, 1.0);
+
+				val *= pc.model.RoughnessMultiplier;
+				val = clamp(val, 0.05, 0.95)
+				
+				return val;
 			}
 
 			vec3 get_emissive() {
