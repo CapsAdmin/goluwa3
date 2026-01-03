@@ -32,7 +32,6 @@ return function(...)
 		assert(loadfile(path))(select(2, ...))
 	end
 
-	require("hotreload")
 	fs.write_file(".running_pid", tostring(process.current:get_id()))
 	local last_time = 0
 	local i = 0

@@ -325,6 +325,12 @@ end
 
 function repl.InputLua(str)
 	repl.is_executing = true
+
+	if str:find("cd ", nil, true) and str:find(" && luajit", nil, true) then
+		local script = str:match(".+luajit.+'(.+%.lua)")
+		str = "HOTRELOAD = true; dofile('" .. script .. "'); HOTRELOAD = nil"
+	end
+
 	commands.RunString(str)
 	-- Flush stdout to capture any pending print() output
 	output.Flush()
