@@ -21,10 +21,10 @@ local skybox = require("render3d.skybox")
 local reflection_probe = require("render3d.reflection_probe")
 render3d.fill_config = {
 	color_format = {
-		"r8g8b8a8_unorm", -- albedo
-		"r16g16b16a16_sfloat", -- normal
-		"r8g8b8a8_unorm", -- metallic, roughness, ao
-		"r8g8b8a8_unorm", -- emissive
+		{"r8g8b8a8_unorm", {"albedo", "rgba"}},
+		{"r16g16b16a16_sfloat", {"normal", "rgb"}},
+		{"r8g8b8a8_unorm", {"metallic", "r"}, {"roughness", "g"}, {"ao", "b"}},
+		{"r8g8b8a8_unorm", {"emissive", "rgb"}},
 	},
 	depth_format = "d32_sfloat",
 	samples = "1",
@@ -67,10 +67,6 @@ render3d.fill_config = {
 	},
 	fragment = {
 		custom_declarations = [[
-			layout(location = 0) out vec4 out_albedo;
-			layout(location = 1) out vec4 out_normal;
-			layout(location = 2) out vec4 out_metallic_roughness_ao;
-			layout(location = 3) out vec4 out_emissive;
 		]],
 		descriptor_sets = {
 			{
@@ -348,10 +344,12 @@ render3d.fill_config = {
 					if (fract(dot(vec2(171.0, 231.0) + alpha * 0.00001, gl_FragCoord.xy) / 103.0) > (alpha * alpha)) discard;
 				}
 
-				out_albedo = vec4(get_albedo(), alpha);
-				out_normal = vec4(get_normal(), 1.0);
-				out_metallic_roughness_ao = vec4(get_metallic(), get_roughness(), get_ao(), 1.0);
-				out_emissive = vec4(get_emissive(), 1.0);
+				set_albedo(vec4(get_albedo(), alpha));
+				set_normal(get_normal());
+				set_metallic(get_metallic());
+				set_roughness(get_roughness());
+				set_ao(get_ao());
+				set_emissive(get_emissive());
 			}
 		]],
 	},
@@ -403,7 +401,6 @@ render3d.ssr_config = {
 	fragment = {
 		custom_declarations = [[
 			layout(location = 0) in vec2 in_uv;
-			layout(location = 0) out vec4 out_ssr;
 		]],
 		uniform_buffers = {
 			{
@@ -616,7 +613,7 @@ render3d.ssr_config = {
 				float depth = texture(TEXTURE(ssr_data.depth_tex), in_uv).r;
 
 				if (depth == 1.0) {
-					out_ssr = vec4(0.0);
+					set_ssr(vec4(0.0));
 					return;
 				}
 
@@ -632,7 +629,7 @@ render3d.ssr_config = {
 					vec2 xi = vec2(hash(seed), hash(seed + vec2(0.123, 0.456)));
 					total += cast_ssr_ray(world_pos, N, V, roughness, xi);
 				}
-				out_ssr = total / float(SSR_SAMPLES);
+				set_ssr(total / float(SSR_SAMPLES));
 			}
 		]],
 	},
@@ -679,8 +676,6 @@ render3d.lighting_config = {
 				ShadowData shadow;
 				Light lights[32];
 			} light_data;
-
-			layout(location = 0) out vec4 out_color;
 		]],
 		descriptor_sets = {
 			{
@@ -1260,7 +1255,7 @@ render3d.lighting_config = {
 				"lighting_data.stars_texture_index"
 			) .. [[
 					
-					out_color = vec4(sky_color_output, 1.0);
+					set_color(vec4(sky_color_output, 1.0));
 					return;
 				}
 				int debug_mode = lighting_data.debug_mode - 1;
@@ -1362,7 +1357,7 @@ render3d.lighting_config = {
 					color = reflection;
 				}
 
-				out_color = vec4(color, albedo_alpha.a);
+				set_color(vec4(color, albedo_alpha.a));
 			}
 		]],
 	},
@@ -1391,7 +1386,6 @@ render3d.blit_config = {
 	fragment = {
 		custom_declarations = [[
 			layout(location = 0) in vec2 in_uv;
-			layout(location = 0) out vec4 out_color;
 		]],
 		push_constants = {
 			{
@@ -1423,7 +1417,7 @@ render3d.blit_config = {
 
 			void main() {
 				if (pc.blit.tex == -1) {
-					out_color = vec4(1.0, 0.0, 1.0, 1.0);
+					set_color(vec4(1.0, 0.0, 1.0, 1.0));
 					return;
 				}
 				vec3 col = texture(TEXTURE(pc.blit.tex), in_uv).rgb;
@@ -1433,7 +1427,7 @@ render3d.blit_config = {
 
 				col = gamma(col);
 				
-				out_color = vec4(col, 1.0);
+				set_color(vec4(col, 1.0));
 			}
 		]],
 	},
@@ -1447,9 +1441,9 @@ render3d.blit_config = {
 }
 
 function render3d.Initialize()
-	render3d.ssr_config.color_format = {"r16g16b16a16_sfloat"}
-	render3d.lighting_config.color_format = {"r16g16b16a16_sfloat"}
-	render3d.blit_config.color_format = {render.target.color_format}
+	render3d.ssr_config.color_format = {{"r16g16b16a16_sfloat", {"ssr", "rgba"}}}
+	render3d.lighting_config.color_format = {{"r16g16b16a16_sfloat", {"color", "rgba"}}}
+	render3d.blit_config.color_format = {{render.target.color_format, {"color", "rgba"}}}
 	render3d.blit_config.depth_format = render.target.depth_format
 	render3d.blit_config.samples = render.target.samples
 
@@ -1459,7 +1453,7 @@ function render3d.Initialize()
 			{
 				width = size.x,
 				height = size.y,
-				formats = render3d.fill_config.color_format,
+				formats = EasyPipeline.GetColorFormats(render3d.fill_config),
 				depth = true,
 				depth_format = "d32_sfloat",
 			}
@@ -1475,7 +1469,7 @@ function render3d.Initialize()
 				{
 					width = size.x,
 					height = size.y,
-					formats = {"r16g16b16a16_sfloat"},
+					formats = EasyPipeline.GetColorFormats(render3d.lighting_config),
 					depth = false,
 				}
 			)
@@ -1490,7 +1484,7 @@ function render3d.Initialize()
 			{
 				width = math.floor(size.x / 2),
 				height = math.floor(size.y / 2),
-				formats = {"r16g16b16a16_sfloat"},
+				formats = EasyPipeline.GetColorFormats(render3d.ssr_config),
 				depth = false,
 			}
 		)

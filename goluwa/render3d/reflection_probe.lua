@@ -259,7 +259,10 @@ function reflection_probe.CreatePipelines()
 	-- and includes basic lighting so reflections look correct
 	reflection_probe.scene_pipeline = EasyPipeline.New(
 		{
-			color_format = {"b10g11r11_ufloat_pack32", "r32_sfloat"}, -- Color + linear depth
+			color_format = {
+				{"b10g11r11_ufloat_pack32", {"color", "rgba"}},
+				{"r32_sfloat", {"linear_depth", "r"}},
+			}, -- Color + linear depth
 			depth_format = "d32_sfloat",
 			samples = "1",
 			color_blend = {
@@ -307,9 +310,6 @@ function reflection_probe.CreatePipelines()
 			},
 			fragment = {
 				custom_declarations = [[
-                layout(location = 0) out vec4 out_color;
-                layout(location = 1) out float out_linear_depth;
-                
                 struct Light {
                     vec4 position;
                     vec4 color;
@@ -535,10 +535,10 @@ function reflection_probe.CreatePipelines()
                     
                     // Clamp to prevent infinities in HDR
                     color = clamp(color, vec3(0.0), vec3(65504.0));
-                    out_color = vec4(color, 1.0);
+                    set_color(vec4(color, 1.0));
                     
                     // Output linear depth (distance from probe camera)
-                    out_linear_depth = length(in_position - probe_data.camera_position.xyz);
+                    set_linear_depth(length(in_position - probe_data.camera_position.xyz));
                 }
             ]],
 			},
@@ -565,7 +565,10 @@ function reflection_probe.CreatePipelines()
 	-- Sky-only pipeline (for background where no geometry exists)
 	reflection_probe.sky_pipeline = EasyPipeline.New(
 		{
-			color_format = {"b10g11r11_ufloat_pack32", "r32_sfloat"}, -- Color + depth
+			color_format = {
+				{"b10g11r11_ufloat_pack32", {"color", "rgba"}},
+				{"r32_sfloat", {"linear_depth", "r"}},
+			}, -- Color + depth
 			samples = "1",
 			color_blend = {
 				attachments = {
@@ -640,8 +643,6 @@ function reflection_probe.CreatePipelines()
 				},
 				custom_declarations = [[
                 layout(location = 0) in vec3 in_direction;
-                layout(location = 0) out vec4 out_color;
-                layout(location = 1) out float out_linear_depth;
                 ]] .. skybox.GetGLSLCode() .. [[
             ]],
 				shader = [[
@@ -655,9 +656,9 @@ function reflection_probe.CreatePipelines()
 					) .. [[
                     // Clamp sky to prevent infinities
                     sky_color_output = clamp(sky_color_output, vec3(0.0), vec3(65504.0));
-                    out_color = vec4(sky_color_output, 1.0);
+                    set_color(vec4(sky_color_output, 1.0));
                     // Sky is at infinite distance, use a large value (camera far plane)
-                    out_linear_depth = 1000.0;
+                    set_linear_depth(1000.0);
                 }
             ]],
 			},
@@ -673,7 +674,7 @@ function reflection_probe.CreatePipelines()
 	-- Prefilter pipeline (same as skybox prefilter)
 	reflection_probe.prefilter_pipeline = EasyPipeline.New(
 		{
-			color_format = "b10g11r11_ufloat_pack32",
+			color_format = {{"b10g11r11_ufloat_pack32", {"color", "rgba"}}},
 			samples = "1",
 			vertex = {
 				push_constants = {
@@ -732,7 +733,6 @@ function reflection_probe.CreatePipelines()
 				},
 				custom_declarations = [[
                 layout(location = 0) in vec3 in_direction;
-                layout(location = 0) out vec4 out_color;
 
                 const float PI = 3.14159265359;
 
@@ -790,7 +790,7 @@ function reflection_probe.CreatePipelines()
                     // For very low roughness (mirror-like), just sample the cubemap directly
                     if (roughness < 0.001) {
                         prefilteredColor = textureLod(CUBEMAP(pc.fragment.input_texture_index), N, 0.0).rgb;
-                        out_color = vec4(prefilteredColor, 1.0);
+                        set_color(vec4(prefilteredColor, 1.0));
                         return;
                     }
 
@@ -832,7 +832,7 @@ function reflection_probe.CreatePipelines()
                     
                     // Final clamp to prevent NaN/Inf
                     prefilteredColor = clamp(prefilteredColor, vec3(0.0), vec3(65504.0));
-                    out_color = vec4(prefilteredColor, 1.0);
+                    set_color(vec4(prefilteredColor, 1.0));
                 }
             ]],
 			},

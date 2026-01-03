@@ -612,6 +612,10 @@ function skybox.CreatePipeline(color_format, samples)
 	local attachments = {}
 	local num_attachments = type(color_format) == "table" and #color_format or 1
 
+	if type(color_format) == "string" then
+		color_format = {{color_format, {"color", "rgba"}}}
+	end
+
 	for i = 1, num_attachments do
 		table.insert(attachments, {blend = false, color_write_mask = {"r", "g", "b", "a"}})
 	end
@@ -697,18 +701,6 @@ function skybox.CreatePipeline(color_format, samples)
 				},
 				custom_declarations = [[
 					layout(location = 0) in vec3 in_direction;
-					]] .. (
-						num_attachments > 1 and
-						[[
-						layout(location = 0) out vec4 out_albedo;
-						layout(location = 1) out vec4 out_normal;
-						layout(location = 2) out vec4 out_metallic_roughness_ao;
-						layout(location = 3) out vec4 out_emissive;
-					]] or
-						[[
-						layout(location = 0) out vec4 out_color;
-					]]
-					) .. [[
 					]] .. skybox.GetGLSLCode() .. [[
 				]],
 				shader = [[
@@ -725,13 +717,15 @@ function skybox.CreatePipeline(color_format, samples)
 						]] .. (
 						num_attachments > 1 and
 						[[
-							out_albedo = vec4(color, 1.0);
-							out_normal = vec4(0.0, 0.0, 0.0, 0.0);
-							out_metallic_roughness_ao = vec4(0.0, 1.0, 1.0, 1.0);
-							out_emissive = vec4(0.0, 0.0, 0.0, 1.0);
+							set_albedo(vec4(color, 1.0));
+							set_normal(vec3(0.0));
+							set_metallic(0.0);
+							set_roughness(1.0);
+							set_ao(1.0);
+							set_emissive(vec3(0.0));
 						]] or
 						[[
-							out_color = vec4(color, 1.0);
+							set_color(vec4(color, 1.0));
 						]]
 					) .. [[
 					}
@@ -834,7 +828,7 @@ function skybox.Initialize()
 	skybox.cubemap_pipeline = skybox.CreatePipeline("b10g11r11_ufloat_pack32", "1")
 	skybox.prefilter_pipeline = EasyPipeline.New(
 		{
-			color_format = "b10g11r11_ufloat_pack32",
+			color_format = {{"b10g11r11_ufloat_pack32", {"color", "rgba"}}},
 			samples = "1",
 			vertex = {
 				push_constants = {
@@ -894,7 +888,6 @@ function skybox.Initialize()
 				},
 				custom_declarations = [[
 					layout(location = 0) in vec3 in_direction;
-					layout(location = 0) out vec4 out_color;
 
 					const float PI = 3.14159265359;
 
@@ -971,7 +964,7 @@ function skybox.Initialize()
 								totalWeight      += NoL;
 							}
 						}
-						out_color = vec4(prefilteredColor / totalWeight, 1.0);
+						set_color(vec4(prefilteredColor / totalWeight, 1.0));
 					}
 				]],
 			},

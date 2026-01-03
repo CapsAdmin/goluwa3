@@ -4,6 +4,22 @@ local render = require("render.render")
 local UniformBuffer = require("render.uniform_buffer")
 local EasyPipeline = prototype.CreateTemplate("render", "pipeline")
 
+function EasyPipeline.GetColorFormats(config)
+	local formats = {}
+
+	if type(config.color_format) == "table" then
+		for i, format in ipairs(config.color_format) do
+			if type(format) == "table" then
+				table.insert(formats, format[1])
+			else
+				table.insert(formats, format)
+			end
+		end
+	end
+
+	return formats
+end
+
 function EasyPipeline.New(config)
 	local self = EasyPipeline:CreateObject()
 	local glsl_to_ffi = {
@@ -30,6 +46,37 @@ function EasyPipeline.New(config)
 	local stage_sizes = {vertex = 0, fragment = 0}
 	local uniform_buffer_types = {}
 	local uniform_buffers = {}
+	local actual_color_formats = {}
+	local fragment_outputs = ""
+
+	if type(config.color_format) == "table" then
+		for i, format in ipairs(config.color_format) do
+			if type(format) == "table" then
+				local actual_format = format[1]
+				table.insert(actual_color_formats, actual_format)
+				fragment_outputs = fragment_outputs .. string.format("layout(location = %d) out vec4 out_%d;\n", i - 1, i - 1)
+
+				for j = 2, #format do
+					local mapping = format[j]
+					local name = mapping[1]
+					local swizzle = mapping[2]
+					local glsl_type = "float"
+
+					if #swizzle == 2 then
+						glsl_type = "vec2"
+					elseif #swizzle == 3 then
+						glsl_type = "vec3"
+					elseif #swizzle == 4 then
+						glsl_type = "vec4"
+					end
+
+					fragment_outputs = fragment_outputs .. string.format("void set_%s(%s val) { out_%d.%s = val; }\n", name, glsl_type, i - 1, swizzle)
+				end
+			else
+				table.insert(actual_color_formats, format)
+			end
+		end
+	end
 
 	local function get_field_info(field)
 		local name = field[1]
@@ -485,7 +532,7 @@ function EasyPipeline.New(config)
 			#define TEXTURE(idx) textures[nonuniformEXT(idx)]
 			#define CUBEMAP(idx) cubemaps[nonuniformEXT(idx)]
 
-		]] .. (
+		]] .. fragment_outputs .. (
 				config.fragment.custom_declarations or
 				""
 			) .. get_glsl_push_constants("fragment") .. get_glsl_uniform_buffers("fragment") .. (
@@ -549,7 +596,7 @@ function EasyPipeline.New(config)
 
 	-- Create pipeline
 	local pipeline_config = {
-		color_format = config.color_format,
+		color_format = #actual_color_formats > 0 and actual_color_formats or config.color_format,
 		depth_format = config.depth_format,
 		samples = config.samples,
 		dynamic_states = {"viewport", "scissor", "cull_mode"},
