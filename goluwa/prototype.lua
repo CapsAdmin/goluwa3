@@ -402,7 +402,7 @@ do
 	end
 
 	function prototype.RemovePropertyLinks(obj)
-		for i in pairs(prototype.linked_objects) do
+		for i, v in pairs(prototype.linked_objects) do
 			if v[1] == obj then prototype.linked_objects[i] = nil end
 		end
 
@@ -889,7 +889,7 @@ do -- base object
 	end
 
 	function META:IsValid()
-		return true
+		return not self.__removed
 	end
 
 	do

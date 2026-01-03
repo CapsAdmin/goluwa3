@@ -129,8 +129,10 @@ function ENTITY:OnRemove()
 
 	-- Remove children
 	if self:HasChildren() then
-		for _, child in ipairs(self:GetChildren()) do
-			child:Remove()
+		local children = self:GetChildren()
+
+		for i = #children, 1, -1 do
+			children[i]:Remove()
 		end
 	end
 end
