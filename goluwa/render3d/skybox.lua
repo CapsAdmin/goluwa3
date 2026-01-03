@@ -632,8 +632,8 @@ function skybox.CreatePipeline(color_format, samples)
 							{
 								"inv_projection_view",
 								"mat4",
-								function(constants)
-									skybox.inv_projection_view:CopyToFloatPointer(constants.inv_projection_view)
+								function(self, block, key)
+									skybox.inv_projection_view:CopyToFloatPointer(block[key])
 								end,
 							},
 						},
@@ -666,34 +666,40 @@ function skybox.CreatePipeline(color_format, samples)
 							{
 								"stars_texture_index",
 								"int",
-								function(constants, pipeline)
-									return pipeline:GetTextureIndex(skybox.stars_texture)
+								function(self, block, key)
+									block[key] = self:GetTextureIndex(skybox.stars_texture)
 								end,
 							},
 							{
 								"sun_direction",
 								"vec4",
-								function(constants)
+								function(self, block, key)
 									local lights = render3d.GetLights()
 									local sun = lights[1]
 
-									if not sun then return end
+									if not sun then
+										block[key][0] = 0
+										block[key][1] = 0
+										block[key][2] = 0
+										block[key][3] = 0
+										return
+									end
 
-									sun:GetRotation():GetBackward():CopyToFloatPointer(constants.sun_direction)
+									sun:GetRotation():GetBackward():CopyToFloatPointer(block[key])
 								end,
 							},
 							{
 								"camera_position",
 								"vec4",
-								function(constants)
-									(render3d.camera:GetPosition()):CopyToFloatPointer(constants.camera_position)
+								function(self, block, key)
+									(render3d.camera:GetPosition()):CopyToFloatPointer(block[key])
 								end,
 							},
 							{
 								"envmap_rendering",
 								"int",
-								function(constants)
-									constants.envmap_rendering = skybox.envmap_rendering and 1 or 0
+								function(self, block, key)
+									block[key] = skybox.envmap_rendering and 1 or 0
 								end,
 							},
 						},
@@ -838,8 +844,8 @@ function skybox.Initialize()
 							{
 								"inv_projection_view",
 								"mat4",
-								function(constants)
-									skybox.inv_projection_view:CopyToFloatPointer(constants.inv_projection_view)
+								function(self, block, key)
+									skybox.inv_projection_view:CopyToFloatPointer(block[key])
 								end,
 							},
 						},
@@ -872,15 +878,15 @@ function skybox.Initialize()
 							{
 								"roughness",
 								"float",
-								function(constants)
-									return skybox.current_roughness or 0
+								function(self, block, key)
+									block[key] = skybox.current_roughness or 0
 								end,
 							},
 							{
 								"input_texture_index",
 								"int",
-								function(constants, pipeline)
-									return pipeline:GetTextureIndex(skybox.source_texture)
+								function(self, block, key)
+									block[key] = self:GetTextureIndex(skybox.source_texture)
 								end,
 							},
 						},

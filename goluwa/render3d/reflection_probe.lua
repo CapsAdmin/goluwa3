@@ -285,15 +285,15 @@ function reflection_probe.CreatePipelines()
 							{
 								"projection_view_world",
 								"mat4",
-								function(constants)
-									return reflection_probe.GetProjectionViewWorldMatrix():CopyToFloatPointer(constants.projection_view_world)
+								function(self, block, key)
+									reflection_probe.GetProjectionViewWorldMatrix():CopyToFloatPointer(block[key])
 								end,
 							},
 							{
 								"world",
 								"mat4",
-								function(constants)
-									return render3d.GetWorldMatrix():CopyToFloatPointer(constants.world)
+								function(self, block, key)
+									render3d.GetWorldMatrix():CopyToFloatPointer(block[key])
 								end,
 							},
 						},
@@ -338,29 +338,29 @@ function reflection_probe.CreatePipelines()
 							{
 								"camera_position",
 								"vec4",
-								function(constants)
+								function(self, block, key)
 									local p = reflection_probe.temp_camera:GetPosition()
-									constants.camera_position[0] = p.x
-									constants.camera_position[1] = p.y
-									constants.camera_position[2] = p.z
-									constants.camera_position[3] = 0
+									block[key][0] = p.x
+									block[key][1] = p.y
+									block[key][2] = p.z
+									block[key][3] = 0
 								end,
 							},
 							{
 								"stars_texture_index",
 								"int",
-								function(constants)
-									return reflection_probe.scene_pipeline:GetTextureIndex(skybox.stars_texture)
+								function(self, block, key)
+									block[key] = self:GetTextureIndex(skybox.stars_texture)
 								end,
 							},
 							{
 								"sun_direction",
 								"vec4",
-								function(constants)
+								function(self, block, key)
 									local lights = render3d.GetLights()
 
 									if lights[1] then
-										lights[1]:GetRotation():GetBackward():CopyToFloatPointer(constants.sun_direction)
+										lights[1]:GetRotation():GetBackward():CopyToFloatPointer(block[key])
 									end
 								end,
 							},
@@ -374,64 +374,64 @@ function reflection_probe.CreatePipelines()
 							{
 								"Flags",
 								"int",
-								function(constants)
-									return render3d.GetMaterial():GetFillFlags()
+								function(self, block, key)
+									block[key] = render3d.GetMaterial():GetFillFlags()
 								end,
 							},
 							{
 								"AlbedoTexture",
 								"int",
-								function(constants)
-									return reflection_probe.scene_pipeline:GetTextureIndex(render3d.GetMaterial():GetAlbedoTexture())
+								function(self, block, key)
+									block[key] = self:GetTextureIndex(render3d.GetMaterial():GetAlbedoTexture())
 								end,
 							},
 							{
 								"NormalTexture",
 								"int",
-								function(constants)
-									return reflection_probe.scene_pipeline:GetTextureIndex(render3d.GetMaterial():GetNormalTexture())
+								function(self, block, key)
+									block[key] = self:GetTextureIndex(render3d.GetMaterial():GetNormalTexture())
 								end,
 							},
 							{
 								"MetallicRoughnessTexture",
 								"int",
-								function(constants)
-									return reflection_probe.scene_pipeline:GetTextureIndex(render3d.GetMaterial():GetMetallicRoughnessTexture())
+								function(self, block, key)
+									block[key] = self:GetTextureIndex(render3d.GetMaterial():GetMetallicRoughnessTexture())
 								end,
 							},
 							{
 								"EmissiveTexture",
 								"int",
-								function(constants)
-									return reflection_probe.scene_pipeline:GetTextureIndex(render3d.GetMaterial():GetEmissiveTexture())
+								function(self, block, key)
+									block[key] = self:GetTextureIndex(render3d.GetMaterial():GetEmissiveTexture())
 								end,
 							},
 							{
 								"ColorMultiplier",
 								"vec4",
-								function(constants)
-									return render3d.GetMaterial():GetColorMultiplier():CopyToFloatPointer(constants.ColorMultiplier)
+								function(self, block, key)
+									render3d.GetMaterial():GetColorMultiplier():CopyToFloatPointer(block[key])
 								end,
 							},
 							{
 								"MetallicMultiplier",
 								"float",
-								function(constants)
-									return render3d.GetMaterial():GetMetallicMultiplier()
+								function(self, block, key)
+									block[key] = render3d.GetMaterial():GetMetallicMultiplier()
 								end,
 							},
 							{
 								"RoughnessMultiplier",
 								"float",
-								function(constants)
-									return render3d.GetMaterial():GetRoughnessMultiplier()
+								function(self, block, key)
+									block[key] = render3d.GetMaterial():GetRoughnessMultiplier()
 								end,
 							},
 							{
 								"EmissiveMultiplier",
 								"vec4",
-								function(constants)
-									return render3d.GetMaterial():GetEmissiveMultiplier():CopyToFloatPointer(constants.EmissiveMultiplier)
+								function(self, block, key)
+									render3d.GetMaterial():GetEmissiveMultiplier():CopyToFloatPointer(block[key])
 								end,
 							},
 						},
@@ -584,8 +584,8 @@ function reflection_probe.CreatePipelines()
 							{
 								"inv_projection_view",
 								"mat4",
-								function(constants)
-									reflection_probe.inv_projection_view:CopyToFloatPointer(constants.inv_projection_view)
+								function(self, block, key)
+									reflection_probe.inv_projection_view:CopyToFloatPointer(block[key])
 								end,
 							},
 						},
@@ -616,26 +616,26 @@ function reflection_probe.CreatePipelines()
 							{
 								"stars_texture_index",
 								"int",
-								function(constants, pipeline)
-									return pipeline:GetTextureIndex(skybox.stars_texture)
+								function(self, block, key)
+									block[key] = self:GetTextureIndex(skybox.stars_texture)
 								end,
 							},
 							{
 								"sun_direction",
 								"vec4",
-								function(constants)
+								function(self, block, key)
 									local lights = render3d.GetLights()
 
 									if lights[1] then
-										lights[1]:GetRotation():GetBackward():CopyToFloatPointer(constants.sun_direction)
+										lights[1]:GetRotation():GetBackward():CopyToFloatPointer(block[key])
 									end
 								end,
 							},
 							{
 								"camera_position",
 								"vec4",
-								function(constants)
-									reflection_probe.temp_camera:GetPosition():CopyToFloatPointer(constants.camera_position)
+								function(self, block, key)
+									reflection_probe.temp_camera:GetPosition():CopyToFloatPointer(block[key])
 								end,
 							},
 						},
@@ -684,8 +684,8 @@ function reflection_probe.CreatePipelines()
 							{
 								"inv_projection_view",
 								"mat4",
-								function(constants)
-									reflection_probe.inv_projection_view:CopyToFloatPointer(constants.inv_projection_view)
+								function(self, block, key)
+									reflection_probe.inv_projection_view:CopyToFloatPointer(block[key])
 								end,
 							},
 						},
@@ -716,16 +716,16 @@ function reflection_probe.CreatePipelines()
 							{
 								"roughness",
 								"float",
-								function(constants)
-									return reflection_probe.current_roughness or 0
+								function(self, block, key)
+									block[key] = reflection_probe.current_roughness or 0
 								end,
 							},
 							{
 								"input_texture_index",
 								"int",
-								function(constants, pipeline)
+								function(self, block, key)
 									local probe = reflection_probe.probes[reflection_probe.current_probe_index]
-									return pipeline:GetTextureIndex(probe.source_cubemap)
+									block[key] = self:GetTextureIndex(probe.source_cubemap)
 								end,
 							},
 						},

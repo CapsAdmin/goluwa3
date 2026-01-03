@@ -23,36 +23,36 @@ local camera_block = {
 	{
 		"inv_view",
 		"mat4",
-		function(constants)
-			return render3d.camera:BuildViewMatrix():GetInverse():CopyToFloatPointer(constants.inv_view)
+		function(self, block, key)
+			render3d.camera:BuildViewMatrix():GetInverse():CopyToFloatPointer(block[key])
 		end,
 	},
 	{
 		"inv_projection",
 		"mat4",
-		function(constants)
-			return render3d.camera:BuildProjectionMatrix():GetInverse():CopyToFloatPointer(constants.inv_projection)
+		function(self, block, key)
+			render3d.camera:BuildProjectionMatrix():GetInverse():CopyToFloatPointer(block[key])
 		end,
 	},
 	{
 		"view",
 		"mat4",
-		function(constants)
-			return render3d.camera:BuildViewMatrix():CopyToFloatPointer(constants.view)
+		function(self, block, key)
+			render3d.camera:BuildViewMatrix():CopyToFloatPointer(block[key])
 		end,
 	},
 	{
 		"projection",
 		"mat4",
-		function(constants)
-			return render3d.camera:BuildProjectionMatrix():CopyToFloatPointer(constants.projection)
+		function(self, block, key)
+			render3d.camera:BuildProjectionMatrix():CopyToFloatPointer(block[key])
 		end,
 	},
 	{
 		"camera_position",
 		"vec3",
-		function(constants)
-			render3d.camera:GetPosition():CopyToFloatPointer(constants.camera_position)
+		function(self, block, key)
+			render3d.camera:GetPosition():CopyToFloatPointer(block[key])
 		end,
 	},
 }
@@ -60,29 +60,29 @@ local debug_block = {
 	{
 		"debug_cascade_colors",
 		"int",
-		function(constants)
-			return render3d.debug_cascade_colors and 1 or 0
+		function(self, block, key)
+			block[key] = render3d.debug_cascade_colors and 1 or 0
 		end,
 	},
 	{
 		"debug_mode",
 		"int",
-		function(constants)
-			return render3d.debug_mode or 1
+		function(self, block, key)
+			block[key] = render3d.debug_mode or 1
 		end,
 	},
 	{
 		"near_z",
 		"float",
-		function(constants)
-			return render3d.camera:GetNearZ()
+		function(self, block, key)
+			block[key] = render3d.camera:GetNearZ()
 		end,
 	},
 	{
 		"far_z",
 		"float",
-		function(constants)
-			return render3d.camera:GetFarZ()
+		function(self, block, key)
+			block[key] = render3d.camera:GetFarZ()
 		end,
 	},
 }
@@ -90,8 +90,8 @@ local common_block = {
 	{
 		"time",
 		"float",
-		function(constants)
-			return system.GetElapsedTime()
+		function(self, block, key)
+			block[key] = system.GetElapsedTime()
 		end,
 	},
 }
@@ -99,36 +99,36 @@ local gbuffer_block = {
 	{
 		"albedo_tex",
 		"int",
-		function(constants, pipeline)
-			return pipeline:GetTextureIndex(render3d.gbuffer:GetAttachment(1))
+		function(self, block, key)
+			block[key] = self:GetTextureIndex(render3d.gbuffer:GetAttachment(1))
 		end,
 	},
 	{
 		"normal_tex",
 		"int",
-		function(constants, pipeline)
-			return pipeline:GetTextureIndex(render3d.gbuffer:GetAttachment(2))
+		function(self, block, key)
+			block[key] = self:GetTextureIndex(render3d.gbuffer:GetAttachment(2))
 		end,
 	},
 	{
 		"mra_tex",
 		"int",
-		function(constants, pipeline)
-			return pipeline:GetTextureIndex(render3d.gbuffer:GetAttachment(3))
+		function(self, block, key)
+			block[key] = self:GetTextureIndex(render3d.gbuffer:GetAttachment(3))
 		end,
 	},
 	{
 		"emissive_tex",
 		"int",
-		function(constants, pipeline)
-			return pipeline:GetTextureIndex(render3d.gbuffer:GetAttachment(4))
+		function(self, block, key)
+			block[key] = self:GetTextureIndex(render3d.gbuffer:GetAttachment(4))
 		end,
 	},
 	{
 		"depth_tex",
 		"int",
-		function(constants, pipeline)
-			return pipeline:GetTextureIndex(render3d.gbuffer:GetDepthTexture())
+		function(self, block, key)
+			block[key] = self:GetTextureIndex(render3d.gbuffer:GetDepthTexture())
 		end,
 	},
 }
@@ -136,11 +136,14 @@ local last_frame_block = {
 	{
 		"last_frame_tex",
 		"int",
-		function(constants, pipeline)
-			if not render3d.lighting_fbs then return -1 end
+		function(self, block, key)
+			if not render3d.lighting_fbs then
+				block[key] = -1
+				return
+			end
 
 			local prev_idx = 3 - render3d.current_lighting_fb_index
-			return pipeline:GetTextureIndex(render3d.lighting_fbs[prev_idx]:GetAttachment(1))
+			block[key] = self:GetTextureIndex(render3d.lighting_fbs[prev_idx]:GetAttachment(1))
 		end,
 	},
 }
@@ -167,15 +170,15 @@ render3d.fill_config = {
 					{
 						"projection_view_world",
 						"mat4",
-						function(constants)
-							return render3d.GetProjectionViewWorldMatrix():CopyToFloatPointer(constants.projection_view_world)
+						function(self, block, key)
+							render3d.GetProjectionViewWorldMatrix():CopyToFloatPointer(block[key])
 						end,
 					},
 					{
 						"world",
 						"mat4",
-						function(constants)
-							return render3d.GetWorldMatrix():CopyToFloatPointer(constants.world)
+						function(self, block, key)
+							render3d.GetWorldMatrix():CopyToFloatPointer(block[key])
 						end,
 					},
 				},
@@ -216,106 +219,106 @@ render3d.fill_config = {
 					{
 						"Flags",
 						"int",
-						function(constants)
-							return render3d.GetMaterial():GetFillFlags()
+						function(self, block, key)
+							block[key] = render3d.GetMaterial():GetFillFlags()
 						end,
 					},
 					{
 						"AlbedoTexture",
 						"int",
-						function(constants)
-							return render3d.fill_pipeline:GetTextureIndex(render3d.GetMaterial():GetAlbedoTexture())
+						function(self, block, key)
+							block[key] = render3d.fill_pipeline:GetTextureIndex(render3d.GetMaterial():GetAlbedoTexture())
 						end,
 					},
 					{
 						"NormalTexture",
 						"int",
-						function(constants)
-							return render3d.fill_pipeline:GetTextureIndex(render3d.GetMaterial():GetNormalTexture())
+						function(self, block, key)
+							block[key] = render3d.fill_pipeline:GetTextureIndex(render3d.GetMaterial():GetNormalTexture())
 						end,
 					},
 					{
 						"MetallicRoughnessTexture",
 						"int",
-						function(constants)
-							return render3d.fill_pipeline:GetTextureIndex(render3d.GetMaterial():GetMetallicRoughnessTexture())
+						function(self, block, key)
+							block[key] = render3d.fill_pipeline:GetTextureIndex(render3d.GetMaterial():GetMetallicRoughnessTexture())
 						end,
 					},
 					{
 						"AmbientOcclusionTexture",
 						"int",
-						function(constants)
-							return render3d.fill_pipeline:GetTextureIndex(render3d.GetMaterial():GetAmbientOcclusionTexture())
+						function(self, block, key)
+							block[key] = render3d.fill_pipeline:GetTextureIndex(render3d.GetMaterial():GetAmbientOcclusionTexture())
 						end,
 					},
 					{
 						"EmissiveTexture",
 						"int",
-						function(constants)
-							return render3d.fill_pipeline:GetTextureIndex(render3d.GetMaterial():GetEmissiveTexture())
+						function(self, block, key)
+							block[key] = render3d.fill_pipeline:GetTextureIndex(render3d.GetMaterial():GetEmissiveTexture())
 						end,
 					},
 					{
 						"ColorMultiplier",
 						"vec4",
-						function(constants)
-							return render3d.GetMaterial():GetColorMultiplier():CopyToFloatPointer(constants.ColorMultiplier)
+						function(self, block, key)
+							render3d.GetMaterial():GetColorMultiplier():CopyToFloatPointer(block[key])
 						end,
 					},
 					{
 						"MetallicMultiplier",
 						"float",
-						function(constants)
-							return render3d.GetMaterial():GetMetallicMultiplier()
+						function(self, block, key)
+							block[key] = render3d.GetMaterial():GetMetallicMultiplier()
 						end,
 					},
 					{
 						"RoughnessMultiplier",
 						"float",
-						function(constants)
-							return render3d.GetMaterial():GetRoughnessMultiplier()
+						function(self, block, key)
+							block[key] = render3d.GetMaterial():GetRoughnessMultiplier()
 						end,
 					},
 					{
 						"AmbientOcclusionMultiplier",
 						"float",
-						function(constants)
-							return render3d.GetMaterial():GetAmbientOcclusionMultiplier()
+						function(self, block, key)
+							block[key] = render3d.GetMaterial():GetAmbientOcclusionMultiplier()
 						end,
 					},
 					{
 						"EmissiveMultiplier",
 						"vec4",
-						function(constants)
-							return render3d.GetMaterial():GetEmissiveMultiplier():CopyToFloatPointer(constants.EmissiveMultiplier)
+						function(self, block, key)
+							render3d.GetMaterial():GetEmissiveMultiplier():CopyToFloatPointer(block[key])
 						end,
 					},
 					{
 						"AlphaCutoff",
 						"float",
-						function(constants)
-							return render3d.GetMaterial():GetAlphaCutoff()
+						function(self, block, key)
+							block[key] = render3d.GetMaterial():GetAlphaCutoff()
 						end,
 					},
 					{
 						"MetallicTexture",
 						"int",
-						function(constants)
-							return render3d.fill_pipeline:GetTextureIndex(render3d.GetMaterial():GetMetallicTexture())
+						function(self, block, key)
+							block[key] = render3d.fill_pipeline:GetTextureIndex(render3d.GetMaterial():GetMetallicTexture())
 						end,
 					},
 					{
 						"RoughnessTexture",
 						"int",
-						function(constants)
-							return render3d.fill_pipeline:GetTextureIndex(render3d.GetMaterial():GetRoughnessTexture())
+						function(self, block, key)
+							block[key] = render3d.fill_pipeline:GetTextureIndex(render3d.GetMaterial():GetRoughnessTexture())
 						end,
 					},
 					{
 						"SelfIlluminationTexture",
 						"int",
-						function(constants)
-							return render3d.fill_pipeline:GetTextureIndex(render3d.GetMaterial():GetSelfIlluminationTexture())
+						function(self, block, key)
+							block[key] = render3d.fill_pipeline:GetTextureIndex(render3d.GetMaterial():GetSelfIlluminationTexture())
 						end,
 					},
 				},
@@ -511,22 +514,22 @@ render3d.ssr_config = {
 					{
 						"normal_tex",
 						"int",
-						function(constants, pipeline)
-							return pipeline:GetTextureIndex(render3d.gbuffer:GetAttachment(2))
+						function(self, block, key)
+							block[key] = self:GetTextureIndex(render3d.gbuffer:GetAttachment(2))
 						end,
 					},
 					{
 						"mra_tex",
 						"int",
-						function(constants, pipeline)
-							return pipeline:GetTextureIndex(render3d.gbuffer:GetAttachment(3))
+						function(self, block, key)
+							block[key] = self:GetTextureIndex(render3d.gbuffer:GetAttachment(3))
 						end,
 					},
 					{
 						"depth_tex",
 						"int",
-						function(constants, pipeline)
-							return pipeline:GetTextureIndex(render3d.gbuffer:GetDepthTexture())
+						function(self, block, key)
+							block[key] = self:GetTextureIndex(render3d.gbuffer:GetDepthTexture())
 						end,
 					},
 					last_frame_block,
@@ -742,9 +745,9 @@ render3d.lighting_config = {
 					{
 						"ssao_kernel",
 						"vec3",
-						function(constants)
+						function(self, block, key)
 							for i, v in ipairs(render3d.ssao_kernel) do
-								v:CopyToFloatPointer(constants.ssao_kernel[i - 1])
+								v:CopyToFloatPointer(block[key][i - 1])
 							end
 						end,
 						64,
@@ -752,8 +755,8 @@ render3d.lighting_config = {
 					{
 						"light_count",
 						"int",
-						function(constants)
-							return math.min(#Light.GetLights(), 32)
+						function(self, block, key)
+							block[key] = math.min(#Light.GetLights(), 32)
 						end,
 					},
 					debug_block,
@@ -761,15 +764,15 @@ render3d.lighting_config = {
 					{
 						"env_tex",
 						"int",
-						function(constants, pipeline)
-							return pipeline:GetTextureIndex(render3d.GetEnvironmentTexture())
+						function(self, block, key)
+							block[key] = self:GetTextureIndex(render3d.GetEnvironmentTexture())
 						end,
 					},
 					{
 						"ssao_noise_tex",
 						"int",
-						function(constants, pipeline)
-							return pipeline:GetTextureIndex(render3d.ssao_noise_tex)
+						function(self, block, key)
+							block[key] = self:GetTextureIndex(render3d.ssao_noise_tex)
 						end,
 					},
 					last_frame_block,
@@ -777,26 +780,29 @@ render3d.lighting_config = {
 					{
 						"stars_texture_index",
 						"int",
-						function(constants, pipeline)
-							return pipeline:GetTextureIndex(skybox.stars_texture)
+						function(self, block, key)
+							block[key] = self:GetTextureIndex(skybox.stars_texture)
 						end,
 					},
 					{
 						"ssr_tex",
 						"int",
-						function(constants, pipeline)
-							if not render3d.ssr_fb then return -1 end
+						function(self, block, key)
+							if not render3d.ssr_fb then
+								block[key] = -1
+								return
+							end
 
-							return pipeline:GetTextureIndex(render3d.ssr_fb:GetAttachment(1))
+							block[key] = self:GetTextureIndex(render3d.ssr_fb:GetAttachment(1))
 						end,
 					},
 					{
 						"probe_indices",
 						"int",
-						function(constants, pipeline)
+						function(self, block, key)
 							if not reflection_probe.IsEnabled() then
 								for i = 0, 63 do
-									constants.probe_indices[i] = -1
+									block[key][i] = -1
 								end
 
 								return
@@ -804,7 +810,7 @@ render3d.lighting_config = {
 
 							for i = 0, 63 do
 								local cubemap = reflection_probe.GetCubemap(i)
-								constants.probe_indices[i] = cubemap and pipeline:GetTextureIndex(cubemap) or -1
+								block[key][i] = cubemap and self:GetTextureIndex(cubemap) or -1
 							end
 						end,
 						64,
@@ -812,10 +818,10 @@ render3d.lighting_config = {
 					{
 						"probe_depth_indices",
 						"int",
-						function(constants, pipeline)
+						function(self, block, key)
 							if not reflection_probe.IsEnabled() then
 								for i = 0, 63 do
-									constants.probe_depth_indices[i] = -1
+									block[key][i] = -1
 								end
 
 								return
@@ -823,7 +829,7 @@ render3d.lighting_config = {
 
 							for i = 0, 63 do
 								local depth_cubemap = reflection_probe.GetDepthCubemap(i)
-								constants.probe_depth_indices[i] = depth_cubemap and pipeline:GetTextureIndex(depth_cubemap) or -1
+								block[key][i] = depth_cubemap and self:GetTextureIndex(depth_cubemap) or -1
 							end
 						end,
 						64,
@@ -831,22 +837,22 @@ render3d.lighting_config = {
 					{
 						"probe_positions",
 						"vec4",
-						function(constants)
+						function(self, block, key)
 							if not reflection_probe.IsEnabled() then return end
 
 							for i = 0, 63 do
 								local pos = reflection_probe.GetProbePosition(i)
 
 								if pos then
-									constants.probe_positions[i][0] = pos.x
-									constants.probe_positions[i][1] = pos.y
-									constants.probe_positions[i][2] = pos.z
-									constants.probe_positions[i][3] = 0
+									block[key][i][0] = pos.x
+									block[key][i][1] = pos.y
+									block[key][i][2] = pos.z
+									block[key][i][3] = 0
 								else
-									constants.probe_positions[i][0] = 0
-									constants.probe_positions[i][1] = 0
-									constants.probe_positions[i][2] = 0
-									constants.probe_positions[i][3] = -1 -- Mark as invalid
+									block[key][i][0] = 0
+									block[key][i][1] = 0
+									block[key][i][2] = 0
+									block[key][i][3] = -1 -- Mark as invalid
 								end
 							end
 						end,
@@ -855,34 +861,34 @@ render3d.lighting_config = {
 					{
 						"probe_grid_origin",
 						"vec4",
-						function(constants)
+						function(self, block, key)
 							local origin = reflection_probe.GRID_ORIGIN
-							constants.probe_grid_origin[0] = origin.x
-							constants.probe_grid_origin[1] = origin.y
-							constants.probe_grid_origin[2] = origin.z
-							constants.probe_grid_origin[3] = 0
+							block[key][0] = origin.x
+							block[key][1] = origin.y
+							block[key][2] = origin.z
+							block[key][3] = 0
 						end,
 					},
 					{
 						"probe_grid_spacing",
 						"vec4",
-						function(constants)
+						function(self, block, key)
 							local spacing = reflection_probe.GRID_SPACING
-							constants.probe_grid_spacing[0] = spacing.x
-							constants.probe_grid_spacing[1] = spacing.y
-							constants.probe_grid_spacing[2] = spacing.z
-							constants.probe_grid_spacing[3] = 0
+							block[key][0] = spacing.x
+							block[key][1] = spacing.y
+							block[key][2] = spacing.z
+							block[key][3] = 0
 						end,
 					},
 					{
 						"probe_grid_counts",
 						"ivec4",
-						function(constants)
+						function(self, block, key)
 							local counts = reflection_probe.GRID_COUNTS
-							constants.probe_grid_counts[0] = counts.x
-							constants.probe_grid_counts[1] = counts.y
-							constants.probe_grid_counts[2] = counts.z
-							constants.probe_grid_counts[3] = 0
+							block[key][0] = counts.x
+							block[key][1] = counts.y
+							block[key][2] = counts.z
+							block[key][3] = 0
 						end,
 					},
 				},
@@ -1331,10 +1337,13 @@ render3d.blit_config = {
 					{
 						"tex",
 						"int",
-						function(constants)
-							if not render3d.lighting_fbs then return -1 end
+						function(self, block, key)
+							if not render3d.lighting_fbs then
+								block[key] = -1
+								return
+							end
 
-							return render3d.blit_pipeline:GetTextureIndex(render3d.lighting_fbs[render3d.current_lighting_fb_index]:GetAttachment(1))
+							block[key] = self:GetTextureIndex(render3d.lighting_fbs[render3d.current_lighting_fb_index]:GetAttachment(1))
 						end,
 					},
 				},

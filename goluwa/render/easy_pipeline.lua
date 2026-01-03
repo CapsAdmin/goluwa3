@@ -381,14 +381,7 @@ function EasyPipeline.New(config)
 				for _, field in ipairs(block.block) do
 					local info = get_field_info(field)
 
-					if info.callback then
-						local value = info.callback(constants, self)
-
-						if value ~= nil and not info.array_size and not glsl_to_array_size[info.glsl_type] then
-							constants[info.name] = value
-						end
-					-- For arrays (vec4, mat4, etc.), the callback handles CopyToFloatPointer
-					end
+					if info.callback then info.callback(self, constants, info.name) end
 				end
 
 				self.pipeline:PushConstants(cmd, "vertex", offset, constants)
@@ -407,14 +400,7 @@ function EasyPipeline.New(config)
 				for _, field in ipairs(block.block) do
 					local info = get_field_info(field)
 
-					if info.callback then
-						local value = info.callback(constants, self)
-
-						if value ~= nil and not info.array_size and not glsl_to_array_size[info.glsl_type] then
-							constants[info.name] = value
-						end
-					-- For arrays (vec4, mat4, etc.), the callback handles CopyToFloatPointer
-					end
+					if info.callback then info.callback(self, constants, info.name) end
 				end
 
 				self.pipeline:PushConstants(cmd, "fragment", offset, constants)
@@ -430,16 +416,7 @@ function EasyPipeline.New(config)
 				local field_info = get_field_info(field)
 
 				if field_info.callback then
-					local value = field_info.callback(ubo_data, self)
-
-					if
-						value ~= nil and
-						not field_info.array_size and
-						not glsl_to_array_size[field_info.glsl_type]
-					then
-						ubo_data[field_info.name] = value
-					end
-				-- For arrays (vec4, mat4, etc.), the callback handles CopyToFloatPointer
+					field_info.callback(self, ubo_data, field_info.name)
 				end
 			end
 
