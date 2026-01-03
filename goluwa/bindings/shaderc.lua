@@ -179,34 +179,14 @@ function mod.compile(source, shader_type, entry_point)
 
 	if status ~= ffi.C.shaderc_compilation_status_success then
 		local error_message = ffi.string(lib.shaderc_result_get_error_message(result))
-		local line_start = error_message:find(":")
-		local line_stop = line_start and error_message:find(":", line_start + 1)
-		local line_number = line_stop and tonumber(error_message:sub(line_start + 1, line_stop - 1))
-		local error_start, error_stop
-
-		if line_number then
-			local pos = 1
-
-			for i = 1, line_number - 1 do
-				pos = source:find("\n", pos)
-
-				if not pos then break end
-
-				pos = pos + 1
-			end
-
-			if pos then
-				error_start = pos
-				error_stop = source:find("\n", pos) or #source
-			end
-		end
-
+		local hash = require("crypto").CRC32(source)
+		local path = "./logs/shader_error_" .. hash .. ".glsl"
+		require("fs").write_file(path, source)
+		error_message = error_message:gsub(shader_type .. ":", path .. ":")
 		lib.shaderc_result_release(result)
 		lib.shaderc_compile_options_release(options)
 		lib.shaderc_compiler_release(mod.compiler)
-		print(source:sub(error_start or 1, error_stop or #source))
-		require("fs").write_file("logs/shader_error_source.glsl", source)
-		error(error_message, 2)
+		error("\n" .. error_message, 2)
 	end
 
 	local spirv_size = lib.shaderc_result_get_length(result)
