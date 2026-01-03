@@ -149,7 +149,7 @@ local last_frame_block = {
 }
 render3d.fill_config = {
 	color_format = {
-		{"r8g8b8a8_unorm", {"albedo", "rgba"}},
+		{"r8g8b8a8_unorm", {"albedo", "rgb"}, {"alpha", "a"}},
 		{"r16g16b16a16_sfloat", {"normal", "rgb"}},
 		{"r8g8b8a8_unorm", {"metallic", "r"}, {"roughness", "g"}, {"ao", "b"}},
 		{"r8g8b8a8_unorm", {"emissive", "rgb"}},
@@ -298,13 +298,6 @@ render3d.fill_config = {
 							block[key] = render3d.fill_pipeline:GetTextureIndex(render3d.GetMaterial():GetRoughnessTexture())
 						end,
 					},
-					{
-						"SelfIlluminationTexture",
-						"int",
-						function(self, block, key)
-							block[key] = render3d.fill_pipeline:GetTextureIndex(render3d.GetMaterial():GetSelfIlluminationTexture())
-						end,
-					},
 				},
 			},
 		},
@@ -323,8 +316,9 @@ render3d.fill_config = {
 
 				if (
 					pc.model.AlbedoTexture == -1 ||
-					AlbedoTextureAlphaIsMetallic ||
-					AlbedoTextureAlphaIsRoughness 
+					AlbedoTextureAlphaIsRoughness ||
+					AlbedoTextureAlphaIsRoughness ||
+					AlbedoAlphaIsEmissive
 				) {
 					return pc.model.ColorMultiplier.a;	
 				}
@@ -363,18 +357,16 @@ render3d.fill_config = {
 			}
 
 			float get_metallic() {
-				float val = 0.0;
+				float val = 1.0;
 
-				if (pc.model.AlbedoTexture != -1 && AlbedoTextureAlphaIsMetallic) {
-					val = 1.0 - texture(TEXTURE(pc.model.AlbedoTexture), in_uv).a;
-				} else if (pc.model.NormalTexture != -1 && NormalTextureAlphaIsMetallic) {
-					val = 1.0 - texture(TEXTURE(pc.model.NormalTexture), in_uv).a;
-				} else if (pc.model.MetallicTexture != -1) {
+				if (pc.model.MetallicTexture != -1) {
 					val = texture(TEXTURE(pc.model.MetallicTexture), in_uv).r;
 				} else if (pc.model.MetallicRoughnessTexture != -1) {
 					val = texture(TEXTURE(pc.model.MetallicRoughnessTexture), in_uv).b;
 				} else {
-					val = 1.0;
+					val = pc.model.MetallicMultiplier;
+					val = clamp(val, 0, 1);
+					return val;
 				}
 
 				val *= pc.model.MetallicMultiplier;
@@ -387,29 +379,41 @@ render3d.fill_config = {
 				float val = 1.0;
 
 				if (pc.model.AlbedoTexture != -1 && AlbedoTextureAlphaIsRoughness) {
-					val = 1.0 - texture(TEXTURE(pc.model.AlbedoTexture), in_uv).a;
-					if (InvertRoughnessTexture) val = 1.0 - val;
+					val = texture(TEXTURE(pc.model.AlbedoTexture), in_uv).a;
+				} else if (pc.model.NormalTexture != -1 && NormalTextureAlphaIsRoughness) {
+					val = -texture(TEXTURE(pc.model.NormalTexture), in_uv).a+1;
 				} else if (AlbedoLuminanceIsRoughness) {
 					val = dot(get_albedo(), vec3(0.2126, 0.7152, 0.0722));
-					if (InvertRoughnessTexture) val = 1.0 - val;
 				} else if (pc.model.RoughnessTexture != -1) {
 					val = texture(TEXTURE(pc.model.RoughnessTexture), in_uv).r;
-					if (InvertRoughnessTexture) val = 1.0 - val;
 				} else if (pc.model.MetallicRoughnessTexture != -1) {
 					val = texture(TEXTURE(pc.model.MetallicRoughnessTexture), in_uv).g;
 				} else  {
-					val = 1.0;
+					val = pc.model.RoughnessMultiplier;
+					if (InvertRoughnessTexture) val = -val + 1.0;
+					val = clamp(val, 0.05, 0.95);
+					return val;
 				}
 
 				val *= pc.model.RoughnessMultiplier;
+
+				if (InvertRoughnessTexture) val = -val + 1.0;
+
 				val = clamp(val, 0.05, 0.95);
 				
 				return val;
 			}
 
 			vec3 get_emissive() {
-				if (pc.model.SelfIlluminationTexture != -1) {
-					float mask = texture(TEXTURE(pc.model.SelfIlluminationTexture), in_uv).r;
+				if (AlbedoAlphaIsEmissive) {
+					float mask = 1.0;
+					if (pc.model.AlbedoTexture != -1) {
+						mask = texture(TEXTURE(pc.model.AlbedoTexture), in_uv).a;
+					}
+					return get_albedo() * mask * pc.model.EmissiveMultiplier.rgb * pc.model.EmissiveMultiplier.a;
+				}
+				else if (pc.model.EmissiveTexture != -1) {
+					float mask = texture(TEXTURE(pc.model.EmissiveTexture), in_uv).r;
 					return get_albedo() * mask * pc.model.EmissiveMultiplier.rgb * pc.model.EmissiveMultiplier.a;
 				} else if (pc.model.MetallicTexture != -1 && MetallicTextureAlphaIsEmissive) {
 					float mask = texture(TEXTURE(pc.model.MetallicTexture), in_uv).a;
@@ -418,7 +422,7 @@ render3d.fill_config = {
 					vec3 emissive = texture(TEXTURE(pc.model.EmissiveTexture), in_uv).rgb;
 					return emissive * pc.model.EmissiveMultiplier.rgb * pc.model.EmissiveMultiplier.a;
 				}
-				return pc.model.EmissiveMultiplier.rgb * pc.model.EmissiveMultiplier.a;
+				return vec3(0);
 			}
 
 			float get_ao() {
@@ -430,10 +434,9 @@ render3d.fill_config = {
 
 			void main() {
 				float alpha = get_alpha();
-
 				compute_translucency(alpha);
-
-				set_albedo(vec4(get_albedo(), alpha));
+				set_alpha(alpha);
+				set_albedo(get_albedo());
 				set_normal(get_normal());
 				set_metallic(get_metallic());
 				set_roughness(get_roughness());
@@ -882,7 +885,7 @@ render3d.lighting_config = {
 		},
 		shader = [[
 			]] .. require("render3d.atmosphere").GetGLSLCode() .. [[
-			#define SSR 0
+			#define SSR 1
 			#define PARALLAX_CORRECTION 1
 			#define uv in_uv
 			float hash(vec2 p) {

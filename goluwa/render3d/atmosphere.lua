@@ -2,7 +2,7 @@
 -- Extracted from skybox.lua for reuse in reflection probes and main rendering
 local atmosphere = {}
 -- Configuration
-atmosphere.USE_TEMPLE = true
+atmosphere.USE_TEMPLE = false
 atmosphere.stars_texture = nil
 
 function atmosphere.SetStarsTexture(texture)

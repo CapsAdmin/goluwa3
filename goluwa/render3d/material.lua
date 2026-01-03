@@ -16,11 +16,10 @@ Material:GetSet("Albedo2Texture", nil)
 Material:GetSet("Normal2Texture", nil)
 Material:GetSet("AlbedoBlendTexture", nil)
 Material:GetSet("MetallicTexture", nil)
-Material:GetSet("SelfIlluminationTexture", nil)
 Material:GetSet("RoughnessTexture", nil)
 -- multipliers
 Material:GetSet("ColorMultiplier", Color(1.0, 1.0, 1.0, 1.0))
-Material:GetSet("EmissiveMultiplier", Color(0.0, 0.0, 0.0, 0.0))
+Material:GetSet("EmissiveMultiplier", Color(1.0, 1.0, 1.0, 1.0))
 Material:GetSet("MetallicMultiplier", 1.0)
 Material:GetSet("RoughnessMultiplier", 1.0)
 Material:GetSet("NormalMapMultiplier", 1.0)
@@ -31,12 +30,12 @@ Material:GetSet("DoubleSided", false, {callback = "InvalidateFlags"})
 -- flags
 Material:GetSet("Flags", 0)
 Material:GetSet("ReverseXZNormalMap", false, {callback = "InvalidateFlags"})
-Material:GetSet("NormalTextureAlphaIsMetallic", false, {callback = "InvalidateFlags"})
-Material:GetSet("AlbedoTextureAlphaIsMetallic", false, {callback = "InvalidateFlags"})
+Material:GetSet("NormalTextureAlphaIsRoughness", false, {callback = "InvalidateFlags"})
 Material:GetSet("AlbedoTextureAlphaIsRoughness", false, {callback = "InvalidateFlags"})
 Material:GetSet("AlbedoLuminanceIsRoughness", false, {callback = "InvalidateFlags"})
 Material:GetSet("BlendTintByBaseAlpha", false, {callback = "InvalidateFlags"})
 Material:GetSet("MetallicTextureAlphaIsEmissive", false, {callback = "InvalidateFlags"})
+Material:GetSet("AlbedoAlphaIsEmissive", false, {callback = "InvalidateFlags"})
 Material:GetSet("Translucent", false, {callback = "InvalidateFlags"})
 Material:GetSet("AlphaTest", false, {callback = "InvalidateFlags"})
 Material:GetSet("InvertRoughnessTexture", false, {callback = "InvalidateFlags"})
@@ -55,6 +54,28 @@ function Material.New(config)
 	end
 
 	return self
+end
+
+function Material:HasExplicitMetallicTexture()
+	return self.MetallicTexture ~= nil and self.MetallicRoughnessTexture ~= nil
+end
+
+function Material:HasExplicitRoughnessTexture()
+	if self.AlbedoTexture ~= nil and AlbedoTextureAlphaIsRoughness then
+		return true
+	end
+
+	if self.NormalTexture ~= nil and NormalTextureAlphaIsRoughness then
+		return true
+	end
+
+	if self.AlbedoLuminanceIsRoughness then return true end
+
+	if self.RoughnessTexture ~= nil then return true end
+
+	if self.MetallicRoughnessTexture ~= nil then return true end
+
+	return false
 end
 
 -- just a shortcut for gltf
@@ -77,13 +98,19 @@ local FLAGS = {
 	"AlphaTest",
 	"BlendTintByBaseAlpha",
 	"InvertRoughnessTexture",
-	"NormalTextureAlphaIsMetallic",
-	"AlbedoTextureAlphaIsMetallic",
+	"NormalTextureAlphaIsRoughness",
 	"AlbedoTextureAlphaIsRoughness",
 	"AlbedoLuminanceIsRoughness",
 	"MetallicTextureAlphaIsEmissive",
+	"AlbedoAlphaIsEmissive",
 	"DoubleSided",
 }
+
+for i, flag_name in ipairs(FLAGS) do
+	if not Material["Get" .. flag_name] then
+		error("Material is missing flag getter: " .. flag_name)
+	end
+end
 
 function Material:InvalidateFlags()
 	local flags = 0
@@ -95,6 +122,16 @@ function Material:InvalidateFlags()
 	end
 
 	self.Flags = flags
+end
+
+function Material:GetDebugFlagMap()
+	local tbl = {}
+
+	for i, flag_name in ipairs(FLAGS) do
+		tbl[flag_name] = bit.band(self.Flags, bit.lshift(1, i - 1)) ~= 0
+	end
+
+	return tbl
 end
 
 function Material:GetFillFlags()
@@ -146,6 +183,9 @@ do
 
 	local function on_load_vmt(self, vmt)
 		self:SetReverseXZNormalMap(true) -- Source engine normals need XY flip
+		self:SetInvertRoughnessTexture(true) -- Source engine normals need XY flip
+		self:SetMetallicMultiplier(0)
+
 		do -- main diffuse texture
 			if vmt.basetexture then
 				self:SetAlbedoTexture(SRGBTexture(vmt.basetexture))
@@ -172,18 +212,18 @@ do
 
 		if vmt.envmap then -- envmap
 			if vmt.envmapmask then
-				self:SetMetallicTexture(LinearTexture(vmt.envmapmask))
+				self:SetRoughnessTexture(LinearTexture(vmt.envmapmask))
 			end
 
 			if vmt.normalmapalphaenvmapmask == 1 then
-				self:SetNormalTextureAlphaIsMetallic(vmt.normalmapalphaenvmapmask == 1)
+				self:SetNormalTextureAlphaIsRoughness(vmt.normalmapalphaenvmapmask == 1)
 			end
 
 			if vmt.basealphaenvmapmask == 1 then
-				self:SetAlbedoTextureAlphaIsMetallic(vmt.basealphaenvmapmask == 1)
+				self:SetAlbedoTextureAlphaIsRoughness(vmt.basealphaenvmapmask == 1)
 			end
 
-			if vmt.envmaptint then
+			if false and vmt.envmaptint then
 				-- maybe also set color tint?
 				local val = vmt.envmaptint
 
@@ -204,20 +244,12 @@ do
 		if vmt.phong == 1 then
 			if vmt.phongexponenttexture then
 				self:SetRoughnessTexture(LinearTexture(vmt.phongexponenttexture))
-				-- Phong exponent texture stores exponent values (high = shiny)
-				-- PBR roughness is inverted (high = rough), so we need to invert
-				self:SetInvertRoughnessTexture(true)
 			end
 
 			if vmt.basemapalphaphongmask == 1 then
 				self:SetAlbedoTextureAlphaIsRoughness(true)
 			elseif vmt.basemapluminancephongmask == 1 then
 				self:SetAlbedoLuminanceIsRoughness(true)
-			end
-
-			-- invertphongmask flips the inversion (so if we already set it, toggle it off)
-			if vmt.invertphongmask == 1 then
-				self:SetInvertRoughnessTexture(not self:GetInvertRoughnessTexture())
 			end
 
 			-- if halflambert the model is generally brighter and more reflective?
@@ -233,6 +265,8 @@ do
 			if boost > 1 then roughness = roughness / math.sqrt(boost) end
 
 			self:SetRoughnessMultiplier(math.max(0.04, math.min(1.0, roughness)))
+
+			if vmt.invertphongmask == 1 then self:SetInvertRoughnessTexture(false) end
 		end
 
 		if vmt.blendtintbybasealpha == 1 then
@@ -243,11 +277,16 @@ do
 
 		if vmt.selfillum == 1 then
 			local tint = vmt.selfillumtint -- TODO
+			self:SetAlbedoAlphaIsEmissive(true)
+
 			if vmt.selfillummask then
-				self:SetSelfIlluminationTexture(LinearTexture(vmt.selfillummask))
-			elseif vmt.selfillum_envmapmask_alpha == 1 then
-				self:SetMetallicTextureAlphaIsEmissive(true)
+				self:SetEmissiveTexture(LinearTexture(vmt.selfillummask))
+				self:SetAlbedoAlphaIsEmissive(false)
 			end
+		end
+
+		if vmt.selfillum_envmapmask_alpha == 1 then
+			self:SetMetallicTextureAlphaIsEmissive(true)
 		end
 
 		if vmt.translucent == 1 then self:SetTranslucent(true) end
@@ -478,16 +517,16 @@ do
 			end
 
 			if pbr then
-				-- Only apply surfaceprop values as defaults (don't override explicit material settings)
-				-- Check if roughness wasn't already set by phong or other explicit VMT parameters
-				if not vmt.phong and not vmt.phongexponent and not vmt.phongexponenttexture then
+				if not self:HasExplicitRoughnessTexture() then
 					self:SetRoughnessMultiplier(pbr[1])
+					self:SetInvertRoughnessTexture(false)
 				end
 
-				-- Check if metallic wasn't already set by envmap parameters
-				if not vmt.envmap and not vmt.envmapmask then
-					self:SetMetallicMultiplier(pbr[2])
+				if not self:HasExplicitMetallicTexture() then
+					self:SetMetallicMultiplier(pbr[2] > 0.5 and 1.0 or 0.0)
 				end
+			else
+
 			end
 		end
 	end

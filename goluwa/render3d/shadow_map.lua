@@ -177,7 +177,7 @@ function ShadowMap.New(config)
 					float get_alpha() {
 						if (
 							pc.albedo_texture_index == -1 ||
-							AlbedoTextureAlphaIsMetallic ||
+							AlbedoTextureAlphaIsRoughness ||
 							AlbedoTextureAlphaIsRoughness 
 						)
 						{

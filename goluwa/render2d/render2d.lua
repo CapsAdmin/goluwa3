@@ -25,6 +25,7 @@ local FragmentConstants = ffi.typeof([[
         int texture_index;       
         float uv_offset[2];             
         float uv_scale[2];              
+        int swizzle_mode;
 	}
 ]])
 local vertex_constants = VertexConstants()
@@ -130,6 +131,7 @@ function render2d.ResetState()
 	render2d.SetColor(1, 1, 1, 1)
 	render2d.SetAlphaMultiplier(1)
 	render2d.SetUV()
+	render2d.SetSwizzleMode(0)
 	render2d.UpdateScreenSize(render.GetRenderImageSize())
 	render2d.SetBlendMode("alpha", true)
 end
@@ -222,6 +224,7 @@ do
 						int texture_index;
 						vec2 uv_offset;
 						vec2 uv_scale;
+						int swizzle_mode;
 					} pc;                   
 					
 					void main() 
@@ -229,7 +232,13 @@ do
 						out_color = in_color * pc.global_color;
 						
 						if (pc.texture_index >= 0) {
-							out_color *= texture(textures[nonuniformEXT(pc.texture_index)], in_uv * pc.uv_scale + pc.uv_offset);
+							vec4 tex = texture(textures[nonuniformEXT(pc.texture_index)], in_uv * pc.uv_scale + pc.uv_offset);
+							if (pc.swizzle_mode == 1) tex = vec4(tex.rrr, 1.0);
+							else if (pc.swizzle_mode == 2) tex = vec4(tex.ggg, 1.0);
+							else if (pc.swizzle_mode == 3) tex = vec4(tex.bbb, 1.0);
+							else if (pc.swizzle_mode == 4) tex = vec4(tex.aaa, 1.0);
+							else if (pc.swizzle_mode == 5) tex = vec4(tex.rgb, 1.0);
+							out_color *= tex;
 						}
 
 						out_color.a = out_color.a * pc.alpha_multiplier;
@@ -296,6 +305,14 @@ do
 			if a then fragment_constants.global_color[3] = a end
 		end
 
+		function render2d.SetSwizzleMode(mode)
+			if mode then fragment_constants.swizzle_mode = mode end
+		end
+
+		function render2d.GetSwizzleMode()
+			return fragment_constants.swizzle_mode
+		end
+
 		function render2d.GetColor()
 			return fragment_constants.global_color[0],
 			fragment_constants.global_color[1],
@@ -304,6 +321,7 @@ do
 		end
 
 		utility.MakePushPopFunction(render2d, "Color")
+		utility.MakePushPopFunction(render2d, "SwizzleMode")
 	end
 
 	do

@@ -48,6 +48,7 @@ function EasyPipeline.New(config)
 	local uniform_buffers = {}
 	local actual_color_formats = {}
 	local fragment_outputs = ""
+	local debug_views = {}
 
 	if type(config.color_format) == "table" then
 		for i, format in ipairs(config.color_format) do
@@ -71,9 +72,25 @@ function EasyPipeline.New(config)
 					end
 
 					fragment_outputs = fragment_outputs .. string.format("void set_%s(%s val) { out_%d.%s = val; }\n", name, glsl_type, i - 1, swizzle)
+					table.insert(
+						debug_views,
+						{
+							name = name,
+							attachment_index = i,
+							swizzle = swizzle,
+						}
+					)
 				end
 			else
 				table.insert(actual_color_formats, format)
+				table.insert(
+					debug_views,
+					{
+						name = "Target " .. i,
+						attachment_index = i,
+						swizzle = "rgba",
+					}
+				)
 			end
 		end
 	end
@@ -638,6 +655,7 @@ function EasyPipeline.New(config)
 	}
 	self.pipeline = render.CreateGraphicsPipeline(pipeline_config)
 	self.vertex_attributes = attributes
+	self.debug_views = debug_views
 	return self
 end
 
@@ -645,6 +663,10 @@ function EasyPipeline:Bind(cmd, frame_index)
 	cmd = cmd or render.GetCommandBuffer()
 	frame_index = frame_index or render.GetCurrentFrame()
 	self.pipeline:Bind(cmd, frame_index)
+end
+
+function EasyPipeline:GetDebugViews()
+	return self.debug_views
 end
 
 function EasyPipeline:GetVertexAttributes()
