@@ -17,7 +17,7 @@ local Framebuffer = require("render.framebuffer")
 local system = require("system")
 local render3d = library()
 package.loaded["render3d.render3d"] = render3d
-local skybox = require("render3d.skybox")
+local atmosphere = require("render3d.atmosphere")
 local reflection_probe = require("render3d.reflection_probe")
 local camera_block = {
 	{
@@ -781,7 +781,7 @@ render3d.lighting_config = {
 						"stars_texture_index",
 						"int",
 						function(self, block, key)
-							block[key] = self:GetTextureIndex(skybox.stars_texture)
+							block[key] = self:GetTextureIndex(atmosphere.GetStarsTexture())
 						end,
 					},
 					{
@@ -895,7 +895,7 @@ render3d.lighting_config = {
 			},
 		},
 		shader = [[
-			]] .. require("render3d.skybox").GetGLSLCode() .. [[
+			]] .. require("render3d.atmosphere").GetGLSLCode() .. [[
 			#define SSR 0
 			#define PARALLAX_CORRECTION 1
 			#define uv in_uv
@@ -1191,7 +1191,7 @@ render3d.lighting_config = {
 					vec3 world_pos = (lighting_data.inv_view * view_pos).xyz;
 					vec3 dir = normalize(world_pos - lighting_data.camera_position.xyz);
 					
-					]] .. require("render3d.skybox").GetGLSLMainCode(
+					]] .. require("render3d.atmosphere").GetGLSLMainCode(
 				"dir",
 				"sunDir",
 				"lighting_data.camera_position.xyz",

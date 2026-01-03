@@ -9,25 +9,40 @@ local Fence = require("render.vulkan.internal.fence")
 local Matrix44 = require("structs.matrix44")
 local Vec3 = require("structs.vec3")
 local Rect = require("structs.rect")
-local skybox = require("render3d.skybox")
+local atmosphere = require("render3d.atmosphere")
 local reflection_probe = {}
+
+-- Probe types
+reflection_probe.TYPE_ENVIRONMENT = "environment" -- Sky-only, dynamic, updated based on sun
+reflection_probe.TYPE_SCENE = "scene" -- Renders geometry, typically static
+
+-- Update modes
+reflection_probe.UPDATE_DYNAMIC = "dynamic" -- Update every frame (or on sun change for environment)
+reflection_probe.UPDATE_STATIC = "static" -- Update once on creation
+reflection_probe.UPDATE_MANUAL = "manual" -- Update only when requested
+
 -- Configuration
-reflection_probe.SIZE = 128 -- Cubemap resolution per face
+reflection_probe.ENVIRONMENT_SIZE = 512 -- Larger size for environment probe
+reflection_probe.SCENE_SIZE = 128 -- Smaller size for scene probes
 reflection_probe.UPDATE_FACES_PER_FRAME = 1 -- How many faces to update each frame
 reflection_probe.GRID_COUNTS = Vec3(4, 4, 4)
 reflection_probe.GRID_SPACING = Vec3(10, 10, 10)
 reflection_probe.GRID_ORIGIN = Vec3(35, -1.5, 50)
-reflection_probe.PROBE_COUNT = reflection_probe.GRID_COUNTS.x * reflection_probe.GRID_COUNTS.y * reflection_probe.GRID_COUNTS.z
+reflection_probe.SCENE_PROBE_COUNT = reflection_probe.GRID_COUNTS.x * reflection_probe.GRID_COUNTS.y * reflection_probe.GRID_COUNTS.z
 reflection_probe.enabled = true
+
 -- State
-reflection_probe.probes = {}
-reflection_probe.current_probe_index = 0
+reflection_probe.probes = {} -- All probes (environment at index 0, scene probes at 1+)
+reflection_probe.environment_probe = nil -- Reference to the environment probe
+reflection_probe.current_scene_probe_index = 1 -- Current scene probe being updated (1-based, skips environment)
 reflection_probe.current_face = 0
 reflection_probe.temp_camera = nil
 reflection_probe.pipeline = nil
 reflection_probe.prefilter_pipeline = nil
 reflection_probe.inv_projection_view = Matrix44()
--- Face rotation angles (same as skybox.lua)
+reflection_probe.last_sun_direction = nil -- For detecting sun changes
+
+-- Face rotation angles for cubemap rendering
 local face_angles = {
 	Deg3(0, -90 + 180, 0), -- +X
 	Deg3(0, 90 + 180, 0), -- -X
@@ -37,150 +52,195 @@ local face_angles = {
 	Deg3(0, 180 + 180, 0), -- -Z
 }
 
+-- Create a probe with given configuration
+local function CreateProbeTextures(size)
+	local probe = {}
+	
+	-- Create the output cubemap (prefiltered, used for rendering)
+	probe.cubemap = Texture.New(
+		{
+			width = size,
+			height = size,
+			format = "b10g11r11_ufloat_pack32",
+			mip_map_levels = "auto",
+			image = {
+				array_layers = 6,
+				flags = {"cube_compatible"},
+				usage = {"color_attachment", "sampled", "transfer_src", "transfer_dst"},
+			},
+			view = {
+				view_type = "cube",
+				layer_count = 6,
+			},
+		}
+	)
+	
+	-- Create source cubemap (raw scene render, before prefiltering)
+	probe.source_cubemap = Texture.New(
+		{
+			width = size,
+			height = size,
+			format = "b10g11r11_ufloat_pack32",
+			mip_map_levels = "auto",
+			image = {
+				array_layers = 6,
+				flags = {"cube_compatible"},
+				usage = {"color_attachment", "sampled", "transfer_src", "transfer_dst"},
+			},
+			view = {
+				view_type = "cube",
+				layer_count = 6,
+			},
+		}
+	)
+	
+	-- Create depth cubemap (linear depth for parallax correction) - only for scene probes
+	probe.depth_cubemap = Texture.New(
+		{
+			width = size,
+			height = size,
+			format = "r32_sfloat",
+			mip_map_levels = 1,
+			image = {
+				array_layers = 6,
+				flags = {"cube_compatible"},
+				usage = {"color_attachment", "sampled", "transfer_src", "transfer_dst"},
+			},
+			view = {
+				view_type = "cube",
+				layer_count = 6,
+			},
+		}
+	)
+	
+	-- Create per-face views for source cubemap
+	probe.source_face_views = {}
+	for j = 0, 5 do
+		probe.source_face_views[j] = probe.source_cubemap:GetImage():CreateView(
+			{
+				view_type = "2d",
+				base_array_layer = j,
+				layer_count = 1,
+				base_mip_level = 0,
+				level_count = 1,
+			}
+		)
+	end
+	
+	-- Create per-face views for depth cubemap
+	probe.depth_face_views = {}
+	for j = 0, 5 do
+		probe.depth_face_views[j] = probe.depth_cubemap:GetImage():CreateView(
+			{
+				view_type = "2d",
+				base_array_layer = j,
+				layer_count = 1,
+				base_mip_level = 0,
+				level_count = 1,
+			}
+		)
+	end
+	
+	-- Create per-mip per-face views for output cubemap
+	local num_mips = probe.cubemap.mip_map_levels
+	probe.mip_face_views = {}
+	for m = 0, num_mips - 1 do
+		probe.mip_face_views[m] = {}
+		for j = 0, 5 do
+			probe.mip_face_views[m][j] = probe.cubemap:GetImage():CreateView(
+				{
+					view_type = "2d",
+					base_array_layer = j,
+					layer_count = 1,
+					base_mip_level = m,
+					level_count = 1,
+				}
+			)
+		end
+	end
+	
+	return probe
+end
+
+-- Create the environment probe (index 0)
+function reflection_probe.CreateEnvironmentProbe(position)
+	local probe = CreateProbeTextures(reflection_probe.ENVIRONMENT_SIZE)
+	probe.type = reflection_probe.TYPE_ENVIRONMENT
+	probe.update_mode = reflection_probe.UPDATE_DYNAMIC
+	probe.position = position or Vec3(0, 0, 0)
+	probe.size = reflection_probe.ENVIRONMENT_SIZE
+	probe.needs_update = true
+	
+	reflection_probe.probes[0] = probe
+	reflection_probe.environment_probe = probe
+	
+	return probe
+end
+
+-- Create a scene probe
+function reflection_probe.CreateSceneProbe(position, update_mode)
+	local probe = CreateProbeTextures(reflection_probe.SCENE_SIZE)
+	probe.type = reflection_probe.TYPE_SCENE
+	probe.update_mode = update_mode or reflection_probe.UPDATE_STATIC
+	probe.position = position
+	probe.size = reflection_probe.SCENE_SIZE
+	probe.needs_update = true
+	
+	-- Find next available index (starting from 1)
+	local index = 1
+	while reflection_probe.probes[index] do
+		index = index + 1
+	end
+	
+	reflection_probe.probes[index] = probe
+	return probe, index
+end
+
 function reflection_probe.Initialize()
-	if next(reflection_probe.probes) then return end
-
-	local SIZE = reflection_probe.SIZE
-
-	for i = 0, reflection_probe.PROBE_COUNT - 1 do
-		local probe = {}
-		reflection_probe.probes[i] = probe
-		-- Create the output cubemap (prefiltered, used for rendering)
-		probe.cubemap = Texture.New(
-			{
-				width = SIZE,
-				height = SIZE,
-				format = "b10g11r11_ufloat_pack32",
-				mip_map_levels = "auto",
-				image = {
-					array_layers = 6,
-					flags = {"cube_compatible"},
-					usage = {"color_attachment", "sampled", "transfer_src", "transfer_dst"},
-				},
-				view = {
-					view_type = "cube",
-					layer_count = 6,
-				},
-			}
-		)
-		-- Create source cubemap (raw scene render, before prefiltering)
-		probe.source_cubemap = Texture.New(
-			{
-				width = SIZE,
-				height = SIZE,
-				format = "b10g11r11_ufloat_pack32",
-				mip_map_levels = "auto",
-				image = {
-					array_layers = 6,
-					flags = {"cube_compatible"},
-					usage = {"color_attachment", "sampled", "transfer_src", "transfer_dst"},
-				},
-				view = {
-					view_type = "cube",
-					layer_count = 6,
-				},
-			}
-		)
-		-- Create depth cubemap (linear depth for parallax correction)
-		probe.depth_cubemap = Texture.New(
-			{
-				width = SIZE,
-				height = SIZE,
-				format = "r32_sfloat", -- Store linear depth as single float
-				mip_map_levels = 1,
-				image = {
-					array_layers = 6,
-					flags = {"cube_compatible"},
-					usage = {"color_attachment", "sampled", "transfer_src", "transfer_dst"},
-				},
-				view = {
-					view_type = "cube",
-					layer_count = 6,
-				},
-			}
-		)
-		-- Create per-face views for source cubemap
-		probe.source_face_views = {}
-
-		for j = 0, 5 do
-			probe.source_face_views[j] = probe.source_cubemap:GetImage():CreateView(
-				{
-					view_type = "2d",
-					base_array_layer = j,
-					layer_count = 1,
-					base_mip_level = 0,
-					level_count = 1,
-				}
-			)
-		end
-
-		-- Create per-face views for depth cubemap
-		probe.depth_face_views = {}
-
-		for j = 0, 5 do
-			probe.depth_face_views[j] = probe.depth_cubemap:GetImage():CreateView(
-				{
-					view_type = "2d",
-					base_array_layer = j,
-					layer_count = 1,
-					base_mip_level = 0,
-					level_count = 1,
-				}
-			)
-		end
-
-		-- Create per-mip per-face views for output cubemap
-		local num_mips = probe.cubemap.mip_map_levels
-		probe.mip_face_views = {}
-
-		for m = 0, num_mips - 1 do
-			probe.mip_face_views[m] = {}
-
-			for j = 0, 5 do
-				probe.mip_face_views[m][j] = probe.cubemap:GetImage():CreateView(
-					{
-						view_type = "2d",
-						base_array_layer = j,
-						layer_count = 1,
-						base_mip_level = m,
-						level_count = 1,
-					}
-				)
-			end
-		end
-
-		-- Set probe position in a grid
+	if reflection_probe.environment_probe then return end
+	
+	-- Create the environment probe first (index 0)
+	reflection_probe.CreateEnvironmentProbe(Vec3(0, 0, 0))
+	
+	-- Create scene probes in a grid
+	for i = 0, reflection_probe.SCENE_PROBE_COUNT - 1 do
 		local gx = i % reflection_probe.GRID_COUNTS.x
 		local gy = math.floor(i / reflection_probe.GRID_COUNTS.x) % reflection_probe.GRID_COUNTS.y
 		local gz = math.floor(i / (reflection_probe.GRID_COUNTS.x * reflection_probe.GRID_COUNTS.y))
-		probe.position = reflection_probe.GRID_ORIGIN + Vec3(
-				gx * reflection_probe.GRID_SPACING.x,
-				gy * reflection_probe.GRID_SPACING.y,
-				gz * reflection_probe.GRID_SPACING.z
-			)
+		local position = reflection_probe.GRID_ORIGIN + Vec3(
+			gx * reflection_probe.GRID_SPACING.x,
+			gy * reflection_probe.GRID_SPACING.y,
+			gz * reflection_probe.GRID_SPACING.z
+		)
+		reflection_probe.CreateSceneProbe(position, reflection_probe.UPDATE_STATIC)
 	end
-
+	
 	-- Create camera for probe rendering
 	reflection_probe.temp_camera = Camera3D.New()
 	reflection_probe.temp_camera:SetFOV(math.rad(90))
-	reflection_probe.temp_camera:SetViewport(Rect(0, 0, SIZE, SIZE))
+	reflection_probe.temp_camera:SetViewport(Rect(0, 0, reflection_probe.ENVIRONMENT_SIZE, reflection_probe.ENVIRONMENT_SIZE))
 	reflection_probe.temp_camera:SetNearZ(0.1)
 	reflection_probe.temp_camera:SetFarZ(1000)
-	-- Create pipeline for rendering scene to probe
+	
+	-- Create pipelines
 	reflection_probe.CreatePipelines()
+	
 	-- Create fence for synchronization
 	reflection_probe.fence = Fence.New(render.GetDevice())
+	
 	-- Initialize cubemap layouts
 	reflection_probe.InitializeCubemapLayouts()
+	
+	-- Set the environment texture in render3d
+	render3d.SetEnvironmentTexture(reflection_probe.environment_probe.cubemap)
 end
 
 -- Initialize all cubemap faces to shader_read_only_optimal layout
 function reflection_probe.InitializeCubemapLayouts()
 	local cmd = render.GetCommandPool():AllocateCommandBuffer()
 	cmd:Begin()
-
-	for i = 0, reflection_probe.PROBE_COUNT - 1 do
-		local probe = reflection_probe.probes[i]
+	
+	for index, probe in pairs(reflection_probe.probes) do
 		-- Transition source cubemap to shader_read_only_optimal
 		cmd:PipelineBarrier(
 			{
@@ -242,7 +302,7 @@ function reflection_probe.InitializeCubemapLayouts()
 			}
 		)
 	end
-
+	
 	cmd:End()
 	render.GetQueue():SubmitAndWait(render.GetDevice(), cmd, reflection_probe.fence)
 	render.GetCommandPool():FreeCommandBuffer(cmd)
@@ -251,18 +311,16 @@ end
 function reflection_probe.CreatePipelines()
 	local EasyPipeline = require("render.easy_pipeline")
 	local orientation = require("render3d.orientation")
-	local skybox = require("render3d.skybox")
 	local Material = require("render3d.material")
 	local Light = require("components.light")
+	
 	-- Pipeline to render the scene into a cubemap face
-	-- This is similar to the fill pipeline but outputs to a single color attachment
-	-- and includes basic lighting so reflections look correct
 	reflection_probe.scene_pipeline = EasyPipeline.New(
 		{
 			color_format = {
 				{"b10g11r11_ufloat_pack32", {"color", "rgba"}},
 				{"r32_sfloat", {"linear_depth", "r"}},
-			}, -- Color + linear depth
+			},
 			depth_format = "d32_sfloat",
 			samples = "1",
 			color_blend = {
@@ -350,7 +408,7 @@ function reflection_probe.CreatePipelines()
 								"stars_texture_index",
 								"int",
 								function(self, block, key)
-									block[key] = self:GetTextureIndex(skybox.stars_texture)
+									block[key] = self:GetTextureIndex(atmosphere.GetStarsTexture())
 								end,
 							},
 							{
@@ -358,7 +416,6 @@ function reflection_probe.CreatePipelines()
 								"vec4",
 								function(self, block, key)
 									local lights = render3d.GetLights()
-
 									if lights[1] then
 										lights[1]:GetRotation():GetBackward():CopyToFloatPointer(block[key])
 									end
@@ -439,7 +496,7 @@ function reflection_probe.CreatePipelines()
 				},
 				shader = [[
                 ]] .. Material.BuildGlslFlags("pc.model.Flags") .. [[
-                ]] .. skybox.GetGLSLCode() .. [[
+                ]] .. atmosphere.GetGLSLCode() .. [[
                 
                 #define PI 3.14159265359
                 #define saturate(x) clamp(x, 0.0, 1.0)
@@ -524,7 +581,7 @@ function reflection_probe.CreatePipelines()
                         vec3 sky_color_output;
                         vec3 dir = normalize(in_position - probe_data.camera_position.xyz);
                         vec3 sunDir = normalize(probe_data.sun_direction.xyz);
-                        ]] .. skybox.GetGLSLMainCode(
+                        ]] .. atmosphere.GetGLSLMainCode(
 						"dir",
 						"sunDir",
 						"probe_data.camera_position.xyz",
@@ -547,7 +604,6 @@ function reflection_probe.CreatePipelines()
 				discard = false,
 				polygon_mode = "fill",
 				line_width = 1.0,
-				-- Inverted culling for cubemap rendering (faces are viewed from inside)
 				cull_mode = "front",
 				front_face = orientation.FRONT_FACE,
 				depth_bias = 0,
@@ -562,13 +618,14 @@ function reflection_probe.CreatePipelines()
 			},
 		}
 	)
-	-- Sky-only pipeline (for background where no geometry exists)
+	
+	-- Sky-only pipeline (for environment probe and scene probe backgrounds)
 	reflection_probe.sky_pipeline = EasyPipeline.New(
 		{
 			color_format = {
 				{"b10g11r11_ufloat_pack32", {"color", "rgba"}},
 				{"r32_sfloat", {"linear_depth", "r"}},
-			}, -- Color + depth
+			},
 			samples = "1",
 			color_blend = {
 				attachments = {
@@ -617,7 +674,7 @@ function reflection_probe.CreatePipelines()
 								"stars_texture_index",
 								"int",
 								function(self, block, key)
-									block[key] = self:GetTextureIndex(skybox.stars_texture)
+									block[key] = self:GetTextureIndex(atmosphere.GetStarsTexture())
 								end,
 							},
 							{
@@ -625,7 +682,6 @@ function reflection_probe.CreatePipelines()
 								"vec4",
 								function(self, block, key)
 									local lights = render3d.GetLights()
-
 									if lights[1] then
 										lights[1]:GetRotation():GetBackward():CopyToFloatPointer(block[key])
 									end
@@ -643,12 +699,12 @@ function reflection_probe.CreatePipelines()
 				},
 				custom_declarations = [[
                 layout(location = 0) in vec3 in_direction;
-                ]] .. skybox.GetGLSLCode() .. [[
+                ]] .. atmosphere.GetGLSLCode() .. [[
             ]],
 				shader = [[
                 void main() {
                     vec3 sky_color_output;
-                    ]] .. skybox.GetGLSLMainCode(
+                    ]] .. atmosphere.GetGLSLMainCode(
 						"in_direction",
 						"pc.fragment.sun_direction.xyz",
 						"pc.fragment.camera_position.xyz",
@@ -657,7 +713,7 @@ function reflection_probe.CreatePipelines()
                     // Clamp sky to prevent infinities
                     sky_color_output = clamp(sky_color_output, vec3(0.0), vec3(65504.0));
                     set_color(vec4(sky_color_output, 1.0));
-                    // Sky is at infinite distance, use a large value (camera far plane)
+                    // Sky is at infinite distance
                     set_linear_depth(1000.0);
                 }
             ]],
@@ -671,7 +727,8 @@ function reflection_probe.CreatePipelines()
 			},
 		}
 	)
-	-- Prefilter pipeline (same as skybox prefilter)
+	
+	-- Prefilter pipeline for IBL
 	reflection_probe.prefilter_pipeline = EasyPipeline.New(
 		{
 			color_format = {{"b10g11r11_ufloat_pack32", {"color", "rgba"}}},
@@ -724,8 +781,16 @@ function reflection_probe.CreatePipelines()
 								"input_texture_index",
 								"int",
 								function(self, block, key)
-									local probe = reflection_probe.probes[reflection_probe.current_probe_index]
+									local probe = reflection_probe.current_prefilter_probe
 									block[key] = self:GetTextureIndex(probe.source_cubemap)
+								end,
+							},
+							{
+								"resolution",
+								"float",
+								function(self, block, key)
+									local probe = reflection_probe.current_prefilter_probe
+									block[key] = probe.size
 								end,
 							},
 						},
@@ -787,7 +852,6 @@ function reflection_probe.CreatePipelines()
                     vec3 prefilteredColor = vec3(0.0);
                     float roughness = clamp(pc.fragment.roughness, 0.0, 1.0);
 
-                    // For very low roughness (mirror-like), just sample the cubemap directly
                     if (roughness < 0.001) {
                         prefilteredColor = textureLod(CUBEMAP(pc.fragment.input_texture_index), N, 0.0).rgb;
                         set_color(vec4(prefilteredColor, 1.0));
@@ -806,7 +870,7 @@ function reflection_probe.CreatePipelines()
                             float D = D_GGX(NoH, roughness);
                             float pdf = max((D * NoH / (4.0 * VoH)), 0.0001);
 
-                            float resolution = ]] .. tostring(reflection_probe.SIZE) .. [[.0;
+                            float resolution = pc.fragment.resolution;
                             float saSample = 1.0 / (float(SAMPLE_COUNT) * pdf);
                             float saTexel  = 4.0 * PI / (6.0 * resolution * resolution);
 
@@ -814,7 +878,6 @@ function reflection_probe.CreatePipelines()
                             float lod = clamp(0.5 * log2(mipBias), 0.0, 8.0);
 
                             vec3 sampledColor = textureLod(CUBEMAP(pc.fragment.input_texture_index), L, lod).rgb;
-                            // Clamp to prevent infinities
                             sampledColor = min(sampledColor, vec3(65504.0));
                             
                             prefilteredColor += sampledColor * NoL;
@@ -822,15 +885,12 @@ function reflection_probe.CreatePipelines()
                         }
                     }
                     
-                    // Prevent division by zero
                     if (totalWeight > 0.0001) {
                         prefilteredColor /= totalWeight;
                     } else {
-                        // Fallback: just sample the cubemap directly
                         prefilteredColor = textureLod(CUBEMAP(pc.fragment.input_texture_index), N, 0.0).rgb;
                     }
                     
-                    // Final clamp to prevent NaN/Inf
                     prefilteredColor = clamp(prefilteredColor, vec3(0.0), vec3(65504.0));
                     set_color(vec4(prefilteredColor, 1.0));
                 }
@@ -858,19 +918,22 @@ end
 
 function reflection_probe.UploadConstants(cmd)
 	if reflection_probe.scene_pipeline then
-		-- Inverted culling for cubemap rendering
 		cmd:SetCullMode(render3d.GetMaterial():GetDoubleSided() and "none" or "front")
 		reflection_probe.scene_pipeline:UploadConstants(cmd)
 	end
 end
 
 -- Create depth buffer for probe rendering
-function reflection_probe.GetOrCreateDepthBuffer()
-	if not reflection_probe.depth_buffer then
-		reflection_probe.depth_buffer = Texture.New(
+function reflection_probe.GetOrCreateDepthBuffer(size)
+	if not reflection_probe.depth_buffers then
+		reflection_probe.depth_buffers = {}
+	end
+	
+	if not reflection_probe.depth_buffers[size] then
+		reflection_probe.depth_buffers[size] = Texture.New(
 			{
-				width = reflection_probe.SIZE,
-				height = reflection_probe.SIZE,
+				width = size,
+				height = size,
 				format = "d32_sfloat",
 				image = {
 					usage = {"depth_stencil_attachment"},
@@ -882,32 +945,57 @@ function reflection_probe.GetOrCreateDepthBuffer()
 			}
 		)
 	end
-
-	return reflection_probe.depth_buffer
+	
+	return reflection_probe.depth_buffers[size]
 end
 
--- Render one or more faces of the probe cubemap
-function reflection_probe.RenderFaces(cmd, num_faces)
+-- Check if sun direction has changed significantly
+function reflection_probe.HasSunDirectionChanged()
+	local lights = render3d.GetLights()
+	if not lights[1] then return false end
+	
+	local current_sun_dir = lights[1]:GetRotation():GetBackward()
+	
+	if not reflection_probe.last_sun_direction then
+		reflection_probe.last_sun_direction = current_sun_dir:Copy()
+		return true
+	end
+	
+	local diff = (current_sun_dir - reflection_probe.last_sun_direction):GetLength()
+	if diff > 0.001 then
+		reflection_probe.last_sun_direction = current_sun_dir:Copy()
+		return true
+	end
+	
+	return false
+end
+
+-- Render faces for a specific probe
+function reflection_probe.RenderProbeFaces(cmd, probe, num_faces, render_geometry)
 	if not reflection_probe.enabled then return end
-
-	if not reflection_probe.scene_pipeline then return end
-
-	num_faces = num_faces or reflection_probe.UPDATE_FACES_PER_FRAME
-	local SIZE = reflection_probe.SIZE
-	local probe = reflection_probe.probes[reflection_probe.current_probe_index]
+	if not reflection_probe.sky_pipeline then return end
+	
+	num_faces = num_faces or 1
+	local SIZE = probe.size
+	
 	reflection_probe.temp_camera:SetPosition(probe.position)
-	local depth_tex = reflection_probe.GetOrCreateDepthBuffer()
-
+	reflection_probe.temp_camera:SetViewport(Rect(0, 0, SIZE, SIZE))
+	
+	local depth_tex = reflection_probe.GetOrCreateDepthBuffer(SIZE)
+	
 	for _ = 1, num_faces do
 		local face_idx = reflection_probe.current_face
+		
 		-- Set camera rotation for this face
 		reflection_probe.temp_camera:SetAngles(face_angles[face_idx + 1])
+		
 		-- Calculate inverse projection-view for sky rendering
 		local proj = reflection_probe.temp_camera:BuildProjectionMatrix()
 		local view = reflection_probe.temp_camera:BuildViewMatrix():Copy()
 		view.m30, view.m31, view.m32 = 0, 0, 0
 		local proj_view = view * proj
 		proj_view:GetInverse(reflection_probe.inv_projection_view)
+		
 		-- Transition source face to color attachment
 		cmd:PipelineBarrier(
 			{
@@ -928,7 +1016,8 @@ function reflection_probe.RenderFaces(cmd, num_faces)
 				},
 			}
 		)
-		-- Transition depth face to color attachment (stores linear depth as r32_sfloat)
+		
+		-- Transition depth face to color attachment
 		cmd:PipelineBarrier(
 			{
 				srcStage = "fragment_shader",
@@ -948,23 +1037,7 @@ function reflection_probe.RenderFaces(cmd, num_faces)
 				},
 			}
 		)
-		-- Transition depth to depth attachment
-		cmd:PipelineBarrier(
-			{
-				srcStage = "top_of_pipe",
-				dstStage = {"early_fragment_tests", "late_fragment_tests"},
-				imageBarriers = {
-					{
-						image = depth_tex:GetImage(),
-						oldLayout = "undefined",
-						newLayout = "depth_attachment_optimal",
-						srcAccessMask = "none",
-						dstAccessMask = "depth_stencil_attachment_write",
-						aspect = "depth",
-					},
-				},
-			}
-		)
+		
 		-- First render sky background
 		cmd:BeginRendering(
 			{
@@ -977,7 +1050,7 @@ function reflection_probe.RenderFaces(cmd, num_faces)
 					},
 					{
 						color_image_view = probe.depth_face_views[face_idx],
-						clear_color = {1000, 0, 0, 0}, -- Clear to far distance
+						clear_color = {1000, 0, 0, 0},
 						load_op = "clear",
 						store_op = "store",
 					},
@@ -993,34 +1066,55 @@ function reflection_probe.RenderFaces(cmd, num_faces)
 		reflection_probe.sky_pipeline:UploadConstants(cmd)
 		cmd:Draw(3, 1, 0, 0)
 		cmd:EndRendering()
-		-- Now render scene geometry on top
-		cmd:BeginRendering(
-			{
-				color_attachments = {
-					{
-						color_image_view = probe.source_face_views[face_idx],
-						load_op = "load", -- Keep the sky
-						store_op = "store",
+		
+		-- Render scene geometry if requested (for scene probes)
+		if render_geometry and reflection_probe.scene_pipeline then
+			-- Transition depth to depth attachment
+			cmd:PipelineBarrier(
+				{
+					srcStage = "top_of_pipe",
+					dstStage = {"early_fragment_tests", "late_fragment_tests"},
+					imageBarriers = {
+						{
+							image = depth_tex:GetImage(),
+							oldLayout = "undefined",
+							newLayout = "depth_attachment_optimal",
+							srcAccessMask = "none",
+							dstAccessMask = "depth_stencil_attachment_write",
+							aspect = "depth",
+						},
 					},
-					{
-						color_image_view = probe.depth_face_views[face_idx],
-						load_op = "load", -- Keep sky depth
-						store_op = "store",
+				}
+			)
+			
+			cmd:BeginRendering(
+				{
+					color_attachments = {
+						{
+							color_image_view = probe.source_face_views[face_idx],
+							load_op = "load",
+							store_op = "store",
+						},
+						{
+							color_image_view = probe.depth_face_views[face_idx],
+							load_op = "load",
+							store_op = "store",
+						},
 					},
-				},
-				depth_image_view = depth_tex:GetView(),
-				clear_depth = 1.0,
-				depth_store = false,
-				w = SIZE,
-				h = SIZE,
-			}
-		)
-		cmd:SetViewport(0, 0, SIZE, SIZE)
-		cmd:SetScissor(0, 0, SIZE, SIZE)
-		-- Bind scene pipeline and draw geometry
-		reflection_probe.scene_pipeline:Bind(cmd, 1)
-		event.Call("DrawProbeGeometry", cmd, reflection_probe)
-		cmd:EndRendering()
+					depth_image_view = depth_tex:GetView(),
+					clear_depth = 1.0,
+					depth_store = false,
+					w = SIZE,
+					h = SIZE,
+				}
+			)
+			cmd:SetViewport(0, 0, SIZE, SIZE)
+			cmd:SetScissor(0, 0, SIZE, SIZE)
+			reflection_probe.scene_pipeline:Bind(cmd, 1)
+			event.Call("DrawProbeGeometry", cmd, reflection_probe)
+			cmd:EndRendering()
+		end
+		
 		-- Transition source face to shader read
 		cmd:PipelineBarrier(
 			{
@@ -1041,6 +1135,7 @@ function reflection_probe.RenderFaces(cmd, num_faces)
 				},
 			}
 		)
+		
 		-- Transition depth face to shader read
 		cmd:PipelineBarrier(
 			{
@@ -1061,35 +1156,38 @@ function reflection_probe.RenderFaces(cmd, num_faces)
 				},
 			}
 		)
-		-- Advance to next face
+		
 		reflection_probe.current_face = (reflection_probe.current_face + 1) % 6
 	end
 end
 
 -- Prefilter the source cubemap into the output cubemap with roughness mips
-function reflection_probe.PrefilterCubemap(cmd)
+function reflection_probe.PrefilterProbe(cmd, probe)
 	if not reflection_probe.prefilter_pipeline then return end
-
-	local SIZE = reflection_probe.SIZE
-	local probe = reflection_probe.probes[reflection_probe.current_probe_index]
+	
+	local SIZE = probe.size
 	local num_mips = probe.cubemap.mip_map_levels
-	-- First generate mipmaps for source cubemap
+	
+	-- Set current probe for prefiltering
+	reflection_probe.current_prefilter_probe = probe
+	
+	-- Generate mipmaps for source cubemap
 	probe.source_cubemap:GenerateMipmaps("shader_read_only_optimal", cmd)
-
+	
 	-- For each mip level, render prefiltered version
 	for m = 0, num_mips - 1 do
 		local perceptual_roughness = m / math.max(num_mips - 1, 1)
 		reflection_probe.current_roughness = perceptual_roughness
 		local mip_size = math.max(1, math.floor(SIZE / (2 ^ m)))
-
+		
 		for face = 0, 5 do
-			-- Set camera for this face
 			reflection_probe.temp_camera:SetAngles(face_angles[face + 1])
 			local proj = reflection_probe.temp_camera:BuildProjectionMatrix()
 			local view = reflection_probe.temp_camera:BuildViewMatrix():Copy()
 			view.m30, view.m31, view.m32 = 0, 0, 0
 			local proj_view = view * proj
 			proj_view:GetInverse(reflection_probe.inv_projection_view)
+			
 			-- Transition output face/mip to color attachment
 			cmd:PipelineBarrier(
 				{
@@ -1110,6 +1208,7 @@ function reflection_probe.PrefilterCubemap(cmd)
 					},
 				}
 			)
+			
 			cmd:BeginRendering(
 				{
 					color_image_view = probe.mip_face_views[m][face],
@@ -1125,6 +1224,7 @@ function reflection_probe.PrefilterCubemap(cmd)
 			reflection_probe.prefilter_pipeline:UploadConstants(cmd)
 			cmd:Draw(3, 1, 0, 0)
 			cmd:EndRendering()
+			
 			-- Transition to shader read
 			cmd:PipelineBarrier(
 				{
@@ -1149,16 +1249,40 @@ function reflection_probe.PrefilterCubemap(cmd)
 	end
 end
 
--- Full update: render all 6 faces then prefilter
-function reflection_probe.FullUpdate(cmd)
-	reflection_probe.RenderFaces(cmd, 6)
-	reflection_probe.PrefilterCubemap(cmd)
+-- Update the environment probe (called every frame if sun changed)
+function reflection_probe.UpdateEnvironmentProbe(cmd)
+	if not reflection_probe.environment_probe then return end
+	
+	local env_probe = reflection_probe.environment_probe
+	
+	-- Only update if sun direction changed
+	if not reflection_probe.HasSunDirectionChanged() and not env_probe.needs_update then
+		return
+	end
+	
+	-- Save current face and render all 6 faces for environment
+	local saved_face = reflection_probe.current_face
+	reflection_probe.current_face = 0
+	
+	-- Environment probe only renders sky (no geometry)
+	reflection_probe.RenderProbeFaces(cmd, env_probe, 6, false)
+	
+	-- Prefilter the environment probe
+	reflection_probe.PrefilterProbe(cmd, env_probe)
+	
+	reflection_probe.current_face = saved_face
+	env_probe.needs_update = false
 end
 
--- Get the output cubemap texture (prefiltered, ready for use in lighting)
+-- Get the output cubemap texture (prefiltered)
 function reflection_probe.GetCubemap(index)
 	local probe = reflection_probe.probes[index or 0]
 	return probe and probe.cubemap
+end
+
+-- Get the environment cubemap specifically
+function reflection_probe.GetEnvironmentCubemap()
+	return reflection_probe.environment_probe and reflection_probe.environment_probe.cubemap
 end
 
 -- Get the raw source cubemap (before prefiltering)
@@ -1190,6 +1314,15 @@ function reflection_probe.IsEnabled()
 	return reflection_probe.enabled
 end
 
+-- Compatibility with old skybox API
+function reflection_probe.SetStarsTexture(texture)
+	atmosphere.SetStarsTexture(texture)
+end
+
+function reflection_probe.GetStarsTexture()
+	return atmosphere.GetStarsTexture()
+end
+
 -- Event listeners for integration
 event.AddListener("Render3DInitialized", "reflection_probe", function()
 	reflection_probe.Initialize()
@@ -1198,17 +1331,36 @@ end)
 -- Incremental update each frame
 event.AddListener("PreRenderPass", "reflection_probe_update", function(cmd)
 	if not reflection_probe.enabled then return end
-
-	if not reflection_probe.scene_pipeline then return end
-
-	-- Render one face per frame
-	reflection_probe.RenderFaces(cmd, reflection_probe.UPDATE_FACES_PER_FRAME)
-
-	-- When we complete a full cycle (back to face 0), prefilter
-	if reflection_probe.current_face == 0 then
-		reflection_probe.PrefilterCubemap(cmd)
-		-- Move to next probe
-		reflection_probe.current_probe_index = (reflection_probe.current_probe_index + 1) % reflection_probe.PROBE_COUNT
+	if not reflection_probe.sky_pipeline then return end
+	
+	-- Update environment probe first (if sun changed)
+	reflection_probe.UpdateEnvironmentProbe(cmd)
+	
+	-- Then update scene probes incrementally
+	local scene_probe_index = reflection_probe.current_scene_probe_index
+	local scene_probe = reflection_probe.probes[scene_probe_index]
+	
+	if scene_probe and scene_probe.type == reflection_probe.TYPE_SCENE then
+		-- Only update if the probe needs it (static probes only update once)
+		if scene_probe.needs_update or scene_probe.update_mode == reflection_probe.UPDATE_DYNAMIC then
+			reflection_probe.RenderProbeFaces(cmd, scene_probe, reflection_probe.UPDATE_FACES_PER_FRAME, true)
+			
+			-- When we complete a full cycle (back to face 0), prefilter and move to next probe
+			if reflection_probe.current_face == 0 then
+				reflection_probe.PrefilterProbe(cmd, scene_probe)
+				scene_probe.needs_update = false
+				
+				-- Move to next scene probe
+				repeat
+					scene_probe_index = scene_probe_index + 1
+					if scene_probe_index > reflection_probe.SCENE_PROBE_COUNT then
+						scene_probe_index = 1
+					end
+				until reflection_probe.probes[scene_probe_index] or scene_probe_index == reflection_probe.current_scene_probe_index
+				
+				reflection_probe.current_scene_probe_index = scene_probe_index
+			end
+		end
 	end
 end)
 

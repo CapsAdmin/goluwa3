@@ -2,7 +2,7 @@ local Vec3 = require("structs.vec3")
 local Color = require("structs.color")
 local Quat = require("structs.quat")
 local render3d = require("render3d.render3d")
-local skybox = require("render3d.skybox")
+local reflection_probe = require("render3d.reflection_probe")
 local Material = require("render3d.material")
 local Texture = require("render.texture")
 local materials = {}
@@ -256,18 +256,25 @@ do
 			normal = "return vec4(0.5, 0.5, 1.0, 1.0);",
 		}
 	)
-	-- (2, 2) Smooth white
-	MATERIAL(
-		{
-			shared = shared,
-			albedo = "return vec4(1.0, 1.0, 1.0, 1.0);",
-			metal = "return vec4(0.0);",
-			roughness = "return vec4(2.0 / 3.0);",
-			normal = "return vec4(0.5, 0.5, 1.0, 1.0);",
-		}
-	)
 
-	for i = 1, 9 do
+	for M = 0, 1 do
+		for R = 0, 5 do
+			R = R / 5
+			MATERIAL(
+				{
+					shared = shared,
+					albedo = M == 1 and
+						"return vec4(0.91, 0.92, 0.92, 1.0);" or -- SILVER
+						"return vec4(1, 0.0, 0.0, 1.0);", -- PLASTIC
+					metal = "return vec4(" .. M .. ");",
+					roughness = "return vec4(" .. R .. ");",
+					normal = "return vec4(0.5, 0.5, 1.0, 1.0);",
+				}
+			)
+		end
+	end
+
+	for i = 1, #materials do
 		spawn()
 	end
 end
