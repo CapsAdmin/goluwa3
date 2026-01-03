@@ -424,7 +424,7 @@ render3d.fill_config = {
 				}
 
 				val *= pc.model.RoughnessMultiplier;
-				val = clamp(val, 0.05, 0.95)
+				val = clamp(val, 0.05, 0.95);
 				
 				return val;
 			}
