@@ -1079,7 +1079,7 @@ function reflection_probe.PrefilterCubemap(cmd)
 	-- For each mip level, render prefiltered version
 	for m = 0, num_mips - 1 do
 		local perceptual_roughness = m / math.max(num_mips - 1, 1)
-		reflection_probe.current_roughness = perceptual_roughness * perceptual_roughness
+		reflection_probe.current_roughness = perceptual_roughness
 		local mip_size = math.max(1, math.floor(SIZE / (2 ^ m)))
 
 		for face = 0, 5 do
