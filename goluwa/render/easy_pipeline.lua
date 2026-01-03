@@ -78,6 +78,20 @@ function EasyPipeline.New(config)
 		end
 	end
 
+	local function flatten_fields(fields, out)
+		out = out or {}
+
+		for _, field in ipairs(fields) do
+			if type(field[1]) == "table" then
+				flatten_fields(field, out)
+			else
+				table.insert(out, field)
+			end
+		end
+
+		return out
+	end
+
 	local function get_field_info(field)
 		local name = field[1]
 		local glsl_type = field[2]
@@ -261,6 +275,7 @@ function EasyPipeline.New(config)
 		-- Process push constants
 		if stage_config.push_constants then
 			for _, block in ipairs(stage_config.push_constants) do
+				block.block = flatten_fields(block.block)
 				local struct_name = block.name:sub(1, 1):upper() .. block.name:sub(2) .. "Constants"
 				local ffi_code = build_ffi_struct("scalar", block.block)
 				local ctype = ffi.typeof(ffi_code)
@@ -273,6 +288,7 @@ function EasyPipeline.New(config)
 		-- Process uniform buffers
 		if stage_config.uniform_buffers then
 			for _, block in ipairs(stage_config.uniform_buffers) do
+				block.block = flatten_fields(block.block)
 				local ffi_code = build_ffi_struct("scalar", block.block)
 				local glsl_fields = build_glsl_fields(block.block)
 				local ubo = UniformBuffer.New(ffi_code)
@@ -414,7 +430,7 @@ function EasyPipeline.New(config)
 				local field_info = get_field_info(field)
 
 				if field_info.callback then
-					local value = field_info.callback(ubo_data)
+					local value = field_info.callback(ubo_data, self)
 
 					if
 						value ~= nil and
