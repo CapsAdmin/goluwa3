@@ -1116,53 +1116,111 @@ render3d.lighting_config = {
 			vec3 get_ssao(vec2 uv, vec3 world_pos, vec3 N) {
 				if (lighting_data.ssao_noise_tex == -1) return vec3(1.0);
 
-				vec3 view_pos = (lighting_data.view * vec4(world_pos, 1.0)).xyz;
+				vec3 p = (lighting_data.view * vec4(world_pos, 1.0)).xyz;
+				vec3 V = normalize(-p);
 				vec3 view_normal = normalize(mat3(lighting_data.view) * N);
 
-				vec2 noise_scale = vec2(textureSize(TEXTURE(lighting_data.albedo_tex), 0)) / 64.0;
-				vec3 random_vec = texture(TEXTURE(lighting_data.ssao_noise_tex), uv * noise_scale).xyz;
-
-
-				float angle = fract(sin(dot(uv * 1000.0, vec2(12.9898, 78.233))) * 43758.5453) * 6.28318;
-				float c = cos(angle);
-				float s = sin(angle);
-				mat2 rotation = mat2(c, -s, s, c);
-				random_vec.xy = rotation * random_vec.xy;
-
-
-
-
-				vec3 tangent = normalize(random_vec - view_normal * dot(random_vec, view_normal));
-				vec3 bitangent = cross(view_normal, tangent);
-				mat3 TBN = mat3(tangent, bitangent, view_normal);
-
-				float occlusion = 0.0;
-				float bias = 0.1;
-				float steps = 64;
-
-		
+				ivec2 screen_size = textureSize(TEXTURE(lighting_data.depth_tex), 0);
+				vec2 vpos = uv * vec2(screen_size);
 				
-				for (int i = 0; i < int(steps); i++) {
-					float radius = float(i+2) / float(steps) * 4.5;
-					vec3 sample_pos = TBN * lighting_data.ssao_kernel[i].xyz;
-					sample_pos = view_pos + sample_pos * radius;
+				// Interleaved Gradient Noise for high-quality per-pixel jitter
+				float ign = fract(52.9829189 * fract(dot(vpos, vec2(0.06711056, 0.00583715))));
+				
+				float random_offset = ign;
+				float random_rotation = ign * 6.28318;
 
-					vec4 offset = vec4(sample_pos, 1.0);
-					offset = lighting_data.projection * offset;
-					offset.xyz /= offset.w;
-					offset.xyz = offset.xyz * 0.5 + 0.5;
+				float world_radius = 2.0;
+				// radius_uv = (world_radius * focal_length / -p.z) * 0.5
+				float screen_radius = (world_radius * lighting_data.projection[0][0]) / (-p.z * 2.0);
 
-					float sample_depth = texture(TEXTURE(lighting_data.depth_tex), offset.xy).r;
-					vec4 sample_clip_pos = vec4(offset.xy * 2.0 - 1.0, sample_depth, 1.0);
-					vec4 sample_view_pos = lighting_data.inv_projection * sample_clip_pos;
-					sample_view_pos /= sample_view_pos.w;
+				const int Nd = 4; // Slices
+				const int Ns = 12; // Steps per side
+				const uint Nb = 32;
+				float thickness = 0.1; 
+				float bias = 0.1;
 
-					float range_check = smoothstep(0.0, 1.0, radius / abs(view_pos.z - sample_view_pos.z));
-					occlusion += (sample_view_pos.z >= sample_pos.z + bias ? 1.0 : 0.0) * range_check;
+				float total_ao = 0.0;
+				float total_weight = 0.0;
+
+				for (int i = 0; i < Nd; i++) {
+					float angle = (float(i) / float(Nd)) * 3.14159 + random_rotation;
+					vec2 dir = vec2(cos(angle), sin(angle));
+					
+					vec4 dir_v = lighting_data.inv_projection * vec4(dir, 0.0, 0.0);
+					vec3 T_v = normalize(dir_v.xyz);
+					T_v = normalize(T_v - V * dot(T_v, V));
+
+					vec3 M = cross(V, T_v);
+					vec3 n_proj = view_normal - M * dot(view_normal, M);
+					float n_proj_len = length(n_proj);
+					
+					float weight = max(0.0, n_proj_len);
+					if (weight < 0.001) continue;
+					
+					float theta_n = atan(dot(n_proj, T_v), dot(n_proj, V));
+
+					uint bi = 0u;
+					for (int j = 0; j < Ns; j++) {
+						// Exponential stepping for better local detail
+						float o = (float(j) + random_offset) / float(Ns);
+						float step_dist = o * o * screen_radius;
+						
+						for (float side = -1.0; side <= 1.0; side += 2.0) {
+							if (side == 0.0) continue;
+							vec2 sample_uv = uv + dir * step_dist * side;
+							
+							if (sample_uv.x < 0.0 || sample_uv.x > 1.0 || sample_uv.y < 0.0 || sample_uv.y > 1.0) continue;
+
+							float sample_depth = texture(TEXTURE(lighting_data.depth_tex), sample_uv).r;
+							vec4 sample_clip_pos = vec4(sample_uv * 2.0 - 1.0, sample_depth, 1.0);
+							vec4 sample_view_pos = lighting_data.inv_projection * sample_clip_pos;
+							vec3 sf = sample_view_pos.xyz / sample_view_pos.w;
+							
+							vec3 v_f = sf - p;
+							float dist2 = dot(v_f, v_f);
+							
+							if (dist2 > world_radius * world_radius || dist2 < 0.0001) continue;
+							
+							float proj_T = dot(v_f, T_v);
+							float proj_V = dot(v_f, V);
+							
+							// Skip samples that are too close to the surface or behind it to avoid self-occlusion
+							if (proj_V < bias) continue;
+
+							float theta_f = atan(proj_T, proj_V);
+							// Thickness model: assume sample has a fixed thickness along the view vector
+							float theta_b = atan(proj_T, proj_V - thickness);
+							
+							float diff_f = theta_f - theta_n;
+							if (diff_f > 3.14159) diff_f -= 6.28318;
+							if (diff_f < -3.14159) diff_f += 6.28318;
+							
+							float diff_b = theta_b - theta_n;
+							if (diff_b > 3.14159) diff_b -= 6.28318;
+							if (diff_b < -3.14159) diff_b += 6.28318;
+
+							float theta_min = clamp(min(diff_f, diff_b), -1.5708, 1.5708);
+							float theta_max = clamp(max(diff_f, diff_b), -1.5708, 1.5708);
+							
+							uint a = uint(floor((theta_min + 1.5708) / 3.14159 * float(Nb)));
+							uint b = uint(ceil((theta_max + 1.5708) / 3.14159 * float(Nb)));
+							
+							a = clamp(a, 0u, Nb);
+							b = clamp(b, 0u, Nb);
+
+							if (b > a) {
+								uint count = b - a;
+								uint mask = (count >= 32u) ? 0xFFFFFFFFu : ((1u << count) - 1u) << a;
+								bi |= mask;
+							}
+						}
+					}
+					total_ao += (1.0 - float(bitCount(bi)) / float(Nb)) * weight;
+					total_weight += weight;
 				}
 
-				occlusion = 1.0 - (occlusion / steps);
-				return vec3(pow(occlusion, 1.5));
+				float ao = (total_weight > 0.001) ? (total_ao / total_weight) : 1.0;
+				return vec3(pow(clamp(ao, 0.0, 1.0), 2.5));
 			}
 
 			void main() {
