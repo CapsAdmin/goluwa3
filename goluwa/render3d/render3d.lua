@@ -162,6 +162,7 @@ render3d.fill_config = {
 			{"position", "vec3", "r32g32b32_sfloat"},
 			{"normal", "vec3", "r32g32b32_sfloat"},
 			{"uv", "vec2", "r32g32_sfloat"},
+			{"tangent", "vec4", "r32g32b32a32_sfloat"},
 		},
 		push_constants = {
 			{
@@ -189,6 +190,7 @@ render3d.fill_config = {
 				gl_Position = pc.vertex.projection_view_world * vec4(in_position, 1.0);
 				out_position = (pc.vertex.world * vec4(in_position, 1.0)).xyz;						
 				out_normal = normalize(mat3(pc.vertex.world) * in_normal);
+				out_tangent = vec4(normalize(mat3(pc.vertex.world) * in_tangent.xyz), in_tangent.w);
 				out_uv = in_uv;
 			}
 		]],
@@ -345,16 +347,10 @@ render3d.fill_config = {
 				} else {
 					vec3 tangent_normal = texture(TEXTURE(pc.model.NormalTexture), in_uv).xyz * 2.0 - 1.0;
 					
-					// Calculate TBN matrix on the fly
-					vec3 Q1 = dFdx(in_position);
-					vec3 Q2 = dFdy(in_position);
-					vec2 st1 = dFdx(in_uv);
-					vec2 st2 = dFdy(in_uv);
-
-					vec3 N_orig = normalize(in_normal);
-					vec3 T = normalize(Q1 * st2.t - Q2 * st1.t);
-					vec3 B = -normalize(cross(N_orig, T));
-					mat3 TBN = mat3(T, B, N_orig);
+					vec3 normal = normalize(in_normal);
+					vec3 tangent = normalize(in_tangent.xyz);
+					vec3 bitangent = cross(normal, tangent) * in_tangent.w;
+					mat3 TBN = mat3(tangent, bitangent, normal);
 
 					N = TBN * tangent_normal;
 				}

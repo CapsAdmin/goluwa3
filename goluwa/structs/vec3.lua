@@ -41,4 +41,5 @@ end
 
 if GRAPHICS then META.ToScreen = math3d.WorldPositionToScreen end
 
+META.Dot = META.GetDot
 return structs.Register(META)

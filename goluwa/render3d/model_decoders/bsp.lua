@@ -804,7 +804,7 @@ function steam.LoadMap(path)
 			tasks.Wait()
 		end
 
-		for i, mesh in ipairs(models) do
+		for _, mesh in ipairs(models) do
 			mesh:BuildBoundingBox()
 			tasks.Wait()
 		end
@@ -817,6 +817,7 @@ function steam.LoadMap(path)
 		end
 
 		for _, mesh in ipairs(models) do
+			mesh:BuildTangents()
 			mesh:Upload()
 			tasks.ReportProgress("creating meshes", #models)
 			tasks.Wait()
