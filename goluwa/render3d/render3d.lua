@@ -194,24 +194,6 @@ render3d.fill_config = {
 		]],
 	},
 	fragment = {
-		custom_declarations = [[
-		]],
-		descriptor_sets = {
-			{
-				type = "uniform_buffer",
-				binding_index = 2,
-				args = function()
-					return {Light.GetUBO()}
-				end,
-			},
-		},
-		uniform_buffers = {
-			{
-				name = "debug_data",
-				binding_index = 3,
-				block = debug_block,
-			},
-		},
 		push_constants = {
 			{
 				name = "model",
