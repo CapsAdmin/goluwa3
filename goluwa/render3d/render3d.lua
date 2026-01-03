@@ -248,6 +248,14 @@ render3d.fill_config = {
 				return texture(TEXTURE(pc.model.AlbedoTexture), in_uv).a * pc.model.ColorMultiplier.a;
 			}
 
+			void compute_translucency(inout float alpha) {
+				if (AlphaTest) {
+					if (alpha < pc.model.AlphaCutoff) discard;
+				} else if (Translucent) {
+					if (fract(dot(vec2(171.0, 231.0) + alpha * 0.00001, gl_FragCoord.xy) / 103.0) > (alpha * alpha)) discard;
+				}
+			}
+
 			vec3 get_normal() {
 				vec3 N;
 				if (pc.model.NormalTexture == -1) {
@@ -338,11 +346,7 @@ render3d.fill_config = {
 			void main() {
 				float alpha = get_alpha();
 
-				if (AlphaTest) {
-					if (alpha < pc.model.AlphaCutoff) discard;
-				} else if (Translucent) {
-					if (fract(dot(vec2(171.0, 231.0) + alpha * 0.00001, gl_FragCoord.xy) / 103.0) > (alpha * alpha)) discard;
-				}
+				compute_translucency(alpha);
 
 				set_albedo(vec4(get_albedo(), alpha));
 				set_normal(get_normal());
