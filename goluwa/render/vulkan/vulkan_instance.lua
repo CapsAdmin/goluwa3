@@ -88,7 +88,6 @@ function VulkanInstance.New(surface_handle, display_handle)
 	local device_name = ffi.string(props.deviceName)
 	self.graphics_queue_family = self.physical_device:FindGraphicsQueueFamily(self.surface)
 	local device_extensions = {
-		"VK_EXT_conditional_rendering",
 		"VK_EXT_scalar_block_layout",
 	}
 

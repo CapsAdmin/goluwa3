@@ -224,9 +224,9 @@ function EasyPipeline.New(config)
 	end
 
 	local function build_ffi_struct(layout, fields)
-		local ffi_code = "struct __attribute__((packed, aligned(16))) {\n"
+		local max_alignment = (layout == "scalar") and 4 or 16
+		local ffi_code = string.format("struct __attribute__((packed, aligned(%d))) {\n", max_alignment)
 		local current_offset = 0
-		local max_alignment = 16
 
 		for _, field in ipairs(fields) do
 			local info = get_field_info(field)

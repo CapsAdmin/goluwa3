@@ -39,20 +39,16 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 		table.insert(finalExtensions, "VK_EXT_scalar_block_layout")
 	end
 
-	-- Query available features if extension is present
-	local pNextChain = nil
-
-	if table.has_value(available_extensions, "VK_EXT_scalar_block_layout") then
-		local scalarBlockLayoutFeatures = vulkan.vk.VkPhysicalDeviceScalarBlockLayoutFeaturesEXT(
-			{
-				sType = vulkan.vk.VkStructureType.VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SCALAR_BLOCK_LAYOUT_FEATURES_EXT,
-				pNext = pNextChain,
-				scalarBlockLayout = 1,
-			}
-		)
-		pNextChain = scalarBlockLayoutFeatures
+	if table.has_value(available_extensions, "VK_EXT_conditional_rendering") then
+		table.insert(finalExtensions, "VK_EXT_conditional_rendering")
 	end
 
+	-- Query available features if extension is present
+	local pNextChain = nil
+	-- Note: VK_EXT_scalar_block_layout was promoted to Vulkan 1.2
+	-- The scalarBlockLayout feature is now enabled via VkPhysicalDeviceVulkan12Features
+	-- We should NOT add VkPhysicalDeviceScalarBlockLayoutFeaturesEXT to the pNext chain
+	-- when using VkPhysicalDeviceVulkan12Features as they conflict
 	local hasDynamicRenderingFeatures = physical_device:GetDynamicRenderingFeatures()
 	-- Extended dynamic state 3 features are always enabled when available
 	local has_extended_dynamic_state3 = table.has_value(available_extensions, "VK_EXT_extended_dynamic_state3")

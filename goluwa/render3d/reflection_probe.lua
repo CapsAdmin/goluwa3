@@ -423,11 +423,38 @@ function reflection_probe.CreatePipelines()
 							},
 						},
 					},
-				},
-				push_constants = {
 					{
-						name = "model",
+						name = "material",
+						binding_index = 4,
 						block = {
+							{
+								"ColorMultiplier",
+								"vec4",
+								function(self, block, key)
+									render3d.GetMaterial():GetColorMultiplier():CopyToFloatPointer(block[key])
+								end,
+							},
+							{
+								"EmissiveMultiplier",
+								"vec4",
+								function(self, block, key)
+									render3d.GetMaterial():GetEmissiveMultiplier():CopyToFloatPointer(block[key])
+								end,
+							},
+							{
+								"MetallicMultiplier",
+								"float",
+								function(self, block, key)
+									block[key] = render3d.GetMaterial():GetMetallicMultiplier()
+								end,
+							},
+							{
+								"RoughnessMultiplier",
+								"float",
+								function(self, block, key)
+									block[key] = render3d.GetMaterial():GetRoughnessMultiplier()
+								end,
+							},
 							{
 								"Flags",
 								"int",
@@ -463,62 +490,34 @@ function reflection_probe.CreatePipelines()
 									block[key] = self:GetTextureIndex(render3d.GetMaterial():GetEmissiveTexture())
 								end,
 							},
-							{
-								"ColorMultiplier",
-								"vec4",
-								function(self, block, key)
-									render3d.GetMaterial():GetColorMultiplier():CopyToFloatPointer(block[key])
-								end,
-							},
-							{
-								"MetallicMultiplier",
-								"float",
-								function(self, block, key)
-									block[key] = render3d.GetMaterial():GetMetallicMultiplier()
-								end,
-							},
-							{
-								"RoughnessMultiplier",
-								"float",
-								function(self, block, key)
-									block[key] = render3d.GetMaterial():GetRoughnessMultiplier()
-								end,
-							},
-							{
-								"EmissiveMultiplier",
-								"vec4",
-								function(self, block, key)
-									render3d.GetMaterial():GetEmissiveMultiplier():CopyToFloatPointer(block[key])
-								end,
-							},
 						},
 					},
 				},
 				shader = [[
-                ]] .. Material.BuildGlslFlags("pc.model.Flags") .. [[
+                ]] .. Material.BuildGlslFlags("material.Flags") .. [[
                 ]] .. atmosphere.GetGLSLCode() .. [[
                 
                 #define PI 3.14159265359
                 #define saturate(x) clamp(x, 0.0, 1.0)
                 
                 vec3 get_albedo() {
-                    if (pc.model.AlbedoTexture == -1) {
-                        return pc.model.ColorMultiplier.rgb;
+                    if (material.AlbedoTexture == -1) {
+                        return material.ColorMultiplier.rgb;
                     }
-                    return texture(TEXTURE(pc.model.AlbedoTexture), in_uv).rgb * pc.model.ColorMultiplier.rgb;
+                    return texture(TEXTURE(material.AlbedoTexture), in_uv).rgb * material.ColorMultiplier.rgb;
                 }
                 
                 float get_alpha() {
-                    if (pc.model.AlbedoTexture == -1) {
-                        return pc.model.ColorMultiplier.a;
+                    if (material.AlbedoTexture == -1) {
+                        return material.ColorMultiplier.a;
                     }
-                    return texture(TEXTURE(pc.model.AlbedoTexture), in_uv).a * pc.model.ColorMultiplier.a;
+                    return texture(TEXTURE(material.AlbedoTexture), in_uv).a * material.ColorMultiplier.a;
                 }
                 
                 vec3 get_normal() {
                     vec3 N = in_normal;
-                    if (pc.model.NormalTexture != -1) {
-                        vec3 tangent_normal = texture(TEXTURE(pc.model.NormalTexture), in_uv).xyz * 2.0 - 1.0;
+                    if (material.NormalTexture != -1) {
+                        vec3 tangent_normal = texture(TEXTURE(material.NormalTexture), in_uv).xyz * 2.0 - 1.0;
                         vec3 Q1 = dFdx(in_position);
                         vec3 Q2 = dFdy(in_position);
                         vec2 st1 = dFdx(in_uv);
@@ -536,24 +535,24 @@ function reflection_probe.CreatePipelines()
                 }
                 
                 float get_metallic() {
-                    if (pc.model.MetallicRoughnessTexture != -1) {
-                        return texture(TEXTURE(pc.model.MetallicRoughnessTexture), in_uv).b * pc.model.MetallicMultiplier;
+                    if (material.MetallicRoughnessTexture != -1) {
+                        return texture(TEXTURE(material.MetallicRoughnessTexture), in_uv).b * material.MetallicMultiplier;
                     }
-                    return pc.model.MetallicMultiplier;
+                    return material.MetallicMultiplier;
                 }
                 
                 float get_roughness() {
-                    if (pc.model.MetallicRoughnessTexture != -1) {
-                        return texture(TEXTURE(pc.model.MetallicRoughnessTexture), in_uv).g * pc.model.RoughnessMultiplier;
+                    if (material.MetallicRoughnessTexture != -1) {
+                        return texture(TEXTURE(material.MetallicRoughnessTexture), in_uv).g * material.RoughnessMultiplier;
                     }
-                    return pc.model.RoughnessMultiplier;
+                    return material.RoughnessMultiplier;
                 }
                 
                 vec3 get_emissive() {
-                    if (pc.model.EmissiveTexture != -1) {
-                        return texture(TEXTURE(pc.model.EmissiveTexture), in_uv).rgb * pc.model.EmissiveMultiplier.rgb;
+                    if (material.EmissiveTexture != -1) {
+                        return texture(TEXTURE(material.EmissiveTexture), in_uv).rgb * material.EmissiveMultiplier.rgb;
                     }
-                    return pc.model.EmissiveMultiplier.rgb * pc.model.EmissiveMultiplier.a;
+                    return material.EmissiveMultiplier.rgb * material.EmissiveMultiplier.a;
                 }
                 
                 void main() {
