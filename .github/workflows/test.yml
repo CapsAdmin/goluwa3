@@ -1,0 +1,57 @@
+name: Test with LuaJIT and Lavapipe
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          build-essential \
+          libvulkan1 \
+          mesa-vulkan-drivers \
+          vulkan-tools \
+          libwayland-dev \
+          libxkbcommon-dev
+    
+    - name: Clone and build LuaJIT
+      run: |
+        cd /tmp
+        git clone https://github.com/LuaJIT/LuaJIT.git
+        cd LuaJIT
+        make amalg XCFLAGS=-DLUAJIT_ENABLE_LUA52COMPAT
+        sudo make install PREFIX=/usr/local
+        sudo ln -sf /usr/local/bin/luajit-2.1.* /usr/local/bin/luajit
+    
+    - name: Verify LuaJIT installation
+      run: |
+        luajit -v
+        which luajit
+    
+    - name: Verify Vulkan installation
+      run: |
+        vulkaninfo --summary || true
+        ls -la /usr/lib/x86_64-linux-gnu/libvulkan* || true
+        ls -la /usr/share/vulkan/icd.d/ || true
+    
+    - name: Set environment variables for Vulkan
+      run: |
+        echo "VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json" >> $GITHUB_ENV
+        echo "LIBGL_ALWAYS_SOFTWARE=1" >> $GITHUB_ENV
+        echo "GALLIUM_DRIVER=llvmpipe" >> $GITHUB_ENV
+    
+    - name: Run tests
+      run: |
+        luajit glw test
