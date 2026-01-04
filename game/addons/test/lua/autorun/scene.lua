@@ -387,7 +387,8 @@ do
 	end
 end
 
-if false then
+if true then
+	local vfs = require("vfs")
 	local steam = require("steam")
 	steam.MountSourceGame("gmod")
 	local models = {
@@ -431,21 +432,32 @@ if false then
 		"models/player/eli.mdl",
 		"models/player/gman_high.mdl",
 	}
+
+	for _, path in ipairs(vfs.Find("models/shadertest/")) do
+		if path:ends_with(".mdl") then
+			table.insert(models, "models/shadertest/" .. path)
+		end
+	end
+
 	local pos = Vec3(-10, -10, 0)
 
 	for _, model_path in ipairs(models) do
-		local e = ecs.CreateEntity("model_ent")
-		e:AddComponent("transform", {
-			position = pos:Copy(),
-		})
-		pos.x = pos.x + 5
+		if not vfs.IsFile(model_path) then
+			print(model_path .. " not found!")
+		else
+			local e = ecs.CreateEntity("model_ent")
+			e:AddComponent("transform", {
+				position = pos:Copy(),
+			})
+			pos.x = pos.x + 5
 
-		if pos.x > 10 then
-			pos.x = -10
-			pos.z = pos.z + 5
+			if pos.x > 10 then
+				pos.x = -10
+				pos.z = pos.z + 5
+			end
+
+			e:AddComponent("model")
+			e.model:SetModelPath(model_path)
 		end
-
-		e:AddComponent("model")
-		e.model:SetModelPath(model_path)
 	end
 end

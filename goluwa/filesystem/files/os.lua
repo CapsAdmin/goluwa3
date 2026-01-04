@@ -1,5 +1,6 @@
 local fs = require("fs")
 local ffi = desire("ffi")
+local prototype = require("prototype")
 return function(vfs)
 	local CONTEXT = {}
 	CONTEXT.Name = "os"
@@ -41,9 +42,11 @@ return function(vfs)
 	end
 
 	function CONTEXT:IsFolder(path_info)
-		if path_info.full_path:ends_with("/") then
-			return fs.get_type(path_info.full_path:sub(0, -2)) == "directory"
-		end
+		local path = path_info.full_path
+
+		if path:ends_with("/") and #path > 1 then path = path:sub(1, -2) end
+
+		return fs.get_type(path) == "directory"
 	end
 
 	function CONTEXT:ReadAll()
@@ -51,156 +54,131 @@ return function(vfs)
 	end
 
 	local translate_mode = {
-		read = "rb",
-		write = "wb",
-		append = "ab",
-		read_write = "",
+		read = fs.O_RDONLY,
+		read_plus = bit.bor(fs.O_RDWR),
+		write = bit.bor(fs.O_WRONLY, fs.O_CREAT, fs.O_TRUNC),
+		append = bit.bor(fs.O_WRONLY, fs.O_CREAT, fs.O_APPEND),
+		read_write = bit.bor(fs.O_RDWR, fs.O_CREAT),
 	}
 
-	if fs.open and ffi then
-		-- if CONTEXT:Open errors the virtual file system will assume
-		-- the file doesn't exist and will go to the next mounted context
-		function CONTEXT:Open(path_info, ...)
-			local mode = translate_mode[self:GetMode()]
+	-- if CONTEXT:Open errors the virtual file system will assume
+	-- the file doesn't exist and will go to the next mounted context
+	function CONTEXT:Open(path_info, ...)
+		local mode = translate_mode[self:GetMode()]
 
-			if not mode then return false, "mode not supported" end
+		if not mode then return false, "mode " .. self:GetMode() .. " not supported" end
 
-			if self.Mode == "read_write" then
-				fs.close(fs.open(path_info.full_path, "a"))
-				self.file = fs.open(path_info.full_path, "rb+")
-			else
-				self.file = fs.open(path_info.full_path, mode)
-			end
+		if self.Mode == "read_write" then
+			local err
+			local f, err = fs.fd_open_object(path_info.full_path, translate_mode.append)
 
-			if self.file == nil then
-				return false, "unable to open file: " .. ffi.strerror()
-			end
+			if not f then return false, "unable to open file: " .. err end
 
-			self.attributes = fs.get_attributes(path_info.full_path)
+			local ok, err = f:close()
+
+			if not ok then return false, "unable to open file: " .. err end
+
+			self.file, err = fs.fd_open_object(path_info.full_path, translate_mode.read_plus)
+
+			if not self.file then return false, "unable to open file: " .. err end
+		else
+			local err
+			self.file, err = fs.fd_open_object(path_info.full_path, mode)
+
+			if not self.file then return false, "unable to open file: " .. err end
 		end
 
-		function CONTEXT:WriteBytes(str)
-			return fs.write(str, 1, #str, self.file)
+		local attr, err = fs.get_attributes(path_info.full_path)
+
+		if not attr then
+			if self.file then self.file:close() end
+
+			return false, "unable to get file attributes: " .. err
 		end
 
-		local ctype = ffi.typeof("uint8_t[?]")
-		local ffi_string = ffi.string
-		local math_min = math.min
-		-- without this cache thing loading gm_construct takes 30 sec opposed to 15
-		local cache = {}
+		self.attributes = attr
+		return true
+	end
 
-		for i = 1, 32 do
-			cache[i] = ctype(i)
-		end
+	function CONTEXT:WriteBytes(str)
+		return self.file:write(str)
+	end
 
-		function CONTEXT:ReadBytes(bytes)
-			bytes = math_min(bytes, self.attributes.size)
+	local ctype = ffi.typeof("uint8_t[?]")
+	local ffi_string = ffi.string
+	local math_min = math.min
+	-- without this cache thing loading gm_construct takes 30 sec opposed to 15
+	local cache = {}
+
+	for i = 1, 32 do
+		cache[i] = ctype(i)
+	end
+
+	function CONTEXT:ReadBytes(bytes)
+		bytes = math_min(bytes, self.attributes.size)
+
+		if self.memory then
 			local buff = bytes > 32 and ctype(bytes) or cache[bytes]
+			local mem_pos_start = math_min(tonumber(self.mem_pos), self.attributes.size)
+			local mem_pos_stop = math_min(tonumber(mem_pos_start + bytes), self.attributes.size)
+			local i = 0
 
-			if self.memory then
-				local mem_pos_start = math_min(tonumber(self.mem_pos), self.attributes.size)
-				local mem_pos_stop = math_min(tonumber(mem_pos_start + bytes), self.attributes.size)
-				local i = 0
-
-				for mem_i = mem_pos_start, mem_pos_stop - 1 do
-					buff[i] = self.memory[mem_i]
-					i = i + 1
-				end
-
-				self.mem_pos = self.mem_pos + bytes
-				return ffi.string(buff, bytes)
-			else
-				local len = fs.read(buff, bytes, 1, self.file)
-
-				if len > 0 or fs.eof(self.file) == 1 then
-					return ffi_string(buff, bytes)
-				end
+			for mem_i = mem_pos_start, mem_pos_stop - 1 do
+				buff[i] = self.memory[mem_i]
+				i = i + 1
 			end
-		end
 
-		function CONTEXT:LoadToMemory()
-			local bytes = self:GetSize()
-			local buffer = ctype(bytes)
-			local len = fs.read(buffer, bytes, 1, self.file)
-			self.memory = buffer
-			self:SetPosition(ffi.new("uint64_t", 0))
-			self:OnRemove()
-		end
-
-		function CONTEXT:SetPosition(pos)
-			if self.memory then
-				self.mem_pos = pos
-			else
-				fs.seek(self.file, pos, 0)
-			end
-		end
-
-		function CONTEXT:GetPosition()
-			if self.memory then
-				return self.mem_pos
-			else
-				return fs.tell(self.file)
-			end
-		end
-
-		function CONTEXT:OnRemove()
-			if self.file ~= nil then
-				fs.close(self.file)
-				self.file = nil
-				prototype.MakeNULL(self)
-			end
-		end
-
-		function CONTEXT:GetSize()
-			if self.Mode == "read" or self.memory then return self.attributes.size end
-
-			local pos = fs.tell(self.file)
-			fs.seek(self.file, 0, 2)
-			local size = fs.tell(self.file)
-			fs.seek(self.file, pos, 0)
-			return tonumber(size) -- hmm, 64bit?
-		end
-	else
-		function CONTEXT:Open(path_info, ...)
-			local mode = translate_mode[self:GetMode()]
-
-			if not mode then return false, "mode not supported" end
-
-			local f, err = io.open(path_info.full_path, mode)
-			self.file = f
-
-			if self.file == nil then return false, "unable to open file: " .. err end
-
-			self.attributes = fs.get_attributes(path_info.full_path)
-		end
-
-		function CONTEXT:WriteBytes(str)
-			return self.file:write(str)
-		end
-
-		function CONTEXT:ReadBytes(bytes)
-			bytes = math.min(bytes, self.attributes.size)
+			self.mem_pos = self.mem_pos + bytes
+			return ffi.string(buff, mem_pos_stop - mem_pos_start)
+		else
 			return self.file:read(bytes)
 		end
+	end
 
-		function CONTEXT:SetPosition(pos)
-			self.file:seek("set", pos)
-		end
+	function CONTEXT:LoadToMemory()
+		local bytes = self:GetSize()
+		local buffer = ctype(bytes)
+		local data = self.file:read(bytes)
 
-		function CONTEXT:GetPosition()
-			return self.file:seek("cur")
-		end
+		if data then ffi.copy(buffer, data, #data) end
 
-		function CONTEXT:OnRemove()
-			if self.file ~= nil then
-				self.file:close()
-				self.file = nil
-			end
-		end
+		self.memory = buffer
+		self:SetPosition(ffi.new("uint64_t", 0))
+		self:OnRemove()
+	end
 
-		function CONTEXT:GetSize()
-			return self.attributes.size
+	function CONTEXT:SetPosition(pos)
+		if self.memory then
+			self.mem_pos = pos
+		else
+			self.file:seek(pos, fs.SEEK_SET)
 		end
+	end
+
+	function CONTEXT:GetPosition()
+		if self.memory then
+			return self.mem_pos
+		else
+			return self.file:seek(0, fs.SEEK_CUR)
+		end
+	end
+
+	function CONTEXT:OnRemove()
+		if self.file ~= nil then
+			self.file:close()
+			self.file = nil
+			prototype.MakeNULL(self)
+		end
+	end
+
+	function CONTEXT:GetSize()
+		if self.Mode == "read" or self.memory then return self.attributes.size end
+
+		local pos = self.file:seek(0, fs.SEEK_CUR)
+		self.file:seek(0, fs.SEEK_END)
+		local size = self.file:seek(0, fs.SEEK_CUR)
+		self.file:seek(pos, fs.SEEK_SET)
+		return tonumber(size) -- hmm, 64bit?
 	end
 
 	function CONTEXT:GetLastModified()
