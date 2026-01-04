@@ -58,7 +58,6 @@ T.Test("combine", function()
 	ent.transform:SetRotation(Quat(0, -1, 0, 1))
 	tasks.WaitAll(3) -- waits for the model to load for max 3 seconds
 	render.Draw(1)
-	render.Screenshot("test")
 
 	-- body 
 	T.ScreenPixel(256, 256, function(r, g, b, a)

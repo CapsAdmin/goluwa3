@@ -782,7 +782,7 @@ model_loader.AddModelDecoder("mdl", function(path, full_path, mesh_callback)
 							end
 						end
 
-						WHAT2 = WHAT
+						WHAT2 = WHAT2 + WHAT
 						mesh:SetName(full_path)
 						local material
 						local path = mdl.materials[model_i]
