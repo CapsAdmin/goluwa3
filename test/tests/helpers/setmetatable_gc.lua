@@ -93,3 +93,41 @@ T.Test("setmetatable_gc receives correct self", function()
 
 	T(received_value == 42)["=="](true)
 end)
+
+T.Test("setmetatable_gc error", function()
+	local called = false
+	local never_reached = false
+
+	local function create_object()
+		local t = {}
+		local meta = {
+			__gc = function(self)
+				called = true
+				error("Intentional GC error")
+				never_reached = true
+			end,
+		}
+		setmetatable_with_gc(t, meta)
+	end
+
+	local old = _G.print
+	local str = ""
+	_G.print = function(...)
+		for i = 1, select("#", ...) do
+			str = str .. tostring(select(i, ...)) .. "\t"
+		end
+
+		str = str .. "\n"
+	end
+	create_object()
+
+	while not called do
+		collectgarbage("collect")
+	end
+
+	_G.print = old
+	T(str)["contains"]("Intentional GC error")
+	T(str)["contains"]("create_object") -- traceback
+	T(called)["=="](true)
+	T(never_reached)["=="](false)
+end)
