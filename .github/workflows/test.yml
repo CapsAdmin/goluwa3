@@ -34,8 +34,14 @@ jobs:
         make amalg XCFLAGS=-DLUAJIT_ENABLE_LUA52COMPAT
         sudo make install PREFIX=/usr/local
         # Create symlink to the installed luajit binary
-        LUAJIT_BIN=$(ls /usr/local/bin/luajit-2.1.* | head -n1)
-        sudo ln -sf "$LUAJIT_BIN" /usr/local/bin/luajit
+        LUAJIT_BIN=$(find /usr/local/bin -name "luajit-2.1.*" -type f | head -n1)
+        if [ -n "$LUAJIT_BIN" ]; then
+          sudo ln -sf "$LUAJIT_BIN" /usr/local/bin/luajit
+        else
+          echo "Error: Could not find LuaJIT binary"
+          ls -la /usr/local/bin/luajit*
+          exit 1
+        fi
     
     - name: Verify LuaJIT installation
       run: |
@@ -60,11 +66,14 @@ jobs:
         # Find and set the lavapipe ICD file path
         if [ -f /usr/share/vulkan/icd.d/lvp_icd.x86_64.json ]; then
           echo "VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json" >> $GITHUB_ENV
+          echo "Found lavapipe ICD: /usr/share/vulkan/icd.d/lvp_icd.x86_64.json"
         elif [ -f /usr/share/vulkan/icd.d/lvp_icd.json ]; then
           echo "VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json" >> $GITHUB_ENV
+          echo "Found lavapipe ICD: /usr/share/vulkan/icd.d/lvp_icd.json"
         else
           echo "Warning: lavapipe ICD file not found, listing available ICDs:"
           ls -la /usr/share/vulkan/icd.d/ || true
+          echo "Note: Tests may run without explicit ICD configuration"
         fi
         echo "LIBGL_ALWAYS_SOFTWARE=1" >> $GITHUB_ENV
         echo "GALLIUM_DRIVER=llvmpipe" >> $GITHUB_ENV
