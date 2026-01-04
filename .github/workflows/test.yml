@@ -1,0 +1,85 @@
+name: Test with LuaJIT and Lavapipe
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          build-essential \
+          libvulkan1 \
+          mesa-vulkan-drivers \
+          vulkan-tools \
+          libwayland-dev \
+          libxkbcommon-dev
+    
+    - name: Clone and build LuaJIT
+      run: |
+        cd /tmp
+        git clone https://github.com/LuaJIT/LuaJIT.git
+        cd LuaJIT
+        make amalg XCFLAGS=-DLUAJIT_ENABLE_LUA52COMPAT
+        sudo make install PREFIX=/usr/local
+        # Create symlink to the installed luajit binary
+        LUAJIT_BIN=$(find /usr/local/bin -name "luajit-2.1.*" -type f | head -n1)
+        if [ -n "$LUAJIT_BIN" ]; then
+          sudo ln -sf "$LUAJIT_BIN" /usr/local/bin/luajit
+        else
+          echo "Error: Could not find LuaJIT binary"
+          ls -la /usr/local/bin/luajit*
+          exit 1
+        fi
+    
+    - name: Verify LuaJIT installation
+      run: |
+        luajit -v
+        which luajit
+    
+    - name: Verify Vulkan installation
+      run: |
+        echo "=== Checking Vulkan installation ==="
+        if command -v vulkaninfo &> /dev/null; then
+          vulkaninfo --summary || echo "Warning: vulkaninfo failed"
+        else
+          echo "Warning: vulkaninfo not found"
+        fi
+        echo "=== Vulkan libraries ==="
+        ls -la /usr/lib/x86_64-linux-gnu/libvulkan* 2>&1 || echo "No Vulkan libraries found in expected location"
+        echo "=== Vulkan ICD files ==="
+        ls -la /usr/share/vulkan/icd.d/ 2>&1 || echo "No ICD directory found"
+    
+    - name: Set environment variables for Vulkan
+      run: |
+        # Find and set the lavapipe ICD file path
+        if [ -f /usr/share/vulkan/icd.d/lvp_icd.x86_64.json ]; then
+          echo "VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json" >> $GITHUB_ENV
+          echo "Found lavapipe ICD: /usr/share/vulkan/icd.d/lvp_icd.x86_64.json"
+        elif [ -f /usr/share/vulkan/icd.d/lvp_icd.json ]; then
+          echo "VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json" >> $GITHUB_ENV
+          echo "Found lavapipe ICD: /usr/share/vulkan/icd.d/lvp_icd.json"
+        else
+          echo "Warning: lavapipe ICD file not found, listing available ICDs:"
+          ls -la /usr/share/vulkan/icd.d/ || true
+          echo "Note: Tests may run without explicit ICD configuration"
+        fi
+        echo "LIBGL_ALWAYS_SOFTWARE=1" >> $GITHUB_ENV
+        echo "GALLIUM_DRIVER=llvmpipe" >> $GITHUB_ENV
+    
+    - name: Run tests
+      run: |
+        luajit glw test

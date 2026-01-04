@@ -126,7 +126,8 @@ else
 
 		int usleep(unsigned int usecs);
 	]]
-	local pt = ffi.load("pthread")
+	-- pthread is part of glibc, use ffi.C directly
+	local pt = ffi.C
 
 	-- Enhanced pthread error checking
 	local function check_pthread(int)
