@@ -189,11 +189,11 @@ return function(vfs)
 				local res, err = file[func](file, unpack(args))
 				file:Close()
 
-				if res then
+				if res ~= nil then
 					if event then
-						local res, err = event.Call("VFSPost" .. name, path, res)
+						local res_post, err_post = event.Call("VFSPost" .. name, path, res)
 
-						if res ~= nil or err then return res, err end
+						if res_post ~= nil or err_post then return res_post, err_post end
 					end
 
 					if codec then
@@ -203,9 +203,11 @@ return function(vfs)
 							if codec.GetLibrary(ext) then return codec.Decode(ext, res) end
 						end
 					end
+
+					return res
 				end
 
-				return res, err
+				return nil, err
 			end
 
 			return nil, err

@@ -41,7 +41,11 @@ end
 function vdf.Decode(str, lower_or_modify_keys, preprocess)
 	if not str or str == "" then return nil, "data is empty" end
 
-	if lower_or_modify_keys == true then lower_or_modify_keys = string.lower end
+	if lower_or_modify_keys == true then
+		lower_or_modify_keys = string.lower
+	elseif type(lower_or_modify_keys) ~= "function" then
+		lower_or_modify_keys = nil
+	end
 
 	str = str:gsub("[\r\n]", "\n")
 	str = str:replace("http://", "___L_O_L___")

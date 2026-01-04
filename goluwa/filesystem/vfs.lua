@@ -326,6 +326,7 @@ require("filesystem.files.os")(vfs)
 require("filesystem.files.vpk")(vfs)
 require("filesystem.files.zip")(vfs)
 require("filesystem.files.gma")(vfs)
+require("filesystem.files.lzma")(vfs)
 
 for _, context in ipairs(vfs.GetFileSystems()) do
 	if context.VFSOpened then context:VFSOpened() end

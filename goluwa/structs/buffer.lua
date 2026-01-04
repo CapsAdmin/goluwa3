@@ -771,12 +771,16 @@ do -- push pop position
 			error("position pushed is larger than reported size of buffer", 2)
 		end
 
+		self.PushPopStackPos = self.PushPopStackPos or 0
+		self.PushPopStack = self.PushPopStack or {}
 		self.PushPopStack[self.PushPopStackPos] = self:GetPosition()
-		self.PushPopStackPos = (self.PushPopStackPos or 0) + 1
+		self.PushPopStackPos = self.PushPopStackPos + 1
 		self:SetPosition(pos)
 	end
 
 	function META:PopPosition()
+		self.PushPopStack = self.PushPopStack or {}
+		self.PushPopStackPos = self.PushPopStackPos or 0
 		self.PushPopStackPos = self.PushPopStackPos - 1
 		self:SetPosition(self.PushPopStack[self.PushPopStackPos])
 	end
@@ -784,6 +788,7 @@ end
 
 do -- read bits
 	function META:RestartReadBits()
+		self.buf_start_pos = self.buf_start_pos or 0
 		self.buf_byte = 0
 		self.buf_nbit = 0
 

@@ -387,7 +387,7 @@ do
 	end
 end
 
-if true then
+if false then
 	local vfs = require("vfs")
 	local steam = require("steam")
 	steam.MountSourceGame("gmod")

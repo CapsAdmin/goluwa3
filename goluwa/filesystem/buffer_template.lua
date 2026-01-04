@@ -3,6 +3,7 @@ local Vec3 = require("structs.vec3")
 local Vec2 = require("structs.vec2")
 local Color = require("structs.color")
 local Ang3 = require("structs.ang3")
+local Buffer = require("structs.buffer")
 return function(META)
 	-- <cmtptr> CapsAdmin, http://codepad.org/uN7qlQTm
 	local function swap_endian(num, size)
@@ -1285,4 +1286,19 @@ return function(META)
 			return bits
 		end
 	end
+
+	for k, v in pairs(META) do
+		if k ~= "WriteByte" and k ~= "ReadByte" then
+			if Buffer[k] then META[k] = Buffer[k] end
+		end
+	end
+
+	for k, v in pairs(Buffer) do
+		if k ~= "WriteByte" and k ~= "ReadByte" then
+			if not META[k] then META[k] = v end
+		end
+	end
+
+	META.ReadU8 = META.ReadByte
+	META.WriteU8 = META.WriteByte
 end

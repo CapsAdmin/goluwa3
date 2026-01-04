@@ -333,7 +333,7 @@ end
 
 function lzma.Decode(str)
 	local buf = Buffer.New(str, #str)
-	return lib(buf):GetString()
+	return lzma.DecodeBuffer(buf):GetString()
 end
 
 return lzma

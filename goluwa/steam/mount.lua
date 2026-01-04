@@ -485,10 +485,8 @@ return function(steam)
 				for _, path in ipairs(
 					vfs.Find(lib_folder .. "workshop/content/" .. game_info.filesystem.steamappid .. "/", true)
 				) do
-					local gma = vfs.Find(path .. "/")[1]
-
-					if gma and gma:ends_with(".gma") then
-						vfs.Mount(path .. "/" .. gma, nil, game_info)
+					for _, file_name in ipairs(vfs.Find(path .. "/")) do
+						vfs.Mount(path .. "/" .. file_name, nil, game_info)
 					end
 				end
 			end
