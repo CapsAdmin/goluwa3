@@ -33,7 +33,7 @@ jobs:
         cd /tmp
         git clone https://github.com/LuaJIT/LuaJIT.git
         cd LuaJIT
-        make amalg XCFLAGS=-DLUAJIT_ENABLE_LUA52COMPAT
+        make amalg XCFLAGS=-DLUAJIT_ENABLE_LUA52COMPAT LDFLAGS=-lpthread
         sudo make install PREFIX=/usr/local
         # Create symlink to the installed luajit binary
         LUAJIT_BIN=$(find /usr/local/bin -name "luajit-2.1.*" -type f | head -n1)
