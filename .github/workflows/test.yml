@@ -33,7 +33,9 @@ jobs:
         cd LuaJIT
         make amalg XCFLAGS=-DLUAJIT_ENABLE_LUA52COMPAT
         sudo make install PREFIX=/usr/local
-        sudo ln -sf /usr/local/bin/luajit-2.1.* /usr/local/bin/luajit
+        # Create symlink to the installed luajit binary
+        LUAJIT_BIN=$(ls /usr/local/bin/luajit-2.1.* | head -n1)
+        sudo ln -sf "$LUAJIT_BIN" /usr/local/bin/luajit
     
     - name: Verify LuaJIT installation
       run: |
@@ -42,13 +44,28 @@ jobs:
     
     - name: Verify Vulkan installation
       run: |
-        vulkaninfo --summary || true
-        ls -la /usr/lib/x86_64-linux-gnu/libvulkan* || true
-        ls -la /usr/share/vulkan/icd.d/ || true
+        echo "=== Checking Vulkan installation ==="
+        if command -v vulkaninfo &> /dev/null; then
+          vulkaninfo --summary || echo "Warning: vulkaninfo failed"
+        else
+          echo "Warning: vulkaninfo not found"
+        fi
+        echo "=== Vulkan libraries ==="
+        ls -la /usr/lib/x86_64-linux-gnu/libvulkan* 2>&1 || echo "No Vulkan libraries found in expected location"
+        echo "=== Vulkan ICD files ==="
+        ls -la /usr/share/vulkan/icd.d/ 2>&1 || echo "No ICD directory found"
     
     - name: Set environment variables for Vulkan
       run: |
-        echo "VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json" >> $GITHUB_ENV
+        # Find and set the lavapipe ICD file path
+        if [ -f /usr/share/vulkan/icd.d/lvp_icd.x86_64.json ]; then
+          echo "VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json" >> $GITHUB_ENV
+        elif [ -f /usr/share/vulkan/icd.d/lvp_icd.json ]; then
+          echo "VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json" >> $GITHUB_ENV
+        else
+          echo "Warning: lavapipe ICD file not found, listing available ICDs:"
+          ls -la /usr/share/vulkan/icd.d/ || true
+        fi
         echo "LIBGL_ALWAYS_SOFTWARE=1" >> $GITHUB_ENV
         echo "GALLIUM_DRIVER=llvmpipe" >> $GITHUB_ENV
     
