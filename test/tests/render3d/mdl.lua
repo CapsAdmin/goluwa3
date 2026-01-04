@@ -25,59 +25,81 @@ local height = 512
 local ecs = require("ecs")
 local tasks = require("tasks")
 
+local function setup_sun()
+	if render3d.GetLights()[1] then return end
+
+	local Light = require("components.light")
+	local sun = Light.CreateDirectional({color = {1, 1, 1}, intensity = 1})
+	sun:SetIsSun(true)
+	sun:SetRotation(Quat(0.5, 0, 0, -1))
+	render3d.SetLights({sun})
+end
+
 -- Helper function to initialize render3d
 local function init_render3d()
 	render.Initialize({headless = true, width = width, height = height})
 	render3d.Initialize()
-end
-
-local function draw3d(cb)
-	init_render3d()
 	local cam = render3d.GetCamera()
-	cam:SetPosition(Vec3(0, 0, -10))
+	cam:SetPosition(Vec3(0, 0.68, 3))
+	cam:SetRotation(Quat(0, 0, 0, 1))
 	cam:SetViewport(Rect(0, 0, width, height))
-	cam:SetFOV(math.rad(45))
-	local Light = require("components.light")
-	local sun = Light.CreateDirectional({color = {1, 1, 1}, intensity = 1})
-	sun:SetIsSun(true)
-	sun:SetRotation(Quat():SetAngles(Vec3(0.5, -1.0, 0.3):GetAngles()))
-	render3d.SetLights({sun})
-	render.BeginFrame()
-	render3d.BindPipeline()
-	cb()
-	render.EndFrame()
-	render.GetDevice():WaitIdle()
+	cam:SetFOV(math.rad(30))
+	setup_sun()
 end
 
-T.Pending("MDL Model", function()
+T.Test("combine", function()
 	init_render3d()
 	steam.MountSourceGame("gmod")
 	tasks.WaitAll(3)
-	local path = "/home/caps/.steam/steam/steamapps/common/GarrysMod/garrysmod/garrysmod_dir.vpk/models/maxofs2d/companion_doll.mdl"
 	local ent = ecs.CreateEntity("mdl", ecs.GetWorld())
 	ent:AddComponent("transform")
 	ent:AddComponent("model")
-	ent.model:SetModelPath(path)
-	tasks.WaitAll(3)
-
-	draw3d(function()
-		local cam = render3d.GetCamera()
-		cam:SetPosition(Vec3(0, 0.25, 1))
-		ent.model:OnDraw3DGeometry(render.GetCommandBuffer())
-	end)
-
+	ent.model:SetModelPath("models/player/combine_super_soldier.mdl")
+	ent.transform:SetRotation(Quat(0, -1, 0, 1))
+	tasks.WaitAll(3) -- waits for the model to load for max 3 seconds
+	render.Draw(1)
 	render.Screenshot("test")
 
-	-- body (currently present)
+	-- body 
 	T.ScreenPixel(256, 256, function(r, g, b, a)
 		return r > 0 and g > 0 and b > 0
 	end)
 
-	-- head (currently missing)
-	T.ScreenPixel(256, 137, function(r, g, b, a)
-		T(r)["~"](0.1490)
-		T(g)["~"](0.1215)
-		T(b)["~"](0.1058)
+	-- check the pixel between left arm and leg and make sure it hits the skybox as to not be corrupt
+	T.ScreenPixel(170, 300, function(r, g, b, a)
+		T(r)["<"](0.01)
+		T(g)["<"](0.01)
+		T(b)["<"](0.01)
+		return true
+	end)
+
+	ent:Remove()
+end)
+
+T.Test("alyx", function()
+	init_render3d()
+	steam.MountSourceGame("gmod")
+	tasks.WaitAll(3)
+	local path = "models/player/alyx.mdl"
+	local ent = ecs.CreateEntity("mdl", ecs.GetWorld())
+	ent:AddComponent("transform")
+	ent:AddComponent("model")
+	ent.transform:SetRotation(Quat(0, -1, 0, 1))
+	ent.model:SetModelPath(path)
+	ent.transform:SetRotation(Quat(0, -1, 0, 1))
+	tasks.WaitAll(3)
+	render.Draw(1)
+
+	-- body 
+	T.ScreenPixel(256, 256, function(r, g, b, a)
+		return r > 0 and g > 0 and b > 0
+	end)
+
+	-- check the pixel between left arm and leg and make sure it hits the skybox
+	T.ScreenPixel(170, 300, function(r, g, b, a)
+		T(r)["<"](0.01)
+		T(g)["<"](0.01)
+		T(b)["<"](0.01)
 		return true
 	end)
 end)

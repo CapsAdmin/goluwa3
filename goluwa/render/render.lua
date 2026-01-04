@@ -76,7 +76,7 @@ function render.Initialize(config)
 		render.target:RebuildFramebuffers()
 	end)
 
-	event.AddListener("Update", "window_update", function(dt)
+	function render.Draw(dt)
 		-- Wait for previous frame before starting shadow passes
 		render.target:WaitForPreviousFrame()
 		-- Shadow passes run before main frame (before swapchain acquire)
@@ -85,7 +85,9 @@ function render.Initialize(config)
 		event.Call("Draw", render.GetCommandBuffer(), dt)
 		event.Call("PostDraw", render.GetCommandBuffer(), dt)
 		render.EndFrame()
-	end)
+	end
+
+	event.AddListener("Update", "window_update", render.Draw)
 
 	event.AddListener("ShutDown", "window_shutdown", function()
 		vulkan_instance.device:WaitIdle()
