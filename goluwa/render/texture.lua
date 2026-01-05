@@ -8,8 +8,8 @@ local ImageView = require("render.vulkan.internal.image_view")
 local Image = require("render.vulkan.internal.image")
 local Sampler = require("render.vulkan.internal.sampler")
 local codec = require("codec")
-local Texture = {}
-Texture.__index = Texture
+local prototype = require("prototype")
+local Texture = prototype.CreateTemplate("texture")
 -- Texture cache for path-based textures
 local texture_cache = {}
 local temp_fence = nil
@@ -88,8 +88,11 @@ function Texture.ClearCache()
 	texture_cache = {}
 end
 
+function Texture:__tostring2()
+	return "[" .. tostring(self.config.path) .. "]"
+end
+
 function Texture.New(config)
-	config = config or {}
 	-- Check cache if path is provided
 	local cache_key = config.cache_key or config.path
 
@@ -243,7 +246,8 @@ function Texture.New(config)
 		)
 	end
 
-	local self = setmetatable(
+	local self = prototype.CreateObject(
+		"texture",
 		{
 			image = image,
 			view = view,
@@ -253,8 +257,7 @@ function Texture.New(config)
 			config = config,
 			is_compressed = is_compressed,
 			vulkan_info = vulkan_info,
-		},
-		Texture
+		}
 	)
 
 	if buffer_data and image then
@@ -999,4 +1002,4 @@ do
 	end
 end
 
-return Texture
+return Texture:Register()

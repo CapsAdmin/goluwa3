@@ -7,6 +7,7 @@ local prototype = require("prototype")
 local Vec3 = require("structs.vec3")
 local Material = prototype.CreateTemplate("material")
 -- textures
+Material:StartStorable()
 Material:GetSet("AlbedoTexture", nil)
 Material:GetSet("NormalTexture", nil)
 Material:GetSet("MetallicRoughnessTexture", nil)
@@ -39,6 +40,7 @@ Material:GetSet("AlbedoAlphaIsEmissive", false, {callback = "InvalidateFlags"})
 Material:GetSet("Translucent", false, {callback = "InvalidateFlags"})
 Material:GetSet("AlphaTest", false, {callback = "InvalidateFlags"})
 Material:GetSet("InvertRoughnessTexture", false, {callback = "InvalidateFlags"})
+Material:EndStorable()
 
 function Material.New(config)
 	local self = prototype.CreateObject("material")
@@ -182,6 +184,7 @@ do
 	end
 
 	local function on_load_vmt(self, vmt)
+		self.vmt = vmt -- store for debugging
 		self:SetReverseXZNormalMap(true) -- Source engine normals need XY flip
 		self:SetInvertRoughnessTexture(true) -- Source engine normals need XY flip
 		self:SetMetallicMultiplier(0)
@@ -301,15 +304,6 @@ do
 
 		-- Surface property based PBR estimation
 		if vmt.surfaceprop then
-			local function get_surfaceprop_name(prop)
-				-- Handle nested base tables, get the most specific name
-				if type(prop) == "table" then
-					return prop.surfaceprop_name or (prop.base and get_surfaceprop_name(prop.base))
-				end
-
-				return prop
-			end
-
 			local function get_prop(prop, key)
 				-- Recursively search prop and base tables for a value
 				if type(prop) ~= "table" then return nil end
@@ -321,11 +315,13 @@ do
 				return nil
 			end
 
-			local name = get_surfaceprop_name(vmt.surfaceprop)
+			local name = get_prop(vmt.surfaceprop, "surfaceprop_name")
 
 			if name then name = name:lower() end
 
-			-- Comprehensive surface property to PBR mapping
+			if not name then name = get_prop(vmt.surfaceprop, "gamematerial") end
+
+			self.vmt_surfaceprop = name
 			-- Format: { roughness, metallic }
 			local surfaceprop_pbr = {
 				-- Metals
@@ -454,42 +450,32 @@ do
 				gmod_bouncy = {0.5, 0.0},
 				gmod_ice = {0.1, 0.0},
 				gmod_silent = {0.7, 0.0},
+				-- gamematerial
+				C = {0.9, 0.0}, -- Concrete
+				D = {0.95, 0.0}, -- Dirt
+				G = {0.05, 0.0}, -- Glass (should use transmission)
+				I = {0.5, 0.0}, -- Plastic/rubber (I = "Item")
+				M = {0.35, 1.0}, -- Metal
+				O = {0.7, 0.0}, -- Organic/flesh
+				P = {0.6, 0.0}, -- Plaster
+				S = {0.95, 0.0}, -- Sand
+				T = {0.4, 0.0}, -- Tile
+				V = {0.85, 0.0}, -- Vent (metallic but often painted)
+				W = {0.7, 0.0}, -- Wood
+				X = {0.5, 0.0}, -- Glass (breakable)
+				Y = {0.05, 0.0}, -- Glass
+				Z = {0.5, 0.0}, -- Flesh
+				N = {0.95, 0.0}, -- Snow
+				U = {0.95, 0.0}, -- Grass (U = "Underbrush")
+				L = {0.85, 0.0}, -- Gravel
+				A = {0.65, 0.0}, -- Antlion
+				F = {0.95, 0.0}, -- Foliage
+				E = {0.1, 0.0}, -- Slime/alien
+				H = {0.9, 0.0}, -- Cloth
+				K = {0.9, 0.0}, -- Cardboard
+				R = {0.5, 0.0}, -- Computer/electronic
 			}
 			local pbr = surfaceprop_pbr[name]
-
-			-- Fallback: try to match by gamematerial if no direct match
-			if not pbr then
-				local gamematerial = get_prop(vmt.surfaceprop, "gamematerial")
-
-				if gamematerial then
-					local gamematerial_pbr = {
-						C = {0.9, 0.0}, -- Concrete
-						D = {0.95, 0.0}, -- Dirt
-						G = {0.05, 0.0}, -- Glass (should use transmission)
-						I = {0.5, 0.0}, -- Plastic/rubber (I = "Item")
-						M = {0.35, 1.0}, -- Metal
-						O = {0.7, 0.0}, -- Organic/flesh
-						P = {0.6, 0.0}, -- Plaster
-						S = {0.95, 0.0}, -- Sand
-						T = {0.4, 0.0}, -- Tile
-						V = {0.85, 0.0}, -- Vent (metallic but often painted)
-						W = {0.7, 0.0}, -- Wood
-						X = {0.5, 0.0}, -- Glass (breakable)
-						Y = {0.05, 0.0}, -- Glass
-						Z = {0.5, 0.0}, -- Flesh
-						N = {0.95, 0.0}, -- Snow
-						U = {0.95, 0.0}, -- Grass (U = "Underbrush")
-						L = {0.85, 0.0}, -- Gravel
-						A = {0.65, 0.0}, -- Antlion
-						F = {0.95, 0.0}, -- Foliage
-						E = {0.1, 0.0}, -- Slime/alien
-						H = {0.9, 0.0}, -- Cloth
-						K = {0.9, 0.0}, -- Cardboard
-						R = {0.5, 0.0}, -- Computer/electronic
-					}
-					pbr = gamematerial_pbr[gamematerial:upper()]
-				end
-			end
 
 			-- Fallback: use physical properties to estimate PBR values
 			if not pbr then
@@ -497,6 +483,13 @@ do
 				local elasticity = get_prop(vmt.surfaceprop, "elasticity") or 0.25
 				local audioreflectivity = get_prop(vmt.surfaceprop, "audioreflectivity") or 0.5
 				local friction = get_prop(vmt.surfaceprop, "friction") or 0.5
+				self.vmt_surfaceprop = {
+					name_not_found = name,
+					density = density,
+					elasticity = elasticity,
+					audioreflectivity = audioreflectivity,
+					friction = friction,
+				}
 				-- High density + high audio reflectivity = likely metal
 				local metallic = 0.0
 

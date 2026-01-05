@@ -390,7 +390,6 @@ render3d.fill_config = {
 					val = texture(TEXTURE(pc.model.MetallicRoughnessTexture), in_uv).g;
 				} else  {
 					val = pc.model.RoughnessMultiplier;
-					if (InvertRoughnessTexture) val = -val + 1.0;
 					val = clamp(val, 0.05, 0.95);
 					return val;
 				}

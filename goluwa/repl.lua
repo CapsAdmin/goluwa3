@@ -371,6 +371,7 @@ function repl.HandleEvent(ev)
 					repl.input_scroll_offset = 0
 					repl.selection_start = nil
 					repl.saved_input = ""
+					repl.term:Clear()
 					return
 				end
 

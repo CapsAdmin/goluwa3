@@ -229,14 +229,13 @@ do -- helpers
 	function Polygon3D:BuildBoundingBox()
 		for _, sub_mesh in ipairs(self:GetSubMeshes()) do
 			for i = 1, #sub_mesh.indices do
-				local idx = sub_mesh.indices[i]
+				-- Indices are 0-based, Vertices table is 1-based
+				local idx = sub_mesh.indices[i] + 1
 
 				if idx then
 					local vtx = self.Vertices[idx]
 
-					if vtx then
-						self.AABB:ExpandVec3(self.Vertices[sub_mesh.indices[i]].pos)
-					end
+					if vtx and vtx.pos then self.AABB:ExpandVec3(vtx.pos) end
 				end
 			end
 		end
