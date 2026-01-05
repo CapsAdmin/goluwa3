@@ -676,6 +676,7 @@ function Texture:Shade(glsl, extra_config)
 	if not self.image then error("Cannot shade: texture has no image") end
 
 	extra_config = extra_config or {}
+	local header = extra_config.header or ""
 	local device = render.GetDevice()
 	local queue = render.GetQueue()
 	local is_cube = self:IsCubemap()
@@ -775,6 +776,8 @@ function Texture:Shade(glsl, extra_config)
 							extra_config.custom_declarations or
 							""
 						) .. [[
+
+							]] .. header .. [[
 
 							vec4 shade(vec2 uv, vec3 dir) {
 								]] .. glsl .. [[

@@ -86,6 +86,42 @@ local debug_block = {
 		end,
 	},
 }
+
+do
+	local debug_modes = {"none", "normals", "light", "ssao", "ssr", "probe"}
+	render3d.debug_mode = render3d.debug_mode or 1
+
+	function render3d.GetDebugModes()
+		return debug_modes
+	end
+
+	function render3d.CycleDebugMode()
+		render3d.debug_mode = render3d.debug_mode % #debug_modes + 1
+		return debug_modes[render3d.debug_mode]
+	end
+
+	function render3d.GetDebugModeName()
+		return debug_modes[render3d.debug_mode]
+	end
+
+	render3d.debug_mode_glsl = [[
+		int debug_mode = lighting_data.debug_mode - 1;
+
+		if (debug_mode == 1) {
+			color = N * 0.5 + 0.5;
+		} else if (debug_mode == 2) {
+			color = ambient_specular + emissive;
+		} else if (debug_mode == 3) {
+			color = ssao;
+		} else if (debug_mode == 4) {
+			color = texture(TEXTURE(lighting_data.ssr_tex), in_uv).rgb;
+		} else if (debug_mode == 5) {
+			// Probe debug - show probe cubemap contribution
+			color = reflection;
+		}
+	]]
+end
+
 local common_block = {
 	{
 		"time",
@@ -481,20 +517,20 @@ render3d.ssr_config = {
 	samples = "1",
 	vertex = {
 		custom_declarations = [[
-			layout(location = 0) out vec2 out_uv;
-		]],
+            layout(location = 0) out vec2 out_uv;
+        ]],
 		shader = [[
-			void main() {
-				vec2 uv = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
-				gl_Position = vec4(uv * 2.0 - 1.0, 0.0, 1.0);
-				out_uv = uv;
-			}
-		]],
+            void main() {
+                vec2 uv = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
+                gl_Position = vec4(uv * 2.0 - 1.0, 0.0, 1.0);
+                out_uv = uv;
+            }
+        ]],
 	},
 	fragment = {
 		custom_declarations = [[
-			layout(location = 0) in vec2 in_uv;
-		]],
+            layout(location = 0) in vec2 in_uv;
+        ]],
 		uniform_buffers = {
 			{
 				name = "ssr_data",
@@ -522,154 +558,379 @@ render3d.ssr_config = {
 							block[key] = self:GetTextureIndex(render3d.gbuffer:GetDepthTexture())
 						end,
 					},
+					{
+						"blue_noise_tex",
+						"int",
+						function(self, block, key)
+							block[key] = self:GetTextureIndex(render3d.blue_noise_tex)
+						end,
+					},
 					last_frame_block,
 					common_block,
+					-- NEW: Frame index for temporal noise
+					{
+						"frame_index",
+						"int",
+						function(self, block, key)
+							render3d.ssr_frame_count = (render3d.ssr_frame_count or 0) + 1
+							block[key] = render3d.ssr_frame_count % 256
+						end,
+					},
+				},
+			},
+		},
+		shader = [[            
+            #define SSR_MAX_STEPS 64
+            #define SSR_BINARY_STEPS 8
+            #define SSR_ROUGHNESS_CUTOFF 1
+            #define PI 3.14159265359
+            
+            #define saturate(x) clamp(x, 0.0, 1.0)
+            
+            // Spatiotemporal blue noise using a precomputed texture
+            vec2 blue_noise(vec2 uv, int frame) {
+                ivec2 pixel = ivec2(uv * vec2(textureSize(TEXTURE(ssr_data.depth_tex), 0)));
+                ivec2 noise_size = textureSize(TEXTURE(ssr_data.blue_noise_tex), 0);
+                
+                // Use golden ratio to offset the noise texture per frame for temporal stability
+                ivec2 offset = ivec2(
+                    int(fract(float(frame) * 0.7548776662466927) * float(noise_size.x)),
+                    int(fract(float(frame) * 0.5698402909980532) * float(noise_size.y))
+                );
+                
+                return texelFetch(TEXTURE(ssr_data.blue_noise_tex), (pixel + offset) % noise_size, 0).rg;
+            }
+            
+            // VNDF sampling for GGX (Heitz 2018 + spherical cap)
+            vec3 sampleGGXVNDF(vec3 Ve, float alpha, vec2 xi) {
+                vec3 Vh = normalize(vec3(alpha * Ve.x, alpha * Ve.y, Ve.z));
+                float lensq = Vh.x * Vh.x + Vh.y * Vh.y;
+                vec3 T1 = lensq > 0.0 ? vec3(-Vh.y, Vh.x, 0.0) / sqrt(lensq) : vec3(1.0, 0.0, 0.0);
+                vec3 T2 = cross(Vh, T1);
+                
+                float r = sqrt(xi.x);
+                float phi = 2.0 * PI * xi.y;
+                float t1 = r * cos(phi);
+                float t2 = r * sin(phi);
+                float s = 0.5 * (1.0 + Vh.z);
+                t2 = (1.0 - s) * sqrt(1.0 - t1 * t1) + s * t2;
+                
+                vec3 Nh = t1 * T1 + t2 * T2 + sqrt(max(0.0, 1.0 - t1*t1 - t2*t2)) * Vh;
+                return normalize(vec3(alpha * Nh.x, alpha * Nh.y, max(0.0, Nh.z)));
+            }
+            
+            // Robust tangent frame construction (Frisvad / revised Pixar method)
+            void buildOrthonormalBasis(vec3 n, out vec3 t, out vec3 b) {
+				float a = 1.0 / (1.0 + n.z);
+				float d = -n.x * n.y * a;
+				t = vec3(1.0 - n.x * n.x * a, d, -n.x);
+				b = vec3(d, 1.0 - n.y * n.y * a, -n.y);
+            }
+            
+            vec4 cast_ssr_ray(vec3 world_pos, vec3 N, vec3 V, float roughness, vec2 xi) {
+                if (ssr_data.last_frame_tex == -1) return vec4(0.0);
+                if (roughness > SSR_ROUGHNESS_CUTOFF) return vec4(0.0);
+                
+                // Transform to view space
+                vec3 N_vs = normalize(mat3(ssr_data.view) * N);
+                vec3 V_vs = normalize(mat3(ssr_data.view) * V);
+                vec4 pos_vs = ssr_data.view * vec4(world_pos, 1.0);
+                
+                // VNDF importance sampling with robust tangent frame
+                vec3 T, B;
+                buildOrthonormalBasis(N_vs, T, B);
+                
+                vec3 V_local = vec3(dot(V_vs, T), dot(V_vs, B), dot(V_vs, N_vs));
+                float alpha = max(0.001, roughness * roughness);
+                vec3 H_local = sampleGGXVNDF(V_local, alpha, xi);
+                vec3 H_vs = normalize(T * H_local.x + B * H_local.y + N_vs * H_local.z);
+                
+                vec3 R_vs = reflect(-V_vs, H_vs);
+                if (dot(N_vs, R_vs) < 0.0) return vec4(0.0);
+                
+                // Adaptive ray marching with jittered start
+                float jitter = fract(xi.x * 12.9898 + xi.y * 78.233);
+                float step_size = 0.05 + 0.05 * jitter; // Jittered initial step
+                vec3 current_pos = pos_vs.xyz + R_vs * step_size * jitter; // Jittered start position
+                int steps = int(mix(float(SSR_MAX_STEPS), float(SSR_MAX_STEPS/2), roughness));
+                
+                for (int i = 0; i < steps; i++) {
+                    current_pos += R_vs * step_size;
+                    
+                    vec4 proj = ssr_data.projection * vec4(current_pos, 1.0);
+                    proj.xyz /= proj.w;
+                    vec2 uv = proj.xy * 0.5 + 0.5;
+                    
+                    if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) break;
+                    
+                    float sampled_depth = texture(TEXTURE(ssr_data.depth_tex), uv).r;
+                    vec4 sampled_clip = vec4(uv * 2.0 - 1.0, sampled_depth, 1.0);
+                    vec4 sampled_view = ssr_data.inv_projection * sampled_clip;
+                    sampled_view /= sampled_view.w;
+                    
+                    if (current_pos.z < sampled_view.z) {
+                        float depth_diff = abs(current_pos.z - sampled_view.z);
+                        float thickness = 0.5 + step_size * 2.0;
+                        thickness *= 1.0 + length(current_pos) * 0.005;
+                        
+                        if (depth_diff < thickness) {
+                            // Binary search refinement
+                            vec3 start = current_pos - R_vs * step_size;
+                            vec3 end = current_pos;
+                            
+                            for (int j = 0; j < SSR_BINARY_STEPS; j++) {
+                                vec3 mid = mix(start, end, 0.5);
+                                vec4 mid_proj = ssr_data.projection * vec4(mid, 1.0);
+                                mid_proj.xyz /= mid_proj.w;
+                                vec2 mid_uv = mid_proj.xy * 0.5 + 0.5;
+                                
+                                float mid_depth = texture(TEXTURE(ssr_data.depth_tex), mid_uv).r;
+                                vec4 mid_clip = vec4(mid_uv * 2.0 - 1.0, mid_depth, 1.0);
+                                vec4 mid_view = ssr_data.inv_projection * mid_clip;
+                                mid_view /= mid_view.w;
+                                
+                                if (mid.z < mid_view.z) {
+                                    end = mid; uv = mid_uv;
+                                } else {
+                                    start = mid;
+                                }
+                            }
+                            
+                            // Backface rejection - transform to same space
+                            vec3 hit_normal_ws = texture(TEXTURE(ssr_data.normal_tex), uv).xyz;
+                            vec3 hit_normal_vs = normalize(mat3(ssr_data.view) * hit_normal_ws);
+                            if (dot(hit_normal_vs, -R_vs) < 0.0) {
+                                step_size *= 1.5;
+                                continue;
+                            }
+                            
+                            // Sample with roughness-based blur
+                            vec3 hit_color;
+                            float dist = length(current_pos - pos_vs.xyz);
+                            
+                            if (roughness > 0.1) {
+                                vec2 tex_size = vec2(textureSize(TEXTURE(ssr_data.last_frame_tex), 0));
+                                float cone = roughness * dist * 0.05;
+                                float mip = log2(max(1.0, cone * max(tex_size.x, tex_size.y)));
+                                hit_color = textureLod(TEXTURE(ssr_data.last_frame_tex), uv, min(mip, 4.0)).rgb;
+                            } else {
+                                hit_color = texture(TEXTURE(ssr_data.last_frame_tex), uv).rgb;
+                            }
+                            
+                            // Confidence calculation
+                            float edge_fade = 1.0 - pow(max(abs(uv.x-0.5), abs(uv.y-0.5)) * 2.0, 3.0);
+                            float dist_fade = 1.0 - saturate(dist / 100.0);
+                            float thick_conf = 1.0 - saturate(depth_diff / thickness);
+                            float confidence = edge_fade * dist_fade * thick_conf;
+                            
+                            return vec4(hit_color, confidence);
+                        }
+                    }
+                    
+                    step_size *= 1.05; // Slower growth than before
+                }
+                
+                return vec4(0.0);
+            }
+		
+            
+            void main() {
+                vec3 N = texture(TEXTURE(ssr_data.normal_tex), in_uv).xyz;
+                float roughness = texture(TEXTURE(ssr_data.mra_tex), in_uv).g;
+                float depth = texture(TEXTURE(ssr_data.depth_tex), in_uv).r;
+                
+                if (depth == 1.0) {
+                    set_ssr(vec4(0.0));
+                    return;
+                }
+					
+                vec4 clip_pos = vec4(in_uv * 2.0 - 1.0, depth, 1.0);
+                vec4 view_pos = ssr_data.inv_projection * clip_pos;
+                view_pos /= view_pos.w;
+                vec3 world_pos = (ssr_data.inv_view * view_pos).xyz;
+                vec3 V = normalize(ssr_data.camera_position.xyz - world_pos);
+                
+                // SINGLE RAY with spatiotemporal blue noise
+                vec2 xi = blue_noise(in_uv, ssr_data.frame_index);
+                vec4 current = cast_ssr_ray(world_pos, N, V, roughness, xi);
+                
+                set_ssr(current);
+            }
+        ]],
+	},
+	rasterizer = {
+		cull_mode = "none",
+	},
+	depth_stencil = {
+		depth_test = false,
+		depth_write = false,
+	},
+}
+-- SSR Temporal Resolve Pass
+render3d.ssr_resolve_config = {
+	samples = "1",
+	vertex = {
+		custom_declarations = [[
+			layout(location = 0) out vec2 out_uv;
+		]],
+		shader = [[
+			void main() {
+				vec2 uv = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
+				gl_Position = vec4(uv * 2.0 - 1.0, 0.0, 1.0);
+				out_uv = uv;
+			}
+		]],
+	},
+	fragment = {
+		custom_declarations = [[
+			layout(location = 0) in vec2 in_uv;
+		]],
+		uniform_buffers = {
+			{
+				name = "resolve_data",
+				binding_index = 3,
+				block = {
+					camera_block,
+					{
+						"current_ssr_tex",
+						"int",
+						function(self, block, key)
+							if not render3d.ssr_trace_fb then
+								block[key] = -1
+								return
+							end
+
+							block[key] = self:GetTextureIndex(render3d.ssr_trace_fb:GetAttachment(1))
+						end,
+					},
+					{
+						"history_ssr_tex",
+						"int",
+						function(self, block, key)
+							if not render3d.ssr_fbs then
+								block[key] = -1
+								return
+							end
+
+							local prev_idx = 3 - render3d.current_ssr_fb_index
+							block[key] = self:GetTextureIndex(render3d.ssr_fbs[prev_idx]:GetAttachment(1))
+						end,
+					},
+					{
+						"depth_tex",
+						"int",
+						function(self, block, key)
+							block[key] = self:GetTextureIndex(render3d.gbuffer:GetDepthTexture())
+						end,
+					},
+					{
+						"prev_inv_view",
+						"mat4",
+						function(self, block, key)
+							local mat = render3d.prev_view_matrix
+
+							if mat then
+								mat:GetInverse():CopyToFloatPointer(block[key])
+							else
+								render3d.camera:BuildViewMatrix():GetInverse():CopyToFloatPointer(block[key])
+							end
+						end,
+					},
+					{
+						"prev_projection",
+						"mat4",
+						function(self, block, key)
+							local mat = render3d.prev_projection_matrix
+
+							if mat then
+								mat:CopyToFloatPointer(block[key])
+							else
+								render3d.camera:BuildProjectionMatrix():CopyToFloatPointer(block[key])
+							end
+						end,
+					},
 				},
 			},
 		},
 		shader = [[
-			#define SSR_ROUGHNESS 1
-			#define SSR_STEPS 150
-			#define SSR_SAMPLES 64
-			#define PI 3.14159265359
-
 			#define saturate(x) clamp(x, 0.0, 1.0)
-
-			float hash(vec2 p) {
-				p = fract(p * vec2(123.34, 456.21));
-				p += dot(p, p + 45.32);
-				return fract(p.x * p.y);
-			}
-
-			float V_SmithGGXCorrelated(float a2, float NoV, float NoL) {
-				float lambdaV = NoL * sqrt((NoV - a2 * NoV) * NoV + a2);
-				float lambdaL = NoV * sqrt((NoL - a2 * NoL) * NoL + a2);
-				float v = 0.5 / (lambdaV + lambdaL);
-				return v;
-			}
-
-			vec4 cast_ssr_ray(vec3 world_pos, vec3 N, vec3 V, float roughness, vec2 xi) {
-				if (ssr_data.last_frame_tex == -1) return vec4(0.0);
-
-				#if SSR_ROUGHNESS
-				float a = roughness * roughness;
-				float a2 = a * a;
-				float phi = 2.0 * PI * xi.x;
-				float cosTheta = sqrt(max(0.0, (1.0 - xi.y) / (1.0 + (a2 - 1.0) * xi.y)));
-				float sinTheta = sqrt(max(0.0, 1.0 - cosTheta * cosTheta));
-				
-				vec3 H_local = vec3(cos(phi) * sinTheta, sin(phi) * sinTheta, cosTheta);
-				
-				vec3 up = abs(N.z) < 0.999 ? vec3(0.0, 0.0, 1.0) : vec3(1.0, 0.0, 0.0);
-				vec3 tangent = normalize(cross(up, N));
-				vec3 bitangent = cross(N, tangent);
-				vec3 H = normalize(tangent * H_local.x + bitangent * H_local.y + N * H_local.z);
-				#else
-				if (roughness > 0.2) return vec4(0.0);
-				vec3 H = N;
-				float a = roughness * roughness;
-				#endif
-				
-				vec3 R = reflect(-V, H);
-				float NoL = dot(N, R);
-				if (NoL < 0.0) return vec4(0.0);
-
-				vec4 view_pos = ssr_data.view * vec4(world_pos, 1.0);
-				vec3 view_dir = normalize(mat3(ssr_data.view) * R);
-
-				float step_size = 0.1;
-				int max_steps = SSR_STEPS;
-				int binary_search_steps = 5;
-				vec3 current_pos = view_pos.xyz;
-
-				for (int i = 0; i < max_steps; i++) {
-					current_pos += view_dir * step_size;
-					vec4 projected_pos = ssr_data.projection * vec4(current_pos, 1.0);
-					projected_pos.xyz /= projected_pos.w;
-					vec2 uv = projected_pos.xy * 0.5 + 0.5;
-
-					if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) break;
-
-					float sampled_depth = texture(TEXTURE(ssr_data.depth_tex), uv).r;
-					vec4 sampled_clip_pos = vec4(uv * 2.0 - 1.0, sampled_depth, 1.0);
-					vec4 sampled_view_pos = ssr_data.inv_projection * sampled_clip_pos;
-					sampled_view_pos /= sampled_view_pos.w;
-
-					if (current_pos.z < sampled_view_pos.z) {
-						float depth_diff = abs(current_pos.z - sampled_view_pos.z);
-						float thickness = 0.5 * (1.0 + step_size);
-						if (depth_diff < thickness) {
-							vec3 start_pos = current_pos - view_dir * step_size;
-							vec3 end_pos = current_pos;
-							for (int j = 0; j < binary_search_steps; j++) {
-								vec3 mid_pos = mix(start_pos, end_pos, 0.5);
-								vec4 mid_projected = ssr_data.projection * vec4(mid_pos, 1.0);
-								mid_projected.xyz /= mid_projected.w;
-								vec2 mid_uv = mid_projected.xy * 0.5 + 0.5;
-								
-								float mid_sampled_depth = texture(TEXTURE(ssr_data.depth_tex), mid_uv).r;
-								vec4 mid_sampled_clip = vec4(mid_uv * 2.0 - 1.0, mid_sampled_depth, 1.0);
-								vec4 mid_sampled_view = ssr_data.inv_projection * mid_sampled_clip;
-								mid_sampled_view /= mid_sampled_view.w;
-								
-								if (mid_pos.z < mid_sampled_view.z) {
-									end_pos = mid_pos;
-									uv = mid_uv;
-								} else {
-									start_pos = mid_pos;
-								}
-							}
-
-							vec3 hit_color = texture(TEXTURE(ssr_data.last_frame_tex), uv).rgb;
-							
-							#if SSR_ROUGHNESS
-							if (roughness > 0.05) {
-								vec2 texel_size = 1.0 / vec2(textureSize(TEXTURE(ssr_data.last_frame_tex), 0));
-								float blur_size = roughness * 10.0;
-								hit_color += texture(TEXTURE(ssr_data.last_frame_tex), uv + vec2(1.0, 1.0) * texel_size * blur_size).rgb;
-								hit_color += texture(TEXTURE(ssr_data.last_frame_tex), uv + vec2(-1.0, 1.0) * texel_size * blur_size).rgb;
-								hit_color += texture(TEXTURE(ssr_data.last_frame_tex), uv + vec2(1.0, -1.0) * texel_size * blur_size).rgb;
-								hit_color += texture(TEXTURE(ssr_data.last_frame_tex), uv + vec2(-1.0, -1.0) * texel_size * blur_size).rgb;
-								hit_color /= 5.0;
-							}
-							#endif
-
-							float NoV = saturate(dot(N, V));
-							float NoH = saturate(dot(N, H));
-							float VoH = saturate(dot(V, H));
-							NoL = saturate(NoL);
-							
-							return vec4(hit_color, 1.0);
-						}
-					}
-					step_size *= 1.025;
-				}
-				return vec4(0.0);
-			}
-
+			
 			void main() {
-				vec3 N = texture(TEXTURE(ssr_data.normal_tex), in_uv).xyz;
-				float roughness = texture(TEXTURE(ssr_data.mra_tex), in_uv).g;
-				float depth = texture(TEXTURE(ssr_data.depth_tex), in_uv).r;
-
-				if (depth == 1.0) {
+				if (resolve_data.current_ssr_tex == -1) {
 					set_ssr(vec4(0.0));
 					return;
 				}
-
-				vec4 clip_pos = vec4(in_uv * 2.0 - 1.0, depth, 1.0);
-				vec4 view_pos = ssr_data.inv_projection * clip_pos;
-				view_pos /= view_pos.w;
-				vec3 world_pos = (ssr_data.inv_view * view_pos).xyz;
-				vec3 V = normalize(ssr_data.camera_position.xyz - world_pos);
-
-				vec4 total = vec4(0.0);
-				for (int i = 0; i < SSR_SAMPLES; i++) {
-					vec2 seed = in_uv + fract(ssr_data.time) + float(i) * 0.123;
-					vec2 xi = vec2(hash(seed), hash(seed + vec2(0.123, 0.456)));
-					total += cast_ssr_ray(world_pos, N, V, roughness, xi);
+				
+				vec4 current = texture(TEXTURE(resolve_data.current_ssr_tex), in_uv);
+				
+				// Get world position for reprojection
+				float depth = texture(TEXTURE(resolve_data.depth_tex), in_uv).r;
+				
+				if (depth == 1.0) {
+					set_ssr(current);
+					return;
 				}
-				set_ssr(total / float(SSR_SAMPLES));
+				
+				// Reconstruct world position
+				vec4 clip_pos = vec4(in_uv * 2.0 - 1.0, depth, 1.0);
+				vec4 view_pos = resolve_data.inv_projection * clip_pos;
+				view_pos /= view_pos.w;
+				vec3 world_pos = (resolve_data.inv_view * view_pos).xyz;
+				
+				// Reproject to previous frame
+				vec4 prev_view_pos = inverse(resolve_data.prev_inv_view) * vec4(world_pos, 1.0);
+				vec4 prev_clip = resolve_data.prev_projection * prev_view_pos;
+				vec2 prev_uv = (prev_clip.xy / prev_clip.w) * 0.5 + 0.5;
+				
+				// Check if reprojected UV is valid
+				if (prev_uv.x < 0.0 || prev_uv.x > 1.0 || prev_uv.y < 0.0 || prev_uv.y > 1.0) {
+					set_ssr(current);
+					return;
+				}
+				
+				vec4 history = texture(TEXTURE(resolve_data.history_ssr_tex), prev_uv);
+				
+				// Neighborhood clamping (AABB) to reject invalid history
+				vec3 m1 = vec3(0.0);
+				vec3 m2 = vec3(0.0);
+				float a1 = 0.0, a2 = 0.0;
+				
+				vec2 texel_size = 1.0 / vec2(textureSize(TEXTURE(resolve_data.current_ssr_tex), 0));
+				
+				// Use a slightly larger neighborhood for better stability with sparse noise
+				for (int y = -1; y <= 1; y++) {
+					for (int x = -1; x <= 1; x++) {
+						vec4 s = texture(TEXTURE(resolve_data.current_ssr_tex), in_uv + vec2(x, y) * texel_size);
+						m1 += s.rgb;
+						m2 += s.rgb * s.rgb;
+						a1 += s.a;
+						a2 += s.a * s.a;
+					}
+				}
+				
+				m1 /= 9.0;
+				m2 /= 9.0;
+				a1 /= 9.0;
+				a2 /= 9.0;
+				
+				vec3 sigma = sqrt(max(vec3(0.0), m2 - m1 * m1));
+				float sigma_a = sqrt(max(0.0, a2 - a1 * a1));
+				
+				// Clamp history to neighborhood bounds (with some slack)
+				float gamma = 1.5;
+				vec3 clamped_rgb = clamp(history.rgb, m1 - sigma * gamma, m1 + sigma * gamma);
+				float clamped_a = clamp(history.a, a1 - sigma_a * gamma, a1 + sigma_a * gamma);
+				vec4 clamped_history = vec4(clamped_rgb, clamped_a);
+				
+				// Blend factor - higher = more temporal stability, lower = more responsive
+				float blend = 0.5;
+				
+				// Reduce blend if history was clamped significantly (indicates disocclusion)
+				float clamp_diff = length(history.rgb - clamped_rgb);
+				blend *= 1.0 - saturate(clamp_diff * 2.0);
+				
+				vec4 result = mix(current, clamped_history, blend);
+				set_ssr(result);
 			}
 		]],
 	},
@@ -759,10 +1020,10 @@ render3d.lighting_config = {
 						end,
 					},
 					{
-						"ssao_noise_tex",
+						"blue_noise_tex",
 						"int",
 						function(self, block, key)
-							block[key] = self:GetTextureIndex(render3d.ssao_noise_tex)
+							block[key] = self:GetTextureIndex(render3d.blue_noise_tex)
 						end,
 					},
 					last_frame_block,
@@ -1114,20 +1375,19 @@ render3d.lighting_config = {
 			}
 
 			vec3 get_ssao(vec2 uv, vec3 world_pos, vec3 N) {
-				if (lighting_data.ssao_noise_tex == -1) return vec3(1.0);
+				if (lighting_data.blue_noise_tex == -1) return vec3(1.0);
 
 				vec3 p = (lighting_data.view * vec4(world_pos, 1.0)).xyz;
 				vec3 V = normalize(-p);
 				vec3 view_normal = normalize(mat3(lighting_data.view) * N);
 
 				ivec2 screen_size = textureSize(TEXTURE(lighting_data.depth_tex), 0);
-				vec2 vpos = uv * vec2(screen_size);
+				ivec2 pixel = ivec2(uv * vec2(screen_size));
+				ivec2 noise_size = textureSize(TEXTURE(lighting_data.blue_noise_tex), 0);
+				vec2 noise = texelFetch(TEXTURE(lighting_data.blue_noise_tex), pixel % noise_size, 0).rg;
 				
-				// Interleaved Gradient Noise for high-quality per-pixel jitter
-				float ign = fract(52.9829189 * fract(dot(vpos, vec2(0.06711056, 0.00583715))));
-				
-				float random_offset = ign;
-				float random_rotation = ign * 6.28318;
+				float random_offset = noise.x;
+				float random_rotation = noise.y * 6.28318;
 
 				float world_radius = 2.0;
 				// radius_uv = (world_radius * focal_length / -p.z) * 0.5
@@ -1249,18 +1509,12 @@ render3d.lighting_config = {
 					set_color(vec4(sky_color_output, 1.0));
 					return;
 				}
-				int debug_mode = lighting_data.debug_mode - 1;
 
 				vec3 N = texture(TEXTURE(lighting_data.normal_tex), in_uv).xyz;
 
 				vec3 mra = texture(TEXTURE(lighting_data.mra_tex), in_uv).rgb;
 				float metallic = mra.r;
 				float roughness = mra.g;
-
-				if (debug_mode == 2) {
-					metallic = 1.0;
-					roughness = 0.4;
-				}
 
 				float ao = mra.b;
 				vec3 emissive = texture(TEXTURE(lighting_data.emissive_tex), in_uv).rgb;
@@ -1332,21 +1586,7 @@ render3d.lighting_config = {
 					color = mix(color, CASCADE_COLORS[cascade_idx], 0.4);
 				}
 
-				
-				if (debug_mode == 1) {
-					color = N * 0.5 + 0.5;
-				} else if (debug_mode == 2) {
-					// do nothing, see up
-				} else if (debug_mode == 3) {
-					color = ambient_specular + emissive;
-				} else if (debug_mode == 4) {
-					color = ssao;
-				} else if (debug_mode == 5) {
-					color = texture(TEXTURE(lighting_data.ssr_tex), in_uv).rgb;
-				} else if (debug_mode == 6) {
-					// Probe debug - show probe cubemap contribution
-					color = reflection;
-				}
+				]] .. render3d.debug_mode_glsl .. [[
 
 				set_color(vec4(color, albedo_alpha.a));
 			}
@@ -1474,21 +1714,34 @@ function render3d.Initialize()
 
 	local function create_ssr_fb()
 		local size = window:GetSize()
-		render3d.ssr_fb = Framebuffer.New(
+		-- Full resolution SSR with ping-pong for temporal accumulation
+		render3d.ssr_fbs = {}
+
+		for i = 1, 2 do
+			render3d.ssr_fbs[i] = Framebuffer.New(
+				{
+					width = size.x,
+					height = size.y,
+					formats = EasyPipeline.GetColorFormats(render3d.ssr_config),
+					depth = false,
+				}
+			)
+		end
+
+		render3d.ssr_trace_fb = Framebuffer.New(
 			{
-				width = math.floor(size.x / 2),
-				height = math.floor(size.y / 2),
+				width = size.x,
+				height = size.y,
 				formats = EasyPipeline.GetColorFormats(render3d.ssr_config),
 				depth = false,
 			}
 		)
+		render3d.current_ssr_fb_index = 1
+		-- Keep ssr_fb as alias for current for compatibility
+		render3d.ssr_fb = render3d.ssr_fbs[1]
 	end
 
-	local function create_ssao_noise()
-		local function lerp(a, b, t)
-			return a + (b - a) * t
-		end
-
+	local function create_blue_noise_texture()
 		render3d.ssao_kernel = {}
 
 		for i = 1, 64 do
@@ -1496,41 +1749,17 @@ function render3d.Initialize()
 			local sample = Vec3(math.random() * 2 - 1, math.random() * 2 - 1, math.random()):Normalize()
 			sample = sample * math.random()
 			local scale = (i - 1) / 64
-			scale = lerp(0.1, 1.0, scale * scale)
+			scale = math.lerp(0.1, 1.0, scale * scale)
 			sample = sample * scale
 			table.insert(render3d.ssao_kernel, sample)
 		end
 
-		local size = 64 -- Much larger than 4x4
-		local ssao_noise = {}
-
-		for y = 1, size do
-			for x = 1, size do
-				-- Add golden ratio based distribution for better coverage
-				local r1 = (x * 0.7548776662466927) % 1.0 * 2 - 1
-				local r2 = (y * 0.5698402909980532) % 1.0 * 2 - 1
-				-- Mix with some randomness
-				r1 = r1 * 0.5 + (math.random() * 2 - 1) * 0.5
-				r2 = r2 * 0.5 + (math.random() * 2 - 1) * 0.5
-				-- Normalize the 2D vector
-				local len = math.sqrt(r1 * r1 + r2 * r2)
-
-				if len > 0 then r1, r2 = r1 / len, r2 / len end
-
-				table.insert(ssao_noise, r1)
-				table.insert(ssao_noise, r2)
-				table.insert(ssao_noise, 0)
-				table.insert(ssao_noise, 1)
-			end
-		end
-
-		local noise_buffer = ffi.new("float[?]", #ssao_noise, ssao_noise)
-		render3d.ssao_noise_tex = Texture.New(
+		local size = 64
+		render3d.blue_noise_tex = Texture.New(
 			{
 				width = size,
 				height = size,
 				format = "r32g32b32a32_sfloat",
-				buffer = noise_buffer,
 				sampler = {
 					min_filter = "nearest",
 					mag_filter = "nearest",
@@ -1539,14 +1768,42 @@ function render3d.Initialize()
 				},
 			}
 		)
+		render3d.blue_noise_tex:Shade(
+			[[
+				return vec4(B(uv*1000.2), B(uv*300.4), 1, 1);
+			]],
+			{
+				header = [[
+					// https://www.shadertoy.com/view/tllcR2
+					// no sell :-)
+
+					float hash12(vec2 p)
+					{
+						vec3 p3  = fract(vec3(p.xyx) * .1031);
+						p3 += dot(p3, p3.yzx + 33.33);
+						return fract((p3.x + p3.y) * p3.z);
+					}
+
+					#define hash(p)  fract(sin(dot(p, vec2(11.9898, 78.233))) * 43758.5453) // iq suggestion, for Windows
+					float B(vec2 U) {
+						float v = 0.;
+						for (int k=0; k<9; k++)
+							v += hash12( U + vec2(k%3-1,k/3-1) ); 
+						return .9 *( 1.125*hash12(U)- v/8.) + .5; // 
+					}
+				]],
+			}
+		)
 	end
 
 	create_gbuffer()
 	create_lighting_fbs()
 	create_ssr_fb()
-	create_ssao_noise()
+	create_blue_noise_texture()
 	render3d.fill_pipeline = EasyPipeline.New(render3d.fill_config)
 	render3d.ssr_pipeline = EasyPipeline.New(render3d.ssr_config)
+	render3d.ssr_resolve_config.color_format = render3d.ssr_config.color_format
+	render3d.ssr_resolve_pipeline = EasyPipeline.New(render3d.ssr_resolve_config)
 	render3d.lighting_pipeline = EasyPipeline.New(render3d.lighting_config)
 	render3d.blit_pipeline = EasyPipeline.New(render3d.blit_config)
 
@@ -1577,6 +1834,10 @@ function render3d.Initialize()
 			render3d.ssr_pipeline.pipeline:UpdateDescriptorSetArray(i, 0, textures)
 		end
 
+		for i = 1, #render3d.ssr_resolve_pipeline.pipeline.descriptor_sets do
+			render3d.ssr_resolve_pipeline.pipeline:UpdateDescriptorSetArray(i, 0, textures)
+		end
+
 		for i = 1, #render3d.blit_pipeline.pipeline.descriptor_sets do
 			render3d.blit_pipeline.pipeline:UpdateDescriptorSetArray(i, 0, textures)
 		end
@@ -1599,13 +1860,23 @@ function render3d.Initialize()
 		render3d.gbuffer:End(cmd)
 
 		-- 1.5 SSR Pass
-		if render3d.ssr_fb and render3d.ssr_pipeline then
-			render3d.ssr_fb:Begin(cmd)
+		if render3d.ssr_fbs and render3d.ssr_pipeline and render3d.ssr_resolve_pipeline then
+			-- 1.5.1 Trace
+			render3d.ssr_trace_fb:Begin(cmd)
 			cmd:SetCullMode("none")
 			render3d.ssr_pipeline:Bind(cmd)
 			render3d.ssr_pipeline:UploadConstants(cmd)
 			cmd:Draw(3, 1, 0, 0)
-			render3d.ssr_fb:End(cmd)
+			render3d.ssr_trace_fb:End(cmd)
+			-- 1.5.2 Resolve
+			local current_ssr_fb = render3d.ssr_fbs[render3d.current_ssr_fb_index]
+			current_ssr_fb:Begin(cmd)
+			render3d.ssr_resolve_pipeline:Bind(cmd)
+			render3d.ssr_resolve_pipeline:UploadConstants(cmd)
+			cmd:Draw(3, 1, 0, 0)
+			current_ssr_fb:End(cmd)
+			-- Use resolved result for lighting
+			render3d.ssr_fb = current_ssr_fb
 		end
 
 		-- 2. Lighting Pass (Offscreen)
@@ -1626,8 +1897,12 @@ function render3d.Initialize()
 		render3d.blit_pipeline:Bind(cmd)
 		render3d.blit_pipeline:UploadConstants(cmd)
 		cmd:Draw(3, 1, 0, 0)
+		-- Store current matrices for next frame reprojection
+		render3d.prev_view_matrix = render3d.camera:BuildViewMatrix():Copy()
+		render3d.prev_projection_matrix = render3d.camera:BuildProjectionMatrix():Copy()
 		-- Swap framebuffers for next frame
 		render3d.current_lighting_fb_index = 3 - render3d.current_lighting_fb_index
+		render3d.current_ssr_fb_index = 3 - render3d.current_ssr_fb_index
 	end)
 
 	event.Call("Render3DInitialized")
@@ -1691,24 +1966,6 @@ end
 
 function render3d.GetDebugCascadeColors()
 	return render3d.debug_cascade_colors
-end
-
-do
-	local debug_modes = {"none", "normals", "reflection", "light", "ssao", "ssr", "probe"}
-	render3d.debug_mode = render3d.debug_mode or 1
-
-	function render3d.GetDebugModes()
-		return debug_modes
-	end
-
-	function render3d.CycleDebugMode()
-		render3d.debug_mode = render3d.debug_mode % #debug_modes + 1
-		return debug_modes[render3d.debug_mode]
-	end
-
-	function render3d.GetDebugModeName()
-		return debug_modes[render3d.debug_mode]
-	end
 end
 
 event.AddListener("WindowFramebufferResized", "render3d", function(wnd, size)

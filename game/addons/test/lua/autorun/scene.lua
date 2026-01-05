@@ -133,26 +133,26 @@ do
 		}
 
 		vec3 getDetailNormal(vec3 p, vec3 normal, float m) {
-	vec3 tangent, bitangent;
-	pixarONB(normal, tangent, bitangent);
-	
-	float EPS = 5e-3;  // increased from 1e-3 for smoother sampling
-	float strength = 0.02;  // reduced from 0.05 for gentler bumps
-	
-	float h = length(getTriplanar(12.0 * p, normal));
-	float hT = length(getTriplanar(12.0 * (p + tangent * EPS), normal));
-	float hB = length(getTriplanar(12.0 * (p + bitangent * EPS), normal));
-	
-	vec3 delTangent = (tangent * EPS + normal * m * strength * hT) - (normal * m * strength * h);
-	vec3 delBitangent = (bitangent * EPS + normal * m * strength * hB) - (normal * m * strength * h);
-	vec3 worldNormal = normalize(cross(delTangent, delBitangent));
-	
-	return vec3(
-		dot(worldNormal, tangent),
-		dot(worldNormal, bitangent),
-		dot(worldNormal, normal)
-	);
-}
+			vec3 tangent, bitangent;
+			pixarONB(normal, tangent, bitangent);
+			
+			float EPS = 5e-3;  // increased from 1e-3 for smoother sampling
+			float strength = 0.02;  // reduced from 0.05 for gentler bumps
+			
+			float h = length(getTriplanar(12.0 * p, normal));
+			float hT = length(getTriplanar(12.0 * (p + tangent * EPS), normal));
+			float hB = length(getTriplanar(12.0 * (p + bitangent * EPS), normal));
+			
+			vec3 delTangent = (tangent * EPS + normal * m * strength * hT) - (normal * m * strength * h);
+			vec3 delBitangent = (bitangent * EPS + normal * m * strength * hB) - (normal * m * strength * h);
+			vec3 worldNormal = normalize(cross(delTangent, delBitangent));
+			
+			return vec3(
+				dot(worldNormal, tangent),
+				dot(worldNormal, bitangent),
+				dot(worldNormal, normal)
+			);
+		}
 
 		vec3 get_equirect_dir(vec2 uv) {
 			float phi = (0.75 - uv.x) * 2.0 * 3.14159265359;
@@ -383,6 +383,26 @@ do
 	for i = 1, #materials do
 		spawn()
 	end
+end
+
+do -- reflection plane
+	local reflection_mat = Material.New()
+	reflection_mat:SetAlbedoTexture(shaded_texture([[
+		return vec4(0.8, 0.9, 1.0, 1.0);
+	]]))
+	reflection_mat:SetMetallicTexture(shaded_texture("return vec4(1.0);"))
+	reflection_mat:SetRoughnessTexture(shaded_texture("return vec4(0.0);"))
+	local poly = Polygon3D.New()
+	poly:CreateCube(1)
+	poly.material = reflection_mat
+	poly:AddSubMesh(#poly.Vertices)
+	poly:Upload()
+	local ent = ecs.CreateEntity("reflection_plane")
+	local transform = ent:AddComponent("transform")
+	transform:SetPosition(Vec3(17.9, -243.3, 1.1))
+	transform:SetScale(Vec3(100, 1, 100))
+	local model = ent:AddComponent("model")
+	model:AddPrimitive(poly)
 end
 
 if false then
