@@ -198,7 +198,7 @@ function GraphicsPipeline.New(vulkan_instance, config)
 end
 
 function GraphicsPipeline:GetTextureIndex(tex)
-	if not tex then return -1 end
+	if not tex or type(tex) ~= "table" then return -1 end
 
 	local is_cube = tex.IsCubemap and tex:IsCubemap()
 

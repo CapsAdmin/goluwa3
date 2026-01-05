@@ -290,7 +290,29 @@ function CommandBuffer:DrawIndexed(indexCount, instanceCount, firstIndex, vertex
 end
 
 function CommandBuffer:SetCullMode(cull_mode)
-	vulkan.lib.vkCmdSetCullMode(self.ptr[0], vulkan.vk.e.VkCullModeFlagBits(cull_mode or "back"))
+	local mode = vulkan.vk.e.VkCullModeFlagBits(cull_mode or "back")
+
+	if vulkan.ext.vkCmdSetCullModeEXT then
+		vulkan.ext.vkCmdSetCullModeEXT(self.ptr[0], mode)
+	elseif vulkan.lib.vkCmdSetCullMode then
+		vulkan.lib.vkCmdSetCullMode(self.ptr[0], mode)
+	end
+end
+
+function CommandBuffer:SetPolygonMode(polygon_mode)
+	if vulkan.ext.vkCmdSetPolygonModeEXT then
+		vulkan.ext.vkCmdSetPolygonModeEXT(self.ptr[0], vulkan.vk.e.VkPolygonMode(polygon_mode or "fill"))
+	end
+end
+
+function CommandBuffer:SetPrimitiveTopology(topology)
+	local topo = vulkan.vk.e.VkPrimitiveTopology(topology or "triangle_list")
+
+	if vulkan.ext.vkCmdSetPrimitiveTopologyEXT then
+		vulkan.ext.vkCmdSetPrimitiveTopologyEXT(self.ptr[0], topo)
+	elseif vulkan.lib.vkCmdSetPrimitiveTopology then
+		vulkan.lib.vkCmdSetPrimitiveTopology(self.ptr[0], topo)
+	end
 end
 
 function CommandBuffer:SetViewport(x, y, width, height, minDepth, maxDepth)

@@ -90,6 +90,8 @@ function VulkanInstance.New(surface_handle, display_handle)
 	local device_extensions = {
 		"VK_EXT_conditional_rendering",
 		"VK_EXT_scalar_block_layout",
+		"VK_EXT_extended_dynamic_state",
+		"VK_EXT_extended_dynamic_state3",
 	}
 
 	if not is_headless then

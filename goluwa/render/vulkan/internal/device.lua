@@ -41,32 +41,32 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 
 	-- Query available features if extension is present
 	local pNextChain = nil
-
-	if table.has_value(available_extensions, "VK_EXT_scalar_block_layout") then
-		local scalarBlockLayoutFeatures = vulkan.vk.VkPhysicalDeviceScalarBlockLayoutFeaturesEXT(
+	local hasDynamicRenderingFeatures = physical_device:GetDynamicRenderingFeatures()
+	-- Extended dynamic state features
+	local has_extended_dynamic_state = table.has_value(available_extensions, "VK_EXT_extended_dynamic_state")
+	local has_extended_dynamic_state3 = table.has_value(available_extensions, "VK_EXT_extended_dynamic_state3")
+	local has_polygon_mode_dynamic_state = false -- Set to true to enable wireframe support (requires VK_EXT_extended_dynamic_state3)
+	if has_extended_dynamic_state then
+		local extendedDynamicStateFeatures = vulkan.vk.VkPhysicalDeviceExtendedDynamicStateFeaturesEXT(
 			{
-				sType = vulkan.vk.VkStructureType.VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SCALAR_BLOCK_LAYOUT_FEATURES_EXT,
+				sType = vulkan.vk.VkStructureType.VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_FEATURES_EXT,
 				pNext = pNextChain,
-				scalarBlockLayout = 1,
+				extendedDynamicState = 1,
 			}
 		)
-		pNextChain = scalarBlockLayoutFeatures
+		pNextChain = extendedDynamicStateFeatures
 	end
-
-	local hasDynamicRenderingFeatures = physical_device:GetDynamicRenderingFeatures()
-	-- Extended dynamic state 3 features are always enabled when available
-	local has_extended_dynamic_state3 = table.has_value(available_extensions, "VK_EXT_extended_dynamic_state3")
 
 	if has_extended_dynamic_state3 then
 		local extendedDynamicState3Features = vulkan.vk.VkPhysicalDeviceExtendedDynamicState3FeaturesEXT(
 			{
 				sType = vulkan.vk.VkStructureType.VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_3_FEATURES_EXT,
-				pNext = nil,
+				pNext = pNextChain,
 				extendedDynamicState3ColorBlendEnable = 1,
 				extendedDynamicState3ColorBlendEquation = 1,
 				extendedDynamicState3TessellationDomainOrigin = 0,
 				extendedDynamicState3DepthClampEnable = 0,
-				extendedDynamicState3PolygonMode = 0,
+				extendedDynamicState3PolygonMode = has_polygon_mode_dynamic_state and 1 or 0,
 				extendedDynamicState3RasterizationSamples = 0,
 				extendedDynamicState3SampleMask = 0,
 				extendedDynamicState3AlphaToCoverageEnable = 0,
@@ -214,22 +214,37 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 	local device = Device:CreateObject(
 		{
 			ptr = ptr,
+			has_extended_dynamic_state = has_extended_dynamic_state,
 			has_extended_dynamic_state3 = has_extended_dynamic_state3,
+			has_polygon_mode_dynamic_state = has_polygon_mode_dynamic_state,
 			physical_device = physical_device,
 			extensions = finalExtensions,
 		}
 	)
 
+	if has_extended_dynamic_state then
+		vulkan.ext.vkCmdSetPrimitiveTopologyEXT = device:TryGetExtension("vkCmdSetPrimitiveTopologyEXT")
+		vulkan.ext.vkCmdSetCullModeEXT = device:TryGetExtension("vkCmdSetCullModeEXT")
+		vulkan.ext.vkCmdSetFrontFaceEXT = device:TryGetExtension("vkCmdSetFrontFaceEXT")
+		vulkan.ext.vkCmdSetDepthTestEnableEXT = device:TryGetExtension("vkCmdSetDepthTestEnableEXT")
+		vulkan.ext.vkCmdSetDepthWriteEnableEXT = device:TryGetExtension("vkCmdSetDepthWriteEnableEXT")
+		vulkan.ext.vkCmdSetDepthCompareOpEXT = device:TryGetExtension("vkCmdSetDepthCompareOpEXT")
+	end
+
 	-- Load extension functions if dynamic blend features are supported
 	if has_extended_dynamic_state3 then
-		vulkan.ext.vkCmdSetColorBlendEnableEXT = device:GetExtension("vkCmdSetColorBlendEnableEXT")
-		vulkan.ext.vkCmdSetColorBlendEquationEXT = device:GetExtension("vkCmdSetColorBlendEquationEXT")
+		vulkan.ext.vkCmdSetColorBlendEnableEXT = device:TryGetExtension("vkCmdSetColorBlendEnableEXT")
+		vulkan.ext.vkCmdSetColorBlendEquationEXT = device:TryGetExtension("vkCmdSetColorBlendEquationEXT")
+
+		if has_polygon_mode_dynamic_state then
+			vulkan.ext.vkCmdSetPolygonModeEXT = device:TryGetExtension("vkCmdSetPolygonModeEXT")
+		end
 	end
 
 	-- Load conditional rendering extension functions only if requested
 	if table.has_value(finalExtensions, "VK_EXT_conditional_rendering") then
-		vulkan.ext.vkCmdBeginConditionalRenderingEXT = device:GetExtension("vkCmdBeginConditionalRenderingEXT")
-		vulkan.ext.vkCmdEndConditionalRenderingEXT = device:GetExtension("vkCmdEndConditionalRenderingEXT")
+		vulkan.ext.vkCmdBeginConditionalRenderingEXT = device:TryGetExtension("vkCmdBeginConditionalRenderingEXT")
+		vulkan.ext.vkCmdEndConditionalRenderingEXT = device:TryGetExtension("vkCmdEndConditionalRenderingEXT")
 	end
 
 	return device
@@ -239,14 +254,22 @@ function Device:__gc()
 	vulkan.lib.vkDestroyDevice(self.ptr[0], nil)
 end
 
-function Device:GetExtension(name)
+function Device:TryGetExtension(name)
 	local func_ptr = vulkan.lib.vkGetDeviceProcAddr(self.ptr[0], name)
+
+	if func_ptr == nil then return nil end
+
+	return ffi.cast(vulkan.vk["PFN_" .. name], func_ptr)
+end
+
+function Device:GetExtension(name)
+	local func_ptr = self:TryGetExtension(name)
 
 	if func_ptr == nil then
 		error("device extension function not found: " .. name, 2)
 	end
 
-	return ffi.cast(vulkan.vk["PFN_" .. name], func_ptr)
+	return func_ptr
 end
 
 function Device:WaitIdle()
