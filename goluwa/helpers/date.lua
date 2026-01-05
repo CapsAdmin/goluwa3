@@ -5,7 +5,8 @@
 -- Copyright (C) 2006, by Jas Latrix (jastejada@yahoo.com)
 -- Copyright (C) 2013-2014, by Thijs Schreijer
 -- Licensed under MIT, http://opensource.org/licenses/MIT
---[[ CONSTANTS ]] --
+--[[ CONSTANTS ]]
+--
 local HOURPERDAY = 24
 local MINPERHOUR = 60
 local MINPERDAY = 1440 -- 24*60
@@ -20,7 +21,8 @@ local DAYNUM_MAX = 365242500 -- Sat Jan 01 1000000 00:00:00
 local DAYNUM_MIN = -365242500 -- Mon Jan 01 1000000 BCE 00:00:00
 local DAYNUM_DEF = 0 -- Mon Jan 01 0001 00:00:00
 local _
---[[ LOCAL ARE FASTER ]] --
+--[[ LOCAL ARE FASTER ]]
+--
 local type = type
 local pairs = pairs
 local error = error
@@ -33,7 +35,8 @@ local os = os
 local unpack = unpack or table.unpack
 local setmetatable = setmetatable
 local getmetatable = getmetatable
---[[ EXTRA FUNCTIONS ]] --
+--[[ EXTRA FUNCTIONS ]]
+--
 local fmt = string.format
 local lwr = string.lower
 local rep = string.rep
@@ -78,7 +81,8 @@ end
 
 local function fnil() end
 
---[[ DATE FUNCTIONS ]] --
+--[[ DATE FUNCTIONS ]]
+--
 local DATE_EPOCH -- to be set later
 local sl_weekdays = {
 	[0] = "Sunday",
@@ -192,7 +196,8 @@ end
     local mi = floor((100*d + 52)/3060)
     return (floor((mi + 2)/12) + y), mod(mi + 2,12), (d - floor((mi*306 + 5)/10) + 1)
   end
-  ]] -- day fraction from time
+  ]]
+-- day fraction from time
 local function makedayfrc(h, r, s, t)
 	return ((h * 60 + r) * 60 + s) * TICKSPERSEC + t
 end
@@ -274,7 +279,8 @@ local function makedaynum_isoywd(y, w, d)
 	return isow1(y) + 7 * w + d - 8 -- simplified: isow1(y) + ((w-1)*7) + (d-1)
 end
 
---[[ THE DATE MODULE ]] --
+--[[ THE DATE MODULE ]]
+--
 local fmtstr = "%x %X"
 --#if not DATE_OBJECT_AFX then
 local date = {}
@@ -282,7 +288,8 @@ setmetatable(date, date)
 -- Version:  VMMMRRRR; V-Major, M-Minor, R-Revision;  e.g. 5.45.321 == 50450321
 date.version = 20010001 -- 2.1.1
 --#end -- not DATE_OBJECT_AFX
---[[ THE DATE OBJECT ]] --
+--[[ THE DATE OBJECT ]]
+--
 local dobj = {}
 dobj.__index = dobj
 dobj.__metatable = dobj
@@ -462,15 +469,18 @@ local function date_parse(str)
 	local sw = newstrwalker(gsub(gsub(str, "(%b())", ""), "^(%s*)", "")) -- remove comment, trim leading space
 	--local function error_out() print(y,m,d,h,r,s) end
 	local function error_dup(q)
-		--[[error_out()]] error("duplicate value: " .. (q or "") .. sw:aimchr())
+		--[[error_out()]]
+		error("duplicate value: " .. (q or "") .. sw:aimchr())
 	end
 
 	local function error_syn(q)
-		--[[error_out()]] error("syntax error: " .. (q or "") .. sw:aimchr())
+		--[[error_out()]]
+		error("syntax error: " .. (q or "") .. sw:aimchr())
 	end
 
 	local function error_inv(q)
-		--[[error_out()]] error("invalid date: " .. (q or "") .. sw:aimchr())
+		--[[error_out()]]
+		error("invalid date: " .. (q or "") .. sw:aimchr())
 	end
 
 	local function sety(q)
@@ -758,7 +768,8 @@ local function date_from(arg1, arg2, arg3, arg4, arg5, arg6, arg7)
 	end
 end
 
---[[ THE DATE OBJECT METHODS ]] --
+--[[ THE DATE OBJECT METHODS ]]
+--
 function dobj:normalize()
 	local dn, df = fix(self.daynum), self.dayfrc
 	self.daynum, self.dayfrc = dn + floor(df / TICKSPERDAY), mod(df, TICKSPERDAY)
@@ -1256,7 +1267,8 @@ function dobj:copy()
 	return date_new(self.daynum, self.dayfrc)
 end
 
---[[ THE LOCAL DATE OBJECT METHODS ]] --
+--[[ THE LOCAL DATE OBJECT METHODS ]]
+--
 function dobj:tolocal()
 	local dn, df = self.daynum, self.dayfrc
 	local bias = getbiasutc2(self)

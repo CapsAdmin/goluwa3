@@ -21,22 +21,8 @@ META:GetSet("OverridePosition", nil, {callback = "InvalidateMatrices"})
 META:GetSet("OverrideRotation", nil, {callback = "InvalidateMatrices"})
 META:GetSet("AABB", AABB(-1, -1, -1, 1, 1, 1), {callback = "InvalidateMatrices"})
 
-function META:Initialize(config)
-	config = config or {}
+function META:Initialize()
 	self.temp_scale = Vec3(1, 1, 1)
-	self.LocalMatrix = nil
-	self.WorldMatrix = nil
-	self.WorldMatrixInverse = nil
-
-	if config.position then self:SetPosition(config.position) end
-
-	if config.rotation then self:SetRotation(config.rotation) end
-
-	if config.scale then self:SetScale(config.scale) end
-
-	if config.size then self:SetSize(config.size) end
-
-	if config.matrix then self:SetFromMatrix(config.matrix) end
 end
 
 function META:SetFromMatrix(matrix)

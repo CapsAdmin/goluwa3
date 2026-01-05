@@ -42,23 +42,15 @@ local function create_cube(pos, ang, scale, color)
 	poly:BuildBoundingBox()
 	poly:Upload()
 	local entity = ecs.CreateEntity("cube", ecs.GetWorld())
-	entity:AddComponent(
-		"transform",
-		{
-			position = pos or Vec3(0, 0, 0),
-			scale = scale or Vec3(1, 1, 1),
-		}
-	)
+	local tr = entity:AddComponent("transform")
+	tr:SetPosition(pos or Vec3(0, 0, 0))
+	tr:SetScale(scale or Vec3(1, 1, 1))
 
-	if ang then entity.transform:SetAngles(ang) end
+	if ang then tr:SetAngles(ang) end
 
-	entity:AddComponent(
-		"model",
-		{
-			mesh = poly,
-			material = Material.New():SetColorMultiplier(color or Color(1, 1, 1, 1)),
-		}
-	)
+	local model = entity:AddComponent("model")
+	model:AddPrimitive(poly)
+	model:SetMaterial(Material.New():SetColorMultiplier(color or Color(1, 1, 1, 1)))
 	return entity
 end
 

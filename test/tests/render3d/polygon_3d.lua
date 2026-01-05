@@ -34,11 +34,22 @@ local function draw3d(cb)
 	cam:SetPosition(Vec3(0, 0, -10))
 	cam:SetViewport(Rect(0, 0, width, height))
 	cam:SetFOV(math.rad(45))
-	local Light = require("components.light")
-	local sun = Light.CreateDirectional({color = {1, 1, 1}, intensity = 1})
-	sun:SetIsSun(true)
-	sun:SetRotation(Quat(0, 0, 0, 1))
-	render3d.SetLights({sun})
+	render3d.SetLights(
+		{
+			ecs.CreateFromTable(
+				{
+					transform = {
+						Rotation = Quat(0, 0, 0, -1):Normalize(),
+					},
+					light = {
+						LightType = "sun",
+						Color = Color(1, 1, 1),
+						Intensity = 1,
+					},
+				}
+			),
+		}
+	)
 	local draw_listener = event.AddListener("Draw3DGeometry", "test_draw", function(cmd)
 		cb(cmd)
 	end)

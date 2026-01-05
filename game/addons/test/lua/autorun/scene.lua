@@ -72,9 +72,8 @@ do
 
 	local function spawn()
 		local ent = ecs.CreateEntity("debug_ent")
-		ent:AddComponent("transform", {
-			position = (pos * PADDING):Copy(),
-		})
+		local transform = ent:AddComponent("transform")
+		transform:SetPosition((pos * PADDING):Copy())
 		pos.x = pos.x + 1
 
 		if pos.x >= 3 then
@@ -91,9 +90,8 @@ do
 
 		poly:AddSubMesh(#poly.Vertices)
 		poly:Upload()
-		ent:AddComponent("model", {
-			mesh = poly,
-		})
+		local model = ent:AddComponent("model")
+		model:AddPrimitive(poly)
 	end
 
 	local shared = [[
@@ -446,9 +444,8 @@ if false then
 			print(model_path .. " not found!")
 		else
 			local e = ecs.CreateEntity("model_ent")
-			e:AddComponent("transform", {
-				position = pos:Copy(),
-			})
+			local t = e:AddComponent("transform")
+			t:SetPosition(pos:Copy())
 			pos.x = pos.x + 5
 
 			if pos.x > 10 then

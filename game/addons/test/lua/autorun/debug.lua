@@ -6,6 +6,7 @@ local render2d = require("render2d.render2d")
 local gfx = require("render2d.gfx")
 local render3d = require("render3d.render3d")
 local Model = require("components.model")
+local window = require("window")
 -- Debug: Show debug info
 local show_debug_info = false
 
@@ -111,9 +112,9 @@ function events.Draw2D.debug_shadow_map(cmd, dt)
 
 	local sun = render3d.GetLights()[1]
 
-	if not sun or not sun:HasShadows() then return end
+	if not sun or not sun.light:GetCastShadows() then return end
 
-	local shadow_map = sun:GetShadowMap()
+	local shadow_map = sun.light:GetShadowMap()
 
 	if not shadow_map then return end
 
@@ -174,7 +175,7 @@ function events.KeyInput.render3d_debug(key, press)
 	--if key == "f8" then render.renderdoc.CaptureFrame() end
 	--if key == "f11" then render.renderdoc.OpenUI() end
 	-- Toggle shadow map debug view
-	if false and key == "f9" then
+	if key == "f9" then
 		show_shadow_map = not show_shadow_map
 		-- Also toggle cascade color visualization in the shader
 		render3d.SetDebugCascadeColors(show_shadow_map)

@@ -58,10 +58,22 @@ local function draw3d(cb)
 	cam:SetViewport(Rect(0, 0, width, height))
 	cam:SetFOV(math.rad(45))
 	cam:SetOrthoMode(false)
-	local Light = require("components.light")
-	local sun = Light.CreateDirectional({color = {1, 1, 1}, intensity = 0})
-	sun:SetIsSun(true)
-	render3d.SetLights({sun})
+	render3d.SetLights(
+		{
+			ecs.CreateFromTable(
+				{
+					transform = {
+						Rotation = Quat(0, 0, 0, 1):Normalize(),
+					},
+					light = {
+						LightType = "sun",
+						Color = Color(1, 1, 1),
+						Intensity = 0,
+					},
+				}
+			),
+		}
+	)
 	render.BeginFrame()
 	render3d.BindPipeline()
 	cb(render.GetCommandBuffer())

@@ -47,6 +47,10 @@ function Polygon3D:Upload()
 
 	if vertex_count == 0 then return end
 
+	if not self.Vertices[1].uv then self:BuildUVsPlanar() end
+
+	if not self.Vertices[1].normal then self:BuildNormals() end
+
 	if not self.Vertices[1].tangent then self:BuildTangents() end
 
 	-- Define vertex structure matching render3d pipeline: position (vec3), normal (vec3), uv (vec2), tangent (vec4)
@@ -238,15 +242,72 @@ do -- helpers
 		end
 	end
 
-	local function build_normal(a, b, c)
-		if a.normal and b.normal and c.normal then return end
+	function Polygon3D:BuildUVsPlanar(scale, axis)
+		scale = scale or 1
+		axis = axis or "auto"
 
-		-- For counter-clockwise winding: (B-A) × (C-A)
-		local normal = (b.pos - a.pos):Cross(c.pos - a.pos):GetNormalized()
-		a.normal = normal
-		b.normal = normal
-		c.normal = normal
-		tasks.Wait()
+		for _, vertex in ipairs(self.Vertices) do
+			local u, v
+
+			if axis == "auto" then
+				local n = vertex.normal or Vec3(0, 1, 0)
+				local absX, absY, absZ = math.abs(n.x), math.abs(n.y), math.abs(n.z)
+
+				if absY >= absX and absY >= absZ then
+					u, v = vertex.pos.x, vertex.pos.z
+				elseif absX >= absZ then
+					u, v = vertex.pos.z, vertex.pos.y
+				else
+					u, v = vertex.pos.x, vertex.pos.y
+				end
+			elseif axis == "x" then
+				u, v = vertex.pos.z, vertex.pos.y
+			elseif axis == "y" then
+				u, v = vertex.pos.x, vertex.pos.z
+			else -- "z"
+				u, v = vertex.pos.x, vertex.pos.y
+			end
+
+			vertex.uv = Vec2(u * scale, v * scale)
+		end
+	end
+
+	function Polygon3D:BuildUVsBox(scale)
+		scale = scale or 1
+
+		if not self.Vertices[1].normal then self:BuildNormals() end
+
+		for _, sub_mesh in ipairs(self:GetSubMeshes()) do
+			for i = 1, #sub_mesh.indices, 3 do
+				local ai = sub_mesh.indices[i + 0] + 1
+				local bi = sub_mesh.indices[i + 1] + 1
+				local ci = sub_mesh.indices[i + 2] + 1
+				local a = self.Vertices[ai]
+				local b = self.Vertices[bi]
+				local c = self.Vertices[ci]
+				local edge1 = b.pos - a.pos
+				local edge2 = c.pos - a.pos
+				local faceNormal = edge1:Cross(edge2):Normalize()
+				local absX = math.abs(faceNormal.x)
+				local absY = math.abs(faceNormal.y)
+				local absZ = math.abs(faceNormal.z)
+
+				for _, idx in ipairs({ai, bi, ci}) do
+					local v = self.Vertices[idx]
+					local u, vCoord
+
+					if absY >= absX and absY >= absZ then
+						u, vCoord = v.pos.x, v.pos.z
+					elseif absX >= absZ then
+						u, vCoord = v.pos.z, v.pos.y
+					else
+						u, vCoord = v.pos.x, v.pos.y
+					end
+
+					v.uv = Vec2(u * scale, vCoord * scale)
+				end
+			end
+		end
 	end
 
 	function Polygon3D:BuildNormals()
@@ -255,7 +316,14 @@ do -- helpers
 				local a = self.Vertices[sub_mesh.indices[i + 0] + 1]
 				local b = self.Vertices[sub_mesh.indices[i + 1] + 1]
 				local c = self.Vertices[sub_mesh.indices[i + 2] + 1]
-				build_normal(a, b, c)
+
+				if a.normal and b.normal and c.normal then return end
+
+				local normal = (b.pos - a.pos):Cross(c.pos - a.pos):GetNormalized()
+				a.normal = normal
+				b.normal = normal
+				c.normal = normal
+				tasks.Wait()
 			end
 		end
 	end
@@ -264,109 +332,44 @@ do -- helpers
 		local tan1 = {}
 		local tan2 = {}
 
-		for i = 1, #self.Vertices do
-			tan1[i] = Vec3(0, 0, 0)
-			tan2[i] = Vec3(0, 0, 0)
-		end
-
 		for _, sub_mesh in ipairs(self:GetSubMeshes()) do
-			if sub_mesh.indices then
-				for i = 1, #sub_mesh.indices, 3 do
-					local i1 = sub_mesh.indices[i + 0] + 1
-					local i2 = sub_mesh.indices[i + 1] + 1
-					local i3 = sub_mesh.indices[i + 2] + 1
-					local v1 = self.Vertices[i1]
-					local v2 = self.Vertices[i2]
-					local v3 = self.Vertices[i3]
-
-					if v1 and v2 and v3 then
-						local p1, p2, p3 = v1.pos, v2.pos, v3.pos
-						local w1 = v1.uv or Vec2(0, 0)
-						local w2 = v2.uv or Vec2(0, 0)
-						local w3 = v3.uv or Vec2(0, 0)
-						local e1 = p2 - p1
-						local e2 = p3 - p1
-						local s1 = w2.x - w1.x
-						local s2 = w3.x - w1.x
-						local t1 = w2.y - w1.y
-						local t2 = w3.y - w1.y
-						local r = 1 / (s1 * t2 - s2 * t1)
-
-						if r == r and r ~= math.huge and r ~= -math.huge then
-							local sdir = (e1 * t2 - e2 * t1) * r
-							local tdir = (e2 * s1 - e1 * s2) * r
-							tan1[i1] = tan1[i1] + sdir
-							tan1[i2] = tan1[i2] + sdir
-							tan1[i3] = tan1[i3] + sdir
-							tan2[i1] = tan2[i1] + tdir
-							tan2[i2] = tan2[i2] + tdir
-							tan2[i3] = tan2[i3] + tdir
-						end
-					end
-				end
+			for i = 1, #sub_mesh.indices, 3 do
+				local ai = sub_mesh.indices[i + 0] + 1
+				local bi = sub_mesh.indices[i + 1] + 1
+				local ci = sub_mesh.indices[i + 2] + 1
+				local a = self.Vertices[ai]
+				local b = self.Vertices[ci]
+				local c = self.Vertices[bi]
+				local x1 = b.pos.x - a.pos.x
+				local x2 = c.pos.x - a.pos.x
+				local y1 = b.pos.y - a.pos.y
+				local y2 = c.pos.y - a.pos.y
+				local z1 = b.pos.z - a.pos.z
+				local z2 = c.pos.z - a.pos.z
+				local s1 = b.uv.x - a.uv.x
+				local s2 = c.uv.x - a.uv.x
+				local t1 = b.uv.y - a.uv.y
+				local t2 = c.uv.y - a.uv.y
+				local r = 1 / (s1 * t2 - s2 * t1)
+				local sdir = Vec3((t2 * x1 - t1 * x2) * r, (t2 * y1 - t1 * y2) * r, (t2 * z1 - t1 * z2) * r)
+				local tdir = Vec3((s1 * x2 - s2 * x1) * r, (s1 * y2 - s2 * y1) * r, (s1 * z2 - s2 * z1) * r)
+				tan1[ai] = (tan1[ai] or Vec3()) + sdir
+				tan1[bi] = (tan1[bi] or Vec3()) + sdir
+				tan1[ci] = (tan1[ai] or Vec3()) + sdir
+				tan2[ai] = (tan2[ai] or Vec3()) + tdir
+				tan2[bi] = (tan2[bi] or Vec3()) + tdir
+				tan2[ci] = (tan2[ci] or Vec3()) + tdir
+				tasks.Wait()
 			end
 		end
 
 		for i = 1, #self.Vertices do
-			local v = self.Vertices[i]
-			local n = v.normal or Vec3(0, 0, 1)
+			local n = self.Vertices[i].normal
 			local t = tan1[i]
-			-- Gram-Schmidt orthogonalize
-			local tangent = (t - n * n:Dot(t)):GetNormalized()
-			-- Calculate handedness
-			local w = (n:Cross(t):Dot(tan2[i]) < 0) and -1 or 1
-			v.tangent = {x = tangent.x, y = tangent.y, z = tangent.z, w = w}
-		end
-	end
 
-	do
-		local function build_tangents(self, ai, bi, ci, tan1, tan2)
-			local a = self.Vertices[ai]
-			local b = self.Vertices[ci]
-			local c = self.Vertices[bi]
-			local x1 = b.pos.x - a.pos.x
-			local x2 = c.pos.x - a.pos.x
-			local y1 = b.pos.y - a.pos.y
-			local y2 = c.pos.y - a.pos.y
-			local z1 = b.pos.z - a.pos.z
-			local z2 = c.pos.z - a.pos.z
-			local s1 = b.uv.x - a.uv.x
-			local s2 = c.uv.x - a.uv.x
-			local t1 = b.uv.y - a.uv.y
-			local t2 = c.uv.y - a.uv.y
-			local r = 1 / (s1 * t2 - s2 * t1)
-			local sdir = Vec3((t2 * x1 - t1 * x2) * r, (t2 * y1 - t1 * y2) * r, (t2 * z1 - t1 * z2) * r)
-			local tdir = Vec3((s1 * x2 - s2 * x1) * r, (s1 * y2 - s2 * y1) * r, (s1 * z2 - s2 * z1) * r)
-			tan1[ai] = (tan1[ai] or Vec3()) + sdir
-			tan1[bi] = (tan1[bi] or Vec3()) + sdir
-			tan1[ci] = (tan1[ai] or Vec3()) + sdir
-			tan2[ai] = (tan2[ai] or Vec3()) + tdir
-			tan2[bi] = (tan2[bi] or Vec3()) + tdir
-			tan2[ci] = (tan2[ci] or Vec3()) + tdir
-			tasks.Wait()
-		end
-
-		function Polygon3D:BuildTangents()
-			local tan1 = {}
-			local tan2 = {}
-
-			for _, sub_mesh in ipairs(self:GetSubMeshes()) do
-				for i = 1, #sub_mesh.indices, 3 do
-					local ai = sub_mesh.indices[i + 0] + 1
-					local bi = sub_mesh.indices[i + 1] + 1
-					local ci = sub_mesh.indices[i + 2] + 1
-					build_tangents(self, ai, bi, ci, tan1, tan2)
-				end
-			end
-
-			for i = 1, #self.Vertices do
-				local n = self.Vertices[i].normal
-				local t = tan1[i]
-
-				if tan1[i] and tan2[i] and not self.Vertices.tangent then
-					self.Vertices[i].tangent = (t - n * n:GetDot(t)):Normalize()
-					tasks.Wait()
-				end
+			if tan1[i] and tan2[i] and not self.Vertices.tangent then
+				self.Vertices[i].tangent = (t - n * n:GetDot(t)):Normalize()
+				tasks.Wait()
 			end
 		end
 	end

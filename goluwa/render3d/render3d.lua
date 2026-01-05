@@ -422,7 +422,9 @@ render3d.fill_config = {
 					vec3 emissive = texture(TEXTURE(pc.model.EmissiveTexture), in_uv).rgb;
 					return emissive * pc.model.EmissiveMultiplier.rgb * pc.model.EmissiveMultiplier.a;
 				}
-				return vec3(0);
+									return vec3(0);
+
+			//	return (pc.model.EmissiveMultiplier.rgb - vec3(1)) * pc.model.EmissiveMultiplier.a;
 			}
 
 			float get_ao() {

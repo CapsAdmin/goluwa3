@@ -11,16 +11,13 @@ local Vec3 = require("structs.vec3")
 local Rect = require("structs.rect")
 local atmosphere = require("render3d.atmosphere")
 local reflection_probe = {}
-
 -- Probe types
 reflection_probe.TYPE_ENVIRONMENT = "environment" -- Sky-only, dynamic, updated based on sun
 reflection_probe.TYPE_SCENE = "scene" -- Renders geometry, typically static
-
 -- Update modes
 reflection_probe.UPDATE_DYNAMIC = "dynamic" -- Update every frame (or on sun change for environment)
 reflection_probe.UPDATE_STATIC = "static" -- Update once on creation
 reflection_probe.UPDATE_MANUAL = "manual" -- Update only when requested
-
 -- Configuration
 reflection_probe.ENVIRONMENT_SIZE = 512 -- Larger size for environment probe
 reflection_probe.SCENE_SIZE = 128 -- Smaller size for scene probes
@@ -30,7 +27,6 @@ reflection_probe.GRID_SPACING = Vec3(10, 10, 10)
 reflection_probe.GRID_ORIGIN = Vec3(35, -1.5, 50)
 reflection_probe.SCENE_PROBE_COUNT = reflection_probe.GRID_COUNTS.x * reflection_probe.GRID_COUNTS.y * reflection_probe.GRID_COUNTS.z
 reflection_probe.enabled = true
-
 -- State
 reflection_probe.probes = {} -- All probes (environment at index 0, scene probes at 1+)
 reflection_probe.environment_probe = nil -- Reference to the environment probe
@@ -41,7 +37,6 @@ reflection_probe.pipeline = nil
 reflection_probe.prefilter_pipeline = nil
 reflection_probe.inv_projection_view = Matrix44()
 reflection_probe.last_sun_direction = nil -- For detecting sun changes
-
 -- Face rotation angles for cubemap rendering
 local face_angles = {
 	Deg3(0, -90 + 180, 0), -- +X
@@ -55,7 +50,6 @@ local face_angles = {
 -- Create a probe with given configuration
 local function CreateProbeTextures(size)
 	local probe = {}
-	
 	-- Create the output cubemap (prefiltered, used for rendering)
 	probe.cubemap = Texture.New(
 		{
@@ -74,7 +68,6 @@ local function CreateProbeTextures(size)
 			},
 		}
 	)
-	
 	-- Create source cubemap (raw scene render, before prefiltering)
 	probe.source_cubemap = Texture.New(
 		{
@@ -93,7 +86,6 @@ local function CreateProbeTextures(size)
 			},
 		}
 	)
-	
 	-- Create depth cubemap (linear depth for parallax correction) - only for scene probes
 	probe.depth_cubemap = Texture.New(
 		{
@@ -112,9 +104,9 @@ local function CreateProbeTextures(size)
 			},
 		}
 	)
-	
 	-- Create per-face views for source cubemap
 	probe.source_face_views = {}
+
 	for j = 0, 5 do
 		probe.source_face_views[j] = probe.source_cubemap:GetImage():CreateView(
 			{
@@ -126,9 +118,10 @@ local function CreateProbeTextures(size)
 			}
 		)
 	end
-	
+
 	-- Create per-face views for depth cubemap
 	probe.depth_face_views = {}
+
 	for j = 0, 5 do
 		probe.depth_face_views[j] = probe.depth_cubemap:GetImage():CreateView(
 			{
@@ -140,12 +133,14 @@ local function CreateProbeTextures(size)
 			}
 		)
 	end
-	
+
 	-- Create per-mip per-face views for output cubemap
 	local num_mips = probe.cubemap.mip_map_levels
 	probe.mip_face_views = {}
+
 	for m = 0, num_mips - 1 do
 		probe.mip_face_views[m] = {}
+
 		for j = 0, 5 do
 			probe.mip_face_views[m][j] = probe.cubemap:GetImage():CreateView(
 				{
@@ -158,7 +153,7 @@ local function CreateProbeTextures(size)
 			)
 		end
 	end
-	
+
 	return probe
 end
 
@@ -170,10 +165,8 @@ function reflection_probe.CreateEnvironmentProbe(position)
 	probe.position = position or Vec3(0, 0, 0)
 	probe.size = reflection_probe.ENVIRONMENT_SIZE
 	probe.needs_update = true
-	
 	reflection_probe.probes[0] = probe
 	reflection_probe.environment_probe = probe
-	
 	return probe
 end
 
@@ -185,52 +178,48 @@ function reflection_probe.CreateSceneProbe(position, update_mode)
 	probe.position = position
 	probe.size = reflection_probe.SCENE_SIZE
 	probe.needs_update = true
-	
 	-- Find next available index (starting from 1)
 	local index = 1
+
 	while reflection_probe.probes[index] do
 		index = index + 1
 	end
-	
+
 	reflection_probe.probes[index] = probe
 	return probe, index
 end
 
 function reflection_probe.Initialize()
 	if reflection_probe.environment_probe then return end
-	
+
 	-- Create the environment probe first (index 0)
 	reflection_probe.CreateEnvironmentProbe(Vec3(0, 0, 0))
-	
+
 	-- Create scene probes in a grid
 	for i = 0, reflection_probe.SCENE_PROBE_COUNT - 1 do
 		local gx = i % reflection_probe.GRID_COUNTS.x
 		local gy = math.floor(i / reflection_probe.GRID_COUNTS.x) % reflection_probe.GRID_COUNTS.y
 		local gz = math.floor(i / (reflection_probe.GRID_COUNTS.x * reflection_probe.GRID_COUNTS.y))
 		local position = reflection_probe.GRID_ORIGIN + Vec3(
-			gx * reflection_probe.GRID_SPACING.x,
-			gy * reflection_probe.GRID_SPACING.y,
-			gz * reflection_probe.GRID_SPACING.z
-		)
+				gx * reflection_probe.GRID_SPACING.x,
+				gy * reflection_probe.GRID_SPACING.y,
+				gz * reflection_probe.GRID_SPACING.z
+			)
 		reflection_probe.CreateSceneProbe(position, reflection_probe.UPDATE_STATIC)
 	end
-	
+
 	-- Create camera for probe rendering
 	reflection_probe.temp_camera = Camera3D.New()
 	reflection_probe.temp_camera:SetFOV(math.rad(90))
 	reflection_probe.temp_camera:SetViewport(Rect(0, 0, reflection_probe.ENVIRONMENT_SIZE, reflection_probe.ENVIRONMENT_SIZE))
 	reflection_probe.temp_camera:SetNearZ(0.1)
 	reflection_probe.temp_camera:SetFarZ(1000)
-	
 	-- Create pipelines
 	reflection_probe.CreatePipelines()
-	
 	-- Create fence for synchronization
 	reflection_probe.fence = Fence.New(render.GetDevice())
-	
 	-- Initialize cubemap layouts
 	reflection_probe.InitializeCubemapLayouts()
-	
 	-- Set the environment texture in render3d
 	render3d.SetEnvironmentTexture(reflection_probe.environment_probe.cubemap)
 end
@@ -239,7 +228,7 @@ end
 function reflection_probe.InitializeCubemapLayouts()
 	local cmd = render.GetCommandPool():AllocateCommandBuffer()
 	cmd:Begin()
-	
+
 	for index, probe in pairs(reflection_probe.probes) do
 		-- Transition source cubemap to shader_read_only_optimal
 		cmd:PipelineBarrier(
@@ -302,7 +291,7 @@ function reflection_probe.InitializeCubemapLayouts()
 			}
 		)
 	end
-	
+
 	cmd:End()
 	render.GetQueue():SubmitAndWait(render.GetDevice(), cmd, reflection_probe.fence)
 	render.GetCommandPool():FreeCommandBuffer(cmd)
@@ -313,7 +302,6 @@ function reflection_probe.CreatePipelines()
 	local orientation = require("render3d.orientation")
 	local Material = require("render3d.material")
 	local Light = require("components.light")
-	
 	-- Pipeline to render the scene into a cubemap face
 	reflection_probe.scene_pipeline = EasyPipeline.New(
 		{
@@ -416,8 +404,9 @@ function reflection_probe.CreatePipelines()
 								"vec4",
 								function(self, block, key)
 									local lights = render3d.GetLights()
+
 									if lights[1] then
-										lights[1]:GetRotation():GetBackward():CopyToFloatPointer(block[key])
+										lights[1].transform:GetRotation():GetBackward():CopyToFloatPointer(block[key])
 									end
 								end,
 							},
@@ -618,7 +607,6 @@ function reflection_probe.CreatePipelines()
 			},
 		}
 	)
-	
 	-- Sky-only pipeline (for environment probe and scene probe backgrounds)
 	reflection_probe.sky_pipeline = EasyPipeline.New(
 		{
@@ -682,8 +670,9 @@ function reflection_probe.CreatePipelines()
 								"vec4",
 								function(self, block, key)
 									local lights = render3d.GetLights()
+
 									if lights[1] then
-										lights[1]:GetRotation():GetBackward():CopyToFloatPointer(block[key])
+										lights[1].transform:GetRotation():GetBackward():CopyToFloatPointer(block[key])
 									end
 								end,
 							},
@@ -727,7 +716,6 @@ function reflection_probe.CreatePipelines()
 			},
 		}
 	)
-	
 	-- Prefilter pipeline for IBL
 	reflection_probe.prefilter_pipeline = EasyPipeline.New(
 		{
@@ -928,7 +916,7 @@ function reflection_probe.GetOrCreateDepthBuffer(size)
 	if not reflection_probe.depth_buffers then
 		reflection_probe.depth_buffers = {}
 	end
-	
+
 	if not reflection_probe.depth_buffers[size] then
 		reflection_probe.depth_buffers[size] = Texture.New(
 			{
@@ -945,57 +933,55 @@ function reflection_probe.GetOrCreateDepthBuffer(size)
 			}
 		)
 	end
-	
+
 	return reflection_probe.depth_buffers[size]
 end
 
 -- Check if sun direction has changed significantly
 function reflection_probe.HasSunDirectionChanged()
 	local lights = render3d.GetLights()
+
 	if not lights[1] then return false end
-	
-	local current_sun_dir = lights[1]:GetRotation():GetBackward()
-	
+
+	local current_sun_dir = lights[1].transform:GetRotation():GetBackward()
+
 	if not reflection_probe.last_sun_direction then
 		reflection_probe.last_sun_direction = current_sun_dir:Copy()
 		return true
 	end
-	
+
 	local diff = (current_sun_dir - reflection_probe.last_sun_direction):GetLength()
+
 	if diff > 0.001 then
 		reflection_probe.last_sun_direction = current_sun_dir:Copy()
 		return true
 	end
-	
+
 	return false
 end
 
 -- Render faces for a specific probe
 function reflection_probe.RenderProbeFaces(cmd, probe, num_faces, render_geometry)
 	if not reflection_probe.enabled then return end
+
 	if not reflection_probe.sky_pipeline then return end
-	
+
 	num_faces = num_faces or 1
 	local SIZE = probe.size
-	
 	reflection_probe.temp_camera:SetPosition(probe.position)
 	reflection_probe.temp_camera:SetViewport(Rect(0, 0, SIZE, SIZE))
-	
 	local depth_tex = reflection_probe.GetOrCreateDepthBuffer(SIZE)
-	
+
 	for _ = 1, num_faces do
 		local face_idx = reflection_probe.current_face
-		
 		-- Set camera rotation for this face
 		reflection_probe.temp_camera:SetAngles(face_angles[face_idx + 1])
-		
 		-- Calculate inverse projection-view for sky rendering
 		local proj = reflection_probe.temp_camera:BuildProjectionMatrix()
 		local view = reflection_probe.temp_camera:BuildViewMatrix():Copy()
 		view.m30, view.m31, view.m32 = 0, 0, 0
 		local proj_view = view * proj
 		proj_view:GetInverse(reflection_probe.inv_projection_view)
-		
 		-- Transition source face to color attachment
 		cmd:PipelineBarrier(
 			{
@@ -1016,7 +1002,6 @@ function reflection_probe.RenderProbeFaces(cmd, probe, num_faces, render_geometr
 				},
 			}
 		)
-		
 		-- Transition depth face to color attachment
 		cmd:PipelineBarrier(
 			{
@@ -1037,7 +1022,6 @@ function reflection_probe.RenderProbeFaces(cmd, probe, num_faces, render_geometr
 				},
 			}
 		)
-		
 		-- First render sky background
 		cmd:BeginRendering(
 			{
@@ -1066,7 +1050,7 @@ function reflection_probe.RenderProbeFaces(cmd, probe, num_faces, render_geometr
 		reflection_probe.sky_pipeline:UploadConstants(cmd)
 		cmd:Draw(3, 1, 0, 0)
 		cmd:EndRendering()
-		
+
 		-- Render scene geometry if requested (for scene probes)
 		if render_geometry and reflection_probe.scene_pipeline then
 			-- Transition depth to depth attachment
@@ -1086,7 +1070,6 @@ function reflection_probe.RenderProbeFaces(cmd, probe, num_faces, render_geometr
 					},
 				}
 			)
-			
 			cmd:BeginRendering(
 				{
 					color_attachments = {
@@ -1114,7 +1097,7 @@ function reflection_probe.RenderProbeFaces(cmd, probe, num_faces, render_geometr
 			event.Call("DrawProbeGeometry", cmd, reflection_probe)
 			cmd:EndRendering()
 		end
-		
+
 		-- Transition source face to shader read
 		cmd:PipelineBarrier(
 			{
@@ -1135,7 +1118,6 @@ function reflection_probe.RenderProbeFaces(cmd, probe, num_faces, render_geometr
 				},
 			}
 		)
-		
 		-- Transition depth face to shader read
 		cmd:PipelineBarrier(
 			{
@@ -1156,7 +1138,6 @@ function reflection_probe.RenderProbeFaces(cmd, probe, num_faces, render_geometr
 				},
 			}
 		)
-		
 		reflection_probe.current_face = (reflection_probe.current_face + 1) % 6
 	end
 end
@@ -1164,22 +1145,20 @@ end
 -- Prefilter the source cubemap into the output cubemap with roughness mips
 function reflection_probe.PrefilterProbe(cmd, probe)
 	if not reflection_probe.prefilter_pipeline then return end
-	
+
 	local SIZE = probe.size
 	local num_mips = probe.cubemap.mip_map_levels
-	
 	-- Set current probe for prefiltering
 	reflection_probe.current_prefilter_probe = probe
-	
 	-- Generate mipmaps for source cubemap
 	probe.source_cubemap:GenerateMipmaps("shader_read_only_optimal", cmd)
-	
+
 	-- For each mip level, render prefiltered version
 	for m = 0, num_mips - 1 do
 		local perceptual_roughness = m / math.max(num_mips - 1, 1)
 		reflection_probe.current_roughness = perceptual_roughness
 		local mip_size = math.max(1, math.floor(SIZE / (2 ^ m)))
-		
+
 		for face = 0, 5 do
 			reflection_probe.temp_camera:SetAngles(face_angles[face + 1])
 			local proj = reflection_probe.temp_camera:BuildProjectionMatrix()
@@ -1187,7 +1166,6 @@ function reflection_probe.PrefilterProbe(cmd, probe)
 			view.m30, view.m31, view.m32 = 0, 0, 0
 			local proj_view = view * proj
 			proj_view:GetInverse(reflection_probe.inv_projection_view)
-			
 			-- Transition output face/mip to color attachment
 			cmd:PipelineBarrier(
 				{
@@ -1208,7 +1186,6 @@ function reflection_probe.PrefilterProbe(cmd, probe)
 					},
 				}
 			)
-			
 			cmd:BeginRendering(
 				{
 					color_image_view = probe.mip_face_views[m][face],
@@ -1224,7 +1201,6 @@ function reflection_probe.PrefilterProbe(cmd, probe)
 			reflection_probe.prefilter_pipeline:UploadConstants(cmd)
 			cmd:Draw(3, 1, 0, 0)
 			cmd:EndRendering()
-			
 			-- Transition to shader read
 			cmd:PipelineBarrier(
 				{
@@ -1252,24 +1228,21 @@ end
 -- Update the environment probe (called every frame if sun changed)
 function reflection_probe.UpdateEnvironmentProbe(cmd)
 	if not reflection_probe.environment_probe then return end
-	
+
 	local env_probe = reflection_probe.environment_probe
-	
+
 	-- Only update if sun direction changed
 	if not reflection_probe.HasSunDirectionChanged() and not env_probe.needs_update then
 		return
 	end
-	
+
 	-- Save current face and render all 6 faces for environment
 	local saved_face = reflection_probe.current_face
 	reflection_probe.current_face = 0
-	
 	-- Environment probe only renders sky (no geometry)
 	reflection_probe.RenderProbeFaces(cmd, env_probe, 6, false)
-	
 	-- Prefilter the environment probe
 	reflection_probe.PrefilterProbe(cmd, env_probe)
-	
 	reflection_probe.current_face = saved_face
 	env_probe.needs_update = false
 end
@@ -1331,33 +1304,37 @@ end)
 -- Incremental update each frame
 event.AddListener("PreRenderPass", "reflection_probe_update", function(cmd)
 	if not reflection_probe.enabled then return end
+
 	if not reflection_probe.sky_pipeline then return end
-	
+
 	-- Update environment probe first (if sun changed)
 	reflection_probe.UpdateEnvironmentProbe(cmd)
-	
 	-- Then update scene probes incrementally
 	local scene_probe_index = reflection_probe.current_scene_probe_index
 	local scene_probe = reflection_probe.probes[scene_probe_index]
-	
+
 	if scene_probe and scene_probe.type == reflection_probe.TYPE_SCENE then
 		-- Only update if the probe needs it (static probes only update once)
-		if scene_probe.needs_update or scene_probe.update_mode == reflection_probe.UPDATE_DYNAMIC then
+		if
+			scene_probe.needs_update or
+			scene_probe.update_mode == reflection_probe.UPDATE_DYNAMIC
+		then
 			reflection_probe.RenderProbeFaces(cmd, scene_probe, reflection_probe.UPDATE_FACES_PER_FRAME, true)
-			
+
 			-- When we complete a full cycle (back to face 0), prefilter and move to next probe
 			if reflection_probe.current_face == 0 then
 				reflection_probe.PrefilterProbe(cmd, scene_probe)
 				scene_probe.needs_update = false
-				
+
 				-- Move to next scene probe
 				repeat
 					scene_probe_index = scene_probe_index + 1
+
 					if scene_probe_index > reflection_probe.SCENE_PROBE_COUNT then
 						scene_probe_index = 1
-					end
+					end				
 				until reflection_probe.probes[scene_probe_index] or scene_probe_index == reflection_probe.current_scene_probe_index
-				
+
 				reflection_probe.current_scene_probe_index = scene_probe_index
 			end
 		end

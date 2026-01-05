@@ -22,7 +22,7 @@ META.Events = {"Draw3DGeometry"}
 META:GetSet("Primitives", {})
 META:GetSet("Visible", true)
 META:GetSet("CastShadows", true)
-META:GetSet("AABB", nil) -- Local space AABB (combined from all primitives)
+META:GetSet("AABB", AABB(math.huge, math.huge, math.huge, -math.huge, -math.huge, -math.huge)) -- Local space AABB (combined from all primitives)
 META:GetSet("UseOcclusionCulling", false) -- Enable occlusion culling for this model
 META:GetSet("ModelPath", "")
 META:GetSet("MaterialOverride", nil)
@@ -31,34 +31,8 @@ META:GetSet("RoughnessMultiplier", 1)
 META:GetSet("MetallicMultiplier", 1)
 META:IsSet("Loading", false)
 
-function META:Initialize(config)
-	config = config or {}
-	self.Primitives = config.primitives or {}
-	self.AABB = AABB(math.huge, math.huge, math.huge, -math.huge, -math.huge, -math.huge)
-
-	if config.visible ~= nil then self.Visible = config.visible end
-
-	if config.cast_shadows ~= nil then self.CastShadows = config.cast_shadows end
-
-	if config.use_occlusion_culling ~= nil then
-		self.UseOcclusionCulling = config.use_occlusion_culling
-	end
-
-	-- Handle mesh/material shorthand config
-	if config.mesh then
-		local aabb = config.aabb
-
-		-- Auto-compute AABB from mesh if not provided
-		if not aabb and config.mesh.ComputeAABB then
-			aabb = config.mesh:ComputeAABB()
-		end
-
-		self:AddPrimitive(config.mesh)
-	end
-
-	-- Create occlusion query object for conditional rendering
-	self.occlusion_query = nil
-	self.tr = debug.traceback()
+function META:Initialize()
+	self.Primitives = {}
 end
 
 function META:SetModelPath(path)
@@ -481,9 +455,6 @@ end
 
 META:Register()
 ecs.RegisterComponent(META)
------------------------------------------------------------
--- Static helpers
------------------------------------------------------------
 Model.Component = META
 
 -- Get all model components in scene

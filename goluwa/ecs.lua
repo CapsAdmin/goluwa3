@@ -1,26 +1,19 @@
 local prototype = require("prototype")
 local event = require("event")
 local ecs = library()
--- Component registry
 ecs.registered_components = {}
 
--- Register a component type
 function ecs.RegisterComponent(component_meta)
 	local name = component_meta.ComponentName or component_meta.ClassName
 	ecs.registered_components[name] = component_meta
 	return component_meta
 end
 
--- Get a registered component by name
 function ecs.GetComponent(name)
 	return ecs.registered_components[name]
 end
 
------------------------------------------------------------
--- Entity Metatable
------------------------------------------------------------
 local ENTITY = prototype.CreateTemplate("entity")
--- Apply parenting template for scene hierarchy
 prototype.ParentingTemplate(ENTITY)
 ENTITY:GetSet("ComponentsHash", {})
 
@@ -28,7 +21,7 @@ function ENTITY:Initialize()
 	self.ComponentsHash = {}
 end
 
-function ENTITY:AddComponent(name_or_meta, config)
+function ENTITY:AddComponent(name_or_meta)
 	local meta = name_or_meta
 
 	if type(name_or_meta) == "string" then
@@ -39,12 +32,10 @@ function ENTITY:AddComponent(name_or_meta, config)
 
 	local component_name = meta.ComponentName or meta.ClassName
 
-	-- Check if already has this component
 	if self.ComponentsHash[component_name] then
 		return self.ComponentsHash[component_name]
 	end
 
-	-- Check required components
 	if meta.Require then
 		for _, required_name in ipairs(meta.Require) do
 			if not self:HasComponent(required_name) then
@@ -53,27 +44,21 @@ function ENTITY:AddComponent(name_or_meta, config)
 		end
 	end
 
-	-- Create component instance
 	local component = prototype.CreateObject(meta)
 	component.Entity = self
 	self.ComponentsHash[component_name] = component
-	-- Also store as direct property for convenience (entity.transform, entity.model, etc)
 	self[component_name] = component
 
-	-- Initialize component
-	if component.Initialize then component:Initialize(config or {}) end
+	if component.Initialize then component:Initialize() end
 
-	-- Call OnAdd
 	if component.OnAdd then component:OnAdd(self) end
 
-	-- Subscribe to events
 	if meta.Events then
 		for _, event_type in ipairs(meta.Events) do
 			component:AddEvent(event_type)
 		end
 	end
 
-	-- Notify other components
 	for name, other_component in pairs(self.ComponentsHash) do
 		if other_component ~= component and other_component.OnEntityAddComponent then
 			other_component:OnEntityAddComponent(component)
@@ -88,14 +73,12 @@ function ENTITY:RemoveComponent(name)
 
 	if not component then return end
 
-	-- Unsubscribe from events
 	if component.added_events then
 		for event_type in pairs(component.added_events) do
 			component:RemoveEvent(event_type)
 		end
 	end
 
-	-- Call OnRemove
 	if component.OnRemove then component:OnRemove() end
 
 	self.ComponentsHash[name] = nil
@@ -111,7 +94,6 @@ function ENTITY:HasComponent(name)
 end
 
 function ENTITY:OnRemove()
-	-- Remove all components
 	for name, component in pairs(self.ComponentsHash) do
 		if component.added_events then
 			for event_type in pairs(component.added_events) do
@@ -139,9 +121,6 @@ end
 
 ENTITY:Register()
 
------------------------------------------------------------
--- Entity Creation
------------------------------------------------------------
 function ecs.CreateEntity(name, parent)
 	if name ~= "world" then parent = parent or ecs.GetWorld() end
 
@@ -154,9 +133,24 @@ function ecs.CreateEntity(name, parent)
 	return entity
 end
 
------------------------------------------------------------
--- World
------------------------------------------------------------
+function ecs.CreateFromTable(config)
+	local entity = ecs.CreateEntity(config.Name, config.Parent)
+
+	for component_name, component_data in pairs(config) do
+		if component_name == "Name" or component_name == "Parent" then
+
+		else
+			local component = entity:AddComponent(component_name)
+
+			for key, value in pairs(component_data) do
+				component["Set" .. key](component, value)
+			end
+		end
+	end
+
+	return entity
+end
+
 local world_entity = nil
 
 function ecs.GetWorld()
@@ -189,7 +183,6 @@ do
 	end
 end
 
--- Get all components of a specific type
 function ecs.GetComponents(component_name)
 	local result = {}
 

@@ -28,11 +28,22 @@ local tasks = require("tasks")
 local function setup_sun()
 	if render3d.GetLights()[1] then return end
 
-	local Light = require("components.light")
-	local sun = Light.CreateDirectional({color = {1, 1, 1}, intensity = 1})
-	sun:SetIsSun(true)
-	sun:SetRotation(Quat(0.5, 0, 0, -1))
-	render3d.SetLights({sun})
+	render3d.SetLights(
+		{
+			ecs.CreateFromTable(
+				{
+					transform = {
+						Rotation = Quat(0.5, 0, 0, -1),
+					},
+					light = {
+						LightType = "sun",
+						Color = Color(1, 1, 1),
+						Intensity = 0,
+					},
+				}
+			),
+		}
+	)
 end
 
 -- Helper function to initialize render3d

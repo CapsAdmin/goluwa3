@@ -1009,10 +1009,9 @@ function steam.SpawnMapEntities(path, parent)
 					local rotation = Quat()
 					rotation:SetAngles(Deg3(info.angles.x, info.angles.y, info.angles.r))
 					local position = Vec3(-info.origin.y, info.origin.z, -info.origin.x) * steam.source2meters
-					ent:AddComponent("transform", {
-						position = position,
-						rotation = rotation,
-					})
+					local tr = ent:AddComponent("transform")
+					tr:SetPosition(position)
+					tr:SetRotation(rotation)
 
 					if info.model_size_mult then
 						ent.transform:SetSize(info.model_size_mult)
