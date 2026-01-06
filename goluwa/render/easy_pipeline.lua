@@ -10,8 +10,18 @@ function EasyPipeline.GetColorFormats(config)
 	if type(config.color_format) == "table" then
 		for i, format in ipairs(config.color_format) do
 			if type(format) == "table" then
-				table.insert(formats, format[1])
+				local actual_format = format[1]
+
+				-- Resolve function to get actual format
+				if type(actual_format) == "function" then
+					actual_format = actual_format()
+				end
+
+				table.insert(formats, actual_format)
 			else
+				-- Resolve function to get actual format
+				if type(format) == "function" then format = format() end
+
 				table.insert(formats, format)
 			end
 		end
@@ -22,6 +32,22 @@ end
 
 function EasyPipeline.New(config)
 	local self = EasyPipeline:CreateObject()
+
+	-- Resolve format functions if they exist
+	if type(config.depth_format) == "function" then
+		config.depth_format = config.depth_format()
+	end
+
+	-- Resolve color format functions
+	if type(config.color_format) == "table" then
+		for i, format in ipairs(config.color_format) do
+			if type(format) == "table" then
+				-- Resolve first element if it's a function
+				if type(format[1]) == "function" then format[1] = format[1]() end
+			end
+		end
+	end
+
 	local glsl_to_ffi = {
 		mat4 = "float",
 		vec4 = "float",
@@ -395,10 +421,15 @@ function EasyPipeline.New(config)
 				local struct_name = block.name:sub(1, 1):upper() .. block.name:sub(2) .. "Constants"
 				local constants = constant_structs[struct_name]
 
-				for _, field in ipairs(block.block) do
+				for i, field in ipairs(block.block) do
 					local info = get_field_info(field)
 
-					if info.callback then info.callback(self, constants, info.name) end
+					if info.callback then
+						local result = info.callback(self, constants, info.name)
+
+						-- If callback returns a function, use that for future updates
+						if type(result) == "function" then field[3] = result end
+					end
 				end
 
 				self.pipeline:PushConstants(cmd, "vertex", offset, constants)
@@ -414,10 +445,15 @@ function EasyPipeline.New(config)
 				local struct_name = block.name:sub(1, 1):upper() .. block.name:sub(2) .. "Constants"
 				local constants = constant_structs[struct_name]
 
-				for _, field in ipairs(block.block) do
+				for i, field in ipairs(block.block) do
 					local info = get_field_info(field)
 
-					if info.callback then info.callback(self, constants, info.name) end
+					if info.callback then
+						local result = info.callback(self, constants, info.name)
+
+						-- If callback returns a function, use that for future updates
+						if type(result) == "function" then field[3] = result end
+					end
 				end
 
 				self.pipeline:PushConstants(cmd, "fragment", offset, constants)
@@ -429,11 +465,14 @@ function EasyPipeline.New(config)
 		for name, info in pairs(uniform_buffer_types) do
 			local ubo_data = info.ubo:GetData()
 
-			for _, field in ipairs(info.block.block) do
+			for i, field in ipairs(info.block.block) do
 				local field_info = get_field_info(field)
 
 				if field_info.callback then
-					field_info.callback(self, ubo_data, field_info.name)
+					local result = field_info.callback(self, ubo_data, field_info.name)
+
+					-- If callback returns a function, use that for future updates
+					if type(result) == "function" then field[3] = result end
 				end
 			end
 

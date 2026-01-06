@@ -11,7 +11,7 @@ local Ang3 = require("structs.ang3")
 local Quat = require("structs.quat")
 local Rect = require("structs.rect")
 local Camera3D = require("render3d.camera3d")
-local Texture = require("render.texture")
+local GetBlueNoiseTexture = require("render.textures.blue_noise")
 local Light = require("components.light")
 local Framebuffer = require("render.framebuffer")
 local system = require("system")
@@ -526,6 +526,7 @@ render3d.gbuffer_config = {
 	},
 }
 render3d.ssr_config = {
+	color_format = {{"r16g16b16a16_sfloat", {"ssr", "rgba"}}},
 	vertex = quad_vertex_config,
 	fragment = {
 		custom_declarations = quad_vertex_config.fragment_code,
@@ -560,7 +561,7 @@ render3d.ssr_config = {
 						"blue_noise_tex",
 						"int",
 						function(self, block, key)
-							block[key] = self:GetTextureIndex(render3d.blue_noise_tex)
+							block[key] = self:GetTextureIndex(GetBlueNoiseTexture())
 						end,
 					},
 					last_frame_block,
@@ -776,7 +777,6 @@ render3d.ssr_config = {
 		depth_write = false,
 	},
 }
--- SSR Temporal Resolve Pass
 render3d.ssr_resolve_config = {
 	vertex = quad_vertex_config,
 	fragment = {
@@ -955,6 +955,7 @@ render3d.ssr_resolve_config = {
 	},
 }
 render3d.lighting_config = {
+	color_format = {{"r16g16b16a16_sfloat", {"color", "rgba"}}},
 	vertex = quad_vertex_config,
 	fragment = {
 		custom_declarations = quad_vertex_config.fragment_code .. [[
@@ -996,8 +997,22 @@ render3d.lighting_config = {
 						"ssao_kernel",
 						"vec3",
 						function(self, block, key)
-							for i, v in ipairs(render3d.ssao_kernel) do
-								v:CopyToFloatPointer(block[key][i - 1])
+							local kernel = {}
+
+							for i = 1, 64 do
+								math.randomseed(i)
+								local sample = Vec3(math.random() * 2 - 1, math.random() * 2 - 1, math.random()):Normalize()
+								sample = sample * math.random()
+								local scale = (i - 1) / 64
+								scale = math.lerp(0.1, 1.0, scale * scale)
+								sample = sample * scale
+								table.insert(kernel, sample)
+							end
+
+							return function(self, block, key)
+								for i, v in ipairs(render3d.ssao_kernel) do
+									v:CopyToFloatPointer(block[key][i - 1])
+								end
 							end
 						end,
 						64,
@@ -1022,7 +1037,7 @@ render3d.lighting_config = {
 						"blue_noise_tex",
 						"int",
 						function(self, block, key)
-							block[key] = self:GetTextureIndex(render3d.blue_noise_tex)
+							block[key] = self:GetTextureIndex(GetBlueNoiseTexture())
 						end,
 					},
 					last_frame_block,
@@ -1184,7 +1199,7 @@ render3d.lighting_config = {
 			]] .. require("render3d.atmosphere").GetGLSLCode() .. [[
 
 
-			#define SSR 1
+			#define SSR 0
 			#define PARALLAX_CORRECTION 1
 			#define uv in_uv
 			float hash(vec2 p) {
@@ -1635,6 +1650,17 @@ render3d.lighting_config = {
 	},
 }
 render3d.blit_config = {
+	color_format = {
+		{
+			function()
+				return render.target.color_format
+			end,
+			{"color", "rgba"},
+		},
+	},
+	depth_format = function()
+		return render.target.depth_format
+	end,
 	vertex = quad_vertex_config,
 	fragment = {
 		custom_declarations = quad_vertex_config.fragment_code,
@@ -1695,12 +1721,6 @@ render3d.blit_config = {
 }
 
 function render3d.Initialize()
-	render3d.ssr_config.color_format = {{"r16g16b16a16_sfloat", {"ssr", "rgba"}}}
-	render3d.lighting_config.color_format = {{"r16g16b16a16_sfloat", {"color", "rgba"}}}
-	render3d.blit_config.color_format = {{render.target.color_format, {"color", "rgba"}}}
-	render3d.blit_config.depth_format = render.target.depth_format
-	render3d.blit_config.samples = render.target.samples
-
 	local function create_gbuffer()
 		local size = window:GetSize()
 		render3d.gbuffer = Framebuffer.New(
@@ -1763,57 +1783,6 @@ function render3d.Initialize()
 
 	local function create_blue_noise_texture()
 		render3d.ssao_kernel = {}
-
-		for i = 1, 64 do
-			math.randomseed(i)
-			local sample = Vec3(math.random() * 2 - 1, math.random() * 2 - 1, math.random()):Normalize()
-			sample = sample * math.random()
-			local scale = (i - 1) / 64
-			scale = math.lerp(0.1, 1.0, scale * scale)
-			sample = sample * scale
-			table.insert(render3d.ssao_kernel, sample)
-		end
-
-		local size = 64
-		render3d.blue_noise_tex = Texture.New(
-			{
-				width = size,
-				height = size,
-				format = "r32g32b32a32_sfloat",
-				sampler = {
-					min_filter = "nearest",
-					mag_filter = "nearest",
-					wrap_s = "repeat",
-					wrap_t = "repeat",
-				},
-			}
-		)
-		render3d.blue_noise_tex:Shade(
-			[[
-				return vec4(B(uv*1000.2), B(uv*300.4), 1, 1);
-			]],
-			{
-				header = [[
-					// https://www.shadertoy.com/view/tllcR2
-					// no sell :-)
-
-					float hash12(vec2 p)
-					{
-						vec3 p3  = fract(vec3(p.xyx) * .1031);
-						p3 += dot(p3, p3.yzx + 33.33);
-						return fract((p3.x + p3.y) * p3.z);
-					}
-
-					#define hash(p)  fract(sin(dot(p, vec2(11.9898, 78.233))) * 43758.5453) // iq suggestion, for Windows
-					float B(vec2 U) {
-						float v = 0.;
-						for (int k=0; k<9; k++)
-							v += hash12( U + vec2(k%3-1,k/3-1) ); 
-						return .9 *( 1.125*hash12(U)- v/8.) + .5; // 
-					}
-				]],
-			}
-		)
 	end
 
 	create_gbuffer()
