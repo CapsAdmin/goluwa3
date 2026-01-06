@@ -39,13 +39,50 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 		table.insert(finalExtensions, "VK_EXT_scalar_block_layout")
 	end
 
+	if table.has_value(available_extensions, "VK_EXT_mesh_shader") then
+		table.insert(finalExtensions, "VK_EXT_mesh_shader")
+	end
+
 	-- Query available features if extension is present
 	local pNextChain = nil
+	-- Maintenance4 features
+	local maintenance4Features = vulkan.vk.VkPhysicalDeviceMaintenance4Features()
+	maintenance4Features.sType = vulkan.vk.VkStructureType.VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_4_FEATURES
+	maintenance4Features.pNext = pNextChain
+	maintenance4Features.maintenance4 = 1
+	pNextChain = maintenance4Features
+	local vulkan11Features = vulkan.vk.VkPhysicalDeviceVulkan11Features()
+	vulkan11Features.sType = vulkan.vk.VkStructureType.VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES
+	vulkan11Features.pNext = pNextChain
+	vulkan11Features.storageBuffer16BitAccess = 1
+	vulkan11Features.uniformAndStorageBuffer16BitAccess = 1
+	pNextChain = vulkan11Features
+	local demoteFeatures = vulkan.vk.VkPhysicalDeviceShaderDemoteToHelperInvocationFeaturesEXT()
+	demoteFeatures.sType = vulkan.vk.VkStructureType.VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_DEMOTE_TO_HELPER_INVOCATION_FEATURES_EXT
+	demoteFeatures.pNext = pNextChain
+	demoteFeatures.shaderDemoteToHelperInvocation = 1
+	pNextChain = demoteFeatures
 	local hasDynamicRenderingFeatures = physical_device:GetDynamicRenderingFeatures()
 	-- Extended dynamic state features
 	local has_extended_dynamic_state = table.has_value(available_extensions, "VK_EXT_extended_dynamic_state")
 	local has_extended_dynamic_state3 = table.has_value(available_extensions, "VK_EXT_extended_dynamic_state3")
+	local has_mesh_shader = table.has_value(available_extensions, "VK_EXT_mesh_shader")
 	local has_polygon_mode_dynamic_state = false -- Set to true to enable wireframe support (requires VK_EXT_extended_dynamic_state3)
+	if has_mesh_shader then
+		local meshShaderFeatures = vulkan.vk.VkPhysicalDeviceMeshShaderFeaturesEXT(
+			{
+				sType = vulkan.vk.VkStructureType.VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_FEATURES_EXT,
+				pNext = pNextChain,
+				taskShader = 1,
+				meshShader = 1,
+				multiviewMeshShader = 0,
+				primitiveFragmentShadingRateMeshShader = 0,
+				meshShaderQueries = 0,
+			}
+		)
+		pNextChain = meshShaderFeatures
+	end
+
 	if has_extended_dynamic_state then
 		local extendedDynamicStateFeatures = vulkan.vk.VkPhysicalDeviceExtendedDynamicStateFeaturesEXT(
 			{
@@ -117,6 +154,10 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 		enabled_features[0].samplerAnisotropy = 1
 	end
 
+	if physical_features.shaderInt64 == 1 then
+		enabled_features[0].shaderInt64 = 1
+	end
+
 	if physical_features.depthClamp == 1 then
 		enabled_features[0].depthClamp = 1
 	end
@@ -167,7 +208,7 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 			separateDepthStencilLayouts = 0,
 			hostQueryReset = 0,
 			timelineSemaphore = 0,
-			bufferDeviceAddress = 0,
+			bufferDeviceAddress = 1,
 			bufferDeviceAddressCaptureReplay = 0,
 			bufferDeviceAddressMultiDevice = 0,
 			vulkanMemoryModel = 0,
@@ -245,6 +286,12 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 	if table.has_value(finalExtensions, "VK_EXT_conditional_rendering") then
 		vulkan.ext.vkCmdBeginConditionalRenderingEXT = device:TryGetExtension("vkCmdBeginConditionalRenderingEXT")
 		vulkan.ext.vkCmdEndConditionalRenderingEXT = device:TryGetExtension("vkCmdEndConditionalRenderingEXT")
+	end
+
+	if has_mesh_shader then
+		vulkan.ext.vkCmdDrawMeshTasksEXT = device:TryGetExtension("vkCmdDrawMeshTasksEXT")
+		vulkan.ext.vkCmdDrawMeshTasksIndirectEXT = device:TryGetExtension("vkCmdDrawMeshTasksIndirectEXT")
+		vulkan.ext.vkCmdDrawMeshTasksIndirectCountEXT = device:TryGetExtension("vkCmdDrawMeshTasksIndirectCountEXT")
 	end
 
 	return device

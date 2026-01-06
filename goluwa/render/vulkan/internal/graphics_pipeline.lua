@@ -7,11 +7,21 @@ local EnumArray = ffi.typeof("uint32_t[?]")
 function GraphicsPipeline.New(device, config, render_passes, pipelineLayout)
 	local stageArrayType = ffi.typeof("$ [" .. #config.shaderModules .. "]", vulkan.vk.VkPipelineShaderStageCreateInfo)
 	local shaderStagesArray = ffi.new(stageArrayType)
+	local isMeshPipeline = false
 
 	for i, stage in ipairs(config.shaderModules) do
+		local stage_bits = vulkan.vk.e.VkShaderStageFlagBits(stage.type)
+
+		if
+			tonumber(ffi.cast("uint32_t", stage_bits)) == tonumber(vulkan.vk.VkShaderStageFlagBits.VK_SHADER_STAGE_MESH_BIT_EXT) or
+			tonumber(ffi.cast("uint32_t", stage_bits)) == tonumber(vulkan.vk.VkShaderStageFlagBits.VK_SHADER_STAGE_TASK_BIT_EXT)
+		then
+			isMeshPipeline = true
+		end
+
 		shaderStagesArray[i - 1] = vulkan.vk.s.PipelineShaderStageCreateInfo(
 			{
-				stage = stage.type,
+				stage = stage_bits,
 				module = stage.module.ptr[0],
 				pName = "main",
 				flags = 0,
@@ -20,51 +30,57 @@ function GraphicsPipeline.New(device, config, render_passes, pipelineLayout)
 	end
 
 	-- Vertex input state
-	local bindingArray = nil
-	local attributeArray = nil
-	local bindingCount = 0
-	local attributeCount = 0
+	local vertexInputInfo = nil
+	local inputAssembly = nil
 
-	if config.vertexBindings then
-		bindingCount = #config.vertexBindings
-		bindingArray = vulkan.T.Array(vulkan.vk.VkVertexInputBindingDescription)(bindingCount)
+	if not isMeshPipeline then
+		local bindingArray = nil
+		local attributeArray = nil
+		local bindingCount = 0
+		local attributeCount = 0
 
-		for i, binding in ipairs(config.vertexBindings) do
-			bindingArray[i - 1].binding = binding.binding
-			bindingArray[i - 1].stride = binding.stride
-			bindingArray[i - 1].inputRate = vulkan.vk.e.VkVertexInputRate(binding.input_rate or "vertex")
+		if config.vertexBindings then
+			bindingCount = #config.vertexBindings
+			bindingArray = vulkan.T.Array(vulkan.vk.VkVertexInputBindingDescription)(bindingCount)
+
+			for i, binding in ipairs(config.vertexBindings) do
+				bindingArray[i - 1].binding = binding.binding
+				bindingArray[i - 1].stride = binding.stride
+				bindingArray[i - 1].inputRate = vulkan.vk.e.VkVertexInputRate(binding.input_rate or "vertex")
+			end
 		end
+
+		if config.vertexAttributes then
+			attributeCount = #config.vertexAttributes
+			attributeArray = vulkan.T.Array(vulkan.vk.VkVertexInputAttributeDescription)(attributeCount)
+
+			for i, attr in ipairs(config.vertexAttributes) do
+				attributeArray[i - 1].location = attr.location
+				attributeArray[i - 1].binding = attr.binding
+				attributeArray[i - 1].format = vulkan.vk.e.VkFormat(attr.format)
+				attributeArray[i - 1].offset = attr.offset
+			end
+		end
+
+		vertexInputInfo = vulkan.vk.s.PipelineVertexInputStateCreateInfo(
+			{
+				vertexBindingDescriptionCount = bindingCount,
+				pVertexBindingDescriptions = bindingArray,
+				vertexAttributeDescriptionCount = attributeCount,
+				pVertexAttributeDescriptions = attributeArray,
+				flags = 0,
+			}
+		)
+		config.input_assembly = config.input_assembly or {}
+		inputAssembly = vulkan.vk.s.PipelineInputAssemblyStateCreateInfo(
+			{
+				topology = config.input_assembly.topology or "triangle_list",
+				primitiveRestartEnable = config.input_assembly.primitive_restart or 0,
+				flags = 0,
+			}
+		)
 	end
 
-	if config.vertexAttributes then
-		attributeCount = #config.vertexAttributes
-		attributeArray = vulkan.T.Array(vulkan.vk.VkVertexInputAttributeDescription)(attributeCount)
-
-		for i, attr in ipairs(config.vertexAttributes) do
-			attributeArray[i - 1].location = attr.location
-			attributeArray[i - 1].binding = attr.binding
-			attributeArray[i - 1].format = vulkan.vk.e.VkFormat(attr.format)
-			attributeArray[i - 1].offset = attr.offset
-		end
-	end
-
-	local vertexInputInfo = vulkan.vk.s.PipelineVertexInputStateCreateInfo(
-		{
-			vertexBindingDescriptionCount = bindingCount,
-			pVertexBindingDescriptions = bindingArray,
-			vertexAttributeDescriptionCount = attributeCount,
-			pVertexAttributeDescriptions = attributeArray,
-			flags = 0,
-		}
-	)
-	config.input_assembly = config.input_assembly or {}
-	local inputAssembly = vulkan.vk.s.PipelineInputAssemblyStateCreateInfo(
-		{
-			topology = config.input_assembly.topology or "triangle_list",
-			primitiveRestartEnable = config.input_assembly.primitive_restart or 0,
-			flags = 0,
-		}
-	)
 	config.viewport = config.viewport or {}
 	local viewport = vulkan.vk.VkViewport(
 		{

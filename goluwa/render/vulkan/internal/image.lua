@@ -61,8 +61,10 @@ function Image.New(config)
 	assert(requirements.size > 0)
 	self.memory = Memory.New(
 		config.device,
-		requirements.size,
-		config.device.physical_device:FindMemoryType(requirements.memoryTypeBits, config.properties or "device_local")
+		{
+			size = requirements.size,
+			type_index = config.device.physical_device:FindMemoryType(requirements.memoryTypeBits, config.properties or "device_local"),
+		}
 	)
 	self:BindMemory()
 	return self

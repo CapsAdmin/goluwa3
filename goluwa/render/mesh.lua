@@ -53,6 +53,16 @@ function Mesh:GetVertices()
 	return self.vertex_buffer:GetVertices()
 end
 
+function Mesh:GetVertexBufferAddress()
+	return self.vertex_buffer:GetBuffer():GetDeviceAddress()
+end
+
+function Mesh:GetIndexBufferAddress()
+	if not self.index_buffer then return 0 end
+
+	return self.index_buffer:GetBuffer():GetDeviceAddress()
+end
+
 function Mesh:Upload()
 	self.vertex_buffer:Upload()
 end

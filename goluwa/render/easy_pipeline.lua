@@ -63,6 +63,7 @@ function EasyPipeline.New(config)
 		ivec4 = "int",
 		ivec3 = "int",
 		ivec2 = "int",
+		uint64_t = "uint64_t",
 	}
 	local glsl_to_array_size = {
 		mat4 = 16,
@@ -72,9 +73,13 @@ function EasyPipeline.New(config)
 		ivec4 = 4,
 		ivec3 = 3,
 		ivec2 = 2,
+		uint64_t = 1,
 	}
 	local push_constant_types = {}
-	local stage_sizes = {vertex = 0, fragment = 0}
+	local possible_stages = {"task_ext", "mesh_ext", "vertex", "fragment", "compute"}
+	local push_constant_blocks = {}
+	local push_constant_block_order = {}
+	local push_constant_block_offsets = {}
 	local uniform_buffer_types = {}
 	local uniform_buffers = {}
 	local actual_color_formats = {}
@@ -193,6 +198,9 @@ function EasyPipeline.New(config)
 		elseif glsl_type == "mat4" then
 			base_alignment = 16
 			size = 64
+		elseif glsl_type == "uint64_t" then
+			base_alignment = 8
+			size = 8
 		end
 
 		if layout == "scalar" then
@@ -310,9 +318,9 @@ function EasyPipeline.New(config)
 						struct_code = struct_code .. string.format("    char _pad_%d[%d];\n", struct_offset, sf_aligned_offset - struct_offset)
 					end
 
-					if sf_array_size and sf_base_size then
+					if sf_array_size and sf_base_size and sf_base_size > 1 then
 						struct_code = struct_code .. string.format("    %s %s[%d][%d];\n", sf_ffi_type, sf_name, sf_array_size, sf_base_size)
-					elseif sf_array_size or sf_base_size then
+					elseif sf_array_size or (sf_base_size and sf_base_size > 1) then
 						struct_code = struct_code .. string.format("    %s %s[%d];\n", sf_ffi_type, sf_name, sf_array_size or sf_base_size)
 					else
 						struct_code = struct_code .. string.format("    %s %s;\n", sf_ffi_type, sf_name)
@@ -363,9 +371,9 @@ function EasyPipeline.New(config)
 					ffi_code = ffi_code .. string.format("    char _pad_%d[%d];\n", current_offset, aligned_offset - current_offset)
 				end
 
-				if info.array_size and base_size then
+				if info.array_size and base_size and base_size > 1 then
 					ffi_code = ffi_code .. string.format("    %s %s[%d][%d];\n", ffi_type, info.name, info.array_size, base_size)
-				elseif info.array_size or base_size then
+				elseif info.array_size or (base_size and base_size > 1) then
 					ffi_code = ffi_code .. string.format("    %s %s[%d];\n", ffi_type, info.name, info.array_size or base_size)
 				else
 					ffi_code = ffi_code .. string.format("    %s %s;\n", ffi_type, info.name)
@@ -435,28 +443,54 @@ function EasyPipeline.New(config)
 	end
 
 	-- Process push constants and uniform buffers
-	for stage, stage_config in pairs(config) do
+	-- First pass: Collect all unique push constant blocks across all stages to assign shared offsets
+	for _, stage_name in ipairs(possible_stages) do
+		local stage_config = config[stage_name] or
+			(
+				stage_name == "mesh_ext" and
+				config.mesh
+			)
+			or
+			(
+				stage_name == "task_ext" and
+				config.task
+			)
+
+		if type(stage_config) == "table" and stage_config.push_constants then
+			for _, block in ipairs(stage_config.push_constants) do
+				if not push_constant_blocks[block.name] then
+					block.block = flatten_fields(block.block)
+					push_constant_blocks[block.name] = block
+					table.insert(push_constant_block_order, block.name)
+					local struct_name = block.name:sub(1, 1):upper() .. block.name:sub(2) .. "Constants"
+					local ffi_code = build_ffi_struct("scalar", block.block)
+					local ctype = ffi.typeof(ffi_code)
+					verify_layout("scalar", struct_name, block.block, ctype)
+					push_constant_types[struct_name] = ctype
+					push_constant_block_offsets[block.name] = 0 -- placeholder
+				end
+			end
+		end
+	end
+
+	-- Assign offsets sequentially based on order of appearance in possible_stages
+	local current_push_offset = 0
+
+	for _, name in ipairs(push_constant_block_order) do
+		push_constant_block_offsets[name] = current_push_offset
+		local struct_name = name:sub(1, 1):upper() .. name:sub(2) .. "Constants"
+		current_push_offset = current_push_offset + ffi.sizeof(push_constant_types[struct_name])
+	end
+
+	for stage_name, stage_config in pairs(config) do
 		if
 			type(stage_config) ~= "table" or
-			stage == "rasterizer" or
-			stage == "color_blend" or
-			stage == "multisampling" or
-			stage == "depth_stencil"
+			stage_name == "rasterizer" or
+			stage_name == "color_blend" or
+			stage_name == "multisampling" or
+			stage_name == "depth_stencil"
 		then
 			goto continue
-		end
-
-		-- Process push constants
-		if stage_config.push_constants then
-			for _, block in ipairs(stage_config.push_constants) do
-				block.block = flatten_fields(block.block)
-				local struct_name = block.name:sub(1, 1):upper() .. block.name:sub(2) .. "Constants"
-				local ffi_code = build_ffi_struct("scalar", block.block)
-				local ctype = ffi.typeof(ffi_code)
-				verify_layout("scalar", struct_name, block.block, ctype)
-				push_constant_types[struct_name] = ctype
-				stage_sizes[stage] = stage_sizes[stage] + ffi.sizeof(ctype)
-			end
 		end
 
 		-- Process uniform buffers
@@ -484,7 +518,16 @@ function EasyPipeline.New(config)
 	end
 
 	local function get_glsl_push_constants(stage)
-		local stage_config = config[stage]
+		local stage_config = config[stage] or
+			(
+				stage == "mesh_ext" and
+				config.mesh
+			)
+			or
+			(
+				stage == "task_ext" and
+				config.task
+			)
 
 		if not stage_config or not stage_config.push_constants then return "" end
 
@@ -493,30 +536,16 @@ function EasyPipeline.New(config)
 
 		for _, block in ipairs(blocks) do
 			local struct_name = block.name:sub(1, 1):upper() .. block.name:sub(2) .. "Constants"
-			str = str .. "struct " .. struct_name .. " {\n"
-
-			for _, field in ipairs(block.block) do
-				local info = get_field_info(field)
-
-				if info.array_size then
-					str = str .. string.format("    %s %s[%d];\n", info.glsl_type, info.name, info.array_size)
-				else
-					str = str .. string.format("    %s %s;\n", info.glsl_type, info.name)
-				end
-			end
-
-			str = str .. "};\n\n"
+			local glsl_fields, glsl_structs = build_glsl_fields(block.block)
+			str = str .. glsl_structs .. "struct " .. struct_name .. " {\n" .. glsl_fields .. "};\n\n"
 		end
 
 		str = str .. "layout(push_constant, scalar) uniform Constants {\n"
 
-		if stage == "fragment" then
-			str = str .. "    layout(offset = " .. stage_sizes.vertex .. ")\n"
-		end
-
 		for _, block in ipairs(blocks) do
 			local struct_name = block.name:sub(1, 1):upper() .. block.name:sub(2) .. "Constants"
-			str = str .. "    " .. struct_name .. " " .. block.name .. ";\n"
+			local offset = push_constant_block_offsets[block.name]
+			str = str .. "    layout(offset = " .. offset .. ") " .. struct_name .. " " .. block.name .. ";\n"
 		end
 
 		str = str .. "} pc;\n\n"
@@ -544,53 +573,46 @@ function EasyPipeline.New(config)
 		constant_structs[struct_name] = ctype()
 	end
 
-	function self:UploadConstants(cmd)
-		-- Vertex stage
-		if config.vertex and config.vertex.push_constants then
-			local offset = 0
+	local active_stages = {}
 
-			for _, block in ipairs(config.vertex.push_constants) do
-				local struct_name = block.name:sub(1, 1):upper() .. block.name:sub(2) .. "Constants"
-				local constants = constant_structs[struct_name]
+	for _, s in ipairs(possible_stages) do
+		local stage_config = config[s] or
+			(
+				s == "mesh_ext" and
+				config.mesh
+			)
+			or
+			(
+				s == "task_ext" and
+				config.task
+			)
 
-				for i, field in ipairs(block.block) do
-					local info = get_field_info(field)
-
-					if info.callback then
-						local result = info.callback(self, constants, info.name)
-
-						-- If callback returns a function, use that for future updates
-						if type(result) == "function" then field[3] = result end
-					end
-				end
-
-				self.pipeline:PushConstants(cmd, "vertex", offset, constants)
-				offset = offset + ffi.sizeof(push_constant_types[struct_name])
-			end
+		if stage_config then
+			-- Only consider it an active shader stage if it has a shader or if it's vertex/fragment (which might have default shaders in some systems, but here we check for .shader)
+			-- Actually, for vertex we only add it if .shader is present now.
+			if stage_config.shader then table.insert(active_stages, s) end
 		end
+	end
 
-		-- Fragment stage
-		if config.fragment and config.fragment.push_constants then
-			local offset = stage_sizes.vertex
+	function self:UploadConstants(cmd)
+		for _, name in ipairs(push_constant_block_order) do
+			local offset = push_constant_block_offsets[name]
+			local block = push_constant_blocks[name]
+			local struct_name = name:sub(1, 1):upper() .. name:sub(2) .. "Constants"
+			local constants = constant_structs[struct_name]
 
-			for _, block in ipairs(config.fragment.push_constants) do
-				local struct_name = block.name:sub(1, 1):upper() .. block.name:sub(2) .. "Constants"
-				local constants = constant_structs[struct_name]
+			for i, field in ipairs(block.block) do
+				local info = get_field_info(field)
 
-				for i, field in ipairs(block.block) do
-					local info = get_field_info(field)
+				if info.callback then
+					local result = info.callback(self, constants, info.name)
 
-					if info.callback then
-						local result = info.callback(self, constants, info.name)
-
-						-- If callback returns a function, use that for future updates
-						if type(result) == "function" then field[3] = result end
-					end
+					-- If callback returns a function, use that for future updates
+					if type(result) == "function" then field[3] = result end
 				end
-
-				self.pipeline:PushConstants(cmd, "fragment", offset, constants)
-				offset = offset + ffi.sizeof(push_constant_types[struct_name])
 			end
+
+			self.pipeline:PushConstants(cmd, active_stages, offset, constants)
 		end
 
 		-- Update uniform buffers
@@ -657,11 +679,23 @@ function EasyPipeline.New(config)
 	end
 
 	-- Build shader header and I/O
-	local shader_header = [[
-	#version 450
-	#extension GL_EXT_nonuniform_qualifier : require
-	#extension GL_EXT_scalar_block_layout : require
+	local shader_header = [[#version 450
+#extension GL_EXT_nonuniform_qualifier : require
+#extension GL_EXT_scalar_block_layout : require
+#extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_buffer_reference2 : require
+
+	layout(binding = 0) uniform sampler2D textures[1024];
+	layout(binding = 1) uniform samplerCube cubemaps[1024];
+	#define TEXTURE(idx) textures[nonuniformEXT(idx)]
+	#define CUBEMAP(idx) cubemaps[nonuniformEXT(idx)]
 ]]
+
+	if config.mesh or config.mesh_ext or config.task or config.task_ext then
+		shader_header = shader_header .. "#extension GL_EXT_mesh_shader : require\n"
+	end
+
 	local vertex_input = ""
 	local vertex_output = ""
 
@@ -672,11 +706,107 @@ function EasyPipeline.New(config)
 		end
 	end
 
+	-- Build descriptor sets
+	local descriptor_sets = {
+		-- Texture array sampler (binding 0)
+		{
+			type = "combined_image_sampler",
+			binding_index = 0,
+			count = 1024,
+		},
+		-- Cubemap array sampler (binding 1)
+		{
+			type = "combined_image_sampler",
+			binding_index = 1,
+			count = 1024,
+		},
+	}
+
+	-- Add uniform buffers from and descriptors from all stages
+	for _, stage_name in ipairs(possible_stages) do
+		local stage_config = config[stage_name]
+
+		if type(stage_config) == "table" then
+			if stage_config.descriptor_sets then
+				for _, desc in ipairs(stage_config.descriptor_sets) do
+					if type(desc.args) == "function" then desc.args = desc.args() end
+
+					table.insert(descriptor_sets, desc)
+				end
+			end
+
+			if stage_config.uniform_buffers then
+				for _, block in ipairs(stage_config.uniform_buffers) do
+					table.insert(
+						descriptor_sets,
+						{
+							type = "uniform_buffer",
+							binding_index = block.binding_index,
+							args = {uniform_buffers[block.name].buffer},
+						}
+					)
+				end
+			end
+		end
+	end
+
 	-- Build shader stages
 	local shader_stages = {}
+	local push_constant_info = nil
+
+	if #push_constant_block_order > 0 then
+		push_constant_info = {
+			offset = 0,
+			size = current_push_offset,
+		}
+	end
+
+	-- Task stage
+	local task_config = config.task_ext or config.task
+
+	if task_config then
+		local task_code = shader_header:gsub("#version 450", "#version 450\n#pragma shader_stage(task)") .. (
+				task_config.custom_declarations or
+				""
+			) .. get_glsl_push_constants("task_ext") .. get_glsl_uniform_buffers("task_ext") .. (
+				task_config.shader or
+				""
+			)
+		table.insert(
+			shader_stages,
+			{
+				type = "task_ext",
+				code = task_code,
+				descriptor_sets = descriptor_sets,
+				push_constants = task_config.push_constants and push_constant_info or nil,
+			}
+		)
+	end
+
+	-- Mesh stage
+	local mesh_config = config.mesh_ext or config.mesh
+
+	if mesh_config then
+		local mesh_code = shader_header:gsub("#version 450", "#version 450\n#pragma shader_stage(mesh)") .. (
+				mesh_config.custom_declarations or
+				""
+			) .. get_glsl_push_constants("mesh_ext") .. get_glsl_uniform_buffers("mesh_ext") .. (
+				mesh_config.shader or
+				""
+			)
+		table.insert(
+			shader_stages,
+			{
+				type = "mesh_ext",
+				code = mesh_code,
+				descriptor_sets = descriptor_sets,
+				push_constants = mesh_config.push_constants and push_constant_info or nil,
+			}
+		)
+	end
 
 	-- Vertex stage
-	if config.vertex then
+	if config.vertex and config.vertex.shader then
 		local vertex_code = shader_header .. vertex_input .. vertex_output .. get_glsl_push_constants("vertex") .. (
 				config.vertex.custom_declarations or
 				""
@@ -689,88 +819,34 @@ function EasyPipeline.New(config)
 			{
 				type = "vertex",
 				code = vertex_code,
+				descriptor_sets = descriptor_sets,
 				bindings = bindings,
 				attributes = attributes,
 				input_assembly = {
 					topology = "triangle_list",
 					primitive_restart = false,
 				},
-				push_constants = stage_sizes.vertex > 0 and
-					{
-						size = stage_sizes.vertex,
-						offset = 0,
-					} or
-					nil,
+				push_constants = config.vertex.push_constants and push_constant_info or nil,
 			}
 		)
 	end
 
 	-- Fragment stage
 	if config.fragment then
-		local fragment_code = shader_header .. vertex_input .. [[
-			layout(binding = 0) uniform sampler2D textures[1024];
-			layout(binding = 1) uniform samplerCube cubemaps[1024];
-			#define TEXTURE(idx) textures[nonuniformEXT(idx)]
-			#define CUBEMAP(idx) cubemaps[nonuniformEXT(idx)]
-
-		]] .. fragment_outputs .. (
+		local fragment_code = shader_header .. vertex_input .. fragment_outputs .. (
 				config.fragment.custom_declarations or
 				""
 			) .. get_glsl_push_constants("fragment") .. get_glsl_uniform_buffers("fragment") .. (
 				config.fragment.shader or
 				""
 			)
-		-- Build descriptor sets
-		local descriptor_sets = {
-			-- Texture array sampler (binding 0)
-			{
-				type = "combined_image_sampler",
-				binding_index = 0,
-				count = 1024,
-			},
-			-- Cubemap array sampler (binding 1)
-			{
-				type = "combined_image_sampler",
-				binding_index = 1,
-				count = 1024,
-			},
-		}
-
-		-- Add custom descriptor sets if provided
-		if config.fragment.descriptor_sets then
-			for _, desc in ipairs(config.fragment.descriptor_sets) do
-				if type(desc.args) == "function" then desc.args = desc.args() end
-
-				table.insert(descriptor_sets, desc)
-			end
-		end
-
-		-- Add uniform buffers from config
-		if config.fragment.uniform_buffers then
-			for _, block in ipairs(config.fragment.uniform_buffers) do
-				table.insert(
-					descriptor_sets,
-					{
-						type = "uniform_buffer",
-						binding_index = block.binding_index,
-						args = {uniform_buffers[block.name].buffer},
-					}
-				)
-			end
-		end
-
 		table.insert(
 			shader_stages,
 			{
 				type = "fragment",
 				code = fragment_code,
 				descriptor_sets = descriptor_sets,
-				push_constants = stage_sizes.fragment > 0 and
-					{
-						size = stage_sizes.fragment,
-						offset = stage_sizes.vertex,
-					} or
-					nil,
+				push_constants = config.fragment.push_constants and push_constant_info or nil,
 			}
 		)
 	end
@@ -978,6 +1054,14 @@ function EasyPipeline:Draw(cmd, framebuffer, frame_index, vertex_count)
 		cmd:Draw(vertex_count, 1, 0, 0)
 	end
 
+	self:EndDraw(cmd, fb)
+end
+
+function EasyPipeline:DrawMeshTasks(gx, gy, gz, cmd, framebuffer, frame_index)
+	cmd = cmd or render.GetCommandBuffer()
+	local fb = self:BeginDraw(cmd, framebuffer, frame_index)
+	self:UploadConstants(cmd)
+	cmd:DrawMeshTasks(gx, gy, gz)
 	self:EndDraw(cmd, fb)
 end
 

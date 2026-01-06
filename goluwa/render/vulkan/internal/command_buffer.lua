@@ -289,6 +289,10 @@ function CommandBuffer:DrawIndexed(indexCount, instanceCount, firstIndex, vertex
 	)
 end
 
+function CommandBuffer:DrawMeshTasks(groupCountX, groupCountY, groupCountZ)
+	vulkan.ext.vkCmdDrawMeshTasksEXT(self.ptr[0], groupCountX, groupCountY, groupCountZ)
+end
+
 function CommandBuffer:SetCullMode(cull_mode)
 	local mode = vulkan.vk.e.VkCullModeFlagBits(cull_mode or "back")
 

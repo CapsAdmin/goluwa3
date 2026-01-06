@@ -38,7 +38,7 @@ function IndexBuffer.New(indices, index_type)
 	-- Create the GPU buffer
 	self.buffer = render.CreateBuffer(
 		{
-			buffer_usage = "index_buffer",
+			buffer_usage = {"index_buffer", "storage_buffer", "shader_device_address"},
 			data_type = self.index_type,
 			data = index_data,
 			byte_size = byte_size,
@@ -58,7 +58,7 @@ function IndexBuffer.FromPointer(ptr, len, index_type)
 	-- Create the GPU buffer directly from the pointer
 	self.buffer = render.CreateBuffer(
 		{
-			buffer_usage = "index_buffer",
+			buffer_usage = {"index_buffer", "storage_buffer", "shader_device_address"},
 			data_type = self.index_type,
 			data = ptr,
 			byte_size = byte_size,
@@ -127,7 +127,7 @@ function IndexBuffer:LoadIndices(count)
 	if not self.buffer or self.buffer_size ~= byte_size then
 		self.buffer = render.CreateBuffer(
 			{
-				buffer_usage = "index_buffer",
+				buffer_usage = {"index_buffer", "storage_buffer", "shader_device_address"},
 				data_type = self.index_type,
 				data = index_data,
 				byte_size = byte_size,

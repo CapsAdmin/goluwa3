@@ -34,10 +34,26 @@ function Buffer.New(config)
 		device = device,
 	})
 	local requirements = device:GetBufferMemoryRequirements(self)
+	local allocate_flags
+
+	if type(usage) == "table" then
+		for _, u in ipairs(usage) do
+			if u == "shader_device_address" then
+				allocate_flags = allocate_flags or {}
+				table.insert(allocate_flags, "device_address")
+
+				break
+			end
+		end
+	end
+
 	self.memory = Memory.New(
 		device,
-		requirements.size,
-		device.physical_device:FindMemoryType(requirements.memoryTypeBits, properties or {"host_visible", "host_coherent"})
+		{
+			size = requirements.size,
+			type_index = device.physical_device:FindMemoryType(requirements.memoryTypeBits, properties or {"host_visible", "host_coherent"}),
+			flags = allocate_flags,
+		}
 	)
 	self:BindMemory()
 	return self
@@ -52,6 +68,18 @@ function Buffer:BindMemory()
 		vulkan.lib.vkBindBufferMemory(self.device.ptr[0], self.ptr[0], self.memory.ptr[0], 0),
 		"failed to bind image memory"
 	)
+end
+
+function Buffer:GetDeviceAddress()
+	if not vulkan.lib.vkGetBufferDeviceAddress then return 0 end
+
+	local info = vulkan.vk.VkBufferDeviceAddressInfo(
+		{
+			sType = vulkan.vk.VkStructureType.VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
+			buffer = self.ptr[0],
+		}
+	)
+	return vulkan.lib.vkGetBufferDeviceAddress(self.device.ptr[0], info)
 end
 
 function Buffer:Map()

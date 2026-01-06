@@ -4,6 +4,7 @@ local DescriptorSetLayout = require("render.vulkan.internal.descriptor_set_layou
 local PipelineLayout = require("render.vulkan.internal.pipeline_layout")
 local InternalGraphicsPipeline = require("render.vulkan.internal.graphics_pipeline")
 local DescriptorPool = require("render.vulkan.internal.descriptor_pool")
+local vulkan = require("render.vulkan.internal.vulkan")
 local ffi = require("ffi")
 local GraphicsPipeline = prototype.CreateTemplate("vulkan", "graphics_pipeline")
 
@@ -11,68 +12,74 @@ function GraphicsPipeline.New(vulkan_instance, config)
 	local self = GraphicsPipeline:CreateObject({})
 	local uniform_buffers = {}
 	local shader_modules = {}
-	local layout = {}
-	local pool_sizes = {}
+	local layout_map = {}
+	local pool_size_map = {}
 	local push_constant_ranges = {}
+	local all_stage_bits = 0
+	local min_offset = 1000000
+	local max_end = 0
+	local has_push_constants = false
 
 	for i, stage in ipairs(config.shader_stages) do
+		local stage_bits = vulkan.vk.e.VkShaderStageFlagBits(stage.type)
+		all_stage_bits = bit.bor(all_stage_bits, tonumber(ffi.cast("uint32_t", stage_bits)))
 		shader_modules[i] = {
-			type = stage.type,
+			type = stage_bits,
 			module = ShaderModule.New(vulkan_instance.device, stage.code, stage.type),
 		}
 
 		if stage.descriptor_sets then
-			local counts = {}
+			for _, ds in ipairs(stage.descriptor_sets) do
+				local binding_index = ds.binding_index
 
-			for i, ds in ipairs(stage.descriptor_sets) do
-				layout[i] = {
-					binding_index = ds.binding_index,
-					type = ds.type,
-					stageFlags = stage.type,
-					count = ds.count or 1, -- Use count from descriptor config for bindless arrays
-				}
-				counts[ds.type] = (counts[ds.type] or 0) + (ds.count or 1)
+				if layout_map[binding_index] then
+					layout_map[binding_index].stageFlags = bit.bor(layout_map[binding_index].stageFlags, tonumber(ffi.cast("uint32_t", stage_bits)))
+				else
+					layout_map[binding_index] = {
+						binding_index = binding_index,
+						type = ds.type,
+						stageFlags = stage_bits,
+						count = ds.count or 1,
+					}
+					pool_size_map[ds.type] = (pool_size_map[ds.type] or 0) + (ds.count or 1)
+				end
 
 				if ds.type == "uniform_buffer" then
 					uniform_buffers[ds.binding_index] = ds.args[1]
 				end
-			end
-
-			for type, count in pairs(counts) do
-				table.insert(pool_sizes, {type = type, count = count})
 			end
 		end
 
 		if stage.push_constants then
 			local offset = stage.push_constants.offset or 0
 			local size = stage.push_constants.size
-			local found = false
-
-			for _, range in ipairs(push_constant_ranges) do
-				if range.offset == offset and range.size == size then
-					if type(range.stage) == "string" then
-						range.stage = {range.stage, stage.type}
-					else
-						table.insert(range.stage, stage.type)
-					end
-
-					found = true
-
-					break
-				end
-			end
-
-			if not found then
-				table.insert(
-					push_constant_ranges,
-					{
-						stage = stage.type,
-						offset = offset,
-						size = size,
-					}
-				)
-			end
+			min_offset = math.min(min_offset, offset)
+			max_end = math.max(max_end, offset + size)
+			has_push_constants = true
 		end
+	end
+
+	if has_push_constants then
+		table.insert(
+			push_constant_ranges,
+			{
+				stage = all_stage_bits,
+				offset = 0,
+				size = max_end,
+			}
+		)
+	end
+
+	local layout = {}
+
+	for _, l in pairs(layout_map) do
+		table.insert(layout, l)
+	end
+
+	local pool_sizes = {}
+
+	for type, count in pairs(pool_size_map) do
+		table.insert(pool_sizes, {type = type, count = count})
 	end
 
 	-- Validate push constant ranges don't exceed device limits
@@ -101,6 +108,7 @@ function GraphicsPipeline.New(vulkan_instance, config)
 
 	local descriptorSetLayout = DescriptorSetLayout.New(vulkan_instance.device, layout)
 	local pipelineLayout = PipelineLayout.New(vulkan_instance.device, {descriptorSetLayout}, push_constant_ranges)
+	self.push_constant_ranges = push_constant_ranges
 	-- BINDLESS DESCRIPTOR SET MANAGEMENT:
 	-- For bindless rendering, we create one descriptor set per frame containing
 	-- an array of all textures. The descriptor sets are updated when new textures
@@ -292,8 +300,30 @@ function GraphicsPipeline:UpdateDescriptorSetArray(frame_index, binding_index, t
 	self.vulkan_instance.device:UpdateDescriptorSetArray(self.descriptor_sets[frame_index], binding_index, texture_array)
 end
 
-function GraphicsPipeline:PushConstants(cmd, stage, binding_index, data, data_size)
-	cmd:PushConstants(self.pipeline_layout, stage, binding_index, data_size or ffi.sizeof(data), data)
+function GraphicsPipeline:PushConstants(cmd, stage, offset, data, data_size)
+	local stage_bits
+
+	if type(stage) == "number" then
+		stage_bits = stage
+	elseif type(stage) == "table" then
+		stage_bits = 0
+
+		for _, s in ipairs(stage) do
+			stage_bits = bit.bor(stage_bits, tonumber(ffi.cast("uint32_t", vulkan.vk.e.VkShaderStageFlagBits(s))))
+		end
+	else
+		stage_bits = tonumber(ffi.cast("uint32_t", vulkan.vk.e.VkShaderStageFlagBits(stage)))
+	end
+
+	-- Vulkan requires that the stageFlags passed to vkCmdPushConstants must include 
+	-- ALL stages that are defined for the overlapping range in the pipeline layout.
+	for _, range in ipairs(self.push_constant_ranges) do
+		if offset >= range.offset and offset < (range.offset + range.size) then
+			stage_bits = bit.bor(stage_bits, tonumber(ffi.cast("uint32_t", range.stage)))
+		end
+	end
+
+	cmd:PushConstants(self.pipeline_layout, stage_bits, offset, data_size or ffi.sizeof(data), data)
 end
 
 function GraphicsPipeline:GetUniformBuffer(binding_index)
