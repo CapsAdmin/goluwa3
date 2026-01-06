@@ -183,7 +183,20 @@ local last_frame_block = {
 		end,
 	},
 }
-render3d.fill_config = {
+local quad_vertex_config = {
+	shader = [[
+		layout(location = 0) out vec2 out_uv;
+		void main() {
+			vec2 uv = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
+			gl_Position = vec4(uv * 2.0 - 1.0, 0.0, 1.0);
+			out_uv = uv;
+		}
+	]],
+	fragment_code = [[
+		layout(location = 0) in vec2 in_uv;
+	]],
+}
+render3d.gbuffer_config = {
 	color_format = {
 		{"r8g8b8a8_unorm", {"albedo", "rgb"}, {"alpha", "a"}},
 		{"r16g16b16a16_sfloat", {"normal", "rgb"}},
@@ -191,7 +204,6 @@ render3d.fill_config = {
 		{"r8g8b8a8_unorm", {"emissive", "rgb"}},
 	},
 	depth_format = "d32_sfloat",
-	samples = "1",
 	vertex = {
 		binding_index = 0,
 		attributes = {
@@ -247,35 +259,35 @@ render3d.fill_config = {
 						"AlbedoTexture",
 						"int",
 						function(self, block, key)
-							block[key] = render3d.fill_pipeline:GetTextureIndex(render3d.GetMaterial():GetAlbedoTexture())
+							block[key] = render3d.gbuffer_pipeline:GetTextureIndex(render3d.GetMaterial():GetAlbedoTexture())
 						end,
 					},
 					{
 						"NormalTexture",
 						"int",
 						function(self, block, key)
-							block[key] = render3d.fill_pipeline:GetTextureIndex(render3d.GetMaterial():GetNormalTexture())
+							block[key] = render3d.gbuffer_pipeline:GetTextureIndex(render3d.GetMaterial():GetNormalTexture())
 						end,
 					},
 					{
 						"MetallicRoughnessTexture",
 						"int",
 						function(self, block, key)
-							block[key] = render3d.fill_pipeline:GetTextureIndex(render3d.GetMaterial():GetMetallicRoughnessTexture())
+							block[key] = render3d.gbuffer_pipeline:GetTextureIndex(render3d.GetMaterial():GetMetallicRoughnessTexture())
 						end,
 					},
 					{
 						"AmbientOcclusionTexture",
 						"int",
 						function(self, block, key)
-							block[key] = render3d.fill_pipeline:GetTextureIndex(render3d.GetMaterial():GetAmbientOcclusionTexture())
+							block[key] = render3d.gbuffer_pipeline:GetTextureIndex(render3d.GetMaterial():GetAmbientOcclusionTexture())
 						end,
 					},
 					{
 						"EmissiveTexture",
 						"int",
 						function(self, block, key)
-							block[key] = render3d.fill_pipeline:GetTextureIndex(render3d.GetMaterial():GetEmissiveTexture())
+							block[key] = render3d.gbuffer_pipeline:GetTextureIndex(render3d.GetMaterial():GetEmissiveTexture())
 						end,
 					},
 					{
@@ -324,14 +336,14 @@ render3d.fill_config = {
 						"MetallicTexture",
 						"int",
 						function(self, block, key)
-							block[key] = render3d.fill_pipeline:GetTextureIndex(render3d.GetMaterial():GetMetallicTexture())
+							block[key] = render3d.gbuffer_pipeline:GetTextureIndex(render3d.GetMaterial():GetMetallicTexture())
 						end,
 					},
 					{
 						"RoughnessTexture",
 						"int",
 						function(self, block, key)
-							block[key] = render3d.fill_pipeline:GetTextureIndex(render3d.GetMaterial():GetRoughnessTexture())
+							block[key] = render3d.gbuffer_pipeline:GetTextureIndex(render3d.GetMaterial():GetRoughnessTexture())
 						end,
 					},
 				},
@@ -514,23 +526,9 @@ render3d.fill_config = {
 	},
 }
 render3d.ssr_config = {
-	samples = "1",
-	vertex = {
-		custom_declarations = [[
-            layout(location = 0) out vec2 out_uv;
-        ]],
-		shader = [[
-            void main() {
-                vec2 uv = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
-                gl_Position = vec4(uv * 2.0 - 1.0, 0.0, 1.0);
-                out_uv = uv;
-            }
-        ]],
-	},
+	vertex = quad_vertex_config,
 	fragment = {
-		custom_declarations = [[
-            layout(location = 0) in vec2 in_uv;
-        ]],
+		custom_declarations = quad_vertex_config.fragment_code,
 		uniform_buffers = {
 			{
 				name = "ssr_data",
@@ -580,6 +578,19 @@ render3d.ssr_config = {
 			},
 		},
 		shader = [[            
+			vec3 get_normal() {
+				return texture(TEXTURE(ssr_data.normal_tex), in_uv).xyz;
+			}
+
+			float get_roughness() {
+				return texture(TEXTURE(ssr_data.mra_tex), in_uv).g;
+			}
+
+			float get_depth() {
+				return texture(TEXTURE(ssr_data.depth_tex), in_uv).r;
+			}
+		
+
             #define SSR_MAX_STEPS 64
             #define SSR_BINARY_STEPS 8
             #define SSR_ROUGHNESS_CUTOFF 1
@@ -732,12 +743,11 @@ render3d.ssr_config = {
                 
                 return vec4(0.0);
             }
-		
             
             void main() {
-                vec3 N = texture(TEXTURE(ssr_data.normal_tex), in_uv).xyz;
-                float roughness = texture(TEXTURE(ssr_data.mra_tex), in_uv).g;
-                float depth = texture(TEXTURE(ssr_data.depth_tex), in_uv).r;
+                vec3 N = get_normal();
+                float roughness = get_roughness();
+                float depth = get_depth();
                 
                 if (depth == 1.0) {
                     set_ssr(vec4(0.0));
@@ -768,23 +778,9 @@ render3d.ssr_config = {
 }
 -- SSR Temporal Resolve Pass
 render3d.ssr_resolve_config = {
-	samples = "1",
-	vertex = {
-		custom_declarations = [[
-			layout(location = 0) out vec2 out_uv;
-		]],
-		shader = [[
-			void main() {
-				vec2 uv = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
-				gl_Position = vec4(uv * 2.0 - 1.0, 0.0, 1.0);
-				out_uv = uv;
-			}
-		]],
-	},
+	vertex = quad_vertex_config,
 	fragment = {
-		custom_declarations = [[
-			layout(location = 0) in vec2 in_uv;
-		]],
+		custom_declarations = quad_vertex_config.fragment_code,
 		uniform_buffers = {
 			{
 				name = "resolve_data",
@@ -853,6 +849,22 @@ render3d.ssr_resolve_config = {
 			},
 		},
 		shader = [[
+			float get_depth() {
+				return texture(TEXTURE(resolve_data.depth_tex), in_uv).r;
+			}
+
+			vec4 get_ssr() {
+				return texture(TEXTURE(resolve_data.current_ssr_tex), in_uv);
+			}
+
+			vec4 get_ssr(vec2 uv) {
+				return texture(TEXTURE(resolve_data.current_ssr_tex), uv);
+			}
+
+			vec4 get_history_ssr(vec2 uv) {
+				return texture(TEXTURE(resolve_data.history_ssr_tex), uv);
+			}
+
 			#define saturate(x) clamp(x, 0.0, 1.0)
 			
 			void main() {
@@ -861,10 +873,10 @@ render3d.ssr_resolve_config = {
 					return;
 				}
 				
-				vec4 current = texture(TEXTURE(resolve_data.current_ssr_tex), in_uv);
+				vec4 current = get_ssr();
 				
 				// Get world position for reprojection
-				float depth = texture(TEXTURE(resolve_data.depth_tex), in_uv).r;
+				float depth = get_depth();
 				
 				if (depth == 1.0) {
 					set_ssr(current);
@@ -888,7 +900,7 @@ render3d.ssr_resolve_config = {
 					return;
 				}
 				
-				vec4 history = texture(TEXTURE(resolve_data.history_ssr_tex), prev_uv);
+				vec4 history = get_history_ssr(prev_uv);
 				
 				// Neighborhood clamping (AABB) to reject invalid history
 				vec3 m1 = vec3(0.0);
@@ -900,7 +912,7 @@ render3d.ssr_resolve_config = {
 				// Use a slightly larger neighborhood for better stability with sparse noise
 				for (int y = -1; y <= 1; y++) {
 					for (int x = -1; x <= 1; x++) {
-						vec4 s = texture(TEXTURE(resolve_data.current_ssr_tex), in_uv + vec2(x, y) * texel_size);
+						vec4 s = get_ssr(in_uv + vec2(x, y) * texel_size);
 						m1 += s.rgb;
 						m2 += s.rgb * s.rgb;
 						a1 += s.a;
@@ -943,22 +955,9 @@ render3d.ssr_resolve_config = {
 	},
 }
 render3d.lighting_config = {
-	samples = "1",
-	vertex = {
-		custom_declarations = [[
-			layout(location = 0) out vec2 out_uv;
-		]],
-		shader = [[
-			void main() {
-				vec2 uv = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
-				gl_Position = vec4(uv * 2.0 - 1.0, 0.0, 1.0);
-				out_uv = uv;
-			}
-		]],
-	},
+	vertex = quad_vertex_config,
 	fragment = {
-		custom_declarations = [[
-			layout(location = 0) in vec2 in_uv;
+		custom_declarations = quad_vertex_config.fragment_code .. [[
 
 			struct ShadowData {
 				mat4 light_space_matrices[4];
@@ -1146,7 +1145,45 @@ render3d.lighting_config = {
 			},
 		},
 		shader = [[
+			vec3 get_albedo() {
+				return texture(TEXTURE(lighting_data.albedo_tex), in_uv).rgb;
+			}
+
+			float get_alpha() {
+				return texture(TEXTURE(lighting_data.albedo_tex), in_uv).a;
+			}
+
+			float get_depth() {
+				return texture(TEXTURE(lighting_data.depth_tex), in_uv).r;
+			}
+
+			vec3 get_normal() {
+				return texture(TEXTURE(lighting_data.normal_tex), in_uv).xyz;
+			}
+
+			float get_metallic() {
+				vec3 mra = texture(TEXTURE(lighting_data.mra_tex), in_uv).rgb;
+				return mra.r;
+			}
+
+			float get_roughness() {
+				vec3 mra = texture(TEXTURE(lighting_data.mra_tex), in_uv).rgb;
+				return mra.g;
+			}
+
+			float get_ao() {
+				vec3 mra = texture(TEXTURE(lighting_data.mra_tex), in_uv).rgb;
+				return mra.b;
+			}
+
+			vec3 get_emissive() {
+				return texture(TEXTURE(lighting_data.emissive_tex), in_uv).rgb;
+			}
+
+
 			]] .. require("render3d.atmosphere").GetGLSLCode() .. [[
+
+
 			#define SSR 1
 			#define PARALLAX_CORRECTION 1
 			#define uv in_uv
@@ -1484,10 +1521,10 @@ render3d.lighting_config = {
 			}
 
 			void main() {
-				vec4 albedo_alpha = texture(TEXTURE(lighting_data.albedo_tex), in_uv);
-				//if (albedo_alpha.a == 0.0) discard;
-				float depth = texture(TEXTURE(lighting_data.depth_tex), in_uv).r;
-				vec3 albedo = albedo_alpha.rgb;
+				vec3 alpha = get_albedo();
+				//if (alpha.a == 0.0) discard;
+				float depth = get_depth();
+				vec3 albedo = get_albedo();
 
 				if (depth == 1.0) {
 					// Skybox or background
@@ -1510,14 +1547,11 @@ render3d.lighting_config = {
 					return;
 				}
 
-				vec3 N = texture(TEXTURE(lighting_data.normal_tex), in_uv).xyz;
-
-				vec3 mra = texture(TEXTURE(lighting_data.mra_tex), in_uv).rgb;
-				float metallic = mra.r;
-				float roughness = mra.g;
-
-				float ao = mra.b;
-				vec3 emissive = texture(TEXTURE(lighting_data.emissive_tex), in_uv).rgb;
+				vec3 N = get_normal();
+				float metallic = get_metallic();
+				float roughness = get_roughness();
+				float ao = get_ao();
+				vec3 emissive = get_emissive();
 
 				// Reconstruct world position from depth
 				vec4 clip_pos = vec4(in_uv * 2.0 - 1.0, depth, 1.0);
@@ -1588,7 +1622,7 @@ render3d.lighting_config = {
 
 				]] .. render3d.debug_mode_glsl .. [[
 
-				set_color(vec4(color, albedo_alpha.a));
+				set_color(vec4(color, alpha));
 			}
 		]],
 	},
@@ -1601,23 +1635,9 @@ render3d.lighting_config = {
 	},
 }
 render3d.blit_config = {
-	samples = "1",
-	vertex = {
-		custom_declarations = [[
-			layout(location = 0) out vec2 out_uv;
-		]],
-		shader = [[
-			void main() {
-				vec2 uv = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
-				gl_Position = vec4(uv * 2.0 - 1.0, 0.0, 1.0);
-				out_uv = uv;
-			}
-		]],
-	},
+	vertex = quad_vertex_config,
 	fragment = {
-		custom_declarations = [[
-			layout(location = 0) in vec2 in_uv;
-		]],
+		custom_declarations = quad_vertex_config.fragment_code,
 		push_constants = {
 			{
 				name = "blit",
@@ -1687,7 +1707,7 @@ function render3d.Initialize()
 			{
 				width = size.x,
 				height = size.y,
-				formats = EasyPipeline.GetColorFormats(render3d.fill_config),
+				formats = EasyPipeline.GetColorFormats(render3d.gbuffer_config),
 				depth = true,
 				depth_format = "d32_sfloat",
 			}
@@ -1800,7 +1820,7 @@ function render3d.Initialize()
 	create_lighting_fbs()
 	create_ssr_fb()
 	create_blue_noise_texture()
-	render3d.fill_pipeline = EasyPipeline.New(render3d.fill_config)
+	render3d.gbuffer_pipeline = EasyPipeline.New(render3d.gbuffer_config)
 	render3d.ssr_pipeline = EasyPipeline.New(render3d.ssr_config)
 	render3d.ssr_resolve_config.color_format = render3d.ssr_config.color_format
 	render3d.ssr_resolve_pipeline = EasyPipeline.New(render3d.ssr_resolve_config)
@@ -1844,7 +1864,7 @@ function render3d.Initialize()
 	end)
 
 	event.AddListener("PreRenderPass", "draw_3d_geometry", function(cmd)
-		if not render3d.fill_pipeline then return end
+		if not render3d.gbuffer_pipeline then return end
 
 		local dt = 0 -- dt is not easily available here, but usually not needed for draw calls
 		Light.UpdateUBOs(render3d.lighting_pipeline.pipeline)
@@ -1852,7 +1872,7 @@ function render3d.Initialize()
 		render3d.gbuffer:Begin(cmd)
 
 		do
-			render3d.fill_pipeline:Bind(cmd)
+			render3d.gbuffer_pipeline:Bind(cmd)
 			event.Call("PreDraw3D", cmd, dt)
 			event.Call("Draw3DGeometry", cmd, dt)
 		end
@@ -1890,7 +1910,7 @@ function render3d.Initialize()
 	end)
 
 	event.AddListener("Draw", "draw_3d_lighting", function(cmd, dt)
-		if not render3d.fill_pipeline then return end
+		if not render3d.gbuffer_pipeline then return end
 
 		-- 3. Blit Lighting to Screen
 		cmd:SetCullMode("none")
@@ -1909,16 +1929,16 @@ function render3d.Initialize()
 end
 
 function render3d.BindPipeline()
-	render3d.fill_pipeline:Bind(render.GetCommandBuffer())
+	render3d.gbuffer_pipeline:Bind(render.GetCommandBuffer())
 end
 
 function render3d.UploadConstants(cmd)
-	if render3d.fill_pipeline then
+	if render3d.gbuffer_pipeline then
 		do
 			cmd:SetCullMode(render3d.GetMaterial():GetDoubleSided() and "none" or orientation.CULL_MODE)
 		end
 
-		render3d.fill_pipeline:UploadConstants(cmd)
+		render3d.gbuffer_pipeline:UploadConstants(cmd)
 	end
 end
 
@@ -2000,7 +2020,13 @@ do -- mesh
 	local Mesh = require("render.mesh")
 
 	function render3d.CreateMesh(vertices, indices, index_type, index_count)
-		return Mesh.New(render3d.fill_pipeline:GetVertexAttributes(), vertices, indices, index_type, index_count)
+		return Mesh.New(
+			render3d.gbuffer_pipeline:GetVertexAttributes(),
+			vertices,
+			indices,
+			index_type,
+			index_count
+		)
 	end
 end
 

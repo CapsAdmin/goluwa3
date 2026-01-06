@@ -1342,7 +1342,7 @@ event.AddListener("PreRenderPass", "reflection_probe_update", function(cmd)
 end)
 
 -- Initialize immediately if render3d is already initialized
-if HOTRELOAD or (render3d and render3d.fill_pipeline) then
+if HOTRELOAD or (render3d and render3d.gbuffer_pipeline) then
 	reflection_probe.Initialize()
 end
 

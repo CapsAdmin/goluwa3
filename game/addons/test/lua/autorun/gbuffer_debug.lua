@@ -50,7 +50,7 @@ event.AddListener("Draw2D", "debug_gbuffer", function(cmd, dt)
 
 	local wnd_size = window:GetSize()
 
-	if not render3d.fill_pipeline then return end
+	if not render3d.gbuffer_pipeline then return end
 
 	local swizzle_to_mode = {
 		r = 1,
@@ -61,7 +61,7 @@ event.AddListener("Draw2D", "debug_gbuffer", function(cmd, dt)
 	}
 
 	if fullscreen_index > 0 then
-		local views = render3d.fill_pipeline:GetDebugViews()
+		local views = render3d.gbuffer_pipeline:GetDebugViews()
 		local tex, name, swizzle
 
 		if fullscreen_index <= #views then
@@ -107,7 +107,7 @@ event.AddListener("Draw2D", "debug_gbuffer", function(cmd, dt)
 	render2d.SetColor(1, 1, 1, 1)
 
 	-- Draw color textures
-	for i, view in ipairs(render3d.fill_pipeline:GetDebugViews()) do
+	for i, view in ipairs(render3d.gbuffer_pipeline:GetDebugViews()) do
 		local tex = render3d.gbuffer:GetAttachment(view.attachment_index)
 		-- Draw checkerboard background
 		render2d.PushUV()
@@ -165,7 +165,7 @@ event.AddListener("KeyInput", "debug_gbuffer_toggle", function(key, press)
 		show_gbuffer = not show_gbuffer
 		print("G-buffer debug: " .. (show_gbuffer and "ON" or "OFF"))
 	elseif key == "f" then
-		local views = render3d.fill_pipeline and render3d.fill_pipeline:GetDebugViews() or {}
+		local views = render3d.gbuffer_pipeline and render3d.gbuffer_pipeline:GetDebugViews() or {}
 		local count = #views + (render3d.gbuffer.depth_texture and 1 or 0)
 		fullscreen_index = fullscreen_index + 1
 
