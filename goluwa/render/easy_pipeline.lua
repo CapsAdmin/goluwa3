@@ -5,6 +5,7 @@ local UniformBuffer = require("render.uniform_buffer")
 local Framebuffer = require("render.framebuffer")
 local event = require("event")
 local window = require("render.window")
+local system = require("system")
 local EasyPipeline = prototype.CreateTemplate("render", "pipeline")
 
 function EasyPipeline.GetColorFormats(config)
@@ -35,6 +36,7 @@ end
 
 function EasyPipeline.New(config)
 	local self = EasyPipeline:CreateObject()
+	self.on_draw = config.on_draw or nil
 
 	-- Resolve format functions if they exist
 	if type(config.depth_format) == "function" then
@@ -796,6 +798,60 @@ function EasyPipeline:GetFramebuffer(index)
 	end
 
 	return self.framebuffer
+end
+
+-- Begin drawing to this pipeline's framebuffer
+-- framebuffer: optional custom framebuffer to use (defaults to pipeline's framebuffer)
+-- frame_index: optional frame index for ping-pong buffers (defaults to auto-calculated)
+function EasyPipeline:BeginDraw(cmd, framebuffer, frame_index)
+	cmd = cmd or render.GetCommandBuffer()
+	local fb = framebuffer
+
+	if not fb then
+		if frame_index then
+			fb = self:GetFramebuffer(frame_index)
+		elseif self.framebuffers then
+			fb = self:GetFramebuffer(system.GetFrameNumber() % #self.framebuffers + 1)
+		else
+			fb = self.framebuffer
+		end
+	end
+
+	if fb then fb:Begin(cmd) end
+
+	-- Set cull mode from config if specified
+	if self.config and self.config.rasterizer and self.config.rasterizer.cull_mode then
+		cmd:SetCullMode(self.config.rasterizer.cull_mode)
+	end
+
+	self:Bind(cmd)
+	return fb
+end
+
+-- End drawing (must be paired with BeginDraw)
+function EasyPipeline:EndDraw(cmd, framebuffer)
+	cmd = cmd or render.GetCommandBuffer()
+
+	if framebuffer then framebuffer:End(cmd) end
+end
+
+-- Complete draw call with automatic framebuffer handling
+-- framebuffer: optional custom framebuffer to use
+-- frame_index: optional frame index for ping-pong buffers
+-- vertex_count: optional vertex count (defaults to 3 for fullscreen quad)
+function EasyPipeline:Draw(cmd, framebuffer, frame_index, vertex_count)
+	cmd = cmd or render.GetCommandBuffer()
+	vertex_count = vertex_count or 3
+	local fb = self:BeginDraw(cmd, framebuffer, frame_index)
+
+	if self.on_draw then
+		self.on_draw(self, cmd)
+	else
+		self:UploadConstants(cmd)
+		cmd:Draw(vertex_count, 1, 0, 0)
+	end
+
+	self:EndDraw(cmd, fb)
 end
 
 function EasyPipeline:Remove()

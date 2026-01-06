@@ -198,6 +198,10 @@ local quad_vertex_config = {
 	]],
 }
 render3d.gbuffer_config = {
+	on_draw = function(self, cmd)
+		event.Call("PreDraw3D", cmd, dt)
+		event.Call("Draw3DGeometry", cmd, dt)
+	end,
 	color_format = {
 		{"r8g8b8a8_unorm", {"albedo", "rgb"}, {"alpha", "a"}},
 		{"r16g16b16a16_sfloat", {"normal", "rgb"}},
@@ -528,7 +532,6 @@ render3d.gbuffer_config = {
 }
 render3d.ssr_config = {
 	color_format = {{"r16g16b16a16_sfloat", {"ssr", "rgba"}}},
-	framebuffer_count = 2,
 	vertex = quad_vertex_config,
 	fragment = {
 		custom_declarations = quad_vertex_config.fragment_code,
@@ -799,20 +802,23 @@ render3d.ssr_resolve_config = {
 								return
 							end
 
-							block[key] = self:GetTextureIndex(render3d.ssr_pipeline.trace_fb:GetAttachment(1))
+							block[key] = self:GetTextureIndex(render3d.ssr_pipeline:GetFramebuffer():GetAttachment(1))
 						end,
 					},
 					{
 						"history_ssr_tex",
 						"int",
 						function(self, block, key)
-							if not render3d.ssr_pipeline or not render3d.ssr_pipeline.framebuffers then
+							if
+								not render3d.ssr_resolve_pipeline or
+								not render3d.ssr_resolve_pipeline.framebuffers
+							then
 								block[key] = -1
 								return
 							end
 
 							local prev_idx = (system.GetFrameNumber() + 1) % 2 + 1
-							block[key] = self:GetTextureIndex(render3d.ssr_pipeline:GetFramebuffer(prev_idx):GetAttachment(1))
+							block[key] = self:GetTextureIndex(render3d.ssr_resolve_pipeline:GetFramebuffer(prev_idx):GetAttachment(1))
 						end,
 					},
 					{
@@ -1057,13 +1063,16 @@ render3d.lighting_config = {
 						"ssr_tex",
 						"int",
 						function(self, block, key)
-							if not render3d.ssr_pipeline or not render3d.ssr_pipeline.framebuffers then
+							if
+								not render3d.ssr_resolve_pipeline or
+								not render3d.ssr_resolve_pipeline.framebuffers
+							then
 								block[key] = -1
 								return
 							end
 
-							local prev_idx = (system.GetFrameNumber() + 1) % 2 + 1
-							local current_ssr_fb = render3d.ssr_pipeline:GetFramebuffer(prev_idx)
+							local current_idx = system.GetFrameNumber() % 2 + 1
+							local current_ssr_fb = render3d.ssr_resolve_pipeline:GetFramebuffer(current_idx)
 							block[key] = self:GetTextureIndex(current_ssr_fb:GetAttachment(1))
 						end,
 					},
@@ -1656,17 +1665,6 @@ render3d.lighting_config = {
 	},
 }
 render3d.blit_config = {
-	color_format = {
-		{
-			function()
-				return render.target.color_format
-			end,
-			{"color", "rgba"},
-		},
-	},
-	depth_format = function()
-		return render.target.depth_format
-	end,
 	vertex = quad_vertex_config,
 	fragment = {
 		custom_declarations = quad_vertex_config.fragment_code,
@@ -1697,6 +1695,9 @@ render3d.blit_config = {
 			},
 		},
 		shader = [[
+
+			layout(location = 0) out vec4 frag_color;
+
 			// https://knarkowicz.wordpress.com/2016/01/06/aces-filmic-tone-mapping-curve/
 			vec3 ACESFilm(vec3 x){
 				return clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), 0.0, 1.0);
@@ -1710,7 +1711,7 @@ render3d.blit_config = {
 
 			void main() {
 				if (pc.blit.tex == -1) {
-					set_color(vec4(1.0, 0.0, 1.0, 1.0));
+					frag_color = vec4(1.0, 0.0, 1.0, 1.0);
 					return;
 				}
 				vec3 col = texture(TEXTURE(pc.blit.tex), in_uv).rgb;
@@ -1720,7 +1721,7 @@ render3d.blit_config = {
 
 				col = gamma(col);
 				
-				set_color(vec4(col, 1.0));
+				frag_color = vec4(col, 1.0);
 			}
 		]],
 	},
@@ -1982,124 +1983,41 @@ function render3d.Initialize()
 	render3d.smaa_blend_pipeline = EasyPipeline.New(render3d.smaa_blend_config)
 	render3d.smaa_resolve_pipeline = EasyPipeline.New(render3d.smaa_resolve_config)
 	render3d.blit_pipeline = EasyPipeline.New(render3d.blit_config)
-
-	-- Create additional SSR trace framebuffer
-	local function create_ssr_trace_fb()
-		local size = window:GetSize()
-		render3d.ssr_pipeline.trace_fb = Framebuffer.New(
-			{
-				width = size.x,
-				height = size.y,
-				formats = EasyPipeline.GetColorFormats(render3d.ssr_config),
-				depth = false,
-			}
-		)
-	end
-
-	create_ssr_trace_fb()
-
-	-- Register resize handler for SSR trace framebuffer
-	event.AddListener("WindowFramebufferResized", "render3d_ssr_trace", function(wnd, size)
-		create_ssr_trace_fb()
-	end)
-
 	-- Generate SMAA lookup textures (only needed once)
 	render3d.smaa_search_tex = SMAA.GenerateSearchTexture()
 	render3d.smaa_area_tex = SMAA.GenerateAreaTexture()
 
-	event.AddListener("PreRenderPass", "draw_3d_geometry", function(cmd)
+	event.AddListener("PreRenderPass", "render3d", function(cmd)
 		if not render3d.gbuffer_pipeline then return end
 
-		local dt = 0 -- dt is not easily available here, but usually not needed for draw calls
 		Light.UpdateUBOs(render3d.lighting_pipeline.pipeline)
-		-- 1. Geometry Pass
-		render3d.gbuffer_pipeline:GetFramebuffer():Begin(cmd)
-
-		do
-			render3d.gbuffer_pipeline:Bind(cmd)
-			event.Call("PreDraw3D", cmd, dt)
-			event.Call("Draw3DGeometry", cmd, dt)
-		end
-
-		render3d.gbuffer_pipeline:GetFramebuffer():End(cmd)
-
-		-- 1.5 SSR Pass
-		if render3d.ssr_pipeline and render3d.ssr_resolve_pipeline then
-			-- 1.5.1 Trace
-			render3d.ssr_pipeline.trace_fb:Begin(cmd)
-			cmd:SetCullMode("none")
-			render3d.ssr_pipeline:Bind(cmd)
-			render3d.ssr_pipeline:UploadConstants(cmd)
-			cmd:Draw(3, 1, 0, 0)
-			render3d.ssr_pipeline.trace_fb:End(cmd)
-			-- 1.5.2 Resolve
-			local current_idx = system.GetFrameNumber() % 2 + 1
-			local current_ssr_fb = render3d.ssr_pipeline:GetFramebuffer(current_idx)
-			current_ssr_fb:Begin(cmd)
-			render3d.ssr_resolve_pipeline:Bind(cmd)
-			render3d.ssr_resolve_pipeline:UploadConstants(cmd)
-			cmd:Draw(3, 1, 0, 0)
-			current_ssr_fb:End(cmd)
-		end
-
-		-- 2. Lighting Pass (Offscreen)
-		local current_idx = system.GetFrameNumber() % 2 + 1
-		local current_fb = render3d.lighting_pipeline:GetFramebuffer(current_idx)
-		current_fb:Begin(cmd)
-		cmd:SetCullMode("none")
-		render3d.lighting_pipeline:Bind(cmd)
-		render3d.lighting_pipeline:UploadConstants(cmd)
-		cmd:Draw(3, 1, 0, 0)
-		current_fb:End(cmd)
-
-		-- 2.5 SMAA 1x Passes
-		if render3d.smaa_edge_pipeline then
-			render3d.smaa_edge_pipeline:GetFramebuffer():Begin(cmd)
-			render3d.smaa_edge_pipeline:Bind(cmd)
-			render3d.smaa_edge_pipeline:UploadConstants(cmd)
-			cmd:Draw(3, 1, 0, 0)
-			render3d.smaa_edge_pipeline:GetFramebuffer():End(cmd)
-			render3d.smaa_weight_pipeline:GetFramebuffer():Begin(cmd)
-			render3d.smaa_weight_pipeline:Bind(cmd)
-			render3d.smaa_weight_pipeline:UploadConstants(cmd)
-			cmd:Draw(3, 1, 0, 0)
-			render3d.smaa_weight_pipeline:GetFramebuffer():End(cmd)
-			render3d.smaa_blend_pipeline:GetFramebuffer():Begin(cmd)
-			render3d.smaa_blend_pipeline:Bind(cmd)
-			render3d.smaa_blend_pipeline:UploadConstants(cmd)
-			cmd:Draw(3, 1, 0, 0)
-			render3d.smaa_blend_pipeline:GetFramebuffer():End(cmd)
-
-			-- 2.6 SMAA Resolve (Temporal)
-			if render3d.smaa_resolve_pipeline then
-				local current_idx = system.GetFrameNumber() % 2 + 1
-				local current_smaa_fb = render3d.smaa_resolve_pipeline:GetFramebuffer(current_idx)
-				current_smaa_fb:Begin(cmd)
-				render3d.smaa_resolve_pipeline:Bind(cmd)
-				render3d.smaa_resolve_pipeline:UploadConstants(cmd)
-				cmd:Draw(3, 1, 0, 0)
-				current_smaa_fb:End(cmd)
-			end
-		end
+		render3d.gbuffer_pipeline:Draw(cmd)
+		render3d.ssr_pipeline:Draw(cmd)
+		render3d.ssr_resolve_pipeline:Draw(cmd)
+		render3d.lighting_pipeline:Draw(cmd)
+		render3d.smaa_edge_pipeline:Draw(cmd)
+		render3d.smaa_weight_pipeline:Draw(cmd)
+		render3d.smaa_blend_pipeline:Draw(cmd)
+		render3d.smaa_resolve_pipeline:Draw(cmd)
 	end)
 
-	event.AddListener("Draw", "draw_3d_lighting", function(cmd, dt)
-		if not render3d.gbuffer_pipeline then return end
+	event.AddListener("Draw", "render3d", function(cmd, dt)
+		if not render3d.blit_pipeline then return end
 
-		-- 3. Blit Lighting to Screen
-		cmd:SetCullMode("none")
-		render3d.blit_pipeline:Bind(cmd)
-		render3d.blit_pipeline:UploadConstants(cmd)
-		cmd:Draw(3, 1, 0, 0)
-		-- Store current matrices for next frame reprojection
-		render3d.prev_view_matrix = render3d.camera:BuildViewMatrix():Copy()
-		render3d.prev_projection_matrix = render3d.camera:BuildProjectionMatrix():Copy()
-		-- 4. Jitter for Next Frame (SMAA 2TX)
-		render3d.frame_index = (render3d.frame_index or 0) + 1
-		local jitter_scale = 0.1
-		local jitter_offsets = {{1 * jitter_scale, -1 * jitter_scale}, {-1 * jitter_scale, 1 * jitter_scale}}
-		local offset = jitter_offsets[(render3d.frame_index % 2) + 1]
-		render3d.camera:SetJitter(Vec3(offset[1], offset[2], 0))
+		-- render to the screen
+		render3d.blit_pipeline:Draw(cmd)
+
+		do
+			-- Store current matrices for next frame reprojection
+			render3d.prev_view_matrix = render3d.camera:BuildViewMatrix():Copy()
+			render3d.prev_projection_matrix = render3d.camera:BuildProjectionMatrix():Copy()
+			-- 4. Jitter for Next Frame (SMAA 2TX)
+			render3d.frame_index = (render3d.frame_index or 0) + 1
+			local jitter_scale = 0.1
+			local jitter_offsets = {{1 * jitter_scale, -1 * jitter_scale}, {-1 * jitter_scale, 1 * jitter_scale}}
+			local offset = jitter_offsets[(render3d.frame_index % 2) + 1]
+			render3d.camera:SetJitter(Vec3(offset[1], offset[2], 0))
+		end
 	end)
 
 	event.Call("Render3DInitialized")
