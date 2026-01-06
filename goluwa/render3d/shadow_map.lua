@@ -381,7 +381,7 @@ end
 function ShadowMap:UploadConstants(world_matrix, material, cascade_index)
 	cascade_index = cascade_index or self.current_cascade
 	local constants = ShadowVertexConstants()
-	local mvp = self.cascade[cascade_index].light_space_matrix * world_matrix
+	local mvp = world_matrix * self.cascade[cascade_index].light_space_matrix
 	constants.light_space_matrix = mvp:GetFloatCopy()
 
 	-- If material is provided, get its albedo texture index and flags for alpha testing
