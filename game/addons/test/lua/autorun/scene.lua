@@ -68,7 +68,7 @@ end
 do
 	local material_index = 1
 	local pos = Vec3(0, 0, 0)
-	local PADDING = 3
+	local PADDING = 2.3
 
 	local function spawn()
 		local ent = ecs.CreateEntity("debug_ent")
