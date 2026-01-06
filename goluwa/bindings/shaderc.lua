@@ -92,7 +92,9 @@ ffi.cdef[[
         shaderc_glsl_geometry_shader = 3,
         shaderc_glsl_tess_control_shader = 4,
         shaderc_glsl_tess_evaluation_shader = 5,
-        // ... other shader types
+        shaderc_glsl_infer_from_source = 6,
+        shaderc_glsl_task_shader = 31,
+        shaderc_glsl_mesh_shader = 32,
     } shaderc_shader_kind;
 
     typedef enum {
@@ -124,6 +126,11 @@ ffi.cdef[[
     const char* shaderc_result_get_bytes(const shaderc_compilation_result_t result);
     shaderc_compilation_status shaderc_result_get_compilation_status(const shaderc_compilation_result_t result);
     const char* shaderc_result_get_error_message(const shaderc_compilation_result_t result);
+
+    void shaderc_compile_options_set_target_env(
+        shaderc_compile_options_t options,
+        int target,
+        uint32_t version);
 ]]
 
 local function initialize()
@@ -144,6 +151,9 @@ function mod.compile(source, shader_type, entry_point)
 		error("Failed to initialize shaderc compile options")
 	end
 
+	-- Set target environment to Vulkan 1.3
+	-- bit.bor(bit.lshift(1, 22), bit.lshift(3, 12)) is Vulkan 1.3
+	lib.shaderc_compile_options_set_target_env(options, 0, bit.bor(bit.lshift(1, 22), bit.lshift(3, 12)))
 	-- Determine shader kind
 	local shader_kind
 
@@ -159,6 +169,10 @@ function mod.compile(source, shader_type, entry_point)
 		shader_kind = ffi.C.shaderc_glsl_tess_control_shader
 	elseif shader_type == "tess_evaluation" or shader_type == "tese" then
 		shader_kind = ffi.C.shaderc_glsl_tess_evaluation_shader
+	elseif shader_type == "task" or shader_type == "task_ext" then
+		shader_kind = ffi.C.shaderc_glsl_infer_from_source
+	elseif shader_type == "mesh" or shader_type == "mesh_ext" then
+		shader_kind = ffi.C.shaderc_glsl_infer_from_source
 	else
 		-- Default to vertex shader if not specified or use as filename
 		shader_kind = ffi.C.shaderc_glsl_vertex_shader
@@ -179,8 +193,13 @@ function mod.compile(source, shader_type, entry_point)
 
 	if status ~= ffi.C.shaderc_compilation_status_success then
 		local error_message = ffi.string(lib.shaderc_result_get_error_message(result))
+
+		if error_message == "" then
+			error_message = "empty error message, status: " .. tostring(status) .. " (" .. tostring(tonumber(status)) .. ") result: " .. tostring(result) .. " stage: " .. tostring(shader_type)
+		end
+
 		local hash = require("crypto").CRC32(source)
-		local path = "./logs/shader_error_" .. hash .. ".glsl"
+		local path = "./logs/last_shader_error.glsl"
 		require("fs").write_file(path, source)
 		error_message = error_message:gsub(shader_type .. ":", path .. ":")
 		lib.shaderc_result_release(result)
