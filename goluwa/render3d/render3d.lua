@@ -1173,6 +1173,98 @@ render3d.lighting_config = {
 							block[key] = math.min(#render3d.GetLights(), 32)
 						end,
 					},
+					{
+						"lights",
+						{
+							{"position", "vec4"},
+							{"color", "vec4"},
+							{"params", "vec4"},
+						},
+						function(self, block, key)
+							for i, ent in ipairs(render3d.GetLights()) do
+								local data = block[key][i - 1]
+
+								if ent.light.LightType == "directional" or ent.light.LightType == "sun" then
+									ent.transform:GetRotation():GetForward():CopyToFloatPointer(data.position)
+								else
+									ent.transform:GetPosition():CopyToFloatPointer(data.position)
+								end
+
+								if ent.light.LightType == "directional" or ent.light.LightType == "sun" then
+									data.position[3] = 0
+								elseif ent.light.LightType == "point" then
+									data.position[3] = 1
+								elseif ent.light.LightType == "spot" then
+									data.position[3] = 2
+								else
+									error("Unknown light type: " .. tostring(ent.light.LightType), 2)
+								end
+
+								data.color[0] = ent.light.Color.r
+								data.color[1] = ent.light.Color.g
+								data.color[2] = ent.light.Color.b
+								data.color[3] = ent.light.Intensity
+								data.params[0] = ent.light.Range
+								data.params[1] = ent.light.InnerCone
+								data.params[2] = ent.light.OuterCone
+								data.params[3] = 0
+							end
+						end,
+						32,
+					},
+					{
+						"shadows",
+						{
+							{"light_space_matrices", "mat4", 4},
+							{"cascade_splits", "int", 4},
+							{"shadow_map_indices", "int", 4},
+							{"cascade_count", "int"},
+						},
+						function(self, block, key)
+							local sun = nil
+
+							for i, ent in ipairs(render3d.lights) do
+								if i > 32 then break end
+
+								if
+									(
+										ent.light.LightType == "sun" or
+										ent.light.LightType == "directional"
+									)
+									and
+									ent.light:GetCastShadows()
+								then
+									sun = ent
+
+									break
+								end
+							end
+
+							if sun then
+								local shadow_map = sun.light:GetShadowMap()
+								local cascade_count = shadow_map:GetCascadeCount()
+
+								for i = 1, cascade_count do
+									block[key].shadow_map_indices[i - 1] = self:GetTextureIndex(shadow_map:GetDepthTexture(i))
+									shadow_map:GetLightSpaceMatrix(i):CopyToFloatPointer(block[key].light_space_matrices[i - 1])
+									block[key].cascade_splits[i - 1] = shadow_map:GetCascadeSplits()[i]
+								end
+
+								block[key].cascade_count = cascade_count
+
+								-- Fill remaining slots with -1
+								for i = cascade_count + 1, 4 do
+									block[key].shadow_map_indices[i - 1] = -1
+								end
+							else
+								block[key].cascade_count = 0
+
+								for i = 0, 3 do
+									block[key].shadow_map_indices[i] = -1
+								end
+							end
+						end,
+					},
 					debug_block,
 					gbuffer_block,
 					{
@@ -1432,12 +1524,12 @@ render3d.lighting_config = {
 			int getCascadeIndex(vec3 world_pos) {
 				float dist = length(world_pos - lighting_data.camera_position.xyz);
 				
-				for (int i = 0; i < light_data.shadow.cascade_count; i++) {
-					if (dist < light_data.shadow.cascade_splits[i]) {
+				for (int i = 0; i < lighting_data.shadows.cascade_count; i++) {
+					if (dist < lighting_data.shadows.cascade_splits[i]) {
 						return i;
 					}
 				}
-				return light_data.shadow.cascade_count - 1;
+				return lighting_data.shadows.cascade_count - 1;
 			}
 
 			// PCF Shadow calculation
@@ -1445,12 +1537,12 @@ render3d.lighting_config = {
 				int cascade_idx = getCascadeIndex(world_pos);
 				if (cascade_idx < 0) return 1.0;
 				
-				int shadow_map_idx = light_data.shadow.shadow_map_indices[cascade_idx];
+				int shadow_map_idx = lighting_data.shadows.shadow_map_indices[cascade_idx];
 				if (shadow_map_idx < 0) return 1.0;
 				
 				float bias_val = max(0.05 * (1.0 - dot(normal, light_dir)), 0.005);
 				vec3 offset_pos = world_pos + normal * bias_val;
-				vec4 light_space_pos = light_data.shadow.light_space_matrices[cascade_idx] * vec4(offset_pos, 1.0);
+				vec4 light_space_pos = lighting_data.shadows.light_space_matrices[cascade_idx] * vec4(offset_pos, 1.0);
 				vec3 proj_coords = light_space_pos.xyz / light_space_pos.w;
 				proj_coords.xy = proj_coords.xy * 0.5 + 0.5;
 				
@@ -1698,7 +1790,7 @@ render3d.lighting_config = {
 				if (depth == 1.0) {
 					// Skybox or background
 					vec3 sky_color_output;
-					vec3 sunDir = normalize(-light_data.lights[0].position.xyz);
+					vec3 sunDir = normalize(-lighting_data.lights[0].position.xyz);
 					vec4 clip_pos = vec4(in_uv * 2.0 - 1.0, 1.0, 1.0);
 					vec4 view_pos = lighting_data.inv_projection * clip_pos;
 					view_pos /= view_pos.w;
@@ -1736,7 +1828,7 @@ render3d.lighting_config = {
 				float r2 = roughness * roughness;
                 vec3 Lo = vec3(0.0);
                 for (int i = 0; i < lighting_data.light_count; i++) {
-                    Light light = light_data.lights[i];
+                    lights_t light = lighting_data.lights[i];
                     int type = int(light.position.w);
                     vec3 L;
                     float attenuation = 1.0;
@@ -1764,7 +1856,7 @@ render3d.lighting_config = {
                     vec3 Fd = kD * albedo * Fd_Lambert();
 
                     float shadow_factor = 1.0;
-                    if (i == 0 && light_data.shadow.shadow_map_indices[0] >= 0) {
+                    if (i == 0 && lighting_data.shadows.shadow_map_indices[0] >= 0) {
                         shadow_factor = calculateShadow(world_pos, N, L);
                     }
                     vec3 radiance = light.color.rgb * light.color.a * attenuation;
