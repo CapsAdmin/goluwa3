@@ -20,145 +20,7 @@ local render3d = library()
 package.loaded["render3d.render3d"] = render3d
 local atmosphere = require("render3d.atmosphere")
 local reflection_probe = require("render3d.reflection_probe")
--- UBO structures for lighting (matches GLSL layout)
-render3d.ShadowUBO = ffi.typeof([[
-	struct {
-		float light_space_matrices[4][16];
-		float cascade_splits[4];
-		int shadow_map_indices[4];
-		int cascade_count;
-		float _pad[3];
-	}
-]])
-render3d.LightData = ffi.typeof([[
-	struct {
-		float position[4];
-		float color[4];
-		float params[4];
-	}
-]])
-render3d.LightUBO = ffi.typeof(
-	[[
-	struct {
-		$ shadow;
-		$ lights[32];
-	}
-]],
-	render3d.ShadowUBO,
-	render3d.LightData
-)
--- Light UBO state (owned by render3d)
-render3d.light_ubo = nil
-render3d.light_ubo_data = nil
 render3d.lights = {}
-
-function render3d.InitializeLightUBO()
-	if render3d.light_ubo then return end
-
-	render3d.light_ubo_data = render3d.LightUBO()
-
-	for cascade = 0, 3 do
-		for i = 0, 15 do
-			render3d.light_ubo_data.shadow.light_space_matrices[cascade][i] = (i % 5 == 0) and 1.0 or 0.0
-		end
-
-		render3d.light_ubo_data.shadow.shadow_map_indices[cascade] = -1
-	end
-
-	render3d.light_ubo = render.CreateBuffer(
-		{
-			data = render3d.light_ubo_data,
-			byte_size = ffi.sizeof(render3d.LightUBO),
-			buffer_usage = {"uniform_buffer"},
-			memory_property = {"host_visible", "host_coherent"},
-		}
-	)
-end
-
-function render3d.GetLightUBO()
-	if not render3d.light_ubo then render3d.InitializeLightUBO() end
-
-	return render3d.light_ubo
-end
-
-function render3d.UpdateLightUBOs(pipeline)
-	if not render3d.light_ubo then render3d.InitializeLightUBO() end
-
-	local sun = nil
-
-	for i, ent in ipairs(render3d.lights) do
-		if i > 32 then break end
-
-		do
-			local data = render3d.light_ubo_data.lights[i - 1]
-
-			if ent.light.LightType == "directional" or ent.light.LightType == "sun" then
-				ent.transform:GetRotation():GetForward():CopyToFloatPointer(data.position)
-			else
-				ent.transform:GetPosition():CopyToFloatPointer(data.position)
-			end
-
-			if ent.light.LightType == "directional" or ent.light.LightType == "sun" then
-				data.position[3] = 0
-			elseif ent.light.LightType == "point" then
-				data.position[3] = 1
-			elseif ent.light.LightType == "spot" then
-				data.position[3] = 2
-			else
-				error("Unknown light type: " .. tostring(ent.light.LightType), 2)
-			end
-
-			data.color[0] = ent.light.Color.r
-			data.color[1] = ent.light.Color.g
-			data.color[2] = ent.light.Color.b
-			data.color[3] = ent.light.Intensity
-			data.params[0] = ent.light.Range
-			data.params[1] = ent.light.InnerCone
-			data.params[2] = ent.light.OuterCone
-			data.params[3] = 0
-		end
-
-		if
-			(
-				ent.light.LightType == "sun" or
-				ent.light.LightType == "directional"
-			)
-			and
-			ent.light:GetCastShadows()
-		then
-			sun = ent
-
-			break
-		end
-	end
-
-	if sun then
-		local shadow_map = sun.light:GetShadowMap()
-		local cascade_count = shadow_map:GetCascadeCount()
-
-		for i = 1, cascade_count do
-			render3d.light_ubo_data.shadow.shadow_map_indices[i - 1] = pipeline:GetTextureIndex(shadow_map:GetDepthTexture(i))
-			shadow_map:GetLightSpaceMatrix(i):CopyToFloatPointer(render3d.light_ubo_data.shadow.light_space_matrices[i - 1])
-			render3d.light_ubo_data.shadow.cascade_splits[i - 1] = shadow_map:GetCascadeSplits()[i]
-		end
-
-		render3d.light_ubo_data.shadow.cascade_count = cascade_count
-
-		-- Fill remaining slots with -1
-		for i = cascade_count + 1, 4 do
-			render3d.light_ubo_data.shadow.shadow_map_indices[i - 1] = -1
-		end
-	else
-		render3d.light_ubo_data.shadow.cascade_count = 0
-
-		for i = 0, 3 do
-			render3d.light_ubo_data.shadow.shadow_map_indices[i] = -1
-		end
-	end
-
-	render3d.light_ubo:CopyData(render3d.light_ubo_data, ffi.sizeof(render3d.LightUBO))
-end
-
 local camera_block = {
 	{
 		"inv_view",
@@ -1107,35 +969,7 @@ render3d.lighting_config = {
 	framebuffer_count = 2,
 	vertex = quad_vertex_config,
 	fragment = {
-		custom_declarations = quad_vertex_config.fragment_code .. [[
-
-			struct ShadowData {
-				mat4 light_space_matrices[4];
-				vec4 cascade_splits;
-				ivec4 shadow_map_indices;
-				int cascade_count;
-			};
-
-			struct Light {
-				vec4 position; // w = type
-				vec4 color;    // w = intensity
-				vec4 params;   // x = range, y = inner, z = outer
-			};
-
-			layout(std140, binding = 2) uniform LightData {
-				ShadowData shadow;
-				Light lights[32];
-			} light_data;
-		]],
-		descriptor_sets = {
-			{
-				type = "uniform_buffer",
-				binding_index = 2,
-				args = function()
-					return {render3d.GetLightUBO()}
-				end,
-			},
-		},
+		custom_declarations = quad_vertex_config.fragment_code,
 		uniform_buffers = {
 			{
 				name = "lighting_data",
@@ -2221,7 +2055,6 @@ function render3d.Initialize()
 	event.AddListener("PreRenderPass", "render3d", function(cmd)
 		if not render3d.gbuffer_pipeline then return end
 
-		render3d.UpdateLightUBOs(render3d.lighting_pipeline.pipeline)
 		render3d.gbuffer_pipeline:Draw(cmd)
 		render3d.ssr_pipeline:Draw(cmd)
 		render3d.ssr_resolve_pipeline:Draw(cmd)

@@ -361,21 +361,7 @@ function reflection_probe.CreatePipelines()
                     vec4 color;
                     vec4 params;
                 };
-                
-                layout(std140, binding = 2) uniform LightData {
-                    float _shadow_padding[84];
-                    Light lights[32];
-                } light_data;
             ]],
-				descriptor_sets = {
-					{
-						type = "uniform_buffer",
-						binding_index = 2,
-						args = function()
-							return {render3d.GetLightUBO()}
-						end,
-					},
-				},
 				uniform_buffers = {
 					{
 						name = "probe_data",
@@ -553,13 +539,9 @@ function reflection_probe.CreatePipelines()
                     float roughness = get_roughness();
                     vec3 emissive = get_emissive();
                     
-                    // Simple directional light calculation
-                    vec3 L = normalize(-light_data.lights[0].position.xyz);
-                    float NoL = max(dot(N, L), 0.0);
-                    vec3 light_color = light_data.lights[0].color.rgb * light_data.lights[0].color.a;
-                    
+        
                     // Basic diffuse + ambient
-                    vec3 diffuse = albedo * NoL * light_color;
+                    vec3 diffuse = albedo  ;
                     vec3 ambient = albedo * 0.1;
                     
                     vec3 color = diffuse + ambient + emissive;
