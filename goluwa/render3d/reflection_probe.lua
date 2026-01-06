@@ -372,7 +372,7 @@ function reflection_probe.CreatePipelines()
 						type = "uniform_buffer",
 						binding_index = 2,
 						args = function()
-							return {Light.GetUBO()}
+							return {render3d.GetLightUBO()}
 						end,
 					},
 				},
