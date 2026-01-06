@@ -72,7 +72,7 @@ event.AddListener(
 				-- Draw solid part
 				aabb_material:SetColorMultiplier(Color(1, 1, 1, 0.6))
 				render3d.SetMaterial(aabb_material)
-				render3d.UploadConstants(cmd)
+				render3d.UploadGBufferConstants(cmd)
 				mesh:DrawIndexed(cmd)
 			end
 		end

@@ -75,7 +75,7 @@ local function draw3d(cb)
 		}
 	)
 	render.BeginFrame()
-	render3d.BindPipeline()
+	render3d.BindGBufferPipeline()
 	cb(render.GetCommandBuffer())
 	render3d.SetWorldMatrix(Matrix44())
 	render.EndFrame()
@@ -120,7 +120,7 @@ local function sphere(lp, ly, config)
 		local sun = render3d.GetLights()[1]
 		sun:SetRotation(Quat():SetAngles(Deg3(lp, ly, 0)))
 		render3d.SetMaterial(mat)
-		render3d.UploadConstants(cmd)
+		render3d.UploadGBufferConstants(cmd)
 		poly:Draw(cmd)
 	end)
 

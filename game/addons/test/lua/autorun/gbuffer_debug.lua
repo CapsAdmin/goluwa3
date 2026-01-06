@@ -46,7 +46,9 @@ local function get_checkerboard_texture()
 end
 
 event.AddListener("Draw2D", "debug_gbuffer", function(cmd, dt)
-	if not render3d.gbuffer then return end
+	if not render3d.gbuffer_pipeline or not render3d.gbuffer_pipeline:GetFramebuffer() then
+		return
+	end
 
 	local wnd_size = window:GetSize()
 
@@ -66,11 +68,11 @@ event.AddListener("Draw2D", "debug_gbuffer", function(cmd, dt)
 
 		if fullscreen_index <= #views then
 			local view = views[fullscreen_index]
-			tex = render3d.gbuffer:GetAttachment(view.attachment_index)
+			tex = render3d.gbuffer_pipeline:GetFramebuffer():GetAttachment(view.attachment_index)
 			name = view.name
 			swizzle = view.swizzle
 		else
-			tex = render3d.gbuffer.depth_texture
+			tex = render3d.gbuffer_pipeline:GetFramebuffer().depth_texture
 			name = "Depth"
 		end
 
@@ -108,7 +110,7 @@ event.AddListener("Draw2D", "debug_gbuffer", function(cmd, dt)
 
 	-- Draw color textures
 	for i, view in ipairs(render3d.gbuffer_pipeline:GetDebugViews()) do
-		local tex = render3d.gbuffer:GetAttachment(view.attachment_index)
+		local tex = render3d.gbuffer_pipeline:GetFramebuffer():GetAttachment(view.attachment_index)
 		-- Draw checkerboard background
 		render2d.PushUV()
 		render2d.SetUV2(0, 0, size / 32, size / 32)
@@ -137,7 +139,7 @@ event.AddListener("Draw2D", "debug_gbuffer", function(cmd, dt)
 	end
 
 	-- Draw depth texture
-	if render3d.gbuffer.depth_texture then
+	if render3d.gbuffer_pipeline:GetFramebuffer().depth_texture then
 		-- Draw checkerboard background
 		render2d.PushUV()
 		render2d.SetUV2(0, 0, size / 32, size / 32)
@@ -146,7 +148,7 @@ event.AddListener("Draw2D", "debug_gbuffer", function(cmd, dt)
 		render2d.PopUV()
 		render2d.PushUV()
 		render2d.SetUV2(0, 1, 1, 0)
-		render2d.SetTexture(render3d.gbuffer.depth_texture)
+		render2d.SetTexture(render3d.gbuffer_pipeline:GetFramebuffer().depth_texture)
 		render2d.DrawRect(x, y, size, size)
 		render2d.PopUV()
 		-- Draw label
@@ -166,7 +168,13 @@ event.AddListener("KeyInput", "debug_gbuffer_toggle", function(key, press)
 		print("G-buffer debug: " .. (show_gbuffer and "ON" or "OFF"))
 	elseif key == "f" then
 		local views = render3d.gbuffer_pipeline and render3d.gbuffer_pipeline:GetDebugViews() or {}
-		local count = #views + (render3d.gbuffer.depth_texture and 1 or 0)
+		local count = #views + (
+				render3d.gbuffer_pipeline and
+				render3d.gbuffer_pipeline:GetFramebuffer() and
+				render3d.gbuffer_pipeline:GetFramebuffer().depth_texture and
+				1 or
+				0
+			)
 		fullscreen_index = fullscreen_index + 1
 
 		if fullscreen_index > count then fullscreen_index = 0 end

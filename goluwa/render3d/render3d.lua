@@ -15,6 +15,7 @@ local GetBlueNoiseTexture = require("render.textures.blue_noise")
 local Light = require("components.light")
 local Framebuffer = require("render.framebuffer")
 local system = require("system")
+local SMAA = require("render3d.smaa")
 local render3d = library()
 package.loaded["render3d.render3d"] = render3d
 local atmosphere = require("render3d.atmosphere")
@@ -136,35 +137,35 @@ local gbuffer_block = {
 		"albedo_tex",
 		"int",
 		function(self, block, key)
-			block[key] = self:GetTextureIndex(render3d.gbuffer:GetAttachment(1))
+			block[key] = self:GetTextureIndex(render3d.gbuffer_pipeline:GetFramebuffer():GetAttachment(1))
 		end,
 	},
 	{
 		"normal_tex",
 		"int",
 		function(self, block, key)
-			block[key] = self:GetTextureIndex(render3d.gbuffer:GetAttachment(2))
+			block[key] = self:GetTextureIndex(render3d.gbuffer_pipeline:GetFramebuffer():GetAttachment(2))
 		end,
 	},
 	{
 		"mra_tex",
 		"int",
 		function(self, block, key)
-			block[key] = self:GetTextureIndex(render3d.gbuffer:GetAttachment(3))
+			block[key] = self:GetTextureIndex(render3d.gbuffer_pipeline:GetFramebuffer():GetAttachment(3))
 		end,
 	},
 	{
 		"emissive_tex",
 		"int",
 		function(self, block, key)
-			block[key] = self:GetTextureIndex(render3d.gbuffer:GetAttachment(4))
+			block[key] = self:GetTextureIndex(render3d.gbuffer_pipeline:GetFramebuffer():GetAttachment(4))
 		end,
 	},
 	{
 		"depth_tex",
 		"int",
 		function(self, block, key)
-			block[key] = self:GetTextureIndex(render3d.gbuffer:GetDepthTexture())
+			block[key] = self:GetTextureIndex(render3d.gbuffer_pipeline:GetFramebuffer():GetDepthTexture())
 		end,
 	},
 }
@@ -173,13 +174,13 @@ local last_frame_block = {
 		"last_frame_tex",
 		"int",
 		function(self, block, key)
-			if not render3d.lighting_fbs then
+			if not render3d.lighting_pipeline or not render3d.lighting_pipeline.framebuffers then
 				block[key] = -1
 				return
 			end
 
-			local prev_idx = 3 - render3d.current_lighting_fb_index
-			block[key] = self:GetTextureIndex(render3d.lighting_fbs[prev_idx]:GetAttachment(1))
+			local prev_idx = (system.GetFrameNumber() + 1) % 2 + 1
+			block[key] = self:GetTextureIndex(render3d.lighting_pipeline:GetFramebuffer(prev_idx):GetAttachment(1))
 		end,
 	},
 }
@@ -527,6 +528,7 @@ render3d.gbuffer_config = {
 }
 render3d.ssr_config = {
 	color_format = {{"r16g16b16a16_sfloat", {"ssr", "rgba"}}},
+	framebuffer_count = 2,
 	vertex = quad_vertex_config,
 	fragment = {
 		custom_declarations = quad_vertex_config.fragment_code,
@@ -540,21 +542,21 @@ render3d.ssr_config = {
 						"normal_tex",
 						"int",
 						function(self, block, key)
-							block[key] = self:GetTextureIndex(render3d.gbuffer:GetAttachment(2))
+							block[key] = self:GetTextureIndex(render3d.gbuffer_pipeline:GetFramebuffer():GetAttachment(2))
 						end,
 					},
 					{
 						"mra_tex",
 						"int",
 						function(self, block, key)
-							block[key] = self:GetTextureIndex(render3d.gbuffer:GetAttachment(3))
+							block[key] = self:GetTextureIndex(render3d.gbuffer_pipeline:GetFramebuffer():GetAttachment(3))
 						end,
 					},
 					{
 						"depth_tex",
 						"int",
 						function(self, block, key)
-							block[key] = self:GetTextureIndex(render3d.gbuffer:GetDepthTexture())
+							block[key] = self:GetTextureIndex(render3d.gbuffer_pipeline:GetFramebuffer():GetDepthTexture())
 						end,
 					},
 					{
@@ -778,6 +780,7 @@ render3d.ssr_config = {
 	},
 }
 render3d.ssr_resolve_config = {
+	framebuffer_count = 2,
 	vertex = quad_vertex_config,
 	fragment = {
 		custom_declarations = quad_vertex_config.fragment_code,
@@ -791,32 +794,32 @@ render3d.ssr_resolve_config = {
 						"current_ssr_tex",
 						"int",
 						function(self, block, key)
-							if not render3d.ssr_trace_fb then
+							if not render3d.ssr_pipeline then
 								block[key] = -1
 								return
 							end
 
-							block[key] = self:GetTextureIndex(render3d.ssr_trace_fb:GetAttachment(1))
+							block[key] = self:GetTextureIndex(render3d.ssr_pipeline.trace_fb:GetAttachment(1))
 						end,
 					},
 					{
 						"history_ssr_tex",
 						"int",
 						function(self, block, key)
-							if not render3d.ssr_fbs then
+							if not render3d.ssr_pipeline or not render3d.ssr_pipeline.framebuffers then
 								block[key] = -1
 								return
 							end
 
-							local prev_idx = 3 - render3d.current_ssr_fb_index
-							block[key] = self:GetTextureIndex(render3d.ssr_fbs[prev_idx]:GetAttachment(1))
+							local prev_idx = (system.GetFrameNumber() + 1) % 2 + 1
+							block[key] = self:GetTextureIndex(render3d.ssr_pipeline:GetFramebuffer(prev_idx):GetAttachment(1))
 						end,
 					},
 					{
 						"depth_tex",
 						"int",
 						function(self, block, key)
-							block[key] = self:GetTextureIndex(render3d.gbuffer:GetDepthTexture())
+							block[key] = self:GetTextureIndex(render3d.gbuffer_pipeline:GetFramebuffer():GetDepthTexture())
 						end,
 					},
 					{
@@ -956,6 +959,7 @@ render3d.ssr_resolve_config = {
 }
 render3d.lighting_config = {
 	color_format = {{"r16g16b16a16_sfloat", {"color", "rgba"}}},
+	framebuffer_count = 2,
 	vertex = quad_vertex_config,
 	fragment = {
 		custom_declarations = quad_vertex_config.fragment_code .. [[
@@ -1010,7 +1014,7 @@ render3d.lighting_config = {
 							end
 
 							return function(self, block, key)
-								for i, v in ipairs(render3d.ssao_kernel) do
+								for i, v in ipairs(kernel) do
 									v:CopyToFloatPointer(block[key][i - 1])
 								end
 							end
@@ -1053,12 +1057,14 @@ render3d.lighting_config = {
 						"ssr_tex",
 						"int",
 						function(self, block, key)
-							if not render3d.ssr_fb then
+							if not render3d.ssr_pipeline or not render3d.ssr_pipeline.framebuffers then
 								block[key] = -1
 								return
 							end
 
-							block[key] = self:GetTextureIndex(render3d.ssr_fb:GetAttachment(1))
+							local prev_idx = (system.GetFrameNumber() + 1) % 2 + 1
+							local current_ssr_fb = render3d.ssr_pipeline:GetFramebuffer(prev_idx)
+							block[key] = self:GetTextureIndex(current_ssr_fb:GetAttachment(1))
 						end,
 					},
 					{
@@ -1199,7 +1205,7 @@ render3d.lighting_config = {
 			]] .. require("render3d.atmosphere").GetGLSLCode() .. [[
 
 
-			#define SSR 0
+			#define SSR 1
 			#define PARALLAX_CORRECTION 1
 			#define uv in_uv
 			float hash(vec2 p) {
@@ -1672,12 +1678,19 @@ render3d.blit_config = {
 						"tex",
 						"int",
 						function(self, block, key)
-							if not render3d.lighting_fbs then
+							if render3d.smaa_resolve_pipeline and render3d.smaa_resolve_pipeline.framebuffers then
+								local current_idx = system.GetFrameNumber() % 2 + 1
+								block[key] = self:GetTextureIndex(render3d.smaa_resolve_pipeline:GetFramebuffer(current_idx):GetAttachment(1))
+								return
+							end
+
+							if not render3d.lighting_pipeline or not render3d.lighting_pipeline.framebuffers then
 								block[key] = -1
 								return
 							end
 
-							block[key] = self:GetTextureIndex(render3d.lighting_fbs[render3d.current_lighting_fb_index]:GetAttachment(1))
+							local current_idx = system.GetFrameNumber() % 2 + 1
+							block[key] = self:GetTextureIndex(render3d.lighting_pipeline:GetFramebuffer(current_idx):GetAttachment(1))
 						end,
 					},
 				},
@@ -1719,56 +1732,261 @@ render3d.blit_config = {
 		depth_write = false,
 	},
 }
+render3d.smaa_edge_config = {
+	color_format = {{"r8g8_unorm", {"color", "rg"}}},
+	vertex = quad_vertex_config,
+	fragment = {
+		custom_declarations = quad_vertex_config.fragment_code,
+		push_constants = {
+			{
+				name = "smaa",
+				block = {
+					{
+						"tex",
+						"int",
+						function(self, block, key)
+							local current_idx = system.GetFrameNumber() % 2 + 1
+							block[key] = self:GetTextureIndex(render3d.lighting_pipeline:GetFramebuffer(current_idx):GetAttachment(1))
+						end,
+					},
+				},
+			},
+		},
+		shader = [[
+			float lum(vec3 c) { return dot(c, vec3(0.299, 0.587, 0.114)); }
+			void main() {
+				vec2 uv = in_uv;
+				vec2 texel = 1.0 / vec2(textureSize(TEXTURE(pc.smaa.tex), 0));
+				float l = lum(texture(TEXTURE(pc.smaa.tex), uv).rgb);
+				float l_top = lum(texture(TEXTURE(pc.smaa.tex), uv + vec2(0, -texel.y)).rgb);
+				float l_left = lum(texture(TEXTURE(pc.smaa.tex), uv + vec2(-texel.x, 0)).rgb);
+				vec2 delta = abs(vec2(l) - vec2(l_left, l_top));
+				vec2 edges = step(0.1, delta);
+				set_color(edges);
+			}
+		]],
+	},
+}
+render3d.smaa_weight_config = {
+	color_format = {{"r8g8b8a8_unorm", {"color", "rgba"}}},
+	vertex = quad_vertex_config,
+	fragment = {
+		custom_declarations = quad_vertex_config.fragment_code,
+		push_constants = {
+			{
+				name = "smaa",
+				block = {
+					{
+						"edges_tex",
+						"int",
+						function(self, block, key)
+							block[key] = self:GetTextureIndex(render3d.smaa_edge_pipeline:GetFramebuffer():GetAttachment(1))
+						end,
+					},
+					{
+						"area_tex",
+						"int",
+						function(self, block, key)
+							block[key] = self:GetTextureIndex(render3d.smaa_area_tex)
+						end,
+					},
+					{
+						"search_tex",
+						"int",
+						function(self, block, key)
+							block[key] = self:GetTextureIndex(render3d.smaa_search_tex)
+						end,
+					},
+				},
+			},
+		},
+		shader = [[
+			// Simplified SMAA weight calculation
+			void main() {
+				vec2 edges = texture(TEXTURE(pc.smaa.edges_tex), in_uv).rg;
+				if (edges.x > 0.0 || edges.y > 0.0) {
+					// Placeholder for complex morphological weight calculation
+					// Real SMAA would use search and area textures here
+					set_color(vec4(edges, 0.0, 1.0));
+				} else {
+					set_color(vec4(0.0, 0.0, 0.0, 0.0));
+				}
+			}
+		]],
+	},
+}
+render3d.smaa_blend_config = {
+	color_format = {{"r16g16b16a16_sfloat", {"color", "rgba"}}},
+	vertex = quad_vertex_config,
+	fragment = {
+		custom_declarations = quad_vertex_config.fragment_code,
+		push_constants = {
+			{
+				name = "smaa",
+				block = {
+					{
+						"color_tex",
+						"int",
+						function(self, block, key)
+							local current_idx = system.GetFrameNumber() % 2 + 1
+							block[key] = self:GetTextureIndex(render3d.lighting_pipeline:GetFramebuffer(current_idx):GetAttachment(1))
+						end,
+					},
+					{
+						"weight_tex",
+						"int",
+						function(self, block, key)
+							block[key] = self:GetTextureIndex(render3d.smaa_weight_pipeline:GetFramebuffer():GetAttachment(1))
+						end,
+					},
+				},
+			},
+		},
+		shader = [[
+			void main() {
+				vec2 uv = in_uv;
+				vec2 texel = 1.0 / vec2(textureSize(TEXTURE(pc.smaa.color_tex), 0));
+				vec4 weights = texture(TEXTURE(pc.smaa.weight_tex), uv);
+				
+				if (weights.r > 0.0 || weights.g > 0.0) {
+					// Simple mix for now
+					vec4 c = texture(TEXTURE(pc.smaa.color_tex), uv);
+					vec4 c_left = texture(TEXTURE(pc.smaa.color_tex), uv + vec2(-texel.x, 0));
+					vec4 c_top = texture(TEXTURE(pc.smaa.color_tex), uv + vec2(0, -texel.y));
+					vec4 res = c;
+					if (weights.r > 0.0) res = mix(c, c_left, 0.5);
+					if (weights.g > 0.0) res = mix(res, c_top, 0.5);
+					set_color(res);
+				} else {
+					set_color(texture(TEXTURE(pc.smaa.color_tex), uv));
+				}
+			}
+		]],
+	},
+}
+render3d.smaa_resolve_config = {
+	color_format = {{"r16g16b16a16_sfloat", {"color", "rgba"}}},
+	framebuffer_count = 2,
+	vertex = quad_vertex_config,
+	fragment = {
+		custom_declarations = quad_vertex_config.fragment_code,
+		uniform_buffers = {
+			{
+				name = "smaa_data",
+				binding_index = 2,
+				block = {
+					camera_block,
+					{
+						"current_tex",
+						"int",
+						function(self, block, key)
+							block[key] = self:GetTextureIndex(render3d.smaa_blend_pipeline:GetFramebuffer():GetAttachment(1))
+						end,
+					},
+					{
+						"history_tex",
+						"int",
+						function(self, block, key)
+							local prev_idx = (system.GetFrameNumber() + 1) % 2 + 1
+							block[key] = self:GetTextureIndex(render3d.smaa_resolve_pipeline:GetFramebuffer(prev_idx):GetAttachment(1))
+						end,
+					},
+					{
+						"depth_tex",
+						"int",
+						function(self, block, key)
+							block[key] = self:GetTextureIndex(render3d.gbuffer_pipeline:GetFramebuffer().depth_texture)
+						end,
+					},
+					{
+						"prev_view",
+						"mat4",
+						function(self, block, key)
+							render3d.prev_view_matrix:CopyToFloatPointer(block[key])
+						end,
+					},
+					{
+						"prev_projection",
+						"mat4",
+						function(self, block, key)
+							render3d.prev_projection_matrix:CopyToFloatPointer(block[key])
+						end,
+					},
+				},
+			},
+		},
+		shader = [[
+			void main() {
+				vec2 uv = in_uv;
+				float depth = texture(TEXTURE(smaa_data.depth_tex), uv).r;
+				
+				// Reprojection
+				vec4 clip_pos = vec4(uv * 2.0 - 1.0, depth, 1.0);
+				vec4 view_pos = smaa_data.inv_projection * clip_pos;
+				view_pos /= view_pos.w;
+				vec3 world_pos = (smaa_data.inv_view * view_pos).xyz;
+				
+				vec4 prev_view_pos = smaa_data.prev_view * vec4(world_pos, 1.0);
+				vec4 prev_clip = smaa_data.prev_projection * prev_view_pos;
+				prev_clip /= prev_clip.w;
+				vec2 prev_uv = prev_clip.xy * 0.5 + 0.5;
+				
+				vec4 current = texture(TEXTURE(smaa_data.current_tex), uv);
+				
+				if (prev_uv.x < 0.0 || prev_uv.x > 1.0 || prev_uv.y < 0.0 || prev_uv.y > 1.0) {
+					set_color(current);
+					return;
+				}
+				
+				vec4 history = texture(TEXTURE(smaa_data.history_tex), prev_uv);
+				
+				// Neighborhood clamping
+				vec2 texel = 1.0 / vec2(textureSize(TEXTURE(smaa_data.current_tex), 0));
+				
+				// Edge artifact fix: check if we are too close to the edge
+				if (prev_uv.x < texel.x || prev_uv.x > 1.0 - texel.x || prev_uv.y < texel.y || prev_uv.y > 1.0 - texel.y) {
+					set_color(current);
+					return;
+				}
+
+				vec4 m1 = vec4(0.0);
+				vec4 m2 = vec4(0.0);
+				for(int x = -1; x <= 1; x++) {
+					for(int y = -1; y <= 1; y++) {
+						vec4 c = texture(TEXTURE(smaa_data.current_tex), uv + vec2(x,y)*texel);
+						m1 += c;
+						m2 += c*c;
+					}
+				}
+				vec4 mu = m1 / 9.0;
+				vec4 sigma = sqrt(max(vec4(0.0), (m2 / 9.0) - mu*mu));
+				vec4 min_c = mu - 2.0 * sigma; // Increased sigma range for stability
+				vec4 max_c = mu + 2.0 * sigma;
+				history = clamp(history, min_c, max_c);
+				
+				set_color(mix(current, history, 0.85)); // Slightly reduced history weight for less ghosting/jitter
+			}
+		]],
+	},
+}
 
 function render3d.Initialize()
-	local function create_gbuffer()
+	-- Create pipelines (framebuffers will be created automatically by EasyPipeline)
+	render3d.gbuffer_pipeline = EasyPipeline.New(render3d.gbuffer_config)
+	render3d.ssr_pipeline = EasyPipeline.New(render3d.ssr_config)
+	render3d.ssr_resolve_config.color_format = render3d.ssr_config.color_format
+	render3d.ssr_resolve_pipeline = EasyPipeline.New(render3d.ssr_resolve_config)
+	render3d.lighting_pipeline = EasyPipeline.New(render3d.lighting_config)
+	render3d.smaa_edge_pipeline = EasyPipeline.New(render3d.smaa_edge_config)
+	render3d.smaa_weight_pipeline = EasyPipeline.New(render3d.smaa_weight_config)
+	render3d.smaa_blend_pipeline = EasyPipeline.New(render3d.smaa_blend_config)
+	render3d.smaa_resolve_pipeline = EasyPipeline.New(render3d.smaa_resolve_config)
+	render3d.blit_pipeline = EasyPipeline.New(render3d.blit_config)
+
+	-- Create additional SSR trace framebuffer
+	local function create_ssr_trace_fb()
 		local size = window:GetSize()
-		render3d.gbuffer = Framebuffer.New(
-			{
-				width = size.x,
-				height = size.y,
-				formats = EasyPipeline.GetColorFormats(render3d.gbuffer_config),
-				depth = true,
-				depth_format = "d32_sfloat",
-			}
-		)
-	end
-
-	local function create_lighting_fbs()
-		local size = window:GetSize()
-		render3d.lighting_fbs = {}
-
-		for i = 1, 2 do
-			render3d.lighting_fbs[i] = Framebuffer.New(
-				{
-					width = size.x,
-					height = size.y,
-					formats = EasyPipeline.GetColorFormats(render3d.lighting_config),
-					depth = false,
-				}
-			)
-		end
-
-		render3d.current_lighting_fb_index = 1
-	end
-
-	local function create_ssr_fb()
-		local size = window:GetSize()
-		-- Full resolution SSR with ping-pong for temporal accumulation
-		render3d.ssr_fbs = {}
-
-		for i = 1, 2 do
-			render3d.ssr_fbs[i] = Framebuffer.New(
-				{
-					width = size.x,
-					height = size.y,
-					formats = EasyPipeline.GetColorFormats(render3d.ssr_config),
-					depth = false,
-				}
-			)
-		end
-
-		render3d.ssr_trace_fb = Framebuffer.New(
+		render3d.ssr_pipeline.trace_fb = Framebuffer.New(
 			{
 				width = size.x,
 				height = size.y,
@@ -1776,61 +1994,18 @@ function render3d.Initialize()
 				depth = false,
 			}
 		)
-		render3d.current_ssr_fb_index = 1
-		-- Keep ssr_fb as alias for current for compatibility
-		render3d.ssr_fb = render3d.ssr_fbs[1]
 	end
 
-	local function create_blue_noise_texture()
-		render3d.ssao_kernel = {}
-	end
+	create_ssr_trace_fb()
 
-	create_gbuffer()
-	create_lighting_fbs()
-	create_ssr_fb()
-	create_blue_noise_texture()
-	render3d.gbuffer_pipeline = EasyPipeline.New(render3d.gbuffer_config)
-	render3d.ssr_pipeline = EasyPipeline.New(render3d.ssr_config)
-	render3d.ssr_resolve_config.color_format = render3d.ssr_config.color_format
-	render3d.ssr_resolve_pipeline = EasyPipeline.New(render3d.ssr_resolve_config)
-	render3d.lighting_pipeline = EasyPipeline.New(render3d.lighting_config)
-	render3d.blit_pipeline = EasyPipeline.New(render3d.blit_config)
-
-	event.AddListener("WindowFramebufferResized", "render3d_gbuffer", function(wnd, size)
-		create_gbuffer()
-		create_lighting_fbs()
-		create_ssr_fb()
-		-- Update lighting pipeline descriptor sets with new G-buffer textures
-		local textures = {}
-
-		for _, tex in ipairs(render3d.gbuffer.color_textures) do
-			table.insert(textures, {view = tex.view, sampler = tex.sampler})
-		end
-
-		table.insert(
-			textures,
-			{
-				view = render3d.gbuffer.depth_texture.view,
-				sampler = render3d.gbuffer.depth_texture.sampler,
-			}
-		)
-
-		for i = 1, #render3d.lighting_pipeline.pipeline.descriptor_sets do
-			render3d.lighting_pipeline.pipeline:UpdateDescriptorSetArray(i, 0, textures)
-		end
-
-		for i = 1, #render3d.ssr_pipeline.pipeline.descriptor_sets do
-			render3d.ssr_pipeline.pipeline:UpdateDescriptorSetArray(i, 0, textures)
-		end
-
-		for i = 1, #render3d.ssr_resolve_pipeline.pipeline.descriptor_sets do
-			render3d.ssr_resolve_pipeline.pipeline:UpdateDescriptorSetArray(i, 0, textures)
-		end
-
-		for i = 1, #render3d.blit_pipeline.pipeline.descriptor_sets do
-			render3d.blit_pipeline.pipeline:UpdateDescriptorSetArray(i, 0, textures)
-		end
+	-- Register resize handler for SSR trace framebuffer
+	event.AddListener("WindowFramebufferResized", "render3d_ssr_trace", function(wnd, size)
+		create_ssr_trace_fb()
 	end)
+
+	-- Generate SMAA lookup textures (only needed once)
+	render3d.smaa_search_tex = SMAA.GenerateSearchTexture()
+	render3d.smaa_area_tex = SMAA.GenerateAreaTexture()
 
 	event.AddListener("PreRenderPass", "draw_3d_geometry", function(cmd)
 		if not render3d.gbuffer_pipeline then return end
@@ -1838,7 +2013,7 @@ function render3d.Initialize()
 		local dt = 0 -- dt is not easily available here, but usually not needed for draw calls
 		Light.UpdateUBOs(render3d.lighting_pipeline.pipeline)
 		-- 1. Geometry Pass
-		render3d.gbuffer:Begin(cmd)
+		render3d.gbuffer_pipeline:GetFramebuffer():Begin(cmd)
 
 		do
 			render3d.gbuffer_pipeline:Bind(cmd)
@@ -1846,36 +2021,66 @@ function render3d.Initialize()
 			event.Call("Draw3DGeometry", cmd, dt)
 		end
 
-		render3d.gbuffer:End(cmd)
+		render3d.gbuffer_pipeline:GetFramebuffer():End(cmd)
 
 		-- 1.5 SSR Pass
-		if render3d.ssr_fbs and render3d.ssr_pipeline and render3d.ssr_resolve_pipeline then
+		if render3d.ssr_pipeline and render3d.ssr_resolve_pipeline then
 			-- 1.5.1 Trace
-			render3d.ssr_trace_fb:Begin(cmd)
+			render3d.ssr_pipeline.trace_fb:Begin(cmd)
 			cmd:SetCullMode("none")
 			render3d.ssr_pipeline:Bind(cmd)
 			render3d.ssr_pipeline:UploadConstants(cmd)
 			cmd:Draw(3, 1, 0, 0)
-			render3d.ssr_trace_fb:End(cmd)
+			render3d.ssr_pipeline.trace_fb:End(cmd)
 			-- 1.5.2 Resolve
-			local current_ssr_fb = render3d.ssr_fbs[render3d.current_ssr_fb_index]
+			local current_idx = system.GetFrameNumber() % 2 + 1
+			local current_ssr_fb = render3d.ssr_pipeline:GetFramebuffer(current_idx)
 			current_ssr_fb:Begin(cmd)
 			render3d.ssr_resolve_pipeline:Bind(cmd)
 			render3d.ssr_resolve_pipeline:UploadConstants(cmd)
 			cmd:Draw(3, 1, 0, 0)
 			current_ssr_fb:End(cmd)
-			-- Use resolved result for lighting
-			render3d.ssr_fb = current_ssr_fb
 		end
 
 		-- 2. Lighting Pass (Offscreen)
-		local current_fb = render3d.lighting_fbs[render3d.current_lighting_fb_index]
+		local current_idx = system.GetFrameNumber() % 2 + 1
+		local current_fb = render3d.lighting_pipeline:GetFramebuffer(current_idx)
 		current_fb:Begin(cmd)
 		cmd:SetCullMode("none")
 		render3d.lighting_pipeline:Bind(cmd)
 		render3d.lighting_pipeline:UploadConstants(cmd)
 		cmd:Draw(3, 1, 0, 0)
 		current_fb:End(cmd)
+
+		-- 2.5 SMAA 1x Passes
+		if render3d.smaa_edge_pipeline then
+			render3d.smaa_edge_pipeline:GetFramebuffer():Begin(cmd)
+			render3d.smaa_edge_pipeline:Bind(cmd)
+			render3d.smaa_edge_pipeline:UploadConstants(cmd)
+			cmd:Draw(3, 1, 0, 0)
+			render3d.smaa_edge_pipeline:GetFramebuffer():End(cmd)
+			render3d.smaa_weight_pipeline:GetFramebuffer():Begin(cmd)
+			render3d.smaa_weight_pipeline:Bind(cmd)
+			render3d.smaa_weight_pipeline:UploadConstants(cmd)
+			cmd:Draw(3, 1, 0, 0)
+			render3d.smaa_weight_pipeline:GetFramebuffer():End(cmd)
+			render3d.smaa_blend_pipeline:GetFramebuffer():Begin(cmd)
+			render3d.smaa_blend_pipeline:Bind(cmd)
+			render3d.smaa_blend_pipeline:UploadConstants(cmd)
+			cmd:Draw(3, 1, 0, 0)
+			render3d.smaa_blend_pipeline:GetFramebuffer():End(cmd)
+
+			-- 2.6 SMAA Resolve (Temporal)
+			if render3d.smaa_resolve_pipeline then
+				local current_idx = system.GetFrameNumber() % 2 + 1
+				local current_smaa_fb = render3d.smaa_resolve_pipeline:GetFramebuffer(current_idx)
+				current_smaa_fb:Begin(cmd)
+				render3d.smaa_resolve_pipeline:Bind(cmd)
+				render3d.smaa_resolve_pipeline:UploadConstants(cmd)
+				cmd:Draw(3, 1, 0, 0)
+				current_smaa_fb:End(cmd)
+			end
+		end
 	end)
 
 	event.AddListener("Draw", "draw_3d_lighting", function(cmd, dt)
@@ -1889,31 +2094,29 @@ function render3d.Initialize()
 		-- Store current matrices for next frame reprojection
 		render3d.prev_view_matrix = render3d.camera:BuildViewMatrix():Copy()
 		render3d.prev_projection_matrix = render3d.camera:BuildProjectionMatrix():Copy()
-		-- Swap framebuffers for next frame
-		render3d.current_lighting_fb_index = 3 - render3d.current_lighting_fb_index
-		render3d.current_ssr_fb_index = 3 - render3d.current_ssr_fb_index
+		-- 4. Jitter for Next Frame (SMAA 2TX)
+		render3d.frame_index = (render3d.frame_index or 0) + 1
+		local jitter_scale = 0.1
+		local jitter_offsets = {{1 * jitter_scale, -1 * jitter_scale}, {-1 * jitter_scale, 1 * jitter_scale}}
+		local offset = jitter_offsets[(render3d.frame_index % 2) + 1]
+		render3d.camera:SetJitter(Vec3(offset[1], offset[2], 0))
 	end)
 
 	event.Call("Render3DInitialized")
 end
 
-function render3d.BindPipeline()
-	render3d.gbuffer_pipeline:Bind(render.GetCommandBuffer())
-end
+function render3d.UploadGBufferConstants(cmd)
+	if not render3d.gbuffer_pipeline then return end
 
-function render3d.UploadConstants(cmd)
-	if render3d.gbuffer_pipeline then
-		do
-			cmd:SetCullMode(render3d.GetMaterial():GetDoubleSided() and "none" or orientation.CULL_MODE)
-		end
-
-		render3d.gbuffer_pipeline:UploadConstants(cmd)
-	end
+	cmd:SetCullMode(render3d.GetMaterial():GetDoubleSided() and "none" or orientation.CULL_MODE)
+	render3d.gbuffer_pipeline:UploadConstants(cmd)
 end
 
 do
 	render3d.camera = render3d.camera or Camera3D.New()
 	render3d.world_matrix = render3d.world_matrix or Matrix44()
+	render3d.prev_view_matrix = render3d.prev_view_matrix or Matrix44()
+	render3d.prev_projection_matrix = render3d.prev_projection_matrix or Matrix44()
 
 	function render3d.GetCamera()
 		return render3d.camera

@@ -338,7 +338,7 @@ function META:OnDraw3DGeometry(cmd, dt)
 					prim.material or
 					render3d.GetDefaultMaterial()
 			)
-			render3d.UploadConstants(cmd)
+			render3d.UploadGBufferConstants(cmd)
 			prim.polygon3d:Draw(cmd, i)
 		end
 	end
@@ -382,7 +382,7 @@ function META:DrawOcclusionQuery(cmd)
 						prim.material or
 						render3d.GetDefaultMaterial()
 				)
-				render3d.UploadConstants(cmd)
+				render3d.UploadGBufferConstants(cmd)
 				prim.polygon3d:Draw(cmd, i)
 			end
 		end

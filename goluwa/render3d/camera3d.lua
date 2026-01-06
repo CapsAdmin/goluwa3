@@ -11,6 +11,7 @@ do
 	META:GetSet("NearZ", 0.1, {callback = "InvalidateProjectionMatrix"})
 	META:GetSet("FarZ", 32000, {callback = "InvalidateProjectionMatrix"})
 	META:GetSet("Viewport", Rect(0, 0, 1000, 1000), {callback = "InvalidateProjectionMatrix"})
+	META:GetSet("Jitter", Vec3(0, 0, 0), {callback = "InvalidateProjectionMatrix"})
 
 	function META:InvalidateProjectionMatrix()
 		self.ProjectionMatrix = nil
@@ -20,14 +21,21 @@ do
 		if self.ProjectionMatrix then return self.ProjectionMatrix end
 
 		self.ProjectionMatrix = Matrix44()
-		self.ProjectionMatrix:Translate(self.Viewport.x, self.Viewport.y, 0)
 
 		if self.OrthoMode then
+			self.ProjectionMatrix:Translate(self.Viewport.x, self.Viewport.y, 0)
 			local mult = 100 * self.FOV
 			local ratio = self.Viewport.h / self.Viewport.w
 			self.ProjectionMatrix:Ortho(-mult, mult, mult * ratio, -mult * ratio, -32000 * 2, 32000)
 		else
 			self.ProjectionMatrix:Perspective(self.FOV, self.NearZ, self.FarZ, self.Viewport.w / self.Viewport.h)
+			self.ProjectionMatrix:Translate(self.Viewport.x, self.Viewport.y, 0)
+		end
+
+		if self.Jitter.x ~= 0 or self.Jitter.y ~= 0 then
+			local jitter_matrix = Matrix44()
+			jitter_matrix:Translate(self.Jitter.x * 2 / self.Viewport.w, self.Jitter.y * 2 / self.Viewport.h, 0)
+			self.ProjectionMatrix:Multiply(jitter_matrix)
 		end
 
 		return self.ProjectionMatrix
