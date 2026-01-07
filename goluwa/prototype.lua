@@ -913,7 +913,7 @@ do -- base object
 
 			if self.OnRemove then self:OnRemove(...) end
 
-			if not event_added and _G.event then
+			if not event_added and event then
 				event.AddListener("Update", "prototype_remove_objects", function()
 					if #prototype.remove_these > 0 then
 						for _, obj in ipairs(prototype.remove_these) do
