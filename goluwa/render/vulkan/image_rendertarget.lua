@@ -11,13 +11,14 @@ local Framebuffer = require("render.vulkan.internal.framebuffer")
 local Texture = require("render.texture")
 local event = require("event")
 local ImageRenderTarget = prototype.CreateTemplate("vulkan", "image_rendertarget")
+local USE_HDR = true
 local default_config = {
 	-- Mode selection
 	offscreen = false, -- Set to true for offscreen rendering
 	-- Swapchain settings (windowed mode only)
 	present_mode = "fifo_khr", -- FIFO (vsync), IMMEDIATE (no vsync), MAILBOX (triple buffer)
 	image_count = nil, -- nil = minImageCount + 1 (usually triple buffer)
-	surface_format_index = 1, -- Which format from available formats to use
+	-- surface_format_index: nil = auto-select (HDR if available), or specify index manually
 	composite_alpha = "opaque_khr", -- OPAQUE, PRE_MULTIPLIED, POST_MULTIPLIED, INHERIT
 	clipped = true, -- Clip pixels obscured by other windows
 	image_usage = nil, -- nil = COLOR_ATTACHMENT | TRANSFER_DST, or provide custom flags
@@ -66,22 +67,91 @@ local function choose_format(self)
 		error("No surface formats available! Surface may not be properly initialized.")
 	end
 
-	if self.config.surface_format_index > #self.surface_formats then
+	local chosen_format_index = self.config.surface_format_index
+
+	if not chosen_format_index then
+		if USE_HDR then
+			-- Prioritize HDR formats
+			local preferred_hdr_formats = {
+				"r16g16b16a16_sfloat",
+				"a2b10g10r10_unorm_pack32",
+				"a2r10g10b10_unorm_pack32",
+			}
+			-- Try to find high-quality formats with modern color spaces first
+			local preferred_color_spaces = {
+				"extended_srgb_linear_ext",
+				"hdr10_st2084_ext",
+				"hdr10_hlg_ext",
+				"bt2020_linear_ext",
+				"bt709_linear_ext",
+				"srgb_nonlinear_khr",
+			}
+
+			for _, cs in ipairs(preferred_color_spaces) do
+				for _, fmt in ipairs(preferred_hdr_formats) do
+					for i, available in ipairs(self.surface_formats) do
+						if available.format == fmt and available.color_space == cs then
+							chosen_format_index = i
+
+							break
+						end
+					end
+
+					if chosen_format_index then break end
+				end
+
+				if chosen_format_index then break end
+			end
+		end
+
+		if not chosen_format_index then
+			-- Prefer SRGB formats for automatic gamma correction
+			local preferred_formats = {
+				"b8g8r8a8_srgb",
+				"r8g8b8a8_srgb",
+				"a2b10g10r10_unorm_pack32",
+				"a2r10g10b10_unorm_pack32",
+				"r16g16b16a16_sfloat",
+				"b8g8r8a8_unorm",
+				"r8g8b8a8_unorm",
+			}
+
+			for _, preferred in ipairs(preferred_formats) do
+				for i, available in ipairs(self.surface_formats) do
+					if available.format == preferred then
+						chosen_format_index = i
+
+						break
+					end
+				end
+
+				if chosen_format_index then break end
+			end
+		end
+	end
+
+	chosen_format_index = chosen_format_index or 1
+
+	if chosen_format_index > #self.surface_formats then
 		error(
-			"Invalid surface_format_index: " .. self.config.surface_format_index .. " (max: " .. (
+			"Invalid surface_format_index: " .. chosen_format_index .. " (max: " .. (
 					#self.surface_formats
 				) .. ")"
 		)
 	end
 
-	if self.surface_formats[self.config.surface_format_index].format == "undefined" then
+	if self.surface_formats[chosen_format_index].format == "undefined" then
 		error("selected surface format is undefined!")
 	end
 
 	self.samples = self.config.samples or "4"
 	self.depth_format = "d32_sfloat"
-	self.surface_format = self.surface_formats[self.config.surface_format_index]
+	self.surface_format = self.surface_formats[chosen_format_index]
 	self.color_format = self.surface_format.format
+	logn(
+		"Chosen surface format: " .. self.color_format .. ", color space: " .. self.surface_format.color_space
+	)
+	table.print(self.surface_formats)
 end
 
 local function create_swapchain(self)
@@ -274,6 +344,32 @@ end
 
 function ImageRenderTarget:GetSamples()
 	return self.samples
+end
+
+function ImageRenderTarget:RequiresManualGamma()
+	if self.color_format:find("_srgb$") then return false end
+
+	if self.color_format:find("_sfloat$") then return false end
+
+	if self.surface_format and self.surface_format.color_space:find("_linear_") then
+		return false
+	end
+
+	return true
+end
+
+function ImageRenderTarget:IsHDR()
+	if self.color_format:find("_sfloat$") then return true end
+
+	if self.surface_format then
+		local cs = self.surface_format.color_space
+
+		if cs:find("hdr10") or cs:find("bt2020") or cs:find("extended") then
+			return true
+		end
+	end
+
+	return false
 end
 
 function ImageRenderTarget:GetImageView()

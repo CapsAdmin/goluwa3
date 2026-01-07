@@ -44,7 +44,7 @@ function render.Initialize(config)
 			{
 				present_mode = "immediate_khr", --"fifo_khr",
 				image_count = nil, -- Use default (minImageCount + 1)
-				surface_format_index = 1,
+				--surface_format_index = 1,
 				composite_alpha = "opaque_khr",
 				width = size.x,
 				height = size.y,

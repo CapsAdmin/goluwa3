@@ -31,6 +31,7 @@ function VulkanInstance.New(surface_handle, display_handle)
 		local surface_ext = jit.os == "OSX" and "VK_EXT_metal_surface" or "VK_KHR_wayland_surface"
 		table.insert(extensions, "VK_KHR_surface")
 		table.insert(extensions, surface_ext)
+		table.insert(extensions, "VK_EXT_swapchain_colorspace")
 	end
 
 	if jit.os == "OSX" then

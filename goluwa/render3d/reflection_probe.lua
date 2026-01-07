@@ -306,7 +306,7 @@ function reflection_probe.CreatePipelines()
 	reflection_probe.scene_pipeline = EasyPipeline.New(
 		{
 			color_format = {
-				{"b10g11r11_ufloat_pack32", {"color", "rgba"}},
+				{"r16g16b16a16_sfloat", {"color", "rgba"}},
 				{"r32_sfloat", {"linear_depth", "r"}},
 			},
 			depth_format = "d32_sfloat",
@@ -593,7 +593,7 @@ function reflection_probe.CreatePipelines()
 	reflection_probe.sky_pipeline = EasyPipeline.New(
 		{
 			color_format = {
-				{"b10g11r11_ufloat_pack32", {"color", "rgba"}},
+				{"r16g16b16a16_sfloat", {"color", "rgba"}},
 				{"r32_sfloat", {"linear_depth", "r"}},
 			},
 			samples = "1",
@@ -701,7 +701,7 @@ function reflection_probe.CreatePipelines()
 	-- Prefilter pipeline for IBL
 	reflection_probe.prefilter_pipeline = EasyPipeline.New(
 		{
-			color_format = {{"b10g11r11_ufloat_pack32", {"color", "rgba"}}},
+			color_format = {{"r16g16b16a16_sfloat", {"color", "rgba"}}},
 			samples = "1",
 			vertex = {
 				push_constants = {

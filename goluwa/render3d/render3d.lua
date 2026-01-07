@@ -15,7 +15,6 @@ local GetBlueNoiseTexture = require("render.textures.blue_noise")
 local Light = require("components.light")
 local Framebuffer = require("render.framebuffer")
 local system = require("system")
-local SMAA = require("render3d.smaa")
 local render3d = library()
 package.loaded["render3d.render3d"] = render3d
 local atmosphere = require("render3d.atmosphere")
@@ -197,7 +196,7 @@ local pipelines = {
 			{"r8g8b8a8_unorm", {"albedo", "rgb"}, {"alpha", "a"}},
 			{"r16g16b16a16_sfloat", {"normal", "rgb"}},
 			{"r8g8b8a8_unorm", {"metallic", "r"}, {"roughness", "g"}, {"ao", "b"}},
-			{"r8g8b8a8_unorm", {"emissive", "rgb"}},
+			{"r16g16b16a16_sfloat", {"emissive", "rgb"}}, -- HDR emissive can exceed 1.0
 		},
 		depth_format = "d32_sfloat",
 		vertex = {
@@ -1744,16 +1743,30 @@ local pipelines = {
 								block[key] = self:GetTextureIndex(render3d.pipelines.lighting:GetFramebuffer(current_idx):GetAttachment(1))
 							end,
 						},
+						{
+							"requires_manual_gamma",
+							"int",
+							function(self, block, key)
+								block[key] = render.target:RequiresManualGamma() and 1 or 0
+							end,
+						},
+						{
+							"is_hdr",
+							"int",
+							function(self, block, key)
+								block[key] = render.target:IsHDR() and 1 or 0
+							end,
+						},
 					},
 				},
 			},
 			shader = [[
-
 			layout(location = 0) out vec4 frag_color;
 
 			// https://knarkowicz.wordpress.com/2016/01/06/aces-filmic-tone-mapping-curve/
 			vec3 ACESFilm(vec3 x){
-				return clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), 0.0, 1.0);
+				vec3 res = (x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14);
+				return clamp(res, 0.0, 1.0);
 			}
 
 			#define GAMMA 2.2
@@ -1769,11 +1782,12 @@ local pipelines = {
 				}
 				vec3 col = texture(TEXTURE(pc.blit.tex), in_uv).rgb;
 
-				// Tone mapping
-				col = ACESFilm(col);
+				if (pc.blit.is_hdr == 0)
+					col = ACESFilm(col);
 
-				col = gamma(col);
-				
+				if (pc.blit.requires_manual_gamma == 1)
+					col = gamma(col);
+					
 				frag_color = vec4(col, 1.0);
 			}
 		]],
