@@ -236,6 +236,7 @@ do
 			return vec4(clamp(r, 0.05, 0.999));
 		]],
 			normal = "return vec4(getDetailNormal(p, n, 1.0) * 0.5 + 0.5, 1.0);",
+		--heightmap = [[return vec4(length(getTriplanar(12.0*p, n)));]],
 		}
 	)
 	-- (1, 1) Silver
@@ -393,7 +394,7 @@ do -- reflection plane
 	reflection_mat:SetMetallicTexture(shaded_texture("return vec4(1.0);"))
 	reflection_mat:SetRoughnessTexture(shaded_texture("return vec4(0.0);"))
 	local poly = Polygon3D.New()
-	poly:CreateCube(1)
+	poly:CreateSphere(1)
 	poly.material = reflection_mat
 	poly:AddSubMesh(#poly.Vertices)
 	poly:Upload()
