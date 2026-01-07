@@ -675,6 +675,16 @@ end
 function Texture:Shade(glsl, extra_config)
 	if not self.image then error("Cannot shade: texture has no image") end
 
+	if glsl:find("vec4 shade") then
+		-- Already a full function
+	else
+		glsl = [[
+			vec4 shade(vec2 uv, vec3 dir) {
+				]] .. glsl .. [[
+			}
+		]]
+	end
+
 	extra_config = extra_config or {}
 	local header = extra_config.header or ""
 	local device = render.GetDevice()
@@ -778,10 +788,7 @@ function Texture:Shade(glsl, extra_config)
 						) .. [[
 
 							]] .. header .. [[
-
-							vec4 shade(vec2 uv, vec3 dir) {
-								]] .. glsl .. [[
-							}
+							]] .. glsl .. [[
 
 							void main() {
 								out_color = shade(in_uv, in_dir);
