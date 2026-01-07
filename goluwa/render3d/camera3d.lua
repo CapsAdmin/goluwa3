@@ -1,5 +1,6 @@
 local prototype = require("prototype")
 local Vec3 = require("structs.vec3")
+local Vec2 = require("structs.vec2")
 local Matrix44 = require("structs.matrix44")
 local Quat = require("structs.quat")
 local Rect = require("structs.rect")
@@ -11,7 +12,7 @@ do
 	META:GetSet("NearZ", 0.1, {callback = "InvalidateProjectionMatrix"})
 	META:GetSet("FarZ", 32000, {callback = "InvalidateProjectionMatrix"})
 	META:GetSet("Viewport", Rect(0, 0, 1000, 1000), {callback = "InvalidateProjectionMatrix"})
-	META:GetSet("Jitter", Vec3(0, 0, 0), {callback = "InvalidateProjectionMatrix"})
+	META:GetSet("Jitter", Vec2(0, 0), {callback = "InvalidateProjectionMatrix"})
 
 	function META:InvalidateProjectionMatrix()
 		self.ProjectionMatrix = nil

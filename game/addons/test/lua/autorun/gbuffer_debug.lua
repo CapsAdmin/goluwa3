@@ -46,13 +46,13 @@ local function get_checkerboard_texture()
 end
 
 event.AddListener("Draw2D", "debug_gbuffer", function(cmd, dt)
-	if not render3d.gbuffer_pipeline or not render3d.gbuffer_pipeline:GetFramebuffer() then
+	if not render3d.pipelines.gbuffer or not render3d.pipelines.gbuffer:GetFramebuffer() then
 		return
 	end
 
 	local wnd_size = window:GetSize()
 
-	if not render3d.gbuffer_pipeline then return end
+	if not render3d.pipelines.gbuffer then return end
 
 	local swizzle_to_mode = {
 		r = 1,
@@ -63,16 +63,16 @@ event.AddListener("Draw2D", "debug_gbuffer", function(cmd, dt)
 	}
 
 	if fullscreen_index > 0 then
-		local views = render3d.gbuffer_pipeline:GetDebugViews()
+		local views = render3d.pipelines.gbuffer:GetDebugViews()
 		local tex, name, swizzle
 
 		if fullscreen_index <= #views then
 			local view = views[fullscreen_index]
-			tex = render3d.gbuffer_pipeline:GetFramebuffer():GetAttachment(view.attachment_index)
+			tex = render3d.pipelines.gbuffer:GetFramebuffer():GetAttachment(view.attachment_index)
 			name = view.name
 			swizzle = view.swizzle
 		else
-			tex = render3d.gbuffer_pipeline:GetFramebuffer().depth_texture
+			tex = render3d.pipelines.gbuffer:GetFramebuffer().depth_texture
 			name = "Depth"
 		end
 
@@ -109,8 +109,8 @@ event.AddListener("Draw2D", "debug_gbuffer", function(cmd, dt)
 	render2d.SetColor(1, 1, 1, 1)
 
 	-- Draw color textures
-	for i, view in ipairs(render3d.gbuffer_pipeline:GetDebugViews()) do
-		local tex = render3d.gbuffer_pipeline:GetFramebuffer():GetAttachment(view.attachment_index)
+	for i, view in ipairs(render3d.pipelines.gbuffer:GetDebugViews()) do
+		local tex = render3d.pipelines.gbuffer:GetFramebuffer():GetAttachment(view.attachment_index)
 		-- Draw checkerboard background
 		render2d.PushUV()
 		render2d.SetUV2(0, 0, size / 32, size / 32)
@@ -139,7 +139,7 @@ event.AddListener("Draw2D", "debug_gbuffer", function(cmd, dt)
 	end
 
 	-- Draw depth texture
-	if render3d.gbuffer_pipeline:GetFramebuffer().depth_texture then
+	if render3d.pipelines.gbuffer:GetFramebuffer().depth_texture then
 		-- Draw checkerboard background
 		render2d.PushUV()
 		render2d.SetUV2(0, 0, size / 32, size / 32)
@@ -148,7 +148,7 @@ event.AddListener("Draw2D", "debug_gbuffer", function(cmd, dt)
 		render2d.PopUV()
 		render2d.PushUV()
 		render2d.SetUV2(0, 1, 1, 0)
-		render2d.SetTexture(render3d.gbuffer_pipeline:GetFramebuffer().depth_texture)
+		render2d.SetTexture(render3d.pipelines.gbuffer:GetFramebuffer().depth_texture)
 		render2d.DrawRect(x, y, size, size)
 		render2d.PopUV()
 		-- Draw label
@@ -167,11 +167,11 @@ event.AddListener("KeyInput", "debug_gbuffer_toggle", function(key, press)
 		show_gbuffer = not show_gbuffer
 		print("G-buffer debug: " .. (show_gbuffer and "ON" or "OFF"))
 	elseif key == "f" then
-		local views = render3d.gbuffer_pipeline and render3d.gbuffer_pipeline:GetDebugViews() or {}
+		local views = render3d.pipelines.gbuffer and render3d.pipelines.gbuffer:GetDebugViews() or {}
 		local count = #views + (
-				render3d.gbuffer_pipeline and
-				render3d.gbuffer_pipeline:GetFramebuffer() and
-				render3d.gbuffer_pipeline:GetFramebuffer().depth_texture and
+				render3d.pipelines.gbuffer and
+				render3d.pipelines.gbuffer:GetFramebuffer() and
+				render3d.pipelines.gbuffer:GetFramebuffer().depth_texture and
 				1 or
 				0
 			)

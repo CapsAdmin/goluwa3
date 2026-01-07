@@ -43,6 +43,23 @@ function EasyPipeline.New(config)
 		config.depth_format = config.depth_format()
 	end
 
+	if not config.vertex then
+		config.vertex = {
+			shader = [[
+				layout(location = 0) out vec2 out_uv;
+				void main() {
+					vec2 uv = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
+					gl_Position = vec4(uv * 2.0 - 1.0, 0.0, 1.0);
+					out_uv = uv;
+				}
+			]],
+		}
+		assert(config.fragment)
+		config.fragment.custom_declarations = (config.fragment.custom_declarations or "") .. [[
+			layout(location = 0) in vec2 in_uv;
+		]]
+	end
+
 	-- Resolve color format functions
 	if type(config.color_format) == "table" then
 		for i, format in ipairs(config.color_format) do

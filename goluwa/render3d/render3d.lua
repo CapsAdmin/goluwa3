@@ -58,6 +58,7 @@ local camera_block = {
 		end,
 	},
 }
+render3d.camera_block = camera_block
 local debug_block = {
 	{
 		"debug_cascade_colors",
@@ -138,35 +139,35 @@ local gbuffer_block = {
 		"albedo_tex",
 		"int",
 		function(self, block, key)
-			block[key] = self:GetTextureIndex(render3d.gbuffer_pipeline:GetFramebuffer():GetAttachment(1))
+			block[key] = self:GetTextureIndex(render3d.pipelines.gbuffer:GetFramebuffer():GetAttachment(1))
 		end,
 	},
 	{
 		"normal_tex",
 		"int",
 		function(self, block, key)
-			block[key] = self:GetTextureIndex(render3d.gbuffer_pipeline:GetFramebuffer():GetAttachment(2))
+			block[key] = self:GetTextureIndex(render3d.pipelines.gbuffer:GetFramebuffer():GetAttachment(2))
 		end,
 	},
 	{
 		"mra_tex",
 		"int",
 		function(self, block, key)
-			block[key] = self:GetTextureIndex(render3d.gbuffer_pipeline:GetFramebuffer():GetAttachment(3))
+			block[key] = self:GetTextureIndex(render3d.pipelines.gbuffer:GetFramebuffer():GetAttachment(3))
 		end,
 	},
 	{
 		"emissive_tex",
 		"int",
 		function(self, block, key)
-			block[key] = self:GetTextureIndex(render3d.gbuffer_pipeline:GetFramebuffer():GetAttachment(4))
+			block[key] = self:GetTextureIndex(render3d.pipelines.gbuffer:GetFramebuffer():GetAttachment(4))
 		end,
 	},
 	{
 		"depth_tex",
 		"int",
 		function(self, block, key)
-			block[key] = self:GetTextureIndex(render3d.gbuffer_pipeline:GetFramebuffer():GetDepthTexture())
+			block[key] = self:GetTextureIndex(render3d.pipelines.gbuffer:GetFramebuffer():GetDepthTexture())
 		end,
 	},
 }
@@ -175,71 +176,60 @@ local last_frame_block = {
 		"last_frame_tex",
 		"int",
 		function(self, block, key)
-			if not render3d.lighting_pipeline or not render3d.lighting_pipeline.framebuffers then
+			if not render3d.pipelines.lighting or not render3d.pipelines.lighting.framebuffers then
 				block[key] = -1
 				return
 			end
 
 			local prev_idx = (system.GetFrameNumber() + 1) % 2 + 1
-			block[key] = self:GetTextureIndex(render3d.lighting_pipeline:GetFramebuffer(prev_idx):GetAttachment(1))
+			block[key] = self:GetTextureIndex(render3d.pipelines.lighting:GetFramebuffer(prev_idx):GetAttachment(1))
 		end,
 	},
 }
-local quad_vertex_config = {
-	shader = [[
-		layout(location = 0) out vec2 out_uv;
-		void main() {
-			vec2 uv = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
-			gl_Position = vec4(uv * 2.0 - 1.0, 0.0, 1.0);
-			out_uv = uv;
-		}
-	]],
-	fragment_code = [[
-		layout(location = 0) in vec2 in_uv;
-	]],
-}
-render3d.gbuffer_config = {
-	on_draw = function(self, cmd)
-		event.Call("PreDraw3D", cmd, dt)
-		event.Call("Draw3DGeometry", cmd, dt)
-	end,
-	color_format = {
-		{"r8g8b8a8_unorm", {"albedo", "rgb"}, {"alpha", "a"}},
-		{"r16g16b16a16_sfloat", {"normal", "rgb"}},
-		{"r8g8b8a8_unorm", {"metallic", "r"}, {"roughness", "g"}, {"ao", "b"}},
-		{"r8g8b8a8_unorm", {"emissive", "rgb"}},
-	},
-	depth_format = "d32_sfloat",
-	vertex = {
-		binding_index = 0,
-		attributes = {
-			{"position", "vec3", "r32g32b32_sfloat"},
-			{"normal", "vec3", "r32g32b32_sfloat"},
-			{"uv", "vec2", "r32g32_sfloat"},
-			{"tangent", "vec4", "r32g32b32a32_sfloat"},
+local pipelines = {
+	{
+		name = "gbuffer",
+		on_draw = function(self, cmd)
+			event.Call("PreDraw3D", cmd, dt)
+			event.Call("Draw3DGeometry", cmd, dt)
+		end,
+		color_format = {
+			{"r8g8b8a8_unorm", {"albedo", "rgb"}, {"alpha", "a"}},
+			{"r16g16b16a16_sfloat", {"normal", "rgb"}},
+			{"r8g8b8a8_unorm", {"metallic", "r"}, {"roughness", "g"}, {"ao", "b"}},
+			{"r8g8b8a8_unorm", {"emissive", "rgb"}},
 		},
-		push_constants = {
-			{
-				name = "vertex",
-				block = {
-					{
-						"projection_view_world",
-						"mat4",
-						function(self, block, key)
-							render3d.GetProjectionViewWorldMatrix():CopyToFloatPointer(block[key])
-						end,
-					},
-					{
-						"world",
-						"mat4",
-						function(self, block, key)
-							render3d.GetWorldMatrix():CopyToFloatPointer(block[key])
-						end,
+		depth_format = "d32_sfloat",
+		vertex = {
+			binding_index = 0,
+			attributes = {
+				{"position", "vec3", "r32g32b32_sfloat"},
+				{"normal", "vec3", "r32g32b32_sfloat"},
+				{"uv", "vec2", "r32g32_sfloat"},
+				{"tangent", "vec4", "r32g32b32a32_sfloat"},
+			},
+			push_constants = {
+				{
+					name = "vertex",
+					block = {
+						{
+							"projection_view_world",
+							"mat4",
+							function(self, block, key)
+								render3d.GetProjectionViewWorldMatrix():CopyToFloatPointer(block[key])
+							end,
+						},
+						{
+							"world",
+							"mat4",
+							function(self, block, key)
+								render3d.GetWorldMatrix():CopyToFloatPointer(block[key])
+							end,
+						},
 					},
 				},
 			},
-		},
-		shader = [[
+			shader = [[
 			void main() {
 				gl_Position = pc.vertex.projection_view_world * vec4(in_position, 1.0);
 				out_position = (pc.vertex.world * vec4(in_position, 1.0)).xyz;						
@@ -248,114 +238,114 @@ render3d.gbuffer_config = {
 				out_uv = in_uv;
 			}
 		]],
-	},
-	fragment = {
-		push_constants = {
-			{
-				name = "model",
-				block = {
-					{
-						"Flags",
-						"int",
-						function(self, block, key)
-							block[key] = render3d.GetMaterial():GetFillFlags()
-						end,
-					},
-					{
-						"AlbedoTexture",
-						"int",
-						function(self, block, key)
-							block[key] = render3d.gbuffer_pipeline:GetTextureIndex(render3d.GetMaterial():GetAlbedoTexture())
-						end,
-					},
-					{
-						"NormalTexture",
-						"int",
-						function(self, block, key)
-							block[key] = render3d.gbuffer_pipeline:GetTextureIndex(render3d.GetMaterial():GetNormalTexture())
-						end,
-					},
-					{
-						"MetallicRoughnessTexture",
-						"int",
-						function(self, block, key)
-							block[key] = render3d.gbuffer_pipeline:GetTextureIndex(render3d.GetMaterial():GetMetallicRoughnessTexture())
-						end,
-					},
-					{
-						"AmbientOcclusionTexture",
-						"int",
-						function(self, block, key)
-							block[key] = render3d.gbuffer_pipeline:GetTextureIndex(render3d.GetMaterial():GetAmbientOcclusionTexture())
-						end,
-					},
-					{
-						"EmissiveTexture",
-						"int",
-						function(self, block, key)
-							block[key] = render3d.gbuffer_pipeline:GetTextureIndex(render3d.GetMaterial():GetEmissiveTexture())
-						end,
-					},
-					{
-						"ColorMultiplier",
-						"vec4",
-						function(self, block, key)
-							render3d.GetMaterial():GetColorMultiplier():CopyToFloatPointer(block[key])
-						end,
-					},
-					{
-						"MetallicMultiplier",
-						"float",
-						function(self, block, key)
-							block[key] = render3d.GetMaterial():GetMetallicMultiplier()
-						end,
-					},
-					{
-						"RoughnessMultiplier",
-						"float",
-						function(self, block, key)
-							block[key] = render3d.GetMaterial():GetRoughnessMultiplier()
-						end,
-					},
-					{
-						"AmbientOcclusionMultiplier",
-						"float",
-						function(self, block, key)
-							block[key] = render3d.GetMaterial():GetAmbientOcclusionMultiplier()
-						end,
-					},
-					{
-						"EmissiveMultiplier",
-						"vec4",
-						function(self, block, key)
-							render3d.GetMaterial():GetEmissiveMultiplier():CopyToFloatPointer(block[key])
-						end,
-					},
-					{
-						"AlphaCutoff",
-						"float",
-						function(self, block, key)
-							block[key] = render3d.GetMaterial():GetAlphaCutoff()
-						end,
-					},
-					{
-						"MetallicTexture",
-						"int",
-						function(self, block, key)
-							block[key] = render3d.gbuffer_pipeline:GetTextureIndex(render3d.GetMaterial():GetMetallicTexture())
-						end,
-					},
-					{
-						"RoughnessTexture",
-						"int",
-						function(self, block, key)
-							block[key] = render3d.gbuffer_pipeline:GetTextureIndex(render3d.GetMaterial():GetRoughnessTexture())
-						end,
+		},
+		fragment = {
+			push_constants = {
+				{
+					name = "model",
+					block = {
+						{
+							"Flags",
+							"int",
+							function(self, block, key)
+								block[key] = render3d.GetMaterial():GetFillFlags()
+							end,
+						},
+						{
+							"AlbedoTexture",
+							"int",
+							function(self, block, key)
+								block[key] = render3d.pipelines.gbuffer:GetTextureIndex(render3d.GetMaterial():GetAlbedoTexture())
+							end,
+						},
+						{
+							"NormalTexture",
+							"int",
+							function(self, block, key)
+								block[key] = render3d.pipelines.gbuffer:GetTextureIndex(render3d.GetMaterial():GetNormalTexture())
+							end,
+						},
+						{
+							"MetallicRoughnessTexture",
+							"int",
+							function(self, block, key)
+								block[key] = render3d.pipelines.gbuffer:GetTextureIndex(render3d.GetMaterial():GetMetallicRoughnessTexture())
+							end,
+						},
+						{
+							"AmbientOcclusionTexture",
+							"int",
+							function(self, block, key)
+								block[key] = render3d.pipelines.gbuffer:GetTextureIndex(render3d.GetMaterial():GetAmbientOcclusionTexture())
+							end,
+						},
+						{
+							"EmissiveTexture",
+							"int",
+							function(self, block, key)
+								block[key] = render3d.pipelines.gbuffer:GetTextureIndex(render3d.GetMaterial():GetEmissiveTexture())
+							end,
+						},
+						{
+							"ColorMultiplier",
+							"vec4",
+							function(self, block, key)
+								render3d.GetMaterial():GetColorMultiplier():CopyToFloatPointer(block[key])
+							end,
+						},
+						{
+							"MetallicMultiplier",
+							"float",
+							function(self, block, key)
+								block[key] = render3d.GetMaterial():GetMetallicMultiplier()
+							end,
+						},
+						{
+							"RoughnessMultiplier",
+							"float",
+							function(self, block, key)
+								block[key] = render3d.GetMaterial():GetRoughnessMultiplier()
+							end,
+						},
+						{
+							"AmbientOcclusionMultiplier",
+							"float",
+							function(self, block, key)
+								block[key] = render3d.GetMaterial():GetAmbientOcclusionMultiplier()
+							end,
+						},
+						{
+							"EmissiveMultiplier",
+							"vec4",
+							function(self, block, key)
+								render3d.GetMaterial():GetEmissiveMultiplier():CopyToFloatPointer(block[key])
+							end,
+						},
+						{
+							"AlphaCutoff",
+							"float",
+							function(self, block, key)
+								block[key] = render3d.GetMaterial():GetAlphaCutoff()
+							end,
+						},
+						{
+							"MetallicTexture",
+							"int",
+							function(self, block, key)
+								block[key] = render3d.pipelines.gbuffer:GetTextureIndex(render3d.GetMaterial():GetMetallicTexture())
+							end,
+						},
+						{
+							"RoughnessTexture",
+							"int",
+							function(self, block, key)
+								block[key] = render3d.pipelines.gbuffer:GetTextureIndex(render3d.GetMaterial():GetRoughnessTexture())
+							end,
+						},
 					},
 				},
 			},
-		},
-		shader = [[
+			shader = [[
 			]] .. Material.BuildGlslFlags("pc.model.Flags") .. [[
 
 			vec3 get_albedo() {
@@ -499,92 +489,91 @@ render3d.gbuffer_config = {
 				set_emissive(get_emissive());
 			}
 		]],
-	},
-	rasterizer = {
-		depth_clamp = false,
-		discard = false,
-		polygon_mode = "fill",
-		line_width = 1.0,
-		cull_mode = orientation.CULL_MODE,
-		front_face = orientation.FRONT_FACE,
-		depth_bias = 0,
-	},
-	dynamic_state = {
-		"cull_mode",
-	},
-	color_blend = {
-		logic_op_enabled = false,
-		logic_op = "copy",
-		constants = {0.0, 0.0, 0.0, 0.0},
-		attachments = {
-			{blend = false, color_write_mask = {"r", "g", "b", "a"}},
-			{blend = false, color_write_mask = {"r", "g", "b", "a"}},
-			{blend = false, color_write_mask = {"r", "g", "b", "a"}},
-			{blend = false, color_write_mask = {"r", "g", "b", "a"}},
+		},
+		rasterizer = {
+			depth_clamp = false,
+			discard = false,
+			polygon_mode = "fill",
+			line_width = 1.0,
+			cull_mode = orientation.CULL_MODE,
+			front_face = orientation.FRONT_FACE,
+			depth_bias = 0,
+		},
+		dynamic_state = {
+			"cull_mode",
+		},
+		color_blend = {
+			logic_op_enabled = false,
+			logic_op = "copy",
+			constants = {0.0, 0.0, 0.0, 0.0},
+			attachments = {
+				{blend = false, color_write_mask = {"r", "g", "b", "a"}},
+				{blend = false, color_write_mask = {"r", "g", "b", "a"}},
+				{blend = false, color_write_mask = {"r", "g", "b", "a"}},
+				{blend = false, color_write_mask = {"r", "g", "b", "a"}},
+			},
+		},
+		depth_stencil = {
+			depth_test = true,
+			depth_write = true,
+			depth_compare_op = "less",
+			depth_bounds_test_enabled = false,
+			stencil_test_enabled = false,
 		},
 	},
-	depth_stencil = {
-		depth_test = true,
-		depth_write = true,
-		depth_compare_op = "less",
-		depth_bounds_test_enabled = false,
-		stencil_test_enabled = false,
-	},
-}
-render3d.ssr_config = {
-	color_format = {{"r16g16b16a16_sfloat", {"ssr", "rgba"}}},
-	vertex = quad_vertex_config,
-	fragment = {
-		custom_declarations = quad_vertex_config.fragment_code,
-		uniform_buffers = {
-			{
-				name = "ssr_data",
-				binding_index = 3,
-				block = {
-					camera_block,
-					{
-						"normal_tex",
-						"int",
-						function(self, block, key)
-							block[key] = self:GetTextureIndex(render3d.gbuffer_pipeline:GetFramebuffer():GetAttachment(2))
-						end,
-					},
-					{
-						"mra_tex",
-						"int",
-						function(self, block, key)
-							block[key] = self:GetTextureIndex(render3d.gbuffer_pipeline:GetFramebuffer():GetAttachment(3))
-						end,
-					},
-					{
-						"depth_tex",
-						"int",
-						function(self, block, key)
-							block[key] = self:GetTextureIndex(render3d.gbuffer_pipeline:GetFramebuffer():GetDepthTexture())
-						end,
-					},
-					{
-						"blue_noise_tex",
-						"int",
-						function(self, block, key)
-							block[key] = self:GetTextureIndex(GetBlueNoiseTexture())
-						end,
-					},
-					last_frame_block,
-					common_block,
-					-- NEW: Frame index for temporal noise
-					{
-						"frame_index",
-						"int",
-						function(self, block, key)
-							render3d.ssr_frame_count = (render3d.ssr_frame_count or 0) + 1
-							block[key] = render3d.ssr_frame_count % 256
-						end,
+	{
+		name = "ssr",
+		color_format = {{"r16g16b16a16_sfloat", {"ssr", "rgba"}}},
+		fragment = {
+			uniform_buffers = {
+				{
+					name = "ssr_data",
+					binding_index = 3,
+					block = {
+						camera_block,
+						{
+							"normal_tex",
+							"int",
+							function(self, block, key)
+								block[key] = self:GetTextureIndex(render3d.pipelines.gbuffer:GetFramebuffer():GetAttachment(2))
+							end,
+						},
+						{
+							"mra_tex",
+							"int",
+							function(self, block, key)
+								block[key] = self:GetTextureIndex(render3d.pipelines.gbuffer:GetFramebuffer():GetAttachment(3))
+							end,
+						},
+						{
+							"depth_tex",
+							"int",
+							function(self, block, key)
+								block[key] = self:GetTextureIndex(render3d.pipelines.gbuffer:GetFramebuffer():GetDepthTexture())
+							end,
+						},
+						{
+							"blue_noise_tex",
+							"int",
+							function(self, block, key)
+								block[key] = self:GetTextureIndex(GetBlueNoiseTexture())
+							end,
+						},
+						last_frame_block,
+						common_block,
+						-- NEW: Frame index for temporal noise
+						{
+							"frame_index",
+							"int",
+							function(self, block, key)
+								render3d.ssr_frame_count = (render3d.ssr_frame_count or 0) + 1
+								block[key] = render3d.ssr_frame_count % 256
+							end,
+						},
 					},
 				},
 			},
-		},
-		shader = [[            
+			shader = [[            
 			vec3 get_normal() {
 				return texture(TEXTURE(ssr_data.normal_tex), in_uv).xyz;
 			}
@@ -774,91 +763,91 @@ render3d.ssr_config = {
                 set_ssr(current);
             }
         ]],
+		},
+		rasterizer = {
+			cull_mode = "none",
+		},
+		depth_stencil = {
+			depth_test = false,
+			depth_write = false,
+		},
 	},
-	rasterizer = {
-		cull_mode = "none",
-	},
-	depth_stencil = {
-		depth_test = false,
-		depth_write = false,
-	},
-}
-render3d.ssr_resolve_config = {
-	framebuffer_count = 2,
-	vertex = quad_vertex_config,
-	fragment = {
-		custom_declarations = quad_vertex_config.fragment_code,
-		uniform_buffers = {
-			{
-				name = "resolve_data",
-				binding_index = 3,
-				block = {
-					camera_block,
-					{
-						"current_ssr_tex",
-						"int",
-						function(self, block, key)
-							if not render3d.ssr_pipeline then
-								block[key] = -1
-								return
-							end
+	{
+		name = "ssr_resolve",
+		color_format = {{"r16g16b16a16_sfloat", {"ssr", "rgba"}}},
+		framebuffer_count = 2,
+		fragment = {
+			uniform_buffers = {
+				{
+					name = "resolve_data",
+					binding_index = 3,
+					block = {
+						camera_block,
+						{
+							"current_ssr_tex",
+							"int",
+							function(self, block, key)
+								if not render3d.pipelines.ssr then
+									block[key] = -1
+									return
+								end
 
-							block[key] = self:GetTextureIndex(render3d.ssr_pipeline:GetFramebuffer():GetAttachment(1))
-						end,
-					},
-					{
-						"history_ssr_tex",
-						"int",
-						function(self, block, key)
-							if
-								not render3d.ssr_resolve_pipeline or
-								not render3d.ssr_resolve_pipeline.framebuffers
-							then
-								block[key] = -1
-								return
-							end
+								block[key] = self:GetTextureIndex(render3d.pipelines.ssr:GetFramebuffer():GetAttachment(1))
+							end,
+						},
+						{
+							"history_ssr_tex",
+							"int",
+							function(self, block, key)
+								if
+									not render3d.pipelines.ssr_resolve or
+									not render3d.pipelines.ssr_resolve.framebuffers
+								then
+									block[key] = -1
+									return
+								end
 
-							local prev_idx = (system.GetFrameNumber() + 1) % 2 + 1
-							block[key] = self:GetTextureIndex(render3d.ssr_resolve_pipeline:GetFramebuffer(prev_idx):GetAttachment(1))
-						end,
-					},
-					{
-						"depth_tex",
-						"int",
-						function(self, block, key)
-							block[key] = self:GetTextureIndex(render3d.gbuffer_pipeline:GetFramebuffer():GetDepthTexture())
-						end,
-					},
-					{
-						"prev_inv_view",
-						"mat4",
-						function(self, block, key)
-							local mat = render3d.prev_view_matrix
+								local prev_idx = (system.GetFrameNumber() + 1) % 2 + 1
+								block[key] = self:GetTextureIndex(render3d.pipelines.ssr_resolve:GetFramebuffer(prev_idx):GetAttachment(1))
+							end,
+						},
+						{
+							"depth_tex",
+							"int",
+							function(self, block, key)
+								block[key] = self:GetTextureIndex(render3d.pipelines.gbuffer:GetFramebuffer():GetDepthTexture())
+							end,
+						},
+						{
+							"prev_inv_view",
+							"mat4",
+							function(self, block, key)
+								local mat = render3d.prev_view_matrix
 
-							if mat then
-								mat:GetInverse():CopyToFloatPointer(block[key])
-							else
-								render3d.camera:BuildViewMatrix():GetInverse():CopyToFloatPointer(block[key])
-							end
-						end,
-					},
-					{
-						"prev_projection",
-						"mat4",
-						function(self, block, key)
-							local mat = render3d.prev_projection_matrix
+								if mat then
+									mat:GetInverse():CopyToFloatPointer(block[key])
+								else
+									render3d.camera:BuildViewMatrix():GetInverse():CopyToFloatPointer(block[key])
+								end
+							end,
+						},
+						{
+							"prev_projection",
+							"mat4",
+							function(self, block, key)
+								local mat = render3d.prev_projection_matrix
 
-							if mat then
-								mat:CopyToFloatPointer(block[key])
-							else
-								render3d.camera:BuildProjectionMatrix():CopyToFloatPointer(block[key])
-							end
-						end,
+								if mat then
+									mat:CopyToFloatPointer(block[key])
+								else
+									render3d.camera:BuildProjectionMatrix():CopyToFloatPointer(block[key])
+								end
+							end,
+						},
 					},
 				},
 			},
-		},
-		shader = [[
+			shader = [[
 			float get_depth() {
 				return texture(TEXTURE(resolve_data.depth_tex), in_uv).r;
 			}
@@ -955,291 +944,290 @@ render3d.ssr_resolve_config = {
 				set_ssr(result);
 			}
 		]],
+		},
+		rasterizer = {
+			cull_mode = "none",
+		},
+		depth_stencil = {
+			depth_test = false,
+			depth_write = false,
+		},
 	},
-	rasterizer = {
-		cull_mode = "none",
-	},
-	depth_stencil = {
-		depth_test = false,
-		depth_write = false,
-	},
-}
-render3d.lighting_config = {
-	color_format = {{"r16g16b16a16_sfloat", {"color", "rgba"}}},
-	framebuffer_count = 2,
-	vertex = quad_vertex_config,
-	fragment = {
-		custom_declarations = quad_vertex_config.fragment_code,
-		uniform_buffers = {
-			{
-				name = "lighting_data",
-				binding_index = 3,
-				block = {
-					camera_block,
-					{
-						"ssao_kernel",
-						"vec3",
-						function(self, block, key)
-							local kernel = {}
-
-							for i = 1, 64 do
-								math.randomseed(i)
-								local sample = Vec3(math.random() * 2 - 1, math.random() * 2 - 1, math.random()):Normalize()
-								sample = sample * math.random()
-								local scale = (i - 1) / 64
-								scale = math.lerp(0.1, 1.0, scale * scale)
-								sample = sample * scale
-								table.insert(kernel, sample)
-							end
-
-							return function(self, block, key)
-								for i, v in ipairs(kernel) do
-									v:CopyToFloatPointer(block[key][i - 1])
-								end
-							end
-						end,
-						64,
-					},
-					{
-						"light_count",
-						"int",
-						function(self, block, key)
-							block[key] = math.min(#render3d.GetLights(), 32)
-						end,
-					},
-					{
-						"lights",
+	{
+		name = "lighting",
+		color_format = {{"r16g16b16a16_sfloat", {"color", "rgba"}}},
+		framebuffer_count = 2,
+		fragment = {
+			uniform_buffers = {
+				{
+					name = "lighting_data",
+					binding_index = 3,
+					block = {
+						camera_block,
 						{
-							{"position", "vec4"},
-							{"color", "vec4"},
-							{"params", "vec4"},
+							"ssao_kernel",
+							"vec3",
+							function(self, block, key)
+								local kernel = {}
+
+								for i = 1, 64 do
+									math.randomseed(i)
+									local sample = Vec3(math.random() * 2 - 1, math.random() * 2 - 1, math.random()):Normalize()
+									sample = sample * math.random()
+									local scale = (i - 1) / 64
+									scale = math.lerp(0.1, 1.0, scale * scale)
+									sample = sample * scale
+									table.insert(kernel, sample)
+								end
+
+								return function(self, block, key)
+									for i, v in ipairs(kernel) do
+										v:CopyToFloatPointer(block[key][i - 1])
+									end
+								end
+							end,
+							64,
 						},
-						function(self, block, key)
-							for i, ent in ipairs(render3d.GetLights()) do
-								local data = block[key][i - 1]
-
-								if ent.light.LightType == "directional" or ent.light.LightType == "sun" then
-									ent.transform:GetRotation():GetForward():CopyToFloatPointer(data.position)
-								else
-									ent.transform:GetPosition():CopyToFloatPointer(data.position)
-								end
-
-								if ent.light.LightType == "directional" or ent.light.LightType == "sun" then
-									data.position[3] = 0
-								elseif ent.light.LightType == "point" then
-									data.position[3] = 1
-								elseif ent.light.LightType == "spot" then
-									data.position[3] = 2
-								else
-									error("Unknown light type: " .. tostring(ent.light.LightType), 2)
-								end
-
-								data.color[0] = ent.light.Color.r
-								data.color[1] = ent.light.Color.g
-								data.color[2] = ent.light.Color.b
-								data.color[3] = ent.light.Intensity
-								data.params[0] = ent.light.Range
-								data.params[1] = ent.light.InnerCone
-								data.params[2] = ent.light.OuterCone
-								data.params[3] = 0
-							end
-						end,
-						32,
-					},
-					{
-						"shadows",
 						{
-							{"light_space_matrices", "mat4", 4},
-							{"cascade_splits", "int", 4},
-							{"shadow_map_indices", "int", 4},
-							{"cascade_count", "int"},
+							"light_count",
+							"int",
+							function(self, block, key)
+								block[key] = math.min(#render3d.GetLights(), 32)
+							end,
 						},
-						function(self, block, key)
-							local sun = nil
+						{
+							"lights",
+							{
+								{"position", "vec4"},
+								{"color", "vec4"},
+								{"params", "vec4"},
+							},
+							function(self, block, key)
+								for i, ent in ipairs(render3d.GetLights()) do
+									local data = block[key][i - 1]
 
-							for i, ent in ipairs(render3d.lights) do
-								if i > 32 then break end
+									if ent.light.LightType == "directional" or ent.light.LightType == "sun" then
+										ent.transform:GetRotation():GetForward():CopyToFloatPointer(data.position)
+									else
+										ent.transform:GetPosition():CopyToFloatPointer(data.position)
+									end
 
+									if ent.light.LightType == "directional" or ent.light.LightType == "sun" then
+										data.position[3] = 0
+									elseif ent.light.LightType == "point" then
+										data.position[3] = 1
+									elseif ent.light.LightType == "spot" then
+										data.position[3] = 2
+									else
+										error("Unknown light type: " .. tostring(ent.light.LightType), 2)
+									end
+
+									data.color[0] = ent.light.Color.r
+									data.color[1] = ent.light.Color.g
+									data.color[2] = ent.light.Color.b
+									data.color[3] = ent.light.Intensity
+									data.params[0] = ent.light.Range
+									data.params[1] = ent.light.InnerCone
+									data.params[2] = ent.light.OuterCone
+									data.params[3] = 0
+								end
+							end,
+							32,
+						},
+						{
+							"shadows",
+							{
+								{"light_space_matrices", "mat4", 4},
+								{"cascade_splits", "int", 4},
+								{"shadow_map_indices", "int", 4},
+								{"cascade_count", "int"},
+							},
+							function(self, block, key)
+								local sun = nil
+
+								for i, ent in ipairs(render3d.lights) do
+									if i > 32 then break end
+
+									if
+										(
+											ent.light.LightType == "sun" or
+											ent.light.LightType == "directional"
+										)
+										and
+										ent.light:GetCastShadows()
+									then
+										sun = ent
+
+										break
+									end
+								end
+
+								if sun then
+									local shadow_map = sun.light:GetShadowMap()
+									local cascade_count = shadow_map:GetCascadeCount()
+
+									for i = 1, cascade_count do
+										block[key].shadow_map_indices[i - 1] = self:GetTextureIndex(shadow_map:GetDepthTexture(i))
+										shadow_map:GetLightSpaceMatrix(i):CopyToFloatPointer(block[key].light_space_matrices[i - 1])
+										block[key].cascade_splits[i - 1] = shadow_map:GetCascadeSplits()[i]
+									end
+
+									block[key].cascade_count = cascade_count
+
+									-- Fill remaining slots with -1
+									for i = cascade_count + 1, 4 do
+										block[key].shadow_map_indices[i - 1] = -1
+									end
+								else
+									block[key].cascade_count = 0
+
+									for i = 0, 3 do
+										block[key].shadow_map_indices[i] = -1
+									end
+								end
+							end,
+						},
+						debug_block,
+						gbuffer_block,
+						{
+							"env_tex",
+							"int",
+							function(self, block, key)
+								block[key] = self:GetTextureIndex(render3d.GetEnvironmentTexture())
+							end,
+						},
+						{
+							"blue_noise_tex",
+							"int",
+							function(self, block, key)
+								block[key] = self:GetTextureIndex(GetBlueNoiseTexture())
+							end,
+						},
+						last_frame_block,
+						common_block,
+						{
+							"stars_texture_index",
+							"int",
+							function(self, block, key)
+								block[key] = self:GetTextureIndex(atmosphere.GetStarsTexture())
+							end,
+						},
+						{
+							"ssr_tex",
+							"int",
+							function(self, block, key)
 								if
-									(
-										ent.light.LightType == "sun" or
-										ent.light.LightType == "directional"
-									)
-									and
-									ent.light:GetCastShadows()
+									not render3d.pipelines.ssr_resolve or
+									not render3d.pipelines.ssr_resolve.framebuffers
 								then
-									sun = ent
-
-									break
-								end
-							end
-
-							if sun then
-								local shadow_map = sun.light:GetShadowMap()
-								local cascade_count = shadow_map:GetCascadeCount()
-
-								for i = 1, cascade_count do
-									block[key].shadow_map_indices[i - 1] = self:GetTextureIndex(shadow_map:GetDepthTexture(i))
-									shadow_map:GetLightSpaceMatrix(i):CopyToFloatPointer(block[key].light_space_matrices[i - 1])
-									block[key].cascade_splits[i - 1] = shadow_map:GetCascadeSplits()[i]
+									block[key] = -1
+									return
 								end
 
-								block[key].cascade_count = cascade_count
+								local current_idx = system.GetFrameNumber() % 2 + 1
+								local current_ssr_fb = render3d.pipelines.ssr_resolve:GetFramebuffer(current_idx)
+								block[key] = self:GetTextureIndex(current_ssr_fb:GetAttachment(1))
+							end,
+						},
+						{
+							"probe_indices",
+							"int",
+							function(self, block, key)
+								if not reflection_probe.IsEnabled() then
+									for i = 0, 63 do
+										block[key][i] = -1
+									end
 
-								-- Fill remaining slots with -1
-								for i = cascade_count + 1, 4 do
-									block[key].shadow_map_indices[i - 1] = -1
+									return
 								end
-							else
-								block[key].cascade_count = 0
 
-								for i = 0, 3 do
-									block[key].shadow_map_indices[i] = -1
-								end
-							end
-						end,
-					},
-					debug_block,
-					gbuffer_block,
-					{
-						"env_tex",
-						"int",
-						function(self, block, key)
-							block[key] = self:GetTextureIndex(render3d.GetEnvironmentTexture())
-						end,
-					},
-					{
-						"blue_noise_tex",
-						"int",
-						function(self, block, key)
-							block[key] = self:GetTextureIndex(GetBlueNoiseTexture())
-						end,
-					},
-					last_frame_block,
-					common_block,
-					{
-						"stars_texture_index",
-						"int",
-						function(self, block, key)
-							block[key] = self:GetTextureIndex(atmosphere.GetStarsTexture())
-						end,
-					},
-					{
-						"ssr_tex",
-						"int",
-						function(self, block, key)
-							if
-								not render3d.ssr_resolve_pipeline or
-								not render3d.ssr_resolve_pipeline.framebuffers
-							then
-								block[key] = -1
-								return
-							end
-
-							local current_idx = system.GetFrameNumber() % 2 + 1
-							local current_ssr_fb = render3d.ssr_resolve_pipeline:GetFramebuffer(current_idx)
-							block[key] = self:GetTextureIndex(current_ssr_fb:GetAttachment(1))
-						end,
-					},
-					{
-						"probe_indices",
-						"int",
-						function(self, block, key)
-							if not reflection_probe.IsEnabled() then
 								for i = 0, 63 do
-									block[key][i] = -1
+									local cubemap = reflection_probe.GetCubemap(i)
+									block[key][i] = cubemap and self:GetTextureIndex(cubemap) or -1
+								end
+							end,
+							64,
+						},
+						{
+							"probe_depth_indices",
+							"int",
+							function(self, block, key)
+								if not reflection_probe.IsEnabled() then
+									for i = 0, 63 do
+										block[key][i] = -1
+									end
+
+									return
 								end
 
-								return
-							end
-
-							for i = 0, 63 do
-								local cubemap = reflection_probe.GetCubemap(i)
-								block[key][i] = cubemap and self:GetTextureIndex(cubemap) or -1
-							end
-						end,
-						64,
-					},
-					{
-						"probe_depth_indices",
-						"int",
-						function(self, block, key)
-							if not reflection_probe.IsEnabled() then
 								for i = 0, 63 do
-									block[key][i] = -1
+									local depth_cubemap = reflection_probe.GetDepthCubemap(i)
+									block[key][i] = depth_cubemap and self:GetTextureIndex(depth_cubemap) or -1
 								end
+							end,
+							64,
+						},
+						{
+							"probe_positions",
+							"vec4",
+							function(self, block, key)
+								if not reflection_probe.IsEnabled() then return end
 
-								return
-							end
+								for i = 0, 63 do
+									local pos = reflection_probe.GetProbePosition(i)
 
-							for i = 0, 63 do
-								local depth_cubemap = reflection_probe.GetDepthCubemap(i)
-								block[key][i] = depth_cubemap and self:GetTextureIndex(depth_cubemap) or -1
-							end
-						end,
-						64,
-					},
-					{
-						"probe_positions",
-						"vec4",
-						function(self, block, key)
-							if not reflection_probe.IsEnabled() then return end
-
-							for i = 0, 63 do
-								local pos = reflection_probe.GetProbePosition(i)
-
-								if pos then
-									block[key][i][0] = pos.x
-									block[key][i][1] = pos.y
-									block[key][i][2] = pos.z
-									block[key][i][3] = 0
-								else
-									block[key][i][0] = 0
-									block[key][i][1] = 0
-									block[key][i][2] = 0
-									block[key][i][3] = -1 -- Mark as invalid
+									if pos then
+										block[key][i][0] = pos.x
+										block[key][i][1] = pos.y
+										block[key][i][2] = pos.z
+										block[key][i][3] = 0
+									else
+										block[key][i][0] = 0
+										block[key][i][1] = 0
+										block[key][i][2] = 0
+										block[key][i][3] = -1 -- Mark as invalid
+									end
 								end
-							end
-						end,
-						64,
-					},
-					{
-						"probe_grid_origin",
-						"vec4",
-						function(self, block, key)
-							local origin = reflection_probe.GRID_ORIGIN
-							block[key][0] = origin.x
-							block[key][1] = origin.y
-							block[key][2] = origin.z
-							block[key][3] = 0
-						end,
-					},
-					{
-						"probe_grid_spacing",
-						"vec4",
-						function(self, block, key)
-							local spacing = reflection_probe.GRID_SPACING
-							block[key][0] = spacing.x
-							block[key][1] = spacing.y
-							block[key][2] = spacing.z
-							block[key][3] = 0
-						end,
-					},
-					{
-						"probe_grid_counts",
-						"ivec4",
-						function(self, block, key)
-							local counts = reflection_probe.GRID_COUNTS
-							block[key][0] = counts.x
-							block[key][1] = counts.y
-							block[key][2] = counts.z
-							block[key][3] = 0
-						end,
+							end,
+							64,
+						},
+						{
+							"probe_grid_origin",
+							"vec4",
+							function(self, block, key)
+								local origin = reflection_probe.GRID_ORIGIN
+								block[key][0] = origin.x
+								block[key][1] = origin.y
+								block[key][2] = origin.z
+								block[key][3] = 0
+							end,
+						},
+						{
+							"probe_grid_spacing",
+							"vec4",
+							function(self, block, key)
+								local spacing = reflection_probe.GRID_SPACING
+								block[key][0] = spacing.x
+								block[key][1] = spacing.y
+								block[key][2] = spacing.z
+								block[key][3] = 0
+							end,
+						},
+						{
+							"probe_grid_counts",
+							"ivec4",
+							function(self, block, key)
+								local counts = reflection_probe.GRID_COUNTS
+								block[key][0] = counts.x
+								block[key][1] = counts.y
+								block[key][2] = counts.z
+								block[key][3] = 0
+							end,
+						},
 					},
 				},
 			},
-		},
-		shader = [[
+			shader = [[
 			vec3 get_albedo() {
 				return texture(TEXTURE(lighting_data.albedo_tex), in_uv).rgb;
 			}
@@ -1632,11 +1620,11 @@ render3d.lighting_config = {
 					vec3 dir = normalize(world_pos - lighting_data.camera_position.xyz);
 					
 					]] .. require("render3d.atmosphere").GetGLSLMainCode(
-				"dir",
-				"sunDir",
-				"lighting_data.camera_position.xyz",
-				"lighting_data.stars_texture_index"
-			) .. [[
+					"dir",
+					"sunDir",
+					"lighting_data.camera_position.xyz",
+					"lighting_data.stars_texture_index"
+				) .. [[
 					
 					set_color(vec4(sky_color_output, 1.0));
 					return;
@@ -1720,46 +1708,46 @@ render3d.lighting_config = {
 				set_color(vec4(color, alpha));
 			}
 		]],
+		},
+		rasterizer = {
+			cull_mode = "none",
+		},
+		depth_stencil = {
+			depth_test = false,
+			depth_write = false,
+		},
 	},
-	rasterizer = {
-		cull_mode = "none",
-	},
-	depth_stencil = {
-		depth_test = false,
-		depth_write = false,
-	},
-}
-render3d.blit_config = {
-	vertex = quad_vertex_config,
-	fragment = {
-		custom_declarations = quad_vertex_config.fragment_code,
-		push_constants = {
-			{
-				name = "blit",
-				block = {
-					{
-						"tex",
-						"int",
-						function(self, block, key)
-							if render3d.smaa_resolve_pipeline and render3d.smaa_resolve_pipeline.framebuffers then
+	require("render3d.pipelines.smaa"),
+	{
+		name = "blit",
+		fragment = {
+			push_constants = {
+				{
+					name = "blit",
+					block = {
+						{
+							"tex",
+							"int",
+							function(self, block, key)
+								if render3d.pipelines.smaa_resolve and render3d.pipelines.smaa_resolve.framebuffers then
+									local current_idx = system.GetFrameNumber() % 2 + 1
+									block[key] = self:GetTextureIndex(render3d.pipelines.smaa_resolve:GetFramebuffer(current_idx):GetAttachment(1))
+									return
+								end
+
+								if not render3d.pipelines.lighting or not render3d.pipelines.lighting.framebuffers then
+									block[key] = -1
+									return
+								end
+
 								local current_idx = system.GetFrameNumber() % 2 + 1
-								block[key] = self:GetTextureIndex(render3d.smaa_resolve_pipeline:GetFramebuffer(current_idx):GetAttachment(1))
-								return
-							end
-
-							if not render3d.lighting_pipeline or not render3d.lighting_pipeline.framebuffers then
-								block[key] = -1
-								return
-							end
-
-							local current_idx = system.GetFrameNumber() % 2 + 1
-							block[key] = self:GetTextureIndex(render3d.lighting_pipeline:GetFramebuffer(current_idx):GetAttachment(1))
-						end,
+								block[key] = self:GetTextureIndex(render3d.pipelines.lighting:GetFramebuffer(current_idx):GetAttachment(1))
+							end,
+						},
 					},
 				},
 			},
-		},
-		shader = [[
+			shader = [[
 
 			layout(location = 0) out vec4 frag_color;
 
@@ -1789,309 +1777,72 @@ render3d.blit_config = {
 				frag_color = vec4(col, 1.0);
 			}
 		]],
-	},
-	rasterizer = {
-		cull_mode = "none",
-	},
-	depth_stencil = {
-		depth_test = false,
-		depth_write = false,
-	},
-}
-render3d.smaa_edge_config = {
-	color_format = {{"r8g8_unorm", {"color", "rg"}}},
-	vertex = quad_vertex_config,
-	fragment = {
-		custom_declarations = quad_vertex_config.fragment_code,
-		push_constants = {
-			{
-				name = "smaa",
-				block = {
-					{
-						"tex",
-						"int",
-						function(self, block, key)
-							local current_idx = system.GetFrameNumber() % 2 + 1
-							block[key] = self:GetTextureIndex(render3d.lighting_pipeline:GetFramebuffer(current_idx):GetAttachment(1))
-						end,
-					},
-				},
-			},
 		},
-		shader = [[
-			float lum(vec3 c) { return dot(c, vec3(0.299, 0.587, 0.114)); }
-			void main() {
-				vec2 uv = in_uv;
-				vec2 texel = 1.0 / vec2(textureSize(TEXTURE(pc.smaa.tex), 0));
-				float l = lum(texture(TEXTURE(pc.smaa.tex), uv).rgb);
-				float l_top = lum(texture(TEXTURE(pc.smaa.tex), uv + vec2(0, -texel.y)).rgb);
-				float l_left = lum(texture(TEXTURE(pc.smaa.tex), uv + vec2(-texel.x, 0)).rgb);
-				vec2 delta = abs(vec2(l) - vec2(l_left, l_top));
-				vec2 edges = step(0.1, delta);
-				set_color(edges);
-			}
-		]],
-	},
-}
-render3d.smaa_weight_config = {
-	color_format = {{"r8g8b8a8_unorm", {"color", "rgba"}}},
-	vertex = quad_vertex_config,
-	fragment = {
-		custom_declarations = quad_vertex_config.fragment_code,
-		push_constants = {
-			{
-				name = "smaa",
-				block = {
-					{
-						"edges_tex",
-						"int",
-						function(self, block, key)
-							block[key] = self:GetTextureIndex(render3d.smaa_edge_pipeline:GetFramebuffer():GetAttachment(1))
-						end,
-					},
-					{
-						"area_tex",
-						"int",
-						function(self, block, key)
-							block[key] = self:GetTextureIndex(render3d.smaa_area_tex)
-						end,
-					},
-					{
-						"search_tex",
-						"int",
-						function(self, block, key)
-							block[key] = self:GetTextureIndex(render3d.smaa_search_tex)
-						end,
-					},
-				},
-			},
+		rasterizer = {
+			cull_mode = "none",
 		},
-		shader = [[
-			// Simplified SMAA weight calculation
-			void main() {
-				vec2 edges = texture(TEXTURE(pc.smaa.edges_tex), in_uv).rg;
-				if (edges.x > 0.0 || edges.y > 0.0) {
-					// Placeholder for complex morphological weight calculation
-					// Real SMAA would use search and area textures here
-					set_color(vec4(edges, 0.0, 1.0));
-				} else {
-					set_color(vec4(0.0, 0.0, 0.0, 0.0));
-				}
-			}
-		]],
-	},
-}
-render3d.smaa_blend_config = {
-	color_format = {{"r16g16b16a16_sfloat", {"color", "rgba"}}},
-	vertex = quad_vertex_config,
-	fragment = {
-		custom_declarations = quad_vertex_config.fragment_code,
-		push_constants = {
-			{
-				name = "smaa",
-				block = {
-					{
-						"color_tex",
-						"int",
-						function(self, block, key)
-							local current_idx = system.GetFrameNumber() % 2 + 1
-							block[key] = self:GetTextureIndex(render3d.lighting_pipeline:GetFramebuffer(current_idx):GetAttachment(1))
-						end,
-					},
-					{
-						"weight_tex",
-						"int",
-						function(self, block, key)
-							block[key] = self:GetTextureIndex(render3d.smaa_weight_pipeline:GetFramebuffer():GetAttachment(1))
-						end,
-					},
-				},
-			},
+		depth_stencil = {
+			depth_test = false,
+			depth_write = false,
 		},
-		shader = [[
-			void main() {
-				vec2 uv = in_uv;
-				vec2 texel = 1.0 / vec2(textureSize(TEXTURE(pc.smaa.color_tex), 0));
-				vec4 weights = texture(TEXTURE(pc.smaa.weight_tex), uv);
-				
-				if (weights.r > 0.0 || weights.g > 0.0) {
-					// Simple mix for now
-					vec4 c = texture(TEXTURE(pc.smaa.color_tex), uv);
-					vec4 c_left = texture(TEXTURE(pc.smaa.color_tex), uv + vec2(-texel.x, 0));
-					vec4 c_top = texture(TEXTURE(pc.smaa.color_tex), uv + vec2(0, -texel.y));
-					vec4 res = c;
-					if (weights.r > 0.0) res = mix(c, c_left, 0.5);
-					if (weights.g > 0.0) res = mix(res, c_top, 0.5);
-					set_color(res);
-				} else {
-					set_color(texture(TEXTURE(pc.smaa.color_tex), uv));
-				}
-			}
-		]],
-	},
-}
-render3d.smaa_resolve_config = {
-	color_format = {{"r16g16b16a16_sfloat", {"color", "rgba"}}},
-	framebuffer_count = 2,
-	vertex = quad_vertex_config,
-	fragment = {
-		custom_declarations = quad_vertex_config.fragment_code,
-		uniform_buffers = {
-			{
-				name = "smaa_data",
-				binding_index = 2,
-				block = {
-					camera_block,
-					{
-						"current_tex",
-						"int",
-						function(self, block, key)
-							block[key] = self:GetTextureIndex(render3d.smaa_blend_pipeline:GetFramebuffer():GetAttachment(1))
-						end,
-					},
-					{
-						"history_tex",
-						"int",
-						function(self, block, key)
-							local prev_idx = (system.GetFrameNumber() + 1) % 2 + 1
-							block[key] = self:GetTextureIndex(render3d.smaa_resolve_pipeline:GetFramebuffer(prev_idx):GetAttachment(1))
-						end,
-					},
-					{
-						"depth_tex",
-						"int",
-						function(self, block, key)
-							block[key] = self:GetTextureIndex(render3d.gbuffer_pipeline:GetFramebuffer().depth_texture)
-						end,
-					},
-					{
-						"prev_view",
-						"mat4",
-						function(self, block, key)
-							render3d.prev_view_matrix:CopyToFloatPointer(block[key])
-						end,
-					},
-					{
-						"prev_projection",
-						"mat4",
-						function(self, block, key)
-							render3d.prev_projection_matrix:CopyToFloatPointer(block[key])
-						end,
-					},
-				},
-			},
-		},
-		shader = [[
-			void main() {
-				vec2 uv = in_uv;
-				float depth = texture(TEXTURE(smaa_data.depth_tex), uv).r;
-				
-				// Reprojection
-				vec4 clip_pos = vec4(uv * 2.0 - 1.0, depth, 1.0);
-				vec4 view_pos = smaa_data.inv_projection * clip_pos;
-				view_pos /= view_pos.w;
-				vec3 world_pos = (smaa_data.inv_view * view_pos).xyz;
-				
-				vec4 prev_view_pos = smaa_data.prev_view * vec4(world_pos, 1.0);
-				vec4 prev_clip = smaa_data.prev_projection * prev_view_pos;
-				prev_clip /= prev_clip.w;
-				vec2 prev_uv = prev_clip.xy * 0.5 + 0.5;
-				
-				vec4 current = texture(TEXTURE(smaa_data.current_tex), uv);
-				
-				if (prev_uv.x < 0.0 || prev_uv.x > 1.0 || prev_uv.y < 0.0 || prev_uv.y > 1.0) {
-					set_color(current);
-					return;
-				}
-				
-				vec4 history = texture(TEXTURE(smaa_data.history_tex), prev_uv);
-				
-				// Neighborhood clamping
-				vec2 texel = 1.0 / vec2(textureSize(TEXTURE(smaa_data.current_tex), 0));
-				
-				// Edge artifact fix: check if we are too close to the edge
-				if (prev_uv.x < texel.x || prev_uv.x > 1.0 - texel.x || prev_uv.y < texel.y || prev_uv.y > 1.0 - texel.y) {
-					set_color(current);
-					return;
-				}
-
-				vec4 m1 = vec4(0.0);
-				vec4 m2 = vec4(0.0);
-				for(int x = -1; x <= 1; x++) {
-					for(int y = -1; y <= 1; y++) {
-						vec4 c = texture(TEXTURE(smaa_data.current_tex), uv + vec2(x,y)*texel);
-						m1 += c;
-						m2 += c*c;
-					}
-				}
-				vec4 mu = m1 / 9.0;
-				vec4 sigma = sqrt(max(vec4(0.0), (m2 / 9.0) - mu*mu));
-				vec4 min_c = mu - 2.0 * sigma; // Increased sigma range for stability
-				vec4 max_c = mu + 2.0 * sigma;
-				history = clamp(history, min_c, max_c);
-				
-				set_color(mix(current, history, 0.85)); // Slightly reduced history weight for less ghosting/jitter
-			}
-		]],
 	},
 }
 
 function render3d.Initialize()
-	-- Create pipelines (framebuffers will be created automatically by EasyPipeline)
-	render3d.gbuffer_pipeline = EasyPipeline.New(render3d.gbuffer_config)
-	render3d.ssr_pipeline = EasyPipeline.New(render3d.ssr_config)
-	render3d.ssr_resolve_config.color_format = render3d.ssr_config.color_format
-	render3d.ssr_resolve_pipeline = EasyPipeline.New(render3d.ssr_resolve_config)
-	render3d.lighting_pipeline = EasyPipeline.New(render3d.lighting_config)
-	render3d.smaa_edge_pipeline = EasyPipeline.New(render3d.smaa_edge_config)
-	render3d.smaa_weight_pipeline = EasyPipeline.New(render3d.smaa_weight_config)
-	render3d.smaa_blend_pipeline = EasyPipeline.New(render3d.smaa_blend_config)
-	render3d.smaa_resolve_pipeline = EasyPipeline.New(render3d.smaa_resolve_config)
-	render3d.blit_pipeline = EasyPipeline.New(render3d.blit_config)
-	-- Generate SMAA lookup textures (only needed once)
-	render3d.smaa_search_tex = SMAA.GenerateSearchTexture()
-	render3d.smaa_area_tex = SMAA.GenerateAreaTexture()
+	render3d.pipelines = {}
+	render3d.pipelines_i = {}
+	local i = 1
+
+	for _, config in ipairs(pipelines) do
+		if config[1] then
+			for _, config in ipairs(config) do
+				render3d.pipelines_i[i] = EasyPipeline.New(config)
+				render3d.pipelines[config.name] = render3d.pipelines_i[i]
+				--
+				render3d.pipelines_i[i].name = config.name
+				render3d.pipelines_i[i].post_draw = config.post_draw
+				i = i + 1
+			end
+		else
+			render3d.pipelines_i[i] = EasyPipeline.New(config)
+			render3d.pipelines[config.name] = render3d.pipelines_i[i]
+			--
+			render3d.pipelines_i[i].name = config.name
+			render3d.pipelines_i[i].post_draw = config.post_draw
+			i = i + 1
+		end
+	end
 
 	event.AddListener("PreRenderPass", "render3d", function(cmd)
-		if not render3d.gbuffer_pipeline then return end
+		if not render3d.pipelines.gbuffer then return end
 
-		render3d.gbuffer_pipeline:Draw(cmd)
-		render3d.ssr_pipeline:Draw(cmd)
-		render3d.ssr_resolve_pipeline:Draw(cmd)
-		render3d.lighting_pipeline:Draw(cmd)
-		render3d.smaa_edge_pipeline:Draw(cmd)
-		render3d.smaa_weight_pipeline:Draw(cmd)
-		render3d.smaa_blend_pipeline:Draw(cmd)
-		render3d.smaa_resolve_pipeline:Draw(cmd)
+		for _, pipeline in ipairs(render3d.pipelines_i) do
+			if pipeline.name ~= "blit" then pipeline:Draw(cmd) end
+		end
 	end)
 
 	event.AddListener("Draw", "render3d", function(cmd, dt)
-		if not render3d.blit_pipeline then return end
+		if not render3d.pipelines.blit then return end
 
 		-- render to the screen
-		render3d.blit_pipeline:Draw(cmd)
+		render3d.pipelines.blit:Draw(cmd)
 
-		do
-			-- Store current matrices for next frame reprojection
-			render3d.prev_view_matrix = render3d.camera:BuildViewMatrix():Copy()
-			render3d.prev_projection_matrix = render3d.camera:BuildProjectionMatrix():Copy()
-			-- 4. Jitter for Next Frame (SMAA 2TX)
-			render3d.frame_index = (render3d.frame_index or 0) + 1
-			local jitter_scale = 0.1
-			local jitter_offsets = {{1 * jitter_scale, -1 * jitter_scale}, {-1 * jitter_scale, 1 * jitter_scale}}
-			local offset = jitter_offsets[(render3d.frame_index % 2) + 1]
-			render3d.camera:SetJitter(Vec3(offset[1], offset[2], 0))
+		for _, pipeline in ipairs(render3d.pipelines_i) do
+			if pipeline.post_draw then pipeline:post_draw(cmd, dt) end
 		end
+
+		render3d.prev_view_matrix = render3d.camera:BuildViewMatrix():Copy()
+		render3d.prev_projection_matrix = render3d.camera:BuildProjectionMatrix():Copy()
 	end)
 
 	event.Call("Render3DInitialized")
 end
 
 function render3d.UploadGBufferConstants(cmd)
-	if not render3d.gbuffer_pipeline then return end
+	if not render3d.pipelines.gbuffer then return end
 
 	cmd:SetCullMode(render3d.GetMaterial():GetDoubleSided() and "none" or orientation.CULL_MODE)
-	render3d.gbuffer_pipeline:UploadConstants(cmd)
+	render3d.pipelines.gbuffer:UploadConstants(cmd)
 end
 
 do
@@ -2175,7 +1926,7 @@ do -- mesh
 
 	function render3d.CreateMesh(vertices, indices, index_type, index_count)
 		return Mesh.New(
-			render3d.gbuffer_pipeline:GetVertexAttributes(),
+			render3d.pipelines.gbuffer:GetVertexAttributes(),
 			vertices,
 			indices,
 			index_type,
