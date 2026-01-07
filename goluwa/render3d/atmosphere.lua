@@ -14,7 +14,7 @@ function atmosphere.GetStarsTexture()
 end
 
 function atmosphere.GetGLSLCode()
-	return require("render3d.atmospheres.nishita") .. require("render3d.atmospheres.night_sky")
+	return require("render3d.atmospheres.temple") .. require("render3d.atmospheres.night_sky")
 end
 
 function atmosphere.GetGLSLMainCode(dir_var, sun_dir_var, cam_pos_var, stars_texture_index_var)
@@ -23,7 +23,6 @@ function atmosphere.GetGLSLMainCode(dir_var, sun_dir_var, cam_pos_var, stars_tex
 			vec3 dir = normalize(]] .. dir_var .. [[);
 			vec3 sunDir = normalize(]] .. sun_dir_var .. [[);
 			
-			// Compute Nishita sky
 			vec3 col = get_atmosphere(dir, sunDir, ]] .. cam_pos_var .. [[);
 			
 			// Compute sky brightness for blending with space texture
