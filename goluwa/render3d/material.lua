@@ -169,14 +169,12 @@ do
 	end
 
 	local SRGBTexture = function(path)
-		--return render.CreateTextureFromPath("[srgb]" .. path)
 		return Texture.New({
 			path = path,
 			srgb = true,
 		})
 	end
 	local LinearTexture = function(path)
-		--return render.CreateTextureFromPath("[~srgb]" .. path)
 		return Texture.New({
 			path = path,
 			srgb = false,

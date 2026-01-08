@@ -195,17 +195,19 @@ function reflection_probe.Initialize()
 	-- Create the environment probe first (index 0)
 	reflection_probe.CreateEnvironmentProbe(Vec3(0, 0, 0))
 
-	-- Create scene probes in a grid
-	for i = 0, reflection_probe.SCENE_PROBE_COUNT - 1 do
-		local gx = i % reflection_probe.GRID_COUNTS.x
-		local gy = math.floor(i / reflection_probe.GRID_COUNTS.x) % reflection_probe.GRID_COUNTS.y
-		local gz = math.floor(i / (reflection_probe.GRID_COUNTS.x * reflection_probe.GRID_COUNTS.y))
-		local position = reflection_probe.GRID_ORIGIN + Vec3(
-				gx * reflection_probe.GRID_SPACING.x,
-				gy * reflection_probe.GRID_SPACING.y,
-				gz * reflection_probe.GRID_SPACING.z
-			)
-		reflection_probe.CreateSceneProbe(position, reflection_probe.UPDATE_STATIC)
+	if false then
+		-- Create scene probes in a grid
+		for i = 0, reflection_probe.SCENE_PROBE_COUNT - 1 do
+			local gx = i % reflection_probe.GRID_COUNTS.x
+			local gy = math.floor(i / reflection_probe.GRID_COUNTS.x) % reflection_probe.GRID_COUNTS.y
+			local gz = math.floor(i / (reflection_probe.GRID_COUNTS.x * reflection_probe.GRID_COUNTS.y))
+			local position = reflection_probe.GRID_ORIGIN + Vec3(
+					gx * reflection_probe.GRID_SPACING.x,
+					gy * reflection_probe.GRID_SPACING.y,
+					gz * reflection_probe.GRID_SPACING.z
+				)
+			reflection_probe.CreateSceneProbe(position, reflection_probe.UPDATE_STATIC)
+		end
 	end
 
 	-- Create camera for probe rendering
@@ -306,7 +308,7 @@ function reflection_probe.CreatePipelines()
 	reflection_probe.scene_pipeline = EasyPipeline.New(
 		{
 			color_format = {
-				{"r16g16b16a16_sfloat", {"color", "rgba"}},
+				{"b10g11r11_ufloat_pack32", {"color", "rgba"}},
 				{"r32_sfloat", {"linear_depth", "r"}},
 			},
 			depth_format = "d32_sfloat",
@@ -593,7 +595,7 @@ function reflection_probe.CreatePipelines()
 	reflection_probe.sky_pipeline = EasyPipeline.New(
 		{
 			color_format = {
-				{"r16g16b16a16_sfloat", {"color", "rgba"}},
+				{"b10g11r11_ufloat_pack32", {"color", "rgba"}},
 				{"r32_sfloat", {"linear_depth", "r"}},
 			},
 			samples = "1",
@@ -701,7 +703,7 @@ function reflection_probe.CreatePipelines()
 	-- Prefilter pipeline for IBL
 	reflection_probe.prefilter_pipeline = EasyPipeline.New(
 		{
-			color_format = {{"r16g16b16a16_sfloat", {"color", "rgba"}}},
+			color_format = {{"b10g11r11_ufloat_pack32", {"color", "rgba"}}},
 			samples = "1",
 			vertex = {
 				push_constants = {

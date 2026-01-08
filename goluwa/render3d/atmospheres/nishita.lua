@@ -15,6 +15,9 @@ return [[
     // Mie scattering phase function asymmetry factor
     const float G = 0.76;
     
+    // Sun intensity (50.0 provides a good HDR range for Earth)
+    const float SUN_INTENSITY = 50.0;
+    
     const int NUM_SAMPLES = 16;
     const int NUM_SAMPLES_LIGHT = 8;
     
@@ -49,9 +52,15 @@ return [[
         
         // Intersect with atmosphere
         vec2 t = raySphereIntersect(rayOrigin, rayDir, ATMOSPHERE_RADIUS);
-        if (t.x > t.y || t.y < 0.0) return vec3(0.0);
         
+        // Intersect with earth
+        vec2 tEarth = raySphereIntersect(rayOrigin, rayDir, EARTH_RADIUS);
+
         float tMax = t.y;
+        if (tEarth.x > 0.0) {
+            tMax = min(tMax, tEarth.x);
+        }
+
         float tMin = max(t.x, 0.0);
         
         float segmentLength = (tMax - tMin) / float(NUM_SAMPLES);
@@ -79,66 +88,74 @@ return [[
             
             // Light ray to sun
             vec2 tLight = raySphereIntersect(samplePos, sunDir, ATMOSPHERE_RADIUS);
+
+            // Check if light ray hits Earth
+            vec2 tEarthLight = raySphereIntersect(samplePos, sunDir, EARTH_RADIUS);
+            if (tEarthLight.x > 0.0) {
+                tCurrent += segmentLength;
+                continue;
+            }
+
             float segmentLengthLight = tLight.y / float(NUM_SAMPLES_LIGHT);
             float tCurrentLight = 0.0;
             float opticalDepthLightR = 0.0;
             float opticalDepthLightM = 0.0;
             
-            bool hitGround = false;
             for (int j = 0; j < NUM_SAMPLES_LIGHT; j++) {
                 vec3 samplePosLight = samplePos + sunDir * (tCurrentLight + segmentLengthLight * 0.5);
                 float heightLight = length(samplePosLight) - EARTH_RADIUS;
-                
-                if (heightLight < 0.0) {
-                    hitGround = true;
-                    break;
-                }
                 
                 opticalDepthLightR += exp(-heightLight / HR) * segmentLengthLight;
                 opticalDepthLightM += exp(-heightLight / HM) * segmentLengthLight;
                 tCurrentLight += segmentLengthLight;
             }
             
-            if (!hitGround) {
-                vec3 tau = BETA_R * (opticalDepthR + opticalDepthLightR) + 
-                            BETA_M * 1.1 * (opticalDepthM + opticalDepthLightM);
-                vec3 attenuation = exp(-tau);
-                sumR += densityR * attenuation;
-                sumM += densityM * attenuation;
-            }
+            vec3 tau = BETA_R * (opticalDepthR + opticalDepthLightR) + 
+                        BETA_M * (opticalDepthM + opticalDepthLightM);
+            vec3 attenuation = exp(-tau);
+            sumR += densityR * attenuation;
+            sumM += densityM * attenuation;
             
             tCurrent += segmentLength;
         }
         
-        // Sun intensity (22 is a good value for Earth)
-        float sunIntensity = 22.0;
-        
-        return sunIntensity * (sumR * BETA_R * phaseR + sumM * BETA_M * phaseM);
+        return SUN_INTENSITY * (sumR * BETA_R * phaseR + sumM * BETA_M * phaseM);
     }
     
     // Render sun disk
-    vec3 renderSun(vec3 rayDir, vec3 sunDir, vec3 skyColor) {
-        float sunAngle = acos(clamp(dot(rayDir, sunDir), 0.0, 1.0));
-        float sunRadius = 0.00935; // Angular radius of sun in radians (~0.53 degrees)
+    vec3 renderSun(vec3 rayDir, vec3 sunDir, vec3 camPos, vec3 skyColor) {
+        float cosTheta = dot(rayDir, sunDir);
+        float sunAngle = acos(clamp(cosTheta, 0.0, 1.0));
+        float sunRadius = 0.012; // Slightly larger for better visibility
         
-        if (sunAngle < sunRadius + 0.00000000001) {
+        // Earth occlusion check
+        vec3 rayOrigin = vec3(0.0, EARTH_RADIUS + 1.75 + camPos.y, 0.0);
+        vec2 tEarth = raySphereIntersect(rayOrigin, rayDir, EARTH_RADIUS);
+        if (tEarth.x > 0.0) return skyColor;
+
+        vec3 sunColor = vec3(0.0);
+        if (sunAngle < sunRadius) {
             // Inside sun disk
             float limb = 1.0 - pow(sunAngle / sunRadius, 0.5);
-            return vec3(1.0, 0.98, 0.95) * 100.0 * limb;
-        } else if (sunAngle < sunRadius * 1.5) {
-            // Sun glow/corona
-            float glow = 1.0 - (sunAngle - sunRadius) / (sunRadius * 0.5);
-            return skyColor + vec3(1.0, 0.9, 0.7) * glow * glow * 10.0;
-        }
+            sunColor += vec3(1.0, 0.98, 0.95) * SUN_INTENSITY * 10.0 * limb;
+        } 
         
-        return skyColor;
+        // Sun glow/corona
+        // Using multiple layers for a more natural glow
+        float glare = pow(max(0.0, cosTheta), 10000.0) * 100.0;
+        float halo = pow(max(0.0, cosTheta), 500.0) * 5.0;
+        float bloom = pow(max(0.0, cosTheta), 10.0) * 0.1;
+        
+        sunColor += vec3(1.0, 0.95, 0.8) * (glare + halo + bloom) * (SUN_INTENSITY * 0.5);
+        
+        return max(skyColor + sunColor, vec3(0));
     }
 
     vec3 get_atmosphere(vec3 dir, vec3 sunDir, vec3 camPos) {
         vec3 col = nishitaSky(dir, sunDir, camPos);
         
         // Add sun disk
-        col = renderSun(dir, sunDir, col);
+        col = renderSun(dir, sunDir, camPos, col);
 
         return col;
     }

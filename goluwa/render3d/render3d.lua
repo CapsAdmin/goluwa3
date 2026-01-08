@@ -19,7 +19,7 @@ local render3d = library()
 package.loaded["render3d.render3d"] = render3d
 local atmosphere = require("render3d.atmosphere")
 local reflection_probe = require("render3d.reflection_probe")
-render3d.lights = {}
+render3d.lights = render3d.lights or {}
 local camera_block = {
 	{
 		"inv_view",
@@ -193,7 +193,7 @@ local pipelines = {
 			event.Call("Draw3DGeometry", cmd, dt)
 		end,
 		color_format = {
-			{"r8g8b8a8_unorm", {"albedo", "rgb"}, {"alpha", "a"}},
+			{"r8g8b8a8_srgb", {"albedo", "rgb"}, {"alpha", "a"}},
 			{"r16g16b16a16_sfloat", {"normal", "rgb"}},
 			{"r8g8b8a8_unorm", {"metallic", "r"}, {"roughness", "g"}, {"ao", "b"}},
 			{"r16g16b16a16_sfloat", {"emissive", "rgb"}}, -- HDR emissive can exceed 1.0
@@ -1761,35 +1761,51 @@ local pipelines = {
 				},
 			},
 			shader = [[
-			layout(location = 0) out vec4 frag_color;
+				layout(location = 0) out vec4 frag_color;
 
-			// https://knarkowicz.wordpress.com/2016/01/06/aces-filmic-tone-mapping-curve/
-			vec3 ACESFilm(vec3 x){
-				vec3 res = (x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14);
-				return clamp(res, 0.0, 1.0);
-			}
-
-			#define GAMMA 2.2
-			#define INV_GAMMA (1.0/GAMMA)
-			vec3 gamma(vec3 col){
-				return pow(col, vec3(INV_GAMMA));
-			}
-
-			void main() {
-				if (pc.blit.tex == -1) {
-					frag_color = vec4(1.0, 0.0, 1.0, 1.0);
-					return;
+				vec3 ACESFilm(vec3 x) {
+					vec3 res = (x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14);
+					return clamp(res, 0.0, 1.0);
 				}
-				vec3 col = texture(TEXTURE(pc.blit.tex), in_uv).rgb;
 
-				if (pc.blit.is_hdr == 0)
-					col = ACESFilm(col);
+				vec3 ACESFilmHDR(vec3 x) {
+					return (x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14);
+				}
 
-				if (pc.blit.requires_manual_gamma == 1)
-					col = gamma(col);
+
+				vec3 jodieReinhardTonemap(vec3 c){
+					// From: https://www.shadertoy.com/view/tdSXzD
+					float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
+					vec3 tc = c / (c + 1.0);
+					return mix(c / (l + 1.0), tc, tc);
+				}
+
+				vec3 LinearToSRGB(vec3 col) {
+					vec3 low = col * 12.92;
+					vec3 high = 1.055 * pow(col, vec3(1.0/2.4)) - 0.055;
+					return mix(low, high, step(0.0031308, col));
+				}
+
+				void main() {
+					if (pc.blit.tex == -1) {
+						frag_color = vec4(1.0, 0.0, 1.0, 1.0);
+						return;
+					}
 					
-				frag_color = vec4(col, 1.0);
-			}
+					vec3 col = texture(TEXTURE(pc.blit.tex), in_uv).rgb;
+
+					if (pc.blit.is_hdr == 1) {
+						col = jodieReinhardTonemap(col);
+					} else {
+						col = ACESFilm(col);
+					}
+					
+					if (pc.blit.requires_manual_gamma == 1) {
+						col = LinearToSRGB(col);
+					}
+					
+					frag_color = vec4(col, 1.0);
+				}
 		]],
 		},
 		rasterizer = {

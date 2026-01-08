@@ -149,6 +149,17 @@ function Texture.New(config)
 	local width = config.width
 	local height = config.height
 	local format = config.format or "r8g8b8a8_unorm"
+
+	if config.srgb and not format:ends_with("_srgb") then
+		local test = format:replace("_unorm", "_srgb")
+		if require("bindings.vk").e.VkFormat(test) then
+			format = test
+		else
+			print("Warning: sRGB format requested but not available for", format)
+		end
+		
+	end
+
 	-- Create or use image
 	local image
 

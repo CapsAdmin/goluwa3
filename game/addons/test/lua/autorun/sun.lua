@@ -11,8 +11,8 @@ local sun = ecs.CreateFromTable(
 		},
 		light = {
 			LightType = "sun",
-			Color = Color(1.0, 0.98, 0.95),
-			Intensity = 3.0,
+			Color = Color(1.0, 0.98, 1),
+			Intensity = 20,
 		},
 	}
 )

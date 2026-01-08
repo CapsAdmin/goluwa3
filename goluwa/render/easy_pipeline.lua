@@ -921,73 +921,72 @@ function EasyPipeline.New(config)
 	self.vertex_attributes = attributes
 	self.debug_views = debug_views
 	self.config = config
+	self.actual_color_formats = actual_color_formats
 
 	-- Create framebuffer(s) if this pipeline has color or depth outputs
-	if #actual_color_formats > 0 or config.depth_format then
-		local framebuffer_count = config.framebuffer_count or 1
-
-		local function create_framebuffers()
-			local size = window:GetSize()
-
-			if framebuffer_count == 1 then
-				-- Single framebuffer (backward compatible)
-				self.framebuffer = Framebuffer.New(
-					{
-						width = size.x,
-						height = size.y,
-						formats = #actual_color_formats > 0 and actual_color_formats or nil,
-						depth = config.depth_format ~= nil,
-						depth_format = config.depth_format,
-					}
-				)
-			else
-				-- Multiple framebuffers (ping-pong)
-				self.framebuffers = {}
-
-				for i = 1, framebuffer_count do
-					self.framebuffers[i] = Framebuffer.New(
-						{
-							width = size.x,
-							height = size.y,
-							formats = #actual_color_formats > 0 and actual_color_formats or nil,
-							depth = config.depth_format ~= nil,
-							depth_format = config.depth_format,
-						}
-					)
-				end
-
-				-- Also set first one as default for backward compatibility
-				self.framebuffer = self.framebuffers[1]
-			end
-		end
-
-		create_framebuffers()
-		-- Register resize handler with unique identifier based on object
-		self.resize_id = "easypipeline_" .. tostring(self):match("0x%x+")
-
-		event.AddListener("WindowFramebufferResized", self.resize_id, function(wnd, size)
-			create_framebuffers()
-			-- Update descriptor sets if they reference framebuffer textures
-			local textures = {}
-			local fb = self.framebuffer
-
-			if fb then
-				for _, tex in ipairs(fb.color_textures or {}) do
-					table.insert(textures, tex)
-				end
-
-				if fb.depth_texture then table.insert(textures, fb.depth_texture) end
-
-				if #textures > 0 then
-					for i = 1, #self.pipeline.descriptor_sets do
-						self.pipeline:UpdateDescriptorSetArray(i, 0, textures)
-					end
-				end
-			end
-		end)
+	if #self.actual_color_formats > 0 or config.depth_format then
+		self:RecreateFramebuffers()
+		self:AddEvent("WindowFramebufferResized")
 	end
 
 	return self
+end
+
+function EasyPipeline:RecreateFramebuffers()
+	local framebuffer_count = self.config.framebuffer_count or 1
+	local size = window:GetSize()
+
+	if framebuffer_count == 1 then
+		-- Single framebuffer (backward compatible)
+		self.framebuffer = Framebuffer.New(
+			{
+				width = size.x,
+				height = size.y,
+				formats = #self.actual_color_formats > 0 and self.actual_color_formats or nil,
+				depth = self.config.depth_format ~= nil,
+				depth_format = self.config.depth_format,
+			}
+		)
+	else
+		-- Multiple framebuffers (ping-pong)
+		self.framebuffers = {}
+
+		for i = 1, framebuffer_count do
+			self.framebuffers[i] = Framebuffer.New(
+				{
+					width = size.x,
+					height = size.y,
+					formats = #self.actual_color_formats > 0 and self.actual_color_formats or nil,
+					depth = self.config.depth_format ~= nil,
+					depth_format = self.config.depth_format,
+				}
+			)
+		end
+
+		-- Also set first one as default for backward compatibility
+		self.framebuffer = self.framebuffers[1]
+	end
+end
+
+function EasyPipeline:OnWindowFramebufferResized()
+	self:RecreateFramebuffers()
+	-- Update descriptor sets if they reference framebuffer textures
+	local textures = {}
+	local fb = self.framebuffer
+
+	if fb then
+		for _, tex in ipairs(fb.color_textures or {}) do
+			table.insert(textures, tex)
+		end
+
+		if fb.depth_texture then table.insert(textures, fb.depth_texture) end
+
+		if #textures > 0 then
+			for i = 1, #self.pipeline.descriptor_sets do
+				self.pipeline:UpdateDescriptorSetArray(i, 0, textures)
+			end
+		end
+	end
 end
 
 function EasyPipeline:Bind(cmd, frame_index)
@@ -1080,12 +1079,6 @@ function EasyPipeline:DrawMeshTasks(gx, gy, gz, cmd, framebuffer, frame_index)
 	self:UploadConstants(cmd)
 	cmd:DrawMeshTasks(gx, gy, gz)
 	self:EndDraw(cmd, fb)
-end
-
-function EasyPipeline:Remove()
-	if self.resize_id then
-		event.RemoveListener("WindowFramebufferResized", self.resize_id)
-	end
 end
 
 return EasyPipeline:Register()

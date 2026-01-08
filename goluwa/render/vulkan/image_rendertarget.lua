@@ -148,10 +148,6 @@ local function choose_format(self)
 	self.depth_format = "d32_sfloat"
 	self.surface_format = self.surface_formats[chosen_format_index]
 	self.color_format = self.surface_format.format
-	logn(
-		"Chosen surface format: " .. self.color_format .. ", color space: " .. self.surface_format.color_space
-	)
-	table.print(self.surface_formats)
 end
 
 local function create_swapchain(self)
