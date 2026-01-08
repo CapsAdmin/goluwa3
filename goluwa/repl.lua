@@ -24,7 +24,7 @@ function repl.CopyText()
 	local start, stop = repl.GetSelection()
 
 	if start then
-		clipboard.Set(repl.input_buffer:sub(start, stop - 1))
+		clipboard.Set(repl.input_buffer:utf8_sub(start, stop - 1))
 		return true
 	end
 
@@ -35,7 +35,7 @@ function repl.CutText()
 	local start, stop = repl.GetSelection()
 
 	if start then
-		clipboard.Set(repl.input_buffer:sub(start, stop - 1))
+		clipboard.Set(repl.input_buffer:utf8_sub(start, stop - 1))
 		repl.DeleteSelection()
 		return true
 	end
@@ -45,29 +45,32 @@ function repl.CutText()
 	local line_end = repl.input_cursor
 
 	-- Find start of current line
-	while line_start > 1 and repl.input_buffer:sub(line_start - 1, line_start - 1) ~= "\n" do
+	while
+		line_start > 1 and
+		repl.input_buffer:utf8_sub(line_start - 1, line_start - 1) ~= "\n"
+	do
 		line_start = line_start - 1
 	end
 
 	-- Find end of current line (including the newline if present)
 	while
-		line_end <= #repl.input_buffer and
-		repl.input_buffer:sub(line_end, line_end) ~= "\n"
+		line_end <= repl.input_buffer:utf8_length() and
+		repl.input_buffer:utf8_sub(line_end, line_end) ~= "\n"
 	do
 		line_end = line_end + 1
 	end
 
 	-- Include the newline in the cut if present
 	if
-		line_end <= #repl.input_buffer and
-		repl.input_buffer:sub(line_end, line_end) == "\n"
+		line_end <= repl.input_buffer:utf8_length() and
+		repl.input_buffer:utf8_sub(line_end, line_end) == "\n"
 	then
 		line_end = line_end + 1
 	end
 
 	-- Cut the line
-	clipboard.Set(repl.input_buffer:sub(line_start, line_end - 1))
-	repl.input_buffer = repl.input_buffer:sub(1, line_start - 1) .. repl.input_buffer:sub(line_end)
+	clipboard.Set(repl.input_buffer:utf8_sub(line_start, line_end - 1))
+	repl.input_buffer = repl.input_buffer:utf8_sub(1, line_start - 1) .. repl.input_buffer:utf8_sub(line_end)
 	repl.input_cursor = line_start
 	repl.selection_start = nil
 	return true
@@ -78,8 +81,8 @@ function repl.PasteText()
 
 	if str and str ~= "" then
 		repl.DeleteSelection()
-		repl.input_buffer = repl.input_buffer:sub(1, repl.input_cursor - 1) .. str .. repl.input_buffer:sub(repl.input_cursor)
-		repl.input_cursor = repl.input_cursor + #str
+		repl.input_buffer = repl.input_buffer:utf8_sub(1, repl.input_cursor - 1) .. str .. repl.input_buffer:utf8_sub(repl.input_cursor)
+		repl.input_cursor = repl.input_cursor + str:utf8_length()
 		return true
 	end
 
@@ -91,22 +94,25 @@ function repl.DuplicateLine()
 	local line_end = repl.input_cursor
 
 	-- Find start of current line
-	while line_start > 1 and repl.input_buffer:sub(line_start - 1, line_start - 1) ~= "\n" do
+	while
+		line_start > 1 and
+		repl.input_buffer:utf8_sub(line_start - 1, line_start - 1) ~= "\n"
+	do
 		line_start = line_start - 1
 	end
 
 	-- Find end of current line (not including the newline)
 	while
-		line_end <= #repl.input_buffer and
-		repl.input_buffer:sub(line_end, line_end) ~= "\n"
+		line_end <= repl.input_buffer:utf8_length() and
+		repl.input_buffer:utf8_sub(line_end, line_end) ~= "\n"
 	do
 		line_end = line_end + 1
 	end
 
 	-- Get the line content
-	local line_content = repl.input_buffer:sub(line_start, line_end - 1)
+	local line_content = repl.input_buffer:utf8_sub(line_start, line_end - 1)
 	-- Insert duplicated line after current line
-	repl.input_buffer = repl.input_buffer:sub(1, line_end - 1) .. "\n" .. line_content .. repl.input_buffer:sub(line_end)
+	repl.input_buffer = repl.input_buffer:utf8_sub(1, line_end - 1) .. "\n" .. line_content .. repl.input_buffer:utf8_sub(line_end)
 	-- Move cursor to the start of the duplicated line
 	repl.input_cursor = line_end + 1
 	repl.selection_start = nil
@@ -129,29 +135,41 @@ function repl.MoveWord(buffer, pos, dir)
 		if new_pos <= 1 then return 1 end
 
 		-- Skip initial spaces if we are moving left
-		while new_pos > 1 and get_char_class(buffer:sub(new_pos - 1, new_pos - 1)) == "space" do
+		while
+			new_pos > 1 and
+			get_char_class(buffer:utf8_sub(new_pos - 1, new_pos - 1)) == "space"
+		do
 			new_pos = new_pos - 1
 		end
 
 		if new_pos <= 1 then return 1 end
 
 		new_pos = new_pos - 1
-		local class = get_char_class(buffer:sub(new_pos, new_pos))
+		local class = get_char_class(buffer:utf8_sub(new_pos, new_pos))
 
-		while new_pos > 1 and get_char_class(buffer:sub(new_pos - 1, new_pos - 1)) == class do
+		while
+			new_pos > 1 and
+			get_char_class(buffer:utf8_sub(new_pos - 1, new_pos - 1)) == class
+		do
 			new_pos = new_pos - 1
 		end
 	else
 		-- Skip initial spaces if we are moving right
-		while new_pos <= #buffer and get_char_class(buffer:sub(new_pos, new_pos)) == "space" do
+		while
+			new_pos <= buffer:utf8_length() and
+			get_char_class(buffer:utf8_sub(new_pos, new_pos)) == "space"
+		do
 			new_pos = new_pos + 1
 		end
 
-		if new_pos > #buffer then return #buffer + 1 end
+		if new_pos > buffer:utf8_length() then return buffer:utf8_length() + 1 end
 
-		local class = get_char_class(buffer:sub(new_pos, new_pos))
+		local class = get_char_class(buffer:utf8_sub(new_pos, new_pos))
 
-		while new_pos <= #buffer and get_char_class(buffer:sub(new_pos, new_pos)) == class do
+		while
+			new_pos <= buffer:utf8_length() and
+			get_char_class(buffer:utf8_sub(new_pos, new_pos)) == class
+		do
 			new_pos = new_pos + 1
 		end
 	end
@@ -171,7 +189,7 @@ function repl.DeleteSelection()
 	local start, stop = repl.GetSelection()
 
 	if start then
-		repl.input_buffer = repl.input_buffer:sub(1, start - 1) .. repl.input_buffer:sub(stop)
+		repl.input_buffer = repl.input_buffer:utf8_sub(1, start - 1) .. repl.input_buffer:utf8_sub(stop)
 		repl.input_cursor = start
 		repl.selection_start = nil
 		return true
@@ -185,7 +203,7 @@ local function get_cursor_pos(buffer, cursor)
 	local col = 1
 
 	for i = 1, cursor - 1 do
-		if buffer:sub(i, i) == "\n" then
+		if buffer:utf8_sub(i, i) == "\n" then
 			line = line + 1
 			col = 1
 		else
@@ -203,10 +221,10 @@ local function set_cursor_to_line_col(buffer, target_line, target_col)
 
 	if target_line < 1 then return nil end
 
-	for i = 1, #buffer do
+	for i = 1, buffer:utf8_length() do
 		if line == target_line then if col == target_col then return pos end end
 
-		if buffer:sub(i, i) == "\n" then
+		if buffer:utf8_sub(i, i) == "\n" then
 			if line == target_line then
 				-- End of target line reached, clamp to line end
 				return pos
@@ -222,7 +240,7 @@ local function set_cursor_to_line_col(buffer, target_line, target_col)
 	end
 
 	-- If we're on the target line at the end of buffer
-	if line == target_line then return math.min(pos, #buffer + 1) end
+	if line == target_line then return math.min(pos, buffer:utf8_length() + 1) end
 
 	return nil
 end
@@ -337,6 +355,64 @@ function repl.InputLua(str)
 	repl.is_executing = false
 end
 
+-- Wrap a line of text to fit within a given width, accounting for prefix
+local function wrap_line(line, width, prefix_width)
+	if line:utf8_length() == 0 then return {""} end
+
+	local wrapped = {}
+	-- Reduce by 1 to avoid terminal auto-wrap issues when writing to the last column
+	local available_width = width - prefix_width - 1
+
+	if available_width <= 0 then
+		available_width = width - 2 -- Minimum fallback
+	end
+
+	local pos = 1
+
+	while pos <= line:utf8_length() do
+		local chunk_end = math.min(pos + available_width - 1, line:utf8_length())
+		table.insert(wrapped, line:utf8_sub(pos, chunk_end))
+		pos = chunk_end + 1
+	end
+
+	return wrapped
+end
+
+-- Calculate which wrapped line contains a cursor at a given buffer position
+local function get_wrapped_line_for_cursor(buffer, cursor_pos, width)
+	local input_lines = {}
+
+	for _, line in ipairs(buffer:split("\n")) do
+		table.insert(input_lines, line)
+	end
+
+	local cursor_line, cursor_col = get_cursor_pos(buffer, cursor_pos)
+	local wrapped_line_idx = 0
+
+	for i = 1, #input_lines do
+		local prefix_width = (i == 1) and 2 or 2
+		local wrapped = wrap_line(input_lines[i], width, prefix_width)
+
+		if i < cursor_line then
+			wrapped_line_idx = wrapped_line_idx + #wrapped
+		elseif i == cursor_line then
+			local available_width = width - prefix_width
+			local wrap_index = math.ceil(cursor_col / available_width)
+
+			if wrap_index < 1 then wrap_index = 1 end
+
+			-- Clamp to actual number of wraps (cursor at end shouldn't create phantom line)
+			if wrap_index > #wrapped then wrap_index = #wrapped end
+
+			wrapped_line_idx = wrapped_line_idx + wrap_index
+
+			break
+		end
+	end
+
+	return wrapped_line_idx
+end
+
 function repl.HandleEvent(ev)
 	if repl.debug then
 		repl.last_event = ev
@@ -350,14 +426,33 @@ function repl.HandleEvent(ev)
 		if ev.key == "enter" then
 			if ev.modifiers and ev.modifiers.shift then
 				repl.DeleteSelection()
-				repl.input_buffer = repl.input_buffer:sub(1, repl.input_cursor - 1) .. "\n" .. repl.input_buffer:sub(repl.input_cursor)
+				repl.input_buffer = repl.input_buffer:utf8_sub(1, repl.input_cursor - 1) .. "\n" .. repl.input_buffer:utf8_sub(repl.input_cursor)
 				repl.input_cursor = repl.input_cursor + 1
-				-- Auto-scroll to show cursor if needed
-				local cursor_line = get_cursor_pos(repl.input_buffer, repl.input_cursor)
-				local input_lines_count = select(2, repl.input_buffer:gsub("\n", "")) + 1
+				-- Auto-scroll to show cursor if needed (using wrapped lines)
+				local w = repl.term and repl.term:GetSize() or 80 -- Default width for tests
+				local cursor_wrapped_line = get_wrapped_line_for_cursor(repl.input_buffer, repl.input_cursor, w)
+				-- Calculate total wrapped lines
+				local input_lines = {}
 
-				if input_lines_count > 5 then
-					repl.input_scroll_offset = math.max(0, cursor_line - 5)
+				for line in (repl.input_buffer .. "\n"):gmatch("(.-)\n") do
+					table.insert(input_lines, line)
+				end
+
+				local total_wrapped_lines = 0
+
+				for i, line in ipairs(input_lines) do
+					local prefix_width = (i == 1) and 2 or 2
+					local wrapped = wrap_line(line, w, prefix_width)
+					total_wrapped_lines = total_wrapped_lines + #wrapped
+				end
+
+				if total_wrapped_lines > 5 then
+					-- Ensure cursor is visible
+					if cursor_wrapped_line > repl.input_scroll_offset + 5 then
+						repl.input_scroll_offset = cursor_wrapped_line - 5
+					elseif cursor_wrapped_line <= repl.input_scroll_offset then
+						repl.input_scroll_offset = math.max(0, cursor_wrapped_line - 1)
+					end
 				end
 			else
 				if repl.input_buffer == "exit" then
@@ -400,10 +495,10 @@ function repl.HandleEvent(ev)
 			if not repl.DeleteSelection() then
 				if ev.modifiers and ev.modifiers.ctrl then
 					local new_pos = repl.MoveWord(repl.input_buffer, repl.input_cursor, -1)
-					repl.input_buffer = repl.input_buffer:sub(1, new_pos - 1) .. repl.input_buffer:sub(repl.input_cursor)
+					repl.input_buffer = repl.input_buffer:utf8_sub(1, new_pos - 1) .. repl.input_buffer:utf8_sub(repl.input_cursor)
 					repl.input_cursor = new_pos
 				elseif repl.input_cursor > 1 then
-					repl.input_buffer = repl.input_buffer:sub(1, repl.input_cursor - 2) .. repl.input_buffer:sub(repl.input_cursor)
+					repl.input_buffer = repl.input_buffer:utf8_sub(1, repl.input_cursor - 2) .. repl.input_buffer:utf8_sub(repl.input_cursor)
 					repl.input_cursor = repl.input_cursor - 1
 				end
 			end
@@ -411,9 +506,9 @@ function repl.HandleEvent(ev)
 			if not repl.DeleteSelection() then
 				if ev.modifiers and ev.modifiers.ctrl then
 					local new_pos = repl.MoveWord(repl.input_buffer, repl.input_cursor, 1)
-					repl.input_buffer = repl.input_buffer:sub(1, repl.input_cursor - 1) .. repl.input_buffer:sub(new_pos)
-				elseif repl.input_cursor <= #repl.input_buffer then
-					repl.input_buffer = repl.input_buffer:sub(1, repl.input_cursor - 1) .. repl.input_buffer:sub(repl.input_cursor + 1)
+					repl.input_buffer = repl.input_buffer:utf8_sub(1, repl.input_cursor - 1) .. repl.input_buffer:utf8_sub(new_pos)
+				elseif repl.input_cursor <= repl.input_buffer:utf8_length() then
+					repl.input_buffer = repl.input_buffer:utf8_sub(1, repl.input_cursor - 1) .. repl.input_buffer:utf8_sub(repl.input_cursor + 1)
 				end
 			end
 		elseif ev.key == "left" or ev.key == "right" or ev.key == "home" or ev.key == "end" then
@@ -427,13 +522,13 @@ function repl.HandleEvent(ev)
 				if ev.modifiers and ev.modifiers.ctrl then
 					repl.input_cursor = repl.MoveWord(repl.input_buffer, repl.input_cursor, 1)
 				else
-					repl.input_cursor = math.min(#repl.input_buffer + 1, repl.input_cursor + 1)
+					repl.input_cursor = math.min(repl.input_buffer:utf8_length() + 1, repl.input_cursor + 1)
 				end
 			elseif ev.key == "home" then
 				-- Move to start of current line
 				local pos = repl.input_cursor
 
-				while pos > 1 and repl.input_buffer:sub(pos - 1, pos - 1) ~= "\n" do
+				while pos > 1 and repl.input_buffer:utf8_sub(pos - 1, pos - 1) ~= "\n" do
 					pos = pos - 1
 				end
 
@@ -442,7 +537,10 @@ function repl.HandleEvent(ev)
 				-- Move to end of current line
 				local pos = repl.input_cursor
 
-				while pos <= #repl.input_buffer and repl.input_buffer:sub(pos, pos) ~= "\n" do
+				while
+					pos <= repl.input_buffer:utf8_length() and
+					repl.input_buffer:utf8_sub(pos, pos) ~= "\n"
+				do
 					pos = pos + 1
 				end
 
@@ -459,7 +557,7 @@ function repl.HandleEvent(ev)
 			local current_line, current_col = get_cursor_pos(repl.input_buffer, repl.input_cursor)
 
 			if ev.modifiers and ev.modifiers.ctrl then
-				-- Scroll input view up
+				-- Scroll input view up (by wrapped lines)
 				repl.input_scroll_offset = math.max(0, repl.input_scroll_offset - 1)
 			elseif current_line > 1 then
 				-- Move cursor up one line, preserving column
@@ -482,7 +580,7 @@ function repl.HandleEvent(ev)
 
 				repl.history_index = repl.history_index - 1
 				repl.input_buffer = repl.history[repl.history_index]
-				repl.input_cursor = #repl.input_buffer + 1
+				repl.input_cursor = repl.input_buffer:utf8_length() + 1
 				repl.input_scroll_offset = 0
 				repl.selection_start = nil
 			end
@@ -491,9 +589,24 @@ function repl.HandleEvent(ev)
 			local current_line, current_col = get_cursor_pos(repl.input_buffer, repl.input_cursor)
 
 			if ev.modifiers and ev.modifiers.ctrl then
-				-- Scroll input view down
-				if input_lines_count > 5 then
-					repl.input_scroll_offset = math.min(input_lines_count - 5, repl.input_scroll_offset + 1)
+				-- Scroll input view down (by wrapped lines)
+				local w = repl.term and repl.term:GetSize() or 80 -- Default width for tests
+				local input_lines = {}
+
+				for line in (repl.input_buffer .. "\n"):gmatch("(.-)\n") do
+					table.insert(input_lines, line)
+				end
+
+				local total_wrapped_lines = 0
+
+				for i, line in ipairs(input_lines) do
+					local prefix_width = (i == 1) and 2 or 2
+					local wrapped = wrap_line(line, w, prefix_width)
+					total_wrapped_lines = total_wrapped_lines + #wrapped
+				end
+
+				if total_wrapped_lines > 5 then
+					repl.input_scroll_offset = math.min(total_wrapped_lines - 5, repl.input_scroll_offset + 1)
 				end
 			elseif current_line < input_lines_count then
 				-- Move cursor down one line, preserving column
@@ -511,23 +624,23 @@ function repl.HandleEvent(ev)
 				-- At last line, trying to go down - navigate history
 				repl.history_index = repl.history_index + 1
 				repl.input_buffer = repl.history[repl.history_index]
-				repl.input_cursor = #repl.input_buffer + 1
+				repl.input_cursor = repl.input_buffer:utf8_length() + 1
 				repl.input_scroll_offset = 0
 				repl.selection_start = nil
 			elseif current_line == input_lines_count and repl.history_index == #repl.history then
 				-- Restore saved input when going back to fresh input mode
 				repl.history_index = #repl.history + 1
 				repl.input_buffer = repl.saved_input
-				repl.input_cursor = #repl.input_buffer + 1
+				repl.input_cursor = repl.input_buffer:utf8_length() + 1
 				repl.input_scroll_offset = 0
 				repl.selection_start = nil
 				repl.saved_input = ""
 			end
 		elseif ev.key == "a" and ev.modifiers and ev.modifiers.ctrl then
 			-- Select all
-			if #repl.input_buffer > 0 then
+			if repl.input_buffer:utf8_length() > 0 then
 				repl.selection_start = 1
-				repl.input_cursor = #repl.input_buffer + 1
+				repl.input_cursor = repl.input_buffer:utf8_length() + 1
 			end
 		elseif ev.key == "c" and ev.modifiers and ev.modifiers.ctrl then
 			repl.CopyText()
@@ -541,8 +654,34 @@ function repl.HandleEvent(ev)
 			repl.PasteText()
 		elseif #ev.key == 1 then
 			repl.DeleteSelection()
-			repl.input_buffer = repl.input_buffer:sub(1, repl.input_cursor - 1) .. ev.key .. repl.input_buffer:sub(repl.input_cursor)
+			repl.input_buffer = repl.input_buffer:utf8_sub(1, repl.input_cursor - 1) .. ev.key .. repl.input_buffer:utf8_sub(repl.input_cursor)
 			repl.input_cursor = repl.input_cursor + 1
+			-- Auto-scroll to show cursor if needed
+			local w = repl.term and repl.term:GetSize() or 80 -- Default width for tests
+			local cursor_wrapped_line = get_wrapped_line_for_cursor(repl.input_buffer, repl.input_cursor, w)
+			-- Calculate total wrapped lines
+			local input_lines = {}
+
+			for line in (repl.input_buffer .. "\n"):gmatch("(.-)\n") do
+				table.insert(input_lines, line)
+			end
+
+			local total_wrapped_lines = 0
+
+			for i, line in ipairs(input_lines) do
+				local prefix_width = (i == 1) and 2 or 2
+				local wrapped = wrap_line(line, w, prefix_width)
+				total_wrapped_lines = total_wrapped_lines + #wrapped
+			end
+
+			if total_wrapped_lines > 5 then
+				-- Ensure cursor is visible
+				if cursor_wrapped_line > repl.input_scroll_offset + 5 then
+					repl.input_scroll_offset = cursor_wrapped_line - 5
+				elseif cursor_wrapped_line <= repl.input_scroll_offset then
+					repl.input_scroll_offset = math.max(0, cursor_wrapped_line - 1)
+				end
+			end
 		end
 	end
 end
@@ -585,27 +724,55 @@ local function draw(term)
 		table.insert(input_lines, line)
 	end
 
-	-- Calculate visible input lines (max 5)
-	local visible_input_lines = math.min(5, #input_lines)
+	-- Wrap lines to terminal width
+	local wrapped_lines = {}
+	local line_map = {} -- Maps wrapped line index to {original_line, char_start (1-based), char_end (inclusive)}
+	for i, line in ipairs(input_lines) do
+		local prefix_width = (i == 1) and 2 or 2 -- "> " or "  "
+		local wrapped = wrap_line(line, w, prefix_width)
+		local char_start = 1
+
+		for j, wrapped_line in ipairs(wrapped) do
+			table.insert(
+				wrapped_lines,
+				{original_line_idx = i, wrapped_text = wrapped_line, is_first_wrap = (j == 1)}
+			)
+			local wrapped_length = wrapped_line:utf8_length()
+			local char_end = char_start + wrapped_length - 1
+			table.insert(line_map, {original_line = i, char_start = char_start, char_end = char_end})
+			char_start = char_end + 1
+		end
+	end
+
+	-- Calculate visible input lines (max 5 wrapped lines)
+	local visible_input_lines = math.min(5, #wrapped_lines)
 	local total_display_lines = visible_input_lines
 	-- Draw input
 	local sel_start, sel_stop = repl.GetSelection()
 	local current_char_idx = 1
 	-- Calculate which lines to show with scrolling
 	local start_line = repl.input_scroll_offset + 1
-	local end_line = math.min(#input_lines, start_line + visible_input_lines - 1)
+	local end_line = math.min(#wrapped_lines, start_line + visible_input_lines - 1)
 
 	-- Skip characters before the visible range
 	for i = 1, start_line - 1 do
-		current_char_idx = current_char_idx + #input_lines[i] + 1 -- +1 for newline
+		local map = line_map[i]
+
+		if i > 1 and line_map[i - 1].original_line ~= map.original_line then
+			current_char_idx = current_char_idx + 1 -- +1 for newline between original lines
+		end
+
+		current_char_idx = current_char_idx + wrapped_lines[i].wrapped_text:utf8_length()
 	end
 
 	local cursor_screen_line = 1
 	local cursor_screen_col = 3
 
 	for i = start_line, end_line do
-		local line = input_lines[i]
-		local prefix = i == 1 and "> " or "  "
+		local wrapped_info = wrapped_lines[i]
+		local line = wrapped_info.wrapped_text
+		local map = line_map[i]
+		local prefix = (map.original_line == 1 and wrapped_info.is_first_wrap) and "> " or "  "
 		local display_line_num = i - start_line + 1
 		term:Write(prefix)
 
@@ -614,11 +781,11 @@ local function draw(term)
 			-- No selection - use syntax highlighting
 			repl.ColorizeAndWrite(term, line)
 			term:NoAttributes()
-			current_char_idx = current_char_idx + #line
+			current_char_idx = current_char_idx + line:utf8_length()
 		else
 			-- Has selection - render char by char with selection highlighting
-			for j = 1, #line do
-				local char = line:sub(j, j)
+			for j = 1, line:utf8_length() do
+				local char = line:utf8_sub(j, j)
 				local is_selected = current_char_idx >= sel_start and current_char_idx < sel_stop
 
 				if is_selected then
@@ -633,19 +800,24 @@ local function draw(term)
 			end
 		end
 
-		-- Handle the newline character at the end of the line (except the last line)
-		if i < #input_lines then
-			if sel_start then
-				local is_selected = current_char_idx >= sel_start and current_char_idx < sel_stop
+		-- Handle the newline character between original lines
+		if i < #wrapped_lines then
+			local next_map = line_map[i + 1]
 
-				if is_selected then
-					term:PushBackgroundColor(100, 100, 100)
-					term:Write(" ")
-					term:PopAttribute()
+			if next_map.original_line ~= map.original_line then
+				-- This is the end of an original line, account for newline character
+				if sel_start then
+					local is_selected = current_char_idx >= sel_start and current_char_idx < sel_stop
+
+					if is_selected then
+						term:PushBackgroundColor(100, 100, 100)
+						term:Write(" ")
+						term:PopAttribute()
+					end
 				end
-			end
 
-			current_char_idx = current_char_idx + 1
+				current_char_idx = current_char_idx + 1
+			end
 		end
 
 		term:ClearLine()
@@ -653,13 +825,35 @@ local function draw(term)
 		if display_line_num < visible_input_lines then term:Write("\n") end
 	end
 
-	-- Calculate cursor position
+	-- Calculate cursor position in wrapped lines
 	local cursor_line, cursor_col = get_cursor_pos(repl.input_buffer, repl.input_cursor)
+	local cursor_wrapped_line = 1
+	local cursor_wrapped_col = cursor_col
+
+	-- Find which wrapped line the cursor is on
+	for i, map in ipairs(line_map) do
+		if map.original_line == cursor_line then
+			-- Check if cursor_col falls within this wrapped segment
+			if cursor_col >= map.char_start and cursor_col <= map.char_end then
+				cursor_wrapped_line = i
+				cursor_wrapped_col = cursor_col - map.char_start + 1
+
+				break
+			elseif cursor_col == map.char_end + 1 then
+				-- Cursor is right after the last char of this segment
+				-- Place it at the end of this wrapped line
+				cursor_wrapped_line = i
+				cursor_wrapped_col = map.char_end - map.char_start + 2
+
+				break
+			end
+		end
+	end
 
 	-- Only position cursor if it's in the visible range
-	if cursor_line >= start_line and cursor_line <= end_line then
-		cursor_screen_line = cursor_line - start_line + 1
-		cursor_screen_col = 3 + cursor_col - 1
+	if cursor_wrapped_line >= start_line and cursor_wrapped_line <= end_line then
+		cursor_screen_line = cursor_wrapped_line - start_line + 1
+		cursor_screen_col = 3 + cursor_wrapped_col - 1
 	end
 
 	term:EndFrame()
