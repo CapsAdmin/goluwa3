@@ -257,7 +257,7 @@ return function(steam)
 									tbl = table.merge(core.gameinfo, tbl)
 									tbl.gameinfo_path = path
 									tbl.game_dir = game_dir
-									tbl.vdf_directory = dir
+									tbl.vdf_directory = game_info_dir
 									list.insert(gameinfos, tbl)
 								end
 							end
@@ -285,7 +285,7 @@ return function(steam)
 							tbl = tbl.gameinfo
 							tbl.gameinfo_path = path
 							tbl.game_dir = game_dir
-							tbl.vdf_directory = dir
+							tbl.vdf_directory = game_info_dir
 							list.insert(gameinfos, tbl)
 						end
 					end
@@ -461,23 +461,22 @@ return function(steam)
 								and
 								not skip_addons
 							then
-								--llog("mounting %s", path)
+								llog("mounting %s", path)
 								vfs.Mount(path, nil, game_info)
 							else
-
-							--llog("NOT mounting %s", path)
+								llog("NOT mounting %s", path)
 							end
 						end
 					end
 				else
 					if not path:ends_with(".vpk/") then
 						for _, v in ipairs(vfs.Find(path .. "/maps/workshop/")) do
-							--llog("mounting workshop map %s", v)
+							llog("mounting workshop map %s", v)
 							vfs.Mount(path .. "/maps/workshop/" .. v, "maps/", game_info)
 						end
 					end
 
-					--llog("mounting %s", path)
+					llog("mounting %s", path)
 					vfs.Mount(path, nil, game_info)
 				end
 			end

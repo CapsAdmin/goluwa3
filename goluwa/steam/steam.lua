@@ -625,7 +625,8 @@ do
 
 			if
 				surfaceprops_manifest.surfaceproperties_manifest and
-				surfaceprops_manifest.surfaceproperties_manifest.file
+				surfaceprops_manifest.surfaceproperties_manifest.file and
+				type(surfaceprops_manifest.surfaceproperties_manifest.file) == "table"
 			then
 				for _, path in ipairs(surfaceprops_manifest.surfaceproperties_manifest.file) do
 					local prop_data = steam.VDFToTable(vfs.Read(path))

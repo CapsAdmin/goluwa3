@@ -16,14 +16,6 @@ do -- todo, awkward require for steam.SetMap to exist on the steam library
 	require("components.transform")
 end
 
-T.Test("get games", function()
-	local games = steam.GetSourceGames()
-	table.print(games, 1)
-end)
-
-T.Pending("map test", function()
+T.Test("map test", function()
 	steam.MountSourceGame("gmod")
-	tasks.WaitAll(5)
-	commands.RunString("map gm_construct")
-	tasks.WaitAll(5)
 end)

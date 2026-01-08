@@ -275,6 +275,8 @@ end
 function CommandBuffer:BindIndexBuffer(buffer, offset, indexType)
 	if indexType == "uint16_t" then indexType = "uint16" end
 
+	if indexType == "uint32_t" then indexType = "uint32" end
+
 	vulkan.lib.vkCmdBindIndexBuffer(self.ptr[0], buffer.ptr[0], offset, vulkan.vk.e.VkIndexType(indexType or "uint32"))
 end
 

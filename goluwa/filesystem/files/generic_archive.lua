@@ -1,5 +1,6 @@
 local crypto = require("crypto")
 local utility = require("utility")
+local timer = require("timer")
 local Tree = require("structs.tree")
 return function(vfs)
 	local CONTEXT = {}
@@ -44,15 +45,47 @@ return function(vfs)
 	end
 
 	--self:ParseArchive(vfs.Open("os:G:/SteamLibrary/SteamApps/common/Skyrim/Data/Skyrim - Sounds.gma"), "os:G:/SteamLibrary/SteamApps/common/Skyrim/Data/Skyrim - Sounds.gma")
-	local cache = table.weak()
-	local never
-	local modified_cache = {}
+	local cache = {}
+	local last_used = {}
+	local count = {}
 
-	local function save_cache(cache_path, tree)
+	local function get_cache(key)
+		last_used[key] = os.clock()
+		return cache[key]
+	end
+
+	local function set_cache(key, value)
+		count[key] = (count[key] or 0) + 1
+
+		if not cache[key] then logn("cache set ", key, " (", count[key], ")") end
+
+		cache[key] = value
+	end
+
+	timer.Repeat(
+		"archive_cache_cleanup",
+		10,
+		0,
+		function()
+			local now = os.clock()
+
+			for k, v in pairs(last_used) do
+				if now - v > 5 then
+					logn("cache evict ", k)
+					cache[k] = nil
+					last_used[k] = nil
+				end
+			end
+		end
+	)
+
+	local function save_vpk_disk_cache(cache_path, tree)
 		local codec = require("codec")
 		codec.WriteFile("msgpack", cache_path, tree.tree)
 	end
 
+	local never
+	local modified_cache = {} -- just numbers
 	function CONTEXT:GetFileTree(path_info)
 		if never then return false, "recursive call to GetFileTree" end
 
@@ -67,15 +100,19 @@ return function(vfs)
 			"not a valid " .. self.Extension .. " archive path: " .. path_info.full_path
 		end
 
-		if not modified_cache[archive_path] then
+		local last_modified = modified_cache[archive_path]
+
+		if not last_modified then
 			never = true
-			modified_cache[archive_path] = vfs.GetLastModified(archive_path) or ""
+			last_modified = vfs.GetLastModified(archive_path) or ""
 			never = false
 		end
 
-		local cache_key = archive_path .. modified_cache[archive_path]
+		local cache_key = archive_path .. last_modified
 
-		if cache[cache_key] then return cache[cache_key], relative, archive_path end
+		if get_cache(cache_key) then
+			return get_cache(cache_key), relative, archive_path
+		end
 
 		if not vfs.IsFile(archive_path) then
 			return false, "not a valid archive path"
@@ -91,8 +128,8 @@ return function(vfs)
 
 			if tree_data then
 				local tree = Tree.New("/", tree_data)
-				cache[cache_key] = tree
-				return cache[cache_key], relative, archive_path
+				set_cache(cache_key, tree)
+				return tree, relative, archive_path
 			end
 		end
 
@@ -112,9 +149,9 @@ return function(vfs)
 
 		if not ok then return false, err end
 
-		cache[cache_key] = tree
+		set_cache(cache_key, tree)
 		local codec = require("codec")
-		utility.RunOnNextGarbageCollection(save_cache, cache_path, tree)
+		utility.RunOnNextGarbageCollection(save_vpk_disk_cache, cache_path, tree)
 		return tree, relative, archive_path
 	end
 
@@ -179,8 +216,8 @@ return function(vfs)
 			if file_info.is_dir then return false, "file is a directory" end
 
 			local archive_path = self:TranslateArchivePath(file_info, archive_path)
-			local file, err = cache[archive_path] or vfs.Open(archive_path)
-			cache[archive_path] = file
+			local file, err = get_cache(archive_path) or vfs.Open(archive_path)
+			set_cache(archive_path, file)
 
 			if not file then return false, err end
 
