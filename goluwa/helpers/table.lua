@@ -201,8 +201,7 @@ function table.weak(k, v)
 		mode = "kv"
 	end
 
-	--return setmetatable({}, {__mode  = mode})
-	return {}
+	return setmetatable({}, {__mode = mode})
 end
 
 -- https://stackoverflow.com/questions/20325332/how-to-check-if-two-tablesobjects-have-the-same-value-in-lua
