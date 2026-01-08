@@ -18,6 +18,7 @@ local Vec3 = require("structs.vec3")
 local Quat = require("structs.quat")
 local Vec2 = require("structs.vec2")
 local Rect = require("structs.rect")
+local Color = require("structs.color")
 local Matrix44 = require("structs.matrix44")
 local fs = require("fs")
 local width = 512
