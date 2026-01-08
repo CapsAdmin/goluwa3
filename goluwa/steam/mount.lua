@@ -3,6 +3,7 @@ local pvars = require("pvars")
 local vfs = require("vfs")
 local codec = require("codec")
 local utility = require("utility")
+local ecs = require("ecs")
 return function(steam)
 	commands.Add("mount=string", function(game)
 		local game_info = assert(steam.MountSourceGame(game))
@@ -123,10 +124,10 @@ return function(steam)
 			local path = info.path:gsub("__MAPNAME__", name)
 
 			if vfs.IsFile(path) then
-				OBJ_WORLD = OBJ_WORLD or entities.CreateEntity("visual")
+				OBJ_WORLD = OBJ_WORLD or ecs.CreateEntity("visual")
 				OBJ_WORLD:SetName(name)
 				OBJ_WORLD:SetModelPath(path)
-				OBJ_WORLD.world = OBJ_WORLD.world or entities.CreateEntity("world")
+				OBJ_WORLD.world = OBJ_WORLD.world or ecs.CreateEntity("world")
 
 				if info.callback then info.callback(OBJ_WORLD) end
 
