@@ -836,7 +836,7 @@ do
 
 		function fs.fd_open(path, flags, mode)
 			mode = mode or 0x1B6 -- 0666 octal
-			local fd = ffi.C.open(path, flags, mode)
+			local fd = ffi.C.open(path, flags, ffi.cast("int", mode))
 
 			if fd == -1 then return nil, last_error() end
 
@@ -973,7 +973,7 @@ do
 
 		function fs.fd_open(path, flags, mode)
 			mode = mode or bit.bor(fs.O_IREAD, fs.O_IWRITE)
-			local fd = ffi.C._open(path, flags, mode)
+			local fd = ffi.C._open(path, flags, ffi.cast("int", mode))
 
 			if fd == -1 then return nil, last_error() end
 
@@ -1141,6 +1141,7 @@ do
 		local fd_open_raw = fs.fd_open
 
 		function fs.fd_open_object(path, flags, mode)
+			mode = mode or 0x1B6 -- 0666 octal
 			local fd, err = fd_open_raw(path, flags, mode)
 
 			if not fd then return nil, err end
