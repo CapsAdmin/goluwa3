@@ -3,7 +3,6 @@ local attest = require("helpers.attest")
 local clipboard = ""
 
 do
-	require("output").normal_stdout = true -- Ensure normal stdout for tests
 	package.loaded["bindings.clipboard"] = {
 		Get = function()
 			return clipboard

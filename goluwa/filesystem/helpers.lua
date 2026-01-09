@@ -200,16 +200,36 @@ return function(vfs)
 						if name == "Read" then
 							local ext = vfs.GetExtensionFromPath(path)
 
-							if codec.GetLibrary(ext) then return codec.Decode(ext, res) end
+							if codec.GetLibrary(ext) then 
+								local res, err = codec.Decode(ext, res)
+								if not res then
+									if not err then
+										debug.trace()
+										error("cannot return nil without error!")
+									end
+									return nil, err
+								end	
+
+								return res
+							end
 						end
 					end
 
 					return res
 				end
 
+				if not err then
+					debug.trace()
+					error("cannot return nil without error!")
+				end
 				return nil, err
 			end
 
+			if not err then
+				debug.trace()
+				error("cannot return nil without error!")
+			end
+			
 			return nil, err
 		end
 	end

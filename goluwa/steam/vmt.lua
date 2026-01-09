@@ -37,7 +37,7 @@ return function(steam)
 
 			if err then
 				on_error(path .. " steam.VDFToTable : " .. err)
-				main_cb:Reject(err)
+				---main_cb:Reject(err)
 				return
 			end
 
@@ -46,7 +46,7 @@ return function(steam)
 			if type(k) ~= "string" or type(v) ~= "table" then
 				on_error("bad material " .. path)
 				table.print(vmt)
-				main_cb:Reject("bad material")
+				--main_cb:Reject("bad material")
 				return
 			end
 
@@ -54,14 +54,22 @@ return function(steam)
 				if not vfs.IsFile(v.include) then
 					v.include = vfs.FindMixedCasePath(v.include) or v.include
 				end
+				
+				local str, err = vfs.Read(v.include)
 
-				local vmt2, err2 = steam.VDFToTable(vfs.Read(v.include), function(key)
+				if not str then
+					on_error("cannot include " .. v.include .. ": " .. err)
+					--main_cb:Reject(err)
+					return 
+				end
+
+				local vmt2, err2 = steam.VDFToTable(str, function(key)
 					return (key:lower():gsub("%$", ""))
 				end)
 
 				if err2 then
 					on_error(err2)
-					main_cb:Reject(err2)
+					--main_cb:Reject(err2)
 					return
 				end
 
@@ -70,7 +78,7 @@ return function(steam)
 				if type(k2) ~= "string" or type(v2) ~= "table" then
 					on_error("bad material " .. path)
 					table.print(vmt)
-					main_cb:Reject("bad material")
+					--main_cb:Reject("bad material")
 					return
 				end
 
@@ -151,7 +159,7 @@ return function(steam)
 			check_done()
 		end):Catch(function(reason)
 			on_error("material " .. path .. " not found: " .. reason)
-			main_cb:Reject(reason)
+			--main_cb:Reject(reason)
 		end)
 		return main_cb
 	end

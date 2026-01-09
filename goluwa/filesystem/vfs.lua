@@ -8,6 +8,7 @@ do -- mounting/links
 		to = to or ""
 
 		if not vfs.IsDirectory(where) then
+			print(vfs.IsFolderValid(where))
 			llog("attempted to mount non existing directory ", where)
 			return false
 		end

@@ -1,8 +1,6 @@
 #!/usr/bin/env luajit
 
 if ... == "test" then
-    _G.NORMAL_STDOUT = true
-
     require("goluwa.main")("test/run.lua", select(2, ...))
 elseif not ... then
     require("goluwa.main")("game/run.lua")

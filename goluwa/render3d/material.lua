@@ -603,7 +603,7 @@ do
 			on_load_vmt(self, track_vmt(vmt))
 		end, function(err)
 			print("Material error for " .. path .. ": " .. err)
-		--self:SetError(err)
+			self:SetError(err)
 		end)
 
 		if tasks.GetActiveTask() then cb:Get() end

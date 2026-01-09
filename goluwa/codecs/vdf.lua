@@ -74,8 +74,6 @@ local function insert_key_value(current, key, val, lower_or_modify_keys)
 end
 
 function vdf.Decode(data, lower_or_modify_keys, preprocess)
-	if not data or data == "" then return nil, "data is empty" end
-
 	if lower_or_modify_keys == true then
 		lower_or_modify_keys = string.lower
 	elseif type(lower_or_modify_keys) ~= "function" then

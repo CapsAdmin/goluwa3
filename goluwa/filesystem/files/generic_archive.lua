@@ -47,7 +47,6 @@ return function(vfs)
 	--self:ParseArchive(vfs.Open("os:G:/SteamLibrary/SteamApps/common/Skyrim/Data/Skyrim - Sounds.gma"), "os:G:/SteamLibrary/SteamApps/common/Skyrim/Data/Skyrim - Sounds.gma")
 	local cache = {}
 	local last_used = {}
-	local count = {}
 
 	local function get_cache(key)
 		last_used[key] = os.clock()
@@ -55,9 +54,6 @@ return function(vfs)
 	end
 
 	local function set_cache(key, value)
-		count[key] = (count[key] or 0) + 1
-
-		if not cache[key] then logn("cache set ", key, " (", count[key], ")") end
 
 		cache[key] = value
 	end
@@ -71,7 +67,6 @@ return function(vfs)
 
 			for k, v in pairs(last_used) do
 				if now - v > 5 then
-					logn("cache evict ", k)
 					cache[k] = nil
 					last_used[k] = nil
 				end

@@ -183,11 +183,9 @@ return function(vfs)
 			end
 
 			return true
-		elseif self:GetMode() == "write" then
-			return false, "write mode not implemented"
 		end
 
-		return false, "read mode " .. self:GetMode() .. " not supported"
+		return false, "mode " .. self:GetMode() .. " not supported"
 	end
 
 	function CONTEXT:ReadByte()
