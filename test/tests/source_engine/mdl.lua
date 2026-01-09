@@ -29,20 +29,16 @@ local tasks = require("tasks")
 local function setup_sun()
 	if render3d.GetLights()[1] then return end
 
-	render3d.SetLights(
+	ecs.CreateFromTable(
 		{
-			ecs.CreateFromTable(
-				{
-					transform = {
-						Rotation = Quat(0.5, 0, 0, -1),
-					},
-					light = {
-						LightType = "sun",
-						Color = Color(1, 1, 1),
-						Intensity = 0,
-					},
-				}
-			),
+			transform = {
+				Rotation = Quat(0.5, 0, 0, -1),
+			},
+			light = {
+				LightType = "sun",
+				Color = Color(1, 1, 1),
+				Intensity = 0,
+			},
 		}
 	)
 end

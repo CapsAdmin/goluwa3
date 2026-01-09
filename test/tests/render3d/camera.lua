@@ -106,23 +106,18 @@ T.Test("camera tests", function()
 	do
 		render.Initialize({headless = true, width = width, height = height})
 		render3d.Initialize()
-		render3d.SetLights(
+		ecs.CreateFromTable(
 			{
-				ecs.CreateFromTable(
-					{
-						transform = {
-							Rotation = Quat(-0.2, 0.8, 0.4, 0.4),
-						},
-						light = {
-							LightType = "sun",
-							Color = Color(1.0, 1, 1),
-							Intensity = 1,
-						},
-					}
-				),
+				transform = {
+					Rotation = Quat(-0.2, 0.8, 0.4, 0.4),
+				},
+				light = {
+					LightType = "sun",
+					Color = Color(1.0, 1, 1),
+					Intensity = 1,
+				},
 			}
 		)
-		--
 		local cam = render3d.GetCamera()
 		cam:SetViewport(Rect(0, 0, width, height))
 		cam:SetFOV(math.rad(90))

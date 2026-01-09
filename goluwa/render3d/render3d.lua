@@ -2,6 +2,7 @@ local ffi = require("ffi")
 local render = require("render.render")
 local EasyPipeline = require("render.easy_pipeline")
 local event = require("event")
+local ecs = require("ecs")
 local window = require("render.window")
 local orientation = require("render3d.orientation")
 local Material = require("render3d.material")
@@ -19,7 +20,6 @@ local render3d = library()
 package.loaded["render3d.render3d"] = render3d
 local atmosphere = require("render3d.atmosphere")
 local reflection_probe = require("render3d.reflection_probe")
-render3d.lights = render3d.lights or {}
 local camera_block = {
 	{
 		"inv_view",
@@ -1043,13 +1043,6 @@ local pipelines = {
 							64,
 						},
 						{
-							"light_count",
-							"int",
-							function(self, block, key)
-								block[key] = math.min(#render3d.GetLights(), 32)
-							end,
-						},
-						{
 							"lights",
 							{
 								{"position", "vec4"},
@@ -1057,36 +1050,60 @@ local pipelines = {
 								{"params", "vec4"},
 							},
 							function(self, block, key)
-								for i, ent in ipairs(render3d.GetLights()) do
-									local data = block[key][i - 1]
+								local ents = render3d.GetLights()
+								for i = 0, 128 - 1 do
+									local data = block[key][i]
 
-									if ent.light.LightType == "directional" or ent.light.LightType == "sun" then
-										ent.transform:GetRotation():GetForward():CopyToFloatPointer(data.position)
+									local ent = ents[i + 1]
+									if ent then
+										if ent.light.LightType == "directional" or ent.light.LightType == "sun" then
+											ent.transform:GetRotation():GetForward():CopyToFloatPointer(data.position)
+										else
+											ent.transform:GetPosition():CopyToFloatPointer(data.position)
+										end
+
+										if ent.light.LightType == "directional" or ent.light.LightType == "sun" then
+											data.position[3] = 0
+										elseif ent.light.LightType == "point" then
+											data.position[3] = 1
+										elseif ent.light.LightType == "spot" then
+											data.position[3] = 2
+										else
+											error("Unknown light type: " .. tostring(ent.light.LightType), 2)
+										end
+
+										data.color[0] = ent.light.Color.r
+										data.color[1] = ent.light.Color.g
+										data.color[2] = ent.light.Color.b
+										data.color[3] = ent.light.Intensity
+										data.params[0] = ent.light.Range
+										data.params[1] = ent.light.InnerCone
+										data.params[2] = ent.light.OuterCone
+										data.params[3] = 0
 									else
-										ent.transform:GetPosition():CopyToFloatPointer(data.position)
-									end
-
-									if ent.light.LightType == "directional" or ent.light.LightType == "sun" then
+										data.position[0] = 0
+										data.position[1] = 0
+										data.position[2] = 0
 										data.position[3] = 0
-									elseif ent.light.LightType == "point" then
-										data.position[3] = 1
-									elseif ent.light.LightType == "spot" then
-										data.position[3] = 2
-									else
-										error("Unknown light type: " .. tostring(ent.light.LightType), 2)
+										data.color[0] = 0
+										data.color[1] = 0
+										data.color[2] = 0
+										data.color[3] = 0
+										data.params[0] = 0
+										data.params[1] = 0
+										data.params[2] = 0
+										data.params[3] = 0
 									end
-
-									data.color[0] = ent.light.Color.r
-									data.color[1] = ent.light.Color.g
-									data.color[2] = ent.light.Color.b
-									data.color[3] = ent.light.Intensity
-									data.params[0] = ent.light.Range
-									data.params[1] = ent.light.InnerCone
-									data.params[2] = ent.light.OuterCone
-									data.params[3] = 0
 								end
 							end,
-							32,
+							128,
+						},
+						{
+							"light_count",
+							"int",
+							function(self, block, key)
+								block[key] = math.min(#render3d.GetLights(), 128)
+							end,
 						},
 						{
 							"shadows",
@@ -1099,8 +1116,8 @@ local pipelines = {
 							function(self, block, key)
 								local sun = nil
 
-								for i, ent in ipairs(render3d.lights) do
-									if i > 32 then break end
+								for i, ent in ipairs(render3d.GetLights()) do
+									if i > 128 then break end
 
 									if
 										(
@@ -1959,12 +1976,8 @@ do
 	end
 end
 
-function render3d.SetLights(lights)
-	render3d.lights = lights
-end
-
 function render3d.GetLights()
-	return render3d.lights
+	return ecs.GetEntitiesWithComponent("light") -- TODO, optimize
 end
 
 -- Debug state for cascade visualization

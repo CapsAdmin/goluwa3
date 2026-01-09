@@ -58,20 +58,16 @@ local function draw3d(cb)
 	cam:SetViewport(Rect(0, 0, width, height))
 	cam:SetFOV(math.rad(45))
 	cam:SetOrthoMode(false)
-	render3d.SetLights(
+	ecs.CreateFromTable(
 		{
-			ecs.CreateFromTable(
-				{
-					transform = {
-						Rotation = Quat(0, 0, 0, 1):Normalize(),
-					},
-					light = {
-						LightType = "sun",
-						Color = Color(1, 1, 1),
-						Intensity = 0,
-					},
-				}
-			),
+			transform = {
+				Rotation = Quat(0, 0, 0, 1):Normalize(),
+			},
+			light = {
+				LightType = "sun",
+				Color = Color(1, 1, 1),
+				Intensity = 0,
+			},
 		}
 	)
 	render.BeginFrame()

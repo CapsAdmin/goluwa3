@@ -261,7 +261,17 @@ function steam.LoadMap(path)
 			for k, v in vdf:gmatch([["(.-)" "(.-)"]]) do
 				if k == "angles" then
 					v = Ang3(unpack_numbers(v))
-				elseif k == "_light" or k == "_ambient" or k:find("color", nil, true) then
+				elseif k == "_light" or k == "_ambient" then
+					-- Source _light format: "R G B brightness" where R,G,B are 0-255 sRGB, brightness is intensity
+					local r, g, b, brightness = unpack_numbers(v)
+					-- Convert sRGB (0-255) to linear (0-1) using gamma 2.2 approximation
+					v = {
+						r = ((r or 0) / 255) ^ 2.2,
+						g = ((g or 0) / 255) ^ 2.2,
+						b = ((b or 0) / 255) ^ 2.2,
+						brightness = brightness or 300,
+					}
+				elseif k:find("color", nil, true) then
 					v = Color.FromBytes(unpack_numbers(v))
 				elseif
 					k == "origin" or
@@ -274,6 +284,8 @@ function steam.LoadMap(path)
 
 				ent[k] = tonumber(v) or v
 			end
+
+			ent.vdf = vdf
 
 			ent.classname = ent.classname or "unknown"
 
@@ -957,34 +969,47 @@ function steam.SpawnMapEntities(path, parent)
 				--parent.world_params:SetSunIntensity(1)
 				elseif
 					info.classname:lower():find("light") and
-					info._light and
-					(
-						not GRAPHICS
-					)
+					info._light 
 				then
 					parent.light_group = parent.light_group or ecs.CreateEntity("lights", parent)
 					parent.light_group:SetName("lights")
 					local ent = ecs.CreateEntity("light", parent.light_group)
-					ent:AddComponent(
-						"transform",
-						{
-							position = Vec3(-info.origin.y, info.origin.z, -info.origin.x) * steam.source2meters,
-						}
-					)
-					ent:AddComponent(
-						"light",
-						{
-							type = 2, -- TYPE_POINT
-							color = {info._light.r, info._light.g, info._light.b},
-							intensity = math.clamp(info._light.a / 9, 0.5, 3),
-							range = math.max(info._light.a, 25),
-						}
-					)
-
-					if info._zero_percent_distance then
-						ent.light:SetRange(ent.light:GetRange() + info._zero_percent_distance * 0.02)
+					local tr = ent:AddComponent("transform")
+					local position = Vec3(-info.origin.y, info.origin.z, -info.origin.x) * steam.source2meters
+					tr:SetPosition(position)
+					local light = ent:AddComponent("light")
+					light:SetName("point")
+					light:SetLightType("point")
+					-- Color is already in linear space from parsing
+					light:SetColor(Color(info._light.r, info._light.g, info._light.b, 1))
+					
+					local brightness = info._light.brightness / 2
+					-- Source intensity formula with quadratic attenuation: I = brightness / d²
+					-- Scale intensity for our renderer (empirically tuned)
+					light:SetIntensity(math.clamp(brightness / 50, 1, 100))
+					
+					-- Calculate range where light drops below ~1% intensity
+					-- At threshold 0.01: d = sqrt(brightness / 0.01) Source units
+					-- Then convert to meters
+					local threshold = 0.01
+					local range_source_units = math.sqrt(brightness / threshold)
+					local range = range_source_units * steam.source2meters
+					
+					if info._zero_percent_distance and info._zero_percent_distance > 0 then
+						-- Source allows explicit cutoff distance (in Source units)
+						range = info._zero_percent_distance * steam.source2meters
+					elseif info._fifty_percent_distance and info._fifty_percent_distance > 0 then
+						-- 50% distance: intensity = brightness/d² = 0.5*brightness
+						-- So cutoff is roughly 2x this distance
+						range = info._fifty_percent_distance * steam.source2meters * 2
 					end
+					light:SetRange(math.clamp(range*2, 1, 150))
 
+					logf("Spawned light: %s at %s color %s intensity %.2f range %.2f (brightness=%s, range_units=%.1f)\n", 
+						info.classname, tostring(position), tostring(light:GetColor()), 
+						light:GetIntensity(), light:GetRange(), tostring(brightness), range_source_units)
+
+					print("vdf data:", info.vdf)
 					ent.spawned_from_bsp = true
 				elseif info.classname == "env_fog_controller" then
 

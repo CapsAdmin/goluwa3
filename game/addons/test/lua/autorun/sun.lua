@@ -16,7 +16,6 @@ local sun = ecs.CreateFromTable(
 		},
 	}
 )
-render3d.SetLights({sun})
 
 event.AddListener("Update", "sun_oientation", function(dt)
 	local rot = sun.transform:GetRotation()
