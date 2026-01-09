@@ -510,6 +510,9 @@ do -- commands
 		end
 
 		function commands.RunLuaString(line, env_name)
+			commands.SetLuaEnvironmentVariable("steam", desire("steam"))
+			commands.SetLuaEnvironmentVariable("vfs", desire("vfs"))
+			commands.SetLuaEnvironmentVariable("render3d", desire("render3d.render3d"))
 			commands.SetLuaEnvironmentVariable("ffi", desire("ffi"))
 			commands.SetLuaEnvironmentVariable("findo", prototype.FindObject)
 

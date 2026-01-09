@@ -956,11 +956,17 @@ function steam.SpawnMapEntities(path, parent)
 
 		local count = table.count(data.entities)
 
+		logn("spawning ", count, " entities from BSP")
+
+		local handled = {}
+
 		for i, info in pairs(data.entities) do
 			if GRAPHICS then
 				if info.skyname then
-					steam.LoadSkyTexture(info.skyname)
+					--steam.LoadSkyTexture(info.skyname)
+					handled[info.classname] = (handled[info.classname] or 0) + 1
 				elseif info.classname and info.classname:find("light_environment") then
+					handled[info.classname] = (handled[info.classname] or 0) + 1
 
 				--local p, y = info.pitch, info.angles.y
 				--parent.world_params:SetSunAngles(Deg3(p or 0, y+180, 0))
@@ -971,6 +977,7 @@ function steam.SpawnMapEntities(path, parent)
 					info.classname:lower():find("light") and
 					info._light 
 				then
+					handled[info.classname] = (handled[info.classname] or 0) + 1
 					parent.light_group = parent.light_group or ecs.CreateEntity("lights", parent)
 					parent.light_group:SetName("lights")
 					local ent = ecs.CreateEntity("light", parent.light_group)
@@ -1005,14 +1012,9 @@ function steam.SpawnMapEntities(path, parent)
 					end
 					light:SetRange(math.clamp(range*2, 1, 150))
 
-					logf("Spawned light: %s at %s color %s intensity %.2f range %.2f (brightness=%s, range_units=%.1f)\n", 
-						info.classname, tostring(position), tostring(light:GetColor()), 
-						light:GetIntensity(), light:GetRange(), tostring(brightness), range_source_units)
-
-					print("vdf data:", info.vdf)
 					ent.spawned_from_bsp = true
 				elseif info.classname == "env_fog_controller" then
-
+					
 				--parent.world_params:SetFogColor(Color(info.fogcolor.r, info.fogcolor.g, info.fogcolor.b, info.fogcolor.a * (info.fogmaxdensity or 1)/4))
 				--parent.world_params:SetFogStart(info.fogstart* steam.source2meters)
 				--parent.world_params:SetFogEnd(info.fogend * steam.source2meters)
@@ -1028,6 +1030,7 @@ function steam.SpawnMapEntities(path, parent)
 				info.classname ~= "env_sprite"
 			then
 				if vfs.IsFile(info.model) then
+					handled[info.classname] = (handled[info.classname] or 0) + 1
 					parent[info.classname .. "_group"] = parent[info.classname .. "_group"] or ecs.CreateEntity(info.classname, parent)
 					parent[info.classname .. "_group"]:SetName(info.classname)
 					local ent = ecs.CreateEntity("prop", parent[info.classname .. "_group"])
@@ -1069,6 +1072,29 @@ function steam.SpawnMapEntities(path, parent)
 
 			tasks.ReportProgress("spawning entities", count)
 			tasks.Wait()
+		end
+
+
+		local unhandled = {}
+		for i, info in pairs(data.entities) do
+			if info.classname and not handled[info.classname] then
+				unhandled[info.classname] = (unhandled[info.classname] or 0) + 1
+			end
+		end
+
+		logn("finished spawning map entities: ", path)
+
+		logn("spawned entities:")
+		for k, v in pairs(handled) do
+			logn("  ", k, ": ", v)
+		end
+
+		if table.count(unhandled) > 0 then
+			logn("unhandled BSP entity classes:")
+
+			for k, v in pairs(unhandled) do
+				logn("  ", k, ": ", v)
+			end
 		end
 	end
 

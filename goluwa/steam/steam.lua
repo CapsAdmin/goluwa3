@@ -547,6 +547,7 @@ steam.appids = {
 	[105600] = "Terraria Dedicated Server",
 	[304930] = "Unturned Dedicated Server",
 	[17505] = "Zombie Panic Source Dedicated Server",
+	[203810] = "Dear Esther",
 }
 local name_translate = {
 	hl1 = "Half-Life",
