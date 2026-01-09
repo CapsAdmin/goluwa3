@@ -110,7 +110,7 @@ return function(vfs)
 		end
 
 		if not vfs.IsFile(archive_path) then
-			return false, "not a valid archive path"
+			return false, "not a valid archive path: " .. archive_path
 		end
 
 		local cache_path = "os:cache/archive/" .. crypto.CRC32(cache_key)

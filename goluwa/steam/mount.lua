@@ -325,12 +325,12 @@ return function(steam)
 						for _, path in pairs(tbl) do
 							-- First, resolve any path variables
 							if path:find("|", nil, true) then
-								path = path:replace("|gameinfo_path|", game_info_dir)
+								path = path:replace("|gameinfo_path|", vdf_directory)
 								path = path:replace("|all_source_engine_paths|", dir)
 							end
 
 							-- Make ALL relative paths absolute by prepending vdf_directory
-							if not vfs.IsPathAbsolutePath(path) then path = vdf_directory .. path end
+							if not vfs.IsPathAbsolutePath(path) then path = gameinfo.game_dir .. path end
 
 							path = vfs.FixPathSlashes(path)
 
@@ -464,7 +464,8 @@ return function(steam)
 								llog("mounting %s", path)
 								vfs.Mount(path, nil, game_info)
 							else
-								llog("NOT mounting %s", path)
+								llog("%s is not a directory, deleting source game cache", path)
+								vfs.Delete("cache/source_games")
 							end
 						end
 					end
@@ -476,8 +477,13 @@ return function(steam)
 						end
 					end
 
-					llog("mounting %s", path)
-					vfs.Mount(path, nil, game_info)
+					if vfs.IsDirectory(path) then
+						llog("mounting %s", path)
+						vfs.Mount(path, nil, game_info)
+					else
+						llog("%s is not a directory, deleting source game cache", path)
+						vfs.Delete("cache/source_games")
+					end
 				end
 			end
 
