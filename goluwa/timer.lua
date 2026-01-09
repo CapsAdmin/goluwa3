@@ -5,7 +5,7 @@ local timer = library()
 timer.timers = timer.timers or {}
 
 function timer.Thinker(callback, run_now, frequency, iterations, id)
-	if run_now and callback() ~= nil then return end
+	if run_now and callback() == true then return end
 
 	local info = {
 		key = id or callback,
@@ -154,9 +154,11 @@ function timer.UpdateTimers(a_, b_, c_, d_, e_)
 
 					if system.GetFrameTime() >= data.fps then break end
 
-					if res ~= nil then
+					if res == true then
 						list.insert(remove_these, i)
 
+						break
+					elseif res == false then
 						break
 					end
 
@@ -172,9 +174,13 @@ function timer.UpdateTimers(a_, b_, c_, d_, e_)
 					local done = false
 
 					for _ = 1, data.iterations + extra_iterations do
-						if data.callback() ~= nil then
+						local res = data.callback()
+
+						if res == true then
 							done = true
 
+							break
+						elseif res == false then
 							break
 						end
 					end

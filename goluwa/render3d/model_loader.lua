@@ -81,6 +81,14 @@ function model_loader.LoadModel(path, callback, callback2, on_fail)
 		local decode_callback = model_loader.FindModelDecoder(path)
 
 		if decode_callback then
+			local function on_error(err)
+				cb:callextra(path, "on_fail", err)
+				cb:uncache(path)
+			end
+
+			local thread = tasks.CreateTask(nil, nil, nil, on_error)
+			thread:SetName(path)
+
 			function thread:OnStart()
 				decode_callback(path, full_path, mesh_callback)
 				cb:stop(path, out)
@@ -91,6 +99,7 @@ function model_loader.LoadModel(path, callback, callback2, on_fail)
 			utility.PopTimeWarning("decoding " .. path, 0.5)
 		else
 			cb:callextra(path, "on_fail", "unknown format " .. path)
+			cb:uncache(path)
 		end
 	end):Catch(function(reason)
 		cb:callextra(path, "on_fail", reason)

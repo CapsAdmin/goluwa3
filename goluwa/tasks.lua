@@ -6,7 +6,7 @@ local callstack = require("helpers.callstack")
 local tasks = library()
 tasks.max = 4
 tasks.coroutine_lookup = tasks.coroutine_lookup or table.weak()
-tasks.created = tasks.created or table.weak()
+tasks.created = tasks.created or {}
 tasks.enabled = true
 
 function tasks.IsEnabled()
@@ -113,8 +113,9 @@ function META:Start(now, ...)
 
 		if time > self.wait then
 			-- Check if coroutine is already dead before trying to resume
-			if coroutine.status(co) == "dead" then return false end
+			if coroutine.status(co) == "dead" then return true end
 
+			local old_wait = self.wait
 			local ok, res = coroutine.resume(co, self)
 
 			-- Handle errors
@@ -128,7 +129,7 @@ function META:Start(now, ...)
 				self.Running = false
 				tasks.created[self] = nil
 				self:Remove()
-				return false
+				return true
 			end
 
 			-- Handle completion
@@ -139,13 +140,19 @@ function META:Start(now, ...)
 				self:OnFinish(res)
 				event.Call("TaskFinished", self)
 				self:Remove()
-				return false
+				return true
 			else
 				self:OnUpdate()
 			end
 
-			return res
+			if self.wait > old_wait then
+				return false
+			end
+
+			return nil
 		end
+
+		return false
 	end
 
 	if self.EnsureFPS ~= 0 then

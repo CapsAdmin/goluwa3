@@ -138,11 +138,16 @@ return function(steam)
 						end)
 
 						cb:Catch(function(reason)
-							if on_error then
-								on_error("texture " .. k .. " " .. new_path .. " not found: " .. reason)
+							-- Try mixed case path before giving up
+							local mixed_path = vfs.FindMixedCasePath(new_path)
+							if mixed_path then
+								vmt[k] = mixed_path
+							else
+								if on_error then
+									on_error("texture " .. k .. " " .. new_path .. " not found: " .. reason)
+								end
+								vmt[k] = nil -- Remove failed texture from vmt
 							end
-
-							vmt[k] = nil -- Remove failed texture from vmt
 							pending = pending - 1
 							check_done()
 						end)

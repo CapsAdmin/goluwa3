@@ -100,6 +100,8 @@ function Texture.New(config)
 		return texture_cache[cache_key]
 	end
 
+	local reflectivity = nil -- VTF specifc
+
 	-- Handle path parameter for loading images
 	local buffer_data = nil
 	local is_compressed = false
@@ -113,6 +115,9 @@ function Texture.New(config)
 			print("Warning: Failed to load texture:", config.path, img_or_err)
 			return create_fallback_texture()
 		end
+
+		-- hacky way to get the prop from vtf to vmt where it belongs
+		reflectivity = img_or_err.reflectivity
 
 		local img = img_or_err
 		config.width = config.width or img.width
@@ -304,6 +309,8 @@ function Texture.New(config)
 
 	-- Cache texture if cache_key is provided
 	if cache_key then texture_cache[cache_key] = self end
+
+	self.reflectivity = reflectivity
 
 	return self
 end

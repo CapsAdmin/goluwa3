@@ -9,30 +9,55 @@ return function(vfs)
 	end
 
 	function vfs.FindMixedCasePath(path)
-		-- try all lower case first just in case
+		-- try exact path first
+		if vfs.IsFile(path) then return path end
+		
+		-- try exact lowercase
 		if vfs.IsFile(path:lower()) then return path:lower() end
 
+		local parts = path:split("/")
 		local dir = ""
 
-		for _, str in ipairs(path:split("/")) do
-			for _, found in ipairs(vfs.Find(dir)) do
+		for i, str in ipairs(parts) do
+			local found_match = false
+			local entries = vfs.Find(dir == "" and "." or dir) -- handle root case
+			
+			for _, found in ipairs(entries) do
 				if found:lower() == str:lower() then
-					str = found
-					dir = dir .. str .. "/"
-
+					dir = dir == "" and found or (dir .. "/" .. found)
+					found_match = true
 					break
+				end
+			end
+			
+			if not found_match then
+				-- VFS search failed, try using fs module with absolute path
+				local abs_dir = vfs.GetAbsolutePath(dir == "" and "." or dir, true)
+				if abs_dir then
+					local fs = require("fs")
+					local files = fs.get_files(abs_dir)
+					if files then
+						for _, found in ipairs(files) do
+							if found:lower() == str:lower() then
+								dir = dir == "" and found or (dir .. "/" .. found)
+								found_match = true
+								break
+							end
+						end
+					end
+				end
+				
+				if not found_match then
+					return nil
 				end
 			end
 		end
 
-		dir = dir:sub(0, -2)
-
-		if #dir == #path then
-			wlog("found mixed case path for %s: found %s", dir, path)
+		if vfs.IsFile(dir) then
 			return dir
 		end
 
-		wlog("tried to find mixed case path for %s but nothing was found", path, 2)
+		return nil
 	end
 
 	local fs = require("fs")

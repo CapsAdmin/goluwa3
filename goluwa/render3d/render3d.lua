@@ -394,11 +394,13 @@ local pipelines = {
 				
 				vec3 rgb1 = texture(TEXTURE(pc.model.AlbedoTexture), in_uv).rgb;
 				
-				float blend = get_texture_blend();
-
-				if (blend != 0) {
-					vec3 rgb2 = texture(TEXTURE(pc.model.Albedo2Texture), in_uv).rgb;
-					rgb1 = mix(rgb1, rgb2, blend);
+				if (pc.model.Albedo2Texture == -1) {
+					float blend = get_texture_blend();
+					
+					if (blend != 0) {
+						vec3 rgb2 = texture(TEXTURE(pc.model.Albedo2Texture), in_uv).rgb;
+						rgb1 = mix(rgb1, rgb2, blend);
+					}
 				}
 			
 				return rgb1 * pc.model.ColorMultiplier.rgb;
@@ -433,10 +435,13 @@ local pipelines = {
 				} else {
 					vec3 rgb1 = texture(TEXTURE(pc.model.NormalTexture), in_uv).xyz * 2.0 - 1.0;
 
-					float blend = get_texture_blend();
-					if (blend != 0) {
-						vec3 rgb2 = texture(TEXTURE(pc.model.Normal2Texture), in_uv).xyz * 2.0 - 1.0;
-						rgb1 = normalize(mix(rgb1, rgb2, blend));
+
+					if (pc.model.Normal2Texture != -1) {
+						float blend = get_texture_blend();
+						if (blend != 0) {
+							vec3 rgb2 = texture(TEXTURE(pc.model.Normal2Texture), in_uv).xyz * 2.0 - 1.0;
+							rgb1 = normalize(mix(rgb1, rgb2, blend));
+						}
 					}
 					
 					vec3 normal = normalize(in_normal);
@@ -1587,8 +1592,8 @@ local pipelines = {
 				const int Nd = 4; // Slices
 				const int Ns = 12; // Steps per side
 				const uint Nb = 32;
-				float thickness = 0.1; 
-				float bias = 0.1;
+				float thickness = 0.025; 
+				float bias = 0.2;
 
 				float total_ao = 0.0;
 				float total_weight = 0.0;
@@ -1671,7 +1676,7 @@ local pipelines = {
 				}
 
 				float ao = (total_weight > 0.001) ? (total_ao / total_weight) : 1.0;
-				return vec3(pow(clamp(ao, 0.0, 1.0), 2.5));
+				return vec3(pow(clamp(ao, 0.0, 1.0), 1));
 			}
 
 			void main() {

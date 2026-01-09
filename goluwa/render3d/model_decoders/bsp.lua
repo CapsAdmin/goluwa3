@@ -23,6 +23,7 @@ steam.loaded_bsp = steam.loaded_bsp or {}
 local scale = 1 / 0.0254
 local skyboxes = {
 	["gm_construct"] = {AABB(-400, -400, 255, 400, 400, 320) * scale, 0.003},
+	["gm_construct_remaster"] = {AABB(-400, -400, 255, 400, 400, 320) * scale, 0.003},
 	["gm_flatgrass"] = {AABB(-400, -400, -430, 400, 400, -360) * scale, 0.003},
 	["gm_bluehills_test3"] = {AABB(130, 130, 340, 340, 320, 380) * scale, 0},
 	["gm_atomic"] = {AABB(-210, -210, 40, 210, 210, 210) * scale, 0},
@@ -145,16 +146,23 @@ local function read_lump_data(what, bsp_file, header, index, size, struct)
 	if type(struct) == "function" then
 		for i = 1, length do
 			out[i] = struct()
-			tasks.ReportProgress(what, length)
-			tasks.Wait()
+			if i % 1000 == 0 then
+				tasks.ReportProgress(what, length)
+				tasks.Wait()
+			end
 		end
 	else
 		for i = 1, length do
 			out[i] = bsp_file:ReadStructure(struct)
-			tasks.ReportProgress(what, length)
-			tasks.Wait()
+			if i % 1000 == 0 then
+				tasks.ReportProgress(what, length)
+				tasks.Wait()
+			end
 		end
 	end
+
+	tasks.ReportProgress(what, length)
+	tasks.Wait()
 
 	return out
 end
@@ -207,9 +215,9 @@ function steam.LoadMap(path)
 
 		for i = 1, 64 do
 			header.lumps[i] = bsp_file:ReadStructure(struct)
-			tasks.ReportProgress("reading lumps", 64)
-			tasks.Wait()
 		end
+		tasks.ReportProgress("reading lumps", 64)
+		tasks.Wait()
 	end
 
 	header.map_revision = bsp_file:ReadLong()
@@ -296,7 +304,7 @@ function steam.LoadMap(path)
 
 			entities[i] = ent
 			i = i + 1
-			tasks.Wait()
+			if i % 100 == 0 then tasks.Wait() end
 		end
 
 		bsp_file:PopPosition()
@@ -339,7 +347,7 @@ function steam.LoadMap(path)
 				count = bsp_file:ReadLong()
 				local lump_size = ((filelen + fileofs) - bsp_file:GetPosition()) / count
 
-				for _ = 1, count do
+				for i = 1, count do
 					local pos = bsp_file:GetPosition()
 					local lump = bsp_file:ReadStructure([[
 						vec3 origin; // origin
@@ -396,8 +404,11 @@ function steam.LoadMap(path)
 					lump.model = paths[lump.prop_type + 1] or paths[1]
 					lump.classname = "static_entity"
 					list.insert(header.entities, lump)
-					tasks.Wait()
-					tasks.ReportProgress("reading static props", count)
+
+					if i % 100 == 0 then
+						tasks.Wait()
+						tasks.ReportProgress("reading static props", count)
+					end
 				end
 
 				bsp_file:PopPosition()
@@ -808,7 +819,8 @@ function steam.LoadMap(path)
 					a.normal = normal
 					b.normal = normal
 					c.normal = normal
-					tasks.Wait()
+
+					if i % 3000 == 0 then tasks.Wait() end
 				end
 			end
 
@@ -990,7 +1002,7 @@ function steam.SpawnMapEntities(path, parent)
 					-- Color is already in linear space from parsing
 					light:SetColor(Color(info._light.r, info._light.g, info._light.b, 1))
 					
-					local brightness = info._light.brightness / 2
+					local brightness = info._light.brightness 
 					-- Source intensity formula with quadratic attenuation: I = brightness / d²
 					-- Scale intensity for our renderer (empirically tuned)
 					light:SetIntensity(math.clamp(brightness / 50, 1, 100))
@@ -1010,7 +1022,7 @@ function steam.SpawnMapEntities(path, parent)
 						-- So cutoff is roughly 2x this distance
 						range = info._fifty_percent_distance * steam.source2meters * 2
 					end
-					light:SetRange(math.clamp(range*2, 1, 150))
+					light:SetRange(math.clamp(range*7, 1, 150))
 
 					ent.spawned_from_bsp = true
 				elseif info.classname == "env_fog_controller" then
@@ -1071,7 +1083,7 @@ function steam.SpawnMapEntities(path, parent)
 			end
 
 			tasks.ReportProgress("spawning entities", count)
-			tasks.Wait()
+			if i % 50 == 0 then tasks.Wait() end
 		end
 
 

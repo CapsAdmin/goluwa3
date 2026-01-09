@@ -264,7 +264,7 @@ function callback.WrapKeyedTask(create_callback, max, queue_callback, start_on_c
 			end
 		end
 
-		if tasks and tasks.GetActiveTask and tasks.GetActiveTask() then
+		if tasks and tasks.IsEnabled() and tasks.GetActiveTask() then
 			callbacks[key]:Get()
 		end
 

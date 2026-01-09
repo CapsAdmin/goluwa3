@@ -513,18 +513,33 @@ do
 				pbr = {roughness, metallic}
 			end
 
-			if pbr then
+			local roughness = pbr and pbr[1] or 1
+					
+			local refl = self:GetAlbedoTexture().reflectivity
+			if refl then
+				local avg = (refl[1] + refl[2] + refl[3]) / 3
+				
+				-- Use reflectivity to estimate base roughness
+				-- Very dark surfaces (avg < 0.05) are either black or very rough
+				-- Bright surfaces (avg > 0.3) that bounce lots of light are likely smoother
+				if avg > 0.05 then
+					-- Map reflectivity to roughness: higher reflectivity = lower roughness
+					-- sqrt gives a more perceptually linear mapping
+					local est = 1.0 - math.sqrt(avg)
+					est = math.max(0.2, math.min(0.95, est))
+					
+					roughness = roughness * 0.6 + est * 0.4
+				end
+			end
+
 				if not self:HasExplicitRoughnessTexture() then
-					self:SetRoughnessMultiplier(pbr[1])
+					self:SetRoughnessMultiplier(roughness)
 					self:SetInvertRoughnessTexture(false)
 				end
 
-				if not self:HasExplicitMetallicTexture() then
+				if not self:HasExplicitMetallicTexture() and pbr[2] then
 					self:SetMetallicMultiplier(pbr[2] > 0.5 and 1.0 or 0.0)
 				end
-			else
-
-			end
 		end
 	end
 

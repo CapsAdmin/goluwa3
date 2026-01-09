@@ -374,6 +374,7 @@ function vtf.DecodeBuffer(input_buffer)
 		data = data_buffer,
 		-- Also provide a Buffer wrapper for consistency
 		buffer = Buffer.New(data_buffer, actual_data_size),
+		reflectivity = header.reflectivity,
 	}
 end
 

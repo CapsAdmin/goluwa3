@@ -10,6 +10,7 @@ local Color = require("structs.color")
 local Matrix44 = require("structs.matrix44")
 local model_loader = require("render3d.model_loader")
 local system = require("system")
+local timer = require("timer")
 local ffi = require("ffi")
 local Model = {}
 -- Cached matrix to avoid allocation in hot drawing loops
