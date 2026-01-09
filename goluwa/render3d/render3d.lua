@@ -206,6 +206,7 @@ local pipelines = {
 				{"normal", "vec3", "r32g32b32_sfloat"},
 				{"uv", "vec2", "r32g32_sfloat"},
 				{"tangent", "vec4", "r32g32b32a32_sfloat"},
+				{"texture_blend", "float", "r32_sfloat"},
 			},
 			push_constants = {
 				{
@@ -235,6 +236,7 @@ local pipelines = {
 				out_normal = normalize(mat3(pc.vertex.world) * in_normal);
 				out_tangent = vec4(normalize(mat3(pc.vertex.world) * in_tangent.xyz), in_tangent.w);
 				out_uv = in_uv;
+				out_texture_blend = in_texture_blend;
 			}
 		]],
 		},
@@ -258,10 +260,31 @@ local pipelines = {
 							end,
 						},
 						{
+							"Albedo2Texture",
+							"int",
+							function(self, block, key)
+								block[key] = render3d.pipelines.gbuffer:GetTextureIndex(render3d.GetMaterial():GetAlbedo2Texture())
+							end,
+						},
+						{
 							"NormalTexture",
 							"int",
 							function(self, block, key)
 								block[key] = render3d.pipelines.gbuffer:GetTextureIndex(render3d.GetMaterial():GetNormalTexture())
+							end,
+						},
+						{
+							"Normal2Texture",
+							"int",
+							function(self, block, key)
+								block[key] = render3d.pipelines.gbuffer:GetTextureIndex(render3d.GetMaterial():GetNormal2Texture())
+							end,
+						},
+						{
+							"BlendTexture",
+							"int",
+							function(self, block, key)
+								block[key] = render3d.pipelines.gbuffer:GetTextureIndex(render3d.GetMaterial():GetBlendTexture())
 							end,
 						},
 						{
@@ -347,12 +370,38 @@ local pipelines = {
 			shader = [[
 			]] .. Material.BuildGlslFlags("pc.model.Flags") .. [[
 
+			float get_texture_blend() {
+				if (pc.model.BlendTexture == -1) {
+					return in_texture_blend;
+				}
+
+				float blend = in_texture_blend;
+			
+				vec2 blend_data = texture(TEXTURE(pc.model.BlendTexture), in_uv).rg;
+				float minb = blend_data.r;
+				float maxb = blend_data.g;
+				
+				// Remap vertex blend through the min/max range
+				blend = clamp((blend - minb) / (maxb - minb + 0.001), 0.0, 1.0);
+
+				return blend;
+			}
+
 			vec3 get_albedo() {
 				if (pc.model.AlbedoTexture == -1) {
 					return pc.model.ColorMultiplier.rgb;
 				}
-				vec3 rgb = texture(TEXTURE(pc.model.AlbedoTexture), in_uv).rgb * pc.model.ColorMultiplier.rgb;
-				return rgb;
+				
+				vec3 rgb1 = texture(TEXTURE(pc.model.AlbedoTexture), in_uv).rgb;
+				
+				float blend = get_texture_blend();
+
+				if (blend != 0) {
+					vec3 rgb2 = texture(TEXTURE(pc.model.Albedo2Texture), in_uv).rgb;
+					rgb1 = mix(rgb1, rgb2, blend);
+				}
+			
+				return rgb1 * pc.model.ColorMultiplier.rgb;
 			}
 
 			float get_alpha() {
@@ -369,7 +418,7 @@ local pipelines = {
 				return texture(TEXTURE(pc.model.AlbedoTexture), in_uv).a * pc.model.ColorMultiplier.a;
 			}
 
-			void compute_translucency(inout float alpha) {
+			void compute_translucency_and_discard(inout float alpha) {
 				if (AlphaTest) {
 					if (alpha < pc.model.AlphaCutoff) discard;
 				} else if (Translucent) {
@@ -382,14 +431,20 @@ local pipelines = {
 				if (pc.model.NormalTexture == -1) {
 					N = in_normal;
 				} else {
-					vec3 tangent_normal = texture(TEXTURE(pc.model.NormalTexture), in_uv).xyz * 2.0 - 1.0;
+					vec3 rgb1 = texture(TEXTURE(pc.model.NormalTexture), in_uv).xyz * 2.0 - 1.0;
+
+					float blend = get_texture_blend();
+					if (blend != 0) {
+						vec3 rgb2 = texture(TEXTURE(pc.model.Normal2Texture), in_uv).xyz * 2.0 - 1.0;
+						rgb1 = normalize(mix(rgb1, rgb2, blend));
+					}
 					
 					vec3 normal = normalize(in_normal);
 					vec3 tangent = normalize(in_tangent.xyz);
 					vec3 bitangent = cross(normal, tangent) * in_tangent.w;
 					mat3 TBN = mat3(tangent, bitangent, normal);
 
-					N = TBN * tangent_normal;
+					N = TBN * rgb1;
 				}
 
 				if (DoubleSided && gl_FrontFacing) {
@@ -478,8 +533,8 @@ local pipelines = {
 
 			void main() {
 				float alpha = get_alpha();
-				compute_translucency(alpha);
-				set_alpha(alpha);
+				compute_translucency_and_discard(alpha);
+				set_alpha(alpha); // debug
 				set_albedo(get_albedo());
 				set_normal(get_normal());
 				set_metallic(get_metallic());

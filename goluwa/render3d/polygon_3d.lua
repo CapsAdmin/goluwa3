@@ -53,13 +53,14 @@ function Polygon3D:Upload()
 
 	if not self.Vertices[1].tangent then self:BuildTangents() end
 
-	-- Define vertex structure matching render3d pipeline: position (vec3), normal (vec3), uv (vec2), tangent (vec4)
+	-- Define vertex structure matching render3d pipeline: position (vec3), normal (vec3), uv (vec2), tangent (vec4), texture_blend (float)
 	local VertexType = ffi.typeof([[
 		struct {
 			float position[3];
 			float normal[3];
 			float uv[2];
 			float tangent[4];
+			float texture_blend;
 		}[?]
 	]])
 	local vertices = VertexType(vertex_count)
@@ -105,6 +106,9 @@ function Polygon3D:Upload()
 			vertices[idx].tangent[2] = 0
 			vertices[idx].tangent[3] = 1
 		end
+
+		-- Texture Blend
+		vertices[idx].texture_blend = v.texture_blend or 0
 	end
 
 	-- Define vertex attributes matching the render3d pipeline
@@ -132,6 +136,12 @@ function Polygon3D:Upload()
 			location = 3,
 			format = "r32g32b32a32_sfloat",
 			offset = ffi.sizeof("float") * 8,
+		},
+		{
+			binding = 0,
+			location = 4,
+			format = "r32_sfloat",
+			offset = ffi.sizeof("float") * 12,
 		},
 	}
 	-- Collect indices from sub_meshes if they exist

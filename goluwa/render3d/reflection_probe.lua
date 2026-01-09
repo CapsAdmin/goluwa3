@@ -325,6 +325,8 @@ function reflection_probe.CreatePipelines()
 					{"position", "vec3", "r32g32b32_sfloat"},
 					{"normal", "vec3", "r32g32b32_sfloat"},
 					{"uv", "vec2", "r32g32_sfloat"},
+					{"tangent", "vec4", "r32g32b32a32_sfloat"},
+					{"texture_blend", "float", "r32_sfloat"},
 				},
 				push_constants = {
 					{
@@ -353,6 +355,8 @@ function reflection_probe.CreatePipelines()
                     out_position = (pc.vertex.world * vec4(in_position, 1.0)).xyz;
                     out_normal = normalize(mat3(pc.vertex.world) * in_normal);
                     out_uv = in_uv;
+                    out_tangent = vec4(normalize(mat3(pc.vertex.world) * in_tangent.xyz), in_tangent.w);
+                    out_texture_blend = in_texture_blend;
                 }
             ]],
 			},
@@ -420,10 +424,31 @@ function reflection_probe.CreatePipelines()
 								end,
 							},
 							{
+								"Albedo2Texture",
+								"int",
+								function(self, block, key)
+									block[key] = self:GetTextureIndex(render3d.GetMaterial():GetAlbedo2Texture())
+								end,
+							},
+							{
 								"NormalTexture",
 								"int",
 								function(self, block, key)
 									block[key] = self:GetTextureIndex(render3d.GetMaterial():GetNormalTexture())
+								end,
+							},
+							{
+								"Normal2Texture",
+								"int",
+								function(self, block, key)
+									block[key] = self:GetTextureIndex(render3d.GetMaterial():GetNormal2Texture())
+								end,
+							},
+							{
+								"BlendTexture",
+								"int",
+								function(self, block, key)
+									block[key] = self:GetTextureIndex(render3d.GetMaterial():GetBlendTexture())
 								end,
 							},
 							{
@@ -478,57 +503,136 @@ function reflection_probe.CreatePipelines()
                 #define PI 3.14159265359
                 #define saturate(x) clamp(x, 0.0, 1.0)
                 
-                vec3 get_albedo() {
-                    if (pc.model.AlbedoTexture == -1) {
-                        return pc.model.ColorMultiplier.rgb;
+                float g_blend = -1.0;
+                float get_blend() {
+                    if (g_blend != -1.0) return g_blend;
+                    
+                    float blend = in_texture_blend;
+                    if (pc.model.BlendTexture != -1) {
+                        vec2 blend_data = texture(TEXTURE(pc.model.BlendTexture), in_uv).rg;
+                        float b = blend_data.g;
+                        float blend_power = blend_data.r;
+                        
+                        if (blend != 0) {
+                            blend = mix(blend, b, 0.5);
+                        } else {
+                            blend = b;
+                        }
+
+                        if (blend != 0 && blend_power != 0) {
+                            blend = pow(blend, blend_power);
+                        }
                     }
-                    return texture(TEXTURE(pc.model.AlbedoTexture), in_uv).rgb * pc.model.ColorMultiplier.rgb;
+                    g_blend = blend;
+                    return g_blend;
+                }
+
+                vec4 get_albedo_vec4() {
+                    vec4 albedo = vec4(1.0);
+                    if (pc.model.AlbedoTexture != -1) {
+                        albedo = texture(TEXTURE(pc.model.AlbedoTexture), in_uv);
+                    }
+                    
+                    float blend = get_blend();
+                    if (blend > 0.0 && pc.model.Albedo2Texture != -1) {
+                        vec4 albedo2 = texture(TEXTURE(pc.model.Albedo2Texture), in_uv);
+                        albedo = mix(albedo, albedo2, blend);
+                    }
+
+                    if (BlendTintByBaseAlpha) {
+                        albedo.rgb = mix(albedo.rgb, albedo.rgb * pc.model.ColorMultiplier.rgb, albedo.a);
+                        albedo.a *= pc.model.ColorMultiplier.a;
+                    } else {
+                        albedo *= pc.model.ColorMultiplier;
+                    }
+
+                    return albedo;
+                }
+
+                vec3 get_albedo() {
+                    return get_albedo_vec4().rgb;
                 }
                 
                 float get_alpha() {
-                    if (pc.model.AlbedoTexture == -1) {
-                        return pc.model.ColorMultiplier.a;
+                    if (
+                        AlbedoTextureAlphaIsRoughness ||
+                        NormalTextureAlphaIsRoughness ||
+                        AlbedoAlphaIsEmissive
+                    ) {
+                        return pc.model.ColorMultiplier.a;	
                     }
-                    return texture(TEXTURE(pc.model.AlbedoTexture), in_uv).a * pc.model.ColorMultiplier.a;
+
+                    return get_albedo_vec4().a;
                 }
                 
                 vec3 get_normal() {
-                    vec3 N = in_normal;
+                    vec3 tangent_normal = vec3(0, 0, 1);
                     if (pc.model.NormalTexture != -1) {
-                        vec3 tangent_normal = texture(TEXTURE(pc.model.NormalTexture), in_uv).xyz * 2.0 - 1.0;
-                        vec3 Q1 = dFdx(in_position);
-                        vec3 Q2 = dFdy(in_position);
-                        vec2 st1 = dFdx(in_uv);
-                        vec2 st2 = dFdy(in_uv);
-                        vec3 N_orig = normalize(in_normal);
-                        vec3 T = normalize(Q1 * st2.t - Q2 * st1.t);
-                        vec3 B = -normalize(cross(N_orig, T));
-                        mat3 TBN = mat3(T, B, N_orig);
-                        N = TBN * tangent_normal;
+                        tangent_normal = texture(TEXTURE(pc.model.NormalTexture), in_uv).xyz * 2.0 - 1.0;
                     }
+
+                    float blend = get_blend();
+                    if (blend > 0.0 && pc.model.Normal2Texture != -1) {
+                        vec3 tangent_normal2 = texture(TEXTURE(pc.model.Normal2Texture), in_uv).xyz * 2.0 - 1.0;
+                        tangent_normal = mix(tangent_normal, tangent_normal2, blend);
+                    }
+                    
+                    vec3 normal = normalize(in_normal);
+                    vec3 tangent = normalize(in_tangent.xyz);
+                    vec3 bitangent = cross(normal, tangent) * in_tangent.w;
+                    mat3 TBN = mat3(tangent, bitangent, normal);
+
+                    vec3 N = TBN * tangent_normal;
+
                     if (DoubleSided && gl_FrontFacing) {
                         N = -N;
                     }
+
                     return normalize(N);
                 }
                 
                 float get_metallic() {
+                    float val = pc.model.MetallicMultiplier;
                     if (pc.model.MetallicRoughnessTexture != -1) {
-                        return texture(TEXTURE(pc.model.MetallicRoughnessTexture), in_uv).b * pc.model.MetallicMultiplier;
+                        val = texture(TEXTURE(pc.model.MetallicRoughnessTexture), in_uv).b * pc.model.MetallicMultiplier;
                     }
-                    return pc.model.MetallicMultiplier;
+                    return clamp(val, 0, 1);
                 }
                 
                 float get_roughness() {
-                    if (pc.model.MetallicRoughnessTexture != -1) {
-                        return texture(TEXTURE(pc.model.MetallicRoughnessTexture), in_uv).g * pc.model.RoughnessMultiplier;
+                    float val = pc.model.RoughnessMultiplier;
+
+                    if (AlbedoTextureAlphaIsRoughness) {
+                        val = get_albedo_vec4().a;
+                    } else if (NormalTextureAlphaIsRoughness) {
+                        float a1 = 1.0;
+                        if (pc.model.NormalTexture != -1) a1 = texture(TEXTURE(pc.model.NormalTexture), in_uv).a;
+                        
+                        val = a1;
+                        float blend = get_blend();
+                        if (blend > 0.0 && pc.model.Normal2Texture != -1) {
+                            float a2 = texture(TEXTURE(pc.model.Normal2Texture), in_uv).a;
+                            val = mix(a1, a2, blend);
+                        }
+                        val = -val + 1.0;
+                    } else if (AlbedoLuminanceIsRoughness) {
+                        val = dot(get_albedo(), vec3(0.2126, 0.7152, 0.0722));
+                    } else if (pc.model.MetallicRoughnessTexture != -1) {
+                        val = texture(TEXTURE(pc.model.MetallicRoughnessTexture), in_uv).g * pc.model.RoughnessMultiplier;
                     }
-                    return pc.model.RoughnessMultiplier;
+
+                    if (InvertRoughnessTexture) val = -val + 1.0;
+
+                    return clamp(val, 0.05, 0.95);
                 }
                 
                 vec3 get_emissive() {
-                    if (pc.model.EmissiveTexture != -1) {
-                        return texture(TEXTURE(pc.model.EmissiveTexture), in_uv).rgb * pc.model.EmissiveMultiplier.rgb;
+                    if (AlbedoAlphaIsEmissive) {
+                        float mask = get_albedo_vec4().a;
+                        return get_albedo() * mask * pc.model.EmissiveMultiplier.rgb * pc.model.EmissiveMultiplier.a;
+                    } else if (pc.model.EmissiveTexture != -1) {
+                        vec3 emissive = texture(TEXTURE(pc.model.EmissiveTexture), in_uv).rgb;
+                        return emissive * pc.model.EmissiveMultiplier.rgb * pc.model.EmissiveMultiplier.a;
                     }
                     return pc.model.EmissiveMultiplier.rgb * pc.model.EmissiveMultiplier.a;
                 }

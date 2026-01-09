@@ -399,7 +399,7 @@ local function set_local_transform(transform, node) end
 
 -- Helper to get interleaved vertex data for a primitive
 -- Returns: vertex_data (C array of floats), vertex_count, stride_in_floats, aabb
--- New format: position (3) + normal (3) + texcoord (2) + tangent (4) = 12 floats
+-- New format: position (3) + normal (3) + texcoord (2) + tangent (4) + texture_blend (1) = 13 floats
 -- Converts coordinates using the top-level conversion functions (controlled by ENABLE_COORDINATE_CONVERSION)
 -- Also computes AABB in our coordinate system
 function gltf.GetInterleavedVertices(primitive)
@@ -411,8 +411,8 @@ function gltf.GetInterleavedVertices(primitive)
 	if not position then return nil, "POSITION attribute is required" end
 
 	local vertex_count = position.count
-	-- Calculate stride: position (3) + normal (3) + texcoord (2) + tangent (4) = 12 floats
-	local stride = 12
+	-- Calculate stride: position (3) + normal (3) + texcoord (2) + tangent (4) + texture_blend (1) = 13 floats
+	local stride = 13
 	local total_floats = vertex_count * stride
 	local vertex_data = ffi.new("float[?]", total_floats)
 	-- Initialize AABB with extreme values
@@ -487,6 +487,9 @@ function gltf.GetInterleavedVertices(primitive)
 			vertex_data[base + 10] = 0.0
 			vertex_data[base + 11] = 1.0
 		end
+
+		-- Texture Blend (1 float)
+		vertex_data[base + 12] = 0.0
 	end
 
 	return vertex_data, vertex_count, stride, aabb

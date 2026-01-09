@@ -15,7 +15,7 @@ Material:GetSet("AmbientOcclusionTexture", nil)
 Material:GetSet("EmissiveTexture", nil)
 Material:GetSet("Albedo2Texture", nil)
 Material:GetSet("Normal2Texture", nil)
-Material:GetSet("AlbedoBlendTexture", nil)
+Material:GetSet("BlendTexture", nil)
 Material:GetSet("MetallicTexture", nil)
 Material:GetSet("RoughnessTexture", nil)
 -- multipliers
@@ -208,7 +208,18 @@ do
 		end
 
 		if vmt.blendmodulatetexture then
-			self:SetAlbedoBlendTexture(SRGBTexture(vmt.blendmodulatetexture))
+			self:SetBlendTexture(LinearTexture(vmt.blendmodulatetexture))
+		end
+
+
+		if vmt.blendtintbybasealpha == 1 then
+			-- this should be a mask for color multiplier
+			-- it allows changing the color of specific parts of the texture while keeping others unaffected
+			self:SetBlendTintByBaseAlpha(true)
+		end
+
+		if vmt.texture2 then
+			self:SetAlbedo2Texture(SRGBTexture(vmt.texture2))
 		end
 
 		if vmt.envmap then -- envmap
@@ -270,11 +281,6 @@ do
 			if vmt.invertphongmask == 1 then self:SetInvertRoughnessTexture(false) end
 		end
 
-		if vmt.blendtintbybasealpha == 1 then
-			-- this should be a mask for color multiplier
-			-- it allows changing the color of specific parts of the texture while keeping others unaffected
-			self:SetBlendTintByBaseAlpha(true)
-		end
 
 		if vmt.selfillum == 1 then
 			local tint = vmt.selfillumtint -- TODO

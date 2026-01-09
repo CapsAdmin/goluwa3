@@ -93,6 +93,7 @@ function ShadowMap.New(config)
 					layout(location = 1) in vec3 in_normal;
 					layout(location = 2) in vec2 in_uv;
 					layout(location = 3) in vec4 in_tangent;
+					layout(location = 4) in float in_texture_blend;
 
 					layout(push_constant, scalar) uniform Constants {
 						mat4 light_space_matrix;
@@ -112,7 +113,7 @@ function ShadowMap.New(config)
 					bindings = {
 						{
 							binding = 0,
-							stride = ffi.sizeof("float") * (3 + 3 + 2 + 4), -- Match render3d vertex format (pos, normal, uv, tangent)
+							stride = ffi.sizeof("float") * (3 + 3 + 2 + 4 + 1), -- Match render3d vertex format (pos, normal, uv, tangent, blend)
 							input_rate = "vertex",
 						},
 					},
@@ -140,6 +141,12 @@ function ShadowMap.New(config)
 							location = 3,
 							format = "r32g32b32a32_sfloat",
 							offset = ffi.sizeof("float") * 8,
+						},
+						{
+							binding = 0,
+							location = 4,
+							format = "r32_sfloat",
+							offset = ffi.sizeof("float") * 12,
 						},
 					},
 					input_assembly = {

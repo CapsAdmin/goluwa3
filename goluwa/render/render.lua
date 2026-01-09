@@ -210,6 +210,7 @@ local formats = {
 	r32g32b32a32_sfloat = (32 + 32 + 32 + 32) / 8,
 	r32g32b32_sfloat = (32 + 32 + 32) / 8,
 	r32g32_sfloat = (32 + 32) / 8,
+	r32_sfloat = 32 / 8,
 }
 
 function render.GetVulkanFormatSize(format)
