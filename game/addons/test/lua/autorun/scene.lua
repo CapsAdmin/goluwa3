@@ -67,7 +67,7 @@ end
 
 do
 	local material_index = 1
-	local pos = Vec3(0, 0, 0)
+	local pos = Vec3(0, -0.75, 0)
 	local PADDING = 2.3
 
 	local function spawn()
@@ -368,7 +368,7 @@ do
             vec3 plastic_color = vec3(0.8, 0.1, 0.1);  // Red plastic
             vec3 metal_color = vec3(0.91, 0.92, 0.92); // Silver metal
             
-            return vec4(mix(plastic_color, metal_color, is_metal), 1.0);
+            return vec4(mix(metal_color, plastic_color, is_metal), 1.0);
         ]],
 			metal = [[
             return vec4(step(0.0, n.y));

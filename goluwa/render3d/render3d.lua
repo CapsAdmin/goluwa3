@@ -90,7 +90,7 @@ local debug_block = {
 }
 
 do
-	local debug_modes = {"none", "normals", "light", "ssao", "ssr", "probe"}
+	local debug_modes = {"none", "normals", "irradiance", "ambient_occlusion", "ssr", "probe"}
 	render3d.debug_mode = render3d.debug_mode or 1
 
 	function render3d.GetDebugModes()
@@ -112,9 +112,9 @@ do
 		if (debug_mode == 1) {
 			color = N * 0.5 + 0.5;
 		} else if (debug_mode == 2) {
-			color = ambient_specular + emissive;
+			color = irradiance;
 		} else if (debug_mode == 3) {
-			color = ssao;
+			color = vec3(ambient_occlusion);
 		} else if (debug_mode == 4) {
 			color = texture(TEXTURE(lighting_data.ssr_tex), in_uv).rgb;
 		} else if (debug_mode == 5) {
@@ -500,6 +500,8 @@ local pipelines = {
 				val *= pc.model.RoughnessMultiplier;
 
 				if (InvertRoughnessTexture) val = -val + 1.0;
+
+				val *= val; // roughness squared
 
 				val = clamp(val, 0.05, 0.95);
 				
@@ -1056,10 +1058,11 @@ local pipelines = {
 							},
 							function(self, block, key)
 								local ents = render3d.GetLights()
+
 								for i = 0, 128 - 1 do
 									local data = block[key][i]
-
 									local ent = ents[i + 1]
+
 									if ent then
 										if ent.light.LightType == "directional" or ent.light.LightType == "sun" then
 											ent.transform:GetRotation():GetForward():CopyToFloatPointer(data.position)
@@ -1384,6 +1387,11 @@ local pipelines = {
                 return f + f0 * (1.0 - f);
             }
 
+            vec3 F_SchlickRoughness(vec3 f0, float NdotV, float roughness) {
+                float f = pow(1.0 - NdotV, 5.0);
+                return f0 + (max(vec3(1.0 - roughness), f0) - f0) * f;
+            }
+
             float Fd_Lambert() {
                 return 1.0 / PI;
             }
@@ -1459,73 +1467,38 @@ local pipelines = {
 				return shadow_val / 9.0;
 			}
 
-			vec3 env_color(vec3 normal, float roughness, vec3 V, vec3 world_pos) {
+			vec3 get_reflection(vec3 normal, float roughness, vec3 V, vec3 world_pos) {
+				vec3 env = vec3(0.0);
+			
 				vec3 R = reflect(-V, normal);
 				R = mix(R, normal, roughness * roughness);
-				R = normalize(R);
 
-				float max_mip = float(textureQueryLevels(CUBEMAP(lighting_data.env_tex)) - 1);
-				float mip_level = roughness * max_mip;
+				int tex_idx = lighting_data.env_tex;
+				if (tex_idx != -1) {
+					float max_mip = float(textureQueryLevels(CUBEMAP(tex_idx)) - 1);
+					env += textureLod(CUBEMAP(tex_idx), R, roughness * max_mip).rgb;
+				}
 
-				vec3 env = textureLod(CUBEMAP(lighting_data.env_tex), R, mip_level).rgb;
-
-				#if SSR
 				vec4 ssr = texture(TEXTURE(lighting_data.ssr_tex), in_uv);
 				env = mix(env, ssr.rgb, ssr.a);
-				#endif
 
 				{return env;}
-				// TODO
 
-				vec3 total_env = vec3(0.0);
-				float total_weight = 0.0;
-
-				// DDGI-style grid lookup
-				vec3 grid_pos = (world_pos - lighting_data.probe_grid_origin.xyz) / lighting_data.probe_grid_spacing.xyz;
-				ivec3 base_coord = ivec3(floor(grid_pos));
-				vec3 alpha = fract(grid_pos);
-
-				for (int i = 0; i < 8; i++) {
-					ivec3 offset = ivec3(i & 1, (i >> 1) & 1, (i >> 2) & 1);
-					ivec3 coord = base_coord + offset;
-
-					if (any(lessThan(coord, ivec3(0))) || any(greaterThanEqual(coord, lighting_data.probe_grid_counts.xyz))) {
-						continue;
-					}
-
-					int probe_idx = coord.x + coord.y * lighting_data.probe_grid_counts.x + coord.z * lighting_data.probe_grid_counts.x * lighting_data.probe_grid_counts.y;
-					int tex_idx = lighting_data.probe_indices[probe_idx];
+				for (int i = 1; i < 64; i++) {
+					int tex_idx = lighting_data.probe_indices[i];
 					if (tex_idx == -1) continue;
 
-					vec3 probe_pos = lighting_data.probe_positions[probe_idx].xyz;
+
+					vec3 probe_pos = lighting_data.probe_positions[i].xyz;
 					vec3 probe_to_point = world_pos - probe_pos;
 					vec3 dir_to_point = normalize(probe_to_point);
 					float dist_to_point = length(probe_to_point);
 
-					// Trilinear weight
-					vec3 trilinear = mix(1.0 - alpha, alpha, vec3(offset));
-					float weight = trilinear.x * trilinear.y * trilinear.z;
+					float sphere_radius = 20.0;
 
-					// Smooth backface test
-					float weight_normal = max(0.05, dot(dir_to_point, normal));
-					weight *= weight_normal * weight_normal;
-
-					// Visibility test (using depth cubemap)
-					int depth_tex_idx = lighting_data.probe_depth_indices[probe_idx];
-					if (depth_tex_idx != -1) {
-						float captured_depth = texture(CUBEMAP(depth_tex_idx), dir_to_point).r;
-						// Smooth visibility test to prevent light leaking and hard edges
-						float visibility = smoothstep(captured_depth + 1.0, captured_depth + 0.2, dist_to_point);
-						weight *= visibility;
-					}
-
-					if (weight > 0.0) {
-						float max_mip = float(textureQueryLevels(CUBEMAP(tex_idx)) - 1);
-						float mip_level = roughness * max_mip;
-						
+					if (dist_to_point < sphere_radius) {
 						// Parallax correction (simple sphere-based)
 						vec3 corrected_R = R;
-						float sphere_radius = 20.0;
 						vec3 ray_origin = world_pos - probe_pos;
 						float b = dot(ray_origin, R);
 						float c = dot(ray_origin, ray_origin) - sphere_radius * sphere_radius;
@@ -1535,43 +1508,74 @@ local pipelines = {
 							corrected_R = normalize(ray_origin + t * R);
 						}
 
-						vec3 env = textureLod(CUBEMAP(tex_idx), corrected_R, mip_level).rgb;
-						total_env += env * weight;
+
+						float max_mip = float(textureQueryLevels(CUBEMAP(tex_idx)) - 1);
+						float mip_level = roughness * max_mip;
+
+						env += textureLod(CUBEMAP(tex_idx), corrected_R, mip_level).rgb;
+						break;
+					}
+				}
+
+				/*float total_weight = 0.0;
+
+				// Global search for nearest probes (limited to 64 slots, skip index 0 which is environment probe)
+				for (int i = 1; i < 64; i++) {
+					int tex_idx = lighting_data.probe_indices[i];
+					if (tex_idx == -1) continue;
+
+					vec3 probe_pos = lighting_data.probe_positions[i].xyz;
+					vec3 probe_to_point = world_pos - probe_pos;
+					vec3 dir_to_point = normalize(probe_to_point);
+					float dist_to_point = length(probe_to_point);
+
+					// Soft distance-based weight
+					float influence_radius = 80.0; // Large radius for better coverage in big maps
+					float weight = saturate(1.0 - dist_to_point / influence_radius);
+					weight = weight * weight; // Quadratic falloff
+
+					// Prefer probes that are "in front" of the surface
+					// dot(dir_to_point, normal) is -1 if probe is in front of wall, +1 if behind
+					float weight_normal = saturate(0.5 - dot(dir_to_point, normal));
+					weight *= weight_normal * weight_normal;
+
+					if (weight > 0.0001) {
+						float max_mip = float(textureQueryLevels(CUBEMAP(tex_idx)) - 1);
+						float mip_level = roughness * max_mip;
+						
+						// Parallax correction (simple sphere-based)
+						vec3 corrected_R = R;
+						float sphere_radius = influence_radius * 0.75;
+						vec3 ray_origin = world_pos - probe_pos;
+						float b = dot(ray_origin, R);
+						float c = dot(ray_origin, ray_origin) - sphere_radius * sphere_radius;
+						float discriminant = b * b - c;
+						if (discriminant >= 0.0) {
+							float t = -b + sqrt(discriminant);
+							corrected_R = normalize(ray_origin + t * R);
+						}
+
+						vec3 sampled_env = textureLod(CUBEMAP(tex_idx), corrected_R, mip_level).rgb;
+						total_env += clamp(sampled_env, vec3(0.0), vec3(65504.0)) * weight;
 						total_weight += weight;
 					}
 				}
 
-				env = vec3(0.0);
-				if (total_weight > 0.001) {
-					env = total_env / total_weight;
-				}
-				
-				// Blend with global environment if weights are low
-				if (total_weight < 1.0 && lighting_data.env_tex != -1) {
-					float max_mip = float(textureQueryLevels(CUBEMAP(lighting_data.env_tex)) - 1);
-					float mip_level = roughness * max_mip;
-					vec3 global_env = textureLod(CUBEMAP(lighting_data.env_tex), R, mip_level).rgb;
-					env = mix(global_env, env, clamp(total_weight, 0.0, 1.0));
-				} else if (total_weight <= 0.001) {
-					if (lighting_data.env_tex != -1) {
-						float max_mip = float(textureQueryLevels(CUBEMAP(lighting_data.env_tex)) - 1);
-						float mip_level = roughness * max_mip;
-						env = textureLod(CUBEMAP(lighting_data.env_tex), R, mip_level).rgb;
-					} else {
-						env = vec3(0.2);
-					}
-				}
-
-				#if SSR
-				ssr = texture(TEXTURE(lighting_data.ssr_tex), in_uv);
-				return mix(env, ssr.rgb, ssr.a);
-				#else
+				if (total_weight > 0.0001) {
+					env = mix(env, total_env / total_weight, saturate(total_weight));
+				}*/
+		
 				return env;
-				#endif
 			}
 
-			vec3 get_ssao(vec2 uv, vec3 world_pos, vec3 N) {
-				if (lighting_data.blue_noise_tex == -1) return vec3(1.0);
+			vec3 get_irradiance(vec3 normal, vec3 V, vec3 world_pos) {
+				return get_reflection(normal, 1, V, world_pos);
+			}
+
+			float get_ambient_occlusion(vec2 uv, vec3 world_pos, vec3 N) {
+				float ao_tex = get_ao();
+
+				if (lighting_data.blue_noise_tex == -1) return ao_tex;
 
 				vec3 p = (lighting_data.view * vec4(world_pos, 1.0)).xyz;
 				vec3 V = normalize(-p);
@@ -1676,55 +1680,40 @@ local pipelines = {
 				}
 
 				float ao = (total_weight > 0.001) ? (total_ao / total_weight) : 1.0;
-				return vec3(pow(clamp(ao, 0.0, 1.0), 1));
+				return pow(clamp(ao, 0.0, 1.0), 1) * ao_tex;
 			}
 
-			void main() {
-				vec3 alpha = get_albedo();
-				//if (alpha.a == 0.0) discard;
-				float depth = get_depth();
-				vec3 albedo = get_albedo();
+			vec3 get_sky() {
+				// Skybox or background
+				vec4 clip_pos = vec4(in_uv * 2.0 - 1.0, 1.0, 1.0);
+				vec4 view_pos = lighting_data.inv_projection * clip_pos;
+				view_pos /= view_pos.w;
+				vec3 world_pos = (lighting_data.inv_view * view_pos).xyz;
+				vec3 sky_dir = normalize(world_pos - lighting_data.camera_position.xyz);
 
-				if (depth == 1.0) {
-					// Skybox or background
-					vec3 sky_color_output;
-					vec3 sunDir = normalize(-lighting_data.lights[0].position.xyz);
-					vec4 clip_pos = vec4(in_uv * 2.0 - 1.0, 1.0, 1.0);
-					vec4 view_pos = lighting_data.inv_projection * clip_pos;
-					view_pos /= view_pos.w;
-					vec3 world_pos = (lighting_data.inv_view * view_pos).xyz;
-					vec3 dir = normalize(world_pos - lighting_data.camera_position.xyz);
-					
-					]] .. require("render3d.atmosphere").GetGLSLMainCode(
-					"dir",
+				vec3 sunDir = vec3(0, 1, 0);
+				if (lighting_data.light_count > 0) {
+					vec3 p = lighting_data.lights[0].position.xyz;
+					if (length(p) > 0.0001) {
+						sunDir = normalize(-p);
+					}
+				}
+				vec3 sky_color_output = vec3(0.0);
+
+				]] .. require("render3d.atmosphere").GetGLSLMainCode(
+					"sky_dir",
 					"sunDir",
 					"lighting_data.camera_position.xyz",
 					"lighting_data.stars_texture_index"
 				) .. [[
-					
-					set_color(vec4(sky_color_output, 1.0));
-					return;
-				}
 
-				vec3 N = get_normal();
-				float metallic = get_metallic();
-				float roughness = get_roughness();
-				float ao = get_ao();
-				vec3 emissive = get_emissive();
+				return clamp(sky_color_output, vec3(0.0), vec3(65504.0));
+			}
 
-				// Reconstruct world position from depth
-				vec4 clip_pos = vec4(in_uv * 2.0 - 1.0, depth, 1.0);
-				vec4 view_pos = lighting_data.inv_projection * clip_pos;
-				view_pos /= view_pos.w;
-				vec3 world_pos = (lighting_data.inv_view * view_pos).xyz;
-			
-				vec3 V = normalize(lighting_data.camera_position.xyz - world_pos);
-				vec3 reflection = env_color(N, roughness, V, world_pos);
-				vec3 F0 = mix(vec3(0.04), albedo, metallic);
-				float NdotV = max(dot(N, V), 0.001);
+			vec3 get_light(vec3 F0, float NdotV, vec3 albedo, float r2, float metallic, vec3 world_pos, vec3 V, vec3 N)
+			{
+				vec3 Lo = vec3(0.0);
 
-				float r2 = roughness * roughness;
-                vec3 Lo = vec3(0.0);
                 for (int i = 0; i < lighting_data.light_count; i++) {
                     lights_t light = lighting_data.lights[i];
                     int type = int(light.position.w);
@@ -1761,15 +1750,59 @@ local pipelines = {
                     Lo += (Fd + Fr) * radiance * NoL * shadow_factor;
                 }
 
-				vec3 ssao = get_ssao(in_uv, world_pos, N);
-                vec3 ambient_diffuse = reflection * albedo * (1.0 - metallic) * ao * ssao;
+				return Lo;				
+			}
+
+			vec3 get_world_pos(float depth) {
+				// Reconstruct world position from depth
+				vec4 clip_pos = vec4(in_uv * 2.0 - 1.0, depth, 1.0);
+				vec4 view_pos = lighting_data.inv_projection * clip_pos;
+				view_pos /= view_pos.w;
+				return (lighting_data.inv_view * view_pos).xyz;
+			}
+
+			vec3 get_view_normal(vec3 world_pos) {
+				return normalize(lighting_data.camera_position.xyz - world_pos);
+			}
+
+			void main() {
+				float alpha = get_alpha();
+				if (alpha == 0.0) discard;
+				
+				float depth = get_depth();
+
+				if (depth == 1.0) {
+					
+					set_color(vec4(get_sky(), 1.0));
+					return;
+				}
+
+
+				vec3 N = get_normal();
+				vec3 world_pos = get_world_pos(depth);
+				vec3 V = get_view_normal(world_pos);
+
+
+				vec3 albedo = get_albedo();
+				float metallic = get_metallic();
+				float roughness = get_roughness();
+				vec3 emissive = get_emissive();
+				vec3 reflection = get_reflection(N, roughness, V, world_pos);
+				vec3 F0 = mix(vec3(0.04), albedo, metallic);
+				float NdotV = max(dot(N, V), 0.001);
+
+                vec3 Lo = get_light(F0, NdotV, albedo, roughness, metallic, world_pos, V, N);
+				float ambient_occlusion = get_ambient_occlusion(in_uv, world_pos, N);
+
+                // Diffuse IBL: use irradiance (max-mip env sample in normal direction)
+                vec3 irradiance = get_irradiance(N, V, world_pos);
+                vec3 F_ambient = F_SchlickRoughness(F0, NdotV, roughness);
+                vec3 kD_ambient = (1.0 - F_ambient) * (1.0 - metallic);
+                vec3 ambient_diffuse = kD_ambient * irradiance * albedo * ambient_occlusion;
                 
-                // Split-sum IBL with BRDF approximation
-                //vec2 envBRDF = envBRDFApprox(NdotV, roughness);
-                //vec3 ambient_specular = reflection * (F0 * envBRDF.x + envBRDF.y) * ao * ssao;
-                
-        		vec3 F_ambient = F_Schlick(F0, NdotV);
-                vec3 ambient_specular = F_ambient * reflection * ao * ssao;
+                // Specular IBL with split-sum approximation
+                vec2 envBRDF = envBRDFApprox(NdotV, roughness);
+                vec3 ambient_specular = reflection * (F0 * envBRDF.x + envBRDF.y) * ambient_occlusion;
 
                 vec3 ambient = ambient_diffuse + ambient_specular;
                 vec3 color = ambient + Lo + emissive;
@@ -1851,16 +1884,32 @@ local pipelines = {
 
 
 				vec3 jodieReinhardTonemap(vec3 c){
-					// From: https://www.shadertoy.com/view/tdSXzD
-					float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
+					float l = dot(c, vec3(0.7152, 0.7152, 0.7152));
 					vec3 tc = c / (c + 1.0);
-					return mix(c / (l + 1.0), tc, tc);
+					vec3 c2 = mix(c / (l + 1.0), tc, tc);
+					c2 = pow(c2*1.5, vec3(1.5));
+					return c2;
 				}
 
 				vec3 LinearToSRGB(vec3 col) {
 					vec3 low = col * 12.92;
 					vec3 high = 1.055 * pow(col, vec3(1.0/2.4)) - 0.055;
 					return mix(low, high, step(0.0031308, col));
+				}
+
+				
+
+				vec3 tonemap(vec3 x) {
+					const float a = 2.51;
+					const float b = 0.03;
+					const float c = 2.43;
+					const float d = 0.59;
+					const float e = 0.14;
+					vec3 col = (x * (a * x + b)) / (x * (c * x + d) + e);
+
+					col = pow(col*0.75, vec3(1.5))*1.25;
+
+					return col;
 				}
 
 				void main() {
@@ -1872,7 +1921,8 @@ local pipelines = {
 					vec3 col = texture(TEXTURE(pc.blit.tex), in_uv).rgb;
 
 					if (pc.blit.is_hdr == 1) {
-						col = jodieReinhardTonemap(col);
+						col = tonemap(pow(col*1.5, vec3(0.8)))*1.2;
+
 					} else {
 						col = ACESFilm(col);
 					}
@@ -1929,20 +1979,24 @@ function render3d.Initialize()
 	end)
 
 	event.AddListener("Draw", "render3d", function(cmd, dt)
-		if not render3d.pipelines.blit then return end
-
-		-- render to the screen
-		render3d.pipelines.blit:Draw(cmd)
-
-		for _, pipeline in ipairs(render3d.pipelines_i) do
-			if pipeline.post_draw then pipeline:post_draw(cmd, dt) end
-		end
-
-		render3d.prev_view_matrix = render3d.camera:BuildViewMatrix():Copy()
-		render3d.prev_projection_matrix = render3d.camera:BuildProjectionMatrix():Copy()
+		render3d.Draw(cmd, dt)
 	end)
 
 	event.Call("Render3DInitialized")
+end
+
+function render3d.Draw(cmd, dt)
+	if not render3d.pipelines.blit then return end
+
+	-- render to the screen
+	render3d.pipelines.blit:Draw(cmd)
+
+	for _, pipeline in ipairs(render3d.pipelines_i) do
+		if pipeline.post_draw then pipeline:post_draw(cmd, dt) end
+	end
+
+	render3d.prev_view_matrix = render3d.camera:BuildViewMatrix():Copy()
+	render3d.prev_projection_matrix = render3d.camera:BuildProjectionMatrix():Copy()
 end
 
 function render3d.UploadGBufferConstants(cmd)
