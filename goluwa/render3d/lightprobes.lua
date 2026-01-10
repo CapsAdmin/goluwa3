@@ -476,7 +476,7 @@ function lightprobes.CreatePipelines()
                     }
                     
                     set_color(vec4(albedo, 1.0));
-					//set_linear_depth(length(in_position - ub.probe_data.camera_position.xyz));
+					set_linear_depth(length(in_position - probe_data.camera_position.xyz));
                 }
             ]],
 			},
@@ -1157,7 +1157,8 @@ function lightprobes.GetStarsTexture()
 	return atmosphere.GetStarsTexture()
 end
 
-event.AddListener("Render3DInitialized", "lightprobes", function() --lightprobes.Initialize()
+event.AddListener("Render3DInitialized", "lightprobes", function()
+	lightprobes.Initialize()
 end)
 
 event.AddListener("PreRenderPass", "lightprobes_update", function(cmd)

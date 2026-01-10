@@ -1450,6 +1450,44 @@ local pipelines = {
 				return shadow_val / 9.0;
 			}
 
+			vec3 parallax_sphere(vec3 R, vec3 ray_origin, float sphere_radius) {
+				float b = dot(ray_origin, R);
+				float c = dot(ray_origin, ray_origin) - sphere_radius * sphere_radius;
+				float discriminant = b * b - c;
+				if (discriminant >= 0.0) {
+					float t = -b + sqrt(discriminant);
+					return normalize(ray_origin + t * R);
+				}
+				return R;
+			}
+
+
+
+			vec3 parallax_depth(vec3 R, vec3 ray_origin, float sphere_radius, int depth_tex) {
+				const int MAX_STEPS = 8;
+				float t_min = 0.0;
+				float t_max = sphere_radius * 2.0;
+
+				// Binary search for intersection with actual geometry
+				for (int i = 0; i < MAX_STEPS; i++) {
+					float t_mid = (t_min + t_max) * 0.5;
+					vec3 ray_pos = ray_origin + t_mid * R;
+					vec3 ray_dir = normalize(ray_pos);
+					float ray_dist = length(ray_pos);
+
+					// Sample linearized depth from cubemap (distance from probe center)
+					float stored_depth = texture(CUBEMAP(depth_tex), ray_dir).r;
+
+					if (ray_dist < stored_depth) {
+						t_min = t_mid;  // Ray is in front of geometry, move forward
+					} else {
+						t_max = t_mid;  // Ray is behind geometry, move backward
+					}
+				}
+
+				return normalize(ray_origin + t_max * R);
+			}
+
 			vec3 get_reflection(vec3 normal, float roughness, vec3 V, vec3 world_pos) {
 				vec3 R = reflect(-V, normal);
 				R = mix(R, normal, roughness * roughness);
@@ -1468,6 +1506,7 @@ local pipelines = {
 					int color_tex = lighting_data.probe_color_textures[i];
 					int depth_tex = lighting_data.probe_depth_textures[i];
 					if (color_tex == -1) continue;
+					float depth = texture(CUBEMAP(depth_tex), R).r;
 
 					vec3 probe_pos = lighting_data.probe_positions[i].xyz;
 					float sphere_radius = lighting_data.probe_positions[i].w;
@@ -1477,32 +1516,33 @@ local pipelines = {
 					if (dist_to_point < sphere_radius) {
 						vec3 dir_to_point = normalize(probe_to_point);
 
-						// Depth occlusion check
-						if (depth_tex != -1) {
-							float probe_depth = texture(CUBEMAP(depth_tex), dir_to_point).r;
-							if (dist_to_point > probe_depth + 1.0) continue;
+						// Visibility check: is this surface visible from the probe?
+						// Sample depth in direction from probe to surface
+						float stored_depth = texture(CUBEMAP(depth_tex), dir_to_point).r;
+						float bias = 0.5; // Small bias to avoid self-shadowing
+						if (dist_to_point > stored_depth + bias) {
+							// Surface is behind geometry from probe's view - skip this probe
+							continue;
 						}
 
-						float weight = smoothstep(sphere_radius, sphere_radius * 0.8, dist_to_point);
-
-						// Parallax correction
-						vec3 corrected_R = R;
-						vec3 ray_origin = probe_to_point;
-						float b = dot(ray_origin, R);
-						float c = dot(ray_origin, ray_origin) - sphere_radius * sphere_radius;
-						float discriminant = b * b - c;
-						if (discriminant >= 0.0) {
-							float t = -b + sqrt(discriminant);
-							corrected_R = normalize(ray_origin + t * R);
-						}
+						float weight = smoothstep(sphere_radius, sphere_radius*0.5, dist_to_point);
+						
+						// Parallax correction - switch between methods here
+						vec3 corrected_R = parallax_depth(R, probe_to_point, sphere_radius, depth_tex);
+						//vec3 corrected_R = parallax_sphere(R, probe_to_point, sphere_radius);
 
 						float max_mip = float(textureQueryLevels(CUBEMAP(color_tex)) - 1);
-						probes_env += textureLod(CUBEMAP(color_tex), corrected_R, roughness * max_mip).rgb * weight;
+						probes_env += textureLod(CUBEMAP(color_tex), corrected_R, roughness * max_mip).rgb * weight;						
 						total_weight += weight;
 					}
 				}
 
 				vec3 env = mix(global_env, probes_env / max(total_weight, 0.0001), min(total_weight, 1.0));
+
+
+				vec4 ssr = texture(TEXTURE(lighting_data.ssr_tex), in_uv);
+				env = mix(env, ssr.rgb, ssr.a);
+
 				return env;
 			}
 

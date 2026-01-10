@@ -107,7 +107,29 @@ function EasyPipeline.New(config)
 			if type(format) == "table" then
 				local actual_format = format[1]
 				table.insert(actual_color_formats, actual_format)
-				fragment_outputs = fragment_outputs .. string.format("layout(location = %d) out vec4 out_%d;\n", i - 1, i - 1)
+				local max_component = 0
+				local component_map = {r = 1, g = 2, b = 3, a = 4, x = 1, y = 2, z = 3, w = 4}
+
+				for j = 2, #format do
+					local swizzle = format[j][2]
+
+					for char in swizzle:gmatch(".") do
+						max_component = math.max(max_component, component_map[char] or 0)
+					end
+				end
+
+				max_component = math.max(max_component, 1)
+				local output_type = "float"
+
+				if max_component == 2 then
+					output_type = "vec2"
+				elseif max_component == 3 then
+					output_type = "vec3"
+				elseif max_component == 4 then
+					output_type = "vec4"
+				end
+
+				fragment_outputs = fragment_outputs .. string.format("layout(location = %d) out %s out_%d;\n", i - 1, output_type, i - 1)
 
 				for j = 2, #format do
 					local mapping = format[j]
@@ -123,7 +145,12 @@ function EasyPipeline.New(config)
 						glsl_type = "vec4"
 					end
 
-					fragment_outputs = fragment_outputs .. string.format("void set_%s(%s val) { out_%d.%s = val; }\n", name, glsl_type, i - 1, swizzle)
+					if output_type == "float" then
+						fragment_outputs = fragment_outputs .. string.format("void set_%s(%s val) { out_%d = val; }\n", name, glsl_type, i - 1)
+					else
+						fragment_outputs = fragment_outputs .. string.format("void set_%s(%s val) { out_%d.%s = val; }\n", name, glsl_type, i - 1, swizzle)
+					end
+
 					table.insert(
 						debug_views,
 						{
