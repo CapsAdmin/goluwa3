@@ -95,6 +95,10 @@ function Image:GetMipLevels()
 	return self.mip_levels or 1
 end
 
+function Image:GetArrayLayers()
+	return self.array_layers or 1
+end
+
 function Image:CreateView(config)
 	return ImageView.New(
 		{

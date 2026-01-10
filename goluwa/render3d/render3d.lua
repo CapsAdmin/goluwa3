@@ -19,7 +19,7 @@ local system = require("system")
 local render3d = library()
 package.loaded["render3d.render3d"] = render3d
 local atmosphere = require("render3d.atmosphere")
-local reflection_probe = require("render3d.reflection_probe")
+local lightprobes = require("render3d.lightprobes")
 local camera_block = {
 	{
 		"inv_view",
@@ -119,7 +119,7 @@ do
 			color = texture(TEXTURE(lighting_data.ssr_tex), in_uv).rgb;
 		} else if (debug_mode == 5) {
 			// Probe debug - show probe cubemap contribution
-			color = reflection;
+			color = get_reflection(N, 0, V, world_pos);
 		}
 	]]
 end
@@ -1209,39 +1209,37 @@ local pipelines = {
 							end,
 						},
 						{
-							"probe_indices",
+							"probe_color_textures",
 							"int",
 							function(self, block, key)
-								if not reflection_probe.IsEnabled() then
-									for i = 0, 63 do
-										block[key][i] = -1
-									end
-
-									return
-								end
-
 								for i = 0, 63 do
-									local cubemap = reflection_probe.GetCubemap(i)
-									block[key][i] = cubemap and self:GetTextureIndex(cubemap) or -1
+									block[key][i] = -1
+
+									if lightprobes.IsEnabled() then
+										local probe = lightprobes.GetProbes()[i + 1]
+
+										if probe and probe.cubemap then
+											block[key][i] = self:GetTextureIndex(probe.cubemap)
+										end
+									end
 								end
 							end,
 							64,
 						},
 						{
-							"probe_depth_indices",
+							"probe_depth_textures",
 							"int",
 							function(self, block, key)
-								if not reflection_probe.IsEnabled() then
-									for i = 0, 63 do
-										block[key][i] = -1
-									end
-
-									return
-								end
-
 								for i = 0, 63 do
-									local depth_cubemap = reflection_probe.GetDepthCubemap(i)
-									block[key][i] = depth_cubemap and self:GetTextureIndex(depth_cubemap) or -1
+									block[key][i] = -1
+
+									if lightprobes.IsEnabled() then
+										local probe = lightprobes.GetProbes()[i + 1]
+
+										if probe and probe.depth_cubemap then
+											block[key][i] = self:GetTextureIndex(probe.depth_cubemap)
+										end
+									end
 								end
 							end,
 							64,
@@ -1250,58 +1248,20 @@ local pipelines = {
 							"probe_positions",
 							"vec4",
 							function(self, block, key)
-								if not reflection_probe.IsEnabled() then return end
+								if not lightprobes.IsEnabled() then return end
 
 								for i = 0, 63 do
-									local pos = reflection_probe.GetProbePosition(i)
+									local probe = lightprobes.GetProbes()[i + 1]
 
-									if pos then
-										block[key][i][0] = pos.x
-										block[key][i][1] = pos.y
-										block[key][i][2] = pos.z
+									if probe then
+										block[key][i][0] = probe.position.x
+										block[key][i][1] = probe.position.y
+										block[key][i][2] = probe.position.z
 										block[key][i][3] = 0
-									else
-										block[key][i][0] = 0
-										block[key][i][1] = 0
-										block[key][i][2] = 0
-										block[key][i][3] = -1 -- Mark as invalid
 									end
 								end
 							end,
 							64,
-						},
-						{
-							"probe_grid_origin",
-							"vec4",
-							function(self, block, key)
-								local origin = reflection_probe.GRID_ORIGIN
-								block[key][0] = origin.x
-								block[key][1] = origin.y
-								block[key][2] = origin.z
-								block[key][3] = 0
-							end,
-						},
-						{
-							"probe_grid_spacing",
-							"vec4",
-							function(self, block, key)
-								local spacing = reflection_probe.GRID_SPACING
-								block[key][0] = spacing.x
-								block[key][1] = spacing.y
-								block[key][2] = spacing.z
-								block[key][3] = 0
-							end,
-						},
-						{
-							"probe_grid_counts",
-							"ivec4",
-							function(self, block, key)
-								local counts = reflection_probe.GRID_COUNTS
-								block[key][0] = counts.x
-								block[key][1] = counts.y
-								block[key][2] = counts.z
-								block[key][3] = 0
-							end,
 						},
 					},
 				},
@@ -1484,10 +1444,10 @@ local pipelines = {
 
 				{return env;}
 
+				/*
 				for (int i = 1; i < 64; i++) {
-					int tex_idx = lighting_data.probe_indices[i];
+					int tex_idx = lighting_data.probe_color_textures[i];
 					if (tex_idx == -1) continue;
-
 
 					vec3 probe_pos = lighting_data.probe_positions[i].xyz;
 					vec3 probe_to_point = world_pos - probe_pos;
@@ -1516,12 +1476,12 @@ local pipelines = {
 						break;
 					}
 				}
-
+*/
 				/*float total_weight = 0.0;
 
 				// Global search for nearest probes (limited to 64 slots, skip index 0 which is environment probe)
 				for (int i = 1; i < 64; i++) {
-					int tex_idx = lighting_data.probe_indices[i];
+					int tex_idx = lighting_data.probe_color_textures[i];
 					if (tex_idx == -1) continue;
 
 					vec3 probe_pos = lighting_data.probe_positions[i].xyz;

@@ -590,7 +590,12 @@ function CommandBuffer:PipelineBarrier(config)
 								1
 							),
 						baseArrayLayer = barrier.base_array_layer or 0,
-						layerCount = barrier.layer_count or 1,
+						layerCount = barrier.layer_count or
+							(
+								barrier.image.GetArrayLayers and
+								barrier.image:GetArrayLayers() or
+								1
+							),
 					},
 				}
 			)

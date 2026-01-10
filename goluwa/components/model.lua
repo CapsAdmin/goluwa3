@@ -423,7 +423,7 @@ function META:DrawShadow(shadow_cmd, shadow_map, cascade_idx)
 end
 
 -- Draw into reflection probe cubemap
-function META:DrawProbeGeometry(cmd, reflection_probe)
+function META:DrawProbeGeometry(cmd, lightprobes)
 	if not self.Visible then return end
 
 	if #self.Primitives == 0 then return end
@@ -448,7 +448,7 @@ function META:DrawProbeGeometry(cmd, reflection_probe)
 					prim.material or
 					render3d.GetDefaultMaterial()
 			)
-			reflection_probe.UploadConstants(cmd)
+			lightprobes.UploadConstants(cmd)
 			prim.polygon3d:Draw(cmd, i)
 		end
 	end
@@ -473,11 +473,11 @@ function Model.DrawAllShadows(shadow_cmd, shadow_map, cascade_idx)
 end
 
 -- Draw all models into reflection probe
-function Model.DrawAllProbeGeometry(cmd, reflection_probe)
+function Model.DrawAllProbeGeometry(cmd, lightprobes)
 	local models = Model.GetSceneModels()
 
 	for _, model in ipairs(models) do
-		model:DrawProbeGeometry(cmd, reflection_probe)
+		model:DrawProbeGeometry(cmd, lightprobes)
 	end
 end
 
@@ -645,8 +645,8 @@ event.AddListener("PostRenderPass", "copy_occlusion_results", function(cmd)
 end)
 
 -- Draw all models into reflection probe when requested
-event.AddListener("DrawProbeGeometry", "model_probe_draw", function(cmd, reflection_probe)
-	Model.DrawAllProbeGeometry(cmd, reflection_probe)
+event.AddListener("DrawProbeGeometry", "model_probe_draw", function(cmd, lightprobes)
+	Model.DrawAllProbeGeometry(cmd, lightprobes)
 end)
 
 return Model
