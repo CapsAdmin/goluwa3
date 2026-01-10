@@ -394,7 +394,7 @@ local pipelines = {
 				
 				vec3 rgb1 = texture(TEXTURE(pc.model.AlbedoTexture), in_uv).rgb;
 				
-				if (pc.model.Albedo2Texture == -1) {
+				if (pc.model.Albedo2Texture != -1) {
 					float blend = get_texture_blend();
 					
 					if (blend != 0) {
