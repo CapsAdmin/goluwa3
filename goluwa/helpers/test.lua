@@ -78,6 +78,26 @@ local function traceback(msg, co_lines)
 	return msg .. sep .. table.concat(lines, sep)
 end
 
+function test.RunTestsWithFilter(filter, config)
+	test.BeginTests(config.logging, config.profiling, config.profiling_mode)
+	local tests = test.FindTests(filter)
+	test.SetTestPaths(tests)
+
+	for _, test_item in ipairs(tests) do
+		test.RunSingleTestSet(test_item)
+	end
+
+	if config.logging then
+		local filter_str = (filter and (" with filter '" .. filter .. "'") or "")
+
+		if #tests == 0 then
+			logn("no tests found" .. filter_str)
+		else
+			logn("running ", #tests, #tests == 1 and " test" or " tests", filter_str)
+		end
+	end
+end
+
 function test.Test(name, cb, start, stop)
 	local unref = system.KeepAlive("test: " .. name)
 	total_test_count = total_test_count + 1

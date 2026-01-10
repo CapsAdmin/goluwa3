@@ -1,3 +1,6 @@
+--[[HOTRELOAD
+test("repl")
+]]
 local event = require("event")
 local terminal = require("bindings.terminal")
 local system = require("system")

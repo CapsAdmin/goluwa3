@@ -11,17 +11,18 @@ if ... then
 
 	if (...):starts_with("--filter=") then filter = assert((...):split("=")[2]) end
 
-	if (...):ends_with("lua") then filter = ... end
+	if not filter then filter = ... end
 end
 
 event.AddListener("Initialize", "tests", function()
-	test.BeginTests(logging, profiling, profiling_mode)
-	local tests = test.FindTests(filter)
-	test.SetTestPaths(tests)
-
-	for _, test_item in ipairs(tests) do
-		test.RunSingleTestSet(test_item)
-	end
+	test.RunTestsWithFilter(
+		filter,
+		{
+			logging = logging,
+			profiling = profiling,
+			profiling_mode = profiling_mode,
+		}
+	)
 end)
 
 event.AddListener("ShutDown", "tests", function()
