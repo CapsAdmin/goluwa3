@@ -1,7 +1,7 @@
 local ffi = require("ffi")
 local render = require("render.render")
-local VertexBuffer = {}
-VertexBuffer.__index = VertexBuffer
+local prototype = require("prototype")
+local VertexBuffer = prototype.CreateTemplate("render", "vertex_buffer")
 
 -- Calculate vertex stride from vertex attributes
 local function calculate_stride(vertex_attributes)
@@ -43,7 +43,7 @@ local function calculate_stride(vertex_attributes)
 end
 
 function VertexBuffer.New(vertices, vertex_attributes)
-	local self = setmetatable({}, VertexBuffer)
+	local self = VertexBuffer:CreateObject()
 
 	if not vertex_attributes then
 		error("vertex_attributes parameter is required", 2)
@@ -190,4 +190,4 @@ function VertexBuffer:Draw(index_buffer, count)
 	end
 end
 
-return VertexBuffer
+return VertexBuffer:Register()

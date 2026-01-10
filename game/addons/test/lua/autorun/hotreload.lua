@@ -28,6 +28,7 @@ timer.Repeat(
 						if success then
 							print("reloaded " .. path)
 							last_modified_times[path] = modified_time
+							package.loaded[name] = result
 						else
 							print("reloading " .. path .. " failed:\n" .. result)
 						end

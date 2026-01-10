@@ -935,6 +935,18 @@ function EasyPipeline:RecreateFramebuffers()
 	local framebuffer_count = self.config.framebuffer_count or 1
 	local size = window:GetSize()
 
+	if self.framebuffers then
+		for _, fb in ipairs(self.framebuffers) do
+			fb:Remove()
+		end
+
+		self.framebuffers = nil
+	elseif self.framebuffer then
+		table.print(self.framebuffer)
+		self.framebuffer:Remove()
+		self.framebuffer = nil
+	end
+
 	if framebuffer_count == 1 then
 		-- Single framebuffer (backward compatible)
 		self.framebuffer = Framebuffer.New(

@@ -1,7 +1,7 @@
 local ffi = require("ffi")
 local render = require("render.render")
-local IndexBuffer = {}
-IndexBuffer.__index = IndexBuffer
+local prototype = require("prototype")
+local IndexBuffer = prototype.CreateTemplate("render", "index_buffer")
 
 -- Convert indices to appropriate format
 local function indices_to_array(indices, index_type)
@@ -20,7 +20,7 @@ local function indices_to_array(indices, index_type)
 end
 
 function IndexBuffer.New(indices, index_type)
-	local self = setmetatable({}, IndexBuffer)
+	local self = IndexBuffer:CreateObject()
 	self.index_type = index_type or "uint16_t"
 
 	-- If indices is nil, create an empty buffer for dynamic usage
@@ -48,7 +48,7 @@ function IndexBuffer.New(indices, index_type)
 end
 
 function IndexBuffer.FromPointer(ptr, len, index_type)
-	local self = setmetatable({}, IndexBuffer)
+	local self = IndexBuffer:CreateObject()
 	self.index_type = index_type or "uint16_t"
 	self.indices = ptr
 	self.index_count = len
@@ -139,4 +139,4 @@ function IndexBuffer:LoadIndices(count)
 	end
 end
 
-return IndexBuffer
+return IndexBuffer:Register()

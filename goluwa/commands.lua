@@ -534,6 +534,7 @@ do -- commands
 			commands.SetLuaEnvironmentVariable("vfs", desire("vfs"))
 			commands.SetLuaEnvironmentVariable("render3d", desire("render3d.render3d"))
 			commands.SetLuaEnvironmentVariable("ffi", desire("ffi"))
+			commands.SetLuaEnvironmentVariable("prototype", desire("prototype"))
 			commands.SetLuaEnvironmentVariable("findo", prototype.FindObject)
 
 			if WINDOW then

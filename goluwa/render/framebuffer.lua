@@ -3,14 +3,14 @@ local ImageView = require("render.vulkan.internal.image_view")
 local CommandPool = require("render.vulkan.internal.command_pool")
 local Fence = require("render.vulkan.internal.fence")
 local render = require("render.render")
-local Framebuffer = {}
-Framebuffer.__index = Framebuffer
+local prototype = require("prototype")
+local Framebuffer = prototype.CreateTemplate("render", "framebuffer")
 
 function Framebuffer.New(config)
 	local width = config.width or 512
 	local height = config.height or 512
 	local samples = config.samples or "1"
-	local self = setmetatable({}, Framebuffer)
+	local self = Framebuffer:CreateObject()
 	self.width = width
 	self.height = height
 	self.samples = samples
@@ -226,4 +226,4 @@ function Framebuffer:GetExtent()
 	return {width = self.width, height = self.height}
 end
 
-return Framebuffer
+return Framebuffer:Register()

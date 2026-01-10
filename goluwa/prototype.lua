@@ -1044,7 +1044,7 @@ do -- base object
 			if self.added_events[event_type] then return end
 
 			local func_name = "On" .. event_type
-			events[event_type] = events[event_type] or {}
+			events[event_type] = events[event_type] or table.weak()
 			list.insert(events[event_type], self)
 
 			event.AddListener(
@@ -1055,11 +1055,13 @@ do -- base object
 					for i = 1, #events[event_type] do
 						local self = events[event_type][i]
 
-						if self[func_name] then
-							self[func_name](self, a_, b_, c_)
-						else
-							wlog("%s.%s is nil", self, func_name)
-							self:RemoveEvent(event_type)
+						if self then
+							if self[func_name] then
+								self[func_name](self, a_, b_, c_)
+							else
+								wlog("%s.%s is nil", self, func_name)
+								self:RemoveEvent(event_type)
+							end
 						end
 					end
 				end,

@@ -2,11 +2,11 @@ local ffi = require("ffi")
 local VertexBuffer = require("render.vertex_buffer")
 local IndexBuffer = require("render.index_buffer")
 local render = require("render.render")
-local Mesh = {}
-Mesh.__index = Mesh
+local prototype = require("prototype")
+local Mesh = prototype.CreateTemplate("render", "mesh")
 
 function Mesh.New(vertex_attributes, vertices, indices, index_type, index_count)
-	local self = setmetatable({}, Mesh)
+	local self = Mesh:CreateObject()
 	self.vertex_buffer = VertexBuffer.New(vertices, vertex_attributes)
 
 	if indices then
@@ -158,4 +158,4 @@ function Mesh:UploadIndices(indices, index_type)
 	end
 end
 
-return Mesh
+return Mesh:Register()

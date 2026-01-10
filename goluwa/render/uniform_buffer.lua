@@ -1,7 +1,7 @@
 local ffi = require("ffi")
 local render = require("render.render")
-local UniformBuffer = {}
-UniformBuffer.__index = UniformBuffer
+local prototype = require("prototype")
+local UniformBuffer = prototype.CreateTemplate("render", "uniform_buffer")
 
 function UniformBuffer.New(decl)
 	-- Check if this declaration contains $ placeholders (indicating nested structs)
@@ -10,7 +10,7 @@ function UniformBuffer.New(decl)
 	if not has_nested then
 		-- No nested structs, just create the struct directly
 		local struct = ffi.typeof(decl)
-		local self = setmetatable({}, UniformBuffer)
+		local self = UniformBuffer:CreateObject()
 		self.data = struct()
 		self.struct = struct
 		self.buffer = render.CreateBuffer(
@@ -71,7 +71,7 @@ function UniformBuffer.New(decl)
 
 	-- Now create the main struct, passing nested ctypes as parameters
 	local struct = ffi.typeof(main_struct, unpack(nested_ctypes))
-	local self = setmetatable({}, UniformBuffer)
+	local self = UniformBuffer:CreateObject()
 	self.data = struct()
 	self.struct = struct
 	self.buffer = render.CreateBuffer(
@@ -94,4 +94,4 @@ function UniformBuffer:Upload()
 	self.buffer:CopyData(self.data, self.size)
 end
 
-return UniformBuffer
+return UniformBuffer:Register()
