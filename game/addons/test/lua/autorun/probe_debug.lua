@@ -11,14 +11,25 @@ probe_debug.show_faces = true
 probe_debug.show_info = true
 probe_debug.face_size = 128
 probe_debug.position = {x = 10, y = 10}
+probe_debug.current_probe_index = 0
 
--- Toggle with F9 key
+-- Toggle with F9 key, cycle with F10
 event.AddListener("KeyInput", "probe_debug_toggle", function(key, press)
 	if not press then return end
 
-	if key == "f9" then
+	if key == "f5" then
 		probe_debug.enabled = not probe_debug.enabled
 		print("[Probe Debug] " .. (probe_debug.enabled and "Enabled" or "Disabled"))
+	elseif key == "f10" and probe_debug.enabled then
+		local probes = reflection_probe.GetProbes()
+		local count = 0
+
+		for k, v in pairs(probes) do
+			count = math.max(count, k)
+		end
+
+		probe_debug.current_probe_index = (probe_debug.current_probe_index + 1) % (count + 1)
+		print("[Probe Debug] Switched to probe " .. probe_debug.current_probe_index)
 	end
 end)
 
@@ -78,16 +89,21 @@ local function draw_debug_info(reflection_probe, x, y)
 	y = y + line_height
 	render2d.SetColor(1, 1, 1, 1)
 	-- Cubemap info
-	local cubemap = reflection_probe.GetCubemap()
-	local source = reflection_probe.GetSourceCubemap()
-	gfx.DrawText(string.format("Resolution: %dx%d", reflection_probe.SIZE, reflection_probe.SIZE), x, y)
+	local idx = probe_debug.current_probe_index
+	local cubemap = reflection_probe.GetCubemap(idx)
+	local source = reflection_probe.GetSourceCubemap(idx)
+	gfx.DrawText(string.format("Probe Index: %d", idx), x, y)
 	y = y + line_height
-	gfx.DrawText(string.format("Current Face: %d/6", reflection_probe.current_face + 1), x, y)
+	gfx.DrawText(
+		string.format("Resolution: %dx%d", reflection_probe.SCENE_SIZE, reflection_probe.SCENE_SIZE),
+		x,
+		y
+	)
 	y = y + line_height
-	gfx.DrawText(string.format("Faces/Frame: %d", reflection_probe.UPDATE_FACES_PER_FRAME), x, y)
+	gfx.DrawText(string.format("Total Scene Probes: %d", reflection_probe.SCENE_PROBE_COUNT), x, y)
 	y = y + line_height
 	-- Probe position
-	local pos = reflection_probe.GetProbePosition()
+	local pos = reflection_probe.GetProbePosition(idx)
 
 	if pos then
 		gfx.DrawText(string.format("Position: %.1f, %.1f, %.1f", pos.x, pos.y, pos.z), x, y)
@@ -205,13 +221,13 @@ event.AddListener("Draw2D", "probe_debug_draw", function(dt)
 		render2d.SetColor(1, 1, 1, 1)
 		gfx.DrawText("Source Cubemap:", x, y)
 		y = y + 20
-		y = draw_cubemap_preview(reflection_probe.GetSourceCubemap(), x, y, probe_debug.face_size)
+		y = draw_cubemap_preview(reflection_probe.GetSourceCubemap(idx), x, y, probe_debug.face_size)
 		y = y + 10
 		-- Output cubemap status
 		render2d.SetColor(1, 1, 1, 1)
 		gfx.DrawText("Output Cubemap (prefiltered):", x, y)
 		y = y + 20
-		y = draw_cubemap_preview(reflection_probe.GetCubemap(), x, y, probe_debug.face_size)
+		y = draw_cubemap_preview(reflection_probe.GetCubemap(idx), x, y, probe_debug.face_size)
 	end
 end)
 
@@ -241,9 +257,6 @@ function probe_debug.SetPosition(x, y)
 	probe_debug.position.y = y
 end
 
--- Initialize on load
-print("[Probe Debug] Loaded - Press F9 to toggle debug view")
-
 -- Auto-load reflection probe when this module is loaded
 event.AddListener("Render3DInitialized", "probe_debug_init", function()
 	-- Make sure reflection probe is loaded
@@ -255,5 +268,3 @@ event.AddListener("Render3DInitialized", "probe_debug_init", function()
 		print("[Probe Debug] Reflection probe module loaded successfully")
 	end
 end)
-
-return probe_debug
