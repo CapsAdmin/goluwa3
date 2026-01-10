@@ -20,14 +20,14 @@ end
 function atmosphere.GetGLSLMainCode(dir_var, sun_dir_var, cam_pos_var, stars_texture_index_var)
 	return [[
 		{
-			vec3 dir = normalize(]] .. dir_var .. [[);
-			vec3 sunDir = normalize(]] .. sun_dir_var .. [[);
+			vec3 atmos_dir = normalize(]] .. dir_var .. [[);
+			vec3 atmos_sunDir = normalize(]] .. sun_dir_var .. [[);
 			
-			vec3 col = get_atmosphere(dir, sunDir, ]] .. cam_pos_var .. [[);
+			vec3 col = get_atmosphere(atmos_dir, atmos_sunDir, ]] .. cam_pos_var .. [[);
 			
 			// Compute sky brightness for blending with space texture
 			// Use sun elevation to determine day/night
-			float sunElevation = sunDir.y;
+			float sunElevation = atmos_sunDir.y;
 			
 			// Sky brightness based on sun elevation
 			// At sunset (elevation ~0), start transitioning
@@ -44,13 +44,13 @@ function atmosphere.GetGLSLMainCode(dir_var, sun_dir_var, cam_pos_var, stars_tex
 			// Sample space/stars texture
 			vec3 spaceColor = vec3(0.0);
 			if (]] .. stars_texture_index_var .. [[ != -1) {
-				float u = atan(dir.z, dir.x) / (2.0 * PI) + 0.5;
-				float v = asin(dir.y) / PI + 0.5;
+				float u = atan(atmos_dir.z, atmos_dir.x) / (2.0 * PI) + 0.5;
+				float v = asin(atmos_dir.y) / PI + 0.5;
 				spaceColor = texture(TEXTURE(]] .. stars_texture_index_var .. [[), vec2(u, -v)).rgb;
 				spaceColor = pow(spaceColor, vec3(10.0));
 				spaceColor *= 0.5;
 			} else {
-				spaceColor = get_stars(dir, sunDir);
+				spaceColor = get_stars(atmos_dir, atmos_sunDir);
 			}
 			
 			// Blend: show stars when sky is dark, hide them during day
