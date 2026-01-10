@@ -211,16 +211,13 @@ do
 			self:SetBlendTexture(LinearTexture(vmt.blendmodulatetexture))
 		end
 
-
 		if vmt.blendtintbybasealpha == 1 then
 			-- this should be a mask for color multiplier
 			-- it allows changing the color of specific parts of the texture while keeping others unaffected
 			self:SetBlendTintByBaseAlpha(true)
 		end
 
-		if vmt.texture2 then
-			self:SetAlbedo2Texture(SRGBTexture(vmt.texture2))
-		end
+		if vmt.texture2 then self:SetAlbedo2Texture(SRGBTexture(vmt.texture2)) end
 
 		if vmt.envmap then -- envmap
 			if vmt.envmapmask then
@@ -280,7 +277,6 @@ do
 
 			if vmt.invertphongmask == 1 then self:SetInvertRoughnessTexture(false) end
 		end
-
 
 		if vmt.selfillum == 1 then
 			local tint = vmt.selfillumtint -- TODO
@@ -514,11 +510,11 @@ do
 			end
 
 			local roughness = pbr and pbr[1] or 1
-					
-			local refl = self:GetAlbedoTexture().reflectivity
+			local refl = self:GetAlbedoTexture() and self:GetAlbedoTexture().reflectivity
+
 			if refl then
 				local avg = (refl[1] + refl[2] + refl[3]) / 3
-				
+
 				-- Use reflectivity to estimate base roughness
 				-- Very dark surfaces (avg < 0.05) are either black or very rough
 				-- Bright surfaces (avg > 0.3) that bounce lots of light are likely smoother
@@ -527,19 +523,18 @@ do
 					-- sqrt gives a more perceptually linear mapping
 					local est = 1.0 - math.sqrt(avg)
 					est = math.max(0.2, math.min(0.95, est))
-					
 					roughness = roughness * 0.6 + est * 0.4
 				end
 			end
 
-				if not self:HasExplicitRoughnessTexture() then
-					self:SetRoughnessMultiplier(roughness)
-					self:SetInvertRoughnessTexture(false)
-				end
+			if not self:HasExplicitRoughnessTexture() then
+				self:SetRoughnessMultiplier(roughness)
+				self:SetInvertRoughnessTexture(false)
+			end
 
-				if not self:HasExplicitMetallicTexture() and pbr[2] then
-					self:SetMetallicMultiplier(pbr[2] > 0.5 and 1.0 or 0.0)
-				end
+			if not self:HasExplicitMetallicTexture() and pbr[2] then
+				self:SetMetallicMultiplier(pbr[2] > 0.5 and 1.0 or 0.0)
+			end
 		end
 	end
 
