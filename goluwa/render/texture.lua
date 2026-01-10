@@ -670,7 +670,7 @@ function Texture:GenerateMipmaps(initial_layout, cmd)
 		if not temp_fence then temp_fence = Fence.New(device) end
 
 		queue:SubmitAndWait(device, cmd, temp_fence)
-		command_pool:FreeCommandBuffer(cmd)
+		cmd:Remove()
 	end
 end
 

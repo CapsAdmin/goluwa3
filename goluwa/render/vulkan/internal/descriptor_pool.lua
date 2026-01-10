@@ -29,8 +29,10 @@ function DescriptorPool.New(device, poolSizes, maxSets)
 end
 
 function DescriptorPool:OnRemove()
-	self.device:WaitIdle()
-	vulkan.lib.vkDestroyDescriptorPool(self.device.ptr[0], self.ptr[0], nil)
+	if self.device:IsValid() then
+		self.device:WaitIdle()
+		vulkan.lib.vkDestroyDescriptorPool(self.device.ptr[0], self.ptr[0], nil)
+	end
 end
 
 function DescriptorPool:Reset()

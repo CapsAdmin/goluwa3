@@ -80,7 +80,10 @@ end
 function Image:OnRemove()
 	if self.dont_destroy then return end
 
-	vulkan.lib.vkDestroyImage(self.device.ptr[0], self.ptr[0], nil)
+	if self.device:IsValid() then
+		self.device:WaitIdle()
+		vulkan.lib.vkDestroyImage(self.device.ptr[0], self.ptr[0], nil)
+	end
 end
 
 function Image:GetWidth()

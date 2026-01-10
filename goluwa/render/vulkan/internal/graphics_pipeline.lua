@@ -308,8 +308,10 @@ function GraphicsPipeline.New(device, config, render_passes, pipelineLayout)
 end
 
 function GraphicsPipeline:OnRemove()
-	self.device:WaitIdle()
-	vulkan.lib.vkDestroyPipeline(self.device.ptr[0], self.ptr[0], nil)
+	if self.device:IsValid() then
+		self.device:WaitIdle()
+		vulkan.lib.vkDestroyPipeline(self.device.ptr[0], self.ptr[0], nil)
+	end
 end
 
 return GraphicsPipeline:Register()

@@ -73,7 +73,10 @@ function Framebuffer.New(config)
 end
 
 function Framebuffer:OnRemove()
-	vulkan.lib.vkDestroyFramebuffer(self.device.ptr[0], self.ptr[0], nil)
+	if self.device:IsValid() then
+		self.device:WaitIdle()
+		vulkan.lib.vkDestroyFramebuffer(self.device.ptr[0], self.ptr[0], nil)
+	end
 end
 
 return Framebuffer:Register()

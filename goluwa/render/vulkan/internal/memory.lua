@@ -28,7 +28,10 @@ function Memory.New(device, config)
 end
 
 function Memory:OnRemove()
-	vulkan.lib.vkFreeMemory(self.device.ptr[0], self.ptr[0], nil)
+	if self.device:IsValid() then
+		self.device:WaitIdle()
+		vulkan.lib.vkFreeMemory(self.device.ptr[0], self.ptr[0], nil)
+	end
 end
 
 return Memory:Register()

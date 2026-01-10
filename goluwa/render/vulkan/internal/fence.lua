@@ -16,7 +16,10 @@ function Fence.New(device)
 end
 
 function Fence:OnRemove()
-	vulkan.lib.vkDestroyFence(self.device.ptr[0], self.ptr[0], nil)
+	if self.device:IsValid() then
+		self.device:WaitIdle()
+		vulkan.lib.vkDestroyFence(self.device.ptr[0], self.ptr[0], nil)
+	end
 end
 
 function Fence:Wait(skip_reset)

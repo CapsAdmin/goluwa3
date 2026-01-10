@@ -942,7 +942,6 @@ function EasyPipeline:RecreateFramebuffers()
 
 		self.framebuffers = nil
 	elseif self.framebuffer then
-		table.print(self.framebuffer)
 		self.framebuffer:Remove()
 		self.framebuffer = nil
 	end

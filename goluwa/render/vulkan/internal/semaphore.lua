@@ -15,7 +15,10 @@ function Semaphore.New(device)
 end
 
 function Semaphore:OnRemove()
-	vulkan.lib.vkDestroySemaphore(self.device.ptr[0], self.ptr[0], nil)
+	if self.device:IsValid() then
+		self.device:WaitIdle()
+		vulkan.lib.vkDestroySemaphore(self.device.ptr[0], self.ptr[0], nil)
+	end
 end
 
 return Semaphore:Register()

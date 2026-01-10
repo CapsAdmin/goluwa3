@@ -23,7 +23,10 @@ function CommandBuffer.New(command_pool)
 end
 
 function CommandBuffer:OnRemove()
-	self.command_pool:FreeCommandBuffer(self)
+	if self.command_pool:IsValid() and self.command_pool.device:IsValid() then
+		self.command_pool.device:WaitIdle()
+		self.command_pool:FreeCommandBuffer(self)
+	end
 end
 
 function CommandBuffer:Begin()

@@ -267,7 +267,7 @@ function lightprobes.InitializeCubemapLayouts()
 
 	cmd:End()
 	render.GetQueue():SubmitAndWait(render.GetDevice(), cmd, lightprobes.fence)
-	render.GetCommandPool():FreeCommandBuffer(cmd)
+	cmd:Remove()
 end
 
 function lightprobes.CreatePipelines()

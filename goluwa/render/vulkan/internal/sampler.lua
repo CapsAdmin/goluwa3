@@ -54,7 +54,10 @@ function Sampler.New(config)
 end
 
 function Sampler:OnRemove()
-	vulkan.lib.vkDestroySampler(self.device.ptr[0], self.ptr[0], nil)
+	if self.device:IsValid() then
+		self.device:WaitIdle()
+		vulkan.lib.vkDestroySampler(self.device.ptr[0], self.ptr[0], nil)
+	end
 end
 
 return Sampler:Register()

@@ -1,5 +1,6 @@
 local ffi = require("ffi")
 local prototype = require("prototype")
+local vulkan = require("render.vulkan.internal.vulkan")
 local Instance = require("render.vulkan.internal.instance")
 local Device = require("render.vulkan.internal.device")
 local PhysicalDevice = require("render.vulkan.internal.physical_device")
@@ -147,6 +148,18 @@ end
 
 function VulkanInstance:CreateOcclusionQuery()
 	return OcclusionQuery.New({device = self.device, instance = self.instance})
+end
+
+function VulkanInstance:OnRemove()
+	if self.device:IsValid() then self.device:WaitIdle() end
+
+	if self.command_pool then self.command_pool:Remove() end
+
+	if self.device then self.device:Remove() end
+
+	if self.surface then self.surface:Remove() end
+
+	if self.instance then self.instance:Remove() end
 end
 
 return VulkanInstance:Register()

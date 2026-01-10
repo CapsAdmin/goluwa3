@@ -52,7 +52,10 @@ function DescriptorSetLayout.New(device, bindings)
 end
 
 function DescriptorSetLayout:OnRemove()
-	vulkan.lib.vkDestroyDescriptorSetLayout(self.device.ptr[0], self.ptr[0], nil)
+	if self.device:IsValid() then
+		self.device:WaitIdle()
+		vulkan.lib.vkDestroyDescriptorSetLayout(self.device.ptr[0], self.ptr[0], nil)
+	end
 end
 
 return DescriptorSetLayout:Register()

@@ -53,7 +53,10 @@ function PipelineLayout.New(device, descriptorSetLayouts, pushConstantRanges)
 end
 
 function PipelineLayout:OnRemove()
-	vulkan.lib.vkDestroyPipelineLayout(self.device.ptr[0], self.ptr[0], nil)
+	if self.device:IsValid() then
+		self.device:WaitIdle()
+		vulkan.lib.vkDestroyPipelineLayout(self.device.ptr[0], self.ptr[0], nil)
+	end
 end
 
 return PipelineLayout:Register()
