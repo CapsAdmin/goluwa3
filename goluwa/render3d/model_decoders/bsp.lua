@@ -18,7 +18,7 @@ local R = vfs.GetAbsolutePath
 local ffi = require("ffi")
 local ecs = require("ecs")
 local utility = require("utility")
-local CUBEMAPS = false
+local CUBEMAPS = true
 steam.loaded_bsp = steam.loaded_bsp or {}
 local scale = 1 / 0.0254
 local skyboxes = {
@@ -146,6 +146,7 @@ local function read_lump_data(what, bsp_file, header, index, size, struct)
 	if type(struct) == "function" then
 		for i = 1, length do
 			out[i] = struct()
+
 			if i % 1000 == 0 then
 				tasks.ReportProgress(what, length)
 				tasks.Wait()
@@ -154,6 +155,7 @@ local function read_lump_data(what, bsp_file, header, index, size, struct)
 	else
 		for i = 1, length do
 			out[i] = bsp_file:ReadStructure(struct)
+
 			if i % 1000 == 0 then
 				tasks.ReportProgress(what, length)
 				tasks.Wait()
@@ -163,7 +165,6 @@ local function read_lump_data(what, bsp_file, header, index, size, struct)
 
 	tasks.ReportProgress(what, length)
 	tasks.Wait()
-
 	return out
 end
 
@@ -216,6 +217,7 @@ function steam.LoadMap(path)
 		for i = 1, 64 do
 			header.lumps[i] = bsp_file:ReadStructure(struct)
 		end
+
 		tasks.ReportProgress("reading lumps", 64)
 		tasks.Wait()
 	end
@@ -294,7 +296,6 @@ function steam.LoadMap(path)
 			end
 
 			ent.vdf = vdf
-
 			ent.classname = ent.classname or "unknown"
 
 			if header.sky_aabb and ent.classname == "sky_camera" then
@@ -304,6 +305,7 @@ function steam.LoadMap(path)
 
 			entities[i] = ent
 			i = i + 1
+
 			if i % 100 == 0 then tasks.Wait() end
 		end
 
@@ -452,15 +454,23 @@ function steam.LoadMap(path)
 			bsp_file,
 			header,
 			43,
-			12 + 1,
+			16,
 			[[
 			int origin[3];
-			unsigned byte size;
+			int size;
 		]]
 		)
 
-		for k, v in ipairs(header.cubemaps) do
-			v.origin = Vec3(-v.origin[2], v.origin[3], -v.origin[1])
+		if not header.cubemaps then
+			print("no cubemaps found in map")
+		else
+			print("found ", #header.cubemaps, " cubemaps in map")
+		end
+
+		if header.cubemaps then
+			for k, v in ipairs(header.cubemaps) do
+				v.origin = Vec3(-v.origin[2], v.origin[3], -v.origin[1])
+			end
 		end
 	end
 
@@ -950,26 +960,17 @@ function steam.SpawnMapEntities(path, parent)
 			if v.spawned_from_bsp then v:Remove() end
 		end
 
-		if CUBEMAPS then
+		if data.cubemaps then
+			logn("emitting ", #data.cubemaps, " BSP cubemaps")
+
 			for k, v in pairs(data.cubemaps) do
-				local ent = ecs.CreateEntity("cubemap", parent)
-				ent:AddComponent(
-					"transform",
-					{
-						position = v.origin * steam.source2meters,
-						size = 0.25,
-					}
-				)
-				ent:AddComponent("model")
-				ent.model:SetModelPath("models/sphere.obj")
-			-- Note: SetRoughnessMultiplier removed - material system different in new engine
+				local position = v.origin * steam.source2meters
+				event.Call("SpawnProbe", position)
 			end
 		end
 
 		local count = table.count(data.entities)
-
 		logn("spawning ", count, " entities from BSP")
-
 		local handled = {}
 
 		for i, info in pairs(data.entities) do
@@ -979,16 +980,12 @@ function steam.SpawnMapEntities(path, parent)
 					handled[info.classname] = (handled[info.classname] or 0) + 1
 				elseif info.classname and info.classname:find("light_environment") then
 					handled[info.classname] = (handled[info.classname] or 0) + 1
-
 				--local p, y = info.pitch, info.angles.y
 				--parent.world_params:SetSunAngles(Deg3(p or 0, y+180, 0))
 				--info._light.a = 1
 				--parent.world_params:SetSunColor(Color(info._light.r, info._light.g, info._light.b))
 				--parent.world_params:SetSunIntensity(1)
-				elseif
-					info.classname:lower():find("light") and
-					info._light 
-				then
+				elseif info.classname:lower():find("light") and info._light then
 					handled[info.classname] = (handled[info.classname] or 0) + 1
 					parent.light_group = parent.light_group or ecs.CreateEntity("lights", parent)
 					parent.light_group:SetName("lights")
@@ -1001,19 +998,17 @@ function steam.SpawnMapEntities(path, parent)
 					light:SetLightType("point")
 					-- Color is already in linear space from parsing
 					light:SetColor(Color(info._light.r, info._light.g, info._light.b, 1))
-					
-					local brightness = info._light.brightness 
+					local brightness = info._light.brightness
 					-- Source intensity formula with quadratic attenuation: I = brightness / d²
 					-- Scale intensity for our renderer (empirically tuned)
-					light:SetIntensity(math.clamp(brightness / 50, 1, 100))
-					
+					light:SetIntensity(math.clamp(brightness / 800, 1, 100))
 					-- Calculate range where light drops below ~1% intensity
 					-- At threshold 0.01: d = sqrt(brightness / 0.01) Source units
 					-- Then convert to meters
 					local threshold = 0.01
 					local range_source_units = math.sqrt(brightness / threshold)
 					local range = range_source_units * steam.source2meters
-					
+
 					if info._zero_percent_distance and info._zero_percent_distance > 0 then
 						-- Source allows explicit cutoff distance (in Source units)
 						range = info._zero_percent_distance * steam.source2meters
@@ -1022,11 +1017,11 @@ function steam.SpawnMapEntities(path, parent)
 						-- So cutoff is roughly 2x this distance
 						range = info._fifty_percent_distance * steam.source2meters * 2
 					end
-					light:SetRange(math.clamp(range*7, 1, 150))
 
+					light:SetRange(math.clamp(range * 4, 1, 150))
 					ent.spawned_from_bsp = true
 				elseif info.classname == "env_fog_controller" then
-					
+
 				--parent.world_params:SetFogColor(Color(info.fogcolor.r, info.fogcolor.g, info.fogcolor.b, info.fogcolor.a * (info.fogmaxdensity or 1)/4))
 				--parent.world_params:SetFogStart(info.fogstart* steam.source2meters)
 				--parent.world_params:SetFogEnd(info.fogend * steam.source2meters)
@@ -1083,11 +1078,12 @@ function steam.SpawnMapEntities(path, parent)
 			end
 
 			tasks.ReportProgress("spawning entities", count)
+
 			if i % 50 == 0 then tasks.Wait() end
 		end
 
-
 		local unhandled = {}
+
 		for i, info in pairs(data.entities) do
 			if info.classname and not handled[info.classname] then
 				unhandled[info.classname] = (unhandled[info.classname] or 0) + 1
@@ -1095,8 +1091,8 @@ function steam.SpawnMapEntities(path, parent)
 		end
 
 		logn("finished spawning map entities: ", path)
-
 		logn("spawned entities:")
+
 		for k, v in pairs(handled) do
 			logn("  ", k, ": ", v)
 		end
