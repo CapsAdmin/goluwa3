@@ -942,6 +942,7 @@ function Texture:Shade(glsl, extra_config)
 	self.refs = {cmd, views, command_pool, pipeline, fence}
 	queue:SubmitAndWait(device, cmd, fence)
 	device:WaitIdle()
+	self.refs = nil
 end
 
 do
