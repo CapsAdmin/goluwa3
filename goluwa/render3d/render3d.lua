@@ -1463,7 +1463,7 @@ local pipelines = {
 
 
 
-			vec3 parallax_depth(vec3 R, vec3 ray_origin, float sphere_radius, int depth_tex) {
+			vec3 parallax_depth(vec3 R, vec3 ray_origin, float sphere_radius, int depth_tex, float roughness) {
 				const int MAX_STEPS = 8;
 				float t_min = 0.0;
 				float t_max = sphere_radius * 2.0;
@@ -1476,7 +1476,9 @@ local pipelines = {
 					float ray_dist = length(ray_pos);
 
 					// Sample linearized depth from cubemap (distance from probe center)
-					float stored_depth = texture(CUBEMAP(depth_tex), ray_dir).r;
+					float max_mip = float(textureQueryLevels(CUBEMAP(depth_tex)) - 1);
+
+					float stored_depth = textureLod(CUBEMAP(depth_tex), ray_dir, 0).r;
 
 					if (ray_dist < stored_depth) {
 						t_min = t_mid;  // Ray is in front of geometry, move forward
@@ -1499,6 +1501,13 @@ local pipelines = {
 					global_env = textureLod(CUBEMAP(global_tex_idx), R, roughness * max_mip).rgb;
 				}
 
+				// Find the best probe based on depth accuracy
+				int best_probe = -1;
+				float best_score = -1.0;
+				float best_depth_diff = 99999.0;
+				vec3 best_probe_to_point;
+				float best_sphere_radius;
+
 				vec3 probes_env = vec3(0.0);
 				float total_weight = 0.0;
 
@@ -1506,7 +1515,6 @@ local pipelines = {
 					int color_tex = lighting_data.probe_color_textures[i];
 					int depth_tex = lighting_data.probe_depth_textures[i];
 					if (color_tex == -1) continue;
-					float depth = texture(CUBEMAP(depth_tex), R).r;
 
 					vec3 probe_pos = lighting_data.probe_positions[i].xyz;
 					float sphere_radius = lighting_data.probe_positions[i].w;
@@ -1516,87 +1524,39 @@ local pipelines = {
 					if (dist_to_point < sphere_radius) {
 						vec3 dir_to_point = normalize(probe_to_point);
 
-						// Visibility check: is this surface visible from the probe?
-						// Sample depth in direction from probe to surface
+						// Check visibility and how accurately this probe sees the surface
 						float stored_depth = texture(CUBEMAP(depth_tex), dir_to_point).r;
-						float bias = 0.5; // Small bias to avoid self-shadowing
-						if (dist_to_point > stored_depth + bias) {
-							// Surface is behind geometry from probe's view - skip this probe
-							continue;
-						}
+						float depth_diff = abs(stored_depth - dist_to_point);
+						float bias = 0.3;
 
-						float weight = smoothstep(sphere_radius, sphere_radius*0.5, dist_to_point);
+						// Surface must be visible (not behind geometry)
+						if (dist_to_point > stored_depth + bias) continue;
+
+						// Weight based on depth match quality - closer match = higher weight
+						// Using exponential falloff for smoother blending
+						float depth_weight = exp(-depth_diff * 0.5); // Tune the 0.5 multiplier
 						
-						// Parallax correction - switch between methods here
-						vec3 corrected_R = parallax_depth(R, probe_to_point, sphere_radius, depth_tex);
-						//vec3 corrected_R = parallax_sphere(R, probe_to_point, sphere_radius);
+						// Also weight by distance from probe center for smooth edge falloff
+						float edge_weight = smoothstep(sphere_radius, sphere_radius * 0.3, dist_to_point);
+						
+						float weight = depth_weight * edge_weight;
 
-						float max_mip = float(textureQueryLevels(CUBEMAP(color_tex)) - 1);
-						probes_env += textureLod(CUBEMAP(color_tex), corrected_R, roughness * max_mip).rgb * weight;						
-						total_weight += weight;
+						if (weight > 0.001) {
+							vec3 corrected_R = parallax_depth(R, probe_to_point, sphere_radius, depth_tex, roughness);
+							float max_mip = float(textureQueryLevels(CUBEMAP(color_tex)) - 1);
+							probes_env += textureLod(CUBEMAP(color_tex), corrected_R, roughness * max_mip).rgb * weight;
+							total_weight += weight;
+						}
 					}
 				}
 
 				vec3 env = mix(global_env, probes_env / max(total_weight, 0.0001), min(total_weight, 1.0));
 
-
-				vec4 ssr = texture(TEXTURE(lighting_data.ssr_tex), in_uv);
-				env = mix(env, ssr.rgb, ssr.a);
+				//vec4 ssr = texture(TEXTURE(lighting_data.ssr_tex), in_uv);
+				//env = mix(env, ssr.rgb, ssr.a);
 
 				return env;
 			}
-
-				/*
-				float total_weight = 0.0;
-
-				// Global search for nearest probes (limited to 64 slots, skip index 0 which is environment probe)
-				for (int i = 1; i < 64; i++) {
-					int tex_idx = lighting_data.probe_color_textures[i];
-					if (tex_idx == -1) continue;
-
-					vec3 probe_pos = lighting_data.probe_positions[i].xyz;
-					vec3 probe_to_point = world_pos - probe_pos;
-					vec3 dir_to_point = normalize(probe_to_point);
-					float dist_to_point = length(probe_to_point);
-
-					// Soft distance-based weight
-					float influence_radius = 80.0; // Large radius for better coverage in big maps
-					float weight = saturate(1.0 - dist_to_point / influence_radius);
-					weight = weight * weight; // Quadratic falloff
-
-					// Prefer probes that are "in front" of the surface
-					// dot(dir_to_point, normal) is -1 if probe is in front of wall, +1 if behind
-					float weight_normal = saturate(0.5 - dot(dir_to_point, normal));
-					weight *= weight_normal * weight_normal;
-
-					if (weight > 0.0001) {
-						float max_mip = float(textureQueryLevels(CUBEMAP(tex_idx)) - 1);
-						float mip_level = roughness * max_mip;
-						
-						// Parallax correction (simple sphere-based)
-						vec3 corrected_R = R;
-						float sphere_radius = influence_radius;
-						vec3 ray_origin = world_pos - probe_pos;
-						float b = dot(ray_origin, R);
-						float c = dot(ray_origin, ray_origin) - sphere_radius;
-						float discriminant = b * b - c;
-						if (discriminant >= 0.0) {
-							float t = -b + sqrt(discriminant);
-							corrected_R = normalize(ray_origin + t * R);
-						}
-
-						vec3 sampled_env = textureLod(CUBEMAP(tex_idx), corrected_R, mip_level).rgb;
-						total_env += clamp(sampled_env, vec3(0.0), vec3(65504.0)) * weight;
-						total_weight += weight;
-					}
-				}
-
-				if (total_weight > 0.0001) {
-					env = mix(env, total_env / total_weight, saturate(total_weight));
-				}
-		
-				return env;
-			}*/
 
 			vec3 get_irradiance(vec3 normal, vec3 V, vec3 world_pos) {
 				return get_reflection(normal, 1, V, world_pos);
