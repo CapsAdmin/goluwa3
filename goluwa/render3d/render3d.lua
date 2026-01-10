@@ -241,6 +241,15 @@ local pipelines = {
 		]],
 		},
 		fragment = {
+			uniform_buffers = {
+				{
+					name = "debug_data",
+					binding_index = 3,
+					block = {
+						debug_block,
+					},
+				},
+			},
 			push_constants = {
 				{
 					name = "model",
@@ -428,7 +437,21 @@ local pipelines = {
 				}
 			}
 
+			vec3 get_vertex_normal() {
+				vec3 N = in_normal;
+
+				if (DoubleSided && gl_FrontFacing) {
+					N = -N;
+				}
+
+				return normalize(N);
+			}
+
 			vec3 get_normal() {
+				if ((debug_data.debug_mode - 1) == 5) {
+					return get_vertex_normal();
+				}
+
 				vec3 N;
 				if (pc.model.NormalTexture == -1) {
 					N = in_normal;
@@ -1257,7 +1280,7 @@ local pipelines = {
 										block[key][i][0] = probe.position.x
 										block[key][i][1] = probe.position.y
 										block[key][i][2] = probe.position.z
-										block[key][i][3] = 0
+										block[key][i][3] = probe.radius or 20
 									end
 								end
 							end,
@@ -1428,38 +1451,43 @@ local pipelines = {
 			}
 
 			vec3 get_reflection(vec3 normal, float roughness, vec3 V, vec3 world_pos) {
-				vec3 env = vec3(0.0);
-			
 				vec3 R = reflect(-V, normal);
 				R = mix(R, normal, roughness * roughness);
 
-				int tex_idx = lighting_data.env_tex;
-				if (tex_idx != -1) {
-					float max_mip = float(textureQueryLevels(CUBEMAP(tex_idx)) - 1);
-					env += textureLod(CUBEMAP(tex_idx), R, roughness * max_mip).rgb;
+				vec3 global_env = vec3(0.0);
+				int global_tex_idx = lighting_data.env_tex;
+				if (global_tex_idx != -1) {
+					float max_mip = float(textureQueryLevels(CUBEMAP(global_tex_idx)) - 1);
+					global_env = textureLod(CUBEMAP(global_tex_idx), R, roughness * max_mip).rgb;
 				}
 
-				vec4 ssr = texture(TEXTURE(lighting_data.ssr_tex), in_uv);
-				env = mix(env, ssr.rgb, ssr.a);
+				vec3 probes_env = vec3(0.0);
+				float total_weight = 0.0;
 
-				{return env;}
-
-				/*
-				for (int i = 1; i < 64; i++) {
-					int tex_idx = lighting_data.probe_color_textures[i];
-					if (tex_idx == -1) continue;
+				for (int i = 0; i < 64; i++) {
+					int color_tex = lighting_data.probe_color_textures[i];
+					int depth_tex = lighting_data.probe_depth_textures[i];
+					if (color_tex == -1) continue;
 
 					vec3 probe_pos = lighting_data.probe_positions[i].xyz;
+					float sphere_radius = lighting_data.probe_positions[i].w;
 					vec3 probe_to_point = world_pos - probe_pos;
-					vec3 dir_to_point = normalize(probe_to_point);
 					float dist_to_point = length(probe_to_point);
 
-					float sphere_radius = 20.0;
-
 					if (dist_to_point < sphere_radius) {
-						// Parallax correction (simple sphere-based)
+						vec3 dir_to_point = normalize(probe_to_point);
+
+						// Depth occlusion check
+						if (depth_tex != -1) {
+							float probe_depth = texture(CUBEMAP(depth_tex), dir_to_point).r;
+							if (dist_to_point > probe_depth + 1.0) continue;
+						}
+
+						float weight = smoothstep(sphere_radius, sphere_radius * 0.8, dist_to_point);
+
+						// Parallax correction
 						vec3 corrected_R = R;
-						vec3 ray_origin = world_pos - probe_pos;
+						vec3 ray_origin = probe_to_point;
 						float b = dot(ray_origin, R);
 						float c = dot(ray_origin, ray_origin) - sphere_radius * sphere_radius;
 						float discriminant = b * b - c;
@@ -1468,16 +1496,18 @@ local pipelines = {
 							corrected_R = normalize(ray_origin + t * R);
 						}
 
-
-						float max_mip = float(textureQueryLevels(CUBEMAP(tex_idx)) - 1);
-						float mip_level = roughness * max_mip;
-
-						env += textureLod(CUBEMAP(tex_idx), corrected_R, mip_level).rgb;
-						break;
+						float max_mip = float(textureQueryLevels(CUBEMAP(color_tex)) - 1);
+						probes_env += textureLod(CUBEMAP(color_tex), corrected_R, roughness * max_mip).rgb * weight;
+						total_weight += weight;
 					}
 				}
-*/
-				/*float total_weight = 0.0;
+
+				vec3 env = mix(global_env, probes_env / max(total_weight, 0.0001), min(total_weight, 1.0));
+				return env;
+			}
+
+				/*
+				float total_weight = 0.0;
 
 				// Global search for nearest probes (limited to 64 slots, skip index 0 which is environment probe)
 				for (int i = 1; i < 64; i++) {
@@ -1505,10 +1535,10 @@ local pipelines = {
 						
 						// Parallax correction (simple sphere-based)
 						vec3 corrected_R = R;
-						float sphere_radius = influence_radius * 0.75;
+						float sphere_radius = influence_radius;
 						vec3 ray_origin = world_pos - probe_pos;
 						float b = dot(ray_origin, R);
-						float c = dot(ray_origin, ray_origin) - sphere_radius * sphere_radius;
+						float c = dot(ray_origin, ray_origin) - sphere_radius;
 						float discriminant = b * b - c;
 						if (discriminant >= 0.0) {
 							float t = -b + sqrt(discriminant);
@@ -1523,10 +1553,10 @@ local pipelines = {
 
 				if (total_weight > 0.0001) {
 					env = mix(env, total_env / total_weight, saturate(total_weight));
-				}*/
+				}
 		
 				return env;
-			}
+			}*/
 
 			vec3 get_irradiance(vec3 normal, vec3 V, vec3 world_pos) {
 				return get_reflection(normal, 1, V, world_pos);

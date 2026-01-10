@@ -386,7 +386,7 @@ do
 	end
 end
 
-do -- reflection plane
+if false then -- reflection plane
 	local reflection_mat = Material.New()
 	reflection_mat:SetAlbedoTexture(shaded_texture([[
 		return vec4(0.8, 0.9, 1.0, 1.0);

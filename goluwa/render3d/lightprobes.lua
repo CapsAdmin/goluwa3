@@ -165,11 +165,12 @@ function lightprobes.CreateEnvironmentProbe(position)
 end
 
 -- Create a scene probe
-function lightprobes.CreateSceneProbe(position, update_mode)
+function lightprobes.CreateSceneProbe(position, update_mode, radius)
 	local probe = CreateProbeTextures(lightprobes.SCENE_SIZE)
 	probe.type = lightprobes.TYPE_SCENE
-	probe.update_mode = update_mode or lightprobes.UPDATE_STATIC
+	probe.update_mode = update_mode or lightprobes.UPDATE_DYNAMIC
 	probe.position = position
+	probe.radius = radius or 40
 	probe.size = lightprobes.SCENE_SIZE
 	probe.needs_update = true
 	table.insert(lightprobes.probes, probe)
@@ -191,6 +192,10 @@ function lightprobes.Initialize()
 		render3d.SetEnvironmentTexture(lightprobes.environment_probe.cubemap)
 	end
 end
+
+event.AddListener("SpawnProbe", "lightprobes", function(position)
+	lightprobes.CreateSceneProbe(position)
+end)
 
 -- Initialize all cubemap faces to shader_read_only_optimal layout
 function lightprobes.InitializeCubemapLayouts()
@@ -463,182 +468,15 @@ function lightprobes.CreatePipelines()
 					},
 				},
 				shader = [[
-                ]] .. Material.BuildGlslFlags("pc.model.Flags") .. [[
-                ]] .. atmosphere.GetGLSLCode() .. [[
-                
-                #define PI 3.14159265359
-                #define saturate(x) clamp(x, 0.0, 1.0)
-                
-                float g_blend = -1.0;
-                float get_blend() {
-                    if (g_blend != -1.0) return g_blend;
-                    
-                    float blend = in_texture_blend;
-                    if (pc.model.BlendTexture != -1) {
-                        vec2 blend_data = texture(TEXTURE(pc.model.BlendTexture), in_uv).rg;
-                        float b = blend_data.g;
-                        float blend_power = blend_data.r;
-                        
-                        if (blend != 0) {
-                            blend = mix(blend, b, 0.5);
-                        } else {
-                            blend = b;
-                        }
-
-                        if (blend != 0 && blend_power != 0) {
-                            blend = pow(blend, blend_power);
-                        }
-                    }
-                    g_blend = blend;
-                    return g_blend;
-                }
-
-                vec4 get_albedo_vec4() {
-                    vec4 albedo = vec4(1.0);
-                    if (pc.model.AlbedoTexture != -1) {
-                        albedo = texture(TEXTURE(pc.model.AlbedoTexture), in_uv);
-                    }
-                    
-                    float blend = get_blend();
-                    if (blend > 0.0 && pc.model.Albedo2Texture != -1) {
-                        vec4 albedo2 = texture(TEXTURE(pc.model.Albedo2Texture), in_uv);
-                        albedo = mix(albedo, albedo2, blend);
-                    }
-
-                    if (BlendTintByBaseAlpha) {
-                        albedo.rgb = mix(albedo.rgb, albedo.rgb * pc.model.ColorMultiplier.rgb, albedo.a);
-                        albedo.a *= pc.model.ColorMultiplier.a;
-                    } else {
-                        albedo *= pc.model.ColorMultiplier;
-                    }
-
-                    return albedo;
-                }
-
-                vec3 get_albedo() {
-                    return get_albedo_vec4().rgb;
-                }
-                
-                float get_alpha() {
-                    if (
-                        AlbedoTextureAlphaIsRoughness ||
-                        NormalTextureAlphaIsRoughness ||
-                        AlbedoAlphaIsEmissive
-                    ) {
-                        return pc.model.ColorMultiplier.a;	
-                    }
-
-                    return get_albedo_vec4().a;
-                }
-                
-                vec3 get_normal() {
-                    vec3 tangent_normal = vec3(0, 0, 1);
-                    if (pc.model.NormalTexture != -1) {
-                        tangent_normal = texture(TEXTURE(pc.model.NormalTexture), in_uv).xyz * 2.0 - 1.0;
-                    }
-
-                    float blend = get_blend();
-                    if (blend > 0.0 && pc.model.Normal2Texture != -1) {
-                        vec3 tangent_normal2 = texture(TEXTURE(pc.model.Normal2Texture), in_uv).xyz * 2.0 - 1.0;
-                        tangent_normal = mix(tangent_normal, tangent_normal2, blend);
-                    }
-                    
-                    vec3 normal = normalize(in_normal);
-                    vec3 tangent = normalize(in_tangent.xyz);
-                    vec3 bitangent = cross(normal, tangent) * in_tangent.w;
-                    mat3 TBN = mat3(tangent, bitangent, normal);
-
-                    vec3 N = TBN * tangent_normal;
-
-                    if (DoubleSided && gl_FrontFacing) {
-                        N = -N;
-                    }
-
-                    return normalize(N);
-                }
-                
-                float get_metallic() {
-                    float val = pc.model.MetallicMultiplier;
-                    if (pc.model.MetallicRoughnessTexture != -1) {
-                        val = texture(TEXTURE(pc.model.MetallicRoughnessTexture), in_uv).b * pc.model.MetallicMultiplier;
-                    }
-                    return clamp(val, 0, 1);
-                }
-                
-                float get_roughness() {
-                    float val = pc.model.RoughnessMultiplier;
-
-                    if (AlbedoTextureAlphaIsRoughness) {
-                        val = get_albedo_vec4().a;
-                    } else if (NormalTextureAlphaIsRoughness) {
-                        float a1 = 1.0;
-                        if (pc.model.NormalTexture != -1) a1 = texture(TEXTURE(pc.model.NormalTexture), in_uv).a;
-                        
-                        val = a1;
-                        float blend = get_blend();
-                        if (blend > 0.0 && pc.model.Normal2Texture != -1) {
-                            float a2 = texture(TEXTURE(pc.model.Normal2Texture), in_uv).a;
-                            val = mix(a1, a2, blend);
-                        }
-                        val = -val + 1.0;
-                    } else if (AlbedoLuminanceIsRoughness) {
-                        val = dot(get_albedo(), vec3(0.2126, 0.7152, 0.0722));
-                    } else if (pc.model.MetallicRoughnessTexture != -1) {
-                        val = texture(TEXTURE(pc.model.MetallicRoughnessTexture), in_uv).g * pc.model.RoughnessMultiplier;
-                    }
-
-                    if (InvertRoughnessTexture) val = -val + 1.0;
-
-                    return clamp(val, 0.05, 0.95);
-                }
-                
-                vec3 get_emissive() {
-                    if (AlbedoAlphaIsEmissive) {
-                        float mask = get_albedo_vec4().a;
-                        return get_albedo() * mask * pc.model.EmissiveMultiplier.rgb * pc.model.EmissiveMultiplier.a;
-                    } else if (pc.model.EmissiveTexture != -1) {
-                        vec3 emissive = texture(TEXTURE(pc.model.EmissiveTexture), in_uv).rgb;
-                        return emissive * pc.model.EmissiveMultiplier.rgb * pc.model.EmissiveMultiplier.a;
-                    }
-                    return pc.model.EmissiveMultiplier.rgb * pc.model.EmissiveMultiplier.a;
-                }
-                
+              
                 void main() {
-                    vec3 N = get_normal();
-                    vec3 V = normalize(probe_data.camera_position.xyz - in_position);
-                    vec3 albedo = get_albedo();
-                    float metallic = get_metallic();
-                    float roughness = get_roughness();
-                    vec3 emissive = get_emissive();
-                    
-        
-                    // Basic diffuse + ambient
-                    vec3 diffuse = albedo  ;
-                    vec3 ambient = albedo * 0.1;
-                    
-                    vec3 color = diffuse + ambient + emissive;
-                    
-                    // Check if this is sky (depth == 1.0 equivalent - we use a flag or check normal)
-                    if (get_alpha() < 0.01) {
-                        // Render sky
-                        vec3 sky_color_output;
-                        vec3 dir = normalize(in_position - probe_data.camera_position.xyz);
-                        vec3 sunDir = normalize(probe_data.sun_direction.xyz);
-                        ]] .. atmosphere.GetGLSLMainCode(
-						"dir",
-						"sunDir",
-						"probe_data.camera_position.xyz",
-						"probe_data.stars_texture_index"
-					) .. [[
-                        color = sky_color_output;
+					vec3 albedo = vec3(1,0,0);
+					if (pc.model.AlbedoTexture != -1) {
+                        albedo = texture(TEXTURE(pc.model.AlbedoTexture), in_uv).rgb;
                     }
                     
-                    // Clamp to prevent infinities in HDR
-                    color = clamp(color, vec3(0.0), vec3(65504.0));
-                    set_color(vec4(color, 1.0));
-                    
-                    // Output linear depth (distance from probe camera)
-                    set_linear_depth(length(in_position - probe_data.camera_position.xyz));
+                    set_color(vec4(albedo, 1.0));
+					//set_linear_depth(length(in_position - ub.probe_data.camera_position.xyz));
                 }
             ]],
 			},
