@@ -25,7 +25,7 @@ function ComputePipeline.New(device, shaderModule, pipelineLayout)
 	return ComputePipeline:CreateObject({device = device, ptr = ptr})
 end
 
-function ComputePipeline:__gc()
+function ComputePipeline:OnRemove()
 	vulkan.lib.vkDestroyPipeline(self.device.ptr[0], self.ptr[0], nil)
 end
 

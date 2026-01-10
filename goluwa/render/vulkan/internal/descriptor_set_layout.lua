@@ -51,7 +51,7 @@ function DescriptorSetLayout.New(device, bindings)
 	return DescriptorSetLayout:CreateObject({ptr = ptr, device = device, bindingArray = bindingArray})
 end
 
-function DescriptorSetLayout:__gc()
+function DescriptorSetLayout:OnRemove()
 	vulkan.lib.vkDestroyDescriptorSetLayout(self.device.ptr[0], self.ptr[0], nil)
 end
 

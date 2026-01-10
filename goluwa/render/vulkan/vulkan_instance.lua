@@ -18,7 +18,7 @@ if jit.os == "OSX" then
 end
 
 -- On Linux, VK_LAYER_PATH should be set by the environment (e.g., nix develop)
-local VulkanInstance = prototype.CreateTemplate("vulkan", "vulkan_instance")
+local VulkanInstance = prototype.CreateTemplate("render", "vulkan_instance")
 
 function VulkanInstance.New(surface_handle, display_handle)
 	local self = VulkanInstance:CreateObject({})

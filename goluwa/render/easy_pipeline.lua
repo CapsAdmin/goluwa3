@@ -3,10 +3,9 @@ local prototype = require("prototype")
 local render = require("render.render")
 local UniformBuffer = require("render.uniform_buffer")
 local Framebuffer = require("render.framebuffer")
-local event = require("event")
 local window = require("render.window")
 local system = require("system")
-local EasyPipeline = prototype.CreateTemplate("render", "pipeline")
+local EasyPipeline = prototype.CreateTemplate("render", "easy_pipeline")
 
 function EasyPipeline.GetColorFormats(config)
 	local formats = {}

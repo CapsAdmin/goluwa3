@@ -44,7 +44,7 @@ function Surface.New(instance, surface_handle, display_handle)
 	)
 end
 
-function Surface:__gc()
+function Surface:OnRemove()
 	vulkan.lib.vkDestroySurfaceKHR(self.instance.ptr[0], self.ptr[0], nil)
 end
 

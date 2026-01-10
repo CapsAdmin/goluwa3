@@ -52,7 +52,7 @@ function PipelineLayout.New(device, descriptorSetLayouts, pushConstantRanges)
 	return PipelineLayout:CreateObject({device = device, ptr = ptr})
 end
 
-function PipelineLayout:__gc()
+function PipelineLayout:OnRemove()
 	vulkan.lib.vkDestroyPipelineLayout(self.device.ptr[0], self.ptr[0], nil)
 end
 

@@ -4,7 +4,7 @@ local DescriptorSetLayout = require("render.vulkan.internal.descriptor_set_layou
 local PipelineLayout = require("render.vulkan.internal.pipeline_layout")
 local ComputePipelineInternal = require("render.vulkan.internal.compute_pipeline")
 local DescriptorPool = require("render.vulkan.internal.descriptor_pool")
-local ComputePipeline = prototype.CreateTemplate("vulkan", "compute_pipeline")
+local ComputePipeline = prototype.CreateTemplate("render", "compute_pipeline")
 local storage_images = {}
 local storage_image_views = {}
 

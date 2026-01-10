@@ -307,7 +307,7 @@ function GraphicsPipeline.New(device, config, render_passes, pipelineLayout)
 	return GraphicsPipeline:CreateObject({device = device, ptr = ptr, config = config})
 end
 
-function GraphicsPipeline:__gc()
+function GraphicsPipeline:OnRemove()
 	self.device:WaitIdle()
 	vulkan.lib.vkDestroyPipeline(self.device.ptr[0], self.ptr[0], nil)
 end

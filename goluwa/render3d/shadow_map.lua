@@ -10,7 +10,7 @@ local Ang3 = require("structs.ang3")
 local Vec2 = require("structs.vec2")
 local Quat = require("structs.quat")
 local prototype = require("prototype")
-local ShadowMap = prototype.CreateTemplate("shadow_map")
+local ShadowMap = prototype.CreateTemplate("render3d", "shadow_map")
 -- Default shadow map settings
 local DEFAULT_SIZE = Vec2() + 2048 --Vec2(800, 600) --Vec2() + 2048 -- Shadow map resolution
 local DEFAULT_FORMAT = "d32_sfloat"
@@ -28,7 +28,7 @@ local ShadowVertexConstants = ffi.typeof([[
 
 function ShadowMap.New(config)
 	config = config or {}
-	local self = prototype.CreateObject("shadow_map")
+	local self = ShadowMap:CreateObject()
 	self.size = config.size or DEFAULT_SIZE
 	self.format = config.format or DEFAULT_FORMAT
 	self.near_plane = config.near_plane or 0.1

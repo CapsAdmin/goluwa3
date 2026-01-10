@@ -22,7 +22,7 @@ function CommandBuffer.New(command_pool)
 	return CommandBuffer:CreateObject({ptr = ptr, command_pool = command_pool})
 end
 
-function CommandBuffer:__gc()
+function CommandBuffer:OnRemove()
 	self.command_pool:FreeCommandBuffer(self)
 end
 

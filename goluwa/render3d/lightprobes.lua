@@ -1157,8 +1157,7 @@ function lightprobes.GetStarsTexture()
 	return atmosphere.GetStarsTexture()
 end
 
-event.AddListener("Render3DInitialized", "lightprobes", function()
-	lightprobes.Initialize()
+event.AddListener("Render3DInitialized", "lightprobes", function() --lightprobes.Initialize()
 end)
 
 event.AddListener("PreRenderPass", "lightprobes_update", function(cmd)

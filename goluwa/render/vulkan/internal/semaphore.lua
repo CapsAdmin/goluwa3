@@ -14,7 +14,7 @@ function Semaphore.New(device)
 	return Semaphore:CreateObject({ptr = ptr, device = device})
 end
 
-function Semaphore:__gc()
+function Semaphore:OnRemove()
 	vulkan.lib.vkDestroySemaphore(self.device.ptr[0], self.ptr[0], nil)
 end
 

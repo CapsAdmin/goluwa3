@@ -27,7 +27,7 @@ function Memory.New(device, config)
 	})
 end
 
-function Memory:__gc()
+function Memory:OnRemove()
 	vulkan.lib.vkFreeMemory(self.device.ptr[0], self.ptr[0], nil)
 end
 

@@ -297,7 +297,7 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 	return device
 end
 
-function Device:__gc()
+function Device:OnRemove()
 	vulkan.lib.vkDestroyDevice(self.ptr[0], nil)
 end
 

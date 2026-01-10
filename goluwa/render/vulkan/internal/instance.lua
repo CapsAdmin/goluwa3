@@ -127,7 +127,7 @@ function Instance.New(extensions, layers)
 	return self
 end
 
-function Instance:__gc()
+function Instance:OnRemove()
 	if self.debug_messenger then
 		self.vkDestroyDebugUtilsMessengerEXT(self.ptr[0], self.debug_messenger[0], nil)
 	end

@@ -5,7 +5,7 @@ local Texture = require("render.texture")
 local Color = require("structs.color")
 local prototype = require("prototype")
 local Vec3 = require("structs.vec3")
-local Material = prototype.CreateTemplate("material")
+local Material = prototype.CreateTemplate("render3d", "material")
 -- textures
 Material:StartStorable()
 Material:GetSet("AlbedoTexture", nil)
@@ -43,7 +43,7 @@ Material:GetSet("InvertRoughnessTexture", false, {callback = "InvalidateFlags"})
 Material:EndStorable()
 
 function Material.New(config)
-	local self = prototype.CreateObject("material")
+	local self = Material:CreateObject()
 
 	if config then
 		for k, v in pairs(config) do

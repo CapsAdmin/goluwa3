@@ -234,7 +234,7 @@ function RenderPass.New(device, config)
 	)
 end
 
-function RenderPass:__gc()
+function RenderPass:OnRemove()
 	vulkan.lib.vkDestroyRenderPass(self.device.ptr[0], self.ptr[0], nil)
 end
 

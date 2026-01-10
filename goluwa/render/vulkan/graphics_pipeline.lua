@@ -6,7 +6,7 @@ local InternalGraphicsPipeline = require("render.vulkan.internal.graphics_pipeli
 local DescriptorPool = require("render.vulkan.internal.descriptor_pool")
 local vulkan = require("render.vulkan.internal.vulkan")
 local ffi = require("ffi")
-local GraphicsPipeline = prototype.CreateTemplate("vulkan", "graphics_pipeline")
+local GraphicsPipeline = prototype.CreateTemplate("render", "graphics_pipeline")
 
 function GraphicsPipeline.New(vulkan_instance, config)
 	local self = GraphicsPipeline:CreateObject({})

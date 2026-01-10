@@ -15,7 +15,7 @@ function Fence.New(device)
 	return Fence:CreateObject({ptr = ptr, device = device})
 end
 
-function Fence:__gc()
+function Fence:OnRemove()
 	vulkan.lib.vkDestroyFence(self.device.ptr[0], self.ptr[0], nil)
 end
 

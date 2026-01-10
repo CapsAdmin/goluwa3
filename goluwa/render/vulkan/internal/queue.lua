@@ -9,7 +9,7 @@ function Queue.New(device, graphicsQueueFamily)
 	return Queue:CreateObject({ptr = ptr, device = device})
 end
 
-function Queue:__gc() -- Queues are managed by the device, so nothing to do here
+function Queue:OnRemove() -- Queues are managed by the device, so nothing to do here
 end
 
 function Queue:Submit(commandBuffer, imageAvailableSemaphore, renderFinishedSemaphore, inFlightFence)

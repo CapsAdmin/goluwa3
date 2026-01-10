@@ -59,7 +59,7 @@ function Buffer.New(config)
 	return self
 end
 
-function Buffer:__gc()
+function Buffer:OnRemove()
 	vulkan.lib.vkDestroyBuffer(self.device.ptr[0], self.ptr[0], nil)
 end
 

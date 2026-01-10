@@ -13,7 +13,7 @@ function ecs.GetComponent(name)
 	return ecs.registered_components[name]
 end
 
-local ENTITY = prototype.CreateTemplate("entity")
+local ENTITY = prototype.CreateTemplate("ecs", "entity")
 prototype.ParentingTemplate(ENTITY)
 ENTITY:GetSet("ComponentsHash", {})
 
@@ -124,7 +124,7 @@ ENTITY:Register()
 function ecs.CreateEntity(name, parent)
 	if name ~= "world" then parent = parent or ecs.GetWorld() end
 
-	local entity = prototype.CreateObject("entity")
+	local entity = ENTITY:CreateObject()
 	entity:Initialize()
 	entity:SetName(name or "")
 

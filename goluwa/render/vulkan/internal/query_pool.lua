@@ -24,7 +24,7 @@ function QueryPool.New(device, query_type, query_count)
 	})
 end
 
-function QueryPool:__gc()
+function QueryPool:OnRemove()
 	vulkan.lib.vkDestroyQueryPool(self.device.ptr[0], self.ptr[0], nil)
 end
 

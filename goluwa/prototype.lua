@@ -261,9 +261,9 @@ do
 	local setmetatable = setmetatable
 	local type = type
 	local ipairs = ipairs
-	prototype.created_objects = prototype.created_objects or setmetatable({}, {__mode = "kv"})
+	prototype.created_objects = prototype.created_objects or table.weak()
 
-	function prototype.CreateObject(meta, override, skip_gc_callback)
+	function prototype.CreateObject(meta, override)
 		override = override or prototype.override_object or {}
 
 		if type(meta) == "string" then meta = prototype.GetRegistered(meta) end
@@ -271,7 +271,7 @@ do
 		-- this has to be done in order to ensure we have the prepared metatable with bases
 		meta = prototype.GetRegistered(meta.Type, meta.ClassName) or meta
 
-		if not skip_gc_callback then meta.__gc = remove_callback end
+		if not meta.__gc then meta.__gc = remove_callback end
 
 		local self = setmetatable(override, meta)
 
@@ -585,7 +585,7 @@ function prototype.DumpObjectCount()
 	for obj in pairs(prototype.GetCreated()) do
 		local name = obj.ClassName
 
-		if obj.ClassName ~= obj.Type then name = obj.Type .. "_" .. name end
+		if obj.ClassName ~= obj.Type then name = obj.Type .. " - " .. name end
 
 		found[name] = (found[name] or 0) + 1
 	end

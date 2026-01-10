@@ -25,7 +25,7 @@ function ShaderModule.New(device, glsl, type)
 	return ShaderModule:CreateObject({ptr = ptr, device = device})
 end
 
-function ShaderModule:__gc()
+function ShaderModule:OnRemove()
 	vulkan.lib.vkDestroyShaderModule(self.device.ptr[0], self.ptr[0], nil)
 end
 

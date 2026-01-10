@@ -49,7 +49,7 @@ function Swapchain.New(config)
 	)
 end
 
-function Swapchain:__gc()
+function Swapchain:OnRemove()
 	vulkan.lib.vkDestroySwapchainKHR(self.device.ptr[0], self.ptr[0], nil)
 end
 

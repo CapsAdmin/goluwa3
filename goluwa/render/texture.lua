@@ -9,7 +9,7 @@ local Image = require("render.vulkan.internal.image")
 local Sampler = require("render.vulkan.internal.sampler")
 local codec = require("codec")
 local prototype = require("prototype")
-local Texture = prototype.CreateTemplate("texture")
+local Texture = prototype.CreateTemplate("render", "texture")
 -- Texture cache for path-based textures
 local texture_cache = {}
 local temp_fence = nil
@@ -101,7 +101,6 @@ function Texture.New(config)
 	end
 
 	local reflectivity = nil -- VTF specifc
-
 	-- Handle path parameter for loading images
 	local buffer_data = nil
 	local is_compressed = false
@@ -118,7 +117,6 @@ function Texture.New(config)
 
 		-- hacky way to get the prop from vtf to vmt where it belongs
 		reflectivity = img_or_err.reflectivity
-
 		local img = img_or_err
 		config.width = config.width or img.width
 		config.height = config.height or img.height
@@ -157,12 +155,12 @@ function Texture.New(config)
 
 	if config.srgb and not format:ends_with("_srgb") then
 		local test = format:replace("_unorm", "_srgb")
+
 		if require("bindings.vk").e.VkFormat(test) then
 			format = test
 		else
 			print("Warning: sRGB format requested but not available for", format)
 		end
-		
 	end
 
 	-- Create or use image
@@ -262,8 +260,7 @@ function Texture.New(config)
 		)
 	end
 
-	local self = prototype.CreateObject(
-		"texture",
+	local self = Texture:CreateObject(
 		{
 			image = image,
 			view = view,
@@ -311,7 +308,6 @@ function Texture.New(config)
 	if cache_key then texture_cache[cache_key] = self end
 
 	self.reflectivity = reflectivity
-
 	return self
 end
 
@@ -694,7 +690,8 @@ function Texture:Shade(glsl, extra_config)
 	if not self.image then error("Cannot shade: texture has no image") end
 
 	if glsl:find("vec4 shade") then
-		-- Already a full function
+
+	-- Already a full function
 	else
 		glsl = [[
 			vec4 shade(vec2 uv, vec3 dir) {

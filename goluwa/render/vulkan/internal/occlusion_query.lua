@@ -50,7 +50,7 @@ function OcclusionQuery.New(config)
 	return self
 end
 
-function OcclusionQuery:__gc()
+function OcclusionQuery:OnRemove()
 	vulkan.lib.vkDestroyQueryPool(self.device.ptr[0], self.query_pool[0], nil)
 end
 

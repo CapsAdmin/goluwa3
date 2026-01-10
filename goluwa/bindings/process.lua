@@ -406,7 +406,7 @@ if ffi.os == "Windows" then
 		return true
 	end
 
-	function meta:__gc()
+	function meta:OnRemove()
 		self:close()
 
 		if self.handle then
@@ -755,7 +755,7 @@ else
 		return true
 	end
 
-	function meta:__gc()
+	function meta:OnRemove()
 		self:close()
 	end
 
