@@ -1,5 +1,6 @@
 local test = require("helpers.test")
 local attest = require("helpers.attest")
+local commands = require("commands")
 local clipboard = ""
 
 do
@@ -20,7 +21,8 @@ test.Test("repl input", function()
 		repl.input_buffer = ""
 		repl.input_cursor = 1
 		repl.selection_start = nil
-		repl.history = {}
+		commands.history = {}
+		commands.history_map = {}
 		repl.history_index = 1
 	end
 
@@ -197,7 +199,8 @@ test.Test("repl multiline navigation", function()
 		repl.input_buffer = ""
 		repl.input_cursor = 1
 		repl.selection_start = nil
-		repl.history = {}
+		commands.history = {}
+		commands.history_map = {}
 		repl.history_index = 1
 		repl.input_scroll_offset = 0
 	end
@@ -229,7 +232,8 @@ test.Test("repl multiline navigation", function()
 	attest.equal(repl.input_cursor, 12) -- end of "world" line (at \n)
 	-- 3. History navigation from first line
 	reset()
-	repl.history = {"prev1", "prev2"}
+	commands.history = {"prev1", "prev2"}
+	commands.history_map = {prev1 = true, prev2 = true}
 	repl.history_index = 3
 	repl.input_buffer = "line1\nline2"
 	repl.input_cursor = 1
@@ -237,7 +241,8 @@ test.Test("repl multiline navigation", function()
 	attest.equal(repl.input_buffer, "prev2")
 	-- 4. History navigation: pressing down at last history entry restores empty input
 	reset()
-	repl.history = {"prev1"}
+	commands.history = {"prev1"}
+	commands.history_map = {prev1 = true}
 	repl.history_index = 2 -- Currently at fresh input (beyond history)
 	repl.input_buffer = "line1\nline2"
 	repl.input_cursor = 1 -- On first line so up will navigate to history
@@ -250,7 +255,8 @@ test.Test("repl multiline navigation", function()
 	attest.equal(repl.input_buffer, "line1\nline2") -- Should restore saved input
 	-- 5. Saved input restoration
 	reset()
-	repl.history = {"prev1"}
+	commands.history = {"prev1"}
+	commands.history_map = {prev1 = true}
 	repl.history_index = 2
 	repl.input_buffer = "typing"
 	repl.input_cursor = 1
@@ -317,7 +323,8 @@ test.Test("repl history", function()
 	local function reset()
 		repl.input_buffer = ""
 		repl.input_cursor = 1
-		repl.history = {}
+		commands.history = {}
+		commands.history_map = {}
 		repl.history_index = 1
 	end
 
@@ -327,20 +334,26 @@ test.Test("repl history", function()
 	repl.HandleEvent({key = "enter", modifiers = {ctrl = false, shift = false, alt = false}})
 	repl.input_buffer = "test"
 	repl.HandleEvent({key = "enter", modifiers = {ctrl = false, shift = false, alt = false}})
-	attest.equal(#repl.history, 1)
-	attest.equal(repl.history[1], "test")
+	attest.equal(#commands.history, 1)
+	attest.equal(commands.history[1], "test")
 	-- 2. No empty history entries
 	reset()
 	repl.input_buffer = ""
 	repl.HandleEvent({key = "enter", modifiers = {ctrl = false, shift = false, alt = false}})
-	attest.equal(#repl.history, 0)
+	attest.equal(#commands.history, 0)
 	-- 3. Different entries are added
 	reset()
 	repl.input_buffer = "first"
 	repl.HandleEvent({key = "enter", modifiers = {ctrl = false, shift = false, alt = false}})
 	repl.input_buffer = "second"
 	repl.HandleEvent({key = "enter", modifiers = {ctrl = false, shift = false, alt = false}})
-	attest.equal(#repl.history, 2)
-	attest.equal(repl.history[1], "first")
-	attest.equal(repl.history[2], "second")
+	attest.equal(#commands.history, 2)
+	attest.equal(commands.history[1], "first")
+	attest.equal(commands.history[2], "second")
+	-- 4. Move to top
+	repl.input_buffer = "first"
+	repl.HandleEvent({key = "enter", modifiers = {ctrl = false, shift = false, alt = false}})
+	attest.equal(#commands.history, 2)
+	attest.equal(commands.history[1], "second")
+	attest.equal(commands.history[2], "first")
 end)

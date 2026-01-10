@@ -9,12 +9,17 @@ local commands = require("commands")
 local codec = require("codec")
 local clipboard = require("bindings.clipboard")
 local repl = library()
-repl.history = repl.history or codec.ReadFile("luadata", "data/cmd_history.txt") or {}
+commands.history = codec.ReadFile("luadata", "data/cmd_history.txt") or {}
+
+for _, v in ipairs(commands.history) do
+	commands.history_map[v] = true
+end
+
 repl.started = true
 repl.input_buffer = repl.input_buffer or ""
 repl.input_cursor = repl.input_cursor or 1
 repl.selection_start = repl.selection_start or nil
-repl.history_index = repl.history_index or #repl.history + 1
+repl.history_index = repl.history_index or #commands.history + 1
 repl.input_scroll_offset = repl.input_scroll_offset or 0
 repl.needs_redraw = repl.needs_redraw or true
 repl.debug = false
@@ -476,16 +481,10 @@ function repl.HandleEvent(ev)
 				logn("> " .. repl.input_buffer)
 
 				if repl.input_buffer ~= "" then
-					-- Don't add duplicate of the last history entry
-					local is_duplicate = #repl.history > 0 and repl.history[#repl.history] == repl.input_buffer
-
-					if not is_duplicate then
-						table.insert(repl.history, repl.input_buffer)
-					end
-
-					repl.history_index = #repl.history + 1
+					commands.AddHistory(repl.input_buffer)
+					repl.history_index = #commands.history + 1
 					repl.InputLua(repl.input_buffer)
-					codec.WriteFile("luadata", "data/cmd_history.txt", repl.history)
+					codec.WriteFile("luadata", "data/cmd_history.txt", commands.history)
 				end
 
 				repl.input_buffer = ""
@@ -577,12 +576,12 @@ function repl.HandleEvent(ev)
 			elseif current_line == 1 and repl.history_index > 1 then
 				-- At first line, trying to go up - navigate history
 				-- Save current input if we're leaving fresh input mode
-				if repl.history_index > #repl.history then
+				if repl.history_index > #commands.history then
 					repl.saved_input = repl.input_buffer
 				end
 
 				repl.history_index = repl.history_index - 1
-				repl.input_buffer = repl.history[repl.history_index]
+				repl.input_buffer = commands.history[repl.history_index]
 				repl.input_cursor = repl.input_buffer:utf8_length() + 1
 				repl.input_scroll_offset = 0
 				repl.selection_start = nil
@@ -623,16 +622,16 @@ function repl.HandleEvent(ev)
 						repl.input_scroll_offset = math.min(input_lines_count - 5, repl.input_scroll_offset + 1)
 					end
 				end
-			elseif current_line == input_lines_count and repl.history_index < #repl.history then
+			elseif current_line == input_lines_count and repl.history_index < #commands.history then
 				-- At last line, trying to go down - navigate history
 				repl.history_index = repl.history_index + 1
-				repl.input_buffer = repl.history[repl.history_index]
+				repl.input_buffer = commands.history[repl.history_index]
 				repl.input_cursor = repl.input_buffer:utf8_length() + 1
 				repl.input_scroll_offset = 0
 				repl.selection_start = nil
-			elseif current_line == input_lines_count and repl.history_index == #repl.history then
+			elseif current_line == input_lines_count and repl.history_index == #commands.history then
 				-- Restore saved input when going back to fresh input mode
-				repl.history_index = #repl.history + 1
+				repl.history_index = #commands.history + 1
 				repl.input_buffer = repl.saved_input
 				repl.input_cursor = repl.input_buffer:utf8_length() + 1
 				repl.input_scroll_offset = 0

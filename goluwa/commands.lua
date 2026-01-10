@@ -94,6 +94,26 @@ end
 do -- commands
 	commands.added = commands.added or {}
 	commands.added2 = commands.added2 or {}
+	commands.history = commands.history or {}
+	commands.history_map = commands.history_map or {}
+
+	function commands.AddHistory(line)
+		if not line or line == "" then return end
+
+		if commands.history_map[line] then
+			for i, v in ipairs(commands.history) do
+				if v == line then
+					list.remove(commands.history, i)
+
+					break
+				end
+			end
+		end
+
+		list.insert(commands.history, line)
+		commands.history_map[line] = true
+	end
+
 	local capture_symbols = {
 		["\""] = "\"",
 		["'"] = "'",
