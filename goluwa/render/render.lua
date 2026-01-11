@@ -71,6 +71,8 @@ function render.Initialize(config)
 	end
 
 	event.AddListener("WindowFramebufferResized", "window_resized", function(wnd, size)
+		if is_headless then return end
+
 		render.target.config.width = size.x
 		render.target.config.height = size.y
 		render.target:RebuildFramebuffers()
@@ -107,6 +109,8 @@ function render.EndFrame()
 end
 
 function render.GetRenderImageSize()
+	if not render.target then return Vec2(800, 600) end
+
 	return Vec2(render.target.config.width, render.target.config.height)
 end
 

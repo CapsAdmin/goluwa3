@@ -3,7 +3,6 @@ local render = require("render.render")
 local EasyPipeline = require("render.easy_pipeline")
 local event = require("event")
 local ecs = require("ecs")
-local window = require("render.window")
 local orientation = require("render3d.orientation")
 local Material = require("render3d.material")
 local Matrix44 = require("structs.matrix44")
@@ -299,6 +298,8 @@ function render3d.GetDebugCascadeColors()
 end
 
 event.AddListener("WindowFramebufferResized", "render3d", function(wnd, size)
+	if render.target and render.target.config.offscreen then return end
+
 	render3d.camera:SetViewport(Rect(0, 0, size.x, size.y))
 end)
 

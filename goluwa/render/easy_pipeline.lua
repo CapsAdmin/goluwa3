@@ -3,7 +3,6 @@ local prototype = require("prototype")
 local render = require("render.render")
 local UniformBuffer = require("render.uniform_buffer")
 local Framebuffer = require("render.framebuffer")
-local window = require("render.window")
 local system = require("system")
 local EasyPipeline = prototype.CreateTemplate("render", "easy_pipeline")
 
@@ -965,7 +964,7 @@ end
 
 function EasyPipeline:RecreateFramebuffers()
 	local framebuffer_count = self.config.framebuffer_count or 1
-	local size = window:GetSize()
+	local size = render.GetRenderImageSize()
 
 	if self.framebuffers then
 		for _, fb in ipairs(self.framebuffers) do
@@ -1011,6 +1010,8 @@ function EasyPipeline:RecreateFramebuffers()
 end
 
 function EasyPipeline:OnWindowFramebufferResized()
+	if render.target and render.target.config.offscreen then return end
+
 	self:RecreateFramebuffers()
 	-- Update descriptor sets if they reference framebuffer textures
 	local textures = {}

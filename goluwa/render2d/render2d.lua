@@ -6,7 +6,6 @@ local Vec2 = require("structs.vec2")
 local Rect = require("structs.rect")
 local Matrix44 = require("structs.matrix44")
 local render = require("render.render")
-local window = require("render.window")
 local event = require("event")
 local VertexBuffer = require("render.vertex_buffer")
 local Mesh = require("render.mesh")
@@ -665,6 +664,8 @@ event.AddListener("PostDraw", "draw_2d", function(cmd, dt)
 end)
 
 event.AddListener("WindowFramebufferResized", "render2d", function(wnd, size)
+	if render.target and render.target.config.offscreen then return end
+
 	render2d.UpdateScreenSize(size)
 end)
 
