@@ -184,37 +184,27 @@ render3d.last_frame_block = {
 		end,
 	},
 }
-local pipelines = {
-	require("render3d.passes.gbuffer"),
-	require("render3d.passes.ssr"),
-	require("render3d.passes.lighting"),
-	require("render3d.passes.smaa"),
-	require("render3d.passes.blit"),
-}
 
 function render3d.Initialize()
 	render3d.pipelines = {}
 	render3d.pipelines_i = {}
 	local i = 1
+	local pipelines = list.flatten(
+		{
+			require("render3d.passes.gbuffer"),
+			require("render3d.passes.ssr"),
+			require("render3d.passes.lighting"),
+			require("render3d.passes.smaa"),
+			require("render3d.passes.blit"),
+		}
+	)
 
-	for _, config in ipairs(pipelines) do
-		if config[1] then
-			for _, config in ipairs(config) do
-				render3d.pipelines_i[i] = EasyPipeline.New(config)
-				render3d.pipelines[config.name] = render3d.pipelines_i[i]
-				--
-				render3d.pipelines_i[i].name = config.name
-				render3d.pipelines_i[i].post_draw = config.post_draw
-				i = i + 1
-			end
-		else
-			render3d.pipelines_i[i] = EasyPipeline.New(config)
-			render3d.pipelines[config.name] = render3d.pipelines_i[i]
-			--
-			render3d.pipelines_i[i].name = config.name
-			render3d.pipelines_i[i].post_draw = config.post_draw
-			i = i + 1
-		end
+	for i, config in ipairs(pipelines) do
+		render3d.pipelines_i[i] = EasyPipeline.New(config)
+		render3d.pipelines[config.name] = render3d.pipelines_i[i]
+		--
+		render3d.pipelines_i[i].name = config.name
+		render3d.pipelines_i[i].post_draw = config.post_draw
 	end
 
 	event.AddListener("PreRenderPass", "render3d", function(cmd)

@@ -14,6 +14,20 @@ list.sort = _G.table.sort
 list.pairs = assert(_G.ipairs)
 list.clear = require("table.clear")
 
+do
+	local function flatten(tbl, out)
+		for _, v in ipairs(tbl) do
+			if list.is_list(v) then flatten(v, out) else out[#out + 1] = v end
+		end
+	end
+
+	function list.flatten(lst)
+		local out = {}
+		flatten(lst, out)
+		return out
+	end
+end
+
 function list.slice(tbl, first, last, step)
 	local sliced = {}
 
