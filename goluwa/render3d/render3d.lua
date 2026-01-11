@@ -217,6 +217,9 @@ function render3d.Initialize()
 		render3d.pipelines_i[i].post_draw = config.post_draw
 	end
 
+	local size = render.GetRenderImageSize()
+	render3d.camera:SetViewport(Rect(0, 0, size.x, size.y))
+
 	event.AddListener("PreRenderPass", "render3d", function(cmd)
 		if not render3d.pipelines.gbuffer then return end
 
