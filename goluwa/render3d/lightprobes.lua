@@ -9,6 +9,7 @@ local Fence = require("render.vulkan.internal.fence")
 local Matrix44 = require("structs.matrix44")
 local Vec3 = require("structs.vec3")
 local Rect = require("structs.rect")
+local system = require("system")
 local atmosphere = require("render3d.atmosphere")
 local lightprobes = {}
 -- Probe types
@@ -160,6 +161,7 @@ function lightprobes.CreateEnvironmentProbe(position)
 	probe.position = position or Vec3(0, 0, 0)
 	probe.size = lightprobes.ENVIRONMENT_SIZE
 	probe.needs_update = true
+	probe.last_rendered = 0
 	lightprobes.environment_probe = probe
 	return probe
 end
@@ -173,6 +175,7 @@ function lightprobes.CreateSceneProbe(position, update_mode, radius)
 	probe.radius = radius or 40
 	probe.size = lightprobes.SCENE_SIZE
 	probe.needs_update = true
+	probe.last_rendered = 0
 	table.insert(lightprobes.probes, probe)
 	return probe
 end
@@ -369,7 +372,7 @@ function lightprobes.CreatePipelines()
 									local lights = render3d.GetLights()
 
 									if lights[1] then
-										lights[1].transform:GetRotation():GetBackward():CopyToFloatPointer(block[key])
+										lights[1].Entity.transform:GetRotation():GetBackward():CopyToFloatPointer(block[key])
 									end
 								end,
 							},
@@ -564,7 +567,7 @@ function lightprobes.CreatePipelines()
 									local lights = render3d.GetLights()
 
 									if lights[1] then
-										lights[1].transform:GetRotation():GetBackward():CopyToFloatPointer(block[key])
+										lights[1].Entity.transform:GetRotation():GetBackward():CopyToFloatPointer(block[key])
 									end
 								end,
 							},
@@ -833,7 +836,7 @@ function lightprobes.HasSunDirectionChanged()
 
 	if not lights[1] then return false end
 
-	local current_sun_dir = lights[1].transform:GetRotation():GetBackward()
+	local current_sun_dir = lights[1].Entity.transform:GetRotation():GetBackward()
 
 	if not lightprobes.last_sun_direction then
 		lightprobes.last_sun_direction = current_sun_dir:Copy()
@@ -1176,23 +1179,29 @@ event.AddListener("PreRenderPass", "lightprobes_update", function(cmd)
 			scene_probe.needs_update or
 			scene_probe.update_mode == lightprobes.UPDATE_DYNAMIC
 		then
-			lightprobes.RenderProbeFaces(cmd, scene_probe, lightprobes.UPDATE_FACES_PER_FRAME, true)
+			local t = system.GetTime()
 
-			-- When we complete a full cycle (back to face 0), prefilter and move to next probe
-			if lightprobes.current_face == 0 then
-				lightprobes.PrefilterProbe(cmd, scene_probe)
-				scene_probe.needs_update = false
+			if (t - scene_probe.last_rendered) > 1 / 10 then
+				lightprobes.RenderProbeFaces(cmd, scene_probe, lightprobes.UPDATE_FACES_PER_FRAME, true)
 
-				-- Move to next scene probe
-				repeat
-					scene_probe_index = scene_probe_index + 1
+				-- When we complete a full cycle (back to face 0), prefilter and move to next probe
+				if lightprobes.current_face == 0 then
+					lightprobes.PrefilterProbe(cmd, scene_probe)
+					scene_probe.needs_update = false
 
-					if scene_probe_index > #lightprobes.probes then
-						scene_probe_index = 1
-					end				
-				until lightprobes.probes[scene_probe_index] or scene_probe_index == lightprobes.current_scene_probe_index
+					-- Move to next scene probe
+					repeat
+						scene_probe_index = scene_probe_index + 1
 
-				lightprobes.current_scene_probe_index = scene_probe_index
+						if scene_probe_index > #lightprobes.probes then
+							scene_probe_index = 1
+						end					
+					until lightprobes.probes[scene_probe_index] or scene_probe_index == lightprobes.current_scene_probe_index
+
+					lightprobes.current_scene_probe_index = scene_probe_index
+				end
+
+				scene_probe.last_rendered = t
 			end
 		end
 	end

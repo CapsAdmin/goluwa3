@@ -49,8 +49,8 @@ local function create_cube(pos, ang, scale, color)
 	if ang then tr:SetAngles(ang) end
 
 	local model = entity:AddComponent("model")
+	poly.material = Material.New():SetColorMultiplier(color or Color(1, 1, 1, 1))
 	model:AddPrimitive(poly)
-	model:SetMaterial(Material.New():SetColorMultiplier(color or Color(1, 1, 1, 1)))
 	return entity
 end
 

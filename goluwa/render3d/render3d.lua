@@ -1080,36 +1080,36 @@ local pipelines = {
 								{"params", "vec4"},
 							},
 							function(self, block, key)
-								local ents = render3d.GetLights()
+								local lights = render3d.GetLights()
 
 								for i = 0, 128 - 1 do
 									local data = block[key][i]
-									local ent = ents[i + 1]
+									local light = lights[i + 1]
 
-									if ent then
-										if ent.light.LightType == "directional" or ent.light.LightType == "sun" then
-											ent.transform:GetRotation():GetForward():CopyToFloatPointer(data.position)
+									if light then
+										if light.LightType == "directional" or light.LightType == "sun" then
+											light.Entity.transform:GetRotation():GetForward():CopyToFloatPointer(data.position)
 										else
-											ent.transform:GetPosition():CopyToFloatPointer(data.position)
+											light.Entity.transform:GetPosition():CopyToFloatPointer(data.position)
 										end
 
-										if ent.light.LightType == "directional" or ent.light.LightType == "sun" then
+										if light.LightType == "directional" or light.LightType == "sun" then
 											data.position[3] = 0
-										elseif ent.light.LightType == "point" then
+										elseif light.LightType == "point" then
 											data.position[3] = 1
-										elseif ent.light.LightType == "spot" then
+										elseif light.LightType == "spot" then
 											data.position[3] = 2
 										else
-											error("Unknown light type: " .. tostring(ent.light.LightType), 2)
+											error("Unknown light type: " .. tostring(light.LightType), 2)
 										end
 
-										data.color[0] = ent.light.Color.r
-										data.color[1] = ent.light.Color.g
-										data.color[2] = ent.light.Color.b
-										data.color[3] = ent.light.Intensity
-										data.params[0] = ent.light.Range
-										data.params[1] = ent.light.InnerCone
-										data.params[2] = ent.light.OuterCone
+										data.color[0] = light.Color.r
+										data.color[1] = light.Color.g
+										data.color[2] = light.Color.b
+										data.color[3] = light.Intensity
+										data.params[0] = light.Range
+										data.params[1] = light.InnerCone
+										data.params[2] = light.OuterCone
 										data.params[3] = 0
 									else
 										data.position[0] = 0
@@ -1147,25 +1147,25 @@ local pipelines = {
 							function(self, block, key)
 								local sun = nil
 
-								for i, ent in ipairs(render3d.GetLights()) do
+								for i, light in ipairs(render3d.GetLights()) do
 									if i > 128 then break end
 
 									if
 										(
-											ent.light.LightType == "sun" or
-											ent.light.LightType == "directional"
+											light.LightType == "sun" or
+											light.LightType == "directional"
 										)
 										and
-										ent.light:GetCastShadows()
+										light:GetCastShadows()
 									then
-										sun = ent
+										sun = light
 
 										break
 									end
 								end
 
 								if sun then
-									local shadow_map = sun.light:GetShadowMap()
+									local shadow_map = sun:GetShadowMap()
 									local cascade_count = shadow_map:GetCascadeCount()
 
 									for i = 1, cascade_count do
@@ -2026,7 +2026,7 @@ do
 end
 
 function render3d.GetLights()
-	return ecs.GetEntitiesWithComponent("light") -- TODO, optimize
+	return ecs.GetComponents("light") -- TODO, optimize
 end
 
 -- Debug state for cascade visualization

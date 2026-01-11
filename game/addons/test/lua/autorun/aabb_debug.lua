@@ -51,10 +51,7 @@ event.AddListener(
 
 		if not mesh then return end
 
-		local entities = ecs.GetEntitiesWithComponent("model")
-
-		for _, ent in ipairs(entities) do
-			local model = ent:GetComponent("model")
+		for _, model in ipairs(ecs.GetComponents("model")) do
 			local aabb = model:GetAABB()
 
 			if aabb and aabb.min_x ~= math.huge then

@@ -209,7 +209,7 @@ function Polygon3D:AddSubMesh(val, data)
 end
 
 function Polygon3D:GetSubMeshes()
-	return self.sub_meshes or {}
+	return self.sub_meshes
 end
 
 function Polygon3D:Draw(cmd, i)

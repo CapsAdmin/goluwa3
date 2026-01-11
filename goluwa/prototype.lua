@@ -296,6 +296,13 @@ do
 	prototype.linked_objects = prototype.linked_objects or {}
 
 	function prototype.AddPropertyLink(...)
+		local args = table.weak()
+		local input = {...}
+
+		for i = 1, select("#", ...) do
+			args[i] = input[i]
+		end
+
 		event.AddListener("Update", "update_object_properties", function()
 			for i, data in ipairs(prototype.linked_objects) do
 				if type(data.args[1]) == "table" and type(data.args[2]) == "table" then
@@ -379,7 +386,7 @@ do
 			end
 		end)
 
-		list.insert(prototype.linked_objects, {store = table.weak(), args = {...}})
+		list.insert(prototype.linked_objects, {store = table.weak(), args = args})
 	end
 
 	function prototype.RemovePropertyLink(obj_a, obj_b, field_a, field_b, key_a, key_b)
@@ -403,7 +410,9 @@ do
 
 	function prototype.RemovePropertyLinks(obj)
 		for i, v in pairs(prototype.linked_objects) do
-			if v[1] == obj then prototype.linked_objects[i] = nil end
+			if v.args[1] == obj or v.args[2] == obj then
+				prototype.linked_objects[i] = nil
+			end
 		end
 
 		list.fix_indices(prototype.linked_objects)
@@ -413,7 +422,9 @@ do
 		local out = {}
 
 		for _, v in ipairs(prototype.linked_objects) do
-			if v[1] == obj then list.insert(out, {unpack(v)}) end
+			if v.args[1] == obj or v.args[2] == obj then
+				list.insert(out, {unpack(v.args)})
+			end
 		end
 
 		return out
@@ -850,6 +861,7 @@ do -- base object
 
 	function META:GetGUID()
 		self.GUID = self.GUID or ("%p%p"):format(self, getmetatable(META))
+		return self.GUID
 	end
 
 	function META:GetNiceClassName()
@@ -1301,7 +1313,7 @@ function prototype.ParentingTemplate(META)
 			return
 		end
 
-		if self == obj or obj:HasChild(self) then return false end
+		if self == obj or self:ContainsParent(obj) then return false end
 
 		if obj:HasParent() then obj:UnParent() end
 
@@ -1359,23 +1371,6 @@ function prototype.ParentingTemplate(META)
 		return self.ChildrenMap[obj] ~= nil
 	end
 
-	function META:UnparentChild(obj)
-		self.ChildrenMap[obj] = nil
-
-		for i, val in ipairs(self:GetChildren()) do
-			if val == obj then
-				self:InvalidateChildrenList()
-				table.remove(self.Children, i)
-				obj:OnUnParent(self)
-				self:OnChildRemove(obj)
-				obj.Parent = NULL
-				self.ChildrenMap[obj] = nil
-
-				break
-			end
-		end
-	end
-
 	function META:GetRoot()
 		local list = self:GetParentList()
 
@@ -1386,10 +1381,11 @@ function prototype.ParentingTemplate(META)
 
 	function META:RemoveChildren()
 		self:InvalidateChildrenList()
+		local children = self:GetChildren()
 
-		for i, obj in ipairs(self:GetChildrenList()) do
-			obj:OnUnParent(self)
-			obj:Remove(true)
+		for i = #children, 1, -1 do
+			local obj = children[i]
+			obj:Remove()
 		end
 
 		self.Children = {}
@@ -1399,20 +1395,30 @@ function prototype.ParentingTemplate(META)
 	function META:UnParent()
 		local parent = self:GetParent()
 
-		if parent:IsValid() then parent:RemoveChild(self) end
-
-		self:OnUnParent(parent)
-		self.Parent = NULL
+		if parent:IsValid() then
+			parent:RemoveChild(self)
+		else
+			if self.Parent ~= NULL then
+				self.Parent = NULL
+				self:InvalidateParentList()
+				self:OnUnParent(parent)
+			end
+		end
 	end
 
 	function META:RemoveChild(obj)
+		if self.ChildrenMap[obj] == nil then return end
+
 		self.ChildrenMap[obj] = nil
 
-		for i, val in ipairs(self:GetChildren()) do
+		for i, val in ipairs(self.Children) do
 			if val == obj then
-				self:InvalidateChildrenList()
 				table.remove(self.Children, i)
+				self:InvalidateChildrenList()
+				obj.Parent = NULL
+				obj:InvalidateParentList()
 				obj:OnUnParent(self)
+				self:OnChildRemove(obj)
 
 				break
 			end

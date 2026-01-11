@@ -1,7 +1,28 @@
 local prototype = require("prototype")
 local event = require("event")
 local ecs = library()
-ecs.registered_components = {}
+ecs.registered_components = ecs.registered_components or {}
+ecs.component_instances = ecs.component_instances or {}
+
+local function remove_component(component)
+	local component_name = component.ComponentName or component.ClassName
+	local instances = ecs.component_instances[component_name]
+
+	if instances then
+		for i = #instances, 1, -1 do
+			if instances[i] == component then
+				table.remove(instances, i)
+
+				break
+			end
+		end
+	end
+
+	if component.Entity then
+		component.Entity.ComponentsHash[component_name] = nil
+		component.Entity[component_name] = nil
+	end
+end
 
 function ecs.RegisterComponent(component_meta)
 	local name = component_meta.ComponentName or component_meta.ClassName
@@ -65,6 +86,9 @@ function ENTITY:AddComponent(name_or_meta)
 		end
 	end
 
+	ecs.component_instances[component_name] = ecs.component_instances[component_name] or {}
+	list.insert(ecs.component_instances[component_name], component)
+	component:CallOnRemove(remove_component)
 	return component
 end
 
@@ -73,14 +97,7 @@ function ENTITY:RemoveComponent(name)
 
 	if not component then return end
 
-	if component.added_events then
-		for event_type in pairs(component.added_events) do
-			component:RemoveEvent(event_type)
-		end
-	end
-
-	if component.OnRemove then component:OnRemove() end
-
+	component:Remove()
 	self.ComponentsHash[name] = nil
 	self[name] = nil
 end
@@ -95,13 +112,7 @@ end
 
 function ENTITY:OnRemove()
 	for name, component in pairs(self.ComponentsHash) do
-		if component.added_events then
-			for event_type in pairs(component.added_events) do
-				component:RemoveEvent(event_type)
-			end
-		end
-
-		if component.OnRemove then component:OnRemove() end
+		component:Remove()
 	end
 
 	self.ComponentsHash = {}
@@ -167,30 +178,8 @@ function ecs.ClearWorld()
 	world_entity = nil
 end
 
-do
-	local function collect(entity, component_name, result)
-		if entity:HasComponent(component_name) then table.insert(result, entity) end
-
-		for _, child in ipairs(entity:GetChildren()) do
-			collect(child, component_name, result)
-		end
-	end
-
-	function ecs.GetEntitiesWithComponent(component_name)
-		local result = {}
-		collect(ecs.GetWorld(), component_name, result)
-		return result
-	end
-end
-
 function ecs.GetComponents(component_name)
-	local result = {}
-
-	for i, entity in ipairs(ecs.GetEntitiesWithComponent(component_name)) do
-		result[i] = entity:GetComponent(component_name)
-	end
-
-	return result
+	return ecs.component_instances[component_name] or {}
 end
 
 return ecs

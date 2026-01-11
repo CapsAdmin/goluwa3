@@ -112,9 +112,9 @@ function events.Draw2D.debug_shadow_map(cmd, dt)
 
 	local sun = render3d.GetLights()[1]
 
-	if not sun or not sun.light:GetCastShadows() then return end
+	if not sun or not sun:GetCastShadows() then return end
 
-	local shadow_map = sun.light:GetShadowMap()
+	local shadow_map = sun:GetShadowMap()
 
 	if not shadow_map then return end
 
