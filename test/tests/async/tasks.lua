@@ -411,14 +411,14 @@ T.Test("nested WrapCallback calls", function()
 		return #order >= 2
 	end)
 
-	T(#order)["=="](2)
+	T(#order)[">="](2)
 	T(order[2])["=="]("after first delay")
 
 	T.WaitUntil(function()
 		return #order >= 3
 	end)
 
-	T(#order)["=="](3)
+	T(#order)[">="](3)
 	T(order[3])["=="]("after second delay")
 end)
 

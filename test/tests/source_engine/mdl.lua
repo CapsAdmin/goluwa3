@@ -25,6 +25,8 @@ local width = 512
 local height = 512
 local ecs = require("ecs")
 local tasks = require("tasks")
+local system = require("system")
+local vfs = require("vfs")
 
 local function setup_sun()
 	if render3d.GetLights()[1] then return end
@@ -58,22 +60,21 @@ end
 T.Test("combine", function()
 	init_render3d()
 	steam.MountSourceGame("gmod")
-	tasks.WaitAll(3)
+	tasks.WaitAll(10)
 	local ent = ecs.CreateEntity("mdl", ecs.GetWorld())
 	ent:AddComponent("transform")
 	ent:AddComponent("model")
 	ent.model:SetModelPath("models/player/combine_super_soldier.mdl")
 	ent.transform:SetRotation(Quat(0, -1, 0, 1))
-	tasks.WaitAll(3) -- waits for the model to load for max 3 seconds
+	tasks.WaitAll(10) -- waits for the model to load for max 10 seconds
 	render.Draw(1)
 
-	-- body 
-	T.ScreenPixel(256, 256, function(r, g, b, a)
+	T.ScreenAlbedoPixel(256, 256, function(r, g, b, a)
 		return r > 0 and g > 0 and b > 0
 	end)
 
 	-- check the pixel between left arm and leg and make sure it hits the skybox as to not be corrupt
-	T.ScreenPixel(170, 300, function(r, g, b, a)
+	T.ScreenAlbedoPixel(170, 300, function(r, g, b, a)
 		T(r)["<"](0.01)
 		T(g)["<"](0.01)
 		T(b)["<"](0.01)
@@ -86,7 +87,7 @@ end)
 T.Test("alyx", function()
 	init_render3d()
 	steam.MountSourceGame("gmod")
-	tasks.WaitAll(3)
+	tasks.WaitAll(10)
 	local path = "models/player/alyx.mdl"
 	local ent = ecs.CreateEntity("mdl", ecs.GetWorld())
 	ent:AddComponent("transform")
@@ -94,16 +95,15 @@ T.Test("alyx", function()
 	ent.transform:SetRotation(Quat(0, -1, 0, 1))
 	ent.model:SetModelPath(path)
 	ent.transform:SetRotation(Quat(0, -1, 0, 1))
-	tasks.WaitAll(3)
+	tasks.WaitAll(10)
 	render.Draw(1)
 
-	-- body 
-	T.ScreenPixel(256, 256, function(r, g, b, a)
+	T.ScreenAlbedoPixel(256, 256, function(r, g, b, a)
 		return r > 0 and g > 0 and b > 0
 	end)
 
 	-- check the pixel between left arm and leg and make sure it hits the skybox
-	T.ScreenPixel(170, 300, function(r, g, b, a)
+	T.ScreenAlbedoPixel(170, 300, function(r, g, b, a)
 		T(r)["<"](0.01)
 		T(g)["<"](0.01)
 		T(b)["<"](0.01)

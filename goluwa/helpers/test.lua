@@ -30,6 +30,7 @@ local current_test_start_gc = nil
 local on_test_file_complete = nil
 -- Logging state (set by BeginTests)
 local LOGGING = false
+local VERBOSE = false
 local IS_TERMINAL = true -- or system.IsTTY()
 local completed_test_count = 0
 local shown_running_line = false
@@ -94,7 +95,7 @@ local function traceback(msg, co_lines)
 end
 
 function test.RunTestsWithFilter(filter, config)
-	test.BeginTests(config.logging, config.profiling, config.profiling_mode)
+	test.BeginTests(config.logging, config.profiling, config.profiling_mode, config.verbose)
 	local tests = test.FindTests(filter)
 	test.SetTestPaths(tests)
 
@@ -448,8 +449,9 @@ do
 	local test_file_count = 0
 	local test_results = {} -- Store results for each test file
 	local test_order = {} -- Track the order tests were loaded
-	function test.BeginTests(logging, profiling, profiling_mode)
+	function test.BeginTests(logging, profiling, profiling_mode, verbose)
 		LOGGING = logging or false
+		VERBOSE = verbose or false
 		PROFILING = profiling or false
 		completed_test_count = 0
 		shown_running_line = false
@@ -515,6 +517,8 @@ do
 	end
 
 	function test.RunSingleTestSet(test_item)
+		if VERBOSE then logn("loading test: " .. test_item.path) end
+
 		current_test_name = test_item.name
 		-- Track the order for display later
 		table.insert(test_order, test_item.name)

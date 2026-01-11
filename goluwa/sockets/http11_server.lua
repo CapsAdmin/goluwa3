@@ -9,12 +9,18 @@ return function(sockets)
 		sockets.ConnectedTCP2HTTP(client)
 		list.insert(self.Clients, client)
 		client.OnReceiveResponse = function(client, method, path)
+			if not self:IsValid() then return end
+
 			return self:OnReceiveResponse(client, method, path)
 		end
 		client.OnReceiveHeader = function(client, header)
+			if not self:IsValid() then return end
+
 			return self:OnReceiveHeader(client, header)
 		end
 		client.OnReceiveBody = function(client, body)
+			if not self:IsValid() then return end
+
 			return self:OnReceiveBody(client, body)
 		end
 

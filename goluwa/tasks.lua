@@ -28,6 +28,7 @@ function tasks.WaitForTask(name, callback)
 end
 
 local META = prototype.CreateTemplate("task")
+META:GetSet("Name", "unknown")
 META:GetSet("Frequency", 0)
 META:GetSet("IterationsPerTick", 1)
 META:GetSet("EnsureFPS", 30)
@@ -145,9 +146,7 @@ function META:Start(now, ...)
 				self:OnUpdate()
 			end
 
-			if self.wait > old_wait then
-				return false
-			end
+			if self.wait > old_wait then return false end
 
 			return nil
 		end
@@ -293,7 +292,8 @@ function tasks.WaitAll(timeout)
 		if timeout and (system.GetElapsedTime() - start) > timeout then
 			for thread in pairs(tasks.created) do
 				if thread ~= current then
-					print("Task still running: " .. tostring(thread) .. " - " .. (thread.what or "unknown"))
+					local name = thread.what or (thread.GetName and thread:GetName()) or "unknown"
+					print("Task still running: " .. tostring(thread) .. " - " .. tostring(name))
 
 					if thread.trace then print(thread.trace) end
 				end
