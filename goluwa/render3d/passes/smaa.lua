@@ -1,8 +1,6 @@
 local Vec2 = require("structs.vec2")
 local system = require("system")
 local render3d = require("render3d.render3d")
-local ffi = require("ffi")
-local Texture = require("render.texture")
 return {
 	{
 		name = "smaa_edge",

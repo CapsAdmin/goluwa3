@@ -7,6 +7,7 @@ local Buffer = prototype.CreateTemplate("vulkan", "buffer")
 function Buffer.New(config)
 	local device = config.device
 	local size = config.size
+	assert(size > 0, "buffer size must be greater than 0")
 	local usage = config.usage
 	local properties = config.properties
 	local ptr = vulkan.T.Box(vulkan.vk.VkBuffer)()

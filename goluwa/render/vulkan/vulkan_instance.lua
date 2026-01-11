@@ -108,6 +108,10 @@ end
 
 function VulkanInstance:CreateBuffer(config)
 	local byte_size = config.byte_size
+	assert(
+		byte_size and byte_size > 0,
+		"buffer byte_size must be specified and greater than 0"
+	)
 	local data = config.data
 
 	if data then

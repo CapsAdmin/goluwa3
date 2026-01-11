@@ -540,6 +540,11 @@ function EasyPipeline.New(config)
 		if stage_config.uniform_buffers then
 			for _, block in ipairs(stage_config.uniform_buffers) do
 				block.block = flatten_fields(block.block)
+
+				if not block.block[1] then
+					error("Uniform buffer " .. block.name .. " has no fields!")
+				end
+
 				local ffi_code = build_ffi_struct("scalar", block.block)
 				local glsl_fields, glsl_structs = build_glsl_fields(block.block)
 				local ubo = UniformBuffer.New(ffi_code)

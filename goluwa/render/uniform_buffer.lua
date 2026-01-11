@@ -10,6 +10,7 @@ function UniformBuffer.New(decl)
 	if not has_nested then
 		-- No nested structs, just create the struct directly
 		local struct = ffi.typeof(decl)
+		assert(ffi.sizeof(struct) > 0, "UniformBuffer struct size must be greater than 0")
 		local self = UniformBuffer:CreateObject()
 		self.data = struct()
 		self.struct = struct
