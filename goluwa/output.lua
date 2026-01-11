@@ -1,8 +1,6 @@
 local event = require("event")
 local fs = require("fs")
-
 local output = library()
-
 local suppress_print = false
 
 function output.CanWrite(str)
@@ -14,29 +12,29 @@ function output.CanWrite(str)
 	return result ~= false
 end
 
-
 local read_fd
 local write_fd
-local process_pipe
+local process_pipe = function() end
 
 function output.Initialize()
 	if output.initialized then return end
+
 	output.initialized = true
-	output.normal_stdout = true 
+	output.normal_stdout = true
 	fs.create_directory("logs/")
 	output.file = assert(fs.file_open("logs/log.txt", "w"))
 
-	if output.normal_stdout then
-		return
-	end
-	
+	if output.normal_stdout then return end
+
 	local ffi = require("ffi")
+
 	-- Make stdout unbuffered so writes go directly to kernel
 	if jit.os == "Windows" then
 		io.stdout:setvbuf("no")
 	else
 		ffi.C.setvbuf(ffi.C.stdout, nil, 2, 0) -- 2 = _IONBF (no buffering)
 	end
+
 	-- Also make the log file unbuffered for crash safety
 	pcall(ffi.C.setvbuf, output.file.file, nil, 2, 0)
 
@@ -129,14 +127,13 @@ function output.WriteDirect(str)
 		io.flush()
 		return
 	end
-	
+
 	assert(output.original_stdout_fd:write(str))
 end
 
 function output.Flush()
 	if output.normal_stdout then
 		io.flush()
-
 		return
 	end
 
@@ -144,13 +141,10 @@ function output.Flush()
 	process_pipe()
 end
 
-
 function output.Shutdown()
 	if output.file then assert(output.file:close()) end
-	
-	if output.normal_stdout then
-		return
-	end
+
+	if output.normal_stdout then return end
 
 	-- Flush any remaining data
 	io.stdout:flush()

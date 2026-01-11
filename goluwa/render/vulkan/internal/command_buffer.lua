@@ -574,6 +574,7 @@ function CommandBuffer:PipelineBarrier(config)
 			end
 
 			aspect = aspect or "color"
+			barrier.image.layout = barrier.newLayout or "general"
 			imageBarriers[i - 1] = vulkan.vk.s.ImageMemoryBarrier(
 				{
 					srcAccessMask = barrier.srcAccessMask or "none",

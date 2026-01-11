@@ -174,29 +174,8 @@ function render.CreateCommandBuffer()
 	return vulkan_instance.command_pool:AllocateCommandBuffer()
 end
 
-do
-	local png = require("codecs.png")
-	local fs = require("fs")
-
-	function render.Screenshot(name)
-		local width, height = render.GetRenderImageSize():Unpack()
-		local image_data = render.target:GetTexture():Download()
-		local png = png.Encode(width, height, "rgba")
-		local pixel_table = {}
-
-		for i = 0, image_data.size - 1 do
-			pixel_table[i + 1] = image_data.pixels[i]
-		end
-
-		png:write(pixel_table)
-		local screenshot_dir = "./logs/screenshots"
-		fs.create_directory_recursive(screenshot_dir)
-		local screenshot_path = screenshot_dir .. "/" .. name .. ".png"
-		local file = assert(io.open(screenshot_path, "wb"))
-		file:write(png:getData())
-		file:close()
-		return screenshot_path
-	end
+function render.GetScreenTexture()
+	return render.target:GetTexture()
 end
 
 local formats = {

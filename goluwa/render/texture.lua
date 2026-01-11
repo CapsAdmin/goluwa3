@@ -953,7 +953,6 @@ do
 		local width = image:GetWidth()
 		local height = image:GetHeight()
 		local format = self.format
-		local current_layout = "transfer_src_optimal"
 		local bytes_per_pixel = get_bytes_per_pixel(format)
 		-- Create staging buffer
 		local device = render.GetDevice()
@@ -968,10 +967,30 @@ do
 		-- Create command buffer for copy
 		local copy_cmd = render.GetCommandPool():AllocateCommandBuffer()
 		copy_cmd:Begin()
+		local old_layout = image.layout or "undefined"
+
+		if old_layout ~= "transfer_src_optimal" then
+			copy_cmd:PipelineBarrier(
+				{
+					srcStage = "all_commands",
+					dstStage = "transfer",
+					imageBarriers = {
+						{
+							image = image,
+							oldLayout = old_layout,
+							newLayout = "transfer_src_optimal",
+							srcAccessMask = "memory_read",
+							dstAccessMask = "transfer_read",
+						},
+					},
+				}
+			)
+		end
+
 		vulkan.lib.vkCmdCopyImageToBuffer(
 			copy_cmd.ptr[0],
 			image.ptr[0],
-			vulkan.vk.e.VkImageLayout(current_layout),
+			vulkan.vk.e.VkImageLayout("transfer_src_optimal"),
 			staging_buffer.ptr[0],
 			1,
 			vulkan.vk.VkBufferImageCopy(
@@ -981,7 +1000,7 @@ do
 					bufferImageHeight = 0,
 					imageSubresource = vulkan.vk.s.ImageSubresourceLayers(
 						{
-							aspectMask = "color",
+							aspectMask = (image.format and image.format:match("^d")) and "depth" or "color",
 							mipLevel = 0,
 							baseArrayLayer = 0,
 							layerCount = 1,
@@ -992,6 +1011,25 @@ do
 				}
 			)
 		)
+
+		if old_layout ~= "transfer_src_optimal" then
+			copy_cmd:PipelineBarrier(
+				{
+					srcStage = "transfer",
+					dstStage = "all_commands",
+					imageBarriers = {
+						{
+							image = image,
+							oldLayout = "transfer_src_optimal",
+							newLayout = old_layout,
+							srcAccessMask = "transfer_read",
+							dstAccessMask = "memory_read",
+						},
+					},
+				}
+			)
+		end
+
 		copy_cmd:End()
 		-- Submit and wait
 		local fence = Fence.New(device)
@@ -1025,6 +1063,31 @@ do
 		local b = image_data.pixels[offset + 2]
 		local a = image_data.pixels[offset + 3]
 		return r, g, b, a
+	end
+end
+
+do
+	local png = require("codecs.png")
+	local fs = require("fs")
+
+	function Texture:DumpToDisk(name)
+		local width, height = self:GetWidth(), self:GetHeight()
+		local image_data = self:Download()
+		local png = png.Encode(width, height, "rgba")
+		local pixel_table = {}
+
+		for i = 0, image_data.size - 1 do
+			pixel_table[i + 1] = image_data.pixels[i]
+		end
+
+		png:write(pixel_table)
+		local screenshot_dir = "./logs/screenshots"
+		fs.create_directory_recursive(screenshot_dir)
+		local screenshot_path = screenshot_dir .. "/" .. name .. ".png"
+		local file = assert(io.open(screenshot_path, "wb"))
+		file:write(png:getData())
+		file:close()
+		return screenshot_path
 	end
 end
 

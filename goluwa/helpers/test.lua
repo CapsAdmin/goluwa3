@@ -75,6 +75,21 @@ local function traceback(msg, co_lines)
 
 	if not lines[1] then return msg end
 
+	local test_location
+
+	for i = #lines, 1, -1 do
+		local line = lines[i]
+		local path = line:match("(test/.-:%d+):")
+
+		if path then
+			test_location = path
+
+			break
+		end
+	end
+
+	if test_location then msg = test_location .. "\n\n" .. msg end
+
 	return msg .. sep .. table.concat(lines, sep)
 end
 
@@ -248,7 +263,16 @@ do
 							-- Error in test - format it nicely
 							test_info.failed = true
 							test_info.error = traceback(result, debug.traceback(co))
-							logn(colors.red("Test '" .. test_info.name .. "' failed:\n" .. test_info.error))
+							local test_location = test_info.error:match("^(test/.-:%d+)\n\n")
+
+							if test_location then
+								local err = test_info.error:sub(#test_location + 3)
+								err = err:gsub("\n  ", "\n")
+								err = err:indent(1)
+								logn(colors.red("Test '" .. test_info.name .. "' failed:\n" .. test_location .. "\n" .. err))
+							else
+								logn(colors.red("Test '" .. test_info.name .. "' failed:\n" .. test_info.error))
+							end
 						end
 					end
 
@@ -683,11 +707,20 @@ function test.RunUntil2(condition, timeout)
 end
 
 function test.ScreenPixel(x, y, r, g, b, a, tolerance)
-	tolerance = tolerance or 0.01
 	local render = require("render.render")
+	return test.TexturePixel(render.target:GetTexture(), x, y, r, g, b, a, tolerance)
+end
+
+function test.ScreenAlbedoPixel(x, y, r, g, b, a, tolerance)
+	local render3d = require("render3d.render3d")
+	return test.TexturePixel(render3d.pipelines.gbuffer:GetFramebuffer():GetAttachment(1), x, y, r, g, b, a, tolerance)
+end
+
+function test.TexturePixel(tex, x, y, r, g, b, a, tolerance)
+	tolerance = tolerance or 0.01
 
 	if type(r) == "function" then
-		local r_, g_, b_, a_ = render.target:GetTexture():GetPixel(x, y)
+		local r_, g_, b_, a_ = tex:GetPixel(x, y)
 		local r_norm, g_norm, b_norm, a_norm = r_ / 255, g_ / 255, b_ / 255, a_ / 255
 
 		if not r(r_norm, g_norm, b_norm, a_norm) then
@@ -707,7 +740,7 @@ function test.ScreenPixel(x, y, r, g, b, a, tolerance)
 		return
 	end
 
-	local r_, g_, b_, a_ = render.target:GetTexture():GetPixel(x, y)
+	local r_, g_, b_, a_ = tex:GetPixel(x, y)
 	local r_norm, g_norm, b_norm, a_norm = r_ / 255, g_ / 255, b_ / 255, a_ / 255
 
 	if
@@ -730,7 +763,8 @@ function test.ScreenPixel(x, y, r, g, b, a, tolerance)
 				b_norm,
 				a_norm,
 				tolerance
-			)
+			),
+			2
 		)
 	end
 end

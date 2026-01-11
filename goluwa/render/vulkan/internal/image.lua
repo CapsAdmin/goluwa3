@@ -55,6 +55,7 @@ function Image.New(config)
 			usage = config.usage,
 			mip_levels = mip_levels,
 			array_layers = config.array_layers or 1,
+			layout = config.initial_layout or "undefined",
 		}
 	)
 	local requirements = config.device:GetImageMemoryRequirements(self)

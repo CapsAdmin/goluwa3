@@ -87,9 +87,9 @@ function event.RemoveListener(event_type, id)
 end
 
 function event.Call(event_type, a_, b_, c_, d_, e_)
-	local a, b, c, d, e
-
 	if event.active[event_type] then
+		local a, b, c, d, e
+
 		for index = 1, #event.active[event_type] do
 			local data = event.active[event_type][index]
 

@@ -440,7 +440,7 @@ T.Test2D("Graphics render2d complex scene", function(width, height)
 	end
 
 	T(true)["=="](true)
-	render.Screenshot("render2d_complex_scene")
+	render.GetScreenTexture():DumpToDisk("render2d_complex_scene")
 end)
 
 T.Test2D("Graphics render2d blend modes visual", function(width, height)

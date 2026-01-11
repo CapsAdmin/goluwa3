@@ -21,6 +21,7 @@ local Vec2 = require("structs.vec2")
 local Matrix44 = require("structs.matrix44")
 local orientation = require("render3d.orientation")
 require("components.model")
+require("components.transform")
 local ecs = require("ecs")
 local width = 512
 local height = 512
@@ -51,7 +52,7 @@ local function test_color(pos_name, color_name, tolerance)
 	local color = colors[color_name]
 	assert(pos, "invalid position: " .. tostring(pos_name))
 	assert(color, "invalid color: " .. tostring(color_name))
-	T.ScreenPixel(pos.x, pos.y, color.r, color.g, color.b, 1, tolerance or 0.48)
+	T.ScreenAlbedoPixel(pos.x, pos.y, color.r, color.g, color.b, 1, tolerance or 0.48)
 end
 
 local function test_color_all(color)
@@ -66,8 +67,6 @@ local white_tex
 
 -- Create 6 quads for the inverted cube
 local function create_face(pos, normal, up, color)
-	if not white_tex then white_tex = Texture.FromColor(Color(1, 1, 1, 1)) end
-
 	local poly = Polygon3D.New()
 	local right = normal:GetCross(up)
 	local size = 10 -- Large enough to cover the view
@@ -91,8 +90,7 @@ local function create_face(pos, normal, up, color)
 	poly:Upload()
 	poly.material = Material.New(
 		{
-			AlbedoTexture = white_tex,
-			EmissiveMultiplier = Color(color.r, color.g, color.b, 100),
+			ColorMultiplier = Color(color.r, color.g, color.b, 1),
 			DoubleSided = true,
 		}
 	)
@@ -162,7 +160,6 @@ T.Test("camera tests", function()
 		cam:SetPosition(Vec3(0, 0, 0))
 		cam:SetRotation(Quat(0, 0, 0, 1))
 		render.Draw(1)
-		render.Screenshot("test")
 		test_color("center", "yellow") -- Should see Yellow (-Z)
 	end)
 
@@ -257,6 +254,7 @@ T.Test("camera tests", function()
 		cam:SetFOV(math.rad(120))
 		cam:SetPosition(Vec3(0, 0, 10))
 		render.Draw(1)
+		render3d.pipelines.gbuffer:GetFramebuffer():GetAttachment(1):DumpToDisk("test")
 		test_color("center", "white")
 	end)
 
@@ -360,10 +358,12 @@ T.Test("camera tests", function()
 			local z = math.cos(angle) * radius
 			cam:SetPosition(Vec3(x, 0, z))
 			cam:SetAngles(Deg3(0, angle, 0))
-			render.Draw(1)
+
+			for i = 1, 5 do
+				render.Draw(1)
+			end
+
 			test_color("center", "white") -- Should always see the white center cube
 		end
 	end)
-
-	ecs.ClearWorld()
 end)

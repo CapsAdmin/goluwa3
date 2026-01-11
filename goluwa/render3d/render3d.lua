@@ -55,6 +55,17 @@ do
 	local debug_modes = {"none", "normals", "irradiance", "ambient_occlusion", "ssr", "probe"}
 	render3d.debug_mode = render3d.debug_mode or 1
 
+	function render3d.SetDebugMode(mode_name)
+		for i, name in ipairs(debug_modes) do
+			if name == mode_name then
+				render3d.debug_mode = i
+				return true
+			end
+		end
+
+		return false
+	end
+
 	function render3d.GetDebugModes()
 		return debug_modes
 	end

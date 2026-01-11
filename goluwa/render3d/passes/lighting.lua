@@ -139,7 +139,7 @@ return {
 									for i = 1, cascade_count do
 										block[key].shadow_map_indices[i - 1] = self:GetTextureIndex(shadow_map:GetDepthTexture(i))
 										shadow_map:GetLightSpaceMatrix(i):CopyToFloatPointer(block[key].light_space_matrices[i - 1])
-										block[key].cascade_splits[i - 1] = shadow_map:GetCascadeSplits()[i]
+										block[key].cascade_splits[i - 1] = shadow_map:GetCascadeSplits()[i] or -1
 									end
 
 									block[key].cascade_count = cascade_count

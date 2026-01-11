@@ -120,7 +120,7 @@ local function sphere(lp, ly, config)
 		poly:Draw(cmd)
 	end)
 
-	render.Screenshot("test")
+	render.GetScreenTexture():DumpToDisk("test")
 end
 
 T.Pending("Graphics Polygon3D environment map reflection colors", function()
