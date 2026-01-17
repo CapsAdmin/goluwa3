@@ -355,8 +355,8 @@ function ImageRenderTarget:RequiresManualGamma()
 end
 
 function ImageRenderTarget:IsHDR()
-	if self.color_format:find("_sfloat$") then return true end
-
+	-- Only return true if the actual display/surface supports HDR
+	-- The internal color_format being sfloat doesn't mean the display is HDR
 	if self.surface_format then
 		local cs = self.surface_format.color_space
 
