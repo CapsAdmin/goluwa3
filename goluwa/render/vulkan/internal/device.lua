@@ -43,6 +43,10 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 		table.insert(finalExtensions, "VK_EXT_mesh_shader")
 	end
 
+	if table.has_value(available_extensions, "VK_EXT_conditional_rendering") then
+		table.insert(finalExtensions, "VK_EXT_conditional_rendering")
+	end
+
 	-- Query available features if extension is present
 	local pNextChain = nil
 	-- Maintenance4 features

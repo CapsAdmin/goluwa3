@@ -389,6 +389,8 @@ end
 function CommandBuffer:BeginConditionalRendering(buffer, offset, inverted)
 	if not buffer then return end
 
+	if not vulkan.ext.vkCmdBeginConditionalRenderingEXT then return end
+
 	local flags = inverted and
 		vulkan.vk.VkConditionalRenderingFlagBitsEXT.VK_CONDITIONAL_RENDERING_INVERTED_BIT_EXT or
 		0
@@ -401,6 +403,8 @@ function CommandBuffer:BeginConditionalRendering(buffer, offset, inverted)
 end
 
 function CommandBuffer:EndConditionalRendering()
+	if not vulkan.ext.vkCmdEndConditionalRenderingEXT then return end
+
 	vulkan.ext.vkCmdEndConditionalRenderingEXT(self.ptr[0])
 end
 

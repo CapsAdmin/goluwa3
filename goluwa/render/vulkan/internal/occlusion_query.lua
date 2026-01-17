@@ -115,8 +115,27 @@ end
 function OcclusionQuery:BeginConditional(cmd)
 	-- Get the extension function (cached on device)
 	if not self.device.vkCmdBeginConditionalRenderingEXT then
-		self.device.vkCmdBeginConditionalRenderingEXT = vulkan.vk.GetExtension(vulkan.lib, self.instance.ptr[0], "vkCmdBeginConditionalRenderingEXT")
-		self.device.vkCmdEndConditionalRenderingEXT = vulkan.vk.GetExtension(vulkan.lib, self.instance.ptr[0], "vkCmdEndConditionalRenderingEXT")
+		-- Try to get the extension, but return false if not available
+		local success, func = pcall(
+			vulkan.vk.GetExtension,
+			vulkan.lib,
+			self.instance.ptr[0],
+			"vkCmdBeginConditionalRenderingEXT"
+		)
+
+		if not success then return false end
+
+		self.device.vkCmdBeginConditionalRenderingEXT = func
+		local success2, func2 = pcall(
+			vulkan.vk.GetExtension,
+			vulkan.lib,
+			self.instance.ptr[0],
+			"vkCmdEndConditionalRenderingEXT"
+		)
+
+		if not success2 then return false end
+
+		self.device.vkCmdEndConditionalRenderingEXT = func2
 	end
 
 	local begin_info = vulkan.vk.s.ConditionalRenderingBeginInfoEXT({
@@ -130,6 +149,8 @@ end
 
 -- End conditional rendering block
 function OcclusionQuery:EndConditional(cmd)
+	if not self.device.vkCmdEndConditionalRenderingEXT then return end
+
 	self.device.vkCmdEndConditionalRenderingEXT(cmd.ptr[0])
 end
 
