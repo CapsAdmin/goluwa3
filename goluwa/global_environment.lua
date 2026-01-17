@@ -25,6 +25,7 @@ if not _G._OLD_G then
 end
 
 package.path = package.path .. ";" .. "goluwa/?.lua"
+package.path = package.path .. ";" .. "bin/LuaJIT/src/?.lua"
 require("helpers.jit_options").SetOptimized()
 
 do

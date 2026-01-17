@@ -5,3 +5,4 @@ flake.lock
 lsp_session_*
 local_stuff
 game/storage/*
+bin/

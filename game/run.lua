@@ -2,7 +2,9 @@ _G.PROFILE = false
 _G.GRAPHICS = true
 local vfs = require("vfs")
 vfs.MountStorageDirectories()
+
 local render = require("render.render")
+
 
 if not render.available then
 	logf("[game] Graphics not available - running in headless mode\n")
