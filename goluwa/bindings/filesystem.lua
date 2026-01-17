@@ -158,7 +158,7 @@ if jit.os ~= "Windows" then
 					uint16_t d_reclen;
 					uint16_t d_namlen;
 					uint8_t d_type;
-					char d_name[1024];
+					char d_name[256];
 					}
 				]])
 				ffi.cdef([[$ *readdir(void *dirp);]], dirent_struct)
@@ -170,7 +170,7 @@ if jit.os ~= "Windows" then
 						uint16_t d_reclen;
 						uint16_t d_namlen;
 						uint8_t d_type;
-						char d_name[1024];
+						char d_name[256];
 					}
 				]])
 				ffi.cdef([[$ *readdir(void *dirp) asm("readdir$INODE64");]], dirent_struct)
@@ -567,7 +567,7 @@ do
 			int fclose(FILE* stream);
 		]]
 	end
-	
+
 	ffi.cdef[[
 		
 		// Reading
@@ -716,6 +716,7 @@ do
 
 	function fs.fileno(file)
 		local fd
+
 		if jit.os == "Windows" then
 			fd = ffi.C._fileno(file)
 		else
@@ -811,10 +812,10 @@ do
 		fs.O_RDONLY = 0x0000
 		fs.O_WRONLY = 0x0001
 		fs.O_RDWR = 0x0002
-		fs.O_CREAT = 0x0040
-		fs.O_EXCL = 0x0080
-		fs.O_TRUNC = 0x0200
-		fs.O_APPEND = 0x0400
+		fs.O_CREAT = jit.os == "OSX" and 0x0200 or 0x0040
+		fs.O_EXCL = jit.os == "OSX" and 0x0800 or 0x0080
+		fs.O_TRUNC = jit.os == "OSX" and 0x0400 or 0x0200
+		fs.O_APPEND = jit.os == "OSX" and 0x0008 or 0x0400
 		fs.O_NONBLOCK = jit.os == "OSX" and 0x0004 or 0x0800
 		fs.O_SYNC = jit.os == "OSX" and 0x0080 or 0x1000
 		fs.O_CLOEXEC = jit.os == "OSX" and 0x1000000 or 0x80000
@@ -985,22 +986,21 @@ do
 				-- Check if data is available first (non-blocking behavior)
 				local handle = ffi.C._get_osfhandle(fd)
 				local avail = ffi.new("uint32_t[1]")
-				
 				-- PeekNamedPipe to check available bytes
 				local peek_result = ffi.C.PeekNamedPipe(handle, nil, 0, nil, avail, nil)
-				
+
 				if peek_result == 0 or avail[0] == 0 then
 					-- No data available or error
 					return "", 0
 				end
-				
+
 				-- Read available data (up to size)
 				local to_read = math.min(size, avail[0])
 				local buffer = ffi.new("uint8_t[?]", to_read)
 				local bytes_read = ffi.C._read(fd, buffer, to_read)
-				
+
 				if bytes_read == -1 then return nil, last_error() end
-				
+
 				return ffi.string(buffer, bytes_read), bytes_read
 			else
 				local buffer = ffi.new("uint8_t[?]", size)
@@ -1113,6 +1113,7 @@ do
 				-- by checking data availability before reading
 				return true
 			end
+
 			return fs.fd_set_nonblocking(self.fd, nonblock)
 		end
 
@@ -1120,7 +1121,7 @@ do
 			function meta:setmode(mode)
 				return fs.fd_setmode(self.fd, mode)
 			end
-			
+
 			-- Check if data is available to read without blocking
 			function meta:has_data()
 				-- Try to read 0 bytes to test availability
