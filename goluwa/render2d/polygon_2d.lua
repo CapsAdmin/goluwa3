@@ -97,6 +97,7 @@ function Polygon2D:SetVertex(i, x, y, u, v)
 	local vtx = self.vertex_buffer:GetVertices()
 	vtx[i].pos[0] = x
 	vtx[i].pos[1] = y
+	vtx[i].pos[2] = 0
 	vtx[i].color[0] = self.R
 	vtx[i].color[1] = self.G
 	vtx[i].color[2] = self.B
@@ -105,6 +106,9 @@ function Polygon2D:SetVertex(i, x, y, u, v)
 	if u and v then
 		vtx[i].uv[0] = u
 		vtx[i].uv[1] = v
+	else
+		vtx[i].uv[0] = 0
+		vtx[i].uv[1] = 0
 	end
 
 	self.dirty = true
