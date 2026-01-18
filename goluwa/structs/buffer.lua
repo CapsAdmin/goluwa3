@@ -267,6 +267,8 @@ do -- basic data types
 
 	META.ReadU8 = META.ReadByte
 	META.WriteU8 = META.WriteByte
+	META.ReadI8 = META.ReadByte
+	META.WriteI8 = META.WriteByte
 
 	-- Add explicit endianness variants for multi-byte types
 	-- Note: We provide both LE and BE methods regardless of native endianness

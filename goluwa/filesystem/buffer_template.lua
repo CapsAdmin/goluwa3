@@ -1301,4 +1301,6 @@ return function(META)
 
 	META.ReadU8 = META.ReadByte
 	META.WriteU8 = META.WriteByte
+	META.ReadI8 = META.ReadByte
+	META.WriteI8 = META.WriteByte
 end
