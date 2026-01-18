@@ -202,6 +202,29 @@ function render.GetVulkanFormatSize(format)
 	return formats[format]
 end
 
+function render.CreateBlankTexture(size, format, filtering)
+	local Texture = require("render.texture")
+	return Texture.New(
+		{
+			width = size.x,
+			height = size.y,
+			format = format or "r8g8b8a8_unorm",
+			sampler = {
+				min_filter = filtering or "linear",
+				mag_filter = filtering or "linear",
+			},
+		}
+	)
+end
+
+function render.GetWidth()
+	return render.target:GetWidth()
+end
+
+function render.GetHeight()
+	return render.target:GetHeight()
+end
+
 function render.TriggerValidationError()
 	local vulkan = require("render.vulkan.internal.vulkan")
 	local create_info = vulkan.vk.VkBufferCreateInfo(

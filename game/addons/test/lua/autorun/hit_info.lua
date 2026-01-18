@@ -4,6 +4,7 @@ local render2d = require("render2d.render2d")
 local render3d = require("render3d.render3d")
 local tostring_object = require("helpers.tostring_object").tostring_object
 local gfx = require("render2d.gfx")
+local fonts = require("render2d.fonts")
 local enable = false
 local cached_material = nil
 local cached_lines = {}
@@ -64,7 +65,7 @@ event.AddListener("Draw2D", "raycast", function(cmd, dt)
 				render2d.DrawRect(x + indent_offset - padding, y - padding, 400, line_height + padding)
 				-- Draw text
 				render2d.SetColor(1, 1, 1, 1)
-				gfx.DrawText(line.text, x + indent_offset, y)
+				fonts.DrawText(line.text, x + indent_offset, y)
 				y = y + line_height
 
 				-- Draw texture preview if this is a texture

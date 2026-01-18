@@ -1,3 +1,5 @@
+local prototype = require("prototype")
+local Vec2 = require("structs.vec2")
 local math2d = library()
 
 function math2d.IsCoordinatesConvex(points)
@@ -29,123 +31,190 @@ function math2d.IsCoordinatesConvex(points)
 	return true
 end
 
-do
-	local function is_oriented_ccw(a, b, c)
-		return ((b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)) >= 0
-	end
+function math2d.GetPolygonArea(points)
+	local area = 0
 
-	local function on_same_side(a, b, c, d)
-		local px = d.x - c.x
-		local py = d.y - c.y
-		local l = px * (a.y - c.y) - py * (a.x - c.x)
-		local m = px * (b.y - c.y) - py * (b.x - c.x)
-		return l * m >= 0
-	end
+	for i = 1, #points, 2 do
+		local x1, y1 = points[i], points[i + 1]
+		local nx, ny
 
-	local function point_in_triangle(p, a, b, c)
-		return on_same_side(p, a, b, c) and
-			on_same_side(p, b, a, c) and
-			on_same_side(p, c, a, b)
-	end
-
-	local function any_point_in_triangle(vertices, a, b, c)
-		for i, p in ipairs(vertices) do
-			if p ~= a and p ~= b and p ~= c and point_in_triangle(p, a, b, c) then
-				return true
-			end
+		if i + 2 > #points then
+			nx, ny = points[1], points[2]
+		else
+			nx, ny = points[i + 2], points[i + 3]
 		end
 
-		return false
+		area = area + (x1 * ny - nx * y1)
 	end
 
-	local function is_ear(a, b, c, vertices)
-		return is_oriented_ccw(a, b, c) and not any_point_in_triangle(vertices, a, b, c)
+	return area / 2
+end
+
+function math2d.IsPolygonCCW(points)
+	return math2d.GetPolygonArea(points) > 0
+end
+
+function math2d.ReversePolygon(points)
+	local reversed = {}
+
+	for i = #points - 1, 1, -2 do
+		table.insert(reversed, points[i])
+		table.insert(reversed, points[i + 1])
+	end
+
+	return reversed
+end
+
+do
+	local function point_in_triangle(p, a, b, c)
+		local function cross(p1, p2, p3)
+			return (p2.x - p1.x) * (p3.y - p1.y) - (p2.y - p1.y) * (p3.x - p1.x)
+		end
+
+		local d1 = cross(a, b, p)
+		local d2 = cross(b, c, p)
+		local d3 = cross(c, a, p)
+		return d1 >= -1e-12 and d2 >= -1e-12 and d3 >= -1e-12
 	end
 
 	function math2d.TriangulateCoordinates(points)
-		local polygons = {}
+		local vertices = {}
 
 		for i = 1, #points, 2 do
-			list.insert(polygons, Vec2(points[i + 0], points[i + 1]))
+			local x, y = points[i], points[i + 1]
+			local last = vertices[#vertices]
+
+			if not last or (math.abs(last.x - x) > 1e-12 or math.abs(last.y - y) > 1e-12) then
+				table.insert(vertices, {x = x, y = y})
+			end
 		end
-
-		if #polygons < 3 then
-			return error("Not a polygon", 2)
-		elseif #polygons == 3 then
-			return points
-		end
-
-		local next_idx = {}
-		local prev_idx = {}
-		local idx_lm = 0
-
-		for i = 0, #polygons - 1 do
-			local p = polygons[i + 1]
-			local lm = polygons[idx_lm + 1]
-
-			if p.x < lm.x or (p.x == lm.x and p.y < lm.y) then idx_lm = i end
-
-			next_idx[i] = i + 1
-			prev_idx[i] = i - 1
-		end
-
-		next_idx[table.count(next_idx) - 1] = 0
-		prev_idx[0] = table.count(prev_idx) - 1
 
 		if
-			not is_oriented_ccw(polygons[prev_idx[idx_lm] + 1], polygons[idx_lm + 1], polygons[next_idx[idx_lm] + 1])
+			#vertices > 1 and
+			math.abs(vertices[1].x - vertices[#vertices].x) < 1e-12 and
+			math.abs(vertices[1].y - vertices[#vertices].y) < 1e-12
 		then
-			local temp = next_idx
-			next_idx = prev_idx
-			prev_idx = temp
+			table.remove(vertices)
 		end
 
-		local concave = {}
+		if #vertices < 3 then return {} end
 
-		for i = 0, #polygons - 1 do
-			if
-				not is_oriented_ccw(polygons[prev_idx[i] + 1], polygons[i + 1], polygons[next_idx[i] + 1])
-			then
-				list.insert(concave, polygons[i + 1])
+		local area = 0
+
+		for i = 1, #vertices do
+			local p1 = vertices[i]
+			local p2 = vertices[i % #vertices + 1]
+			area = area + (p1.x * p2.y - p2.x * p1.y)
+		end
+
+		if area < 0 then
+			local rev = {}
+
+			for i = #vertices, 1, -1 do
+				table.insert(rev, vertices[i])
 			end
+
+			vertices = rev
 		end
 
 		local triangles = {}
-		local n_vertices = #polygons
-		local current = 1
-		local skipped = 0
-		local next = 0
-		local prev = 0
+		local indices = {}
 
-		while n_vertices > 3 do
-			next = next_idx[current]
-			prev = prev_idx[current]
-			local a = polygons[prev + 1]
-			local b = polygons[current + 1]
-			local c = polygons[next + 1]
-
-			if is_ear(a, b, c, concave) then
-				list.insert(triangles, {a.x, a.y, b.x, b.y, c.x, c.y})
-				next_idx[prev] = next
-				prev_idx[next] = prev
-				list.remove_value(concave, b)
-				n_vertices = n_vertices - 1
-				skipped = 0
-			else
-				skipped = skipped + 1
-
-				if skipped > n_vertices then error("Cannot triangulate polygon.", 2) end
-			end
-
-			current = next
+		for i = 1, #vertices do
+			indices[i] = i
 		end
 
-		next = next_idx[current]
-		prev = prev_idx[current]
-		local a = polygons[prev + 1]
-		local b = polygons[current + 1]
-		local c = polygons[next + 1]
-		list.insert(triangles, {a.x, a.y, b.x, b.y, c.x, c.y})
+		local function is_ear(u, v, w)
+			local a, b, c = vertices[indices[u]], vertices[indices[v]], vertices[indices[w]]
+			local a2 = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)
+
+			if a2 <= 1e-12 then return false end
+
+			for i = 1, #indices do
+				if i ~= u and i ~= v and i ~= w then
+					local p = vertices[indices[i]]
+
+					if
+						(
+							math.abs(p.x - a.x) > 1e-12 or
+							math.abs(p.y - a.y) > 1e-12
+						)
+						and
+						(
+							math.abs(p.x - b.x) > 1e-12 or
+							math.abs(p.y - b.y) > 1e-12
+						)
+						and
+						(
+							math.abs(p.x - c.x) > 1e-12 or
+							math.abs(p.y - c.y) > 1e-12
+						)
+					then
+						if point_in_triangle(p, a, b, c) then return false end
+					end
+				end
+			end
+
+			return true
+		end
+
+		local current = 1
+		local skipped = 0
+
+		while #indices > 3 do
+			local pi = (current - 2) % #indices + 1
+			local ni = current % #indices + 1
+
+			if is_ear(pi, current, ni) then
+				local a, b, c = vertices[indices[pi]], vertices[indices[current]], vertices[indices[ni]]
+				table.insert(triangles, {a.x, a.y, b.x, b.y, c.x, c.y})
+				table.remove(indices, current)
+
+				if current > #indices then current = 1 end
+
+				skipped = 0
+			else
+				current = ni
+				skipped = skipped + 1
+
+				if skipped > #indices then
+					local best_i = -1
+					local best_a2 = -1
+
+					for i = 1, #indices do
+						local p_i = (i - 2) % #indices + 1
+						local n_i = i % #indices + 1
+						local a, b, c = vertices[indices[p_i]], vertices[indices[i]], vertices[indices[n_i]]
+						local a2 = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)
+
+						if a2 > best_a2 then
+							best_a2 = a2
+							best_i = i
+						end
+					end
+
+					if best_i ~= -1 then
+						local i = best_i
+						local p_i = (i - 2) % #indices + 1
+						local n_i = i % #indices + 1
+						local a, b, c = vertices[indices[p_i]], vertices[indices[i]], vertices[indices[n_i]]
+						table.insert(triangles, {a.x, a.y, b.x, b.y, c.x, c.y})
+						table.remove(indices, i)
+						skipped = 0
+
+						if current > #indices then current = 1 end
+					else
+						break
+					end
+				end
+			end
+		end
+
+		if #indices == 3 then
+			local a, b, c = vertices[indices[1]], vertices[indices[2]], vertices[indices[3]]
+			table.insert(triangles, {a.x, a.y, b.x, b.y, c.x, c.y})
+		end
+
 		return triangles
 	end
 end

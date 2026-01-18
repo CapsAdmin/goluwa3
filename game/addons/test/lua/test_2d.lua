@@ -6,6 +6,7 @@ local event = require("event")
 local render = require("render.render")
 local Texture = require("render.texture")
 local gfx = require("render2d.gfx")
+local fonts = require("render2d.fonts")
 local system = require("system")
 local render2d = require("render2d.render2d")
 
@@ -180,7 +181,7 @@ end
 
 if false then
 	function events.Draw2D.test(dt)
-		gfx.DrawText("Hello world", 20, 400)
+		fonts.DrawText("Hello world", 20, 400)
 		gfx.DrawRoundedRect(100, 100, 200, 200, 50)
 		gfx.DrawCircle(400, 300, 50, 5, 6)
 		gfx.DrawFilledCircle(400, 500, 50)

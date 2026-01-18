@@ -7,8 +7,11 @@ local gfx = require("render2d.gfx")
 local render3d = require("render3d.render3d")
 local Model = require("components.model")
 local window = require("window")
+local fonts = require("render2d.fonts")
 -- Debug: Show debug info
 local show_debug_info = false
+local font = fonts.LoadFont("/home/caps/Downloads/Roboto/static/Roboto-Regular.ttf", 20)
+fonts.SetFont(font)
 
 -- Debug: Freeze frustum for culling
 function events.Draw2D.debug_info(dt)
@@ -22,9 +25,9 @@ function events.Draw2D.debug_info(dt)
 	local pos = cam:GetPosition()
 	local rot = cam:GetRotation()
 	render2d.SetColor(1, 1, 1, 1)
-	gfx.DrawText(string.format("Camera Pos: X=%.1f  Y=%.1f  Z=%.1f", pos.x, pos.y, pos.z), x, y)
+	fonts.DrawText(string.format("Camera Pos: X=%.1f  Y=%.1f  Z=%.1f", pos.x, pos.y, pos.z), x, y)
 	y = y + 20
-	gfx.DrawText(
+	fonts.DrawText(
 		string.format("Camera Rot: X=%.1f  Y=%.1f  Z=%.1f W=%.1f", rot.x, rot.y, rot.z, rot.w),
 		x,
 		y
@@ -36,16 +39,16 @@ function events.Draw2D.debug_info(dt)
 	local frustum_status = Model.noculling and "DISABLED" or "ENABLED"
 	local frustum_color = Model.noculling and {1.0, 0.2, 0.2} or {0.2, 1.0, 0.2}
 	render2d.SetColor(frustum_color[1], frustum_color[2], frustum_color[3], 1)
-	gfx.DrawText(string.format("Frustum Culling: %s", frustum_status), x, y)
+	fonts.DrawText(string.format("Frustum Culling: %s", frustum_status), x, y)
 	y = y + 20
 
 	-- Freeze culling status
 	if Model.freeze_culling then
 		render2d.SetColor(1, 1, 0, 1)
-		gfx.DrawText("CULLING FROZEN (Press F to unfreeze)", x, y)
+		fonts.DrawText("CULLING FROZEN (Press F to unfreeze)", x, y)
 		y = y + 20
 		render2d.SetColor(0.8, 0.8, 0.5, 1)
-		gfx.DrawText("  (Occlusion queries not updating)", x, y)
+		fonts.DrawText("  (Occlusion queries not updating)", x, y)
 		y = y + 20
 	end
 
@@ -54,7 +57,7 @@ function events.Draw2D.debug_info(dt)
 	-- Occlusion culling info
 	local stats = Model.GetOcclusionStats()
 	render2d.SetColor(1, 1, 1, 1)
-	gfx.DrawText(
+	fonts.DrawText(
 		string.format("Models: %d total, %d with occlusion", stats.total, stats.with_occlusion),
 		x,
 		y
@@ -63,7 +66,7 @@ function events.Draw2D.debug_info(dt)
 	-- Frustum culling results
 	local visible_after_frustum = stats.total - stats.frustum_culled
 	render2d.SetColor(0.7, 0.7, 0.7, 1)
-	gfx.DrawText(
+	fonts.DrawText(
 		string.format("  Frustum culled: %d (%d visible)", stats.frustum_culled, visible_after_frustum),
 		x,
 		y
@@ -76,14 +79,14 @@ function events.Draw2D.debug_info(dt)
 
 	if stats.occlusion_enabled then
 		render2d.SetColor(0.7, 0.7, 0.7, 1)
-		gfx.DrawText(
+		fonts.DrawText(
 			string.format("  Conditional rendering: %d models", stats.submitted_with_conditional),
 			x,
 			y
 		)
 		y = y + 20
 		render2d.SetColor(1, 1, 0.5, 1)
-		gfx.DrawText("  (GPU decides actual visibility)", x, y)
+		fonts.DrawText("  (GPU decides actual visibility)", x, y)
 		y = y + 20
 	end
 end
@@ -140,7 +143,7 @@ function events.Draw2D.debug_shadow_map(cmd, dt)
 			local color = cascade_colors[i] or {1, 1, 0, 1}
 			render2d.SetColor(color[1], color[2], color[3], 1)
 			local split_dist = cascade_splits[i] and string.format("%.1f", cascade_splits[i]) or "?"
-			gfx.DrawText("Cascade " .. i .. " (z<" .. split_dist .. ")", x, y + size + 5)
+			fonts.DrawText("Cascade " .. i .. " (z<" .. split_dist .. ")", x, y + size + 5)
 		end
 	end
 end
@@ -166,7 +169,7 @@ function events.Draw2D.debug_ssr_buffer(cmd, dt)
 	render2d.DrawRect(x, y, size, size)
 	render2d.SetTexture(nil)
 	render2d.SetColor(1, 1, 1, 1)
-	gfx.DrawText("SSR Buffer (Half-Res)", x, y + size + 5)
+	fonts.DrawText("SSR Buffer (Half-Res)", x, y + size + 5)
 end
 
 function events.KeyInput.render3d_debug(key, press)

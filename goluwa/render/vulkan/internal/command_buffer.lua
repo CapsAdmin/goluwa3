@@ -643,7 +643,7 @@ function CommandBuffer:PipelineBarrier(config)
 	)
 end
 
-function CommandBuffer:CopyImageToImage(srcImage, dstImage, width, height)
+function CommandBuffer:CopyImageToImage(srcImage, dstImage, width, height, srcX, srcY, dstX, dstY)
 	local region = vulkan.vk.VkImageCopy(
 		{
 			srcSubresource = vulkan.vk.s.ImageSubresourceLayers(
@@ -654,7 +654,7 @@ function CommandBuffer:CopyImageToImage(srcImage, dstImage, width, height)
 					layerCount = 1,
 				}
 			),
-			srcOffset = vulkan.vk.VkOffset3D({x = 0, y = 0, z = 0}),
+			srcOffset = vulkan.vk.VkOffset3D({x = srcX or 0, y = srcY or 0, z = 0}),
 			dstSubresource = vulkan.vk.s.ImageSubresourceLayers(
 				{
 					aspectMask = "color",
@@ -663,22 +663,22 @@ function CommandBuffer:CopyImageToImage(srcImage, dstImage, width, height)
 					layerCount = 1,
 				}
 			),
-			dstOffset = vulkan.vk.VkOffset3D({x = 0, y = 0, z = 0}),
+			dstOffset = vulkan.vk.VkOffset3D({x = dstX or 0, y = dstY or 0, z = 0}),
 			extent = vulkan.vk.VkExtent3D({width = width, height = height, depth = 1}),
 		}
 	)
 	vulkan.lib.vkCmdCopyImage(
 		self.ptr[0],
-		srcImage,
+		srcImage.ptr ~= nil and srcImage.ptr[0] or srcImage,
 		vulkan.vk.e.VkImageLayout("transfer_src_optimal"),
-		dstImage,
+		dstImage.ptr ~= nil and dstImage.ptr[0] or dstImage,
 		vulkan.vk.e.VkImageLayout("transfer_dst_optimal"),
 		1,
 		region
 	)
 end
 
-function CommandBuffer:CopyBufferToImage(buffer, image, width, height)
+function CommandBuffer:CopyBufferToImage(buffer, image, width, height, x, y, z)
 	vulkan.lib.vkCmdCopyBufferToImage(
 		self.ptr[0],
 		buffer.ptr[0],
@@ -698,7 +698,7 @@ function CommandBuffer:CopyBufferToImage(buffer, image, width, height)
 						layerCount = 1,
 					}
 				),
-				imageOffset = vulkan.vk.VkOffset3D({x = 0, y = 0, z = 0}),
+				imageOffset = vulkan.vk.VkOffset3D({x = x or 0, y = y or 0, z = z or 0}),
 				imageExtent = vulkan.vk.VkExtent3D({width = width, height = height, depth = 1}),
 			}
 		)

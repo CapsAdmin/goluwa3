@@ -334,13 +334,96 @@ function Texture.FromColor(color, config)
 	return tex
 end
 
+function Texture:CopyFrom(other, width, height, srcX, srcY, dstX, dstY)
+	local cmd_pool = render.GetCommandPool()
+	local cmd = cmd_pool:AllocateCommandBuffer()
+	cmd:Begin()
+	-- Transition src to transfer_src
+	cmd:PipelineBarrier(
+		{
+			srcStage = "all_commands",
+			dstStage = "transfer",
+			imageBarriers = {
+				{
+					image = other:GetImage(),
+					oldLayout = other:GetImage().layout or "shader_read_only_optimal",
+					newLayout = "transfer_src_optimal",
+					srcAccessMask = "memory_read",
+					dstAccessMask = "transfer_read",
+				},
+			},
+		}
+	)
+	-- Transition dst to transfer_dst
+	cmd:PipelineBarrier(
+		{
+			srcStage = "all_commands",
+			dstStage = "transfer",
+			imageBarriers = {
+				{
+					image = self:GetImage(),
+					oldLayout = self:GetImage().layout or "shader_read_only_optimal",
+					newLayout = "transfer_dst_optimal",
+					srcAccessMask = "none",
+					dstAccessMask = "transfer_write",
+				},
+			},
+		}
+	)
+	cmd:CopyImageToImage(other:GetImage(), self:GetImage(), width, height, srcX, srcY, dstX, dstY)
+	-- Transition back
+	cmd:PipelineBarrier(
+		{
+			srcStage = "transfer",
+			dstStage = "all_commands",
+			imageBarriers = {
+				{
+					image = other:GetImage(),
+					oldLayout = "transfer_src_optimal",
+					newLayout = other:GetImage().layout or "shader_read_only_optimal",
+					srcAccessMask = "transfer_read",
+					dstAccessMask = "memory_read",
+				},
+				{
+					image = self:GetImage(),
+					oldLayout = "transfer_dst_optimal",
+					newLayout = "shader_read_only_optimal",
+					srcAccessMask = "transfer_write",
+					dstAccessMask = "memory_read",
+				},
+			},
+		}
+	)
+	cmd:End()
+	local device = render.GetDevice()
+	local queue = render.GetQueue()
+	local fence = Fence.New(device)
+	queue:SubmitAndWait(device, cmd, fence)
+end
+
 function Texture:Upload(data, keep_in_transfer_dst)
 	if not self.image then error("Cannot upload: texture has no image") end
 
 	local device = render.GetDevice()
 	local queue = render.GetQueue()
-	local width = self.image:GetWidth()
-	local height = self.image:GetHeight()
+	local width, height, x, y, buffer
+
+	if type(data) == "table" then
+		width = data.width
+		height = data.height
+		x = data.x
+		y = data.y
+		buffer = data.buffer
+	else
+		width = self.image:GetWidth()
+		height = self.image:GetHeight()
+		x = 0
+		y = 0
+		buffer = data
+	end
+
+	if type(buffer) == "table" and buffer.pixels then buffer = buffer.pixels end
+
 	local pixel_count = width * height
 	local bytes_per_pixel = get_bytes_per_pixel(self.format)
 	-- Create staging buffer
@@ -352,7 +435,7 @@ function Texture:Upload(data, keep_in_transfer_dst)
 			properties = {"host_visible", "host_coherent"},
 		}
 	)
-	staging_buffer:CopyData(data, pixel_count * bytes_per_pixel)
+	staging_buffer:CopyData(buffer, pixel_count * bytes_per_pixel)
 	-- Copy to image using command buffer
 	local cmd_pool = render.GetCommandPool()
 	local cmd = cmd_pool:AllocateCommandBuffer()
@@ -376,7 +459,7 @@ function Texture:Upload(data, keep_in_transfer_dst)
 		}
 	)
 	-- Copy buffer to image
-	cmd:CopyBufferToImage(staging_buffer, self.image, width, height)
+	cmd:CopyBufferToImage(staging_buffer, self.image, width, height, x, y)
 
 	-- Only transition to final layout if not keeping in transfer_dst for mipmap generation
 	if not keep_in_transfer_dst then

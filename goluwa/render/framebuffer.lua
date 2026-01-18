@@ -71,8 +71,9 @@ function Framebuffer.New(config)
 	return self
 end
 
-function Framebuffer:Begin(cmd)
+function Framebuffer:Begin(cmd, load_op)
 	cmd = cmd or self.cmd
+	load_op = load_op or "clear"
 
 	if cmd == self.cmd then
 		self.cmd:Reset()
@@ -89,7 +90,7 @@ function Framebuffer:Begin(cmd)
 				image = tex:GetImage(),
 				srcAccessMask = "none",
 				dstAccessMask = "color_attachment_write",
-				oldLayout = "undefined",
+				oldLayout = self.initialized and "shader_read_only_optimal" or "undefined",
 				newLayout = "color_attachment_optimal",
 			}
 		)
@@ -102,7 +103,7 @@ function Framebuffer:Begin(cmd)
 				image = self.depth_texture:GetImage(),
 				srcAccessMask = "none",
 				dstAccessMask = "depth_stencil_attachment_write",
-				oldLayout = "undefined",
+				oldLayout = self.initialized and "shader_read_only_optimal" or "undefined",
 				newLayout = "depth_attachment_optimal",
 				aspect = "depth",
 			}
@@ -125,7 +126,7 @@ function Framebuffer:Begin(cmd)
 			{
 				color_image_view = tex:GetView(),
 				clear_color = self.clear_colors[i],
-				load_op = "clear",
+				load_op = load_op,
 				store_op = "store",
 			}
 		)
@@ -189,6 +190,7 @@ function Framebuffer:End(cmd)
 			imageBarriers = imageBarriers,
 		}
 	)
+	self.initialized = true
 
 	if cmd == self.cmd then
 		self.cmd:End()

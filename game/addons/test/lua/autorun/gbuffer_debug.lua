@@ -6,6 +6,7 @@ local render3d = require("render3d.render3d")
 local window = require("render.window")
 local Texture = require("render.texture")
 local ffi = require("ffi")
+local fonts = require("render2d.fonts")
 local show_gbuffer = false
 local fullscreen_index = 0
 local checkerboard_texture
@@ -95,7 +96,7 @@ event.AddListener("Draw2D", "debug_gbuffer", function(cmd, dt)
 			render2d.SetColor(0, 0, 0, 0.5)
 			render2d.DrawRect(5, 5, 200, 30)
 			render2d.SetColor(1, 1, 1, 1)
-			gfx.DrawText("Fullscreen: " .. name, 10, 10)
+			fonts.DrawText("Fullscreen: " .. name, 10, 10)
 		end
 
 		return
@@ -129,7 +130,7 @@ event.AddListener("Draw2D", "debug_gbuffer", function(cmd, dt)
 		render2d.SetColor(0, 0, 0, 0.5)
 		render2d.DrawRect(x, y, 150, 20)
 		render2d.SetColor(1, 1, 1, 1)
-		gfx.DrawText(view.name, x + 5, y + 5)
+		fonts.DrawText(view.name, x + 5, y + 5)
 		x = x + size
 
 		if x + size > wnd_size.x then
@@ -156,7 +157,7 @@ event.AddListener("Draw2D", "debug_gbuffer", function(cmd, dt)
 		render2d.SetColor(0, 0, 0, 0.5)
 		render2d.DrawRect(x, y, 100, 20)
 		render2d.SetColor(1, 1, 1, 1)
-		gfx.DrawText("Depth", x + 5, y + 5)
+		fonts.DrawText("Depth", x + 5, y + 5)
 	end
 end)
 

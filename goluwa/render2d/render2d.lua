@@ -261,7 +261,7 @@ do
 			discard = false,
 			polygon_mode = "fill",
 			line_width = 1.0,
-			cull_mode = "front",
+			cull_mode = "none",
 			front_face = "counter_clockwise",
 			depth_bias = 0,
 		},
