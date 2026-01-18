@@ -11,7 +11,13 @@ local math2d = require("render2d.math2d")
 local prototype = require("prototype")
 local META = prototype.CreateTemplate("font", "ttf")
 META:GetSet("Path", nil)
-META:GetSet("Size", 16)
+META:GetSet("Size", 16, {callback = "UpdateScale"})
+
+function META:UpdateScale()
+	if self.font then self.scale = self.Size / self.font.units_per_em end
+
+	self.glyphs = {}
+end
 
 function META.New(path)
 	assert(path)
@@ -22,7 +28,7 @@ end
 
 function META:SetPath(path)
 	self.font = assert(codec.DecodeFile(path, "ttf"))
-	self.scale = self.Size / self.font.units_per_em
+	self:UpdateScale()
 	self.glyphs = {}
 	return self
 end
@@ -672,6 +678,14 @@ function META:ResolveGlyphData(glyph_data)
 	return glyph_data
 end
 
+function META:GetAscent()
+	return self.font.ascent * self.scale
+end
+
+function META:GetDescent()
+	return self.font.descent * self.scale
+end
+
 function META:GetGlyph(char_code)
 	if self.glyphs[char_code] then return self.glyphs[char_code] end
 
@@ -686,6 +700,12 @@ function META:GetGlyph(char_code)
 		lsb = metrics.lsb * self.scale,
 		w = 0,
 		h = 0,
+		x_min = 0,
+		x_max = 0,
+		y_min = 0,
+		y_max = 0,
+		bearing_x = 0,
+		bearing_y = 0,
 		bitmap_left = 0,
 		bitmap_top = 0,
 		buffer = nil,
@@ -694,10 +714,16 @@ function META:GetGlyph(char_code)
 	}
 
 	if glyph_data then
-		g.w = math.ceil((glyph_data.x_max - glyph_data.x_min) * self.scale) + 2
-		g.h = math.ceil((glyph_data.y_max - glyph_data.y_min) * self.scale) + 2
-		g.bitmap_left = glyph_data.x_min * self.scale
-		g.bitmap_top = (self.font.ascent - glyph_data.y_max) * self.scale
+		g.x_min = glyph_data.x_min * self.scale
+		g.x_max = glyph_data.x_max * self.scale
+		g.y_min = glyph_data.y_min * self.scale
+		g.y_max = glyph_data.y_max * self.scale
+		g.w = math.ceil(g.x_max - g.x_min) + 2
+		g.h = math.ceil(g.y_max - g.y_min) + 2
+		g.bearing_x = g.x_min
+		g.bearing_y = g.y_max
+		g.bitmap_left = g.x_min
+		g.bitmap_top = (self.font.ascent * self.scale - g.y_max)
 	end
 
 	self.glyphs[char_code] = g

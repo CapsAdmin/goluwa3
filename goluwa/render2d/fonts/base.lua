@@ -202,9 +202,7 @@ function META:SetPath(path)
 	)
 end
 
-function META:GetGlyph(str)
-	local char = str:byte(1)
-
+function META:GetGlyph(char)
 	if char >= 127 then return end
 
 	local char_col = char % 16

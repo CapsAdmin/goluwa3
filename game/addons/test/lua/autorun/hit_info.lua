@@ -65,7 +65,7 @@ event.AddListener("Draw2D", "raycast", function(cmd, dt)
 				render2d.DrawRect(x + indent_offset - padding, y - padding, 400, line_height + padding)
 				-- Draw text
 				render2d.SetColor(1, 1, 1, 1)
-				fonts.DrawText(line.text, x + indent_offset, y)
+				fonts.GetFont():DrawText(line.text, x + indent_offset, y)
 				y = y + line_height
 
 				-- Draw texture preview if this is a texture

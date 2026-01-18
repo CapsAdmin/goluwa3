@@ -42,7 +42,15 @@ function META.New(fonts)
 end
 
 function META:CreateTextureAtlas()
-	self.texture_atlas = TextureAtlas.New(512, 512, self.Filtering, render.target:GetColorFormat())
+	local atlas_size = 512
+
+	if self.Size > 32 then atlas_size = 1024 end
+
+	if self.Size > 64 then atlas_size = 2048 end
+
+	if self.Size > 128 then atlas_size = 4096 end
+
+	self.texture_atlas = TextureAtlas.New(atlas_size, atlas_size, self.Filtering, render.target:GetColorFormat())
 	self.texture_atlas:SetPadding(self.Padding)
 
 	for code in pairs(self.chars) do
@@ -81,15 +89,23 @@ function META:Shade(source, vars, blend_mode)
 	end
 end
 
+function META:GetAscent()
+	return self.Fonts[1]:GetAscent()
+end
+
+function META:GetDescent()
+	return self.Fonts[1]:GetDescent()
+end
+
 function META:Rebuild()
 	if self.ShadingInfo then self:Shade() else self.texture_atlas:Build() end
 end
 
 function META:LoadGlyph(code)
-	if self.chars[code] ~= nil then return end
-
 	-- Convert string to character code if needed
 	if type(code) == "string" then code = utf8.uint32(code) end
+
+	if self.chars[code] ~= nil then return end
 
 	local glyph
 	local glyph_source_font
@@ -222,7 +238,7 @@ function META:GetChar(char)
 	return data
 end
 
-function META:GetTextSize(str)
+function META:GetTextSizeNotCached(str)
 	if not self.Ready then return 0, 0 end
 
 	str = tostring(str)
@@ -329,6 +345,174 @@ function META:DrawString(str, x, y, spacing)
 			end
 		elseif char == " " then
 			X = X + self.Size / 2
+		end
+	end
+end
+
+do
+	-- Drawing functions
+	function META:DrawText(str, x, y, spacing, align_x, align_y)
+		if align_x or align_y then
+			local w, h = self:GetTextSize(str)
+			x = x - (w * (align_x or 0))
+			y = y - (h * (align_y or 0))
+		end
+
+		self:DrawString(str, x, y, spacing)
+	end
+
+	do
+		local cache = {} or table.weak()
+
+		function META:GetTextSize(str)
+			str = str or "|"
+
+			if cache[self] and cache[self][str] then
+				return cache[self][str][1], cache[self][str][2]
+			end
+
+			local x, y = self:GetTextSizeNotCached(str)
+			cache[self] = cache[self] or table.weak()
+			cache[self][str] = cache[self][str] or table.weak()
+			cache[self][str][1] = x
+			cache[self][str][2] = y
+			return x, y
+		end
+	end
+
+	do -- text wrap
+		local function wrap_1(str, max_width)
+			local lines = {}
+			local i = 1
+			local last_pos = 0
+			local line_width = 0
+			local space_pos
+			local tbl = str:utf8_to_list()
+
+			--local pos = 1
+			--for _ = 1, 10000 do
+			--	local char = tbl[pos]
+			--	if not char then break end
+			for pos, char in ipairs(tbl) do
+				local w = fonts.GetTextSize(font, char)
+
+				if char:find("%s") then space_pos = pos end
+
+				if line_width + w >= max_width then
+					if space_pos then
+						lines[i] = str:utf8_sub(last_pos + 1, space_pos)
+						last_pos = space_pos
+					else
+						lines[i] = str:utf8_sub(last_pos + 1, pos)
+						last_pos = pos
+					end
+
+					i = i + 1
+					line_width = 0
+					space_pos = nil
+				end
+
+				line_width = line_width + w
+			--pos = pos + 1
+			end
+
+			if lines[1] then
+				lines[i] = str:utf8_sub(last_pos + 1)
+				return list.concat(lines, "\n")
+			end
+
+			return str
+		end
+
+		local function wrap_2(self, str, max_width)
+			local tbl = str:utf8_to_list()
+			local lines = {}
+			local chars = {}
+			local i = 1
+			local width = 0
+			local width_before_last_space = 0
+			local width_of_trailing_space = 0
+			local last_space_index = -1
+			local prev_char
+
+			while i < #tbl do
+				local c = tbl[i]
+				local char_width = self:GetTextSize(c)
+				local new_width = width + char_width
+
+				if c == "\n" then
+					list.insert(lines, list.concat(chars))
+					list.clear(chars)
+					width = 0
+					width_before_last_space = 0
+					width_of_trailing_space = 0
+					prev_char = nil
+					last_space_index = -1
+					i = i + 1
+				elseif char ~= " " and width >= max_width then
+					if #chars == 0 then
+						i = i + 1
+					elseif last_space_index ~= -1 then
+						for i = #chars, 1, -1 do
+							if chars[i] == " " then break end
+
+							list.remove(chars, i)
+						end
+
+						width = width_before_last_space
+						i = last_space_index
+						i = i + 1
+					end
+
+					list.insert(lines, list.concat(chars))
+					list.clear(chars)
+					prev_char = nil
+					width = char_width
+					width_before_last_space = 0
+					width_of_trailing_space = 0
+					last_space_index = -1
+				else
+					if prev_char ~= " " and c == " " then
+						width_before_last_space = width
+					end
+
+					width = new_width
+					prev_char = c
+					list.insert(chars, c)
+
+					if c == " " then
+						last_space_index = i
+					elseif c ~= "\n" then
+						width_of_trailing_space = 0
+					end
+
+					i = i + 1
+				end
+			end
+
+			if #chars ~= 0 then list.insert(lines, list.concat(chars)) end
+
+			return list.concat(lines, "\n")
+		end
+
+		local cache = table.weak()
+
+		function META:WrapString(str, max_width)
+			if cache[str] and cache[str][max_width] and cache[str][max_width][self] then
+				return cache[str][max_width][self]
+			end
+
+			if max_width < self:GetTextSize(self, nil) then
+				return list.concat(str:split(""), "\n")
+			end
+
+			if max_width > self:GetTextSize(str) then return str end
+
+			local res = wrap_2(self, str, max_width)
+			cache[str] = cache[str] or {}
+			cache[str][max_width] = cache[str][max_width] or {}
+			cache[str][max_width][self] = res
+			return res
 		end
 	end
 end

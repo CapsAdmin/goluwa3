@@ -24,13 +24,13 @@ event.AddListener("Draw2D", "ttftest", function()
 		for i, chunk in ipairs(str:length_split(20)) do
 			--font.Fonts[1]:DrawString(chunk, 20, 20 + (i - 1) * 20)
 			fonts.SetFont(font)
-			fonts.DrawText(chunk, 20, 20 + (i - 1) * 60)
+			fonts.GetFont():DrawText(chunk, 20, 20 + (i - 1) * 60)
 		end
 
 		once = true
 	end
 
-	fonts.DrawText("hello world", 300, 300)
+	fonts.GetFont():DrawText("hello world", 300, 300)
 --font.Fonts[1]:DrawGlyph(g)
 --render2d.PopMatrix()
 end)

@@ -181,7 +181,7 @@ end
 
 if false then
 	function events.Draw2D.test(dt)
-		fonts.DrawText("Hello world", 20, 400)
+		fonts.GetFont():DrawText("Hello world", 20, 400)
 		gfx.DrawRoundedRect(100, 100, 200, 200, 50)
 		gfx.DrawCircle(400, 300, 50, 5, 6)
 		gfx.DrawFilledCircle(400, 500, 50)

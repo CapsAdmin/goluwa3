@@ -96,7 +96,7 @@ event.AddListener("Draw2D", "debug_gbuffer", function(cmd, dt)
 			render2d.SetColor(0, 0, 0, 0.5)
 			render2d.DrawRect(5, 5, 200, 30)
 			render2d.SetColor(1, 1, 1, 1)
-			fonts.DrawText("Fullscreen: " .. name, 10, 10)
+			fonts.GetFont():DrawText("Fullscreen: " .. name, 10, 10)
 		end
 
 		return
@@ -130,7 +130,7 @@ event.AddListener("Draw2D", "debug_gbuffer", function(cmd, dt)
 		render2d.SetColor(0, 0, 0, 0.5)
 		render2d.DrawRect(x, y, 150, 20)
 		render2d.SetColor(1, 1, 1, 1)
-		fonts.DrawText(view.name, x + 5, y + 5)
+		fonts.GetFont():DrawText(view.name, x + 5, y + 5)
 		x = x + size
 
 		if x + size > wnd_size.x then
@@ -157,7 +157,7 @@ event.AddListener("Draw2D", "debug_gbuffer", function(cmd, dt)
 		render2d.SetColor(0, 0, 0, 0.5)
 		render2d.DrawRect(x, y, 100, 20)
 		render2d.SetColor(1, 1, 1, 1)
-		fonts.DrawText("Depth", x + 5, y + 5)
+		fonts.GetFont():DrawText("Depth", x + 5, y + 5)
 	end
 end)
 
