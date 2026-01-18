@@ -107,39 +107,83 @@ function META:LoadGlyph(code)
 
 	if glyph then
 		if not glyph.buffer and glyph.glyph_data and glyph.w > 0 and glyph.h > 0 then
+			local scale = 4
+			local fb_ss = Framebuffer.New(
+				{
+					width = glyph.w * scale,
+					height = glyph.h * scale,
+					clear_color = {1, 1, 1, 0},
+					format = render.target:GetColorFormat(),
+				}
+			)
+			local old_cmd = render2d.cmd
+			local old_w, old_h = render2d.GetSize()
+			render2d.PushColor(render2d.GetColor())
+			render2d.PushUV()
+			render2d.PushBlendMode(render2d.GetBlendMode())
+			render2d.PushTexture(render2d.GetTexture())
+			render2d.PushAlphaMultiplier(render2d.GetAlphaMultiplier())
+			render2d.PushSwizzleMode(render2d.GetSwizzleMode())
+
+			do
+				local cmd = fb_ss:Begin()
+				render2d.cmd = cmd
+				render2d.UpdateScreenSize({w = glyph.w * scale, h = glyph.h * scale})
+				render2d.pipeline:Bind(render2d.cmd, render.GetCurrentFrame())
+				render2d.SetColor(1, 1, 1, 1)
+				render2d.SetUV()
+				render2d.SetBlendMode("alpha", true)
+				render2d.SetAlphaMultiplier(1)
+				render2d.SetSwizzleMode(0)
+				render2d.PushMatrix()
+				render2d.LoadIdentity()
+				-- Flip coordinates so font (Y-down) renders right-side up in Y-up framebuffer
+				render2d.Translate(0, glyph.h * scale)
+				render2d.Scale(scale, -scale)
+				-- Shift glyph to be at (1, 1) in the framebuffer to avoid clipping and have a 1px margin
+				render2d.Translatef(-glyph.bitmap_left + 1, -glyph.bitmap_top + 1)
+				glyph_source_font:DrawGlyph(glyph.glyph_data)
+				render2d.PopMatrix()
+				fb_ss:End()
+			end
+
 			local fb = Framebuffer.New(
 				{
 					width = glyph.w,
 					height = glyph.h,
-					clear_color = {0, 0, 0, 0},
+					clear_color = {1, 1, 1, 0},
 					format = render.target:GetColorFormat(),
 				}
 			)
-			local cmd = fb:Begin()
-			local old_cmd = render2d.cmd
-			render2d.cmd = cmd
-			local old_w, old_h = render2d.GetSize()
-			render2d.UpdateScreenSize({w = glyph.w, h = glyph.h})
-			render2d.pipeline:Bind(render2d.cmd, render.GetCurrentFrame())
-			render2d.SetBlendMode(render2d.GetBlendMode(), true)
-			render2d.PushMatrix()
-			render2d.LoadIdentity()
-			-- Reset color and UV for glyph capture
-			render2d.SetColor(1, 1, 1, 1)
-			render2d.SetUV()
-			-- Flip coordinates so font (Y-down) renders right-side up in Y-up framebuffer
-			render2d.Translate(0, glyph.h)
-			render2d.Scale(1, -1)
-			-- Shift glyph to be at (1, 1) in the framebuffer to avoid clipping and have a 1px margin
-			render2d.Translatef(-glyph.bitmap_left + 1, -glyph.bitmap_top + 1)
-			glyph_source_font:DrawGlyph(glyph.glyph_data)
-			render2d.PopMatrix()
-			fb:End()
-			render2d.UpdateScreenSize({w = old_w, h = old_h})
+
+			do
+				local cmd = fb:Begin()
+				render2d.cmd = cmd
+				render2d.UpdateScreenSize({w = glyph.w, h = glyph.h})
+				render2d.pipeline:Bind(render2d.cmd, render.GetCurrentFrame())
+				render2d.SetColor(1, 1, 1, 1)
+				render2d.SetBlendMode("none", true)
+				render2d.SetUV2(0, 1, 1, 0)
+				render2d.SetTexture(fb_ss.color_texture)
+				render2d.SetAlphaMultiplier(1)
+				render2d.SetSwizzleMode(0)
+				render2d.PushMatrix()
+				render2d.LoadIdentity()
+				render2d.DrawRect(0, 0, glyph.w, glyph.h)
+				render2d.PopMatrix()
+				fb:End()
+			end
+
 			render2d.cmd = old_cmd
+			render2d.UpdateScreenSize({w = old_w, h = old_h})
+			render2d.PopSwizzleMode()
+			render2d.PopAlphaMultiplier()
+			render2d.PopTexture()
+			render2d.PopBlendMode()
+			render2d.PopUV()
+			render2d.PopColor()
 			--glyph.buffer = fb.color_texture:Download()
 			glyph.texture = fb.color_texture
-		--fb:Remove()
 		end
 
 		self.texture_atlas:Insert(
