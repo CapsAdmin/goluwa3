@@ -124,6 +124,8 @@ function META:LoadGlyph(code)
 
 	if glyph then
 		if not glyph.buffer and glyph.glyph_data and glyph.w > 0 and glyph.h > 0 then
+			if not render.available or not render.target then return end
+
 			local scale = 8
 			local fb_ss = Framebuffer.New(
 				{

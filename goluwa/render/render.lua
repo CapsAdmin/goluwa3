@@ -106,6 +106,7 @@ end
 
 function render.EndFrame()
 	render.target:EndFrame()
+	render.cmd = nil
 end
 
 function render.GetRenderImageSize()

@@ -28,6 +28,7 @@ do
 
 		if ok and output.Flush then pcall(output.Flush) end
 
+		io.flush()
 		old(code)
 	end
 end

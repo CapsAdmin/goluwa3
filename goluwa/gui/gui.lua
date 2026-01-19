@@ -9,6 +9,7 @@ local window = require("window")
 local gui = library()
 package.loaded["gui.gui"] = gui
 local BaseSurface = require("gui.base_surface")
+require("gui.elements.text")
 
 function gui.CreateBasePanel()
 	return BaseSurface:CreateObject()

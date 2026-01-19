@@ -18,13 +18,15 @@ local template_functions = {
 	"CreateObject",
 }
 
-function prototype.CreateTemplate(super_type, sub_type)
+function prototype.CreateTemplate(super_type, sub_type, base)
 	local template = type(super_type) == "table" and super_type or {}
 
 	if type(super_type) == "string" then
 		template.Type = super_type
 		template.ClassName = sub_type or super_type
 	end
+
+	if type(base) == "string" then template.Base = base end
 
 	for _, key in ipairs(template_functions) do
 		template[key] = prototype[key]
@@ -1308,6 +1310,10 @@ function prototype.ParentingTemplate(META)
 	end
 
 	function META:AddChild(obj, pos)
+		if not obj.HasParent then for k, v in pairs(obj) do
+			print(k, v)
+		end end
+
 		if not obj or not obj:IsValid() then
 			self:UnParent()
 			return

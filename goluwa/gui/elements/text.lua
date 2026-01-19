@@ -1,0 +1,82 @@
+local prototype = require("prototype")
+local fonts = require("render2d.fonts")
+local render2d = require("render2d.render2d")
+local Vec2 = require("structs.vec2")
+local META = prototype.CreateTemplate("surface", "text")
+META.TypeBase = "base"
+META:StartStorable()
+META:GetSet(
+	"Font",
+	fonts.LoadFont(fonts.GetSystemDefaultFont(), 20),
+	{callback = "OnTextChanged"}
+)
+META:GetSet("Text", "", {callback = "OnTextChanged"})
+META:GetSet("Wrap", false, {callback = "OnTextChanged"})
+META:GetSet("AlignX", "left", {callback = "OnTextChanged"})
+META:GetSet("AlignY", "top", {callback = "OnTextChanged"})
+META:EndStorable()
+
+function META:Initialize()
+	self.BaseClass.Initialize(self)
+	self:OnTextChanged()
+end
+
+function META:OnTextChanged()
+	local font = self:GetFont() or fonts.GetDefaultFont()
+	local text = self:GetText()
+
+	if self:GetWrap() then
+		self.wrapped_text = font:WrapString(text, self:GetSize().x)
+	else
+		self.wrapped_text = text
+	end
+
+	local w, h = font:GetTextSize(self.wrapped_text)
+
+	if not self:GetWrap() then self:SetSize(Vec2(w, h)) end
+end
+
+function META:SetSize(vec)
+	self.BaseClass.SetSize(self, vec)
+
+	if self:GetWrap() then self:OnTextChanged() end
+end
+
+function META:OnDraw()
+	self.Font = self.Font or fonts.LoadFont(fonts.GetSystemDefaultFont(), 20)
+	local font = self:GetFont() or fonts.GetDefaultFont()
+	local text = self.wrapped_text or self:GetText()
+	local x, y = 0, 0
+	local ax, ay = self:GetAlignX(), self:GetAlignY()
+	local size = self:GetSize()
+
+	if type(ax) == "number" then
+		x = size.x * ax
+	elseif ax == "center" then
+		x = size.x / 2
+	elseif ax == "right" then
+		x = size.x
+	end
+
+	if type(ay) == "number" then
+		y = size.y * ay
+	elseif ay == "center" then
+		y = size.y / 2
+	elseif ay == "bottom" then
+		y = size.y
+	end
+
+	render2d.SetColor(self:GetColor():Unpack())
+	font:DrawText(text, x, y, 0, ax, ay)
+
+	do
+		return
+	end
+
+	local w, h = font:GetTextSize(text)
+	render2d.SetColor(1, 0, 0, 0.25)
+	render2d.SetTexture(nil)
+	render2d.DrawRect(0, 0, w, h)
+end
+
+return META:Register()

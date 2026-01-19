@@ -739,16 +739,27 @@ end
 
 function render2d.BindPipeline()
 	render2d.cmd = render.GetCommandBuffer()
-	render2d.pipeline:Bind(render2d.cmd, render.GetCurrentFrame())
-	render2d.SetBlendMode(render2d.current_blend_mode, true)
+
+	if render2d.cmd then
+		render2d.pipeline:Bind(render2d.cmd, render.GetCurrentFrame())
+		render2d.SetBlendMode(render2d.current_blend_mode, true)
+	end
+
 	-- Reset mesh binding cache since command buffer state was reset
 	render2d.last_bound_mesh = nil
 end
+
+render2d.SetColor(1, 1, 1, 1)
+render2d.SetAlphaMultiplier(1)
+render2d.SetSwizzleMode(0)
+render2d.current_blend_mode = "alpha"
+render2d.current_samples = "1"
 
 event.AddListener("PostDraw", "draw_2d", function(cmd, dt)
 	if not render2d.pipeline then return end -- not 2d initialized
 	render2d.BindPipeline()
 	event.Call("Draw2D", dt)
+	render2d.cmd = nil
 end)
 
 event.AddListener("WindowFramebufferResized", "render2d", function(wnd, size)

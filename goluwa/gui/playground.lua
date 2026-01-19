@@ -178,6 +178,15 @@ local Slider = lsx.Component(function(props)
 					Color = Color(0.9, 0.9, 0.95, 1),
 				}
 			),
+			lsx.Text(
+				{
+					Position = Vec2(width + 10, 0),
+					Text = string.format("%.2f", value),
+					Color = Color(1, 1, 1, 1),
+					AlignY = "center",
+					Size = Vec2(40, height),
+				}
+			),
 		}
 	)
 end)
@@ -195,19 +204,26 @@ local ColorPicker = lsx.Component(function(props)
 	return lsx.Panel(
 		{
 			Position = props.Position or Vec2(50, 50),
-			Size = Vec2(250, 180),
+			Size = Vec2(250, 200),
 			Color = Color(0.2, 0.2, 0.25, 1),
 			Name = "ColorPicker",
+			lsx.Text(
+				{
+					Position = Vec2(10, 5),
+					Text = "Color Picker",
+					Color = Color(0.8, 0.8, 1, 1),
+				}
+			),
 			lsx.Panel(
 				{
-					Position = Vec2(180, 20),
+					Position = Vec2(180, 40),
 					Size = Vec2(50, 140),
 					Color = preview_color,
 				}
 			),
 			Slider(
 				{
-					Position = Vec2(20, 20),
+					Position = Vec2(20, 40),
 					Width = 140,
 					Height = 30,
 					Value = r,
@@ -217,7 +233,7 @@ local ColorPicker = lsx.Component(function(props)
 			),
 			Slider(
 				{
-					Position = Vec2(20, 70),
+					Position = Vec2(20, 90),
 					Width = 140,
 					Height = 30,
 					Value = g,
@@ -227,7 +243,7 @@ local ColorPicker = lsx.Component(function(props)
 			),
 			Slider(
 				{
-					Position = Vec2(20, 120),
+					Position = Vec2(20, 140),
 					Width = 140,
 					Height = 30,
 					Value = b,
@@ -291,9 +307,28 @@ local StateMachine = lsx.Component(function(props)
 					return true
 				end
 			end,
+			lsx.Text(
+				{
+					Position = Vec2(75, 75),
+					Text = "State: " .. state .. "\nL: Next\nR: Prev\nM: Reset",
+					Color = Color(0, 0, 0, 1),
+					AlignX = "center",
+					AlignY = "center",
+				}
+			),
 		}
 	)
 end)
+lsx.Mount(
+	lsx.Text(
+		{
+			Position = Vec2(20, 10),
+			Text = "LSX Playground",
+			Color = Color(1, 1, 1, 1),
+			Scale = Vec2(2, 2),
+		}
+	)
+)
 lsx.Mount(HoverPanel({Position = Vec2(50, 50), Size = Vec2(150, 100)}))
 lsx.Mount(
 	HoverPanel(

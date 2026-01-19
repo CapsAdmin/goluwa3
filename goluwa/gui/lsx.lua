@@ -88,6 +88,7 @@ do
 end
 
 lsx.Panel = lsx.RegisterElement("base")
+lsx.Text = lsx.RegisterElement("text")
 lsx.hook_index = 0
 
 local function increment_hook_index()
