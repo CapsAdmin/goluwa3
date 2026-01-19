@@ -6,11 +6,13 @@ local Vec2 = require("structs.vec2")
 local Vec3 = require("structs.vec3")
 local Color = require("structs.color")
 local window = require("window")
+local Rect = require("structs.rect")
 local META = prototype.CreateTemplate("surface", "base")
 prototype.ParentingTemplate(META)
+assert(loadfile("goluwa/gui/base_surface_layout.lua"))(META)
 META:StartStorable()
 META:GetSet("Position", Vec2(0, 0), {callback = "InvalidateMatrices"})
-META:GetSet("Size", Vec2(100, 100))
+META:GetSet("Size", Vec2(100, 100), {callback = "InvalidateLayout"})
 META:GetSet("Rotation", 0, {callback = "InvalidateMatrices"})
 META:GetSet("Scale", Vec2(1, 1), {callback = "InvalidateMatrices"})
 META:GetSet("Visible", true)
@@ -19,6 +21,9 @@ META:GetSet("Clipping", false)
 META:GetSet("Scroll", Vec2(0, 0), {callback = "InvalidateMatrices"})
 META:GetSet("ScrollEnabled", false)
 META:GetSet("DragEnabled", false)
+META:GetSet("Margin", Rect(0, 0, 0, 0))
+META:GetSet("Padding", Rect(0, 0, 0, 0))
+META:GetSet("MinimumSize", Vec2(0, 0))
 META:EndStorable()
 
 function META:SetColor(c)
@@ -43,6 +48,56 @@ function META:InvalidateMatrices()
 		child.WorldMatrixDirty = true
 		child.WorldMatrixInverseDirty = true
 	end
+end
+
+function META:InvalidateLayout()
+	self.layout_me = true
+end
+
+function META:GetWidth()
+	return self.Size.x
+end
+
+function META:GetHeight()
+	return self.Size.y
+end
+
+function META:SetWidth(w)
+	self.Size.x = w
+	self:InvalidateLayout()
+end
+
+function META:SetHeight(h)
+	self.Size.y = h
+	self:InvalidateLayout()
+end
+
+function META:GetX()
+	return self.Position.x
+end
+
+function META:GetY()
+	return self.Position.y
+end
+
+function META:SetX(x)
+	self.Position.x = x
+end
+
+function META:SetY(y)
+	self.Position.y = y
+end
+
+function META:GetWorldRectFast()
+	local mat = self:GetWorldMatrix()
+	local x, y = mat:GetTranslation()
+	return x, y, x + self.Size.x, y + self.Size.y
+end
+
+function META:GetParentPadding()
+	if self:HasParent() then return self:GetParent():GetPadding() end
+
+	return Rect(0, 0, 0, 0)
 end
 
 do
@@ -136,6 +191,8 @@ end
 
 function META:Draw()
 	if not self.Visible then return end
+
+	if self.CalcLayout then self:CalcLayout() end
 
 	local clipping = self:GetClipping()
 

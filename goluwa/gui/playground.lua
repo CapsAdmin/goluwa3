@@ -4,6 +4,7 @@ local prototype = require("prototype")
 local Matrix44 = require("structs.matrix44")
 local Vec2 = require("structs.vec2")
 local Vec3 = require("structs.vec3")
+local Rect = require("structs.rect")
 local Color = require("structs.color")
 local window = require("window")
 local input = require("input")
@@ -105,7 +106,7 @@ local HoverPanel = lsx.Component(function(props)
 		{
 			Name = "HoverPanel",
 			ref = ref,
-			Position = props.Position or Vec2(100, 100),
+			Position = props.Position,
 			Size = props.Size or Vec2(120, 80),
 			Scale = Vec2() + (is_hovered and 1.1 or 1.0),
 			Color = (props.Color or Color(0.4, 0.4, 0.5, 1)):GetLerped(is_hovered and 1 or 0, Color(0.6, 0.7, 0.9, 1)):SetAlpha(1),
@@ -148,7 +149,7 @@ local Slider = lsx.Component(function(props)
 		{
 			Name = "Slider",
 			ref = track_ref,
-			Position = props.Position or Vec2(50, 50),
+			Position = props.Position,
 			Size = Vec2(width, height),
 			Color = Color(0.25, 0.25, 0.3, 1),
 			OnMouseInput = function(self, button, press, local_pos)
@@ -203,7 +204,7 @@ local ColorPicker = lsx.Component(function(props)
 
 	return lsx.Panel(
 		{
-			Position = props.Position or Vec2(50, 50),
+			Position = props.Position,
 			Size = Vec2(250, 200),
 			Color = Color(0.2, 0.2, 0.25, 1),
 			Name = "ColorPicker",
@@ -290,7 +291,7 @@ local StateMachine = lsx.Component(function(props)
 	}
 	return lsx.Panel(
 		{
-			Position = props.Position or Vec2(400, 50),
+			Position = props.Position,
 			Size = Vec2(150, 150),
 			Color = colors[state],
 			Name = "StateMachine_" .. state,
@@ -319,46 +320,70 @@ local StateMachine = lsx.Component(function(props)
 		}
 	)
 end)
-lsx.Mount(
-	lsx.Text(
+local App = lsx.Component(function()
+	return lsx.Panel(
 		{
-			Position = Vec2(20, 10),
-			Text = "LSX Playground",
-			Color = Color(1, 1, 1, 1),
-			Scale = Vec2(2, 2),
+			Name = "App",
+			Size = Vec2(render2d.GetSize()),
+			Color = Color(0, 0, 0, 0),
+			Padding = Rect(20, 20, 20, 20),
+			lsx.Text(
+				{
+					Text = "LSX Playground",
+					Color = Color(1, 1, 1, 1),
+					Scale = Vec2(2, 2),
+					layout = "top, left",
+					Margin = Rect(0, 0, 0, 20),
+				}
+			),
+			lsx.Panel(
+				{
+					Name = "LeftColumn",
+					Size = Vec2(200, 500),
+					Color = Color(0, 0, 0, 0),
+					layout = "down, left",
+					Margin = Rect(0, 40, 0, 0),
+					HoverPanel({Size = Vec2(150, 80), layout = "down", Margin = Rect(0, 0, 0, 10)}),
+					HoverPanel(
+						{
+							Size = Vec2(150, 80),
+							Color = Color(0.5, 0.3, 0.4, 1),
+							layout = "down",
+							Margin = Rect(0, 0, 0, 10),
+						}
+					),
+				}
+			),
+			lsx.Panel(
+				{
+					Name = "MiddleColumn",
+					Size = Vec2(300, 500),
+					Color = Color(0, 0, 0, 0),
+					layout = "right",
+					Margin = Rect(20, 40, 0, 0),
+					Slider(
+						{
+							Width = 200,
+							layout = "down",
+							Margin = Rect(0, 0, 0, 20),
+							OnChange = function(v)
+								print("Slider:", v)
+							end,
+						}
+					),
+					ColorPicker(
+						{
+							Initial = Color(0.3, 0.6, 0.9),
+							layout = "down",
+							OnChange = function(c)
+								print("Color:", c.r, c.g, c.b)
+							end,
+						}
+					),
+				}
+			),
+			StateMachine({layout = "right", Margin = Rect(20, 40, 0, 0)}),
 		}
 	)
-)
-lsx.Mount(HoverPanel({Position = Vec2(50, 50), Size = Vec2(150, 100)}))
-lsx.Mount(
-	HoverPanel(
-		{
-			Position = Vec2(50, 170),
-			Size = Vec2(150, 100),
-			Color = Color(0.5, 0.3, 0.4, 1),
-		}
-	)
-)
-lsx.Mount(
-	Slider(
-		{
-			Position = Vec2(250, 50),
-			Width = 200,
-			OnChange = function(v)
-				print("Slider:", v)
-			end,
-		}
-	)
-)
-lsx.Mount(
-	ColorPicker(
-		{
-			Position = Vec2(250, 120),
-			Initial = Color(0.3, 0.6, 0.9),
-			OnChange = function(c)
-				print("Color:", c.r, c.g, c.b)
-			end,
-		}
-	)
-)
-lsx.Mount(StateMachine({Position = Vec2(530, 50)}))
+end)
+lsx.Mount(App())
