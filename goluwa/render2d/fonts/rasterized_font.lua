@@ -51,6 +51,7 @@ function META:CreateTextureAtlas()
 	if self.Size > 128 then atlas_size = 4096 end
 
 	self.texture_atlas = TextureAtlas.New(atlas_size, atlas_size, self.Filtering, render.target:GetColorFormat())
+	self.texture_atlas:SetMipMapLevels("auto")
 	self.texture_atlas:SetPadding(self.Padding)
 
 	for code in pairs(self.chars) do
@@ -123,13 +124,14 @@ function META:LoadGlyph(code)
 
 	if glyph then
 		if not glyph.buffer and glyph.glyph_data and glyph.w > 0 and glyph.h > 0 then
-			local scale = 4
+			local scale = 8
 			local fb_ss = Framebuffer.New(
 				{
 					width = glyph.w * scale,
 					height = glyph.h * scale,
 					clear_color = {1, 1, 1, 0},
 					format = render.target:GetColorFormat(),
+					mip_map_levels = "auto",
 				}
 			)
 			local old_cmd = render2d.cmd
@@ -164,6 +166,8 @@ function META:LoadGlyph(code)
 				render2d.PopSamples()
 				fb_ss:End()
 			end
+
+			fb_ss.color_texture:GenerateMipmaps("shader_read_only_optimal")
 
 			local fb = Framebuffer.New(
 				{

@@ -27,7 +27,7 @@ function Framebuffer.New(config)
 				format = format,
 				mip_map_levels = config.mip_map_levels or 1,
 				image = {
-					usage = {"color_attachment", "sampled", "transfer_src"},
+					usage = {"color_attachment", "sampled", "transfer_src", "transfer_dst"},
 					samples = samples,
 				},
 				sampler = {

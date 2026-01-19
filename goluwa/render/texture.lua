@@ -597,6 +597,10 @@ function Texture:GetSampler()
 	return self.sampler
 end
 
+function Texture:GetMipMapLevels()
+	return self.mip_map_levels or 1
+end
+
 function Texture:GetWidth()
 	return self.image and self.image:GetWidth() or 0
 end

@@ -6,6 +6,7 @@ local Texture = require("render.texture")
 local Fence = require("render.vulkan.internal.fence")
 local META = prototype.CreateTemplate("render", "texture_atlas")
 META:GetSet("Padding", 1)
+META:GetSet("MipMapLevels", 1)
 
 function META.New(page_width, page_height, filtering, format)
 	page_height = page_height or page_width
@@ -70,7 +71,7 @@ function META:FindFreePage(w, h)
 					width = size.x,
 					height = size.y,
 					format = self.format,
-					mip_map_levels = 1,
+					mip_map_levels = self.MipMapLevels,
 					sampler = {
 						min_filter = self.filtering,
 						mag_filter = self.filtering,
@@ -197,21 +198,26 @@ function META:Build()
 			end
 
 			-- Transition page texture back to shader_read
-			cmd:PipelineBarrier(
-				{
-					srcStage = "transfer",
-					dstStage = "all_commands",
-					imageBarriers = {
-						{
-							image = page.texture:GetImage(),
-							oldLayout = "transfer_dst_optimal",
-							newLayout = "shader_read_only_optimal",
-							srcAccessMask = "transfer_write",
-							dstAccessMask = "memory_read",
+			if page.texture:GetMipMapLevels() > 1 then
+				page.texture:GenerateMipmaps("transfer_dst_optimal", cmd)
+			else
+				cmd:PipelineBarrier(
+					{
+						srcStage = "transfer",
+						dstStage = "all_commands",
+						imageBarriers = {
+							{
+								image = page.texture:GetImage(),
+								oldLayout = "transfer_dst_optimal",
+								newLayout = "shader_read_only_optimal",
+								srcAccessMask = "transfer_write",
+								dstAccessMask = "memory_read",
+							},
 						},
-					},
-				}
-			)
+					}
+				)
+			end
+
 			page.dirty = false
 		end
 	end
