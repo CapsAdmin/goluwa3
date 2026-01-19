@@ -168,7 +168,6 @@ function META:LoadGlyph(code)
 			end
 
 			fb_ss.color_texture:GenerateMipmaps("shader_read_only_optimal")
-
 			local fb = Framebuffer.New(
 				{
 					width = glyph.w,
@@ -526,11 +525,11 @@ do
 				return cache[str][max_width][self]
 			end
 
-			if max_width < self:GetTextSize(self, nil) then
-				return list.concat(str:split(""), "\n")
-			end
+			local size = self:GetTextSize(str)
 
-			if max_width > self:GetTextSize(str) then return str end
+			--print(size, max_width)
+			--if max_width < size then return list.concat(str:split(""), "\n") end
+			if max_width > size then return str end
 
 			local res = wrap_2(self, str, max_width)
 			cache[str] = cache[str] or {}

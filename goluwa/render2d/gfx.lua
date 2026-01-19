@@ -254,6 +254,8 @@ function gfx.DrawCircle(x, y, radius, width, resolution)
 end
 
 do
+	local window = require("window")
+
 	function gfx.GetMousePosition()
 		if window.GetMouseTrapped() then
 			return render.GetWidth() / 2, render.GetHeight() / 2

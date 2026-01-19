@@ -246,3 +246,4 @@ function table.equal(o1, o2, ignore_mt)
 end
 
 table.sort = require("helpers.table_sort")
+table.new = require("table.new")
