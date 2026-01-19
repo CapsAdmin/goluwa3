@@ -14,7 +14,18 @@ META:GetSet("Path", nil)
 META:GetSet("Size", 16, {callback = "UpdateScale"})
 
 function META:UpdateScale()
-	if self.font then self.scale = self.Size / self.font.units_per_em end
+	if self.font then
+		self.scale = self.Size / self.font.units_per_em
+		-- Use CapHeight for layout if available, otherwise heuristic 70% of EM or typo_ascent
+		self.ascent = (
+				self.font.cap_height or
+				self.font.typo_ascent or
+				(
+					self.font.units_per_em * 0.7
+				)
+			) * self.scale
+		self.descent = (self.font.win_descent or self.font.descent or (self.font.units_per_em * 0.2)) * self.scale
+	end
 
 	self.glyphs = {}
 end
@@ -54,7 +65,7 @@ local function get_contour_points(self, glyph, raw_points)
 	local count = #raw_points
 
 	local function get_xy(p)
-		return p.x * self.scale, (self.font.ascent - p.y) * self.scale
+		return p.x * self.scale, self.ascent - p.y * self.scale
 	end
 
 	local first_x, first_y
@@ -679,11 +690,11 @@ function META:ResolveGlyphData(glyph_data)
 end
 
 function META:GetAscent()
-	return self.font.ascent * self.scale
+	return self.ascent
 end
 
 function META:GetDescent()
-	return self.font.descent * self.scale
+	return self.descent
 end
 
 function META:GetGlyph(char_code)
@@ -723,7 +734,7 @@ function META:GetGlyph(char_code)
 		g.bearing_x = g.x_min
 		g.bearing_y = g.y_max
 		g.bitmap_left = g.x_min
-		g.bitmap_top = (self.font.ascent * self.scale - g.y_max)
+		g.bitmap_top = (self.ascent - g.y_max)
 	end
 
 	self.glyphs[char_code] = g
@@ -732,7 +743,7 @@ end
 
 function META:GetTextSize(str)
 	str = tostring(str)
-	local X, Y = 0, self.Size
+	local X, Y = 0, self:GetAscent()
 	local max_x = 0
 
 	for i, char in ipairs(utf8.to_list(str)) do
@@ -755,6 +766,32 @@ function META:GetTextSize(str)
 	if max_x ~= 0 then X = max_x end
 
 	return X, Y
+end
+
+function META:DrawText(str, x, y, spacing, align_x, align_y)
+	if align_x or align_y then
+		local w, h = self:GetTextSize(str)
+
+		if type(align_x) == "number" then
+			x = x - (w * align_x)
+		elseif align_x == "center" then
+			x = x - (w / 2)
+		elseif align_x == "right" then
+			x = x - w
+		end
+
+		if type(align_y) == "number" then
+			y = y - (h * align_y)
+		elseif align_y == "baseline" then
+			y = y - self:GetAscent()
+		elseif align_y == "center" then
+			y = y - (h / 2)
+		elseif align_y == "bottom" then
+			y = y - h
+		end
+	end
+
+	self:DrawString(str, x, y, spacing)
 end
 
 function META:DrawString(str, x, y, spacing)

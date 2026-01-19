@@ -242,7 +242,7 @@ function META:GetTextSizeNotCached(str)
 	if not self.Ready then return 0, 0 end
 
 	str = tostring(str)
-	local X, Y = 0, self.Size
+	local X, Y = 0, self:GetAscent()
 	local max_x = 0
 	local spacing = self.Spacing
 
@@ -329,7 +329,7 @@ function META:DrawString(str, x, y, spacing)
 				render2d.PushMatrix()
 				render2d.Translate(
 					x + (X + data.bitmap_left) * self.Scale.x,
-					y - (Y + (data.h - data.bitmap_top - data.h)) * self.Scale.y
+					y + (Y + data.bitmap_top) * self.Scale.y
 				)
 				render2d.PushUV()
 				render2d.SetUV2(u1 / sx, v1 / sy, (u1 + w) / sx, (v1 + h) / sy)
@@ -354,8 +354,24 @@ do
 	function META:DrawText(str, x, y, spacing, align_x, align_y)
 		if align_x or align_y then
 			local w, h = self:GetTextSize(str)
-			x = x - (w * (align_x or 0))
-			y = y - (h * (align_y or 0))
+
+			if type(align_x) == "number" then
+				x = x - (w * align_x)
+			elseif align_x == "center" then
+				x = x - (w / 2)
+			elseif align_x == "right" then
+				x = x - w
+			end
+
+			if type(align_y) == "number" then
+				y = y - (h * align_y)
+			elseif align_y == "baseline" then
+				y = y - self:GetAscent()
+			elseif align_y == "center" then
+				y = y - (h / 2)
+			elseif align_y == "bottom" then
+				y = y - h
+			end
 		end
 
 		self:DrawString(str, x, y, spacing)

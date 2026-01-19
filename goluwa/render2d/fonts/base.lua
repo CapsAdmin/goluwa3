@@ -248,6 +248,9 @@ function META:GetTextSize(str)
 	return X, Y
 end
 
+function META:GetAscent() return 8 end
+function META:GetDescent() return 0 end
+
 function META:DrawString(str, x, y, spacing)
 	spacing = spacing or 0
 	render2d.PushTexture()

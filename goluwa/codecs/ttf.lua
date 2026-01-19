@@ -136,6 +136,12 @@ function ttf.DecodeBuffer(input_buffer)
 		font.typo_line_gap = os2_table:ReadI16BE()
 		font.win_ascent = os2_table:ReadU16BE()
 		font.win_descent = os2_table:ReadU16BE()
+
+		if version >= 2 then
+			os2_table:Advance(8) -- Skip ulCodePageRange1, ulCodePageRange2
+			font.x_height = os2_table:ReadI16BE()
+			font.cap_height = os2_table:ReadI16BE()
+		end
 	end
 
 	-- Parse 'cmap' to map characters to glyph indices
