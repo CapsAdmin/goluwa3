@@ -4,7 +4,7 @@ local render2d = require("render2d.render2d")
 local gfx = require("render2d.gfx")
 local utf8 = require("utf8")
 local fontSize = 256
-local fontPath = "/home/caps/Downloads/Roboto/static/Roboto-Regular.ttf"
+local fontPath = fonts.GetSystemDefaultFont()
 local font = fonts.LoadFont(fontPath, fontSize)
 local labelFont = fonts.LoadFont(fontPath, 10)
 local font2 = fonts.LoadFont(fontPath, 30)
@@ -101,18 +101,19 @@ event.AddListener("Draw2D", "fonts_metrics_diagram", function()
 	labelFont:DrawText("yMin", ox + xMax + 65, vyMin - 5)
 
 	do
-		local text = [[You are right that triangulating glyphs (vector rendering) avoids the resolution issues during the generation phase. However, because these triangulated shapes are being drawn into a Texture Atlas, the final result still becomes a bitmap.]]
+		local text = [[Whereas a common understanding of these rights and freedoms is]]
 		local baseline = 512
 		local x, y = gfx.GetMousePosition()
 		local str = font2:WrapString(text, x + 10)
+		str = "hello\nworldddd"
 		local w, h = font2:GetTextSize(str)
 		render2d.SetTexture(nil)
 		render2d.SetColor(1, 0, 0, 0.25)
-		render2d.DrawRect(10, baseline - h, w, h)
+		render2d.DrawRect(0, 0, w, h)
 
 		do
 			render2d.SetColor(0, 0, 0, 1)
-			font2:DrawText(str, 10, baseline - h)
+			font2:DrawText(str, 0, 0)
 		end
 	end
 end)
