@@ -4,6 +4,11 @@ local META = structs.Template("Color")
 META.Args = {{"r", "g", "b", "a"}}
 structs.AddAllOperators(META)
 
+function META:SetAlpha(a)
+	self.a = a
+	return self
+end
+
 function META:Lighter(factor)
 	factor = factor or .5
 	factor = factor + 1

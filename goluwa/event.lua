@@ -48,6 +48,10 @@ function event.AddListener(event_type, id, callback, config)
 	sort_events(config.event_type)
 
 	if event_type ~= "EventAdded" then event.Call("EventAdded", config) end
+
+	return function()
+		event.RemoveListener(event_type, config.id)
+	end
 end
 
 function event.IsListenerActive(event_type, id)

@@ -454,6 +454,47 @@ do
 		if render2d.cmd then render2d.cmd:SetBlendConstants(r, g, b, a) end
 	end
 
+	function render2d.SetScissor(x, y, w, h)
+		x = math.max(x, 0)
+		y = math.max(y, 0)
+		w = math.max(w, 1)
+		h = math.max(h, 1)
+
+		if render2d.cmd then render2d.cmd:SetScissor(x, y, w, h) end
+	end
+
+	do
+		local stack = {}
+
+		function render2d.PushScissor(x, y, w, h)
+			local current = stack[#stack]
+
+			if current then
+				local x2 = math.max(x, current.x)
+				local y2 = math.max(y, current.y)
+				local w2 = math.min(x + w, current.x + current.w) - x2
+				local h2 = math.min(y + h, current.y + current.h) - y2
+				x, y, w, h = x2, y2, math.max(0, w2), math.max(0, h2)
+			end
+
+			local data = {x = x, y = y, w = w, h = h}
+			table.insert(stack, data)
+			render2d.SetScissor(x, y, w, h)
+		end
+
+		function render2d.PopScissor()
+			table.remove(stack)
+			local current = stack[#stack]
+
+			if current then
+				render2d.SetScissor(current.x, current.y, current.w, current.h)
+			else
+				local sw, sh = render2d.GetSize()
+				render2d.SetScissor(0, 0, sw or 0, sh or 0)
+			end
+		end
+	end
+
 	function render2d.UploadConstants(cmd)
 		do
 			vertex_constants.projection_view_world = render2d.GetMatrix():GetFloatCopy()
