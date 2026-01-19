@@ -105,7 +105,8 @@ function render2d.Initialize()
 	end
 
 	render2d.pipeline_data.dynamic_states = dynamic_states
-	render2d.pipeline = render.CreateGraphicsPipeline(render2d.pipeline_data)
+	render2d.pipeline_cache = {}
+	render2d.SetSamples(render.target.samples or "1", true)
 	render2d.ResetState()
 	render2d.rect_mesh = render2d.CreateMesh(
 		{
@@ -374,7 +375,57 @@ do
 				end
 			end
 		else
-			local data = table.copy(render2d.pipeline_data)
+			render2d.UpdatePipeline()
+
+			if render2d.cmd then
+				render2d.pipeline:Bind(render2d.cmd, render.GetCurrentFrame())
+			end
+		end
+	end
+
+	function render2d.GetBlendMode()
+		return render2d.current_blend_mode
+	end
+
+	utility.MakePushPopFunction(render2d, "BlendMode")
+
+	function render2d.SetSamples(samples, force)
+		if render2d.current_samples == samples and not force then return end
+
+		render2d.current_samples = samples
+		render2d.UpdatePipeline()
+
+		if render2d.cmd then
+			render2d.pipeline:Bind(render2d.cmd, render.GetCurrentFrame())
+		end
+	end
+
+	function render2d.GetSamples()
+		return render2d.current_samples
+	end
+
+	utility.MakePushPopFunction(render2d, "Samples")
+
+	function render2d.UpdatePipeline()
+		local samples = render2d.current_samples or "1"
+		local blend_mode_name = render2d.current_blend_mode or "alpha"
+		-- If we have extended dynamic state, we don't need to bake the blend mode into the pipeline cache key
+		local cache_key = samples
+
+		if not render.GetDevice().has_extended_dynamic_state3 then
+			cache_key = cache_key .. "_" .. blend_mode_name
+		end
+
+		if render2d.pipeline_cache[cache_key] then
+			render2d.pipeline = render2d.pipeline_cache[cache_key]
+			return
+		end
+
+		local data = table.copy(render2d.pipeline_data)
+		data.samples = samples
+		local blend_mode = render2d.blend_modes[blend_mode_name]
+
+		if blend_mode then
 			data.color_blend.attachments[1] = {
 				blend = blend_mode.blend,
 				src_color_blend_factor = blend_mode.src_color_blend_factor,
@@ -385,15 +436,11 @@ do
 				alpha_blend_op = blend_mode.alpha_blend_op,
 				color_write_mask = {"r", "g", "b", "a"},
 			}
-			render2d.pipeline = render.CreateGraphicsPipeline(data)
 		end
-	end
 
-	function render2d.GetBlendMode()
-		return render2d.current_blend_mode
+		render2d.pipeline = render.CreateGraphicsPipeline(data)
+		render2d.pipeline_cache[cache_key] = render2d.pipeline
 	end
-
-	utility.MakePushPopFunction(render2d, "BlendMode")
 
 	function render2d.GetPipelineVariantInfo()
 		if render2d.pipeline and render2d.pipeline.GetVariantInfo then

@@ -272,6 +272,9 @@ table.insert(
 	r,
 	{
 		name = "blit",
+		samples = function()
+			return render.target.samples
+		end,
 		fragment = {
 			push_constants = {
 				{

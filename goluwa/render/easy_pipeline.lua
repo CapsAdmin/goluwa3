@@ -41,6 +41,8 @@ function EasyPipeline.New(config)
 		config.depth_format = config.depth_format()
 	end
 
+	if type(config.samples) == "function" then config.samples = config.samples() end
+
 	if not config.vertex then
 		config.vertex = {
 			shader = [[

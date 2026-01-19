@@ -267,4 +267,26 @@ function PhysicalDevice:GetDynamicRenderingFeatures()
 	return queryDynamicRenderingFeatures.dynamicRendering == 1
 end
 
+function PhysicalDevice:GetMaxSampleCount()
+	local props = self:GetProperties()
+	local counts = bit.band(
+		tonumber(props.limits.framebufferColorSampleCounts),
+		tonumber(props.limits.framebufferDepthSampleCounts)
+	)
+
+	if bit.band(counts, 64) ~= 0 then return "64" end
+
+	if bit.band(counts, 32) ~= 0 then return "32" end
+
+	if bit.band(counts, 16) ~= 0 then return "16" end
+
+	if bit.band(counts, 8) ~= 0 then return "8" end
+
+	if bit.band(counts, 4) ~= 0 then return "4" end
+
+	if bit.band(counts, 2) ~= 0 then return "2" end
+
+	return "1"
+end
+
 return PhysicalDevice:Register()

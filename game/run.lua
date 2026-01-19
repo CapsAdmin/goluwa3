@@ -2,9 +2,7 @@ _G.PROFILE = false
 _G.GRAPHICS = true
 local vfs = require("vfs")
 vfs.MountStorageDirectories()
-
 local render = require("render.render")
-
 
 if not render.available then
 	logf("[game] Graphics not available - running in headless mode\n")
@@ -26,7 +24,7 @@ _G.runfile = function(...)
 	return list.unpack(ret)
 end
 _G.R = vfs.GetAbsolutePath
-render.Initialize({samples = "1"})
+render.Initialize({samples = "max"})
 local render2d = require("render2d.render2d")
 local render3d = require("render3d.render3d")
 local gfx = require("render2d.gfx")

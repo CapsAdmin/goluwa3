@@ -144,6 +144,7 @@ function META:LoadGlyph(code)
 			do
 				local cmd = fb_ss:Begin()
 				render2d.cmd = cmd
+				render2d.PushSamples("1")
 				render2d.UpdateScreenSize({w = glyph.w * scale, h = glyph.h * scale})
 				render2d.pipeline:Bind(render2d.cmd, render.GetCurrentFrame())
 				render2d.SetColor(1, 1, 1, 1)
@@ -160,6 +161,7 @@ function META:LoadGlyph(code)
 				render2d.Translatef(-glyph.bitmap_left + 1, -glyph.bitmap_top + 1)
 				glyph_source_font:DrawGlyph(glyph.glyph_data)
 				render2d.PopMatrix()
+				render2d.PopSamples()
 				fb_ss:End()
 			end
 
@@ -175,6 +177,7 @@ function META:LoadGlyph(code)
 			do
 				local cmd = fb:Begin()
 				render2d.cmd = cmd
+				render2d.PushSamples("1")
 				render2d.UpdateScreenSize({w = glyph.w, h = glyph.h})
 				render2d.pipeline:Bind(render2d.cmd, render.GetCurrentFrame())
 				render2d.SetColor(1, 1, 1, 1)
@@ -187,6 +190,7 @@ function META:LoadGlyph(code)
 				render2d.LoadIdentity()
 				render2d.DrawRect(0, 0, glyph.w, glyph.h)
 				render2d.PopMatrix()
+				render2d.PopSamples()
 				fb:End()
 			end
 

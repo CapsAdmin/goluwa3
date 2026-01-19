@@ -41,6 +41,11 @@ local function choose_format(self)
 		-- Offscreen mode: use provided format or default
 		self.color_format = self.config.format or "r8g8b8a8_unorm"
 		self.samples = self.config.samples or "1"
+
+		if self.samples == "max" then
+			self.samples = self.vulkan_instance.physical_device:GetMaxSampleCount()
+		end
+
 		self.depth_format = "d32_sfloat"
 		self.final_layout = self.config.final_layout or "color_attachment_optimal"
 		-- Set extent directly from config
@@ -145,6 +150,11 @@ local function choose_format(self)
 	end
 
 	self.samples = self.config.samples or "4"
+
+	if self.samples == "max" then
+		self.samples = self.vulkan_instance.physical_device:GetMaxSampleCount()
+	end
+
 	self.depth_format = "d32_sfloat"
 	self.surface_format = self.surface_formats[chosen_format_index]
 	self.color_format = self.surface_format.format
