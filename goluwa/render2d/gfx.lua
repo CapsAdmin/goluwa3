@@ -255,6 +255,7 @@ end
 
 do
 	local window = require("window")
+	local render = require("render.render")
 
 	function gfx.GetMousePosition()
 		if window.GetMouseTrapped() then

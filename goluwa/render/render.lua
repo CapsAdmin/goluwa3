@@ -218,11 +218,11 @@ function render.CreateBlankTexture(size, format, filtering)
 end
 
 function render.GetWidth()
-	return render.target:GetWidth()
+	return render.target:GetExtent().width
 end
 
 function render.GetHeight()
-	return render.target:GetHeight()
+	return render.target:GetExtent().height
 end
 
 function render.TriggerValidationError()
