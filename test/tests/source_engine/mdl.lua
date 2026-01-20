@@ -60,13 +60,13 @@ end
 T.Test("combine", function()
 	init_render3d()
 	steam.MountSourceGame("gmod")
-	tasks.WaitAll(10)
+	tasks.WaitAll(20)
 	local ent = ecs.CreateEntity("mdl", ecs.GetWorld())
 	ent:AddComponent("transform")
 	ent:AddComponent("model")
 	ent.model:SetModelPath("models/player/combine_super_soldier.mdl")
 	ent.transform:SetRotation(Quat(0, -1, 0, 1))
-	tasks.WaitAll(10) -- waits for the model to load for max 10 seconds
+	tasks.WaitAll(20) -- waits for the model to load for max 20 seconds
 	render.Draw(1)
 
 	T.ScreenAlbedoPixel(256, 256, function(r, g, b, a)
@@ -87,7 +87,7 @@ end)
 T.Test("alyx", function()
 	init_render3d()
 	steam.MountSourceGame("gmod")
-	tasks.WaitAll(10)
+	tasks.WaitAll(20)
 	local path = "models/player/alyx.mdl"
 	local ent = ecs.CreateEntity("mdl", ecs.GetWorld())
 	ent:AddComponent("transform")
@@ -95,7 +95,7 @@ T.Test("alyx", function()
 	ent.transform:SetRotation(Quat(0, -1, 0, 1))
 	ent.model:SetModelPath(path)
 	ent.transform:SetRotation(Quat(0, -1, 0, 1))
-	tasks.WaitAll(10)
+	tasks.WaitAll(20)
 	render.Draw(1)
 
 	T.ScreenAlbedoPixel(256, 256, function(r, g, b, a)

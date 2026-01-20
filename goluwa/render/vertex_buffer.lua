@@ -1,7 +1,7 @@
 local ffi = require("ffi")
 local render = require("render.render")
 local prototype = require("prototype")
-local VertexBuffer = prototype.CreateTemplate("render", "vertex_buffer")
+local VertexBuffer = prototype.CreateTemplate("render_vertex_buffer")
 
 -- Calculate vertex stride from vertex attributes
 local function calculate_stride(vertex_attributes)

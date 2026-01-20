@@ -5,7 +5,7 @@ local ImageView = require("render.vulkan.internal.image_view")
 local CommandPool = require("render.vulkan.internal.command_pool")
 local Fence = require("render.vulkan.internal.fence")
 local Memory = require("render.vulkan.internal.memory")
-local Image = prototype.CreateTemplate("vulkan", "image")
+local Image = prototype.CreateTemplate("vulkan_image")
 
 function Image.New(config)
 	config = config or {}

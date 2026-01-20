@@ -97,7 +97,11 @@ end
 
 function gui.Create(class_name, parent)
 	parent = parent or gui.Root
-	local obj = prototype.CreateDerivedObject("surface", class_name)
+	local type = class_name
+
+	if not type:find("^surface_") then type = "surface_" .. type end
+
+	local obj = prototype.CreateObject(type)
 	parent:AddChild(obj)
 	return obj
 end

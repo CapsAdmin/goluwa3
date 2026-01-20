@@ -1,7 +1,7 @@
 local ffi = require("ffi")
 local prototype = require("prototype")
 local vulkan = require("render.vulkan.internal.vulkan")
-local Memory = prototype.CreateTemplate("vulkan", "memory")
+local Memory = prototype.CreateTemplate("vulkan_memory")
 
 function Memory.New(device, config)
 	local ptr = vulkan.T.Box(vulkan.vk.VkDeviceMemory)()

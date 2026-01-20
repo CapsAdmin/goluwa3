@@ -7,7 +7,8 @@ local Vec3 = require("structs.vec3")
 local Color = require("structs.color")
 local window = require("window")
 local Rect = require("structs.rect")
-local META = prototype.CreateTemplate("surface", "base")
+local META = prototype.CreateTemplate("surface_base")
+META.IsSurface = true
 prototype.ParentingTemplate(META)
 assert(loadfile("goluwa/gui/base_surface_layout.lua"))(META)
 META:StartStorable()
@@ -55,9 +56,7 @@ function META:InvalidateLayout()
 
 	self.layout_me = true
 
-	if self:HasParent() then
-		self:GetParent():InvalidateLayout()
-	end
+	if self:HasParent() then self:GetParent():InvalidateLayout() end
 end
 
 function META:GetWidth()

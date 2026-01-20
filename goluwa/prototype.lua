@@ -4,6 +4,7 @@ local traceback = require("helpers.traceback")
 local prototype = library()
 prototype.registered = prototype.registered or {}
 prototype.prepared_metatables = prototype.prepared_metatables or {}
+prototype.invalidate_meta = prototype.invalidate_meta or {}
 local template_functions = {
 	"GetSet",
 	"IsSet",
@@ -18,15 +19,8 @@ local template_functions = {
 	"CreateObject",
 }
 
-function prototype.CreateTemplate(super_type, sub_type, base)
-	local template = type(super_type) == "table" and super_type or {}
-
-	if type(super_type) == "string" then
-		template.Type = super_type
-		template.ClassName = sub_type or super_type
-	end
-
-	if type(base) == "string" then template.Base = base end
+function prototype.CreateTemplate(type_name)
+	local template = {Type = type_name}
 
 	for _, key in ipairs(template_functions) do
 		template[key] = prototype[key]
@@ -36,16 +30,6 @@ function prototype.CreateTemplate(super_type, sub_type, base)
 end
 
 do
-	local function checkfield(tbl, key, def)
-		tbl[key] = tbl[key] or def
-
-		if not tbl[key] then
-			error(string.format("The type field %q was not found!", key), 3)
-		end
-
-		return tbl[key]
-	end
-
 	local blacklist = {
 		prototype_variables = true,
 		Events = true,
@@ -59,10 +43,8 @@ do
 		ProtectedFields = true,
 	}
 
-	function prototype.Register(meta, super_type, sub_type)
-		local super_type = checkfield(meta, "Type", super_type)
-		sub_type = sub_type or super_type
-		local sub_type = checkfield(meta, "ClassName", sub_type)
+	function prototype.Register(meta)
+		if not meta.Type then error("The type field was not found!", 2) end
 
 		for _, key in ipairs(template_functions) do
 			if key ~= "CreateObject" and meta[key] == prototype[key] then
@@ -70,10 +52,8 @@ do
 			end
 		end
 
-		prototype.registered[super_type] = prototype.registered[super_type] or {}
-		prototype.registered[super_type][sub_type] = meta
-		prototype.invalidate_meta = prototype.invalidate_meta or {}
-		prototype.invalidate_meta[super_type] = true
+		prototype.registered[meta.Type] = meta
+		prototype.invalidate_meta[meta.Type] = true
 
 		if RELOAD then
 			prototype.UpdateObjects(meta)
@@ -105,7 +85,7 @@ do
 					end
 
 					if not found then
-						wlog("%s: META.%s = %s is mutable", meta.ClassName, k, tostring(v), 2)
+						wlog("%s: META.%s = %s is mutable", meta.Type, k, tostring(v), 2)
 					end
 				end
 			end
@@ -116,133 +96,112 @@ do
 end
 
 function prototype.RebuildMetatables(what)
-	for super_type, sub_types in pairs(prototype.registered) do
-		if what == nil or what == super_type then
-			prototype.invalidate_meta[what or super_type] = nil
+	for type_name, meta in pairs(prototype.registered) do
+		if what == nil or what == type_name then
+			prototype.invalidate_meta[type_name] = nil
+			local copy = {}
+			local prototype_variables = {}
 
-			for sub_type, meta in pairs(sub_types) do
-				local copy = {}
-				local prototype_variables = {}
+			-- first add all the base functions from the base object
+			for k, v in pairs(prototype.base_metatable) do
+				copy[k] = v
 
-				-- first add all the base functions from the base object
-				for k, v in pairs(prototype.base_metatable) do
-					copy[k] = v
-
-					if k == "prototype_variables" then
-						for k, v in pairs(v) do
-							prototype_variables[k] = v
-						end
+				if k == "prototype_variables" then
+					for k, v in pairs(v) do
+						prototype_variables[k] = v
 					end
 				end
+			end
 
-				-- if this metatable has a type base derive from it first
-				if meta.TypeBase then
-					for k, v in pairs(sub_types[meta.TypeBase]) do
-						copy[k] = v
+			-- then go through the list of bases and derive from them in reversed order
+			local base_list = {}
 
-						if k == "prototype_variables" then
-							for k, v in pairs(v) do
-								prototype_variables[k] = v
-							end
-						end
-					end
+			if meta.Base then
+				list.insert(base_list, meta.Base)
+				local base = meta
+
+				for _ = 1, 50 do
+					base = prototype.registered[base.Base]
+
+					if not base or not base.Base then break end
+
+					list.insert(base_list, 1, base.Base)
 				end
 
-				-- then go through the list of bases and derive from them in reversed order
-				local base_list = {}
+				for _, v in ipairs(base_list) do
+					local base = prototype.registered[v]
 
-				if meta.Base then
-					list.insert(base_list, meta.Base)
-					local base = meta
+					-- the base might not be registered yet
+					-- however this will be run again once it actually is
+					if base then
+						for k, v in pairs(base) do
+							copy[k] = v
 
-					for _ = 1, 50 do
-						base = sub_types[base.Base]
-
-						if not base or not base.Base then break end
-
-						list.insert(base_list, 1, base.Base)
-					end
-
-					for _, v in ipairs(base_list) do
-						local base = sub_types[v]
-
-						-- the base might not be registered yet
-						-- however this will be run again once it actually is
-						if base then
-							for k, v in pairs(base) do
-								copy[k] = v
-
-								if k == "prototype_variables" then
-									for k, v in pairs(v) do
-										prototype_variables[k] = v
-									end
+							if k == "prototype_variables" then
+								for k, v in pairs(v) do
+									prototype_variables[k] = v
 								end
 							end
 						end
 					end
 				end
-
-				-- finally the actual metatable
-				for k, v in pairs(meta) do
-					copy[k] = v
-
-					if k == "prototype_variables" then
-						for k, v in pairs(v) do
-							prototype_variables[k] = v
-						end
-					end
-				end
-
-				do
-					local tbl = {}
-
-					for _, info in pairs(prototype_variables) do
-						if info.copy then list.insert(tbl, info) end
-					end
-
-					copy.copy_variables = tbl[1] and tbl
-				end
-
-				if copy.__index2 then
-					copy.__index = function(s, k)
-						return copy[k] or copy.__index2(s, k)
-					end
-				else
-					copy.__index = copy
-				end
-
-				copy.BaseClass = sub_types[base_list[#base_list] or meta.TypeBase]
-				meta.BaseClass = copy.BaseClass
-				prototype.prepared_metatables[super_type] = prototype.prepared_metatables[super_type] or {}
-				prototype.prepared_metatables[super_type][sub_type] = copy
 			end
+
+			-- finally the actual metatable
+			for k, v in pairs(meta) do
+				copy[k] = v
+
+				if k == "prototype_variables" then
+					for k, v in pairs(v) do
+						prototype_variables[k] = v
+					end
+				end
+			end
+
+			do
+				local tbl = {}
+
+				for _, info in pairs(prototype_variables) do
+					if info.copy then list.insert(tbl, info) end
+				end
+
+				copy.copy_variables = tbl[1] and tbl
+			end
+
+			if copy.__index2 then
+				copy.__index = function(s, k)
+					return copy[k] or copy.__index2(s, k)
+				end
+			else
+				copy.__index = copy
+			end
+
+			copy.BaseClass = prototype.registered[base_list[#base_list]]
+			meta.BaseClass = copy.BaseClass
+			prototype.prepared_metatables[type_name] = copy
 		end
 	end
 end
 
-function prototype.GetRegistered(super_type, sub_type)
-	sub_type = sub_type or super_type
-
-	if prototype.registered[super_type] and prototype.registered[super_type][sub_type] then
-		if prototype.invalidate_meta[super_type] then
-			prototype.RebuildMetatables(super_type)
+function prototype.GetRegistered(type_name)
+	if prototype.registered[type_name] then
+		if prototype.invalidate_meta[type_name] then
+			prototype.RebuildMetatables(type_name)
 		end
 
-		return prototype.prepared_metatables[super_type][sub_type]
+		return prototype.prepared_metatables[type_name]
 	end
 end
 
 function prototype.GetRegisteredSubTypes(super_type)
-	return prototype.registered[super_type]
+	return {prototype.registered[super_type]}
 end
 
 function prototype.GetAllRegistered()
 	local out = {}
 
-	for _, sub_types in pairs(prototype.registered) do
-		for _, meta in pairs(sub_types) do
-			list.insert(out, meta)
-		end
+	for _, meta in pairs(prototype.registered) do
+		list.insert(out, meta)
 	end
 
 	return out
@@ -271,7 +230,7 @@ do
 		if type(meta) == "string" then meta = prototype.GetRegistered(meta) end
 
 		-- this has to be done in order to ensure we have the prepared metatable with bases
-		meta = prototype.GetRegistered(meta.Type, meta.ClassName) or meta
+		meta = prototype.GetRegistered(meta.Type) or meta
 
 		if not meta.__gc then meta.__gc = remove_callback end
 
@@ -433,11 +392,19 @@ do
 	end
 end
 
-function prototype.CreateDerivedObject(super_type, sub_type, override, skip_gc_callback)
-	local meta = prototype.GetRegistered(super_type, sub_type)
+function prototype.CreateDerivedObject(type_name, sub_type, override, skip_gc_callback)
+	if type(sub_type) == "string" then
+		type_name = type_name .. "_" .. sub_type
+	else
+		-- it might be the override table
+		skip_gc_callback = override
+		override = sub_type
+	end
+
+	local meta = prototype.GetRegistered(type_name)
 
 	if not meta then
-		llog("tried to create unknown %s %q!", super_type or "no type", sub_type or "no class")
+		print(string.format("tried to create unknown %s!", type_name or "no type"))
 		return
 	end
 
@@ -450,24 +417,12 @@ function prototype.SafeRemove(obj)
 	end
 end
 
-function prototype.GetCreated(sorted, super_type, sub_type)
+function prototype.GetCreated(sorted, type_name)
 	if sorted then
 		local out = {}
 
 		for _, v in pairs(prototype.created_objects) do
-			if
-				(
-					not super_type or
-					v.Type == super_type
-				)
-				and
-				(
-					not sub_type or
-					v.ClassName == sub_type
-				)
-			then
-				list.insert(out, v)
-			end
+			if not type_name or v.Type == type_name then list.insert(out, v) end
 		end
 
 		list.sort(out, function(a, b)
@@ -519,19 +474,15 @@ function prototype.FindObject(str)
 		return found
 	end
 
-	if
-		try(function(obj)
-			return obj:GetNiceClassName() == name and find_property(obj)
-		end)
-	then
+	if try(function(obj)
+		return obj.Type == name and find_property(obj)
+	end) then
 		return found
 	end
 
-	if
-		try(function(obj)
-			return obj:GetNiceClassName():compare(name) and find_property(obj)
-		end)
-	then
+	if try(function(obj)
+		return obj.Type:compare(name) and find_property(obj)
+	end) then
 		return found
 	end
 end
@@ -542,17 +493,9 @@ function prototype.UpdateObjects(meta)
 	if not meta then return end
 
 	for _, obj in pairs(prototype.GetCreated()) do
-		local tbl
-
-		if obj.Type == meta.Type and obj.ClassName == meta.ClassName then
-			tbl = meta
-		elseif obj.Type == meta.Type and obj.TypeBase == meta.ClassName then
-			tbl = prototype.GetRegistered(obj.Type, obj.ClassName)
-		end
-
-		if tbl then
+		if obj.Type == meta.Type then
 			if RELOAD then
-				for k, v in pairs(tbl) do
+				for k, v in pairs(meta) do
 					if type(v) == "function" then
 						if
 							type(obj[k]) == "function" and
@@ -560,9 +503,8 @@ function prototype.UpdateObjects(meta)
 							#string.dump(v) < #string.dump(obj[k])
 						then
 							llog(
-								"not overriding smaller function %s.%s:%s(%s)",
-								tbl.Type,
-								tbl.ClassName,
+								"not overriding smaller function %s:%s(%s)",
+								meta.Type,
 								k,
 								list.concat_member(debug.get_upvalues(v), "key", ", ")
 							)
@@ -574,7 +516,7 @@ function prototype.UpdateObjects(meta)
 					end
 				end
 			else
-				for k, v in pairs(tbl) do
+				for k, v in pairs(meta) do
 					if type(v) == "function" then obj[k] = v end
 				end
 			end
@@ -582,13 +524,9 @@ function prototype.UpdateObjects(meta)
 	end
 end
 
-function prototype.RemoveObjects(super_type, sub_type)
-	sub_type = sub_type or super_type
-
+function prototype.RemoveObjects(type_name)
 	for _, obj in pairs(prototype.GetCreated()) do
-		if obj.Type == super_type and obj.ClassName == sub_type then
-			if obj:IsValid() then obj:Remove() end
-		end
+		if obj.Type == type_name then if obj:IsValid() then obj:Remove() end end
 	end
 end
 
@@ -596,10 +534,7 @@ function prototype.DumpObjectCount()
 	local found = {}
 
 	for obj in pairs(prototype.GetCreated()) do
-		local name = obj.ClassName
-
-		if obj.ClassName ~= obj.Type then name = obj.Type .. " - " .. name end
-
+		local name = obj.Type
 		found[name] = (found[name] or 0) + 1
 	end
 
@@ -866,14 +801,6 @@ do -- base object
 		return self.GUID
 	end
 
-	function META:GetNiceClassName()
-		if self.ClassName ~= self.Type then
-			return self.Type .. "_" .. self.ClassName
-		end
-
-		return self.ClassName
-	end
-
 	function META:GetEditorName()
 		if self.Name == "" then return self.EditorName or "" end
 
@@ -884,17 +811,9 @@ do -- base object
 		local additional_info = self:__tostring2()
 
 		if self.Name ~= "" then
-			if self.ClassName ~= self.Type then
-				return ("%s:%s[%s]%s"):format(self.Type, self.ClassName, self.Name, additional_info)
-			else
-				return ("%s[%s]%s"):format(self.Type, self.Name, additional_info)
-			end
+			return ("%s[%s]%s"):format(self.Type, self.Name, additional_info)
 		else
-			if self.ClassName ~= self.Type then
-				return ("%s:%s[%p]%s"):format(self.Type, self.ClassName, self, additional_info)
-			else
-				return ("%s[%p]%s"):format(self.Type, self, additional_info)
-			end
+			return ("%s[%p]%s"):format(self.Type, self, additional_info)
 		end
 	end
 
@@ -1157,7 +1076,7 @@ do
 		if prototype.created_objects then prototype.created_objects[tbl] = nil end
 	end
 
-	_G.NULL = setmetatable({Type = "null", ClassName = "ClassName"}, prototype.GetRegistered("null"))
+	_G.NULL = setmetatable({Type = "null"}, prototype.GetRegistered("null"))
 end
 
 do -- pool
@@ -1442,15 +1361,15 @@ function prototype.ParentingTemplate(META)
 			end
 		end
 
-		function META:CallRecursiveOnClassName(class_name, func, a, b, c)
+		function META:CallRecursiveOnType(type_name, func, a, b, c)
 			assert(c == nil, "EXTEND ME")
 
-			if self[func] and self.ClassName == class_name then
+			if self[func] and self.Type == type_name then
 				self[func](self, a, b, c)
 			end
 
 			for _, child in ipairs(self:GetChildrenList()) do
-				if child[func] and self.ClassName == class_name then
+				if child[func] and self.Type == type_name then
 					child[func](child, a, b, c)
 				end
 			end

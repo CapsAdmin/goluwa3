@@ -1,7 +1,7 @@
 local ffi = require("ffi")
 local prototype = require("prototype")
 local vulkan = require("render.vulkan.internal.vulkan")
-local Framebuffer = prototype.CreateTemplate("vulkan", "framebuffer")
+local Framebuffer = prototype.CreateTemplate("vulkan_framebuffer")
 
 function Framebuffer.New(config)
 	local device = config.device

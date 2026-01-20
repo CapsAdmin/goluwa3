@@ -15,7 +15,7 @@ local ffi = require("ffi")
 local Model = {}
 -- Cached matrix to avoid allocation in hot drawing loops
 local cached_final_matrix = Matrix44()
-local META = prototype.CreateTemplate("component", "model")
+local META = prototype.CreateTemplate("model")
 META.ComponentName = "model"
 -- Model requires transform component
 META.Require = {"transform"}

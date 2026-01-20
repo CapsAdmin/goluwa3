@@ -138,5 +138,6 @@ return function(vfs)
 	end
 
 	require("filesystem.buffer_template")(CONTEXT)
-	prototype.Register(CONTEXT, "file_system", CONTEXT.Name)
+	CONTEXT.Type = "file_system_" .. CONTEXT.Name
+	prototype.Register(CONTEXT)
 end

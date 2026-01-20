@@ -1,7 +1,7 @@
 local ffi = require("ffi")
 local prototype = require("prototype")
 local vulkan = require("render.vulkan.internal.vulkan")
-local Sampler = prototype.CreateTemplate("vulkan", "sampler")
+local Sampler = prototype.CreateTemplate("vulkan_sampler")
 
 function Sampler.New(config)
 	config = config or {}

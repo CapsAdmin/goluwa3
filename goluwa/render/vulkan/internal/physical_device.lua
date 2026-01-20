@@ -1,7 +1,7 @@
 local ffi = require("ffi")
 local prototype = require("prototype")
 local vulkan = require("render.vulkan.internal.vulkan")
-local PhysicalDevice = prototype.CreateTemplate("vulkan", "physical_device")
+local PhysicalDevice = prototype.CreateTemplate("vulkan_physical_device")
 
 function PhysicalDevice.New(ptr)
 	assert(type(ptr) == "cdata", "ptr must be a cdata VkPhysicalDevice")

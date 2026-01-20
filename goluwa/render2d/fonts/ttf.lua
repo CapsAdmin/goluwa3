@@ -9,7 +9,8 @@ local codec = require("codec")
 local gfx = require("render2d.gfx")
 local math2d = require("render2d.math2d")
 local prototype = require("prototype")
-local META = prototype.CreateTemplate("font", "ttf")
+local META = prototype.CreateTemplate("font_ttf")
+META.IsFont = true
 META:GetSet("Path", nil)
 META:GetSet("Size", 16, {callback = "UpdateScale"})
 

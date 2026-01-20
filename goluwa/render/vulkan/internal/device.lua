@@ -1,7 +1,7 @@
 local ffi = require("ffi")
 local prototype = require("prototype")
 local vulkan = require("render.vulkan.internal.vulkan")
-local Device = prototype.CreateTemplate("vulkan", "device")
+local Device = prototype.CreateTemplate("vulkan_device")
 Device.GetQueue = require("render.vulkan.internal.queue").New
 
 function Device.New(physical_device, extensions, graphicsQueueFamily)

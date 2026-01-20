@@ -1,7 +1,7 @@
 local ffi = require("ffi")
 local prototype = require("prototype")
 local vulkan = require("render.vulkan.internal.vulkan")
-local ComputePipeline = prototype.CreateTemplate("vulkan", "compute_pipeline")
+local ComputePipeline = prototype.CreateTemplate("vulkan_compute_pipeline")
 
 function ComputePipeline.New(device, shaderModule, pipelineLayout)
 	local info = vulkan.vk.s.PipelineShaderStageCreateInfo({

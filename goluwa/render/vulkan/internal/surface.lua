@@ -1,7 +1,7 @@
 local ffi = require("ffi")
 local prototype = require("prototype")
 local vulkan = require("render.vulkan.internal.vulkan")
-local Surface = prototype.CreateTemplate("vulkan", "surface")
+local Surface = prototype.CreateTemplate("vulkan_surface")
 
 function Surface.New(instance, surface_handle, display_handle)
 	local info

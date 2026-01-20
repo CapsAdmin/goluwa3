@@ -1,7 +1,7 @@
 local ffi = require("ffi")
 local prototype = require("prototype")
 local vulkan = require("render.vulkan.internal.vulkan")
-local DescriptorSetLayout = prototype.CreateTemplate("vulkan", "descriptor_set_layout")
+local DescriptorSetLayout = prototype.CreateTemplate("vulkan_descriptor_set_layout")
 
 function DescriptorSetLayout.New(device, bindings)
 	-- bindings is an array of tables: {{binding, type, stageFlags, count}, ...}

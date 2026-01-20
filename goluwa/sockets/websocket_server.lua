@@ -2,8 +2,8 @@ local frame = require("sockets.websocket.frame")
 local crypto = require("crypto")
 local prototype = require("prototype")
 return function(sockets)
-	local META = prototype.CreateTemplate("socket", "websocket_server")
-	META.Base = "tcp_server"
+	local META = prototype.CreateTemplate("socket_websocket_server")
+	META.Base = "socket_tcp_server"
 
 	local function header_to_table(header)
 		local tbl = {}

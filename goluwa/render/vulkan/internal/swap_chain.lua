@@ -1,7 +1,7 @@
 local ffi = require("ffi")
 local prototype = require("prototype")
 local vulkan = require("render.vulkan.internal.vulkan")
-local Swapchain = prototype.CreateTemplate("vulkan", "swap_chain")
+local Swapchain = prototype.CreateTemplate("vulkan_swap_chain")
 
 function Swapchain.New(config)
 	local ptr = vulkan.T.Box(vulkan.vk.VkSwapchainKHR)()

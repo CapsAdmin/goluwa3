@@ -1,7 +1,7 @@
 local ffi = require("ffi")
 local prototype = require("prototype")
 local vulkan = require("render.vulkan.internal.vulkan")
-local Semaphore = prototype.CreateTemplate("vulkan", "semaphore")
+local Semaphore = prototype.CreateTemplate("vulkan_semaphore")
 
 function Semaphore.New(device)
 	local ptr = vulkan.T.Box(vulkan.vk.VkSemaphore)()

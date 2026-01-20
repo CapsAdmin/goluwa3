@@ -1,7 +1,7 @@
 local ffi = require("ffi")
 local render = require("render.render")
 local prototype = require("prototype")
-local IndexBuffer = prototype.CreateTemplate("render", "index_buffer")
+local IndexBuffer = prototype.CreateTemplate("render_index_buffer")
 
 -- Convert indices to appropriate format
 local function indices_to_array(indices, index_type)

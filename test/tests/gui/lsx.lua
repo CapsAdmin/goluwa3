@@ -5,8 +5,8 @@ local gui = require("gui.gui")
 local Vec2 = require("structs.vec2")
 local event = require("event")
 -- Create a mock surface type for testing
-local META = prototype.CreateTemplate("surface", "mock_element")
-META.TypeBase = "base"
+local META = prototype.CreateTemplate("surface_mock_element")
+META.Base = "surface_base"
 META:GetSet("MemoVal")
 META:GetSet("Callback")
 META:Register()
@@ -252,14 +252,11 @@ T.Test("lsx.Build should not be called multiple times if setState is called mult
 		build_count = build_count + 1
 		local state, set_state = lsx.UseState(0)
 
-		lsx.UseEffect(
-			function()
-				set_state(1)
-				set_state(2)
-				set_state(3)
-			end,
-			{}
-		)
+		lsx.UseEffect(function()
+			set_state(1)
+			set_state(2)
+			set_state(3)
+		end, {})
 
 		return Mock({Name = "State:" .. state})
 	end)

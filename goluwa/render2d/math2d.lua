@@ -650,7 +650,7 @@ do
 end
 
 do
-	local META = prototype.CreateTemplate("render2d", "bezier_curve")
+	local META = prototype.CreateTemplate("render2d_bezier_curve")
 
 	function math2d.CreateBezierCurve(coordinates)
 		local self = META:CreateObject()

@@ -167,9 +167,19 @@ do -- file systems
 	vfs.filesystems2 = vfs.filesystems2 or {}
 
 	function vfs.RegisterFileSystem(META, is_base)
-		META.TypeBase = "base"
+		if META.Name ~= "base" then
+			if META.Base then
+				if not META.Base:find("file_system_", nil, true) then
+					META.Base = "file_system_" .. META.Base
+				end
+			else
+				META.Base = "file_system_base"
+			end
+		end
+
 		META.Position = META.Position or 0
-		prototype.Register(META, "file_system", META.Name)
+		META.Type = "file_system_" .. META.Name
+		prototype.Register(META)
 
 		if is_base then return end
 

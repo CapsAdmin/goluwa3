@@ -2,7 +2,7 @@ local ljsocket = require("bindings.socket")
 local prototype = require("prototype")
 local repl = require("repl")
 return function(sockets)
-	local META = prototype.CreateTemplate("socket", "tcp_server")
+	local META = prototype.CreateTemplate("socket_tcp_server")
 
 	function META:assert(val, err)
 		if not val then self:Error(err) end

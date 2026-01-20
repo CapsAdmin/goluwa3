@@ -3,7 +3,7 @@ local prototype = require("prototype")
 local event = require("event")
 
 T.Test("prototype basic registration and creation", function()
-	local META = prototype.CreateTemplate("test_type", "test_class")
+	local META = prototype.CreateTemplate("test_type")
 
 	function META:Foo()
 		return "bar"
@@ -12,7 +12,6 @@ T.Test("prototype basic registration and creation", function()
 	META:Register()
 	local obj = prototype.CreateObject(META)
 	T(obj.Type)["=="]("test_type")
-	T(obj.ClassName)["=="]("test_class")
 	T(obj:Foo())["=="]("bar")
 	T(obj:IsValid())["=="](true)
 	obj:Remove()
@@ -20,7 +19,7 @@ T.Test("prototype basic registration and creation", function()
 end)
 
 T.Test("prototype properties GetSet", function()
-	local META = prototype.CreateTemplate("test_type", "test_props")
+	local META = prototype.CreateTemplate("test_props")
 	META:GetSet("Value", 123)
 	META:Register()
 	local obj = prototype.CreateObject(META)
@@ -31,7 +30,7 @@ T.Test("prototype properties GetSet", function()
 end)
 
 T.Test("prototype properties IsSet", function()
-	local META = prototype.CreateTemplate("test_type", "test_is")
+	local META = prototype.CreateTemplate("test_is")
 	META:IsSet("Cool", false)
 	META:Register()
 	local obj = prototype.CreateObject(META)
@@ -41,14 +40,14 @@ T.Test("prototype properties IsSet", function()
 end)
 
 T.Test("prototype inheritance Base", function()
-	local BASE = prototype.CreateTemplate("inherited", "base")
+	local BASE = prototype.CreateTemplate("base")
 
 	function BASE:Identify()
 		return "base"
 	end
 
 	BASE:Register()
-	local SUB = prototype.CreateTemplate("inherited", "sub")
+	local SUB = prototype.CreateTemplate("sub")
 	SUB.Base = "base"
 
 	function SUB:Identify()
@@ -65,23 +64,23 @@ T.Test("prototype inheritance Base", function()
 	T(obj:BaseIdentify())["=="]("base")
 end)
 
-T.Test("prototype TypeBase", function()
-	local TYPE_BASE = prototype.CreateTemplate("type_base_test", "base")
+T.Test("prototype Base", function()
+	local BASE = prototype.CreateTemplate("base_test")
 
-	function TYPE_BASE:Hello()
+	function BASE:Hello()
 		return "world"
 	end
 
-	TYPE_BASE:Register()
-	local SUB = prototype.CreateTemplate("type_base_test", "sub")
-	SUB.TypeBase = "base"
+	BASE:Register()
+	local SUB = prototype.CreateTemplate("sub_test")
+	SUB.Base = "base_test"
 	SUB:Register()
 	local obj = prototype.CreateObject(SUB)
 	T(obj:Hello())["=="]("world")
 end)
 
 T.Test("prototype storable", function()
-	local META = prototype.CreateTemplate("storable_test", "test")
+	local META = prototype.CreateTemplate("storable_test")
 	META:StartStorable()
 	META:GetSet("A", 1)
 	META:GetSet("B", "two")
@@ -100,7 +99,7 @@ T.Test("prototype storable", function()
 end)
 
 T.Test("prototype parenting", function()
-	local META = prototype.CreateTemplate("parenting_test", "test")
+	local META = prototype.CreateTemplate("parenting_test")
 	prototype.ParentingTemplate(META)
 	META:Register()
 	local parent = prototype.CreateObject(META)
@@ -118,7 +117,7 @@ T.Test("prototype parenting", function()
 end)
 
 T.Test("prototype GUID", function()
-	local META = prototype.CreateTemplate("guid_test", "test")
+	local META = prototype.CreateTemplate("guid_test")
 	META:Register()
 	local obj = prototype.CreateObject(META)
 	local guid = "my_unique_guid"
@@ -128,7 +127,7 @@ T.Test("prototype GUID", function()
 end)
 
 T.Test("prototype parenting OnUnParent once", function()
-	local META = prototype.CreateTemplate("parenting_test", "test_unparent")
+	local META = prototype.CreateTemplate("test_unparent")
 	prototype.ParentingTemplate(META)
 	local unparent_count = 0
 
@@ -146,7 +145,7 @@ T.Test("prototype parenting OnUnParent once", function()
 end)
 
 T.Test("prototype UpdateObjects hot reload", function()
-	local META = prototype.CreateTemplate("update_test", "test")
+	local META = prototype.CreateTemplate("update_test")
 
 	function META:Foo()
 		return "old"
@@ -156,7 +155,7 @@ T.Test("prototype UpdateObjects hot reload", function()
 	local obj = prototype.CreateObject(META)
 	T(obj:Foo())["=="]("old")
 	-- Simulate reload
-	local META2 = prototype.CreateTemplate("update_test", "test")
+	local META2 = prototype.CreateTemplate("update_test")
 
 	function META2:Foo()
 		return "new"
@@ -176,7 +175,7 @@ end)
 
 T.Test("prototype GC callback", function()
 	local gc_called = false
-	local META = prototype.CreateTemplate("gc_test", "test")
+	local META = prototype.CreateTemplate("gc_test")
 
 	function META:Remove()
 		gc_called = true
@@ -195,7 +194,7 @@ T.Test("prototype GC callback", function()
 end)
 
 T.Test("prototype PropertyLink memory leak and removal", function()
-	local META = prototype.CreateTemplate("link_test", "test")
+	local META = prototype.CreateTemplate("test")
 	META:GetSet("Value", 0)
 	META:Register()
 	local obj1 = prototype.CreateObject(META)
@@ -213,12 +212,12 @@ T.Test("prototype PropertyLink memory leak and removal", function()
 end)
 
 T.Test("prototype DelegateProperties", function()
-	local FROM = prototype.CreateTemplate("delegate_test", "from")
+	local FROM = prototype.CreateTemplate("from")
 	FROM:StartStorable()
 	FROM:GetSet("Value", 0)
 	FROM:EndStorable()
 	FROM:Register()
-	local TO = prototype.CreateTemplate("delegate_test", "to")
+	local TO = prototype.CreateTemplate("to")
 	prototype.DelegateProperties(TO, FROM, "SubObj")
 	TO:Register()
 	local to_obj = prototype.CreateObject(TO)
@@ -230,7 +229,7 @@ T.Test("prototype DelegateProperties", function()
 end)
 
 T.Test("prototype parenting cycle", function()
-	local META = prototype.CreateTemplate("cycle_test", "test")
+	local META = prototype.CreateTemplate("test")
 	prototype.ParentingTemplate(META)
 	META:Register()
 	local a = prototype.CreateObject(META)

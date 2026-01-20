@@ -1,7 +1,7 @@
 local ffi = require("ffi")
 local prototype = require("prototype")
 local vulkan = require("render.vulkan.internal.vulkan")
-local RenderPass = prototype.CreateTemplate("vulkan", "render_pass")
+local RenderPass = prototype.CreateTemplate("vulkan_render_pass")
 
 function RenderPass.New(device, config)
 	config.samples = config.samples or "1"

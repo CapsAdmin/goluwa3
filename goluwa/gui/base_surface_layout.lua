@@ -193,7 +193,7 @@ function META:ExecuteLayoutCommands()
 	for _, child in ipairs(self:GetChildren()) do
 		if child.Layout then
 			for _, cmd in ipairs(child.Layout) do
-				if typex(cmd) == "surface" then
+				if type(cmd) == "table" and cmd.IsSurface then
 					child.last_layout_panel = cmd
 				else
 					if cmd == "LayoutChildren" then
@@ -276,6 +276,7 @@ end
 gui.in_layout = 0
 META.in_layout = 0
 gui.debug = true
+
 function META:CalcLayoutInternal(now)
 	if self.in_layout ~= 0 then return end
 
@@ -327,7 +328,9 @@ end
 
 local function compare_layouts(tbl1, tbl2)
 	if tbl1 == tbl2 then return true end
+
 	if not tbl1 or not tbl2 then return false end
+
 	if #tbl1 ~= #tbl2 then return false end
 
 	for i = 1, #tbl1 do

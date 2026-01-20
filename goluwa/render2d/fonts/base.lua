@@ -4,7 +4,8 @@ local Texture = require("render.texture")
 local Buffer = require("structs.buffer")
 local system = require("system")
 local prototype = require("prototype")
-local META = prototype.CreateTemplate("font", "base")
+local META = prototype.CreateTemplate("font_base")
+META.IsFont = true
 META:GetSet("Path", "default")
 
 function META.New()
@@ -248,8 +249,13 @@ function META:GetTextSize(str)
 	return X, Y
 end
 
-function META:GetAscent() return 8 end
-function META:GetDescent() return 0 end
+function META:GetAscent()
+	return 8
+end
+
+function META:GetDescent()
+	return 0
+end
 
 function META:DrawString(str, x, y, spacing)
 	spacing = spacing or 0

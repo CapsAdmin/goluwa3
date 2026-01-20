@@ -1,7 +1,7 @@
 local prototype = require("prototype")
 local Polygon2D = require("render2d.polygon_2d")
 local render2d = require("render2d.render2d")
-local META = prototype.CreateTemplate("render2d", "sprite_batch")
+local META = prototype.CreateTemplate("render2d_sprite_batch")
 META:GetSet("AutoFlush", true)
 
 function META.New(count)

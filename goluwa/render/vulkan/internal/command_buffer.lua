@@ -1,7 +1,7 @@
 local ffi = require("ffi")
 local prototype = require("prototype")
 local vulkan = require("render.vulkan.internal.vulkan")
-local CommandBuffer = prototype.CreateTemplate("vulkan", "command_buffer")
+local CommandBuffer = prototype.CreateTemplate("vulkan_command_buffer")
 
 function CommandBuffer.New(command_pool)
 	local ptr = vulkan.T.Box(vulkan.vk.VkCommandBuffer)()

@@ -6,7 +6,7 @@ T.Test("ecs core basic", function()
 	ecs.ClearWorld()
 	local world = ecs.GetWorld()
 	-- Test component registration
-	local test_component = prototype.CreateTemplate("component", "test_component")
+	local test_component = prototype.CreateTemplate("test_component")
 	test_component.ComponentName = "test_component"
 	test_component.Foo = 1
 	test_component:Register()
@@ -30,7 +30,7 @@ end)
 T.Test("ecs OnRemove component", function()
 	ecs.ClearWorld()
 	local on_remove_called = false
-	local META = prototype.CreateTemplate("component", "test_on_remove")
+	local META = prototype.CreateTemplate("test_on_remove")
 	META.ComponentName = "test_on_remove"
 
 	function META:OnRemove()
@@ -51,7 +51,7 @@ end)
 
 T.Test("ecs GetComponents", function()
 	ecs.ClearWorld()
-	local META = prototype.CreateTemplate("component", "c1")
+	local META = prototype.CreateTemplate("c1")
 	META.ComponentName = "c1"
 	META:Register()
 	ecs.RegisterComponent(META)
@@ -97,7 +97,7 @@ end)
 
 T.Test("ecs component removal during loop", function()
 	ecs.ClearWorld()
-	local META = prototype.CreateTemplate("component", "loop_test")
+	local META = prototype.CreateTemplate("loop_test")
 	META.ComponentName = "loop_test"
 	META:Register()
 	ecs.RegisterComponent(META)
@@ -126,7 +126,7 @@ end)
 
 T.Test("ecs internal component removal via RemoveCommand", function()
 	ecs.ClearWorld()
-	local META = prototype.CreateTemplate("component", "rem_test")
+	local META = prototype.CreateTemplate("rem_test")
 	META.ComponentName = "rem_test"
 	META:Register()
 	ecs.RegisterComponent(META)
@@ -147,16 +147,16 @@ end)
 
 T.Test("ecs AddComponent requirements", function()
 	ecs.ClearWorld()
-	local meta_req = prototype.CreateTemplate("component", "with_req")
+	local meta_req = prototype.CreateTemplate("with_req")
 	meta_req.ComponentName = "with_req"
 	meta_req.Require = {"req1", "req2"}
 	meta_req:Register()
 	ecs.RegisterComponent(meta_req)
-	local meta_req1 = prototype.CreateTemplate("component", "req1")
+	local meta_req1 = prototype.CreateTemplate("req1")
 	meta_req1.ComponentName = "req1"
 	meta_req1:Register()
 	ecs.RegisterComponent(meta_req1)
-	local meta_req2 = prototype.CreateTemplate("component", "req2")
+	local meta_req2 = prototype.CreateTemplate("req2")
 	meta_req2.ComponentName = "req2"
 	meta_req2:Register()
 	ecs.RegisterComponent(meta_req2)
@@ -170,7 +170,7 @@ end)
 T.Test("ecs OnEntityAddComponent", function()
 	ecs.ClearWorld()
 	local added_component = nil
-	local meta_listener = prototype.CreateTemplate("component", "listener")
+	local meta_listener = prototype.CreateTemplate("listener")
 	meta_listener.ComponentName = "listener"
 
 	function meta_listener:OnEntityAddComponent(comp)
@@ -179,7 +179,7 @@ T.Test("ecs OnEntityAddComponent", function()
 
 	meta_listener:Register()
 	ecs.RegisterComponent(meta_listener)
-	local meta_other = prototype.CreateTemplate("component", "other")
+	local meta_other = prototype.CreateTemplate("other")
 	meta_other.ComponentName = "other"
 	meta_other:Register()
 	ecs.RegisterComponent(meta_other)

@@ -11,6 +11,7 @@ local utf8 = require("utf8")
 local event = require("event")
 local TextureAtlas = require("render.texture_atlas")
 local META = prototype.CreateTemplate("rasterized_font")
+META.IsFont = true
 META:GetSet("Fonts", {})
 META:GetSet("Padding", 0)
 META:GetSet("Curve", 0)
@@ -27,7 +28,7 @@ META:GetSet("TabWidthMultiplier", 4)
 META:GetSet("Flags")
 
 function META.New(fonts)
-	if fonts.Type == "font" then fonts = {fonts} end
+	if type(fonts) == "table" and fonts.IsFont then fonts = {fonts} end
 
 	local self = META:CreateObject()
 	self:SetFonts(fonts)

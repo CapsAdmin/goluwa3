@@ -4,7 +4,7 @@ local render2d = require("render2d.render2d")
 local Vec2 = require("structs.vec2")
 local Texture = require("render.texture")
 local Fence = require("render.vulkan.internal.fence")
-local META = prototype.CreateTemplate("render", "texture_atlas")
+local META = prototype.CreateTemplate("render_texture_atlas")
 META:GetSet("Padding", 1)
 META:GetSet("MipMapLevels", 1)
 

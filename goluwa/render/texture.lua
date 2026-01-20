@@ -9,7 +9,7 @@ local Image = require("render.vulkan.internal.image")
 local Sampler = require("render.vulkan.internal.sampler")
 local codec = require("codec")
 local prototype = require("prototype")
-local Texture = prototype.CreateTemplate("render", "texture")
+local Texture = prototype.CreateTemplate("render_texture")
 -- Texture cache for path-based textures
 local texture_cache = {}
 local temp_fence = nil

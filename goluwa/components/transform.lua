@@ -5,7 +5,7 @@ local Ang3 = require("structs.ang3")
 local Vec3 = require("structs.vec3")
 local Quat = require("structs.quat")
 local AABB = require("structs.aabb")
-local META = prototype.CreateTemplate("component", "transform")
+local META = prototype.CreateTemplate("transform")
 META.ComponentName = "transform"
 -- No requirements - transform is a base component
 META.Require = {}

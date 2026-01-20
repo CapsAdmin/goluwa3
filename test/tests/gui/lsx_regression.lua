@@ -14,9 +14,9 @@ T.Test("lsx.HoverPanel regression test", function()
 	local IsHovered_called = 0
 
 	-- Mock IsHovered since we don't have a real mouse/window interaction easily here
-	local original_IsHovered = prototype.registered.surface.base.IsHovered
+	local original_IsHovered = prototype.registered.surface_base.IsHovered
 	local mock_hovered = false
-	prototype.registered.surface.base.IsHovered = function(self, mouse_pos)
+	prototype.registered.surface_base.IsHovered = function(self, mouse_pos)
 		IsHovered_called = IsHovered_called + 1
 		return mock_hovered
 	end
@@ -57,8 +57,8 @@ T.Test("lsx.HoverPanel regression test", function()
 
 	-- Check setter optimization safety
 	local scale_calls = 0
-	local original_SetScale = prototype.registered.surface.base.SetScale
-	prototype.registered.surface.base.SetScale = function(self, val)
+	local original_SetScale = prototype.registered.surface_base.SetScale
+	prototype.registered.surface_base.SetScale = function(self, val)
 		scale_calls = scale_calls + 1
 		return original_SetScale(self, val)
 	end
@@ -68,9 +68,9 @@ T.Test("lsx.HoverPanel regression test", function()
 	lsx.Build(node, root, instance)
 	T(scale_calls)["=="](0) -- Should NOT have called SetScale because Scale didn't change
 
-	prototype.registered.surface.base.SetScale = original_SetScale
+	prototype.registered.surface_base.SetScale = original_SetScale
 
 	-- Clean up
-	prototype.registered.surface.base.IsHovered = original_IsHovered
+	prototype.registered.surface_base.IsHovered = original_IsHovered
 	root:Remove()
 end)

@@ -4,7 +4,7 @@ local Vec2 = require("structs.vec2")
 local Matrix44 = require("structs.matrix44")
 local Quat = require("structs.quat")
 local Rect = require("structs.rect")
-local META = prototype.CreateTemplate("render3d", "camera3d")
+local META = prototype.CreateTemplate("render3d_camera3d")
 
 do
 	META:GetSet("OrthoMode", false, {callback = "InvalidateProjectionMatrix"})

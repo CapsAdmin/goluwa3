@@ -1,7 +1,7 @@
 local ljsocket = require("bindings.socket")
 local prototype = require("prototype")
 return function(sockets)
-	local META = prototype.CreateTemplate("socket", "tcp_client")
+	local META = prototype.CreateTemplate("socket_tcp_client")
 	prototype.GetSet(META, "BufferSize", 64000)
 
 	function META:assert(val, err)

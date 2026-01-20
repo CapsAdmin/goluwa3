@@ -1,7 +1,7 @@
 local ffi = require("ffi")
 local prototype = require("prototype")
 local vulkan = require("render.vulkan.internal.vulkan")
-local DescriptorPool = prototype.CreateTemplate("vulkan", "descriptor_pool")
+local DescriptorPool = prototype.CreateTemplate("vulkan_descriptor_pool")
 
 function DescriptorPool.New(device, poolSizes, maxSets)
 	-- poolSizes is an array of tables: {{type, count}, ...}

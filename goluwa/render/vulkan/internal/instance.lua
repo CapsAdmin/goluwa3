@@ -2,7 +2,7 @@ local ffi = require("ffi")
 local prototype = require("prototype")
 local vulkan = require("render.vulkan.internal.vulkan")
 local PhysicalDevice = require("render.vulkan.internal.physical_device")
-local Instance = prototype.CreateTemplate("vulkan", "instance")
+local Instance = prototype.CreateTemplate("vulkan_instance")
 -- Patterns to suppress (plain text matching)
 local suppressed_warnings = {
 	"vk_loader_settings.json",

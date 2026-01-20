@@ -1,7 +1,7 @@
 local ffi = require("ffi")
 local prototype = require("prototype")
 local vulkan = require("render.vulkan.internal.vulkan")
-local PipelineLayout = prototype.CreateTemplate("vulkan", "pipeline_layout")
+local PipelineLayout = prototype.CreateTemplate("vulkan_pipeline_layout")
 
 -- used to pass data to shaders
 function PipelineLayout.New(device, descriptorSetLayouts, pushConstantRanges)

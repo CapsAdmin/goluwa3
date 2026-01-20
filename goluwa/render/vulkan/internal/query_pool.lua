@@ -1,7 +1,7 @@
 local ffi = require("ffi")
 local prototype = require("prototype")
 local vulkan = require("render.vulkan.internal.vulkan")
-local QueryPool = prototype.CreateTemplate("vulkan", "query_pool")
+local QueryPool = prototype.CreateTemplate("vulkan_query_pool")
 
 function QueryPool.New(device, query_type, query_count)
 	local ptr = vulkan.T.Box(vulkan.vk.VkQueryPool)()

@@ -99,7 +99,6 @@ return function(vfs)
 
 	CONTEXT_LZMA.Name = "lzma_archive_lzma"
 	CONTEXT_LZMA.Extension = "lzma"
-	CONTEXT_LZMA.ClassName = nil
 	CONTEXT_LZMA.Type = nil
 	vfs.RegisterFileSystem(CONTEXT_LZMA)
 end

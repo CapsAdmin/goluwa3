@@ -10,7 +10,7 @@ local RenderPass = require("render.vulkan.internal.render_pass")
 local Framebuffer = require("render.vulkan.internal.framebuffer")
 local Texture = require("render.texture")
 local event = require("event")
-local ImageRenderTarget = prototype.CreateTemplate("render", "image_rendertarget")
+local ImageRenderTarget = prototype.CreateTemplate("render_image_rendertarget")
 local USE_HDR = true
 local default_config = {
 	-- Mode selection

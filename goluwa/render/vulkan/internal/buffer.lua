@@ -2,7 +2,7 @@ local ffi = require("ffi")
 local prototype = require("prototype")
 local vulkan = require("render.vulkan.internal.vulkan")
 local Memory = require("render.vulkan.internal.memory")
-local Buffer = prototype.CreateTemplate("vulkan", "buffer")
+local Buffer = prototype.CreateTemplate("vulkan_buffer")
 
 function Buffer.New(config)
 	local device = config.device

@@ -1,7 +1,7 @@
 local ljsocket = require("bindings.socket")
 local prototype = require("prototype")
 return function(sockets)
-	local META = prototype.CreateTemplate("socket", "udp_client")
+	local META = prototype.CreateTemplate("socket_udp_client")
 
 	function META:assert(val, err)
 		if not val then self:Error(err) end

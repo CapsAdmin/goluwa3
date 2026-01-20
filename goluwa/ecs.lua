@@ -5,7 +5,7 @@ ecs.registered_components = ecs.registered_components or {}
 ecs.component_instances = ecs.component_instances or {}
 
 local function remove_component(component)
-	local component_name = component.ComponentName or component.ClassName
+	local component_name = component.ComponentName or component.Type
 	local instances = ecs.component_instances[component_name]
 
 	if instances then
@@ -25,7 +25,7 @@ local function remove_component(component)
 end
 
 function ecs.RegisterComponent(component_meta)
-	local name = component_meta.ComponentName or component_meta.ClassName
+	local name = component_meta.ComponentName or component_meta.Type
 	ecs.registered_components[name] = component_meta
 	return component_meta
 end
@@ -34,7 +34,7 @@ function ecs.GetComponent(name)
 	return ecs.registered_components[name]
 end
 
-local ENTITY = prototype.CreateTemplate("ecs", "entity")
+local ENTITY = prototype.CreateTemplate("entity")
 prototype.ParentingTemplate(ENTITY)
 ENTITY:GetSet("ComponentsHash", {})
 
@@ -51,7 +51,7 @@ function ENTITY:AddComponent(name_or_meta)
 		if not meta then error("Unknown component: " .. name_or_meta) end
 	end
 
-	local component_name = meta.ComponentName or meta.ClassName
+	local component_name = meta.ComponentName or meta.Type
 
 	if self.ComponentsHash[component_name] then
 		return self.ComponentsHash[component_name]

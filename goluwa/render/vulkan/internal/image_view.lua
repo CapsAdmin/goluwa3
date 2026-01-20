@@ -1,7 +1,7 @@
 local ffi = require("ffi")
 local prototype = require("prototype")
 local vulkan = require("render.vulkan.internal.vulkan")
-local ImageView = prototype.CreateTemplate("vulkan", "image_view")
+local ImageView = prototype.CreateTemplate("vulkan_image_view")
 
 function ImageView.New(config)
 	config = config or {}

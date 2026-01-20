@@ -1,7 +1,7 @@
 local prototype = require("prototype")
 return function(sockets)
-	local META = prototype.CreateTemplate("socket", "http11_client")
-	META.Base = "tcp_client"
+	local META = prototype.CreateTemplate("socket_http11_client")
+	META.Base = "socket_tcp_client"
 	META.Stage = "none"
 
 	do
@@ -120,7 +120,7 @@ return function(sockets)
 	end
 
 	function sockets.ConnectedTCP2HTTP(obj)
-		setmetatable(obj, prototype.GetRegistered("socket", "http11_client"))
+		setmetatable(obj, prototype.GetRegistered("socket_http11_client"))
 		obj:InitializeHTTPParser()
 		obj:OnConnect()
 		obj.connected = true

@@ -1,7 +1,7 @@
 local ffi = require("ffi")
 local prototype = require("prototype")
 local vulkan = require("render.vulkan.internal.vulkan")
-local GraphicsPipeline = prototype.CreateTemplate("vulkan", "graphics_pipeline")
+local GraphicsPipeline = prototype.CreateTemplate("vulkan_graphics_pipeline")
 local EnumArray = ffi.typeof("uint32_t[?]")
 
 function GraphicsPipeline.New(device, config, render_passes, pipelineLayout)

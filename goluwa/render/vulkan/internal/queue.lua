@@ -1,7 +1,7 @@
 local ffi = require("ffi")
 local prototype = require("prototype")
 local vulkan = require("render.vulkan.internal.vulkan")
-local Queue = prototype.CreateTemplate("vulkan", "queue")
+local Queue = prototype.CreateTemplate("vulkan_queue")
 
 function Queue.New(device, graphicsQueueFamily)
 	local ptr = vulkan.T.Box(vulkan.vk.VkQueue)()

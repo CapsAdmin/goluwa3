@@ -2,7 +2,7 @@ local ffi = require("ffi")
 local prototype = require("prototype")
 local vulkan = require("render.vulkan.internal.vulkan")
 local Buffer = require("render.vulkan.internal.buffer")
-local OcclusionQuery = prototype.CreateTemplate("vulkan", "occlusion_query")
+local OcclusionQuery = prototype.CreateTemplate("vulkan_occlusion_query")
 
 function OcclusionQuery.New(config)
 	local device = config.device

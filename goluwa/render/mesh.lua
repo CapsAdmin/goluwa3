@@ -3,7 +3,7 @@ local VertexBuffer = require("render.vertex_buffer")
 local IndexBuffer = require("render.index_buffer")
 local render = require("render.render")
 local prototype = require("prototype")
-local Mesh = prototype.CreateTemplate("render", "mesh")
+local Mesh = prototype.CreateTemplate("render_mesh")
 
 function Mesh.New(vertex_attributes, vertices, indices, index_type, index_count)
 	local self = Mesh:CreateObject()

@@ -5,7 +5,7 @@ local Vec3 = require("structs.vec3")
 local Mesh = require("render.mesh")
 local ffi = require("ffi")
 local tasks = require("tasks")
-local Polygon3D = prototype.CreateTemplate("render3d", "polygon_3d")
+local Polygon3D = prototype.CreateTemplate("render3d_polygon_3d")
 
 function Polygon3D.New()
 	local self = Polygon3D:CreateObject()

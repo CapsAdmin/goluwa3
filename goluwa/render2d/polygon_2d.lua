@@ -2,7 +2,7 @@ local render2d = require("render2d.render2d")
 local VertexBuffer = require("render.vertex_buffer")
 local IndexBuffer = require("render.index_buffer")
 local prototype = require("prototype")
-local Polygon2D = prototype.CreateTemplate("render2d", "polygon_2d")
+local Polygon2D = prototype.CreateTemplate("render2d_polygon_2d")
 Polygon2D:GetSet("WorldMatrixMultiply", false)
 
 function Polygon2D.New(vertex_count, map)

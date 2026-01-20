@@ -5,7 +5,7 @@ local Texture = require("render.texture")
 local Color = require("structs.color")
 local prototype = require("prototype")
 local Vec3 = require("structs.vec3")
-local Material = prototype.CreateTemplate("render3d", "material")
+local Material = prototype.CreateTemplate("render3d_material")
 -- textures
 Material:StartStorable()
 Material:GetSet("AlbedoTexture", nil)

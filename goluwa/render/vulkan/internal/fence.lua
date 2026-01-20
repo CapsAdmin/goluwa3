@@ -1,7 +1,7 @@
 local ffi = require("ffi")
 local prototype = require("prototype")
 local vulkan = require("render.vulkan.internal.vulkan")
-local Fence = prototype.CreateTemplate("vulkan", "fence")
+local Fence = prototype.CreateTemplate("vulkan_fence")
 
 function Fence.New(device)
 	local fenceCreateInfo = vulkan.vk.s.FenceCreateInfo({

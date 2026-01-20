@@ -4,7 +4,7 @@ local CommandPool = require("render.vulkan.internal.command_pool")
 local Fence = require("render.vulkan.internal.fence")
 local render = require("render.render")
 local prototype = require("prototype")
-local Framebuffer = prototype.CreateTemplate("render", "framebuffer")
+local Framebuffer = prototype.CreateTemplate("render_framebuffer")
 
 function Framebuffer.New(config)
 	local width = config.width or 512

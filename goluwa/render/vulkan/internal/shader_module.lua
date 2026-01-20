@@ -2,7 +2,7 @@ local ffi = require("ffi")
 local prototype = require("prototype")
 local vulkan = require("render.vulkan.internal.vulkan")
 local shaderc = require("bindings.shaderc")
-local ShaderModule = prototype.CreateTemplate("vulkan", "shader_module")
+local ShaderModule = prototype.CreateTemplate("vulkan_shader_module")
 
 function ShaderModule.New(device, glsl, type)
 	local spirv_data, spirv_size = shaderc.compile(glsl, type)

@@ -1,7 +1,7 @@
 local ffi = require("ffi")
 local render = require("render.render")
 local prototype = require("prototype")
-local UniformBuffer = prototype.CreateTemplate("render", "uniform_buffer")
+local UniformBuffer = prototype.CreateTemplate("render_uniform_buffer")
 
 function UniformBuffer.New(decl)
 	-- Check if this declaration contains $ placeholders (indicating nested structs)

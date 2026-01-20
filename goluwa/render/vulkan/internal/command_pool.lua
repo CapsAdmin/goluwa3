@@ -1,7 +1,7 @@
 local ffi = require("ffi")
 local prototype = require("prototype")
 local vulkan = require("render.vulkan.internal.vulkan")
-local CommandPool = prototype.CreateTemplate("vulkan", "command_pool")
+local CommandPool = prototype.CreateTemplate("vulkan_command_pool")
 CommandPool.AllocateCommandBuffer = require("render.vulkan.internal.command_buffer").New
 
 function CommandPool.New(device, graphicsQueueFamily)
