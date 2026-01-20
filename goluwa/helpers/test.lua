@@ -710,6 +710,11 @@ function test.RunUntil2(condition, timeout)
 	return false -- timeout
 end
 
+function test.Screenshot(name)
+	local render = require("render.render")
+	render.target:GetTexture():DumpToDisk(name)
+end
+
 function test.ScreenPixel(x, y, r, g, b, a, tolerance)
 	local render = require("render.render")
 	return test.TexturePixel(render.target:GetTexture(), x, y, r, g, b, a, tolerance)

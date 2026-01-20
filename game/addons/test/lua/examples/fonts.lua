@@ -1,3 +1,7 @@
+do
+	return
+end
+
 local event = require("event")
 local fonts = require("render2d.fonts")
 local render2d = require("render2d.render2d")

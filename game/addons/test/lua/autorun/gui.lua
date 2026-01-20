@@ -105,7 +105,6 @@ end)
 local HoverPanel = lsx.Component(function(props)
 	local ref = lsx.UseRef(nil)
 	local is_hovered = UseHover(ref)
-	local time = UseTime()
 	return lsx.Panel(
 		{
 			Name = "HoverPanel",
@@ -340,6 +339,7 @@ local App = lsx.Component(function()
 					Padding = Rect() + 10,
 				}
 			),
+		--	MouseFollower(),
 			lsx.Panel(
 				{
 					Name = "content",
@@ -348,32 +348,43 @@ local App = lsx.Component(function()
 					lsx.Panel(
 						{
 							Name = "LeftColumn",
-							Width = 300,
+							Width = 100,
 							Color = Color(0, 0, 1, 1),
-							Layout = {"CenterYSimple", "MoveLeft", "FillY"},
+							Layout = {"CenterYSimple", "MoveLeft", "FillY", "SizeToChildrenHeight"},
 							HoverPanel(
 								{
-									Position = Vec2(20, 0),
-									Size = Vec2(50, 50),
+									Size = Vec2() + 50,
 									Color = Color(1, 0.3, 0.4, 1),
-									Layout = {"CenterXSimple"},
-									ref = function(pnl)
-										print(pnl)
-									end,
+									Margin = Rect() + 5,
+									Layout = {"CenterX", "MoveUp"},
 								}
 							),
-							nil,
 							HoverPanel(
 								{
-									Size = Vec2(50, 50),
+									Size = Vec2() + 50,
 									Color = Color(0.5, 0.3, 0.4, 1),
+									Margin = Rect() + 5,
 									Layout = {"CenterX", "MoveUp"},
-									Margin = Rect(0, 0, 0, 10),
+								}
+							),
+							HoverPanel(
+								{
+									Size = Vec2() + 50,
+									Color = Color(0.5, 0.3, 0.4, 1),
+									Margin = Rect() + 5,
+									Layout = {"CenterX", "MoveUp"},
+								}
+							),
+							HoverPanel(
+								{
+									Size = Vec2() + 50,
+									Color = Color(0.5, 0.3, 0.4, 1),
+									Margin = Rect() + 5,
+									Layout = {"CenterX", "MoveUp"},
 								}
 							),
 						}
 					),
-					nil,
 					lsx.Panel(
 						{
 							Name = "MiddleColumn",

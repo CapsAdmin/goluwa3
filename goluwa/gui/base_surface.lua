@@ -51,7 +51,13 @@ function META:InvalidateMatrices()
 end
 
 function META:InvalidateLayout()
+	if self.layout_me then return end
+
 	self.layout_me = true
+
+	if self:HasParent() then
+		self:GetParent():InvalidateLayout()
+	end
 end
 
 function META:GetWidth()
@@ -221,6 +227,16 @@ function META:Draw()
 	render2d.PopMatrix()
 
 	if clipping then render2d.PopScissor() end
+end
+
+function META:GetVisibleChildren()
+	local tbl = {}
+
+	for _, v in ipairs(self:GetChildren()) do
+		if v.Visible then list.insert(tbl, v) end
+	end
+
+	return tbl
 end
 
 do -- example events

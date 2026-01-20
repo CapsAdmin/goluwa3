@@ -341,8 +341,12 @@ function GraphicsPipeline:Bind(cmd, frame_index)
 	cmd:BindPipeline(self.pipeline, "graphics")
 
 	-- Bind descriptor sets - they should always exist for pipelines with descriptor sets
-	if self.descriptor_sets and self.descriptor_sets[frame_index] then
-		cmd:BindDescriptorSets("graphics", self.pipeline_layout, {self.descriptor_sets[frame_index]}, 0)
+	if self.descriptor_sets then
+		local ds = self.descriptor_sets[frame_index] or self.descriptor_sets[1]
+
+		if ds then
+			cmd:BindDescriptorSets("graphics", self.pipeline_layout, {ds}, 0)
+		end
 	end
 end
 

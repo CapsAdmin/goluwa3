@@ -1,3 +1,4 @@
+local Vec2 = require("structs.vec2")
 local structs = require("structs.structs")
 local META = structs.Template("Rect")
 META.Args = {{"x", "y", "w", "h"}, {"left", "top", "right", "bottom"}}
@@ -88,15 +89,15 @@ function META:SetHeight(h)
 end
 
 function META:GetPosition()
-	return structs.Vec2(self.x, self.y)
+	return Vec2(self.x, self.y)
 end
 
 function META:GetSize()
-	return structs.Vec2(self.w, self.h)
+	return Vec2(self.w, self.h)
 end
 
 function META:GetPosSize()
-	return structs.Vec2(self:GetXW(), self:GetYH())
+	return Vec2(self:GetXW(), self:GetYH())
 end
 
 function META:GetXW()

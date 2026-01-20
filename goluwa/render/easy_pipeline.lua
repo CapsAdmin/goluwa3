@@ -905,6 +905,7 @@ function EasyPipeline.New(config)
 		color_format = #actual_color_formats > 0 and actual_color_formats or config.color_format,
 		depth_format = config.depth_format,
 		samples = config.samples or "1",
+		descriptor_set_count = config.descriptor_set_count or (render.target and render.target.image_count) or 1,
 		dynamic_states = {"viewport", "scissor", "cull_mode"},
 		shader_stages = shader_stages,
 		rasterizer = config.rasterizer or

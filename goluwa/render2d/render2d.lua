@@ -105,6 +105,7 @@ function render2d.Initialize()
 	end
 
 	render2d.pipeline_data.dynamic_states = dynamic_states
+	render2d.pipeline_data.descriptor_set_count = render.target.image_count
 	render2d.pipeline_cache = {}
 	render2d.SetSamples(render.target.samples or "1", true)
 	render2d.ResetState()

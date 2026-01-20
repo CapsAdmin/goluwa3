@@ -6,9 +6,6 @@ META.layout_count = 0
 META:GetSet("LayoutSize", nil)
 META:GetSet("IgnoreLayout", false)
 META:GetSet("LayoutUs", false)
-META:GetSet("Flex", false)
-META:GetSet("Stack", false)
-META:GetSet("StackSizeToChildren", false)
 META:GetSet("CollisionGroup", "none")
 META:GetSet("OthersAlwaysCollide", false)
 META:GetSet("ThreeDee", false)
@@ -147,10 +144,10 @@ function META:RayCast(start_pos, stop_pos)
 
 		if dir.x < 0 then
 			hit_pos.y = self:GetY()
-			hit_pos.x = hit_pos.x + child:GetWidth() + self.Margin:GetRight() + child.Margin:GetLeft()
+			hit_pos.x = hit_pos.x + child:GetWidth() + self.Margin:GetLeft() + child.Margin:GetRight()
 		elseif dir.x > 0 then
 			hit_pos.y = self:GetY()
-			hit_pos.x = hit_pos.x - self:GetWidth() - self.Margin:GetLeft() - child.Margin:GetRight()
+			hit_pos.x = hit_pos.x - self:GetWidth() - self.Margin:GetRight() - child.Margin:GetLeft()
 		elseif dir.y < 0 then
 			hit_pos.x = self:GetX()
 			hit_pos.y = hit_pos.y + child:GetHeight() + self.Margin:GetTop() + child.Margin:GetBottom()
@@ -160,10 +157,10 @@ function META:RayCast(start_pos, stop_pos)
 		end
 	else
 		if dir.x < 0 then
-			hit_pos.x = hit_pos.x + self.Margin:GetRight()
+			hit_pos.x = hit_pos.x + self.Margin:GetLeft()
 			hit_pos.x = hit_pos.x + self:GetParentPadding():GetLeft()
 		elseif dir.x > 0 then
-			hit_pos.x = hit_pos.x - self.Margin:GetLeft()
+			hit_pos.x = hit_pos.x - self.Margin:GetRight()
 			hit_pos.x = hit_pos.x - self:GetParentPadding():GetRight()
 		elseif dir.y < 0 then
 			hit_pos.y = hit_pos.y + self.Margin:GetTop()
@@ -196,7 +193,7 @@ function META:ExecuteLayoutCommands()
 	for _, child in ipairs(self:GetChildren()) do
 		if child.Layout then
 			for _, cmd in ipairs(child.Layout) do
-				if typex(cmd) == "panel" then
+				if typex(cmd) == "surface" then
 					child.last_layout_panel = cmd
 				else
 					if cmd == "LayoutChildren" then
@@ -278,7 +275,7 @@ end
 
 gui.in_layout = 0
 META.in_layout = 0
-
+gui.debug = true
 function META:CalcLayoutInternal(now)
 	if self.in_layout ~= 0 then return end
 
@@ -314,7 +311,11 @@ function META:CalcLayoutInternal(now)
 		self.in_layout = self.in_layout - 1
 		gui.in_layout = gui.in_layout - 1
 	else --if gui.in_layout == 0 then
+		if self.layout_me then return end
+
 		self.layout_me = true
+
+		if self:HasParent() then self:GetParent():CalcLayoutInternal() end
 
 		if gui.debug then self.layout_me_tr = debug.traceback() end
 	end
@@ -324,10 +325,20 @@ function META:CalcLayout()
 	if self.layout_me or gui.layout_stress then self:CalcLayoutInternal(true) end
 end
 
-function META:SetLayout(commands)
-	if self:HasParent() then self:GetParent():CalcLayoutInternal() end
+local function compare_layouts(tbl1, tbl2)
+	if tbl1 == tbl2 then return true end
+	if not tbl1 or not tbl2 then return false end
+	if #tbl1 ~= #tbl2 then return false end
 
-	self:CalcLayoutInternal(true)
+	for i = 1, #tbl1 do
+		if tbl1[i] ~= tbl2[i] then return false end
+	end
+
+	return true
+end
+
+function META:SetLayout(commands)
+	if compare_layouts(self.Layout, commands) then return end
 
 	if commands then
 		self.Layout = commands
@@ -340,7 +351,10 @@ function META:SetLayout(commands)
 
 		if self:HasParent() then self:GetParent():SetLayoutUs(false) end
 	end
---timer.Delay(0, function() self:CalcLayoutInternal() end, nil, self) -- FIX ME
+
+	if self:HasParent() then self:GetParent():CalcLayoutInternal() end
+
+	self:CalcLayoutInternal()
 end
 
 function META:ResetLayoutSize()
@@ -450,9 +464,12 @@ do -- layout commands
 	function META:FillX(percent)
 		local parent = self:GetParent()
 		local parent_width = parent.real_size and parent.real_size.x or parent:GetWidth()
+		local temp_w = self:GetWidth()
 		self:SetWidth(1)
-		local left = self:RayCast(self:GetPosition(), Vec2(0, self.Position.y))
-		local right = self:RayCast(self:GetPosition(), Vec2(parent_width, self.Position.y))
+		local left, left_child = self:RayCast(self:GetPosition(), Vec2(0, self.Position.y))
+		local right, right_child = self:RayCast(self:GetPosition(), Vec2(parent_width, self.Position.y))
+
+		if right_child then right.x = right.x + 1 end
 
 		if left.x > right.x then left, right = right, left end
 
@@ -481,14 +498,17 @@ do -- layout commands
 	function META:FillY(percent)
 		local parent = self:GetParent()
 		local parent_height = parent.real_size and parent.real_size.y or parent:GetHeight()
+		local temp_h = self:GetHeight()
 		self:SetHeight(1)
-		local top = self:RayCast(self:GetPosition(), Vec2(self.Position.x, 0))
-		local bottom = self:RayCast(self:GetPosition(), Vec2(self.Position.x, parent_height))
+		local top, top_child = self:RayCast(self:GetPosition(), Vec2(self.Position.x, 0))
+		local bottom, bottom_child = self:RayCast(self:GetPosition(), Vec2(self.Position.x, parent_height))
 
-		if top.x > bottom.x then top, bottom = bottom, top end
+		if bottom_child then bottom.y = bottom.y + 1 end
 
-		bottom.x = math.clamp(bottom.x, 0, parent_height)
-		top.x = math.clamp(top.x, 0, parent_height)
+		if top.y > bottom.y then top, bottom = bottom, top end
+
+		bottom.y = math.clamp(bottom.y, 0, parent_height)
+		top.y = math.clamp(top.y, 0, parent_height)
 		bottom.y = bottom.y - top.y
 		local y = top.y
 		local h = bottom.y
@@ -505,7 +525,7 @@ do -- layout commands
 		end
 
 		self:SetY(math.max(y, top.y)) -- HACK???
-		self:SetHeight(math.max(h + 1, min_height))
+		self:SetHeight(math.max(h, min_height))
 		self.laid_out_y = true
 	end
 
@@ -518,8 +538,13 @@ do -- layout commands
 		self:CenterXSimple()
 		local parent = self:GetParent()
 		local width = parent.real_size and parent.real_size.x or parent:GetWidth()
-		local left = self:RayCast(self:GetPosition(), Vec2(0, self.Position.y))
-		local right = self:RayCast(self:GetPosition(), Vec2(width, left.y))
+		local left, left_child = self:RayCast(self:GetPosition(), Vec2(0, self.Position.y))
+		local right, right_child = self:RayCast(self:GetPosition(), Vec2(width, left.y))
+
+		if right_child then
+			right.x = right.x + self:GetWidth() + self.Margin:GetRight() + right_child.Margin:GetLeft()
+		end
+
 		self:SetX(
 			(
 					left.x + right.x
@@ -531,8 +556,13 @@ do -- layout commands
 	function META:CenterY()
 		local parent = self:GetParent()
 		local height = parent.real_size and parent.real_size.y or parent:GetHeight()
-		local top = self:RayCast(self:GetPosition(), Vec2(self.Position.x, 0))
-		local bottom = self:RayCast(self:GetPosition(), Vec2(top.x, height))
+		local top, top_child = self:RayCast(self:GetPosition(), Vec2(self.Position.x, 0))
+		local bottom, bottom_child = self:RayCast(self:GetPosition(), Vec2(top.x, height))
+
+		if bottom_child then
+			bottom.y = bottom.y + self:GetHeight() + self.Margin:GetBottom() + bottom_child.Margin:GetTop()
+		end
+
 		self:SetY(
 			(
 					top.y + bottom.y
@@ -641,30 +671,364 @@ do -- layout commands
 	end
 
 	function META:MoveRightOf(panel)
+		panel = panel or self.last_layout_panel
+
+		if not panel then return end
+
 		self:SetY(panel:GetY())
-		self:SetX(panel:GetX() + panel:GetWidth())
+		self:SetX(panel:GetX() + panel:GetWidth() + panel.Margin:GetRight() + self.Margin:GetLeft())
 		self.laid_out_x = true
 		self.laid_out_y = true
 	end
 
 	function META:MoveDownOf(panel)
+		panel = panel or self.last_layout_panel
+
+		if not panel then return end
+
 		self:SetX(panel:GetX())
-		self:SetY(panel:GetY() + panel:GetHeight())
+		self:SetY(
+			panel:GetY() + panel:GetHeight() + panel.Margin:GetBottom() + self.Margin:GetTop()
+		)
 		self.laid_out_x = true
 		self.laid_out_y = true
 	end
 
 	function META:MoveLeftOf(panel)
+		panel = panel or self.last_layout_panel
+
+		if not panel then return end
+
 		self:SetY(panel:GetY())
-		self:SetX(panel:GetX() - self:GetWidth())
+		self:SetX(panel:GetX() - self:GetWidth() - panel.Margin:GetLeft() - self.Margin:GetRight())
 		self.laid_out_x = true
 		self.laid_out_y = true
 	end
 
 	function META:MoveUpOf(panel)
+		panel = panel or self.last_layout_panel
+
+		if not panel then return end
+
 		self:SetX(panel:GetX())
-		self:SetY(panel:GetY() - self:GetHeight())
+		self:SetY(panel:GetY() - self:GetHeight() - panel.Margin:GetTop() - self.Margin:GetBottom())
 		self.laid_out_x = true
 		self.laid_out_y = true
+	end
+end
+
+do -- flex layout
+	META:GetSet("Flex", false)
+	META:GetSet("FlexDirection", "row")
+	META:GetSet("FlexGap", 0)
+	META:GetSet("FlexJustifyContent", "start")
+	META:GetSet("FlexAlignItems", "start")
+	META:GetSet("FlexAlignSelf", "start")
+
+	function META:SetAxisPosition(axis, pos)
+		if axis == "x" then self:SetX(pos) else self:SetY(pos) end
+	end
+
+	function META:GetAxisPosition(axis)
+		if axis == "x" then return self:GetX() else return self:GetY() end
+	end
+
+	function META:SetAxisLength(axis, len)
+		if axis == "x" then self:SetWidth(len) else self:SetHeight(len) end
+	end
+
+	function META:GetAxisLength(axis)
+		if axis == "x" then
+			return self:GetWidth()
+		else
+			return self:GetHeight()
+		end
+	end
+
+	function META:FlexLayout()
+		if self.flex_size_to_children then return end
+
+		local pos = Vec2(self:GetPadding().x, self:GetPadding().y)
+		local axis = "x"
+		local axis2 = "y"
+
+		if self.FlexDirection == "row" then
+			axis = "x"
+			axis2 = "y"
+		elseif self.FlexDirection == "column" then
+			axis = "y"
+			axis2 = "x"
+		end
+
+		local children = self:GetVisibleChildren()
+		local parent_length = self:GetAxisLength(axis) / #children
+
+		for i, child in ipairs(children) do
+			child:SetPosition(pos:Copy())
+			local child_length = child:GetAxisLength(axis)
+
+			if parent_length > child_length then
+				child:SetAxisLength(axis, math.min(parent_length, child:GetAxisLength(axis)))
+			end
+
+			pos[axis] = pos[axis] + child:GetAxisLength(axis)
+
+			if i ~= #children then pos[axis] = pos[axis] + self.FlexGap end
+		end
+
+		self:SetAxisLength(axis, math.max(pos[axis], self:GetAxisLength(axis)))
+		local diff = self:GetAxisLength(axis) - pos[axis]
+
+		if self.FlexJustifyContent == "center" then
+			for i, child in ipairs(children) do
+				child:SetAxisPosition(axis, child:GetAxisPosition(axis) + diff / 2)
+			end
+		elseif self.FlexJustifyContent == "end" then
+			for i, child in ipairs(children) do
+				child:SetAxisPosition(axis, child:GetAxisPosition(axis) + diff)
+			end
+		elseif self.FlexJustifyContent == "space-between" then
+			for i, child in ipairs(children) do
+				child:SetAxisPosition(axis, child:GetAxisPosition(axis) + diff / (#children - 1) * (i - 1))
+			end
+		elseif self.FlexJustifyContent == "space-around" then
+			for i, child in ipairs(children) do
+				child:SetAxisPosition(axis, child:GetAxisPosition(axis) + diff / (#children) * (i - 0.5))
+			end
+		end
+
+		self.flex_size_to_children = true
+		local h = self:GetAxisLength(axis2)
+
+		if self.FlexDirection == "row" then
+			self:SizeToChildrenHeight()
+		else
+			self:SizeToChildrenWidth()
+		end
+
+		local h2 = self:GetAxisLength(axis2)
+		self:SetAxisLength(axis2, math.max(h, h2))
+		self.flex_size_to_children = nil
+		self:SetAxisLength(
+			axis,
+			math.max(
+				self:GetAxisLength(axis) + self:GetPadding()[self.FlexDirection == "row" and
+					"h" or
+					"w"],
+				self:GetAxisLength(axis)
+			)
+		)
+
+		if self.FlexAlignItems == "end" then
+			for i, child in ipairs(children) do
+				child:SetAxisPosition(axis2, self:GetAxisLength(axis2) - child:GetAxisLength(axis2))
+			end
+		elseif self.FlexAlignItems == "center" then
+			for i, child in ipairs(children) do
+				child:SetAxisPosition(axis2, (self:GetAxisLength(axis2) - child:GetAxisLength(axis2)) / 2)
+			end
+		elseif self.FlexAlignItems == "stretch" then
+			for i, child in ipairs(children) do
+				child:SetAxisPosition(axis2, self:GetPadding()[axis2])
+				child:SetAxisLength(
+					axis2,
+					self:GetAxisLength(axis2) - self:GetPadding()[axis2] - self:GetPadding()[self.FlexDirection == "column" and
+						"w" or
+						"h"]
+				)
+			end
+		end
+
+		for i, child in ipairs(children) do
+			if child.FlexAlignSelf == "end" then
+				child:SetAxisPosition(axis2, self:GetAxisLength(axis2) - child:GetAxisLength(axis2))
+			elseif child.FlexAlignSelf == "center" then
+				child:SetAxisPosition(axis2, (self:GetAxisLength(axis2) - child:GetAxisLength(axis2)) / 2)
+			elseif child.FlexAlignSelf == "stretch" then
+				child:SetAxisPosition(axis2, self:GetPadding()[axis2])
+				child:SetAxisLength(
+					axis2,
+					self:GetAxisLength(axis2) - self:GetPadding()[axis2] - self:GetPadding()[self.FlexDirection == "column" and
+						"w" or
+						"h"]
+				)
+			end
+		end
+	end
+end
+
+do -- stacking
+	META:GetSet("ForcedStackSize", Vec2(0, 0))
+	META:GetSet("StackRight", true)
+	META:GetSet("StackDown", true)
+	META:GetSet("SizeStackToWidth", false)
+	META:GetSet("SizeStackToHeight", false)
+	META:IsSet("Stackable", true)
+	META:IsSet("Stack", false)
+	META:IsSet("StackSizeToChildren", false)
+
+	function META:StackChildren()
+		local w = 0
+		local h
+		local pad = self:GetPadding()
+
+		for _, pnl in ipairs(self:GetChildren()) do
+			if pnl:IsStackable() then
+				local siz = pnl:GetSize():Copy()
+
+				if self.ForcedStackSize.x ~= 0 then siz.x = self.ForcedStackSize.x end
+
+				if self.ForcedStackSize.y ~= 0 then siz.y = self.ForcedStackSize.y end
+
+				siz.x = siz.x + pnl.Margin.w
+				siz.y = siz.y + pnl.Margin.h
+
+				if self.StackRight then
+					h = h or siz.y
+					w = w + siz.x
+
+					if self.StackDown and w > self:GetWidth() then
+						h = h + siz.y
+						w = siz.x
+					end
+
+					pnl.Position.x = w + pad.x - siz.x + pnl.Margin.x
+					pnl.Position.y = h + pad.y - siz.y + pnl.Margin.y
+				else
+					h = h or 0
+					h = h + siz.y
+					w = siz.x > w and siz.x or w
+					pnl.Position.x = pad.x + pnl.Margin.x
+					pnl.Position.y = h + pad.y - siz.y + pnl.Margin.y
+				end
+
+				if not self.ForcedStackSize:IsZero() then
+					local siz = self.ForcedStackSize
+
+					if self.SizeStackToWidth then siz.x = self:GetWidth() end
+
+					if self.SizeStackToHeight then siz.x = self:GetHeight() end
+
+					pnl:SetSize(Vec2(siz.x - pad.y * 2, siz.y))
+				else
+					if self.SizeStackToWidth then
+						pnl:SetWidth(self:GetWidth() - pad.x * 2)
+					end
+
+					if self.SizeStackToHeight then
+						pnl:SetHeight(self:GetHeight() - pad.y * 2)
+					end
+				end
+			end
+		end
+
+		if self.SizeStackToWidth then w = self:GetWidth() - pad.x * 2 end
+
+		h = h or 0
+		return Vec2(w, h) + pad:GetSize()
+	end
+end
+
+do
+	function META:GetSizeOfChildren()
+		if #self.Children == 0 then return self:GetSize() end
+
+		if self.last_children_size then return self.last_children_size:Copy() end
+
+		self:DoLayout()
+		local total_size = Vec2()
+
+		for _, v in ipairs(self:GetVisibleChildren()) do
+			local pos = v:GetPosition() + v:GetSize() + v.Margin:GetPosition()
+
+			if pos.x > total_size.x then total_size.x = pos.x end
+
+			if pos.y > total_size.y then total_size.y = pos.y end
+		end
+
+		self.last_children_size = total_size
+		return total_size
+	end
+
+	function META:SizeToChildrenHeight()
+		if #self.Children == 0 then return end
+
+		self.last_children_size = nil
+		self.real_size = self.Size:Copy()
+		self.Size.y = math.huge
+		self.Size.y = self:GetSizeOfChildren().y
+		local min_pos = self.Size.y
+		local max_pos = 0
+
+		for i, v in ipairs(self:GetVisibleChildren()) do
+			min_pos = math.min(min_pos, v.Position.y - v.Margin.y - v:GetParentPadding().y)
+		end
+
+		for i, v in ipairs(self:GetVisibleChildren()) do
+			local pos_y = v.Position.y - min_pos
+			max_pos = math.max(max_pos, pos_y + v.Size.y + v.Margin.h)
+		end
+
+		self.Size.y = max_pos + self.Padding:GetSize().y
+		self.LayoutSize = self.Size:Copy()
+		--self:SetY(0)
+		self.laid_out_y = true
+		self.real_size = nil
+	end
+
+	function META:SizeToChildrenWidth()
+		if #self.Children == 0 then return end
+
+		self.last_children_size = nil
+		self.real_size = self.Size:Copy()
+		self.Size.x = math.huge
+		self.Size.x = self:GetSizeOfChildren().x
+		local min_pos = self.Size.x
+		local max_pos = 0
+
+		for i, v in ipairs(self:GetVisibleChildren()) do
+			min_pos = math.min(min_pos, v.Position.x - v.Margin.x - v:GetParentPadding().x)
+		end
+
+		for i, v in ipairs(self:GetVisibleChildren()) do
+			local pos_x = v.Position.x - min_pos
+			max_pos = math.max(max_pos, pos_x + v.Size.x + v.Margin.w)
+		end
+
+		self.Size.x = max_pos + self.Padding:GetSize().x
+		self.LayoutSize = self.Size:Copy()
+		--self:SetX(0)
+		self.laid_out_x = true
+		self.real_size = nil
+	end
+
+	function META:SizeToChildren()
+		if #self.Children == 0 then return end
+
+		self.last_children_size = nil
+		self.real_size = self.Size:Copy()
+		self.Size = Vec2() + math.huge
+		self.Size = self:GetSizeOfChildren()
+		local min_pos = self.Size:Copy()
+		local max_pos = Vec2()
+
+		for i, v in ipairs(self:GetVisibleChildren()) do
+			min_pos.x = math.min(min_pos.x, v.Position.x - v.Margin.x - self.Padding.x)
+			min_pos.y = math.min(min_pos.y, v.Position.y - v.Margin.y - self.Padding.y)
+		end
+
+		for i, v in ipairs(self:GetVisibleChildren()) do
+			local pos_x = v.Position.x - min_pos.x
+			local pos_y = v.Position.y - min_pos.y
+			max_pos.x = math.max(max_pos.x, pos_x + v.Size.x + v.Margin.w)
+			max_pos.y = math.max(max_pos.y, pos_y + v.Size.y + v.Margin.h)
+		end
+
+		self.Size = max_pos + self.Padding:GetSize()
+		self.LayoutSize = self.Size:Copy()
+		--self:SetPosition(Vec2())
+		self.laid_out_x = true
+		self.laid_out_y = true
+		self.real_size = nil
 	end
 end

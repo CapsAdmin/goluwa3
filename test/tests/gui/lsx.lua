@@ -188,3 +188,89 @@ T.Test("lsx reconciliation - children", function()
 	T(instance:GetChildren()[1])["=="](firstChild)
 	root:Remove()
 end)
+
+T.Test("lsx component ref and layout", function()
+	local ref_called = false
+	local MyComponent = lsx.Component(function(props)
+		return lsx.Panel({
+			Name = "InternalPanel",
+			Size = Vec2(100, 100),
+		})
+	end)
+	local root = gui.CreateBasePanel()
+	local instance = lsx.Mount(
+		MyComponent({
+			ref = function(pnl)
+				ref_called = true
+			end,
+			Layout = {"Fill"},
+		}),
+		root
+	)
+	T(ref_called)["=="](true)
+	T(instance.Layout[1])["=="]("Fill")
+	instance:Remove()
+	root:Remove()
+end)
+
+T.Test("lsx layout calculation with children", function()
+	local MyComponent = lsx.Component(function(props)
+		return lsx.Panel(
+			{
+				Name = "Container",
+				Size = Vec2(200, 200),
+				Layout = {"Fill"},
+				lsx.Panel(
+					{
+						Name = "Child",
+						Size = Vec2(50, 50),
+						Layout = {"CenterXSimple"},
+					}
+				),
+			}
+		)
+	end)
+	local root = gui.CreateBasePanel()
+	root:SetSize(Vec2(500, 500))
+	local surface = lsx.Mount(MyComponent({}), root)
+	-- Trigger layout calculation
+	root:CalcLayout()
+	T(surface.Size.x)["=="](500)
+	T(surface.Size.y)["=="](500)
+	local child = surface:GetChildren()[1]
+	T(child ~= nil)["=="](true)
+	child:CalcLayout()
+	-- CenterXSimple should put it at (500-50)/2 = 225
+	T(child.Position.x)["=="](225)
+	surface:Remove()
+	root:Remove()
+end)
+
+T.Test("lsx.Build should not be called multiple times if setState is called multiple times", function()
+	local build_count = 0
+	local MyComponent = lsx.Component(function()
+		build_count = build_count + 1
+		local state, set_state = lsx.UseState(0)
+
+		lsx.UseEffect(
+			function()
+				set_state(1)
+				set_state(2)
+				set_state(3)
+			end,
+			{}
+		)
+
+		return Mock({Name = "State:" .. state})
+	end)
+	local root = CreateMockRoot()
+	local node = MyComponent({})
+	local instance = lsx.Mount(node, root)
+	T(build_count)["=="](1)
+	-- Process the scheduled re-render
+	event.Call("Update")
+	-- Should only be called once more
+	T(build_count)["=="](2)
+	T(instance:GetName())["=="]("State:3")
+	root:Remove()
+end)

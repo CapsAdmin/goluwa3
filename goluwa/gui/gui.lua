@@ -45,6 +45,7 @@ end
 function gui.Initialize()
 	gui.Root = gui.CreateBasePanel()
 	gui.Root:SetName("Root")
+	gui.Root.OnDraw = function() end
 	local w, h = render2d.GetSize()
 
 	if w then gui.Root:SetSize(Vec2(w, h)) end

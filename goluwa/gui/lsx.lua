@@ -9,81 +9,35 @@ local window = require("window")
 local timer = require("timer")
 local gui = require("gui.gui")
 local lsx = {}
+local lsx_type = "lsx"
+local Fragment = prototype.CreateTemplate(lsx_type, "fragment")
+Fragment:Register()
 
-do
-	local Element = {__name = "lsx.RegisterElement"}
-	Element.__index = Element
+function lsx.Fragment(props)
+	return Fragment:CreateObject({props = props or {}})
+end
 
-	function lsx.Fragment(props)
-		return setmetatable({
-			type = "fragment",
-			children = props,
-		}, Element)
-	end
+local Element = prototype.CreateTemplate(lsx_type, "element")
+Element:Register()
 
-	function lsx.RegisterElement(surfaceType)
-		return function(props)
-			props = props or {}
-			local actualProps = {}
-			local children = {}
-
-			for k, v in pairs(props) do
-				if type(k) == "number" then
-					children[k] = v
-				else
-					actualProps[k] = v
-				end
-			end
-
-			-- Compact children array
-			local compacted = {}
-
-			for _, child in ipairs(children) do
-				if child ~= nil then compacted[#compacted + 1] = child end
-			end
-
-			return setmetatable(
-				{
-					type = "element",
-					surfaceType = surfaceType,
-					props = actualProps or {},
-					children = compacted or {},
-				},
-				Element
-			)
-		end
+function lsx.RegisterElement(surfaceType)
+	return function(props)
+		return Element:CreateObject({
+			surfaceType = surfaceType,
+			props = props or {},
+		})
 	end
 end
 
-do
-	local Component = {__name = "lsx.Component"}
-	Component.__index = Component
+local Component = prototype.CreateTemplate(lsx_type, "component")
+Component:Register()
 
-	function lsx.Component(fn)
-		return function(props)
-			props = props or {}
-			local actualProps = {}
-			local children = {}
-
-			for k, v in pairs(props) do
-				if type(k) == "number" then
-					children[k] = v
-				else
-					actualProps[k] = v
-				end
-			end
-
-			actualProps.children = children
-			return setmetatable(
-				{
-					type = "component",
-					build = fn,
-					props = props or {},
-					children = children or {},
-				},
-				Component
-			)
-		end
+function lsx.Component(fn)
+	return function(props)
+		return Component:CreateObject({
+			build = fn,
+			props = props or {},
+		})
 	end
 end
 
@@ -100,6 +54,7 @@ end
 do -- hooks
 	lsx.component_states = setmetatable({}, {__mode = "k"})
 	lsx.pending_effects = {}
+	lsx.pending_renders = {}
 
 	function lsx.UseState(initial)
 		local comp = lsx.current_component
@@ -124,28 +79,45 @@ do -- hooks
 
 		local function setState(newValue)
 			local oldValue = states[idx]
+			local nextValue
 
 			if type(newValue) == "function" then
-				states[idx] = newValue(oldValue)
+				nextValue = newValue(oldValue)
 			else
-				states[idx] = newValue
+				nextValue = newValue
 			end
 
-			if comp.instance then
-				event.AddListener("Update", {}, function()
-					if comp and comp.instance and comp.instance:IsValid() then
-						local parent = comp.instance:GetParent()
-						lsx.Build(comp, parent, comp.instance)
-						lsx.RunPendingEffects()
-					end
+			if nextValue == oldValue then return end
 
-					return event.destroy_tag
-				end)
+			states[idx] = nextValue
+
+			if comp.instance and not comp.render_scheduled then
+				comp.render_scheduled = true
+				table.insert(lsx.pending_renders, comp)			
 			end
 		end
 
 		return states[idx], setState
 	end
+
+	event.AddListener("Update", "lsx_render", function()
+		for _, comp in ipairs(lsx.pending_renders) do
+			comp.render_scheduled = false
+
+			if comp and comp.instance and comp.instance:IsValid() then
+				local parent = comp.instance:GetParent()
+				lsx.Build(comp, parent, comp.instance)
+
+				if gui.Root and gui.Root.CalcLayout then
+					gui.Root:CalcLayout()
+				end
+
+				lsx.RunPendingEffects()
+			end
+		end
+
+		table.clear(lsx.pending_renders)
+	end)
 
 	function lsx.UseEffect(effect, deps)
 		local comp = lsx.current_component
@@ -276,7 +248,7 @@ local function safe_remove(obj)
 
 	if obj.UnParent then obj:UnParent() end
 
-	if obj.Remove then obj:Remove() end
+	prototype.SafeRemove(obj)
 end
 
 function lsx.Build(node, parent, existing)
@@ -291,86 +263,130 @@ function lsx.Build(node, parent, existing)
 		return nil
 	end
 
-	if node.type == "fragment" then
-		-- fragments don't support reconciliation easily yet, recreate
-		if existing then safe_remove(existing) end
+	if node.Type == lsx_type then
+		if node.ClassName == "fragment" then
+			-- fragments don't support reconciliation easily yet, recreate
+			if existing then
+				if type(existing) == "table" and existing.ClassName ~= "fragment" then
+					safe_remove(existing)
+					existing = nil
+				end
+			end
 
-		local surfaces = {}
+			local surfaces = {}
 
-		for _, child in ipairs(node.children) do
-			local s = lsx.Build(child, parent)
+			for i, child in ipairs(node.props) do
+				local s = lsx.Build(child, parent, existing and existing[i])
 
-			if s then surfaces[#surfaces + 1] = s end
+				if s then table.insert(surfaces, s) end
+			end
+
+			if existing and #existing > #node.props then
+				for i = #node.props + 1, #existing do
+					safe_remove(existing[i])
+				end
+			end
+
+			return surfaces
 		end
 
-		return surfaces
-	end
+		if node.ClassName == "component" then
+			node.render_scheduled = false
+			lsx.current_component = node
+			lsx.hook_index = 0
+			local rendered = node.build(node.props)
+			lsx.current_component = nil
+			local surface = lsx.Build(rendered, parent, existing)
+			node.instance = surface
 
-	if node.type == "component" then
-		lsx.current_component = node
-		lsx.hook_index = 0
-		local rendered = node.build(node.props)
-		lsx.current_component = nil
-		local surface = lsx.Build(rendered, parent, existing)
-		node.instance = surface
-		return surface
-	end
+			if existing and surface ~= existing then safe_remove(existing) end
 
-	if node.type == "element" then
-		-- create or update actual surface
-		local surface = existing
+			if surface and type(surface) == "table" and surface.Remove then
+				if node.props.ref then
+					local value = node.props.ref
 
-		if
-			not surface or
-			surface.surfaceType ~= node.surfaceType or
-			type(surface) ~= "table" or
-			not surface.Remove
-		then
-			if surface then safe_remove(surface) end
-
-			surface = gui.Create(node.surfaceType, parent)
-			surface.surfaceType = node.surfaceType
-		end
-
-		for key, value in pairs(node.props) do
-			if key ~= "Layout" then
-				local setterName = "Set" .. key:sub(1, 1):upper() .. key:sub(2)
-				local method = surface[setterName]
-
-				if method then
-					method(surface, value)
-				elseif key:sub(1, 2) == "On" or key:sub(1, 2) == "on" then
-					local eventName = "On" .. key:sub(3, 3):upper() .. key:sub(4)
-					surface[eventName] = value
-				elseif key == "ref" then
 					if type(value) == "table" and value.isRef then
 						value.current = surface
 					elseif type(value) == "function" then
 						value(surface)
 					end
 				end
+
+				if node.props.Layout then surface:SetLayout(node.props.Layout) end
 			end
+
+			return surface
 		end
 
-		-- always set layout last because it depends on props like Size
-		if node.props.Layout then surface:SetLayout(node.props.Layout) end
+		if node.ClassName == "element" then
+			-- create or update actual surface
+			local surface = existing
 
-		local existingChildren = surface:GetChildren()
-		local childrenToReconcile = {}
+			if
+				not surface or
+				surface.surfaceType ~= node.surfaceType or
+				type(surface) ~= "table" or
+				not surface.Remove
+			then
+				if surface then safe_remove(surface) end
 
-		for i, v in ipairs(existingChildren) do
-			childrenToReconcile[i] = v
+				surface = gui.Create(node.surfaceType, parent)
+				surface.surfaceType = node.surfaceType
+			end
+
+			for key, value in pairs(node.props) do
+				if type(key) ~= "number" and key ~= "Layout" then
+					local setterName = "Set" .. key:sub(1, 1):upper() .. key:sub(2)
+					local method = surface[setterName]
+
+					if method then
+						local getterName = "Get" .. key:sub(1, 1):upper() .. key:sub(2)
+						local getter = surface[getterName]
+						local currentVal = getter and getter(surface)
+
+						if currentVal ~= value then
+							method(surface, value)
+						end
+					elseif key:sub(1, 2) == "On" or key:sub(1, 2) == "on" then
+						local eventName = "On" .. key:sub(3, 3):upper() .. key:sub(4)
+
+						if surface[eventName] ~= value then
+							surface[eventName] = value
+						end
+					elseif key == "ref" then
+						if type(value) == "table" and value.isRef then
+							value.current = surface
+						elseif type(value) == "function" then
+							value(surface)
+						end
+					end
+				end
+			end
+
+			local existingChildren = surface:GetChildren()
+			local childrenToReconcile = {}
+
+			for i = 1, #existingChildren do
+				childrenToReconcile[i] = existingChildren[i]
+			end
+
+			for i, child in ipairs(node.props) do
+				lsx.Build(child, surface, childrenToReconcile[i])
+			end
+
+			-- always set layout last because it depends on children and props like Size
+			if node.props.Layout then surface:SetLayout(node.props.Layout) end
+
+			local finalChildren = surface:GetChildren()
+
+			if #finalChildren > #node.props then
+				for i = #finalChildren, #node.props + 1, -1 do
+					safe_remove(finalChildren[i])
+				end
+			end
+
+			return surface
 		end
-
-		for i, child in ipairs(node.children) do
-			lsx.Build(child, surface, childrenToReconcile[i])
-		end
-
-		for i = #node.children + 1, #childrenToReconcile do
-			safe_remove(childrenToReconcile[i])
-		end
-
-		return surface
 	end
 
 	return nil
@@ -379,6 +395,11 @@ end
 function lsx.Mount(node, parent)
 	parent = parent or gui.Root
 	local surface = lsx.Build(node, parent)
+
+	if gui.Root and gui.Root.CalcLayout then
+		gui.Root:CalcLayout()
+	end
+
 	lsx.RunPendingEffects()
 	return surface
 end
@@ -393,34 +414,36 @@ function lsx.Inspect(node, indent)
 		return pad .. "\"" .. node .. "\""
 	elseif type(node) == "number" then
 		return pad .. tostring(node)
-	elseif node.type == "fragment" then
-		local lines = {pad .. "Fragment {"}
+	elseif node.Type == lsx_type then
+		if node.ClassName == "fragment" then
+			local lines = {pad .. "Fragment {"}
 
-		for _, child in ipairs(node.children) do
-			lines[#lines + 1] = lsx.inspect(child, indent + 1)
-		end
-
-		lines[#lines + 1] = pad .. "}"
-		return table.concat(lines, "\n")
-	elseif node.type == "component" then
-		return pad .. "Component()"
-	elseif node.type == "element" then
-		local props_str = {}
-
-		for k, v in pairs(node.props) do
-			if type(v) ~= "function" then
-				props_str[#props_str + 1] = k .. "=" .. tostring(v)
+			for _, child in ipairs(node.props) do
+				lines[#lines + 1] = lsx.Inspect(child, indent + 1)
 			end
+
+			lines[#lines + 1] = pad .. "}"
+			return table.concat(lines, "\n")
+		elseif node.ClassName == "component" then
+			return pad .. "Component()"
+		elseif node.ClassName == "element" then
+			local props_str = {}
+
+			for k, v in pairs(node.props) do
+				if type(k) ~= "number" and type(v) ~= "function" then
+					props_str[#props_str + 1] = k .. "=" .. tostring(v)
+				end
+			end
+
+			local lines = {pad .. node.surfaceType .. " { " .. table.concat(props_str, ", ")}
+
+			for _, child in ipairs(node.props) do
+				lines[#lines + 1] = lsx.Inspect(child, indent + 1)
+			end
+
+			lines[#lines + 1] = pad .. "}"
+			return table.concat(lines, "\n")
 		end
-
-		local lines = {pad .. node.surfaceType .. " { " .. table.concat(props_str, ", ")}
-
-		for _, child in ipairs(node.children) do
-			lines[#lines + 1] = lsx.inspect(child, indent + 1)
-		end
-
-		lines[#lines + 1] = pad .. "}"
-		return table.concat(lines, "\n")
 	end
 
 	return pad .. tostring(node)
