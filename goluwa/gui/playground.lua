@@ -8,6 +8,10 @@ local Rect = require("structs.rect")
 local Color = require("structs.color")
 local window = require("window")
 local input = require("input")
+package.loaded["gui.gui"] = nil
+package.loaded["gui.lsx"] = nil
+package.loaded["gui.base_surface"] = nil
+package.loaded["gui.base_surface_layout"] = nil
 require("gui.gui").Initialize()
 local lsx = require("gui.lsx")
 
@@ -329,60 +333,81 @@ local App = lsx.Component(function()
 			Padding = Rect(20, 20, 20, 20),
 			lsx.Text(
 				{
-					Text = "LSX Playground",
-					Color = Color(1, 1, 1, 1),
-					Scale = Vec2(2, 2),
-					layout = "top, left",
-					Margin = Rect(0, 0, 0, 20),
+					Text = "The quick brown fox jumps over the lazy dog.",
+					Color = Color(0, 0, 0, 1),
+					Debug = true,
+					Layout = {"MoveTop", "CenterXSimple"},
+					Padding = Rect() + 10,
 				}
 			),
 			lsx.Panel(
 				{
-					Name = "LeftColumn",
-					Size = Vec2(200, 500),
+					Name = "content",
 					Color = Color(0, 0, 0, 0),
-					layout = "down, left",
-					Margin = Rect(0, 40, 0, 0),
-					HoverPanel({Size = Vec2(150, 80), layout = "down", Margin = Rect(0, 0, 0, 10)}),
-					HoverPanel(
+					Layout = {"Fill"},
+					lsx.Panel(
 						{
-							Size = Vec2(150, 80),
-							Color = Color(0.5, 0.3, 0.4, 1),
-							layout = "down",
-							Margin = Rect(0, 0, 0, 10),
+							Name = "LeftColumn",
+							Width = 300,
+							Color = Color(0, 0, 1, 1),
+							Layout = {"CenterYSimple", "MoveLeft", "FillY"},
+							HoverPanel(
+								{
+									Position = Vec2(20, 0),
+									Size = Vec2(50, 50),
+									Color = Color(1, 0.3, 0.4, 1),
+									Layout = {"CenterXSimple"},
+									ref = function(pnl)
+										print(pnl)
+									end,
+								}
+							),
+							nil,
+							HoverPanel(
+								{
+									Size = Vec2(50, 50),
+									Color = Color(0.5, 0.3, 0.4, 1),
+									Layout = {"CenterX", "MoveUp"},
+									Margin = Rect(0, 0, 0, 10),
+								}
+							),
 						}
 					),
+					nil,
+					lsx.Panel(
+						{
+							Name = "MiddleColumn",
+							Size = Vec2(300, 500),
+							Color = Color(0, 0, 0, 0),
+							Layout = {"MoveRight"},
+							Margin = Rect(20, 40, 0, 0),
+							Slider(
+								{
+									Width = 200,
+									Layout = {"MoveDown"},
+									Margin = Rect(0, 0, 0, 20),
+									OnChange = function(v)
+										print("Slider:", v)
+									end,
+								}
+							),
+							ColorPicker(
+								{
+									Initial = Color(0.3, 0.6, 0.9),
+									Layout = {"MoveDown"},
+									OnChange = function(c)
+										print("Color:", c.r, c.g, c.b)
+									end,
+								}
+							),
+						}
+					),
+					StateMachine({
+						Layout = {"MoveRight"},
+						Margin = Rect(20, 40, 0, 0),
+					}),
 				}
 			),
-			lsx.Panel(
-				{
-					Name = "MiddleColumn",
-					Size = Vec2(300, 500),
-					Color = Color(0, 0, 0, 0),
-					layout = "right",
-					Margin = Rect(20, 40, 0, 0),
-					Slider(
-						{
-							Width = 200,
-							layout = "down",
-							Margin = Rect(0, 0, 0, 20),
-							OnChange = function(v)
-								print("Slider:", v)
-							end,
-						}
-					),
-					ColorPicker(
-						{
-							Initial = Color(0.3, 0.6, 0.9),
-							layout = "down",
-							OnChange = function(c)
-								print("Color:", c.r, c.g, c.b)
-							end,
-						}
-					),
-				}
-			),
-			StateMachine({layout = "right", Margin = Rect(20, 40, 0, 0)}),
 		}
 	)
 end)

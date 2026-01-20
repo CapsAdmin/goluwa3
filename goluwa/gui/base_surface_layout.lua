@@ -13,6 +13,7 @@ META:GetSet("CollisionGroup", "none")
 META:GetSet("OthersAlwaysCollide", false)
 META:GetSet("ThreeDee", false)
 META:GetSet("LayoutWhenInvisible", false)
+META:GetSet("Layout", nil)
 
 function META:SetNocollide(b)
 	if type(b) == "table" then
@@ -179,44 +180,11 @@ function META:RayCast(start_pos, stop_pos)
 	return hit_pos, found and found[1] and found[1].child
 end
 
-local tr_self = {
-	layout_children = "LayoutChildren",
-}
-local tr_child = {
-	collide = "Collide",
-	size_to_children_width = "SizeToChildrenWidth",
-	size_to_children_height = "SizeToChildrenHeight",
-	size_to_children = "SizeToChildren",
-	fill = "Fill",
-	fill_x = "CenterFillX",
-	fill_y = "CenterFillY",
-	center = "Center",
-	center_left = "CenterLeft",
-	center_right = "CenterRight",
-	center_simple = "CenterSimple",
-	center_x = "CenterX",
-	center_x_simple = "CenterXSimple",
-	center_y_simple = "CenterYSimple",
-	center_x_frame = "CenterXFrame",
-	center_y = "CenterY",
-	down = "MoveDown",
-	up = "MoveUp",
-	top = "MoveUp",
-	left = "MoveLeft",
-	bottom = "MoveDown",
-	right = "MoveRight",
-	GmodFill = "gmod_fill",
-	gmod_left = "GmodLeft",
-	gmod_right = "GmodRight",
-	gmod_top = "GmodTop",
-	gmod_bottom = "GmodBottom",
-}
-
 function META:ExecuteLayoutCommands()
 	--	if self:HasParent() then self = self.Parent end
 	--if not self.layout_us then return end
 	for _, child in ipairs(self:GetChildren()) do
-		if child.layout_commands then
+		if child.Layout then
 			if child.LayoutSize then child:SetSize(child.LayoutSize:Copy()) end
 
 			child.laid_out_x = false
@@ -226,14 +194,12 @@ function META:ExecuteLayoutCommands()
 	end
 
 	for _, child in ipairs(self:GetChildren()) do
-		if child.layout_commands then
-			for _, cmd in ipairs(child.layout_commands) do
+		if child.Layout then
+			for _, cmd in ipairs(child.Layout) do
 				if typex(cmd) == "panel" then
 					child.last_layout_panel = cmd
 				else
-					if tr_child[cmd] then
-						child[tr_child[cmd]](child)
-					elseif tr_self[cmd] then
+					if cmd == "LayoutChildren" then
 						self[tr_self[cmd]](self)
 					elseif child[cmd] then
 						child[cmd](child)
@@ -252,8 +218,8 @@ function META:ExecuteLayoutCommands()
 	end
 
 	for _, child in ipairs(self:GetChildren()) do
-		if child.layout_commands then
-			for _, cmd in ipairs(child.layout_commands) do
+		if child.Layout then
+			for _, cmd in ipairs(child.Layout) do
 				if cmd == "gmod_fill" then
 					child.LayoutSize = Vec2(1, 1)
 					child:CenterSimple()
@@ -313,7 +279,7 @@ end
 gui.in_layout = 0
 META.in_layout = 0
 
-function META:Layout(now)
+function META:CalcLayoutInternal(now)
 	if self.in_layout ~= 0 then return end
 
 	if now and (self.LayoutWhenInvisible or self.Visible) then
@@ -334,7 +300,7 @@ function META:Layout(now)
 			self.updated_layout = (self.updated_layout or 0) + 1
 
 			for _, v in ipairs(self:GetChildren()) do
-				v:Layout(true)
+				v:CalcLayoutInternal(true)
 			end
 		else
 			for _, v in ipairs(self:GetChildren()) do
@@ -355,40 +321,26 @@ function META:Layout(now)
 end
 
 function META:CalcLayout()
-	if self.layout_me or gui.layout_stress then self:Layout(true) end
+	if self.layout_me or gui.layout_stress then self:CalcLayoutInternal(true) end
 end
 
 function META:SetLayout(commands)
-	if type(commands) == "string" then
-		local tbl = {}
+	if self:HasParent() then self:GetParent():CalcLayoutInternal() end
 
-		for cmd in commands:gmatch("[^%s,]+") do
-			table.insert(tbl, cmd)
-		end
+	self:CalcLayoutInternal(true)
 
-		self:SetupLayout(list.unpack(tbl))
-	elseif type(commands) == "table" then
-		self:SetupLayout(list.unpack(commands))
-	end
-end
-
-function META:SetupLayout(...)
-	if self:HasParent() then self:GetParent():Layout() end
-
-	self:Layout(true)
-
-	if ... then
-		self.layout_commands = {...}
+	if commands then
+		self.Layout = commands
 		self.LayoutSize = self:GetSize():Copy()
 
 		if self:HasParent() then self:GetParent():SetLayoutUs(true) end
 	else
-		self.layout_commands = nil
+		self.Layout = nil
 		self.LayoutSize = nil
 
 		if self:HasParent() then self:GetParent():SetLayoutUs(false) end
 	end
---timer.Delay(0, function() self:Layout() end, nil, self) -- FIX ME
+--timer.Delay(0, function() self:CalcLayoutInternal() end, nil, self) -- FIX ME
 end
 
 function META:ResetLayoutSize()
@@ -398,9 +350,7 @@ end
 
 function META:OnParent(parent)
 	if parent ~= self.Parent then
-		if self.layout_commands then
-			self:SetupLayout(unpack(self.layout_commands))
-		end
+		if self.Layout then self:SetupLayout(self.Layout) end
 	end
 end
 
@@ -435,7 +385,7 @@ do -- layout commands
 
 	function META:LayoutChildren()
 		for _, child in ipairs(self:GetChildren()) do
-			child:Layout(true)
+			child:CalcLayoutInternal(true)
 		end
 	end
 

@@ -70,6 +70,8 @@ function render.Initialize(config)
 		render.target = target
 	end
 
+	event.Call("RendererReady")
+
 	event.AddListener("WindowFramebufferResized", "window_resized", function(wnd, size)
 		if is_headless then return end
 

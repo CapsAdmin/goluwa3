@@ -82,10 +82,12 @@ end
 
 function META:SetX(x)
 	self.Position.x = x
+	self:InvalidateMatrices()
 end
 
 function META:SetY(y)
 	self.Position.y = y
+	self:InvalidateMatrices()
 end
 
 function META:GetWorldRectFast()
@@ -190,9 +192,9 @@ function META:IsHovered(mouse_pos)
 end
 
 function META:Draw()
-	if not self.Visible then return end
-
 	if self.CalcLayout then self:CalcLayout() end
+
+	if not self.Visible then return end
 
 	local clipping = self:GetClipping()
 

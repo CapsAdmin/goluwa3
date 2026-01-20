@@ -8,6 +8,7 @@ local system = require("system")
 local render = require("render.render")
 local prototype = require("prototype")
 local utf8 = require("utf8")
+local event = require("event")
 local TextureAtlas = require("render.texture_atlas")
 local META = prototype.CreateTemplate("rasterized_font")
 META:GetSet("Fonts", {})
@@ -36,8 +37,17 @@ function META.New(fonts)
 	-- Get size from first font
 	if fonts[1] and fonts[1].Size then self:SetSize(fonts[1].Size) end
 
-	self:CreateTextureAtlas()
-	self:SetReady(true)
+	if render.target then
+		self:CreateTextureAtlas()
+		self:SetReady(true)
+	else
+		event.AddListener("RendererReady", self, function()
+			self:CreateTextureAtlas()
+			self:SetReady(true)
+			return event.destroy_tag
+		end)
+	end
+
 	return self
 end
 

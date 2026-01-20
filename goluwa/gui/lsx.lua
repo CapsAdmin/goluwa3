@@ -263,9 +263,25 @@ function lsx.RunPendingEffects()
 	end
 end
 
+local function safe_remove(obj)
+	if not obj then return end
+
+	if type(obj) == "table" and not obj.Remove then
+		for _, v in ipairs(obj) do
+			safe_remove(v)
+		end
+
+		return
+	end
+
+	if obj.UnParent then obj:UnParent() end
+
+	if obj.Remove then obj:Remove() end
+end
+
 function lsx.Build(node, parent, existing)
 	if node == nil then
-		if existing then existing:Remove() end
+		if existing then safe_remove(existing) end
 
 		return nil
 	end
@@ -277,7 +293,7 @@ function lsx.Build(node, parent, existing)
 
 	if node.type == "fragment" then
 		-- fragments don't support reconciliation easily yet, recreate
-		if existing then existing:Remove() end
+		if existing then safe_remove(existing) end
 
 		local surfaces = {}
 
@@ -304,30 +320,40 @@ function lsx.Build(node, parent, existing)
 		-- create or update actual surface
 		local surface = existing
 
-		if not surface or surface.surfaceType ~= node.surfaceType then
-			if surface then surface:Remove() end
+		if
+			not surface or
+			surface.surfaceType ~= node.surfaceType or
+			type(surface) ~= "table" or
+			not surface.Remove
+		then
+			if surface then safe_remove(surface) end
 
 			surface = gui.Create(node.surfaceType, parent)
 			surface.surfaceType = node.surfaceType
 		end
 
 		for key, value in pairs(node.props) do
-			local setterName = "Set" .. key:sub(1, 1):upper() .. key:sub(2)
-			local method = surface[setterName]
+			if key ~= "Layout" then
+				local setterName = "Set" .. key:sub(1, 1):upper() .. key:sub(2)
+				local method = surface[setterName]
 
-			if method then
-				method(surface, value)
-			elseif key:sub(1, 2) == "On" or key:sub(1, 2) == "on" then
-				local eventName = "On" .. key:sub(3, 3):upper() .. key:sub(4)
-				surface[eventName] = value
-			elseif key == "ref" then
-				if type(value) == "table" and value.isRef then
-					value.current = surface
-				elseif type(value) == "function" then
-					value(surface)
+				if method then
+					method(surface, value)
+				elseif key:sub(1, 2) == "On" or key:sub(1, 2) == "on" then
+					local eventName = "On" .. key:sub(3, 3):upper() .. key:sub(4)
+					surface[eventName] = value
+				elseif key == "ref" then
+					if type(value) == "table" and value.isRef then
+						value.current = surface
+					elseif type(value) == "function" then
+						value(surface)
+					end
 				end
 			end
 		end
+
+		-- always set layout last because it depends on props like Size
+		if node.props.Layout then surface:SetLayout(node.props.Layout) end
 
 		local existingChildren = surface:GetChildren()
 		local childrenToReconcile = {}
@@ -341,7 +367,7 @@ function lsx.Build(node, parent, existing)
 		end
 
 		for i = #node.children + 1, #childrenToReconcile do
-			childrenToReconcile[i]:Remove()
+			safe_remove(childrenToReconcile[i])
 		end
 
 		return surface

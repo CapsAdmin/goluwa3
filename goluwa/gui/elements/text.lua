@@ -13,7 +13,9 @@ META:GetSet(
 META:GetSet("Text", "", {callback = "OnTextChanged"})
 META:GetSet("Wrap", false, {callback = "OnTextChanged"})
 META:GetSet("AlignX", "left", {callback = "OnTextChanged"})
+META:GetSet("AlignX", "left", {callback = "OnTextChanged"})
 META:GetSet("AlignY", "top", {callback = "OnTextChanged"})
+META:GetSet("Debug", false)
 META:EndStorable()
 
 function META:Initialize()
@@ -69,14 +71,12 @@ function META:OnDraw()
 	render2d.SetColor(self:GetColor():Unpack())
 	font:DrawText(text, x, y, 0, ax, ay)
 
-	do
-		return
+	if self.Debug then
+		local w, h = font:GetTextSize(text)
+		render2d.SetColor(1, 0, 0, 0.25)
+		render2d.SetTexture(nil)
+		render2d.DrawRect(0, 0, w, h)
 	end
-
-	local w, h = font:GetTextSize(text)
-	render2d.SetColor(1, 0, 0, 0.25)
-	render2d.SetTexture(nil)
-	render2d.DrawRect(0, 0, w, h)
 end
 
 return META:Register()

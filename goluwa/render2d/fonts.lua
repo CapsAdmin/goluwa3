@@ -1,5 +1,6 @@
 local fs = require("fs")
 local fonts = library()
+local font_cache = {}
 -- Font management
 local current_font = nil
 local default_font = nil
@@ -7,6 +8,10 @@ local X, Y = 0, 0
 
 function fonts.LoadFont(path, size)
 	size = size or 16
+	local cache_key = path .. ":" .. size
+
+	if font_cache[cache_key] then return font_cache[cache_key] end
+
 	local ext = path:match("%.([^%.]+)$")
 
 	if ext == "ttf" or ext == "otf" then
@@ -15,7 +20,9 @@ function fonts.LoadFont(path, size)
 		font:SetSize(size)
 		-- Wrap in rasterized_font for texture atlas support
 		local rasterized_font = require("render2d.fonts.rasterized_font")
-		return rasterized_font.New(font)
+		local res = rasterized_font.New(font)
+		font_cache[cache_key] = res
+		return res
 	end
 
 	error("Unsupported font format: " .. tostring(ext))
