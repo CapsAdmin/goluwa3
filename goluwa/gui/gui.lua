@@ -8,12 +8,9 @@ local Color = require("structs.color")
 local window = require("window")
 local gui = library()
 package.loaded["gui.gui"] = gui
+gui.PressedObjects = {}
 local BaseSurface = require("gui.base_surface")
 require("gui.elements.text")
-
-function gui.CreateBasePanel()
-	return BaseSurface:CreateObject()
-end
 
 do
 	local function check(panel, mouse_pos)
@@ -43,7 +40,7 @@ do
 end
 
 function gui.Initialize()
-	gui.Root = gui.CreateBasePanel()
+	gui.Root = gui.Create("base")
 	gui.Root:SetName("Root")
 	gui.Root.OnDraw = function() end
 	local w, h = render2d.GetSize()
@@ -83,27 +80,49 @@ function gui.Initialize()
 			end
 		end
 
-		local hovered = gui.GetHoveredObject(pos)
+		local target
 
-		while hovered and hovered:IsValid() do
-			local local_pos = hovered:GlobalToLocal(pos)
+		if press then
+			target = gui.GetHoveredObject(pos)
+			gui.PressedObjects[button] = target
+		else
+			target = gui.PressedObjects[button]
+			gui.PressedObjects[button] = nil
 
-			if hovered:OnMouseInput(button, press, local_pos) then break end
+			if not (target and target:IsValid()) then
+				target = gui.GetHoveredObject(pos)
+			end
+		end
 
-			hovered = hovered:GetParent()
+		while target and target:IsValid() do
+			local local_pos = target:GlobalToLocal(pos)
+
+			if target:MouseInput(button, press, local_pos) then break end
+
+			target = target:GetParent()
 		end
 	end)
 end
 
 function gui.Create(class_name, parent)
+	if class_name == "base" then
+		local surf = BaseSurface:CreateObject()
+		surf:Initialize()
+
+		if parent then parent:AddChild(surf) end
+
+		return surf
+	end
+
 	parent = parent or gui.Root
 	local type = class_name
 
 	if not type:find("^surface_") then type = "surface_" .. type end
 
-	local obj = prototype.CreateObject(type)
-	parent:AddChild(obj)
-	return obj
+	local surf = prototype.CreateObject(type)
+	surf:Initialize()
+	parent:AddChild(surf)
+	return surf
 end
 
 return gui

@@ -956,6 +956,24 @@ do -- base object
 		end
 	end
 
+	function META:AddLocalListener(what, callback, id)
+		id = id or callback
+		self.local_events = self.local_events or {}
+		self.local_events[what] = self.local_events[what] or {}
+		self.local_events[what][id] = callback
+		return function(...)
+			self.local_events[what][id] = nil
+		end
+	end
+
+	function META:CallLocalListeners(what, ...)
+		if self.local_events and self.local_events[what] then
+			for _, callback in pairs(self.local_events[what]) do
+				callback(self, ...)
+			end
+		end
+	end
+
 	function META:CallOnRemove(callback, id)
 		id = id or callback
 

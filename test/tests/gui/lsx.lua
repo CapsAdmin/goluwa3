@@ -198,7 +198,7 @@ T.Test("lsx component ref and layout", function()
 			Size = Vec2(100, 100),
 		})
 	end)
-	local root = gui.CreateBasePanel()
+	local root = gui.Create("base")
 	local instance = lsx.Mount(
 		MyComponent({
 			ref = function(pnl)
@@ -231,7 +231,7 @@ T.Test("lsx layout calculation with children", function()
 			}
 		)
 	end)
-	local root = gui.CreateBasePanel()
+	local root = gui.Create("base")
 	root:SetSize(Vec2(500, 500))
 	local surface = lsx.Mount(MyComponent({}), root)
 	-- Trigger layout calculation

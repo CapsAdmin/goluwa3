@@ -11,6 +11,7 @@ local META = prototype.CreateTemplate("surface_base")
 META.IsSurface = true
 prototype.ParentingTemplate(META)
 assert(loadfile("goluwa/gui/base_surface_layout.lua"))(META)
+assert(loadfile("goluwa/gui/base_surface_animations.lua"))(META)
 META:StartStorable()
 META:GetSet("Position", Vec2(0, 0), {callback = "InvalidateMatrices"})
 META:GetSet("Size", Vec2(100, 100), {callback = "InvalidateLayout"})
@@ -35,9 +36,14 @@ function META:SetColor(c)
 	end
 end
 
+function META:IsWorld()
+	return self.Name == "Root"
+end
+
 function META:Initialize()
 	self.LocalMatrix = Matrix44()
 	self.LocalMatrix:Identity()
+	self.animations = {}
 end
 
 function META:InvalidateMatrices()
@@ -197,6 +203,8 @@ function META:IsHovered(mouse_pos)
 end
 
 function META:Draw()
+	self:CalcAnimations()
+
 	if self.CalcLayout then self:CalcLayout() end
 
 	if not self.Visible then return end
@@ -236,6 +244,21 @@ function META:GetVisibleChildren()
 	end
 
 	return tbl
+end
+
+function META:MouseInput(button, press, pos)
+	-- todo, trigger button release events outside of the panel
+	self.button_states = self.button_states or {}
+	self.button_states[button] = {press = press, pos = pos}
+	self:OnMouseInput(button, press, pos)
+	self:CallLocalListeners("MouseInput", button, press, pos)
+end
+
+function META:IsMouseButtonDown(button)
+	self.button_states = self.button_states or {}
+	local state = self.button_states[button]
+	table.print(self.button_states)
+	return state and state.press
 end
 
 do -- example events
