@@ -1,8 +1,9 @@
 local fs = require("fs")
 local ffi = desire("ffi")
-local prototype = require("prototype")
 local vfs = require("filesystem.vfs")
-local CONTEXT = {}
+local prototype = require("prototype")
+local CONTEXT = prototype.CreateTemplate("file_system_os")
+CONTEXT.Base = require("filesystem.base_file")
 CONTEXT.Name = "os"
 CONTEXT.Position = 0
 
@@ -192,4 +193,4 @@ end
 function CONTEXT:Flush() --self.file:flush()
 end
 
-vfs.RegisterFileSystem(CONTEXT)
+return CONTEXT:Register()

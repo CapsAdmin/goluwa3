@@ -166,32 +166,12 @@ do -- file systems
 	vfs.filesystems = vfs.filesystems or {}
 	vfs.filesystems2 = vfs.filesystems2 or {}
 
-	function vfs.RegisterFileSystem(META, is_base)
-		if META.Name ~= "base" then
-			if META.Base then
-				local base_type = type(META.Base) == "table" and META.Base.Type or META.Base
-
-				if not base_type:find("file_system_", nil, true) then
-					base_type = "file_system_" .. base_type
-				end
-
-				META.Base = prototype.GetRegistered(base_type)
-			else
-				META.Base = prototype.GetRegistered("file_system_base")
-			end
-		end
-
-		META.Position = META.Position or 0
-		META.Type = "file_system_" .. META.Name
-		prototype.Register(META)
-
-		if is_base then return end
-
-		local context = prototype.CreateObject("file_system_" .. META.Name)
+	function vfs.InstantiateFilesystem(META)
+		local context = META:CreateObject()
 		context.mounted_paths = {}
 
 		for k, v in ipairs(vfs.filesystems) do
-			if v.Name == META.Name then
+			if v.Type == META.Type then
 				list.remove(vfs.filesystems, k)
 				context.mounted_paths = v.mounted_paths
 
@@ -206,6 +186,7 @@ do -- file systems
 		end)
 
 		vfs.filesystems2[context.Name] = context
+		return META
 	end
 
 	function vfs.GetFileSystems()
@@ -308,7 +289,7 @@ function vfs.Open(path, mode, sub_mode)
 	if #paths == 0 then list.insert(errors, path .. " does not exist") end
 
 	for i, data in ipairs(paths) do
-		local file = prototype.CreateObject("file_system_" .. data.context.Name)
+		local file = data.context:CreateObject()
 		file:SetMode(mode)
 		local ok, err = file:Open(data.path_info)
 		file.path_used = data.path_info.full_path
@@ -336,12 +317,11 @@ require("filesystem.helpers")
 require("filesystem.addons")
 require("filesystem.lua_utilities")
 require("filesystem.storage")
-require("filesystem.files.generic_archive")
-require("filesystem.files.os")
-require("filesystem.files.vpk")
-require("filesystem.files.zip")
-require("filesystem.files.gma")
-require("filesystem.files.lzma")
+vfs.InstantiateFilesystem(require("filesystem.files.os"))
+vfs.InstantiateFilesystem(require("filesystem.files.vpk"))
+vfs.InstantiateFilesystem(require("filesystem.files.zip"))
+vfs.InstantiateFilesystem(require("filesystem.files.gma"))
+vfs.InstantiateFilesystem(require("filesystem.files.lzma"))
 
 for _, context in ipairs(vfs.GetFileSystems()) do
 	if context.VFSOpened then context:VFSOpened() end

@@ -1,9 +1,10 @@
 local vfs = require("filesystem.vfs")
-local CONTEXT = {}
+local prototype = require("prototype")
+local CONTEXT = prototype.CreateTemplate("file_system_vpk")
 CONTEXT.Name = "valve package"
 CONTEXT.NameEndsWith = "_dir"
 CONTEXT.Extension = "vpk"
-CONTEXT.Base = "generic_archive"
+CONTEXT.Base = require("filesystem.files.generic_archive")
 
 function CONTEXT:OnParseArchive(file, archive_path)
 	file:ReadStructure([[
@@ -75,4 +76,4 @@ function CONTEXT:TranslateArchivePath(file_info, archive_path)
 		end)
 end
 
-vfs.RegisterFileSystem(CONTEXT)
+return CONTEXT:Register()

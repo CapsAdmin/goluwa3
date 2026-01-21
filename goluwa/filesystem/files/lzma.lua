@@ -1,10 +1,11 @@
 local vfs = require("filesystem.vfs")
 local lzma = require("codecs.lzma")
 local crypto = require("crypto")
-local CONTEXT = {}
+local prototype = require("prototype")
+local CONTEXT = prototype.CreateTemplate("file_system_lzma")
 CONTEXT.Name = "lzma archive"
-CONTEXT.Extension = "bin"
-CONTEXT.Base = "generic_archive"
+CONTEXT.Extension = {"lzma", "bin"}
+CONTEXT.Base = require("filesystem.files.generic_archive")
 CONTEXT.Position = 4
 
 function CONTEXT:OnParseArchive(file, archive_path)
@@ -89,15 +90,4 @@ function CONTEXT:IsArchive(path_info)
 	return true
 end
 
-vfs.RegisterFileSystem(CONTEXT)
--- Also register for .lzma extension
-local CONTEXT_LZMA = {}
-
-for k, v in pairs(CONTEXT) do
-	CONTEXT_LZMA[k] = v
-end
-
-CONTEXT_LZMA.Name = "lzma_archive_lzma"
-CONTEXT_LZMA.Extension = "lzma"
-CONTEXT_LZMA.Type = nil
-vfs.RegisterFileSystem(CONTEXT_LZMA)
+return CONTEXT:Register()

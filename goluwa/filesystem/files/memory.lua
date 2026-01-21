@@ -1,5 +1,7 @@
 local vfs = require("filesystem.vfs")
-local CONTEXT = {}
+local prototype = require("prototype")
+local CONTEXT = prototype.CreateTemplate("file_system_memory")
+CONTEXT.Base = require("filesystem.base_file")
 CONTEXT.Name = "memory"
 local file_tree = {is_folder = true}
 
@@ -137,4 +139,4 @@ function CONTEXT:GetLastAccessed()
 	return self.file.last_accessed
 end
 
-vfs.RegisterFileSystem(CONTEXT)
+return CONTEXT:Register()

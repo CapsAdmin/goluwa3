@@ -1,8 +1,8 @@
 local prototype = require("prototype")
 local vfs = require("filesystem.vfs")
-local CONTEXT = {}
+local CONTEXT = prototype.CreateTemplate("file_system_base")
 CONTEXT.Name = "base"
-prototype.GetSet(CONTEXT, "Mode", "read")
+CONTEXT:GetSet("Mode", "read")
 
 function CONTEXT:__tostring2()
 	return self.path_used or ""
@@ -138,5 +138,4 @@ function CONTEXT:IsArchive(path_info)
 end
 
 require("filesystem.buffer_template")(CONTEXT)
-CONTEXT.Type = "file_system_" .. CONTEXT.Name
-prototype.Register(CONTEXT)
+return CONTEXT:Register()

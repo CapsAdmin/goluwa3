@@ -1,8 +1,9 @@
 local vfs = require("filesystem.vfs")
-local CONTEXT = {}
+local prototype = require("prototype")
+local CONTEXT = prototype.CreateTemplate("file_system_bethesda_archive")
 CONTEXT.Name = "bethesda archive"
 CONTEXT.Extension = "bsa"
-CONTEXT.Base = "generic_archive"
+CONTEXT.Base = require("filesystem.files.generic_archive")
 
 function CONTEXT:OnParseArchive(file, archive_path)
 	local header = file:ReadStructure([[
@@ -61,4 +62,4 @@ function CONTEXT:OnParseArchive(file, archive_path)
 	end
 end
 
-vfs.RegisterFileSystem(CONTEXT)
+return CONTEXT:Register()

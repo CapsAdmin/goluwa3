@@ -4,10 +4,11 @@ local bit = require("bit")
 local deflate = require("codecs.deflate")
 local Buffer = require("structs.buffer")
 local vfs = require("filesystem.vfs")
-local CONTEXT = {}
+local prototype = require("prototype")
+local CONTEXT = prototype.CreateTemplate("file_system_zip")
+CONTEXT.Base = require("filesystem.files.generic_archive")
 CONTEXT.Name = "zip archive"
 CONTEXT.Extension = "zip"
-CONTEXT.Base = "generic_archive"
 
 function CONTEXT:OnParseArchive(file, archive_path)
 	if VERBOSE then print("ZIP: Parsing archive:", archive_path) end
@@ -233,4 +234,4 @@ function CONTEXT:GetSize()
 	return self.file_info.size
 end
 
-vfs.RegisterFileSystem(CONTEXT)
+return CONTEXT:Register()

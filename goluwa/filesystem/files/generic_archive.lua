@@ -3,8 +3,11 @@ local utility = require("utility")
 local timer = require("timer")
 local Tree = require("structs.tree")
 local vfs = require("filesystem.vfs")
-local CONTEXT = {}
+local prototype = require("prototype")
+local CONTEXT = prototype.CreateTemplate("file_system_generic_archive")
+CONTEXT.Base = require("filesystem.base_file")
 CONTEXT.Name = "generic_archive"
+CONTEXT.Position = 0
 
 function CONTEXT:AddEntry(entry)
 	self.tree.done_directories = self.tree.done_directories or {}
@@ -83,15 +86,24 @@ local modified_cache = {} -- just numbers
 function CONTEXT:GetFileTree(path_info)
 	if never then return false, "recursive call to GetFileTree" end
 
-	local archive_path, relative = path_info.full_path:slice((self.NameEndsWith or "") .. "." .. self.Extension .. "/", 0, 1)
+	local extensions = self.Extension
 
-	if not archive_path then
-		archive_path, relative = path_info.full_path:slice("." .. self.Extension .. "/", 0, 1)
+	if type(extensions) == "string" then extensions = {extensions} end
+
+	local archive_path, relative
+
+	for _, extension in ipairs(extensions) do
+		archive_path, relative = path_info.full_path:slice((self.NameEndsWith or "") .. "." .. extension .. "/", 0, 1)
+
+		if not archive_path then
+			archive_path, relative = path_info.full_path:slice("." .. extension .. "/", 0, 1)
+		end
+
+		if archive_path then break end
 	end
 
 	if not archive_path then
-		return false,
-		"not a valid " .. self.Extension .. " archive path: " .. path_info.full_path
+		return false, "not a valid archive path: " .. path_info.full_path
 	end
 
 	local last_modified = modified_cache[archive_path]
@@ -296,4 +308,4 @@ function CONTEXT:GetSize()
 	return self.file_info.size
 end
 
-vfs.RegisterFileSystem(CONTEXT, true)
+return CONTEXT:Register()

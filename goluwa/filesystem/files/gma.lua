@@ -1,8 +1,9 @@
 local vfs = require("filesystem.vfs")
-local CONTEXT = {}
+local prototype = require("prototype")
+local CONTEXT = prototype.CreateTemplate("file_system_gma_archive")
 CONTEXT.Name = "gmod addon archive"
 CONTEXT.Extension = "gma"
-CONTEXT.Base = "generic_archive"
+CONTEXT.Base = require("filesystem.files.generic_archive")
 CONTEXT.Position = 5
 
 function CONTEXT:OnParseArchive(file, archive_path)
@@ -55,4 +56,4 @@ function CONTEXT:OnParseArchive(file, archive_path)
 	return true
 end
 
-vfs.RegisterFileSystem(CONTEXT)
+return CONTEXT:Register()
