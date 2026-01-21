@@ -17,6 +17,7 @@ META:GetSet("Position", Vec2(0, 0), {callback = "InvalidateMatrices"})
 META:GetSet("Size", Vec2(100, 100), {callback = "InvalidateLayout"})
 META:GetSet("Rotation", 0, {callback = "InvalidateMatrices"})
 META:GetSet("Scale", Vec2(1, 1), {callback = "InvalidateMatrices"})
+META:GetSet("Pivot", Vec2(0.5, 0.5), {callback = "InvalidateMatrices"})
 META:GetSet("Visible", true)
 META:GetSet("Color", Color(1, 1, 1, 1))
 META:GetSet("Clipping", false)
@@ -124,21 +125,24 @@ end
 function META:GetLocalMatrix()
 	if self.LocalMatrixDirty or not self.LocalMatrix then
 		self.LocalMatrix = self.LocalMatrix or Matrix44()
-		-- Construct Local Matrix: S * R * T
 		self.LocalMatrix:Identity()
+		local pivot = self.Pivot
+		local center = (self.Size + self.DrawSizeOffset) * pivot
+		local pos = self.Position + self.DrawPositionOffset
+		self.LocalMatrix:SetTranslation(pos.x + center.x, pos.y + center.y, 0)
+		local rotation = self.Rotation + self.DrawAngleOffset.r
 
-		-- Apply Rotation (Z axis)
-		if self.Rotation ~= 0 then
-			self.LocalMatrix:Rotate(math.rad(self.Rotation), 0, 0, 1)
+		if rotation ~= 0 then
+			self.LocalMatrix:Rotate(math.rad(rotation), 0, 0, 1)
 		end
 
-		-- Apply Scale
-		if self.Scale.x ~= 1 or self.Scale.y ~= 1 then
-			self.LocalMatrix:Scale(self.Scale.x, self.Scale.y, 1)
+		local scale = self.Scale * self.DrawScaleOffset
+
+		if scale.x ~= 1 or scale.y ~= 1 then
+			self.LocalMatrix:Scale(scale.x, scale.y, 1)
 		end
 
-		-- Apply Translation
-		self.LocalMatrix:SetTranslation(self.Position.x, self.Position.y, 0)
+		self.LocalMatrix:Translate(-center.x, -center.y, 0)
 		self.LocalMatrixDirty = false
 	end
 
@@ -264,8 +268,10 @@ end
 do -- example events
 	function META:OnDraw()
 		render2d.SetTexture(nil)
-		render2d.SetColor(self.Color:Unpack())
-		render2d.DrawRect(0, 0, self.Size.x, self.Size.y)
+		local c = self.Color + self.DrawColor
+		render2d.SetColor(c.r, c.g, c.b, c.a * self.DrawAlpha)
+		local s = self.Size + self.DrawSizeOffset
+		render2d.DrawRect(0, 0, s.x, s.y)
 	end
 
 	function META:OnMouseInput(button, press, pos)

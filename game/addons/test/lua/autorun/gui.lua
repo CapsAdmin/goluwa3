@@ -27,76 +27,8 @@ local function UseTime()
 	return time
 end
 
-local function UseMouse()
-	local pos, set_pos = lsx.UseState(Vec2(0, 0))
-
-	lsx.UseEffect(
-		function()
-			return event.AddListener("Update", {}, function()
-				local mpos = window.GetMousePosition()
-				set_pos(Vec2(mpos.x, mpos.y))
-			end)
-		end,
-		{}
-	)
-
-	return pos
-end
-
-local function UseHover(ref)
-	local is_hovered, set_hovered = lsx.UseState(false)
-	local mouse = UseMouse()
-
-	lsx.UseEffect(
-		function()
-			if not ref.current then return end
-
-			set_hovered(ref.current:IsHoveredExclusively(mouse))
-		end,
-		{mouse.x, mouse.y}
-	)
-
-	return is_hovered
-end
-
-local function IsMouseButtonDown(ref, what)
-	local is_pressed, set_pressed = lsx.UseState(false)
-
-	lsx.UseEffect(
-		function()
-			if not ref.current then return end
-
-			return ref.current:AddLocalListener("MouseInput", function(self, button, press, pos)
-				if button ~= what then return end
-
-				if button == "button_1" and press then
-					ref.current:Animate(
-						{
-							var = "Scale",
-							to = {
-								Vec2() + 0.9,
-								function()
-									return input.IsMouseDown("button_1")
-								end,
-								Vec2() + 1,
-							},
-							time = 0.1,
-							operator = "*",
-						}
-					)
-				end
-
-				if press then set_pressed(true) else set_pressed(false) end
-			end)
-		end,
-		{}
-	)
-
-	return is_pressed
-end
-
 local function UsePrevious(value)
-	local ref = UseRef(nil)
+	local ref = lsx.UseRef(nil)
 
 	lsx.UseEffect(function()
 		ref.current = value
@@ -135,7 +67,7 @@ if false then
 	end)
 	local HoverPanel = lsx.Component(function(props)
 		local ref = lsx.UseRef(nil)
-		local is_hovered = UseHover(ref)
+		local is_hovered = lsx.UseHover(ref)
 		return lsx.Panel(
 			{
 				Name = "HoverPanel",
@@ -460,8 +392,25 @@ end
 if true then
 	local Interactive = lsx.Component(function(props)
 		local ref = lsx.UseRef(nil)
-		local is_hovered = UseHover(ref)
-		local is_pressed = IsMouseButtonDown(ref, "button_1")
+		local is_hovered = lsx.UseHover(ref)
+		local is_pressed = lsx.UsePress(ref)
+		print(is_pressed, is_hovered)
+		lsx.UseAnimate(
+			ref,
+			{
+				var = "DrawScaleOffset",
+				to = {
+					Vec2() + 0.9,
+					function()
+						return input.IsMouseDown("button_1")
+					end,
+					Vec2() + 1,
+				},
+				time = 0.5,
+				operator = "*",
+			},
+			{is_pressed}
+		)
 		return lsx.Panel(
 			{
 				ref = ref,

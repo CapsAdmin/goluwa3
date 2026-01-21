@@ -8,20 +8,16 @@ local META = ...
 
 do -- animations
 	-- these are useful for animations
-	META:GetSet("DrawSizeOffset", Vec2(0, 0))
-	META:GetSet("DrawScaleOffset", Vec2(1, 1))
-	META:GetSet("DrawPositionOffset", Vec2(0, 0))
-	META:GetSet("DrawAngleOffset", Ang3(0, 0, 0))
+	META:GetSet("DrawSizeOffset", Vec2(0, 0), {callback = "InvalidateMatrices"})
+	META:GetSet("DrawScaleOffset", Vec2(1, 1), {callback = "InvalidateMatrices"})
+	META:GetSet("DrawPositionOffset", Vec2(0, 0), {callback = "InvalidateMatrices"})
+	META:GetSet("DrawAngleOffset", Ang3(0, 0, 0), {callback = "InvalidateMatrices"})
 	META:GetSet("DrawColor", Color(0, 0, 0, 0))
 	META:GetSet("DrawAlpha", 1)
 	local parent_layout = {
-		DrawSizeOffset = true,
-		DrawScaleOffset = true,
-		DrawAngleOffset = true,
-		DrawPositionOffset = true,
 		Size = true,
 		Position = true,
-		Angle = true,
+		Rotation = true,
 	}
 
 	local function lerp_values(values, alpha)
@@ -69,9 +65,15 @@ do -- animations
 
 				animation.func(self, val)
 
-				if parent_layout[animation.var] and self:HasParent() and not self.Parent:IsWorld() then
-					self.Parent:CalcLayoutInternal(true)
-				else
+				if parent_layout[animation.var] then
+					if self:HasParent() and not self.Parent:IsWorld() then
+						self.Parent:CalcLayoutInternal(true)
+					else
+						self:CalcLayoutInternal(true)
+					end
+				elseif animation.var:sub(1, 4) ~= "Draw" then
+					-- if it's not a Draw property, we should still probably trigger a layout update
+					-- but maybe only for specific properties? Let's keep it for now but skip Draw*
 					self:CalcLayoutInternal(true)
 				end
 

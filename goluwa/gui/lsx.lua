@@ -215,6 +215,86 @@ do -- hooks
 
 		return states[idx]
 	end
+
+	function lsx.UseAnimation(ref)
+		return lsx.UseCallback(
+			function(config)
+				if ref.current then ref.current:Animate(config) end
+			end,
+			{ref}
+		)
+	end
+
+	function lsx.UseMouse()
+		local pos, set_pos = lsx.UseState(function()
+			local mpos = window.GetMousePosition()
+			return Vec2(mpos.x, mpos.y)
+		end)
+
+		lsx.UseEffect(
+			function()
+				return event.AddListener("Update", {}, function()
+					local mpos = window.GetMousePosition()
+
+					set_pos(function(old)
+						if old.x == mpos.x and old.y == mpos.y then return old end
+
+						return Vec2(mpos.x, mpos.y)
+					end)
+				end)
+			end,
+			{}
+		)
+
+		return pos
+	end
+
+	function lsx.UseHover(ref)
+		local is_hovered, set_hovered = lsx.UseState(false)
+
+		lsx.UseEffect(
+			function()
+				if not ref.current then return end
+
+				return event.AddListener("Update", {}, function()
+					local mpos = window.GetMousePosition()
+					set_hovered(ref.current:IsHoveredExclusively(mpos))
+				end)
+			end,
+			{ref.current}
+		)
+
+		return is_hovered
+	end
+
+	function lsx.UseAnimate(ref, config, deps)
+		lsx.UseEffect(
+			function()
+				if ref.current then ref.current:Animate(config) end
+			end,
+			deps
+		)
+	end
+
+	function lsx.UsePress(ref, button)
+		button = button or "button_1"
+		local is_pressed, set_pressed = lsx.UseState(false)
+
+		lsx.UseEffect(
+			function()
+				if not ref.current then return end
+
+				return ref.current:AddLocalListener("MouseInput", function(self, btn, press)
+					if btn ~= button then return end
+
+					set_pressed(press)
+				end)
+			end,
+			{ref.current}
+		)
+
+		return is_pressed
+	end
 end
 
 function lsx.RunPendingEffects()
