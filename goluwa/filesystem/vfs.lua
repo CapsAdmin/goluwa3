@@ -328,19 +328,20 @@ function vfs.Open(path, mode, sub_mode)
 	return false, "unable to open file: \n" .. list.concat(errors, "\n")
 end
 
-require("filesystem.path_utilities")(vfs)
-require("filesystem.base_file")(vfs)
-require("filesystem.find")(vfs)
-require("filesystem.helpers")(vfs)
-require("filesystem.addons")(vfs)
-require("filesystem.lua_utilities")(vfs)
-require("filesystem.storage")(vfs)
-require("filesystem.files.generic_archive")(vfs)
-require("filesystem.files.os")(vfs)
-require("filesystem.files.vpk")(vfs)
-require("filesystem.files.zip")(vfs)
-require("filesystem.files.gma")(vfs)
-require("filesystem.files.lzma")(vfs)
+package.loaded["filesystem.vfs"] = vfs
+require("filesystem.path_utilities")
+require("filesystem.base_file")
+require("filesystem.find")
+require("filesystem.helpers")
+require("filesystem.addons")
+require("filesystem.lua_utilities")
+require("filesystem.storage")
+require("filesystem.files.generic_archive")
+require("filesystem.files.os")
+require("filesystem.files.vpk")
+require("filesystem.files.zip")
+require("filesystem.files.gma")
+require("filesystem.files.lzma")
 
 for _, context in ipairs(vfs.GetFileSystems()) do
 	if context.VFSOpened then context:VFSOpened() end

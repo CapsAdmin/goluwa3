@@ -1,8 +1,4 @@
-do
-	return
-end
-
-local vfs = (...) or _G.vfs
+local vfs = require("filesystem.vfs")
 local CONTEXT = {}
 CONTEXT.Name = "bethesda archive"
 CONTEXT.Extension = "bsa"

@@ -10,8 +10,7 @@ META:GetSet("MipMapLevels", 1)
 
 function META.New(page_width, page_height, filtering, format)
 	page_height = page_height or page_width
-	return prototype.CreateObject(
-		META,
+	return META:CreateObject(
 		{
 			dirty_textures = {},
 			pages = {},

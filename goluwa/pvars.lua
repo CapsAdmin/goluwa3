@@ -57,35 +57,33 @@ function pvars.Save()
 	end
 end
 
-do -- pvar meta
-	local META = prototype.CreateTemplate("pvar")
+local META = prototype.CreateTemplate("pvar")
 
-	function META:Get()
-		return pvars.Get(self.key)
-	end
-
-	function META:Set(val)
-		pvars.Set(self.key, val)
-	end
-
-	function META:GetCallback()
-		return pvars.infos[self.key].callback
-	end
-
-	function META:GetDefault()
-		return pvars.infos[self.key].default
-	end
-
-	function META:GetType()
-		return pvars.infos[self.key].type
-	end
-
-	function META:GetHelp()
-		return pvars.infos[self.key].help
-	end
-
-	META:Register()
+function META:Get()
+	return pvars.Get(self.key)
 end
+
+function META:Set(val)
+	pvars.Set(self.key, val)
+end
+
+function META:GetCallback()
+	return pvars.infos[self.key].callback
+end
+
+function META:GetDefault()
+	return pvars.infos[self.key].default
+end
+
+function META:GetType()
+	return pvars.infos[self.key].type
+end
+
+function META:GetHelp()
+	return pvars.infos[self.key].help
+end
+
+META:Register()
 
 function pvars.Setup2(info)
 	info.type = info.type or typex(info.default)
@@ -139,7 +137,7 @@ end
 function pvars.GetObject(key)
 	local info = pvars.infos[key]
 
-	if info then return prototype.CreateObject("pvar", {key = key}) end
+	if info then return META:CreateObject({key = key}) end
 end
 
 function pvars.IsSetup(key)
