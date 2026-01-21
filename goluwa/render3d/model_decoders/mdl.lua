@@ -207,21 +207,23 @@ local header = [[
 local function find_file(path, ...)
 	local extensions = {...}
 	local ok, err
-
 	local attempts = {}
 
 	-- try exact path first
 	for _, ext in ipairs(extensions) do
 		table.insert(attempts, path .. ext)
 		ok, err = vfs.Open(path .. ext)
+
 		if ok then return ok end
 	end
 
 	-- try vfs mixed case search
 	for _, ext in ipairs(extensions) do
 		local found = vfs.FindMixedCasePath(path .. ext)
+
 		if found then
 			ok, err = vfs.Open(found)
+
 			if ok then return ok end
 		end
 	end
@@ -229,18 +231,23 @@ local function find_file(path, ...)
 	-- fallback: use fs module for case-insensitive directory listing
 	local dir = path:match("(.+/)")
 	local base_name = path:match(".+/(.+)$")
+
 	if dir and base_name then
 		local abs_dir = R(dir)
+
 		if abs_dir then
 			local files = fs.get_files(abs_dir)
+
 			if files then
 				for _, file_name in ipairs(files) do
 					for _, ext in ipairs(extensions) do
 						local target = base_name .. ext
+
 						if file_name:lower() == target:lower() then
 							local full_path = abs_dir .. "/" .. file_name
 							table.insert(attempts, full_path)
 							ok, err = vfs.Open("os:" .. full_path)
+
 							if ok then return ok end
 						end
 					end
@@ -842,7 +849,7 @@ model_loader.AddModelDecoder("mdl", function(path, full_path, mesh_callback)
 	return models
 end)
 
-if RELOAD then
+if HOTRELOAD then
 	render3d.model_cache = {}
 	render3d.model_loader_cb = utility.CreateCallbackThing(render3d.model_cache)
 	steam.MountSourceGame("hl2")

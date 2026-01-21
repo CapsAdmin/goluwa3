@@ -8,11 +8,6 @@ local Rect = require("structs.rect")
 local Color = require("structs.color")
 local window = require("window")
 local input = require("input")
-package.loaded["gui.gui"] = nil
-package.loaded["gui.lsx"] = nil
-package.loaded["gui.base_surface"] = nil
-package.loaded["gui.base_surface_layout"] = nil
-require("gui.gui").Initialize()
 local lsx = require("gui.lsx")
 
 local function UseTime()
@@ -339,7 +334,7 @@ local App = lsx.Component(function()
 					Padding = Rect() + 10,
 				}
 			),
-		--	MouseFollower(),
+			--	MouseFollower(),
 			lsx.Panel(
 				{
 					Name = "content",
@@ -422,4 +417,5 @@ local App = lsx.Component(function()
 		}
 	)
 end)
+require("gui.gui").Root:RemoveChildren()
 lsx.Mount(App())

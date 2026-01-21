@@ -179,7 +179,7 @@ return function(sockets)
 
 	META:Register()
 
-	if RELOAD then
+	if HOTRELOAD then
 		local socket = sockets.CreateWebsocketClient()
 		--socket:Connect("wss://demos.kaazing.com/echo")
 		socket:Connect("192.168.122.1", 8765)

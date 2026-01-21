@@ -444,10 +444,10 @@ return function(sockets)
 		return str
 	end
 
-	if RELOAD then
-		RELOAD = false
+	if HOTRELOAD then
+		HOTRELOAD = false
 		runfile("http11_client.lua")
-		RELOAD = true
+		HOTRELOAD = true
 		local client = sockets.HTTPClient()
 		client:Request("GET", "https://fonts.google.com/download?family=Roboto")
 		print("\n\n\n\n\n\n\n\n===================")

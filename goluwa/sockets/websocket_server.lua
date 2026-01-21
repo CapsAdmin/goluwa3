@@ -91,7 +91,7 @@ return function(sockets)
 		return self
 	end
 
-	if RELOAD then
+	if HOTRELOAD then
 		local http_port = 1235
 		local ws_port = 9998
 		local ws_server = utility.RemoveOldObject(sockets.WebSocketServer(), "ws_server")

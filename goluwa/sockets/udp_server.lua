@@ -77,7 +77,7 @@ return function(sockets)
 		return self
 	end
 
-	if RELOAD then
+	if HOTRELOAD then
 		local udp = sockets.UDPServer()
 		udp:SetAddress("0.0.0.0", 31337)
 

@@ -259,7 +259,7 @@ return function(sockets)
 		end
 	end
 
-	if RELOAD then
+	if HOTRELOAD then
 		local function download(url, on_finish)
 			local client
 			client = sockets.Download(

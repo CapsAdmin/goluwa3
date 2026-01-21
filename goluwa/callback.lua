@@ -303,7 +303,7 @@ function callback.Resolve(...)
 	return cb
 end
 
-if RELOAD then
+if HOTRELOAD then
 	local function await(func)
 		tasks.CreateTask(func)
 	end

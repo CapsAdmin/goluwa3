@@ -5,6 +5,30 @@ local last_error
 if jit.os ~= "Windows" then
 	ffi.cdef("char *strerror(int);")
 
+	if jit.os == "Linux" then
+		ffi.cdef[[
+			int inotify_init1(int flags);
+			int inotify_add_watch(int fd, const char *pathname, uint32_t mask);
+			int inotify_rm_watch(int fd, int wd);
+			struct inotify_event {
+				int      wd;
+				uint32_t mask;
+				uint32_t cookie;
+				uint32_t len;
+				char     name[];
+			};
+		]]
+		fs.IN_NONBLOCK = 0x00000800
+		fs.IN_CLOSE_WRITE = 0x00000008
+		fs.IN_MOVED_TO = 0x00000080
+		fs.IN_CREATE = 0x00000100
+		fs.IN_DELETE = 0x00000200
+		fs.IN_MODIFY = 0x00000002
+		fs.IN_MOVE = 0x000000C0 -- IN_MOVED_FROM | IN_MOVED_TO
+		fs.IN_MOVED_FROM = 0x00000040
+		fs.IN_ISDIR = 0x40000000
+	end
+
 	function last_error()
 		local num = ffi.errno()
 		local err = ffi.string(ffi.C.strerror(num))
@@ -313,6 +337,47 @@ else
             va_list *Arguments
         );
     ]]
+	ffi.cdef[[
+		typedef struct _OVERLAPPED {
+			uintptr_t Internal;
+			uintptr_t InternalHigh;
+			union {
+				struct {
+					uint32_t Offset;
+					uint32_t OffsetHigh;
+				};
+				void* Pointer;
+			};
+			void* hEvent;
+		} OVERLAPPED, *LPOVERLAPPED;
+
+		void* CreateFileA(const char* lpFileName, uint32_t dwDesiredAccess, uint32_t dwShareMode, void* lpSecurityAttributes, uint32_t dwCreationDisposition, uint32_t dwFlagsAndAttributes, void* hTemplateFile);
+		int ReadDirectoryChangesW(void* hDirectory, void* lpBuffer, uint32_t nBufferLength, int bWatchSubtree, uint32_t dwNotifyFilter, uint32_t* lpBytesReturned, LPOVERLAPPED lpOverlapped, void* lpCompletionRoutine);
+		int CloseHandle(void* hObject);
+
+		int MultiByteToWideChar(uint32_t CodePage, uint32_t dwFlags, const char* lpMultiByteStr, int cbMultiByte, uint16_t* lpWideCharStr, int cchWideChar);
+		int WideCharToMultiByte(uint32_t CodePage, uint32_t dwFlags, const uint16_t* lpWideCharStr, int cchWideChar, char* lpMultiByteStr, int cbMultiByte, const char* lpDefaultChar, int* lpUsedDefaultChar);
+	]]
+	fs.FILE_LIST_DIRECTORY = 0x0001
+	fs.FILE_SHARE_READ = 0x00000001
+	fs.FILE_SHARE_WRITE = 0x00000002
+	fs.FILE_SHARE_DELETE = 0x00000004
+	fs.OPEN_EXISTING = 3
+	fs.FILE_FLAG_BACKUP_SEMANTICS = 0x02000000
+	fs.FILE_FLAG_OVERLAPPED = 0x40000000
+	fs.FILE_NOTIFY_CHANGE_FILE_NAME = 0x00000001
+	fs.FILE_NOTIFY_CHANGE_DIR_NAME = 0x00000002
+	fs.FILE_NOTIFY_CHANGE_ATTRIBUTES = 0x00000004
+	fs.FILE_NOTIFY_CHANGE_SIZE = 0x00000008
+	fs.FILE_NOTIFY_CHANGE_LAST_WRITE = 0x00000010
+	fs.FILE_NOTIFY_CHANGE_LAST_ACCESS = 0x00000020
+	fs.FILE_NOTIFY_CHANGE_CREATION = 0x00000040
+	fs.FILE_NOTIFY_CHANGE_SECURITY = 0x00000100
+	fs.FILE_ACTION_ADDED = 1
+	fs.FILE_ACTION_REMOVED = 2
+	fs.FILE_ACTION_MODIFIED = 3
+	fs.FILE_ACTION_RENAMED_OLD_NAME = 4
+	fs.FILE_ACTION_RENAMED_NEW_NAME = 5
 	local error_str = ffi.new("uint8_t[?]", 1024)
 	local FORMAT_MESSAGE_FROM_SYSTEM = 0x00001000
 	local FORMAT_MESSAGE_IGNORE_INSERTS = 0x00000200

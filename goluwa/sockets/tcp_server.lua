@@ -102,7 +102,7 @@ return function(sockets)
 		return self
 	end
 
-	if RELOAD then
+	if HOTRELOAD then
 		local function gen_body()
 			local log = vfs.Read("logs/console_linux.txt")
 			--log = log:gsub("\n", "<br/>")

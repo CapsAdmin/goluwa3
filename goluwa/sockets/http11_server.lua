@@ -45,7 +45,7 @@ return function(sockets)
 		return self
 	end
 
-	if RELOAD then
+	if HOTRELOAD then
 		local server = utility.RemoveOldObject(sockets.HTTPServer(), "http_server")
 		print(server:Host("*", 1234))
 

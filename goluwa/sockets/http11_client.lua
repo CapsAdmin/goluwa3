@@ -128,7 +128,7 @@ return function(sockets)
 		obj.FromClient = true
 	end
 
-	if RELOAD then
+	if HOTRELOAD then
 		sockets.Request(
 			{
 				url = "https://news.ycombinator.com/item?id=19291558",

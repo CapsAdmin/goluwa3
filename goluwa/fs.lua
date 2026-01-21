@@ -137,4 +137,211 @@ do
 end
 
 fs.GetAttributes = fs.get_attributes
+
+do
+	local ffi = require("ffi")
+	local bit = require("bit")
+	local event = require("event")
+
+	if jit.os == "Linux" then
+		function fs.watch(path, callback, recursive)
+			local inotify_fd = ffi.C.inotify_init1(fs.IN_NONBLOCK)
+
+			if inotify_fd == -1 then return nil, "Failed to initialize inotify" end
+
+			if path:sub(-1) == "/" then path = path:sub(1, -2) end
+
+			local wd_to_path = {}
+
+			local function add_watch(dir_path)
+				local wd = ffi.C.inotify_add_watch(
+					inotify_fd,
+					dir_path,
+					bit.bor(
+						fs.IN_MODIFY,
+						fs.IN_CREATE,
+						fs.IN_DELETE,
+						fs.IN_MOVE,
+						fs.IN_CLOSE_WRITE
+					)
+				)
+
+				if wd ~= -1 then wd_to_path[wd] = dir_path end
+
+				return wd
+			end
+
+			local function add_recursive(dir_path)
+				add_watch(dir_path)
+				local files = fs.get_files(dir_path)
+
+				if files then
+					for _, name in ipairs(files) do
+						local full = dir_path .. "/" .. name
+
+						if fs.is_directory(full) then add_recursive(full) end
+					end
+				end
+			end
+
+			if recursive then add_recursive(path) else add_watch(path) end
+
+			local buffer = ffi.new("char[4096]")
+			local remove_event = event.AddListener("Update", {}, function()
+				while true do
+					local length = ffi.C.read(inotify_fd, buffer, 4096)
+
+					if length <= 0 then break end
+
+					local i = 0
+
+					while i < length do
+						local event = ffi.cast("struct inotify_event *", ffi.cast("char *", buffer) + i)
+						local dir_path = wd_to_path[event.wd]
+
+						if dir_path then
+							local name = ffi.string(event.name)
+							local full_path = dir_path .. "/" .. name
+							local type = "modified"
+
+							if bit.band(event.mask, fs.IN_CREATE) ~= 0 then
+								type = "created"
+							elseif bit.band(event.mask, fs.IN_DELETE) ~= 0 then
+								type = "deleted"
+							elseif bit.band(event.mask, fs.IN_MOVE) ~= 0 then
+								type = "renamed"
+							end
+
+							callback(full_path, type)
+
+							if
+								recursive and
+								bit.band(event.mask, fs.IN_ISDIR) ~= 0 and
+								bit.band(bit.bor(fs.IN_CREATE, fs.IN_MOVED_TO), event.mask) ~= 0
+							then
+								add_recursive(full_path)
+							end
+						end
+
+						i = i + ffi.sizeof("struct inotify_event") + event.len
+					end
+				end
+			end)
+			return function()
+				for wd, _ in pairs(wd_to_path) do
+					ffi.C.inotify_rm_watch(inotify_fd, wd)
+				end
+
+				ffi.C.close(inotify_fd)
+				remove_event()
+			end
+		end
+	elseif jit.os == "Windows" then
+		function fs.watch(path, callback, recursive)
+			if path:sub(-1) == "/" then path = path:sub(1, -2) end
+
+			local handle = ffi.C.CreateFileA(
+				path,
+				fs.FILE_LIST_DIRECTORY,
+				7,
+				nil,
+				3,
+				bit.bor(fs.FILE_FLAG_BACKUP_SEMANTICS, fs.FILE_FLAG_OVERLAPPED),
+				nil
+			)
+
+			if handle == ffi.cast("void *", -1) then return nil end
+
+			local buffer = ffi.new("uint8_t[4096]")
+			local overlapped = ffi.new("OVERLAPPED")
+
+			local function read_changes()
+				ffi.C.ReadDirectoryChangesW(
+					handle,
+					buffer,
+					4096,
+					recursive and 1 or 0,
+					bit.bor(
+						fs.FILE_NOTIFY_CHANGE_FILE_NAME,
+						fs.FILE_NOTIFY_CHANGE_DIR_NAME,
+						fs.FILE_NOTIFY_CHANGE_LAST_WRITE
+					),
+					nil,
+					overlapped,
+					nil
+				)
+			end
+
+			read_changes()
+			local remove_event = event.AddListener("Update", {}, function()
+				if ffi.cast("uintptr_t", overlapped.Internal) ~= 0x103 then
+					local offset = 0
+
+					while true do
+						local info = ffi.cast(
+							[[
+						struct {
+							uint32_t NextEntryOffset;
+							uint32_t Action;
+							uint32_t FileNameLength;
+							uint16_t FileName[1];
+						} *
+					]],
+							ffi.cast("char *", buffer) + offset
+						)
+						local filename_w = info.FileName
+						local filename_len = info.FileNameLength / 2
+						local bytes_needed = ffi.C.WideCharToMultiByte(
+							65001,
+							0,
+							filename_w,
+							filename_len,
+							nil,
+							0,
+							nil,
+							nil
+						)
+						local out_buf = ffi.new("char[?]", bytes_needed)
+						ffi.C.WideCharToMultiByte(
+							65001,
+							0,
+							filename_w,
+							filename_len,
+							out_buf,
+							bytes_needed,
+							nil,
+							nil
+						)
+						local filename = ffi.string(out_buf, bytes_needed)
+						local type = "modified"
+
+						if info.Action == fs.FILE_ACTION_ADDED then
+							type = "created"
+						elseif info.Action == fs.FILE_ACTION_REMOVED then
+							type = "deleted"
+						elseif
+							info.Action == fs.FILE_ACTION_RENAMED_OLD_NAME or
+							info.Action == fs.FILE_ACTION_RENAMED_NEW_NAME
+						then
+							type = "renamed"
+						end
+
+						callback(path .. "/" .. filename, type)
+
+						if info.NextEntryOffset == 0 then break end
+
+						offset = offset + info.NextEntryOffset
+					end
+
+					read_changes()
+				end
+			end)
+			return function()
+				remove_event()
+				ffi.C.CloseHandle(handle)
+			end
+		end
+	end
+end
+
 return fs

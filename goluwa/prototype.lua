@@ -75,7 +75,7 @@ do
 		prototype.registered[meta.Type] = meta
 		prototype.invalidate_meta[meta.Type] = true
 
-		if RELOAD then
+		if HOTRELOAD then
 			prototype.UpdateObjects(meta)
 
 			for k, v in pairs(meta) do
@@ -495,7 +495,7 @@ function prototype.UpdateObjects(meta)
 
 	for _, obj in pairs(prototype.GetCreated()) do
 		if obj.Type == meta.Type then
-			if RELOAD then
+			if HOTRELOAD then
 				for k, v in pairs(meta) do
 					if type(v) == "function" then
 						if

@@ -298,7 +298,7 @@ function http.EncodeQuery(tbl)
 	return str
 end
 
-if RELOAD then
+if HOTRELOAD then
 	--print("!?")
 	--http.DownloadFirstFound({"https://dl.dafont.com/dl/?f=helveticaaDAWDAWD", "https://dl.dafont.com/dl/?f=helvetica"}):Then(function(url, data)
 	---print("?!?!")
