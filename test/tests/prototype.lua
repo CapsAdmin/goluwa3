@@ -48,7 +48,7 @@ T.Test("prototype inheritance Base", function()
 
 	BASE:Register()
 	local SUB = prototype.CreateTemplate("sub")
-	SUB.Base = "base"
+	SUB.Base = BASE
 
 	function SUB:Identify()
 		return "sub"
@@ -73,7 +73,7 @@ T.Test("prototype Base", function()
 
 	BASE:Register()
 	local SUB = prototype.CreateTemplate("sub_test")
-	SUB.Base = "base_test"
+	SUB.Base = BASE
 	SUB:Register()
 	local obj = prototype.CreateObject(SUB)
 	T(obj:Hello())["=="]("world")

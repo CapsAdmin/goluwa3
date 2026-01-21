@@ -46,6 +46,26 @@ do
 	function prototype.Register(meta)
 		if not meta.Type then error("The type field was not found!", 2) end
 
+		if meta.Base then
+			if type(meta.Base) ~= "table" then
+				error(
+					string.format(
+						"%s: Base must be a table (is %s: %s)",
+						meta.Type,
+						type(meta.Base),
+						tostring(meta.Base)
+					),
+					2
+				)
+			end
+
+			if not meta.Base.Type then
+				error(string.format("%s: Base table does not have a Type field", meta.Type), 2)
+			end
+
+			meta.Base = meta.Base.Type
+		end
+
 		for _, key in ipairs(template_functions) do
 			if key ~= "CreateObject" and meta[key] == prototype[key] then
 				meta[key] = nil
@@ -390,25 +410,6 @@ do
 
 		return out
 	end
-end
-
-function prototype.CreateDerivedObject(type_name, sub_type, override, skip_gc_callback)
-	if type(sub_type) == "string" then
-		type_name = type_name .. "_" .. sub_type
-	else
-		-- it might be the override table
-		skip_gc_callback = override
-		override = sub_type
-	end
-
-	local meta = prototype.GetRegistered(type_name)
-
-	if not meta then
-		print(string.format("tried to create unknown %s!", type_name or "no type"))
-		return
-	end
-
-	return prototype.CreateObject(meta, override, skip_gc_callback)
 end
 
 function prototype.SafeRemove(obj)

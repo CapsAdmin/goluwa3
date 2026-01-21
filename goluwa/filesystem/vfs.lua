@@ -169,11 +169,15 @@ do -- file systems
 	function vfs.RegisterFileSystem(META, is_base)
 		if META.Name ~= "base" then
 			if META.Base then
-				if not META.Base:find("file_system_", nil, true) then
-					META.Base = "file_system_" .. META.Base
+				local base_type = type(META.Base) == "table" and META.Base.Type or META.Base
+
+				if not base_type:find("file_system_", nil, true) then
+					base_type = "file_system_" .. base_type
 				end
+
+				META.Base = prototype.GetRegistered(base_type)
 			else
-				META.Base = "file_system_base"
+				META.Base = prototype.GetRegistered("file_system_base")
 			end
 		end
 
@@ -183,7 +187,7 @@ do -- file systems
 
 		if is_base then return end
 
-		local context = prototype.CreateDerivedObject("file_system", META.Name)
+		local context = prototype.CreateObject("file_system_" .. META.Name)
 		context.mounted_paths = {}
 
 		for k, v in ipairs(vfs.filesystems) do
@@ -304,7 +308,7 @@ function vfs.Open(path, mode, sub_mode)
 	if #paths == 0 then list.insert(errors, path .. " does not exist") end
 
 	for i, data in ipairs(paths) do
-		local file = prototype.CreateDerivedObject("file_system", data.context.Name)
+		local file = prototype.CreateObject("file_system_" .. data.context.Name)
 		file:SetMode(mode)
 		local ok, err = file:Open(data.path_info)
 		file.path_used = data.path_info.full_path

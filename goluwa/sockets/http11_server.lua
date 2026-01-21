@@ -1,7 +1,7 @@
 local prototype = require("prototype")
 return function(sockets)
 	local META = prototype.CreateTemplate("socket_http11_server")
-	META.Base = "socket_tcp_server"
+	META.Base = prototype.GetRegistered("socket_tcp_server")
 
 	function META:OnClientConnected(client)
 		if self:OnClientConnected2(client) == false then return false end

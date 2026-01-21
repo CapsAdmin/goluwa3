@@ -3,7 +3,7 @@ local crypto = require("crypto")
 local prototype = require("prototype")
 return function(sockets)
 	local META = prototype.CreateTemplate("socket_websocket_server")
-	META.Base = "socket_tcp_server"
+	META.Base = prototype.GetRegistered("socket_tcp_server")
 
 	local function header_to_table(header)
 		local tbl = {}

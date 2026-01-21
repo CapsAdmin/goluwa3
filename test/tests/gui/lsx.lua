@@ -5,15 +5,16 @@ local gui = require("gui.gui")
 local Vec2 = require("structs.vec2")
 local event = require("event")
 -- Create a mock surface type for testing
+local BaseSurface = require("gui.base_surface")
 local META = prototype.CreateTemplate("surface_mock_element")
-META.Base = "surface_base"
+META.Base = BaseSurface
 META:GetSet("MemoVal")
 META:GetSet("Callback")
 META:Register()
 local Mock = lsx.RegisterElement("mock_element")
 
 local function CreateMockRoot()
-	return prototype.CreateDerivedObject("surface", "base")
+	return BaseSurface:CreateObject()
 end
 
 T.Test("lsx.RegisterElement and lsx.Mount", function()

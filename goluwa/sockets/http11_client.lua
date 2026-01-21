@@ -1,7 +1,7 @@
 local prototype = require("prototype")
 return function(sockets)
 	local META = prototype.CreateTemplate("socket_http11_client")
-	META.Base = "socket_tcp_client"
+	META.Base = prototype.GetRegistered("socket_tcp_client")
 	META.Stage = "none"
 
 	do

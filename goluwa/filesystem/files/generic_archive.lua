@@ -54,7 +54,6 @@ return function(vfs)
 	end
 
 	local function set_cache(key, value)
-
 		cache[key] = value
 	end
 
