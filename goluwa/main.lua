@@ -33,7 +33,7 @@ return function(...)
 	end
 
 	fs.write_file(".running_pid", tostring(process.current:get_id()))
-	local last_time = 0
+	local last_time = system.GetTime()
 	local i = 0
 	event.Call("Initialize")
 
@@ -45,6 +45,7 @@ return function(...)
 	while system.IsRunning() and not os.exitcode do
 		local time = system.GetTime()
 		local dt = time - (last_time or 0)
+		--if dt > 0.1 then print("LONG FRAME", dt) end
 		system.SetFrameTime(dt)
 		system.SetFrameNumber(i)
 		system.SetElapsedTime(system.GetElapsedTime() + dt)

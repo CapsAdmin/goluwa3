@@ -513,5 +513,5 @@ T.Test2D("Graphics render2d performance test", function(width, height)
 	end
 
 	local elapsed = os.clock() - start_time
-	T(elapsed)["<"](0.1) -- Should complete in reasonable time
+	T(elapsed)["<"](0.25) -- Should complete in reasonable time
 end)

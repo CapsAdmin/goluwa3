@@ -3,7 +3,6 @@ local ecs = require("ecs")
 local prototype = require("prototype")
 
 T.Test("ecs core basic", function()
-	ecs.ClearWorld()
 	local world = ecs.GetWorld()
 	-- Test component registration
 	local test_component = prototype.CreateTemplate("test_component")
@@ -28,7 +27,6 @@ T.Test("ecs core basic", function()
 end)
 
 T.Test("ecs OnRemove component", function()
-	ecs.ClearWorld()
 	local on_remove_called = false
 	local META = prototype.CreateTemplate("test_on_remove")
 	META.ComponentName = "test_on_remove"
@@ -50,7 +48,6 @@ T.Test("ecs OnRemove component", function()
 end)
 
 T.Test("ecs GetComponents", function()
-	ecs.ClearWorld()
 	local META = prototype.CreateTemplate("c1")
 	META.ComponentName = "c1"
 	META:Register()
@@ -74,29 +71,29 @@ T.Test("ecs GetComponents", function()
 end)
 
 T.Test("ecs entity removal during loop", function()
-	ecs.ClearWorld()
 	local world = ecs.GetWorld()
+	local count = #world:GetChildren()
+	local added = {}
 
 	for i = 1, 10 do
-		ecs.CreateEntity("e" .. i)
+		added[i] = ecs.CreateEntity("e" .. i)
 	end
 
 	local children = world:GetChildren()
-	T(#children)["=="](10)
+	T(#children)["=="](count + 10)
 
 	-- Test removing while looping
 	-- Note: ecs.lua doesn't seem to have a specific loop helper that handles removal safely,
 	-- so we test standard Lua table behavior if that's what's used, or if ecs provides one.
 	-- ENTITY:OnRemove() does local children = self:GetChildren() and loops backwards.
-	for i = #children, 1, -1 do
-		children[i]:Remove()
+	for i = #added, 1, -1 do
+		added[i]:Remove()
 	end
 
-	T(#world:GetChildren())["=="](0)
+	T(#world:GetChildren())["=="](count)
 end)
 
 T.Test("ecs component removal during loop", function()
-	ecs.ClearWorld()
 	local META = prototype.CreateTemplate("loop_test")
 	META.ComponentName = "loop_test"
 	META:Register()
@@ -125,7 +122,6 @@ T.Test("ecs component removal during loop", function()
 end)
 
 T.Test("ecs internal component removal via RemoveCommand", function()
-	ecs.ClearWorld()
 	local META = prototype.CreateTemplate("rem_test")
 	META.ComponentName = "rem_test"
 	META:Register()
@@ -146,7 +142,6 @@ T.Test("ecs internal component removal via RemoveCommand", function()
 end)
 
 T.Test("ecs AddComponent requirements", function()
-	ecs.ClearWorld()
 	local meta_req = prototype.CreateTemplate("with_req")
 	meta_req.ComponentName = "with_req"
 	meta_req.Require = {"req1", "req2"}
@@ -168,7 +163,6 @@ T.Test("ecs AddComponent requirements", function()
 end)
 
 T.Test("ecs OnEntityAddComponent", function()
-	ecs.ClearWorld()
 	local added_component = nil
 	local meta_listener = prototype.CreateTemplate("listener")
 	meta_listener.ComponentName = "listener"
@@ -187,4 +181,32 @@ T.Test("ecs OnEntityAddComponent", function()
 	local listener = ent:AddComponent("listener")
 	local other = ent:AddComponent("other")
 	T(added_component)["=="](other)
+end)
+
+T.Test("remove children", function()
+	local world = ecs.CreateEntity("fake_world")
+	T(#world:GetChildren())["=="](0)
+	local e1 = ecs.CreateEntity("e1", world)
+	local e2 = ecs.CreateEntity("e2", world)
+	local e3 = ecs.CreateEntity("e3", world)
+	T(#world:GetChildren())["=="](3)
+	world:Remove()
+end)
+
+T.Test("ecs entity recursive removal", function()
+	local world = ecs.CreateEntity("fake_world")
+	local parent = ecs.CreateEntity("parent", world)
+	local child1 = ecs.CreateEntity("child1", parent)
+	local child2 = ecs.CreateEntity("child2", parent)
+	local grandchild = ecs.CreateEntity("grandchild", child1)
+	T(#world:GetChildren())["=="](1)
+	T(#parent:GetChildren())["=="](2)
+	T(#child1:GetChildren())["=="](1)
+	parent:Remove()
+	-- After removal, they should be invalid (next frame for MakeNULL, but __removed is immediate)
+	T(parent:IsValid())["=="](false)
+	T(child1:IsValid())["=="](false)
+	T(child2:IsValid())["=="](false)
+	T(grandchild:IsValid())["=="](false)
+	T(#world:GetChildren())["=="](0)
 end)

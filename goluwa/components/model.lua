@@ -49,13 +49,29 @@ function META:SetModelPath(path)
 	model_loader.LoadModel(
 		path,
 		function()
+			if not self:IsValid() then
+				print("model became invalid while loading")
+				return
+			end
+
 			self:SetLoading(false)
 			self:BuildAABB()
 		end,
 		function(model)
+			if not self:IsValid() then
+				print("model became invalid while loading")
+				return
+			end
+
 			self:AddPrimitive(model)
 		end,
 		function(err)
+			if not self:IsValid() then
+				print("model became invalid while loading: " .. err)
+				error(err)
+				return
+			end
+
 			logf("%s failed to load model %q: %s\n", self, path, err)
 			self:MakeError()
 		end

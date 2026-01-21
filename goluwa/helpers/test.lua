@@ -31,6 +31,7 @@ local on_test_file_complete = nil
 -- Logging state (set by BeginTests)
 local LOGGING = false
 local VERBOSE = false
+local NESTING = false
 local IS_TERMINAL = true -- or system.IsTTY()
 local completed_test_count = 0
 local shown_running_line = false
@@ -114,7 +115,43 @@ function test.RunTestsWithFilter(filter, config)
 	end
 end
 
+local is_nesting = false
+
 function test.Test(name, cb, start, stop)
+	if NESTING then
+		local current_co = coroutine.running()
+
+		if not is_nesting and current_co then
+			for _, info in ipairs(running_tests) do
+				if info.coroutine == current_co then
+					local done = false
+					is_nesting = true
+
+					test.Test(
+						name,
+						function()
+							cb()
+							done = true
+						end,
+						start,
+						stop
+					)
+
+					is_nesting = false
+					local inner_test = running_tests[#running_tests]
+
+					while not done do
+						test.Yield()
+					end
+
+					if inner_test.failed then error("nested test failed: " .. name, 0) end
+
+					return
+				end
+			end
+		end
+	end
+
 	local unref = system.KeepAlive("test: " .. name)
 	total_test_count = total_test_count + 1
 	-- Track that this test belongs to the current file
@@ -138,6 +175,22 @@ function test.Test(name, cb, start, stop)
 
 		unref()
 	end)
+	local task
+
+	if NESTING then
+		local tasks = require("tasks")
+		local prototype = require("prototype")
+		local task_meta = tasks.TaskMeta
+
+		if task_meta then
+			task = task_meta:CreateObject()
+			task:SetName(name)
+			task:SetRunning(true)
+			task.co = co
+			tasks.coroutine_lookup[co] = task
+		end
+	end
+
 	-- Capture start time when test is added to queue
 	local test_start_time = system.GetTime()
 	local test_start_gc = memory.get_usage_kb()
@@ -147,6 +200,7 @@ function test.Test(name, cb, start, stop)
 		{
 			name = name,
 			coroutine = co,
+			task = task,
 			sleep_until = nil,
 			test_file = current_test_name,
 			test_file_start_time = current_test_start_time,
@@ -225,9 +279,9 @@ do
 		local current_time = system.GetElapsedTime()
 		local i = 1
 		-- Manually update tasks system for faster test execution
-		local tasks = package.loaded["tasks"]
+		local tasks = require("tasks")
 
-		if tasks and tasks.enabled then tasks.Update() end
+		if tasks and tasks.IsEnabled() then tasks.Update() end
 
 		-- Limit how many tests we resume per update to avoid blocking for too long
 		local resumed_count = 0
@@ -245,6 +299,8 @@ do
 					test_info.sleep_until = nil
 					should_resume = true
 				end
+			elseif NESTING and test_info.task and test_info.task.wait > system.GetElapsedTime() then
+				should_resume = false
 			else
 				should_resume = true
 			end
@@ -285,6 +341,13 @@ do
 
 				-- Remove completed tests
 				if is_dead then
+					if NESTING then
+						if test_info.task then
+							test_info.task:SetRunning(false)
+							tasks.coroutine_lookup[test_info.coroutine] = nil
+						end
+					end
+
 					-- Calculate individual test timing
 					local test_time = system.GetTime() - test_info.test_start_time
 					local test_gc = memory.get_usage_kb() - test_info.test_start_gc

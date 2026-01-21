@@ -4,7 +4,7 @@ local system = require("system")
 local prototype = require("prototype")
 local callstack = require("helpers.callstack")
 local tasks = library()
-tasks.max = 4
+tasks.max = 64
 tasks.coroutine_lookup = tasks.coroutine_lookup or table.weak()
 tasks.created = tasks.created or {}
 tasks.enabled = true
@@ -28,6 +28,7 @@ function tasks.WaitForTask(name, callback)
 end
 
 local META = prototype.CreateTemplate("task")
+tasks.TaskMeta = META
 META:GetSet("Name", "unknown")
 META:GetSet("Frequency", 0)
 META:GetSet("IterationsPerTick", 1)
@@ -277,7 +278,7 @@ function tasks.IsBusy(exclude)
 		return false
 	end
 
-	return tasks.busy
+	return next(tasks.created) ~= nil
 end
 
 function tasks.WaitAll(timeout)
@@ -315,16 +316,8 @@ end
 function tasks.Update()
 	local i = 0
 
-	if next(tasks.created) then
-		if not tasks.busy then
-			tasks.busy = true
-			event.Call("TasksBusy", true)
-		end
-	else
-		if tasks.busy then
-			tasks.busy = false
-			event.Call("TasksBusy", false)
-		end
+	for thread in pairs(tasks.created) do
+		if not thread:IsValid() then tasks.created[thread] = nil end
 	end
 
 	for thread in pairs(tasks.created) do
