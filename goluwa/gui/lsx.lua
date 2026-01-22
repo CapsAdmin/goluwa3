@@ -42,6 +42,15 @@ end
 
 lsx.Panel = lsx.RegisterElement("base")
 lsx.Text = lsx.RegisterElement("text")
+
+function lsx.Value(fn)
+	return {__lsx_value = fn}
+end
+
+function lsx.Pauser(fn)
+	return {__lsx_pauser = fn}
+end
+
 lsx.hook_index = 0
 
 local function increment_hook_index()
@@ -233,7 +242,7 @@ do -- hooks
 
 		lsx.UseEffect(
 			function()
-				return event.AddListener("Update", {}, function()
+				return event.AddListener("Update", "lsx_use_mouse", function()
 					local mpos = window.GetMousePosition()
 
 					set_pos(function(old)
@@ -251,17 +260,15 @@ do -- hooks
 
 	function lsx.UseHover(ref)
 		local is_hovered, set_hovered = lsx.UseState(false)
+		local mouse = lsx.UseMouse()
 
 		lsx.UseEffect(
 			function()
 				if not ref.current then return end
 
-				return event.AddListener("Update", {}, function()
-					local mpos = window.GetMousePosition()
-					set_hovered(ref.current:IsHoveredExclusively(mpos))
-				end)
+				set_hovered(ref.current:IsHoveredExclusively(mouse))
 			end,
-			{ref.current}
+			{mouse.x, mouse.y}
 		)
 
 		return is_hovered
@@ -270,7 +277,9 @@ do -- hooks
 	function lsx.UseAnimate(ref, config, deps)
 		lsx.UseEffect(
 			function()
-				if ref.current then ref.current:Animate(config) end
+				if ref.current and (not deps or deps[1] ~= false) then
+					ref.current:Animate(config)
+				end
 			end,
 			deps
 		)

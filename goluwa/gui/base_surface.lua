@@ -6,6 +6,7 @@ local Vec2 = require("structs.vec2")
 local Vec3 = require("structs.vec3")
 local Color = require("structs.color")
 local window = require("window")
+local render = require("render.render")
 local Rect = require("structs.rect")
 local META = prototype.CreateTemplate("surface_base")
 META.IsSurface = true
@@ -27,7 +28,14 @@ META:GetSet("DragEnabled", false)
 META:GetSet("Margin", Rect(0, 0, 0, 0))
 META:GetSet("Padding", Rect(0, 0, 0, 0))
 META:GetSet("MinimumSize", Vec2(0, 0))
+META:GetSet("IgnoreMouseInput", false)
+META:GetSet("Perspective", 0, {callback = "InvalidateMatrices"})
 META:EndStorable()
+
+function META:OnReload()
+	self:InvalidateMatrices()
+	self:InvalidateLayout()
+end
 
 function META:SetColor(c)
 	if type(c) == "string" then
@@ -128,13 +136,28 @@ function META:GetLocalMatrix()
 		self.LocalMatrix:Identity()
 		local pivot = self.Pivot
 		local center = (self.Size + self.DrawSizeOffset) * pivot
+		local angles = self.DrawAngleOffset
+		local perspective = self.Perspective
 		local pos = self.Position + self.DrawPositionOffset
-		self.LocalMatrix:SetTranslation(pos.x + center.x, pos.y + center.y, 0)
-		local rotation = self.Rotation + self.DrawAngleOffset.r
+		self.LocalMatrix:Translate(pos.x + center.x, pos.y + center.y, 0)
 
-		if rotation ~= 0 then
-			self.LocalMatrix:Rotate(math.rad(rotation), 0, 0, 1)
+		if perspective ~= 0 then
+			local p = Matrix44()
+			p:Identity()
+			-- CSS perspective projection: divides x,y by (1 - z/d)
+			-- In TransformVector: w = z * m23 + m33, then x/w, y/w
+			-- For w = 1 - z/d: m23 = -1/d, m33 = 1
+			p.m23 = -1 / perspective
+			self.LocalMatrix = p * self.LocalMatrix
 		end
+
+		if angles.p ~= 0 then self.LocalMatrix:Rotate(angles.p, 1, 0, 0) end
+
+		if angles.y ~= 0 then self.LocalMatrix:Rotate(angles.y, 0, 1, 0) end
+
+		local rotation = math.rad(self.Rotation) + angles.r
+
+		if rotation ~= 0 then self.LocalMatrix:Rotate(rotation, 0, 0, 1) end
 
 		local scale = self.Scale * self.DrawScaleOffset
 
@@ -199,6 +222,8 @@ function META:GlobalToLocal(vec, out)
 end
 
 function META:IsHovered(mouse_pos)
+	if self.IgnoreMouseInput then return false end
+
 	local local_pos = self:GlobalToLocal(mouse_pos)
 	return local_pos.x >= 0 and
 		local_pos.y >= 0 and
@@ -251,6 +276,8 @@ function META:GetVisibleChildren()
 end
 
 function META:MouseInput(button, press, pos)
+	if self.IgnoreMouseInput then return end
+
 	-- todo, trigger button release events outside of the panel
 	self.button_states = self.button_states or {}
 	self.button_states[button] = {press = press, pos = pos}

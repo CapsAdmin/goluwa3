@@ -20,18 +20,51 @@ do -- animations
 		Rotation = true,
 	}
 
-	local function lerp_values(values, alpha)
+	local function get_value(v, self)
+		if type(v) == "table" and v.__lsx_value then return v.__lsx_value(self) end
+
+		if type(v) == "function" then return v(self) end
+
+		return v
+	end
+
+	local function lerp_linear(values, alpha, self)
+		local count = #values
+
+		if count <= 1 then return get_value(values[1], self) end
+
+		local segment_count = count - 1
+		local total_alpha = alpha * segment_count
+		local segment_index = math.floor(total_alpha) + 1
+		local segment_alpha = total_alpha - math.floor(total_alpha)
+
+		if segment_index >= count then return get_value(values[count], self) end
+
+		local v1 = get_value(values[segment_index], self)
+		local v2 = get_value(values[segment_index + 1], self)
+
+		if type(v1) == "number" then
+			return math.lerp(segment_alpha, v1, v2)
+		else
+			return v1:GetLerped(segment_alpha, v2)
+		end
+	end
+
+	local function lerp_bezier(values, alpha, self)
 		local tbl = {}
 
 		for i = 1, #values - 1 do
-			if type(values[i]) == "number" then
-				tbl[i] = math.lerp(alpha, values[i], values[i + 1])
+			local v1 = get_value(values[i], self)
+			local v2 = get_value(values[i + 1], self)
+
+			if type(v1) == "number" then
+				tbl[i] = math.lerp(alpha, v1, v2)
 			else
-				tbl[i] = values[i]:GetLerped(alpha, values[i + 1])
+				tbl[i] = v1:GetLerped(alpha, v2)
 			end
 		end
 
-		if #tbl > 1 then return lerp_values(tbl, alpha) else return tbl[1] end
+		if #tbl > 1 then return lerp_bezier(tbl, alpha, self) else return tbl[1] end
 	end
 
 	function META:CalcAnimations()
@@ -40,7 +73,7 @@ do -- animations
 
 			for i, v in ipairs(animation.pausers) do
 				if animation.alpha >= v.alpha then
-					if v.check() then
+					if v.check(self) then
 						pause = true
 					else
 						list.remove(animation.pausers, i)
@@ -52,47 +85,57 @@ do -- animations
 
 			if not pause then
 				animation.alpha = animation.alpha + system.GetFrameTime() / animation.time
-				local alpha = animation.alpha
-				local val
-				local from = animation.from
-				local to = animation.to
+			end
 
-				if animation.pow then alpha = alpha ^ animation.pow end
+			local alpha = math.min(animation.alpha, 1)
+			local val
+			local to = animation.to
 
-				val = lerp_values(to, alpha)
+			if animation.pow then alpha = alpha ^ animation.pow end
 
-				if val == false then return end
+			local interpolated_alpha = alpha
 
-				animation.func(self, val)
+			if type(animation.interpolation) == "function" then
+				interpolated_alpha = animation.interpolation(alpha)
+			end
 
-				if parent_layout[animation.var] then
-					if self:HasParent() and not self.Parent:IsWorld() then
-						self.Parent:CalcLayoutInternal(true)
-					else
-						self:CalcLayoutInternal(true)
-					end
-				elseif animation.var:sub(1, 4) ~= "Draw" then
-					-- if it's not a Draw property, we should still probably trigger a layout update
-					-- but maybe only for specific properties? Let's keep it for now but skip Draw*
+			if animation.interpolation == "bezier" then
+				val = lerp_bezier(to, interpolated_alpha, self)
+			else
+				val = lerp_linear(to, interpolated_alpha, self)
+			end
+
+			if val == false then return end
+
+			animation.func(self, val)
+
+			if parent_layout[animation.var] then
+				if self:HasParent() and not self.Parent:IsWorld() then
+					self.Parent:CalcLayoutInternal(true)
+				else
 					self:CalcLayoutInternal(true)
 				end
+			elseif animation.var:sub(1, 4) ~= "Draw" then
+				-- if it's not a Draw property, we should still probably trigger a layout update
+				-- but maybe only for specific properties? Let's keep it for now but skip Draw*
+				self:CalcLayoutInternal(true)
+			end
 
-				if alpha >= 1 then
-					if animation.callback then
-						if animation.callback(self) ~= false then
-							animation.func(self, from)
-						end
-					else
-						animation.func(self, from)
+			if alpha >= 1 and not pause then
+				if animation.callback then
+					if animation.callback(self) ~= false then
+						animation.func(self, animation.from)
 					end
-
-					list.remove(self.animations, i)
-
-					break
 				else
-
-				--self:MarkCacheDirty()
+					animation.func(self, animation.from)
 				end
+
+				list.remove(self.animations, i)
+
+				break
+			else
+
+			--self:MarkCacheDirty()
 			end
 		end
 	end
@@ -124,22 +167,41 @@ do -- animations
 		local pow = config.pow
 		local set = config.set
 		local callback = config.callback
+		local interpolation = config.interpolation or "linear"
+		local original_val = type(self[var]) == "number" and self[var] or self[var]:Copy()
+		local base = original_val
 
-		for _, v in ipairs(self.animations) do
+		for i, v in ipairs(self.animations) do
 			if v.var == var then
-				v.alpha = 0
-				return
+				if operator then base = v.base or v.from end
+
+				list.remove(self.animations, i)
+
+				break
 			end
 		end
 
-		local from = type(self[var]) == "number" and self[var] or self[var]:Copy()
+		local from = original_val
 
-		if type(to) ~= "table" then to = {to} end
+		if type(to) ~= "table" then
+			to = {to}
+		else
+			local copy = {}
+
+			for k, v in pairs(to) do
+				copy[k] = v
+			end
+
+			to = copy
+		end
 
 		local pausers = {}
 
 		for i, v in pairs(to) do
-			if type(v) == "function" then
+			if type(v) == "table" and v.__lsx_pauser then
+				to[i] = nil
+				list.insert(pausers, {check = v.__lsx_pauser, alpha = (i - 1) / (table.count(to) + #pausers)})
+			elseif type(v) == "function" then
 				to[i] = nil
 				list.insert(pausers, {check = v, alpha = (i - 1) / (table.count(to) + #pausers)})
 			end
@@ -153,15 +215,15 @@ do -- animations
 			else
 				if operator then
 					if operator == "+" then
-						v = from + v
+						v = base + v
 					elseif operator == "-" then
-						v = from - v
+						v = base - v
 					elseif operator == "^" then
-						v = from ^ v
+						v = base ^ v
 					elseif operator == "*" then
-						v = from * v
+						v = base * v
 					elseif operator == "/" then
-						v = from / v
+						v = base / v
 					elseif operator == "=" then
 
 					end
@@ -171,12 +233,20 @@ do -- animations
 			end
 		end
 
-		if not set then list.insert(to, 1, from) end
+		if not set then
+			if #to == 1 and to[1] == from then
+
+			-- don't insert if it's already there
+			else
+				list.insert(to, 1, from)
+			end
+		end
 
 		list.insert(
 			self.animations,
 			{
 				operator = operator,
+				base = base,
 				from = from,
 				to = to,
 				time = time or 0.25,
@@ -186,6 +256,7 @@ do -- animations
 				pow = pow,
 				callback = callback,
 				pausers = pausers,
+				interpolation = interpolation,
 				alpha = 0,
 			}
 		)

@@ -228,6 +228,10 @@ function render.GetHeight()
 	return render.target:GetExtent().height
 end
 
+function render.GetAspectRatio()
+	return render.GetWidth() / render.GetHeight()
+end
+
 function render.TriggerValidationError()
 	local vulkan = require("render.vulkan.internal.vulkan")
 	local create_info = vulkan.vk.VkBufferCreateInfo(

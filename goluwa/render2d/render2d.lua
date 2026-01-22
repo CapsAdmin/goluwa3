@@ -609,7 +609,7 @@ do -- camera
 
 	local function update_projection()
 		proj:Identity()
-		proj:Ortho(viewport.x, viewport.w, viewport.y, viewport.h, -1, 1)
+		proj:Ortho(viewport.x, viewport.w, viewport.y, viewport.h, -16000, 16000)
 		update_proj_view()
 	end
 

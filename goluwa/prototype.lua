@@ -76,6 +76,7 @@ do
 		prototype.invalidate_meta[meta.Type] = true
 
 		if HOTRELOAD then
+			logn("Hotreloading prototype: " .. meta.Type)
 			prototype.UpdateObjects(meta)
 
 			for k, v in pairs(meta) do
@@ -496,6 +497,8 @@ function prototype.UpdateObjects(meta)
 	for _, obj in pairs(prototype.GetCreated()) do
 		if obj.Type == meta.Type then
 			if HOTRELOAD then
+				if obj.OnReload then obj:OnReload() end
+
 				for k, v in pairs(meta) do
 					if type(v) == "function" then
 						if

@@ -390,24 +390,62 @@ if false then
 end
 
 if true then
+	local Ang3 = require("structs.ang3")
 	local Interactive = lsx.Component(function(props)
 		local ref = lsx.UseRef(nil)
 		local is_hovered = lsx.UseHover(ref)
-		local is_pressed = lsx.UsePress(ref)
-		print(is_pressed, is_hovered)
+		local is_pressed, set_pressed = lsx.UseState(false)
+		lsx.UseAnimate(
+			ref,
+			{
+				var = "DrawPositionOffset",
+				to = {
+					Vec2(0, 0),
+					function(self)
+						return is_pressed
+					end,
+					Vec2(0, 0),
+				},
+				time = 0.15,
+				operator = "+",
+			},
+			{is_pressed}
+		)
 		lsx.UseAnimate(
 			ref,
 			{
 				var = "DrawScaleOffset",
 				to = {
-					Vec2() + 0.9,
-					function()
-						return input.IsMouseDown("button_1")
+					Vec2() + 0.95,
+					function(self)
+						return self:IsMouseButtonDown("button_1")
 					end,
 					Vec2() + 1,
 				},
-				time = 0.5,
+				time = 0.15,
 				operator = "*",
+			},
+			{is_pressed}
+		)
+		lsx.UseAnimate(
+			ref,
+			{
+				var = "DrawAngleOffset",
+				to = {
+					lsx.Value(function(self)
+						local mpos = window.GetMousePosition()
+						local local_pos = self:GlobalToLocal(mpos)
+						local size = self:GetSize()
+						local nx = (local_pos.x / size.x) * 2 - 1
+						local ny = (local_pos.y / size.y) * 2 - 1
+						return Ang3(-ny, nx, 0) * 0.1
+					end),
+					function(self)
+						return self:IsMouseButtonDown("button_1")
+					end,
+					Ang3(0, 0, 0),
+				},
+				time = 0.15,
 			},
 			{is_pressed}
 		)
@@ -416,11 +454,18 @@ if true then
 				ref = ref,
 				Position = Vec2(100, 100),
 				Size = Vec2(200, 200),
+				Perspective = 400,
 				Color = is_pressed and
 					Color(1, 0, 0, 1) or
 					(
 						Color(0.4, 0.4, 0.5)
 					):GetLerped(is_hovered and 1 or 0, Color(0.6, 0.7, 0.9)):SetAlpha(1),
+				OnMouseInput = function(self, button, press, local_pos)
+					if button == "button_1" then
+						set_pressed(press)
+						return true
+					end
+				end,
 			}
 		)
 	end)
@@ -432,6 +477,14 @@ if true then
 				Color = Color(0, 0, 0, 0),
 				Padding = Rect(20, 20, 20, 20),
 				Interactive(),
+				lsx.Panel(
+					{
+						Position = Vec2(100, 100),
+						Size = Vec2(200, 200),
+						Color = Color(0, 0, 1, 0.1),
+						IgnoreMouseInput = true,
+					}
+				),
 			}
 		)
 	end)

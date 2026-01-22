@@ -226,7 +226,7 @@ function list.concat_member(tbl, key, sep)
 		temp[i] = tostring(v[key])
 	end
 
-	return list.concat(tbl, sep)
+	return list.concat(temp, sep)
 end
 
 do
