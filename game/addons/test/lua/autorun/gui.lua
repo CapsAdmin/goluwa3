@@ -40,7 +40,8 @@ local Interactive = lsx.Component(function(props)
 				end,
 				0,
 			},
-			time = 0.5,
+			interpolation = "inOutSine",
+			time = 0.25,
 		},
 		{is_hovered}
 	)
@@ -55,7 +56,8 @@ local Interactive = lsx.Component(function(props)
 				end,
 				Vec2() + 0,
 			},
-			time = 0.5,
+			interpolation = "inOutSine",
+			time = 0.25,
 			operator = "=",
 		},
 		{is_pressed}
@@ -106,7 +108,7 @@ local Interactive = lsx.Component(function(props)
 			Position = Vec2(100, 100),
 			Size = Vec2(200, 50),
 			Perspective = 400,
-			Clipping = false,
+			Clipping = true,
 			Color = Color(0.8, 0.2, 0.2, 1),
 			OnMouseInput = function(self, button, press, local_pos)
 				if button == "button_1" then
