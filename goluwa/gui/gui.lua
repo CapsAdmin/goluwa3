@@ -16,6 +16,8 @@ do
 	local function check(panel, mouse_pos)
 		if not panel.Visible then return nil end
 
+		if panel.IgnoreMouseInput then return nil end
+
 		-- If clipping is enabled and the mouse is outside the panel,
 		-- then neither this panel nor any of its descendants are visible here.
 		if panel:GetClipping() and not panel:IsHovered(mouse_pos) then return nil end
