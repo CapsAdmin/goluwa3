@@ -16,7 +16,7 @@ assert(loadfile("goluwa/gui/base_surface_layout.lua"))(META)
 assert(loadfile("goluwa/gui/base_surface_animations.lua"))(META)
 META:StartStorable()
 META:GetSet("Position", Vec2(0, 0), {callback = "InvalidateMatrices"})
-META:GetSet("Size", Vec2(100, 100), {callback = "InvalidateLayout"})
+META:GetSet("Size", Vec2(100, 100), {callback = "OnSizeChanged"})
 META:GetSet("Rotation", 0, {callback = "InvalidateMatrices"})
 META:GetSet("Scale", Vec2(1, 1), {callback = "InvalidateMatrices"})
 META:GetSet("Pivot", Vec2(0.5, 0.5), {callback = "InvalidateMatrices"})
@@ -59,13 +59,23 @@ end
 
 function META:InvalidateMatrices()
 	self.LocalMatrixDirty = true
+	self:InvalidateWorldMatrices()
+end
+
+function META:InvalidateWorldMatrices()
+	if self.WorldMatrixDirty then return end
+
 	self.WorldMatrixDirty = true
 	self.WorldMatrixInverseDirty = true
 
 	for _, child in ipairs(self:GetChildrenList()) do
-		child.WorldMatrixDirty = true
-		child.WorldMatrixInverseDirty = true
+		child:InvalidateWorldMatrices()
 	end
+end
+
+function META:OnSizeChanged()
+	self:InvalidateLayout()
+	self:InvalidateMatrices()
 end
 
 function META:InvalidateLayout()
@@ -243,15 +253,12 @@ function META:Draw()
 	local clipping = self:GetClipping()
 
 	if clipping then
-		local mat = self:GetWorldMatrix()
-		local x1, y1 = mat:TransformVector(0, 0, 0)
-		local x2, y2 = mat:TransformVector(self.Size.x, self.Size.y, 0)
-		-- Clamp negative coordinates and adjust width/height
-		local clamped_x1 = math.max(0, x1)
-		local clamped_y1 = math.max(0, y1)
-		local width = (x2 - x1) - (clamped_x1 - x1)
-		local height = (y2 - y1) - (clamped_y1 - y1)
-		render2d.PushScissor(clamped_x1, clamped_y1, width, height)
+		render2d.PushStencilMask()
+		render2d.PushMatrix()
+		render2d.SetWorldMatrix(self:GetWorldMatrix())
+		render2d.DrawRect(0, 0, self.Size.x, self.Size.y)
+		render2d.PopMatrix()
+		render2d.BeginStencilTest()
 	end
 
 	render2d.PushMatrix()
@@ -264,7 +271,7 @@ function META:Draw()
 
 	render2d.PopMatrix()
 
-	if clipping then render2d.PopScissor() end
+	if clipping then render2d.PopStencilMask() end
 end
 
 function META:GetVisibleChildren()

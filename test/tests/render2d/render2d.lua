@@ -515,3 +515,65 @@ T.Test2D("Graphics render2d performance test", function(width, height)
 	local elapsed = os.clock() - start_time
 	T(elapsed)["<"](0.25) -- Should complete in reasonable time
 end)
+
+T.Test2D("Graphics render2d SetStencilMode and GetStencilMode", function()
+	render2d.SetStencilMode("write", 5)
+	local mode, ref = render2d.GetStencilMode()
+	T(mode)["=="]("write")
+	T(ref)["=="](5)
+	render2d.SetStencilMode("none")
+	mode, ref = render2d.GetStencilMode()
+	T(mode)["=="]("none")
+end)
+
+T.Test2D("Graphics render2d stencil rendering", function()
+	-- Clear stencil to 0
+	render2d.ClearStencil(0)
+	-- Draw a rectangle into the stencil buffer with value 1
+	render2d.SetStencilMode("write", 1)
+	render2d.DrawRect(100, 100, 50, 50)
+	-- Now draw a green rectangle that only passes where stencil is 1
+	render2d.SetStencilMode("test", 1)
+	render2d.SetColor(0, 1, 0, 1)
+	render2d.DrawRect(75, 75, 50, 50) -- Overlaps top-left of the first rect
+	-- Draw a blue rectangle that only passes where stencil is NOT 1
+	render2d.SetStencilMode("test_inverse", 1)
+	render2d.SetColor(0, 0, 1, 1)
+	render2d.DrawRect(125, 125, 50, 50) -- Overlaps bottom-right of the first rect
+	render2d.SetStencilMode("none")
+	return function()
+		-- (110, 110) should be green (overlap of red write and green test)
+		T.ScreenPixel(110, 110, 0, 1, 0, 1)
+		-- (80, 80) should be black/background (green test failed)
+		T.ScreenPixel(80, 80, 0, 0, 0, 1)
+		-- (160, 160) should be blue (test_inverse passed, stencil was 0)
+		T.ScreenPixel(160, 160, 0, 0, 1, 1)
+	end
+end)
+
+T.Test2D("Graphics render2d PushStencilMask and PopStencilMask", function()
+	render2d.ClearStencil(0)
+	-- Level 0
+	render2d.PushStencilMask()
+	render2d.DrawRect(200, 200, 100, 100) -- Writes 1 where drawn
+	render2d.BeginStencilTest() -- test == 1
+	render2d.SetColor(1, 1, 1, 1)
+	render2d.DrawRect(200, 200, 100, 100) -- Should draw white
+	-- Nested mask
+	render2d.PushStencilMask()
+	render2d.DrawRect(225, 225, 50, 50) -- Writes 2 where drawn (if it was 1)
+	render2d.BeginStencilTest() -- test == 2
+	render2d.SetColor(1, 0, 0, 1)
+	render2d.DrawRect(200, 200, 100, 100) -- Should draw red only in the 50x50 area
+	render2d.PopStencilMask()
+	render2d.PopStencilMask()
+	render2d.SetStencilMode("none")
+	return function()
+		-- Center should be red
+		T.ScreenPixel(250, 250, 1, 0, 0, 1)
+		-- Outside center but inside white box should be white
+		T.ScreenPixel(210, 210, 1, 1, 1, 1)
+		-- Outside everything should be black
+		T.ScreenPixel(190, 190, 0, 0, 0, 1)
+	end
+end)

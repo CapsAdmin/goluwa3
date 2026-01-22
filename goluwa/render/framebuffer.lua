@@ -104,8 +104,8 @@ function Framebuffer:Begin(cmd, load_op)
 				srcAccessMask = "none",
 				dstAccessMask = "depth_stencil_attachment_write",
 				oldLayout = self.initialized and "shader_read_only_optimal" or "undefined",
-				newLayout = "depth_attachment_optimal",
-				aspect = "depth",
+				newLayout = "depth_stencil_attachment_optimal",
+			-- aspect is automatically determined from image format by PipelineBarrier
 			}
 		)
 	end
@@ -178,7 +178,7 @@ function Framebuffer:End(cmd)
 				dstAccessMask = "shader_read",
 				oldLayout = "depth_attachment_optimal",
 				newLayout = "shader_read_only_optimal",
-				aspect = "depth",
+			-- aspect is automatically determined from image format by PipelineBarrier
 			}
 		)
 	end

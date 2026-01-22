@@ -97,9 +97,22 @@ render2d.blend_modes = {
 function render2d.Initialize()
 	if render2d.pipeline then return end
 
-	local dynamic_states = {"viewport", "scissor", "blend_constants"}
+	local dynamic_states = {
+		"viewport",
+		"scissor",
+		"blend_constants",
+		"stencil_reference",
+		"stencil_compare_mask",
+		"stencil_write_mask",
+	}
+	local device = render.GetDevice()
 
-	if render.GetDevice().has_extended_dynamic_state3 then
+	if device.has_extended_dynamic_state then
+		table.insert(dynamic_states, "stencil_test_enable")
+		table.insert(dynamic_states, "stencil_op")
+	end
+
+	if device.has_extended_dynamic_state3 then
 		table.insert(dynamic_states, "color_blend_enable_ext")
 		table.insert(dynamic_states, "color_blend_equation_ext")
 	end
@@ -135,6 +148,8 @@ function render2d.ResetState()
 	render2d.SetSwizzleMode(0)
 	render2d.UpdateScreenSize(render.GetRenderImageSize())
 	render2d.SetBlendMode("alpha", true)
+
+	if render2d.SetStencilMode then render2d.SetStencilMode("none") end
 end
 
 do
@@ -406,16 +421,180 @@ do
 	end
 
 	utility.MakePushPopFunction(render2d, "Samples")
+	render2d.stencil_modes = {
+		none = {
+			stencil_test = false,
+			front = {
+				fail_op = "keep",
+				pass_op = "keep",
+				depth_fail_op = "keep",
+				compare_op = "always",
+			},
+			color_write_mask = {"r", "g", "b", "a"},
+		},
+		write = { -- Simply write the reference value everywhere
+			stencil_test = true,
+			front = {
+				fail_op = "keep",
+				pass_op = "replace",
+				depth_fail_op = "keep",
+				compare_op = "always",
+			},
+			color_write_mask = {},
+		},
+		mask_write = { -- Increment level if it matches reference
+			stencil_test = true,
+			front = {
+				fail_op = "keep",
+				pass_op = "increment_and_clamp",
+				depth_fail_op = "keep",
+				compare_op = "equal",
+			},
+			color_write_mask = {},
+		},
+		mask_test = { -- Pass if it matches reference
+			stencil_test = true,
+			front = {
+				fail_op = "keep",
+				pass_op = "keep",
+				depth_fail_op = "keep",
+				compare_op = "equal",
+			},
+			color_write_mask = {"r", "g", "b", "a"},
+		},
+		test = {
+			stencil_test = true,
+			front = {
+				fail_op = "keep",
+				pass_op = "keep",
+				depth_fail_op = "keep",
+				compare_op = "equal",
+			},
+			color_write_mask = {"r", "g", "b", "a"},
+		},
+		test_inverse = {
+			stencil_test = true,
+			front = {
+				fail_op = "keep",
+				pass_op = "keep",
+				depth_fail_op = "keep",
+				compare_op = "not_equal",
+			},
+			color_write_mask = {"r", "g", "b", "a"},
+		},
+	}
+
+	do
+		local current_mode = "none"
+		local current_ref = 1
+		render2d.stencil_level = 0
+
+		function render2d.SetStencilMode(mode_name, ref)
+			ref = ref or current_ref
+			local mode = render2d.stencil_modes[mode_name]
+
+			if not mode then error("Invalid stencil mode: " .. tostring(mode_name)) end
+
+			current_mode = mode_name
+			current_ref = ref
+			local device = render.GetDevice()
+
+			if device.has_extended_dynamic_state then
+				if render2d.cmd then
+					render2d.cmd:SetStencilTestEnable(mode.stencil_test)
+
+					if mode.stencil_test then
+						render2d.cmd:SetStencilOp(
+							"front_and_back",
+							mode.front.fail_op,
+							mode.front.pass_op,
+							mode.front.depth_fail_op,
+							mode.front.compare_op
+						)
+						render2d.cmd:SetStencilReference("front_and_back", ref)
+						render2d.cmd:SetStencilCompareMask("front_and_back", 0xFF)
+						render2d.cmd:SetStencilWriteMask("front_and_back", 0xFF)
+					end
+				end
+			end
+
+			render2d.UpdatePipeline()
+
+			if render2d.cmd then
+				render2d.pipeline:Bind(render2d.cmd, render.GetCurrentFrame())
+
+				if device.has_extended_dynamic_state then
+					render2d.cmd:SetStencilTestEnable(mode.stencil_test)
+
+					if mode.stencil_test then
+						render2d.cmd:SetStencilOp(
+							"front_and_back",
+							mode.front.fail_op,
+							mode.front.pass_op,
+							mode.front.depth_fail_op,
+							mode.front.compare_op
+						)
+						render2d.cmd:SetStencilReference("front_and_back", ref)
+						render2d.cmd:SetStencilCompareMask("front_and_back", 0xFF)
+						render2d.cmd:SetStencilWriteMask("front_and_back", 0xFF)
+					end
+				end
+			end
+		end
+
+		function render2d.GetStencilMode()
+			return current_mode, current_ref
+		end
+
+		function render2d.GetStencilReference()
+			return current_ref
+		end
+
+		function render2d.ClearStencil(val)
+			if render2d.cmd then
+				local old_mode, old_ref = render2d.GetStencilMode()
+				render2d.stencil_level = 0
+				render2d.SetStencilMode("write", val or 0)
+				local sw, sh = render2d.GetSize()
+				render2d.PushMatrix()
+				render2d.SetWorldMatrix(Matrix44())
+				render2d.DrawRect(0, 0, sw or 800, sh or 600)
+				render2d.PopMatrix()
+				render2d.SetStencilMode(old_mode, old_ref)
+			end
+		end
+
+		function render2d.PushStencilMask()
+			render2d.PushStencilMode("mask_write", render2d.stencil_level)
+			render2d.stencil_level = render2d.stencil_level + 1
+		end
+
+		function render2d.BeginStencilTest()
+			render2d.SetStencilMode("mask_test", render2d.stencil_level)
+		end
+
+		function render2d.PopStencilMask()
+			render2d.PopStencilMode()
+			render2d.stencil_level = render2d.stencil_level - 1
+		end
+
+		utility.MakePushPopFunction(render2d, "StencilMode")
+	end
 
 	function render2d.UpdatePipeline()
 		local samples = render2d.current_samples or "1"
 		local blend_mode_name = render2d.current_blend_mode or "alpha"
+		local stencil_mode_name = render2d.GetStencilMode() or "none"
 		-- If we have extended dynamic state, we don't need to bake the blend mode into the pipeline cache key
 		local cache_key = samples
+		local device = render.GetDevice()
 
-		if not render.GetDevice().has_extended_dynamic_state3 then
+		if not device.has_extended_dynamic_state3 then
 			cache_key = cache_key .. "_" .. blend_mode_name
 		end
+
+		-- Always include stencil mode in cache key because color_write_mask is not yet handled as dynamic state
+		cache_key = cache_key .. "_stencil_" .. stencil_mode_name
 
 		if render2d.pipeline_cache[cache_key] then
 			render2d.pipeline = render2d.pipeline_cache[cache_key]
@@ -435,8 +614,19 @@ do
 				src_alpha_blend_factor = blend_mode.src_alpha_blend_factor,
 				dst_alpha_blend_factor = blend_mode.dst_alpha_blend_factor,
 				alpha_blend_op = blend_mode.alpha_blend_op,
-				color_write_mask = {"r", "g", "b", "a"},
+				color_write_mask = blend_mode.color_write_mask,
 			}
+		end
+
+		local stencil_mode = render2d.stencil_modes[stencil_mode_name]
+
+		if stencil_mode then
+			data.depth_stencil.stencil_test = stencil_mode.stencil_test and 1 or 0
+			data.depth_stencil.front = stencil_mode.front
+			data.depth_stencil.back = stencil_mode.front -- Same for both for 2D
+			if stencil_mode.color_write_mask then
+				data.color_blend.attachments[1].color_write_mask = stencil_mode.color_write_mask
+			end
 		end
 
 		render2d.pipeline = render.CreateGraphicsPipeline(data)
@@ -456,10 +646,18 @@ do
 	end
 
 	function render2d.SetScissor(x, y, w, h)
-		x = math.max(x, 0)
-		y = math.max(y, 0)
-		w = math.max(w, 1)
-		h = math.max(h, 1)
+		if x < 0 then
+			w = w + x
+			x = 0
+		end
+
+		if y < 0 then
+			h = h + y
+			y = 0
+		end
+
+		w = math.max(w, 0)
+		h = math.max(h, 0)
 
 		if render2d.cmd then render2d.cmd:SetScissor(x, y, w, h) end
 	end

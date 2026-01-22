@@ -46,7 +46,7 @@ local function choose_format(self)
 			self.samples = self.vulkan_instance.physical_device:GetMaxSampleCount()
 		end
 
-		self.depth_format = "d32_sfloat"
+		self.depth_format = "d32_sfloat_s8_uint"
 		self.final_layout = self.config.final_layout or "color_attachment_optimal"
 		-- Set extent directly from config
 		self.extent = {width = self.config.width, height = self.config.height}
@@ -155,7 +155,7 @@ local function choose_format(self)
 		self.samples = self.vulkan_instance.physical_device:GetMaxSampleCount()
 	end
 
-	self.depth_format = "d32_sfloat"
+	self.depth_format = "d32_sfloat_s8_uint"
 	self.surface_format = self.surface_formats[chosen_format_index]
 	self.color_format = self.surface_format.format
 end
@@ -443,8 +443,8 @@ function ImageRenderTarget:BeginFrame()
 				srcAccessMask = "none",
 				dstAccessMask = "depth_stencil_attachment_write",
 				oldLayout = "undefined",
-				newLayout = "depth_attachment_optimal",
-				aspect = "depth",
+				newLayout = "depth_stencil_attachment_optimal",
+			-- aspect is automatically determined from image format by PipelineBarrier
 			}
 		)
 	end
@@ -480,7 +480,9 @@ function ImageRenderTarget:BeginFrame()
 	}
 	-- Add depth buffer for both offscreen and windowed modes
 	render_config.depth_image_view = self:GetDepthImageView()
+	render_config.stencil_image_view = self:GetDepthImageView()
 	render_config.clear_depth = 1.0
+	render_config.clear_stencil = 0
 
 	-- Add MSAA for windowed mode only
 	if not self.config.offscreen and self.samples ~= "1" then

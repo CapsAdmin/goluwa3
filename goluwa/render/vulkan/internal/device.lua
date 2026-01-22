@@ -274,6 +274,8 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 		vulkan.ext.vkCmdSetDepthTestEnableEXT = device:TryGetExtension("vkCmdSetDepthTestEnableEXT")
 		vulkan.ext.vkCmdSetDepthWriteEnableEXT = device:TryGetExtension("vkCmdSetDepthWriteEnableEXT")
 		vulkan.ext.vkCmdSetDepthCompareOpEXT = device:TryGetExtension("vkCmdSetDepthCompareOpEXT")
+		vulkan.ext.vkCmdSetStencilTestEnableEXT = device:TryGetExtension("vkCmdSetStencilTestEnableEXT")
+		vulkan.ext.vkCmdSetStencilOpEXT = device:TryGetExtension("vkCmdSetStencilOpEXT")
 	end
 
 	-- Load extension functions if dynamic blend features are supported

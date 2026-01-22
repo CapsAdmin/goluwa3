@@ -189,7 +189,7 @@ function CommandBuffer:BeginRendering(config)
 	if config.depth_image_view then
 		local clearValue = vulkan.vk.VkClearValue()
 		clearValue.depthStencil.depth = config.clear_depth or 1.0
-		clearValue.depthStencil.stencil = 0
+		clearValue.depthStencil.stencil = config.clear_stencil or 0
 		depthAttachmentInfo = vulkan.vk.s.RenderingAttachmentInfo(
 			{
 				imageView = config.depth_image_view.ptr[0],
@@ -201,6 +201,30 @@ function CommandBuffer:BeginRendering(config)
 				clearValue = clearValue,
 			}
 		)
+	end
+
+	local stencilAttachmentInfo = nil
+
+	if config.stencil_image_view then
+		local clearValue = vulkan.vk.VkClearValue()
+		clearValue.depthStencil.depth = config.clear_depth or 1.0
+		clearValue.depthStencil.stencil = config.clear_stencil or 0
+		stencilAttachmentInfo = vulkan.vk.s.RenderingAttachmentInfo(
+			{
+				imageView = config.stencil_image_view.ptr[0],
+				imageLayout = config.stencil_layout or "stencil_attachment_optimal",
+				resolveMode = "none",
+				resolveImageLayout = "undefined",
+				loadOp = config.stencil_load_op or config.load_op or "clear",
+				storeOp = config.stencil_store and "store" or "dont_care",
+				clearValue = clearValue,
+			}
+		)
+
+		if config.depth_image_view == config.stencil_image_view then
+			depthAttachmentInfo.imageLayout = vulkan.vk.e.VkImageLayout(config.depth_layout or "depth_stencil_attachment_optimal")
+			stencilAttachmentInfo.imageLayout = vulkan.vk.e.VkImageLayout(config.stencil_layout or "depth_stencil_attachment_optimal")
+		end
 	end
 
 	RECT.offset.x = config.x or 0
@@ -217,6 +241,7 @@ function CommandBuffer:BeginRendering(config)
 				colorAttachmentCount = colorAttachmentCount,
 				pColorAttachments = colorAttachmentInfo,
 				pDepthAttachment = depthAttachmentInfo,
+				pStencilAttachment = stencilAttachmentInfo,
 			}
 		)
 	)
@@ -358,6 +383,40 @@ function CommandBuffer:SetScissor(x, y, width, height)
 			}
 		)
 	)
+end
+
+function CommandBuffer:SetStencilReference(face_mask, reference)
+	vulkan.lib.vkCmdSetStencilReference(self.ptr[0], vulkan.vk.e.VkStencilFaceFlagBits(face_mask), reference)
+end
+
+function CommandBuffer:SetStencilCompareMask(face_mask, compare_mask)
+	vulkan.lib.vkCmdSetStencilCompareMask(self.ptr[0], vulkan.vk.e.VkStencilFaceFlagBits(face_mask), compare_mask)
+end
+
+function CommandBuffer:SetStencilWriteMask(face_mask, write_mask)
+	vulkan.lib.vkCmdSetStencilWriteMask(self.ptr[0], vulkan.vk.e.VkStencilFaceFlagBits(face_mask), write_mask)
+end
+
+function CommandBuffer:SetStencilTestEnable(enabled)
+	if vulkan.ext.vkCmdSetStencilTestEnableEXT then
+		vulkan.ext.vkCmdSetStencilTestEnableEXT(self.ptr[0], enabled and 1 or 0)
+	elseif vulkan.lib.vkCmdSetStencilTestEnable then
+		vulkan.lib.vkCmdSetStencilTestEnable(self.ptr[0], enabled and 1 or 0)
+	end
+end
+
+function CommandBuffer:SetStencilOp(face_mask, fail_op, pass_op, depth_fail_op, compare_op)
+	local face = vulkan.vk.e.VkStencilFaceFlagBits(face_mask)
+	local fail = vulkan.vk.e.VkStencilOp(fail_op)
+	local pass = vulkan.vk.e.VkStencilOp(pass_op)
+	local dfail = vulkan.vk.e.VkStencilOp(depth_fail_op)
+	local comp = vulkan.vk.e.VkCompareOp(compare_op)
+
+	if vulkan.ext.vkCmdSetStencilOpEXT then
+		vulkan.ext.vkCmdSetStencilOpEXT(self.ptr[0], face, fail, pass, dfail, comp)
+	elseif vulkan.lib.vkCmdSetStencilOp then
+		vulkan.lib.vkCmdSetStencilOp(self.ptr[0], face, fail, pass, dfail, comp)
+	end
 end
 
 function CommandBuffer:SetBlendConstants(r, g, b, a)
@@ -513,6 +572,8 @@ if true then
 		local format = vulkan.vk.str.VkFormat(n)
 
 		if format then
+			local aspect
+
 			if format:match("d%d+.*s%d+") or format:match("s%d+.*d%d+") then
 				-- Depth-stencil format (e.g., D24_UNORM_S8_UINT)
 				aspect = {"depth", "stencil"}
@@ -578,13 +639,34 @@ function CommandBuffer:PipelineBarrier(config)
 			end
 
 			aspect = aspect or "color"
-			barrier.image.layout = barrier.newLayout or "general"
+			-- Handle combined depth-stencil formats
+			-- When aspect is a table (e.g., {"depth", "stencil"}), we need to use depth-stencil layouts
+			local old_layout = barrier.oldLayout or "undefined"
+			local new_layout = barrier.newLayout or "general"
+
+			-- Fix layouts for combined depth-stencil formats
+			if type(aspect) == "table" then
+				-- Replace depth-only layouts with depth-stencil layouts
+				if old_layout == "depth_attachment_optimal" then
+					old_layout = "depth_stencil_attachment_optimal"
+				elseif old_layout == "depth_read_only_optimal" then
+					old_layout = "depth_stencil_read_only_optimal"
+				end
+
+				if new_layout == "depth_attachment_optimal" then
+					new_layout = "depth_stencil_attachment_optimal"
+				elseif new_layout == "depth_read_only_optimal" then
+					new_layout = "depth_stencil_read_only_optimal"
+				end
+			end
+
+			barrier.image.layout = new_layout
 			imageBarriers[i - 1] = vulkan.vk.s.ImageMemoryBarrier(
 				{
 					srcAccessMask = barrier.srcAccessMask or "none",
 					dstAccessMask = barrier.dstAccessMask or "none",
-					oldLayout = barrier.oldLayout or "undefined",
-					newLayout = barrier.newLayout or "general",
+					oldLayout = old_layout,
+					newLayout = new_layout,
 					srcQueueFamilyIndex = 0xFFFFFFFF,
 					dstQueueFamilyIndex = 0xFFFFFFFF,
 					image = barrier.image.ptr[0],

@@ -342,7 +342,7 @@ function ShadowMap:Begin(cascade_index)
 					dstAccessMask = "depth_stencil_attachment_write",
 					oldLayout = "undefined",
 					newLayout = "depth_attachment_optimal",
-					aspect = "depth",
+				-- aspect is automatically determined from image format by PipelineBarrier
 				},
 			},
 		}
@@ -424,7 +424,7 @@ function ShadowMap:End(cascade_index)
 					dstAccessMask = "shader_read",
 					oldLayout = "depth_attachment_optimal",
 					newLayout = "shader_read_only_optimal",
-					aspect = "depth",
+				-- aspect is automatically determined from image format by PipelineBarrier
 				},
 			},
 		}

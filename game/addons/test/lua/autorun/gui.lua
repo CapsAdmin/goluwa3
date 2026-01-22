@@ -98,6 +98,7 @@ local Interactive = lsx.Component(function(props)
 				bounce = 0.8,
 				duration = 150,
 			},
+			time = 10,
 		},
 		{is_pressed}
 	)

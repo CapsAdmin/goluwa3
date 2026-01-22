@@ -193,17 +193,22 @@ function GraphicsPipeline.New(device, config, render_passes, pipelineLayout)
 		}
 	)
 	config.depth_stencil = config.depth_stencil or {}
-	local defaultStencilOpState = vulkan.vk.s.StencilOpState(
-		{
-			failOp = "keep",
-			passOp = "keep",
-			depthFailOp = "keep",
-			compareOp = "always",
-			compareMask = 0,
-			writeMask = 0,
-			reference = 0,
-		}
-	)
+
+	local function make_stencil_op_state(cfg)
+		cfg = cfg or {}
+		return vulkan.vk.s.StencilOpState(
+			{
+				failOp = cfg.fail_op or "keep",
+				passOp = cfg.pass_op or "keep",
+				depthFailOp = cfg.depth_fail_op or "keep",
+				compareOp = cfg.compare_op or "always",
+				compareMask = cfg.compare_mask or 0xFF,
+				writeMask = cfg.write_mask or 0xFF,
+				reference = cfg.reference or 0,
+			}
+		)
+	end
+
 	local depthStencilState = vulkan.vk.s.PipelineDepthStencilStateCreateInfo(
 		{
 			depthTestEnable = config.depth_stencil.depth_test or 0,
@@ -212,8 +217,8 @@ function GraphicsPipeline.New(device, config, render_passes, pipelineLayout)
 			depthBoundsTestEnable = config.depth_stencil.depth_bounds_test or 0,
 			stencilTestEnable = config.depth_stencil.stencil_test or 0,
 			flags = 0,
-			front = defaultStencilOpState,
-			back = defaultStencilOpState,
+			front = make_stencil_op_state(config.depth_stencil.front),
+			back = make_stencil_op_state(config.depth_stencil.back),
 			minDepthBounds = 0,
 			maxDepthBounds = 0,
 		}
@@ -274,7 +279,17 @@ function GraphicsPipeline.New(device, config, render_passes, pipelineLayout)
 				and
 				render_passes[1].depth_format or
 				"undefined",
-			stencilAttachmentFormat = "undefined",
+			stencilAttachmentFormat = (
+					render_passes[1].depth_format and
+					render_passes[1].depth_format ~= false and
+					(
+						render_passes[1].depth_format:match("s8") or
+						render_passes[1].depth_format:match("stencil")
+					)
+				)
+				and
+				render_passes[1].depth_format or
+				"undefined",
 		}
 	)
 	local pipelineInfo = vulkan.vk.s.GraphicsPipelineCreateInfo(

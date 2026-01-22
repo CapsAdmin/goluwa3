@@ -958,7 +958,7 @@ function lightprobes.RenderProbeFaces(cmd, probe, num_faces, render_geometry)
 							newLayout = "depth_attachment_optimal",
 							srcAccessMask = "none",
 							dstAccessMask = "depth_stencil_attachment_write",
-							aspect = "depth",
+						-- aspect is automatically determined from image format by PipelineBarrier
 						},
 					},
 				}

@@ -44,7 +44,9 @@ end
 function gui.Initialize()
 	gui.Root = gui.Create("base")
 	gui.Root:SetName("Root")
-	gui.Root.OnDraw = function() end
+	gui.Root.OnDraw = function()
+		render2d.ClearStencil()
+	end
 	local w, h = render2d.GetSize()
 
 	if w then gui.Root:SetSize(Vec2(w, h)) end
