@@ -3,7 +3,10 @@ local lsx = require("gui.lsx")
 local prototype = require("prototype")
 local gui = require("gui.gui")
 local Vec2 = require("structs.vec2")
+local Ang3 = require("structs.ang3")
 local event = require("event")
+local system = require("system")
+local window = require("window")
 -- Create a mock surface type for testing
 local BaseSurface = require("gui.base_surface")
 local META = prototype.CreateTemplate("surface_mock_element")
@@ -270,5 +273,217 @@ T.Test("lsx.Build should not be called multiple times if setState is called mult
 	-- Should only be called once more
 	T(build_count)["=="](2)
 	T(instance:GetName())["=="]("State:3")
+	root:Remove()
+end)
+
+T.Test("lsx.UseAnimate basic linear", function()
+	local root = CreateMockRoot()
+	local MyComponent = lsx.Component(function(props)
+		local ref = lsx.UseRef(nil)
+		lsx.UseAnimate(
+			ref,
+			{
+				var = "DrawAlpha",
+				to = props.targetAlpha,
+				time = 1,
+			},
+			{props.targetAlpha}
+		)
+		return Mock({ref = ref, DrawAlpha = 0})
+	end)
+	local node = MyComponent({targetAlpha = 1})
+	local instance = lsx.Mount(node, root)
+	-- Initially DrawAlpha should be 0 (the from value)
+	T(instance:GetDrawAlpha())["=="](0)
+	-- Advance time by 0.5s
+	system.SetFrameTime(0.5)
+	instance:CalcAnimations()
+	T(instance:GetDrawAlpha())["=="](0.5)
+	-- Advance another 0.5s
+	system.SetFrameTime(0.5)
+	instance:CalcAnimations()
+	T(instance:GetDrawAlpha())["=="](1)
+	root:Remove()
+end)
+
+T.Test("lsx.UseAnimate segmented with functions (pausing)", function()
+	local root = CreateMockRoot()
+	local is_hovered = false
+	local MyComponent = lsx.Component(function(props)
+		local ref = lsx.UseRef(nil)
+		lsx.UseAnimate(
+			ref,
+			{
+				var = "DrawAlpha",
+				to = {
+					1,
+					function(self)
+						return is_hovered
+					end,
+					0,
+				},
+				time = 1,
+			},
+			{is_hovered}
+		)
+		return Mock({ref = ref, DrawAlpha = 0})
+	end)
+	local node = MyComponent({})
+	local instance = lsx.Mount(node, root)
+	T(instance:GetDrawAlpha())["=="](0)
+	-- Trigger animation by setting is_hovered = true (re-rendering is not strictly necessary for the pause function but common)
+	is_hovered = true
+	lsx.Build(node, root, instance)
+	lsx.RunPendingEffects()
+	-- 1s duration, segmented: from(0) -> 1 -> 0. (total 2 segments)
+	-- Pause is at segment index 1 (value 1.0, alpha 0.5)
+	system.SetFrameTime(0.25)
+	instance:CalcAnimations()
+	T(instance:GetDrawAlpha())["=="](0.5)
+	-- Reach the pause point
+	system.SetFrameTime(0.25)
+	instance:CalcAnimations()
+	T(instance:GetDrawAlpha())["=="](1)
+	-- Advance time, should stay paused
+	system.SetFrameTime(1.0)
+	instance:CalcAnimations()
+	T(instance:GetDrawAlpha())["=="](1)
+	-- Stop hovering, animation should continue from 0.5 alpha
+	is_hovered = false
+	system.SetFrameTime(0.25)
+	instance:CalcAnimations()
+	-- total_alpha = 0.75 * 2 = 1.5. segment [1->0]. alpha in segment = 0.5. lerp(0.5, 1, 0) = 0.5
+	T(instance:GetDrawAlpha())["=="](0.5)
+	system.SetFrameTime(0.25)
+	instance:CalcAnimations()
+	T(instance:GetDrawAlpha())["=="](0)
+	root:Remove()
+end)
+
+T.Test("lsx.UseAnimate with lsx.Value", function()
+	local root = CreateMockRoot()
+	local window = require("window")
+	local mousePos = Vec2(0, 0)
+	local oldGetMousePosition = window.GetMousePosition
+	window.GetMousePosition = function()
+		return mousePos
+	end
+	local MyComponent = lsx.Component(function(props)
+		local ref = lsx.UseRef(nil)
+		lsx.UseAnimate(
+			ref,
+			{
+				var = "DrawPositionOffset",
+				to = lsx.Value(function(self)
+					return window.GetMousePosition()
+				end),
+				time = 1,
+			},
+			{}
+		)
+		return Mock({ref = ref, DrawPositionOffset = Vec2(0, 0)})
+	end)
+	local node = MyComponent({})
+	local instance = lsx.Mount(node, root)
+	mousePos = Vec2(100, 100)
+	system.SetFrameTime(0.5)
+	instance:CalcAnimations()
+	T(instance:GetDrawPositionOffset().x)["=="](50)
+	T(instance:GetDrawPositionOffset().y)["=="](50)
+	-- Update mouse pos during animation
+	mousePos = Vec2(200, 200)
+	system.SetFrameTime(0.5)
+	instance:CalcAnimations()
+	T(instance:GetDrawPositionOffset().x)["=="](200)
+	T(instance:GetDrawPositionOffset().y)["=="](200)
+	window.GetMousePosition = oldGetMousePosition
+	root:Remove()
+end)
+
+T.Test("lsx.UseAnimate with spring interpolation", function()
+	local root = CreateMockRoot()
+	local MyComponent = lsx.Component(function(props)
+		local ref = lsx.UseRef(nil)
+		lsx.UseAnimate(
+			ref,
+			{
+				var = "DrawAlpha",
+				to = 1,
+				interpolation = {
+					type = "spring",
+					bounce = 0,
+					duration = 1000,
+					epsilon = 0.0001,
+				},
+			},
+			{props.trigger}
+		)
+		return Mock({ref = ref, DrawAlpha = 0})
+	end)
+	local node = MyComponent({trigger = 1})
+	local instance = lsx.Mount(node, root)
+	system.SetFrameTime(0.5)
+	instance:CalcAnimations()
+	local val = instance:GetDrawAlpha()
+	T(val > 0)["=="](true)
+	T(val < 1)["=="](true)
+	-- Spring (with 0 bounce) at 0.5s of 1.0s should be quite far along
+	T(val > 0.5)["=="](true)
+	system.SetFrameTime(10) -- settle
+	instance:CalcAnimations()
+	T(instance:GetDrawAlpha())[">"](0.99)
+	root:Remove()
+end)
+
+T.Test("lsx.UseAnimate with operator and absolute values", function()
+	local root = CreateMockRoot()
+	local MyComponent = lsx.Component(function(props)
+		local ref = lsx.UseRef(nil)
+		lsx.UseAnimate(
+			ref,
+			{
+				var = "DrawScaleOffset",
+				to = Vec2(2, 2),
+				operator = "=",
+				time = 1,
+			},
+			{props.trigger}
+		)
+		return Mock({ref = ref, DrawScaleOffset = Vec2(1, 1)})
+	end)
+	local node = MyComponent({trigger = 1})
+	local instance = lsx.Mount(node, root)
+	system.SetFrameTime(0.5)
+	instance:CalcAnimations()
+	T(instance:GetDrawScaleOffset().x)["=="](1.5)
+	system.SetFrameTime(0.5)
+	instance:CalcAnimations()
+	T(instance:GetDrawScaleOffset().x)["=="](2)
+	root:Remove()
+end)
+
+T.Test("lsx.UseAnimate with Ang3", function()
+	local root = CreateMockRoot()
+	local MyComponent = lsx.Component(function(props)
+		local ref = lsx.UseRef(nil)
+		lsx.UseAnimate(
+			ref,
+			{
+				var = "DrawAngleOffset",
+				to = Ang3(0.1, 0.2, 0.3),
+				time = 1,
+			},
+			{}
+		)
+		return Mock({ref = ref, DrawAngleOffset = Ang3(0, 0, 0)})
+	end)
+	local node = MyComponent({})
+	local instance = lsx.Mount(node, root)
+	system.SetFrameTime(0.5)
+	instance:CalcAnimations()
+	local ang = instance:GetDrawAngleOffset()
+	T(ang.p)["~"](0.05)
+	T(ang.y)["~"](0.1)
+	T(ang.r)["~"](0.15)
 	root:Remove()
 end)

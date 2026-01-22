@@ -295,9 +295,7 @@ do -- hooks
 			function()
 				if not ref.current then return end
 
-				if ref.current and (not deps or deps[1] ~= false) then
-					ref.current:Animate(config)
-				end
+				ref.current:Animate(config)
 			end,
 			deps
 		)
@@ -447,7 +445,11 @@ function lsx.Build(node, parent, existing)
 					local getter = surface[getterName]
 					local currentVal = getter and getter(surface)
 
-					if currentVal ~= value then method(surface, value) end
+					if currentVal ~= value then
+						if not surface.IsAnimating or not surface:IsAnimating(key) then
+							method(surface, value)
+						end
+					end
 				elseif key:sub(1, 2) == "On" or key:sub(1, 2) == "on" then
 					local eventName = "On" .. key:sub(3, 3):upper() .. key:sub(4)
 
