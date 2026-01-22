@@ -66,11 +66,11 @@ local Interactive = lsx.Component(function(props)
 		ref,
 		{
 			var = "DrawScaleOffset",
-			to = is_pressed and (Vec2() + 0.9) or (Vec2() + 1),
+			to = is_pressed and (Vec2() + 0.95) or (Vec2() + 1),
 			operator = "=",
 			interpolation = {
 				type = "spring",
-				bounce = 0.8,
+				bounce = 0.6,
 				duration = 150,
 			},
 		},
@@ -91,11 +91,11 @@ local Interactive = lsx.Component(function(props)
 					local size = self:GetSize()
 					local nx = (local_pos.x / size.x) * 2 - 1
 					local ny = (local_pos.y / size.y) * 2 - 1
-					return Ang3(-ny, nx, 0) * 0.5
+					return Ang3(-ny, nx, 0) * 0.1
 				end),
 			interpolation = {
 				type = "spring",
-				bounce = 0.8,
+				bounce = 0.6,
 				duration = 150,
 			},
 			time = 10,
@@ -109,6 +109,11 @@ local Interactive = lsx.Component(function(props)
 			Position = Vec2(100, 100),
 			Size = Vec2(200, 50),
 			Perspective = 400,
+			Shadows = true,
+			BorderRadius = 10,
+			ShadowSize = 10,
+			ShadowColor = Color(0, 0, 0, 0.2),
+			ShadowOffset = Vec2(2, 2),
 			Clipping = true,
 			Color = Color(0.8, 0.2, 0.2, 1),
 			OnMouseInput = function(self, button, press, local_pos)
@@ -205,3 +210,11 @@ local App = lsx.Component(function()
 end)
 require("gui.gui").Root:RemoveChildren()
 lsx.Mount(App())
+local gfx = require("render2d.gfx")
+
+event.AddListener("Draw2D", "test_shadows", function(w, h) --	render2d.SetShadow(0.01, 0.001, 0.001, 0, 0, 0, 1)
+--render2d.SetTexture()
+--render2d.SetColor(1, 1, 1, 1)
+--render2d.DrawRect(300, 300, 200, 100)
+--	render2d.ClearShadow()
+end)

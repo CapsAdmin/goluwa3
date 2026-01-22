@@ -8,6 +8,7 @@ local Vec3 = require("structs.vec3")
 local Color = require("structs.color")
 local window = require("window")
 local render = require("render.render")
+local gfx = require("render2d.gfx")
 local Rect = require("structs.rect")
 local META = prototype.CreateTemplate("surface_base")
 META.IsSurface = true
@@ -23,6 +24,11 @@ META:GetSet("Pivot", Vec2(0.5, 0.5), {callback = "InvalidateMatrices"})
 META:GetSet("Visible", true)
 META:GetSet("Color", Color(1, 1, 1, 1))
 META:GetSet("Clipping", false)
+META:GetSet("Shadows", false)
+META:GetSet("ShadowSize", 16)
+META:GetSet("BorderRadius", 0)
+META:GetSet("ShadowColor", Color(0, 0, 0, 0.5))
+META:GetSet("ShadowOffset", Vec2(0, 0))
 META:GetSet("Scroll", Vec2(0, 0), {callback = "InvalidateMatrices"})
 META:GetSet("ScrollEnabled", false)
 META:GetSet("DragEnabled", false)
@@ -243,6 +249,18 @@ function META:IsHovered(mouse_pos)
 		local_pos.y <= self.Size.y
 end
 
+function META:DrawShadow()
+	if not self.Shadows then return end
+
+	render2d.PushMatrix()
+	render2d.SetWorldMatrix(self:GetWorldMatrix())
+	local s = self.Size + self.DrawSizeOffset
+	render2d.SetBlendMode("alpha")
+	render2d.SetColor(self.ShadowColor:Unpack())
+	gfx.DrawShadow(self.ShadowOffset.x, self.ShadowOffset.y, s.x, s.y, self.ShadowSize, self.BorderRadius)
+	render2d.PopMatrix()
+end
+
 function META:Draw()
 	self:CalcAnimations()
 
@@ -250,6 +268,7 @@ function META:Draw()
 
 	if not self.Visible then return end
 
+	self:DrawShadow()
 	local clipping = self:GetClipping()
 
 	if clipping then
@@ -302,11 +321,13 @@ end
 
 do -- example events
 	function META:OnDraw()
+		local s = self.Size + self.DrawSizeOffset
 		render2d.SetTexture(self.Texture)
 		local c = self.Color + self.DrawColor
 		render2d.SetColor(c.r, c.g, c.b, c.a * self.DrawAlpha)
-		local s = self.Size + self.DrawSizeOffset
-		render2d.DrawRect(0, 0, s.x, s.y)
+		--render2d.DrawRect(0, 0, s.x, s.y)
+		gfx.DrawRoundedRect(0, 0, s.x, s.y, self.BorderRadius)
+		render2d.SetColor(0, 0, 0, 1)
 	end
 
 	function META:OnMouseInput(button, press, pos)

@@ -50,6 +50,60 @@ function gfx.Initialize()
 		return vec4(1,1,1,t);
 	]])
 	gfx.quadrant_circle_texture = tex
+	local tex = Texture.New(
+		{
+			width = 512,
+			height = 512,
+			format = "r8g8b8a8_unorm",
+			mip_map_levels = "auto",
+			sampler = {
+				min_filter = "linear",
+				mag_filter = "linear",
+				mipmap_mode = "linear",
+				wrap_s = "clamp_to_edge",
+				wrap_t = "clamp_to_edge",
+			},
+		}
+	)
+	tex:Shade([[
+		float dist = length(uv - 0.5);
+		float alpha = smoothstep(0.5, 0.25, dist);
+		return vec4(1.0, 1.0, 1.0, alpha * alpha);
+	]])
+	gfx.shadow_texture = tex
+end
+
+function gfx.DrawShadow(x, y, w, h, size, radius)
+	size = size or 16
+	radius = radius or 0
+	local tex = gfx.shadow_texture
+
+	if w / 2 < radius then radius = w / 2 end
+
+	if h / 2 < radius then radius = h / 2 end
+
+	render2d.PushTexture(tex)
+	render2d.PushUV()
+	local sw = {size, radius, w - radius * 2, radius, size}
+	local sh = {size, radius, h - radius * 2, radius, size}
+	local u = {0, 0.25, 0.5, 0.5, 0.75}
+	local uw = {0.25, 0.25, 0, 0.25, 0.25}
+	local v = {0, 0.25, 0.5, 0.5, 0.75}
+	local vh = {0.25, 0.25, 0, 0.25, 0.25}
+	local px = {x - size, x, x + radius, x + w - radius, x + w}
+	local py = {y - size, y, y + radius, y + h - radius, y + h}
+
+	for row = 1, 5 do
+		for col = 1, 5 do
+			if sw[col] > 0 and sh[row] > 0 then
+				render2d.SetUV2(u[col], v[row] + vh[row], u[col] + uw[col], v[row])
+				render2d.DrawRect(px[col], py[row], sw[col], sh[row])
+			end
+		end
+	end
+
+	render2d.PopUV()
+	render2d.PopTexture()
 end
 
 function gfx.DrawNinePatch(x, y, w, h, patch_size_w, patch_size_h, corner_size, u_offset, v_offset, uv_scale)
