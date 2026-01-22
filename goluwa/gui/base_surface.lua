@@ -1,4 +1,5 @@
 local event = require("event")
+local window = require("window")
 local render2d = require("render2d.render2d")
 local prototype = require("prototype")
 local Matrix44 = require("structs.matrix44")
@@ -127,6 +128,7 @@ do
 	local gui = require("gui.gui")
 
 	function META:IsHoveredExclusively(mouse_pos)
+		mouse_pos = mouse_pos or window.GetMousePosition()
 		return gui.GetHoveredObject(mouse_pos) == self
 	end
 end
@@ -223,8 +225,7 @@ function META:GlobalToLocal(vec, out)
 end
 
 function META:IsHovered(mouse_pos)
-	if self.IgnoreMouseInput then return false end
-
+	mouse_pos = mouse_pos or window.GetMousePosition()
 	local local_pos = self:GlobalToLocal(mouse_pos)
 	return local_pos.x >= 0 and
 		local_pos.y >= 0 and
@@ -289,7 +290,6 @@ end
 function META:IsMouseButtonDown(button)
 	self.button_states = self.button_states or {}
 	local state = self.button_states[button]
-	table.print(self.button_states)
 	return state and state.press
 end
 

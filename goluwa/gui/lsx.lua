@@ -266,6 +266,22 @@ do -- hooks
 			function()
 				if not ref.current then return end
 
+				set_hovered(ref.current:IsHovered(mouse))
+			end,
+			{mouse.x, mouse.y}
+		)
+
+		return is_hovered
+	end
+
+	function lsx.UseHoverExclusively(ref)
+		local is_hovered, set_hovered = lsx.UseState(false)
+		local mouse = lsx.UseMouse()
+
+		lsx.UseEffect(
+			function()
+				if not ref.current then return end
+
 				set_hovered(ref.current:IsHoveredExclusively(mouse))
 			end,
 			{mouse.x, mouse.y}
@@ -277,6 +293,8 @@ do -- hooks
 	function lsx.UseAnimate(ref, config, deps)
 		lsx.UseEffect(
 			function()
+				if not ref.current then return end
+
 				if ref.current and (not deps or deps[1] ~= false) then
 					ref.current:Animate(config)
 				end
@@ -456,7 +474,10 @@ function lsx.Build(node, parent, existing)
 		end
 
 		-- always set layout last because it depends on children and props like Size
-		if node.props.Layout then surface:SetLayout(node.props.Layout) end
+		if node.props.Layout then
+			surface:SetLayout(node.props.Layout)
+			surface:InvalidateLayout()
+		end
 
 		local finalChildren = surface:GetChildren()
 

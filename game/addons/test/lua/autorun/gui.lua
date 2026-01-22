@@ -405,6 +405,42 @@ if true then
 		local ref = lsx.UseRef(nil)
 		local is_hovered = lsx.UseHover(ref)
 		local is_pressed, set_pressed = lsx.UseState(false)
+		local hover_ref = lsx.UseRef(nil)
+		local press_ref = lsx.UseRef(nil)
+		local state_ref = lsx.UseRef({hovered = false, pressed = false})
+		state_ref.current.hovered = is_hovered
+		state_ref.current.pressed = is_pressed
+		lsx.UseAnimate(
+			hover_ref,
+			{
+				var = "DrawAlpha",
+				to = {
+					1,
+					function(self)
+						return state_ref.current.hovered
+					end,
+					0,
+				},
+				time = 0.5,
+			},
+			{is_hovered}
+		)
+		lsx.UseAnimate(
+			press_ref,
+			{
+				var = "DrawScaleOffset",
+				to = {
+					Vec2() + 1,
+					function(self)
+						return state_ref.current.pressed
+					end,
+					Vec2() + 0,
+				},
+				time = 0.5,
+				operator = "=",
+			},
+			{is_pressed}
+		)
 		lsx.UseAnimate(
 			ref,
 			{
@@ -412,7 +448,7 @@ if true then
 				to = {
 					Vec2(0, 0),
 					function(self)
-						return is_pressed
+						return state_ref.current.pressed
 					end,
 					Vec2(0, 0),
 				},
@@ -428,7 +464,7 @@ if true then
 				to = {
 					Vec2() + 0.95,
 					function(self)
-						return self:IsMouseButtonDown("button_1")
+						return state_ref.current.pressed
 					end,
 					Vec2() + 1,
 				},
@@ -444,6 +480,9 @@ if true then
 				to = {
 					lsx.Value(function(self)
 						local mpos = window.GetMousePosition()
+
+						if not self:IsHoveredExclusively(mpos) then return Ang3(0, 0, 0) end
+
 						local local_pos = self:GlobalToLocal(mpos)
 						local size = self:GetSize()
 						local nx = (local_pos.x / size.x) * 2 - 1
@@ -451,7 +490,7 @@ if true then
 						return Ang3(-ny, nx, 0) * 0.1
 					end),
 					function(self)
-						return self:IsMouseButtonDown("button_1")
+						return state_ref.current.pressed
 					end,
 					Ang3(0, 0, 0),
 				},
@@ -463,25 +502,24 @@ if true then
 			{
 				ref = ref,
 				Position = Vec2(100, 100),
-				Size = Vec2(200, 200),
+				Size = Vec2(200, 50),
 				Perspective = 400,
 				Clipping = true,
-				Color = is_pressed and
-					Color(0.8, 0.2, 0.2, 1) or
-					is_hovered and
-					Color(0.6, 0.4, 0.4, 1)
-					or
-					Color(0.4, 0.4, 0.4, 1),
+				Color = Color(0.8, 0.2, 0.2, 1),
 				OnMouseInput = function(self, button, press, local_pos)
 					if button == "button_1" then
 						set_pressed(press)
 						return true
 					end
 				end,
-				is_hovered and
+				props,
 				lsx.Panel(
 					{
+						ref = hover_ref,
+						DrawAlpha = 0,
 						OnDraw = function(self)
+							if self.DrawAlpha <= 0 then return end
+
 							local mpos = window.GetMousePosition()
 							local parent = self:GetParent()
 
@@ -502,6 +540,35 @@ if true then
 						Texture = glow_highlight_tex,
 						Size = Vec2() + 256,
 						Scale = Vec2() + 1.5,
+						Color = Color(1, 1, 1, 0.15),
+						IgnoreMouseInput = true,
+					}
+				),
+				lsx.Panel(
+					{
+						ref = press_ref,
+						DrawScaleOffset = Vec2() + 0,
+						OnDraw = function(self)
+							local mpos = window.GetMousePosition()
+							local parent = self:GetParent()
+
+							if parent then
+								local local_pos = parent:GlobalToLocal(mpos)
+								self:SetPosition(local_pos - Vec2(128, 128))
+							end
+
+							-- old draw 
+							render2d.SetBlendMode("additive")
+							render2d.SetTexture(self.Texture)
+							local c = self.Color + self.DrawColor
+							render2d.SetColor(c.r, c.g, c.b, c.a * self.DrawAlpha)
+							local s = self.Size + self.DrawSizeOffset
+							render2d.DrawRect(0, 0, s.x, s.y)
+							render2d.SetBlendMode("alpha")
+						end,
+						Texture = glow_highlight_tex,
+						Size = Vec2() + 256,
+						Scale = Vec2() + 0.25,
 						Color = Color(1, 1, 1, 0.5),
 						IgnoreMouseInput = true,
 					}
@@ -516,15 +583,15 @@ if true then
 				Size = Vec2(render2d.GetSize()),
 				Color = Color(0, 0, 0, 0),
 				Padding = Rect(20, 20, 20, 20),
-				Interactive(),
-				false and
-				lsx.Panel(
-					{
-						Position = Vec2(100, 100),
-						Size = Vec2(200, 200),
-						Color = Color(0, 0, 1, 0.1),
-						IgnoreMouseInput = true,
-					}
+				Interactive(
+					lsx.Text(
+						{
+							Text = "hello world",
+							IgnoreMouseInput = true,
+							Color = Color(1, 1, 1, 1),
+							Layout = {"CenterSimple"},
+						}
+					)
 				),
 			}
 		)
