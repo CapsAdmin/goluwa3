@@ -30,6 +30,7 @@ META:GetSet("Padding", Rect(0, 0, 0, 0))
 META:GetSet("MinimumSize", Vec2(0, 0))
 META:GetSet("IgnoreMouseInput", false)
 META:GetSet("Perspective", 0, {callback = "InvalidateMatrices"})
+META:GetSet("Texture", nil)
 META:EndStorable()
 
 function META:OnReload()
@@ -294,7 +295,7 @@ end
 
 do -- example events
 	function META:OnDraw()
-		render2d.SetTexture(nil)
+		render2d.SetTexture(self.Texture)
 		local c = self.Color + self.DrawColor
 		render2d.SetColor(c.r, c.g, c.b, c.a * self.DrawAlpha)
 		local s = self.Size + self.DrawSizeOffset

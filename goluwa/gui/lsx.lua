@@ -338,7 +338,7 @@ local function safe_remove(obj)
 end
 
 function lsx.Build(node, parent, existing)
-	if node == nil then
+	if node == nil or node == false then
 		if existing then safe_remove(existing) end
 
 		return nil

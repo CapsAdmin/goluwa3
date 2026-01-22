@@ -9,6 +9,16 @@ local Color = require("structs.color")
 local window = require("window")
 local input = require("input")
 local lsx = require("gui.lsx")
+local Texture = require("render.texture")
+local glow_highlight_tex = Texture.New({
+	width = 256,
+	height = 256,
+	format = "r8g8b8a8_unorm",
+})
+glow_highlight_tex:Shade([[
+	float dist = distance(uv, vec2(0.5));
+	return vec4(1.0, 1.0, 1.0, 1.0 - smoothstep(0.0, 0.5, dist));
+]])
 
 local function UseTime()
 	local time, set_time = lsx.UseState(0)
@@ -455,17 +465,47 @@ if true then
 				Position = Vec2(100, 100),
 				Size = Vec2(200, 200),
 				Perspective = 400,
+				Clipping = true,
 				Color = is_pressed and
-					Color(1, 0, 0, 1) or
-					(
-						Color(0.4, 0.4, 0.5)
-					):GetLerped(is_hovered and 1 or 0, Color(0.6, 0.7, 0.9)):SetAlpha(1),
+					Color(0.8, 0.2, 0.2, 1) or
+					is_hovered and
+					Color(0.6, 0.4, 0.4, 1)
+					or
+					Color(0.4, 0.4, 0.4, 1),
 				OnMouseInput = function(self, button, press, local_pos)
 					if button == "button_1" then
 						set_pressed(press)
 						return true
 					end
 				end,
+				is_hovered and
+				lsx.Panel(
+					{
+						OnDraw = function(self)
+							local mpos = window.GetMousePosition()
+							local parent = self:GetParent()
+
+							if parent then
+								local local_pos = parent:GlobalToLocal(mpos)
+								self:SetPosition(local_pos - Vec2(128, 128))
+							end
+
+							-- old draw 
+							render2d.SetBlendMode("additive")
+							render2d.SetTexture(self.Texture)
+							local c = self.Color + self.DrawColor
+							render2d.SetColor(c.r, c.g, c.b, c.a * self.DrawAlpha)
+							local s = self.Size + self.DrawSizeOffset
+							render2d.DrawRect(0, 0, s.x, s.y)
+							render2d.SetBlendMode("alpha")
+						end,
+						Texture = glow_highlight_tex,
+						Size = Vec2() + 256,
+						Scale = Vec2() + 1.5,
+						Color = Color(1, 1, 1, 0.5),
+						IgnoreMouseInput = true,
+					}
+				),
 			}
 		)
 	end)
@@ -477,6 +517,7 @@ if true then
 				Color = Color(0, 0, 0, 0),
 				Padding = Rect(20, 20, 20, 20),
 				Interactive(),
+				false and
 				lsx.Panel(
 					{
 						Position = Vec2(100, 100),
