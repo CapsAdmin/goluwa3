@@ -9,8 +9,6 @@ local window = require("window")
 local gui = library()
 package.loaded["gui.gui"] = gui
 gui.PressedObjects = {}
-local BasePanel = require("gui.base_panel")
-require("gui.elements.text")
 
 do
 	local function check(panel, mouse_pos)
@@ -108,25 +106,30 @@ function gui.Initialize()
 	end)
 end
 
-function gui.Create(class_name, parent)
-	if class_name == "base" then
-		local surf = BasePanel:CreateObject()
+do
+	local BasePanel = require("gui.elements.base")
+	require("gui.elements.text")
+
+	function gui.Create(class_name, parent)
+		if class_name == "base" then
+			local surf = BasePanel:CreateObject()
+			surf:Initialize()
+
+			if parent then parent:AddChild(surf) end
+
+			return surf
+		end
+
+		parent = parent or gui.Root
+		local type = class_name
+
+		if not type:find("^panel_") then type = "panel_" .. type end
+
+		local surf = prototype.CreateObject(type)
 		surf:Initialize()
-
-		if parent then parent:AddChild(surf) end
-
+		parent:AddChild(surf)
 		return surf
 	end
-
-	parent = parent or gui.Root
-	local type = class_name
-
-	if not type:find("^panel_") then type = "panel_" .. type end
-
-	local surf = prototype.CreateObject(type)
-	surf:Initialize()
-	parent:AddChild(surf)
-	return surf
 end
 
 return gui
