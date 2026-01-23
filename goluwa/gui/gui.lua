@@ -9,7 +9,7 @@ local window = require("window")
 local gui = library()
 package.loaded["gui.gui"] = gui
 gui.PressedObjects = {}
-local BaseSurface = require("gui.base_surface")
+local BasePanel = require("gui.base_panel")
 require("gui.elements.text")
 
 do
@@ -110,7 +110,7 @@ end
 
 function gui.Create(class_name, parent)
 	if class_name == "base" then
-		local surf = BaseSurface:CreateObject()
+		local surf = BasePanel:CreateObject()
 		surf:Initialize()
 
 		if parent then parent:AddChild(surf) end
@@ -121,7 +121,7 @@ function gui.Create(class_name, parent)
 	parent = parent or gui.Root
 	local type = class_name
 
-	if not type:find("^surface_") then type = "surface_" .. type end
+	if not type:find("^panel_") then type = "panel_" .. type end
 
 	local surf = prototype.CreateObject(type)
 	surf:Initialize()

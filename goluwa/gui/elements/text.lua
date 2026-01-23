@@ -2,8 +2,8 @@ local prototype = require("prototype")
 local fonts = require("render2d.fonts")
 local render2d = require("render2d.render2d")
 local Vec2 = require("structs.vec2")
-local META = prototype.CreateTemplate("surface_text")
-META.Base = require("gui.base_surface")
+local META = prototype.CreateTemplate("panel_text")
+META.Base = require("gui.base_panel")
 META:StartStorable()
 META:GetSet(
 	"Font",

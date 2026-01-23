@@ -193,7 +193,7 @@ function META:ExecuteLayoutCommands()
 	for _, child in ipairs(self:GetChildren()) do
 		if child.Layout then
 			for _, cmd in ipairs(child.Layout) do
-				if type(cmd) == "table" and cmd.IsSurface then
+				if type(cmd) == "table" and cmd.IsPanel then
 					child.last_layout_panel = cmd
 				else
 					if cmd == "LayoutChildren" then

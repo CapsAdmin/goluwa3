@@ -19,10 +19,10 @@ end
 local Element = prototype.CreateTemplate("lsx_element")
 Element:Register()
 
-function lsx.RegisterElement(surfaceType)
+function lsx.RegisterElement(panel_type)
 	return function(props)
 		return Element:CreateObject({
-			surfaceType = surfaceType,
+			panel_type = panel_type,
 			props = props or {},
 		})
 	end
@@ -374,12 +374,12 @@ function lsx.Build(node, parent, existing)
 			end
 		end
 
-		local surfaces = {}
+		local panels = {}
 
 		for i, child in ipairs(node.props) do
 			local s = lsx.Build(child, parent, existing and existing[i])
 
-			if s then table.insert(surfaces, s) end
+			if s then table.insert(panels, s) end
 		end
 
 		if existing and #existing > #node.props then
@@ -388,7 +388,7 @@ function lsx.Build(node, parent, existing)
 			end
 		end
 
-		return surfaces
+		return panels
 	end
 
 	if node.Type == "lsx_component" then
@@ -397,74 +397,74 @@ function lsx.Build(node, parent, existing)
 		lsx.hook_index = 0
 		local rendered = node.build(node.props)
 		lsx.current_component = nil
-		local surface = lsx.Build(rendered, parent, existing)
-		node.instance = surface
+		local panel = lsx.Build(rendered, parent, existing)
+		node.instance = panel
 
-		if existing and surface ~= existing then safe_remove(existing) end
+		if existing and panel ~= existing then safe_remove(existing) end
 
-		if surface and type(surface) == "table" and surface.Remove then
+		if panel and type(panel) == "table" and panel.Remove then
 			if node.props.ref then
 				local value = node.props.ref
 
 				if type(value) == "table" and value.isRef then
-					value.current = surface
+					value.current = panel
 				elseif type(value) == "function" then
-					value(surface)
+					value(panel)
 				end
 			end
 
-			if node.props.Layout then surface:SetLayout(node.props.Layout) end
+			if node.props.Layout then panel:SetLayout(node.props.Layout) end
 		end
 
-		return surface
+		return panel
 	end
 
 	if node.Type == "lsx_element" then
-		-- create or update actual surface
-		local surface = existing
+		-- create or update actual panel
+		local panel = existing
 
 		if
-			not surface or
-			surface.surfaceType ~= node.surfaceType or
-			type(surface) ~= "table" or
-			not surface.Remove
+			not panel or
+			panel.panel_type ~= node.panel_type or
+			type(panel) ~= "table" or
+			not panel.Remove
 		then
-			if surface then safe_remove(surface) end
+			if panel then safe_remove(panel) end
 
-			surface = gui.Create(node.surfaceType, parent)
-			surface.surfaceType = node.surfaceType
+			panel = gui.Create(node.panel_type, parent)
+			panel.panel_type = node.panel_type
 		end
 
 		for key, value in pairs(node.props) do
 			if type(key) ~= "number" and key ~= "Layout" then
 				local setterName = "Set" .. key:sub(1, 1):upper() .. key:sub(2)
-				local method = surface[setterName]
+				local method = panel[setterName]
 
 				if method then
 					local getterName = "Get" .. key:sub(1, 1):upper() .. key:sub(2)
-					local getter = surface[getterName]
-					local currentVal = getter and getter(surface)
+					local getter = panel[getterName]
+					local currentVal = getter and getter(panel)
 
 					if currentVal ~= value then
-						if not surface.IsAnimating or not surface:IsAnimating(key) then
-							method(surface, value)
+						if not panel.IsAnimating or not panel:IsAnimating(key) then
+							method(panel, value)
 						end
 					end
 				elseif key:sub(1, 2) == "On" or key:sub(1, 2) == "on" then
 					local eventName = "On" .. key:sub(3, 3):upper() .. key:sub(4)
 
-					if surface[eventName] ~= value then surface[eventName] = value end
+					if panel[eventName] ~= value then panel[eventName] = value end
 				elseif key == "ref" then
 					if type(value) == "table" and value.isRef then
-						value.current = surface
+						value.current = panel
 					elseif type(value) == "function" then
-						value(surface)
+						value(panel)
 					end
 				end
 			end
 		end
 
-		local existingChildren = surface:GetChildren()
+		local existingChildren = panel:GetChildren()
 		local childrenToReconcile = {}
 
 		for i = 1, #existingChildren do
@@ -472,16 +472,16 @@ function lsx.Build(node, parent, existing)
 		end
 
 		for i, child in ipairs(node.props) do
-			lsx.Build(child, surface, childrenToReconcile[i])
+			lsx.Build(child, panel, childrenToReconcile[i])
 		end
 
 		-- always set layout last because it depends on children and props like Size
 		if node.props.Layout then
-			surface:SetLayout(node.props.Layout)
-			surface:InvalidateLayout()
+			panel:SetLayout(node.props.Layout)
+			panel:InvalidateLayout()
 		end
 
-		local finalChildren = surface:GetChildren()
+		local finalChildren = panel:GetChildren()
 
 		if #finalChildren > #node.props then
 			for i = #finalChildren, #node.props + 1, -1 do
@@ -489,7 +489,7 @@ function lsx.Build(node, parent, existing)
 			end
 		end
 
-		return surface
+		return panel
 	end
 
 	return nil
@@ -497,12 +497,12 @@ end
 
 function lsx.Mount(node, parent)
 	parent = parent or gui.Root
-	local surface = lsx.Build(node, parent)
+	local panel = lsx.Build(node, parent)
 
 	if gui.Root and gui.Root.CalcLayout then gui.Root:CalcLayout() end
 
 	lsx.RunPendingEffects()
-	return surface
+	return panel
 end
 
 function lsx.Inspect(node, indent)
@@ -535,7 +535,7 @@ function lsx.Inspect(node, indent)
 			end
 		end
 
-		local lines = {pad .. node.surfaceType .. " { " .. table.concat(props_str, ", ")}
+		local lines = {pad .. node.panel_type .. " { " .. table.concat(props_str, ", ")}
 
 		for _, child in ipairs(node.props) do
 			lines[#lines + 1] = lsx.Inspect(child, indent + 1)

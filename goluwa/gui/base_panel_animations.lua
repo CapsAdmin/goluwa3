@@ -1,6 +1,6 @@
 --[[HOTRELOAD
-	package.loaded["gui.base_surface"] = nil
-	require("goluwa.gui.base_surface")
+	package.loaded["gui.base_panel"] = nil
+	require("goluwa.gui.base_panel")
 ]]
 local gui = require("gui.gui")
 local system = require("system")
