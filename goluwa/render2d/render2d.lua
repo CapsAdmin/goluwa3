@@ -25,6 +25,7 @@ local FragmentConstants = ffi.typeof([[
         float uv_offset[2];             
         float uv_scale[2];              
         int swizzle_mode;
+        float edge_feather;
 	}
 ]])
 local vertex_constants = VertexConstants()
@@ -146,6 +147,7 @@ function render2d.ResetState()
 	render2d.SetAlphaMultiplier(1)
 	render2d.SetUV()
 	render2d.SetSwizzleMode(0)
+	render2d.SetEdgeFeather(0)
 	render2d.UpdateScreenSize(render.GetRenderImageSize())
 	render2d.SetBlendMode("alpha", true)
 
@@ -241,6 +243,7 @@ do
 						vec2 uv_offset;
 						vec2 uv_scale;
 						int swizzle_mode;
+						float edge_feather;
 					} pc;                   
 					
 					void main() 
@@ -256,6 +259,13 @@ do
 							else if (pc.swizzle_mode == 5) tex = vec4(tex.rgb, 1.0);
 							out_color *= tex;
 						}
+
+						if (pc.edge_feather > 0.0) {
+							vec2 uv_dist = smoothstep(vec2(0.0), vec2(pc.edge_feather), in_uv) * 
+							               smoothstep(vec2(1.0), vec2(1.0 - pc.edge_feather), in_uv);
+							out_color.a *= uv_dist.x * uv_dist.y;
+						}
+
 
 						out_color.a = out_color.a * pc.alpha_multiplier;
 					}
@@ -338,6 +348,18 @@ do
 
 		utility.MakePushPopFunction(render2d, "Color")
 		utility.MakePushPopFunction(render2d, "SwizzleMode")
+	end
+
+	do
+		function render2d.SetEdgeFeather(feather)
+			fragment_constants.edge_feather = feather or 0
+		end
+
+		function render2d.GetEdgeFeather()
+			return fragment_constants.edge_feather
+		end
+
+		utility.MakePushPopFunction(render2d, "EdgeFeather")
 	end
 
 	do
