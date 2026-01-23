@@ -45,6 +45,10 @@ function META:OnReload()
 	self:InvalidateLayout()
 end
 
+function META:OnRemove()
+	self:UnParent()
+end
+
 function META:SetColor(c)
 	if type(c) == "string" then
 		self.Color = Color.FromHex(c)

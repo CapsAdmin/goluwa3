@@ -1,0 +1,11 @@
+local event = require("event")
+local render2d = require("render2d.render2d")
+local gfx = require("render2d.gfx")
+local fonts = require("render2d.fonts")
+local path = fonts.GetSystemDefaultFont()
+local font = fonts.LoadFont(path, 50)
+
+event.AddListener("Draw2D", "test_2d", function()
+	render2d.SetColor(1, 1, 1, 1)
+	font:DrawText("Battle Settings", 20, 20)
+end)

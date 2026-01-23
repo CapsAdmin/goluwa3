@@ -1,3 +1,7 @@
+do
+	return
+end
+
 local Polygon3D = require("render3d.polygon_3d")
 local Texture = require("render.texture")
 local Material = require("render3d.material")
