@@ -1,13 +1,8 @@
-local event = require("event")
 local render2d = require("render2d.render2d")
-local prototype = require("prototype")
-local Matrix44 = require("structs.matrix44")
 local Vec2 = require("structs.vec2")
-local Vec3 = require("structs.vec3")
-local Rect = require("structs.rect")
 local Color = require("structs.color")
+local Ang3 = require("structs.ang3")
 local window = require("window")
-local input = require("input")
 local lsx = require("gui.lsx")
 local Texture = require("render.texture")
 local glow_highlight_tex = Texture.New({
@@ -19,8 +14,7 @@ glow_highlight_tex:Shade([[
 	float dist = distance(uv, vec2(0.5));
 	return vec4(1.0, 1.0, 1.0, 1.0 - smoothstep(0.0, 0.5, dist));
 ]])
-local Ang3 = require("structs.ang3")
-local Interactive = lsx.Component(function(props)
+return lsx.Component(function(props)
 	local ref = lsx.UseRef(nil)
 	local is_hovered = lsx.UseHover(ref)
 	local is_pressed, set_pressed = lsx.UseState(false)
@@ -187,34 +181,4 @@ local Interactive = lsx.Component(function(props)
 			),
 		}
 	)
-end)
-local App = lsx.Component(function()
-	return lsx.Panel(
-		{
-			Name = "App",
-			Size = Vec2(render2d.GetSize()),
-			Color = Color(0, 0, 0, 0),
-			Padding = Rect(20, 20, 20, 20),
-			Interactive(
-				lsx.Text(
-					{
-						Text = "hello world",
-						IgnoreMouseInput = true,
-						Color = Color(1, 1, 1, 1),
-						Layout = {"CenterSimple"},
-					}
-				)
-			),
-		}
-	)
-end)
-require("gui.gui").Root:RemoveChildren()
-lsx.Mount(App())
-local gfx = require("render2d.gfx")
-
-event.AddListener("Draw2D", "test_shadows", function(w, h) --	render2d.SetShadow(0.01, 0.001, 0.001, 0, 0, 0, 1)
---render2d.SetTexture()
---render2d.SetColor(1, 1, 1, 1)
---render2d.DrawRect(300, 300, 200, 100)
---	render2d.ClearShadow()
 end)
