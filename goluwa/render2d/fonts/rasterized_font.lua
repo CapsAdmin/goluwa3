@@ -1,5 +1,6 @@
 local ffi = require("ffi")
 local Vec2 = require("structs.vec2")
+local Color = require("structs.color")
 local render2d = require("render2d.render2d")
 local Texture = require("render.texture")
 local Framebuffer = require("render.framebuffer")
@@ -19,15 +20,39 @@ META:IsSet("Spacing", 0)
 META:IsSet("Size", 12)
 META:IsSet("Scale", Vec2(1, 1))
 META:GetSet("Filtering", "linear")
-META:GetSet("ShadingInfo")
+META:GetSet("ShadingInfo", nil)
 META:IsSet("Monospace", false)
 META:IsSet("Ready", false)
 META:IsSet("ReverseDraw", false)
 META:GetSet("LoadSpeed", 10)
 META:GetSet("TabWidthMultiplier", 4)
 META:GetSet("Flags")
+local atlas_format = "r8g8b8a8_unorm"
 
-function META.New(fonts)
+local function create_atlas(self, padding)
+	local atlas_size = 512
+
+	if self.Size > 32 then atlas_size = 1024 end
+
+	if self.Size > 64 then atlas_size = 2048 end
+
+	if self.Size > 128 then atlas_size = 4096 end
+
+	self.texture_atlas = TextureAtlas.New(atlas_size, atlas_size, self.Filtering, atlas_format)
+	self.texture_atlas:SetMipMapLevels("auto")
+
+	if padding then self.texture_atlas:SetPadding(padding) end
+
+	for code in pairs(self.chars) do
+		self.chars[code] = nil
+		self:LoadGlyph(code)
+	end
+
+	self.texture_atlas:Build()
+	self:SetReady(true)
+end
+
+function META.New(fonts, padding)
 	if type(fonts) == "table" and fonts.IsFont then fonts = {fonts} end
 
 	local self = META:CreateObject()
@@ -39,12 +64,10 @@ function META.New(fonts)
 	if fonts[1] and fonts[1].Size then self:SetSize(fonts[1].Size) end
 
 	if render.target then
-		self:CreateTextureAtlas()
-		self:SetReady(true)
+		create_atlas(self, padding)
 	else
 		event.AddListener("RendererReady", self, function()
-			self:CreateTextureAtlas()
-			self:SetReady(true)
+			create_atlas(self, padding)
 			return event.destroy_tag
 		end)
 	end
@@ -52,50 +75,86 @@ function META.New(fonts)
 	return self
 end
 
-function META:CreateTextureAtlas()
-	local atlas_size = 512
-
-	if self.Size > 32 then atlas_size = 1024 end
-
-	if self.Size > 64 then atlas_size = 2048 end
-
-	if self.Size > 128 then atlas_size = 4096 end
-
-	self.texture_atlas = TextureAtlas.New(atlas_size, atlas_size, self.Filtering, render.target:GetColorFormat())
-	self.texture_atlas:SetMipMapLevels("auto")
-	self.texture_atlas:SetPadding(self.Padding)
-
-	for code in pairs(self.chars) do
-		self.chars[code] = nil
-		self:LoadGlyph(code)
-	end
-
-	self.texture_atlas:Build()
-end
-
-function META:Shade(source, vars, blend_mode)
-	error("Not implemented yet")
-
+function META:Shade(source, vars, blend_mode, skip_clear)
 	if source then
 		for _, tex in ipairs(self.texture_atlas:GetTextures()) do
-			if tex.font_shade_keep then
-				vars.copy = tex.font_shade_keep
-			--tex.font_shade_keep = nil
+			if tex.font_shade_keep then vars.copy = tex.font_shade_keep end
+
+			local header = ""
+			local textures = {}
+			-- Add self as first texture
+			table.insert(textures, tex)
+			header = header .. "#define self textures[0]\n"
+
+			if vars then
+				for k, v in pairs(vars) do
+					if type(v) == "number" then
+						header = header .. "const float " .. k .. " = " .. v .. ";\n"
+					elseif typex(v) == "vec2" then
+						header = header .. "const vec2 " .. k .. " = vec2(" .. v.x .. ", " .. v.y .. ");\n"
+					elseif typex(v) == "vec3" then
+						header = header .. "const vec3 " .. k .. " = vec3(" .. v.x .. ", " .. v.y .. ", " .. v.z .. ");\n"
+					elseif typex(v) == "vec4" or typex(v) == "color" then
+						header = header .. "const vec4 " .. k .. " = vec4(" .. (
+								v.r or
+								v.x
+							) .. ", " .. (
+								v.g or
+								v.y
+							) .. ", " .. (
+								v.b or
+								v.z
+							) .. ", " .. (
+								v.a or
+								v.w
+							) .. ");\n"
+					elseif typex(v) == "render_texture" then
+						table.insert(textures, v)
+						header = header .. "#define " .. k .. " textures[" .. (#textures - 1) .. "]\n"
+					end
+				end
 			end
 
-			tex:Shade(source, vars, blend_mode)
+			header = header .. "const vec2 size = vec2(" .. tex:GetWidth() .. ", " .. tex:GetHeight() .. ");\n"
+			header = header .. "#define uv in_uv\n"
+			tex:Shade(
+				source,
+				{
+					header = header,
+					textures = textures,
+					blend = blend_mode == "alpha",
+					load_op = "load",
+				}
+			)
 		end
 	elseif self.ShadingInfo then
-		self:CreateTextureAtlas()
-
-		for _, info in ipairs(self.ShadingInfo) do
+		for i, info in ipairs(self.ShadingInfo) do
 			if info.copy then
 				for _, tex in ipairs(self.texture_atlas:GetTextures()) do
-					tex.font_shade_keep = render.CreateBlankTexture(tex:GetSize())
-					tex.font_shade_keep:Shade("return texture(tex, uv);", {tex = tex}, "none")
+					tex.font_shade_keep = Texture.New(
+						{
+							width = tex:GetWidth(),
+							height = tex:GetHeight(),
+							format = tex.format,
+							sampler = {
+								min_filter = "linear",
+								mag_filter = "linear",
+								wrap_s = "clamp_to_edge",
+								wrap_t = "clamp_to_edge",
+							},
+						}
+					)
+					tex.font_shade_keep:Shade(
+						"return texture(textures[0], uv);",
+						{
+							header = "#define uv in_uv\n",
+							textures = {tex},
+							clear_color = {0, 0, 0, 0},
+						}
+					)
 				end
 			else
-				self:Shade(info.source, info.vars, info.blend_mode)
+				self:Shade(info.source, info.vars, info.blend_mode, i > 1)
 			end
 		end
 	end
@@ -110,7 +169,39 @@ function META:GetDescent()
 end
 
 function META:Rebuild()
-	if self.ShadingInfo then self:Shade() else self.texture_atlas:Build() end
+	self.texture_atlas:Build()
+
+	if self.ShadingInfo then self:Shade() end
+end
+
+function META:RebuildFromScratch()
+	if not self.texture_atlas then return end
+
+	-- Clear all cached glyphs
+	local codes_to_reload = {}
+
+	for code in pairs(self.chars) do
+		table.insert(codes_to_reload, code)
+		self.chars[code] = nil
+	end
+
+	-- Reload all glyphs
+	for _, code in ipairs(codes_to_reload) do
+		self:LoadGlyph(code)
+	end
+
+	-- Rebuild the atlas
+	self.texture_atlas:Build()
+
+	-- Apply shading if configured
+	if self.ShadingInfo then self:Shade() end
+end
+
+-- Override SetShadingInfo to trigger full rebuild and shading
+function META:SetShadingInfo(info)
+	self.ShadingInfo = info
+
+	if self.Ready and info then self:RebuildFromScratch() end
 end
 
 function META:LoadGlyph(code)
@@ -143,7 +234,7 @@ function META:LoadGlyph(code)
 					width = glyph.w * scale,
 					height = glyph.h * scale,
 					clear_color = {1, 1, 1, 0},
-					format = render.target:GetColorFormat(),
+					format = atlas_format,
 					mip_map_levels = "auto",
 				}
 			)
@@ -159,6 +250,7 @@ function META:LoadGlyph(code)
 			do
 				local cmd = fb_ss:Begin()
 				render2d.cmd = cmd
+				render2d.PushColorFormat(fb_ss.color_texture.format)
 				render2d.PushSamples("1")
 				render2d.UpdateScreenSize({w = glyph.w * scale, h = glyph.h * scale})
 				render2d.pipeline:Bind(render2d.cmd, render.GetCurrentFrame())
@@ -177,6 +269,7 @@ function META:LoadGlyph(code)
 				glyph_source_font:DrawGlyph(glyph.glyph_data)
 				render2d.PopMatrix()
 				render2d.PopSamples()
+				render2d.PopColorFormat()
 				fb_ss:End()
 			end
 
@@ -186,18 +279,19 @@ function META:LoadGlyph(code)
 					width = glyph.w,
 					height = glyph.h,
 					clear_color = {1, 1, 1, 0},
-					format = render.target:GetColorFormat(),
+					format = atlas_format,
 				}
 			)
 
 			do
 				local cmd = fb:Begin()
 				render2d.cmd = cmd
+				render2d.PushColorFormat(fb.color_texture.format)
 				render2d.PushSamples("1")
 				render2d.UpdateScreenSize({w = glyph.w, h = glyph.h})
 				render2d.pipeline:Bind(render2d.cmd, render.GetCurrentFrame())
 				render2d.SetColor(1, 1, 1, 1)
-				render2d.SetBlendMode("none", true)
+				render2d.SetBlendMode("alpha", true)
 				render2d.SetUV2(0, 1, 1, 0)
 				render2d.SetTexture(fb_ss.color_texture)
 				render2d.SetAlphaMultiplier(1)
@@ -207,6 +301,7 @@ function META:LoadGlyph(code)
 				render2d.DrawRect(0, 0, glyph.w, glyph.h)
 				render2d.PopMatrix()
 				render2d.PopSamples()
+				render2d.PopColorFormat()
 				fb:End()
 			end
 
@@ -305,14 +400,14 @@ end
 function META:DrawString(str, x, y, spacing)
 	if not self.Ready then return end
 
-	str = tostring(str)
-	spacing = spacing or self.Spacing
-
+	-- Rebuild atlas if new glyphs were loaded
 	if self.rebuild then
 		self:Rebuild()
 		self.rebuild = false
 	end
 
+	str = tostring(str)
+	spacing = spacing or self.Spacing
 	local X, Y = 0, 0
 
 	for i, char in ipairs(utf8.to_list(str)) do
@@ -335,21 +430,18 @@ function META:DrawString(str, x, y, spacing)
 				X = X + self.Size * self.TabWidthMultiplier
 			end
 		elseif data then
-			-- Rebuild atlas if new glyphs were loaded
-			if self.rebuild then
-				self:Rebuild()
-				self.rebuild = false
-			end
-
 			local texture = self.texture_atlas:GetPageTexture(char_code)
 
 			if texture then
 				render2d.SetTexture(texture)
 				local u1, v1, w, h, sx, sy = self.texture_atlas:GetUV(char_code)
+				-- Account for internal padding: draw full padded area but offset position to compensate
+				local padding = self.texture_atlas:GetPadding()
+				local half_pad = math.floor(padding / 2)
 				render2d.PushMatrix()
 				render2d.Translate(
-					x + (X + data.bitmap_left) * self.Scale.x,
-					y + (Y + data.bitmap_top) * self.Scale.y
+					x + (X + data.bitmap_left - half_pad) * self.Scale.x,
+					y + (Y + data.bitmap_top - half_pad) * self.Scale.y
 				)
 				render2d.PushUV()
 				render2d.SetUV2(u1 / sx, v1 / sy, (u1 + w) / sx, (v1 + h) / sy)

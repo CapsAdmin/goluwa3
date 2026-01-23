@@ -11,6 +11,7 @@ local VertexBuffer = require("render.vertex_buffer")
 local Mesh = require("render.mesh")
 local Texture = require("render.texture")
 local Matrix44 = require("structs.matrix44")
+local surface_format = "r16g16b16a16_sfloat"
 -- Vertex shader push constants (64 bytes)
 local VertexConstants = ffi.typeof([[
 	struct {
@@ -26,6 +27,8 @@ local FragmentConstants = ffi.typeof([[
         float uv_scale[2];              
         int swizzle_mode;
         float edge_feather;
+        int premultiply_output;
+        int unpremultiply_input;
 	}
 ]])
 local vertex_constants = VertexConstants()
@@ -148,8 +151,10 @@ function render2d.ResetState()
 	render2d.SetUV()
 	render2d.SetSwizzleMode(0)
 	render2d.SetEdgeFeather(0)
+	render2d.SetPremultiplyOutput(false)
 	render2d.UpdateScreenSize(render.GetRenderImageSize())
 	render2d.SetBlendMode("alpha", true)
+	render2d.SetColorFormat(render.target and render.target:GetColorFormat() or surface_format)
 
 	if render2d.SetStencilMode then render2d.SetStencilMode("none") end
 end
@@ -244,6 +249,8 @@ do
 						vec2 uv_scale;
 						int swizzle_mode;
 						float edge_feather;
+						int premultiply_output;
+						int unpremultiply_input;
 					} pc;                   
 					
 					void main() 
@@ -252,6 +259,11 @@ do
 						
 						if (pc.texture_index >= 0) {
 							vec4 tex = texture(textures[nonuniformEXT(pc.texture_index)], in_uv * pc.uv_scale + pc.uv_offset);
+							
+							if (pc.unpremultiply_input != 0 && tex.a > 0.0) {
+								tex.rgb /= tex.a;
+							}
+
 							if (pc.swizzle_mode == 1) tex = vec4(tex.rrr, 1.0);
 							else if (pc.swizzle_mode == 2) tex = vec4(tex.ggg, 1.0);
 							else if (pc.swizzle_mode == 3) tex = vec4(tex.bbb, 1.0);
@@ -268,6 +280,10 @@ do
 
 
 						out_color.a = out_color.a * pc.alpha_multiplier;
+						
+						if (pc.premultiply_output != 0) {
+							out_color.rgb *= out_color.a;
+						}
 					}
 				]],
 				descriptor_sets = {
@@ -363,6 +379,30 @@ do
 	end
 
 	do
+		function render2d.SetUnpremultiplyInput(enabled)
+			fragment_constants.unpremultiply_input = enabled and 1 or 0
+		end
+
+		function render2d.GetUnpremultiplyInput()
+			return fragment_constants.unpremultiply_input ~= 0
+		end
+
+		utility.MakePushPopFunction(render2d, "UnpremultiplyInput")
+	end
+
+	do
+		function render2d.SetPremultiplyOutput(enabled)
+			fragment_constants.premultiply_output = enabled and 1 or 0
+		end
+
+		function render2d.GetPremultiplyOutput()
+			return fragment_constants.premultiply_output ~= 0
+		end
+
+		utility.MakePushPopFunction(render2d, "PremultiplyOutput")
+	end
+
+	do
 		function render2d.SetAlphaMultiplier(a)
 			fragment_constants.alpha_multiplier = a
 		end
@@ -443,6 +483,27 @@ do
 	end
 
 	utility.MakePushPopFunction(render2d, "Samples")
+
+	function render2d.SetColorFormat(format, force)
+		if render2d.current_color_format == format and not force then return end
+
+		render2d.current_color_format = format
+		render2d.UpdatePipeline()
+
+		if render2d.cmd then
+			render2d.pipeline:Bind(render2d.cmd, render.GetCurrentFrame())
+		end
+	end
+
+	function render2d.GetColorFormat()
+		return render2d.current_color_format or
+			(
+				render.target and
+				render.target:GetColorFormat()
+			)
+	end
+
+	utility.MakePushPopFunction(render2d, "ColorFormat")
 	render2d.stencil_modes = {
 		none = {
 			stencil_test = false,
@@ -607,8 +668,9 @@ do
 		local samples = render2d.current_samples or "1"
 		local blend_mode_name = render2d.current_blend_mode or "alpha"
 		local stencil_mode_name = render2d.GetStencilMode() or "none"
+		local color_format = render2d.GetColorFormat() or surface_format
 		-- If we have extended dynamic state, we don't need to bake the blend mode into the pipeline cache key
-		local cache_key = samples
+		local cache_key = samples .. "_" .. color_format
 		local device = render.GetDevice()
 
 		if not device.has_extended_dynamic_state3 then
@@ -625,6 +687,7 @@ do
 
 		local data = table.copy(render2d.pipeline_data)
 		data.samples = samples
+		data.color_format = color_format
 		local blend_mode = render2d.blend_modes[blend_mode_name]
 
 		if blend_mode then
@@ -975,6 +1038,7 @@ render2d.SetAlphaMultiplier(1)
 render2d.SetSwizzleMode(0)
 render2d.current_blend_mode = "alpha"
 render2d.current_samples = "1"
+render2d.current_color_format = render.target and render.target:GetColorFormat() or surface_format
 
 event.AddListener("PostDraw", "draw_2d", function(cmd, dt)
 	if not render2d.pipeline then return end -- not 2d initialized

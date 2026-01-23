@@ -98,16 +98,19 @@ function META:Build()
 		if not page then error("texture " .. tostring(data) .. " is too big", 2) end
 
 		local x, y, w, h = node.x, node.y, node.w, node.h
-		data.page_x = x
-		data.page_y = y
+		-- Center the glyph within the padded area
+		local half_pad = math.floor(self.Padding / 2)
+		data.page_x = x + half_pad
+		data.page_y = y + half_pad
 		data.page_w = data.w
 		data.page_h = data.h
 		data.page = page
+		-- UV coordinates should include the padding area
 		data.page_uv = {
 			x,
 			y,
-			data.w,
-			data.h,
+			data.w + self.Padding,
+			data.h + self.Padding,
 			page.texture:GetWidth(),
 			page.texture:GetHeight(),
 		}
@@ -287,7 +290,7 @@ end
 function META:GetPageTexture(id)
 	local data = self.textures[id]
 
-	if data then return data.page.texture end
+	if data and data.page then return data.page.texture end
 end
 
 return META:Register()

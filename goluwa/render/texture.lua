@@ -776,18 +776,19 @@ end
 function Texture:Shade(glsl, extra_config)
 	if not self.image then error("Cannot shade: texture has no image") end
 
+	extra_config = extra_config or {}
+
 	if glsl:find("vec4 shade") then
 
 	-- Already a full function
 	else
 		glsl = [[
-			vec4 shade(vec2 uv, vec3 dir) {
+			vec4 shade(vec2 uv, vec3 _cube_dir) {
 				]] .. glsl .. [[
 			}
 		]]
 	end
 
-	extra_config = extra_config or {}
 	local header = extra_config.header or ""
 	local device = render.GetDevice()
 	local queue = render.GetQueue()
@@ -925,7 +926,7 @@ function Texture:Shade(glsl, extra_config)
 				constants = {0.0, 0.0, 0.0, 0.0},
 				attachments = {
 					{
-						blend = false,
+						blend = extra_config.blend or false,
 						src_color_blend_factor = "src_alpha",
 						dst_color_blend_factor = "one_minus_src_alpha",
 						color_blend_op = "add",
@@ -960,6 +961,7 @@ function Texture:Shade(glsl, extra_config)
 	cmd:Reset()
 	cmd:Begin()
 	-- Transition image from undefined/shader_read to color_attachment_optimal
+	local old_layout = self.image.layout or "undefined"
 	cmd:PipelineBarrier(
 		{
 			srcStage = "top_of_pipe",
@@ -969,7 +971,7 @@ function Texture:Shade(glsl, extra_config)
 					image = self.image,
 					srcAccessMask = "none",
 					dstAccessMask = "color_attachment_write",
-					oldLayout = "undefined",
+					oldLayout = (extra_config.load_op == "load") and old_layout or "undefined",
 					newLayout = "color_attachment_optimal",
 					level_count = 1,
 					layer_count = layers,
@@ -988,7 +990,8 @@ function Texture:Shade(glsl, extra_config)
 				color_image_view = views[i + 1],
 				w = self.image:GetWidth(),
 				h = self.image:GetHeight(),
-				clear_color = {0, 0, 0, 1},
+				clear_color = extra_config.clear_color or {0, 0, 0, 0},
+				load_op = extra_config.load_op or "clear",
 			}
 		)
 		-- Draw fullscreen triangle
@@ -1028,7 +1031,6 @@ function Texture:Shade(glsl, extra_config)
 	local fence = Fence.New(device)
 	self.refs = {cmd, views, command_pool, pipeline, fence}
 	queue:SubmitAndWait(device, cmd, fence)
-	device:WaitIdle()
 	self.refs = nil
 end
 
