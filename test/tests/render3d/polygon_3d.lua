@@ -146,15 +146,168 @@ T.Test("Graphics Polygon3D BuildNormals", function()
 	init_render3d()
 	local poly = Polygon3D.New()
 	-- Create triangle without normals
+	-- XY plane triangle, facing +Z
 	poly:AddVertex({pos = Vec3(0, 0, 0), uv = Vec2(0, 0)})
 	poly:AddVertex({pos = Vec3(1, 0, 0), uv = Vec2(1, 0)})
 	poly:AddVertex({pos = Vec3(0, 1, 0), uv = Vec2(0, 1)})
 	poly:AddSubMesh(3)
 	poly:BuildNormals()
-	-- Check that normals were generated
-	T(poly.Vertices[1].normal)["~="](nil)
-	T(poly.Vertices[2].normal)["~="](nil)
-	T(poly.Vertices[3].normal)["~="](nil)
+
+	-- Check that normals were generated correctly
+	-- (1,0,0) x (0,1,0) = (0,0,1)
+	for i = 1, 3 do
+		local n = poly.Vertices[i].normal
+		T(n)["~="](nil)
+		T(n.x)["~"](0)
+		T(n.y)["~"](0)
+		T(n.z)["~"](1)
+	end
+end)
+
+T.Test("Graphics Polygon3D BuildTangents", function()
+	init_render3d()
+	local poly = Polygon3D.New()
+	-- Create triangle without tangents
+	-- Pos: (0,0,0), (1,0,0), (0,1,0)
+	-- UV:  (0,0),   (1,0),   (0,1)
+	poly:AddVertex({pos = Vec3(0, 0, 0), uv = Vec2(0, 0), normal = Vec3(0, 0, 1)})
+	poly:AddVertex({pos = Vec3(1, 0, 0), uv = Vec2(1, 0), normal = Vec3(0, 0, 1)})
+	poly:AddVertex({pos = Vec3(0, 1, 0), uv = Vec2(0, 1), normal = Vec3(0, 0, 1)})
+	poly:AddSubMesh(3)
+	poly:BuildTangents()
+
+	-- Check that tangents were generated correctly
+	-- Tangent should be in the direction of +U (which is +X in this case)
+	for i = 1, 3 do
+		local t = poly.Vertices[i].tangent
+		T(t)["~="](nil)
+		T(t.x)["~"](1)
+		T(t.y)["~"](0)
+		T(t.z)["~"](0)
+	end
+end)
+
+T.Test("Graphics Polygon3D BuildNormals and Tangents YZ plane", function()
+	init_render3d()
+	local poly = Polygon3D.New()
+	-- YZ plane triangle, facing +X
+	-- Pos: (0,0,0), (0,1,0), (0,0,1)
+	-- UVs: (0,0), (1,0), (0,1)
+	poly:AddVertex({pos = Vec3(0, 0, 0), uv = Vec2(0, 0)})
+	poly:AddVertex({pos = Vec3(0, 1, 0), uv = Vec2(1, 0)})
+	poly:AddVertex({pos = Vec3(0, 0, 1), uv = Vec2(0, 1)})
+	poly:AddSubMesh(3)
+	poly:BuildNormals()
+	poly:BuildTangents()
+
+	for i = 1, 3 do
+		local n = poly.Vertices[i].normal
+		T(n)["~="](nil)
+		T(n.x)["~"](1)
+		T(n.y)["~"](0)
+		T(n.z)["~"](0)
+		local t = poly.Vertices[i].tangent
+		T(t)["~="](nil)
+		T(t.x)["~"](0)
+		T(t.y)["~"](1)
+		T(t.z)["~"](0)
+	end
+end)
+
+T.Test("Graphics Polygon3D BuildTangents zero UV area", function()
+	init_render3d()
+	local poly = Polygon3D.New()
+	-- Degenerate UVs
+	poly:AddVertex({pos = Vec3(0, 0, 0), uv = Vec2(0, 0), normal = Vec3(0, 0, 1)})
+	poly:AddVertex({pos = Vec3(1, 0, 0), uv = Vec2(0, 0), normal = Vec3(0, 0, 1)})
+	poly:AddVertex({pos = Vec3(0, 1, 0), uv = Vec2(0, 0), normal = Vec3(0, 0, 1)})
+	poly:AddSubMesh(3)
+	poly:BuildTangents()
+
+	-- Should not crash and should produce some tangent
+	for i = 1, 3 do
+		T(poly.Vertices[i].tangent)["~="](nil)
+	end
+end)
+
+T.Test("Graphics Polygon3D LoadHeightmap", function()
+	init_render3d()
+	local poly = Polygon3D.New()
+	-- Mock texture
+	local mock_tex = {
+		GetSize = function()
+			return Vec2(2, 2)
+		end,
+		GetRawPixelColor = function(self, x, y)
+			-- Return 255 for (0,0), 0 otherwise
+			if math.floor(x) == 0 and math.floor(y) == 0 then
+				return 255, 255, 255, 255
+			end
+
+			return 0, 0, 0, 255
+		end,
+	}
+	local size = Vec2(10, 10)
+	local res = Vec2(2, 2)
+	local height = 10
+	poly:LoadHeightmap(mock_tex, size, res, height)
+	-- 2x2 resolution means 4 cells
+	-- Each cell has 4 triangles = 12 vertices
+	-- Total 4 * 12 = 48 vertices
+	T(#poly.Vertices)["=="](48)
+	-- Check a few vertices to ensure height is applied
+	-- The first cell (0,0) uses x2=0, y2=0 in get_color
+	-- get_color(0,0) should be 1.0, so height is 10.
+	-- The vertices for the first cell should have some Z values around 10
+	local found_height = false
+
+	for _, v in ipairs(poly.Vertices) do
+		if math.abs(v.pos.y - (10 - 5)) < 0.001 or math.abs(v.pos.y - (0 - 5)) < 0.001 then
+
+		-- offset.y is height/2 = 5. So heights are relative to -5.
+		-- Wait, offset = -Vec3(size.x, height, size.y) / 2
+		-- For height=10, size=10, offset = -Vec3(10, 10, 10) / 2 = Vec3(-5, -5, -5)
+		-- z = get_color(...) * height
+		-- pos = Vec3(wx, z, wz) + offset
+		-- If get_color is 1, pos.y = 10 - 5 = 5
+		-- If get_color is 0, pos.y = 0 - 5 = -5
+		end
+
+		if math.abs(v.pos.y - 5) < 0.001 then found_height = true end
+	end
+
+	T(found_height)["=="](true)
+end)
+
+T.Test("Graphics Polygon3D LoadHeightmap with pow", function()
+	init_render3d()
+	local poly = Polygon3D.New()
+	-- Mock texture
+	local mock_tex = {
+		GetSize = function()
+			return Vec2(2, 2)
+		end,
+		GetRawPixelColor = function(self, x, y)
+			-- Return 128 (approx 0.5)
+			return 128, 128, 128, 255
+		end,
+	}
+	local size = Vec2(10, 10)
+	local res = Vec2(1, 1)
+	local height = 10
+	local pow = 2
+	-- get_color = ((128+128+128+255)/4 / 255) ^ 2
+	-- (159.75 / 255) ^ 2 approx 0.39246
+	-- expected_val = 0.39246 * 10 - 5 = -1.0754
+	poly:LoadHeightmap(mock_tex, size, res, height, pow)
+	local found_expected_y = false
+	local expected_val = (((128 + 128 + 128 + 255) / 4) / 255) ^ pow * height - (height / 2)
+
+	for _, v in ipairs(poly.Vertices) do
+		if math.abs(v.pos.y - expected_val) < 0.01 then found_expected_y = true end
+	end
+
+	T(found_expected_y)["=="](true)
 end)
 
 -- ============================================================================

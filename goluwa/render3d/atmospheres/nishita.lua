@@ -45,8 +45,31 @@ return [[
         float denom = pow(1.0 + g2 - 2.0 * G * cosTheta, 1.5);
         return 3.0 / (8.0 * PI) * num / denom;
     }
-    
-    // Compute atmospheric scattering using Nishita model
+        // Calculate ambient color based on sun elevation
+    vec3 getAmbientColor(vec3 sunDir) {
+        float sunHeight = sunDir.y;
+        
+        // Day sky ambient (blue)
+        vec3 dayAmbient = vec3(0.4, 0.6, 0.9) * 0.3;
+        
+        // Sunset/sunrise ambient (warm orange-red)
+        vec3 sunsetAmbient = vec3(0.8, 0.4, 0.2) * 0.15;
+        
+        // Night ambient (very dark blue)
+        vec3 nightAmbient = vec3(0.05, 0.08, 0.15) * 0.05;
+        
+        // Blend between day, sunset, and night based on sun height
+        if (sunHeight > 0.0) {
+            // Day to sunset transition
+            float t = pow(sunHeight, 0.5);
+            return mix(sunsetAmbient, dayAmbient, t);
+        } else {
+            // Sunset to night transition
+            float t = clamp(sunHeight + 0.2, 0.0, 1.0) / 0.2;
+            return mix(nightAmbient, sunsetAmbient, t);
+        }
+    }
+        // Compute atmospheric scattering using Nishita model
     vec3 nishitaSky(vec3 rayDir, vec3 sunDir, vec3 camPos) {
         vec3 rayOrigin = vec3(0.0, EARTH_RADIUS + 1.75 + camPos.y, 0.0);
         
@@ -119,7 +142,10 @@ return [[
             tCurrent += segmentLength;
         }
         
-        return SUN_INTENSITY * (sumR * BETA_R * phaseR + sumM * BETA_M * phaseM);
+        vec3 scatteredLight = SUN_INTENSITY * (sumR * BETA_R * phaseR + sumM * BETA_M * phaseM);
+        vec3 ambientColor = getAmbientColor(sunDir);
+        
+        return max(scatteredLight, ambientColor);
     }
     
     // Render sun disk
@@ -148,7 +174,7 @@ return [[
         
         sunColor += vec3(1.0, 0.95, 0.8) * (glare + halo + bloom) * (SUN_INTENSITY * 0.5);
         
-        return max(skyColor + sunColor, vec3(0));
+        return max(skyColor + sunColor, vec3(0.0));
     }
 
     vec3 get_atmosphere(vec3 dir, vec3 sunDir, vec3 camPos) {

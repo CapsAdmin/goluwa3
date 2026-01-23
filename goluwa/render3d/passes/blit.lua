@@ -255,7 +255,7 @@ table.insert(
 				if (pc.lum.prev_luma_tex != -1) {
 					float prev_luma = texture(TEXTURE(pc.lum.prev_luma_tex), in_uv).r;
 					// Smooth adaptation speed
-					float adapt_speed = 0.05;
+					float adapt_speed = 0.001;
 					current_luma = mix(prev_luma, current_luma, adapt_speed);
 				}
 				

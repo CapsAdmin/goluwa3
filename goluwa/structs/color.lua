@@ -332,6 +332,8 @@ local names = {
 }
 
 function META.FromName(name)
+	if type(name) == "cdata" then return name end
+
 	if name:starts_with("#") then return META.FromHex(name) end
 
 	return META.FromHex(names[name:lower()] or names.black)
@@ -383,6 +385,108 @@ function META.FromHSV(h, s, v)
 	end
 
 	return META.CType(v, p, q, 1)
+end
+
+function META:ToHex()
+	return (
+		"#%02x%02x%02x"
+	):format(
+		math.clamp(math.round(self.r * 255), 0, 255),
+		math.clamp(math.round(self.g * 255), 0, 255),
+		math.clamp(math.round(self.b * 255), 0, 255)
+	)
+end
+
+function META:Mix(other, ratio)
+	return self:GetLerped(ratio or 0.5, other)
+end
+
+function META:Darken(amount)
+	local h, s, v = self:GetHSV()
+	return META.FromHSV(h, s, math.clamp(v - (amount or 1) * 0.1, 0, 1))
+end
+
+function META:Brighten(amount)
+	local h, s, v = self:GetHSV()
+	return META.FromHSV(h, s, math.clamp(v + (amount or 1) * 0.1, 0, 1))
+end
+
+function META:Desaturate(amount)
+	local h, s, v = self:GetHSV()
+	return META.FromHSV(h, math.clamp(s - (amount or 1) * 0.1, 0, 1), v)
+end
+
+local function scale_colors(colors)
+	return function(t)
+		if #colors == 0 then return META.CType(0, 0, 0, 1) end
+
+		if #colors == 1 then return colors[1]:Copy() end
+
+		if t <= 0 then return colors[1]:Copy() end
+
+		if t >= 1 then return colors[#colors]:Copy() end
+
+		local scaled_t = t * (#colors - 1)
+		local index = math.floor(scaled_t) + 1
+		local fraction = scaled_t - index + 1
+		return colors[index]:GetLerped(fraction, colors[index + 1])
+	end
+end
+
+function META.BuildPallete(shades_input, colors_input)
+	local pallete = {}
+
+	for k, v in pairs(colors_input) do
+		pallete[k] = v
+	end
+
+	local shades = {}
+
+	for i = #shades_input, 1, -1 do
+		table.insert(shades, META.FromName(shades_input[i]))
+	end
+
+	local genShade = scale_colors(shades)
+	local dark_names = {"black", "darkest", "darker", "dark"}
+
+	for i, shadeName in ipairs(dark_names) do
+		local idx = i - 1
+
+		for colorName, colorHex in pairs(colors_input) do
+			local color = META.FromName(colorHex)
+			pallete[colorName .. "_" .. shadeName] = color:Darken((4 - idx) / 1.25):Mix(genShade(math.lerp(idx / 4, 0.5, 0)), 0):SetAlpha(1)
+		end
+	end
+
+	local light_names = {"light", "lighter", "lightest", "white"}
+
+	for i, shadeName in ipairs(light_names) do
+		local idx = i - 1
+
+		for colorName, colorHex in pairs(colors_input) do
+			local color = META.FromName(colorHex)
+			pallete[colorName .. "_" .. shadeName] = color:Brighten(idx / 1.25):Desaturate(idx / 0.75):Mix(genShade(math.lerp(idx / 4, 1, 0.5)), 0):SetAlpha(1)
+		end
+	end
+
+	local base_shades = {
+		"black",
+		"darkest",
+		"darker",
+		"dark",
+		"grey",
+		"light",
+		"lighter",
+		"lightest",
+		"white",
+	}
+
+	for i, shadeName in ipairs(base_shades) do
+		local idx = i - 1
+		pallete[shadeName] = genShade(idx / 8):SetAlpha(1)
+	end
+
+	return pallete
 end
 
 return structs.Register(META)

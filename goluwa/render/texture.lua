@@ -1151,6 +1151,27 @@ do
 		local a = image_data.pixels[offset + 3]
 		return r, g, b, a
 	end
+
+	function Texture:GetRawPixelColor(x, y)
+		if not self.image_data_cache then self.image_data_cache = self:Download() end
+
+		local image_data = self.image_data_cache
+		local width = image_data.width
+		local height = image_data.height
+		local bytes_per_pixel = image_data.bytes_per_pixel
+		x = math.clamp(math.floor(x), 0, width - 1)
+		y = math.clamp(math.floor(y), 0, height - 1)
+		local offset = (y * width + x) * bytes_per_pixel
+		local r = image_data.pixels[offset + 0]
+		local g = image_data.pixels[offset + 1]
+		local b = image_data.pixels[offset + 2]
+		local a = bytes_per_pixel == 4 and image_data.pixels[offset + 3] or 255
+		return r, g, b, a
+	end
+
+	function Texture:ClearImageDataCache()
+		self.image_data_cache = nil
+	end
 end
 
 do

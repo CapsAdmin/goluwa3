@@ -325,14 +325,10 @@ do -- helpers
 				local a = self.Vertices[sub_mesh.indices[i + 0] + 1]
 				local b = self.Vertices[sub_mesh.indices[i + 1] + 1]
 				local c = self.Vertices[sub_mesh.indices[i + 2] + 1]
-
-				if a.normal and b.normal and c.normal then return end
-
-				local normal = (b.pos - a.pos):Cross(c.pos - a.pos):GetNormalized()
+				local normal = (c.pos - a.pos):Cross(b.pos - a.pos):GetNormalized()
 				a.normal = normal
 				b.normal = normal
 				c.normal = normal
-				tasks.Wait()
 			end
 		end
 	end
@@ -347,8 +343,8 @@ do -- helpers
 				local bi = sub_mesh.indices[i + 1] + 1
 				local ci = sub_mesh.indices[i + 2] + 1
 				local a = self.Vertices[ai]
-				local b = self.Vertices[ci]
-				local c = self.Vertices[bi]
+				local b = self.Vertices[bi]
+				local c = self.Vertices[ci]
 				local x1 = b.pos.x - a.pos.x
 				local x2 = c.pos.x - a.pos.x
 				local y1 = b.pos.y - a.pos.y
@@ -359,16 +355,16 @@ do -- helpers
 				local s2 = c.uv.x - a.uv.x
 				local t1 = b.uv.y - a.uv.y
 				local t2 = c.uv.y - a.uv.y
-				local r = 1 / (s1 * t2 - s2 * t1)
+				local denom = (s1 * t2 - s2 * t1)
+				local r = 1 / (math.abs(denom) < 1e-9 and 1e-9 or denom)
 				local sdir = Vec3((t2 * x1 - t1 * x2) * r, (t2 * y1 - t1 * y2) * r, (t2 * z1 - t1 * z2) * r)
 				local tdir = Vec3((s1 * x2 - s2 * x1) * r, (s1 * y2 - s2 * y1) * r, (s1 * z2 - s2 * z1) * r)
 				tan1[ai] = (tan1[ai] or Vec3()) + sdir
 				tan1[bi] = (tan1[bi] or Vec3()) + sdir
-				tan1[ci] = (tan1[ai] or Vec3()) + sdir
+				tan1[ci] = (tan1[ci] or Vec3()) + sdir
 				tan2[ai] = (tan2[ai] or Vec3()) + tdir
 				tan2[bi] = (tan2[bi] or Vec3()) + tdir
 				tan2[ci] = (tan2[ci] or Vec3()) + tdir
-				tasks.Wait()
 			end
 		end
 
@@ -376,9 +372,8 @@ do -- helpers
 			local n = self.Vertices[i].normal
 			local t = tan1[i]
 
-			if tan1[i] and tan2[i] and not self.Vertices.tangent then
+			if tan1[i] and tan2[i] and not self.Vertices[i].tangent then
 				self.Vertices[i].tangent = (t - n * n:GetDot(t)):Normalize()
-				tasks.Wait()
 			end
 		end
 	end
@@ -687,128 +682,181 @@ do -- helpers
 		end
 	end
 
-	function Polygon3D:LoadHeightmap(tex, size, res, height, pow)
-		size = size or Vec2(1024, 1024)
-		res = res or Vec2(128, 128)
-		height = height or -64
-		pow = pow or 1
-		local s = size / res
-		local s2 = s / 2
-		local pixel_advance = (Vec2(1, 1) / res) * tex:GetSize()
-
-		local function get_color(x, y)
+	do
+		local function get_color(tex, x, y, pow)
 			local r, g, b, a = tex:GetRawPixelColor(x, y)
 			return (((r + g + b + a) / 4) / 255) ^ pow
 		end
 
-		local offset = -Vec3(size.x, size.y, height) / 2
+		function Polygon3D:LoadHeightmap(tex, size, res, uv_scale, height, pow)
+			size = size or Vec2(1024, 1024)
+			res = res or Vec2(128, 128)
+			height = height or -64
+			pow = pow or 1
+			local s = size / res
+			local s2 = s / 2
+			local pixel_advance = (Vec2(1, 1) / res) * tex:GetSize()
+			local offset = -Vec3(size.x, height, size.y) / 2
 
-		for x = 0, res.x do
-			local x2 = (x / res.x) * tex:GetSize().x
+			local function add(x, y, z, u, v)
+				self:AddVertex({pos = Vec3(x, y, z) + offset, uv = Vec2(u, v) * uv_scale})
+			end
 
-			for y = 0, res.y do
-				local y2 = (y / res.y) * tex:GetSize().y
-				y2 = -y2 + tex:GetSize().y -- fix me
-				--[[
+			for x = 0, res.x - 1 do
+				local x2 = (x / res.x) * tex:GetSize().x
+
+				for y = 0, res.y - 1 do
+					local y2 = (y / res.y) * tex:GetSize().y
+					local z3 = get_color(tex, x2, y2, pow) * height -- top left
+					local z4 = get_color(tex, x2 + pixel_advance.x, y2, pow) * height -- top right
+					local z1 = get_color(tex, x2, y2 + pixel_advance.y, pow) * height -- bottom left
+					local z2 = get_color(tex, x2 + pixel_advance.x, y2 + pixel_advance.y, pow) * height -- bottom right
+					local z5 = (z1 + z2 + z3 + z4) / 4
+					local wx = (x * s.x)
+					local wz = y * s.y
+					-- Triangle 1 (Bottom Edge) - CCW from above
+					add(wx, z1, wz + s.y, x / res.x, (y + 1) / res.y)
+					add(wx + s2.x, z5, wz + s2.y, (x + 0.5) / res.x, (y + 0.5) / res.y)
+					add(wx + s.x, z2, wz + s.y, (x + 1) / res.x, (y + 1) / res.y)
+					-- Triangle 2 (Left Edge) - CCW from above
+					add(wx, z1, wz + s.y, x / res.x, (y + 1) / res.y)
+					add(wx, z3, wz, x / res.x, y / res.y)
+					add(wx + s2.x, z5, wz + s2.y, (x + 0.5) / res.x, (y + 0.5) / res.y)
+					-- Triangle 3 (Top Edge) - CCW from above
+					add(wx, z3, wz, x / res.x, y / res.y)
+					add(wx + s.x, z4, wz, (x + 1) / res.x, y / res.y)
+					add(wx + s2.x, z5, wz + s2.y, (x + 0.5) / res.x, (y + 0.5) / res.y)
+					-- Triangle 4 (Right Edge) - CCW from above
+					add(wx + s2.x, z5, wz + s2.y, (x + 0.5) / res.x, (y + 0.5) / res.y)
+					add(wx + s.x, z4, wz, (x + 1) / res.x, y / res.y)
+					add(wx + s.x, z2, wz + s.y, (x + 1) / res.x, (y + 1) / res.y)
+				end
+			end
+		end
+
+		function Polygon3D:LoadHeightmapOld(tex, size, res, height, pow)
+			size = size or Vec2(1024, 1024)
+			res = res or Vec2(128, 128)
+			height = height or -64
+			pow = pow or 1
+			local s = size / res
+			local s2 = s / 2
+			local pixel_advance = (Vec2(1, 1) / res) * tex:GetSize()
+
+			local function get_color(x, y)
+				local r, g, b, a = tex:GetRawPixelColor(x, y)
+				return (((r + g + b + a) / 4) / 255) ^ pow
+			end
+
+			local offset = -Vec3(size.x, size.y, height) / 2
+
+			for x = 0, res.x do
+				local x2 = (x / res.x) * tex:GetSize().x
+
+				for y = 0, res.y do
+					local y2 = (y / res.y) * tex:GetSize().y
+					y2 = -y2 + tex:GetSize().y -- fix me
+					--[[
 						  __
 						|\ /|
 						|/_\|
 				]]
-				local z3 = get_color(x2, y2) * height -- top left
-				local z4 = get_color(x2 + pixel_advance.x, y2) * height -- top right
-				local z1 = get_color(x2, y2 + pixel_advance.y) * height -- bottom left
-				local z2 = get_color(x2 + pixel_advance.x, y2 + pixel_advance.y) * height -- bottom right
-				local z5 = (z1 + z2 + z3 + z4) / 4
-				local x = (x * s.x)
-				local y = y * s.y
-				--[[
+					local z3 = get_color(x2, y2) * height -- top left
+					local z4 = get_color(x2 + pixel_advance.x, y2) * height -- top right
+					local z1 = get_color(x2, y2 + pixel_advance.y) * height -- bottom left
+					local z2 = get_color(x2 + pixel_advance.x, y2 + pixel_advance.y) * height -- bottom right
+					local z5 = (z1 + z2 + z3 + z4) / 4
+					local x = (x * s.x)
+					local y = y * s.y
+					--[[
 					___
 					\ /
 				]]
-				local a1 = {}
-				a1.pos = Vec3(x, y, z1) + offset
-				a1.uv = Vec2(a1.pos.x + offset.x, a1.pos.y + offset.y) / size
-				self:AddVertex(a1)
-				local b1 = {}
-				b1.pos = Vec3(x + s.x, y, z2) + offset
-				b1.uv = Vec2(b1.pos.x + offset.x, b1.pos.y + offset.y) / size
-				self:AddVertex(b1)
-				local c1 = {}
-				c1.pos = Vec3(x + s2.x, y + s2.y, z5) + offset
-				c1.uv = Vec2(c1.pos.x + offset.x, c1.pos.y + offset.y) / size
-				self:AddVertex(c1)
-				-- For counter-clockwise winding: (B-A) × (C-A)
-				local normal = (b1.pos - a1.pos):Cross(c1.pos - a1.pos):GetNormalized()
-				a1.normal = normal
-				b1.normal = normal
-				c1.normal = normal
-				--[[
+					local a1 = {}
+					a1.pos = Vec3(x, y, z1) + offset
+					a1.uv = Vec2(a1.pos.x + offset.x, a1.pos.y + offset.y) / size
+					self:AddVertex(a1)
+					local b1 = {}
+					b1.pos = Vec3(x + s.x, y, z2) + offset
+					b1.uv = Vec2(b1.pos.x + offset.x, b1.pos.y + offset.y) / size
+					self:AddVertex(b1)
+					local c1 = {}
+					c1.pos = Vec3(x + s2.x, y + s2.y, z5) + offset
+					c1.uv = Vec2(c1.pos.x + offset.x, c1.pos.y + offset.y) / size
+					self:AddVertex(c1)
+					-- For counter-clockwise winding: (B-A) × (C-A)
+					local normal = (b1.pos - a1.pos):Cross(c1.pos - a1.pos):GetNormalized()
+					a1.normal = normal
+					b1.normal = normal
+					c1.normal = normal
+					--[[
 					 ___
 					|\ /
 					|/
 				]]
-				local a2 = {}
-				a2.pos = Vec3(x, y, z1) + offset
-				a2.uv = Vec2(a2.pos.x + offset.x, a2.pos.y + offset.y) / size
-				self:AddVertex(a2)
-				local b2 = {}
-				b2.pos = Vec3(x + s2.x, y + s2.y, z5) + offset
-				b2.uv = Vec2(b2.pos.x + offset.x, b2.pos.y + offset.y) / size
-				self:AddVertex(b2)
-				local c2 = {}
-				c2.pos = Vec3(x, y + s.y, z3) + offset
-				c2.uv = Vec2(c2.pos.x + offset.x, c2.pos.y + offset.y) / size
-				self:AddVertex(c2)
-				-- For counter-clockwise winding: (B-A) × (C-A)
-				local normal = (b2.pos - a2.pos):Cross(c2.pos - a2.pos):GetNormalized()
-				a2.normal = normal
-				b2.normal = normal
-				c2.normal = normal
-				--[[
+					local a2 = {}
+					a2.pos = Vec3(x, y, z1) + offset
+					a2.uv = Vec2(a2.pos.x + offset.x, a2.pos.y + offset.y) / size
+					self:AddVertex(a2)
+					local b2 = {}
+					b2.pos = Vec3(x + s2.x, y + s2.y, z5) + offset
+					b2.uv = Vec2(b2.pos.x + offset.x, b2.pos.y + offset.y) / size
+					self:AddVertex(b2)
+					local c2 = {}
+					c2.pos = Vec3(x, y + s.y, z3) + offset
+					c2.uv = Vec2(c2.pos.x + offset.x, c2.pos.y + offset.y) / size
+					self:AddVertex(c2)
+					-- For counter-clockwise winding: (B-A) × (C-A)
+					local normal = (b2.pos - a2.pos):Cross(c2.pos - a2.pos):GetNormalized()
+					a2.normal = normal
+					b2.normal = normal
+					c2.normal = normal
+					--[[
 					___
 				   |\_/
 				   |/_\
 				]]
-				local a3 = {}
-				a3.pos = Vec3(x, y + s.y, z3) + offset
-				a3.uv = Vec2(a3.pos.x + offset.x, a3.pos.y + offset.y) / size
-				self:AddVertex(a3)
-				local b3 = {}
-				b3.pos = Vec3(x + s2.x, y + s2.y, z5) + offset
-				b3.uv = Vec2(b3.pos.x + offset.x, b3.pos.y + offset.y) / size
-				self:AddVertex(b3)
-				local c3 = {}
-				c3.pos = Vec3(x + s.x, y + s.y, z4) + offset
-				c3.uv = Vec2(c3.pos.x + offset.x, c3.pos.y + offset.y) / size
-				self:AddVertex(c3)
-				-- For counter-clockwise winding: (B-A) × (C-A)
-				local normal = (b3.pos - a3.pos):Cross(c3.pos - a3.pos):GetNormalized()
-				a3.normal = normal
-				b3.normal = normal
-				c3.normal = normal
-				--[[
+					local a3 = {}
+					a3.pos = Vec3(x, y + s.y, z3) + offset
+					a3.uv = Vec2(a3.pos.x + offset.x, a3.pos.y + offset.y) / size
+					self:AddVertex(a3)
+					local b3 = {}
+					b3.pos = Vec3(x + s2.x, y + s2.y, z5) + offset
+					b3.uv = Vec2(b3.pos.x + offset.x, b3.pos.y + offset.y) / size
+					self:AddVertex(b3)
+					local c3 = {}
+					c3.pos = Vec3(x + s.x, y + s.y, z4) + offset
+					c3.uv = Vec2(c3.pos.x + offset.x, c3.pos.y + offset.y) / size
+					self:AddVertex(c3)
+					-- For counter-clockwise winding: (B-A) × (C-A)
+					local normal = (b3.pos - a3.pos):Cross(c3.pos - a3.pos):GetNormalized()
+					a3.normal = normal
+					b3.normal = normal
+					c3.normal = normal
+					--[[
 					___
 				   |\_/|
 				   |/_\|
 				]]
-				local a4 = {}
-				a4.pos = Vec3(x + s2.x, y + s2.y, z5) + offset
-				a4.uv = Vec2(a4.pos.x + offset.x, a4.pos.y + offset.y) / size
-				self:AddVertex(a4)
-				local b4 = {}
-				b4.pos = Vec3(x + s.x, y, z2) + offset
-				b4.uv = Vec2(b4.pos.x + offset.x, b4.pos.y + offset.y) / size
-				self:AddVertex(b4)
-				local c4 = {}
-				c4.pos = Vec3(x + s.x, y + s.y, z4) + offset
-				c4.uv = Vec2(c4.pos.x + offset.x, c4.pos.y + offset.y) / size
-				self:AddVertex(c4)
-				-- For counter-clockwise winding: (B-A) × (C-A)
-				local normal = (b4.pos - a4.pos):Cross(c4.pos - a4.pos):GetNormalized()
-				a4.normal = normal
-				b4.normal = normal
-				c4.normal = normal
-				tasks.Wait()
+					local a4 = {}
+					a4.pos = Vec3(x + s2.x, y + s2.y, z5) + offset
+					a4.uv = Vec2(a4.pos.x + offset.x, a4.pos.y + offset.y) / size
+					self:AddVertex(a4)
+					local b4 = {}
+					b4.pos = Vec3(x + s.x, y, z2) + offset
+					b4.uv = Vec2(b4.pos.x + offset.x, b4.pos.y + offset.y) / size
+					self:AddVertex(b4)
+					local c4 = {}
+					c4.pos = Vec3(x + s.x, y + s.y, z4) + offset
+					c4.uv = Vec2(c4.pos.x + offset.x, c4.pos.y + offset.y) / size
+					self:AddVertex(c4)
+					-- For counter-clockwise winding: (B-A) × (C-A)
+					local normal = (b4.pos - a4.pos):Cross(c4.pos - a4.pos):GetNormalized()
+					a4.normal = normal
+					b4.normal = normal
+					c4.normal = normal
+					tasks.Wait()
+				end
 			end
 		end
 	end
