@@ -159,6 +159,7 @@ return function(META)
 		self.width = (self.Size and self.Size.x > 0) and self.Size.x or 800
 		self.height = (self.Size and self.Size.y > 0) and self.Size.y or 600
 		self.configured = false
+		self.focused = false
 		self.mouse_captured = false
 		self.mouse_delta = Vec2(0, 0)
 		-- Register window for callbacks
@@ -367,8 +368,15 @@ return function(META)
 					wnd.pointer_serial = serial
 					-- Apply current cursor
 					wnd:SetCursor(wnd.Cursor)
+					table.insert(wnd.events, {type = "cursor_enter"})
 				end,
-				leave = function(data, pointer, serial, surface) end,
+				leave = function(data, pointer, serial, surface)
+					local wnd = wayland._active_windows[tonumber(ffi.cast("intptr_t", data))]
+
+					if not wnd then return end
+
+					table.insert(wnd.events, {type = "cursor_leave"})
+				end,
 				motion = function(data, pointer, time, x, y)
 					local wnd = wayland._active_windows[tonumber(ffi.cast("intptr_t", data))]
 
@@ -454,8 +462,20 @@ return function(META)
 
 					ffi.C.close(fd)
 				end,
-				enter = function(data, keyboard, serial, surface, keys) end,
-				leave = function(data, keyboard, serial, surface) end,
+				enter = function(data, keyboard, serial, surface, keys)
+					local wnd = wayland._active_windows[tonumber(ffi.cast("intptr_t", data))]
+
+					if not wnd then return end
+
+					table.insert(wnd.events, {type = "window_focus", focused = true})
+				end,
+				leave = function(data, keyboard, serial, surface)
+					local wnd = wayland._active_windows[tonumber(ffi.cast("intptr_t", data))]
+
+					if not wnd then return end
+
+					table.insert(wnd.events, {type = "window_focus", focused = false})
+				end,
 				key = function(data, keyboard, serial, time, key, state)
 					local wnd = wayland._active_windows[tonumber(ffi.cast("intptr_t", data))]
 
@@ -531,6 +551,13 @@ return function(META)
 				self.cached_fb_size = nil
 				self:CallEvent("SizeChanged", Vec2(event.width, event.height))
 				self:CallEvent("FramebufferResized", Vec2(event.width, event.height))
+			elseif event.type == "window_focus" then
+				self.focused = event.focused
+				self:CallEvent(event.focused and "GainedFocus" or "LostFocus")
+			elseif event.type == "cursor_enter" then
+				self:CallEvent("CursorEnter")
+			elseif event.type == "cursor_leave" then
+				self:CallEvent("CursorLeave")
 			end
 		end
 
@@ -723,8 +750,7 @@ return function(META)
 	end
 
 	function META:IsFocused()
-		-- Assume focused if window is visible/configured
-		return self.configured
+		return self.focused
 	end
 
 	function META:SetClipboard(text)
