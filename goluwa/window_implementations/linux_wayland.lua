@@ -111,6 +111,19 @@ local keycodes = {
 	[108] = "down",
 	[109] = "pagedown",
 }
+local cursor_map = {
+	arrow = "left_ptr",
+	hand = "hand2",
+	text_input = "xterm",
+	crosshair = "crosshair",
+	vertical_resize = "v_double_arrow",
+	horizontal_resize = "h_double_arrow",
+	top_right_resize = "top_right_corner",
+	bottom_left_resize = "bottom_left_corner",
+	top_left_resize = "top_left_corner",
+	bottom_right_resize = "bottom_right_corner",
+	all_resize = "fleur",
+}
 return function(META)
 	-- Button translation from wayland to window system
 	local button_translate = {
@@ -352,11 +365,8 @@ return function(META)
 
 					-- Store serial for cursor operations
 					wnd.pointer_serial = serial
-
-					-- If mouse is captured, hide cursor on enter
-					if wnd.mouse_captured and wnd.pointer then
-						wnd.pointer:set_cursor(serial, nil, 0, 0)
-					end
+					-- Apply current cursor
+					wnd:SetCursor(wnd.Cursor)
 				end,
 				leave = function(data, pointer, serial, surface) end,
 				motion = function(data, pointer, time, x, y)
@@ -577,6 +587,12 @@ return function(META)
 
 			if self.surface_proxy then self.surface_proxy:destroy() end
 
+			if self.cursor_surface then self.cursor_surface:destroy() end
+
+			if self.cursor_theme then
+				wayland.wl_cursor.wl_cursor_theme_destroy(self.cursor_theme)
+			end
+
 			wayland.wl_client.wl_display_disconnect(self.display)
 
 			-- Remove from active windows
@@ -609,17 +625,34 @@ return function(META)
 		if mode == "trapped" then
 			self:CaptureMouse()
 		elseif mode == "hidden" then
-			-- Wayland cursor hiding
-			-- Would need to set null cursor surface
-			error("nyi: hidden cursor not implemented in wayland bindings", 2)
+			if self.pointer and self.pointer_serial then
+				self.pointer:set_cursor(self.pointer_serial, nil, 0, 0)
+			end
 		else
 			-- Release mouse capture for normal cursors
 			if self:IsMouseCaptured() then self:ReleaseMouse() end
 
-			-- Set cursor type
-			if mode ~= "arrow" then
-				-- Would need to load cursor theme and set cursor
-				error("nyi: cursor type '" .. mode .. "' not implemented in wayland bindings", 2)
+			if self.pointer and self.pointer_serial then
+				if not self.cursor_theme then
+					self.cursor_theme = wayland.wl_cursor.wl_cursor_theme_load(nil, 32, self.shm)
+				end
+
+				local name = cursor_map[mode] or "left_ptr"
+				local cursor = wayland.wl_cursor.wl_cursor_theme_get_cursor(self.cursor_theme, name)
+
+				if cursor ~= nil then
+					local image = cursor.images[0]
+					local buffer = wayland.wl_cursor.wl_cursor_image_get_buffer(image)
+
+					if not self.cursor_surface then
+						self.cursor_surface = self.compositor:create_surface()
+					end
+
+					self.cursor_surface:attach(buffer, 0, 0)
+					self.cursor_surface:damage(0, 0, image.width, image.height)
+					self.cursor_surface:commit()
+					self.pointer:set_cursor(self.pointer_serial, self.cursor_surface, image.hotspot_x, image.hotspot_y)
+				end
 			end
 		end
 	end

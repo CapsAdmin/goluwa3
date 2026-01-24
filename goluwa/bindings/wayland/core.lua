@@ -93,10 +93,29 @@ ffi.cdef[[
 		short revents;
 	};
 	int poll(struct pollfd *fds, unsigned long nfds, int timeout);
+
+	struct wl_cursor_theme;
+	struct wl_cursor_image {
+		uint32_t width;
+		uint32_t height;
+		uint32_t hotspot_x;
+		uint32_t hotspot_y;
+		uint32_t delay;
+	};
+	struct wl_cursor {
+		unsigned int image_count;
+		struct wl_cursor_image **images;
+		char *name;
+	};
+	struct wl_cursor_theme *wl_cursor_theme_load(const char *name, int size, struct wl_shm *shm);
+	void wl_cursor_theme_destroy(struct wl_cursor_theme *theme);
+	struct wl_cursor *wl_cursor_theme_get_cursor(struct wl_cursor_theme *theme, const char *name);
+	struct wl_buffer *wl_cursor_image_get_buffer(struct wl_cursor_image *image);
 ]]
 --require("bindings.wayland.rebuild")
 wayland.xkb = ffi.load("xkbcommon", true) -- load globally
 wayland.wl_client = ffi.load("wayland-client", true) -- load globally
+wayland.wl_cursor = ffi.load("wayland-cursor", true) -- load globally
 -- Load generated bindings
 require("bindings.wayland.wayland")
 local xdg_bindings = require("bindings.wayland.xdg_shell")
