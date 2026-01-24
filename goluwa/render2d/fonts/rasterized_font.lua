@@ -34,7 +34,9 @@ function META:GetEffectPipeline(info)
 	self.effect_pipelines = self.effect_pipelines or {}
 	local cache_key = info.source .. (info.blend_mode or "none")
 
-	if self.effect_pipelines[cache_key] then return self.effect_pipelines[cache_key] end
+	if self.effect_pipelines[cache_key] then
+		return self.effect_pipelines[cache_key]
+	end
 
 	local push_constant_block = {
 		{
@@ -68,7 +70,6 @@ function META:GetEffectPipeline(info)
 		for k, v in pairs(info.vars) do
 			local tx = typex(v)
 			local scale = 8 -- Hardcoded scale since it's used for supersampling
-
 			if tx == "number" then
 				table.insert(
 					push_constant_block,
@@ -215,6 +216,7 @@ end
 
 function META:GetBlitPipeline()
 	if self.blit_pipeline then return self.blit_pipeline end
+
 	self.blit_pipeline = EasyPipeline.New(
 		{
 			color_format = {{atlas_format, {"rgba", "rgba"}}},
@@ -260,6 +262,7 @@ function META:GetBlitPipeline()
 				layout(location = 0) in vec2 in_uv;
 				void main() {
 					vec4 col = texture(TEXTURE(pc.fragment.tex_idx), in_uv);
+					if (col.a > 0.0001) col.rgb /= col.a;
 					set_rgba(col);
 				}
 			]],
@@ -396,7 +399,6 @@ function META:LoadGlyph(code)
 				local old_cmd = render2d.cmd
 				local old_w, old_h = render2d.GetSize()
 				local cmd = fb_ss:Begin()
-
 				render2d.cmd = cmd
 				render2d.PushColorFormat(fb_ss.color_texture.format)
 				render2d.PushSamples("1")
@@ -407,7 +409,6 @@ function META:LoadGlyph(code)
 				render2d.PushTexture(render2d.GetTexture())
 				render2d.PushAlphaMultiplier(render2d.GetAlphaMultiplier())
 				render2d.PushSwizzleMode(render2d.GetSwizzleMode())
-
 				render2d.UpdateScreenSize({w = sw, h = sh})
 				render2d.pipeline:Bind(render2d.cmd, render.GetCurrentFrame())
 				render2d.SetColor(1, 1, 1, 1)
@@ -415,7 +416,6 @@ function META:LoadGlyph(code)
 				render2d.SetBlendMode("alpha", true)
 				render2d.SetAlphaMultiplier(1)
 				render2d.SetSwizzleMode(0)
-
 				render2d.LoadIdentity()
 				-- Flip coordinates so font (Y-down) renders right-side up in Y-up framebuffer
 				render2d.Translate(padding * scale, (glyph.h + padding) * scale)
@@ -423,7 +423,6 @@ function META:LoadGlyph(code)
 				-- Shift glyph to be at (0, 0) in the padded area
 				render2d.Translatef(-glyph.bitmap_left, -glyph.bitmap_top)
 				glyph_source_font:DrawGlyph(glyph.glyph_data)
-
 				render2d.PopSwizzleMode()
 				render2d.PopAlphaMultiplier()
 				render2d.PopTexture()
@@ -433,16 +432,17 @@ function META:LoadGlyph(code)
 				render2d.PopMatrix()
 				render2d.PopSamples()
 				render2d.PopColorFormat()
-
 				fb_ss:End()
 				fb_ss.color_texture:GenerateMipmaps("shader_read_only_optimal")
-
 				render2d.cmd = old_cmd
 				render2d.UpdateScreenSize({w = old_w, h = old_h})
 			end
 
 			local current_tex = fb_ss.color_texture
 
+			if not self.ShadingInfo then
+				if code == string.byte("T") then current_tex:DumpToDisk("glyph") end
+			end
 
 			if self.ShadingInfo then
 				local glyph_copy = current_tex
@@ -468,13 +468,10 @@ function META:LoadGlyph(code)
 						pipeline:Draw(fb_effect.cmd, fb_effect)
 						current_tex = fb_effect.color_texture
 						current_tex:GenerateMipmaps("shader_read_only_optimal")
-
-						-- DEBUG: Save intermediate shading steps
-				--		current_tex:DumpToDisk("debug_glyph_shade_" .. code .. "_" .. i .. "")
+					-- DEBUG: Save intermediate shading steps
+					--		current_tex:DumpToDisk("debug_glyph_shade_" .. code .. "_" .. i .. "")
 					end
 				end
-			else
-				--current_tex:DumpToDisk("debug_glyph_ss_" .. code) -- OK
 			end
 
 			local fb_final = Framebuffer.New(
@@ -490,12 +487,17 @@ function META:LoadGlyph(code)
 				local pipeline = self:GetBlitPipeline()
 				self.current_draw_tex = current_tex
 				pipeline:Draw(fb_final.cmd, fb_final)
-
-				-- DEBUG: Save the final downsampled glyph
-				fb_final.color_texture:DumpToDisk("debug_glyph_final_" .. code)
+			-- DEBUG: Save the final downsampled glyph
+			--fb_final.color_texture:DumpToDisk("debug_glyph_final_" .. code)
 			end
 
 			glyph.texture = fb_final.color_texture
+
+			if not self.ShadingInfo then
+				if code == string.byte("T") then
+					glyph.texture:DumpToDisk("glyph_final")
+				end
+			end
 		end
 
 		self.texture_atlas:Insert(

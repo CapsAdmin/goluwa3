@@ -145,7 +145,7 @@ return [[
         vec3 scatteredLight = SUN_INTENSITY * (sumR * BETA_R * phaseR + sumM * BETA_M * phaseM);
         vec3 ambientColor = getAmbientColor(sunDir);
         
-        return max(scatteredLight, ambientColor);
+        return max(scatteredLight, ambientColor*0.1);
     }
     
     // Render sun disk

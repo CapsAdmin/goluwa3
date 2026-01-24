@@ -25,9 +25,9 @@ local font_glow = fonts.CreateFont(
 		shadow = {
 			dir = 0,
 			color = Color(1, 1, 1, 1),
-			blur_radius = 5,
+			blur_radius = 1,
 			blur_passes = 2,
-			alpha_pow = 0.75,
+			alpha_pow = 1,
 		},
 		padding = 2,
 	}
@@ -42,10 +42,10 @@ end
 
 event.AddListener("Draw2D", "test_2d", function()
 	render2d.SetColor(1, 1, 1, 1)
-	font_shadow:DrawText("The quick brown fox jumps over the lazy dog!!!!!", 20, 80)
+	font_shadow:DrawText("The quick brown fox jumps over the lazy dog!!!!!", 20, 150)
 	--local tex = font_shadow.texture_atlas:GetTextures()[1]
 	--render2d.SetTexture(tex)
 	--render2d.DrawRect(50, 50, 512, 512)
-	font_simple:DrawText("Normal Text", 20, 20)
-	font_glow:DrawText("Glow Text", 20, 140)
+	font_simple:DrawText("Normal Text", 20, 200)
+	font_glow:DrawText("Glow Text", 20, 250)
 end)

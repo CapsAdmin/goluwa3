@@ -273,7 +273,7 @@ local function getPixels(buffer, data)
 					R, G, B, A = grey, grey, grey, 255
 				elseif colorType == COLOR_TYPE_GRAYSCALE_ALPHA then
 					local grey = currRow[inIdx]
-					R, G, B, A = grey, grey, currRow[inIdx + 1]
+					R, G, B, A = grey, grey, grey, currRow[inIdx + 1]
 				elseif colorType == COLOR_TYPE_INDEXED then
 					local index = currRow[inIdx] + 1
 					local color = data.PLTE.colors[index]
@@ -447,12 +447,12 @@ function Png:crc32(data, index, len)
 		end
 	end
 
-	self.crc = bnot(crc)
+	self.crc = crc
 end
 
 ---Finalizes the CRC, returning the result
 function Png:finalizeCrc()
-	return self.crc
+	return bnot(self.crc)
 end
 
 ---Updates the Adler32
@@ -460,8 +460,8 @@ end
 ---@param index number|nil The index of the first byte to update
 ---@param len number|nil The number of bytes to update
 function Png:adler32(data, index, len)
-	local s1 = band(self.adler, 0xFFFF)
-	local s2 = rshift(self.adler, 16)
+	local s1 = ffi.new("uint64_t", band(self.adler, 0xFFFF))
+	local s2 = ffi.new("uint64_t", rshift(self.adler, 16))
 
 	if type(data) == "table" then
 		local pos = index
@@ -476,7 +476,7 @@ function Png:adler32(data, index, len)
 				local sum = data[i] + data[i + 1] + data[i + 2] + data[i + 3] + data[i + 4] + data[i + 5] + data[i + 6] + data[i + 7]
 				s1 = s1 + sum
 				s2 = s2 + s1 * 8 - (
-						data[i] * 7 + data[i + 1] * 6 + data[i + 2] * 5 + data[i + 3] * 4 + data[i + 4] * 3 + data[i + 5] * 2 + data[i + 6]
+						data[i + 1] * 1 + data[i + 2] * 2 + data[i + 3] * 3 + data[i + 4] * 4 + data[i + 5] * 5 + data[i + 6] * 6 + data[i + 7] * 7
 					)
 				i = i + 8
 			end
@@ -501,7 +501,7 @@ function Png:adler32(data, index, len)
 		end
 	end
 
-	self.adler = bor(lshift(s2, 16), s1)
+	self.adler = tonumber(bor(lshift(tonumber(s1 == 0 and 0 or s2), 16), tonumber(s1)))
 end
 
 ---Writes pixels to the PNG file
