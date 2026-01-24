@@ -11,6 +11,7 @@ local prototype = require("prototype")
 local utf8 = require("utf8")
 local event = require("event")
 local TextureAtlas = require("render.texture_atlas")
+local EasyPipeline = require("render.easy_pipeline")
 local META = prototype.CreateTemplate("rasterized_font")
 META.IsFont = true
 META:GetSet("Fonts", {})
@@ -29,7 +30,246 @@ META:GetSet("TabWidthMultiplier", 4)
 META:GetSet("Flags")
 local atlas_format = "r8g8b8a8_unorm"
 
-local function create_atlas(self, padding)
+function META:GetEffectPipeline(info)
+	self.effect_pipelines = self.effect_pipelines or {}
+	local cache_key = info.source .. (info.blend_mode or "none")
+
+	if self.effect_pipelines[cache_key] then return self.effect_pipelines[cache_key] end
+
+	local push_constant_block = {
+		{
+			"self_idx",
+			"int",
+			function(pipeline, block, key)
+				block[key] = pipeline:GetTextureIndex(self.current_shade_tex)
+			end,
+		},
+		{
+			"copy_idx",
+			"int",
+			function(pipeline, block, key)
+				block[key] = pipeline:GetTextureIndex(self.current_shade_glyph_copy)
+			end,
+		},
+		{
+			"size",
+			"vec2",
+			function(pipeline, block, key)
+				block[key][0] = self.current_shade_size.x
+				block[key][1] = self.current_shade_size.y
+			end,
+		},
+	}
+	local glsl_header = "#define self TEXTURE(pc.fragment.self_idx)\n"
+	glsl_header = glsl_header .. "#define copy TEXTURE(pc.fragment.copy_idx)\n"
+	glsl_header = glsl_header .. "#define size pc.fragment.size\n"
+
+	if info.vars then
+		for k, v in pairs(info.vars) do
+			local tx = typex(v)
+			local scale = 8 -- Hardcoded scale since it's used for supersampling
+
+			if tx == "number" then
+				table.insert(
+					push_constant_block,
+					{
+						k,
+						"float",
+						function(pipeline, block, key)
+							block[key] = self.current_shade_info.vars[k]
+						end,
+					}
+				)
+				glsl_header = glsl_header .. "#define " .. k .. " pc.fragment." .. k .. "\n"
+			elseif tx == "vec2" then
+				table.insert(
+					push_constant_block,
+					{
+						k,
+						"vec2",
+						function(pipeline, block, key)
+							local val = self.current_shade_info.vars[k]
+							block[key][0] = val.x * scale
+							block[key][1] = val.y * scale
+						end,
+					}
+				)
+				glsl_header = glsl_header .. "#define " .. k .. " pc.fragment." .. k .. "\n"
+			elseif tx == "vec3" then
+				table.insert(
+					push_constant_block,
+					{
+						k,
+						"vec3",
+						function(pipeline, block, key)
+							local val = self.current_shade_info.vars[k]
+							block[key][0] = val.x * scale
+							block[key][1] = val.y * scale
+							block[key][2] = val.z * scale
+						end,
+					}
+				)
+				glsl_header = glsl_header .. "#define " .. k .. " pc.fragment." .. k .. "\n"
+			elseif tx == "vec4" or tx == "color" then
+				table.insert(
+					push_constant_block,
+					{
+						k,
+						"vec4",
+						function(pipeline, block, key)
+							local val = self.current_shade_info.vars[k]
+							block[key][0] = val.r or val.x
+							block[key][1] = val.g or val.y
+							block[key][2] = val.b or val.z
+							block[key][3] = val.a or val.w
+						end,
+					}
+				)
+				glsl_header = glsl_header .. "#define " .. k .. " pc.fragment." .. k .. "\n"
+			elseif tx == "render_texture" then
+				table.insert(
+					push_constant_block,
+					{
+						k .. "_idx",
+						"int",
+						function(pipeline, block, key)
+							local tex = self.current_shade_info.vars[k]
+
+							if k == "copy" then tex = self.current_shade_glyph_copy end
+
+							block[key] = pipeline:GetTextureIndex(tex)
+						end,
+					}
+				)
+				glsl_header = glsl_header .. "#define " .. k .. " TEXTURE(pc.fragment." .. k .. "_idx)\n"
+			end
+		end
+	end
+
+	local color_blend = nil
+
+	if info.blend_mode == "alpha" then
+		color_blend = {
+			attachments = {
+				{
+					blend = true,
+					src_color_blend_factor = "src_alpha",
+					dst_color_blend_factor = "one_minus_src_alpha",
+					color_blend_op = "add",
+					src_alpha_blend_factor = "one",
+					dst_alpha_blend_factor = "zero",
+					alpha_blend_op = "add",
+					color_write_mask = {"r", "g", "b", "a"},
+				},
+			},
+		}
+	end
+
+	local pipeline = EasyPipeline.New(
+		{
+			color_format = {{atlas_format, {"rgba", "rgba"}}},
+			samples = "1",
+			color_blend = color_blend,
+			rasterizer = {
+				cull_mode = "none",
+			},
+			vertex = {
+				shader = [[
+				vec2 positions[3] = vec2[](
+					vec2(-1.0, -1.0),
+					vec2( 3.0, -1.0),
+					vec2(-1.0,  3.0)
+				);
+				layout(location = 0) out vec2 out_uv;
+				void main() {
+					vec2 pos = positions[gl_VertexIndex];
+					gl_Position = vec4(pos, 0.0, 1.0);
+					out_uv = pos * 0.5 + 0.5;
+				}
+			]],
+			},
+			fragment = {
+				custom_declarations = [[
+				layout(location = 0) in vec2 in_uv;
+			]],
+				shader = glsl_header .. [[
+				vec4 shade(vec2 uv) {
+					]] .. info.source .. [[
+				}
+				void main() {
+					set_rgba(shade(in_uv));
+				}
+			]],
+				push_constants = {
+					{
+						name = "fragment",
+						block = push_constant_block,
+					},
+				},
+			},
+		}
+	)
+	self.effect_pipelines[cache_key] = pipeline
+	return pipeline
+end
+
+function META:GetBlitPipeline()
+	if self.blit_pipeline then return self.blit_pipeline end
+	self.blit_pipeline = EasyPipeline.New(
+		{
+			color_format = {{atlas_format, {"rgba", "rgba"}}},
+			samples = "1",
+			vertex = {
+				shader = [[
+				vec2 positions[3] = vec2[](
+					vec2(-1.0, -1.0),
+					vec2( 3.0, -1.0),
+					vec2(-1.0,  3.0)
+				);
+				layout(location = 0) out vec2 out_uv;
+				void main() {
+					vec2 pos = positions[gl_VertexIndex];
+					gl_Position = vec4(pos, 0.0, 1.0);
+					out_uv = pos * 0.5 + 0.5;
+				}
+			]],
+			},
+			rasterizer = {
+				cull_mode = "none",
+			},
+			depth_stencil = {
+				depth_test = false,
+				depth_write = false,
+			},
+			fragment = {
+				push_constants = {
+					{
+						name = "fragment",
+						block = {
+							{
+								"tex_idx",
+								"int",
+								function(pipeline, block, key)
+									block[key] = pipeline:GetTextureIndex(self.current_draw_tex)
+								end,
+							},
+						},
+					},
+				},
+				shader = [[
+				layout(location = 0) in vec2 in_uv;
+				void main() {
+					vec4 col = texture(TEXTURE(pc.fragment.tex_idx), in_uv);
+					set_rgba(col);
+				}
+			]],
+			},
+		}
+	)
+	return self.blit_pipeline
+end
+
+local function create_atlas(self)
 	local atlas_size = 512
 
 	if self.Size > 32 then atlas_size = 1024 end
@@ -40,8 +280,7 @@ local function create_atlas(self, padding)
 
 	self.texture_atlas = TextureAtlas.New(atlas_size, atlas_size, self.Filtering, atlas_format)
 	self.texture_atlas:SetMipMapLevels("auto")
-
-	if padding then self.texture_atlas:SetPadding(padding) end
+	self.texture_atlas:SetPadding(0)
 
 	for code in pairs(self.chars) do
 		self.chars[code] = nil
@@ -57,6 +296,7 @@ function META.New(fonts, padding)
 
 	local self = META:CreateObject()
 	self:SetFonts(fonts)
+	self:SetPadding(padding or 0)
 	self.chars = {}
 	self.rebuild = false
 
@@ -64,100 +304,15 @@ function META.New(fonts, padding)
 	if fonts[1] and fonts[1].Size then self:SetSize(fonts[1].Size) end
 
 	if render.target then
-		create_atlas(self, padding)
+		create_atlas(self)
 	else
 		event.AddListener("RendererReady", self, function()
-			create_atlas(self, padding)
+			create_atlas(self)
 			return event.destroy_tag
 		end)
 	end
 
 	return self
-end
-
-function META:Shade(source, vars, blend_mode, skip_clear)
-	if source then
-		for _, tex in ipairs(self.texture_atlas:GetTextures()) do
-			if tex.font_shade_keep then vars.copy = tex.font_shade_keep end
-
-			local header = ""
-			local textures = {}
-			-- Add self as first texture
-			table.insert(textures, tex)
-			header = header .. "#define self textures[0]\n"
-
-			if vars then
-				for k, v in pairs(vars) do
-					if type(v) == "number" then
-						header = header .. "const float " .. k .. " = " .. v .. ";\n"
-					elseif typex(v) == "vec2" then
-						header = header .. "const vec2 " .. k .. " = vec2(" .. v.x .. ", " .. v.y .. ");\n"
-					elseif typex(v) == "vec3" then
-						header = header .. "const vec3 " .. k .. " = vec3(" .. v.x .. ", " .. v.y .. ", " .. v.z .. ");\n"
-					elseif typex(v) == "vec4" or typex(v) == "color" then
-						header = header .. "const vec4 " .. k .. " = vec4(" .. (
-								v.r or
-								v.x
-							) .. ", " .. (
-								v.g or
-								v.y
-							) .. ", " .. (
-								v.b or
-								v.z
-							) .. ", " .. (
-								v.a or
-								v.w
-							) .. ");\n"
-					elseif typex(v) == "render_texture" then
-						table.insert(textures, v)
-						header = header .. "#define " .. k .. " textures[" .. (#textures - 1) .. "]\n"
-					end
-				end
-			end
-
-			header = header .. "const vec2 size = vec2(" .. tex:GetWidth() .. ", " .. tex:GetHeight() .. ");\n"
-			header = header .. "#define uv in_uv\n"
-			tex:Shade(
-				source,
-				{
-					header = header,
-					textures = textures,
-					blend = blend_mode == "alpha",
-					load_op = "load",
-				}
-			)
-		end
-	elseif self.ShadingInfo then
-		for i, info in ipairs(self.ShadingInfo) do
-			if info.copy then
-				for _, tex in ipairs(self.texture_atlas:GetTextures()) do
-					tex.font_shade_keep = Texture.New(
-						{
-							width = tex:GetWidth(),
-							height = tex:GetHeight(),
-							format = tex.format,
-							sampler = {
-								min_filter = "linear",
-								mag_filter = "linear",
-								wrap_s = "clamp_to_edge",
-								wrap_t = "clamp_to_edge",
-							},
-						}
-					)
-					tex.font_shade_keep:Shade(
-						"return texture(textures[0], uv);",
-						{
-							header = "#define uv in_uv\n",
-							textures = {tex},
-							clear_color = {0, 0, 0, 0},
-						}
-					)
-				end
-			else
-				self:Shade(info.source, info.vars, info.blend_mode, i > 1)
-			end
-		end
-	end
 end
 
 function META:GetAscent()
@@ -170,8 +325,6 @@ end
 
 function META:Rebuild()
 	self.texture_atlas:Build()
-
-	if self.ShadingInfo then self:Shade() end
 end
 
 function META:RebuildFromScratch()
@@ -192,9 +345,6 @@ function META:RebuildFromScratch()
 
 	-- Rebuild the atlas
 	self.texture_atlas:Build()
-
-	-- Apply shading if configured
-	if self.ShadingInfo then self:Shade() end
 end
 
 -- Override SetShadingInfo to trigger full rebuild and shading
@@ -229,104 +379,136 @@ function META:LoadGlyph(code)
 			if not render.available or not render.target then return end
 
 			local scale = 8
+			local padding = self:GetPadding()
+			local sw = (glyph.w + padding * 2) * scale
+			local sh = (glyph.h + padding * 2) * scale
 			local fb_ss = Framebuffer.New(
 				{
-					width = glyph.w * scale,
-					height = glyph.h * scale,
-					clear_color = {1, 1, 1, 0},
+					width = sw,
+					height = sh,
+					clear_color = {0, 0, 0, 0},
 					format = atlas_format,
 					mip_map_levels = "auto",
 				}
 			)
-			local old_cmd = render2d.cmd
-			local old_w, old_h = render2d.GetSize()
-			render2d.PushColor(render2d.GetColor())
-			render2d.PushUV()
-			render2d.PushBlendMode(render2d.GetBlendMode())
-			render2d.PushTexture(render2d.GetTexture())
-			render2d.PushAlphaMultiplier(render2d.GetAlphaMultiplier())
-			render2d.PushSwizzleMode(render2d.GetSwizzleMode())
 
 			do
+				local old_cmd = render2d.cmd
+				local old_w, old_h = render2d.GetSize()
 				local cmd = fb_ss:Begin()
+
 				render2d.cmd = cmd
 				render2d.PushColorFormat(fb_ss.color_texture.format)
 				render2d.PushSamples("1")
-				render2d.UpdateScreenSize({w = glyph.w * scale, h = glyph.h * scale})
+				render2d.PushMatrix()
+				render2d.PushColor(render2d.GetColor())
+				render2d.PushUV(render2d.GetUV())
+				render2d.PushBlendMode(render2d.GetBlendMode())
+				render2d.PushTexture(render2d.GetTexture())
+				render2d.PushAlphaMultiplier(render2d.GetAlphaMultiplier())
+				render2d.PushSwizzleMode(render2d.GetSwizzleMode())
+
+				render2d.UpdateScreenSize({w = sw, h = sh})
 				render2d.pipeline:Bind(render2d.cmd, render.GetCurrentFrame())
 				render2d.SetColor(1, 1, 1, 1)
 				render2d.SetUV()
 				render2d.SetBlendMode("alpha", true)
 				render2d.SetAlphaMultiplier(1)
 				render2d.SetSwizzleMode(0)
-				render2d.PushMatrix()
+
 				render2d.LoadIdentity()
 				-- Flip coordinates so font (Y-down) renders right-side up in Y-up framebuffer
-				render2d.Translate(0, glyph.h * scale)
+				render2d.Translate(padding * scale, (glyph.h + padding) * scale)
 				render2d.Scale(scale, -scale)
-				-- Shift glyph to be at (1, 1) in the framebuffer to avoid clipping and have a 1px margin
-				render2d.Translatef(-glyph.bitmap_left + 1, -glyph.bitmap_top + 1)
+				-- Shift glyph to be at (0, 0) in the padded area
+				render2d.Translatef(-glyph.bitmap_left, -glyph.bitmap_top)
 				glyph_source_font:DrawGlyph(glyph.glyph_data)
+
+				render2d.PopSwizzleMode()
+				render2d.PopAlphaMultiplier()
+				render2d.PopTexture()
+				render2d.PopBlendMode()
+				render2d.PopUV()
+				render2d.PopColor()
 				render2d.PopMatrix()
 				render2d.PopSamples()
 				render2d.PopColorFormat()
+
 				fb_ss:End()
+				fb_ss.color_texture:GenerateMipmaps("shader_read_only_optimal")
+
+				render2d.cmd = old_cmd
+				render2d.UpdateScreenSize({w = old_w, h = old_h})
 			end
 
-			fb_ss.color_texture:GenerateMipmaps("shader_read_only_optimal")
-			local fb = Framebuffer.New(
+			local current_tex = fb_ss.color_texture
+
+
+			if self.ShadingInfo then
+				local glyph_copy = current_tex
+
+				for i, info in ipairs(self.ShadingInfo) do
+					if info.copy then
+						glyph_copy = current_tex
+					else
+						local fb_effect = Framebuffer.New(
+							{
+								width = sw,
+								height = sh,
+								clear_color = {0, 0, 0, 0},
+								format = atlas_format,
+								mip_map_levels = "auto",
+							}
+						)
+						local pipeline = self:GetEffectPipeline(info)
+						self.current_shade_tex = current_tex
+						self.current_shade_info = info
+						self.current_shade_glyph_copy = glyph_copy
+						self.current_shade_size = Vec2(sw, sh)
+						pipeline:Draw(fb_effect.cmd, fb_effect)
+						current_tex = fb_effect.color_texture
+						current_tex:GenerateMipmaps("shader_read_only_optimal")
+
+						-- DEBUG: Save intermediate shading steps
+				--		current_tex:DumpToDisk("debug_glyph_shade_" .. code .. "_" .. i .. "")
+					end
+				end
+			else
+				--current_tex:DumpToDisk("debug_glyph_ss_" .. code) -- OK
+			end
+
+			local fb_final = Framebuffer.New(
 				{
-					width = glyph.w,
-					height = glyph.h,
-					clear_color = {1, 1, 1, 0},
+					width = glyph.w + padding * 2,
+					height = glyph.h + padding * 2,
+					clear_color = {0, 0, 0, 0},
 					format = atlas_format,
 				}
 			)
 
 			do
-				local cmd = fb:Begin()
-				render2d.cmd = cmd
-				render2d.PushColorFormat(fb.color_texture.format)
-				render2d.PushSamples("1")
-				render2d.UpdateScreenSize({w = glyph.w, h = glyph.h})
-				render2d.pipeline:Bind(render2d.cmd, render.GetCurrentFrame())
-				render2d.SetColor(1, 1, 1, 1)
-				render2d.SetBlendMode("alpha", true)
-				render2d.SetUV2(0, 1, 1, 0)
-				render2d.SetTexture(fb_ss.color_texture)
-				render2d.SetAlphaMultiplier(1)
-				render2d.SetSwizzleMode(0)
-				render2d.PushMatrix()
-				render2d.LoadIdentity()
-				render2d.DrawRect(0, 0, glyph.w, glyph.h)
-				render2d.PopMatrix()
-				render2d.PopSamples()
-				render2d.PopColorFormat()
-				fb:End()
+				local pipeline = self:GetBlitPipeline()
+				self.current_draw_tex = current_tex
+				pipeline:Draw(fb_final.cmd, fb_final)
+
+				-- DEBUG: Save the final downsampled glyph
+				fb_final.color_texture:DumpToDisk("debug_glyph_final_" .. code)
 			end
 
-			render2d.cmd = old_cmd
-			render2d.UpdateScreenSize({w = old_w, h = old_h})
-			render2d.PopSwizzleMode()
-			render2d.PopAlphaMultiplier()
-			render2d.PopTexture()
-			render2d.PopBlendMode()
-			render2d.PopUV()
-			render2d.PopColor()
-			--glyph.buffer = fb.color_texture:Download()
-			glyph.texture = fb.color_texture
+			glyph.texture = fb_final.color_texture
 		end
 
 		self.texture_atlas:Insert(
 			code,
 			{
-				w = glyph.w,
-				h = glyph.h,
-				buffer = glyph.buffer,
+				w = glyph.w + self:GetPadding() * 2,
+				h = glyph.h + self:GetPadding() * 2,
 				texture = glyph.texture,
 				flip_y = glyph.flip_y,
 			}
 		)
+		-- DEBUG: Build atlas immediately to see it
+		self.texture_atlas:Build()
 		self.chars[code] = glyph
 	else
 		self.chars[code] = false
@@ -435,13 +617,11 @@ function META:DrawString(str, x, y, spacing)
 			if texture then
 				render2d.SetTexture(texture)
 				local u1, v1, w, h, sx, sy = self.texture_atlas:GetUV(char_code)
-				-- Account for internal padding: draw full padded area but offset position to compensate
-				local padding = self.texture_atlas:GetPadding()
-				local half_pad = math.floor(padding / 2)
+				local padding = self:GetPadding()
 				render2d.PushMatrix()
 				render2d.Translate(
-					x + (X + data.bitmap_left - half_pad) * self.Scale.x,
-					y + (Y + data.bitmap_top - half_pad) * self.Scale.y
+					x + (X + data.bitmap_left - padding) * self.Scale.x,
+					y + (Y + data.bitmap_top - padding) * self.Scale.y
 				)
 				render2d.PushUV()
 				render2d.SetUV2(u1 / sx, v1 / sy, (u1 + w) / sx, (v1 + h) / sy)

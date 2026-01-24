@@ -10,10 +10,10 @@ local font_shadow = fonts.CreateFont(
 		path = path,
 		size = 50,
 		shadow = {
-			dir = 0,
+			dir = -3,
 			color = Color(0, 0, 0, 1),
 			blur_radius = 1,
-			blur_passes = 5,
+			blur_passes = 2,
 		},
 	--color = {color = Color(0, 0, 1, 1)},
 	}
@@ -24,12 +24,12 @@ local font_glow = fonts.CreateFont(
 		size = 50,
 		shadow = {
 			dir = 0,
-			color = Color(1, 0.5, 0, 1),
+			color = Color(1, 1, 1, 1),
 			blur_radius = 5,
-			blur_passes = 5,
-			alpha_pow = 2,
+			blur_passes = 2,
+			alpha_pow = 0.75,
 		},
-		padding = 20,
+		padding = 2,
 	}
 )
 
