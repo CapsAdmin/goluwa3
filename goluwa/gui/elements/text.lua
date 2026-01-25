@@ -7,11 +7,12 @@ META.Base = require("gui.elements.base")
 META:StartStorable()
 META:GetSet(
 	"Font",
-	fonts.LoadFont(fonts.GetSystemDefaultFont(), 20),
+	fonts.LoadFont(fonts.GetSystemDefaultFont(), 14),
 	{callback = "OnTextChanged"}
 )
 META:GetSet("Text", "", {callback = "OnTextChanged"})
 META:GetSet("Wrap", false, {callback = "OnTextChanged"})
+META:GetSet("WrapToParent", false, {callback = "OnTextChanged"})
 META:GetSet("AlignX", "left", {callback = "OnTextChanged"})
 META:GetSet("AlignX", "left", {callback = "OnTextChanged"})
 META:GetSet("AlignY", "top", {callback = "OnTextChanged"})
@@ -21,6 +22,7 @@ META:EndStorable()
 function META:Initialize()
 	self.BaseClass.Initialize(self)
 	self:OnTextChanged()
+	self:SetFocusOnClick(true)
 end
 
 function META:OnTextChanged()
@@ -28,7 +30,13 @@ function META:OnTextChanged()
 	local text = self:GetText()
 
 	if self:GetWrap() then
-		self.wrapped_text = font:WrapString(text, self:GetSize().x)
+		local width = self:GetSize().x
+
+		if self:GetWrapToParent() and self:GetParent():IsValid() then
+			width = self:GetParent():GetSize().x
+		end
+
+		self.wrapped_text = font:WrapString(text, width)
 	else
 		self.wrapped_text = text
 	end
@@ -38,10 +46,23 @@ function META:OnTextChanged()
 	if not self:GetWrap() then self:SetSize(Vec2(w, h)) end
 end
 
+function META:OnLayout()
+	self.BaseClass.OnLayout(self)
+	self:OnTextChanged()
+end
+
 function META:SetSize(vec)
 	self.BaseClass.SetSize(self, vec)
 
 	if self:GetWrap() then self:OnTextChanged() end
+end
+
+function META:OnCharInput(char)
+	print("Char input:", char)
+end
+
+function META:OnKeyInput(key, press)
+	print("Key input:", key, press)
 end
 
 function META:OnDraw()
@@ -77,6 +98,28 @@ function META:OnDraw()
 		render2d.SetTexture(nil)
 		render2d.DrawRect(0, 0, w, h)
 	end
+end
+
+if HOTRELOAD then
+	local timer = require("timer")
+	local utility = require("utility")
+	local Color = require("structs.color")
+
+	timer.Delay(0, function()
+		local gui = require("gui.gui")
+		local pnl = utility.RemoveOldObject(gui.Create("frame"))
+		pnl:SetPosition(Vec2() + 300)
+		pnl:SetSize(Vec2() + 200)
+		pnl:SetDragEnabled(true)
+		pnl:SetResizable(true)
+		pnl:SetClipping(true)
+		pnl:SetScrollEnabled(true)
+		pnl:SetColor(Color.FromHex("#062a67"):SetAlpha(1))
+		local txt = pnl:CreatePanel("text")
+		txt:SetWrap(true)
+		txt:SetWrapToParent(true)
+		txt:SetText([[The materia builder is built to assist in exploring the possibilities of dynamic spells, harmonizing culturures, and customizing a written scale. All with implementation in mind to bridge mage and warriors.]])
+	end)
 end
 
 return META:Register()

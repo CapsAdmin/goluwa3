@@ -162,6 +162,8 @@ return function(META)
 		self.focused = false
 		self.mouse_captured = false
 		self.mouse_delta = Vec2(0, 0)
+		self.repeat_rate = 33
+		self.repeat_delay = 500
 		-- Register window for callbacks
 		local self_ptr = tonumber(tostring(self):match("0x(%x+)"), 16) or math.random(1000000)
 		wayland._active_windows[self_ptr] = self
@@ -474,6 +476,7 @@ return function(META)
 
 					if not wnd then return end
 
+					wnd.repeat_key = nil
 					table.insert(wnd.events, {type = "window_focus", focused = false})
 				end,
 				key = function(data, keyboard, serial, time, key, state)
@@ -482,7 +485,27 @@ return function(META)
 					if not wnd then return end
 
 					local key_name = keycodes[tonumber(key)] or "unknown"
-					table.insert(wnd.events, {type = state == 1 and "key_press" or "key_release", key = key_name})
+					local char = nil
+
+					if state == 1 and wnd.xkb_state then
+						local buffer = ffi.new("char[64]")
+						local len = wayland.xkb.xkb_state_key_get_utf8(wnd.xkb_state, key + 8, buffer, 64)
+
+						if len > 0 then char = ffi.string(buffer) end
+					end
+
+					table.insert(
+						wnd.events,
+						{type = state == 1 and "key_press" or "key_release", key = key_name, char = char}
+					)
+
+					-- Handle repeat state
+					if state == 1 then
+						wnd.repeat_key = {key = key, key_name = key_name, char = char}
+						wnd.repeat_next_time = (system.GetTimeNS() / 1e6) + (wnd.repeat_delay or 500)
+					elseif wnd.repeat_key and wnd.repeat_key.key == key then
+						wnd.repeat_key = nil
+					end
 				end,
 				modifiers = function(data, keyboard, serial, depressed, latched, locked, group)
 					local wnd = wayland._active_windows[tonumber(ffi.cast("intptr_t", data))]
@@ -491,7 +514,14 @@ return function(META)
 						wayland.xkb.xkb_state_update_mask(wnd.xkb_state, depressed, latched, locked, 0, 0, group)
 					end
 				end,
-				repeat_info = function(data, keyboard, rate, delay) end,
+				repeat_info = function(data, keyboard, rate, delay)
+					local wnd = wayland._active_windows[tonumber(ffi.cast("intptr_t", data))]
+
+					if wnd then
+						wnd.repeat_rate = rate
+						wnd.repeat_delay = delay
+					end
+				end,
 			},
 			ffi.cast("void*", self._ptr)
 		)
@@ -512,6 +542,24 @@ return function(META)
 		self:SetMouseDelta(Vec2(0, 0))
 		-- Read all events from wayland
 		local events = self:ReadEvents()
+
+		-- Handle character/key repeats
+		if self.repeat_key and self.repeat_rate and self.repeat_rate > 0 then
+			local now = system.GetTimeNS() / 1e6
+
+			while self.repeat_key and now >= self.repeat_next_time do
+				table.insert(
+					events,
+					{
+						type = "key_press",
+						key = self.repeat_key.key_name,
+						char = self.repeat_key.char,
+						is_repeat = true,
+					}
+				)
+				self.repeat_next_time = self.repeat_next_time + (1000 / self.repeat_rate)
+			end
+		end
 
 		for _, event in ipairs(events) do
 			if event.type == "key_press" then

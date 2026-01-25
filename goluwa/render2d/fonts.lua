@@ -19,12 +19,14 @@ function fonts.LoadFont(path, size, padding)
 		local rasterized_font = require("render2d.fonts.rasterized_font")
 		local res = rasterized_font.New(font, padding)
 		return res
+	elseif path == "default" then
+		return fonts.GetDefaultFont()
 	end
 
 	-- Check if it's already a font object
 	if type(path) == "table" and path.IsFont then return path end
 
-	error("Unsupported font format: " .. tostring(ext))
+	error("Unsupported font format: " .. tostring(ext or path))
 end
 
 local function add_blur_stage(stages, blur_radius, blur_dir)
@@ -230,6 +232,12 @@ end
 
 function fonts.GetFont()
 	return current_font or fonts.GetDefaultFont()
+end
+
+function fonts.FindFontPath(name)
+	for _, path in ipairs(fonts.GetSystemFonts()) do
+		if path:lower():find(name:lower()) then return path end
+	end
 end
 
 function fonts.GetSystemFonts()

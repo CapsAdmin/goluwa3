@@ -7,6 +7,7 @@ local Vec3 = require("structs.vec3")
 local Color = require("structs.color")
 local window = require("window")
 local gui = library()
+gui.focus_panel = NULL
 package.loaded["gui.gui"] = gui
 gui.PressedObjects = {}
 
@@ -56,17 +57,51 @@ function gui.Initialize()
 	end)
 
 	event.AddListener("Draw2D", "gui_draw", function()
+		local pos = window.GetMousePosition()
+		gui.mouse_pos = pos
+
 		if gui.DraggingObject and gui.DraggingObject:IsValid() then
-			local pos = window.GetMousePosition()
 			local delta = pos - gui.DragMouseStart
 			gui.DraggingObject:SetPosition(gui.DragObjectStart + delta)
+		end
+
+		local hovered = gui.GetHoveredObject(pos)
+
+		if hovered and hovered:IsValid() then
+			local cursor = hovered:GetCursor()
+
+			if hovered.GreyedOut then cursor = "no" end
+
+			if gui.active_cursor ~= cursor then
+				window.SetCursor(cursor)
+				gui.active_cursor = cursor
+			end
 		end
 
 		if gui.Root and gui.Root:IsValid() then gui.Root:Draw() end
 	end)
 
+	event.AddListener("KeyInput", "gui", function(key, press)
+		local panel = gui.focus_panel
+
+		if panel:IsValid() then
+			panel:KeyInput(key, press)
+			return true
+		end
+	end)
+
+	event.AddListener("CharInput", "gui", function(char)
+		local panel = gui.focus_panel
+
+		if panel:IsValid() then
+			panel:CharInput(char)
+			return true
+		end
+	end)
+
 	event.AddListener("MouseInput", "gui_mouse", function(button, press)
 		local pos = window.GetMousePosition()
+		gui.mouse_pos = pos
 
 		if button == "button_1" then
 			if press then
@@ -109,6 +144,8 @@ end
 do
 	local BasePanel = require("gui.elements.base")
 	require("gui.elements.text")
+	require("gui.elements.text2")
+	require("gui.elements.frame")
 
 	function gui.Create(class_name, parent)
 		if class_name == "base" then

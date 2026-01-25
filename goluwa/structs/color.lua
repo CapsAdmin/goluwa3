@@ -172,11 +172,20 @@ function META.FromBytes(r, g, b, a)
 end
 
 function META.FromHex(hex)
-	local r, g, b = hex:match("#?(..)(..)(..)")
-	r = tonumber("0x" .. (r or 0))
-	g = tonumber("0x" .. (g or 0))
-	b = tonumber("0x" .. (b or 0))
-	a = tonumber("0x" .. (a or 255))
+	local int = tonumber("0x" .. hex:sub(2))
+
+	if int > 0xFFFFFF then
+		local r = bit.rshift(bit.band(int, 0xFF000000), 24)
+		local g = bit.rshift(bit.band(int, 0x00FF0000), 16)
+		local b = bit.rshift(bit.band(int, 0x0000FF00), 8)
+		local a = bit.band(int, 0x000000FF)
+		return META.FromBytes(r, g, b, a)
+	end
+
+	local r = bit.rshift(bit.band(int, 0xFF0000), 16)
+	local g = bit.rshift(bit.band(int, 0x00FF00), 8)
+	local b = bit.band(int, 0x0000FF)
+	local a = 255
 	return META.FromBytes(r, g, b, a)
 end
 

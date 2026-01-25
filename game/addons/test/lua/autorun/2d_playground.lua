@@ -1,3 +1,7 @@
+do
+	return
+end
+
 local event = require("event")
 local render2d = require("render2d.render2d")
 local Color = require("structs.color")
@@ -8,12 +12,12 @@ local font_simple = fonts.LoadFont(path, 50)
 local font_shadow = fonts.CreateFont(
 	{
 		path = path,
-		size = 50,
+		size = 30,
 		shadow = {
-			dir = -3,
-			color = Color(0, 0, 0, 1),
-			blur_radius = 1,
-			blur_passes = 2,
+			dir = -2,
+			color = Color.FromHex("#022d58"):SetAlpha(0.75),
+			blur_radius = 0.25,
+			blur_passes = 1,
 		},
 	--color = {color = Color(0, 0, 1, 1)},
 	}
@@ -41,8 +45,9 @@ local function bg()
 end
 
 event.AddListener("Draw2D", "test_2d", function()
-	render2d.SetColor(1, 1, 1, 1)
-	font_shadow:DrawText("The quick brown fox jumps over the lazy dog!!!!!", 20, 150)
+	local r, g, b, a = Color.FromHex("#08feff"):Unpack()
+	render2d.SetColor(r, g, b, a)
+	font_shadow:DrawText("Gameplay", 20, 150)
 	--local tex = font_shadow.texture_atlas:GetTextures()[1]
 	--render2d.SetTexture(tex)
 	--render2d.DrawRect(50, 50, 512, 512)

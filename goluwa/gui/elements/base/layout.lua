@@ -229,11 +229,12 @@ function META:ExecuteLayoutCommands()
 	end
 end
 
+function META:OnLayout() end
+
 function META:DoLayout()
 	self.in_layout = self.in_layout + 1
 	gui.in_layout = gui.in_layout + 1
-
-	--	self:OnLayout() --self:GetLayoutScale(), self:GetSkin())
+	self:OnLayout() --self:GetLayoutScale(), self:GetSkin())
 	if self.Flex then self:FlexLayout() end
 
 	self:ExecuteLayoutCommands()

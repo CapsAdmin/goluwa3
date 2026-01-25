@@ -81,6 +81,7 @@ ffi.cdef[[
 	void xkb_state_unref(struct xkb_state *state);
 	uint32_t xkb_state_key_get_one_sym(struct xkb_state *state, uint32_t key);
 	int xkb_state_update_mask(struct xkb_state *state, uint32_t depressed_mods, uint32_t latched_mods, uint32_t locked_mods, uint32_t depressed_layout, uint32_t latched_layout, uint32_t locked_layout);
+	int xkb_state_key_get_utf8(struct xkb_state *state, uint32_t key, char *buffer, size_t size);
 	
 	// System
 	void *mmap(void *addr, size_t length, int prot, int flags, int fd, long offset);

@@ -30,6 +30,7 @@ require("render3d.render3d").Initialize()
 require("render2d.gfx").Initialize()
 require("pvars").Initialize()
 require("gui.gui").Initialize()
+require("repl").Initialize()
 
 do
 	require("render3d.model_loader")

@@ -248,7 +248,12 @@ do
 	function prototype.CreateObject(meta, override)
 		override = override or prototype.override_object or {}
 
-		if type(meta) == "string" then meta = prototype.GetRegistered(meta) end
+		if type(meta) == "string" then
+			local str = meta
+			meta = prototype.GetRegistered(meta)
+
+			if not meta then error("Unable to find prototype: " .. str, 2) end
+		end
 
 		-- this has to be done in order to ensure we have the prepared metatable with bases
 		meta = prototype.GetRegistered(meta.Type) or meta

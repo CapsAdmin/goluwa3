@@ -6,6 +6,12 @@ function system.GetTime()
 	return get_time()
 end
 
+local get_time_ns = require("bindings.time_ns")
+
+function system.GetTimeNS()
+	return get_time_ns()
+end
+
 do
 	function system.ShutDown(code)
 		code = code or 0

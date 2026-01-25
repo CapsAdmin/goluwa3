@@ -10,6 +10,7 @@ local window = require("window")
 local render = require("render.render")
 local gfx = require("render2d.gfx")
 local Rect = require("structs.rect")
+local gui = require("gui.gui")
 local META = prototype.CreateTemplate("panel_base")
 META.IsPanel = true
 prototype.ParentingTemplate(META)
@@ -36,9 +37,17 @@ META:GetSet("Margin", Rect(0, 0, 0, 0))
 META:GetSet("Padding", Rect(0, 0, 0, 0))
 META:GetSet("MinimumSize", Vec2(0, 0))
 META:GetSet("IgnoreMouseInput", false)
+META:GetSet("FocusOnClick", false)
+META:GetSet("BringToFrontOnClick", false)
 META:GetSet("Perspective", 0, {callback = "InvalidateMatrices"})
 META:GetSet("Texture", nil)
+META:GetSet("RedirectFocus", NULL)
+META:GetSet("Cursor", "arrow")
 META:EndStorable()
+
+function META:CreatePanel(name)
+	return gui.Create(name, self)
+end
 
 function META:OnReload()
 	self:InvalidateMatrices()
@@ -247,6 +256,15 @@ end
 function META:IsHovered(mouse_pos)
 	mouse_pos = mouse_pos or window.GetMousePosition()
 	local local_pos = self:GlobalToLocal(mouse_pos)
+
+	if self.Resizable then
+		local offset = self.ResizeBorder
+		return local_pos.x >= -offset.x and
+			local_pos.y >= -offset.y and
+			local_pos.x <= self.Size.x + offset.w and
+			local_pos.y <= self.Size.y + offset.h
+	end
+
 	return local_pos.x >= 0 and
 		local_pos.y >= 0 and
 		local_pos.x <= self.Size.x and
@@ -267,6 +285,7 @@ end
 
 function META:Draw()
 	self:CalcAnimations()
+	self:CalcResizing()
 
 	if self.CalcLayout then self:CalcLayout() end
 
@@ -292,9 +311,10 @@ function META:Draw()
 		child:Draw()
 	end
 
-	render2d.PopMatrix()
-
 	if clipping then render2d.PopStencilMask() end
+
+	self:OnPostDraw()
+	render2d.PopMatrix()
 end
 
 function META:GetVisibleChildren()
@@ -310,6 +330,18 @@ end
 function META:MouseInput(button, press, pos)
 	if self.IgnoreMouseInput then return end
 
+	if press then
+		if self.FocusOnClick then self:RequestFocus() end
+
+		if self.BringToFrontOnClick then self:BringToFront() end
+
+		if button == "button_1" then
+			if not self.Resizable or not self:StartResizing(nil, button) then
+				if self.Draggable then self:StartDragging(button) end
+			end
+		end
+	end
+
 	-- todo, trigger button release events outside of the panel
 	self.button_states = self.button_states or {}
 	self.button_states[button] = {press = press, pos = pos}
@@ -324,6 +356,8 @@ function META:IsMouseButtonDown(button)
 end
 
 do -- example events
+	function META:OnPostDraw() end
+
 	function META:OnDraw()
 		local s = self.Size + self.DrawSizeOffset
 		render2d.SetTexture(self.Texture)
@@ -337,14 +371,248 @@ do -- example events
 	function META:OnMouseInput(button, press, pos)
 		if self.ScrollEnabled then
 			if button == "mwheel_up" then
-				local s = self:GetScroll()
-				self:SetScroll(Vec2(s.x, s.y - 20))
+				local s = self:GetScroll() + Vec2(0, -20)
+				self:SetScroll(s)
 				return true
 			elseif button == "mwheel_down" then
-				local s = self:GetScroll()
-				self:SetScroll(Vec2(s.x, s.y + 20))
+				local s = self:GetScroll() + Vec2(0, 20)
+				s.y = math.min(s.y, 0)
+				self:SetScroll(s)
 				return true
 			end
+		end
+	end
+end
+
+do -- focus
+	do -- child order
+		META:GetSet("ChildOrder", 0)
+
+		function META:BringToFront()
+			if self.RedirectFocus:IsValid() then
+				return self.RedirectFocus:BringToFront()
+			end
+
+			local parent = self:GetParent()
+
+			if parent:IsValid() then
+				self:UnParent()
+				parent:AddChild(self)
+			end
+		end
+
+		function META:SendToBack()
+			local parent = self:GetParent()
+
+			if parent:IsValid() then
+				self:UnParent()
+				parent:AddChild(self, 1)
+			end
+		end
+
+		function META:SetChildOrder(pos)
+			self.ChildOrder = pos
+
+			if self:HasParent() then
+				list.sort(self.Parent.Children, function(a, b)
+					return a.ChildOrder > b.ChildOrder
+				end)
+			end
+		end
+	end
+
+	do -- focus
+		function META:OnFocus() end
+
+		function META:OnUnfocus() end
+
+		function META:RequestFocus()
+			if self.RedirectFocus:IsValid() then self = self.RedirectFocus end
+
+			if gui.focus_panel:IsValid() and gui.focus_panel ~= self then
+				gui.focus_panel:OnUnfocus()
+			end
+
+			self:OnFocus()
+			gui.focus_panel = self
+		end
+
+		function META:Unfocus()
+			if self.RedirectFocus:IsValid() then self = self.RedirectFocus end
+
+			if gui.focus_panel:IsValid() and gui.focus_panel == self then
+				self:OnUnfocus()
+				gui.focus_panel = NULL
+			end
+
+			self.popup = nil
+
+			if gui.popup_panel == self then gui.popup_panel = NULL end
+		end
+
+		function META:IsFocused()
+			return gui.focus_panel == self
+		end
+
+		function META:MakePopup()
+			self.popup = true
+			gui.popup_panel = self
+		end
+	end
+
+	function META:GetMousePosition()
+		local mouse_pos = window.GetMousePosition()
+		return self:GlobalToLocal(mouse_pos)
+	end
+
+	do -- resizing
+		META:GetSet("ResizeBorder", Rect(8, 8, 8, 8))
+		META:GetSet("Resizable", false)
+
+		function META:GetMouseLocation(pos) -- rename this function
+			pos = pos or self:GetMousePosition()
+			local offset = self.ResizeBorder
+			local siz = self:GetSize()
+			local is_top = pos.y > -offset.y and pos.y < offset.y
+			local is_bottom = pos.y > siz.y - offset.h and pos.y < siz.y + offset.h
+			local is_left = pos.x > -offset.x and pos.x < offset.x
+			local is_right = pos.x > siz.x - offset.w and pos.x < siz.x + offset.w
+
+			if is_top and is_left then return "top_left" end
+
+			if is_top and is_right then return "top_right" end
+
+			if is_bottom and is_left then return "bottom_left" end
+
+			if is_bottom and is_right then return "bottom_right" end
+
+			if is_left then return "left" end
+
+			if is_right then return "right" end
+
+			if is_bottom then return "bottom" end
+
+			if is_top then return "top" end
+
+			return "center"
+		end
+
+		function META:GetResizeLocation(pos)
+			pos = pos or self:GetMousePosition()
+			local loc = self:GetMouseLocation(pos)
+
+			if loc ~= "center" then return loc end
+		end
+
+		function META:StartResizing(pos, button)
+			local loc = self:GetResizeLocation(pos)
+
+			if loc then
+				self.resize_start_pos = self:GetMousePosition():Copy()
+				self.resize_location = loc
+				self.resize_prev_mouse_pos = gui.mouse_pos:Copy()
+				self.resize_prev_pos = self:GetPosition():Copy()
+				self.resize_prev_size = self:GetSize():Copy()
+				self.resize_button = button
+				return true
+			end
+		end
+
+		function META:StopResizing()
+			self.resize_start_pos = nil
+		end
+
+		function META:IsResizing()
+			return self.resize_start_pos ~= nil
+		end
+
+		local location2cursor = {
+			right = "horizontal_resize",
+			left = "horizontal_resize",
+			top = "vertical_resize",
+			bottom = "vertical_resize",
+			top_right = "top_right_resize",
+			bottom_left = "bottom_left_resize",
+			top_left = "top_left_resize",
+			bottom_right = "bottom_right_resize",
+		}
+		local input = require("input")
+
+		function META:CalcResizing()
+			if self.Resizable then
+				local loc = self:GetResizeLocation(self:GetMousePosition())
+
+				if location2cursor[loc] then
+					self:SetCursor(location2cursor[loc])
+				else
+					self:SetCursor()
+				end
+			end
+
+			if self.resize_start_pos then
+				if self.resize_button ~= nil and not input.IsMouseDown(self.resize_button) then
+					self:StopResizing()
+					return
+				end
+
+				local diff_world = gui.mouse_pos - self.resize_prev_mouse_pos
+				local loc = self.resize_location
+				local prev_size = self.resize_prev_size:Copy()
+				local prev_pos = self.resize_prev_pos:Copy()
+
+				if loc == "right" or loc == "top_right" or loc == "bottom_right" then
+					prev_size.x = math.max(self.MinimumSize.x, prev_size.x + diff_world.x)
+				elseif loc == "left" or loc == "top_left" or loc == "bottom_left" then
+					local d_x = math.min(diff_world.x, prev_size.x - self.MinimumSize.x)
+					prev_pos.x = prev_pos.x + d_x
+					prev_size.x = prev_size.x - d_x
+				end
+
+				if loc == "bottom" or loc == "bottom_right" or loc == "bottom_left" then
+					prev_size.y = math.max(self.MinimumSize.y, prev_size.y + diff_world.y)
+				elseif loc == "top" or loc == "top_left" or loc == "top_right" then
+					local d_y = math.min(diff_world.y, prev_size.y - self.MinimumSize.y)
+					prev_pos.y = prev_pos.y + d_y
+					prev_size.y = prev_size.y - d_y
+				end
+
+				if self:HasParent() and not self.ThreeDee then
+					prev_pos.x = math.max(prev_pos.x, 0)
+					prev_pos.y = math.max(prev_pos.y, 0)
+					prev_size.x = math.min(prev_size.x, self.Parent.Size.x - prev_pos.x)
+					prev_size.y = math.min(prev_size.y, self.Parent.Size.y - prev_pos.y)
+				end
+
+				self:SetPosition(prev_pos)
+				self:SetSize(prev_size)
+
+				if self.LayoutSize then self:SetLayoutSize(prev_size:Copy()) end
+			end
+		end
+	end
+
+	do -- key input
+		function META:OnPreKeyInput(key, press) end
+
+		function META:OnKeyInput(key, press) end
+
+		function META:OnPostKeyInput(key, press) end
+
+		function META:OnCharInput(key, press) end
+
+		function META:KeyInput(button, press)
+			local b
+
+			if self:OnPreKeyInput(button, press) ~= false then
+				b = self:OnKeyInput(button, press)
+				self:OnPostKeyInput(button, press)
+			end
+
+			return b
+		end
+
+		function META:CharInput(char)
+			return self:OnCharInput(char)
 		end
 	end
 end

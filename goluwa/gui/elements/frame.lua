@@ -56,6 +56,18 @@ end
 function META:OnDraw()
 	local s = self.Size + self.DrawSizeOffset
 	local c = self.Color + self.DrawColor
+	render2d.SetColor(c.r, c.g, c.b, c.a * self.DrawAlpha)
+	render2d.SetBlendMode("alpha")
+	render2d.PushUV()
+	render2d.SetUV2(0.5, 0.1, 0.7, 0.6)
+	render2d.SetTexture(glow_linear_tex)
+	render2d.DrawRect(0, 0, s.x, s.y)
+	render2d.PopUV()
+end
+
+function META:OnPostDraw()
+	local s = self.Size + self.DrawSizeOffset
+	local c = self.Color + self.DrawColor
 
 	do
 		render2d.SetColor(c.r, c.g, c.b, c.a * self.DrawAlpha)
@@ -66,14 +78,6 @@ function META:OnDraw()
 		edge_decor(s.x + 4, s.y + 4)
 		edge_decor(-4, s.y + 4)
 	end
-
-	render2d.SetColor(c.r, c.g, c.b, c.a * self.DrawAlpha)
-	render2d.SetBlendMode("alpha")
-	render2d.PushUV()
-	render2d.SetUV2(0.5, 0.1, 0.7, 0.6)
-	render2d.SetTexture(glow_linear_tex)
-	render2d.DrawRect(0, 0, s.x, s.y)
-	render2d.PopUV()
 end
 
 if HOTRELOAD then
