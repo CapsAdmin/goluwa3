@@ -7,7 +7,6 @@ local Color = require("structs.color")
 local Quat = require("structs.quat")
 local ShadowMap = require("render3d.shadow_map")
 local transform = require("components.3d.transform").Component
-local Light = {}
 local META = prototype.CreateTemplate("light")
 META.ComponentName = "light"
 META.Require = {transform}
@@ -97,5 +96,6 @@ function META:RenderShadows()
 	end
 end
 
+local Light = {}
 Light.Component = META:Register()
 return Light

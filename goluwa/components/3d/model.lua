@@ -1,5 +1,5 @@
-local Model = {}
-package.loaded["components.3d.model"] = Model
+local model = {}
+package.loaded["components.3d.model"] = model
 local event = require("event")
 local prototype = require("prototype")
 local ecs = require("ecs")
@@ -19,7 +19,7 @@ local ffi = require("ffi")
 local cached_final_matrix = Matrix44()
 local META = prototype.CreateTemplate("model")
 META.ComponentName = "model"
--- Model requires transform component
+-- model requires transform component
 META.Require = {transform}
 META.Events = {"Draw3DGeometry"}
 META:GetSet("Primitives", {})
@@ -87,7 +87,7 @@ function META:MakeError()
 end
 
 function META:OnAdd(entity)
-	if self.UseOcclusionCulling and Model.IsOcclusionCullingEnabled() then
+	if self.UseOcclusionCulling and model.IsOcclusionCullingEnabled() then
 		self.occlusion_query = render.CreateOcclusionQuery()
 	end
 end
@@ -189,8 +189,8 @@ function META:GetWorldMatrixInverse()
 end
 
 do
-	Model.noculling = true -- Debug flag to disable culling
-	Model.freeze_culling = false -- Debug flag to freeze frustum for culling tests
+	model.noculling = true -- Debug flag to disable culling
+	model.freeze_culling = false -- Debug flag to freeze frustum for culling tests
 	local function extract_frustum_planes(proj_view_matrix, out_planes)
 		local m = proj_view_matrix
 		-- Left plane: row3 + row0
@@ -267,7 +267,7 @@ do
 	local cached_frustum_frame = -1
 
 	local function get_frustum_planes()
-		if Model.freeze_culling and cached_frustum_frame >= 0 then
+		if model.freeze_culling and cached_frustum_frame >= 0 then
 			return cached_frustum_planes
 		end
 
@@ -288,7 +288,7 @@ do
 	local local_frustum_planes = ffi.new("float[24]")
 
 	local function is_aabb_visible_local(local_aabb, inv_world)
-		if Model.noculling then return true end
+		if model.noculling then return true end
 
 		local world_frustum = get_frustum_planes()
 
@@ -319,7 +319,7 @@ function META:OnDraw3DGeometry(cmd, dt)
 	-- Frustum culling: test local AABB against frustum (efficient - no AABB transformation)
 	if not self:IsAABBVisibleLocal() then
 		self.frustum_culled = true
-		return -- Model is outside frustum, skip drawing
+		return -- model is outside frustum, skip drawing
 	end
 
 	self.frustum_culled = false
@@ -329,7 +329,7 @@ function META:OnDraw3DGeometry(cmd, dt)
 	if
 		self.UseOcclusionCulling and
 		self.occlusion_query and
-		Model.IsOcclusionCullingEnabled()
+		model.IsOcclusionCullingEnabled()
 	then
 		using_occlusion = self.occlusion_query:BeginConditional(cmd)
 		self.using_conditional_rendering = true
@@ -374,7 +374,7 @@ function META:DrawOcclusionQuery(cmd)
 	if self.frustum_culled then return end
 
 	-- Skip updating queries if culling is frozen
-	if Model.freeze_culling then return end
+	if model.freeze_culling then return end
 
 	if not self:IsAABBVisibleLocal() then return end
 
@@ -472,98 +472,18 @@ function META:DrawProbeGeometry(cmd, lightprobes)
 	end
 end
 
-Model.Component = META:Register()
+model.Component = META:Register()
 
--- Get all model components in scene
-function Model.GetSceneModels()
-	return ecs.GetComponents("model")
-end
-
--- Draw all model shadows
-function Model.DrawAllShadows(shadow_cmd, shadow_map, cascade_idx)
-	local models = Model.GetSceneModels()
+function model.DrawAllShadows(shadow_cmd, shadow_map, cascade_idx)
+	local models = ecs.GetComponents("model")
 
 	for _, model in ipairs(models) do
 		model:DrawShadow(shadow_cmd, shadow_map, cascade_idx)
 	end
 end
 
--- Draw all models into reflection probe
-function Model.DrawAllProbeGeometry(cmd, lightprobes)
-	local models = Model.GetSceneModels()
-
-	for _, model in ipairs(models) do
-		model:DrawProbeGeometry(cmd, lightprobes)
-	end
-end
-
--- Reset occlusion query pools (must be called outside render pass)
-function Model.ResetOcclusionQueries(cmd)
-	if Model.freeze_culling then return end
-
-	local models = Model.GetSceneModels()
-
-	-- Reset all query pools that need it
-	for _, model in ipairs(models) do
-		if model.UseOcclusionCulling and model.occlusion_query then
-			model.occlusion_query:ResetQuery(cmd)
-		end
-	end
-end
-
--- Run occlusion queries for all models
--- This should be called before the main Draw3D event with the same command buffer
-function Model.RunOcclusionQueries(cmd)
-	local models = Model.GetSceneModels()
-
-	-- Run occlusion queries for all models
-	for _, model in ipairs(models) do
-		model:DrawOcclusionQuery(cmd)
-	end
-end
-
--- Copy occlusion query results (must be called outside render pass)
-function Model.CopyOcclusionQueryResults(cmd)
-	if Model.freeze_culling then return end
-
-	local models = Model.GetSceneModels()
-
-	-- Copy query results for all models
-	for _, model in ipairs(models) do
-		if model.UseOcclusionCulling and model.occlusion_query then
-			model.occlusion_query:CopyQueryResults(cmd)
-		end
-	end
-end
-
--- Compute the world-space AABB of all models in the scene
--- Note: For now, just aggregates local AABBs without world transform
--- This is simpler and avoids coordinate system issues with node transforms
-function Model.GetSceneAABB()
-	local models = Model.GetSceneModels()
-	local scene_aabb = AABB(math.huge, math.huge, math.huge, -math.huge, -math.huge, -math.huge)
-
-	for _, model in ipairs(models) do
-		-- Use local AABB directly (already in engine coordinates from vertex processing)
-		if model.AABB then scene_aabb:Expand(model.AABB) end
-	end
-
-	return scene_aabb
-end
-
--- Get scene center from all models
-function Model.GetSceneCenter()
-	local aabb = Model.GetSceneAABB()
-	return Vec3(
-		(aabb.min_x + aabb.max_x) / 2,
-		(aabb.min_y + aabb.max_y) / 2,
-		(aabb.min_z + aabb.max_z) / 2
-	)
-end
-
--- Get occlusion culling statistics
-function Model.GetOcclusionStats()
-	local models = Model.GetSceneModels()
+function model.GetOcclusionStats()
+	local models = ecs.GetComponents("model")
 	local total = 0
 	local with_occlusion = 0
 	local frustum_culled = 0
@@ -591,78 +511,93 @@ function Model.GetOcclusionStats()
 		frustum_culled = frustum_culled,
 		submitted_with_conditional = submitted_with_conditional,
 		potentially_occluded = submitted_with_conditional, -- GPU may cull these
-		occlusion_enabled = Model.IsOcclusionCullingEnabled(),
+		occlusion_enabled = model.IsOcclusionCullingEnabled(),
 	}
 end
 
-Model.occlusion_culling_enabled = false
-Model.occlusion_query_fps = 1 -- Limit occlusion queries to this FPS
-Model.last_occlusion_query_time = 0
-Model.should_run_queries_this_frame = true -- Cached per-frame flag
-function Model.IsOcclusionCullingEnabled()
-	return Model.occlusion_culling_enabled
+model.occlusion_culling_enabled = false
+model.occlusion_query_fps = 1 -- Limit occlusion queries to this FPS
+model.last_occlusion_query_time = 0
+model.should_run_queries_this_frame = true -- Cached per-frame flag
+function model.IsOcclusionCullingEnabled()
+	return model.occlusion_culling_enabled
 end
 
-function Model.SetOcclusionCulling(enabled)
-	Model.occlusion_culling_enabled = enabled
-end
-
--- Set the FPS limit for occlusion queries (0 = no limit, runs every frame)
-function Model.SetOcclusionQueryFPS(fps)
-	Model.occlusion_query_fps = fps
-end
-
-function Model.GetOcclusionQueryFPS()
-	return Model.occlusion_query_fps
+function model.SetOcclusionCulling(enabled)
+	model.occlusion_culling_enabled = enabled
 end
 
 -- Check if we should run occlusion queries this frame
 -- This should only be called once per frame to avoid timing issues
-function Model.UpdateOcclusionQueryTiming()
-	if Model.occlusion_query_fps == 0 then
-		Model.should_run_queries_this_frame = true
+local function UpdateOcclusionQueryTiming()
+	if model.occlusion_query_fps == 0 then
+		model.should_run_queries_this_frame = true
 		return
 	end
 
 	local current_time = system.GetElapsedTime()
-	local min_interval = 1.0 / Model.occlusion_query_fps
+	local min_interval = 1.0 / model.occlusion_query_fps
 
-	if current_time - Model.last_occlusion_query_time >= min_interval then
-		Model.last_occlusion_query_time = current_time
-		Model.should_run_queries_this_frame = true
+	if current_time - model.last_occlusion_query_time >= min_interval then
+		model.last_occlusion_query_time = current_time
+		model.should_run_queries_this_frame = true
 	else
-		Model.should_run_queries_this_frame = false
+		model.should_run_queries_this_frame = false
 	end
 end
 
 -- Update timing once at the start of the frame
 event.AddListener("PreRenderPass", "update_occlusion_timing", function(cmd)
-	if Model.IsOcclusionCullingEnabled() then
-		Model.UpdateOcclusionQueryTiming()
+	if model.IsOcclusionCullingEnabled() then
+		model.UpdateOcclusionQueryTiming()
 	end
 end)
 
 event.AddListener("PreRenderPass", "reset_occlusion_queries", function(cmd)
-	if Model.IsOcclusionCullingEnabled() and Model.should_run_queries_this_frame then
-		Model.ResetOcclusionQueries(cmd)
+	if model.IsOcclusionCullingEnabled() and model.should_run_queries_this_frame then
+		if model.freeze_culling then return end
+
+		local models = ecs.GetComponents("model")
+
+		for _, model in ipairs(models) do
+			if model.UseOcclusionCulling and model.occlusion_query then
+				model.occlusion_query:ResetQuery(cmd)
+			end
+		end
 	end
 end)
 
 event.AddListener("PreDraw3D", "draw_occlusion_queries", function(cmd, dt)
-	if Model.IsOcclusionCullingEnabled() and Model.should_run_queries_this_frame then
-		Model.RunOcclusionQueries(cmd)
+	if model.IsOcclusionCullingEnabled() and model.should_run_queries_this_frame then
+		local models = ecs.GetComponents("model")
+
+		for _, model in ipairs(models) do
+			model:DrawOcclusionQuery(cmd)
+		end
 	end
 end)
 
 event.AddListener("PostRenderPass", "copy_occlusion_results", function(cmd)
-	if Model.IsOcclusionCullingEnabled() and Model.should_run_queries_this_frame then
-		Model.CopyOcclusionQueryResults(cmd)
+	if model.IsOcclusionCullingEnabled() and model.should_run_queries_this_frame then
+		if model.freeze_culling then return end
+
+		local models = ecs.GetComponents("model")
+
+		for _, model in ipairs(models) do
+			if model.UseOcclusionCulling and model.occlusion_query then
+				model.occlusion_query:CopyQueryResults(cmd)
+			end
+		end
 	end
 end)
 
 -- Draw all models into reflection probe when requested
 event.AddListener("DrawProbeGeometry", "model_probe_draw", function(cmd, lightprobes)
-	Model.DrawAllProbeGeometry(cmd, lightprobes)
+	local models = ecs.GetComponents("model")
+
+	for _, model in ipairs(models) do
+		model:DrawProbeGeometry(cmd, lightprobes)
+	end
 end)
 
-return Model
+return model
