@@ -53,6 +53,10 @@ end
 
 lsx.hook_index = 0
 
+local function get_comp_key(comp)
+	return type(comp) == "table" and comp.build or comp
+end
+
 local function increment_hook_index()
 	local idx = lsx.hook_index
 	lsx.hook_index = lsx.hook_index + 1
@@ -70,11 +74,12 @@ do -- hooks
 		if not comp then error("can only be called inside a component", 2) end
 
 		local idx = increment_hook_index()
-		local states = lsx.component_states[comp]
+		local key = get_comp_key(comp)
+		local states = lsx.component_states[key]
 
 		if not states then
 			states = {}
-			lsx.component_states[comp] = states
+			lsx.component_states[key] = states
 		end
 
 		if states[idx] == nil then
@@ -131,11 +136,12 @@ do -- hooks
 		if not comp then error("can only be called inside a component", 2) end
 
 		local idx = increment_hook_index()
-		local states = lsx.component_states[comp]
+		local key = get_comp_key(comp)
+		local states = lsx.component_states[key]
 
 		if not states then
 			states = {}
-			lsx.component_states[comp] = states
+			lsx.component_states[key] = states
 		end
 
 		local prevRecord = states[idx]
@@ -173,11 +179,12 @@ do -- hooks
 		if not comp then error("can only be called inside a component", 2) end
 
 		local idx = increment_hook_index()
-		local states = lsx.component_states[comp]
+		local key = get_comp_key(comp)
+		local states = lsx.component_states[key]
 
 		if not states then
 			states = {}
-			lsx.component_states[comp] = states
+			lsx.component_states[key] = states
 		end
 
 		local cached = states[idx]
@@ -213,11 +220,12 @@ do -- hooks
 		if not comp then error("can only be called inside a component", 2) end
 
 		local idx = increment_hook_index()
-		local states = lsx.component_states[comp]
+		local key = get_comp_key(comp)
+		local states = lsx.component_states[key]
 
 		if not states then
 			states = {}
-			lsx.component_states[comp] = states
+			lsx.component_states[key] = states
 		end
 
 		if states[idx] == nil then states[idx] = {current = initial, isRef = true} end
@@ -363,6 +371,10 @@ function lsx.Build(node, parent, existing)
 	if type(node) == "string" or type(node) == "number" then
 		error("TODO")
 		return nil
+	end
+
+	if type(node) == "function" then
+		return lsx.Build(lsx.Component(node)({}), parent, existing)
 	end
 
 	if node.Type == "lsx_fragment" then
