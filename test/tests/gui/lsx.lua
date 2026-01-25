@@ -8,7 +8,7 @@ local event = require("event")
 local system = require("system")
 local window = require("window")
 -- Create a mock panel type for testing
-local BasePanel = require("gui.elements.base")
+local BasePanel = require("gui.panels.base")
 local META = prototype.CreateTemplate("panel_mock_element")
 META.Base = BasePanel
 META:GetSet("MemoVal")

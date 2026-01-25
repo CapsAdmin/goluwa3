@@ -14,8 +14,8 @@ local gui = require("gui.gui")
 local META = prototype.CreateTemplate("panel_base")
 META.IsPanel = true
 prototype.ParentingTemplate(META)
-assert(loadfile("goluwa/gui/elements/base/layout.lua"))(META)
-assert(loadfile("goluwa/gui/elements/base/animations.lua"))(META)
+assert(loadfile("goluwa/gui/panels/base/layout.lua"))(META)
+assert(loadfile("goluwa/gui/panels/base/animations.lua"))(META)
 META:StartStorable()
 META:GetSet("Position", Vec2(0, 0), {callback = "InvalidateMatrices"})
 META:GetSet("Size", Vec2(100, 100), {callback = "OnSizeChanged"})
@@ -73,7 +73,6 @@ end
 function META:Initialize()
 	self.LocalMatrix = Matrix44()
 	self.LocalMatrix:Identity()
-	self.animations = {}
 end
 
 function META:InvalidateMatrices()

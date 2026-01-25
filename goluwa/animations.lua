@@ -1,8 +1,3 @@
---[[HOTRELOAD
-	package.loaded["gui.base_panel"] = nil
-	require("goluwa.gui.base_panel")
-]]
-local gui = require("gui.gui")
 local system = require("system")
 local Vec2 = require("structs.vec2")
 local Rect = require("structs.rect")
@@ -10,32 +5,23 @@ local Ang3 = require("structs.ang3")
 local Color = require("structs.color")
 local easing = require("helpers.easing")
 local spring = require("helpers.spring")
-local META = ...
--- these are useful for animations
-META:GetSet("DrawSizeOffset", Vec2(0, 0), {callback = "InvalidateMatrices"})
-META:GetSet("DrawScaleOffset", Vec2(1, 1), {callback = "InvalidateMatrices"})
-META:GetSet("DrawPositionOffset", Vec2(0, 0), {callback = "InvalidateMatrices"})
-META:GetSet("DrawAngleOffset", Ang3(0, 0, 0), {callback = "InvalidateMatrices"})
-META:GetSet("DrawColor", Color(0, 0, 0, 0))
-META:GetSet("DrawAlpha", 1)
-local parent_layout = {
-	Size = true,
-	Position = true,
-	Rotation = true,
-}
+local list = require("helpers.list")
+local event = require("event")
+local animations = library()
+animations.Groups = {}
 
-local function get_value(v, self)
-	if type(v) == "table" and v.__lsx_value then return v.__lsx_value(self) end
+local function get_value(v, group)
+	if type(v) == "table" and v.__lsx_value then return v.__lsx_value(group) end
 
-	if type(v) == "function" then return v(self) end
+	if type(v) == "function" then return v(group) end
 
 	return v
 end
 
-local function lerp_linear(values, alpha, self, interpolation)
+local function lerp_linear(values, alpha, group, interpolation)
 	local count = #values
 
-	if count <= 1 then return get_value(values[1], self) end
+	if count <= 1 then return get_value(values[1], group) end
 
 	local segment_count = count - 1
 	local total_alpha = alpha * segment_count
@@ -52,8 +38,8 @@ local function lerp_linear(values, alpha, self, interpolation)
 
 	if interpolation then segment_alpha = interpolation(segment_alpha) end
 
-	local v1 = get_value(values[segment_index], self)
-	local v2 = get_value(values[segment_index + 1], self)
+	local v1 = get_value(values[segment_index], group)
+	local v2 = get_value(values[segment_index + 1], group)
 
 	if type(v1) == "number" then
 		return math.lerp(segment_alpha, v1, v2)
@@ -62,12 +48,12 @@ local function lerp_linear(values, alpha, self, interpolation)
 	end
 end
 
-local function lerp_bezier(values, alpha, self)
+local function lerp_bezier(values, alpha, group)
 	local tbl = {}
 
 	for i = 1, #values - 1 do
-		local v1 = get_value(values[i], self)
-		local v2 = get_value(values[i + 1], self)
+		local v1 = get_value(values[i], group)
+		local v2 = get_value(values[i + 1], group)
 
 		if type(v1) == "number" then
 			tbl[i] = math.lerp(alpha, v1, v2)
@@ -76,18 +62,24 @@ local function lerp_bezier(values, alpha, self)
 		end
 	end
 
-	if #tbl > 1 then return lerp_bezier(tbl, alpha, self) else return tbl[1] end
+	if #tbl > 1 then return lerp_bezier(tbl, alpha, group) else return tbl[1] end
 end
 
-function META:CalcAnimations()
-	for i, animation in ipairs(self.animations) do
+function animations.Update(dt, group)
+	group = group or "global"
+	local anim_list = animations.Groups[group]
+
+	if not anim_list then return end
+
+	for i = #anim_list, 1, -1 do
+		local animation = anim_list[i]
 		local pause = false
 
 		for j = #animation.pausers, 1, -1 do
 			local v = animation.pausers[j]
 
 			if animation.alpha >= v.alpha then
-				if v.check(self) then
+				if v.check(group) then
 					pause = true
 				else
 					list.remove(animation.pausers, j)
@@ -96,32 +88,20 @@ function META:CalcAnimations()
 		end
 
 		if not pause then
-			animation.alpha = animation.alpha + system.GetFrameTime() / animation.time
+			animation.alpha = animation.alpha + dt / animation.time
 		end
 
 		local alpha = math.min(animation.alpha, 1)
-
-		-- If we are paused at the end of a segment, check if we should skip to the next
-		if pause and alpha < 1 then
-			local segment_count = #animation.to - 1
-			local local_alpha = (alpha * segment_count) % 1
-			local current_segment = math.floor(alpha * segment_count) + 1
-		-- If we're effectively at the end of the segment (alpha=1.0 for this segment)
-		-- but we're paused, and the pauser says we can continue, we should jump
-		-- However, the CalcAnimations loop already handles pause removal.
-		-- The issue is that we are STUCK at this alpha.
-		end
 
 		if
 			animation.spring_on_complete and
 			animation.alpha >= animation.spring_on_complete_alpha and
 			not animation.spring_on_complete_called
 		then
-			animation.spring_on_complete(self)
+			animation.spring_on_complete(group)
 			animation.spring_on_complete_called = true
 		end
 
-		-- check if we are in a pause segment and the spring has visually settled enough to skip the rest of the settling duration
 		if animation.is_spring and pause and animation.alpha < 1 then
 			local segment_count = #animation.to - 1
 			local local_alpha = (animation.alpha * segment_count) % 1
@@ -131,7 +111,7 @@ function META:CalcAnimations()
 			end
 		end
 
-		local alpha = math.min(animation.alpha, 1)
+		alpha = math.min(animation.alpha, 1)
 		local val
 		local to = animation.to
 
@@ -141,7 +121,7 @@ function META:CalcAnimations()
 
 		if animation.is_spring then
 			if animation.interpolation == "bezier" then
-				val = lerp_bezier(to, interpolated_alpha, self)
+				val = lerp_bezier(to, interpolated_alpha, group)
 			else
 				local total_duration = animation.time
 				local segment_count = #to - 1
@@ -149,7 +129,7 @@ function META:CalcAnimations()
 				val = lerp_linear(
 					to,
 					alpha,
-					self,
+					group,
 					function(a)
 						return animation.interpolation(a, segment_duration)
 					end
@@ -163,65 +143,68 @@ function META:CalcAnimations()
 			end
 
 			if animation.interpolation == "bezier" then
-				val = lerp_bezier(to, interpolated_alpha, self)
+				val = lerp_bezier(to, interpolated_alpha, group)
 			else
-				val = lerp_linear(to, interpolated_alpha, self)
+				val = lerp_linear(to, interpolated_alpha, group)
 			end
 		end
 
-		if val == false then return end
+		if val ~= false then
+			animation.set(group, val)
 
-		animation.func(self, val)
+			if alpha >= 1 and not pause then
+				if animation.callback then animation.callback(group) end
 
-		if parent_layout[animation.var] then
-			if self:HasParent() and not self.Parent:IsWorld() then
-				self.Parent:CalcLayoutInternal(true)
-			else
-				self:CalcLayoutInternal(true)
+				list.remove(anim_list, i)
 			end
-		elseif animation.var:sub(1, 4) ~= "Draw" then
-			-- if it's not a Draw property, we should still probably trigger a layout update
-			-- but maybe only for specific properties? Let's keep it for now but skip Draw*
-			self:CalcLayoutInternal(true)
 		end
+	end
 
-		if alpha >= 1 and not pause then
-			if animation.callback then animation.callback(self) end
+	if #anim_list == 0 then animations.Groups[group] = nil end
+end
 
-			list.remove(self.animations, i)
+function animations.StopAnimations(group, id)
+	group = group or "global"
+	local anim_list = animations.Groups[group]
 
-			break
-		else
+	if not anim_list then return end
 
-		--self:MarkCacheDirty()
+	if id then
+		for i = #anim_list, 1, -1 do
+			if anim_list[i].id == id then list.remove(anim_list, i) end
 		end
+	else
+		animations.Groups[group] = nil
 	end
 end
 
-function META:StopAnimations()
-	table.clear(self.animations)
-end
+function animations.IsAnimating(group, id)
+	group = group or "global"
+	local anim_list = animations.Groups[group]
 
-function META:IsAnimating(var)
-	if not var then return #self.animations ~= 0 end
+	if not anim_list then return false end
 
-	for _, animation in ipairs(self.animations) do
-		if animation.var == var then return true end
+	if not id then return #anim_list ~= 0 end
+
+	for _, animation in ipairs(anim_list) do
+		if animation.id == id then return true end
 	end
 
 	return false
 end
 
-function META:Animate(config)
-	local var = config.var
+function animations.Animate(config)
+	local group = config.group or "global"
+	local id = config.id
 	local to = config.to
 	local time = config.time
 	local operator = config.operator
 	local pow = config.pow
 	local set = config.set
+	local get = config.get
 	local callback = config.callback
 	local interpolation = config.interpolation or "linear"
-	local original_val = type(self["Get" .. var]) == "function" and self["Get" .. var](self) or self[var]
+	local original_val = get(group)
 
 	if type(original_val) == "table" and original_val.Copy then
 		original_val = original_val:Copy()
@@ -229,11 +212,17 @@ function META:Animate(config)
 
 	local base = nil
 	local inherited_velocity
+	local anim_list = animations.Groups[group]
 
-	for i = #self.animations, 1, -1 do
-		local v = self.animations[i]
+	if not anim_list then
+		anim_list = {}
+		animations.Groups[group] = anim_list
+	end
 
-		if v.var == var then
+	for i = #anim_list, 1, -1 do
+		local v = anim_list[i]
+
+		if v.id == id then
 			if operator then base = v.base end
 
 			if v.is_spring and v.alpha < 1 then
@@ -246,8 +235,8 @@ function META:Animate(config)
 					local_alpha = 1
 				end
 
-				local v1 = get_value(v.to[segment_index], self)
-				local v2 = get_value(v.to[segment_index + 1], self)
+				local v1 = get_value(v.to[segment_index], group)
+				local v2 = get_value(v.to[segment_index + 1], group)
 				local delta = v2 - v1
 				local total_duration = v.time
 				local segment_count = #v.to - 1
@@ -258,19 +247,13 @@ function META:Animate(config)
 				end
 			end
 
-			list.remove(self.animations, i)
+			list.remove(anim_list, i)
 
 			break
 		end
 	end
 
-	if not base then
-		if var == "DrawScaleOffset" and (operator == "*" or operator == "/") then
-			base = Vec2(1, 1)
-		else
-			base = original_val
-		end
-	end
+	if not base then base = original_val end
 
 	local from = original_val
 
@@ -288,7 +271,6 @@ function META:Animate(config)
 
 	local original_count = #to
 	local pausers = {}
-	local real_to_indices = {}
 	local offset = 0
 
 	for i = 1, original_count do
@@ -319,8 +301,6 @@ function META:Animate(config)
 					v = base * v
 				elseif operator == "/" then
 					v = base / v
-				elseif operator == "=" then
-
 				end
 			end
 
@@ -328,22 +308,34 @@ function META:Animate(config)
 		end
 	end
 
-	if not set then
+	if not config.set_from then
 		local is_redundant = false
 
-		-- Check if we should insert 'from' at the beginning
-		-- or if the first target in 'to' is already 'from'
 		if #to > 0 then
-			local first = get_value(to[1], self)
+			local first = get_value(to[1], group)
 
 			if type(first) == "number" and type(from) == "number" then
 				if math.abs(first - from) < 0.001 then is_redundant = true end
 			elseif type(first) == "table" and first.Distance then
 				if first:Distance(from) < 0.001 then is_redundant = true end
-			elseif type(first) == "table" and first.x then -- Vec2/Vec3 check without Distance method
-				local distSq = (first.x - from.x) ^ 2 + (first.y - from.y) ^ 2
+			elseif type(first) == "table" and (first.x or first.r) then
+				local distSq = 0
 
-				if first.z and from.z then distSq = distSq + (first.z - from.z) ^ 2 end
+				if first.x and from.x then
+					distSq = (first.x - from.x) ^ 2 + (first.y - from.y) ^ 2
+
+					if first.z and from.z then distSq = distSq + (first.z - from.z) ^ 2 end
+				elseif first.r and from.r then
+					distSq = (
+							first.r - from.r
+						) ^ 2 + (
+							first.g - from.g
+						) ^ 2 + (
+							first.b - from.b
+						) ^ 2 + (
+							first.a - from.a
+						) ^ 2
+				end
 
 				if distSq < 0.0001 then is_redundant = true end
 			end
@@ -366,8 +358,8 @@ function META:Animate(config)
 
 	if type(interpolation) == "table" and interpolation.type == "spring" then
 		if inherited_velocity then
-			local v1 = get_value(to[1], self)
-			local v2 = get_value(to[2], self)
+			local v1 = get_value(to[1], group)
+			local v2 = get_value(to[2], group)
 
 			if v1 and v2 then
 				local delta = v2 - v1
@@ -381,7 +373,6 @@ function META:Animate(config)
 				then
 					interpolation.velocity = inherited_velocity:GetLength() / delta:GetLength()
 
-					-- sign check? progress is 0..1, so if current vel is same direction as target, pos velocity
 					if delta:GetDot(inherited_velocity) < 0 then
 						interpolation.velocity = -interpolation.velocity
 					end
@@ -422,15 +413,15 @@ function META:Animate(config)
 	end
 
 	list.insert(
-		self.animations,
+		anim_list,
 		{
+			id = id,
 			operator = operator,
 			base = base,
 			from = from,
 			to = to,
 			time = time or 0.25,
-			var = var,
-			func = self["Set" .. var],
+			set = set,
 			start_time = system.GetElapsedTime(),
 			pow = pow,
 			callback = callback,
@@ -444,3 +435,9 @@ function META:Animate(config)
 		}
 	)
 end
+
+event.AddListener("PreDraw2D", "animations", function(dt)
+	animations.Update(dt, "global")
+end)
+
+return animations

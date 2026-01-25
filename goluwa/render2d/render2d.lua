@@ -1043,6 +1043,7 @@ render2d.current_color_format = render.target and render.target:GetColorFormat()
 event.AddListener("PostDraw", "draw_2d", function(cmd, dt)
 	if not render2d.pipeline then return end -- not 2d initialized
 	render2d.BindPipeline()
+	event.Call("PreDraw2D", dt)
 	event.Call("Draw2D", dt)
 	render2d.cmd = nil
 end)

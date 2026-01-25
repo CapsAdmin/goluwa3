@@ -142,10 +142,10 @@ function gui.Initialize()
 end
 
 do
-	local BasePanel = require("gui.elements.base")
-	require("gui.elements.text")
-	require("gui.elements.text2")
-	require("gui.elements.frame")
+	local BasePanel = require("gui.panels.base")
+	require("gui.panels.text")
+	require("gui.panels.text2")
+	require("gui.panels.frame")
 
 	function gui.Create(class_name, parent)
 		parent = parent or gui.Root

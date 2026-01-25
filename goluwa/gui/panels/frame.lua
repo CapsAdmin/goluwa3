@@ -5,7 +5,7 @@ local Color = require("structs.color")
 local Vec2 = require("structs.vec2")
 local gfx = require("render2d.gfx")
 local META = prototype.CreateTemplate("panel_frame")
-META.Base = require("gui.elements.base")
+META.Base = require("gui.panels.base")
 local glow_linear_tex
 local glow_point_tex
 local gradient_tex
