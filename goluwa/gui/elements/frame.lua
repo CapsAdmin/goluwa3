@@ -6,9 +6,16 @@ local Vec2 = require("structs.vec2")
 local gfx = require("render2d.gfx")
 local META = prototype.CreateTemplate("panel_frame")
 META.Base = require("gui.elements.base")
-local glow_linear_tex = require("render.textures.glow_linear")
-local glow_point_tex = require("render.textures.glow_point")
-local gradient_tex = require("render.textures.gradient_linear")
+local glow_linear_tex
+local glow_point_tex
+local gradient_tex
+
+function META:Initialize()
+	self.BaseClass.Initialize(self)
+	glow_linear_tex = require("render.textures.glow_linear")
+	glow_point_tex = require("render.textures.glow_point")
+	gradient_tex = require("render.textures.gradient_linear")
+end
 
 local function line(x1, y1, x2, y2, thickness)
 	render2d.SetTexture(glow_linear_tex)

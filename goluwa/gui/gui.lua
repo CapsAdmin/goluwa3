@@ -148,6 +148,8 @@ do
 	require("gui.elements.frame")
 
 	function gui.Create(class_name, parent)
+		parent = parent or gui.Root
+
 		if class_name == "base" then
 			local surf = BasePanel:CreateObject()
 			surf:Initialize()
@@ -157,7 +159,6 @@ do
 			return surf
 		end
 
-		parent = parent or gui.Root
 		local type = class_name
 
 		if not type:find("^panel_") then type = "panel_" .. type end

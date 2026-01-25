@@ -204,7 +204,7 @@ local function CreateDesertTerrain()
 	mat:SetMetallicMultiplier(0.1)
 	poly.material = mat
 	poly:AddSubMesh(#poly.Vertices)
-	poly:BuildNormals()
+	poly:BuildNormals(true)
 	poly:SmoothNormals()
 	poly:BuildBoundingBox()
 	poly:Upload()

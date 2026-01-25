@@ -243,6 +243,18 @@ end
 for key, val in pairs(prototype.GetRegistered("window")) do
 	if type(val) == "function" then
 		window[key] = function(...)
+			if not window.current then
+				if key == "GetMousePosition" then return Vec2(0, 0) end
+
+				if key == "GetSize" then return Vec2(0, 0) end
+
+				if key == "GetMouseDelta" then return Vec2(0, 0) end
+
+				if key == "IsFocused" then return false end
+
+				return
+			end
+
 			return val(window.current, ...)
 		end
 	end

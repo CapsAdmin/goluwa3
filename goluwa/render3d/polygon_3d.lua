@@ -319,13 +319,20 @@ do -- helpers
 		end
 	end
 
-	function Polygon3D:BuildNormals()
+	function Polygon3D:BuildNormals(flipped)
 		for _, sub_mesh in ipairs(self:GetSubMeshes()) do
 			for i = 1, #sub_mesh.indices, 3 do
 				local a = self.Vertices[sub_mesh.indices[i + 0] + 1]
 				local b = self.Vertices[sub_mesh.indices[i + 1] + 1]
 				local c = self.Vertices[sub_mesh.indices[i + 2] + 1]
-				local normal = (c.pos - a.pos):Cross(b.pos - a.pos):GetNormalized()
+				local normal
+
+				if flipped then
+					normal = (c.pos - a.pos):Cross(b.pos - a.pos):GetNormalized()
+				else
+					normal = (b.pos - a.pos):Cross(c.pos - a.pos):GetNormalized()
+				end
+
 				a.normal = normal
 				b.normal = normal
 				c.normal = normal

@@ -250,7 +250,7 @@ T.Test("Graphics Polygon3D LoadHeightmap", function()
 	local size = Vec2(10, 10)
 	local res = Vec2(2, 2)
 	local height = 10
-	poly:LoadHeightmap(mock_tex, size, res, height)
+	poly:LoadHeightmap(mock_tex, size, res, Vec2(1, 1), height)
 	-- 2x2 resolution means 4 cells
 	-- Each cell has 4 triangles = 12 vertices
 	-- Total 4 * 12 = 48 vertices
@@ -299,7 +299,7 @@ T.Test("Graphics Polygon3D LoadHeightmap with pow", function()
 	-- get_color = ((128+128+128+255)/4 / 255) ^ 2
 	-- (159.75 / 255) ^ 2 approx 0.39246
 	-- expected_val = 0.39246 * 10 - 5 = -1.0754
-	poly:LoadHeightmap(mock_tex, size, res, height, pow)
+	poly:LoadHeightmap(mock_tex, size, res, Vec2(1, 1), height, pow)
 	local found_expected_y = false
 	local expected_val = (((128 + 128 + 128 + 255) / 4) / 255) ^ pow * height - (height / 2)
 
