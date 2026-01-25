@@ -1,7 +1,6 @@
 local prototype = require("prototype")
 local event = require("event")
 local ecs = library()
-ecs.registered_components = ecs.registered_components or {}
 ecs.component_instances = ecs.component_instances or {}
 
 local function remove_component(component)
@@ -22,12 +21,6 @@ local function remove_component(component)
 		component.Entity.ComponentsHash[component_name] = nil
 		component.Entity[component_name] = nil
 	end
-end
-
-function ecs.RegisterComponent(component_meta)
-	local name = component_meta.ComponentName or component_meta.Type
-	ecs.registered_components[name] = component_meta
-	return component_meta
 end
 
 local ENTITY = prototype.CreateTemplate("entity")

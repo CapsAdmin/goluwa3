@@ -1,9 +1,10 @@
+local model_loader = library()
+package.loaded["render3d.model_loader"] = model_loader
 local callback = require("callback")
 local event = require("event")
 local resource = require("resource")
 local utility = require("utility")
 local tasks = require("tasks")
-local model_loader = {}
 model_loader.model_decoders = model_loader.model_decoders or {}
 
 function model_loader.AddModelDecoder(id, callback, ext)

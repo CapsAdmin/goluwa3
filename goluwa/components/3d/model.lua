@@ -1,3 +1,5 @@
+local Model = {}
+package.loaded["components.3d.model"] = Model
 local event = require("event")
 local prototype = require("prototype")
 local ecs = require("ecs")
@@ -9,11 +11,10 @@ local Vec3 = require("structs.vec3")
 local Color = require("structs.color")
 local Matrix44 = require("structs.matrix44")
 local model_loader = require("render3d.model_loader")
-local transform = require("components.transform").Component
+local transform = require("components.3d.transform").Component
 local system = require("system")
 local timer = require("timer")
 local ffi = require("ffi")
-local Model = {}
 -- Cached matrix to avoid allocation in hot drawing loops
 local cached_final_matrix = Matrix44()
 local META = prototype.CreateTemplate("model")
@@ -471,9 +472,7 @@ function META:DrawProbeGeometry(cmd, lightprobes)
 	end
 end
 
-META:Register()
-ecs.RegisterComponent(META)
-Model.Component = META
+Model.Component = META:Register()
 
 -- Get all model components in scene
 function Model.GetSceneModels()

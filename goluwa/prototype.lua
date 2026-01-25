@@ -1173,6 +1173,8 @@ function prototype.ParentingTemplate(META)
 			end
 		end
 
+		META.BringToTop = META.BringToFront
+
 		function META:SendToBack()
 			local parent = self:GetParent()
 
@@ -1181,6 +1183,8 @@ function prototype.ParentingTemplate(META)
 				parent:AddChild(self, 1)
 			end
 		end
+
+		META.SendToBottom = META.SendToBack
 
 		function META:SetChildOrder(pos)
 			self.ChildOrder = pos

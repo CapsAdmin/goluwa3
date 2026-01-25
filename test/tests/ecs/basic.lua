@@ -9,7 +9,6 @@ T.Test("ecs core basic", function()
 	test_component.ComponentName = "test_component"
 	test_component.Foo = 1
 	test_component:Register()
-	ecs.RegisterComponent(test_component)
 	-- Test AddComponent
 	local ent = ecs.CreateEntity("test")
 	local c = ent:AddComponent(test_component)
@@ -35,7 +34,6 @@ T.Test("ecs OnRemove component", function()
 	end
 
 	META:Register()
-	ecs.RegisterComponent(META)
 	local ent = ecs.CreateEntity("test")
 	ent:AddComponent(META)
 	ent:RemoveComponent("test_on_remove")
@@ -50,7 +48,6 @@ T.Test("ecs GetComponents", function()
 	local META = prototype.CreateTemplate("c1")
 	META.ComponentName = "c1"
 	META:Register()
-	ecs.RegisterComponent(META)
 	local e1 = ecs.CreateEntity("e1")
 	local e2 = ecs.CreateEntity("e2")
 	local e3 = ecs.CreateEntity("e3")
@@ -96,7 +93,6 @@ T.Test("ecs component removal during loop", function()
 	local META = prototype.CreateTemplate("loop_test")
 	META.ComponentName = "loop_test"
 	META:Register()
-	ecs.RegisterComponent(META)
 
 	for i = 1, 5 do
 		local ent = ecs.CreateEntity("e" .. i)
@@ -124,7 +120,6 @@ T.Test("ecs internal component removal via RemoveCommand", function()
 	local META = prototype.CreateTemplate("rem_test")
 	META.ComponentName = "rem_test"
 	META:Register()
-	ecs.RegisterComponent(META)
 	local ent = ecs.CreateEntity()
 	local comp = ent:AddComponent(META)
 	T(#ecs.GetComponents("rem_test"))["=="](1)
@@ -144,16 +139,13 @@ T.Test("ecs AddComponent requirements", function()
 	local meta_req1 = prototype.CreateTemplate("req1")
 	meta_req1.ComponentName = "req1"
 	meta_req1:Register()
-	ecs.RegisterComponent(meta_req1)
 	local meta_req2 = prototype.CreateTemplate("req2")
 	meta_req2.ComponentName = "req2"
 	meta_req2:Register()
-	ecs.RegisterComponent(meta_req2)
 	local meta_req = prototype.CreateTemplate("with_req")
 	meta_req.ComponentName = "with_req"
 	meta_req.Require = {meta_req1, meta_req2}
 	meta_req:Register()
-	ecs.RegisterComponent(meta_req)
 	local ent = ecs.CreateEntity()
 	ent:AddComponent(meta_req)
 	T(ent:HasComponent("with_req"))["=="](true)
@@ -171,11 +163,9 @@ T.Test("ecs OnEntityAddComponent", function()
 	end
 
 	meta_listener:Register()
-	ecs.RegisterComponent(meta_listener)
 	local meta_other = prototype.CreateTemplate("other")
 	meta_other.ComponentName = "other"
 	meta_other:Register()
-	ecs.RegisterComponent(meta_other)
 	local ent = ecs.CreateEntity()
 	local listener = ent:AddComponent(meta_listener)
 	local other = ent:AddComponent(meta_other)

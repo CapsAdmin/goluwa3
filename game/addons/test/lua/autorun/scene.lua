@@ -8,8 +8,8 @@ local Texture = require("render.texture")
 local ecs = require("ecs")
 local ffi = require("ffi")
 local Polygon3D = require("render3d.polygon_3d")
-local transform = require("components.transform").Component
-local model = require("components.model").Component
+local transform = require("components.3d.transform").Component
+local model = require("components.3d.model").Component
 local materials = {}
 
 if HOTRELOAD then ecs.Clear3DWorld() end

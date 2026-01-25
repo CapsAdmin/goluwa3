@@ -12,8 +12,8 @@ local steam = require("steam")
 
 do -- todo, awkward require for steam.SetMap to exist on the steam library
 	require("ecs")
-	require("components.model")
-	require("components.transform")
+	require("components.3d.model")
+	require("components.3d.transform")
 end
 
 T.Test("map test", function()

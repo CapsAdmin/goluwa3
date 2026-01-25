@@ -10,8 +10,8 @@ local Vec2 = require("structs.vec2")
 local Color = require("structs.color")
 local entities = require("ecs")
 local utility = require("utility")
-local transform = require("components.transform").Component
-local model = require("components.model").Component
+local transform = require("components.3d.transform").Component
+local model = require("components.3d.model").Component
 local HEADER = [[
 float n2D(vec2 p) {
 	vec2 i = floor(p); p -= i; 

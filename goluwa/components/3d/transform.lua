@@ -125,9 +125,7 @@ function META:GetWorldMatrixInverse()
 	return self.WorldMatrixInverse
 end
 
-META:Register()
-ecs.RegisterComponent(META)
 local transform = {}
-transform.Component = META
+transform.Component = META:Register()
 -- no system?
 return transform

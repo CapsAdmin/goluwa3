@@ -4,8 +4,8 @@ local event = require("event")
 local ecs = require("ecs")
 local Color = require("structs.color")
 local input = require("input")
-local transform = require("components.transform").Component
-local light = require("components.light").Component
+local transform = require("components.3d.transform").Component
+local light = require("components.3d.light").Component
 local sun = ecs.CreateFromTable(
 	{
 		[transform] = {

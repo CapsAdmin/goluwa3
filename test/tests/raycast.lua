@@ -16,8 +16,8 @@ local Vec2 = require("structs.vec2")
 local Quat = require("structs.quat")
 local Color = require("structs.color")
 local Rect = require("structs.rect")
-local transform = require("components.transform").Component
-local model = require("components.model").Component
+local transform = require("components.3d.transform").Component
+local model = require("components.3d.model").Component
 
 local function init_render3d()
 	render.Initialize({headless = true, width = 512, height = 512})

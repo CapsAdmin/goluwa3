@@ -277,7 +277,7 @@ function lightprobes.CreatePipelines()
 	local EasyPipeline = require("render.easy_pipeline")
 	local orientation = require("render3d.orientation")
 	local Material = require("render3d.material")
-	local Light = require("components.light")
+	local Light = require("components.3d.light")
 	-- Pipeline to render the scene into a cubemap face
 	lightprobes.scene_pipeline = EasyPipeline.New(
 		{
