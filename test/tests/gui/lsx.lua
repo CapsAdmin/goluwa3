@@ -1,5 +1,5 @@
 local T = require("test.environment")
-local lsx = require("gui.lsx")
+local lsx = require("gui.gui").lsx
 local prototype = require("prototype")
 local gui = require("gui.gui")
 local Vec2 = require("structs.vec2")
@@ -14,7 +14,7 @@ META.Base = BasePanel
 META:GetSet("MemoVal")
 META:GetSet("Callback")
 META:Register()
-local Mock = lsx.RegisterElement("mock_element")
+local Mock = lsx:RegisterElement("mock_element")
 
 local function CreateMockRoot()
 	return BasePanel:CreateObject()
@@ -29,21 +29,21 @@ T.Test("lsx plain function as component", function()
 	end
 
 	-- Test passing function directly (0 props)
-	local instance1 = lsx.Mount(MyComponent, root)
+	local instance1 = lsx:Mount(MyComponent({}), root)
 	T(instance1:GetName())["=="]("Default")
 	-- Test passing {fn, props} table
-	local instance2 = lsx.Mount({MyComponent, name = "Custom"}, root)
+	local instance2 = lsx:Mount({MyComponent, name = "Custom"}, root)
 	T(instance2:GetName())["=="]("Custom")
 	root:Remove()
 end)
 
-T.Test("lsx.RegisterElement and lsx.Mount", function()
+T.Test("lsx:RegisterElement and lsx:Mount", function()
 	local root = CreateMockRoot()
 	local element = Mock({
 		Name = "TestElement",
 		Size = Vec2(100, 200),
 	})
-	local instance = lsx.Mount(element, root)
+	local instance = lsx:Mount(element, root)
 	T(instance:GetName())["=="]("TestElement")
 	T(instance:GetSize().x)["=="](100)
 	T(instance:GetSize().y)["=="](200)
@@ -51,13 +51,13 @@ T.Test("lsx.RegisterElement and lsx.Mount", function()
 	root:Remove()
 end)
 
-T.Test("lsx.Fragment", function()
+T.Test("lsx:Fragment", function()
 	local root = CreateMockRoot()
-	local fragment = lsx.Fragment({
+	local fragment = lsx:Fragment({
 		Mock({Name = "Child1"}),
 		Mock({Name = "Child2"}),
 	})
-	local instances = lsx.Mount(fragment, root)
+	local instances = lsx:Mount(fragment, root)
 	T(#instances)["=="](2)
 	T(instances[1]:GetName())["=="]("Child1")
 	T(instances[2]:GetName())["=="]("Child2")
@@ -66,29 +66,29 @@ T.Test("lsx.Fragment", function()
 	root:Remove()
 end)
 
-T.Test("lsx.Component basic", function()
+T.Test("lsx:Component basic", function()
 	local root = CreateMockRoot()
 
 	local function MyComponent(props)
 		return Mock({Name = props.name or "Default"})
 	end
 
-	local instance = lsx.Mount(MyComponent({name = "Custom"}), root)
+	local instance = lsx:Mount(MyComponent({name = "Custom"}), root)
 	T(instance:GetName())["=="]("Custom")
 	root:Remove()
 end)
 
-T.Test("lsx.UseState", function()
+T.Test("lsx:UseState", function()
 	local root = CreateMockRoot()
 	local setStateProxy
 
 	local function MyComponent()
-		local count, setCount = lsx.UseState(0)
+		local count, setCount = lsx:UseState(0)
 		setStateProxy = setCount
 		return Mock({Name = "Count:" .. count})
 	end
 
-	local instance = lsx.MountTopLevel(MyComponent, {}, root)
+	local instance = lsx:MountTopLevel(MyComponent, {}, root)
 	T(instance:GetName())["=="]("Count:0")
 	setStateProxy(1)
 	-- Trigger Update event to process the re-render
@@ -104,13 +104,13 @@ T.Test("lsx.UseState", function()
 	root:Remove()
 end)
 
-T.Test("lsx.UseEffect", function()
+T.Test("lsx:UseEffect", function()
 	local root = CreateMockRoot()
 	local effectCount = 0
 	local cleanupCount = 0
 
 	local function MyComponent(props)
-		lsx.UseEffect(
+		lsx:UseEffect(
 			function()
 				effectCount = effectCount + 1
 				return function()
@@ -124,69 +124,69 @@ T.Test("lsx.UseEffect", function()
 	end
 
 	local node = {MyComponent, trigger = 1}
-	local instance = lsx.Mount(node, root)
+	local instance = lsx:Mount(node, root)
 	T(effectCount)["=="](1)
 	T(cleanupCount)["=="](0)
 	-- Re-render with same dependency
-	lsx.Build(node, root, instance)
+	lsx:Build(node, root, instance)
 	T(effectCount)["=="](1)
 	T(cleanupCount)["=="](0)
 	-- Re-render with different dependency
 	node.trigger = 2
-	lsx.Build(node, root, instance)
-	lsx.RunPendingEffects()
+	lsx:Build(node, root, instance)
+	lsx:RunPendingEffects()
 	T(effectCount)["=="](2)
 	T(cleanupCount)["=="](1)
 	root:Remove()
 end)
 
-T.Test("lsx.UseMemo and lsx.UseCallback", function()
+T.Test("lsx:UseMemo and lsx:UseCallback", function()
 	local root = CreateMockRoot()
 	local memoCalls = 0
 
 	local function MyComponent(props)
-		local memoized = lsx.UseMemo(
+		local memoized = lsx:UseMemo(
 			function()
 				memoCalls = memoCalls + 1
 				return "val-" .. props.val
 			end,
 			{props.val}
 		)
-		local callback = lsx.UseCallback(function()
+		local callback = lsx:UseCallback(function()
 			return props.val
 		end, {props.val})
 		return Mock({MemoVal = memoized, Callback = callback})
 	end
 
 	local node = {MyComponent, val = "a"}
-	local instance = lsx.Mount(node, root)
+	local instance = lsx:Mount(node, root)
 	local firstCallback = instance.Callback
 	T(instance.MemoVal)["=="]("val-a")
 	T(memoCalls)["=="](1)
 	-- Same deps
-	lsx.Build(node, root, instance)
+	lsx:Build(node, root, instance)
 	T(memoCalls)["=="](1)
 	T(instance.Callback)["=="](firstCallback)
 	-- Different deps
 	node.val = "b"
-	lsx.Build(node, root, instance)
+	lsx:Build(node, root, instance)
 	T(memoCalls)["=="](2)
 	T(instance.MemoVal)["=="]("val-b")
 	T(instance.Callback ~= firstCallback)["=="](true)
 	root:Remove()
 end)
 
-T.Test("lsx.UseRef", function()
+T.Test("lsx:UseRef", function()
 	local root = CreateMockRoot()
 	local capturedRef
 
 	local function MyComponent()
-		local myRef = lsx.UseRef(nil)
+		local myRef = lsx:UseRef(nil)
 		capturedRef = myRef
 		return Mock({ref = myRef})
 	end
 
-	local instance = lsx.Mount({MyComponent}, root)
+	local instance = lsx:Mount({MyComponent}, root)
 	T(capturedRef.current)["=="](instance)
 	root:Remove()
 end)
@@ -205,18 +205,18 @@ T.Test("lsx reconciliation - children", function()
 	end
 
 	local node = {List, count = 2}
-	local instance = lsx.Mount(node, root)
+	local instance = lsx:Mount(node, root)
 	T(#instance:GetChildren())["=="](2)
 	local firstChild = instance:GetChildren()[1]
 	T(firstChild:GetName())["=="]("Item1")
 	-- Update count
 	node.count = 3
-	lsx.Build(node, root, instance)
+	lsx:Build(node, root, instance)
 	T(#instance:GetChildren())["=="](3)
 	T(instance:GetChildren()[1])["=="](firstChild) -- Should be same instance
 	-- Decrease count
 	node.count = 1
-	lsx.Build(node, root, instance)
+	lsx:Build(node, root, instance)
 	T(#instance:GetChildren())["=="](1)
 	T(instance:GetChildren()[1])["=="](firstChild)
 	root:Remove()
@@ -226,14 +226,14 @@ T.Test("lsx component ref and layout", function()
 	local ref_called = false
 
 	local function MyComponent(props)
-		return lsx.Panel({
+		return lsx:Panel({
 			Name = "InternalPanel",
 			Size = Vec2(100, 100),
 		})
 	end
 
 	local root = gui.Create("base")
-	local instance = lsx.Mount(
+	local instance = lsx:Mount(
 		{
 			MyComponent,
 			ref = function(pnl)
@@ -251,12 +251,12 @@ end)
 
 T.Test("lsx layout calculation with children", function()
 	local function MyComponent(props)
-		return lsx.Panel(
+		return lsx:Panel(
 			{
 				Name = "Container",
 				Size = Vec2(200, 200),
 				Layout = {"Fill"},
-				lsx.Panel(
+				lsx:Panel(
 					{
 						Name = "Child",
 						Size = Vec2(50, 50),
@@ -269,7 +269,7 @@ T.Test("lsx layout calculation with children", function()
 
 	local root = gui.Create("base")
 	root:SetSize(Vec2(500, 500))
-	local panel = lsx.Mount(MyComponent({}), root)
+	local panel = lsx:Mount(MyComponent({}), root)
 	-- Trigger layout calculation
 	root:CalcLayout()
 	T(panel.Size.x)["=="](500)
@@ -283,14 +283,14 @@ T.Test("lsx layout calculation with children", function()
 	root:Remove()
 end)
 
-T.Test("lsx.Build should not be called multiple times if setState is called multiple times", function()
+T.Test("lsx:Build should not be called multiple times if setState is called multiple times", function()
 	local build_count = 0
 
 	local function MyComponent()
 		build_count = build_count + 1
-		local state, set_state = lsx.UseState(0)
+		local state, set_state = lsx:UseState(0)
 
-		lsx.UseEffect(function()
+		lsx:UseEffect(function()
 			set_state(1)
 			set_state(2)
 			set_state(3)
@@ -301,7 +301,7 @@ T.Test("lsx.Build should not be called multiple times if setState is called mult
 
 	local root = CreateMockRoot()
 	local node = {MyComponent}
-	local instance = lsx.Mount(node, root)
+	local instance = lsx:Mount(node, root)
 	T(build_count)["=="](1)
 	-- Process the scheduled re-render
 	event.Call("Update")
@@ -311,12 +311,12 @@ T.Test("lsx.Build should not be called multiple times if setState is called mult
 	root:Remove()
 end)
 
-T.Test("lsx.UseAnimate basic linear", function()
+T.Test("lsx:UseAnimate basic linear", function()
 	local root = CreateMockRoot()
 
 	local function MyComponent(props)
-		local ref = lsx.UseRef(nil)
-		lsx.UseAnimate(
+		local ref = lsx:UseRef(nil)
+		lsx:UseAnimate(
 			ref,
 			{
 				var = "DrawAlpha",
@@ -328,7 +328,7 @@ T.Test("lsx.UseAnimate basic linear", function()
 		return Mock({ref = ref, DrawAlpha = 0})
 	end
 
-	local instance = lsx.MountTopLevel(MyComponent, {targetAlpha = 1}, root)
+	local instance = lsx:MountTopLevel(MyComponent, {targetAlpha = 1}, root)
 	-- Initially DrawAlpha should be 0 (the from value)
 	T(instance:GetDrawAlpha())["=="](0)
 	-- Advance time by 0.5s
@@ -342,13 +342,13 @@ T.Test("lsx.UseAnimate basic linear", function()
 	root:Remove()
 end)
 
-T.Test("lsx.UseAnimate segmented with functions (pausing)", function()
+T.Test("lsx:UseAnimate segmented with functions (pausing)", function()
 	local root = CreateMockRoot()
 	local is_hovered = false
 
 	local function MyComponent(props)
-		local ref = lsx.UseRef(nil)
-		lsx.UseAnimate(
+		local ref = lsx:UseRef(nil)
+		lsx:UseAnimate(
 			ref,
 			{
 				var = "DrawAlpha",
@@ -367,12 +367,12 @@ T.Test("lsx.UseAnimate segmented with functions (pausing)", function()
 	end
 
 	local node = {MyComponent}
-	local instance = lsx.Mount(node, root)
+	local instance = lsx:Mount(node, root)
 	T(instance:GetDrawAlpha())["=="](0)
 	-- Trigger animation by setting is_hovered = true (re-rendering is not strictly necessary for the pause function but common)
 	is_hovered = true
-	lsx.Build(node, root, instance)
-	lsx.RunPendingEffects()
+	lsx:Build(node, root, instance)
+	lsx:RunPendingEffects()
 	-- 1s duration, segmented: from(0) -> 1 -> 0. (total 2 segments)
 	-- Pause is at segment index 1 (value 1.0, alpha 0.5)
 	system.SetFrameTime(0.25)
@@ -398,7 +398,7 @@ T.Test("lsx.UseAnimate segmented with functions (pausing)", function()
 	root:Remove()
 end)
 
-T.Test("lsx.UseAnimate with lsx.Value", function()
+T.Test("lsx:UseAnimate with lsx:Value", function()
 	local root = CreateMockRoot()
 	local window = require("window")
 	local mousePos = Vec2(0, 0)
@@ -408,12 +408,12 @@ T.Test("lsx.UseAnimate with lsx.Value", function()
 	end
 
 	local function MyComponent(props)
-		local ref = lsx.UseRef(nil)
-		lsx.UseAnimate(
+		local ref = lsx:UseRef(nil)
+		lsx:UseAnimate(
 			ref,
 			{
 				var = "DrawPositionOffset",
-				to = lsx.Value(function(self)
+				to = lsx:Value(function(self)
 					return window.GetMousePosition()
 				end),
 				time = 1,
@@ -424,7 +424,7 @@ T.Test("lsx.UseAnimate with lsx.Value", function()
 	end
 
 	local node = {MyComponent}
-	local instance = lsx.Mount(node, root)
+	local instance = lsx:Mount(node, root)
 	mousePos = Vec2(100, 100)
 	system.SetFrameTime(0.5)
 	instance:CalcAnimations()
@@ -440,12 +440,12 @@ T.Test("lsx.UseAnimate with lsx.Value", function()
 	root:Remove()
 end)
 
-T.Test("lsx.UseAnimate with spring interpolation", function()
+T.Test("lsx:UseAnimate with spring interpolation", function()
 	local root = CreateMockRoot()
 
 	local function MyComponent(props)
-		local ref = lsx.UseRef(nil)
-		lsx.UseAnimate(
+		local ref = lsx:UseRef(nil)
+		lsx:UseAnimate(
 			ref,
 			{
 				var = "DrawAlpha",
@@ -463,7 +463,7 @@ T.Test("lsx.UseAnimate with spring interpolation", function()
 	end
 
 	local node = {MyComponent, trigger = 1}
-	local instance = lsx.Mount(node, root)
+	local instance = lsx:Mount(node, root)
 	system.SetFrameTime(0.5)
 	instance:CalcAnimations()
 	local val = instance:GetDrawAlpha()
@@ -477,12 +477,12 @@ T.Test("lsx.UseAnimate with spring interpolation", function()
 	root:Remove()
 end)
 
-T.Test("lsx.UseAnimate with operator and absolute values", function()
+T.Test("lsx:UseAnimate with operator and absolute values", function()
 	local root = CreateMockRoot()
 
 	local function MyComponent(props)
-		local ref = lsx.UseRef(nil)
-		lsx.UseAnimate(
+		local ref = lsx:UseRef(nil)
+		lsx:UseAnimate(
 			ref,
 			{
 				var = "DrawScaleOffset",
@@ -496,7 +496,7 @@ T.Test("lsx.UseAnimate with operator and absolute values", function()
 	end
 
 	local node = {MyComponent, trigger = 1}
-	local instance = lsx.Mount(node, root)
+	local instance = lsx:Mount(node, root)
 	system.SetFrameTime(0.5)
 	instance:CalcAnimations()
 	T(instance:GetDrawScaleOffset().x)["=="](1.5)
@@ -506,12 +506,12 @@ T.Test("lsx.UseAnimate with operator and absolute values", function()
 	root:Remove()
 end)
 
-T.Test("lsx.UseAnimate with Ang3", function()
+T.Test("lsx:UseAnimate with Ang3", function()
 	local root = CreateMockRoot()
 
 	local function MyComponent(props)
-		local ref = lsx.UseRef(nil)
-		lsx.UseAnimate(
+		local ref = lsx:UseRef(nil)
+		lsx:UseAnimate(
 			ref,
 			{
 				var = "DrawAngleOffset",
@@ -524,7 +524,7 @@ T.Test("lsx.UseAnimate with Ang3", function()
 	end
 
 	local node = {MyComponent}
-	local instance = lsx.Mount(node, root)
+	local instance = lsx:Mount(node, root)
 	system.SetFrameTime(0.5)
 	instance:CalcAnimations()
 	local ang = instance:GetDrawAngleOffset()
@@ -538,14 +538,14 @@ T.Test("lsx component ref and layout", function()
 	local ref_called = false
 
 	local function MyComponent(props)
-		return lsx.Panel({
+		return lsx:Panel({
 			Name = "InternalPanel",
 			Size = Vec2(100, 100),
 		})
 	end
 
 	local root = gui.Create("base")
-	local instance = lsx.Mount(
+	local instance = lsx:Mount(
 		{
 			MyComponent,
 			ref = function(pnl)
@@ -563,12 +563,12 @@ end)
 
 T.Test("lsx layout calculation with children", function()
 	local function MyComponent(props)
-		return lsx.Panel(
+		return lsx:Panel(
 			{
 				Name = "Container",
 				Size = Vec2(200, 200),
 				Layout = {"Fill"}, -- This layout might depend on children if it was something else, but let's test a simple Case
-				lsx.Panel(
+				lsx:Panel(
 					{
 						Name = "Child",
 						Size = Vec2(50, 50),
@@ -581,7 +581,7 @@ T.Test("lsx layout calculation with children", function()
 
 	local root = gui.Create("base")
 	root:SetSize(Vec2(500, 500))
-	local panel = lsx.Mount(MyComponent({}), root)
+	local panel = lsx:Mount(MyComponent({}), root)
 	-- Trigger layout calculation
 	root:CalcLayout()
 	T(panel.Size.x)["=="](500)
@@ -595,7 +595,7 @@ T.Test("lsx layout calculation with children", function()
 	root:Remove()
 end)
 
-T.Test("lsx.HoverPanel regression test", function()
+T.Test("lsx:HoverPanel regression test", function()
 	local root = gui.Create("base")
 	root:SetSize(Vec2(500, 500))
 	local hover_count = 0
@@ -609,17 +609,17 @@ T.Test("lsx.HoverPanel regression test", function()
 	end
 
 	local function MyHover(props)
-		local is_hovered, set_hovered = lsx.UseState(false)
-		local ref = lsx.UseRef(nil)
+		local is_hovered, set_hovered = lsx:UseState(false)
+		local ref = lsx:UseRef(nil)
 
-		lsx.UseEffect(
+		lsx:UseEffect(
 			function()
 				if ref.current then set_hovered(ref.current:IsHovered(Vec2(0, 0))) end
 			end,
 			{props.tick}
 		)
 
-		return lsx.Panel(
+		return lsx:Panel(
 			{
 				ref = ref,
 				Name = "HoverTarget",
@@ -630,13 +630,13 @@ T.Test("lsx.HoverPanel regression test", function()
 	end
 
 	local node = {MyHover, tick = 1}
-	local instance = lsx.Mount(node, root)
+	local instance = lsx:Mount(node, root)
 	T(instance:GetScale().x)["=="](1)
 	-- Trigger hover
 	mock_hovered = true
 	node.tick = 2
-	lsx.Build(node, root, instance)
-	lsx.RunPendingEffects()
+	lsx:Build(node, root, instance)
+	lsx:RunPendingEffects()
 	-- A re-render should have been scheduled
 	event.Call("Update")
 	T(instance:GetScale().x)["=="](2)
@@ -649,7 +649,7 @@ T.Test("lsx.HoverPanel regression test", function()
 	end
 	scale_calls = 0
 	node.tick = 3
-	lsx.Build(node, root, instance)
+	lsx:Build(node, root, instance)
 	T(scale_calls)["=="](0) -- Should NOT have called SetScale because Scale didn't change
 	prototype.registered.panel_base.SetScale = original_SetScale
 	-- Clean up

@@ -3,7 +3,7 @@ local Vec2 = require("structs.vec2")
 local Vec3 = require("structs.vec3")
 local Rect = require("structs.rect")
 local Color = require("structs.color")
-local lsx = require("gui.lsx")
+local lsx = require("gui.gui").lsx
 local Ang3 = require("structs.ang3")
 local Interactive = runfile("lua/ui/components/interactive.lua")
 
@@ -30,14 +30,14 @@ do
 end
 
 local App = function()
-	return lsx.Panel(
+	return lsx:Panel(
 		{
 			Name = "App",
 			Size = Vec2(render2d.GetSize()),
 			Color = Color(0, 0, 0, 0),
 			Padding = Rect(20, 20, 20, 20),
 			Interactive(
-				lsx.Text(
+				lsx:Text(
 					{
 						Text = "hello world",
 						IgnoreMouseInput = true,
@@ -47,7 +47,7 @@ local App = function()
 				)
 			),
 			Interactive(
-				lsx.Text(
+				lsx:Text(
 					{
 						Text = "hello world",
 						IgnoreMouseInput = true,
@@ -60,4 +60,4 @@ local App = function()
 	)
 end
 require("gui.gui").Root:RemoveChildren()
-lsx.Mount(App)
+lsx:Mount(App)

@@ -3,7 +3,7 @@ local Vec2 = require("structs.vec2")
 local Color = require("structs.color")
 local Ang3 = require("structs.ang3")
 local window = require("window")
-local lsx = require("gui.lsx")
+local lsx = require("gui.gui").lsx
 local Texture = require("render.texture")
 local glow_highlight_tex = Texture.New({
 	width = 256,
@@ -15,15 +15,15 @@ glow_highlight_tex:Shade([[
 	return vec4(1.0, 1.0, 1.0, 1.0 - smoothstep(0.0, 0.5, dist));
 ]])
 return function(props)
-	local ref = lsx.UseRef(nil)
-	local is_hovered = lsx.UseHover(ref)
-	local is_pressed, set_pressed = lsx.UseState(false)
-	local hover_ref = lsx.UseRef(nil)
-	local press_ref = lsx.UseRef(nil)
-	local state_ref = lsx.UseRef({hovered = false, pressed = false})
+	local ref = lsx:UseRef(nil)
+	local is_hovered = lsx:UseHover(ref)
+	local is_pressed, set_pressed = lsx:UseState(false)
+	local hover_ref = lsx:UseRef(nil)
+	local press_ref = lsx:UseRef(nil)
+	local state_ref = lsx:UseRef({hovered = false, pressed = false})
 	state_ref.current.hovered = is_hovered
 	state_ref.current.pressed = is_pressed
-	lsx.UseAnimate(
+	lsx:UseAnimate(
 		hover_ref,
 		{
 			var = "DrawAlpha",
@@ -39,7 +39,7 @@ return function(props)
 		},
 		{is_hovered}
 	)
-	lsx.UseAnimate(
+	lsx:UseAnimate(
 		press_ref,
 		{
 			var = "DrawScaleOffset",
@@ -56,7 +56,7 @@ return function(props)
 		},
 		{is_pressed}
 	)
-	lsx.UseAnimate(
+	lsx:UseAnimate(
 		ref,
 		{
 			var = "DrawScaleOffset",
@@ -70,14 +70,14 @@ return function(props)
 		},
 		{is_pressed}
 	)
-	lsx.UseAnimate(
+	lsx:UseAnimate(
 		ref,
 		{
 			var = "DrawAngleOffset",
 			-- The ternary is much snappier than the segmented approach
 			to = not is_pressed and
 				Ang3(0, 0, 0) or
-				lsx.Value(function(self)
+				lsx:Value(function(self)
 					if not self:IsHoveredExclusively() then return Ang3(0, 0, 0) end
 
 					local mpos = window.GetMousePosition()
@@ -96,7 +96,7 @@ return function(props)
 		},
 		{is_pressed}
 	)
-	return lsx.Panel(
+	return lsx:Panel(
 		{
 			Name = "interactive test",
 			ref = ref,
@@ -117,7 +117,7 @@ return function(props)
 				end
 			end,
 			props,
-			lsx.Panel(
+			lsx:Panel(
 				{
 					Name = "large glow",
 					ref = hover_ref,
@@ -149,7 +149,7 @@ return function(props)
 					IgnoreMouseInput = true,
 				}
 			),
-			lsx.Panel(
+			lsx:Panel(
 				{
 					Name = "small glow",
 					ref = press_ref,

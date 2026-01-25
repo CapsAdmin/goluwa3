@@ -170,4 +170,123 @@ do
 	end
 end
 
+do
+	local LSX = require("lsx")
+	local DefaultAdapter = {
+		Create = function(panel_type, parent)
+			return require("gui.gui").Create(panel_type, parent)
+		end,
+		GetRoot = function()
+			local ok, gui = pcall(require, "gui.gui")
+			return ok and gui.Root or nil
+		end,
+		PostRender = function(panel)
+			local ok, gui = pcall(require, "gui.gui")
+
+			if ok and gui.Root and gui.Root.CalcLayout then gui.Root:CalcLayout() end
+		end,
+	}
+	local lsx = LSX.New(DefaultAdapter)
+
+	function lsx:UseAnimation(ref)
+		return self:UseCallback(
+			function(config)
+				if ref.current then ref.current:Animate(config) end
+			end,
+			{ref}
+		)
+	end
+
+	function lsx:UseMouse()
+		local pos, set_pos = self:UseState(function()
+			local mpos = window.GetMousePosition()
+			return Vec2(mpos.x, mpos.y)
+		end)
+
+		self:UseEffect(
+			function()
+				return event.AddListener("Update", self, function()
+					local mpos = window.GetMousePosition()
+
+					set_pos(function(old)
+						if old.x == mpos.x and old.y == mpos.y then return old end
+
+						return Vec2(mpos.x, mpos.y)
+					end)
+				end)
+			end,
+			{}
+		)
+
+		return pos
+	end
+
+	function lsx:UseHover(ref)
+		local is_hovered, set_hovered = self:UseState(false)
+		local mouse = self:UseMouse()
+
+		self:UseEffect(
+			function()
+				if not ref.current then return end
+
+				set_hovered(ref.current:IsHovered(mouse))
+			end,
+			{mouse.x, mouse.y}
+		)
+
+		return is_hovered
+	end
+
+	function lsx:UseHoverExclusively(ref)
+		local is_hovered, set_hovered = self:UseState(false)
+		local mouse = self:UseMouse()
+
+		self:UseEffect(
+			function()
+				if not ref.current then return end
+
+				set_hovered(ref.current:IsHoveredExclusively(mouse))
+			end,
+			{mouse.x, mouse.y}
+		)
+
+		return is_hovered
+	end
+
+	function lsx:UseAnimate(ref, config, deps)
+		self:UseEffect(
+			function()
+				if not ref.current then return end
+
+				ref.current:Animate(config)
+			end,
+			deps
+		)
+	end
+
+	function lsx:UsePress(ref, button)
+		button = button or "button_1"
+		local is_pressed, set_pressed = self:UseState(false)
+
+		self:UseEffect(
+			function()
+				if not ref.current then return end
+
+				return ref.current:AddLocalListener("MouseInput", function(_, btn, press)
+					if btn ~= button then return end
+
+					set_pressed(press)
+				end)
+			end,
+			{ref.current}
+		)
+
+		return is_pressed
+	end
+
+	lsx.Panel = lsx:RegisterElement("base")
+	lsx.Text = lsx:RegisterElement("text")
+	gui.lsx = lsx
+end
+
 return gui
