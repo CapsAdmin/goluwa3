@@ -23,6 +23,7 @@ return function(props)
 	local state_ref = lsx:UseRef({hovered = false, pressed = false})
 	state_ref.current.hovered = is_hovered
 	state_ref.current.pressed = is_pressed
+	print("interactive render", is_hovered, is_pressed)
 	lsx:UseAnimate(
 		hover_ref,
 		{

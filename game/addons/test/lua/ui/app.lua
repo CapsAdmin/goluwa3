@@ -13,6 +13,10 @@ do
 	local Color = require("structs.color")
 
 	timer.Delay(0, function()
+		do
+			return
+		end
+
 		local gui = require("gui.gui")
 		local pnl = utility.RemoveOldObject(gui.Create("frame"))
 		pnl:SetPosition(Vec2() + 300)
@@ -36,16 +40,6 @@ local App = function()
 			Size = Vec2(render2d.GetSize()),
 			Color = Color(0, 0, 0, 0),
 			Padding = Rect(20, 20, 20, 20),
-			Interactive(
-				lsx:Text(
-					{
-						Text = "hello world",
-						IgnoreMouseInput = true,
-						Color = Color(1, 1, 1, 1),
-						Layout = {"CenterSimple"},
-					}
-				)
-			),
 			Interactive(
 				lsx:Text(
 					{

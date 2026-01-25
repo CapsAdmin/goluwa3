@@ -1,14 +1,10 @@
 local system = require("system")
-local Vec2 = require("structs.vec2")
-local Rect = require("structs.rect")
-local Ang3 = require("structs.ang3")
-local Color = require("structs.color")
 local easing = require("helpers.easing")
 local spring = require("helpers.spring")
 local list = require("helpers.list")
 local event = require("event")
 local animations = library()
-animations.Groups = {}
+animations.Groups = animations.Groups or {}
 
 local function get_value(v, group)
 	if type(v) == "table" and v.__lsx_value then return v.__lsx_value(group) end

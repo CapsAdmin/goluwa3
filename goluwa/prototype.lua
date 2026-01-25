@@ -1160,7 +1160,38 @@ function prototype.ParentingTemplate(META)
 	META:GetSet("Parent", NULL)
 	META:GetSet("Children", {})
 	META:GetSet("ChildrenMap", {})
-	META:GetSet("ChildOrder", 0)
+
+	do -- child order
+		META:GetSet("ChildOrder", 0)
+
+		function META:BringToFront()
+			local parent = self:GetParent()
+
+			if parent:IsValid() then
+				self:UnParent()
+				parent:AddChild(self)
+			end
+		end
+
+		function META:SendToBack()
+			local parent = self:GetParent()
+
+			if parent:IsValid() then
+				self:UnParent()
+				parent:AddChild(self, 1)
+			end
+		end
+
+		function META:SetChildOrder(pos)
+			self.ChildOrder = pos
+
+			if self:HasParent() then
+				list.sort(self.Parent.Children, function(a, b)
+					return a.ChildOrder > b.ChildOrder
+				end)
+			end
+		end
+	end
 
 	do -- children
 		function META:GetChildren()

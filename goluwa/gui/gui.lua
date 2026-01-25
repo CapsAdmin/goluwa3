@@ -102,21 +102,6 @@ function gui.Initialize()
 	event.AddListener("MouseInput", "gui_mouse", function(button, press)
 		local pos = window.GetMousePosition()
 		gui.mouse_pos = pos
-
-		if button == "button_1" then
-			if press then
-				local hovered = gui.GetHoveredObject(pos)
-
-				if hovered and hovered:GetDragEnabled() then
-					gui.DraggingObject = hovered
-					gui.DragMouseStart = pos:Copy()
-					gui.DragObjectStart = hovered:GetPosition():Copy()
-				end
-			else
-				gui.DraggingObject = nil
-			end
-		end
-
 		local target
 
 		if press then
@@ -205,7 +190,7 @@ do
 
 		self:UseEffect(
 			function()
-				return event.AddListener("Update", self, function()
+				return event.AddListener("Update", {}, function()
 					local mpos = window.GetMousePosition()
 
 					set_pos(function(old)
@@ -262,26 +247,6 @@ do
 			end,
 			deps
 		)
-	end
-
-	function lsx:UsePress(ref, button)
-		button = button or "button_1"
-		local is_pressed, set_pressed = self:UseState(false)
-
-		self:UseEffect(
-			function()
-				if not ref.current then return end
-
-				return ref.current:AddLocalListener("MouseInput", function(_, btn, press)
-					if btn ~= button then return end
-
-					set_pressed(press)
-				end)
-			end,
-			{ref.current}
-		)
-
-		return is_pressed
 	end
 
 	lsx.Panel = lsx:RegisterElement("base")
