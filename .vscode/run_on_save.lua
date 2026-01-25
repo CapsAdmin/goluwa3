@@ -1,0 +1,3 @@
+local path = ...
+require("goluwa.global_environment")
+require("filewatcher").Reload(path)

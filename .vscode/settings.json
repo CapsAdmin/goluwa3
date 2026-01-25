@@ -1,4 +1,11 @@
 {
   "editor.formatOnSave": true,
   "editor.defaultFormatter": "unpublished.nattlua",
+ "runOnSave.commands": [
+    {
+      "globMatch": "**/*",
+      "command": "cd ${workspaceFolder} && luajit .vscode/run_on_save.lua '${fileRelative}'",
+      "runIn": "terminal"
+    }
+  ]
 }

@@ -59,7 +59,7 @@ local function default_reload(path)
 	io.write("ran  ", path, "\n")
 end
 
-local function on_reload(path)
+local function on_reload(path, from_terminal)
 	if not path:ends_with(".lua") and not path:ends_with(".nlua") then return end
 
 	if path:find("hotreload.lua", nil, true) then
@@ -116,6 +116,10 @@ local function on_reload(path)
 end
 
 function hotreload.OnReload(path, code) end
+
+function hotreload.Reload(path)
+	return on_reload(path)
+end
 
 function hotreload.Start()
 	hotreload.Stop()
