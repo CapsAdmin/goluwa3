@@ -30,16 +30,6 @@ end
 
 local Component = prototype.CreateTemplate("lsx_component")
 Component:Register()
-
-function lsx.Component(fn)
-	return function(props)
-		return Component:CreateObject({
-			build = fn,
-			props = props or {},
-		})
-	end
-end
-
 lsx.Panel = lsx.RegisterElement("base")
 lsx.Text = lsx.RegisterElement("text")
 
@@ -52,10 +42,6 @@ function lsx.Pauser(fn)
 end
 
 lsx.hook_index = 0
-
-local function get_comp_key(comp)
-	return type(comp) == "table" and comp.build or comp
-end
 
 local function increment_hook_index()
 	local idx = lsx.hook_index
@@ -74,12 +60,11 @@ do -- hooks
 		if not comp then error("can only be called inside a component", 2) end
 
 		local idx = increment_hook_index()
-		local key = get_comp_key(comp)
-		local states = lsx.component_states[key]
+		local states = lsx.component_states[comp]
 
 		if not states then
 			states = {}
-			lsx.component_states[key] = states
+			lsx.component_states[comp] = states
 		end
 
 		if states[idx] == nil then
@@ -136,12 +121,11 @@ do -- hooks
 		if not comp then error("can only be called inside a component", 2) end
 
 		local idx = increment_hook_index()
-		local key = get_comp_key(comp)
-		local states = lsx.component_states[key]
+		local states = lsx.component_states[comp]
 
 		if not states then
 			states = {}
-			lsx.component_states[key] = states
+			lsx.component_states[comp] = states
 		end
 
 		local prevRecord = states[idx]
@@ -179,12 +163,11 @@ do -- hooks
 		if not comp then error("can only be called inside a component", 2) end
 
 		local idx = increment_hook_index()
-		local key = get_comp_key(comp)
-		local states = lsx.component_states[key]
+		local states = lsx.component_states[comp]
 
 		if not states then
 			states = {}
-			lsx.component_states[key] = states
+			lsx.component_states[comp] = states
 		end
 
 		local cached = states[idx]
@@ -220,12 +203,11 @@ do -- hooks
 		if not comp then error("can only be called inside a component", 2) end
 
 		local idx = increment_hook_index()
-		local key = get_comp_key(comp)
-		local states = lsx.component_states[key]
+		local states = lsx.component_states[comp]
 
 		if not states then
 			states = {}
-			lsx.component_states[key] = states
+			lsx.component_states[comp] = states
 		end
 
 		if states[idx] == nil then states[idx] = {current = initial, isRef = true} end
@@ -374,7 +356,24 @@ function lsx.Build(node, parent, existing)
 	end
 
 	if type(node) == "function" then
-		return lsx.Build(lsx.Component(node)({}), parent, existing)
+		return lsx.Build(Component:CreateObject({
+			build = node,
+			props = {},
+		}), parent, existing)
+	end
+
+	if type(node) == "table" and type(node[1]) == "function" and not node.Type then
+		local fn = node[1]
+		local props = {}
+
+		for k, v in pairs(node) do
+			if k ~= 1 then props[k] = v end
+		end
+
+		return lsx.Build(Component:CreateObject({
+			build = fn,
+			props = props,
+		}), parent, existing)
 	end
 
 	if node.Type == "lsx_fragment" then
@@ -404,6 +403,15 @@ function lsx.Build(node, parent, existing)
 	end
 
 	if node.Type == "lsx_component" then
+		if
+			existing and
+			type(existing) == "table" and
+			existing.lsx_states and
+			existing.lsx_states[node.build]
+		then
+			lsx.component_states[node] = existing.lsx_states[node.build]
+		end
+
 		node.render_scheduled = false
 		lsx.current_component = node
 		lsx.hook_index = 0
@@ -411,6 +419,12 @@ function lsx.Build(node, parent, existing)
 		lsx.current_component = nil
 		local panel = lsx.Build(rendered, parent, existing)
 		node.instance = panel
+
+		if panel and type(panel) == "table" and panel.Remove then
+			if not panel.lsx_states then panel.lsx_states = {} end
+
+			panel.lsx_states[node.build] = lsx.component_states[node]
+		end
 
 		if existing and panel ~= existing then safe_remove(existing) end
 
@@ -515,6 +529,18 @@ function lsx.Mount(node, parent)
 
 	lsx.RunPendingEffects()
 	return panel
+end
+
+function lsx.MountTopLevel(fn, props, parent)
+	local node = {fn}
+
+	if props then
+		for k, v in pairs(props) do
+			if type(k) == "number" then node[k + 1] = v else node[k] = v end
+		end
+	end
+
+	return lsx.Mount(node, parent)
 end
 
 function lsx.Inspect(node, indent)

@@ -14,7 +14,7 @@ glow_highlight_tex:Shade([[
 	float dist = distance(uv, vec2(0.5));
 	return vec4(1.0, 1.0, 1.0, 1.0 - smoothstep(0.0, 0.5, dist));
 ]])
-return lsx.Component(function(props)
+return function(props)
 	local ref = lsx.UseRef(nil)
 	local is_hovered = lsx.UseHover(ref)
 	local is_pressed, set_pressed = lsx.UseState(false)
@@ -181,4 +181,4 @@ return lsx.Component(function(props)
 			),
 		}
 	)
-end)
+end

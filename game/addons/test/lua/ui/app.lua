@@ -29,7 +29,7 @@ do
 	end)
 end
 
-local App = lsx.Component(function()
+local App = function()
 	return lsx.Panel(
 		{
 			Name = "App",
@@ -58,6 +58,6 @@ local App = lsx.Component(function()
 			),
 		}
 	)
-end)
+end
 require("gui.gui").Root:RemoveChildren()
-lsx.Mount(App())
+lsx.Mount(App)
