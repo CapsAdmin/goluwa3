@@ -10,6 +10,8 @@ local Vec2 = require("structs.vec2")
 local Color = require("structs.color")
 local entities = require("ecs")
 local utility = require("utility")
+local transform = require("components.transform").Component
+local model = require("components.model").Component
 local HEADER = [[
 float n2D(vec2 p) {
 	vec2 i = floor(p); p -= i; 
@@ -164,7 +166,7 @@ local function CreateDesertTerrain()
 
 	do
 		local ent = entities.CreateEntity("debug_ent")
-		local transform = ent:AddComponent("transform")
+		local transform = ent:AddComponent(transform)
 		transform:SetPosition(Vec3(0, -10, 0))
 		local poly = Polygon3D.New()
 		poly:CreateSphere(1)
@@ -176,7 +178,7 @@ local function CreateDesertTerrain()
 		poly.material = mat
 		poly:AddSubMesh(#poly.Vertices)
 		poly:Upload()
-		local model = ent:AddComponent("model")
+		local model = ent:AddComponent(model)
 		model:AddPrimitive(poly)
 	end
 
@@ -209,8 +211,8 @@ local function CreateDesertTerrain()
 	poly:BuildBoundingBox()
 	poly:Upload()
 	local ent = entities.CreateEntity("desert_terrain")
-	local transform = ent:AddComponent("transform")
-	local model = ent:AddComponent("model")
+	local transform = ent:AddComponent(transform)
+	local model = ent:AddComponent(model)
 	transform:SetPosition(Vec3(0, -127, 0))
 	model:AddPrimitive(poly)
 	return ent

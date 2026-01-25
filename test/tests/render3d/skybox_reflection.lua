@@ -18,6 +18,8 @@ local Vec2 = require("structs.vec2")
 local Rect = require("structs.rect")
 local Matrix44 = require("structs.matrix44")
 local Texture = require("render.texture")
+local transform = require("components.transform").Component
+local light = require("components.light").Component
 local fs = require("fs")
 local width = 512
 local height = 512
@@ -60,10 +62,10 @@ local function draw3d(cb)
 	cam:SetOrthoMode(false)
 	ecs.CreateFromTable(
 		{
-			transform = {
+			[transform] = {
 				Rotation = Quat(0, 0, 0, 1):Normalize(),
 			},
-			light = {
+			[light] = {
 				LightType = "sun",
 				Color = Color(1, 1, 1),
 				Intensity = 0,

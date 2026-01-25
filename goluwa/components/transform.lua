@@ -127,4 +127,7 @@ end
 
 META:Register()
 ecs.RegisterComponent(META)
-return META
+local transform = {}
+transform.Component = META
+-- no system?
+return transform

@@ -4,12 +4,14 @@ local event = require("event")
 local ecs = require("ecs")
 local Color = require("structs.color")
 local input = require("input")
+local transform = require("components.transform").Component
+local light = require("components.light").Component
 local sun = ecs.CreateFromTable(
 	{
-		transform = {
+		[transform] = {
 			Rotation = Quat(-0.2, 0.8, 0.4, 0.4),
 		},
-		light = {
+		[light] = {
 			LightType = "sun",
 			Color = Color(1.0, 0.98, 1),
 			Intensity = 20,

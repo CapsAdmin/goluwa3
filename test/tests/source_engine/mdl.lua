@@ -12,8 +12,9 @@ local steam = require("steam")
 local render3d = require("render3d.render3d")
 local Polygon3D = require("render3d.polygon_3d")
 local Material = require("render3d.material")
-require("components.transform")
-require("components.model")
+local transform = require("components.transform").Component
+local model = require("components.model").Component
+local light = require("components.light").Component
 local Vec3 = require("structs.vec3")
 local Quat = require("structs.quat")
 local Vec2 = require("structs.vec2")
@@ -33,10 +34,10 @@ local function setup_sun()
 
 	ecs.CreateFromTable(
 		{
-			transform = {
+			[transform] = {
 				Rotation = Quat(0.5, 0, 0, -1),
 			},
-			light = {
+			[light] = {
 				LightType = "sun",
 				Color = Color(1, 1, 1),
 				Intensity = 0,
@@ -61,9 +62,9 @@ T.Test("mdl rendering", function()
 	init_render3d()
 	steam.MountSourceGame("gmod")
 	tasks.WaitAll(5)
-	local ent = ecs.CreateEntity("mdl", ecs.GetWorld())
-	ent:AddComponent("transform")
-	ent:AddComponent("model")
+	local ent = ecs.CreateEntity("mdl", ecs.Get3DWorld())
+	ent:AddComponent(transform)
+	ent:AddComponent(model)
 	ent.model:SetModelPath("models/player/combine_super_soldier.mdl")
 	tasks.WaitAll(15)
 	ent.transform:SetRotation(Quat(0, -1, 0, 1))

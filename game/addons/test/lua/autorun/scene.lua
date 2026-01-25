@@ -8,9 +8,11 @@ local Texture = require("render.texture")
 local ecs = require("ecs")
 local ffi = require("ffi")
 local Polygon3D = require("render3d.polygon_3d")
+local transform = require("components.transform").Component
+local model = require("components.model").Component
 local materials = {}
 
-if HOTRELOAD then ecs.ClearWorld() end
+if HOTRELOAD then ecs.Clear3DWorld() end
 
 local function shaded_texture(glsl, shared)
 	if type(glsl) ~= "string" then return glsl end -- already a texture
@@ -72,7 +74,7 @@ do
 
 	local function spawn()
 		local ent = ecs.CreateEntity("debug_ent")
-		local transform = ent:AddComponent("transform")
+		local transform = ent:AddComponent(transform)
 		transform:SetPosition((pos * PADDING):Copy())
 		pos.x = pos.x + 1
 
@@ -90,7 +92,7 @@ do
 
 		poly:AddSubMesh(#poly.Vertices)
 		poly:Upload()
-		local model = ent:AddComponent("model")
+		local model = ent:AddComponent(model)
 		model:AddPrimitive(poly)
 	end
 
@@ -399,10 +401,10 @@ if false then -- reflection plane
 	poly:AddSubMesh(#poly.Vertices)
 	poly:Upload()
 	local ent = ecs.CreateEntity("reflection_plane")
-	local transform = ent:AddComponent("transform")
+	local transform = ent:AddComponent(transform)
 	transform:SetPosition(Vec3(17.9, -243.3, 1.1))
 	transform:SetScale(Vec3(100, 1, 100))
-	local model = ent:AddComponent("model")
+	local model = ent:AddComponent(model)
 	model:AddPrimitive(poly)
 end
 
@@ -465,7 +467,7 @@ if false then
 			print(model_path .. " not found!")
 		else
 			local e = ecs.CreateEntity("model_ent")
-			local t = e:AddComponent("transform")
+			local t = e:AddComponent(transform)
 			t:SetPosition(pos:Copy())
 			pos.x = pos.x + 5
 
@@ -474,7 +476,7 @@ if false then
 				pos.z = pos.z + 5
 			end
 
-			e:AddComponent("model")
+			e:AddComponent(model)
 			e.model:SetModelPath(model_path)
 		end
 	end

@@ -14,8 +14,8 @@ local render = require("render.render")
 local render3d = require("render3d.render3d")
 local Texture = require("render.texture")
 local Polygon3D = require("render3d.polygon_3d")
-require("components.transform")
-require("components.model")
+local transform = require("components.transform").Component
+local model = require("components.model").Component
 local AABB = require("structs.aabb")
 local gltf = library()
 gltf.debug_white_textures = false
@@ -824,7 +824,7 @@ function gltf.CreateEntityHierarchy(gltf_result, parent_entity, options)
 	options = options or {}
 	-- Create root entity for this glTF scene
 	local root_entity = ecs.CreateEntity(gltf_result.path or "gltf_root", parent_entity)
-	root_entity:AddComponent("transform")
+	root_entity:AddComponent(transform)
 	-- Map from glTF node index to entity
 	local node_to_entity = {}
 	-- Debug stats
@@ -838,7 +838,7 @@ function gltf.CreateEntityHierarchy(gltf_result, parent_entity, options)
 	-- First pass: create all entities with transforms
 	for node_index, node in ipairs(gltf_result.nodes) do
 		local entity = ecs.CreateEntity(node.name or ("node_" .. node_index))
-		entity:AddComponent("transform")
+		entity:AddComponent(transform)
 		-- Set local transform from glTF node
 		local transform = entity.transform
 
@@ -960,7 +960,7 @@ function gltf.CreateEntityHierarchy(gltf_result, parent_entity, options)
 
 				if not should_split then
 					-- Original behavior: all primitives in one model component
-					local model = entity:AddComponent("model")
+					local model = entity:AddComponent(model)
 
 					-- Create primitives for this mesh
 					for prim_idx, primitive in ipairs(mesh.primitives) do
@@ -1020,9 +1020,9 @@ function gltf.CreateEntityHierarchy(gltf_result, parent_entity, options)
 							-- Create a child entity for this primitive
 							local prim_name = (mesh.name or "mesh") .. "_prim" .. prim_idx
 							local prim_entity = ecs.CreateEntity(prim_name, entity)
-							prim_entity:AddComponent("transform")
+							prim_entity:AddComponent(transform)
 							-- Transform is identity since it inherits from parent node
-							local prim_model = prim_entity:AddComponent("model")
+							local prim_model = prim_entity:AddComponent(model)
 							local poly = create_primitive_polygon(
 								gltf_result,
 								primitive,

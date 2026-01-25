@@ -6,10 +6,11 @@ local Vec3 = require("structs.vec3")
 local Color = require("structs.color")
 local Quat = require("structs.quat")
 local ShadowMap = require("render3d.shadow_map")
+local transform = require("components.transform").Component
 local Light = {}
 local META = prototype.CreateTemplate("light")
 META.ComponentName = "light"
-META.Require = {"transform"}
+META.Require = {transform}
 META.Events = {"PreFrame"}
 META:GetSet("LightType", "directional")
 META:GetSet("Color", Color(1.0, 1.0, 1.0, 1.0))

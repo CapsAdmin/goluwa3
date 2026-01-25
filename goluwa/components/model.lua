@@ -9,6 +9,7 @@ local Vec3 = require("structs.vec3")
 local Color = require("structs.color")
 local Matrix44 = require("structs.matrix44")
 local model_loader = require("render3d.model_loader")
+local transform = require("components.transform").Component
 local system = require("system")
 local timer = require("timer")
 local ffi = require("ffi")
@@ -18,7 +19,7 @@ local cached_final_matrix = Matrix44()
 local META = prototype.CreateTemplate("model")
 META.ComponentName = "model"
 -- Model requires transform component
-META.Require = {"transform"}
+META.Require = {transform}
 META.Events = {"Draw3DGeometry"}
 META:GetSet("Primitives", {})
 META:GetSet("Visible", true)

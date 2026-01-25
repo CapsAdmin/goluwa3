@@ -20,8 +20,9 @@ local Color = require("structs.color")
 local Vec2 = require("structs.vec2")
 local Matrix44 = require("structs.matrix44")
 local orientation = require("render3d.orientation")
-require("components.model")
-require("components.transform")
+local transform = require("components.transform").Component
+local model = require("components.model").Component
+local light = require("components.light").Component
 local ecs = require("ecs")
 local width = 512
 local height = 512
@@ -95,8 +96,8 @@ local function create_face(pos, normal, up, color)
 		}
 	)
 	local ent = ecs.CreateEntity()
-	ent:AddComponent("transform")
-	ent:AddComponent("model")
+	ent:AddComponent(transform)
+	ent:AddComponent(model)
 	ent.model:AddPrimitive(poly)
 end
 
@@ -106,10 +107,10 @@ T.Test("camera tests", function()
 		render3d.Initialize()
 		ecs.CreateFromTable(
 			{
-				transform = {
+				[transform] = {
 					Rotation = Quat(-0.2, 0.8, 0.4, 0.4),
 				},
-				light = {
+				[light] = {
 					LightType = "sun",
 					Color = Color(1.0, 1, 1),
 					Intensity = 1,
@@ -148,9 +149,9 @@ T.Test("camera tests", function()
 					DoubleSided = false,
 				}
 			)
-			local ent = ecs.CreateEntity("mdl", ecs.GetWorld())
-			ent:AddComponent("transform")
-			ent:AddComponent("model")
+			local ent = ecs.CreateEntity("mdl", ecs.Get3DWorld())
+			ent:AddComponent(transform)
+			ent:AddComponent(model)
 			ent.model:AddPrimitive(poly)
 		end
 	end

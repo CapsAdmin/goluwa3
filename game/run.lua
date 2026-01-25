@@ -31,14 +31,7 @@ require("render2d.gfx").Initialize()
 require("pvars").Initialize()
 require("gui.gui").Initialize()
 require("repl").Initialize()
-
-do
-	require("render3d.model_loader")
-	require("components.transform")
-	require("components.model")
-	require("components.light")
-end
-
+require("render3d.model_loader")
 vfs.AutorunAddons()
 system.KeepAlive("game")
 require("filewatcher").Start()

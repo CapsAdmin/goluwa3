@@ -17,8 +17,8 @@ local Quat = require("structs.quat")
 local Color = require("structs.color")
 local Matrix44 = require("structs.matrix44")
 local ecs = require("ecs")
-require("components.transform")
-require("components.model")
+local transform = require("components.transform").Component
+local model = require("components.model").Component
 local width = 512
 local height = 512
 local initialized = false
@@ -41,14 +41,14 @@ local function create_cube(pos, ang, scale, color)
 	poly:BuildNormals()
 	poly:BuildBoundingBox()
 	poly:Upload()
-	local entity = ecs.CreateEntity("cube", ecs.GetWorld())
-	local tr = entity:AddComponent("transform")
+	local entity = ecs.CreateEntity("cube", ecs.Get3DWorld())
+	local tr = entity:AddComponent(transform)
 	tr:SetPosition(pos or Vec3(0, 0, 0))
 	tr:SetScale(scale or Vec3(1, 1, 1))
 
 	if ang then tr:SetAngles(ang) end
 
-	local model = entity:AddComponent("model")
+	local model = entity:AddComponent(model)
 	poly.material = Material.New():SetColorMultiplier(color or Color(1, 1, 1, 1))
 	model:AddPrimitive(poly)
 	return entity
@@ -56,7 +56,7 @@ end
 
 T.Test("transform basic", function()
 	init_render3d()
-	local world = ecs.GetWorld()
+	local world = ecs.Get3DWorld()
 	local pos = Vec3(1, 2, 3)
 	local ang = Deg3(10, 20, 30)
 	local scale = Vec3(2, 2, 2)
@@ -77,7 +77,7 @@ end)
 
 T.Test("transform parenting", function()
 	init_render3d()
-	local world = ecs.GetWorld()
+	local world = ecs.Get3DWorld()
 	local parent_pos = Vec3(10, 0, 0)
 	local parent = create_cube(parent_pos)
 	local child_pos = Vec3(5, 0, 0)

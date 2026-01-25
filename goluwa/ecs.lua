@@ -30,10 +30,6 @@ function ecs.RegisterComponent(component_meta)
 	return component_meta
 end
 
-function ecs.GetComponent(name)
-	return ecs.registered_components[name]
-end
-
 local ENTITY = prototype.CreateTemplate("entity")
 prototype.ParentingTemplate(ENTITY)
 ENTITY:GetSet("ComponentsHash", {})
@@ -42,16 +38,10 @@ function ENTITY:Initialize()
 	self.ComponentsHash = {}
 end
 
-function ENTITY:AddComponent(name_or_meta)
-	local meta = name_or_meta
+function ENTITY:AddComponent(meta)
+	if not meta.ComponentName and not meta.Type then debug.trace() end
 
-	if type(name_or_meta) == "string" then
-		meta = ecs.GetComponent(name_or_meta)
-
-		if not meta then error("Unknown component: " .. name_or_meta) end
-	end
-
-	local component_name = meta.ComponentName or meta.Type
+	local component_name = assert(meta.ComponentName or meta.Type)
 
 	if self.ComponentsHash[component_name] then
 		return self.ComponentsHash[component_name]
@@ -133,7 +123,7 @@ end
 ENTITY:Register()
 
 function ecs.CreateEntity(name, parent)
-	if name ~= "world" then parent = parent or ecs.GetWorld() end
+	if name ~= "world" then parent = parent or ecs.Get3DWorld() end
 
 	local entity = ENTITY:CreateObject()
 	entity:Initialize()
@@ -147,14 +137,12 @@ end
 function ecs.CreateFromTable(config)
 	local entity = ecs.CreateEntity(config.Name, config.Parent)
 
-	for component_name, component_data in pairs(config) do
-		if component_name == "Name" or component_name == "Parent" then
+	for component, component_props in pairs(config) do
+		if type(component) == "table" then
+			local inst = entity:AddComponent(component)
 
-		else
-			local component = entity:AddComponent(component_name)
-
-			for key, value in pairs(component_data) do
-				component["Set" .. key](component, value)
+			for key, value in pairs(component_props) do
+				inst["Set" .. key](inst, value)
 			end
 		end
 	end
@@ -162,24 +150,26 @@ function ecs.CreateFromTable(config)
 	return entity
 end
 
-local world_entity = nil
-
-function ecs.GetWorld()
-	if not world_entity or not world_entity:IsValid() then
-		world_entity = ecs.CreateEntity("world")
-	end
-
-	return world_entity
-end
-
-function ecs.ClearWorld()
-	if world_entity and world_entity:IsValid() then world_entity:Remove() end
-
-	world_entity = nil
-end
-
 function ecs.GetComponents(component_name)
 	return ecs.component_instances[component_name] or {}
+end
+
+do
+	local world_entity = nil
+
+	function ecs.Get3DWorld()
+		if not world_entity or not world_entity:IsValid() then
+			world_entity = ecs.CreateEntity("world")
+		end
+
+		return world_entity
+	end
+
+	function ecs.Clear3DWorld()
+		if world_entity and world_entity:IsValid() then world_entity:Remove() end
+
+		world_entity = nil
+	end
 end
 
 return ecs

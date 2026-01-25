@@ -13,6 +13,9 @@ local Vec3 = require("structs.vec3")
 local Vec2 = require("structs.vec2")
 local Color = require("structs.color")
 local event = require("event")
+local transform = require("components.transform").Component
+local model = require("components.model").Component
+local light = require("components.light").Component
 local math3d = require("render3d.math3d")
 local R = vfs.GetAbsolutePath
 local ffi = require("ffi")
@@ -65,10 +68,10 @@ function steam.SetMap(name)
 	end
 
 	local path = "maps/" .. name .. ".bsp"
-	steam.bsp_world = steam.bsp_world or ecs.CreateEntity("bsp_world", ecs.GetWorld())
+	steam.bsp_world = steam.bsp_world or ecs.CreateEntity("bsp_world", ecs.Get3DWorld())
 	steam.bsp_world:SetName(name)
-	steam.bsp_world:AddComponent("transform")
-	steam.bsp_world:AddComponent("model")
+	steam.bsp_world:AddComponent(transform)
+	steam.bsp_world:AddComponent(model)
 	steam.bsp_world.model:SetModelPath(path)
 	-- Note: SetPhysicsModelPath removed - physics component not yet ported
 	steam.bsp_world:RemoveChildren()
@@ -990,10 +993,10 @@ function steam.SpawnMapEntities(path, parent)
 					parent.light_group = parent.light_group or ecs.CreateEntity("lights", parent)
 					parent.light_group:SetName("lights")
 					local ent = ecs.CreateEntity("light", parent.light_group)
-					local tr = ent:AddComponent("transform")
+					local tr = ent:AddComponent(transform)
 					local position = Vec3(-info.origin.y, info.origin.z, -info.origin.x) * steam.source2meters
 					tr:SetPosition(position)
-					local light = ent:AddComponent("light")
+					local light = ent:AddComponent(light)
 					light:SetName("point")
 					light:SetLightType("point")
 					-- Color is already in linear space from parsing
@@ -1044,7 +1047,7 @@ function steam.SpawnMapEntities(path, parent)
 					local rotation = Quat()
 					rotation:SetAngles(Deg3(info.angles.x, info.angles.y, info.angles.r))
 					local position = Vec3(-info.origin.y, info.origin.z, -info.origin.x) * steam.source2meters
-					local tr = ent:AddComponent("transform")
+					local tr = ent:AddComponent(transform)
 					tr:SetPosition(position)
 					tr:SetRotation(rotation)
 
@@ -1052,7 +1055,7 @@ function steam.SpawnMapEntities(path, parent)
 						ent.transform:SetSize(info.model_size_mult)
 					end
 
-					ent:AddComponent("model")
+					ent:AddComponent(model)
 					ent.model:SetModelPath(info.model)
 
 					if false then

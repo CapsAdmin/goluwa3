@@ -3,17 +3,16 @@ local ecs = require("ecs")
 local prototype = require("prototype")
 
 T.Test("ecs core basic", function()
-	local world = ecs.GetWorld()
+	local world = ecs.Get3DWorld()
 	-- Test component registration
 	local test_component = prototype.CreateTemplate("test_component")
 	test_component.ComponentName = "test_component"
 	test_component.Foo = 1
 	test_component:Register()
 	ecs.RegisterComponent(test_component)
-	T(ecs.GetComponent("test_component"))["=="](test_component)
 	-- Test AddComponent
 	local ent = ecs.CreateEntity("test")
-	local c = ent:AddComponent("test_component")
+	local c = ent:AddComponent(test_component)
 	T(c)["~="](nil)
 	T(ent.test_component)["=="](c)
 	T(ent:HasComponent("test_component"))["=="](true)
@@ -38,11 +37,11 @@ T.Test("ecs OnRemove component", function()
 	META:Register()
 	ecs.RegisterComponent(META)
 	local ent = ecs.CreateEntity("test")
-	ent:AddComponent("test_on_remove")
+	ent:AddComponent(META)
 	ent:RemoveComponent("test_on_remove")
 	T(on_remove_called)["=="](true)
 	on_remove_called = false
-	ent:AddComponent("test_on_remove")
+	ent:AddComponent(META)
 	ent:Remove()
 	T(on_remove_called)["=="](true)
 end)
@@ -55,8 +54,8 @@ T.Test("ecs GetComponents", function()
 	local e1 = ecs.CreateEntity("e1")
 	local e2 = ecs.CreateEntity("e2")
 	local e3 = ecs.CreateEntity("e3")
-	local c1 = e1:AddComponent("c1")
-	local c2 = e2:AddComponent("c1")
+	local c1 = e1:AddComponent(META)
+	local c2 = e2:AddComponent(META)
 	local components = ecs.GetComponents("c1")
 	T(#components)["=="](2)
 	T(components[1])["=="](c1)
@@ -71,7 +70,7 @@ T.Test("ecs GetComponents", function()
 end)
 
 T.Test("ecs entity removal during loop", function()
-	local world = ecs.GetWorld()
+	local world = ecs.Get3DWorld()
 	local count = #world:GetChildren()
 	local added = {}
 
@@ -101,7 +100,7 @@ T.Test("ecs component removal during loop", function()
 
 	for i = 1, 5 do
 		local ent = ecs.CreateEntity("e" .. i)
-		ent:AddComponent("loop_test")
+		ent:AddComponent(META)
 	end
 
 	local components = ecs.GetComponents("loop_test")
@@ -127,7 +126,7 @@ T.Test("ecs internal component removal via RemoveCommand", function()
 	META:Register()
 	ecs.RegisterComponent(META)
 	local ent = ecs.CreateEntity()
-	local comp = ent:AddComponent("rem_test")
+	local comp = ent:AddComponent(META)
 	T(#ecs.GetComponents("rem_test"))["=="](1)
 
 	-- Test if remove_component works (it is registered via CallOnRemove)
@@ -142,11 +141,6 @@ T.Test("ecs internal component removal via RemoveCommand", function()
 end)
 
 T.Test("ecs AddComponent requirements", function()
-	local meta_req = prototype.CreateTemplate("with_req")
-	meta_req.ComponentName = "with_req"
-	meta_req.Require = {"req1", "req2"}
-	meta_req:Register()
-	ecs.RegisterComponent(meta_req)
 	local meta_req1 = prototype.CreateTemplate("req1")
 	meta_req1.ComponentName = "req1"
 	meta_req1:Register()
@@ -155,8 +149,13 @@ T.Test("ecs AddComponent requirements", function()
 	meta_req2.ComponentName = "req2"
 	meta_req2:Register()
 	ecs.RegisterComponent(meta_req2)
+	local meta_req = prototype.CreateTemplate("with_req")
+	meta_req.ComponentName = "with_req"
+	meta_req.Require = {meta_req1, meta_req2}
+	meta_req:Register()
+	ecs.RegisterComponent(meta_req)
 	local ent = ecs.CreateEntity()
-	ent:AddComponent("with_req")
+	ent:AddComponent(meta_req)
 	T(ent:HasComponent("with_req"))["=="](true)
 	T(ent:HasComponent("req1"))["=="](true)
 	T(ent:HasComponent("req2"))["=="](true)
@@ -178,8 +177,8 @@ T.Test("ecs OnEntityAddComponent", function()
 	meta_other:Register()
 	ecs.RegisterComponent(meta_other)
 	local ent = ecs.CreateEntity()
-	local listener = ent:AddComponent("listener")
-	local other = ent:AddComponent("other")
+	local listener = ent:AddComponent(meta_listener)
+	local other = ent:AddComponent(meta_other)
 	T(added_component)["=="](other)
 end)
 
