@@ -1,4 +1,4 @@
-local ecs = require("ecs")
+local ecs = require("ecs.ecs")
 local Vec3 = require("structs.vec3")
 local AABB = require("structs.aabb")
 local ffi = require("ffi")

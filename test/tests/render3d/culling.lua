@@ -15,9 +15,9 @@ local Vec3 = require("structs.vec3")
 local Rect = require("structs.rect")
 local Quat = require("structs.quat")
 local Color = require("structs.color")
-local ecs = require("ecs")
-local model = require("components.3d.model")
-local transform = require("components.3d.transform").Component
+local ecs = require("ecs.ecs")
+local model = require("ecs.components.3d.model")
+local transform = require("ecs.components.3d.transform")
 local width, height = 512, 512
 
 local function spawn_sphere(pos, use_occlusion)
@@ -31,7 +31,7 @@ local function spawn_sphere(pos, use_occlusion)
 	poly.material = Material.New({
 		ColorMultiplier = Color(1, 1, 1, 1),
 	})
-	local mdl = ent:AddComponent(model.Component)
+	local mdl = ent:AddComponent(model)
 	mdl:AddPrimitive(poly)
 	mdl:SetUseOcclusionCulling(use_occlusion or false)
 	return ent, mdl

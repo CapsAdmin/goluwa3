@@ -1,5 +1,5 @@
 local T = require("test.environment")
-local ecs = require("ecs")
+local ecs = require("ecs.ecs")
 local prototype = require("prototype")
 
 T.Test("ecs core basic", function()

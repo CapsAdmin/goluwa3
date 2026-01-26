@@ -17,7 +17,7 @@ META.ComponentName = META.Type
 META.Require = {}
 META.Events = {}
 META:StartStorable()
-META:GetSet("Position", Vec2(0, 0), {callback = "InvalidateMatrices"})
+META:GetSet("Position", Vec2(0, 0), {callback = "OnPositionChanged"})
 META:GetSet("Size", Vec2(100, 100), {callback = "OnSizeChanged"})
 META:GetSet("Rotation", 0, {callback = "InvalidateMatrices"})
 META:GetSet("Scale", Vec2(1, 1), {callback = "InvalidateMatrices"})
@@ -31,6 +31,11 @@ META:GetSet("DrawPositionOffset", Vec2(0, 0), {callback = "InvalidateMatrices"})
 META:GetSet("DrawAngleOffset", Ang3(0, 0, 0), {callback = "InvalidateMatrices"})
 META:EndStorable()
 META:GetSet("LocalMatrix", Matrix44():Identity())
+
+function META:OnPositionChanged()
+	self:InvalidateLayout()
+	self:InvalidateMatrices()
+end
 
 function META:InvalidateMatrices()
 	self.LocalMatrixDirty = true
@@ -55,21 +60,30 @@ function META:InvalidateWorldMatrices()
 end
 
 function META:InvalidateLayout()
-	if self.Entity then
-		local layout = self.Entity:GetComponent("layout_2d")
+	if not self.Entity or self.in_layout_invalidation then return end
 
-		if layout then
-			layout:InvalidateLayout()
-		else
-			local parent = self.Entity:GetParent()
+	self.in_layout_invalidation = true
+	local layout = self.Entity:GetComponent("layout_2d")
 
-			if parent and parent:IsValid() then
-				local p_layout = parent:GetComponent("layout_2d")
+	if layout then
+		layout:InvalidateLayout()
+	else
+		local parent = self.Entity:GetParent()
 
-				if p_layout then p_layout:InvalidateLayout() end
-			end
+		if parent and parent:IsValid() then
+			local p_layout = parent:GetComponent("layout_2d")
+
+			if p_layout then p_layout:InvalidateLayout() end
 		end
 	end
+
+	for _, child in ipairs(self.Entity:GetChildren()) do
+		local c_tr = child:GetComponent("transform_2d")
+
+		if c_tr then c_tr:InvalidateLayout() end
+	end
+
+	self.in_layout_invalidation = nil
 end
 
 function META:OnSizeChanged()
@@ -86,13 +100,11 @@ function META:GetHeight()
 end
 
 function META:SetWidth(w)
-	self.Size.x = w
-	self:InvalidateLayout()
+	self:SetSize(Vec2(w, self.Size.y))
 end
 
 function META:SetHeight(h)
-	self.Size.y = h
-	self:InvalidateLayout()
+	self:SetSize(Vec2(self.Size.x, h))
 end
 
 function META:GetX()
@@ -104,13 +116,11 @@ function META:GetY()
 end
 
 function META:SetX(x)
-	self.Position.x = x
-	self:InvalidateMatrices()
+	self:SetPosition(Vec2(x, self.Position.y))
 end
 
 function META:SetY(y)
-	self.Position.y = y
-	self:InvalidateMatrices()
+	self:SetPosition(Vec2(self.Position.x, y))
 end
 
 function META:GetAxisLength(axis)

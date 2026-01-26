@@ -1,11 +1,11 @@
 local Quat = require("structs.quat")
 local render3d = require("render3d.render3d")
 local event = require("event")
-local ecs = require("ecs")
+local ecs = require("ecs.ecs")
 local Color = require("structs.color")
 local input = require("input")
-local transform = require("components.3d.transform").Component
-local light = require("components.3d.light").Component
+local transform = require("ecs.components.3d.transform")
+local light = require("ecs.components.3d.light")
 local sun = ecs.CreateFromTable(
 	{
 		[transform] = {

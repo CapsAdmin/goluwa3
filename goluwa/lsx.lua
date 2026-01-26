@@ -23,12 +23,12 @@ function META:Pauser(fn)
 	return {__lsx_pauser = fn}
 end
 
-function META:RegisterElement(panel_type)
+function META:RegisterElement(ctor)
 	return function(self, props)
 		if props == nil then props = self end
 
 		return Element:CreateObject({
-			panel_type = panel_type,
+			ctor = ctor,
 			props = props or {},
 		})
 	end
@@ -327,9 +327,17 @@ function META:Build(node, parent, existing, adapter)
 			end
 
 			if node.props.Layout then
-				if panel.SetLayout then panel:SetLayout(node.props.Layout) end
+				if adapter.SetLayout then
+					adapter.SetLayout(panel, node.props.Layout)
+				elseif panel.SetLayout then
+					panel:SetLayout(node.props.Layout)
+				end
 
-				if panel.InvalidateLayout then panel:InvalidateLayout() end
+				if adapter.InvalidateLayout then
+					adapter.InvalidateLayout(panel)
+				elseif panel.InvalidateLayout then
+					panel:InvalidateLayout()
+				end
 			end
 		end
 
@@ -342,40 +350,44 @@ function META:Build(node, parent, existing, adapter)
 
 		if
 			not panel or
-			panel.panel_type ~= node.panel_type or
+			panel.ctor ~= node.ctor or
 			type(panel) ~= "table" or
 			not panel.Remove
 		then
 			if panel then prototype.SafeRemove(panel) end
 
-			panel = adapter.Create(node.panel_type, parent)
-			panel.panel_type = node.panel_type
+			panel = node.ctor(parent)
+			panel.ctor = node.ctor
 		end
 
 		for key, value in pairs(node.props) do
 			if type(key) ~= "number" and key ~= "Layout" then
-				local setterName = "Set" .. key:sub(1, 1):upper() .. key:sub(2)
-				local method = panel[setterName]
-
-				if method then
-					local getterName = "Get" .. key:sub(1, 1):upper() .. key:sub(2)
-					local getter = panel[getterName]
-					local currentVal = getter and getter(panel)
-
-					if currentVal ~= value then
-						if not panel.IsAnimating or not panel:IsAnimating(key) then
-							method(panel, value)
-						end
-					end
-				elseif key:sub(1, 2) == "On" or key:sub(1, 2) == "on" then
-					local eventName = "On" .. key:sub(3, 3):upper() .. key:sub(4)
-
-					if panel[eventName] ~= value then panel[eventName] = value end
-				elseif key == "ref" then
+				if key == "ref" then
 					if type(value) == "table" and value.isRef then
 						value.current = panel
 					elseif type(value) == "function" then
 						value(panel)
+					end
+				elseif adapter.SetProperty then
+					adapter.SetProperty(panel, key, value)
+				else
+					local setterName = "Set" .. key:sub(1, 1):upper() .. key:sub(2)
+					local method = panel[setterName]
+
+					if method then
+						local getterName = "Get" .. key:sub(1, 1):upper() .. key:sub(2)
+						local getter = panel[getterName]
+						local currentVal = getter and getter(panel)
+
+						if currentVal ~= value then
+							if not panel.IsAnimating or not panel:IsAnimating(key) then
+								method(panel, value)
+							end
+						end
+					elseif key:sub(1, 2) == "On" or key:sub(1, 2) == "on" then
+						local eventName = "On" .. key:sub(3, 3):upper() .. key:sub(4)
+
+						if panel[eventName] ~= value then panel[eventName] = value end
 					end
 				end
 			end
@@ -394,9 +406,17 @@ function META:Build(node, parent, existing, adapter)
 
 		-- always set layout last because it depends on children and props like Size
 		if node.props.Layout then
-			if panel.SetLayout then panel:SetLayout(node.props.Layout) end
+			if adapter.SetLayout then
+				adapter.SetLayout(panel, node.props.Layout)
+			elseif panel.SetLayout then
+				panel:SetLayout(node.props.Layout)
+			end
 
-			if panel.InvalidateLayout then panel:InvalidateLayout() end
+			if adapter.InvalidateLayout then
+				adapter.InvalidateLayout(panel)
+			elseif panel.InvalidateLayout then
+				panel:InvalidateLayout()
+			end
 		end
 
 		local finalChildren = panel:GetChildren()
@@ -449,9 +469,10 @@ function META.New(adapter)
 
 	event.AddListener("Update", self, function()
 		for _, comp in ipairs(self.pending_renders) do
+			local valid = comp.instance and comp.instance:IsValid()
 			comp.render_scheduled = false
 
-			if comp and comp.instance and comp.instance:IsValid() then
+			if comp and comp.instance and valid then
 				local parent = comp.instance:GetParent()
 				self:Build(comp, parent, comp.instance, comp.adapter)
 

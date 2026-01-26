@@ -1,6 +1,6 @@
 local prototype = require("prototype")
 local window = require("window")
-local transform_comp = require("components.2d.transform").Component
+local transform_comp = require("ecs.components.2d.transform")
 local Vec2 = require("structs.vec2")
 local Rect = require("structs.rect")
 local input = require("input")
@@ -133,7 +133,12 @@ function META:UpdateResizing(pos)
 
 	local parent = self.Entity:GetParent()
 
-	if parent and parent:IsValid() and parent.transform_2d then
+	if
+		parent and
+		parent:IsValid() and
+		parent.transform_2d and
+		parent:GetName() ~= "world_2d"
+	then
 		local p_transform = parent.transform_2d
 		local p_size = p_transform:GetSize()
 		prev_pos.x = math.max(prev_pos.x, 0)

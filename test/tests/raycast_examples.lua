@@ -1,6 +1,6 @@
 -- Example usage of the raycast system
 local raycast = require("raycast")
-local ecs = require("ecs")
+local ecs = require("ecs.ecs")
 local Vec3 = require("structs.vec3")
 
 -- Example 1: Simple raycast from camera forward

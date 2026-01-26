@@ -5,7 +5,7 @@ local input = require("input")
 local render2d = require("render2d.render2d")
 local gfx = require("render2d.gfx")
 local render3d = require("render3d.render3d")
-local Model = require("components.3d.model")
+local Model = require("ecs.components.3d.model")
 local window = require("window")
 local fonts = require("render2d.fonts")
 -- Debug: Show debug info

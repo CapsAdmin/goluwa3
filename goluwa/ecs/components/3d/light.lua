@@ -1,12 +1,12 @@
 local ffi = require("ffi")
 local prototype = require("prototype")
-local ecs = require("ecs")
+local ecs = require("ecs.ecs")
 local render = require("render.render")
 local Vec3 = require("structs.vec3")
 local Color = require("structs.color")
 local Quat = require("structs.quat")
 local ShadowMap = require("render3d.shadow_map")
-local transform = require("components.3d.transform").Component
+local transform = require("ecs.components.3d.transform")
 local META = prototype.CreateTemplate("light")
 META.ComponentName = "light"
 META.Require = {transform}
@@ -83,7 +83,7 @@ end
 local Model = nil
 
 function META:RenderShadows()
-	Model = Model or require("components.3d.model")
+	Model = Model or require("ecs.components.3d.model")
 
 	if not self:GetCastShadows() then return end
 

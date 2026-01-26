@@ -5,11 +5,11 @@ local render3d = require("render3d.render3d")
 local lightprobes = require("render3d.lightprobes")
 local Material = require("render3d.material")
 local Texture = require("render.texture")
-local ecs = require("ecs")
+local ecs = require("ecs.ecs")
 local ffi = require("ffi")
 local Polygon3D = require("render3d.polygon_3d")
-local transform = require("components.3d.transform").Component
-local model = require("components.3d.model").Component
+local transform = require("ecs.components.3d.transform")
+local model = require("ecs.components.3d.model")
 local materials = {}
 
 if HOTRELOAD then ecs.Clear3DWorld() end

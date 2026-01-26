@@ -1,5 +1,5 @@
 local prototype = require("prototype")
-local ecs = require("ecs")
+local ecs = require("ecs.ecs")
 local Matrix44 = require("structs.matrix44")
 local Ang3 = require("structs.ang3")
 local Vec3 = require("structs.vec3")

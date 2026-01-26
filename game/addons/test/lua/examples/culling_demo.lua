@@ -7,11 +7,10 @@ local Color = require("structs.color")
 local Quat = require("structs.quat")
 local render3d = require("render3d.render3d")
 local Material = require("render3d.material")
-local ecs = require("ecs")
+local ecs = require("ecs.ecs")
 local Polygon3D = require("render3d.polygon_3d")
-local transform = require("components.3d.transform").Component
-local model_module = require("components.3d.model")
-local model = model_module.Component
+local transform = require("ecs.components.3d.transform")
+local model_module = require("ecs.components.3d.model")
 local system = require("system")
 
 if HOTRELOAD then ecs.Clear3DWorld() end
@@ -28,7 +27,7 @@ local function spawn_sphere(pos, scale, color, use_occlusion)
 	poly.material = Material.New({
 		ColorMultiplier = color or Color(1, 1, 1, 1),
 	})
-	local mdl = ent:AddComponent(model)
+	local mdl = ent:AddComponent(model_module)
 	mdl:AddPrimitive(poly)
 	mdl:SetUseOcclusionCulling(use_occlusion or false)
 	return ent

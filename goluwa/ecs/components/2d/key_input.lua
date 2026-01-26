@@ -1,6 +1,6 @@
 local prototype = require("prototype")
 local event = require("event")
-local ecs = require("ecs")
+local ecs = require("ecs.ecs")
 local META = prototype.CreateTemplate("key_input_2d")
 META.ComponentName = "key_input_2d"
 

@@ -94,8 +94,10 @@ local function on_reload(path, from_terminal)
 		identical and " (content is identical from last time)" or "",
 		"\n"
 	)
+
 	-- Set global variables for hotreload code to use
-	_G.HOTRELOAD = true
+	if not from_terminal then _G.HOTRELOAD = true end
+
 	_G.path = path
 	_G.code = code
 
@@ -117,8 +119,8 @@ end
 
 function hotreload.OnReload(path, code) end
 
-function hotreload.Reload(path)
-	return on_reload(path)
+function hotreload.Reload(path, from_terminal)
+	return on_reload(path, from_terminal)
 end
 
 function hotreload.Start()

@@ -1,17 +1,13 @@
-do
-	return
-end
-
 local Polygon3D = require("render3d.polygon_3d")
 local Texture = require("render.texture")
 local Material = require("render3d.material")
 local Vec3 = require("structs.vec3")
 local Vec2 = require("structs.vec2")
 local Color = require("structs.color")
-local entities = require("ecs")
+local entities = require("ecs.ecs")
 local utility = require("utility")
-local transform = require("components.3d.transform").Component
-local model = require("components.3d.model").Component
+local transform = require("ecs.components.3d.transform")
+local model = require("ecs.components.3d.model")
 local HEADER = [[
 float n2D(vec2 p) {
 	vec2 i = floor(p); p -= i; 

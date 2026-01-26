@@ -1,5 +1,5 @@
 local T = require("test.environment")
-local gui = require("gui.gui")
+local ecs = require("ecs.ecs")
 local Vec2 = require("structs.vec2")
 local Rect = require("structs.rect")
 local Color = require("structs.color")
@@ -8,9 +8,17 @@ local H = 512
 
 local function TestGUI(name, func)
 	return T.Test2D(name, function()
-		gui.Initialize() -- resets the gui.Root
+		ecs.Clear2DWorld()
 		local ret = func()
-		gui.Root:Draw() -- draw once to the render target
+		local world = ecs.Get2DWorld()
+		world:CalcLayout()
+
+		for _, child in ipairs(world:GetChildren()) do
+			local gui = child:GetComponent("gui_element_2d")
+
+			if gui then gui:DrawRecursive() end
+		end
+
 		return ret
 	end)
 end
@@ -18,8 +26,11 @@ end
 local i = 0
 
 local function CreatePanel(parent)
-	local p = gui.Create("base", parent)
-	p:SetColor(Color.FromHSV(i, 1, 1):SetAlpha(1))
+	local p = ecs.CreateEntity("test_panel", parent or ecs.Get2DWorld())
+	p:AddComponent(require("ecs.components.2d.transform"))
+	p:AddComponent(require("ecs.components.2d.layout"))
+	local rect = p:AddComponent(require("ecs.components.2d.rect"))
+	rect:SetColor(Color.FromHSV(i, 1, 1):SetAlpha(1))
 	i = i + 0.1
 
 	if i > 1 then i = 0 end
@@ -28,21 +39,21 @@ local function CreatePanel(parent)
 end
 
 TestGUI("Center and Fill", function()
-	local p = gui.Root
+	local p = ecs.Get2DWorld()
 	local c = CreatePanel()
-	c:SetSize(Vec2(100, 100))
-	c:SetLayout({
+	c.transform_2d:SetSize(Vec2(100, 100))
+	c.layout_2d:SetLayout({
 		"Center",
 	})
 	local l = CreatePanel()
-	l:SetSize(Vec2(50, 50))
-	l:SetLayout({
+	l.transform_2d:SetSize(Vec2(50, 50))
+	l.layout_2d:SetLayout({
 		"FillX",
 		"CenterY",
 	})
 	return function()
 		-- Center test
-		local cx, cy = c.WorldMatrix:GetTranslation()
+		local cx, cy = c.transform_2d:GetWorldMatrix():GetTranslation()
 		T((W - 100) / 2)["=="](cx)
 		T((H - 100) / 2)["=="](cy)
 		-- FillX should fill the width, but it might be blocked by 'c' if they collide
@@ -55,37 +66,37 @@ TestGUI("Center and Fill", function()
 end)
 
 TestGUI("Relative Movement", function()
-	local p = gui.Root
+	local p = ecs.Get2DWorld()
 	local a = CreatePanel()
-	a:SetSize(Vec2(50, 50))
-	a:SetPosition(Vec2(100, 100))
+	a.transform_2d:SetSize(Vec2(50, 50))
+	a.transform_2d:SetPosition(Vec2(100, 100))
 	local b = CreatePanel()
-	b:SetSize(Vec2(50, 50))
-	b:SetLayout({
+	b.transform_2d:SetSize(Vec2(50, 50))
+	b.layout_2d:SetLayout({
 		a,
 		"MoveRightOf",
 	})
 	local c = CreatePanel()
-	c:SetSize(Vec2(50, 50))
-	c:SetLayout({
+	c.transform_2d:SetSize(Vec2(50, 50))
+	c.layout_2d:SetLayout({
 		a,
 		"MoveDownOf",
 	})
 	local d = CreatePanel()
-	d:SetSize(Vec2(50, 50))
-	d:SetLayout({
+	d.transform_2d:SetSize(Vec2(50, 50))
+	d.layout_2d:SetLayout({
 		a,
 		"MoveLeftOf",
 	})
 	local e = CreatePanel()
-	e:SetSize(Vec2(50, 50))
-	e:SetLayout({
+	e.transform_2d:SetSize(Vec2(50, 50))
+	e.layout_2d:SetLayout({
 		a,
 		"MoveUpOf",
 	})
 	return function()
 		local function get_pos(node)
-			local x, y = node.WorldMatrix:GetTranslation()
+			local x, y = node.transform_2d:GetWorldMatrix():GetTranslation()
 			return x, y
 		end
 
@@ -107,32 +118,32 @@ TestGUI("Relative Movement", function()
 end)
 
 TestGUI("Movement and Obstacles", function()
-	local p = gui.Root
+	local p = ecs.Get2DWorld()
 	-- Place an obstacle in the middle
 	local obs = CreatePanel()
-	obs:SetSize(Vec2(100, 100))
-	obs:SetPosition(Vec2(200, 200))
+	obs.transform_2d:SetSize(Vec2(100, 100))
+	obs.transform_2d:SetPosition(Vec2(200, 200))
 	-- MoveRight from left edge should hit obstacle
 	local r = CreatePanel()
-	r:SetSize(Vec2(50, 50))
-	r:SetPosition(Vec2(10, 225)) -- overlapping with obstacle in Y
-	r:SetLayout({
+	r.transform_2d:SetSize(Vec2(50, 50))
+	r.transform_2d:SetPosition(Vec2(10, 225)) -- overlapping with obstacle in Y
+	r.layout_2d:SetLayout({
 		"MoveRight",
 	})
 	-- MoveLeft from right edge should hit obstacle
 	local l = CreatePanel()
-	l:SetSize(Vec2(50, 50))
-	l:SetPosition(Vec2(W - 50, 225)) -- same Y
-	l:SetLayout({
+	l.transform_2d:SetSize(Vec2(50, 50))
+	l.transform_2d:SetPosition(Vec2(W - 50, 225)) -- same Y
+	l.layout_2d:SetLayout({
 		"MoveLeft",
 	})
 	return function()
-		local rx, ry = r.WorldMatrix:GetTranslation()
+		local rx, ry = r.transform_2d:GetWorldMatrix():GetTranslation()
 		-- MoveRight starts at -9999... and casts right.
 		-- Obstacle is at x=200, w=100. So it spans [200, 300].
 		-- MoveRight should hit obs at x=200 and place 'r' at 200 - 50 = 150.
 		T(150)["=="](rx)
-		local lx, ly = l.WorldMatrix:GetTranslation()
+		local lx, ly = l.transform_2d:GetWorldMatrix():GetTranslation()
 		-- MoveLeft starts at 9999... and casts left.
 		-- It should hit obs at x=300 and place 'l' at 300.
 		T(300)["=="](lx)
@@ -141,32 +152,32 @@ TestGUI("Movement and Obstacles", function()
 end)
 
 TestGUI("Gmod Layout Commands", function()
-	local p = gui.Root
+	local p = ecs.Get2DWorld()
 	-- GmodTop: MoveUp, FillX, NoCollide("up")
 	local top = CreatePanel()
-	top:SetSize(Vec2(100, 50))
-	top:SetLayout({"GmodTop"})
+	top.transform_2d:SetSize(Vec2(100, 50))
+	top.layout_2d:SetLayout({"GmodTop"})
 	-- GmodBottom: MoveDown, FillX, NoCollide("down")
 	local bottom = CreatePanel()
-	bottom:SetSize(Vec2(100, 50))
-	bottom:SetLayout({"GmodBottom"})
+	bottom.transform_2d:SetSize(Vec2(100, 50))
+	bottom.layout_2d:SetLayout({"GmodBottom"})
 	-- GmodLeft: MoveLeft, FillY, NoCollide("left")
 	local left = CreatePanel()
-	left:SetSize(Vec2(50, 100))
-	left:SetLayout({"GmodLeft"})
+	left.transform_2d:SetSize(Vec2(50, 100))
+	left.layout_2d:SetLayout({"GmodLeft"})
 	return function()
-		local tx, ty = top.WorldMatrix:GetTranslation()
-		local tw, th = top:GetSize():Unpack()
+		local tx, ty = top.transform_2d:GetWorldMatrix():GetTranslation()
+		local tw, th = top.transform_2d:GetSize():Unpack()
 		T(0)["=="](tx)
 		T(0)["=="](ty)
 		T(W)["=="](tw)
-		local bx, by = bottom.WorldMatrix:GetTranslation()
-		local bw, bh = bottom:GetSize():Unpack()
+		local bx, by = bottom.transform_2d:GetWorldMatrix():GetTranslation()
+		local bw, bh = bottom.transform_2d:GetSize():Unpack()
 		T(0)["=="](bx)
 		T(H - 50)["=="](by)
 		T(W)["=="](bw)
-		local lx, ly = left.WorldMatrix:GetTranslation()
-		local lw, lh = left:GetSize():Unpack()
+		local lx, ly = left.transform_2d:GetWorldMatrix():GetTranslation()
+		local lw, lh = left.transform_2d:GetSize():Unpack()
 		-- Left should be below top and above bottom because they collide!
 		-- Top is at y=0, h=50. Bottom is at y=462, h=50.
 		-- Left should be between them.
@@ -180,25 +191,25 @@ TestGUI("Gmod Layout Commands", function()
 end)
 
 TestGUI("Margins and Padding", function()
-	local p = gui.Root
-	p:SetPadding(Rect(10, 10, 10, 10))
+	local p = ecs.Get2DWorld()
+	p.layout_2d:SetPadding(Rect(10, 10, 10, 10))
 	local a = CreatePanel()
-	a:SetSize(Vec2(50, 50))
-	a:SetMargin(Rect(5, 0, 100, 0)) -- LEFT margin 5
-	a:SetLayout({
+	a.transform_2d:SetSize(Vec2(50, 50))
+	a.layout_2d:SetMargin(Rect(5, 0, 100, 0)) -- LEFT margin 5
+	a.layout_2d:SetLayout({
 		"MoveRight",
 	})
 	local b = CreatePanel()
-	b:SetSize(Vec2(50, 50))
-	b:SetMargin(Rect(0, 0, 10, 0)) -- RIGHT margin 10
-	b:SetLayout({
+	b.transform_2d:SetSize(Vec2(50, 50))
+	b.layout_2d:SetMargin(Rect(0, 0, 10, 0)) -- RIGHT margin 10
+	b.layout_2d:SetLayout({
 		a,
 		"MoveLeftOf",
 	})
 	return function()
-		local ax, ay = a.WorldMatrix:GetTranslation()
+		local ax, ay = a.transform_2d:GetWorldMatrix():GetTranslation()
 		T(352)["=="](ax)
-		local bx, by = b.WorldMatrix:GetTranslation()
+		local bx, by = b.transform_2d:GetWorldMatrix():GetTranslation()
 		-- bx = ax - b.w - a.Margin.Left - b.Margin.Right = 352 - 50 - 5 - 10 = 287.
 		T(287)["=="](bx)
 		T.Screenshot("margins_padding")
@@ -206,21 +217,21 @@ TestGUI("Margins and Padding", function()
 end)
 
 TestGUI("Fill with Obstacles", function()
-	local p = gui.Root
+	local p = ecs.Get2DWorld()
 	-- Obstacle in the middle
 	local obs = CreatePanel()
-	obs:SetSize(Vec2(100, H))
-	obs:SetPosition(Vec2(200, 0))
+	obs.transform_2d:SetSize(Vec2(100, H))
+	obs.transform_2d:SetPosition(Vec2(200, 0))
 	-- Fill in the left part
 	local f = CreatePanel()
-	f:SetSize(Vec2(10, 10))
-	f:SetPosition(Vec2(50, 100))
-	f:SetLayout({
+	f.transform_2d:SetSize(Vec2(10, 10))
+	f.transform_2d:SetPosition(Vec2(50, 100))
+	f.layout_2d:SetLayout({
 		"FillX",
 	})
 	return function()
-		local fx, fy = f.WorldMatrix:GetTranslation()
-		local fw, fh = f:GetSize():Unpack()
+		local fx, fy = f.transform_2d:GetWorldMatrix():GetTranslation()
+		local fw, fh = f.transform_2d:GetSize():Unpack()
 		-- Left of obstacle is at 200. Space from 0 to 200 is 200.
 		T(0)["=="](fx)
 		T(200)["=="](fw)
@@ -229,19 +240,19 @@ TestGUI("Fill with Obstacles", function()
 end)
 
 TestGUI("Center with Obstacles", function()
-	local p = gui.Root
+	local p = ecs.Get2DWorld()
 	-- Obstacle in the middle
 	local obs = CreatePanel()
-	obs:SetSize(Vec2(100, H))
-	obs:SetPosition(Vec2(300, 0)) -- Gap of 300
+	obs.transform_2d:SetSize(Vec2(100, H))
+	obs.transform_2d:SetPosition(Vec2(300, 0)) -- Gap of 300
 	-- Center in the left part
 	local f = CreatePanel()
-	f:SetSize(Vec2(100, 50))
-	f:SetLayout({
+	f.transform_2d:SetSize(Vec2(100, 50))
+	f.layout_2d:SetLayout({
 		"CenterX",
 	})
 	return function()
-		local fx, fy = f.WorldMatrix:GetTranslation()
+		local fx, fy = f.transform_2d:GetWorldMatrix():GetTranslation()
 		-- Gap [0, 300]. Center is 150. Panel size 100.
 		-- X should be 150 - 50 = 100.
 		T(100)["=="](fx)

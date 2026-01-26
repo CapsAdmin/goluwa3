@@ -1,6 +1,6 @@
 local render3d = require("render3d.render3d")
 local event = require("event")
-local ecs = require("ecs")
+local ecs = require("ecs.ecs")
 local Material = require("render3d.material")
 local Polygon3D = require("render3d.polygon_3d")
 local Vec3 = require("structs.vec3")

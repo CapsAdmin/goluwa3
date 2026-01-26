@@ -17,10 +17,10 @@ local Quat = require("structs.quat")
 local Vec2 = require("structs.vec2")
 local Color = require("structs.color")
 local Rect = require("structs.rect")
-local transform = require("components.3d.transform").Component
-local light = require("components.3d.light").Component
-local ecs = require("ecs")
-require("components.3d.transform")
+local transform = require("ecs.components.3d.transform")
+local light = require("ecs.components.3d.light")
+local ecs = require("ecs.ecs")
+require("ecs.components.3d.transform")
 local Matrix44 = require("structs.matrix44")
 local fs = require("fs")
 local width = 512

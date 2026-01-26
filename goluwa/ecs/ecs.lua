@@ -1,5 +1,6 @@
 local prototype = require("prototype")
 local event = require("event")
+local Vec2 = require("structs.vec2")
 local ecs = library()
 ecs.component_instances = ecs.component_instances or {}
 ecs.systems = ecs.systems or {}
@@ -110,6 +111,16 @@ function ENTITY:AddComponent(meta)
 	self.ComponentsHash[component_name] = component
 	self[component_name] = component
 
+	for k, v in pairs(meta) do
+		if type(v) == "function" and k:sub(1, 1):match("%u") then
+			if not self[k] then
+				self[k] = function(s, ...)
+					return v(component, ...)
+				end
+			end
+		end
+	end
+
 	if component.Initialize then component:Initialize() end
 
 	if component.OnAdd then component:OnAdd(self) end
@@ -182,6 +193,10 @@ function ENTITY:OnRemove()
 	end
 end
 
+function ENTITY:CreateEntity(name)
+	return ecs.CreateEntity(name, self)
+end
+
 ENTITY:Register()
 
 function ecs.CreateEntity(name, parent)
@@ -242,6 +257,10 @@ do
 	function ecs.Get2DWorld()
 		if not world_entity or not world_entity:IsValid() then
 			world_entity = ecs.CreateEntity("world_2d", false)
+			world_entity:AddComponent(require("ecs.components.2d.transform"))
+			world_entity:AddComponent(require("ecs.components.2d.gui_element"))
+			world_entity:AddComponent(require("ecs.components.2d.layout"))
+			world_entity:SetSize(Vec2(20000, 20000))
 		end
 
 		return world_entity

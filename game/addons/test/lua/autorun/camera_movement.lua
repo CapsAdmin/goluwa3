@@ -21,7 +21,7 @@ end
 
 do
 	local Vec3 = require("structs.vec3")
-	local ecs = require("ecs")
+	local ecs = require("ecs.ecs")
 	local Ang3 = require("structs.ang3")
 	local Polygon3D = require("render3d.polygon_3d")
 	local Material = require("render3d.material")

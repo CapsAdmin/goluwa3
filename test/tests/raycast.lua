@@ -10,14 +10,14 @@ local raycast = require("raycast")
 local render = require("render.render")
 local render3d = require("render3d.render3d")
 local Polygon3D = require("render3d.polygon_3d")
-local ecs = require("ecs")
+local ecs = require("ecs.ecs")
 local Vec3 = require("structs.vec3")
 local Vec2 = require("structs.vec2")
 local Quat = require("structs.quat")
 local Color = require("structs.color")
 local Rect = require("structs.rect")
-local transform = require("components.3d.transform").Component
-local model = require("components.3d.model").Component
+local transform = require("ecs.components.3d.transform")
+local model = require("ecs.components.3d.model")
 
 local function init_render3d()
 	render.Initialize({headless = true, width = 512, height = 512})

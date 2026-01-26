@@ -1,9 +1,13 @@
 local prototype = require("prototype")
 local fonts = require("render2d.fonts")
 local render2d = require("render2d.render2d")
+local Color = require("structs.color")
 local Vec2 = require("structs.vec2")
-local META = prototype.CreateTemplate("panel_text")
-META.Base = require("gui.panels.base")
+local transform = require("ecs.components.2d.transform")
+local gui_element_2d = require("ecs.components.2d.gui_element")
+local META = prototype.CreateTemplate("text_2d")
+META.ComponentName = "text_2d"
+META.Require = {transform, gui_element_2d}
 META:StartStorable()
 META:GetSet(
 	"Font",
@@ -14,15 +18,13 @@ META:GetSet("Text", "", {callback = "OnTextChanged"})
 META:GetSet("Wrap", false, {callback = "OnTextChanged"})
 META:GetSet("WrapToParent", false, {callback = "OnTextChanged"})
 META:GetSet("AlignX", "left", {callback = "OnTextChanged"})
-META:GetSet("AlignX", "left", {callback = "OnTextChanged"})
 META:GetSet("AlignY", "top", {callback = "OnTextChanged"})
 META:GetSet("Debug", false)
+META:GetSet("Color", Color(1, 1, 1, 1))
 META:EndStorable()
 
 function META:Initialize()
-	self.BaseClass.Initialize(self)
 	self:OnTextChanged()
-	self:SetFocusOnClick(true)
 end
 
 function META:OnTextChanged()
@@ -30,10 +32,14 @@ function META:OnTextChanged()
 	local text = self:GetText()
 
 	if self:GetWrap() then
-		local width = self:GetSize().x
+		local width = self.Entity.transform_2d.Size.x
 
-		if self:GetWrapToParent() and self:GetParent():IsValid() then
-			width = self:GetParent():GetSize().x
+		if
+			self:GetWrapToParent() and
+			self.Entity:GetParent() and
+			self.Entity:GetParent().transform_2d
+		then
+			width = self.Entity:GetParent().transform_2d.Size.x
 		end
 
 		self.wrapped_text = font:WrapString(text, width)
@@ -43,35 +49,15 @@ function META:OnTextChanged()
 
 	local w, h = font:GetTextSize(self.wrapped_text)
 
-	if not self:GetWrap() then self:SetSize(Vec2(w, h)) end
-end
-
-function META:OnLayout()
-	self.BaseClass.OnLayout(self)
-	self:OnTextChanged()
-end
-
-function META:SetSize(vec)
-	self.BaseClass.SetSize(self, vec)
-
-	if self:GetWrap() then self:OnTextChanged() end
-end
-
-function META:OnCharInput(char)
-	print("Char input:", char)
-end
-
-function META:OnKeyInput(key, press)
-	print("Key input:", key, press)
+	if not self:GetWrap() then self.Entity.transform_2d:SetSize(Vec2(w, h)) end
 end
 
 function META:OnDraw()
-	self.Font = self.Font or fonts.LoadFont(fonts.GetSystemDefaultFont(), 20)
 	local font = self:GetFont() or fonts.GetDefaultFont()
 	local text = self.wrapped_text or self:GetText()
 	local x, y = 0, 0
 	local ax, ay = self:GetAlignX(), self:GetAlignY()
-	local size = self:GetSize()
+	local size = self.Entity.transform_2d.Size
 
 	if type(ax) == "number" then
 		x = size.x * ax
@@ -100,26 +86,6 @@ function META:OnDraw()
 	end
 end
 
-if HOTRELOAD then
-	local timer = require("timer")
-	local utility = require("utility")
-	local Color = require("structs.color")
-
-	timer.Delay(0, function()
-		local gui = require("gui.gui")
-		local pnl = utility.RemoveOldObject(gui.Create("frame"))
-		pnl:SetPosition(Vec2() + 300)
-		pnl:SetSize(Vec2() + 200)
-		pnl:SetDragEnabled(true)
-		pnl:SetResizable(true)
-		pnl:SetClipping(true)
-		pnl:SetScrollEnabled(true)
-		pnl:SetColor(Color.FromHex("#062a67"):SetAlpha(1))
-		local txt = pnl:CreatePanel("text")
-		txt:SetWrap(true)
-		txt:SetWrapToParent(true)
-		txt:SetText([[The materia builder is built to assist in exploring the possibilities of dynamic spells, harmonizing culturures, and customizing a written scale. All with implementation in mind to bridge mage and warriors.]])
-	end)
-end
-
-return META:Register()
+local text_2d = {}
+text_2d.Component = META:Register()
+return text_2d

@@ -1,9 +1,9 @@
 local T = require("test.environment")
 local prototype = require("prototype")
-local ecs = require("ecs")
-local transform_2d = require("components.2d.transform").Component
-local rect_2d = require("components.2d.rect")
-local mouse_input_2d = require("components.2d.mouse_input")
+local ecs = require("ecs.ecs")
+local transform_2d = require("ecs.components.2d.transform")
+local rect_2d = require("ecs.components.2d.rect")
+local mouse_input_2d = require("ecs.components.2d.mouse_input")
 local Vec2 = require("structs.vec2")
 local Color = require("structs.color")
 

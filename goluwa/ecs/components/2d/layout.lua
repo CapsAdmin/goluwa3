@@ -1,43 +1,42 @@
 local prototype = require("prototype")
 local Vec2 = require("structs.vec2")
 local Rect = require("structs.rect")
-local ecs = require("ecs")
+local ecs = require("ecs.ecs")
 local event = require("event")
-local transform = require("components.2d.transform").Component
+local transform = require("ecs.components.2d.transform")
 local layout_lib = library()
-
 local META = prototype.CreateTemplate("layout_2d")
 META.ComponentName = "layout_2d"
 META.layout_count = 0
 META.Require = {transform}
 META:StartStorable()
-META:GetSet("MinimumSize", Vec2(0, 0))
-META:GetSet("Margin", Rect(0, 0, 0, 0))
-META:GetSet("Padding", Rect(0, 0, 0, 0))
+META:GetSet("MinimumSize", Vec2(0, 0), {callback = "InvalidateLayout"})
+META:GetSet("Margin", Rect(0, 0, 0, 0), {callback = "InvalidateLayout"})
+META:GetSet("Padding", Rect(0, 0, 0, 0), {callback = "InvalidateLayout"})
 META:GetSet("LayoutSize", nil)
-META:GetSet("IgnoreLayout", false)
-META:GetSet("LayoutUs", false)
+META:GetSet("IgnoreLayout", false, {callback = "InvalidateLayout"})
+META:GetSet("LayoutUs", false, {callback = "InvalidateLayout"})
 META:GetSet("CollisionGroup", "none")
 META:GetSet("OthersAlwaysCollide", false)
-META:GetSet("ThreeDee", false)
-META:GetSet("LayoutWhenInvisible", false)
-META:GetSet("Layout", nil)
+META:GetSet("ThreeDee", false, {callback = "InvalidateLayout"})
+META:GetSet("LayoutWhenInvisible", false, {callback = "InvalidateLayout"})
+META:GetSet("Layout", nil, {callback = "InvalidateLayout"})
 -- Flex properties
-META:GetSet("Flex", false)
-META:GetSet("FlexDirection", "row")
-META:GetSet("FlexGap", 0)
-META:GetSet("FlexJustifyContent", "start")
-META:GetSet("FlexAlignItems", "start")
-META:GetSet("FlexAlignSelf", "start")
+META:GetSet("Flex", false, {callback = "InvalidateLayout"})
+META:GetSet("FlexDirection", "row", {callback = "InvalidateLayout"})
+META:GetSet("FlexGap", 0, {callback = "InvalidateLayout"})
+META:GetSet("FlexJustifyContent", "start", {callback = "InvalidateLayout"})
+META:GetSet("FlexAlignItems", "start", {callback = "InvalidateLayout"})
+META:GetSet("FlexAlignSelf", "start", {callback = "InvalidateLayout"})
 -- Stacking
-META:GetSet("ForcedStackSize", Vec2(0, 0))
-META:GetSet("StackRight", true)
-META:GetSet("StackDown", true)
-META:GetSet("SizeStackToWidth", false)
-META:GetSet("SizeStackToHeight", false)
-META:GetSet("Stackable", true)
-META:GetSet("Stack", false)
-META:GetSet("StackSizeToChildren", false)
+META:GetSet("ForcedStackSize", Vec2(0, 0), {callback = "InvalidateLayout"})
+META:GetSet("StackRight", true, {callback = "InvalidateLayout"})
+META:GetSet("StackDown", true, {callback = "InvalidateLayout"})
+META:GetSet("SizeStackToWidth", false, {callback = "InvalidateLayout"})
+META:GetSet("SizeStackToHeight", false, {callback = "InvalidateLayout"})
+META:GetSet("Stackable", true, {callback = "InvalidateLayout"})
+META:GetSet("Stack", false, {callback = "InvalidateLayout"})
+META:GetSet("StackSizeToChildren", false, {callback = "InvalidateLayout"})
 META:EndStorable()
 
 function META:GetParentPadding()
@@ -97,7 +96,7 @@ function META:RayCast(start_pos, stop_pos)
 	for _, b in ipairs(parent:GetChildren()) do
 		local b_layout = b:GetComponent("layout_2d")
 		local b_tr = b:GetComponent("transform_2d")
-		local b_rect = b:GetComponent("rect_2d")
+		local b_gui = b:GetComponent("gui_element_2d")
 
 		if
 			b ~= entity and
@@ -105,6 +104,11 @@ function META:RayCast(start_pos, stop_pos)
 			(
 				not b_layout or
 				not b_layout.nocollide
+			)
+			and
+			(
+				not b_gui or
+				b_gui:GetVisible()
 			)
 			and
 			(
@@ -117,11 +121,6 @@ function META:RayCast(start_pos, stop_pos)
 					b.laid_out_y == nil or
 					b.laid_out_y == true
 				)
-			)
-			and
-			(
-				not b_rect or
-				b_rect:GetVisible()
 			)
 			and
 			(
@@ -361,8 +360,8 @@ end
 function META:CalcLayoutInternal(now)
 	if self.in_layout and self.in_layout ~= 0 then return end
 
-	local rect = self.Entity:GetComponent("rect_2d")
-	local visible = not rect or rect:GetVisible()
+	local gui = self.Entity:GetComponent("gui_element_2d")
+	local visible = not gui or gui:GetVisible()
 
 	if now and (self:GetLayoutWhenInvisible() or visible) then
 		self.in_layout = (self.in_layout or 0) + 1
@@ -414,7 +413,9 @@ function META:CalcLayoutInternal(now)
 end
 
 function META:CalcLayout()
-	if self.layout_me or layout_lib.layout_stress then self:CalcLayoutInternal(true) end
+	if self.layout_me or layout_lib.layout_stress then
+		self:CalcLayoutInternal(true)
+	end
 end
 
 local function compare_layouts(tbl1, tbl2)
@@ -439,7 +440,6 @@ function META:SetLayout(commands)
 	if commands then
 		_SetLayout(self, commands)
 		self:SetLayoutSize(self.Entity.transform_2d:GetSize():Copy())
-
 		local parent = self.Entity:GetParent()
 
 		if parent and parent:IsValid() then
@@ -450,7 +450,6 @@ function META:SetLayout(commands)
 	else
 		_SetLayout(self, nil)
 		self:SetLayoutSize(nil)
-
 		local parent = self.Entity:GetParent()
 
 		if parent and parent:IsValid() then
@@ -527,15 +526,19 @@ function META:Confine()
 
 	if not p_tr then return end
 
-	tr.Position.x = math.clamp(
-		tr.Position.x,
-		m:GetLeft() + p:GetLeft(),
-		p_tr.Size.x - tr.Size.x - m:GetRight() + p:GetRight()
-	)
-	tr.Position.y = math.clamp(
-		tr.Position.y,
-		m:GetTop() + p:GetTop(),
-		p_tr.Size.y - tr.Size.y - m:GetBottom() + p:GetBottom()
+	tr:SetPosition(
+		Vec2(
+			math.clamp(
+				tr.Position.x,
+				m:GetLeft() + p:GetLeft(),
+				p_tr.Size.x - tr.Size.x - m:GetRight() + p:GetRight()
+			),
+			math.clamp(
+				tr.Position.y,
+				m:GetTop() + p:GetTop(),
+				p_tr.Size.y - tr.Size.y - m:GetBottom() + p:GetBottom()
+			)
+		)
 	)
 end
 
@@ -709,6 +712,11 @@ end
 function META:CenterSimple()
 	self:CenterXSimple()
 	self:CenterYSimple()
+end
+
+function META:Center()
+	self:CenterX()
+	self:CenterY()
 end
 
 function META:CenterXFrame()
@@ -930,9 +938,9 @@ function META:GetVisibleChildren()
 	local tbl = {}
 
 	for _, child in ipairs(self.Entity:GetChildren()) do
-		local rect = child:GetComponent("rect_2d")
+		local gui = child:GetComponent("gui_element_2d")
 
-		if not rect or rect:GetVisible() then table.insert(tbl, child) end
+		if not gui or gui:GetVisible() then table.insert(tbl, child) end
 	end
 
 	return tbl
@@ -974,8 +982,9 @@ function META:FlexLayout()
 		if i ~= #children then pos[axis] = pos[axis] + self:GetFlexGap() end
 	end
 
-	self:SetAxisLength(axis, math.max(pos[axis], self:GetAxisLength(axis)))
-	local diff = self:GetAxisLength(axis) - pos[axis]
+	local end_pad = axis == "x" and pad:GetRight() or pad:GetBottom()
+	self:SetAxisLength(axis, math.max(pos[axis] + end_pad, self:GetAxisLength(axis)))
+	local diff = self:GetAxisLength(axis) - (pos[axis] + end_pad)
 
 	if self:GetFlexJustifyContent() == "center" then
 		for _, child in ipairs(children) do
@@ -1011,17 +1020,6 @@ function META:FlexLayout()
 	local h2 = self:GetAxisLength(axis2)
 	self:SetAxisLength(axis2, math.max(h, h2))
 	self.flex_size_to_children = nil
-	self:SetAxisLength(
-		axis,
-		math.max(
-			self:GetAxisLength(axis) + (
-					self:GetFlexDirection() == "row" and
-					pad:GetSize().x or
-					pad:GetSize().y
-				),
-			self:GetAxisLength(axis)
-		)
-	)
 
 	if self:GetFlexAlignItems() == "end" then
 		for _, child in ipairs(children) do
@@ -1085,7 +1083,6 @@ function META:GetSizeOfChildren()
 	end
 
 	self.last_children_size = total_size
-
 	return total_size
 end
 
@@ -1097,8 +1094,8 @@ function META:SizeToChildrenHeight()
 	local tr = self.Entity.transform_2d
 	self.last_children_size = nil
 	self.real_size = tr.Size:Copy()
-	tr.Size.y = 1000000
-	tr.Size.y = self:GetSizeOfChildren().y
+	tr:SetHeight(1000000)
+	tr:SetHeight(self:GetSizeOfChildren().y)
 	local min_pos = tr.Size.y
 	local max_pos = 0
 
@@ -1116,7 +1113,7 @@ function META:SizeToChildrenHeight()
 		max_pos = math.max(max_pos, pos_y + v.transform_2d.Size.y + margin:GetSize().y)
 	end
 
-	tr.Size.y = max_pos + self:GetPadding():GetSize().y
+	tr:SetHeight(max_pos + self:GetPadding():GetSize().y)
 	self:SetLayoutSize(tr.Size:Copy())
 	self.Entity.laid_out_y = true
 	self.real_size = nil
@@ -1130,8 +1127,8 @@ function META:SizeToChildrenWidth()
 	local tr = self.Entity.transform_2d
 	self.last_children_size = nil
 	self.real_size = tr.Size:Copy()
-	tr.Size.x = 1000000
-	tr.Size.x = self:GetSizeOfChildren().x
+	tr:SetWidth(1000000)
+	tr:SetWidth(self:GetSizeOfChildren().x)
 	local min_pos = tr.Size.x
 	local max_pos = 0
 
@@ -1149,7 +1146,7 @@ function META:SizeToChildrenWidth()
 		max_pos = math.max(max_pos, pos_x + v.transform_2d.Size.x + margin:GetSize().x)
 	end
 
-	tr.Size.x = max_pos + self:GetPadding():GetSize().x
+	tr:SetWidth(max_pos + self:GetPadding():GetSize().x)
 	self:SetLayoutSize(tr.Size:Copy())
 	self.Entity.laid_out_x = true
 	self.real_size = nil
@@ -1163,7 +1160,7 @@ function META:SizeToChildren()
 	local tr = self.Entity.transform_2d
 	self.last_children_size = nil
 	self.real_size = tr.Size:Copy()
-	tr.Size = Vec2(1000000, 1000000)
+	tr:SetSize(Vec2(1000000, 1000000))
 	local children_size = self:GetSizeOfChildren()
 	local min_pos = children_size:Copy()
 	local max_pos = Vec2()
@@ -1185,7 +1182,7 @@ function META:SizeToChildren()
 		max_pos.y = math.max(max_pos.y, pos_y + v.transform_2d.Size.y + margin:GetSize().y)
 	end
 
-	tr.Size = max_pos + self:GetPadding():GetSize()
+	tr:SetSize(max_pos + self:GetPadding():GetSize())
 	self:SetLayoutSize(tr.Size:Copy())
 	self.Entity.laid_out_x = true
 	self.Entity.laid_out_y = true
@@ -1222,13 +1219,18 @@ function META:StackChildren()
 					w = siz.x
 				end
 
-				c_tr.Position.x = w + pad:GetLeft() - siz.x + margin:GetLeft()
-				c_tr.Position.y = h + pad:GetTop() - siz.y + margin:GetTop()
+				c_tr:SetPosition(
+					Vec2(
+						w + pad:GetLeft() - siz.x + margin:GetLeft(),
+						h + pad:GetTop() - siz.y + margin:GetTop()
+					)
+				)
 			else
 				h = h + siz.y
 				w = siz.x > w and siz.x or w
-				c_tr.Position.x = pad:GetLeft() + margin:GetLeft()
-				c_tr.Position.y = h + pad:GetTop() - siz.y + margin:GetTop()
+				c_tr:SetPosition(
+					Vec2(pad:GetLeft() + margin:GetLeft(), h + pad:GetTop() - siz.y + margin:GetTop())
+				)
 			end
 
 			if not self:GetForcedStackSize():IsZero() then

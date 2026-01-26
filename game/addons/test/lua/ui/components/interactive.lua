@@ -3,7 +3,7 @@ local Vec2 = require("structs.vec2")
 local Color = require("structs.color")
 local Ang3 = require("structs.ang3")
 local window = require("window")
-local lsx = require("gui.gui").lsx
+local lsx = require("ecs.lsx_ecs")
 local Texture = require("render.texture")
 local glow_highlight_tex = Texture.New({
 	width = 256,
@@ -18,22 +18,14 @@ return function(props)
 	local ref = lsx:UseRef(nil)
 	local is_hovered = lsx:UseHover(ref)
 	local is_pressed, set_pressed = lsx:UseState(false)
+	local mouse_pos = lsx:UseMouse()
 	local hover_ref = lsx:UseRef(nil)
 	local press_ref = lsx:UseRef(nil)
-	local state_ref = lsx:UseRef({hovered = false, pressed = false})
-	state_ref.current.hovered = is_hovered
-	state_ref.current.pressed = is_pressed
 	lsx:UseAnimate(
 		hover_ref,
 		{
 			var = "DrawAlpha",
-			to = {
-				1,
-				function(self)
-					return state_ref.current.hovered
-				end,
-				0,
-			},
+			to = is_hovered and 1 or 0,
 			interpolation = "inOutSine",
 			time = 0.25,
 		},
@@ -43,13 +35,7 @@ return function(props)
 		press_ref,
 		{
 			var = "DrawScaleOffset",
-			to = {
-				Vec2() + 1,
-				function(self)
-					return state_ref.current.pressed
-				end,
-				Vec2() + 0,
-			},
+			to = is_pressed and (Vec2() + 1) or (Vec2() + 0),
 			interpolation = "inOutSine",
 			time = 0.25,
 			operator = "=",
@@ -96,6 +82,10 @@ return function(props)
 		},
 		{is_pressed}
 	)
+	local local_mouse = Vec2(0, 0)
+
+	if ref.current then local_mouse = ref.current:GlobalToLocal(mouse_pos) end
+
 	return lsx:Panel(
 		{
 			Name = "interactive test",
@@ -121,24 +111,16 @@ return function(props)
 				{
 					Name = "large glow",
 					ref = hover_ref,
-					DrawAlpha = 0,
+					Position = local_mouse - Vec2(128, 128),
 					OnDraw = function(self)
-						if self.DrawAlpha <= 0 then return end
-
-						local mpos = window.GetMousePosition()
-						local parent = self:GetParent()
-
-						if parent then
-							local local_pos = parent:GlobalToLocal(mpos)
-							self:SetPosition(local_pos - Vec2(128, 128))
-						end
+						if (self.DrawAlpha or 0) <= 0 then return end
 
 						-- old draw 
 						render2d.SetBlendMode("additive")
 						render2d.SetTexture(self.Texture)
-						local c = self.Color + self.DrawColor
-						render2d.SetColor(c.r, c.g, c.b, c.a * self.DrawAlpha)
-						local s = self.Size + self.DrawSizeOffset
+						local c = self.Color + (self.DrawColor or Color(0, 0, 0, 0))
+						render2d.SetColor(c.r, c.g, c.b, c.a * (self.DrawAlpha or 0))
+						local s = self.Size + (self.DrawSizeOffset or Vec2(0, 0))
 						render2d.DrawRect(0, 0, s.x, s.y)
 						render2d.SetBlendMode("alpha")
 					end,
@@ -153,22 +135,14 @@ return function(props)
 				{
 					Name = "small glow",
 					ref = press_ref,
-					DrawScaleOffset = Vec2() + 0,
+					Position = local_mouse - Vec2(128, 128),
 					OnDraw = function(self)
-						local mpos = window.GetMousePosition()
-						local parent = self:GetParent()
-
-						if parent then
-							local local_pos = parent:GlobalToLocal(mpos)
-							self:SetPosition(local_pos - Vec2(128, 128))
-						end
-
 						-- old draw 
 						render2d.SetBlendMode("additive")
 						render2d.SetTexture(self.Texture)
-						local c = self.Color + self.DrawColor
-						render2d.SetColor(c.r, c.g, c.b, c.a * self.DrawAlpha)
-						local s = self.Size + self.DrawSizeOffset
+						local c = self.Color + (self.DrawColor or Color(0, 0, 0, 0))
+						render2d.SetColor(c.r, c.g, c.b, c.a * (self.DrawAlpha or 1))
+						local s = self.Size + (self.DrawSizeOffset or Vec2(0, 0))
 						render2d.DrawRect(0, 0, s.x, s.y)
 						render2d.SetBlendMode("alpha")
 					end,

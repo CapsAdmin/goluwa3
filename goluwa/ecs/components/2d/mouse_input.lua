@@ -1,8 +1,8 @@
 local prototype = require("prototype")
 local window = require("window")
 local event = require("event")
-local ecs = require("ecs")
-local transform = require("components.2d.transform").Component
+local ecs = require("ecs.ecs")
+local transform = require("ecs.components.2d.transform")
 local Vec2 = require("structs.vec2")
 local META = prototype.CreateTemplate("mouse_input_2d")
 META.ComponentName = "mouse_input_2d"
@@ -43,11 +43,11 @@ function META:OnMouseInput(button, press, pos)
 	if transform:GetScrollEnabled() then
 		if button == "mwheel_up" then
 			local s = transform:GetScroll() + Vec2(0, -20)
+			s.y = math.max(s.y, 0)
 			transform:SetScroll(s)
 			return true
 		elseif button == "mwheel_down" then
 			local s = transform:GetScroll() + Vec2(0, 20)
-			s.y = math.min(s.y, 0)
 			transform:SetScroll(s)
 			return true
 		end
@@ -57,11 +57,12 @@ end
 local mouse_input = library()
 mouse_input.pressed_entities = mouse_input.pressed_entities or {}
 mouse_input.Component = META:Register()
+mouse_input.last_hovered = mouse_input.last_hovered or NULL
 
 local function get_hovered_entity(entity, mouse_pos)
-	local rect = entity:GetComponent("rect_2d")
+	local gui = entity:GetComponent("gui_element_2d")
 
-	if rect and not rect.Visible then return nil end
+	if gui and not gui:GetVisible() then return nil end
 
 	local mouse_comp = entity:GetComponent("mouse_input_2d")
 
@@ -76,13 +77,25 @@ local function get_hovered_entity(entity, mouse_pos)
 		if found then return found end
 	end
 
-	if rect and rect:IsHovered(mouse_pos) then return entity end
+	if gui and gui:IsHovered(mouse_pos) then return entity end
 
 	return nil
 end
 
 function mouse_input.GetHoveredEntity()
-	return last_hovered
+	return mouse_input.last_hovered
+end
+
+function META:IsHoveredExclusively(mouse_pos)
+	if mouse_pos then
+		local world = ecs.Get2DWorld()
+
+		if not world then return false end
+
+		return get_hovered_entity(world, mouse_pos) == self.Entity
+	end
+
+	return mouse_input.last_hovered == self.Entity
 end
 
 function mouse_input.MouseInput(button, press)
@@ -185,8 +198,6 @@ function mouse_input.MouseInput(button, press)
 	end
 end
 
-local last_hovered = nil
-
 function mouse_input.Update()
 	local world = ecs.Get2DWorld()
 
@@ -209,9 +220,9 @@ function mouse_input.Update()
 
 	local hovered = get_hovered_entity(world, pos)
 
-	if hovered ~= last_hovered then
-		if last_hovered and last_hovered:IsValid() then
-			local mouse = last_hovered:GetComponent("mouse_input_2d")
+	if hovered ~= mouse_input.last_hovered then
+		if mouse_input.last_hovered:IsValid() then
+			local mouse = mouse_input.last_hovered:GetComponent("mouse_input_2d")
 
 			if mouse then mouse:SetHovered(false) end
 		end
@@ -222,7 +233,7 @@ function mouse_input.Update()
 			if mouse then mouse:SetHovered(true) end
 		end
 
-		last_hovered = hovered
+		mouse_input.last_hovered = hovered or NULL
 	end
 
 	if hovered and hovered:IsValid() then

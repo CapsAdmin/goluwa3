@@ -1,23 +1,35 @@
 local T = require("test.environment")
-local lsx = require("gui.gui").lsx
+local lsx = require("ecs.lsx_ecs")
 local prototype = require("prototype")
-local gui = require("gui.gui")
+local ecs = require("ecs.ecs")
 local Vec2 = require("structs.vec2")
 local Ang3 = require("structs.ang3")
 local event = require("event")
 local system = require("system")
 local window = require("window")
--- Create a mock panel type for testing
-local BasePanel = require("gui.panels.base")
-local META = prototype.CreateTemplate("panel_mock_element")
-META.Base = BasePanel
+-- Create a mock component type for testing
+local META = prototype.CreateTemplate("mock_element")
+META.ComponentName = "mock_element"
 META:GetSet("MemoVal")
 META:GetSet("Callback")
-META:Register()
-local Mock = lsx:RegisterElement("mock_element")
+META.Component = META:Register()
+local Mock = lsx:RegisterElement(function(parent)
+	local ent = ecs.CreateEntity("mock_element", parent)
+	ent:AddComponent(require("ecs.components.2d.transform"))
+	ent:AddComponent(require("ecs.components.2d.rect"))
+	ent:AddComponent(require("ecs.components.2d.layout"))
+	ent:AddComponent(require("ecs.components.2d.mouse_input"))
+	ent:AddComponent(require("ecs.components.2d.animations"))
+	ent:AddComponent(META.Component)
+	return ent
+end)
 
 local function CreateMockRoot()
-	return BasePanel:CreateObject()
+	event.Call("Update")
+	table.clear(lsx.pending_renders)
+	table.clear(lsx.pending_effects)
+	ecs.Clear2DWorld()
+	return ecs.Get2DWorld()
 end
 
 -- Testing plain function support
@@ -88,10 +100,9 @@ T.Test("lsx:UseState", function()
 		return Mock({Name = "Count:" .. count})
 	end
 
-	local instance = lsx:MountTopLevel(MyComponent, {}, root)
+	local instance = lsx:Mount({MyComponent}, root)
 	T(instance:GetName())["=="]("Count:0")
 	setStateProxy(1)
-	-- Trigger Update event to process the re-render
 	event.Call("Update")
 	T(instance:GetName())["=="]("Count:1")
 
@@ -160,19 +171,19 @@ T.Test("lsx:UseMemo and lsx:UseCallback", function()
 
 	local node = {MyComponent, val = "a"}
 	local instance = lsx:Mount(node, root)
-	local firstCallback = instance.Callback
-	T(instance.MemoVal)["=="]("val-a")
+	local firstCallback = instance:GetCallback()
+	T(instance:GetMemoVal())["=="]("val-a")
 	T(memoCalls)["=="](1)
 	-- Same deps
 	lsx:Build(node, root, instance)
 	T(memoCalls)["=="](1)
-	T(instance.Callback)["=="](firstCallback)
+	T(instance:GetCallback())["=="](firstCallback)
 	-- Different deps
 	node.val = "b"
 	lsx:Build(node, root, instance)
 	T(memoCalls)["=="](2)
-	T(instance.MemoVal)["=="]("val-b")
-	T(instance.Callback ~= firstCallback)["=="](true)
+	T(instance:GetMemoVal())["=="]("val-b")
+	T(instance:GetCallback() ~= firstCallback)["=="](true)
 	root:Remove()
 end)
 
@@ -232,7 +243,7 @@ T.Test("lsx component ref and layout", function()
 		})
 	end
 
-	local root = gui.Create("base")
+	local root = CreateMockRoot()
 	local instance = lsx:Mount(
 		{
 			MyComponent,
@@ -244,7 +255,7 @@ T.Test("lsx component ref and layout", function()
 		root
 	)
 	T(ref_called)["=="](true)
-	T(instance.Layout[1])["=="]("Fill")
+	T(instance:GetLayout()[1])["=="]("Fill")
 	instance:Remove()
 	root:Remove()
 end)
@@ -267,26 +278,27 @@ T.Test("lsx layout calculation with children", function()
 		)
 	end
 
-	local root = gui.Create("base")
+	local root = CreateMockRoot()
 	root:SetSize(Vec2(500, 500))
 	local panel = lsx:Mount(MyComponent({}), root)
 	-- Trigger layout calculation
 	root:CalcLayout()
-	T(panel.Size.x)["=="](500)
-	T(panel.Size.y)["=="](500)
+	T(panel:GetSize().x)["=="](500)
+	T(panel:GetSize().y)["=="](500)
 	local child = panel:GetChildren()[1]
 	T(child ~= nil)["=="](true)
 	child:CalcLayout()
 	-- CenterXSimple should put it at (500-50)/2 = 225
-	T(child.Position.x)["=="](225)
+	T(child:GetPosition().x)["=="](225)
 	panel:Remove()
 	root:Remove()
 end)
 
 T.Test("lsx:Build should not be called multiple times if setState is called multiple times", function()
+	table.clear(lsx.pending_renders)
 	local build_count = 0
 
-	local function MyComponent()
+	local function MyComponent(props)
 		build_count = build_count + 1
 		local state, set_state = lsx:UseState(0)
 
@@ -544,7 +556,7 @@ T.Test("lsx component ref and layout", function()
 		})
 	end
 
-	local root = gui.Create("base")
+	local root = CreateMockRoot()
 	local instance = lsx:Mount(
 		{
 			MyComponent,
@@ -556,7 +568,7 @@ T.Test("lsx component ref and layout", function()
 		root
 	)
 	T(ref_called)["=="](true)
-	T(instance.Layout[1])["=="]("Fill")
+	T(instance:GetLayout()[1])["=="]("Fill")
 	instance:Remove()
 	root:Remove()
 end)
@@ -579,31 +591,31 @@ T.Test("lsx layout calculation with children", function()
 		)
 	end
 
-	local root = gui.Create("base")
+	local root = CreateMockRoot()
 	root:SetSize(Vec2(500, 500))
 	local panel = lsx:Mount(MyComponent({}), root)
 	-- Trigger layout calculation
 	root:CalcLayout()
-	T(panel.Size.x)["=="](500)
-	T(panel.Size.y)["=="](500)
+	T(panel:GetSize().x)["=="](500)
+	T(panel:GetSize().y)["=="](500)
 	local child = panel:GetChildren()[1]
 	T(child ~= nil)["=="](true)
 	child:CalcLayout()
 	-- CenterXSimple should put it at (500-50)/2 = 225
-	T(child.Position.x)["=="](225)
+	T(child:GetPosition().x)["=="](225)
 	panel:Remove()
 	root:Remove()
 end)
 
 T.Test("lsx:HoverPanel regression test", function()
-	local root = gui.Create("base")
+	local root = CreateMockRoot()
 	root:SetSize(Vec2(500, 500))
 	local hover_count = 0
 	local IsHovered_called = 0
 	-- Mock IsHovered since we don't have a real mouse/window interaction easily here
-	local original_IsHovered = prototype.registered.panel_base.IsHovered
+	local original_IsHovered = prototype.registered.gui_element_2d.IsHovered
 	local mock_hovered = false
-	prototype.registered.panel_base.IsHovered = function(self, mouse_pos)
+	prototype.registered.gui_element_2d.IsHovered = function(self, mouse_pos)
 		IsHovered_called = IsHovered_called + 1
 		return mock_hovered
 	end
@@ -614,7 +626,11 @@ T.Test("lsx:HoverPanel regression test", function()
 
 		lsx:UseEffect(
 			function()
-				if ref.current then set_hovered(ref.current:IsHovered(Vec2(0, 0))) end
+				if ref.current then
+					local gui = ref.current:GetComponent("gui_element_2d")
+
+					if gui then set_hovered(gui:IsHovered(Vec2(0, 0))) end
+				end
 			end,
 			{props.tick}
 		)
@@ -642,8 +658,8 @@ T.Test("lsx:HoverPanel regression test", function()
 	T(instance:GetScale().x)["=="](2)
 	-- Check setter optimization safety
 	local scale_calls = 0
-	local original_SetScale = prototype.registered.panel_base.SetScale
-	prototype.registered.panel_base.SetScale = function(self, val)
+	local original_SetScale = prototype.registered.transform_2d.SetScale
+	prototype.registered.transform_2d.SetScale = function(self, val)
 		scale_calls = scale_calls + 1
 		return original_SetScale(self, val)
 	end
@@ -651,8 +667,8 @@ T.Test("lsx:HoverPanel regression test", function()
 	node.tick = 3
 	lsx:Build(node, root, instance)
 	T(scale_calls)["=="](0) -- Should NOT have called SetScale because Scale didn't change
-	prototype.registered.panel_base.SetScale = original_SetScale
+	prototype.registered.transform_2d.SetScale = original_SetScale
 	-- Clean up
-	prototype.registered.panel_base.IsHovered = original_IsHovered
+	prototype.registered.gui_element_2d.IsHovered = original_IsHovered
 	root:Remove()
 end)

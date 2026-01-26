@@ -1,7 +1,3 @@
-do
-	return
-end
-
 local event = require("event")
 local render2d = require("render2d.render2d")
 local Color = require("structs.color")
