@@ -88,10 +88,10 @@ return function(props)
 
 	return lsx:Panel(
 		{
-			Name = "interactive test",
+			Name = "button",
 			ref = ref,
-			Position = Vec2(100, 100),
-			Size = Vec2(200, 50),
+			Position = props.Position or Vec2(100, 100),
+			Size = props.Size or Vec2(200, 50),
 			Perspective = 400,
 			Shadows = true,
 			BorderRadius = 10,
@@ -100,13 +100,15 @@ return function(props)
 			ShadowOffset = Vec2(2, 2),
 			Clipping = true,
 			Color = Color(0.8, 0.2, 0.2, 1),
+			OnClick = function()
+				print("clicked!")
+			end,
 			OnMouseInput = function(self, button, press, local_pos)
 				if button == "button_1" then
 					set_pressed(press)
 					return true
 				end
 			end,
-			props,
 			lsx:Panel(
 				{
 					Name = "large glow",
@@ -153,6 +155,7 @@ return function(props)
 					IgnoreMouseInput = true,
 				}
 			),
+			unpack(props),
 		}
 	)
 end

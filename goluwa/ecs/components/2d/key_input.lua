@@ -35,9 +35,11 @@ function key_input.KeyInput(key, press)
 	local focused = ecs.GetFocusedEntity()
 
 	if focused and focused:IsValid() then
-		local comp = focused:GetComponent("key_input_2d")
-
-		if comp then if comp:KeyInput(key, press) then return true end end
+		for _, comp in pairs(focused.ComponentsHash) do
+			if comp.KeyInput then
+				if comp:KeyInput(key, press) then return true end
+			end
+		end
 
 		if focused.OnKeyInput then
 			if focused:OnKeyInput(key, press) then return true end
@@ -49,9 +51,9 @@ function key_input.CharInput(char)
 	local focused = ecs.GetFocusedEntity()
 
 	if focused and focused:IsValid() then
-		local comp = focused:GetComponent("key_input_2d")
-
-		if comp then if comp:CharInput(char) then return true end end
+		for _, comp in pairs(focused.ComponentsHash) do
+			if comp.CharInput then if comp:CharInput(char) then return true end end
+		end
 
 		if focused.OnCharInput then
 			if focused:OnCharInput(char) then return true end

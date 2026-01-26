@@ -27,67 +27,6 @@ function META:SetColor(c)
 	end
 end
 
--- Delegates for backward compatibility
-function META:SetVisible(b)
-	self.Entity.gui_element_2d:SetVisible(b)
-end
-
-function META:GetVisible()
-	return self.Entity.gui_element_2d:GetVisible()
-end
-
-function META:SetClipping(b)
-	self.Entity.gui_element_2d:SetClipping(b)
-end
-
-function META:GetClipping()
-	return self.Entity.gui_element_2d:GetClipping()
-end
-
-function META:SetShadows(b)
-	self.Entity.gui_element_2d:SetShadows(b)
-end
-
-function META:GetShadows()
-	return self.Entity.gui_element_2d:GetShadows()
-end
-
-function META:SetShadowColor(c)
-	self.Entity.gui_element_2d:SetShadowColor(c)
-end
-
-function META:GetShadowColor()
-	return self.Entity.gui_element_2d:GetShadowColor()
-end
-
-function META:SetShadowSize(s)
-	self.Entity.gui_element_2d:SetShadowSize(s)
-end
-
-function META:GetShadowSize()
-	return self.Entity.gui_element_2d:GetShadowSize()
-end
-
-function META:SetShadowOffset(o)
-	self.Entity.gui_element_2d:SetShadowOffset(o)
-end
-
-function META:GetShadowOffset()
-	return self.Entity.gui_element_2d:GetShadowOffset()
-end
-
-function META:SetBorderRadius(r)
-	self.Entity.gui_element_2d:SetBorderRadius(r)
-end
-
-function META:GetBorderRadius()
-	return self.Entity.gui_element_2d:GetBorderRadius()
-end
-
-function META:IsHovered(mouse_pos)
-	return self.Entity.gui_element_2d:IsHovered(mouse_pos)
-end
-
 function META:OnDraw()
 	local transform = self.Entity.transform_2d
 	local s = transform.Size + transform.DrawSizeOffset

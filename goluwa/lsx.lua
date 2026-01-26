@@ -388,6 +388,21 @@ function META:Build(node, parent, existing, adapter)
 						local eventName = "On" .. key:sub(3, 3):upper() .. key:sub(4)
 
 						if panel[eventName] ~= value then panel[eventName] = value end
+					elseif type(value) == "table" and panel[key] and type(panel[key]) == "table" then
+						for k, v in pairs(value) do
+							local setterName = "Set" .. k:sub(1, 1):upper() .. k:sub(2)
+							local method = panel[key][setterName]
+
+							if method then
+								local getterName = "Get" .. k:sub(1, 1):upper() .. k:sub(2)
+								local getter = panel[key][getterName]
+								local currentVal = getter and getter(panel[key])
+
+								if currentVal ~= v then method(panel[key], v) end
+							else
+								panel[key][k] = v
+							end
+						end
 					end
 				end
 			end

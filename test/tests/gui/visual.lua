@@ -9,8 +9,9 @@ local H = 512
 local function TestGUI(name, func)
 	return T.Test2D(name, function()
 		ecs.Clear2DWorld()
-		local ret = func()
 		local world = ecs.Get2DWorld()
+		world.transform_2d:SetSize(Vec2(W, H))
+		local ret = func()
 		world:CalcLayout()
 
 		for _, child in ipairs(world:GetChildren()) do

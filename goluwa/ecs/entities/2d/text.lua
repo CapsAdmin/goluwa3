@@ -6,6 +6,7 @@ return function(parent)
 	ent:AddComponent(require("ecs.components.2d.transform"))
 	ent:AddComponent(require("ecs.components.2d.layout"))
 	ent:AddComponent(require("ecs.components.2d.mouse_input"))
+	ent:AddComponent(require("ecs.components.2d.clickable"))
 	ent:AddComponent(require("ecs.components.2d.animations"))
 	return ent
 end

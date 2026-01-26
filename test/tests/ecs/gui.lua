@@ -20,8 +20,8 @@ T.Test("ecs gui basic", function()
 	T(entity:HasComponent("rect_2d"))["=="](true)
 	T(entity:HasComponent("mouse_input_2d"))["=="](true)
 	-- Test hovering
-	T(rect:IsHovered(Vec2(150, 150)))["=="](true)
-	T(rect:IsHovered(Vec2(50, 50)))["=="](false)
+	T(entity.gui_element_2d:IsHovered(Vec2(150, 150)))["=="](true)
+	T(entity.gui_element_2d:IsHovered(Vec2(50, 50)))["=="](false)
 	entity:Remove()
 end)
 
@@ -40,8 +40,8 @@ T.Test("ecs gui parenting", function()
 	local world_rect = child:GetComponent("rect_2d")
 	-- child is at 100+50, 100+50 = 150, 150
 	-- size is 50, 50, so it goes from 150 to 200.
-	T(world_rect:IsHovered(Vec2(175, 175)))["=="](true)
-	T(world_rect:IsHovered(Vec2(125, 125)))["=="](false)
+	T(child.gui_element_2d:IsHovered(Vec2(175, 175)))["=="](true)
+	T(child.gui_element_2d:IsHovered(Vec2(125, 125)))["=="](false)
 	parent:Remove()
 end)
 

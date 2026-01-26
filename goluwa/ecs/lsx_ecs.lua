@@ -7,6 +7,28 @@ local DefaultAdapter = {
 		return ecs.Get2DWorld()
 	end,
 	SetProperty = function(ent, key, value)
+		if type(value) == "table" and ent.GetComponent then
+			local comp = ent:GetComponent(key)
+
+			if comp then
+				for k, v in pairs(value) do
+					local setterName = "Set" .. k:sub(1, 1):upper() .. k:sub(2)
+
+					if comp[setterName] then
+						local getterName = "Get" .. k:sub(1, 1):upper() .. k:sub(2)
+						local getter = comp[getterName]
+						local currentVal = getter and getter(comp)
+
+						if currentVal ~= v then comp[setterName](comp, v) end
+					else
+						comp[k] = v
+					end
+				end
+
+				return
+			end
+		end
+
 		local setterName = "Set" .. key:sub(1, 1):upper() .. key:sub(2)
 		local getterName = "Get" .. key:sub(1, 1):upper() .. key:sub(2)
 

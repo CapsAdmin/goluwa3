@@ -31,6 +31,10 @@ function META:GetMousePosition()
 	return self.Entity.transform_2d:GlobalToLocal(mouse_pos)
 end
 
+function META:GetGlobalMousePosition()
+	return window.GetMousePosition()
+end
+
 function META:IsMouseButtonDown(button)
 	self.button_states = self.button_states or {}
 	local state = self.button_states[button]
@@ -112,6 +116,10 @@ function mouse_input.MouseInput(button, press)
 			local mouse_comp = hovered:GetComponent("mouse_input_2d")
 
 			if mouse_comp then
+				mouse_input.pressed_entities[button] = hovered
+				mouse_comp.button_states = mouse_comp.button_states or {}
+				mouse_comp.button_states[button] = {press = press, pos = pos}
+
 				if mouse_comp:GetFocusOnClick() then
 					local target = hovered
 
@@ -132,24 +140,22 @@ function mouse_input.MouseInput(button, press)
 
 						if resizable_comp:StartResizing(local_pos, button) then
 							mouse_input.ResizingObject = resizable_comp
-							return true
 						end
 					end
 
-					if mouse_comp:GetDragEnabled() then
+					if not mouse_input.ResizingObject and mouse_comp:GetDragEnabled() then
 						mouse_input.DraggingObject = hovered
 						mouse_input.DragMouseStart = pos:Copy()
 						mouse_input.DragObjectStart = hovered.transform_2d:GetPosition():Copy()
 					end
 				end
 
-				mouse_input.pressed_entities[button] = hovered
-				mouse_comp.button_states = mouse_comp.button_states or {}
-				mouse_comp.button_states[button] = {press = press, pos = pos}
 				local local_pos = hovered.transform_2d:GlobalToLocal(pos)
 
-				if mouse_comp.OnMouseInput then
-					mouse_comp:OnMouseInput(button, press, local_pos)
+				for _, comp in pairs(hovered.ComponentsHash) do
+					if comp.OnMouseInput then
+						comp:OnMouseInput(button, press, local_pos)
+					end
 				end
 
 				if hovered.OnMouseInput then
@@ -182,8 +188,10 @@ function mouse_input.MouseInput(button, press)
 					mouse_comp.button_states[button] = {press = press, pos = pos}
 					local local_pos = pressed.transform_2d:GlobalToLocal(pos)
 
-					if mouse_comp.OnMouseInput then
-						mouse_comp:OnMouseInput(button, press, local_pos)
+					for _, comp in pairs(pressed.ComponentsHash) do
+						if comp.OnMouseInput then
+							comp:OnMouseInput(button, press, local_pos)
+						end
 					end
 
 					if pressed.OnMouseInput then
