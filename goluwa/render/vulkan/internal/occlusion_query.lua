@@ -53,17 +53,20 @@ end
 function OcclusionQuery:OnRemove()
 	if self.device:IsValid() then
 		self.device:WaitIdle()
-		vulkan.lib.vkDestroyQueryPool(self.device.ptr[0], self.query_pool[0], nil)
+
+		if
+			self.query_pool and
+			self.query_pool[0] ~= nil and
+			tonumber(ffi.cast("uint64_t", self.query_pool[0])) ~= 0
+		then
+			vulkan.lib.vkDestroyQueryPool(self.device.ptr[0], self.query_pool[0], nil)
+			self.query_pool[0] = nil
+		end
 	end
 end
 
 function OcclusionQuery:Delete()
-	if self.query_pool and self.query_pool[0] then
-		vulkan.lib.vkDestroyQueryPool(self.device.ptr[0], self.query_pool[0], nil)
-		self.query_pool = nil
-	end
-
-	if self.conditional_buffer then self.conditional_buffer = nil end
+	self:Remove()
 end
 
 -- Reset query pool (must be called outside render pass)

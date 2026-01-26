@@ -10,6 +10,7 @@ local Polygon3D = prototype.CreateTemplate("render3d_polygon_3d")
 function Polygon3D.New()
 	local self = Polygon3D:CreateObject()
 	self.sub_meshes = {}
+	self:SetAABB(AABB(math.huge, math.huge, math.huge, -math.huge, -math.huge, -math.huge))
 	return self
 end
 
@@ -18,17 +19,24 @@ function Polygon3D:__tostring2()
 end
 
 Polygon3D:GetSet("Vertices", {})
-Polygon3D:GetSet("AABB", AABB())
+Polygon3D:GetSet(
+	"AABB",
+	AABB(math.huge, math.huge, math.huge, -math.huge, -math.huge, -math.huge)
+)
 Polygon3D.i = 1
 
 function Polygon3D:AddVertex(vertex)
 	self.Vertices[self.i] = vertex
+
+	if vertex.pos then self.AABB:ExpandVec3(vertex.pos) end
+
 	self.i = self.i + 1
 end
 
 function Polygon3D:Clear()
 	self.i = 1
 	list.clear(self.Vertices)
+	self:SetAABB(AABB(math.huge, math.huge, math.huge, -math.huge, -math.huge, -math.huge))
 end
 
 function Polygon3D:UnreferenceVertices()
@@ -46,6 +54,8 @@ function Polygon3D:Upload()
 	local vertex_count = #self.Vertices
 
 	if vertex_count == 0 then return end
+
+	self:BuildBoundingBox()
 
 	if not self.Vertices[1].uv then self:BuildUVsPlanar() end
 
@@ -237,6 +247,8 @@ end
 
 do -- helpers
 	function Polygon3D:BuildBoundingBox()
+		self:SetAABB(AABB(math.huge, math.huge, math.huge, -math.huge, -math.huge, -math.huge))
+
 		for _, sub_mesh in ipairs(self:GetSubMeshes()) do
 			for i = 1, #sub_mesh.indices do
 				-- Indices are 0-based, Vertices table is 1-based

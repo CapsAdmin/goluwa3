@@ -151,6 +151,18 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 		pNextChain = dynamicRenderingFeatures
 	end
 
+	if table.has_value(available_extensions, "VK_EXT_conditional_rendering") then
+		local conditionalRenderingFeatures = vulkan.vk.VkPhysicalDeviceConditionalRenderingFeaturesEXT(
+			{
+				sType = vulkan.vk.VkStructureType.VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_CONDITIONAL_RENDERING_FEATURES_EXT,
+				pNext = pNextChain,
+				conditionalRendering = 1,
+				inheritedConditionalRendering = 0,
+			}
+		)
+		pNextChain = conditionalRenderingFeatures
+	end
+
 	local physical_features = physical_device:GetFeatures()
 	local enabled_features = vulkan.T.Box(vulkan.vk.VkPhysicalDeviceFeatures)()
 

@@ -26,7 +26,7 @@ META:GetSet("Primitives", {})
 META:GetSet("Visible", true)
 META:GetSet("CastShadows", true)
 META:GetSet("AABB", AABB(math.huge, math.huge, math.huge, -math.huge, -math.huge, -math.huge)) -- Local space AABB (combined from all primitives)
-META:GetSet("UseOcclusionCulling", false) -- Enable occlusion culling for this model
+META:GetSet("UseOcclusionCulling", true) -- Enable occlusion culling for this model
 META:GetSet("ModelPath", "")
 META:GetSet("MaterialOverride", nil)
 META:GetSet("Color", Color(1, 1, 1, 1))
@@ -34,8 +34,17 @@ META:GetSet("RoughnessMultiplier", 1)
 META:GetSet("MetallicMultiplier", 1)
 META:IsSet("Loading", false)
 
+function META:SetUseOcclusionCulling(enabled)
+	self.UseOcclusionCulling = enabled
+
+	if enabled and not self.occlusion_query and model.IsOcclusionCullingEnabled() then
+		self.occlusion_query = render.CreateOcclusionQuery()
+	end
+end
+
 function META:Initialize()
 	self.Primitives = {}
+	self:SetAABB(AABB(math.huge, math.huge, math.huge, -math.huge, -math.huge, -math.huge))
 end
 
 function META:SetModelPath(path)
@@ -189,36 +198,38 @@ function META:GetWorldMatrixInverse()
 end
 
 do
-	model.noculling = true -- Debug flag to disable culling
+	model.noculling = false -- Debug flag to disable culling
 	model.freeze_culling = false -- Debug flag to freeze frustum for culling tests
 	local function extract_frustum_planes(proj_view_matrix, out_planes)
 		local m = proj_view_matrix
-		-- Left plane: row3 + row0
+		-- Gribb-Hartmann: Plane = Col 3 +/- Col 0/1/2
+		-- Matrix is row-major in Lua: Column i is (m0i, m1i, m2i, m3i)
+		-- Left plane: Col 3 + Col 0
 		out_planes[0] = m.m03 + m.m00
 		out_planes[1] = m.m13 + m.m10
 		out_planes[2] = m.m23 + m.m20
 		out_planes[3] = m.m33 + m.m30
-		-- Right plane: row3 - row0
+		-- Right plane: Col 3 - Col 0
 		out_planes[4] = m.m03 - m.m00
 		out_planes[5] = m.m13 - m.m10
 		out_planes[6] = m.m23 - m.m20
 		out_planes[7] = m.m33 - m.m30
-		-- Bottom plane: row3 + row1
+		-- Top plane: Col 3 + Col 1 (In Vulkan Y is down, so w+y is top)
 		out_planes[8] = m.m03 + m.m01
 		out_planes[9] = m.m13 + m.m11
 		out_planes[10] = m.m23 + m.m21
 		out_planes[11] = m.m33 + m.m31
-		-- Top plane: row3 - row1
+		-- Bottom plane: Col 3 - Col 1 (In Vulkan Y is down, so w-y is bottom)
 		out_planes[12] = m.m03 - m.m01
 		out_planes[13] = m.m13 - m.m11
 		out_planes[14] = m.m23 - m.m21
 		out_planes[15] = m.m33 - m.m31
-		-- Near plane: row3 + row2
-		out_planes[16] = m.m03 + m.m02
-		out_planes[17] = m.m13 + m.m12
-		out_planes[18] = m.m23 + m.m22
-		out_planes[19] = m.m33 + m.m32
-		-- Far plane: row3 - row2
+		-- Near plane: Col 2 (Vulkan depth range [0, w])
+		out_planes[16] = m.m02
+		out_planes[17] = m.m12
+		out_planes[18] = m.m22
+		out_planes[19] = m.m32
+		-- Far plane: Col 3 - Col 2
 		out_planes[20] = m.m03 - m.m02
 		out_planes[21] = m.m13 - m.m12
 		out_planes[22] = m.m23 - m.m22
@@ -244,23 +255,26 @@ do
 			local px = a > 0 and aabb.max_x or aabb.min_x
 			local py = b > 0 and aabb.max_y or aabb.min_y
 			local pz = c > 0 and aabb.max_z or aabb.min_z
+			local dist = a * px + b * py + c * pz + d
 
-			if a * px + b * py + c * pz + d < 0 then return false end
+			if dist < 0 then return false end
 		end
 
 		return true
 	end
 
-	local function transform_plane(plane_offset, frustum_array, inv_matrix, out_offset, out_array)
+	local function transform_plane(plane_offset, frustum_array, world_matrix, out_offset, out_array)
 		local a = frustum_array[plane_offset]
 		local b = frustum_array[plane_offset + 1]
 		local c = frustum_array[plane_offset + 2]
 		local d = frustum_array[plane_offset + 3]
-		local m = inv_matrix
-		out_array[out_offset] = a * m.m00 + b * m.m01 + c * m.m02
-		out_array[out_offset + 1] = a * m.m10 + b * m.m11 + c * m.m12
-		out_array[out_offset + 2] = a * m.m20 + b * m.m21 + c * m.m22
-		out_array[out_offset + 3] = a * m.m30 + b * m.m31 + c * m.m32 + d
+		local m = world_matrix
+		-- Transform world plane P to local space: P_L = W^T * P_W
+		-- Since matrix is row-major, Column i is (m0i, m1i, m2i, m3i)
+		out_array[out_offset] = a * m.m00 + b * m.m10 + c * m.m20 + d * m.m30
+		out_array[out_offset + 1] = a * m.m01 + b * m.m11 + c * m.m21 + d * m.m31
+		out_array[out_offset + 2] = a * m.m02 + b * m.m12 + c * m.m22 + d * m.m32
+		out_array[out_offset + 3] = a * m.m03 + b * m.m13 + c * m.m23 + d * m.m33
 	end
 
 	local cached_frustum_planes = ffi.new("float[24]")
@@ -274,11 +288,12 @@ do
 		local current_frame = system.GetFrameNumber()
 
 		if cached_frustum_frame ~= current_frame then
+			-- print("Extracting frustum for frame", current_frame)
 			-- ORIENTATION / TRANSFORMATION: Extract frustum from projection-view matrix
 			local camera = render3d.GetCamera()
 			local proj = camera:BuildProjectionMatrix()
 			local view = camera:BuildViewMatrix()
-			extract_frustum_planes(proj * view, cached_frustum_planes)
+			extract_frustum_planes(view * proj, cached_frustum_planes)
 			cached_frustum_frame = current_frame
 		end
 
@@ -287,13 +302,17 @@ do
 
 	local local_frustum_planes = ffi.new("float[24]")
 
-	local function is_aabb_visible_local(local_aabb, inv_world)
+	local function is_aabb_visible_local(local_aabb, world_matrix)
 		if model.noculling then return true end
+
+		local_aabb = local_aabb or model.GetAABB(nil)
+
+		if not local_aabb then return true end
 
 		local world_frustum = get_frustum_planes()
 
 		for i = 0, 20, 4 do
-			transform_plane(i, world_frustum, inv_world, i, local_frustum_planes)
+			transform_plane(i, world_frustum, world_matrix, i, local_frustum_planes)
 		end
 
 		return is_aabb_visible_frustum(local_aabb, local_frustum_planes)
@@ -302,11 +321,11 @@ do
 	function META:IsAABBVisibleLocal()
 		if not self.AABB then return true end
 
-		local world_matrix_inv = self:GetWorldMatrixInverse()
+		local world_matrix = self:GetWorldMatrix()
 
-		if not world_matrix_inv then return true end
+		if not world_matrix then return true end
 
-		return is_aabb_visible_local(self.AABB, world_matrix_inv)
+		return is_aabb_visible_local(self.AABB, world_matrix)
 	end
 end
 
@@ -369,8 +388,6 @@ end
 -- Draw bounding box for occlusion query (simplified geometry)
 -- This should be called in a separate pass before the main draw
 function META:DrawOcclusionQuery(cmd)
-	if not self.UseOcclusionCulling or not self.occlusion_query then return end
-
 	if self.frustum_culled then return end
 
 	-- Skip updating queries if culling is frozen
@@ -378,8 +395,16 @@ function META:DrawOcclusionQuery(cmd)
 
 	if not self:IsAABBVisibleLocal() then return end
 
-	-- Begin occlusion query
-	self.occlusion_query:BeginQuery(cmd)
+	-- Begin occlusion query if enabled and available
+	local query = self.UseOcclusionCulling and self.occlusion_query
+
+	-- Verify query is ready (reset) before starting
+	if query and query.needs_reset then
+		query = nil -- Skip this frame if it needs a reset (must be done outside render pass)
+	end
+
+	if query then query:BeginQuery(cmd) end
+
 	-- Draw the actual model geometry (like old goluwa method)
 	-- This determines if any pixels of the model are visible
 	local world_matrix = self:GetWorldMatrix()
@@ -408,7 +433,7 @@ function META:DrawOcclusionQuery(cmd)
 	end
 
 	-- End occlusion query
-	self.occlusion_query:EndQuery(cmd)
+	if query then query:EndQuery(cmd) end
 end
 
 -- Draw shadows (called externally, not via event)
@@ -472,6 +497,37 @@ function META:DrawProbeGeometry(cmd, lightprobes)
 	end
 end
 
+model.occlusion_culling_enabled = true
+model.occlusion_query_fps = 30 -- Limit occlusion queries to this FPS
+model.last_occlusion_query_time = 0
+model.should_run_queries_this_frame = true -- Cached per-frame flag
+function model.IsOcclusionCullingEnabled()
+	return model.occlusion_culling_enabled
+end
+
+function model.SetOcclusionCulling(enabled)
+	model.occlusion_culling_enabled = enabled
+end
+
+-- Check if we should run occlusion queries this frame
+-- This should only be called once per frame to avoid timing issues
+function model.UpdateOcclusionQueryTiming()
+	if model.occlusion_query_fps == 0 then
+		model.should_run_queries_this_frame = true
+		return
+	end
+
+	local current_time = system.GetElapsedTime()
+	local min_interval = 1.0 / model.occlusion_query_fps
+
+	if current_time - model.last_occlusion_query_time >= min_interval then
+		model.last_occlusion_query_time = current_time
+		model.should_run_queries_this_frame = true
+	else
+		model.should_run_queries_this_frame = false
+	end
+end
+
 model.Component = META:Register()
 
 function model.DrawAllShadows(shadow_cmd, shadow_map, cascade_idx)
@@ -515,48 +571,13 @@ function model.GetOcclusionStats()
 	}
 end
 
-model.occlusion_culling_enabled = false
-model.occlusion_query_fps = 1 -- Limit occlusion queries to this FPS
-model.last_occlusion_query_time = 0
-model.should_run_queries_this_frame = true -- Cached per-frame flag
-function model.IsOcclusionCullingEnabled()
-	return model.occlusion_culling_enabled
-end
+-- Update timing and reset queries at the start of the frame
+event.AddListener("PreRenderPass", "occlusion_culling_maintenance", function(cmd)
+	if not model.IsOcclusionCullingEnabled() then return end
 
-function model.SetOcclusionCulling(enabled)
-	model.occlusion_culling_enabled = enabled
-end
+	model.UpdateOcclusionQueryTiming()
 
--- Check if we should run occlusion queries this frame
--- This should only be called once per frame to avoid timing issues
-local function UpdateOcclusionQueryTiming()
-	if model.occlusion_query_fps == 0 then
-		model.should_run_queries_this_frame = true
-		return
-	end
-
-	local current_time = system.GetElapsedTime()
-	local min_interval = 1.0 / model.occlusion_query_fps
-
-	if current_time - model.last_occlusion_query_time >= min_interval then
-		model.last_occlusion_query_time = current_time
-		model.should_run_queries_this_frame = true
-	else
-		model.should_run_queries_this_frame = false
-	end
-end
-
--- Update timing once at the start of the frame
-event.AddListener("PreRenderPass", "update_occlusion_timing", function(cmd)
-	if model.IsOcclusionCullingEnabled() then
-		model.UpdateOcclusionQueryTiming()
-	end
-end)
-
-event.AddListener("PreRenderPass", "reset_occlusion_queries", function(cmd)
-	if model.IsOcclusionCullingEnabled() and model.should_run_queries_this_frame then
-		if model.freeze_culling then return end
-
+	if model.should_run_queries_this_frame and not model.freeze_culling then
 		local models = ecs.GetComponents("model")
 
 		for _, model in ipairs(models) do
@@ -569,10 +590,24 @@ end)
 
 event.AddListener("PreDraw3D", "draw_occlusion_queries", function(cmd, dt)
 	if model.IsOcclusionCullingEnabled() and model.should_run_queries_this_frame then
+		if model.freeze_culling then return end
+
 		local models = ecs.GetComponents("model")
 
+		-- First pass: draw all models that DON'T use occlusion culling
+		-- This fills the depth buffer with occluders
 		for _, model in ipairs(models) do
-			model:DrawOcclusionQuery(cmd)
+			if model.Visible and not (model.UseOcclusionCulling and model.occlusion_query) then
+				model:DrawOcclusionQuery(cmd)
+			end
+		end
+
+		-- Second pass: draw all models that DO use occlusion culling with queries
+		-- They will be tested against the occluders drawn in the first pass
+		for _, model in ipairs(models) do
+			if model.Visible and (model.UseOcclusionCulling and model.occlusion_query) then
+				model:DrawOcclusionQuery(cmd)
+			end
 		end
 	end
 end)

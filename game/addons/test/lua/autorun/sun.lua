@@ -19,7 +19,9 @@ local sun = ecs.CreateFromTable(
 	}
 )
 
-event.AddListener("Update", "sun_oientation", function(dt)
+event.AddListener("Update", "sun_orientation", function(dt)
+	if not sun or not sun:IsValid() or not sun.transform then return end
+
 	local rot = sun.transform:GetRotation()
 
 	if input.IsKeyDown("m") then

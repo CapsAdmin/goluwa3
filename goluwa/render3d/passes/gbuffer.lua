@@ -417,7 +417,7 @@ return {
 		depth_stencil = {
 			depth_test = true,
 			depth_write = true,
-			depth_compare_op = "less",
+			depth_compare_op = "less_or_equal",
 			depth_bounds_test_enabled = false,
 			stencil_test_enabled = false,
 		},
