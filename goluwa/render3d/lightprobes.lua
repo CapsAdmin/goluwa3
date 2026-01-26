@@ -196,8 +196,7 @@ function lightprobes.Initialize()
 	end
 end
 
-event.AddListener("SpawnProbe", "lightprobes", function(position)
-	lightprobes.CreateSceneProbe(position)
+event.AddListener("SpawnProbe", "lightprobes", function(position) --lightprobes.CreateSceneProbe(position)
 end)
 
 -- Initialize all cubemap faces to shader_read_only_optimal layout
