@@ -571,68 +571,77 @@ function model.GetOcclusionStats()
 	}
 end
 
--- Update timing and reset queries at the start of the frame
-event.AddListener("PreRenderPass", "occlusion_culling_maintenance", function(cmd)
-	if not model.IsOcclusionCullingEnabled() then return end
+function model.StartSystem()
+	-- Update timing and reset queries at the start of the frame
+	event.AddListener("PreRenderPass", "occlusion_culling_maintenance", function(cmd)
+		if not model.IsOcclusionCullingEnabled() then return end
 
-	model.UpdateOcclusionQueryTiming()
+		model.UpdateOcclusionQueryTiming()
 
-	if model.should_run_queries_this_frame and not model.freeze_culling then
+		if model.should_run_queries_this_frame and not model.freeze_culling then
+			local models = ecs.GetComponents("model")
+
+			for _, model in ipairs(models) do
+				if model.UseOcclusionCulling and model.occlusion_query then
+					model.occlusion_query:ResetQuery(cmd)
+				end
+			end
+		end
+	end)
+
+	event.AddListener("PreDraw3D", "draw_occlusion_queries", function(cmd, dt)
+		if model.IsOcclusionCullingEnabled() and model.should_run_queries_this_frame then
+			if model.freeze_culling then return end
+
+			local models = ecs.GetComponents("model")
+
+			-- First pass: draw all models that DON'T use occlusion culling
+			-- This fills the depth buffer with occluders
+			for _, model in ipairs(models) do
+				if model.Visible and not (model.UseOcclusionCulling and model.occlusion_query) then
+					model:DrawOcclusionQuery(cmd)
+				end
+			end
+
+			-- Second pass: draw all models that DO use occlusion culling with queries
+			-- They will be tested against the occluders drawn in the first pass
+			for _, model in ipairs(models) do
+				if model.Visible and (model.UseOcclusionCulling and model.occlusion_query) then
+					model:DrawOcclusionQuery(cmd)
+				end
+			end
+		end
+	end)
+
+	event.AddListener("PostRenderPass", "copy_occlusion_results", function(cmd)
+		if model.IsOcclusionCullingEnabled() and model.should_run_queries_this_frame then
+			if model.freeze_culling then return end
+
+			local models = ecs.GetComponents("model")
+
+			for _, model in ipairs(models) do
+				if model.UseOcclusionCulling and model.occlusion_query then
+					model.occlusion_query:CopyQueryResults(cmd)
+				end
+			end
+		end
+	end)
+
+	-- Draw all models into reflection probe when requested
+	event.AddListener("DrawProbeGeometry", "model_probe_draw", function(cmd, lightprobes)
 		local models = ecs.GetComponents("model")
 
 		for _, model in ipairs(models) do
-			if model.UseOcclusionCulling and model.occlusion_query then
-				model.occlusion_query:ResetQuery(cmd)
-			end
+			model:DrawProbeGeometry(cmd, lightprobes)
 		end
-	end
-end)
+	end)
+end
 
-event.AddListener("PreDraw3D", "draw_occlusion_queries", function(cmd, dt)
-	if model.IsOcclusionCullingEnabled() and model.should_run_queries_this_frame then
-		if model.freeze_culling then return end
-
-		local models = ecs.GetComponents("model")
-
-		-- First pass: draw all models that DON'T use occlusion culling
-		-- This fills the depth buffer with occluders
-		for _, model in ipairs(models) do
-			if model.Visible and not (model.UseOcclusionCulling and model.occlusion_query) then
-				model:DrawOcclusionQuery(cmd)
-			end
-		end
-
-		-- Second pass: draw all models that DO use occlusion culling with queries
-		-- They will be tested against the occluders drawn in the first pass
-		for _, model in ipairs(models) do
-			if model.Visible and (model.UseOcclusionCulling and model.occlusion_query) then
-				model:DrawOcclusionQuery(cmd)
-			end
-		end
-	end
-end)
-
-event.AddListener("PostRenderPass", "copy_occlusion_results", function(cmd)
-	if model.IsOcclusionCullingEnabled() and model.should_run_queries_this_frame then
-		if model.freeze_culling then return end
-
-		local models = ecs.GetComponents("model")
-
-		for _, model in ipairs(models) do
-			if model.UseOcclusionCulling and model.occlusion_query then
-				model.occlusion_query:CopyQueryResults(cmd)
-			end
-		end
-	end
-end)
-
--- Draw all models into reflection probe when requested
-event.AddListener("DrawProbeGeometry", "model_probe_draw", function(cmd, lightprobes)
-	local models = ecs.GetComponents("model")
-
-	for _, model in ipairs(models) do
-		model:DrawProbeGeometry(cmd, lightprobes)
-	end
-end)
+function model.StopSystem()
+	event.RemoveListener("PreRenderPass", "occlusion_culling_maintenance")
+	event.RemoveListener("PreDraw3D", "draw_occlusion_queries")
+	event.RemoveListener("PostRenderPass", "copy_occlusion_results")
+	event.RemoveListener("DrawProbeGeometry", "model_probe_draw")
+end
 
 return model

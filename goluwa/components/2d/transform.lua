@@ -5,12 +5,12 @@ local prototype = require("prototype")
 local Matrix44 = require("structs.matrix44")
 local Vec2 = require("structs.vec2")
 local Vec3 = require("structs.vec3")
+local Ang3 = require("structs.ang3")
 local Color = require("structs.color")
 local window = require("window")
 local render = require("render.render")
 local gfx = require("render2d.gfx")
 local Rect = require("structs.rect")
-local gui = require("gui.gui")
 local META = prototype.CreateTemplate("transform_2d")
 META.ComponentName = META.Type
 -- No requirements - transform is a base component
@@ -25,6 +25,10 @@ META:GetSet("Pivot", Vec2(0.5, 0.5), {callback = "InvalidateMatrices"})
 META:GetSet("Perspective", 0, {callback = "InvalidateMatrices"})
 META:GetSet("Scroll", Vec2(0, 0), {callback = "InvalidateMatrices"})
 META:GetSet("ScrollEnabled", false)
+META:GetSet("DrawSizeOffset", Vec2(0, 0), {callback = "InvalidateMatrices"})
+META:GetSet("DrawScaleOffset", Vec2(1, 1), {callback = "InvalidateMatrices"})
+META:GetSet("DrawPositionOffset", Vec2(0, 0), {callback = "InvalidateMatrices"})
+META:GetSet("DrawAngleOffset", Ang3(0, 0, 0), {callback = "InvalidateMatrices"})
 META:EndStorable()
 META:GetSet("LocalMatrix", Matrix44():Identity())
 
@@ -33,14 +37,38 @@ function META:InvalidateMatrices()
 	self:InvalidateWorldMatrices()
 end
 
+function META:Initialize() end
+
 function META:InvalidateWorldMatrices()
 	if self.WorldMatrixDirty then return end
 
 	self.WorldMatrixDirty = true
 	self.WorldMatrixInverseDirty = true
 
-	for _, child in ipairs(self:GetChildrenList()) do
-		child:InvalidateWorldMatrices()
+	if self.Entity then
+		for _, child in ipairs(self.Entity:GetChildren()) do
+			local tr = child:GetComponent("transform_2d")
+
+			if tr then tr:InvalidateWorldMatrices() end
+		end
+	end
+end
+
+function META:InvalidateLayout()
+	if self.Entity then
+		local layout = self.Entity:GetComponent("layout_2d")
+
+		if layout then
+			layout:InvalidateLayout()
+		else
+			local parent = self.Entity:GetParent()
+
+			if parent and parent:IsValid() then
+				local p_layout = parent:GetComponent("layout_2d")
+
+				if p_layout then p_layout:InvalidateLayout() end
+			end
+		end
 	end
 end
 
@@ -83,6 +111,22 @@ end
 function META:SetY(y)
 	self.Position.y = y
 	self:InvalidateMatrices()
+end
+
+function META:GetAxisLength(axis)
+	if axis == "x" then return self:GetWidth() else return self:GetHeight() end
+end
+
+function META:SetAxisLength(axis, len)
+	if axis == "x" then self:SetWidth(len) else self:SetHeight(len) end
+end
+
+function META:GetAxisPosition(axis)
+	if axis == "x" then return self:GetX() else return self:GetY() end
+end
+
+function META:SetAxisPosition(axis, pos)
+	if axis == "x" then self:SetX(pos) else self:SetY(pos) end
 end
 
 function META:GetWorldRectFast()
@@ -135,12 +179,13 @@ end
 function META:GetWorldMatrix()
 	if self.WorldMatrixDirty or not self.WorldMatrix then
 		local local_mat = self:GetLocalMatrix()
+		local parent = self.Entity and self.Entity:GetParent()
+		local parent_tr = parent and parent:IsValid() and parent:GetComponent("transform_2d")
 
-		if self:HasParent() and self:GetParent().GetWorldMatrix then
-			local parent = self:GetParent()
-			local parent_world = parent:GetWorldMatrix()
+		if parent_tr then
+			local parent_world = parent_tr:GetWorldMatrix()
 			self.WorldMatrix = self.WorldMatrix or Matrix44()
-			local scroll = parent:GetScroll()
+			local scroll = parent_tr:GetScroll()
 
 			if scroll.x ~= 0 or scroll.y ~= 0 then
 				local temp = local_mat:Copy()
