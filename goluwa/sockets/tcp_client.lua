@@ -132,9 +132,17 @@ return function(sockets)
 		if self.connecting then
 			-- For TLS sockets, try_connect handles the handshake
 			-- For regular sockets, just check if connected
-			if self.socket.on_connect then self.socket:try_connect() end
+			if self.socket.on_connect then
+				local ok, err = self.socket:try_connect()
 
-			if self.socket:is_connected() then
+				if ok then
+					self:OnConnect()
+					self.connected = true
+					self.connecting = false
+				elseif err ~= "tryagain" then
+					self:Error(err)
+				end
+			elseif self.socket:is_connected() then
 				self:OnConnect()
 				self.connected = true
 				self.connecting = false

@@ -34,3 +34,10 @@ require("render3d.model_loader")
 vfs.AutorunAddons()
 system.KeepAlive("game")
 require("filewatcher").Start()
+
+do
+	local resource = require("resource")
+	resource.AddProvider("https://raw.githubusercontent.com/CapsAdmin/goluwa-assets/master/extras/", true)
+	resource.AddProvider("https://raw.githubusercontent.com/CapsAdmin/goluwa-assets/master/base/", true)
+	vfs.MountAddons("os:downloads/")
+end

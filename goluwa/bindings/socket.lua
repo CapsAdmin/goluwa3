@@ -1392,7 +1392,11 @@ do
 	function meta:try_connect()
 		if self.on_connect and self.timeout_connected and self:is_connected() then
 			local ok, err, num = self:on_connect(unpack(self.timeout_connected))
-			self.timeout_connected = nil
+
+			if ok or (err ~= "tryagain" and err ~= "connecting") then
+				self.timeout_connected = nil
+			end
+
 			return ok, err, num
 		end
 
