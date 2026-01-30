@@ -8,6 +8,8 @@ local output = require("output")
 local commands = require("commands")
 local codec = require("codec")
 local clipboard = require("bindings.clipboard")
+local utf8 = require("utf8")
+local text_editor = require("text_editor")
 local repl = library()
 commands.history = codec.ReadFile("luadata", "data/cmd_history.txt") or {}
 
@@ -16,9 +18,107 @@ for _, v in ipairs(commands.history) do
 end
 
 repl.started = true
-repl.input_buffer = repl.input_buffer or ""
-repl.input_cursor = repl.input_cursor or 1
-repl.selection_start = repl.selection_start or nil
+repl.editor = repl.editor or text_editor.New()
+repl.editor.OnTextChanged = function(s, text)
+	repl.needs_redraw = true
+end
+
+function repl.GetSelection()
+	return repl.editor:GetSelection()
+end
+
+function repl.DeleteSelection()
+	return repl.editor:DeleteSelection()
+end
+
+function repl.CopyText()
+	if not repl.editor:GetSelection() then
+		local start, stop = repl.editor:GetCursorLineCol()
+		repl.editor:SetCursorLineCol(start, 1)
+		local line_start = repl.editor:GetCursor()
+		local len = repl.editor:GetText():utf8_length()
+
+		while
+			repl.editor:GetCursor() <= len and
+			repl.editor:GetText():utf8_sub(repl.editor:GetCursor(), repl.editor:GetCursor()) ~= "\n"
+		do
+			repl.editor:SetCursor(repl.editor:GetCursor() + 1)
+		end
+
+		if
+			repl.editor:GetCursor() <= len and
+			repl.editor:GetText():utf8_sub(repl.editor:GetCursor(), repl.editor:GetCursor()) == "\n"
+		then
+			repl.editor:SetCursor(repl.editor:GetCursor() + 1)
+		end
+
+		local line_end = repl.editor:GetCursor()
+		local str = repl.editor:GetText():utf8_sub(line_start, line_end - 1)
+		repl.editor:SetClipboard(str)
+		repl.editor:SetCursor(line_start) -- restore cursor roughly
+		return str
+	end
+
+	return repl.editor:Copy()
+end
+
+function repl.CutText()
+	if not repl.editor:GetSelection() then
+		local str = repl.CopyText()
+
+		if str then
+			repl.editor:SaveUndoState()
+			local start = repl.editor:GetCursor()
+			local text = repl.editor:GetText()
+			local stop = start + str:utf8_length()
+			repl.editor:SetText(text:utf8_sub(1, start - 1) .. text:utf8_sub(stop))
+			repl.editor:SetCursor(start)
+		end
+
+		return str
+	end
+
+	return repl.editor:Cut()
+end
+
+function repl.PasteText()
+	local str = clipboard.Get()
+
+	if str then
+		repl.editor:Paste(str)
+		return true
+	end
+
+	return false
+end
+
+function repl.DuplicateLine()
+	return repl.editor:DuplicateLine()
+end
+
+setmetatable(
+	repl,
+	{
+		__index = function(t, k)
+			if k == "input_buffer" then return t.editor:GetText() end
+
+			if k == "input_cursor" then return t.editor:GetCursor() end
+
+			if k == "selection_start" then return t.editor:GetSelectionStart() end
+		end,
+		__newindex = function(t, k, v)
+			if k == "input_buffer" then
+				t.editor:SetText(v)
+			elseif k == "input_cursor" then
+				t.editor:SetCursor(v)
+			elseif k == "selection_start" then
+				t.editor:SetSelectionStart(v)
+			else
+				rawset(t, k, v)
+			end
+		end,
+	}
+)
 repl.history_index = repl.history_index or #commands.history + 1
 repl.input_scroll_offset = repl.input_scroll_offset or 0
 repl.needs_redraw = repl.needs_redraw or true
@@ -28,231 +128,6 @@ repl.raw_input = repl.raw_input or nil
 repl.saved_input = repl.saved_input or "" -- Saves current input when navigating history
 repl.is_executing = repl.is_executing or false -- Tracks if we're executing a command
 repl.last_drawn_lines = 0 -- Track how many lines we drew last frame
-function repl.CopyText()
-	local start, stop = repl.GetSelection()
-
-	if start then
-		clipboard.Set(repl.input_buffer:utf8_sub(start, stop - 1))
-		return true
-	end
-
-	return false
-end
-
-function repl.CutText()
-	local start, stop = repl.GetSelection()
-
-	if start then
-		clipboard.Set(repl.input_buffer:utf8_sub(start, stop - 1))
-		repl.DeleteSelection()
-		return true
-	end
-
-	-- No selection - cut current line
-	local line_start = repl.input_cursor
-	local line_end = repl.input_cursor
-
-	-- Find start of current line
-	while
-		line_start > 1 and
-		repl.input_buffer:utf8_sub(line_start - 1, line_start - 1) ~= "\n"
-	do
-		line_start = line_start - 1
-	end
-
-	-- Find end of current line (including the newline if present)
-	while
-		line_end <= repl.input_buffer:utf8_length() and
-		repl.input_buffer:utf8_sub(line_end, line_end) ~= "\n"
-	do
-		line_end = line_end + 1
-	end
-
-	-- Include the newline in the cut if present
-	if
-		line_end <= repl.input_buffer:utf8_length() and
-		repl.input_buffer:utf8_sub(line_end, line_end) == "\n"
-	then
-		line_end = line_end + 1
-	end
-
-	-- Cut the line
-	clipboard.Set(repl.input_buffer:utf8_sub(line_start, line_end - 1))
-	repl.input_buffer = repl.input_buffer:utf8_sub(1, line_start - 1) .. repl.input_buffer:utf8_sub(line_end)
-	repl.input_cursor = line_start
-	repl.selection_start = nil
-	return true
-end
-
-function repl.PasteText()
-	local str = clipboard.Get()
-
-	if str and str ~= "" then
-		repl.DeleteSelection()
-		repl.input_buffer = repl.input_buffer:utf8_sub(1, repl.input_cursor - 1) .. str .. repl.input_buffer:utf8_sub(repl.input_cursor)
-		repl.input_cursor = repl.input_cursor + str:utf8_length()
-		return true
-	end
-
-	return false
-end
-
-function repl.DuplicateLine()
-	local line_start = repl.input_cursor
-	local line_end = repl.input_cursor
-
-	-- Find start of current line
-	while
-		line_start > 1 and
-		repl.input_buffer:utf8_sub(line_start - 1, line_start - 1) ~= "\n"
-	do
-		line_start = line_start - 1
-	end
-
-	-- Find end of current line (not including the newline)
-	while
-		line_end <= repl.input_buffer:utf8_length() and
-		repl.input_buffer:utf8_sub(line_end, line_end) ~= "\n"
-	do
-		line_end = line_end + 1
-	end
-
-	-- Get the line content
-	local line_content = repl.input_buffer:utf8_sub(line_start, line_end - 1)
-	-- Insert duplicated line after current line
-	repl.input_buffer = repl.input_buffer:utf8_sub(1, line_end - 1) .. "\n" .. line_content .. repl.input_buffer:utf8_sub(line_end)
-	-- Move cursor to the start of the duplicated line
-	repl.input_cursor = line_end + 1
-	repl.selection_start = nil
-end
-
-local function get_char_class(char)
-	if not char then return "none" end
-
-	if char:match("[%w_]") then return "word" end
-
-	if char:match("%s") then return "space" end
-
-	return "other"
-end
-
-function repl.MoveWord(buffer, pos, dir)
-	local new_pos = pos
-
-	if dir == -1 then
-		if new_pos <= 1 then return 1 end
-
-		-- Skip initial spaces if we are moving left
-		while
-			new_pos > 1 and
-			get_char_class(buffer:utf8_sub(new_pos - 1, new_pos - 1)) == "space"
-		do
-			new_pos = new_pos - 1
-		end
-
-		if new_pos <= 1 then return 1 end
-
-		new_pos = new_pos - 1
-		local class = get_char_class(buffer:utf8_sub(new_pos, new_pos))
-
-		while
-			new_pos > 1 and
-			get_char_class(buffer:utf8_sub(new_pos - 1, new_pos - 1)) == class
-		do
-			new_pos = new_pos - 1
-		end
-	else
-		-- Skip initial spaces if we are moving right
-		while
-			new_pos <= buffer:utf8_length() and
-			get_char_class(buffer:utf8_sub(new_pos, new_pos)) == "space"
-		do
-			new_pos = new_pos + 1
-		end
-
-		if new_pos > buffer:utf8_length() then return buffer:utf8_length() + 1 end
-
-		local class = get_char_class(buffer:utf8_sub(new_pos, new_pos))
-
-		while
-			new_pos <= buffer:utf8_length() and
-			get_char_class(buffer:utf8_sub(new_pos, new_pos)) == class
-		do
-			new_pos = new_pos + 1
-		end
-	end
-
-	return new_pos
-end
-
-function repl.GetSelection()
-	if not repl.selection_start then return nil end
-
-	local start = math.min(repl.selection_start, repl.input_cursor)
-	local stop = math.max(repl.selection_start, repl.input_cursor)
-	return start, stop
-end
-
-function repl.DeleteSelection()
-	local start, stop = repl.GetSelection()
-
-	if start then
-		repl.input_buffer = repl.input_buffer:utf8_sub(1, start - 1) .. repl.input_buffer:utf8_sub(stop)
-		repl.input_cursor = start
-		repl.selection_start = nil
-		return true
-	end
-
-	return false
-end
-
-local function get_cursor_pos(buffer, cursor)
-	local line = 1
-	local col = 1
-
-	for i = 1, cursor - 1 do
-		if buffer:utf8_sub(i, i) == "\n" then
-			line = line + 1
-			col = 1
-		else
-			col = col + 1
-		end
-	end
-
-	return line, col
-end
-
-local function set_cursor_to_line_col(buffer, target_line, target_col)
-	local line = 1
-	local col = 1
-	local pos = 1
-
-	if target_line < 1 then return nil end
-
-	for i = 1, buffer:utf8_length() do
-		if line == target_line then if col == target_col then return pos end end
-
-		if buffer:utf8_sub(i, i) == "\n" then
-			if line == target_line then
-				-- End of target line reached, clamp to line end
-				return pos
-			end
-
-			line = line + 1
-			col = 1
-		else
-			col = col + 1
-		end
-
-		pos = pos + 1
-	end
-
-	-- If we're on the target line at the end of buffer
-	if line == target_line then return math.min(pos, buffer:utf8_length() + 1) end
-
-	return nil
-end
-
 function repl.IsFocused()
 	return true
 end
@@ -394,7 +269,7 @@ local function get_wrapped_line_for_cursor(buffer, cursor_pos, width)
 		table.insert(input_lines, line)
 	end
 
-	local cursor_line, cursor_col = get_cursor_pos(buffer, cursor_pos)
+	local cursor_line, cursor_col = repl.editor:GetCursorLineCol(cursor_pos)
 	local wrapped_line_idx = 0
 
 	for i = 1, #input_lines do
@@ -428,21 +303,22 @@ function repl.HandleEvent(ev)
 	end
 
 	repl.needs_redraw = true
-	local old_cursor = repl.input_cursor
 
 	if ev.key then
+		repl.editor:SetShiftDown(ev.modifiers and ev.modifiers.shift or false)
+		repl.editor:SetControlDown(ev.modifiers and ev.modifiers.ctrl or false)
+
 		if ev.key == "enter" then
 			if ev.modifiers and ev.modifiers.shift then
-				repl.DeleteSelection()
-				repl.input_buffer = repl.input_buffer:utf8_sub(1, repl.input_cursor - 1) .. "\n" .. repl.input_buffer:utf8_sub(repl.input_cursor)
-				repl.input_cursor = repl.input_cursor + 1
+				repl.editor:OnKeyInput("enter")
 				-- Auto-scroll to show cursor if needed (using wrapped lines)
 				local w = repl.term and repl.term:GetSize() or 80 -- Default width for tests
-				local cursor_wrapped_line = get_wrapped_line_for_cursor(repl.input_buffer, repl.input_cursor, w)
+				local buffer = repl.editor:GetText()
+				local cursor_wrapped_line = get_wrapped_line_for_cursor(buffer, repl.editor:GetCursor(), w)
 				-- Calculate total wrapped lines
 				local input_lines = {}
 
-				for line in (repl.input_buffer .. "\n"):gmatch("(.-)\n") do
+				for line in (buffer .. "\n"):gmatch("(.-)\n") do
 					table.insert(input_lines, line)
 				end
 
@@ -463,139 +339,78 @@ function repl.HandleEvent(ev)
 					end
 				end
 			else
-				if repl.input_buffer == "exit" then
+				local buffer = repl.editor:GetText()
+
+				if buffer == "exit" then
 					system.ShutDown(0)
 					return
 				end
 
-				if repl.input_buffer == "clear" then
-					repl.input_buffer = ""
-					repl.input_cursor = 1
+				if buffer == "clear" then
+					repl.editor:SetText("")
+					repl.editor:SetCursor(1)
 					repl.input_scroll_offset = 0
-					repl.selection_start = nil
+					repl.editor:SetSelectionStart(nil)
 					repl.saved_input = ""
 					repl.term:Clear()
 					return
 				end
 
-				logn("> " .. repl.input_buffer)
+				logn("> " .. buffer)
 
-				if repl.input_buffer ~= "" then
-					commands.AddHistory(repl.input_buffer)
+				if buffer ~= "" then
+					commands.AddHistory(buffer)
 					repl.history_index = #commands.history + 1
-					repl.InputLua(repl.input_buffer)
+					repl.InputLua(buffer)
 					codec.WriteFile("luadata", "data/cmd_history.txt", commands.history)
 				end
 
-				repl.input_buffer = ""
-				repl.input_cursor = 1
+				repl.editor:SetText("")
+				repl.editor:SetCursor(1)
 				repl.input_scroll_offset = 0
-				repl.selection_start = nil
+				repl.editor:SetSelectionStart(nil)
 				repl.saved_input = ""
 			end
-		elseif ev.key == "backspace" then
-			if not repl.DeleteSelection() then
-				if ev.modifiers and ev.modifiers.ctrl then
-					local new_pos = repl.MoveWord(repl.input_buffer, repl.input_cursor, -1)
-					repl.input_buffer = repl.input_buffer:utf8_sub(1, new_pos - 1) .. repl.input_buffer:utf8_sub(repl.input_cursor)
-					repl.input_cursor = new_pos
-				elseif repl.input_cursor > 1 then
-					repl.input_buffer = repl.input_buffer:utf8_sub(1, repl.input_cursor - 2) .. repl.input_buffer:utf8_sub(repl.input_cursor)
-					repl.input_cursor = repl.input_cursor - 1
-				end
-			end
-		elseif ev.key == "delete" then
-			if not repl.DeleteSelection() then
-				if ev.modifiers and ev.modifiers.ctrl then
-					local new_pos = repl.MoveWord(repl.input_buffer, repl.input_cursor, 1)
-					repl.input_buffer = repl.input_buffer:utf8_sub(1, repl.input_cursor - 1) .. repl.input_buffer:utf8_sub(new_pos)
-				elseif repl.input_cursor <= repl.input_buffer:utf8_length() then
-					repl.input_buffer = repl.input_buffer:utf8_sub(1, repl.input_cursor - 1) .. repl.input_buffer:utf8_sub(repl.input_cursor + 1)
-				end
-			end
-		elseif ev.key == "left" or ev.key == "right" or ev.key == "home" or ev.key == "end" then
-			if ev.key == "left" then
-				if ev.modifiers and ev.modifiers.ctrl then
-					repl.input_cursor = repl.MoveWord(repl.input_buffer, repl.input_cursor, -1)
-				else
-					repl.input_cursor = math.max(1, repl.input_cursor - 1)
-				end
-			elseif ev.key == "right" then
-				if ev.modifiers and ev.modifiers.ctrl then
-					repl.input_cursor = repl.MoveWord(repl.input_buffer, repl.input_cursor, 1)
-				else
-					repl.input_cursor = math.min(repl.input_buffer:utf8_length() + 1, repl.input_cursor + 1)
-				end
-			elseif ev.key == "home" then
-				-- Move to start of current line
-				local pos = repl.input_cursor
-
-				while pos > 1 and repl.input_buffer:utf8_sub(pos - 1, pos - 1) ~= "\n" do
-					pos = pos - 1
-				end
-
-				repl.input_cursor = pos
-			elseif ev.key == "end" then
-				-- Move to end of current line
-				local pos = repl.input_cursor
-
-				while
-					pos <= repl.input_buffer:utf8_length() and
-					repl.input_buffer:utf8_sub(pos, pos) ~= "\n"
-				do
-					pos = pos + 1
-				end
-
-				repl.input_cursor = pos
-			end
-
-			if ev.modifiers and ev.modifiers.shift then
-				if not repl.selection_start then repl.selection_start = old_cursor end
-			else
-				repl.selection_start = nil
-			end
 		elseif ev.key == "up" then
-			local input_lines_count = select(2, repl.input_buffer:gsub("\n", "")) + 1
-			local current_line, current_col = get_cursor_pos(repl.input_buffer, repl.input_cursor)
+			local buffer = repl.editor:GetText()
+			local input_lines_count = select(2, buffer:gsub("\n", "")) + 1
+			local current_line, current_col = repl.editor:GetCursorLineCol()
 
 			if ev.modifiers and ev.modifiers.ctrl then
 				-- Scroll input view up (by wrapped lines)
 				repl.input_scroll_offset = math.max(0, repl.input_scroll_offset - 1)
 			elseif current_line > 1 then
 				-- Move cursor up one line, preserving column
-				local new_pos = set_cursor_to_line_col(repl.input_buffer, current_line - 1, current_col)
+				repl.editor:OnKeyInput("up")
 
-				if new_pos then
-					repl.input_cursor = new_pos
-
-					-- Auto-scroll to show cursor
-					if repl.input_scroll_offset > 0 and current_line - 1 <= repl.input_scroll_offset then
-						repl.input_scroll_offset = math.max(0, current_line - 2)
-					end
+				-- Auto-scroll to show cursor
+				if repl.input_scroll_offset > 0 and current_line - 1 <= repl.input_scroll_offset then
+					repl.input_scroll_offset = math.max(0, current_line - 2)
 				end
 			elseif current_line == 1 and repl.history_index > 1 then
 				-- At first line, trying to go up - navigate history
 				-- Save current input if we're leaving fresh input mode
 				if repl.history_index > #commands.history then
-					repl.saved_input = repl.input_buffer
+					repl.saved_input = buffer
 				end
 
 				repl.history_index = repl.history_index - 1
-				repl.input_buffer = commands.history[repl.history_index]
-				repl.input_cursor = repl.input_buffer:utf8_length() + 1
+				repl.editor:SetText(commands.history[repl.history_index])
+				repl.editor:SetCursor(repl.editor:GetText():utf8_length() + 1)
 				repl.input_scroll_offset = 0
-				repl.selection_start = nil
+				repl.editor:SetSelectionStart(nil)
 			end
 		elseif ev.key == "down" then
-			local input_lines_count = select(2, repl.input_buffer:gsub("\n", "")) + 1
-			local current_line, current_col = get_cursor_pos(repl.input_buffer, repl.input_cursor)
+			local buffer = repl.editor:GetText()
+			local input_lines_count = select(2, buffer:gsub("\n", "")) + 1
+			local current_line, current_col = repl.editor:GetCursorLineCol()
 
 			if ev.modifiers and ev.modifiers.ctrl then
 				-- Scroll input view down (by wrapped lines)
 				local w = repl.term and repl.term:GetSize() or 80 -- Default width for tests
 				local input_lines = {}
 
-				for line in (repl.input_buffer .. "\n"):gmatch("(.-)\n") do
+				for line in (buffer .. "\n"):gmatch("(.-)\n") do
 					table.insert(input_lines, line)
 				end
 
@@ -612,59 +427,50 @@ function repl.HandleEvent(ev)
 				end
 			elseif current_line < input_lines_count then
 				-- Move cursor down one line, preserving column
-				local new_pos = set_cursor_to_line_col(repl.input_buffer, current_line + 1, current_col)
+				repl.editor:OnKeyInput("down")
 
-				if new_pos then
-					repl.input_cursor = new_pos
-
-					-- Auto-scroll to show cursor
-					if input_lines_count > 5 and current_line + 1 > repl.input_scroll_offset + 5 then
-						repl.input_scroll_offset = math.min(input_lines_count - 5, repl.input_scroll_offset + 1)
-					end
+				-- Auto-scroll to show cursor
+				if input_lines_count > 5 and current_line + 1 > repl.input_scroll_offset + 5 then
+					repl.input_scroll_offset = math.min(input_lines_count - 5, repl.input_scroll_offset + 1)
 				end
 			elseif current_line == input_lines_count and repl.history_index < #commands.history then
 				-- At last line, trying to go down - navigate history
 				repl.history_index = repl.history_index + 1
-				repl.input_buffer = commands.history[repl.history_index]
-				repl.input_cursor = repl.input_buffer:utf8_length() + 1
+				repl.editor:SetText(commands.history[repl.history_index])
+				repl.editor:SetCursor(repl.editor:GetText():utf8_length() + 1)
 				repl.input_scroll_offset = 0
-				repl.selection_start = nil
+				repl.editor:SetSelectionStart(nil)
 			elseif current_line == input_lines_count and repl.history_index == #commands.history then
 				-- Restore saved input when going back to fresh input mode
 				repl.history_index = #commands.history + 1
-				repl.input_buffer = repl.saved_input
-				repl.input_cursor = repl.input_buffer:utf8_length() + 1
+				repl.editor:SetText(repl.saved_input)
+				repl.editor:SetCursor(repl.editor:GetText():utf8_length() + 1)
 				repl.input_scroll_offset = 0
-				repl.selection_start = nil
+				repl.editor:SetSelectionStart(nil)
 				repl.saved_input = ""
 			end
-		elseif ev.key == "a" and ev.modifiers and ev.modifiers.ctrl then
-			-- Select all
-			if repl.input_buffer:utf8_length() > 0 then
-				repl.selection_start = 1
-				repl.input_cursor = repl.input_buffer:utf8_length() + 1
-			end
-		elseif ev.key == "c" and ev.modifiers and ev.modifiers.ctrl then
-			repl.CopyText()
-		elseif ev.key == "d" and ev.modifiers and ev.modifiers.ctrl then
-			repl.DuplicateLine()
 		elseif ev.key == "q" and ev.modifiers and ev.modifiers.ctrl then
 			system.ShutDown()
-		elseif ev.key == "x" and ev.modifiers and ev.modifiers.ctrl then
-			repl.CutText()
-		elseif ev.key == "v" and ev.modifiers and ev.modifiers.ctrl then
-			repl.PasteText()
-		elseif #ev.key == 1 then
-			repl.DeleteSelection()
-			repl.input_buffer = repl.input_buffer:utf8_sub(1, repl.input_cursor - 1) .. ev.key .. repl.input_buffer:utf8_sub(repl.input_cursor)
-			repl.input_cursor = repl.input_cursor + 1
+		elseif ev.modifiers and ev.modifiers.ctrl then
+			if ev.key == "c" then
+				repl.CopyText()
+			elseif ev.key == "x" then
+				repl.CutText()
+			elseif ev.key == "v" then
+				repl.PasteText()
+			else
+				repl.editor:OnKeyInput(ev.key)
+			end
+		elseif #ev.key == 1 and not (ev.modifiers and ev.modifiers.ctrl) then
+			repl.editor:OnCharInput(ev.key)
 			-- Auto-scroll to show cursor if needed
 			local w = repl.term and repl.term:GetSize() or 80 -- Default width for tests
-			local cursor_wrapped_line = get_wrapped_line_for_cursor(repl.input_buffer, repl.input_cursor, w)
+			local buffer = repl.editor:GetText()
+			local cursor_wrapped_line = get_wrapped_line_for_cursor(buffer, repl.editor:GetCursor(), w)
 			-- Calculate total wrapped lines
 			local input_lines = {}
 
-			for line in (repl.input_buffer .. "\n"):gmatch("(.-)\n") do
+			for line in (buffer .. "\n"):gmatch("(.-)\n") do
 				table.insert(input_lines, line)
 			end
 
@@ -684,6 +490,8 @@ function repl.HandleEvent(ev)
 					repl.input_scroll_offset = math.max(0, cursor_wrapped_line - 1)
 				end
 			end
+		else
+			repl.editor:OnKeyInput(ev.key)
 		end
 	end
 end
@@ -719,10 +527,11 @@ local function draw(term)
 	-- Clear previous display
 	clear_display(term)
 	term:BeginFrame()
+	local buffer = repl.editor:GetText()
 	-- Split input into lines
 	local input_lines = {}
 
-	for line in (repl.input_buffer .. "\n"):gmatch("(.-)\n") do
+	for line in (buffer .. "\n"):gmatch("(.-)\n") do
 		table.insert(input_lines, line)
 	end
 
@@ -750,7 +559,7 @@ local function draw(term)
 	local visible_input_lines = math.min(5, #wrapped_lines)
 	local total_display_lines = visible_input_lines
 	-- Draw input
-	local sel_start, sel_stop = repl.GetSelection()
+	local sel_start, sel_stop = repl.editor:GetSelection()
 	local current_char_idx = 1
 	-- Calculate which lines to show with scrolling
 	local start_line = repl.input_scroll_offset + 1
@@ -828,7 +637,7 @@ local function draw(term)
 	end
 
 	-- Calculate cursor position in wrapped lines
-	local cursor_line, cursor_col = get_cursor_pos(repl.input_buffer, repl.input_cursor)
+	local cursor_line, cursor_col = repl.editor:GetCursorLineCol()
 	local cursor_wrapped_line = 1
 	local cursor_wrapped_col = cursor_col
 

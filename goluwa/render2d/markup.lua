@@ -13,6 +13,7 @@ local vfs = require("vfs")
 local expression = require("expression")
 local Texture = require("render.texture")
 local clipboard = require("bindings.clipboard")
+local text_editor = require("text_editor")
 local META = prototype.CreateTemplate("markup")
 META.tags = {}
 META:GetSet("Table", {})
@@ -50,6 +51,35 @@ function META.New(str, skip_invalidate)
 			undo = {},
 		}
 	)
+	self.editor = text_editor.New(str)
+	self.editor.OnTextChanged = function(_, text)
+		self.text = text
+		self:Invalidate()
+		self:InvalidateEditedText()
+	end
+	self.editor.OnMoveUp = function()
+		self:AdvanceCaret(0, -1)
+		self.editor.Cursor = self:GetCaretSubPosition() + 1
+	end
+	self.editor.OnMoveDown = function()
+		self:AdvanceCaret(0, 1)
+		self.editor.Cursor = self:GetCaretSubPosition() + 1
+	end
+	self.editor.GetVisualLineCount = function()
+		return self.line_count or 1
+	end
+	self.editor.GetVisualLineCol = function(ed, pos)
+		pos = pos or ed.Cursor
+		local char = self.chars[pos]
+
+		if char then return char.y, char.x + 1 end
+
+		return 1, 1
+	end
+	self.editor.SetVisualLineCol = function(ed, line, col)
+		self:SetCaretPosition(col - 1, line)
+	end
+	self.editor.Multiline = self.Multiline
 
 	if str then self:SetText(str) end
 
@@ -1944,161 +1974,37 @@ end
 
 do -- shortcuts
 	function META:Backspace()
-		local sub_pos = self:GetCaretSubPosition()
-
-		if not self:DeleteSelection() and sub_pos ~= 1 then
-			if self.ControlDown then
-				local x, y = self:GetNextCharacterClassPosition(-1, true)
-				x = x - 1
-
-				if x <= 0 and #self.lines > 1 then
-					x = math.huge
-					y = y - 1
-				end
-
-				self:SelectStart(self.caret_pos.x, self.caret_pos.y)
-				self:SelectStop(x, y)
-				self:DeleteSelection()
-				self.real_x = x
-			else
-				local x, y = self.caret_pos.x, self.caret_pos.y
-
-				if self.chars[self.caret_pos.i - 1] then
-					x = self.chars[self.caret_pos.i - 1].x
-					y = self.chars[self.caret_pos.i - 1].y
-					self:SelectStart(self.caret_pos.x, self.caret_pos.y)
-					self:SelectStop(x, y)
-					self:DeleteSelection()
-				end
-			end
-		end
-
-		self:InvalidateEditedText()
+		self.editor.ControlDown = self.ControlDown
+		self.editor.ShiftDown = self.ShiftDown
+		self.editor:Backspace()
 	end
 
 	function META:Delete()
-		if not self:DeleteSelection() then
-			local ok = false
-
-			if self.ControlDown then
-				local x, y = self:GetNextCharacterClassPosition(1, true)
-				x = x + 1
-				self:SelectStart(self.caret_pos.x, self.caret_pos.y)
-				self:SelectStop(x, y)
-				ok = self:DeleteSelection()
-			end
-
-			if not ok then
-				local x, y = self.caret_pos.x, self.caret_pos.y
-
-				if self.chars[self.caret_pos.i + 1] then
-					x = self.chars[self.caret_pos.i + 1].x
-					y = self.chars[self.caret_pos.i + 1].y
-					self:SelectStart(self.caret_pos.x, self.caret_pos.y)
-					self:SelectStop(x, y)
-					self:DeleteSelection()
-				end
-			end
-		end
-
-		self:InvalidateEditedText()
+		self.editor.ControlDown = self.ControlDown
+		self.editor.ShiftDown = self.ShiftDown
+		self.editor:Delete()
 	end
 
 	function META:Indent(back)
-		local sub_pos = self:GetCaretSubPosition()
-		local select_start = self:GetSelectStart()
-		local select_stop = self:GetSelectStop()
-
-		if select_start and select_start.y ~= select_stop.y then
-			-- first select everything
-			self:SelectStart(0, select_start.y)
-			self:SelectStop(math.huge, select_stop.y)
-			-- and move the caret to bottom
-			self:SetCaretPosition(select_stop.x, select_stop.y)
-			local select_start = self:GetSelectStart()
-			local select_stop = self:GetSelectStop()
-			local text = utf8.sub(self.text, select_start.sub_pos, select_stop.sub_pos)
-
-			if back then
-				if utf8.sub(text, 1, 1) == "\t" then text = utf8.sub(text, 2) end
-
-				text = text:gsub("\n\t", "\n")
-			else
-				text = "\t" .. text
-				text = text:gsub("\n", "\n\t")
-
-				-- ehhh, don't add \t at the next line..
-				if utf8.sub(text, -1) == "\t" then text = utf8.sub(text, 0, -2) end
-			end
-
-			self.text = utf8.sub(self.text, 1, select_start.sub_pos - 1) .. text .. utf8.sub(self.text, select_stop.sub_pos + 1)
-
-			do -- fix chunks
-				local first_line = true
-
-				for i = select_start.char.chunk.i - 1, select_stop.char.chunk.i - 1 do
-					local chunk = self.chunks[i]
-
-					if chunk.type == "newline" or (chunk.line == 1 and first_line) then
-						first_line = false
-
-						if not back and self.chunks[i + 1].type ~= "string" then
-							list.insert(self.chunks, i + 1, {type = "string", val = "\t"})
-						else
-							local pos = i
-
-							while chunk.type ~= "string" and pos < #self.chunks do
-								chunk = self.chunks[pos]
-								pos = pos + 1
-							end
-
-							if back then
-								if utf8.sub(chunk.val, 1, 1) == "\t" then
-									chunk.val = utf8.sub(chunk.val, 2)
-								end
-							else
-								chunk.val = "\t" .. chunk.val
-							end
-						end
-					end
-				end
-
-				self:Invalidate()
-			end
-		else
-			-- TODO
-			--print(self.text:utf8_sub(sub_pos-1, sub_pos-1), back)
-			if back and utf8.sub(self.text, sub_pos - 1, sub_pos - 1) == "\t" then
-				self:Backspace()
-			else
-				self:InsertString("\t")
-			end
-		end
-
-		self:InvalidateEditedText()
+		self.editor.ControlDown = self.ControlDown
+		self.editor.ShiftDown = self.ShiftDown
+		self.editor:Indent(back)
 	end
 
 	function META:Enter()
-		self:SaveUndoState()
-		self:DeleteSelection(true)
-
-		if self.PreserveTabsOnEnter then
-			local x = 0
-			local y = self.caret_pos.y
-			local cur_space = utf8.sub(self.lines[y], 1, self.caret_pos.x):match("^(%s*)") or ""
-			x = x + #cur_space
-			self:InsertString("\n" .. cur_space)
-			self.real_x = x
-			self:SetCaretPosition(x, y + 1, true)
-		else
-			self:InsertString("\n")
-		end
+		self.editor.ControlDown = self.ControlDown
+		self.editor.ShiftDown = self.ShiftDown
+		self.editor:Enter()
 	end
 end
 
 do -- caret
 	function META:SetCaretPosition(x, y)
 		self.caret_pos = self:CaretFromPosition(x, y)
+
+		if self.editor and not self.suppress_editor_sync then
+			self.editor.Cursor = self:GetCaretSubPosition() + 1
+		end
 	end
 
 	function META:GetCaretPosition()
@@ -2107,7 +2013,9 @@ do -- caret
 
 	function META:SetCaretSubPosition(pos)
 		pos = math.clamp(pos + 1, 1, #self.chars)
-		self.caret_pos = self:CaretFromPosition(self.chars[pos].x, self.chars[pos].y)
+		self.suppress_editor_sync = true
+		self:SetCaretPosition(self.chars[pos].x, self.chars[pos].y)
+		self.suppress_editor_sync = false
 	end
 
 	function META:GetCaretSubPosition()
@@ -2318,10 +2226,18 @@ end
 do -- selection
 	function META:SelectStart(x, y)
 		self.select_start = self:CaretFromPosition(x, y)
+
+		if self.editor then
+			self.editor.SelectionStart = self:GetSubPosFromPosition(self.select_start.x, self.select_start.y) + 1
+		end
 	end
 
 	function META:SelectStop(x, y)
 		self.select_stop = self:CaretFromPosition(x, y)
+
+		if self.editor then
+			self.editor.Cursor = self:GetSubPosFromPosition(self.select_stop.x, self.select_stop.y) + 1
+		end
 	end
 
 	function META:GetSelectStart()
@@ -2349,23 +2265,49 @@ do -- selection
 	end
 
 	function META:SelectAll()
-		self:SetCaretPosition(0, 0)
-		self:SelectStart(0, 0)
-		self:SelectStop(math.huge, math.huge)
+		if self.editor then
+			self.editor:SelectAll()
+			self:SyncSelectionFromEditor()
+		end
 	end
 
 	function META:SelectCurrentWord()
-		local x, y = self:GetNextCharacterClassPosition(-1, false)
-		self:SelectStart(x - 1, y)
-		x, y = self:GetNextCharacterClassPosition(1, false)
-		self:SelectStop(x + 1, y)
-		self:SetCaretPosition(x + 1, y)
+		if self.editor then
+			self.editor:SelectWord()
+			self:SetCaretSubPosition(self.editor.Cursor - 1)
+			local start, stop = self.editor:GetSelection()
+
+			if start then
+				self:SetCaretSubPosition(start - 1)
+				self.select_start = self.caret_pos
+				self:SetCaretSubPosition(stop - 1)
+				self.select_stop = self.caret_pos
+				self:SetCaretSubPosition(self.editor.Cursor - 1)
+			end
+		end
 	end
 
 	function META:SelectCurrentLine()
-		self:SelectStart(0, self.caret_pos.y)
-		self:SelectStop(math.huge, self.caret_pos.y)
-		self:SetCaretPosition(math.huge, self.caret_pos.y)
+		if self.editor then
+			self.editor:SelectLine()
+			-- same sync logic... maybe I should have a sync function
+			self:SyncSelectionFromEditor()
+		end
+	end
+
+	function META:SyncSelectionFromEditor()
+		self:SetCaretSubPosition(self.editor.Cursor - 1)
+		local start, stop = self.editor:GetSelection()
+
+		if start then
+			self:SetCaretSubPosition(start - 1)
+			self.select_start = self.caret_pos
+			self:SetCaretSubPosition(stop - 1)
+			self.select_stop = self.caret_pos
+			self:SetCaretSubPosition(self.editor.Cursor - 1)
+		else
+			self:Unselect()
+		end
 	end
 
 	function META:Unselect()
@@ -2589,7 +2531,10 @@ do -- input
 	function META:OnCharInput(char)
 		if not self.Editable then return end
 
-		self:InsertString(char)
+		self.editor.ControlDown = self.ControlDown
+		self.editor.ShiftDown = self.ShiftDown
+		self.editor:OnCharInput(char)
+		self:SetCaretSubPosition(self.editor.Cursor - 1)
 	end
 
 	local is_caret_move = {
@@ -2606,89 +2551,11 @@ do -- input
 
 		if not self.caret_pos then return end
 
-		do
-			local x, y = 0, 0
-
-			if key == "up" and self.Multiline then
-				y = -1
-			elseif key == "down" and self.Multiline then
-				y = 1
-			elseif key == "left" then
-				x = -1
-			elseif key == "right" then
-				x = 1
-			elseif key == "home" then
-				self:SetCaretPosition(0, self.caret_pos.y)
-				self.real_x = 0
-			elseif key == "end" then
-				if not self.caret_pos.char.internal then
-					self:SetCaretPosition(#self.lines[self.caret_pos.char.chunk.line], self.caret_pos.y)
-					self.real_x = self:CaretFromPosition(self.caret_pos.x, self.caret_pos.y).px
-				end
-			elseif key == "pageup" and self.Multiline then
-				y = -10
-			elseif key == "pagedown" and self.Multiline then
-				y = 10
-			end
-
-			if x ~= 0 or y ~= 0 then
-				self:AdvanceCaret(x, y)
-
-				if self.OnAdvanceCaret then self:OnAdvanceCaret(x, y) end
-			end
-		end
-
-		if is_caret_move[key] then
-			if not self.ShiftDown then self:Unselect() end
-		end
-
-		if key == "tab" then
-			self:Indent(self.ShiftDown)
-		elseif key == "enter" and self.Multiline then
-			self:Enter()
-		end
-
-		if self.ControlDown then
-			if key == "c" then
-				clipboard.Set(self:Copy())
-			elseif key == "x" then
-				clipboard.Set(self:Cut())
-			elseif key == "v" and clipboard.Get() then
-				self:Paste(clipboard.Get())
-			elseif key == "a" then
-				self:SelectAll()
-			elseif key == "z" then
-				self:Undo()
-			elseif key == "t" then
-				local str = self:GetSelection()
-				self:DeleteSelection()
-
-				for i, chunk in ipairs(self:StringTagsToTable(str)) do
-					list.insert(self.chunks, self.caret_pos.char.chunk.i + i - 1, chunk)
-				end
-
-				self:Invalidate()
-			end
-		end
-
-		if key == "backspace" then
-			self:Backspace()
-		elseif key == "delete" then
-			self:Delete()
-		end
-
-		do -- selecting
-			if key ~= "tab" then
-				if self.ShiftDown then
-					if self.caret_shift_pos then
-						self:SelectStart(self.caret_pos.x, self.caret_pos.y)
-						self:SelectStop(self.caret_shift_pos.x, self.caret_shift_pos.y)
-					end
-				elseif is_caret_move[key] then
-					self:Unselect()
-				end
-			end
-		end
+		self.editor.ControlDown = self.ControlDown
+		self.editor.ShiftDown = self.ShiftDown
+		self.editor.Multiline = self.Multiline
+		self.editor:OnKeyInput(key)
+		self:SyncSelectionFromEditor()
 	end
 
 	function META:OnMouseInput(button, press)
@@ -2738,10 +2605,16 @@ do -- input
 
 			if press then
 				local caret = self:CaretFromPixels(x, y)
-				self.select_start = self:CaretFromPixels(x + caret.w / 2, y)
+				local start_caret = self:CaretFromPixels(x + caret.w / 2, y)
+				self.select_start = start_caret
 				self.select_stop = nil
 				self.mouse_selecting = true
-				self.caret_pos = self:CaretFromPixels(x + caret.w / 2, y)
+				self.caret_pos = start_caret
+
+				if self.editor then
+					self.editor.SelectionStart = start_caret.sub_pos + 1
+					self.editor.Cursor = start_caret.sub_pos + 1
+				end
 
 				if self.caret_pos and self.caret_pos.char then
 					self.real_x = self.caret_pos.char.data.x
@@ -2782,7 +2655,11 @@ do -- drawing
 					caret = self:CaretFromPixels(x + caret.w / 2, y)
 				end
 
-				if caret then self.select_stop = caret end
+				if caret then
+					self.select_stop = caret
+
+					if self.editor then self.editor.Cursor = caret.sub_pos + 1 end
+				end
 			end
 
 			if self.ShiftDown then
@@ -3035,159 +2912,6 @@ do -- drawing
 			render2d.DrawRect(x, y, 1, h)
 		end
 	end
-end
-
-if HOTRELOAD then
-	META:Register()
-	local event = require("event")
-	local m
-
-	event.AddListener("Draw2D", "test", function()
-		if not m then
-			m = META.New()
-			m:AddFont(fonts.CreateFont({size = 14, read_speed = 100}))
-			m:AddString("what")
-		end
-
-		render2d.PushMatrix(50, 50)
-		m:Update()
-		m:Draw()
-		render2d.PopMatrix()
-	end)
-
-	do
-		return
-	end
-
-	local markup = META.New()
-	markup:SetEditable(true)
-	--markup:SetLineWrap(true)
-	markup:AddFont(fonts.CreateFont({size = 14, read_speed = 100}))
-	markup:AddString(
-		"Hello markup test!\n有一些中國\nそして、いくつかの日本の\nكيف حول بعض عربية"
-	)
-	markup:AddString[[markup todo:
-caret real_x should prioritise pixel width
-y axis caret movement when the text is being wrapped
-divide this up in cells (new object?)
-proper tag stack
-the ability to edit (remove and copy) custom tags that have a size (like textures)
-alignment tags]]
-	markup:AddFont(fonts.CreateFont({size = 8, read_speed = 100}))
-	markup:AddString(
-		"\nhere's some text in chinese:\n我寫了這個在谷歌翻譯，所以我可以測試我的標記語言使用Unicode正確。它似乎做工精細！\n"
-	)
-	markup:AddString("some normal string again\n")
-	markup:AddString("and another one\n")
-	markup:AddFont(fonts.GetDefaultFont())
-	markup:AddString("back to normal!\n\n")
-	markup:AddFont(fonts.CreateFont({size = 14, read_speed = 100, monospace = true}))
-	markup:AddString("monospace\n")
-	markup:AddString(
-		"░█░█░█▀█░█▀█░█▀█░█░█░\n░█▀█░█▀█░█▀▀░█▀▀░▀█▀░\n░▀░▀░▀░▀░▀░░░▀░░░░▀░░\n"
-	)
-	markup:AddString("it's kinda like fullwidth\n")
-	markup:AddFont(fonts.GetDefaultFont())
-	local icons = vfs.Find("textures/silkicons/.")
-	local tags = ""
-
-	for i = 1, 32 do
-		local path = table.random(icons)
-		tags = tags .. (
-				"<texture=textures/silkicons/%s>%s"
-			):format(path, i % 16 == 0 and "\n" or "")
-	end
-
-	markup:AddString(tags, true)
-	markup:AddString(
-		[[<font=default><color=0.5,0.62,0.75,1>if<color=1,1,1,1> CLIENT<color=0.5,0.62,0.75,1> then
-if<color=1,1,1,1> window<color=0.5,0.62,0.75,1> and<color=0.75,0.75,0.62,1> #<color=1,1,1,1>window<color=0.75,0.75,0.62,1>.<color=1,1,1,1>GetSize<color=0.75,0.75,0.62,1>() ><color=0.5,0.75,0.5,1> 5<color=0.5,0.62,0.75,1> then<color=1,1,1,1>
-timer<color=0.75,0.75,0.62,1>.<color=1,1,1,1>Delay<color=0.75,0.75,0.62,1>(<color=0.5,0.75,0.5,1>0<color=0.75,0.75,0.62,1>,<color=0.5,0.62,0.75,1> function<color=0.75,0.75,0.62,1>()
-<color=1,1,1,1>			include<color=0.75,0.75,0.62,1>(<color=0.75,0.5,0.5,1>"examples/markup.lua"<color=0.75,0.75,0.62,1>)
-<color=0.5,0.62,0.75,1>		end<color=0.75,0.75,0.62,1>)
-<color=0.5,0.62,0.75,1>	end
-end
-]],
-		true
-	)
-	markup:AddFont(
-		fonts.CreateFont(
-			{
-				path = fonts.FindFontPath("Roboto") or fonts.GetDefaultFont(),
-				size = 30,
-				read_speed = 100,
-			}
-		)
-	)
-	markup:AddColor(Color.FromBytes(0, 255, 0, 255))
-	markup:AddString("This font is huge and green for some reason!\n")
-	markup:AddString("wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww\n")
-	markup:AddColor(Color.FromBytes(255, 255, 255, 255))
-	markup:AddFont(fonts.GetDefaultFont())
-	markup:AddFont(
-		fonts.CreateFont(
-			{
-				path = fonts.FindFontPath("tahoma") or fonts.GetDefaultFont(),
-				size = 20,
-				read_speed = 100,
-			}
-		)
-	)
-	markup:AddColor(Color.FromBytes(255, 0, 255, 255))
-	markup:AddString("This one is slightly smaller bug with a different font\n")
-	markup:AddColor(Color.FromBytes(255, 255, 255, 255))
-	markup:AddFont(fonts.GetDefaultFont())
-	--self:AddString("rotated grin<rotate=90>:D</rotate> \n", true)
-	--self:AddString("that's <wrong>WRONG</wrong>\n", true)
-	markup:AddString("Hey look it's gordon freeman!\n")
-	markup:AddString("<click>http://www.google.com</click>\n", true)
-	markup:AddString("did you forget your <mark>eggs</mark>?\n", true)
-	markup:AddString("no but that's <wrong>wierd</wrong>\n", true)
-	markup:AddString("what's so <rotate=-3>wierd</rotate> about that?\n", true)
-	markup:AddString("<hsv=[t()+input.rand/10],[(t()+input.rand)/100]>", true)
-	--markup:AddString("<rotate=1>i'm not sure it seems to be</rotate><rotate=-1>some kind of</rotate><physics=0,0>interference</physics>\n", true)
-	markup:AddString("<scale=[((t()/10)%5^5)+1],1>you don't say</scale>\n", true)
-	markup:AddString("smileys?")
-	markup:AddString("\n")
-	markup:AddString("<rotate=90>:D</rotate>", true)
-	markup:AddString("<rotate=90>:)</rotate>", true)
-	markup:AddString("<rotate=90>:(</rotate>", true)
-	markup:AddString("<rotate=90>:P</rotate>", true)
-	markup:AddString("<rotate=90>:O</rotate>", true)
-	markup:AddString("<rotate=90>:]</rotate>", true)
-	markup:AddString("<rotate=90></rotate>", true) -- FIX ME
-	markup:AddString("\n")
-	markup:AddString("maybe..\n")
-	markup:AddFont(
-		fonts.CreateFont(
-			{
-				path = fonts.FindFontPath("webdings") or fonts.GetDefaultFont(),
-				size = 30,
-				read_speed = 100,
-			}
-		)
-	)
-	local str = "That's all folks!"
-	markup:AddFont(fonts.GetDefaultFont())
-	markup:AddString("\n")
-	markup:AddString([[
-© 2012, Author
-Self publishing
-(Possibly email address or contact data)]])
-
-	event.AddListener("Draw2D", "markup_test", function()
-		local x = (os.clock() * 10) % 500
-		x = gfx.GetMousePosition()
-		render2d.PushMatrix(50, 50)
-		markup:Update()
-		markup:Draw()
-		--markup:SetMaxWidth(x)
-		render2d.SetColor(1, 1, 1, 1)
-		gfx.DrawLine(x, 0, x, 1000)
-		render2d.PopMatrix()
-	end)
-
-	return
 end
 
 return META:Register()
