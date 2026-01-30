@@ -1,42 +1,42 @@
 local prototype = require("prototype")
 local utf8 = require("utf8")
-local TextBuffer = prototype.CreateTemplate("text_buffer")
+local SequenceBuffer = prototype.CreateTemplate("sequence_buffer")
 
-function TextBuffer.New(str)
-	return TextBuffer:CreateObject({
+function SequenceBuffer.New(str)
+	return SequenceBuffer:CreateObject({
 		Text = str or "",
 	})
 end
 
-function TextBuffer:SetText(str)
+function SequenceBuffer:SetText(str)
 	self.Text = str
 	self.lines = nil
 end
 
-function TextBuffer:GetLines()
+function SequenceBuffer:GetLines()
 	if not self.lines then self.lines = self:Split(self:GetNewline()) end
 
 	return self.lines
 end
 
-function TextBuffer:SetLines(lines)
+function SequenceBuffer:SetLines(lines)
 	self:SetText(table.concat(lines, self:GetNewline()))
 	self.lines = lines
 end
 
-function TextBuffer:GetText()
+function SequenceBuffer:GetText()
 	return self.Text
 end
 
-function TextBuffer:GetNewline()
+function SequenceBuffer:GetNewline()
 	return "\n"
 end
 
-function TextBuffer:GetTab()
+function SequenceBuffer:GetTab()
 	return "\t"
 end
 
-function TextBuffer:GetLength(str)
+function SequenceBuffer:GetLength(str)
 	if type(self) ~= "table" then return utf8.length(self) end
 
 	if str then return utf8.length(str) end
@@ -44,50 +44,50 @@ function TextBuffer:GetLength(str)
 	return utf8.length(self.Text)
 end
 
-function TextBuffer:Sub(i, j)
+function SequenceBuffer:Sub(i, j)
 	if type(self) ~= "table" then return utf8.sub(self, i, j) end
 
 	return utf8.sub(self.Text, i, j)
 end
 
-function TextBuffer:ToTable()
+function SequenceBuffer:ToTable()
 	return utf8.to_list(self.Text)
 end
 
-function TextBuffer.GetTable(str)
+function SequenceBuffer.GetTable(str)
 	return utf8.to_list(str)
 end
 
-function TextBuffer.MidSplit(str)
+function SequenceBuffer.MidSplit(str)
 	return utf8.mid_split(str)
 end
 
-function TextBuffer:Insert(pos, str)
+function SequenceBuffer:Insert(pos, str)
 	local text = self.Text
 	self.Text = utf8.sub(text, 1, pos - 1) .. str .. utf8.sub(text, pos)
 	self.lines = nil
 	return utf8.length(str)
 end
 
-function TextBuffer:RemoveRange(start, stop)
+function SequenceBuffer:RemoveRange(start, stop)
 	local text = self.Text
 	self.Text = utf8.sub(text, 1, start - 1) .. utf8.sub(text, stop)
 	self.lines = nil
 end
 
-function TextBuffer:Split(sep)
+function SequenceBuffer:Split(sep)
 	return self.Text:split(sep, true)
 end
 
-function TextBuffer:GetLineCount()
+function SequenceBuffer:GetLineCount()
 	return #self:GetLines()
 end
 
-function TextBuffer:GetLine(line_index)
+function SequenceBuffer:GetLine(line_index)
 	return self:GetLines()[line_index]
 end
 
-function TextBuffer:GetLineStart(pos)
+function SequenceBuffer:GetLineStart(pos)
 	local start_pos = pos
 	local newline = self:GetNewline()
 
@@ -98,7 +98,7 @@ function TextBuffer:GetLineStart(pos)
 	return start_pos
 end
 
-function TextBuffer:GetLineEnd(pos)
+function SequenceBuffer:GetLineEnd(pos)
 	local end_pos = pos
 	local len = self:GetLength()
 	local newline = self:GetNewline()
@@ -120,7 +120,7 @@ local function get_char_class(char)
 	return "other"
 end
 
-function TextBuffer:GetNextWordBoundary(pos, dir)
+function SequenceBuffer:GetNextWordBoundary(pos, dir)
 	local len = self:GetLength()
 	local new_pos = pos
 
@@ -156,12 +156,12 @@ function TextBuffer:GetNextWordBoundary(pos, dir)
 	return new_pos
 end
 
-function TextBuffer:GetIndentation(line_index)
+function SequenceBuffer:GetIndentation(line_index)
 	local line = self:GetLine(line_index) or ""
 	return line:match("^([\t ]*)") or ""
 end
 
-function TextBuffer:IndentLine(line_index, back)
+function SequenceBuffer:IndentLine(line_index, back)
 	local lines = self:GetLines()
 	local line = lines[line_index]
 
@@ -182,7 +182,7 @@ function TextBuffer:IndentLine(line_index, back)
 	self:SetLines(lines)
 end
 
-function TextBuffer:GetLineColByPos(pos)
+function SequenceBuffer:GetLineColByPos(pos)
 	local line = 1
 	local col = 1
 	local newline = self:GetNewline()
@@ -199,7 +199,7 @@ function TextBuffer:GetLineColByPos(pos)
 	return line, col
 end
 
-function TextBuffer:GetPosByLineCol(target_line, target_col)
+function SequenceBuffer:GetPosByLineCol(target_line, target_col)
 	local line = 1
 	local col = 1
 	local pos = 1
@@ -224,5 +224,5 @@ function TextBuffer:GetPosByLineCol(target_line, target_col)
 	return pos
 end
 
-TextBuffer:Register()
-return TextBuffer
+SequenceBuffer:Register()
+return SequenceBuffer

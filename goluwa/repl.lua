@@ -9,7 +9,7 @@ local commands = require("commands")
 local codec = require("codec")
 local clipboard = require("bindings.clipboard")
 local utf8 = require("utf8")
-local text_editor = require("text_editor")
+local sequence_editor = require("sequence_editor")
 local repl = library()
 commands.history = codec.ReadFile("luadata", "data/cmd_history.txt") or {}
 
@@ -18,7 +18,7 @@ for _, v in ipairs(commands.history) do
 end
 
 repl.started = true
-repl.editor = repl.editor or text_editor.New()
+repl.editor = repl.editor or sequence_editor.New()
 repl.editor.OnChanged = function(s, text)
 	repl.needs_redraw = true
 end

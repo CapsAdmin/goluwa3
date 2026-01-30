@@ -1,22 +1,22 @@
 local prototype = require("prototype")
 local clipboard = require("bindings.clipboard")
-local TextBuffer = require("text_buffer")
-local TextEditor = prototype.CreateTemplate("text_editor")
-TextEditor:GetSet("Buffer", nil)
-TextEditor:GetSet("Cursor", 1)
-TextEditor:GetSet("SelectionStart", nil)
-TextEditor:GetSet("ShiftDown", false)
-TextEditor:GetSet("ControlDown", false)
-TextEditor:GetSet("Multiline", true)
-TextEditor:GetSet("PreserveTabsOnEnter", true)
-TextEditor:GetSet("WrapWidth", nil)
+local SequenceBuffer = require("sequence_buffer")
+local SequenceEditor = prototype.CreateTemplate("sequence_editor")
+SequenceEditor:GetSet("Buffer", nil)
+SequenceEditor:GetSet("Cursor", 1)
+SequenceEditor:GetSet("SelectionStart", nil)
+SequenceEditor:GetSet("ShiftDown", false)
+SequenceEditor:GetSet("ControlDown", false)
+SequenceEditor:GetSet("Multiline", true)
+SequenceEditor:GetSet("PreserveTabsOnEnter", true)
+SequenceEditor:GetSet("WrapWidth", nil)
 
-function TextEditor.New(buffer)
-	if type(buffer) == "string" then buffer = TextBuffer.New(buffer) end
+function SequenceEditor.New(buffer)
+	if type(buffer) == "string" then buffer = SequenceBuffer.New(buffer) end
 
-	local self = TextEditor:CreateObject(
+	local self = SequenceEditor:CreateObject(
 		{
-			Buffer = buffer or TextBuffer.New(""),
+			Buffer = buffer or SequenceBuffer.New(""),
 			Cursor = 1,
 			undo_stack = {},
 			redo_stack = {},
@@ -26,16 +26,16 @@ function TextEditor.New(buffer)
 	return self
 end
 
-function TextEditor:SetClipboard(str)
+function SequenceEditor:SetClipboard(str)
 	self.ClipboardState = str
 	clipboard.Set(str)
 end
 
-function TextEditor:GetClipboard()
+function SequenceEditor:GetClipboard()
 	return clipboard.Get() or self.ClipboardState
 end
 
-function TextEditor:SetData(data)
+function SequenceEditor:SetData(data)
 	self.Buffer:SetText(data)
 	self.Cursor = math.min(self.Cursor, self.Buffer:GetLength() + 1)
 
@@ -46,19 +46,19 @@ function TextEditor:SetData(data)
 	end
 end
 
-function TextEditor:SetText(text)
+function SequenceEditor:SetText(text)
 	return self:SetData(text)
 end
 
-function TextEditor:GetData()
+function SequenceEditor:GetData()
 	return self.Buffer:GetText()
 end
 
-function TextEditor:GetText()
+function SequenceEditor:GetText()
 	return self:GetData()
 end
 
-function TextEditor:GetSelection()
+function SequenceEditor:GetSelection()
 	if not self.SelectionStart then return nil end
 
 	local start = math.min(self.SelectionStart, self.Cursor)
@@ -66,7 +66,7 @@ function TextEditor:GetSelection()
 	return start, stop
 end
 
-function TextEditor:NotifyChanged()
+function SequenceEditor:NotifyChanged()
 	if self.OnChanged then
 		self:OnChanged(self.Buffer:GetText())
 	elseif self.OnTextChanged then
@@ -74,7 +74,7 @@ function TextEditor:NotifyChanged()
 	end
 end
 
-function TextEditor:DeleteSelection()
+function SequenceEditor:DeleteSelection()
 	local start, stop = self:GetSelection()
 
 	if start then
@@ -89,7 +89,7 @@ function TextEditor:DeleteSelection()
 	return false
 end
 
-function TextEditor:Insert(data)
+function SequenceEditor:Insert(data)
 	self:DeleteSelection()
 	local cursor = self.Cursor
 	local length = self.Buffer:Insert(cursor, data)
@@ -97,11 +97,11 @@ function TextEditor:Insert(data)
 	self:NotifyChanged()
 end
 
-function TextEditor:InsertString(str)
+function SequenceEditor:InsertString(str)
 	return self:Insert(str)
 end
 
-function TextEditor:Backspace()
+function SequenceEditor:Backspace()
 	if not self:DeleteSelection() then
 		local cursor = self.Cursor
 
@@ -120,7 +120,7 @@ function TextEditor:Backspace()
 	end
 end
 
-function TextEditor:Delete()
+function SequenceEditor:Delete()
 	if not self:DeleteSelection() then
 		local cursor = self.Cursor
 
@@ -137,15 +137,15 @@ function TextEditor:Delete()
 	end
 end
 
-function TextEditor:MoveWord(pos, dir)
+function SequenceEditor:MoveWord(pos, dir)
 	return self.Buffer:GetNextWordBoundary(pos, dir)
 end
 
-function TextEditor:OnCharInput(char)
+function SequenceEditor:OnCharInput(char)
 	self:Insert(char)
 end
 
-function TextEditor:OnKeyInput(key)
+function SequenceEditor:OnKeyInput(key)
 	local old_cursor = self.Cursor
 
 	if key == "left" then
@@ -255,7 +255,7 @@ function TextEditor:OnKeyInput(key)
 	end
 end
 
-function TextEditor:GetVisualLineCol(pos)
+function SequenceEditor:GetVisualLineCol(pos)
 	pos = pos or self.Cursor
 
 	if not self.WrapWidth then return self:GetCursorLineCol(pos) end
@@ -275,7 +275,7 @@ function TextEditor:GetVisualLineCol(pos)
 	return vline, vcol
 end
 
-function TextEditor:SetVisualLineCol(target_line, target_col)
+function SequenceEditor:SetVisualLineCol(target_line, target_col)
 	if not self.WrapWidth then
 		return self:SetCursorLineCol(target_line, target_col)
 	end
@@ -302,7 +302,7 @@ function TextEditor:SetVisualLineCol(target_line, target_col)
 	self.Cursor = self.Buffer:GetLength() + 1
 end
 
-function TextEditor:GetVisualLineCount()
+function SequenceEditor:GetVisualLineCount()
 	if not self.WrapWidth then return self.Buffer:GetLineCount() end
 
 	local lines = self.Buffer:GetLines()
@@ -315,16 +315,16 @@ function TextEditor:GetVisualLineCount()
 	return count
 end
 
-function TextEditor:SetCursorLineCol(target_line, target_col)
+function SequenceEditor:SetCursorLineCol(target_line, target_col)
 	self.Cursor = self.Buffer:GetPosByLineCol(target_line, target_col)
 end
 
-function TextEditor:SelectAll()
+function SequenceEditor:SelectAll()
 	self.SelectionStart = 1
 	self.Cursor = self.Buffer:GetLength() + 1
 end
 
-function TextEditor:Copy()
+function SequenceEditor:Copy()
 	local start, stop = self:GetSelection()
 
 	if start then
@@ -334,7 +334,7 @@ function TextEditor:Copy()
 	end
 end
 
-function TextEditor:Cut()
+function SequenceEditor:Cut()
 	local str = self:Copy()
 
 	if str then self:DeleteSelection() end
@@ -342,11 +342,11 @@ function TextEditor:Cut()
 	return str
 end
 
-function TextEditor:Paste(str)
+function SequenceEditor:Paste(str)
 	self:Insert(str)
 end
 
-function TextEditor:SaveUndoState()
+function SequenceEditor:SaveUndoState()
 	table.insert(self.undo_stack, {text = self.Buffer:GetText(), cursor = self.Cursor})
 
 	if #self.undo_stack > 100 then table.remove(self.undo_stack, 1) end
@@ -354,7 +354,7 @@ function TextEditor:SaveUndoState()
 	self.redo_stack = {}
 end
 
-function TextEditor:Undo()
+function SequenceEditor:Undo()
 	local state = table.remove(self.undo_stack)
 
 	if state then
@@ -365,7 +365,7 @@ function TextEditor:Undo()
 	end
 end
 
-function TextEditor:Redo()
+function SequenceEditor:Redo()
 	local state = table.remove(self.redo_stack)
 
 	if state then
@@ -376,7 +376,7 @@ function TextEditor:Redo()
 	end
 end
 
-function TextEditor:Enter()
+function SequenceEditor:Enter()
 	self:SaveUndoState()
 	self:DeleteSelection()
 	local newline = self.Buffer:GetNewline()
@@ -391,21 +391,21 @@ function TextEditor:Enter()
 	end
 end
 
-function TextEditor:SelectWord()
+function SequenceEditor:SelectWord()
 	local old_cursor = self.Cursor
 	self.Cursor = self.Buffer:GetNextWordBoundary(old_cursor, -1)
 	self.SelectionStart = self.Cursor
 	self.Cursor = self.Buffer:GetNextWordBoundary(old_cursor, 1)
 end
 
-function TextEditor:SelectLine()
+function SequenceEditor:SelectLine()
 	local line, col = self:GetCursorLineCol()
 	self:SetCursorLineCol(line, 1)
 	self.SelectionStart = self.Cursor
 	self.Cursor = self.Buffer:GetLineEnd(self.Cursor)
 end
 
-function TextEditor:DuplicateLine()
+function SequenceEditor:DuplicateLine()
 	local line, col = self:GetCursorLineCol()
 	local line_start = self.Buffer:GetLineStart(self.Cursor)
 	local line_end = self.Buffer:GetLineEnd(self.Cursor)
@@ -418,7 +418,7 @@ function TextEditor:DuplicateLine()
 	self:NotifyChanged()
 end
 
-function TextEditor:Indent(back)
+function SequenceEditor:Indent(back)
 	local start, stop = self:GetSelection()
 	local start_line = start and select(1, self:GetCursorLineCol(start))
 	local stop_line = stop and select(1, self:GetCursorLineCol(stop - 1))
@@ -457,8 +457,8 @@ function TextEditor:Indent(back)
 	self:NotifyChanged()
 end
 
-function TextEditor:GetCursorLineCol(pos)
+function SequenceEditor:GetCursorLineCol(pos)
 	return self.Buffer:GetLineColByPos(pos or self.Cursor)
 end
 
-return TextEditor:Register()
+return SequenceEditor:Register()
