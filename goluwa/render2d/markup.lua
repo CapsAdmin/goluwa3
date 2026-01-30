@@ -13,6 +13,8 @@ local vfs = require("vfs")
 local expression = require("expression")
 local Texture = require("render.texture")
 local clipboard = require("bindings.clipboard")
+local sequence_editor = require("sequence_editor")
+local MarkupBuffer = require("render2d.markup_buffer")
 local Markup = prototype.CreateTemplate("markup")
 Markup.tags = {}
 Markup:GetSet("Table", {})
@@ -47,9 +49,9 @@ function Markup.New(str, skip_invalidate)
 			blink_offset = 0,
 			remove_these = {},
 			started_tags = {},
-			undo = {},
 		}
 	)
+	self.editor = sequence_editor.New(MarkupBuffer.New(nil, self))
 
 	if str then self:SetText(str) end
 
@@ -78,6 +80,7 @@ function Markup:SetEditable(b)
 end
 
 function Markup:Clear(skip_invalidate)
+	self.editor.Buffer:Clear()
 	table.clear(self.chunks)
 	table.clear(self.remove_these)
 	table.clear(self.started_tags)
@@ -102,8 +105,8 @@ end
 
 function Markup:BeginLifeTime(time, fade_time)
 	fade_time = fade_time or 2
-	list.insert(
-		self.chunks,
+	table.insert(
+		self.editor.Buffer.chunks,
 		{
 			type = "start_fade",
 			val = system.GetElapsedTime() + time + fade_time,
@@ -114,34 +117,26 @@ function Markup:BeginLifeTime(time, fade_time)
 end
 
 function Markup:EndLifeTime()
-	list.insert(self.chunks, {type = "end_fade", val = true})
+	table.insert(self.editor.Buffer.chunks, {type = "end_fade", val = true})
 end
 
 function Markup:AddTagStopper()
-	list.insert(self.chunks, {type = "tag_stopper", val = true})
+	self.editor.Buffer:AddTagStopper()
+	self.need_layout = true
 end
 
 function Markup:AddColor(color)
-	list.insert(self.chunks, {type = "color", val = color})
+	self.editor.Buffer:AddColor(color)
 	self.need_layout = true
 end
 
 function Markup:AddString(str, tags)
-	str = tostring(str)
-
-	if tags then
-		for _, chunk in ipairs(self:StringTagsToTable(str)) do
-			list.insert(self.chunks, chunk)
-		end
-	else
-		list.insert(self.chunks, {type = "string", val = str})
-	end
-
+	self.editor.Buffer:AddString(str, tags)
 	self.need_layout = true
 end
 
 function Markup:AddFont(font)
-	list.insert(self.chunks, {type = "font", val = font})
+	self.editor.Buffer:AddFont(font)
 	self.need_layout = true
 end
 
@@ -153,7 +148,7 @@ function Markup:Add(var, tags)
 	elseif t == "string" or t == "number" then
 		self:AddString(var, tags)
 	elseif t == "table" and var.type and var.val then
-		list.insert(self.chunks, var)
+		table.insert(self.editor.Buffer.chunks, var)
 	elseif t ~= "cdata" then
 		llog("tried to parse unknown type %q", t)
 	end
@@ -263,100 +258,37 @@ end
 function Markup:InsertString(str, skip_move, start_offset, stop_offset)
 	start_offset = start_offset or 0
 	stop_offset = stop_offset or 0
-	local sub_pos = self:GetCaretSubPosition()
-	self:DeleteSelection(true)
 
-	do
+	if start_offset ~= 0 or stop_offset ~= 0 then
 		local x, y = self.caret_pos.x, self.caret_pos.y
+		local start_x, start_y = x, y
 
 		for _ = 1, start_offset do
-			x = x - 1
+			start_x = start_x - 1
 
-			if x <= 0 then
-				y = y - 1
-				x = utf8.length(self.lines[y])
+			if start_x < 0 then
+				start_y = start_y - 1
+				start_x = self.lines[start_y] and utf8.length(self.lines[start_y]) or 0
 			end
 		end
 
-		self:SelectStart(x, y)
-		x, y = self.caret_pos.x, self.caret_pos.y
+		local stop_x, stop_y = x, y
 
 		for _ = 1, stop_offset do
-			x = x + 1
+			stop_x = stop_x + 1
 
-			if x >= utf8.length(self.lines[y]) then
-				y = y + 1
-				x = 0
+			if stop_x > (self.lines[stop_y] and utf8.length(self.lines[stop_y]) or 0) then
+				stop_y = stop_y + 1
+				stop_x = 0
 			end
 		end
 
-		self:SelectStop(x, y)
-		self:DeleteSelection(true)
+		self:SelectStart(start_x, start_y)
+		self:SelectStop(stop_x, stop_y)
 	end
 
-	self.text = utf8.sub(self.text, 1, sub_pos - 1) .. str .. utf8.sub(self.text, sub_pos)
-
-	do -- fix chunks
-		local sub_pos = self.caret_pos.char.data.i
-		local chunk = self.caret_pos.char.chunk
-
-		-- if we're in a sea of non strings we need to make one
-		if
-			(
-				chunk.type ~= "string" or
-				chunk.internal
-			)
-			and
-			(
-				(
-					self.chunks[chunk.i - 1] and
-					self.chunks[chunk.i - 1].type ~= "string"
-				)
-				or
-				(
-					self.chunks[chunk.i + 1] and
-					self.chunks[chunk.i + 1].type ~= "string"
-				)
-			)
-		then
-			list.insert(self.chunks, chunk.i, {type = "string", val = str})
-		else
-			if chunk.internal then
-				local chunk = self.chunks[chunk.i - 1]
-				sub_pos = #chunk.chars + 1
-				chunk.val = utf8.sub(chunk.val, 1, sub_pos - 1) .. str .. utf8.sub(chunk.val, sub_pos)
-			else
-				do
-					local pos = chunk.i
-
-					while chunk.type ~= "string" and pos > 1 do
-						pos = pos - 1
-						chunk = self.chunks[pos]
-					end
-				end
-
-				if chunk.type == "string" then
-					if not sub_pos then sub_pos = #chunk.chars + 1 end
-
-					chunk.val = utf8.sub(chunk.val, 1, sub_pos - 1) .. str .. utf8.sub(chunk.val, sub_pos)
-				else
-					list.remove(self.chunks, chunk.i)
-				end
-			end
-		end
-
-		self:Invalidate()
-	end
-
-	if not skip_move then
-		local x = self.caret_pos.x + utf8.length(str)
-		local y = self.caret_pos.y + string.count(str, "\n")
-
-		if self.caret_pos.char.str == "\n" then x = 0 end
-
-		self:SetCaretPosition(x, y)
-	end
-
+	self.editor:Insert(str)
+	self:Invalidate()
 	self:InvalidateEditedText()
 	self.caret_shift_pos = nil
 end
@@ -1865,6 +1797,7 @@ do -- invalidate
 
 		if self.suppress_layout then return end
 
+		self.chunks = self.editor.Buffer.chunks
 		local chunks = prepare_chunks(self)
 		solve_max_width(self, chunks)
 		store_tag_info(self, chunks)
@@ -1872,10 +1805,8 @@ do -- invalidate
 		self.chunks = chunks
 
 		-- preserve caret positions
-		if self.caret_pos then
-			self:SetCaretPosition(self.caret_pos.x, self.caret_pos.y)
-		else
-			self:SetCaretPosition(0, 0)
+		if self.editor.Cursor then
+			self.caret_pos = self:CaretFromSubPos(self.editor.Cursor)
 		end
 
 		if self.select_start then
@@ -1944,175 +1875,86 @@ end
 
 do -- shortcuts
 	function Markup:Backspace()
-		local sub_pos = self:GetCaretSubPosition()
-
-		if not self:DeleteSelection() and sub_pos ~= 1 then
-			if self.ControlDown then
-				local x, y = self:GetNextCharacterClassPosition(-1, true)
-				x = x - 1
-
-				if x <= 0 and #self.lines > 1 then
-					x = math.huge
-					y = y - 1
-				end
-
-				self:SelectStart(self.caret_pos.x, self.caret_pos.y)
-				self:SelectStop(x, y)
-				self:DeleteSelection()
-				self.real_x = x
-			else
-				local x, y = self.caret_pos.x, self.caret_pos.y
-
-				if self.chars[self.caret_pos.i - 1] then
-					x = self.chars[self.caret_pos.i - 1].x
-					y = self.chars[self.caret_pos.i - 1].y
-					self:SelectStart(self.caret_pos.x, self.caret_pos.y)
-					self:SelectStop(x, y)
-					self:DeleteSelection()
-				end
-			end
-		end
-
-		self:InvalidateEditedText()
+		self.editor:Backspace()
 	end
 
 	function Markup:Delete()
-		if not self:DeleteSelection() then
-			local ok = false
-
-			if self.ControlDown then
-				local x, y = self:GetNextCharacterClassPosition(1, true)
-				x = x + 1
-				self:SelectStart(self.caret_pos.x, self.caret_pos.y)
-				self:SelectStop(x, y)
-				ok = self:DeleteSelection()
-			end
-
-			if not ok then
-				local x, y = self.caret_pos.x, self.caret_pos.y
-
-				if self.chars[self.caret_pos.i + 1] then
-					x = self.chars[self.caret_pos.i + 1].x
-					y = self.chars[self.caret_pos.i + 1].y
-					self:SelectStart(self.caret_pos.x, self.caret_pos.y)
-					self:SelectStop(x, y)
-					self:DeleteSelection()
-				end
-			end
-		end
-
-		self:InvalidateEditedText()
+		self.editor:Delete()
 	end
 
 	function Markup:Indent(back)
-		local sub_pos = self:GetCaretSubPosition()
-		local select_start = self:GetSelectStart()
-		local select_stop = self:GetSelectStop()
-
-		if select_start and select_start.y ~= select_stop.y then
-			-- first select everything
-			self:SelectStart(0, select_start.y)
-			self:SelectStop(math.huge, select_stop.y)
-			-- and move the caret to bottom
-			self:SetCaretPosition(select_stop.x, select_stop.y)
-			local select_start = self:GetSelectStart()
-			local select_stop = self:GetSelectStop()
-			local text = utf8.sub(self.text, select_start.sub_pos, select_stop.sub_pos)
-
-			if back then
-				if utf8.sub(text, 1, 1) == "\t" then text = utf8.sub(text, 2) end
-
-				text = text:gsub("\n\t", "\n")
-			else
-				text = "\t" .. text
-				text = text:gsub("\n", "\n\t")
-
-				-- ehhh, don't add \t at the next line..
-				if utf8.sub(text, -1) == "\t" then text = utf8.sub(text, 0, -2) end
-			end
-
-			self.text = utf8.sub(self.text, 1, select_start.sub_pos - 1) .. text .. utf8.sub(self.text, select_stop.sub_pos + 1)
-
-			do -- fix chunks
-				local first_line = true
-
-				for i = select_start.char.chunk.i - 1, select_stop.char.chunk.i - 1 do
-					local chunk = self.chunks[i]
-
-					if chunk.type == "newline" or (chunk.line == 1 and first_line) then
-						first_line = false
-
-						if not back and self.chunks[i + 1].type ~= "string" then
-							list.insert(self.chunks, i + 1, {type = "string", val = "\t"})
-						else
-							local pos = i
-
-							while chunk.type ~= "string" and pos < #self.chunks do
-								chunk = self.chunks[pos]
-								pos = pos + 1
-							end
-
-							if back then
-								if utf8.sub(chunk.val, 1, 1) == "\t" then
-									chunk.val = utf8.sub(chunk.val, 2)
-								end
-							else
-								chunk.val = "\t" .. chunk.val
-							end
-						end
-					end
-				end
-
-				self:Invalidate()
-			end
-		else
-			-- TODO
-			--print(self.text:utf8_sub(sub_pos-1, sub_pos-1), back)
-			if back and utf8.sub(self.text, sub_pos - 1, sub_pos - 1) == "\t" then
-				self:Backspace()
-			else
-				self:InsertString("\t")
-			end
-		end
-
-		self:InvalidateEditedText()
+		self.editor:Indent(back)
 	end
 
 	function Markup:Enter()
-		self:SaveUndoState()
-		self:DeleteSelection(true)
-
-		if self.PreserveTabsOnEnter then
-			local x = 0
-			local y = self.caret_pos.y
-			local cur_space = utf8.sub(self.lines[y], 1, self.caret_pos.x):match("^(%s*)") or ""
-			x = x + #cur_space
-			self:InsertString("\n" .. cur_space)
-			self.real_x = x
-			self:SetCaretPosition(x, y + 1, true)
-		else
-			self:InsertString("\n")
-		end
+		self.editor:Enter()
 	end
 end
 
 do -- caret
 	function Markup:SetCaretPosition(x, y)
-		self.caret_pos = self:CaretFromPosition(x, y)
+		local caret = self:CaretFromPosition(x, y)
+
+		if caret then
+			self.editor.Cursor = caret.i
+			self.caret_pos = caret
+		end
 	end
 
 	function Markup:GetCaretPosition()
-		return self.caret_pos.x, self.caret_pos.y
+		return self.editor.Cursor
 	end
 
 	function Markup:SetCaretSubPosition(pos)
-		pos = math.clamp(pos + 1, 1, #self.chars)
-		self.caret_pos = self:CaretFromPosition(self.chars[pos].x, self.chars[pos].y)
+		self.editor.Cursor = pos
+		self.caret_pos = self:CaretFromSubPos(pos)
 	end
 
 	function Markup:GetCaretSubPosition()
-		local caret = self.caret_pos
-		return self:GetSubPosFromPosition(caret.x, caret.y)
+		return self.editor.Cursor
+	end
+
+	function Markup:CaretFromSubPos(i)
+		local char = self.chars[i]
+
+		if not char then
+			if i > #self.chars and #self.chars > 0 then
+				char = self.chars[#self.chars]
+				local data = char.data
+				local x = char.x + 1
+				local y = char.y
+
+				if char.str == "\n" then
+					x = 0
+					y = y + 1
+				end
+
+				return {
+					px = data.right,
+					py = data.y,
+					x = x,
+					y = y,
+					h = data.h,
+					w = data.w,
+					i = i,
+					char = char,
+				}
+			end
+
+			return nil
+		end
+
+		local data = char.data
+		return {
+			px = data.x,
+			py = data.y,
+			x = char.x,
+			y = char.y,
+			h = data.h,
+			w = data.w,
+			i = i,
+			char = char,
+		}
 	end
 
 	function Markup:CaretFromPixels(x, y)
@@ -2317,103 +2159,70 @@ end
 
 do -- selection
 	function Markup:SelectStart(x, y)
-		self.select_start = self:CaretFromPosition(x, y)
+		local caret = self:CaretFromPixels(x, y)
+
+		if caret then
+			self.editor.SelectionStart = caret.i
+			self.editor.Cursor = caret.i
+		end
 	end
 
 	function Markup:SelectStop(x, y)
-		self.select_stop = self:CaretFromPosition(x, y)
+		local caret = self:CaretFromPixels(x, y)
+
+		if caret then self.editor.Cursor = caret.i end
 	end
 
 	function Markup:GetSelectStart()
-		if self.select_start and self.select_stop then
-			if self.select_start.i == self.select_stop.i then return end
+		local start, stop = self.editor:GetSelection()
 
-			if self.select_start.i < self.select_stop.i then
-				return self.select_start
-			else
-				return self.select_stop
-			end
-		end
+		if start then return self:CaretFromSubPos(start) end
 	end
 
 	function Markup:GetSelectStop()
-		if self.select_start and self.select_stop then
-			if self.select_start.i == self.select_stop.i then return end
+		local start, stop = self.editor:GetSelection()
 
-			if self.select_start.i > self.select_stop.i then
-				return self.select_start
-			else
-				return self.select_stop
-			end
-		end
+		if stop then return self:CaretFromSubPos(stop) end
 	end
 
 	function Markup:SelectAll()
-		self:SetCaretPosition(0, 0)
-		self:SelectStart(0, 0)
-		self:SelectStop(math.huge, math.huge)
+		self.editor:SelectAll()
 	end
 
 	function Markup:SelectCurrentWord()
-		local x, y = self:GetNextCharacterClassPosition(-1, false)
-		self:SelectStart(x - 1, y)
-		x, y = self:GetNextCharacterClassPosition(1, false)
-		self:SelectStop(x + 1, y)
-		self:SetCaretPosition(x + 1, y)
+		local caret = self.caret_pos
+
+		if caret then
+			local start = self.editor.Buffer:GetNextWordBoundary(caret.i, -1)
+			local stop = self.editor.Buffer:GetNextWordBoundary(caret.i, 1)
+			self.editor.SelectionStart = start
+			self.editor.Cursor = stop
+		end
 	end
 
 	function Markup:SelectCurrentLine()
-		self:SelectStart(0, self.caret_pos.y)
-		self:SelectStop(math.huge, self.caret_pos.y)
-		self:SetCaretPosition(math.huge, self.caret_pos.y)
+		local caret = self.caret_pos
+
+		if caret then
+			local start = self.editor.Buffer:GetLineStart(caret.i)
+			local stop = self.editor.Buffer:GetLineEnd(caret.i)
+			self.editor.SelectionStart = start
+			self.editor.Cursor = stop + 1
+		end
 	end
 
 	function Markup:Unselect()
-		self.select_start = nil
-		self.select_stop = nil
-		self.caret_shift_pos = nil
+		self.editor.SelectionStart = nil
 	end
 
 	function Markup:GetText(tags)
-		if tags and self.cached_gettext_tags then
-			return self.cached_gettext_tags
-		elseif self.cached_gettext then
-			return self.cached_gettext
-		end
+		if tags then return self.editor.Buffer:GetFullText() end
 
-		local str = self:GetSelection(tags, self:CaretFromPosition(0, 0), self:CaretFromPosition(math.huge, math.huge))
-
-		if tags then
-			self.cached_gettext_tags = str
-		else
-			self.cached_gettext_tags = str
-		end
-
-		return str
+		return self.editor:GetText()
 	end
 
 	function Markup:GetWrappedText()
-		local out = {}
-		local i = 1
-		local last_y = 0
-
-		for _, chunk in ipairs(self.chunks) do
-			if chunk.type == "string" then
-				if last_y ~= chunk.y then
-					out[i] = "\n"
-					i = i + 1
-				end
-
-				out[i] = chunk.val
-				i = i + 1
-				last_y = chunk.y
-			elseif chunk.type == "newline" then
-				out[i] = "\n"
-				i = i + 1
-			end
-		end
-
-		return list.concat(out)
+		return self.text
 	end
 
 	function Markup:SetText(str, tags)
@@ -2423,139 +2232,32 @@ do -- selection
 	end
 
 	function Markup:GetSelection(tags, start, stop)
-		local out = {}
-		local START = start or self:GetSelectStart()
-		local STOP = stop or self:GetSelectStop()
+		local START, STOP = self.editor:GetSelection()
 
-		if START and STOP then
-			if not tags then
-				return utf8.sub(self.text, START.sub_pos, STOP.sub_pos - 1)
-			else
-				local last_font
-				local last_color
+		if not START then return "" end
 
-				for i = START.i, STOP.i do
-					local char = self.chars[i]
-					local chunk = char.chunk
-
-					-- this will ensure a clean output
-					-- but maybe this should be cleaned in the invalidate function instead?
-					if chunk.font and last_font ~= chunk.font then
-						list.insert(out, ("<font=%s>"):format(chunk.font:GetName()))
-						last_font = chunk.font
-					end
-
-					if chunk.color and last_color ~= chunk.color then
-						list.insert(
-							out,
-							(
-								"<color=%s,%s,%s,%s>"
-							):format(
-								math.round(chunk.color.r, 2),
-								math.round(chunk.color.g, 2),
-								math.round(chunk.color.b, 2),
-								math.round(chunk.color.a, 2)
-							)
-						)
-						last_color = chunk.color
-					end
-
-					list.insert(out, char.str)
-
-					if chunk.type == "custom" then
-						if chunk.val.type == "texture" then
-							list.insert(out, ("<texture=%s>"):format(chunk.val.args[1]))
-						end
-					end
-				end
-			end
+		if tags then
+			return self.editor.Buffer:GetFullTextSub(START, STOP)
+		else
+			return self.editor.Buffer:Sub(START, STOP - 1)
 		end
-
-		return list.concat(out, "")
 	end
 
 	function Markup:Undo()
-		if not self.undo then return end
-
-		local chunks = list.remove(self.undo)
-
-		if chunks then
-			self:SetTable(chunks)
-			self:Invalidate()
-			self:SetCaretPosition(math.huge, math.huge)
-		end
+		self.editor:Undo()
+		self:Invalidate()
 	end
 
 	function Markup:SaveUndoState()
-		local chunks = {}
-
-		for i, v in ipairs(self.chunks) do
-			chunks[i] = {type = v.type, val = table.copy(v.val)}
-		end
-
-		list.insert(self.undo, chunks)
+		self.editor:SaveUndoState()
 	end
 
 	function Markup:DeleteSelection(skip_move)
-		local start = self:GetSelectStart()
-		local stop = self:GetSelectStop()
+		local res = self.editor:DeleteSelection()
 
-		if start then
-			self:SaveUndoState()
+		if res then self:Invalidate() end
 
-			if not skip_move then self:SetCaretPosition(start.x, start.y) end
-
-			self.text = utf8.sub(self.text, 1, start.sub_pos - 1) .. utf8.sub(self.text, stop.sub_pos)
-			self:Unselect()
-
-			do -- fix chunks
-				local need_fix = false
-
-				for i = start.char.chunk.i + 1, stop.char.chunk.i - 1 do
-					if not self.chunks[i].internal then
-						self.chunks[i] = nil
-						need_fix = true
-					end
-				end
-
-				local start_chunk = start.char.chunk
-				local stop_chunk = stop.char.chunk
-
-				if start_chunk.type == "string" then
-					if stop_chunk == start_chunk then
-						start_chunk.val = utf8.sub(start_chunk.val, 1, start.char.data.i - 1) .. utf8.sub(start_chunk.val, stop.char.data.i)
-					else
-						start_chunk.val = utf8.sub(start_chunk.val, 1, start.char.data.i - 1)
-					end
-				elseif not self.chunks[start_chunk.i].internal then
-					self.chunks[start_chunk.i] = nil
-					need_fix = true
-				end
-
-				if stop_chunk ~= start_chunk then
-					if stop_chunk.type == "string" then
-						local sub_pos = stop.char.data.i
-						stop_chunk.val = utf8.sub(stop_chunk.val, sub_pos)
-					elseif
-						stop_chunk.type ~= "newline" and
-						not stop_chunk.internal and
-						stop_chunk.type ~= "custom"
-					then
-						self.chunks[stop_chunk.i] = nil
-						need_fix = true
-					end
-				end
-
-				if need_fix then list.fix_indices(self.chunks) end
-
-				self:Invalidate()
-			end
-
-			self:InvalidateEditedText()
-			return true
-		end
-
-		return false
+		return res
 	end
 end
 
@@ -2571,17 +2273,7 @@ do -- clipboard
 	end
 
 	function Markup:Paste(str)
-		str = str:gsub("\r", "")
-		self:DeleteSelection()
-
-		if #str > 0 then
-			self:InsertString(str, (str:find("\n")))
-			self:InvalidateEditedText()
-
-			if str:find("\n") then
-				self:SetCaretPosition(math.huge, self.caret_pos.y + string.count(str, "\n"), true)
-			end
-		end
+		self.editor:Paste(str)
 	end
 end
 
@@ -2589,115 +2281,38 @@ do -- input
 	function Markup:OnCharInput(char)
 		if not self.Editable then return end
 
-		self:InsertString(char)
+		self.editor:OnCharInput(char)
+		self:Invalidate()
 	end
 
-	local is_caret_move = {
-		up = true,
-		down = true,
-		left = true,
-		right = true,
-		home = true,
-		["end"] = true,
-	}
-
 	function Markup:OnKeyInput(key)
-		if not self.Editable or #self.chunks == 0 then return end
+		if not self.Editable then return end
 
-		if not self.caret_pos then return end
+		self.editor:SetShiftDown(self.ShiftDown)
+		self.editor:SetControlDown(self.ControlDown)
 
-		do
-			local x, y = 0, 0
-
-			if key == "up" and self.Multiline then
-				y = -1
-			elseif key == "down" and self.Multiline then
-				y = 1
-			elseif key == "left" then
-				x = -1
-			elseif key == "right" then
-				x = 1
-			elseif key == "home" then
-				self:SetCaretPosition(0, self.caret_pos.y)
-				self.real_x = 0
-			elseif key == "end" then
-				if not self.caret_pos.char.internal then
-					self:SetCaretPosition(#self.lines[self.caret_pos.char.chunk.line], self.caret_pos.y)
-					self.real_x = self:CaretFromPosition(self.caret_pos.x, self.caret_pos.y).px
-				end
-			elseif key == "pageup" and self.Multiline then
-				y = -10
-			elseif key == "pagedown" and self.Multiline then
-				y = 10
-			end
-
-			if x ~= 0 or y ~= 0 then
-				self:AdvanceCaret(x, y)
-
-				if self.OnAdvanceCaret then self:OnAdvanceCaret(x, y) end
-			end
+		if self.ControlDown and key == "t" then
+			local str = self:GetSelection(true)
+			self:DeleteSelection()
+			local pos = self.editor.Cursor
+			local chunks = self:StringTagsToTable(str)
+			self.editor.Buffer:InsertChunks(pos, chunks)
+			self:Invalidate()
+			return
 		end
 
-		if is_caret_move[key] then
-			if not self.ShiftDown then self:Unselect() end
-		end
-
-		if key == "tab" then
-			self:Indent(self.ShiftDown)
-		elseif key == "enter" and self.Multiline then
-			self:Enter()
-		end
-
-		if self.ControlDown then
-			if key == "c" then
-				clipboard.Set(self:Copy())
-			elseif key == "x" then
-				clipboard.Set(self:Cut())
-			elseif key == "v" and clipboard.Get() then
-				self:Paste(clipboard.Get())
-			elseif key == "a" then
-				self:SelectAll()
-			elseif key == "z" then
-				self:Undo()
-			elseif key == "t" then
-				local str = self:GetSelection()
-				self:DeleteSelection()
-
-				for i, chunk in ipairs(self:StringTagsToTable(str)) do
-					list.insert(self.chunks, self.caret_pos.char.chunk.i + i - 1, chunk)
-				end
-
-				self:Invalidate()
-			end
-		end
-
-		if key == "backspace" then
-			self:Backspace()
-		elseif key == "delete" then
-			self:Delete()
-		end
-
-		do -- selecting
-			if key ~= "tab" then
-				if self.ShiftDown then
-					if self.caret_shift_pos then
-						self:SelectStart(self.caret_pos.x, self.caret_pos.y)
-						self:SelectStop(self.caret_shift_pos.x, self.caret_shift_pos.y)
-					end
-				elseif is_caret_move[key] then
-					self:Unselect()
-				end
-			end
-		end
+		self.editor:OnKeyInput(key)
+		self:Invalidate()
 	end
 
 	function Markup:OnMouseInput(button, press)
-		if #self.chunks == 0 then return end
+		if not self.chunks then return end
 
 		if button == "mwheel_up" or button == "mwheel_down" then return end
 
 		local x, y = self:GetMousePosition():Unpack()
-		local chunk = self:CaretFromPixels(x, y).char.chunk
+		local caret = self:CaretFromPixels(x, y)
+		local chunk = caret.char.chunk
 
 		if chunk.type == "custom" then
 			if self:CallTagFunction(chunk, "mouse", button, press, x, y) == false then
@@ -2720,12 +2335,8 @@ do -- input
 				end
 
 				if self.times_clicked == 2 then
-					self.caret_pos = self:CaretFromPixels(x, y)
-
-					if self.caret_pos and self.caret_pos.char then
-						self.real_x = self.caret_pos.x
-					end
-
+					self.editor.Cursor = caret.i
+					self.caret_pos = caret
 					self:SelectCurrentWord()
 				elseif self.times_clicked == 3 then
 					self:SelectCurrentLine()
@@ -2737,15 +2348,10 @@ do -- input
 			end
 
 			if press then
-				local caret = self:CaretFromPixels(x, y)
-				self.select_start = self:CaretFromPixels(x + caret.w / 2, y)
-				self.select_stop = nil
 				self.mouse_selecting = true
-				self.caret_pos = self:CaretFromPixels(x + caret.w / 2, y)
-
-				if self.caret_pos and self.caret_pos.char then
-					self.real_x = self.caret_pos.char.data.x
-				end
+				self.editor.SelectionStart = caret.i
+				self.editor.Cursor = caret.i
+				self.caret_pos = caret
 			else
 				if not self.Editable then
 					local str = self:Copy(self.CopyTags)
@@ -2768,40 +2374,18 @@ do -- drawing
 	end
 
 	function Markup:Update()
-		if self.need_layout then
+		if self.need_layout and not self.suppress_layout then
 			self:Invalidate()
 			self.need_layout = false
 		end
 
-		if self.Selectable and self.chunks[1] then
-			if self.mouse_selecting then
-				local x, y = self:GetMousePosition():Unpack()
-				local caret = self:CaretFromPixels(x, y)
+		if self.mouse_selecting then
+			local x, y = self:GetMousePosition():Unpack()
+			local caret = self:CaretFromPixels(x, y)
 
-				if x > caret.char.data.x + caret.char.data.w / 2 then
-					caret = self:CaretFromPixels(x + caret.w / 2, y)
-				end
-
-				if caret then self.select_stop = caret end
-			end
-
-			if self.ShiftDown then
-				if not self.caret_shift_pos then
-					local START = self:GetSelectStart()
-					local END = self:GetSelectStop()
-
-					if START and END then
-						if self.caret_pos.i < END.i then
-							self.caret_shift_pos = self:CaretFromPosition(END.x, END.y)
-						else
-							self.caret_shift_pos = self:CaretFromPosition(START.x, START.y)
-						end
-					else
-						self.caret_shift_pos = self:CaretFromPosition(self.caret_pos.x, self.caret_pos.y)
-					end
-				end
-			else
-				self.caret_shift_pos = nil
+			if caret then
+				self.editor.Cursor = caret.i
+				self.caret_pos = caret
 			end
 		end
 	end
@@ -3035,159 +2619,6 @@ do -- drawing
 			render2d.DrawRect(x, y, 1, h)
 		end
 	end
-end
-
-if HOTRELOAD then
-	Markup:Register()
-	local event = require("event")
-	local m
-
-	event.AddListener("Draw2D", "test", function()
-		if not m then
-			m = Markup.New()
-			m:AddFont(fonts.CreateFont({size = 14, read_speed = 100}))
-			m:AddString("what")
-		end
-
-		render2d.PushMatrix(50, 50)
-		m:Update()
-		m:Draw()
-		render2d.PopMatrix()
-	end)
-
-	do
-		return
-	end
-
-	local markup = Markup.New()
-	markup:SetEditable(true)
-	--markup:SetLineWrap(true)
-	markup:AddFont(fonts.CreateFont({size = 14, read_speed = 100}))
-	markup:AddString(
-		"Hello markup test!\n有一些中國\nそして、いくつかの日本の\nكيف حول بعض عربية"
-	)
-	markup:AddString[[markup todo:
-caret real_x should prioritise pixel width
-y axis caret movement when the text is being wrapped
-divide this up in cells (new object?)
-proper tag stack
-the ability to edit (remove and copy) custom tags that have a size (like textures)
-alignment tags]]
-	markup:AddFont(fonts.CreateFont({size = 8, read_speed = 100}))
-	markup:AddString(
-		"\nhere's some text in chinese:\n我寫了這個在谷歌翻譯，所以我可以測試我的標記語言使用Unicode正確。它似乎做工精細！\n"
-	)
-	markup:AddString("some normal string again\n")
-	markup:AddString("and another one\n")
-	markup:AddFont(fonts.GetDefaultFont())
-	markup:AddString("back to normal!\n\n")
-	markup:AddFont(fonts.CreateFont({size = 14, read_speed = 100, monospace = true}))
-	markup:AddString("monospace\n")
-	markup:AddString(
-		"░█░█░█▀█░█▀█░█▀█░█░█░\n░█▀█░█▀█░█▀▀░█▀▀░▀█▀░\n░▀░▀░▀░▀░▀░░░▀░░░░▀░░\n"
-	)
-	markup:AddString("it's kinda like fullwidth\n")
-	markup:AddFont(fonts.GetDefaultFont())
-	local icons = vfs.Find("textures/silkicons/.")
-	local tags = ""
-
-	for i = 1, 32 do
-		local path = table.random(icons)
-		tags = tags .. (
-				"<texture=textures/silkicons/%s>%s"
-			):format(path, i % 16 == 0 and "\n" or "")
-	end
-
-	markup:AddString(tags, true)
-	markup:AddString(
-		[[<font=default><color=0.5,0.62,0.75,1>if<color=1,1,1,1> CLIENT<color=0.5,0.62,0.75,1> then
-if<color=1,1,1,1> window<color=0.5,0.62,0.75,1> and<color=0.75,0.75,0.62,1> #<color=1,1,1,1>window<color=0.75,0.75,0.62,1>.<color=1,1,1,1>GetSize<color=0.75,0.75,0.62,1>() ><color=0.5,0.75,0.5,1> 5<color=0.5,0.62,0.75,1> then<color=1,1,1,1>
-timer<color=0.75,0.75,0.62,1>.<color=1,1,1,1>Delay<color=0.75,0.75,0.62,1>(<color=0.5,0.75,0.5,1>0<color=0.75,0.75,0.62,1>,<color=0.5,0.62,0.75,1> function<color=0.75,0.75,0.62,1>()
-<color=1,1,1,1>			include<color=0.75,0.75,0.62,1>(<color=0.75,0.5,0.5,1>"examples/markup.lua"<color=0.75,0.75,0.62,1>)
-<color=0.5,0.62,0.75,1>		end<color=0.75,0.75,0.62,1>)
-<color=0.5,0.62,0.75,1>	end
-end
-]],
-		true
-	)
-	markup:AddFont(
-		fonts.CreateFont(
-			{
-				path = fonts.FindFontPath("Roboto") or fonts.GetDefaultFont(),
-				size = 30,
-				read_speed = 100,
-			}
-		)
-	)
-	markup:AddColor(Color.FromBytes(0, 255, 0, 255))
-	markup:AddString("This font is huge and green for some reason!\n")
-	markup:AddString("wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww\n")
-	markup:AddColor(Color.FromBytes(255, 255, 255, 255))
-	markup:AddFont(fonts.GetDefaultFont())
-	markup:AddFont(
-		fonts.CreateFont(
-			{
-				path = fonts.FindFontPath("tahoma") or fonts.GetDefaultFont(),
-				size = 20,
-				read_speed = 100,
-			}
-		)
-	)
-	markup:AddColor(Color.FromBytes(255, 0, 255, 255))
-	markup:AddString("This one is slightly smaller bug with a different font\n")
-	markup:AddColor(Color.FromBytes(255, 255, 255, 255))
-	markup:AddFont(fonts.GetDefaultFont())
-	--self:AddString("rotated grin<rotate=90>:D</rotate> \n", true)
-	--self:AddString("that's <wrong>WRONG</wrong>\n", true)
-	markup:AddString("Hey look it's gordon freeman!\n")
-	markup:AddString("<click>http://www.google.com</click>\n", true)
-	markup:AddString("did you forget your <mark>eggs</mark>?\n", true)
-	markup:AddString("no but that's <wrong>wierd</wrong>\n", true)
-	markup:AddString("what's so <rotate=-3>wierd</rotate> about that?\n", true)
-	markup:AddString("<hsv=[t()+input.rand/10],[(t()+input.rand)/100]>", true)
-	--markup:AddString("<rotate=1>i'm not sure it seems to be</rotate><rotate=-1>some kind of</rotate><physics=0,0>interference</physics>\n", true)
-	markup:AddString("<scale=[((t()/10)%5^5)+1],1>you don't say</scale>\n", true)
-	markup:AddString("smileys?")
-	markup:AddString("\n")
-	markup:AddString("<rotate=90>:D</rotate>", true)
-	markup:AddString("<rotate=90>:)</rotate>", true)
-	markup:AddString("<rotate=90>:(</rotate>", true)
-	markup:AddString("<rotate=90>:P</rotate>", true)
-	markup:AddString("<rotate=90>:O</rotate>", true)
-	markup:AddString("<rotate=90>:]</rotate>", true)
-	markup:AddString("<rotate=90></rotate>", true) -- FIX ME
-	markup:AddString("\n")
-	markup:AddString("maybe..\n")
-	markup:AddFont(
-		fonts.CreateFont(
-			{
-				path = fonts.FindFontPath("webdings") or fonts.GetDefaultFont(),
-				size = 30,
-				read_speed = 100,
-			}
-		)
-	)
-	local str = "That's all folks!"
-	markup:AddFont(fonts.GetDefaultFont())
-	markup:AddString("\n")
-	markup:AddString([[
-© 2012, Author
-Self publishing
-(Possibly email address or contact data)]])
-
-	event.AddListener("Draw2D", "markup_test", function()
-		local x = (os.clock() * 10) % 500
-		x = gfx.GetMousePosition()
-		render2d.PushMatrix(50, 50)
-		markup:Update()
-		markup:Draw()
-		--markup:SetMaxWidth(x)
-		render2d.SetColor(1, 1, 1, 1)
-		gfx.DrawLine(x, 0, x, 1000)
-		render2d.PopMatrix()
-	end)
-
-	return
 end
 
 return Markup:Register()
