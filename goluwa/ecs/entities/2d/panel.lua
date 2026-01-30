@@ -8,5 +8,6 @@ return function(parent)
 	ent:AddComponent(require("ecs.components.2d.mouse_input"))
 	ent:AddComponent(require("ecs.components.2d.clickable"))
 	ent:AddComponent(require("ecs.components.2d.animations"))
+	ent:AddComponent(require("ecs.components.2d.resizable"))
 	return ent
 end

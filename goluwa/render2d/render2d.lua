@@ -545,6 +545,16 @@ do
 			},
 			color_write_mask = {"r", "g", "b", "a"},
 		},
+		mask_decrement = { -- Decrement level if it matches reference
+			stencil_test = true,
+			front = {
+				fail_op = "keep",
+				pass_op = "decrement_and_clamp",
+				depth_fail_op = "keep",
+				compare_op = "equal",
+			},
+			color_write_mask = {},
+		},
 		test = {
 			stencil_test = true,
 			front = {

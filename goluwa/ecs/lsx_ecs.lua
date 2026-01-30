@@ -127,21 +127,29 @@ end
 
 function lsx:UseHover(ref)
 	local is_hovered, set_hovered = self:UseState(false)
-	local mouse = self:UseMouse()
 
 	self:UseEffect(
 		function()
 			if not ref.current then return end
 
-			local gui = ref.current:GetComponent("gui_element_2d")
-
-			if gui then
-				set_hovered(gui:IsHovered(mouse))
-			else
+			local ent = ref.current
+			local cleanup1 = ent:AddLocalListener("OnMouseEnter", function()
+				set_hovered(true)
+			end)
+			local cleanup2 = ent:AddLocalListener("OnMouseLeave", function()
 				set_hovered(false)
+			end)
+			local mpos = require("window").GetMousePosition()
+			local gui = ent:GetComponent("gui_element_2d")
+
+			if gui then set_hovered(not not gui:IsHovered(mpos)) end
+
+			return function()
+				cleanup1()
+				cleanup2()
 			end
 		end,
-		{mouse.x, mouse.y}
+		{ref.current}
 	)
 
 	return is_hovered
@@ -149,19 +157,30 @@ end
 
 function lsx:UseHoverExclusively(ref)
 	local is_hovered, set_hovered = self:UseState(false)
-	local mouse = self:UseMouse()
 
 	self:UseEffect(
 		function()
 			if not ref.current then return end
 
-			if ref.current.IsHoveredExclusively then
-				set_hovered(ref.current:IsHoveredExclusively(mouse))
-			else
+			local ent = ref.current
+			local cleanup1 = ent:AddLocalListener("OnMouseEnter", function()
+				set_hovered(true)
+			end)
+			local cleanup2 = ent:AddLocalListener("OnMouseLeave", function()
 				set_hovered(false)
+			end)
+			local mpos = require("window").GetMousePosition()
+
+			if ent.IsHoveredExclusively then
+				set_hovered(not not ent:IsHoveredExclusively(mpos))
+			end
+
+			return function()
+				cleanup1()
+				cleanup2()
 			end
 		end,
-		{mouse.x, mouse.y}
+		{ref.current}
 	)
 
 	return is_hovered

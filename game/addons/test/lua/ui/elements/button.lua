@@ -5,26 +5,70 @@ local Ang3 = require("structs.ang3")
 local window = require("window")
 local lsx = require("ecs.lsx_ecs")
 local Texture = require("render.texture")
-local glow_highlight_tex = Texture.New({
-	width = 256,
-	height = 256,
-	format = "r8g8b8a8_unorm",
-})
-glow_highlight_tex:Shade([[
-	float dist = distance(uv, vec2(0.5));
-	return vec4(1.0, 1.0, 1.0, 1.0 - smoothstep(0.0, 0.5, dist));
-]])
+local glow_linear_tex = require("render.textures.glow_linear")
+local glow_point_tex = require("render.textures.glow_point")
+local gradient_tex = require("render.textures.gradient_linear")
+
+local function line(x1, y1, x2, y2, thickness, tex)
+	render2d.SetTexture(tex or glow_linear_tex)
+	render2d.PushMatrix()
+	local angle = math.atan2(y2 - y1, x2 - x1)
+	local length = math.sqrt((x2 - x1) ^ 2 + (y2 - y1) ^ 2)
+	render2d.Translate(x1, y1)
+	render2d.Rotate(angle)
+	render2d.DrawRect(0, -thickness / 2, length, thickness)
+	render2d.PopMatrix()
+end
+
+local function rect(x, y, w, h, thickness, extent)
+	extent = extent or 0
+	line(x - extent, y, x + w + extent, y, thickness)
+	line(x + w, y - extent, x + w, y + h + extent, thickness)
+	line(x + w + extent, y + h, x - extent, y + h, thickness)
+	line(x, y + h + extent, x, y - extent, thickness)
+end
+
+local function edge_decor(x, y)
+	render2d.PushMatrix()
+	render2d.Translate(x, y)
+	render2d.Rotate(45)
+	local size = 3
+	rect(-size, -size, size * 2, size * 2, 2, 2)
+	render2d.PopMatrix()
+	render2d.SetTexture(glow_point_tex)
+	render2d.SetBlendMode("additive")
+	render2d.PushColor(1, 1, 1, 0.1)
+	local size = size * 40
+	render2d.DrawRect(x - size, y - size, size * 2, size * 2)
+	render2d.PopColor()
+
+	do
+		render2d.PushColor(1, 1, 1, 1)
+		local size = 4
+		render2d.SetTexture(glow_point_tex)
+		render2d.DrawRect(x - size, y - size, size * 2, size * 2)
+		render2d.SetBlendMode("alpha")
+		render2d.PopColor()
+	end
+end
+
 return function(props)
 	local ref = lsx:UseRef(nil)
-	local is_hovered = lsx:UseHover(ref)
+	local is_hovered = lsx:UseHoverExclusively(ref)
 	local is_pressed, set_pressed = lsx:UseState(false)
-	local mouse_pos = lsx:UseMouse()
-	local hover_ref = lsx:UseRef(nil)
-	local press_ref = lsx:UseRef(nil)
+	local is_active = is_hovered and is_pressed
+	local glow_alpha_ref = lsx:UseRef(0)
+	local press_scale_ref = lsx:UseRef(0)
 	lsx:UseAnimate(
-		hover_ref,
+		ref,
 		{
-			var = "DrawAlpha",
+			var = "GlowAlpha",
+			get = function()
+				return glow_alpha_ref.current
+			end,
+			set = function(_, val)
+				glow_alpha_ref.current = val
+			end,
 			to = is_hovered and 1 or 0,
 			interpolation = "inOutSine",
 			time = 0.25,
@@ -32,40 +76,50 @@ return function(props)
 		{is_hovered}
 	)
 	lsx:UseAnimate(
-		press_ref,
+		ref,
 		{
-			var = "DrawScaleOffset",
-			to = is_pressed and (Vec2() + 1) or (Vec2() + 0),
-			interpolation = "inOutSine",
-			time = 0.25,
-			operator = "=",
+			var = "PressScale",
+			get = function()
+				return press_scale_ref.current
+			end,
+			set = function(_, val)
+				press_scale_ref.current = val
+			end,
+			to = is_active and 1 or 0,
+			interpolation = (is_pressed and not is_hovered) and "linear" or "inOutSine",
+			time = (is_pressed and not is_hovered) and 0.3 or 0.25,
 		},
-		{is_pressed}
+		{is_pressed, is_hovered}
 	)
 	lsx:UseAnimate(
 		ref,
 		{
 			var = "DrawScaleOffset",
-			to = is_pressed and (Vec2() + 0.95) or (Vec2() + 1),
+			to = is_active and (Vec2() + 0.95) or (Vec2() + 1),
 			operator = "=",
-			interpolation = {
-				type = "spring",
-				bounce = 0.6,
-				duration = 150,
-			},
+			interpolation = (
+					is_pressed and
+					not is_hovered
+				)
+				and
+				"linear" or
+				{
+					type = "spring",
+					bounce = 0.6,
+					duration = 150,
+				},
+			time = (is_pressed and not is_hovered) and 0.3 or nil,
 		},
-		{is_pressed}
+		{is_pressed, is_hovered}
 	)
 	lsx:UseAnimate(
 		ref,
 		{
 			var = "DrawAngleOffset",
 			-- The ternary is much snappier than the segmented approach
-			to = not is_pressed and
+			to = not is_active and
 				Ang3(0, 0, 0) or
 				lsx:Value(function(self)
-					if not self:IsHoveredExclusively() then return Ang3(0, 0, 0) end
-
 					local mpos = window.GetMousePosition()
 					local local_pos = self:GlobalToLocal(mpos)
 					local size = self:GetSize()
@@ -73,89 +127,102 @@ return function(props)
 					local ny = (local_pos.y / size.y) * 2 - 1
 					return Ang3(-ny, nx, 0) * 0.1
 				end),
-			interpolation = {
-				type = "spring",
-				bounce = 0.6,
-				duration = 150,
-			},
-			time = 10,
+			interpolation = (
+					is_pressed and
+					not is_hovered
+				)
+				and
+				"linear" or
+				{
+					type = "spring",
+					bounce = 0.6,
+					duration = 150,
+				},
+			time = (is_pressed and not is_hovered) and 0.3 or 10,
 		},
-		{is_pressed}
+		{is_pressed, is_hovered}
 	)
-	local local_mouse = Vec2(0, 0)
-
-	if ref.current then local_mouse = ref.current:GlobalToLocal(mouse_pos) end
-
 	return lsx:Panel(
-		{
-			Name = "button",
-			ref = ref,
-			Position = props.Position or Vec2(100, 100),
-			Size = props.Size or Vec2(200, 50),
-			Perspective = 400,
-			Shadows = true,
-			BorderRadius = 10,
-			ShadowSize = 10,
-			ShadowColor = Color(0, 0, 0, 0.2),
-			ShadowOffset = Vec2(2, 2),
-			Clipping = true,
-			Color = Color(0.8, 0.2, 0.2, 1),
-			OnClick = function()
-				print("clicked!")
-			end,
-			OnMouseInput = function(self, button, press, local_pos)
-				if button == "button_1" then
-					set_pressed(press)
-					return true
-				end
-			end,
-			lsx:Panel(
-				{
-					Name = "large glow",
-					ref = hover_ref,
-					Position = local_mouse - Vec2(128, 128),
+		lsx:MergeProps(
+			{
+				Name = "button",
+				ref = ref,
+				Position = props.Position or (not props.Layout and Vec2(100, 100) or nil),
+				Size = props.Size or Vec2(200, 50),
+				Perspective = 400,
+				Shadows = false,
+				Resizable = false,
+				BorderRadius = 10,
+				ShadowSize = 10,
+				ShadowColor = Color(0, 0, 0, 0.2),
+				ShadowOffset = Vec2(2, 2),
+				Clipping = true,
+				Color = Color(0.8, 0.8, 0.2, 1),
+				OnClick = function()
+					print("clicked!")
+				end,
+				OnMouseInput = function(self, button, press, local_pos)
+					if button == "button_1" then
+						set_pressed(press)
+						return true
+					end
+				end,
+				rect_2d = {
+					OnPreDraw = function() end,
+					OnDraw = function() end,
+				},
+				gui_element_2d = {
 					OnDraw = function(self)
-						if (self.DrawAlpha or 0) <= 0 then return end
+						local size = self.Entity.transform_2d.Size
+						local glow_alpha = glow_alpha_ref.current
+						render2d.PushUV()
+						render2d.SetUV2(0, 0, 0.5, 1)
+						render2d.SetTexture(gradient_tex)
+						render2d.SetColor(0, 0.40 * glow_alpha, 0.70 * glow_alpha, 1)
+						render2d.DrawRect(0, 0, size.x, size.y)
+						render2d.PopUV()
+						local mpos = window.GetMousePosition()
 
-						-- old draw 
+						if self.Entity.mouse_input_2d:IsHoveredExclusively(mpos) then
+							local lpos = self.Entity.transform_2d:GlobalToLocal(mpos)
+							render2d.SetBlendMode("additive")
+							render2d.SetTexture(glow_linear_tex)
+
+							if glow_alpha > 0 then
+								render2d.SetColor(1, 1, 1, 0.15 * glow_alpha)
+								local s = 256 * 1.5
+								render2d.DrawRect(lpos.x - s / 2, lpos.y - s / 2, s, s)
+							end
+
+							render2d.SetTexture(glow_point_tex)
+							local press_scale = press_scale_ref.current
+							render2d.SetColor(1, 1, 1, 0.5 * press_scale)
+							local s = press_scale * 150
+							render2d.DrawRect(lpos.x - s / 2, lpos.y - s / 2, s, s)
+							render2d.SetBlendMode("alpha")
+						end
+					end,
+					OnPostDraw = function(self)
+						local glow_alpha = glow_alpha_ref.current
+						local size = self.Entity.transform_2d.Size
 						render2d.SetBlendMode("additive")
-						render2d.SetTexture(self.Texture)
-						local c = self.Color + (self.DrawColor or Color(0, 0, 0, 0))
-						render2d.SetColor(c.r, c.g, c.b, c.a * (self.DrawAlpha or 0))
-						local s = self.Size + (self.DrawSizeOffset or Vec2(0, 0))
-						render2d.DrawRect(0, 0, s.x, s.y)
+						render2d.SetColor(glow_alpha, glow_alpha, glow_alpha, 1)
+						render2d.SetTexture(glow_linear_tex)
+						render2d.PushUV()
+						render2d.SetUV2(0.2, 0, 0.8, 1)
+						line(-2, 0, -2, size.y, 4)
+						render2d.PopUV()
+						render2d.SetColor(0.35, 0.71, 0.816, glow_alpha)
+						render2d.PushUV()
+						render2d.SetUV2(0.5, 0, 1, 0.5)
+						line(0, 0, size.x, 0, 1, glow_linear_tex)
+						line(0, size.y, size.x, size.y, 1, glow_linear_tex)
+						render2d.PopUV()
 						render2d.SetBlendMode("alpha")
 					end,
-					Texture = glow_highlight_tex,
-					Size = Vec2() + 256,
-					Scale = Vec2() + 1.5,
-					Color = Color(1, 1, 1, 0.15),
-					IgnoreMouseInput = true,
-				}
-			),
-			lsx:Panel(
-				{
-					Name = "small glow",
-					ref = press_ref,
-					Position = local_mouse - Vec2(128, 128),
-					OnDraw = function(self)
-						-- old draw 
-						render2d.SetBlendMode("additive")
-						render2d.SetTexture(self.Texture)
-						local c = self.Color + (self.DrawColor or Color(0, 0, 0, 0))
-						render2d.SetColor(c.r, c.g, c.b, c.a * (self.DrawAlpha or 1))
-						local s = self.Size + (self.DrawSizeOffset or Vec2(0, 0))
-						render2d.DrawRect(0, 0, s.x, s.y)
-						render2d.SetBlendMode("alpha")
-					end,
-					Texture = glow_highlight_tex,
-					Size = Vec2() + 256,
-					Scale = Vec2() + 0.25,
-					Color = Color(1, 1, 1, 0.5),
-					IgnoreMouseInput = true,
-				}
-			),
-			unpack(props),
-		}
+				},
+			},
+			props
+		)
 	)
 end

@@ -72,6 +72,7 @@ function META:UseState(initial)
 
 		if comp.instance and not comp.render_scheduled then
 			comp.render_scheduled = true
+			comp.instance.lsx_render_scheduled = true
 			table.insert(self.pending_renders, comp)
 		end
 	end
@@ -160,6 +161,25 @@ function META:UseMemo(compute, deps)
 	return value
 end
 
+function META:MergeProps(target, source)
+	if type(source) ~= "table" or getmetatable(source) ~= nil then
+		return target
+	end
+
+	local added = {}
+
+	for i = 1, #source do
+		target[#target + 1] = source[i]
+		added[i] = true
+	end
+
+	for k, v in pairs(source) do
+		if not added[k] then target[k] = v end
+	end
+
+	return target
+end
+
 function META:UseCallback(fn, deps)
 	return self:UseMemo(function()
 		return fn
@@ -215,6 +235,28 @@ function META:RunPendingEffects()
 			if item.record then item.record(cleanup) end
 		end
 	end
+end
+
+local function ShallowEqual(a, b)
+	if a == b then return true end
+
+	if type(a) ~= "table" or type(b) ~= "table" then return false end
+
+	local count_a = 0
+
+	for k, v in pairs(a) do
+		if b[k] ~= v then return false end
+
+		count_a = count_a + 1
+	end
+
+	local count_b = 0
+
+	for _ in pairs(b) do
+		count_b = count_b + 1
+	end
+
+	return count_a == count_b
 end
 
 function META:Build(node, parent, existing, adapter)
@@ -296,10 +338,20 @@ function META:Build(node, parent, existing, adapter)
 			existing.lsx_states[node.build]
 		then
 			self.component_states[node] = existing.lsx_states[node.build]
+
+			-- OPTIMIZATION: If props haven't changed and no render was scheduled, skip execution
+			if
+				not node.explicit_render and
+				not existing.lsx_render_scheduled and
+				ShallowEqual(existing.lsx_props, node.props)
+			then
+				return existing
+			end
 		end
 
 		node.render_scheduled = false
 		node.adapter = adapter
+		node.lsx_props = node.props
 		self.current_component = node
 		self.hook_index = 0
 		local rendered = node.build(node.props)
@@ -311,6 +363,7 @@ function META:Build(node, parent, existing, adapter)
 			if not panel.lsx_states then panel.lsx_states = {} end
 
 			panel.lsx_states[node.build] = self.component_states[node]
+			panel.lsx_props = node.props
 		end
 
 		if existing and panel ~= existing then prototype.SafeRemove(existing) end
@@ -487,9 +540,13 @@ function META.New(adapter)
 			local valid = comp.instance and comp.instance:IsValid()
 			comp.render_scheduled = false
 
+			if comp.instance then comp.instance.lsx_render_scheduled = false end
+
 			if comp and comp.instance and valid then
 				local parent = comp.instance:GetParent()
+				comp.explicit_render = true
 				self:Build(comp, parent, comp.instance, comp.adapter)
+				comp.explicit_render = false
 
 				if comp.adapter and comp.adapter.PostRender then
 					comp.adapter.PostRender(comp.instance)

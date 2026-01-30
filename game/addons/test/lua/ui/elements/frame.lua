@@ -14,8 +14,13 @@ local glow_linear_tex = require("render.textures.glow_linear")
 local glow_point_tex = require("render.textures.glow_point")
 local gradient_tex = require("render.textures.gradient_linear")
 
-local function line(x1, y1, x2, y2, thickness)
-	render2d.SetTexture(glow_linear_tex)
+local function line(x1, y1, x2, y2, thickness, tex)
+	if tex == false then
+		render2d.SetTexture(nil)
+	else
+		render2d.SetTexture(tex or glow_linear_tex)
+	end
+
 	render2d.PushMatrix()
 	local angle = math.atan2(y2 - y1, x2 - x1)
 	local length = math.sqrt((x2 - x1) ^ 2 + (y2 - y1) ^ 2)
@@ -25,12 +30,12 @@ local function line(x1, y1, x2, y2, thickness)
 	render2d.PopMatrix()
 end
 
-local function rect(x, y, w, h, thickness, extent)
+local function rect(x, y, w, h, thickness, extent, tex)
 	extent = extent or 0
-	line(x - extent, y, x + w + extent, y, thickness)
-	line(x + w, y - extent, x + w, y + h + extent, thickness)
-	line(x + w + extent, y + h, x - extent, y + h, thickness)
-	line(x, y + h + extent, x, y - extent, thickness)
+	line(x - extent, y, x + w + extent, y, thickness, tex)
+	line(x + w, y - extent, x + w, y + h + extent, thickness, tex)
+	line(x + w + extent, y + h, x - extent, y + h, thickness, tex)
+	line(x, y + h + extent, x, y - extent, thickness, tex)
 end
 
 local function edge_decor(x, y)
@@ -38,11 +43,13 @@ local function edge_decor(x, y)
 	render2d.Translate(x, y)
 	render2d.Rotate(45)
 	local size = 3
-	rect(-size, -size, size * 2, size * 2, 2, 2)
+	render2d.SetEdgeFeather(0.5)
+	rect(-size, -size, size * 2, size * 2, 2, 0, false)
+	render2d.SetEdgeFeather(0)
 	render2d.PopMatrix()
 	render2d.SetTexture(glow_point_tex)
 	render2d.SetBlendMode("additive")
-	render2d.PushColor(1, 1, 1, 0.1)
+	render2d.PushColor(0.1, 0.6, 1, 0.25)
 	local size = size * 40
 	render2d.DrawRect(x - size, y - size, size * 2, size * 2)
 	render2d.PopColor()
@@ -74,7 +81,7 @@ local function OnPostDraw(self)
 	local c = self.Entity.rect_2d.Color + self.Entity.rect_2d.DrawColor
 
 	do
-		render2d.SetColor(c.r, c.g, c.b, c.a * self.Entity.rect_2d.DrawAlpha)
+		render2d.SetColor(0.106, 0.463, 0.678, c.a * self.Entity.rect_2d.DrawAlpha)
 		render2d.SetBlendMode("alpha")
 		rect(-4, -4, s.x + 8, s.y + 8, 3, 40)
 		edge_decor(-4, -4)
@@ -86,17 +93,17 @@ end
 
 return function(props)
 	return lsx:Panel(
-		{
-			Name = "frame",
-			Position = props.Position or Vec2(0, 0),
-			Size = props.Size or Vec2(100, 100),
-			Color = Color.FromHex("#062a67"):SetAlpha(0.9),
-			DragEnabled = true,
-			gui_element_2d = {
-				OnDraw = OnDraw,
-				OnPostDraw = OnPostDraw,
+		lsx:MergeProps(
+			{
+				Name = "frame",
+				Color = Color.FromHex("#062a67"):SetAlpha(0.9),
+				DragEnabled = true,
+				gui_element_2d = {
+					OnDraw = OnDraw,
+					OnPostDraw = OnPostDraw,
+				},
 			},
-			unpack(props),
-		}
+			props
+		)
 	)
 end

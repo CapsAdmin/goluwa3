@@ -8,6 +8,25 @@ local ecs = require("ecs.ecs")
 local Ang3 = require("structs.ang3")
 local Button = runfile("lua/ui/elements/button.lua")
 local Frame = runfile("lua/ui/elements/frame.lua")
+local Text = runfile("lua/ui/elements/text.lua")
+
+local function MenuButton(props)
+	return Button(
+		{
+			Layout = {"GmodTop"},
+			Padding = Rect(10, 10, 10, 10),
+			Text(
+				{
+					Text = props.Text,
+					IgnoreMouseInput = true,
+					Color = Color(1, 1, 1, 0.8),
+					Layout = {"MoveLeft", "CenterY"},
+				}
+			),
+		}
+	)
+end
+
 local App = function()
 	return lsx:Panel(
 		{
@@ -17,20 +36,22 @@ local App = function()
 			Padding = Rect(20, 20, 20, 20),
 			Frame(
 				{
-					Size = Vec2() + 300,
-					Position = Vec2() + 100,
-					Button(
-						{
-							lsx:Text(
-								{
-									Text = "hello world",
-									IgnoreMouseInput = true,
-									Color = Color(1, 1, 1, 1),
-									Layout = {"CenterSimple"},
-								}
-							),
-						}
-					),
+					Layout = {"CenterSimple", "SizeToChildrenHeight"},
+					Resizable = true,
+					Size = Vec2(350, 200),
+					Padding = Rect() + 10,
+					MenuButton({
+						Text = "Abilities",
+					}),
+					MenuButton({
+						Text = "Spells",
+					}),
+					MenuButton({
+						Text = "Items",
+					}),
+					MenuButton({
+						Text = "Limit Breaks",
+					}),
 				}
 			),
 		}

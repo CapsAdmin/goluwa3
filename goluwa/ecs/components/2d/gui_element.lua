@@ -61,7 +61,13 @@ function META:DrawRecursive()
 		render2d.PushStencilMask()
 		render2d.PushMatrix()
 		render2d.SetWorldMatrix(transform:GetWorldMatrix())
-		render2d.DrawRect(0, 0, transform.Size.x, transform.Size.y)
+
+		if self:GetBorderRadius() > 0 then
+			gfx.DrawRoundedRect(0, 0, transform.Size.x, transform.Size.y, self:GetBorderRadius())
+		else
+			render2d.DrawRect(0, 0, transform.Size.x, transform.Size.y)
+		end
+
 		render2d.PopMatrix()
 		render2d.BeginStencilTest()
 	end
@@ -90,7 +96,20 @@ function META:DrawRecursive()
 		if gui_element then gui_element:DrawRecursive() end
 	end
 
-	if clipping then render2d.PopStencilMask() end
+	if clipping then
+		render2d.SetStencilMode("mask_decrement", render2d.stencil_level)
+		render2d.PushMatrix()
+		render2d.SetWorldMatrix(transform:GetWorldMatrix())
+
+		if self:GetBorderRadius() > 0 then
+			gfx.DrawRoundedRect(0, 0, transform.Size.x, transform.Size.y, self:GetBorderRadius())
+		else
+			render2d.DrawRect(0, 0, transform.Size.x, transform.Size.y)
+		end
+
+		render2d.PopMatrix()
+		render2d.PopStencilMask()
+	end
 
 	for _, component in pairs(self.Entity.ComponentsHash) do
 		if component.OnPostDraw then component:OnPostDraw() end
@@ -107,11 +126,7 @@ function gui_element_2d.StartSystem()
 
 		if not world then return end
 
-		for _, child in ipairs(world:GetChildren()) do
-			local gui_element = child:GetComponent("gui_element_2d")
-
-			if gui_element then gui_element:DrawRecursive() end
-		end
+		world:DrawRecursive()
 	end)
 end
 

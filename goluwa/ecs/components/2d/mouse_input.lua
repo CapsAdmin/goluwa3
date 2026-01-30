@@ -233,12 +233,16 @@ function mouse_input.Update()
 			local mouse = mouse_input.last_hovered:GetComponent("mouse_input_2d")
 
 			if mouse then mouse:SetHovered(false) end
+
+			mouse_input.last_hovered:CallLocalListeners("OnMouseLeave")
 		end
 
 		if hovered then
 			local mouse = hovered:GetComponent("mouse_input_2d")
 
 			if mouse then mouse:SetHovered(true) end
+
+			hovered:CallLocalListeners("OnMouseEnter")
 		end
 
 		mouse_input.last_hovered = hovered or NULL
