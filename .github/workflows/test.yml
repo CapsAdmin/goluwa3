@@ -25,7 +25,7 @@ jobs:
       - name: Check LuaJIT
         run: |
           nix develop --command bash -c "which luajit && luajit -v"
-      
+
       - name: Run Tests
         run: |
           nix develop --command bash -c "luajit glw test"
