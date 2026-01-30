@@ -622,6 +622,7 @@ do
 			self:SetError(err)
 		end)
 
+		--if tasks.GetActiveTask() then pcall(cb.Get, cb) end
 		if tasks.GetActiveTask() then cb:Get() end
 
 		return self

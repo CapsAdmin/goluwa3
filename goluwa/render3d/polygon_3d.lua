@@ -9,7 +9,8 @@ local Polygon3D = prototype.CreateTemplate("render3d_polygon_3d")
 
 function Polygon3D.New()
 	local self = Polygon3D:CreateObject()
-	self.sub_meshes = {}
+	self.Vertices = {}
+	self.i = 1
 	self:SetAABB(AABB(math.huge, math.huge, math.huge, -math.huge, -math.huge, -math.huge))
 	return self
 end
@@ -18,12 +19,12 @@ function Polygon3D:__tostring2()
 	return ("[%i vertices]"):format(#self.Vertices)
 end
 
-Polygon3D:GetSet("Vertices", {})
+Polygon3D:GetSet("Vertices")
 Polygon3D:GetSet(
 	"AABB",
 	AABB(math.huge, math.huge, math.huge, -math.huge, -math.huge, -math.huge)
 )
-Polygon3D.i = 1
+Polygon3D.i = nil
 
 function Polygon3D:AddVertex(vertex)
 	self.Vertices[self.i] = vertex
@@ -49,7 +50,19 @@ function Polygon3D:GetMesh()
 	return self.mesh
 end
 
-function Polygon3D:Upload()
+function Polygon3D:Upload(indices)
+	self.indices = indices
+
+	if indices and type(indices) == "table" then
+		local gpu_indices = {}
+
+		for i = 1, #indices do
+			gpu_indices[i] = indices[i] - 1
+		end
+
+		indices = gpu_indices
+	end
+
 	-- Convert Lua table vertices to FFI structured array
 	local vertex_count = #self.Vertices
 
@@ -154,29 +167,6 @@ function Polygon3D:Upload()
 			offset = ffi.sizeof("float") * 12,
 		},
 	}
-	-- Collect indices from sub_meshes if they exist
-	local indices = nil
-
-	if #self.sub_meshes > 0 then
-		local all_indices = {}
-		local current_offset = 0
-
-		for _, sub_mesh in ipairs(self.sub_meshes) do
-			if sub_mesh.indices then
-				sub_mesh.index_offset = current_offset
-				sub_mesh.index_count = #sub_mesh.indices
-
-				for _, idx in ipairs(sub_mesh.indices) do
-					table.insert(all_indices, idx)
-				end
-
-				current_offset = current_offset + sub_mesh.index_count
-			end
-		end
-
-		if #all_indices > 0 then indices = all_indices end
-	end
-
 	local index_type = "uint16_t"
 
 	if vertex_count > 65535 then index_type = "uint32_t" end
@@ -184,64 +174,16 @@ function Polygon3D:Upload()
 	self.mesh = Mesh.New(vertex_attributes, vertices, indices, index_type)
 end
 
-function Polygon3D:AddSubMesh(val, data)
-	-- Handle both vertex count/table (for generating sequential indices) or explicit indices (table of numbers)
-	local indices
-
-	if type(val) == "number" then
-		-- Create sequential indices [0, 1, 2, ...]
-		indices = {}
-
-		for i = 1, val do
-			indices[i] = i - 1
-		end
-	elseif type(val) == "table" then
-		-- Check if it's a vertex table or indices table
-		-- If first element is a table/vertex, treat it as vertices and generate indices
-		if type(val[1]) == "table" then
-			-- It's vertices, generate sequential indices
-			indices = {}
-
-			for i = 1, #val do
-				indices[i] = i - 1
-			end
-		else
-			-- It's already indices
-			indices = val
-		end
-	else
-		error(
-			"AddSubMesh expects a number (vertex count), table of vertices, or table of indices"
-		)
-	end
-
-	table.insert(self.sub_meshes, {indices = indices, data = data})
-end
-
-function Polygon3D:GetSubMeshes()
-	return self.sub_meshes
-end
-
-function Polygon3D:Draw(cmd, i)
+function Polygon3D:Draw(cmd)
 	if not self.mesh then return end
 
 	self.mesh:Bind(cmd)
 
-	if i and self.sub_meshes[i] then
-		local sub_mesh = self.sub_meshes[i]
-
-		if self.mesh.index_buffer then
-			self.mesh:DrawIndexed(cmd, sub_mesh.index_count, 1, sub_mesh.index_offset)
-		else
-			self.mesh:Draw(cmd)
-		end
+	-- Draw entire mesh
+	if self.mesh.index_buffer then
+		self.mesh:DrawIndexed(cmd)
 	else
-		-- Draw entire mesh
-		if self.mesh.index_buffer then
-			self.mesh:DrawIndexed(cmd)
-		else
-			self.mesh:Draw(cmd)
-		end
+		self.mesh:Draw(cmd)
 	end
 end
 
@@ -249,17 +191,8 @@ do -- helpers
 	function Polygon3D:BuildBoundingBox()
 		self:SetAABB(AABB(math.huge, math.huge, math.huge, -math.huge, -math.huge, -math.huge))
 
-		for _, sub_mesh in ipairs(self:GetSubMeshes()) do
-			for i = 1, #sub_mesh.indices do
-				-- Indices are 0-based, Vertices table is 1-based
-				local idx = sub_mesh.indices[i] + 1
-
-				if idx then
-					local vtx = self.Vertices[idx]
-
-					if vtx and vtx.pos then self.AABB:ExpandVec3(vtx.pos) end
-				end
-			end
+		for _, vtx in ipairs(self.Vertices) do
+			if vtx and vtx.pos then self.AABB:ExpandVec3(vtx.pos) end
 		end
 	end
 
@@ -298,45 +231,60 @@ do -- helpers
 
 		if not self.Vertices[1].normal then self:BuildNormals() end
 
-		for _, sub_mesh in ipairs(self:GetSubMeshes()) do
-			for i = 1, #sub_mesh.indices, 3 do
-				local ai = sub_mesh.indices[i + 0] + 1
-				local bi = sub_mesh.indices[i + 1] + 1
-				local ci = sub_mesh.indices[i + 2] + 1
-				local a = self.Vertices[ai]
-				local b = self.Vertices[bi]
-				local c = self.Vertices[ci]
-				local edge1 = b.pos - a.pos
-				local edge2 = c.pos - a.pos
-				local faceNormal = edge1:Cross(edge2):Normalize()
-				local absX = math.abs(faceNormal.x)
-				local absY = math.abs(faceNormal.y)
-				local absZ = math.abs(faceNormal.z)
+		local indices = self.indices or {}
 
-				for _, idx in ipairs({ai, bi, ci}) do
-					local v = self.Vertices[idx]
-					local u, vCoord
+		if not self.indices then
+			for i = 1, #self.Vertices do
+				indices[i] = i
+			end
+		end
 
-					if absY >= absX and absY >= absZ then
-						u, vCoord = v.pos.x, v.pos.z
-					elseif absX >= absZ then
-						u, vCoord = v.pos.z, v.pos.y
-					else
-						u, vCoord = v.pos.x, v.pos.y
-					end
+		for i = 1, #indices - 2, 3 do
+			local ai = indices[i + 0]
+			local bi = indices[i + 1]
+			local ci = indices[i + 2]
+			local a = self.Vertices[ai]
+			local b = self.Vertices[bi]
+			local c = self.Vertices[ci]
+			local edge1 = b.pos - a.pos
+			local edge2 = c.pos - a.pos
+			local faceNormal = edge1:Cross(edge2):Normalize()
+			local absX = math.abs(faceNormal.x)
+			local absY = math.abs(faceNormal.y)
+			local absZ = math.abs(faceNormal.z)
 
-					v.uv = Vec2(u * scale, vCoord * scale)
+			for _, idx in ipairs({ai, bi, ci}) do
+				local v = self.Vertices[idx]
+				local u, vCoord
+
+				if absY >= absX and absY >= absZ then
+					u, vCoord = v.pos.x, v.pos.z
+				elseif absX >= absZ then
+					u, vCoord = v.pos.z, v.pos.y
+				else
+					u, vCoord = v.pos.x, v.pos.y
 				end
+
+				v.uv = Vec2(u * scale, vCoord * scale)
 			end
 		end
 	end
 
 	function Polygon3D:BuildNormals(flipped)
-		for _, sub_mesh in ipairs(self:GetSubMeshes()) do
-			for i = 1, #sub_mesh.indices, 3 do
-				local a = self.Vertices[sub_mesh.indices[i + 0] + 1]
-				local b = self.Vertices[sub_mesh.indices[i + 1] + 1]
-				local c = self.Vertices[sub_mesh.indices[i + 2] + 1]
+		local indices = self.indices or {}
+
+		if not self.indices then
+			for i = 1, #self.Vertices do
+				indices[i] = i
+			end
+		end
+
+		for i = 1, #indices - 2, 3 do
+			local a = self.Vertices[indices[i + 0]]
+			local b = self.Vertices[indices[i + 1]]
+			local c = self.Vertices[indices[i + 2]]
+
+			if a and b and c then
 				local normal
 
 				if flipped then
@@ -355,15 +303,23 @@ do -- helpers
 	function Polygon3D:BuildTangents()
 		local tan1 = {}
 		local tan2 = {}
+		local indices = self.indices or {}
 
-		for _, sub_mesh in ipairs(self:GetSubMeshes()) do
-			for i = 1, #sub_mesh.indices, 3 do
-				local ai = sub_mesh.indices[i + 0] + 1
-				local bi = sub_mesh.indices[i + 1] + 1
-				local ci = sub_mesh.indices[i + 2] + 1
-				local a = self.Vertices[ai]
-				local b = self.Vertices[bi]
-				local c = self.Vertices[ci]
+		if not self.indices then
+			for i = 1, #self.Vertices do
+				indices[i] = i
+			end
+		end
+
+		for i = 1, #indices - 2, 3 do
+			local ai = indices[i + 0]
+			local bi = indices[i + 1]
+			local ci = indices[i + 2]
+			local a = self.Vertices[ai]
+			local b = self.Vertices[bi]
+			local c = self.Vertices[ci]
+
+			if a and b and c and a.uv and b.uv and c.uv then
 				local x1 = b.pos.x - a.pos.x
 				local x2 = c.pos.x - a.pos.x
 				local y1 = b.pos.y - a.pos.y
@@ -398,13 +354,19 @@ do -- helpers
 	end
 
 	function Polygon3D:IterateFaces(cb)
-		for _, sub_mesh in ipairs(self:GetSubMeshes()) do
-			for i = 1, #sub_mesh.indices, 3 do
-				local ai = sub_mesh.indices[i + 0] + 1
-				local bi = sub_mesh.indices[i + 1] + 1
-				local ci = sub_mesh.indices[i + 2] + 1
-				cb(self.Vertices[ai], self.Vertices[bi], self.Vertices[ci])
+		local indices = self.indices or {}
+
+		if not self.indices then
+			for i = 1, #self.Vertices do
+				indices[i] = i
 			end
+		end
+
+		for i = 1, #indices - 2, 3 do
+			local ai = indices[i + 0]
+			local bi = indices[i + 1]
+			local ci = indices[i + 2]
+			cb(self.Vertices[ai], self.Vertices[bi], self.Vertices[ci])
 		end
 	end
 

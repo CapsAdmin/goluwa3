@@ -68,13 +68,13 @@ function META:SetModelPath(path)
 			self:SetLoading(false)
 			self:BuildAABB()
 		end,
-		function(model)
+		function(data)
 			if not self:IsValid() then
 				print("model became invalid while loading")
 				return
 			end
 
-			self:AddPrimitive(model)
+			self:AddPrimitive(data.mesh, data.material)
 		end,
 		function(err)
 			if not self:IsValid() then
@@ -112,9 +112,10 @@ function META:OnRemove()
 end
 
 -- Add a Polygon3D to this model
-function META:AddPrimitive(obj)
+function META:AddPrimitive(obj, material)
 	-- Check if it's a Polygon3D object (has .mesh property)
 	if not (obj.mesh and obj.mesh.vertex_buffer) then
+		debug.trace()
 		error(
 			"AddPrimitive requires a Polygon3D object with .mesh.vertex_buffer, got: " .. tostring(obj)
 		)
@@ -124,7 +125,7 @@ function META:AddPrimitive(obj)
 	local primitive = {
 		polygon3d = obj,
 		aabb = obj.AABB,
-		material = obj.material,
+		material = material,
 	}
 	table.insert(self.Primitives, primitive)
 
@@ -368,17 +369,9 @@ function META:OnDraw3DGeometry(cmd, dt)
 		end
 
 		render3d.SetWorldMatrix(final_matrix)
-
-		for i, sub_mesh in ipairs(prim.polygon3d:GetSubMeshes()) do
-			render3d.SetMaterial(
-				self.MaterialOverride or
-					sub_mesh.data or
-					prim.material or
-					render3d.GetDefaultMaterial()
-			)
-			render3d.UploadGBufferConstants(cmd)
-			prim.polygon3d:Draw(cmd, i)
-		end
+		render3d.SetMaterial(self.MaterialOverride or prim.material or render3d.GetDefaultMaterial())
+		render3d.UploadGBufferConstants(cmd)
+		prim.polygon3d:Draw(cmd)
 	end
 
 	-- End occlusion culling
@@ -418,17 +411,9 @@ function META:DrawOcclusionQuery(cmd)
 			end
 
 			render3d.SetWorldMatrix(final_matrix)
-
-			for i, sub_mesh in ipairs(prim.polygon3d:GetSubMeshes()) do
-				render3d.SetMaterial(
-					self.MaterialOverride or
-						sub_mesh.data or
-						prim.material or
-						render3d.GetDefaultMaterial()
-				)
-				render3d.UploadGBufferConstants(cmd)
-				prim.polygon3d:Draw(cmd, i)
-			end
+			render3d.SetMaterial(self.MaterialOverride or prim.material or render3d.GetDefaultMaterial())
+			render3d.UploadGBufferConstants(cmd)
+			prim.polygon3d:Draw(cmd)
 		end
 	end
 
@@ -454,14 +439,9 @@ function META:DrawShadow(shadow_cmd, shadow_map, cascade_idx)
 			final_matrix = prim.local_matrix:GetMultiplied(world_matrix, cached_final_matrix)
 		end
 
-		for i, sub_mesh in ipairs(prim.polygon3d:GetSubMeshes()) do
-			local material = self.MaterialOverride or
-				sub_mesh.data or
-				prim.material or
-				render3d.GetDefaultMaterial()
-			shadow_map:UploadConstants(final_matrix, material, cascade_idx)
-			prim.polygon3d:Draw(shadow_cmd, i)
-		end
+		local material = self.MaterialOverride or prim.material or render3d.GetDefaultMaterial()
+		shadow_map:UploadConstants(final_matrix, material, cascade_idx)
+		prim.polygon3d:Draw(shadow_cmd)
 	end
 end
 
@@ -483,17 +463,9 @@ function META:DrawProbeGeometry(cmd, lightprobes)
 		end
 
 		render3d.SetWorldMatrix(final_matrix)
-
-		for i, sub_mesh in ipairs(prim.polygon3d:GetSubMeshes()) do
-			render3d.SetMaterial(
-				self.MaterialOverride or
-					sub_mesh.data or
-					prim.material or
-					render3d.GetDefaultMaterial()
-			)
-			lightprobes.UploadConstants(cmd)
-			prim.polygon3d:Draw(cmd, i)
-		end
+		render3d.SetMaterial(self.MaterialOverride or prim.material or render3d.GetDefaultMaterial())
+		lightprobes.UploadConstants(cmd)
+		prim.polygon3d:Draw(cmd)
 	end
 end
 

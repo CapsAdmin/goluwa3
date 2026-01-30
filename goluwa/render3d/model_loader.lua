@@ -57,8 +57,8 @@ function model_loader.LoadModel(path, callback, callback2, on_fail)
 
 	if data then
 		if callback2 then
-			for _, mesh in ipairs(data) do
-				callback2(mesh)
+			for _, entry in ipairs(data) do
+				callback2({mesh = entry.mesh, material = entry.material})
 			end
 		end
 
@@ -72,9 +72,10 @@ function model_loader.LoadModel(path, callback, callback2, on_fail)
 	resource.Download(path, nil, path:ends_with(".mdl")):Then(function(full_path)
 		local out = {}
 
-		local function mesh_callback(mesh)
-			cb:callextra(path, "mesh", mesh)
-			list.insert(out, mesh)
+		local function mesh_callback(mesh, material)
+			local ext = {mesh = mesh, material = material}
+			cb:callextra(path, "mesh", ext)
+			list.insert(out, ext)
 		end
 
 		local decode_callback = model_loader.FindModelDecoder(path)

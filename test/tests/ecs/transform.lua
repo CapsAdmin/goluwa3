@@ -37,7 +37,6 @@ end
 local function create_cube(pos, ang, scale, color)
 	local poly = Polygon3D.New()
 	poly:CreateCube(1.0, 1.0)
-	poly:AddSubMesh(#poly.Vertices)
 	poly:BuildNormals()
 	poly:BuildBoundingBox()
 	poly:Upload()
@@ -49,8 +48,8 @@ local function create_cube(pos, ang, scale, color)
 	if ang then tr:SetAngles(ang) end
 
 	local model = entity:AddComponent(model)
-	poly.material = Material.New():SetColorMultiplier(color or Color(1, 1, 1, 1))
-	model:AddPrimitive(poly)
+	local material = Material.New():SetColorMultiplier(color or Color(1, 1, 1, 1))
+	model:AddPrimitive(poly, material)
 	return entity
 end
 

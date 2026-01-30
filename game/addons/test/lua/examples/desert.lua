@@ -171,11 +171,9 @@ local function CreateDesertTerrain()
 		mat:SetNormalTexture(normal_tex)
 		mat:SetRoughnessMultiplier(0.9)
 		mat:SetMetallicMultiplier(0)
-		poly.material = mat
-		poly:AddSubMesh(#poly.Vertices)
 		poly:Upload()
 		local model = ent:AddComponent(model)
-		model:AddPrimitive(poly)
+		model:AddPrimitive(poly, mat)
 	end
 
 	-- 1. Heightmap Texture
@@ -200,8 +198,6 @@ local function CreateDesertTerrain()
 	mat:SetNormalTexture(normal_tex)
 	mat:SetRoughnessMultiplier(0.9)
 	mat:SetMetallicMultiplier(0.1)
-	poly.material = mat
-	poly:AddSubMesh(#poly.Vertices)
 	poly:BuildNormals(true)
 	poly:SmoothNormals()
 	poly:BuildBoundingBox()
@@ -210,7 +206,7 @@ local function CreateDesertTerrain()
 	local transform = ent:AddComponent(transform)
 	local model = ent:AddComponent(model)
 	transform:SetPosition(Vec3(0, -127, 0))
-	model:AddPrimitive(poly)
+	model:AddPrimitive(poly, mat)
 	return ent
 end
 

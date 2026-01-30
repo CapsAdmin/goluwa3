@@ -85,15 +85,14 @@ do
 
 		local poly = Polygon3D.New()
 		poly:CreateSphere(1)
-		poly.material = materials[material_index]
+		local material = materials[material_index]
 		material_index = material_index + 1
 
 		if material_index > #materials then material_index = 1 end
 
-		poly:AddSubMesh(#poly.Vertices)
 		poly:Upload()
 		local model = ent:AddComponent(model)
-		model:AddPrimitive(poly)
+		model:AddPrimitive(poly, material)
 	end
 
 	local shared = [[
@@ -397,15 +396,13 @@ if false then -- reflection plane
 	reflection_mat:SetRoughnessTexture(shaded_texture("return vec4(0.0);"))
 	local poly = Polygon3D.New()
 	poly:CreateSphere(1)
-	poly.material = reflection_mat
-	poly:AddSubMesh(#poly.Vertices)
 	poly:Upload()
 	local ent = ecs.CreateEntity("reflection_plane")
 	local transform = ent:AddComponent(transform)
 	transform:SetPosition(Vec3(17.9, -243.3, 1.1))
 	transform:SetScale(Vec3(100, 1, 100))
 	local model = ent:AddComponent(model)
-	model:AddPrimitive(poly)
+	model:AddPrimitive(poly, reflection_mat)
 end
 
 if false then

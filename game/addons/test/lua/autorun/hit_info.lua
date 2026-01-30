@@ -20,8 +20,8 @@ event.AddListener("Draw2D", "raycast", function(cmd, dt)
 	if found[1] then
 		local hit = found[1]
 
-		if hit and hit.sub_mesh and hit.sub_mesh.data then
-			local mat = hit.sub_mesh.data
+		if hit and hit.primitive and hit.primitive.material then
+			local mat = hit.primitive.material
 
 			-- Cache the result if material is the same as last frame
 			if mat ~= cached_material then

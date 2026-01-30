@@ -942,9 +942,8 @@ function gltf.CreateEntityHierarchy(gltf_result, parent_entity, options)
 		-- Create Polygon3D object
 		local poly = Polygon3D.New()
 		poly:SetAABB(prim_aabb)
-		poly.material = material
 		poly.mesh = render3d.CreateMesh(vertex_data, index_data, index_type, index_count)
-		return poly
+		return poly, material
 	end
 
 	-- Third pass: attach model components to nodes with meshes
@@ -980,7 +979,7 @@ function gltf.CreateEntityHierarchy(gltf_result, parent_entity, options)
 								index_type = primitive.indices.component_type == "uint32_t" and "uint32" or "uint16"
 							end
 
-							local poly = create_primitive_polygon(
+							local poly, material = create_primitive_polygon(
 								gltf_result,
 								primitive,
 								prim_aabb,
@@ -989,7 +988,7 @@ function gltf.CreateEntityHierarchy(gltf_result, parent_entity, options)
 								index_type,
 								index_count
 							)
-							model:AddPrimitive(poly)
+							model:AddPrimitive(poly, material, material)
 						else
 							stats.failed_primitives = stats.failed_primitives + 1
 

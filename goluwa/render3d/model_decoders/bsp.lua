@@ -720,7 +720,9 @@ function steam.LoadMap(path)
 				-- split the world up into sub models by texture
 				if not meshes[texname] then
 					local mesh = GRAPHICS and Polygon3D.New() or {}
-					meshes[texname] = mesh
+					local material_path = "materials/" .. texname .. ".vmt"
+					local material = GRAPHICS and Material.FromVMT(material_path)
+					meshes[texname] = {mesh = mesh, material = material}
 
 					if GRAPHICS then
 						mesh:SetName(path .. ": " .. texname)
@@ -731,7 +733,7 @@ function steam.LoadMap(path)
 				end
 
 				do
-					local mesh = meshes[texname]
+					local mesh = meshes[texname].mesh
 
 					if face.dispinfo == -1 then
 						local first, previous
@@ -817,45 +819,43 @@ function steam.LoadMap(path)
 	end
 
 	if GRAPHICS then
-		for i, mesh in ipairs(models) do
-			mesh:AddSubMesh(mesh:GetVertices(), mesh.material)
+		for i, data in ipairs(models) do
+			local mesh = data.mesh
 			-- BSP uses CW winding due to coordinate transform, so build normals accordingly
 			local vertices = mesh:GetVertices()
 
-			for _, sub_mesh in ipairs(mesh:GetSubMeshes()) do
-				for i = 1, #sub_mesh.indices, 3 do
-					local a = vertices[sub_mesh.indices[i + 0] + 1]
-					local b = vertices[sub_mesh.indices[i + 1] + 1]
-					local c = vertices[sub_mesh.indices[i + 2] + 1]
-					-- For CW winding: (C-A) × (B-A) to get outward normal
-					local normal = (c.pos - a.pos):Cross(b.pos - a.pos):GetNormalized()
-					a.normal = normal
-					b.normal = normal
-					c.normal = normal
+			for i = 1, #vertices, 3 do
+				local a = vertices[i + 0]
+				local b = vertices[i + 1]
+				local c = vertices[i + 2]
+				-- For CW winding: (C-A) × (B-A) to get outward normal
+				local normal = (c.pos - a.pos):Cross(b.pos - a.pos):GetNormalized()
+				a.normal = normal
+				b.normal = normal
+				c.normal = normal
 
-					if i % 3000 == 0 then tasks.Wait() end
-				end
+				if i % 3000 == 0 then tasks.Wait() end
 			end
 
 			tasks.ReportProgress("generating normals", #models)
 			tasks.Wait()
 		end
 
-		for _, mesh in ipairs(models) do
-			mesh:BuildBoundingBox()
+		for _, data in ipairs(models) do
+			data.mesh:BuildBoundingBox()
 			tasks.Wait()
 		end
 
-		for _, mesh in ipairs(models) do
-			if mesh.smooth_normals then mesh:SmoothNormals() end
+		for _, data in ipairs(models) do
+			if data.mesh.smooth_normals then data.mesh:SmoothNormals() end
 
 			tasks.Report("smoothing displacements", #models)
 			tasks.Wait()
 		end
 
-		for _, mesh in ipairs(models) do
-			mesh:BuildTangents()
-			mesh:Upload()
+		for _, data in ipairs(models) do
+			data.mesh:BuildTangents()
+			data.mesh:Upload()
 			tasks.ReportProgress("creating meshes", #models)
 			tasks.Wait()
 		end
@@ -867,8 +867,9 @@ function steam.LoadMap(path)
 		physics_meshes = {}
 		local count = #models
 
-		for i_, model in ipairs(models) do
-			local vertices_tbl = GRAPHICS and model:GetVertices() or model
+		for i_, data in ipairs(models) do
+			local mesh = data.mesh
+			local vertices_tbl = GRAPHICS and mesh:GetVertices() or mesh
 			local vertices_count = #vertices_tbl
 			local triangles = ffi.new("unsigned int[?]", vertices_count)
 
@@ -881,39 +882,42 @@ function steam.LoadMap(path)
 			--FIX ME
 			local _, huh = next(vertices_tbl)
 
-			if type(huh.pos) == "cdata" then
-				for _, data in ipairs(vertices_tbl) do
-					vertices[i] = data.pos.x
-					i = i + 1
-					vertices[i] = data.pos.y
-					i = i + 1
-					vertices[i] = data.pos.z
-					i = i + 1
+			if huh then
+				if type(huh.pos) == "cdata" then
+					for _, data in ipairs(vertices_tbl) do
+						vertices[i] = data.pos.x
+						i = i + 1
+						vertices[i] = data.pos.y
+						i = i + 1
+						vertices[i] = data.pos.z
+						i = i + 1
+					end
+				else
+					for _, data in ipairs(vertices_tbl) do
+						vertices[i] = data.pos[1]
+						i = i + 1
+						vertices[i] = data.pos[2]
+						i = i + 1
+						vertices[i] = data.pos[3]
+						i = i + 1
+					end
 				end
-			else
-				for _, data in ipairs(vertices_tbl) do
-					vertices[i] = data.pos[1]
-					i = i + 1
-					vertices[i] = data.pos[2]
-					i = i + 1
-					vertices[i] = data.pos[3]
-					i = i + 1
-				end
+
+				local mesh = {
+					triangles = {
+						count = vertices_count / 3,
+						pointer = triangles,
+						stride = ffi.sizeof("unsigned int") * 3,
+					},
+					vertices = {
+						count = vertices_count,
+						pointer = vertices,
+						stride = ffi.sizeof("float") * 3,
+					},
+				}
+				physics_meshes[i_] = mesh
 			end
 
-			local mesh = {
-				triangles = {
-					count = vertices_count / 3,
-					pointer = triangles,
-					stride = ffi.sizeof("unsigned int") * 3,
-				},
-				vertices = {
-					count = vertices_count,
-					pointer = vertices,
-					stride = ffi.sizeof("float") * 3,
-				},
-			}
-			physics_meshes[i_] = mesh
 			tasks.Wait()
 			tasks.ReportProgress("building physics meshes", count)
 		end
@@ -922,9 +926,9 @@ function steam.LoadMap(path)
 	local render_meshes = {}
 
 	for _, v in ipairs(models) do
-		if v.mesh and v.mesh.vertex_buffer then
+		if GRAPHICS and v.mesh and v.mesh.Vertices then
 			list.insert(render_meshes, v)
-		elseif v.vertex_buffer then
+		elseif SERVER and type(v.mesh) == "table" and v.mesh[1] and v.mesh[1].pos then
 			list.insert(render_meshes, v)
 		end
 	end
@@ -1126,8 +1130,8 @@ model_loader.AddModelDecoder("bsp", function(path, full_path, mesh_callback)
 		steam.bsp_world.bsp_resolved_path = full_path
 	end
 
-	for _, poly3d in ipairs(result.render_meshes) do
-		mesh_callback(poly3d)
+	for _, prim in ipairs(result.render_meshes) do
+		mesh_callback(prim.mesh, prim.material)
 	end
 end)
 

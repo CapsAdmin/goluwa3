@@ -95,6 +95,10 @@ function string.strip_common_prefix_suffix(strings--[[#: List<|string|>]])
 	return prefix_len, suffix_len
 end
 
+function string.patternsafe(self)
+	return (self:gsub("[%^%$%(%)%%%.%[%]%*%+%-%?]", "%%%1"))
+end
+
 function string.is_whitespace(char)
 	return char == "\32" or
 		char == "\9" or

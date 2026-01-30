@@ -146,16 +146,37 @@ local function test_primitive(ray, primitive, primitive_idx, entity, world_to_lo
 	end
 
 	local closest_hit = nil
-	local submeshes = poly3d:GetSubMeshes()
+	local vertices = poly3d:GetVertices()
+	local indices = poly3d.indices
 
-	for submesh_index, sub_mesh in ipairs(submeshes) do
-		local triangle_count = math.floor(#sub_mesh.indices / 3)
+	if indices then
+		local triangle_count = math.floor(#indices / 3)
+
+		for tri_idx = 0, triangle_count - 1 do
+			local hit = test_triangle(local_ray, vertices, indices, tri_idx, primitive_idx, entity)
+
+			if hit and (not closest_hit or hit.distance < closest_hit.distance) then
+				closest_hit = hit
+				hit.poly = poly3d
+				hit.primitive = primitive
+			end
+		end
+	else
+		-- Sequential vertices
+		local vertex_count = #vertices
+		local triangle_count = math.floor(vertex_count / 3)
+		-- Create temporary indices for sequential test
+		local dummy_indices = {}
+
+		for i = 1, vertex_count do
+			dummy_indices[i] = i - 1
+		end
 
 		for tri_idx = 0, triangle_count - 1 do
 			local hit = test_triangle(
 				local_ray,
 				vertices,
-				sub_mesh.indices,
+				dummy_indices,
 				tri_idx,
 				primitive_idx,
 				entity
@@ -163,9 +184,8 @@ local function test_primitive(ray, primitive, primitive_idx, entity, world_to_lo
 
 			if hit and (not closest_hit or hit.distance < closest_hit.distance) then
 				closest_hit = hit
-				hit.sub_mesh_index = submesh_index
-				hit.sub_mesh = sub_mesh
 				hit.poly = poly3d
+				hit.primitive = primitive
 			end
 		end
 	end

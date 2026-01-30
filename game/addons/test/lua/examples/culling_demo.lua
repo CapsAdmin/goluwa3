@@ -22,13 +22,12 @@ local function spawn_sphere(pos, scale, color, use_occlusion)
 	trans:SetScale(scale or Vec3(1, 1, 1))
 	local poly = Polygon3D.New()
 	poly:CreateSphere(1, 16, 16)
-	poly:AddSubMesh(#poly.Vertices)
 	poly:Upload()
-	poly.material = Material.New({
+	local material = Material.New({
 		ColorMultiplier = color or Color(1, 1, 1, 1),
 	})
 	local mdl = ent:AddComponent(model_module)
-	mdl:AddPrimitive(poly)
+	mdl:AddPrimitive(poly, material)
 	mdl:SetUseOcclusionCulling(use_occlusion or false)
 	return ent
 end

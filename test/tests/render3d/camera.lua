@@ -87,9 +87,8 @@ local function create_face(pos, normal, up, color)
 	poly:BuildUVsPlanar()
 	poly:BuildNormals()
 	poly:BuildTangents()
-	poly:AddSubMesh(#poly.Vertices)
 	poly:Upload()
-	poly.material = Material.New(
+	local material = Material.New(
 		{
 			ColorMultiplier = Color(color.r, color.g, color.b, 1),
 			DoubleSided = true,
@@ -98,7 +97,7 @@ local function create_face(pos, normal, up, color)
 	local ent = ecs.CreateEntity()
 	ent:AddComponent(transform)
 	ent:AddComponent(model)
-	ent.model:AddPrimitive(poly)
+	ent.model:AddPrimitive(poly, material)
 end
 
 T.Test("camera tests", function()
@@ -140,9 +139,8 @@ T.Test("camera tests", function()
 		do -- small white cube in the center
 			local poly = Polygon3D.New()
 			poly:CreateCube(0.5, 1.0)
-			poly:AddSubMesh(#poly.Vertices)
 			poly:Upload()
-			poly.material = Material.New(
+			local material = Material.New(
 				{
 					AlbedoTexture = white_tex,
 					EmissiveMultiplier = Color(1, 1, 1, 100),
@@ -152,7 +150,7 @@ T.Test("camera tests", function()
 			local ent = ecs.CreateEntity("mdl", ecs.Get3DWorld())
 			ent:AddComponent(transform)
 			ent:AddComponent(model)
-			ent.model:AddPrimitive(poly)
+			ent.model:AddPrimitive(poly, material)
 		end
 	end
 

@@ -587,10 +587,10 @@ local function load_vtx(path)
 							local stream_pos = buffer:GetPosition()
 							local strip = {}
 							strip.indices_count = buffer:ReadLong()
-							strip.index_model_index = buffer:Advance(4) -- buffer:ReadLong()
+							strip.indices_offset = buffer:ReadLong()
 							strip.vertices_count = buffer:ReadLong()
-							buffer:Advance(4 + 2 + 1 + 8)
-							--strip.vertex_model_index = buffer:ReadLong()
+							strip.vertices_offset = buffer:ReadLong()
+							buffer:Advance(2 + 1 + 8)
 							--strip.bone_count = buffer:ReadShort()
 							--strip.flags = buffer:ReadByte()
 							--[[
@@ -773,7 +773,6 @@ model_loader.AddModelDecoder("mdl", function(path, full_path, mesh_callback)
 		for _, model_ in ipairs(body_part.models) do
 			for lod_index, lod_model in ipairs(model_.model_lods) do
 				if lod_model.meshes and lod_model.meshes[1] then
-					local mesh = Polygon3D.New()
 					local vertices = vvd.fixed_vertices_by_lod[lod_index] or vvd.vertices
 					local copy = {}
 
@@ -781,8 +780,7 @@ model_loader.AddModelDecoder("mdl", function(path, full_path, mesh_callback)
 						copy[i] = {pos = v.pos:Copy(), normal = v.normal:Copy(), uv = v.uv:Copy()}
 					end
 
-					mesh:SetVertices(copy)
-					local WHAT2 = 0
+					local vertex_offset = 0
 
 					for model_i, mesh_data in ipairs(lod_model.meshes) do
 						if _debug then
@@ -790,22 +788,33 @@ model_loader.AddModelDecoder("mdl", function(path, full_path, mesh_callback)
 						end
 
 						tasks.Wait()
-						local WHAT = 0
+						local mesh = Polygon3D.New()
+						mesh:SetVertices(copy)
 						local indices = {}
 						local index_i = 1
+						local max_mesh_vertex = 0
 
 						for _, strip_group in ipairs(mesh_data.strip_groups) do
 							for _, strip in ipairs(strip_group.strips) do
-								for _, index in ipairs(strip.indices) do
-									WHAT = math.max(WHAT, strip.vertices[index].mesh_vertex_index + 1)
-									local v = strip.vertices[index].mesh_vertex_index + WHAT2
-									indices[index_i] = v
-									index_i = index_i + 1
+								-- Each strip uses a portion of the shared indices array
+								-- indices_offset is 0-based, so add 1 for Lua 1-based array access
+								for i = 1, strip.indices_count do
+									local index = strip.indices[strip.indices_offset + i]
+									-- The index value directly indexes into strip_group.vertices (1-based after +1 during read)
+									local v = strip.vertices[index]
+
+									if v then
+										-- mesh_vertex_index is local to this mesh, add vertex_offset for absolute position
+										max_mesh_vertex = math.max(max_mesh_vertex, v.mesh_vertex_index + 1)
+										indices[index_i] = v.mesh_vertex_index + vertex_offset + 1
+										index_i = index_i + 1
+									end
 								end
 							end
 						end
 
-						WHAT2 = WHAT2 + WHAT
+						-- Accumulate offset for next mesh
+						vertex_offset = vertex_offset + max_mesh_vertex
 						mesh:SetName(full_path)
 						local material
 						local path = mdl.materials[model_i]
@@ -828,15 +837,11 @@ model_loader.AddModelDecoder("mdl", function(path, full_path, mesh_callback)
 							material = Material.FromVMT(path)
 						end
 
-						mesh.material = mesh.material or material
-						mesh:AddSubMesh(indices, material)
+						mesh:BuildBoundingBox()
+						mesh:Upload(indices)
+						mesh_callback(mesh, material)
+						list.insert(models, mesh)
 					end
-
-					mesh:BuildBoundingBox()
-					mesh:BuildTangents()
-					mesh:Upload()
-					mesh_callback(mesh)
-					list.insert(models, mesh)
 				end
 
 				-- Only process first LOD per body part for highest quality
