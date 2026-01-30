@@ -180,14 +180,22 @@ function GraphicsPipeline.New(vulkan_instance, config)
 	self.base_pipeline = pipeline
 
 	do
-		self.texture_registry = {} -- texture_object -> index mapping
+		self.texture_registry = setmetatable({}, {__mode = "k"}) -- texture_object -> index mapping
 		self.texture_array = {} -- array of {view, sampler} for descriptor set
 		self.next_texture_index = 0
-		self.cubemap_registry = {}
+		self.texture_free_list = {}
+		self.cubemap_registry = setmetatable({}, {__mode = "k"})
 		self.cubemap_array = {}
 		self.next_cubemap_index = 0
+		self.cubemap_free_list = {}
 		self.max_textures = 1024
 	end
+
+	local event = require("event")
+
+	event.AddListener("TextureRemoved", self, function(removed_tex)
+		if self:IsValid() then self:ReleaseTextureIndex(removed_tex) end
+	end)
 
 	-- Initialize all descriptor sets with the same initial bindings
 	for frame_index = 1, descriptor_set_count do
@@ -203,6 +211,41 @@ function GraphicsPipeline.New(vulkan_instance, config)
 	end
 
 	return self
+end
+
+function GraphicsPipeline:GetFallbackView()
+	local Texture = require("render.texture")
+	return Texture.GetFallback():GetView()
+end
+
+function GraphicsPipeline:GetFallbackSampler()
+	local Texture = require("render.texture")
+	return Texture.GetFallback():GetSampler()
+end
+
+function GraphicsPipeline:ReleaseTextureIndex(tex)
+	if not tex or type(tex) ~= "table" then return end
+
+	local is_cube = tex.IsCubemap and tex:IsCubemap()
+	local registry = is_cube and self.cubemap_registry or self.texture_registry
+	local array = is_cube and self.cubemap_array or self.texture_array
+	local free_list = is_cube and self.cubemap_free_list or self.texture_free_list
+	local binding_index = is_cube and 1 or 0
+	local index = registry[tex]
+
+	if index then
+		registry[tex] = nil
+		table.insert(free_list, index)
+		-- Clear the entry in the array to avoid keeping views alive
+		array[index + 1] = {
+			view = self:GetFallbackView(),
+			sampler = self:GetFallbackSampler(),
+		}
+
+		for frame_i = 1, #self.descriptor_sets do
+			self:UpdateDescriptorSetArray(frame_i, binding_index, array)
+		end
+	end
 end
 
 function GraphicsPipeline:GetTextureIndex(tex)
@@ -238,25 +281,32 @@ function GraphicsPipeline:GetTextureIndex(tex)
 		return index
 	end
 
-	if self[index_key] >= self.max_textures then
-		-- This is where leaks will eventually manifest if textures are created/destroyed rapidly
-		error(
-			(
-					is_cube and
-					"Cubemap" or
-					"Texture"
-				) .. " registry full! Max textures: " .. self.max_textures
-		)
+	local free_list = is_cube and self.cubemap_free_list or self.texture_free_list
+
+	if #free_list > 0 then
+		index = table.remove(free_list)
+	else
+		if self[index_key] >= self.max_textures then
+			-- This is where leaks will eventually manifest if textures are created/destroyed rapidly
+			error(
+				(
+						is_cube and
+						"Cubemap" or
+						"Texture"
+					) .. " registry full! Max textures: " .. self.max_textures
+			)
+		end
+
+		index = self[index_key]
+		self[index_key] = index + 1
 	end
 
-	index = self[index_key]
 	registry[tex] = index
 	-- Ensure we don't put nil into the array which might confuse the C-side UpdateDescriptorSetArray
 	array[index + 1] = {
 		view = tex.view or self:GetFallbackView(),
 		sampler = tex.sampler or self:GetFallbackSampler(),
 	}
-	self[index_key] = index + 1
 
 	for frame_i = 1, #self.descriptor_sets do
 		self:UpdateDescriptorSetArray(frame_i, binding_index, array)
@@ -443,6 +493,23 @@ local function hash_state(state)
 	end
 
 	return table.concat(parts, ";")
+end
+
+function GraphicsPipeline:OnRemove()
+	local event = require("event")
+	event.RemoveListener("TextureRemoved", self)
+
+	if self.descriptorPools then
+		for _, pool in ipairs(self.descriptorPools) do
+			pool:Remove()
+		end
+	end
+
+	if self.pipeline then self.pipeline:Remove() end
+
+	if self.descriptorSetLayout then self.descriptorSetLayout:Remove() end
+
+	if self.pipeline_layout then self.pipeline_layout:Remove() end
 end
 
 -- Rebuild pipeline with modified state

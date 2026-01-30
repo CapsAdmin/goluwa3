@@ -25,6 +25,11 @@ META:GetSet("ShadingInfo", nil)
 META:IsSet("Monospace", false)
 META:IsSet("Ready", false)
 META:IsSet("ReverseDraw", false)
+
+function META:OnRemove()
+	if self.texture_atlas then self.texture_atlas:Remove() end
+end
+
 META:GetSet("LoadSpeed", 10)
 META:GetSet("TabWidthMultiplier", 4)
 META:GetSet("Flags")

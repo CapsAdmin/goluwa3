@@ -639,6 +639,22 @@ function Texture:IsReady()
 	return self.is_ready
 end
 
+function Texture:OnRemove()
+	local event = require("event")
+	event.Call("TextureRemoved", self)
+	local cache_key = self.config.cache_key or self.config.path
+
+	if cache_key and texture_cache[cache_key] == self then
+		texture_cache[cache_key] = nil
+	end
+
+	if self.image then self.image:Remove() end
+
+	if self.view then self.view:Remove() end
+
+	if self.sampler then self.sampler:Remove() end
+end
+
 function Texture:GenerateMipmaps(initial_layout, cmd)
 	if not self.image or self.mip_map_levels <= 1 then return end
 

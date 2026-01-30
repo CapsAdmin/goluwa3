@@ -293,4 +293,10 @@ function META:GetPageTexture(id)
 	if data and data.page then return data.page.texture end
 end
 
+function META:OnRemove()
+	for _, page in ipairs(self.pages) do
+		page.texture:Remove()
+	end
+end
+
 return META:Register()
