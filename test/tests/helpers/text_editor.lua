@@ -3,14 +3,14 @@ local text_editor = require("text_editor")
 
 T.Test("text_editor basics", function()
 	local editor = text_editor.New("hello world")
-	T(editor.Text)["=="]("hello world")
+	T(editor:GetBuffer():GetText())["=="]("hello world")
 	T(editor.Cursor)["=="](1)
 	editor.Cursor = 7
 	editor:InsertString("awesome ")
-	T(editor.Text)["=="]("hello awesome world")
+	T(editor:GetBuffer():GetText())["=="]("hello awesome world")
 	T(editor.Cursor)["=="](15)
 	editor:Backspace()
-	T(editor.Text)["=="]("hello awesomeworld")
+	T(editor:GetBuffer():GetText())["=="]("hello awesomeworld")
 	T(editor.Cursor)["=="](14)
 end)
 
@@ -22,7 +22,7 @@ T.Test("text_editor selection", function()
 	T(start)["=="](1)
 	T(stop)["=="](7)
 	editor:DeleteSelection()
-	T(editor.Text)["=="]("world")
+	T(editor:GetBuffer():GetText())["=="]("world")
 	T(editor.Cursor)["=="](1)
 end)
 
@@ -66,10 +66,10 @@ T.Test("text_editor ctrl backspace", function()
 	editor.Cursor = 12 -- "hello world| test"
 	editor:SetControlDown(true)
 	editor:OnKeyInput("backspace")
-	T(editor.Text)["=="]("hello  test")
+	T(editor:GetBuffer():GetText())["=="]("hello  test")
 	T(editor.Cursor)["=="](7)
 	editor:OnKeyInput("backspace")
-	T(editor.Text)["=="](" test")
+	T(editor:GetBuffer():GetText())["=="](" test")
 	T(editor.Cursor)["=="](1)
 end)
 
@@ -107,19 +107,19 @@ T.Test("text_editor undo", function()
 	editor.Cursor = 6
 	editor:SaveUndoState()
 	editor:InsertString(" world")
-	T(editor.Text)["=="]("hello world")
+	T(editor:GetBuffer():GetText())["=="]("hello world")
 	editor:SetControlDown(true)
 	editor:OnKeyInput("z")
-	T(editor.Text)["=="]("hello")
+	T(editor:GetBuffer():GetText())["=="]("hello")
 	T(editor.Cursor)["=="](6)
 	editor:OnKeyInput("y")
-	T(editor.Text)["=="]("hello world")
+	T(editor:GetBuffer():GetText())["=="]("hello world")
 	T(editor.Cursor)["=="](12)
 	editor:OnKeyInput("z") -- undo
-	T(editor.Text)["=="]("hello")
+	T(editor:GetBuffer():GetText())["=="]("hello")
 	editor:SetShiftDown(true)
 	editor:OnKeyInput("z") -- redo via ctrl+shift+z
-	T(editor.Text)["=="]("hello world")
+	T(editor:GetBuffer():GetText())["=="]("hello world")
 end)
 
 T.Test("text_editor page up down", function()
@@ -144,7 +144,7 @@ T.Test("text_editor ctrl delete", function()
 	editor.Cursor = 1
 	editor:SetControlDown(true)
 	editor:OnKeyInput("delete")
-	T(editor.Text)["=="](" world test")
+	T(editor:GetBuffer():GetText())["=="](" world test")
 	T(editor.Cursor)["=="](1)
 end)
 
@@ -168,22 +168,22 @@ T.Test("text_editor duplicate line", function()
 	editor.Cursor = 1
 	editor:SetControlDown(true)
 	editor:OnKeyInput("d")
-	T(editor.Text)["=="]("hello\nhello\nworld")
+	T(editor:GetBuffer():GetText())["=="]("hello\nhello\nworld")
 end)
 
 T.Test("text_editor indentation", function()
 	local editor = text_editor.New("hello")
 	editor:OnKeyInput("tab")
-	T(editor.Text)["=="]("\thello")
+	T(editor:GetBuffer():GetText())["=="]("\thello")
 	editor:SetShiftDown(true)
 	editor:OnKeyInput("tab")
-	T(editor.Text)["=="]("hello")
+	T(editor:GetBuffer():GetText())["=="]("hello")
 end)
 
 T.Test("text_editor select all / char input", function()
 	local editor = text_editor.New("hello")
 	editor:OnKeyInput("a") -- This doesn't do anything because ControlDown is false
-	T(editor.Text)["=="]("hello")
+	T(editor:GetBuffer():GetText())["=="]("hello")
 	editor:SetControlDown(true)
 	editor:OnKeyInput("a")
 	local start, stop = editor:GetSelection()
@@ -191,7 +191,7 @@ T.Test("text_editor select all / char input", function()
 	T(stop)["=="](6)
 	editor:SetControlDown(false)
 	editor:OnCharInput("w")
-	T(editor.Text)["=="]("w")
+	T(editor:GetBuffer():GetText())["=="]("w")
 	T(editor.Cursor)["=="](2)
 end)
 
@@ -202,10 +202,10 @@ T.Test("text_editor clipboard", function()
 	editor.SelectionStart = 6
 	editor:Copy()
 	T(editor:GetClipboard())["=="]("hello")
-	editor.Text = ""
+	editor:SetText("")
 	editor.Cursor = 1
 	editor:Paste(editor:GetClipboard())
-	T(editor.Text)["=="]("hello")
+	T(editor:GetBuffer():GetText())["=="]("hello")
 	-- Test overriding clipboard
 	local mock_clipboard = ""
 	editor.SetClipboard = function(self, str)
@@ -214,17 +214,17 @@ T.Test("text_editor clipboard", function()
 	editor.GetClipboard = function(self)
 		return mock_clipboard
 	end
-	editor.Text = "mock test"
+	editor:SetText("mock test")
 	editor.Cursor = 1
 	editor.SelectionStart = 5
 	local ret = editor:Copy()
 	T(ret)["=="]("mock")
 	T(mock_clipboard)["=="]("mock")
-	editor.Text = ""
+	editor:SetText("")
 	editor.Cursor = 1
 	editor:SetControlDown(true)
 	editor:OnKeyInput("v") -- Paste
-	T(editor.Text)["=="]("mock")
+	T(editor:GetBuffer():GetText())["=="]("mock")
 end)
 
 T.Test("text_editor wrapping", function()

@@ -1,4 +1,4 @@
-local utf8 = require("utf8")
+local text_buffer = require("text_buffer")
 local prototype = require("prototype")
 local Vec2 = require("structs.vec2")
 local Color = require("structs.color")
@@ -52,7 +52,7 @@ function META.New(str, skip_invalidate)
 		}
 	)
 	self.editor = text_editor.New(str)
-	self.editor.OnTextChanged = function(_, text)
+	self.editor.OnChanged = function(_, text)
 		self.text = text
 		self:Invalidate()
 		self:InvalidateEditedText()
@@ -304,7 +304,7 @@ function META:InsertString(str, skip_move, start_offset, stop_offset)
 
 			if x <= 0 then
 				y = y - 1
-				x = utf8.length(self.lines[y])
+				x = text_buffer.GetLength(self.lines[y])
 			end
 		end
 
@@ -314,7 +314,7 @@ function META:InsertString(str, skip_move, start_offset, stop_offset)
 		for _ = 1, stop_offset do
 			x = x + 1
 
-			if x >= utf8.length(self.lines[y]) then
+			if x >= text_buffer.GetLength(self.lines[y]) then
 				y = y + 1
 				x = 0
 			end
@@ -324,7 +324,7 @@ function META:InsertString(str, skip_move, start_offset, stop_offset)
 		self:DeleteSelection(true)
 	end
 
-	self.text = utf8.sub(self.text, 1, sub_pos - 1) .. str .. utf8.sub(self.text, sub_pos)
+	self.text = text_buffer.Sub(self.text, 1, sub_pos - 1) .. str .. text_buffer.Sub(self.text, sub_pos)
 
 	do -- fix chunks
 		local sub_pos = self.caret_pos.char.data.i
@@ -354,7 +354,7 @@ function META:InsertString(str, skip_move, start_offset, stop_offset)
 			if chunk.internal then
 				local chunk = self.chunks[chunk.i - 1]
 				sub_pos = #chunk.chars + 1
-				chunk.val = utf8.sub(chunk.val, 1, sub_pos - 1) .. str .. utf8.sub(chunk.val, sub_pos)
+				chunk.val = text_buffer.Sub(chunk.val, 1, sub_pos - 1) .. str .. text_buffer.Sub(chunk.val, sub_pos)
 			else
 				do
 					local pos = chunk.i
@@ -368,7 +368,7 @@ function META:InsertString(str, skip_move, start_offset, stop_offset)
 				if chunk.type == "string" then
 					if not sub_pos then sub_pos = #chunk.chars + 1 end
 
-					chunk.val = utf8.sub(chunk.val, 1, sub_pos - 1) .. str .. utf8.sub(chunk.val, sub_pos)
+					chunk.val = text_buffer.Sub(chunk.val, 1, sub_pos - 1) .. str .. text_buffer.Sub(chunk.val, sub_pos)
 				else
 					list.remove(self.chunks, chunk.i)
 				end
@@ -379,7 +379,7 @@ function META:InsertString(str, skip_move, start_offset, stop_offset)
 	end
 
 	if not skip_move then
-		local x = self.caret_pos.x + utf8.length(str)
+		local x = self.caret_pos.x + text_buffer.GetLength(str)
 		local y = self.caret_pos.y + string.count(str, "\n")
 
 		if self.caret_pos.char.str == "\n" then x = 0 end
@@ -993,7 +993,7 @@ do -- parse tags
 		local str = {}
 		local in_lua = false
 
-		for _, char in ipairs(utf8.to_list(arg_line)) do
+		for _, char in ipairs(text_buffer.GetTable(arg_line)) do
 			if char == "[" then
 				in_lua = true
 			elseif in_lua and char == "]" then -- todo: longest match
@@ -1093,7 +1093,7 @@ do -- parse tags
 		local last_font
 		local last_color
 
-		for _, char in ipairs(utf8.to_list(str)) do
+		for _, char in ipairs(text_buffer.GetTable(str)) do
 			if char == "<" then
 				-- if we've been parsing a string add it
 				if current_string then
@@ -1392,7 +1392,7 @@ do -- invalidate
 							if self.LineWrap then
 								local str = {}
 
-								for _, char in ipairs(utf8.to_list(chunk.val)) do
+								for _, char in ipairs(text_buffer.GetTable(chunk.val)) do
 									if string.is_whitespace(char) then
 										if #str ~= 0 then
 											add_chunk(self, out, {type = "string", val = list.concat(str)})
@@ -1450,10 +1450,10 @@ do -- invalidate
 
 	local function additional_split(self, word, max_width, out)
 		out = out or {}
-		local left_word, right_word = utf8.mid_split(word)
+		local left_word, right_word = text_buffer.MidSplit(word)
 		local left_width, left_height = get_text_size(self, left_word)
 
-		if left_width >= max_width and left_word:utf8_length() > 1 then
+		if left_width >= max_width and left_word--[[#: text_buffer.GetLength() > 1]] then
 			additional_split(self, left_word, max_width, out)
 		else
 			list.insert(
@@ -1470,7 +1470,7 @@ do -- invalidate
 
 		local right_width, right_height = get_text_size(self, right_word)
 
-		if right_width >= max_width and right_word:utf8_length() > 1 then
+		if right_width >= max_width and right_word--[[#: text_buffer.GetLength() > 1]] then
 			additional_split(self, right_word, max_width, out)
 		else
 			list.insert(
@@ -1493,7 +1493,7 @@ do -- invalidate
 			if chunk.type == "font" then set_font(self, chunk.val) end
 
 			if chunk.type == "string" and not chunk.val:find("^%s+$") then
-				if chunk.val:utf8_length() > 1 then
+				if chunk.val--[[#: text_buffer.GetLength() > 1]] then
 					if not chunk.nolinebreak and chunk.w >= self.MaxWidth then
 						list.remove(chunks, i)
 
@@ -1580,7 +1580,7 @@ do -- invalidate
 
 			if str == "" and chunk.internal then str = " " end
 
-			for i, char in ipairs(utf8.to_list(str)) do
+			for i, char in ipairs(text_buffer.GetTable(str)) do
 				local char_width, char_height = get_text_size(chunk.markup, char)
 				local x = chunk.x + width
 				local y = chunk.y
@@ -2096,7 +2096,7 @@ do -- caret
 		x = x or 0
 		y = y or 0
 		y = math.clamp(y, 1, #self.lines)
-		x = math.clamp(x, 0, self.lines[y] and utf8.length(self.lines[y]) or 0)
+		x = math.clamp(x, 0, self.lines[y] and text_buffer.GetLength(self.lines[y]) or 0)
 		local CHAR
 		local POS
 
@@ -2110,7 +2110,7 @@ do -- caret
 		end
 
 		if not CHAR then
-			if x == utf8.length(self.lines[#self.lines]) then
+			if x == text_buffer.GetLength(self.lines[#self.lines]) then
 				POS = #self.chars - 1
 				CHAR = self.chars[POS]
 			end
@@ -2126,7 +2126,7 @@ do -- caret
 					POS = x + 1
 				end
 			elseif y >= #self.lines then
-				local i = #self.chars - utf8.length(self.lines[#self.lines]) + x + 1
+				local i = #self.chars - text_buffer.GetLength(self.lines[#self.lines]) + x + 1
 				CHAR = self.chars[i]
 				POS = i
 			end
@@ -2191,16 +2191,16 @@ do -- caret
 			self.real_x = self:CaretFromPosition(x, y).char.data.x
 
 			-- move to next or previous line
-			if X > 0 and x > utf8.length(line) and y < #self.lines and #self.lines > 1 then
+			if X > 0 and x > text_buffer.GetLength(line) and y < #self.lines and #self.lines > 1 then
 				x = 0
 				y = y + 1
 			elseif X < 0 and x < 0 and y > 0 and self.lines[self.caret_pos.y - 1] then
-				x = utf8.length(self.lines[self.caret_pos.y - 1])
+				x = text_buffer.GetLength(self.lines[self.caret_pos.y - 1])
 				y = y - 1
 			end
 		else
 			if X == math.huge then
-				x = utf8.length(line)
+				x = text_buffer.GetLength(line)
 				self.real_x = math.huge
 			elseif X == -math.huge then
 				local pos = #(line:match("^(%s*)") or "")
@@ -2371,7 +2371,7 @@ do -- selection
 
 		if START and STOP then
 			if not tags then
-				return utf8.sub(self.text, START.sub_pos, STOP.sub_pos - 1)
+				return text_buffer.Sub(self.text, START.sub_pos, STOP.sub_pos - 1)
 			else
 				local last_font
 				local last_color
@@ -2447,7 +2447,7 @@ do -- selection
 
 			if not skip_move then self:SetCaretPosition(start.x, start.y) end
 
-			self.text = utf8.sub(self.text, 1, start.sub_pos - 1) .. utf8.sub(self.text, stop.sub_pos)
+			self.text = text_buffer.Sub(self.text, 1, start.sub_pos - 1) .. text_buffer.Sub(self.text, stop.sub_pos)
 			self:Unselect()
 
 			do -- fix chunks
@@ -2465,9 +2465,9 @@ do -- selection
 
 				if start_chunk.type == "string" then
 					if stop_chunk == start_chunk then
-						start_chunk.val = utf8.sub(start_chunk.val, 1, start.char.data.i - 1) .. utf8.sub(start_chunk.val, stop.char.data.i)
+						start_chunk.val = text_buffer.Sub(start_chunk.val, 1, start.char.data.i - 1) .. text_buffer.Sub(start_chunk.val, stop.char.data.i)
 					else
-						start_chunk.val = utf8.sub(start_chunk.val, 1, start.char.data.i - 1)
+						start_chunk.val = text_buffer.Sub(start_chunk.val, 1, start.char.data.i - 1)
 					end
 				elseif not self.chunks[start_chunk.i].internal then
 					self.chunks[start_chunk.i] = nil
@@ -2477,7 +2477,7 @@ do -- selection
 				if stop_chunk ~= start_chunk then
 					if stop_chunk.type == "string" then
 						local sub_pos = stop.char.data.i
-						stop_chunk.val = utf8.sub(stop_chunk.val, sub_pos)
+						stop_chunk.val = text_buffer.Sub(stop_chunk.val, sub_pos)
 					elseif
 						stop_chunk.type ~= "newline" and
 						not stop_chunk.internal and

@@ -19,7 +19,7 @@ end
 
 repl.started = true
 repl.editor = repl.editor or text_editor.New()
-repl.editor.OnTextChanged = function(s, text)
+repl.editor.OnChanged = function(s, text)
 	repl.needs_redraw = true
 end
 
@@ -36,24 +36,25 @@ function repl.CopyText()
 		local start, stop = repl.editor:GetCursorLineCol()
 		repl.editor:SetCursorLineCol(start, 1)
 		local line_start = repl.editor:GetCursor()
-		local len = repl.editor:GetText():utf8_length()
+		local buffer = repl.editor:GetBuffer()
+		local len = buffer:GetLength()
 
 		while
 			repl.editor:GetCursor() <= len and
-			repl.editor:GetText():utf8_sub(repl.editor:GetCursor(), repl.editor:GetCursor()) ~= "\n"
+			buffer:Sub(repl.editor:GetCursor(), repl.editor:GetCursor()) ~= "\n"
 		do
 			repl.editor:SetCursor(repl.editor:GetCursor() + 1)
 		end
 
 		if
 			repl.editor:GetCursor() <= len and
-			repl.editor:GetText():utf8_sub(repl.editor:GetCursor(), repl.editor:GetCursor()) == "\n"
+			buffer:Sub(repl.editor:GetCursor(), repl.editor:GetCursor()) == "\n"
 		then
 			repl.editor:SetCursor(repl.editor:GetCursor() + 1)
 		end
 
 		local line_end = repl.editor:GetCursor()
-		local str = repl.editor:GetText():utf8_sub(line_start, line_end - 1)
+		local str = buffer:Sub(line_start, line_end - 1)
 		repl.editor:SetClipboard(str)
 		repl.editor:SetCursor(line_start) -- restore cursor roughly
 		return str
@@ -69,9 +70,9 @@ function repl.CutText()
 		if str then
 			repl.editor:SaveUndoState()
 			local start = repl.editor:GetCursor()
-			local text = repl.editor:GetText()
-			local stop = start + str:utf8_length()
-			repl.editor:SetText(text:utf8_sub(1, start - 1) .. text:utf8_sub(stop))
+			local stop = start + repl.editor:GetBuffer():GetLength(str)
+			repl.editor:GetBuffer():RemoveRange(start, stop)
+			repl.editor:SetText(repl.editor:GetBuffer():GetText())
 			repl.editor:SetCursor(start)
 		end
 
@@ -100,7 +101,7 @@ setmetatable(
 	repl,
 	{
 		__index = function(t, k)
-			if k == "input_buffer" then return t.editor:GetText() end
+			if k == "input_buffer" then return t.editor:GetBuffer():GetText() end
 
 			if k == "input_cursor" then return t.editor:GetCursor() end
 
@@ -396,7 +397,7 @@ function repl.HandleEvent(ev)
 
 				repl.history_index = repl.history_index - 1
 				repl.editor:SetText(commands.history[repl.history_index])
-				repl.editor:SetCursor(repl.editor:GetText():utf8_length() + 1)
+				repl.editor:SetCursor(repl.editor:GetBuffer():GetLength() + 1)
 				repl.input_scroll_offset = 0
 				repl.editor:SetSelectionStart(nil)
 			end
@@ -437,14 +438,14 @@ function repl.HandleEvent(ev)
 				-- At last line, trying to go down - navigate history
 				repl.history_index = repl.history_index + 1
 				repl.editor:SetText(commands.history[repl.history_index])
-				repl.editor:SetCursor(repl.editor:GetText():utf8_length() + 1)
+				repl.editor:SetCursor(repl.editor:GetBuffer():GetLength() + 1)
 				repl.input_scroll_offset = 0
 				repl.editor:SetSelectionStart(nil)
 			elseif current_line == input_lines_count and repl.history_index == #commands.history then
 				-- Restore saved input when going back to fresh input mode
 				repl.history_index = #commands.history + 1
 				repl.editor:SetText(repl.saved_input)
-				repl.editor:SetCursor(repl.editor:GetText():utf8_length() + 1)
+				repl.editor:SetCursor(repl.editor:GetBuffer():GetLength() + 1)
 				repl.input_scroll_offset = 0
 				repl.editor:SetSelectionStart(nil)
 				repl.saved_input = ""

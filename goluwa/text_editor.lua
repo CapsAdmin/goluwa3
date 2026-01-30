@@ -1,18 +1,8 @@
 local prototype = require("prototype")
 local clipboard = require("bindings.clipboard")
-local TextBuffer
-
-do
-	local utf8 = require("utf8")
-	TextBuffer = prototype.CreateTemplate("text_buffer")
-
-	function TextBuffer.New(str) end
-
-	TextBuffer:Register()
-end
-
+local TextBuffer = require("text_buffer")
 local TextEditor = prototype.CreateTemplate("text_editor")
-TextEditor:GetSet("Text", "")
+TextEditor:GetSet("Buffer", nil)
 TextEditor:GetSet("Cursor", 1)
 TextEditor:GetSet("SelectionStart", nil)
 TextEditor:GetSet("ShiftDown", false)
@@ -21,10 +11,12 @@ TextEditor:GetSet("Multiline", true)
 TextEditor:GetSet("PreserveTabsOnEnter", true)
 TextEditor:GetSet("WrapWidth", nil)
 
-function TextEditor.New(text)
+function TextEditor.New(buffer)
+	if type(buffer) == "string" then buffer = TextBuffer.New(buffer) end
+
 	local self = TextEditor:CreateObject(
 		{
-			Text = text or "",
+			Buffer = buffer or TextBuffer.New(""),
 			Cursor = 1,
 			undo_stack = {},
 			redo_stack = {},
@@ -43,11 +35,27 @@ function TextEditor:GetClipboard()
 	return clipboard.Get() or self.ClipboardState
 end
 
-function TextEditor:SetText(text)
-	self.Text = text
-	self.Cursor = math.min(self.Cursor, utf8.length(text) + 1)
+function TextEditor:SetData(data)
+	self.Buffer:SetText(data)
+	self.Cursor = math.min(self.Cursor, self.Buffer:GetLength() + 1)
 
-	if self.OnTextChanged then self:OnTextChanged(text) end
+	if self.OnChanged then
+		self:OnChanged(data)
+	elseif self.OnTextChanged then
+		self:OnTextChanged(data)
+	end
+end
+
+function TextEditor:SetText(text)
+	return self:SetData(text)
+end
+
+function TextEditor:GetData()
+	return self.Buffer:GetText()
+end
+
+function TextEditor:GetText()
+	return self:GetData()
 end
 
 function TextEditor:GetSelection()
@@ -58,32 +66,39 @@ function TextEditor:GetSelection()
 	return start, stop
 end
 
+function TextEditor:NotifyChanged()
+	if self.OnChanged then
+		self:OnChanged(self.Buffer:GetText())
+	elseif self.OnTextChanged then
+		self:OnTextChanged(self.Buffer:GetText())
+	end
+end
+
 function TextEditor:DeleteSelection()
 	local start, stop = self:GetSelection()
 
 	if start then
 		self:SaveUndoState()
-		local text = self.Text
-		self.Text = utf8.sub(text, 1, start - 1) .. utf8.sub(text, stop)
+		self.Buffer:RemoveRange(start, stop)
 		self.Cursor = start
 		self.SelectionStart = nil
-
-		if self.OnTextChanged then self:OnTextChanged(self.Text) end
-
+		self:NotifyChanged()
 		return true
 	end
 
 	return false
 end
 
-function TextEditor:InsertString(str)
+function TextEditor:Insert(data)
 	self:DeleteSelection()
-	local text = self.Text
 	local cursor = self.Cursor
-	self.Text = utf8.sub(text, 1, cursor - 1) .. str .. utf8.sub(text, cursor)
-	self.Cursor = cursor + utf8.length(str)
+	local length = self.Buffer:Insert(cursor, data)
+	self.Cursor = cursor + length
+	self:NotifyChanged()
+end
 
-	if self.OnTextChanged then self:OnTextChanged(self.Text) end
+function TextEditor:InsertString(str)
+	return self:Insert(str)
 end
 
 function TextEditor:Backspace()
@@ -92,15 +107,15 @@ function TextEditor:Backspace()
 
 		if cursor > 1 then
 			if self.ControlDown then
-				local new_pos = self:MoveWord(cursor, -1)
-				self.Text = utf8.sub(self.Text, 1, new_pos - 1) .. utf8.sub(self.Text, cursor)
+				local new_pos = self.Buffer:GetNextWordBoundary(cursor, -1)
+				self.Buffer:RemoveRange(new_pos, cursor)
 				self.Cursor = new_pos
 			else
-				self.Text = utf8.sub(self.Text, 1, cursor - 2) .. utf8.sub(self.Text, cursor)
+				self.Buffer:RemoveRange(cursor - 1, cursor)
 				self.Cursor = cursor - 1
 			end
 
-			if self.OnTextChanged then self:OnTextChanged(self.Text) end
+			self:NotifyChanged()
 		end
 	end
 end
@@ -109,74 +124,25 @@ function TextEditor:Delete()
 	if not self:DeleteSelection() then
 		local cursor = self.Cursor
 
-		if cursor <= utf8.length(self.Text) then
+		if cursor <= self.Buffer:GetLength() then
 			if self.ControlDown then
-				local new_pos = self:MoveWord(cursor, 1)
-				self.Text = utf8.sub(self.Text, 1, cursor - 1) .. utf8.sub(self.Text, new_pos)
+				local new_pos = self.Buffer:GetNextWordBoundary(cursor, 1)
+				self.Buffer:RemoveRange(cursor, new_pos)
 			else
-				self.Text = utf8.sub(self.Text, 1, cursor - 1) .. utf8.sub(self.Text, cursor + 1)
+				self.Buffer:RemoveRange(cursor, cursor + 1)
 			end
 
-			if self.OnTextChanged then self:OnTextChanged(self.Text) end
+			self:NotifyChanged()
 		end
 	end
-end
-
-local function get_char_class(char)
-	if not char then return "none" end
-
-	if char:match("[%w_]") then return "word" end
-
-	if char:match("%s") then return "space" end
-
-	return "other"
 end
 
 function TextEditor:MoveWord(pos, dir)
-	local buffer = self.Text
-	local len = utf8.length(buffer)
-	local new_pos = pos
-
-	if dir == -1 then
-		if new_pos <= 1 then return 1 end
-
-		while
-			new_pos > 1 and
-			get_char_class(utf8.sub(buffer, new_pos - 1, new_pos - 1)) == "space"
-		do
-			new_pos = new_pos - 1
-		end
-
-		if new_pos <= 1 then return 1 end
-
-		new_pos = new_pos - 1
-		local class = get_char_class(utf8.sub(buffer, new_pos, new_pos))
-
-		while
-			new_pos > 1 and
-			get_char_class(utf8.sub(buffer, new_pos - 1, new_pos - 1)) == class
-		do
-			new_pos = new_pos - 1
-		end
-	else
-		while new_pos <= len and get_char_class(utf8.sub(buffer, new_pos, new_pos)) == "space" do
-			new_pos = new_pos + 1
-		end
-
-		if new_pos > len then return len + 1 end
-
-		local class = get_char_class(utf8.sub(buffer, new_pos, new_pos))
-
-		while new_pos <= len and get_char_class(utf8.sub(buffer, new_pos, new_pos)) == class do
-			new_pos = new_pos + 1
-		end
-	end
-
-	return new_pos
+	return self.Buffer:GetNextWordBoundary(pos, dir)
 end
 
 function TextEditor:OnCharInput(char)
-	self:InsertString(char)
+	self:Insert(char)
 end
 
 function TextEditor:OnKeyInput(key)
@@ -192,25 +158,12 @@ function TextEditor:OnKeyInput(key)
 		if self.ControlDown then
 			self.Cursor = self:MoveWord(self.Cursor, 1)
 		else
-			self.Cursor = math.min(utf8.length(self.Text) + 1, self.Cursor + 1)
+			self.Cursor = math.min(self.Buffer:GetLength() + 1, self.Cursor + 1)
 		end
 	elseif key == "home" then
-		local pos = self.Cursor
-
-		while pos > 1 and utf8.sub(self.Text, pos - 1, pos - 1) ~= "\n" do
-			pos = pos - 1
-		end
-
-		self.Cursor = pos
+		self.Cursor = self.Buffer:GetLineStart(self.Cursor)
 	elseif key == "end" then
-		local pos = self.Cursor
-		local len = utf8.length(self.Text)
-
-		while pos <= len and utf8.sub(self.Text, pos, pos) ~= "\n" do
-			pos = pos + 1
-		end
-
-		self.Cursor = pos
+		self.Cursor = self.Buffer:GetLineEnd(self.Cursor)
 	elseif key == "up" and self.Multiline then
 		if self.OnMoveUp then
 			self.OnMoveUp(self)
@@ -308,11 +261,11 @@ function TextEditor:GetVisualLineCol(pos)
 	if not self.WrapWidth then return self:GetCursorLineCol(pos) end
 
 	local logical_line, logical_col = self:GetCursorLineCol(pos)
-	local lines = self.Text:split("\n")
+	local lines = self.Buffer:GetLines()
 	local vline = 0
 
 	for i = 1, logical_line - 1 do
-		local line_len = utf8.length(lines[i] or "")
+		local line_len = self.Buffer:GetLength(lines[i] or "")
 		vline = vline + math.max(1, math.ceil(line_len / self.WrapWidth))
 	end
 
@@ -327,12 +280,12 @@ function TextEditor:SetVisualLineCol(target_line, target_col)
 		return self:SetCursorLineCol(target_line, target_col)
 	end
 
-	local lines = self.Text:split("\n")
+	local lines = self.Buffer:GetLines()
 	local current_vline = 0
 
 	for i = 1, #lines do
 		local line_text = lines[i]
-		local line_len = utf8.length(line_text)
+		local line_len = self.Buffer:GetLength(line_text)
 		local vlines_in_this_logical_line = math.max(1, math.ceil(line_len / self.WrapWidth))
 
 		if target_line <= current_vline + vlines_in_this_logical_line then
@@ -346,64 +299,36 @@ function TextEditor:SetVisualLineCol(target_line, target_col)
 		current_vline = current_vline + vlines_in_this_logical_line
 	end
 
-	self.Cursor = utf8.length(self.Text) + 1
+	self.Cursor = self.Buffer:GetLength() + 1
 end
 
 function TextEditor:GetVisualLineCount()
-	if not self.WrapWidth then return select(2, self.Text:gsub("\n", "")) + 1 end
+	if not self.WrapWidth then return self.Buffer:GetLineCount() end
 
-	local lines = self.Text:split("\n")
+	local lines = self.Buffer:GetLines()
 	local count = 0
 
 	for i = 1, #lines do
-		count = count + math.max(1, math.ceil(utf8.length(lines[i]) / self.WrapWidth))
+		count = count + math.max(1, math.ceil(self.Buffer:GetLength(lines[i]) / self.WrapWidth))
 	end
 
 	return count
 end
 
 function TextEditor:SetCursorLineCol(target_line, target_col)
-	local line = 1
-	local col = 1
-	local pos = 1
-	local len = utf8.length(self.Text)
-
-	while pos <= len do
-		if line == target_line then
-			if col == target_col then
-				self.Cursor = pos
-				return
-			end
-		end
-
-		if utf8.sub(self.Text, pos, pos) == "\n" then
-			if line == target_line then
-				self.Cursor = pos
-				return
-			end
-
-			line = line + 1
-			col = 1
-		else
-			col = col + 1
-		end
-
-		pos = pos + 1
-	end
-
-	if line == target_line then self.Cursor = pos end
+	self.Cursor = self.Buffer:GetPosByLineCol(target_line, target_col)
 end
 
 function TextEditor:SelectAll()
 	self.SelectionStart = 1
-	self.Cursor = utf8.length(self.Text) + 1
+	self.Cursor = self.Buffer:GetLength() + 1
 end
 
 function TextEditor:Copy()
 	local start, stop = self:GetSelection()
 
 	if start then
-		local str = utf8.sub(self.Text, start, stop - 1)
+		local str = self.Buffer:Sub(start, stop - 1)
 		self:SetClipboard(str)
 		return str
 	end
@@ -418,11 +343,11 @@ function TextEditor:Cut()
 end
 
 function TextEditor:Paste(str)
-	self:InsertString(str)
+	self:Insert(str)
 end
 
 function TextEditor:SaveUndoState()
-	table.insert(self.undo_stack, {text = self.Text, cursor = self.Cursor})
+	table.insert(self.undo_stack, {text = self.Buffer:GetText(), cursor = self.Cursor})
 
 	if #self.undo_stack > 100 then table.remove(self.undo_stack, 1) end
 
@@ -433,11 +358,10 @@ function TextEditor:Undo()
 	local state = table.remove(self.undo_stack)
 
 	if state then
-		table.insert(self.redo_stack, {text = self.Text, cursor = self.Cursor})
-		self.Text = state.text
+		table.insert(self.redo_stack, {text = self.Buffer:GetText(), cursor = self.Cursor})
+		self.Buffer:SetText(state.text)
 		self.Cursor = state.cursor
-
-		if self.OnTextChanged then self:OnTextChanged(self.Text) end
+		self:NotifyChanged()
 	end
 end
 
@@ -445,89 +369,74 @@ function TextEditor:Redo()
 	local state = table.remove(self.redo_stack)
 
 	if state then
-		table.insert(self.undo_stack, {text = self.Text, cursor = self.Cursor})
-		self.Text = state.text
+		table.insert(self.undo_stack, {text = self.Buffer:GetText(), cursor = self.Cursor})
+		self.Buffer:SetText(state.text)
 		self.Cursor = state.cursor
-
-		if self.OnTextChanged then self:OnTextChanged(self.Text) end
+		self:NotifyChanged()
 	end
 end
 
 function TextEditor:Enter()
 	self:SaveUndoState()
 	self:DeleteSelection()
+	local newline = self.Buffer:GetNewline()
 
 	if self.PreserveTabsOnEnter then
 		local line, col = self:GetCursorLineCol()
-		local lines = self.Text:split("\n")
-		local current_line_text = lines[line] or ""
-		local tabs = current_line_text:match("^([\t]*)") or ""
-		self:InsertString("\n" .. tabs)
+		local tabs = self.Buffer:GetIndentation(line)
+		self:Insert(newline)
+		self:Insert(tabs)
 	else
-		self:InsertString("\n")
+		self:Insert(newline)
 	end
 end
 
 function TextEditor:SelectWord()
 	local old_cursor = self.Cursor
-	self.Cursor = self:MoveWord(old_cursor, -1)
+	self.Cursor = self.Buffer:GetNextWordBoundary(old_cursor, -1)
 	self.SelectionStart = self.Cursor
-	self.Cursor = self:MoveWord(old_cursor, 1)
+	self.Cursor = self.Buffer:GetNextWordBoundary(old_cursor, 1)
 end
 
 function TextEditor:SelectLine()
 	local line, col = self:GetCursorLineCol()
 	self:SetCursorLineCol(line, 1)
 	self.SelectionStart = self.Cursor
-	local len = utf8.length(self.Text)
-
-	while self.Cursor <= len and utf8.sub(self.Text, self.Cursor, self.Cursor) ~= "\n" do
-		self.Cursor = self.Cursor + 1
-	end
+	self.Cursor = self.Buffer:GetLineEnd(self.Cursor)
 end
 
 function TextEditor:DuplicateLine()
 	local line, col = self:GetCursorLineCol()
-	local pos = self.Cursor
-	local line_start = pos
-
-	while line_start > 1 and utf8.sub(self.Text, line_start - 1, line_start - 1) ~= "\n" do
-		line_start = line_start - 1
-	end
-
-	local line_end = pos
-	local len = utf8.length(self.Text)
-
-	while line_end <= len and utf8.sub(self.Text, line_end, line_end) ~= "\n" do
-		line_end = line_end + 1
-	end
-
-	local line_content = utf8.sub(self.Text, line_start, line_end - 1)
+	local line_start = self.Buffer:GetLineStart(self.Cursor)
+	local line_end = self.Buffer:GetLineEnd(self.Cursor)
+	local line_content = self.Buffer:Sub(line_start, line_end - 1)
 	self:SaveUndoState()
-	self.Text = utf8.sub(self.Text, 1, line_end - 1) .. "\n" .. line_content .. utf8.sub(self.Text, line_end)
+	self.Buffer:Insert(line_end, self.Buffer:GetNewline())
+	self.Buffer:Insert(line_end + 1, line_content)
 	self.Cursor = line_end + 1
 	self.SelectionStart = nil
-
-	if self.OnTextChanged then self:OnTextChanged(self.Text) end
+	self:NotifyChanged()
 end
 
 function TextEditor:Indent(back)
 	local start, stop = self:GetSelection()
+	local start_line = start and select(1, self:GetCursorLineCol(start))
+	local stop_line = stop and select(1, self:GetCursorLineCol(stop - 1))
 
-	if not start or not utf8.sub(self.Text, start, stop - 1):find("\n") then
+	if not start or start_line == stop_line then
 		if back then
 			local line, col = self:GetCursorLineCol()
 			local pos = self.Cursor
+			local tab = self.Buffer:GetTab()
 
-			if col > 1 and utf8.sub(self.Text, pos - 1, pos - 1) == "\t" then
+			if col > 1 and self.Buffer:Sub(pos - 1, pos - 1) == tab then
 				self:SaveUndoState()
-				self.Text = utf8.sub(self.Text, 1, pos - 2) .. utf8.sub(self.Text, pos)
+				self.Buffer:RemoveRange(pos - 1, pos)
 				self.Cursor = pos - 1
-
-				if self.OnTextChanged then self:OnTextChanged(self.Text) end
+				self:NotifyChanged()
 			end
 		else
-			self:InsertString("\t")
+			self:Insert(self.Buffer:GetTab())
 		end
 
 		return
@@ -535,43 +444,21 @@ function TextEditor:Indent(back)
 
 	-- Multiline indentation
 	self:SaveUndoState()
-	-- Expand selection to full lines
-	local start_line = select(1, self:GetCursorLineCol(start))
-	local stop_line = select(1, self:GetCursorLineCol(stop - 1))
-	local lines = self.Text:split("\n")
 
+	-- Expand selection to full lines
 	for i = start_line, stop_line do
-		if back then
-			if lines[i]:sub(1, 1) == "\t" then lines[i] = lines[i]:sub(2) end
-		else
-			lines[i] = "\t" .. lines[i]
-		end
+		self.Buffer:IndentLine(i, back)
 	end
 
-	self.Text = table.concat(lines, "\n")
 	-- Re-calculate selection and cursor
 	self:SetCursorLineCol(start_line, 1)
 	self.SelectionStart = self.Cursor
-	self:SetCursorLineCol(stop_line, utf8.length(lines[stop_line]) + 1)
-
-	if self.OnTextChanged then self:OnTextChanged(self.Text) end
+	self:SetCursorLineCol(stop_line, self.Buffer:GetLength(self.Buffer:GetLine(stop_line)) + 1)
+	self:NotifyChanged()
 end
 
 function TextEditor:GetCursorLineCol(pos)
-	pos = pos or self.Cursor
-	local line = 1
-	local col = 1
-
-	for i = 1, pos - 1 do
-		if utf8.sub(self.Text, i, i) == "\n" then
-			line = line + 1
-			col = 1
-		else
-			col = col + 1
-		end
-	end
-
-	return line, col
+	return self.Buffer:GetLineColByPos(pos or self.Cursor)
 end
 
 return TextEditor:Register()
