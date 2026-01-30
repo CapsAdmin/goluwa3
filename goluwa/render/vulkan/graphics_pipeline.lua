@@ -209,51 +209,60 @@ function GraphicsPipeline:GetTextureIndex(tex)
 	if not tex or type(tex) ~= "table" then return -1 end
 
 	local is_cube = tex.IsCubemap and tex:IsCubemap()
+	local registry = is_cube and self.cubemap_registry or self.texture_registry
+	local array = is_cube and self.cubemap_array or self.texture_array
+	local index_key = is_cube and "next_cubemap_index" or "next_texture_index"
+	local binding_index = is_cube and 1 or 0
+	local index = registry[tex]
 
-	if is_cube then
-		if self.cubemap_registry[tex] then return self.cubemap_registry[tex] end
-	else
-		if self.texture_registry[tex] then return self.texture_registry[tex] end
-	end
+	if index then
+		local entry = array[index + 1]
 
-	do
-		-- Check if we have space
-		if is_cube then
-			if self.next_cubemap_index >= self.max_textures then
-				error("Cubemap registry full! Max textures: " .. self.max_textures)
-			end
+		-- Added safety check: only update if resources actually exist
+		if
+			entry and
+			tex.view and
+			tex.sampler and
+			(
+				entry.view ~= tex.view or
+				entry.sampler ~= tex.sampler
+			)
+		then
+			array[index + 1] = {view = tex.view, sampler = tex.sampler}
 
-			-- Register the texture
-			local index = self.next_cubemap_index
-			self.cubemap_registry[tex] = index
-			self.cubemap_array[index + 1] = {view = tex.view, sampler = tex.sampler}
-			self.next_cubemap_index = self.next_cubemap_index + 1
-
-			-- Update all descriptor sets with the new texture array
 			for frame_i = 1, #self.descriptor_sets do
-				self:UpdateDescriptorSetArray(frame_i, 1, self.cubemap_array)
+				self:UpdateDescriptorSetArray(frame_i, binding_index, array)
 			end
-
-			return self.cubemap_registry[tex]
-		else
-			if self.next_texture_index >= self.max_textures then
-				error("Texture registry full! Max textures: " .. self.max_textures)
-			end
-
-			-- Register the texture
-			local index = self.next_texture_index
-			self.texture_registry[tex] = index
-			self.texture_array[index + 1] = {view = tex.view, sampler = tex.sampler}
-			self.next_texture_index = self.next_texture_index + 1
-
-			-- Update all descriptor sets with the new texture array
-			for frame_i = 1, #self.descriptor_sets do
-				self:UpdateDescriptorSetArray(frame_i, 0, self.texture_array)
-			end
-
-			return self.texture_registry[tex]
 		end
+
+		return index
 	end
+
+	if self[index_key] >= self.max_textures then
+		-- This is where leaks will eventually manifest if textures are created/destroyed rapidly
+		error(
+			(
+					is_cube and
+					"Cubemap" or
+					"Texture"
+				) .. " registry full! Max textures: " .. self.max_textures
+		)
+	end
+
+	index = self[index_key]
+	registry[tex] = index
+	-- Ensure we don't put nil into the array which might confuse the C-side UpdateDescriptorSetArray
+	array[index + 1] = {
+		view = tex.view or self:GetFallbackView(),
+		sampler = tex.sampler or self:GetFallbackSampler(),
+	}
+	self[index_key] = index + 1
+
+	for frame_i = 1, #self.descriptor_sets do
+		self:UpdateDescriptorSetArray(frame_i, binding_index, array)
+	end
+
+	return index
 end
 
 function GraphicsPipeline:UpdateDescriptorSet(type, index, binding_index, ...)

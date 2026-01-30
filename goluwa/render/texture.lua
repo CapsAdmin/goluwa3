@@ -8,6 +8,7 @@ local ImageView = require("render.vulkan.internal.image_view")
 local Image = require("render.vulkan.internal.image")
 local Sampler = require("render.vulkan.internal.sampler")
 local codec = require("codec")
+local resource = require("resource")
 local prototype = require("prototype")
 local Texture = prototype.CreateTemplate("render_texture")
 -- Texture cache for path-based textures
@@ -100,214 +101,235 @@ function Texture.New(config)
 		return texture_cache[cache_key]
 	end
 
-	local reflectivity = nil -- VTF specifc
-	-- Handle path parameter for loading images
-	local buffer_data = nil
-	local is_compressed = false
-	local vulkan_info = nil
+	local self = Texture:CreateObject({
+		config = config,
+		is_ready = false,
+	})
 
-	if config.path then
-		local ok, img_or_err = pcall(codec.DecodeFile, config.path)
+	local function load(img_or_err)
+		local reflectivity = nil -- VTF specifc
+		local buffer_data = nil
+		local is_compressed = false
+		local vulkan_info = nil
 
-		if not ok or not img_or_err then
-			debug.trace()
-			print("Warning: Failed to load texture:", config.path, img_or_err)
-			return create_fallback_texture()
-		end
+		if img_or_err then
+			-- hacky way to get the prop from vtf to vmt where it belongs
+			reflectivity = img_or_err.reflectivity
+			local img = img_or_err
+			config.width = config.width or img.width
+			config.height = config.height or img.height
 
-		-- hacky way to get the prop from vtf to vmt where it belongs
-		reflectivity = img_or_err.reflectivity
-		local img = img_or_err
-		config.width = config.width or img.width
-		config.height = config.height or img.height
-
-		-- Handle images that already have a vulkan format (DDS, EXR, etc.)
-		if img.vulkan_format then
-			config.format = config.format or img.vulkan_format
-			is_compressed = img.is_compressed
-			vulkan_info = img
-			buffer_data = img.data
-		else
-			config.format = config.format or "r8g8b8a8_unorm"
-			buffer_data = img.buffer:GetBuffer()
-		end
-	end
-
-	-- Use buffer from config or from path loading
-	buffer_data = config.buffer or buffer_data
-	-- Calculate mip levels
-	local mip_levels = config.mip_map_levels or 1
-
-	if mip_levels == "auto" then mip_levels = 999 end
-
-	-- For compressed images, use mip count from file and don't generate mipmaps
-	if vulkan_info and vulkan_info.mip_count and vulkan_info.mip_count > 1 then
-		mip_levels = vulkan_info.mip_count
-	elseif mip_levels > 1 then
-		assert(config.width and config.height, "width and height required for mipmap generation")
-		mip_levels = math.floor(math.log(math.max(config.width, config.height), 2)) + 1
-	end
-
-	-- Shared parameters for overriding
-	local width = config.width
-	local height = config.height
-	local format = config.format or "r8g8b8a8_unorm"
-
-	if config.srgb and not format:ends_with("_srgb") then
-		local test = format:replace("_unorm", "_srgb")
-
-		if require("bindings.vk").e.VkFormat(test) then
-			format = test
-		else
-			print("Warning: sRGB format requested but not available for", format)
-		end
-	end
-
-	-- Create or use image
-	local image
-
-	if config.image == false then
-		image = nil
-	elseif config.image and config.image.ptr then
-		-- Already an Image object
-		image = config.image
-	else
-		-- Create image from config
-		local image_config = config.image or {}
-		-- Compressed formats cannot be used as color attachments or transfer_src
-		local default_usage = {"sampled", "transfer_dst", "transfer_src", "color_attachment"}
-
-		if is_compressed then default_usage = {"sampled", "transfer_dst"} end
-
-		image = render.CreateImage(
-			{
-				width = image_config.width or width,
-				height = image_config.height or height,
-				format = image_config.format or format,
-				usage = image_config.usage or default_usage,
-				properties = image_config.properties or "device_local",
-				samples = image_config.samples,
-				mip_levels = image_config.mip_levels or mip_levels,
-				tiling = image_config.tiling,
-				image_type = image_config.image_type,
-				depth = image_config.depth,
-				array_layers = image_config.array_layers,
-				sharing_mode = image_config.sharing_mode,
-				initial_layout = image_config.initial_layout,
-				flags = image_config.flags,
-			}
-		)
-	end
-
-	-- Create or use view
-	local view
-
-	if config.view == false then
-		view = nil
-	elseif config.view and config.view.ptr then
-		-- Already a View object
-		view = config.view
-	elseif image then
-		-- Create view from config
-		local view_config = config.view or {}
-		view = image:CreateView(
-			{
-				view_type = view_config.view_type,
-				format = view_config.format or format,
-				aspect = view_config.aspect,
-				base_mip_level = view_config.base_mip_level,
-				level_count = view_config.level_count,
-				base_array_layer = view_config.base_array_layer,
-				layer_count = view_config.layer_count,
-				component_r = view_config.component_r,
-				component_g = view_config.component_g,
-				component_b = view_config.component_b,
-				component_a = view_config.component_a,
-				flags = view_config.flags,
-			}
-		)
-	end
-
-	-- Create or use sampler
-	local sampler
-
-	if config.sampler == false then
-		sampler = nil
-	elseif config.sampler and config.sampler.ptr then
-		-- Already a Sampler object
-		sampler = config.sampler
-	else
-		-- Create sampler from config
-		local sampler_config = config.sampler or {}
-		sampler = render.CreateSampler(
-			{
-				min_filter = sampler_config.min_filter or "linear",
-				mag_filter = sampler_config.mag_filter or "linear",
-				mipmap_mode = sampler_config.mipmap_mode or "linear",
-				wrap_s = sampler_config.wrap_s or "repeat",
-				wrap_t = sampler_config.wrap_t or "repeat",
-				wrap_r = sampler_config.wrap_r or "repeat",
-				max_lod = sampler_config.max_lod or mip_levels,
-				min_lod = sampler_config.min_lod,
-				mip_lod_bias = sampler_config.mip_lod_bias,
-				anisotropy = sampler_config.anisotropy or 16,
-				border_color = sampler_config.border_color,
-				unnormalized_coordinates = sampler_config.unnormalized_coordinates,
-				compare_enable = sampler_config.compare_enable,
-				compare_op = sampler_config.compare_op,
-				flags = sampler_config.flags,
-			}
-		)
-	end
-
-	local self = Texture:CreateObject(
-		{
-			image = image,
-			view = view,
-			sampler = sampler,
-			mip_map_levels = mip_levels,
-			format = format,
-			config = config,
-			is_compressed = is_compressed,
-			vulkan_info = vulkan_info,
-		}
-	)
-
-	if buffer_data and image then
-		if is_compressed and vulkan_info then
-			-- Upload compressed data with all mipmaps
-			self:UploadCompressed(buffer_data, vulkan_info)
-		else
-			-- If we're generating mipmaps, keep mip level 0 in transfer_dst after upload
-			self:Upload(buffer_data, mip_levels > 1)
-
-			-- Auto-generate mipmaps if requested
-			if mip_levels > 1 then self:GenerateMipmaps() end
-		end
-	elseif image then
-		-- If no buffer is provided, transition the image to an appropriate layout
-		-- Only transition to shader_read_only_optimal if the image has sampled usage
-		local has_sampled = false
-
-		if type(image.usage) == "table" then
-			for _, usage in ipairs(image.usage) do
-				if usage == "sampled" then
-					has_sampled = true
-
-					break
-				end
+			-- Handle images that already have a vulkan format (DDS, EXR, etc.)
+			if img.vulkan_format then
+				config.format = config.format or img.vulkan_format
+				is_compressed = img.is_compressed
+				vulkan_info = img
+				buffer_data = img.data
+			else
+				config.format = config.format or "r8g8b8a8_unorm"
+				buffer_data = img.buffer:GetBuffer()
 			end
 		end
 
-		if has_sampled then
-			image:TransitionLayout("undefined", "shader_read_only_optimal")
+		-- Use buffer from config or from path loading
+		buffer_data = config.buffer or buffer_data
+		-- Calculate mip levels
+		local mip_levels = config.mip_map_levels or 1
+
+		if mip_levels == "auto" then mip_levels = 999 end
+
+		-- For compressed images, use mip count from file and don't generate mipmaps
+		if vulkan_info and vulkan_info.mip_count and vulkan_info.mip_count > 1 then
+			mip_levels = vulkan_info.mip_count
+		elseif mip_levels > 1 then
+			assert(config.width and config.height, "width and height required for mipmap generation")
+			mip_levels = math.floor(math.log(math.max(config.width, config.height), 2)) + 1
 		end
+
+		-- Shared parameters for overriding
+		local width = config.width
+		local height = config.height
+		local format = config.format or "r8g8b8a8_unorm"
+
+		if config.srgb and not format:ends_with("_srgb") then
+			local test = format:replace("_unorm", "_srgb")
+
+			if require("bindings.vk").e.VkFormat(test) then
+				format = test
+			else
+				print("Warning: sRGB format requested but not available for", format)
+			end
+		end
+
+		-- Create or use image
+		local image
+
+		if config.image == false then
+			image = nil
+		elseif config.image and config.image.ptr then
+			-- Already an Image object
+			image = config.image
+		else
+			-- Create image from config
+			local image_config = config.image or {}
+			-- Compressed formats cannot be used as color attachments or transfer_src
+			local default_usage = {"sampled", "transfer_dst", "transfer_src", "color_attachment"}
+
+			if is_compressed then default_usage = {"sampled", "transfer_dst"} end
+
+			image = render.CreateImage(
+				{
+					width = image_config.width or width,
+					height = image_config.height or height,
+					format = image_config.format or format,
+					usage = image_config.usage or default_usage,
+					properties = image_config.properties or "device_local",
+					samples = image_config.samples,
+					mip_levels = image_config.mip_levels or mip_levels,
+					tiling = image_config.tiling,
+					image_type = image_config.image_type,
+					depth = image_config.depth,
+					array_layers = image_config.array_layers,
+					sharing_mode = image_config.sharing_mode,
+					initial_layout = image_config.initial_layout,
+					flags = image_config.flags,
+				}
+			)
+		end
+
+		-- Create or use view
+		local view
+
+		if config.view == false then
+			view = nil
+		elseif config.view and config.view.ptr then
+			-- Already a View object
+			view = config.view
+		elseif image then
+			-- Create view from config
+			local view_config = config.view or {}
+			view = image:CreateView(
+				{
+					view_type = view_config.view_type,
+					format = view_config.format or format,
+					aspect = view_config.aspect,
+					base_mip_level = view_config.base_mip_level,
+					level_count = view_config.level_count,
+					base_array_layer = view_config.base_array_layer,
+					layer_count = view_config.layer_count,
+					component_r = view_config.component_r,
+					component_g = view_config.component_g,
+					component_b = view_config.component_b,
+					component_a = view_config.component_a,
+					flags = view_config.flags,
+				}
+			)
+		end
+
+		-- Create or use sampler
+		local sampler
+
+		if config.sampler == false then
+			sampler = nil
+		elseif config.sampler and config.sampler.ptr then
+			-- Already a Sampler object
+			sampler = config.sampler
+		else
+			-- Create sampler from config
+			local sampler_config = config.sampler or {}
+			sampler = render.CreateSampler(
+				{
+					min_filter = sampler_config.min_filter or "linear",
+					mag_filter = sampler_config.mag_filter or "linear",
+					mipmap_mode = sampler_config.mipmap_mode or "linear",
+					wrap_s = sampler_config.wrap_s or "repeat",
+					wrap_t = sampler_config.wrap_t or "repeat",
+					wrap_r = sampler_config.wrap_r or "repeat",
+					max_lod = sampler_config.max_lod or mip_levels,
+					min_lod = sampler_config.min_lod,
+					mip_lod_bias = sampler_config.mip_lod_bias,
+					anisotropy = sampler_config.anisotropy or 16,
+					border_color = sampler_config.border_color,
+					unnormalized_coordinates = sampler_config.unnormalized_coordinates,
+					compare_enable = sampler_config.compare_enable,
+					compare_op = sampler_config.compare_op,
+					flags = sampler_config.flags,
+				}
+			)
+		end
+
+		self.image = image
+		self.view = view
+		self.sampler = sampler
+		self.mip_map_levels = mip_levels
+		self.format = format
+		self.is_compressed = is_compressed
+		self.vulkan_info = vulkan_info
+
+		if buffer_data and image then
+			if is_compressed and vulkan_info then
+				-- Upload compressed data with all mipmaps
+				self:UploadCompressed(buffer_data, vulkan_info)
+			else
+				-- If we're generating mipmaps, keep mip level 0 in transfer_dst after upload
+				self:Upload(buffer_data, mip_levels > 1)
+
+				-- Auto-generate mipmaps if requested
+				if mip_levels > 1 then self:GenerateMipmaps() end
+			end
+		elseif image then
+			-- If no buffer is provided, transition the image to an appropriate layout
+			-- Only transition to shader_read_only_optimal if the image has sampled usage
+			local has_sampled = false
+
+			if type(image.usage) == "table" then
+				for _, usage in ipairs(image.usage) do
+					if usage == "sampled" then
+						has_sampled = true
+
+						break
+					end
+				end
+			end
+
+			if has_sampled then
+				image:TransitionLayout("undefined", "shader_read_only_optimal")
+			end
+		end
+
+		self.is_ready = true
+		self.reflectivity = reflectivity
 	end
 
-	-- Cache texture if cache_key is provided
 	if cache_key then texture_cache[cache_key] = self end
 
-	self.reflectivity = reflectivity
+	if config.path then
+		local fallback = create_fallback_texture()
+		self.image = fallback.image
+		self.view = fallback.view
+		self.sampler = fallback.sampler
+
+		resource.Download(config.path):Then(function(p)
+			local ok, img_or_err = pcall(codec.DecodeFile, p)
+
+			if ok and img_or_err then
+				load(img_or_err)
+			else
+				if ok == false then
+					debug.trace()
+					print("Warning: Failed to load texture:", config.path, img_or_err)
+				end
+
+				self.is_ready = true
+			end
+		end):Catch(function(err)
+			print("Warning: Failed to download texture:", config.path, err)
+			self.is_ready = true
+		end)
+	else
+		load()
+	end
+
 	return self
 end
 
@@ -611,6 +633,10 @@ end
 
 function Texture:GetSize()
 	return self.image and Vec2(self.image:GetWidth(), self.image:GetHeight()) or Vec2(0, 0)
+end
+
+function Texture:IsReady()
+	return self.is_ready
 end
 
 function Texture:GenerateMipmaps(initial_layout, cmd)
