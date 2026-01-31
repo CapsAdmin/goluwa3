@@ -18,9 +18,14 @@ end)
 T.Test("Multiple Listeners & Priority", function()
 	local order = {}
 
-	event.AddListener("Test_Priority", "low", function()
-		table.insert(order, "low")
-	end, {priority = 1})
+	event.AddListener(
+		"Test_Priority",
+		"low",
+		function()
+			table.insert(order, "low")
+		end,
+		{priority = 1}
+	)
 
 	event.AddListener(
 		"Test_Priority",

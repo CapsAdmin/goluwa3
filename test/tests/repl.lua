@@ -1,19 +1,7 @@
 local test = require("helpers.test")
 local attest = require("helpers.attest")
 local commands = require("commands")
-local clipboard = ""
-
-do
-	package.loaded["bindings.clipboard"] = {
-		Get = function()
-			return clipboard
-		end,
-		Set = function(text)
-			clipboard = tostring(text)
-		end,
-	}
-end
-
+local clipboard = require("bindings.clipboard")
 local repl = require("repl")
 
 test.Test("repl input", function()
@@ -76,10 +64,10 @@ test.Test("repl input", function()
 	-- 5. Ctrl + X/C/V (Clipboard)
 	-- Copy
 	send_key("c", {ctrl = true})
-	attest.equal(clipboard, "he")
+	attest.equal(clipboard.Get(), "he")
 	-- Cut
 	send_key("x", {ctrl = true})
-	attest.equal(clipboard, "he")
+	attest.equal(clipboard.Get(), "he")
 	attest.equal(repl.input_buffer, "llo")
 	attest.equal(repl.input_cursor, 1)
 	attest.equal(repl.selection_start, nil)
@@ -271,7 +259,6 @@ test.Test("repl advanced editing", function()
 		repl.input_buffer = ""
 		repl.input_cursor = 1
 		repl.selection_start = nil
-		repl.clipboard = ""
 	end
 
 	local function send_key(key, modifiers)
@@ -298,7 +285,7 @@ test.Test("repl advanced editing", function()
 	repl.input_buffer = "line1\nline2\nline3"
 	repl.input_cursor = 9 -- in "line2"
 	send_key("x", {ctrl = true})
-	attest.equal(clipboard, "line2\n")
+	attest.equal(clipboard.Get(), "line2\n")
 	attest.equal(repl.input_buffer, "line1\nline3")
 	attest.equal(repl.input_cursor, 7) -- start of where line2 was
 	-- 3. Ctrl+D to duplicate line
@@ -315,7 +302,7 @@ test.Test("repl advanced editing", function()
 	repl.selection_start = 1
 	repl.input_cursor = 6 -- "hello" selected
 	send_key("x", {ctrl = true})
-	attest.equal(clipboard, "hello")
+	attest.equal(clipboard.Get(), "hello")
 	attest.equal(repl.input_buffer, " world")
 end)
 

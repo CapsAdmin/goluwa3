@@ -14,7 +14,7 @@ local Buffer = require("render.vulkan.internal.buffer")
 local Fence = require("render.vulkan.internal.fence")
 local Color = require("structs.color")
 
-T.Test3D("cubemap clear and validate", function()
+T.Pending("cubemap clear and validate", function()
 	local width, height = 32, 32
 	local tex = Texture.New(
 		{

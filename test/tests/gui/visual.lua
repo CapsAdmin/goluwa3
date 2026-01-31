@@ -41,5 +41,6 @@ TestGUI("example test", function()
 		T((W - 100) / 2)["=="](x)
 		T((H - 100) / 2)["=="](y)
 		T.Screenshot("logs/screenshots/test.png")
+		p:Remove()
 	end
 end)

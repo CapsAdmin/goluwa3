@@ -239,6 +239,9 @@ do
 	function ecs.Get3DWorld()
 		if not world_entity or not world_entity:IsValid() then
 			world_entity = ecs.CreateEntity("world")
+			world_entity.Remove = function()
+				error("Cannot remove the 3D world entity")
+			end
 		end
 
 		return world_entity
@@ -261,6 +264,9 @@ do
 			world_entity:AddComponent(require("ecs.components.2d.gui_element"))
 			world_entity:AddComponent(require("ecs.components.2d.layout"))
 			world_entity:SetSize(Vec2(20000, 20000))
+			world_entity.Remove = function()
+				error("Cannot remove the 2D world entity")
+			end
 		end
 
 		return world_entity

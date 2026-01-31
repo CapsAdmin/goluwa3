@@ -1,3 +1,14 @@
+do
+	package.loaded["bindings.clipboard"] = {
+		Get = function()
+			return clipboard
+		end,
+		Set = function(text)
+			clipboard = tostring(text)
+		end,
+	}
+end
+
 require("goluwa.global_environment")
 local test_render = require("test.test_render")
 local T = require("helpers.test")

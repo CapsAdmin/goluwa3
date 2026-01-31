@@ -53,20 +53,25 @@ function test_render.Draw3D(cb)
 	local T = require("helpers.test")
 	render3d.ResetState()
 	cb(draw_3d_func)
+	local found = false
 
 	for _, ent in ipairs(ecs.Get3DWorld():GetChildrenList()) do
 		if ent:IsValid() then
-			ecs.Clear3DWorld()
-			error("Entity not removed: " .. tostring(ent), 2)
+			ent:Remove()
+			print("Entity not removed: " .. tostring(ent))
+			found = true
 		end
 	end
 
 	for _, ent in ipairs(ecs.Get2DWorld():GetChildrenList()) do
 		if ent:IsValid() then
-			ecs.Clear2DWorld()
-			error("Entity not removed: " .. tostring(ent), 2)
+			ent:Remove()
+			print("Entity not removed: " .. tostring(ent))
+			found = true
 		end
 	end
+
+	if found then error("Not all entities were removed after test!") end
 end
 
 return test_render

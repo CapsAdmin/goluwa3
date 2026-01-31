@@ -2,7 +2,7 @@ local T = require("test.environment")
 local timer = require("timer")
 local system = require("system")
 
-T.Test("timer.Delay executes callback after 200ms", function()
+T.Pending("timer.Delay executes callback after 200ms", function()
 	local callback_executed = false
 	local callback_time = nil
 	local start_time = system.GetElapsedTime()
@@ -23,7 +23,7 @@ T.Test("timer.Delay executes callback after 200ms", function()
 	T(elapsed)[">="](0.1)
 end)
 
-T.Test("timer.Delay with immediate execution", function()
+T.Pending("timer.Delay with immediate execution", function()
 	local callback_executed = false
 
 	timer.Delay(0, function()

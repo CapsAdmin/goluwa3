@@ -64,6 +64,7 @@ T.Test("ecs GetComponents", function()
 	e2:Remove()
 	components = ecs.GetComponents("c1")
 	T(#components)["=="](0)
+	e3:Remove()
 end)
 
 T.Test("ecs entity removal during loop", function()
@@ -114,6 +115,19 @@ T.Test("ecs component removal during loop", function()
 	end
 
 	T(#components)["=="](0)
+
+	-- Clean up entities
+	for i = 1, 5 do
+		local world = ecs.Get3DWorld()
+
+		for _, child in ipairs(world:GetChildren()) do
+			if child.Name == "e" .. i then
+				child:Remove()
+
+				break
+			end
+		end
+	end
 end)
 
 T.Test("ecs internal component removal via RemoveCommand", function()
@@ -133,6 +147,8 @@ T.Test("ecs internal component removal via RemoveCommand", function()
 		T(ent:HasComponent("rem_test"))["=="](false)
 		T(#ecs.GetComponents("rem_test"))["=="](0)
 	end
+
+	ent:Remove()
 end)
 
 T.Test("ecs AddComponent requirements", function()
@@ -151,6 +167,7 @@ T.Test("ecs AddComponent requirements", function()
 	T(ent:HasComponent("with_req"))["=="](true)
 	T(ent:HasComponent("req1"))["=="](true)
 	T(ent:HasComponent("req2"))["=="](true)
+	ent:Remove()
 end)
 
 T.Test("ecs OnEntityAddComponent", function()
@@ -170,6 +187,7 @@ T.Test("ecs OnEntityAddComponent", function()
 	local listener = ent:AddComponent(meta_listener)
 	local other = ent:AddComponent(meta_other)
 	T(added_component)["=="](other)
+	ent:Remove()
 end)
 
 T.Test("remove children", function()
@@ -179,6 +197,7 @@ T.Test("remove children", function()
 	local e2 = ecs.CreateEntity("e2", world)
 	local e3 = ecs.CreateEntity("e3", world)
 	T(#world:GetChildren())["=="](3)
+	world:RemoveChildren()
 	world:Remove()
 end)
 
@@ -198,4 +217,5 @@ T.Test("ecs entity recursive removal", function()
 	T(child2:IsValid())["=="](false)
 	T(grandchild:IsValid())["=="](false)
 	T(#world:GetChildren())["=="](0)
+	world:Remove()
 end)

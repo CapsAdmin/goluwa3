@@ -24,17 +24,16 @@ local Mock = lsx:RegisterElement(function(parent)
 	return ent
 end)
 
-local function CreateMockRoot()
+local function Get2dWorld()
 	event.Call("Update")
 	table.clear(lsx.pending_renders)
 	table.clear(lsx.pending_effects)
-	ecs.Clear2DWorld()
 	return ecs.Get2DWorld()
 end
 
 -- Testing plain function support
 T.Test("lsx plain function as component", function()
-	local root = CreateMockRoot()
+	local root = Get2dWorld()
 
 	local function MyComponent(props)
 		return Mock({Name = props.name or "Default"})
@@ -46,11 +45,12 @@ T.Test("lsx plain function as component", function()
 	-- Test passing {fn, props} table
 	local instance2 = lsx:Mount({MyComponent, name = "Custom"}, root)
 	T(instance2:GetName())["=="]("Custom")
-	root:Remove()
+	instance1:Remove()
+	instance2:Remove()
 end)
 
 T.Test("lsx:RegisterElement and lsx:Mount", function()
-	local root = CreateMockRoot()
+	local root = Get2dWorld()
 	local element = Mock({
 		Name = "TestElement",
 		Size = Vec2(100, 200),
@@ -60,11 +60,11 @@ T.Test("lsx:RegisterElement and lsx:Mount", function()
 	T(instance:GetSize().x)["=="](100)
 	T(instance:GetSize().y)["=="](200)
 	T(instance:GetParent())["=="](root)
-	root:Remove()
+	instance:Remove()
 end)
 
 T.Test("lsx:Fragment", function()
-	local root = CreateMockRoot()
+	local root = Get2dWorld()
 	local fragment = lsx:Fragment({
 		Mock({Name = "Child1"}),
 		Mock({Name = "Child2"}),
@@ -75,11 +75,14 @@ T.Test("lsx:Fragment", function()
 	T(instances[2]:GetName())["=="]("Child2")
 	T(instances[1]:GetParent())["=="](root)
 	T(instances[2]:GetParent())["=="](root)
-	root:Remove()
+
+	for _, inst in ipairs(instances) do
+		inst:Remove()
+	end
 end)
 
 T.Test("lsx:Component basic", function()
-	local root = CreateMockRoot()
+	local root = Get2dWorld()
 
 	local function MyComponent(props)
 		return Mock({Name = props.name or "Default"})
@@ -87,11 +90,11 @@ T.Test("lsx:Component basic", function()
 
 	local instance = lsx:Mount(MyComponent({name = "Custom"}), root)
 	T(instance:GetName())["=="]("Custom")
-	root:Remove()
+	instance:Remove()
 end)
 
 T.Test("lsx:UseState", function()
-	local root = CreateMockRoot()
+	local root = Get2dWorld()
 	local setStateProxy
 
 	local function MyComponent()
@@ -112,11 +115,11 @@ T.Test("lsx:UseState", function()
 
 	event.Call("Update")
 	T(instance:GetName())["=="]("Count:11")
-	root:Remove()
+	instance:Remove()
 end)
 
 T.Test("lsx:UseEffect", function()
-	local root = CreateMockRoot()
+	local root = Get2dWorld()
 	local effectCount = 0
 	local cleanupCount = 0
 
@@ -148,11 +151,11 @@ T.Test("lsx:UseEffect", function()
 	lsx:RunPendingEffects()
 	T(effectCount)["=="](2)
 	T(cleanupCount)["=="](1)
-	root:Remove()
+	instance:Remove()
 end)
 
 T.Test("lsx:UseMemo and lsx:UseCallback", function()
-	local root = CreateMockRoot()
+	local root = Get2dWorld()
 	local memoCalls = 0
 
 	local function MyComponent(props)
@@ -184,11 +187,11 @@ T.Test("lsx:UseMemo and lsx:UseCallback", function()
 	T(memoCalls)["=="](2)
 	T(instance:GetMemoVal())["=="]("val-b")
 	T(instance:GetCallback() ~= firstCallback)["=="](true)
-	root:Remove()
+	instance:Remove()
 end)
 
 T.Test("lsx:UseRef", function()
-	local root = CreateMockRoot()
+	local root = Get2dWorld()
 	local capturedRef
 
 	local function MyComponent()
@@ -199,11 +202,11 @@ T.Test("lsx:UseRef", function()
 
 	local instance = lsx:Mount({MyComponent}, root)
 	T(capturedRef.current)["=="](instance)
-	root:Remove()
+	instance:Remove()
 end)
 
 T.Test("lsx reconciliation - children", function()
-	local root = CreateMockRoot()
+	local root = Get2dWorld()
 
 	local function List(props)
 		local children = {}
@@ -230,7 +233,7 @@ T.Test("lsx reconciliation - children", function()
 	lsx:Build(node, root, instance)
 	T(#instance:GetChildren())["=="](1)
 	T(instance:GetChildren()[1])["=="](firstChild)
-	root:Remove()
+	instance:Remove()
 end)
 
 T.Test("lsx component ref and layout", function()
@@ -243,7 +246,7 @@ T.Test("lsx component ref and layout", function()
 		})
 	end
 
-	local root = CreateMockRoot()
+	local root = Get2dWorld()
 	local instance = lsx:Mount(
 		{
 			MyComponent,
@@ -257,7 +260,6 @@ T.Test("lsx component ref and layout", function()
 	T(ref_called)["=="](true)
 	T(instance:GetLayout()[1])["=="]("Fill")
 	instance:Remove()
-	root:Remove()
 end)
 
 T.Test("lsx layout calculation with children", function()
@@ -278,7 +280,7 @@ T.Test("lsx layout calculation with children", function()
 		)
 	end
 
-	local root = CreateMockRoot()
+	local root = Get2dWorld()
 	root:SetSize(Vec2(500, 500))
 	local panel = lsx:Mount(MyComponent({}), root)
 	-- Trigger layout calculation
@@ -291,7 +293,6 @@ T.Test("lsx layout calculation with children", function()
 	-- CenterXSimple should put it at (500-50)/2 = 225
 	T(child:GetPosition().x)["=="](225)
 	panel:Remove()
-	root:Remove()
 end)
 
 T.Test("lsx:Build should not be called multiple times if setState is called multiple times", function()
@@ -311,7 +312,7 @@ T.Test("lsx:Build should not be called multiple times if setState is called mult
 		return Mock({Name = "State:" .. state})
 	end
 
-	local root = CreateMockRoot()
+	local root = Get2dWorld()
 	local node = {MyComponent}
 	local instance = lsx:Mount(node, root)
 	T(build_count)["=="](1)
@@ -320,11 +321,11 @@ T.Test("lsx:Build should not be called multiple times if setState is called mult
 	-- Should only be called once more
 	T(build_count)["=="](2)
 	T(instance:GetName())["=="]("State:3")
-	root:Remove()
+	instance:Remove()
 end)
 
 T.Test("lsx:UseAnimate basic linear", function()
-	local root = CreateMockRoot()
+	local root = Get2dWorld()
 
 	local function MyComponent(props)
 		local ref = lsx:UseRef(nil)
@@ -351,11 +352,11 @@ T.Test("lsx:UseAnimate basic linear", function()
 	system.SetFrameTime(0.5)
 	instance:CalcAnimations()
 	T(instance:GetDrawAlpha())["=="](1)
-	root:Remove()
+	instance:Remove()
 end)
 
 T.Test("lsx:UseAnimate segmented with functions (pausing)", function()
-	local root = CreateMockRoot()
+	local root = Get2dWorld()
 	local is_hovered = false
 
 	local function MyComponent(props)
@@ -407,11 +408,11 @@ T.Test("lsx:UseAnimate segmented with functions (pausing)", function()
 	system.SetFrameTime(0.25)
 	instance:CalcAnimations()
 	T(instance:GetDrawAlpha())["=="](0)
-	root:Remove()
+	instance:Remove()
 end)
 
 T.Test("lsx:UseAnimate with lsx:Value", function()
-	local root = CreateMockRoot()
+	local root = Get2dWorld()
 	local window = require("window")
 	local mousePos = Vec2(0, 0)
 	local oldGetMousePosition = window.GetMousePosition
@@ -449,11 +450,11 @@ T.Test("lsx:UseAnimate with lsx:Value", function()
 	T(instance:GetDrawPositionOffset().x)["=="](200)
 	T(instance:GetDrawPositionOffset().y)["=="](200)
 	window.GetMousePosition = oldGetMousePosition
-	root:Remove()
+	instance:Remove()
 end)
 
 T.Test("lsx:UseAnimate with spring interpolation", function()
-	local root = CreateMockRoot()
+	local root = Get2dWorld()
 
 	local function MyComponent(props)
 		local ref = lsx:UseRef(nil)
@@ -486,11 +487,11 @@ T.Test("lsx:UseAnimate with spring interpolation", function()
 	system.SetFrameTime(10) -- settle
 	instance:CalcAnimations()
 	T(instance:GetDrawAlpha())[">"](0.99)
-	root:Remove()
+	instance:Remove()
 end)
 
 T.Test("lsx:UseAnimate with operator and absolute values", function()
-	local root = CreateMockRoot()
+	local root = Get2dWorld()
 
 	local function MyComponent(props)
 		local ref = lsx:UseRef(nil)
@@ -515,11 +516,11 @@ T.Test("lsx:UseAnimate with operator and absolute values", function()
 	system.SetFrameTime(0.5)
 	instance:CalcAnimations()
 	T(instance:GetDrawScaleOffset().x)["=="](2)
-	root:Remove()
+	instance:Remove()
 end)
 
 T.Test("lsx:UseAnimate with Ang3", function()
-	local root = CreateMockRoot()
+	local root = Get2dWorld()
 
 	local function MyComponent(props)
 		local ref = lsx:UseRef(nil)
@@ -543,7 +544,7 @@ T.Test("lsx:UseAnimate with Ang3", function()
 	T(ang.p)["~"](0.05)
 	T(ang.y)["~"](0.1)
 	T(ang.r)["~"](0.15)
-	root:Remove()
+	instance:Remove()
 end)
 
 T.Test("lsx component ref and layout", function()
@@ -556,7 +557,7 @@ T.Test("lsx component ref and layout", function()
 		})
 	end
 
-	local root = CreateMockRoot()
+	local root = Get2dWorld()
 	local instance = lsx:Mount(
 		{
 			MyComponent,
@@ -570,7 +571,6 @@ T.Test("lsx component ref and layout", function()
 	T(ref_called)["=="](true)
 	T(instance:GetLayout()[1])["=="]("Fill")
 	instance:Remove()
-	root:Remove()
 end)
 
 T.Test("lsx layout calculation with children", function()
@@ -591,7 +591,7 @@ T.Test("lsx layout calculation with children", function()
 		)
 	end
 
-	local root = CreateMockRoot()
+	local root = Get2dWorld()
 	root:SetSize(Vec2(500, 500))
 	local panel = lsx:Mount(MyComponent({}), root)
 	-- Trigger layout calculation
@@ -604,11 +604,10 @@ T.Test("lsx layout calculation with children", function()
 	-- CenterXSimple should put it at (500-50)/2 = 225
 	T(child:GetPosition().x)["=="](225)
 	panel:Remove()
-	root:Remove()
 end)
 
 T.Test("lsx:HoverPanel regression test", function()
-	local root = CreateMockRoot()
+	local root = Get2dWorld()
 	root:SetSize(Vec2(500, 500))
 	local hover_count = 0
 	local IsHovered_called = 0
@@ -670,5 +669,5 @@ T.Test("lsx:HoverPanel regression test", function()
 	prototype.registered.transform_2d.SetScale = original_SetScale
 	-- Clean up
 	prototype.registered.gui_element_2d.IsHovered = original_IsHovered
-	root:Remove()
+	instance:Remove()
 end)

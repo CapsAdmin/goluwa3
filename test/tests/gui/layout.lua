@@ -8,7 +8,6 @@ local H = 512
 
 local function TestGUI(name, func)
 	return T.Test2D(name, function()
-		ecs.Clear2DWorld()
 		local world = ecs.Get2DWorld()
 		world.transform_2d:SetSize(Vec2(W, H))
 		local ret = func()
@@ -63,6 +62,8 @@ TestGUI("Center and Fill", function()
 		-- By default, layout commands collide with each other if they are in the same parent.
 		-- Let's check FillX/FillY more carefully with multiple elements.
 		T.Screenshot("logs/screenshots/center_and_fill.png")
+		c:Remove()
+		l:Remove()
 	end
 end)
 
@@ -115,6 +116,11 @@ TestGUI("Relative Movement", function()
 		T(ax)["=="](ex)
 		T(ay - 50)["=="](ey)
 		T.Screenshot("logs/screenshots/relative_movement.png")
+		a:Remove()
+		b:Remove()
+		c:Remove()
+		d:Remove()
+		e:Remove()
 	end
 end)
 
@@ -149,6 +155,9 @@ TestGUI("Movement and Obstacles", function()
 		-- It should hit obs at x=300 and place 'l' at 300.
 		T(300)["=="](lx)
 		T.Screenshot("logs/screenshots/obstacles.png")
+		obs:Remove()
+		r:Remove()
+		l:Remove()
 	end
 end)
 
@@ -188,6 +197,9 @@ TestGUI("Gmod Layout Commands", function()
 		-- Wait, H=512. 512 - 50 - 50 = 412.
 		T(412)["=="](lh)
 		T.Screenshot("logs/screenshots/gmod_layout.png")
+		top:Remove()
+		bottom:Remove()
+		left:Remove()
 	end
 end)
 
@@ -214,6 +226,9 @@ TestGUI("Margins and Padding", function()
 		-- bx = ax - b.w - a.Margin.Left - b.Margin.Right = 352 - 50 - 5 - 10 = 287.
 		T(287)["=="](bx)
 		T.Screenshot("logs/screenshots/margins_padding.png")
+		a:Remove()
+		b:Remove()
+		p.layout_2d:SetPadding(Rect(0, 0, 0, 0))
 	end
 end)
 
@@ -237,6 +252,8 @@ TestGUI("Fill with Obstacles", function()
 		T(0)["=="](fx)
 		T(200)["=="](fw)
 		T.Screenshot("logs/screenshots/fill_obstacles.png")
+		obs:Remove()
+		f:Remove()
 	end
 end)
 
@@ -258,5 +275,7 @@ TestGUI("Center with Obstacles", function()
 		-- X should be 150 - 50 = 100.
 		T(100)["=="](fx)
 		T.Screenshot("logs/screenshots/center_obstacles.png")
+		obs:Remove()
+		f:Remove()
 	end
 end)
