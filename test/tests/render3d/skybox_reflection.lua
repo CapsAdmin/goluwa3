@@ -121,8 +121,6 @@ local function sphere(lp, ly, config)
 		render3d.UploadGBufferConstants(cmd)
 		poly:Draw(cmd)
 	end)
-
-	render.GetScreenTexture():DumpToDisk("test")
 end
 
 T.Pending("Graphics Polygon3D environment map reflection colors", function()

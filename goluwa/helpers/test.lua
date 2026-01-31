@@ -775,7 +775,12 @@ end
 
 function test.Screenshot(name)
 	local render = require("render.render")
-	render.target:GetTexture():DumpToDisk(name)
+	render.target:GetTexture():SaveAs(name)
+end
+
+function test.ScreenshotAlbedo(name)
+	local render3d = require("render3d.render3d")
+	render3d.pipelines.gbuffer:GetFramebuffer():GetAttachment(1):SaveAs(name)
 end
 
 function test.ScreenPixel(x, y, r, g, b, a, tolerance)

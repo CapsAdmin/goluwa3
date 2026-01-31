@@ -440,8 +440,7 @@ T.Test2D("Graphics render2d complex scene", function(width, height)
 	end
 
 	T(true)["=="](true)
-	return function()
-		render.GetScreenTexture():DumpToDisk("render2d_complex_scene")
+	return function() --render.GetScreenTexture():SaveAs("render2d_complex_scene")
 	end
 end)
 

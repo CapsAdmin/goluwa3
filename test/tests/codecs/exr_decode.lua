@@ -30,8 +30,6 @@ T.Pending("Decode EXR Texture", function()
 		render2d.DrawRect(0, 0, 512, 512)
 	end)
 
-	render.GetScreenTexture():DumpToDisk("test")
-
 	T.ScreenPixel(50, 50, function(r, g, b, a)
 		T(r)["~="](0) -- "Red channel should not be zero"
 		T(g)["~="](0) -- "Green channel should not be zero"

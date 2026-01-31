@@ -1222,24 +1222,24 @@ do
 	local png = require("codecs.png")
 	local fs = require("fs")
 
-	function Texture:DumpToDisk(name)
+	function Texture:SaveAs(path)
+		if not path:ends_with(".png") then
+			error("Can only save as PNG format", 2)
+		end
+
 		local width, height = self:GetWidth(), self:GetHeight()
 		local image_data = self:Download()
-		local png = png.Encode(width, height, "rgba")
+		local png_file = png.Encode(width, height, "rgba")
 		local pixel_table = {}
 
 		for i = 0, image_data.size - 1 do
 			pixel_table[i + 1] = image_data.pixels[i]
 		end
 
-		png:write(pixel_table)
-		local screenshot_dir = "./logs/screenshots"
-		fs.create_directory_recursive(screenshot_dir)
-		local screenshot_path = screenshot_dir .. "/" .. name .. ".png"
-		local file = assert(io.open(screenshot_path, "wb"))
-		file:write(png:getData())
+		png_file:write(pixel_table)
+		local file = assert(io.open(path, "wb"))
+		file:write(png_file:getData())
 		file:close()
-		return screenshot_path
 	end
 end
 

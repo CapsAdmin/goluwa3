@@ -445,10 +445,6 @@ function META:LoadGlyph(code)
 
 			local current_tex = fb_ss.color_texture
 
-			if not self.ShadingInfo then
-				if code == string.byte("T") then current_tex:DumpToDisk("glyph") end
-			end
-
 			if self.ShadingInfo then
 				local glyph_copy = current_tex
 
@@ -473,8 +469,6 @@ function META:LoadGlyph(code)
 						pipeline:Draw(fb_effect.cmd, fb_effect)
 						current_tex = fb_effect.color_texture
 						current_tex:GenerateMipmaps("shader_read_only_optimal")
-					-- DEBUG: Save intermediate shading steps
-					--		current_tex:DumpToDisk("debug_glyph_shade_" .. code .. "_" .. i .. "")
 					end
 				end
 			end
@@ -492,17 +486,9 @@ function META:LoadGlyph(code)
 				local pipeline = self:GetBlitPipeline()
 				self.current_draw_tex = current_tex
 				pipeline:Draw(fb_final.cmd, fb_final)
-			-- DEBUG: Save the final downsampled glyph
-			--fb_final.color_texture:DumpToDisk("debug_glyph_final_" .. code)
 			end
 
 			glyph.texture = fb_final.color_texture
-
-			if not self.ShadingInfo then
-				if code == string.byte("T") then
-					glyph.texture:DumpToDisk("glyph_final")
-				end
-			end
 		end
 
 		self.texture_atlas:Insert(

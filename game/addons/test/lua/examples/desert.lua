@@ -158,7 +158,6 @@ local function CreateDesertTerrain()
 	]],
 		{header = HEADER}
 	)
-	normal_tex:DumpToDisk("desert_normal")
 
 	do
 		local ent = entities.CreateEntity("debug_ent")
