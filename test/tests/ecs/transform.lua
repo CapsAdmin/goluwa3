@@ -1,10 +1,3 @@
-local vk = require("bindings.vk")
-
-if not pcall(vk.find_library) then
-	print("Vulkan library not available, skipping transform tests.")
-	return
-end
-
 local T = require("test.environment")
 local ffi = require("ffi")
 local render = require("render.render")
@@ -19,20 +12,6 @@ local Matrix44 = require("structs.matrix44")
 local ecs = require("ecs.ecs")
 local transform = require("ecs.components.3d.transform")
 local model = require("ecs.components.3d.model")
-local width = 512
-local height = 512
-local initialized = false
-
-local function init_render3d()
-	if not initialized then
-		render.Initialize({headless = true, width = width, height = height})
-		initialized = true
-	else
-		render.GetDevice():WaitIdle()
-	end
-
-	render3d.Initialize()
-end
 
 local function create_cube(pos, ang, scale, color)
 	local poly = Polygon3D.New()
@@ -53,8 +32,7 @@ local function create_cube(pos, ang, scale, color)
 	return entity
 end
 
-T.Test("transform basic", function()
-	init_render3d()
+T.Test3D("transform basic", function(draw)
 	local world = ecs.Get3DWorld()
 	local pos = Vec3(1, 2, 3)
 	local ang = Deg3(10, 20, 30)
@@ -74,8 +52,7 @@ T.Test("transform basic", function()
 	ent:Remove()
 end)
 
-T.Test("transform parenting", function()
-	init_render3d()
+T.Test3D("transform parenting", function(draw)
 	local world = ecs.Get3DWorld()
 	local parent_pos = Vec3(10, 0, 0)
 	local parent = create_cube(parent_pos)
@@ -100,8 +77,7 @@ T.Test("transform parenting", function()
 	child:Remove()
 end)
 
-T.Test("transform camera match", function()
-	init_render3d()
+T.Test3D("transform camera match", function(draw)
 	local cam = render3d.GetCamera()
 	local pos = Vec3(1, 2, 3)
 	local ang = Deg3(10, 20, 30)

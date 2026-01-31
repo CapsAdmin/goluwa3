@@ -1,10 +1,4 @@
 local T = require("test.environment")
-local vk = require("bindings.vk")
-
-if not pcall(vk.find_library) then
-	print("Vulkan library not available, skipping culling tests.")
-	return
-end
 
 local ffi = require("ffi")
 local render = require("render.render")

@@ -3,7 +3,6 @@ local ffi = require("ffi")
 local render = require("render.render")
 local render2d = require("render2d.render2d")
 local Polygon2D = require("render2d.polygon_2d")
-local test2d = require("test.test2d")
 local fs = require("fs")
 local width = 512
 local height = 512

@@ -1,10 +1,3 @@
-local vk = require("bindings.vk")
-
-if not pcall(vk.find_library) then
-	print("Vulkan library not available, skipping render core tests.")
-	return
-end
-
 local T = require("test.environment")
 local render = require("render.render")
 local Texture = require("render.texture")

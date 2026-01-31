@@ -1,10 +1,3 @@
-local vk = require("bindings.vk")
-
-if not pcall(vk.find_library) then
-	print("Vulkan library not available, skipping render2d comprehensive tests.")
-	return false
-end
-
 local event = require("event")
 local ecs = require("ecs.ecs")
 local render = require("render.render")

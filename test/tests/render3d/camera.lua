@@ -1,10 +1,3 @@
-local vk = require("bindings.vk")
-
-if not pcall(vk.find_library) then
-	print("Vulkan library not available, skipping camera tests.")
-	return
-end
-
 local T = require("test.environment")
 local ffi = require("ffi")
 local event = require("event")

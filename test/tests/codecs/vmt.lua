@@ -1,10 +1,3 @@
-local vk = require("bindings.vk")
-
-if not pcall(vk.find_library) then
-	print("Vulkan library not available, skipping render2d comprehensive tests.")
-	return
-end
-
 local T = require("test.environment")
 local ffi = require("ffi")
 local render = require("render.render")
@@ -16,10 +9,6 @@ local steam = require("steam")
 local Material = require("render3d.material")
 local vfs = require("vfs")
 local Color = require("structs.color")
-local test2d = require("test.test2d")
-local width = 512
-local height = 512
-local initialized = false
 
 -- Helper function to get pixel color
 local function get_pixel(image_data, x, y)
@@ -50,13 +39,11 @@ local function test_pixel(x, y, r, g, b, a, tolerance)
 	T(math.abs(a_norm - a))["<="](tolerance)
 end
 
-T.Test("VMT render", function()
-	test2d.draw(function()
-		local games = steam.GetSourceGames()
-		steam.MountSourceGame("gmod")
-		local mat = Material.FromVMT("materials/models/hevsuit/hevsuit_sheet.vmt")
-		render2d.SetColor(1, 0, 0, 1)
-		render2d.SetTexture(mat:GetAlbedoTexture())
-		render2d.DrawRect(0, 0, 50, 50)
-	end)
+T.Test2D("VMT render", function()
+	local games = steam.GetSourceGames()
+	steam.MountSourceGame("gmod")
+	local mat = Material.FromVMT("materials/models/hevsuit/hevsuit_sheet.vmt")
+	render2d.SetColor(1, 0, 0, 1)
+	render2d.SetTexture(mat:GetAlbedoTexture())
+	render2d.DrawRect(0, 0, 50, 50)
 end)
