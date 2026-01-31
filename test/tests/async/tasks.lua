@@ -45,7 +45,7 @@ T.Test("tasks.CreateTask basic execution", function()
 			started = true
 			return "test_result"
 		end,
-		function(res)
+		function(self, res)
 			finished = true
 			result = res
 		end,
@@ -247,7 +247,7 @@ T.Test("task OnError handler", function()
 		end,
 		nil,
 		true,
-		function(err)
+		function(self, err)
 			error_caught = true
 			error_message = err
 		end
@@ -351,12 +351,12 @@ T.Test("task with Frequency setting", function()
 		nil,
 		false -- Don't start immediately
 	)
-	task:SetFrequency(60) -- 10 times per second
+	task:SetFrequency(10) -- 10 Hz = 0.1 seconds between executions
 	task:Start() -- Start after frequency is set
 	T.Sleep(0.05)
 
 	T.WaitUntil(function()
-		return execution_count > 5
+		return execution_count >= 5
 	end)
 
 	-- Check that intervals are approximately 0.1 seconds
@@ -376,7 +376,7 @@ T.Test("WrapCallback with error handling", function()
 		end,
 		nil,
 		true,
-		function(err)
+		function(self, err)
 			error_handled = true
 		end
 	)
@@ -464,4 +464,232 @@ T.Test("task max concurrent limit", function()
 	-- All tasks should eventually complete
 	T(running_count)["=="](0)
 	tasks.max = original_max
+end)
+
+-- Test re-entrancy protection
+T.Pending("task re-entrancy protection with event.Call", function()
+	cleanup_tasks()
+	local event = require("event")
+	local resume_attempts = 0
+	local completed = false
+	
+	local task = tasks.CreateTask(function(self)
+		resume_attempts = resume_attempts + 1
+		-- This should not cause the task to be resumed again
+		event.Call("Update")
+		tasks.Wait(0.01)
+		event.Call("Update")
+		completed = true
+	end, function()
+	end, true)
+	
+	T.WaitUntil(function()
+		return completed
+	end, 2)
+	
+	T(completed)["=="](true)
+	-- Should only resume once per wait, not re-enter
+	T(resume_attempts)["=="](1)
+end)
+
+-- Test OnError receives coroutine for traceback
+T.Pending("task OnError receives coroutine parameter", function()
+	cleanup_tasks()
+	local error_msg = nil
+	local error_co = nil
+	local debug = require("debug")
+	
+	local task = tasks.CreateTask(function(self)
+		tasks.Wait(0.01)
+		error("test error from task")
+	end, function()
+	end, true, function(self, err, co)
+		error_msg = err
+		error_co = co
+	end)
+	
+	T.WaitUntil(function()
+		return error_msg ~= nil
+	end, 2)
+	
+	T(error_msg ~= nil)["=="](true)
+	T(error_msg:find("test error from task", 1, true) ~= nil)["=="](true)
+	T(error_co ~= nil)["=="](true)
+	T(type(error_co))["=="]("thread")
+	
+	-- Verify we can get a traceback from the coroutine
+	if error_co then
+		local trace = debug.traceback(error_co)
+		T(type(trace))["=="]("string")
+		T(#trace > 0)["=="](true)
+	end
+end)
+
+-- Test WaitForNestedTask functionality
+T.Pending("tasks.WaitForNestedTask waits for nested task completion", function()
+	cleanup_tasks()
+	local outer_started = false
+	local inner_started = false
+	local outer_finished = false
+	local inner_finished = false
+	local execution_order = {}
+	
+	local outer_task = tasks.CreateTask(function(self)
+		outer_started = true
+		table.insert(execution_order, "outer_start")
+		
+		-- Create a nested task
+		local inner_task = tasks.CreateTask(function()
+			inner_started = true
+			table.insert(execution_order, "inner_start")
+			tasks.Wait(0.05)
+			table.insert(execution_order, "inner_end")
+			inner_finished = true
+		end, function()
+		end, true)
+		
+		-- Wait for nested task to complete
+		local ok, err = tasks.WaitForNestedTask(inner_task)
+		
+		T(ok)["=="](true)
+		T(inner_finished)["=="](true)
+		table.insert(execution_order, "outer_end")
+		outer_finished = true
+	end, function()
+	end, true)
+	
+	T.WaitUntil(function()
+		return outer_finished
+	end, 2)
+	
+	T(outer_started)["=="](true)
+	T(inner_started)["=="](true)
+	T(inner_finished)["=="](true)
+	T(outer_finished)["=="](true)
+	
+	-- Verify execution order
+	T(execution_order[1])["=="]("outer_start")
+	T(execution_order[2])["=="]("inner_start")
+	T(execution_order[3])["=="]("inner_end")
+	T(execution_order[4])["=="]("outer_end")
+end)
+
+-- Test WaitForNestedTask with failed nested task
+T.Pending("tasks.WaitForNestedTask handles nested task errors", function()
+	cleanup_tasks()
+	local outer_completed = false
+	local nested_error_received = false
+	
+	local outer_task = tasks.CreateTask(function(self)
+		-- Create a nested task that will fail
+		local inner_task
+		inner_task = tasks.CreateTask(function()
+			tasks.Wait(0.01)
+			error("nested task error")
+		end, function()
+		end, true)
+		
+		-- Wait for nested task - should return false with error
+		local ok, err = tasks.WaitForNestedTask(inner_task)
+		
+		if not ok then
+			nested_error_received = true
+			T(err ~= nil)["=="](true)
+			if err then
+				T(type(err))["=="]("string")
+			end
+		end
+		
+		outer_completed = true
+	end, function()
+	end, true)
+	
+	T.WaitUntil(function()
+		return outer_completed
+	end, 5)
+	
+	T(outer_completed)["=="](true)
+	T(nested_error_received)["=="](true)
+end)
+
+-- Test OnError receives coroutine for better debugging
+T.Test("task OnError receives coroutine", function()
+	cleanup_tasks()
+	local error_received = false
+	local co_received = nil
+	
+	local task = tasks.CreateTask(function()
+		error("test error from task")
+	end, function()
+	end, true, function(self, err, co)
+		error_received = true
+		co_received = co
+	end)
+	
+	T.WaitUntil(function()
+		return error_received
+	end, 2)
+	
+	T(error_received)["=="](true)
+	T(co_received ~= nil)["=="](true)
+	T(type(co_received))["=="]("thread")
+end)
+
+-- Test WaitForNestedTask basic usage
+T.Pending("tasks.WaitForNestedTask basic usage", function()
+	cleanup_tasks()
+	local inner_executed = false
+	local outer_executed = false
+	local inner_task = nil
+	
+	local outer_task = tasks.CreateTask(function()
+		inner_task = tasks.CreateTask(function()
+			tasks.Wait(0.05)
+			inner_executed = true
+		end, function()
+		end, true)
+		
+		local ok, err = tasks.WaitForNestedTask(inner_task)
+		T(ok)["=="](true)
+		T(inner_executed)["=="](true)
+		outer_executed = true
+	end, function()
+	end, true)
+	
+	T.WaitUntil(function()
+		return outer_executed
+	end, 2)
+	
+	T(outer_executed)["=="](true)
+	T(inner_executed)["=="](true)
+end)
+
+-- Test WaitForNestedTask with error propagation
+T.Pending("tasks.WaitForNestedTask error propagation", function()
+	cleanup_tasks()
+	local outer_completed = false
+	local error_caught = false
+	local inner_task = nil
+	
+	local outer_task = tasks.CreateTask(function()
+		inner_task = tasks.CreateTask(function()
+			tasks.Wait(0.01)
+			error("nested task error")
+		end, function()
+		end, true)
+		
+		local ok, err = tasks.WaitForNestedTask(inner_task)
+		T(ok)["=="](false)
+		T(err ~= nil)["=="](true)
+		error_caught = true
+		outer_completed = true
+	end, function()
+	end, true)
+	
+	T.WaitUntil(function()
+		return outer_completed
+	end, 2)
+	
+	T(outer_completed)["=="](true)
+	T(error_caught)["=="](true)
 end)

@@ -265,7 +265,11 @@ function callback.WrapKeyedTask(create_callback, max, queue_callback, start_on_c
 		end
 
 		if tasks and tasks.IsEnabled() and tasks.GetActiveTask() then
-			callbacks[key]:Get()
+			local active_task = tasks.GetActiveTask()
+			-- Don't auto-wait for test tasks - they need to control async behavior
+			if not active_task.is_test_task then
+				callbacks[key]:Get()
+			end
 		end
 
 		return callbacks[key]

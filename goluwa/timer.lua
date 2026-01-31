@@ -139,8 +139,13 @@ function timer.IsTimer(id)
 end
 
 local remove_these = {}
+local updating = false
 
 function timer.UpdateTimers(a_, b_, c_, d_, e_)
+	-- Allow re-entrant calls but skip non-thinker timers to prevent double-firing
+	local was_updating = updating
+	updating = true
+	
 	local cur = system.GetElapsedTime()
 
 	for i, data in ipairs(timer.timers) do
@@ -190,7 +195,8 @@ function timer.UpdateTimers(a_, b_, c_, d_, e_)
 					data.realtime = cur + data.frequency
 				end
 			end
-		elseif data.type == "delay" then
+		elseif not was_updating and data.type == "delay" then
+			-- Skip delay timers during re-entrant calls to prevent double-firing
 			if data.realtime < cur then
 				if not data.args then
 					data.callback()
@@ -200,7 +206,8 @@ function timer.UpdateTimers(a_, b_, c_, d_, e_)
 
 				list.insert(remove_these, i)
 			end
-		elseif data.type == "timer" then
+		elseif not was_updating and data.type == "timer" then
+			-- Skip repeat timers during re-entrant calls to prevent double-firing
 			if not data.paused and data.realtime < cur then
 				local msg = data.callback(data.times_ran - 1, a_, b_, c_, d_, e_)
 
@@ -230,6 +237,8 @@ function timer.UpdateTimers(a_, b_, c_, d_, e_)
 		list.fix_indices(timer.timers)
 		list.clear(remove_these)
 	end
+	
+	updating = false
 end
 
 event.AddListener("Update", "timers", timer.UpdateTimers, {on_error = traceback.OnError})

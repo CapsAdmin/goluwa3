@@ -7,6 +7,7 @@ local tasks = library()
 tasks.max = 64
 tasks.coroutine_lookup = tasks.coroutine_lookup or table.weak()
 tasks.created = tasks.created or {}
+tasks.running_tasks = tasks.running_tasks or {}
 tasks.enabled = true
 
 function tasks.IsEnabled()
@@ -114,16 +115,37 @@ function META:Start(now, ...)
 		end
 
 		if time > self.wait then
-			-- Check if coroutine is already dead before trying to resume
-			if coroutine.status(co) == "dead" then return true end
+			-- Check for test timeout if this is a test task
+			if self.test_timeout_time and system.GetTime() > self.test_timeout_time then
+				self.failed = true
+				self.error = string.format("Test timeout: exceeded hard limit")
+				self.Running = false
+				tasks.created[self] = nil
+				if self.OnError then
+					self:OnError(self.error, co)
+				end
+				self:Remove()
+				return true
+			end
+			
+			-- Check if coroutine is already dead or currently running
+			local status = coroutine.status(co)
+			if status == "dead" then return true end
+			-- Don't resume if already running (handles re-entrancy)
+			if status == "running" or tasks.running_tasks[co] then return false end
 
 			local old_wait = self.wait
+			tasks.running_tasks[co] = true
 			local ok, res = coroutine.resume(co, self)
+			tasks.running_tasks[co] = nil
 
 			-- Handle errors
 			if not ok then
+				self.failed = true
+				self.error = res
+				
 				if self.OnError then
-					self:OnError(res)
+					self:OnError(res, co)
 				else
 					logf("%s error: %s\n", self, res)
 				end
@@ -219,13 +241,13 @@ function tasks.CreateTask(on_start, on_finish, now, on_error)
 
 	if on_finish then
 		self.OnFinish = function(task_self, ...)
-			return on_finish(...)
+			return on_finish(task_self, ...)
 		end
 	end
 
 	if on_error then
 		self.OnError = function(task_self, ...)
-			return on_error(...)
+			return on_error(task_self, ...)
 		end
 	end
 
@@ -251,6 +273,25 @@ function tasks.Wait(time)
 	local thread = tasks.coroutine_lookup[coroutine.running()]
 
 	if thread then thread:Wait(time) end
+end
+
+function tasks.WaitForNestedTask(nested_task)
+	if not tasks.IsEnabled() then return end
+
+	local current = tasks.GetActiveTask()
+	if not current then return end
+
+	-- Wait until the nested task completes
+	while nested_task:IsValid() and nested_task:IsRunning() do
+		current:Wait(0.001)
+	end
+
+	-- Return error status if nested task failed
+	if nested_task.failed then
+		return false, nested_task.error
+	end
+
+	return true
 end
 
 function tasks.ReportProgress(what, max)

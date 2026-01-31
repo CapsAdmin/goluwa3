@@ -86,6 +86,9 @@ T.Test("multiple sleeps", function()
 	T.WaitUntil(function()
 		return count >= 1
 	end)
+	
+	-- Small delay to ensure timer has fully processed
+	T.Sleep(0.01)
 
 	T(count)["=="](1)
 

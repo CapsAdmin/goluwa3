@@ -17,10 +17,11 @@ local colors = require("helpers.colors")
 local callstack = require("helpers.callstack")
 local system = require("system")
 local event = require("event")
+local tasks = require("tasks")
 local test = {}
 local total_test_count = 0
-local running_tests = {}
 local coroutine = _G.coroutine
+local TEST_TIMEOUT = 10  -- Hard timeout for each test in seconds
 -- Variables for tracking test execution timing
 local current_test_name = ""
 local tests_by_file = {}
@@ -115,42 +116,26 @@ function test.RunTestsWithFilter(filter, config)
 	end
 end
 
-local is_nesting = false
+local tasks = require("tasks")
+local active_test_tasks = {}
 
 function test.Test(name, cb, start, stop)
-	if NESTING then
-		local current_co = coroutine.running()
-
-		if not is_nesting and current_co then
-			for _, info in ipairs(running_tests) do
-				if info.coroutine == current_co then
-					local done = false
-					is_nesting = true
-
-					test.Test(
-						name,
-						function()
-							cb()
-							done = true
-						end,
-						start,
-						stop
-					)
-
-					is_nesting = false
-					local inner_test = running_tests[#running_tests]
-
-					while not done do
-						test.Yield()
-					end
-
-					if inner_test.failed then error("nested test failed: " .. name, 0) end
-
-					return
-				end
-			end
+	-- Check if we're inside another test task (nested test)
+	local current_task = tasks.GetActiveTask()
+	if current_task and active_test_tasks[current_task] then
+		-- We're nested - create inner task directly without recursion
+		local inner_task = test._CreateTestTask(name, cb, start, stop)
+		local ok, err = tasks.WaitForNestedTask(inner_task)
+		if not ok then
+			error("nested test failed: " .. name .. ": " .. tostring(err), 0)
 		end
+		return inner_task
 	end
+
+	return test._CreateTestTask(name, cb, start, stop)
+end
+
+function test._CreateTestTask(name, cb, start, stop)
 
 	local unref = system.KeepAlive("test: " .. name)
 	total_test_count = total_test_count + 1
@@ -163,56 +148,120 @@ function test.Test(name, cb, start, stop)
 		current_test_start_gc = memory.get_usage_kb()
 	end
 
-	-- Create coroutine for the test
-	local co = coroutine.create(function()
-		if start and stop then
-			start()
-			cb()
-			stop()
-		else
-			cb()
-		end
-
-		unref()
-	end)
-	local task
-
-	if NESTING then
-		local tasks = require("tasks")
-		local prototype = require("prototype")
-		local task_meta = tasks.TaskMeta
-
-		if task_meta then
-			task = task_meta:CreateObject()
-			task:SetName(name)
-			task:SetRunning(true)
-			task.co = co
-			tasks.coroutine_lookup[co] = task
-		end
-	end
-
 	-- Capture start time when test is added to queue
 	local test_start_time = system.GetTime()
 	local test_start_gc = memory.get_usage_kb()
-	-- Store the coroutine with metadata
-	table.insert(
-		running_tests,
-		{
-			name = name,
-			coroutine = co,
-			task = task,
-			sleep_until = nil,
-			test_file = current_test_name,
-			test_file_start_time = current_test_start_time,
-			test_file_start_gc = current_test_start_gc,
-			test_start_time = test_start_time,
-			test_start_gc = test_start_gc,
-		}
+	local test_timeout_time = system.GetTime() + TEST_TIMEOUT
+
+	-- Need to capture task info before closure
+	local task_failed = false
+	local task_error = nil
+	
+	local task = tasks.CreateTask(
+		function(task_self)
+			-- Check for timeout at start
+			if system.GetTime() > test_timeout_time then
+				error(string.format("Test timeout: exceeded %d second limit", TEST_TIMEOUT), 0)
+			end
+			
+			if start and stop then
+				start()
+				cb()
+				stop()
+			else
+				cb()
+			end
+			unref()
+		end,
+		function(self, res)
+			-- OnFinish
+			local test_time = system.GetTime() - test_start_time
+			local test_gc = memory.get_usage_kb() - test_start_gc
+			local file = current_test_name
+
+			if file and tests_by_file[file] then
+				tests_by_file[file] = tests_by_file[file] - 1
+
+				-- Record individual test result
+				if on_test_file_complete then
+					on_test_file_complete(
+						file,
+						name,
+						test_time,
+						test_gc,
+						tests_by_file[file] == 0,
+						current_test_start_time,
+						not self.failed,
+						self.error,
+						false
+					)
+				end
+			end
+
+			-- Show progress indication
+			completed_test_count = completed_test_count + 1
+
+			if LOGGING and IS_TERMINAL then
+				-- Clear the RUNNING line if it's still there
+				if shown_running_line then
+					io_write("\r" .. string.rep(" ", 80) .. "\r")
+					shown_running_line = false
+				end
+
+				if VERBOSE then
+					-- Show full test name in verbose mode
+					io_write(string.format("[%d/%d] %s\n", completed_test_count, total_test_count, name))
+					io.flush()
+				else
+					-- Show dot for normal mode
+					io_write(".")
+					io.flush()
+
+					-- Line break every 50 tests, or show progress counter
+					if completed_test_count % 50 == 0 then
+						io_write(string.format(" %d/%d\n", completed_test_count, total_test_count))
+						io.flush()
+					end
+				end
+			end
+
+			active_test_tasks[self] = nil
+
+			-- Check if all tests are done
+			if not tasks.IsBusy() then
+				system.ShutDown()
+			end
+		end,
+		true,
+		function(self, err, co)
+			-- OnError
+			self.failed = true
+			self.error = traceback(err, debug.traceback(co))
+			local test_location = self.error:match("^(test/.-:%d+)\n\n")
+
+			if test_location then
+				local err_msg = self.error:sub(#test_location + 3)
+				err_msg = err_msg:gsub("\n  ", "\n")
+				err_msg = err_msg:indent(1)
+				logn(colors.red("Test '" .. name .. "' failed:\n" .. test_location .. "\n" .. err_msg))
+			else
+				logn(colors.red("Test '" .. name .. "' failed:\n" .. self.error))
+			end
+		end
 	)
+
+	task:SetName(name)
+	task:SetIterationsPerTick(10)
+	task.is_test_task = true  -- Mark as test task to prevent auto-waiting in callbacks
+	task.test_timeout_time = test_timeout_time  -- Store timeout for checking
+	
+	active_test_tasks[task] = true
 
 	if not event.IsListenerActive("Update", "test_runner") then
 		event.AddListener("Update", "test_runner", test.UpdateTestCoroutines)
 	end
+
+	return task
 end
 
 function test.Pending(name)
@@ -226,19 +275,59 @@ function test.Pending(name)
 		current_test_start_gc = memory.get_usage_kb()
 	end
 
-	-- Store the pending test with metadata
-	table.insert(
-		running_tests,
-		{
-			name = name,
-			pending = true,
-			test_file = current_test_name,
-			test_file_start_time = current_test_start_time,
-			test_file_start_gc = current_test_start_gc,
-			test_start_time = system.GetTime(),
-			test_start_gc = memory.get_usage_kb(),
-		}
+	local task = tasks.CreateTask(
+		function() end,
+		function()
+			local file = current_test_name
+
+			if file and tests_by_file[file] then
+				tests_by_file[file] = tests_by_file[file] - 1
+
+				-- Record individual test result
+				if on_test_file_complete then
+					on_test_file_complete(
+						file,
+						name,
+						0,
+						0,
+						tests_by_file[file] == 0,
+						current_test_start_time,
+						true,
+						nil,
+						true
+					)
+				end
+			end
+
+			-- Show progress indication
+			completed_test_count = completed_test_count + 1
+
+			if LOGGING and IS_TERMINAL then
+				-- Clear the RUNNING line if it's still there
+				if shown_running_line then
+					io_write("\r" .. string.rep(" ", 80) .. "\r")
+					shown_running_line = false
+				end
+
+				io_write(colors.yellow("?"))
+				io.flush()
+
+				-- Line break every 50 tests, or show progress counter
+				if completed_test_count % 50 == 0 then
+					io_write(string.format(" %d/%d\n", completed_test_count, total_test_count))
+					io.flush()
+				end
+			end
+
+			-- Check if all tests are done
+			if not tasks.IsBusy() then
+				system.ShutDown()
+			end
+		end,
+		true
 	)
+
+	task:SetName(name)
 
 	if not event.IsListenerActive("Update", "test_runner") then
 		event.AddListener("Update", "test_runner", test.UpdateTestCoroutines)
@@ -250,14 +339,12 @@ do
 	function test.Yield()
 		-- Sleep for a small amount to avoid tight spinning
 		-- This ensures the main loop actually advances time
-		local wake_time = system.GetElapsedTime() + 0.001 -- 1ms minimum
-		coroutine.yield(wake_time)
+		tasks.Wait(0.001)
 	end
 
 	-- Sleep for a duration (in seconds) without blocking main thread
 	function test.Sleep(duration)
-		local wake_time = system.GetElapsedTime() + duration
-		coroutine.yield(wake_time)
+		tasks.Wait(duration)
 	end
 
 	-- Wait until a condition is true, checking every interval, with optional timeout
@@ -276,144 +363,8 @@ do
 	end
 
 	function test.UpdateTestCoroutines()
-		local current_time = system.GetElapsedTime()
-		local i = 1
 		-- Manually update tasks system for faster test execution
-		local tasks = require("tasks")
-
 		if tasks and tasks.IsEnabled() then tasks.Update() end
-
-		-- Limit how many tests we resume per update to avoid blocking for too long
-		local resumed_count = 0
-		local max_resumes_per_update = 10 -- Resume up to 10 tests per update cycle
-		while i <= #running_tests do
-			local test_info = running_tests[i]
-
-			if not test_info.shown_running then test_info.shown_running = true end
-
-			local should_resume = false
-
-			-- Check if the test is sleeping
-			if test_info.sleep_until then
-				if current_time >= test_info.sleep_until then
-					test_info.sleep_until = nil
-					should_resume = true
-				end
-			elseif NESTING and test_info.task and test_info.task.wait > system.GetElapsedTime() then
-				should_resume = false
-			else
-				should_resume = true
-			end
-
-			if should_resume and resumed_count < max_resumes_per_update then
-				resumed_count = resumed_count + 1
-				local co = test_info.coroutine
-				local is_dead = not co or coroutine.status(co) == "dead"
-
-				if not is_dead then
-					local ok, result = coroutine.resume(co)
-
-					if not ok then
-						if result == "cannot resume running coroutine" then
-
-						else
-							-- Error in test - format it nicely
-							test_info.failed = true
-							test_info.error = traceback(result, debug.traceback(co))
-							local test_location = test_info.error:match("^(test/.-:%d+)\n\n")
-
-							if test_location then
-								local err = test_info.error:sub(#test_location + 3)
-								err = err:gsub("\n  ", "\n")
-								err = err:indent(1)
-								logn(colors.red("Test '" .. test_info.name .. "' failed:\n" .. test_location .. "\n" .. err))
-							else
-								logn(colors.red("Test '" .. test_info.name .. "' failed:\n" .. test_info.error))
-							end
-						end
-					end
-
-					-- If result is a number, it's a sleep_until wake time
-					if type(result) == "number" then test_info.sleep_until = result end
-
-					is_dead = coroutine.status(co) == "dead"
-				end
-
-				-- Remove completed tests
-				if is_dead then
-					if NESTING then
-						if test_info.task then
-							test_info.task:SetRunning(false)
-							tasks.coroutine_lookup[test_info.coroutine] = nil
-						end
-					end
-
-					-- Calculate individual test timing
-					local test_time = system.GetTime() - test_info.test_start_time
-					local test_gc = memory.get_usage_kb() - test_info.test_start_gc
-
-					if test_info.pending then
-						test_time = 0
-						test_gc = 0
-					end
-
-					-- Decrement the counter for this file
-					local file = test_info.test_file
-
-					if file and tests_by_file[file] then
-						tests_by_file[file] = tests_by_file[file] - 1
-
-						-- Record individual test result
-						if on_test_file_complete then
-							on_test_file_complete(
-								file,
-								test_info.name,
-								test_time,
-								test_gc,
-								tests_by_file[file] == 0,
-								test_info.test_file_start_time, -- Pass file start time
-								not test_info.failed,
-								test_info.error,
-								test_info.pending
-							)
-						end
-					end
-
-					table.remove(running_tests, i)
-					-- Show progress indication
-					completed_test_count = completed_test_count + 1
-
-					if LOGGING and IS_TERMINAL then
-						-- Clear the RUNNING line if it's still there
-						if shown_running_line then
-							io_write("\r" .. string.rep(" ", 80) .. "\r")
-							shown_running_line = false
-						end
-
-						if test_info.pending then
-							io_write(colors.yellow("?"))
-						else
-							io_write(".")
-						end
-
-						io.flush()
-
-						-- Line break every 50 tests, or show progress counter
-						if completed_test_count % 50 == 0 then
-							io_write(string.format(" %d/%d\n", completed_test_count, total_test_count))
-							io.flush()
-						end
-					end
-				else
-					i = i + 1
-				end
-			else
-				i = i + 1
-			end
-		end
-
-		-- Check if all tests are done after the loop
-		if #running_tests == 0 then system.ShutDown() end
 	end
 end
 
