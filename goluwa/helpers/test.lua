@@ -36,6 +36,7 @@ local NESTING = false
 local IS_TERMINAL = true -- or system.IsTTY()
 local completed_test_count = 0
 local shown_running_line = false
+local has_failed_tests = false
 
 local function traceback(msg, co_lines)
 	local sep = "\n  "
@@ -245,12 +246,13 @@ function test._CreateTestTask(name, cb, start, stop)
 
 			-- Check if all tests are done
 			if not tasks.IsBusy() then
-				system.ShutDown()
+				system.ShutDown(has_failed_tests and 1 or 0)
 			end
 		end,
 		true,
 		function(self, err, co)
 			-- OnError
+			has_failed_tests = true
 			self.failed = true
 			self.error = traceback(err, debug.traceback(co))
 			local test_location = self.error:match("^(test/.-:%d+)\n\n")
@@ -315,7 +317,7 @@ function test._CreateTestTask(name, cb, start, stop)
 
 			-- Check if all tests are done
 			if not tasks.IsBusy() then
-				system.ShutDown()
+				system.ShutDown(has_failed_tests and 1 or 0)
 			end
 		end
 	)
@@ -392,7 +394,7 @@ function test.Pending(name)
 
 			-- Check if all tests are done
 			if not tasks.IsBusy() then
-				system.ShutDown()
+				system.ShutDown(has_failed_tests and 1 or 0)
 			end
 		end,
 		true
@@ -552,6 +554,7 @@ do
 		PROFILING = profiling or false
 		completed_test_count = 0
 		shown_running_line = false
+		has_failed_tests = false
 
 		if _G.STARTUP_PROFILE then profiler.StopSection() end
 
