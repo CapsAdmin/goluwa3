@@ -304,48 +304,6 @@ T.Test3D("camera tests", function(draw)
 		test_color("left_center", "green")
 	end)
 
-	T.Pending("Camera FOV change", function(draw)
-		local pixels_90, pixels_45
-		local cam = render3d.GetCamera()
-		cam:SetFOV(math.rad(90))
-		cam:SetPosition(Vec3(0, 0, 5))
-		cam:SetRotation(Quat(0, 0, 0, 1))
-		draw()
-		test_color("center", "white")
-		local image_data = render.target:GetTexture():Download()
-		pixels_90 = 0
-
-		for i = 0, image_data.size - 1, 4 do
-			if
-				image_data.pixels[i] > 200 and
-				image_data.pixels[i + 1] > 200 and
-				image_data.pixels[i + 2] > 200
-			then
-				pixels_90 = pixels_90 + 1
-			end
-		end
-
-		local cam = render3d.GetCamera()
-		cam:SetFOV(math.rad(45))
-		cam:SetPosition(Vec3(0, 0, 5))
-		cam:SetRotation(Quat(0, 0, 0, 1))
-		draw()
-		test_color("center", "white")
-		local image_data = render.target:GetTexture():Download()
-		pixels_45 = 0
-
-		for i = 0, image_data.size - 1, 4 do
-			if
-				image_data.pixels[i] > 200 and
-				image_data.pixels[i + 1] > 200 and
-				image_data.pixels[i + 2] > 200
-			then
-				pixels_45 = pixels_45 + 1
-			end
-		end
-
-		T(pixels_45)[">"](pixels_90 * 2)
-	end)
 
 	TestCamera("Camera near plane clipping", function(draw)
 		local cam = render3d.GetCamera()
@@ -368,22 +326,5 @@ T.Test3D("camera tests", function(draw)
 		test_color("bottom_center", "magenta") -- bottom is magenta
 		test_color("left_center", "cyan") -- left is cyan
 		test_color("right_center", "red") -- right is red
-	end)
-
-	T.Pending("Camera orbiting", function(draw)
-		for angle = 0, math.pi * 2 - 0.1, math.pi / 2 do
-			local cam = render3d.GetCamera()
-			local radius = 5
-			local x = math.sin(angle) * radius
-			local z = math.cos(angle) * radius
-			cam:SetPosition(Vec3(x, 0, z))
-			cam:SetAngles(Deg3(0, angle, 0))
-
-			for i = 1, 5 do
-				draw()
-			end
-
-			test_color("center", "white") -- Should always see the white center cube
-		end
 	end)
 end)

@@ -119,6 +119,9 @@ end
 local tasks = require("tasks")
 local active_test_tasks = {}
 
+-- Create a marker object for unavailable tests
+local unavailable_marker = {}
+
 function test.Test(name, cb, start, stop)
 	-- Check if we're inside another test task (nested test)
 	local current_task = tasks.GetActiveTask()
@@ -164,13 +167,21 @@ function test._CreateTestTask(name, cb, start, stop)
 				error(string.format("Test timeout: exceeded %d second limit", TEST_TIMEOUT), 0)
 			end
 			
+			local result
 			if start and stop then
 				start()
-				cb()
+				result = cb()
 				stop()
 			else
-				cb()
+				result = cb()
 			end
+			
+			-- Check if test returned an unavailable marker
+			if type(result) == "table" and getmetatable(result) and getmetatable(result).__index == unavailable_marker then
+				task_self.unavailable = true
+				task_self.unavailable_reason = result.reason or "Test unavailable"
+			end
+			
 			unref()
 		end,
 		function(self, res)
@@ -191,9 +202,10 @@ function test._CreateTestTask(name, cb, start, stop)
 						test_gc,
 						tests_by_file[file] == 0,
 						current_test_start_time,
-						not self.failed,
+						not self.failed and not self.unavailable,
 						self.error,
-						false
+						false,
+						self.unavailable and self.unavailable_reason or nil
 					)
 				end
 			end
@@ -213,8 +225,12 @@ function test._CreateTestTask(name, cb, start, stop)
 					io_write(string.format("[%d/%d] %s\n", completed_test_count, total_test_count, name))
 					io.flush()
 				else
-					-- Show dot for normal mode
-					io_write(".")
+					-- Show appropriate marker
+					if self.unavailable then
+						io_write(colors.dim("-"))
+					else
+						io_write(".")
+					end
 					io.flush()
 
 					-- Line break every 50 tests, or show progress counter
@@ -246,6 +262,60 @@ function test._CreateTestTask(name, cb, start, stop)
 				logn(colors.red("Test '" .. name .. "' failed:\n" .. test_location .. "\n" .. err_msg))
 			else
 				logn(colors.red("Test '" .. name .. "' failed:\n" .. self.error))
+			end
+
+			-- Record test completion even on failure
+			local test_time = system.GetTime() - test_start_time
+			local test_gc = memory.get_usage_kb() - test_start_gc
+			local file = current_test_name
+
+			if file and tests_by_file[file] then
+				tests_by_file[file] = tests_by_file[file] - 1
+
+				-- Record individual test result
+				if on_test_file_complete then
+					on_test_file_complete(
+						file,
+						name,
+						test_time,
+						test_gc,
+						tests_by_file[file] == 0,
+						current_test_start_time,
+						false, -- success = false
+						self.error,
+						false,
+						nil
+					)
+				end
+			end
+
+			-- Show progress indication
+			completed_test_count = completed_test_count + 1
+
+			if LOGGING and IS_TERMINAL then
+				-- Clear the RUNNING line if it's still there
+				if shown_running_line then
+					io_write("\r" .. string.rep(" ", 80) .. "\r")
+					shown_running_line = false
+				end
+
+				-- Show progress dot
+				if not NESTING then
+					io_write(colors.red("✗"))
+
+					-- Line break every 50 tests, or show progress counter
+					if completed_test_count % 50 == 0 then
+						io_write(string.format(" %d/%d\n", completed_test_count, total_test_count))
+						io.flush()
+					end
+				end
+			end
+
+			active_test_tasks[self] = nil
+
+			-- Check if all tests are done
+			if not tasks.IsBusy() then
+				system.ShutDown()
 			end
 		end
 	)
@@ -294,7 +364,8 @@ function test.Pending(name)
 						current_test_start_time,
 						true,
 						nil,
-						true
+						true,
+						nil
 					)
 				end
 			end
@@ -334,6 +405,10 @@ function test.Pending(name)
 	end
 end
 
+function test.Unavailable(reason)
+	return setmetatable({reason = reason}, {__index = unavailable_marker})
+end
+
 do
 	-- Yield control from a test coroutine
 	function test.Yield()
@@ -344,7 +419,15 @@ do
 
 	-- Sleep for a duration (in seconds) without blocking main thread
 	function test.Sleep(duration)
-		tasks.Wait(duration)
+		local start_time = system.GetElapsedTime()
+		local end_time = start_time + duration
+
+		while system.GetElapsedTime() < end_time do
+			local dt = 0.016 -- ~60fps simulation
+			system.SetElapsedTime(system.GetElapsedTime() + dt)
+			event.Call("Update", dt)
+			system.Sleep(0.001) -- Sleep CPU, not coroutine
+		end
 	end
 
 	-- Wait until a condition is true, checking every interval, with optional timeout
@@ -486,7 +569,8 @@ do
 			file_start_time,
 			success,
 			err,
-			pending
+			pending,
+			unavailable_reason
 		)
 			-- Initialize file results if needed
 			if not test_results[test_file_name] then
@@ -509,6 +593,7 @@ do
 					success = success,
 					error = err,
 					pending = pending,
+					unavailable_reason = unavailable_reason,
 				}
 			)
 			-- Update GC total
@@ -568,6 +653,7 @@ do
 
 				local total_failed = 0
 				local total_pending = 0
+				local total_unavailable = 0
 
 				for _, file_name in ipairs(test_order) do
 					local result = test_results[file_name]
@@ -593,7 +679,10 @@ do
 
 							local status = colors.green("✓")
 
-							if test.success == false then
+							if test.unavailable_reason then
+								status = colors.dim("-")
+								total_unavailable = total_unavailable + 1
+							elseif test.success == false then
 								status = colors.red("✗")
 								total_failed = total_failed + 1
 							elseif test.pending then
@@ -603,7 +692,9 @@ do
 
 							io_write(string.format("  %s %s%s%s\n", status, test.name, time_str, gc_str))
 
-							if test.error then
+							if test.unavailable_reason then
+								io_write(colors.dim("    " .. test.unavailable_reason) .. "\n")
+							elseif test.error then
 								io_write(colors.red("    " .. test.error:gsub("\n", "\n    ")) .. "\n")
 							end
 						end -- Print file total
@@ -626,6 +717,10 @@ do
 				elseif total_pending > 0 then
 					io_write(
 						"\n" .. colors.yellow(string.format("PENDING: %d tests pending", total_pending)) .. "\n"
+					)
+				elseif total_unavailable > 0 then
+					io_write(
+						"\n" .. colors.dim(string.format("PASSED: all tests passed (%d unavailable)", total_unavailable)) .. "\n"
 					)
 				else
 					io_write("\n" .. colors.green("PASSED: all tests passed") .. "\n")

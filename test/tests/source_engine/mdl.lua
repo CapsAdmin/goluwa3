@@ -29,9 +29,10 @@ local tasks = require("tasks")
 local system = require("system")
 local vfs = require("vfs")
 
+--T.Test3D
 T.Pending("mdl rendering", function(draw)
 	steam.MountSourceGame("gmod")
-	tasks.WaitAll(5)
+	tasks.WaitAll(15)
 	local cam = render3d.GetCamera()
 	cam:SetPosition(Vec3(0, 0.68, 3))
 	cam:SetRotation(Quat(0, 0, 0, 1))

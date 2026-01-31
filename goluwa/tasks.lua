@@ -143,7 +143,8 @@ function META:Start(now, ...)
 			if not ok then
 				self.failed = true
 				self.error = res
-				
+				tasks.created[self] = nil
+
 				if self.OnError then
 					self:OnError(res, co)
 				else
@@ -151,7 +152,6 @@ function META:Start(now, ...)
 				end
 
 				self.Running = false
-				tasks.created[self] = nil
 				self:Remove()
 				return true
 			end

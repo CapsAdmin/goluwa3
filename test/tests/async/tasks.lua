@@ -144,7 +144,7 @@ T.Test("tasks.WrapCallback with timer.Delay", function()
 	end)
 end)
 
-T.Pending("tasks.WrapCallback async-like behavior", function()
+T.Test("tasks.WrapCallback async-like behavior", function()
 	cleanup_tasks()
 	local timer_wrapped = wrap_timer()
 	local value = 0
@@ -467,7 +467,7 @@ T.Test("task max concurrent limit", function()
 end)
 
 -- Test re-entrancy protection
-T.Pending("task re-entrancy protection with event.Call", function()
+T.Test("task re-entrancy protection with event.Call", function()
 	cleanup_tasks()
 	local event = require("event")
 	local resume_attempts = 0
@@ -493,7 +493,7 @@ T.Pending("task re-entrancy protection with event.Call", function()
 end)
 
 -- Test OnError receives coroutine for traceback
-T.Pending("task OnError receives coroutine parameter", function()
+T.Test("task OnError receives coroutine parameter", function()
 	cleanup_tasks()
 	local error_msg = nil
 	local error_co = nil
@@ -526,7 +526,7 @@ T.Pending("task OnError receives coroutine parameter", function()
 end)
 
 -- Test WaitForNestedTask functionality
-T.Pending("tasks.WaitForNestedTask waits for nested task completion", function()
+T.Test("tasks.WaitForNestedTask waits for nested task completion", function()
 	cleanup_tasks()
 	local outer_started = false
 	local inner_started = false
@@ -575,7 +575,7 @@ T.Pending("tasks.WaitForNestedTask waits for nested task completion", function()
 end)
 
 -- Test WaitForNestedTask with failed nested task
-T.Pending("tasks.WaitForNestedTask handles nested task errors", function()
+T.Test("tasks.WaitForNestedTask handles nested task errors", function()
 	cleanup_tasks()
 	local outer_completed = false
 	local nested_error_received = false
@@ -636,7 +636,7 @@ T.Test("task OnError receives coroutine", function()
 end)
 
 -- Test WaitForNestedTask basic usage
-T.Pending("tasks.WaitForNestedTask basic usage", function()
+T.Test("tasks.WaitForNestedTask basic usage", function()
 	cleanup_tasks()
 	local inner_executed = false
 	local outer_executed = false
@@ -665,7 +665,7 @@ T.Pending("tasks.WaitForNestedTask basic usage", function()
 end)
 
 -- Test WaitForNestedTask with error propagation
-T.Pending("tasks.WaitForNestedTask error propagation", function()
+T.Test("tasks.WaitForNestedTask error propagation", function()
 	cleanup_tasks()
 	local outer_completed = false
 	local error_caught = false

@@ -528,7 +528,7 @@ T.Test("callback parent subscribe propagates to children", function()
 	T(events[2])["=="]("event2")
 end)
 
-T.Pending("callback integration with timer", function()
+T.Test("callback integration with timer", function()
 	local Delay = callback.WrapTask(function(self, delay)
 		local resolve = self.callbacks.resolve
 

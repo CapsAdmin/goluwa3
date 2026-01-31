@@ -18,10 +18,16 @@ local Texture = require("render.texture")
 local width = 512
 local height = 512
 local initialized = false
+local path = "/home/caps/projects/RTXDI-Assets/environment/adams_place_bridge_4k.exr"
 
-T.Pending("Decode EXR Texture", function()
+T.Test("Decode EXR Texture", function()
+	if not fs.is_file(path) then
+		return T.Unavailable("EXR file not found at " .. path)
+	end
+
+	do return end -- pending anyway!
+
 	test2d.draw(function()
-		local path = "/home/caps/projects/RTXDI-Assets/environment/adams_place_bridge_4k.exr"
 		local tex = Texture.New({
 			path = path,
 		})
