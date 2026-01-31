@@ -40,6 +40,6 @@ TestGUI("example test", function()
 		local x, y = p.transform_2d:GetWorldMatrix():GetTranslation()
 		T((W - 100) / 2)["=="](x)
 		T((H - 100) / 2)["=="](y)
-		T.Screenshot("test")
+		T.Screenshot("logs/screenshots/test.png")
 	end
 end)

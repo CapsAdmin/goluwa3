@@ -62,7 +62,7 @@ TestGUI("Center and Fill", function()
 		-- FillX on 'l' should either fill everything if no collision, OR be blocked.
 		-- By default, layout commands collide with each other if they are in the same parent.
 		-- Let's check FillX/FillY more carefully with multiple elements.
-		T.Screenshot("center_and_fill")
+		T.Screenshot("logs/screenshots/center_and_fill.png")
 	end
 end)
 
@@ -114,7 +114,7 @@ TestGUI("Relative Movement", function()
 		T(ay)["=="](dy)
 		T(ax)["=="](ex)
 		T(ay - 50)["=="](ey)
-		T.Screenshot("relative_movement")
+		T.Screenshot("logs/screenshots/relative_movement.png")
 	end
 end)
 
@@ -148,7 +148,7 @@ TestGUI("Movement and Obstacles", function()
 		-- MoveLeft starts at 9999... and casts left.
 		-- It should hit obs at x=300 and place 'l' at 300.
 		T(300)["=="](lx)
-		T.Screenshot("obstacles")
+		T.Screenshot("logs/screenshots/obstacles.png")
 	end
 end)
 
@@ -187,7 +187,7 @@ TestGUI("Gmod Layout Commands", function()
 		T(H - 100)["=="](lh) -- 512 - 50 (top) - 50 (bottom) = 412.
 		-- Wait, H=512. 512 - 50 - 50 = 412.
 		T(412)["=="](lh)
-		T.Screenshot("gmod_layout")
+		T.Screenshot("logs/screenshots/gmod_layout.png")
 	end
 end)
 
@@ -213,7 +213,7 @@ TestGUI("Margins and Padding", function()
 		local bx, by = b.transform_2d:GetWorldMatrix():GetTranslation()
 		-- bx = ax - b.w - a.Margin.Left - b.Margin.Right = 352 - 50 - 5 - 10 = 287.
 		T(287)["=="](bx)
-		T.Screenshot("margins_padding")
+		T.Screenshot("logs/screenshots/margins_padding.png")
 	end
 end)
 
@@ -236,7 +236,7 @@ TestGUI("Fill with Obstacles", function()
 		-- Left of obstacle is at 200. Space from 0 to 200 is 200.
 		T(0)["=="](fx)
 		T(200)["=="](fw)
-		T.Screenshot("fill_obstacles")
+		T.Screenshot("logs/screenshots/fill_obstacles.png")
 	end
 end)
 
@@ -257,6 +257,6 @@ TestGUI("Center with Obstacles", function()
 		-- Gap [0, 300]. Center is 150. Panel size 100.
 		-- X should be 150 - 50 = 100.
 		T(100)["=="](fx)
-		T.Screenshot("center_obstacles")
+		T.Screenshot("logs/screenshots/center_obstacles.png")
 	end
 end)

@@ -270,16 +270,24 @@ do
 		local c = frustum_array[plane_offset + 2]
 		local d = frustum_array[plane_offset + 3]
 		local m = world_matrix
-		-- Transform world plane P to local space: P_L = W^T * P_W
-		-- Since matrix is row-major, Column i is (m0i, m1i, m2i, m3i)
-		out_array[out_offset] = a * m.m00 + b * m.m10 + c * m.m20 + d * m.m30
-		out_array[out_offset + 1] = a * m.m01 + b * m.m11 + c * m.m21 + d * m.m31
-		out_array[out_offset + 2] = a * m.m02 + b * m.m12 + c * m.m22 + d * m.m32
-		out_array[out_offset + 3] = a * m.m03 + b * m.m13 + c * m.m23 + d * m.m33
+		-- Transform world plane P to local space: P_L = W * P_W (where P is column vector)
+		-- Since matrix is row-major, Row i is (mi0, mi1, mi2, mi3)
+		out_array[out_offset] = a * m.m00 + b * m.m01 + c * m.m02 + d * m.m03
+		out_array[out_offset + 1] = a * m.m10 + b * m.m11 + c * m.m12 + d * m.m13
+		out_array[out_offset + 2] = a * m.m20 + b * m.m21 + c * m.m22 + d * m.m23
+		out_array[out_offset + 3] = a * m.m30 + b * m.m31 + c * m.m32 + d * m.m33
 	end
 
 	local cached_frustum_planes = ffi.new("float[24]")
 	local cached_frustum_frame = -1
+	local cached_frustum_view_m30 = 0
+	local cached_frustum_view_m31 = 0
+	local cached_frustum_view_m32 = 0
+	local cached_frustum_view_m00 = 0
+	local cached_frustum_view_m11 = 0
+	local cached_frustum_view_m22 = 0
+	local cached_frustum_proj_m00 = 0
+	local cached_frustum_proj_m11 = 0
 
 	local function get_frustum_planes()
 		if model.freeze_culling and cached_frustum_frame >= 0 then
@@ -287,15 +295,37 @@ do
 		end
 
 		local current_frame = system.GetFrameNumber()
+		-- BUGFIX: Also check if camera matrices have been invalidated
+		-- Frame number alone isn't enough when multiple draws happen in the same frame
+		-- with different camera settings (e.g., in tests)
+		local camera = render3d.GetCamera()
+		local view = camera:BuildViewMatrix()
+		local proj = camera:BuildProjectionMatrix()
 
-		if cached_frustum_frame ~= current_frame then
-			-- print("Extracting frustum for frame", current_frame)
+		-- Check if camera is dirty
+		if
+			cached_frustum_frame ~= current_frame or
+			cached_frustum_view_m30 ~= view.m30 or
+			cached_frustum_view_m31 ~= view.m31 or
+			cached_frustum_view_m32 ~= view.m32 or
+			cached_frustum_view_m00 ~= view.m00 or
+			cached_frustum_view_m11 ~= view.m11 or
+			cached_frustum_view_m22 ~= view.m22 or
+			cached_frustum_proj_m00 ~= proj.m00 or
+			cached_frustum_proj_m11 ~= proj.m11
+		then
 			-- ORIENTATION / TRANSFORMATION: Extract frustum from projection-view matrix
-			local camera = render3d.GetCamera()
-			local proj = camera:BuildProjectionMatrix()
-			local view = camera:BuildViewMatrix()
-			extract_frustum_planes(view * proj, cached_frustum_planes)
+			local vp = view * proj
+			extract_frustum_planes(vp, cached_frustum_planes)
 			cached_frustum_frame = current_frame
+			cached_frustum_view_m30 = view.m30
+			cached_frustum_view_m31 = view.m31
+			cached_frustum_view_m32 = view.m32
+			cached_frustum_view_m00 = view.m00
+			cached_frustum_view_m11 = view.m11
+			cached_frustum_view_m22 = view.m22
+			cached_frustum_proj_m00 = proj.m00
+			cached_frustum_proj_m11 = proj.m11
 		end
 
 		return cached_frustum_planes
@@ -320,7 +350,9 @@ do
 	end
 
 	function META:IsAABBVisibleLocal()
-		if not self.AABB then return true end
+		if model.noculling then return true end
+
+		if not self.AABB or self.AABB.min_x > self.AABB.max_x then return true end
 
 		local world_matrix = self:GetWorldMatrix()
 

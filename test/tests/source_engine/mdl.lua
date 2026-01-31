@@ -69,7 +69,7 @@ T.Test("mdl rendering", function()
 	tasks.WaitAll(15)
 	ent.transform:SetRotation(Quat(0, -1, 0, 1))
 	render.Draw(1)
-	T.Screenshot("combine")
+	T.Screenshot("logs/screenshots/combine.png")
 
 	T.ScreenAlbedoPixel(256, 256, function(r, g, b, a)
 		return r > 0 and g > 0 and b > 0
@@ -88,7 +88,7 @@ T.Test("mdl rendering", function()
 	tasks.WaitAll(15)
 	ent.transform:SetRotation(Quat(0, -1, 0, 1))
 	render.Draw(1)
-	T.Screenshot("alyx")
+	T.Screenshot("logs/screenshots/alyx.png")
 
 	T.ScreenAlbedoPixel(256, 256, function(r, g, b, a)
 		return r > 0 and g > 0 and b > 0
