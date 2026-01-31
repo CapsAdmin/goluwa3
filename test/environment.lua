@@ -1,13 +1,14 @@
 require("goluwa.global_environment")
-local test2d = require("test.test2d")
+local test_render = require("test.test_render")
 local T = require("helpers.test")
-
-if test2d then
-	T.Test2D = function(name, cb)
-		return T.Test(name, function()
-			test2d.draw(cb)
-		end)
-	end
+T.Test2D = function(name, cb)
+	return T.Test(name, function()
+		test_render.Draw2D(cb)
+	end)
 end
-
+T.Test3D = function(name, cb)
+	return T.Test(name, function()
+		test_render.Draw3D(cb)
+	end)
+end
 return T

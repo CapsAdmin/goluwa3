@@ -36,37 +36,34 @@ local function spawn_sphere(pos, use_occlusion)
 	return ent, mdl
 end
 
-T.Test("culling and occlusion", function()
-	render.Initialize({headless = true, width = width, height = height})
-	render3d.Initialize()
+T.Test3D("culling and occlusion", function(draw)
 	local cam = render3d.GetCamera()
-	cam:SetViewport(Rect(0, 0, width, height))
 	cam:SetFOV(math.rad(90))
 	cam:SetNearZ(0.1)
 	cam:SetFarZ(100)
 	cam:SetPosition(Vec3(0, 0, 0))
 	cam:SetRotation(Quat(0, 0, 0, 1)) -- Looking at -Z
-	T.Test("frustum culling front/back", function()
+	T.Test3D("frustum culling front/back", function(draw)
 		local ent, mdl = spawn_sphere(Vec3(0, 0, -10)) -- In front
-		render.Draw(0.1)
+		draw()
 		T(mdl.frustum_culled)["=="](false)
 		ent.transform:SetPosition(Vec3(0, 0, 10)) -- Behind
-		render.Draw(0.1)
+		draw()
 		T(mdl.frustum_culled)["=="](true)
 		ent:Remove()
 	end)
 
-	T.Test("frustum culling sides", function()
+	T.Test3D("frustum culling sides", function(draw)
 		local ent, mdl = spawn_sphere(Vec3(20, 0, -10)) -- Far right
-		render.Draw(0.1)
+		draw()
 		T(mdl.frustum_culled)["=="](true)
 		ent.transform:SetPosition(Vec3(0, 0, -10)) -- Center
-		render.Draw(0.1)
+		draw()
 		T(mdl.frustum_culled)["=="](false)
 		ent:Remove()
 	end)
 
-	T.Test("occlusion culling", function()
+	T.Test3D("occlusion culling", function(draw)
 		model.SetOcclusionCulling(true)
 		-- Spawn a large occluder in front
 		local occluder_ent, occluder_mdl = spawn_sphere(Vec3(0, 0, -5))
@@ -74,11 +71,11 @@ T.Test("culling and occlusion", function()
 		-- Spawn a small sphere behind it
 		local occludee_ent, occludee_mdl = spawn_sphere(Vec3(0, 0, -10), true)
 		-- First frame: queries are executed
-		render.Draw(0.1)
+		draw()
 		-- results are from previous frame (initially visible)
 		T(occludee_mdl.using_conditional_rendering)["=="](true)
 		-- Second frame: should use results from first frame
-		render.Draw(0.1)
+		draw()
 		local stats = model.GetOcclusionStats()
 		--print("Occlusion stats:", stats.total, stats.with_occlusion, stats.submitted_with_conditional)
 		-- We can't easily check if the GPU actually culled it, 

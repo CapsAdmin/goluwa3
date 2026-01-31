@@ -235,6 +235,17 @@ function render3d.Initialize()
 	event.Call("Render3DInitialized")
 end
 
+function render3d.ResetState()
+	render3d.camera = Camera3D.New()
+	render3d.world_matrix = Matrix44()
+	render3d.prev_view_matrix = Matrix44()
+	render3d.prev_projection_matrix = Matrix44()
+	render3d.current_material = render3d.GetDefaultMaterial()
+	render3d.environment_texture = nil
+	render3d.debug_cascade_colors = false
+	render3d.debug_mode = 1
+end
+
 function render3d.Draw(cmd, dt)
 	if not render3d.pipelines.blit then return end
 

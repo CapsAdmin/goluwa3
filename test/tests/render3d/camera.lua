@@ -95,18 +95,20 @@ local function create_face(pos, normal, up, color)
 		}
 	)
 	local ent = ecs.CreateEntity()
+	ent:SetName("face")
 	ent:AddComponent(transform)
 	ent:AddComponent(model)
 	ent.model:AddPrimitive(poly, material)
 	ent.model:BuildAABB()
 	ent.model:SetUseOcclusionCulling(false)
+	return ent
 end
 
-T.Test("camera tests", function()
-	do
-		render.Initialize({headless = true, width = width, height = height})
-		render3d.Initialize()
-		ecs.CreateFromTable(
+local function TestCamera(name, cb)
+	local ents = {}
+
+	local function start()
+		local sun = ecs.CreateFromTable(
 			{
 				[transform] = {
 					Rotation = Quat(-0.2, 0.8, 0.4, 0.4),
@@ -118,24 +120,25 @@ T.Test("camera tests", function()
 				},
 			}
 		)
+		sun:SetName("sun")
 		local cam = render3d.GetCamera()
-		cam:SetViewport(Rect(0, 0, width, height))
 		cam:SetFOV(math.rad(90))
+		table.insert(ents, sun)
 
 		--
 		do -- faces
 			-- Forward (+Z): Blue
-			create_face(Vec3(0, 0, 10), Vec3(0, 0, 1), Vec3(0, 1, 0), Color(0, 0, 1))
+			table.insert(ents, create_face(Vec3(0, 0, 10), Vec3(0, 0, 1), Vec3(0, 1, 0), Color(0, 0, 1)))
 			-- Backward (-Z): Yellow
-			create_face(Vec3(0, 0, -10), Vec3(0, 0, -1), Vec3(0, 1, 0), Color(1, 1, 0))
+			table.insert(ents, create_face(Vec3(0, 0, -10), Vec3(0, 0, -1), Vec3(0, 1, 0), Color(1, 1, 0)))
 			-- Right (+X): Red
-			create_face(Vec3(10, 0, 0), Vec3(1, 0, 0), Vec3(0, 1, 0), Color(1, 0, 0))
+			table.insert(ents, create_face(Vec3(10, 0, 0), Vec3(1, 0, 0), Vec3(0, 1, 0), Color(1, 0, 0)))
 			-- Left (-X): Cyan
-			create_face(Vec3(-10, 0, 0), Vec3(-1, 0, 0), Vec3(0, 1, 0), Color(0, 1, 1))
+			table.insert(ents, create_face(Vec3(-10, 0, 0), Vec3(-1, 0, 0), Vec3(0, 1, 0), Color(0, 1, 1)))
 			-- Up (+Y): Green
-			create_face(Vec3(0, 10, 0), Vec3(0, 1, 0), Vec3(0, 0, -1), Color(0, 1, 0))
+			table.insert(ents, create_face(Vec3(0, 10, 0), Vec3(0, 1, 0), Vec3(0, 0, -1), Color(0, 1, 0)))
 			-- Down (-Y): Magenta
-			create_face(Vec3(0, -10, 0), Vec3(0, -1, 0), Vec3(0, 0, 1), Color(1, 0, 1))
+			table.insert(ents, create_face(Vec3(0, -10, 0), Vec3(0, -1, 0), Vec3(0, 0, 1), Color(1, 0, 1)))
 		end
 
 		do -- small white cube in the center
@@ -155,44 +158,59 @@ T.Test("camera tests", function()
 			ent.model:AddPrimitive(poly, material)
 			ent.model:BuildAABB()
 			ent.model:SetUseOcclusionCulling(false)
+			table.insert(ents, ent)
 		end
 	end
 
-	T.Test("Identity rotation", function()
+	local function stop()
+		for _, ent in ipairs(ents) do
+			ent:Remove()
+		end
+	end
+
+	T.Test3D(name, function(draw)
+		start()
+		cb(draw)
+		stop()
+	end)
+end
+
+local function orient_camera(ang, pos)
+	local cam = render3d.GetCamera()
+	cam:SetPosition(pos or Vec3(0, 0, 0))
+	local q = Quat()
+	q:SetAngles(ang)
+	cam:SetRotation(q)
+end
+
+T.Test3D("camera tests", function(draw)
+	TestCamera("Identity rotation", function(draw)
 		local cam = render3d.GetCamera()
 		cam:SetPosition(Vec3(0, 0, 0))
 		cam:SetRotation(Quat(0, 0, 0, 1))
-		render.Draw(1)
+		draw()
 		test_color("center", "yellow") -- Should see Yellow (-Z)
 	end)
 
-	local function orient_camera(ang, pos)
-		local cam = render3d.GetCamera()
-		cam:SetPosition(pos or Vec3(0, 0, 0))
-		local q = Quat()
-		q:SetAngles(ang)
-		cam:SetRotation(q)
-	end
-
-	T.Test("Pitch 90 degrees should look Up", function()
+	TestCamera("Pitch 90 degrees should look Up", function(draw)
 		orient_camera(Deg3(90, 0, 0))
-		render.Draw(1)
+		draw()
 		test_color("center", "green")
 	end)
 
-	T.Test("Yaw 180 degrees should look Forward", function()
+	TestCamera("Yaw 180 degrees should look Forward", function(draw)
 		orient_camera(Deg3(0, 180, 0))
-		render.Draw(1)
+		draw()
 		test_color("center", "blue") -- Should see Blue (+Z)
 	end)
 
-	T.Test("Yaw 90 degrees should look Right", function()
+	TestCamera("Yaw 90 degrees should look Right", function(draw)
 		orient_camera(Deg3(0, -90, 0))
-		render.Draw(1)
+		draw()
 		test_color("center", "red") -- Should see Red (+X)
 	end)
 
-	T.Test("Camera look left and up", function()
+	TestCamera("Camera look left and up", function(draw)
 		local cam = render3d.GetCamera()
 		cam:SetFOV(math.rad(120))
 		cam:SetPosition(Vec3(0, 0, 0))
@@ -201,11 +219,11 @@ T.Test("camera tests", function()
 		q:RotateYaw(math.rad(90)) -- Turn Left
 		q:RotatePitch(math.rad(90)) -- Look Up
 		cam:SetRotation(q)
-		render.Draw(1)
+		draw()
 		test_color("center", "green")
 	end)
 
-	T.Test("Camera look left and up", function()
+	TestCamera("Camera look left and up 2", function(draw)
 		local cam = render3d.GetCamera()
 		cam:SetFOV(math.rad(120))
 		cam:SetPosition(Vec3(0, 0, 0))
@@ -214,30 +232,30 @@ T.Test("camera tests", function()
 		q:RotateYaw(math.rad(180)) -- Turn Backward (to Forward)
 		q:RotatePitch(math.rad(90)) -- Look Up
 		cam:SetRotation(q)
-		render.Draw(1)
+		draw()
 		test_color("center", "green")
 		test_color("left_center", "red")
 	end)
 
-	T.Test("Camera look up and move forward", function()
+	TestCamera("Camera look up and move forward", function(draw)
 		local cam = render3d.GetCamera()
 		cam:SetFOV(math.rad(120))
 		cam:SetRotation(Quat():SetAngles(Deg3(90, 0, 0)))
 		cam:SetPosition(cam:GetRotation():GetForward() * 5)
-		render.Draw(1)
+		draw()
 		test_color_all("green")
 	end)
 
-	T.Test("Pitch -90 degrees should look Down", function()
+	TestCamera("Pitch -90 degrees should look Down", function(draw)
 		local cam = render3d.GetCamera()
 		cam:SetFOV(math.rad(120))
 		cam:SetRotation(Quat():SetAngles(Deg3(-89, 0, 0))) -- 89 to prevent culling, TODO
 		cam:SetPosition(cam:GetRotation():GetForward() * 5)
-		render.Draw(1)
+		draw()
 		test_color_all("magenta")
 	end)
 
-	T.Test("Camera movement up", function()
+	TestCamera("Camera movement up", function(draw)
 		local cam = render3d.GetCamera()
 		cam:SetPosition(Vec3(0, 0, 0))
 		cam:SetRotation(Quat(0, 0, 0, 1))
@@ -247,24 +265,24 @@ T.Test("camera tests", function()
 		T(up.z)["=="](0)
 		cam:SetPosition(cam:GetPosition() + up * 5)
 		T(cam:GetPosition().y)["=="](5)
-		render.Draw(1)
+		draw()
 		test_color("center", "yellow")
 		test_color("top_center", "green")
 	end)
 
-	T.Test("Camera movement backward", function()
+	TestCamera("Camera movement backward", function(draw)
 		local cam = render3d.GetCamera()
 		cam:SetFOV(math.rad(120))
 		cam:SetPosition(Vec3(0, 0, 10))
-		render.Draw(1)
+		draw()
 		test_color("center", "white")
 	end)
 
-	T.Test("Camera movement left", function()
+	TestCamera("Camera movement left", function(draw)
 		local cam = render3d.GetCamera()
 		cam:SetFOV(math.rad(120))
 		cam:SetPosition(Vec3(-10, 0, 0))
-		render.Draw(1)
+		draw()
 		-- left half of the screen should be black
 		-- top right should be green 
 		-- right should be yellow 
@@ -275,24 +293,24 @@ T.Test("camera tests", function()
 		test_color("bottom_right", "magenta")
 	end)
 
-	T.Test("Camera roll", function()
+	TestCamera("Camera roll", function(draw)
 		local cam = render3d.GetCamera()
 		cam:SetFOV(math.rad(120))
 		cam:SetPosition(Vec3(0, 0, 5))
 		local q = Quat()
 		q:SetAngles(Deg3(0, 0, -90))
 		cam:SetRotation(q)
-		render.Draw(1)
+		draw()
 		test_color("left_center", "green")
 	end)
 
-	T.Pending("Camera FOV change", function()
+	T.Pending("Camera FOV change", function(draw)
 		local pixels_90, pixels_45
 		local cam = render3d.GetCamera()
 		cam:SetFOV(math.rad(90))
 		cam:SetPosition(Vec3(0, 0, 5))
 		cam:SetRotation(Quat(0, 0, 0, 1))
-		render.Draw(1)
+		draw()
 		test_color("center", "white")
 		local image_data = render.target:GetTexture():Download()
 		pixels_90 = 0
@@ -311,7 +329,7 @@ T.Test("camera tests", function()
 		cam:SetFOV(math.rad(45))
 		cam:SetPosition(Vec3(0, 0, 5))
 		cam:SetRotation(Quat(0, 0, 0, 1))
-		render.Draw(1)
+		draw()
 		test_color("center", "white")
 		local image_data = render.target:GetTexture():Download()
 		pixels_45 = 0
@@ -329,23 +347,22 @@ T.Test("camera tests", function()
 		T(pixels_45)[">"](pixels_90 * 2)
 	end)
 
-	T.Test("Camera near plane clipping", function()
+	TestCamera("Camera near plane clipping", function(draw)
 		local cam = render3d.GetCamera()
 		cam:SetNearZ(2.0)
 		cam:SetPosition(Vec3(0, 0, 1)) -- 1 unit away from center cube
 		cam:SetRotation(Quat(0, 0, 0, 1)) -- Look at center cube
-		render.Draw(1)
+		draw()
 		test_color("center", "yellow")
 	end)
 
-	T.Test("Camera far plane clipping", function()
+	TestCamera("Camera far plane clipping", function(draw)
 		local cam = render3d.GetCamera()
 		cam:SetFarZ(10 - 0.1) -- Just before the Yellow face
 		cam:SetFOV(math.rad(120))
 		cam:SetPosition(Vec3(0, 0, 0))
 		cam:SetRotation(Quat(0, 0, 0, 1)) -- Look at Yellow face (-Z)
-		render.Draw(1)
-		T.ScreenshotAlbedo("logs/screenshots/camera_yaw_180.png") ---
+		draw()
 		test_color("center", "black") -- center is clipped, so black
 		test_color("top_center", "green") -- top is green
 		test_color("bottom_center", "magenta") -- bottom is magenta
@@ -353,7 +370,7 @@ T.Test("camera tests", function()
 		test_color("right_center", "red") -- right is red
 	end)
 
-	T.Pending("Camera orbiting", function()
+	T.Pending("Camera orbiting", function(draw)
 		for angle = 0, math.pi * 2 - 0.1, math.pi / 2 do
 			local cam = render3d.GetCamera()
 			local radius = 5
@@ -363,7 +380,7 @@ T.Test("camera tests", function()
 			cam:SetAngles(Deg3(0, angle, 0))
 
 			for i = 1, 5 do
-				render.Draw(1)
+				draw()
 			end
 
 			test_color("center", "white") -- Should always see the white center cube

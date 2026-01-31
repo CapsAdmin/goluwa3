@@ -48,7 +48,7 @@ function META:Initialize()
 end
 
 function META:SetModelPath(path)
-	--self:RemoveSubModels()
+	self:RemovePrimitives()
 	self.ModelPath = path
 	self:SetLoading(true)
 
@@ -89,8 +89,17 @@ function META:SetModelPath(path)
 	)
 end
 
+function META:RemovePrimitives()
+	for _, prim in ipairs(self.Primitives) do
+		if prim.polygon3d then prim.polygon3d:Remove() end
+	end
+
+	self.Primitives = {}
+	self:SetAABB(AABB(math.huge, math.huge, math.huge, -math.huge, -math.huge, -math.huge))
+end
+
 function META:MakeError()
-	--self:RemoveSubModels()
+	self:RemovePrimitives()
 	self:SetLoading(false)
 	self:SetModelPath("models/error.mdl")
 end

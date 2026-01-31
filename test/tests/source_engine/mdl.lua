@@ -29,10 +29,14 @@ local tasks = require("tasks")
 local system = require("system")
 local vfs = require("vfs")
 
-local function setup_sun()
-	if render3d.GetLights()[1] then return end
-
-	ecs.CreateFromTable(
+T.Test3D("mdl rendering", function(draw)
+	steam.MountSourceGame("gmod")
+	tasks.WaitAll(5)
+	local cam = render3d.GetCamera()
+	cam:SetPosition(Vec3(0, 0.68, 3))
+	cam:SetRotation(Quat(0, 0, 0, 1))
+	cam:SetFOV(math.rad(30))
+	local sun = ecs.CreateFromTable(
 		{
 			[transform] = {
 				Rotation = Quat(0.5, 0, 0, -1),
@@ -40,36 +44,18 @@ local function setup_sun()
 			[light] = {
 				LightType = "sun",
 				Color = Color(1, 1, 1),
-				Intensity = 0,
+				Intensity = 10,
 			},
 		}
 	)
-end
-
--- Helper function to initialize render3d
-local function init_render3d()
-	render.Initialize({headless = true, width = width, height = height})
-	render3d.Initialize()
-	local cam = render3d.GetCamera()
-	cam:SetPosition(Vec3(0, 0.68, 3))
-	cam:SetRotation(Quat(0, 0, 0, 1))
-	cam:SetViewport(Rect(0, 0, width, height))
-	cam:SetFOV(math.rad(30))
-	setup_sun()
-end
-
-T.Test("mdl rendering", function()
-	init_render3d()
-	steam.MountSourceGame("gmod")
-	tasks.WaitAll(5)
 	local ent = ecs.CreateEntity("mdl", ecs.Get3DWorld())
 	ent:AddComponent(transform)
 	ent:AddComponent(model)
 	ent.model:SetModelPath("models/player/combine_super_soldier.mdl")
 	tasks.WaitAll(15)
 	ent.transform:SetRotation(Quat(0, -1, 0, 1))
-	render.Draw(1)
-	T.Screenshot("logs/screenshots/combine.png")
+	draw()
+	T.ScreenshotAlbedo("logs/screenshots/combine.png")
 
 	T.ScreenAlbedoPixel(256, 256, function(r, g, b, a)
 		return r > 0 and g > 0 and b > 0
@@ -87,8 +73,8 @@ T.Test("mdl rendering", function()
 	ent.model:SetModelPath("models/player/alyx.mdl")
 	tasks.WaitAll(15)
 	ent.transform:SetRotation(Quat(0, -1, 0, 1))
-	render.Draw(1)
-	T.Screenshot("logs/screenshots/alyx.png")
+	draw()
+	T.ScreenshotAlbedo("logs/screenshots/alyx.png")
 
 	T.ScreenAlbedoPixel(256, 256, function(r, g, b, a)
 		return r > 0 and g > 0 and b > 0
@@ -103,4 +89,5 @@ T.Test("mdl rendering", function()
 	end)
 
 	ent:Remove()
+	sun:Remove()
 end)

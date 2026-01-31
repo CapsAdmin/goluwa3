@@ -856,22 +856,23 @@ do -- base object
 			if self.OnRemove then self:OnRemove(...) end
 
 			if not event_added and event then
-				event.AddListener("Update", "prototype_remove_objects", function()
-					if #prototype.remove_these > 0 then
-						for _, obj in ipairs(prototype.remove_these) do
-							prototype.created_objects[obj] = nil
-							prototype.MakeNULL(obj)
-						end
-
-						list.clear(prototype.remove_these)
-					end
-				end)
-
+				event.AddListener("Update", "prototype_remove_objects", prototype.CheckRemovedObjects)
 				event_added = true
 			end
 
 			list.insert(prototype.remove_these, self)
 			self.__removed = true
+		end
+
+		function prototype.CheckRemovedObjects()
+			if #prototype.remove_these > 0 then
+				for _, obj in ipairs(prototype.remove_these) do
+					prototype.created_objects[obj] = nil
+					prototype.MakeNULL(obj)
+				end
+
+				list.clear(prototype.remove_these)
+			end
 		end
 	end
 
