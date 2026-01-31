@@ -1,7 +1,6 @@
 .DS_Store
 logs/
 .running_pid
-flake.lock
 lsp_session_*
 local_stuff
 game/storage/*
