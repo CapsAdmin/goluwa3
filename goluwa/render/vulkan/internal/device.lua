@@ -9,8 +9,11 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 	-- Add portability subset and its dependency if supported
 	local finalExtensions = {}
 
-	for i, ext in ipairs(extensions) do
-		finalExtensions[i] = ext
+	-- Only add requested extensions if they're actually available
+	for _, ext in ipairs(extensions) do
+		if table.has_value(available_extensions, ext) then
+			table.insert(finalExtensions, ext)
+		end
 	end
 
 	if table.has_value(available_extensions, "VK_KHR_portability_subset") then
@@ -55,11 +58,15 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 	maintenance4Features.pNext = pNextChain
 	maintenance4Features.maintenance4 = 1
 	pNextChain = maintenance4Features
+	
+	-- Query available Vulkan 1.1 features
+	local availableVulkan11Features = physical_device:GetVulkan11Features()
 	local vulkan11Features = vulkan.vk.VkPhysicalDeviceVulkan11Features()
 	vulkan11Features.sType = vulkan.vk.VkStructureType.VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES
 	vulkan11Features.pNext = pNextChain
-	vulkan11Features.storageBuffer16BitAccess = 1
-	vulkan11Features.uniformAndStorageBuffer16BitAccess = 1
+	-- Only enable 16-bit features if they're actually supported
+	vulkan11Features.storageBuffer16BitAccess = availableVulkan11Features.storageBuffer16BitAccess
+	vulkan11Features.uniformAndStorageBuffer16BitAccess = availableVulkan11Features.uniformAndStorageBuffer16BitAccess
 	pNextChain = vulkan11Features
 	local demoteFeatures = vulkan.vk.VkPhysicalDeviceShaderDemoteToHelperInvocationFeaturesEXT()
 	demoteFeatures.sType = vulkan.vk.VkStructureType.VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_DEMOTE_TO_HELPER_INVOCATION_FEATURES_EXT

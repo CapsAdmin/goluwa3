@@ -18,6 +18,10 @@ jobs:
         run: |
           nix develop --command bash -c "which luajit && luajit -v"
       
+      - name: Verify SwiftShader
+        run: |
+          nix develop --command bash -c "vulkaninfo | head -20"
+      
       - name: Run goluwa tests
         run: |
           nix develop --command bash -c "luajit glw test"

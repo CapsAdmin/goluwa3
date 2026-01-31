@@ -176,6 +176,19 @@ function PhysicalDevice:GetFeatures()
 	return features[0]
 end
 
+function PhysicalDevice:GetVulkan11Features()
+	local vulkan11Features = vulkan.vk.VkPhysicalDeviceVulkan11Features()
+	vulkan11Features.sType = vulkan.vk.VkStructureType.VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES
+	vulkan11Features.pNext = nil
+	
+	local queryDeviceFeatures = vulkan.vk.VkPhysicalDeviceFeatures2()
+	queryDeviceFeatures.sType = vulkan.vk.VkStructureType.VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2
+	queryDeviceFeatures.pNext = vulkan11Features
+	
+	vulkan.lib.vkGetPhysicalDeviceFeatures2(self.ptr[0], queryDeviceFeatures)
+	return vulkan11Features
+end
+
 function PhysicalDevice:GetExtendedDynamicStateFeatures()
 	-- Chain v1, v2, and v3 feature queries together
 	local queryFeaturesV3 = vulkan.vk.VkPhysicalDeviceExtendedDynamicState3FeaturesEXT(
