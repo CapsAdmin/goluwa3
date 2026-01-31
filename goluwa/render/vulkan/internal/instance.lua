@@ -113,7 +113,7 @@ function Instance.New(extensions, layers)
 	local self = Instance:CreateObject({ptr = ptr, debug_messenger = nil})
 
 	-- Create debug messenger
-	if has_validation then
+	if has_validation and self:HasExtension("vkCreateDebugUtilsMessengerEXT") then
 		local vkCreateDebugUtilsMessengerEXT = self:GetExtension("vkCreateDebugUtilsMessengerEXT")
 		local messenger_ptr = vulkan.T.Box(vulkan.vk.VkDebugUtilsMessengerEXT)()
 		vulkan.assert(
@@ -156,6 +156,12 @@ function Instance:GetPhysicalDevices()
 	end
 
 	return out
+end
+
+function Instance:HasExtension(name)
+	local func_ptr = vulkan.lib.vkGetInstanceProcAddr(self.ptr[0], name)
+
+	return func_ptr ~= nil
 end
 
 function Instance:GetExtension(name)
