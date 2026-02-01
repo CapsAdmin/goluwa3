@@ -2,26 +2,26 @@ name: build
 on: [push]
 
 jobs:
-  goluwa:
+  test:
     runs-on: ubuntu-latest
 
     steps:
       - name: checkout the project
         uses: actions/checkout@v4
 
-      - name: Install Nix
+      - name: install nix package manager
         uses: cachix/install-nix-action@v25
         with:
           nix_path: nixpkgs=channel:nixpkgs-unstable
 
-      - name: Build LuaJIT 
+      - name: build luajit 
         run: |
           nix develop --command bash -c "which luajit && luajit -v"
       
-      - name: Verify SwiftShader
+      - name: smoke vulkan lavapipe test
         run: |
-          nix develop --command bash -c "vulkaninfo | head -20"
+          nix develop --command bash -c "vulkaninfo --summary 2>&1 | grep -E '(deviceName|driverName|apiVersion)' || true"
       
-      - name: Run goluwa tests
+      - name: run tests
         run: |
           nix develop --command bash -c "luajit glw test"
