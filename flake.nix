@@ -98,6 +98,7 @@
           LD_LIBRARY_PATH = with pkgs; "${vulkan-loader}/lib:${vulkan-validation-layers}/lib:${shaderc.lib}/lib:${wayland}/lib:${libxkbcommon}/lib:${renderdoc}/lib:${openssl.out}/lib:${mesa}/lib";
           VULKAN_SDK = "${pkgs.vulkan-headers}";
           VK_LAYER_PATH = "${pkgs.vulkan-validation-layers}/share/vulkan/explicit_layer.d";
+          VK_ICD_FILENAMES = "${pkgs.mesa}/share/vulkan/icd.d/lvp_icd.x86_64.json";
           RENDERDOC_LIB = "${pkgs.renderdoc}/lib/librenderdoc.so";
           
           # Wayland environment

@@ -18,9 +18,25 @@ jobs:
         run: |
           nix develop --command bash -c "which luajit && luajit -v"
       
-      - name: smoke vulkan lavapipe test
+      - name: check vulkan environment
         run: |
-          nix develop --command bash -c "vulkaninfo --summary 2>&1 | grep -E '(deviceName|driverName|apiVersion)' || true"
+          nix develop --command bash -c "
+            echo '=== Environment Variables ==='
+            echo \"VK_LAYER_PATH=\$VK_LAYER_PATH\"
+            echo \"VK_ICD_FILENAMES=\$VK_ICD_FILENAMES\"
+            echo ''
+            echo '=== Validation Layer Files ==='
+            ls -la \$VK_LAYER_PATH 2>/dev/null || echo 'VK_LAYER_PATH directory not found'
+            echo ''
+            echo '=== ICD Driver Files ==='
+            ls -la \$(dirname \$VK_ICD_FILENAMES) 2>/dev/null || echo 'ICD directory not found'
+            echo ''
+            echo '=== Vulkan Instance Layers ==='
+            vulkaninfo --summary 2>&1 | grep -A 20 'Instance Layers:' || echo 'No layers info'
+            echo ''
+            echo '=== Vulkan Device Info ==='
+            vulkaninfo --summary 2>&1 | grep -E '(deviceName|driverName|apiVersion)' || echo 'vulkaninfo failed'
+          "
       
       - name: run tests
         run: |

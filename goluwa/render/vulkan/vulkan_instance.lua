@@ -39,7 +39,22 @@ function VulkanInstance.New(surface_handle, display_handle)
 		table.insert(extensions, "VK_KHR_portability_enumeration")
 	end
 
-	self.instance = Instance.New(extensions, {"VK_LAYER_KHRONOS_validation"})
+	local validation_layers = nil
+	local available_layers = vulkan.GetAvailableLayers()
+	
+	for _, layer in ipairs(available_layers) do
+		if layer == "VK_LAYER_KHRONOS_validation" then
+			validation_layers = {"VK_LAYER_KHRONOS_validation"}
+			logf("[render] Enabling Vulkan validation layers\n")
+			break
+		end
+	end
+	
+	if not validation_layers then
+		logf("[render] Validation layers not available - running without validation\n")
+	end
+
+	self.instance = Instance.New(extensions, validation_layers)
 
 	-- Create surface only if not headless
 	if not is_headless then
