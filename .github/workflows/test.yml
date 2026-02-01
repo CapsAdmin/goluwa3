@@ -24,4 +24,4 @@ jobs:
       
       - name: run tests
         run: |
-          nix develop --command bash -c "luajit glw test"
+          nix develop --command bash -c "luajit glw test --verbose"
