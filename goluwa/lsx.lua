@@ -11,6 +11,20 @@ local Fragment = prototype.CreateTemplate("lsx_fragment"):Register()
 local Element = prototype.CreateTemplate("lsx_element"):Register()
 local Component = prototype.CreateTemplate("lsx_component"):Register()
 
+local function SafeRemove(obj)
+	if not obj then return end
+
+	if type(obj) == "table" then
+		if obj.IsValid and obj.Remove and obj:IsValid() then
+			obj:Remove()
+		else
+			for _, v in ipairs(obj) do
+				SafeRemove(v)
+			end
+		end
+	end
+end
+
 function META:Fragment(props)
 	return Fragment:CreateObject({props = props or {}})
 end
@@ -263,7 +277,7 @@ function META:Build(node, parent, existing, adapter)
 	adapter = adapter or self.DefaultAdapter
 
 	if node == nil or node == false then
-		if existing then prototype.SafeRemove(existing) end
+		if existing then SafeRemove(existing) end
 
 		return nil
 	end
@@ -308,7 +322,7 @@ function META:Build(node, parent, existing, adapter)
 		-- fragments don't support reconciliation easily yet, recreate
 		if existing then
 			if type(existing) == "table" and existing.Type ~= "lsx_fragment" then
-				prototype.SafeRemove(existing)
+				SafeRemove(existing)
 				existing = nil
 			end
 		end
@@ -323,7 +337,7 @@ function META:Build(node, parent, existing, adapter)
 
 		if existing and #existing > #node.props then
 			for i = #node.props + 1, #existing do
-				prototype.SafeRemove(existing[i])
+				SafeRemove(existing[i])
 			end
 		end
 
@@ -352,6 +366,7 @@ function META:Build(node, parent, existing, adapter)
 		node.render_scheduled = false
 		node.adapter = adapter
 		node.lsx_props = node.props
+		node.parent = parent
 		self.current_component = node
 		self.hook_index = 0
 		local rendered = node.build(node.props)
@@ -366,7 +381,7 @@ function META:Build(node, parent, existing, adapter)
 			panel.lsx_props = node.props
 		end
 
-		if existing and panel ~= existing then prototype.SafeRemove(existing) end
+		if existing and panel ~= existing then SafeRemove(existing) end
 
 		if panel and type(panel) == "table" and panel.Remove then
 			if node.props.ref then
@@ -407,7 +422,7 @@ function META:Build(node, parent, existing, adapter)
 			type(panel) ~= "table" or
 			not panel.Remove
 		then
-			if panel then prototype.SafeRemove(panel) end
+			if panel then SafeRemove(panel) end
 
 			panel = node.ctor(parent)
 			panel.ctor = node.ctor
@@ -491,7 +506,7 @@ function META:Build(node, parent, existing, adapter)
 
 		if #finalChildren > #node.props then
 			for i = #finalChildren, #node.props + 1, -1 do
-				prototype.SafeRemove(finalChildren[i])
+				SafeRemove(finalChildren[i])
 			end
 		end
 
@@ -504,7 +519,10 @@ end
 function META:Mount(node, parent, adapter)
 	adapter = adapter or self.DefaultAdapter
 	parent = parent or (adapter.GetRoot and adapter.GetRoot())
-	local panel = self:Build(node, parent, nil, adapter)
+
+	local existing = self.mounted_on_parent[parent]
+	local panel = self:Build(node, parent, existing, adapter)
+	self.mounted_on_parent[parent] = panel
 
 	if adapter and adapter.PostRender then adapter.PostRender(panel) end
 
@@ -524,11 +542,43 @@ function META:MountTopLevel(fn, props, parent, adapter)
 	return self:Mount(node, parent, adapter)
 end
 
+function META:Update()
+	for _, comp in ipairs(self.pending_renders) do
+		comp.render_scheduled = false
+
+		if comp.instance and type(comp.instance) == "table" then
+			comp.instance.lsx_render_scheduled = false
+		end
+
+		local parent = comp.parent
+		local parent_valid = true
+
+		if type(parent) == "table" and parent.IsValid then
+			parent_valid = parent:IsValid()
+		end
+
+		if comp and parent_valid then
+			comp.explicit_render = true
+			self:Build(comp, parent, comp.instance, comp.adapter)
+			comp.explicit_render = false
+
+			if comp.adapter and comp.adapter.PostRender then
+				comp.adapter.PostRender(comp.instance)
+			end
+
+			self:RunPendingEffects()
+		end
+	end
+
+	table.clear(self.pending_renders)
+end
+
 function META.New(adapter)
 	local self = META:CreateObject(
 		{
 			DefaultAdapter = adapter,
 			component_states = setmetatable({}, {__mode = "k"}),
+			mounted_on_parent = setmetatable({}, {__mode = "k"}),
 			pending_effects = {},
 			pending_renders = {},
 			hook_index = 0,
@@ -536,27 +586,7 @@ function META.New(adapter)
 	)
 
 	event.AddListener("Update", self, function()
-		for _, comp in ipairs(self.pending_renders) do
-			local valid = comp.instance and comp.instance:IsValid()
-			comp.render_scheduled = false
-
-			if comp.instance then comp.instance.lsx_render_scheduled = false end
-
-			if comp and comp.instance and valid then
-				local parent = comp.instance:GetParent()
-				comp.explicit_render = true
-				self:Build(comp, parent, comp.instance, comp.adapter)
-				comp.explicit_render = false
-
-				if comp.adapter and comp.adapter.PostRender then
-					comp.adapter.PostRender(comp.instance)
-				end
-
-				self:RunPendingEffects()
-			end
-		end
-
-		table.clear(self.pending_renders)
+		self:Update()
 	end)
 
 	return self

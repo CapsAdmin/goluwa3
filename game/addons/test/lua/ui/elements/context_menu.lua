@@ -12,9 +12,13 @@ return function(props)
 	lsx:UseEffect(
 		function()
 			if props.Visible then
+				if render_state == "closed" or render_state == "closing" then
 				set_render_state("opening")
-			elseif render_state ~= "closed" then
+				end
+			else
+				if render_state == "open" or render_state == "opening" then
 				set_render_state("closing")
+				end
 			end
 		end,
 		{props.Visible}
@@ -35,7 +39,7 @@ return function(props)
 				end
 			end,
 		},
-		{render_state}
+		{render_state == "opening" or render_state == "closing"}
 	)
 
 	if render_state == "closed" then return nil end
@@ -49,6 +53,9 @@ return function(props)
 		Name = "ContextMenuContainer",
 		Size = Vec2(render2d.GetSize()),
 		Color = Color(0, 0, 0, 0), -- Invisible background to catch clicks
+		mouse_input_2d = {
+			BringToFrontOnClick = true,
+		},
 		OnMouseInput = function(self, button, press)
 			if press and button == "button_1" then
 				if props.OnClose then props.OnClose() end
