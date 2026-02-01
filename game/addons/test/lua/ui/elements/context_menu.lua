@@ -6,7 +6,39 @@ local lsx = require("ecs.lsx_ecs")
 local Frame = runfile("lua/ui/elements/frame.lua")
 
 return function(props)
-	if not props.Visible then return nil end
+	local render_state, set_render_state = lsx:UseState(props.Visible and "open" or "closed")
+	local ref = lsx:UseRef(nil)
+
+	lsx:UseEffect(
+		function()
+			if props.Visible then
+				set_render_state("opening")
+			elseif render_state ~= "closed" then
+				set_render_state("closing")
+			end
+		end,
+		{props.Visible}
+	)
+
+	lsx:UseAnimate(
+		ref,
+		{
+			var = "DrawScaleOffset",
+			to = (render_state == "opening" or render_state == "open") and Vec2(1, 1) or Vec2(1, 0),
+			time = 0.2,
+			interpolation = "outExpo",
+			callback = function()
+				if render_state == "closing" then
+					set_render_state("closed")
+				elseif render_state == "opening" then
+					set_render_state("open")
+				end
+			end,
+		},
+		{render_state}
+	)
+
+	if render_state == "closed" then return nil end
 
 	local children = {}
 	for i = 1, #props do
@@ -25,6 +57,9 @@ return function(props)
 		end,
 		Frame({
 			Name = "ContextMenu",
+			ref = ref,
+			Pivot = Vec2(0, 0),
+			DrawScaleOffset = render_state == "opening" and Vec2(1, 0) or nil,
 			Position = props.Position or Vec2(100, 100),
 			Size = props.Size or Vec2(200, 0),
 			Layout = {"SizeToChildrenHeight"},
