@@ -14,7 +14,7 @@ end)
 event.AddListener("KeyInput", "mouse_trap", function(key, press)
 	if not press then return end
 
-	if key == "escape" then wnd:SetMouseTrapped(not wnd:GetMouseTrapped()) end
+	-- if key == "escape" then wnd:SetMouseTrapped(not wnd:GetMouseTrapped()) end
 end)
 
 event.AddListener("WindowLostFocus", "mouse_trap", function(wnd)

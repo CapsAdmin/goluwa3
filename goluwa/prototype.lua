@@ -971,6 +971,7 @@ do -- base object
 		self.local_events[what] = self.local_events[what] or {}
 		self.local_events[what][id] = callback
 		return function(...)
+			if not self.local_events or not self.local_events[what] or not self.local_events[what][id] then return end
 			self.local_events[what][id] = nil
 		end
 	end

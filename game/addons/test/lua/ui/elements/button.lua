@@ -56,7 +56,8 @@ return function(props)
 	local ref = lsx:UseRef(nil)
 	local is_hovered = lsx:UseHoverExclusively(ref)
 	local is_pressed, set_pressed = lsx:UseState(false)
-	local is_active = is_hovered and is_pressed
+	local is_disabled = props.Disabled
+	local is_active = not is_disabled and ((is_hovered and is_pressed) or props.Active)
 	local glow_alpha_ref = lsx:UseRef(0)
 	local press_scale_ref = lsx:UseRef(0)
 	lsx:UseAnimate(
@@ -69,11 +70,11 @@ return function(props)
 			set = function(_, val)
 				glow_alpha_ref.current = val
 			end,
-			to = is_hovered and 1 or 0,
+			to = (is_hovered and not is_disabled) and 1 or 0,
 			interpolation = "inOutSine",
 			time = 0.25,
 		},
-		{is_hovered}
+		{is_hovered, is_disabled}
 	)
 	lsx:UseAnimate(
 		ref,
@@ -89,7 +90,7 @@ return function(props)
 			interpolation = (is_pressed and not is_hovered) and "linear" or "inOutSine",
 			time = (is_pressed and not is_hovered) and 0.3 or 0.25,
 		},
-		{is_pressed, is_hovered}
+		{is_pressed, is_hovered, is_active}
 	)
 	lsx:UseAnimate(
 		ref,
@@ -110,7 +111,7 @@ return function(props)
 				},
 			time = (is_pressed and not is_hovered) and 0.3 or nil,
 		},
-		{is_pressed, is_hovered}
+		{is_pressed, is_hovered, is_active}
 	)
 	lsx:UseAnimate(
 		ref,
@@ -140,7 +141,7 @@ return function(props)
 				},
 			time = (is_pressed and not is_hovered) and 0.3 or 10,
 		},
-		{is_pressed, is_hovered}
+		{is_pressed, is_hovered, is_active}
 	)
 	return lsx:Panel(
 		lsx:MergeProps(
@@ -157,11 +158,13 @@ return function(props)
 				ShadowColor = Color(0, 0, 0, 0.2),
 				ShadowOffset = Vec2(2, 2),
 				Clipping = true,
-				Color = Color(0.8, 0.8, 0.2, 1),
-				OnClick = function()
+				Cursor = is_disabled and "arrow" or "hand",
+				Color = is_disabled and Color(0.3, 0.3, 0.3, 1) or Color(0.8, 0.8, 0.2, 1),
+				OnClick = not is_disabled and (props.OnClick or function()
 					print("clicked!")
-				end,
+				end) or nil,
 				OnMouseInput = function(self, button, press, local_pos)
+					if is_disabled then return end
 					if button == "button_1" then
 						set_pressed(press)
 						return true
@@ -183,7 +186,7 @@ return function(props)
 						render2d.PopUV()
 						local mpos = window.GetMousePosition()
 
-						if self.Entity.mouse_input_2d:IsHoveredExclusively(mpos) then
+						if not is_disabled and self.Entity.mouse_input_2d:IsHoveredExclusively(mpos) then
 							local lpos = self.Entity.transform_2d:GlobalToLocal(mpos)
 							render2d.SetBlendMode("additive")
 							render2d.SetTexture(glow_linear_tex)
@@ -220,6 +223,7 @@ return function(props)
 						render2d.PopUV()
 						render2d.SetBlendMode("alpha")
 					end,
+					DrawAlpha = is_disabled and 0.5 or 1,
 				},
 			},
 			props
