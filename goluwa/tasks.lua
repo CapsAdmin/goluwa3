@@ -4,7 +4,7 @@ local system = require("system")
 local prototype = require("prototype")
 local callstack = require("helpers.callstack")
 local tasks = library()
-tasks.max = 64
+tasks.max = 128
 tasks.coroutine_lookup = tasks.coroutine_lookup or table.weak()
 tasks.created = tasks.created or {}
 tasks.running_tasks = tasks.running_tasks or {}
@@ -138,6 +138,12 @@ function META:Start(now, ...)
 			tasks.running_tasks[co] = true
 			local ok, res = coroutine.resume(co, self)
 			tasks.running_tasks[co] = nil
+			
+			-- Task was removed during coroutine resume (e.g., by test cleanup or explicit removal)
+			-- This is valid - treat as completed
+			if not self:IsValid() then 
+				return true 
+			end 
 
 			-- Handle errors
 			if not ok then
@@ -224,6 +230,13 @@ function META:GetProgress(what)
 end
 
 function META:OnRemove()
+	if tasks.running_tasks[self.co] then
+		if self.debug then
+			logn("Removing running task:", self, "status=", coroutine.status(self.co))
+			debug.trace()
+		end
+	end
+
 	tasks.created[self] = nil
 	tasks.Update()
 end

@@ -1,4 +1,5 @@
 local ffi = require("ffi")
+local vulkan = require("render.vulkan.internal.vulkan")
 local render = require("render.render")
 local Vec2 = require("structs.vec2")
 local Buffer = require("render.vulkan.internal.buffer")
@@ -685,6 +686,46 @@ function Texture:GenerateMipmaps(initial_layout, cmd)
 	elseif old_layout == "color_attachment_optimal" then
 		src_access = "color_attachment_write"
 		src_stage = "color_attachment_output"
+	end
+
+	-- Check if blitting is supported for this format
+	local props = self.image.device.physical_device:GetFormatProperties(self.config.format)
+	local features = tonumber(props.optimalTilingFeatures)
+	local blit_dst_supported = bit.band(features, tonumber(vulkan.vk.VkFormatFeatureFlagBits.VK_FORMAT_FEATURE_BLIT_DST_BIT)) ~= 0
+	local blit_src_supported = bit.band(features, tonumber(vulkan.vk.VkFormatFeatureFlagBits.VK_FORMAT_FEATURE_BLIT_SRC_BIT)) ~= 0
+
+	if not blit_dst_supported or not blit_src_supported then
+		cmd:PipelineBarrier(
+			{
+				srcStage = src_stage,
+				dstStage = "fragment",
+				imageBarriers = {
+					{
+						image = self.image,
+						srcAccessMask = src_access,
+						dstAccessMask = "shader_read",
+						oldLayout = old_layout,
+						newLayout = "shader_read_only_optimal",
+						base_mip_level = 0,
+						level_count = self.mip_map_levels,
+						layer_count = layers,
+					},
+				},
+			}
+		)
+
+		if internal_cmd then
+			cmd:End()
+
+			if not temp_fence then temp_fence = Fence.New(device) end
+
+			queue:Submit({command_buffers = {cmd}, signal_fence = temp_fence})
+			temp_fence:Wait()
+			temp_fence:Reset()
+			command_pool:FreeCommandBuffer(cmd)
+		end
+
+		return
 	end
 
 	-- Transition first mip level (0) to transfer_src

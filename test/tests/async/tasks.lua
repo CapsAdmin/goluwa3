@@ -693,3 +693,42 @@ T.Test("tasks.WaitForNestedTask error propagation", function()
 	T(outer_completed)["=="](true)
 	T(error_caught)["=="](true)
 end)
+
+-- Test task removed during execution (valid cleanup scenario)
+T.Test("task removed during execution is handled gracefully", function()
+	cleanup_tasks()
+	local task_started = false
+	local task_removed = false
+	local timer_fired = false
+	
+	local task = tasks.CreateTask(function(self)
+		task_started = true
+		
+		-- Use timer.Delay to trigger task removal during execution
+		timer.Delay(0, function()
+			timer_fired = true
+			-- Remove the task while it's running
+			self:Remove()
+			task_removed = true
+		end)
+		
+		-- Wait to allow the removal to happen
+		tasks.Wait(0.05)
+		
+		-- This should not execute because task was removed
+		error("Task should have been removed before reaching this point")
+	end, function()
+		-- OnFinish should not be called when removed mid-execution
+		error("OnFinish should not be called for removed task")
+	end, true)
+	
+	-- Wait for the timer to fire and task to be removed
+	T.WaitUntil(function()
+		return timer_fired and task_removed
+	end, 2)
+	
+	T(task_started)["=="](true)
+	T(timer_fired)["=="](true)
+	T(task_removed)["=="](true)
+	T(not task:IsValid())["=="](true)
+end)

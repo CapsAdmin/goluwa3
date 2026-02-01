@@ -170,6 +170,13 @@ function PhysicalDevice:GetProperties()
 	return properties[0]
 end
 
+function PhysicalDevice:GetFormatProperties(format)
+	local format_enum = vulkan.vk.e.VkFormat(format)
+	local props = vulkan.vk.VkFormatProperties()
+	vulkan.lib.vkGetPhysicalDeviceFormatProperties(self.ptr[0], format_enum, props)
+	return props
+end
+
 function PhysicalDevice:GetFeatures()
 	local features = vulkan.T.Box(vulkan.vk.VkPhysicalDeviceFeatures)()
 	vulkan.lib.vkGetPhysicalDeviceFeatures(self.ptr[0], features)
