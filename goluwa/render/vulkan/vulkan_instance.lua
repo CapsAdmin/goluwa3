@@ -40,18 +40,17 @@ function VulkanInstance.New(surface_handle, display_handle)
 	end
 
 	local validation_layers = nil
+	if os.getenv("VK_INSTANCE_LAYERS") then
+		logn("Using VK_INSTANCE_LAYERS from environment: " .. os.getenv("VK_INSTANCE_LAYERS"))
+	else
 	local available_layers = vulkan.GetAvailableLayers()
 	
 	for _, layer in ipairs(available_layers) do
 		if layer == "VK_LAYER_KHRONOS_validation" then
 			validation_layers = {"VK_LAYER_KHRONOS_validation"}
-			logf("[render] Enabling Vulkan validation layers\n")
 			break
+			end
 		end
-	end
-	
-	if not validation_layers then
-		logf("[render] Validation layers not available - running without validation\n")
 	end
 
 	self.instance = Instance.New(extensions, validation_layers)
