@@ -20,12 +20,13 @@ local function debug_callback(messageSeverity, messageType, pCallbackData, pUser
 		if msg:find(pattern, nil, true) then return vulkan.vk.VK_FALSE end
 	end
 
-	print(
+	io.write(
 		debug.traceback(
 				"\n[" .. table.concat(severity_flags, "|") .. "] [" .. table.concat(type_flags, "|") .. "]\n" .. msg,
 				2
 			) .. "\n"
 	)
+	io.flush()
 	return vulkan.vk.VK_FALSE
 end
 

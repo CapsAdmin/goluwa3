@@ -43,16 +43,16 @@ function VulkanInstance.New(surface_handle, display_handle)
 	if os.getenv("VK_INSTANCE_LAYERS") then
 		logn("Using VK_INSTANCE_LAYERS from environment: " .. os.getenv("VK_INSTANCE_LAYERS"))
 	else
-	local available_layers = vulkan.GetAvailableLayers()
-	
-	for _, layer in ipairs(available_layers) do
-		if layer == "VK_LAYER_KHRONOS_validation" then
-			validation_layers = {"VK_LAYER_KHRONOS_validation"}
-			break
+		local available_layers = vulkan.GetAvailableLayers()
+		
+		for _, layer in ipairs(available_layers) do
+			if layer == "VK_LAYER_KHRONOS_validation" then
+				validation_layers = {"VK_LAYER_KHRONOS_validation"}
+				break
 			end
 		end
 	end
-
+	
 	self.instance = Instance.New(extensions, validation_layers)
 
 	-- Create surface only if not headless
@@ -169,7 +169,7 @@ function VulkanInstance:CreateOcclusionQuery()
 end
 
 function VulkanInstance:OnRemove()
-	if self.device:IsValid() then self.device:WaitIdle() end
+	if self.device and self.device:IsValid() then self.device:WaitIdle() end
 
 	if self.command_pool then self.command_pool:Remove() end
 

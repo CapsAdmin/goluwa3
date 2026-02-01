@@ -344,19 +344,34 @@ function GraphicsPipeline:UpdateDescriptorSet(type, index, binding_index, ...)
 					self.descriptor_sets[index],
 					binding_index,
 					tex.view,
-					tex.sampler
+					tex.sampler,
+					self:GetFallbackView(),
+					self:GetFallbackSampler()
 				)
 				return
 			end
 		end
 	end
 
-	self.vulkan_instance.device:UpdateDescriptorSet(type, self.descriptor_sets[index], binding_index, ...)
+	self.vulkan_instance.device:UpdateDescriptorSet(
+		type,
+		self.descriptor_sets[index],
+		binding_index,
+		...,
+		self:GetFallbackView(),
+		self:GetFallbackSampler()
+	)
 end
 
 function GraphicsPipeline:UpdateDescriptorSetArray(frame_index, binding_index, texture_array)
 	-- Update a descriptor set with an array of textures for bindless rendering
-	self.vulkan_instance.device:UpdateDescriptorSetArray(self.descriptor_sets[frame_index], binding_index, texture_array)
+	self.vulkan_instance.device:UpdateDescriptorSetArray(
+		self.descriptor_sets[frame_index],
+		binding_index,
+		texture_array,
+		self:GetFallbackView(),
+		self:GetFallbackSampler()
+	)
 end
 
 function GraphicsPipeline:PushConstants(cmd, stage, offset, data, data_size)
