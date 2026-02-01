@@ -33,18 +33,16 @@ end
 
 function math2d.GetPolygonArea(points)
 	local area = 0
+	local n2 = #points
 
-	for i = 1, #points, 2 do
-		local x1, y1 = points[i], points[i + 1]
-		local nx, ny
+	if n2 < 6 then return 0 end
 
-		if i + 2 > #points then
-			nx, ny = points[1], points[2]
-		else
-			nx, ny = points[i + 2], points[i + 3]
-		end
+	local x1, y1 = points[n2 - 1], points[n2]
 
-		area = area + (x1 * ny - nx * y1)
+	for i = 1, n2, 2 do
+		local x2, y2 = points[i], points[i + 1]
+		area = area + (x1 * y2 - x2 * y1)
+		x1, y1 = x2, y2
 	end
 
 	return area / 2
@@ -78,79 +76,96 @@ do
 	end
 
 	function math2d.TriangulateCoordinates(points)
-		local vertices = {}
+		local vertices_x = {}
+		local vertices_y = {}
+		local num_vertices = 0
 
 		for i = 1, #points, 2 do
 			local x, y = points[i], points[i + 1]
-			local last = vertices[#vertices]
+			local last_x = vertices_x[num_vertices]
+			local last_y = vertices_y[num_vertices]
 
-			if not last or (math.abs(last.x - x) > 1e-12 or math.abs(last.y - y) > 1e-12) then
-				table.insert(vertices, {x = x, y = y})
+			if num_vertices == 0 or (math.abs(last_x - x) > 1e-12 or math.abs(last_y - y) > 1e-12) then
+				num_vertices = num_vertices + 1
+				vertices_x[num_vertices] = x
+				vertices_y[num_vertices] = y
 			end
 		end
 
 		if
-			#vertices > 1 and
-			math.abs(vertices[1].x - vertices[#vertices].x) < 1e-12 and
-			math.abs(vertices[1].y - vertices[#vertices].y) < 1e-12
+			num_vertices > 1 and
+			math.abs(vertices_x[1] - vertices_x[num_vertices]) < 1e-12 and
+			math.abs(vertices_y[1] - vertices_y[num_vertices]) < 1e-12
 		then
-			table.remove(vertices)
+			num_vertices = num_vertices - 1
 		end
 
-		if #vertices < 3 then return {} end
+		if num_vertices < 3 then return {} end
 
 		local area = 0
 
-		for i = 1, #vertices do
-			local p1 = vertices[i]
-			local p2 = vertices[i % #vertices + 1]
-			area = area + (p1.x * p2.y - p2.x * p1.y)
+		for i = 1, num_vertices do
+			local p1x, p1y = vertices_x[i], vertices_y[i]
+			local p2_idx = i % num_vertices + 1
+			local p2x, p2y = vertices_x[p2_idx], vertices_y[p2_idx]
+			area = area + (p1x * p2y - p2x * p1y)
 		end
 
+		if math.abs(area) < 1e-12 then return {} end
+
 		if area < 0 then
-			local rev = {}
+			local i = 1
+			local j = num_vertices
 
-			for i = #vertices, 1, -1 do
-				table.insert(rev, vertices[i])
+			while i < j do
+				vertices_x[i], vertices_x[j] = vertices_x[j], vertices_x[i]
+				vertices_y[i], vertices_y[j] = vertices_y[j], vertices_y[i]
+				i = i + 1
+				j = j - 1
 			end
-
-			vertices = rev
 		end
 
 		local triangles = {}
+		local num_triangles = 0
 		local indices = {}
 
-		for i = 1, #vertices do
+		for i = 1, num_vertices do
 			indices[i] = i
 		end
 
 		local function is_ear(u, v, w)
-			local a, b, c = vertices[indices[u]], vertices[indices[v]], vertices[indices[w]]
-			local a2 = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)
+			local ax, ay = vertices_x[indices[u]], vertices_y[indices[u]]
+			local bx, by = vertices_x[indices[v]], vertices_y[indices[v]]
+			local cx, cy = vertices_x[indices[w]], vertices_y[indices[w]]
+			local a2 = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax)
 
 			if a2 <= 1e-12 then return false end
 
 			for i = 1, #indices do
 				if i ~= u and i ~= v and i ~= w then
-					local p = vertices[indices[i]]
+					local px, py = vertices_x[indices[i]], vertices_y[indices[i]]
 
 					if
 						(
-							math.abs(p.x - a.x) > 1e-12 or
-							math.abs(p.y - a.y) > 1e-12
+							math.abs(px - ax) > 1e-12 or
+							math.abs(py - ay) > 1e-12
 						)
 						and
 						(
-							math.abs(p.x - b.x) > 1e-12 or
-							math.abs(p.y - b.y) > 1e-12
+							math.abs(px - bx) > 1e-12 or
+							math.abs(py - by) > 1e-12
 						)
 						and
 						(
-							math.abs(p.x - c.x) > 1e-12 or
-							math.abs(p.y - c.y) > 1e-12
+							math.abs(px - cx) > 1e-12 or
+							math.abs(py - cy) > 1e-12
 						)
 					then
-						if point_in_triangle(p, a, b, c) then return false end
+						-- point_in_triangle check inlined
+						local cp1 = (bx - ax) * (py - ay) - (by - ay) * (px - ax)
+						local cp2 = (cx - bx) * (py - by) - (cy - by) * (px - bx)
+						local cp3 = (ax - cx) * (py - cy) - (ay - cy) * (px - cx)
+						if cp1 >= -1e-12 and cp2 >= -1e-12 and cp3 >= -1e-12 then return false end
 					end
 				end
 			end
@@ -158,34 +173,47 @@ do
 			return true
 		end
 
+		local num_indices = num_vertices
 		local current = 1
 		local skipped = 0
 
-		while #indices > 3 do
-			local pi = (current - 2) % #indices + 1
-			local ni = current % #indices + 1
+		while num_indices > 3 do
+			local pi = (current - 2) % num_indices + 1
+			local ni = current % num_indices + 1
 
 			if is_ear(pi, current, ni) then
-				local a, b, c = vertices[indices[pi]], vertices[indices[current]], vertices[indices[ni]]
-				table.insert(triangles, {a.x, a.y, b.x, b.y, c.x, c.y})
+				local ax, ay = vertices_x[indices[pi]], vertices_y[indices[pi]]
+				local bx, by = vertices_x[indices[current]], vertices_y[indices[current]]
+				local cx, cy = vertices_x[indices[ni]], vertices_y[indices[ni]]
+				local base = num_triangles * 6
+				triangles[base + 1] = ax
+				triangles[base + 2] = ay
+				triangles[base + 3] = bx
+				triangles[base + 4] = by
+				triangles[base + 5] = cx
+				triangles[base + 6] = cy
+				num_triangles = num_triangles + 1
 				table.remove(indices, current)
+				num_indices = num_indices - 1
 
-				if current > #indices then current = 1 end
+				if current > num_indices then current = 1 end
 
 				skipped = 0
 			else
 				current = ni
 				skipped = skipped + 1
 
-				if skipped > #indices then
+				if skipped > num_indices then
 					local best_i = -1
 					local best_a2 = -1
 
-					for i = 1, #indices do
-						local p_i = (i - 2) % #indices + 1
-						local n_i = i % #indices + 1
-						local a, b, c = vertices[indices[p_i]], vertices[indices[i]], vertices[indices[n_i]]
-						local a2 = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)
+					for i = 1, num_indices do
+						local p_i = (i - 2) % num_indices + 1
+						local n_i = i % num_indices + 1
+						local bx, by = vertices_x[indices[i]], vertices_y[indices[i]]
+						local ax, ay = vertices_x[indices[p_i]], vertices_y[indices[p_i]]
+						local cx, cy = vertices_x[indices[n_i]], vertices_y[indices[n_i]]
+						local a2 = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax)
 
 						if a2 > best_a2 then
 							best_a2 = a2
@@ -195,14 +223,25 @@ do
 
 					if best_i ~= -1 then
 						local i = best_i
-						local p_i = (i - 2) % #indices + 1
-						local n_i = i % #indices + 1
-						local a, b, c = vertices[indices[p_i]], vertices[indices[i]], vertices[indices[n_i]]
-						table.insert(triangles, {a.x, a.y, b.x, b.y, c.x, c.y})
+						local p_i = (i - 2) % num_indices + 1
+						local n_i = i % num_indices + 1
+						local ax, ay = vertices_x[indices[p_i]], vertices_y[indices[p_i]]
+						local bx, by = vertices_x[indices[i]], vertices_y[indices[i]]
+						local cx, cy = vertices_x[indices[n_i]], vertices_y[indices[n_i]]
+						local base = num_triangles * 6
+						triangles[base + 1] = ax
+						triangles[base + 2] = ay
+						triangles[base + 3] = bx
+						triangles[base + 4] = by
+						triangles[base + 5] = cx
+						triangles[base + 6] = cy
+						num_triangles = num_triangles + 1
 						table.remove(indices, i)
-						skipped = 0
+						num_indices = num_indices - 1
 
-						if current > #indices then current = 1 end
+						if current > num_indices then current = 1 end
+
+						skipped = 0
 					else
 						break
 					end
@@ -210,9 +249,18 @@ do
 			end
 		end
 
-		if #indices == 3 then
-			local a, b, c = vertices[indices[1]], vertices[indices[2]], vertices[indices[3]]
-			table.insert(triangles, {a.x, a.y, b.x, b.y, c.x, c.y})
+		if num_indices == 3 then
+			local ax, ay = vertices_x[indices[1]], vertices_y[indices[1]]
+			local bx, by = vertices_x[indices[2]], vertices_y[indices[2]]
+			local cx, cy = vertices_x[indices[3]], vertices_y[indices[3]]
+			local base = num_triangles * 6
+			triangles[base + 1] = ax
+			triangles[base + 2] = ay
+			triangles[base + 3] = bx
+			triangles[base + 4] = by
+			triangles[base + 5] = cx
+			triangles[base + 6] = cy
+			num_triangles = num_triangles + 1
 		end
 
 		return triangles

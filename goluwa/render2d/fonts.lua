@@ -208,7 +208,7 @@ function fonts.CreateFont(options)
 		font:SetShadingInfo(shading_info)
 		font:Rebuild()
 	end
-
+	
 	return font
 end
 

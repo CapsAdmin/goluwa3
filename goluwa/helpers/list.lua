@@ -176,22 +176,55 @@ function list.reverse(tbl)
 end
 
 function list.fix_indices(tbl)
-	local temp = {}
-
-	for k, v in pairs(tbl) do
-		list.insert(temp, {v = v, k = tonumber(k) or 0})
-		tbl[k] = nil
+	local j = 1
+	local n = #tbl
+	for i = 1, n do
+		local v = tbl[i]
+		if v ~= nil then
+			if i ~= j then
+				tbl[j] = v
+				tbl[i] = nil
+			end
+			j = j + 1
+		end
 	end
 
-	list.sort(temp, function(a, b)
-		return a.k < b.k
+	-- Check for non-numeric keys or keys beyond #tbl
+	local has_extra = false
+	for k, v in pairs(tbl) do
+		if type(k) ~= "number" or k >= j then
+			has_extra = true
+			break
+		end
+	end
+
+	if not has_extra then return end
+
+	-- Slow path for tables with non-numeric keys or large gaps
+	local keys = {}
+	local kn = 0
+	for k in pairs(tbl) do
+		kn = kn + 1
+		keys[kn] = k
+	end
+
+	table.sort(keys, function(a, b)
+		local ak, bk = tonumber(a), tonumber(b)
+		if ak and bk then return ak < bk end
+		if ak then return true end
+		if bk then return false end
+		return tostring(a) < tostring(b)
 	end)
 
-	for k, v in ipairs(temp) do
-		tbl[k] = v.v
+	local values = {}
+	for i = 1, kn do
+		values[i] = tbl[keys[i]]
+		tbl[keys[i]] = nil
 	end
 
-	return temp
+	for i = 1, kn do
+		tbl[i] = values[i]
+	end
 end
 
 function list.has_value(tbl, val)

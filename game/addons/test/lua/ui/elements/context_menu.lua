@@ -6,7 +6,7 @@ local lsx = require("ecs.lsx_ecs")
 local Frame = runfile("lua/ui/elements/frame.lua")
 
 return function(props)
-	local render_state, set_render_state = lsx:UseState(props.Visible and "open" or "closed")
+	local render_state, set_render_state = lsx:UseState("closed")
 	local ref = lsx:UseRef(nil)
 
 	lsx:UseEffect(

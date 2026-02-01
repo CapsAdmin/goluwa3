@@ -362,6 +362,8 @@ function META:SetShadingInfo(info)
 	if self.Ready and info then self:RebuildFromScratch() end
 end
 
+local scratch_size = {w = 0, h = 0}
+
 function META:LoadGlyph(code)
 	-- Convert string to character code if needed
 	if type(code) == "string" then code = utf8.uint32(code) end
@@ -384,7 +386,10 @@ function META:LoadGlyph(code)
 
 	if glyph then
 		if not glyph.buffer and glyph.glyph_data and glyph.w > 0 and glyph.h > 0 then
-			if not render.available or not render.target then return end
+			if not render.available or not render.target then
+				-- Renderer not ready, don't cache yet so we can try again later
+				return
+			end
 
 			local scale = 8
 			local padding = self:GetPadding()
@@ -414,7 +419,9 @@ function META:LoadGlyph(code)
 				render2d.PushTexture(render2d.GetTexture())
 				render2d.PushAlphaMultiplier(render2d.GetAlphaMultiplier())
 				render2d.PushSwizzleMode(render2d.GetSwizzleMode())
-				render2d.UpdateScreenSize({w = sw, h = sh})
+				scratch_size.w = sw
+				scratch_size.h = sh
+				render2d.UpdateScreenSize(scratch_size)
 				render2d.pipeline:Bind(render2d.cmd, render.GetCurrentFrame())
 				render2d.SetColor(1, 1, 1, 1)
 				render2d.SetUV()
@@ -440,7 +447,9 @@ function META:LoadGlyph(code)
 				fb_ss:End()
 				fb_ss.color_texture:GenerateMipmaps("shader_read_only_optimal")
 				render2d.cmd = old_cmd
-				render2d.UpdateScreenSize({w = old_w, h = old_h})
+				scratch_size.w = old_w
+				scratch_size.h = old_h
+				render2d.UpdateScreenSize(scratch_size)
 			end
 
 			local current_tex = fb_ss.color_texture
@@ -511,17 +520,29 @@ end
 function META:GetChar(char)
 	local data = self.chars[char]
 
-	if data == nil then
-		self:LoadGlyph(char)
-		self.rebuild = true
-		return self.chars[char]
+	if data ~= nil then
+		if char == 10 then
+			if data then
+				if data.h <= 1 then data.h = self.Size end
+			else
+				data = {h = self.Size}
+				self.chars[10] = data
+			end
+		end
+
+		return data
 	end
 
-	if char == "\n" then
+	self:LoadGlyph(char)
+	self.rebuild = true
+	data = self.chars[char]
+
+	if char == 10 then
 		if data then
 			if data.h <= 1 then data.h = self.Size end
 		else
 			data = {h = self.Size}
+			self.chars[10] = data
 		end
 	end
 
@@ -536,16 +557,34 @@ function META:GetTextSizeNotCached(str)
 	local max_x = 0
 	local spacing = self.Spacing
 
-	for i, char in ipairs(utf8.to_list(str)) do
-		local char_code = utf8.uint32(char)
-		local data = self:GetChar(char_code)
+	local i = 1
+	local len = #str
+	while i <= len do
+		local byte = str:byte(i)
+		local char_code
+		local byte_len = 1
 
-		if char == "\n" then
-			Y = Y + self:GetChar(utf8.uint32("\n")).h + spacing
+		if byte < 128 then
+			char_code = byte
+		elseif byte >= 192 then
+			if byte >= 240 then
+				byte_len = 4
+				char_code = (byte % 8) * 262144 + (str:byte(i + 1) % 64) * 4096 + (str:byte(i + 2) % 64) * 64 + (str:byte(i + 3) % 64)
+			elseif byte >= 224 then
+				byte_len = 3
+				char_code = (byte % 16) * 4096 + (str:byte(i + 1) % 64) * 64 + (str:byte(i + 2) % 64)
+			else
+				byte_len = 2
+				char_code = (byte % 32) * 64 + (str:byte(i + 1) % 64)
+			end
+		end
+
+		if char_code == 10 then -- \n
+			Y = Y + self:GetChar(10).h + spacing
 			max_x = math.max(max_x, X)
 			X = 0
-		elseif char == "\t" then
-			data = self:GetChar(utf8.uint32(" "))
+		elseif char_code == 9 then -- \t
+			local data = self:GetChar(32)
 
 			if data then
 				if self.Monospace then
@@ -556,18 +595,23 @@ function META:GetTextSizeNotCached(str)
 			else
 				X = X + self.Size * self.TabWidthMultiplier
 			end
-		elseif data then
-			if self.Monospace then
-				X = X + spacing
-			else
-				X = X + data.x_advance + spacing
+		else
+			local data = self:GetChar(char_code)
+			if data then
+				if self.Monospace then
+					X = X + spacing
+				else
+					X = X + data.x_advance + spacing
+				end
+			elseif char_code == 32 then
+				X = X + self.Size / 2
 			end
-		elseif char == " " then
-			X = X + self.Size / 2
 		end
+
+		i = i + byte_len
 	end
 
-	if max_x ~= 0 then X = max_x end
+	if max_x ~= 0 then X = math.max(max_x, X) end
 
 	return X * self.Scale.x, Y * self.Scale.y
 end
@@ -585,15 +629,37 @@ function META:DrawString(str, x, y, spacing)
 	spacing = spacing or self.Spacing
 	local X, Y = 0, 0
 
-	for i, char in ipairs(utf8.to_list(str)) do
-		local char_code = utf8.uint32(char)
-		local data = self:GetChar(char_code)
+	local i = 1
+	local len = #str
+	local last_texture
+	local padding = self:GetPadding()
+	local scale_x, scale_y = self.Scale.x, self.Scale.y
 
-		if char == "\n" then
+	while i <= len do
+		local byte = str:byte(i)
+		local char_code
+		local byte_len = 1
+
+		if byte < 128 then
+			char_code = byte
+		elseif byte >= 192 then
+			if byte >= 240 then
+				byte_len = 4
+				char_code = (byte % 8) * 262144 + (str:byte(i + 1) % 64) * 4096 + (str:byte(i + 2) % 64) * 64 + (str:byte(i + 3) % 64)
+			elseif byte >= 224 then
+				byte_len = 3
+				char_code = (byte % 16) * 4096 + (str:byte(i + 1) % 64) * 64 + (str:byte(i + 2) % 64)
+			else
+				byte_len = 2
+				char_code = (byte % 32) * 64 + (str:byte(i + 1) % 64)
+			end
+		end
+
+		if char_code == 10 then -- \n
 			X = 0
-			Y = Y + self:GetChar(utf8.uint32("\n")).h + spacing
-		elseif char == "\t" then
-			data = self:GetChar(utf8.uint32(" "))
+			Y = Y + self:GetChar(10).h + spacing
+		elseif char_code == 9 then -- \t
+			local data = self:GetChar(32)
 
 			if data then
 				if self.Monospace then
@@ -604,33 +670,40 @@ function META:DrawString(str, x, y, spacing)
 			else
 				X = X + self.Size * self.TabWidthMultiplier
 			end
-		elseif data then
-			local texture = self.texture_atlas:GetPageTexture(char_code)
+		else
+			local data = self:GetChar(char_code)
+			if data then
+				local texture = self.texture_atlas:GetPageTexture(char_code)
 
-			if texture then
-				render2d.SetTexture(texture)
-				local u1, v1, w, h, sx, sy = self.texture_atlas:GetUV(char_code)
-				local padding = self:GetPadding()
-				render2d.PushMatrix()
-				render2d.Translate(
-					x + (X + data.bitmap_left - padding) * self.Scale.x,
-					y + (Y + data.bitmap_top - padding) * self.Scale.y
-				)
-				render2d.PushUV()
-				render2d.SetUV2(u1 / sx, v1 / sy, (u1 + w) / sx, (v1 + h) / sy)
-				render2d.DrawRect(0, 0, w * self.Scale.x, h * self.Scale.y)
-				render2d.PopUV()
-				render2d.PopMatrix()
-			end
+				if texture then
+					if texture ~= last_texture then
+						render2d.SetTexture(texture)
+						last_texture = texture
+					end
 
-			if self.Monospace then
-				X = X + spacing
-			else
-				X = X + data.x_advance + spacing
+					local u1, v1, w, h, sx, sy = self.texture_atlas:GetUV(char_code)
+					render2d.PushUV()
+					render2d.SetUV2(u1 / sx, v1 / sy, (u1 + w) / sx, (v1 + h) / sy)
+					render2d.DrawRect(
+						x + (X + data.bitmap_left - padding) * scale_x,
+						y + (Y + data.bitmap_top - padding) * scale_y,
+						w * scale_x,
+						h * scale_y
+					)
+					render2d.PopUV()
+				end
+
+				if self.Monospace then
+					X = X + spacing
+				else
+					X = X + data.x_advance + spacing
+				end
+			elseif char_code == 32 then
+				X = X + self.Size / 2
 			end
-		elseif char == " " then
-			X = X + self.Size / 2
 		end
+
+		i = i + byte_len
 	end
 end
 
@@ -663,20 +736,22 @@ do
 	end
 
 	do
-		local cache = {} or table.weak()
+		local cache = table.weak("k")
 
 		function META:GetTextSize(str)
 			str = str or "|"
 
-			if cache[self] and cache[self][str] then
-				return cache[self][str][1], cache[self][str][2]
+			local c = cache[self]
+			if not c then
+				c = table.weak("k")
+				cache[self] = c
 			end
 
+			local res = c[str]
+			if res then return res[1], res[2] end
+
 			local x, y = self:GetTextSizeNotCached(str)
-			cache[self] = cache[self] or table.weak()
-			cache[self][str] = cache[self][str] or table.weak()
-			cache[self][str][1] = x
-			cache[self][str][2] = y
+			c[str] = {x, y}
 			return x, y
 		end
 	end

@@ -435,27 +435,36 @@ function META:DrawGlyph(glyph)
 			-- Triangulate the merged polygon
 			local triangles = math2d.TriangulateCoordinates(merged)
 
-			for _, tri in ipairs(triangles) do
-				table.insert(final_triangles, tri)
+			for i = 1, #triangles do
+				table.insert(final_triangles, triangles[i])
 			end
 
 			-- Also triangulate any additional shells (smaller positive-area contours)
 			for i = 2, #split_shells do
 				local tris = math2d.TriangulateCoordinates(split_shells[i].points)
 
-				for _, tri in ipairs(tris) do
-					table.insert(final_triangles, tri)
+				for j = 1, #tris do
+					table.insert(final_triangles, tris[j])
 				end
 			end
 		end
 
 		if #final_triangles > 0 then
 			render2d.SetTexture(gfx.white_texture)
-			local poly = Polygon2D.New(#final_triangles * 3)
+			local poly = Polygon2D.New(#final_triangles / 2)
 			poly:SetColor(1, 1, 1, 1)
 
-			for tri_idx, tri in ipairs(final_triangles) do
-				poly:SetTriangle(tri_idx, tri[1], tri[2], tri[3], tri[4], tri[5], tri[6])
+			for tri_idx = 1, #final_triangles / 6 do
+				local base = (tri_idx - 1) * 6
+				poly:SetTriangle(
+					tri_idx,
+					final_triangles[base + 1],
+					final_triangles[base + 2],
+					final_triangles[base + 3],
+					final_triangles[base + 4],
+					final_triangles[base + 5],
+					final_triangles[base + 6]
+				)
 			end
 
 			glyph.poly = poly
@@ -480,8 +489,7 @@ function META:DrawGlyph(glyph)
 
 			if #tris > 0 then
 				-- Use centroid of first triangle - guaranteed to be inside
-				local t = tris[1]
-				tx, ty = (t[1] + t[3] + t[5]) / 3, (t[2] + t[4] + t[6]) / 3
+				tx, ty = (tris[1] + tris[3] + tris[5]) / 3, (tris[2] + tris[4] + tris[6]) / 3
 			else
 				-- Fallback: use first vertex if triangulation fails
 				tx, ty = c[1], c[2]
@@ -569,8 +577,8 @@ function META:DrawGlyph(glyph)
 			-- No holes detected, just triangulate the shell directly
 			local triangles = math2d.TriangulateCoordinates(shell_info.points)
 
-			for _, tri in ipairs(triangles) do
-				table.insert(final_triangles, tri)
+			for i = 1, #triangles do
+				table.insert(final_triangles, triangles[i])
 			end
 		else
 			-- Has holes - need to merge them properly
@@ -636,8 +644,8 @@ function META:DrawGlyph(glyph)
 
 			local triangles = math2d.TriangulateCoordinates(shell_info.points)
 
-			for _, tri in ipairs(triangles) do
-				table.insert(final_triangles, tri)
+			for i = 1, #triangles do
+				table.insert(final_triangles, triangles[i])
 			end
 		end
 	end
@@ -645,11 +653,20 @@ function META:DrawGlyph(glyph)
 	if #final_triangles == 0 then return end
 
 	render2d.SetTexture(gfx.white_texture)
-	local poly = Polygon2D.New(#final_triangles * 3)
+	local poly = Polygon2D.New(#final_triangles / 2)
 	poly:SetColor(1, 1, 1, 1)
 
-	for tri_idx, tri in ipairs(final_triangles) do
-		poly:SetTriangle(tri_idx, tri[1], tri[2], tri[3], tri[4], tri[5], tri[6])
+	for tri_idx = 1, #final_triangles / 6 do
+		local base = (tri_idx - 1) * 6
+		poly:SetTriangle(
+			tri_idx,
+			final_triangles[base + 1],
+			final_triangles[base + 2],
+			final_triangles[base + 3],
+			final_triangles[base + 4],
+			final_triangles[base + 5],
+			final_triangles[base + 6]
+		)
 	end
 
 	glyph.poly = poly

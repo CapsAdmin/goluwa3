@@ -74,19 +74,31 @@ function META:DrawRecursive()
 
 	render2d.PushMatrix()
 	render2d.SetWorldMatrix(transform:GetWorldMatrix())
-	local comps = {}
 
-	for _, component in pairs(self.Entity.ComponentsHash) do
-		if component.OnDraw then table.insert(comps, component) end
+	if self.last_components_version ~= self.Entity.ComponentsVersion then
+		self.last_components_version = self.Entity.ComponentsVersion
+		local draw_comps = {}
+		local post_draw_comps = {}
+
+		for _, component in pairs(self.Entity.ComponentsHash) do
+			if component.OnDraw then table.insert(draw_comps, component) end
+
+			if component.OnPostDraw then
+				table.insert(post_draw_comps, component)
+			end
+		end
+
+		table.sort(draw_comps, function(a, b)
+			local ao = a.DrawOrder or (a.ComponentName == "rect_2d" and 0 or 10)
+			local bo = b.DrawOrder or (b.ComponentName == "rect_2d" and 0 or 10)
+			return ao < bo
+		end)
+
+		self.sorted_draw_components = draw_comps
+		self.sorted_post_draw_components = post_draw_comps
 	end
 
-	table.sort(comps, function(a, b)
-		local ao = a.DrawOrder or (a.ComponentName == "rect_2d" and 0 or 10)
-		local bo = b.DrawOrder or (b.ComponentName == "rect_2d" and 0 or 10)
-		return ao < bo
-	end)
-
-	for _, component in ipairs(comps) do
+	for _, component in ipairs(self.sorted_draw_components) do
 		component:OnDraw()
 	end
 
@@ -111,8 +123,8 @@ function META:DrawRecursive()
 		render2d.PopStencilMask()
 	end
 
-	for _, component in pairs(self.Entity.ComponentsHash) do
-		if component.OnPostDraw then component:OnPostDraw() end
+	for _, component in ipairs(self.sorted_post_draw_components) do
+		component:OnPostDraw()
 	end
 
 	render2d.PopMatrix()

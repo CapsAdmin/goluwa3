@@ -28,12 +28,14 @@ local function remove_component(component)
 	if component.Entity then
 		component.Entity.ComponentsHash[component_name] = nil
 		component.Entity[component_name] = nil
+		component.Entity.ComponentsVersion = (component.Entity.ComponentsVersion or 0) + 1
 	end
 end
 
 local ENTITY = prototype.CreateTemplate("entity")
 prototype.ParentingTemplate(ENTITY)
 ENTITY:GetSet("ComponentsHash", {})
+ENTITY:GetSet("ComponentsVersion", 0)
 ecs.focused_entity = NULL
 
 function ecs.SetFocusedEntity(entity)
@@ -110,6 +112,7 @@ function ENTITY:AddComponent(meta)
 	component.Entity = self
 	self.ComponentsHash[component_name] = component
 	self[component_name] = component
+	self.ComponentsVersion = self.ComponentsVersion + 1
 
 	for k, v in pairs(meta) do
 		if type(v) == "function" and k:sub(1, 1):match("%u") then

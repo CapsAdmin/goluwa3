@@ -3,21 +3,21 @@ event.active = event.active or {}
 event.destroy_tag = event.destroy_tag or {}
 
 local function sort(a, b)
-	return a.priority > b.priority
+	local ap = a and a.priority or 0
+	local bp = b and b.priority or 0
+	return ap > bp
 end
 
 local function sort_events(key)
-	local entries = key and {[key] = event.active[key]} or event.active
-
-	for key, tbl in pairs(entries) do
-		local new = {}
-
-		for _, v in pairs(tbl) do
-			list.insert(new, v)
+	if key then
+		local tbl = event.active[key]
+		if tbl then
+			table.sort(tbl, sort)
 		end
-
-		list.sort(new, sort)
-		event.active[key] = new
+	else
+		for _, tbl in pairs(event.active) do
+			table.sort(tbl, sort)
+		end
 	end
 end
 
