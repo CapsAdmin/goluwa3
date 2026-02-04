@@ -116,7 +116,10 @@ function META:RayCast(start_pos, stop_pos)
 	local dir = stop_pos - start_pos
 	local found = {}
 	local i = 1
-	local a_lft, a_top, a_rgt, a_btm = entity.transform:GetWorldRectFast()
+	local a_lft, a_top, a_rgt, a_btm = start_pos.x,
+	start_pos.y,
+	start_pos.x + entity.transform:GetWidth(),
+	start_pos.y + entity.transform:GetHeight()
 
 	for _, b in ipairs(parent:GetChildren()) do
 		local b_layout = b.layout
