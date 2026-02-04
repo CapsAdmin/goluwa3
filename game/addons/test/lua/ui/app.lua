@@ -6,6 +6,7 @@ local window = require("window")
 local event = require("event")
 local Panel = require("ecs.entities.2d.panel")
 local system = require("system")
+local theme = runfile("lua/ui/theme.lua")
 local Text = runfile("lua/ui/elements/text.lua")
 local MenuButton = runfile("lua/ui/elements/menu_button.lua")
 local MenuSpacer = runfile("lua/ui/elements/menu_spacer.lua")
@@ -34,13 +35,13 @@ event.AddListener("KeyInput", "menu_toggle", function(key, press)
 			{
 				Layout = {"GmodTop"},
 				Size = Vec2(0, 30),
-				Margin = Rect() + 5,
+				Margin = theme.Sizes.FrameMargin,
 				Children = {
 					MenuButton(
 						{
 							Text = "GAME",
 							Layout = {"MoveLeft", "CenterYSimple"},
-							Size = Vec2(80, 30),
+							Size = theme.Sizes.TopBarButtonSize,
 							OnClick = function(ent)
 								local x, y = ent.transform:GetWorldMatrix():GetTranslation()
 								y = y + ent.transform:GetHeight()
@@ -81,21 +82,21 @@ event.AddListener("KeyInput", "menu_toggle", function(key, press)
 						{
 							Text = "CONFIG",
 							Layout = {"MoveLeft", "CenterYSimple"},
-							Size = Vec2(80, 30),
+							Size = theme.Sizes.TopBarButtonSize,
 						}
 					),
 					MenuButton(
 						{
 							Text = "CHEAT",
 							Layout = {"MoveLeft", "CenterYSimple"},
-							Size = Vec2(80, 30),
+							Size = theme.Sizes.TopBarButtonSize,
 						}
 					),
 					MenuButton(
 						{
 							Text = "NETPLAY",
 							Layout = {"MoveLeft", "CenterYSimple"},
-							Size = Vec2(80, 30),
+							Size = theme.Sizes.TopBarButtonSize,
 						}
 					),
 					MenuButton(

@@ -4,6 +4,7 @@ local Color = require("structs.color")
 local Rect = require("structs.rect")
 local Panel = require("ecs.entities.2d.panel")
 local Frame = runfile("lua/ui/elements/frame.lua")
+local theme = runfile("lua/ui/theme.lua")
 return function(props)
 	local menu_ent
 	local container_ent
@@ -38,7 +39,7 @@ return function(props)
 			end,
 			Name = "ContextMenuContainer",
 			Size = Vec2(render2d.GetSize()),
-			Color = Color(0, 0, 0, 0), -- Invisible background to catch clicks
+			Color = theme.Colors.Invisible, -- Invisible background to catch clicks
 			mouse_input = {
 				BringToFrontOnClick = true,
 				OnMouseInput = function(self, button, press)
@@ -61,11 +62,11 @@ return function(props)
 						Name = "ContextMenu",
 						Pivot = Vec2(0, 0),
 						Position = props.Position or Vec2(100, 100),
-						Size = props.Size or Vec2(200, 0),
+						Size = props.Size or theme.Sizes.ContextMenuSize,
 						Layout = {"SizeToChildrenHeight"},
 						Stack = true,
 						StackDown = true,
-						Padding = Rect(5, 5, 5, 5),
+						Padding = theme.Sizes.ContextMenuPadding,
 						-- Stop clicks on the menu from closing it via the background panel
 						OnMouseInput = function(self, button, press)
 							return true

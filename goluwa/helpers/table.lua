@@ -72,9 +72,18 @@ function table.count(tbl)
 	return i
 end
 
-function table.merge(a, b, merge_aray)
-	if type(b) ~= "table" then debug.trace() end
+function table.merge_many(...)
+	local args = {...}
+	local result = {}
 
+	for _, tbl in ipairs(args) do
+		table.merge(result, tbl, true)
+	end
+
+	return result
+end
+
+function table.merge(a, b, merge_aray, ...)
 	for k, v in pairs(b) do
 		if type(v) == "table" and type(a[k]) == "table" then
 			if merge_aray and list.is_list(a[k]) and list.is_list(v) then

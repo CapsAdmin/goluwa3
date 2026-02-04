@@ -11,7 +11,6 @@ return function(config)
 					"mouse_input",
 					"clickable",
 					"animation",
-					"resizable",
 				},
 			},
 			config
