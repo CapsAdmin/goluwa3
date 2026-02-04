@@ -15,16 +15,21 @@ local EasyPipeline = require("render.easy_pipeline")
 local META = prototype.CreateTemplate("rasterized_font")
 META.IsFont = true
 META:GetSet("Fonts", {})
-META:GetSet("Padding", 0)
-META:GetSet("Curve", 0)
-META:IsSet("Spacing", 0)
-META:IsSet("Size", 12)
-META:IsSet("Scale", Vec2(1, 1))
-META:GetSet("Filtering", "linear")
-META:GetSet("ShadingInfo", nil)
-META:IsSet("Monospace", false)
+META:GetSet("Padding", 0, {callback = "ClearCache"})
+META:GetSet("Curve", 0, {callback = "ClearCache"})
+META:IsSet("Spacing", 0, {callback = "ClearCache"})
+META:IsSet("Size", 12, {callback = "ClearCache"})
+META:IsSet("Scale", Vec2(1, 1), {callback = "ClearCache"})
+META:GetSet("Filtering", "linear", {callback = "ClearCache"})
+META:GetSet("ShadingInfo", nil, {callback = "ClearCache"})
+META:IsSet("Monospace", false, {callback = "ClearCache"})
 META:IsSet("Ready", false)
 META:IsSet("ReverseDraw", false)
+
+function META:ClearCache()
+	self.text_size_cache = nil
+	self.wrap_string_cache = nil
+end
 
 function META:OnRemove()
 	if self.texture_atlas then self.texture_atlas:Remove() end
@@ -556,9 +561,9 @@ function META:GetTextSizeNotCached(str)
 	local X, Y = 0, self:GetAscent()
 	local max_x = 0
 	local spacing = self.Spacing
-
 	local i = 1
 	local len = #str
+
 	while i <= len do
 		local byte = str:byte(i)
 		local char_code
@@ -569,7 +574,15 @@ function META:GetTextSizeNotCached(str)
 		elseif byte >= 192 then
 			if byte >= 240 then
 				byte_len = 4
-				char_code = (byte % 8) * 262144 + (str:byte(i + 1) % 64) * 4096 + (str:byte(i + 2) % 64) * 64 + (str:byte(i + 3) % 64)
+				char_code = (
+						byte % 8
+					) * 262144 + (
+						str:byte(i + 1) % 64
+					) * 4096 + (
+						str:byte(i + 2) % 64
+					) * 64 + (
+						str:byte(i + 3) % 64
+					)
 			elseif byte >= 224 then
 				byte_len = 3
 				char_code = (byte % 16) * 4096 + (str:byte(i + 1) % 64) * 64 + (str:byte(i + 2) % 64)
@@ -597,6 +610,7 @@ function META:GetTextSizeNotCached(str)
 			end
 		else
 			local data = self:GetChar(char_code)
+
 			if data then
 				if self.Monospace then
 					X = X + spacing
@@ -628,7 +642,6 @@ function META:DrawString(str, x, y, spacing)
 	str = tostring(str)
 	spacing = spacing or self.Spacing
 	local X, Y = 0, 0
-
 	local i = 1
 	local len = #str
 	local last_texture
@@ -645,7 +658,15 @@ function META:DrawString(str, x, y, spacing)
 		elseif byte >= 192 then
 			if byte >= 240 then
 				byte_len = 4
-				char_code = (byte % 8) * 262144 + (str:byte(i + 1) % 64) * 4096 + (str:byte(i + 2) % 64) * 64 + (str:byte(i + 3) % 64)
+				char_code = (
+						byte % 8
+					) * 262144 + (
+						str:byte(i + 1) % 64
+					) * 4096 + (
+						str:byte(i + 2) % 64
+					) * 64 + (
+						str:byte(i + 3) % 64
+					)
 			elseif byte >= 224 then
 				byte_len = 3
 				char_code = (byte % 16) * 4096 + (str:byte(i + 1) % 64) * 64 + (str:byte(i + 2) % 64)
@@ -672,6 +693,7 @@ function META:DrawString(str, x, y, spacing)
 			end
 		else
 			local data = self:GetChar(char_code)
+
 			if data then
 				local texture = self.texture_atlas:GetPageTexture(char_code)
 
@@ -736,23 +758,19 @@ do
 	end
 
 	do
-		local cache = table.weak("k")
-
 		function META:GetTextSize(str)
-			str = str or "|"
+			str = tostring(str or "|")
+			self.text_size_cache = self.text_size_cache or {}
 
-			local c = cache[self]
-			if not c then
-				c = table.weak("k")
-				cache[self] = c
+			if self.text_size_cache[str] then
+				return self.text_size_cache[str][1], self.text_size_cache[str][2]
 			end
 
-			local res = c[str]
-			if res then return res[1], res[2] end
+			local w, h = self:GetTextSizeNotCached(str)
 
-			local x, y = self:GetTextSizeNotCached(str)
-			c[str] = {x, y}
-			return x, y
+			if self.Ready then self.text_size_cache[str] = {w, h} end
+
+			return w, h
 		end
 	end
 
@@ -871,11 +889,13 @@ do
 			return list.concat(lines, "\n")
 		end
 
-		local cache = table.weak()
-
 		function META:WrapString(str, max_width)
-			if cache[str] and cache[str][max_width] and cache[str][max_width][self] then
-				return cache[str][max_width][self]
+			str = tostring(str or "")
+			self.wrap_string_cache = self.wrap_string_cache or {}
+			local cache = self.wrap_string_cache
+
+			if cache[str] and cache[str][max_width] then
+				return cache[str][max_width]
 			end
 
 			local size = self:GetTextSize(str)
@@ -886,8 +906,7 @@ do
 
 			local res = wrap_2(self, str, max_width)
 			cache[str] = cache[str] or {}
-			cache[str][max_width] = cache[str][max_width] or {}
-			cache[str][max_width][self] = res
+			cache[str][max_width] = res
 			return res
 		end
 	end

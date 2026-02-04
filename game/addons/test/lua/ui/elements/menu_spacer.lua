@@ -7,14 +7,13 @@ local Panel = require("ecs.entities.2d.panel")
 local Texture = require("render.texture")
 local theme = runfile("lua/ui/theme.lua")
 return function(props)
-	local thickness = props.Size or 10
+	props = props or {}
 	return Panel(
 		{
 			Name = "MenuSpacer",
-			Size = props.Vertical and Vec2(thickness, 0) or Vec2(0, thickness), -- 0 is assumed to get stretched out somehow
+			Size = props.Vertical and Vec2(theme.line_height, 0) or Vec2(0, theme.line_height), -- 0 is assumed to get stretched out somehow
 			Color = theme.Colors.Invisible,
-			Layout = props.Layout,
-			Stackable = true,
+			Layout = {"FillX"},
 			gui_element = {
 				OnDraw = function(self)
 					theme.DrawMenuSpacer(self, props)

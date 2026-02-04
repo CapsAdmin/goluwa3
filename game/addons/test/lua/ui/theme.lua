@@ -64,6 +64,11 @@ local colors = table.merge_many(
 	},
 	pallete
 )
+
+function theme.GetColor(name)
+	return colors[name]
+end
+
 local sizes = {
 	none = 0,
 	line = 1,
@@ -77,7 +82,8 @@ local sizes = {
 	XXL = 40,
 }
 sizes.default = sizes.M
-local lineHeight = 5
+theme.Sizes2 = sizes
+theme.line_height = 5
 local stroke_width = sizes.line
 local stroke_width_thick = sizes.line * 2
 local small_border_radius = 1
@@ -127,6 +133,7 @@ local shadow_footer = {
 		color = colors.darker:Copy():SetAlpha(0.1),
 	},
 }
+theme.Colors2 = colors
 ---
 theme.Colors = {
 	FrameBackground = Color.FromHex("#062a67"):SetAlpha(0.9),
@@ -195,18 +202,19 @@ function theme.GetFont(name, size_name)
 	local size = font_sizes[size_name or "M"] or font_sizes.M
 	theme.Fonts = theme.Fonts or {}
 	theme.Fonts[path] = theme.Fonts[path] or {}
-	theme.Fonts[path][size] = fonts.CreateFont(
-		{
-			path = path,
-			size = size,
-			shadow = {
-				dir = -2,
-				color = theme.Colors.TextShadow,
-				blur_radius = 0.25,
-				blur_passes = 1,
-			},
-		}
-	)
+	theme.Fonts[path][size] = theme.Fonts[path][size] or
+		fonts.CreateFont(
+			{
+				path = path,
+				size = size,
+				shadow = {
+					dir = -2,
+					color = theme.Colors.TextShadow,
+					blur_radius = 0.25,
+					blur_passes = 1,
+				},
+			}
+		)
 	return theme.Fonts[path][size]
 end
 

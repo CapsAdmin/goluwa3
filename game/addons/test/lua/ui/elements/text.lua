@@ -12,7 +12,7 @@ return function(props)
 		table.merge(
 			{
 				Font = theme.GetFont(props.Font or "body", props.Size or "M"),
-				Color = theme.Colors[props.Color] or theme.Colors.Text,
+				Color = theme.GetColor("text_foreground"),
 			},
 			props
 		)

@@ -289,10 +289,10 @@ function META:RayCast(start_pos, stop_pos)
 			hit_pos.x = hit_pos.x - self:GetParentPadding():GetRight()
 		elseif dir.y < 0 then
 			hit_pos.y = hit_pos.y + self:GetMargin():GetTop()
-			hit_pos.y = hit_pos.y + self:GetParentPadding():GetBottom()
+			hit_pos.y = hit_pos.y + self:GetParentPadding():GetTop()
 		elseif dir.y > 0 then
 			hit_pos.y = hit_pos.y - self:GetMargin():GetBottom()
-			hit_pos.y = hit_pos.y - self:GetParentPadding():GetTop()
+			hit_pos.y = hit_pos.y - self:GetParentPadding():GetBottom()
 		end
 
 		hit_pos.x = math.max(hit_pos.x, 0)
@@ -550,8 +550,8 @@ function META:Confine()
 	if not parent or not parent:IsValid() then return end
 
 	local p_layout = parent.layout
-	local m = p_layout and p_layout:GetPadding() or Rect(0, 0, 0, 0)
-	local p = self:GetMargin()
+	local parent_padding = p_layout and p_layout:GetPadding() or Rect(0, 0, 0, 0)
+	local margin = self:GetMargin()
 	local tr = self.Owner.transform
 	local p_tr = parent.transform
 
@@ -561,13 +561,13 @@ function META:Confine()
 		Vec2(
 			math.clamp(
 				tr.Position.x,
-				m:GetLeft() + p:GetLeft(),
-				p_tr.Size.x - tr.Size.x - m:GetRight() + p:GetRight()
+				parent_padding:GetLeft() + margin:GetLeft(),
+				p_tr.Size.x - tr.Size.x - parent_padding:GetRight() - margin:GetRight()
 			),
 			math.clamp(
 				tr.Position.y,
-				m:GetTop() + p:GetTop(),
-				p_tr.Size.y - tr.Size.y - m:GetBottom() + p:GetBottom()
+				parent_padding:GetTop() + margin:GetTop(),
+				p_tr.Size.y - tr.Size.y - parent_padding:GetBottom() - margin:GetBottom()
 			)
 		)
 	)
@@ -1119,24 +1119,26 @@ function META:SizeToChildrenHeight()
 	self.real_size = tr.Size:Copy()
 	tr:SetHeight(1000000)
 	tr:SetHeight(self:GetSizeOfChildren().y)
-	local min_pos = tr.Size.y
-	local max_pos = 0
+	local min_pos = math.huge
+	local max_pos = -math.huge
 
 	for _, v in ipairs(children) do
 		local v_layout = v.layout
 		local margin = v_layout and v_layout:GetMargin() or Rect(0, 0, 0, 0)
-		local padding = self:GetPadding()
-		min_pos = math.min(min_pos, v.transform.Position.y - margin:GetTop() - padding:GetTop())
+		min_pos = math.min(min_pos, v.transform.Position.y - margin:GetTop())
+		max_pos = math.max(max_pos, v.transform.Position.y + v.transform.Size.y + margin:GetBottom())
 	end
 
-	for _, v in ipairs(children) do
-		local v_layout = v.layout
-		local margin = v_layout and v_layout:GetMargin() or Rect(0, 0, 0, 0)
-		local pos_y = v.transform.Position.y - min_pos
-		max_pos = math.max(max_pos, pos_y + v.transform.Size.y + margin:GetSize().y)
+	local padding = self:GetPadding()
+	tr:SetHeight((max_pos - min_pos) + padding:GetYH())
+	local offset_y = padding:GetTop() - min_pos
+
+	if offset_y ~= 0 then
+		for _, v in ipairs(children) do
+			v.transform:SetY(v.transform.Position.y + offset_y)
+		end
 	end
 
-	tr:SetHeight(max_pos + self:GetPadding():GetSize().y)
 	self:SetLayoutSize(tr.Size:Copy())
 	self.real_size = nil
 end
@@ -1151,24 +1153,26 @@ function META:SizeToChildrenWidth()
 	self.real_size = tr.Size:Copy()
 	tr:SetWidth(1000000)
 	tr:SetWidth(self:GetSizeOfChildren().x)
-	local min_pos = tr.Size.x
-	local max_pos = 0
+	local min_pos = math.huge
+	local max_pos = -math.huge
 
 	for _, v in ipairs(children) do
 		local v_layout = v.layout
 		local margin = v_layout and v_layout:GetMargin() or Rect(0, 0, 0, 0)
-		local padding = self:GetPadding()
-		min_pos = math.min(min_pos, v.transform.Position.x - margin:GetLeft() - padding:GetLeft())
+		min_pos = math.min(min_pos, v.transform.Position.x - margin:GetLeft())
+		max_pos = math.max(max_pos, v.transform.Position.x + v.transform.Size.x + margin:GetRight())
 	end
 
-	for _, v in ipairs(children) do
-		local v_layout = v.layout
-		local margin = v_layout and v_layout:GetMargin() or Rect(0, 0, 0, 0)
-		local pos_x = v.transform.Position.x - min_pos
-		max_pos = math.max(max_pos, pos_x + v.transform.Size.x + margin:GetSize().x)
+	local padding = self:GetPadding()
+	tr:SetWidth((max_pos - min_pos) + padding:GetXW())
+	local offset_x = padding:GetLeft() - min_pos
+
+	if offset_x ~= 0 then
+		for _, v in ipairs(children) do
+			v.transform:SetX(v.transform.Position.x + offset_x)
+		end
 	end
 
-	tr:SetWidth(max_pos + self:GetPadding():GetSize().x)
 	self:SetLayoutSize(tr.Size:Copy())
 	self.real_size = nil
 end
@@ -1182,28 +1186,29 @@ function META:SizeToChildren()
 	self.last_children_size = nil
 	self.real_size = tr.Size:Copy()
 	tr:SetSize(Vec2(1000000, 1000000))
-	local children_size = self:GetSizeOfChildren()
-	local min_pos = children_size:Copy()
-	local max_pos = Vec2()
+	local min_pos = Vec2(math.huge, math.huge)
+	local max_pos = Vec2(-math.huge, -math.huge)
 
 	for _, v in ipairs(children) do
+		local v_tr = v.transform
 		local v_layout = v.layout
 		local margin = v_layout and v_layout:GetMargin() or Rect(0, 0, 0, 0)
-		local padding = self:GetPadding()
-		min_pos.x = math.min(min_pos.x, v.transform.Position.x - margin:GetLeft() - padding:GetLeft())
-		min_pos.y = math.min(min_pos.y, v.transform.Position.y - margin:GetTop() - padding:GetTop())
+		min_pos.x = math.min(min_pos.x, v_tr.Position.x - margin:GetLeft())
+		min_pos.y = math.min(min_pos.y, v_tr.Position.y - margin:GetTop())
+		max_pos.x = math.max(max_pos.x, v_tr.Position.x + v_tr.Size.x + margin:GetRight())
+		max_pos.y = math.max(max_pos.y, v_tr.Position.y + v_tr.Size.y + margin:GetBottom())
 	end
 
-	for _, v in ipairs(children) do
-		local v_layout = v.layout
-		local margin = v_layout and v_layout:GetMargin() or Rect(0, 0, 0, 0)
-		local pos_x = v.transform.Position.x - min_pos.x
-		local pos_y = v.transform.Position.y - min_pos.y
-		max_pos.x = math.max(max_pos.x, pos_x + v.transform.Size.x + margin:GetSize().x)
-		max_pos.y = math.max(max_pos.y, pos_y + v.transform.Size.y + margin:GetSize().y)
+	local padding = self:GetPadding()
+	tr:SetSize((max_pos - min_pos) + padding:GetPosSize())
+	local offset = Vec2(padding:GetLeft(), padding:GetTop()) - min_pos
+
+	if offset.x ~= 0 or offset.y ~= 0 then
+		for _, v in ipairs(children) do
+			v.transform:SetPosition(v.transform.Position + offset)
+		end
 	end
 
-	tr:SetSize(max_pos + self:GetPadding():GetSize())
 	self:SetLayoutSize(tr.Size:Copy())
 	self.real_size = nil
 end

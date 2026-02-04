@@ -940,6 +940,10 @@ do -- camera
 		function render2d.Translate(x, y, z)
 			world_matrix_stack[world_matrix_stack_pos]:Translate(ceil(x), ceil(y), z or 0)
 		end
+
+		function render2d.Scale(w, h, z)
+			world_matrix_stack[world_matrix_stack_pos]:Scale(ceil(w), ceil(h or w), z or 1)
+		end
 	end
 
 	function render2d.Translatef(x, y, z)
@@ -950,7 +954,7 @@ do -- camera
 		world_matrix_stack[world_matrix_stack_pos]:Rotate(a, 0, 0, 1)
 	end
 
-	function render2d.Scale(w, h, z)
+	function render2d.Scalef(w, h, z)
 		world_matrix_stack[world_matrix_stack_pos]:Scale(w, h or w, z or 1)
 	end
 

@@ -10,13 +10,13 @@ return function(props)
 			Size = props.Size or theme.Sizes.MenuButtonSize,
 			Active = props.Active,
 			Disabled = props.Disabled,
-			Layout = {"SizeToChildren"},
 			OnClick = props.OnClick,
 			Padding = props.Padding or (Rect() + theme.Sizes2.M),
 			Margin = props.Margin or Rect(),
 			Children = {
 				Text(
 					{
+						Layout = {"CenterSimple", "MoveLeft"},
 						Text = props.Text,
 						IgnoreMouseInput = true,
 						Color = props.Disabled and theme.Colors.TextDisabled or theme.Colors.TextNormal,

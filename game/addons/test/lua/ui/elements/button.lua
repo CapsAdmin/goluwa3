@@ -1,5 +1,6 @@
 local render2d = require("render2d.render2d")
 local Vec2 = require("structs.vec2")
+local Rect = require("structs.rect")
 local Color = require("structs.color")
 local Ang3 = require("structs.ang3")
 local window = require("window")
@@ -20,6 +21,7 @@ return function(props)
 			ShadowSize = 10,
 			ShadowColor = theme.Colors.ButtonShadow,
 			ShadowOffset = Vec2(2, 2),
+			Padding = props.Padding,
 			Clipping = true,
 			Cursor = is_disabled and "arrow" or "hand",
 			Color = is_disabled and theme.Colors.ButtonDisabled or theme.Colors.ButtonNormal,

@@ -11,7 +11,7 @@ return function(props)
 	local is_closing = false
 
 	local function UpdateAnimations()
-		if not menu_ent then return end
+		if not menu_ent or not menu_ent:IsValid() then return end
 
 		menu_ent.animation:Animate(
 			{
@@ -20,13 +20,15 @@ return function(props)
 					return menu_ent.transform:GetDrawScaleOffset()
 				end,
 				set = function(v)
-					menu_ent.transform:SetDrawScaleOffset(v)
+					menu_ent.transform:SetDrawScaleOffset(Vec2(1, v.y))
 				end,
 				to = is_closing and Vec2(1, 0) or Vec2(1, 1),
 				time = 0.2,
 				interpolation = "outExpo",
 				callback = function()
-					if is_closing and props.OnClose then props.OnClose(container_ent) end
+					if is_closing and menu_ent:IsValid() and props.OnClose then
+						props.OnClose(container_ent)
+					end
 				end,
 			}
 		)
@@ -63,10 +65,12 @@ return function(props)
 						Pivot = Vec2(0, 0),
 						Position = props.Position or Vec2(100, 100),
 						Size = props.Size or theme.Sizes.ContextMenuSize,
+						DrawScaleOffset = Vec2(1, 0),
 						Layout = {"SizeToChildrenHeight"},
-						Stack = true,
-						StackDown = true,
-						-- Stop clicks on the menu from closing it via the background panel
+						Flex = true,
+						FlexGap = 0,
+						FlexAlignItems = "center",
+						FlexDirection = "column",
 						OnMouseInput = function(self, button, press)
 							return true
 						end,
@@ -74,7 +78,6 @@ return function(props)
 						Ref = function(self)
 							self:RequestFocus()
 							menu_ent = self
-							self.DrawScaleOffset = Vec2(1, 0)
 							UpdateAnimations()
 						end,
 						key_input = {

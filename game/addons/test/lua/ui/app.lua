@@ -9,6 +9,8 @@ local system = require("system")
 local theme = runfile("lua/ui/theme.lua")
 local Text = runfile("lua/ui/elements/text.lua")
 local MenuButton = runfile("lua/ui/elements/menu_button.lua")
+local MenuItem = runfile("lua/ui/elements/context_menu_item.lua")
+local Gap = runfile("lua/ui/elements/gap.lua")
 local MenuSpacer = runfile("lua/ui/elements/menu_spacer.lua")
 local ContextMenu = runfile("lua/ui/elements/context_menu.lua")
 local Frame = runfile("lua/ui/elements/frame.lua")
@@ -33,13 +35,14 @@ event.AddListener("KeyInput", "menu_toggle", function(key, press)
 
 		local top_bar = Frame(
 			{
-				Layout = {"MoveTop", "FillX"},
-				Size = Vec2(0, 30),
+				Layout = {"MoveTop", "FillX", "SizeToChildrenHeight"},
+				Flex = true,
+				FlexGap = theme.Sizes2.M,
+				FlexAlignItems = "center",
 				Children = {
 					MenuButton(
 						{
 							Text = "GAME",
-							Layout = {"SizeToChildren", "CenterYSimple", "MoveLeft"},
 							OnClick = function(ent)
 								local x, y = ent.transform:GetWorldMatrix():GetTranslation()
 								y = y + ent.transform:GetHeight()
@@ -53,15 +56,15 @@ event.AddListener("KeyInput", "menu_toggle", function(key, press)
 												ent:Remove()
 											end,
 											Children = {
-												MenuButton({Text = "LOAD"}),
-												MenuButton({Text = "RUN (ESCAPE)"}),
-												MenuButton({Text = "RESET", Disabled = true}),
-												MenuSpacer({Size = 6, Layout = {"FillX"}}),
-												MenuButton({Text = "SAVE STATE", Disabled = true}),
-												MenuButton({Text = "OPEN STATE", Disabled = true}),
-												MenuButton({Text = "PICK STATE", Disabled = true}),
-												MenuSpacer({Size = 6, Layout = {"FillX"}}),
-												MenuButton(
+												MenuItem({Text = "LOAD"}),
+												MenuItem({Text = "RUN (ESCAPE)"}),
+												MenuItem({Text = "RESET", Disabled = true}),
+												MenuSpacer(),
+												MenuItem({Text = "SAVE STATE", Disabled = true}),
+												MenuItem({Text = "OPEN STATE", Disabled = true}),
+												MenuItem({Text = "PICK STATE", Disabled = true}),
+												MenuSpacer(),
+												MenuItem(
 													{
 														Text = "QUIT",
 														OnClick = function()
@@ -76,30 +79,18 @@ event.AddListener("KeyInput", "menu_toggle", function(key, press)
 							end,
 						}
 					),
-					MenuButton(
-						{
-							Text = "CONFIG",
-							Layout = {"SizeToChildren", "CenterYSimple", "MoveLeft"},
-						}
-					),
-					MenuButton(
-						{
-							Text = "CHEAT",
-							Layout = {"SizeToChildren", "CenterYSimple", "MoveLeft"},
-						}
-					),
-					MenuButton(
-						{
-							Text = "NETPLAY",
-							Layout = {"SizeToChildren", "CenterYSimple", "MoveLeft"},
-						}
-					),
-					MenuButton(
-						{
-							Text = "MISC",
-							Layout = {"SizeToChildren", "CenterYSimple", "MoveLeft"},
-						}
-					),
+					MenuButton({
+						Text = "CONFIG",
+					}),
+					MenuButton({
+						Text = "CHEAT",
+					}),
+					MenuButton({
+						Text = "NETPLAY",
+					}),
+					MenuButton({
+						Text = "MISC",
+					}),
 				},
 			}
 		)

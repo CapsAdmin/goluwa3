@@ -202,7 +202,14 @@ function animations.Animate(config)
 	local interpolation = config.interpolation or "linear"
 	local original_val = get(group)
 
-	if type(original_val) == "table" and original_val.Copy then
+	if
+		(
+			type(original_val) == "table" or
+			type(original_val) == "cdata"
+		)
+		and
+		original_val.Copy
+	then
 		original_val = original_val:Copy()
 	end
 
@@ -221,7 +228,7 @@ function animations.Animate(config)
 		if v.id == id then
 			if operator then base = v.base end
 
-			if v.is_spring and v.alpha < 1 then
+			if v.is_spring and v.alpha < 1 and #v.to >= 2 then
 				local total_alpha = v.alpha * (#v.to - 1)
 				local segment_index = math.floor(total_alpha) + 1
 				local local_alpha = total_alpha - math.floor(total_alpha)
@@ -312,9 +319,9 @@ function animations.Animate(config)
 
 			if type(first) == "number" and type(from) == "number" then
 				if math.abs(first - from) < 0.001 then is_redundant = true end
-			elseif type(first) == "table" and first.Distance then
+			elseif (type(first) == "table" or type(first) == "cdata") and first.Distance then
 				if first:Distance(from) < 0.001 then is_redundant = true end
-			elseif type(first) == "table" and (first.x or first.r) then
+			elseif (type(first) == "table" or type(first) == "cdata") and (first.x or first.r) then
 				local distSq = 0
 
 				if first.x and from.x then

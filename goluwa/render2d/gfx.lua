@@ -227,7 +227,6 @@ function gfx.DrawRoundedRect(x, y, w, h, amt)
 
 	if amt > h / 2 then amt = h / 2 end
 
-	amt = math.ceil(amt)
 	render2d.PushTexture(nil)
 	render2d.DrawRect(x + amt, y + amt, w - amt * 2, h - amt * 2) -- center
 	render2d.DrawRect(x + amt, y, w - amt * 2, amt) -- top

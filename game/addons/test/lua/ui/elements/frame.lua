@@ -1,6 +1,7 @@
 local render2d = require("render2d.render2d")
 local Vec2 = require("structs.vec2")
 local Color = require("structs.color")
+local Rect = require("structs.rect")
 local Ang3 = require("structs.ang3")
 local window = require("window")
 local prototype = require("prototype")
@@ -14,6 +15,7 @@ return function(props)
 			{
 				Name = "frame",
 				Color = theme.Colors.FrameBackground,
+				Padding = Rect() + theme.Sizes2.S,
 				gui_element = {
 					OnDraw = function(self)
 						theme.DrawFrame(self.Owner)

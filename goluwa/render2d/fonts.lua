@@ -1,23 +1,31 @@
 local fs = require("fs")
 local Vec2 = require("structs.vec2")
 local Color = require("structs.color")
+local ttf_font = require("render2d.fonts.ttf")
+local base_font = require("render2d.fonts.base")
+local rasterized_font = require("render2d.fonts.rasterized_font")
 local fonts = library()
 -- Font management
 local current_font = nil
 local default_font = nil
 local X, Y = 0, 0
+local loaded_fonts = {}
 
 function fonts.LoadFont(path, size, padding)
 	size = size or 16
-	local ext = path:match("%.([^%.]+)$")
+	padding = padding or 0
+	local key = tostring(path) .. "_" .. tostring(size) .. "_" .. tostring(padding)
+
+	if loaded_fonts[key] then return loaded_fonts[key] end
+
+	local ext = tostring(path):match("%.([^%.]+)$")
 
 	if ext == "ttf" or ext == "otf" then
-		local ttf_font = require("render2d.fonts.ttf")
 		local font = ttf_font.New(path)
 		font:SetSize(size)
 		-- Wrap in rasterized_font for texture atlas support
-		local rasterized_font = require("render2d.fonts.rasterized_font")
 		local res = rasterized_font.New(font, padding)
+		loaded_fonts[key] = res
 		return res
 	elseif path == "default" then
 		return fonts.GetDefaultFont()
@@ -208,14 +216,13 @@ function fonts.CreateFont(options)
 		font:SetShadingInfo(shading_info)
 		font:Rebuild()
 	end
-	
+
 	return font
 end
 
 function fonts.GetDefaultFont()
 	if not default_font then
-		local base_font = require("render2d.fonts.base")
-		local rasterized_font = require("render2d.fonts.rasterized_font")
+		print("creating defauilt font")
 		default_font = rasterized_font.New(base_font)
 	end
 

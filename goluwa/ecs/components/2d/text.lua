@@ -53,11 +53,9 @@ function META:OnTextChanged()
 		self.Owner.transform:SetSize(Vec2(w, h))
 
 		if self.Owner:HasParent() and self.Owner:GetParent().layout then
-			self.Owner:GetParent().layout:InvalidateLayout()
-			print("update layout")
-		end
 
-		print(w, h)
+		--self.Owner:GetParent().layout:InvalidateLayout()
+		end
 	end
 end
 
