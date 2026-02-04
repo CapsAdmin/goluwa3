@@ -340,6 +340,9 @@ function META:ExecuteLayoutCommands()
 					child.last_layout_panel = nil
 				end
 			end
+
+			child.laid_out_x = true
+			child.laid_out_y = true
 		end
 	end
 
@@ -820,13 +823,11 @@ end
 function META:MoveUp()
 	if self.Owner.last_layout_panel then
 		self:MoveUpOf(self.Owner.last_layout_panel)
+		return
 	end
 
 	local tr = self.Owner.transform
-
-	if not self.Owner.laid_out_y then tr:SetY(999999) end
-
-	tr:SetY(math.max(tr:GetY(), 1))
+	tr:SetY(999999)
 	tr:SetY(self:RayCast(tr:GetPosition(), Vec2(tr:GetX(), 0)).y)
 	self.Owner.laid_out_y = true
 end
@@ -834,6 +835,7 @@ end
 function META:MoveDown()
 	if self.Owner.last_layout_panel then
 		self:MoveDownOf(self.Owner.last_layout_panel)
+		return
 	end
 
 	local parent = self.Owner:GetParent()
@@ -842,10 +844,7 @@ function META:MoveDown()
 
 	local p_tr = parent.transform
 	local tr = self.Owner.transform
-
-	if not self.Owner.laid_out_y then tr:SetY(-999999) end
-
-	tr:SetY(math.max(tr:GetY(), 1))
+	tr:SetY(-999999)
 	tr:SetY(self:RayCast(tr:GetPosition(), Vec2(tr:GetX(), p_tr:GetHeight() - tr:GetHeight())).y)
 	self.Owner.laid_out_y = true
 end
@@ -853,13 +852,11 @@ end
 function META:MoveLeft()
 	if self.Owner.last_layout_panel then
 		self:MoveLeftOf(self.Owner.last_layout_panel)
+		return
 	end
 
 	local tr = self.Owner.transform
-
-	if not self.Owner.laid_out_x then tr:SetX(999999) end
-
-	tr:SetX(math.max(tr:GetX(), 1))
+	tr:SetX(999999)
 	tr:SetX(self:RayCast(tr:GetPosition(), Vec2(0, tr.Position.y)).x)
 	self.Owner.laid_out_x = true
 end
@@ -867,6 +864,7 @@ end
 function META:MoveRight()
 	if self.Owner.last_layout_panel then
 		self:MoveRightOf(self.Owner.last_layout_panel)
+		return
 	end
 
 	local parent = self.Owner:GetParent()
@@ -875,10 +873,7 @@ function META:MoveRight()
 
 	local p_tr = parent.transform
 	local tr = self.Owner.transform
-
-	if not self.Owner.laid_out_x then tr:SetX(-999999) end
-
-	tr:SetX(math.max(tr:GetX(), 1))
+	tr:SetX(-999999)
 	tr:SetX(self:RayCast(tr:GetPosition(), Vec2(p_tr:GetWidth() - tr:GetWidth(), tr.Position.y)).x)
 	self.Owner.laid_out_x = true
 end
@@ -1140,7 +1135,6 @@ function META:SizeToChildrenHeight()
 
 	tr:SetHeight(max_pos + self:GetPadding():GetSize().y)
 	self:SetLayoutSize(tr.Size:Copy())
-	self.Owner.laid_out_y = true
 	self.real_size = nil
 end
 
@@ -1173,7 +1167,6 @@ function META:SizeToChildrenWidth()
 
 	tr:SetWidth(max_pos + self:GetPadding():GetSize().x)
 	self:SetLayoutSize(tr.Size:Copy())
-	self.Owner.laid_out_x = true
 	self.real_size = nil
 end
 
@@ -1209,8 +1202,6 @@ function META:SizeToChildren()
 
 	tr:SetSize(max_pos + self:GetPadding():GetSize())
 	self:SetLayoutSize(tr.Size:Copy())
-	self.Owner.laid_out_x = true
-	self.Owner.laid_out_y = true
 	self.real_size = nil
 end
 

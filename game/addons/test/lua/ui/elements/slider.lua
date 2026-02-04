@@ -6,10 +6,8 @@ local window = require("window")
 local event = require("event")
 local Panel = require("ecs.entities.2d.panel")
 local theme = runfile("lua/ui/theme.lua")
-
 return function(props)
 	local ent
-
 	local state = {
 		value = props.Value or 0.5,
 		min = props.Min or 0,
@@ -28,46 +26,43 @@ return function(props)
 		local normalized = math.max(0, math.min(1, (x - knob_width / 2) / usable_width))
 		state.value = state.min + normalized * (state.max - state.min)
 
-		if props.OnChange then
-			props.OnChange(state.value)
-		end
+		if props.OnChange then props.OnChange(state.value) end
 	end
 
 	ent = Panel(
-{
-Name = "slider",
-Position = props.Position or (not props.Layout and Vec2(100, 100) or nil),
-Size = props.Size or theme.Sizes.SliderSize,
-Layout = props.Layout,
-Margin = props.Margin or theme.Sizes.SliderMargin,
-Cursor = "hand",
-Color = theme.Colors.Invisible,
-mouse_input = {
-OnMouseInput = function(self, button, press, local_pos)
-if button == "button_1" then
-if press then
-state.is_dragging = true
-SetValueFromPosition(local_pos.x)
-end
+		{
+			Name = "slider",
+			Position = props.Position or (not props.Layout and Vec2(100, 100) or nil),
+			Size = props.Size or theme.Sizes.SliderSize,
+			Layout = props.Layout,
+			Cursor = "hand",
+			Color = theme.Colors.Invisible,
+			mouse_input = {
+				OnMouseInput = function(self, button, press, local_pos)
+					if button == "button_1" then
+						if press then
+							state.is_dragging = true
+							SetValueFromPosition(local_pos.x)
+						end
 
-return true
-end
-end,
-OnGlobalMouseInput = function(self, button, press, mouse_pos)
-if button == "button_1" and not press and state.is_dragging then
-state.is_dragging = false
-return true
-end
-end,
-},
-OnHover = function(self, hovered)
-state.is_hovered = hovered
-theme.UpdateSliderAnimations(ent, state)
-end,
-gui_element = {
-OnDraw = function(self)
-if state.is_dragging then
-local mpos = window.GetMousePosition()
+						return true
+					end
+				end,
+				OnGlobalMouseInput = function(self, button, press, mouse_pos)
+					if button == "button_1" and not press and state.is_dragging then
+						state.is_dragging = false
+						return true
+					end
+				end,
+			},
+			OnHover = function(self, hovered)
+				state.is_hovered = hovered
+				theme.UpdateSliderAnimations(ent, state)
+			end,
+			gui_element = {
+				OnDraw = function(self)
+					if state.is_dragging then
+						local mpos = window.GetMousePosition()
 						local lpos = self.Owner.transform:GlobalToLocal(mpos)
 						SetValueFromPosition(lpos.x)
 					end

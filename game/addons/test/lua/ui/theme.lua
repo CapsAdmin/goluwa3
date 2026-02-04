@@ -64,21 +64,6 @@ local colors = table.merge_many(
 	},
 	pallete
 )
-local font_paths = {
-	heading = "assets/fonts/exo2-regular.ttf",
-	body_weak = "assets/fonts/exo2-light.ttf",
-	body = "assets/fonts/exo2-regular.ttf",
-	body_strong = "assets/fonts/exo2-regular.ttf",
-}
-local text_sizes = {
-	XS = 14,
-	S = 16,
-	M = 20,
-	L = 23,
-	XL = 27,
-	XXL = 32,
-	XXXL = 42,
-}
 local sizes = {
 	none = 0,
 	line = 1,
@@ -168,12 +153,7 @@ theme.Colors = {
 	KnobHighlight = Color(1, 1, 1, 0.3),
 }
 theme.Sizes = {
-	FrameMargin = Rect() + 5,
-	SliderMargin = Rect() + 10,
-	MenuButtonMargin = Rect() + 10,
-	ContextMenuPadding = Rect() + 5,
 	SliderSize = Vec2(300, 40),
-	MenuButtonSize = Vec2(150, 40),
 	TopBarButtonSize = Vec2(80, 30),
 	ContextMenuSize = Vec2(200, 0),
 	MenuButtonTextSize = Vec2(150, 40), -- Base size
@@ -194,11 +174,31 @@ local Textures = {
 	Gradient = require("render.textures.gradient_linear"),
 }
 local path = fonts.GetSystemDefaultFont()
-theme.Fonts = {
-	Default = fonts.CreateFont(
+local font_sizes = {
+	XS = 10,
+	S = 12,
+	M = 14,
+	L = 20,
+	XL = 27,
+	XXL = 32,
+	XXXL = 42,
+}
+local font_paths = {
+	heading = "/home/caps/Downloads/Exo_2/static/Exo2-Regular.ttf",
+	body_weak = "/home/caps/Downloads/Exo_2/static/Exo2-Light.ttf",
+	body = "/home/caps/Downloads/Exo_2/static/Exo2-Regular.ttf",
+	body_strong = "/home/caps/Downloads/Exo_2/static/Exo2-Regular.ttf",
+}
+
+function theme.GetFont(name, size_name)
+	local path = font_paths[name or "body"] or font_paths.body
+	local size = font_sizes[size_name or "M"] or font_sizes.M
+	theme.Fonts = theme.Fonts or {}
+	theme.Fonts[path] = theme.Fonts[path] or {}
+	theme.Fonts[path][size] = fonts.CreateFont(
 		{
 			path = path,
-			size = 17,
+			size = size,
 			shadow = {
 				dir = -2,
 				color = theme.Colors.TextShadow,
@@ -206,8 +206,9 @@ theme.Fonts = {
 				blur_passes = 1,
 			},
 		}
-	),
-}
+	)
+	return theme.Fonts[path][size]
+end
 
 function theme.DrawLine(x1, y1, x2, y2, thickness, tex)
 	if tex == false then

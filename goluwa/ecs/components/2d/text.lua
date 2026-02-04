@@ -49,7 +49,16 @@ function META:OnTextChanged()
 
 	local w, h = font:GetTextSize(self.wrapped_text)
 
-	if not self:GetWrap() then self.Owner.transform:SetSize(Vec2(w, h)) end
+	if not self:GetWrap() then
+		self.Owner.transform:SetSize(Vec2(w, h))
+
+		if self.Owner:HasParent() and self.Owner:GetParent().layout then
+			self.Owner:GetParent().layout:InvalidateLayout()
+			print("update layout")
+		end
+
+		print(w, h)
+	end
 end
 
 function META:OnDraw()

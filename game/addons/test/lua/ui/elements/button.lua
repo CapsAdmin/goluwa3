@@ -12,7 +12,6 @@ return function(props)
 	ent = Panel(
 		{
 			Name = "button",
-			Position = props.Position or (not props.Layout and Vec2(100, 100) or nil),
 			Size = props.Size or Vec2(200, 50),
 			Layout = props.Layout,
 			Perspective = 400,

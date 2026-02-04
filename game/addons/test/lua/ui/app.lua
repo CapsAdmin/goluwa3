@@ -33,15 +33,13 @@ event.AddListener("KeyInput", "menu_toggle", function(key, press)
 
 		local top_bar = Frame(
 			{
-				Layout = {"GmodTop"},
+				Layout = {"MoveTop", "FillX"},
 				Size = Vec2(0, 30),
-				Margin = theme.Sizes.FrameMargin,
 				Children = {
 					MenuButton(
 						{
 							Text = "GAME",
-							Layout = {"MoveLeft", "CenterYSimple"},
-							Size = theme.Sizes.TopBarButtonSize,
+							Layout = {"SizeToChildren", "CenterYSimple", "MoveLeft"},
 							OnClick = function(ent)
 								local x, y = ent.transform:GetWorldMatrix():GetTranslation()
 								y = y + ent.transform:GetHeight()
@@ -81,29 +79,25 @@ event.AddListener("KeyInput", "menu_toggle", function(key, press)
 					MenuButton(
 						{
 							Text = "CONFIG",
-							Layout = {"MoveLeft", "CenterYSimple"},
-							Size = theme.Sizes.TopBarButtonSize,
+							Layout = {"SizeToChildren", "CenterYSimple", "MoveLeft"},
 						}
 					),
 					MenuButton(
 						{
 							Text = "CHEAT",
-							Layout = {"MoveLeft", "CenterYSimple"},
-							Size = theme.Sizes.TopBarButtonSize,
+							Layout = {"SizeToChildren", "CenterYSimple", "MoveLeft"},
 						}
 					),
 					MenuButton(
 						{
 							Text = "NETPLAY",
-							Layout = {"MoveLeft", "CenterYSimple"},
-							Size = theme.Sizes.TopBarButtonSize,
+							Layout = {"SizeToChildren", "CenterYSimple", "MoveLeft"},
 						}
 					),
 					MenuButton(
 						{
 							Text = "MISC",
-							Layout = {"MoveLeft", "CenterYSimple"},
-							Size = Vec2(80, 30),
+							Layout = {"SizeToChildren", "CenterYSimple", "MoveLeft"},
 						}
 					),
 				},

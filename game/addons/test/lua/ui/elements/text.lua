@@ -11,7 +11,7 @@ return function(props)
 	return Text(
 		table.merge(
 			{
-				Font = theme.Fonts[props.Font] or theme.Fonts.Default,
+				Font = theme.GetFont(props.Font or "body", props.Size or "M"),
 				Color = theme.Colors[props.Color] or theme.Colors.Text,
 			},
 			props

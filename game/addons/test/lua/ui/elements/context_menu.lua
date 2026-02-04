@@ -66,7 +66,6 @@ return function(props)
 						Layout = {"SizeToChildrenHeight"},
 						Stack = true,
 						StackDown = true,
-						Padding = theme.Sizes.ContextMenuPadding,
 						-- Stop clicks on the menu from closing it via the background panel
 						OnMouseInput = function(self, button, press)
 							return true
