@@ -81,16 +81,6 @@ return function(props)
 		end
 	end
 
-	-- Global mouse listener for dragging outside the slider
-	local mouse_listener_id = "slider_" .. tostring({}):match("0x(%x+)")
-
-	event.AddListener("MouseInput", mouse_listener_id, function(button, press, pos)
-		if button == "button_1" and not press and is_dragging then
-			is_dragging = false
-			return true
-		end
-	end)
-
 	ent = Panel(
 		{
 			Name = "slider",
@@ -100,9 +90,6 @@ return function(props)
 			Margin = props.Margin or Rect() + 10,
 			Cursor = "hand",
 			Color = Color(0, 0, 0, 0),
-			OnRemove = function()
-				event.RemoveListener("MouseInput", mouse_listener_id)
-			end,
 			mouse_input = {
 				OnMouseInput = function(self, button, press, local_pos)
 					if button == "button_1" then
@@ -111,6 +98,12 @@ return function(props)
 							SetValueFromPosition(local_pos.x)
 						end
 
+						return true
+					end
+				end,
+				OnGlobalMouseInput = function(self, button, press, mouse_pos)
+					if button == "button_1" and not press and is_dragging then
+						is_dragging = false
 						return true
 					end
 				end,

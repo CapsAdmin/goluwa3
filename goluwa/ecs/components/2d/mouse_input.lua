@@ -103,6 +103,12 @@ function META:OnFirstCreated()
 
 		local pos = window.GetMousePosition()
 
+		for _, cmp in ipairs(META.Instances) do
+			if cmp.OnGlobalMouseInput then
+				cmp:OnGlobalMouseInput(button, press, pos)
+			end
+		end
+
 		if press then
 			local hovered = get_hovered_entity(Panel.World, pos)
 
