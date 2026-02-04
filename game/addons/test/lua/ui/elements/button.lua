@@ -5,7 +5,6 @@ local Ang3 = require("structs.ang3")
 local window = require("window")
 local Panel = require("ecs.entities.2d.panel")
 local Texture = require("render.texture")
-local animations = require("animations")
 local glow_linear_tex = require("render.textures.glow_linear")
 local glow_point_tex = require("render.textures.glow_point")
 local gradient_tex = require("render.textures.gradient_linear")
@@ -71,10 +70,9 @@ return function(props)
 		local is_tilting = is_active
 
 		if is_active ~= last_active then
-			ent.animations:Animate(
+			ent.animation:Animate(
 				{
 					id = "press_scale",
-					base = press_scale,
 					get = function()
 						return press_scale
 					end,
@@ -86,10 +84,9 @@ return function(props)
 					time = (is_pressed and not is_hovered) and 0.2 or 0.1,
 				}
 			)
-			ent.animations:Animate(
+			ent.animation:Animate(
 				{
 					id = "DrawScaleOffset",
-					base = ent.transform:GetDrawScaleOffset(),
 					get = function()
 						return ent.transform:GetDrawScaleOffset()
 					end,
@@ -115,10 +112,9 @@ return function(props)
 		end
 
 		if is_hovered ~= last_hovered then
-			ent.animations:Animate(
+			ent.animation:Animate(
 				{
 					id = "glow_alpha",
-					base = glow_alpha,
 					get = function()
 						return glow_alpha
 					end,
@@ -134,10 +130,9 @@ return function(props)
 		end
 
 		if is_tilting ~= last_tilting or is_tilting then
-			ent.animations:Animate(
+			ent.animation:Animate(
 				{
 					id = "DrawAngleOffset",
-					base = ent.transform:GetDrawAngleOffset(),
 					get = function()
 						return ent.transform:GetDrawAngleOffset()
 					end,
@@ -183,7 +178,6 @@ return function(props)
 			Layout = props.Layout,
 			Perspective = 400,
 			Shadows = false,
-			Resizable = false,
 			BorderRadius = 10,
 			ShadowSize = 10,
 			ShadowColor = Color(0, 0, 0, 0.2),

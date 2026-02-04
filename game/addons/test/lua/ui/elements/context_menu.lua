@@ -12,10 +12,9 @@ return function(props)
 	local function UpdateAnimations()
 		if not menu_ent then return end
 
-		menu_ent.animations:Animate(
+		menu_ent.animation:Animate(
 			{
 				id = "menu_open_close",
-				base = menu_ent.transform:GetDrawScaleOffset(),
 				get = function()
 					return menu_ent.transform:GetDrawScaleOffset()
 				end,
@@ -66,8 +65,6 @@ return function(props)
 						Layout = {"SizeToChildrenHeight"},
 						Stack = true,
 						StackDown = true,
-						Resizable = false,
-						DragEnabled = false,
 						Padding = Rect(5, 5, 5, 5),
 						-- Stop clicks on the menu from closing it via the background panel
 						OnMouseInput = function(self, button, press)

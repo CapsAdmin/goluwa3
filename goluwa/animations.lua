@@ -146,7 +146,7 @@ function animations.Update(dt, group)
 		end
 
 		if val ~= false then
-			animation.set(group, val, animation.id)
+			animation.set(val, group, animation.id)
 
 			if alpha >= 1 and not pause then
 				if animation.callback then animation.callback(group) end
@@ -196,8 +196,8 @@ function animations.Animate(config)
 	local time = config.time
 	local operator = config.operator
 	local pow = config.pow
-	local set = config.set
-	local get = config.get
+	local set = assert(config.set, "must have a .set field")
+	local get = assert(config.get, "must have a .get field")
 	local callback = config.callback
 	local interpolation = config.interpolation or "linear"
 	local original_val = get(group)

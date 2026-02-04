@@ -97,7 +97,6 @@ return function(props)
 			{
 				Name = "frame",
 				Color = Color.FromHex("#062a67"):SetAlpha(0.9),
-				DragEnabled = true,
 				gui_element = {
 					OnDraw = OnDraw,
 					OnPostDraw = OnPostDraw,

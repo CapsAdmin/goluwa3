@@ -1081,7 +1081,7 @@ do -- base object
 	do -- events
 		local events = {}
 
-		function META:AddEvent(event_type)
+		function META:AddEvent(event_type, config)
 			self.added_events = self.added_events or {}
 
 			if self.added_events[event_type] then return end
@@ -1108,12 +1108,15 @@ do -- base object
 						end
 					end
 				end,
-				{
-					on_error = function(str)
-						traceback.OnError(str)
-						self:RemoveEvent(event_type)
-					end,
-				}
+				table.merge(
+					{
+						on_error = function(str)
+							traceback.OnError(str)
+							self:RemoveEvent(event_type)
+						end,
+					},
+					config or {}
+				)
 			)
 
 			self.added_events[event_type] = true

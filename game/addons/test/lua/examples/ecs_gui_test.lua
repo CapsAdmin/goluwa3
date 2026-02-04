@@ -11,7 +11,6 @@ do -- mouse input
 	pnl.transform:SetSize(Vec2(60, 20))
 	pnl.rect:SetColor(Color(1, 0, 0, 1))
 	pnl.mouse_input:SetCursor("hand")
-	pnl.mouse_input:SetDragEnabled(true)
 	pnl.mouse_input:SetFocusOnClick(true)
 	local label = Text({Name = "label", Parent = pnl})
 	label.text:SetText("Drag Me!")
@@ -21,10 +20,9 @@ do -- mouse input
 
 	function pnl:OnHover(hovered)
 		if hovered then
-			self.animations:Animate(
+			self.animation:Animate(
 				{
 					id = "scale",
-					base = self.transform:GetDrawScaleOffset(),
 					get = function()
 						return self.transform:GetDrawScaleOffset()
 					end,
@@ -35,10 +33,9 @@ do -- mouse input
 					time = 0.1,
 				}
 			)
-			self.animations:Animate(
+			self.animation:Animate(
 				{
 					id = "color",
-					base = self.rect:GetDrawColor(),
 					get = function()
 						return self.rect:GetDrawColor()
 					end,
@@ -50,10 +47,9 @@ do -- mouse input
 				}
 			)
 		else
-			self.animations:Animate(
+			self.animation:Animate(
 				{
 					id = "scale",
-					base = self.transform:GetDrawScaleOffset(),
 					get = function()
 						return self.transform:GetDrawScaleOffset()
 					end,
@@ -64,10 +60,9 @@ do -- mouse input
 					time = 0.1,
 				}
 			)
-			self.animations:Animate(
+			self.animation:Animate(
 				{
 					id = "color",
-					base = self.rect:GetDrawColor(),
 					get = function()
 						return self.rect:GetDrawColor()
 					end,
@@ -109,7 +104,6 @@ do -- drag
 	parent.transform:SetPosition(Vec2(200, 200))
 	parent.transform:SetSize(Vec2(200, 200))
 	parent.rect:SetColor(Color(0.2, 0.2, 0.2, 0.8))
-	parent.mouse_input:SetDragEnabled(true)
 	parent.mouse_input:SetBringToFrontOnClick(true)
 	parent.mouse_input:SetFocusOnClick(true)
 	parent.layout:SetPadding(Rect(10, 10, 10, 10))
@@ -185,7 +179,6 @@ do -- shadows
 	shadow_panel.gui_element:SetShadowSize(20)
 	shadow_panel.gui_element:SetShadowOffset(Vec2(5, 5))
 	shadow_panel.gui_element:SetShadowColor(Color(0, 0, 0, 0.7))
-	shadow_panel.mouse_input:SetDragEnabled(true)
 	local shadow_label = Panel({Name = "shadow_label", Parent = shadow_panel})
 	shadow_label.transform:SetPosition(Vec2(20, 20))
 	shadow_label.transform:SetSize(Vec2(160, 40))
@@ -206,7 +199,6 @@ do -- resizable panel
 	resizable_panel.transform:SetSize(Vec2(200, 150))
 	resizable_panel.rect:SetColor(Color(0.1, 0.4, 0.1, 0.8))
 	resizable_panel.gui_element:SetBorderRadius(10)
-	resizable_panel.mouse_input:SetDragEnabled(true)
 	resizable_panel.resizable:SetResizable(true)
 	resizable_panel.resizable:SetMinimumSize(Vec2(100, 100))
 	local label = Text({Name = "label", Parent = resizable_panel})

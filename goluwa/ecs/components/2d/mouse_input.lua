@@ -10,7 +10,6 @@ META:GetSet("FocusOnClick", false)
 META:GetSet("BringToFrontOnClick", false)
 META:GetSet("RedirectFocus", NULL)
 META:GetSet("Cursor", "arrow")
-META:GetSet("DragEnabled", false)
 META:EndStorable()
 
 function META:SetHovered(b)
@@ -127,24 +126,6 @@ function META:OnFirstCreated()
 
 					if mouse_comp:GetBringToFrontOnClick() then hovered:BringToFront() end
 
-					if button == "button_1" then
-						local resizable_comp = hovered.resizable
-
-						if resizable_comp and resizable_comp:GetResizable() then
-							local local_pos = hovered.transform:GlobalToLocal(pos)
-
-							if resizable_comp:StartResizing(local_pos, button) then
-								mouse_input.ResizingObject = resizable_comp
-							end
-						end
-
-						if not mouse_input.ResizingObject and mouse_comp:GetDragEnabled() then
-							mouse_input.DraggingObject = hovered
-							mouse_input.DragMouseStart = pos:Copy()
-							mouse_input.DragObjectStart = hovered.transform:GetPosition():Copy()
-						end
-					end
-
 					local local_pos = hovered.transform:GlobalToLocal(pos)
 
 					if hovered.component_map then
@@ -165,15 +146,6 @@ function META:OnFirstCreated()
 				prototype.SetFocusedObject(NULL)
 			end
 		else
-			if button == "button_1" then
-				mouse_input.DraggingObject = nil
-
-				if mouse_input.ResizingObject and mouse_input.ResizingObject.resize_button == button then
-					mouse_input.ResizingObject:StopResizing()
-					mouse_input.ResizingObject = nil
-				end
-			end
-
 			local pressed = mouse_input.pressed_entities[button]
 
 			if pressed then
@@ -209,20 +181,6 @@ function META:OnFirstCreated()
 		if not Panel.World then return end
 
 		local pos = window.GetMousePosition()
-
-		if mouse_input.ResizingObject and mouse_input.ResizingObject:IsValid() then
-			mouse_input.ResizingObject:UpdateResizing(pos)
-		elseif mouse_input.DraggingObject and mouse_input.DraggingObject:IsValid() then
-			local delta = pos - mouse_input.DragMouseStart
-			local new_pos = mouse_input.DragObjectStart + delta
-
-			if mouse_input.DraggingObject.transform then
-				mouse_input.DraggingObject.transform:SetPosition(new_pos)
-			elseif mouse_input.DraggingObject.SetPosition then
-				mouse_input.DraggingObject:SetPosition(new_pos)
-			end
-		end
-
 		local hovered = get_hovered_entity(Panel.World, pos) or NULL
 
 		if hovered ~= mouse_input.last_hovered then
@@ -258,12 +216,14 @@ function META:OnFirstCreated()
 
 			if mouse then
 				cursor = mouse:GetCursor()
-				local resizable_comp = hovered.resizable
+				local local_pos = hovered.transform:GlobalToLocal(pos)
 
-				if resizable_comp and resizable_comp:GetResizable() then
-					local res_cursor = resizable_comp:GetResizeCursor(hovered.transform:GlobalToLocal(pos))
-
-					if res_cursor then cursor = res_cursor end
+				if hovered.component_map then
+					for _, comp in pairs(hovered.component_map) do
+						if comp.OnMouseMove then
+							if comp:OnMouseMove(local_pos) then break end
+						end
+					end
 				end
 
 				if hovered.GreyedOut then cursor = "no" end

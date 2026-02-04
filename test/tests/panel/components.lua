@@ -66,8 +66,8 @@ T.Test("panel animations basic", function()
 	pnl.rect:SetColor(Color(1, 0, 0, 1))
 	-- Animations usually require time to pass, 
 	-- but we can check if the component exists and responds to Animate.
-	T(pnl.animations)["~="](nil)
-	pnl.animations:Animate(
+	T(pnl.animation)["~="](nil)
+	pnl.animation:Animate(
 		{
 			id = "color",
 			base = pnl.rect:GetDrawColor(),
@@ -83,19 +83,6 @@ T.Test("panel animations basic", function()
 	)
 -- Without a system update, it might not change immediately
 -- but we check it doesn't crash and initializes the animation.
-end)
-
-T.Test("panel animations var error", function()
-	local pnl = Panel({Name = "anim_error_test"})
-	local ok, err = pcall(function()
-		pnl.animations:Animate({
-			var = "DrawColor",
-			to = Color(0, 1, 0, 1),
-			time = 0.1,
-		})
-	end)
-	T(ok)["=="](false)
-	T(err:find(".var are no longer supported"))["~="](nil)
 end)
 
 T.Test("panel mouse simulation and hover", function()

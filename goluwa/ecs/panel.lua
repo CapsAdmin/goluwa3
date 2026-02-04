@@ -1,6 +1,6 @@
 local Panel = require("ecs.base")("panel", "ecs.components.2d.", function()
 	return {
-		animations = require("ecs.components.2d.animations"),
+		animation = require("ecs.components.2d.animation"),
 		clickable = require("ecs.components.2d.clickable"),
 		gui_element = require("ecs.components.2d.gui_element"),
 		key_input = require("ecs.components.2d.key_input"),

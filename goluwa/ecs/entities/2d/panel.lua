@@ -10,8 +10,7 @@ return function(config)
 					"layout",
 					"mouse_input",
 					"clickable",
-					"animations",
-					"resizable",
+					"animation",
 				},
 			},
 			config

@@ -4,7 +4,6 @@ local Rect = require("structs.rect")
 local META = prototype.CreateTemplate("resizable")
 META:StartStorable()
 META:GetSet("ResizeBorder", Rect(8, 8, 8, 8))
-META:GetSet("Resizable", true)
 META:GetSet("MinimumSize", Vec2(10, 10))
 META:EndStorable()
 
@@ -84,19 +83,21 @@ function META:StartResizing(local_pos, button)
 		self.resize_prev_pos = transform:GetPosition():Copy()
 		self.resize_prev_size = transform:GetSize():Copy()
 		self.resize_button = button
+		self:AddEvent("Update", {priority = 100})
 		return true
 	end
 end
 
 function META:StopResizing()
 	self.resize_start_pos = nil
+	self:RemoveEvent("Update")
 end
 
 function META:IsResizing()
 	return self.resize_start_pos ~= nil
 end
 
-function META:UpdateResizing(pos)
+function META:OnUpdate()
 	if
 		self.resize_button ~= nil and
 		not self.Owner.mouse_input:IsMouseButtonDown(self.resize_button)
@@ -109,6 +110,7 @@ function META:UpdateResizing(pos)
 
 	if cursor then self.Owner.mouse_input:SetCursor(cursor) end
 
+	local pos = self.Owner.mouse_input:GetGlobalMousePosition()
 	local transform = self.Owner.transform
 	local diff_world = pos - self.resize_prev_mouse_pos
 	local loc = self.resize_location
@@ -150,6 +152,30 @@ function META:UpdateResizing(pos)
 
 	transform:SetPosition(prev_pos)
 	transform:SetSize(prev_size)
+end
+
+function META:OnMouseInput(button, press, pos)
+	if button == "button_1" and press then
+		local loc = self:GetResizeLocation(pos)
+
+		if loc then
+			self:StartResizing(pos, button)
+			return true
+		end
+	end
+end
+
+function META:OnMouseMove(pos)
+	local cursor = self:GetResizeCursor(pos)
+
+	if cursor then
+		self.Owner.mouse_input:SetCursor(cursor)
+		return true
+	end
+end
+
+function META:OnRemove()
+	if self:IsResizing() then self:StopResizing() end
 end
 
 return META:Register()

@@ -3,12 +3,7 @@ local animations = require("animations")
 local system = require("system")
 local event = require("event")
 local Vec2 = require("structs.vec2")
-local META = prototype.CreateTemplate("animations")
-local parent_layout = {
-	Size = true,
-	Position = true,
-	Rotation = true,
-}
+local META = prototype.CreateTemplate("animation")
 
 local function call_on_ent_or_comps(ent, func_name, ...)
 	if not ent or not ent:IsValid() then return end
@@ -23,30 +18,8 @@ local function call_on_ent_or_comps(ent, func_name, ...)
 end
 
 function META:Animate(config)
-	if config.var then
-		error(
-			"Animations with .var are no longer supported. Use .get, .set and .base instead. (var = " .. tostring(config.var) .. ")",
-			2
-		)
-	end
-
-	local id = config.id
-
-	if not id then error("Animate must have a .id field", 2) end
-
-	config.id = id
+	assert(config.id, "must have an .id field")
 	config.group = self.Owner
-
-	if not config.get then error("Animate must have a .get field", 2) end
-
-	if not config.set then error("Animate must have a .set field", 2) end
-
-	if config.base == nil then error("Animate must have a .base field", 2) end
-
-	local old_set = config.set
-	config.set = function(ent, val, id)
-		return old_set(val, ent, id)
-	end
 	animations.Animate(config)
 end
 
