@@ -13,10 +13,7 @@ local Color = require("structs.color")
 local Vec2 = require("structs.vec2")
 local Matrix44 = require("structs.matrix44")
 local orientation = require("render3d.orientation")
-local transform = require("ecs.components.3d.transform")
-local model = require("ecs.components.3d.model")
-local light = require("ecs.components.3d.light")
-local ecs = require("ecs.ecs")
+local Entity = require("ecs.entity")
 local width = 512
 local height = 512
 local colors = {
@@ -87,10 +84,9 @@ local function create_face(pos, normal, up, color)
 			DoubleSided = true,
 		}
 	)
-	local ent = ecs.CreateEntity()
-	ent:SetName("face")
-	ent:AddComponent(transform)
-	ent:AddComponent(model)
+	local ent = Entity.New({Name = "face"})
+	ent:AddComponent("transform")
+	ent:AddComponent("model")
 	ent.model:AddPrimitive(poly, material)
 	ent.model:BuildAABB()
 	ent.model:SetUseOcclusionCulling(false)
@@ -101,12 +97,12 @@ local function TestCamera(name, cb)
 	local ents = {}
 
 	local function start()
-		local sun = ecs.CreateFromTable(
+		local sun = Entity.New(
 			{
-				[transform] = {
+				transform = {
 					Rotation = Quat(-0.2, 0.8, 0.4, 0.4),
 				},
-				[light] = {
+				light = {
 					LightType = "sun",
 					Color = Color(1.0, 1, 1),
 					Intensity = 1,
@@ -145,9 +141,9 @@ local function TestCamera(name, cb)
 					DoubleSided = false,
 				}
 			)
-			local ent = ecs.CreateEntity("mdl", ecs.Get3DWorld())
-			ent:AddComponent(transform)
-			ent:AddComponent(model)
+			local ent = Entity.New({Name = "mdl"})
+			ent:AddComponent("transform")
+			ent:AddComponent("model")
 			ent.model:AddPrimitive(poly, material)
 			ent.model:BuildAABB()
 			ent.model:SetUseOcclusionCulling(false)
@@ -296,7 +292,6 @@ T.Test3D("camera tests", function(draw)
 		draw()
 		test_color("left_center", "green")
 	end)
-
 
 	TestCamera("Camera near plane clipping", function(draw)
 		local cam = render3d.GetCamera()

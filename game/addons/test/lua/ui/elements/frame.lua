@@ -3,7 +3,6 @@ local Vec2 = require("structs.vec2")
 local Color = require("structs.color")
 local Ang3 = require("structs.ang3")
 local window = require("window")
-local lsx = require("ecs.lsx_ecs")
 local prototype = require("prototype")
 local fonts = require("render2d.fonts")
 local render2d = require("render2d.render2d")
@@ -13,6 +12,7 @@ local gfx = require("render2d.gfx")
 local glow_linear_tex = require("render.textures.glow_linear")
 local glow_point_tex = require("render.textures.glow_point")
 local gradient_tex = require("render.textures.gradient_linear")
+local Panel = require("ecs.entities.2d.panel")
 
 local function line(x1, y1, x2, y2, thickness, tex)
 	if tex == false then
@@ -65,9 +65,9 @@ local function edge_decor(x, y)
 end
 
 local function OnDraw(self)
-	local s = self.Entity.transform_2d.Size + self.Entity.transform_2d.DrawSizeOffset
-	local c = self.Entity.rect_2d.Color + self.Entity.rect_2d.DrawColor
-	render2d.SetColor(c.r, c.g, c.b, c.a * self.Entity.rect_2d.DrawAlpha)
+	local s = self.Owner.transform.Size + self.Owner.transform.DrawSizeOffset
+	local c = self.Owner.rect.Color + self.Owner.rect.DrawColor
+	render2d.SetColor(c.r, c.g, c.b, c.a * self.Owner.rect.DrawAlpha)
 	render2d.SetBlendMode("alpha")
 	render2d.PushUV()
 	render2d.SetUV2(0.5, 0.1, 0.7, 0.6)
@@ -77,11 +77,11 @@ local function OnDraw(self)
 end
 
 local function OnPostDraw(self)
-	local s = self.Entity.transform_2d.Size + self.Entity.transform_2d.DrawSizeOffset
-	local c = self.Entity.rect_2d.Color + self.Entity.rect_2d.DrawColor
+	local s = self.Owner.transform.Size + self.Owner.transform.DrawSizeOffset
+	local c = self.Owner.rect.Color + self.Owner.rect.DrawColor
 
 	do
-		render2d.SetColor(0.106, 0.463, 0.678, c.a * self.Entity.rect_2d.DrawAlpha)
+		render2d.SetColor(0.106, 0.463, 0.678, c.a * self.Owner.rect.DrawAlpha)
 		render2d.SetBlendMode("alpha")
 		rect(-4, -4, s.x + 8, s.y + 8, 3, 40)
 		edge_decor(-4, -4)
@@ -92,13 +92,13 @@ local function OnPostDraw(self)
 end
 
 return function(props)
-	return lsx:Panel(
-		lsx:MergeProps(
+	return Panel(
+		table.merge(
 			{
 				Name = "frame",
 				Color = Color.FromHex("#062a67"):SetAlpha(0.9),
 				DragEnabled = true,
-				gui_element_2d = {
+				gui_element = {
 					OnDraw = OnDraw,
 					OnPostDraw = OnPostDraw,
 				},

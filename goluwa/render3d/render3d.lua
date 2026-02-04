@@ -1,8 +1,9 @@
+local render3d = library()
+package.loaded["render3d.render3d"] = render3d
 local ffi = require("ffi")
 local render = require("render.render")
 local EasyPipeline = require("render.easy_pipeline")
 local event = require("event")
-local ecs = require("ecs.ecs")
 local orientation = require("render3d.orientation")
 local Material = require("render3d.material")
 local Matrix44 = require("structs.matrix44")
@@ -12,13 +13,12 @@ local Quat = require("structs.quat")
 local Rect = require("structs.rect")
 local Camera3D = require("render3d.camera3d")
 local GetBlueNoiseTexture = require("render.textures.blue_noise")
-local Light = require("ecs.components.3d.light")
 local Framebuffer = require("render.framebuffer")
 local system = require("system")
-local render3d = library()
-package.loaded["render3d.render3d"] = render3d
 local atmosphere = require("render3d.atmosphere")
 local lightprobes = require("render3d.lightprobes")
+local Light = require("ecs.components.3d.light")
+local prototype = require("prototype")
 
 do
 	render3d.debug_block = {
@@ -297,7 +297,7 @@ do
 end
 
 function render3d.GetLights()
-	return ecs.GetComponents("light") -- TODO, optimize
+	return Light.Instances
 end
 
 -- Debug state for cascade visualization

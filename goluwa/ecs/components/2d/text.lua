@@ -3,11 +3,7 @@ local fonts = require("render2d.fonts")
 local render2d = require("render2d.render2d")
 local Color = require("structs.color")
 local Vec2 = require("structs.vec2")
-local transform = require("ecs.components.2d.transform")
-local gui_element_2d = require("ecs.components.2d.gui_element")
-local META = prototype.CreateTemplate("text_2d")
-META.ComponentName = "text_2d"
-META.Require = {transform, gui_element_2d}
+local META = prototype.CreateTemplate("text")
 META:StartStorable()
 META:GetSet(
 	"Font",
@@ -25,6 +21,10 @@ META:EndStorable()
 
 function META:Initialize()
 	self:OnTextChanged()
+
+	self.Owner:AddLocalListener("OnDraw", function()
+		self:OnDraw()
+	end)
 end
 
 function META:OnTextChanged()
@@ -32,14 +32,14 @@ function META:OnTextChanged()
 	local text = self:GetText()
 
 	if self:GetWrap() then
-		local width = self.Entity.transform_2d.Size.x
+		local width = self.Owner.transform.Size.x
 
 		if
 			self:GetWrapToParent() and
-			self.Entity:GetParent() and
-			self.Entity:GetParent().transform_2d
+			self.Owner:GetParent() and
+			self.Owner:GetParent().transform
 		then
-			width = self.Entity:GetParent().transform_2d.Size.x
+			width = self.Owner:GetParent().transform.Size.x
 		end
 
 		self.wrapped_text = font:WrapString(text, width)
@@ -49,7 +49,7 @@ function META:OnTextChanged()
 
 	local w, h = font:GetTextSize(self.wrapped_text)
 
-	if not self:GetWrap() then self.Entity.transform_2d:SetSize(Vec2(w, h)) end
+	if not self:GetWrap() then self.Owner.transform:SetSize(Vec2(w, h)) end
 end
 
 function META:OnDraw()
@@ -57,7 +57,7 @@ function META:OnDraw()
 	local text = self.wrapped_text or self:GetText()
 	local x, y = 0, 0
 	local ax, ay = self:GetAlignX(), self:GetAlignY()
-	local size = self.Entity.transform_2d.Size
+	local size = self.Owner.transform.Size
 
 	if type(ax) == "number" then
 		x = size.x * ax
@@ -86,6 +86,4 @@ function META:OnDraw()
 	end
 end
 
-local text_2d = {}
-text_2d.Component = META:Register()
-return text_2d
+return META:Register()

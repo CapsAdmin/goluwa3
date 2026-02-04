@@ -1,11 +1,11 @@
 local render3d = require("render3d.render3d")
 local event = require("event")
-local ecs = require("ecs.ecs")
 local Material = require("render3d.material")
 local Polygon3D = require("render3d.polygon_3d")
 local Vec3 = require("structs.vec3")
 local Color = require("structs.color")
 local Matrix44 = require("structs.matrix44")
+local Model = require("ecs.components.3d.model")
 local aabb_enabled = false
 local unit_cube_mesh = nil
 
@@ -51,7 +51,7 @@ event.AddListener(
 
 		if not mesh then return end
 
-		for _, model in ipairs(ecs.GetComponents("model")) do
+		for _, model in ipairs(Model.Instances) do
 			local aabb = model:GetAABB()
 
 			if aabb and aabb.min_x ~= math.huge then

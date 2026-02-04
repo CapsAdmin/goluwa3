@@ -12,13 +12,9 @@ local render = require("render.render")
 local gfx = require("render2d.gfx")
 local Rect = require("structs.rect")
 local META = prototype.CreateTemplate("transform_2d")
-META.ComponentName = META.Type
--- No requirements - transform is a base component
-META.Require = {}
-META.Events = {}
 META:StartStorable()
-META:GetSet("Position", Vec2(0, 0), {callback = "OnPositionChanged"})
-META:GetSet("Size", Vec2(100, 100), {callback = "OnSizeChanged"})
+META:GetSet("Position", Vec2(0, 0), {callback = "InvalidateMatrices"})
+META:GetSet("Size", Vec2(100, 100), {callback = "InvalidateMatrices"})
 META:GetSet("Rotation", 0, {callback = "InvalidateMatrices"})
 META:GetSet("Scale", Vec2(1, 1), {callback = "InvalidateMatrices"})
 META:GetSet("Pivot", Vec2(0.5, 0.5), {callback = "InvalidateMatrices"})
@@ -31,11 +27,6 @@ META:GetSet("DrawPositionOffset", Vec2(0, 0), {callback = "InvalidateMatrices"})
 META:GetSet("DrawAngleOffset", Ang3(0, 0, 0), {callback = "InvalidateMatrices"})
 META:EndStorable()
 META:GetSet("LocalMatrix", Matrix44():Identity())
-
-function META:OnPositionChanged()
-	self:InvalidateLayout()
-	self:InvalidateMatrices()
-end
 
 function META:InvalidateMatrices()
 	self.LocalMatrixDirty = true
@@ -50,45 +41,17 @@ function META:InvalidateWorldMatrices()
 	self.WorldMatrixDirty = true
 	self.WorldMatrixInverseDirty = true
 
-	if self.Entity then
-		for _, child in ipairs(self.Entity:GetChildren()) do
-			local tr = child:GetComponent("transform_2d")
+	if self.Owner then
+		for _, child in ipairs(self.Owner:GetChildren()) do
+			local tr = child.transform
 
 			if tr then tr:InvalidateWorldMatrices() end
 		end
 	end
-end
 
-function META:InvalidateLayout()
-	if not self.Entity or self.in_layout_invalidation then return end
+	self:CallLocalListeners("OnTransformChanged")
 
-	self.in_layout_invalidation = true
-	local layout = self.Entity:GetComponent("layout_2d")
-
-	if layout then
-		layout:InvalidateLayout()
-	else
-		local parent = self.Entity:GetParent()
-
-		if parent and parent:IsValid() then
-			local p_layout = parent:GetComponent("layout_2d")
-
-			if p_layout then p_layout:InvalidateLayout() end
-		end
-	end
-
-	for _, child in ipairs(self.Entity:GetChildren()) do
-		local c_tr = child:GetComponent("transform_2d")
-
-		if c_tr then c_tr:InvalidateLayout() end
-	end
-
-	self.in_layout_invalidation = nil
-end
-
-function META:OnSizeChanged()
-	self:InvalidateLayout()
-	self:InvalidateMatrices()
+	if self.Owner then self.Owner:CallLocalListeners("OnTransformChanged") end
 end
 
 function META:GetWidth()
@@ -189,8 +152,8 @@ end
 function META:GetWorldMatrix()
 	if self.WorldMatrixDirty or not self.WorldMatrix then
 		local local_mat = self:GetLocalMatrix()
-		local parent = self.Entity and self.Entity:GetParent()
-		local parent_tr = parent and parent:IsValid() and parent:GetComponent("transform_2d")
+		local parent = self.Owner and self.Owner:GetParent()
+		local parent_tr = parent and parent:IsValid() and parent.transform
 
 		if parent_tr then
 			local parent_world = parent_tr:GetWorldMatrix()
@@ -236,7 +199,4 @@ function META:GlobalToLocal(vec, out)
 	return Vec2(x, y)
 end
 
-local transform = {}
-transform.Component = META:Register()
--- no system?
-return transform
+return META:Register()

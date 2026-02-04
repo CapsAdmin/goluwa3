@@ -17,7 +17,7 @@ local Matrix44 = require("structs.matrix44")
 local fs = require("fs")
 local width = 512
 local height = 512
-local ecs = require("ecs.ecs")
+local Entity = require("ecs.entity")
 local tasks = require("tasks")
 local system = require("system")
 local vfs = require("vfs")
@@ -30,21 +30,21 @@ T.Pending("mdl rendering", function(draw)
 	cam:SetPosition(Vec3(0, 0.68, 3))
 	cam:SetRotation(Quat(0, 0, 0, 1))
 	cam:SetFOV(math.rad(30))
-	local sun = ecs.CreateFromTable(
+	local sun = Entity.New(
 		{
-			[transform] = {
+			transform = {
 				Rotation = Quat(0.5, 0, 0, -1),
 			},
-			[light] = {
+			light = {
 				LightType = "sun",
 				Color = Color(1, 1, 1),
 				Intensity = 10,
 			},
 		}
 	)
-	local ent = ecs.CreateEntity("mdl", ecs.Get3DWorld())
-	ent:AddComponent(transform)
-	ent:AddComponent(model)
+	local ent = Entity.New({Name = "mdl"})
+	ent:AddComponent("transform")
+	ent:AddComponent("model")
 	ent.model:SetModelPath("models/player/combine_super_soldier.mdl")
 	ent.transform:SetRotation(Quat(0, -1, 0, 1))
 	tasks.WaitAll(15)

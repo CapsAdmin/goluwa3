@@ -1,17 +1,15 @@
 local Quat = require("structs.quat")
 local render3d = require("render3d.render3d")
 local event = require("event")
-local ecs = require("ecs.ecs")
+local Entity = require("ecs.entity")
 local Color = require("structs.color")
 local input = require("input")
-local transform = require("ecs.components.3d.transform")
-local light = require("ecs.components.3d.light")
-local sun = ecs.CreateFromTable(
+local sun = Entity.New(
 	{
-		[transform] = {
+		transform = {
 			Rotation = Quat(-0.2, 0.8, 0.4, 0.4),
 		},
-		[light] = {
+		light = {
 			LightType = "sun",
 			Color = Color(1.0, 0.98, 1),
 			Intensity = 20,

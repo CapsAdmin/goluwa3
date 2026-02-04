@@ -371,7 +371,7 @@ function lightprobes.CreatePipelines()
 									local lights = render3d.GetLights()
 
 									if lights[1] then
-										lights[1].Entity.transform:GetRotation():GetBackward():CopyToFloatPointer(block[key])
+										lights[1].Owner.transform:GetRotation():GetBackward():CopyToFloatPointer(block[key])
 									end
 								end,
 							},
@@ -566,7 +566,7 @@ function lightprobes.CreatePipelines()
 									local lights = render3d.GetLights()
 
 									if lights[1] then
-										lights[1].Entity.transform:GetRotation():GetBackward():CopyToFloatPointer(block[key])
+										lights[1].Owner.transform:GetRotation():GetBackward():CopyToFloatPointer(block[key])
 									end
 								end,
 							},
@@ -835,7 +835,7 @@ function lightprobes.HasSunDirectionChanged()
 
 	if not lights[1] then return false end
 
-	local current_sun_dir = lights[1].Entity.transform:GetRotation():GetBackward()
+	local current_sun_dir = lights[1].Owner.transform:GetRotation():GetBackward()
 
 	if not lightprobes.last_sun_direction then
 		lightprobes.last_sun_direction = current_sun_dir:Copy()

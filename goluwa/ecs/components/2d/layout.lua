@@ -1,14 +1,12 @@
 local prototype = require("prototype")
 local Vec2 = require("structs.vec2")
 local Rect = require("structs.rect")
-local ecs = require("ecs.ecs")
 local event = require("event")
-local transform = require("ecs.components.2d.transform")
+local render2d = require("render2d.render2d")
+local gui_element = require("ecs.components.2d.gui_element")
 local layout_lib = library()
-local META = prototype.CreateTemplate("layout_2d")
-META.ComponentName = "layout_2d"
+local META = prototype.CreateTemplate("layout")
 META.layout_count = 0
-META.Require = {transform}
 META:StartStorable()
 META:GetSet("MinimumSize", Vec2(0, 0), {callback = "InvalidateLayout"})
 META:GetSet("Margin", Rect(0, 0, 0, 0), {callback = "InvalidateLayout"})
@@ -39,11 +37,38 @@ META:GetSet("Stack", false, {callback = "InvalidateLayout"})
 META:GetSet("StackSizeToChildren", false, {callback = "InvalidateLayout"})
 META:EndStorable()
 
+function META:Initialize()
+	self.Owner:AddLocalListener("OnParent", function()
+		self:InvalidateLayout()
+	end)
+
+	self.Owner:AddLocalListener("OnTransformChanged", function()
+		self:InvalidateLayout()
+
+		if
+			(
+				layout_lib.in_layout or
+				0
+			) == 0 and
+			(
+				self.in_layout or
+				0
+			) == 0 and
+			self.Owner and
+			self.Owner.transform
+		then
+			self:SetLayoutSize(self.Owner.transform:GetSize():Copy())
+		end
+	end)
+
+	self:InvalidateLayout()
+end
+
 function META:GetParentPadding()
-	local parent = self.Entity:GetParent()
+	local parent = self.Owner:GetParent()
 
 	if parent and parent:IsValid() then
-		local layout = parent:GetComponent("layout_2d")
+		local layout = parent.layout
 
 		if layout then return layout:GetPadding() end
 	end
@@ -55,10 +80,10 @@ function META:InvalidateLayout()
 	if self.layout_me then return end
 
 	self.layout_me = true
-	local parent = self.Entity:GetParent()
+	local parent = self.Owner:GetParent()
 
 	if parent and parent:IsValid() then
-		local layout = parent:GetComponent("layout_2d")
+		local layout = parent.layout
 
 		if layout then layout:InvalidateLayout() end
 	end
@@ -83,7 +108,7 @@ local function sort(a, b)
 end
 
 function META:RayCast(start_pos, stop_pos)
-	local entity = self.Entity
+	local entity = self.Owner
 	local parent = entity:GetParent()
 
 	if not parent or not parent:IsValid() then return stop_pos end
@@ -91,12 +116,12 @@ function META:RayCast(start_pos, stop_pos)
 	local dir = stop_pos - start_pos
 	local found = {}
 	local i = 1
-	local a_lft, a_top, a_rgt, a_btm = entity.transform_2d:GetWorldRectFast()
+	local a_lft, a_top, a_rgt, a_btm = entity.transform:GetWorldRectFast()
 
 	for _, b in ipairs(parent:GetChildren()) do
-		local b_layout = b:GetComponent("layout_2d")
-		local b_tr = b:GetComponent("transform_2d")
-		local b_gui = b:GetComponent("gui_element_2d")
+		local b_layout = b.layout
+		local b_tr = b.transform
+		local b_gui = b.gui_element
 
 		if
 			b ~= entity and
@@ -219,34 +244,34 @@ function META:RayCast(start_pos, stop_pos)
 
 	if found and found[1] then
 		local child = found[1].child
-		local child_tr = child:GetComponent("transform_2d")
-		local child_layout = child:GetComponent("layout_2d")
+		local child_tr = child.transform
+		local child_layout = child.layout
 		hit_pos = child_tr:GetPosition():Copy()
 
 		if dir.x < 0 then
-			hit_pos.y = entity.transform_2d:GetY()
+			hit_pos.y = entity.transform:GetY()
 			hit_pos.x = hit_pos.x + child_tr:GetWidth() + self:GetMargin():GetLeft() + (
 					child_layout and
 					child_layout:GetMargin():GetRight() or
 					0
 				)
 		elseif dir.x > 0 then
-			hit_pos.y = entity.transform_2d:GetY()
-			hit_pos.x = hit_pos.x - entity.transform_2d:GetWidth() - self:GetMargin():GetRight() - (
+			hit_pos.y = entity.transform:GetY()
+			hit_pos.x = hit_pos.x - entity.transform:GetWidth() - self:GetMargin():GetRight() - (
 					child_layout and
 					child_layout:GetMargin():GetLeft() or
 					0
 				)
 		elseif dir.y < 0 then
-			hit_pos.x = entity.transform_2d:GetX()
+			hit_pos.x = entity.transform:GetX()
 			hit_pos.y = hit_pos.y + child_tr:GetHeight() + self:GetMargin():GetTop() + (
 					child_layout and
 					child_layout:GetMargin():GetBottom() or
 					0
 				)
 		elseif dir.y > 0 then
-			hit_pos.x = entity.transform_2d:GetX()
-			hit_pos.y = hit_pos.y - entity.transform_2d:GetHeight() - self:GetMargin():GetBottom() - (
+			hit_pos.x = entity.transform:GetX()
+			hit_pos.y = hit_pos.y - entity.transform:GetHeight() - self:GetMargin():GetBottom() - (
 					child_layout and
 					child_layout:GetMargin():GetTop() or
 					0
@@ -275,22 +300,23 @@ function META:RayCast(start_pos, stop_pos)
 end
 
 function META:ExecuteLayoutCommands()
-	for _, child in ipairs(self.Entity:GetChildren()) do
-		local child_layout = child:GetComponent("layout_2d")
+	for _, child in ipairs(self.Owner:GetChildren()) do
+		local child_layout = child.layout
 
 		if child_layout and child_layout:GetLayout() then
-			if child_layout:GetLayoutSize() then
-				child.transform_2d:SetSize(child_layout:GetLayoutSize():Copy())
+			if not child_layout:GetLayoutSize() then
+				child_layout:SetLayoutSize(child.transform:GetSize():Copy())
 			end
 
+			child.transform:SetSize(child_layout:GetLayoutSize():Copy())
 			child.laid_out_x = false
 			child.laid_out_y = false
 			child_layout:Confine()
 		end
 	end
 
-	for _, child in ipairs(self.Entity:GetChildren()) do
-		local child_layout = child:GetComponent("layout_2d")
+	for _, child in ipairs(self.Owner:GetChildren()) do
+		local child_layout = child.layout
 
 		if child_layout and child_layout:GetLayout() then
 			for _, cmd in ipairs(child_layout:GetLayout()) do
@@ -306,9 +332,9 @@ function META:ExecuteLayoutCommands()
 							self[cmd](self)
 						end
 					elseif type(cmd) == "function" then
-						cmd(child, self.Entity)
+						cmd(child, self.Owner)
 					elseif typex(cmd) == "vec2" then
-						child.transform_2d:SetSize(cmd:Copy())
+						child.transform:SetSize(cmd:Copy())
 					end
 
 					child.last_layout_panel = nil
@@ -317,8 +343,8 @@ function META:ExecuteLayoutCommands()
 		end
 	end
 
-	for _, child in ipairs(self.Entity:GetChildren()) do
-		local child_layout = child:GetComponent("layout_2d")
+	for _, child in ipairs(self.Owner:GetChildren()) do
+		local child_layout = child.layout
 
 		if child_layout and child_layout:GetLayout() then
 			for _, cmd in ipairs(child_layout:GetLayout()) do
@@ -348,9 +374,7 @@ function META:DoLayout()
 	if self:GetStack() then
 		local size = self:StackChildren()
 
-		if self:GetStackSizeToChildren() then
-			self.Entity.transform_2d:SetSize(size)
-		end
+		if self:GetStackSizeToChildren() then self.Owner.transform:SetSize(size) end
 	end
 
 	self.in_layout = self.in_layout - 1
@@ -360,7 +384,7 @@ end
 function META:CalcLayoutInternal(now)
 	if self.in_layout and self.in_layout ~= 0 then return end
 
-	local gui = self.Entity:GetComponent("gui_element_2d")
+	local gui = self.Owner.gui_element
 	local visible = not gui or gui:GetVisible()
 
 	if now and (self:GetLayoutWhenInvisible() or visible) then
@@ -378,16 +402,12 @@ function META:CalcLayoutInternal(now)
 		if now then
 			self.updated_layout = (self.updated_layout or 0) + 1
 
-			for _, v in ipairs(self.Entity:GetChildren()) do
-				local v_layout = v:GetComponent("layout_2d")
-
-				if v_layout then v_layout:CalcLayoutInternal(true) end
+			for _, v in ipairs(self.Owner:GetChildren()) do
+				if v.layout then v.layout:CalcLayoutInternal(true) end
 			end
 		else
-			for _, v in ipairs(self.Entity:GetChildren()) do
-				local v_layout = v:GetComponent("layout_2d")
-
-				if v_layout then v_layout.layout_me = true end
+			for _, v in ipairs(self.Owner:GetChildren()) do
+				if v.layout then v_layout.layout_me = true end
 			end
 		end
 
@@ -400,10 +420,10 @@ function META:CalcLayoutInternal(now)
 		if self.layout_me then return end
 
 		self.layout_me = true
-		local parent = self.Entity:GetParent()
+		local parent = self.Owner:GetParent()
 
 		if parent and parent:IsValid() then
-			local p_layout = parent:GetComponent("layout_2d")
+			local p_layout = parent.layout
 
 			if p_layout then p_layout:CalcLayoutInternal() end
 		end
@@ -432,37 +452,42 @@ local function compare_layouts(tbl1, tbl2)
 	return true
 end
 
-local _SetLayout = META.SetLayout
+function META:SetLayout(...)
+	local commands = ...
 
-function META:SetLayout(commands)
+	if select("#", ...) > 1 then
+		commands = {...}
+	elseif commands ~= nil and type(commands) ~= "table" then
+		commands = {commands}
+	end
+
 	if compare_layouts(self:GetLayout(), commands) then return end
 
 	if commands then
-		_SetLayout(self, commands)
-		self:SetLayoutSize(self.Entity.transform_2d:GetSize():Copy())
-		local parent = self.Entity:GetParent()
+		self.Layout = commands
+		local parent = self.Owner:GetParent()
 
 		if parent and parent:IsValid() then
-			local p_layout = parent:GetComponent("layout_2d")
+			local p_layout = parent.layout
 
 			if p_layout then p_layout:SetLayoutUs(true) end
 		end
 	else
-		_SetLayout(self, nil)
+		self.Layout = nil
 		self:SetLayoutSize(nil)
-		local parent = self.Entity:GetParent()
+		local parent = self.Owner:GetParent()
 
 		if parent and parent:IsValid() then
-			local p_layout = parent:GetComponent("layout_2d")
+			local p_layout = parent.layout
 
 			if p_layout then p_layout:SetLayoutUs(false) end
 		end
 	end
 
-	local parent = self.Entity:GetParent()
+	local parent = self.Owner:GetParent()
 
 	if parent and parent:IsValid() then
-		local p_layout = parent:GetComponent("layout_2d")
+		local p_layout = parent.layout
 
 		if p_layout then p_layout:CalcLayoutInternal() end
 	end
@@ -472,15 +497,15 @@ end
 
 -- Layout Helpers
 function META:ResetLayout()
-	self.Entity.laid_out_x = false
-	self.Entity.laid_out_y = false
+	self.Owner.laid_out_x = false
+	self.Owner.laid_out_y = false
 
-	for _, child in ipairs(self.Entity:GetChildren()) do
-		local child_layout = child:GetComponent("layout_2d")
+	for _, child in ipairs(self.Owner:GetChildren()) do
+		local child_layout = child.layout
 
 		if child_layout then
 			if child_layout:GetLayoutSize() then
-				child.transform_2d:SetSize(child_layout:GetLayoutSize():Copy())
+				child.transform:SetSize(child_layout:GetLayoutSize():Copy())
 			end
 
 			child.laid_out_x = false
@@ -490,7 +515,7 @@ function META:ResetLayout()
 end
 
 function META:ResetLayoutSize()
-	self:SetLayoutSize(self.Entity.transform_2d:GetSize():Copy())
+	self:SetLayoutSize(self.Owner.transform:GetSize():Copy())
 end
 
 function META:Collide()
@@ -506,23 +531,23 @@ function META:NoCollide(dir)
 end
 
 function META:LayoutChildren()
-	for _, child in ipairs(self.Entity:GetChildren()) do
-		local child_layout = child:GetComponent("layout_2d")
+	for _, child in ipairs(self.Owner:GetChildren()) do
+		local child_layout = child.layout
 
 		if child_layout then child_layout:CalcLayoutInternal(true) end
 	end
 end
 
 function META:Confine()
-	local parent = self.Entity:GetParent()
+	local parent = self.Owner:GetParent()
 
 	if not parent or not parent:IsValid() then return end
 
-	local p_layout = parent:GetComponent("layout_2d")
+	local p_layout = parent.layout
 	local m = p_layout and p_layout:GetPadding() or Rect(0, 0, 0, 0)
 	local p = self:GetMargin()
-	local tr = self.Entity.transform_2d
-	local p_tr = parent:GetComponent("transform_2d")
+	local tr = self.Owner.transform
+	local p_tr = parent.transform
 
 	if not p_tr then return end
 
@@ -553,13 +578,13 @@ function META:Fill()
 end
 
 function META:FillX(percent)
-	local parent = self.Entity:GetParent()
+	local parent = self.Owner:GetParent()
 
-	if not parent then return end
+	if not parent or not parent:IsValid() then return end
 
-	local p_tr = parent:GetComponent("transform_2d")
+	local p_tr = parent.transform
 	local parent_width = p_tr:GetWidth()
-	local tr = self.Entity.transform_2d
+	local tr = self.Owner.transform
 	tr:SetWidth(1)
 	local left, left_child = self:RayCast(tr:GetPosition(), Vec2(0, tr.Position.y))
 	local right, right_child = self:RayCast(tr:GetPosition(), Vec2(parent_width, tr.Position.y))
@@ -587,17 +612,17 @@ function META:FillX(percent)
 
 	tr:SetX(math.max(x, left.x))
 	tr:SetWidth(math.max(w, min_width))
-	self.Entity.laid_out_x = true
+	self.Owner.laid_out_x = true
 end
 
 function META:FillY(percent)
-	local parent = self.Entity:GetParent()
+	local parent = self.Owner:GetParent()
 
-	if not parent then return end
+	if not parent or not parent:IsValid() then return end
 
-	local p_tr = parent:GetComponent("transform_2d")
+	local p_tr = parent.transform
 	local parent_height = p_tr:GetHeight()
-	local tr = self.Entity.transform_2d
+	local tr = self.Owner.transform
 	tr:SetHeight(1)
 	local top, top_child = self:RayCast(tr:GetPosition(), Vec2(tr.Position.x, 0))
 	local bottom, bottom_child = self:RayCast(tr:GetPosition(), Vec2(tr.Position.x, parent_height))
@@ -625,24 +650,24 @@ function META:FillY(percent)
 
 	tr:SetY(math.max(y, top.y))
 	tr:SetHeight(math.max(h, min_height))
-	self.Entity.laid_out_y = true
+	self.Owner.laid_out_y = true
 end
 
 function META:CenterX()
 	self:CenterXSimple()
-	local parent = self.Entity:GetParent()
+	local parent = self.Owner:GetParent()
 
-	if not parent then return end
+	if not parent or not parent:IsValid() then return end
 
-	local p_tr = parent:GetComponent("transform_2d")
+	local p_tr = parent.transform
 	local width = p_tr:GetWidth()
-	local tr = self.Entity.transform_2d
+	local tr = self.Owner.transform
 	local left, left_child = self:RayCast(tr:GetPosition(), Vec2(0, tr.Position.y))
 	local right, right_child = self:RayCast(tr:GetPosition(), Vec2(width, left.y))
 
 	if right_child then
-		local rc_tr = right_child:GetComponent("transform_2d")
-		local rc_layout = right_child:GetComponent("layout_2d")
+		local rc_tr = right_child.transform
+		local rc_layout = right_child.layout
 		right.x = right.x + tr:GetWidth() + self:GetMargin():GetRight() + (
 				rc_layout and
 				rc_layout:GetMargin():GetLeft() or
@@ -655,23 +680,23 @@ function META:CenterX()
 				left.x + right.x
 			) / 2 - tr:GetWidth() / 2 - self:GetMargin():GetLeft() + self:GetMargin():GetRight()
 	)
-	self.Entity.laid_out_x = true
+	self.Owner.laid_out_x = true
 end
 
 function META:CenterY()
-	local parent = self.Entity:GetParent()
+	local parent = self.Owner:GetParent()
 
-	if not parent then return end
+	if not parent or not parent:IsValid() then return end
 
-	local p_tr = parent:GetComponent("transform_2d")
+	local p_tr = parent.transform
 	local height = p_tr:GetHeight()
-	local tr = self.Entity.transform_2d
+	local tr = self.Owner.transform
 	local top, top_child = self:RayCast(tr:GetPosition(), Vec2(tr.Position.x, 0))
 	local bottom, bottom_child = self:RayCast(tr:GetPosition(), Vec2(top.x, height))
 
 	if bottom_child then
-		local bc_tr = bottom_child:GetComponent("transform_2d")
-		local bc_layout = bottom_child:GetComponent("layout_2d")
+		local bc_tr = bottom_child.transform
+		local bc_layout = bottom_child.layout
 		bottom.y = bottom.y + tr:GetHeight() + self:GetMargin():GetBottom() + (
 				bc_layout and
 				bc_layout:GetMargin():GetTop() or
@@ -684,29 +709,29 @@ function META:CenterY()
 				top.y + bottom.y
 			) / 2 - tr:GetHeight() / 2 - self:GetMargin():GetTop() + self:GetMargin():GetBottom()
 	)
-	self.Entity.laid_out_y = true
+	self.Owner.laid_out_y = true
 end
 
 function META:CenterXSimple()
-	local parent = self.Entity:GetParent()
+	local parent = self.Owner:GetParent()
 
-	if not parent then return end
+	if not parent or not parent:IsValid() then return end
 
-	local p_tr = parent:GetComponent("transform_2d")
-	local tr = self.Entity.transform_2d
+	local p_tr = parent.transform
+	local tr = self.Owner.transform
 	tr:SetX(p_tr:GetWidth() / 2 - tr:GetWidth() / 2)
-	self.Entity.laid_out_x = true
+	self.Owner.laid_out_x = true
 end
 
 function META:CenterYSimple()
-	local parent = self.Entity:GetParent()
+	local parent = self.Owner:GetParent()
 
-	if not parent then return end
+	if not parent or not parent:IsValid() then return end
 
-	local p_tr = parent:GetComponent("transform_2d")
-	local tr = self.Entity.transform_2d
+	local p_tr = parent.transform
+	local tr = self.Owner.transform
 	tr:SetY(p_tr:GetHeight() / 2 - tr:GetHeight() / 2)
-	self.Entity.laid_out_y = true
+	self.Owner.laid_out_y = true
 end
 
 function META:CenterSimple()
@@ -720,12 +745,12 @@ function META:Center()
 end
 
 function META:CenterXFrame()
-	local parent = self.Entity:GetParent()
+	local parent = self.Owner:GetParent()
 
-	if not parent then return end
+	if not parent or not parent:IsValid() then return end
 
-	local tr = self.Entity.transform_2d
-	local p_tr = parent:GetComponent("transform_2d")
+	local tr = self.Owner.transform
+	local p_tr = parent.transform
 	local left = self:RayCast(tr:GetPosition(), Vec2(0, tr.Position.y))
 	local right = self:RayCast(tr:GetPosition(), Vec2(p_tr:GetWidth(), left.y))
 
@@ -737,7 +762,7 @@ function META:CenterXFrame()
 		tr:SetX(p_tr:GetWidth() / 2 - tr:GetWidth() / 2)
 	end
 
-	self.Entity.laid_out_x = true
+	self.Owner.laid_out_x = true
 end
 
 function META:CenterFillX()
@@ -793,152 +818,152 @@ function META:GmodBottom()
 end
 
 function META:MoveUp()
-	if self.Entity.last_layout_panel then
-		self:MoveUpOf(self.Entity.last_layout_panel)
+	if self.Owner.last_layout_panel then
+		self:MoveUpOf(self.Owner.last_layout_panel)
 	end
 
-	local tr = self.Entity.transform_2d
+	local tr = self.Owner.transform
 
-	if not self.Entity.laid_out_y then tr:SetY(999999) end
+	if not self.Owner.laid_out_y then tr:SetY(999999) end
 
 	tr:SetY(math.max(tr:GetY(), 1))
 	tr:SetY(self:RayCast(tr:GetPosition(), Vec2(tr:GetX(), 0)).y)
-	self.Entity.laid_out_y = true
+	self.Owner.laid_out_y = true
 end
 
 function META:MoveDown()
-	if self.Entity.last_layout_panel then
-		self:MoveDownOf(self.Entity.last_layout_panel)
+	if self.Owner.last_layout_panel then
+		self:MoveDownOf(self.Owner.last_layout_panel)
 	end
 
-	local parent = self.Entity:GetParent()
+	local parent = self.Owner:GetParent()
 
-	if not parent then return end
+	if not parent or not parent:IsValid() then return end
 
-	local p_tr = parent:GetComponent("transform_2d")
-	local tr = self.Entity.transform_2d
+	local p_tr = parent.transform
+	local tr = self.Owner.transform
 
-	if not self.Entity.laid_out_y then tr:SetY(-999999) end
+	if not self.Owner.laid_out_y then tr:SetY(-999999) end
 
 	tr:SetY(math.max(tr:GetY(), 1))
 	tr:SetY(self:RayCast(tr:GetPosition(), Vec2(tr:GetX(), p_tr:GetHeight() - tr:GetHeight())).y)
-	self.Entity.laid_out_y = true
+	self.Owner.laid_out_y = true
 end
 
 function META:MoveLeft()
-	if self.Entity.last_layout_panel then
-		self:MoveLeftOf(self.Entity.last_layout_panel)
+	if self.Owner.last_layout_panel then
+		self:MoveLeftOf(self.Owner.last_layout_panel)
 	end
 
-	local tr = self.Entity.transform_2d
+	local tr = self.Owner.transform
 
-	if not self.Entity.laid_out_x then tr:SetX(999999) end
+	if not self.Owner.laid_out_x then tr:SetX(999999) end
 
 	tr:SetX(math.max(tr:GetX(), 1))
 	tr:SetX(self:RayCast(tr:GetPosition(), Vec2(0, tr.Position.y)).x)
-	self.Entity.laid_out_x = true
+	self.Owner.laid_out_x = true
 end
 
 function META:MoveRight()
-	if self.Entity.last_layout_panel then
-		self:MoveRightOf(self.Entity.last_layout_panel)
+	if self.Owner.last_layout_panel then
+		self:MoveRightOf(self.Owner.last_layout_panel)
 	end
 
-	local parent = self.Entity:GetParent()
+	local parent = self.Owner:GetParent()
 
-	if not parent then return end
+	if not parent or not parent:IsValid() then return end
 
-	local p_tr = parent:GetComponent("transform_2d")
-	local tr = self.Entity.transform_2d
+	local p_tr = parent.transform
+	local tr = self.Owner.transform
 
-	if not self.Entity.laid_out_x then tr:SetX(-999999) end
+	if not self.Owner.laid_out_x then tr:SetX(-999999) end
 
 	tr:SetX(math.max(tr:GetX(), 1))
 	tr:SetX(self:RayCast(tr:GetPosition(), Vec2(p_tr:GetWidth() - tr:GetWidth(), tr.Position.y)).x)
-	self.Entity.laid_out_x = true
+	self.Owner.laid_out_x = true
 end
 
 function META:MoveRightOf(panel)
-	panel = panel or self.Entity.last_layout_panel
+	panel = panel or self.Owner.last_layout_panel
 
 	if not panel then return end
 
-	local tr = self.Entity.transform_2d
-	local p_tr = panel:GetComponent("transform_2d")
-	local p_layout = panel:GetComponent("layout_2d")
+	local tr = self.Owner.transform
+	local p_tr = panel.transform
+	local p_layout = panel.layout
 	local p_margin = p_layout and p_layout:GetMargin() or Rect(0, 0, 0, 0)
 	tr:SetY(p_tr:GetY())
 	tr:SetX(p_tr:GetX() + p_tr:GetWidth() + p_margin:GetRight() + self:GetMargin():GetLeft())
-	self.Entity.laid_out_x = true
-	self.Entity.laid_out_y = true
+	self.Owner.laid_out_x = true
+	self.Owner.laid_out_y = true
 end
 
 function META:MoveDownOf(panel)
-	panel = panel or self.Entity.last_layout_panel
+	panel = panel or self.Owner.last_layout_panel
 
 	if not panel then return end
 
-	local tr = self.Entity.transform_2d
-	local p_tr = panel:GetComponent("transform_2d")
-	local p_layout = panel:GetComponent("layout_2d")
+	local tr = self.Owner.transform
+	local p_tr = panel.transform
+	local p_layout = panel.layout
 	local p_margin = p_layout and p_layout:GetMargin() or Rect(0, 0, 0, 0)
 	tr:SetX(p_tr:GetX())
 	tr:SetY(p_tr:GetY() + p_tr:GetHeight() + p_margin:GetBottom() + self:GetMargin():GetTop())
-	self.Entity.laid_out_x = true
-	self.Entity.laid_out_y = true
+	self.Owner.laid_out_x = true
+	self.Owner.laid_out_y = true
 end
 
 function META:MoveLeftOf(panel)
-	panel = panel or self.Entity.last_layout_panel
+	panel = panel or self.Owner.last_layout_panel
 
 	if not panel then return end
 
-	local tr = self.Entity.transform_2d
-	local p_tr = panel:GetComponent("transform_2d")
-	local p_layout = panel:GetComponent("layout_2d")
+	local tr = self.Owner.transform
+	local p_tr = panel.transform
+	local p_layout = panel.layout
 	local p_margin = p_layout and p_layout:GetMargin() or Rect(0, 0, 0, 0)
 	tr:SetY(p_tr:GetY())
 	tr:SetX(p_tr:GetX() - tr:GetWidth() - p_margin:GetLeft() - self:GetMargin():GetRight())
-	self.Entity.laid_out_x = true
-	self.Entity.laid_out_y = true
+	self.Owner.laid_out_x = true
+	self.Owner.laid_out_y = true
 end
 
 function META:MoveUpOf(panel)
-	panel = panel or self.Entity.last_layout_panel
+	panel = panel or self.Owner.last_layout_panel
 
 	if not panel then return end
 
-	local tr = self.Entity.transform_2d
-	local p_tr = panel:GetComponent("transform_2d")
-	local p_layout = panel:GetComponent("layout_2d")
+	local tr = self.Owner.transform
+	local p_tr = panel.transform
+	local p_layout = panel.layout
 	local p_margin = p_layout and p_layout:GetMargin() or Rect(0, 0, 0, 0)
 	tr:SetX(p_tr:GetX())
 	tr:SetY(p_tr:GetY() - tr:GetHeight() - p_margin:GetTop() - self:GetMargin():GetBottom())
-	self.Entity.laid_out_x = true
-	self.Entity.laid_out_y = true
+	self.Owner.laid_out_x = true
+	self.Owner.laid_out_y = true
 end
 
 function META:SetAxisPosition(axis, pos)
-	self.Entity.transform_2d:SetAxisPosition(axis, pos)
+	self.Owner.transform:SetAxisPosition(axis, pos)
 end
 
 function META:GetAxisPosition(axis)
-	return self.Entity.transform_2d:GetAxisPosition(axis)
+	return self.Owner.transform:GetAxisPosition(axis)
 end
 
 function META:SetAxisLength(axis, len)
-	self.Entity.transform_2d:SetAxisLength(axis, len)
+	self.Owner.transform:SetAxisLength(axis, len)
 end
 
 function META:GetAxisLength(axis)
-	return self.Entity.transform_2d:GetAxisLength(axis)
+	return self.Owner.transform:GetAxisLength(axis)
 end
 
 function META:GetVisibleChildren()
 	local tbl = {}
 
-	for _, child in ipairs(self.Entity:GetChildren()) do
-		local gui = child:GetComponent("gui_element_2d")
+	for _, child in ipairs(self.Owner:GetChildren()) do
+		local gui = child.gui_element
 
 		if not gui or gui:GetVisible() then table.insert(tbl, child) end
 	end
@@ -969,7 +994,7 @@ function META:FlexLayout()
 	local parent_length = self:GetAxisLength(axis) / #children
 
 	for i, child in ipairs(children) do
-		local c_tr = child.transform_2d
+		local c_tr = child.transform
 		c_tr:SetPosition(pos:Copy())
 		local child_length = c_tr:GetAxisLength(axis)
 
@@ -988,22 +1013,22 @@ function META:FlexLayout()
 
 	if self:GetFlexJustifyContent() == "center" then
 		for _, child in ipairs(children) do
-			local c_tr = child.transform_2d
+			local c_tr = child.transform
 			c_tr:SetAxisPosition(axis, c_tr:GetAxisPosition(axis) + diff / 2)
 		end
 	elseif self:GetFlexJustifyContent() == "end" then
 		for _, child in ipairs(children) do
-			local c_tr = child.transform_2d
+			local c_tr = child.transform
 			c_tr:SetAxisPosition(axis, c_tr:GetAxisPosition(axis) + diff)
 		end
 	elseif self:GetFlexJustifyContent() == "space-between" then
 		for i, child in ipairs(children) do
-			local c_tr = child.transform_2d
+			local c_tr = child.transform
 			c_tr:SetAxisPosition(axis, c_tr:GetAxisPosition(axis) + diff / (#children - 1) * (i - 1))
 		end
 	elseif self:GetFlexJustifyContent() == "space-around" then
 		for i, child in ipairs(children) do
-			local c_tr = child.transform_2d
+			local c_tr = child.transform
 			c_tr:SetAxisPosition(axis, c_tr:GetAxisPosition(axis) + diff / (#children) * (i - 0.5))
 		end
 	end
@@ -1023,17 +1048,17 @@ function META:FlexLayout()
 
 	if self:GetFlexAlignItems() == "end" then
 		for _, child in ipairs(children) do
-			local c_tr = child.transform_2d
+			local c_tr = child.transform
 			c_tr:SetAxisPosition(axis2, self:GetAxisLength(axis2) - c_tr:GetAxisLength(axis2))
 		end
 	elseif self:GetFlexAlignItems() == "center" then
 		for _, child in ipairs(children) do
-			local c_tr = child.transform_2d
+			local c_tr = child.transform
 			c_tr:SetAxisPosition(axis2, (self:GetAxisLength(axis2) - c_tr:GetAxisLength(axis2)) / 2)
 		end
 	elseif self:GetFlexAlignItems() == "stretch" then
 		for _, child in ipairs(children) do
-			local c_tr = child.transform_2d
+			local c_tr = child.transform
 			local offset = axis2 == "y" and pad:GetTop() or pad:GetLeft()
 			local total_pad = axis2 == "y" and pad:GetSize().y or pad:GetSize().x
 			c_tr:SetAxisPosition(axis2, offset)
@@ -1042,10 +1067,10 @@ function META:FlexLayout()
 	end
 
 	for i, child in ipairs(children) do
-		local c_layout = child:GetComponent("layout_2d")
+		local c_layout = child.layout
 
 		if c_layout then
-			local c_tr = child.transform_2d
+			local c_tr = child.transform
 
 			if c_layout:GetFlexAlignSelf() == "end" then
 				c_tr:SetAxisPosition(axis2, self:GetAxisLength(axis2) - c_tr:GetAxisLength(axis2))
@@ -1064,7 +1089,7 @@ end
 function META:GetSizeOfChildren()
 	local children = self:GetVisibleChildren()
 
-	if #children == 0 then return self.Entity.transform_2d:GetSize() end
+	if #children == 0 then return self.Owner.transform:GetSize() end
 
 	if self.last_children_size then return self.last_children_size:Copy() end
 
@@ -1072,8 +1097,8 @@ function META:GetSizeOfChildren()
 	local total_size = Vec2()
 
 	for _, v in ipairs(children) do
-		local v_tr = v.transform_2d
-		local v_layout = v:GetComponent("layout_2d")
+		local v_tr = v.transform
+		local v_layout = v.layout
 		local margin = v_layout and v_layout:GetMargin() or Rect(0, 0, 0, 0)
 		local pos = v_tr:GetPosition() + v_tr:GetSize() + Vec2(margin:GetRight(), margin:GetBottom())
 
@@ -1091,7 +1116,7 @@ function META:SizeToChildrenHeight()
 
 	if #children == 0 then return end
 
-	local tr = self.Entity.transform_2d
+	local tr = self.Owner.transform
 	self.last_children_size = nil
 	self.real_size = tr.Size:Copy()
 	tr:SetHeight(1000000)
@@ -1100,22 +1125,22 @@ function META:SizeToChildrenHeight()
 	local max_pos = 0
 
 	for _, v in ipairs(children) do
-		local v_layout = v:GetComponent("layout_2d")
+		local v_layout = v.layout
 		local margin = v_layout and v_layout:GetMargin() or Rect(0, 0, 0, 0)
 		local padding = self:GetPadding()
-		min_pos = math.min(min_pos, v.transform_2d.Position.y - margin:GetTop() - padding:GetTop())
+		min_pos = math.min(min_pos, v.transform.Position.y - margin:GetTop() - padding:GetTop())
 	end
 
 	for _, v in ipairs(children) do
-		local v_layout = v:GetComponent("layout_2d")
+		local v_layout = v.layout
 		local margin = v_layout and v_layout:GetMargin() or Rect(0, 0, 0, 0)
-		local pos_y = v.transform_2d.Position.y - min_pos
-		max_pos = math.max(max_pos, pos_y + v.transform_2d.Size.y + margin:GetSize().y)
+		local pos_y = v.transform.Position.y - min_pos
+		max_pos = math.max(max_pos, pos_y + v.transform.Size.y + margin:GetSize().y)
 	end
 
 	tr:SetHeight(max_pos + self:GetPadding():GetSize().y)
 	self:SetLayoutSize(tr.Size:Copy())
-	self.Entity.laid_out_y = true
+	self.Owner.laid_out_y = true
 	self.real_size = nil
 end
 
@@ -1124,7 +1149,7 @@ function META:SizeToChildrenWidth()
 
 	if #children == 0 then return end
 
-	local tr = self.Entity.transform_2d
+	local tr = self.Owner.transform
 	self.last_children_size = nil
 	self.real_size = tr.Size:Copy()
 	tr:SetWidth(1000000)
@@ -1133,22 +1158,22 @@ function META:SizeToChildrenWidth()
 	local max_pos = 0
 
 	for _, v in ipairs(children) do
-		local v_layout = v:GetComponent("layout_2d")
+		local v_layout = v.layout
 		local margin = v_layout and v_layout:GetMargin() or Rect(0, 0, 0, 0)
 		local padding = self:GetPadding()
-		min_pos = math.min(min_pos, v.transform_2d.Position.x - margin:GetLeft() - padding:GetLeft())
+		min_pos = math.min(min_pos, v.transform.Position.x - margin:GetLeft() - padding:GetLeft())
 	end
 
 	for _, v in ipairs(children) do
-		local v_layout = v:GetComponent("layout_2d")
+		local v_layout = v.layout
 		local margin = v_layout and v_layout:GetMargin() or Rect(0, 0, 0, 0)
-		local pos_x = v.transform_2d.Position.x - min_pos
-		max_pos = math.max(max_pos, pos_x + v.transform_2d.Size.x + margin:GetSize().x)
+		local pos_x = v.transform.Position.x - min_pos
+		max_pos = math.max(max_pos, pos_x + v.transform.Size.x + margin:GetSize().x)
 	end
 
 	tr:SetWidth(max_pos + self:GetPadding():GetSize().x)
 	self:SetLayoutSize(tr.Size:Copy())
-	self.Entity.laid_out_x = true
+	self.Owner.laid_out_x = true
 	self.real_size = nil
 end
 
@@ -1157,7 +1182,7 @@ function META:SizeToChildren()
 
 	if #children == 0 then return end
 
-	local tr = self.Entity.transform_2d
+	local tr = self.Owner.transform
 	self.last_children_size = nil
 	self.real_size = tr.Size:Copy()
 	tr:SetSize(Vec2(1000000, 1000000))
@@ -1166,26 +1191,26 @@ function META:SizeToChildren()
 	local max_pos = Vec2()
 
 	for _, v in ipairs(children) do
-		local v_layout = v:GetComponent("layout_2d")
+		local v_layout = v.layout
 		local margin = v_layout and v_layout:GetMargin() or Rect(0, 0, 0, 0)
 		local padding = self:GetPadding()
-		min_pos.x = math.min(min_pos.x, v.transform_2d.Position.x - margin:GetLeft() - padding:GetLeft())
-		min_pos.y = math.min(min_pos.y, v.transform_2d.Position.y - margin:GetTop() - padding:GetTop())
+		min_pos.x = math.min(min_pos.x, v.transform.Position.x - margin:GetLeft() - padding:GetLeft())
+		min_pos.y = math.min(min_pos.y, v.transform.Position.y - margin:GetTop() - padding:GetTop())
 	end
 
 	for _, v in ipairs(children) do
-		local v_layout = v:GetComponent("layout_2d")
+		local v_layout = v.layout
 		local margin = v_layout and v_layout:GetMargin() or Rect(0, 0, 0, 0)
-		local pos_x = v.transform_2d.Position.x - min_pos.x
-		local pos_y = v.transform_2d.Position.y - min_pos.y
-		max_pos.x = math.max(max_pos.x, pos_x + v.transform_2d.Size.x + margin:GetSize().x)
-		max_pos.y = math.max(max_pos.y, pos_y + v.transform_2d.Size.y + margin:GetSize().y)
+		local pos_x = v.transform.Position.x - min_pos.x
+		local pos_y = v.transform.Position.y - min_pos.y
+		max_pos.x = math.max(max_pos.x, pos_x + v.transform.Size.x + margin:GetSize().x)
+		max_pos.y = math.max(max_pos.y, pos_y + v.transform.Size.y + margin:GetSize().y)
 	end
 
 	tr:SetSize(max_pos + self:GetPadding():GetSize())
 	self:SetLayoutSize(tr.Size:Copy())
-	self.Entity.laid_out_x = true
-	self.Entity.laid_out_y = true
+	self.Owner.laid_out_x = true
+	self.Owner.laid_out_y = true
 	self.real_size = nil
 end
 
@@ -1193,11 +1218,11 @@ function META:StackChildren()
 	local w = 0
 	local h = 0
 	local pad = self:GetPadding()
-	local p_tr = self.Entity.transform_2d
+	local p_tr = self.Owner.transform
 
-	for _, child in ipairs(self.Entity:GetChildren()) do
-		local c_layout = child:GetComponent("layout_2d")
-		local c_tr = child.transform_2d
+	for _, child in ipairs(self.Owner:GetChildren()) do
+		local c_layout = child.layout
+		local c_tr = child.transform
 
 		if not c_layout or c_layout:GetStackable() then
 			local siz = c_tr:GetSize():Copy()
@@ -1258,7 +1283,6 @@ function META:StackChildren()
 	return Vec2(w, h) + pad:GetSize()
 end
 
-layout_lib.Component = META:Register()
 layout_lib.layout_traces = {}
 
 function layout_lib.DumpLayouts()
@@ -1286,32 +1310,33 @@ layout_lib.in_layout = 0
 layout_lib.layout_stress = false
 META.in_layout = 0
 layout_lib.debug = true
+META.Library = layout_lib
 
-function layout_lib.Update()
-	local world = ecs.Get2DWorld()
+function META:OnFirstCreated()
+	local function update_recursive(panel)
+		if panel.layout then panel.layout:CalcLayout() end
 
-	if not world then return end
-
-	-- We need to update layouts recursively starting from the world
-	local function update_recursive(entity)
-		local l = entity:GetComponent("layout_2d")
-
-		if l then l:CalcLayout() end
-
-		for _, child in ipairs(entity:GetChildren()) do
-			update_recursive(child)
+		for _, child in ipairs(panel:GetChildren()) do
+			if child:IsValid() then update_recursive(child) end
 		end
 	end
 
-	update_recursive(world)
+	local Panel = require("ecs.panel")
+
+	event.AddListener(
+		"Update",
+		"layout_2d_system",
+		function()
+			if not Panel.World or not Panel.World:IsValid() then return end
+
+			update_recursive(Panel.World)
+		end,
+		{priority = 101}
+	)
 end
 
-function layout_lib.StartSystem()
-	event.AddListener("Update", "layout_2d_system", layout_lib.Update, {priority = 101})
-end
-
-function layout_lib.StopSystem()
+function META:OnLastRemoved()
 	event.RemoveListener("Update", "layout_2d_system")
 end
 
-return layout_lib
+return META:Register()

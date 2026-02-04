@@ -1,27 +1,28 @@
 local ffi = require("ffi")
 local prototype = require("prototype")
-local ecs = require("ecs.ecs")
 local render = require("render.render")
 local Vec3 = require("structs.vec3")
 local Color = require("structs.color")
 local Quat = require("structs.quat")
 local ShadowMap = require("render3d.shadow_map")
-local transform = require("ecs.components.3d.transform")
-local META = prototype.CreateTemplate("light")
-META.ComponentName = "light"
-META.Require = {transform}
-META.Events = {"PreFrame"}
-META:GetSet("LightType", "directional")
-META:GetSet("Color", Color(1.0, 1.0, 1.0, 1.0))
-META:GetSet("Intensity", 1.0)
-META:GetSet("Range", 10.0)
-META:GetSet("InnerCone", 0.9)
-META:GetSet("OuterCone", 0.8)
-META:GetSet("Enabled", true)
-META:GetSet("CastShadows", false)
-META:GetSet("ShadowMap", nil)
+local event = require("event")
+local Light = prototype.CreateTemplate("light")
+Light.Events = {"PreFrame"}
+Light:GetSet("LightType", "directional")
+Light:GetSet("Color", Color(1.0, 1.0, 1.0, 1.0))
+Light:GetSet("Intensity", 1.0)
+Light:GetSet("Range", 10.0)
+Light:GetSet("InnerCone", 0.9)
+Light:GetSet("OuterCone", 0.8)
+Light:GetSet("Enabled", true)
+Light:GetSet("CastShadows", false)
+Light:GetSet("ShadowMap", nil)
 
-function META:SetLightType(light_type)
+function Light:Initialize()
+	self:AddEvent("PreFrame")
+end
+
+function Light:SetLightType(light_type)
 	self.LightType = light_type
 
 	if light_type == "sun" then
@@ -34,17 +35,13 @@ function META:SetLightType(light_type)
 	end
 end
 
-function META:OnAdd(entity) -- Nothing special needed
-end
-
--- PreFrame event handler - renders shadows automatically
-function META:OnPreFrame(dt)
+function Light:OnPreFrame(dt)
 	if not self:GetCastShadows() then return end
 
 	self:RenderShadows()
 end
 
-function META:SetCastShadows(config)
+function Light:SetCastShadows(config)
 	if not config then
 		self.CastShadows = false
 		self.ShadowMap = nil
@@ -74,28 +71,22 @@ function META:SetCastShadows(config)
 	end
 end
 
-function META:UpdateShadowMap()
+function Light:UpdateShadowMap()
 	if not self.ShadowMap then return end
 
-	self.ShadowMap:UpdateCascadeLightMatrices(self.Entity.transform:GetRotation())
+	self.ShadowMap:UpdateCascadeLightMatrices(self.Owner.transform:GetRotation())
 end
 
-local Model = nil
-
-function META:RenderShadows()
-	Model = Model or require("ecs.components.3d.model")
-
+function Light:RenderShadows()
 	if not self:GetCastShadows() then return end
 
 	self:UpdateShadowMap()
 
 	for cascade_idx = 1, self.ShadowMap:GetCascadeCount() do
 		local shadow_cmd = self.ShadowMap:Begin(cascade_idx)
-		Model.DrawAllShadows(shadow_cmd, self.ShadowMap, cascade_idx)
+		event.Call("DrawAllShadows", shadow_cmd, self.ShadowMap, cascade_idx)
 		self.ShadowMap:End(cascade_idx)
 	end
 end
 
-local Light = {}
-Light.Component = META:Register()
-return Light
+return Light:Register()

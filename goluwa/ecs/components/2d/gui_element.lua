@@ -1,14 +1,10 @@
 local prototype = require("prototype")
 local event = require("event")
-local ecs = require("ecs.ecs")
 local render2d = require("render2d.render2d")
 local gfx = require("render2d.gfx")
 local Color = require("structs.color")
 local Vec2 = require("structs.vec2")
-local transform = require("ecs.components.2d.transform")
-local META = prototype.CreateTemplate("gui_element_2d")
-META.ComponentName = "gui_element_2d"
-META.Require = {transform}
+local META = prototype.CreateTemplate("gui_element")
 META:StartStorable()
 META:GetSet("Visible", true)
 META:GetSet("Clipping", false)
@@ -21,10 +17,18 @@ META:EndStorable()
 
 function META:Initialize() end
 
+function META:SetVisible(visible)
+	self.Visible = visible
+
+	if self.Owner.OnVisibilityChanged then
+		self.Owner:OnVisibilityChanged(visible)
+	end
+end
+
 function META:DrawShadow()
 	if not self:GetShadows() then return end
 
-	local transform = self.Entity.transform_2d
+	local transform = self.Owner.transform
 	render2d.PushMatrix()
 	render2d.SetWorldMatrix(transform:GetWorldMatrix())
 	local s = transform.Size + transform.DrawSizeOffset
@@ -42,7 +46,7 @@ function META:DrawShadow()
 end
 
 function META:IsHovered(mouse_pos)
-	local transform = self.Entity.transform_2d
+	local transform = self.Owner.transform
 	local local_pos = transform:GlobalToLocal(mouse_pos)
 	return local_pos.x >= 0 and
 		local_pos.y >= 0 and
@@ -54,7 +58,7 @@ function META:DrawRecursive()
 	if not self:GetVisible() then return end
 
 	self:DrawShadow()
-	local transform = self.Entity.transform_2d
+	local transform = self.Owner.transform
 	local clipping = self:GetClipping()
 
 	if clipping then
@@ -74,38 +78,11 @@ function META:DrawRecursive()
 
 	render2d.PushMatrix()
 	render2d.SetWorldMatrix(transform:GetWorldMatrix())
+	self.Owner:CallLocalListeners("OnDraw")
+	self:OnDraw()
 
-	if self.last_components_version ~= self.Entity.ComponentsVersion then
-		self.last_components_version = self.Entity.ComponentsVersion
-		local draw_comps = {}
-		local post_draw_comps = {}
-
-		for _, component in pairs(self.Entity.ComponentsHash) do
-			if component.OnDraw then table.insert(draw_comps, component) end
-
-			if component.OnPostDraw then
-				table.insert(post_draw_comps, component)
-			end
-		end
-
-		table.sort(draw_comps, function(a, b)
-			local ao = a.DrawOrder or (a.ComponentName == "rect_2d" and 0 or 10)
-			local bo = b.DrawOrder or (b.ComponentName == "rect_2d" and 0 or 10)
-			return ao < bo
-		end)
-
-		self.sorted_draw_components = draw_comps
-		self.sorted_post_draw_components = post_draw_comps
-	end
-
-	for _, component in ipairs(self.sorted_draw_components) do
-		component:OnDraw()
-	end
-
-	for _, child in ipairs(self.Entity:GetChildren()) do
-		local gui_element = child:GetComponent("gui_element_2d")
-
-		if gui_element then gui_element:DrawRecursive() end
+	for _, child in ipairs(self.Owner:GetChildren()) do
+		if child.gui_element then child.gui_element:DrawRecursive() end
 	end
 
 	if clipping then
@@ -120,31 +97,27 @@ function META:DrawRecursive()
 		end
 
 		render2d.PopMatrix()
+		--		render2d.EndStencilTest() -- ?
 		render2d.PopStencilMask()
 	end
 
-	for _, component in ipairs(self.sorted_post_draw_components) do
-		component:OnPostDraw()
-	end
-
+	self.Owner:CallLocalListeners("OnPostDraw")
+	self:OnPostDraw()
 	render2d.PopMatrix()
 end
 
-local gui_element_2d = {}
+function META:OnDraw() end
 
-function gui_element_2d.StartSystem()
+function META:OnPostDraw() end
+
+function META:OnFirstCreated()
 	event.AddListener("Draw2D", "ecs_gui_system", function()
-		local world = ecs.Get2DWorld()
-
-		if not world then return end
-
-		world:DrawRecursive()
+		self.Owner:GetRoot().gui_element:DrawRecursive()
 	end)
 end
 
-function gui_element_2d.StopSystem()
+function META:OnLastRemoved()
 	event.RemoveListener("Draw2D", "ecs_gui_system")
 end
 
-gui_element_2d.Component = META:Register()
-return gui_element_2d
+return META:Register()

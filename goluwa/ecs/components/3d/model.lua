@@ -1,8 +1,5 @@
-local model = {}
-package.loaded["ecs.components.3d.model"] = model
 local event = require("event")
 local prototype = require("prototype")
-local ecs = require("ecs.ecs")
 local render = require("render.render")
 local render3d = require("render3d.render3d")
 local Material = require("render3d.material")
@@ -11,17 +8,11 @@ local Vec3 = require("structs.vec3")
 local Color = require("structs.color")
 local Matrix44 = require("structs.matrix44")
 local model_loader = require("render3d.model_loader")
-local transform = require("ecs.components.3d.transform")
 local system = require("system")
 local timer = require("timer")
 local ffi = require("ffi")
--- Cached matrix to avoid allocation in hot drawing loops
 local cached_final_matrix = Matrix44()
 local META = prototype.CreateTemplate("model")
-META.ComponentName = "model"
--- model requires transform component
-META.Require = {transform}
-META.Events = {"Draw3DGeometry"}
 META:GetSet("Primitives", {})
 META:GetSet("Visible", true)
 META:GetSet("CastShadows", true)
@@ -33,6 +24,7 @@ META:GetSet("Color", Color(1, 1, 1, 1))
 META:GetSet("RoughnessMultiplier", 1)
 META:GetSet("MetallicMultiplier", 1)
 META:IsSet("Loading", false)
+local model = library()
 
 function META:SetUseOcclusionCulling(enabled)
 	self.UseOcclusionCulling = enabled
@@ -45,6 +37,7 @@ end
 function META:Initialize()
 	self.Primitives = {}
 	self:SetAABB(AABB(math.huge, math.huge, math.huge, -math.huge, -math.huge, -math.huge))
+	self:AddEvent("Draw3DGeometry")
 end
 
 function META:SetModelPath(path)
@@ -192,16 +185,16 @@ end
 
 -- Get world matrix from transform component
 function META:GetWorldMatrix()
-	if self.Entity and self.Entity:HasComponent("transform") then
-		return self.Entity.transform:GetWorldMatrix()
+	if self.Owner and self.Owner.transform then
+		return self.Owner.transform:GetWorldMatrix()
 	end
 
 	return nil
 end
 
 function META:GetWorldMatrixInverse()
-	if self.Entity and self.Entity:HasComponent("transform") then
-		return self.Entity.transform:GetWorldMatrixInverse()
+	if self.Owner and self.Owner.transform then
+		return self.Owner.transform:GetWorldMatrixInverse()
 	end
 
 	return nil
@@ -510,151 +503,158 @@ function META:DrawProbeGeometry(cmd, lightprobes)
 	end
 end
 
-model.occlusion_culling_enabled = true
-model.occlusion_query_fps = 30 -- Limit occlusion queries to this FPS
-model.last_occlusion_query_time = 0
-model.should_run_queries_this_frame = true -- Cached per-frame flag
-function model.IsOcclusionCullingEnabled()
-	return model.occlusion_culling_enabled
-end
-
-function model.SetOcclusionCulling(enabled)
-	model.occlusion_culling_enabled = enabled
-end
-
--- Check if we should run occlusion queries this frame
--- This should only be called once per frame to avoid timing issues
-function model.UpdateOcclusionQueryTiming()
-	if model.occlusion_query_fps == 0 then
-		model.should_run_queries_this_frame = true
-		return
+do
+	local event = require("event")
+	local prototype = require("prototype")
+	local render = require("render.render")
+	local render3d = require("render3d.render3d")
+	local Material = require("render3d.material")
+	local AABB = require("structs.aabb")
+	local Vec3 = require("structs.vec3")
+	local Color = require("structs.color")
+	local Matrix44 = require("structs.matrix44")
+	local model_loader = require("render3d.model_loader")
+	local system = require("system")
+	local timer = require("timer")
+	local ffi = require("ffi")
+	local cached_final_matrix = Matrix44()
+	local model = library()
+	model.occlusion_culling_enabled = true
+	model.occlusion_query_fps = 30 -- Limit occlusion queries to this FPS
+	model.last_occlusion_query_time = 0
+	model.should_run_queries_this_frame = true -- Cached per-frame flag
+	function model.IsOcclusionCullingEnabled()
+		return model.occlusion_culling_enabled
 	end
 
-	local current_time = system.GetElapsedTime()
-	local min_interval = 1.0 / model.occlusion_query_fps
-
-	if current_time - model.last_occlusion_query_time >= min_interval then
-		model.last_occlusion_query_time = current_time
-		model.should_run_queries_this_frame = true
-	else
-		model.should_run_queries_this_frame = false
+	function model.SetOcclusionCulling(enabled)
+		model.occlusion_culling_enabled = enabled
 	end
-end
 
-model.Component = META:Register()
+	-- Check if we should run occlusion queries this frame
+	-- This should only be called once per frame to avoid timing issues
+	function model.UpdateOcclusionQueryTiming()
+		if model.occlusion_query_fps == 0 then
+			model.should_run_queries_this_frame = true
+			return
+		end
 
-function model.DrawAllShadows(shadow_cmd, shadow_map, cascade_idx)
-	local models = ecs.GetComponents("model")
+		local current_time = system.GetElapsedTime()
+		local min_interval = 1.0 / model.occlusion_query_fps
 
-	for _, model in ipairs(models) do
-		model:DrawShadow(shadow_cmd, shadow_map, cascade_idx)
-	end
-end
-
-function model.GetOcclusionStats()
-	local models = ecs.GetComponents("model")
-	local total = 0
-	local with_occlusion = 0
-	local frustum_culled = 0
-	local submitted_with_conditional = 0
-
-	for _, model in ipairs(models) do
-		if model.Visible then
-			total = total + 1
-
-			if model.frustum_culled then frustum_culled = frustum_culled + 1 end
-
-			if model.UseOcclusionCulling and model.occlusion_query then
-				with_occlusion = with_occlusion + 1
-			end
-
-			if model.using_conditional_rendering then
-				submitted_with_conditional = submitted_with_conditional + 1
-			end
+		if current_time - model.last_occlusion_query_time >= min_interval then
+			model.last_occlusion_query_time = current_time
+			model.should_run_queries_this_frame = true
+		else
+			model.should_run_queries_this_frame = false
 		end
 	end
 
-	return {
-		total = total,
-		with_occlusion = with_occlusion,
-		frustum_culled = frustum_culled,
-		submitted_with_conditional = submitted_with_conditional,
-		potentially_occluded = submitted_with_conditional, -- GPU may cull these
-		occlusion_enabled = model.IsOcclusionCullingEnabled(),
-	}
-end
-
-function model.StartSystem()
-	-- Update timing and reset queries at the start of the frame
-	event.AddListener("PreRenderPass", "occlusion_culling_maintenance", function(cmd)
-		if not model.IsOcclusionCullingEnabled() then return end
-
-		model.UpdateOcclusionQueryTiming()
-
-		if model.should_run_queries_this_frame and not model.freeze_culling then
-			local models = ecs.GetComponents("model")
-
-			for _, model in ipairs(models) do
-				if model.UseOcclusionCulling and model.occlusion_query then
-					model.occlusion_query:ResetQuery(cmd)
-				end
-			end
-		end
-	end)
-
-	event.AddListener("PreDraw3D", "draw_occlusion_queries", function(cmd, dt)
-		if model.IsOcclusionCullingEnabled() and model.should_run_queries_this_frame then
-			if model.freeze_culling then return end
-
-			local models = ecs.GetComponents("model")
-
-			-- First pass: draw all models that DON'T use occlusion culling
-			-- This fills the depth buffer with occluders
-			for _, model in ipairs(models) do
-				if model.Visible and not (model.UseOcclusionCulling and model.occlusion_query) then
-					model:DrawOcclusionQuery(cmd)
-				end
-			end
-
-			-- Second pass: draw all models that DO use occlusion culling with queries
-			-- They will be tested against the occluders drawn in the first pass
-			for _, model in ipairs(models) do
-				if model.Visible and (model.UseOcclusionCulling and model.occlusion_query) then
-					model:DrawOcclusionQuery(cmd)
-				end
-			end
-		end
-	end)
-
-	event.AddListener("PostRenderPass", "copy_occlusion_results", function(cmd)
-		if model.IsOcclusionCullingEnabled() and model.should_run_queries_this_frame then
-			if model.freeze_culling then return end
-
-			local models = ecs.GetComponents("model")
-
-			for _, model in ipairs(models) do
-				if model.UseOcclusionCulling and model.occlusion_query then
-					model.occlusion_query:CopyQueryResults(cmd)
-				end
-			end
-		end
-	end)
-
-	-- Draw all models into reflection probe when requested
-	event.AddListener("DrawProbeGeometry", "model_probe_draw", function(cmd, lightprobes)
-		local models = ecs.GetComponents("model")
+	function model.GetOcclusionStats()
+		local models = META.Instances
+		local total = 0
+		local with_occlusion = 0
+		local frustum_culled = 0
+		local submitted_with_conditional = 0
 
 		for _, model in ipairs(models) do
-			model:DrawProbeGeometry(cmd, lightprobes)
+			if model.Visible then
+				total = total + 1
+
+				if model.frustum_culled then frustum_culled = frustum_culled + 1 end
+
+				if model.UseOcclusionCulling and model.occlusion_query then
+					with_occlusion = with_occlusion + 1
+				end
+
+				if model.using_conditional_rendering then
+					submitted_with_conditional = submitted_with_conditional + 1
+				end
+			end
 		end
-	end)
+
+		return {
+			total = total,
+			with_occlusion = with_occlusion,
+			frustum_culled = frustum_culled,
+			submitted_with_conditional = submitted_with_conditional,
+			potentially_occluded = submitted_with_conditional, -- GPU may cull these
+			occlusion_enabled = model.IsOcclusionCullingEnabled(),
+		}
+	end
+
+	function META:OnFirstCreated()
+		event.AddListener("DrawAllShadows", "model_shadow_draw", function(shadow_cmd, shadow_map, cascade_idx)
+			for _, model in ipairs(META.Instances) do
+				model:DrawShadow(shadow_cmd, shadow_map, cascade_idx)
+			end
+		end)
+
+		-- Update timing and reset queries at the start of the frame
+		event.AddListener("PreRenderPass", "occlusion_culling_maintenance", function(cmd)
+			if not model.IsOcclusionCullingEnabled() then return end
+
+			model.UpdateOcclusionQueryTiming()
+
+			if model.should_run_queries_this_frame and not model.freeze_culling then
+				for _, model in ipairs(META.Instances) do
+					if model.UseOcclusionCulling and model.occlusion_query then
+						model.occlusion_query:ResetQuery(cmd)
+					end
+				end
+			end
+		end)
+
+		event.AddListener("PreDraw3D", "draw_occlusion_queries", function(cmd, dt)
+			if model.IsOcclusionCullingEnabled() and model.should_run_queries_this_frame then
+				if model.freeze_culling then return end
+
+				-- First pass: draw all models that DON'T use occlusion culling
+				-- This fills the depth buffer with occluders
+				for _, model in ipairs(META.Instances) do
+					if model.Visible and not (model.UseOcclusionCulling and model.occlusion_query) then
+						model:DrawOcclusionQuery(cmd)
+					end
+				end
+
+				-- Second pass: draw all models that DO use occlusion culling with queries
+				-- They will be tested against the occluders drawn in the first pass
+				for _, model in ipairs(META.Instances) do
+					if model.Visible and (model.UseOcclusionCulling and model.occlusion_query) then
+						model:DrawOcclusionQuery(cmd)
+					end
+				end
+			end
+		end)
+
+		event.AddListener("PostRenderPass", "copy_occlusion_results", function(cmd)
+			if model.IsOcclusionCullingEnabled() and model.should_run_queries_this_frame then
+				if model.freeze_culling then return end
+
+				for _, model in ipairs(META.Instances) do
+					if model.UseOcclusionCulling and model.occlusion_query then
+						model.occlusion_query:CopyQueryResults(cmd)
+					end
+				end
+			end
+		end)
+
+		-- Draw all models into reflection probe when requested
+		event.AddListener("DrawProbeGeometry", "model_probe_draw", function(cmd, lightprobes)
+			for _, model in ipairs(META.Instances) do
+				model:DrawProbeGeometry(cmd, lightprobes)
+			end
+		end)
+	end
+
+	function META:OnLastRemoved()
+		event.RemoveListener("PreRenderPass", "occlusion_culling_maintenance")
+		event.RemoveListener("PreDraw3D", "draw_occlusion_queries")
+		event.RemoveListener("PostRenderPass", "copy_occlusion_results")
+		event.RemoveListener("DrawProbeGeometry", "model_probe_draw")
+	end
+
+	META.Library = model
 end
 
-function model.StopSystem()
-	event.RemoveListener("PreRenderPass", "occlusion_culling_maintenance")
-	event.RemoveListener("PreDraw3D", "draw_occlusion_queries")
-	event.RemoveListener("PostRenderPass", "copy_occlusion_results")
-	event.RemoveListener("DrawProbeGeometry", "model_probe_draw")
-end
-
-return model
+return META:Register()

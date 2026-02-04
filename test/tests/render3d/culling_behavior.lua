@@ -10,10 +10,7 @@ local Color = require("structs.color")
 local Vec2 = require("structs.vec2")
 local Matrix44 = require("structs.matrix44")
 local AABB = require("structs.aabb")
-local ecs = require("ecs.ecs")
-local transform = require("ecs.components.3d.transform")
-local model = require("ecs.components.3d.model")
-local light = require("ecs.components.3d.light")
+local Entity = require("ecs.entity")
 local width = 512
 local height = 512
 
@@ -28,20 +25,20 @@ local function spawn_test_object(pos, size, color)
 			EmissiveMultiplier = Color(1, 1, 1, 1), -- Make it bright so we can see it easily
 		}
 	)
-	local ent = ecs.CreateEntity()
-	ent:AddComponent(transform)
-	ent:SetPosition(pos)
-	local mdl = ent:AddComponent(model)
+	local ent = Entity.New()
+	ent:AddComponent("transform")
+	ent.transform:SetPosition(pos)
+	local mdl = ent:AddComponent("model")
 	mdl:AddPrimitive(poly, material)
 	return ent, mdl
 end
 
 local function TestCullingBehavior(name, cb)
 	T.Test3D(name, function(draw)
-		local sun = ecs.CreateFromTable(
+		local sun = Entity.New(
 			{
-				[transform] = {},
-				[light] = {
+				transform = {},
+				light = {
 					LightType = "sun",
 					Color = Color(1, 1, 1),
 					Intensity = 1,
@@ -144,13 +141,13 @@ TestCullingBehavior("Freezing culling", function(draw)
 	cam:SetRotation(Quat():Identity())
 	draw()
 	T(mdl.frustum_culled)["=="](false)
-	model.freeze_culling = true
+	require("ecs.components.3d.model").Library.freeze_culling = true
 	-- Move camera so object would normally be culled (it will be behind)
 	cam:SetPosition(Vec3(0, 0, -10))
 	draw()
 	-- Should still be NOT culled because frustum was frozen at original camera position
 	T(mdl.frustum_culled)["=="](false)
-	model.freeze_culling = false
+	require("ecs.components.3d.model").Library.freeze_culling = false
 	draw()
 	-- Now it should be culled
 	T(mdl.frustum_culled)["=="](true)

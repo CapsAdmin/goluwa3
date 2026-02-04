@@ -1,11 +1,7 @@
 local prototype = require("prototype")
-local mouse_input = require("ecs.components.2d.mouse_input")
-local transform_comp = require("ecs.components.2d.transform")
 local Vec2 = require("structs.vec2")
 local Rect = require("structs.rect")
-local META = prototype.CreateTemplate("resizable_2d")
-META.ComponentName = "resizable_2d"
-META.Require = {transform_comp, mouse_input}
+local META = prototype.CreateTemplate("resizable")
 META:StartStorable()
 META:GetSet("ResizeBorder", Rect(8, 8, 8, 8))
 META:GetSet("Resizable", true)
@@ -22,13 +18,13 @@ function META:Initialize()
 end
 
 function META:GetMousePosition()
-	return self.Entity.mouse_input_2d:GetMousePosition()
+	return self.Owner.mouse_input:GetMousePosition()
 end
 
 function META:GetMouseLocation(pos)
 	pos = pos or self:GetMousePosition()
 	local offset = self.ResizeBorder
-	local transform = self.Entity.transform_2d
+	local transform = self.Owner.transform
 	local siz = transform:GetSize()
 	local is_top = pos.y > -offset.y and pos.y < offset.y
 	local is_bottom = pos.y > siz.y - offset.h and pos.y < siz.y + offset.h
@@ -81,10 +77,10 @@ function META:StartResizing(local_pos, button)
 	local loc = self:GetResizeLocation(local_pos)
 
 	if loc then
-		local transform = self.Entity.transform_2d
+		local transform = self.Owner.transform
 		self.resize_start_pos = local_pos:Copy()
 		self.resize_location = loc
-		self.resize_prev_mouse_pos = self.Entity.mouse_input_2d:GetGlobalMousePosition():Copy()
+		self.resize_prev_mouse_pos = self.Owner.mouse_input:GetGlobalMousePosition():Copy()
 		self.resize_prev_pos = transform:GetPosition():Copy()
 		self.resize_prev_size = transform:GetSize():Copy()
 		self.resize_button = button
@@ -103,7 +99,7 @@ end
 function META:UpdateResizing(pos)
 	if
 		self.resize_button ~= nil and
-		not self.Entity.mouse_input_2d:IsMouseButtonDown(self.resize_button)
+		not self.Owner.mouse_input:IsMouseButtonDown(self.resize_button)
 	then
 		self:StopResizing()
 		return
@@ -111,9 +107,9 @@ function META:UpdateResizing(pos)
 
 	local cursor = location2cursor[self.resize_location]
 
-	if cursor then self.Entity.mouse_input_2d:SetCursor(cursor) end
+	if cursor then self.Owner.mouse_input:SetCursor(cursor) end
 
-	local transform = self.Entity.transform_2d
+	local transform = self.Owner.transform
 	local diff_world = pos - self.resize_prev_mouse_pos
 	local loc = self.resize_location
 	local prev_size = self.resize_prev_size:Copy()
@@ -136,15 +132,15 @@ function META:UpdateResizing(pos)
 		prev_size.y = prev_size.y - d_y
 	end
 
-	local parent = self.Entity:GetParent()
+	local parent = self.Owner:GetParent()
 
 	if
 		parent and
 		parent:IsValid() and
-		parent.transform_2d and
-		parent:GetName() ~= "world_2d"
+		parent.transform and
+		parent:GetName() ~= "world"
 	then
-		local p_transform = parent.transform_2d
+		local p_transform = parent.transform
 		local p_size = p_transform:GetSize()
 		prev_pos.x = math.max(prev_pos.x, 0)
 		prev_pos.y = math.max(prev_pos.y, 0)
@@ -156,6 +152,4 @@ function META:UpdateResizing(pos)
 	transform:SetSize(prev_size)
 end
 
-local resizable = {}
-resizable.Component = META:Register()
-return resizable
+return META:Register()

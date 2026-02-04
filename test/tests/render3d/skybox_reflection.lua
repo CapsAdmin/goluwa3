@@ -1,5 +1,6 @@
-
-do return end -- this whole test is pending
+do
+	return
+end -- this whole test is pending
 local T = require("test.environment")
 local ffi = require("ffi")
 local render = require("render.render")
@@ -56,12 +57,12 @@ T.Test3D("Graphics Polygon3D environment map reflection colors", function(draw)
 		cam:SetRotation(Quat(0, 0, 0, 1))
 		cam:SetFOV(math.rad(45))
 		cam:SetOrthoMode(false)
-		ecs.CreateFromTable(
+		Entity.New(
 			{
-				[transform] = {
+				transform = {
 					Rotation = Quat(0, 0, 0, 1):Normalize(),
 				},
-				[light] = {
+				light = {
 					LightType = "sun",
 					Color = Color(1, 1, 1),
 					Intensity = 0,

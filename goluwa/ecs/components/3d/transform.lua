@@ -1,15 +1,10 @@
 local prototype = require("prototype")
-local ecs = require("ecs.ecs")
 local Matrix44 = require("structs.matrix44")
 local Ang3 = require("structs.ang3")
 local Vec3 = require("structs.vec3")
 local Quat = require("structs.quat")
 local AABB = require("structs.aabb")
-local META = prototype.CreateTemplate("transform")
-META.ComponentName = "transform"
--- No requirements - transform is a base component
-META.Require = {}
-META.Events = {}
+local META = prototype.CreateTemplate("transform_3d")
 META:StartStorable()
 META:GetSet("Position", Vec3(0, 0, 0), {callback = "InvalidateMatrices"})
 META:GetSet("Rotation", Quat(0, 0, 0, 1), {callback = "InvalidateMatrices"})
@@ -59,10 +54,10 @@ function META:InvalidateMatrices()
 end
 
 function META:InvalidateChildWorldMatrices()
-	if not self.Entity then return end
+	if not self.Owner then return end
 
-	for _, child in ipairs(self.Entity:GetChildrenList()) do
-		if child:HasComponent("transform") then
+	for _, child in ipairs(self.Owner:GetChildrenList()) do
+		if child.transform then
 			child.transform.WorldMatrix = nil
 			child.transform.WorldMatrixInverse = nil
 			child.transform:InvalidateChildWorldMatrices()
@@ -99,10 +94,10 @@ function META:GetWorldMatrix()
 	if not self.WorldMatrix then
 		local local_matrix = self:GetLocalMatrix()
 
-		if self.Entity and self.Entity:HasParent() then
-			local parent = self.Entity:GetParent()
+		if self.Owner and self.Owner:HasParent() then
+			local parent = self.Owner:GetParent()
 
-			if parent:HasComponent("transform") then
+			if parent.transform then
 				local parent_world = parent.transform:GetWorldMatrix()
 				self.WorldMatrix = Matrix44()
 				local_matrix:GetMultiplied(parent_world, self.WorldMatrix)
@@ -125,7 +120,4 @@ function META:GetWorldMatrixInverse()
 	return self.WorldMatrixInverse
 end
 
-local transform = {}
-transform.Component = META:Register()
--- no system?
-return transform
+return META:Register()

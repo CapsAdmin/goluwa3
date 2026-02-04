@@ -1,5 +1,6 @@
 local event = require("event")
-local ecs = require("ecs.ecs")
+local Entity = require("ecs.entity")
+local Panel = require("ecs.panel")
 local render = require("render.render")
 local render3d = require("render3d.render3d")
 local render2d = require("render2d.render2d")
@@ -48,7 +49,7 @@ function test_render.Draw3D(cb)
 	cb(draw_3d_func)
 	local found = false
 
-	for _, ent in ipairs(ecs.Get3DWorld():GetChildrenList()) do
+	for _, ent in ipairs(Entity.World:GetChildrenList()) do
 		if ent:IsValid() then
 			ent:Remove()
 			print("Entity not removed: " .. tostring(ent))
@@ -56,7 +57,7 @@ function test_render.Draw3D(cb)
 		end
 	end
 
-	for _, ent in ipairs(ecs.Get2DWorld():GetChildrenList()) do
+	for _, ent in ipairs(Panel.World:GetChildrenList()) do
 		if ent:IsValid() then
 			ent:Remove()
 			print("Entity not removed: " .. tostring(ent))

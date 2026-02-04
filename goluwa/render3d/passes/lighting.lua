@@ -56,9 +56,9 @@ return {
 
 									if light then
 										if light.LightType == "directional" or light.LightType == "sun" then
-											light.Entity.transform:GetRotation():GetForward():CopyToFloatPointer(data.position)
+											light.Owner.transform:GetRotation():GetForward():CopyToFloatPointer(data.position)
 										else
-											light.Entity.transform:GetPosition():CopyToFloatPointer(data.position)
+											light.Owner.transform:GetPosition():CopyToFloatPointer(data.position)
 										end
 
 										if light.LightType == "directional" or light.LightType == "sun" then

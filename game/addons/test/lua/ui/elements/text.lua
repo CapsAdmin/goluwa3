@@ -3,10 +3,9 @@ local Vec2 = require("structs.vec2")
 local Vec3 = require("structs.vec3")
 local Rect = require("structs.rect")
 local Color = require("structs.color")
-local lsx = require("ecs.lsx_ecs")
-local ecs = require("ecs.ecs")
 local Ang3 = require("structs.ang3")
 local fonts = require("render2d.fonts")
+local Text = require("ecs.entities.2d.text")
 local path = fonts.GetSystemDefaultFont()
 local font = fonts.CreateFont(
 	{
@@ -22,7 +21,8 @@ local font = fonts.CreateFont(
 	}
 )
 return function(props)
-	return lsx:Text(lsx:MergeProps({
-		Font = props.Font or font,
+	return Text(table.merge({
+		Font = font,
+		Color = Color(1, 1, 1, 1),
 	}, props))
 end

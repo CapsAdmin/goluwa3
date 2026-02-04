@@ -44,6 +44,12 @@ do
 	}
 
 	function prototype.Register(meta)
+		if not HOTERLOAD then
+			if prototype.registered[meta.Type] then
+				wlog("Prototype already registered: " .. meta.Type, 2)
+			end
+		end
+
 		if not meta.Type then error("The type field was not found!", 2) end
 
 		if meta.Base then
@@ -72,6 +78,7 @@ do
 			end
 		end
 
+		meta.Instances = meta.Instances or table.weak()
 		prototype.registered[meta.Type] = meta
 		prototype.invalidate_meta[meta.Type] = true
 
@@ -244,11 +251,13 @@ do
 	local type = type
 	local ipairs = ipairs
 	prototype.created_objects = prototype.created_objects or table.weak()
+	prototype.created_objects_list = prototype.created_objects_list or {}
 
 	function prototype.CreateObject(meta, override)
 		override = override or prototype.override_object or {}
 
 		if type(meta) == "string" then
+			debug.trace()
 			local str = meta
 			meta = prototype.GetRegistered(meta)
 
@@ -268,7 +277,14 @@ do
 			end
 		end
 
+		if not meta.Instances then meta.Instances = table.weak() end
+
+		if self.OnFirstCreated and not meta.Instances[1] then
+			self:OnFirstCreated()
+		end
+
 		prototype.created_objects[self] = self
+		list.insert(meta.Instances, self)
 
 		if DEBUG then
 			self:SetDebugTrace(debug.traceback())
@@ -283,15 +299,13 @@ do
 	prototype.linked_objects = prototype.linked_objects or {}
 
 	function prototype.AddPropertyLink(...)
-		local args = table.weak()
-		local input = {...}
-
-		for i = 1, select("#", ...) do
-			args[i] = input[i]
-		end
+		local args = {...}
+		args.n = select("#", ...)
 
 		event.AddListener("Update", "update_object_properties", function()
-			for i, data in ipairs(prototype.linked_objects) do
+			for i = #prototype.linked_objects, 1, -1 do
+				local data = prototype.linked_objects[i]
+
 				if type(data.args[1]) == "table" and type(data.args[2]) == "table" then
 					local obj_a = data.args[1]
 					local obj_b = data.args[2]
@@ -301,8 +315,8 @@ do
 					local key_b = data.args[6]
 
 					if obj_a:IsValid() and obj_b:IsValid() then
-						local info_a = obj_a.prototype_variables[field_a]
-						local info_b = obj_b.prototype_variables[field_b]
+						local info_a = obj_a.prototype_variables and obj_a.prototype_variables[field_a]
+						local info_b = obj_b.prototype_variables and obj_b.prototype_variables[field_b]
 
 						if info_a and info_b then
 							if key_a and key_b then
@@ -353,8 +367,6 @@ do
 						end
 					else
 						list.remove(prototype.linked_objects, i)
-
-						break
 					end
 				elseif type(data.args[2]) == "function" and type(data.args[3]) == "function" then
 					local obj = data.args[1]
@@ -368,6 +380,8 @@ do
 							set_func(val)
 							data.store.last_val = val
 						end
+					else
+						list.remove(prototype.linked_objects, i)
 					end
 				end
 			end
@@ -378,15 +392,15 @@ do
 
 	function prototype.RemovePropertyLink(obj_a, obj_b, field_a, field_b, key_a, key_b)
 		for i, v in ipairs(prototype.linked_objects) do
-			local obj_a_, obj_b_, field_a_, field_b_, key_a_, key_b_ = unpack(v)
+			local a = v.args
 
 			if
-				obj_a == obj_a_ and
-				obj_b == obj_b_ and
-				field_a == field_a_ and
-				field_b == field_b_ and
-				key_a == key_a_ and
-				key_b == key_b_
+				a[1] == obj_a and
+				a[2] == obj_b and
+				a[3] == field_a and
+				a[4] == field_b and
+				a[5] == key_a and
+				a[6] == key_b
 			then
 				list.remove(prototype.linked_objects, i)
 
@@ -440,6 +454,30 @@ function prototype.GetCreated(sorted, type_name)
 	end
 
 	return prototype.created_objects or {}
+end
+
+do
+	prototype.focused_obj = NULL
+
+	function prototype.SetFocusedObject(obj)
+		if obj.Owner and obj.Owner:IsValid() then
+			return prototype.SetFocusedObject(obj.Owner)
+		end
+
+		if prototype.focused_obj == obj then return end
+
+		local old = prototype.focused_obj
+
+		if old and old:IsValid() then if old.OnUnfocus then old:OnUnfocus() end end
+
+		prototype.focused_obj = obj
+
+		if obj and obj:IsValid() then if obj.OnFocus then obj:OnFocus() end end
+	end
+
+	function prototype.GetFocusedObject()
+		return prototype.focused_obj
+	end
 end
 
 function prototype.FindObject(str)
@@ -800,9 +838,11 @@ do -- base object
 	prototype.GetSet(META, "PropertyIcon", "")
 	prototype.GetSet(META, "HideFromEditor", false)
 	prototype.GetSet(META, "GUID", "")
+	prototype.GetSet(META, "Owner", nil)
+	prototype.GetSet(META, "Key", "")
 	prototype.StartStorable(META)
-	prototype.GetSet("Name", "")
-	prototype.GetSet("Description", "")
+	prototype.GetSet(META, "Name", "")
+	prototype.GetSet(META, "Description", "")
 	prototype.EndStorable()
 
 	function META:GetGUID()
@@ -832,6 +872,26 @@ do -- base object
 
 	function META:IsValid()
 		return not self.__removed
+	end
+
+	do -- sub objects
+		function META:CreateSubObject(meta, override)
+			local obj = prototype.CreateObject(meta, override)
+			obj:SetOwner(self)
+
+			self:CallOnRemove(function()
+				self.sub_objects[obj] = nil
+				prototype.SafeRemove(obj)
+			end)
+
+			self.sub_objects = self.sub_objects or {}
+			self.sub_objects[obj] = obj
+			return obj
+		end
+	end
+
+	function META:RequestFocus()
+		prototype.SetFocusedObject(self)
 	end
 
 	do
@@ -867,6 +927,20 @@ do -- base object
 		function prototype.CheckRemovedObjects()
 			if #prototype.remove_these > 0 then
 				for _, obj in ipairs(prototype.remove_these) do
+					if obj.Instances then
+						for i, v in ipairs(obj.Instances) do
+							if v == obj then
+								list.remove(obj.Instances, i)
+
+								break
+							end
+						end
+					end
+
+					if obj.Instances and not obj.Instances[1] and obj.OnLastRemoved then
+						obj:OnLastRemoved()
+					end
+
 					prototype.created_objects[obj] = nil
 					prototype.MakeNULL(obj)
 				end
@@ -971,7 +1045,14 @@ do -- base object
 		self.local_events[what] = self.local_events[what] or {}
 		self.local_events[what][id] = callback
 		return function(...)
-			if not self.local_events or not self.local_events[what] or not self.local_events[what][id] then return end
+			if
+				not self.local_events or
+				not self.local_events[what] or
+				not self.local_events[what][id]
+			then
+				return
+			end
+
 			self.local_events[what][id] = nil
 		end
 	end
@@ -1155,10 +1236,6 @@ end
 
 -- parenting
 function prototype.ParentingTemplate(META)
-	META.OnParent = META.OnParent or function() end
-	META.OnChildAdd = META.OnChildAdd or function() end
-	META.OnChildRemove = META.OnChildRemove or function() end
-	META.OnUnParent = META.OnUnParent or function() end
 	META:GetSet("Parent", NULL)
 	META:GetSet("Children", {})
 	META:GetSet("ChildrenMap", {})
@@ -1237,6 +1314,11 @@ function prototype.ParentingTemplate(META)
 
 	do -- parent
 		function META:SetParent(obj)
+			if obj and not obj.IsValid then
+				table.print(obj)
+				debug.trace()
+			end
+
 			if not obj or not obj:IsValid() then
 				self:UnParent()
 				return false
@@ -1319,11 +1401,11 @@ function prototype.ParentingTemplate(META)
 		end
 
 		self:InvalidateChildrenList()
-		obj:OnParent(self)
+		obj:CallLocalListeners("OnParent", self)
 
 		if not obj.suppress_child_add then
 			obj.suppress_child_add = true
-			self:OnChildAdd(obj)
+			self:CallLocalListeners("OnChildAdd", obj)
 			obj.suppress_child_add = nil
 		end
 
@@ -1390,7 +1472,8 @@ function prototype.ParentingTemplate(META)
 			if self.Parent ~= NULL then
 				self.Parent = NULL
 				self:InvalidateParentList()
-				self:OnUnParent(parent)
+				obj:CallLocalListeners("OnUnParent", self)
+				self:CallLocalListeners("OnChildRemove", obj)
 			end
 		end
 	end
@@ -1406,8 +1489,8 @@ function prototype.ParentingTemplate(META)
 				self:InvalidateChildrenList()
 				obj.Parent = NULL
 				obj:InvalidateParentList()
-				obj:OnUnParent(self)
-				self:OnChildRemove(obj)
+				obj:CallLocalListeners("OnUnParent", self)
+				self:CallLocalListeners("OnChildRemove", obj)
 
 				break
 			end

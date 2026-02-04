@@ -1,12 +1,8 @@
 local prototype = require("prototype")
 local window = require("window")
 local event = require("event")
-local ecs = require("ecs.ecs")
-local transform = require("ecs.components.2d.transform")
 local Vec2 = require("structs.vec2")
-local META = prototype.CreateTemplate("mouse_input_2d")
-META.ComponentName = "mouse_input_2d"
-META.Require = {transform}
+local META = prototype.CreateTemplate("mouse_input")
 META:StartStorable()
 META:GetSet("Hovered", false)
 META:GetSet("IgnoreMouseInput", false)
@@ -21,14 +17,14 @@ function META:SetHovered(b)
 	if self.Hovered == b then return end
 
 	self.Hovered = b
-	local entity = self.Entity
+	local entity = self.Owner
 
 	if entity and entity.OnHover then entity:OnHover(b) end
 end
 
 function META:GetMousePosition()
 	local mouse_pos = window.GetMousePosition()
-	return self.Entity.transform_2d:GlobalToLocal(mouse_pos)
+	return self.Owner.transform:GlobalToLocal(mouse_pos)
 end
 
 function META:GetGlobalMousePosition()
@@ -42,7 +38,7 @@ function META:IsMouseButtonDown(button)
 end
 
 function META:OnMouseInput(button, press, pos)
-	local transform = self.Entity.transform_2d
+	local transform = self.Owner.transform
 
 	if transform:GetScrollEnabled() then
 		if button == "mwheel_up" then
@@ -60,15 +56,14 @@ end
 
 local mouse_input = library()
 mouse_input.pressed_entities = mouse_input.pressed_entities or {}
-mouse_input.Component = META:Register()
 mouse_input.last_hovered = mouse_input.last_hovered or NULL
 
 local function get_hovered_entity(entity, mouse_pos)
-	local gui = entity:GetComponent("gui_element_2d")
+	local gui = entity.gui_element
 
 	if gui and not gui:GetVisible() then return nil end
 
-	local mouse_comp = entity:GetComponent("mouse_input_2d")
+	local mouse_comp = entity.mouse_input
 
 	if mouse_comp and mouse_comp:GetIgnoreMouseInput() then return nil end
 
@@ -86,204 +81,205 @@ local function get_hovered_entity(entity, mouse_pos)
 	return nil
 end
 
-function mouse_input.GetHoveredEntity()
-	return mouse_input.last_hovered
-end
+local Panel = require("ecs.panel")
 
 function META:IsHoveredExclusively(mouse_pos)
 	if mouse_pos then
-		local world = ecs.Get2DWorld()
+		if not Panel.World then return false end
 
-		if not world then return false end
-
-		return get_hovered_entity(world, mouse_pos) == self.Entity
+		return get_hovered_entity(Panel.World, mouse_pos) == self.Owner
 	end
 
-	return mouse_input.last_hovered == self.Entity
+	return mouse_input.last_hovered == self.Owner
 end
 
-function mouse_input.MouseInput(button, press)
-	local world = ecs.Get2DWorld()
+function META:OnFirstCreated()
+	local mouse_input = mouse_input
+	local get_hovered_entity = get_hovered_entity
 
-	if not world then return end
+	function mouse_input.MouseInput(button, press)
+		local world = Panel.World
 
-	local pos = window.GetMousePosition()
+		if not Panel.World then return end
 
-	if press then
-		local hovered = get_hovered_entity(world, pos)
+		local pos = window.GetMousePosition()
 
-		if hovered then
-			local mouse_comp = hovered:GetComponent("mouse_input_2d")
+		if press then
+			local hovered = get_hovered_entity(Panel.World, pos)
 
-			if mouse_comp then
-				mouse_input.pressed_entities[button] = hovered
-				mouse_comp.button_states = mouse_comp.button_states or {}
-				mouse_comp.button_states[button] = {press = press, pos = pos}
-
-				if mouse_comp:GetFocusOnClick() then
-					local target = hovered
-
-					if mouse_comp:GetRedirectFocus():IsValid() then
-						target = mouse_comp:GetRedirectFocus()
-					end
-
-					target:RequestFocus()
-				end
-
-				if mouse_comp:GetBringToFrontOnClick() then hovered:BringToFront() end
-
-				if button == "button_1" then
-					local resizable_comp = hovered:GetComponent("resizable_2d")
-
-					if resizable_comp and resizable_comp:GetResizable() then
-						local local_pos = hovered.transform_2d:GlobalToLocal(pos)
-
-						if resizable_comp:StartResizing(local_pos, button) then
-							mouse_input.ResizingObject = resizable_comp
-						end
-					end
-
-					if not mouse_input.ResizingObject and mouse_comp:GetDragEnabled() then
-						mouse_input.DraggingObject = hovered
-						mouse_input.DragMouseStart = pos:Copy()
-						mouse_input.DragObjectStart = hovered.transform_2d:GetPosition():Copy()
-					end
-				end
-
-				local local_pos = hovered.transform_2d:GlobalToLocal(pos)
-
-				for _, comp in pairs(hovered.ComponentsHash) do
-					if comp.OnMouseInput then
-						comp:OnMouseInput(button, press, local_pos)
-					end
-				end
-
-				if hovered.OnMouseInput then
-					hovered:OnMouseInput(button, press, local_pos)
-				end
-
-				return true
-			end
-		else
-			ecs.SetFocusedEntity(NULL)
-		end
-	else
-		if button == "button_1" then
-			mouse_input.DraggingObject = nil
-
-			if mouse_input.ResizingObject and mouse_input.ResizingObject.resize_button == button then
-				mouse_input.ResizingObject:StopResizing()
-				mouse_input.ResizingObject = nil
-			end
-		end
-
-		local pressed = mouse_input.pressed_entities[button]
-
-		if pressed then
-			if pressed:IsValid() then
-				local mouse_comp = pressed:GetComponent("mouse_input_2d")
+			if hovered then
+				local mouse_comp = hovered.mouse_input
 
 				if mouse_comp then
+					mouse_input.pressed_entities[button] = hovered
 					mouse_comp.button_states = mouse_comp.button_states or {}
 					mouse_comp.button_states[button] = {press = press, pos = pos}
-					local local_pos = pressed.transform_2d:GlobalToLocal(pos)
 
-					for _, comp in pairs(pressed.ComponentsHash) do
-						if comp.OnMouseInput then
-							comp:OnMouseInput(button, press, local_pos)
+					if mouse_comp:GetFocusOnClick() then
+						local target = hovered
+
+						if mouse_comp:GetRedirectFocus():IsValid() then
+							target = mouse_comp:GetRedirectFocus()
+						end
+
+						target:RequestFocus()
+					end
+
+					if mouse_comp:GetBringToFrontOnClick() then hovered:BringToFront() end
+
+					if button == "button_1" then
+						local resizable_comp = hovered.resizable
+
+						if resizable_comp and resizable_comp:GetResizable() then
+							local local_pos = hovered.transform:GlobalToLocal(pos)
+
+							if resizable_comp:StartResizing(local_pos, button) then
+								mouse_input.ResizingObject = resizable_comp
+							end
+						end
+
+						if not mouse_input.ResizingObject and mouse_comp:GetDragEnabled() then
+							mouse_input.DraggingObject = hovered
+							mouse_input.DragMouseStart = pos:Copy()
+							mouse_input.DragObjectStart = hovered.transform:GetPosition():Copy()
 						end
 					end
 
-					if pressed.OnMouseInput then
-						pressed:OnMouseInput(button, press, local_pos)
+					local local_pos = hovered.transform:GlobalToLocal(pos)
+
+					if hovered.component_map then
+						for _, comp in pairs(hovered.component_map) do
+							if comp.OnMouseInput then
+								comp:OnMouseInput(button, press, local_pos)
+							end
+						end
 					end
+
+					if hovered.OnMouseInput then
+						hovered:OnMouseInput(button, press, local_pos)
+					end
+
+					return true
+				end
+			else
+				prototype.SetFocusedObject(NULL)
+			end
+		else
+			if button == "button_1" then
+				mouse_input.DraggingObject = nil
+
+				if mouse_input.ResizingObject and mouse_input.ResizingObject.resize_button == button then
+					mouse_input.ResizingObject:StopResizing()
+					mouse_input.ResizingObject = nil
 				end
 			end
 
-			mouse_input.pressed_entities[button] = nil
-			return true
-		end
-	end
-end
+			local pressed = mouse_input.pressed_entities[button]
 
-function mouse_input.Update()
-	local world = ecs.Get2DWorld()
+			if pressed then
+				if pressed:IsValid() then
+					local mouse_comp = pressed.mouse_input
 
-	if not world then return end
+					if mouse_comp then
+						mouse_comp.button_states = mouse_comp.button_states or {}
+						mouse_comp.button_states[button] = {press = press, pos = pos}
+						local local_pos = pressed.transform:GlobalToLocal(pos)
 
-	local pos = window.GetMousePosition()
+						if pressed.component_map then
+							for _, comp in pairs(pressed.component_map) do
+								if comp.OnMouseInput then
+									comp:OnMouseInput(button, press, local_pos)
+								end
+							end
+						end
 
-	if mouse_input.ResizingObject and mouse_input.ResizingObject:IsValid() then
-		mouse_input.ResizingObject:UpdateResizing(pos)
-	elseif mouse_input.DraggingObject and mouse_input.DraggingObject:IsValid() then
-		local delta = pos - mouse_input.DragMouseStart
-		local new_pos = mouse_input.DragObjectStart + delta
+						if pressed.OnMouseInput then
+							pressed:OnMouseInput(button, press, local_pos)
+						end
+					end
+				end
 
-		if mouse_input.DraggingObject.transform_2d then
-			mouse_input.DraggingObject.transform_2d:SetPosition(new_pos)
-		elseif mouse_input.DraggingObject.SetPosition then
-			mouse_input.DraggingObject:SetPosition(new_pos)
-		end
-	end
-
-	local hovered = get_hovered_entity(world, pos)
-
-	if hovered ~= mouse_input.last_hovered then
-		if mouse_input.last_hovered:IsValid() then
-			local mouse = mouse_input.last_hovered:GetComponent("mouse_input_2d")
-
-			if mouse then mouse:SetHovered(false) end
-
-			mouse_input.last_hovered:CallLocalListeners("OnMouseLeave")
-		end
-
-		if hovered then
-			local mouse = hovered:GetComponent("mouse_input_2d")
-
-			if mouse then mouse:SetHovered(true) end
-
-			hovered:CallLocalListeners("OnMouseEnter")
-		end
-
-		mouse_input.last_hovered = hovered or NULL
-	end
-
-	if hovered and hovered:IsValid() then
-		local mouse = hovered:GetComponent("mouse_input_2d")
-
-		if mouse then
-			local cursor = mouse:GetCursor()
-			local resizable_comp = hovered:GetComponent("resizable_2d")
-
-			if resizable_comp and resizable_comp:GetResizable() then
-				local res_cursor = resizable_comp:GetResizeCursor(hovered.transform_2d:GlobalToLocal(pos))
-
-				if res_cursor then cursor = res_cursor end
-			end
-
-			if hovered.GreyedOut then cursor = "no" end
-
-			if mouse_input.active_cursor ~= cursor then
-				window.SetCursor(cursor)
-				mouse_input.active_cursor = cursor
+				mouse_input.pressed_entities[button] = nil
+				return true
 			end
 		end
-	else
-		if mouse_input.active_cursor ~= "arrow" then
-			window.SetCursor("arrow")
-			mouse_input.active_cursor = "arrow"
-		end
 	end
-end
 
-function mouse_input.StartSystem()
+	function mouse_input.Update()
+		if not Panel.World then return end
+
+		local pos = window.GetMousePosition()
+
+		if mouse_input.ResizingObject and mouse_input.ResizingObject:IsValid() then
+			mouse_input.ResizingObject:UpdateResizing(pos)
+		elseif mouse_input.DraggingObject and mouse_input.DraggingObject:IsValid() then
+			local delta = pos - mouse_input.DragMouseStart
+			local new_pos = mouse_input.DragObjectStart + delta
+
+			if mouse_input.DraggingObject.transform then
+				mouse_input.DraggingObject.transform:SetPosition(new_pos)
+			elseif mouse_input.DraggingObject.SetPosition then
+				mouse_input.DraggingObject:SetPosition(new_pos)
+			end
+		end
+
+		local hovered = get_hovered_entity(Panel.World, pos) or NULL
+
+		if hovered ~= mouse_input.last_hovered then
+			if mouse_input.last_hovered:IsValid() then
+				local mouse = mouse_input.last_hovered.mouse_input
+
+				if mouse then mouse:SetHovered(false) end
+
+				if mouse_input.last_hovered.OnMouseLeave then
+					mouse_input.last_hovered:OnMouseLeave()
+				end
+
+				mouse_input.last_hovered:CallLocalListeners("OnMouseLeave")
+			end
+
+			if hovered:IsValid() then
+				local mouse = hovered.mouse_input
+
+				if mouse then mouse:SetHovered(true) end
+
+				if hovered.OnMouseEnter then hovered:OnMouseEnter() end
+
+				hovered:CallLocalListeners("OnMouseEnter")
+			end
+
+			mouse_input.last_hovered = hovered
+		end
+
+		local cursor = "arrow"
+
+		if hovered:IsValid() then
+			local mouse = hovered.mouse_input
+
+			if mouse then
+				cursor = mouse:GetCursor()
+				local resizable_comp = hovered.resizable
+
+				if resizable_comp and resizable_comp:GetResizable() then
+					local res_cursor = resizable_comp:GetResizeCursor(hovered.transform:GlobalToLocal(pos))
+
+					if res_cursor then cursor = res_cursor end
+				end
+
+				if hovered.GreyedOut then cursor = "no" end
+			end
+		end
+
+		if window.GetCursor() ~= cursor then window.SetCursor(cursor) end
+	end
+
 	event.AddListener("MouseInput", "ecs_gui_system", mouse_input.MouseInput, {priority = 100})
 	event.AddListener("Update", "ecs_gui_system", mouse_input.Update, {priority = 100})
 end
 
-function mouse_input.StopSystem()
+function META:OnLastRemoved()
 	event.RemoveListener("MouseInput", "ecs_gui_system")
 	event.RemoveListener("Update", "ecs_gui_system")
 end
 
-return mouse_input
+return META:Register()

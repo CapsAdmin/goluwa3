@@ -5,14 +5,10 @@ local render3d = require("render3d.render3d")
 local lightprobes = require("render3d.lightprobes")
 local Material = require("render3d.material")
 local Texture = require("render.texture")
-local ecs = require("ecs.ecs")
 local ffi = require("ffi")
 local Polygon3D = require("render3d.polygon_3d")
-local transform = require("ecs.components.3d.transform")
-local model = require("ecs.components.3d.model")
+local Entity = require("ecs.entity")
 local materials = {}
-
-if HOTRELOAD then ecs.Clear3DWorld() end
 
 local function shaded_texture(glsl, shared)
 	if type(glsl) ~= "string" then return glsl end -- already a texture
@@ -73,8 +69,8 @@ do
 	local PADDING = 2.3
 
 	local function spawn()
-		local ent = ecs.CreateEntity("debug_ent")
-		local transform = ent:AddComponent(transform)
+		local ent = Entity.New({Name = "debug_ent"})
+		local transform = ent:AddComponent("transform")
 		transform:SetPosition((pos * PADDING):Copy())
 		pos.x = pos.x + 1
 
@@ -91,7 +87,7 @@ do
 		if material_index > #materials then material_index = 1 end
 
 		poly:Upload()
-		local model = ent:AddComponent(model)
+		local model = ent:AddComponent("model")
 		model:AddPrimitive(poly, material)
 	end
 
@@ -397,11 +393,11 @@ if false then -- reflection plane
 	local poly = Polygon3D.New()
 	poly:CreateSphere(1)
 	poly:Upload()
-	local ent = ecs.CreateEntity("reflection_plane")
-	local transform = ent:AddComponent(transform)
+	local ent = Entity.New({Name = "reflection_plane"})
+	local transform = ent:AddComponent("transform")
 	transform:SetPosition(Vec3(17.9, -243.3, 1.1))
 	transform:SetScale(Vec3(100, 1, 100))
-	local model = ent:AddComponent(model)
+	local model = ent:AddComponent("model")
 	model:AddPrimitive(poly, reflection_mat)
 end
 
@@ -463,8 +459,8 @@ if false then
 		if not vfs.IsFile(model_path) then
 			print(model_path .. " not found!")
 		else
-			local e = ecs.CreateEntity("model_ent")
-			local t = e:AddComponent(transform)
+			local e = Entity.New({Name = "model_ent"})
+			local t = e:AddComponent("transform")
 			t:SetPosition(pos:Copy())
 			pos.x = pos.x + 5
 
@@ -473,7 +469,7 @@ if false then
 				pos.z = pos.z + 5
 			end
 
-			e:AddComponent(model)
+			e:AddComponent("model")
 			e.model:SetModelPath(model_path)
 		end
 	end

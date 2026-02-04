@@ -1,4 +1,3 @@
-
 local T = require("test.environment")
 local ffi = require("ffi")
 local event = require("event")
@@ -11,11 +10,8 @@ local Quat = require("structs.quat")
 local Vec2 = require("structs.vec2")
 local Color = require("structs.color")
 local Rect = require("structs.rect")
-local transform = require("ecs.components.3d.transform")
-local light = require("ecs.components.3d.light")
-local ecs = require("ecs.ecs")
-require("ecs.components.3d.transform")
 local Matrix44 = require("structs.matrix44")
+local Entity = require("ecs.entity")
 local fs = require("fs")
 
 T.Test3D("Polygon3D", function(draw)
@@ -253,13 +249,13 @@ T.Test3D("Polygon3D", function(draw)
 		local cam = render3d.GetCamera()
 		cam:SetPosition(Vec3(0, 0, -10))
 		cam:SetFOV(math.rad(45))
-		return ecs.CreateFromTable(
+		return Entity.New(
 			{
 				Name = "sun",
-				[transform] = {
+				transform = {
 					Rotation = Quat(0, 0, 0, -1):Normalize(),
 				},
-				[light] = {
+				light = {
 					LightType = "sun",
 					Color = Color(1, 1, 1),
 					Intensity = 1,

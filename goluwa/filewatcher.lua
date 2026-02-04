@@ -49,7 +49,7 @@ local function default_reload(path)
 		return
 	end
 
-	local ok, err = pcall(func)
+	local ok, err = xpcall(func, debug.traceback)
 
 	if not ok then
 		io.write("failed to reload ", path, ": ", tostring(err), "\n")

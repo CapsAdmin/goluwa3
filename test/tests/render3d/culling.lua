@@ -1,5 +1,4 @@
 local T = require("test.environment")
-
 local ffi = require("ffi")
 local render = require("render.render")
 local render3d = require("render3d.render3d")
@@ -9,14 +8,12 @@ local Vec3 = require("structs.vec3")
 local Rect = require("structs.rect")
 local Quat = require("structs.quat")
 local Color = require("structs.color")
-local ecs = require("ecs.ecs")
-local model = require("ecs.components.3d.model")
-local transform = require("ecs.components.3d.transform")
+local Entity = require("ecs.entity")
 local width, height = 512, 512
 
 local function spawn_sphere(pos, use_occlusion)
-	local ent = ecs.CreateEntity("sphere")
-	local trans = ent:AddComponent(transform)
+	local ent = Entity.New({Name = "sphere"})
+	local trans = ent:AddComponent("transform")
 	trans:SetPosition(pos)
 	local poly = Polygon3D.New()
 	poly:CreateSphere(1, 16, 16)
@@ -24,7 +21,7 @@ local function spawn_sphere(pos, use_occlusion)
 	local material = Material.New({
 		ColorMultiplier = Color(1, 1, 1, 1),
 	})
-	local mdl = ent:AddComponent(model)
+	local mdl = ent:AddComponent("model")
 	mdl:AddPrimitive(poly, material)
 	mdl:SetUseOcclusionCulling(use_occlusion or false)
 	return ent, mdl
@@ -58,7 +55,7 @@ T.Test3D("culling and occlusion", function(draw)
 	end)
 
 	T.Test3D("occlusion culling", function(draw)
-		model.SetOcclusionCulling(true)
+		require("ecs.components.3d.model").Library.SetOcclusionCulling(true)
 		-- Spawn a large occluder in front
 		local occluder_ent, occluder_mdl = spawn_sphere(Vec3(0, 0, -5))
 		occluder_ent.transform:SetScale(Vec3(5, 5, 1))
@@ -70,7 +67,7 @@ T.Test3D("culling and occlusion", function(draw)
 		T(occludee_mdl.using_conditional_rendering)["=="](true)
 		-- Second frame: should use results from first frame
 		draw()
-		local stats = model.GetOcclusionStats()
+		local stats = require("ecs.components.3d.model").Library.GetOcclusionStats()
 		--print("Occlusion stats:", stats.total, stats.with_occlusion, stats.submitted_with_conditional)
 		-- We can't easily check if the GPU actually culled it, 
 		-- but we can check if it was submitted with conditional rendering.

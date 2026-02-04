@@ -146,7 +146,7 @@ function animations.Update(dt, group)
 		end
 
 		if val ~= false then
-			animation.set(group, val)
+			animation.set(group, val, animation.id)
 
 			if alpha >= 1 and not pause then
 				if animation.callback then animation.callback(group) end
@@ -253,7 +253,7 @@ function animations.Animate(config)
 
 	local from = original_val
 
-	if type(to) ~= "table" then
+	if type(to) ~= "table" or to.__lsx_value then
 		to = {to}
 	else
 		local copy = {}

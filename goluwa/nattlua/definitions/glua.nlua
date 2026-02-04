@@ -205,7 +205,7 @@ local analyzer function istable(obj: any)
 end
 
 local analyzer function isentity(obj: any)
-	local Entity = env.typesystem.Entity
+	local Entity = env.typesystem.Owner
 	local binary_operator = require("nattlua.analyzer.operators.binary")
 	return binary_operator(
 		analyzer,

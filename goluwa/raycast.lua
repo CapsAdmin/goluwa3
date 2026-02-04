@@ -1,6 +1,6 @@
-local ecs = require("ecs.ecs")
 local Vec3 = require("structs.vec3")
 local AABB = require("structs.aabb")
+local Model = require("ecs.components.3d.model")
 local ffi = require("ffi")
 local raycast = library()
 
@@ -213,17 +213,17 @@ function raycast.Cast(origin, direction, max_distance, filter_fn)
 	max_distance = max_distance or math.huge
 	local ray = create_ray(origin, direction, max_distance)
 	local hits = {}
-	local models = ecs.GetComponents("model")
+	local models = Model.Instances
 
 	for _, model in ipairs(models) do
-		if filter_fn and not filter_fn(model.Entity) then goto continue end
+		if filter_fn and not filter_fn(model.Owner) then goto continue end
 
 		if not model.Visible or #model.Primitives == 0 then goto continue end
 
 		local world_to_local = nil
 
-		if model.Entity and model.Entity:HasComponent("transform") then
-			world_to_local = model.Entity.transform:GetWorldMatrixInverse()
+		if model.Owner and model.Owner.transform then
+			world_to_local = model.Owner.transform:GetWorldMatrixInverse()
 		end
 
 		if world_to_local then
@@ -244,7 +244,7 @@ function raycast.Cast(origin, direction, max_distance, filter_fn)
 		end
 
 		for prim_idx, primitive in ipairs(model.Primitives) do
-			local hit = test_primitive(ray, primitive, prim_idx, model.Entity, world_to_local)
+			local hit = test_primitive(ray, primitive, prim_idx, model.Owner, world_to_local)
 
 			if hit then table.insert(hits, hit) end
 		end

@@ -276,6 +276,18 @@ end
 function META:Build(node, parent, existing, adapter)
 	adapter = adapter or self.DefaultAdapter
 
+	if existing and type(existing) == "table" then
+		local valid = true
+
+		if existing.IsValid and not existing:IsValid() then
+			valid = false
+		elseif existing.IsNull then
+			valid = false
+		end
+
+		if not valid then existing = nil end
+	end
+
 	if node == nil or node == false then
 		if existing then SafeRemove(existing) end
 
@@ -418,14 +430,46 @@ function META:Build(node, parent, existing, adapter)
 
 		if
 			not panel or
-			panel.ctor ~= node.ctor or
+			panel.__lsx_ctor ~= node.ctor or
 			type(panel) ~= "table" or
 			not panel.Remove
 		then
-			if panel then SafeRemove(panel) end
+			if panel then
+				SafeRemove(panel)
+			end
 
-			panel = node.ctor(parent)
-			panel.ctor = node.ctor
+			panel = node.ctor({Parent = parent})
+			panel.__lsx_ctor = node.ctor
+		end
+
+		if panel.Build then
+			local comp = {
+				build = panel.Build,
+				props = node.props,
+				instance = panel,
+				adapter = adapter,
+				parent = parent,
+			}
+
+			if existing and existing.lsx_states and existing.lsx_states[panel.Build] then
+				self.component_states[comp] = existing.lsx_states[panel.Build]
+			else
+				self.component_states[comp] = panel.lsx_states and panel.lsx_states[panel.Build] or {}
+			end
+
+			local old_comp = self.current_component
+			local old_idx = self.hook_index
+			self.current_component = comp
+			self.hook_index = 0
+			local rendered = panel:Build()
+			self.current_component = old_comp
+			self.hook_index = old_idx
+
+			if rendered then self:Build(rendered, panel, existing, adapter) end
+
+			if not panel.lsx_states then panel.lsx_states = {} end
+
+			panel.lsx_states[panel.Build] = self.component_states[comp]
 		end
 
 		for key, value in pairs(node.props) do

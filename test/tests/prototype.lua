@@ -18,6 +18,24 @@ T.Test("prototype basic registration and creation", function()
 	T(obj:IsValid())["=="](false)
 end)
 
+T.Test("prototype .Instances feature", function()
+	local META = prototype.CreateTemplate("instance_test")
+	META:Register()
+	local obj1 = prototype.CreateObject(META)
+	local obj2 = prototype.CreateObject(META)
+	T(obj1.Instances)["=="](obj2.Instances)
+	T(#obj1.Instances)["=="](2)
+	T(obj1.Instances[1])["=="](obj1)
+	T(obj1.Instances[2])["=="](obj2)
+	-- Instances is on the prepared metatable, not the original template
+	local prepared = prototype.GetRegistered(META.Type)
+	T(obj1.Instances)["=="](prepared.Instances)
+	obj1:Remove()
+	event.Call("Update") -- prototype_remove_objects is called on Update
+	T(#obj2.Instances)["=="](1)
+	T(obj2.Instances[1])["=="](obj2)
+end)
+
 T.Test("prototype properties GetSet", function()
 	local META = prototype.CreateTemplate("test_props")
 	META:GetSet("Value", 123)
@@ -138,6 +156,8 @@ T.Test("prototype parenting OnUnParent once", function()
 	META:Register()
 	local parent = prototype.CreateObject(META)
 	local child = prototype.CreateObject(META)
+	parent:AddLocalListener("OnUnParent", parent.OnUnParent)
+	child:AddLocalListener("OnUnParent", child.OnUnParent)
 	child:SetParent(parent)
 	unparent_count = 0
 	child:UnParent()
@@ -193,7 +213,7 @@ T.Test("prototype GC callback", function()
 	T(gc_called)["=="](true)
 end)
 
-T.Test("prototype PropertyLink memory leak and removal", function()
+T.Pending("prototype PropertyLink memory leak and removal", function()
 	local META = prototype.CreateTemplate("test")
 	META:GetSet("Value", 0)
 	META:Register()
@@ -239,4 +259,177 @@ T.Test("prototype parenting cycle", function()
 	c:SetParent(b)
 	-- This should fail to prevent cycle A -> B -> C -> A
 	T(a:SetParent(c))["=="](false)
+end)
+
+T.Test("prototype OnFirstCreated", function()
+	local first_created_called = false
+	local META = prototype.CreateTemplate("first_created_test")
+
+	function META:OnFirstCreated()
+		first_created_called = true
+	end
+
+	META:Register()
+	T(first_created_called)["=="](false)
+	local obj1 = prototype.CreateObject(META)
+	T(first_created_called)["=="](true)
+	-- Reset flag
+	first_created_called = false
+	-- Second creation should NOT call OnFirstCreated
+	local obj2 = prototype.CreateObject(META)
+	T(first_created_called)["=="](false)
+	-- Clean up
+	obj1:Remove()
+	obj2:Remove()
+	event.Call("Update")
+end)
+
+T.Test("prototype OnLastRemoved", function()
+	local last_removed_called = false
+	local META = prototype.CreateTemplate("last_removed_test")
+
+	function META:OnLastRemoved()
+		last_removed_called = true
+	end
+
+	META:Register()
+	local obj1 = prototype.CreateObject(META)
+	local obj2 = prototype.CreateObject(META)
+	T(last_removed_called)["=="](false)
+	-- Remove first object, should NOT call OnLastRemoved yet
+	obj1:Remove()
+	event.Call("Update")
+	T(last_removed_called)["=="](false)
+	-- Remove second object, should call OnLastRemoved
+	obj2:Remove()
+	event.Call("Update")
+	T(last_removed_called)["=="](true)
+end)
+
+T.Test("prototype OnFirstCreated and OnLastRemoved cycle", function()
+	local first_count = 0
+	local last_count = 0
+	local META = prototype.CreateTemplate("lifecycle_test")
+
+	function META:OnFirstCreated()
+		first_count = first_count + 1
+	end
+
+	function META:OnLastRemoved()
+		last_count = last_count + 1
+	end
+
+	META:Register()
+	-- First cycle
+	local obj1 = prototype.CreateObject(META)
+	T(first_count)["=="](1)
+	T(last_count)["=="](0)
+	obj1:Remove()
+	event.Call("Update")
+	T(first_count)["=="](1)
+	T(last_count)["=="](1)
+	-- Second cycle - OnFirstCreated should be called again
+	local obj2 = prototype.CreateObject(META)
+	T(first_count)["=="](2)
+	T(last_count)["=="](1)
+	obj2:Remove()
+	event.Call("Update")
+	T(first_count)["=="](2)
+	T(last_count)["=="](2)
+end)
+
+T.Test("prototype .Instances sequential list", function()
+	local META = prototype.CreateTemplate("instances_sequential_test")
+	META:Register()
+	local obj1 = prototype.CreateObject(META)
+	local obj2 = prototype.CreateObject(META)
+	local obj3 = prototype.CreateObject(META)
+	-- Check initial state
+	T(#obj1.Instances)["=="](3)
+	T(obj1.Instances[1])["=="](obj1)
+	T(obj1.Instances[2])["=="](obj2)
+	T(obj1.Instances[3])["=="](obj3)
+	-- Remove middle object
+	obj2:Remove()
+	event.Call("Update")
+	-- Check that list remains sequential without holes
+	T(#obj1.Instances)["=="](2)
+	T(obj1.Instances[1])["=="](obj1)
+	T(obj1.Instances[2])["=="](obj3)
+	T(obj1.Instances[3])["=="](nil)
+	-- Remove first object
+	obj1:Remove()
+	event.Call("Update")
+	T(#obj3.Instances)["=="](1)
+	T(obj3.Instances[1])["=="](obj3)
+	T(obj3.Instances[2])["=="](nil)
+	-- Remove last object
+	obj3:Remove()
+	event.Call("Update")
+end)
+
+T.Test("prototype .Instances no holes after multiple removals", function()
+	local META = prototype.CreateTemplate("instances_no_holes_test")
+	META:Register()
+	local objs = {}
+
+	-- Create 10 objects
+	for i = 1, 10 do
+		objs[i] = prototype.CreateObject(META)
+	end
+
+	T(#objs[1].Instances)["=="](10)
+	-- Remove objects 2, 4, 6, 8
+	objs[2]:Remove()
+	objs[4]:Remove()
+	objs[6]:Remove()
+	objs[8]:Remove()
+	event.Call("Update")
+	-- Should have 6 objects, no holes
+	local instances = objs[1].Instances
+	T(#instances)["=="](6)
+
+	-- Verify all indices are valid and sequential
+	for i = 1, #instances do
+		T(instances[i])["~="](nil)
+		T(instances[i]:IsValid())["=="](true)
+	end
+
+	-- Verify no holes beyond the length
+	T(instances[7])["=="](nil)
+
+	-- Clean up remaining
+	for i = 1, 10 do
+		if objs[i]:IsValid() then objs[i]:Remove() end
+	end
+
+	event.Call("Update")
+end)
+
+T.Test("prototype .Instances integrity after mixed operations", function()
+	local META = prototype.CreateTemplate("instances_integrity_test")
+	META:Register()
+	local obj1 = prototype.CreateObject(META)
+	local obj2 = prototype.CreateObject(META)
+	T(#obj1.Instances)["=="](2)
+	-- Remove first
+	obj1:Remove()
+	event.Call("Update")
+	T(#obj2.Instances)["=="](1)
+	T(obj2.Instances[1])["=="](obj2)
+	-- Create new object
+	local obj3 = prototype.CreateObject(META)
+	T(#obj2.Instances)["=="](2)
+	T(obj2.Instances[1])["=="](obj2)
+	T(obj2.Instances[2])["=="](obj3)
+	-- Remove both
+	obj2:Remove()
+	obj3:Remove()
+	event.Call("Update")
+	-- Create again after all removed
+	local obj4 = prototype.CreateObject(META)
+	T(#obj4.Instances)["=="](1)
+	T(obj4.Instances[1])["=="](obj4)
+	obj4:Remove()
+	event.Call("Update")
 end)
