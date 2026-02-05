@@ -4,13 +4,12 @@ local Rect = require("structs.rect")
 local Color = require("structs.color")
 local window = require("window")
 local event = require("event")
-local Panel = require("ecs.entities.2d.panel")
+local Panel = require("ecs.panel")
 local system = require("system")
 local theme = runfile("lua/ui/theme.lua")
 local Text = runfile("lua/ui/elements/text.lua")
 local MenuButton = runfile("lua/ui/elements/menu_button.lua")
 local MenuItem = runfile("lua/ui/elements/context_menu_item.lua")
-local Gap = runfile("lua/ui/elements/gap.lua")
 local MenuSpacer = runfile("lua/ui/elements/menu_spacer.lua")
 local ContextMenu = runfile("lua/ui/elements/context_menu.lua")
 local Frame = runfile("lua/ui/elements/frame.lua")
@@ -19,7 +18,7 @@ local Checkbox = runfile("lua/ui/elements/checkbox.lua")
 local RadioButton = runfile("lua/ui/elements/radio_button.lua")
 local Row = runfile("lua/ui/elements/row.lua")
 local Column = runfile("lua/ui/elements/column.lua")
-local world_panel = require("ecs.panel").World
+local world_panel = Panel.World
 local menu = NULL
 local visible = false
 
@@ -203,7 +202,7 @@ event.AddListener("KeyInput", "menu_toggle", function(key, press)
 				},
 			}
 		)
-		menu = Panel(
+		menu = Panel.NewPanel(
 			{
 				Name = "GameMenuPanel",
 				Color = Color(0, 0, 0, 0.5),

@@ -2,7 +2,7 @@ local render2d = require("render2d.render2d")
 local Vec2 = require("structs.vec2")
 local Color = require("structs.color")
 local Rect = require("structs.rect")
-local Panel = require("ecs.entities.2d.panel")
+local Panel = require("ecs.panel")
 local Frame = runfile("lua/ui/elements/frame.lua")
 local theme = runfile("lua/ui/theme.lua")
 return function(props)
@@ -36,7 +36,7 @@ return function(props)
 		)
 	end
 
-	return Panel(
+	return Panel.NewPanel(
 		{
 			Ref = function(self)
 				container_ent = self

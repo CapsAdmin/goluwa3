@@ -1,9 +1,9 @@
 local Vec2 = require("structs.vec2")
 local Color = require("structs.color")
-local Panel = require("ecs.entities.2d.panel")
+local Panel = require("ecs.panel")
 local theme = runfile("lua/ui/theme.lua")
 return function(props)
-	return Panel(
+	return Panel.NewPanel(
 		table.merge(
 			{
 				Name = "Row",

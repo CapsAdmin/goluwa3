@@ -5,10 +5,10 @@ local Rect = require("structs.rect")
 local Color = require("structs.color")
 local Ang3 = require("structs.ang3")
 local fonts = require("render2d.fonts")
-local Text = require("ecs.entities.2d.text")
+local Panel = require("ecs.panel")
 local theme = runfile("lua/ui/theme.lua")
 return function(props)
-	return Text(
+	return Panel.NewText(
 		table.merge(
 			{
 				Font = theme.GetFont(props.Font or "body", props.Size or "M"),

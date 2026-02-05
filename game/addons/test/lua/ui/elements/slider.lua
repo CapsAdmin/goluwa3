@@ -4,7 +4,7 @@ local Rect = require("structs.rect")
 local Ang3 = require("structs.ang3")
 local window = require("window")
 local event = require("event")
-local Panel = require("ecs.entities.2d.panel")
+local Panel = require("ecs.panel")
 local theme = runfile("lua/ui/theme.lua")
 return function(props)
 	local ent
@@ -29,7 +29,7 @@ return function(props)
 		if props.OnChange then props.OnChange(state.value) end
 	end
 
-	ent = Panel(
+	ent = Panel.NewPanel(
 		{
 			Name = "slider",
 			Position = props.Position or (not props.Layout and Vec2(100, 100) or nil),

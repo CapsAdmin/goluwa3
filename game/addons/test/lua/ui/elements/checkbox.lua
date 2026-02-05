@@ -1,7 +1,7 @@
 local Vec2 = require("structs.vec2")
 local Color = require("structs.color")
 local Rect = require("structs.rect")
-local Panel = require("ecs.entities.2d.panel")
+local Panel = require("ecs.panel")
 local theme = runfile("lua/ui/theme.lua")
 local Text = runfile("lua/ui/elements/text.lua")
 return function(props)
@@ -14,7 +14,7 @@ return function(props)
 		last_hovered = false,
 		last_value = props.Value or false,
 	}
-	ent = Panel(
+	ent = Panel.NewPanel(
 		{
 			Name = "checkbox_graphic",
 			Size = props.Size or Vec2(theme.Sizes.CheckboxSize, theme.Sizes.CheckboxSize),

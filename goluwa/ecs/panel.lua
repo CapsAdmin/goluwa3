@@ -33,4 +33,42 @@ do
 	end
 end
 
+function Panel.NewPanel(config)
+	return Panel.New(
+		table.merge(
+			{
+				ComponentSet = {
+					"rect",
+					"transform",
+					"gui_element",
+					"layout",
+					"mouse_input",
+					"clickable",
+					"animation",
+				},
+			},
+			config
+		)
+	)
+end
+
+function Panel.NewText(config)
+	return Panel.New(
+		table.merge(
+			{
+				ComponentSet = {
+					"text",
+					"transform",
+					"gui_element",
+					"layout",
+					"mouse_input",
+					"clickable",
+					"animation",
+				},
+			},
+			config
+		)
+	)
+end
+
 return Panel

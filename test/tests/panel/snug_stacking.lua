@@ -1,16 +1,16 @@
 local T = require("test.environment")
-local Panel = require("ecs.entities.2d.panel")
+local Panel = require("ecs.panel")
 local Vec2 = require("structs.vec2")
 local Rect = require("structs.rect")
 
 T.Test("panels should stack snugly with SizeToChildren and MoveLeft", function()
-	local parent = Panel({
+	local parent = Panel.NewPanel({
 		Name = "Parent",
 		Size = Vec2(1000, 100),
 	})
 
 	local function CreateSnugPanel(name, width)
-		local p = Panel(
+		local p = Panel.NewPanel(
 			{
 				Name = name,
 				Parent = parent,
@@ -18,7 +18,7 @@ T.Test("panels should stack snugly with SizeToChildren and MoveLeft", function()
 			}
 		)
 		-- Add a child that gives it size
-		Panel(
+		Panel.NewPanel(
 			{
 				Parent = p,
 				Size = Vec2(width, 24),

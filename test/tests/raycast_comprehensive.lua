@@ -1,11 +1,11 @@
 local T = require("test.environment")
-local Panel = require("ecs.entities.2d.panel")
+local Panel = require("ecs.panel")
 local Vec2 = require("structs.vec2")
 local Rect = require("structs.rect")
 
 T.Test("RayCast basic collision", function()
-	local parent = Panel({Name = "Parent", Size = Vec2(100, 100)})
-	local obstacle = Panel(
+	local parent = Panel.NewPanel({Name = "Parent", Size = Vec2(100, 100)})
+	local obstacle = Panel.NewPanel(
 		{
 			Name = "Obstacle",
 			Parent = parent,
@@ -15,7 +15,7 @@ T.Test("RayCast basic collision", function()
 	)
 	-- Ensure layout is updated so RayCast works
 	parent.layout:CalcLayout()
-	local mover = Panel({Name = "Mover", Parent = parent, Size = Vec2(10, 10)})
+	local mover = Panel.NewPanel({Name = "Mover", Parent = parent, Size = Vec2(10, 10)})
 	-- Test RayCast to the right
 	local hit, hit_ent = mover.layout:RayCast(Vec2(0, 45), Vec2(100, 45))
 	-- Mover is 10 wide. Obstacle is at x=40.
@@ -26,11 +26,11 @@ T.Test("RayCast basic collision", function()
 end)
 
 T.Test("RayCast directionality and filtering", function()
-	local parent = Panel({Name = "Parent", Size = Vec2(100, 100)})
-	local p1 = Panel({Name = "P1", Parent = parent, Position = Vec2(20, 20), Size = Vec2(10, 10)})
-	local p2 = Panel({Name = "P2", Parent = parent, Position = Vec2(60, 20), Size = Vec2(10, 10)})
+	local parent = Panel.NewPanel({Name = "Parent", Size = Vec2(100, 100)})
+	local p1 = Panel.NewPanel({Name = "P1", Parent = parent, Position = Vec2(20, 20), Size = Vec2(10, 10)})
+	local p2 = Panel.NewPanel({Name = "P2", Parent = parent, Position = Vec2(60, 20), Size = Vec2(10, 10)})
 	parent.layout:CalcLayout()
-	local mover = Panel({Name = "Mover", Parent = parent, Size = Vec2(5, 5)})
+	local mover = Panel.NewPanel({Name = "Mover", Parent = parent, Size = Vec2(5, 5)})
 	-- RayCast from 40 to 100 (should hit P2)
 	local hit_r, ent_r = mover.layout:RayCast(Vec2(40, 22), Vec2(100, 22))
 	T(ent_r)["=="](p2)
@@ -42,16 +42,16 @@ T.Test("RayCast directionality and filtering", function()
 end)
 
 T.Test("RayCast vertical collision", function()
-	local parent = Panel({Name = "Parent", Size = Vec2(100, 100)})
-	local floor = Panel({Name = "Floor", Parent = parent, Position = Vec2(0, 80), Size = Vec2(100, 20)})
+	local parent = Panel.NewPanel({Name = "Parent", Size = Vec2(100, 100)})
+	local floor = Panel.NewPanel({Name = "Floor", Parent = parent, Position = Vec2(0, 80), Size = Vec2(100, 20)})
 	parent.layout:CalcLayout()
-	local mover = Panel({Name = "Mover", Parent = parent, Size = Vec2(50, 10)})
+	local mover = Panel.NewPanel({Name = "Mover", Parent = parent, Size = Vec2(50, 10)})
 	-- RayCast down
 	local hit_d, ent_d = mover.layout:RayCast(Vec2(0, 0), Vec2(0, 100))
 	T(ent_d)["=="](floor)
 	T(hit_d.y)["=="](70) -- 80 - 10
 	-- RayCast up
-	local ceiling = Panel(
+	local ceiling = Panel.NewPanel(
 		{
 			Name = "Ceiling",
 			Parent = parent,
@@ -66,8 +66,8 @@ T.Test("RayCast vertical collision", function()
 end)
 
 T.Test("RayCast margins influence", function()
-	local parent = Panel({Name = "Parent", Size = Vec2(100, 100)})
-	local target = Panel(
+	local parent = Panel.NewPanel({Name = "Parent", Size = Vec2(100, 100)})
+	local target = Panel.NewPanel(
 		{
 			Name = "Target",
 			Parent = parent,
@@ -77,7 +77,7 @@ T.Test("RayCast margins influence", function()
 		}
 	)
 	parent.layout:CalcLayout()
-	local mover = Panel({Name = "Mover", Parent = parent, Size = Vec2(10, 10)})
+	local mover = Panel.NewPanel({Name = "Mover", Parent = parent, Size = Vec2(10, 10)})
 	-- Should hit target.x - mover.width - target.margin_left - mover.margin_right
 	-- Target x=50, margin_left=5. Mover has no margin.
 	-- Expected hit: 50 - 10 - 5 = 35?
@@ -88,9 +88,9 @@ T.Test("RayCast margins influence", function()
 end)
 
 T.Test("RayCast ignore self and invisible", function()
-	local parent = Panel({Name = "Parent", Size = Vec2(100, 100)})
-	local mover = Panel({Name = "Mover", Parent = parent, Size = Vec2(10, 10), Position = Vec2(0, 0)})
-	local obstacle = Panel(
+	local parent = Panel.NewPanel({Name = "Parent", Size = Vec2(100, 100)})
+	local mover = Panel.NewPanel({Name = "Mover", Parent = parent, Size = Vec2(10, 10), Position = Vec2(0, 0)})
+	local obstacle = Panel.NewPanel(
 		{
 			Name = "Obstacle",
 			Parent = parent,

@@ -4,13 +4,13 @@ local Rect = require("structs.rect")
 local Color = require("structs.color")
 local Ang3 = require("structs.ang3")
 local window = require("window")
-local Panel = require("ecs.entities.2d.panel")
+local Panel = require("ecs.panel")
 local Texture = require("render.texture")
 local theme = runfile("lua/ui/theme.lua")
 return function(props)
 	local is_disabled = props.Disabled
 	local ent
-	ent = Panel(
+	ent = Panel.NewPanel(
 		{
 			Name = "button",
 			Size = props.Size or Vec2(200, 50),

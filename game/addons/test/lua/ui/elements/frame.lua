@@ -7,10 +7,10 @@ local window = require("window")
 local prototype = require("prototype")
 local fonts = require("render2d.fonts")
 local gfx = require("render2d.gfx")
-local Panel = require("ecs.entities.2d.panel")
+local Panel = require("ecs.panel")
 local theme = runfile("lua/ui/theme.lua")
 return function(props)
-	return Panel(
+	return Panel.NewPanel(
 		table.merge(
 			{
 				Name = "frame",
