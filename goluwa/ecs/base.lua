@@ -163,7 +163,8 @@ return function(name, base_path, get_valid_components)
 	end
 
 	function BaseEntity:AddComponent(name, tbl, skip_init)
-		local meta = require(base_path .. name)
+		valid_components = valid_components or get_valid_components()
+		local meta = valid_components[name] --require(base_path .. name)
 		self[name] = self:CreateSubObject(meta)
 
 		if tbl then

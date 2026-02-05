@@ -89,7 +89,7 @@ local function sort(a, b)
 	return (a.w + a.h) > (b.w + b.h)
 end
 
-function META:Build()
+function META:Build(cmd)
 	list.sort(self.dirty_textures, sort)
 
 	for _, data in ipairs(self.dirty_textures) do
@@ -114,14 +114,44 @@ function META:Build()
 			page.texture:GetWidth(),
 			page.texture:GetHeight(),
 		}
+		data.page_uv_normalized = {
+			x / data.page_uv[5],
+			y / data.page_uv[6],
+			(
+				x + data.w
+			) / data.page_uv[5],
+			(
+				y + data.h
+			) / data.page_uv[6],
+		}
 		page.textures[data] = data
 		page.dirty = true
 	end
 
+	if #self.dirty_textures == 0 and not cmd then
+		local dirty = false
+
+		for _, page in ipairs(self.pages) do
+			if page.dirty then
+				dirty = true
+
+				break
+			end
+		end
+
+		if not dirty then return end
+	end
+
 	self.dirty_textures = {}
-	local cmd_pool = render.GetCommandPool()
-	local cmd = cmd_pool:AllocateCommandBuffer()
-	cmd:Begin()
+	local own_cmd = false
+
+	if not cmd then
+		local cmd_pool = render.GetCommandPool()
+		cmd = cmd_pool:AllocateCommandBuffer()
+		cmd:Begin()
+		own_cmd = true
+	end
+
 	local transitioned_textures = {}
 
 	for _, page in ipairs(self.pages) do
@@ -224,11 +254,14 @@ function META:Build()
 		end
 	end
 
-	cmd:End()
-	local device = render.GetDevice()
-	local queue = render.GetQueue()
-	local fence = Fence.New(device)
-	queue:SubmitAndWait(device, cmd, fence)
+	if own_cmd then
+		cmd:End()
+		local device = render.GetDevice()
+		local queue = render.GetQueue()
+		self.fence = self.fence or Fence.New(device)
+		queue:SubmitAndWait(device, cmd, self.fence)
+	end
+
 	self.dirty_textures = {}
 end
 
@@ -285,6 +318,12 @@ function META:GetUV(id)
 	local data = self.textures[id]
 
 	if data then return unpack(data.page_uv) end
+end
+
+function META:GetNormalizedUV(id)
+	local data = self.textures[id]
+
+	if data then return data.page_uv_normalized, data.w, data.h end
 end
 
 function META:GetPageTexture(id)

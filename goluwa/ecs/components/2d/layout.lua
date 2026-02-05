@@ -1395,7 +1395,7 @@ end
 layout_lib.depth = 0
 layout_lib.layout_stress = false
 META.recursion_depth = 0
-layout_lib.debug = true
+layout_lib.debug = false
 META.Library = layout_lib
 
 function META:OnFirstCreated()

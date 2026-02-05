@@ -12,6 +12,7 @@ local utf8 = require("utf8")
 local event = require("event")
 local TextureAtlas = require("render.texture_atlas")
 local EasyPipeline = require("render.easy_pipeline")
+local Fence = require("render.vulkan.internal.fence")
 local META = prototype.CreateTemplate("rasterized_font")
 META.IsFont = true
 META:GetSet("Fonts", {})
@@ -25,6 +26,7 @@ META:GetSet("ShadingInfo", nil, {callback = "ClearCache"})
 META:IsSet("Monospace", false, {callback = "ClearCache"})
 META:IsSet("Ready", false)
 META:IsSet("ReverseDraw", false)
+local SUPER_SAMPLING_SCALE = 4
 
 function META:ClearCache()
 	self.text_size_cache = nil
@@ -33,6 +35,15 @@ end
 
 function META:OnRemove()
 	if self.texture_atlas then self.texture_atlas:Remove() end
+end
+
+local function get_ascent_descent(self)
+	if not self.ascent then
+		self.ascent = self.Fonts[1]:GetAscent()
+		self.descent = self.Fonts[1]:GetDescent()
+	end
+
+	return self.ascent, self.descent
 end
 
 META:GetSet("LoadSpeed", 10)
@@ -79,7 +90,7 @@ function META:GetEffectPipeline(info)
 	if info.vars then
 		for k, v in pairs(info.vars) do
 			local tx = typex(v)
-			local scale = 8 -- Hardcoded scale since it's used for supersampling
+			local scale = SUPER_SAMPLING_SCALE -- Hardcoded scale since it's used for supersampling
 			if tx == "number" then
 				table.insert(
 					push_constant_block,
@@ -308,6 +319,7 @@ function META.New(fonts, padding)
 	if type(fonts) == "table" and fonts.IsFont then fonts = {fonts} end
 
 	local self = META:CreateObject()
+	self.tr = debug.traceback()
 	self:SetFonts(fonts)
 	self:SetPadding(padding or 0)
 	self.chars = {}
@@ -329,18 +341,20 @@ function META.New(fonts, padding)
 end
 
 function META:GetAscent()
-	return self.Fonts[1]:GetAscent()
+	local a, d = get_ascent_descent(self)
+	return a
 end
 
 function META:GetDescent()
-	return self.Fonts[1]:GetDescent()
+	local a, d = get_ascent_descent(self)
+	return d
 end
 
-function META:Rebuild()
-	self.texture_atlas:Build()
+function META:Rebuild(cmd)
+	self.texture_atlas:Build(cmd)
 end
 
-function META:RebuildFromScratch()
+function META:RebuildFromScratch(cmd)
 	if not self.texture_atlas then return end
 
 	-- Clear all cached glyphs
@@ -353,11 +367,11 @@ function META:RebuildFromScratch()
 
 	-- Reload all glyphs
 	for _, code in ipairs(codes_to_reload) do
-		self:LoadGlyph(code)
+		self:LoadGlyph(code, cmd)
 	end
 
 	-- Rebuild the atlas
-	self.texture_atlas:Build()
+	self.texture_atlas:Build(cmd)
 end
 
 -- Override SetShadingInfo to trigger full rebuild and shading
@@ -368,8 +382,54 @@ function META:SetShadingInfo(info)
 end
 
 local scratch_size = {w = 0, h = 0}
+local fb_pool = {}
+local fence_pool = {}
 
-function META:LoadGlyph(code)
+local function get_fence(device)
+	local f = table.remove(fence_pool)
+
+	if f then return f end
+
+	return Fence.New(device)
+end
+
+local function release_fence(f)
+	table.insert(fence_pool, f)
+end
+
+local function get_temp_fb(w, h, format, mip_maps)
+	local key = string.format("%d_%d_%s_%s", w, h, format, tostring(mip_maps))
+	fb_pool[key] = fb_pool[key] or {}
+	local fb = table.remove(fb_pool[key])
+
+	if not fb then
+		fb = Framebuffer.New(
+			{
+				width = w,
+				height = h,
+				clear_color = {0, 0, 0, 0},
+				format = format,
+				mip_map_levels = mip_maps and "auto" or 1,
+			}
+		)
+	end
+
+	return fb
+end
+
+local function release_temp_fb(fb)
+	local key = string.format(
+		"%d_%d_%s_%s",
+		fb.width,
+		fb.height,
+		fb.format,
+		tostring(fb.mip_map_levels ~= 1)
+	)
+	fb_pool[key] = fb_pool[key] or {}
+	table.insert(fb_pool[key], fb)
+end
+
+function META:LoadGlyph(code, parent_cmd, temp_fbs)
 	-- Convert string to character code if needed
 	if type(code) == "string" then code = utf8.uint32(code) end
 
@@ -396,43 +456,41 @@ function META:LoadGlyph(code)
 				return
 			end
 
-			local scale = 8
+			local scale = SUPER_SAMPLING_SCALE
 			local padding = self:GetPadding()
 			local sw = (glyph.w + padding * 2) * scale
 			local sh = (glyph.h + padding * 2) * scale
-			local fb_ss = Framebuffer.New(
-				{
-					width = sw,
-					height = sh,
-					clear_color = {0, 0, 0, 0},
-					format = atlas_format,
-					mip_map_levels = "auto",
-				}
-			)
+			local used_temp_fbs = {}
+			local fb_ss = get_temp_fb(sw, sh, atlas_format, true)
+			table.insert(used_temp_fbs, fb_ss)
+			local own_cmd = false
+			local cmd = parent_cmd
+
+			if not cmd then
+				cmd = render.GetCommandPool():AllocateCommandBuffer()
+				cmd:Begin()
+				own_cmd = true
+			end
 
 			do
+				render2d.ResetState()
 				local old_cmd = render2d.cmd
 				local old_w, old_h = render2d.GetSize()
-				local cmd = fb_ss:Begin()
+				fb_ss:Begin(cmd)
 				render2d.cmd = cmd
 				render2d.PushColorFormat(fb_ss.color_texture.format)
 				render2d.PushSamples("1")
-				render2d.PushMatrix()
-				render2d.PushColor(render2d.GetColor())
-				render2d.PushUV(render2d.GetUV())
-				render2d.PushBlendMode(render2d.GetBlendMode())
-				render2d.PushTexture(render2d.GetTexture())
-				render2d.PushAlphaMultiplier(render2d.GetAlphaMultiplier())
+				local old_color = {render2d.GetColor()}
+				render2d.SetColor(1, 1, 1, 1)
+				local old_blend_mode = render2d.GetBlendMode()
+				render2d.SetBlendMode("alpha", true)
 				render2d.PushSwizzleMode(render2d.GetSwizzleMode())
 				scratch_size.w = sw
 				scratch_size.h = sh
 				render2d.UpdateScreenSize(scratch_size)
 				render2d.pipeline:Bind(render2d.cmd, render.GetCurrentFrame())
-				render2d.SetColor(1, 1, 1, 1)
-				render2d.SetUV()
-				render2d.SetBlendMode("alpha", true)
-				render2d.SetAlphaMultiplier(1)
 				render2d.SetSwizzleMode(0)
+				render2d.PushMatrix()
 				render2d.LoadIdentity()
 				-- Flip coordinates so font (Y-down) renders right-side up in Y-up framebuffer
 				render2d.Translate(padding * scale, (glyph.h + padding) * scale)
@@ -440,17 +498,14 @@ function META:LoadGlyph(code)
 				-- Shift glyph to be at (0, 0) in the padded area
 				render2d.Translatef(-glyph.bitmap_left, -glyph.bitmap_top)
 				glyph_source_font:DrawGlyph(glyph.glyph_data)
-				render2d.PopSwizzleMode()
-				render2d.PopAlphaMultiplier()
-				render2d.PopTexture()
-				render2d.PopBlendMode()
-				render2d.PopUV()
-				render2d.PopColor()
 				render2d.PopMatrix()
+				render2d.PopSwizzleMode()
+				render2d.SetBlendMode(old_blend_mode, true)
+				render2d.SetColor(unpack(old_color))
 				render2d.PopSamples()
 				render2d.PopColorFormat()
-				fb_ss:End()
-				fb_ss.color_texture:GenerateMipmaps("shader_read_only_optimal")
+				fb_ss:End(cmd)
+				fb_ss.color_texture:GenerateMipmaps("shader_read_only_optimal", cmd)
 				render2d.cmd = old_cmd
 				scratch_size.w = old_w
 				scratch_size.h = old_h
@@ -466,43 +521,45 @@ function META:LoadGlyph(code)
 					if info.copy then
 						glyph_copy = current_tex
 					else
-						local fb_effect = Framebuffer.New(
-							{
-								width = sw,
-								height = sh,
-								clear_color = {0, 0, 0, 0},
-								format = atlas_format,
-								mip_map_levels = "auto",
-							}
-						)
+						local fb_effect = get_temp_fb(sw, sh, atlas_format, true)
+						table.insert(used_temp_fbs, fb_effect)
 						local pipeline = self:GetEffectPipeline(info)
 						self.current_shade_tex = current_tex
 						self.current_shade_info = info
 						self.current_shade_glyph_copy = glyph_copy
 						self.current_shade_size = Vec2(sw, sh)
-						pipeline:Draw(fb_effect.cmd, fb_effect)
+						pipeline:Draw(cmd, fb_effect)
 						current_tex = fb_effect.color_texture
-						current_tex:GenerateMipmaps("shader_read_only_optimal")
+						current_tex:GenerateMipmaps("shader_read_only_optimal", cmd)
 					end
 				end
 			end
 
-			local fb_final = Framebuffer.New(
-				{
-					width = glyph.w + padding * 2,
-					height = glyph.h + padding * 2,
-					clear_color = {0, 0, 0, 0},
-					format = atlas_format,
-				}
-			)
+			local fb_final = get_temp_fb(glyph.w + padding * 2, glyph.h + padding * 2, atlas_format, false)
+			table.insert(used_temp_fbs, fb_final)
 
 			do
 				local pipeline = self:GetBlitPipeline()
 				self.current_draw_tex = current_tex
-				pipeline:Draw(fb_final.cmd, fb_final)
+				pipeline:Draw(cmd, fb_final)
 			end
 
 			glyph.texture = fb_final.color_texture
+
+			if own_cmd then
+				cmd:End()
+				local fence = get_fence(render.GetDevice())
+				render.GetQueue():SubmitAndWait(render.GetDevice(), cmd, fence)
+				release_fence(fence)
+
+				for _, fb in ipairs(used_temp_fbs) do
+					release_temp_fb(fb)
+				end
+			elseif temp_fbs then
+				for _, fb in ipairs(used_temp_fbs) do
+					table.insert(temp_fbs, fb)
+				end
+			end
 		end
 
 		self.texture_atlas:Insert(
@@ -514,8 +571,6 @@ function META:LoadGlyph(code)
 				flip_y = glyph.flip_y,
 			}
 		)
-		-- DEBUG: Build atlas immediately to see it
-		self.texture_atlas:Build()
 		self.chars[code] = glyph
 	else
 		self.chars[code] = false
@@ -538,8 +593,8 @@ function META:GetChar(char)
 		return data
 	end
 
-	self:LoadGlyph(char)
 	self.rebuild = true
+	self:LoadGlyph(char)
 	data = self.chars[char]
 
 	if char == 10 then
@@ -554,48 +609,74 @@ function META:GetChar(char)
 	return data
 end
 
+local function batch_load_glyphs(self, str)
+	local i = 1
+	local len = #str
+	local any_new = false
+
+	while i <= len do
+		local char_code = utf8.uint32(str, i)
+
+		if self.chars[char_code] == nil then
+			any_new = true
+
+			break
+		end
+
+		i = i + utf8.byte_length(str, i)
+	end
+
+	if not any_new then return end
+
+	local cmd = render.GetCommandPool():AllocateCommandBuffer()
+	cmd:Begin()
+	i = 1
+	local temp_fbs = {}
+
+	while i <= len do
+		local char_code = utf8.uint32(str, i)
+		self:LoadGlyph(char_code, cmd, temp_fbs)
+		i = i + utf8.byte_length(str, i)
+	end
+
+	self:Rebuild(cmd)
+	cmd:End()
+	local fence = get_fence(render.GetDevice())
+	render.GetQueue():SubmitAndWait(render.GetDevice(), cmd, fence)
+	release_fence(fence)
+	self.rebuild = false
+
+	for _, fb in ipairs(temp_fbs) do
+		release_temp_fb(fb)
+	end
+end
+
+function META:GetLineHeight()
+	local a, d = get_ascent_descent(self)
+	return (a + d)
+end
+
 function META:GetTextSizeNotCached(str)
-	if not self.Ready then return 0, 0 end
+	if not self:IsReady() then return 0, 0 end
 
 	str = tostring(str)
-	local X, Y = 0, self:GetAscent()
+	batch_load_glyphs(self, str)
+	local X, Y = 0, self:GetLineHeight()
 	local max_x = 0
 	local spacing = self.Spacing
+	local line_height = self:GetLineHeight()
 	local i = 1
 	local len = #str
 
 	while i <= len do
-		local byte = str:byte(i)
-		local char_code
-		local byte_len = 1
-
-		if byte < 128 then
-			char_code = byte
-		elseif byte >= 192 then
-			if byte >= 240 then
-				byte_len = 4
-				char_code = (
-						byte % 8
-					) * 262144 + (
-						str:byte(i + 1) % 64
-					) * 4096 + (
-						str:byte(i + 2) % 64
-					) * 64 + (
-						str:byte(i + 3) % 64
-					)
-			elseif byte >= 224 then
-				byte_len = 3
-				char_code = (byte % 16) * 4096 + (str:byte(i + 1) % 64) * 64 + (str:byte(i + 2) % 64)
-			else
-				byte_len = 2
-				char_code = (byte % 32) * 64 + (str:byte(i + 1) % 64)
-			end
-		end
+		local char_code = utf8.uint32(str, i)
 
 		if char_code == 10 then -- \n
-			Y = Y + self:GetChar(10).h + spacing
+			Y = Y + line_height + spacing
 			max_x = math.max(max_x, X)
 			X = 0
+		elseif char_code == 32 then -- space
+			X = X + self.Size / 2
 		elseif char_code == 9 then -- \t
 			local data = self:GetChar(32)
 
@@ -609,7 +690,7 @@ function META:GetTextSizeNotCached(str)
 				X = X + self.Size * self.TabWidthMultiplier
 			end
 		else
-			local data = self:GetChar(char_code)
+			local data = self.chars[char_code]
 
 			if data then
 				if self.Monospace then
@@ -617,12 +698,10 @@ function META:GetTextSizeNotCached(str)
 				else
 					X = X + data.x_advance + spacing
 				end
-			elseif char_code == 32 then
-				X = X + self.Size / 2
 			end
 		end
 
-		i = i + byte_len
+		i = i + utf8.byte_length(str, i)
 	end
 
 	if max_x ~= 0 then X = math.max(max_x, X) end
@@ -631,15 +710,10 @@ function META:GetTextSizeNotCached(str)
 end
 
 function META:DrawString(str, x, y, spacing)
-	if not self.Ready then return end
-
-	-- Rebuild atlas if new glyphs were loaded
-	if self.rebuild then
-		self:Rebuild()
-		self.rebuild = false
-	end
+	if not self:IsReady() then return end
 
 	str = tostring(str)
+	batch_load_glyphs(self, str)
 	spacing = spacing or self.Spacing
 	local X, Y = 0, 0
 	local i = 1
@@ -647,38 +721,17 @@ function META:DrawString(str, x, y, spacing)
 	local last_texture
 	local padding = self:GetPadding()
 	local scale_x, scale_y = self.Scale.x, self.Scale.y
+	local line_height = self:GetLineHeight()
+	render2d.PushUV()
 
 	while i <= len do
-		local byte = str:byte(i)
-		local char_code
-		local byte_len = 1
-
-		if byte < 128 then
-			char_code = byte
-		elseif byte >= 192 then
-			if byte >= 240 then
-				byte_len = 4
-				char_code = (
-						byte % 8
-					) * 262144 + (
-						str:byte(i + 1) % 64
-					) * 4096 + (
-						str:byte(i + 2) % 64
-					) * 64 + (
-						str:byte(i + 3) % 64
-					)
-			elseif byte >= 224 then
-				byte_len = 3
-				char_code = (byte % 16) * 4096 + (str:byte(i + 1) % 64) * 64 + (str:byte(i + 2) % 64)
-			else
-				byte_len = 2
-				char_code = (byte % 32) * 64 + (str:byte(i + 1) % 64)
-			end
-		end
+		local char_code = utf8.uint32(str, i)
 
 		if char_code == 10 then -- \n
 			X = 0
-			Y = Y + self:GetChar(10).h + spacing
+			Y = Y + line_height + spacing
+		elseif char_code == 32 then -- space
+			X = X + self.Size / 2
 		elseif char_code == 9 then -- \t
 			local data = self:GetChar(32)
 
@@ -692,7 +745,7 @@ function META:DrawString(str, x, y, spacing)
 				X = X + self.Size * self.TabWidthMultiplier
 			end
 		else
-			local data = self:GetChar(char_code)
+			local data = self.chars[char_code]
 
 			if data then
 				local texture = self.texture_atlas:GetPageTexture(char_code)
@@ -703,16 +756,14 @@ function META:DrawString(str, x, y, spacing)
 						last_texture = texture
 					end
 
-					local u1, v1, w, h, sx, sy = self.texture_atlas:GetUV(char_code)
-					render2d.PushUV()
-					render2d.SetUV2(u1 / sx, v1 / sy, (u1 + w) / sx, (v1 + h) / sy)
+					local uv, aw, ah = self.texture_atlas:GetNormalizedUV(char_code)
+					render2d.SetUV2(uv[1], uv[2], uv[3], uv[4])
 					render2d.DrawRect(
 						x + (X + data.bitmap_left - padding) * scale_x,
 						y + (Y + data.bitmap_top - padding) * scale_y,
-						w * scale_x,
-						h * scale_y
+						aw * scale_x,
+						ah * scale_y
 					)
-					render2d.PopUV()
 				end
 
 				if self.Monospace then
@@ -720,13 +771,13 @@ function META:DrawString(str, x, y, spacing)
 				else
 					X = X + data.x_advance + spacing
 				end
-			elseif char_code == 32 then
-				X = X + self.Size / 2
 			end
 		end
 
-		i = i + byte_len
+		i = i + utf8.byte_length(str, i)
 	end
+
+	render2d.PopUV()
 end
 
 do
@@ -759,7 +810,8 @@ do
 
 	do
 		function META:GetTextSize(str)
-			str = tostring(str or "|")
+			if type(str) ~= "string" then str = tostring(str or "|") end
+
 			self.text_size_cache = self.text_size_cache or {}
 
 			if self.text_size_cache[str] then
@@ -768,7 +820,15 @@ do
 
 			local w, h = self:GetTextSizeNotCached(str)
 
-			if self.Ready then self.text_size_cache[str] = {w, h} end
+			if self:IsReady() then
+				self.text_size_cache[str] = {w, h}
+				self.text_size_cache_count = (self.text_size_cache_count or 0) + 1
+
+				if self.text_size_cache_count > 1000 then
+					self.text_size_cache = {}
+					self.text_size_cache_count = 0
+				end
+			end
 
 			return w, h
 		end

@@ -121,7 +121,7 @@ event.AddListener("KeyInput", "menu_toggle", function(key, press)
 							end,
 						}
 					),
-					Text({Text = "Enable Awesome Mode"}),
+					Text({Text = "toggle"}),
 				},
 			}
 		)
@@ -138,7 +138,7 @@ event.AddListener("KeyInput", "menu_toggle", function(key, press)
 											return selected_radio == 1
 										end,
 										OnSelect = function()
-											print("Radio 1 selected")
+											print("p1")
 											selected_radio = 1
 										end,
 									}
@@ -156,12 +156,12 @@ event.AddListener("KeyInput", "menu_toggle", function(key, press)
 											return selected_radio == 2
 										end,
 										OnSelect = function()
-											print("Radio 2 selected")
+											print("p2")
 											selected_radio = 2
 										end,
 									}
 								),
-								Text({Text = "Option 2"}),
+								Text({Text = "p3"}),
 							},
 						}
 					),

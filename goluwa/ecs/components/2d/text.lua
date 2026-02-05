@@ -5,6 +5,7 @@ local Color = require("structs.color")
 local Vec2 = require("structs.vec2")
 local META = prototype.CreateTemplate("text")
 META:StartStorable()
+print("wtf?!!?!")
 META:GetSet(
 	"Font",
 	fonts.LoadFont(fonts.GetSystemDefaultFont(), 14),
