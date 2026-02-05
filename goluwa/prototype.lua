@@ -680,7 +680,11 @@ do -- get is set
 			if callback then
 				meta[set_name] = meta[set_name] or
 					function(self, var)
-						self[name] = tonumber(var) or default
+						var = tonumber(var) or default
+
+						if self[name] == var then return end
+
+						self[name] = var
 						self[callback](self)
 					end
 			else
@@ -697,7 +701,11 @@ do -- get is set
 			if callback then
 				meta[set_name] = meta[set_name] or
 					function(self, var)
-						self[name] = tostring(var)
+						var = tostring(var)
+
+						if self[name] == var then return end
+
+						self[name] = var
 						self[callback](self)
 					end
 			else
@@ -717,6 +725,8 @@ do -- get is set
 				meta[set_name] = meta[set_name] or
 					function(self, var)
 						if var == nil then var = default end
+
+						if self[name] == var then return end
 
 						self[name] = var
 						self[callback](self)

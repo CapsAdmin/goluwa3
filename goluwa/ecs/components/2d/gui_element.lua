@@ -97,7 +97,6 @@ function META:DrawRecursive()
 		end
 
 		render2d.PopMatrix()
-		--		render2d.EndStencilTest() -- ?
 		render2d.PopStencilMask()
 	end
 

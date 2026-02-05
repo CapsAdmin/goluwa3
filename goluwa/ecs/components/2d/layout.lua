@@ -37,6 +37,24 @@ META:GetSet("Stackable", true, {callback = "InvalidateLayout"})
 META:GetSet("StackSizeToChildren", false, {callback = "InvalidateLayout"})
 META:EndStorable()
 
+function layout_lib.IsRunning()
+	return (layout_lib.depth or 0) > 0
+end
+
+function META:IsBusy()
+	return (self.recursion_depth or 0) > 0
+end
+
+function META:EnterLayout()
+	self.recursion_depth = (self.recursion_depth or 0) + 1
+	layout_lib.depth = (layout_lib.depth or 0) + 1
+end
+
+function META:ExitLayout()
+	self.recursion_depth = self.recursion_depth - 1
+	layout_lib.depth = layout_lib.depth - 1
+end
+
 function META:Initialize()
 	self.Owner:AddLocalListener("OnParent", function()
 		self:InvalidateLayout()
@@ -46,14 +64,9 @@ function META:Initialize()
 		self:InvalidateLayout()
 
 		if
-			(
-				layout_lib.in_layout or
-				0
-			) == 0 and
-			(
-				self.in_layout or
-				0
-			) == 0 and
+			not layout_lib.IsRunning() and
+			not self:IsBusy()
+			and
 			self.Owner and
 			self.Owner.transform
 		then
@@ -77,15 +90,27 @@ function META:GetParentPadding()
 end
 
 function META:InvalidateLayout()
-	if self.layout_me then return end
+	if self.LayoutInvalidated then return end
 
-	self.layout_me = true
-	local parent = self.Owner:GetParent()
+	self.LayoutInvalidated = true
+	local tr_trace
 
-	if parent and parent:IsValid() then
+	if layout_lib.debug then
+		tr_trace = debug.traceback()
+		self.LayoutInvalidated_tr = tr_trace
+	end
+
+	for _, parent in ipairs(self.Owner:GetParentList()) do
 		local layout = parent.layout
 
-		if layout then layout:InvalidateLayout() end
+		if layout then
+			if layout:IsBusy() then break end
+
+			if not layout.LayoutInvalidated then
+				layout.LayoutInvalidated = true
+				layout.LayoutInvalidated_tr = tr_trace
+			end
+		end
 	end
 end
 
@@ -374,8 +399,7 @@ end
 function META:OnLayout() end
 
 function META:DoLayout()
-	self.in_layout = (self.in_layout or 0) + 1
-	layout_lib.in_layout = (layout_lib.in_layout or 0) + 1
+	self:EnterLayout()
 	self:OnLayout()
 
 	if self:GetFlex() then self:FlexLayout() end
@@ -388,64 +412,43 @@ function META:DoLayout()
 		if self:GetStackSizeToChildren() then self.Owner.transform:SetSize(size) end
 	end
 
-	self.in_layout = self.in_layout - 1
-	layout_lib.in_layout = layout_lib.in_layout - 1
+	self:ExitLayout()
 end
 
-function META:CalcLayoutInternal(now)
-	if self.in_layout and self.in_layout ~= 0 then return end
+function META:CalcLayoutInternal()
+	if self:IsBusy() then return end
 
 	local gui = self.Owner.gui_element
 	local visible = not gui or gui:GetVisible()
 
-	if now and (self:GetLayoutWhenInvisible() or visible) then
-		self.in_layout = (self.in_layout or 0) + 1
-		layout_lib.in_layout = (layout_lib.in_layout or 0) + 1
+	if not (self:GetLayoutWhenInvisible() or visible) then return end
 
-		if layout_lib.debug then
-			local tr = self.layout_me_tr or debug.traceback()
-			layout_lib.layout_traces[tr] = (layout_lib.layout_traces[tr] or 0) + 1
-			self.layout_me_tr = nil
-		end
+	local tr_comp = self.Owner.transform
+	local old_size = tr_comp and tr_comp.Size:Copy()
+	local old_pos = tr_comp and tr_comp.Position:Copy()
+	self:EnterLayout()
 
-		self:DoLayout()
+	if layout_lib.debug then
+		local tr = self.LayoutInvalidated_tr or "unknown"
+		layout_lib.layout_traces[tr] = (layout_lib.layout_traces[tr] or 0) + 1
+		self.LayoutInvalidated_tr = nil
+	end
 
-		if now then
-			self.updated_layout = (self.updated_layout or 0) + 1
+	self:DoLayout()
+	self.updated_layout = (self.updated_layout or 0) + 1
+	self.layout_count = (self.layout_count or 0) + 1
+	self.last_children_size = nil
+	self.LayoutInvalidated = false
+	self:ExitLayout()
 
-			for _, v in ipairs(self.Owner:GetChildren()) do
-				if v.layout then v.layout:CalcLayoutInternal(true) end
-			end
-		else
-			for _, v in ipairs(self.Owner:GetChildren()) do
-				if v.layout then v_layout.layout_me = true end
-			end
-		end
-
-		self.layout_count = (self.layout_count or 0) + 1
-		self.last_children_size = nil
-		self.layout_me = false
-		self.in_layout = self.in_layout - 1
-		layout_lib.in_layout = layout_lib.in_layout - 1
-	else
-		if self.layout_me then return end
-
-		self.layout_me = true
-		local parent = self.Owner:GetParent()
-
-		if parent and parent:IsValid() then
-			local p_layout = parent.layout
-
-			if p_layout then p_layout:CalcLayoutInternal() end
-		end
-
-		if layout_lib.debug then self.layout_me_tr = debug.traceback() end
+	if tr_comp and (not (tr_comp.Size == old_size) or not (tr_comp.Position == old_pos)) then
+		self:InvalidateLayout()
 	end
 end
 
 function META:CalcLayout()
-	if self.layout_me or layout_lib.layout_stress then
-		self:CalcLayoutInternal(true)
+	if self.LayoutInvalidated or layout_lib.layout_stress then
+		self:CalcLayoutInternal()
 	end
 end
 
@@ -545,7 +548,7 @@ function META:LayoutChildren()
 	for _, child in ipairs(self.Owner:GetChildren()) do
 		local child_layout = child.layout
 
-		if child_layout then child_layout:CalcLayoutInternal(true) end
+		if child_layout then child_layout:CalcLayoutInternal() end
 	end
 end
 
@@ -1154,7 +1157,7 @@ function META:GetSizeOfChildren()
 
 	if self.last_children_size then return self.last_children_size:Copy() end
 
-	if (self.in_layout or 0) == 0 then self:DoLayout() end
+	if not self:IsBusy() then self:DoLayout() end
 
 	local total_size = Vec2()
 
@@ -1389,30 +1392,22 @@ function layout_lib.DumpLayouts()
 	end
 end
 
-layout_lib.in_layout = 0
+layout_lib.depth = 0
 layout_lib.layout_stress = false
-META.in_layout = 0
+META.recursion_depth = 0
 layout_lib.debug = true
 META.Library = layout_lib
 
 function META:OnFirstCreated()
-	local function update_recursive(panel)
-		if panel.layout then panel.layout:CalcLayout() end
-
-		for _, child in ipairs(panel:GetChildren()) do
-			if child:IsValid() then update_recursive(child) end
-		end
-	end
-
 	local Panel = require("ecs.panel")
 
 	event.AddListener(
 		"Update",
 		"layout_2d_system",
 		function()
-			if not Panel.World or not Panel.World:IsValid() then return end
-
-			update_recursive(Panel.World)
+			for _, layout in ipairs(META.Instances) do
+				layout:CalcLayout()
+			end
 		end,
 		{priority = 101}
 	)
