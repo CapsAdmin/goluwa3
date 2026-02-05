@@ -3,34 +3,48 @@ local prototype = require("prototype")
 local vulkan = require("render.vulkan.internal.vulkan")
 local PhysicalDevice = require("render.vulkan.internal.physical_device")
 local Instance = prototype.CreateTemplate("vulkan_instance")
--- Patterns to suppress (plain text matching)
-local suppressed_warnings = {
-	"vk_loader_settings.json",
-	"Path to given binary", -- NVIDIA symlink mismatch on NixOS
-	"terminator_CreateInstance", -- Mesa DZN driver incompatible on Linux
-}
 
-local function debug_callback(messageSeverity, messageType, pCallbackData, pUserData)
-	local data = pCallbackData[0]
-	local type_flags = vulkan.vk.str.VkDebugUtilsMessageTypeFlagBitsEXT(messageType)
-	local severity_flags = vulkan.vk.str.VkDebugUtilsMessageSeverityFlagBitsEXT(messageSeverity)
-	local msg = ffi.string(data.pMessage)
+function Instance:CreateDebugCallback()
+	local VkDebugUtilsMessageTypeFlagBitsEXT = vulkan.vk.str.VkDebugUtilsMessageTypeFlagBitsEXT
+	local VkDebugUtilsMessageSeverityFlagBitsEXT = vulkan.vk.str.VkDebugUtilsMessageSeverityFlagBitsEXT
+	local ffi_string = ffi.string
+	local VK_FALSE = vulkan.vk.VK_FALSE
+	local io_write = io.write
+	local io_flush = io.flush
+	local traceback = debug.traceback
+	local table_concat = table.concat
+	local ipairs = ipairs
 
-	for _, pattern in ipairs(suppressed_warnings) do
-		if msg:find(pattern, nil, true) then return vulkan.vk.VK_FALSE end
+	local function debug_callback(messageSeverity, messageType, pCallbackData, pUserData)
+		local suppressed_warnings = {
+			"vk_loader_settings.json",
+			"Path to given binary", -- NVIDIA symlink mismatch on NixOS
+			"terminator_CreateInstance", -- Mesa DZN driver incompatible on Linux
+		}
+		local data = pCallbackData[0]
+		local type_flags = table_concat(VkDebugUtilsMessageTypeFlagBitsEXT(messageType), "|")
+		local severity_flags = table_concat(VkDebugUtilsMessageSeverityFlagBitsEXT(messageSeverity), "|")
+		local msg = ffi_string(data.pMessage)
+
+		for _, pattern in ipairs(suppressed_warnings) do
+			if msg:find(pattern, nil, true) then return VK_FALSE end
+		end
+
+		io_write(
+			traceback("\n[" .. severity_flags .. "] [" .. type_flags .. "]\n" .. msg, 2) .. "\n"
+		)
+		io_flush()
+		return VK_FALSE
 	end
 
-	io.write(
-		debug.traceback(
-				"\n[" .. table.concat(severity_flags, "|") .. "] [" .. table.concat(type_flags, "|") .. "]\n" .. msg,
-				2
-			) .. "\n"
-	)
-	io.flush()
-	return vulkan.vk.VK_FALSE
+	jit.off(debug_callback)
+	local debug_callback_ptr = ffi.cast(vulkan.vk.PFN_vkDebugUtilsMessengerCallbackEXT, debug_callback)
+	self.debug_callback_refs = {debug_callback, debug_callback_ptr}
+	return debug_callback_ptr
 end
 
 function Instance.New(extensions, layers)
+	local self = Instance:CreateObject({})
 	local version = vulkan.vk.VK_API_VERSION_1_4
 	local appInfo = vulkan.vk.s.ApplicationInfo(
 		{
@@ -81,10 +95,11 @@ function Instance.New(extensions, layers)
 				flags = 0,
 				messageSeverity = {"warning_ext", "error_ext"},
 				messageType = {"general_ext", "validation_ext", "performance_ext"},
-				pfnUserCallback = ffi.cast(vulkan.vk.PFN_vkDebugUtilsMessengerCallbackEXT, debug_callback),
+				pfnUserCallback = self:CreateDebugCallback(),
 				pUserData = nil,
 			}
 		)
+		self.debug_create_info_ref = debug_create_info
 	end
 
 	-- Only use portability enumeration on macOS
@@ -111,7 +126,7 @@ function Instance.New(extensions, layers)
 		),
 		"failed to create vulkan instance"
 	)
-	local self = Instance:CreateObject({ptr = ptr, debug_messenger = nil})
+	self.ptr = ptr
 
 	-- Create debug messenger
 	if has_validation and self:HasExtension("vkCreateDebugUtilsMessengerEXT") then
@@ -161,7 +176,6 @@ end
 
 function Instance:HasExtension(name)
 	local func_ptr = vulkan.lib.vkGetInstanceProcAddr(self.ptr[0], name)
-
 	return func_ptr ~= nil
 end
 
