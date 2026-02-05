@@ -174,6 +174,8 @@ theme.Sizes = {
 	SliderKnobWidth = 20,
 	SliderKnobHeight = 30,
 	SliderKnobGlowSize = 60,
+	CheckboxSize = 24,
+	RadioButtonSize = 24,
 }
 local Textures = {
 	GlowLinear = require("render.textures.glow_linear"),
@@ -642,6 +644,133 @@ function theme.DrawSlider(self, state)
 			knob_x + scaled_width - scale_offset_x,
 			knob_y + scaled_height - scale_offset_y,
 			1
+		)
+		render2d.SetBlendMode("alpha")
+	end
+end
+
+function theme.UpdateCheckboxAnimations(ent, s)
+	if s.is_hovered ~= s.last_hovered then
+		ent.animation:Animate(
+			{
+				id = "glow_alpha",
+				get = function()
+					return s.glow_alpha
+				end,
+				set = function(val)
+					s.glow_alpha = val
+				end,
+				to = s.is_hovered and 1 or 0,
+				interpolation = "inOutSine",
+				time = 0.15,
+			}
+		)
+		s.last_hovered = s.is_hovered
+	end
+
+	if s.value ~= s.last_value then
+		ent.animation:Animate(
+			{
+				id = "check_anim",
+				get = function()
+					return s.check_anim
+				end,
+				set = function(val)
+					s.check_anim = val
+				end,
+				to = s.value and 1 or 0,
+				interpolation = {
+					type = "spring",
+					bounce = 0.4,
+					duration = 100,
+				},
+			}
+		)
+		s.last_value = s.value
+	end
+end
+
+function theme.DrawCheckbox(self, state)
+	local owner = self.Owner
+
+	if state.is_hovered then theme.UpdateCheckboxAnimations(owner, state) end
+
+	local size = owner.transform.Size
+	local check_size = theme.Sizes.CheckboxSize
+	local box_x = 0
+	local box_y = (size.y - check_size) / 2
+	-- Background
+	render2d.SetTexture(nil)
+	local c = theme.Colors.SliderTrackBackground
+	render2d.SetColor(c.r, c.g, c.b, c.a)
+	render2d.DrawRect(box_x, box_y, check_size, check_size)
+
+	-- Border/Glow when hovered
+	if state.glow_alpha > 0 then
+		render2d.SetBlendMode("additive")
+		render2d.SetTexture(Textures.GlowLinear)
+		local c = theme.Colors.GradientCyan
+		render2d.SetColor(c.r * state.glow_alpha, c.g * state.glow_alpha, c.b * state.glow_alpha, 0.5)
+		theme.DrawRect(box_x - 1, box_y - 1, check_size + 2, check_size + 2, 1)
+		render2d.SetBlendMode("alpha")
+	end
+
+	-- Check mark
+	if state.check_anim > 0.01 then
+		local s = state.check_anim
+		render2d.PushUV()
+		render2d.SetUV2(0, 0, 0.5, 1)
+		render2d.SetTexture(Textures.Gradient)
+		local c = theme.Colors.GradientBlue
+		render2d.SetColor(c.r, c.g, c.b, 0.9 * s)
+		local padding = check_size * 0.2
+		local mark_size = (check_size - padding * 2) * s
+		local mark_x = box_x + check_size / 2 - mark_size / 2
+		local mark_y = box_y + check_size / 2 - mark_size / 2
+		render2d.DrawRect(mark_x, mark_y, mark_size, mark_size)
+		render2d.PopUV()
+	end
+end
+
+function theme.DrawRadioButton(self, state)
+	local owner = self.Owner
+
+	if state.is_hovered then theme.UpdateCheckboxAnimations(owner, state) end
+
+	local size = owner.transform.Size
+	local rb_size = theme.Sizes.RadioButtonSize
+	local rb_x = 0
+	local rb_y = (size.y - rb_size) / 2
+	-- Use a simple rect for now, but style it differently or use circular drawing if available
+	-- Background
+	render2d.SetTexture(nil)
+	local c = theme.Colors.SliderTrackBackground
+	render2d.SetColor(c.r, c.g, c.b, c.a)
+	render2d.DrawRect(rb_x, rb_y, rb_size, rb_size)
+
+	-- Glow
+	if state.glow_alpha > 0 then
+		render2d.SetBlendMode("additive")
+		render2d.SetTexture(Textures.GlowLinear)
+		local c = theme.Colors.GradientCyan
+		render2d.SetColor(c.r * state.glow_alpha, c.g * state.glow_alpha, c.b * state.glow_alpha, 0.5)
+		theme.DrawRect(rb_x - 1, rb_y - 1, rb_size + 2, rb_size + 2, 1)
+		render2d.SetBlendMode("alpha")
+	end
+
+	-- Dot in the middle
+	if state.check_anim > 0.01 then
+		local s = state.check_anim
+		render2d.SetTexture(Textures.GlowPoint)
+		render2d.SetBlendMode("additive")
+		local c = theme.Colors.GradientBlue
+		render2d.SetColor(c.r, c.g, c.b, 1 * s)
+		local dot_size = (rb_size * 0.6) * s
+		render2d.DrawRect(
+			rb_x + rb_size / 2 - dot_size / 2,
+			rb_y + rb_size / 2 - dot_size / 2,
+			dot_size,
+			dot_size
 		)
 		render2d.SetBlendMode("alpha")
 	end

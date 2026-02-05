@@ -15,6 +15,10 @@ local MenuSpacer = runfile("lua/ui/elements/menu_spacer.lua")
 local ContextMenu = runfile("lua/ui/elements/context_menu.lua")
 local Frame = runfile("lua/ui/elements/frame.lua")
 local Slider = runfile("lua/ui/elements/slider.lua")
+local Checkbox = runfile("lua/ui/elements/checkbox.lua")
+local RadioButton = runfile("lua/ui/elements/radio_button.lua")
+local Row = runfile("lua/ui/elements/row.lua")
+local Column = runfile("lua/ui/elements/column.lua")
 local world_panel = require("ecs.panel").World
 local menu = NULL
 local visible = false
@@ -98,7 +102,6 @@ event.AddListener("KeyInput", "menu_toggle", function(key, press)
 		top_bar:AddComponent("resizable")
 		local slider_demo = Slider(
 			{
-				Layout = {"Center"},
 				Size = Vec2(400, 50),
 				Value = 0.5,
 				Min = 0,
@@ -108,13 +111,105 @@ event.AddListener("KeyInput", "menu_toggle", function(key, press)
 				end,
 			}
 		)
+		local checkbox_demo = Row(
+			{
+				Children = {
+					Checkbox(
+						{
+							Value = true,
+							OnChange = function(val)
+								print("Checkbox value:", val)
+							end,
+						}
+					),
+					Text({Text = "Enable Awesome Mode"}),
+				},
+			}
+		)
+		local selected_radio = 1
+		local radio_group = Column(
+			{
+				Children = {
+					Row(
+						{
+							Children = {
+								RadioButton(
+									{
+										IsSelected = function()
+											return selected_radio == 1
+										end,
+										OnSelect = function()
+											print("Radio 1 selected")
+											selected_radio = 1
+										end,
+									}
+								),
+								Text({Text = "Option 1"}),
+							},
+						}
+					),
+					Row(
+						{
+							Children = {
+								RadioButton(
+									{
+										IsSelected = function()
+											return selected_radio == 2
+										end,
+										OnSelect = function()
+											print("Radio 2 selected")
+											selected_radio = 2
+										end,
+									}
+								),
+								Text({Text = "Option 2"}),
+							},
+						}
+					),
+					Row(
+						{
+							Children = {
+								RadioButton(
+									{
+										IsSelected = function()
+											return selected_radio == 3
+										end,
+										OnSelect = function()
+											print("Radio 3 selected")
+											selected_radio = 3
+										end,
+									}
+								),
+								Text({Text = "Option 3"}),
+							},
+						}
+					),
+				},
+			}
+		)
+		local demo_container = Frame(
+			{
+				Layout = {"Center"},
+				Size = Vec2(450, 300),
+				Flex = true,
+				FlexDirection = "column",
+				FlexGap = 10,
+				Padding = Rect() + 20,
+				Children = {
+					Text({Text = "UI ELEMENTS DEMO", Size = "L"}),
+					slider_demo,
+					checkbox_demo,
+					radio_group,
+				},
+			}
+		)
 		menu = Panel(
 			{
 				Name = "GameMenuPanel",
 				Color = Color(0, 0, 0, 0.5),
 				Padding = Rect() + 5,
 				Layout = {"Fill"},
-				Children = {top_bar, slider_demo},
+				Children = {top_bar, demo_container},
 			}
 		)
 		return false
