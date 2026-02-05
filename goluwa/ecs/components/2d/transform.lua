@@ -26,26 +26,26 @@ META:GetSet("DrawScaleOffset", Vec2(1, 1), {callback = "InvalidateMatrices"})
 META:GetSet("DrawPositionOffset", Vec2(0, 0), {callback = "InvalidateMatrices"})
 META:GetSet("DrawAngleOffset", Ang3(0, 0, 0), {callback = "InvalidateMatrices"})
 META:EndStorable()
-META:GetSet("LocalMatrix", Matrix44():Identity())
 
 function META:InvalidateMatrices()
-	self.LocalMatrixDirty = true
+	self.LocalMatrix = nil
 	self:InvalidateWorldMatrices()
 end
 
 function META:Initialize() end
 
 function META:InvalidateWorldMatrices()
-	if self.WorldMatrixDirty then return end
-
-	self.WorldMatrixDirty = true
-	self.WorldMatrixInverseDirty = true
+	self.WorldMatrix = nil
+	self.WorldMatrixInverse = nil
 
 	if self.Owner then
-		for _, child in ipairs(self.Owner:GetChildren()) do
+		for _, child in ipairs(self.Owner:GetChildrenList()) do
 			local tr = child.transform
 
-			if tr then tr:InvalidateWorldMatrices() end
+			if tr then
+				tr.WorldMatrix = nil
+				tr.WorldMatrixInverse = nil
+			end
 		end
 	end
 
@@ -109,8 +109,8 @@ function META:GetWorldRectFast()
 end
 
 function META:GetLocalMatrix()
-	if self.LocalMatrixDirty then
-		self.LocalMatrix:Identity()
+	if not self.LocalMatrix then
+		self.LocalMatrix = Matrix44():Identity()
 		local pivot = self.Pivot
 		local center = (self.Size + self.DrawSizeOffset) * pivot
 		local angles = self.DrawAngleOffset
@@ -143,21 +143,20 @@ function META:GetLocalMatrix()
 		end
 
 		self.LocalMatrix:Translate(-center.x, -center.y, 0)
-		self.LocalMatrixDirty = false
 	end
 
 	return self.LocalMatrix
 end
 
 function META:GetWorldMatrix()
-	if self.WorldMatrixDirty or not self.WorldMatrix then
+	if not self.WorldMatrix then
 		local local_mat = self:GetLocalMatrix()
 		local parent = self.Owner and self.Owner:GetParent()
 		local parent_tr = parent and parent:IsValid() and parent.transform
 
 		if parent_tr then
 			local parent_world = parent_tr:GetWorldMatrix()
-			self.WorldMatrix = self.WorldMatrix or Matrix44()
+			self.WorldMatrix = Matrix44()
 			local scroll = parent_tr:GetScroll()
 
 			if scroll.x ~= 0 or scroll.y ~= 0 then
@@ -170,17 +169,14 @@ function META:GetWorldMatrix()
 		else
 			self.WorldMatrix = local_mat:Copy()
 		end
-
-		self.WorldMatrixDirty = false
 	end
 
 	return self.WorldMatrix
 end
 
 function META:GetWorldMatrixInverse()
-	if self.WorldMatrixInverseDirty or not self.WorldMatrixInverse then
+	if not self.WorldMatrixInverse then
 		self.WorldMatrixInverse = self:GetWorldMatrix():GetInverse()
-		self.WorldMatrixInverseDirty = false
 	end
 
 	return self.WorldMatrixInverse

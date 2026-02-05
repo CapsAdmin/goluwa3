@@ -13,11 +13,13 @@ return function(props)
 	local function UpdateAnimations()
 		if not menu_ent or not menu_ent:IsValid() then return end
 
+		_G.MENU = menu_ent
 		menu_ent.animation:Animate(
 			{
 				id = "menu_open_close",
 				get = function()
-					return menu_ent.transform:GetDrawScaleOffset()
+					local s = menu_ent.transform:GetDrawScaleOffset()
+					return s
 				end,
 				set = function(v)
 					menu_ent.transform:SetDrawScaleOffset(Vec2(1, v.y))
@@ -48,6 +50,7 @@ return function(props)
 					if press and button == "button_1" then
 						is_closing = true
 						UpdateAnimations()
+						self:SetIgnoreMouseInput(true)
 						return true
 					end
 				end,
@@ -55,9 +58,18 @@ return function(props)
 			OnVisibilityChanged = function(self, visible)
 				if visible then is_closing = false else is_closing = true end
 
-				print("ContextMenu visibility changed:", visible, is_closing)
 				UpdateAnimations()
 			end,
+			key_input = {
+				OnKeyInput = function(self, key, press)
+					if press and key == "escape" then
+						is_closing = true
+						UpdateAnimations()
+						self.mouse_input:SetIgnoreMouseInput(true)
+						return true
+					end
+				end,
+			},
 			Children = {
 				Frame(
 					{
@@ -65,8 +77,6 @@ return function(props)
 						Pivot = Vec2(0, 0),
 						Position = props.Position or Vec2(100, 100),
 						Size = props.Size or theme.Sizes.ContextMenuSize,
-						DrawScaleOffset = Vec2(1, 0),
-						Layout = {"SizeToChildrenHeight"},
 						Flex = true,
 						FlexGap = 0,
 						FlexAlignItems = "center",
@@ -85,6 +95,7 @@ return function(props)
 								if press and key == "escape" then
 									is_closing = true
 									UpdateAnimations()
+									self.Owner:GetParent().mouse_input:SetIgnoreMouseInput(true)
 									return true
 								end
 							end,

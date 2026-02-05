@@ -116,10 +116,7 @@ function META:RayCast(start_pos, stop_pos)
 	local dir = stop_pos - start_pos
 	local found = {}
 	local i = 1
-	local a_lft, a_top, a_rgt, a_btm = start_pos.x,
-	start_pos.y,
-	start_pos.x + entity.transform:GetWidth(),
-	start_pos.y + entity.transform:GetHeight()
+	local a_lft, a_top, a_rgt, a_btm = start_pos.x, start_pos.y, start_pos.x + self:GetWidth(), start_pos.y + self:GetHeight()
 
 	for _, b in ipairs(parent:GetChildren()) do
 		local b_layout = b.layout
@@ -253,28 +250,36 @@ function META:RayCast(start_pos, stop_pos)
 
 		if dir.x < 0 then
 			hit_pos.y = entity.transform:GetY()
-			hit_pos.x = hit_pos.x + child_tr:GetWidth() + self:GetMargin():GetLeft() + (
+			hit_pos.x = hit_pos.x + (
+					child_layout and
+					child_layout:GetWidth() or
+					child_tr:GetWidth()
+				) + self:GetMargin():GetLeft() + (
 					child_layout and
 					child_layout:GetMargin():GetRight() or
 					0
 				)
 		elseif dir.x > 0 then
 			hit_pos.y = entity.transform:GetY()
-			hit_pos.x = hit_pos.x - entity.transform:GetWidth() - self:GetMargin():GetRight() - (
+			hit_pos.x = hit_pos.x - self:GetWidth() - self:GetMargin():GetRight() - (
 					child_layout and
 					child_layout:GetMargin():GetLeft() or
 					0
 				)
 		elseif dir.y < 0 then
 			hit_pos.x = entity.transform:GetX()
-			hit_pos.y = hit_pos.y + child_tr:GetHeight() + self:GetMargin():GetTop() + (
+			hit_pos.y = hit_pos.y + (
+					child_layout and
+					child_layout:GetHeight() or
+					child_tr:GetHeight()
+				) + self:GetMargin():GetTop() + (
 					child_layout and
 					child_layout:GetMargin():GetBottom() or
 					0
 				)
 		elseif dir.y > 0 then
 			hit_pos.x = entity.transform:GetX()
-			hit_pos.y = hit_pos.y - entity.transform:GetHeight() - self:GetMargin():GetBottom() - (
+			hit_pos.y = hit_pos.y - self:GetHeight() - self:GetMargin():GetBottom() - (
 					child_layout and
 					child_layout:GetMargin():GetTop() or
 					0
@@ -557,17 +562,19 @@ function META:Confine()
 
 	if not p_tr then return end
 
+	local pw = p_layout and p_layout:GetWidth() or p_tr:GetWidth()
+	local ph = p_layout and p_layout:GetHeight() or p_tr:GetHeight()
 	tr:SetPosition(
 		Vec2(
 			math.clamp(
 				tr.Position.x,
 				parent_padding:GetLeft() + margin:GetLeft(),
-				p_tr.Size.x - tr.Size.x - parent_padding:GetRight() - margin:GetRight()
+				pw - self:GetWidth() - parent_padding:GetRight() - margin:GetRight()
 			),
 			math.clamp(
 				tr.Position.y,
 				parent_padding:GetTop() + margin:GetTop(),
-				p_tr.Size.y - tr.Size.y - parent_padding:GetBottom() - margin:GetBottom()
+				ph - self:GetHeight() - parent_padding:GetBottom() - margin:GetBottom()
 			)
 		)
 	)
@@ -589,7 +596,8 @@ function META:FillX(percent)
 	if not parent or not parent:IsValid() then return end
 
 	local p_tr = parent.transform
-	local parent_width = p_tr:GetWidth()
+	local p_layout = parent.layout
+	local parent_width = p_layout and p_layout:GetWidth() or p_tr:GetWidth()
 	local tr = self.Owner.transform
 	tr:SetWidth(1)
 	local left, left_child = self:RayCast(tr:GetPosition(), Vec2(0, tr.Position.y))
@@ -627,7 +635,8 @@ function META:FillY(percent)
 	if not parent or not parent:IsValid() then return end
 
 	local p_tr = parent.transform
-	local parent_height = p_tr:GetHeight()
+	local p_layout = parent.layout
+	local parent_height = p_layout and p_layout:GetHeight() or p_tr:GetHeight()
 	local tr = self.Owner.transform
 	tr:SetHeight(1)
 	local top, top_child = self:RayCast(tr:GetPosition(), Vec2(tr.Position.x, 0))
@@ -666,7 +675,8 @@ function META:CenterX()
 	if not parent or not parent:IsValid() then return end
 
 	local p_tr = parent.transform
-	local width = p_tr:GetWidth()
+	local p_layout = parent.layout
+	local width = p_layout and p_layout:GetWidth() or p_tr:GetWidth()
 	local tr = self.Owner.transform
 	local left, left_child = self:RayCast(tr:GetPosition(), Vec2(0, tr.Position.y))
 	local right, right_child = self:RayCast(tr:GetPosition(), Vec2(width, left.y))
@@ -674,7 +684,7 @@ function META:CenterX()
 	if right_child then
 		local rc_tr = right_child.transform
 		local rc_layout = right_child.layout
-		right.x = right.x + tr:GetWidth() + self:GetMargin():GetRight() + (
+		right.x = right.x + self:GetWidth() + self:GetMargin():GetRight() + (
 				rc_layout and
 				rc_layout:GetMargin():GetLeft() or
 				0
@@ -684,7 +694,7 @@ function META:CenterX()
 	tr:SetX(
 		(
 				left.x + right.x
-			) / 2 - tr:GetWidth() / 2 - self:GetMargin():GetLeft() + self:GetMargin():GetRight()
+			) / 2 - self:GetWidth() / 2 - self:GetMargin():GetLeft() + self:GetMargin():GetRight()
 	)
 	self.Owner.laid_out_x = true
 end
@@ -695,7 +705,8 @@ function META:CenterY()
 	if not parent or not parent:IsValid() then return end
 
 	local p_tr = parent.transform
-	local height = p_tr:GetHeight()
+	local p_layout = parent.layout
+	local height = p_layout and p_layout:GetHeight() or p_tr:GetHeight()
 	local tr = self.Owner.transform
 	local top, top_child = self:RayCast(tr:GetPosition(), Vec2(tr.Position.x, 0))
 	local bottom, bottom_child = self:RayCast(tr:GetPosition(), Vec2(top.x, height))
@@ -703,7 +714,7 @@ function META:CenterY()
 	if bottom_child then
 		local bc_tr = bottom_child.transform
 		local bc_layout = bottom_child.layout
-		bottom.y = bottom.y + tr:GetHeight() + self:GetMargin():GetBottom() + (
+		bottom.y = bottom.y + self:GetHeight() + self:GetMargin():GetBottom() + (
 				bc_layout and
 				bc_layout:GetMargin():GetTop() or
 				0
@@ -713,7 +724,7 @@ function META:CenterY()
 	tr:SetY(
 		(
 				top.y + bottom.y
-			) / 2 - tr:GetHeight() / 2 - self:GetMargin():GetTop() + self:GetMargin():GetBottom()
+			) / 2 - self:GetHeight() / 2 - self:GetMargin():GetTop() + self:GetMargin():GetBottom()
 	)
 	self.Owner.laid_out_y = true
 end
@@ -724,8 +735,9 @@ function META:CenterXSimple()
 	if not parent or not parent:IsValid() then return end
 
 	local p_tr = parent.transform
+	local p_layout = parent.layout
 	local tr = self.Owner.transform
-	tr:SetX(p_tr:GetWidth() / 2 - tr:GetWidth() / 2)
+	tr:SetX((p_layout and p_layout:GetWidth() or p_tr:GetWidth()) / 2 - self:GetWidth() / 2)
 	self.Owner.laid_out_x = true
 end
 
@@ -735,8 +747,9 @@ function META:CenterYSimple()
 	if not parent or not parent:IsValid() then return end
 
 	local p_tr = parent.transform
+	local p_layout = parent.layout
 	local tr = self.Owner.transform
-	tr:SetY(p_tr:GetHeight() / 2 - tr:GetHeight() / 2)
+	tr:SetY((p_layout and p_layout:GetHeight() or p_tr:GetHeight()) / 2 - self:GetHeight() / 2)
 	self.Owner.laid_out_y = true
 end
 
@@ -757,15 +770,19 @@ function META:CenterXFrame()
 
 	local tr = self.Owner.transform
 	local p_tr = parent.transform
+	local p_layout = parent.layout
 	local left = self:RayCast(tr:GetPosition(), Vec2(0, tr.Position.y))
-	local right = self:RayCast(tr:GetPosition(), Vec2(p_tr:GetWidth(), left.y))
+	local right = self:RayCast(
+		tr:GetPosition(),
+		Vec2(p_layout and p_layout:GetWidth() or p_tr:GetWidth(), left.y)
+	)
 
 	if
-		tr:GetX() + tr:GetWidth() + self:GetMargin():GetRight() < right.x + tr:GetWidth() - self:GetMargin():GetRight()
+		tr:GetX() + self:GetWidth() + self:GetMargin():GetRight() < right.x + self:GetWidth() - self:GetMargin():GetRight()
 		and
 		tr:GetX() - self:GetMargin().x > left.x
 	then
-		tr:SetX(p_tr:GetWidth() / 2 - tr:GetWidth() / 2)
+		tr:SetX((p_layout and p_layout:GetWidth() or p_tr:GetWidth()) / 2 - self:GetWidth() / 2)
 	end
 
 	self.Owner.laid_out_x = true
@@ -846,9 +863,16 @@ function META:MoveDown()
 	if not parent or not parent:IsValid() then return end
 
 	local p_tr = parent.transform
+	local p_layout = parent.layout
 	local tr = self.Owner.transform
 	tr:SetY(-999999)
-	tr:SetY(self:RayCast(tr:GetPosition(), Vec2(tr:GetX(), p_tr:GetHeight() - tr:GetHeight())).y)
+	tr:SetY(self:RayCast(
+			tr:GetPosition(),
+			Vec2(
+				tr:GetX(),
+				(p_layout and p_layout:GetHeight() or p_tr:GetHeight()) - self:GetHeight()
+			)
+		).y)
 	self.Owner.laid_out_y = true
 end
 
@@ -875,9 +899,16 @@ function META:MoveRight()
 	if not parent or not parent:IsValid() then return end
 
 	local p_tr = parent.transform
+	local p_layout = parent.layout
 	local tr = self.Owner.transform
 	tr:SetX(-999999)
-	tr:SetX(self:RayCast(tr:GetPosition(), Vec2(p_tr:GetWidth() - tr:GetWidth(), tr.Position.y)).x)
+	tr:SetX(self:RayCast(
+			tr:GetPosition(),
+			Vec2(
+				(p_layout and p_layout:GetWidth() or p_tr:GetWidth()) - self:GetWidth(),
+				tr.Position.y
+			)
+		).x)
 	self.Owner.laid_out_x = true
 end
 
@@ -891,7 +922,13 @@ function META:MoveRightOf(panel)
 	local p_layout = panel.layout
 	local p_margin = p_layout and p_layout:GetMargin() or Rect(0, 0, 0, 0)
 	tr:SetY(p_tr:GetY())
-	tr:SetX(p_tr:GetX() + p_tr:GetWidth() + p_margin:GetRight() + self:GetMargin():GetLeft())
+	tr:SetX(
+		p_tr:GetX() + (
+				p_layout and
+				p_layout:GetWidth() or
+				p_tr:GetWidth()
+			) + p_margin:GetRight() + self:GetMargin():GetLeft()
+	)
 	self.Owner.laid_out_x = true
 	self.Owner.laid_out_y = true
 end
@@ -906,7 +943,13 @@ function META:MoveDownOf(panel)
 	local p_layout = panel.layout
 	local p_margin = p_layout and p_layout:GetMargin() or Rect(0, 0, 0, 0)
 	tr:SetX(p_tr:GetX())
-	tr:SetY(p_tr:GetY() + p_tr:GetHeight() + p_margin:GetBottom() + self:GetMargin():GetTop())
+	tr:SetY(
+		p_tr:GetY() + (
+				p_layout and
+				p_layout:GetHeight() or
+				p_tr:GetHeight()
+			) + p_margin:GetBottom() + self:GetMargin():GetTop()
+	)
 	self.Owner.laid_out_x = true
 	self.Owner.laid_out_y = true
 end
@@ -921,7 +964,7 @@ function META:MoveLeftOf(panel)
 	local p_layout = panel.layout
 	local p_margin = p_layout and p_layout:GetMargin() or Rect(0, 0, 0, 0)
 	tr:SetY(p_tr:GetY())
-	tr:SetX(p_tr:GetX() - tr:GetWidth() - p_margin:GetLeft() - self:GetMargin():GetRight())
+	tr:SetX(p_tr:GetX() - self:GetWidth() - p_margin:GetLeft() - self:GetMargin():GetRight())
 	self.Owner.laid_out_x = true
 	self.Owner.laid_out_y = true
 end
@@ -936,7 +979,7 @@ function META:MoveUpOf(panel)
 	local p_layout = panel.layout
 	local p_margin = p_layout and p_layout:GetMargin() or Rect(0, 0, 0, 0)
 	tr:SetX(p_tr:GetX())
-	tr:SetY(p_tr:GetY() - tr:GetHeight() - p_margin:GetTop() - self:GetMargin():GetBottom())
+	tr:SetY(p_tr:GetY() - self:GetHeight() - p_margin:GetTop() - self:GetMargin():GetBottom())
 	self.Owner.laid_out_x = true
 	self.Owner.laid_out_y = true
 end
@@ -954,7 +997,17 @@ function META:SetAxisLength(axis, len)
 end
 
 function META:GetAxisLength(axis)
+	if self.real_size then return self.real_size[axis] end
+
 	return self.Owner.transform:GetAxisLength(axis)
+end
+
+function META:GetWidth()
+	return self:GetAxisLength("x")
+end
+
+function META:GetHeight()
+	return self:GetAxisLength("y")
 end
 
 function META:GetVisibleChildren()
@@ -993,14 +1046,19 @@ function META:FlexLayout()
 
 	for i, child in ipairs(children) do
 		local c_tr = child.transform
+		local c_layout = child.layout
 		c_tr:SetPosition(pos:Copy())
-		local child_length = c_tr:GetAxisLength(axis)
+		local child_length = c_layout and c_layout:GetAxisLength(axis) or c_tr:GetAxisLength(axis)
 
 		if parent_length > child_length then
-			c_tr:SetAxisLength(axis, math.min(parent_length, c_tr:GetAxisLength(axis)))
+			c_tr:SetAxisLength(axis, math.min(parent_length, child_length))
 		end
 
-		pos[axis] = pos[axis] + c_tr:GetAxisLength(axis)
+		pos[axis] = pos[axis] + (
+				c_layout and
+				c_layout:GetAxisLength(axis) or
+				c_tr:GetAxisLength(axis)
+			)
 
 		if i ~= #children then pos[axis] = pos[axis] + self:GetFlexGap() end
 	end
@@ -1047,12 +1105,16 @@ function META:FlexLayout()
 	if self:GetFlexAlignItems() == "end" then
 		for _, child in ipairs(children) do
 			local c_tr = child.transform
-			c_tr:SetAxisPosition(axis2, self:GetAxisLength(axis2) - c_tr:GetAxisLength(axis2))
+			local c_layout = child.layout
+			local c_len = c_layout and c_layout:GetAxisLength(axis2) or c_tr:GetAxisLength(axis2)
+			c_tr:SetAxisPosition(axis2, self:GetAxisLength(axis2) - c_len)
 		end
 	elseif self:GetFlexAlignItems() == "center" then
 		for _, child in ipairs(children) do
 			local c_tr = child.transform
-			c_tr:SetAxisPosition(axis2, (self:GetAxisLength(axis2) - c_tr:GetAxisLength(axis2)) / 2)
+			local c_layout = child.layout
+			local c_len = c_layout and c_layout:GetAxisLength(axis2) or c_tr:GetAxisLength(axis2)
+			c_tr:SetAxisPosition(axis2, (self:GetAxisLength(axis2) - c_len) / 2)
 		end
 	elseif self:GetFlexAlignItems() == "stretch" then
 		for _, child in ipairs(children) do
@@ -1069,11 +1131,12 @@ function META:FlexLayout()
 
 		if c_layout then
 			local c_tr = child.transform
+			local c_len = c_layout:GetAxisLength(axis2)
 
 			if c_layout:GetFlexAlignSelf() == "end" then
-				c_tr:SetAxisPosition(axis2, self:GetAxisLength(axis2) - c_tr:GetAxisLength(axis2))
+				c_tr:SetAxisPosition(axis2, self:GetAxisLength(axis2) - c_len)
 			elseif c_layout:GetFlexAlignSelf() == "center" then
-				c_tr:SetAxisPosition(axis2, (self:GetAxisLength(axis2) - c_tr:GetAxisLength(axis2)) / 2)
+				c_tr:SetAxisPosition(axis2, (self:GetAxisLength(axis2) - c_len) / 2)
 			elseif c_layout:GetFlexAlignSelf() == "stretch" then
 				local offset = axis2 == "y" and pad:GetTop() or pad:GetLeft()
 				local total_pad = axis2 == "y" and pad:GetSize().y or pad:GetSize().x
@@ -1091,14 +1154,19 @@ function META:GetSizeOfChildren()
 
 	if self.last_children_size then return self.last_children_size:Copy() end
 
-	self:DoLayout()
+	if (self.in_layout or 0) == 0 then self:DoLayout() end
+
 	local total_size = Vec2()
 
 	for _, v in ipairs(children) do
 		local v_tr = v.transform
 		local v_layout = v.layout
 		local margin = v_layout and v_layout:GetMargin() or Rect(0, 0, 0, 0)
-		local pos = v_tr:GetPosition() + v_tr:GetSize() + Vec2(margin:GetRight(), margin:GetBottom())
+		local v_sz = Vec2(
+			v_layout and v_layout:GetWidth() or v_tr:GetWidth(),
+			v_layout and v_layout:GetHeight() or v_tr:GetHeight()
+		)
+		local pos = v_tr:GetPosition() + v_sz + Vec2(margin:GetRight(), margin:GetBottom())
 
 		if pos.x > total_size.x then total_size.x = pos.x end
 
@@ -1115,8 +1183,10 @@ function META:SizeToChildrenHeight()
 	if #children == 0 then return end
 
 	local tr = self.Owner.transform
+	local old_last_size = self.last_children_size
 	self.last_children_size = nil
-	self.real_size = tr.Size:Copy()
+	local old_real_size = self.real_size
+	self.real_size = self.real_size or tr.Size:Copy()
 	tr:SetHeight(1000000)
 	tr:SetHeight(self:GetSizeOfChildren().y)
 	local min_pos = math.huge
@@ -1125,8 +1195,9 @@ function META:SizeToChildrenHeight()
 	for _, v in ipairs(children) do
 		local v_layout = v.layout
 		local margin = v_layout and v_layout:GetMargin() or Rect(0, 0, 0, 0)
+		local v_h = v_layout and v_layout:GetHeight() or v.transform:GetHeight()
 		min_pos = math.min(min_pos, v.transform.Position.y - margin:GetTop())
-		max_pos = math.max(max_pos, v.transform.Position.y + v.transform.Size.y + margin:GetBottom())
+		max_pos = math.max(max_pos, v.transform.Position.y + v_h + margin:GetBottom())
 	end
 
 	local padding = self:GetPadding()
@@ -1140,7 +1211,8 @@ function META:SizeToChildrenHeight()
 	end
 
 	self:SetLayoutSize(tr.Size:Copy())
-	self.real_size = nil
+	self.real_size = old_real_size
+	self.last_children_size = old_last_size
 end
 
 function META:SizeToChildrenWidth()
@@ -1149,8 +1221,10 @@ function META:SizeToChildrenWidth()
 	if #children == 0 then return end
 
 	local tr = self.Owner.transform
+	local old_last_size = self.last_children_size
 	self.last_children_size = nil
-	self.real_size = tr.Size:Copy()
+	local old_real_size = self.real_size
+	self.real_size = self.real_size or tr.Size:Copy()
 	tr:SetWidth(1000000)
 	tr:SetWidth(self:GetSizeOfChildren().x)
 	local min_pos = math.huge
@@ -1159,8 +1233,9 @@ function META:SizeToChildrenWidth()
 	for _, v in ipairs(children) do
 		local v_layout = v.layout
 		local margin = v_layout and v_layout:GetMargin() or Rect(0, 0, 0, 0)
+		local v_w = v_layout and v_layout:GetWidth() or v.transform:GetWidth()
 		min_pos = math.min(min_pos, v.transform.Position.x - margin:GetLeft())
-		max_pos = math.max(max_pos, v.transform.Position.x + v.transform.Size.x + margin:GetRight())
+		max_pos = math.max(max_pos, v.transform.Position.x + v_w + margin:GetRight())
 	end
 
 	local padding = self:GetPadding()
@@ -1174,7 +1249,8 @@ function META:SizeToChildrenWidth()
 	end
 
 	self:SetLayoutSize(tr.Size:Copy())
-	self.real_size = nil
+	self.real_size = old_real_size
+	self.last_children_size = old_last_size
 end
 
 function META:SizeToChildren()
@@ -1183,8 +1259,10 @@ function META:SizeToChildren()
 	if #children == 0 then return end
 
 	local tr = self.Owner.transform
+	local old_last_size = self.last_children_size
 	self.last_children_size = nil
-	self.real_size = tr.Size:Copy()
+	local old_real_size = self.real_size
+	self.real_size = self.real_size or tr.Size:Copy()
 	tr:SetSize(Vec2(1000000, 1000000))
 	local min_pos = Vec2(math.huge, math.huge)
 	local max_pos = Vec2(-math.huge, -math.huge)
@@ -1193,10 +1271,12 @@ function META:SizeToChildren()
 		local v_tr = v.transform
 		local v_layout = v.layout
 		local margin = v_layout and v_layout:GetMargin() or Rect(0, 0, 0, 0)
+		local v_w = v_layout and v_layout:GetWidth() or v_tr:GetWidth()
+		local v_h = v_layout and v_layout:GetHeight() or v_tr:GetHeight()
 		min_pos.x = math.min(min_pos.x, v_tr.Position.x - margin:GetLeft())
 		min_pos.y = math.min(min_pos.y, v_tr.Position.y - margin:GetTop())
-		max_pos.x = math.max(max_pos.x, v_tr.Position.x + v_tr.Size.x + margin:GetRight())
-		max_pos.y = math.max(max_pos.y, v_tr.Position.y + v_tr.Size.y + margin:GetBottom())
+		max_pos.x = math.max(max_pos.x, v_tr.Position.x + v_w + margin:GetRight())
+		max_pos.y = math.max(max_pos.y, v_tr.Position.y + v_h + margin:GetBottom())
 	end
 
 	local padding = self:GetPadding()
@@ -1210,7 +1290,8 @@ function META:SizeToChildren()
 	end
 
 	self:SetLayoutSize(tr.Size:Copy())
-	self.real_size = nil
+	self.real_size = old_real_size
+	self.last_children_size = old_last_size
 end
 
 function META:StackChildren()
@@ -1224,7 +1305,10 @@ function META:StackChildren()
 		local c_tr = child.transform
 
 		if not c_layout or c_layout:GetStackable() then
-			local siz = c_tr:GetSize():Copy()
+			local siz = Vec2(
+				c_layout and c_layout:GetWidth() or c_tr:GetWidth(),
+				c_layout and c_layout:GetHeight() or c_tr:GetHeight()
+			)
 			local margin = c_layout and c_layout:GetMargin() or Rect(0, 0, 0, 0)
 
 			if self:GetForcedStackSize().x ~= 0 then siz.x = self:GetForcedStackSize().x end
@@ -1238,7 +1322,7 @@ function META:StackChildren()
 				h = h == 0 and siz.y or h
 				w = w + siz.x
 
-				if self:GetStackDown() and w > p_tr:GetWidth() then
+				if self:GetStackDown() and w > self:GetWidth() then
 					h = h + siz.y
 					w = siz.x
 				end
@@ -1260,24 +1344,24 @@ function META:StackChildren()
 			if not self:GetForcedStackSize():IsZero() then
 				local fsiz = self:GetForcedStackSize()
 
-				if self:GetSizeStackToWidth() then fsiz.x = p_tr:GetWidth() end
+				if self:GetSizeStackToWidth() then fsiz.x = self:GetWidth() end
 
-				if self:GetSizeStackToHeight() then fsiz.y = p_tr:GetHeight() end
+				if self:GetSizeStackToHeight() then fsiz.y = self:GetHeight() end
 
 				c_tr:SetSize(Vec2(fsiz.x - pad:GetSize().x, fsiz.y))
 			else
 				if self:GetSizeStackToWidth() then
-					c_tr:SetWidth(p_tr:GetWidth() - pad:GetSize().x)
+					c_tr:SetWidth(self:GetWidth() - pad:GetSize().x)
 				end
 
 				if self:GetSizeStackToHeight() then
-					c_tr:SetHeight(p_tr:GetHeight() - pad:GetSize().y)
+					c_tr:SetHeight(self:GetHeight() - pad:GetSize().y)
 				end
 			end
 		end
 	end
 
-	if self:GetSizeStackToWidth() then w = p_tr:GetWidth() - pad:GetSize().x end
+	if self:GetSizeStackToWidth() then w = self:GetWidth() - pad:GetSize().x end
 
 	return Vec2(w, h) + pad:GetSize()
 end
