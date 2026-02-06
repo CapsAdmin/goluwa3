@@ -16,6 +16,7 @@ local Frame = runfile("lua/ui/elements/frame.lua")
 local Slider = runfile("lua/ui/elements/slider.lua")
 local Checkbox = runfile("lua/ui/elements/checkbox.lua")
 local RadioButton = runfile("lua/ui/elements/radio_button.lua")
+local Dropdown = runfile("lua/ui/elements/dropdown.lua")
 local Row = runfile("lua/ui/elements/row.lua")
 local Column = runfile("lua/ui/elements/column.lua")
 local world_panel = Panel.World
@@ -39,61 +40,65 @@ event.AddListener("KeyInput", "menu_toggle", function(key, press)
 		local top_bar = Frame(
 			{
 				Layout = {"MoveTop", "FillX", "SizeToChildrenHeight"},
-				Flex = true,
-				FlexGap = theme.Sizes2.M,
-				FlexAlignItems = "center",
+				Padding = "XXS",
 				Children = {
-					MenuButton(
+					Row(
 						{
-							Text = "GAME",
-							OnClick = function(ent)
-								local x, y = ent.transform:GetWorldMatrix():GetTranslation()
-								y = y + ent.transform:GetHeight()
-								world_panel:Ensure(
-									ContextMenu(
-										{
-											Key = "ActiveContextMenu",
-											Position = Vec2(x, y),
-											OnClose = function(ent)
-												print("removing context menu")
-												ent:Remove()
-											end,
-											Children = {
-												MenuItem({Text = "LOAD"}),
-												MenuItem({Text = "RUN (ESCAPE)"}),
-												MenuItem({Text = "RESET", Disabled = true}),
-												MenuSpacer(),
-												MenuItem({Text = "SAVE STATE", Disabled = true}),
-												MenuItem({Text = "OPEN STATE", Disabled = true}),
-												MenuItem({Text = "PICK STATE", Disabled = true}),
-												MenuSpacer(),
-												MenuItem(
+							Children = {
+								MenuButton(
+									{
+										Text = "GAME",
+										OnClick = function(ent)
+											local x, y = ent.transform:GetWorldMatrix():GetTranslation()
+											y = y + ent.transform:GetHeight()
+											world_panel:Ensure(
+												ContextMenu(
 													{
-														Text = "QUIT",
-														OnClick = function()
-															system.ShutDown()
+														Key = "ActiveContextMenu",
+														Position = Vec2(x, y),
+														OnClose = function(ent)
+															print("removing context menu")
+															ent:Remove()
 														end,
+														Children = {
+															MenuItem({Text = "LOAD"}),
+															MenuItem({Text = "RUN (ESCAPE)"}),
+															MenuItem({Text = "RESET", Disabled = true}),
+															MenuSpacer(),
+															MenuItem({Text = "SAVE STATE", Disabled = true}),
+															MenuItem({Text = "OPEN STATE", Disabled = true}),
+															MenuItem({Text = "PICK STATE", Disabled = true}),
+															MenuSpacer(),
+															MenuItem(
+																{
+																	Text = "QUIT",
+																	OnClick = function()
+																		system.ShutDown()
+																	end,
+																}
+															),
+														},
 													}
-												),
-											},
-										}
-									)
-								)
-							end,
+												)
+											)
+										end,
+									}
+								),
+								MenuButton({
+									Text = "CONFIG",
+								}),
+								MenuButton({
+									Text = "CHEAT",
+								}),
+								MenuButton({
+									Text = "NETPLAY",
+								}),
+								MenuButton({
+									Text = "MISC",
+								}),
+							},
 						}
 					),
-					MenuButton({
-						Text = "CONFIG",
-					}),
-					MenuButton({
-						Text = "CHEAT",
-					}),
-					MenuButton({
-						Text = "NETPLAY",
-					}),
-					MenuButton({
-						Text = "MISC",
-					}),
 				},
 			}
 		)
@@ -186,19 +191,34 @@ event.AddListener("KeyInput", "menu_toggle", function(key, press)
 				},
 			}
 		)
+		local selected_dropdown_val = "Option 1"
+		local dropdown_demo = Dropdown(
+			{
+				Text = "Select Option",
+				Size = Vec2(10, 10),
+				Options = {"Option 1", "Option 2", "Option 3", "Option 4"},
+				OnSelect = function(val)
+					print("Dropdown selected:", val)
+					selected_dropdown_val = val
+				end,
+				GetText = function()
+					return "Selected: " .. selected_dropdown_val
+				end,
+			}
+		)
 		local demo_container = Frame(
 			{
 				Layout = {"Center"},
-				Size = Vec2(450, 300),
+				Size = Vec2(450, 400),
 				Flex = true,
 				FlexDirection = "column",
-				FlexGap = 10,
-				Padding = Rect() + 20,
 				Children = {
 					Text({Text = "UI ELEMENTS DEMO", Size = "L"}),
+					dropdown_demo,
 					slider_demo,
 					checkbox_demo,
 					radio_group,
+					MenuButton({Text = "CONFIG", Padding = "XS"}),
 				},
 			}
 		)
@@ -206,7 +226,6 @@ event.AddListener("KeyInput", "menu_toggle", function(key, press)
 			{
 				Name = "GameMenuPanel",
 				Color = Color(0, 0, 0, 0.5),
-				Padding = Rect() + 5,
 				Layout = {"Fill"},
 				Children = {top_bar, demo_container},
 			}

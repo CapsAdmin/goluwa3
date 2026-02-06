@@ -11,11 +11,10 @@ local Panel = require("ecs.panel")
 local theme = runfile("lua/ui/theme.lua")
 return function(props)
 	return Panel.NewPanel(
-		table.merge(
+		table.merge_many(
 			{
 				Name = "frame",
 				Color = theme.Colors.FrameBackground,
-				Padding = Rect() + theme.Sizes2.S,
 				gui_element = {
 					OnDraw = function(self)
 						theme.DrawFrame(self.Owner)
@@ -25,7 +24,10 @@ return function(props)
 					end,
 				},
 			},
-			props
+			props,
+			{
+				Padding = Rect() + theme.GetPadding(props.Padding),
+			}
 		)
 	)
 end

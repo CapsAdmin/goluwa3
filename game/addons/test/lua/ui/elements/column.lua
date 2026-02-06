@@ -11,6 +11,7 @@ return function(props)
 				Layout = {"FillX", "SizeToChildrenHeight"},
 				Flex = true,
 				FlexDirection = "column",
+				FlexAlignItems = "center",
 				FlexGap = theme.Sizes2.S,
 			},
 			props

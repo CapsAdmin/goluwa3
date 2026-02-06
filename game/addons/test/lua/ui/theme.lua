@@ -83,6 +83,12 @@ local sizes = {
 }
 sizes.default = sizes.M
 theme.Sizes2 = sizes
+
+function theme.GetPadding(size_name)
+	size_name = size_name or "default"
+	return sizes[size_name] or sizes.default
+end
+
 theme.line_height = 5
 local stroke_width = sizes.line
 local stroke_width_thick = sizes.line * 2
@@ -349,7 +355,7 @@ function theme.UpdateButtonAnimations(ent, s)
 				set = function(v)
 					ent.transform:SetDrawScaleOffset(v)
 				end,
-				to = is_active and (Vec2(1.1, 1.1)) or (Vec2(1, 1)),
+				to = is_active and (Vec2(0.9, 0.9)) or (Vec2(1, 1)),
 				interpolation = (
 						s.is_pressed and
 						not s.is_hovered

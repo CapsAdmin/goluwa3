@@ -10,6 +10,21 @@ return function(name, base_path, get_valid_components)
 			ChildrenMap = {},
 			component_map = {},
 		})
+
+		if config and config[1] and false then
+			local children = {}
+
+			for i, child in ipairs(config) do
+				table.insert(children, child)
+			end
+
+			for i = 1, #config do
+				config[i] = nil
+			end
+
+			config.Children = children
+		end
+
 		local ent = self
 		local components = {}
 		local ref
