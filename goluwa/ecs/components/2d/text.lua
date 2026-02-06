@@ -5,7 +5,6 @@ local Color = require("structs.color")
 local Vec2 = require("structs.vec2")
 local META = prototype.CreateTemplate("text")
 META:StartStorable()
-print("wtf?!!?!")
 META:GetSet(
 	"Font",
 	fonts.LoadFont(fonts.GetSystemDefaultFont(), 14),
@@ -16,7 +15,6 @@ META:GetSet("Wrap", false, {callback = "OnTextChanged"})
 META:GetSet("WrapToParent", false, {callback = "OnTextChanged"})
 META:GetSet("AlignX", "left", {callback = "OnTextChanged"})
 META:GetSet("AlignY", "top", {callback = "OnTextChanged"})
-META:GetSet("Debug", false)
 META:GetSet("Color", Color(1, 1, 1, 1))
 META:EndStorable()
 
@@ -25,6 +23,25 @@ function META:Initialize()
 
 	self.Owner:AddLocalListener("OnDraw", function()
 		self:OnDraw()
+	end)
+
+	self.Owner:AddLocalListener("OnTransformChanged", function()
+		if self:GetWrap() then
+			local width = self.Owner.transform.Size.x
+
+			if
+				self:GetWrapToParent() and
+				self.Owner:GetParent() and
+				self.Owner:GetParent().transform
+			then
+				width = self.Owner:GetParent().transform.Size.x
+			end
+
+			if self.last_wrap_width ~= width then
+				self.last_wrap_width = width
+				self:OnTextChanged()
+			end
+		end
 	end)
 end
 
@@ -50,14 +67,27 @@ function META:OnTextChanged()
 
 	local w, h = font:GetTextSize(self.wrapped_text)
 
-	if not self:GetWrap() then
-		self.Owner.transform:SetSize(Vec2(w, h))
+	if not self:GetWrap() then self.Owner.transform:SetSize(Vec2(w, h)) end
 
-		if self.Owner:HasParent() and self.Owner:GetParent().layout then
+	if self.Owner.layout then self.Owner.layout:InvalidateLayout() end
 
-		--self.Owner:GetParent().layout:InvalidateLayout()
-		end
+	if self.Owner:HasParent() and self.Owner:GetParent().layout then
+		self.Owner:GetParent().layout:InvalidateLayout()
 	end
+end
+
+function META:GetWrappedSize(width)
+	local font = self:GetFont() or fonts.GetDefaultFont()
+	local text = self:GetText()
+
+	if self:GetWrap() then
+		local wrapped = font:WrapString(text, width or self.Owner.transform.Size.x)
+		local w, h = font:GetTextSize(wrapped)
+		return Vec2(w, h)
+	end
+
+	local w, h = font:GetTextSize(text)
+	return Vec2(w, h)
 end
 
 function META:OnDraw()
@@ -85,13 +115,6 @@ function META:OnDraw()
 
 	render2d.SetColor(self:GetColor():Unpack())
 	font:DrawText(text, x, y, 0, ax, ay)
-
-	if self.Debug then
-		local w, h = font:GetTextSize(text)
-		render2d.SetColor(1, 0, 0, 0.25)
-		render2d.SetTexture(nil)
-		render2d.DrawRect(0, 0, w, h)
-	end
 end
 
 return META:Register()

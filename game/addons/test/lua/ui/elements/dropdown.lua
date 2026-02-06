@@ -56,10 +56,9 @@ return function(props)
 	local dropdown = Button(
 		{
 			Size = props.Size or Vec2(200, 40),
-			Layout = props.Layout or {"SizeToChildrenHeight"},
+			layout = props.layout or {Direction = "x", FitHeight = true, AlignmentY = "center"},
 			OnClick = open_menu,
 			Padding = props.Padding or (Rect() + theme.Sizes2.M),
-			Margin = props.Margin or Rect(),
 			Children = {
 				Text(
 					{
@@ -68,7 +67,7 @@ return function(props)
 							label_ent = self
 						end,
 						IgnoreMouseInput = true,
-						Layout = {"CenterSimple", "MoveLeft"},
+						layout = {GrowWidth = 1, FitHeight = true},
 						Color = props.Disabled and theme.Colors.TextDisabled or theme.Colors.TextNormal,
 					}
 				),
@@ -76,7 +75,7 @@ return function(props)
 					{
 						Text = " ▼",
 						IgnoreMouseInput = true,
-						Layout = {"CenterSimple", "MoveRight"},
+						layout = {FitWidth = true, FitHeight = true},
 						Color = props.Disabled and theme.Colors.TextDisabled or theme.Colors.TextNormal,
 					}
 				),

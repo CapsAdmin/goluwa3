@@ -14,7 +14,7 @@ return function(props)
 		{
 			Name = "button",
 			Size = props.Size or Vec2(200, 50),
-			Layout = props.Layout,
+			layout = props.layout,
 			Perspective = 400,
 			Shadows = false,
 			BorderRadius = 10,

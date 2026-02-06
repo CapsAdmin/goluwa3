@@ -18,7 +18,7 @@ return function(props)
 		{
 			Name = "checkbox_graphic",
 			Size = props.Size or Vec2(theme.Sizes.CheckboxSize, theme.Sizes.CheckboxSize),
-			Layout = props.Layout,
+			layout = props.layout,
 			Cursor = "hand",
 			Color = Color(0, 0, 0, 0),
 			mouse_input = {

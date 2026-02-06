@@ -30,29 +30,52 @@ T.Test("panel mouse input states", function()
 end)
 
 T.Test("panel resize layout invalidation", function()
-	local parent = Panel.NewPanel({Name = "parent"})
+	local parent = Panel.NewPanel(
+		{
+			Name = "parent",
+			layout = {
+				Padding = Rect(0, 0, 0, 0),
+				AlignmentX = "stretch",
+				AlignmentY = "stretch",
+			},
+		}
+	)
 	parent.transform:SetSize(Vec2(200, 200))
-	parent.layout:SetPadding(Rect(0, 0, 0, 0))
-	local child = Panel.NewPanel({Parent = parent, Name = "child"})
-	child.layout:SetLayout("Fill")
-	parent.layout:CalcLayout()
+	local child = Panel.NewPanel(
+		{
+			Parent = parent,
+			Name = "child",
+			layout = {
+				GrowWidth = 1,
+				GrowHeight = 1,
+			},
+		}
+	)
+	parent.layout:UpdateLayout()
 	T(child.transform:GetSize())["=="](Vec2(200, 200))
 	parent.transform:SetSize(Vec2(300, 300))
-	parent.layout:CalcLayout()
+	parent.layout:UpdateLayout()
 	T(child.transform:GetSize())["=="](Vec2(300, 300))
 end)
 
 T.Test("panel flex layout", function()
-	local parent = Panel.NewPanel({Name = "flex_parent"})
+	local parent = Panel.NewPanel(
+		{
+			Name = "flex_parent",
+			layout = {
+				Direction = "y",
+				ChildGap = 10,
+				AlignmentX = "start",
+				AlignmentY = "start",
+			},
+		}
+	)
 	parent.transform:SetSize(Vec2(200, 200))
-	parent.layout:SetFlex(true)
-	parent.layout:SetFlexDirection("column")
-	parent.layout:SetFlexGap(10)
 	local child1 = Panel.NewPanel({Parent = parent})
 	child1.transform:SetSize(Vec2(50, 50))
 	local child2 = Panel.NewPanel({Parent = parent})
 	child2.transform:SetSize(Vec2(50, 50))
-	parent.layout:CalcLayout()
+	parent.layout:UpdateLayout()
 	-- With column flex and 10px gap:
 	-- Child 1 at (0,0) (assuming no padding)
 	-- Child 2 at (0, 50 + 10) = (0, 60)

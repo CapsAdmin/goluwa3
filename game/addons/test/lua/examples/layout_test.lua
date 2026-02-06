@@ -4,11 +4,11 @@ local Rect = require("structs.rect")
 local theme = runfile("lua/ui/theme.lua")
 local Color = require("structs.color")
 Panel.World:RemoveChildren()
-local menuItems = {
-	{text = "Copy", icon = "@"},
-	{text = "Paste", icon = "$"},
-	{text = "Delete", icon = "X"},
-	{text = "Layer", icon = "/"},
+local sidebarItems = {
+	{text = "Copy", icon = "C"},
+	{text = "Paste", icon = "P"},
+	{text = "Delete", icon = "D"},
+	{text = "Layer with a very long comment that should get wrapped", icon = "L"},
 	{text = "Comment", icon = "#"},
 }
 local PURPLE = Color(0.3, 0.1, 0.5, 1)
@@ -20,59 +20,65 @@ local outer = Panel.NewPanel(
 		Color = PURPLE,
 		layout = {
 			Direction = "y",
-			Padding = Rect(16, 16, 16, 16),
-			ChildGap = 16,
+			Padding = Rect() + theme.GetPadding("M"),
+			ChildGap = theme.GetPadding("M"),
 			FitWidth = true,
-			MinSize = Vec2(430, 0),
-			MaxSize = Vec2(630, 0),
+			MinSize = Vec2(50, 0),
+			MaxSize = Vec2(250, 0),
 			FitHeight = true,
 		},
 	}
+)(
+	{
+		list.map(sidebarItems, function(item)
+			return Panel.NewPanel(
+				{
+					Parent = outer,
+					Color = LIGHT_PURPLE,
+					layout = {
+						Direction = "x",
+						GrowWidth = 1,
+						FitHeight = true,
+						MinSize = Vec2(0, 0),
+						Padding = Rect() + theme.GetPadding("M"),
+						AlignmentY = "center",
+						ChildGap = theme.GetPadding("M"),
+					},
+				}
+			)(
+				{
+					Panel.NewText(
+						{
+							Parent = row,
+							Text = item.text,
+							Font = theme.GetFont("body", "M"),
+							Color = WHITE,
+							Wrap = true,
+							layout = {
+								GrowWidth = 1,
+								FitHeight = true,
+							},
+						}
+					),
+					Panel.NewText(
+						{
+							Parent = row,
+							Text = item.icon,
+							Font = theme.GetFont("heading", "XXL"),
+							Color = WHITE,
+							AlignX = "center",
+							AlignY = "center",
+							layout = {
+								MinSize = Vec2(30, 30),
+								MaxSize = Vec2(30, 30),
+							},
+						}
+					),
+				}
+			)
+		end),
+	}
 )
-
-for _, item in ipairs(menuItems) do
-	local row = Panel.NewPanel(
-		{
-			Parent = outer,
-			Color = LIGHT_PURPLE,
-			layout = {
-				Direction = "x",
-				GrowWidth = 1,
-				FitHeight = true,
-				MinSize = Vec2(0, 80),
-				Padding = Rect(32, 16, 32, 16),
-				AlignmentY = "center",
-				ChildGap = 32,
-			},
-		}
-	)
-	local textContainer = Panel.NewPanel({Parent = row, layout = {
-		GrowWidth = 1,
-		FitHeight = true,
-	}})
-	Panel.NewText(
-		{
-			Parent = textContainer,
-			Text = item.text,
-			Font = theme.GetFont("body", 32),
-			Color = WHITE,
-			layout = {FitWidth = true, FitHeight = true},
-		}
-	)
-	Panel.NewText(
-		{
-			Parent = row,
-			Text = item.icon,
-			Font = theme.GetFont("body", 24),
-			Color = WHITE,
-			layout = {
-				MinSize = Vec2(60, 60),
-				MaxSize = Vec2(60, 60),
-				AlignmentX = "center",
-				AlignmentY = "center",
-			},
-		}
-	)
-end
-
+outer:AddComponent("resizable")
+outer:AddComponent("draggable")
 outer.transform:SetPosition(Vec2(100, 100))

@@ -26,6 +26,7 @@ META:GetSet("ShadingInfo", nil, {callback = "ClearCache"})
 META:IsSet("Monospace", false, {callback = "ClearCache"})
 META:IsSet("Ready", false)
 META:IsSet("ReverseDraw", false)
+META.debug = false
 local SUPER_SAMPLING_SCALE = 4
 
 function META:ClearCache()
@@ -661,7 +662,7 @@ function META:GetTextSizeNotCached(str)
 
 	str = tostring(str)
 	batch_load_glyphs(self, str)
-	local X, Y = 0, self:GetLineHeight()
+	local X, Y = 0, self:GetAscent()
 	local max_x = 0
 	local spacing = self.Spacing
 	local line_height = self:GetLineHeight()
@@ -764,6 +765,19 @@ function META:DrawString(str, x, y, spacing)
 						aw * scale_x,
 						ah * scale_y
 					)
+
+					if self.debug then
+						render2d.PushTexture(nil)
+						render2d.PushColor(1, 0, 0, 0.25)
+						render2d.DrawRect(
+							x + (X - padding) * scale_x,
+							y + (Y - padding) * scale_y,
+							(data.x_advance + padding * 2) * scale_x,
+							line_height * scale_y
+						)
+						render2d.PopColor()
+						render2d.PopTexture()
+					end
 				end
 
 				if self.Monospace then

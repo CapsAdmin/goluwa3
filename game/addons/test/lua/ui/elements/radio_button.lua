@@ -18,7 +18,7 @@ return function(props)
 		{
 			Name = "radio_button_graphic",
 			Size = props.Size or Vec2(theme.Sizes.RadioButtonSize, theme.Sizes.RadioButtonSize),
-			Layout = props.Layout,
+			layout = props.layout,
 			Cursor = "hand",
 			Color = Color(0, 0, 0, 0),
 			mouse_input = {

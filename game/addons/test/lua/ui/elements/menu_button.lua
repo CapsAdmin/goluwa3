@@ -9,10 +9,12 @@ return function(props)
 		{
 			Active = props.Active,
 			Disabled = props.Disabled,
-			Layout = {"SizeToChildren"},
+			layout = {
+				FitWidth = true,
+				FitHeight = true,
+			},
 			OnClick = props.OnClick,
 			Padding = (Rect() + theme.GetPadding(props.Padding or "XS")),
-			Margin = Rect(),
 			Children = {
 				Text(
 					{

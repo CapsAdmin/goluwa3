@@ -150,9 +150,161 @@ T.Test("layout - text content intrinsic size", function()
 			},
 		}
 	)
+	-- Mock font size for consistent testing in headless
+	local font = text.text:GetFont()
+	local w, h = 100, 20
+	font.GetTextSize = function()
+		return w, h
+	end
 	parent.layout:UpdateLayout()
-	-- Text should HAVE a size now, not 0
-	T(text.transform:GetWidth())[">"](0)
-	T(parent.transform:GetWidth())[">"](0)
+	T(text.transform:GetWidth())["=="](w)
+	T(text.transform:GetHeight())["=="](h)
+	T(parent.transform:GetWidth())["=="](w)
+	T(parent.transform:GetHeight())["=="](h)
 	parent:Remove()
+end)
+
+T.Test("layout - nested grow and fit", function()
+	local outer = Panel.NewPanel(
+		{
+			Name = "Outer",
+			layout = {
+				Direction = "y",
+				FitWidth = true,
+				FitHeight = true,
+				Padding = Rect(10, 10, 10, 10),
+			},
+		}
+	)
+	local row = Panel.NewPanel(
+		{
+			Parent = outer,
+			Name = "Row",
+			layout = {
+				Direction = "x",
+				GrowWidth = 1, -- Conflicts with FitWidth on parent if not handled
+				FitHeight = true,
+				MinSize = Vec2(0, 50),
+				AlignmentY = "center",
+			},
+		}
+	)
+	local item = Panel.NewPanel(
+		{
+			Parent = row,
+			Name = "Item",
+			layout = {
+				FitWidth = true,
+				FitHeight = true,
+			},
+		}
+	)
+	-- Mock intrinsic size for item
+	item:AddComponent("text")
+	item.text.GetFont = function()
+		return {
+			GetTextSize = function()
+				return 100, 20
+			end,
+		}
+	end
+	outer.layout:UpdateLayout()
+	-- Inner item should be 100x20
+	T(item.transform:GetWidth())["=="](100)
+	T(item.transform:GetHeight())["=="](20)
+	-- Row should be 100x50 (MinSize.y = 50)
+	T(row.transform:GetWidth())["=="](100)
+	T(row.transform:GetHeight())["=="](50)
+	-- Outer should be 100+padding x 50+padding = 120x70
+	T(outer.transform:GetWidth())["=="](120)
+	T(outer.transform:GetHeight())["=="](70)
+	outer:Remove()
+end)
+
+T.Test("layout - default cross axis stretch", function()
+	local parent = Panel.NewPanel(
+		{
+			Name = "Parent",
+			Size = Vec2(200, 200),
+			layout = {
+				Direction = "y", -- Vertical
+				Padding = Rect(0, 0, 0, 0),
+			},
+		}
+	)
+	local child = Panel.NewPanel(
+		{
+			Parent = parent,
+			Name = "Child",
+			layout = {
+				Direction = "x",
+				MinSize = Vec2(50, 50),
+			},
+		}
+	)
+	parent.layout:UpdateLayout()
+	-- Direction is Y, so cross axis is X. 
+	-- AlignmentX defaults to stretch.
+	-- Parent is 200px wide. Child should be 200px wide.
+	T(child.transform:GetWidth())["=="](200)
+	parent:Remove()
+end)
+
+T.Test("layout - text wrapping", function()
+	local container = Panel.NewPanel(
+		{
+			Name = "WrapContainer",
+			layout = {
+				Direction = "y",
+				FitWidth = true,
+				FitHeight = true,
+				MinSize = Vec2(100, 0),
+				MaxSize = Vec2(100, 0),
+			},
+		}
+	)
+	local text_panel = Panel.NewPanel(
+		{
+			Parent = container,
+			Name = "TextPanel",
+			layout = {
+				GrowWidth = 1,
+				FitHeight = true,
+			},
+		}
+	)
+	local text_comp = text_panel:AddComponent("text")
+	-- Mock font measurement for wrapping
+	-- We want to simulate that at 100px width, "A B C" wraps to 3 lines
+	local font = {
+		GetTextSize = function(self, text)
+			if text == "A\nB\nC" then return 20, 60 end
+
+			return 60, 20
+		end,
+		WrapString = function(self, text, width)
+			if width <= 30 then return "A\nB\nC" end
+
+			return text
+		end,
+	}
+	text_comp.GetFont = function()
+		return font
+	end
+	text_comp:SetText("A B C")
+	text_comp:SetWrap(true)
+	-- Force layout multiple times to converge
+	container.layout:UpdateLayout()
+	container.layout:UpdateLayout()
+	-- 100px is wide enough NOT to wrap (width > 30).
+	T(text_panel.transform:GetHeight())["=="](20)
+	-- Now change container width to 20px
+	container.layout:SetMinSize(Vec2(20, 0))
+	container.layout:SetMaxSize(Vec2(20, 0))
+	-- Converge
+	container.layout:UpdateLayout()
+	container.layout:UpdateLayout()
+	T(text_panel.transform:GetHeight())["=="](60)
+	T(container.transform:GetHeight())["=="](60)
+	container:Remove()
 end)

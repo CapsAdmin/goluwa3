@@ -8,11 +8,13 @@ return function(props)
 			{
 				Name = "Column",
 				Color = Color(0, 0, 0, 0),
-				Layout = {"FillX", "SizeToChildrenHeight"},
-				Flex = true,
-				FlexDirection = "column",
-				FlexAlignItems = "center",
-				FlexGap = theme.Sizes2.S,
+				layout = {
+					Direction = "y",
+					GrowWidth = 1,
+					FitHeight = true,
+					AlignmentX = "center",
+					ChildGap = theme.Sizes2.S,
+				},
 			},
 			props
 		)

@@ -77,10 +77,14 @@ return function(props)
 						Pivot = Vec2(0, 0),
 						Position = props.Position or Vec2(100, 100),
 						Size = props.Size or theme.Sizes.ContextMenuSize,
-						Flex = true,
-						FlexGap = 0,
-						FlexAlignItems = "center",
-						FlexDirection = "column",
+						layout = {
+							Floating = true,
+							Direction = "y",
+							ChildGap = 0,
+							AlignmentX = "left",
+							FitHeight = true,
+							FitWidth = true,
+						},
 						OnMouseInput = function(self, button, press)
 							return true
 						end,

@@ -20,8 +20,8 @@ META:GetSet("ShrinkWidth", 0, {callback = "InvalidateLayout"})
 META:GetSet("ShrinkHeight", 0, {callback = "InvalidateLayout"})
 META:GetSet("FitWidth", false, {callback = "InvalidateLayout"})
 META:GetSet("FitHeight", false, {callback = "InvalidateLayout"})
-META:GetSet("AlignmentX", "start", {callback = "InvalidateLayout"})
-META:GetSet("AlignmentY", "start", {callback = "InvalidateLayout"})
+META:GetSet("AlignmentX", "stretch", {callback = "InvalidateLayout"})
+META:GetSet("AlignmentY", "stretch", {callback = "InvalidateLayout"})
 META:GetSet("Floating", false, {callback = "InvalidateLayout"})
 META:GetSet("Dirty", false)
 META:GetSet("LastSize", Vec2(0, 0))
@@ -112,25 +112,33 @@ function META:Measure()
 	local tr_size = self.Owner.transform:GetSize()
 
 	if dir == "x" then
-		intrinsic.x = self:GetFitWidth() and (main_total + padding.x + padding.w) or tr_size.x
-		intrinsic.y = self:GetFitHeight() and (cross_max + padding.y + padding.h) or tr_size.y
+		intrinsic.x = main_total + padding.x + padding.w
+		intrinsic.y = cross_max + padding.y + padding.h
 	else
-		intrinsic.x = self:GetFitWidth() and (cross_max + padding.x + padding.w) or tr_size.x
-		intrinsic.y = self:GetFitHeight() and (main_total + padding.y + padding.h) or tr_size.y
+		intrinsic.x = cross_max + padding.x + padding.w
+		intrinsic.y = main_total + padding.y + padding.h
 	end
 
-	-- If we have no children but have a text component, use its size
+	-- If we have no children but have a text component, use its size as the intrinsic size
 	if count == 0 and self.Owner.text then
 		local font = self.Owner.text:GetFont()
 		local text = self.Owner.text.wrapped_text or self.Owner.text:GetText()
 
 		if font and text then
 			local w, h = font:GetTextSize(text)
-
-			if self:GetFitWidth() then intrinsic.x = w + padding.x + padding.w end
-
-			if self:GetFitHeight() then intrinsic.y = h + padding.y + padding.h end
+			intrinsic.x = w + padding.x + padding.w
+			intrinsic.y = h + padding.y + padding.h
 		end
+	end
+
+	-- If we're fitting or growing, our intrinsic size depends on our children.
+	-- If not, it's just our current size.
+	if not self:GetFitWidth() and self:GetGrowWidth() == 0 then
+		intrinsic.x = tr_size.x
+	end
+
+	if not self:GetFitHeight() and self:GetGrowHeight() == 0 then
+		intrinsic.y = tr_size.y
 	end
 
 	-- Min/Max constraints
@@ -153,7 +161,6 @@ function META:Arrange()
 	if self.busy then return end
 
 	self.busy = true
-	self:SetDirty(false)
 	local tr = self.Owner.transform
 	local actual_size = tr:GetSize()
 	local dir = self:GetDirection()
@@ -246,23 +253,22 @@ function META:Arrange()
 		local available_cross = actual_size[axis.cross] - padding[axis.cross_margin_start] - padding[axis.cross_margin_end]
 		local child_total_cross = c.cross_size + c.margin[axis.cross_margin_start] + c.margin[axis.cross_margin_end]
 		local cross_pos = padding[axis.cross_margin_start] + c.margin[axis.cross_margin_start]
+		local final_cross = c.cross_size
 
 		if cross_alignment == "center" then
 			cross_pos = cross_pos + (available_cross - child_total_cross) / 2
 		elseif cross_alignment == "end" then
 			cross_pos = cross_pos + (available_cross - child_total_cross)
 		elseif cross_alignment == "stretch" then
-			child_tr["Set" .. axis.cross_size](
-				child_tr,
-				available_cross - c.margin[axis.cross_margin_start] - c.margin[axis.cross_margin_end]
-			)
+			final_cross = available_cross - c.margin[axis.cross_margin_start] - c.margin[axis.cross_margin_end]
 		end
 
+		child_tr["Set" .. axis.cross_size](child_tr, final_cross)
 		child_tr:SetAxisPosition(axis.cross, cross_pos)
 		current_main = current_main + final_main + c.margin[axis.main_margin_end] + child_gap
 
-		-- Recursive arrange if child has layout
-		if c.entity.layout then c.entity.layout:Arrange() end
+		-- Recursive align/arrange if child has layout
+		if c.entity.layout then c.entity.layout:UpdateLayout() end
 	end
 
 	self.busy = false
@@ -271,6 +277,7 @@ end
 function META:UpdateLayout()
 	if not self:GetDirty() then return end
 
+	self:SetDirty(false)
 	-- Measure Pass
 	local intrinsic_size = self:Measure()
 	-- If we are FitWidth/Height, we update our own transform size
@@ -285,7 +292,6 @@ function META:UpdateLayout()
 	self.busy = false
 	-- Arrange Pass
 	self:Arrange()
-	self:SetDirty(false)
 end
 
 function META:Initialize()

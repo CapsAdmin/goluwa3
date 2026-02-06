@@ -11,12 +11,17 @@ return function(props)
 			Active = props.Active,
 			Disabled = props.Disabled,
 			OnClick = props.OnClick,
+			layout = {
+				Direction = "x",
+				AlignmentY = "left",
+				FitHeight = true,
+				GrowWidth = 1,
+			},
 			Padding = props.Padding or (Rect() + theme.Sizes2.M),
-			Margin = props.Margin or Rect(),
 			Children = {
 				Text(
 					{
-						Layout = {"CenterSimple", "MoveLeft"},
+						layout = {GrowWidth = 1, FitHeight = true},
 						Text = props.Text,
 						IgnoreMouseInput = true,
 						Color = props.Disabled and theme.Colors.TextDisabled or theme.Colors.TextNormal,

@@ -40,7 +40,10 @@ event.AddListener("KeyInput", "menu_toggle", function(key, press)
 
 		local top_bar = Frame(
 			{
-				Layout = {"MoveTop", "FillX", "SizeToChildrenHeight"},
+				layout = {
+					GrowWidth = 1,
+					FitHeight = true,
+				},
 				Padding = "XXS",
 				Children = {
 					Row({})(
@@ -55,6 +58,7 @@ event.AddListener("KeyInput", "menu_toggle", function(key, press)
 											ContextMenu(
 												{
 													Key = "ActiveContextMenu",
+													-- Position is set manually in ContextMenu
 													Position = Vec2(x, y),
 													OnClose = function(ent)
 														print("removing context menu")
@@ -112,10 +116,12 @@ event.AddListener("KeyInput", "menu_toggle", function(key, press)
 				OnChange = function(value)
 					print("Slider value:", value)
 				end,
+				layout = {GrowWidth = 1},
 			}
 		)
 		local checkbox_demo = Row(
 			{
+				layout = {Direction = "x", ChildGap = 10, AlignmentY = "center"},
 				Children = {
 					Checkbox(
 						{
@@ -132,9 +138,11 @@ event.AddListener("KeyInput", "menu_toggle", function(key, press)
 		local selected_radio = 1
 		local radio_group = Column(
 			{
+				layout = {Direction = "y", ChildGap = 5, AlignmentX = "start"},
 				Children = {
 					Row(
 						{
+							layout = {Direction = "x", ChildGap = 10, AlignmentY = "center"},
 							Children = {
 								RadioButton(
 									{
@@ -153,6 +161,7 @@ event.AddListener("KeyInput", "menu_toggle", function(key, press)
 					),
 					Row(
 						{
+							layout = {Direction = "x", ChildGap = 10, AlignmentY = "center"},
 							Children = {
 								RadioButton(
 									{
@@ -171,6 +180,7 @@ event.AddListener("KeyInput", "menu_toggle", function(key, press)
 					),
 					Row(
 						{
+							layout = {Direction = "x", ChildGap = 10, AlignmentY = "center"},
 							Children = {
 								RadioButton(
 									{
@@ -203,14 +213,20 @@ event.AddListener("KeyInput", "menu_toggle", function(key, press)
 				GetText = function()
 					return "Selected: " .. selected_dropdown_val
 				end,
+				layout = {GrowWidth = 1},
 			}
 		)
 		local demo_container = Frame(
 			{
-				Layout = {"Center"},
 				Size = Vec2(450, 400),
-				Flex = true,
-				FlexDirection = "column",
+				layout = {
+					Direction = "y",
+					ChildGap = theme.Sizes2.M,
+					AlignmentX = "center",
+					AlignmentY = "center",
+					FitWidth = true,
+					FitHeight = true,
+				},
 				Children = {
 					Text({Text = "UI ELEMENTS DEMO", Size = "L"}),
 					dropdown_demo,
@@ -225,10 +241,33 @@ event.AddListener("KeyInput", "menu_toggle", function(key, press)
 			{
 				Name = "GameMenuPanel",
 				Color = Color(0, 0, 0, 0.5),
-				Layout = {"Fill"},
-				Children = {top_bar, demo_container},
+				Size = world_panel.transform:GetSize(),
+				layout = {
+					Direction = "y",
+				},
+				Children = {
+					top_bar,
+					Panel.NewPanel(
+						{
+							layout = {
+								GrowWidth = 1,
+								GrowHeight = 1,
+								AlignmentX = "center",
+								AlignmentY = "center",
+							},
+							Color = Color(0, 0, 0, 0),
+							Children = {demo_container},
+						}
+					),
+				},
 			}
 		)
+		menu:AddEvent("WindowFramebufferResized")
+
+		function menu:OnWindowFramebufferResized(window, size)
+			self.transform:SetSize(size)
+		end
+
 		return false
 	end
 end)

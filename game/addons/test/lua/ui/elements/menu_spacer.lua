@@ -13,7 +13,9 @@ return function(props)
 			Name = "MenuSpacer",
 			Size = props.Vertical and Vec2(theme.line_height, 0) or Vec2(0, theme.line_height), -- 0 is assumed to get stretched out somehow
 			Color = theme.Colors.Invisible,
-			Layout = {"FillX"},
+			layout = {
+				GrowWidth = 1,
+			},
 			gui_element = {
 				OnDraw = function(self)
 					theme.DrawMenuSpacer(self, props)

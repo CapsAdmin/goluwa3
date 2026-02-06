@@ -32,9 +32,9 @@ return function(props)
 	ent = Panel.NewPanel(
 		{
 			Name = "slider",
-			Position = props.Position or (not props.Layout and Vec2(100, 100) or nil),
+			Position = props.Position or (not props.layout and Vec2(100, 100) or nil),
 			Size = props.Size or theme.Sizes.SliderSize,
-			Layout = props.Layout,
+			layout = props.layout,
 			Cursor = "hand",
 			Color = theme.Colors.Invisible,
 			mouse_input = {
