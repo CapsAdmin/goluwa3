@@ -77,11 +77,12 @@ return function(props)
 						Pivot = Vec2(0, 0),
 						Position = props.Position or Vec2(100, 100),
 						Size = props.Size or theme.Sizes.ContextMenuSize,
+						Padding = "S",
 						layout = {
 							Floating = true,
 							Direction = "y",
 							ChildGap = 0,
-							AlignmentX = "left",
+							AlignmentX = "stretch",
 							FitHeight = true,
 							FitWidth = true,
 						},

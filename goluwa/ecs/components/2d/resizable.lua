@@ -1,9 +1,12 @@
 local prototype = require("prototype")
 local Vec2 = require("structs.vec2")
+local event = require("event")
+local window = require("window")
+local input = require("input")
 local Rect = require("structs.rect")
 local META = prototype.CreateTemplate("resizable")
 META:StartStorable()
-META:GetSet("ResizeBorder", Rect(8, 8, 8, 8))
+META:GetSet("ResizeBorder", Rect() + 4)
 META:GetSet("MinimumSize", Vec2(10, 10))
 META:EndStorable()
 
@@ -14,6 +17,21 @@ function META:Initialize()
 	self.resize_prev_pos = nil
 	self.resize_prev_size = nil
 	self.resize_button = nil
+
+	self.remove_global_input = self.Owner:AddLocalListener(
+		"OnGlobalMouseInput",
+		function(_, button, press, pos)
+			return self:OnGlobalMouseInput(button, press, pos)
+		end,
+		self
+	)
+	self.remove_global_move = self.Owner:AddLocalListener(
+		"OnGlobalMouseMove",
+		function(_, pos)
+			return self:OnGlobalMouseMove(pos)
+		end,
+		self
+	)
 end
 
 function META:GetMousePosition()
@@ -75,17 +93,17 @@ end
 function META:StartResizing(local_pos, button)
 	local loc = self:GetResizeLocation(local_pos)
 
-	if loc then
-		local transform = self.Owner.transform
-		self.resize_start_pos = local_pos:Copy()
-		self.resize_location = loc
-		self.resize_prev_mouse_pos = self.Owner.mouse_input:GetGlobalMousePosition():Copy()
-		self.resize_prev_pos = transform:GetPosition():Copy()
-		self.resize_prev_size = transform:GetSize():Copy()
-		self.resize_button = button
-		self:AddEvent("Update", {priority = 100})
-		return true
-	end
+	if not loc then return false end
+
+	local transform = self.Owner.transform
+	self.resize_start_pos = local_pos:Copy()
+	self.resize_location = loc
+	self.resize_prev_mouse_pos = self.Owner.mouse_input:GetGlobalMousePosition():Copy()
+	self.resize_prev_pos = transform:GetPosition():Copy()
+	self.resize_prev_size = transform:GetSize():Copy()
+	self.resize_button = button
+	self:AddEvent("Update", {priority = 100})
+	return true
 end
 
 function META:StopResizing()
@@ -98,17 +116,10 @@ function META:IsResizing()
 end
 
 function META:OnUpdate()
-	if
-		self.resize_button ~= nil and
-		not self.Owner.mouse_input:IsMouseButtonDown(self.resize_button)
-	then
+	if self.resize_button ~= nil and not input.IsMouseDown(self.resize_button) then
 		self:StopResizing()
 		return
 	end
-
-	local cursor = location2cursor[self.resize_location]
-
-	if cursor then self.Owner.mouse_input:SetCursor(cursor) end
 
 	local pos = self.Owner.mouse_input:GetGlobalMousePosition()
 	local transform = self.Owner.transform
@@ -116,7 +127,12 @@ function META:OnUpdate()
 	local loc = self.resize_location
 	local prev_size = self.resize_prev_size:Copy()
 	local prev_pos = self.resize_prev_pos:Copy()
-	local min_size = self:GetMinimumSize()
+	local min_size = self:GetMinimumSize():Copy()
+
+	if self.Owner.layout and self.Owner.layout.content_size then
+		min_size.x = math.max(min_size.x, self.Owner.layout.content_size.x)
+		min_size.y = math.max(min_size.y, self.Owner.layout.content_size.y)
+	end
 
 	if loc == "right" or loc == "top_right" or loc == "bottom_right" then
 		prev_size.x = math.max(min_size.x, prev_size.x + diff_world.x)
@@ -154,19 +170,36 @@ function META:OnUpdate()
 	transform:SetSize(prev_size)
 end
 
-function META:OnMouseInput(button, press, pos)
-	if button == "button_1" and press then
-		local loc = self:GetResizeLocation(pos)
+function META:OnGlobalMouseInput(button, press, pos)
+	local gui = self.Owner.gui_element
 
-		if loc then
-			self:StartResizing(pos, button)
-			return true
-		end
+	if gui and not gui:GetVisible() then return end
+
+	if button == "button_1" and press then
+		local local_pos = self.Owner.transform:GlobalToLocal(pos)
+
+		if self:StartResizing(local_pos, button) then return true end
 	end
 end
 
-function META:OnMouseMove(pos)
-	local cursor = self:GetResizeCursor(pos)
+function META:OnGlobalMouseMove(pos)
+	if self:IsResizing() then
+		local cursor = location2cursor[self.resize_location]
+
+		if cursor then
+			self.Owner.mouse_input:SetCursor(cursor)
+			return true
+		end
+
+		return
+	end
+
+	local gui = self.Owner.gui_element
+
+	if gui and not gui:GetVisible() then return end
+
+	local local_pos = self.Owner.transform:GlobalToLocal(pos)
+	local cursor = self:GetResizeCursor(local_pos)
 
 	if cursor then
 		self.Owner.mouse_input:SetCursor(cursor)
@@ -176,6 +209,10 @@ end
 
 function META:OnRemove()
 	if self:IsResizing() then self:StopResizing() end
+
+	if self.remove_global_input then self.remove_global_input() end
+
+	if self.remove_global_move then self.remove_global_move() end
 end
 
 return META:Register()

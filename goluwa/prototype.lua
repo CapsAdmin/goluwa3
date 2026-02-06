@@ -1075,9 +1075,15 @@ do -- base object
 
 	function META:CallLocalListeners(what, ...)
 		if self.local_events and self.local_events[what] then
+			local result = nil
+
 			for _, callback in pairs(self.local_events[what]) do
-				callback(self, ...)
+				local res = callback(self, ...)
+
+				if res ~= nil then result = res end
 			end
+
+			return result
 		end
 	end
 
@@ -1105,9 +1111,10 @@ do -- base object
 			local func_name = "On" .. event_type
 			events[event_type] = events[event_type] or table.weak()
 			list.insert(events[event_type], self)
+			local real_event_name = config and config.event_name or event_type
 
 			event.AddListener(
-				event_type,
+				real_event_name,
 				"prototype_events",
 				function(a_, b_, c_)
 					--for _, self in ipairs(events[event_type]) do

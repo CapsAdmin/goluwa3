@@ -19,6 +19,7 @@ local RadioButton = runfile("lua/ui/elements/radio_button.lua")
 local Dropdown = runfile("lua/ui/elements/dropdown.lua")
 local Row = runfile("lua/ui/elements/row.lua")
 local Column = runfile("lua/ui/elements/column.lua")
+local Window = runfile("lua/ui/elements/window.lua")
 local world_panel = Panel.World
 local menu = NULL
 local visible = false
@@ -58,7 +59,6 @@ event.AddListener("KeyInput", "menu_toggle", function(key, press)
 											ContextMenu(
 												{
 													Key = "ActiveContextMenu",
-													-- Position is set manually in ContextMenu
 													Position = Vec2(x, y),
 													OnClose = function(ent)
 														print("removing context menu")
@@ -105,8 +105,6 @@ event.AddListener("KeyInput", "menu_toggle", function(key, press)
 				},
 			}
 		)
-		top_bar:AddComponent("draggable")
-		top_bar:AddComponent("resizable")
 		local slider_demo = Slider(
 			{
 				Size = Vec2(400, 50),
@@ -216,19 +214,12 @@ event.AddListener("KeyInput", "menu_toggle", function(key, press)
 				layout = {GrowWidth = 1},
 			}
 		)
-		local demo_container = Frame(
+		local demo_window = Window(
 			{
-				Size = Vec2(450, 400),
-				layout = {
-					Direction = "y",
-					ChildGap = theme.Sizes2.M,
-					AlignmentX = "center",
-					AlignmentY = "center",
-					FitWidth = true,
-					FitHeight = true,
-				},
+				Title = "UI ELEMENTS DEMO",
+				Size = Vec2(450, 500),
+				Position = (world_panel.transform:GetSize() - Vec2(450, 500)) / 2,
 				Children = {
-					Text({Text = "UI ELEMENTS DEMO", Size = "L"}),
 					dropdown_demo,
 					slider_demo,
 					checkbox_demo,
@@ -247,18 +238,7 @@ event.AddListener("KeyInput", "menu_toggle", function(key, press)
 				},
 				Children = {
 					top_bar,
-					Panel.NewPanel(
-						{
-							layout = {
-								GrowWidth = 1,
-								GrowHeight = 1,
-								AlignmentX = "center",
-								AlignmentY = "center",
-							},
-							Color = Color(0, 0, 0, 0),
-							Children = {demo_container},
-						}
-					),
+					demo_window,
 				},
 			}
 		)

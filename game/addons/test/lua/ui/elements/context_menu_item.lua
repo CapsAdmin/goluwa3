@@ -13,7 +13,7 @@ return function(props)
 			OnClick = props.OnClick,
 			layout = {
 				Direction = "x",
-				AlignmentY = "left",
+				AlignmentY = "center",
 				FitHeight = true,
 				GrowWidth = 1,
 			},

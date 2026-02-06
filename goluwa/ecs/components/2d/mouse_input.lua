@@ -102,12 +102,20 @@ function META:OnFirstCreated()
 		if not Panel.World then return end
 
 		local pos = window.GetMousePosition()
+		local global_handled = false
 
 		for _, cmp in ipairs(META.Instances) do
-			if cmp.OnGlobalMouseInput then
-				cmp:OnGlobalMouseInput(button, press, pos)
+			local res1 = cmp.OnGlobalMouseInput and cmp:OnGlobalMouseInput(button, press, pos)
+			local res2 = cmp.Owner:CallLocalListeners("OnGlobalMouseInput", button, press, pos)
+
+			if res1 or res2 then
+				global_handled = true
+
+				if press then break end
 			end
 		end
+
+		if global_handled and press then return true end
 
 		if press then
 			local hovered = get_hovered_entity(Panel.World, pos)
@@ -216,8 +224,21 @@ function META:OnFirstCreated()
 		end
 
 		local cursor = "arrow"
+		local global_handled_move = false
 
-		if hovered:IsValid() then
+		for _, cmp in ipairs(META.Instances) do
+			local res1 = cmp.OnGlobalMouseMove and cmp:OnGlobalMouseMove(pos)
+			local res2 = cmp.Owner:CallLocalListeners("OnGlobalMouseMove", pos)
+
+			if res1 or res2 then
+				cursor = cmp:GetCursor()
+				global_handled_move = true
+
+				break
+			end
+		end
+
+		if not global_handled_move and hovered:IsValid() then
 			local mouse = hovered.mouse_input
 
 			if mouse then

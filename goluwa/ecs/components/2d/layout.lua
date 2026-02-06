@@ -131,15 +131,28 @@ function META:Measure()
 		end
 	end
 
-	-- If we're fitting or growing, our intrinsic size depends on our children.
-	-- If not, it's just our current size.
-	if not self:GetFitWidth() and self:GetGrowWidth() == 0 then
-		intrinsic.x = tr_size.x
+	self.content_size = intrinsic:Copy()
+	-- Heuristic to prevent feedback loops:
+	-- If we are being stretched or grown by a parent layout, we shouldn't use our current size
+	-- as our intrinsic "basis", otherwise we can never shrink.
+	local parent = self.Owner:GetParent()
+	local is_being_managed_x = self:GetFitWidth() or self:GetGrowWidth() > 0
+	local is_being_managed_y = self:GetFitHeight() or self:GetGrowHeight() > 0
+
+	if parent and parent:IsValid() and parent.layout then
+		local pl = parent.layout
+		local pdir = pl:GetDirection()
+
+		if pdir == "x" then
+			if pl:GetAlignmentY() == "stretch" then is_being_managed_y = true end
+		else
+			if pl:GetAlignmentX() == "stretch" then is_being_managed_x = true end
+		end
 	end
 
-	if not self:GetFitHeight() and self:GetGrowHeight() == 0 then
-		intrinsic.y = tr_size.y
-	end
+	if not is_being_managed_x then intrinsic.x = tr_size.x end
+
+	if not is_being_managed_y then intrinsic.y = tr_size.y end
 
 	-- Min/Max constraints
 	local min = self:GetMinSize()
