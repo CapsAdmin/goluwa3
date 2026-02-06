@@ -20,6 +20,7 @@ local Dropdown = require("ui.elements.dropdown")
 local Row = require("ui.elements.row")
 local Column = require("ui.elements.column")
 local Window = require("ui.elements.window")
+local ScrollablePanel = require("ui.elements.scrollable_panel")
 local world_panel = Panel.World
 local menu = NULL
 local visible = false
@@ -199,7 +200,6 @@ local function toggle()
 	local dropdown_demo = Dropdown(
 		{
 			Text = "Select Option",
-			Size = Vec2(10, 10),
 			Options = {"Option 1", "Option 2", "Option 3", "Option 4"},
 			OnSelect = function(val)
 				print("Dropdown selected:", val)
@@ -214,14 +214,42 @@ local function toggle()
 	local demo_window = Window(
 		{
 			Title = "UI ELEMENTS",
-			Size = Vec2(450, 500),
-			Position = (world_panel.transform:GetSize() - Vec2(450, 500)) / 2,
+			Size = Vec2(450, 400),
+			Position = (world_panel.transform:GetSize() - Vec2(450, 400)) / 2,
 			Children = {
-				dropdown_demo,
-				slider_demo,
-				checkbox_demo,
-				radio_group,
-				MenuButton({Text = "CONFIG", Padding = "XS"}),
+				ScrollablePanel({
+					layout = {
+						GrowWidth = 1,
+						GrowHeight = 1,
+					},
+				})(
+					{
+						dropdown_demo,
+						slider_demo,
+						checkbox_demo,
+						radio_group,
+						MenuButton({Text = "CONFIG", Padding = "XS"}),
+						Text({Text = "Scrollable Content Demo"}),
+						Column(
+							{
+								layout = {
+									ChildGap = 5,
+									AlignmentX = "start",
+								},
+								Children = (function()
+									local items = {}
+
+									for i = 1, 20 do
+										table.insert(items, Text({Text = "Extra Item #" .. i}))
+									end
+
+									return items
+								end)(),
+							}
+						),
+						Text({Text = "End of List"}),
+					}
+				),
 			},
 		}
 	)

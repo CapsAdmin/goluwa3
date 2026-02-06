@@ -189,7 +189,7 @@ return function(name, base_path, get_valid_components)
 		local meta = valid_components[name] --require(base_path .. name)
 		self[name] = self:CreateSubObject(meta)
 
-		if tbl then
+		if type(tbl) == "table" then
 			for key, value in pairs(tbl) do
 				if key:starts_with("On") then
 					self[name][key] = value

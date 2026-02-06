@@ -36,22 +36,7 @@ function META:IsMouseButtonDown(button)
 	return state and state.press
 end
 
-function META:OnMouseInput(button, press, pos)
-	local transform = self.Owner.transform
-
-	if transform:GetScrollEnabled() then
-		if button == "mwheel_up" then
-			local s = transform:GetScroll() + Vec2(0, -20)
-			s.y = math.max(s.y, 0)
-			transform:SetScroll(s)
-			return true
-		elseif button == "mwheel_down" then
-			local s = transform:GetScroll() + Vec2(0, 20)
-			transform:SetScroll(s)
-			return true
-		end
-	end
-end
+function META:OnMouseInput(button, press, pos) end
 
 local mouse_input = library()
 mouse_input.pressed_entities = mouse_input.pressed_entities or {}
@@ -140,18 +125,31 @@ function META:OnFirstCreated()
 
 					if mouse_comp:GetBringToFrontOnClick() then hovered:BringToFront() end
 
-					local local_pos = hovered.transform:GlobalToLocal(pos)
+					local current = hovered
 
-					if hovered.component_map then
-						for _, comp in pairs(hovered.component_map) do
-							if comp.OnMouseInput then
-								comp:OnMouseInput(button, press, local_pos)
+					while current:IsValid() do
+						local local_pos = current.transform:GlobalToLocal(pos)
+						local consumed = false
+
+						if current.component_map then
+							for _, comp in pairs(current.component_map) do
+								if comp.OnMouseInput then
+									if comp:OnMouseInput(button, press, local_pos) then
+										consumed = true
+									end
+								end
 							end
 						end
-					end
 
-					if hovered.OnMouseInput then
-						hovered:OnMouseInput(button, press, local_pos)
+						if current.OnMouseInput then
+							if current:OnMouseInput(button, press, local_pos) then
+								consumed = true
+							end
+						end
+
+						if consumed then return true end
+
+						current = current:GetParent()
 					end
 
 					return true
@@ -169,18 +167,31 @@ function META:OnFirstCreated()
 					if mouse_comp then
 						mouse_comp.button_states = mouse_comp.button_states or {}
 						mouse_comp.button_states[button] = {press = press, pos = pos}
-						local local_pos = pressed.transform:GlobalToLocal(pos)
+						local current = pressed
 
-						if pressed.component_map then
-							for _, comp in pairs(pressed.component_map) do
-								if comp.OnMouseInput then
-									comp:OnMouseInput(button, press, local_pos)
+						while current:IsValid() do
+							local local_pos = current.transform:GlobalToLocal(pos)
+							local consumed = false
+
+							if current.component_map then
+								for _, comp in pairs(current.component_map) do
+									if comp.OnMouseInput then
+										if comp:OnMouseInput(button, press, local_pos) then
+											consumed = true
+										end
+									end
 								end
 							end
-						end
 
-						if pressed.OnMouseInput then
-							pressed:OnMouseInput(button, press, local_pos)
+							if current.OnMouseInput then
+								if current:OnMouseInput(button, press, local_pos) then
+									consumed = true
+								end
+							end
+
+							if consumed then break end
+
+							current = current:GetParent()
 						end
 					end
 				end
