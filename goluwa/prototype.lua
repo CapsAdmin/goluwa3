@@ -766,6 +766,12 @@ do -- get is set
 					info.copy = function()
 						return {}
 					end
+				elseif getmetatable(info.default) then
+					wlog(
+						"Default value for %s has a metatable, but does not have a __copy method. This may cause issues if multiple instances of the object are created.",
+						info.var_name,
+						2
+					)
 				else
 					info.copy = function()
 						return table.copy(info.default)
