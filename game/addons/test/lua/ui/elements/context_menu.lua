@@ -3,8 +3,8 @@ local Vec2 = require("structs.vec2")
 local Color = require("structs.color")
 local Rect = require("structs.rect")
 local Panel = require("ecs.panel")
-local Frame = runfile("lua/ui/elements/frame.lua")
-local theme = runfile("lua/ui/theme.lua")
+local Frame = require("ui.elements.frame")
+local theme = require("ui.theme")
 return function(props)
 	local menu_ent
 	local container_ent

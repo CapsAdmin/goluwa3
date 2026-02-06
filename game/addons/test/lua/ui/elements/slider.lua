@@ -5,7 +5,7 @@ local Ang3 = require("structs.ang3")
 local window = require("window")
 local event = require("event")
 local Panel = require("ecs.panel")
-local theme = runfile("lua/ui/theme.lua")
+local theme = require("ui.theme")
 return function(props)
 	local ent
 	local state = {

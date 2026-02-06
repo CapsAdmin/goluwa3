@@ -306,6 +306,25 @@ function vfs.Require(name, ...)
 
 	if ret[1] then return unpack(ret, 2) end
 
+	for i, v in ipairs(vfs.loaded_addons) do
+		local lua_dir = v.path .. "lua/"
+
+		if fs.is_directory(lua_dir) then
+			local wdir = fs.get_current_directory()
+
+			if lua_dir:starts_with(wdir) then lua_dir = lua_dir:sub(#wdir + 1) end
+
+			if lua_dir:starts_with("./") then lua_dir = lua_dir:sub(3) end
+
+			if lua_dir:starts_with("/") then lua_dir = lua_dir:sub(2) end
+
+			local path = lua_dir:replace("/", ".") .. name
+			local ret = {pcall(_OLD_G.require, path, ...)}
+
+			if ret[1] then return unpack(ret, 2) end
+		end
+	end
+
 	local done = {}
 	local errors = {}
 	local error_directories = {}

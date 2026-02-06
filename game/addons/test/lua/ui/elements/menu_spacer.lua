@@ -5,7 +5,7 @@ local Ang3 = require("structs.ang3")
 local window = require("window")
 local Panel = require("ecs.panel")
 local Texture = require("render.texture")
-local theme = runfile("lua/ui/theme.lua")
+local theme = require("ui.theme")
 return function(props)
 	props = props or {}
 	return Panel.NewPanel(

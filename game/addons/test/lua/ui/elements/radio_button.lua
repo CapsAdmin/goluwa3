@@ -2,8 +2,8 @@ local Vec2 = require("structs.vec2")
 local Color = require("structs.color")
 local Rect = require("structs.rect")
 local Panel = require("ecs.panel")
-local theme = runfile("lua/ui/theme.lua")
-local Text = runfile("lua/ui/elements/text.lua")
+local theme = require("ui.theme")
+local Text = require("ui.elements.text")
 return function(props)
 	local ent
 	local state = {

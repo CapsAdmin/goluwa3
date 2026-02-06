@@ -14,7 +14,7 @@ if not render.available then
 	return
 end
 
---_G.require = vfs.Require
+_G.require = vfs.Require
 _G.runfile = function(...)
 	local ret = list.pack(vfs.RunFile(...))
 

@@ -1,7 +1,7 @@
 local Vec2 = require("structs.vec2")
-local Button = runfile("lua/ui/elements/button.lua")
-local Text = runfile("lua/ui/elements/text.lua")
-local theme = runfile("lua/ui/theme.lua")
+local Button = require("ui.elements.button")
+local Text = require("ui.elements.text")
+local theme = require("ui.theme")
 return function(props)
 	local button_props = table.copy(props)
 	button_props.Children = {
