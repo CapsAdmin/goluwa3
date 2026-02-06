@@ -152,12 +152,19 @@ return function(name, base_path, get_valid_components)
 		return self
 	end
 
+	function BaseEntity:__call(...)
+		self:SetChildren({...})
+		return self
+	end
+
 	function BaseEntity:SetChildren(children)
-		for i = #self.Children, 1, -1 do
-			self.Children[i]:UnParent()
+		local lst = list.flatten(children)
+
+		for i = #lst, 1, -1 do
+			lst[i]:UnParent()
 		end
 
-		for _, child in ipairs(children) do
+		for _, child in ipairs(lst) do
 			self:AddChild(child)
 		end
 	end

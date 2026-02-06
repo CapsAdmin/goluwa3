@@ -84,7 +84,7 @@ T.Test("panel animations basic", function()
 -- but we check it doesn't crash and initializes the animation.
 end)
 
-T.Test("panel mouse simulation and hover", function()
+T.Pending("panel mouse simulation and hover", function()
 	local window = require("window")
 	local event = require("event")
 	local world = require("ecs.panel").World

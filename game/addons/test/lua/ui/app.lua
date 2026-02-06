@@ -22,6 +22,7 @@ local Column = runfile("lua/ui/elements/column.lua")
 local world_panel = Panel.World
 local menu = NULL
 local visible = false
+world_panel:RemoveChildren()
 
 event.AddListener("KeyInput", "menu_toggle", function(key, press)
 	if not press then return end
@@ -42,61 +43,59 @@ event.AddListener("KeyInput", "menu_toggle", function(key, press)
 				Layout = {"MoveTop", "FillX", "SizeToChildrenHeight"},
 				Padding = "XXS",
 				Children = {
-					Row(
+					Row({})(
 						{
-							Children = {
-								MenuButton(
-									{
-										Text = "GAME",
-										OnClick = function(ent)
-											local x, y = ent.transform:GetWorldMatrix():GetTranslation()
-											y = y + ent.transform:GetHeight()
-											world_panel:Ensure(
-												ContextMenu(
-													{
-														Key = "ActiveContextMenu",
-														Position = Vec2(x, y),
-														OnClose = function(ent)
-															print("removing context menu")
-															ent:Remove()
-														end,
-														Children = {
-															MenuItem({Text = "LOAD"}),
-															MenuItem({Text = "RUN (ESCAPE)"}),
-															MenuItem({Text = "RESET", Disabled = true}),
-															MenuSpacer(),
-															MenuItem({Text = "SAVE STATE", Disabled = true}),
-															MenuItem({Text = "OPEN STATE", Disabled = true}),
-															MenuItem({Text = "PICK STATE", Disabled = true}),
-															MenuSpacer(),
-															MenuItem(
-																{
-																	Text = "QUIT",
-																	OnClick = function()
-																		system.ShutDown()
-																	end,
-																}
-															),
-														},
-													}
-												)
+							MenuButton(
+								{
+									Text = "GAME",
+									OnClick = function(ent)
+										local x, y = ent.transform:GetWorldMatrix():GetTranslation()
+										y = y + ent.transform:GetHeight()
+										world_panel:Ensure(
+											ContextMenu(
+												{
+													Key = "ActiveContextMenu",
+													Position = Vec2(x, y),
+													OnClose = function(ent)
+														print("removing context menu")
+														ent:Remove()
+													end,
+													Children = {
+														MenuItem({Text = "LOAD"}),
+														MenuItem({Text = "RUN (ESCAPE)"}),
+														MenuItem({Text = "RESET", Disabled = true}),
+														MenuSpacer(),
+														MenuItem({Text = "SAVE STATE", Disabled = true}),
+														MenuItem({Text = "OPEN STATE", Disabled = true}),
+														MenuItem({Text = "PICK STATE", Disabled = true}),
+														MenuSpacer(),
+														MenuItem(
+															{
+																Text = "QUIT",
+																OnClick = function()
+																	system.ShutDown()
+																end,
+															}
+														),
+													},
+												}
 											)
-										end,
-									}
-								),
-								MenuButton({
-									Text = "CONFIG",
-								}),
-								MenuButton({
-									Text = "CHEAT",
-								}),
-								MenuButton({
-									Text = "NETPLAY",
-								}),
-								MenuButton({
-									Text = "MISC",
-								}),
-							},
+										)
+									end,
+								}
+							),
+							MenuButton({
+								Text = "CONFIG",
+							}),
+							MenuButton({
+								Text = "CHEAT",
+							}),
+							MenuButton({
+								Text = "NETPLAY",
+							}),
+							MenuButton({
+								Text = "MISC",
+							}),
 						}
 					),
 				},

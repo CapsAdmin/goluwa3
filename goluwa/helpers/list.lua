@@ -118,7 +118,7 @@ end
 
 function list.map(tbl, cb)
 	for i, v in ipairs(tbl) do
-		tbl[i] = cb(v)
+		tbl[i] = cb(v, i)
 	end
 
 	return tbl
@@ -178,22 +178,27 @@ end
 function list.fix_indices(tbl)
 	local j = 1
 	local n = #tbl
+
 	for i = 1, n do
 		local v = tbl[i]
+
 		if v ~= nil then
 			if i ~= j then
 				tbl[j] = v
 				tbl[i] = nil
 			end
+
 			j = j + 1
 		end
 	end
 
 	-- Check for non-numeric keys or keys beyond #tbl
 	local has_extra = false
+
 	for k, v in pairs(tbl) do
 		if type(k) ~= "number" or k >= j then
 			has_extra = true
+
 			break
 		end
 	end
@@ -203,6 +208,7 @@ function list.fix_indices(tbl)
 	-- Slow path for tables with non-numeric keys or large gaps
 	local keys = {}
 	local kn = 0
+
 	for k in pairs(tbl) do
 		kn = kn + 1
 		keys[kn] = k
@@ -210,13 +216,18 @@ function list.fix_indices(tbl)
 
 	table.sort(keys, function(a, b)
 		local ak, bk = tonumber(a), tonumber(b)
+
 		if ak and bk then return ak < bk end
+
 		if ak then return true end
+
 		if bk then return false end
+
 		return tostring(a) < tostring(b)
 	end)
 
 	local values = {}
+
 	for i = 1, kn do
 		values[i] = tbl[keys[i]]
 		tbl[keys[i]] = nil
