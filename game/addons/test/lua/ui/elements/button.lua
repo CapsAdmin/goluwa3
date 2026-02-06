@@ -19,12 +19,14 @@ return function(props)
 			Shadows = false,
 			BorderRadius = 10,
 			ShadowSize = 10,
-			ShadowColor = theme.Colors.ButtonShadow,
+			ShadowColor = theme.GetColor("button_shadow"),
 			ShadowOffset = Vec2(2, 2),
-			Padding = props.Padding,
+			Padding = Rect() + theme.GetPadding("XXS"),
 			Clipping = true,
 			Cursor = is_disabled and "arrow" or "hand",
-			Color = is_disabled and theme.Colors.ButtonDisabled or theme.Colors.ButtonNormal,
+			Color = is_disabled and
+				theme.GetColor("button_disabled") or
+				theme.GetColor("primary"),
 			DrawScaleOffset = Vec2(1, 1),
 			DrawAngleOffset = Ang3(0, 0, 0),
 			Children = props.Children or {},

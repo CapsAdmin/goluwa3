@@ -12,7 +12,7 @@ return function(props)
 		{
 			Name = props.Name or "Window",
 			Size = props.Size or Vec2(400, 300),
-			Color = Color(0, 0, 0, 0),
+			Color = theme.GetColor("invisible"),
 			Position = props.Position or Vec2(100, 100),
 			layout = {
 				Direction = "y",
@@ -33,7 +33,7 @@ return function(props)
 				AlignmentY = "center",
 				FitHeight = true,
 			},
-			Color = theme.Colors.Header,
+			Color = theme.GetColor("primary"),
 			draggable = {Target = window_container},
 			Cursor = "sizeall",
 			Padding = "XXS",

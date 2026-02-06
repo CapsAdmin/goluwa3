@@ -36,7 +36,7 @@ return function(props)
 			Size = props.Size or theme.Sizes.SliderSize,
 			layout = props.layout,
 			Cursor = "hand",
-			Color = theme.Colors.Invisible,
+			Color = theme.GetColor("invisible"),
 			mouse_input = {
 				OnMouseInput = function(self, button, press, local_pos)
 					if button == "button_1" then

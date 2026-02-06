@@ -20,7 +20,7 @@ return function(props)
 			Size = props.Size or Vec2(theme.Sizes.CheckboxSize, theme.Sizes.CheckboxSize),
 			layout = props.layout,
 			Cursor = "hand",
-			Color = Color(0, 0, 0, 0),
+			Color = theme.GetColor("invisible"),
 			mouse_input = {
 				OnMouseInput = function(self, button, press, local_pos)
 					if button == "button_1" and press then

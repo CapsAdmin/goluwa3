@@ -9,7 +9,7 @@ return function(props)
 			{
 				IgnoreMouseInput = true,
 				Text = props.Text or "Button",
-				Color = props.TextColor or theme.Colors.Text,
+				Color = props.TextColor or theme.GetColor("text_foreground"),
 				layout = {
 					FitWidth = true,
 					FitHeight = true,

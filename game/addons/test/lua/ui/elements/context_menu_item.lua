@@ -24,7 +24,9 @@ return function(props)
 						layout = {GrowWidth = 1, FitHeight = true},
 						Text = props.Text,
 						IgnoreMouseInput = true,
-						Color = props.Disabled and theme.Colors.TextDisabled or theme.Colors.TextNormal,
+						Color = props.Disabled and
+							theme.GetColor("text_disabled") or
+							theme.GetColor("text_foreground"),
 					}
 				),
 			},

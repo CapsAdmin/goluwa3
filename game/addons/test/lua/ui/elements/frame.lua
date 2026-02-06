@@ -14,7 +14,7 @@ return function(props)
 		table.merge_many(
 			{
 				Name = "frame",
-				Color = theme.Colors.FrameBackground,
+				Color = theme.GetColor("background"),
 				gui_element = {
 					OnDraw = function(self)
 						theme.DrawFrame(self.Owner)

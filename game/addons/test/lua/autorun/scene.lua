@@ -9,6 +9,7 @@ local ffi = require("ffi")
 local Polygon3D = require("render3d.polygon_3d")
 local Entity = require("ecs.entity")
 local materials = {}
+runfile("lua/examples/desert.lua")
 
 local function shaded_texture(glsl, shared)
 	if type(glsl) ~= "string" then return glsl end -- already a texture

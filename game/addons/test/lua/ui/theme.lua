@@ -5,18 +5,26 @@ local fonts = require("render2d.fonts")
 local render2d = require("render2d.render2d")
 local Ang3 = require("structs.ang3")
 local window = require("window")
-local theme = {}
+local theme = library()
 -- 
+local hmm = Color.FromHex("#062a67"):SetAlpha(0.9)
+local gradient = {
+	Color.FromHex("#021830"),
+	Color.FromHex("#03274D"),
+	Color.FromHex("#062a67"),
+	Color.FromHex("#154486"),
+	Color.FromHex("#2471bd"),
+}
 local pallete = Color.BuildPallete(
 	{
-		Color.FromHSV(0.6111, 0, 0.8),
-		Color.FromHSV(0.6111, 0.03, 0.2),
-		Color.FromHSV(0.6111, 0.03, 0.09),
+		Color.FromHex("#cccccc"),
+		Color.FromHex("#03274D"),
+		Color.FromHex("#021830"),
 	},
 	{
 		red = Color.FromHex("#dd4546"),
 		yellow = Color.FromHex("#e0c33d"),
-		blue = Color.FromHex("#2183d3"),
+		blue = Color.FromHex("#062a67"),
 		green = Color.FromHex("#69ce4a"),
 		purple = Color.FromHex("#a454d8"),
 		brown = Color.FromHex("#a17247"),
@@ -24,28 +32,12 @@ local pallete = Color.BuildPallete(
 )
 local colors = table.merge_many(
 	{
-		primary = pallete.blue,
-		secondary = pallete.green,
-		positive = pallete.green_lighter,
-		neutral = pallete.yellow_lighter,
-		negative = pallete.red_darker,
-		foreground = pallete.white,
-		background = pallete.white,
-		default = pallete.black,
-		heading = pallete.white,
-		text_foreground = pallete.black,
-		text_button = pallete.white,
 		dashed_underline = Color(0.37, 0.37, 0.37, 0.25),
-		text_background = pallete.white,
-		main_background = pallete.white,
 		button_color = pallete.blue,
 		underline = pallete.blue,
 		url_color = pallete.blue,
-		card = pallete.white,
 		actual_black = Color(0, 0, 0, 1),
 		bar_color_horizontal = pallete.green,
-	},
-	{
 		primary = pallete.blue,
 		secondary = pallete.green,
 		positive = pallete.green_lighter,
@@ -53,20 +45,24 @@ local colors = table.merge_many(
 		negative = pallete.red_darker,
 		heading = pallete.white,
 		default = pallete.white,
-		text_foreground = Color.FromHex("#0eb3ed"),
+		text_foreground = pallete.white,
 		text_button = pallete.white,
 		foreground = pallete.black,
 		background = pallete.black,
 		text_background = pallete.black,
 		main_background = pallete.black,
 		card = pallete.darkest,
-	-- bar_color_horizontal = "linear-gradient(0deg, " + pallete.yellow + " 33.03%, rgba(123, 193, 68, 0) 144.47%)",
+		frame_border = Color(0.106, 0.463, 0.678),
+		invisible = Color(0, 0, 0, 0),
+		button_disabled = Color(0.3, 0.3, 0.3, 1),
+		button_normal = Color(0.8, 0.8, 0.2, 1),
 	},
 	pallete
 )
+colors.text_disabled = colors.text_foreground:Copy():SetAlpha(0.5)
 
 function theme.GetColor(name)
-	return colors[name]
+	return colors[name or "primary"] or colors.primary
 end
 
 local sizes = {
@@ -99,13 +95,6 @@ local border_sizes = {
 	default = sizes.L,
 	small = sizes.M,
 	circle = "50%",
-}
-local gradient = {
-	Color.FromHex("#021830"),
-	Color.FromHex("#03274D"),
-	Color.FromHex("#062a67"),
-	Color.FromHex("#154486"),
-	Color.FromHex("#2471bd"),
 }
 local shadow = {
 	{
@@ -141,30 +130,18 @@ local shadow_footer = {
 }
 theme.Colors2 = colors
 ---
-theme.Colors = {
-	FrameBackground = Color.FromHex("#062a67"):SetAlpha(0.9),
-	FrameBorder = Color(0.106, 0.463, 0.678),
-	Text = Color(1, 1, 1, 1),
-	TextDisabled = Color(1, 1, 1, 0.3),
-	TextNormal = Color(1, 1, 1, 0.8),
-	TextShadow = Color.FromHex("#022d58"):SetAlpha(0.75),
-	DecorGlow = Color(0.1, 0.6, 1, 0.25),
-	DecorWhite = Color(1, 1, 1, 1),
-	Invisible = Color(0, 0, 0, 0),
-	ButtonShadow = Color(0, 0, 0, 0.2),
-	ButtonDisabled = Color(0.3, 0.3, 0.3, 1),
-	ButtonNormal = Color(0.8, 0.8, 0.2, 1),
-	-- Shared pattern colors
-	GradientBlue = Color(0, 0.40, 0.70, 1),
-	GradientCyan = Color(0.35, 0.71, 0.816, 1),
-	SliderTrackBackground = Color(0.2, 0.2, 0.2, 0.8),
-	SliderGlow = Color(0, 0.5, 1, 0.3),
-	SliderKnobGlow = Color(0, 0.3, 0.5, 0.2),
-	ButtonPressGlow = Color(1, 1, 1, 0.5),
-	ButtonHoverGlow = Color(1, 1, 1, 0.15),
-	MenuSpacer = Color(1, 1, 1, 0.1),
-	KnobHighlight = Color(1, 1, 1, 0.3),
-}
+local DecorGlow = Color(0.1, 0.6, 1, 0.25)
+local DecorWhite = Color(1, 1, 1, 1)
+local ButtonShadow = Color(0, 0, 0, 0.2)
+local GradientBlue = Color(0, 0.40, 0.70, 1)
+local GradientCyan = Color(0.35, 0.71, 0.816, 1)
+local SliderTrackBackground = Color(0.2, 0.2, 0.2, 0.8)
+local SliderGlow = Color(0, 0.5, 1, 0.3)
+local SliderKnobGlow = Color(0, 0.3, 0.5, 0.2)
+local ButtonPressGlow = Color(1, 1, 1, 0.5)
+local ButtonHoverGlow = Color(1, 1, 1, 0.15)
+local MenuSpacer = Color(1, 1, 1, 0.1)
+local KnobHighlight = Color(1, 1, 1, 0.3)
 theme.Sizes = {
 	SliderSize = Vec2(300, 40),
 	TopBarButtonSize = Vec2(80, 30),
@@ -174,12 +151,12 @@ theme.Sizes = {
 	EdgeDecorSize = 3,
 	EdgeDecorGlowFactor = 40,
 	EdgeDecorWhiteSize = 4,
-	FrameOutlineOffset = 4,
+	FrameOutlineOffset = 2,
 	FrameOutlineThickness = 3,
 	SliderTrackHeight = 6,
-	SliderKnobWidth = 20,
-	SliderKnobHeight = 30,
-	SliderKnobGlowSize = 60,
+	SliderKnobWidth = 15,
+	SliderKnobHeight = 15,
+	SliderKnobGlowSize = 20,
 	CheckboxSize = 24,
 	RadioButtonSize = 24,
 }
@@ -217,7 +194,7 @@ function theme.GetFont(name, size_name)
 				size = size,
 				shadow = {
 					dir = -2,
-					color = theme.Colors.TextShadow,
+					color = Color.FromHex("#022d58"):SetAlpha(0.75),
 					blur_radius = 0.25,
 					blur_passes = 1,
 				},
@@ -261,14 +238,14 @@ function theme.DrawEdgeDecor(x, y)
 	render2d.PopMatrix()
 	render2d.SetTexture(Textures.GlowPoint)
 	render2d.SetBlendMode("additive")
-	local r, g, b, a = theme.Colors.DecorGlow:Unpack()
+	local r, g, b, a = DecorGlow:Unpack()
 	render2d.PushColor(r, g, b, a)
 	local size_glow = size * theme.Sizes.EdgeDecorGlowFactor
 	render2d.DrawRect(x - size_glow, y - size_glow, size_glow * 2, size_glow * 2)
 	render2d.PopColor()
 
 	do
-		local r, g, b, a = theme.Colors.DecorWhite:Unpack()
+		local r, g, b, a = DecorWhite:Unpack()
 		render2d.PushColor(r, g, b, a)
 		local size_white = theme.Sizes.EdgeDecorWhiteSize
 		render2d.SetTexture(Textures.GlowPoint)
@@ -295,7 +272,7 @@ function theme.DrawFramePost(pnl)
 	local c = pnl.rect.Color + pnl.rect.DrawColor
 
 	do
-		local r, g, b, a = theme.Colors.FrameBorder:Unpack()
+		local r, g, b, a = theme.GetColor("frame_border"):Unpack()
 		render2d.SetColor(r, g, b, c.a * pnl.rect.DrawAlpha)
 		render2d.SetBlendMode("alpha")
 		local offset = theme.Sizes.FrameOutlineOffset
@@ -440,9 +417,9 @@ function theme.DrawButton(self, state)
 	local s = state or {glow_alpha = 0, press_scale = 0}
 	local size = self.Owner.transform.Size
 	render2d.PushUV()
-	render2d.SetUV2(0, 0, 0.5, 1)
+	render2d.SetUV2(0, 0, 0.4, 1)
 	render2d.SetTexture(Textures.Gradient)
-	local col = theme.Colors.GradientBlue
+	local col = GradientBlue
 	render2d.SetColor(col.r * s.glow_alpha, col.g * s.glow_alpha, col.b * s.glow_alpha, 1)
 	render2d.DrawRect(0, 0, size.x, size.y)
 	render2d.PopUV()
@@ -454,14 +431,14 @@ function theme.DrawButton(self, state)
 		render2d.SetTexture(Textures.GlowLinear)
 
 		if s.glow_alpha > 0 then
-			local c = theme.Colors.ButtonHoverGlow
+			local c = ButtonHoverGlow
 			render2d.SetColor(c.r, c.g, c.b, c.a * s.glow_alpha)
 			local gs = 256 * 1.5
 			render2d.DrawRect(lpos.x - gs / 2, lpos.y - gs / 2, gs, gs)
 		end
 
 		render2d.SetTexture(Textures.GlowPoint)
-		local c = theme.Colors.ButtonPressGlow
+		local c = ButtonPressGlow
 		render2d.SetColor(c.r, c.g, c.b, c.a * s.press_scale)
 		local ps = s.press_scale * 150
 		render2d.DrawRect(lpos.x - ps / 2, lpos.y - ps / 2, ps, ps)
@@ -479,7 +456,7 @@ function theme.DrawButtonPost(self, state)
 	render2d.SetUV2(0.2, 0, 0.8, 1)
 	theme.DrawLine(-2, 0, -2, size.y, 4, Textures.GlowLinear)
 	render2d.PopUV()
-	local c = theme.Colors.GradientCyan
+	local c = GradientCyan
 	render2d.SetColor(c.r, c.g, c.b, s.glow_alpha)
 	render2d.PushUV()
 	render2d.SetUV2(0.5, 0, 1, 0.5)
@@ -493,7 +470,7 @@ function theme.DrawMenuSpacer(self, props)
 	local size = self.Owner.transform:GetSize()
 	local w = size.x
 	local h = size.y
-	local r, g, b, a = theme.Colors.MenuSpacer:Unpack()
+	local r, g, b, a = MenuSpacer:Unpack()
 	render2d.PushColor(r, g, b, a)
 
 	if props.Vertical then
@@ -561,7 +538,7 @@ function theme.DrawSlider(self, state)
 	local max_value = state.max or 1
 	-- Draw track background
 	render2d.SetTexture(nil)
-	local c = theme.Colors.SliderTrackBackground
+	local c = SliderTrackBackground
 	render2d.SetColor(c.r, c.g, c.b, c.a)
 	render2d.DrawRect(knob_width / 2, track_y, size.x - knob_width, track_height)
 	-- Draw filled track
@@ -570,7 +547,7 @@ function theme.DrawSlider(self, state)
 	render2d.PushUV()
 	render2d.SetUV2(0, 0, 0.5, 1)
 	render2d.SetTexture(Textures.Gradient)
-	local c = theme.Colors.GradientBlue
+	local c = GradientBlue
 	render2d.SetColor(c.r, c.g, c.b, 0.9)
 	render2d.DrawRect(knob_width / 2, track_y, fill_width, track_height)
 	render2d.PopUV()
@@ -579,7 +556,7 @@ function theme.DrawSlider(self, state)
 	if state.glow_alpha > 0 then
 		render2d.SetBlendMode("additive")
 		render2d.SetTexture(Textures.GlowLinear)
-		local c = theme.Colors.SliderGlow
+		local c = SliderGlow
 		render2d.SetColor(c.r, c.g * state.glow_alpha, c.b * state.glow_alpha, c.a)
 		render2d.DrawRect(knob_width / 2, track_y - 2, fill_width, track_height + 4)
 		render2d.SetBlendMode("alpha")
@@ -591,7 +568,7 @@ function theme.DrawSlider(self, state)
 	-- Knob shadow/glow
 	render2d.SetTexture(Textures.GlowPoint)
 	render2d.SetBlendMode("additive")
-	local c = theme.Colors.SliderKnobGlow
+	local c = SliderKnobGlow
 	render2d.SetColor(c.r, c.g, c.b, c.a + state.glow_alpha * 0.3)
 	local glow_size = theme.Sizes.SliderKnobGlowSize * state.knob_scale
 	render2d.DrawRect(
@@ -603,7 +580,7 @@ function theme.DrawSlider(self, state)
 	render2d.SetBlendMode("alpha")
 	-- Knob body
 	render2d.SetTexture(nil)
-	local c = theme.Colors.ButtonNormal
+	local c = theme.GetColor("button_normal")
 	render2d.SetColor(c.r, c.g, c.b, c.a)
 	local scaled_width = knob_width * state.knob_scale
 	local scaled_height = knob_height * state.knob_scale
@@ -619,7 +596,7 @@ function theme.DrawSlider(self, state)
 	render2d.PushUV()
 	render2d.SetUV2(0, 0, 1, 0.5)
 	render2d.SetTexture(Textures.Gradient)
-	local c = theme.Colors.KnobHighlight
+	local c = KnobHighlight
 	render2d.SetColor(c.r, c.g, c.b, c.a)
 	render2d.DrawRect(
 		knob_x - scale_offset_x,
@@ -633,7 +610,7 @@ function theme.DrawSlider(self, state)
 	if state.glow_alpha > 0 then
 		render2d.SetBlendMode("additive")
 		render2d.SetTexture(Textures.GlowLinear)
-		local c = theme.Colors.GradientCyan
+		local c = GradientCyan
 		render2d.SetColor(c.r * state.glow_alpha, c.g * state.glow_alpha, c.b * state.glow_alpha, 1)
 		-- Top edge
 		theme.DrawLine(
@@ -707,7 +684,7 @@ function theme.DrawCheckbox(self, state)
 	local box_y = (size.y - check_size) / 2
 	-- Background
 	render2d.SetTexture(nil)
-	local c = theme.Colors.SliderTrackBackground
+	local c = SliderTrackBackground
 	render2d.SetColor(c.r, c.g, c.b, c.a)
 	render2d.DrawRect(box_x, box_y, check_size, check_size)
 
@@ -715,7 +692,7 @@ function theme.DrawCheckbox(self, state)
 	if state.glow_alpha > 0 then
 		render2d.SetBlendMode("additive")
 		render2d.SetTexture(Textures.GlowLinear)
-		local c = theme.Colors.GradientCyan
+		local c = GradientCyan
 		render2d.SetColor(c.r * state.glow_alpha, c.g * state.glow_alpha, c.b * state.glow_alpha, 0.5)
 		theme.DrawRect(box_x - 1, box_y - 1, check_size + 2, check_size + 2, 1)
 		render2d.SetBlendMode("alpha")
@@ -727,7 +704,7 @@ function theme.DrawCheckbox(self, state)
 		render2d.PushUV()
 		render2d.SetUV2(0, 0, 0.5, 1)
 		render2d.SetTexture(Textures.Gradient)
-		local c = theme.Colors.GradientBlue
+		local c = GradientBlue
 		render2d.SetColor(c.r, c.g, c.b, 0.9 * s)
 		local padding = check_size * 0.2
 		local mark_size = (check_size - padding * 2) * s
@@ -750,7 +727,7 @@ function theme.DrawRadioButton(self, state)
 	-- Use a simple rect for now, but style it differently or use circular drawing if available
 	-- Background
 	render2d.SetTexture(nil)
-	local c = theme.Colors.SliderTrackBackground
+	local c = SliderTrackBackground
 	render2d.SetColor(c.r, c.g, c.b, c.a)
 	render2d.DrawRect(rb_x, rb_y, rb_size, rb_size)
 
@@ -758,7 +735,7 @@ function theme.DrawRadioButton(self, state)
 	if state.glow_alpha > 0 then
 		render2d.SetBlendMode("additive")
 		render2d.SetTexture(Textures.GlowLinear)
-		local c = theme.Colors.GradientCyan
+		local c = GradientCyan
 		render2d.SetColor(c.r * state.glow_alpha, c.g * state.glow_alpha, c.b * state.glow_alpha, 0.5)
 		theme.DrawRect(rb_x - 1, rb_y - 1, rb_size + 2, rb_size + 2, 1)
 		render2d.SetBlendMode("alpha")
@@ -769,7 +746,7 @@ function theme.DrawRadioButton(self, state)
 		local s = state.check_anim
 		render2d.SetTexture(Textures.GlowPoint)
 		render2d.SetBlendMode("additive")
-		local c = theme.Colors.GradientBlue
+		local c = GradientBlue
 		render2d.SetColor(c.r, c.g, c.b, 1 * s)
 		local dot_size = (rb_size * 0.6) * s
 		render2d.DrawRect(

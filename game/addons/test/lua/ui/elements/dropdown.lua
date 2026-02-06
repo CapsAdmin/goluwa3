@@ -68,7 +68,9 @@ return function(props)
 						end,
 						IgnoreMouseInput = true,
 						layout = {GrowWidth = 1, FitHeight = true},
-						Color = props.Disabled and theme.Colors.TextDisabled or theme.Colors.TextNormal,
+						Color = props.Disabled and
+							theme.GetColor("text_disabled") or
+							theme.GetColor("text_foreground"),
 					}
 				),
 				Text(
@@ -76,7 +78,9 @@ return function(props)
 						Text = " ▼",
 						IgnoreMouseInput = true,
 						layout = {FitWidth = true, FitHeight = true},
-						Color = props.Disabled and theme.Colors.TextDisabled or theme.Colors.TextNormal,
+						Color = props.Disabled and
+							theme.GetColor("text_disabled") or
+							theme.GetColor("text_foreground"),
 					}
 				),
 			},

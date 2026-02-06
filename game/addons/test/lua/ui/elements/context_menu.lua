@@ -43,7 +43,7 @@ return function(props)
 			end,
 			Name = "ContextMenuContainer",
 			Size = Vec2(render2d.GetSize()),
-			Color = theme.Colors.Invisible, -- Invisible background to catch clicks
+			Color = theme.GetColor("invisible"),
 			mouse_input = {
 				BringToFrontOnClick = true,
 				OnMouseInput = function(self, button, press)
@@ -77,7 +77,7 @@ return function(props)
 						Pivot = Vec2(0, 0),
 						Position = props.Position or Vec2(100, 100),
 						Size = props.Size or theme.Sizes.ContextMenuSize,
-						Padding = "S",
+						Padding = "XS",
 						layout = {
 							Floating = true,
 							Direction = "y",

@@ -4,6 +4,7 @@ local event = require("event")
 local Entity = require("ecs.entity")
 local Color = require("structs.color")
 local input = require("input")
+local atmosphere = require("render3d.atmosphere")
 local sun = Entity.New(
 	{
 		transform = {
@@ -12,7 +13,7 @@ local sun = Entity.New(
 		light = {
 			LightType = "sun",
 			Color = Color(1.0, 0.98, 1),
-			Intensity = 20,
+			Intensity = 0.035,
 		},
 	}
 )
@@ -32,5 +33,9 @@ event.AddListener("Update", "sun_orientation", function(dt)
 		rot:RotatePitch(-dt)
 	end
 
-	sun.transform:SetRotation(rot:GetNormalized())
+	rot:Normalize()
+	sun.transform:SetRotation(rot)
+	local sunDir = -rot:GetForward()
+	local sunColor = atmosphere.GetSunColor(sunDir)
+	sun.light:SetColor(Color(sunColor:Unpack()))
 end)

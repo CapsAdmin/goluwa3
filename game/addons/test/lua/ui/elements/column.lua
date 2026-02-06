@@ -7,7 +7,7 @@ return function(props)
 		table.merge(
 			{
 				Name = "Column",
-				Color = Color(0, 0, 0, 0),
+				Color = theme.GetColor("invisible"),
 				layout = {
 					Direction = "y",
 					GrowWidth = 1,

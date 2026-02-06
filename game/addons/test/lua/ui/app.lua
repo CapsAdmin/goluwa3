@@ -231,7 +231,7 @@ event.AddListener("KeyInput", "menu_toggle", function(key, press)
 		menu = Panel.NewPanel(
 			{
 				Name = "GameMenuPanel",
-				Color = Color(0, 0, 0, 0.5),
+				Color = theme.GetColor("background_color"):Copy():SetAlpha(0.5),
 				Size = world_panel.transform:GetSize(),
 				layout = {
 					Direction = "y",
