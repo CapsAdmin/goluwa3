@@ -13,7 +13,15 @@ return function(props)
 	local function UpdateAnimations()
 		if not menu_ent or not menu_ent:IsValid() then return end
 
+		print("open", is_closing)
 		_G.MENU = menu_ent
+
+		if is_closing then
+			menu_ent.transform:SetDrawScaleOffset(Vec2(1, 1))
+		else
+			menu_ent.transform:SetDrawScaleOffset(Vec2(1, 0))
+		end
+
 		menu_ent.animation:Animate(
 			{
 				id = "menu_open_close",

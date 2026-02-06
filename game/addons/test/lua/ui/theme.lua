@@ -6,25 +6,25 @@ local render2d = require("render2d.render2d")
 local Ang3 = require("structs.ang3")
 local window = require("window")
 local theme = library()
--- 
-local hmm = Color.FromHex("#062a67"):SetAlpha(0.9)
+-- 062a67
+local PRIMARY = Color.FromHex("#062a67"):SetAlpha(0.9)
 local gradient = {
-	Color.FromHex("#021830"),
-	Color.FromHex("#03274D"),
-	Color.FromHex("#062a67"),
-	Color.FromHex("#154486"),
-	Color.FromHex("#2471bd"),
+	PRIMARY:Darken(2),
+	PRIMARY:Darken(1),
+	PRIMARY,
+	PRIMARY:Brighten(1),
+	PRIMARY:Brighten(2),
 }
 local pallete = Color.BuildPallete(
 	{
 		Color.FromHex("#cccccc"),
-		Color.FromHex("#03274D"),
-		Color.FromHex("#021830"),
+		gradient[3],
+		gradient[1],
 	},
 	{
 		red = Color.FromHex("#dd4546"),
 		yellow = Color.FromHex("#e0c33d"),
-		blue = Color.FromHex("#062a67"),
+		blue = PRIMARY,
 		green = Color.FromHex("#69ce4a"),
 		purple = Color.FromHex("#a454d8"),
 		brown = Color.FromHex("#a17247"),
@@ -68,8 +68,8 @@ end
 local sizes = {
 	none = 0,
 	line = 1,
-	XXXS = 2,
-	XXS = 4,
+	XXXS = 4,
+	XXS = 7,
 	XS = 8,
 	S = 14,
 	M = 16,
@@ -130,14 +130,14 @@ local shadow_footer = {
 }
 theme.Colors2 = colors
 ---
-local DecorGlow = Color(0.1, 0.6, 1, 0.25)
+local DecorGlow = PRIMARY:Copy():SetAlpha(0.25)
 local DecorWhite = Color(1, 1, 1, 1)
 local ButtonShadow = Color(0, 0, 0, 0.2)
-local GradientBlue = Color(0, 0.40, 0.70, 1)
-local GradientCyan = Color(0.35, 0.71, 0.816, 1)
+local GradientBlue = PRIMARY:Copy()
+local GradientCyan = PRIMARY:Copy()
 local SliderTrackBackground = Color(0.2, 0.2, 0.2, 0.8)
-local SliderGlow = Color(0, 0.5, 1, 0.3)
-local SliderKnobGlow = Color(0, 0.3, 0.5, 0.2)
+local SliderGlow = PRIMARY:Copy():SetAlpha(0.5)
+local SliderKnobGlow = PRIMARY:Copy():SetAlpha(0.7)
 local ButtonPressGlow = Color(1, 1, 1, 0.5)
 local ButtonHoverGlow = Color(1, 1, 1, 0.15)
 local MenuSpacer = Color(1, 1, 1, 0.1)
