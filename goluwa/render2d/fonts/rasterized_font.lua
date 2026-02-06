@@ -383,6 +383,7 @@ function META:SetShadingInfo(info)
 end
 
 local scratch_size = {w = 0, h = 0}
+local scratch_shade_size = Vec2(0, 0)
 local fb_pool = {}
 local fence_pool = {}
 
@@ -399,9 +400,15 @@ local function release_fence(f)
 end
 
 local function get_temp_fb(w, h, format, mip_maps)
-	local key = string.format("%d_%d_%s_%s", w, h, format, tostring(mip_maps))
-	fb_pool[key] = fb_pool[key] or {}
-	local fb = table.remove(fb_pool[key])
+	local key = w .. "_" .. h .. "_" .. format .. (mip_maps and "_t" or "_f")
+	local pool = fb_pool[key]
+
+	if not pool then
+		pool = {}
+		fb_pool[key] = pool
+	end
+
+	local fb = table.remove(pool)
 
 	if not fb then
 		fb = Framebuffer.New(
@@ -413,21 +420,22 @@ local function get_temp_fb(w, h, format, mip_maps)
 				mip_map_levels = mip_maps and "auto" or 1,
 			}
 		)
+		fb._pool_key = key
 	end
 
 	return fb
 end
 
 local function release_temp_fb(fb)
-	local key = string.format(
-		"%d_%d_%s_%s",
-		fb.width,
-		fb.height,
-		fb.format,
-		tostring(fb.mip_map_levels ~= 1)
-	)
-	fb_pool[key] = fb_pool[key] or {}
-	table.insert(fb_pool[key], fb)
+	local key = fb._pool_key
+	local pool = fb_pool[key]
+
+	if not pool then
+		pool = {}
+		fb_pool[key] = pool
+	end
+
+	table.insert(pool, fb)
 end
 
 function META:LoadGlyph(code, parent_cmd, temp_fbs)
@@ -528,7 +536,9 @@ function META:LoadGlyph(code, parent_cmd, temp_fbs)
 						self.current_shade_tex = current_tex
 						self.current_shade_info = info
 						self.current_shade_glyph_copy = glyph_copy
-						self.current_shade_size = Vec2(sw, sh)
+						scratch_shade_size.x = sw
+						scratch_shade_size.y = sh
+						self.current_shade_size = scratch_shade_size
 						pipeline:Draw(cmd, fb_effect)
 						current_tex = fb_effect.color_texture
 						current_tex:GenerateMipmaps("shader_read_only_optimal", cmd)
@@ -548,6 +558,17 @@ function META:LoadGlyph(code, parent_cmd, temp_fbs)
 			glyph.texture = fb_final.color_texture
 
 			if own_cmd then
+				self.texture_atlas:Insert(
+					code,
+					{
+						w = glyph.w + self:GetPadding() * 2,
+						h = glyph.h + self:GetPadding() * 2,
+						texture = glyph.texture,
+						flip_y = glyph.flip_y,
+					}
+				)
+				self.chars[code] = glyph
+				self:Rebuild(cmd)
 				cmd:End()
 				local fence = get_fence(render.GetDevice())
 				render.GetQueue():SubmitAndWait(render.GetDevice(), cmd, fence)
@@ -556,6 +577,9 @@ function META:LoadGlyph(code, parent_cmd, temp_fbs)
 				for _, fb in ipairs(used_temp_fbs) do
 					release_temp_fb(fb)
 				end
+
+				self.rebuild = false
+				return
 			elseif temp_fbs then
 				for _, fb in ipairs(used_temp_fbs) do
 					table.insert(temp_fbs, fb)
@@ -613,30 +637,29 @@ end
 local function batch_load_glyphs(self, str)
 	local i = 1
 	local len = #str
-	local any_new = false
+	local chars = self.chars
 
-	while i <= len do
-		local char_code = utf8.uint32(str, i)
+	if not self.rebuild then
+		while i <= len do
+			local char_code = utf8.uint32(str, i)
 
-		if self.chars[char_code] == nil then
-			any_new = true
+			if chars[char_code] == nil then break end
 
-			break
+			i = i + utf8.byte_length(str, i)
 		end
 
-		i = i + utf8.byte_length(str, i)
+		if i > len then return end
 	end
 
-	if not any_new then return end
-
+	-- Found first new glyph, start batch loading from here
 	local cmd = render.GetCommandPool():AllocateCommandBuffer()
 	cmd:Begin()
-	i = 1
 	local temp_fbs = {}
 
+	-- Load from current position (first new glyph) onwards
 	while i <= len do
-		local char_code = utf8.uint32(str, i)
-		self:LoadGlyph(char_code, cmd, temp_fbs)
+		local cc = utf8.uint32(str, i)
+		self:LoadGlyph(cc, cmd, temp_fbs)
 		i = i + utf8.byte_length(str, i)
 	end
 
@@ -668,33 +691,39 @@ function META:GetTextSizeNotCached(str)
 	local line_height = self:GetLineHeight()
 	local i = 1
 	local len = #str
+	local monospace = self.Monospace
+	local half_size = self.Size / 2
+	local tab_mult = self.TabWidthMultiplier
+	local chars = self.chars
 
 	while i <= len do
 		local char_code = utf8.uint32(str, i)
 
 		if char_code == 10 then -- \n
 			Y = Y + line_height + spacing
-			max_x = math.max(max_x, X)
+
+			if X > max_x then max_x = X end
+
 			X = 0
 		elseif char_code == 32 then -- space
-			X = X + self.Size / 2
+			X = X + half_size
 		elseif char_code == 9 then -- \t
-			local data = self:GetChar(32)
+			local data = chars[32] or self:GetChar(32)
 
 			if data then
-				if self.Monospace then
-					X = X + spacing * self.TabWidthMultiplier
+				if monospace then
+					X = X + spacing * tab_mult
 				else
-					X = X + (data.x_advance + spacing) * self.TabWidthMultiplier
+					X = X + (data.x_advance + spacing) * tab_mult
 				end
 			else
-				X = X + self.Size * self.TabWidthMultiplier
+				X = X + self.Size * tab_mult
 			end
 		else
-			local data = self.chars[char_code]
+			local data = chars[char_code]
 
 			if data then
-				if self.Monospace then
+				if monospace then
 					X = X + spacing
 				else
 					X = X + data.x_advance + spacing
@@ -705,7 +734,7 @@ function META:GetTextSizeNotCached(str)
 		i = i + utf8.byte_length(str, i)
 	end
 
-	if max_x ~= 0 then X = math.max(max_x, X) end
+	if max_x ~= 0 and max_x > X then X = max_x end
 
 	return X * self.Scale.x, Y * self.Scale.y
 end
@@ -723,6 +752,14 @@ function META:DrawString(str, x, y, spacing)
 	local padding = self:GetPadding()
 	local scale_x, scale_y = self.Scale.x, self.Scale.y
 	local line_height = self:GetLineHeight()
+	local atlas_textures = self.texture_atlas.textures
+	local monospace = self.Monospace
+	local half_size = self.Size / 2
+	local tab_mult = self.TabWidthMultiplier
+	local chars = self.chars
+	local SetTexture = render2d.SetTexture
+	local SetUV2 = render2d.SetUV2
+	local DrawRect = render2d.DrawRect
 	render2d.PushUV()
 
 	while i <= len do
@@ -732,38 +769,40 @@ function META:DrawString(str, x, y, spacing)
 			X = 0
 			Y = Y + line_height + spacing
 		elseif char_code == 32 then -- space
-			X = X + self.Size / 2
+			X = X + half_size
 		elseif char_code == 9 then -- \t
-			local data = self:GetChar(32)
+			local data = chars[32] or self:GetChar(32)
 
 			if data then
-				if self.Monospace then
-					X = X + spacing * self.TabWidthMultiplier
+				if monospace then
+					X = X + spacing * tab_mult
 				else
-					X = X + (data.x_advance + spacing) * self.TabWidthMultiplier
+					X = X + (data.x_advance + spacing) * tab_mult
 				end
 			else
-				X = X + self.Size * self.TabWidthMultiplier
+				X = X + self.Size * tab_mult
 			end
 		else
-			local data = self.chars[char_code]
+			local data = chars[char_code]
 
 			if data then
-				local texture = self.texture_atlas:GetPageTexture(char_code)
+				local atlas_data = atlas_textures[char_code]
 
-				if texture then
+				if atlas_data and atlas_data.page then
+					local texture = atlas_data.page.texture
+
 					if texture ~= last_texture then
-						render2d.SetTexture(texture)
+						SetTexture(texture)
 						last_texture = texture
 					end
 
-					local uv, aw, ah = self.texture_atlas:GetNormalizedUV(char_code)
-					render2d.SetUV2(uv[1], uv[2], uv[3], uv[4])
-					render2d.DrawRect(
+					local uv = atlas_data.page_uv_normalized
+					SetUV2(uv[1], uv[2], uv[3], uv[4])
+					DrawRect(
 						x + (X + data.bitmap_left - padding) * scale_x,
 						y + (Y + data.bitmap_top - padding) * scale_y,
-						aw * scale_x,
-						ah * scale_y
+						atlas_data.w * scale_x,
+						atlas_data.h * scale_y
 					)
 
 					if self.debug then
@@ -780,7 +819,7 @@ function META:DrawString(str, x, y, spacing)
 					end
 				end
 
-				if self.Monospace then
+				if monospace then
 					X = X + spacing
 				else
 					X = X + data.x_advance + spacing
