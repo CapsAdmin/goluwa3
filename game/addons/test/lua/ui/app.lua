@@ -6,6 +6,7 @@ local window = require("window")
 local event = require("event")
 local Panel = require("ecs.panel")
 local system = require("system")
+local vfs = require("vfs")
 local theme = require("ui.theme")
 local Text = require("ui.elements.text")
 local MenuButton = require("ui.elements.menu_button")
@@ -19,6 +20,7 @@ local RadioButton = require("ui.elements.radio_button")
 local Dropdown = require("ui.elements.dropdown")
 local Row = require("ui.elements.row")
 local Column = require("ui.elements.column")
+local HorizontalSplitter = require("ui.elements.horizontal_splitter")
 local Window = require("ui.elements.window")
 local ScrollablePanel = require("ui.elements.scrollable_panel")
 local world_panel = Panel.World
@@ -103,151 +105,122 @@ local function toggle()
 			},
 		}
 	)
-	local slider_demo = Slider(
+	local pages = {}
+	local gallery_files = vfs.Find("lua/ui/gallery/%.lua$")
+	print("Found " .. #gallery_files .. " gallery files")
+
+	for _, file in ipairs(gallery_files) do
+		local mod_name = file:gsub("%.lua$", "")
+		print("Attempting to load gallery page: " .. mod_name)
+		local ok, page = pcall(require, "ui.gallery." .. mod_name)
+
+		if ok then
+			table.insert(pages, page)
+		else
+			print("Failed to load page: " .. mod_name .. " - " .. tostring(page))
+		end
+	end
+
+	local content_panel = ScrollablePanel(
 		{
-			Size = Vec2(400, 50),
-			Value = 0.5,
-			Min = 0,
-			Max = 100,
-			OnChange = function(value)
-				print("Slider value:", value)
-			end,
-			layout = {GrowWidth = 1},
-		}
-	)
-	local checkbox_demo = Row(
-		{
-			layout = {Direction = "x", ChildGap = 10, AlignmentY = "center"},
-			Children = {
-				Checkbox(
-					{
-						Value = true,
-						OnChange = function(val)
-							print("Checkbox value:", val)
-						end,
-					}
-				),
-				Text({Text = "toggle"}),
+			layout = {
+				GrowWidth = 1,
+				GrowHeight = 1,
 			},
+			Padding = Rect() + theme.GetPadding("S"),
 		}
 	)
-	local selected_radio = 1
-	local radio_group = Column(
-		{
-			layout = {Direction = "y", ChildGap = 5, AlignmentX = "start"},
-			Children = {
-				Row(
-					{
-						layout = {Direction = "x", ChildGap = 10, AlignmentY = "center"},
-						Children = {
-							RadioButton(
-								{
-									IsSelected = function()
-										return selected_radio == 1
-									end,
-									OnSelect = function()
-										print("p1")
-										selected_radio = 1
-									end,
-								}
-							),
-							Text({Text = "Option 1"}),
-						},
-					}
-				),
-				Row(
-					{
-						layout = {Direction = "x", ChildGap = 10, AlignmentY = "center"},
-						Children = {
-							RadioButton(
-								{
-									IsSelected = function()
-										return selected_radio == 2
-									end,
-									OnSelect = function()
-										print("p2")
-										selected_radio = 2
-									end,
-								}
-							),
-							Text({Text = "p3"}),
-						},
-					}
-				),
-				Row(
-					{
-						layout = {Direction = "x", ChildGap = 10, AlignmentY = "center"},
-						Children = {
-							RadioButton(
-								{
-									IsSelected = function()
-										return selected_radio == 3
-									end,
-									OnSelect = function()
-										print("Radio 3 selected")
-										selected_radio = 3
-									end,
-								}
-							),
-							Text({Text = "Option 3"}),
-						},
-					}
-				),
-			},
-		}
-	)
-	local selected_dropdown_val = "Option 1"
-	local dropdown_demo = Dropdown(
-		{
-			Text = "Select Option",
-			Options = {"Option 1", "Option 2", "Option 3", "Option 4"},
-			OnSelect = function(val)
-				print("Dropdown selected:", val)
-				selected_dropdown_val = val
-			end,
-			GetText = function()
-				return "Selected: " .. selected_dropdown_val
-			end,
-			layout = {GrowWidth = 1},
-		}
-	)
-	local demo_window = Window(
-		{
-			Title = "UI ELEMENTS",
-			Size = Vec2(450, 400),
-			Position = (world_panel.transform:GetSize() - Vec2(450, 400)) / 2,
-			Children = {
-				ScrollablePanel({
+
+	local function select_page(page)
+		print("Selecting page: " .. tostring(page.Name))
+		local viewport
+
+		for _, child in ipairs(content_panel:GetChildren()) do
+			if child:GetName() == "viewport" then
+				viewport = child
+
+				break
+			end
+		end
+
+		if viewport then
+			viewport:RemoveChildren()
+
+			if page and page.Create then
+				local content = page.Create()
+				viewport:AddChild(content)
+
+				if content.layout then
+					-- TODO
+					require("timer").Delay(0, function()
+						content.layout:InvalidateLayout(true)
+						print("?!?!?!")
+					end)
+				end
+			end
+		else
+			print("Could not find viewport in content_panel")
+		end
+	end
+
+	if #pages > 0 then select_page(pages[1]) end
+
+	local page_buttons = {}
+
+	for _, page in ipairs(pages) do
+		table.insert(
+			page_buttons,
+			MenuButton(
+				{
+					Text = page.Name or "Unnamed Page",
+					OnClick = function()
+						select_page(page)
+					end,
 					layout = {
 						GrowWidth = 1,
-						GrowHeight = 1,
 					},
+				}
+			)
+		)
+	end
+
+	local demo_window = Window(
+		{
+			Title = "UI GALLERY",
+			Size = Vec2(800, 600),
+			Padding = "none",
+			Position = (world_panel.transform:GetSize() - Vec2(1000, 700)) / 2,
+			layout = {
+				FitHeight = false,
+				FitWidth = false,
+			},
+			Children = {
+				HorizontalSplitter({
+					InitialWidth = 220,
 				})(
 					{
-						dropdown_demo,
-						slider_demo,
-						checkbox_demo,
-						radio_group,
-						MenuButton({Text = "CONFIG", Padding = "XS"}),
-						Text({Text = "Scrollable Content Demo"}),
-						Column(
+						ScrollablePanel(
 							{
+								Color = theme.GetColor("black"):SetAlpha(0.3),
 								layout = {
-									ChildGap = 5,
-									AlignmentX = "start",
+									GrowHeight = 1,
 								},
-								Children = (function()
-									local items = {}
-
-									for i = 1, 20 do
-										table.insert(items, Text({Text = "Extra Item #" .. i}))
-									end
-
-									return items
-								end)(),
+								Padding = Rect() + theme.GetPadding("XXS"),
+							}
+						)(
+							{
+								Column(
+									{
+										layout = {
+											ChildGap = 4,
+											GrowWidth = 1,
+											AlignmentX = "stretch",
+										},
+									}
+								)(page_buttons),
 							}
 						),
-						Text({Text = "End of List"}),
+						content_panel,
 					}
 				),
 			},
@@ -256,7 +229,7 @@ local function toggle()
 	menu = Panel.NewPanel(
 		{
 			Name = "GameMenuPanel",
-			Color = theme.GetColor("background_color"):Copy():SetAlpha(0.5),
+			Color = Color(0, 0, 0, 0.5),
 			Size = world_panel.transform:GetSize(),
 			layout = {
 				Direction = "y",

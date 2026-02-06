@@ -36,7 +36,7 @@ return function(props)
 			Color = theme.GetColor("primary"),
 			draggable = {Target = window_container},
 			Cursor = "sizeall",
-			Padding = "XXS",
+			Padding = "XXXS",
 			Children = {
 				Text(
 					{
@@ -52,7 +52,7 @@ return function(props)
 					{
 						Name = "CloseButton",
 						Text = "X",
-						Size = Vec2(24, 24),
+						Size = Vec2(20, 20),
 						OnClick = function()
 							print("CLOSE WINDOW")
 
@@ -65,7 +65,6 @@ return function(props)
 						layout = {
 							FitWidth = false,
 							FitHeight = false,
-							Margin = Rect(0, 0, 4, 0),
 						},
 					}
 				),

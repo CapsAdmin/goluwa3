@@ -4,7 +4,7 @@ local Panel = require("ecs.panel")
 local theme = require("ui.theme")
 return function(props)
 	return Panel.NewPanel(
-		table.merge(
+		table.merge_many(
 			{
 				Name = "Row",
 				Color = theme.GetColor("invisible"),

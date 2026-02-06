@@ -39,8 +39,8 @@ return function(props)
 					GrowHeight = 1,
 					Direction = "y",
 					AlignmentX = "stretch",
-					MinSize = Vec2(1,1),
-					MaxSize = Vec2(10,10),
+					MinSize = Vec2(1, 1),
+					MaxSize = Vec2(0, 0),
 				},
 				props.Layout or {},
 				props.layout or {}
