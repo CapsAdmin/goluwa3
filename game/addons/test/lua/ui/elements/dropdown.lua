@@ -18,6 +18,7 @@ return function(props)
 		y = y + self.transform:GetHeight()
 		local menu_items = {}
 
+		-- Add options from props
 		for i, opt in ipairs(options) do
 			local text = type(opt) == "table" and opt.Text or tostring(opt)
 			local val = type(opt) == "table" and opt.Value or opt
@@ -37,6 +38,11 @@ return function(props)
 					}
 				)
 			)
+		end
+
+		-- Add options from children
+		for _, child in ipairs(self:GetChildren()) do
+			if not child.IsInternal then table.insert(menu_items, child) end
 		end
 
 		world_panel:Ensure(
@@ -62,6 +68,7 @@ return function(props)
 			Children = {
 				Text(
 					{
+						IsInternal = true,
 						Text = props.Text or "Select...",
 						Ref = function(self)
 							label_ent = self
@@ -75,6 +82,7 @@ return function(props)
 				),
 				Text(
 					{
+						IsInternal = true,
 						Text = " ▼",
 						IgnoreMouseInput = true,
 						layout = {FitWidth = true, FitHeight = true},
@@ -86,6 +94,29 @@ return function(props)
 			},
 		}
 	)
+
+	function dropdown:PreChildAdd(child)
+		if child.IsInternal then return true end
+
+		child.Visible = false
+		child.ignore_layout = true
+		return true -- we allow adding it as a child, but hidden
+	end
+
+	function dropdown:PreRemoveChildren()
+		local children = self:GetChildren()
+
+		for i = #children, 1, -1 do
+			local child = children[i]
+
+			if not child.IsInternal then
+				child:UnParent()
+				child:Remove()
+			end
+		end
+
+		return false
+	end
 
 	if props.GetText then
 		dropdown.gui_element:AddLocalListener("OnDraw", function()

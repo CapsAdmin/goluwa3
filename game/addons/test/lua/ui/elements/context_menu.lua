@@ -46,6 +46,18 @@ return function(props)
 
 	return Panel.NewPanel(
 		{
+			PreChildAdd = function(self, child)
+				if child.IsInternal then return end
+
+				if menu_ent then menu_ent:AddChild(child) end
+
+				return false
+			end,
+			PreRemoveChildren = function(self)
+				if menu_ent then menu_ent:RemoveChildren() end
+
+				return false
+			end,
 			Ref = function(self)
 				container_ent = self
 			end,
@@ -81,6 +93,7 @@ return function(props)
 			Children = {
 				Frame(
 					{
+						IsInternal = true,
 						Name = "ContextMenu",
 						Pivot = Vec2(0, 0),
 						Position = props.Position or Vec2(100, 100),

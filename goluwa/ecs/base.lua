@@ -123,10 +123,11 @@ return function(name, base_path, get_valid_components)
 
 							if not found then
 								if not ent[setter_name] then
-									error("Missing setter for property: " .. key)
+									--error("Missing setter for property: " .. key)
+									ent[key] = val
+								else
+									ent[setter_name](ent, val)
 								end
-
-								ent[setter_name](ent, val)
 							end
 						end
 					end
@@ -158,11 +159,15 @@ return function(name, base_path, get_valid_components)
 	end
 
 	function BaseEntity:SetChildren(children)
-		local lst = list.flatten(children)
+		local lst = list.flatten(children or {})
 
 		for i = #lst, 1, -1 do
-			lst[i]:UnParent()
+			local child = lst[i]
+
+			if type(child) == "table" and child.UnParent then child:UnParent() end
 		end
+
+		self:RemoveChildren()
 
 		for _, child in ipairs(lst) do
 			self:AddChild(child)
@@ -195,10 +200,11 @@ return function(name, base_path, get_valid_components)
 					self[name][key] = value
 				else
 					if not self[name]["Set" .. key] then
-						error("Missing setter for component property: " .. key .. " on component " .. name)
+						--error("Missing setter for component property: " .. key .. " on component " .. name)
+						self[name][key] = value
+					else
+						self[name]["Set" .. key](self[name], value)
 					end
-
-					self[name]["Set" .. key](self[name], value)
 				end
 			end
 		end

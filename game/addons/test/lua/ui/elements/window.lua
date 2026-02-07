@@ -26,6 +26,7 @@ return function(props)
 	local title_val = props.Title or "Window"
 	local header = Frame(
 		{
+			IsInternal = true,
 			Name = "WindowHeader",
 			Parent = window_container,
 			layout = {
@@ -73,6 +74,7 @@ return function(props)
 	)
 	local content = Frame(
 		{
+			IsInternal = true,
 			Name = "WindowContent",
 			Parent = window_container,
 			layout = {
@@ -84,5 +86,18 @@ return function(props)
 			Children = props.Children or {},
 		}
 	)
+
+	function window_container:PreChildAdd(child)
+		if child.IsInternal then return end
+
+		content:AddChild(child)
+		return false
+	end
+
+	function window_container:PreRemoveChildren()
+		content:RemoveChildren()
+		return false
+	end
+
 	return window_container
 end

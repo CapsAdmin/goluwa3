@@ -64,24 +64,25 @@ local function toggle()
 													print("removing context menu")
 													ent:Remove()
 												end,
-												Children = {
-													MenuItem({Text = "LOAD"}),
-													MenuItem({Text = "RUN (ESCAPE)"}),
-													MenuItem({Text = "RESET", Disabled = true}),
-													MenuSpacer(),
-													MenuItem({Text = "SAVE STATE", Disabled = true}),
-													MenuItem({Text = "OPEN STATE", Disabled = true}),
-													MenuItem({Text = "PICK STATE", Disabled = true}),
-													MenuSpacer(),
-													MenuItem(
-														{
-															Text = "QUIT",
-															OnClick = function()
-																system.ShutDown()
-															end,
-														}
-													),
-												},
+											}
+										)(
+											{
+												MenuItem({Text = "LOAD"}),
+												MenuItem({Text = "RUN (ESCAPE)"}),
+												MenuItem({Text = "RESET", Disabled = true}),
+												MenuSpacer(),
+												MenuItem({Text = "SAVE STATE", Disabled = true}),
+												MenuItem({Text = "OPEN STATE", Disabled = true}),
+												MenuItem({Text = "PICK STATE", Disabled = true}),
+												MenuSpacer(),
+												MenuItem(
+													{
+														Text = "QUIT",
+														OnClick = function()
+															system.ShutDown()
+														end,
+													}
+												),
 											}
 										)
 									)

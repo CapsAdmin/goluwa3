@@ -1401,6 +1401,8 @@ function prototype.ParentingTemplate(META)
 	end
 
 	function META:AddChild(obj, pos)
+		if self.PreChildAdd and self:PreChildAdd(obj, pos) == false then return false end
+
 		if not obj.HasParent then for k, v in pairs(obj) do
 			print(k, v)
 		end end
@@ -1477,6 +1479,8 @@ function prototype.ParentingTemplate(META)
 	end
 
 	function META:RemoveChildren()
+		if self.PreRemoveChildren and self:PreRemoveChildren() == false then return end
+
 		self:InvalidateChildrenList()
 		local children = self:GetChildren()
 
@@ -1492,16 +1496,7 @@ function prototype.ParentingTemplate(META)
 	function META:UnParent()
 		local parent = self:GetParent()
 
-		if parent:IsValid() then
-			parent:RemoveChild(self)
-		else
-			if self.Parent ~= NULL then
-				self.Parent = NULL
-				self:InvalidateParentList()
-				obj:CallLocalListeners("OnUnParent", self)
-				self:CallLocalListeners("OnChildRemove", obj)
-			end
-		end
+		if parent:IsValid() then parent:RemoveChild(self) end
 	end
 
 	function META:RemoveChild(obj)

@@ -24,6 +24,7 @@ return function(props)
 	)
 	local viewport = Panel.NewPanel(
 		{
+			IsInternal = true,
 			Name = "viewport",
 			Parent = container,
 			Color = theme.GetColor("invisible"),
@@ -48,8 +49,22 @@ return function(props)
 			Children = props.Children,
 		}
 	)
+
+	function container:PreChildAdd(child)
+		if child.IsInternal then return end
+
+		viewport:AddChild(child)
+		return false
+	end
+
+	function container:PreRemoveChildren()
+		viewport:RemoveChildren()
+		return false
+	end
+
 	local handle = Panel.NewPanel(
 		{
+			IsInternal = true,
 			Name = "scrollbar_handle",
 			Parent = container,
 			Color = Color(1, 1, 1, 0.4),
@@ -89,6 +104,8 @@ return function(props)
 	end
 
 	local function update_handle()
+		if not handle:IsValid() or not viewport:IsValid() then return end
+
 		if not scrollbar_visible then
 			handle.gui_element:SetVisible(false)
 			return
