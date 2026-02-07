@@ -697,16 +697,11 @@ return function(META)
 
 		self.Cursor = mode
 
-		if mode == "trapped" then
-			self:CaptureMouse()
-		elseif mode == "hidden" then
+		if mode == "hidden" then
 			if self.pointer and self.pointer_serial then
 				self.pointer:set_cursor(self.pointer_serial, nil, 0, 0)
 			end
 		else
-			-- Release mouse capture for normal cursors
-			if self:IsMouseCaptured() then self:ReleaseMouse() end
-
 			if self.pointer and self.pointer_serial then
 				if not self.cursor_theme then
 					self.cursor_theme = wayland.wl_cursor.wl_cursor_theme_load(nil, 32, self.shm)

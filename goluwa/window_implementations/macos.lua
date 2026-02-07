@@ -147,23 +147,28 @@ return function(META)
 		error("nyi: Restore not implemented in cocoa bindings", 2)
 	end
 
+	function META:CaptureMouse()
+		self.cocoa_window:CaptureMouse()
+	end
+
+	function META:ReleaseMouse()
+		self.cocoa_window:ReleaseMouse()
+	end
+
+	function META:IsMouseCaptured()
+		return self.cocoa_window:IsMouseCaptured()
+	end
+
 	function META:SetCursor(mode)
 		if not self.Cursors[mode] then mode = "arrow" end
 
 		self.Cursor = mode
 
-		if mode == "trapped" then
-			self.cocoa_window:CaptureMouse()
-		elseif mode == "hidden" then
+		if mode == "hidden" then
 			-- Note: cocoa doesn't expose separate hidden cursor
 			-- CaptureMouse also hides the cursor
 			error("nyi: hidden cursor not implemented separately in cocoa bindings", 2)
 		else
-			-- Release mouse capture for normal cursors
-			if self.cocoa_window:IsMouseCaptured() then
-				self.cocoa_window:ReleaseMouse()
-			end
-
 			-- Note: cocoa doesn't expose setting different cursor types
 			-- Would need NSCursor API
 			if mode ~= "arrow" then

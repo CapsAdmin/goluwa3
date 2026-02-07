@@ -31,13 +31,17 @@ world_panel:RemoveChildren()
 local function toggle()
 	visible = not visible
 
-	if window.current then window.current:SetMouseTrapped(not visible) end
-
 	if menu:IsValid() then
 		menu:Remove()
 
-		if not visible then return end
+		if not visible then
+			if window.current then window.current:SetMouseTrapped(true) end
+
+			return
+		end
 	end
+
+	if window.current then window.current:SetMouseTrapped(false) end
 
 	local top_bar = Frame(
 		{
@@ -108,11 +112,9 @@ local function toggle()
 	)
 	local pages = {}
 	local gallery_files = vfs.Find("lua/ui/gallery/%.lua$")
-	print("Found " .. #gallery_files .. " gallery files")
 
 	for _, file in ipairs(gallery_files) do
 		local mod_name = file:gsub("%.lua$", "")
-		print("Attempting to load gallery page: " .. mod_name)
 		local ok, page = pcall(require, "ui.gallery." .. mod_name)
 
 		if ok then
@@ -155,7 +157,6 @@ local function toggle()
 					-- TODO
 					require("timer").Delay(0, function()
 						content.layout:InvalidateLayout(true)
-						print("?!?!?!")
 					end)
 				end
 			end
@@ -255,5 +256,15 @@ if HOTRELOAD then toggle() end
 event.AddListener("KeyInput", "menu_toggle", function(key, press)
 	if not press then return end
 
-	if key == "escape" then toggle() end
+	if key == "escape" then return toggle() end
+end)
+
+event.AddListener("Update", "window_title", function(dt)
+	if wait(1) then
+		window.current:SetTitle("FPS: " .. math.round(1 / system.GetFrameTime()))
+	end
+end)
+
+event.AddListener("WindowGainedFocus", "mouse_trap", function()
+	if not visible and window.current then window.current:SetMouseTrapped(true) end
 end)

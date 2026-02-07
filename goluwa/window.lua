@@ -41,11 +41,11 @@ do
 	META.Buttons = {}
 
 	function META:SetMouseTrapped(b)
-		self:SetCursor(b and "trapped" or "arrow")
+		if b then self:CaptureMouse() else self:ReleaseMouse() end
 	end
 
 	function META:GetMouseTrapped()
-		return self:GetCursor() == "trapped"
+		return self:IsMouseCaptured()
 	end
 
 	local function nyi()
