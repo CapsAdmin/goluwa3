@@ -5,7 +5,6 @@ local Panel = require("ecs.panel")
 local theme = require("ui.theme")
 local Text = require("ui.elements.text")
 return function(props)
-	local ent
 	local state = {
 		value = props.Value or false,
 		is_hovered = false,
@@ -14,7 +13,7 @@ return function(props)
 		last_hovered = false,
 		last_value = props.Value or false,
 	}
-	ent = Panel.NewPanel(
+	return Panel.NewPanel(
 		{
 			Name = "checkbox_graphic",
 			Size = props.Size or Vec2(theme.Sizes.CheckboxSize, theme.Sizes.CheckboxSize),
@@ -28,22 +27,21 @@ return function(props)
 
 						if props.OnChange then props.OnChange(state.value) end
 
-						theme.UpdateCheckboxAnimations(ent, state)
+						theme.UpdateCheckboxAnimations(self.Owner, state)
 						return true
 					end
 				end,
 			},
 			OnHover = function(self, hovered)
 				state.is_hovered = hovered
-				theme.UpdateCheckboxAnimations(ent, state)
+				theme.UpdateCheckboxAnimations(self, state)
 			end,
 			gui_element = {
 				OnDraw = function(self)
-					theme.UpdateCheckboxAnimations(ent, state)
-					theme.DrawCheckbox(self, state)
+					theme.UpdateCheckboxAnimations(self.Owner, state)
+					theme.DrawCheckbox(self.Owner, state)
 				end,
 			},
 		}
 	)
-	return ent
 end

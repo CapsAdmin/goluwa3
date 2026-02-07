@@ -5,7 +5,6 @@ local Panel = require("ecs.panel")
 local theme = require("ui.theme")
 local Text = require("ui.elements.text")
 return function(props)
-	local ent
 	local state = {
 		value = props.Selected or false,
 		is_hovered = false,
@@ -14,7 +13,7 @@ return function(props)
 		last_hovered = false,
 		last_value = props.Selected or false,
 	}
-	ent = Panel.NewPanel(
+	return Panel.NewPanel(
 		{
 			Name = "radio_button_graphic",
 			Size = props.Size or Vec2(theme.Sizes.RadioButtonSize, theme.Sizes.RadioButtonSize),
@@ -30,7 +29,7 @@ return function(props)
 							if props.OnSelect then props.OnSelect() end
 
 							state.value = true
-							theme.UpdateCheckboxAnimations(ent, state)
+							theme.UpdateCheckboxAnimations(self.Owner, state)
 						end
 
 						return true
@@ -39,7 +38,7 @@ return function(props)
 			},
 			OnHover = function(self, hovered)
 				state.is_hovered = hovered
-				theme.UpdateCheckboxAnimations(ent, state)
+				theme.UpdateCheckboxAnimations(self, state)
 			end,
 			gui_element = {
 				OnDraw = function(self)
@@ -49,11 +48,10 @@ return function(props)
 						state.value = props.Selected
 					end
 
-					theme.UpdateCheckboxAnimations(ent, state)
-					theme.DrawRadioButton(self, state)
+					theme.UpdateCheckboxAnimations(self.Owner, state)
+					theme.DrawRadioButton(self.Owner, state)
 				end,
 			},
 		}
 	)
-	return ent
 end

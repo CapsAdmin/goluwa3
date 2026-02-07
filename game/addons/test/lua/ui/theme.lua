@@ -673,9 +673,7 @@ function theme.UpdateCheckboxAnimations(ent, s)
 	end
 end
 
-function theme.DrawCheckbox(self, state)
-	local owner = self.Owner
-
+function theme.DrawCheckbox(owner, state)
 	if state.is_hovered then theme.UpdateCheckboxAnimations(owner, state) end
 
 	local size = owner.transform.Size
@@ -715,9 +713,7 @@ function theme.DrawCheckbox(self, state)
 	end
 end
 
-function theme.DrawRadioButton(self, state)
-	local owner = self.Owner
-
+function theme.DrawRadioButton(owner, state)
 	if state.is_hovered then theme.UpdateCheckboxAnimations(owner, state) end
 
 	local size = owner.transform.Size

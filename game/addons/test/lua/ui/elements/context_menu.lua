@@ -121,8 +121,11 @@ return function(props)
 								if press and key == "escape" then
 									is_closing = true
 									UpdateAnimations()
-									self.Owner:GetParent().mouse_input:SetIgnoreMouseInput(true)
-									return true
+
+									if self.Owner:HasParent() then
+										self.Owner:GetParent().mouse_input:SetIgnoreMouseInput(true)
+										return true
+									end
 								end
 							end,
 						},
