@@ -7,7 +7,7 @@ local theme = require("ui.theme")
 return function(props)
 	return Button(
 		{
-			Size = props.Size or theme.Sizes.MenuButtonSize,
+			Size = props.Size or (Vec2() + theme.GetSize("M")),
 			Active = props.Active,
 			Disabled = props.Disabled,
 			OnClick = props.OnClick,
@@ -17,7 +17,7 @@ return function(props)
 				FitHeight = true,
 				GrowWidth = 1,
 			},
-			Padding = props.Padding or (Rect() + theme.Sizes2.M),
+			Padding = props.Padding or (Rect() + theme.GetSize("M")),
 		}
 	)(
 		{

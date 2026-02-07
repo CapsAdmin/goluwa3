@@ -16,7 +16,7 @@ return function(props)
 	return Panel.NewPanel(
 		{
 			Name = "checkbox_graphic",
-			Size = props.Size or Vec2(theme.Sizes.CheckboxSize, theme.Sizes.CheckboxSize),
+			Size = props.Size or (Vec2() + theme.GetSize("M")),
 			layout = props.layout,
 			Cursor = "hand",
 			Color = theme.GetColor("invisible"),

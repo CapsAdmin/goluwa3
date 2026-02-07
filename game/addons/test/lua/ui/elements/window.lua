@@ -23,6 +23,14 @@ return function(props)
 			resizable = {
 				MinimumSize = props.MinSize or Vec2(100, 100),
 			},
+			gui_element = {
+				OnDraw = function(self)
+					theme.DrawFrame(self.Owner)
+				end,
+				OnPostDraw = function(self)
+					theme.DrawFramePost(self.Owner)
+				end,
+			},
 			PreChildAdd = function(self, child)
 				if child.IsInternal then return end
 
@@ -41,7 +49,7 @@ return function(props)
 	)(
 		{
 			-- header
-			Frame(
+			Panel.NewPanel(
 				{
 					IsInternal = true,
 					Name = "WindowHeader",
@@ -53,7 +61,7 @@ return function(props)
 					Color = theme.GetColor("primary"),
 					draggable = {},
 					Cursor = "sizeall",
-					Padding = "XXXS",
+					Padding = Rect() + theme.GetPadding("XXXS"),
 					Events = {
 						OnParent = function(self, parent)
 							self.draggable:SetTarget(parent)
@@ -95,7 +103,7 @@ return function(props)
 				}
 			),
 			-- content
-			Frame(
+			Panel.NewPanel(
 				{
 					Ref = function(self)
 						content = self
@@ -107,7 +115,8 @@ return function(props)
 						GrowWidth = 1,
 						GrowHeight = 1,
 					},
-					Padding = props.Padding or "M",
+					Color = theme.GetColor("background"),
+					Padding = Rect() + theme.GetPadding("M"),
 				}
 			),
 		}

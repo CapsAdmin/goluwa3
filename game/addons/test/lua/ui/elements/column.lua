@@ -13,7 +13,7 @@ return function(props)
 					GrowWidth = 1,
 					FitHeight = true,
 					AlignmentX = "center",
-					ChildGap = theme.Sizes2.S,
+					ChildGap = theme.GetSize("S"),
 				},
 			},
 			props

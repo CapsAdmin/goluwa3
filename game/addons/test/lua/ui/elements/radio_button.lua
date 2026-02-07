@@ -16,7 +16,7 @@ return function(props)
 	return Panel.NewPanel(
 		{
 			Name = "radio_button_graphic",
-			Size = props.Size or Vec2(theme.Sizes.RadioButtonSize, theme.Sizes.RadioButtonSize),
+			Size = props.Size or (Vec2() + theme.GetSize("M")),
 			layout = props.layout,
 			Cursor = "hand",
 			Color = theme.GetColor("invisible"),

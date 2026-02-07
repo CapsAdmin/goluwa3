@@ -35,7 +35,7 @@ return function(props)
 				time = 0.2,
 				interpolation = "outExpo",
 				callback = function()
-					if is_closing and menu_ent:IsValid() and props.OnClose then
+					if is_closing and menu_ent:IsValid() and props.OnClose and ent:IsValid() then
 						props.OnClose(ent)
 					end
 				end,
@@ -74,7 +74,7 @@ return function(props)
 			OnVisibilityChanged = function(self, visible)
 				if visible then is_closing = false else is_closing = true end
 
-				UpdateAnimations()
+				UpdateAnimations(self)
 			end,
 			key_input = {
 				OnKeyInput = function(self, key, press)
@@ -95,7 +95,7 @@ return function(props)
 					Name = "ContextMenu",
 					Pivot = Vec2(0, 0),
 					Position = props.Position or Vec2(100, 100),
-					Size = props.Size or theme.Sizes.ContextMenuSize,
+					Size = props.Size or (Vec2() + theme.GetSize("M")),
 					Padding = "XS",
 					layout = {
 						Floating = true,
@@ -111,13 +111,13 @@ return function(props)
 					Ref = function(self)
 						self:RequestFocus()
 						menu_ent = self
-						UpdateAnimations()
+						UpdateAnimations(self)
 					end,
 					key_input = {
 						OnKeyInput = function(self, key, press)
 							if press and key == "escape" then
 								is_closing = true
-								UpdateAnimations()
+								UpdateAnimations(self.Owner)
 
 								if self.Owner:HasParent() then
 									self.Owner:GetParent().mouse_input:SetIgnoreMouseInput(true)

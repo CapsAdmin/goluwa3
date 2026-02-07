@@ -6,94 +6,102 @@ local render2d = require("render2d.render2d")
 local Ang3 = require("structs.ang3")
 local window = require("window")
 local theme = library()
--- 062a67
 local PRIMARY = Color.FromHex("#062a67"):SetAlpha(0.9)
-local gradient = {
-	PRIMARY:Darken(2),
-	PRIMARY:Darken(1),
-	PRIMARY,
-	PRIMARY:Brighten(1),
-	PRIMARY:Brighten(2),
-}
-local pallete = Color.BuildPallete(
-	{
-		Color.FromHex("#cccccc"),
-		gradient[3],
-		gradient[1],
-	},
-	{
-		red = Color.FromHex("#dd4546"),
-		yellow = Color.FromHex("#e0c33d"),
-		blue = PRIMARY,
-		green = Color.FromHex("#69ce4a"),
-		purple = Color.FromHex("#a454d8"),
-		brown = Color.FromHex("#a17247"),
-	}
-)
-local colors = table.merge_many(
-	{
-		dashed_underline = Color(0.37, 0.37, 0.37, 0.25),
-		button_color = pallete.blue,
-		underline = pallete.blue,
-		url_color = pallete.blue,
-		actual_black = Color(0, 0, 0, 1),
-		bar_color_horizontal = pallete.green,
-		primary = pallete.blue,
-		secondary = pallete.green,
-		positive = pallete.green_lighter,
-		neutral = pallete.yellow_lighter,
-		negative = pallete.red_darker,
-		heading = pallete.white,
-		default = pallete.white,
-		text_foreground = pallete.white,
-		text_button = pallete.white,
-		foreground = pallete.black,
-		background = pallete.black,
-		text_background = pallete.black,
-		main_background = pallete.black,
-		card = pallete.darkest,
-		frame_border = Color(0.106, 0.463, 0.678),
-		invisible = Color(0, 0, 0, 0),
-		button_disabled = Color(0.3, 0.3, 0.3, 1),
-		button_normal = Color(0.8, 0.8, 0.2, 1),
-	},
-	pallete
-)
-colors.text_disabled = colors.text_foreground:Copy():SetAlpha(0.5)
 
-function theme.GetColor(name)
-	return colors[name or "primary"] or colors.primary
+do
+	local gradient = {
+		PRIMARY:Darken(2),
+		PRIMARY:Darken(1),
+		PRIMARY,
+		PRIMARY:Brighten(1),
+		PRIMARY:Brighten(2),
+	}
+	local pallete = Color.BuildPallete(
+		{
+			Color.FromHex("#cccccc"),
+			gradient[3],
+			gradient[1],
+		},
+		{
+			red = Color.FromHex("#dd4546"),
+			yellow = Color.FromHex("#e0c33d"),
+			blue = PRIMARY,
+			green = Color.FromHex("#69ce4a"),
+			purple = Color.FromHex("#a454d8"),
+			brown = Color.FromHex("#a17247"),
+		}
+	)
+	local colors = table.merge_many(
+		{
+			dashed_underline = Color(0.37, 0.37, 0.37, 0.25),
+			button_color = pallete.blue,
+			underline = pallete.blue,
+			url_color = pallete.blue,
+			actual_black = Color(0, 0, 0, 1),
+			bar_color_horizontal = pallete.green,
+			primary = pallete.blue,
+			secondary = pallete.green,
+			positive = pallete.green_lighter,
+			neutral = pallete.yellow_lighter,
+			negative = pallete.red_darker,
+			heading = pallete.white,
+			default = pallete.white,
+			text_foreground = pallete.white,
+			text_button = pallete.white,
+			foreground = pallete.black,
+			background = pallete.black,
+			text_background = pallete.black,
+			main_background = pallete.black,
+			card = pallete.darkest,
+			frame_border = Color(0.106, 0.463, 0.678),
+			invisible = Color(0, 0, 0, 0),
+			button_disabled = Color(0.3, 0.3, 0.3, 1),
+			button_normal = Color(0.8, 0.8, 0.2, 1),
+		},
+		pallete
+	)
+	colors.text_disabled = colors.text_foreground:Copy():SetAlpha(0.5)
+
+	function theme.GetColor(name)
+		return colors[name or "primary"] or colors.primary
+	end
 end
 
-local sizes = {
-	none = 0,
-	line = 1,
-	XXXS = 4,
-	XXS = 7,
-	XS = 8,
-	S = 14,
-	M = 16,
-	L = 20,
-	XL = 30,
-	XXL = 40,
-}
-sizes.default = sizes.M
-theme.Sizes2 = sizes
+do
+	local sizes = {
+		none = 0,
+		line = 1,
+		XXXS = 4,
+		XXS = 7,
+		XS = 8,
+		S = 14,
+		M = 16,
+		L = 20,
+		XL = 30,
+		XXL = 40,
+	}
+	sizes.default = sizes.M
 
-function theme.GetPadding(size_name)
-	size_name = size_name or "default"
-	return sizes[size_name] or sizes.default
+	function theme.GetPadding(size_name)
+		size_name = size_name or "default"
+		return sizes[size_name] or sizes.default
+	end
+
+	function theme.GetSize(size_name)
+		size_name = size_name or "default"
+		return sizes[size_name] or sizes.default
+	end
 end
 
 theme.line_height = 5
-local stroke_width = sizes.line
-local stroke_width_thick = sizes.line * 2
+local stroke_width = theme.GetSize("line")
+local stroke_width_thick = theme.GetSize("line") * 2
 local small_border_radius = 1
 local big_border_radius = 1
 local border_sizes = {
 	none = 0,
-	default = sizes.L,
-	small = sizes.M,
+	default = theme.GetSize("L"),
+	small = theme.GetSize("M"),
 	circle = "50%",
 }
 local shadow = {
@@ -102,14 +110,14 @@ local shadow = {
 		y = 0,
 		blur = 4,
 		intensity = 2,
-		color = colors.black:Copy():SetAlpha(0.1),
+		color = theme.GetColor("black"):Copy():SetAlpha(0.1),
 	},
 	{
 		x = 3,
 		y = 3,
 		blur = 8,
 		radius = 5,
-		color = colors.darker:Copy():SetAlpha(0.1),
+		color = theme.GetColor("darker"):Copy():SetAlpha(0.1),
 	},
 }
 local shadow_footer = {
@@ -118,17 +126,16 @@ local shadow_footer = {
 		y = 0,
 		blur = 4,
 		intensity = 2,
-		color = colors.black:Copy():SetAlpha(0.1),
+		color = theme.GetColor("black"):Copy():SetAlpha(0.1),
 	},
 	{
 		x = 3,
 		y = -3,
 		blur = 8,
 		radius = 5,
-		color = colors.darker:Copy():SetAlpha(0.1),
+		color = theme.GetColor("darker"):Copy():SetAlpha(0.1),
 	},
 }
-theme.Colors2 = colors
 ---
 local DecorGlow = PRIMARY:Copy():SetAlpha(0.25)
 local DecorWhite = Color(1, 1, 1, 1)
@@ -142,65 +149,50 @@ local ButtonPressGlow = Color(1, 1, 1, 0.5)
 local ButtonHoverGlow = Color(1, 1, 1, 0.15)
 local MenuSpacer = Color(1, 1, 1, 0.1)
 local KnobHighlight = Color(1, 1, 1, 0.3)
-theme.Sizes = {
-	SliderSize = Vec2(300, 40),
-	TopBarButtonSize = Vec2(80, 30),
-	ContextMenuSize = Vec2(200, 0),
-	MenuButtonTextSize = Vec2(150, 40), -- Base size
-	-- Shared pattern sizes
-	EdgeDecorSize = 3,
-	EdgeDecorGlowFactor = 40,
-	EdgeDecorWhiteSize = 4,
-	FrameOutlineOffset = 2,
-	FrameOutlineThickness = 3,
-	SliderTrackHeight = 6,
-	SliderKnobWidth = 15,
-	SliderKnobHeight = 15,
-	SliderKnobGlowSize = 20,
-	CheckboxSize = 24,
-	RadioButtonSize = 24,
-}
 local Textures = {
 	GlowLinear = require("render.textures.glow_linear"),
 	GlowPoint = require("render.textures.glow_point"),
 	Gradient = require("render.textures.gradient_linear"),
 }
-local path = fonts.GetSystemDefaultFont()
-local font_sizes = {
-	XS = 10,
-	S = 12,
-	M = 14,
-	L = 20,
-	XL = 27,
-	XXL = 32,
-	XXXL = 42,
-}
-local font_paths = {
-	heading = "/home/caps/Downloads/Exo_2/static/Exo2-Regular.ttf",
-	body_weak = "/home/caps/Downloads/Exo_2/static/Exo2-Light.ttf",
-	body = "/home/caps/Downloads/Exo_2/static/Exo2-Regular.ttf",
-	body_strong = "/home/caps/Downloads/Exo_2/static/Exo2-Regular.ttf",
-}
 
-function theme.GetFont(name, size_name)
-	local path = font_paths[name or "body"] or font_paths.body
-	local size = font_sizes[size_name or "M"] or font_sizes.M
-	theme.Fonts = theme.Fonts or {}
-	theme.Fonts[path] = theme.Fonts[path] or {}
-	theme.Fonts[path][size] = theme.Fonts[path][size] or
-		fonts.CreateFont(
-			{
-				path = path,
-				size = size,
-				shadow = {
-					dir = -2,
-					color = Color.FromHex("#022d58"):SetAlpha(0.75),
-					blur_radius = 0.25,
-					blur_passes = 1,
-				},
-			}
-		)
-	return theme.Fonts[path][size]
+do
+	local path = fonts.GetSystemDefaultFont()
+	local font_sizes = {
+		XS = 10,
+		S = 12,
+		M = 14,
+		L = 20,
+		XL = 27,
+		XXL = 32,
+		XXXL = 42,
+	}
+	local font_paths = {
+		heading = "/home/caps/Downloads/Exo_2/static/Exo2-Regular.ttf",
+		body_weak = "/home/caps/Downloads/Exo_2/static/Exo2-Light.ttf",
+		body = "/home/caps/Downloads/Exo_2/static/Exo2-Regular.ttf",
+		body_strong = "/home/caps/Downloads/Exo_2/static/Exo2-Regular.ttf",
+	}
+
+	function theme.GetFont(name, size_name)
+		local path = font_paths[name or "body"] or font_paths.body
+		local size = font_sizes[size_name or "M"] or font_sizes.M
+		theme.Fonts = theme.Fonts or {}
+		theme.Fonts[path] = theme.Fonts[path] or {}
+		theme.Fonts[path][size] = theme.Fonts[path][size] or
+			fonts.CreateFont(
+				{
+					path = path,
+					size = size,
+					shadow = {
+						dir = -2,
+						color = Color.FromHex("#022d58"):SetAlpha(0.75),
+						blur_radius = 0.25,
+						blur_passes = 1,
+					},
+				}
+			)
+		return theme.Fonts[path][size]
+	end
 end
 
 function theme.DrawLine(x1, y1, x2, y2, thickness, tex)
@@ -231,7 +223,7 @@ function theme.DrawEdgeDecor(x, y)
 	render2d.PushMatrix()
 	render2d.Translate(x, y)
 	render2d.Rotate(45)
-	local size = theme.Sizes.EdgeDecorSize
+	local size = 3
 	render2d.SetEdgeFeather(0.5)
 	theme.DrawRect(-size, -size, size * 2, size * 2, 2, 0, false)
 	render2d.SetEdgeFeather(0)
@@ -240,14 +232,14 @@ function theme.DrawEdgeDecor(x, y)
 	render2d.SetBlendMode("additive")
 	local r, g, b, a = DecorGlow:Unpack()
 	render2d.PushColor(r, g, b, a)
-	local size_glow = size * theme.Sizes.EdgeDecorGlowFactor
+	local size_glow = size * 40
 	render2d.DrawRect(x - size_glow, y - size_glow, size_glow * 2, size_glow * 2)
 	render2d.PopColor()
 
 	do
 		local r, g, b, a = DecorWhite:Unpack()
 		render2d.PushColor(r, g, b, a)
-		local size_white = theme.Sizes.EdgeDecorWhiteSize
+		local size_white = theme.GetSize("XXS")
 		render2d.SetTexture(Textures.GlowPoint)
 		render2d.DrawRect(x - size_white, y - size_white, size_white * 2, size_white * 2)
 		render2d.SetBlendMode("alpha")
@@ -275,14 +267,14 @@ function theme.DrawFramePost(pnl)
 		local r, g, b, a = theme.GetColor("frame_border"):Unpack()
 		render2d.SetColor(r, g, b, c.a * pnl.rect.DrawAlpha)
 		render2d.SetBlendMode("alpha")
-		local offset = theme.Sizes.FrameOutlineOffset
+		local offset = 2
 		theme.DrawRect(
 			-offset,
 			-offset,
 			s.x + offset * 2,
 			s.y + offset * 2,
-			theme.Sizes.FrameOutlineThickness,
-			theme.Sizes.EdgeDecorGlowFactor
+			theme.GetSize("XXS"),
+			40
 		)
 		theme.DrawEdgeDecor(-offset, -offset)
 		theme.DrawEdgeDecor(s.x + offset, -offset)
@@ -529,10 +521,10 @@ function theme.DrawSlider(self, state)
 	if state.is_hovered then theme.UpdateSliderAnimations(owner, state) end
 
 	local size = owner.transform.Size
-	local track_height = theme.Sizes.SliderTrackHeight
+	local track_height = theme.GetSize("XXS")
 	local track_y = (size.y - track_height) / 2
-	local knob_width = theme.Sizes.SliderKnobWidth
-	local knob_height = theme.Sizes.SliderKnobHeight
+	local knob_width = theme.GetSize("S")
+	local knob_height = theme.GetSize("S")
 	local value = state.value or 0
 	local min_value = state.min or 0
 	local max_value = state.max or 1
@@ -570,7 +562,7 @@ function theme.DrawSlider(self, state)
 	render2d.SetBlendMode("additive")
 	local c = SliderKnobGlow
 	render2d.SetColor(c.r, c.g, c.b, c.a + state.glow_alpha * 0.3)
-	local glow_size = theme.Sizes.SliderKnobGlowSize * state.knob_scale
+	local glow_size = 20 * state.knob_scale
 	render2d.DrawRect(
 		knob_x + knob_width / 2 - glow_size / 2,
 		knob_y + knob_height / 2 - glow_size / 2,
@@ -677,7 +669,7 @@ function theme.DrawCheckbox(owner, state)
 	if state.is_hovered then theme.UpdateCheckboxAnimations(owner, state) end
 
 	local size = owner.transform.Size
-	local check_size = theme.Sizes.CheckboxSize
+	local check_size = theme.GetSize("M")
 	local box_x = 0
 	local box_y = (size.y - check_size) / 2
 	-- Background
@@ -717,7 +709,7 @@ function theme.DrawRadioButton(owner, state)
 	if state.is_hovered then theme.UpdateCheckboxAnimations(owner, state) end
 
 	local size = owner.transform.Size
-	local rb_size = theme.Sizes.RadioButtonSize
+	local rb_size = theme.GetSize("M")
 	local rb_x = 0
 	local rb_y = (size.y - rb_size) / 2
 	-- Use a simple rect for now, but style it differently or use circular drawing if available
