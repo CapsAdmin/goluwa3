@@ -38,7 +38,6 @@ return function(props)
 				theme.GetColor("primary"),
 			DrawScaleOffset = Vec2(1, 1),
 			DrawAngleOffset = Ang3(0, 0, 0),
-			Children = props.Children or {},
 			-- this event comes from the clickable componment and is "fired" on the entity itself
 			OnClick = not props.Disabled and
 				(

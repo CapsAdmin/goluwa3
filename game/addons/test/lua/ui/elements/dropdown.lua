@@ -53,9 +53,8 @@ return function(props)
 					OnClose = function(ent)
 						ent:Remove()
 					end,
-					Children = menu_items,
 				}
-			)
+			)(menu_items)
 		)
 	end
 
@@ -65,33 +64,34 @@ return function(props)
 			layout = props.layout or {Direction = "x", FitHeight = true, AlignmentY = "center"},
 			OnClick = open_menu,
 			Padding = props.Padding or (Rect() + theme.Sizes2.M),
-			Children = {
-				Text(
-					{
-						IsInternal = true,
-						Text = props.Text or "Select...",
-						Ref = function(self)
-							label_ent = self
-						end,
-						IgnoreMouseInput = true,
-						layout = {GrowWidth = 1, FitHeight = true},
-						Color = props.Disabled and
-							theme.GetColor("text_disabled") or
-							theme.GetColor("text_foreground"),
-					}
-				),
-				Text(
-					{
-						IsInternal = true,
-						Text = " ▼",
-						IgnoreMouseInput = true,
-						layout = {FitWidth = true, FitHeight = true},
-						Color = props.Disabled and
-							theme.GetColor("text_disabled") or
-							theme.GetColor("text_foreground"),
-					}
-				),
-			},
+		}
+	)(
+		{
+			Text(
+				{
+					IsInternal = true,
+					Text = props.Text or "Select...",
+					Ref = function(self)
+						label_ent = self
+					end,
+					IgnoreMouseInput = true,
+					layout = {GrowWidth = 1, FitHeight = true},
+					Color = props.Disabled and
+						theme.GetColor("text_disabled") or
+						theme.GetColor("text_foreground"),
+				}
+			),
+			Text(
+				{
+					IsInternal = true,
+					Text = " ▼",
+					IgnoreMouseInput = true,
+					layout = {FitWidth = true, FitHeight = true},
+					Color = props.Disabled and
+						theme.GetColor("text_disabled") or
+						theme.GetColor("text_foreground"),
+				}
+			),
 		}
 	)
 

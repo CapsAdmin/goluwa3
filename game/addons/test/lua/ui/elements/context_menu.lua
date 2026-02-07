@@ -7,10 +7,9 @@ local Frame = require("ui.elements.frame")
 local theme = require("ui.theme")
 return function(props)
 	local menu_ent
-	local container_ent
 	local is_closing = false
 
-	local function UpdateAnimations()
+	local function UpdateAnimations(ent)
 		if not menu_ent or not menu_ent:IsValid() then return end
 
 		print("open", is_closing)
@@ -37,7 +36,7 @@ return function(props)
 				interpolation = "outExpo",
 				callback = function()
 					if is_closing and menu_ent:IsValid() and props.OnClose then
-						props.OnClose(container_ent)
+						props.OnClose(ent)
 					end
 				end,
 			}
@@ -58,9 +57,6 @@ return function(props)
 
 				return false
 			end,
-			Ref = function(self)
-				container_ent = self
-			end,
 			Name = "ContextMenuContainer",
 			Size = Vec2(render2d.GetSize()),
 			Color = theme.GetColor("invisible"),
@@ -69,7 +65,7 @@ return function(props)
 				OnMouseInput = function(self, button, press)
 					if press and button == "button_1" then
 						is_closing = true
-						UpdateAnimations()
+						UpdateAnimations(self.Owner)
 						self:SetIgnoreMouseInput(true)
 						return true
 					end
@@ -84,54 +80,54 @@ return function(props)
 				OnKeyInput = function(self, key, press)
 					if press and key == "escape" then
 						is_closing = true
-						UpdateAnimations()
+						UpdateAnimations(self.Owner)
 						self.mouse_input:SetIgnoreMouseInput(true)
 						return true
 					end
 				end,
 			},
-			Children = {
-				Frame(
-					{
-						IsInternal = true,
-						Name = "ContextMenu",
-						Pivot = Vec2(0, 0),
-						Position = props.Position or Vec2(100, 100),
-						Size = props.Size or theme.Sizes.ContextMenuSize,
-						Padding = "XS",
-						layout = {
-							Floating = true,
-							Direction = "y",
-							ChildGap = 0,
-							AlignmentX = "stretch",
-							FitHeight = true,
-							FitWidth = true,
-						},
-						OnMouseInput = function(self, button, press)
-							return true
-						end,
-						Children = props.Children,
-						Ref = function(self)
-							self:RequestFocus()
-							menu_ent = self
-							UpdateAnimations()
-						end,
-						key_input = {
-							OnKeyInput = function(self, key, press)
-								if press and key == "escape" then
-									is_closing = true
-									UpdateAnimations()
+		}
+	)(
+		{
+			Frame(
+				{
+					IsInternal = true,
+					Name = "ContextMenu",
+					Pivot = Vec2(0, 0),
+					Position = props.Position or Vec2(100, 100),
+					Size = props.Size or theme.Sizes.ContextMenuSize,
+					Padding = "XS",
+					layout = {
+						Floating = true,
+						Direction = "y",
+						ChildGap = 0,
+						AlignmentX = "stretch",
+						FitHeight = true,
+						FitWidth = true,
+					},
+					OnMouseInput = function(self, button, press)
+						return true
+					end,
+					Ref = function(self)
+						self:RequestFocus()
+						menu_ent = self
+						UpdateAnimations()
+					end,
+					key_input = {
+						OnKeyInput = function(self, key, press)
+							if press and key == "escape" then
+								is_closing = true
+								UpdateAnimations()
 
-									if self.Owner:HasParent() then
-										self.Owner:GetParent().mouse_input:SetIgnoreMouseInput(true)
-										return true
-									end
+								if self.Owner:HasParent() then
+									self.Owner:GetParent().mouse_input:SetIgnoreMouseInput(true)
+									return true
 								end
-							end,
-						},
-					}
-				),
-			},
+							end
+						end,
+					},
+				}
+			),
 		}
 	)
 end

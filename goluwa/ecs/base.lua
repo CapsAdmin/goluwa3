@@ -10,23 +10,9 @@ return function(name, base_path, get_valid_components)
 			ChildrenMap = {},
 			component_map = {},
 		})
-
-		if config and config[1] and false then
-			local children = {}
-
-			for i, child in ipairs(config) do
-				table.insert(children, child)
-			end
-
-			for i = 1, #config do
-				config[i] = nil
-			end
-
-			config.Children = children
-		end
-
 		local ent = self
 		local components = {}
+		local local_events = {}
 		local ref
 
 		if config and config.Ref then
@@ -44,6 +30,12 @@ return function(name, base_path, get_valid_components)
 			if config.ComponentSet then
 				for _, lib in ipairs(config.ComponentSet) do
 					table.insert(components, ent:AddComponent(lib, nil, true))
+				end
+			end
+
+			if config.Events then
+				for event_name, handler in pairs(config.Events) do
+					self:AddLocalListener(event_name, handler)
 				end
 			end
 

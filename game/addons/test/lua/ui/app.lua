@@ -50,64 +50,65 @@ local function toggle()
 				FitHeight = true,
 			},
 			Padding = "XXS",
-			Children = {
-				Row({})(
-					{
-						MenuButton(
-							{
-								Text = "GAME",
-								OnClick = function(ent)
-									local x, y = ent.transform:GetWorldMatrix():GetTranslation()
-									y = y + ent.transform:GetHeight()
-									world_panel:Ensure(
-										ContextMenu(
-											{
-												Key = "ActiveContextMenu",
-												Position = Vec2(x, y),
-												OnClose = function(ent)
-													print("removing context menu")
-													ent:Remove()
-												end,
-											}
-										)(
-											{
-												MenuItem({Text = "LOAD"}),
-												MenuItem({Text = "RUN (ESCAPE)"}),
-												MenuItem({Text = "RESET", Disabled = true}),
-												MenuSpacer(),
-												MenuItem({Text = "SAVE STATE", Disabled = true}),
-												MenuItem({Text = "OPEN STATE", Disabled = true}),
-												MenuItem({Text = "PICK STATE", Disabled = true}),
-												MenuSpacer(),
-												MenuItem(
-													{
-														Text = "QUIT",
-														OnClick = function()
-															system.ShutDown()
-														end,
-													}
-												),
-											}
-										)
+		}
+	)(
+		{
+			Row({})(
+				{
+					MenuButton(
+						{
+							Text = "GAME",
+							OnClick = function(ent)
+								local x, y = ent.transform:GetWorldMatrix():GetTranslation()
+								y = y + ent.transform:GetHeight()
+								world_panel:Ensure(
+									ContextMenu(
+										{
+											Key = "ActiveContextMenu",
+											Position = Vec2(x, y),
+											OnClose = function(ent)
+												print("removing context menu")
+												ent:Remove()
+											end,
+										}
+									)(
+										{
+											MenuItem({Text = "LOAD"}),
+											MenuItem({Text = "RUN (ESCAPE)"}),
+											MenuItem({Text = "RESET", Disabled = true}),
+											MenuSpacer(),
+											MenuItem({Text = "SAVE STATE", Disabled = true}),
+											MenuItem({Text = "OPEN STATE", Disabled = true}),
+											MenuItem({Text = "PICK STATE", Disabled = true}),
+											MenuSpacer(),
+											MenuItem(
+												{
+													Text = "QUIT",
+													OnClick = function()
+														system.ShutDown()
+													end,
+												}
+											),
+										}
 									)
-								end,
-							}
-						),
-						MenuButton({
-							Text = "CONFIG",
-						}),
-						MenuButton({
-							Text = "CHEAT",
-						}),
-						MenuButton({
-							Text = "NETPLAY",
-						}),
-						MenuButton({
-							Text = "MISC",
-						}),
-					}
-				),
-			},
+								)
+							end,
+						}
+					),
+					MenuButton({
+						Text = "CONFIG",
+					}),
+					MenuButton({
+						Text = "CHEAT",
+					}),
+					MenuButton({
+						Text = "NETPLAY",
+					}),
+					MenuButton({
+						Text = "MISC",
+					}),
+				}
+			),
 		}
 	)
 	local pages = {}
@@ -156,6 +157,8 @@ local function toggle()
 				if content.layout then
 					-- TODO
 					require("timer").Delay(0, function()
+						if not content:IsValid() then return end
+
 						content.layout:InvalidateLayout(true)
 					end)
 				end
@@ -196,36 +199,37 @@ local function toggle()
 				FitHeight = false,
 				FitWidth = false,
 			},
-			Children = {
-				HorizontalSplitter({
-					InitialWidth = 220,
-				})(
-					{
-						ScrollablePanel(
-							{
-								Color = theme.GetColor("black"):SetAlpha(0.3),
-								layout = {
-									GrowHeight = 1,
-								},
-								Padding = Rect() + theme.GetPadding("XXS"),
-							}
-						)(
-							{
-								Column(
-									{
-										layout = {
-											ChildGap = 4,
-											GrowWidth = 1,
-											AlignmentX = "stretch",
-										},
-									}
-								)(page_buttons),
-							}
-						),
-						content_panel,
-					}
-				),
-			},
+		}
+	)(
+		{
+			HorizontalSplitter({
+				InitialWidth = 220,
+			})(
+				{
+					ScrollablePanel(
+						{
+							Color = theme.GetColor("black"):SetAlpha(0.3),
+							layout = {
+								GrowHeight = 1,
+							},
+							Padding = Rect() + theme.GetPadding("XXS"),
+						}
+					)(
+						{
+							Column(
+								{
+									layout = {
+										ChildGap = 4,
+										GrowWidth = 1,
+										AlignmentX = "stretch",
+									},
+								}
+							)(page_buttons),
+						}
+					),
+					content_panel,
+				}
+			),
 		}
 	)
 	menu = Panel.NewPanel(
@@ -236,12 +240,11 @@ local function toggle()
 			layout = {
 				Direction = "y",
 			},
-			Children = {
-				top_bar,
-				demo_window,
-			},
 		}
-	)
+	)({
+		top_bar,
+		demo_window,
+	})
 	menu:AddEvent("WindowFramebufferResized")
 
 	function menu:OnWindowFramebufferResized(window, size)

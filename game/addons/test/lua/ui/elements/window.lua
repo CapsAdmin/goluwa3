@@ -8,7 +8,8 @@ local Button = require("ui.elements.button")
 local TextButton = require("ui.elements.text_button")
 local theme = require("ui.theme")
 return function(props)
-	local window_container = Panel.NewPanel(
+	local content
+	return Panel.NewPanel(
 		{
 			Name = props.Name or "Window",
 			Size = props.Size or Vec2(400, 300),
@@ -19,85 +20,96 @@ return function(props)
 				AlignmentX = "stretch",
 				Floating = true,
 			},
-		}
-	)
-	window_container:AddComponent("resizable")
-	window_container.resizable:SetMinimumSize(props.MinSize or Vec2(100, 100))
-	local title_val = props.Title or "Window"
-	local header = Frame(
-		{
-			IsInternal = true,
-			Name = "WindowHeader",
-			Parent = window_container,
-			layout = {
-				Direction = "x",
-				AlignmentY = "center",
-				FitHeight = true,
+			resizable = {
+				MinimumSize = props.MinSize or Vec2(100, 100),
 			},
-			Color = theme.GetColor("primary"),
-			draggable = {Target = window_container},
-			Cursor = "sizeall",
-			Padding = "XXXS",
-			Children = {
-				Text(
-					{
-						Name = "Title",
-						Text = title_val,
-						layout = {
-							GrowWidth = 1,
-							FitHeight = true,
-						},
-					}
-				),
-				TextButton(
-					{
-						Name = "CloseButton",
-						Text = "X",
-						Size = Vec2(20, 20),
-						OnClick = function()
-							print("CLOSE WINDOW")
+			PreChildAdd = function(self, child)
+				if child.IsInternal then return end
 
-							if props.OnClose then
-								props.OnClose(window_container)
-							else
-								window_container:Remove()
-							end
+				if not content then return end
+
+				content:AddChild(child)
+				return false
+			end,
+			PreRemoveChildren = function(self)
+				if not content then return end
+
+				content:RemoveChildren()
+				return false
+			end,
+		}
+	)(
+		{
+			-- header
+			Frame(
+				{
+					IsInternal = true,
+					Name = "WindowHeader",
+					layout = {
+						Direction = "x",
+						AlignmentY = "center",
+						FitHeight = true,
+					},
+					Color = theme.GetColor("primary"),
+					draggable = {},
+					Cursor = "sizeall",
+					Padding = "XXXS",
+					Events = {
+						OnParent = function(self, parent)
+							self.draggable:SetTarget(parent)
 						end,
-						layout = {
-							FitWidth = false,
-							FitHeight = false,
-						},
-					}
-				),
-			},
+					},
+				}
+			)(
+				{
+					Text(
+						{
+							Name = "Title",
+							Text = props.Title or "Window",
+							layout = {
+								GrowWidth = 1,
+								FitHeight = true,
+							},
+						}
+					),
+					TextButton(
+						{
+							Name = "CloseButton",
+							Text = "X",
+							Size = Vec2(20, 20),
+							OnClick = function(self)
+								print("Close button clicked", props.OnClose, "?")
+
+								if props.OnClose then
+									props.OnClose(self:GetParent():GetParent())
+								else
+									self:GetParent():GetParent():Remove()
+								end
+							end,
+							layout = {
+								FitWidth = false,
+								FitHeight = false,
+							},
+						}
+					),
+				}
+			),
+			-- content
+			Frame(
+				{
+					Ref = function(self)
+						content = self
+					end,
+					IsInternal = true,
+					Name = "WindowContent",
+					layout = {
+						Direction = "y",
+						GrowWidth = 1,
+						GrowHeight = 1,
+					},
+					Padding = props.Padding or "M",
+				}
+			),
 		}
 	)
-	local content = Frame(
-		{
-			IsInternal = true,
-			Name = "WindowContent",
-			Parent = window_container,
-			layout = {
-				Direction = "y",
-				GrowWidth = 1,
-				GrowHeight = 1,
-			},
-			Padding = props.Padding or "M",
-			Children = props.Children or {},
-		}
-	)
-
-	function window_container:PreChildAdd(child)
-		if child.IsInternal then return end
-
-		content:AddChild(child)
-		return false
-	end
-
-	function window_container:PreRemoveChildren()
-		content:RemoveChildren()
-		return false
-	end
-
-	return window_container
 end

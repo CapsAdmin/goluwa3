@@ -18,18 +18,19 @@ return function(props)
 				GrowWidth = 1,
 			},
 			Padding = props.Padding or (Rect() + theme.Sizes2.M),
-			Children = {
-				Text(
-					{
-						layout = {GrowWidth = 1, FitHeight = true},
-						Text = props.Text,
-						IgnoreMouseInput = true,
-						Color = props.Disabled and
-							theme.GetColor("text_disabled") or
-							theme.GetColor("text_foreground"),
-					}
-				),
-			},
+		}
+	)(
+		{
+			Text(
+				{
+					layout = {GrowWidth = 1, FitHeight = true},
+					Text = props.Text,
+					IgnoreMouseInput = true,
+					Color = props.Disabled and
+						theme.GetColor("text_disabled") or
+						theme.GetColor("text_foreground"),
+				}
+			),
 		}
 	)
 end

@@ -35,20 +35,19 @@ return {
 			)
 		)
 		canvas:AddChild(
-			Row(
+			Row({
+				layout = {Direction = "x", ChildGap = 10, AlignmentY = "center"},
+			})(
 				{
-					layout = {Direction = "x", ChildGap = 10, AlignmentY = "center"},
-					Children = {
-						Checkbox(
-							{
-								Value = true,
-								OnChange = function(val)
-									print("Checkbox value:", val)
-								end,
-							}
-						),
-						Text({Text = "Toggle me"}),
-					},
+					Checkbox(
+						{
+							Value = true,
+							OnChange = function(val)
+								print("Checkbox value:", val)
+							end,
+						}
+					),
+					Text({Text = "Toggle me"}),
 				}
 			)
 		)
@@ -59,23 +58,22 @@ return {
 
 		for i = 1, 3 do
 			radio_group:AddChild(
-				Row(
+				Row({
+					layout = {Direction = "x", ChildGap = 10, AlignmentY = "center"},
+				})(
 					{
-						layout = {Direction = "x", ChildGap = 10, AlignmentY = "center"},
-						Children = {
-							RadioButton(
-								{
-									IsSelected = function()
-										return selected_radio == i
-									end,
-									OnSelect = function()
-										print("Radio " .. i .. " selected")
-										selected_radio = i
-									end,
-								}
-							),
-							Text({Text = "Option " .. i}),
-						},
+						RadioButton(
+							{
+								IsSelected = function()
+									return selected_radio == i
+								end,
+								OnSelect = function()
+									print("Radio " .. i .. " selected")
+									selected_radio = i
+								end,
+							}
+						),
+						Text({Text = "Option " .. i}),
 					}
 				)
 			)

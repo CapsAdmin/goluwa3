@@ -18,8 +18,7 @@ return function(props)
 					Direction = "y",
 				},
 			},
-			props,
-			{Children = nil}
+			props
 		)
 	)
 	local viewport = Panel.NewPanel(
@@ -46,7 +45,6 @@ return function(props)
 				props.Layout or {},
 				props.layout or {}
 			),
-			Children = props.Children,
 		}
 	)
 

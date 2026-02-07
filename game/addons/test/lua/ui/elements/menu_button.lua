@@ -15,17 +15,16 @@ return function(props)
 			},
 			OnClick = props.OnClick,
 			Padding = (Rect() + theme.GetPadding(props.Padding or "XS")),
-			Children = {
-				Text(
-					{
-						Text = props.Text,
-						IgnoreMouseInput = true,
-						Color = props.Disabled and
-							theme.GetColor("text_disabled") or
-							theme.GetColor("text_foreground"),
-					}
-				),
-			},
 		}
+	)(
+		Text(
+			{
+				Text = props.Text,
+				IgnoreMouseInput = true,
+				Color = props.Disabled and
+					theme.GetColor("text_disabled") or
+					theme.GetColor("text_foreground"),
+			}
+		)
 	)
 end
