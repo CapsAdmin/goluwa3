@@ -7,7 +7,6 @@ local event = require("event")
 local Panel = require("ecs.panel")
 local theme = require("ui.theme")
 return function(props)
-	local ent
 	local state = {
 		value = props.Value or 0.5,
 		min = props.Min or 0,
@@ -19,7 +18,7 @@ return function(props)
 		last_hovered = false,
 	}
 
-	local function SetValueFromPosition(x)
+	local function SetValueFromPosition(ent, x)
 		local size = ent.transform:GetSize()
 		local knob_width = 20
 		local usable_width = size.x - knob_width
@@ -29,12 +28,11 @@ return function(props)
 		if props.OnChange then props.OnChange(state.value) end
 	end
 
-	ent = Panel.NewPanel(
+	return Panel.NewPanel(
 		{
 			Name = "slider",
-			Position = props.Position or (not props.layout and Vec2(100, 100) or nil),
-			Size = props.Size or theme.Sizes.SliderSize,
-			layout = props.layout,
+			Size = props.Size or Vec2(200, 20),
+			Layout = props.Layout,
 			Cursor = "hand",
 			Color = theme.GetColor("invisible"),
 			mouse_input = {
@@ -42,7 +40,7 @@ return function(props)
 					if button == "button_1" then
 						if press then
 							state.is_dragging = true
-							SetValueFromPosition(local_pos.x)
+							SetValueFromPosition(self.Owner, local_pos.x)
 						end
 
 						return true
@@ -57,14 +55,14 @@ return function(props)
 			},
 			OnHover = function(self, hovered)
 				state.is_hovered = hovered
-				theme.UpdateSliderAnimations(ent, state)
+				theme.UpdateSliderAnimations(self, state)
 			end,
 			gui_element = {
 				OnDraw = function(self)
 					if state.is_dragging then
 						local mpos = window.GetMousePosition()
 						local lpos = self.Owner.transform:GlobalToLocal(mpos)
-						SetValueFromPosition(lpos.x)
+						SetValueFromPosition(self.Owner, lpos.x)
 					end
 
 					theme.DrawSlider(self, state)
@@ -72,5 +70,4 @@ return function(props)
 			},
 		}
 	)
-	return ent
 end

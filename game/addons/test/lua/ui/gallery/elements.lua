@@ -30,7 +30,7 @@ return {
 					OnChange = function(value)
 						print("Slider value:", value)
 					end,
-					layout = {GrowWidth = 1},
+					Layout = {GrowWidth = 1},
 				}
 			)
 		)
