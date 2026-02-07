@@ -3,6 +3,7 @@ local Color = require("structs.color")
 local Panel = require("ecs.panel")
 local theme = require("ui.theme")
 local window = require("window")
+local timer = require("timer")
 return function(props)
 	local divider_width = props.DividerWidth or 6
 	local initial_width = props.InitialWidth or 220
@@ -30,6 +31,7 @@ return function(props)
 	}
 	local divider = Panel.NewPanel(
 		{
+			IsInternal = true,
 			Name = "Divider",
 			Size = Vec2(divider_width, 0),
 			layout = {
@@ -75,12 +77,20 @@ return function(props)
 					if state.is_dragging then
 						local lpos = splitter.transform:GlobalToLocal(pos)
 						local new_width = math.max(50, lpos.x)
-						local children = splitter:GetChildren()
+						local left_panel
 
-						if children[1] and children[1].layout then
-							children[1].layout:SetMinSize(Vec2(new_width, 0))
-							children[1].layout:SetMaxSize(Vec2(new_width, 0))
-							children[1].layout:InvalidateLayout(true)
+						for _, child in ipairs(splitter:GetChildren()) do
+							if not child.IsInternal then
+								left_panel = child
+
+								break
+							end
+						end
+
+						if left_panel and left_panel.layout then
+							left_panel.layout:SetMinSize(Vec2(new_width, 0))
+							left_panel.layout:SetMaxSize(Vec2(new_width, 0))
+							left_panel.layout:InvalidateLayout(true)
 						end
 
 						self:SetCursor("horizontal_resize")
@@ -99,20 +109,18 @@ return function(props)
 	function divider:OnDraw() -- We use the rect component for the color, but we could add custom drawing here if needed.
 	end
 
-	-- We override AddChild to handle the divider placement
-	local old_AddChild = splitter.AddChild
-
-	function splitter:AddChild(child)
-		if child == divider then
-			old_AddChild(self, child)
-			return
-		end
+	function splitter:PreChildAdd(child)
+		if child.IsInternal then return true end
 
 		local children = self:GetChildren()
 		local actual_children_count = 0
 
 		for _, c in ipairs(children) do
-			if c ~= divider then actual_children_count = actual_children_count + 1 end
+			if not c.IsInternal then actual_children_count = actual_children_count + 1 end
+		end
+
+		if actual_children_count >= 2 then
+			error("HorizontalSplitter can only have 2 children, but attempted to add a third")
 		end
 
 		if actual_children_count == 0 then
@@ -123,9 +131,6 @@ return function(props)
 				child.layout:SetGrowHeight(1)
 				child.layout:SetFitWidth(false)
 			end
-
-			old_AddChild(self, child)
-			self:AddChild(divider)
 		elseif actual_children_count == 1 then
 			-- Second child is the right panel
 			if child.layout then
@@ -133,10 +138,25 @@ return function(props)
 				child.layout:SetGrowHeight(1)
 			end
 
-			old_AddChild(self, child)
-		else
-			old_AddChild(self, child)
+			self:AddChild(divider, 2)
 		end
+
+		return true
+	end
+
+	function splitter:PreRemoveChildren()
+		local children = self:GetChildren()
+
+		for i = #children, 1, -1 do
+			local child = children[i]
+
+			if not child.IsInternal then
+				child:UnParent()
+				child:Remove()
+			end
+		end
+
+		return false
 	end
 
 	return splitter
