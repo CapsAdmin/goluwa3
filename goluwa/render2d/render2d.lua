@@ -29,6 +29,9 @@ local FragmentConstants = ffi.typeof([[
         float edge_feather;
         int premultiply_output;
         int unpremultiply_input;
+        float border_radius[4];
+        float outline_width;
+        float rect_size[2];
 	}
 ]])
 local vertex_constants = VertexConstants()
@@ -84,6 +87,16 @@ render2d.blend_modes = {
 		src_alpha_blend_factor = "one",
 		dst_alpha_blend_factor = "one_minus_src_alpha",
 		alpha_blend_op = "add",
+		color_write_mask = {"r", "g", "b", "a"},
+	},
+	subtract = {
+		blend = true,
+		src_color_blend_factor = "src_alpha",
+		dst_color_blend_factor = "one",
+		color_blend_op = "reverse_subtract",
+		src_alpha_blend_factor = "one",
+		dst_alpha_blend_factor = "one",
+		alpha_blend_op = "reverse_subtract",
 		color_write_mask = {"r", "g", "b", "a"},
 	},
 	none = {
@@ -151,6 +164,8 @@ function render2d.ResetState()
 	render2d.SetUV()
 	render2d.SetSwizzleMode(0)
 	render2d.SetEdgeFeather(0)
+	render2d.SetBorderRadius(0, 0, 0, 0)
+	render2d.SetOutlineWidth(0)
 	render2d.SetPremultiplyOutput(false)
 	render2d.UpdateScreenSize(render.GetRenderImageSize())
 	render2d.SetBlendMode("alpha", true)
@@ -251,11 +266,71 @@ do
 						float edge_feather;
 						int premultiply_output;
 						int unpremultiply_input;
+						vec4 border_radius;
+						float outline_width;
+						vec2 rect_size;
 					} pc;                   
 					
 					void main() 
 					{
 						out_color = in_color * pc.global_color;
+
+						if (pc.rect_size.x > 0.0 && pc.rect_size.y > 0.0) {
+    vec2 p = (in_uv - 0.5) * pc.rect_size;
+    vec2 b = pc.rect_size * 0.5;
+    vec4 r = pc.border_radius;
+    float rad = 0.0;
+    if (p.x < 0.0 && p.y < 0.0) rad = r.x;
+    else if (p.x > 0.0 && p.y < 0.0) rad = r.y;
+    else if (p.x > 0.0 && p.y > 0.0) rad = r.z;
+    else if (p.x < 0.0 && p.y > 0.0) rad = r.w;
+
+    float min_dim = min(pc.rect_size.x, pc.rect_size.y);
+    float half_dim = min_dim * 0.5;
+
+    // Clamp radius to half_dim for the inset (corner region stays fixed size)
+    float inset = min(rad, half_dim);
+
+    // The corner region offset: how far into the corner we are
+    vec2 q = abs(p) - b + inset;
+
+    float d;
+    if (q.x <= 0.0 || q.y <= 0.0) {
+        // On a flat edge or interior: standard box SDF (always negative inside)
+        d = max(q.x, q.y);
+    } else {
+        // In the corner region: use Lp norm
+        // Map radius to normalized 0-3+ range relative to half_dim
+        float norm_rad = rad / max(half_dim, 0.001);
+
+        float exp_p;
+        if (norm_rad <= 0.0) {
+            exp_p = 200.0;
+        } else {
+            exp_p = 2.0 / norm_rad;
+        }
+
+        // Lp distance in corner, normalized to the inset size
+        vec2 np = q / inset;
+        float lp = pow(pow(np.x, exp_p) + pow(np.y, exp_p), 1.0 / exp_p);
+        d = (lp - 1.0) * inset;
+    }
+
+    float s = 1.0;
+    float mask = smoothstep(s, -s, d);
+
+
+	 if (pc.outline_width > 0.0) {
+        float outer_mask = smoothstep(s, -s, d);
+        float inner_mask = smoothstep(s, -s, d + pc.outline_width);
+        mask = outer_mask - inner_mask;
+    } else {
+        mask = smoothstep(s, -s, d);
+        if (q.x <= 0.0 || q.y <= 0.0) mask = 1.0;
+    }
+
+    out_color.a *= mask;
+}
 						
 						if (pc.texture_index >= 0) {
 							vec4 tex = texture(textures[nonuniformEXT(pc.texture_index)], in_uv * pc.uv_scale + pc.uv_offset);
@@ -376,6 +451,43 @@ do
 		end
 
 		utility.MakePushPopFunction(render2d, "EdgeFeather")
+	end
+
+	do
+		function render2d.SetBorderRadius(tl, tr, br, bl)
+			if type(tl) == "table" then
+				tr = tl[2]
+				br = tl[3]
+				bl = tl[4]
+				tl = tl[1]
+			end
+
+			fragment_constants.border_radius[0] = tl or 0
+			fragment_constants.border_radius[1] = tr or tl or 0
+			fragment_constants.border_radius[2] = br or tl or 0
+			fragment_constants.border_radius[3] = bl or tl or 0
+		end
+
+		function render2d.GetBorderRadius()
+			return fragment_constants.border_radius[0],
+			fragment_constants.border_radius[1],
+			fragment_constants.border_radius[2],
+			fragment_constants.border_radius[3]
+		end
+
+		utility.MakePushPopFunction(render2d, "BorderRadius")
+	end
+
+	do
+		function render2d.SetOutlineWidth(width)
+			fragment_constants.outline_width = width or 0
+		end
+
+		function render2d.GetOutlineWidth()
+			return fragment_constants.outline_width
+		end
+
+		utility.MakePushPopFunction(render2d, "OutlineWidth")
 	end
 
 	do
@@ -789,13 +901,15 @@ do
 		end
 	end
 
-	function render2d.UploadConstants(cmd)
+	function render2d.UploadConstants(cmd, w, h)
 		do
 			vertex_constants.projection_view_world = render2d.GetMatrix():GetFloatCopy()
 			render2d.pipeline:PushConstants(cmd, "vertex", 0, vertex_constants)
 		end
 
 		do
+			fragment_constants.rect_size[0] = w or 0
+			fragment_constants.rect_size[1] = h or 0
 			fragment_constants.texture_index = render2d.current_texture and
 				render2d.pipeline:GetTextureIndex(render2d.current_texture) or
 				-1
@@ -1012,7 +1126,24 @@ do
 
 		if w and h then render2d.Scale(w, h) end
 
-		render2d.UploadConstants(render2d.cmd)
+		render2d.UploadConstants(render2d.cmd, w, h)
+		render2d.rect_mesh:DrawIndexed(render2d.cmd, 6)
+		render2d.PopMatrix()
+	end
+
+	function render2d.DrawRectf(x, y, w, h, a, ox, oy)
+		render2d.BindMesh(render2d.rect_mesh)
+		render2d.PushMatrix()
+
+		if x and y then render2d.Translatef(x, y) end
+
+		if a then render2d.Rotate(a) end
+
+		if ox then render2d.Translatef(-ox, -oy) end
+
+		if w and h then render2d.Scalef(w, h) end
+
+		render2d.UploadConstants(render2d.cmd, w, h)
 		render2d.rect_mesh:DrawIndexed(render2d.cmd, 6)
 		render2d.PopMatrix()
 	end

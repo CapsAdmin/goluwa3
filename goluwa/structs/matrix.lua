@@ -477,7 +477,7 @@ do -- 44
 		x = math.rad(x)
 		y = math.rad(y)
 		local skew = META.CType(1, math.tan(x), 0, 0, math.tan(y), 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1)
-		self:CopyTo(skew)
+		self:Multiply(skew)
 		return self
 	end
 
@@ -499,10 +499,36 @@ do -- 44
 		return self
 	end
 
+	function META:Shear(x, y, z)
+		if x == 0 and y == 0 and (not z or z == 0) then return self end
+
+		local m00, m01, m02, m03 = self.m00, self.m01, self.m02, self.m03
+		local m10, m11, m12, m13 = self.m10, self.m11, self.m12, self.m13
+		self.m00 = m00 + y * m10
+		self.m01 = m01 + y * m11
+		self.m02 = m02 + y * m12
+		self.m03 = m03 + y * m13
+		self.m10 = m10 + x * m00
+		self.m11 = m11 + x * m01
+		self.m12 = m12 + x * m02
+		self.m13 = m13 + x * m03
+
+		if z and z ~= 0 then
+			local m20, m21, m22, m23 = self.m20, self.m21, self.m22, self.m23
+			self.m20 = m20 + z * m00
+			self.m21 = m21 + z * m01
+			self.m22 = m22 + z * m02
+			self.m23 = m23 + z * m03
+		end
+
+		return self
+	end
+
 	function META:SetShear(x, y, z)
 		self.m01 = x
 		self.m10 = y
-	-- z?
+		self.m12 = z or self.m12
+		return self
 	end
 
 	function META:SetTranslation(x, y, z)

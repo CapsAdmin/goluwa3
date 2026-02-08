@@ -23,6 +23,15 @@ META:IsSet("Size", 12, {callback = "ClearCache"})
 META:IsSet("Scale", Vec2(1, 1), {callback = "ClearCache"})
 META:GetSet("Filtering", "linear", {callback = "ClearCache"})
 META:GetSet("ShadingInfo", nil, {callback = "ClearCache"})
+
+function META:SetSeparateEffects(val)
+	if self.SeparateEffects == val then return end
+
+	self.SeparateEffects = val
+
+	if self.Ready then self:create_atlas() end
+end
+
 META:IsSet("Monospace", false, {callback = "ClearCache"})
 META:IsSet("Ready", false)
 META:IsSet("ReverseDraw", false)
@@ -36,6 +45,8 @@ end
 
 function META:OnRemove()
 	if self.texture_atlas then self.texture_atlas:Remove() end
+
+	if self.effect_texture_atlas then self.effect_texture_atlas:Remove() end
 end
 
 local function get_ascent_descent(self)
@@ -294,7 +305,7 @@ function META:GetBlitPipeline()
 	return self.blit_pipeline
 end
 
-local function create_atlas(self)
+function META:create_atlas()
 	local atlas_size = 512
 
 	if self.Size > 32 then atlas_size = 1024 end
@@ -307,12 +318,21 @@ local function create_atlas(self)
 	self.texture_atlas:SetMipMapLevels("auto")
 	self.texture_atlas:SetPadding(0)
 
+	if self.SeparateEffects then
+		self.effect_texture_atlas = TextureAtlas.New(atlas_size, atlas_size, self.Filtering, atlas_format)
+		self.effect_texture_atlas:SetMipMapLevels("auto")
+		self.effect_texture_atlas:SetPadding(0)
+	end
+
 	for code in pairs(self.chars) do
 		self.chars[code] = nil
 		self:LoadGlyph(code)
 	end
 
 	self.texture_atlas:Build()
+
+	if self.effect_texture_atlas then self.effect_texture_atlas:Build() end
+
 	self:SetReady(true)
 end
 
@@ -330,10 +350,10 @@ function META.New(fonts, padding)
 	if fonts[1] and fonts[1].Size then self:SetSize(fonts[1].Size) end
 
 	if render.target then
-		create_atlas(self)
+		self:create_atlas(self)
 	else
 		event.AddListener("RendererReady", self, function()
-			create_atlas(self)
+			self:create_atlas(self)
 			return event.destroy_tag
 		end)
 	end
@@ -353,6 +373,12 @@ end
 
 function META:Rebuild(cmd)
 	self.texture_atlas:Build(cmd)
+
+	if self.effect_texture_atlas then self.effect_texture_atlas:Build(cmd) end
+end
+
+local function create_atlas(self)
+	return self:create_atlas()
 end
 
 function META:RebuildFromScratch(cmd)
@@ -372,7 +398,7 @@ function META:RebuildFromScratch(cmd)
 	end
 
 	-- Rebuild the atlas
-	self.texture_atlas:Build(cmd)
+	self:Rebuild(cmd)
 end
 
 -- Override SetShadingInfo to trigger full rebuild and shading
@@ -522,6 +548,7 @@ function META:LoadGlyph(code, parent_cmd, temp_fbs)
 			end
 
 			local current_tex = fb_ss.color_texture
+			local effect_tex
 
 			if self.ShadingInfo then
 				local glyph_copy = current_tex
@@ -544,18 +571,46 @@ function META:LoadGlyph(code, parent_cmd, temp_fbs)
 						current_tex:GenerateMipmaps("shader_read_only_optimal", cmd)
 					end
 				end
+
+				effect_tex = current_tex
 			end
 
-			local fb_final = get_temp_fb(glyph.w + padding * 2, glyph.h + padding * 2, atlas_format, false)
-			table.insert(used_temp_fbs, fb_final)
+			if self.SeparateEffects then
+				local fb_final_solid = get_temp_fb(glyph.w + padding * 2, glyph.h + padding * 2, atlas_format, false)
+				table.insert(used_temp_fbs, fb_final_solid)
 
-			do
-				local pipeline = self:GetBlitPipeline()
-				self.current_draw_tex = current_tex
-				pipeline:Draw(cmd, fb_final)
+				do
+					local pipeline = self:GetBlitPipeline()
+					self.current_draw_tex = fb_ss.color_texture
+					pipeline:Draw(cmd, fb_final_solid)
+				end
+
+				glyph.texture = fb_final_solid.color_texture
+
+				if effect_tex then
+					local fb_final_effect = get_temp_fb(glyph.w + padding * 2, glyph.h + padding * 2, atlas_format, false)
+					table.insert(used_temp_fbs, fb_final_effect)
+
+					do
+						local pipeline = self:GetBlitPipeline()
+						self.current_draw_tex = effect_tex
+						pipeline:Draw(cmd, fb_final_effect)
+					end
+
+					glyph.effect_texture = fb_final_effect.color_texture
+				end
+			else
+				local fb_final = get_temp_fb(glyph.w + padding * 2, glyph.h + padding * 2, atlas_format, false)
+				table.insert(used_temp_fbs, fb_final)
+
+				do
+					local pipeline = self:GetBlitPipeline()
+					self.current_draw_tex = current_tex
+					pipeline:Draw(cmd, fb_final)
+				end
+
+				glyph.texture = fb_final.color_texture
 			end
-
-			glyph.texture = fb_final.color_texture
 
 			if own_cmd then
 				self.texture_atlas:Insert(
@@ -567,6 +622,19 @@ function META:LoadGlyph(code, parent_cmd, temp_fbs)
 						flip_y = glyph.flip_y,
 					}
 				)
+
+				if glyph.effect_texture and self.effect_texture_atlas then
+					self.effect_texture_atlas:Insert(
+						code,
+						{
+							w = glyph.w + self:GetPadding() * 2,
+							h = glyph.h + self:GetPadding() * 2,
+							texture = glyph.effect_texture,
+							flip_y = glyph.flip_y,
+						}
+					)
+				end
+
 				self.chars[code] = glyph
 				self:Rebuild(cmd)
 				cmd:End()
@@ -596,6 +664,19 @@ function META:LoadGlyph(code, parent_cmd, temp_fbs)
 				flip_y = glyph.flip_y,
 			}
 		)
+
+		if glyph.effect_texture and self.effect_texture_atlas then
+			self.effect_texture_atlas:Insert(
+				code,
+				{
+					w = glyph.w + self:GetPadding() * 2,
+					h = glyph.h + self:GetPadding() * 2,
+					texture = glyph.effect_texture,
+					flip_y = glyph.flip_y,
+				}
+			)
+		end
+
 		self.chars[code] = glyph
 	else
 		self.chars[code] = false
@@ -739,12 +820,7 @@ function META:GetTextSizeNotCached(str)
 	return X * self.Scale.x, Y * self.Scale.y
 end
 
-function META:DrawString(str, x, y, spacing)
-	if not self:IsReady() then return end
-
-	str = tostring(str)
-	batch_load_glyphs(self, str)
-	spacing = spacing or self.Spacing
+function META:DrawPass(str, x, y, spacing, atlas)
 	local X, Y = 0, 0
 	local i = 1
 	local len = #str
@@ -752,7 +828,7 @@ function META:DrawString(str, x, y, spacing)
 	local padding = self:GetPadding()
 	local scale_x, scale_y = self.Scale.x, self.Scale.y
 	local line_height = self:GetLineHeight()
-	local atlas_textures = self.texture_atlas.textures
+	local atlas_textures = atlas.textures
 	local monospace = self.Monospace
 	local half_size = self.Size / 2
 	local tab_mult = self.TabWidthMultiplier
@@ -760,7 +836,6 @@ function META:DrawString(str, x, y, spacing)
 	local SetTexture = render2d.SetTexture
 	local SetUV2 = render2d.SetUV2
 	local DrawRect = render2d.DrawRect
-	render2d.PushUV()
 
 	while i <= len do
 		local char_code = utf8.uint32(str, i)
@@ -805,7 +880,7 @@ function META:DrawString(str, x, y, spacing)
 						atlas_data.h * scale_y
 					)
 
-					if self.debug then
+					if self.debug and atlas == self.texture_atlas then
 						render2d.PushTexture(nil)
 						render2d.PushColor(1, 0, 0, 0.25)
 						render2d.DrawRect(
@@ -829,7 +904,21 @@ function META:DrawString(str, x, y, spacing)
 
 		i = i + utf8.byte_length(str, i)
 	end
+end
 
+function META:DrawString(str, x, y, spacing)
+	if not self:IsReady() then return end
+
+	str = tostring(str)
+	batch_load_glyphs(self, str)
+	spacing = spacing or self.Spacing
+	render2d.PushUV()
+
+	if self.SeparateEffects and self.effect_texture_atlas then
+		self:DrawPass(str, x, y, spacing, self.effect_texture_atlas)
+	end
+
+	self:DrawPass(str, x, y, spacing, self.texture_atlas)
 	render2d.PopUV()
 end
 

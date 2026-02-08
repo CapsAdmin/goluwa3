@@ -188,6 +188,8 @@ function fonts.CreateFont(options)
 
 	if padding > 0 then font:SetPadding(padding) end
 
+	if options.separate_effects then font:SetSeparateEffects(true) end
+
 	local shading_info = {}
 	local sorted = {}
 
@@ -195,6 +197,19 @@ function fonts.CreateFont(options)
 		if options[name] then
 			options[name].order = options[name].order or 0
 			table.insert(sorted, {info = options[name], callback = callback})
+		end
+	end
+
+	table.print(options)
+
+	if options.effects then
+		for _, effect in ipairs(options.effects) do
+			local callback = effects[effect.type]
+
+			if callback then
+				effect.order = effect.order or 0
+				table.insert(sorted, {info = effect, callback = callback})
+			end
 		end
 	end
 

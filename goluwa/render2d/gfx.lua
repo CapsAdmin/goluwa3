@@ -27,31 +27,6 @@ function gfx.Initialize()
 	gfx.white_texture = white_tex
 	local tex = Texture.New(
 		{
-			width = 1024,
-			height = 1024,
-			format = "r8g8b8a8_unorm",
-			mip_map_levels = "auto",
-			sampler = {
-				min_filter = "linear",
-				mag_filter = "linear",
-				mipmap_mode = "linear",
-				wrap_s = "mirrored_repeat",
-				wrap_t = "mirrored_repeat",
-			},
-		}
-	)
-	tex:Shade([[
-		// http://www.geeks3d.com/20130705/shader-library-circle-disc-fake-sphere-in-glsl-opengl-glslhacker/3/
-		float disc_radius = 1;
-		float border_size = 0.0001;
-		vec2 uv2 = vec2(uv.x, -uv.y + 1);
-		float dist = sqrt(dot(uv2, uv2));
-		float t = smoothstep(disc_radius + border_size, disc_radius - border_size, dist);
-		return vec4(1,1,1,t);
-	]])
-	gfx.quadrant_circle_texture = tex
-	local tex = Texture.New(
-		{
 			width = 512,
 			height = 512,
 			format = "r8g8b8a8_unorm",
@@ -210,36 +185,16 @@ function gfx.DrawNinePatch(x, y, w, h, patch_size_w, patch_size_h, corner_size, 
 	render2d.DrawRect(x + w - corner_size, y + h - corner_size, corner_size, corner_size)
 end
 
-function gfx.DrawFilledCircle(x, y, sx, sy)
-	sy = sy or sx
-	render2d.PushTexture(gfx.quadrant_circle_texture)
-	render2d.DrawRect(x, y, sx, sy)
-	render2d.DrawRect(x, y, sx, sy, math.pi)
-	render2d.DrawRect(x, y, sy, sx, math.pi / 2)
-	render2d.DrawRect(x, y, sy, sx, -math.pi / 2)
-	render2d.PopTexture()
+function gfx.DrawFilledCircle(x, y, radius)
+	render2d.PushBorderRadius(radius)
+	render2d.DrawRect(x - radius, y - radius, radius * 2, radius * 2)
+	render2d.PopBorderRadius()
 end
 
 function gfx.DrawRoundedRect(x, y, w, h, amt)
-	amt = amt or 16
-
-	if amt > w / 2 then amt = w / 2 end
-
-	if amt > h / 2 then amt = h / 2 end
-
-	render2d.PushTexture(nil)
-	render2d.DrawRect(x + amt, y + amt, w - amt * 2, h - amt * 2) -- center
-	render2d.DrawRect(x + amt, y, w - amt * 2, amt) -- top
-	render2d.DrawRect(x + amt, y + h - amt, w - amt * 2, amt) -- bottom
-	render2d.DrawRect(x + w - amt, y + amt, amt, h - amt * 2) -- right
-	render2d.DrawRect(x, y + amt, amt, h - amt * 2) -- left
-	render2d.PopTexture()
-	render2d.PushTexture(gfx.quadrant_circle_texture)
-	render2d.DrawRect(x + w - amt, y + h - amt, amt, amt)
-	render2d.DrawRect(x + amt, y + h - amt, amt, amt, math.pi / 2)
-	render2d.DrawRect(x + amt, y + amt, amt, amt, math.pi)
-	render2d.DrawRect(x + w - amt, y + amt, amt, amt, -math.pi / 2)
-	render2d.PopTexture()
+	render2d.PushBorderRadius(amt or 16)
+	render2d.DrawRect(x, y, w, h)
+	render2d.PopBorderRadius()
 end
 
 function gfx.DrawRect(x, y, w, h, tex, r, g, b, a)
@@ -258,22 +213,16 @@ function gfx.DrawRect(x, y, w, h, tex, r, g, b, a)
 	if r then render2d.PopColor() end
 end
 
-function gfx.DrawOutlinedRect(x, y, w, h, r, r_, g, b, a)
-	r = r or 1
+function gfx.DrawOutlinedRect(x, y, w, h, thickness, radius, r, g, b, a)
+	if r then render2d.PushColor(r, g, b, a) end
 
-	if r_ then render2d.PushColor(r_, g, b, a) end
+	render2d.PushOutlineWidth(thickness or 1)
+	render2d.PushBorderRadius(radius or 0)
+	render2d.DrawRect(x, y, w, h)
+	render2d.PopBorderRadius()
+	render2d.PopOutlineWidth()
 
-	render2d.PushTexture(nil)
-
-	if type(r) == "number" then r = Rect() + r end
-
-	gfx.DrawLine(x, y, x, y + h, r.x, true, r.x)
-	gfx.DrawLine(x - r.x + r.y, y, x + w + r.y + r.w, y, r.y, true, 0, r.y)
-	gfx.DrawLine(x + w, y, x + w, y + h, r.w, true, 0)
-	gfx.DrawLine(x - r.x, y + h, x + w + r.w, y + h, r.h, true, r.h, 0)
-	render2d.PopTexture()
-
-	if r_ then render2d.PopColor() end
+	if r then render2d.PopColor() end
 end
 
 function gfx.DrawLine(x1, y1, x2, y2, w, skip_tex, ox, oy)
