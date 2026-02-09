@@ -23,14 +23,6 @@ return function(props)
 			resizable = {
 				MinimumSize = props.MinSize or Vec2(100, 100),
 			},
-			gui_element = {
-				OnDraw = function(self)
-					theme.DrawFrame(self.Owner)
-				end,
-				OnPostDraw = function(self)
-					theme.DrawFramePost(self.Owner)
-				end,
-			},
 			PreChildAdd = function(self, child)
 				if child.IsInternal then return end
 
@@ -59,6 +51,11 @@ return function(props)
 						FitHeight = true,
 					},
 					Color = theme.GetColor("primary"),
+					gui_element = {
+						OnDraw = function(self)
+							theme.DrawHeader(self.Owner)
+						end,
+					},
 					draggable = {},
 					Cursor = "sizeall",
 					Padding = Rect() + theme.GetPadding("XXXS"),
@@ -74,17 +71,18 @@ return function(props)
 						{
 							Name = "Title",
 							Text = props.Title or "Window",
+							FontName = "heading",
 							layout = {
 								GrowWidth = 1,
 								FitHeight = true,
 							},
 						}
 					),
-					TextButton(
+					Button(
 						{
 							Name = "CloseButton",
-							Text = "X",
 							Size = Vec2(20, 20),
+							Color = theme.GetColor("negative"),
 							OnClick = function(self)
 								print("Close button clicked", props.OnClose, "?")
 
@@ -117,6 +115,14 @@ return function(props)
 					},
 					Color = theme.GetColor("background"),
 					Padding = Rect() + theme.GetPadding("M"),
+					gui_element = {
+						OnDraw = function(self)
+							theme.DrawFrame(self.Owner)
+						end,
+						OnPostDraw = function(self)
+							theme.DrawFramePost(self.Owner)
+						end,
+					},
 				}
 			),
 		}

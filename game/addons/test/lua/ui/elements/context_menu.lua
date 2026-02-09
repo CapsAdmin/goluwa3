@@ -41,6 +41,21 @@ return function(props)
 				end,
 			}
 		)
+		menu_ent.animation:Animate(
+			{
+				id = "menu_open_close_fade",
+				get = function()
+					local s = menu_ent.rect:GetDrawAlpha()
+					return s
+				end,
+				set = function(v)
+					menu_ent.rect:SetDrawAlpha(v)
+				end,
+				to = is_closing and 0 or 1,
+				time = 1,
+				interpolation = "outExpo",
+			}
+		)
 	end
 
 	return Panel.NewPanel(
@@ -96,6 +111,7 @@ return function(props)
 					Pivot = Vec2(0, 0),
 					Position = props.Position or Vec2(100, 100),
 					Size = props.Size or (Vec2() + theme.GetSize("M")),
+					Emphasis = 0,
 					Padding = "XS",
 					layout = {
 						Floating = true,

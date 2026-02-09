@@ -7,6 +7,7 @@ local Ang3 = require("structs.ang3")
 local window = require("window")
 local theme = library()
 local PRIMARY = Color.FromHex("#062a67"):SetAlpha(0.9)
+local theme2 = require("ui.theme_shapes")
 
 do
 	local gradient = {
@@ -167,7 +168,7 @@ do
 		XXXL = 42,
 	}
 	local font_paths = {
-		heading = "/home/caps/Downloads/Exo_2/static/Exo2-Regular.ttf",
+		heading = "/home/caps/Downloads/Exo_2/static/Exo2-Bold.ttf",
 		body_weak = "/home/caps/Downloads/Exo_2/static/Exo2-Light.ttf",
 		body = "/home/caps/Downloads/Exo_2/static/Exo2-Regular.ttf",
 		body_strong = "/home/caps/Downloads/Exo_2/static/Exo2-Regular.ttf",
@@ -195,92 +196,12 @@ do
 	end
 end
 
-function theme.DrawLine(x1, y1, x2, y2, thickness, tex)
-	if tex == false then
-		render2d.SetTexture(nil)
-	else
-		render2d.SetTexture(tex or Textures.GlowLinear)
-	end
-
-	render2d.PushMatrix()
-	local angle = math.atan2(y2 - y1, x2 - x1)
-	local length = math.sqrt((x2 - x1) ^ 2 + (y2 - y1) ^ 2)
-	render2d.Translate(x1, y1)
-	render2d.Rotate(angle)
-	render2d.DrawRect(0, -thickness / 2, length, thickness)
-	render2d.PopMatrix()
-end
-
 function theme.DrawRect(x, y, w, h, thickness, extent, tex)
 	extent = extent or 0
-	theme.DrawLine(x - extent, y, x + w + extent, y, thickness, tex)
-	theme.DrawLine(x + w, y - extent, x + w, y + h + extent, thickness, tex)
-	theme.DrawLine(x + w + extent, y + h, x - extent, y + h, thickness, tex)
-	theme.DrawLine(x, y + h + extent, x, y - extent, thickness, tex)
-end
-
-function theme.DrawEdgeDecor(x, y)
-	render2d.PushMatrix()
-	render2d.Translate(x, y)
-	render2d.Rotate(45)
-	local size = 3
-	render2d.SetEdgeFeather(0.5)
-	theme.DrawRect(-size, -size, size * 2, size * 2, 2, 0, false)
-	render2d.SetEdgeFeather(0)
-	render2d.PopMatrix()
-	render2d.SetTexture(Textures.GlowPoint)
-	render2d.SetBlendMode("additive")
-	local r, g, b, a = DecorGlow:Unpack()
-	render2d.PushColor(r, g, b, a)
-	local size_glow = size * 40
-	render2d.DrawRect(x - size_glow, y - size_glow, size_glow * 2, size_glow * 2)
-	render2d.PopColor()
-
-	do
-		local r, g, b, a = DecorWhite:Unpack()
-		render2d.PushColor(r, g, b, a)
-		local size_white = theme.GetSize("XXS")
-		render2d.SetTexture(Textures.GlowPoint)
-		render2d.DrawRect(x - size_white, y - size_white, size_white * 2, size_white * 2)
-		render2d.SetBlendMode("alpha")
-		render2d.PopColor()
-	end
-end
-
-function theme.DrawFrame(pnl)
-	local s = pnl.transform.Size + pnl.transform.DrawSizeOffset
-	local c = pnl.rect.Color + pnl.rect.DrawColor
-	render2d.SetColor(c.r, c.g, c.b, c.a * pnl.rect.DrawAlpha)
-	render2d.SetBlendMode("alpha")
-	render2d.PushUV()
-	render2d.SetUV2(0.5, 0.1, 0.7, 0.6)
-	render2d.SetTexture(Textures.GlowLinear)
-	render2d.DrawRect(0, 0, s.x, s.y)
-	render2d.PopUV()
-end
-
-function theme.DrawFramePost(pnl)
-	local s = pnl.transform.Size + pnl.transform.DrawSizeOffset
-	local c = pnl.rect.Color + pnl.rect.DrawColor
-
-	do
-		local r, g, b, a = theme.GetColor("frame_border"):Unpack()
-		render2d.SetColor(r, g, b, c.a * pnl.rect.DrawAlpha)
-		render2d.SetBlendMode("alpha")
-		local offset = 2
-		theme.DrawRect(
-			-offset,
-			-offset,
-			s.x + offset * 2,
-			s.y + offset * 2,
-			theme.GetSize("XXS"),
-			40
-		)
-		theme.DrawEdgeDecor(-offset, -offset)
-		theme.DrawEdgeDecor(s.x + offset, -offset)
-		theme.DrawEdgeDecor(s.x + offset, s.y + offset)
-		theme.DrawEdgeDecor(-offset, s.y + offset)
-	end
+	theme2.DrawLine(x - extent, y, x + w + extent, y, thickness, tex)
+	theme2.DrawLine(x + w, y - extent, x + w, y + h + extent, thickness, tex)
+	theme2.DrawLine(x + w + extent, y + h, x - extent, y + h, thickness, tex)
+	theme2.DrawLine(x, y + h + extent, x, y - extent, thickness, tex)
 end
 
 function theme.UpdateButtonAnimations(ent, s)
@@ -410,10 +331,12 @@ function theme.DrawButton(self, state)
 	local size = self.Owner.transform.Size
 	render2d.PushUV()
 	render2d.SetUV2(0, 0, 0.4, 1)
+	render2d.PushBorderRadius(size.y / 6)
 	render2d.SetTexture(Textures.Gradient)
-	local col = GradientBlue
+	local col = self.Owner.rect.Color or GradientBlue
 	render2d.SetColor(col.r * s.glow_alpha, col.g * s.glow_alpha, col.b * s.glow_alpha, 1)
 	render2d.DrawRect(0, 0, size.x, size.y)
+	render2d.PopBorderRadius()
 	render2d.PopUV()
 	local mpos = window.GetMousePosition()
 
@@ -423,14 +346,14 @@ function theme.DrawButton(self, state)
 		render2d.SetTexture(Textures.GlowLinear)
 
 		if s.glow_alpha > 0 then
-			local c = ButtonHoverGlow
+			local c = self.Owner.rect.Color or ButtonHoverGlow
 			render2d.SetColor(c.r, c.g, c.b, c.a * s.glow_alpha)
 			local gs = 256 * 1.5
 			render2d.DrawRect(lpos.x - gs / 2, lpos.y - gs / 2, gs, gs)
 		end
 
 		render2d.SetTexture(Textures.GlowPoint)
-		local c = ButtonPressGlow
+		local c = self.Owner.rect.Color or ButtonPressGlow
 		render2d.SetColor(c.r, c.g, c.b, c.a * s.press_scale)
 		local ps = s.press_scale * 150
 		render2d.DrawRect(lpos.x - ps / 2, lpos.y - ps / 2, ps, ps)
@@ -444,38 +367,12 @@ function theme.DrawButtonPost(self, state)
 	render2d.SetBlendMode("additive")
 	render2d.SetColor(s.glow_alpha, s.glow_alpha, s.glow_alpha, 1)
 	render2d.SetTexture(Textures.GlowLinear)
-	render2d.PushUV()
-	render2d.SetUV2(0.2, 0, 0.8, 1)
-	theme.DrawLine(-2, 0, -2, size.y, 4, Textures.GlowLinear)
-	render2d.PopUV()
+	theme2.DrawGlowLine(-3, -3, -3, size.y + 6, 40)
 	local c = GradientCyan
 	render2d.SetColor(c.r, c.g, c.b, s.glow_alpha)
-	render2d.PushUV()
-	render2d.SetUV2(0.5, 0, 1, 0.5)
-	theme.DrawLine(0, 0, size.x, 0, 1, Textures.GlowLinear)
-	theme.DrawLine(0, size.y, size.x, size.y, 1, Textures.GlowLinear)
-	render2d.PopUV()
+	theme2.DrawGlowLine(0, 0, size.x, 0, 1)
+	theme2.DrawGlowLine(0, size.y, size.x, size.y, 1)
 	render2d.SetBlendMode("alpha")
-end
-
-function theme.DrawMenuSpacer(self, props)
-	local size = self.Owner.transform:GetSize()
-	local w = size.x
-	local h = size.y
-	local r, g, b, a = MenuSpacer:Unpack()
-	render2d.PushColor(r, g, b, a)
-
-	if props.Vertical then
-		theme.DrawLine(w / 2, 0, w / 2, h, 2, Textures.Gradient)
-		theme.DrawEdgeDecor(w / 2, 0)
-		theme.DrawEdgeDecor(w / 2, h)
-	else
-		theme.DrawLine(0, h / 2, w, h / 2, 2, Textures.Gradient)
-		theme.DrawEdgeDecor(0, h / 2)
-		theme.DrawEdgeDecor(w, h / 2)
-	end
-
-	render2d.PopColor()
 end
 
 function theme.UpdateSliderAnimations(ent, s)
@@ -605,7 +502,7 @@ function theme.DrawSlider(self, state)
 		local c = GradientCyan
 		render2d.SetColor(c.r * state.glow_alpha, c.g * state.glow_alpha, c.b * state.glow_alpha, 1)
 		-- Top edge
-		theme.DrawLine(
+		theme2.DrawLine(
 			knob_x - scale_offset_x,
 			knob_y - scale_offset_y,
 			knob_x + scaled_width - scale_offset_x,
@@ -613,7 +510,7 @@ function theme.DrawSlider(self, state)
 			1
 		)
 		-- Bottom edge
-		theme.DrawLine(
+		theme2.DrawLine(
 			knob_x - scale_offset_x,
 			knob_y + scaled_height - scale_offset_y,
 			knob_x + scaled_width - scale_offset_x,
@@ -693,8 +590,9 @@ function theme.DrawCheckbox(owner, state)
 		local s = state.check_anim
 		render2d.PushUV()
 		render2d.SetUV2(0, 0, 0.5, 1)
-		render2d.SetTexture(Textures.Gradient)
+		render2d.SetTexture()
 		local c = GradientBlue
+		render2d.SetBlendMode("additive")
 		render2d.SetColor(c.r, c.g, c.b, 0.9 * s)
 		local padding = check_size * 0.2
 		local mark_size = (check_size - padding * 2) * s
@@ -702,6 +600,7 @@ function theme.DrawCheckbox(owner, state)
 		local mark_y = box_y + check_size / 2 - mark_size / 2
 		render2d.DrawRect(mark_x, mark_y, mark_size, mark_size)
 		render2d.PopUV()
+		render2d.SetBlendMode("alpha")
 	end
 end
 
@@ -717,34 +616,80 @@ function theme.DrawRadioButton(owner, state)
 	render2d.SetTexture(nil)
 	local c = SliderTrackBackground
 	render2d.SetColor(c.r, c.g, c.b, c.a)
-	render2d.DrawRect(rb_x, rb_y, rb_size, rb_size)
+	theme2.DrawDiamond(rb_x + rb_size / 2, rb_y + rb_size / 2, rb_size * 0.8)
 
 	-- Glow
 	if state.glow_alpha > 0 then
 		render2d.SetBlendMode("additive")
-		render2d.SetTexture(Textures.GlowLinear)
+		render2d.PushOutlineWidth(1)
+		render2d.SetTexture()
 		local c = GradientCyan
-		render2d.SetColor(c.r * state.glow_alpha, c.g * state.glow_alpha, c.b * state.glow_alpha, 0.5)
-		theme.DrawRect(rb_x - 1, rb_y - 1, rb_size + 2, rb_size + 2, 1)
+		render2d.SetColor(c.r * state.glow_alpha, c.g * state.glow_alpha, c.b * state.glow_alpha, 2)
+		theme2.DrawDiamond(rb_x + rb_size / 2, rb_y + rb_size / 2, rb_size * 0.8)
 		render2d.SetBlendMode("alpha")
+		render2d.PopOutlineWidth()
 	end
 
 	-- Dot in the middle
 	if state.check_anim > 0.01 then
 		local s = state.check_anim
-		render2d.SetTexture(Textures.GlowPoint)
+		render2d.SetTexture(GradientBlue)
 		render2d.SetBlendMode("additive")
 		local c = GradientBlue
 		render2d.SetColor(c.r, c.g, c.b, 1 * s)
-		local dot_size = (rb_size * 0.6) * s
-		render2d.DrawRect(
-			rb_x + rb_size / 2 - dot_size / 2,
-			rb_y + rb_size / 2 - dot_size / 2,
-			dot_size,
-			dot_size
-		)
+		local dot_size = (rb_size) * s
+		theme2.DrawDiamond(rb_x + dot_size / 2, rb_y + dot_size / 2, dot_size * 0.25)
 		render2d.SetBlendMode("alpha")
 	end
+end
+
+function theme.DrawFrame(pnl, emphasis)
+	local s = pnl.transform.Size + pnl.transform.DrawSizeOffset
+	local c = pnl.rect.Color + pnl.rect.DrawColor
+	render2d.SetColor(c.r, c.g, c.b, c.a * pnl.rect.DrawAlpha)
+	render2d.PushAlphaMultiplier(pnl.rect.DrawAlpha)
+	theme2.DrawModernFrame(0, 0, s.x, s.y, (emphasis or 1) * pnl.rect.DrawAlpha)
+	render2d.PopAlphaMultiplier()
+end
+
+function theme.DrawFramePost(pnl, emphasis)
+	local s = pnl.transform.Size + pnl.transform.DrawSizeOffset
+	local c = pnl.rect.Color + pnl.rect.DrawColor
+	render2d.SetColor(c.r, c.g, c.b, c.a)
+	render2d.PushAlphaMultiplier(pnl.rect.DrawAlpha)
+	theme2.DrawModernFramePost(0, 0, s.x, s.y, (emphasis or 1) * pnl.rect.DrawAlpha)
+	render2d.PopAlphaMultiplier()
+end
+
+function theme.DrawMenuSpacer(self, props)
+	local size = self.Owner.transform:GetSize()
+	local w = size.x
+	local h = size.y
+	local r, g, b, a = MenuSpacer:Unpack()
+	render2d.PushColor(r, g, b, a)
+
+	if props.Vertical then
+		theme2.DrawLine(w / 2, 0, w / 2, h, 2)
+	else
+		theme2.DrawLine(0, h / 2, w, h / 2, 2)
+	end
+
+	render2d.PopColor()
+end
+
+function theme.DrawHeader(pnl)
+	local size = pnl.transform.Size
+	render2d.SetColor(PRIMARY.r, PRIMARY.g, PRIMARY.b, PRIMARY.a * pnl.rect.DrawAlpha)
+	theme2.DrawPill1(0, 0, size.x, size.y)
+end
+
+function theme.DrawDivider(pnl)
+	local size = pnl.transform.Size
+	render2d.SetColor(PRIMARY.r, PRIMARY.g, PRIMARY.b, PRIMARY.a * pnl.rect.DrawAlpha * 10)
+	-- vertical
+	render2d.PushBlendMode("additive")
+	theme2.DrawGlowLine(size.x / 2, 0, size.x / 2, size.y, 0)
+	render2d.PopBlendMode()
 end
 
 return theme

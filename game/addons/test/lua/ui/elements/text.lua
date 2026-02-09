@@ -11,7 +11,7 @@ return function(props)
 	return Panel.NewText(
 		table.merge(
 			{
-				Font = theme.GetFont(props.Font or "body", props.Size or "M"),
+				Font = theme.GetFont(props.FontName or "body", props.Size or "M"),
 				Color = theme.GetColor("text_foreground"),
 				layout = {
 					FitWidth = true,

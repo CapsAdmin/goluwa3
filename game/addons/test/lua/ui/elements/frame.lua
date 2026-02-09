@@ -14,13 +14,13 @@ return function(props)
 		table.merge_many(
 			{
 				Name = "frame",
-				Color = theme.GetColor("background"),
+				Color = theme.GetColor("invisible"),
 				gui_element = {
 					OnDraw = function(self)
-						theme.DrawFrame(self.Owner)
+						theme.DrawFrame(self.Owner, props.Emphasis or 1)
 					end,
 					OnPostDraw = function(self)
-						theme.DrawFramePost(self.Owner)
+						theme.DrawFramePost(self.Owner, props.Emphasis or 1)
 					end,
 				},
 			},

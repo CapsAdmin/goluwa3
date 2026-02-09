@@ -95,6 +95,12 @@ return function(props)
 					self.rect:SetColor(Color(0, 0, 0, hovered and 0.5 or 0.2))
 				end
 			end,
+			gui_element = {
+				OnDraw = function(self)
+					theme.DrawDivider(self.Owner)
+				end,
+			},
+			OnDraw = function() end,
 			mouse_input = {
 				OnMouseInput = function(self, button, press, local_pos)
 					if button == "button_1" then

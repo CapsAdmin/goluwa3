@@ -29,20 +29,28 @@ function theme.DrawDiamond2(x, y, size)
 end
 
 function theme.DrawPill1(x, y, w, h)
+	x = x - 15
+	w = w + 30
 	render2d.PushBorderRadius(h)
 	render2d.DrawRect(x, y, w, h)
 	render2d.SetBorderRadius(h / 2)
 	render2d.PushOutlineWidth(1)
+	render2d.PushBlendMode("additive")
+	render2d.PushAlphaMultiplier(1)
 	render2d.DrawRect(x, y, w, h)
+	render2d.PopAlphaMultiplier()
+	render2d.PopBlendMode()
 	render2d.PopOutlineWidth()
 	render2d.PopBorderRadius()
 	local s = 5
 	local offset = 1
-	theme.DrawDiamond(x, y + h / 2, s)
-	theme.DrawDiamond(x + w, y + h / 2, s)
+	theme.DrawDiamond2(x, y + h / 2, s)
+	theme.DrawDiamond2(x + w, y + h / 2, s)
 end
 
 function theme.DrawBadge(x, y, w, h)
+	x = x - 15
+	w = w + 30
 	render2d.PushTexture(gradient_linear)
 	render2d.PushUV()
 	render2d.SetUV2(-0.1, 0, 0.75, 1)
@@ -110,9 +118,10 @@ do
 		render2d.PushMatrix()
 		render2d.Translatef(x1, y1)
 		render2d.Rotate(angle)
+		render2d.Translatef(0, -glow_line:GetHeight() / 2)
 		render2d.SetTexture(glow_line)
 		render2d.PushBlendMode("additive")
-		render2d.DrawRectf(0, -thickness / 2 - glow_line:GetHeight() / 2, length, glow_line:GetHeight())
+		render2d.DrawRectf(0, -thickness / 10, length, glow_line:GetHeight())
 		render2d.PopBlendMode()
 		render2d.PopMatrix()
 	end
@@ -175,6 +184,45 @@ do
 			render2d.ClearNinePatch()
 			render2d.SetTexture(nil)
 		end
+	end
+end
+
+do
+	local start = Color.FromHex("#060086")
+	local stop = Color.FromHex("#04013e")
+	local create_metal_frame = require("render.textures.metal_frame")
+	local metal_frame = create_metal_frame(
+		{
+			base_color = Color.FromHex("#8f8b92"),
+			frame_inner = 0.02,
+			frame_outer = 0.002,
+			corner_radius = 0.02,
+		}
+	)
+
+	function theme.DrawWhiteFrame(x, y, w, h)
+		render2d.PushBorderRadius(h * 0.2)
+		render2d.SetColor(1, 1, 1, 0.5)
+		render2d.SetTexture(nil)
+		render2d.DrawRect(x, y, w, h)
+		x = x + 1
+		y = y + 1
+		w = w - 2
+		h = h - 2
+
+		do
+			render2d.SetColor(1, 1, 1, 1)
+			render2d.SetNinePatchTable(metal_frame.nine_patch)
+			render2d.SetTexture(metal_frame)
+			render2d.DrawRect(x, y, w, h)
+			render2d.ClearNinePatch()
+			render2d.SetTexture(nil)
+			render2d.PushOutlineWidth(1)
+			render2d.DrawRect(x + 1, y + 1, w - 2, h - 2)
+			render2d.PopOutlineWidth()
+		end
+
+		render2d.PopBorderRadius()
 	end
 end
 
@@ -286,11 +334,12 @@ do
 	)
 
 	function theme.DrawModernFrame(x, y, w, h, intensity)
-		render2d.PushBorderRadius(h * 0.2)
 		render2d.SetColor(1, 1, 1, 1)
 		render2d.SetTexture(gradient)
 		render2d.DrawRect(x, y, w, h)
-		render2d.PopBorderRadius()
+	end
+
+	function theme.DrawModernFramePost(x, y, w, h, intensity)
 		render2d.SetTexture(nil)
 		x = x - 1
 		y = y - 1
@@ -309,8 +358,8 @@ do
 		theme.DrawDiamond2(x + w, y + h, diamond_size)
 		theme.DrawGlow(x + w, y + h, glow_size)
 		render2d.SetTexture(glow_linear)
-		local extent_h = -h * 1 * 0.25 * intensity
-		local extent_w = -w * 1 * 0.25 * intensity
+		local extent_h = -200 * 0.25 * intensity
+		local extent_w = -200 * 0.25 * intensity
 		render2d.SetBlendMode("alpha")
 		theme.DrawGlowLine(x + extent_w, y, x + w - extent_w, y, 1)
 		theme.DrawGlowLine(x + extent_w, y + h, x + w - extent_w, y + h, 1)
@@ -331,7 +380,9 @@ function theme.DrawMuseum()
 	theme.DrawModernFrame(x, y, 100, 60, 1)
 	x = x + 120
 	theme.DrawModernFrame(x, y, 100, 60, 0)
-	x = x - 120 - 80
+	x = x + 120
+	theme.DrawWhiteFrame(x, y, 60, 40)
+	x = x - 120 - 80 - 120
 	y = y + 80
 	render2d.SetColor(0, 0, 0, 1)
 	theme.DrawPill1(x, y, w, h)
@@ -364,6 +415,12 @@ end
 
 if HOTRELOAD then
 	event.AddListener("Draw2D", "theme_museum", function()
+		do
+			return
+		end
+
 		theme.DrawMuseum()
 	end)
 end
+
+return theme

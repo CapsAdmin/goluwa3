@@ -60,8 +60,7 @@ return function(props)
 
 	local dropdown = Button(
 		{
-			Size = props.Size or Vec2(200, 40),
-			layout = props.layout or {Direction = "x", FitHeight = true, AlignmentY = "center"},
+			layout = {Direction = "x", FitHeight = true, AlignmentY = "center"},
 			OnClick = open_menu,
 			Padding = props.Padding or (Rect() + theme.GetSize("M")),
 		}

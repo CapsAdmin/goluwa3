@@ -35,6 +35,7 @@ return function(props)
 			Cursor = props.Disabled and "arrow" or "hand",
 			Color = props.Disabled and
 				theme.GetColor("button_disabled") or
+				props.Color or
 				theme.GetColor("primary"),
 			DrawScaleOffset = Vec2(1, 1),
 			DrawAngleOffset = Ang3(0, 0, 0),
