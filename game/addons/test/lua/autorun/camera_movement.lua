@@ -35,6 +35,8 @@ end
 -- Use quaternion for rotation to avoid gimbal lock
 local pitch = 0 -- Track pitch angle for clamping
 event.AddListener("Update", "camera_movement", function(dt)
+	if not window.GetMouseTrapped() then return end
+
 	local cam = render3d.GetCamera()
 	local rotation = cam:GetRotation()
 	local position = cam:GetPosition()
