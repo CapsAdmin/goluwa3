@@ -6,11 +6,11 @@ local Panel = require("ecs.panel")
 local Frame = require("ui.elements.frame")
 local theme = require("ui.theme")
 return function(props)
-	local menu_ent
+	local menu_ent = NULL
 	local is_closing = false
 
 	local function UpdateAnimations(ent)
-		if not menu_ent or not menu_ent:IsValid() then return end
+		if not menu_ent:IsValid() then return end
 
 		print("open", is_closing)
 		_G.MENU = menu_ent
@@ -63,12 +63,12 @@ return function(props)
 			PreChildAdd = function(self, child)
 				if child.IsInternal then return end
 
-				if menu_ent then menu_ent:AddChild(child) end
+				if menu_ent:IsValid() then menu_ent:AddChild(child) end
 
 				return false
 			end,
 			PreRemoveChildren = function(self)
-				if menu_ent then menu_ent:RemoveChildren() end
+				if menu_ent:IsValid() then menu_ent:RemoveChildren() end
 
 				return false
 			end,

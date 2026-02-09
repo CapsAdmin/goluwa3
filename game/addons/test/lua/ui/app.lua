@@ -20,7 +20,7 @@ local RadioButton = require("ui.elements.radio_button")
 local Dropdown = require("ui.elements.dropdown")
 local Row = require("ui.elements.row")
 local Column = require("ui.elements.column")
-local HorizontalSplitter = require("ui.elements.horizontal_splitter")
+local Splitter = require("ui.elements.splitter")
 local Window = require("ui.elements.window")
 local ScrollablePanel = require("ui.elements.scrollable_panel")
 local world_panel = Panel.World
@@ -202,8 +202,8 @@ local function toggle()
 		}
 	)(
 		{
-			HorizontalSplitter({
-				InitialWidth = 220,
+			Splitter({
+				InitialSize = 220,
 			})(
 				{
 					ScrollablePanel(

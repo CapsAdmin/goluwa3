@@ -686,9 +686,16 @@ end
 function theme.DrawDivider(pnl)
 	local size = pnl.transform.Size
 	render2d.SetColor(PRIMARY.r, PRIMARY.g, PRIMARY.b, PRIMARY.a * pnl.rect.DrawAlpha * 10)
-	-- vertical
 	render2d.PushBlendMode("additive")
-	theme2.DrawGlowLine(size.x / 2, 0, size.x / 2, size.y, 0)
+
+	if size.x > size.y then
+		-- horizontal
+		theme2.DrawGlowLine(0, size.y / 2, size.x, size.y / 2, 0)
+	else
+		-- vertical
+		theme2.DrawGlowLine(size.x / 2, 0, size.x / 2, size.y, 0)
+	end
+
 	render2d.PopBlendMode()
 end
 

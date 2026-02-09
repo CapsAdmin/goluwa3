@@ -158,7 +158,7 @@ return function(props)
 
 			local scroll = self.transform:GetScroll():Copy()
 			local delta = (button == "mwheel_up" and -40 or 40)
-			scroll.y = scroll.y + delta
+			scroll.y = scroll.y - delta
 			local max_scroll = math.max(0, content_size.y - view_size.y)
 			scroll.y = math.clamp(scroll.y, 0, max_scroll)
 			self.transform:SetScroll(scroll)

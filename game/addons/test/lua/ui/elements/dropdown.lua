@@ -4,6 +4,7 @@ local Color = require("structs.color")
 local Panel = require("ecs.panel")
 local Button = require("ui.elements.button")
 local Text = require("ui.elements.text")
+local event = require("event")
 local ContextMenu = require("ui.elements.context_menu")
 local MenuItem = require("ui.elements.context_menu_item")
 local theme = require("ui.theme")
@@ -11,11 +12,11 @@ return function(props)
 	local options = props.Options or {}
 	local on_select = props.OnSelect
 	local label_ent
+	local dropdown
 
 	local function open_menu(self)
 		local world_panel = Panel.World
 		local x, y = self.transform:GetWorldMatrix():GetTranslation()
-		y = y + self.transform:GetHeight()
 		local menu_items = {}
 
 		-- Add options from props
@@ -45,20 +46,32 @@ return function(props)
 			if not child.IsInternal then table.insert(menu_items, child) end
 		end
 
-		world_panel:Ensure(
-			ContextMenu(
-				{
-					Key = "ActiveContextMenu",
-					Position = Vec2(x, y),
-					OnClose = function(ent)
-						ent:Remove()
-					end,
-				}
-			)(menu_items)
-		)
+		local context_menu = ContextMenu(
+			{
+				Key = "ActiveContextMenu",
+				OnClose = function(ent)
+					ent:Remove()
+				end,
+			}
+		)(menu_items)
+		local real_ctx = context_menu:GetChildren()[1]
+
+		event.AddListener("Update", dropdown, function()
+			if not dropdown:IsValid() or not real_ctx:IsValid() then
+				return event.destroy_tag
+			end
+
+			local w = dropdown.transform:GetSize().x
+			real_ctx.layout:SetMinSize(Vec2(w, 0))
+			local x, y = dropdown.transform:GetWorldMatrix():GetTranslation()
+			y = y + dropdown.transform:GetHeight()
+			real_ctx.transform:SetPosition(Vec2(x, y))
+		end)
+
+		world_panel:Ensure(context_menu)
 	end
 
-	local dropdown = Button(
+	dropdown = Button(
 		{
 			layout = {Direction = "x", FitHeight = true, AlignmentY = "center"},
 			OnClick = open_menu,
