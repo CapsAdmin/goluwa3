@@ -32,6 +32,10 @@ local FragmentConstants = ffi.typeof([[
         float border_radius[4];
         float outline_width;
         float rect_size[2];
+        float nine_patch_x[8];
+        float nine_patch_y[8];
+        int nine_patch_x_count;
+        int nine_patch_y_count;
 	}
 ]])
 local vertex_constants = VertexConstants()
@@ -166,6 +170,7 @@ function render2d.ResetState()
 	render2d.SetEdgeFeather(0)
 	render2d.SetBorderRadius(0, 0, 0, 0)
 	render2d.SetOutlineWidth(0)
+	render2d.SetNinePatch()
 	render2d.SetPremultiplyOutput(false)
 	render2d.UpdateScreenSize(render.GetRenderImageSize())
 	render2d.SetBlendMode("alpha", true)
@@ -269,71 +274,132 @@ do
 						vec4 border_radius;
 						float outline_width;
 						vec2 rect_size;
+						float nine_patch_x[8];
+						float nine_patch_y[8];
+						int nine_patch_x_count;
+						int nine_patch_y_count;
 					} pc;                   
 					
+					float map_nine_patch(float x, float tw, float sw, float regions[8], int count) 
+					{
+						if (count == 0 || tw <= 0.0 || sw <= 0.0) return x / sw;
+						
+						float fixed_total = sw;
+						float stretch_total_src = 0.0;
+						for (int i = 0; i < 8; i++) {
+							if (i >= count) break;
+							float s = regions[i*2];
+							float e = regions[i*2+1];
+							stretch_total_src += (e - s);
+						}
+						fixed_total -= stretch_total_src;
+						
+						float stretch_total_tgt = max(0.0, tw - fixed_total);
+						float k = (stretch_total_src > 0.0) ? (stretch_total_tgt / stretch_total_src) : 0.0;
+						
+						float curr_src = 0.0;
+						float curr_tgt = 0.0;
+						
+						for (int i = 0; i < 8; i++) {
+							if (i >= count) break;
+							float s = regions[i*2];
+							float e = regions[i*2+1];
+							
+							float fixed_size = s - curr_src;
+							if (x < curr_tgt + fixed_size) {
+								return (curr_src + (x - curr_tgt)) / sw;
+							}
+							curr_src += fixed_size;
+							curr_tgt += fixed_size;
+							
+							float stretch_size_src = e - s;
+							float stretch_size_tgt = stretch_size_src * k;
+							if (x < curr_tgt + stretch_size_tgt) {
+								float ratio = (k > 0.0) ? ((x - curr_tgt) / k) : 0.0;
+								return (curr_src + ratio) / sw;
+							}
+							curr_src += stretch_size_src;
+							curr_tgt += stretch_size_tgt;
+						}
+						
+						return (curr_src + (x - curr_tgt)) / sw;
+					}
+
 					void main() 
 					{
 						out_color = in_color * pc.global_color;
 
+						vec2 uv = in_uv;
+						if (pc.texture_index >= 0 && (pc.nine_patch_x_count > 0 || pc.nine_patch_y_count > 0)) {
+							vec2 tex_size = vec2(textureSize(textures[nonuniformEXT(pc.texture_index)], 0));
+							
+							if (pc.nine_patch_x_count > 0) {
+								uv.x = map_nine_patch(in_uv.x * pc.rect_size.x, pc.rect_size.x, tex_size.x, pc.nine_patch_x, pc.nine_patch_x_count);
+							}
+							if (pc.nine_patch_y_count > 0) {
+								uv.y = map_nine_patch(in_uv.y * pc.rect_size.y, pc.rect_size.y, tex_size.y, pc.nine_patch_y, pc.nine_patch_y_count);
+							}
+						}
+
 						if (pc.rect_size.x > 0.0 && pc.rect_size.y > 0.0) {
-    vec2 p = (in_uv - 0.5) * pc.rect_size;
-    vec2 b = pc.rect_size * 0.5;
-    vec4 r = pc.border_radius;
-    float rad = 0.0;
-    if (p.x < 0.0 && p.y < 0.0) rad = r.x;
-    else if (p.x > 0.0 && p.y < 0.0) rad = r.y;
-    else if (p.x > 0.0 && p.y > 0.0) rad = r.z;
-    else if (p.x < 0.0 && p.y > 0.0) rad = r.w;
+							vec2 p = (in_uv - 0.5) * pc.rect_size;
+							vec2 b = pc.rect_size * 0.5;
+							vec4 r = pc.border_radius;
+							float rad = 0.0;
+							if (p.x < 0.0 && p.y < 0.0) rad = r.x;
+							else if (p.x > 0.0 && p.y < 0.0) rad = r.y;
+							else if (p.x > 0.0 && p.y > 0.0) rad = r.z;
+							else if (p.x < 0.0 && p.y > 0.0) rad = r.w;
 
-    float min_dim = min(pc.rect_size.x, pc.rect_size.y);
-    float half_dim = min_dim * 0.5;
+							float min_dim = min(pc.rect_size.x, pc.rect_size.y);
+							float half_dim = min_dim * 0.5;
 
-    // Clamp radius to half_dim for the inset (corner region stays fixed size)
-    float inset = min(rad, half_dim);
+							// Clamp radius to half_dim for the inset (corner region stays fixed size)
+							float inset = min(rad, half_dim);
 
-    // The corner region offset: how far into the corner we are
-    vec2 q = abs(p) - b + inset;
+							// The corner region offset: how far into the corner we are
+							vec2 q = abs(p) - b + inset;
 
-    float d;
-    if (q.x <= 0.0 || q.y <= 0.0) {
-        // On a flat edge or interior: standard box SDF (always negative inside)
-        d = max(q.x, q.y);
-    } else {
-        // In the corner region: use Lp norm
-        // Map radius to normalized 0-3+ range relative to half_dim
-        float norm_rad = rad / max(half_dim, 0.001);
+							float d;
+							if (q.x <= 0.0 || q.y <= 0.0) {
+								// On a flat edge or interior: standard box SDF
+								d = max(q.x, q.y) - inset;
+							} else {
+								// In the corner region: use Lp norm
+								// Map radius to normalized range relative to half_dim
+								// 1.0 (50% side) = Circle (p=2), 2.0 (100% side) = Diamond (p=1)
+								float norm_rad = rad / max(half_dim, 0.001);
 
-        float exp_p;
-        if (norm_rad <= 0.0) {
-            exp_p = 200.0;
-        } else {
-            exp_p = 2.0 / norm_rad;
-        }
+								float exp_p;
+								if (norm_rad <= 0.0) {
+									exp_p = 200.0;
+								} else {
+									exp_p = clamp(2.0 / norm_rad, 0.1, 200.0);
+								}
 
-        // Lp distance in corner, normalized to the inset size
-        vec2 np = q / inset;
-        float lp = pow(pow(np.x, exp_p) + pow(np.y, exp_p), 1.0 / exp_p);
-        d = (lp - 1.0) * inset;
-    }
+								// Lp distance in corner, normalized to the inset size
+								vec2 np = q / max(inset, 0.001);
+								float lp = pow(pow(np.x, exp_p) + pow(np.y, exp_p), 1.0 / exp_p);
+								d = (lp - 1.0) * inset;
+							}
 
-    float s = 1.0;
-    float mask = smoothstep(s, -s, d);
+							float s = 1.0;
+							float feather = pc.edge_feather * min_dim * 0.5;
+							float mask;
 
+							if (pc.outline_width > 0.0) {
+								float outer_mask = smoothstep(s, -s, d);
+								float inner_mask = smoothstep(s + feather, -(s + feather), d + pc.outline_width);
+								mask = outer_mask - inner_mask;
+							} else {
+								mask = smoothstep(s + feather, -(s + feather), d);
+							}
 
-	 if (pc.outline_width > 0.0) {
-        float outer_mask = smoothstep(s, -s, d);
-        float inner_mask = smoothstep(s, -s, d + pc.outline_width);
-        mask = outer_mask - inner_mask;
-    } else {
-        mask = smoothstep(s, -s, d);
-        if (q.x <= 0.0 || q.y <= 0.0) mask = 1.0;
-    }
-
-    out_color.a *= mask;
-}
+							out_color.a *= mask;
+						}
 						
 						if (pc.texture_index >= 0) {
-							vec4 tex = texture(textures[nonuniformEXT(pc.texture_index)], in_uv * pc.uv_scale + pc.uv_offset);
+							vec4 tex = texture(textures[nonuniformEXT(pc.texture_index)], uv * pc.uv_scale + pc.uv_offset);
 							
 							if (pc.unpremultiply_input != 0 && tex.a > 0.0) {
 								tex.rgb /= tex.a;
@@ -347,12 +413,11 @@ do
 							out_color *= tex;
 						}
 
-						if (pc.edge_feather > 0.0) {
+						if (pc.edge_feather > 0.0 && (pc.rect_size.x <= 0.0 || pc.rect_size.y <= 0.0)) {
 							vec2 uv_dist = smoothstep(vec2(0.0), vec2(pc.edge_feather), in_uv) * 
 							               smoothstep(vec2(1.0), vec2(1.0 - pc.edge_feather), in_uv);
 							out_color.a *= uv_dist.x * uv_dist.y;
 						}
-
 
 						out_color.a = out_color.a * pc.alpha_multiplier;
 						
@@ -488,6 +553,58 @@ do
 		end
 
 		utility.MakePushPopFunction(render2d, "OutlineWidth")
+	end
+
+	do
+		function render2d.ClearNinePatch()
+			fragment_constants.nine_patch_x_count = 0
+			fragment_constants.nine_patch_y_count = 0
+		end
+
+		function render2d.SetNinePatchTable(tbl)
+			render2d.ClearNinePatch()
+
+			if tbl.x_stretch then
+				local count = math.max(#tbl.x_stretch, #tbl.y_stretch)
+				count = math.min(count, 4)
+
+				for i = 1, count do
+					local x = tbl.x_stretch[i] or {0, 0}
+					local y = tbl.y_stretch[i] or {0, 0}
+					render2d.SetNinePatch(x[1], x[2], y[1], y[2], i - 1)
+				end
+			elseif tbl.stretch or tbl[1] then
+				local s = tbl.stretch or tbl
+				render2d.SetNinePatch(s[1] or 0, s[2] or 0, s[3] or 0, s[4] or 0, 0)
+			end
+		end
+
+		function render2d.SetNinePatch(x1, y1, x2, y2, index)
+			if type(x1) == "table" then
+				render2d.SetNinePatchTable(x1.nine_patch or x1)
+				return
+			end
+
+			if not x1 or not y1 or not x2 or not y2 then
+				render2d.ClearNinePatch()
+				return
+			end
+
+			index = index or 0
+			fragment_constants.nine_patch_x[index * 2] = x1
+			fragment_constants.nine_patch_x[index * 2 + 1] = y1
+			fragment_constants.nine_patch_x_count = math.max(fragment_constants.nine_patch_x_count, index + 1)
+			fragment_constants.nine_patch_y[index * 2] = x2
+			fragment_constants.nine_patch_y[index * 2 + 1] = y2
+			fragment_constants.nine_patch_y_count = math.max(fragment_constants.nine_patch_y_count, index + 1)
+		end
+
+		function render2d.GetNinePatch()
+			return fragment_constants.nine_patch_x[0],
+			fragment_constants.nine_patch_x[1],
+			fragment_constants.nine_patch_y[0],
+			fragment_constants.nine_patch_y[1]
+		end
 	end
 
 	do

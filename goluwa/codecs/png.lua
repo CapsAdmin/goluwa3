@@ -99,7 +99,6 @@ local COLOR_TYPE_INDEXED = 3
 local COLOR_TYPE_GRAYSCALE_ALPHA = 4
 local COLOR_TYPE_PALETTE_ALPHA = 5
 local COLOR_TYPE_RGBA = 6
-local FLIP_Y = false
 
 -- Helper function to read value based on bytes per sample
 local function readValue(buffer, bps)
@@ -231,7 +230,7 @@ local function getPixels(buffer, data)
 		-- Now convert the reconstructed bytes to output format (RGBA)
 		for x = 0, width - 1 do
 			local inIdx = x * bytesPerInputPixel
-			local outIdx = (y - 1) * width + x
+			local outIdx = (height - y) * width + x
 
 			if is16bit then
 				-- Combine bytes into 16-bit values

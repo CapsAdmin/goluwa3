@@ -200,8 +200,6 @@ function fonts.CreateFont(options)
 		end
 	end
 
-	table.print(options)
-
 	if options.effects then
 		for _, effect in ipairs(options.effects) do
 			local callback = effects[effect.type]

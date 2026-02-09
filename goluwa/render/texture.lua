@@ -99,6 +99,8 @@ function Texture.New(config)
 	local cache_key = config.cache_key or config.path
 
 	if cache_key and texture_cache[cache_key] then
+		if config.on_ready then config.on_ready(texture_cache[cache_key]) end
+
 		return texture_cache[cache_key]
 	end
 
@@ -298,7 +300,7 @@ function Texture.New(config)
 			end
 		end
 
-		self.is_ready = true
+		self:MakeReady()
 		self.reflectivity = reflectivity
 	end
 
@@ -321,11 +323,11 @@ function Texture.New(config)
 					print("Warning: Failed to load texture:", config.path, img_or_err)
 				end
 
-				self.is_ready = true
+				self:MakeReady()
 			end
 		end):Catch(function(err)
 			print("Warning: Failed to download texture:", config.path, err)
-			self.is_ready = true
+			self:MakeReady()
 		end)
 	else
 		load()
@@ -355,6 +357,73 @@ function Texture.FromColor(color, config)
 	if not has_config then cache[tostring(color)] = tex end
 
 	return tex
+end
+
+function Texture.LoadNinePatch(path, on_ready)
+	return Texture.New(
+		{
+			path = path,
+			on_ready = function(self)
+				local data = self:Download()
+				local w, h = data:GetWidth(), data:GetHeight()
+
+				local function is_black(x, y)
+					local r, g, b, a = data:GetPixel(x, y)
+					return a == 255 and r == 0 and g == 0 and b == 0
+				end
+
+				local function find_regions(start_x, start_y, dx, dy, count)
+					local regions = {}
+					local s = -1
+
+					for i = 0, count - 1 do
+						if is_black(start_x + i * dx, start_y + i * dy) then
+							if s == -1 then s = i end
+						else
+							if s ~= -1 then
+								table.insert(regions, {s, i})
+								s = -1
+							end
+						end
+					end
+
+					if s ~= -1 then table.insert(regions, {s, count}) end
+
+					return regions
+				end
+
+				-- Top/Left lines define stretchable regions
+				local x_stretch_raw = find_regions(1, h - 1, 1, 0, w - 2)
+				local y_stretch_raw = find_regions(0, 1, 0, 1, h - 2)
+				-- Bottom/Right lines define content regions
+				local x_content_raw = find_regions(1, 0, 1, 0, w - 2)
+				local y_content_raw = find_regions(w - 1, 1, 0, 1, h - 2)
+				-- Crop the texture to remove the 1px metadata border
+				local clean_tex = self:Crop(1, 1, w - 2, h - 2)
+				local cw, ch = w - 2, h - 2
+				local x_stretch = {}
+
+				for _, r in ipairs(x_stretch_raw) do
+					table.insert(x_stretch, {r[1], r[2]})
+				end
+
+				local y_stretch = {}
+
+				for _, r in ipairs(y_stretch_raw) do
+					table.insert(y_stretch, {r[1], r[2]})
+				end
+
+				clean_tex.nine_patch = {
+					x_stretch = x_stretch,
+					y_stretch = y_stretch,
+					x_content = x_content_raw,
+					y_content = y_content_raw,
+				}
+
+				if on_ready then on_ready(clean_tex) end
+			end,
+		}
+	)
 end
 
 function Texture:CopyFrom(other, width, height, srcX, srcY, dstX, dstY)
@@ -422,6 +491,23 @@ function Texture:CopyFrom(other, width, height, srcX, srcY, dstX, dstY)
 	local queue = render.GetQueue()
 	local fence = Fence.New(device)
 	queue:SubmitAndWait(device, cmd, fence)
+end
+
+function Texture:Crop(x, y, w, h)
+	x = math.floor(x)
+	y = math.floor(y)
+	w = math.floor(w)
+	h = math.floor(h)
+	local new_tex = Texture.New(
+		{
+			width = w,
+			height = h,
+			format = self.format,
+			sampler = self.config.sampler,
+		}
+	)
+	new_tex:CopyFrom(self, w, h, x, y, 0, 0)
+	return new_tex
 end
 
 function Texture:Upload(data, keep_in_transfer_dst)
@@ -640,6 +726,14 @@ function Texture:IsReady()
 	return self.is_ready
 end
 
+function Texture:MakeReady()
+	self.is_ready = true
+
+	if self.OnReady then self:OnReady() end
+
+	if self.config.on_ready then self.config.on_ready(self) end
+end
+
 function Texture:OnRemove()
 	local event = require("event")
 	event.Call("TextureRemoved", self)
@@ -691,8 +785,14 @@ function Texture:GenerateMipmaps(initial_layout, cmd)
 	-- Check if blitting is supported for this format
 	local props = self.image.device.physical_device:GetFormatProperties(self.config.format)
 	local features = tonumber(props.optimalTilingFeatures)
-	local blit_dst_supported = bit.band(features, tonumber(vulkan.vk.VkFormatFeatureFlagBits.VK_FORMAT_FEATURE_BLIT_DST_BIT)) ~= 0
-	local blit_src_supported = bit.band(features, tonumber(vulkan.vk.VkFormatFeatureFlagBits.VK_FORMAT_FEATURE_BLIT_SRC_BIT)) ~= 0
+	local blit_dst_supported = bit.band(
+			features,
+			tonumber(vulkan.vk.VkFormatFeatureFlagBits.VK_FORMAT_FEATURE_BLIT_DST_BIT)
+		) ~= 0
+	local blit_src_supported = bit.band(
+			features,
+			tonumber(vulkan.vk.VkFormatFeatureFlagBits.VK_FORMAT_FEATURE_BLIT_SRC_BIT)
+		) ~= 0
 
 	if not blit_dst_supported or not blit_src_supported then
 		cmd:PipelineBarrier(
@@ -1119,6 +1219,90 @@ end
 
 do
 	local vulkan = require("render.vulkan.internal.vulkan")
+	local TextureDownloaded = prototype.CreateTemplate("texture_downloaded")
+
+	function TextureDownloaded:GetWidth()
+		return self.width
+	end
+
+	function TextureDownloaded:GetHeight()
+		return self.height
+	end
+
+	function TextureDownloaded:GetPixel(x, y)
+		local width = self.width
+		local height = self.height
+		local bytes_per_pixel = self.bytes_per_pixel
+
+		if x < 0 or x >= width or y < 0 or y >= height then return 0, 0, 0, 0 end
+
+		local offset = (y * width + x) * bytes_per_pixel
+		local r = self.pixels[offset + 0]
+		local g = self.pixels[offset + 1]
+		local b = self.pixels[offset + 2]
+		local a = self.pixels[offset + 3]
+		return r, g, b, a
+	end
+
+	function TextureDownloaded:ForEachPixel(func)
+		local width = self.width
+		local height = self.height
+		local bytes_per_pixel = self.bytes_per_pixel
+
+		for y = 0, height - 1 do
+			for x = 0, width - 1 do
+				local offset = (y * width + x) * bytes_per_pixel
+				local r = self.pixels[offset + 0]
+				local g = self.pixels[offset + 1]
+				local b = self.pixels[offset + 2]
+				local a = bytes_per_pixel == 4 and self.pixels[offset + 3] or 255
+				func(x, y, r, g, b, a)
+			end
+		end
+	end
+
+	function TextureDownloaded:GetRawPixelColor(x, y)
+		local width = self.width
+		local height = self.height
+		local bytes_per_pixel = self.bytes_per_pixel
+		x = math.clamp(math.floor(x), 0, width - 1)
+		y = math.clamp(math.floor(y), 0, height - 1)
+		local offset = (y * width + x) * bytes_per_pixel
+		local r = self.pixels[offset + 0]
+		local g = self.pixels[offset + 1]
+		local b = self.pixels[offset + 2]
+		local a = bytes_per_pixel == 4 and self.pixels[offset + 3] or 255
+		return r, g, b, a
+	end
+
+	function TextureDownloaded:SaveAs(path)
+		if not path:ends_with(".png") then
+			error("Can only save as PNG format", 2)
+		end
+
+		local png_file = png.Encode(self.width, self.height, "rgba")
+		local pixel_table = {}
+
+		for i = 0, self.size - 1 do
+			pixel_table[i + 1] = self.pixels[i]
+		end
+
+		png_file:write(pixel_table)
+		local file = assert(io.open(path, "wb"))
+		file:write(png_file:getData())
+		file:close()
+	end
+
+	TextureDownloaded:Register()
+
+	do
+		local png = require("codecs.png")
+		local fs = require("fs")
+
+		function Texture:SaveAs(path)
+			return self:Download():SaveAs(path)
+		end
+	end
 
 	function Texture:Download()
 		local image = self:GetImage()
@@ -1211,76 +1395,30 @@ do
 		local pixels = ffi.new("uint8_t[?]", width * height * bytes_per_pixel)
 		ffi.copy(pixels, pixel_data, width * height * bytes_per_pixel)
 		staging_buffer:Unmap()
-		return {
-			pixels = pixels,
-			width = width,
-			height = height,
-			format = format,
-			bytes_per_pixel = bytes_per_pixel,
-			size = width * height * bytes_per_pixel,
-		}
+		return TextureDownloaded:CreateObject(
+			{
+				pixels = pixels,
+				width = width,
+				height = height,
+				format = format,
+				bytes_per_pixel = bytes_per_pixel,
+				size = width * height * bytes_per_pixel,
+			}
+		)
 	end
 
 	function Texture:GetPixel(x, y)
-		local image_data = self:Download()
-		local width = image_data.width
-		local height = image_data.height
-		local bytes_per_pixel = image_data.bytes_per_pixel
-
-		if x < 0 or x >= width or y < 0 or y >= height then return 0, 0, 0, 0 end
-
-		local offset = (y * width + x) * bytes_per_pixel
-		local r = image_data.pixels[offset + 0]
-		local g = image_data.pixels[offset + 1]
-		local b = image_data.pixels[offset + 2]
-		local a = image_data.pixels[offset + 3]
-		return r, g, b, a
+		return self:Download():GetPixel(x, y)
 	end
 
 	function Texture:GetRawPixelColor(x, y)
 		if not self.image_data_cache then self.image_data_cache = self:Download() end
 
-		local image_data = self.image_data_cache
-		local width = image_data.width
-		local height = image_data.height
-		local bytes_per_pixel = image_data.bytes_per_pixel
-		x = math.clamp(math.floor(x), 0, width - 1)
-		y = math.clamp(math.floor(y), 0, height - 1)
-		local offset = (y * width + x) * bytes_per_pixel
-		local r = image_data.pixels[offset + 0]
-		local g = image_data.pixels[offset + 1]
-		local b = image_data.pixels[offset + 2]
-		local a = bytes_per_pixel == 4 and image_data.pixels[offset + 3] or 255
-		return r, g, b, a
+		return self.image_data_cache:GetRawPixelColor(x, y)
 	end
 
 	function Texture:ClearImageDataCache()
 		self.image_data_cache = nil
-	end
-end
-
-do
-	local png = require("codecs.png")
-	local fs = require("fs")
-
-	function Texture:SaveAs(path)
-		if not path:ends_with(".png") then
-			error("Can only save as PNG format", 2)
-		end
-
-		local width, height = self:GetWidth(), self:GetHeight()
-		local image_data = self:Download()
-		local png_file = png.Encode(width, height, "rgba")
-		local pixel_table = {}
-
-		for i = 0, image_data.size - 1 do
-			pixel_table[i + 1] = image_data.pixels[i]
-		end
-
-		png_file:write(pixel_table)
-		local file = assert(io.open(path, "wb"))
-		file:write(png_file:getData())
-		file:close()
 	end
 end
 

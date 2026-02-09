@@ -4,6 +4,7 @@ local tex = Texture.New(
 		width = 256,
 		height = 256,
 		format = "r8g8b8a8_unorm",
+		mip_map_levels = "auto",
 		sampler = {
 			min_filter = "linear",
 			mag_filter = "linear",
