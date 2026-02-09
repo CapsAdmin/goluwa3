@@ -3,27 +3,11 @@ local event = require("event")
 local META = prototype.CreateTemplate("key_input")
 
 function META:KeyInput(key, press)
-	local b
-
-	if (not self.OnPreKeyInput or self:OnPreKeyInput(key, press) ~= false) then
-		if self.OnKeyInput then
-			b = self:OnKeyInput(key, press)
-		elseif self.Owner and self.Owner.OnKeyInput then
-			b = self.Owner:OnKeyInput(key, press)
-		end
-
-		if self.OnPostKeyInput then self:OnPostKeyInput(key, press) end
-	end
-
-	return b
+	return self.Owner:CallLocalListeners("OnKeyInput", key, press)
 end
 
 function META:CharInput(char)
-	if self.OnCharInput then
-		return self:OnCharInput(char)
-	elseif self.Owner and self.Owner.OnCharInput then
-		return self.Owner:OnCharInput(char)
-	end
+	return self.Owner:CallLocalListeners("OnCharInput", char)
 end
 
 function META:OnFirstCreated()

@@ -1,6 +1,11 @@
 local prototype = require("prototype")
 local META = prototype.CreateTemplate("clickable")
 
+function META:Initialize()
+	self:AddLocalListener("OnMouseInput", self.OnMouseInput)
+	self:AddLocalListener("OnKeyInput", self.OnMouseInput)
+end
+
 function META:OnMouseInput(button, press, pos)
 	if button == "button_1" then
 		if press then
@@ -19,7 +24,7 @@ function META:OnMouseInput(button, press, pos)
 	end
 end
 
-function META:KeyInput(key, press)
+function META:OnKeyInput(key, press)
 	if press and (key == "enter" or key == "numpad_enter") then
 		local Owner = self.Owner
 

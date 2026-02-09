@@ -91,7 +91,7 @@ return function(props)
 
 				UpdateAnimations(self)
 			end,
-			key_input = {
+			Events = {
 				OnKeyInput = function(self, key, press)
 					if press and key == "escape" then
 						is_closing = true
@@ -129,7 +129,7 @@ return function(props)
 						menu_ent = self
 						UpdateAnimations(self)
 					end,
-					key_input = {
+					Events = {
 						OnKeyInput = function(self, key, press)
 							if press and key == "escape" then
 								is_closing = true
