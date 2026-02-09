@@ -18,9 +18,9 @@ META.IsFont = true
 META:GetSet("Fonts", {})
 META:GetSet("Padding", 0, {callback = "ClearCache"})
 META:GetSet("Curve", 0, {callback = "ClearCache"})
-META:IsSet("Spacing", 0, {callback = "ClearCache"})
-META:IsSet("Size", 12, {callback = "ClearCache"})
-META:IsSet("Scale", Vec2(1, 1), {callback = "ClearCache"})
+META:GetSet("Spacing", 0, {callback = "ClearCache"})
+META:GetSet("Size", 12, {callback = "ClearCache"})
+META:GetSet("Scale", Vec2(1, 1), {callback = "ClearCache"})
 META:GetSet("Filtering", "linear", {callback = "ClearCache"})
 META:GetSet("ShadingInfo", nil, {callback = "ClearCache"})
 
