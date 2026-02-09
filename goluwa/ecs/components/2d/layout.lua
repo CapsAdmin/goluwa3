@@ -126,6 +126,13 @@ function META:Measure()
 
 		if font and text then
 			local w, h = font:GetTextSize(text)
+
+			if self.Owner.text:GetWrap() then
+				-- If wrapping is enabled, the intrinsic width should be the current width
+				-- to avoid shrinking feedback loops.
+				w = math.max(w, tr_size.x)
+			end
+
 			intrinsic.x = w + padding.x + padding.w
 			intrinsic.y = h + padding.y + padding.h
 		end

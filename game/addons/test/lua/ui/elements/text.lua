@@ -14,7 +14,7 @@ return function(props)
 				Font = theme.GetFont(props.FontName or "body", props.Size or "M"),
 				Color = theme.GetColor("text_foreground"),
 				layout = {
-					FitWidth = true,
+					FitWidth = not props.Wrap,
 					FitHeight = true,
 				},
 			},
