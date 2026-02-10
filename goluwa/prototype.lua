@@ -929,6 +929,14 @@ do -- base object
 				end
 			end
 
+			if self.local_event_removers then
+				for remover in pairs(self.local_event_removers) do
+					remover()
+				end
+
+				self.local_event_removers = nil
+			end
+
 			if self.OnRemove then self:OnRemove(...) end
 
 			if not event_added and event then
@@ -1056,34 +1064,36 @@ do -- base object
 	end
 
 	function META:AddLocalListener(what, callback, id)
-		id = id or callback
 		self.local_events = self.local_events or {}
-		self.local_events[what] = self.local_events[what] or {}
-		self.local_events[what][id] = callback
-		return function(...)
-			if
-				not self.local_events or
-				not self.local_events[what] or
-				not self.local_events[what][id]
-			then
-				return
-			end
 
-			self.local_events[what][id] = nil
+		if not self.local_events[what] then
+			if event.IsEvent(what) then
+				self.local_events[what] = what
+			else
+				self.local_events[what] = event.UniqueEvent(what)
+			end
+		end
+
+		local remover = event.AddListener(self.local_events[what], id or callback, callback, {self_arg = self})
+		self.local_event_removers = self.local_event_removers or {}
+		self.local_event_removers[remover] = true
+		return function(...)
+			if self.local_event_removers and self.local_event_removers[remover] then
+				self.local_event_removers[remover] = nil
+				return remover(...)
+			end
 		end
 	end
 
 	function META:CallLocalEvent(what, ...)
-		if self.local_events and self.local_events[what] then
-			local result = nil
+		if self.local_events then
+			local unique_event = self.local_events[what]
 
-			for _, callback in pairs(self.local_events[what]) do
-				local res = callback(self, ...)
-
-				if res ~= nil then result = res end
+			if unique_event then
+				return event.Call(unique_event, ...)
+			elseif event.IsEvent(what) then
+				return event.Call(what, ...)
 			end
-
-			return result
 		end
 	end
 
@@ -1102,73 +1112,73 @@ do -- base object
 
 	do -- events
 		local events = {}
+		local event_configs = {}
 
 		function META:AddGlobalEvent(event_type, config)
 			self.added_events = self.added_events or {}
 
 			if self.added_events[event_type] then return end
 
-			local func_name = "On" .. event_type
-			events[event_type] = events[event_type] or table.weak()
-			list.insert(events[event_type], self)
-			local real_event_name = config and config.event_name or event_type
+			if not events[event_type] then
+				events[event_type] = table.weak()
+				event_configs[event_type] = config or {}
+				local real_event_name = config and config.event_name or event_type
+				local func_name = config and config.func_name or ("On" .. event_type)
 
-			event.AddListener(
-				real_event_name,
-				"prototype_events",
-				function(a_, b_, c_)
-					--for _, self in ipairs(events[event_type]) do
-					for i = 1, #events[event_type] do
-						local self = events[event_type][i]
+				event.AddListener(
+					real_event_name,
+					"prototype_events:" .. event_type,
+					function(...)
+						for i = 1, #events[event_type] do
+							local self = events[event_type][i]
 
-						if self then
-							if self[func_name] then
-								self[func_name](self, a_, b_, c_)
-							else
-								wlog("%s.%s is nil", self, func_name)
-								self:RemoveEvent(event_type)
+							if self then
+								local func = config and config.callback or self[func_name]
+
+								if func then
+									func(self, ...)
+								else
+									wlog("%s.%s is nil", self, func_name)
+									self:RemoveEvent(event_type)
+								end
 							end
 						end
-					end
-				end,
-				table.merge(
-					{
-						on_error = function(str)
-							traceback.OnError(str)
-							self:RemoveEvent(event_type)
-						end,
-					},
-					config or {}
+					end,
+					config
 				)
-			)
+			end
 
+			list.insert(events[event_type], self)
 			self.added_events[event_type] = true
 		end
 
 		function META:RemoveEvent(event_type)
-			self.added_events = self.added_events or {}
+			if not self.added_events or not self.added_events[event_type] then return end
 
-			if not self.added_events[event_type] then return end
+			local tbl = events[event_type]
 
-			events[event_type] = events[event_type] or table.weak()
+			if tbl then
+				for i, other in pairs(tbl) do
+					if other == self then
+						tbl[i] = nil
 
-			for i, other in pairs(events[event_type]) do
-				if other == self then
-					events[event_type][i] = nil
+						break
+					end
+				end
 
-					break
+				list.fix_indices(tbl)
+
+				if #tbl <= 0 then
+					local config = event_configs[event_type]
+					local real_event_name = config and config.event_name or event_type
+					event.RemoveListener(real_event_name, "prototype_events:" .. event_type)
+					events[event_type] = nil
+					event_configs[event_type] = nil
 				end
 			end
 
-			list.fix_indices(events[event_type])
 			self.added_events[event_type] = nil
-
-			if #events[event_type] <= 0 then
-				event.RemoveListener(event_type, "prototype_events")
-			end
 		end
-
-		prototype.added_events = events
 	end
 
 	prototype.base_metatable = META

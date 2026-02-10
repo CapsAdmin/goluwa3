@@ -433,3 +433,111 @@ T.Test("prototype .Instances integrity after mixed operations", function()
 	obj4:Remove()
 	event.Call("Update")
 end)
+
+T.Test("prototype local event system", function()
+	local META = prototype.CreateTemplate("local_event_test")
+	META:Register()
+	local obj = prototype.CreateObject(META)
+	local call_count = 0
+	local last_args
+
+	obj:AddLocalListener("OnSomething", function(self, a, b)
+		call_count = call_count + 1
+		last_args = {a, b}
+	end)
+
+	-- 1. Test basic call
+	obj:CallLocalEvent("OnSomething", 1, 2)
+	T(call_count)["=="](1)
+	T(last_args[1])["=="](1)
+	T(last_args[2])["=="](2)
+	-- 2. Test that it's NOT triggerable via global event.Call with string
+	event.Call("OnSomething", 3, 4)
+	T(call_count)["=="](1)
+	-- 3. Test multiple listeners
+	local second_called = false
+
+	obj:AddLocalListener("OnSomething", function()
+		second_called = true
+	end)
+
+	obj:CallLocalEvent("OnSomething")
+	T(call_count)["=="](2)
+	T(second_called)["=="](true)
+	-- 4. Test removal function
+	call_count = 0
+	local remove = obj:AddLocalListener("OnRemoveMe", function()
+		call_count = call_count + 1
+	end)
+	obj:CallLocalEvent("OnRemoveMe")
+	T(call_count)["=="](1)
+	remove()
+	obj:CallLocalEvent("OnRemoveMe")
+	T(call_count)["=="](1) -- Should not have increased
+	-- 5. Test use with unique event object
+	local my_unique = event.UniqueEvent("my_unique")
+	local unique_called = false
+
+	obj:AddLocalListener(my_unique, function()
+		unique_called = true
+	end)
+
+	obj:CallLocalEvent(my_unique)
+	T(unique_called)["=="](true)
+end)
+
+T.Test("prototype local event cleanup on remove", function()
+	local META = prototype.CreateTemplate("cleanup_test")
+	META:Register()
+	local obj = prototype.CreateObject(META)
+	local unique_event
+
+	obj:AddLocalListener("OnDraw", function() end)
+
+	unique_event = obj.local_events["OnDraw"]
+	T(event.active[unique_event] and #event.active[unique_event])["=="](1)
+	obj:Remove()
+	-- Prototype cleanup happens on Update
+	event.Call("Update")
+	-- It should be cleaned up from the event system
+	local count = 0
+
+	if event.active[unique_event] then
+		for _, v in pairs(event.active[unique_event]) do
+			if v ~= nil then count = count + 1 end
+		end
+	end
+
+	T(count)["=="](0)
+end)
+
+T.Test("prototype global event cleanup on remove", function()
+	local META = prototype.CreateTemplate("global_cleanup_test")
+	META:Register()
+	local obj = prototype.CreateObject(META)
+	local called = false
+
+	function obj:OnMyGlobalEvent()
+		called = true
+	end
+
+	obj:AddGlobalEvent("MyGlobalEvent")
+	T(event.active["MyGlobalEvent"] and #event.active["MyGlobalEvent"])["=="](1)
+	obj:Remove()
+	-- Prototype cleanup/removal calls RemoveEvent
+	T(event.active["MyGlobalEvent"] == nil or #event.active["MyGlobalEvent"] == 0)["=="](true)
+end)
+
+T.Test("prototype global event with custom name cleanup", function()
+	local META = prototype.CreateTemplate("global_custom_cleanup_test")
+	META:Register()
+	local obj = prototype.CreateObject(META)
+
+	function obj:OnTest() end
+
+	obj:AddGlobalEvent("Test", {event_name = "RealEventName"})
+	T(event.active["RealEventName"] and #event.active["RealEventName"])["=="](1)
+	obj:Remove()
+	-- This is where it's expected to fail if not fixed
+	T(event.active["RealEventName"] == nil or #event.active["RealEventName"] == 0)["=="](true)
+end)

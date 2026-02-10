@@ -11,9 +11,8 @@ end
 local function sort_events(key)
 	if key then
 		local tbl = event.active[key]
-		if tbl then
-			table.sort(tbl, sort)
-		end
+
+		if tbl then table.sort(tbl, sort) end
 	else
 		for _, tbl in pairs(event.active) do
 			table.sort(tbl, sort)
@@ -21,8 +20,27 @@ local function sort_events(key)
 	end
 end
 
+function event.IsEvent(t)
+	return type(t) == "table" and t.is_event
+end
+
+do
+	local meta = {}
+	meta.__index = meta
+
+	function meta:__tostring()
+		return "event - " .. self.event
+	end
+
+	function event.UniqueEvent(hash)
+		return setmetatable({is_event = true, event = hash}, meta)
+	end
+end
+
 function event.AddListener(event_type, id, callback, config)
-	if type(event_type) == "table" then config = event_type end
+	if type(event_type) == "table" and not event.IsEvent(event_type) then
+		config = event_type
+	end
 
 	if not callback and type(id) == "function" then
 		callback = id
@@ -41,7 +59,7 @@ function event.AddListener(event_type, id, callback, config)
 		config.remove_after_one_call = true
 	end
 
-	config.print_str = config.event_type .. "->" .. tostring(config.id)
+	config.print_str = tostring(config.event_type) .. "->" .. tostring(config.id)
 	event.RemoveListener(config.event_type, config.id)
 	event.active[config.event_type] = event.active[config.event_type] or {}
 	list.insert(event.active[config.event_type], config)
@@ -67,7 +85,7 @@ end
 event.fix_indices = event.fix_indices or {}
 
 function event.RemoveListener(event_type, id)
-	if type(event_type) == "table" then
+	if type(event_type) == "table" and not event.IsEvent(event_type) then
 		local config = event_type
 		id = id or config.id
 		event_type = config.event_type
