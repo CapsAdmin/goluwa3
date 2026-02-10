@@ -343,48 +343,44 @@ function PhysicalDevice:GetExtendedDynamicStateFeatures()
 	})
 	-- Query all features at once
 	vulkan.lib.vkGetPhysicalDeviceFeatures2(self.ptr[0], queryDeviceFeatures)
-	local reflect = require("helpers.ffi_reflect")
-	local tbl = {}
-	-- Extract v1 features
-	local featuresV1 = queryFeaturesV1[0]
-
-	for t in reflect.typeof(vulkan.vk.VkPhysicalDeviceExtendedDynamicStateFeaturesEXT):members() do
-		local key = t.name
-
-		if key == "extendedDynamicState" then
-
-		-- skip
-		elseif key:find("extendedDynamicState") then
-			tbl[key:replace("extendedDynamicState", "")] = featuresV1[key] == 1
-		end
-	end
-
-	-- Extract v2 features
-	local featuresV2 = queryFeaturesV2[0]
-
-	for t in reflect.typeof(vulkan.vk.VkPhysicalDeviceExtendedDynamicState2FeaturesEXT):members() do
-		local key = t.name
-
-		if key == "extendedDynamicState2" then
-
-		-- skip
-		elseif key:find("extendedDynamicState") then
-			tbl[key:replace("extendedDynamicState2", "")] = featuresV2[key] == 1
-		end
-	end
-
-	-- Extract v3 features
-	local featuresV3 = queryFeaturesV3[0]
-
-	for t in reflect.typeof(vulkan.vk.VkPhysicalDeviceExtendedDynamicState3FeaturesEXT):members() do
-		local key = t.name
-
-		if key:find("extendedDynamicState") then
-			tbl[key:replace("extendedDynamicState3", "")] = featuresV3[key] == 1
-		end
-	end
-
-	return tbl
+	
+	return {
+		extendedDynamicState = queryFeaturesV1[0].extendedDynamicState == 1,
+		extendedDynamicState2 = queryFeaturesV2[0].extendedDynamicState2 == 1,
+		extendedDynamicState2LogicOp = queryFeaturesV2[0].extendedDynamicState2LogicOp == 1,
+		extendedDynamicState2PatchControlPoints = queryFeaturesV2[0].extendedDynamicState2PatchControlPoints == 1,
+		extendedDynamicState3TessellationDomainOrigin = queryFeaturesV3[0].extendedDynamicState3TessellationDomainOrigin == 1,
+		extendedDynamicState3DepthClampEnable = queryFeaturesV3[0].extendedDynamicState3DepthClampEnable == 1,
+		extendedDynamicState3PolygonMode = queryFeaturesV3[0].extendedDynamicState3PolygonMode == 1,
+		extendedDynamicState3RasterizationSamples = queryFeaturesV3[0].extendedDynamicState3RasterizationSamples == 1,
+		extendedDynamicState3SampleMask = queryFeaturesV3[0].extendedDynamicState3SampleMask == 1,
+		extendedDynamicState3AlphaToCoverageEnable = queryFeaturesV3[0].extendedDynamicState3AlphaToCoverageEnable == 1,
+		extendedDynamicState3AlphaToOneEnable = queryFeaturesV3[0].extendedDynamicState3AlphaToOneEnable == 1,
+		extendedDynamicState3LogicOpEnable = queryFeaturesV3[0].extendedDynamicState3LogicOpEnable == 1,
+		extendedDynamicState3ColorBlendEnable = queryFeaturesV3[0].extendedDynamicState3ColorBlendEnable == 1,
+		extendedDynamicState3ColorBlendEquation = queryFeaturesV3[0].extendedDynamicState3ColorBlendEquation == 1,
+		extendedDynamicState3ColorWriteMask = queryFeaturesV3[0].extendedDynamicState3ColorWriteMask == 1,
+		extendedDynamicState3RasterizationStream = queryFeaturesV3[0].extendedDynamicState3RasterizationStream == 1,
+		extendedDynamicState3ConservativeRasterizationMode = queryFeaturesV3[0].extendedDynamicState3ConservativeRasterizationMode == 1,
+		extendedDynamicState3ExtraPrimitiveOverestimationSize = queryFeaturesV3[0].extendedDynamicState3ExtraPrimitiveOverestimationSize == 1,
+		extendedDynamicState3DepthClipEnable = queryFeaturesV3[0].extendedDynamicState3DepthClipEnable == 1,
+		extendedDynamicState3SampleLocationsEnable = queryFeaturesV3[0].extendedDynamicState3SampleLocationsEnable == 1,
+		extendedDynamicState3ColorBlendAdvanced = queryFeaturesV3[0].extendedDynamicState3ColorBlendAdvanced == 1,
+		extendedDynamicState3ProvokingVertexMode = queryFeaturesV3[0].extendedDynamicState3ProvokingVertexMode == 1,
+		extendedDynamicState3LineRasterizationMode = queryFeaturesV3[0].extendedDynamicState3LineRasterizationMode == 1,
+		extendedDynamicState3LineStippleEnable = queryFeaturesV3[0].extendedDynamicState3LineStippleEnable == 1,
+		extendedDynamicState3DepthClipNegativeOneToOne = queryFeaturesV3[0].extendedDynamicState3DepthClipNegativeOneToOne == 1,
+		extendedDynamicState3ViewportWScalingEnable = queryFeaturesV3[0].extendedDynamicState3ViewportWScalingEnable == 1,
+		extendedDynamicState3ViewportSwizzle = queryFeaturesV3[0].extendedDynamicState3ViewportSwizzle == 1,
+		extendedDynamicState3CoverageToColorEnable = queryFeaturesV3[0].extendedDynamicState3CoverageToColorEnable == 1,
+		extendedDynamicState3CoverageToColorLocation = queryFeaturesV3[0].extendedDynamicState3CoverageToColorLocation == 1,
+		extendedDynamicState3CoverageModulationMode = queryFeaturesV3[0].extendedDynamicState3CoverageModulationMode == 1,
+		extendedDynamicState3CoverageModulationTableEnable = queryFeaturesV3[0].extendedDynamicState3CoverageModulationTableEnable == 1,
+		extendedDynamicState3CoverageModulationTable = queryFeaturesV3[0].extendedDynamicState3CoverageModulationTable == 1,
+		extendedDynamicState3CoverageReductionMode = queryFeaturesV3[0].extendedDynamicState3CoverageReductionMode == 1,
+		extendedDynamicState3RepresentativeFragmentTestEnable = queryFeaturesV3[0].extendedDynamicState3RepresentativeFragmentTestEnable == 1,
+		extendedDynamicState3ShadingRateImageEnable = queryFeaturesV3[0].extendedDynamicState3ShadingRateImageEnable == 1,
+	}
 end
 
 function PhysicalDevice:GetDynamicRenderingFeatures()

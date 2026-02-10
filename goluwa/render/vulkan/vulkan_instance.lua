@@ -103,7 +103,9 @@ function VulkanInstance.New(surface_handle, display_handle)
 	local props = self.physical_device:GetProperties()
 	local device_name = ffi.string(props.deviceName)
 	self.graphics_queue_family = self.physical_device:FindGraphicsQueueFamily(self.surface)
-	local device_extensions = {
+
+	local available_extensions = self.physical_device:GetAvailableDeviceExtensions()
+	local requested_device_extensions = {
 		"VK_EXT_conditional_rendering",
 		"VK_EXT_scalar_block_layout",
 		"VK_EXT_extended_dynamic_state",
@@ -111,7 +113,17 @@ function VulkanInstance.New(surface_handle, display_handle)
 	}
 
 	if not is_headless then
-		table.insert(device_extensions, "VK_KHR_swapchain")
+		table.insert(requested_device_extensions, "VK_KHR_swapchain")
+	end
+
+	local device_extensions = {}
+
+	for _, ext in ipairs(requested_device_extensions) do
+		if table.has_value(available_extensions, ext) then
+			table.insert(device_extensions, ext)
+		else
+			logn("Extension " .. ext .. " not supported by physical device " .. device_name)
+		end
 	end
 
 	self.device = Device.New(self.physical_device, device_extensions, self.graphics_queue_family)

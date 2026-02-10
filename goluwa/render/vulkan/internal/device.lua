@@ -91,10 +91,12 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 
 	local hasDynamicRenderingFeatures = physical_device:GetDynamicRenderingFeatures()
 	-- Extended dynamic state features
-	local has_extended_dynamic_state = table.has_value(available_extensions, "VK_EXT_extended_dynamic_state")
+	local dynamicStateFeatures = physical_device:GetExtendedDynamicStateFeatures()
+	local has_extended_dynamic_state = table.has_value(available_extensions, "VK_EXT_extended_dynamic_state") and dynamicStateFeatures.extendedDynamicState
+	local has_extended_dynamic_state2 = table.has_value(available_extensions, "VK_EXT_extended_dynamic_state2") and dynamicStateFeatures.extendedDynamicState2
 	local has_extended_dynamic_state3 = table.has_value(available_extensions, "VK_EXT_extended_dynamic_state3")
 	local has_mesh_shader = table.has_value(available_extensions, "VK_EXT_mesh_shader")
-	local has_polygon_mode_dynamic_state = false -- Set to true to enable wireframe support (requires VK_EXT_extended_dynamic_state3)
+	local has_polygon_mode_dynamic_state = has_extended_dynamic_state3 and dynamicStateFeatures.extendedDynamicState3PolygonMode -- Set to true to enable wireframe support (requires VK_EXT_extended_dynamic_state3)
 	
 	if has_mesh_shader then
 		local meshShaderFeatures = vulkan.T.Box(vulkan.vk.VkPhysicalDeviceMeshShaderFeaturesEXT)(vulkan.vk.s.PhysicalDeviceMeshShaderFeaturesEXT({
@@ -141,8 +143,8 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 			extendedDynamicState3AlphaToCoverageEnable = 0,
 			extendedDynamicState3AlphaToOneEnable = 0,
 			extendedDynamicState3LogicOpEnable = 0,
-			extendedDynamicState3ColorBlendEnable = 1,
-			extendedDynamicState3ColorBlendEquation = 1,
+			extendedDynamicState3ColorBlendEnable = dynamicStateFeatures.extendedDynamicState3ColorBlendEnable and 1 or 0,
+			extendedDynamicState3ColorBlendEquation = dynamicStateFeatures.extendedDynamicState3ColorBlendEquation and 1 or 0,
 			extendedDynamicState3ColorWriteMask = 0,
 			extendedDynamicState3RasterizationStream = 0,
 			extendedDynamicState3ConservativeRasterizationMode = 0,

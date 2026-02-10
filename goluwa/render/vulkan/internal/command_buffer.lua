@@ -320,6 +320,8 @@ function CommandBuffer:DrawIndexed(indexCount, instanceCount, firstIndex, vertex
 end
 
 function CommandBuffer:DrawMeshTasks(groupCountX, groupCountY, groupCountZ)
+	if not vulkan.ext.vkCmdDrawMeshTasksEXT then return end
+
 	vulkan.ext.vkCmdDrawMeshTasksEXT(self.ptr[0], groupCountX, groupCountY, groupCountZ)
 end
 
@@ -442,7 +444,9 @@ function CommandBuffer:SetColorBlendEnable(first_attachment, blend_enable)
 		error("blend_enable must be a boolean or table of booleans")
 	end
 
-	vulkan.ext.vkCmdSetColorBlendEnableEXT(self.ptr[0], first_attachment or 0, count, enable_array)
+	if vulkan.ext.vkCmdSetColorBlendEnableEXT then
+		vulkan.ext.vkCmdSetColorBlendEnableEXT(self.ptr[0], first_attachment or 0, count, enable_array)
+	end
 end
 
 function CommandBuffer:BeginConditionalRendering(buffer, offset, inverted)
@@ -481,6 +485,8 @@ function CommandBuffer:CopyQueryPoolResults(query_pool, first_query, query_count
 end
 
 function CommandBuffer:SetColorBlendEquation(first_attachment, blend_equation)
+	if not vulkan.ext.vkCmdSetColorBlendEquationEXT then return end
+
 	vulkan.ext.vkCmdSetColorBlendEquationEXT(
 		self.ptr[0],
 		first_attachment or 0,
