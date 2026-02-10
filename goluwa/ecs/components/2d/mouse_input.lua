@@ -16,9 +16,7 @@ function META:SetHovered(b)
 	if self.Hovered == b then return end
 
 	self.Hovered = b
-	local entity = self.Owner
-
-	if entity and entity.OnHover then entity:OnHover(b) end
+	self.Owner:CallLocalEvent("OnHover", b)
 end
 
 function META:GetMousePosition()
@@ -35,8 +33,6 @@ function META:IsMouseButtonDown(button)
 	local state = self.button_states[button]
 	return state and state.press
 end
-
-function META:OnMouseInput(button, press, pos) end
 
 local mouse_input = library()
 mouse_input.pressed_entities = mouse_input.pressed_entities or {}
@@ -90,10 +86,7 @@ function META:OnFirstCreated()
 		local global_handled = false
 
 		for _, cmp in ipairs(META.Instances) do
-			local res1 = cmp.OnGlobalMouseInput and cmp:OnGlobalMouseInput(button, press, pos)
-			local res2 = cmp.Owner:CallLocalEvent("OnGlobalMouseInput", button, press, pos)
-
-			if res1 or res2 then
+			if cmp.Owner:CallLocalEvent("OnGlobalMouseInput", button, press, pos) then
 				global_handled = true
 
 				if press then break end
@@ -129,25 +122,10 @@ function META:OnFirstCreated()
 
 					while current:IsValid() do
 						local local_pos = current.transform:GlobalToLocal(pos)
-						local consumed = false
 
-						if current.component_map then
-							for _, comp in pairs(current.component_map) do
-								if comp.OnMouseInput then
-									if comp:OnMouseInput(button, press, local_pos) then
-										consumed = true
-									end
-								end
-							end
+						if current:CallLocalEvent("OnMouseInput", button, press, local_pos) then
+							break
 						end
-
-						if current.OnMouseInput then
-							if current:OnMouseInput(button, press, local_pos) then
-								consumed = true
-							end
-						end
-
-						if consumed then return true end
 
 						current = current:GetParent()
 					end
@@ -171,25 +149,10 @@ function META:OnFirstCreated()
 
 						while current:IsValid() do
 							local local_pos = current.transform:GlobalToLocal(pos)
-							local consumed = false
 
-							if current.component_map then
-								for _, comp in pairs(current.component_map) do
-									if comp.OnMouseInput then
-										if comp:OnMouseInput(button, press, local_pos) then
-											consumed = true
-										end
-									end
-								end
+							if current:CallLocalEvent("OnMouseInput", button, press, local_pos) then
+								break
 							end
-
-							if current.OnMouseInput then
-								if current:OnMouseInput(button, press, local_pos) then
-									consumed = true
-								end
-							end
-
-							if consumed then break end
 
 							current = current:GetParent()
 						end
@@ -214,10 +177,6 @@ function META:OnFirstCreated()
 
 				if mouse then mouse:SetHovered(false) end
 
-				if mouse_input.last_hovered.OnMouseLeave then
-					mouse_input.last_hovered:OnMouseLeave()
-				end
-
 				mouse_input.last_hovered:CallLocalEvent("OnMouseLeave")
 			end
 
@@ -225,8 +184,6 @@ function META:OnFirstCreated()
 				local mouse = hovered.mouse_input
 
 				if mouse then mouse:SetHovered(true) end
-
-				if hovered.OnMouseEnter then hovered:OnMouseEnter() end
 
 				hovered:CallLocalEvent("OnMouseEnter")
 			end
@@ -238,10 +195,7 @@ function META:OnFirstCreated()
 		local global_handled_move = false
 
 		for _, cmp in ipairs(META.Instances) do
-			local res1 = cmp.OnGlobalMouseMove and cmp:OnGlobalMouseMove(pos)
-			local res2 = cmp.Owner:CallLocalEvent("OnGlobalMouseMove", pos)
-
-			if res1 or res2 then
+			if cmp.Owner:CallLocalEvent("OnGlobalMouseMove", pos) then
 				cursor = cmp:GetCursor()
 				global_handled_move = true
 
@@ -254,15 +208,7 @@ function META:OnFirstCreated()
 
 			if mouse then
 				cursor = mouse:GetCursor()
-				local local_pos = hovered.transform:GlobalToLocal(pos)
-
-				if hovered.component_map then
-					for _, comp in pairs(hovered.component_map) do
-						if comp.OnMouseMove then
-							if comp:OnMouseMove(local_pos) then break end
-						end
-					end
-				end
+				hovered:CallLocalEvent("OnMouseMove", hovered.transform:GlobalToLocal(pos))
 
 				if hovered.GreyedOut then cursor = "no" end
 			end

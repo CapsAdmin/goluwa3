@@ -150,15 +150,22 @@ T.Test("prototype parenting OnUnParent once", function()
 	local unparent_count = 0
 
 	function META:OnUnParent(parent)
+		print(self, parent)
+		debug.trace()
 		unparent_count = unparent_count + 1
 	end
 
 	META:Register()
+	--	
 	local parent = prototype.CreateObject(META)
-	local child = prototype.CreateObject(META)
+	parent:SetName("parent")
 	parent:AddLocalListener("OnUnParent", parent.OnUnParent)
+	--
+	local child = prototype.CreateObject(META)
+	child:SetName("child")
 	child:AddLocalListener("OnUnParent", child.OnUnParent)
 	child:SetParent(parent)
+	--
 	unparent_count = 0
 	child:UnParent()
 	T(unparent_count)["=="](1)

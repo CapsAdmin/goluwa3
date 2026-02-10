@@ -108,6 +108,11 @@ function event.RemoveListener(event_type, id)
 	end
 end
 
+function event.SkipCallback(cb)
+	-- used by prototype CallLocalEvent
+	event.skip_callback = cb
+end
+
 function event.Call(event_type, a_, b_, c_, d_, e_)
 	if event.active[event_type] then
 		local a, b, c, d, e
@@ -116,26 +121,30 @@ function event.Call(event_type, a_, b_, c_, d_, e_)
 			local data = event.active[event_type][index]
 
 			if data then
-				if data.self_arg then
-					if data.self_arg:IsValid() then
-						if data.self_arg_with_callback then
-							a, b, c, d, e = data.callback(a_, b_, c_, d_, e_)
+				if event.skip_callback and event.skip_callback == data.callback then
+					event.skip_callback = nil
+				else
+					if data.self_arg then
+						if data.self_arg:IsValid() then
+							if data.self_arg_with_callback then
+								a, b, c, d, e = data.callback(a_, b_, c_, d_, e_)
+							else
+								a, b, c, d, e = data.callback(data.self_arg, a_, b_, c_, d_, e_)
+							end
 						else
-							a, b, c, d, e = data.callback(data.self_arg, a_, b_, c_, d_, e_)
+							event.RemoveListener(event_type, data.id)
+							llog("[%q][%q] removed because self is invalid", event_type, data.unique)
 						end
 					else
-						event.RemoveListener(event_type, data.id)
-						llog("[%q][%q] removed because self is invalid", event_type, data.unique)
+						a, b, c, d, e = data.callback(a_, b_, c_, d_, e_)
 					end
-				else
-					a, b, c, d, e = data.callback(a_, b_, c_, d_, e_)
-				end
 
-				if a == event.destroy_tag or data.remove_after_one_call then
-					event.RemoveListener(event_type, data.id)
-				end
+					if a == event.destroy_tag or data.remove_after_one_call then
+						event.RemoveListener(event_type, data.id)
+					end
 
-				if a ~= nil and a ~= event.destroy_tag then return a, b, c, d, e end
+					if a ~= nil and a ~= event.destroy_tag then return a, b, c, d, e end
+				end
 			end
 		end
 	end

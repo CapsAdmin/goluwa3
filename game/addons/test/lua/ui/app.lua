@@ -59,6 +59,7 @@ local function toggle()
 						{
 							Text = "GAME",
 							OnClick = function(ent)
+								print("click?")
 								local x, y = ent.transform:GetWorldMatrix():GetTranslation()
 								y = y + ent.transform:GetHeight()
 								world_panel:Ensure(

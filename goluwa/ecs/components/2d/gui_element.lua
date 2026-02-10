@@ -19,10 +19,7 @@ function META:Initialize() end
 
 function META:SetVisible(visible)
 	self.Visible = visible
-
-	if self.Owner.OnVisibilityChanged then
-		self.Owner:OnVisibilityChanged(visible)
-	end
+	self.Owner:CallLocalEvent("OnVisibilityChanged", visible)
 end
 
 function META:DrawShadow()
@@ -79,7 +76,6 @@ function META:DrawRecursive()
 	render2d.PushMatrix()
 	render2d.SetWorldMatrix(transform:GetWorldMatrix())
 	self.Owner:CallLocalEvent("OnDraw")
-	self:OnDraw()
 
 	for _, child in ipairs(self.Owner:GetChildren()) do
 		if child.gui_element then child.gui_element:DrawRecursive() end
@@ -101,13 +97,8 @@ function META:DrawRecursive()
 	end
 
 	self.Owner:CallLocalEvent("OnPostDraw")
-	self:OnPostDraw()
 	render2d.PopMatrix()
 end
-
-function META:OnDraw() end
-
-function META:OnPostDraw() end
 
 function META:OnFirstCreated()
 	event.AddListener("Draw2D", "ecs_gui_system", function()

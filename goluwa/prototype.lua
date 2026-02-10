@@ -1086,8 +1086,30 @@ do -- base object
 	end
 
 	function META:CallLocalEvent(what, ...)
+		local ret = nil
+
+		if what == "OnClick" then print(self[what]) end
+
+		if self[what] then
+			ret = self[what](self, ...)
+
+			if ret ~= nil then return ret end
+		end
+
+		if self.component_list then
+			for _, component in pairs(self.component_list) do
+				if component[what] then
+					ret = component[what](component, ...)
+
+					if ret ~= nil then return ret end
+				end
+			end
+		end
+
 		if self.local_events then
 			local unique_event = self.local_events[what]
+
+			if self[what] then event.SkipCallback(self[what]) end
 
 			if unique_event then
 				return event.Call(unique_event, ...)

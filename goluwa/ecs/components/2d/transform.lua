@@ -39,20 +39,16 @@ function META:InvalidateWorldMatrices()
 	self.WorldMatrix = nil
 	self.WorldMatrixInverse = nil
 
-	if self.Owner then
-		for _, child in ipairs(self.Owner:GetChildrenList()) do
-			local tr = child.transform
+	for _, child in ipairs(self.Owner:GetChildrenList()) do
+		local tr = child.transform
 
-			if tr then
-				tr.WorldMatrix = nil
-				tr.WorldMatrixInverse = nil
-			end
+		if tr then
+			tr.WorldMatrix = nil
+			tr.WorldMatrixInverse = nil
 		end
 	end
 
-	self:CallLocalEvent("OnTransformChanged")
-
-	if self.Owner then self.Owner:CallLocalEvent("OnTransformChanged") end
+	self.Owner:CallLocalEvent("OnTransformChanged")
 end
 
 function META:GetWidth()

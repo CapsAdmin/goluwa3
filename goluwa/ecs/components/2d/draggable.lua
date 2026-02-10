@@ -61,15 +61,12 @@ function META:StartDragging(button)
 	self.drag_object_start = transform:GetPosition():Copy()
 	self.drag_button = button
 	self:AddGlobalEvent("Update", {priority = 100})
-
-	if self.Owner.OnDragStarted then self.Owner:OnDragStarted(button) end
-
+	self.Owner:CallLocalEvent("OnDragStarted", button)
 	return true
 end
 
 function META:StopDragging()
-	if self.Owner.OnDragStopped then self.Owner:OnDragStopped(self.drag_button) end
-
+	self.Owner:CallLocalEvent("OnDragStopped", self.drag_button)
 	self.drag_mouse_start = nil
 	self.drag_object_start = nil
 	self.drag_button = nil
@@ -97,7 +94,7 @@ function META:OnUpdate()
 	local pos = self.Owner.mouse_input:GetGlobalMousePosition()
 	local delta = pos - self.drag_mouse_start
 
-	if self.Owner.OnDrag then if self.Owner:OnDrag(delta, pos) then return end end
+	if self.Owner:CallLocalEvent("OnDrag", delta, pos) then return end
 
 	local new_pos = self.drag_object_start + delta
 	transform:SetPosition(new_pos)

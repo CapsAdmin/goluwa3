@@ -56,7 +56,6 @@ return function(props)
 					if button == "button_1" then
 						state.is_pressed = press
 						theme.UpdateButtonAnimations(self.Owner, state)
-						return true
 					end
 				end,
 			},

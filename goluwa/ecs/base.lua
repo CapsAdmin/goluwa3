@@ -5,11 +5,14 @@ return function(name, base_path, get_valid_components)
 	local valid_components
 
 	function BaseEntity.New(config)
-		local self = BaseEntity:CreateObject({
-			Children = {},
-			ChildrenMap = {},
-			component_map = {},
-		})
+		local self = BaseEntity:CreateObject(
+			{
+				Children = {},
+				ChildrenMap = {},
+				component_map = {},
+				component_list = {},
+			}
+		)
 		local ent = self
 		local components = {}
 		local local_events = {}
@@ -91,7 +94,7 @@ return function(name, base_path, get_valid_components)
 						else
 							local found = false
 
-							for _, component in pairs(ent.component_map) do
+							for _, component in ipairs(ent.component_list) do
 								if component[setter_name] then
 									component[setter_name](component, val)
 									found = true
@@ -136,7 +139,7 @@ return function(name, base_path, get_valid_components)
 			self.Parent.keyed_children[self:GetKey()] = self
 		end
 
-		for _, component in pairs(self.component_map) do
+		for _, component in ipairs(self.component_list) do
 			if component.Initialize then component:Initialize() end
 		end
 
@@ -205,8 +208,9 @@ return function(name, base_path, get_valid_components)
 			if self[name].Initialize then self[name]:Initialize() end
 		end
 
-		self.component_map = self.component_map or {}
 		self.component_map[name] = self[name]
+		self.component_list = self.component_list or {}
+		list.insert(self.component_list, self[name])
 		return self[name]
 	end
 
@@ -215,8 +219,15 @@ return function(name, base_path, get_valid_components)
 
 		self[name]:Remove()
 		self[name] = nil
+		self.component_map[name] = nil
 
-		if self.component_map then self.component_map[name] = nil end
+		for i, component in ipairs(self.component_list) do
+			if component == self[name] then
+				table.remove(self.component_list, i)
+
+				break
+			end
+		end
 	end
 
 	function BaseEntity:HasComponent(name)

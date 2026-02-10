@@ -15,9 +15,7 @@ function META:OnMouseInput(button, press, pos)
 				self.is_pressing = false
 
 				if self.Owner.mouse_input:GetHovered() then
-					local Owner = self.Owner
-
-					if Owner.OnClick then Owner:OnClick() end
+					self.Owner:CallLocalEvent("OnClick")
 				end
 			end
 		end
@@ -26,12 +24,8 @@ end
 
 function META:OnKeyInput(key, press)
 	if press and (key == "enter" or key == "numpad_enter") then
-		local Owner = self.Owner
-
-		if Owner.OnClick then
-			Owner:OnClick()
-			return true
-		end
+		self.Owner:CallLocalEvent("OnClick")
+		return true
 	end
 end
 
