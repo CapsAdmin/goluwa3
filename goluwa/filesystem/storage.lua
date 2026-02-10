@@ -15,7 +15,7 @@ local function working_directory()
 	else
 		ffi.cdef("char *strerror(int)")
 		ffi.cdef("char *realpath(const char *, char *);")
-		local resolved_name = ffi.new("char[?]", 256)
+		local resolved_name = ffi.new("char[?]", 1024)
 		local ret = ffi.C.realpath("./", resolved_name)
 
 		if ret == nil then
