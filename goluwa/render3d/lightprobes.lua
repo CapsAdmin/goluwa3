@@ -301,9 +301,10 @@ function lightprobes.CreatePipelines()
 					{"tangent", "vec4", "r32g32b32a32_sfloat"},
 					{"texture_blend", "float", "r32_sfloat"},
 				},
-				push_constants = {
+				uniform_buffers = {
 					{
-						name = "vertex",
+						name = "pass_data",
+						binding_index = 2,
 						block = {
 							{
 								"projection_view_world",
@@ -312,6 +313,13 @@ function lightprobes.CreatePipelines()
 									lightprobes.GetProjectionViewWorldMatrix():CopyToFloatPointer(block[key])
 								end,
 							},
+						},
+					},
+				},
+				push_constants = {
+					{
+						name = "vertex",
+						block = {
 							{
 								"world",
 								"mat4",
@@ -324,7 +332,7 @@ function lightprobes.CreatePipelines()
 				},
 				shader = [[
                 void main() {
-                    gl_Position = pc.vertex.projection_view_world * vec4(in_position, 1.0);
+                    gl_Position = pass_data.projection_view_world * vec4(in_position, 1.0);
                     out_position = (pc.vertex.world * vec4(in_position, 1.0)).xyz;
                     out_normal = normalize(mat3(pc.vertex.world) * in_normal);
                     out_uv = in_uv;
@@ -373,6 +381,40 @@ function lightprobes.CreatePipelines()
 									if lights[1] then
 										lights[1].Owner.transform:GetRotation():GetBackward():CopyToFloatPointer(block[key])
 									end
+								end,
+							},
+						},
+					},
+					{
+						name = "material_data",
+						binding_index = 4,
+						block = {
+							{
+								"ColorMultiplier",
+								"vec4",
+								function(self, block, key)
+									render3d.GetMaterial():GetColorMultiplier():CopyToFloatPointer(block[key])
+								end,
+							},
+							{
+								"MetallicMultiplier",
+								"float",
+								function(self, block, key)
+									render3d.GetMaterial():GetMetallicMultiplier()
+								end,
+							},
+							{
+								"RoughnessMultiplier",
+								"float",
+								function(self, block, key)
+									render3d.GetMaterial():GetRoughnessMultiplier()
+								end,
+							},
+							{
+								"EmissiveMultiplier",
+								"vec4",
+								function(self, block, key)
+									render3d.GetMaterial():GetEmissiveMultiplier():CopyToFloatPointer(block[key])
 								end,
 							},
 						},
@@ -436,34 +478,6 @@ function lightprobes.CreatePipelines()
 								"int",
 								function(self, block, key)
 									block[key] = self:GetTextureIndex(render3d.GetMaterial():GetEmissiveTexture())
-								end,
-							},
-							{
-								"ColorMultiplier",
-								"vec4",
-								function(self, block, key)
-									render3d.GetMaterial():GetColorMultiplier():CopyToFloatPointer(block[key])
-								end,
-							},
-							{
-								"MetallicMultiplier",
-								"float",
-								function(self, block, key)
-									block[key] = render3d.GetMaterial():GetMetallicMultiplier()
-								end,
-							},
-							{
-								"RoughnessMultiplier",
-								"float",
-								function(self, block, key)
-									block[key] = render3d.GetMaterial():GetRoughnessMultiplier()
-								end,
-							},
-							{
-								"EmissiveMultiplier",
-								"vec4",
-								function(self, block, key)
-									render3d.GetMaterial():GetEmissiveMultiplier():CopyToFloatPointer(block[key])
 								end,
 							},
 						},

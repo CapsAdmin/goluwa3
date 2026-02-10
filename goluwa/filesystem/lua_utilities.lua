@@ -302,9 +302,13 @@ end
 vfs.module_directories = {}
 
 function vfs.Require(name, ...)
-	local ret = {pcall(_OLD_G.require, name, ...)}
-
-	if ret[1] then return unpack(ret, 2) end
+	if package.loaded[name] then
+		return package.loaded[name]
+	end
+	if package.searchpath(name, package.path) then
+--		print("requiring normally:", name)
+		return _OLD_G.require(name)
+	end
 
 	for i, v in ipairs(vfs.loaded_addons) do
 		local lua_dir = v.path .. "lua/"
@@ -319,9 +323,10 @@ function vfs.Require(name, ...)
 			if lua_dir:starts_with("/") then lua_dir = lua_dir:sub(2) end
 
 			local path = lua_dir:replace("/", ".") .. name
-			local ret = {pcall(_OLD_G.require, path, ...)}
-
-			if ret[1] then return unpack(ret, 2) end
+			if package.searchpath(path, package.path) then
+			--	print("requiring from addon:", v.name, path)
+				return _OLD_G.require(path)
+			end
 		end
 	end
 
@@ -332,17 +337,13 @@ function vfs.Require(name, ...)
 	for _, dir in ipairs(vfs.module_directories) do
 		for _, data in ipairs(vfs.TranslatePath(dir, true)) do
 			fs.PushWorkingDirectory(data.path_info.full_path)
-			local ret = {pcall(_OLD_G.require, name, ...)}
-			fs.PopWorkingDirectory()
-
-			if ret[1] then
-				return unpack(ret, 2)
+			if package.searchpath(name, package.path) then
+				local ret = _OLD_G.require(name)
+				fs.PopWorkingDirectory()
+				return ret
 			else
-				--list.insert(errors, "no file in: " .. data.path_info.full_path)
-				if not done[ret[2]] then
-					list.insert(errors, ret[2])
-					done[ret[2]] = true
-				end
+				fs.PopWorkingDirectory()
+				list.insert(errors, "no file in: " .. data.path_info.full_path)
 			end
 		end
 	end
@@ -355,18 +356,15 @@ function vfs.Require(name, ...)
 
 		if dir then
 			fs.PushWorkingDirectory(dir)
-			local ret = {pcall(_OLD_G.require, name, ...)}
-			fs.PopWorkingDirectory()
-
-			if ret[1] then
-				return unpack(ret, 2)
+			if package.searchpath(name, package.path) then
+				local ret = _OLD_G.require(name)
+				fs.PopWorkingDirectory()
+				return ret
 			else
-				--list.insert(errors, "no file in: " .. dir)
-				if not done[ret[2]] then
-					list.insert(errors, ret[2])
-					done[ret[2]] = true
-				end
+				fs.PopWorkingDirectory()
+				list.insert(errors, "no file in: " .. dir)
 			end
+			fs.PopWorkingDirectory()
 		end
 	end
 
@@ -384,7 +382,7 @@ function vfs.Require(name, ...)
 			break
 		end
 	end
-
+print("require failed for:", name)
 	error(list.concat(errors, "\n") .. "\n", 2)
 end
 

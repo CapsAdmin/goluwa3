@@ -125,6 +125,7 @@ end
 
 function hotreload.Start()
 	hotreload.Stop()
+	if not fs.watch then return end
 	local last_reloaded = {}
 	hotreload.stop_watch = fs.watch(
 		".",

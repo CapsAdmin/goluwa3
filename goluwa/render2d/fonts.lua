@@ -14,6 +14,11 @@ local loaded_fonts = {}
 function fonts.LoadFont(path, size, padding)
 	size = size or 16
 	padding = padding or 0
+
+	if not fs.exists(path) and path ~= "default" then
+		path = fonts.GetSystemDefaultFont()
+	end
+
 	local key = tostring(path) .. "_" .. tostring(size) .. "_" .. tostring(padding)
 
 	if loaded_fonts[key] then return loaded_fonts[key] end
@@ -330,7 +335,7 @@ function fonts.GetSystemDefaultFont()
 	if WINDOWS then
 		return os.getenv("WINDIR") .. "/Fonts/arial.ttf"
 	elseif OSX then
-		return "/Library/Fonts/Arial.ttf"
+		return "/Library/Fonts/Arial Unicode.ttf"
 	elseif LINUX then
 		-- Try fc-match first (most reliable on Linux)
 		local handle = io.popen("fc-match -f '%{file}'")

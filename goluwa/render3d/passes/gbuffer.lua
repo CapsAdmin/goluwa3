@@ -25,9 +25,10 @@ return {
 				{"tangent", "vec4", "r32g32b32a32_sfloat"},
 				{"texture_blend", "float", "r32_sfloat"},
 			},
-			push_constants = {
+			uniform_buffers = {
 				{
-					name = "vertex",
+					name = "pass_data",
+					binding_index = 2,
 					block = {
 						{
 							"projection_view_world",
@@ -36,6 +37,13 @@ return {
 								render3d.GetProjectionViewWorldMatrix():CopyToFloatPointer(block[key])
 							end,
 						},
+					},
+				},
+			},
+			push_constants = {
+				{
+					name = "vertex",
+					block = {
 						{
 							"world",
 							"mat4",
@@ -48,7 +56,7 @@ return {
 			},
 			shader = [[
 			void main() {
-				gl_Position = pc.vertex.projection_view_world * vec4(in_position, 1.0);
+				gl_Position = pass_data.projection_view_world * vec4(in_position, 1.0);
 				out_position = (pc.vertex.world * vec4(in_position, 1.0)).xyz;						
 				out_normal = normalize(mat3(pc.vertex.world) * in_normal);
 				out_tangent = vec4(normalize(mat3(pc.vertex.world) * in_tangent.xyz), in_tangent.w);
@@ -64,6 +72,54 @@ return {
 					binding_index = 3,
 					block = {
 						render3d.debug_block,
+					},
+				},
+				{
+					name = "material_data",
+					binding_index = 4,
+					block = {
+						{
+							"ColorMultiplier",
+							"vec4",
+							function(self, block, key)
+								render3d.GetMaterial():GetColorMultiplier():CopyToFloatPointer(block[key])
+							end,
+						},
+						{
+							"MetallicMultiplier",
+							"float",
+							function(self, block, key)
+								block[key] = render3d.GetMaterial():GetMetallicMultiplier()
+							end,
+						},
+						{
+							"RoughnessMultiplier",
+							"float",
+							function(self, block, key)
+								block[key] = render3d.GetMaterial():GetRoughnessMultiplier()
+							end,
+						},
+						{
+							"AmbientOcclusionMultiplier",
+							"float",
+							function(self, block, key)
+								block[key] = render3d.GetMaterial():GetAmbientOcclusionMultiplier()
+							end,
+						},
+						{
+							"EmissiveMultiplier",
+							"vec4",
+							function(self, block, key)
+								render3d.GetMaterial():GetEmissiveMultiplier():CopyToFloatPointer(block[key])
+							end,
+						},
+						{
+							"AlphaCutoff",
+							"float",
+							function(self, block, key)
+								block[key] = render3d.GetMaterial():GetAlphaCutoff()
+							end,
+						},
 					},
 				},
 			},
@@ -135,48 +191,6 @@ return {
 							end,
 						},
 						{
-							"ColorMultiplier",
-							"vec4",
-							function(self, block, key)
-								render3d.GetMaterial():GetColorMultiplier():CopyToFloatPointer(block[key])
-							end,
-						},
-						{
-							"MetallicMultiplier",
-							"float",
-							function(self, block, key)
-								block[key] = render3d.GetMaterial():GetMetallicMultiplier()
-							end,
-						},
-						{
-							"RoughnessMultiplier",
-							"float",
-							function(self, block, key)
-								block[key] = render3d.GetMaterial():GetRoughnessMultiplier()
-							end,
-						},
-						{
-							"AmbientOcclusionMultiplier",
-							"float",
-							function(self, block, key)
-								block[key] = render3d.GetMaterial():GetAmbientOcclusionMultiplier()
-							end,
-						},
-						{
-							"EmissiveMultiplier",
-							"vec4",
-							function(self, block, key)
-								render3d.GetMaterial():GetEmissiveMultiplier():CopyToFloatPointer(block[key])
-							end,
-						},
-						{
-							"AlphaCutoff",
-							"float",
-							function(self, block, key)
-								block[key] = render3d.GetMaterial():GetAlphaCutoff()
-							end,
-						},
-						{
 							"MetallicTexture",
 							"int",
 							function(self, block, key)
@@ -215,7 +229,7 @@ return {
 
 			vec3 get_albedo() {
 				if (pc.model.AlbedoTexture == -1) {
-					return pc.model.ColorMultiplier.rgb;
+					return material_data.ColorMultiplier.rgb;
 				}
 				
 				vec3 rgb1 = texture(TEXTURE(pc.model.AlbedoTexture), in_uv).rgb;
@@ -229,7 +243,7 @@ return {
 					}
 				}
 			
-				return rgb1 * pc.model.ColorMultiplier.rgb;
+				return rgb1 * material_data.ColorMultiplier.rgb;
 			}
 
 			float get_alpha() {
@@ -240,15 +254,15 @@ return {
 					AlbedoTextureAlphaIsRoughness ||
 					AlbedoAlphaIsEmissive
 				) {
-					return pc.model.ColorMultiplier.a;	
+					return material_data.ColorMultiplier.a;	
 				}
 
-				return texture(TEXTURE(pc.model.AlbedoTexture), in_uv).a * pc.model.ColorMultiplier.a;
+				return texture(TEXTURE(pc.model.AlbedoTexture), in_uv).a * material_data.ColorMultiplier.a;
 			}
 
 			void compute_translucency_and_discard(inout float alpha) {
 				if (AlphaTest) {
-					if (alpha < pc.model.AlphaCutoff) discard;
+					if (alpha < material_data.AlphaCutoff) discard;
 				} else if (Translucent) {
 					if (fract(dot(vec2(171.0, 231.0) + alpha * 0.00001, gl_FragCoord.xy) / 103.0) > (alpha * alpha)) discard;
 				}
@@ -307,12 +321,12 @@ return {
 				} else if (pc.model.MetallicRoughnessTexture != -1) {
 					val = texture(TEXTURE(pc.model.MetallicRoughnessTexture), in_uv).b;
 				} else {
-					val = pc.model.MetallicMultiplier;
+					val = material_data.MetallicMultiplier;
 					val = clamp(val, 0, 1);
 					return val;
 				}
 
-				val *= pc.model.MetallicMultiplier;
+				val *= material_data.MetallicMultiplier;
 				val = clamp(val, 0, 1);
 
 				return val;
@@ -332,12 +346,12 @@ return {
 				} else if (pc.model.MetallicRoughnessTexture != -1) {
 					val = texture(TEXTURE(pc.model.MetallicRoughnessTexture), in_uv).g;
 				} else  {
-					val = pc.model.RoughnessMultiplier;
+					val = material_data.RoughnessMultiplier;
 					val = clamp(val, 0.05, 0.95);
 					return val;
 				}
 
-				val *= pc.model.RoughnessMultiplier;
+				val *= material_data.RoughnessMultiplier;
 
 				if (InvertRoughnessTexture) val = -val + 1.0;
 
@@ -354,28 +368,28 @@ return {
 					if (pc.model.AlbedoTexture != -1) {
 						mask = texture(TEXTURE(pc.model.AlbedoTexture), in_uv).a;
 					}
-					return get_albedo() * mask * pc.model.EmissiveMultiplier.rgb * pc.model.EmissiveMultiplier.a;
+					return get_albedo() * mask * material_data.EmissiveMultiplier.rgb * material_data.EmissiveMultiplier.a;
 				}
 				else if (pc.model.EmissiveTexture != -1) {
 					float mask = texture(TEXTURE(pc.model.EmissiveTexture), in_uv).r;
-					return get_albedo() * mask * pc.model.EmissiveMultiplier.rgb * pc.model.EmissiveMultiplier.a;
+					return get_albedo() * mask * material_data.EmissiveMultiplier.rgb * material_data.EmissiveMultiplier.a;
 				} else if (pc.model.MetallicTexture != -1 && MetallicTextureAlphaIsEmissive) {
 					float mask = texture(TEXTURE(pc.model.MetallicTexture), in_uv).a;
-					return get_albedo() * mask * pc.model.EmissiveMultiplier.rgb * pc.model.EmissiveMultiplier.a;
+					return get_albedo() * mask * material_data.EmissiveMultiplier.rgb * material_data.EmissiveMultiplier.a;
 				} else if (pc.model.EmissiveTexture != -1) {
 					vec3 emissive = texture(TEXTURE(pc.model.EmissiveTexture), in_uv).rgb;
-					return emissive * pc.model.EmissiveMultiplier.rgb * pc.model.EmissiveMultiplier.a;
+					return emissive * material_data.EmissiveMultiplier.rgb * material_data.EmissiveMultiplier.a;
 				}
 									return vec3(0);
 
-			//	return (pc.model.EmissiveMultiplier.rgb - vec3(1)) * pc.model.EmissiveMultiplier.a;
+			//	return (material_data.EmissiveMultiplier.rgb - vec3(1)) * material_data.EmissiveMultiplier.a;
 			}
 
 			float get_ao() {
 				if (pc.model.AmbientOcclusionTexture == -1) {
-					return 1.0 * pc.model.AmbientOcclusionMultiplier;
+					return 1.0 * material_data.AmbientOcclusionMultiplier;
 				}
-				return texture(TEXTURE(pc.model.AmbientOcclusionTexture), in_uv).r * pc.model.AmbientOcclusionMultiplier;
+				return texture(TEXTURE(pc.model.AmbientOcclusionTexture), in_uv).r * material_data.AmbientOcclusionMultiplier;
 			}
 
 			void main() {

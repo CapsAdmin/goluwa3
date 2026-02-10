@@ -103,8 +103,11 @@ function EasyPipeline.New(config)
 	local fragment_outputs = ""
 	local debug_views = {}
 
-	if type(config.color_format) == "table" then
-		for i, format in ipairs(config.color_format) do
+	local color_formats = config.color_format
+	if type(color_formats) == "string" then color_formats = {color_formats} end
+
+	if type(color_formats) == "table" then
+		for i, format in ipairs(color_formats) do
 			if type(format) == "table" then
 				local actual_format = format[1]
 				table.insert(actual_color_formats, actual_format)
@@ -163,6 +166,13 @@ function EasyPipeline.New(config)
 				end
 			else
 				table.insert(actual_color_formats, format)
+				local out_name = "out_" .. (i - 1)
+				fragment_outputs = fragment_outputs .. string.format("layout(location = %d) out vec4 %s;\n", i - 1, out_name)
+
+				if i == 1 then
+					fragment_outputs = fragment_outputs .. "#define out_color " .. out_name .. "\n"
+				end
+
 				table.insert(
 					debug_views,
 					{
@@ -683,6 +693,19 @@ function EasyPipeline.New(config)
 		end
 	end
 
+	local glsl_to_lua_type = {
+		mat4 = ffi.typeof("float[16]"),
+		vec4 = ffi.typeof("float[4]"),
+		vec3 = ffi.typeof("float[3]"),
+		vec2 = ffi.typeof("float[2]"),
+		float = ffi.typeof("float"),
+		int = ffi.typeof("int"),
+		ivec4 = ffi.typeof("int[4]"),
+		ivec3 = ffi.typeof("int[3]"),
+		ivec2 = ffi.typeof("int[2]"),
+		uint64_t = ffi.typeof("uint64_t"),
+	}
+
 	-- Store uniform buffers for external access
 	self.uniform_buffers = uniform_buffers
 	-- Build vertex attributes
@@ -709,6 +732,8 @@ function EasyPipeline.New(config)
 					location = #attributes,
 					format = attribute[3],
 					offset = offset,
+					lua_name = attribute[1],
+					lua_type = glsl_to_lua_type[attribute[2]],
 				}
 			)
 			vertex_attributes_size = vertex_attributes_size + render.GetVulkanFormatSize(attribute[3])
@@ -856,7 +881,7 @@ function EasyPipeline.New(config)
 
 	-- Vertex stage
 	if config.vertex and config.vertex.shader then
-		local vertex_code = shader_header .. vertex_input .. vertex_output .. get_glsl_push_constants("vertex") .. (
+		local vertex_code = shader_header .. vertex_input .. vertex_output .. get_glsl_push_constants("vertex") .. get_glsl_uniform_buffers("vertex") .. (
 				config.vertex.custom_declarations or
 				""
 			) .. (
@@ -957,7 +982,7 @@ function EasyPipeline.New(config)
 	self.actual_color_formats = actual_color_formats
 
 	-- Create framebuffer(s) if this pipeline has color or depth outputs
-	if #self.actual_color_formats > 0 or config.depth_format then
+	if not config.dont_create_framebuffers and (#self.actual_color_formats > 0 or config.depth_format) then
 		self:RecreateFramebuffers()
 		self:AddGlobalEvent("WindowFramebufferResized")
 	end

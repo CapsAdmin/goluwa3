@@ -33,6 +33,7 @@ end
 
 function codec.DecodeFile(path, lib)
 	local mod = lib and require("codecs." .. lib) or codec.GuessFormatFromPath(path)
+	print(path)
 	local file = assert(vfs.Open(path))
 	local file_content = file:ReadAll()
 

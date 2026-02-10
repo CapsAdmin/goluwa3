@@ -150,7 +150,7 @@ function jit_options.SetOptimized()
 			maxmcode = 128000,
 			sizemcode = 512,
 			minstitch = 3,
-			maxrecord = 70000,
+			maxrecord = 7000,
 			maxirconst = 10000,
 			maxside = 5000,
 			maxsnap = 5000,

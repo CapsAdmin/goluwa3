@@ -6,12 +6,40 @@ local Vec2 = require("structs.vec2")
 local Rect = require("structs.rect")
 local Matrix44 = require("structs.matrix44")
 local render = require("render.render")
+local EasyPipeline = require("render.easy_pipeline")
 local event = require("event")
 local VertexBuffer = require("render.vertex_buffer")
 local Mesh = require("render.mesh")
 local Texture = require("render.texture")
 local Matrix44 = require("structs.matrix44")
 local surface_format = "r16g16b16a16_sfloat"
+
+local VERTEX_FIELDS = {
+	{"projection_view_world", "mat4"},
+}
+
+local FRAGMENT_FIELDS = {
+	{"global_color", "vec4"},
+	{"alpha_multiplier", "float"},
+	{"edge_feather", "float"},
+	{"outline_width", "float"},
+	{"uv_offset", "vec2"},
+	{"uv_scale", "vec2"},
+	{"texture_index", "int"},
+	{"swizzle_mode", "int"},
+	{"premultiply_output", "int"},
+	{"unpremultiply_input", "int"},
+}
+
+local FRAGMENT_FIELDS_PATCH = {
+	{"rect_size", "vec2"},
+	{"border_radius", "vec4"},
+	{"nine_patch_x", "float", nil, 8},
+	{"nine_patch_y", "float", nil, 8},
+	{"nine_patch_x_count", "int"},
+	{"nine_patch_y_count", "int"},
+}
+
 -- Vertex shader push constants (64 bytes)
 local VertexConstants = ffi.typeof([[
 	struct {
@@ -22,17 +50,22 @@ local FragmentConstants = ffi.typeof([[
 	struct {
         float global_color[4];          
         float alpha_multiplier;  
-        int texture_index;       
+        float edge_feather;
+        float outline_width;
         float uv_offset[2];             
         float uv_scale[2];              
+        int texture_index;       
         int swizzle_mode;
-        float edge_feather;
         int premultiply_output;
         int unpremultiply_input;
-        float border_radius[4];
-        float outline_width;
+	}
+]])
+local FragmentConstantsPatch = ffi.typeof([[
+	struct {
         float rect_size[2];
-        float nine_patch_x[8];
+        float _pad[2]; // std140 padding before vec4
+        float border_radius[4];
+        float nine_patch_x[8]; // Warning: std140 pads float[8] to 16 bytes per float if not careful
         float nine_patch_y[8];
         int nine_patch_x_count;
         int nine_patch_y_count;
@@ -40,6 +73,7 @@ local FragmentConstants = ffi.typeof([[
 ]])
 local vertex_constants = VertexConstants()
 local fragment_constants = FragmentConstants()
+local fragment_constants_patch = FragmentConstantsPatch()
 local render2d = library()
 -- Blend mode presets
 render2d.blend_modes = {
@@ -181,105 +215,31 @@ end
 
 do
 	render2d.pipeline_data = {
-		shader_stages = {
-			{
-				type = "vertex",
-				code = [[
-					#version 450
-					#extension GL_EXT_scalar_block_layout : require
-
-					layout(location = 0) in vec3 in_pos;
-					layout(location = 1) in vec2 in_uv;
-					layout(location = 2) in vec4 in_color;
-
-					layout(push_constant, scalar) uniform VertexConstants {
-						mat4 projection_view_world;
-					} pc;
-
-					layout(location = 0) out vec2 out_uv;
-					layout(location = 1) out vec4 out_color;
-
-					void main() {
-						gl_Position = pc.projection_view_world * vec4(in_pos, 1.0);
-						out_uv = in_uv;
-						out_color = in_color;
-					}
-				]],
-				bindings = {
-					{
-						binding = 0,
-						stride = ffi.sizeof("float") * 9, -- vec3 + vec2 + vec4
-						input_rate = "vertex",
-					},
-				},
-				attributes = {
-					{
-						binding = 0,
-						location = 0, -- in_position
-						format = "r32g32b32_sfloat", -- vec3
-						offset = 0,
-						lua_type = ffi.typeof("float[3]"),
-						lua_name = "pos",
-					},
-					{
-						binding = 0,
-						location = 1, -- in_uv
-						format = "r32g32_sfloat", -- vec2
-						offset = ffi.sizeof("float[3]"),
-						lua_type = ffi.typeof("float[2]"),
-						lua_name = "uv",
-					},
-					{
-						binding = 0,
-						location = 2, -- in_color
-						format = "r32g32b32a32_sfloat", -- vec4
-						offset = ffi.sizeof("float[3]") + ffi.sizeof("float[2]"),
-						lua_type = ffi.typeof("float[4]"),
-						lua_name = "color",
-					},
-				},
-				input_assembly = {
-					topology = "triangle_list",
-					primitive_restart = false,
-				},
-				push_constants = {
-					size = ffi.sizeof(VertexConstants),
-					offset = 0,
-				},
+		vertex = {
+			push_constants = {
+				{name = "vertex", block = VERTEX_FIELDS},
 			},
-			{
-				type = "fragment",
-				code = [[
-					#version 450
-					#extension GL_EXT_scalar_block_layout : require
-					#extension GL_EXT_nonuniform_qualifier : require
-
-					layout(binding = 0) uniform sampler2D textures[1024]; // Bindless texture array
-					layout(location = 0) in vec2 in_uv;
-					layout(location = 1) in vec4 in_color;
-					layout(location = 0) out vec4 out_color;
-
-					layout(push_constant, scalar) 
-					uniform FragmentConstants {
-						layout(offset = ]] .. ffi.sizeof(VertexConstants) .. [[)
-						vec4 global_color;
-						float alpha_multiplier;
-						int texture_index;
-						vec2 uv_offset;
-						vec2 uv_scale;
-						int swizzle_mode;
-						float edge_feather;
-						int premultiply_output;
-						int unpremultiply_input;
-						vec4 border_radius;
-						float outline_width;
-						vec2 rect_size;
-						float nine_patch_x[8];
-						float nine_patch_y[8];
-						int nine_patch_x_count;
-						int nine_patch_y_count;
-					} pc;                   
-					
+			attributes = {
+				{"pos", "vec3", "r32g32b32_sfloat"},
+				{"uv", "vec2", "r32g32_sfloat"},
+				{"color", "vec4", "r32g32b32a32_sfloat"},
+			},
+			shader = [[
+				void main() {
+					gl_Position = pc.vertex.projection_view_world * vec4(in_pos, 1.0);
+					out_uv = in_uv;
+					out_color = in_color;
+				}
+			]],
+		},
+		fragment = {
+			push_constants = {
+				{name = "fragment", block = FRAGMENT_FIELDS},
+			},
+			uniform_buffers = {
+				{name = "fragment_patch", block = FRAGMENT_FIELDS_PATCH, binding_index = 2},
+			},
+			shader = [[
 					float map_nine_patch(float x, float tw, float sw, float regions[8], int count) 
 					{
 						if (count == 0 || tw <= 0.0 || sw <= 0.0) return x / sw;
@@ -288,9 +248,10 @@ do
 						float stretch_total_src = 0.0;
 						for (int i = 0; i < 8; i++) {
 							if (i >= count) break;
-							float s = regions[i*2];
-							float e = regions[i*2+1];
+							float s = regions[i];
+							float e = regions[i+1];
 							stretch_total_src += (e - s);
+                            i++;
 						}
 						fixed_total -= stretch_total_src;
 						
@@ -302,8 +263,8 @@ do
 						
 						for (int i = 0; i < 8; i++) {
 							if (i >= count) break;
-							float s = regions[i*2];
-							float e = regions[i*2+1];
+							float s = regions[i];
+							float e = regions[i+1];
 							
 							float fixed_size = s - curr_src;
 							if (x < curr_tgt + fixed_size) {
@@ -320,6 +281,7 @@ do
 							}
 							curr_src += stretch_size_src;
 							curr_tgt += stretch_size_tgt;
+                            i++;
 						}
 						
 						return (curr_src + (x - curr_tgt)) / sw;
@@ -327,31 +289,31 @@ do
 
 					void main() 
 					{
-						out_color = in_color * pc.global_color;
+						out_color = in_color * pc.fragment.global_color;
 
 						vec2 uv = in_uv;
-						if (pc.texture_index >= 0 && (pc.nine_patch_x_count > 0 || pc.nine_patch_y_count > 0)) {
-							vec2 tex_size = vec2(textureSize(textures[nonuniformEXT(pc.texture_index)], 0));
+						if (pc.fragment.texture_index >= 0 && (fragment_patch.nine_patch_x_count > 0 || fragment_patch.nine_patch_y_count > 0)) {
+							vec2 tex_size = vec2(textureSize(TEXTURE(pc.fragment.texture_index), 0));
 							
-							if (pc.nine_patch_x_count > 0) {
-								uv.x = map_nine_patch(in_uv.x * pc.rect_size.x, pc.rect_size.x, tex_size.x, pc.nine_patch_x, pc.nine_patch_x_count);
+							if (fragment_patch.nine_patch_x_count > 0) {
+								uv.x = map_nine_patch(in_uv.x * fragment_patch.rect_size.x, fragment_patch.rect_size.x, tex_size.x, fragment_patch.nine_patch_x, fragment_patch.nine_patch_x_count);
 							}
-							if (pc.nine_patch_y_count > 0) {
-								uv.y = map_nine_patch(in_uv.y * pc.rect_size.y, pc.rect_size.y, tex_size.y, pc.nine_patch_y, pc.nine_patch_y_count);
+							if (fragment_patch.nine_patch_y_count > 0) {
+								uv.y = map_nine_patch(in_uv.y * fragment_patch.rect_size.y, fragment_patch.rect_size.y, tex_size.y, fragment_patch.nine_patch_y, fragment_patch.nine_patch_y_count);
 							}
 						}
 
-						if (pc.rect_size.x > 0.0 && pc.rect_size.y > 0.0) {
-							vec2 p = (in_uv - 0.5) * pc.rect_size;
-							vec2 b = pc.rect_size * 0.5;
-							vec4 r = pc.border_radius;
+						if (fragment_patch.rect_size.x > 0.0 && fragment_patch.rect_size.y > 0.0) {
+							vec2 p = (in_uv - 0.5) * fragment_patch.rect_size;
+							vec2 b = fragment_patch.rect_size * 0.5;
+							vec4 r = fragment_patch.border_radius;
 							float rad = 0.0;
 							if (p.x < 0.0 && p.y < 0.0) rad = r.x;
 							else if (p.x > 0.0 && p.y < 0.0) rad = r.y;
 							else if (p.x > 0.0 && p.y > 0.0) rad = r.z;
 							else if (p.x < 0.0 && p.y > 0.0) rad = r.w;
 
-							float min_dim = min(pc.rect_size.x, pc.rect_size.y);
+							float min_dim = min(fragment_patch.rect_size.x, fragment_patch.rect_size.y);
 							float half_dim = min_dim * 0.5;
 
 							// Clamp radius to half_dim for the inset (corner region stays fixed size)
@@ -384,12 +346,12 @@ do
 							}
 
 							float s = 1.0;
-							float feather = pc.edge_feather * min_dim * 0.5;
+							float feather = pc.fragment.edge_feather * min_dim * 0.5;
 							float mask;
 
-							if (pc.outline_width > 0.0) {
+							if (pc.fragment.outline_width > 0.0) {
 								float outer_mask = smoothstep(s, -s, d);
-								float inner_mask = smoothstep(s + feather, -(s + feather), d + pc.outline_width);
+								float inner_mask = smoothstep(s + feather, -(s + feather), d + pc.fragment.outline_width);
 								mask = outer_mask - inner_mask;
 							} else {
 								mask = smoothstep(s + feather, -(s + feather), d);
@@ -398,46 +360,34 @@ do
 							out_color.a *= mask;
 						}
 						
-						if (pc.texture_index >= 0) {
-							vec4 tex = texture(textures[nonuniformEXT(pc.texture_index)], uv * pc.uv_scale + pc.uv_offset);
+						if (pc.fragment.texture_index >= 0) {
+							vec4 tex = texture(TEXTURE(pc.fragment.texture_index), uv * pc.fragment.uv_scale + pc.fragment.uv_offset);
 							
-							if (pc.unpremultiply_input != 0 && tex.a > 0.0) {
+							if (pc.fragment.unpremultiply_input != 0 && tex.a > 0.0) {
 								tex.rgb /= tex.a;
 							}
 
-							if (pc.swizzle_mode == 1) tex = vec4(tex.rrr, 1.0);
-							else if (pc.swizzle_mode == 2) tex = vec4(tex.ggg, 1.0);
-							else if (pc.swizzle_mode == 3) tex = vec4(tex.bbb, 1.0);
-							else if (pc.swizzle_mode == 4) tex = vec4(tex.aaa, 1.0);
-							else if (pc.swizzle_mode == 5) tex = vec4(tex.rgb, 1.0);
+							if (pc.fragment.swizzle_mode == 1) tex = vec4(tex.rrr, 1.0);
+							else if (pc.fragment.swizzle_mode == 2) tex = vec4(tex.ggg, 1.0);
+							else if (pc.fragment.swizzle_mode == 3) tex = vec4(tex.bbb, 1.0);
+							else if (pc.fragment.swizzle_mode == 4) tex = vec4(tex.aaa, 1.0);
+							else if (pc.fragment.swizzle_mode == 5) tex = vec4(tex.rgb, 1.0);
 							out_color *= tex;
 						}
 
-						if (pc.edge_feather > 0.0 && (pc.rect_size.x <= 0.0 || pc.rect_size.y <= 0.0)) {
-							vec2 uv_dist = smoothstep(vec2(0.0), vec2(pc.edge_feather), in_uv) * 
-							               smoothstep(vec2(1.0), vec2(1.0 - pc.edge_feather), in_uv);
+						if (pc.fragment.edge_feather > 0.0 && (fragment_patch.rect_size.x <= 0.0 || fragment_patch.rect_size.y <= 0.0)) {
+							vec2 uv_dist = smoothstep(vec2(0.0), vec2(pc.fragment.edge_feather), in_uv) * 
+							               smoothstep(vec2(1.0), vec2(1.0 - pc.fragment.edge_feather), in_uv);
 							out_color.a *= uv_dist.x * uv_dist.y;
 						}
 
-						out_color.a = out_color.a * pc.alpha_multiplier;
+						out_color.a = out_color.a * pc.fragment.alpha_multiplier;
 						
-						if (pc.premultiply_output != 0) {
+						if (pc.fragment.premultiply_output != 0) {
 							out_color.rgb *= out_color.a;
 						}
 					}
-				]],
-				descriptor_sets = {
-					{
-						type = "combined_image_sampler",
-						binding_index = 0,
-						count = 1024,
-					},
-				},
-				push_constants = {
-					size = ffi.sizeof(FragmentConstants),
-					offset = ffi.sizeof(VertexConstants),
-				},
-			},
+			]],
 		},
 		rasterizer = {
 			depth_clamp = false,
@@ -527,17 +477,17 @@ do
 				tl = tl[1]
 			end
 
-			fragment_constants.border_radius[0] = tl or 0
-			fragment_constants.border_radius[1] = tr or tl or 0
-			fragment_constants.border_radius[2] = br or tl or 0
-			fragment_constants.border_radius[3] = bl or tl or 0
+			fragment_constants_patch.border_radius[0] = tl or 0
+			fragment_constants_patch.border_radius[1] = tr or tl or 0
+			fragment_constants_patch.border_radius[2] = br or tl or 0
+			fragment_constants_patch.border_radius[3] = bl or tl or 0
 		end
 
 		function render2d.GetBorderRadius()
-			return fragment_constants.border_radius[0],
-			fragment_constants.border_radius[1],
-			fragment_constants.border_radius[2],
-			fragment_constants.border_radius[3]
+			return fragment_constants_patch.border_radius[0],
+			fragment_constants_patch.border_radius[1],
+			fragment_constants_patch.border_radius[2],
+			fragment_constants_patch.border_radius[3]
 		end
 
 		utility.MakePushPopFunction(render2d, "BorderRadius")
@@ -557,8 +507,8 @@ do
 
 	do
 		function render2d.ClearNinePatch()
-			fragment_constants.nine_patch_x_count = 0
-			fragment_constants.nine_patch_y_count = 0
+			fragment_constants_patch.nine_patch_x_count = 0
+			fragment_constants_patch.nine_patch_y_count = 0
 		end
 
 		function render2d.SetNinePatchTable(tbl)
@@ -591,19 +541,19 @@ do
 			end
 
 			index = index or 0
-			fragment_constants.nine_patch_x[index * 2] = x1
-			fragment_constants.nine_patch_x[index * 2 + 1] = y1
-			fragment_constants.nine_patch_x_count = math.max(fragment_constants.nine_patch_x_count, index + 1)
-			fragment_constants.nine_patch_y[index * 2] = x2
-			fragment_constants.nine_patch_y[index * 2 + 1] = y2
-			fragment_constants.nine_patch_y_count = math.max(fragment_constants.nine_patch_y_count, index + 1)
+			fragment_constants_patch.nine_patch_x[index * 2] = x1
+			fragment_constants_patch.nine_patch_x[index * 2 + 1] = y1
+			fragment_constants_patch.nine_patch_x_count = math.max(fragment_constants_patch.nine_patch_x_count, index + 1)
+			fragment_constants_patch.nine_patch_y[index * 2] = x2
+			fragment_constants_patch.nine_patch_y[index * 2 + 1] = y2
+			fragment_constants_patch.nine_patch_y_count = math.max(fragment_constants_patch.nine_patch_y_count, index + 1)
 		end
 
 		function render2d.GetNinePatch()
-			return fragment_constants.nine_patch_x[0],
-			fragment_constants.nine_patch_x[1],
-			fragment_constants.nine_patch_y[0],
-			fragment_constants.nine_patch_y[1]
+			return fragment_constants_patch.nine_patch_x[0],
+			fragment_constants_patch.nine_patch_x[1],
+			fragment_constants_patch.nine_patch_y[0],
+			fragment_constants_patch.nine_patch_y[1]
 		end
 	end
 
@@ -927,6 +877,7 @@ do
 		local data = table.copy(render2d.pipeline_data)
 		data.samples = samples
 		data.color_format = color_format
+		data.dont_create_framebuffers = true
 		local blend_mode = render2d.blend_modes[blend_mode_name]
 
 		if blend_mode then
@@ -953,7 +904,7 @@ do
 			end
 		end
 
-		render2d.pipeline = render.CreateGraphicsPipeline(data)
+		render2d.pipeline = EasyPipeline.New(data)
 		render2d.pipeline_cache[cache_key] = render2d.pipeline
 	end
 
@@ -1025,12 +976,18 @@ do
 		end
 
 		do
-			fragment_constants.rect_size[0] = w or 0
-			fragment_constants.rect_size[1] = h or 0
 			fragment_constants.texture_index = render2d.current_texture and
 				render2d.pipeline:GetTextureIndex(render2d.current_texture) or
 				-1
 			render2d.pipeline:PushConstants(cmd, "fragment", ffi.sizeof(vertex_constants), fragment_constants)
+		end
+
+		do
+			fragment_constants_patch.rect_size[0] = w or 0
+			fragment_constants_patch.rect_size[1] = h or 0
+			local ubo = render2d.pipeline.uniform_buffers.fragment_patch
+			ffi.copy(ubo:GetData(), fragment_constants_patch, ffi.sizeof(fragment_constants_patch))
+			ubo:Upload()
 		end
 	end
 end
