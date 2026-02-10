@@ -74,26 +74,26 @@ function META:IsHoveredExclusively(mouse_pos)
 end
 
 function META:OnFirstCreated()
-	local mouse_input = mouse_input
-	local get_hovered_entity = get_hovered_entity
-
 	function mouse_input.MouseInput(button, press)
 		local world = Panel.World
 
 		if not Panel.World then return end
 
 		local pos = window.GetMousePosition()
-		local global_handled = false
 
-		for _, cmp in ipairs(META.Instances) do
-			if cmp.Owner:CallLocalEvent("OnGlobalMouseInput", button, press, pos) then
-				global_handled = true
+		do
+			local global_handled = false
 
-				if press then break end
+			for _, cmp in ipairs(META.Instances) do
+				if cmp.Owner:CallLocalEvent("OnGlobalMouseInput", button, press, pos) then
+					global_handled = true
+
+					if press then break end
+				end
 			end
-		end
 
-		if global_handled and press then return true end
+			if global_handled and press then return true end
+		end
 
 		if press then
 			local hovered = get_hovered_entity(Panel.World, pos)
@@ -136,26 +136,24 @@ function META:OnFirstCreated()
 				prototype.SetFocusedObject(NULL)
 			end
 		else
-			local pressed = mouse_input.pressed_entities[button]
+			local pressed = mouse_input.pressed_entities[button] or NULL
 
-			if pressed then
-				if pressed:IsValid() then
-					local mouse_comp = pressed.mouse_input
+			if pressed:IsValid() then
+				local mouse_comp = pressed.mouse_input
 
-					if mouse_comp then
-						mouse_comp.button_states = mouse_comp.button_states or {}
-						mouse_comp.button_states[button] = {press = press, pos = pos}
-						local current = pressed
+				if mouse_comp then
+					mouse_comp.button_states = mouse_comp.button_states or {}
+					mouse_comp.button_states[button] = {press = press, pos = pos}
+					local current = pressed
 
-						while current:IsValid() do
-							local local_pos = current.transform:GlobalToLocal(pos)
+					while current:IsValid() do
+						local local_pos = current.transform:GlobalToLocal(pos)
 
-							if current:CallLocalEvent("OnMouseInput", button, press, local_pos) then
-								break
-							end
-
-							current = current:GetParent()
+						if current:CallLocalEvent("OnMouseInput", button, press, local_pos) then
+							break
 						end
+
+						current = current:GetParent()
 					end
 				end
 
