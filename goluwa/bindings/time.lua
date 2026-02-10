@@ -17,7 +17,7 @@ if ffi.os == "Windows" then
 		return tonumber(time[0]) / freq
 	end
 elseif ffi.os == "OSX" then
-	ffi.cdef([[
+	pcall(ffi.cdef, [[
 		struct mach_timebase_info {
 			uint32_t	numer;
 			uint32_t	denom;

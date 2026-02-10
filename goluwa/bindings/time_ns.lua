@@ -17,7 +17,7 @@ if ffi.os == "Windows" then
 		return ffi.cast("uint64_t", elapsed * 1000000000ULL / freq)
 	end
 elseif ffi.os == "OSX" then
-	ffi.cdef([[
+	pcall(ffi.cdef, [[
 		struct mach_timebase_info {
 			uint32_t	numer;
 			uint32_t	denom;
