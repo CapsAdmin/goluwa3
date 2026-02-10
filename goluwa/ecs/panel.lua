@@ -29,7 +29,7 @@ do
 	local Vec2 = require("structs.vec2")
 	Panel.World:SetName("WorldPanel")
 	Panel.World.transform:SetSize(Vec2(window.GetSize()))
-	Panel.World:AddEvent("WindowFramebufferResized")
+	Panel.World:AddGlobalEvent("WindowFramebufferResized")
 
 	function Panel.World:OnWindowFramebufferResized(window, size)
 		self.transform:SetSize(size)

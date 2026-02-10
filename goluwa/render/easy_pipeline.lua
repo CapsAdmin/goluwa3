@@ -959,7 +959,7 @@ function EasyPipeline.New(config)
 	-- Create framebuffer(s) if this pipeline has color or depth outputs
 	if #self.actual_color_formats > 0 or config.depth_format then
 		self:RecreateFramebuffers()
-		self:AddEvent("WindowFramebufferResized")
+		self:AddGlobalEvent("WindowFramebufferResized")
 	end
 
 	return self

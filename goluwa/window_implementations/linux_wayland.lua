@@ -229,8 +229,8 @@ return function(META)
 
 		-- Add event handlers
 		if not system.disable_window then
-			self:AddEvent("Update")
-			self:AddEvent("FrameEnd")
+			self:AddGlobalEvent("Update")
+			self:AddGlobalEvent("FrameEnd")
 		end
 
 		return true

@@ -37,7 +37,7 @@ end
 function META:Initialize()
 	self.Primitives = {}
 	self:SetAABB(AABB(math.huge, math.huge, math.huge, -math.huge, -math.huge, -math.huge))
-	self:AddEvent("Draw3DGeometry")
+	self:AddGlobalEvent("Draw3DGeometry")
 end
 
 function META:SetModelPath(path)

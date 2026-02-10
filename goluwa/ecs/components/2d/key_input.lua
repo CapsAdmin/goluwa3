@@ -3,11 +3,11 @@ local event = require("event")
 local META = prototype.CreateTemplate("key_input")
 
 function META:KeyInput(key, press)
-	return self.Owner:CallLocalListeners("OnKeyInput", key, press)
+	return self.Owner:CallLocalEvent("OnKeyInput", key, press)
 end
 
 function META:CharInput(char)
-	return self.Owner:CallLocalListeners("OnCharInput", char)
+	return self.Owner:CallLocalEvent("OnCharInput", char)
 end
 
 function META:OnFirstCreated()

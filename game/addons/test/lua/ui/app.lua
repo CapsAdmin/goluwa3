@@ -245,7 +245,7 @@ local function toggle()
 		top_bar,
 		demo_window,
 	})
-	menu:AddEvent("WindowFramebufferResized")
+	menu:AddGlobalEvent("WindowFramebufferResized")
 
 	function menu:OnWindowFramebufferResized(window, size)
 		self.transform:SetSize(size)

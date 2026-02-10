@@ -78,7 +78,7 @@ function META:DrawRecursive()
 
 	render2d.PushMatrix()
 	render2d.SetWorldMatrix(transform:GetWorldMatrix())
-	self.Owner:CallLocalListeners("OnDraw")
+	self.Owner:CallLocalEvent("OnDraw")
 	self:OnDraw()
 
 	for _, child in ipairs(self.Owner:GetChildren()) do
@@ -100,7 +100,7 @@ function META:DrawRecursive()
 		render2d.PopStencilMask()
 	end
 
-	self.Owner:CallLocalListeners("OnPostDraw")
+	self.Owner:CallLocalEvent("OnPostDraw")
 	self:OnPostDraw()
 	render2d.PopMatrix()
 end

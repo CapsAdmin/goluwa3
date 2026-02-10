@@ -17,7 +17,6 @@ function META:Initialize()
 	self.resize_prev_pos = nil
 	self.resize_prev_size = nil
 	self.resize_button = nil
-
 	self.remove_global_input = self.Owner:AddLocalListener(
 		"OnGlobalMouseInput",
 		function(_, button, press, pos)
@@ -102,7 +101,7 @@ function META:StartResizing(local_pos, button)
 	self.resize_prev_pos = transform:GetPosition():Copy()
 	self.resize_prev_size = transform:GetSize():Copy()
 	self.resize_button = button
-	self:AddEvent("Update", {priority = 100})
+	self:AddGlobalEvent("Update", {priority = 100})
 	return true
 end
 

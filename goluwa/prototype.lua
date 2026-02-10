@@ -1073,7 +1073,7 @@ do -- base object
 		end
 	end
 
-	function META:CallLocalListeners(what, ...)
+	function META:CallLocalEvent(what, ...)
 		if self.local_events and self.local_events[what] then
 			local result = nil
 
@@ -1103,7 +1103,7 @@ do -- base object
 	do -- events
 		local events = {}
 
-		function META:AddEvent(event_type, config)
+		function META:AddGlobalEvent(event_type, config)
 			self.added_events = self.added_events or {}
 
 			if self.added_events[event_type] then return end
@@ -1429,11 +1429,11 @@ function prototype.ParentingTemplate(META)
 		end
 
 		self:InvalidateChildrenList()
-		obj:CallLocalListeners("OnParent", self)
+		obj:CallLocalEvent("OnParent", self)
 
 		if not obj.suppress_child_add then
 			obj.suppress_child_add = true
-			self:CallLocalListeners("OnChildAdd", obj)
+			self:CallLocalEvent("OnChildAdd", obj)
 			obj.suppress_child_add = nil
 		end
 
@@ -1510,8 +1510,8 @@ function prototype.ParentingTemplate(META)
 				self:InvalidateChildrenList()
 				obj.Parent = NULL
 				obj:InvalidateParentList()
-				obj:CallLocalListeners("OnUnParent", self)
-				self:CallLocalListeners("OnChildRemove", obj)
+				obj:CallLocalEvent("OnUnParent", self)
+				self:CallLocalEvent("OnChildRemove", obj)
 
 				break
 			end

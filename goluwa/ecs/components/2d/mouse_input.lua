@@ -91,7 +91,7 @@ function META:OnFirstCreated()
 
 		for _, cmp in ipairs(META.Instances) do
 			local res1 = cmp.OnGlobalMouseInput and cmp:OnGlobalMouseInput(button, press, pos)
-			local res2 = cmp.Owner:CallLocalListeners("OnGlobalMouseInput", button, press, pos)
+			local res2 = cmp.Owner:CallLocalEvent("OnGlobalMouseInput", button, press, pos)
 
 			if res1 or res2 then
 				global_handled = true
@@ -218,7 +218,7 @@ function META:OnFirstCreated()
 					mouse_input.last_hovered:OnMouseLeave()
 				end
 
-				mouse_input.last_hovered:CallLocalListeners("OnMouseLeave")
+				mouse_input.last_hovered:CallLocalEvent("OnMouseLeave")
 			end
 
 			if hovered:IsValid() then
@@ -228,7 +228,7 @@ function META:OnFirstCreated()
 
 				if hovered.OnMouseEnter then hovered:OnMouseEnter() end
 
-				hovered:CallLocalListeners("OnMouseEnter")
+				hovered:CallLocalEvent("OnMouseEnter")
 			end
 
 			mouse_input.last_hovered = hovered
@@ -239,7 +239,7 @@ function META:OnFirstCreated()
 
 		for _, cmp in ipairs(META.Instances) do
 			local res1 = cmp.OnGlobalMouseMove and cmp:OnGlobalMouseMove(pos)
-			local res2 = cmp.Owner:CallLocalListeners("OnGlobalMouseMove", pos)
+			local res2 = cmp.Owner:CallLocalEvent("OnGlobalMouseMove", pos)
 
 			if res1 or res2 then
 				cursor = cmp:GetCursor()

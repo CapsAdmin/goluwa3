@@ -19,7 +19,7 @@ Light:GetSet("CastShadows", false)
 Light:GetSet("ShadowMap", nil)
 
 function Light:Initialize()
-	self:AddEvent("PreFrame")
+	self:AddGlobalEvent("PreFrame")
 end
 
 function Light:SetLightType(light_type)

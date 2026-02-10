@@ -50,9 +50,9 @@ function META:InvalidateWorldMatrices()
 		end
 	end
 
-	self:CallLocalListeners("OnTransformChanged")
+	self:CallLocalEvent("OnTransformChanged")
 
-	if self.Owner then self.Owner:CallLocalListeners("OnTransformChanged") end
+	if self.Owner then self.Owner:CallLocalEvent("OnTransformChanged") end
 end
 
 function META:GetWidth()

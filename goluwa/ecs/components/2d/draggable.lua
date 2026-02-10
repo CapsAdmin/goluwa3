@@ -15,14 +15,15 @@ function META:Initialize()
 
 	if not self.Target then self.Target = nil end
 
-	self.remove_global_input = self.Owner:AddLocalListener(
+	self.Owner:AddLocalListener(
 		"OnGlobalMouseInput",
 		function(_, button, press, pos)
 			return self:OnGlobalMouseInput(button, press, pos)
 		end,
 		self
 	)
-	self.remove_global_move = self.Owner:AddLocalListener(
+
+	self.Owner:AddLocalListener(
 		"OnGlobalMouseMove",
 		function(_, pos)
 			return self:OnGlobalMouseMove(pos)
@@ -59,7 +60,7 @@ function META:StartDragging(button)
 	self.drag_mouse_start = mouse_pos:Copy()
 	self.drag_object_start = transform:GetPosition():Copy()
 	self.drag_button = button
-	self:AddEvent("Update", {priority = 100})
+	self:AddGlobalEvent("Update", {priority = 100})
 
 	if self.Owner.OnDragStarted then self.Owner:OnDragStarted(button) end
 
@@ -128,10 +129,6 @@ end
 
 function META:OnRemove()
 	if self:IsDragging() then self:StopDragging() end
-
-	if self.remove_global_input then self.remove_global_input() end
-
-	if self.remove_global_move then self.remove_global_move() end
 end
 
 return META:Register()
