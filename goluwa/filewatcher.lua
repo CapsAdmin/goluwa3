@@ -125,6 +125,10 @@ end
 
 function hotreload.Start()
 	hotreload.Stop()
+	if not fs.watch then 
+		logn("fs.watch is not available, hotreload cannot work")
+		return 
+	end
 	local last_reloaded = {}
 	hotreload.stop_watch = fs.watch(
 		".",
