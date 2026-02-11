@@ -14,6 +14,7 @@ local loaded_fonts = {}
 function fonts.LoadFont(path, size, padding)
 	size = size or 16
 	padding = padding or 0
+
 	local key = tostring(path) .. "_" .. tostring(size) .. "_" .. tostring(padding)
 
 	if loaded_fonts[key] then return loaded_fonts[key] end
@@ -21,6 +22,11 @@ function fonts.LoadFont(path, size, padding)
 	local ext = tostring(path):match("%.([^%.]+)$")
 
 	if ext == "ttf" or ext == "otf" then
+		if not fs.exists(path) then
+			logn("Font file not found: " .. path .. ", falling back to default font")
+			path = fonts.GetSystemDefaultFont()
+		end
+
 		local font = ttf_font.New(path)
 		font:SetSize(size)
 		-- Wrap in rasterized_font for texture atlas support
@@ -330,7 +336,7 @@ function fonts.GetSystemDefaultFont()
 	if WINDOWS then
 		return os.getenv("WINDIR") .. "/Fonts/arial.ttf"
 	elseif OSX then
-		return "/Library/Fonts/Arial.ttf"
+		return "/Library/Fonts/Arial Unicode.ttf"
 	elseif LINUX then
 		-- Try fc-match first (most reliable on Linux)
 		local handle = io.popen("fc-match -f '%{file}'")
