@@ -11,6 +11,8 @@ META:GetSet("MinimumSize", Vec2(10, 10))
 META:EndStorable()
 
 function META:Initialize()
+	self.Owner:EnsureComponent("mouse_input")
+	self.Owner:EnsureComponent("transform")
 	self.resize_start_pos = nil
 	self.resize_location = nil
 	self.resize_prev_mouse_pos = nil

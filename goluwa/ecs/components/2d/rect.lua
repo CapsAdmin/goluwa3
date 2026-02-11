@@ -13,6 +13,9 @@ META:GetSet("DrawAlpha", 1)
 META:EndStorable()
 
 function META:Initialize()
+	self.Owner:EnsureComponent("gui_element")
+	self.Owner:EnsureComponent("transform")
+
 	self.Owner:AddLocalListener("OnDraw", function()
 		self:OnDraw()
 	end)

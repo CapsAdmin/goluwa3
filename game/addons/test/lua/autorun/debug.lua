@@ -214,6 +214,4 @@ function events.KeyInput.render3d_debug(key, press)
 
 	-- Toggle debug modes
 	if key == "h" then print("Debug mode: " .. render3d.CycleDebugMode()) end
-
-	if key == "c" and input.IsKeyDown("left_control") then system.ShutDown(0) end
 end

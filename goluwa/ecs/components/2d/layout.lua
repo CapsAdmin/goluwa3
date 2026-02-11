@@ -3,7 +3,6 @@ local Vec2 = require("structs.vec2")
 local Rect = require("structs.rect")
 local event = require("event")
 local render2d = require("render2d.render2d")
-local gui_element = require("ecs.components.2d.gui_element")
 local layout_lib = library()
 local META = prototype.CreateTemplate("layout")
 META.layout_count = 0
@@ -26,6 +25,39 @@ META:GetSet("Floating", false, {callback = "InvalidateLayout"})
 META:GetSet("Dirty", false)
 META:GetSet("LastSize", Vec2(0, 0))
 META:EndStorable()
+
+function META:Initialize()
+	self.Owner:EnsureComponent("gui_element")
+	self.Owner:EnsureComponent("transform")
+
+	self.Owner:AddLocalListener("OnParent", function()
+		self:InvalidateLayout()
+	end)
+
+	self.Owner:AddLocalListener("OnChildAdd", function()
+		self:InvalidateLayout()
+	end)
+
+	self.Owner:AddLocalListener("OnChildRemove", function()
+		self:InvalidateLayout()
+	end)
+
+	self.Owner:AddLocalListener("OnTransformChanged", function()
+		if self.busy then return end
+
+		local tr = self.Owner.transform
+		local new_size = tr:GetSize()
+		local old_size = self:GetLastSize()
+
+		if old_size.x ~= new_size.x or old_size.y ~= new_size.y then
+			self:SetLastSize(new_size:Copy())
+			self:InvalidateLayout()
+		end
+	end)
+
+	self:SetLastSize(self.Owner.transform:GetSize():Copy())
+	self:InvalidateLayout()
+end
 
 function META:InvalidateLayout()
 	if self:GetDirty() then return end
@@ -315,36 +347,6 @@ function META:UpdateLayout()
 	-- Arrange Pass
 	self:Arrange()
 	self.Owner:CallLocalEvent("OnLayoutUpdated")
-end
-
-function META:Initialize()
-	self.Owner:AddLocalListener("OnParent", function()
-		self:InvalidateLayout()
-	end)
-
-	self.Owner:AddLocalListener("OnChildAdd", function()
-		self:InvalidateLayout()
-	end)
-
-	self.Owner:AddLocalListener("OnChildRemove", function()
-		self:InvalidateLayout()
-	end)
-
-	self.Owner:AddLocalListener("OnTransformChanged", function()
-		if self.busy then return end
-
-		local tr = self.Owner.transform
-		local new_size = tr:GetSize()
-		local old_size = self:GetLastSize()
-
-		if old_size.x ~= new_size.x or old_size.y ~= new_size.y then
-			self:SetLastSize(new_size:Copy())
-			self:InvalidateLayout()
-		end
-	end)
-
-	self:SetLastSize(self.Owner.transform:GetSize():Copy())
-	self:InvalidateLayout()
 end
 
 -- not sure if this is needed

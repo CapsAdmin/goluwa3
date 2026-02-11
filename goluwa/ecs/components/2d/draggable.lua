@@ -9,6 +9,7 @@ META:GetSet("Draggable", true)
 META:EndStorable()
 
 function META:Initialize()
+	self.Owner:EnsureComponent("mouse_input")
 	self.drag_mouse_start = nil
 	self.drag_object_start = nil
 	self.drag_button = nil

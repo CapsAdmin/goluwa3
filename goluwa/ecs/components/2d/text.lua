@@ -42,6 +42,8 @@ function META:OnEditableChanged()
 end
 
 function META:Initialize()
+	self.Owner:EnsureComponent("gui_element")
+	self.Owner:EnsureComponent("transform")
 	self:OnEditableChanged()
 	self:OnTextChanged()
 

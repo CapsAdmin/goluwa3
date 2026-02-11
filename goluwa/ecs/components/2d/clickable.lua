@@ -2,6 +2,7 @@ local prototype = require("prototype")
 local META = prototype.CreateTemplate("clickable")
 
 function META:Initialize()
+	self.Owner:EnsureComponent("mouse_input")
 	self:AddLocalListener("OnMouseInput", self.OnMouseInput)
 	self:AddLocalListener("OnKeyInput", self.OnMouseInput)
 end

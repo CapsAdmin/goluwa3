@@ -15,7 +15,9 @@ META:GetSet("ShadowOffset", Vec2(0, 0))
 META:GetSet("BorderRadius", 0)
 META:EndStorable()
 
-function META:Initialize() end
+function META:Initialize()
+	self.Owner:EnsureComponent("transform")
+end
 
 function META:SetVisible(visible)
 	self.Visible = visible

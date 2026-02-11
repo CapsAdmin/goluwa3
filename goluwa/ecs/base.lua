@@ -182,6 +182,12 @@ return function(name, base_path, get_valid_components)
 		return self
 	end
 
+	function BaseEntity:EnsureComponent(name, tbl)
+		if self[name] then return self[name] end
+
+		return self:AddComponent(name, tbl)
+	end
+
 	function BaseEntity:__call(...)
 		self:SetChildren({...})
 		return self
