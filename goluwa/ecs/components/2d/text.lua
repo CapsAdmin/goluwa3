@@ -176,6 +176,7 @@ function META:Measure(available_width, available_height)
 end
 
 function META:OnTextChanged()
+	if not self.Owner.transform then return end -- not ready yet
 	local font = self:GetFont() or fonts.GetDefaultFont()
 	local text = self:GetText()
 

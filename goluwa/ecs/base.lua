@@ -41,108 +41,127 @@ return function(name, base_path, get_valid_components)
 		local components = {}
 		local local_events = {}
 		local ref
+		local parent = BaseEntity.World
 
-		if config and config.Ref then
-			ref = config.Ref
-			config.Ref = nil
+		local function find_special_props(config)
+			if type(config) ~= "table" then return end
+
+			if config.Ref then
+				ref = config.Ref
+				config.Ref = nil
+			end
+
+			if config.Parent then
+				parent = config.Parent
+				config.Parent = nil
+			end
+
+			for i = 1, #config do
+				find_special_props(config[i])
+			end
 		end
 
-		if not config or not config.Parent then
-			self:SetParent(BaseEntity.World)
-		elseif config and config.Parent then
-			self:SetParent(config.Parent)
-		end
+		find_special_props(config)
+		self:SetParent(parent)
 
 		if config then
-			if config.ComponentSet then
-				for _, lib in ipairs(config.ComponentSet) do
-					table.insert(components, ent:AddComponent(lib, nil, true))
-				end
-			end
-
-			if config.Events then
-				for event_name, handler in pairs(config.Events) do
-					self:AddLocalListener(event_name, handler)
-				end
-			end
-
-			valid_components = valid_components or get_valid_components()
-
-			for key, val in pairs(config) do
-				if
-					type(key) == "table" and
-					key.Component or
-					(
-						type(key) == "string" and
-						valid_components[key]
-					)
-				then
-					if not ent:HasComponent(key) then
-						table.insert(components, ent:AddComponent(key, val, true))
-					else
-						local instance = ent.component_map[key]
-						apply_config(instance, val)
+			local function apply_root_config(config)
+				if config.ComponentSet then
+					for _, lib in ipairs(config.ComponentSet) do
+						table.insert(components, ent:AddComponent(lib, nil, true))
 					end
 				end
-			end
 
-			for key, val in pairs(config) do
-				if
-					not (
+				if config.Events then
+					for event_name, handler in pairs(config.Events) do
+						self:AddLocalListener(event_name, handler)
+					end
+				end
+
+				valid_components = valid_components or get_valid_components()
+
+				for key, val in pairs(config) do
+					if
 						type(key) == "table" and
 						key.Component or
 						(
 							type(key) == "string" and
 							valid_components[key]
 						)
-					) and
-					type(key) == "string" and
-					key ~= "ComponentSet"
-				then
-					if key:starts_with("On") then
-						ent[key] = val
-					else
-						local setter_name = "Set" .. key
-
-						if ent[setter_name] then
-							ent[setter_name](ent, val)
+					then
+						if not ent:HasComponent(key) then
+							table.insert(components, ent:AddComponent(key, val, true))
 						else
-							local found = false
+							local instance = ent.component_map[key]
+							apply_config(instance, val)
+						end
+					end
+				end
 
-							for _, component in ipairs(ent.component_list) do
-								if component[setter_name] then
-									component[setter_name](component, val)
-									found = true
+				for key, val in pairs(config) do
+					if
+						not (
+							type(key) == "table" and
+							key.Component or
+							(
+								type(key) == "string" and
+								valid_components[key]
+							)
+						) and
+						type(key) == "string" and
+						key ~= "ComponentSet"
+					then
+						if key:starts_with("On") then
+							ent[key] = val
+						else
+							local setter_name = "Set" .. key
 
-									break
-								end
-							end
+							if ent[setter_name] then
+								ent[setter_name](ent, val)
+							else
+								local found = false
 
-							if not found then
-								for comp_name, comp_meta in pairs(valid_components) do
-									if comp_meta[setter_name] then
-										local component = ent:AddComponent(comp_name, nil, true)
-										table.insert(components, component)
+								for _, component in ipairs(ent.component_list) do
+									if component[setter_name] then
 										component[setter_name](component, val)
 										found = true
 
 										break
 									end
 								end
-							end
 
-							if not found then
-								if not ent[setter_name] then
-									--error("Missing setter for property: " .. key)
-									ent[key] = val
-								else
-									ent[setter_name](ent, val)
+								if not found then
+									for comp_name, comp_meta in pairs(valid_components) do
+										if comp_meta[setter_name] then
+											local component = ent:AddComponent(comp_name, nil, true)
+											table.insert(components, component)
+											component[setter_name](component, val)
+											found = true
+
+											break
+										end
+									end
+								end
+
+								if not found then
+									if not ent[setter_name] then
+										--error("Missing setter for property: " .. key)
+										ent[key] = val
+									else
+										ent[setter_name](ent, val)
+									end
 								end
 							end
 						end
 					end
 				end
+
+				for i = 1, #config do
+					apply_root_config(config[i])
+				end
 			end
+
+			apply_root_config(config)
 		end
 
 		if self:GetKey() ~= "" and self.Parent:IsValid() then

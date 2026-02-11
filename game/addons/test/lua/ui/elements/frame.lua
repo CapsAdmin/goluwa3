@@ -10,11 +10,14 @@ local gfx = require("render2d.gfx")
 local Panel = require("ecs.panel")
 local theme = require("ui.theme")
 return function(props)
-	return Panel.NewPanel(
-		table.merge_many(
+	return Panel.New(
+		{
+			props,
 			{
 				Name = "frame",
-				Color = theme.GetColor("invisible"),
+				rect = {
+					Color = theme.GetColor("invisible"),
+				},
 				gui_element = {
 					OnDraw = function(self)
 						theme.DrawFrame(self.Owner, props.Emphasis or 1)
@@ -23,11 +26,15 @@ return function(props)
 						theme.DrawFramePost(self.Owner, props.Emphasis or 1)
 					end,
 				},
+				layout = {
+					Padding = Rect() + theme.GetPadding(props.Padding),
+					props.layout,
+				},
+				transform = true,
+				mouse_input = true,
+				clickable = true,
+				animation = true,
 			},
-			props,
-			{
-				Padding = Rect() + theme.GetPadding(props.Padding),
-			}
-		)
+		}
 	)
 end

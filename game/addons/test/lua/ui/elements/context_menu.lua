@@ -58,48 +58,58 @@ return function(props)
 		)
 	end
 
-	return Panel.NewPanel(
+	return Panel.New(
 		{
-			PreChildAdd = function(self, child)
-				if child.IsInternal then return end
+			{
+				PreChildAdd = function(self, child)
+					if child.IsInternal then return end
 
-				if menu_ent:IsValid() then menu_ent:AddChild(child) end
+					if menu_ent:IsValid() then menu_ent:AddChild(child) end
 
-				return false
-			end,
-			PreRemoveChildren = function(self)
-				if menu_ent:IsValid() then menu_ent:RemoveChildren() end
-
-				return false
-			end,
-			Name = "ContextMenuContainer",
-			Size = Vec2(render2d.GetSize()),
-			Color = theme.GetColor("invisible"),
-			mouse_input = {
-				BringToFrontOnClick = true,
-				OnMouseInput = function(self, button, press)
-					if press and button == "button_1" then
-						is_closing = true
-						UpdateAnimations(self.Owner)
-						self:SetIgnoreMouseInput(true)
-						return true
-					end
+					return false
 				end,
-			},
-			OnVisibilityChanged = function(self, visible)
-				if visible then is_closing = false else is_closing = true end
+				PreRemoveChildren = function(self)
+					if menu_ent:IsValid() then menu_ent:RemoveChildren() end
 
-				UpdateAnimations(self)
-			end,
-			Events = {
-				OnKeyInput = function(self, key, press)
-					if press and key == "escape" then
-						is_closing = true
-						UpdateAnimations(self.Owner)
-						self.mouse_input:SetIgnoreMouseInput(true)
-						return true
-					end
+					return false
 				end,
+				Name = "ContextMenuContainer",
+				transform = {
+					Size = Vec2(render2d.GetSize()),
+				},
+				rect = {
+					Color = theme.GetColor("invisible"),
+				},
+				mouse_input = {
+					BringToFrontOnClick = true,
+					OnMouseInput = function(self, button, press)
+						if press and button == "button_1" then
+							is_closing = true
+							UpdateAnimations(self.Owner)
+							self:SetIgnoreMouseInput(true)
+							return true
+						end
+					end,
+				},
+				OnVisibilityChanged = function(self, visible)
+					if visible then is_closing = false else is_closing = true end
+
+					UpdateAnimations(self)
+				end,
+				Events = {
+					OnKeyInput = function(self, key, press)
+						if press and key == "escape" then
+							is_closing = true
+							UpdateAnimations(self.Owner)
+							self.mouse_input:SetIgnoreMouseInput(true)
+							return true
+						end
+					end,
+				},
+				gui_element = true,
+				animation = true,
+				clickable = true,
+				layout = true,
 			},
 		}
 	)(
@@ -108,9 +118,11 @@ return function(props)
 				{
 					IsInternal = true,
 					Name = "ContextMenu",
-					Pivot = Vec2(0, 0),
-					Position = props.Position or Vec2(100, 100),
-					Size = props.Size or (Vec2() + theme.GetSize("M")),
+					transform = {
+						Pivot = Vec2(0, 0),
+						Position = props.Position or Vec2(100, 100),
+						Size = props.Size or (Vec2() + theme.GetSize("M")),
+					},
 					Emphasis = 0,
 					Padding = "XS",
 					layout = {

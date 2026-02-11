@@ -9,12 +9,16 @@ local TextButton = require("ui.elements.text_button")
 local theme = require("ui.theme")
 return function(props)
 	local content
-	return Panel.NewPanel(
+	return Panel.New(
 		{
 			Name = props.Name or "Window",
-			Size = props.Size or Vec2(400, 300),
-			Color = theme.GetColor("invisible"),
-			Position = props.Position or Vec2(100, 100),
+			transform = {
+				Size = props.Size or Vec2(400, 300),
+				Position = props.Position or Vec2(100, 100),
+			},
+			rect = {
+				Color = theme.GetColor("invisible"),
+			},
 			layout = {
 				Direction = "y",
 				AlignmentX = "stretch",
@@ -37,11 +41,15 @@ return function(props)
 				content:RemoveChildren()
 				return false
 			end,
+			gui_element = true,
+			mouse_input = true,
+			clickable = true,
+			animation = true,
 		}
 	)(
 		{
 			-- header
-			Panel.NewPanel(
+			Panel.New(
 				{
 					IsInternal = true,
 					Name = "WindowHeader",
@@ -49,16 +57,23 @@ return function(props)
 						Direction = "x",
 						AlignmentY = "center",
 						FitHeight = true,
+						Padding = Rect() + theme.GetPadding("XXXS"),
 					},
-					Color = theme.GetColor("primary"),
+					rect = {
+						Color = theme.GetColor("primary"),
+					},
 					gui_element = {
 						OnDraw = function(self)
 							theme.DrawHeader(self.Owner)
 						end,
 					},
-					draggable = {},
-					Cursor = "sizeall",
-					Padding = Rect() + theme.GetPadding("XXXS"),
+					draggable = true,
+					mouse_input = {
+						Cursor = "sizeall",
+					},
+					transform = true,
+					clickable = true,
+					animation = true,
 					Events = {
 						OnParent = function(self, parent)
 							self.draggable:SetTarget(parent)
@@ -101,7 +116,7 @@ return function(props)
 				}
 			),
 			-- content
-			Panel.NewPanel(
+			Panel.New(
 				{
 					Ref = function(self)
 						content = self
@@ -112,9 +127,11 @@ return function(props)
 						Direction = "y",
 						GrowWidth = 1,
 						GrowHeight = 1,
+						Padding = Rect() + theme.GetPadding("M"),
 					},
-					Color = theme.GetColor("background"),
-					Padding = Rect() + theme.GetPadding("M"),
+					rect = {
+						Color = theme.GetColor("background"),
+					},
 					gui_element = {
 						OnDraw = function(self)
 							theme.DrawFrame(self.Owner)
@@ -123,6 +140,10 @@ return function(props)
 							theme.DrawFramePost(self.Owner)
 						end,
 					},
+					transform = true,
+					mouse_input = true,
+					clickable = true,
+					animation = true,
 				}
 			),
 		}

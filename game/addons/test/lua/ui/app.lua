@@ -233,19 +233,29 @@ local function toggle()
 			),
 		}
 	)
-	menu = Panel.NewPanel(
+	menu = Panel.New(
 		{
 			Name = "GameMenuPanel",
-			Color = Color(0, 0, 0, 0.5),
-			Size = world_panel.transform:GetSize(),
+			transform = {
+				Size = world_panel.transform:GetSize(),
+			},
+			rect = {
+				Color = Color(0, 0, 0, 0.5),
+			},
 			layout = {
 				Direction = "y",
 			},
+			gui_element = true,
+			mouse_input = true,
+			clickable = true,
+			animation = true,
 		}
-	)({
-		top_bar,
-		demo_window,
-	})
+	)(
+		{
+			top_bar,
+			demo_window,
+		}
+	)
 	menu:AddGlobalEvent("WindowFramebufferResized")
 
 	function menu:OnWindowFramebufferResized(window, size)

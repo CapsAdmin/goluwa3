@@ -8,11 +8,15 @@ local Texture = require("render.texture")
 local theme = require("ui.theme")
 return function(props)
 	props = props or {}
-	return Panel.NewPanel(
+	return Panel.New(
 		{
 			Name = "MenuSpacer",
-			Size = props.Vertical and Vec2(theme.line_height, 0) or Vec2(0, theme.line_height), -- 0 is assumed to get stretched out somehow
-			Color = theme.GetColor("invisible"),
+			transform = {
+				Size = props.Vertical and Vec2(theme.line_height, 0) or Vec2(0, theme.line_height),
+			},
+			rect = {
+				Color = theme.GetColor("invisible"),
+			},
 			layout = {
 				GrowWidth = 1,
 			},
@@ -21,6 +25,9 @@ return function(props)
 					theme.DrawMenuSpacer(self, props)
 				end,
 			},
+			mouse_input = true,
+			clickable = true,
+			animation = true,
 		}
 	)
 end

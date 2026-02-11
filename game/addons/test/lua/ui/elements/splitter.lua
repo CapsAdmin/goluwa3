@@ -18,11 +18,14 @@ return function(props)
 		is_dragging = false,
 		is_hovered = false,
 	}
-	local splitter = Panel.NewPanel(
-		table.merge_many(
+	local splitter = Panel.New(
+		{
+			props,
 			{
 				Name = is_vertical and "VerticalSplitter" or "HorizontalSplitter",
-				Color = theme.GetColor("invisible"),
+				rect = {
+					Color = theme.GetColor("invisible"),
+				},
 				layout = {
 					Direction = is_vertical and "y" or "x",
 					GrowWidth = 1,
@@ -30,6 +33,7 @@ return function(props)
 					ChildGap = 0,
 					AlignmentX = is_vertical and "stretch" or nil,
 					AlignmentY = is_vertical and nil or "stretch",
+					props.layout,
 				},
 				PreChildAdd = function(self, child)
 					if child.IsInternal then return true end
@@ -86,35 +90,38 @@ return function(props)
 
 					return false
 				end,
+				transform = true,
+				gui_element = true,
+				mouse_input = true,
+				clickable = true,
+				animation = true,
 			},
-			props
-		)
+		}
 	)
-	divider = Panel.NewPanel(
+	divider = Panel.New(
 		{
 			IsInternal = true,
 			Name = "Divider",
-			Size = is_vertical and Vec2(0, divider_width) or Vec2(divider_width, 0),
+			transform = {
+				Size = is_vertical and Vec2(0, divider_width) or Vec2(divider_width, 0),
+			},
 			layout = {
 				GrowHeight = is_vertical and 0 or 1,
 				GrowWidth = is_vertical and 1 or 0,
 			},
-			Color = Color(0, 0, 0, 0.2),
-			Cursor = is_vertical and "vertical_resize" or "horizontal_resize",
-			OnHover = function(self, hovered)
-				state.is_hovered = hovered
-
-				if not state.is_dragging and self.rect then
-					self.rect:SetColor(Color(0, 0, 0, hovered and 0.5 or 0.2))
-				end
-			end,
-			gui_element = {
-				OnDraw = function(self)
-					theme.DrawDivider(self.Owner)
-				end,
+			rect = {
+				Color = Color(0, 0, 0, 0.2),
+				OnDraw = function() end,
 			},
-			OnDraw = function() end,
 			mouse_input = {
+				Cursor = is_vertical and "vertical_resize" or "horizontal_resize",
+				OnHover = function(self, hovered)
+					state.is_hovered = hovered
+
+					if not state.is_dragging and self.Owner.rect then
+						self.Owner.rect:SetColor(Color(0, 0, 0, hovered and 0.5 or 0.2))
+					end
+				end,
 				OnMouseInput = function(self, button, press, local_pos)
 					if button == "button_1" then
 						state.is_dragging = press
@@ -177,6 +184,13 @@ return function(props)
 					end
 				end,
 			},
+			gui_element = {
+				OnDraw = function(self)
+					theme.DrawDivider(self.Owner)
+				end,
+			},
+			animation = true,
+			clickable = true,
 		}
 	)
 	return splitter

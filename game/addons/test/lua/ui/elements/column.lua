@@ -3,20 +3,28 @@ local Color = require("structs.color")
 local Panel = require("ecs.panel")
 local theme = require("ui.theme")
 return function(props)
-	return Panel.NewPanel(
-		table.merge_many(
+	return Panel.New(
+		{
+			props,
 			{
 				Name = "Column",
-				Color = theme.GetColor("invisible"),
+				rect = {
+					Color = theme.GetColor("invisible"),
+				},
 				layout = {
 					Direction = "y",
 					GrowWidth = 1,
 					FitHeight = true,
 					AlignmentX = "center",
 					ChildGap = theme.GetSize("S"),
+					props.layout,
 				},
+				transform = true,
+				gui_element = true,
+				mouse_input = true,
+				clickable = true,
+				animation = true,
 			},
-			props
-		)
+		}
 	)
 end

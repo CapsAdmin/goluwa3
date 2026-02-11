@@ -28,14 +28,20 @@ return function(props)
 		if props.OnChange then props.OnChange(state.value) end
 	end
 
-	return Panel.NewPanel(
+	return Panel.New(
 		{
 			Name = "slider",
-			Size = props.Size or Vec2(200, 20),
-			Layout = props.Layout,
-			Cursor = "hand",
-			Color = theme.GetColor("invisible"),
+			transform = {
+				Size = props.Size or Vec2(200, 20),
+			},
+			layout = {
+				props.layout or props.Layout,
+			},
+			rect = {
+				Color = theme.GetColor("invisible"),
+			},
 			mouse_input = {
+				Cursor = "hand",
 				OnMouseInput = function(self, button, press, local_pos)
 					if button == "button_1" then
 						if press then
@@ -52,11 +58,11 @@ return function(props)
 						return true
 					end
 				end,
+				OnHover = function(self, hovered)
+					state.is_hovered = hovered
+					theme.UpdateSliderAnimations(self.Owner, state)
+				end,
 			},
-			OnHover = function(self, hovered)
-				state.is_hovered = hovered
-				theme.UpdateSliderAnimations(self, state)
-			end,
 			gui_element = {
 				OnDraw = function(self)
 					if state.is_dragging then
@@ -68,6 +74,8 @@ return function(props)
 					theme.DrawSlider(self, state)
 				end,
 			},
+			animation = true,
+			clickable = true,
 		}
 	)
 end

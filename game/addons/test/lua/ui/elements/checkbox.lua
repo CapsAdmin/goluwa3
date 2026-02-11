@@ -13,34 +13,45 @@ return function(props)
 		last_hovered = false,
 		last_value = props.Value or false,
 	}
-	return Panel.NewPanel(
+	return Panel.New(
 		{
-			Name = "checkbox_graphic",
-			Size = props.Size or (Vec2() + theme.GetSize("M")),
-			layout = props.layout,
-			Cursor = "hand",
-			Color = theme.GetColor("invisible"),
-			mouse_input = {
-				OnMouseInput = function(self, button, press, local_pos)
-					if button == "button_1" and press then
-						state.value = not state.value
+			props,
+			{
+				Name = "checkbox_graphic",
+				transform = {
+					Size = props.Size or (Vec2() + theme.GetSize("M")),
+				},
+				layout = {
+					props.layout,
+				},
+				rect = {
+					Color = theme.GetColor("invisible"),
+				},
+				mouse_input = {
+					Cursor = "hand",
+					OnMouseInput = function(self, button, press, local_pos)
+						if button == "button_1" and press then
+							state.value = not state.value
 
-						if props.OnChange then props.OnChange(state.value) end
+							if props.OnChange then props.OnChange(state.value) end
 
+							theme.UpdateCheckboxAnimations(self.Owner, state)
+							return true
+						end
+					end,
+					OnHover = function(self, hovered)
+						state.is_hovered = hovered
 						theme.UpdateCheckboxAnimations(self.Owner, state)
-						return true
-					end
-				end,
-			},
-			OnHover = function(self, hovered)
-				state.is_hovered = hovered
-				theme.UpdateCheckboxAnimations(self, state)
-			end,
-			gui_element = {
-				OnDraw = function(self)
-					theme.UpdateCheckboxAnimations(self.Owner, state)
-					theme.DrawCheckbox(self.Owner, state)
-				end,
+					end,
+				},
+				gui_element = {
+					OnDraw = function(self)
+						theme.UpdateCheckboxAnimations(self.Owner, state)
+						theme.DrawCheckbox(self.Owner, state)
+					end,
+				},
+				animation = true,
+				clickable = true,
 			},
 		}
 	)

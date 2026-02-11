@@ -7,44 +7,54 @@ local gfx = require("render2d.gfx")
 return function(props)
 	local scrollbar_visible = props.ScrollBarVisible ~= false
 	local scrollbar_auto_hide = props.ScrollBarAutoHide ~= false
-	local container = Panel.NewPanel(
-		table.merge_many(
+	local container = Panel.New(
+		{
 			{
 				Name = "scrollable_panel",
-				Color = theme.GetColor("invisible"),
+				rect = {
+					Color = theme.GetColor("invisible"),
+				},
 				layout = {
 					AlignmentX = "stretch",
 					AlignmentY = "stretch",
 					Direction = "y",
+					props.layout,
 				},
+				transform = true,
+				gui_element = true,
+				mouse_input = true,
+				clickable = true,
+				animation = true,
 			},
-			props
-		)
+			props,
+		}
 	)
-	local viewport = Panel.NewPanel(
+	local viewport = Panel.New(
 		{
 			IsInternal = true,
 			Name = "viewport",
 			Parent = container,
-			Color = theme.GetColor("invisible"),
+			rect = {
+				Color = theme.GetColor("invisible"),
+			},
 			gui_element = {
 				Clipping = true,
 			},
 			transform = {
 				ScrollEnabled = true,
 			},
-			layout = table.merge_many(
-				{
-					GrowWidth = 1,
-					GrowHeight = 1,
-					Direction = "y",
-					AlignmentX = "stretch",
-					MinSize = Vec2(1, 1),
-					MaxSize = Vec2(0, 0),
-				},
-				props.Layout or {},
-				props.layout or {}
-			),
+			layout = {
+				GrowWidth = 1,
+				GrowHeight = 1,
+				Direction = "y",
+				AlignmentX = "stretch",
+				MinSize = Vec2(1, 1),
+				MaxSize = Vec2(0, 0),
+				props.Layout or props.layout,
+			},
+			mouse_input = true,
+			clickable = true,
+			animation = true,
 		}
 	)
 
@@ -60,13 +70,17 @@ return function(props)
 		return false
 	end
 
-	local handle = Panel.NewPanel(
+	local handle = Panel.New(
 		{
 			IsInternal = true,
 			Name = "scrollbar_handle",
 			Parent = container,
-			Color = Color(1, 1, 1, 0.4),
-			Size = Vec2(6, 40),
+			rect = {
+				Color = Color(1, 1, 1, 0.4),
+			},
+			transform = {
+				Size = Vec2(6, 40),
+			},
 			gui_element = {
 				BorderRadius = 3,
 			},
@@ -74,6 +88,9 @@ return function(props)
 				Floating = true,
 			},
 			draggable = true,
+			mouse_input = true,
+			clickable = true,
+			animation = true,
 		}
 	)
 
