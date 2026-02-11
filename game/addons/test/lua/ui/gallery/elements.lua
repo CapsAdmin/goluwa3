@@ -24,14 +24,18 @@ return {
 		canvas:AddChild(
 			Slider(
 				{
-					Size = Vec2(400, 50),
-					Value = 0.5,
+					Value = 50,
 					Min = 0,
 					Max = 100,
 					OnChange = function(value)
 						print("Slider value:", value)
 					end,
-					Layout = {GrowWidth = 1},
+					layout = {
+						Direction = "x",
+						AlignmentY = "center",
+						FitHeight = true,
+						GrowWidth = 1,
+					},
 				}
 			)
 		)

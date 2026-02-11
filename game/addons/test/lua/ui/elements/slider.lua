@@ -8,9 +8,7 @@ local Panel = require("ecs.panel")
 local theme = require("ui.theme")
 return function(props)
 	local state = {
-		value = props.Value or 0.5,
-		min = props.Min or 0,
-		max = props.Max or 1,
+		mode = props.Mode or "horizontal",
 		is_dragging = false,
 		is_hovered = false,
 		glow_alpha = 0,
@@ -18,24 +16,75 @@ return function(props)
 		last_hovered = false,
 	}
 
-	local function SetValueFromPosition(ent, x)
+	if state.mode == "2d" then
+		state.value = props.Value or Vec2(0.5, 0.5)
+		state.min = props.Min or Vec2(0, 0)
+		state.max = props.Max or Vec2(1, 1)
+	else
+		state.value = props.Value or 0.5
+		state.min = props.Min or 0
+		state.max = props.Max or 1
+	end
+
+	local function SetValueFromPosition(ent, local_pos)
 		local size = ent.transform:GetSize()
-		local knob_width = 20
-		local usable_width = size.x - knob_width
-		local normalized = math.max(0, math.min(1, (x - knob_width / 2) / usable_width))
-		state.value = state.min + normalized * (state.max - state.min)
+		local knob_size = theme.GetSize("S")
+
+		if state.mode == "2d" then
+			local usable_width = size.x - knob_size
+			local usable_height = size.y - knob_size
+
+			if usable_width <= 0 or usable_height <= 0 then return end
+
+			local nx = math.max(0, math.min(1, (local_pos.x - knob_size / 2) / usable_width))
+			local ny = math.max(0, math.min(1, (local_pos.y - knob_size / 2) / usable_height))
+			state.value = Vec2(
+				state.min.x + nx * (state.max.x - state.min.x),
+				state.min.y + ny * (state.max.y - state.min.y)
+			)
+		elseif state.mode == "vertical" then
+			local usable_height = size.y - knob_size
+
+			if usable_height <= 0 then return end
+
+			local normalized = math.max(0, math.min(1, (local_pos.y - knob_size / 2) / usable_height))
+			state.value = state.min + normalized * (state.max - state.min)
+		else
+			local usable_width = size.x - knob_size
+
+			if usable_width <= 0 then return end
+
+			local normalized = math.max(0, math.min(1, (local_pos.x - knob_size / 2) / usable_width))
+			state.value = state.min + normalized * (state.max - state.min)
+		end
 
 		if props.OnChange then props.OnChange(state.value) end
 	end
 
 	return Panel.New(
 		{
+			props,
 			Name = "slider",
 			transform = {
-				Size = props.Size or Vec2(200, 20),
+				Size = state.mode == "vertical" and
+					Vec2(theme.GetSize("S"), 100) or
+					(
+						state.mode == "2d" and
+						Vec2(100, 100) or
+						Vec2(100, theme.GetSize("S"))
+					),
 			},
 			layout = {
-				props.layout or props.Layout,
+				{
+					MinSize = state.mode == "vertical" and
+						Vec2(theme.GetSize("S"), 100) or
+						(
+							state.mode == "2d" and
+							Vec2(100, 100) or
+							Vec2(100, theme.GetSize("S"))
+						),
+				},
+				props.layout,
 			},
 			rect = {
 				Color = theme.GetColor("invisible"),
@@ -46,7 +95,7 @@ return function(props)
 					if button == "button_1" then
 						if press then
 							state.is_dragging = true
-							SetValueFromPosition(self.Owner, local_pos.x)
+							SetValueFromPosition(self.Owner, local_pos)
 						end
 
 						return true
@@ -68,7 +117,7 @@ return function(props)
 					if state.is_dragging then
 						local mpos = window.GetMousePosition()
 						local lpos = self.Owner.transform:GlobalToLocal(mpos)
-						SetValueFromPosition(self.Owner, lpos.x)
+						SetValueFromPosition(self.Owner, lpos)
 					end
 
 					theme.DrawSlider(self, state)

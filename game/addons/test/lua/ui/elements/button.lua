@@ -9,6 +9,7 @@ return function(props)
 		{
 			Active = props.Active,
 			Disabled = props.Disabled,
+			Mode = props.Mode or "filled",
 			layout = {
 				FitWidth = true,
 				FitHeight = true,

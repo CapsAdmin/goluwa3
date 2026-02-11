@@ -1088,8 +1088,6 @@ do -- base object
 	function META:CallLocalEvent(what, ...)
 		local ret = nil
 
-		if what == "OnClick" then print(self[what]) end
-
 		if self[what] then
 			ret = self[what](self, ...)
 

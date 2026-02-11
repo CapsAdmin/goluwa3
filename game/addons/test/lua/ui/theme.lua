@@ -431,42 +431,88 @@ function theme.DrawSlider(self, state)
 	if state.is_hovered then theme.UpdateSliderAnimations(owner, state) end
 
 	local size = owner.transform.Size
-	local track_height = theme.GetSize("XXS")
-	local track_y = (size.y - track_height) / 2
 	local knob_width = theme.GetSize("S")
 	local knob_height = theme.GetSize("S")
-	local value = state.value or 0
-	local min_value = state.min or 0
-	local max_value = state.max or 1
-	-- Draw track background
-	render2d.SetTexture(nil)
-	local c = SliderTrackBackground
-	render2d.SetColor(c.r, c.g, c.b, c.a)
-	render2d.DrawRect(knob_width / 2, track_y, size.x - knob_width, track_height)
-	-- Draw filled track
-	local normalized = (value - min_value) / (max_value - min_value)
-	local fill_width = normalized * (size.x - knob_width)
-	render2d.PushUV()
-	render2d.SetUV2(0, 0, 0.5, 1)
-	render2d.SetTexture(Textures.Gradient)
-	local c = GradientBlue
-	render2d.SetColor(c.r, c.g, c.b, 0.9)
-	render2d.DrawRect(knob_width / 2, track_y, fill_width, track_height)
-	render2d.PopUV()
+	local value = state.value
+	local min_value = state.min
+	local max_value = state.max
+	local knob_x, knob_y
 
-	-- Glow effect on filled track
-	if state.glow_alpha > 0 then
-		render2d.SetBlendMode("additive")
-		render2d.SetTexture(Textures.GlowLinear)
-		local c = SliderGlow
-		render2d.SetColor(c.r, c.g * state.glow_alpha, c.b * state.glow_alpha, c.a)
-		render2d.DrawRect(knob_width / 2, track_y - 2, fill_width, track_height + 4)
-		render2d.SetBlendMode("alpha")
+	if state.mode == "2d" then
+		local normalized_x = (value.x - min_value.x) / (max_value.x - min_value.x)
+		local normalized_y = (value.y - min_value.y) / (max_value.y - min_value.y)
+		-- Draw track background
+		render2d.SetTexture(nil)
+		local c = SliderTrackBackground
+		render2d.SetColor(c.r, c.g, c.b, c.a)
+		render2d.DrawRect(0, 0, size.x, size.y)
+		knob_x = normalized_x * (size.x - knob_width)
+		knob_y = normalized_y * (size.y - knob_height)
+	elseif state.mode == "vertical" then
+		local normalized = (value - min_value) / (max_value - min_value)
+		local track_width = theme.GetSize("XXS")
+		local track_x = (size.x - track_width) / 2
+		-- Draw track background
+		render2d.SetTexture(nil)
+		local c = SliderTrackBackground
+		render2d.SetColor(c.r, c.g, c.b, c.a)
+		render2d.DrawRect(track_x, knob_height / 2, track_width, size.y - knob_height)
+		-- Draw filled track
+		local fill_height = normalized * (size.y - knob_height)
+		render2d.PushUV()
+		render2d.SetUV2(0, 0, 0.5, 1)
+		render2d.SetTexture(Textures.Gradient)
+		local c = GradientBlue
+		render2d.SetColor(c.r, c.g, c.b, 0.9)
+		render2d.DrawRect(track_x, knob_height / 2, track_width, fill_height)
+		render2d.PopUV()
+
+		-- Glow effect on filled track
+		if state.glow_alpha > 0 then
+			render2d.SetBlendMode("additive")
+			render2d.SetTexture(Textures.GlowLinear)
+			local c = SliderGlow
+			render2d.SetColor(c.r, c.g * state.glow_alpha, c.b * state.glow_alpha, c.a)
+			render2d.DrawRect(track_x - 2, knob_height / 2, track_width + 4, fill_height)
+			render2d.SetBlendMode("alpha")
+		end
+
+		knob_x = (size.x - knob_width) / 2
+		knob_y = normalized * (size.y - knob_height)
+	else
+		local normalized = (value - min_value) / (max_value - min_value)
+		local track_height = theme.GetSize("XXS")
+		local track_y = (size.y - track_height) / 2
+		-- Draw track background
+		render2d.SetTexture(nil)
+		local c = SliderTrackBackground
+		render2d.SetColor(c.r, c.g, c.b, c.a)
+		render2d.DrawRect(knob_width / 2, track_y, size.x - knob_width, track_height)
+		-- Draw filled track
+		local fill_width = normalized * (size.x - knob_width)
+		render2d.PushUV()
+		render2d.SetUV2(0, 0, 0.5, 1)
+		render2d.SetTexture(Textures.Gradient)
+		local c = GradientBlue
+		render2d.SetColor(c.r, c.g, c.b, 0.9)
+		render2d.DrawRect(knob_width / 2, track_y, fill_width, track_height)
+		render2d.PopUV()
+
+		-- Glow effect on filled track
+		if state.glow_alpha > 0 then
+			render2d.SetBlendMode("additive")
+			render2d.SetTexture(Textures.GlowLinear)
+			local c = SliderGlow
+			render2d.SetColor(c.r, c.g * state.glow_alpha, c.b * state.glow_alpha, c.a)
+			render2d.DrawRect(knob_width / 2, track_y - 2, fill_width, track_height + 4)
+			render2d.SetBlendMode("alpha")
+		end
+
+		knob_x = normalized * (size.x - knob_width)
+		knob_y = (size.y - knob_height) / 2
 	end
 
 	-- Draw knob
-	local knob_x = knob_width / 2 + normalized * (size.x - knob_width) - knob_width / 2
-	local knob_y = (size.y - knob_height) / 2
 	-- Knob shadow/glow
 	render2d.SetTexture(Textures.GlowPoint)
 	render2d.SetBlendMode("additive")
