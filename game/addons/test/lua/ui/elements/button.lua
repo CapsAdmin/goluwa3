@@ -28,11 +28,10 @@ return function(props)
 				DrawScaleOffset = Vec2(1, 1),
 				DrawAngleOffset = Ang3(0, 0, 0),
 			},
-			layout = (function()
-				local l = props.layout or {}
-				l.Padding = Rect() + theme.GetPadding("XXS")
-				return l
-			end)(),
+			layout = {
+				Padding = Rect() + theme.GetPadding("XXS"),
+				props.layout,
+			},
 			gui_element = {
 				Shadows = false,
 				BorderRadius = 10,

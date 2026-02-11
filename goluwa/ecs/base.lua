@@ -4,6 +4,30 @@ return function(name, base_path, get_valid_components)
 	prototype.ParentingTemplate(BaseEntity)
 	local valid_components
 
+	local function apply_config(instance, config)
+		if type(config) ~= "table" then return end
+
+		for key, value in pairs(config) do
+			if type(key) == "string" then
+				if key:starts_with("On") then
+					instance[key] = value
+				else
+					local setter = "Set" .. key
+
+					if instance[setter] then
+						instance[setter](instance, value)
+					else
+						instance[key] = value
+					end
+				end
+			end
+		end
+
+		for i = 1, #config do
+			apply_config(instance, config[i])
+		end
+	end
+
 	function BaseEntity.New(config)
 		local self = BaseEntity:CreateObject(
 			{
@@ -57,16 +81,7 @@ return function(name, base_path, get_valid_components)
 						table.insert(components, ent:AddComponent(key, val, true))
 					else
 						local instance = ent.component_map[key]
-
-						if type(val) == "table" then
-							for k, v in pairs(val) do
-								if instance["Set" .. k] then
-									instance["Set" .. k](instance, v)
-								else
-									instance[k] = v
-								end
-							end
-						end
+						apply_config(instance, val)
 					end
 				end
 			end
@@ -188,21 +203,7 @@ return function(name, base_path, get_valid_components)
 		valid_components = valid_components or get_valid_components()
 		local meta = valid_components[name] --require(base_path .. name)
 		self[name] = self:CreateSubObject(meta)
-
-		if type(tbl) == "table" then
-			for key, value in pairs(tbl) do
-				if key:starts_with("On") then
-					self[name][key] = value
-				else
-					if not self[name]["Set" .. key] then
-						--error("Missing setter for component property: " .. key .. " on component " .. name)
-						self[name][key] = value
-					else
-						self[name]["Set" .. key](self[name], value)
-					end
-				end
-			end
-		end
+		apply_config(self[name], tbl)
 
 		if not skip_init then
 			if self[name].Initialize then self[name]:Initialize() end
