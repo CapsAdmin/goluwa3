@@ -1,9 +1,9 @@
 local Vec2 = require("structs.vec2")
-local Button = require("ui.elements.button")
+local Clickable = require("ui.elements.clickable")
 local Text = require("ui.elements.text")
 local theme = require("ui.theme")
 return function(props)
-	return Button(props)(
+	return Clickable(props)(
 		{
 			Text(
 				{

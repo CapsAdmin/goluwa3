@@ -9,7 +9,7 @@ local system = require("system")
 local vfs = require("vfs")
 local theme = require("ui.theme")
 local Text = require("ui.elements.text")
-local MenuButton = require("ui.elements.menu_button")
+local Button = require("ui.elements.button")
 local MenuItem = require("ui.elements.context_menu_item")
 local MenuSpacer = require("ui.elements.menu_spacer")
 local ContextMenu = require("ui.elements.context_menu")
@@ -55,7 +55,7 @@ local function toggle()
 		{
 			Row({})(
 				{
-					MenuButton(
+					Button(
 						{
 							Text = "GAME",
 							OnClick = function(ent)
@@ -96,16 +96,16 @@ local function toggle()
 							end,
 						}
 					),
-					MenuButton({
+					Button({
 						Text = "CONFIG",
 					}),
-					MenuButton({
+					Button({
 						Text = "CHEAT",
 					}),
-					MenuButton({
+					Button({
 						Text = "NETPLAY",
 					}),
-					MenuButton({
+					Button({
 						Text = "MISC",
 					}),
 				}
@@ -176,7 +176,7 @@ local function toggle()
 	for _, page in ipairs(pages) do
 		table.insert(
 			page_buttons,
-			MenuButton(
+			Button(
 				{
 					Text = page.Name or "Unnamed Page",
 					OnClick = function()
@@ -250,12 +250,10 @@ local function toggle()
 			clickable = true,
 			animation = true,
 		}
-	)(
-		{
-			top_bar,
-			demo_window,
-		}
-	)
+	)({
+		top_bar,
+		demo_window,
+	})
 	menu:AddGlobalEvent("WindowFramebufferResized")
 
 	function menu:OnWindowFramebufferResized(window, size)

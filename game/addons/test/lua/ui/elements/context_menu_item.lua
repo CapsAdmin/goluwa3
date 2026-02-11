@@ -1,11 +1,11 @@
 local Rect = require("structs.rect")
 local Vec2 = require("structs.vec2")
 local Color = require("structs.color")
-local Button = require("ui.elements.button")
+local Clickable = require("ui.elements.clickable")
 local Text = require("ui.elements.text")
 local theme = require("ui.theme")
 return function(props)
-	return Button(
+	return Clickable(
 		{
 			Size = props.Size or (Vec2() + theme.GetSize("M")),
 			Active = props.Active,

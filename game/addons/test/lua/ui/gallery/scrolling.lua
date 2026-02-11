@@ -2,7 +2,7 @@ local Text = require("ui.elements.text")
 local Panel = require("ecs.panel")
 local ScrollablePanel = require("ui.elements.scrollable_panel")
 local Column = require("ui.elements.column")
-local MenuButton = require("ui.elements.menu_button")
+local Button = require("ui.elements.button")
 local Vec2 = require("structs.vec2")
 local Color = require("structs.color")
 local system = require("system")
@@ -40,7 +40,7 @@ return {
 						}
 					)(
 						{
-							MenuButton({Text = "Clickable Item", Padding = "XS"}),
+							Button({Text = "Clickable Item", Padding = "XS"}),
 							Text({Text = "Scrollable Content Demo - 100 Items Below"}),
 							(
 								function()
@@ -128,7 +128,7 @@ return {
 								local t = {}
 
 								for i = 1, 20 do
-									t[i] = MenuButton({Text = "Item " .. i, Padding = "XS"})
+									t[i] = Button({Text = "Item " .. i, Padding = "XS"})
 								end
 
 								return t

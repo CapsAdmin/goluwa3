@@ -2,7 +2,7 @@ local Rect = require("structs.rect")
 local Vec2 = require("structs.vec2")
 local Color = require("structs.color")
 local Panel = require("ecs.panel")
-local Button = require("ui.elements.button")
+local Clickable = require("ui.elements.clickable")
 local Text = require("ui.elements.text")
 local event = require("event")
 local ContextMenu = require("ui.elements.context_menu")
@@ -71,7 +71,7 @@ return function(props)
 		world_panel:Ensure(context_menu)
 	end
 
-	dropdown = Button(
+	dropdown = Clickable(
 		{
 			layout = {Direction = "x", FitHeight = true, AlignmentY = "center"},
 			OnClick = open_menu,

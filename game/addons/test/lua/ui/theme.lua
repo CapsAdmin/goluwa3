@@ -56,7 +56,7 @@ do
 			card = pallete.darkest,
 			frame_border = Color(0.106, 0.463, 0.678),
 			invisible = Color(0, 0, 0, 0),
-			button_disabled = Color(0.3, 0.3, 0.3, 1),
+			clickable_disabled = Color(0.3, 0.3, 0.3, 1),
 			button_normal = Color(0.8, 0.8, 0.2, 1),
 		},
 		pallete
