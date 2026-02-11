@@ -130,7 +130,9 @@ function META:Measure()
 			if self.Owner.text:GetWrap() then
 				-- If wrapping is enabled, the intrinsic width should be the current width
 				-- to avoid shrinking feedback loops.
-				w = math.max(w, tr_size.x)
+				-- We must subtract our own padding from the transform size to compare correctly.
+				local current_inner_width = math.max(0, tr_size.x - padding.x - padding.w)
+				w = math.max(w, current_inner_width)
 			end
 
 			intrinsic.x = w + padding.x + padding.w
@@ -312,10 +314,19 @@ function META:UpdateLayout()
 	self.busy = false
 	-- Arrange Pass
 	self:Arrange()
+	self.Owner:CallLocalEvent("OnLayoutUpdated")
 end
 
 function META:Initialize()
 	self.Owner:AddLocalListener("OnParent", function()
+		self:InvalidateLayout()
+	end)
+
+	self.Owner:AddLocalListener("OnChildAdd", function()
+		self:InvalidateLayout()
+	end)
+
+	self.Owner:AddLocalListener("OnChildRemove", function()
 		self:InvalidateLayout()
 	end)
 
@@ -359,7 +370,7 @@ function META:OnFirstCreated()
 				end
 			end
 		end,
-		{priority = 101}
+		{priority = -100}
 	)
 end
 
