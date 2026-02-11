@@ -3,6 +3,7 @@ local Text = require("ui.elements.text")
 local Slider = require("ui.elements.slider")
 local Checkbox = require("ui.elements.checkbox")
 local RadioButton = require("ui.elements.radio_button")
+local Button = require("ui.elements.button")
 local Dropdown = require("ui.elements.dropdown")
 local Row = require("ui.elements.row")
 local Column = require("ui.elements.column")
@@ -33,6 +34,38 @@ return {
 					Layout = {GrowWidth = 1},
 				}
 			)
+		)
+		canvas:AddChild(
+			Button(
+				{
+					Size = Vec2(30, 30),
+					Mode = "filled",
+					layout = {
+						Direction = "x",
+						AlignmentY = "center",
+						FitHeight = true,
+						GrowWidth = 1,
+					},
+				}
+			)({
+				Text({Text = "Text Button", IgnoreMouseInput = true}),
+			})
+		)
+		canvas:AddChild(
+			Button(
+				{
+					Size = Vec2(30, 30),
+					Mode = "outline",
+					layout = {
+						Direction = "x",
+						AlignmentY = "center",
+						FitHeight = true,
+						GrowWidth = 1,
+					},
+				}
+			)({
+				Text({Text = "Outline Button", IgnoreMouseInput = true}),
+			})
 		)
 		canvas:AddChild(
 			Row({

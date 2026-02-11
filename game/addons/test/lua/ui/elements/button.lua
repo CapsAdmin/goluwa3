@@ -18,6 +18,7 @@ return function(props)
 		is_hovered = false,
 		is_disabled = props.Disabled,
 		active_prop = props.Active,
+		mode = props.Mode or "filled",
 	}
 	return Panel.New(
 		{

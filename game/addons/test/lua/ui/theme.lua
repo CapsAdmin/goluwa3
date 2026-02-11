@@ -329,15 +329,19 @@ function theme.DrawButton(self, state)
 
 	local s = state or {glow_alpha = 0, press_scale = 0}
 	local size = self.Owner.transform.Size
-	render2d.PushUV()
-	render2d.SetUV2(0, 0, 0.4, 1)
-	render2d.PushBorderRadius(size.y / 6)
-	render2d.SetTexture(Textures.Gradient)
-	local col = self.Owner.rect.Color or GradientBlue
-	render2d.SetColor(col.r * s.glow_alpha, col.g * s.glow_alpha, col.b * s.glow_alpha, 1)
-	render2d.DrawRect(0, 0, size.x, size.y)
-	render2d.PopBorderRadius()
-	render2d.PopUV()
+
+	if state.mode == "filled" then
+		render2d.PushUV()
+		render2d.SetUV2(0, 0, 0.4, 1)
+		render2d.PushBorderRadius(size.y / 6)
+		render2d.SetTexture(Textures.Gradient)
+		local col = self.Owner.rect.Color or GradientBlue
+		render2d.SetColor(col.r * s.glow_alpha, col.g * s.glow_alpha, col.b * s.glow_alpha, 1)
+		render2d.DrawRect(0, 0, size.x, size.y)
+		render2d.PopBorderRadius()
+		render2d.PopUV()
+	end
+
 	local mpos = window.GetMousePosition()
 
 	if not s.is_disabled and self.Owner.mouse_input:IsHoveredExclusively(mpos) then
@@ -367,7 +371,16 @@ function theme.DrawButtonPost(self, state)
 	render2d.SetBlendMode("additive")
 	render2d.SetColor(s.glow_alpha, s.glow_alpha, s.glow_alpha, 1)
 	render2d.SetTexture(Textures.GlowLinear)
-	theme2.DrawGlowLine(-3, -3, -3, size.y + 6, 40)
+
+	if state.mode == "filled" then
+		theme2.DrawGlowLine(-3, -3, -3, size.y + 6, 40)
+	elseif state.mode == "outline" then
+		local c = GradientCyan
+		render2d.SetColor(c.r, c.g, c.b, s.glow_alpha)
+		theme2.DrawGlowLine(0, 0, 0, size.y, 1)
+		theme2.DrawGlowLine(size.x, 0, size.x, size.y, 1)
+	end
+
 	local c = GradientCyan
 	render2d.SetColor(c.r, c.g, c.b, s.glow_alpha)
 	theme2.DrawGlowLine(0, 0, size.x, 0, 1)
