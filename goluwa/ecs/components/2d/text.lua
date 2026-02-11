@@ -240,26 +240,6 @@ end
 function META:OnDraw()
 	local font = self:GetFont() or fonts.GetDefaultFont()
 	local text = self.wrapped_text or self:GetText()
-	local x, y = 0, 0
-	local ax, ay = self:GetAlignX(), self:GetAlignY()
-	local size = self.Owner.transform.Size
-
-	if type(ax) == "number" then
-		x = size.x * ax
-	elseif ax == "center" then
-		x = size.x / 2
-	elseif ax == "right" then
-		x = size.x
-	end
-
-	if type(ay) == "number" then
-		y = size.y * ay
-	elseif ay == "center" then
-		y = size.y / 2
-	elseif ay == "bottom" then
-		y = size.y
-	end
-
 	local lx, ly = self:GetTextOffset()
 
 	if self:GetEditable() and self.editor and prototype.GetFocusedObject() == self.Owner then
@@ -291,7 +271,7 @@ function META:OnDraw()
 	end
 
 	render2d.SetColor(self:GetColor():Unpack())
-	font:DrawText(text, x, y, 0, ax, ay)
+	font:DrawText(text, lx, ly, 0)
 
 	if
 		self:GetEditable() and
@@ -344,6 +324,8 @@ function META:GetTextOffset()
 		y = top + content_size.y / 2
 	elseif ay == "bottom" then
 		y = top + content_size.y
+	elseif ay == "baseline" then
+		y = top
 	end
 
 	local tw, th = font:GetTextSize(text)
@@ -363,6 +345,8 @@ function META:GetTextOffset()
 		ly = y - th / 2
 	elseif ay == "bottom" then
 		ly = y - th
+	elseif ay == "baseline" then
+		ly = y - font:GetAscent()
 	end
 
 	return lx, ly
@@ -378,9 +362,15 @@ function META:GetIndexAtPosition(mx, my)
 	local line_idx = math.floor(ry / vertical_step) + 1
 	local wrapped_lines = text:split("\n", true)
 
-	if line_idx < 1 then line_idx = 1 end
+	if line_idx < 1 then
+		line_idx = 1
+		rx = -1e9 -- Force to start of first line
+	end
 
-	if line_idx > #wrapped_lines then line_idx = #wrapped_lines end
+	if line_idx > #wrapped_lines then
+		line_idx = #wrapped_lines
+		rx = 1e9 -- Force to end of last line
+	end
 
 	local line_text = wrapped_lines[line_idx] or ""
 	local char_idx_in_line = 1
@@ -393,12 +383,14 @@ function META:GetIndexAtPosition(mx, my)
 		if rx < cumulative_w + cw / 2 then
 			char_idx_in_line = i
 
-			break
+			goto found
 		end
 
 		cumulative_w = cumulative_w + cw
 		char_idx_in_line = i + 1
 	end
+
+	::found::
 
 	local raw_text = self:GetText()
 	local text_list = utf8.to_list(raw_text)
