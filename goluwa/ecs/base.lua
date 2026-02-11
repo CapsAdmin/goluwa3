@@ -58,7 +58,7 @@ return function(name, base_path, get_valid_components)
 					else
 						local instance = ent.component_map[key]
 
-						if val then
+						if type(val) == "table" then
 							for k, v in pairs(val) do
 								if instance["Set" .. k] then
 									instance["Set" .. k](instance, v)
