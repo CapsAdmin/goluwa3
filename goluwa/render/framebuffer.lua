@@ -33,6 +33,8 @@ function Framebuffer.New(config)
 				sampler = {
 					min_filter = config.min_filter or "linear",
 					mag_filter = config.mag_filter or "linear",
+					wrap_s = config.wrap_s or "repeat",
+					wrap_t = config.wrap_t or "repeat",
 				},
 			}
 		)
@@ -191,6 +193,14 @@ function Framebuffer:End(cmd)
 		}
 	)
 	self.initialized = true
+
+	for _, tex in ipairs(self.color_textures) do
+		tex:GetImage().layout = "shader_read_only_optimal"
+	end
+
+	if self.depth_texture then
+		self.depth_texture:GetImage().layout = "shader_read_only_optimal"
+	end
 
 	if cmd == self.cmd then
 		self.cmd:End()
