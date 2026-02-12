@@ -451,7 +451,7 @@ function META:DrawGlyph(glyph)
 		end
 
 		if #final_triangles > 0 then
-			render2d.SetTexture(gfx.white_texture)
+			render2d.SetTexture(nil)
 			local poly = Polygon2D.New(#final_triangles / 2)
 			poly:SetColor(1, 1, 1, 1)
 
@@ -653,7 +653,7 @@ function META:DrawGlyph(glyph)
 
 	if #final_triangles == 0 then return end
 
-	render2d.SetTexture(gfx.white_texture)
+	render2d.SetTexture(nil)
 	local poly = Polygon2D.New(#final_triangles / 2)
 	poly:SetColor(1, 1, 1, 1)
 
