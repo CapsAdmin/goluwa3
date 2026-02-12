@@ -61,6 +61,7 @@ return function(props)
 		{
 			IsInternal = true,
 			Name = "Header",
+			Mode = "outline",
 			rect = {
 				Color = theme.GetColor("primary"),
 			},
@@ -107,9 +108,14 @@ return function(props)
 							render2d.Translatef(center.x, center.y)
 							render2d.Rotate(math.rad(open_fraction * 90))
 							render2d.SetColor(theme.GetColor("text_foreground"):Unpack())
+							render2d.SetTexture(nil)
 							theme_shapes.DrawArrow(0, 0, size)
 							render2d.PopMatrix()
 						end,
+					},
+					mouse_input = {
+						Cursor = "pointer",
+						IgnoreMouseInput = true,
 					},
 				}
 			),
@@ -120,6 +126,9 @@ return function(props)
 					layout = {
 						GrowWidth = 1,
 						FitHeight = true,
+					},
+					mouse_input = {
+						IgnoreMouseInput = true,
 					},
 				}
 			),

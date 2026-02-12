@@ -49,16 +49,22 @@ return {
 					}
 				)(
 					{
-						Button({
-							layout = {
-								GrowWidth = 1,
-							},
-						})(Text({Text = "Button 1"})),
-						Button({
-							layout = {
-								GrowWidth = 1,
-							},
-						})(Text({Text = "Button 2"})),
+						Button(
+							{
+								Text = "Button 1",
+								layout = {
+									GrowWidth = 1,
+								},
+							}
+						),
+						Button(
+							{
+								Text = "Button 2",
+								layout = {
+									GrowWidth = 1,
+								},
+							}
+						),
 						Collapsible({
 							Title = "Sub-Collapsible",
 							Collapsed = true,
