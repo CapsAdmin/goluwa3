@@ -837,6 +837,20 @@ function test.ScreenPixel(x, y, r, g, b, a, tolerance)
 	return test.TexturePixel(render.target:GetTexture(), x, y, r, g, b, a, tolerance)
 end
 
+function test.AssertScreenPixel(tbl)
+	local render = require("render.render")
+	return test.TexturePixel(
+		render.target:GetTexture(),
+		tbl.pos[1],
+		tbl.pos[2],
+		tbl.color[1],
+		tbl.color[2],
+		tbl.color[3],
+		tbl.color[4],
+		tbl.tolerance
+	)
+end
+
 function test.ScreenAlbedoPixel(x, y, r, g, b, a, tolerance)
 	local render3d = require("render3d.render3d")
 	return test.TexturePixel(render3d.pipelines.gbuffer:GetFramebuffer():GetAttachment(1), x, y, r, g, b, a, tolerance)
