@@ -21,7 +21,7 @@ local tasks = require("tasks")
 local test = {}
 local total_test_count = 0
 local coroutine = _G.coroutine
-local TEST_TIMEOUT = 10  -- Hard timeout for each test in seconds
+local TEST_TIMEOUT = 10 -- Hard timeout for each test in seconds
 -- Variables for tracking test execution timing
 local current_test_name = ""
 local tests_by_file = {}
@@ -119,20 +119,22 @@ end
 
 local tasks = require("tasks")
 local active_test_tasks = {}
-
 -- Create a marker object for unavailable tests
 local unavailable_marker = {}
 
 function test.Test(name, cb, start, stop)
 	-- Check if we're inside another test task (nested test)
 	local current_task = tasks.GetActiveTask()
+
 	if current_task and active_test_tasks[current_task] then
 		-- We're nested - create inner task directly without recursion
 		local inner_task = test._CreateTestTask(name, cb, start, stop)
 		local ok, err = tasks.WaitForNestedTask(inner_task)
+
 		if not ok then
 			error("nested test failed: " .. name .. ": " .. tostring(err), 0)
 		end
+
 		return inner_task
 	end
 
@@ -140,7 +142,6 @@ function test.Test(name, cb, start, stop)
 end
 
 function test._CreateTestTask(name, cb, start, stop)
-
 	local unref = system.KeepAlive("test: " .. name)
 	total_test_count = total_test_count + 1
 	-- Track that this test belongs to the current file
@@ -156,19 +157,18 @@ function test._CreateTestTask(name, cb, start, stop)
 	local test_start_time = system.GetTime()
 	local test_start_gc = memory.get_usage_kb()
 	local test_timeout_time = system.GetTime() + TEST_TIMEOUT
-
 	-- Need to capture task info before closure
 	local task_failed = false
 	local task_error = nil
-	
 	local task = tasks.CreateTask(
 		function(task_self)
 			-- Check for timeout at start
 			if system.GetTime() > test_timeout_time then
 				error(string.format("Test timeout: exceeded %d second limit", TEST_TIMEOUT), 0)
 			end
-			
+
 			local result
+
 			if start and stop then
 				start()
 				result = cb()
@@ -176,13 +176,17 @@ function test._CreateTestTask(name, cb, start, stop)
 			else
 				result = cb()
 			end
-			
+
 			-- Check if test returned an unavailable marker
-			if type(result) == "table" and getmetatable(result) and getmetatable(result).__index == unavailable_marker then
+			if
+				type(result) == "table" and
+				getmetatable(result) and
+				getmetatable(result).__index == unavailable_marker
+			then
 				task_self.unavailable = true
 				task_self.unavailable_reason = result.reason or "Test unavailable"
 			end
-			
+
 			unref()
 		end,
 		function(self, res)
@@ -232,6 +236,7 @@ function test._CreateTestTask(name, cb, start, stop)
 					else
 						io_write(".")
 					end
+
 					io.flush()
 
 					-- Line break every 50 tests, or show progress counter
@@ -321,12 +326,10 @@ function test._CreateTestTask(name, cb, start, stop)
 			end
 		end
 	)
-
 	task:SetName(name)
 	task:SetIterationsPerTick(10)
-	task.is_test_task = true  -- Mark as test task to prevent auto-waiting in callbacks
-	task.test_timeout_time = test_timeout_time  -- Store timeout for checking
-	
+	task.is_test_task = true -- Mark as test task to prevent auto-waiting in callbacks
+	task.test_timeout_time = test_timeout_time -- Store timeout for checking
 	active_test_tasks[task] = true
 
 	if not event.IsListenerActive("Update", "test_runner") then
@@ -399,7 +402,6 @@ function test.Pending(name)
 		end,
 		true
 	)
-
 	task:SetName(name)
 
 	if not event.IsListenerActive("Update", "test_runner") then
