@@ -39,6 +39,7 @@ function META.New(path)
 end
 
 function META:SetPath(path)
+	self.Path = path
 	self.font = assert(codec.DecodeFile(path, "ttf"))
 	self:UpdateScale()
 	self.glyphs = {}

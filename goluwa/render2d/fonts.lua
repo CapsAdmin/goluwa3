@@ -1,5 +1,6 @@
 local fs = require("fs")
 local Vec2 = require("structs.vec2")
+local gfonts = require("gfonts")
 local Color = require("structs.color")
 local ttf_font = require("render2d.fonts.ttf")
 local base_font = require("render2d.fonts.base")
@@ -11,13 +12,13 @@ local default_font = nil
 local X, Y = 0, 0
 local loaded_fonts = {}
 
-function fonts.LoadFont(path, size, padding)
+function fonts.LoadFont(path, size, padding, unique)
 	size = size or 16
 	padding = padding or 0
 
 	local key = tostring(path) .. "_" .. tostring(size) .. "_" .. tostring(padding)
 
-	if loaded_fonts[key] then return loaded_fonts[key] end
+	if not unique and loaded_fonts[key] then return loaded_fonts[key] end
 
 	local ext = tostring(path):match("%.([^%.]+)$")
 
@@ -31,7 +32,9 @@ function fonts.LoadFont(path, size, padding)
 		font:SetSize(size)
 		-- Wrap in rasterized_font for texture atlas support
 		local res = rasterized_font.New(font, padding)
-		loaded_fonts[key] = res
+
+		if not unique then loaded_fonts[key] = res end
+
 		return res
 	elseif path == "default" then
 		return fonts.GetDefaultFont()
@@ -41,6 +44,22 @@ function fonts.LoadFont(path, size, padding)
 	if type(path) == "table" and path.IsFont then return path end
 
 	error("Unsupported font format: " .. tostring(ext or path))
+end
+
+function fonts.LoadGoogleFont(name, weight, options)
+	options = options or {}
+	options.unique = true
+	local font = fonts.CreateFont(options)
+
+	gfonts.Download({name = name, weight = weight}):Then(function(path)
+		local new_ttf = ttf_font.New(path)
+		new_ttf:SetSize(font:GetSize())
+		font:SetFonts({new_ttf})
+	end):Catch(function(err)
+		wlog("Failed to load Google Font " .. name .. ": " .. err)
+	end)
+
+	return font
 end
 
 local function add_blur_stage(stages, blur_radius, blur_dir)
@@ -190,7 +209,7 @@ function fonts.CreateFont(options)
 		padding = math.max(padding, required_padding)
 	end
 
-	local font = fonts.LoadFont(path, size, padding)
+	local font = fonts.LoadFont(path, size, padding, options.unique)
 
 	if padding > 0 then font:SetPadding(padding) end
 

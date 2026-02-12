@@ -4,6 +4,7 @@ local render2d = require("render2d.render2d")
 local Color = require("structs.color")
 local Vec2 = require("structs.vec2")
 local system = require("system")
+local event = require("event")
 local sequence_editor = require("sequence_editor")
 local utf8 = require("utf8")
 local META = prototype.CreateTemplate("text")
@@ -49,6 +50,10 @@ function META:Initialize()
 
 	self.Owner:AddLocalListener("OnDraw", function()
 		self:OnDraw()
+	end)
+
+	event.AddListener("OnFontsChanged", self, function(font)
+		if font == self:GetFont() then self:OnTextChanged() end
 	end)
 
 	self.Owner:AddLocalListener(
@@ -125,6 +130,10 @@ function META:Initialize()
 			end
 		end
 	end)
+end
+
+function META:OnRemove()
+	event.RemoveListener("OnFontsChanged", self)
 end
 
 function META:GetTextSize()

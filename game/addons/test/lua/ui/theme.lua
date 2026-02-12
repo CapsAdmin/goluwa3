@@ -167,11 +167,12 @@ do
 		XXL = 32,
 		XXXL = 42,
 	}
+	-- google fonts
 	local font_paths = {
-		heading = "/home/caps/Downloads/Exo_2/static/Exo2-Bold.ttf",
-		body_weak = "/home/caps/Downloads/Exo_2/static/Exo2-Light.ttf",
-		body = "/home/caps/Downloads/Exo_2/static/Exo2-Regular.ttf",
-		body_strong = "/home/caps/Downloads/Exo_2/static/Exo2-Regular.ttf",
+		heading = {"Orbitron", "Regular"},
+		body_weak = {"Rajdhani", "Light"},
+		body = {"Rajdhani", "Regular"},
+		body_strong = {"Rajdhani", "Bold"},
 	}
 
 	function theme.GetFont(name, size_name)
@@ -180,9 +181,10 @@ do
 		theme.Fonts = theme.Fonts or {}
 		theme.Fonts[path] = theme.Fonts[path] or {}
 		theme.Fonts[path][size] = theme.Fonts[path][size] or
-			fonts.CreateFont(
+			fonts.LoadGoogleFont(
+				path[1],
+				path[2],
 				{
-					path = path,
 					size = size,
 					shadow = {
 						dir = -2,
@@ -245,7 +247,7 @@ function theme.UpdateButtonAnimations(ent, s)
 				set = function(v)
 					ent.transform:SetDrawScaleOffset(v)
 				end,
-				to = is_active and (Vec2(0.9, 0.9)) or (Vec2(1, 1)),
+				to = is_active and (Vec2() + 0.97) or (Vec2(1, 1)),
 				interpolation = (
 						s.is_pressed and
 						not s.is_hovered
@@ -284,6 +286,40 @@ function theme.UpdateButtonAnimations(ent, s)
 	if is_tilting ~= s.last_tilting or is_tilting then
 		ent.animation:Animate(
 			{
+				id = "Pivot",
+				get = function()
+					return ent.transform:GetPivot()
+				end,
+				set = function(v)
+					ent.transform:SetPivot(v)
+				end,
+				to = not is_tilting and
+					Vec2(0.5, 0.5) or
+					{
+						__lsx_value = function(self)
+							local mpos = window.GetMousePosition()
+							local local_pos = self.transform:GlobalToLocal(mpos)
+							local size = self.transform:GetSize()
+							local pivot = local_pos / size
+							return -pivot + Vec2(1, 1)
+						end,
+					},
+				interpolation = (
+						s.is_pressed and
+						not s.is_hovered
+					)
+					and
+					"linear" or
+					{
+						type = "spring",
+						bounce = 0.6,
+						duration = 10,
+					},
+				time = is_tilting and 0.3 or 10,
+			}
+		)
+		ent.animation:Animate(
+			{
 				id = "DrawAngleOffset",
 				get = function()
 					return ent.transform:GetDrawAngleOffset()
@@ -300,7 +336,7 @@ function theme.UpdateButtonAnimations(ent, s)
 							local size = self.transform:GetSize()
 							local nx = (local_pos.x / size.x) * 2 - 1
 							local ny = (local_pos.y / size.y) * 2 - 1
-							return Ang3(-ny, nx, 0) * 0.1
+							return Ang3(-ny, nx, 0) * 0.01
 						end,
 					},
 				interpolation = (

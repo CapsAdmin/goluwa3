@@ -15,7 +15,7 @@ local EasyPipeline = require("render.easy_pipeline")
 local Fence = require("render.vulkan.internal.fence")
 local META = prototype.CreateTemplate("rasterized_font")
 META.IsFont = true
-META:GetSet("Fonts", {})
+META:GetSet("Fonts", {}, {callback = "OnFontsChanged"})
 META:GetSet("Padding", 0, {callback = "ClearCache"})
 META:GetSet("Curve", 0, {callback = "ClearCache"})
 META:GetSet("Spacing", 0, {callback = "ClearCache"})
@@ -23,6 +23,14 @@ META:GetSet("Size", 12, {callback = "ClearCache"})
 META:GetSet("Scale", Vec2(1, 1), {callback = "ClearCache"})
 META:GetSet("Filtering", "linear", {callback = "ClearCache"})
 META:GetSet("ShadingInfo", nil, {callback = "ClearCache"})
+
+function META:OnFontsChanged()
+	self:ClearCache()
+
+	if self.Ready then self:RebuildFromScratch() end
+
+	event.Call("OnFontsChanged", self)
+end
 
 function META:SetSeparateEffects(val)
 	if self.SeparateEffects == val then return end
@@ -41,6 +49,8 @@ local SUPER_SAMPLING_SCALE = 4
 function META:ClearCache()
 	self.text_size_cache = nil
 	self.wrap_string_cache = nil
+	self.ascent = nil
+	self.descent = nil
 end
 
 function META:OnRemove()
