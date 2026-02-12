@@ -1280,11 +1280,56 @@ do
 			error("Can only save as PNG format", 2)
 		end
 
+		local png = require("codecs.png")
 		local png_file = png.Encode(self.width, self.height, "rgba")
 		local pixel_table = {}
+		local w, h = self.width, self.height
+		local format = self.format
 
-		for i = 0, self.size - 1 do
-			pixel_table[i + 1] = self.pixels[i]
+		if format == "r8_unorm" then
+			for i = 0, w * h - 1 do
+				local r = self.pixels[i]
+				table.insert(pixel_table, r)
+				table.insert(pixel_table, r)
+				table.insert(pixel_table, r)
+				table.insert(pixel_table, 255)
+			end
+		elseif format == "r32_sfloat" then
+			local fpixels = ffi.cast("float*", self.pixels)
+
+			for i = 0, w * h - 1 do
+				local val = math.clamp(math.floor(fpixels[i] * 255), 0, 255)
+				table.insert(pixel_table, val)
+				table.insert(pixel_table, val)
+				table.insert(pixel_table, val)
+				table.insert(pixel_table, 255)
+			end
+		elseif format == "r32g32_sfloat" then
+			local fpixels = ffi.cast("float*", self.pixels)
+
+			for i = 0, w * h - 1 do
+				local r = math.clamp(math.floor(fpixels[i * 2 + 0] * 255), 0, 255)
+				local g = math.clamp(math.floor(fpixels[i * 2 + 1] * 255), 0, 255)
+				table.insert(pixel_table, r)
+				table.insert(pixel_table, g)
+				table.insert(pixel_table, 0)
+				table.insert(pixel_table, 255)
+			end
+		elseif format == "r32g32b32a32_sfloat" or format == "r16g16b16a16_sfloat" then
+			local fpixels = ffi.cast(format == "r32g32b32a32_sfloat" and "float*" or "uint16_t*", self.pixels)
+			local divisor = format == "r32g32b32a32_sfloat" and 1 or 65535
+
+			for i = 0, w * h - 1 do
+				for c = 0, 3 do
+					local val = math.clamp(math.floor(fpixels[i * 4 + c] / divisor * 255), 0, 255)
+					table.insert(pixel_table, val)
+				end
+			end
+		else
+			-- Fallback to assuming RGBA if unknown
+			for i = 0, self.size - 1 do
+				pixel_table[i + 1] = self.pixels[i]
+			end
 		end
 
 		png_file:write(pixel_table)
@@ -1310,6 +1355,13 @@ do
 		local height = image:GetHeight()
 		local format = self.format
 		local bytes_per_pixel = get_bytes_per_pixel(format)
+		print("DEBUG Download info:", width, height, format, bytes_per_pixel)
+
+		if not width or not height or width == 0 or height == 0 then
+			log.error("Texture:Download failed: invalid size %sx%s", tostring(width), tostring(height))
+			return ""
+		end
+
 		-- Create staging buffer
 		local device = render.GetDevice()
 		local staging_buffer = Buffer.New(

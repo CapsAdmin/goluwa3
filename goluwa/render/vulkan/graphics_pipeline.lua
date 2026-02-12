@@ -419,13 +419,19 @@ function GraphicsPipeline:Bind(cmd, frame_index)
 
 	if device.has_extended_dynamic_state and self.config.dynamic_states then
 		local has_stencil_test_enable_dynamic = false
+		local has_cull_mode_dynamic = false
 
 		for _, state in ipairs(self.config.dynamic_states) do
 			if state == "stencil_test_enable" then
 				has_stencil_test_enable_dynamic = true
-
-				break
+			elseif state == "cull_mode" then
+				has_cull_mode_dynamic = true
 			end
+		end
+
+		if has_cull_mode_dynamic then
+			local rasterizer = self.config.rasterizer or {}
+			cmd:SetCullMode(rasterizer.cull_mode or "none")
 		end
 
 		if has_stencil_test_enable_dynamic then
