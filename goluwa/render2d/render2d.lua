@@ -27,15 +27,18 @@ local FragmentConstants = ffi.typeof([[
         float uv_scale[2];              
         int swizzle_mode;
         float edge_feather;
-        int premultiply_output;
-        int unpremultiply_input;
         float border_radius[4];
         float outline_width;
         float rect_size[2];
-        float nine_patch_x[8];
-        float nine_patch_y[8];
+        float sdf_threshold;
+        float sdf_feather;
+        float sdf_shadow_offset[2];
+        float sdf_shadow_color[4];
+        float sdf_gradient_color[4];
         int nine_patch_x_count;
         int nine_patch_y_count;
+        float nine_patch_x_stretch[6];
+        float nine_patch_y_stretch[6];
 	}
 ]])
 local vertex_constants = VertexConstants()
@@ -170,8 +173,27 @@ function render2d.ResetState()
 	render2d.SetEdgeFeather(0)
 	render2d.SetBorderRadius(0, 0, 0, 0)
 	render2d.SetOutlineWidth(0)
-	render2d.SetNinePatch()
-	render2d.SetPremultiplyOutput(false)
+	fragment_constants.sdf_threshold = 0
+	fragment_constants.sdf_feather = 0
+	fragment_constants.sdf_shadow_offset[0] = 0
+	fragment_constants.sdf_shadow_offset[1] = 0
+	fragment_constants.sdf_shadow_color[0] = 0
+	fragment_constants.sdf_shadow_color[1] = 0
+	fragment_constants.sdf_shadow_color[2] = 0
+	fragment_constants.sdf_shadow_color[3] = 0
+	fragment_constants.sdf_gradient_color[0] = 0
+	fragment_constants.sdf_gradient_color[1] = 0
+	fragment_constants.sdf_gradient_color[2] = 0
+	fragment_constants.sdf_gradient_color[3] = 0
+	fragment_constants.nine_patch_x_count = 0
+	fragment_constants.nine_patch_y_count = 0
+
+	for i = 0, 5 do
+		fragment_constants.nine_patch_x_stretch[i] = 0
+		fragment_constants.nine_patch_y_stretch[i] = 0
+	end
+
+	render2d.SetSDFThreshold(0.5)
 	render2d.UpdateScreenSize(render.GetRenderImageSize())
 	render2d.SetBlendMode("alpha", true)
 	render2d.SetColorFormat(render.target and render.target:GetColorFormat() or surface_format)
@@ -269,27 +291,30 @@ do
 						vec2 uv_scale;
 						int swizzle_mode;
 						float edge_feather;
-						int premultiply_output;
-						int unpremultiply_input;
 						vec4 border_radius;
 						float outline_width;
 						vec2 rect_size;
-						float nine_patch_x[8];
-						float nine_patch_y[8];
+						float sdf_threshold;
+						float sdf_feather;
+						vec2 sdf_shadow_offset;
+						vec4 sdf_shadow_color;
+						vec4 sdf_gradient_color;
 						int nine_patch_x_count;
 						int nine_patch_y_count;
+						float nine_patch_x_stretch[6];
+						float nine_patch_y_stretch[6];
 					} pc;                   
-					
-					float map_nine_patch(float x, float tw, float sw, float regions[8], int count) 
+
+					float map_nine_patch(float x, float tw, float sw, float stretch[6], int count) 
 					{
 						if (count == 0 || tw <= 0.0 || sw <= 0.0) return x / sw;
 						
 						float fixed_total = sw;
 						float stretch_total_src = 0.0;
-						for (int i = 0; i < 8; i++) {
+						for (int i = 0; i < 3; i++) {
 							if (i >= count) break;
-							float s = regions[i*2];
-							float e = regions[i*2+1];
+							float s = stretch[i*2];
+							float e = stretch[i*2+1];
 							stretch_total_src += (e - s);
 						}
 						fixed_total -= stretch_total_src;
@@ -300,10 +325,10 @@ do
 						float curr_src = 0.0;
 						float curr_tgt = 0.0;
 						
-						for (int i = 0; i < 8; i++) {
+						for (int i = 0; i < 3; i++) {
 							if (i >= count) break;
-							float s = regions[i*2];
-							float e = regions[i*2+1];
+							float s = stretch[i*2];
+							float e = stretch[i*2+1];
 							
 							float fixed_size = s - curr_src;
 							if (x < curr_tgt + fixed_size) {
@@ -334,10 +359,10 @@ do
 							vec2 tex_size = vec2(textureSize(textures[nonuniformEXT(pc.texture_index)], 0));
 							
 							if (pc.nine_patch_x_count > 0) {
-								uv.x = map_nine_patch(in_uv.x * pc.rect_size.x, pc.rect_size.x, tex_size.x, pc.nine_patch_x, pc.nine_patch_x_count);
+								uv.x = map_nine_patch(in_uv.x * pc.rect_size.x, pc.rect_size.x, tex_size.x, pc.nine_patch_x_stretch, pc.nine_patch_x_count);
 							}
 							if (pc.nine_patch_y_count > 0) {
-								uv.y = map_nine_patch(in_uv.y * pc.rect_size.y, pc.rect_size.y, tex_size.y, pc.nine_patch_y, pc.nine_patch_y_count);
+								uv.y = map_nine_patch(in_uv.y * pc.rect_size.y, pc.rect_size.y, tex_size.y, pc.nine_patch_y_stretch, pc.nine_patch_y_count);
 							}
 						}
 
@@ -399,18 +424,45 @@ do
 						}
 						
 						if (pc.texture_index >= 0) {
-							vec4 tex = texture(textures[nonuniformEXT(pc.texture_index)], uv * pc.uv_scale + pc.uv_offset);
-							
-							if (pc.unpremultiply_input != 0 && tex.a > 0.0) {
-								tex.rgb /= tex.a;
-							}
+							if (pc.swizzle_mode == 10) {
+								vec2 sdf_uv = uv * pc.uv_scale + pc.uv_offset;
+								float dist = texture(textures[nonuniformEXT(pc.texture_index)], sdf_uv).r;
+								float smoothing = fwidth(dist) * pc.sdf_feather;
+								if (smoothing == 0.0) smoothing = 0.01;
+								float fill_alpha = smoothstep(pc.sdf_threshold - smoothing, pc.sdf_threshold + smoothing, dist);
+								
+								vec4 fill_color = in_color * pc.global_color;
+								if (pc.sdf_gradient_color.a > 0.0) {
+									fill_color.rgb = mix(fill_color.rgb, pc.sdf_gradient_color.rgb, in_uv.y);
+								}
 
-							if (pc.swizzle_mode == 1) tex = vec4(tex.rrr, 1.0);
-							else if (pc.swizzle_mode == 2) tex = vec4(tex.ggg, 1.0);
-							else if (pc.swizzle_mode == 3) tex = vec4(tex.bbb, 1.0);
-							else if (pc.swizzle_mode == 4) tex = vec4(tex.aaa, 1.0);
-							else if (pc.swizzle_mode == 5) tex = vec4(tex.rgb, 1.0);
-							out_color *= tex;
+								vec4 text_col = fill_color;
+								text_col.a *= fill_alpha;
+
+								if (pc.sdf_shadow_color.a > 0.0) {
+									vec2 tex_size = vec2(textureSize(textures[nonuniformEXT(pc.texture_index)], 0));
+									float shadow_dist = texture(textures[nonuniformEXT(pc.texture_index)], sdf_uv - pc.sdf_shadow_offset / tex_size).r;
+									float shadow_smoothing = fwidth(shadow_dist) * pc.sdf_feather;
+									if (shadow_smoothing == 0.0) shadow_smoothing = 0.01;
+									float shadow_alpha = smoothstep(pc.sdf_threshold - shadow_smoothing, pc.sdf_threshold + shadow_smoothing, shadow_dist);
+									
+									vec4 s_col = pc.sdf_shadow_color;
+									s_col.a *= shadow_alpha;
+									
+									out_color = mix(s_col, text_col, fill_alpha);
+								} else {
+									out_color = text_col;
+								}
+							} else {
+								vec4 tex = texture(textures[nonuniformEXT(pc.texture_index)], uv * pc.uv_scale + pc.uv_offset);
+								
+								if (pc.swizzle_mode == 1) tex = vec4(tex.rrr, 1.0);
+								else if (pc.swizzle_mode == 2) tex = vec4(tex.ggg, 1.0);
+								else if (pc.swizzle_mode == 3) tex = vec4(tex.bbb, 1.0);
+								else if (pc.swizzle_mode == 4) tex = vec4(tex.aaa, 1.0);
+								else if (pc.swizzle_mode == 5) tex = vec4(tex.rgb, 1.0);
+								out_color *= tex;
+							}
 						}
 
 						if (pc.edge_feather > 0.0 && (pc.rect_size.x <= 0.0 || pc.rect_size.y <= 0.0)) {
@@ -419,11 +471,7 @@ do
 							out_color.a *= uv_dist.x * uv_dist.y;
 						}
 
-						out_color.a = out_color.a * pc.alpha_multiplier;
-						
-						if (pc.premultiply_output != 0) {
-							out_color.rgb *= out_color.a;
-						}
+						out_color.a = out_color.a * pc.alpha_multiplier;						
 					}
 				]],
 				descriptor_sets = {
@@ -487,14 +535,6 @@ do
 			if a then fragment_constants.global_color[3] = a end
 		end
 
-		function render2d.SetSwizzleMode(mode)
-			if mode then fragment_constants.swizzle_mode = mode end
-		end
-
-		function render2d.GetSwizzleMode()
-			return fragment_constants.swizzle_mode
-		end
-
 		function render2d.GetColor()
 			return fragment_constants.global_color[0],
 			fragment_constants.global_color[1],
@@ -503,7 +543,110 @@ do
 		end
 
 		utility.MakePushPopFunction(render2d, "Color")
+	end
+
+	do
+		function render2d.SetSwizzleMode(mode)
+			if mode then fragment_constants.swizzle_mode = mode end
+		end
+
+		function render2d.GetSwizzleMode()
+			return fragment_constants.swizzle_mode
+		end
+
 		utility.MakePushPopFunction(render2d, "SwizzleMode")
+	end
+
+	do
+		do
+			function render2d.SetSDFMode(mode)
+				if mode ~= 0 then
+					fragment_constants.swizzle_mode = 10
+				elseif fragment_constants.swizzle_mode == 10 then
+					fragment_constants.swizzle_mode = 0
+				end
+			end
+
+			function render2d.GetSDFMode()
+				return fragment_constants.swizzle_mode == 10 and 1 or 0
+			end
+
+			utility.MakePushPopFunction(render2d, "SDFMode")
+		end
+
+		do
+			function render2d.SetSDFThreshold(threshold)
+				fragment_constants.sdf_threshold = threshold
+			end
+
+			function render2d.GetSDFThreshold()
+				return fragment_constants.sdf_threshold
+			end
+
+			utility.MakePushPopFunction(render2d, "SDFThreshold")
+		end
+
+		do
+			function render2d.SetSDFFeather(feather)
+				fragment_constants.sdf_feather = feather
+			end
+
+			function render2d.GetSDFFeather()
+				return fragment_constants.sdf_feather
+			end
+
+			utility.MakePushPopFunction(render2d, "SDFFeather")
+		end
+
+		do
+			function render2d.SetSDFShadowOffset(x, y)
+				fragment_constants.sdf_shadow_offset[0] = x
+				fragment_constants.sdf_shadow_offset[1] = y
+			end
+
+			function render2d.GetSDFShadowOffset()
+				return fragment_constants.sdf_shadow_offset[0],
+				fragment_constants.sdf_shadow_offset[1]
+			end
+
+			utility.MakePushPopFunction(render2d, "SDFShadowOffset")
+		end
+
+		do
+			function render2d.SetSDFShadowColor(r, g, b, a)
+				fragment_constants.sdf_shadow_color[0] = r
+				fragment_constants.sdf_shadow_color[1] = g
+				fragment_constants.sdf_shadow_color[2] = b
+				fragment_constants.sdf_shadow_color[3] = a or 1
+			end
+
+			function render2d.GetSDFShadowColor()
+				return fragment_constants.sdf_shadow_color[0],
+				fragment_constants.sdf_shadow_color[1],
+				fragment_constants.sdf_shadow_color[2],
+				fragment_constants.sdf_shadow_color[3]
+			end
+
+			utility.MakePushPopFunction(render2d, "SDFShadowColor")
+		end
+
+		do
+			function render2d.SetSDFGradientColor(r, g, b, a)
+				fragment_constants.sdf_gradient_color[0] = r
+				fragment_constants.sdf_gradient_color[1] = g
+				fragment_constants.sdf_gradient_color[2] = b
+				fragment_constants.sdf_gradient_color[3] = a or 0
+			end
+
+			function render2d.GetSDFGradientColor()
+				return fragment_constants.sdf_gradient_color[0],
+				fragment_constants.sdf_gradient_color[1],
+				fragment_constants.sdf_gradient_color[2],
+				fragment_constants.sdf_gradient_color[3]
+			end
+
+			utility.MakePushPopFunction(render2d, "SDFGradientColor")
+		end
 	end
 
 	do
@@ -566,7 +709,7 @@ do
 
 			if tbl.x_stretch then
 				local count = math.max(#tbl.x_stretch, #tbl.y_stretch)
-				count = math.min(count, 4)
+				count = math.min(count, 3)
 
 				for i = 1, count do
 					local x = tbl.x_stretch[i] or {0, 0}
@@ -591,44 +734,20 @@ do
 			end
 
 			index = index or 0
-			fragment_constants.nine_patch_x[index * 2] = x1
-			fragment_constants.nine_patch_x[index * 2 + 1] = y1
+			fragment_constants.nine_patch_x_stretch[index * 2] = x1
+			fragment_constants.nine_patch_x_stretch[index * 2 + 1] = y1
 			fragment_constants.nine_patch_x_count = math.max(fragment_constants.nine_patch_x_count, index + 1)
-			fragment_constants.nine_patch_y[index * 2] = x2
-			fragment_constants.nine_patch_y[index * 2 + 1] = y2
+			fragment_constants.nine_patch_y_stretch[index * 2] = x2
+			fragment_constants.nine_patch_y_stretch[index * 2 + 1] = y2
 			fragment_constants.nine_patch_y_count = math.max(fragment_constants.nine_patch_y_count, index + 1)
 		end
 
 		function render2d.GetNinePatch()
-			return fragment_constants.nine_patch_x[0],
-			fragment_constants.nine_patch_x[1],
-			fragment_constants.nine_patch_y[0],
-			fragment_constants.nine_patch_y[1]
+			return fragment_constants.nine_patch_x_stretch[0],
+			fragment_constants.nine_patch_x_stretch[1],
+			fragment_constants.nine_patch_y_stretch[0],
+			fragment_constants.nine_patch_y_stretch[1]
 		end
-	end
-
-	do
-		function render2d.SetUnpremultiplyInput(enabled)
-			fragment_constants.unpremultiply_input = enabled and 1 or 0
-		end
-
-		function render2d.GetUnpremultiplyInput()
-			return fragment_constants.unpremultiply_input ~= 0
-		end
-
-		utility.MakePushPopFunction(render2d, "UnpremultiplyInput")
-	end
-
-	do
-		function render2d.SetPremultiplyOutput(enabled)
-			fragment_constants.premultiply_output = enabled and 1 or 0
-		end
-
-		function render2d.GetPremultiplyOutput()
-			return fragment_constants.premultiply_output ~= 0
-		end
-
-		utility.MakePushPopFunction(render2d, "PremultiplyOutput")
 	end
 
 	do
