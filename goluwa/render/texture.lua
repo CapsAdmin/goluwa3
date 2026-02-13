@@ -1261,6 +1261,31 @@ do
 		end
 	end
 
+	function TextureDownloaded:GetTop5UniqueColors()
+		local top = {}
+		local color_count = {}
+
+		self:ForEachPixel(function(x, y, r, g, b, a)
+			local key = string.format("%03d%03d%03d%03d", r, g, b, a)
+
+			if not color_count[key] then
+				color_count[key] = {r = r, g = g, b = b, a = a, count = 0}
+			end
+
+			color_count[key].count = color_count[key].count + 1
+		end)
+
+		for _, color_info in pairs(color_count) do
+			table.insert(top, color_info)
+		end
+
+		table.sort(top, function(a, b)
+			return a.count > b.count
+		end)
+
+		return {top[1], top[2], top[3], top[4], top[5]}
+	end
+
 	function TextureDownloaded:GetRawPixelColor(x, y)
 		local width = self.width
 		local height = self.height
