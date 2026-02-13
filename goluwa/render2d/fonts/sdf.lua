@@ -1,14 +1,9 @@
 --[[HOTRELOAD
 	os.execute("luajit glw test sdf_fonts")
 ]]
-local ffi = require("ffi")
 local Vec2 = require("structs.vec2")
-local Color = require("structs.color")
 local render2d = require("render2d.render2d")
-local Texture = require("render.texture")
 local Framebuffer = require("render.framebuffer")
-local Buffer = require("structs.buffer")
-local system = require("system")
 local render = require("render.render")
 local prototype = require("prototype")
 local utf8 = require("utf8")
@@ -354,107 +349,42 @@ function META:GetJFAPipelines()
 	return self.jfa_pipelines
 end
 
-function META:GetBlitPipeline()
-	if self.blit_pipeline then return self.blit_pipeline end
+do
+	local function create_atlas(self)
+		local format = self:GetAtlasFormat()
+		self.texture_atlas = TextureAtlas.New(1024, 1024, self.Filtering, format)
+		self.texture_atlas:SetPadding(0)
 
-	self.blit_pipeline = EasyPipeline.New(
-		{
-			color_format = {{self:GetAtlasFormat(), {"rgba", "rgba"}}},
-			samples = "1",
-			vertex = {
-				shader = [[
-				vec2 positions[3] = vec2[](
-					vec2(-1.0, -1.0),
-					vec2( 3.0, -1.0),
-					vec2(-1.0,  3.0)
-				);
-				layout(location = 0) out vec2 out_uv;
-				void main() {
-					vec2 pos = positions[gl_VertexIndex];
-					gl_Position = vec4(pos, 0.0, 1.0);
-					out_uv = pos * 0.5 + 0.5;
-				}
-			]],
-			},
-			rasterizer = {
-				cull_mode = "none",
-			},
-			depth_stencil = {
-				depth_test = false,
-				depth_write = false,
-			},
-			fragment = {
-				push_constants = {
-					{
-						name = "fragment",
-						block = {
-							{
-								"tex_idx",
-								"int",
-								function(pipeline, block, key)
-									block[key] = pipeline:GetTextureIndex(self.current_draw_tex)
-								end,
-							},
-						},
-					},
-				},
-				shader = [[
-				layout(location = 0) in vec2 in_uv;
-				void main() {
-					vec4 col = texture(TEXTURE(pc.fragment.tex_idx), in_uv);
-					if (col.a > 0.0001) col.rgb /= col.a;
-					set_rgba(col);
-				}
-			]],
-			},
-		}
-	)
-	return self.blit_pipeline
-end
+		for code in pairs(self.chars) do
+			self.chars[code] = nil
+			self:LoadGlyph(code)
+		end
 
-function META:create_atlas()
-	local atlas_size = 512
-
-	if self.Size > 32 then atlas_size = 1024 end
-
-	if self.Size > 64 then atlas_size = 2048 end
-
-	if self.Size > 128 then atlas_size = 4096 end
-
-	local format = self:GetAtlasFormat()
-	self.texture_atlas = TextureAtlas.New(atlas_size, atlas_size, self.Filtering, format)
-	self.texture_atlas:SetMipMapLevels("auto")
-	self.texture_atlas:SetPadding(0)
-
-	for code in pairs(self.chars) do
-		self.chars[code] = nil
-		self:LoadGlyph(code)
+		self.texture_atlas:Build()
+		self:SetReady(true)
 	end
 
-	self.texture_atlas:Build()
-	self:SetReady(true)
-end
+	function META.New(fonts, padding)
+		if type(fonts) == "table" and fonts.IsFont then fonts = {fonts} end
 
-function META.New(fonts, padding)
-	if type(fonts) == "table" and fonts.IsFont then fonts = {fonts} end
+		local self = META:CreateObject()
+		self.tr = debug.traceback()
+		self:SetFonts(fonts)
+		self:SetPadding(padding or 0)
+		self.chars = {}
+		self.rebuild = false
 
-	local self = META:CreateObject()
-	self.tr = debug.traceback()
-	self:SetFonts(fonts)
-	self:SetPadding(padding or 0)
-	self.chars = {}
-	self.rebuild = false
+		if render.target then
+			create_atlas(self)
+		else
+			event.AddListener("RendererReady", self, function()
+				create_atlas(self)
+				return event.destroy_tag
+			end)
+		end
 
-	if render.target then
-		self:create_atlas(self)
-	else
-		event.AddListener("RendererReady", self, function()
-			self:create_atlas(self)
-			return event.destroy_tag
-		end)
+		return self
 	end
-
-	return self
 end
 
 function META:GetAscent()
@@ -469,10 +399,6 @@ end
 
 function META:Rebuild(cmd)
 	self.texture_atlas:Build(cmd)
-end
-
-local function create_atlas(self)
-	return self:create_atlas()
 end
 
 function META:RebuildFromScratch(cmd)
@@ -496,15 +422,10 @@ function META:RebuildFromScratch(cmd)
 end
 
 local scratch_size = {w = 0, h = 0}
-local scratch_shade_size = Vec2(0, 0)
 local fb_pool = {}
 local fence_pool = {}
 
 local function get_fence(device)
-	do
-		return Fence.New(device)
-	end
-
 	local f = table.remove(fence_pool)
 
 	if f then return f end
@@ -513,30 +434,10 @@ local function get_fence(device)
 end
 
 local function release_fence(f)
-	do
-		return
-	end
-
 	table.insert(fence_pool, f)
 end
 
 local function get_temp_fb(w, h, format, mip_maps, filter)
-	do
-		return Framebuffer.New(
-			{
-				width = w,
-				height = h,
-				clear_color = {0, 0, 0, 0},
-				format = format,
-				mip_map_levels = mip_maps and "auto" or 1,
-				min_filter = filter or "linear",
-				mag_filter = filter or "linear",
-				wrap_s = "clamp_to_edge",
-				wrap_t = "clamp_to_edge",
-			}
-		)
-	end
-
 	local key = w .. "_" .. h .. "_" .. format .. (
 			mip_maps and
 			"_t" or
@@ -575,10 +476,6 @@ local function get_temp_fb(w, h, format, mip_maps, filter)
 end
 
 local function release_temp_fb(fb)
-	do
-		return
-	end
-
 	local key = fb._pool_key
 	local pool = fb_pool[key]
 
@@ -679,135 +576,123 @@ function META:LoadGlyph(code, parent_cmd, temp_fbs)
 		end
 	end
 
-	if glyph then
-		if not glyph.buffer and glyph.glyph_data and glyph.w > 0 and glyph.h > 0 then
-			if not render.available or not render.target then
-				-- Renderer not ready, don't cache yet so we can try again later
-				return
-			end
+	if not glyph then
+		self.chars[code] = false
+		return
+	end
 
-			local scale = SUPER_SAMPLING_SCALE
-			local padding = self:GetPadding()
-			local sw = (glyph.w + padding * 2) * scale
-			local sh = (glyph.h + padding * 2) * scale
-			local used_temp_fbs = {}
-			local format = self:GetAtlasFormat()
-			local fb_ss = get_temp_fb(sw, sh, format, true)
-			table.insert(used_temp_fbs, fb_ss)
-			local own_cmd = false
-			local cmd = parent_cmd
-
-			if not cmd then
-				cmd = render.GetCommandPool():AllocateCommandBuffer()
-				cmd:Begin()
-				own_cmd = true
-			end
-
-			do
-				render2d.ResetState()
-				local old_cmd = render2d.cmd
-				local old_w, old_h = render2d.GetSize()
-				fb_ss:Begin(cmd)
-				render2d.cmd = cmd
-				render2d.PushColorFormat(fb_ss.color_texture.format)
-				render2d.PushSamples("1")
-				local old_color = {render2d.GetColor()}
-				render2d.SetColor(1, 1, 1, 1)
-				local old_blend_mode = render2d.GetBlendMode()
-				render2d.SetBlendMode("alpha", true)
-				render2d.PushSwizzleMode(render2d.GetSwizzleMode())
-				scratch_size.w = sw
-				scratch_size.h = sh
-				render2d.UpdateScreenSize(scratch_size)
-				render2d.pipeline:Bind(render2d.cmd, render.GetCurrentFrame())
-				render2d.SetSwizzleMode(0)
-				render2d.PushMatrix()
-				render2d.LoadIdentity()
-				-- Flip coordinates so font (Y-down) renders right-side up in Y-up framebuffer
-				render2d.Translate(padding * scale, (glyph.h + padding) * scale)
-				render2d.Scale(scale, -scale)
-				-- Shift glyph to be at (0, 0) in the padded area
-				render2d.Translatef(-glyph.bitmap_left, -glyph.bitmap_top)
-				glyph_source_font:DrawGlyph(glyph.glyph_data)
-				render2d.PopMatrix()
-				render2d.PopSwizzleMode()
-				render2d.SetBlendMode(old_blend_mode, true)
-				render2d.SetColor(unpack(old_color))
-				render2d.PopSamples()
-				render2d.PopColorFormat()
-				fb_ss:End(cmd)
-				fb_ss.color_texture:GenerateMipmaps("shader_read_only_optimal", cmd)
-				render2d.cmd = old_cmd
-				scratch_size.w = old_w
-				scratch_size.h = old_h
-				render2d.UpdateScreenSize(scratch_size)
-			end
-
-			local current_tex = fb_ss.color_texture
-			current_tex = self:GenerateSDF(
-				cmd,
-				current_tex,
-				sw,
-				sh,
-				glyph.w + padding * 2,
-				glyph.h + padding * 2,
-				used_temp_fbs
-			)
-			local fb_final = get_temp_fb(glyph.w + padding * 2, glyph.h + padding * 2, format, false)
-			table.insert(used_temp_fbs, fb_final)
-
-			do
-				local pipeline = self:GetBlitPipeline()
-				self.current_draw_tex = current_tex
-				pipeline:Draw(cmd, fb_final)
-				fb_final.color_texture:GenerateMipmaps("shader_read_only_optimal", cmd)
-			end
-
-			glyph.texture = fb_final.color_texture
-
-			if own_cmd then
-				self.texture_atlas:Insert(
-					code,
-					{
-						w = glyph.w + self:GetPadding() * 2,
-						h = glyph.h + self:GetPadding() * 2,
-						texture = glyph.texture,
-						flip_y = glyph.flip_y,
-					}
-				)
-				self.chars[code] = glyph
-				self:Rebuild(cmd)
-				cmd:End()
-				local fence = get_fence(render.GetDevice())
-				render.GetQueue():SubmitAndWait(render.GetDevice(), cmd, fence)
-				release_fence(fence)
-
-				for _, fb in ipairs(used_temp_fbs) do
-					release_temp_fb(fb)
-				end
-
-				self.rebuild = false
-				return
-			elseif temp_fbs then
-				for _, fb in ipairs(used_temp_fbs) do
-					table.insert(temp_fbs, fb)
-				end
-			end
+	if not glyph.texture and glyph.glyph_data and glyph.w > 0 and glyph.h > 0 then
+		if not render.available or not render.target then
+			-- Renderer not ready, don't cache yet so we can try again later
+			return
 		end
 
-		self.texture_atlas:Insert(
-			code,
-			{
-				w = glyph.w + self:GetPadding() * 2,
-				h = glyph.h + self:GetPadding() * 2,
-				texture = glyph.texture,
-				flip_y = glyph.flip_y,
-			}
+		local scale = SUPER_SAMPLING_SCALE
+		local padding = self:GetPadding()
+		local sw = (glyph.w + padding * 2) * scale
+		local sh = (glyph.h + padding * 2) * scale
+		local used_temp_fbs = {}
+		local format = self:GetAtlasFormat()
+		local fb_ss = get_temp_fb(sw, sh, format, true)
+		table.insert(used_temp_fbs, fb_ss)
+		local own_cmd = false
+		local cmd = parent_cmd
+
+		if not cmd then
+			cmd = render.GetCommandPool():AllocateCommandBuffer()
+			cmd:Begin()
+			own_cmd = true
+		end
+
+		do
+			render2d.ResetState()
+			local old_cmd = render2d.cmd
+			local old_w, old_h = render2d.GetSize()
+			fb_ss:Begin(cmd)
+			render2d.cmd = cmd
+			render2d.PushColorFormat(fb_ss.color_texture.format)
+			render2d.PushSamples("1")
+			local old_color = {render2d.GetColor()}
+			render2d.SetColor(1, 1, 1, 1)
+			local old_blend_mode = render2d.GetBlendMode()
+			render2d.SetBlendMode("alpha", true)
+			render2d.PushSwizzleMode(render2d.GetSwizzleMode())
+			scratch_size.w = sw
+			scratch_size.h = sh
+			render2d.UpdateScreenSize(scratch_size)
+			render2d.pipeline:Bind(render2d.cmd, render.GetCurrentFrame())
+			render2d.SetSwizzleMode(0)
+			render2d.PushMatrix()
+			render2d.LoadIdentity()
+			-- Flip coordinates so font (Y-down) renders right-side up in Y-up framebuffer
+			render2d.Translate(padding * scale, (glyph.h + padding) * scale)
+			render2d.Scale(scale, -scale)
+			-- Shift glyph to be at (0, 0) in the padded area
+			render2d.Translatef(-glyph.bitmap_left, -glyph.bitmap_top)
+			glyph_source_font:DrawGlyph(glyph.glyph_data)
+			render2d.PopMatrix()
+			render2d.PopSwizzleMode()
+			render2d.SetBlendMode(old_blend_mode, true)
+			render2d.SetColor(unpack(old_color))
+			render2d.PopSamples()
+			render2d.PopColorFormat()
+			fb_ss:End(cmd)
+			render2d.cmd = old_cmd
+			scratch_size.w = old_w
+			scratch_size.h = old_h
+			render2d.UpdateScreenSize(scratch_size)
+		end
+
+		glyph.texture = self:GenerateSDF(
+			cmd,
+			fb_ss.color_texture,
+			sw,
+			sh,
+			glyph.w + padding * 2,
+			glyph.h + padding * 2,
+			used_temp_fbs
 		)
-		self.chars[code] = glyph
-	else
-		self.chars[code] = false
+
+		if own_cmd then
+			self.texture_atlas:Insert(
+				code,
+				{
+					w = glyph.w + self:GetPadding() * 2,
+					h = glyph.h + self:GetPadding() * 2,
+					texture = glyph.texture,
+					flip_y = glyph.flip_y,
+				}
+			)
+			self.chars[code] = glyph
+			self:Rebuild(cmd)
+			cmd:End()
+			local fence = get_fence(render.GetDevice())
+			render.GetQueue():SubmitAndWait(render.GetDevice(), cmd, fence)
+			release_fence(fence)
+
+			for _, fb in ipairs(used_temp_fbs) do
+				release_temp_fb(fb)
+			end
+
+			self.rebuild = false
+			return
+		elseif temp_fbs then
+			for _, fb in ipairs(used_temp_fbs) do
+				table.insert(temp_fbs, fb)
+			end
+		end
 	end
+
+	self.texture_atlas:Insert(
+		code,
+		{
+			w = glyph.w + self:GetPadding() * 2,
+			h = glyph.h + self:GetPadding() * 2,
+			texture = glyph.texture,
+			flip_y = glyph.flip_y,
+		}
+	)
+	self.chars[code] = glyph
 end
 
 function META:GetChar(char)
@@ -1082,50 +967,7 @@ do
 	end
 
 	do -- text wrap
-		local function wrap_1(str, max_width)
-			local lines = {}
-			local i = 1
-			local last_pos = 0
-			local line_width = 0
-			local space_pos
-			local tbl = str:utf8_to_list()
-
-			--local pos = 1
-			--for _ = 1, 10000 do
-			--	local char = tbl[pos]
-			--	if not char then break end
-			for pos, char in ipairs(tbl) do
-				local w = fonts.GetTextSize(font, char)
-
-				if char:find("%s") then space_pos = pos end
-
-				if line_width + w >= max_width then
-					if space_pos then
-						lines[i] = str:utf8_sub(last_pos + 1, space_pos)
-						last_pos = space_pos
-					else
-						lines[i] = str:utf8_sub(last_pos + 1, pos)
-						last_pos = pos
-					end
-
-					i = i + 1
-					line_width = 0
-					space_pos = nil
-				end
-
-				line_width = line_width + w
-			--pos = pos + 1
-			end
-
-			if lines[1] then
-				lines[i] = str:utf8_sub(last_pos + 1)
-				return list.concat(lines, "\n")
-			end
-
-			return str
-		end
-
-		local function wrap_2(self, str, max_width)
+		local function wrap(self, str, max_width)
 			local tbl = str:utf8_to_list()
 			local lines = {}
 			local chars = {}
@@ -1204,7 +1046,7 @@ do
 			--if max_width < size then return list.concat(str:split(""), "\n") end
 			if max_width > size then return str end
 
-			local res = wrap_2(self, str, max_width)
+			local res = wrap(self, str, max_width)
 			return res
 		end
 	end

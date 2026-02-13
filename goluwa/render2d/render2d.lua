@@ -182,7 +182,6 @@ function render2d.ResetState()
 	end
 
 	render2d.SetSDFThreshold(0.5)
-	render2d.SetBlur(0)
 	render2d.UpdateScreenSize(render.GetRenderImageSize())
 	render2d.SetBlendMode("alpha", true)
 	render2d.SetColorFormat(render.target and render.target:GetColorFormat() or surface_format)

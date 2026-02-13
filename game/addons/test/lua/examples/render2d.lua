@@ -5,6 +5,7 @@ local Vec2 = require("structs.vec2")
 local fonts = require("render2d.fonts")
 local fontPath = fonts.GetDefaultSystemFontPath()
 local font = fonts.New({Path = fontPath, Size = 64})
+font.debug = false
 font:SetPadding(64)
 local blue_gradient = render2d.CreateGradient(
 	{
@@ -28,10 +29,8 @@ local red_gradient = render2d.CreateGradient(
 	{
 		mode = "linear",
 		stops = {
-			{pos = 0, color = Color(1, 1, 1, 1)},
-			{pos = 0.5, color = Color(1, 0, 1, 1)},
-			{pos = 0.75, color = Color(0, 0, 1, 1)},
-			{pos = 1, color = Color(1, 0, 0, 1)},
+			{pos = 0, color = Color(1, 0, 0, 1)},
+			{pos = 1, color = Color(0, 0, 1, 1)},
 		},
 	}
 )
@@ -95,9 +94,9 @@ end
 
 local function DrawTextOutlineShadow(x, y)
 	-- 5. Text with Outline and Shadow
-	render2d.PushColor(1, 1, 0, 1) -- Yellow text
+	render2d.PushColor(1, 1, 1, 1) -- Yellow text
 	render2d.PushSDFMode(true) -- Enable SDF mode for text
-	render2d.PushOutlineWidth(1)
+	render2d.PushOutlineWidth(2)
 	font:DrawText("SDF", x, y)
 	-- You can even do gradients on text now!
 	render2d.PushSDFGradientTexture(red_gradient) -- Red gradient
