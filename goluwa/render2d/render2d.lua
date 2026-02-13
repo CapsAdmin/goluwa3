@@ -404,15 +404,15 @@ do
 						if (is_sdf_tex) {
 							vec2 sdf_uv = uv * pc.uv_scale + pc.uv_offset;
 							float dist = texture(textures[nonuniformEXT(pc.texture_index)], sdf_uv).r;
-							float fw = fwidth(dist);
-							float d_tex = (pc.sdf_threshold - dist) / max(fw, 0.0001);
+							float fw = length(vec2(dFdx(dist), dFdy(dist)));
+							float d_tex = (pc.sdf_threshold - dist) / max(fw, 0.01);
 							d = has_sdf ? max(d, d_tex) : d_tex;
 							has_sdf = true;
 						}
 
 						if (has_sdf) {
 							float smoothing = max(pc.blur.x, pc.blur.y);
-							smoothing = max(0.4, smoothing);
+							smoothing = max(0.75, smoothing);
 
 							vec4 fill_color = color;
 							if (pc.gradient_texture_index >= 0) {

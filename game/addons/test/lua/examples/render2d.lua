@@ -96,7 +96,7 @@ local function DrawTextOutlineShadow(x, y)
 	-- 5. Text with Outline and Shadow
 	render2d.PushColor(1, 1, 1, 1) -- Yellow text
 	render2d.PushSDFMode(true) -- Enable SDF mode for text
-	render2d.PushOutlineWidth(2)
+	render2d.PushOutlineWidth(1)
 	font:DrawText("SDF", x, y)
 	-- You can even do gradients on text now!
 	render2d.PushSDFGradientTexture(red_gradient) -- Red gradient
@@ -155,8 +155,8 @@ end
 
 local function DrawNeonText(x, y)
 	render2d.PushColor(1, 1, 1, 1)
-	render2d.PushBlur(7) -- SDF Blur for glow
-	render2d.PushSDFThreshold(0.48)
+	render2d.PushBlur(10) -- SDF Blur for glow
+	render2d.PushSDFThreshold(0.5)
 	font:DrawText("NEON LIGHTS", x, y)
 	render2d.PopSDFThreshold()
 	render2d.PopBlur()

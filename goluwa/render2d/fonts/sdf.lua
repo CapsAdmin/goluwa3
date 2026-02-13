@@ -370,7 +370,7 @@ do
 		local self = META:CreateObject()
 		self.tr = debug.traceback()
 		self:SetFonts(fonts)
-		self:SetPadding(padding or 0)
+		self:SetPadding(16)
 		self.chars = {}
 		self.rebuild = false
 
@@ -837,68 +837,57 @@ function META:DrawPass(str, x, y, spacing, atlas)
 	local i = 1
 	local len = #str
 	local last_texture
-	local padding = self:GetPadding()
-	local scale_x, scale_y = self.Scale.x, self.Scale.y
-	local line_height = self:GetLineHeight()
-	local atlas_textures = atlas.textures
-	local monospace = self.Monospace
-	local half_size = self.Size / 2
-	local tab_mult = self.TabWidthMultiplier
-	local chars = self.chars
-	local SetTexture = render2d.SetTexture
-	local SetUV2 = render2d.SetUV2
-	local DrawRect = render2d.DrawRect
 
 	while i <= len do
 		local char_code = utf8.uint32(str, i)
 
 		if char_code == 10 then -- \n
 			X = 0
-			Y = Y + line_height + spacing
+			Y = Y + self:GetLineHeight() + spacing
 		elseif char_code == 32 then -- space
-			X = X + half_size
+			X = X + self.Size / 2
 		elseif char_code == 9 then -- \t
-			local data = chars[32] or self:GetChar(32)
+			local data = self.chars[32] or self:GetChar(32)
 
 			if data then
-				if monospace then
-					X = X + spacing * tab_mult
+				if self.Monospace then
+					X = X + spacing * self.TabWidthMultiplier
 				else
-					X = X + (data.x_advance + spacing) * tab_mult
+					X = X + (data.x_advance + spacing) * self.TabWidthMultiplier
 				end
 			else
-				X = X + self.Size * tab_mult
+				X = X + self.Size * self.TabWidthMultiplier
 			end
 		else
-			local data = chars[char_code]
+			local data = self.chars[char_code]
 
 			if data then
-				local atlas_data = atlas_textures[char_code]
+				local atlas_data = atlas.textures[char_code]
 
 				if atlas_data and atlas_data.page then
 					local texture = atlas_data.page.texture
 					render2d.PushTexture(texture)
 					local uv = atlas_data.page_uv_normalized
-					SetUV2(uv[1], uv[2], uv[3], uv[4])
-					DrawRect(
-						x + (X + data.bitmap_left - padding) * scale_x,
-						y + (Y + data.bitmap_top - padding) * scale_y,
-						atlas_data.w * scale_x,
-						atlas_data.h * scale_y,
+					render2d.SetUV2(uv[1], uv[2], uv[3], uv[4])
+					render2d.DrawRectf(
+						x + (X + data.bitmap_left - self:GetPadding()) * self.Scale.x,
+						y + (Y + data.bitmap_top - self:GetPadding()) * self.Scale.y,
+						atlas_data.w * self.Scale.x,
+						atlas_data.h * self.Scale.y,
 						nil,
 						nil,
 						nil,
-						padding * scale_x
+						self:GetPadding() * self.Scale.x
 					)
 
 					if self.debug then
 						render2d.PushTexture(nil)
 						render2d.PushColor(1, 0, 0, 0.25)
 						render2d.DrawRect(
-							x + (X - padding) * scale_x,
-							y + (Y - padding) * scale_y,
-							(data.x_advance + padding * 2) * scale_x,
-							line_height * scale_y
+							x + (X - self:GetPadding()) * self.Scale.x,
+							y + (Y - self:GetPadding()) * self.Scale.y,
+							(data.x_advance + self:GetPadding() * 2) * self.Scale.x,
+							self:GetLineHeight() * self.Scale.y
 						)
 						render2d.PopColor()
 						render2d.PopTexture()
@@ -907,7 +896,7 @@ function META:DrawPass(str, x, y, spacing, atlas)
 					render2d.PopTexture()
 				end
 
-				if monospace then
+				if self.Monospace then
 					X = X + spacing
 				else
 					X = X + data.x_advance + spacing
