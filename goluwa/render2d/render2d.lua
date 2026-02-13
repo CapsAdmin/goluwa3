@@ -37,6 +37,8 @@ local FragmentConstants = ffi.typeof([[
         float nine_patch_x_stretch[6];
         float nine_patch_y_stretch[6];
         float sdf_rect_size[2];
+        int subpixel_mode;
+        float subpixel_amount;
 	}
 ]])
 local vertex_constants = VertexConstants()
@@ -182,6 +184,8 @@ function render2d.ResetState()
 	end
 
 	render2d.SetSDFThreshold(0.5)
+	render2d.SetSubpixelMode("none")
+	render2d.SetSubpixelAmount(1 / 3)
 	render2d.UpdateScreenSize(render.GetRenderImageSize())
 	render2d.SetBlendMode("alpha", true)
 	render2d.SetColorFormat(render.target and render.target:GetColorFormat() or surface_format)
@@ -289,6 +293,8 @@ do
 						float nine_patch_x_stretch[6];
 						float nine_patch_y_stretch[6];
 						vec2 sdf_rect_size;
+						int subpixel_mode;
+						float subpixel_amount;
 					} pc;                   
 
 					float map_nine_patch(float x, float tw, float sw, float stretch[6], int count) 
@@ -447,6 +453,60 @@ do
 
 
 						out_color.a *= pc.alpha_multiplier;						
+
+						if (pc.subpixel_mode != 0) {
+							float d = 1e10;
+							bool has_sdf = false;
+
+							if (pc.sdf_rect_size.x > 0.0 && pc.sdf_rect_size.y > 0.0) {
+								d = sd_rect(in_uv, pc.rect_size, pc.sdf_rect_size, pc.border_radius);
+								has_sdf = true;
+							}
+
+							if (pc.texture_index >= 0 && pc.swizzle_mode == 10) {
+								vec2 uv = in_uv;
+								if (pc.nine_patch_x_count > 0 || pc.nine_patch_y_count > 0) {
+									vec2 tex_size = vec2(textureSize(textures[nonuniformEXT(pc.texture_index)], 0));
+									vec2 p_logical = (in_uv - 0.5) * pc.rect_size + pc.sdf_rect_size * 0.5;
+									if (pc.nine_patch_x_count > 0) {
+										uv.x = map_nine_patch(p_logical.x, pc.sdf_rect_size.x, tex_size.x, pc.nine_patch_x_stretch, pc.nine_patch_x_count);
+									}
+									if (pc.nine_patch_y_count > 0) {
+										uv.y = map_nine_patch(p_logical.y, pc.sdf_rect_size.y, tex_size.y, pc.nine_patch_y_stretch, pc.nine_patch_y_count);
+									}
+								}
+								vec2 sdf_uv = uv * pc.uv_scale + pc.uv_offset;
+								float dist = texture(textures[nonuniformEXT(pc.texture_index)], sdf_uv).r;
+								float fw = length(vec2(dFdx(dist), dFdy(dist)));
+								float d_tex = (pc.sdf_threshold - dist) / max(fw, 0.01);
+								d = has_sdf ? max(d, d_tex) : d_tex;
+								has_sdf = true;
+							}
+
+							if (has_sdf) {
+								float smoothing = max(pc.blur.x, pc.blur.y);
+								smoothing = max(0.75, smoothing);
+
+								vec3 sub_d;
+								float shift = pc.subpixel_amount;
+								if (pc.subpixel_mode == 1 || pc.subpixel_mode == 2) { // RGB or BGR
+									float dx = dFdx(d);
+									sub_d = d + vec3(-shift, 0.0, shift) * dx;
+									if (pc.subpixel_mode == 2) sub_d = sub_d.zyx;
+								} else { // VRGB or VBGR
+									float dy = dFdy(d);
+									sub_d = d + vec3(-shift, 0.0, shift) * dy;
+									if (pc.subpixel_mode == 4) sub_d = sub_d.zyx;
+								}
+
+								vec3 sub_alpha = (pc.outline_width > 0.0) ? 
+									(smoothstep(smoothing, -smoothing, sub_d) - smoothstep(smoothing, -smoothing, sub_d + pc.outline_width)) : 
+									smoothstep(smoothing, -smoothing, sub_d);
+
+								out_color.rgb *= sub_alpha;
+								out_color.a = max(max(out_color.r, out_color.g), out_color.b);
+							}
+						}
 					}
 				]],
 				descriptor_sets = {
@@ -559,6 +619,46 @@ do
 			end
 
 			utility.MakePushPopFunction(render2d, "SDFThreshold")
+
+			render2d.subpixel_modes = {
+				none = 0,
+				rgb = 1,
+				bgr = 2,
+				vrgb = 3,
+				vbgr = 4,
+			}
+
+			function render2d.SetSubpixelMode(mode)
+				if type(mode) == "string" then
+					local m = render2d.subpixel_modes[mode:lower()]
+
+					if not m then error("invalid subpixel mode: " .. mode) end
+
+					mode = m
+				end
+
+				fragment_constants.subpixel_mode = mode
+			end
+
+			function render2d.GetSubpixelMode()
+				for k, v in pairs(render2d.subpixel_modes) do
+					if v == fragment_constants.subpixel_mode then return k end
+				end
+
+				return fragment_constants.subpixel_mode
+			end
+
+			utility.MakePushPopFunction(render2d, "SubpixelMode")
+
+			function render2d.SetSubpixelAmount(amount)
+				fragment_constants.subpixel_amount = amount
+			end
+
+			function render2d.GetSubpixelAmount()
+				return fragment_constants.subpixel_amount
+			end
+
+			utility.MakePushPopFunction(render2d, "SubpixelAmount")
 		end
 
 		do

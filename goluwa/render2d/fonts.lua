@@ -10,7 +10,6 @@ local fonts = library()
 local current_font = nil
 local default_font = nil
 local X, Y = 0, 0
-local loaded_fonts = {}
 
 function fonts.New(props)
 	props = props or {}
@@ -33,42 +32,12 @@ function fonts.New(props)
 	return fonts.GetDefaultFont()
 end
 
-function fonts.LoadFont(path, size, padding, unique)
-	size = size or 16
-	padding = padding or 0
-
-	if not unique and loaded_fonts[path] then return loaded_fonts[path] end
-
-	local ext = tostring(path):match("%.([^%.]+)$")
-
-	if ext == "ttf" or ext == "otf" then
-		if not fs.exists(path) then
-			logn("Font file not found: " .. path .. ", falling back to default font")
-			path = fonts.GetDefaultSystemFontPath()
-		end
-
-		local font = ttf_font.New(path)
-		font:SetSize(size)
-		-- Wrap in sdf_font for texture atlas support
-		local res = sdf_font.New(font, padding)
-
-		if not unique then loaded_fonts[path] = res end
-
-		return res
-	elseif path == "default" then
-		return fonts.GetDefaultFont()
-	end
-
-	-- Check if it's already a font object
-	if type(path) == "table" and path.IsFont then return path end
-
-	error("Unsupported font format: " .. tostring(ext or path))
-end
-
 function fonts.LoadGoogleFont(name, weight, options)
 	options = options or {}
-	options.unique = true
-	local font = fonts.CreateFont(options)
+	options.Padding = options.Padding or 2
+	local font = sdf_font.New(base_font.New(), options.Padding)
+	font:SetSize(options and options.Size or 16)
+	font:SetName(name .. "-" .. tostring(weight or "regular"))
 
 	gfonts.Download({name = name, weight = weight}):Then(function(path)
 		local new_ttf = ttf_font.New(path)
@@ -82,10 +51,7 @@ function fonts.LoadGoogleFont(name, weight, options)
 end
 
 function fonts.GetDefaultFont()
-	if not default_font then
-		print("creating default font")
-		default_font = sdf_font.New(base_font)
-	end
+	if not default_font then default_font = sdf_font.New(base_font.New()) end
 
 	return default_font
 end

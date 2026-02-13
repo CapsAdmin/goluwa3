@@ -7,6 +7,7 @@ local prototype = require("prototype")
 local META = prototype.CreateTemplate("font_base")
 META.IsFont = true
 META:GetSet("Path", "default")
+META:GetSet("Size", 8)
 
 function META.New()
 	local self = META:CreateObject()

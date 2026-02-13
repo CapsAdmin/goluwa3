@@ -171,7 +171,7 @@ do
 	local font_paths = {
 		heading = {"Orbitron", "Regular"},
 		body_weak = {"Rajdhani", "Light"},
-		body = {"Rajdhani", "Regular"},
+		body = {"Rajdhani", "Bold"},
 		body_strong = {"Rajdhani", "Bold"},
 	}
 
@@ -179,13 +179,7 @@ do
 		local path = font_paths[name or "body"] or font_paths.body
 		local size = font_sizes[size_name or "M"] or font_sizes.M
 		theme.Fonts = theme.Fonts or {}
-		theme.Fonts[path] = theme.Fonts[path] or
-			fonts.New(
-				{
-					Path = fonts.FindFontPath(path[1]) or fonts.GetDefaultSystemFontPath(),
-					Size = size,
-				}
-			)
+		theme.Fonts[path] = theme.Fonts[path] or fonts.LoadGoogleFont(path[1], path[2], {Size = size})
 		return theme.Fonts[path]
 	end
 end

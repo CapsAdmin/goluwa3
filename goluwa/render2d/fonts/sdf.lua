@@ -916,7 +916,10 @@ function META:DrawString(str, x, y, spacing)
 	spacing = spacing or self.Spacing
 	render2d.PushUV()
 	render2d.PushSDFMode(true)
+	render2d.SetSubpixelMode("vrgb")
+	render2d.SetSubpixelAmount(0.1)
 	self:DrawPass(str, x, y, spacing, self.texture_atlas)
+	render2d.SetSubpixelMode("none")
 	render2d.PopSDFMode()
 	render2d.PopUV()
 end

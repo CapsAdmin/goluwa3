@@ -53,7 +53,7 @@ function META:Initialize()
 	end)
 
 	event.AddListener("OnFontsChanged", self, function(font)
-		if font == self:GetFont() then self:OnTextChanged() end
+		if font == self:GetFont() or true then self:OnTextChanged() end
 	end)
 
 	self.Owner:AddLocalListener(
