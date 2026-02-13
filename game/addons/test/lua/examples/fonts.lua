@@ -8,10 +8,10 @@ local render2d = require("render2d.render2d")
 local gfx = require("render2d.gfx")
 local utf8 = require("utf8")
 local fontSize = 256
-local fontPath = fonts.GetSystemDefaultFont()
-local font = fonts.LoadFont(fontPath, fontSize)
-local labelFont = fonts.LoadFont(fontPath, 10)
-local font2 = fonts.LoadFont(fontPath, 30)
+local fontPath = fonts.GetDefaultSystemFontPath()
+local font = fonts.New({Path = fontPath, Size = fontSize})
+local labelFont = fonts.New({Path = fontPath, Size = 10})
+local font2 = fonts.New({Path = fontPath, Size = 30})
 
 local function drawArrow(x1, y1, x2, y2, size)
 	size = size or 10

@@ -10,7 +10,7 @@ local window = require("window")
 local fonts = require("render2d.fonts")
 -- Debug: Show debug info
 local show_debug_info = false
-local font = fonts.LoadFont("/home/caps/Downloads/Roboto/static/Roboto-Regular.ttf", 20)
+local font = fonts.New({Path = "/home/caps/Downloads/Roboto/static/Roboto-Regular.ttf", Size = 20})
 fonts.SetFont(font)
 
 -- Debug: Freeze frustum for culling

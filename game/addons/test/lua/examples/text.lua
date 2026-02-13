@@ -6,11 +6,19 @@ local gfx = require("render2d.gfx")
 local fonts = require("render2d.fonts")
 local system = require("system")
 local window = require("window")
-local font_small = fonts.LoadFont(fonts.GetSystemDefaultFont(), 14)
-local font_medium = fonts.LoadFont(fonts.GetSystemDefaultFont(), 24)
-local font_large = fonts.LoadFont(fonts.GetSystemDefaultFont(), 48)
-local font_sdf = fonts.LoadFont(fonts.GetSystemDefaultFont(), 64)
-font_sdf:SetSDF(true)
+local font_small = fonts.New({Path = fonts.GetDefaultSystemFontPath(), Size = 14})
+local font_medium = fonts.New({Path = fonts.GetDefaultSystemFontPath(), Size = 24})
+local font_large = fonts.New({Path = fonts.GetDefaultSystemFontPath(), Size = 48})
+local font_sdf = fonts.New({Path = fonts.GetDefaultSystemFontPath(), Size = 64})
+local gold_gradient = render2d.CreateGradient(
+	{
+		mode = "linear",
+		stops = {
+			{pos = 0, color = Color(1, 1, 1, 1)},
+			{pos = 1, color = Color(1, 0.8, 0.2, 1)},
+		},
+	}
+)
 local wrap_text = "The quick brown fox jumps over the lazy dog. This is a very long string that should be wrapped according to the dynamic width of the box. Notice how the layout adjusts as the box size changes over time."
 
 local function draw_debug_text(font, text, x, y, align_x, align_y)
@@ -124,26 +132,15 @@ event.AddListener("Draw2D", "text_demo", function()
 	font_medium:DrawText(unicode_text, win_w - 400, 350)
 end)
 
--- Effects example (Static)
-local font_shaded = fonts.LoadFont(fonts.GetSystemDefaultFont(), 48)
-font_shaded:SetShadingInfo(
+local dynamic_gradient = render2d.CreateGradient(
 	{
-		{
-			source = [[
-            vec4 col = texture(self, uv);
-            // Simple rainbow effect based on UV
-            col.rgb *= vec3(uv.x, uv.y, 1.0 - uv.x);
-            return col;
-        ]],
-			vars = {},
+		mode = "linear",
+		stops = {
+			{pos = 0, color = Color(0, 0, 0, 1)},
+			{pos = 1, color = Color(1, 1, 1, 1)},
 		},
 	}
 )
-
-event.AddListener("Draw2D", "text_effects_demo", function()
-	local win_w, win_h = window.GetSize():Unpack()
-	font_shaded:DrawText("Legacy Supersampled Shader", 50, win_h - 150)
-end)
 
 event.AddListener("Draw2D", "text_sdf_demo", function()
 	local time = system.GetTime()
@@ -152,32 +149,34 @@ event.AddListener("Draw2D", "text_sdf_demo", function()
 	font_medium:DrawText("Dynamic SDF Rendering (New):", 50, y_pos)
 	y_pos = y_pos + 60
 	-- 1. DROP SHADOW DEMO
-	font_sdf:SetSDFShadowColor(Color(0, 0, 0, 0.8))
-	font_sdf:SetSDFShadowOffset(Vec2(4, 4))
-	font_sdf:SetSDFFeather(1)
-	font_sdf:SetSDFThreshold(0.5)
-	font_sdf:SetSDFGradientColor(Color(0, 0, 0, 0)) -- Disable gradient
+	render2d.PushBlur(1)
+	render2d.PushSDFThreshold(0.5)
 	render2d.SetColor(1, 1, 1, 1)
-	font_sdf:DrawText("SDF Drop Shadow", 50, y_pos)
+	font_sdf:DrawText("SDF Text", 50, y_pos)
+	render2d.PopSDFThreshold()
+	render2d.PopBlur()
 	y_pos = y_pos + 80
 	-- 2. GRADIENT + GLOW DEMO
 	local r = 0.5 + 0.5 * math.sin(time * 2)
 	local g = 0.5 + 0.5 * math.sin(time * 2 + 2)
 	local b = 0.5 + 0.5 * math.sin(time * 2 + 4)
-	font_sdf:SetSDFGradientColor(Color(r, g, b, 1))
-	font_sdf:SetSDFShadowColor(Color(r, g, b, 0.4))
-	font_sdf:SetSDFShadowOffset(Vec2(0, 0))
-	font_sdf:SetSDFFeather(5 + math.sin(time * 3) * 3) -- Softness animation
+	render2d.PushColor(r, g, b)
+	render2d.PushSDFGradientTexture(dynamic_gradient)
+	render2d.PushBlur(5 + math.sin(time * 3) * 3) -- Softness animation
 	render2d.SetColor(1, 1, 1, 1)
 	font_sdf:DrawText("SDF Gradient & Glow", 50, y_pos)
+	render2d.PopBlur()
+	render2d.PopSDFGradientTexture()
+	render2d.PopColor()
 	y_pos = y_pos + 80
 	-- 3. THICKNESS (THRESHOLD) ANIMATION
-	font_sdf:SetSDFFeather(1)
-	font_sdf:SetSDFGradientColor(Color(1, 0.8, 0.2, 1)) -- Gold gradient
-	font_sdf:SetSDFShadowColor(Color(0, 0, 0, 0.5))
-	font_sdf:SetSDFShadowOffset(Vec2(2, 2))
+	render2d.PushBlur(1)
+	render2d.PushSDFGradientTexture(gold_gradient)
 	local thickness = 0.5 + math.sin(time * 4) * 0.15
-	font_sdf:SetSDFThreshold(thickness)
+	render2d.PushSDFThreshold(thickness)
 	render2d.SetColor(1, 0.5, 0, 1)
 	font_sdf:DrawText("Variable Thickness Pulsing", 50, y_pos)
+	render2d.PopSDFThreshold()
+	render2d.PopSDFGradientTexture()
+	render2d.PopBlur()
 end)

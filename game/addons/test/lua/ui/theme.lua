@@ -157,7 +157,7 @@ local Textures = {
 }
 
 do
-	local path = fonts.GetSystemDefaultFont()
+	local path = fonts.GetDefaultSystemFontPath()
 	local font_sizes = {
 		XS = 10,
 		S = 12,
@@ -179,22 +179,14 @@ do
 		local path = font_paths[name or "body"] or font_paths.body
 		local size = font_sizes[size_name or "M"] or font_sizes.M
 		theme.Fonts = theme.Fonts or {}
-		theme.Fonts[path] = theme.Fonts[path] or {}
-		theme.Fonts[path][size] = theme.Fonts[path][size] or
-			fonts.LoadGoogleFont(
-				path[1],
-				path[2],
+		theme.Fonts[path] = theme.Fonts[path] or
+			fonts.New(
 				{
-					size = size,
-					shadow = {
-						dir = -2,
-						color = Color.FromHex("#022d58"):SetAlpha(0.75),
-						blur_radius = 0.25,
-						blur_passes = 1,
-					},
+					Path = fonts.FindFontPath(path[1]) or fonts.GetDefaultSystemFontPath(),
+					Size = size,
 				}
 			)
-		return theme.Fonts[path][size]
+		return theme.Fonts[path]
 	end
 end
 

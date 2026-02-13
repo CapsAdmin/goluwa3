@@ -628,7 +628,7 @@ do -- tags
 			end
 		end,
 		init = function(markup, self, font)
-			self.font = fonts.CreateFont({path = font})
+			self.font = fonts.New({Path = font})
 		end,
 	}
 	Markup.tags.createfont = {
@@ -643,14 +643,14 @@ do -- tags
 			end
 		end,
 		init = function(markup, self, font, size, blur_size, bgr, bgg, bgb, bga, blur_overdraw)
-			self.font = fonts.CreateFont(
+			self.font = fonts.New(
 				{
-					path = font,
-					size = size,
-					shadow = blur_size > 0 and
+					Path = font,
+					Size = size,
+					Shadow = bldur_size > 0 and
 						{
-							blur_radius = blur_size,
-							color = Color(bgr, bgg, bgb, bga),
+							BlurRadius = blur_size,
+							Color = Color(bgr, bgg, bgb, bga),
 						} or
 						nil,
 				}
@@ -1097,7 +1097,7 @@ do -- parse tags
 									list.insert(chunks, {type = "font", val = last_font})
 								end
 							else
-								local font = fonts.CreateFont({path = (args[1])})
+								local font = fonts.New({Path = (args[1])})
 								list.insert(chunks, {type = "font", val = font})
 								last_font = font
 							end

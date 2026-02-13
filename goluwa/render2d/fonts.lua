@@ -4,7 +4,7 @@ local gfonts = require("gfonts")
 local Color = require("structs.color")
 local ttf_font = require("render2d.fonts.ttf")
 local base_font = require("render2d.fonts.base")
-local rasterized_font = require("render2d.fonts.rasterized_font")
+local sdf_font = require("render2d.fonts.sdf")
 local fonts = library()
 -- Font management
 local current_font = nil
@@ -12,28 +12,47 @@ local default_font = nil
 local X, Y = 0, 0
 local loaded_fonts = {}
 
+function fonts.New(props)
+	props = props or {}
+	props.Size = props.Size or 16
+	props.Padding = props.Padding or 2
+	props.Path = props.Path or fonts.GetDefaultSystemFontPath()
+	local ext = tostring(props.Path):match("%.([^%.]+)$")
+
+	if ext == "ttf" or ext == "otf" then
+		if not fs.exists(props.Path) then
+			logn("Font file not found: " .. props.Path .. ", falling back to default font")
+			props.Path = fonts.GetDefaultSystemFontPath()
+		end
+
+		local f = sdf_font.New(ttf_font.New(props.Path), props.Padding)
+		f:SetSize(props.Size)
+		return f
+	end
+
+	return fonts.GetDefaultFont()
+end
+
 function fonts.LoadFont(path, size, padding, unique)
 	size = size or 16
 	padding = padding or 0
 
-	local key = tostring(path) .. "_" .. tostring(size) .. "_" .. tostring(padding)
-
-	if not unique and loaded_fonts[key] then return loaded_fonts[key] end
+	if not unique and loaded_fonts[path] then return loaded_fonts[path] end
 
 	local ext = tostring(path):match("%.([^%.]+)$")
 
 	if ext == "ttf" or ext == "otf" then
 		if not fs.exists(path) then
 			logn("Font file not found: " .. path .. ", falling back to default font")
-			path = fonts.GetSystemDefaultFont()
+			path = fonts.GetDefaultSystemFontPath()
 		end
 
 		local font = ttf_font.New(path)
 		font:SetSize(size)
-		-- Wrap in rasterized_font for texture atlas support
-		local res = rasterized_font.New(font, padding)
+		-- Wrap in sdf_font for texture atlas support
+		local res = sdf_font.New(font, padding)
 
-		if not unique then loaded_fonts[key] = res end
+		if not unique then loaded_fonts[path] = res end
 
 		return res
 	elseif path == "default" then
@@ -62,213 +81,13 @@ function fonts.LoadGoogleFont(name, weight, options)
 	return font
 end
 
-local function add_blur_stage(stages, blur_radius, blur_dir)
-	table.insert(
-		stages,
-		{
-			source = [[
-		vec4 sum = vec4(0.0);
-		vec2 blur = vec2(radius)/size;
-		float hstep = dir.x;
-		float vstep = dir.y;
-
-		sum += texture(self, vec2(uv.x - 4.0*blur.x*hstep, uv.y - 4.0*blur.y*vstep)) * 0.0162162162;
-		sum += texture(self, vec2(uv.x - 3.0*blur.x*hstep, uv.y - 3.0*blur.y*vstep)) * 0.0540540541;
-		sum += texture(self, vec2(uv.x - 2.0*blur.x*hstep, uv.y - 2.0*blur.y*vstep)) * 0.1216216216;
-		sum += texture(self, vec2(uv.x - 1.0*blur.x*hstep, uv.y - 1.0*blur.y*vstep)) * 0.1945945946;
-
-		sum += texture(self, vec2(uv.x, uv.y)) * 0.2270270270;
-
-		sum += texture(self, vec2(uv.x + 1.0*blur.x*hstep, uv.y + 1.0*blur.y*vstep)) * 0.1945945946;
-		sum += texture(self, vec2(uv.x + 2.0*blur.x*hstep, uv.y + 2.0*blur.y*vstep)) * 0.1216216216;
-		sum += texture(self, vec2(uv.x + 3.0*blur.x*hstep, uv.y + 3.0*blur.y*vstep)) * 0.0540540541;
-		sum += texture(self, vec2(uv.x + 4.0*blur.x*hstep, uv.y + 4.0*blur.y*vstep)) * 0.0162162162;
-
-		return sum;
-		]],
-			vars = {
-				radius = blur_radius,
-				dir = blur_dir,
-			},
-		}
-	)
-end
-
-local effects = {}
-effects.shadow = function(info, options)
-	local dir = info.dir or options.size / 2
-	local color = info.color or Color(0, 0, 0, 0.25)
-	local blur_radius = info.blur_radius
-
-	if type(dir) == "number" then
-		dir = Vec2(-dir, dir)
-	elseif typex(dir) == "vec2" then
-		dir = Vec2(-dir.x, dir.y)
-	end
-
-	local stages = {}
-	table.insert(stages, {copy = true})
-	local passes = info.dir_passes or 1
-
-	for i = 1, passes do
-		local m = (i / passes)
-		table.insert(
-			stages,
-			{
-				source = "return vec4(color.r, color.g, color.b, texture(copy, uv - (dir / size)).a * color.a);",
-				vars = {
-					dir = dir * m,
-					color = i == 1 and
-						color or
-						Color(color.r, color.g, color.b, (color.a * -m + 1) ^ (info.dir_falloff or 1)),
-				},
-				blend_mode = i == 1 and "none" or "alpha",
-			}
-		)
-	end
-
-	if blur_radius then
-		local times = info.blur_passes or 1
-
-		for i = 1, times do
-			local m = i / times
-			add_blur_stage(stages, blur_radius, Vec2(0, 1) * m)
-			add_blur_stage(stages, blur_radius, Vec2(1, 0) * m)
-		end
-	end
-
-	if info.alpha_pow then
-		table.insert(
-			stages,
-			{
-				source = "return vec4(texture(self, uv).rgb, pow(texture(self, uv).a, alpha_pow));",
-				vars = {
-					alpha_pow = info.alpha_pow,
-				},
-			}
-		)
-	end
-
-	table.insert(
-		stages,
-		{
-			source = "return texture(self, uv) * vec4(1,1,1,color.a);",
-			vars = {
-				color = color,
-			},
-		}
-	)
-	table.insert(
-		stages,
-		{
-			source = "return texture(copy, uv) + texture(self, uv) * (1.0 - texture(copy, uv).a);", -- simple alpha blend
-			vars = {},
-			blend_mode = "alpha",
-		}
-	)
-	return stages
-end
-effects.gradient = function(info, options)
-	return {
-		source = "return vec4(texture(gradient_texture, uv).rgb, texture(self, uv).a);",
-		vars = {
-			gradient_texture = info.texture,
-		},
-	}
-end
-effects.color = function(info, options)
-	return {
-		source = "return texture(self, uv) * color;",
-		vars = {
-			color = info.color,
-		},
-	}
-end
-
-function fonts.CreateFont(options)
-	options = options or {}
-	local path = options.path or fonts.GetSystemDefaultFont()
-	local size = options.size or 14
-	-- Calculate padding needed for effects BEFORE loading the font
-	local padding = options.padding or 0
-
-	-- If we have shadow or other effects, calculate required padding
-	if options.shadow then
-		local shadow_info = options.shadow
-		local dir = shadow_info.dir or (size / 2)
-
-		if type(dir) == "number" then
-			dir = math.abs(dir)
-		else
-			dir = math.max(math.abs(dir.x or 0), math.abs(dir.y or 0))
-		end
-
-		local blur_radius = shadow_info.blur_radius or 0
-		local blur_extend = blur_radius * 4 * (shadow_info.blur_passes or 1)
-		local required_padding = math.ceil(dir + blur_extend)
-		padding = math.max(padding, required_padding)
-	end
-
-	local font = fonts.LoadFont(path, size, padding, options.unique)
-
-	if padding > 0 then font:SetPadding(padding) end
-
-	if options.separate_effects then font:SetSeparateEffects(true) end
-
-	local shading_info = {}
-	local sorted = {}
-
-	for name, callback in pairs(effects) do
-		if options[name] then
-			options[name].order = options[name].order or 0
-			table.insert(sorted, {info = options[name], callback = callback})
-		end
-	end
-
-	if options.effects then
-		for _, effect in ipairs(options.effects) do
-			local callback = effects[effect.type]
-
-			if callback then
-				effect.order = effect.order or 0
-				table.insert(sorted, {info = effect, callback = callback})
-			end
-		end
-	end
-
-	table.sort(sorted, function(a, b)
-		return a.info.order > b.info.order
-	end)
-
-	for _, data in ipairs(sorted) do
-		local stages = data.callback(data.info, options)
-
-		if stages.source then stages = {stages} end
-
-		for _, stage in ipairs(stages) do
-			table.insert(shading_info, stage)
-		end
-	end
-
-	if #shading_info > 0 then
-		font:SetShadingInfo(shading_info)
-		font:Rebuild()
-	end
-
-	return font
-end
-
 function fonts.GetDefaultFont()
 	if not default_font then
-		print("creating defauilt font")
-		default_font = rasterized_font.New(base_font)
+		print("creating default font")
+		default_font = sdf_font.New(base_font)
 	end
 
 	return default_font
-end
-
-function fonts.GetFallbackFont()
-	return fonts.GetDefaultFont()
 end
 
 function fonts.SetFont(font)
@@ -351,7 +170,7 @@ function fonts.GetSystemFonts()
 	return found_fonts
 end
 
-function fonts.GetSystemDefaultFont()
+function fonts.GetDefaultSystemFontPath()
 	if WINDOWS then
 		return os.getenv("WINDIR") .. "/Fonts/arial.ttf"
 	elseif OSX then

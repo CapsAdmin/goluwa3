@@ -10,7 +10,7 @@ local m
 local markup = Markup.New()
 markup:SetEditable(true)
 --markup:SetLineWrap(true)
-markup:AddFont(fonts.CreateFont({size = 14, read_speed = 100}))
+markup:AddFont(fonts.New({Size = 14, ReadSpeed = 100}))
 markup:AddString(
 	"Hello markup test!\n有一些中國\nそして、いくつかの日本の\nكيف حول بعض عربية"
 )
@@ -21,7 +21,7 @@ divide this up in cells (new object?)
 proper tag stack
 the ability to edit (remove and copy) custom tags that have a size (like textures)
 alignment tags]]
-markup:AddFont(fonts.CreateFont({size = 8, read_speed = 100}))
+markup:AddFont(fonts.New({Size = 8, ReadSpeed = 100}))
 markup:AddString(
 	"\nhere's some text in chinese:\n我寫了這個在谷歌翻譯，所以我可以測試我的標記語言使用Unicode正確。它似乎做工精細！\n"
 )
@@ -29,7 +29,7 @@ markup:AddString("some normal string again\n")
 markup:AddString("and another one\n")
 markup:AddFont(fonts.GetDefaultFont())
 markup:AddString("back to normal!\n\n")
-markup:AddFont(fonts.CreateFont({size = 14, read_speed = 100, monospace = true}))
+markup:AddFont(fonts.New({Size = 14, ReadSpeed = 100, Monospace = true}))
 markup:AddString("monospace\n")
 markup:AddString(
 	"░█░█░█▀█░█▀█░█▀█░█░█░\n░█▀█░█▀█░█▀▀░█▀▀░▀█▀░\n░▀░▀░▀░▀░▀░░░▀░░░░▀░░\n"
@@ -62,11 +62,11 @@ end
 	true
 )
 markup:AddFont(
-	fonts.CreateFont(
+	fonts.New(
 		{
-			path = fonts.FindFontPath("Roboto") or fonts.GetDefaultFont(),
-			size = 30,
-			read_speed = 100,
+			Path = fonts.FindFontPath("Roboto") or fonts.GetDefaultFont(),
+			Size = 30,
+			ReadSpeed = 100,
 		}
 	)
 )
@@ -76,11 +76,11 @@ markup:AddString("wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww\n")
 markup:AddColor(Color.FromBytes(255, 255, 255, 255))
 markup:AddFont(fonts.GetDefaultFont())
 markup:AddFont(
-	fonts.CreateFont(
+	fonts.New(
 		{
-			path = fonts.FindFontPath("tahoma") or fonts.GetDefaultFont(),
-			size = 20,
-			read_speed = 100,
+			Path = fonts.FindFontPath("tahoma") or fonts.GetDefaultFont(),
+			Size = 20,
+			ReadSpeed = 100,
 		}
 	)
 )
@@ -110,11 +110,11 @@ markup:AddString("<rotate=90></rotate>", true) -- FIX ME
 markup:AddString("\n")
 markup:AddString("maybe..\n")
 markup:AddFont(
-	fonts.CreateFont(
+	fonts.New(
 		{
-			path = fonts.FindFontPath("webdings") or fonts.GetDefaultFont(),
-			size = 30,
-			read_speed = 100,
+			Path = fonts.FindFontPath("webdings") or fonts.GetDefaultFont(),
+			Size = 30,
+			ReadSpeed = 100,
 		}
 	)
 )

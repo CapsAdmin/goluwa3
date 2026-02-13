@@ -163,11 +163,11 @@ do
 
 		do
 			render2d.PushOutlineWidth(5)
-			render2d.PushEdgeFeather(0.2)
+			render2d.PushBlur(10)
 			render2d.SetColor(0, 0, 0, 0.5)
 			render2d.SetTexture(nil)
 			render2d.DrawRect(x, y, w, h)
-			render2d.PopEdgeFeather()
+			render2d.PopBlur()
 			render2d.PopOutlineWidth()
 		end
 
@@ -228,27 +228,27 @@ end
 
 do
 	local blur_color = Color.FromHex("#2374DD")
-	theme.HeadingFont = fonts.CreateFont(
+	theme.HeadingFont = fonts.New(
 		{
-			path = "/home/caps/Downloads/Exo_2/static/Exo2-Bold.ttf",
-			size = 30,
-			padding = 20,
-			separate_effects = true,
-			effects = {
+			Path = "/home/caps/Downloads/Exo_2/static/Exo2-Bold.ttf",
+			Size = 30,
+			Padding = 20,
+			SeparateEffects = true,
+			Effects = {
 				{
-					type = "shadow",
-					dir = -1.5,
-					color = Color.FromHex("#0c1721"),
-					blur_radius = 0.25,
-					blur_passes = 1,
+					Type = "shadow",
+					Dir = -1.5,
+					Color = Color.FromHex("#0c1721"),
+					BlurRadius = 0.25,
+					BlurPasses = 1,
 				},
 				{
-					type = "shadow",
-					dir = 0,
-					color = blur_color,
-					blur_radius = 3,
-					blur_passes = 3,
-					alpha_pow = 0.6,
+					Type = "shadow",
+					Dir = 0,
+					Color = blur_color,
+					BlurRadius = 3,
+					BlurPasses = 3,
+					AlphaPow = 0.6,
 				},
 			},
 		}
@@ -274,12 +274,12 @@ function theme.DrawSimpleLine(x1, y1, x2, y2, thickness)
 end
 
 function theme.DrawMagicCircle(x, y, size)
-	render2d.PushEdgeFeather(0.02)
+	render2d.PushBlur(size * 0.05)
 	theme.DrawCircle(x, y, size, 4)
 	theme.DrawCircle(x, y, size * 1.5)
 	theme.DrawCircle(x, y, size * 1.7)
 	theme.DrawCircle(x, y, size * 3)
-	render2d.PopEdgeFeather()
+	render2d.PopBlur()
 
 	for i = 1, 8 do
 		local angle = (i / 8) * math.pi * 2
@@ -415,10 +415,6 @@ end
 
 if HOTRELOAD then
 	event.AddListener("Draw2D", "theme_museum", function()
-		do
-			return
-		end
-
 		theme.DrawMuseum()
 	end)
 end

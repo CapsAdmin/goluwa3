@@ -9,12 +9,11 @@ local width = 512
 local height = 512
 
 T.Test2D("sdf font", function()
-	local font = fonts.CreateFont({
-		path = fonts.GetSystemDefaultFont(),
-		size = 256,
-		unique = true,
+	local font = fonts.New({
+		Path = fonts.GetDefaultSystemFontPath(),
+		Size = 256,
+		Unique = true,
 	})
-	font:SetSDF(true)
 	render2d.SetTexture(nil)
 	render2d.DrawRect(500, 500, 5, 5)
 	render2d.SetColor(1, 1, 1, 1)
@@ -29,10 +28,10 @@ T.Test2D("sdf font", function()
 end)
 
 T.Test2D("non sdf font", function()
-	local font = fonts.CreateFont({
-		path = fonts.GetSystemDefaultFont(),
-		size = 256,
-		unique = true,
+	local font = fonts.New({
+		Path = fonts.GetDefaultSystemFontPath(),
+		Size = 256,
+		Unique = true,
 	})
 	render2d.SetTexture(nil)
 	render2d.DrawRect(500, 500, 5, 5)

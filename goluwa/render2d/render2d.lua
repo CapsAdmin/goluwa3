@@ -26,19 +26,17 @@ local FragmentConstants = ffi.typeof([[
         float uv_offset[2];             
         float uv_scale[2];              
         int swizzle_mode;
-        float edge_feather;
+        float blur[2];
         float border_radius[4];
         float outline_width;
         float rect_size[2];
         float sdf_threshold;
-        float sdf_feather;
-        float sdf_shadow_offset[2];
-        float sdf_shadow_color[4];
-        float sdf_gradient_color[4];
+        int gradient_texture_index;
         int nine_patch_x_count;
         int nine_patch_y_count;
         float nine_patch_x_stretch[6];
         float nine_patch_y_stretch[6];
+        float sdf_rect_size[2];
 	}
 ]])
 local vertex_constants = VertexConstants()
@@ -170,21 +168,11 @@ function render2d.ResetState()
 	render2d.SetAlphaMultiplier(1)
 	render2d.SetUV()
 	render2d.SetSwizzleMode(0)
-	render2d.SetEdgeFeather(0)
+	render2d.SetBlur(0)
 	render2d.SetBorderRadius(0, 0, 0, 0)
 	render2d.SetOutlineWidth(0)
 	fragment_constants.sdf_threshold = 0
-	fragment_constants.sdf_feather = 0
-	fragment_constants.sdf_shadow_offset[0] = 0
-	fragment_constants.sdf_shadow_offset[1] = 0
-	fragment_constants.sdf_shadow_color[0] = 0
-	fragment_constants.sdf_shadow_color[1] = 0
-	fragment_constants.sdf_shadow_color[2] = 0
-	fragment_constants.sdf_shadow_color[3] = 0
-	fragment_constants.sdf_gradient_color[0] = 0
-	fragment_constants.sdf_gradient_color[1] = 0
-	fragment_constants.sdf_gradient_color[2] = 0
-	fragment_constants.sdf_gradient_color[3] = 0
+	fragment_constants.gradient_texture_index = -1
 	fragment_constants.nine_patch_x_count = 0
 	fragment_constants.nine_patch_y_count = 0
 
@@ -194,6 +182,7 @@ function render2d.ResetState()
 	end
 
 	render2d.SetSDFThreshold(0.5)
+	render2d.SetBlur(0)
 	render2d.UpdateScreenSize(render.GetRenderImageSize())
 	render2d.SetBlendMode("alpha", true)
 	render2d.SetColorFormat(render.target and render.target:GetColorFormat() or surface_format)
@@ -290,19 +279,17 @@ do
 						vec2 uv_offset;
 						vec2 uv_scale;
 						int swizzle_mode;
-						float edge_feather;
+						vec2 blur;
 						vec4 border_radius;
 						float outline_width;
 						vec2 rect_size;
 						float sdf_threshold;
-						float sdf_feather;
-						vec2 sdf_shadow_offset;
-						vec4 sdf_shadow_color;
-						vec4 sdf_gradient_color;
+						int gradient_texture_index;
 						int nine_patch_x_count;
 						int nine_patch_y_count;
 						float nine_patch_x_stretch[6];
 						float nine_patch_y_stretch[6];
+						vec2 sdf_rect_size;
 					} pc;                   
 
 					float map_nine_patch(float x, float tw, float sw, float stretch[6], int count) 
@@ -350,110 +337,52 @@ do
 						return (curr_src + (x - curr_tgt)) / sw;
 					}
 
+					float sd_rect(vec2 coords, vec2 quad_size, vec2 logical_size, vec4 radius) {
+						vec2 p = (coords - 0.5) * quad_size;
+						vec2 b = logical_size * 0.5;
+						float rad;
+						if (p.x < 0.0 && p.y < 0.0) rad = radius.x;
+						else if (p.x > 0.0 && p.y < 0.0) rad = radius.y;
+						else if (p.x > 0.0 && p.y > 0.0) rad = radius.z;
+						else rad = radius.w;
+
+						float min_dim = min(logical_size.x, logical_size.y);
+						float half_dim = min_dim * 0.5;
+						float inset = min(rad, half_dim);
+						vec2 q = abs(p) - b + inset;
+
+						if (q.x <= 0.0 || q.y <= 0.0) {
+							return max(q.x, q.y) - inset;
+						} else {
+							if (inset < 0.001) return length(q);
+							float norm_rad = rad / max(half_dim, 0.0001);
+							float exp_p = clamp(2.0 / norm_rad, 0.1, 200.0);
+							vec2 np = q / inset;
+							float lp = pow(pow(np.x, exp_p) + pow(np.y, exp_p), 1.0 / exp_p);
+							return (lp - 1.0) * inset;
+						}
+					}
+
 					void main() 
-					{
-						out_color = in_color * pc.global_color;
-
+					{						
+						vec4 color = in_color * pc.global_color;
+						bool is_sdf_tex = (pc.texture_index >= 0 && pc.swizzle_mode == 10);
 						vec2 uv = in_uv;
-						if (pc.texture_index >= 0 && (pc.nine_patch_x_count > 0 || pc.nine_patch_y_count > 0)) {
-							vec2 tex_size = vec2(textureSize(textures[nonuniformEXT(pc.texture_index)], 0));
-							
-							if (pc.nine_patch_x_count > 0) {
-								uv.x = map_nine_patch(in_uv.x * pc.rect_size.x, pc.rect_size.x, tex_size.x, pc.nine_patch_x_stretch, pc.nine_patch_x_count);
-							}
-							if (pc.nine_patch_y_count > 0) {
-								uv.y = map_nine_patch(in_uv.y * pc.rect_size.y, pc.rect_size.y, tex_size.y, pc.nine_patch_y_stretch, pc.nine_patch_y_count);
-							}
-						}
 
-						if (pc.rect_size.x > 0.0 && pc.rect_size.y > 0.0) {
-							vec2 p = (in_uv - 0.5) * pc.rect_size;
-							vec2 b = pc.rect_size * 0.5;
-							vec4 r = pc.border_radius;
-							float rad = 0.0;
-							if (p.x < 0.0 && p.y < 0.0) rad = r.x;
-							else if (p.x > 0.0 && p.y < 0.0) rad = r.y;
-							else if (p.x > 0.0 && p.y > 0.0) rad = r.z;
-							else if (p.x < 0.0 && p.y > 0.0) rad = r.w;
-
-							float min_dim = min(pc.rect_size.x, pc.rect_size.y);
-							float half_dim = min_dim * 0.5;
-
-							// Clamp radius to half_dim for the inset (corner region stays fixed size)
-							float inset = min(rad, half_dim);
-
-							// The corner region offset: how far into the corner we are
-							vec2 q = abs(p) - b + inset;
-
-							float d;
-							if (q.x <= 0.0 || q.y <= 0.0) {
-								// On a flat edge or interior: standard box SDF
-								d = max(q.x, q.y) - inset;
-							} else {
-								// In the corner region: use Lp norm
-								// Map radius to normalized range relative to half_dim
-								// 1.0 (50% side) = Circle (p=2), 2.0 (100% side) = Diamond (p=1)
-								float norm_rad = rad / max(half_dim, 0.001);
-
-								float exp_p;
-								if (norm_rad <= 0.0) {
-									exp_p = 200.0;
-								} else {
-									exp_p = clamp(2.0 / norm_rad, 0.1, 200.0);
-								}
-
-								// Lp distance in corner, normalized to the inset size
-								vec2 np = q / max(inset, 0.001);
-								float lp = pow(pow(np.x, exp_p) + pow(np.y, exp_p), 1.0 / exp_p);
-								d = (lp - 1.0) * inset;
-							}
-
-							float s = 1.0;
-							float feather = pc.edge_feather * min_dim * 0.5;
-							float mask;
-
-							if (pc.outline_width > 0.0) {
-								float outer_mask = smoothstep(s, -s, d);
-								float inner_mask = smoothstep(s + feather, -(s + feather), d + pc.outline_width);
-								mask = outer_mask - inner_mask;
-							} else {
-								mask = smoothstep(s + feather, -(s + feather), d);
-							}
-
-							out_color.a *= mask;
-						}
-						
 						if (pc.texture_index >= 0) {
-							if (pc.swizzle_mode == 10) {
-								vec2 sdf_uv = uv * pc.uv_scale + pc.uv_offset;
-								float dist = texture(textures[nonuniformEXT(pc.texture_index)], sdf_uv).r;
-								float smoothing = fwidth(dist) * pc.sdf_feather;
-								if (smoothing == 0.0) smoothing = 0.01;
-								float fill_alpha = smoothstep(pc.sdf_threshold - smoothing, pc.sdf_threshold + smoothing, dist);
+							if (pc.nine_patch_x_count > 0 || pc.nine_patch_y_count > 0) {
+								vec2 tex_size = vec2(textureSize(textures[nonuniformEXT(pc.texture_index)], 0));
+								vec2 p_logical = (in_uv - 0.5) * pc.rect_size + pc.sdf_rect_size * 0.5;
 								
-								vec4 fill_color = in_color * pc.global_color;
-								if (pc.sdf_gradient_color.a > 0.0) {
-									fill_color.rgb = mix(fill_color.rgb, pc.sdf_gradient_color.rgb, in_uv.y);
+								if (pc.nine_patch_x_count > 0) {
+									uv.x = map_nine_patch(p_logical.x, pc.sdf_rect_size.x, tex_size.x, pc.nine_patch_x_stretch, pc.nine_patch_x_count);
 								}
-
-								vec4 text_col = fill_color;
-								text_col.a *= fill_alpha;
-
-								if (pc.sdf_shadow_color.a > 0.0) {
-									vec2 tex_size = vec2(textureSize(textures[nonuniformEXT(pc.texture_index)], 0));
-									float shadow_dist = texture(textures[nonuniformEXT(pc.texture_index)], sdf_uv - pc.sdf_shadow_offset / tex_size).r;
-									float shadow_smoothing = fwidth(shadow_dist) * pc.sdf_feather;
-									if (shadow_smoothing == 0.0) shadow_smoothing = 0.01;
-									float shadow_alpha = smoothstep(pc.sdf_threshold - shadow_smoothing, pc.sdf_threshold + shadow_smoothing, shadow_dist);
-									
-									vec4 s_col = pc.sdf_shadow_color;
-									s_col.a *= shadow_alpha;
-									
-									out_color = mix(s_col, text_col, fill_alpha);
-								} else {
-									out_color = text_col;
+								if (pc.nine_patch_y_count > 0) {
+									uv.y = map_nine_patch(p_logical.y, pc.sdf_rect_size.y, tex_size.y, pc.nine_patch_y_stretch, pc.nine_patch_y_count);
 								}
-							} else {
+							}
+
+							if (!is_sdf_tex) {
 								vec4 tex = texture(textures[nonuniformEXT(pc.texture_index)], uv * pc.uv_scale + pc.uv_offset);
 								
 								if (pc.swizzle_mode == 1) tex = vec4(tex.rrr, 1.0);
@@ -461,17 +390,64 @@ do
 								else if (pc.swizzle_mode == 3) tex = vec4(tex.bbb, 1.0);
 								else if (pc.swizzle_mode == 4) tex = vec4(tex.aaa, 1.0);
 								else if (pc.swizzle_mode == 5) tex = vec4(tex.rgb, 1.0);
-								out_color *= tex;
+								color *= tex;
 							}
 						}
 
-						if (pc.edge_feather > 0.0 && (pc.rect_size.x <= 0.0 || pc.rect_size.y <= 0.0)) {
-							vec2 uv_dist = smoothstep(vec2(0.0), vec2(pc.edge_feather), in_uv) * 
-							               smoothstep(vec2(1.0), vec2(1.0 - pc.edge_feather), in_uv);
-							out_color.a *= uv_dist.x * uv_dist.y;
+						float d = 1e10;
+						bool has_sdf = false;
+
+						if (pc.sdf_rect_size.x > 0.0 && pc.sdf_rect_size.y > 0.0) {
+							d = sd_rect(in_uv, pc.rect_size, pc.sdf_rect_size, pc.border_radius);
+							has_sdf = true;
 						}
 
-						out_color.a = out_color.a * pc.alpha_multiplier;						
+						if (is_sdf_tex) {
+							vec2 sdf_uv = uv * pc.uv_scale + pc.uv_offset;
+							float dist = texture(textures[nonuniformEXT(pc.texture_index)], sdf_uv).r;
+							float fw = fwidth(dist);
+							float d_tex = (pc.sdf_threshold - dist) / max(fw, 0.0001);
+							d = has_sdf ? max(d, d_tex) : d_tex;
+							has_sdf = true;
+						}
+
+						if (has_sdf) {
+							float smoothing = max(pc.blur.x, pc.blur.y);
+							smoothing = max(0.4, smoothing);
+
+							vec4 fill_color = color;
+							if (pc.gradient_texture_index >= 0) {
+								float gy = in_uv.y;
+								if (pc.sdf_rect_size.y > 0.0) {
+									gy = (in_uv.y - 0.5) * (pc.rect_size.y / pc.sdf_rect_size.y) + 0.5;
+								}
+								gy = clamp(gy, 0.0, 1.0);
+
+								fill_color *= texture(textures[nonuniformEXT(pc.gradient_texture_index)], vec2(gy, 0.5));
+							}
+
+							float f_alpha = (pc.outline_width > 0.0) ? 
+								(smoothstep(smoothing, -smoothing, d) - smoothstep(smoothing, -smoothing, d + pc.outline_width)) : 
+								smoothstep(smoothing, -smoothing, d);
+							
+							out_color = fill_color;
+							out_color.a *= f_alpha;
+						} else {
+							out_color = color;
+						}
+
+						if ((pc.blur.x > 0.0 || pc.blur.y > 0.0) && pc.sdf_rect_size.x <= 0.0) {
+							vec2 p = (in_uv - 0.5) * pc.rect_size;
+							vec2 b = max(vec2(0.0), (pc.rect_size - pc.blur * 2.0) * 0.5);
+							vec2 q = abs(p) - b;
+							float dist = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0);
+							
+							float max_blur = max(pc.blur.x, pc.blur.y);
+							out_color.a *= smoothstep(max_blur, 0.0, dist);
+						}
+
+
+						out_color.a *= pc.alpha_multiplier;						
 					}
 				]],
 				descriptor_sets = {
@@ -587,78 +563,29 @@ do
 		end
 
 		do
-			function render2d.SetSDFFeather(feather)
-				fragment_constants.sdf_feather = feather
+			function render2d.SetBlur(x, y)
+				fragment_constants.blur[0] = x or 0
+				fragment_constants.blur[1] = y or x or 0
 			end
 
-			function render2d.GetSDFFeather()
-				return fragment_constants.sdf_feather
+			function render2d.GetBlur()
+				return fragment_constants.blur[0], fragment_constants.blur[1]
 			end
 
-			utility.MakePushPopFunction(render2d, "SDFFeather")
+			utility.MakePushPopFunction(render2d, "Blur")
 		end
 
 		do
-			function render2d.SetSDFShadowOffset(x, y)
-				fragment_constants.sdf_shadow_offset[0] = x
-				fragment_constants.sdf_shadow_offset[1] = y
+			function render2d.SetSDFGradientTexture(tex)
+				render2d.current_gradient_texture = tex
 			end
 
-			function render2d.GetSDFShadowOffset()
-				return fragment_constants.sdf_shadow_offset[0],
-				fragment_constants.sdf_shadow_offset[1]
+			function render2d.GetSDFGradientTexture()
+				return render2d.current_gradient_texture
 			end
 
-			utility.MakePushPopFunction(render2d, "SDFShadowOffset")
+			utility.MakePushPopFunction(render2d, "SDFGradientTexture")
 		end
-
-		do
-			function render2d.SetSDFShadowColor(r, g, b, a)
-				fragment_constants.sdf_shadow_color[0] = r
-				fragment_constants.sdf_shadow_color[1] = g
-				fragment_constants.sdf_shadow_color[2] = b
-				fragment_constants.sdf_shadow_color[3] = a or 1
-			end
-
-			function render2d.GetSDFShadowColor()
-				return fragment_constants.sdf_shadow_color[0],
-				fragment_constants.sdf_shadow_color[1],
-				fragment_constants.sdf_shadow_color[2],
-				fragment_constants.sdf_shadow_color[3]
-			end
-
-			utility.MakePushPopFunction(render2d, "SDFShadowColor")
-		end
-
-		do
-			function render2d.SetSDFGradientColor(r, g, b, a)
-				fragment_constants.sdf_gradient_color[0] = r
-				fragment_constants.sdf_gradient_color[1] = g
-				fragment_constants.sdf_gradient_color[2] = b
-				fragment_constants.sdf_gradient_color[3] = a or 0
-			end
-
-			function render2d.GetSDFGradientColor()
-				return fragment_constants.sdf_gradient_color[0],
-				fragment_constants.sdf_gradient_color[1],
-				fragment_constants.sdf_gradient_color[2],
-				fragment_constants.sdf_gradient_color[3]
-			end
-
-			utility.MakePushPopFunction(render2d, "SDFGradientColor")
-		end
-	end
-
-	do
-		function render2d.SetEdgeFeather(feather)
-			fragment_constants.edge_feather = feather or 0
-		end
-
-		function render2d.GetEdgeFeather()
-			return fragment_constants.edge_feather
-		end
-
-		utility.MakePushPopFunction(render2d, "EdgeFeather")
 	end
 
 	do
@@ -852,6 +779,83 @@ do
 	end
 
 	utility.MakePushPopFunction(render2d, "ColorFormat")
+
+	function render2d.CreateGradient(config)
+		local width = config.width or 256
+		local height = config.height or 1
+		local mode = config.mode or "linear"
+		local stops = config.stops or {}
+
+		for i, stop in ipairs(stops) do
+			stop.pos = stop.pos or i - 1
+		end
+
+		local tex = Texture.New(
+			{
+				width = width,
+				height = height,
+				format = "r8g8b8a8_unorm",
+				mip_map_levels = 1,
+				sampler = {
+					min_filter = "linear",
+					mag_filter = "linear",
+					wrap_s = "clamp_to_edge",
+					wrap_t = "clamp_to_edge",
+				},
+			}
+		)
+		local glsl
+
+		if mode == "linear" then
+			local angle = config.angle or 0 -- degrees
+			local rad = math.rad(angle)
+			local s, c = math.sin(rad), math.cos(rad)
+			glsl = [[
+				vec2 dir = vec2(]] .. s .. [[, ]] .. -c .. [[);
+				float t = dot(uv - 0.5, dir) + 0.5;
+			]]
+		elseif mode == "radial" then
+			glsl = [[
+				float t = distance(uv, vec2(0.5)) * 2.0;
+			]]
+		end
+
+		-- Build the color ramp from stops
+		-- stops = { {pos=0, color=Color(1,0,0,1)}, {pos=1, color=Color(0,0,1,1)} }
+		table.sort(stops, function(a, b)
+			return a.pos < b.pos
+		end)
+
+		local ramp = ""
+
+		if #stops == 0 then
+			ramp = "return vec4(1.0);"
+		elseif #stops == 1 then
+			local c = stops[1].color
+			ramp = "return vec4(" .. c.r .. "," .. c.g .. "," .. c.b .. "," .. c.a .. ");"
+		else
+			ramp = "vec4 res = vec4(0.0);\n"
+
+			for i = 1, #stops - 1 do
+				local s1 = stops[i]
+				local s2 = stops[i + 1]
+				local cond = (i == 1) and "t <= " .. s2.pos or "t > " .. s1.pos .. " && t <= " .. s2.pos
+
+				if i == #stops - 1 then cond = "t > " .. s1.pos end
+
+				ramp = ramp .. "if (" .. cond .. ") {\n"
+				ramp = ramp .. "  float fac = clamp((t - " .. s1.pos .. ") / (" .. s2.pos .. " - " .. s1.pos .. "), 0.0, 1.0);\n"
+				ramp = ramp .. "  res = mix(vec4(" .. s1.color.r .. "," .. s1.color.g .. "," .. s1.color.b .. "," .. s1.color.a .. "), vec4(" .. s2.color.r .. "," .. s2.color.g .. "," .. s2.color.b .. "," .. s2.color.a .. "), fac);\n"
+				ramp = ramp .. "}\n"
+			end
+
+			ramp = ramp .. "return res;"
+		end
+
+		tex:Shade(glsl .. "\n" .. ramp)
+		return tex
+	end
+
 	render2d.stencil_modes = {
 		none = {
 			stencil_test = false,
@@ -1137,7 +1141,7 @@ do
 		end
 	end
 
-	function render2d.UploadConstants(cmd, w, h)
+	function render2d.UploadConstants(cmd, w, h, lw, lh)
 		do
 			vertex_constants.projection_view_world = render2d.GetMatrix():GetFloatCopy()
 			render2d.pipeline:PushConstants(cmd, "vertex", 0, vertex_constants)
@@ -1146,8 +1150,13 @@ do
 		do
 			fragment_constants.rect_size[0] = w or 0
 			fragment_constants.rect_size[1] = h or 0
+			fragment_constants.sdf_rect_size[0] = lw or w or 0
+			fragment_constants.sdf_rect_size[1] = lh or h or 0
 			fragment_constants.texture_index = render2d.current_texture and
 				render2d.pipeline:GetTextureIndex(render2d.current_texture) or
+				-1
+			fragment_constants.gradient_texture_index = render2d.current_gradient_texture and
+				render2d.pipeline:GetTextureIndex(render2d.current_gradient_texture) or
 				-1
 			render2d.pipeline:PushConstants(cmd, "fragment", ffi.sizeof(vertex_constants), fragment_constants)
 		end
@@ -1350,37 +1359,101 @@ do -- camera
 end
 
 do
-	function render2d.DrawRect(x, y, w, h, a, ox, oy)
+	local function get_margin()
+		local content_m = fragment_constants.outline_width
+
+		if fragment_constants.swizzle_mode == 10 or fragment_constants.swizzle_mode == 1 then
+			content_m = content_m + math.max(fragment_constants.blur[0], fragment_constants.blur[1])
+		end
+
+		if fragment_constants.blur[0] > 0 or fragment_constants.blur[1] > 0 then
+			content_m = math.max(content_m, fragment_constants.blur[0], fragment_constants.blur[1])
+		end
+
+		local m = content_m
+
+		if m > 0 then m = m + 1 end
+
+		return math.ceil(m)
+	end
+
+	local m = nil
+
+	function render2d.GetMargin()
+		return m or get_margin()
+	end
+
+	function render2d.SetMargin(new_m)
+		m = new_m
+	end
+
+	function render2d.DrawRect(x, y, w, h, a, ox, oy, max_m)
+		local m = render2d.GetMargin(w, h)
+
+		if max_m then m = math.min(m, max_m) end
+
 		render2d.BindMesh(render2d.rect_mesh)
 		render2d.PushMatrix()
 
-		if x and y then render2d.Translate(x, y) end
+		if x and y then render2d.Translate(x - m, y - m) end
 
 		if a then render2d.Rotate(a) end
 
 		if ox then render2d.Translate(-ox, -oy) end
 
-		if w and h then render2d.Scale(w, h) end
+		local qw, qh = w + m * 2, h + m * 2
 
-		render2d.UploadConstants(render2d.cmd, w, h)
+		if w and h then render2d.Scale(qw, qh) end
+
+		local old_off_x, old_off_y = fragment_constants.uv_offset[0], fragment_constants.uv_offset[1]
+		local old_scale_x, old_scale_y = fragment_constants.uv_scale[0], fragment_constants.uv_scale[1]
+
+		if m > 0 and w > 0 and h > 0 then
+			fragment_constants.uv_scale[0] = old_scale_x * (qw / w)
+			fragment_constants.uv_scale[1] = old_scale_y * (qh / h)
+			fragment_constants.uv_offset[0] = old_off_x - (m / w) * old_scale_x
+			fragment_constants.uv_offset[1] = old_off_y - (m / h) * old_scale_y
+		end
+
+		render2d.UploadConstants(render2d.cmd, qw, qh, w, h)
 		render2d.rect_mesh:DrawIndexed(render2d.cmd, 6)
+		fragment_constants.uv_offset[0], fragment_constants.uv_offset[1] = old_off_x, old_off_y
+		fragment_constants.uv_scale[0], fragment_constants.uv_scale[1] = old_scale_x, old_scale_y
 		render2d.PopMatrix()
 	end
 
-	function render2d.DrawRectf(x, y, w, h, a, ox, oy)
+	function render2d.DrawRectf(x, y, w, h, a, ox, oy, max_m)
+		local m = render2d.GetMargin(w, h)
+
+		if max_m then m = math.min(m, max_m) end
+
 		render2d.BindMesh(render2d.rect_mesh)
 		render2d.PushMatrix()
 
-		if x and y then render2d.Translatef(x, y) end
+		if x and y then render2d.Translatef(x - m, y - m) end
 
 		if a then render2d.Rotate(a) end
 
 		if ox then render2d.Translatef(-ox, -oy) end
 
-		if w and h then render2d.Scalef(w, h) end
+		local qw, qh = w + m * 2, h + m * 2
 
-		render2d.UploadConstants(render2d.cmd, w, h)
+		if w and h then render2d.Scalef(qw, qh) end
+
+		local old_off_x, old_off_y = fragment_constants.uv_offset[0], fragment_constants.uv_offset[1]
+		local old_scale_x, old_scale_y = fragment_constants.uv_scale[0], fragment_constants.uv_scale[1]
+
+		if m > 0 and w > 0 and h > 0 then
+			fragment_constants.uv_scale[0] = old_scale_x * (qw / w)
+			fragment_constants.uv_scale[1] = old_scale_y * (qh / h)
+			fragment_constants.uv_offset[0] = old_off_x - (m / w) * old_scale_x
+			fragment_constants.uv_offset[1] = old_off_y - (m / h) * old_scale_y
+		end
+
+		render2d.UploadConstants(render2d.cmd, qw, qh, w, h)
 		render2d.rect_mesh:DrawIndexed(render2d.cmd, 6)
+		fragment_constants.uv_offset[0], fragment_constants.uv_offset[1] = old_off_x, old_off_y
+		fragment_constants.uv_scale[0], fragment_constants.uv_scale[1] = old_scale_x, old_scale_y
 		render2d.PopMatrix()
 	end
 end
@@ -1396,7 +1469,7 @@ do
 
 		if w and h then render2d.Scale(w, h) end
 
-		render2d.UploadConstants(render2d.cmd)
+		render2d.UploadConstants(render2d.cmd, w, h)
 		render2d.triangle_mesh:Draw(render2d.cmd, 3)
 		render2d.PopMatrix()
 	end

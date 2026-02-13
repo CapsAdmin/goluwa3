@@ -1,35 +1,35 @@
 local event = require("event")
 local render2d = require("render2d.render2d")
 local Color = require("structs.color")
+local Vec2 = require("structs.vec2")
 local gfx = require("render2d.gfx")
 local fonts = require("render2d.fonts")
-local path = fonts.GetSystemDefaultFont()
-local font_simple = fonts.LoadFont(path, 50)
-local font_shadow = fonts.CreateFont(
+local path = fonts.GetDefaultSystemFontPath()
+local font_simple = fonts.New({Path = path, Size = 50})
+local font_shadow = fonts.New(
 	{
-		path = path,
-		size = 30,
-		shadow = {
-			dir = -2,
-			color = Color.FromHex("#022d58"):SetAlpha(0.75),
-			blur_radius = 0.25,
-			blur_passes = 1,
+		Path = path,
+		Size = 30,
+		Shadow = {
+			Dir = Vec2() + -2,
+			Color = Color.FromHex("#022d58"):SetAlpha(0.75),
+			BlurRadius = 0.25,
+			BlurPasses = 1,
 		},
-	--color = {color = Color(0, 0, 1, 1)},
 	}
 )
-local font_glow = fonts.CreateFont(
+local font_glow = fonts.New(
 	{
-		path = path,
-		size = 50,
-		shadow = {
-			dir = 0,
-			color = Color(1, 1, 1, 1),
-			blur_radius = 1,
-			blur_passes = 2,
-			alpha_pow = 1,
+		Path = path,
+		Size = 50,
+		Padding = 2,
+		Shadow = {
+			Dir = Vec2(),
+			Color = Color(1, 1, 1, 1),
+			BlurRadius = 1,
+			BlurPasses = 2,
+			AlphaPow = 1,
 		},
-		padding = 2,
 	}
 )
 

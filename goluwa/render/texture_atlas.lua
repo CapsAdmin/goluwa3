@@ -263,6 +263,12 @@ function META:Build(cmd)
 	end
 
 	self.dirty_textures = {}
+
+	if false then
+		for _, page in ipairs(self.pages) do
+			page.texture:Download():SaveAs("debug_texture_" .. tostring(tex) .. ".png")
+		end
+	end
 end
 
 function META:GetTextures()

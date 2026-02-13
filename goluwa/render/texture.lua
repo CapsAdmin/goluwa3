@@ -1350,6 +1350,15 @@ do
 					table.insert(pixel_table, val)
 				end
 			end
+		elseif format == "r16g16b16a16_unorm" then
+			local upixels = ffi.cast("uint16_t*", self.pixels)
+
+			for i = 0, w * h - 1 do
+				for c = 0, 3 do
+					local val = math.clamp(math.floor(upixels[i * 4 + c] / 65535 * 255), 0, 255)
+					table.insert(pixel_table, val)
+				end
+			end
 		else
 			-- Fallback to assuming RGBA if unknown
 			for i = 0, self.size - 1 do

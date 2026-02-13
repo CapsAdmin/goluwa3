@@ -10,7 +10,7 @@ T.Test("Font rasterization and texture atlas", function()
 	local font_path = "/home/caps/Downloads/Exo_2/static/Exo2-Regular.ttf"
 	-- Check if file exists first, if not we might need to skip or error gracefully
 	-- Since the user said we CAN use it, I'll assume it exists if they are running it.
-	local font = fonts.CreateFont({path = font_path, size = 20, padding = 2})
+	local font = fonts.New({Path = font_path, Size = 20, Padding = 2})
 	T(font)["~="](nil)
 	T(font.IsFont)["=="](true)
 	T(font.Size)["=="](20)
@@ -18,9 +18,9 @@ T.Test("Font rasterization and texture atlas", function()
 	-- Test loading a specific glyph
 	local char = "A"
 	local char_code = string.byte(char)
-	-- Initially the character shouldn't be loaded (atlas is built on CreateFont for already existing chars, but not new ones)
-	-- Actually fonts.CreateFont calls fonts.LoadFont which calls rasterized_font.New.
-	-- rasterized_font.New calls create_atlas which loads characters if self.chars is already populated.
+	-- Initially the character shouldn't be loaded (atlas is built on New for already existing chars, but not new ones)
+	-- Actually fonts.New calls fonts.New which calls sdf_font.New.
+	-- sdf_font.New calls create_atlas which loads characters if self.chars is already populated.
 	-- In this case self.chars is empty.
 	-- Draw text or get size to trigger loading
 	local w, h = font:GetTextSize("Hello")
@@ -56,19 +56,6 @@ T.Test("Font rasterization and texture atlas", function()
 	T(aw)[">"](0)
 	T(ah)[">"](0)
 	-- Test manual rebuild
-	font:RebuildFromScratch()
-	T(font.chars[string.byte("H")])["~="](nil)
-	-- Test shading info
-	-- This should trigger pipeline creation and multi-pass rasterization
-	font:SetShadingInfo(
-		{
-			{
-				source = "return vec4(1.0, 0.0, 0.0, texture(self, uv).a);", -- Make it red
-				blend_mode = "alpha",
-			},
-		}
-	)
-	-- Rebuild from scratch to apply shading
 	font:RebuildFromScratch()
 	T(font.chars[string.byte("H")])["~="](nil)
 	-- Test multiple characters and atlas growth
@@ -117,9 +104,9 @@ T.Test("Atlas overflow and multiple pages", function()
 	local fonts = require("render2d.fonts")
 	local font_path = "/home/caps/Downloads/Exo_2/static/Exo2-Regular.ttf"
 	local utf8 = require("utf8")
-	local font = fonts.CreateFont({
-		path = font_path,
-		size = 64, -- 1024x1024 atlas
+	local font = fonts.New({
+		Path = font_path,
+		Size = 64, -- 1024x1024 atlas
 	})
 	font:SetLoadSpeed(1000)
 
