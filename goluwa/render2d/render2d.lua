@@ -1507,4 +1507,9 @@ event.AddListener("WindowFramebufferResized", "render2d", function(wnd, size)
 	render2d.UpdateScreenSize(size)
 end)
 
+if HOTRELOAD then
+	render2d.pipeline = nil
+	render2d.Initialize()
+end
+
 return render2d

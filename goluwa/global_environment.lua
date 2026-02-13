@@ -34,6 +34,13 @@ do
 	function _G.library()
 		local key = debug.getinfo(2).source
 
+		if key:sub(1, 1) == "@" then
+			key = key:sub(2)
+			-- normalize path
+			key = key:gsub("^%./", "")
+			key = key:gsub("//+", "/")
+		end
+
 		if not _G.registered_libs[key] then _G.registered_libs[key] = {} end
 
 		return _G.registered_libs[key]
@@ -41,7 +48,6 @@ do
 end
 
 _G.list = require("helpers.list")
-
 _G.WINDOWS = jit.os == "Windows"
 _G.LINUX = jit.os == "Linux"
 _G.OSX = jit.os == "OSX"
