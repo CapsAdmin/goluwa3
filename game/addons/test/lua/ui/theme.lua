@@ -764,6 +764,13 @@ function theme.DrawHeader(pnl)
 	theme2.DrawPill1(0, 0, size.x, size.y)
 end
 
+function theme.DrawProgressBar(self, state)
+	local size = self.Owner.transform.Size
+	local value = state.value or 0
+	local col = self.Owner.rect.Color or PRIMARY
+	theme2.DrawProgressBar(0, 0, size.x, size.y, value, col)
+end
+
 function theme.DrawDivider(pnl)
 	local size = pnl.transform.Size
 	render2d.SetColor(PRIMARY.r, PRIMARY.g, PRIMARY.b, PRIMARY.a * pnl.rect.DrawAlpha * 10)

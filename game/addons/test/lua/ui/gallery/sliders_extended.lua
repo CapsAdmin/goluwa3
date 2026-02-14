@@ -35,7 +35,13 @@ return {
 		}
 		-- 2D Color Picker Demo
 		canvas:AddChild(
-			Text({Text = "2D Color Picker Demo", FontName = "heading", Size = theme.GetSize("L")})
+			Text(
+				{
+					Text = "2D Color Picker Demo",
+					FontName = "heading",
+					Size = Vec2() + theme.GetSize("L"),
+				}
+			)
 		)
 		local preview_box = Column(
 			{
@@ -117,7 +123,13 @@ return {
 		canvas:AddChild(picker_row)
 		-- Mixing various orientations
 		canvas:AddChild(
-			Text({Text = "Orientation Layouts", FontName = "heading", Size = theme.GetSize("L")})
+			Text(
+				{
+					Text = "Orientation Layouts",
+					FontName = "heading",
+					Size = Vec2() + theme.GetSize("L"),
+				}
+			)
 		)
 		canvas:AddChild(
 			Row(

@@ -309,6 +309,82 @@ function theme.DrawGlow(x, y, size)
 	render2d.PopTexture()
 end
 
+function theme.DrawProgressBar(x, y, w, h, progress, color)
+	-- Background Frame
+	render2d.SetColor(0.2, 0.2, 0.3, 0.4)
+	render2d.DrawRect(x, y, w, h)
+	-- Top/Bottom glow lines
+	render2d.PushBlendMode("additive")
+	render2d.SetColor(0.3, 0.4, 0.6, 0.5)
+	theme.DrawGlowLine(x, y, x + w, y, 2)
+	theme.DrawGlowLine(x, y + h, x + w, y + h, 2)
+	-- Vertical dividers every 10%
+	render2d.SetColor(1, 1, 1, 0.1)
+	local div_w = w / 10
+
+	for i = 1, 9 do
+		local dx = x + div_w * i
+		render2d.DrawRect(dx, y, 1, h)
+	end
+
+	render2d.PopBlendMode()
+
+	-- Fill
+	if progress > 0 then
+		local fill_w = w * progress
+		local center_y = y + h / 2
+		local tip_x = x + fill_w
+		-- Main bar gradient
+		render2d.PushTexture(gradient_linear)
+
+		if color then
+			render2d.SetColor(color.r, color.g, color.b, (color.a or 1) * 0.8)
+		else
+			render2d.SetColor(0.4, 0.7, 1, 0.8)
+		end
+
+		-- Rotate gradient for a slash effect? Maybe just linear for now
+		render2d.DrawRect(x, y, fill_w, h)
+		render2d.PopTexture()
+		-- Additive glow layer over the bar
+		render2d.PushBlendMode("additive")
+		-- Highlight top edge of the filled part
+		render2d.SetColor(1, 1, 1, 0.6)
+		render2d.DrawRect(x, y, fill_w, 2)
+
+		-- Tip decoration (Diamond / Sci-Fi marker)
+		-- Color for the tip
+		if color then
+			render2d.SetColor(color.r, color.g, color.b, 1)
+		else
+			render2d.SetColor(0.6, 0.9, 1, 1)
+		end
+
+		-- Small sharp diamond at the tip
+		theme.DrawDiamond(tip_x, center_y, h * 0.8)
+
+		-- Larger faint halo diamond
+		if color then
+			render2d.SetColor(color.r, color.g, color.b, 0.3)
+		else
+			render2d.SetColor(0.6, 0.9, 1, 0.3)
+		end
+
+		theme.DrawDiamond(tip_x, center_y, h * 1.8)
+		-- Vertical glow line at the very tip to mark position clearly
+		render2d.SetTexture(glow_linear)
+		render2d.SetColor(1, 1, 1, 1)
+		render2d.PushMatrix()
+		render2d.Translate(tip_x, center_y)
+		render2d.Rotate(math.rad(90))
+		-- Draw centered vertical line
+		render2d.DrawRect(-h, -1.5, h * 2, 3)
+		render2d.PopMatrix()
+		render2d.PopBlendMode()
+		render2d.SetTexture(nil)
+	end
+end
+
 do
 	local glow_color = Color.FromHex("#5ea6e9")
 	local gradient = Texture.New(
