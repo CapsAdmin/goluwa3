@@ -12,11 +12,7 @@ return function(name, base_path, get_valid_components)
 				if key:starts_with("On") then
 					instance[key] = value
 				else
-					local setter = "Set" .. key
-
-					if instance[setter] then
-						instance[setter](instance, value)
-					else
+					if not prototype.SetProperty(instance, key, value) then
 						instance[key] = value
 					end
 				end
@@ -114,16 +110,11 @@ return function(name, base_path, get_valid_components)
 						if key:starts_with("On") then
 							ent[key] = val
 						else
-							local setter_name = "Set" .. key
-
-							if ent[setter_name] then
-								ent[setter_name](ent, val)
-							else
+							if not prototype.SetProperty(ent, key, val) then
 								local found = false
 
 								for _, component in ipairs(ent.component_list) do
-									if component[setter_name] then
-										component[setter_name](component, val)
+									if prototype.SetProperty(component, key, val) then
 										found = true
 
 										break
@@ -132,10 +123,10 @@ return function(name, base_path, get_valid_components)
 
 								if not found then
 									for comp_name, comp_meta in pairs(valid_components) do
-										if comp_meta[setter_name] then
+										if prototype.GetPropertyInfo(comp_meta, key) or comp_meta["Set" .. key] then
 											local component = ent:AddComponent(comp_name, nil, true)
 											table.insert(components, component)
-											component[setter_name](component, val)
+											prototype.SetProperty(component, key, val)
 											found = true
 
 											break
@@ -143,14 +134,7 @@ return function(name, base_path, get_valid_components)
 									end
 								end
 
-								if not found then
-									if not ent[setter_name] then
-										--error("Missing setter for property: " .. key)
-										ent[key] = val
-									else
-										ent[setter_name](ent, val)
-									end
-								end
+								if not found then ent[key] = val end
 							end
 						end
 					end

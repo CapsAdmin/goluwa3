@@ -206,6 +206,7 @@ function prototype.RebuildMetatables(what)
 
 			copy.BaseClass = prototype.registered[base_list[#base_list]]
 			meta.BaseClass = copy.BaseClass
+			copy.prototype_variables = prototype_variables
 			prototype.prepared_metatables[type_name] = copy
 		end
 	end
@@ -618,6 +619,73 @@ do -- get is set
 		return meta.storable_variables or {}
 	end
 
+	function prototype.GetPropertyInfo(meta, name)
+		if meta.prototype_variables then return meta.prototype_variables[name] end
+	end
+
+	local function get_type(val)
+		local t = type(val)
+
+		if (t == "table" or t == "userdata" or t == "cdata") and val.Type then
+			return val.Type
+		end
+
+		return t
+	end
+
+	function prototype.SetProperty(obj, key, value)
+		local info = prototype.GetPropertyInfo(getmetatable(obj), key)
+
+		if info then
+			if info.type ~= "nil" and value ~= nil then
+				local actual_type = get_type(value)
+
+				if actual_type ~= info.type then
+					if not (info.type == "number" and tonumber(value)) then
+						error(
+							string.format(
+								"%s: property %q: expected %s, got %s",
+								obj.Type or "unknown",
+								key,
+								info.type,
+								actual_type
+							),
+							2
+						)
+					end
+				end
+			end
+
+			obj[info.set_name](obj, value)
+			return true
+		end
+
+		local setter = "Set" .. key
+
+		if obj[setter] then
+			obj[setter](obj, value)
+			return true
+		end
+
+		return false
+	end
+
+	function prototype.GetProperty(obj, key)
+		local info = prototype.GetPropertyInfo(getmetatable(obj), key)
+
+		if info then return obj[info.get_name](obj) end
+
+		local getter = "Get" .. key
+
+		if obj[getter] then return obj[getter](obj) end
+
+		local is_getter = "Is" .. key
+
+		if obj[is_getter] then return obj[is_getter](obj) end
+
+		return obj[key]
+	end
+
 	function prototype.DelegateProperties(meta, from, var_name, callback)
 		meta[var_name] = NULL
 
@@ -749,9 +817,9 @@ do -- get is set
 		end
 
 		meta[name] = default
+		info.type = info.type or get_type(default)
 
 		if __store then
-			info.type = type(default)
 			meta.storable_variables = meta.storable_variables or {}
 			list.insert(meta.storable_variables, info)
 		end

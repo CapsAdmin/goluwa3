@@ -49,7 +49,7 @@ local function toggle()
 				GrowWidth = 1,
 				FitHeight = true,
 			},
-			Padding = "XXS",
+			Padding = Rect() + theme.GetSize("XXS"),
 		}
 	)(
 		{
