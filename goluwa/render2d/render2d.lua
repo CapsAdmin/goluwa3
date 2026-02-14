@@ -478,14 +478,14 @@ do
 								vec2 sdf_uv = uv * pc.uv_scale + pc.uv_offset;
 								float dist = texture(textures[nonuniformEXT(pc.texture_index)], sdf_uv).r;
 								float fw = length(vec2(dFdx(dist), dFdy(dist)));
-								float d_tex = (pc.sdf_threshold - dist) / max(fw, 0.01);
+								float d_tex = (pc.sdf_threshold - dist) / max(fw, 0.02);
 								d = has_sdf ? max(d, d_tex) : d_tex;
 								has_sdf = true;
 							}
 
 							if (has_sdf) {
 								float smoothing = max(pc.blur.x, pc.blur.y);
-								smoothing = max(0.75, smoothing);
+								smoothing = max(0.7, smoothing);
 
 								vec3 sub_d;
 								float shift = pc.subpixel_amount;
@@ -619,7 +619,6 @@ do
 			end
 
 			utility.MakePushPopFunction(render2d, "SDFThreshold")
-
 			render2d.subpixel_modes = {
 				none = 0,
 				rgb = 1,

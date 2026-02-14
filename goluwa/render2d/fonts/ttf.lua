@@ -748,8 +748,8 @@ function META:GetGlyph(char_code)
 		g.x_max = glyph_data.x_max * self.scale
 		g.y_min = glyph_data.y_min * self.scale
 		g.y_max = glyph_data.y_max * self.scale
-		g.w = math.ceil(g.x_max - g.x_min) + 2
-		g.h = math.ceil(g.y_max - g.y_min) + 2
+		g.w = math.ceil(g.x_max - g.x_min)
+		g.h = math.ceil(g.y_max - g.y_min)
 		g.bearing_x = g.x_min
 		g.bearing_y = g.y_max
 		g.bitmap_left = g.x_min

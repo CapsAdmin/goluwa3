@@ -14,7 +14,8 @@ local Fence = require("render.vulkan.internal.fence")
 local META = prototype.CreateTemplate("sdf_font")
 META.IsFont = true
 META:GetSet("Fonts", {}, {callback = "OnFontsChanged"})
-META:GetSet("Padding", 0, {callback = "ClearSizeCache"})
+META:GetSet("Spread", 16, {callback = "ClearSizeCache"})
+META:GetSet("Padding", 2, {callback = "OnPaddingChanged"})
 META:GetSet("Spacing", 0, {callback = "ClearSizeCache"})
 META:GetSet("Size", 12, {callback = "ClearSizeCache"})
 META:GetSet("Scale", Vec2(1, 1), {callback = "ClearSizeCache"})
@@ -26,6 +27,15 @@ function META:OnFontsChanged()
 	if self.Ready then self:RebuildFromScratch() end
 
 	event.Call("OnFontsChanged", self)
+end
+
+function META:OnPaddingChanged()
+	if self.texture_atlas then
+		self.texture_atlas:SetPadding(self.Padding)
+		self:ClearSizeCache()
+
+		if self.Ready then self:RebuildFromScratch() end
+	end
 end
 
 META:IsSet("Monospace", false, {callback = "ClearSizeCache"})
@@ -353,7 +363,7 @@ do
 	local function create_atlas(self)
 		local format = self:GetAtlasFormat()
 		self.texture_atlas = TextureAtlas.New(1024, 1024, self.Filtering, format)
-		self.texture_atlas:SetPadding(0)
+		self.texture_atlas:SetPadding(self:GetPadding())
 
 		for code in pairs(self.chars) do
 			self.chars[code] = nil
@@ -364,13 +374,13 @@ do
 		self:SetReady(true)
 	end
 
-	function META.New(fonts, padding)
+	function META.New(fonts, spread)
 		if type(fonts) == "table" and fonts.IsFont then fonts = {fonts} end
 
 		local self = META:CreateObject()
 		self.tr = debug.traceback()
 		self:SetFonts(fonts)
-		self:SetPadding(16)
+		self:SetSpread(spread or 16)
 		self.chars = {}
 		self.rebuild = false
 
@@ -513,8 +523,8 @@ function META:GenerateSDF(cmd, mask_tex, sw, sh, target_w, target_h, temp_fbs)
 	table.insert(temp_fbs, fb_dist_off)
 	self.current_jfa_size = size
 	-- Ensure enough distance range for smooth blur. Use at least 8 output-space
-	-- pixels so that shadows/outlines have room to fade, even with small padding.
-	self.current_jfa_max_dist = math.max(8, self:GetPadding()) * SUPER_SAMPLING_SCALE
+	-- pixels so that shadows/outlines have room to fade, even with small spread.
+	self.current_jfa_max_dist = math.max(8, self:GetSpread()) * SUPER_SAMPLING_SCALE
 
 	local function run_jfa(mode, out_fb)
 		self.current_jfa_tex = mask_tex
@@ -588,9 +598,9 @@ function META:LoadGlyph(code, parent_cmd, temp_fbs)
 		end
 
 		local scale = SUPER_SAMPLING_SCALE
-		local padding = self:GetPadding()
-		local sw = (glyph.w + padding * 2) * scale
-		local sh = (glyph.h + padding * 2) * scale
+		local spread = self:GetSpread()
+		local sw = (glyph.w + spread * 2) * scale
+		local sh = (glyph.h + spread * 2) * scale
 		local used_temp_fbs = {}
 		local format = self:GetAtlasFormat()
 		local fb_ss = get_temp_fb(sw, sh, format, true)
@@ -625,7 +635,7 @@ function META:LoadGlyph(code, parent_cmd, temp_fbs)
 			render2d.PushMatrix()
 			render2d.LoadIdentity()
 			-- Flip coordinates so font (Y-down) renders right-side up in Y-up framebuffer
-			render2d.Translate(padding * scale, (glyph.h + padding) * scale)
+			render2d.Translate(spread * scale, (glyph.h + spread) * scale)
 			render2d.Scale(scale, -scale)
 			-- Shift glyph to be at (0, 0) in the padded area
 			render2d.Translatef(-glyph.bitmap_left, -glyph.bitmap_top)
@@ -648,8 +658,8 @@ function META:LoadGlyph(code, parent_cmd, temp_fbs)
 			fb_ss.color_texture,
 			sw,
 			sh,
-			glyph.w + padding * 2,
-			glyph.h + padding * 2,
+			glyph.w + spread * 2,
+			glyph.h + spread * 2,
 			used_temp_fbs
 		)
 
@@ -657,8 +667,8 @@ function META:LoadGlyph(code, parent_cmd, temp_fbs)
 			self.texture_atlas:Insert(
 				code,
 				{
-					w = glyph.w + self:GetPadding() * 2,
-					h = glyph.h + self:GetPadding() * 2,
+					w = glyph.w + self:GetSpread() * 2,
+					h = glyph.h + self:GetSpread() * 2,
 					texture = glyph.texture,
 					flip_y = glyph.flip_y,
 				}
@@ -686,8 +696,8 @@ function META:LoadGlyph(code, parent_cmd, temp_fbs)
 	self.texture_atlas:Insert(
 		code,
 		{
-			w = glyph.w + self:GetPadding() * 2,
-			h = glyph.h + self:GetPadding() * 2,
+			w = glyph.w + self:GetSpread() * 2,
+			h = glyph.h + self:GetSpread() * 2,
 			texture = glyph.texture,
 			flip_y = glyph.flip_y,
 		}
@@ -870,23 +880,23 @@ function META:DrawPass(str, x, y, spacing, atlas)
 					local uv = atlas_data.page_uv_normalized
 					render2d.SetUV2(uv[1], uv[2], uv[3], uv[4])
 					render2d.DrawRectf(
-						x + (X + data.bitmap_left - self:GetPadding()) * self.Scale.x,
-						y + (Y + data.bitmap_top - self:GetPadding()) * self.Scale.y,
+						x + (X + data.bitmap_left - self:GetSpread()) * self.Scale.x,
+						y + (Y + data.bitmap_top - self:GetSpread()) * self.Scale.y,
 						atlas_data.w * self.Scale.x,
 						atlas_data.h * self.Scale.y,
 						nil,
 						nil,
 						nil,
-						self:GetPadding() * self.Scale.x
+						self:GetSpread() * self.Scale.x
 					)
 
 					if self.debug then
 						render2d.PushTexture(nil)
 						render2d.PushColor(1, 0, 0, 0.25)
 						render2d.DrawRect(
-							x + (X - self:GetPadding()) * self.Scale.x,
-							y + (Y - self:GetPadding()) * self.Scale.y,
-							(data.x_advance + self:GetPadding() * 2) * self.Scale.x,
+							x + (X - self:GetSpread()) * self.Scale.x,
+							y + (Y - self:GetSpread()) * self.Scale.y,
+							(data.x_advance + self:GetSpread() * 2) * self.Scale.x,
 							self:GetLineHeight() * self.Scale.y
 						)
 						render2d.PopColor()

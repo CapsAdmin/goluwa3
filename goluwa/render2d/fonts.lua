@@ -14,7 +14,8 @@ local X, Y = 0, 0
 function fonts.New(props)
 	props = props or {}
 	props.Size = props.Size or 16
-	props.Padding = props.Padding or 2
+	props.Padding = props.Padding or 1
+	props.Spread = props.Spread or 16
 	props.Path = props.Path or fonts.GetDefaultSystemFontPath()
 	local ext = tostring(props.Path):match("%.([^%.]+)$")
 
@@ -24,7 +25,8 @@ function fonts.New(props)
 			props.Path = fonts.GetDefaultSystemFontPath()
 		end
 
-		local f = sdf_font.New(ttf_font.New(props.Path), props.Padding)
+		local f = sdf_font.New(ttf_font.New(props.Path), props.Spread)
+		f:SetPadding(props.Padding)
 		f:SetSize(props.Size)
 		return f
 	end
@@ -34,8 +36,10 @@ end
 
 function fonts.LoadGoogleFont(name, weight, options)
 	options = options or {}
-	options.Padding = options.Padding or 2
-	local font = sdf_font.New(base_font.New(), options.Padding)
+	options.Padding = options.Padding or 1
+	options.Spread = options.Spread or 16
+	local font = sdf_font.New(base_font.New(), options.Spread)
+	font:SetPadding(options.Padding)
 	font:SetSize(options and options.Size or 16)
 	font:SetName(name .. "-" .. tostring(weight or "regular"))
 
