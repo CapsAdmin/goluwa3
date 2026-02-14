@@ -124,7 +124,7 @@ return function(props)
 						Size = props.Size or (Vec2() + theme.GetSize("M")),
 					},
 					Emphasis = 0,
-					Padding = "XS",
+					Padding = Rect() + theme.GetSize("XS"),
 					layout = {
 						Floating = true,
 						Direction = "y",

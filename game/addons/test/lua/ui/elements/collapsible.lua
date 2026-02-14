@@ -5,7 +5,6 @@ local Panel = require("ecs.panel")
 local Text = require("ui.elements.text")
 local Clickable = require("ui.elements.clickable")
 local theme = require("ui.theme")
-local theme_shapes = require("ui.theme_shapes")
 local render2d = require("render2d.render2d")
 return function(props)
 	local collapsed = props.Collapsed or false
@@ -109,7 +108,7 @@ return function(props)
 							render2d.Rotate(math.rad(open_fraction * 90))
 							render2d.SetColor(theme.GetColor("text_foreground"):Unpack())
 							render2d.SetTexture(nil)
-							theme_shapes.DrawArrow(0, 0, size)
+							theme.DrawArrow(0, 0, size)
 							render2d.PopMatrix()
 						end,
 					},
