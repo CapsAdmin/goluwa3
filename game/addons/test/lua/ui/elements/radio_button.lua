@@ -24,9 +24,6 @@ return function(props)
 				layout = {
 					props.layout,
 				},
-				rect = {
-					Color = theme.GetColor("invisible"),
-				},
 				mouse_input = {
 					Cursor = "hand",
 					OnMouseInput = function(self, button, press, local_pos)

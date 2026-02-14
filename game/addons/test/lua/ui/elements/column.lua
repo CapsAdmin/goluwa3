@@ -8,9 +8,6 @@ return function(props)
 			props,
 			{
 				Name = "Column",
-				rect = {
-					Color = theme.GetColor("invisible"),
-				},
 				layout = {
 					Direction = "y",
 					GrowWidth = 1,

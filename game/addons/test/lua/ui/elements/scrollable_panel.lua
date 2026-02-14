@@ -133,9 +133,6 @@ return function(props)
 	return Panel.New(
 		{
 			Name = "scrollable_panel",
-			rect = {
-				Color = theme.GetColor("invisible"),
-			},
 			layout = {
 				AlignmentX = "stretch",
 				Direction = "y",

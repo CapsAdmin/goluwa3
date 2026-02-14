@@ -16,9 +16,6 @@ return function(props)
 				Size = props.Size or Vec2(400, 300),
 				Position = props.Position or Vec2(100, 100),
 			},
-			rect = {
-				Color = theme.GetColor("invisible"),
-			},
 			layout = {
 				Direction = "y",
 				AlignmentX = "stretch",

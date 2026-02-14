@@ -45,11 +45,11 @@ return function(props)
 			{
 				id = "menu_open_close_fade",
 				get = function()
-					local s = menu_ent.rect:GetDrawAlpha()
+					local s = menu_ent.gui_element:GetDrawAlpha()
 					return s
 				end,
 				set = function(v)
-					menu_ent.rect:SetDrawAlpha(v)
+					menu_ent.gui_element:SetDrawAlpha(v)
 				end,
 				to = is_closing and 0 or 1,
 				time = 1,
@@ -76,9 +76,6 @@ return function(props)
 				Name = "ContextMenuContainer",
 				transform = {
 					Size = Vec2(render2d.GetSize()),
-				},
-				rect = {
-					Color = theme.GetColor("invisible"),
 				},
 				mouse_input = {
 					BringToFrontOnClick = true,

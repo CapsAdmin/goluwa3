@@ -16,9 +16,6 @@ return function(props)
 					Vec2(theme.GetSize("line_height"), 0) or
 					Vec2(0, theme.GetSize("line_height")),
 			},
-			rect = {
-				Color = theme.GetColor("invisible"),
-			},
 			layout = {
 				GrowWidth = 1,
 			},

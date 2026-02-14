@@ -15,9 +15,6 @@ return function(props)
 			props,
 			{
 				Name = "frame",
-				rect = {
-					Color = theme.GetColor("invisible"),
-				},
 				gui_element = {
 					OnDraw = function(self)
 						theme.panels.frame(self.Owner, props.Emphasis or 1)

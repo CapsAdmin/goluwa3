@@ -23,9 +23,6 @@ return function(props)
 			props,
 			{
 				Name = is_vertical and "VerticalSplitter" or "HorizontalSplitter",
-				rect = {
-					Color = theme.GetColor("invisible"),
-				},
 				layout = {
 					Direction = is_vertical and "y" or "x",
 					GrowWidth = 1,
@@ -118,8 +115,8 @@ return function(props)
 				OnHover = function(self, hovered)
 					state.is_hovered = hovered
 
-					if not state.is_dragging and self.Owner.rect then
-						self.Owner.rect:SetColor(Color(0, 0, 0, hovered and 0.5 or 0.2))
+					if not state.is_dragging and self.Owner.gui_element then
+						self.Owner.gui_element:SetColor(Color(0, 0, 0, hovered and 0.5 or 0.2))
 					end
 				end,
 				OnMouseInput = function(self, button, press, local_pos)
@@ -127,12 +124,12 @@ return function(props)
 						state.is_dragging = press
 
 						if press then
-							if self.Owner.rect then
-								self.Owner.rect:SetColor(theme.GetColor("primary"):Copy():SetAlpha(0.8))
+							if self.Owner.gui_element then
+								self.Owner.gui_element:SetColor(theme.GetColor("primary"):Copy():SetAlpha(0.8))
 							end
 						else
-							if self.Owner.rect then
-								self.Owner.rect:SetColor(Color(0, 0, 0, state.is_hovered and 0.5 or 0.2))
+							if self.Owner.gui_element then
+								self.Owner.gui_element:SetColor(Color(0, 0, 0, state.is_hovered and 0.5 or 0.2))
 							end
 						end
 
@@ -143,8 +140,8 @@ return function(props)
 					if button == "button_1" and not press and state.is_dragging then
 						state.is_dragging = false
 
-						if self.Owner.rect then
-							self.Owner.rect:SetColor(Color(0, 0, 0, state.is_hovered and 0.5 or 0.2))
+						if self.Owner.gui_element then
+							self.Owner.gui_element:SetColor(Color(0, 0, 0, state.is_hovered and 0.5 or 0.2))
 						end
 					end
 				end,

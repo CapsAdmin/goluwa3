@@ -53,10 +53,10 @@ do -- mouse input
 				{
 					id = "color",
 					get = function()
-						return self.rect:GetDrawColor()
+						return self.gui_element:GetDrawColor()
 					end,
 					set = function(v)
-						self.rect:SetDrawColor(v)
+						self.gui_element:SetDrawColor(v)
 					end,
 					to = Color(0, 1, 1, 0),
 					time = 0.2,
@@ -80,10 +80,10 @@ do -- mouse input
 				{
 					id = "color",
 					get = function()
-						return self.rect:GetDrawColor()
+						return self.gui_element:GetDrawColor()
 					end,
 					set = function(v)
-						self.rect:SetDrawColor(v)
+						self.gui_element:SetDrawColor(v)
 					end,
 					to = Color(0, 0, 0, 0),
 					time = 0.2,
@@ -94,12 +94,12 @@ do -- mouse input
 
 	function pnl:OnFocus()
 		print("Entity focused!")
-		self.rect:SetColor(Color(0, 1, 0, 1))
+		self.gui_element:SetColor(Color(0, 1, 0, 1))
 	end
 
 	function pnl:OnUnfocus()
 		print("Entity unfocused!")
-		self.rect:SetColor(Color(1, 0, 0, 1))
+		self.gui_element:SetColor(Color(1, 0, 0, 1))
 	end
 
 	function pnl:OnMouseInput(button, press, pos)

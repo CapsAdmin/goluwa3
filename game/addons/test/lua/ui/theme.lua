@@ -793,7 +793,7 @@ do
 			render2d.SetUV2(0, 0, 0.4, 1)
 			render2d.PushBorderRadius(size.y / 6)
 			render2d.SetTexture(Textures.Gradient)
-			local col = pnl.Owner.rect.Color or theme.GetColor("primary")
+			local col = pnl.Owner.gui_element.Color or theme.GetColor("primary")
 			render2d.SetColor(col.r * s.glow_alpha, col.g * s.glow_alpha, col.b * s.glow_alpha, 1)
 			render2d.DrawRect(0, 0, size.x, size.y)
 			render2d.PopBorderRadius()
@@ -808,14 +808,14 @@ do
 			render2d.SetTexture(Textures.GlowLinear)
 
 			if s.glow_alpha > 0 then
-				local c = pnl.Owner.rect.Color or theme.GetColor("lightest")
+				local c = pnl.Owner.gui_element.Color or theme.GetColor("lightest")
 				render2d.SetColor(c.r, c.g, c.b, c.a * s.glow_alpha)
 				local gs = 256 * 1.5
 				render2d.DrawRect(lpos.x - gs / 2, lpos.y - gs / 2, gs, gs)
 			end
 
 			render2d.SetTexture(Textures.GlowPoint)
-			local c = pnl.Owner.rect.Color or theme.GetColor("lighter")
+			local c = pnl.Owner.gui_element.Color or theme.GetColor("lighter")
 			render2d.SetColor(c.r, c.g, c.b, c.a * s.press_scale)
 			local ps = s.press_scale * 150
 			render2d.DrawRect(lpos.x - ps / 2, lpos.y - ps / 2, ps, ps)
@@ -1084,19 +1084,19 @@ do
 
 	function theme.panels.frame(pnl, emphasis)
 		local s = pnl.transform.Size + pnl.transform.DrawSizeOffset
-		local c = pnl.rect.Color + pnl.rect.DrawColor
-		render2d.SetColor(c.r, c.g, c.b, c.a * pnl.rect.DrawAlpha)
-		render2d.PushAlphaMultiplier(pnl.rect.DrawAlpha)
-		theme.DrawModernFrame(0, 0, s.x, s.y, (emphasis or 1) * pnl.rect.DrawAlpha)
+		local c = pnl.gui_element.Color + pnl.gui_element.DrawColor
+		render2d.SetColor(c.r, c.g, c.b, c.a * pnl.gui_element.DrawAlpha)
+		render2d.PushAlphaMultiplier(pnl.gui_element.DrawAlpha)
+		theme.DrawModernFrame(0, 0, s.x, s.y, (emphasis or 1) * pnl.gui_element.DrawAlpha)
 		render2d.PopAlphaMultiplier()
 	end
 
 	function theme.panels.frame_post(pnl, emphasis)
 		local s = pnl.transform.Size + pnl.transform.DrawSizeOffset
-		local c = pnl.rect.Color + pnl.rect.DrawColor
+		local c = pnl.gui_element.Color + pnl.gui_element.DrawColor
 		render2d.SetColor(c.r, c.g, c.b, c.a)
-		render2d.PushAlphaMultiplier(pnl.rect.DrawAlpha)
-		theme.DrawModernFramePost(0, 0, s.x, s.y, (emphasis or 1) * pnl.rect.DrawAlpha)
+		render2d.PushAlphaMultiplier(pnl.gui_element.DrawAlpha)
+		theme.DrawModernFramePost(0, 0, s.x, s.y, (emphasis or 1) * pnl.gui_element.DrawAlpha)
 		render2d.PopAlphaMultiplier()
 	end
 
@@ -1118,20 +1118,20 @@ do
 
 	function theme.panels.header(pnl)
 		local size = pnl.transform.Size
-		render2d.SetColor(PRIMARY.r, PRIMARY.g, PRIMARY.b, PRIMARY.a * pnl.rect.DrawAlpha)
+		render2d.SetColor(PRIMARY.r, PRIMARY.g, PRIMARY.b, PRIMARY.a * pnl.gui_element.DrawAlpha)
 		theme.DrawPill(0, 0, size.x, size.y)
 	end
 
 	function theme.panels.progress_bar(pnl, state)
 		local size = pnl.Owner.transform.Size
 		local value = state.value or 0
-		local col = pnl.Owner.rect.Color or PRIMARY
+		local col = pnl.Owner.gui_element.Color or PRIMARY
 		theme.DrawProgressBarPrimitive(0, 0, size.x, size.y, value, col)
 	end
 
 	function theme.panels.divider(pnl)
 		local size = pnl.transform.Size
-		render2d.SetColor(PRIMARY.r, PRIMARY.g, PRIMARY.b, PRIMARY.a * pnl.rect.DrawAlpha * 10)
+		render2d.SetColor(PRIMARY.r, PRIMARY.g, PRIMARY.b, PRIMARY.a * pnl.gui_element.DrawAlpha * 10)
 		render2d.PushBlendMode("additive")
 
 		if size.x > size.y then

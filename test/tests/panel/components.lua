@@ -92,12 +92,12 @@ T.Test("panel animations basic", function()
 	pnl.animation:Animate(
 		{
 			id = "color",
-			base = pnl.rect:GetDrawColor(),
+			base = pnl.gui_element:GetDrawColor(),
 			get = function()
-				return pnl.rect:GetDrawColor()
+				return pnl.gui_element:GetDrawColor()
 			end,
 			set = function(v)
-				pnl.rect:SetDrawColor(v)
+				pnl.gui_element:SetDrawColor(v)
 			end,
 			to = Color(0, 1, 0, 1),
 			time = 0.1,

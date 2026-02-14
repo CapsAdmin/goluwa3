@@ -8,40 +8,27 @@ local META = prototype.CreateTemplate("gui_element")
 META:StartStorable()
 META:GetSet("Visible", true)
 META:GetSet("Clipping", false)
-META:GetSet("Shadows", false)
-META:GetSet("ShadowSize", 16)
-META:GetSet("ShadowColor", Color(0, 0, 0, 0.5))
-META:GetSet("ShadowOffset", Vec2(0, 0))
 META:GetSet("BorderRadius", 0)
+META:GetSet("Color", Color(1, 1, 1, 1))
+META:GetSet("DrawColor", Color(0, 0, 0, 0))
+META:GetSet("DrawAlpha", 1)
 META:EndStorable()
 
 function META:Initialize()
 	self.Owner:EnsureComponent("transform")
 end
 
+function META:SetColor(c)
+	if type(c) == "string" then
+		self.Color = Color.FromHex(c)
+	else
+		self.Color = c
+	end
+end
+
 function META:SetVisible(visible)
 	self.Visible = visible
 	self.Owner:CallLocalEvent("OnVisibilityChanged", visible)
-end
-
-function META:DrawShadow()
-	if not self:GetShadows() then return end
-
-	local transform = self.Owner.transform
-	render2d.PushMatrix()
-	render2d.SetWorldMatrix(transform:GetWorldMatrix())
-	local s = transform.Size + transform.DrawSizeOffset
-	render2d.SetBlendMode("alpha")
-	render2d.SetColor(self:GetShadowColor():Unpack())
-	gfx.DrawShadow(
-		self:GetShadowOffset().x,
-		self:GetShadowOffset().y,
-		s.x,
-		s.y,
-		self:GetShadowSize(),
-		self:GetBorderRadius()
-	)
-	render2d.PopMatrix()
 end
 
 function META:IsHovered(mouse_pos)
@@ -56,7 +43,10 @@ end
 function META:DrawRecursive()
 	if not self:GetVisible() then return end
 
-	self:DrawShadow()
+	local c = self.Color + self.DrawColor
+
+	if c.a <= 0 then return end
+
 	local transform = self.Owner.transform
 	local clipping = self:GetClipping()
 
@@ -77,6 +67,7 @@ function META:DrawRecursive()
 
 	render2d.PushMatrix()
 	render2d.SetWorldMatrix(transform:GetWorldMatrix())
+	render2d.SetColor(c.r, c.g, c.b, c.a * self.DrawAlpha)
 	self.Owner:CallLocalEvent("OnDraw")
 
 	for _, child in ipairs(self.Owner:GetChildren()) do
