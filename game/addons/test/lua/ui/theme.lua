@@ -131,7 +131,7 @@ do
 	end
 end
 
-do
+do -- primitives
 	function theme.DrawDiamond(x, y, size)
 		render2d.PushMatrix()
 		render2d.Translatef(x, y)
@@ -606,9 +606,9 @@ do
 	end
 end
 
-do
-	function theme.UpdateButtonAnimations(ent, s)
-		if not ent or not s then return end
+do -- animations
+	function theme.UpdateButtonAnimations(pnl, s)
+		if not pnl or not s then return end
 
 		local is_active = not s.is_disabled and
 			(
@@ -625,7 +625,7 @@ do
 		local is_tilting = is_active
 
 		if is_active ~= s.last_active then
-			ent.animation:Animate(
+			pnl.animation:Animate(
 				{
 					id = "press_scale",
 					get = function()
@@ -639,14 +639,14 @@ do
 					time = (s.is_pressed and not s.is_hovered) and 0.2 or 0.1,
 				}
 			)
-			ent.animation:Animate(
+			pnl.animation:Animate(
 				{
 					id = "DrawScaleOffset",
 					get = function()
-						return ent.transform:GetDrawScaleOffset()
+						return pnl.transform:GetDrawScaleOffset()
 					end,
 					set = function(v)
-						ent.transform:SetDrawScaleOffset(v)
+						pnl.transform:SetDrawScaleOffset(v)
 					end,
 					to = is_active and (Vec2() + 0.97) or (Vec2(1, 1)),
 					interpolation = (
@@ -667,7 +667,7 @@ do
 		end
 
 		if s.is_hovered ~= s.last_hovered then
-			ent.animation:Animate(
+			pnl.animation:Animate(
 				{
 					id = "glow_alpha",
 					get = function()
@@ -685,22 +685,22 @@ do
 		end
 
 		if is_tilting ~= s.last_tilting or is_tilting then
-			ent.animation:Animate(
+			pnl.animation:Animate(
 				{
 					id = "Pivot",
 					get = function()
-						return ent.transform:GetPivot()
+						return pnl.transform:GetPivot()
 					end,
 					set = function(v)
-						ent.transform:SetPivot(v)
+						pnl.transform:SetPivot(v)
 					end,
 					to = not is_tilting and
 						Vec2(0.5, 0.5) or
 						{
-							__lsx_value = function(self)
+							__lsx_value = function(pnl)
 								local mpos = window.GetMousePosition()
-								local local_pos = self.transform:GlobalToLocal(mpos)
-								local size = self.transform:GetSize()
+								local local_pos = pnl.transform:GlobalToLocal(mpos)
+								local size = pnl.transform:GetSize()
 								local pivot = local_pos / size
 								return -pivot + Vec2(1, 1)
 							end,
@@ -719,22 +719,22 @@ do
 					time = is_tilting and 0.3 or 10,
 				}
 			)
-			ent.animation:Animate(
+			pnl.animation:Animate(
 				{
 					id = "DrawAngleOffset",
 					get = function()
-						return ent.transform:GetDrawAngleOffset()
+						return pnl.transform:GetDrawAngleOffset()
 					end,
 					set = function(v)
-						ent.transform:SetDrawAngleOffset(v)
+						pnl.transform:SetDrawAngleOffset(v)
 					end,
 					to = not is_tilting and
 						Ang3(0, 0, 0) or
 						{
-							__lsx_value = function(self)
+							__lsx_value = function(pnl)
 								local mpos = window.GetMousePosition()
-								local local_pos = self.transform:GlobalToLocal(mpos)
-								local size = self.transform:GetSize()
+								local local_pos = pnl.transform:GlobalToLocal(mpos)
+								local size = pnl.transform:GetSize()
 								local nx = (local_pos.x / size.x) * 2 - 1
 								local ny = (local_pos.y / size.y) * 2 - 1
 								return Ang3(-ny, nx, 0) * 0.01
@@ -758,76 +758,9 @@ do
 		end
 	end
 
-	function theme.DrawButton(self, state)
-		-- Continuous tracking while hovered
-		if state and state.is_hovered then
-			theme.UpdateButtonAnimations(self.Owner, state)
-		end
-
-		local s = state or {glow_alpha = 0, press_scale = 0}
-		local size = self.Owner.transform.Size
-
-		if state.mode == "filled" then
-			render2d.PushUV()
-			render2d.SetUV2(0, 0, 0.4, 1)
-			render2d.PushBorderRadius(size.y / 6)
-			render2d.SetTexture(Textures.Gradient)
-			local col = self.Owner.rect.Color or theme.GetColor("primary")
-			render2d.SetColor(col.r * s.glow_alpha, col.g * s.glow_alpha, col.b * s.glow_alpha, 1)
-			render2d.DrawRect(0, 0, size.x, size.y)
-			render2d.PopBorderRadius()
-			render2d.PopUV()
-		end
-
-		local mpos = window.GetMousePosition()
-
-		if not s.is_disabled and self.Owner.mouse_input:IsHoveredExclusively(mpos) then
-			local lpos = self.Owner.transform:GlobalToLocal(mpos)
-			render2d.SetBlendMode("additive")
-			render2d.SetTexture(Textures.GlowLinear)
-
-			if s.glow_alpha > 0 then
-				local c = self.Owner.rect.Color or theme.GetColor("lightest")
-				render2d.SetColor(c.r, c.g, c.b, c.a * s.glow_alpha)
-				local gs = 256 * 1.5
-				render2d.DrawRect(lpos.x - gs / 2, lpos.y - gs / 2, gs, gs)
-			end
-
-			render2d.SetTexture(Textures.GlowPoint)
-			local c = self.Owner.rect.Color or theme.GetColor("lighter")
-			render2d.SetColor(c.r, c.g, c.b, c.a * s.press_scale)
-			local ps = s.press_scale * 150
-			render2d.DrawRect(lpos.x - ps / 2, lpos.y - ps / 2, ps, ps)
-			render2d.SetBlendMode("alpha")
-		end
-	end
-
-	function theme.DrawButtonPost(self, state)
-		local s = state or {glow_alpha = 0}
-		local size = self.Owner.transform.Size
-		render2d.SetBlendMode("additive")
-		render2d.SetColor(s.glow_alpha, s.glow_alpha, s.glow_alpha, 1)
-		render2d.SetTexture(Textures.GlowLinear)
-
-		if state.mode == "filled" then
-			theme.DrawGlowLine(-3, -3, -3, size.y + 6, 40)
-		elseif state.mode == "outline" then
-			local c = theme.GetColor("frame_border")
-			render2d.SetColor(c.r, c.g, c.b, s.glow_alpha)
-			theme.DrawGlowLine(0, 0, 0, size.y, 1)
-			theme.DrawGlowLine(size.x, 0, size.x, size.y, 1)
-		end
-
-		local c = theme.GetColor("frame_border")
-		render2d.SetColor(c.r, c.g, c.b, s.glow_alpha)
-		theme.DrawGlowLine(0, 0, size.x, 0, 1)
-		theme.DrawGlowLine(0, size.y, size.x, size.y, 1)
-		render2d.SetBlendMode("alpha")
-	end
-
-	function theme.UpdateSliderAnimations(ent, s)
+	function theme.UpdateSliderAnimations(pnl, s)
 		if s.is_hovered ~= s.last_hovered then
-			ent.animation:Animate(
+			pnl.animation:Animate(
 				{
 					id = "glow_alpha",
 					get = function()
@@ -841,7 +774,7 @@ do
 					time = 0.15,
 				}
 			)
-			ent.animation:Animate(
+			pnl.animation:Animate(
 				{
 					id = "knob_scale",
 					get = function()
@@ -862,12 +795,122 @@ do
 		end
 	end
 
-	function theme.DrawSlider(self, state)
-		local owner = self.Owner
+	function theme.UpdateCheckboxAnimations(pnl, s)
+		if s.is_hovered ~= s.last_hovered then
+			pnl.animation:Animate(
+				{
+					id = "glow_alpha",
+					get = function()
+						return s.glow_alpha
+					end,
+					set = function(val)
+						s.glow_alpha = val
+					end,
+					to = s.is_hovered and 1 or 0,
+					interpolation = "inOutSine",
+					time = 0.15,
+				}
+			)
+			s.last_hovered = s.is_hovered
+		end
 
-		if state.is_hovered then theme.UpdateSliderAnimations(owner, state) end
+		if s.value ~= s.last_value then
+			pnl.animation:Animate(
+				{
+					id = "check_anim",
+					get = function()
+						return s.check_anim
+					end,
+					set = function(val)
+						s.check_anim = val
+					end,
+					to = s.value and 1 or 0,
+					interpolation = {
+						type = "spring",
+						bounce = 0.4,
+						duration = 100,
+					},
+				}
+			)
+			s.last_value = s.value
+		end
+	end
+end
 
-		local size = owner.transform.Size
+do
+	function theme.DrawButton(pnl, state)
+		-- Continuous tracking while hovered
+		if state and state.is_hovered then
+			theme.UpdateButtonAnimations(pnl.Owner, state)
+		end
+
+		local s = state or {glow_alpha = 0, press_scale = 0}
+		local size = pnl.Owner.transform.Size
+
+		if state.mode == "filled" then
+			render2d.PushUV()
+			render2d.SetUV2(0, 0, 0.4, 1)
+			render2d.PushBorderRadius(size.y / 6)
+			render2d.SetTexture(Textures.Gradient)
+			local col = pnl.Owner.rect.Color or theme.GetColor("primary")
+			render2d.SetColor(col.r * s.glow_alpha, col.g * s.glow_alpha, col.b * s.glow_alpha, 1)
+			render2d.DrawRect(0, 0, size.x, size.y)
+			render2d.PopBorderRadius()
+			render2d.PopUV()
+		end
+
+		local mpos = window.GetMousePosition()
+
+		if not s.is_disabled and pnl.Owner.mouse_input:IsHoveredExclusively(mpos) then
+			local lpos = pnl.Owner.transform:GlobalToLocal(mpos)
+			render2d.SetBlendMode("additive")
+			render2d.SetTexture(Textures.GlowLinear)
+
+			if s.glow_alpha > 0 then
+				local c = pnl.Owner.rect.Color or theme.GetColor("lightest")
+				render2d.SetColor(c.r, c.g, c.b, c.a * s.glow_alpha)
+				local gs = 256 * 1.5
+				render2d.DrawRect(lpos.x - gs / 2, lpos.y - gs / 2, gs, gs)
+			end
+
+			render2d.SetTexture(Textures.GlowPoint)
+			local c = pnl.Owner.rect.Color or theme.GetColor("lighter")
+			render2d.SetColor(c.r, c.g, c.b, c.a * s.press_scale)
+			local ps = s.press_scale * 150
+			render2d.DrawRect(lpos.x - ps / 2, lpos.y - ps / 2, ps, ps)
+			render2d.SetBlendMode("alpha")
+		end
+	end
+
+	function theme.DrawButtonPost(pnl, state)
+		local s = state or {glow_alpha = 0}
+		local size = pnl.Owner.transform.Size
+		render2d.SetBlendMode("additive")
+		render2d.SetColor(s.glow_alpha, s.glow_alpha, s.glow_alpha, 1)
+		render2d.SetTexture(Textures.GlowLinear)
+
+		if state.mode == "filled" then
+			theme.DrawGlowLine(-3, -3, -3, size.y + 6, 40)
+		elseif state.mode == "outline" then
+			local c = theme.GetColor("frame_border")
+			render2d.SetColor(c.r, c.g, c.b, s.glow_alpha)
+			theme.DrawGlowLine(0, 0, 0, size.y, 1)
+			theme.DrawGlowLine(size.x, 0, size.x, size.y, 1)
+		end
+
+		local c = theme.GetColor("frame_border")
+		render2d.SetColor(c.r, c.g, c.b, s.glow_alpha)
+		theme.DrawGlowLine(0, 0, size.x, 0, 1)
+		theme.DrawGlowLine(0, size.y, size.x, size.y, 1)
+		render2d.SetBlendMode("alpha")
+	end
+
+	function theme.DrawSlider(pnl, state)
+		local pnl = pnl.Owner
+
+		if state.is_hovered then theme.UpdateSliderAnimations(pnl, state) end
+
+		local size = pnl.transform.Size
 		local knob_width = theme.GetSize("S")
 		local knob_height = theme.GetSize("S")
 		local value = state.value
@@ -1017,51 +1060,10 @@ do
 		end
 	end
 
-	function theme.UpdateCheckboxAnimations(ent, s)
-		if s.is_hovered ~= s.last_hovered then
-			ent.animation:Animate(
-				{
-					id = "glow_alpha",
-					get = function()
-						return s.glow_alpha
-					end,
-					set = function(val)
-						s.glow_alpha = val
-					end,
-					to = s.is_hovered and 1 or 0,
-					interpolation = "inOutSine",
-					time = 0.15,
-				}
-			)
-			s.last_hovered = s.is_hovered
-		end
+	function theme.DrawCheckbox(pnl, state)
+		if state.is_hovered then theme.UpdateCheckboxAnimations(pnl, state) end
 
-		if s.value ~= s.last_value then
-			ent.animation:Animate(
-				{
-					id = "check_anim",
-					get = function()
-						return s.check_anim
-					end,
-					set = function(val)
-						s.check_anim = val
-					end,
-					to = s.value and 1 or 0,
-					interpolation = {
-						type = "spring",
-						bounce = 0.4,
-						duration = 100,
-					},
-				}
-			)
-			s.last_value = s.value
-		end
-	end
-
-	function theme.DrawCheckbox(owner, state)
-		if state.is_hovered then theme.UpdateCheckboxAnimations(owner, state) end
-
-		local size = owner.transform.Size
+		local size = pnl.transform.Size
 		local check_size = theme.GetSize("M")
 		local box_x = 0
 		local box_y = (size.y - check_size) / 2
@@ -1100,10 +1102,10 @@ do
 		end
 	end
 
-	function theme.DrawRadioButton(owner, state)
-		if state.is_hovered then theme.UpdateCheckboxAnimations(owner, state) end
+	function theme.DrawRadioButton(pnl, state)
+		if state.is_hovered then theme.UpdateCheckboxAnimations(pnl, state) end
 
-		local size = owner.transform.Size
+		local size = pnl.transform.Size
 		local rb_size = theme.GetSize("M")
 		local rb_x = 0
 		local rb_y = (size.y - rb_size) / 2
@@ -1157,14 +1159,14 @@ do
 		render2d.PopAlphaMultiplier()
 	end
 
-	function theme.DrawMenuSpacer(self, props)
-		local size = self.Owner.transform:GetSize()
+	function theme.DrawMenuSpacer(pnl, vertical)
+		local size = pnl.Owner.transform:GetSize()
 		local w = size.x
 		local h = size.y
 		local r, g, b, a = theme.GetColor("lightest"):Unpack()
 		render2d.PushColor(r, g, b, a)
 
-		if props.Vertical then
+		if vertical then
 			theme.DrawLine(w / 2, 0, w / 2, h, 2)
 		else
 			theme.DrawLine(0, h / 2, w, h / 2, 2)
@@ -1179,10 +1181,10 @@ do
 		theme.DrawPill1(0, 0, size.x, size.y)
 	end
 
-	function theme.DrawProgressBar(self, state)
-		local size = self.Owner.transform.Size
+	function theme.DrawProgressBar(pnl, state)
+		local size = pnl.Owner.transform.Size
 		local value = state.value or 0
-		local col = self.Owner.rect.Color or PRIMARY
+		local col = pnl.Owner.rect.Color or PRIMARY
 		theme.DrawProgressBarPrimitive(0, 0, size.x, size.y, value, col)
 	end
 

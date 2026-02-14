@@ -24,7 +24,7 @@ return function(props)
 			},
 			gui_element = {
 				OnDraw = function(self)
-					theme.DrawMenuSpacer(self, props)
+					theme.DrawMenuSpacer(self, props.Vertical)
 				end,
 			},
 			mouse_input = true,
