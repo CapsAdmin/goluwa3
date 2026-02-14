@@ -236,10 +236,11 @@ local function toggle()
 	menu = Panel.New(
 		{
 			Name = "GameMenuPanel",
+			OnSetProperty = theme.OnSetProperty,
 			transform = {
 				Size = world_panel.transform:GetSize(),
 			},
-			rect = {
+			gui_element = {
 				Color = Color(0, 0, 0, 0.5),
 			},
 			layout = {

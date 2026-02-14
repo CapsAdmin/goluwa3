@@ -12,6 +12,7 @@ return function(props)
 	return Panel.New(
 		{
 			Name = props.Name or "Window",
+			OnSetProperty = theme.OnSetProperty,
 			transform = {
 				Size = props.Size or Vec2(400, 300),
 				Position = props.Position or Vec2(100, 100),
@@ -50,16 +51,15 @@ return function(props)
 				{
 					IsInternal = true,
 					Name = "WindowHeader",
+					OnSetProperty = theme.OnSetProperty,
 					layout = {
 						Direction = "x",
 						AlignmentY = "center",
 						FitHeight = true,
-						Padding = Rect() + theme.GetPadding("XXXS"),
-					},
-					rect = {
-						Color = theme.GetColor("primary"),
+						Padding = "XXXS",
 					},
 					gui_element = {
+						Color = "primary",
 						OnDraw = function(self)
 							theme.panels.header(self.Owner)
 						end,
@@ -120,16 +120,15 @@ return function(props)
 					end,
 					IsInternal = true,
 					Name = "WindowContent",
+					OnSetProperty = theme.OnSetProperty,
 					layout = {
 						Direction = "y",
 						GrowWidth = 1,
 						GrowHeight = 1,
 						Padding = Rect() + theme.GetPadding("M"),
 					},
-					rect = {
-						Color = theme.GetColor("background"),
-					},
 					gui_element = {
+						Color = theme.GetColor("background"),
 						OnDraw = function(self)
 							theme.panels.frame(self.Owner)
 						end,

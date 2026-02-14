@@ -7,7 +7,7 @@ local theme = require("ui.theme")
 return function(props)
 	return Clickable(
 		{
-			Size = props.Size or (Vec2() + theme.GetSize("M")),
+			Size = props.Size or "M",
 			Active = props.Active,
 			Disabled = props.Disabled,
 			OnClick = props.OnClick,
@@ -17,18 +17,19 @@ return function(props)
 				FitHeight = true,
 				GrowWidth = 1,
 			},
-			Padding = props.Padding or (Rect() + theme.GetSize("M")),
+			Padding = "M",
 		}
 	)(
 		{
 			Text(
 				{
-					layout = {GrowWidth = 1, FitHeight = true},
+					layout = {
+						GrowWidth = 1,
+						FitHeight = true,
+					},
 					Text = props.Text,
 					IgnoreMouseInput = true,
-					Color = props.Disabled and
-						theme.GetColor("text_disabled") or
-						theme.GetColor("text_foreground"),
+					Color = props.Disabled and "text_disabled" or "text_foreground",
 				}
 			),
 		}

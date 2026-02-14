@@ -8,12 +8,13 @@ return function(props)
 			props,
 			{
 				Name = "Column",
+				OnSetProperty = theme.OnSetProperty,
 				layout = {
 					Direction = "y",
 					GrowWidth = 1,
 					FitHeight = true,
 					AlignmentX = "center",
-					ChildGap = theme.GetSize("S"),
+					ChildGap = "S",
 					props.layout,
 				},
 				transform = true,

@@ -81,18 +81,17 @@ return function(props)
 			{
 				IsInternal = true,
 				Name = "scrollbar_handle_" .. axis,
+				OnSetProperty = theme.OnSetProperty,
 				Ref = function(s)
 					if is_v then handle_v = s else handle_h = s end
 
 					s:AddLocalListener("OnTransformChanged", update_handle)
 				end,
-				rect = {
-					Color = Color(1, 1, 1, 0.4),
-				},
 				transform = {
 					Size = is_v and Vec2(6, 40) or Vec2(40, 6),
 				},
 				gui_element = {
+					Color = Color(1, 1, 1, 0.4),
 					BorderRadius = 3,
 				},
 				layout = {
@@ -133,6 +132,7 @@ return function(props)
 	return Panel.New(
 		{
 			Name = "scrollable_panel",
+			OnSetProperty = theme.OnSetProperty,
 			layout = {
 				AlignmentX = "stretch",
 				Direction = "y",
@@ -160,15 +160,14 @@ return function(props)
 				{
 					IsInternal = true,
 					Name = "viewport",
+					OnSetProperty = theme.OnSetProperty,
 					Ref = function(s)
 						viewport = s
 						s:AddLocalListener("OnTransformChanged", update_handle)
 						s:AddLocalListener("OnLayoutUpdated", update_handle)
 					end,
-					rect = {
-						Color = props.Color or theme.GetColor("invisible"),
-					},
 					gui_element = {
+						Color = props.Color,
 						Clipping = true,
 					},
 					transform = {

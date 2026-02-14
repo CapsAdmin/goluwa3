@@ -71,12 +71,11 @@ return {
 						{
 							Name = "AnimatedPanel",
 							transform = true,
-							gui_element = true,
 							layout = {
 								AlignmentX = "center",
 								AlignmentY = "center",
 							},
-							rect = {
+							gui_element = {
 								Color = Color(1, 0.5, 0, 0.5),
 							},
 							Ref = function(self)

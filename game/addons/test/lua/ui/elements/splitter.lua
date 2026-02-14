@@ -23,6 +23,7 @@ return function(props)
 			props,
 			{
 				Name = is_vertical and "VerticalSplitter" or "HorizontalSplitter",
+				OnSetProperty = theme.OnSetProperty,
 				layout = {
 					Direction = is_vertical and "y" or "x",
 					GrowWidth = 1,
@@ -99,16 +100,13 @@ return function(props)
 		{
 			IsInternal = true,
 			Name = "Divider",
+			OnSetProperty = theme.OnSetProperty,
 			transform = {
 				Size = is_vertical and Vec2(0, divider_width) or Vec2(divider_width, 0),
 			},
 			layout = {
 				GrowHeight = is_vertical and 0 or 1,
 				GrowWidth = is_vertical and 1 or 0,
-			},
-			rect = {
-				Color = Color(0, 0, 0, 0.2),
-				OnDraw = function() end,
 			},
 			mouse_input = {
 				Cursor = is_vertical and "vertical_resize" or "horizontal_resize",
@@ -182,6 +180,7 @@ return function(props)
 				end,
 			},
 			gui_element = {
+				Color = Color(0, 0, 0, 0.2),
 				OnDraw = function(self)
 					theme.panels.divider(self.Owner)
 				end,

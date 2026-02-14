@@ -61,6 +61,7 @@ return function(props)
 	return Panel.New(
 		{
 			{
+				OnSetProperty = theme.OnSetProperty,
 				PreChildAdd = function(self, child)
 					if child.IsInternal then return end
 
@@ -118,10 +119,10 @@ return function(props)
 					transform = {
 						Pivot = Vec2(0, 0),
 						Position = props.Position or Vec2(100, 100),
-						Size = props.Size or (Vec2() + theme.GetSize("M")),
+						Size = props.Size or "M",
 					},
 					Emphasis = 0,
-					Padding = Rect() + theme.GetSize("XS"),
+					Padding = "XS",
 					layout = {
 						Floating = true,
 						Direction = "y",

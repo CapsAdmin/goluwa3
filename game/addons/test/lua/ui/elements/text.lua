@@ -12,10 +12,11 @@ return function(props)
 		{
 			{
 				Name = "text",
+				OnSetProperty = theme.OnSetProperty,
 				text = {
-					Font = theme.GetFont(props.FontName or "body"),
-					FontSize = theme.GetFontSize(props.Size or "M"),
-					Color = theme.GetColor("text_foreground"),
+					Font = props.FontName or "body",
+					FontSize = props.FontSize or "M",
+					Color = "text_foreground",
 				},
 				layout = {
 					FitWidth = not props.Wrap,

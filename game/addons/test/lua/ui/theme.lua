@@ -17,6 +17,26 @@ local Textures = {
 	Gradient = require("render.textures.gradient_linear"),
 }
 
+function theme.OnSetProperty(obj, key, val)
+	print(obj, key, val)
+
+	if key == "Padding" then
+		if type(val) == "string" then return Rect() + theme.GetPadding(val) end
+	elseif key == "Color" then
+		if type(val) == "string" then return theme.GetColor(val) end
+	elseif key == "ChildGap" then
+		if type(val) == "string" then return theme.GetSize(val) end
+	elseif key == "Size" then
+		if type(val) == "string" then return Vec2() + theme.GetSize(val) end
+	elseif key == "Font" then
+		if type(val) == "string" then return theme.GetFont(val) end
+	elseif key == "FontSize" then
+		if type(val) == "string" then return theme.GetFontSize(val) end
+	end
+
+	return val
+end
+
 do
 	local gradient = {
 		PRIMARY:Darken(2),

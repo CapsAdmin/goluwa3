@@ -16,8 +16,9 @@ return function(props)
 	return Panel.New(
 		{
 			Name = "checkbox_graphic",
+			OnSetProperty = theme.OnSetProperty,
 			transform = {
-				Size = props.Size or (Vec2() + theme.GetSize("M")),
+				Size = props.Size or "M",
 			},
 			layout = {
 				props.layout,

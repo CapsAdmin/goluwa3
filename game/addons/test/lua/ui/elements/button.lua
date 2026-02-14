@@ -15,16 +15,14 @@ return function(props)
 				FitHeight = true,
 			},
 			OnClick = props.OnClick,
-			Padding = (Rect() + theme.GetPadding(props.Padding or "XS")),
+			Padding = "XS",
 		}
 	)(
 		Text(
 			{
 				Text = props.Text,
 				IgnoreMouseInput = true,
-				Color = props.Disabled and
-					theme.GetColor("text_disabled") or
-					theme.GetColor("text_foreground"),
+				Color = props.Disabled and "text_disabled" or "text_foreground",
 			}
 		)
 	)

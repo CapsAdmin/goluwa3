@@ -64,7 +64,7 @@ return {
 				{
 					Text = "Animated Progress Bar",
 					FontName = "heading",
-					Size = Vec2() + theme.GetSize("L"),
+					FontSize = "L",
 				}
 			)
 		)

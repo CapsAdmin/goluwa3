@@ -65,6 +65,7 @@ return function(props)
 		{
 			props,
 			Name = "slider",
+			OnSetProperty = theme.OnSetProperty,
 			transform = {
 				Size = state.mode == "vertical" and
 					Vec2(theme.GetSize("S"), 100) or

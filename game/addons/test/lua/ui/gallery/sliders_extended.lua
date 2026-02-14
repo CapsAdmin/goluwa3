@@ -48,7 +48,7 @@ return {
 				layout = {
 					MinSize = Vec2(100, 100),
 				},
-				rect = {
+				gui_element = {
 					Color = Color(1, 0.5, 0.5, 1),
 				},
 			}

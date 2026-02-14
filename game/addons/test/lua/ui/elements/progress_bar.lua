@@ -9,6 +9,7 @@ return function(props)
 		{
 			props,
 			Name = "progress_bar",
+			OnSetProperty = theme.OnSetProperty,
 			transform = {
 				Size = props.Size or Vec2(200, theme.GetSize("S")),
 			},
@@ -23,10 +24,7 @@ return function(props)
 				OnDraw = function(self)
 					theme.panels.progress_bar(self, state)
 				end,
-			},
-			rect = {
-				Color = props.Color or theme.GetColor("primary"),
-				OnDraw = function() end, -- Disable default rect drawing
+				Color = props.Color or "primary",
 			},
 		}
 	)

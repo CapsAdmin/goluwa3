@@ -25,6 +25,7 @@ return function(props)
 			props,
 			{
 				Name = "clickable",
+				OnSetProperty = theme.OnSetProperty,
 				transform = {
 					Size = props.Size or Vec2(200, 50),
 					Perspective = 400,
@@ -32,14 +33,18 @@ return function(props)
 					DrawAngleOffset = Ang3(0, 0, 0),
 				},
 				layout = {
-					Padding = Rect() + theme.GetPadding("XXS"),
+					Padding = "XXS",
 					props.layout,
 				},
 				gui_element = {
+					Color = props.Disabled and
+						"clickable_disabled" or
+						props.Color or
+						"primary",
 					Shadows = false,
 					BorderRadius = 10,
 					ShadowSize = 10,
-					ShadowColor = theme.GetColor("clickable_shadow"),
+					ShadowColor = "clickable_shadow",
 					ShadowOffset = Vec2(2, 2),
 					Clipping = true,
 					DrawAlpha = props.Disabled and 0.5 or 1,
@@ -64,13 +69,6 @@ return function(props)
 						state.is_hovered = hovered
 						theme.UpdateButtonAnimations(self.Owner, state)
 					end,
-				},
-				rect = {
-					Color = props.Disabled and
-						theme.GetColor("clickable_disabled") or
-						props.Color or
-						theme.GetColor("primary"),
-					OnDraw = function() end,
 				},
 				animation = true,
 				clickable = true,

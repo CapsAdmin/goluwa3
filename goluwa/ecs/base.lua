@@ -4,23 +4,34 @@ return function(name, base_path, get_valid_components)
 	prototype.ParentingTemplate(BaseEntity)
 	local valid_components
 
-	local function apply_config(instance, config)
+	local function set_property(obj, key, val, OnSetProperty)
+		local oldval = val
+
+		if OnSetProperty then val = OnSetProperty(obj, key, val) end
+
+		--print(obj, OnSetProperty, key, oldval, ">", val)
+		return prototype.SetProperty(obj, key, val), val
+	end
+
+	local function apply_config(instance, config, OnSetProperty)
 		if type(config) ~= "table" then return end
+
+		OnSetProperty = config.OnSetProperty or OnSetProperty
 
 		for key, value in pairs(config) do
 			if type(key) == "string" then
 				if key:starts_with("On") then
 					instance[key] = value
 				else
-					if not prototype.SetProperty(instance, key, value) then
-						instance[key] = value
-					end
+					local ok, new_value = set_property(instance, key, value, OnSetProperty)
+
+					if not ok then instance[key] = new_value end
 				end
 			end
 		end
 
 		for i = 1, #config do
-			apply_config(instance, config[i])
+			apply_config(instance, config[i], OnSetProperty)
 		end
 	end
 
@@ -38,6 +49,7 @@ return function(name, base_path, get_valid_components)
 		local local_events = {}
 		local ref
 		local parent = BaseEntity.World
+		local OnSetProperty
 
 		local function find_special_props(config)
 			if type(config) ~= "table" then return end
@@ -52,6 +64,8 @@ return function(name, base_path, get_valid_components)
 				config.Parent = nil
 			end
 
+			if config.OnSetProperty then OnSetProperty = config.OnSetProperty end
+
 			for i = 1, #config do
 				find_special_props(config[i])
 			end
@@ -61,10 +75,14 @@ return function(name, base_path, get_valid_components)
 		self:SetParent(parent)
 
 		if config then
-			local function apply_root_config(config)
+			local function apply_root_config(config, OnSetProperty)
+				if type(config) ~= "table" then return end
+
+				OnSetProperty = config.OnSetProperty or OnSetProperty
+
 				if config.ComponentSet then
 					for _, lib in ipairs(config.ComponentSet) do
-						table.insert(components, ent:AddComponent(lib, nil, true))
+						table.insert(components, ent:AddComponent(lib, nil, true, OnSetProperty))
 					end
 				end
 
@@ -86,10 +104,10 @@ return function(name, base_path, get_valid_components)
 						)
 					then
 						if not ent:HasComponent(key) then
-							table.insert(components, ent:AddComponent(key, val, true))
+							table.insert(components, ent:AddComponent(key, val, true, OnSetProperty))
 						else
 							local instance = ent.component_map[key]
-							apply_config(instance, val)
+							apply_config(instance, val, OnSetProperty)
 						end
 					end
 				end
@@ -110,11 +128,13 @@ return function(name, base_path, get_valid_components)
 						if key:starts_with("On") then
 							ent[key] = val
 						else
-							if not prototype.SetProperty(ent, key, val) then
+							local ok, new_val = set_property(ent, key, val, OnSetProperty)
+
+							if not ok then
 								local found = false
 
 								for _, component in ipairs(ent.component_list) do
-									if prototype.SetProperty(component, key, val) then
+									if set_property(component, key, new_val, OnSetProperty) then
 										found = true
 
 										break
@@ -124,9 +144,9 @@ return function(name, base_path, get_valid_components)
 								if not found then
 									for comp_name, comp_meta in pairs(valid_components) do
 										if prototype.GetPropertyInfo(comp_meta, key) or comp_meta["Set" .. key] then
-											local component = ent:AddComponent(comp_name, nil, true)
+											local component = ent:AddComponent(comp_name, nil, true, OnSetProperty)
 											table.insert(components, component)
-											prototype.SetProperty(component, key, val)
+											set_property(component, key, new_val, OnSetProperty)
 											found = true
 
 											break
@@ -134,18 +154,18 @@ return function(name, base_path, get_valid_components)
 									end
 								end
 
-								if not found then ent[key] = val end
+								if not found then ent[key] = new_val end
 							end
 						end
 					end
 				end
 
 				for i = 1, #config do
-					apply_root_config(config[i])
+					apply_root_config(config[i], OnSetProperty)
 				end
 			end
 
-			apply_root_config(config)
+			apply_root_config(config, OnSetProperty)
 		end
 
 		if self:GetKey() ~= "" and self.Parent:IsValid() then
@@ -208,11 +228,11 @@ return function(name, base_path, get_valid_components)
 		self:RemoveChildren()
 	end
 
-	function BaseEntity:AddComponent(name, tbl, skip_init)
+	function BaseEntity:AddComponent(name, tbl, skip_init, OnSetProperty)
 		valid_components = valid_components or get_valid_components()
 		local meta = valid_components[name] --require(base_path .. name)
 		self[name] = self:CreateSubObject(meta)
-		apply_config(self[name], tbl)
+		apply_config(self[name], tbl, OnSetProperty)
 
 		if not skip_init then
 			if self[name].Initialize then self[name]:Initialize() end

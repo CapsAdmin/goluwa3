@@ -26,7 +26,7 @@ return {
 				{
 					Text = "Below are editable text fields. Click them to focus and type.",
 					FontName = "body",
-					Size = Vec2() + theme.GetSize("L"),
+					FontSize = "L",
 				}
 			)
 		)
@@ -39,7 +39,7 @@ return {
 					key_input = {}, -- Required for editing
 					mouse_input = {FocusOnClick = true}, -- Required to receive focus
 					Background = {
-						Color = theme.GetColor("surface"),
+						Color = "surface",
 					},
 					layout = {
 						GrowWidth = 1,
@@ -58,7 +58,7 @@ return {
 					key_input = {},
 					mouse_input = {FocusOnClick = true},
 					Background = {
-						Color = theme.GetColor("surface_variant"),
+						Color = "surface_variant",
 					},
 					layout = {
 						GrowWidth = 1,
@@ -74,10 +74,8 @@ return {
 		local box = Panel.New(
 			{
 				ComponentSet = {"rect", "transform", "gui_element", "layout"},
-				rect = {
-					Color = Color(0.15, 0.15, 0.15, 1),
-				},
 				gui_element = {
+					Color = Color(0.15, 0.15, 0.15, 1),
 					BorderRadius = 8,
 				},
 				layout = {
@@ -138,9 +136,9 @@ return {
 					Editable = true,
 					key_input = {},
 					mouse_input = {FocusOnClick = true},
-					Color = Color(1, 0.3, 0.3, 1),
+					Color = "error",
 					FontName = "heading",
-					Size = Vec2() + theme.GetSize("M"),
+					FontSize = "M",
 					layout = {
 						GrowWidth = 1,
 					},

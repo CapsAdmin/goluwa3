@@ -15,6 +15,7 @@ return function(props)
 			props,
 			{
 				Name = "frame",
+				OnSetProperty = theme.OnSetProperty,
 				gui_element = {
 					OnDraw = function(self)
 						theme.panels.frame(self.Owner, props.Emphasis or 1)
@@ -24,7 +25,7 @@ return function(props)
 					end,
 				},
 				layout = {
-					Padding = Rect() + theme.GetPadding(props.Padding),
+					Padding = props.Padding,
 					props.layout,
 				},
 				transform = true,

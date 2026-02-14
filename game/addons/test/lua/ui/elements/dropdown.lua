@@ -75,7 +75,7 @@ return function(props)
 		{
 			layout = {Direction = "x", FitHeight = true, AlignmentY = "center"},
 			OnClick = open_menu,
-			Padding = props.Padding or (Rect() + theme.GetSize("M")),
+			Padding = props.Padding or "M",
 		}
 	)(
 		{
@@ -88,9 +88,7 @@ return function(props)
 					end,
 					IgnoreMouseInput = true,
 					layout = {GrowWidth = 1, FitHeight = true},
-					Color = props.Disabled and
-						theme.GetColor("text_disabled") or
-						theme.GetColor("text_foreground"),
+					Color = props.Disabled and "text_disabled" or "text_foreground",
 				}
 			),
 			Text(
@@ -99,9 +97,7 @@ return function(props)
 					Text = " ▼",
 					IgnoreMouseInput = true,
 					layout = {FitWidth = true, FitHeight = true},
-					Color = props.Disabled and
-						theme.GetColor("text_disabled") or
-						theme.GetColor("text_foreground"),
+					Color = props.Disabled and "text_disabled" or "text_foreground",
 				}
 			),
 		}

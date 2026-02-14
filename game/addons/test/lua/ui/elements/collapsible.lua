@@ -16,6 +16,7 @@ return function(props)
 			props,
 			{
 				Name = "Collapsible",
+				OnSetProperty = theme.OnSetProperty,
 				transform = true,
 				layout = {
 					Direction = "y",
@@ -61,15 +62,15 @@ return function(props)
 			IsInternal = true,
 			Name = "Header",
 			Mode = "outline",
-			rect = {
-				Color = theme.GetColor("primary"),
+			gui_element = {
+				Color = "primary",
 			},
 			layout = {
 				Direction = "x",
 				AlignmentY = "center",
 				FitHeight = true,
-				Padding = Rect() + theme.GetPadding("XS"),
-				ChildGap = theme.GetSize("XXS"),
+				Padding = "XS",
+				ChildGap = "XXS",
 			},
 			OnClick = function(self)
 				collapsed = not collapsed
@@ -96,6 +97,7 @@ return function(props)
 				{
 					IsInternal = true,
 					Name = "ArrowContainer",
+					OnSetProperty = theme.OnSetProperty,
 					transform = {
 						Size = Vec2(16, 16),
 					},
@@ -137,12 +139,13 @@ return function(props)
 		{
 			IsInternal = true,
 			Name = "Body",
+			OnSetProperty = theme.OnSetProperty,
 			layout = {
 				Direction = "y",
 				FitHeight = true,
 				GrowWidth = 1,
 				AlignmentX = "stretch",
-				Padding = Rect() + theme.GetPadding("XS"),
+				Padding = "XS",
 				Floating = true,
 			},
 			transform = true,
@@ -157,6 +160,7 @@ return function(props)
 		{
 			IsInternal = true,
 			Name = "ClipContainer",
+			OnSetProperty = theme.OnSetProperty,
 			transform = {
 				Size = Vec2(0, 0),
 			},
