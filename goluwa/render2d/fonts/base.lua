@@ -9,6 +9,10 @@ META.IsFont = true
 META:GetSet("Path", "default")
 META:GetSet("Size", 8)
 
+function META:__copy()
+	return self
+end
+
 function META.New()
 	local self = META:CreateObject()
 	self:SetPath("default")

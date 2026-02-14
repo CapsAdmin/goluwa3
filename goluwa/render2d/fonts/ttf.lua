@@ -14,6 +14,10 @@ META.IsFont = true
 META:GetSet("Path", nil)
 META:GetSet("Size", 16, {callback = "UpdateScale"})
 
+function META:__copy()
+	return self
+end
+
 function META:UpdateScale()
 	if self.font then
 		self.scale = self.Size / self.font.units_per_em

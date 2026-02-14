@@ -41,6 +41,11 @@ end
 META:IsSet("Monospace", false, {callback = "ClearSizeCache"})
 META:IsSet("Ready", false)
 META.debug = false
+
+function META:__copy()
+	return self
+end
+
 local SUPER_SAMPLING_SCALE = 4
 
 function META:ClearSizeCache()
