@@ -81,6 +81,8 @@ function render.Initialize(config)
 	end)
 
 	function render.Draw(dt)
+		if render.in_frame then return end
+
 		-- Wait for previous frame before starting shadow passes
 		render.target:WaitForPreviousFrame()
 		-- Shadow passes run before main frame (before swapchain acquire)
@@ -99,6 +101,7 @@ function render.Initialize(config)
 end
 
 function render.BeginFrame()
+	render.in_frame = true
 	render.cmd = render.target:BeginFrame()
 end
 
@@ -109,6 +112,7 @@ end
 function render.EndFrame()
 	render.target:EndFrame()
 	render.cmd = nil
+	render.in_frame = false
 end
 
 function render.GetRenderImageSize()
