@@ -5,7 +5,7 @@ local Vec2 = require("structs.vec2")
 local fonts = require("render2d.fonts")
 local fontPath = fonts.GetDefaultSystemFontPath()
 local font = fonts.New({Path = fontPath, Size = 64})
-local gfont = fonts.LoadGoogleFont("Orbitron", "regular", {Size = 64})
+local gfont = fonts.LoadGoogleFont("Orbitron", "Bold", {Size = 64, Padding = 32})
 font.debug = false
 font:SetPadding(64)
 local blue_gradient = render2d.CreateGradient(
@@ -156,8 +156,8 @@ end
 
 local function DrawNeonText(x, y)
 	render2d.PushColor(1, 1, 1, 1)
-	render2d.PushBlur(10) -- SDF Blur for glow
-	render2d.PushSDFThreshold(0.5)
+	render2d.PushBlur(15) -- SDF Blur for glow
+	render2d.PushSDFThreshold(0.2)
 	gfont:DrawText("NEON LIGHTS", x, y)
 	render2d.PopSDFThreshold()
 	render2d.PopBlur()
