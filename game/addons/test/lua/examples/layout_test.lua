@@ -51,7 +51,8 @@ local outer = Panel.NewPanel(
 						{
 							Parent = row,
 							Text = item.text,
-							Font = theme.GetFont("body", "M"),
+							Font = theme.GetFont("body"),
+							FontSize = theme.GetFontSize("M"),
 							Color = WHITE,
 							Wrap = true,
 							layout = {
@@ -64,7 +65,8 @@ local outer = Panel.NewPanel(
 						{
 							Parent = row,
 							Text = item.icon,
-							Font = theme.GetFont("heading", "XXL"),
+							Font = theme.GetFont("heading"),
+							FontSize = theme.GetFontSize("XXL"),
 							Color = WHITE,
 							AlignX = "center",
 							AlignY = "center",

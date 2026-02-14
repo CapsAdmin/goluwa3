@@ -115,19 +115,27 @@ do
 		XXXL = 42,
 	}
 	-- google fonts
-	local font_paths = {
+	local font_styles = {
 		heading = {"Orbitron", "Regular"},
 		body_weak = {"Rajdhani", "Light"},
 		body = {"Rajdhani", "Bold"},
 		body_strong = {"Rajdhani", "Bold"},
 	}
 
-	function theme.GetFont(name, size_name)
-		local path = font_paths[name or "body"] or font_paths.body
-		local size = font_sizes[size_name or "M"] or font_sizes.M
-		theme.Fonts = theme.Fonts or {}
-		theme.Fonts[path] = theme.Fonts[path] or fonts.LoadGoogleFont(path[1], path[2], {Size = size})
-		return theme.Fonts[path]
+	function theme.GetFontSize(size_name)
+		return font_sizes[size_name or "M"] or font_sizes.M
+	end
+
+	local font_cache = {}
+
+	function theme.GetFont(name)
+		local key = font_styles[name or "body"] or font_styles.body
+
+		if not font_cache[key] then
+			font_cache[key] = fonts.LoadGoogleFont(key[1], key[2])
+		end
+
+		return font_cache[key]
 	end
 end
 
@@ -1171,7 +1179,13 @@ do
 		render2d.SetTexture(nil)
 		local x, y = 500, 200 --gfx.GetMousePosition()
 		local w, h = 600, 30
-		HeadingFont:DrawText("Custom Font Rendering", x, y - 40)
+
+		do
+			local f = theme.GetFont("heading")
+			f:SetSize(theme.GetFontSize("XXL"))
+			f:DrawText("Custom Font Rendering", x, y - 40)
+		end
+
 		theme.DrawClassicFrame(x, y, 60, 40)
 		x = x + 80
 		theme.DrawModernFrame(x, y, 100, 60, 1)

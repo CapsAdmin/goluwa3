@@ -14,6 +14,7 @@ META:GetSet(
 	fonts.New({Path = fonts.GetDefaultSystemFontPath(), Size = 14}),
 	{callback = "OnTextChanged"}
 )
+META:GetSet("FontSize", 14, {callback = "OnTextChanged"})
 META:GetSet("Text", "", {callback = "OnTextChanged"})
 META:GetSet("Wrap", false, {callback = "OnTextChanged"})
 META:GetSet("WrapToParent", false, {callback = "OnTextChanged"})
@@ -282,6 +283,7 @@ function META:OnDraw()
 	end
 
 	render2d.SetColor(self:GetColor():Unpack())
+	font:SetSize(FontSize)
 	font:DrawText(text, lx, ly, 0)
 
 	if
