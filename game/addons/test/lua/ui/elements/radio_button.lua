@@ -57,7 +57,7 @@ return function(props)
 						end
 
 						theme.UpdateCheckboxAnimations(self.Owner, state)
-						theme.DrawRadioButton(self.Owner, state)
+						theme.panels.button_radio(self.Owner, state)
 					end,
 				},
 				animation = true,

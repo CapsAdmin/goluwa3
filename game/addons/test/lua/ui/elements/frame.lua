@@ -20,10 +20,10 @@ return function(props)
 				},
 				gui_element = {
 					OnDraw = function(self)
-						theme.DrawFrame(self.Owner, props.Emphasis or 1)
+						theme.panels.frame(self.Owner, props.Emphasis or 1)
 					end,
 					OnPostDraw = function(self)
-						theme.DrawFramePost(self.Owner, props.Emphasis or 1)
+						theme.panels.frame_post(self.Owner, props.Emphasis or 1)
 					end,
 				},
 				layout = {

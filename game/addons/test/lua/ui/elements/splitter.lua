@@ -186,7 +186,7 @@ return function(props)
 			},
 			gui_element = {
 				OnDraw = function(self)
-					theme.DrawDivider(self.Owner)
+					theme.panels.divider(self.Owner)
 				end,
 			},
 			animation = true,

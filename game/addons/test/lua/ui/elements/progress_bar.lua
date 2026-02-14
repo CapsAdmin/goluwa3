@@ -21,7 +21,7 @@ return function(props)
 			gui_element = {
 				DrawAlpha = 1,
 				OnDraw = function(self)
-					theme.DrawProgressBar(self, state)
+					theme.panels.progress_bar(self, state)
 				end,
 			},
 			rect = {

@@ -44,10 +44,10 @@ return function(props)
 					Clipping = true,
 					DrawAlpha = props.Disabled and 0.5 or 1,
 					OnDraw = function(self)
-						theme.DrawButton(self, state)
+						theme.panels.button(self, state)
 					end,
 					OnPostDraw = function(self)
-						theme.DrawButtonPost(self, state)
+						theme.panels.button_post(self, state)
 					end,
 				},
 				mouse_input = {

@@ -148,7 +148,7 @@ do -- primitives
 		render2d.PopOutlineWidth()
 	end
 
-	function theme.DrawPill1(x, y, w, h)
+	function theme.DrawPill(x, y, w, h)
 		x = x - 15
 		w = w + 30
 		render2d.PushBorderRadius(h)
@@ -338,33 +338,6 @@ do -- primitives
 		render2d.PopBorderRadius()
 	end
 
-	local blur_color = Color.FromHex("#2374DD")
-	theme.HeadingFont = fonts.New(
-		{
-			Path = "/home/caps/Downloads/Exo_2/static/Exo2-Bold.ttf",
-			Size = 30,
-			Padding = 20,
-			SeparateEffects = true,
-			Effects = {
-				{
-					Type = "shadow",
-					Dir = -1.5,
-					Color = Color.FromHex("#0c1721"),
-					BlurRadius = 0.25,
-					BlurPasses = 1,
-				},
-				{
-					Type = "shadow",
-					Dir = 0,
-					Color = blur_color,
-					BlurRadius = 3,
-					BlurPasses = 3,
-					AlphaPow = 0.6,
-				},
-			},
-		}
-	)
-
 	function theme.DrawCircle(x, y, size, width)
 		render2d.PushBorderRadius(size)
 		render2d.PushOutlineWidth(width or 1)
@@ -495,106 +468,64 @@ do -- primitives
 		end
 	end
 
-	local glow_color = Color.FromHex("#5ea6e9")
-	local gradient = Texture.New(
-		{
-			width = 16,
-			height = 16,
-			format = "r8g8b8a8_unorm",
-			sampler = {
-				min_filter = "linear",
-				mag_filter = "linear",
-				wrap_s = "clamp_to_edge",
-				wrap_t = "clamp_to_edge",
-			},
-		}
-	)
-	local start = Color.FromHex("#004687ff")
-	local stop = Color.FromHex("#04013e00")
-	gradient:Shade(
-		[[
+	do
+		local glow_color = Color.FromHex("#5ea6e9")
+		local gradient = Texture.New(
+			{
+				width = 16,
+				height = 16,
+				format = "r8g8b8a8_unorm",
+				sampler = {
+					min_filter = "linear",
+					mag_filter = "linear",
+					wrap_s = "clamp_to_edge",
+					wrap_t = "clamp_to_edge",
+				},
+			}
+		)
+		local start = Color.FromHex("#004687ff")
+		local stop = Color.FromHex("#04013e00")
+		gradient:Shade(
+			[[
 			float dist = distance(uv, vec2(0.5));
 				return mix(vec4(]] .. start.r .. ", " .. start.g .. ", " .. start.b .. ", " .. start.a .. [[), vec4(]] .. stop.r .. ", " .. stop.g .. ", " .. stop.b .. ", " .. stop.a .. [[), -uv.y + 1.0 + uv.x*0.3);
 		]]
-	)
+		)
 
-	function theme.DrawModernFrame(x, y, w, h, intensity)
-		render2d.SetColor(1, 1, 1, 1)
-		render2d.SetTexture(gradient)
-		render2d.DrawRect(x, y, w, h)
-	end
+		function theme.DrawModernFrame(x, y, w, h, intensity)
+			render2d.SetColor(1, 1, 1, 1)
+			render2d.SetTexture(gradient)
+			render2d.DrawRect(x, y, w, h)
+		end
 
-	function theme.DrawModernFramePost(x, y, w, h, intensity)
-		render2d.SetTexture(nil)
-		x = x - 1
-		y = y - 1
-		w = w + 2
-		h = h + 2
-		render2d.SetColor(glow_color.r, glow_color.g, glow_color.b, 0.75 + intensity * 0.4)
-		render2d.SetBlendMode("additive")
-		local glow_size = 40 * intensity
-		local diamond_size = 6 + 2 * intensity
-		theme.DrawDiamond2(x, y, diamond_size)
-		theme.DrawGlow(x, y, glow_size)
-		theme.DrawDiamond2(x + w, y, diamond_size)
-		theme.DrawGlow(x + w, y, glow_size)
-		theme.DrawDiamond2(x, y + h, diamond_size)
-		theme.DrawGlow(x, y + h, glow_size)
-		theme.DrawDiamond2(x + w, y + h, diamond_size)
-		theme.DrawGlow(x + w, y + h, glow_size)
-		render2d.SetTexture(Textures.GlowLinear)
-		local extent_h = -200 * 0.25 * intensity
-		local extent_w = -200 * 0.25 * intensity
-		render2d.SetBlendMode("alpha")
-		theme.DrawGlowLine(x + extent_w, y, x + w - extent_w, y, 1)
-		theme.DrawGlowLine(x + extent_w, y + h, x + w - extent_w, y + h, 1)
-		theme.DrawGlowLine(x, y + extent_h, x, y + h - extent_h, 1)
-		theme.DrawGlowLine(x + w, y + extent_h, x + w, y + h - extent_h, 1)
-		render2d.SetTexture(nil)
-	end
-
-	function theme.DrawMuseum()
-		render2d.SetColor(1, 1, 1, 1)
-		render2d.SetTexture(nil)
-		local x, y = 500, 200 --gfx.GetMousePosition()
-		local w, h = 600, 30
-		theme.HeadingFont:DrawText("Custom Font Rendering", x, y - 40)
-		theme.DrawClassicFrame(x, y, 60, 40)
-		x = x + 80
-		theme.DrawModernFrame(x, y, 100, 60, 1)
-		x = x + 120
-		theme.DrawModernFrame(x, y, 100, 60, 0)
-		x = x + 120
-		theme.DrawWhiteFrame(x, y, 60, 40)
-		x = x - 120 - 80 - 120
-		y = y + 80
-		render2d.SetColor(0, 0, 0, 1)
-		theme.DrawPill1(x, y, w, h)
-		y = y + 50
-		theme.DrawBadge(x, y, w, h)
-		y = y + 50
-		theme.DrawDiamond(x, y, 20)
-		x = x + 50
-		render2d.PushOutlineWidth(1)
-		theme.DrawDiamond(x, y, 20)
-		render2d.PopOutlineWidth()
-		render2d.SetColor(1, 1, 1, 1)
-		x = x + 50
-		theme.DrawArrow(x, y, 40)
-		x = x - 100
-		y = y + 50
-		render2d.SetTexture(nil)
-		theme.DrawLine(x + 20, y, x + w - 40, y, 3)
-		y = y + 20
-		theme.DrawLine2(x + 20, y, x + w - 40, y, 3)
-		y = y + 20
-		theme.DrawDiamond2(x, y, 10)
-		y = y + 20
-		render2d.SetColor(1, 1, 1, 1)
-		y = y + 20
-		theme.DrawMagicCircle(x - 100, y, 30)
-		y = y + 20
-		theme.DrawGlowLine(x, y, x + w - 40, y, 1)
+		function theme.DrawModernFramePost(x, y, w, h, intensity)
+			render2d.SetTexture(nil)
+			x = x - 1
+			y = y - 1
+			w = w + 2
+			h = h + 2
+			render2d.SetColor(glow_color.r, glow_color.g, glow_color.b, 0.75 + intensity * 0.4)
+			render2d.SetBlendMode("additive")
+			local glow_size = 40 * intensity
+			local diamond_size = 6 + 2 * intensity
+			theme.DrawDiamond2(x, y, diamond_size)
+			theme.DrawGlow(x, y, glow_size)
+			theme.DrawDiamond2(x + w, y, diamond_size)
+			theme.DrawGlow(x + w, y, glow_size)
+			theme.DrawDiamond2(x, y + h, diamond_size)
+			theme.DrawGlow(x, y + h, glow_size)
+			theme.DrawDiamond2(x + w, y + h, diamond_size)
+			theme.DrawGlow(x + w, y + h, glow_size)
+			render2d.SetTexture(Textures.GlowLinear)
+			local extent_h = -200 * 0.25 * intensity
+			local extent_w = -200 * 0.25 * intensity
+			render2d.SetBlendMode("alpha")
+			theme.DrawGlowLine(x + extent_w, y, x + w - extent_w, y, 1)
+			theme.DrawGlowLine(x + extent_w, y + h, x + w - extent_w, y + h, 1)
+			theme.DrawGlowLine(x, y + extent_h, x, y + h - extent_h, 1)
+			theme.DrawGlowLine(x + w, y + extent_h, x + w, y + h - extent_h, 1)
+			render2d.SetTexture(nil)
+		end
 	end
 
 	function theme.DrawRect(x, y, w, h, thickness, extent, tex)
@@ -838,7 +769,9 @@ do -- animations
 end
 
 do
-	function theme.DrawButton(pnl, state)
+	theme.panels = {}
+
+	function theme.panels.button(pnl, state)
 		-- Continuous tracking while hovered
 		if state and state.is_hovered then
 			theme.UpdateButtonAnimations(pnl.Owner, state)
@@ -882,7 +815,7 @@ do
 		end
 	end
 
-	function theme.DrawButtonPost(pnl, state)
+	function theme.panels.button_post(pnl, state)
 		local s = state or {glow_alpha = 0}
 		local size = pnl.Owner.transform.Size
 		render2d.SetBlendMode("additive")
@@ -905,7 +838,7 @@ do
 		render2d.SetBlendMode("alpha")
 	end
 
-	function theme.DrawSlider(pnl, state)
+	function theme.panels.slider(pnl, state)
 		local pnl = pnl.Owner
 
 		if state.is_hovered then theme.UpdateSliderAnimations(pnl, state) end
@@ -1060,7 +993,7 @@ do
 		end
 	end
 
-	function theme.DrawCheckbox(pnl, state)
+	function theme.panels.checkbox(pnl, state)
 		if state.is_hovered then theme.UpdateCheckboxAnimations(pnl, state) end
 
 		local size = pnl.transform.Size
@@ -1102,7 +1035,7 @@ do
 		end
 	end
 
-	function theme.DrawRadioButton(pnl, state)
+	function theme.panels.button_radio(pnl, state)
 		if state.is_hovered then theme.UpdateCheckboxAnimations(pnl, state) end
 
 		local size = pnl.transform.Size
@@ -1141,7 +1074,7 @@ do
 		end
 	end
 
-	function theme.DrawFrame(pnl, emphasis)
+	function theme.panels.frame(pnl, emphasis)
 		local s = pnl.transform.Size + pnl.transform.DrawSizeOffset
 		local c = pnl.rect.Color + pnl.rect.DrawColor
 		render2d.SetColor(c.r, c.g, c.b, c.a * pnl.rect.DrawAlpha)
@@ -1150,7 +1083,7 @@ do
 		render2d.PopAlphaMultiplier()
 	end
 
-	function theme.DrawFramePost(pnl, emphasis)
+	function theme.panels.frame_post(pnl, emphasis)
 		local s = pnl.transform.Size + pnl.transform.DrawSizeOffset
 		local c = pnl.rect.Color + pnl.rect.DrawColor
 		render2d.SetColor(c.r, c.g, c.b, c.a)
@@ -1159,7 +1092,7 @@ do
 		render2d.PopAlphaMultiplier()
 	end
 
-	function theme.DrawMenuSpacer(pnl, vertical)
+	function theme.panels.menu_spacer(pnl, vertical)
 		local size = pnl.Owner.transform:GetSize()
 		local w = size.x
 		local h = size.y
@@ -1175,20 +1108,20 @@ do
 		render2d.PopColor()
 	end
 
-	function theme.DrawHeader(pnl)
+	function theme.panels.header(pnl)
 		local size = pnl.transform.Size
 		render2d.SetColor(PRIMARY.r, PRIMARY.g, PRIMARY.b, PRIMARY.a * pnl.rect.DrawAlpha)
-		theme.DrawPill1(0, 0, size.x, size.y)
+		theme.DrawPill(0, 0, size.x, size.y)
 	end
 
-	function theme.DrawProgressBar(pnl, state)
+	function theme.panels.progress_bar(pnl, state)
 		local size = pnl.Owner.transform.Size
 		local value = state.value or 0
 		local col = pnl.Owner.rect.Color or PRIMARY
 		theme.DrawProgressBarPrimitive(0, 0, size.x, size.y, value, col)
 	end
 
-	function theme.DrawDivider(pnl)
+	function theme.panels.divider(pnl)
 		local size = pnl.transform.Size
 		render2d.SetColor(PRIMARY.r, PRIMARY.g, PRIMARY.b, PRIMARY.a * pnl.rect.DrawAlpha * 10)
 		render2d.PushBlendMode("additive")
@@ -1202,6 +1135,79 @@ do
 		end
 
 		render2d.PopBlendMode()
+	end
+end
+
+do
+	local blur_color = Color.FromHex("#2374DD")
+	HeadingFont = fonts.New(
+		{
+			Path = "/home/caps/Downloads/Exo_2/static/Exo2-Bold.ttf",
+			Size = 30,
+			Padding = 20,
+			SeparateEffects = true,
+			Effects = {
+				{
+					Type = "shadow",
+					Dir = -1.5,
+					Color = Color.FromHex("#0c1721"),
+					BlurRadius = 0.25,
+					BlurPasses = 1,
+				},
+				{
+					Type = "shadow",
+					Dir = 0,
+					Color = blur_color,
+					BlurRadius = 3,
+					BlurPasses = 3,
+					AlphaPow = 0.6,
+				},
+			},
+		}
+	)
+
+	function theme.DrawMuseum()
+		render2d.SetColor(1, 1, 1, 1)
+		render2d.SetTexture(nil)
+		local x, y = 500, 200 --gfx.GetMousePosition()
+		local w, h = 600, 30
+		HeadingFont:DrawText("Custom Font Rendering", x, y - 40)
+		theme.DrawClassicFrame(x, y, 60, 40)
+		x = x + 80
+		theme.DrawModernFrame(x, y, 100, 60, 1)
+		x = x + 120
+		theme.DrawModernFrame(x, y, 100, 60, 0)
+		x = x + 120
+		theme.DrawWhiteFrame(x, y, 60, 40)
+		x = x - 120 - 80 - 120
+		y = y + 80
+		render2d.SetColor(0, 0, 0, 1)
+		theme.DrawPill(x, y, w, h)
+		y = y + 50
+		theme.DrawBadge(x, y, w, h)
+		y = y + 50
+		theme.DrawDiamond(x, y, 20)
+		x = x + 50
+		render2d.PushOutlineWidth(1)
+		theme.DrawDiamond(x, y, 20)
+		render2d.PopOutlineWidth()
+		render2d.SetColor(1, 1, 1, 1)
+		x = x + 50
+		theme.DrawArrow(x, y, 40)
+		x = x - 100
+		y = y + 50
+		render2d.SetTexture(nil)
+		theme.DrawLine(x + 20, y, x + w - 40, y, 3)
+		y = y + 20
+		theme.DrawLine2(x + 20, y, x + w - 40, y, 3)
+		y = y + 20
+		theme.DrawDiamond2(x, y, 10)
+		y = y + 20
+		render2d.SetColor(1, 1, 1, 1)
+		y = y + 20
+		theme.DrawMagicCircle(x - 100, y, 30)
+		y = y + 20
+		theme.DrawGlowLine(x, y, x + w - 40, y, 1)
 	end
 end
 

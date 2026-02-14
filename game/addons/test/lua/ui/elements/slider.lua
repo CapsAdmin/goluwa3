@@ -120,7 +120,7 @@ return function(props)
 						SetValueFromPosition(self.Owner, lpos)
 					end
 
-					theme.DrawSlider(self, state)
+					theme.panels.slider(self, state)
 				end,
 			},
 			animation = true,

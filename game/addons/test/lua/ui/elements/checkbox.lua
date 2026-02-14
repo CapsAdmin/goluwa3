@@ -45,7 +45,7 @@ return function(props)
 			gui_element = {
 				OnDraw = function(self)
 					theme.UpdateCheckboxAnimations(self.Owner, state)
-					theme.DrawCheckbox(self.Owner, state)
+					theme.panels.checkbox(self.Owner, state)
 				end,
 			},
 			animation = true,

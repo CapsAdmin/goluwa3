@@ -64,7 +64,7 @@ return function(props)
 					},
 					gui_element = {
 						OnDraw = function(self)
-							theme.DrawHeader(self.Owner)
+							theme.panels.header(self.Owner)
 						end,
 					},
 					draggable = true,
@@ -134,10 +134,10 @@ return function(props)
 					},
 					gui_element = {
 						OnDraw = function(self)
-							theme.DrawFrame(self.Owner)
+							theme.panels.frame(self.Owner)
 						end,
 						OnPostDraw = function(self)
-							theme.DrawFramePost(self.Owner)
+							theme.panels.frame_post(self.Owner)
 						end,
 					},
 					transform = true,
