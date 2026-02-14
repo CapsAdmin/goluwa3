@@ -12,7 +12,9 @@ return function(props)
 		{
 			Name = "MenuSpacer",
 			transform = {
-				Size = props.Vertical and Vec2(theme.line_height, 0) or Vec2(0, theme.line_height),
+				Size = props.Vertical and
+					Vec2(theme.GetSize("line_height"), 0) or
+					Vec2(0, theme.GetSize("line_height")),
 			},
 			rect = {
 				Color = theme.GetColor("invisible"),
