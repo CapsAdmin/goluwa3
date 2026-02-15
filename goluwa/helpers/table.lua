@@ -254,5 +254,15 @@ function table.equal(o1, o2, ignore_mt)
 	return true
 end
 
+do
+	local buffer = require("string.buffer")
+
+	function table.hash(tbl)
+		local b = buffer.new()
+		b:encode(tbl)
+		return ("%p"):format(tostring(b)) -- session dependent hash
+	end
+end
+
 table.sort = require("helpers.table_sort")
 table.new = require("table.new")

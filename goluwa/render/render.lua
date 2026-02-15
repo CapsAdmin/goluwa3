@@ -134,9 +134,19 @@ function render.CreateImage(config)
 	return Image.New(config)
 end
 
-function render.CreateSampler(config)
-	config.device = vulkan_instance.device
-	return Sampler.New(config)
+do
+	render.cached_samplers = {}
+
+	function render.CreateSampler(config)
+		local hash = table.hash(config)
+
+		if render.cached_samplers[hash] then return render.cached_samplers[hash] end
+
+		config.device = vulkan_instance.device
+		local sampler = Sampler.New(config)
+		render.cached_samplers[hash] = sampler
+		return sampler
+	end
 end
 
 function render.CreateGraphicsPipeline(config)

@@ -735,12 +735,6 @@ function Texture:OnRemove()
 	if cache_key and texture_cache[cache_key] == self then
 		texture_cache[cache_key] = nil
 	end
-
-	if self.image then self.image:Remove() end
-
-	if self.view then self.view:Remove() end
-
-	if self.sampler then self.sampler:Remove() end
 end
 
 function Texture:GenerateMipmaps(initial_layout, cmd)

@@ -343,8 +343,8 @@ function GraphicsPipeline:UpdateDescriptorSet(type, index, binding_index, ...)
 					type,
 					self.descriptor_sets[index],
 					binding_index,
-					tex.view,
-					tex.sampler,
+					tex:GetView(),
+					tex:GetSampler(),
 					self:GetFallbackView(),
 					self:GetFallbackSampler()
 				)
