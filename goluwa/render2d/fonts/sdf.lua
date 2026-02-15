@@ -10,7 +10,6 @@ local utf8 = require("utf8")
 local event = require("event")
 local TextureAtlas = require("render.texture_atlas")
 local EasyPipeline = require("render.easy_pipeline")
-local Fence = require("render.vulkan.internal.fence")
 local META = prototype.CreateTemplate("sdf_font")
 META.IsFont = true
 META:GetSet("Fonts", {}, {callback = "OnFontsChanged"})
@@ -77,290 +76,233 @@ function META:GetAtlasFormat()
 	return "r16g16b16a16_unorm"
 end
 
+local function EasyShade(config)
+	return EasyPipeline.New(
+		{
+			color_format = config.color_format,
+			samples = "1",
+			rasterizer = {
+				cull_mode = "none",
+			},
+			vertex = {
+				shader = [[
+				vec2 positions[3] = vec2[](vec2(-1.0, -1.0), vec2( 3.0, -1.0), vec2(-1.0,  3.0));
+				layout(location = 0) out vec2 out_uv;
+				void main() {
+					vec2 pos = positions[gl_VertexIndex];
+					gl_Position = vec4(pos, 0.0, 1.0);
+					out_uv = pos * 0.5 + 0.5;
+				}
+			]],
+			},
+			fragment = {
+				push_constants = {{
+					name = "fragment",
+					block = config.block,
+				}},
+				shader = config.shader,
+			},
+		}
+	)
+end
+
 function META:GetJFAPipelines()
 	if self.jfa_pipelines then return self.jfa_pipelines end
 
-	local jfa_init = EasyPipeline.New(
-		{
-			color_format = {{"r32g32_sfloat", {"rg", "rg"}}},
-			samples = "1",
-			rasterizer = {
-				cull_mode = "none",
-			},
-			vertex = {
-				shader = [[
-				vec2 positions[3] = vec2[](vec2(-1.0, -1.0), vec2( 3.0, -1.0), vec2(-1.0,  3.0));
-				layout(location = 0) out vec2 out_uv;
-				void main() {
-					vec2 pos = positions[gl_VertexIndex];
-					gl_Position = vec4(pos, 0.0, 1.0);
-					out_uv = pos * 0.5 + 0.5;
-				}
-			]],
-			},
-			fragment = {
-				push_constants = {
+	self.jfa_pipelines = {
+		init = EasyShade(
+			{
+				color_format = {{"r32g32_sfloat", {"rg", "rg"}}},
+				block = {
 					{
-						name = "fragment",
-						block = {
-							{
-								"tex_idx",
-								"int",
-								function(p, b, k)
-									b[k] = p:GetTextureIndex(self.current_jfa_tex)
-								end,
-							},
-							{
-								"mode",
-								"int",
-								function(p, b, k)
-									b[k] = self.current_jfa_mode
-								end,
-							},
-							{
-								"size",
-								"vec2",
-								function(p, b, k)
-									b[k][0] = self.current_jfa_size.x
-									b[k][1] = self.current_jfa_size.y
-								end,
-							},
-						},
+						"tex_idx",
+						"int",
+						function(p, b, k)
+							b[k] = p:GetTextureIndex(self.current_jfa_tex)
+						end,
+					},
+					{
+						"mode",
+						"int",
+						function(p, b, k)
+							b[k] = self.current_jfa_mode
+						end,
+					},
+					{
+						"size",
+						"vec2",
+						function(p, b, k)
+							b[k][0] = self.current_jfa_size.x
+							b[k][1] = self.current_jfa_size.y
+						end,
 					},
 				},
 				shader = [[
-				layout(location = 0) in vec2 in_uv;
-				void main() {
-					vec4 tex = texture(TEXTURE(pc.fragment.tex_idx), in_uv);
-					float mask = max(tex.r, tex.a);
-					// Use coverage-aware seeding: pixels with any partial
-					// coverage are seeds, which captures the anti-aliased edge
-					bool is_seed = (pc.fragment.mode == 0) ? (mask > 0.02) : (mask < 0.98);
-					if (is_seed) {
-						set_rg(in_uv);
-					} else {
-						set_rg(vec2(-1.0));
+					layout(location = 0) in vec2 in_uv;
+					void main() {
+						vec4 tex = texture(TEXTURE(pc.fragment.tex_idx), in_uv);
+						float mask = max(tex.r, tex.a);
+						// Use coverage-aware seeding: pixels with any partial
+						// coverage are seeds, which captures the anti-aliased edge
+						bool is_seed = (pc.fragment.mode == 0) ? (mask > 0.02) : (mask < 0.98);
+						if (is_seed) {
+							set_rg(in_uv);
+						} else {
+							set_rg(vec2(-1.0));
+						}
 					}
-				}
-			]],
-			},
-		}
-	)
-	local jfa_step = EasyPipeline.New(
-		{
-			color_format = {{"r32g32_sfloat", {"rg", "rg"}}},
-			samples = "1",
-			rasterizer = {
-				cull_mode = "none",
-			},
-			vertex = {
-				shader = [[
-				vec2 positions[3] = vec2[](vec2(-1.0, -1.0), vec2( 3.0, -1.0), vec2(-1.0,  3.0));
-				layout(location = 0) out vec2 out_uv;
-				void main() {
-					vec2 pos = positions[gl_VertexIndex];
-					gl_Position = vec4(pos, 0.0, 1.0);
-					out_uv = pos * 0.5 + 0.5;
-				}
-			]],
-			},
-			fragment = {
-				push_constants = {
+				]],
+			}
+		),
+		step = EasyShade(
+			{
+				color_format = {{"r32g32_sfloat", {"rg", "rg"}}},
+				block = {
 					{
-						name = "fragment",
-						block = {
-							{
-								"tex_idx",
-								"int",
-								function(p, b, k)
-									b[k] = p:GetTextureIndex(self.current_jfa_tex)
-								end,
-							},
-							{
-								"step_size",
-								"float",
-								function(p, b, k)
-									b[k] = self.current_jfa_step
-								end,
-							},
-							{
-								"size",
-								"vec2",
-								function(p, b, k)
-									b[k][0] = self.current_jfa_size.x
-									b[k][1] = self.current_jfa_size.y
-								end,
-							},
-						},
+						"tex_idx",
+						"int",
+						function(p, b, k)
+							b[k] = p:GetTextureIndex(self.current_jfa_tex)
+						end,
+					},
+					{
+						"step_size",
+						"float",
+						function(p, b, k)
+							b[k] = self.current_jfa_step
+						end,
+					},
+					{
+						"size",
+						"vec2",
+						function(p, b, k)
+							b[k][0] = self.current_jfa_size.x
+							b[k][1] = self.current_jfa_size.y
+						end,
 					},
 				},
 				shader = [[
-				layout(location = 0) in vec2 in_uv;
-				void main() {
-					vec2 best_seed = texture(TEXTURE(pc.fragment.tex_idx), in_uv).rg;
-					float best_dist = (best_seed.x < 0.0) ? 1e10 : length((best_seed - in_uv) * pc.fragment.size);
-					
-					for (int y = -1; y <= 1; y++) {
-						for (int x = -1; x <= 1; x++) {
-							if (x == 0 && y == 0) continue;
-							vec2 sample_uv = in_uv + vec2(float(x), float(y)) * pc.fragment.step_size / pc.fragment.size;
-							vec2 seed = texture(TEXTURE(pc.fragment.tex_idx), sample_uv).rg;
-							if (seed.x >= 0.0) {
-								float dist = length((seed - in_uv) * pc.fragment.size);
-								if (dist < best_dist) {
-									best_dist = dist;
-									best_seed = seed;
+					layout(location = 0) in vec2 in_uv;
+					void main() {
+						vec2 best_seed = texture(TEXTURE(pc.fragment.tex_idx), in_uv).rg;
+						float best_dist = (best_seed.x < 0.0) ? 1e10 : length((best_seed - in_uv) * pc.fragment.size);
+						
+						for (int y = -1; y <= 1; y++) {
+							for (int x = -1; x <= 1; x++) {
+								if (x == 0 && y == 0) continue;
+								vec2 sample_uv = in_uv + vec2(float(x), float(y)) * pc.fragment.step_size / pc.fragment.size;
+								vec2 seed = texture(TEXTURE(pc.fragment.tex_idx), sample_uv).rg;
+								if (seed.x >= 0.0) {
+									float dist = length((seed - in_uv) * pc.fragment.size);
+									if (dist < best_dist) {
+										best_dist = dist;
+										best_seed = seed;
+									}
 								}
 							}
 						}
+						set_rg(best_seed);
 					}
-					set_rg(best_seed);
-				}
-			]],
-			},
-		}
-	)
-	local jfa_final = EasyPipeline.New(
-		{
-			color_format = {{"r32_sfloat", {"r", "r"}}},
-			samples = "1",
-			rasterizer = {
-				cull_mode = "none",
-			},
-			vertex = {
-				shader = [[
-				vec2 positions[3] = vec2[](vec2(-1.0, -1.0), vec2( 3.0, -1.0), vec2(-1.0,  3.0));
-				layout(location = 0) out vec2 out_uv;
-				void main() {
-					vec2 pos = positions[gl_VertexIndex];
-					gl_Position = vec4(pos, 0.0, 1.0);
-					out_uv = pos * 0.5 + 0.5;
-				}
-			]],
-			},
-			fragment = {
-				push_constants = {
+				]],
+			}
+		),
+		final = EasyShade(
+			{
+				color_format = {{"r32_sfloat", {"r", "r"}}},
+				block = {
 					{
-						name = "fragment",
-						block = {
-							{
-								"tex_idx",
-								"int",
-								function(p, b, k)
-									b[k] = p:GetTextureIndex(self.current_jfa_tex)
-								end,
-							},
-							{
-								"size",
-								"vec2",
-								function(p, b, k)
-									b[k][0] = self.current_jfa_size.x
-									b[k][1] = self.current_jfa_size.y
-								end,
-							},
-							{
-								"max_dist",
-								"float",
-								function(p, b, k)
-									b[k] = self.current_jfa_max_dist
-								end,
-							},
-						},
+						"tex_idx",
+						"int",
+						function(p, b, k)
+							b[k] = p:GetTextureIndex(self.current_jfa_tex)
+						end,
+					},
+					{
+						"size",
+						"vec2",
+						function(p, b, k)
+							b[k][0] = self.current_jfa_size.x
+							b[k][1] = self.current_jfa_size.y
+						end,
+					},
+					{
+						"max_dist",
+						"float",
+						function(p, b, k)
+							b[k] = self.current_jfa_max_dist
+						end,
 					},
 				},
 				shader = [[
-				layout(location = 0) in vec2 in_uv;
-				void main() {
-					vec2 seed = texture(TEXTURE(pc.fragment.tex_idx), in_uv).rg;
-					float dist = (seed.x < 0.0) ? pc.fragment.max_dist : length((seed - in_uv) * pc.fragment.size);
-					set_r(dist);
-				}
-			]],
-			},
-		}
-	)
-	local jfa_combine = EasyPipeline.New(
-		{
-			color_format = {{self:GetAtlasFormat(), {"rgba", "rgba"}}},
-			samples = "1",
-			rasterizer = {
-				cull_mode = "none",
-			},
-			vertex = {
-				shader = [[
-				vec2 positions[3] = vec2[](vec2(-1.0, -1.0), vec2( 3.0, -1.0), vec2(-1.0,  3.0));
-				layout(location = 0) out vec2 out_uv;
-				void main() {
-					vec2 pos = positions[gl_VertexIndex];
-					gl_Position = vec4(pos, 0.0, 1.0);
-					out_uv = pos * 0.5 + 0.5;
-				}
-			]],
-			},
-			fragment = {
-				push_constants = {
+					layout(location = 0) in vec2 in_uv;
+					void main() {
+						vec2 seed = texture(TEXTURE(pc.fragment.tex_idx), in_uv).rg;
+						float dist = (seed.x < 0.0) ? pc.fragment.max_dist : length((seed - in_uv) * pc.fragment.size);
+						set_r(dist);
+					}
+				]],
+			}
+		),
+		combine = EasyShade(
+			{
+				color_format = {{self:GetAtlasFormat(), {"rgba", "rgba"}}},
+				block = {
 					{
-						name = "fragment",
-						block = {
-							{
-								"dist_on_idx",
-								"int",
-								function(p, b, k)
-									b[k] = p:GetTextureIndex(self.current_jfa_dist_on)
-								end,
-							},
-							{
-								"dist_off_idx",
-								"int",
-								function(p, b, k)
-									b[k] = p:GetTextureIndex(self.current_jfa_dist_off)
-								end,
-							},
-							{
-								"mask_idx",
-								"int",
-								function(p, b, k)
-									b[k] = p:GetTextureIndex(self.current_jfa_mask_tex)
-								end,
-							},
-							{
-								"max_dist",
-								"float",
-								function(p, b, k)
-									b[k] = self.current_jfa_max_dist
-								end,
-							},
-						},
+						"dist_on_idx",
+						"int",
+						function(p, b, k)
+							b[k] = p:GetTextureIndex(self.current_jfa_dist_on)
+						end,
+					},
+					{
+						"dist_off_idx",
+						"int",
+						function(p, b, k)
+							b[k] = p:GetTextureIndex(self.current_jfa_dist_off)
+						end,
+					},
+					{
+						"mask_idx",
+						"int",
+						function(p, b, k)
+							b[k] = p:GetTextureIndex(self.current_jfa_mask_tex)
+						end,
+					},
+					{
+						"max_dist",
+						"float",
+						function(p, b, k)
+							b[k] = self.current_jfa_max_dist
+						end,
 					},
 				},
 				shader = [[
-				layout(location = 0) in vec2 in_uv;
-				void main() {
-					float d_on = texture(TEXTURE(pc.fragment.dist_on_idx), in_uv).r;
-					float d_off = texture(TEXTURE(pc.fragment.dist_off_idx), in_uv).r;
+					layout(location = 0) in vec2 in_uv;
+					void main() {
+						float d_on = texture(TEXTURE(pc.fragment.dist_on_idx), in_uv).r;
+						float d_off = texture(TEXTURE(pc.fragment.dist_off_idx), in_uv).r;
 
-					// Use the original anti-aliased mask to refine the distance
-					// at glyph boundaries for sub-pixel accuracy
-					vec4 mask_sample = texture(TEXTURE(pc.fragment.mask_idx), in_uv);
-					float coverage = max(mask_sample.r, mask_sample.a);
+						// Use the original anti-aliased mask to refine the distance
+						// at glyph boundaries for sub-pixel accuracy
+						vec4 mask_sample = texture(TEXTURE(pc.fragment.mask_idx), in_uv);
+						float coverage = max(mask_sample.r, mask_sample.a);
 
-					float dist = d_off - d_on;
+						float dist = d_off - d_on;
 
-					// Near the edge (within ~1.5 supersampled pixels), blend in
-					// a sub-pixel correction derived from the AA coverage.
-					// coverage 0.5 = exactly on the edge = dist should be 0.
-					float aa_offset = (coverage - 0.5);
-					float edge_weight = smoothstep(2.0, 0.0, abs(dist));
-					dist = mix(dist, -aa_offset, edge_weight);
+						// Near the edge (within ~1.5 supersampled pixels), blend in
+						// a sub-pixel correction derived from the AA coverage.
+						// coverage 0.5 = exactly on the edge = dist should be 0.
+						float aa_offset = (coverage - 0.5);
+						float edge_weight = smoothstep(2.0, 0.0, abs(dist));
+						dist = mix(dist, -aa_offset, edge_weight);
 
-					float norm_dist = clamp(dist / (pc.fragment.max_dist * 2.0) + 0.5, 0.0, 1.0);
-					set_rgba(vec4(norm_dist, norm_dist, norm_dist, 1.0));
-				}
-			]],
-			},
-		}
-	)
-	self.jfa_pipelines = {init = jfa_init, step = jfa_step, final = jfa_final, combine = jfa_combine}
+						float norm_dist = clamp(dist / (pc.fragment.max_dist * 2.0) + 0.5, 0.0, 1.0);
+						set_rgba(vec4(norm_dist, norm_dist, norm_dist, 1.0));
+					}
+				]],
+			}
+		),
+	}
 	return self.jfa_pipelines
 end
 
@@ -438,19 +380,6 @@ end
 
 local scratch_size = {w = 0, h = 0}
 local fb_pool = {}
-local fence_pool = {}
-
-local function get_fence(device)
-	local f = table.remove(fence_pool)
-
-	if f then return f end
-
-	return Fence.New(device)
-end
-
-local function release_fence(f)
-	table.insert(fence_pool, f)
-end
 
 local function get_temp_fb(w, h, format, mip_maps, filter)
 	local key = w .. "_" .. h .. "_" .. format .. (
@@ -681,9 +610,7 @@ function META:LoadGlyph(code, parent_cmd, temp_fbs)
 			self.chars[code] = glyph
 			self:Rebuild(cmd)
 			cmd:End()
-			local fence = get_fence(render.GetDevice())
-			render.GetQueue():SubmitAndWait(render.GetDevice(), cmd, fence)
-			release_fence(fence)
+			render.SubmitAndWait(cmd)
 
 			for _, fb in ipairs(used_temp_fbs) do
 				release_temp_fb(fb)
@@ -773,9 +700,7 @@ local function batch_load_glyphs(self, str)
 
 	self:Rebuild(cmd)
 	cmd:End()
-	local fence = get_fence(render.GetDevice())
-	render.GetQueue():SubmitAndWait(render.GetDevice(), cmd, fence)
-	release_fence(fence)
+	render.SubmitAndWait(cmd)
 	self.rebuild = false
 
 	for _, fb in ipairs(temp_fbs) do

@@ -5,7 +5,6 @@ local render3d = require("render3d.render3d")
 local Camera3D = require("render3d.camera3d")
 local Texture = require("render.texture")
 local Framebuffer = require("render.framebuffer")
-local Fence = require("render.vulkan.internal.fence")
 local Matrix44 = require("structs.matrix44")
 local Vec3 = require("structs.vec3")
 local Rect = require("structs.rect")
@@ -182,7 +181,6 @@ end
 
 function lightprobes.Initialize()
 	lightprobes.CreatePipelines()
-	lightprobes.fence = Fence.New(render.GetDevice())
 	lightprobes.InitializeCubemapLayouts()
 
 	do
@@ -268,7 +266,7 @@ function lightprobes.InitializeCubemapLayouts()
 	end
 
 	cmd:End()
-	render.GetQueue():SubmitAndWait(render.GetDevice(), cmd, lightprobes.fence)
+	render.SubmitAndWait(cmd)
 	cmd:Remove()
 end
 

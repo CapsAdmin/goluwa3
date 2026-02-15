@@ -169,6 +169,21 @@ function render.GetQueue()
 	return vulkan_instance.queue
 end
 
+local sync_fence
+
+function render.GetSyncFence()
+	if not sync_fence then
+		local Fence = require("render.vulkan.internal.fence")
+		sync_fence = Fence.New(render.GetDevice())
+	end
+
+	return sync_fence
+end
+
+function render.SubmitAndWait(cmd)
+	render.GetQueue():SubmitAndWait(render.GetDevice(), cmd, render.GetSyncFence())
+end
+
 function render.GetCommandPool()
 	return vulkan_instance.command_pool
 end

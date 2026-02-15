@@ -3,7 +3,6 @@ local render = require("render.render")
 local render3d = nil
 local Texture = require("render.texture")
 local Material = require("render3d.material")
-local Fence = require("render.vulkan.internal.fence")
 local Matrix44 = require("structs.matrix44")
 local Vec3 = require("structs.vec3")
 local Ang3 = require("structs.ang3")
@@ -257,7 +256,6 @@ function ShadowMap.New(config)
 	-- Command buffer for shadow pass
 	self.command_pool = render.GetCommandPool()
 	self.cmd = self.command_pool:AllocateCommandBuffer()
-	self.fence = Fence.New(render.GetDevice())
 	-- Current cascade being rendered (for Begin/End API)
 	self.current_cascade = 1
 	return self
@@ -431,9 +429,7 @@ function ShadowMap:End(cascade_index)
 	)
 	self.cmd:End()
 	-- Submit and wait
-	local device = render.GetDevice()
-	local queue = render.GetQueue()
-	queue:SubmitAndWait(device, self.cmd, self.fence)
+	render.SubmitAndWait(self.cmd)
 end
 
 -- Get the depth texture for sampling in main pass

@@ -288,7 +288,6 @@ if false then
 		}
 	]])
 	local cmd = render.GetCommandPool():AllocateCommandBuffer()
-	local Fence = require("render.vulkan.internal.fence")
 	local window = require("window")
 	local input = require("input")
 
@@ -310,9 +309,7 @@ if false then
 		)
 		pipeline:Dispatch(cmd)
 		cmd:End()
-		local device = render.GetDevice()
-		local fence = Fence.New(device)
-		render.GetQueue():SubmitAndWait(device, cmd, fence)
+		render.SubmitAndWait(cmd)
 	end
 
 	event.AddListener("Update", "draw_2d", function()

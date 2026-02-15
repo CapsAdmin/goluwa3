@@ -4,7 +4,6 @@ local render = require("render.render")
 local Texture = require("render.texture")
 local vulkan = require("render.vulkan.internal.vulkan")
 local Buffer = require("render.vulkan.internal.buffer")
-local Fence = require("render.vulkan.internal.fence")
 local Color = require("structs.color")
 
 T.Test3D("cubemap clear and validate", function()
@@ -82,8 +81,7 @@ T.Test3D("cubemap clear and validate", function()
 		}
 	)
 	cmd:End()
-	local fence = Fence.New(device)
-	render.GetQueue():SubmitAndWait(device, cmd, fence)
+	render.SubmitAndWait(cmd)
 
 	-- Validate each face
 	for i, color in ipairs(face_colors) do
@@ -109,8 +107,7 @@ T.Test3D("cubemap clear and validate", function()
 			}
 		)
 		copy_cmd:End()
-		local copy_fence = Fence.New(device)
-		render.GetQueue():SubmitAndWait(device, copy_cmd, copy_fence)
+		render.SubmitAndWait(copy_cmd)
 		local pixel_data = staging_buffer:Map()
 		local pixels = ffi.cast("uint8_t*", pixel_data)
 		local x = math.floor(width / 2)

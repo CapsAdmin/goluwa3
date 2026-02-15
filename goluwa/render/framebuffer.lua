@@ -1,7 +1,6 @@
 local Texture = require("render.texture")
 local ImageView = require("render.vulkan.internal.image_view")
 local CommandPool = require("render.vulkan.internal.command_pool")
-local Fence = require("render.vulkan.internal.fence")
 local render = require("render.render")
 local prototype = require("prototype")
 local Framebuffer = prototype.CreateTemplate("render_framebuffer")
@@ -69,7 +68,6 @@ function Framebuffer.New(config)
 
 	self.command_pool = render.GetCommandPool()
 	self.cmd = self.command_pool:AllocateCommandBuffer()
-	self.fence = Fence.New(render.GetDevice())
 	return self
 end
 
@@ -204,9 +202,7 @@ function Framebuffer:End(cmd)
 
 	if cmd == self.cmd then
 		self.cmd:End()
-		local device = render.GetDevice()
-		local queue = render.GetQueue()
-		queue:SubmitAndWait(device, self.cmd, self.fence)
+		render.SubmitAndWait(self.cmd)
 	end
 end
 

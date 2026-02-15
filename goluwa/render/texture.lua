@@ -4,7 +4,6 @@ local render = require("render.render")
 local Vec2 = require("structs.vec2")
 local Buffer = require("render.vulkan.internal.buffer")
 local CommandPool = require("render.vulkan.internal.command_pool")
-local Fence = require("render.vulkan.internal.fence")
 local ImageView = require("render.vulkan.internal.image_view")
 local Image = require("render.vulkan.internal.image")
 local Sampler = require("render.vulkan.internal.sampler")
@@ -14,7 +13,6 @@ local prototype = require("prototype")
 local Texture = prototype.CreateTemplate("render_texture")
 -- Texture cache for path-based textures
 local texture_cache = {}
-local temp_fence = nil
 
 local function get_bytes_per_pixel(format)
 	if
@@ -487,10 +485,7 @@ function Texture:CopyFrom(other, width, height, srcX, srcY, dstX, dstY)
 		}
 	)
 	cmd:End()
-	local device = render.GetDevice()
-	local queue = render.GetQueue()
-	local fence = Fence.New(device)
-	queue:SubmitAndWait(device, cmd, fence)
+	render.SubmitAndWait(cmd)
 end
 
 function Texture:Crop(x, y, w, h)
@@ -609,8 +604,7 @@ function Texture:Upload(data, keep_in_transfer_dst)
 
 	cmd:End()
 	-- Submit and wait
-	local fence = Fence.New(device)
-	queue:SubmitAndWait(device, cmd, fence)
+	render.SubmitAndWait(cmd)
 end
 
 function Texture:UploadCompressed(data, vulkan_info)
@@ -690,8 +684,7 @@ function Texture:UploadCompressed(data, vulkan_info)
 	)
 	cmd:End()
 	-- Submit and wait
-	local fence = Fence.New(device)
-	queue:SubmitAndWait(device, cmd, fence)
+	render.SubmitAndWait(cmd)
 end
 
 function Texture:GetImage()
@@ -816,12 +809,7 @@ function Texture:GenerateMipmaps(initial_layout, cmd)
 
 		if internal_cmd then
 			cmd:End()
-
-			if not temp_fence then temp_fence = Fence.New(device) end
-
-			queue:Submit({command_buffers = {cmd}, signal_fence = temp_fence})
-			temp_fence:Wait()
-			temp_fence:Reset()
+			render.SubmitAndWait(cmd)
 			command_pool:FreeCommandBuffer(cmd)
 		end
 
@@ -936,10 +924,7 @@ function Texture:GenerateMipmaps(initial_layout, cmd)
 
 	if internal_cmd then
 		cmd:End()
-
-		if not temp_fence then temp_fence = Fence.New(device) end
-
-		queue:SubmitAndWait(device, cmd, temp_fence)
+		render.SubmitAndWait(cmd)
 		cmd:Remove()
 	end
 end
@@ -1211,9 +1196,8 @@ function Texture:Shade(glsl, extra_config)
 	-- End command buffer
 	cmd:End()
 	-- Submit and wait
-	local fence = Fence.New(device)
-	self.refs = {cmd, views, command_pool, pipeline, fence}
-	queue:SubmitAndWait(device, cmd, fence)
+	self.refs = {cmd, views, command_pool, pipeline}
+	render.SubmitAndWait(cmd)
 	self.refs = nil
 end
 
@@ -1473,8 +1457,7 @@ do
 
 		copy_cmd:End()
 		-- Submit and wait
-		local fence = Fence.New(device)
-		render.GetQueue():SubmitAndWait(device, copy_cmd, fence)
+		render.SubmitAndWait(copy_cmd)
 		-- Map staging buffer and copy pixel data
 		local pixel_data = staging_buffer:Map()
 		local pixels = ffi.new("uint8_t[?]", width * height * bytes_per_pixel)

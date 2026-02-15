@@ -3,7 +3,6 @@ local render = require("render.render")
 local render2d = require("render2d.render2d")
 local Vec2 = require("structs.vec2")
 local Texture = require("render.texture")
-local Fence = require("render.vulkan.internal.fence")
 local META = prototype.CreateTemplate("render_texture_atlas")
 META:GetSet("Padding", 1)
 META:GetSet("MipMapLevels", 1)
@@ -256,10 +255,7 @@ function META:Build(cmd)
 
 	if own_cmd then
 		cmd:End()
-		local device = render.GetDevice()
-		local queue = render.GetQueue()
-		self.fence = self.fence or Fence.New(device)
-		queue:SubmitAndWait(device, cmd, self.fence)
+		render.SubmitAndWait(cmd)
 	end
 
 	self.dirty_textures = {}
