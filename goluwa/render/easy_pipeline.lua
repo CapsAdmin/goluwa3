@@ -102,8 +102,8 @@ function EasyPipeline.New(config)
 	local actual_color_formats = {}
 	local fragment_outputs = ""
 	local debug_views = {}
-
 	local color_formats = config.color_format
+
 	if type(color_formats) == "string" then color_formats = {color_formats} end
 
 	if type(color_formats) == "table" then
@@ -705,7 +705,6 @@ function EasyPipeline.New(config)
 		ivec2 = ffi.typeof("int[2]"),
 		uint64_t = ffi.typeof("uint64_t"),
 	}
-
 	-- Store uniform buffers for external access
 	self.uniform_buffers = uniform_buffers
 	-- Build vertex attributes
@@ -982,7 +981,13 @@ function EasyPipeline.New(config)
 	self.actual_color_formats = actual_color_formats
 
 	-- Create framebuffer(s) if this pipeline has color or depth outputs
-	if not config.dont_create_framebuffers and (#self.actual_color_formats > 0 or config.depth_format) then
+	if
+		not config.dont_create_framebuffers and
+		(
+			#self.actual_color_formats > 0 or
+			config.depth_format
+		)
+	then
 		self:RecreateFramebuffers()
 		self:AddGlobalEvent("WindowFramebufferResized")
 	end
@@ -1150,6 +1155,36 @@ function EasyPipeline:DrawMeshTasks(gx, gy, gz, cmd, framebuffer, frame_index)
 	self:UploadConstants(cmd)
 	cmd:DrawMeshTasks(gx, gy, gz)
 	self:EndDraw(cmd, fb)
+end
+
+function EasyPipeline.FragmentOnly(config)
+	return EasyPipeline.New(
+		{
+			color_format = config.color_format,
+			samples = "1",
+			rasterizer = {
+				cull_mode = "none",
+			},
+			vertex = {
+				shader = [[
+				vec2 positions[3] = vec2[](vec2(-1.0, -1.0), vec2( 3.0, -1.0), vec2(-1.0,  3.0));
+				layout(location = 0) out vec2 out_uv;
+				void main() {
+					vec2 pos = positions[gl_VertexIndex];
+					gl_Position = vec4(pos, 0.0, 1.0);
+					out_uv = pos * 0.5 + 0.5;
+				}
+			]],
+			},
+			fragment = {
+				push_constants = {{
+					name = "fragment",
+					block = config.block,
+				}},
+				shader = config.shader,
+			},
+		}
+	)
 end
 
 return EasyPipeline:Register()

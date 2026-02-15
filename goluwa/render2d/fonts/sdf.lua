@@ -76,41 +76,11 @@ function META:GetAtlasFormat()
 	return "r16g16b16a16_unorm"
 end
 
-local function EasyShade(config)
-	return EasyPipeline.New(
-		{
-			color_format = config.color_format,
-			samples = "1",
-			rasterizer = {
-				cull_mode = "none",
-			},
-			vertex = {
-				shader = [[
-				vec2 positions[3] = vec2[](vec2(-1.0, -1.0), vec2( 3.0, -1.0), vec2(-1.0,  3.0));
-				layout(location = 0) out vec2 out_uv;
-				void main() {
-					vec2 pos = positions[gl_VertexIndex];
-					gl_Position = vec4(pos, 0.0, 1.0);
-					out_uv = pos * 0.5 + 0.5;
-				}
-			]],
-			},
-			fragment = {
-				push_constants = {{
-					name = "fragment",
-					block = config.block,
-				}},
-				shader = config.shader,
-			},
-		}
-	)
-end
-
 function META:GetJFAPipelines()
 	if self.jfa_pipelines then return self.jfa_pipelines end
 
 	self.jfa_pipelines = {
-		init = EasyShade(
+		init = EasyPipeline.FragmentOnly(
 			{
 				color_format = {{"r32g32_sfloat", {"rg", "rg"}}},
 				block = {
@@ -118,22 +88,22 @@ function META:GetJFAPipelines()
 						"tex_idx",
 						"int",
 						function(p, b, k)
-							b[k] = p:GetTextureIndex(self.current_jfa_tex)
+							b[k] = p:GetTextureIndex(p.current_jfa_tex)
 						end,
 					},
 					{
 						"mode",
 						"int",
 						function(p, b, k)
-							b[k] = self.current_jfa_mode
+							b[k] = p.current_jfa_mode
 						end,
 					},
 					{
 						"size",
 						"vec2",
 						function(p, b, k)
-							b[k][0] = self.current_jfa_size.x
-							b[k][1] = self.current_jfa_size.y
+							b[k][0] = p.current_jfa_size.x
+							b[k][1] = p.current_jfa_size.y
 						end,
 					},
 				},
@@ -154,7 +124,7 @@ function META:GetJFAPipelines()
 				]],
 			}
 		),
-		step = EasyShade(
+		step = EasyPipeline.FragmentOnly(
 			{
 				color_format = {{"r32g32_sfloat", {"rg", "rg"}}},
 				block = {
@@ -162,22 +132,22 @@ function META:GetJFAPipelines()
 						"tex_idx",
 						"int",
 						function(p, b, k)
-							b[k] = p:GetTextureIndex(self.current_jfa_tex)
+							b[k] = p:GetTextureIndex(p.current_jfa_tex)
 						end,
 					},
 					{
 						"step_size",
 						"float",
 						function(p, b, k)
-							b[k] = self.current_jfa_step
+							b[k] = p.current_jfa_step
 						end,
 					},
 					{
 						"size",
 						"vec2",
 						function(p, b, k)
-							b[k][0] = self.current_jfa_size.x
-							b[k][1] = self.current_jfa_size.y
+							b[k][0] = p.current_jfa_size.x
+							b[k][1] = p.current_jfa_size.y
 						end,
 					},
 				},
@@ -206,7 +176,7 @@ function META:GetJFAPipelines()
 				]],
 			}
 		),
-		final = EasyShade(
+		final = EasyPipeline.FragmentOnly(
 			{
 				color_format = {{"r32_sfloat", {"r", "r"}}},
 				block = {
@@ -214,22 +184,22 @@ function META:GetJFAPipelines()
 						"tex_idx",
 						"int",
 						function(p, b, k)
-							b[k] = p:GetTextureIndex(self.current_jfa_tex)
+							b[k] = p:GetTextureIndex(p.current_jfa_tex)
 						end,
 					},
 					{
 						"size",
 						"vec2",
 						function(p, b, k)
-							b[k][0] = self.current_jfa_size.x
-							b[k][1] = self.current_jfa_size.y
+							b[k][0] = p.current_jfa_size.x
+							b[k][1] = p.current_jfa_size.y
 						end,
 					},
 					{
 						"max_dist",
 						"float",
 						function(p, b, k)
-							b[k] = self.current_jfa_max_dist
+							b[k] = p.current_jfa_max_dist
 						end,
 					},
 				},
@@ -243,7 +213,7 @@ function META:GetJFAPipelines()
 				]],
 			}
 		),
-		combine = EasyShade(
+		combine = EasyPipeline.FragmentOnly(
 			{
 				color_format = {{self:GetAtlasFormat(), {"rgba", "rgba"}}},
 				block = {
@@ -251,28 +221,28 @@ function META:GetJFAPipelines()
 						"dist_on_idx",
 						"int",
 						function(p, b, k)
-							b[k] = p:GetTextureIndex(self.current_jfa_dist_on)
+							b[k] = p:GetTextureIndex(p.current_jfa_dist_on)
 						end,
 					},
 					{
 						"dist_off_idx",
 						"int",
 						function(p, b, k)
-							b[k] = p:GetTextureIndex(self.current_jfa_dist_off)
+							b[k] = p:GetTextureIndex(p.current_jfa_dist_off)
 						end,
 					},
 					{
 						"mask_idx",
 						"int",
 						function(p, b, k)
-							b[k] = p:GetTextureIndex(self.current_jfa_mask_tex)
+							b[k] = p:GetTextureIndex(p.current_jfa_mask_tex)
 						end,
 					},
 					{
 						"max_dist",
 						"float",
 						function(p, b, k)
-							b[k] = self.current_jfa_max_dist
+							b[k] = p.current_jfa_max_dist
 						end,
 					},
 				},
@@ -455,22 +425,27 @@ function META:GenerateSDF(cmd, mask_tex, sw, sh, target_w, target_h, temp_fbs)
 	table.insert(temp_fbs, fb_b)
 	table.insert(temp_fbs, fb_dist_on)
 	table.insert(temp_fbs, fb_dist_off)
-	self.current_jfa_size = size
+	-- Set shared properties on relevant pipelines
+	p.init.current_jfa_size = size
+	p.step.current_jfa_size = size
+	p.final.current_jfa_size = size
 	-- Ensure enough distance range for smooth blur. Use at least 8 output-space
 	-- pixels so that shadows/outlines have room to fade, even with small spread.
-	self.current_jfa_max_dist = math.max(8, self:GetSpread()) * SUPER_SAMPLING_SCALE
+	local max_dist = math.max(8, self:GetSpread()) * SUPER_SAMPLING_SCALE
+	p.final.current_jfa_max_dist = max_dist
+	p.combine.current_jfa_max_dist = max_dist
 
 	local function run_jfa(mode, out_fb)
-		self.current_jfa_tex = mask_tex
-		self.current_jfa_mode = mode
+		p.init.current_jfa_tex = mask_tex
+		p.init.current_jfa_mode = mode
 		p.init:Draw(cmd, fb_a)
 		local current_fb = fb_a
 		local next_fb = fb_b
 		local step = p2 / 2
 
 		while step >= 1 do
-			self.current_jfa_tex = current_fb.color_texture
-			self.current_jfa_step = step
+			p.step.current_jfa_tex = current_fb.color_texture
+			p.step.current_jfa_step = step
 			p.step:Draw(cmd, next_fb)
 			current_fb, next_fb = next_fb, current_fb
 			step = math.floor(step / 2)
@@ -478,13 +453,13 @@ function META:GenerateSDF(cmd, mask_tex, sw, sh, target_w, target_h, temp_fbs)
 
 		-- Extra passes at step 1 to fix precision artifacts and "wiggling" spines
 		for i = 1, 2 do
-			self.current_jfa_tex = current_fb.color_texture
-			self.current_jfa_step = 1
+			p.step.current_jfa_tex = current_fb.color_texture
+			p.step.current_jfa_step = 1
 			p.step:Draw(cmd, next_fb)
 			current_fb, next_fb = next_fb, current_fb
 		end
 
-		self.current_jfa_tex = current_fb.color_texture
+		p.final.current_jfa_tex = current_fb.color_texture
 		p.final:Draw(cmd, out_fb)
 	end
 
@@ -492,9 +467,9 @@ function META:GenerateSDF(cmd, mask_tex, sw, sh, target_w, target_h, temp_fbs)
 	run_jfa(1, fb_dist_off) -- Distance to OFF pixels
 	local fb_final = get_temp_fb(target_w, target_h, self:GetAtlasFormat(), false)
 	table.insert(temp_fbs, fb_final)
-	self.current_jfa_dist_on = fb_dist_on.color_texture
-	self.current_jfa_dist_off = fb_dist_off.color_texture
-	self.current_jfa_mask_tex = mask_tex
+	p.combine.current_jfa_dist_on = fb_dist_on.color_texture
+	p.combine.current_jfa_dist_off = fb_dist_off.color_texture
+	p.combine.current_jfa_mask_tex = mask_tex
 	p.combine:Draw(cmd, fb_final)
 	return fb_final.color_texture
 end
