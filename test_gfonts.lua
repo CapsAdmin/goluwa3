@@ -2,7 +2,7 @@ local fonts = require("render2d.fonts")
 local event = require("event")
 
 event.AddListener("RendererReady", "test", function()
-	local f = fonts.LoadGoogleFont("Roboto", "regular")
+	local f = fonts.New({Name = "Roboto", Weight = "Regular", Size = 20})
 	print("Requested Roboto")
 	local timer = require("timer")
 

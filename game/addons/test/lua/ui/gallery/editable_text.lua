@@ -7,7 +7,7 @@ local Panel = require("ecs.panel")
 local Color = require("structs.color")
 local theme = require("ui.theme")
 return {
-	Name = "Editable Text",
+	Name = "text edit",
 	Create = function()
 		return Column(
 			{

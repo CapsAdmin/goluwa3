@@ -45,8 +45,8 @@ local _Download = callback.WrapKeyedTask(function(self, key, options)
 				end
 
 				local body = res.body
-				-- Look for src: url(http://...)
-				local ttf_url = body:match("src: url%((https?://.-)%)")
+				-- Look for src: url(https://...) - can have quotes or not
+				local ttf_url = body:match("src:%s*url%(%s*['\"]?(https?://[^'\")]+)['\"]?%s*%)")
 
 				if not ttf_url then
 					reject("Could not find TTF URL in Google Fonts CSS response")

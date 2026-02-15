@@ -2,7 +2,7 @@ local event = require("event")
 local render2d = require("render2d.render2d")
 local Color = require("structs.color")
 local fonts = require("render2d.fonts")
-local font = fonts.LoadGoogleFont("Orbitron", "Regular", {size = 50})
+local font = fonts.New({WebName = "Orbitron", Weight = "Regular", Size = 50})
 
 event.AddListener("Draw2D", "test_2d", function()
 	local r, g, b, a = Color.FromHex("#08feff"):Unpack()

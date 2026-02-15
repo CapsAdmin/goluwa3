@@ -7,7 +7,7 @@ local Vec2 = require("structs.vec2")
 local Color = require("structs.color")
 local system = require("system")
 return {
-	Name = "Overflow Loop Demo",
+	Name = "scrolling",
 	Create = function()
 		return Column(
 			{

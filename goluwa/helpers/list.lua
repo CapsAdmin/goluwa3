@@ -38,6 +38,14 @@ function list.slice(tbl, first, last, step)
 	return sliced
 end
 
+function list.find(tbl, func)
+	for i, v in ipairs(tbl) do
+		if func(v, i) then return v end
+	end
+
+	return nil
+end
+
 function list.shuffle(a, times)
 	times = times or 1
 	local c = #a
@@ -117,11 +125,13 @@ do -- negative pairs
 end
 
 function list.map(tbl, cb)
+	local copy = {}
+
 	for i, v in ipairs(tbl) do
-		tbl[i] = cb(v, i)
+		copy[i] = cb(v, i)
 	end
 
-	return tbl
+	return copy
 end
 
 function list.unique(tbl)

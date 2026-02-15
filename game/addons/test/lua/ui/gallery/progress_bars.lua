@@ -7,7 +7,7 @@ local timer = require("timer")
 local Color = require("structs.color")
 local theme = require("ui.theme")
 return {
-	Name = "Progress Bars",
+	Name = "progress bars",
 	Create = function()
 		local canvas = Column(
 			{

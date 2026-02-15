@@ -7,7 +7,7 @@ local Column = require("ui.elements.column")
 local theme = require("ui.theme")
 local Color = require("structs.color")
 return {
-	Name = "Extended Sliders",
+	Name = "sliders",
 	Create = function()
 		local canvas = Column(
 			{

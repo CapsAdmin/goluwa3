@@ -8,7 +8,7 @@ local Dropdown = require("ui.elements.dropdown")
 local Row = require("ui.elements.row")
 local Column = require("ui.elements.column")
 return {
-	Name = "Basic Elements",
+	Name = "misc",
 	Create = function()
 		local canvas = Column(
 			{

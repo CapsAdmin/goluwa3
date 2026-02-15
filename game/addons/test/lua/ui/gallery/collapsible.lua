@@ -4,7 +4,7 @@ local Column = require("ui.elements.column")
 local Button = require("ui.elements.button")
 local Collapsible = require("ui.elements.collapsible")
 return {
-	Name = "Collapsible Panels",
+	Name = "collapsible",
 	Create = function()
 		return Column(
 			{

@@ -19,8 +19,8 @@ T.Test("gfonts download invalid font", function()
 	T(err:find("Failed to fetch CSS", 1, true))["~="](nil)
 end)
 
-T.Test2D("fonts.LoadGoogleFont hotswap", function()
-	local font = fonts.LoadGoogleFont("Orbitron", "Regular", {Size = 20})
+T.Test2D("gfonts hotswap", function()
+	local font = fonts.New({Name = "Orbitron", Weight = "Regular", Size = 20})
 	T(font.IsFont)["=="](true)
 	local initial_ttf = font:GetFonts()[1]
 	T(initial_ttf)["~="](nil)

@@ -283,7 +283,6 @@ function META:OnDraw()
 	end
 
 	render2d.SetColor(self:GetColor():Unpack())
-	font:SetSize(FontSize)
 	font:DrawText(text, lx, ly, 0)
 
 	if

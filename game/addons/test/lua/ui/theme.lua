@@ -18,8 +18,6 @@ local Textures = {
 }
 
 function theme.OnSetProperty(obj, key, val)
-	print(obj, key, val)
-
 	if key == "Padding" then
 		if type(val) == "string" then return Rect() + theme.GetPadding(val) end
 	elseif key == "Color" then
@@ -29,27 +27,63 @@ function theme.OnSetProperty(obj, key, val)
 	elseif key == "Size" then
 		if type(val) == "string" then return Vec2() + theme.GetSize(val) end
 	elseif key == "Font" then
-		if type(val) == "string" then return theme.GetFont(val) end
+		if type(val) == "string" then
+			local style, size = val:match("([^%s]+)%s*(.*)")
+
+			if size == "" then size = nil end
+
+			if not style or style == "" then style = "body" end
+
+			if theme.font_sizes[style] and not theme.font_styles[style] then
+				size = style
+				style = "body"
+			end
+
+			obj.theme_font_style = style
+
+			if size then obj.theme_font_size = size end
+
+			local font, size_val = theme.GetFont(obj.theme_font_style, obj.theme_font_size)
+
+			if font and obj.SetFontSize then obj:SetFontSize(size_val) end
+
+			return font
+		elseif type(val) == "table" and val.IsFont then
+			obj.theme_font_style = nil
+
+			if obj.SetFontSize then obj:SetFontSize(val:GetSize()) end
+
+			return val
+		end
 	elseif key == "FontSize" then
-		if type(val) == "string" then return theme.GetFontSize(val) end
+		local size_val
+
+		if type(val) == "string" then
+			obj.theme_font_size = val
+			size_val = theme.GetFontSize(val)
+		else
+			obj.theme_font_size = nil
+			size_val = val
+		end
+
+		if obj.SetFont then
+			local font = theme.GetFont(obj.theme_font_style or "body", obj.theme_font_size or size_val)
+
+			if font then obj:SetFont(font) end
+		end
+
+		return size_val
 	end
 
 	return val
 end
 
 do
-	local gradient = {
-		PRIMARY:Darken(2),
-		PRIMARY:Darken(1),
-		PRIMARY,
-		PRIMARY:Brighten(1),
-		PRIMARY:Brighten(2),
-	}
 	local pallete = Color.BuildPallete(
 		{
 			Color.FromHex("#cccccc"),
-			gradient[3],
-			gradient[1],
+			PRIMARY,
+			PRIMARY:Darken(2),
 		},
 		{
 			red = Color.FromHex("#dd4546"),
@@ -125,7 +159,7 @@ end
 
 do
 	local path = fonts.GetDefaultSystemFontPath()
-	local font_sizes = {
+	theme.font_sizes = {
 		XS = 10,
 		S = 12,
 		M = 14,
@@ -135,27 +169,67 @@ do
 		XXXL = 42,
 	}
 	-- google fonts
-	local font_styles = {
-		heading = {"Orbitron", "Regular"},
-		body_weak = {"Rajdhani", "Light"},
-		body = {"Rajdhani", "Bold"},
-		body_strong = {"Rajdhani", "Bold"},
+	theme.font_styles = {
+		heading = {"Orbitron", "Bold"},
+		body_weak = {"Exo", "Bold"},
+		body = {"Exo", "Black"},
+		body_strong = {"Exo", "Bold"},
 	}
 
+	do
+		local sizes = {}
+
+		for k, v in pairs(theme.font_sizes) do
+			table.insert(sizes, k)
+		end
+
+		function theme.GetFontSizes()
+			return sizes
+		end
+	end
+
+	do
+		local fonts = {}
+
+		for k, v in pairs(theme.font_styles) do
+			table.insert(fonts, k)
+		end
+
+		function theme.GetFontNames()
+			return fonts
+		end
+	end
+
 	function theme.GetFontSize(size_name)
-		return font_sizes[size_name or "M"] or font_sizes.M
+		if type(size_name) == "number" then return size_name end
+
+		return theme.font_sizes[size_name or "M"] or theme.font_sizes.M
 	end
 
 	local font_cache = {}
 
-	function theme.GetFont(name)
-		local key = font_styles[name or "body"] or font_styles.body
+	function theme.GetFont(name, size_name)
+		-- Handle "heading L" or "L" or "heading"
+		if name and not size_name then
+			local n, s = name:match("([^%s]+)%s*(.*)")
 
-		if not font_cache[key] then
-			font_cache[key] = fonts.LoadGoogleFont(key[1], key[2])
+			if s and s ~= "" then name, size_name = n, s end
 		end
 
-		return font_cache[key]
+		if theme.font_sizes[name] and not theme.font_styles[name] then
+			size_name = name
+			name = "body"
+		end
+
+		local style = theme.font_styles[name or "body"] or theme.font_styles.body
+		local size_val = theme.GetFontSize(size_name)
+		local cache_key = style[1] .. "_" .. style[2] .. "_" .. size_val
+
+		if not font_cache[cache_key] then
+			font_cache[cache_key] = fonts.New({Name = style[1], Weight = style[2], Size = size_val})
+		end
+
+		return font_cache[cache_key], size_val
 	end
 end
 
@@ -497,7 +571,7 @@ do -- primitives
 	end
 
 	do
-		local glow_color = Color.FromHex("#5ea6e9")
+		local glow_color = theme.GetColor("light")
 		local gradient = Texture.New(
 			{
 				width = 16,
@@ -511,8 +585,8 @@ do -- primitives
 				},
 			}
 		)
-		local start = Color.FromHex("#004687ff")
-		local stop = Color.FromHex("#04013e00")
+		local start = theme.GetColor("primary")
+		local stop = theme.GetColor("darkest")
 		gradient:Shade(
 			[[
 			float dist = distance(uv, vec2(0.5));
@@ -1201,8 +1275,7 @@ do
 		local w, h = 600, 30
 
 		do
-			local f = theme.GetFont("heading")
-			f:SetSize(theme.GetFontSize("XXL"))
+			local f = theme.GetFont("heading", "XXL")
 			f:DrawText("Custom Font Rendering", x, y - 40)
 		end
 
@@ -1246,8 +1319,7 @@ do
 end
 
 if HOTRELOAD then
-	event.AddListener("Draw2D", "theme_museum", function()
-		theme.DrawMuseum()
+	event.AddListener("Draw2D", "theme_museum", function() --theme.DrawMuseum()
 	end)
 end
 

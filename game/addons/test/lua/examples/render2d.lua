@@ -5,7 +5,7 @@ local Vec2 = require("structs.vec2")
 local fonts = require("render2d.fonts")
 local fontPath = fonts.GetDefaultSystemFontPath()
 local font = fonts.New({Path = fontPath, Size = 64})
-local gfont = fonts.LoadGoogleFont("Orbitron", "Bold", {Size = 64, Padding = 32})
+local gfont = fonts.New({Name = "Orbitron", Weight = "Bold", Size = 64, Padding = 32})
 font.debug = false
 font:SetPadding(64)
 local blue_gradient = render2d.CreateGradient(

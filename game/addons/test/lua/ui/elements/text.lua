@@ -14,7 +14,7 @@ return function(props)
 				Name = "text",
 				OnSetProperty = theme.OnSetProperty,
 				text = {
-					Font = props.FontName or "body",
+					Font = props.Font or props.FontName or "body",
 					FontSize = props.FontSize or "M",
 					Color = "text_foreground",
 				},

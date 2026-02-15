@@ -16,42 +16,34 @@ function fonts.New(props)
 	props.Size = props.Size or 16
 	props.Padding = props.Padding or 1
 	props.Spread = props.Spread or 16
-	props.Path = props.Path or fonts.GetDefaultSystemFontPath()
-	local ext = tostring(props.Path):match("%.([^%.]+)$")
 
-	if ext == "ttf" or ext == "otf" then
-		if not fs.exists(props.Path) then
-			logn("Font file not found: " .. props.Path .. ", falling back to default font")
-			props.Path = fonts.GetDefaultSystemFontPath()
+	if props.Path then
+		local ext = tostring(props.Path):match("%.([^%.]+)$")
+
+		if ext == "ttf" or ext == "otf" then
+			local f = sdf_font.New(ttf_font.New(props.Path), props.Spread)
+			f:SetPadding(props.Padding)
+			f:SetSize(props.Size)
+			return f
 		end
+	elseif props.Name then
+		local font = sdf_font.New(base_font.New(), props.Spread)
+		font:SetPadding(props.Padding)
+		font:SetSize(props.Size)
+		font:SetName(props.Name .. "-" .. tostring(props.Weight or "regular"))
 
-		local f = sdf_font.New(ttf_font.New(props.Path), props.Spread)
-		f:SetPadding(props.Padding)
-		f:SetSize(props.Size)
-		return f
+		gfonts.Download({name = props.Name, weight = props.Weight}):Then(function(path)
+			local new_ttf = ttf_font.New(path)
+			new_ttf:SetSize(font:GetSize())
+			font:SetFonts({new_ttf})
+		end):Catch(function(err)
+			wlog("Failed to load Google Font " .. props.Name .. ": " .. err)
+		end)
+
+		return font
 	end
 
 	return fonts.GetDefaultFont()
-end
-
-function fonts.LoadGoogleFont(name, weight, options)
-	options = options or {}
-	options.Padding = options.Padding or 1
-	options.Spread = options.Spread or 16
-	local font = sdf_font.New(base_font.New(), options.Spread)
-	font:SetPadding(options.Padding)
-	font:SetSize(options and options.Size or 16)
-	font:SetName(name .. "-" .. tostring(weight or "regular"))
-
-	gfonts.Download({name = name, weight = weight}):Then(function(path)
-		local new_ttf = ttf_font.New(path)
-		new_ttf:SetSize(font:GetSize())
-		font:SetFonts({new_ttf})
-	end):Catch(function(err)
-		wlog("Failed to load Google Font " .. name .. ": " .. err)
-	end)
-
-	return font
 end
 
 function fonts.GetDefaultFont()
