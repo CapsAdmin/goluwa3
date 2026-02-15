@@ -17,59 +17,51 @@ return {
 					GrowWidth = 1,
 					ChildGap = 20,
 					AlignmentX = "start",
+					Padding = Rect(
+						theme.GetPadding("M"),
+						theme.GetPadding("M"),
+						theme.GetPadding("M"),
+						theme.GetPadding("M")
+					),
 				},
 			}
 		)
-		canvas.layout:SetPadding(
-			Rect(
-				theme.GetPadding("M"),
-				theme.GetPadding("M"),
-				theme.GetPadding("M"),
-				theme.GetPadding("M")
-			)
-		)
-		canvas:AddChild(
-			Text(
-				{
-					Text = "Static Progress Bars",
-					FontName = "heading",
-					Size = Vec2() + theme.GetSize("L"),
-				}
-			)
-		)
-		canvas:AddChild(
-			Column({layout = {ChildGap = 5}})({
-				Text({Text = "Default (25%)"}),
-				ProgressBar({Value = 0.25}),
-			})
-		)
-		canvas:AddChild(
-			Column({layout = {ChildGap = 5}})(
-				{
-					Text({Text = "Orange (50%)"}),
-					ProgressBar({Value = 0.5, Color = Color.FromHex("#ff8800")}),
-				}
-			)
-		)
-		canvas:AddChild(
-			Column({layout = {ChildGap = 5}})(
-				{
-					Text({Text = "Teal (75%)"}),
-					ProgressBar({Value = 0.75, Color = Color.FromHex("#00ffd4")}),
-				}
-			)
-		)
-		canvas:AddChild(
-			Text(
-				{
-					Text = "Animated Progress Bar",
-					FontName = "heading",
-					FontSize = "L",
-				}
-			)
-		)
 		local animated_pb = ProgressBar({Value = 0})
-		canvas:AddChild(animated_pb)
+		canvas(
+			{
+				Text(
+					{
+						Text = "Static Progress Bars",
+						FontName = "heading",
+						Size = Vec2() + theme.GetSize("L"),
+					}
+				),
+				Column({layout = {ChildGap = 5}})({
+					Text({Text = "Default (25%)"}),
+					ProgressBar({Value = 0.25}),
+				}),
+				Column({layout = {ChildGap = 5}})(
+					{
+						Text({Text = "Orange (50%)"}),
+						ProgressBar({Value = 0.5, Color = Color.FromHex("#ff8800")}),
+					}
+				),
+				Column({layout = {ChildGap = 5}})(
+					{
+						Text({Text = "Teal (75%)"}),
+						ProgressBar({Value = 0.75, Color = Color.FromHex("#00ffd4")}),
+					}
+				),
+				Text(
+					{
+						Text = "Animated Progress Bar",
+						FontName = "heading",
+						FontSize = "L",
+					}
+				),
+				animated_pb,
+			}
+		)
 		local t = 0
 
 		timer.Repeat(

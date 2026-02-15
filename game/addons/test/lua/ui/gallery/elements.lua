@@ -21,119 +21,118 @@ return {
 				},
 			}
 		)
-		canvas:AddChild(
-			Slider(
-				{
-					Value = 50,
-					Min = 0,
-					Max = 100,
-					OnChange = function(value)
-						print("Slider value:", value)
-					end,
-					layout = {
-						Direction = "x",
-						AlignmentY = "center",
-						FitHeight = true,
-						GrowWidth = 1,
-					},
-				}
-			)
-		)
-		canvas:AddChild(
-			Button(
-				{
-					Size = Vec2(30, 30),
-					Mode = "filled",
-					layout = {
-						Direction = "x",
-						AlignmentY = "center",
-						FitHeight = true,
-						GrowWidth = 1,
-					},
-				}
-			)({
-				Text({Text = "Text Button", IgnoreMouseInput = true}),
-			})
-		)
-		canvas:AddChild(
-			Button(
-				{
-					Size = Vec2(30, 30),
-					Mode = "outline",
-					layout = {
-						Direction = "x",
-						AlignmentY = "center",
-						FitHeight = true,
-						GrowWidth = 1,
-					},
-				}
-			)({
-				Text({Text = "Outline Button", IgnoreMouseInput = true}),
-			})
-		)
-		canvas:AddChild(
-			Row({
-				layout = {Direction = "x", ChildGap = 10, AlignmentY = "center"},
-			})(
-				{
-					Checkbox(
-						{
-							Value = true,
-							OnChange = function(val)
-								print("Checkbox value:", val)
-							end,
-						}
-					),
-					Text({Text = "Toggle me"}),
-				}
-			)
-		)
 		local selected_radio = 1
-		local radio_group = Column({
-			layout = {Direction = "y", ChildGap = 5, AlignmentX = "start"},
-		})
-
-		for i = 1, 3 do
-			radio_group:AddChild(
+		local selected_dropdown_val = "Option 1"
+		return canvas(
+			{
+				Slider(
+					{
+						Value = 50,
+						Min = 0,
+						Max = 100,
+						OnChange = function(value)
+							print("Slider value:", value)
+						end,
+						layout = {
+							Direction = "x",
+							AlignmentY = "center",
+							FitHeight = true,
+							GrowWidth = 1,
+						},
+					}
+				),
+				Button(
+					{
+						Size = Vec2(30, 30),
+						Mode = "filled",
+						layout = {
+							Direction = "x",
+							AlignmentY = "center",
+							FitHeight = true,
+							GrowWidth = 1,
+						},
+					}
+				)({
+					Text({Text = "Text Button", IgnoreMouseInput = true}),
+				}),
+				Button(
+					{
+						Size = Vec2(30, 30),
+						Mode = "outline",
+						layout = {
+							Direction = "x",
+							AlignmentY = "center",
+							FitHeight = true,
+							GrowWidth = 1,
+						},
+					}
+				)({
+					Text({Text = "Outline Button", IgnoreMouseInput = true}),
+				}),
 				Row({
 					layout = {Direction = "x", ChildGap = 10, AlignmentY = "center"},
 				})(
 					{
-						RadioButton(
+						Checkbox(
 							{
-								IsSelected = function()
-									return selected_radio == i
-								end,
-								OnSelect = function()
-									print("Radio " .. i .. " selected")
-									selected_radio = i
+								Value = true,
+								OnChange = function(val)
+									print("Checkbox value:", val)
 								end,
 							}
 						),
-						Text({Text = "Option " .. i}),
+						Text({Text = "Toggle me"}),
 					}
-				)
-			)
-		end
+				),
+				Column({
+					layout = {Direction = "y", ChildGap = 5, AlignmentX = "start"},
+				})(
+					(
+						function()
+							local t = {}
 
-		canvas:AddChild(radio_group)
-		local selected_dropdown_val = "Option 1"
-		canvas:AddChild(
-			Dropdown(
-				{
-					Text = "Select Option",
-					Options = {"Option 1", "Option 2", "Option 3", "Option 4"},
-					OnSelect = function(val)
-						print("Dropdown selected:", val)
-						selected_dropdown_val = val
-					end,
-					GetText = function()
-						return "Selected: " .. selected_dropdown_val
-					end,
-					layout = {GrowWidth = 1},
-				}
-			)
+							for i = 1, 3 do
+								t[i] = Row(
+									{
+										layout = {Direction = "x", ChildGap = 10, AlignmentY = "center"},
+									}
+								)(
+									{
+										RadioButton(
+											{
+												IsSelected = function()
+													return selected_radio == i
+												end,
+												OnSelect = function()
+													print("Radio " .. i .. " selected")
+													selected_radio = i
+												end,
+											}
+										),
+										Text({Text = "Option " .. i}),
+									}
+								)
+							end
+
+							return t
+						end
+					)()
+				),
+				Dropdown(
+					{
+						Text = "Select Option",
+						Options = {"Option 1", "Option 2", "Option 3", "Option 4"},
+						OnSelect = function(val)
+							print("Dropdown selected:", val)
+							selected_dropdown_val = val
+						end,
+						GetText = function()
+							return "Selected: " .. selected_dropdown_val
+						end,
+						layout = {GrowWidth = 1},
+					}
+				),
+			}
 		)
-		return canvas
 	end,
 }
