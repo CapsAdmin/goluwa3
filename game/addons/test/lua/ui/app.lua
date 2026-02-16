@@ -169,12 +169,6 @@ local function toggle()
 		end
 	end
 
-	if #pages > 0 then
-		select_page(list.find(pages, function(page)
-			return page.Name == "fonts"
-		end))
-	end
-
 	local page_buttons = {}
 
 	for _, page in ipairs(pages) do

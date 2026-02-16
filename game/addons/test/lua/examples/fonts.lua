@@ -1,6 +1,3 @@
-do
-	return
-end
 
 local event = require("event")
 local fonts = require("render2d.fonts")

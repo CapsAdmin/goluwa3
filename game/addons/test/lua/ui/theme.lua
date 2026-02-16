@@ -172,7 +172,7 @@ do
 	theme.font_styles = {
 		heading = {"Orbitron", "Bold"},
 		body_weak = {"Exo", "Bold"},
-		body = {"Exo", "Black"},
+		body = {"Exo", "Regular"},
 		body_strong = {"Exo", "Bold"},
 	}
 
@@ -1241,33 +1241,6 @@ do
 end
 
 do
-	local blur_color = Color.FromHex("#2374DD")
-	HeadingFont = fonts.New(
-		{
-			Path = "/home/caps/Downloads/Exo_2/static/Exo2-Bold.ttf",
-			Size = 30,
-			Padding = 20,
-			SeparateEffects = true,
-			Effects = {
-				{
-					Type = "shadow",
-					Dir = -1.5,
-					Color = Color.FromHex("#0c1721"),
-					BlurRadius = 0.25,
-					BlurPasses = 1,
-				},
-				{
-					Type = "shadow",
-					Dir = 0,
-					Color = blur_color,
-					BlurRadius = 3,
-					BlurPasses = 3,
-					AlphaPow = 0.6,
-				},
-			},
-		}
-	)
-
 	function theme.DrawMuseum()
 		render2d.SetColor(1, 1, 1, 1)
 		render2d.SetTexture(nil)

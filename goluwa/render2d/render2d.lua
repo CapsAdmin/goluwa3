@@ -502,9 +502,14 @@ do
 								vec3 sub_alpha = (pc.outline_width > 0.0) ? 
 									(smoothstep(smoothing, -smoothing, sub_d) - smoothstep(smoothing, -smoothing, sub_d + pc.outline_width)) : 
 									smoothstep(smoothing, -smoothing, sub_d);
-
-								out_color.rgb *= sub_alpha;
-								out_color.a = max(max(out_color.r, out_color.g), out_color.b);
+								
+								if (dot(color.rgb, vec3(1.0)) < 0.5) {
+									out_color.rgb = vec3(1.0) - sub_alpha * (vec3(1.0) - color.rgb);
+									out_color.a = 1.0;
+								} else {
+									out_color.rgb = color.rgb * sub_alpha;
+									out_color.a = color.a * max(max(sub_alpha.r, sub_alpha.g), sub_alpha.b);
+								}
 							}
 						}
 					}
