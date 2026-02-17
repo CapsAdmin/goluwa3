@@ -493,10 +493,17 @@ do
 									float dx = dFdx(d);
 									sub_d = d + vec3(-shift, 0.0, shift) * dx;
 									if (pc.subpixel_mode == 2) sub_d = sub_d.zyx;
-								} else { // VRGB or VBGR
+								} else if (pc.subpixel_mode == 3 || pc.subpixel_mode == 4) { // VRGB or VBGR
 									float dy = dFdy(d);
 									sub_d = d + vec3(-shift, 0.0, shift) * dy;
 									if (pc.subpixel_mode == 4) sub_d = sub_d.zyx;
+								} else if (pc.subpixel_mode == 5) { // RWGB
+									float dx = dFdx(d);
+									vec4 sub4_d = d + vec4(-1.5, -0.5, 0.5, 1.5) * shift * dx;
+									sub_d.r = sub4_d.x;
+									sub_d.g = sub4_d.z;
+									sub_d.b = sub4_d.w;
+									sub_d = mix(sub_d, vec3(sub4_d.y), 0.5);
 								}
 
 								vec3 sub_alpha = (pc.outline_width > 0.0) ? 
@@ -630,6 +637,7 @@ do
 				bgr = 2,
 				vrgb = 3,
 				vbgr = 4,
+				rwgb = 5,
 			}
 
 			function render2d.SetSubpixelMode(mode)

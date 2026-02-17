@@ -35,6 +35,7 @@ return {
 			demo_fonts[size] = fonts.New({Path = fontPath, Size = size})
 		end
 
+		local label_ent = NULL
 		return canvas(
 			{
 				-- Settings Row
@@ -56,9 +57,15 @@ return {
 								Dropdown(
 									{
 										Value = state.selected_mode,
-										Options = {"none", "rgb", "bgr", "vrgb", "vbgr"},
+										Options = {"none", "rgb", "bgr", "vrgb", "vbgr", "rwgb"},
 										OnSelect = function(val)
 											state.selected_mode = val
+
+											if val == "rwgb" then
+												state.selected_amount = 0.25
+											else
+												state.selected_amount = 0.333
+											end
 										end,
 										layout = {Size = Vec2(120, 30)},
 									}
@@ -75,13 +82,28 @@ return {
 												Value = state.selected_amount * 100,
 												Min = 0,
 												Max = 100,
-												OnChange = function(val)
+												OnChange = function(val, s)
 													state.selected_amount = val / 100
+
+													if label_ent:IsValid() then
+														label_ent.text:SetText(string.format("%.3f", state.selected_amount))
+													end
 												end,
 												layout = {GrowWidth = 1, FitHeight = true},
 											}
 										),
-									-- Dynamic label for slider value would be nice but simple for now
+										(
+											function()
+												local p = Text(
+													{
+														Text = string.format("%.3f", state.selected_amount),
+														layout = {Size = Vec2(40, 20)},
+													}
+												)
+												label_ent = p
+												return p
+											end
+										)(),
 									}
 								),
 							}
