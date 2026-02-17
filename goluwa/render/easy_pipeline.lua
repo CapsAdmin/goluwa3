@@ -1069,10 +1069,6 @@ function EasyPipeline:Bind(cmd, frame_index)
 	cmd = cmd or render.GetCommandBuffer()
 	frame_index = frame_index or render.GetCurrentFrame()
 	self.pipeline:Bind(cmd, frame_index)
-
-	if self.config.rasterizer and self.config.rasterizer.cull_mode then
-		cmd:SetCullMode(self.config.rasterizer.cull_mode)
-	end
 end
 
 function EasyPipeline:GetDebugViews()
@@ -1118,9 +1114,16 @@ function EasyPipeline:BeginDraw(cmd, framebuffer, frame_index)
 
 	if fb then fb:Begin(cmd) end
 
-	-- Set cull mode from config if specified
-	if self.config and self.config.rasterizer and self.config.rasterizer.cull_mode then
-		cmd:SetCullMode(self.config.rasterizer.cull_mode)
+	-- If this pass draws directly to the main target (no explicit framebuffer),
+	-- make sure viewport/scissor are reset to full render size. Otherwise the
+	-- command buffer may still have a tiny viewport from a previous downsample pass.
+	if not fb then
+		local size = render.GetRenderImageSize()
+
+		if size and size.x and size.y and size.x > 0 and size.y > 0 then
+			cmd:SetViewport(0, 0, size.x, size.y, 0, 1)
+			cmd:SetScissor(0, 0, size.x, size.y)
+		end
 	end
 
 	self:Bind(cmd)

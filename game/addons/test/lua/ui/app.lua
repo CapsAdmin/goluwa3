@@ -25,7 +25,7 @@ local Window = require("ui.elements.window")
 local ScrollablePanel = require("ui.elements.scrollable_panel")
 local world_panel = Panel.World
 local menu = NULL
-local visible = true
+local visible = false
 world_panel:RemoveChildren()
 
 local function toggle()
@@ -278,6 +278,4 @@ end)
 
 event.AddListener("WindowGainedFocus", "mouse_trap", function()
 	if not visible and window.current then window.current:SetMouseTrapped(true) end
-end)
-
-toggle()
+end)--toggle()

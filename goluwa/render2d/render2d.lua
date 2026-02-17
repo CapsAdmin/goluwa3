@@ -812,23 +812,7 @@ do
 		end
 
 		render2d.current_blend_mode = mode_name
-		local blend_mode = render2d.blend_modes[mode_name]
-
-		if render.GetDevice().has_extended_dynamic_state3 then
-			if render2d.cmd then
-				render2d.cmd:SetColorBlendEnable(0, blend_mode.blend)
-
-				if blend_mode.blend then
-					render2d.cmd:SetColorBlendEquation(0, blend_mode)
-				end
-			end
-		else
-			render2d.UpdatePipeline()
-
-			if render2d.cmd then
-				render2d.easy:Bind(render2d.cmd, render.GetCurrentFrame())
-			end
-		end
+		render2d.UpdatePipeline()
 	end
 
 	function render2d.GetBlendMode()
@@ -842,10 +826,6 @@ do
 
 		render2d.current_samples = samples
 		render2d.UpdatePipeline()
-
-		if render2d.cmd then
-			render2d.easy:Bind(render2d.cmd, render.GetCurrentFrame())
-		end
 	end
 
 	function render2d.GetSamples()
@@ -859,10 +839,6 @@ do
 
 		render2d.current_color_format = format
 		render2d.UpdatePipeline()
-
-		if render2d.cmd then
-			render2d.easy:Bind(render2d.cmd, render.GetCurrentFrame())
-		end
 	end
 
 	function render2d.GetColorFormat()
@@ -1037,49 +1013,7 @@ do
 
 			current_mode = mode_name
 			current_ref = ref
-			local device = render.GetDevice()
-
-			if device.has_extended_dynamic_state then
-				if render2d.cmd then
-					render2d.cmd:SetStencilTestEnable(mode.stencil_test)
-
-					if mode.stencil_test then
-						render2d.cmd:SetStencilOp(
-							"front_and_back",
-							mode.front.fail_op,
-							mode.front.pass_op,
-							mode.front.depth_fail_op,
-							mode.front.compare_op
-						)
-						render2d.cmd:SetStencilReference("front_and_back", ref)
-						render2d.cmd:SetStencilCompareMask("front_and_back", 0xFF)
-						render2d.cmd:SetStencilWriteMask("front_and_back", 0xFF)
-					end
-				end
-			end
-
 			render2d.UpdatePipeline()
-
-			if render2d.cmd then
-				render2d.easy:Bind(render2d.cmd, render.GetCurrentFrame())
-
-				if device.has_extended_dynamic_state then
-					render2d.cmd:SetStencilTestEnable(mode.stencil_test)
-
-					if mode.stencil_test then
-						render2d.cmd:SetStencilOp(
-							"front_and_back",
-							mode.front.fail_op,
-							mode.front.pass_op,
-							mode.front.depth_fail_op,
-							mode.front.compare_op
-						)
-						render2d.cmd:SetStencilReference("front_and_back", ref)
-						render2d.cmd:SetStencilCompareMask("front_and_back", 0xFF)
-						render2d.cmd:SetStencilWriteMask("front_and_back", 0xFF)
-					end
-				end
-			end
 		end
 
 		function render2d.GetStencilMode()
@@ -1123,83 +1057,112 @@ do
 
 	function render2d.UpdatePipeline()
 		local samples = render2d.current_samples or "1"
-		local blend_mode_name = render2d.current_blend_mode or "alpha"
-		local stencil_mode_name = render2d.GetStencilMode() or "none"
 		local color_format = render2d.GetColorFormat() or surface_format
-		local device = render.GetDevice()
-		local dynamic_states = {"viewport", "scissor", "cull_mode"}
-
-		if device.has_extended_dynamic_state then
-			table.insert(dynamic_states, "stencil_test_enable")
-			table.insert(dynamic_states, "stencil_op")
-			table.insert(dynamic_states, "stencil_compare_mask")
-			table.insert(dynamic_states, "stencil_write_mask")
-			table.insert(dynamic_states, "stencil_reference")
-		end
-
-		if device.has_extended_dynamic_state3 then
-			table.insert(dynamic_states, "color_blend_enable_ext")
-			table.insert(dynamic_states, "color_blend_equation_ext")
-		end
-
-		local cache_key = samples .. "_" .. color_format .. "_" .. blend_mode_name .. "_" .. stencil_mode_name
+		local cache_key = samples .. "_" .. color_format
 
 		if render2d.pipeline_cache[cache_key] then
 			render2d.easy = render2d.pipeline_cache[cache_key]
 			render2d.pipeline = render2d.easy.pipeline
-			return
-		end
-
-		local blend_mode = render2d.blend_modes[blend_mode_name]
-		local stencil_mode = render2d.stencil_modes[stencil_mode_name]
-		local config = {
-			name = "render2d_" .. cache_key,
-			dont_create_framebuffers = true,
-			samples = samples,
-			color_format = color_format,
-			dynamic_states = dynamic_states,
-			vertex = {
-				push_constants = {vertex_pc_block},
-				attributes = {
-					{"pos", "vec3", "r32g32b32_sfloat"},
-					{"uv", "vec2", "r32g32_sfloat"},
-					{"color", "vec4", "r32g32b32a32_sfloat"},
+		else
+			local config = {
+				name = "render2d_" .. cache_key,
+				dont_create_framebuffers = true,
+				samples = samples,
+				color_format = color_format,
+				vertex = {
+					push_constants = {vertex_pc_block},
+					attributes = {
+						{"pos", "vec3", "r32g32b32_sfloat"},
+						{"uv", "vec2", "r32g32_sfloat"},
+						{"color", "vec4", "r32g32b32a32_sfloat"},
+					},
+					shader = vertex_shader,
 				},
-				shader = vertex_shader,
-			},
-			fragment = {
-				push_constants = {fragment_pc_block},
-				custom_declarations = fragment_shader_header,
-				shader = fragment_shader_main,
-			},
-			rasterizer = {
-				cull_mode = "none",
-			},
-			color_blend = {
-				attachments = {
-					{
-						blend = blend_mode.blend,
-						src_color_blend_factor = blend_mode.src_color_blend_factor,
-						dst_color_blend_factor = blend_mode.dst_color_blend_factor,
-						color_blend_op = blend_mode.color_blend_op,
-						src_alpha_blend_factor = blend_mode.src_alpha_blend_factor,
-						dst_alpha_blend_factor = blend_mode.dst_alpha_blend_factor,
-						alpha_blend_op = blend_mode.alpha_blend_op,
-						color_write_mask = stencil_mode.color_write_mask or blend_mode.color_write_mask,
+				fragment = {
+					push_constants = {fragment_pc_block},
+					custom_declarations = fragment_shader_header,
+					shader = fragment_shader_main,
+				},
+				rasterizer = {
+					cull_mode = "none",
+				},
+				color_blend = {
+					attachments = {
+						{
+							blend = true,
+							src_color_blend_factor = "src_alpha",
+							dst_color_blend_factor = "one_minus_src_alpha",
+							color_blend_op = "add",
+							src_alpha_blend_factor = "one",
+							dst_alpha_blend_factor = "zero",
+							alpha_blend_op = "add",
+							color_write_mask = {"r", "g", "b", "a"},
+						},
 					},
 				},
-			},
-			depth_stencil = {
-				depth_test = false,
-				depth_write = true,
-				stencil_test = stencil_mode.stencil_test,
-				front = stencil_mode.front,
-				back = stencil_mode.front,
-			},
+				depth_stencil = {
+					depth_test = false,
+					depth_write = true,
+					stencil_test = false,
+					front = {
+						fail_op = "keep",
+						pass_op = "keep",
+						depth_fail_op = "keep",
+						compare_op = "always",
+					},
+					back = {
+						fail_op = "keep",
+						pass_op = "keep",
+						depth_fail_op = "keep",
+						compare_op = "always",
+					},
+				},
+			}
+			render2d.easy = EasyPipeline.New(config)
+			render2d.pipeline = render2d.easy.pipeline
+			render2d.pipeline_cache[cache_key] = render2d.easy
+		end
+
+		local blend_mode_name = render2d.current_blend_mode or "alpha"
+		local blend_mode = render2d.blend_modes[blend_mode_name]
+		local stencil_mode_name, stencil_ref = render2d.GetStencilMode()
+		stencil_mode_name = stencil_mode_name or "none"
+		stencil_ref = stencil_ref or 1
+		local stencil_mode = render2d.stencil_modes[stencil_mode_name]
+		render2d.pipeline:SetState(
+			"color_blend",
+			{
+				blend = blend_mode.blend,
+				src_color_blend_factor = blend_mode.src_color_blend_factor,
+				dst_color_blend_factor = blend_mode.dst_color_blend_factor,
+				color_blend_op = blend_mode.color_blend_op,
+				src_alpha_blend_factor = blend_mode.src_alpha_blend_factor,
+				dst_alpha_blend_factor = blend_mode.dst_alpha_blend_factor,
+				alpha_blend_op = blend_mode.alpha_blend_op,
+				color_write_mask = stencil_mode.color_write_mask or blend_mode.color_write_mask,
+			}
+		)
+		local front = {
+			fail_op = stencil_mode.front.fail_op,
+			pass_op = stencil_mode.front.pass_op,
+			depth_fail_op = stencil_mode.front.depth_fail_op,
+			compare_op = stencil_mode.front.compare_op,
+			reference = stencil_ref,
+			compare_mask = 0xFF,
+			write_mask = 0xFF,
 		}
-		render2d.easy = EasyPipeline.New(config)
-		render2d.pipeline = render2d.easy.pipeline
-		render2d.pipeline_cache[cache_key] = render2d.easy
+		render2d.pipeline:SetState(
+			"depth_stencil",
+			{
+				stencil_test = stencil_mode.stencil_test,
+				front = front,
+				back = front,
+			}
+		)
+
+		if render2d.cmd then
+			render2d.easy:Bind(render2d.cmd, render.GetCurrentFrame())
+		end
 	end
 
 	function render2d.GetPipelineVariantInfo()

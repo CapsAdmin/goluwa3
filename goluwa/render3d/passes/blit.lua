@@ -4,7 +4,12 @@ local system = require("system")
 local render3d = require("render3d.render3d")
 
 local function get_source_texture(self, block, key)
-	if render3d.pipelines.smaa_resolve and render3d.pipelines.smaa_resolve.framebuffers then
+	-- SMAA resolve can be re-enabled explicitly once the post-AA regression is fixed.
+	if
+		render3d.use_smaa_resolve and
+		render3d.pipelines.smaa_resolve and
+		render3d.pipelines.smaa_resolve.framebuffers
+	then
 		local current_idx = system.GetFrameNumber() % 2 + 1
 		block[key] = self:GetTextureIndex(render3d.pipelines.smaa_resolve:GetFramebuffer(current_idx):GetAttachment(1))
 		return

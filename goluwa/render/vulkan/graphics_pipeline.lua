@@ -5,8 +5,13 @@ local PipelineLayout = require("render.vulkan.internal.pipeline_layout")
 local InternalGraphicsPipeline = require("render.vulkan.internal.graphics_pipeline")
 local DescriptorPool = require("render.vulkan.internal.descriptor_pool")
 local vulkan = require("render.vulkan.internal.vulkan")
+local luadata = require("codecs.luadata")
 local ffi = require("ffi")
 local GraphicsPipeline = prototype.CreateTemplate("render_graphics_pipeline")
+
+local function hash_table(tbl)
+	return luadata.Encode(tbl)
+end
 
 function GraphicsPipeline.New(vulkan_instance, config)
 	local self = GraphicsPipeline:CreateObject({})
@@ -16,7 +21,6 @@ function GraphicsPipeline.New(vulkan_instance, config)
 	local pool_size_map = {}
 	local push_constant_ranges = {}
 	local all_stage_bits = 0
-	local min_offset = 1000000
 	local max_end = 0
 	local has_push_constants = false
 
@@ -53,7 +57,6 @@ function GraphicsPipeline.New(vulkan_instance, config)
 		if stage.push_constants then
 			local offset = stage.push_constants.offset or 0
 			local size = stage.push_constants.size
-			min_offset = math.min(min_offset, offset)
 			max_end = math.max(max_end, offset + size)
 			has_push_constants = true
 		end
@@ -146,6 +149,51 @@ function GraphicsPipeline.New(vulkan_instance, config)
 	-- Always use format and samples to ensure they match
 	local multisampling_config = config.multisampling or {}
 	multisampling_config.rasterization_samples = config.samples or "1"
+
+	-- Automatic dynamic state registration if not explicitly static
+	if not config.static then
+		config.dynamic_states = config.dynamic_states or {"viewport", "scissor"}
+		local device = vulkan_instance.device
+
+		if device.has_extended_dynamic_state then
+			table.insert(config.dynamic_states, "cull_mode")
+			table.insert(config.dynamic_states, "stencil_test_enable")
+			table.insert(config.dynamic_states, "stencil_op")
+			table.insert(config.dynamic_states, "stencil_compare_mask")
+			table.insert(config.dynamic_states, "stencil_write_mask")
+			table.insert(config.dynamic_states, "stencil_reference")
+		end
+
+		if device.has_extended_dynamic_state3 then
+			local dyn3 = device.physical_device:GetExtendedDynamicStateFeatures()
+
+			if dyn3.extendedDynamicState3ColorBlendEnable then
+				table.insert(config.dynamic_states, "color_blend_enable_ext")
+			end
+
+			if dyn3.extendedDynamicState3ColorBlendEquation then
+				table.insert(config.dynamic_states, "color_blend_equation_ext")
+			end
+
+			if dyn3.extendedDynamicState3PolygonMode then
+				table.insert(config.dynamic_states, "polygon_mode_ext")
+			end
+		end
+
+		-- De-duplicate dynamic_states
+		local unique = {}
+
+		for i = #config.dynamic_states, 1, -1 do
+			local s = config.dynamic_states[i]
+
+			if unique[s] then
+				table.remove(config.dynamic_states, i)
+			else
+				unique[s] = true
+			end
+		end
+	end
+
 	pipeline = InternalGraphicsPipeline.New(
 		vulkan_instance.device,
 		{
@@ -178,6 +226,14 @@ function GraphicsPipeline.New(vulkan_instance, config)
 	self.pipeline_variants = {}
 	self.current_variant_key = nil
 	self.base_pipeline = pipeline
+	self.overridden_state = {}
+	self.dynamic_states = {}
+
+	if config.dynamic_states then
+		for _, s in ipairs(config.dynamic_states) do
+			self.dynamic_states[s] = true
+		end
+	end
 
 	do
 		self.texture_registry = setmetatable({}, {__mode = "k"}) -- texture_object -> index mapping
@@ -215,12 +271,20 @@ end
 
 function GraphicsPipeline:GetFallbackView()
 	local Texture = require("render.texture")
-	return Texture.GetFallback():GetView()
+	local fallback = Texture.GetFallback()
+
+	if fallback and fallback.GetView then return fallback:GetView() end
+
+	return fallback and fallback.view
 end
 
 function GraphicsPipeline:GetFallbackSampler()
 	local Texture = require("render.texture")
-	return Texture.GetFallback():GetSampler()
+	local fallback = Texture.GetFallback()
+
+	if fallback and fallback.GetSampler then return fallback:GetSampler() end
+
+	return fallback and fallback.sampler
 end
 
 function GraphicsPipeline:ReleaseTextureIndex(tex)
@@ -304,8 +368,20 @@ function GraphicsPipeline:GetTextureIndex(tex)
 	registry[tex] = index
 	-- Ensure we don't put nil into the array which might confuse the C-side UpdateDescriptorSetArray
 	array[index + 1] = {
-		view = tex.view or self:GetFallbackView(),
-		sampler = tex.sampler or self:GetFallbackSampler(),
+		view = (
+				type(tex) == "table" and
+				tex.GetView and
+				tex:GetView()
+			) or
+			tex.view or
+			self:GetFallbackView(),
+		sampler = (
+				type(tex) == "table" and
+				tex.GetSampler and
+				tex:GetSampler()
+			) or
+			tex.sampler or
+			self:GetFallbackSampler(),
 	}
 
 	for frame_i = 1, #self.descriptor_sets do
@@ -326,7 +402,10 @@ function GraphicsPipeline:UpdateDescriptorSet(type, index, binding_index, ...)
 
 			for i, tex in ipairs(textures) do
 				if type(tex) == "table" and tex.view and tex.sampler then
-					array[i] = {view = tex.view, sampler = tex.sampler}
+					array[i] = {
+						view = (tex.GetView and tex:GetView()) or tex.view,
+						sampler = (tex.GetSampler and tex:GetSampler()) or tex.sampler,
+					}
 				else
 					array[i] = tex
 				end
@@ -337,14 +416,14 @@ function GraphicsPipeline:UpdateDescriptorSet(type, index, binding_index, ...)
 		elseif count == 1 then
 			local tex = ...
 
-			if type(tex) == "table" and tex.view and tex.sampler then
+			if type(tex) == "table" and (tex.view or (tex.GetView and tex:GetView())) then
 				-- Single texture object passed, extract view and sampler
 				self.vulkan_instance.device:UpdateDescriptorSet(
 					type,
 					self.descriptor_sets[index],
 					binding_index,
-					tex:GetView(),
-					tex:GetSampler(),
+					(tex.GetView and tex:GetView()) or tex.view,
+					(tex.GetSampler and tex:GetSampler()) or tex.sampler,
 					self:GetFallbackView(),
 					self:GetFallbackSampler()
 				)
@@ -413,41 +492,232 @@ end
 function GraphicsPipeline:Bind(cmd, frame_index)
 	frame_index = frame_index or 1
 	cmd:BindPipeline(self.pipeline, "graphics")
-	-- Set stencil test enable to satisfy dynamic state requirements
-	-- Only call this if stencil_test_enable is in the dynamic states list
-	local device = self.vulkan_instance.device
 
-	if device.has_extended_dynamic_state and self.config.dynamic_states then
-		local has_stencil_test_enable_dynamic = false
+	local function get_color_attachment_count()
+		if type(self.config.color_format) == "table" then
+			return math.max(#self.config.color_format, 1)
+		end
 
-		for _, state in ipairs(self.config.dynamic_states) do
-			if state == "stencil_test_enable" then
-				has_stencil_test_enable_dynamic = true
+		return 1
+	end
 
-				break
+	-- Helper to get effective state (overridden or config)
+	local function get_state(section, key, subkey)
+		if self.overridden_state[section] and self.overridden_state[section][key] ~= nil then
+			local val = self.overridden_state[section][key]
+
+			if subkey and type(val) == "table" then return val[subkey] end
+
+			return val
+		end
+
+		if section == "color_blend" then
+			local cb = self.config.color_blend
+
+			if cb and cb.attachments and cb.attachments[1] then
+				if key == "blend" then return cb.attachments[1].blend end
+
+				return cb.attachments[1][key]
 			end
 		end
 
-		if has_stencil_test_enable_dynamic then
-			local stencil_test = (self.config.depth_stencil and self.config.depth_stencil.stencil_test) or false
-			cmd:SetStencilTestEnable(stencil_test)
-			-- Always set others if dynamic, regardless of stencil_test state
-			local depth_stencil = self.config.depth_stencil or {}
-			local front = depth_stencil.front or {}
-			cmd:SetStencilOp(
-				"front_and_back",
-				front.fail_op or "keep",
-				front.pass_op or "keep",
-				front.depth_fail_op or "keep",
-				front.compare_op or "always"
-			)
-			cmd:SetStencilReference("front_and_back", front.reference or 0)
-			cmd:SetStencilCompareMask("front_and_back", front.compare_mask or 0xFF)
-			cmd:SetStencilWriteMask("front_and_back", front.write_mask or 0xFF)
+		if self.config[section] and self.config[section][key] ~= nil then
+			local val = self.config[section][key]
+
+			if subkey and type(val) == "table" then return val[subkey] end
+
+			return val
+		end
+
+		return nil
+	end
+
+	-- Always apply dynamic states if they are enabled in this pipeline
+	if self.dynamic_states.color_blend_enable_ext then
+		local attachment_count = get_color_attachment_count()
+
+		if attachment_count > 0 then
+			local enables = {}
+
+			for i = 1, attachment_count do
+				local val
+
+				if
+					self.overridden_state.color_blend and
+					self.overridden_state.color_blend.attachments and
+					self.overridden_state.color_blend.attachments[i]
+				then
+					val = self.overridden_state.color_blend.attachments[i].blend
+				end
+
+				if val == nil then
+					local cb = self.config.color_blend
+
+					if cb and cb.attachments and cb.attachments[i] and cb.attachments[i].blend ~= nil then
+						val = cb.attachments[i].blend
+					elseif cb and cb.attachments and cb.attachments[1] and cb.attachments[1].blend ~= nil then
+						val = cb.attachments[1].blend
+					elseif
+						self.overridden_state.color_blend and
+						self.overridden_state.color_blend.blend ~= nil
+					then
+						val = self.overridden_state.color_blend.blend
+					elseif cb and cb.attachments and cb.attachments[1] then
+						val = cb.attachments[1].blend
+					else
+						val = false
+					end
+				end
+
+				enables[i] = val == true
+			end
+
+			cmd:SetColorBlendEnable(0, enables)
 		end
 	end
 
-	-- Bind descriptor sets - they should always exist for pipelines with descriptor sets
+	if self.dynamic_states.color_blend_equation_ext then
+		local attachment_count = get_color_attachment_count()
+
+		if attachment_count > 0 then
+			for i = 1, attachment_count do
+				local function get_cb_state(key, default)
+					local val
+
+					if
+						self.overridden_state.color_blend and
+						self.overridden_state.color_blend.attachments and
+						self.overridden_state.color_blend.attachments[i]
+					then
+						val = self.overridden_state.color_blend.attachments[i][key]
+					end
+
+					if val == nil then val = get_state("color_blend", key) end
+
+					if val == nil then
+						local cb = self.config.color_blend
+
+						if cb and cb.attachments and cb.attachments[i] and cb.attachments[i][key] ~= nil then
+							val = cb.attachments[i][key]
+						elseif cb and cb.attachments and cb.attachments[1] and cb.attachments[1][key] ~= nil then
+							val = cb.attachments[1][key]
+						elseif
+							self.overridden_state.color_blend and
+							self.overridden_state.color_blend[key] ~= nil
+						then
+							val = self.overridden_state.color_blend[key]
+						end
+					end
+
+					return val or default
+				end
+
+				cmd:SetColorBlendEquation(
+					i - 1,
+					{
+						src_color_blend_factor = get_cb_state("src_color_blend_factor", "src_alpha"),
+						dst_color_blend_factor = get_cb_state("dst_color_blend_factor", "one_minus_src_alpha"),
+						color_blend_op = get_cb_state("color_blend_op", "add"),
+						src_alpha_blend_factor = get_cb_state("src_alpha_blend_factor", "one"),
+						dst_alpha_blend_factor = get_cb_state("dst_alpha_blend_factor", "one_minus_src_alpha"),
+						alpha_blend_op = get_cb_state("alpha_blend_op", "add"),
+					}
+				)
+			end
+		end
+	end
+
+	if self.dynamic_states.polygon_mode_ext then
+		cmd:SetPolygonMode(get_state("rasterizer", "polygon_mode") or "fill")
+	end
+
+	if self.dynamic_states.cull_mode then
+		cmd:SetCullMode(get_state("rasterizer", "cull_mode") or "none")
+	end
+
+	if self.dynamic_states.stencil_test_enable then
+		cmd:SetStencilTestEnable(get_state("depth_stencil", "stencil_test") == true)
+	end
+
+	if self.dynamic_states.stencil_op then
+		cmd:SetStencilOp(
+			"front_and_back",
+			get_state("depth_stencil", "front", "fail_op") or "keep",
+			get_state("depth_stencil", "front", "pass_op") or "keep",
+			get_state("depth_stencil", "front", "depth_fail_op") or "keep",
+			get_state("depth_stencil", "front", "compare_op") or "always"
+		)
+	end
+
+	if self.dynamic_states.stencil_reference then
+		cmd:SetStencilReference("front_and_back", get_state("depth_stencil", "front", "reference") or 0)
+	end
+
+	if self.dynamic_states.stencil_compare_mask then
+		cmd:SetStencilCompareMask("front_and_back", get_state("depth_stencil", "front", "compare_mask") or 0xFF)
+	end
+
+	if self.dynamic_states.stencil_write_mask then
+		cmd:SetStencilWriteMask("front_and_back", get_state("depth_stencil", "front", "write_mask") or 0xFF)
+	end
+
+	if self.dynamic_states.viewport then
+		local width = (
+				self.config.extent and
+				self.config.extent.width
+			)
+			or
+			(
+				self.config.viewport and
+				self.config.viewport.w
+			)
+			or
+			0
+		local height = (
+				self.config.extent and
+				self.config.extent.height
+			)
+			or
+			(
+				self.config.viewport and
+				self.config.viewport.h
+			)
+			or
+			0
+
+		if width > 0 and height > 0 then
+			cmd:SetViewport(0, 0, width, height, 0, 1)
+		end
+	end
+
+	if self.dynamic_states.scissor then
+		local width = (
+				self.config.extent and
+				self.config.extent.width
+			)
+			or
+			(
+				self.config.scissor and
+				self.config.scissor.w
+			)
+			or
+			0
+		local height = (
+				self.config.extent and
+				self.config.extent.height
+			)
+			or
+			(
+				self.config.scissor and
+				self.config.scissor.h
+			)
+			or
+			0
+
+		if width > 0 and height > 0 then cmd:SetScissor(0, 0, width, height) end
+	end
+
+	-- Bind descriptor sets
 	if self.descriptor_sets then
 		local ds = self.descriptor_sets[frame_index] or self.descriptor_sets[1]
 
@@ -483,30 +753,6 @@ local function deep_copy(obj, seen)
 	return setmetatable(res, getmetatable(obj))
 end
 
--- Generate a hash key from a state table
-local function hash_state(state)
-	local keys = {}
-
-	for k in pairs(state) do
-		table.insert(keys, k)
-	end
-
-	table.sort(keys)
-	local parts = {}
-
-	for _, k in ipairs(keys) do
-		local v = state[k]
-
-		if type(v) == "table" then
-			table.insert(parts, k .. "=" .. hash_state(v))
-		else
-			table.insert(parts, k .. "=" .. tostring(v))
-		end
-	end
-
-	return table.concat(parts, ";")
-end
-
 function GraphicsPipeline:OnRemove()
 	local event = require("event")
 	event.RemoveListener("TextureRemoved", self)
@@ -525,13 +771,50 @@ function GraphicsPipeline:OnRemove()
 end
 
 -- Rebuild pipeline with modified state
--- section: the config section to modify (e.g., "color_blend", "rasterizer")
--- changes: table with the changes to apply to that section
-function GraphicsPipeline:RebuildPipeline(section, changes)
-	if not changes then return end
+-- overrides: table where keys are sections (e.g., "color_blend") and values are change tables
+function GraphicsPipeline:RebuildPipeline(overrides)
+	-- Generate a cache key for this variant using only STATIC overrides
+	local static_overrides = {}
 
-	-- Generate a cache key for this variant
-	local variant_key = section .. ":" .. hash_state(changes)
+	for section, changes in pairs(overrides) do
+		local static_changes = {}
+		local has_static = false
+
+		for k, v in pairs(changes or {}) do
+			local state_key = k
+
+			if section == "color_blend" then
+				if k == "blend" then
+					state_key = "color_blend_enable_ext"
+				elseif k ~= "attachments" and k ~= "color_write_mask" then
+					state_key = "color_blend_equation_ext"
+				end
+			elseif section == "rasterizer" then
+				if k == "polygon_mode" then state_key = "polygon_mode_ext" end
+			elseif section == "depth_stencil" then
+				if k == "stencil_test" then
+					state_key = "stencil_test_enable"
+				elseif k == "front" or k == "back" then
+					state_key = "stencil_op"
+				end
+			end
+
+			if not self.dynamic_states[state_key] then
+				static_changes[k] = v
+				has_static = true
+			end
+		end
+
+		if has_static then static_overrides[section] = static_changes end
+	end
+
+	local variant_key = hash_table(static_overrides)
+
+	if variant_key == "" or variant_key == "{\n}" then
+		self.pipeline = self.base_pipeline
+		self.current_variant_key = nil
+		return
+	end
 
 	-- Return cached variant if it exists
 	if self.pipeline_variants[variant_key] then
@@ -543,22 +826,22 @@ function GraphicsPipeline:RebuildPipeline(section, changes)
 	-- Create a modified config
 	local modified_config = deep_copy(self.config)
 
-	-- Apply changes to the specified section
-	if section == "color_blend" then
-		-- For color_blend, we need to handle the attachments array specially
-		modified_config.color_blend = modified_config.color_blend or {}
-		modified_config.color_blend.attachments = modified_config.color_blend.attachments or {{}}
+	-- Apply ALL overrides (both static and dynamic ones, though dynamic ones don't STRICTLY need to be in the baked pipeline, it's safer)
+	for section, changes in pairs(overrides) do
+		if section == "color_blend" then
+			modified_config.color_blend = modified_config.color_blend or {}
+			modified_config.color_blend.attachments = modified_config.color_blend.attachments or {{}}
 
-		-- Apply changes to first attachment (index 1)
-		for k, v in pairs(changes) do
-			modified_config.color_blend.attachments[1][k] = v
-		end
-	else
-		-- For other sections, just merge the changes
-		modified_config[section] = modified_config[section] or {}
+			-- Apply changes to first attachment (index 1)
+			for k, v in pairs(changes) do
+				modified_config.color_blend.attachments[1][k] = v
+			end
+		else
+			modified_config[section] = modified_config[section] or {}
 
-		for k, v in pairs(changes) do
-			modified_config[section][k] = v
+			for k, v in pairs(changes) do
+				modified_config[section][k] = v
+			end
 		end
 	end
 
@@ -619,10 +902,52 @@ function GraphicsPipeline:RebuildPipeline(section, changes)
 	self.pipeline = new_pipeline
 end
 
+-- High level state override. 
+-- Will use dynamic state if available, or rebuild the pipeline if not.
+function GraphicsPipeline:SetState(section, changes)
+	if not changes then return end
+
+	-- Normalize section names
+	if section == "blend" then section = "color_blend" end
+
+	local section_overrides = self.overridden_state[section] or {}
+	local changed_static = false
+
+	for k, v in pairs(changes) do
+		if section_overrides[k] ~= v then
+			section_overrides[k] = v
+			local state_key = k
+
+			if section == "color_blend" then
+				if k == "blend" then
+					state_key = "color_blend_enable_ext"
+				elseif k ~= "attachments" and k ~= "color_write_mask" then
+					state_key = "color_blend_equation_ext"
+				end
+			elseif section == "rasterizer" then
+				if k == "polygon_mode" then state_key = "polygon_mode_ext" end
+			elseif section == "depth_stencil" then
+				if k == "stencil_test" then
+					state_key = "stencil_test_enable"
+				elseif k == "front" or k == "back" then
+					state_key = "stencil_op"
+				end
+			end
+
+			if not self.dynamic_states[state_key] then changed_static = true end
+		end
+	end
+
+	self.overridden_state[section] = section_overrides
+
+	if changed_static then self:RebuildPipeline(self.overridden_state) end
+end
+
 -- Reset to base pipeline
 function GraphicsPipeline:ResetToBase()
 	self.pipeline = self.base_pipeline
 	self.current_variant_key = nil
+	self.overridden_state = {}
 end
 
 -- Get information about cached variants (for debugging)

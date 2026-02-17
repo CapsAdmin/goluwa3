@@ -263,7 +263,11 @@ end
 function render3d.UploadGBufferConstants(cmd)
 	if not render3d.pipelines.gbuffer then return end
 
-	cmd:SetCullMode(render3d.GetMaterial():GetDoubleSided() and "none" or orientation.CULL_MODE)
+	local double_sided = render3d.GetMaterial():GetDoubleSided()
+	local cull_mode = double_sided and "none" or orientation.CULL_MODE
+	-- GBuffer is already bound during geometry submission, so apply cull mode
+	-- directly for the current draw.
+	cmd:SetCullMode(cull_mode)
 	render3d.pipelines.gbuffer:UploadConstants(cmd)
 end
 
