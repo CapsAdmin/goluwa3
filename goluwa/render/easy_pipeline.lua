@@ -930,7 +930,7 @@ function EasyPipeline.New(config)
 		depth_format = config.depth_format,
 		samples = config.samples or "1",
 		descriptor_set_count = config.descriptor_set_count or (render.target and render.target.image_count) or 1,
-		dynamic_states = {"viewport", "scissor", "cull_mode"},
+		dynamic_states = config.dynamic_states or {"viewport", "scissor", "cull_mode"},
 		shader_stages = shader_stages,
 		rasterizer = config.rasterizer or
 			{
@@ -1069,6 +1069,10 @@ function EasyPipeline:Bind(cmd, frame_index)
 	cmd = cmd or render.GetCommandBuffer()
 	frame_index = frame_index or render.GetCurrentFrame()
 	self.pipeline:Bind(cmd, frame_index)
+
+	if self.config.rasterizer and self.config.rasterizer.cull_mode then
+		cmd:SetCullMode(self.config.rasterizer.cull_mode)
+	end
 end
 
 function EasyPipeline:GetDebugViews()

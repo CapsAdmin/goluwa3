@@ -431,22 +431,19 @@ function GraphicsPipeline:Bind(cmd, frame_index)
 		if has_stencil_test_enable_dynamic then
 			local stencil_test = (self.config.depth_stencil and self.config.depth_stencil.stencil_test) or false
 			cmd:SetStencilTestEnable(stencil_test)
-
-			-- If stencil test is enabled, also set the other required stencil dynamic states
-			if stencil_test then
-				local depth_stencil = self.config.depth_stencil or {}
-				local front = depth_stencil.front or {}
-				cmd:SetStencilOp(
-					"front_and_back",
-					front.fail_op or "keep",
-					front.pass_op or "keep",
-					front.depth_fail_op or "keep",
-					front.compare_op or "always"
-				)
-				cmd:SetStencilReference("front_and_back", front.reference or 0)
-				cmd:SetStencilCompareMask("front_and_back", front.compare_mask or 0xFF)
-				cmd:SetStencilWriteMask("front_and_back", front.write_mask or 0xFF)
-			end
+			-- Always set others if dynamic, regardless of stencil_test state
+			local depth_stencil = self.config.depth_stencil or {}
+			local front = depth_stencil.front or {}
+			cmd:SetStencilOp(
+				"front_and_back",
+				front.fail_op or "keep",
+				front.pass_op or "keep",
+				front.depth_fail_op or "keep",
+				front.compare_op or "always"
+			)
+			cmd:SetStencilReference("front_and_back", front.reference or 0)
+			cmd:SetStencilCompareMask("front_and_back", front.compare_mask or 0xFF)
+			cmd:SetStencilWriteMask("front_and_back", front.write_mask or 0xFF)
 		end
 	end
 

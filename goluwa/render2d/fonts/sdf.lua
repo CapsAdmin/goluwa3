@@ -539,7 +539,7 @@ function META:LoadGlyph(code, parent_cmd, temp_fbs)
 			scratch_size.w = sw
 			scratch_size.h = sh
 			render2d.UpdateScreenSize(scratch_size)
-			render2d.pipeline:Bind(render2d.cmd, render.GetCurrentFrame())
+			render2d.BindPipeline(cmd)
 			render2d.SetSwizzleMode(0)
 			render2d.PushMatrix()
 			render2d.LoadIdentity()

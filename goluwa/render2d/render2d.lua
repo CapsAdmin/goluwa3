@@ -10,14 +10,8 @@ local event = require("event")
 local VertexBuffer = require("render.vertex_buffer")
 local Mesh = require("render.mesh")
 local Texture = require("render.texture")
-local Matrix44 = require("structs.matrix44")
+local EasyPipeline = require("render.easy_pipeline")
 local surface_format = "r16g16b16a16_sfloat"
--- Vertex shader push constants (64 bytes)
-local VertexConstants = ffi.typeof([[
-	struct {
-		float projection_view_world[16];
-	}
-]])
 local FragmentConstants = ffi.typeof([[
 	struct {
         float global_color[4];          
@@ -41,9 +35,166 @@ local FragmentConstants = ffi.typeof([[
         float subpixel_amount;
 	}
 ]])
-local vertex_constants = VertexConstants()
 local fragment_constants = FragmentConstants()
 local render2d = library()
+local vertex_pc_block = {
+	name = "vertex_pc",
+	block = {
+		{
+			"projection_view_world",
+			"mat4",
+			function(self, block, key)
+				render2d.GetMatrix():CopyToFloatPointer(block[key])
+			end,
+		},
+	},
+}
+local current_w, current_h = 0, 0
+local current_lw, current_lh = 0, 0
+local fragment_pc_block = {
+	name = "fragment_pc",
+	block = {
+		{
+			"global_color",
+			"vec4",
+			function(self, block, key)
+				ffi.copy(block[key], fragment_constants.global_color, 16)
+			end,
+		},
+		{
+			"alpha_multiplier",
+			"float",
+			function(self, block, key)
+				block[key] = fragment_constants.alpha_multiplier
+			end,
+		},
+		{
+			"texture_index",
+			"int",
+			function(self, block, key)
+				block[key] = render2d.current_texture and self:GetTextureIndex(render2d.current_texture) or -1
+			end,
+		},
+		{
+			"uv_offset",
+			"vec2",
+			function(self, block, key)
+				ffi.copy(block[key], fragment_constants.uv_offset, 8)
+			end,
+		},
+		{
+			"uv_scale",
+			"vec2",
+			function(self, block, key)
+				ffi.copy(block[key], fragment_constants.uv_scale, 8)
+			end,
+		},
+		{
+			"swizzle_mode",
+			"int",
+			function(self, block, key)
+				block[key] = fragment_constants.swizzle_mode
+			end,
+		},
+		{
+			"blur",
+			"vec2",
+			function(self, block, key)
+				ffi.copy(block[key], fragment_constants.blur, 8)
+			end,
+		},
+		{
+			"border_radius",
+			"vec4",
+			function(self, block, key)
+				ffi.copy(block[key], fragment_constants.border_radius, 16)
+			end,
+		},
+		{
+			"outline_width",
+			"float",
+			function(self, block, key)
+				block[key] = fragment_constants.outline_width
+			end,
+		},
+		{
+			"rect_size",
+			"vec2",
+			function(self, block, key)
+				block[key][0] = current_w
+				block[key][1] = current_h
+			end,
+		},
+		{
+			"sdf_threshold",
+			"float",
+			function(self, block, key)
+				block[key] = fragment_constants.sdf_threshold
+			end,
+		},
+		{
+			"gradient_texture_index",
+			"int",
+			function(self, block, key)
+				block[key] = render2d.current_gradient_texture and
+					self:GetTextureIndex(render2d.current_gradient_texture) or
+					-1
+			end,
+		},
+		{
+			"nine_patch_x_count",
+			"int",
+			function(self, block, key)
+				block[key] = fragment_constants.nine_patch_x_count
+			end,
+		},
+		{
+			"nine_patch_y_count",
+			"int",
+			function(self, block, key)
+				block[key] = fragment_constants.nine_patch_y_count
+			end,
+		},
+		{
+			"nine_patch_x_stretch",
+			"float",
+			function(self, block, key)
+				ffi.copy(block[key], fragment_constants.nine_patch_x_stretch, 4 * 6)
+			end,
+			6,
+		},
+		{
+			"nine_patch_y_stretch",
+			"float",
+			function(self, block, key)
+				ffi.copy(block[key], fragment_constants.nine_patch_y_stretch, 4 * 6)
+			end,
+			6,
+		},
+		{
+			"sdf_rect_size",
+			"vec2",
+			function(self, block, key)
+				block[key][0] = current_lw
+				block[key][1] = current_lh
+			end,
+		},
+		{
+			"subpixel_mode",
+			"int",
+			function(self, block, key)
+				block[key] = fragment_constants.subpixel_mode
+			end,
+		},
+		{
+			"subpixel_amount",
+			"float",
+			function(self, block, key)
+				block[key] = fragment_constants.subpixel_amount
+			end,
+		},
+	},
+}
 -- Blend mode presets
 render2d.blend_modes = {
 	alpha = {
@@ -119,30 +270,8 @@ render2d.blend_modes = {
 }
 
 function render2d.Initialize()
-	if render2d.pipeline then return end
+	if render2d.easy then return end
 
-	local dynamic_states = {
-		"viewport",
-		"scissor",
-		"blend_constants",
-		"stencil_reference",
-		"stencil_compare_mask",
-		"stencil_write_mask",
-	}
-	local device = render.GetDevice()
-
-	if device.has_extended_dynamic_state then
-		table.insert(dynamic_states, "stencil_test_enable")
-		table.insert(dynamic_states, "stencil_op")
-	end
-
-	if device.has_extended_dynamic_state3 then
-		table.insert(dynamic_states, "color_blend_enable_ext")
-		table.insert(dynamic_states, "color_blend_equation_ext")
-	end
-
-	render2d.pipeline_data.dynamic_states = dynamic_states
-	render2d.pipeline_data.descriptor_set_count = render.target.image_count
 	render2d.pipeline_cache = {}
 	render2d.SetSamples(render.target.samples or "1", true)
 	render2d.ResetState()
@@ -194,384 +323,239 @@ function render2d.ResetState()
 end
 
 do
-	render2d.pipeline_data = {
-		shader_stages = {
-			{
-				type = "vertex",
-				code = [[
-					#version 450
-					#extension GL_EXT_scalar_block_layout : require
+	local vertex_shader = [[
+		void main() {
+			gl_Position = pc.vertex_pc.projection_view_world * vec4(in_pos, 1.0);
+			out_uv = in_uv;
+			out_color = in_color;
+		}
+	]]
+	local fragment_shader_header = [[
+		float map_nine_patch(float x, float tw, float sw, float stretch[6], int count) 
+		{
+			if (count == 0 || tw <= 0.0 || sw <= 0.0) return x / sw;
+			
+			float fixed_total = sw;
+			float stretch_total_src = 0.0;
+			for (int i = 0; i < 3; i++) {
+				if (i >= count) break;
+				float s = stretch[i*2];
+				float e = stretch[i*2+1];
+				stretch_total_src += (e - s);
+			}
+			fixed_total -= stretch_total_src;
+			
+			float stretch_total_tgt = max(0.0, tw - fixed_total);
+			float k = (stretch_total_src > 0.0) ? (stretch_total_tgt / stretch_total_src) : 0.0;
+			
+			float curr_src = 0.0;
+			float curr_tgt = 0.0;
+			
+			for (int i = 0; i < 3; i++) {
+				if (i >= count) break;
+				float s = stretch[i*2];
+				float e = stretch[i*2+1];
+				
+				float fixed_size = s - curr_src;
+				if (x < curr_tgt + fixed_size) {
+					return (curr_src + (x - curr_tgt)) / sw;
+				}
+				curr_src += fixed_size;
+				curr_tgt += fixed_size;
+				
+				float stretch_size_src = e - s;
+				float stretch_size_tgt = stretch_size_src * k;
+				if (x < curr_tgt + stretch_size_tgt) {
+					float ratio = (k > 0.0) ? ((x - curr_tgt) / k) : 0.0;
+					return (curr_src + ratio) / sw;
+				}
+				curr_src += stretch_size_src;
+				curr_tgt += stretch_size_tgt;
+			}
+			
+			return (curr_src + (x - curr_tgt)) / sw;
+		}
 
-					layout(location = 0) in vec3 in_pos;
-					layout(location = 1) in vec2 in_uv;
-					layout(location = 2) in vec4 in_color;
+		float sd_rect(vec2 coords, vec2 quad_size, vec2 logical_size, vec4 radius) {
+			vec2 p = (coords - 0.5) * quad_size;
+			vec2 b = logical_size * 0.5;
+			float rad;
+			if (p.x < 0.0 && p.y < 0.0) rad = radius.x;
+			else if (p.x > 0.0 && p.y < 0.0) rad = radius.y;
+			else if (p.x > 0.0 && p.y > 0.0) rad = radius.z;
+			else rad = radius.w;
 
-					layout(push_constant, scalar) uniform VertexConstants {
-						mat4 projection_view_world;
-					} pc;
+			float min_dim = min(logical_size.x, logical_size.y);
+			float half_dim = min_dim * 0.5;
+			float inset = min(rad, half_dim);
+			vec2 q = abs(p) - b + inset;
 
-					layout(location = 0) out vec2 out_uv;
-					layout(location = 1) out vec4 out_color;
+			if (q.x <= 0.0 || q.y <= 0.0) {
+				return max(q.x, q.y) - inset;
+			} else {
+				if (inset < 0.001) return length(q);
+				float norm_rad = rad / max(half_dim, 0.0001);
+				float exp_p = clamp(2.0 / norm_rad, 0.1, 200.0);
+				vec2 np = q / inset;
+				float lp = pow(pow(np.x, exp_p) + pow(np.y, exp_p), 1.0 / exp_p);
+				return (lp - 1.0) * inset;
+			}
+		}
+	]]
+	local fragment_shader_main = [[
+		void main() 
+		{						
+			vec4 color = in_color * pc.fragment_pc.global_color;
+			bool is_sdf_tex = (pc.fragment_pc.texture_index >= 0 && pc.fragment_pc.swizzle_mode == 10);
+			vec2 uv = in_uv;
 
-					void main() {
-						gl_Position = pc.projection_view_world * vec4(in_pos, 1.0);
-						out_uv = in_uv;
-						out_color = in_color;
+			if (pc.fragment_pc.texture_index >= 0) {
+				if (pc.fragment_pc.nine_patch_x_count > 0 || pc.fragment_pc.nine_patch_y_count > 0) {
+					vec2 tex_size = vec2(textureSize(TEXTURE(pc.fragment_pc.texture_index), 0));
+					vec2 p_logical = (in_uv - 0.5) * pc.fragment_pc.rect_size + pc.fragment_pc.sdf_rect_size * 0.5;
+					
+					if (pc.fragment_pc.nine_patch_x_count > 0) {
+						uv.x = map_nine_patch(p_logical.x, pc.fragment_pc.sdf_rect_size.x, tex_size.x, pc.fragment_pc.nine_patch_x_stretch, pc.fragment_pc.nine_patch_x_count);
 					}
-				]],
-				bindings = {
-					{
-						binding = 0,
-						stride = ffi.sizeof("float") * 9, -- vec3 + vec2 + vec4
-						input_rate = "vertex",
-					},
-				},
-				attributes = {
-					{
-						binding = 0,
-						location = 0, -- in_position
-						format = "r32g32b32_sfloat", -- vec3
-						offset = 0,
-						lua_type = ffi.typeof("float[3]"),
-						lua_name = "pos",
-					},
-					{
-						binding = 0,
-						location = 1, -- in_uv
-						format = "r32g32_sfloat", -- vec2
-						offset = ffi.sizeof("float[3]"),
-						lua_type = ffi.typeof("float[2]"),
-						lua_name = "uv",
-					},
-					{
-						binding = 0,
-						location = 2, -- in_color
-						format = "r32g32b32a32_sfloat", -- vec4
-						offset = ffi.sizeof("float[3]") + ffi.sizeof("float[2]"),
-						lua_type = ffi.typeof("float[4]"),
-						lua_name = "color",
-					},
-				},
-				input_assembly = {
-					topology = "triangle_list",
-					primitive_restart = false,
-				},
-				push_constants = {
-					size = ffi.sizeof(VertexConstants),
-					offset = 0,
-				},
-			},
-			{
-				type = "fragment",
-				code = [[
-					#version 450
-					#extension GL_EXT_scalar_block_layout : require
-					#extension GL_EXT_nonuniform_qualifier : require
-
-					layout(binding = 0) uniform sampler2D textures[1024]; // Bindless texture array
-					layout(location = 0) in vec2 in_uv;
-					layout(location = 1) in vec4 in_color;
-					layout(location = 0) out vec4 out_color;
-
-					layout(push_constant, scalar) 
-					uniform FragmentConstants {
-						layout(offset = ]] .. ffi.sizeof(VertexConstants) .. [[)
-						vec4 global_color;
-						float alpha_multiplier;
-						int texture_index;
-						vec2 uv_offset;
-						vec2 uv_scale;
-						int swizzle_mode;
-						vec2 blur;
-						vec4 border_radius;
-						float outline_width;
-						vec2 rect_size;
-						float sdf_threshold;
-						int gradient_texture_index;
-						int nine_patch_x_count;
-						int nine_patch_y_count;
-						float nine_patch_x_stretch[6];
-						float nine_patch_y_stretch[6];
-						vec2 sdf_rect_size;
-						int subpixel_mode;
-						float subpixel_amount;
-					} pc;                   
-
-					float map_nine_patch(float x, float tw, float sw, float stretch[6], int count) 
-					{
-						if (count == 0 || tw <= 0.0 || sw <= 0.0) return x / sw;
-						
-						float fixed_total = sw;
-						float stretch_total_src = 0.0;
-						for (int i = 0; i < 3; i++) {
-							if (i >= count) break;
-							float s = stretch[i*2];
-							float e = stretch[i*2+1];
-							stretch_total_src += (e - s);
-						}
-						fixed_total -= stretch_total_src;
-						
-						float stretch_total_tgt = max(0.0, tw - fixed_total);
-						float k = (stretch_total_src > 0.0) ? (stretch_total_tgt / stretch_total_src) : 0.0;
-						
-						float curr_src = 0.0;
-						float curr_tgt = 0.0;
-						
-						for (int i = 0; i < 3; i++) {
-							if (i >= count) break;
-							float s = stretch[i*2];
-							float e = stretch[i*2+1];
-							
-							float fixed_size = s - curr_src;
-							if (x < curr_tgt + fixed_size) {
-								return (curr_src + (x - curr_tgt)) / sw;
-							}
-							curr_src += fixed_size;
-							curr_tgt += fixed_size;
-							
-							float stretch_size_src = e - s;
-							float stretch_size_tgt = stretch_size_src * k;
-							if (x < curr_tgt + stretch_size_tgt) {
-								float ratio = (k > 0.0) ? ((x - curr_tgt) / k) : 0.0;
-								return (curr_src + ratio) / sw;
-							}
-							curr_src += stretch_size_src;
-							curr_tgt += stretch_size_tgt;
-						}
-						
-						return (curr_src + (x - curr_tgt)) / sw;
+					if (pc.fragment_pc.nine_patch_y_count > 0) {
+						uv.y = map_nine_patch(p_logical.y, pc.fragment_pc.sdf_rect_size.y, tex_size.y, pc.fragment_pc.nine_patch_y_stretch, pc.fragment_pc.nine_patch_y_count);
 					}
+				}
 
-					float sd_rect(vec2 coords, vec2 quad_size, vec2 logical_size, vec4 radius) {
-						vec2 p = (coords - 0.5) * quad_size;
-						vec2 b = logical_size * 0.5;
-						float rad;
-						if (p.x < 0.0 && p.y < 0.0) rad = radius.x;
-						else if (p.x > 0.0 && p.y < 0.0) rad = radius.y;
-						else if (p.x > 0.0 && p.y > 0.0) rad = radius.z;
-						else rad = radius.w;
+				if (!is_sdf_tex) {
+					vec4 tex = texture(TEXTURE(pc.fragment_pc.texture_index), uv * pc.fragment_pc.uv_scale + pc.fragment_pc.uv_offset);
+					
+					if (pc.fragment_pc.swizzle_mode == 1) tex = vec4(tex.rrr, 1.0);
+					else if (pc.fragment_pc.swizzle_mode == 2) tex = vec4(tex.ggg, 1.0);
+					else if (pc.fragment_pc.swizzle_mode == 3) tex = vec4(tex.bbb, 1.0);
+					else if (pc.fragment_pc.swizzle_mode == 4) tex = vec4(tex.aaa, 1.0);
+					else if (pc.fragment_pc.swizzle_mode == 5) tex = vec4(tex.rgb, 1.0);
+					color *= tex;
+				}
+			}
 
-						float min_dim = min(logical_size.x, logical_size.y);
-						float half_dim = min_dim * 0.5;
-						float inset = min(rad, half_dim);
-						vec2 q = abs(p) - b + inset;
+			float d = 1e10;
+			bool has_sdf = false;
 
-						if (q.x <= 0.0 || q.y <= 0.0) {
-							return max(q.x, q.y) - inset;
-						} else {
-							if (inset < 0.001) return length(q);
-							float norm_rad = rad / max(half_dim, 0.0001);
-							float exp_p = clamp(2.0 / norm_rad, 0.1, 200.0);
-							vec2 np = q / inset;
-							float lp = pow(pow(np.x, exp_p) + pow(np.y, exp_p), 1.0 / exp_p);
-							return (lp - 1.0) * inset;
-						}
+			if (pc.fragment_pc.sdf_rect_size.x > 0.0 && pc.fragment_pc.sdf_rect_size.y > 0.0) {
+				d = sd_rect(in_uv, pc.fragment_pc.rect_size, pc.fragment_pc.sdf_rect_size, pc.fragment_pc.border_radius);
+				has_sdf = true;
+			}
+
+			if (is_sdf_tex) {
+				vec2 sdf_uv = uv * pc.fragment_pc.uv_scale + pc.fragment_pc.uv_offset;
+				float dist = texture(TEXTURE(pc.fragment_pc.texture_index), sdf_uv).r;
+				float fw = length(vec2(dFdx(dist), dFdy(dist)));
+				float d_tex = (pc.fragment_pc.sdf_threshold - dist) / max(fw, 0.01);
+				d = has_sdf ? max(d, d_tex) : d_tex;
+				has_sdf = true;
+			}
+
+			if (has_sdf) {
+				float smoothing = max(pc.fragment_pc.blur.x, pc.fragment_pc.blur.y);
+				smoothing = max(0.75, smoothing);
+
+				vec4 fill_color = color;
+				if (pc.fragment_pc.gradient_texture_index >= 0) {
+					float gy = in_uv.y;
+					if (pc.fragment_pc.sdf_rect_size.y > 0.0) {
+						gy = (in_uv.y - 0.5) * (pc.fragment_pc.rect_size.y / pc.fragment_pc.sdf_rect_size.y) + 0.5;
 					}
+					gy = clamp(gy, 0.0, 1.0);
 
-					void main() 
-					{						
-						vec4 color = in_color * pc.global_color;
-						bool is_sdf_tex = (pc.texture_index >= 0 && pc.swizzle_mode == 10);
-						vec2 uv = in_uv;
+					fill_color *= texture(TEXTURE(pc.fragment_pc.gradient_texture_index), vec2(gy, 0.5));
+				}
 
-						if (pc.texture_index >= 0) {
-							if (pc.nine_patch_x_count > 0 || pc.nine_patch_y_count > 0) {
-								vec2 tex_size = vec2(textureSize(textures[nonuniformEXT(pc.texture_index)], 0));
-								vec2 p_logical = (in_uv - 0.5) * pc.rect_size + pc.sdf_rect_size * 0.5;
-								
-								if (pc.nine_patch_x_count > 0) {
-									uv.x = map_nine_patch(p_logical.x, pc.sdf_rect_size.x, tex_size.x, pc.nine_patch_x_stretch, pc.nine_patch_x_count);
-								}
-								if (pc.nine_patch_y_count > 0) {
-									uv.y = map_nine_patch(p_logical.y, pc.sdf_rect_size.y, tex_size.y, pc.nine_patch_y_stretch, pc.nine_patch_y_count);
-								}
-							}
+				float f_alpha = (pc.fragment_pc.outline_width > 0.0) ? 
+					(smoothstep(smoothing, -smoothing, d) - smoothstep(smoothing, -smoothing, d + pc.fragment_pc.outline_width)) : 
+					smoothstep(smoothing, -smoothing, d);
+				
+				out_color = fill_color;
+				out_color.a *= f_alpha;
+			} else {
+				out_color = color;
+			}
 
-							if (!is_sdf_tex) {
-								vec4 tex = texture(textures[nonuniformEXT(pc.texture_index)], uv * pc.uv_scale + pc.uv_offset);
-								
-								if (pc.swizzle_mode == 1) tex = vec4(tex.rrr, 1.0);
-								else if (pc.swizzle_mode == 2) tex = vec4(tex.ggg, 1.0);
-								else if (pc.swizzle_mode == 3) tex = vec4(tex.bbb, 1.0);
-								else if (pc.swizzle_mode == 4) tex = vec4(tex.aaa, 1.0);
-								else if (pc.swizzle_mode == 5) tex = vec4(tex.rgb, 1.0);
-								color *= tex;
-							}
+			if ((pc.fragment_pc.blur.x > 0.0 || pc.fragment_pc.blur.y > 0.0) && pc.fragment_pc.sdf_rect_size.x <= 0.0) {
+				vec2 p = (in_uv - 0.5) * pc.fragment_pc.rect_size;
+				vec2 b = max(vec2(0.0), (pc.fragment_pc.rect_size - pc.fragment_pc.blur * 2.0) * 0.5);
+				vec2 q = abs(p) - b;
+				float dist = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0);
+				
+				float max_blur = max(pc.fragment_pc.blur.x, pc.fragment_pc.blur.y);
+				out_color.a *= smoothstep(max_blur, 0.0, dist);
+			}
+
+
+			out_color.a *= pc.fragment_pc.alpha_multiplier;						
+
+			if (pc.fragment_pc.subpixel_mode != 0) {
+				float d = 1e10;
+				bool has_sdf = false;
+
+				if (pc.fragment_pc.sdf_rect_size.x > 0.0 && pc.fragment_pc.sdf_rect_size.y > 0.0) {
+					d = sd_rect(in_uv, pc.fragment_pc.rect_size, pc.fragment_pc.sdf_rect_size, pc.fragment_pc.border_radius);
+					has_sdf = true;
+				}
+
+				if (pc.fragment_pc.texture_index >= 0 && pc.fragment_pc.swizzle_mode == 10) {
+					vec2 uv = in_uv;
+					if (pc.fragment_pc.nine_patch_x_count > 0 || pc.fragment_pc.nine_patch_y_count > 0) {
+						vec2 tex_size = vec2(textureSize(TEXTURE(pc.fragment_pc.texture_index), 0));
+						vec2 p_logical = (in_uv - 0.5) * pc.fragment_pc.rect_size + pc.fragment_pc.sdf_rect_size * 0.5;
+						if (pc.fragment_pc.nine_patch_x_count > 0) {
+							uv.x = map_nine_patch(p_logical.x, pc.fragment_pc.sdf_rect_size.x, tex_size.x, pc.fragment_pc.nine_patch_x_stretch, pc.fragment_pc.nine_patch_x_count);
 						}
-
-						float d = 1e10;
-						bool has_sdf = false;
-
-						if (pc.sdf_rect_size.x > 0.0 && pc.sdf_rect_size.y > 0.0) {
-							d = sd_rect(in_uv, pc.rect_size, pc.sdf_rect_size, pc.border_radius);
-							has_sdf = true;
-						}
-
-						if (is_sdf_tex) {
-							vec2 sdf_uv = uv * pc.uv_scale + pc.uv_offset;
-							float dist = texture(textures[nonuniformEXT(pc.texture_index)], sdf_uv).r;
-							float fw = length(vec2(dFdx(dist), dFdy(dist)));
-							float d_tex = (pc.sdf_threshold - dist) / max(fw, 0.01);
-							d = has_sdf ? max(d, d_tex) : d_tex;
-							has_sdf = true;
-						}
-
-						if (has_sdf) {
-							float smoothing = max(pc.blur.x, pc.blur.y);
-							smoothing = max(0.75, smoothing);
-
-							vec4 fill_color = color;
-							if (pc.gradient_texture_index >= 0) {
-								float gy = in_uv.y;
-								if (pc.sdf_rect_size.y > 0.0) {
-									gy = (in_uv.y - 0.5) * (pc.rect_size.y / pc.sdf_rect_size.y) + 0.5;
-								}
-								gy = clamp(gy, 0.0, 1.0);
-
-								fill_color *= texture(textures[nonuniformEXT(pc.gradient_texture_index)], vec2(gy, 0.5));
-							}
-
-							float f_alpha = (pc.outline_width > 0.0) ? 
-								(smoothstep(smoothing, -smoothing, d) - smoothstep(smoothing, -smoothing, d + pc.outline_width)) : 
-								smoothstep(smoothing, -smoothing, d);
-							
-							out_color = fill_color;
-							out_color.a *= f_alpha;
-						} else {
-							out_color = color;
-						}
-
-						if ((pc.blur.x > 0.0 || pc.blur.y > 0.0) && pc.sdf_rect_size.x <= 0.0) {
-							vec2 p = (in_uv - 0.5) * pc.rect_size;
-							vec2 b = max(vec2(0.0), (pc.rect_size - pc.blur * 2.0) * 0.5);
-							vec2 q = abs(p) - b;
-							float dist = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0);
-							
-							float max_blur = max(pc.blur.x, pc.blur.y);
-							out_color.a *= smoothstep(max_blur, 0.0, dist);
-						}
-
-
-						out_color.a *= pc.alpha_multiplier;						
-
-						if (pc.subpixel_mode != 0) {
-							float d = 1e10;
-							bool has_sdf = false;
-
-							if (pc.sdf_rect_size.x > 0.0 && pc.sdf_rect_size.y > 0.0) {
-								d = sd_rect(in_uv, pc.rect_size, pc.sdf_rect_size, pc.border_radius);
-								has_sdf = true;
-							}
-
-							if (pc.texture_index >= 0 && pc.swizzle_mode == 10) {
-								vec2 uv = in_uv;
-								if (pc.nine_patch_x_count > 0 || pc.nine_patch_y_count > 0) {
-									vec2 tex_size = vec2(textureSize(textures[nonuniformEXT(pc.texture_index)], 0));
-									vec2 p_logical = (in_uv - 0.5) * pc.rect_size + pc.sdf_rect_size * 0.5;
-									if (pc.nine_patch_x_count > 0) {
-										uv.x = map_nine_patch(p_logical.x, pc.sdf_rect_size.x, tex_size.x, pc.nine_patch_x_stretch, pc.nine_patch_x_count);
-									}
-									if (pc.nine_patch_y_count > 0) {
-										uv.y = map_nine_patch(p_logical.y, pc.sdf_rect_size.y, tex_size.y, pc.nine_patch_y_stretch, pc.nine_patch_y_count);
-									}
-								}
-								vec2 sdf_uv = uv * pc.uv_scale + pc.uv_offset;
-								float dist = texture(textures[nonuniformEXT(pc.texture_index)], sdf_uv).r;
-								float fw = length(vec2(dFdx(dist), dFdy(dist)));
-								float d_tex = (pc.sdf_threshold - dist) / max(fw, 0.02);
-								d = has_sdf ? max(d, d_tex) : d_tex;
-								has_sdf = true;
-							}
-
-							if (has_sdf) {
-								float smoothing = max(pc.blur.x, pc.blur.y);
-								smoothing = max(0.7, smoothing);
-
-								vec3 sub_d;
-								float shift = pc.subpixel_amount;
-								if (pc.subpixel_mode == 1 || pc.subpixel_mode == 2) { // RGB or BGR
-									float dx = dFdx(d);
-									sub_d = d + vec3(-shift, 0.0, shift) * dx;
-									if (pc.subpixel_mode == 2) sub_d = sub_d.zyx;
-								} else if (pc.subpixel_mode == 3 || pc.subpixel_mode == 4) { // VRGB or VBGR
-									float dy = dFdy(d);
-									sub_d = d + vec3(-shift, 0.0, shift) * dy;
-									if (pc.subpixel_mode == 4) sub_d = sub_d.zyx;
-								} else if (pc.subpixel_mode == 5) { // RWGB
-									float dx = dFdx(d);
-									vec4 sub4_d = d + vec4(-1.5, -0.5, 0.5, 1.5) * shift * dx;
-									sub_d.r = sub4_d.x;
-									sub_d.g = sub4_d.z;
-									sub_d.b = sub4_d.w;
-									sub_d = mix(sub_d, vec3(sub4_d.y), 0.5);
-								}
-
-								vec3 sub_alpha = (pc.outline_width > 0.0) ? 
-									(smoothstep(smoothing, -smoothing, sub_d) - smoothstep(smoothing, -smoothing, sub_d + pc.outline_width)) : 
-									smoothstep(smoothing, -smoothing, sub_d);
-								
-								if (dot(color.rgb, vec3(1.0)) < 0.5) {
-									out_color.rgb = vec3(1.0) - sub_alpha * (vec3(1.0) - color.rgb);
-									out_color.a = 1.0;
-								} else {
-									out_color.rgb = color.rgb * sub_alpha;
-									out_color.a = color.a * max(max(sub_alpha.r, sub_alpha.g), sub_alpha.b);
-								}
-							}
+						if (pc.fragment_pc.nine_patch_y_count > 0) {
+							uv.y = map_nine_patch(p_logical.y, pc.fragment_pc.sdf_rect_size.y, tex_size.y, pc.fragment_pc.nine_patch_y_stretch, pc.fragment_pc.nine_patch_y_count);
 						}
 					}
-				]],
-				descriptor_sets = {
-					{
-						type = "combined_image_sampler",
-						binding_index = 0,
-						count = 1024,
-					},
-				},
-				push_constants = {
-					size = ffi.sizeof(FragmentConstants),
-					offset = ffi.sizeof(VertexConstants),
-				},
-			},
-		},
-		rasterizer = {
-			depth_clamp = false,
-			discard = false,
-			polygon_mode = "fill",
-			line_width = 1.0,
-			cull_mode = "none",
-			front_face = "counter_clockwise",
-			depth_bias = 0,
-		},
-		color_blend = {
-			logic_op_enabled = false,
-			logic_op = "copy",
-			constants = {0.0, 0.0, 0.0, 0.0},
-			attachments = {
-				{
-					blend = true,
-					src_color_blend_factor = "src_alpha",
-					dst_color_blend_factor = "one_minus_src_alpha",
-					color_blend_op = "add",
-					src_alpha_blend_factor = "one",
-					dst_alpha_blend_factor = "zero",
-					alpha_blend_op = "add",
-					color_write_mask = {"r", "g", "b", "a"},
-				},
-			},
-		},
-		multisampling = {
-			sample_shading = false,
-			rasterization_samples = "1",
-		},
-		depth_stencil = {
-			depth_test = false,
-			depth_write = true,
-			depth_compare_op = "less",
-			depth_bounds_test = false,
-			stencil_test = false,
-		},
-	}
+					vec2 sdf_uv = uv * pc.fragment_pc.uv_scale + pc.fragment_pc.uv_offset;
+					float dist = texture(TEXTURE(pc.fragment_pc.texture_index), sdf_uv).r;
+					float fw = length(vec2(dFdx(dist), dFdy(dist)));
+					float d_tex = (pc.fragment_pc.sdf_threshold - dist) / max(fw, 0.02);
+					d = has_sdf ? max(d, d_tex) : d_tex;
+					has_sdf = true;
+				}
+
+				if (has_sdf) {
+					float smoothing = max(pc.fragment_pc.blur.x, pc.fragment_pc.blur.y);
+					smoothing = max(0.7, smoothing);
+
+					vec3 sub_d;
+					float shift = pc.fragment_pc.subpixel_amount;
+					if (pc.fragment_pc.subpixel_mode == 1 || pc.fragment_pc.subpixel_mode == 2) { // RGB or BGR
+						float dx = dFdx(d);
+						sub_d = d + vec3(-shift, 0.0, shift) * dx;
+						if (pc.fragment_pc.subpixel_mode == 2) sub_d = sub_d.zyx;
+					} else if (pc.fragment_pc.subpixel_mode == 3 || pc.fragment_pc.subpixel_mode == 4) { // VRGB or VBGR
+						float dy = dFdy(d);
+						sub_d = d + vec3(-shift, 0.0, shift) * dy;
+						if (pc.fragment_pc.subpixel_mode == 4) sub_d = sub_d.zyx;
+					} else if (pc.fragment_pc.subpixel_mode == 5) { // RWGB
+						float dx = dFdx(d);
+						vec4 sub4_d = d + vec4(-1.5, -0.5, 0.5, 1.5) * shift * dx;
+						sub_d.r = sub4_d.x;
+						sub_d.g = sub4_d.z;
+						sub_d.b = sub4_d.w;
+						sub_d = mix(sub_d, vec3(sub4_d.y), 0.5);
+					}
+
+					vec3 sub_alpha = (pc.fragment_pc.outline_width > 0.0) ? 
+						(smoothstep(smoothing, -smoothing, sub_d) - smoothstep(smoothing, -smoothing, sub_d + pc.fragment_pc.outline_width)) : 
+						smoothstep(smoothing, -smoothing, sub_d);
+					
+					if (dot(color.rgb, vec3(1.0)) < 0.5) {
+						out_color.rgb = vec3(1.0) - sub_alpha * (vec3(1.0) - color.rgb);
+						out_color.a = 1.0;
+					} else {
+						out_color.rgb = color.rgb * sub_alpha;
+						out_color.a = color.a * max(max(sub_alpha.r, sub_alpha.g), sub_alpha.b);
+					}
+				}
+			}
+		}
+	]]
 
 	do
 		function render2d.SetColor(r, g, b, a)
@@ -842,7 +826,7 @@ do
 			render2d.UpdatePipeline()
 
 			if render2d.cmd then
-				render2d.pipeline:Bind(render2d.cmd, render.GetCurrentFrame())
+				render2d.easy:Bind(render2d.cmd, render.GetCurrentFrame())
 			end
 		end
 	end
@@ -860,7 +844,7 @@ do
 		render2d.UpdatePipeline()
 
 		if render2d.cmd then
-			render2d.pipeline:Bind(render2d.cmd, render.GetCurrentFrame())
+			render2d.easy:Bind(render2d.cmd, render.GetCurrentFrame())
 		end
 	end
 
@@ -877,7 +861,7 @@ do
 		render2d.UpdatePipeline()
 
 		if render2d.cmd then
-			render2d.pipeline:Bind(render2d.cmd, render.GetCurrentFrame())
+			render2d.easy:Bind(render2d.cmd, render.GetCurrentFrame())
 		end
 	end
 
@@ -1077,7 +1061,7 @@ do
 			render2d.UpdatePipeline()
 
 			if render2d.cmd then
-				render2d.pipeline:Bind(render2d.cmd, render.GetCurrentFrame())
+				render2d.easy:Bind(render2d.cmd, render.GetCurrentFrame())
 
 				if device.has_extended_dynamic_state then
 					render2d.cmd:SetStencilTestEnable(mode.stencil_test)
@@ -1142,53 +1126,80 @@ do
 		local blend_mode_name = render2d.current_blend_mode or "alpha"
 		local stencil_mode_name = render2d.GetStencilMode() or "none"
 		local color_format = render2d.GetColorFormat() or surface_format
-		-- If we have extended dynamic state, we don't need to bake the blend mode into the pipeline cache key
-		local cache_key = samples .. "_" .. color_format
 		local device = render.GetDevice()
+		local dynamic_states = {"viewport", "scissor", "cull_mode"}
 
-		if not device.has_extended_dynamic_state3 then
-			cache_key = cache_key .. "_" .. blend_mode_name
+		if device.has_extended_dynamic_state then
+			table.insert(dynamic_states, "stencil_test_enable")
+			table.insert(dynamic_states, "stencil_op")
+			table.insert(dynamic_states, "stencil_compare_mask")
+			table.insert(dynamic_states, "stencil_write_mask")
+			table.insert(dynamic_states, "stencil_reference")
 		end
 
-		-- Always include stencil mode in cache key because color_write_mask is not yet handled as dynamic state
-		cache_key = cache_key .. "_stencil_" .. stencil_mode_name
+		if device.has_extended_dynamic_state3 then
+			table.insert(dynamic_states, "color_blend_enable_ext")
+			table.insert(dynamic_states, "color_blend_equation_ext")
+		end
+
+		local cache_key = samples .. "_" .. color_format .. "_" .. blend_mode_name .. "_" .. stencil_mode_name
 
 		if render2d.pipeline_cache[cache_key] then
-			render2d.pipeline = render2d.pipeline_cache[cache_key]
+			render2d.easy = render2d.pipeline_cache[cache_key]
+			render2d.pipeline = render2d.easy.pipeline
 			return
 		end
 
-		local data = table.copy(render2d.pipeline_data)
-		data.samples = samples
-		data.color_format = color_format
 		local blend_mode = render2d.blend_modes[blend_mode_name]
-
-		if blend_mode then
-			data.color_blend.attachments[1] = {
-				blend = blend_mode.blend,
-				src_color_blend_factor = blend_mode.src_color_blend_factor,
-				dst_color_blend_factor = blend_mode.dst_color_blend_factor,
-				color_blend_op = blend_mode.color_blend_op,
-				src_alpha_blend_factor = blend_mode.src_alpha_blend_factor,
-				dst_alpha_blend_factor = blend_mode.dst_alpha_blend_factor,
-				alpha_blend_op = blend_mode.alpha_blend_op,
-				color_write_mask = blend_mode.color_write_mask,
-			}
-		end
-
 		local stencil_mode = render2d.stencil_modes[stencil_mode_name]
-
-		if stencil_mode then
-			data.depth_stencil.stencil_test = stencil_mode.stencil_test and 1 or 0
-			data.depth_stencil.front = stencil_mode.front
-			data.depth_stencil.back = stencil_mode.front -- Same for both for 2D
-			if stencil_mode.color_write_mask then
-				data.color_blend.attachments[1].color_write_mask = stencil_mode.color_write_mask
-			end
-		end
-
-		render2d.pipeline = render.CreateGraphicsPipeline(data)
-		render2d.pipeline_cache[cache_key] = render2d.pipeline
+		local config = {
+			name = "render2d_" .. cache_key,
+			dont_create_framebuffers = true,
+			samples = samples,
+			color_format = color_format,
+			dynamic_states = dynamic_states,
+			vertex = {
+				push_constants = {vertex_pc_block},
+				attributes = {
+					{"pos", "vec3", "r32g32b32_sfloat"},
+					{"uv", "vec2", "r32g32_sfloat"},
+					{"color", "vec4", "r32g32b32a32_sfloat"},
+				},
+				shader = vertex_shader,
+			},
+			fragment = {
+				push_constants = {fragment_pc_block},
+				custom_declarations = fragment_shader_header,
+				shader = fragment_shader_main,
+			},
+			rasterizer = {
+				cull_mode = "none",
+			},
+			color_blend = {
+				attachments = {
+					{
+						blend = blend_mode.blend,
+						src_color_blend_factor = blend_mode.src_color_blend_factor,
+						dst_color_blend_factor = blend_mode.dst_color_blend_factor,
+						color_blend_op = blend_mode.color_blend_op,
+						src_alpha_blend_factor = blend_mode.src_alpha_blend_factor,
+						dst_alpha_blend_factor = blend_mode.dst_alpha_blend_factor,
+						alpha_blend_op = blend_mode.alpha_blend_op,
+						color_write_mask = stencil_mode.color_write_mask or blend_mode.color_write_mask,
+					},
+				},
+			},
+			depth_stencil = {
+				depth_test = false,
+				depth_write = true,
+				stencil_test = stencil_mode.stencil_test,
+				front = stencil_mode.front,
+				back = stencil_mode.front,
+			},
+		}
+		render2d.easy = EasyPipeline.New(config)
+		render2d.pipeline = render2d.easy.pipeline
+		render2d.pipeline_cache[cache_key] = render2d.easy
 	end
 
 	function render2d.GetPipelineVariantInfo()
@@ -1253,24 +1264,9 @@ do
 	end
 
 	function render2d.UploadConstants(cmd, w, h, lw, lh)
-		do
-			vertex_constants.projection_view_world = render2d.GetMatrix():GetFloatCopy()
-			render2d.pipeline:PushConstants(cmd, "vertex", 0, vertex_constants)
-		end
-
-		do
-			fragment_constants.rect_size[0] = w or 0
-			fragment_constants.rect_size[1] = h or 0
-			fragment_constants.sdf_rect_size[0] = lw or w or 0
-			fragment_constants.sdf_rect_size[1] = lh or h or 0
-			fragment_constants.texture_index = render2d.current_texture and
-				render2d.pipeline:GetTextureIndex(render2d.current_texture) or
-				-1
-			fragment_constants.gradient_texture_index = render2d.current_gradient_texture and
-				render2d.pipeline:GetTextureIndex(render2d.current_gradient_texture) or
-				-1
-			render2d.pipeline:PushConstants(cmd, "fragment", ffi.sizeof(vertex_constants), fragment_constants)
-		end
+		current_w, current_h = w or 0, h or 0
+		current_lw, current_lh = lw or w or 0, lh or h or 0
+		render2d.easy:UploadConstants(cmd)
 	end
 end
 
@@ -1586,12 +1582,15 @@ do
 	end
 end
 
-function render2d.BindPipeline()
-	render2d.cmd = render.GetCommandBuffer()
+function render2d.BindPipeline(cmd)
+	if cmd then render2d.cmd = cmd end
+
+	render2d.cmd = render2d.cmd or render.GetCommandBuffer()
 
 	if render2d.cmd then
-		render2d.pipeline:Bind(render2d.cmd, render.GetCurrentFrame())
+		render2d.easy:Bind(render2d.cmd, render.GetCurrentFrame())
 		render2d.SetBlendMode(render2d.current_blend_mode, true)
+		render2d.SetStencilMode(render2d.GetStencilMode())
 	end
 
 	-- Reset mesh binding cache since command buffer state was reset
