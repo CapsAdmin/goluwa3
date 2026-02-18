@@ -24,7 +24,7 @@ _G.runfile = function(...)
 	return list.unpack(ret)
 end
 _G.R = vfs.GetAbsolutePath
-render.Initialize({samples = "max"})
+render.Initialize({samples = "1"})
 require("render2d.render2d").Initialize()
 require("render3d.render3d").Initialize()
 require("render2d.gfx").Initialize()

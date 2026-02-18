@@ -73,7 +73,7 @@ META:GetSet("TabWidthMultiplier", 4)
 META:GetSet("Flags")
 
 function META:GetAtlasFormat()
-	return "r16g16b16a16_unorm"
+	return render.target:GetColorFormat()
 end
 
 function META:GetJFAPipelines()
@@ -529,8 +529,6 @@ function META:LoadGlyph(code, parent_cmd, temp_fbs)
 			local old_w, old_h = render2d.GetSize()
 			fb_ss:Begin(cmd)
 			render2d.cmd = cmd
-			render2d.PushColorFormat(fb_ss.color_texture.format)
-			render2d.PushSamples("1")
 			local old_color = {render2d.GetColor()}
 			render2d.SetColor(1, 1, 1, 1)
 			local old_blend_mode = render2d.GetBlendMode()
@@ -553,8 +551,6 @@ function META:LoadGlyph(code, parent_cmd, temp_fbs)
 			render2d.PopSwizzleMode()
 			render2d.SetBlendMode(old_blend_mode, true)
 			render2d.SetColor(unpack(old_color))
-			render2d.PopSamples()
-			render2d.PopColorFormat()
 			fb_ss:End(cmd)
 			render2d.cmd = old_cmd
 			scratch_size.w = old_w

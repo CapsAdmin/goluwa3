@@ -11,7 +11,6 @@ local VertexBuffer = require("render.vertex_buffer")
 local Mesh = require("render.mesh")
 local Texture = require("render.texture")
 local EasyPipeline = require("render.easy_pipeline")
-local surface_format = "r16g16b16a16_sfloat"
 local FragmentConstants = ffi.typeof([[
 	struct {
         float global_color[4];          
@@ -37,253 +36,8 @@ local FragmentConstants = ffi.typeof([[
 ]])
 local fragment_constants = FragmentConstants()
 local render2d = library()
-local vertex_pc_block = {
-	name = "vertex_pc",
-	block = {
-		{
-			"projection_view_world",
-			"mat4",
-			function(self, block, key)
-				render2d.GetMatrix():CopyToFloatPointer(block[key])
-			end,
-		},
-	},
-}
 local current_w, current_h = 0, 0
 local current_lw, current_lh = 0, 0
-local vertex_shader = [[
-	void main() {
-		gl_Position = pc.vertex_pc.projection_view_world * vec4(in_pos, 1.0);
-		out_uv = in_uv;
-		out_color = in_color;
-	}
-]]
-local fragment_shader_header = [[
-	float map_nine_patch(float x, float tw, float sw, float stretch[6], int count) 
-	{
-		if (count == 0 || tw <= 0.0 || sw <= 0.0) return x / sw;
-		
-		float fixed_total = sw;
-		float stretch_total_src = 0.0;
-		for (int i = 0; i < 3; i++) {
-			if (i >= count) break;
-			float s = stretch[i*2];
-			float e = stretch[i*2+1];
-			stretch_total_src += (e - s);
-		}
-		fixed_total -= stretch_total_src;
-		
-		float stretch_total_tgt = max(0.0, tw - fixed_total);
-		float k = (stretch_total_src > 0.0) ? (stretch_total_tgt / stretch_total_src) : 0.0;
-		
-		float curr_src = 0.0;
-		float curr_tgt = 0.0;
-		
-		for (int i = 0; i < 3; i++) {
-			if (i >= count) break;
-			float s = stretch[i*2];
-			float e = stretch[i*2+1];
-			
-			float fixed_size = s - curr_src;
-			if (x < curr_tgt + fixed_size) {
-				return (curr_src + (x - curr_tgt)) / sw;
-			}
-			curr_src += fixed_size;
-			curr_tgt += fixed_size;
-			
-			float stretch_size_src = e - s;
-			float stretch_size_tgt = stretch_size_src * k;
-			if (x < curr_tgt + stretch_size_tgt) {
-				float ratio = (k > 0.0) ? ((x - curr_tgt) / k) : 0.0;
-				return (curr_src + ratio) / sw;
-			}
-			curr_src += stretch_size_src;
-			curr_tgt += stretch_size_tgt;
-		}
-		
-		return (curr_src + (x - curr_tgt)) / sw;
-	}
-
-	float sd_rect(vec2 coords, vec2 quad_size, vec2 logical_size, vec4 radius) {
-		vec2 p = (coords - 0.5) * quad_size;
-		vec2 b = logical_size * 0.5;
-		float rad;
-		if (p.x < 0.0 && p.y < 0.0) rad = radius.x;
-		else if (p.x > 0.0 && p.y < 0.0) rad = radius.y;
-		else if (p.x > 0.0 && p.y > 0.0) rad = radius.z;
-		else rad = radius.w;
-
-		float min_dim = min(logical_size.x, logical_size.y);
-		float half_dim = min_dim * 0.5;
-		float inset = min(rad, half_dim);
-		vec2 q = abs(p) - b + inset;
-
-		if (q.x <= 0.0 || q.y <= 0.0) {
-			return max(q.x, q.y) - inset;
-		} else {
-			if (inset < 0.001) return length(q);
-			float norm_rad = rad / max(half_dim, 0.0001);
-			float exp_p = clamp(2.0 / norm_rad, 0.1, 200.0);
-			vec2 np = q / inset;
-			float lp = pow(pow(np.x, exp_p) + pow(np.y, exp_p), 1.0 / exp_p);
-			return (lp - 1.0) * inset;
-		}
-	}
-]]
-local fragment_shader_main = [[
-	void main() 
-	{						
-		vec4 color = in_color * pc.fragment_pc.global_color;
-		bool is_sdf_tex = (pc.fragment_pc.texture_index >= 0 && pc.fragment_pc.swizzle_mode == 10);
-		vec2 uv = in_uv;
-
-		if (pc.fragment_pc.texture_index >= 0) {
-			if (pc.fragment_pc.nine_patch_x_count > 0 || pc.fragment_pc.nine_patch_y_count > 0) {
-				vec2 tex_size = vec2(textureSize(TEXTURE(pc.fragment_pc.texture_index), 0));
-				vec2 p_logical = (in_uv - 0.5) * pc.fragment_pc.rect_size + pc.fragment_pc.sdf_rect_size * 0.5;
-				
-				if (pc.fragment_pc.nine_patch_x_count > 0) {
-					uv.x = map_nine_patch(p_logical.x, pc.fragment_pc.sdf_rect_size.x, tex_size.x, pc.fragment_pc.nine_patch_x_stretch, pc.fragment_pc.nine_patch_x_count);
-				}
-				if (pc.fragment_pc.nine_patch_y_count > 0) {
-					uv.y = map_nine_patch(p_logical.y, pc.fragment_pc.sdf_rect_size.y, tex_size.y, pc.fragment_pc.nine_patch_y_stretch, pc.fragment_pc.nine_patch_y_count);
-				}
-			}
-
-			if (!is_sdf_tex) {
-				vec4 tex = texture(TEXTURE(pc.fragment_pc.texture_index), uv * pc.fragment_pc.uv_scale + pc.fragment_pc.uv_offset);
-				
-				if (pc.fragment_pc.swizzle_mode == 1) tex = vec4(tex.rrr, 1.0);
-				else if (pc.fragment_pc.swizzle_mode == 2) tex = vec4(tex.ggg, 1.0);
-				else if (pc.fragment_pc.swizzle_mode == 3) tex = vec4(tex.bbb, 1.0);
-				else if (pc.fragment_pc.swizzle_mode == 4) tex = vec4(tex.aaa, 1.0);
-				else if (pc.fragment_pc.swizzle_mode == 5) tex = vec4(tex.rgb, 1.0);
-				color *= tex;
-			}
-		}
-
-		float d = 1e10;
-		bool has_sdf = false;
-
-		if (pc.fragment_pc.sdf_rect_size.x > 0.0 && pc.fragment_pc.sdf_rect_size.y > 0.0) {
-			d = sd_rect(in_uv, pc.fragment_pc.rect_size, pc.fragment_pc.sdf_rect_size, pc.fragment_pc.border_radius);
-			has_sdf = true;
-		}
-
-		if (is_sdf_tex) {
-			vec2 sdf_uv = uv * pc.fragment_pc.uv_scale + pc.fragment_pc.uv_offset;
-			float dist = texture(TEXTURE(pc.fragment_pc.texture_index), sdf_uv).r;
-			float fw = length(vec2(dFdx(dist), dFdy(dist)));
-			float d_tex = (pc.fragment_pc.sdf_threshold - dist) / max(fw, 0.01);
-			d = has_sdf ? max(d, d_tex) : d_tex;
-			has_sdf = true;
-		}
-
-		if (has_sdf) {
-			float smoothing = max(pc.fragment_pc.blur.x, pc.fragment_pc.blur.y);
-			smoothing = max(0.75, smoothing);
-
-			vec4 fill_color = color;
-			if (pc.fragment_pc.gradient_texture_index >= 0) {
-				float gy = in_uv.y;
-				if (pc.fragment_pc.sdf_rect_size.y > 0.0) {
-					gy = (in_uv.y - 0.5) * (pc.fragment_pc.rect_size.y / pc.fragment_pc.sdf_rect_size.y) + 0.5;
-				}
-				gy = clamp(gy, 0.0, 1.0);
-
-				fill_color *= texture(TEXTURE(pc.fragment_pc.gradient_texture_index), vec2(gy, 0.5));
-			}
-
-			float f_alpha = (pc.fragment_pc.outline_width > 0.0) ? 
-				(smoothstep(smoothing, -smoothing, d) - smoothstep(smoothing, -smoothing, d + pc.fragment_pc.outline_width)) : 
-				smoothstep(smoothing, -smoothing, d);
-			
-			out_color = fill_color;
-			out_color.a *= f_alpha;
-		} else {
-			out_color = color;
-		}
-
-		if ((pc.fragment_pc.blur.x > 0.0 || pc.fragment_pc.blur.y > 0.0) && pc.fragment_pc.sdf_rect_size.x <= 0.0) {
-			vec2 p = (in_uv - 0.5) * pc.fragment_pc.rect_size;
-			vec2 b = max(vec2(0.0), (pc.fragment_pc.rect_size - pc.fragment_pc.blur * 2.0) * 0.5);
-			vec2 q = abs(p) - b;
-			float dist = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0);
-			
-			float max_blur = max(pc.fragment_pc.blur.x, pc.fragment_pc.blur.y);
-			out_color.a *= smoothstep(max_blur, 0.0, dist);
-		}
-
-
-		out_color.a *= pc.fragment_pc.alpha_multiplier;						
-
-		if (pc.fragment_pc.subpixel_mode != 0) {
-			float d = 1e10;
-			bool has_sdf = false;
-
-			if (pc.fragment_pc.sdf_rect_size.x > 0.0 && pc.fragment_pc.sdf_rect_size.y > 0.0) {
-				d = sd_rect(in_uv, pc.fragment_pc.rect_size, pc.fragment_pc.sdf_rect_size, pc.fragment_pc.border_radius);
-				has_sdf = true;
-			}
-
-			if (pc.fragment_pc.texture_index >= 0 && pc.fragment_pc.swizzle_mode == 10) {
-				vec2 uv = in_uv;
-				if (pc.fragment_pc.nine_patch_x_count > 0 || pc.fragment_pc.nine_patch_y_count > 0) {
-					vec2 tex_size = vec2(textureSize(TEXTURE(pc.fragment_pc.texture_index), 0));
-					vec2 p_logical = (in_uv - 0.5) * pc.fragment_pc.rect_size + pc.fragment_pc.sdf_rect_size * 0.5;
-					if (pc.fragment_pc.nine_patch_x_count > 0) {
-						uv.x = map_nine_patch(p_logical.x, pc.fragment_pc.sdf_rect_size.x, tex_size.x, pc.fragment_pc.nine_patch_x_stretch, pc.fragment_pc.nine_patch_x_count);
-					}
-					if (pc.fragment_pc.nine_patch_y_count > 0) {
-						uv.y = map_nine_patch(p_logical.y, pc.fragment_pc.sdf_rect_size.y, tex_size.y, pc.fragment_pc.nine_patch_y_stretch, pc.fragment_pc.nine_patch_y_count);
-					}
-				}
-				vec2 sdf_uv = uv * pc.fragment_pc.uv_scale + pc.fragment_pc.uv_offset;
-				float dist = texture(TEXTURE(pc.fragment_pc.texture_index), sdf_uv).r;
-				float fw = length(vec2(dFdx(dist), dFdy(dist)));
-				float d_tex = (pc.fragment_pc.sdf_threshold - dist) / max(fw, 0.02);
-				d = has_sdf ? max(d, d_tex) : d_tex;
-				has_sdf = true;
-			}
-
-			if (has_sdf) {
-				float smoothing = max(pc.fragment_pc.blur.x, pc.fragment_pc.blur.y);
-				smoothing = max(0.7, smoothing);
-
-				vec3 sub_d;
-				float shift = pc.fragment_pc.subpixel_amount;
-				if (pc.fragment_pc.subpixel_mode == 1 || pc.fragment_pc.subpixel_mode == 2) { // RGB or BGR
-					float dx = dFdx(d);
-					sub_d = d + vec3(-shift, 0.0, shift) * dx;
-					if (pc.fragment_pc.subpixel_mode == 2) sub_d = sub_d.zyx;
-				} else if (pc.fragment_pc.subpixel_mode == 3 || pc.fragment_pc.subpixel_mode == 4) { // VRGB or VBGR
-					float dy = dFdy(d);
-					sub_d = d + vec3(-shift, 0.0, shift) * dy;
-					if (pc.fragment_pc.subpixel_mode == 4) sub_d = sub_d.zyx;
-				} else if (pc.fragment_pc.subpixel_mode == 5) { // RWGB
-					float dx = dFdx(d);
-					vec4 sub4_d = d + vec4(-1.5, -0.5, 0.5, 1.5) * shift * dx;
-					sub_d.r = sub4_d.x;
-					sub_d.g = sub4_d.z;
-					sub_d.b = sub4_d.w;
-					sub_d = mix(sub_d, vec3(sub4_d.y), 0.5);
-				}
-
-				vec3 sub_alpha = (pc.fragment_pc.outline_width > 0.0) ? 
-					(smoothstep(smoothing, -smoothing, sub_d) - smoothstep(smoothing, -smoothing, sub_d + pc.fragment_pc.outline_width)) : 
-					smoothstep(smoothing, -smoothing, sub_d);
-				
-				if (dot(color.rgb, vec3(1.0)) < 0.5) {
-					out_color.rgb = vec3(1.0) - sub_alpha * (vec3(1.0) - color.rgb);
-					out_color.a = 1.0;
-				} else {
-					out_color.rgb = color.rgb * sub_alpha;
-					out_color.a = color.a * max(max(sub_alpha.r, sub_alpha.g), sub_alpha.b);
-				}
-			}
-		}
-	}
-]]
 
 local function apply_states()
 	if not render2d.pipeline then return end
@@ -330,150 +84,6 @@ local function apply_states()
 	end
 end
 
-local fragment_pc_block = {
-	name = "fragment_pc",
-	block = {
-		{
-			"global_color",
-			"vec4",
-			function(self, block, key)
-				ffi.copy(block[key], fragment_constants.global_color, 16)
-			end,
-		},
-		{
-			"alpha_multiplier",
-			"float",
-			function(self, block, key)
-				block[key] = fragment_constants.alpha_multiplier
-			end,
-		},
-		{
-			"texture_index",
-			"int",
-			function(self, block, key)
-				block[key] = render2d.current_texture and self:GetTextureIndex(render2d.current_texture) or -1
-			end,
-		},
-		{
-			"uv_offset",
-			"vec2",
-			function(self, block, key)
-				ffi.copy(block[key], fragment_constants.uv_offset, 8)
-			end,
-		},
-		{
-			"uv_scale",
-			"vec2",
-			function(self, block, key)
-				ffi.copy(block[key], fragment_constants.uv_scale, 8)
-			end,
-		},
-		{
-			"swizzle_mode",
-			"int",
-			function(self, block, key)
-				block[key] = fragment_constants.swizzle_mode
-			end,
-		},
-		{
-			"blur",
-			"vec2",
-			function(self, block, key)
-				ffi.copy(block[key], fragment_constants.blur, 8)
-			end,
-		},
-		{
-			"border_radius",
-			"vec4",
-			function(self, block, key)
-				ffi.copy(block[key], fragment_constants.border_radius, 16)
-			end,
-		},
-		{
-			"outline_width",
-			"float",
-			function(self, block, key)
-				block[key] = fragment_constants.outline_width
-			end,
-		},
-		{
-			"rect_size",
-			"vec2",
-			function(self, block, key)
-				block[key][0] = current_w
-				block[key][1] = current_h
-			end,
-		},
-		{
-			"sdf_threshold",
-			"float",
-			function(self, block, key)
-				block[key] = fragment_constants.sdf_threshold
-			end,
-		},
-		{
-			"gradient_texture_index",
-			"int",
-			function(self, block, key)
-				block[key] = render2d.current_gradient_texture and
-					self:GetTextureIndex(render2d.current_gradient_texture) or
-					-1
-			end,
-		},
-		{
-			"nine_patch_x_count",
-			"int",
-			function(self, block, key)
-				block[key] = fragment_constants.nine_patch_x_count
-			end,
-		},
-		{
-			"nine_patch_y_count",
-			"int",
-			function(self, block, key)
-				block[key] = fragment_constants.nine_patch_y_count
-			end,
-		},
-		{
-			"nine_patch_x_stretch",
-			"float",
-			function(self, block, key)
-				ffi.copy(block[key], fragment_constants.nine_patch_x_stretch, 4 * 6)
-			end,
-			6,
-		},
-		{
-			"nine_patch_y_stretch",
-			"float",
-			function(self, block, key)
-				ffi.copy(block[key], fragment_constants.nine_patch_y_stretch, 4 * 6)
-			end,
-			6,
-		},
-		{
-			"sdf_rect_size",
-			"vec2",
-			function(self, block, key)
-				block[key][0] = current_lw
-				block[key][1] = current_lh
-			end,
-		},
-		{
-			"subpixel_mode",
-			"int",
-			function(self, block, key)
-				block[key] = fragment_constants.subpixel_mode
-			end,
-		},
-		{
-			"subpixel_amount",
-			"float",
-			function(self, block, key)
-				block[key] = fragment_constants.subpixel_amount
-			end,
-		},
-	},
-}
 -- Blend mode presets
 render2d.blend_modes = {
 	alpha = {
@@ -551,26 +161,412 @@ render2d.blend_modes = {
 function render2d.Initialize()
 	if render2d.pipeline then return end
 
-	local samples = (render.target and render.target:GetSamples()) or "1"
-	local color_format = (render.target and render.target:GetColorFormat()) or surface_format
 	local config = {
 		name = "render2d",
 		dont_create_framebuffers = true,
-		samples = samples,
-		color_format = color_format,
+		samples = render.target:GetSamples(),
+		color_format = render.target:GetColorFormat(),
 		vertex = {
-			push_constants = {vertex_pc_block},
+			push_constants = {
+				{
+					name = "vertex_pc",
+					block = {
+						{
+							"projection_view_world",
+							"mat4",
+							function(self, block, key)
+								render2d.GetMatrix():CopyToFloatPointer(block[key])
+							end,
+						},
+					},
+				},
+			},
 			attributes = {
 				{"pos", "vec3", "r32g32b32_sfloat"},
 				{"uv", "vec2", "r32g32_sfloat"},
 				{"color", "vec4", "r32g32b32a32_sfloat"},
 			},
-			shader = vertex_shader,
+			shader = [[
+				void main() {
+					gl_Position = pc.vertex_pc.projection_view_world * vec4(in_pos, 1.0);
+					out_uv = in_uv;
+					out_color = in_color;
+				}
+			]],
 		},
 		fragment = {
-			push_constants = {fragment_pc_block},
-			custom_declarations = fragment_shader_header,
-			shader = fragment_shader_main,
+			push_constants = {
+				{
+					name = "fragment_pc",
+					block = {
+						{
+							"global_color",
+							"vec4",
+							function(self, block, key)
+								ffi.copy(block[key], fragment_constants.global_color, 16)
+							end,
+						},
+						{
+							"alpha_multiplier",
+							"float",
+							function(self, block, key)
+								block[key] = fragment_constants.alpha_multiplier
+							end,
+						},
+						{
+							"texture_index",
+							"int",
+							function(self, block, key)
+								block[key] = render2d.current_texture and self:GetTextureIndex(render2d.current_texture) or -1
+							end,
+						},
+						{
+							"uv_offset",
+							"vec2",
+							function(self, block, key)
+								ffi.copy(block[key], fragment_constants.uv_offset, 8)
+							end,
+						},
+						{
+							"uv_scale",
+							"vec2",
+							function(self, block, key)
+								ffi.copy(block[key], fragment_constants.uv_scale, 8)
+							end,
+						},
+						{
+							"swizzle_mode",
+							"int",
+							function(self, block, key)
+								block[key] = fragment_constants.swizzle_mode
+							end,
+						},
+						{
+							"blur",
+							"vec2",
+							function(self, block, key)
+								ffi.copy(block[key], fragment_constants.blur, 8)
+							end,
+						},
+						{
+							"border_radius",
+							"vec4",
+							function(self, block, key)
+								ffi.copy(block[key], fragment_constants.border_radius, 16)
+							end,
+						},
+						{
+							"outline_width",
+							"float",
+							function(self, block, key)
+								block[key] = fragment_constants.outline_width
+							end,
+						},
+						{
+							"rect_size",
+							"vec2",
+							function(self, block, key)
+								block[key][0] = current_w
+								block[key][1] = current_h
+							end,
+						},
+						{
+							"sdf_threshold",
+							"float",
+							function(self, block, key)
+								block[key] = fragment_constants.sdf_threshold
+							end,
+						},
+						{
+							"gradient_texture_index",
+							"int",
+							function(self, block, key)
+								block[key] = render2d.current_gradient_texture and
+									self:GetTextureIndex(render2d.current_gradient_texture) or
+									-1
+							end,
+						},
+						{
+							"nine_patch_x_count",
+							"int",
+							function(self, block, key)
+								block[key] = fragment_constants.nine_patch_x_count
+							end,
+						},
+						{
+							"nine_patch_y_count",
+							"int",
+							function(self, block, key)
+								block[key] = fragment_constants.nine_patch_y_count
+							end,
+						},
+						{
+							"nine_patch_x_stretch",
+							"float",
+							function(self, block, key)
+								ffi.copy(block[key], fragment_constants.nine_patch_x_stretch, 4 * 6)
+							end,
+							6,
+						},
+						{
+							"nine_patch_y_stretch",
+							"float",
+							function(self, block, key)
+								ffi.copy(block[key], fragment_constants.nine_patch_y_stretch, 4 * 6)
+							end,
+							6,
+						},
+						{
+							"sdf_rect_size",
+							"vec2",
+							function(self, block, key)
+								block[key][0] = current_lw
+								block[key][1] = current_lh
+							end,
+						},
+						{
+							"subpixel_mode",
+							"int",
+							function(self, block, key)
+								block[key] = fragment_constants.subpixel_mode
+							end,
+						},
+						{
+							"subpixel_amount",
+							"float",
+							function(self, block, key)
+								block[key] = fragment_constants.subpixel_amount
+							end,
+						},
+					},
+				},
+			},
+			custom_declarations = [[
+				float map_nine_patch(float x, float tw, float sw, float stretch[6], int count) 
+				{
+					if (count == 0 || tw <= 0.0 || sw <= 0.0) return x / sw;
+					
+					float fixed_total = sw;
+					float stretch_total_src = 0.0;
+					for (int i = 0; i < 3; i++) {
+						if (i >= count) break;
+						float s = stretch[i*2];
+						float e = stretch[i*2+1];
+						stretch_total_src += (e - s);
+					}
+					fixed_total -= stretch_total_src;
+					
+					float stretch_total_tgt = max(0.0, tw - fixed_total);
+					float k = (stretch_total_src > 0.0) ? (stretch_total_tgt / stretch_total_src) : 0.0;
+					
+					float curr_src = 0.0;
+					float curr_tgt = 0.0;
+					
+					for (int i = 0; i < 3; i++) {
+						if (i >= count) break;
+						float s = stretch[i*2];
+						float e = stretch[i*2+1];
+						
+						float fixed_size = s - curr_src;
+						if (x < curr_tgt + fixed_size) {
+							return (curr_src + (x - curr_tgt)) / sw;
+						}
+						curr_src += fixed_size;
+						curr_tgt += fixed_size;
+						
+						float stretch_size_src = e - s;
+						float stretch_size_tgt = stretch_size_src * k;
+						if (x < curr_tgt + stretch_size_tgt) {
+							float ratio = (k > 0.0) ? ((x - curr_tgt) / k) : 0.0;
+							return (curr_src + ratio) / sw;
+						}
+						curr_src += stretch_size_src;
+						curr_tgt += stretch_size_tgt;
+					}
+					
+					return (curr_src + (x - curr_tgt)) / sw;
+				}
+
+				float sd_rect(vec2 coords, vec2 quad_size, vec2 logical_size, vec4 radius) {
+					vec2 p = (coords - 0.5) * quad_size;
+					vec2 b = logical_size * 0.5;
+					float rad;
+					if (p.x < 0.0 && p.y < 0.0) rad = radius.x;
+					else if (p.x > 0.0 && p.y < 0.0) rad = radius.y;
+					else if (p.x > 0.0 && p.y > 0.0) rad = radius.z;
+					else rad = radius.w;
+
+					float min_dim = min(logical_size.x, logical_size.y);
+					float half_dim = min_dim * 0.5;
+					float inset = min(rad, half_dim);
+					vec2 q = abs(p) - b + inset;
+
+					if (q.x <= 0.0 || q.y <= 0.0) {
+						return max(q.x, q.y) - inset;
+					} else {
+						if (inset < 0.001) return length(q);
+						float norm_rad = rad / max(half_dim, 0.0001);
+						float exp_p = clamp(2.0 / norm_rad, 0.1, 200.0);
+						vec2 np = q / inset;
+						float lp = pow(pow(np.x, exp_p) + pow(np.y, exp_p), 1.0 / exp_p);
+						return (lp - 1.0) * inset;
+					}
+				}
+			]],
+			shader = [[
+				void main() 
+				{						
+					vec4 color = in_color * pc.fragment_pc.global_color;
+					bool is_sdf_tex = (pc.fragment_pc.texture_index >= 0 && pc.fragment_pc.swizzle_mode == 10);
+					vec2 uv = in_uv;
+
+					if (pc.fragment_pc.texture_index >= 0) {
+						if (pc.fragment_pc.nine_patch_x_count > 0 || pc.fragment_pc.nine_patch_y_count > 0) {
+							vec2 tex_size = vec2(textureSize(TEXTURE(pc.fragment_pc.texture_index), 0));
+							vec2 p_logical = (in_uv - 0.5) * pc.fragment_pc.rect_size + pc.fragment_pc.sdf_rect_size * 0.5;
+							
+							if (pc.fragment_pc.nine_patch_x_count > 0) {
+								uv.x = map_nine_patch(p_logical.x, pc.fragment_pc.sdf_rect_size.x, tex_size.x, pc.fragment_pc.nine_patch_x_stretch, pc.fragment_pc.nine_patch_x_count);
+							}
+							if (pc.fragment_pc.nine_patch_y_count > 0) {
+								uv.y = map_nine_patch(p_logical.y, pc.fragment_pc.sdf_rect_size.y, tex_size.y, pc.fragment_pc.nine_patch_y_stretch, pc.fragment_pc.nine_patch_y_count);
+							}
+						}
+
+						if (!is_sdf_tex) {
+							vec4 tex = texture(TEXTURE(pc.fragment_pc.texture_index), uv * pc.fragment_pc.uv_scale + pc.fragment_pc.uv_offset);
+							
+							if (pc.fragment_pc.swizzle_mode == 1) tex = vec4(tex.rrr, 1.0);
+							else if (pc.fragment_pc.swizzle_mode == 2) tex = vec4(tex.ggg, 1.0);
+							else if (pc.fragment_pc.swizzle_mode == 3) tex = vec4(tex.bbb, 1.0);
+							else if (pc.fragment_pc.swizzle_mode == 4) tex = vec4(tex.aaa, 1.0);
+							else if (pc.fragment_pc.swizzle_mode == 5) tex = vec4(tex.rgb, 1.0);
+							color *= tex;
+						}
+					}
+
+					float d = 1e10;
+					bool has_sdf = false;
+
+					if (pc.fragment_pc.sdf_rect_size.x > 0.0 && pc.fragment_pc.sdf_rect_size.y > 0.0) {
+						d = sd_rect(in_uv, pc.fragment_pc.rect_size, pc.fragment_pc.sdf_rect_size, pc.fragment_pc.border_radius);
+						has_sdf = true;
+					}
+
+					if (is_sdf_tex) {
+						vec2 sdf_uv = uv * pc.fragment_pc.uv_scale + pc.fragment_pc.uv_offset;
+						float dist = texture(TEXTURE(pc.fragment_pc.texture_index), sdf_uv).r;
+						float fw = length(vec2(dFdx(dist), dFdy(dist)));
+						float d_tex = (pc.fragment_pc.sdf_threshold - dist) / max(fw, 0.01);
+						d = has_sdf ? max(d, d_tex) : d_tex;
+						has_sdf = true;
+					}
+
+					if (has_sdf) {
+						float smoothing = max(pc.fragment_pc.blur.x, pc.fragment_pc.blur.y);
+						smoothing = max(0.75, smoothing);
+
+						vec4 fill_color = color;
+						if (pc.fragment_pc.gradient_texture_index >= 0) {
+							float gy = in_uv.y;
+							if (pc.fragment_pc.sdf_rect_size.y > 0.0) {
+								gy = (in_uv.y - 0.5) * (pc.fragment_pc.rect_size.y / pc.fragment_pc.sdf_rect_size.y) + 0.5;
+							}
+							gy = clamp(gy, 0.0, 1.0);
+
+							fill_color *= texture(TEXTURE(pc.fragment_pc.gradient_texture_index), vec2(gy, 0.5));
+						}
+
+						float f_alpha = (pc.fragment_pc.outline_width > 0.0) ? 
+							(smoothstep(smoothing, -smoothing, d) - smoothstep(smoothing, -smoothing, d + pc.fragment_pc.outline_width)) : 
+							smoothstep(smoothing, -smoothing, d);
+						
+						out_color = fill_color;
+						out_color.a *= f_alpha;
+					} else {
+						out_color = color;
+					}
+
+					if ((pc.fragment_pc.blur.x > 0.0 || pc.fragment_pc.blur.y > 0.0) && pc.fragment_pc.sdf_rect_size.x <= 0.0) {
+						vec2 p = (in_uv - 0.5) * pc.fragment_pc.rect_size;
+						vec2 b = max(vec2(0.0), (pc.fragment_pc.rect_size - pc.fragment_pc.blur * 2.0) * 0.5);
+						vec2 q = abs(p) - b;
+						float dist = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0);
+						
+						float max_blur = max(pc.fragment_pc.blur.x, pc.fragment_pc.blur.y);
+						out_color.a *= smoothstep(max_blur, 0.0, dist);
+					}
+
+
+					out_color.a *= pc.fragment_pc.alpha_multiplier;						
+
+					if (pc.fragment_pc.subpixel_mode != 0) {
+						float d = 1e10;
+						bool has_sdf = false;
+
+						if (pc.fragment_pc.sdf_rect_size.x > 0.0 && pc.fragment_pc.sdf_rect_size.y > 0.0) {
+							d = sd_rect(in_uv, pc.fragment_pc.rect_size, pc.fragment_pc.sdf_rect_size, pc.fragment_pc.border_radius);
+							has_sdf = true;
+						}
+
+						if (pc.fragment_pc.texture_index >= 0 && pc.fragment_pc.swizzle_mode == 10) {
+							vec2 uv = in_uv;
+							if (pc.fragment_pc.nine_patch_x_count > 0 || pc.fragment_pc.nine_patch_y_count > 0) {
+								vec2 tex_size = vec2(textureSize(TEXTURE(pc.fragment_pc.texture_index), 0));
+								vec2 p_logical = (in_uv - 0.5) * pc.fragment_pc.rect_size + pc.fragment_pc.sdf_rect_size * 0.5;
+								if (pc.fragment_pc.nine_patch_x_count > 0) {
+									uv.x = map_nine_patch(p_logical.x, pc.fragment_pc.sdf_rect_size.x, tex_size.x, pc.fragment_pc.nine_patch_x_stretch, pc.fragment_pc.nine_patch_x_count);
+								}
+								if (pc.fragment_pc.nine_patch_y_count > 0) {
+									uv.y = map_nine_patch(p_logical.y, pc.fragment_pc.sdf_rect_size.y, tex_size.y, pc.fragment_pc.nine_patch_y_stretch, pc.fragment_pc.nine_patch_y_count);
+								}
+							}
+							vec2 sdf_uv = uv * pc.fragment_pc.uv_scale + pc.fragment_pc.uv_offset;
+							float dist = texture(TEXTURE(pc.fragment_pc.texture_index), sdf_uv).r;
+							float fw = length(vec2(dFdx(dist), dFdy(dist)));
+							float d_tex = (pc.fragment_pc.sdf_threshold - dist) / max(fw, 0.02);
+							d = has_sdf ? max(d, d_tex) : d_tex;
+							has_sdf = true;
+						}
+
+						if (has_sdf) {
+							float smoothing = max(pc.fragment_pc.blur.x, pc.fragment_pc.blur.y);
+							smoothing = max(0.7, smoothing);
+
+							vec3 sub_d;
+							float shift = pc.fragment_pc.subpixel_amount;
+							if (pc.fragment_pc.subpixel_mode == 1 || pc.fragment_pc.subpixel_mode == 2) { // RGB or BGR
+								float dx = dFdx(d);
+								sub_d = d + vec3(-shift, 0.0, shift) * dx;
+								if (pc.fragment_pc.subpixel_mode == 2) sub_d = sub_d.zyx;
+							} else if (pc.fragment_pc.subpixel_mode == 3 || pc.fragment_pc.subpixel_mode == 4) { // VRGB or VBGR
+								float dy = dFdy(d);
+								sub_d = d + vec3(-shift, 0.0, shift) * dy;
+								if (pc.fragment_pc.subpixel_mode == 4) sub_d = sub_d.zyx;
+							} else if (pc.fragment_pc.subpixel_mode == 5) { // RWGB
+								float dx = dFdx(d);
+								vec4 sub4_d = d + vec4(-1.5, -0.5, 0.5, 1.5) * shift * dx;
+								sub_d.r = sub4_d.x;
+								sub_d.g = sub4_d.z;
+								sub_d.b = sub4_d.w;
+								sub_d = mix(sub_d, vec3(sub4_d.y), 0.5);
+							}
+
+							vec3 sub_alpha = (pc.fragment_pc.outline_width > 0.0) ? 
+								(smoothstep(smoothing, -smoothing, sub_d) - smoothstep(smoothing, -smoothing, sub_d + pc.fragment_pc.outline_width)) : 
+								smoothstep(smoothing, -smoothing, sub_d);
+							
+							if (dot(color.rgb, vec3(1.0)) < 0.5) {
+								out_color.rgb = vec3(1.0) - sub_alpha * (vec3(1.0) - color.rgb);
+								out_color.a = 1.0;
+							} else {
+								out_color.rgb = color.rgb * sub_alpha;
+								out_color.a = color.a * max(max(sub_alpha.r, sub_alpha.g), sub_alpha.b);
+							}
+						}
+					}
+				}
+			]],
 		},
 		rasterizer = {
 			cull_mode = "none",
