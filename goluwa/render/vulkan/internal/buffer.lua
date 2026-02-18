@@ -86,9 +86,9 @@ function Buffer:GetDeviceAddress()
 	return vulkan.lib.vkGetBufferDeviceAddress(self.device.ptr[0], info)
 end
 
-function Buffer:Map()
+function Buffer:Map(offset, size)
 	local data = ffi.new("void*[1]")
-	vulkan.lib.vkMapMemory(self.device.ptr[0], self.memory.ptr[0], 0, self.size, 0, data)
+	vulkan.lib.vkMapMemory(self.device.ptr[0], self.memory.ptr[0], offset or 0, size or self.size, 0, data)
 	return data[0]
 end
 
@@ -96,8 +96,8 @@ function Buffer:Unmap()
 	vulkan.lib.vkUnmapMemory(self.device.ptr[0], self.memory.ptr[0])
 end
 
-function Buffer:CopyData(src_data, size)
-	local data = self:Map()
+function Buffer:CopyData(src_data, size, offset)
+	local data = self:Map(offset or 0, size or self.size)
 	ffi.copy(data, src_data, size or self.size)
 	self:Unmap()
 end

@@ -41,12 +41,12 @@ local r = {
 			},
 			shader = [[
 				void main() {
-					if (pc.extract.source_tex == -1) {
+					if (extract.source_tex == -1) {
 						set_bloom(vec4(0.0));
 						return;
 					}
 					
-					vec3 col = texture(TEXTURE(pc.extract.source_tex), in_uv).rgb;
+					vec3 col = texture(TEXTURE(extract.source_tex), in_uv).rgb;
 					
 					// Extract bright areas (threshold + knee)
 					float threshold = 1.0;
@@ -69,24 +69,24 @@ local r = {
 -- Generate downsample passes
 local downsample_shader = [[
 	void main() {
-		if (pc.down.source_tex == -1) {
+		if (down.source_tex == -1) {
 			set_bloom(vec4(0.0));
 			return;
 		}
 		
-		vec2 texel_size = 1.0 / vec2(textureSize(TEXTURE(pc.down.source_tex), 0));
+		vec2 texel_size = 1.0 / vec2(textureSize(TEXTURE(down.source_tex), 0));
 		vec3 sum = vec3(0.0);
 		
 		// 13-tap downsampling filter
-		sum += texture(TEXTURE(pc.down.source_tex), in_uv + vec2(-2, -2) * texel_size).rgb;
-		sum += texture(TEXTURE(pc.down.source_tex), in_uv + vec2(0, -2) * texel_size).rgb * 2.0;
-		sum += texture(TEXTURE(pc.down.source_tex), in_uv + vec2(2, -2) * texel_size).rgb;
-		sum += texture(TEXTURE(pc.down.source_tex), in_uv + vec2(-2, 0) * texel_size).rgb * 2.0;
-		sum += texture(TEXTURE(pc.down.source_tex), in_uv).rgb * 4.0;
-		sum += texture(TEXTURE(pc.down.source_tex), in_uv + vec2(2, 0) * texel_size).rgb * 2.0;
-		sum += texture(TEXTURE(pc.down.source_tex), in_uv + vec2(-2, 2) * texel_size).rgb;
-		sum += texture(TEXTURE(pc.down.source_tex), in_uv + vec2(0, 2) * texel_size).rgb * 2.0;
-		sum += texture(TEXTURE(pc.down.source_tex), in_uv + vec2(2, 2) * texel_size).rgb;
+		sum += texture(TEXTURE(down.source_tex), in_uv + vec2(-2, -2) * texel_size).rgb;
+		sum += texture(TEXTURE(down.source_tex), in_uv + vec2(0, -2) * texel_size).rgb * 2.0;
+		sum += texture(TEXTURE(down.source_tex), in_uv + vec2(2, -2) * texel_size).rgb;
+		sum += texture(TEXTURE(down.source_tex), in_uv + vec2(-2, 0) * texel_size).rgb * 2.0;
+		sum += texture(TEXTURE(down.source_tex), in_uv).rgb * 4.0;
+		sum += texture(TEXTURE(down.source_tex), in_uv + vec2(2, 0) * texel_size).rgb * 2.0;
+		sum += texture(TEXTURE(down.source_tex), in_uv + vec2(-2, 2) * texel_size).rgb;
+		sum += texture(TEXTURE(down.source_tex), in_uv + vec2(0, 2) * texel_size).rgb * 2.0;
+		sum += texture(TEXTURE(down.source_tex), in_uv + vec2(2, 2) * texel_size).rgb;
 		
 		set_bloom(vec4(sum / 16.0, 1.0));
 	}
@@ -131,30 +131,30 @@ end
 -- Generate upsample passes
 local upsample_shader = [[
 	void main() {
-		if (pc.up.source_tex == -1) {
+		if (up.source_tex == -1) {
 			set_bloom(vec4(0.0));
 			return;
 		}
 		
-		vec2 texel_size = 1.0 / vec2(textureSize(TEXTURE(pc.up.source_tex), 0));
+		vec2 texel_size = 1.0 / vec2(textureSize(TEXTURE(up.source_tex), 0));
 		vec3 sum = vec3(0.0);
 		
 		// 9-tap tent filter
-		sum += texture(TEXTURE(pc.up.source_tex), in_uv + vec2(-1, -1) * texel_size).rgb;
-		sum += texture(TEXTURE(pc.up.source_tex), in_uv + vec2(0, -1) * texel_size).rgb * 2.0;
-		sum += texture(TEXTURE(pc.up.source_tex), in_uv + vec2(1, -1) * texel_size).rgb;
-		sum += texture(TEXTURE(pc.up.source_tex), in_uv + vec2(-1, 0) * texel_size).rgb * 2.0;
-		sum += texture(TEXTURE(pc.up.source_tex), in_uv).rgb * 4.0;
-		sum += texture(TEXTURE(pc.up.source_tex), in_uv + vec2(1, 0) * texel_size).rgb * 2.0;
-		sum += texture(TEXTURE(pc.up.source_tex), in_uv + vec2(-1, 1) * texel_size).rgb;
-		sum += texture(TEXTURE(pc.up.source_tex), in_uv + vec2(0, 1) * texel_size).rgb * 2.0;
-		sum += texture(TEXTURE(pc.up.source_tex), in_uv + vec2(1, 1) * texel_size).rgb;
+		sum += texture(TEXTURE(up.source_tex), in_uv + vec2(-1, -1) * texel_size).rgb;
+		sum += texture(TEXTURE(up.source_tex), in_uv + vec2(0, -1) * texel_size).rgb * 2.0;
+		sum += texture(TEXTURE(up.source_tex), in_uv + vec2(1, -1) * texel_size).rgb;
+		sum += texture(TEXTURE(up.source_tex), in_uv + vec2(-1, 0) * texel_size).rgb * 2.0;
+		sum += texture(TEXTURE(up.source_tex), in_uv).rgb * 4.0;
+		sum += texture(TEXTURE(up.source_tex), in_uv + vec2(1, 0) * texel_size).rgb * 2.0;
+		sum += texture(TEXTURE(up.source_tex), in_uv + vec2(-1, 1) * texel_size).rgb;
+		sum += texture(TEXTURE(up.source_tex), in_uv + vec2(0, 1) * texel_size).rgb * 2.0;
+		sum += texture(TEXTURE(up.source_tex), in_uv + vec2(1, 1) * texel_size).rgb;
 		
 		vec3 result = sum / 16.0;
 		
 		// Merge with previous level
-		if (pc.up.merge_tex != -1) {
-			result += texture(TEXTURE(pc.up.merge_tex), in_uv).rgb;
+		if (up.merge_tex != -1) {
+			result += texture(TEXTURE(up.merge_tex), in_uv).rgb;
 		}
 		
 		set_bloom(vec4(result, 1.0));
@@ -244,21 +244,21 @@ table.insert(
 			shader = [[
 			void main() {
 				float luma;
-				if (pc.lum.source_tex == -1) {
+				if (lum.source_tex == -1) {
 					luma = 0.5;
 					set_luma(luma);
 					return;
 				}
 				
-				vec3 col = texture(TEXTURE(pc.lum.source_tex), in_uv).rgb;
+				vec3 col = texture(TEXTURE(lum.source_tex), in_uv).rgb;
 				
 				// Calculate luminance
 				float current_luma = dot(col, vec3(0.2126, 0.7152, 0.0722));
 				current_luma = log2(max(current_luma, 0.0001));
 				
 				// Temporal smoothing
-				if (pc.lum.prev_luma_tex != -1) {
-					float prev_luma = texture(TEXTURE(pc.lum.prev_luma_tex), in_uv).r;
+				if (lum.prev_luma_tex != -1) {
+					float prev_luma = texture(TEXTURE(lum.prev_luma_tex), in_uv).r;
 					// Smooth adaptation speed
 					float adapt_speed = 0.001;
 					current_luma = mix(prev_luma, current_luma, adapt_speed);
@@ -387,32 +387,32 @@ table.insert(
 				}
 
 				void main() {
-					if (pc.blit.source_tex == -1) {
+					if (blit.source_tex == -1) {
 						frag_color = vec4(1.0, 0.0, 1.0, 1.0);
 						return;
 					}
 					
-					vec3 col = texture(TEXTURE(pc.blit.source_tex), in_uv).rgb;
+					vec3 col = texture(TEXTURE(blit.source_tex), in_uv).rgb;
 					
 					// Add bloom
 					float bloom_strength = 0.04;
-					if (pc.blit.bloom_tex != -1) {
-						vec3 bloom = texture(TEXTURE(pc.blit.bloom_tex), in_uv).rgb;
+					if (blit.bloom_tex != -1) {
+						vec3 bloom = texture(TEXTURE(blit.bloom_tex), in_uv).rgb;
 						col += bloom * bloom_strength;
 					}
 					
 					// Calculate adaptive exposure
 					float exposure = 1.0;
-					if (pc.blit.luma_tex != -1) {
+					if (blit.luma_tex != -1) {
 						// Average luminance across entire screen
 						float avg_log_luma = 0.0;
-						vec2 luma_size = vec2(textureSize(TEXTURE(pc.blit.luma_tex), 0));
+						vec2 luma_size = vec2(textureSize(TEXTURE(blit.luma_tex), 0));
 						int samples = 0;
 						
 						// Sample at multiple points to get average
 						for (float y = 0.125; y < 1.0; y += 0.25) {
 							for (float x = 0.125; x < 1.0; x += 0.25) {
-								avg_log_luma += texture(TEXTURE(pc.blit.luma_tex), vec2(x, y)).r;
+								avg_log_luma += texture(TEXTURE(blit.luma_tex), vec2(x, y)).r;
 								samples++;
 							}
 						}
@@ -427,13 +427,13 @@ table.insert(
 						exposure = clamp(exposure, 0.1, 4.0);
 					}
 
-					if (pc.blit.is_hdr == 1) {
+					if (blit.is_hdr == 1) {
 						col = tonemap(pow(col*1.5, vec3(0.8)), exposure)*1.2;
 					} else {
 						col = ACESFilm(col * exposure);
 					}
 					
-					if (pc.blit.requires_manual_gamma == 1) {
+					if (blit.requires_manual_gamma == 1) {
 						col = LinearToSRGB(col);
 					}
 					

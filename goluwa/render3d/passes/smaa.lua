@@ -27,14 +27,14 @@ return {
 			
 			void main() {
 				vec2 texcoord = in_uv;
-				vec2 texel = 1.0 / vec2(textureSize(TEXTURE(pc.smaa.tex), 0));
+				vec2 texel = 1.0 / vec2(textureSize(TEXTURE(smaa.tex), 0));
 				
 				// Calculate lumas (using BT.709 weights like reference):
 				vec3 weights = vec3(0.2126, 0.7152, 0.0722);
-				float L = dot(texture(TEXTURE(pc.smaa.tex), texcoord).rgb, weights);
+				float L = dot(texture(TEXTURE(smaa.tex), texcoord).rgb, weights);
 				
-				float Lleft = dot(texture(TEXTURE(pc.smaa.tex), texcoord + vec2(-texel.x, 0.0)).rgb, weights);
-				float Ltop = dot(texture(TEXTURE(pc.smaa.tex), texcoord + vec2(0.0, -texel.y)).rgb, weights);
+				float Lleft = dot(texture(TEXTURE(smaa.tex), texcoord + vec2(-texel.x, 0.0)).rgb, weights);
+				float Ltop = dot(texture(TEXTURE(smaa.tex), texcoord + vec2(0.0, -texel.y)).rgb, weights);
 				
 				// We do the usual threshold:
 				vec4 delta;
@@ -46,16 +46,16 @@ return {
 					discard;
 				
 				// Calculate right and bottom deltas:
-				float Lright = dot(texture(TEXTURE(pc.smaa.tex), texcoord + vec2(texel.x, 0.0)).rgb, weights);
-				float Lbottom = dot(texture(TEXTURE(pc.smaa.tex), texcoord + vec2(0.0, texel.y)).rgb, weights);
+				float Lright = dot(texture(TEXTURE(smaa.tex), texcoord + vec2(texel.x, 0.0)).rgb, weights);
+				float Lbottom = dot(texture(TEXTURE(smaa.tex), texcoord + vec2(0.0, texel.y)).rgb, weights);
 				delta.zw = abs(L - vec2(Lright, Lbottom));
 				
 				// Calculate the maximum delta in the direct neighborhood:
 				vec2 maxDelta = max(delta.xy, delta.zw);
 				
 				// Calculate left-left and top-top deltas:
-				float Lleftleft = dot(texture(TEXTURE(pc.smaa.tex), texcoord + vec2(-2.0 * texel.x, 0.0)).rgb, weights);
-				float Ltoptop = dot(texture(TEXTURE(pc.smaa.tex), texcoord + vec2(0.0, -2.0 * texel.y)).rgb, weights);
+				float Lleftleft = dot(texture(TEXTURE(smaa.tex), texcoord + vec2(-2.0 * texel.x, 0.0)).rgb, weights);
+				float Ltoptop = dot(texture(TEXTURE(smaa.tex), texcoord + vec2(0.0, -2.0 * texel.y)).rgb, weights);
 				delta.zw = abs(vec2(Lleft, Ltop) - vec2(Lleftleft, Ltoptop));
 				
 				// Calculate the final maximum delta:
@@ -130,18 +130,18 @@ return {
 				scale *= 1.0 / SMAA_SEARCHTEX_PACKED_SIZE;
 				bias *= 1.0 / SMAA_SEARCHTEX_PACKED_SIZE;
 				
-				return textureLod(TEXTURE(pc.smaa.search_tex), e * scale + bias, 0.0).r;
+				return textureLod(TEXTURE(smaa.search_tex), e * scale + bias, 0.0).r;
 			}
 
 			float SMAASearchXLeft(vec2 texcoord, float end) {
-				vec2 texel = 1.0 / vec2(textureSize(TEXTURE(pc.smaa.edges_tex), 0));
+				vec2 texel = 1.0 / vec2(textureSize(TEXTURE(smaa.edges_tex), 0));
 				// @PSEUDO_GATHER4
 				// This texcoord has been offset by (-0.25, -0.125) to sample between edges
 				vec2 e = vec2(0.0, 1.0);
 				while (texcoord.x > end && 
 				       e.g > 0.8281 && // Is there some edge not activated?
 				       e.r == 0.0) { // Or is there a crossing edge that breaks the line?
-					e = textureLod(TEXTURE(pc.smaa.edges_tex), texcoord, 0.0).rg;
+					e = textureLod(TEXTURE(smaa.edges_tex), texcoord, 0.0).rg;
 					texcoord.x -= 2.0 * texel.x;
 				}
 				float offset = -(255.0 / 127.0) * SMAASearchLength(e, 0.0) + 3.25;
@@ -149,12 +149,12 @@ return {
 			}
 
 			float SMAASearchXRight(vec2 texcoord, float end) {
-				vec2 texel = 1.0 / vec2(textureSize(TEXTURE(pc.smaa.edges_tex), 0));
+				vec2 texel = 1.0 / vec2(textureSize(TEXTURE(smaa.edges_tex), 0));
 				vec2 e = vec2(0.0, 1.0);
 				while (texcoord.x < end && 
 				       e.g > 0.8281 && 
 				       e.r == 0.0) {
-					e = textureLod(TEXTURE(pc.smaa.edges_tex), texcoord, 0.0).rg;
+					e = textureLod(TEXTURE(smaa.edges_tex), texcoord, 0.0).rg;
 					texcoord.x += 2.0 * texel.x;
 				}
 				float offset = -(255.0 / 127.0) * SMAASearchLength(e, 0.5) + 3.25;
@@ -162,12 +162,12 @@ return {
 			}
 
 			float SMAASearchYUp(vec2 texcoord, float end) {
-				vec2 texel = 1.0 / vec2(textureSize(TEXTURE(pc.smaa.edges_tex), 0));
+				vec2 texel = 1.0 / vec2(textureSize(TEXTURE(smaa.edges_tex), 0));
 				vec2 e = vec2(1.0, 0.0);
 				while (texcoord.y > end && 
 				       e.r > 0.8281 && 
 				       e.g == 0.0) {
-					e = textureLod(TEXTURE(pc.smaa.edges_tex), texcoord, 0.0).rg;
+					e = textureLod(TEXTURE(smaa.edges_tex), texcoord, 0.0).rg;
 					texcoord.y -= 2.0 * texel.y;
 				}
 				float offset = -(255.0 / 127.0) * SMAASearchLength(e.gr, 0.0) + 3.25;
@@ -175,12 +175,12 @@ return {
 			}
 
 			float SMAASearchYDown(vec2 texcoord, float end) {
-				vec2 texel = 1.0 / vec2(textureSize(TEXTURE(pc.smaa.edges_tex), 0));
+				vec2 texel = 1.0 / vec2(textureSize(TEXTURE(smaa.edges_tex), 0));
 				vec2 e = vec2(1.0, 0.0);
 				while (texcoord.y < end && 
 				       e.r > 0.8281 && 
 				       e.g == 0.0) {
-					e = textureLod(TEXTURE(pc.smaa.edges_tex), texcoord, 0.0).rg;
+					e = textureLod(TEXTURE(smaa.edges_tex), texcoord, 0.0).rg;
 					texcoord.y += 2.0 * texel.y;
 				}
 				float offset = -(255.0 / 127.0) * SMAASearchLength(e.gr, 0.5) + 3.25;
@@ -197,12 +197,12 @@ return {
 				// Move to proper place, according to the subpixel offset:
 				texcoord.y = SMAA_AREATEX_SUBTEX_SIZE * offset + texcoord.y;
 				
-				return textureLod(TEXTURE(pc.smaa.area_tex), texcoord, 0.0).rg;
+				return textureLod(TEXTURE(smaa.area_tex), texcoord, 0.0).rg;
 			}
 
 			void main() {
 				vec2 texcoord = in_uv;
-				vec2 texel = 1.0 / vec2(textureSize(TEXTURE(pc.smaa.edges_tex), 0));
+				vec2 texel = 1.0 / vec2(textureSize(TEXTURE(smaa.edges_tex), 0));
 				vec2 pixcoord = texcoord / texel; // Convert to pixel coordinates
 				
 				// Pre-calculate offsets (normally done in vertex shader):
@@ -214,7 +214,7 @@ return {
 				vec4 offset2 = vec4(-2.0, 2.0, -2.0, 2.0) * float(SMAA_MAX_SEARCH_STEPS) * texel.xxyy + vec4(offset0.xz, offset1.yw);
 				
 				vec4 weights = vec4(0.0);
-				vec2 e = textureLod(TEXTURE(pc.smaa.edges_tex), texcoord, 0.0).rg;
+				vec2 e = textureLod(TEXTURE(smaa.edges_tex), texcoord, 0.0).rg;
 				
 				if (e.g > 0.0) { // Edge at north (horizontal edge)
 					vec2 d;
@@ -226,7 +226,7 @@ return {
 					d.x = coords.x;
 					
 					// Fetch the left crossing edges:
-					float e1 = textureLod(TEXTURE(pc.smaa.edges_tex), coords.xy, 0.0).r;
+					float e1 = textureLod(TEXTURE(smaa.edges_tex), coords.xy, 0.0).r;
 					
 					// Find the distance to the right:
 					coords.z = SMAASearchXRight(offset0.zw, offset2.y);
@@ -239,7 +239,7 @@ return {
 					vec2 sqrt_d = sqrt(d);
 					
 					// Fetch the right crossing edges:
-					float e2 = textureLod(TEXTURE(pc.smaa.edges_tex), vec2(coords.z + texel.x, coords.y), 0.0).r;
+					float e2 = textureLod(TEXTURE(smaa.edges_tex), vec2(coords.z + texel.x, coords.y), 0.0).r;
 					
 					// Ok, we know how this pattern looks like, now it is time for getting the actual area:
 					weights.rg = SMAAArea(sqrt_d, e1, e2, 0.0);
@@ -255,7 +255,7 @@ return {
 					d.x = coords.y;
 					
 					// Fetch the top crossing edges:
-					float e1 = textureLod(TEXTURE(pc.smaa.edges_tex), coords.xy, 0.0).g;
+					float e1 = textureLod(TEXTURE(smaa.edges_tex), coords.xy, 0.0).g;
 					
 					// Find the distance to the bottom:
 					coords.z = SMAASearchYDown(offset1.zw, offset2.w);
@@ -268,7 +268,7 @@ return {
 					vec2 sqrt_d = sqrt(d);
 					
 					// Fetch the bottom crossing edges:
-					float e2 = textureLod(TEXTURE(pc.smaa.edges_tex), vec2(coords.x, coords.z + texel.y), 0.0).g;
+					float e2 = textureLod(TEXTURE(smaa.edges_tex), vec2(coords.x, coords.z + texel.y), 0.0).g;
 					
 					// Get the area for this direction:
 					weights.ba = SMAAArea(sqrt_d, e1, e2, 0.0);
@@ -308,7 +308,7 @@ return {
 			shader = [[
 			void main() {
 				vec2 texcoord = in_uv;
-				vec2 texel = 1.0 / vec2(textureSize(TEXTURE(pc.smaa.color_tex), 0));
+				vec2 texel = 1.0 / vec2(textureSize(TEXTURE(smaa.color_tex), 0));
 				
 				// Offset for fetching neighbor blend weights:
 				// offset.xy = texcoord + vec2(texel.x, 0)  -> Right
@@ -317,13 +317,13 @@ return {
 				
 				// Fetch the blending weights for current pixel:
 				vec4 a;
-				a.x = texture(TEXTURE(pc.smaa.weight_tex), offset.xy).a; // Right
-				a.y = texture(TEXTURE(pc.smaa.weight_tex), offset.zw).g; // Top
-				a.wz = texture(TEXTURE(pc.smaa.weight_tex), texcoord).xz; // Bottom / Left
+				a.x = texture(TEXTURE(smaa.weight_tex), offset.xy).a; // Right
+				a.y = texture(TEXTURE(smaa.weight_tex), offset.zw).g; // Top
+				a.wz = texture(TEXTURE(smaa.weight_tex), texcoord).xz; // Bottom / Left
 
 				// Is there any blending weight with a value greater than 0.0?
 				if (dot(a, vec4(1.0, 1.0, 1.0, 1.0)) < 1e-5) {
-					set_color(textureLod(TEXTURE(pc.smaa.color_tex), texcoord, 0.0));
+					set_color(textureLod(TEXTURE(smaa.color_tex), texcoord, 0.0));
 					return;
 				}
 				
@@ -342,8 +342,8 @@ return {
 				vec4 blendingCoord = blendingOffset * vec4(texel, -texel) + texcoord.xyxy;
 				
 				// We exploit bilinear filtering to mix current pixel with the chosen neighbor:
-				vec4 color = blendingWeight.x * textureLod(TEXTURE(pc.smaa.color_tex), blendingCoord.xy, 0.0);
-				color += blendingWeight.y * textureLod(TEXTURE(pc.smaa.color_tex), blendingCoord.zw, 0.0);
+				vec4 color = blendingWeight.x * textureLod(TEXTURE(smaa.color_tex), blendingCoord.xy, 0.0);
+				color += blendingWeight.y * textureLod(TEXTURE(smaa.color_tex), blendingCoord.zw, 0.0);
 				
 				set_color(color);
 			}

@@ -6,10 +6,15 @@ local DescriptorPool = prototype.CreateTemplate("vulkan_descriptor_pool")
 function DescriptorPool.New(device, poolSizes, maxSets)
 	-- poolSizes is an array of tables: {{type, count}, ...}
 	local poolSizeArray = vulkan.T.Array(vulkan.vk.VkDescriptorPoolSize)(#poolSizes)
+	local has_dynamic_buffer = false
 
 	for i, ps in ipairs(poolSizes) do
 		poolSizeArray[i - 1].type = vulkan.vk.e.VkDescriptorType(ps.type)
 		poolSizeArray[i - 1].descriptorCount = ps.count or 1
+
+		if ps.type == "uniform_buffer_dynamic" or ps.type == "storage_buffer_dynamic" then
+			has_dynamic_buffer = true
+		end
 	end
 
 	local poolInfo = vulkan.vk.s.DescriptorPoolCreateInfo(

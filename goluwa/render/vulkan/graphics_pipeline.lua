@@ -17,12 +17,13 @@ function GraphicsPipeline.New(vulkan_instance, config)
 	local self = GraphicsPipeline:CreateObject({})
 	local uniform_buffers = {}
 	local shader_modules = {}
-	local layout_map = {}
+	local layout_maps = {}
 	local pool_size_map = {}
 	local push_constant_ranges = {}
 	local all_stage_bits = 0
 	local max_end = 0
 	local has_push_constants = false
+	local dynamic_descriptor_count = 0
 
 	for i, stage in ipairs(config.shader_stages) do
 		local stage_bits = vulkan.vk.e.VkShaderStageFlagBits(stage.type)
@@ -34,7 +35,10 @@ function GraphicsPipeline.New(vulkan_instance, config)
 
 		if stage.descriptor_sets then
 			for _, ds in ipairs(stage.descriptor_sets) do
+				local set_index = ds.set_index or 0
 				local binding_index = ds.binding_index
+				layout_maps[set_index] = layout_maps[set_index] or {}
+				local layout_map = layout_maps[set_index]
 
 				if layout_map[binding_index] then
 					layout_map[binding_index].stageFlags = bit.bor(layout_map[binding_index].stageFlags, tonumber(ffi.cast("uint32_t", stage_bits)))
@@ -46,9 +50,13 @@ function GraphicsPipeline.New(vulkan_instance, config)
 						count = ds.count or 1,
 					}
 					pool_size_map[ds.type] = (pool_size_map[ds.type] or 0) + (ds.count or 1)
+
+					if ds.type == "uniform_buffer_dynamic" or ds.type == "storage_buffer_dynamic" then
+						dynamic_descriptor_count = dynamic_descriptor_count + 1
+					end
 				end
 
-				if ds.type == "uniform_buffer" then
+				if ds.type == "uniform_buffer" or ds.type == "uniform_buffer_dynamic" then
 					uniform_buffers[ds.binding_index] = ds.args[1]
 				end
 			end
@@ -73,10 +81,22 @@ function GraphicsPipeline.New(vulkan_instance, config)
 		)
 	end
 
-	local layout = {}
+	local descriptorSetLayouts = {}
+	local max_set_index = 0
 
-	for _, l in pairs(layout_map) do
-		table.insert(layout, l)
+	for set_index, _ in pairs(layout_maps) do
+		max_set_index = math.max(max_set_index, set_index)
+	end
+
+	for set_index = 0, max_set_index do
+		local layout_map = layout_maps[set_index] or {}
+		local layout = {}
+
+		for _, l in pairs(layout_map) do
+			table.insert(layout, l)
+		end
+
+		descriptorSetLayouts[set_index + 1] = DescriptorSetLayout.New(vulkan_instance.device, layout)
 	end
 
 	local pool_sizes = {}
@@ -109,9 +129,9 @@ function GraphicsPipeline.New(vulkan_instance, config)
 		end
 	end
 
-	local descriptorSetLayout = DescriptorSetLayout.New(vulkan_instance.device, layout)
-	local pipelineLayout = PipelineLayout.New(vulkan_instance.device, {descriptorSetLayout}, push_constant_ranges)
+	local pipelineLayout = PipelineLayout.New(vulkan_instance.device, descriptorSetLayouts, push_constant_ranges)
 	self.push_constant_ranges = push_constant_ranges
+	self.dynamic_descriptor_count = dynamic_descriptor_count
 	-- BINDLESS DESCRIPTOR SET MANAGEMENT:
 	-- For bindless rendering, we create one descriptor set per frame containing
 	-- an array of all textures. The descriptor sets are updated when new textures
@@ -121,7 +141,7 @@ function GraphicsPipeline.New(vulkan_instance, config)
 	local descriptorSets = {}
 
 	for frame = 1, descriptor_set_count do
-		-- Create a pool for this frame - just needs space for one descriptor set with large array
+		-- Create a pool for this frame - just needs space for all descriptor sets
 		local frame_pool_sizes = {}
 
 		for i, pool_size in ipairs(pool_sizes) do
@@ -131,8 +151,14 @@ function GraphicsPipeline.New(vulkan_instance, config)
 			}
 		end
 
-		descriptorPools[frame] = DescriptorPool.New(vulkan_instance.device, frame_pool_sizes, 1)
-		descriptorSets[frame] = descriptorPools[frame]:AllocateDescriptorSet(descriptorSetLayout)
+		descriptorPools[frame] = DescriptorPool.New(vulkan_instance.device, frame_pool_sizes, #descriptorSetLayouts)
+		local frameSets = {}
+
+		for i, layout in ipairs(descriptorSetLayouts) do
+			frameSets[i] = descriptorPools[frame]:AllocateDescriptorSet(layout)
+		end
+
+		descriptorSets[frame] = frameSets
 	end
 
 	local vertex_bindings
@@ -219,7 +245,7 @@ function GraphicsPipeline.New(vulkan_instance, config)
 	self.vulkan_instance = vulkan_instance
 	self.config = config
 	self.uniform_buffers = uniform_buffers
-	self.descriptorSetLayout = descriptorSetLayout
+	self.descriptor_set_layouts = descriptorSetLayouts
 	self.descriptorPools = descriptorPools -- Array of pools, one per frame
 	self.shader_modules = shader_modules -- Keep shader modules alive to prevent GC
 	-- GraphicsPipeline variant caching for dynamic state emulation
@@ -250,7 +276,12 @@ function GraphicsPipeline.New(vulkan_instance, config)
 	local event = require("event")
 
 	event.AddListener("TextureRemoved", self, function(removed_tex)
-		if self:IsValid() then self:ReleaseTextureIndex(removed_tex) end
+		if self:IsValid() then
+			-- Most pipelines now use set 1 for bindless textures.
+			-- If set 1 exists, use it.
+			local set_index = #self.descriptor_set_layouts > 1 and 1 or 0
+			self:ReleaseTextureIndex(removed_tex, set_index)
+		end
 	end)
 
 	-- Initialize all descriptor sets with the same initial bindings
@@ -259,7 +290,7 @@ function GraphicsPipeline.New(vulkan_instance, config)
 			if stage.descriptor_sets then
 				for i, ds in ipairs(stage.descriptor_sets) do
 					if ds.args then
-						self:UpdateDescriptorSet(ds.type, frame_index, ds.binding_index, unpack(ds.args))
+						self:UpdateDescriptorSet(ds.type, frame_index, ds.binding_index, ds.set_index or 0, unpack(ds.args))
 					end
 				end
 			end
@@ -287,7 +318,9 @@ function GraphicsPipeline:GetFallbackSampler()
 	return fallback and fallback.sampler
 end
 
-function GraphicsPipeline:ReleaseTextureIndex(tex)
+function GraphicsPipeline:ReleaseTextureIndex(tex, set_index)
+	set_index = set_index or 0
+
 	if not tex or type(tex) ~= "table" then return end
 
 	local is_cube = tex.IsCubemap and tex:IsCubemap()
@@ -307,12 +340,14 @@ function GraphicsPipeline:ReleaseTextureIndex(tex)
 		}
 
 		for frame_i = 1, #self.descriptor_sets do
-			self:UpdateDescriptorSetArray(frame_i, binding_index, array)
+			self:UpdateDescriptorSetArray(frame_i, binding_index, set_index, array)
 		end
 	end
 end
 
-function GraphicsPipeline:GetTextureIndex(tex)
+function GraphicsPipeline:GetTextureIndex(tex, set_index)
+	set_index = set_index or 0
+
 	if not tex or type(tex) ~= "table" then return -1 end
 
 	local is_cube = tex.IsCubemap and tex:IsCubemap()
@@ -338,7 +373,7 @@ function GraphicsPipeline:GetTextureIndex(tex)
 			array[index + 1] = {view = tex.view, sampler = tex.sampler}
 
 			for frame_i = 1, #self.descriptor_sets do
-				self:UpdateDescriptorSetArray(frame_i, binding_index, array)
+				self:UpdateDescriptorSetArray(frame_i, binding_index, set_index, array)
 			end
 		end
 
@@ -369,14 +404,14 @@ function GraphicsPipeline:GetTextureIndex(tex)
 	-- Ensure we don't put nil into the array which might confuse the C-side UpdateDescriptorSetArray
 	array[index + 1] = {
 		view = (
-				type(tex) == "table" and
+				_G.type(tex) == "table" and
 				tex.GetView and
 				tex:GetView()
 			) or
 			tex.view or
 			self:GetFallbackView(),
 		sampler = (
-				type(tex) == "table" and
+				_G.type(tex) == "table" and
 				tex.GetSampler and
 				tex:GetSampler()
 			) or
@@ -385,13 +420,18 @@ function GraphicsPipeline:GetTextureIndex(tex)
 	}
 
 	for frame_i = 1, #self.descriptor_sets do
-		self:UpdateDescriptorSetArray(frame_i, binding_index, array)
+		self:UpdateDescriptorSetArray(frame_i, binding_index, set_index, array)
 	end
 
 	return index
 end
 
-function GraphicsPipeline:UpdateDescriptorSet(type, index, binding_index, ...)
+function GraphicsPipeline:UpdateDescriptorSet(type, index, binding_index, set_index, ...)
+	if _G.type(set_index) ~= "number" then
+		-- Backwards compatibility
+		return self:UpdateDescriptorSet(type, index, binding_index, 0, set_index, ...)
+	end
+
 	local count = select("#", ...)
 
 	if type == "combined_image_sampler" then
@@ -401,7 +441,7 @@ function GraphicsPipeline:UpdateDescriptorSet(type, index, binding_index, ...)
 			local array = {}
 
 			for i, tex in ipairs(textures) do
-				if type(tex) == "table" and tex.view and tex.sampler then
+				if _G.type(tex) == "table" and tex.view and tex.sampler then
 					array[i] = {
 						view = (tex.GetView and tex:GetView()) or tex.view,
 						sampler = (tex.GetSampler and tex:GetSampler()) or tex.sampler,
@@ -411,16 +451,16 @@ function GraphicsPipeline:UpdateDescriptorSet(type, index, binding_index, ...)
 				end
 			end
 
-			self:UpdateDescriptorSetArray(index, binding_index, array)
+			self:UpdateDescriptorSetArray(index, binding_index, set_index, array)
 			return
 		elseif count == 1 then
 			local tex = ...
 
-			if type(tex) == "table" and (tex.view or (tex.GetView and tex:GetView())) then
+			if _G.type(tex) == "table" and (tex.view or (tex.GetView and tex:GetView())) then
 				-- Single texture object passed, extract view and sampler
 				self.vulkan_instance.device:UpdateDescriptorSet(
 					type,
-					self.descriptor_sets[index],
+					self.descriptor_sets[index][set_index + 1],
 					binding_index,
 					(tex.GetView and tex:GetView()) or tex.view,
 					(tex.GetSampler and tex:GetSampler()) or tex.sampler,
@@ -432,20 +472,26 @@ function GraphicsPipeline:UpdateDescriptorSet(type, index, binding_index, ...)
 		end
 	end
 
+	local args = {...}
+	table.insert(args, self:GetFallbackView())
+	table.insert(args, self:GetFallbackSampler())
 	self.vulkan_instance.device:UpdateDescriptorSet(
 		type,
-		self.descriptor_sets[index],
+		self.descriptor_sets[index][set_index + 1],
 		binding_index,
-		...,
-		self:GetFallbackView(),
-		self:GetFallbackSampler()
+		unpack(args)
 	)
 end
 
-function GraphicsPipeline:UpdateDescriptorSetArray(frame_index, binding_index, texture_array)
+function GraphicsPipeline:UpdateDescriptorSetArray(frame_index, binding_index, set_index, texture_array)
+	if _G.type(set_index) ~= "number" then
+		-- Backwards compatibility
+		return self:UpdateDescriptorSetArray(frame_index, binding_index, 0, set_index)
+	end
+
 	-- Update a descriptor set with an array of textures for bindless rendering
 	self.vulkan_instance.device:UpdateDescriptorSetArray(
-		self.descriptor_sets[frame_index],
+		self.descriptor_sets[frame_index][set_index + 1],
 		binding_index,
 		texture_array,
 		self:GetFallbackView(),
@@ -489,7 +535,7 @@ function GraphicsPipeline:GetUniformBuffer(binding_index)
 	return ub
 end
 
-function GraphicsPipeline:Bind(cmd, frame_index)
+function GraphicsPipeline:Bind(cmd, frame_index, dynamic_offsets)
 	frame_index = frame_index or 1
 	cmd:BindPipeline(self.pipeline, "graphics")
 
@@ -719,10 +765,20 @@ function GraphicsPipeline:Bind(cmd, frame_index)
 
 	-- Bind descriptor sets
 	if self.descriptor_sets then
-		local ds = self.descriptor_sets[frame_index] or self.descriptor_sets[1]
+		local sets = self.descriptor_sets[frame_index] or self.descriptor_sets[1]
 
-		if ds then
-			cmd:BindDescriptorSets("graphics", self.pipeline_layout, {ds}, 0)
+		if sets then
+			local offsets = dynamic_offsets
+
+			if not offsets and self.dynamic_descriptor_count > 0 then
+				offsets = {}
+
+				for i = 1, self.dynamic_descriptor_count do
+					offsets[i] = 0
+				end
+			end
+
+			cmd:BindDescriptorSets("graphics", self.pipeline_layout, sets, offsets or 0)
 		end
 	end
 end
@@ -758,14 +814,18 @@ function GraphicsPipeline:OnRemove()
 	event.RemoveListener("TextureRemoved", self)
 
 	if self.descriptorPools then
-		for _, pool in ipairs(self.descriptorPools) do
+		for _, pool in pairs(self.descriptorPools) do
 			pool:Remove()
 		end
 	end
 
 	if self.pipeline then self.pipeline:Remove() end
 
-	if self.descriptorSetLayout then self.descriptorSetLayout:Remove() end
+	if self.descriptor_set_layouts then
+		for _, layout in pairs(self.descriptor_set_layouts) do
+			layout:Remove()
+		end
+	end
 
 	if self.pipeline_layout then self.pipeline_layout:Remove() end
 end

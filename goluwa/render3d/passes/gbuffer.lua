@@ -48,10 +48,10 @@ return {
 			},
 			shader = [[
 			void main() {
-				gl_Position = pc.vertex.projection_view_world * vec4(in_position, 1.0);
-				out_position = (pc.vertex.world * vec4(in_position, 1.0)).xyz;						
-				out_normal = normalize(mat3(pc.vertex.world) * in_normal);
-				out_tangent = vec4(normalize(mat3(pc.vertex.world) * in_tangent.xyz), in_tangent.w);
+				gl_Position = vertex.projection_view_world * vec4(in_position, 1.0);
+				out_position = (vertex.world * vec4(in_position, 1.0)).xyz;					
+				out_normal = normalize(mat3(vertex.world) * in_normal);
+				out_tangent = vec4(normalize(mat3(vertex.world) * in_tangent.xyz), in_tangent.w);
 				out_uv = in_uv;
 				out_texture_blend = in_texture_blend;
 			}
@@ -194,16 +194,16 @@ return {
 				},
 			},
 			shader = [[
-			]] .. Material.BuildGlslFlags("pc.model.Flags") .. [[
+			]] .. Material.BuildGlslFlags("model.Flags") .. [[
 
 			float get_texture_blend() {
-				if (pc.model.BlendTexture == -1) {
+				if (model.BlendTexture == -1) {
 					return in_texture_blend;
 				}
 
 				float blend = in_texture_blend;
 			
-				vec2 blend_data = texture(TEXTURE(pc.model.BlendTexture), in_uv).rg;
+				vec2 blend_data = texture(TEXTURE(model.BlendTexture), in_uv).rg;
 				float minb = blend_data.r;
 				float maxb = blend_data.g;
 				
@@ -214,41 +214,41 @@ return {
 			}
 
 			vec3 get_albedo() {
-				if (pc.model.AlbedoTexture == -1) {
-					return pc.model.ColorMultiplier.rgb;
+				if (model.AlbedoTexture == -1) {
+					return model.ColorMultiplier.rgb;
 				}
 				
-				vec3 rgb1 = texture(TEXTURE(pc.model.AlbedoTexture), in_uv).rgb;
+				vec3 rgb1 = texture(TEXTURE(model.AlbedoTexture), in_uv).rgb;
 				
-				if (pc.model.Albedo2Texture != -1) {
+				if (model.Albedo2Texture != -1) {
 					float blend = get_texture_blend();
 					
 					if (blend != 0) {
-						vec3 rgb2 = texture(TEXTURE(pc.model.Albedo2Texture), in_uv).rgb;
+						vec3 rgb2 = texture(TEXTURE(model.Albedo2Texture), in_uv).rgb;
 						rgb1 = mix(rgb1, rgb2, blend);
 					}
 				}
 			
-				return rgb1 * pc.model.ColorMultiplier.rgb;
+				return rgb1 * model.ColorMultiplier.rgb;
 			}
 
 			float get_alpha() {
 
 				if (
-					pc.model.AlbedoTexture == -1 ||
+					model.AlbedoTexture == -1 ||
 					AlbedoTextureAlphaIsRoughness ||
 					AlbedoTextureAlphaIsRoughness ||
 					AlbedoAlphaIsEmissive
 				) {
-					return pc.model.ColorMultiplier.a;	
+					return model.ColorMultiplier.a;	
 				}
 
-				return texture(TEXTURE(pc.model.AlbedoTexture), in_uv).a * pc.model.ColorMultiplier.a;
+				return texture(TEXTURE(model.AlbedoTexture), in_uv).a * model.ColorMultiplier.a;
 			}
 
 			void compute_translucency_and_discard(inout float alpha) {
 				if (AlphaTest) {
-					if (alpha < pc.model.AlphaCutoff) discard;
+					if (alpha < model.AlphaCutoff) discard;
 				} else if (Translucent) {
 					if (fract(dot(vec2(171.0, 231.0) + alpha * 0.00001, gl_FragCoord.xy) / 103.0) > (alpha * alpha)) discard;
 				}
@@ -270,16 +270,16 @@ return {
 				}
 
 				vec3 N;
-				if (pc.model.NormalTexture == -1) {
+				if (model.NormalTexture == -1) {
 					N = in_normal;
 				} else {
-					vec3 rgb1 = texture(TEXTURE(pc.model.NormalTexture), in_uv).xyz * 2.0 - 1.0;
+					vec3 rgb1 = texture(TEXTURE(model.NormalTexture), in_uv).xyz * 2.0 - 1.0;
 
 
-					if (pc.model.Normal2Texture != -1) {
+					if (model.Normal2Texture != -1) {
 						float blend = get_texture_blend();
 						if (blend != 0) {
-							vec3 rgb2 = texture(TEXTURE(pc.model.Normal2Texture), in_uv).xyz * 2.0 - 1.0;
+							vec3 rgb2 = texture(TEXTURE(model.Normal2Texture), in_uv).xyz * 2.0 - 1.0;
 							rgb1 = normalize(mix(rgb1, rgb2, blend));
 						}
 					}
@@ -302,17 +302,17 @@ return {
 			float get_metallic() {
 				float val = 1.0;
 
-				if (pc.model.MetallicTexture != -1) {
-					val = texture(TEXTURE(pc.model.MetallicTexture), in_uv).r;
-				} else if (pc.model.MetallicRoughnessTexture != -1) {
-					val = texture(TEXTURE(pc.model.MetallicRoughnessTexture), in_uv).b;
+				if (model.MetallicTexture != -1) {
+					val = texture(TEXTURE(model.MetallicTexture), in_uv).r;
+				} else if (model.MetallicRoughnessTexture != -1) {
+					val = texture(TEXTURE(model.MetallicRoughnessTexture), in_uv).b;
 				} else {
-					val = pc.model.MetallicMultiplier;
+					val = model.MetallicMultiplier;
 					val = clamp(val, 0, 1);
 					return val;
 				}
 
-				val *= pc.model.MetallicMultiplier;
+				val *= model.MetallicMultiplier;
 				val = clamp(val, 0, 1);
 
 				return val;
@@ -321,23 +321,23 @@ return {
 			float get_roughness() {
 				float val = 1.0;
 
-				if (pc.model.AlbedoTexture != -1 && AlbedoTextureAlphaIsRoughness) {
-					val = texture(TEXTURE(pc.model.AlbedoTexture), in_uv).a;
-				} else if (pc.model.NormalTexture != -1 && NormalTextureAlphaIsRoughness) {
-					val = -texture(TEXTURE(pc.model.NormalTexture), in_uv).a+1;
+				if (model.AlbedoTexture != -1 && AlbedoTextureAlphaIsRoughness) {
+					val = texture(TEXTURE(model.AlbedoTexture), in_uv).a;
+				} else if (model.NormalTexture != -1 && NormalTextureAlphaIsRoughness) {
+					val = -texture(TEXTURE(model.NormalTexture), in_uv).a+1;
 				} else if (AlbedoLuminanceIsRoughness) {
 					val = dot(get_albedo(), vec3(0.2126, 0.7152, 0.0722));
-				} else if (pc.model.RoughnessTexture != -1) {
-					val = texture(TEXTURE(pc.model.RoughnessTexture), in_uv).r;
-				} else if (pc.model.MetallicRoughnessTexture != -1) {
-					val = texture(TEXTURE(pc.model.MetallicRoughnessTexture), in_uv).g;
+				} else if (model.RoughnessTexture != -1) {
+					val = texture(TEXTURE(model.RoughnessTexture), in_uv).r;
+				} else if (model.MetallicRoughnessTexture != -1) {
+					val = texture(TEXTURE(model.MetallicRoughnessTexture), in_uv).g;
 				} else  {
-					val = pc.model.RoughnessMultiplier;
+					val = model.RoughnessMultiplier;
 					val = clamp(val, 0.05, 0.95);
 					return val;
 				}
 
-				val *= pc.model.RoughnessMultiplier;
+				val *= model.RoughnessMultiplier;
 
 				if (InvertRoughnessTexture) val = -val + 1.0;
 
@@ -351,20 +351,20 @@ return {
 			vec3 get_emissive() {
 				if (AlbedoAlphaIsEmissive) {
 					float mask = 1.0;
-					if (pc.model.AlbedoTexture != -1) {
-						mask = texture(TEXTURE(pc.model.AlbedoTexture), in_uv).a;
+					if (model.AlbedoTexture != -1) {
+						mask = texture(TEXTURE(model.AlbedoTexture), in_uv).a;
 					}
-					return get_albedo() * mask * pc.model.EmissiveMultiplier.rgb * pc.model.EmissiveMultiplier.a;
+					return get_albedo() * mask * model.EmissiveMultiplier.rgb * model.EmissiveMultiplier.a;
 				}
-				else if (pc.model.EmissiveTexture != -1) {
-					float mask = texture(TEXTURE(pc.model.EmissiveTexture), in_uv).r;
-					return get_albedo() * mask * pc.model.EmissiveMultiplier.rgb * pc.model.EmissiveMultiplier.a;
-				} else if (pc.model.MetallicTexture != -1 && MetallicTextureAlphaIsEmissive) {
-					float mask = texture(TEXTURE(pc.model.MetallicTexture), in_uv).a;
-					return get_albedo() * mask * pc.model.EmissiveMultiplier.rgb * pc.model.EmissiveMultiplier.a;
-				} else if (pc.model.EmissiveTexture != -1) {
-					vec3 emissive = texture(TEXTURE(pc.model.EmissiveTexture), in_uv).rgb;
-					return emissive * pc.model.EmissiveMultiplier.rgb * pc.model.EmissiveMultiplier.a;
+				else if (model.EmissiveTexture != -1) {
+					float mask = texture(TEXTURE(model.EmissiveTexture), in_uv).r;
+					return get_albedo() * mask * model.EmissiveMultiplier.rgb * model.EmissiveMultiplier.a;
+				} else if (model.MetallicTexture != -1 && MetallicTextureAlphaIsEmissive) {
+					float mask = texture(TEXTURE(model.MetallicTexture), in_uv).a;
+					return get_albedo() * mask * model.EmissiveMultiplier.rgb * model.EmissiveMultiplier.a;
+				} else if (model.EmissiveTexture != -1) {
+					vec3 emissive = texture(TEXTURE(model.EmissiveTexture), in_uv).rgb;
+					return emissive * model.EmissiveMultiplier.rgb * model.EmissiveMultiplier.a;
 				}
 									return vec3(0);
 
@@ -372,10 +372,10 @@ return {
 			}
 
 			float get_ao() {
-				if (pc.model.AmbientOcclusionTexture == -1) {
-					return 1.0 * pc.model.AmbientOcclusionMultiplier;
+				if (model.AmbientOcclusionTexture == -1) {
+					return 1.0 * model.AmbientOcclusionMultiplier;
 				}
-				return texture(TEXTURE(pc.model.AmbientOcclusionTexture), in_uv).r * pc.model.AmbientOcclusionMultiplier;
+				return texture(TEXTURE(model.AmbientOcclusionTexture), in_uv).r * model.AmbientOcclusionMultiplier;
 			}
 
 			void main() {

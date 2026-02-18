@@ -512,6 +512,12 @@ function EasyPipeline.New(config)
 
 		if type(stage_config) == "table" and stage_config.push_constants then
 			for _, block in ipairs(stage_config.push_constants) do
+				-- Auto-assign a stable internal name for unnamed blocks (stage-specific to avoid collision)
+				if block.name == nil then
+					block.name = "_u_" .. stage_name
+					block._is_unnamed = true
+				end
+
 				if not push_constant_blocks[block.name] then
 					block.block = flatten_fields(block.block)
 					push_constant_blocks[block.name] = block
@@ -536,6 +542,22 @@ function EasyPipeline.New(config)
 		current_push_offset = current_push_offset + ffi.sizeof(push_constant_types[struct_name])
 	end
 
+	-- Auto binding index counter starts at 2 (0=textures, 1=cubemaps are reserved)
+	local next_auto_binding = 2
+
+	-- Pre-scan all explicit binding indices so auto-assignment skips them
+	for _, sc in pairs(config) do
+		if type(sc) == "table" and sc.uniform_buffers then
+			for _, b in ipairs(sc.uniform_buffers) do
+				if b.binding_index and b.binding_index >= next_auto_binding then
+					next_auto_binding = b.binding_index + 1
+				end
+			end
+		end
+	end
+
+	local uniform_buffer_order = {}
+
 	for stage_name, stage_config in pairs(config) do
 		if
 			type(stage_config) ~= "table" or
@@ -550,6 +572,18 @@ function EasyPipeline.New(config)
 		-- Process uniform buffers
 		if stage_config.uniform_buffers then
 			for _, block in ipairs(stage_config.uniform_buffers) do
+				-- Auto-assign a stable internal name for unnamed blocks (stage-specific to avoid collision)
+				if block.name == nil then
+					block.name = "_u_" .. stage_name
+					block._is_unnamed = true
+				end
+
+				-- Auto-assign binding index if not specified
+				if block.binding_index == nil then
+					block.binding_index = next_auto_binding
+					next_auto_binding = next_auto_binding + 1
+				end
+
 				block.block = flatten_fields(block.block)
 
 				if not block.block[1] then
@@ -560,15 +594,28 @@ function EasyPipeline.New(config)
 				local glsl_fields, glsl_structs = build_glsl_fields(block.block)
 				local ubo = UniformBuffer.New(ffi_code)
 				verify_layout("scalar", block.name, block.block, ubo.struct)
+				local block_type_name = block.name:sub(1, 1):upper() .. block.name:sub(2)
+
+				-- Ensure the block type name differs from the instance name (GLSL forbids identical names)
+				if block_type_name == block.name then
+					block_type_name = block_type_name .. "_t"
+				end
+
 				local glsl_declaration = string.format(
 					"%slayout(scalar, binding = %d) uniform %s {\n%s} %s;",
 					glsl_structs,
 					block.binding_index,
-					block.name:sub(1, 1):upper() .. block.name:sub(2),
+					block_type_name,
 					glsl_fields,
 					block.name
 				)
-				uniform_buffer_types[block.name] = {ubo = ubo, block = block, glsl = glsl_declaration}
+				table.insert(uniform_buffer_order, block.name)
+				uniform_buffer_types[block.name] = {
+					ubo = ubo,
+					block = block,
+					glsl = glsl_declaration,
+					offsets = {}, -- Tracks offsets used in the current frame
+				}
 				uniform_buffers[block.name] = ubo
 			end
 		end
@@ -608,6 +655,18 @@ function EasyPipeline.New(config)
 		end
 
 		str = str .. "} pc;\n\n"
+
+		-- Emit shortcut #defines: named block -> #define name pc.name
+		-- unnamed block -> #define U pc._u
+		for _, block in ipairs(blocks) do
+			if block._is_unnamed then
+				str = str .. "#define U pc." .. block.name .. "\n"
+			else
+				str = str .. "#define " .. block.name .. " pc." .. block.name .. "\n"
+			end
+		end
+
+		str = str .. "\n"
 		return str
 	end
 
@@ -620,6 +679,11 @@ function EasyPipeline.New(config)
 
 		for _, block in ipairs(stage_config.uniform_buffers) do
 			glsl = glsl .. uniform_buffer_types[block.name].glsl .. "\n\n"
+
+			-- Emit #define U for unnamed UBOs
+			if block._is_unnamed then
+				glsl = glsl .. "#define U " .. block.name .. "\n\n"
+			end
 		end
 
 		return glsl
@@ -675,7 +739,11 @@ function EasyPipeline.New(config)
 		end
 
 		-- Update uniform buffers
-		for name, info in pairs(uniform_buffer_types) do
+		local offsets = {}
+		local frame_index = render.GetCurrentFrame()
+
+		for _, name in ipairs(uniform_buffer_order) do
+			local info = uniform_buffer_types[name]
 			local ubo_data = info.ubo:GetData()
 
 			for i, field in ipairs(info.block.block) do
@@ -689,8 +757,10 @@ function EasyPipeline.New(config)
 				end
 			end
 
-			info.ubo:Upload()
+			table.insert(offsets, info.ubo:Upload(frame_index))
 		end
+
+		if #offsets > 0 then self.pipeline:Bind(cmd, frame_index, offsets) end
 	end
 
 	local glsl_to_lua_type = {
@@ -759,8 +829,8 @@ function EasyPipeline.New(config)
 #extension GL_EXT_buffer_reference : require
 #extension GL_EXT_buffer_reference2 : require
 
-	layout(binding = 0) uniform sampler2D textures[1024];
-	layout(binding = 1) uniform samplerCube cubemaps[1024];
+	layout(set = 1, binding = 0) uniform sampler2D textures[1024];
+	layout(set = 1, binding = 1) uniform samplerCube cubemaps[1024];
 	#define TEXTURE(idx) textures[nonuniformEXT(idx)]
 	#define CUBEMAP(idx) cubemaps[nonuniformEXT(idx)]
 ]]
@@ -786,16 +856,19 @@ function EasyPipeline.New(config)
 			type = "combined_image_sampler",
 			binding_index = 0,
 			count = 1024,
+			set_index = 1,
 		},
 		-- Cubemap array sampler (binding 1)
 		{
 			type = "combined_image_sampler",
 			binding_index = 1,
 			count = 1024,
+			set_index = 1,
 		},
 	}
-
 	-- Add uniform buffers from and descriptors from all stages
+	local uniform_buffer_order = {}
+
 	for _, stage_name in ipairs(possible_stages) do
 		local stage_config = config[stage_name]
 
@@ -810,12 +883,14 @@ function EasyPipeline.New(config)
 
 			if stage_config.uniform_buffers then
 				for _, block in ipairs(stage_config.uniform_buffers) do
+					local ubo = uniform_buffers[block.name]
+					table.insert(uniform_buffer_order, block.name)
 					table.insert(
 						descriptor_sets,
 						{
-							type = "uniform_buffer",
+							type = "uniform_buffer_dynamic",
 							binding_index = block.binding_index,
-							args = {uniform_buffers[block.name].buffer},
+							args = {ubo.buffer, ubo.aligned_size},
 						}
 					)
 				end
@@ -1059,16 +1134,16 @@ function EasyPipeline:OnWindowFramebufferResized()
 
 		if #textures > 0 then
 			for i = 1, #self.pipeline.descriptor_sets do
-				self.pipeline:UpdateDescriptorSetArray(i, 0, textures)
+				self.pipeline:UpdateDescriptorSetArray(i, 0, 1, textures)
 			end
 		end
 	end
 end
 
-function EasyPipeline:Bind(cmd, frame_index)
+function EasyPipeline:Bind(cmd, frame_index, dynamic_offsets)
 	cmd = cmd or render.GetCommandBuffer()
 	frame_index = frame_index or render.GetCurrentFrame()
-	self.pipeline:Bind(cmd, frame_index)
+	self.pipeline:Bind(cmd, frame_index, dynamic_offsets or self.dynamic_offsets)
 end
 
 function EasyPipeline:SetState(...)
@@ -1108,7 +1183,7 @@ function EasyPipeline:GetVertexAttributes()
 end
 
 function EasyPipeline:GetTextureIndex(texture)
-	return self.pipeline:GetTextureIndex(texture)
+	return self.pipeline:GetTextureIndex(texture, 1)
 end
 
 function EasyPipeline:PushConstants(...)

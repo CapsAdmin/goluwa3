@@ -322,11 +322,11 @@ function lightprobes.CreatePipelines()
 				},
 				shader = [[
                 void main() {
-                    gl_Position = pc.vertex.projection_view_world * vec4(in_position, 1.0);
-                    out_position = (pc.vertex.world * vec4(in_position, 1.0)).xyz;
-                    out_normal = normalize(mat3(pc.vertex.world) * in_normal);
+                    gl_Position = vertex.projection_view_world * vec4(in_position, 1.0);
+                    out_position = (vertex.world * vec4(in_position, 1.0)).xyz;
+                    out_normal = normalize(mat3(vertex.world) * in_normal);
                     out_uv = in_uv;
-                    out_tangent = vec4(normalize(mat3(pc.vertex.world) * in_tangent.xyz), in_tangent.w);
+                    out_tangent = vec4(normalize(mat3(vertex.world) * in_tangent.xyz), in_tangent.w);
                     out_texture_blend = in_texture_blend;
                 }
             ]],
@@ -471,8 +471,8 @@ function lightprobes.CreatePipelines()
               
                 void main() {
 					vec3 albedo = vec3(1,0,0);
-					if (pc.model.AlbedoTexture != -1) {
-                        albedo = texture(TEXTURE(pc.model.AlbedoTexture), in_uv).rgb;
+					if (model.AlbedoTexture != -1) {
+                        albedo = texture(TEXTURE(model.AlbedoTexture), in_uv).rgb;
                     }
                     
                     set_color(vec4(albedo, 1.0));
@@ -540,7 +540,7 @@ function lightprobes.CreatePipelines()
                 void main() {
                     vec2 pos = positions[gl_VertexIndex];
                     gl_Position = vec4(pos, 1.0, 1.0);
-                    vec4 world_pos = pc.vertex.inv_projection_view * vec4(pos, 1.0, 1.0);
+                    vec4 world_pos = vertex.inv_projection_view * vec4(pos, 1.0, 1.0);
                     out_direction = world_pos.xyz / world_pos.w;
                 }
             ]],
@@ -587,9 +587,9 @@ function lightprobes.CreatePipelines()
                     vec3 sky_color_output;
                     ]] .. atmosphere.GetGLSLMainCode(
 						"in_direction",
-						"pc.fragment.sun_direction.xyz",
-						"pc.fragment.camera_position.xyz",
-						"pc.fragment.stars_texture_index"
+						"fragment.sun_direction.xyz",
+						"fragment.camera_position.xyz",
+						"fragment.stars_texture_index"
 					) .. [[
                     // Clamp sky to prevent infinities
                     sky_color_output = clamp(sky_color_output, vec3(0.0), vec3(65504.0));
@@ -640,7 +640,7 @@ function lightprobes.CreatePipelines()
                 void main() {
                     vec2 pos = positions[gl_VertexIndex];
                     gl_Position = vec4(pos, 1.0, 1.0);
-                    vec4 world_pos = pc.vertex.inv_projection_view * vec4(pos, 1.0, 1.0);
+                    vec4 world_pos = vertex.inv_projection_view * vec4(pos, 1.0, 1.0);
                     out_direction = world_pos.xyz / world_pos.w;
                 }
             ]],
@@ -730,10 +730,10 @@ function lightprobes.CreatePipelines()
                     const uint SAMPLE_COUNT = 512u;
                     float totalWeight = 0.0;
                     vec3 prefilteredColor = vec3(0.0);
-                    float roughness = clamp(pc.fragment.roughness, 0.0, 1.0);
+                    float roughness = clamp(fragment.roughness, 0.0, 1.0);
 
                     if (roughness < 0.001) {
-                        prefilteredColor = textureLod(CUBEMAP(pc.fragment.input_texture_index), N, 0.0).rgb;
+                        prefilteredColor = textureLod(CUBEMAP(fragment.input_texture_index), N, 0.0).rgb;
                         set_color(vec4(prefilteredColor, 1.0));
                         return;
                     }
@@ -750,14 +750,14 @@ function lightprobes.CreatePipelines()
                             float D = D_GGX(NoH, roughness);
                             float pdf = max((D * NoH / (4.0 * VoH)), 0.0001);
 
-                            float resolution = pc.fragment.resolution;
+                            float resolution = fragment.resolution;
                             float saSample = 1.0 / (float(SAMPLE_COUNT) * pdf);
                             float saTexel  = 4.0 * PI / (6.0 * resolution * resolution);
 
                             float mipBias = max(saSample / saTexel, 1.0);
                             float lod = clamp(0.5 * log2(mipBias), 0.0, 8.0);
 
-                            vec3 sampledColor = textureLod(CUBEMAP(pc.fragment.input_texture_index), L, lod).rgb;
+                            vec3 sampledColor = textureLod(CUBEMAP(fragment.input_texture_index), L, lod).rgb;
                             sampledColor = min(sampledColor, vec3(65504.0));
                             
                             prefilteredColor += sampledColor * NoL;
@@ -768,7 +768,7 @@ function lightprobes.CreatePipelines()
                     if (totalWeight > 0.0001) {
                         prefilteredColor /= totalWeight;
                     } else {
-                        prefilteredColor = textureLod(CUBEMAP(pc.fragment.input_texture_index), N, 0.0).rgb;
+                        prefilteredColor = textureLod(CUBEMAP(fragment.input_texture_index), N, 0.0).rgb;
                     }
                     
                     prefilteredColor = clamp(prefilteredColor, vec3(0.0), vec3(65504.0));

@@ -110,11 +110,11 @@ function META:GetJFAPipelines()
 				shader = [[
 					layout(location = 0) in vec2 in_uv;
 					void main() {
-						vec4 tex = texture(TEXTURE(pc.fragment.tex_idx), in_uv);
+						vec4 tex = texture(TEXTURE(fragment.tex_idx), in_uv);
 						float mask = max(tex.r, tex.a);
 						// Use coverage-aware seeding: pixels with any partial
 						// coverage are seeds, which captures the anti-aliased edge
-						bool is_seed = (pc.fragment.mode == 0) ? (mask > 0.02) : (mask < 0.98);
+						bool is_seed = (fragment.mode == 0) ? (mask > 0.02) : (mask < 0.98);
 						if (is_seed) {
 							set_rg(in_uv);
 						} else {
@@ -154,16 +154,16 @@ function META:GetJFAPipelines()
 				shader = [[
 					layout(location = 0) in vec2 in_uv;
 					void main() {
-						vec2 best_seed = texture(TEXTURE(pc.fragment.tex_idx), in_uv).rg;
-						float best_dist = (best_seed.x < 0.0) ? 1e10 : length((best_seed - in_uv) * pc.fragment.size);
+						vec2 best_seed = texture(TEXTURE(fragment.tex_idx), in_uv).rg;
+						float best_dist = (best_seed.x < 0.0) ? 1e10 : length((best_seed - in_uv) * fragment.size);
 						
 						for (int y = -1; y <= 1; y++) {
 							for (int x = -1; x <= 1; x++) {
 								if (x == 0 && y == 0) continue;
-								vec2 sample_uv = in_uv + vec2(float(x), float(y)) * pc.fragment.step_size / pc.fragment.size;
-								vec2 seed = texture(TEXTURE(pc.fragment.tex_idx), sample_uv).rg;
+								vec2 sample_uv = in_uv + vec2(float(x), float(y)) * fragment.step_size / fragment.size;
+								vec2 seed = texture(TEXTURE(fragment.tex_idx), sample_uv).rg;
 								if (seed.x >= 0.0) {
-									float dist = length((seed - in_uv) * pc.fragment.size);
+									float dist = length((seed - in_uv) * fragment.size);
 									if (dist < best_dist) {
 										best_dist = dist;
 										best_seed = seed;
@@ -206,8 +206,8 @@ function META:GetJFAPipelines()
 				shader = [[
 					layout(location = 0) in vec2 in_uv;
 					void main() {
-						vec2 seed = texture(TEXTURE(pc.fragment.tex_idx), in_uv).rg;
-						float dist = (seed.x < 0.0) ? pc.fragment.max_dist : length((seed - in_uv) * pc.fragment.size);
+						vec2 seed = texture(TEXTURE(fragment.tex_idx), in_uv).rg;
+						float dist = (seed.x < 0.0) ? fragment.max_dist : length((seed - in_uv) * fragment.size);
 						set_r(dist);
 					}
 				]],
@@ -249,12 +249,12 @@ function META:GetJFAPipelines()
 				shader = [[
 					layout(location = 0) in vec2 in_uv;
 					void main() {
-						float d_on = texture(TEXTURE(pc.fragment.dist_on_idx), in_uv).r;
-						float d_off = texture(TEXTURE(pc.fragment.dist_off_idx), in_uv).r;
+						float d_on = texture(TEXTURE(fragment.dist_on_idx), in_uv).r;
+						float d_off = texture(TEXTURE(fragment.dist_off_idx), in_uv).r;
 
 						// Use the original anti-aliased mask to refine the distance
 						// at glyph boundaries for sub-pixel accuracy
-						vec4 mask_sample = texture(TEXTURE(pc.fragment.mask_idx), in_uv);
+						vec4 mask_sample = texture(TEXTURE(fragment.mask_idx), in_uv);
 						float coverage = max(mask_sample.r, mask_sample.a);
 
 						float dist = d_off - d_on;
@@ -266,7 +266,7 @@ function META:GetJFAPipelines()
 						float edge_weight = smoothstep(2.0, 0.0, abs(dist));
 						dist = mix(dist, -aa_offset, edge_weight);
 
-						float norm_dist = clamp(dist / (pc.fragment.max_dist * 2.0) + 0.5, 0.0, 1.0);
+						float norm_dist = clamp(dist / (fragment.max_dist * 2.0) + 0.5, 0.0, 1.0);
 						set_rgba(vec4(norm_dist, norm_dist, norm_dist, 1.0));
 					}
 				]],

@@ -276,7 +276,7 @@ function CommandBuffer:BindVertexBuffer(buffer, binding, offset)
 	self:BindVertexBuffers(binding, {buffer}, offset and {offset} or nil)
 end
 
-function CommandBuffer:BindDescriptorSets(type, pipelineLayout, descriptorSets, firstSet)
+function CommandBuffer:BindDescriptorSets(pipeline_bind_point, pipelineLayout, descriptorSets, dynamicOffsets, firstSet)
 	local setCount = #descriptorSets
 	local setArray = vulkan.T.Array(vulkan.vk.VkDescriptorSet)(setCount)
 
@@ -284,15 +284,32 @@ function CommandBuffer:BindDescriptorSets(type, pipelineLayout, descriptorSets, 
 		setArray[i - 1] = ds.ptr[0]
 	end
 
+	local dynamicOffsetCount = 0
+	local pDynamicOffsets = nil
+
+	if _G.type(dynamicOffsets) == "table" then
+		dynamicOffsetCount = #dynamicOffsets
+		pDynamicOffsets = vulkan.T.Array(ffi.typeof("uint32_t"))(dynamicOffsetCount)
+
+		for i, offset in ipairs(dynamicOffsets) do
+			pDynamicOffsets[i - 1] = offset
+		end
+	elseif _G.type(dynamicOffsets) == "number" and dynamicOffsets > 0 then
+		dynamicOffsetCount = 1
+		pDynamicOffsets = vulkan.T.Array(ffi.typeof("uint32_t"))(1)
+		pDynamicOffsets[0] = dynamicOffsets
+	end
+
+	local firstSetInt = firstSet or 0
 	vulkan.lib.vkCmdBindDescriptorSets(
 		self.ptr[0],
-		vulkan.vk.e.VkPipelineBindPoint(type),
+		vulkan.vk.e.VkPipelineBindPoint(pipeline_bind_point),
 		pipelineLayout.ptr[0],
-		firstSet or 0,
+		firstSetInt,
 		setCount,
 		setArray,
-		0,
-		nil
+		dynamicOffsetCount,
+		pDynamicOffsets
 	)
 end
 
