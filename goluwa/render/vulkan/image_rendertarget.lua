@@ -402,14 +402,16 @@ function ImageRenderTarget:WaitForPreviousFrame()
 end
 
 function ImageRenderTarget:BeginFrame()
-	self.current_frame = (self.current_frame % #self.textures) + 1
+	local frame_index = (self.current_frame % #self.textures) + 1
 
-	if self.in_flight_fences and self.in_flight_fences[self.current_frame] then
-		self.in_flight_fences[self.current_frame]:Wait()
+	if self.in_flight_fences and self.in_flight_fences[frame_index] then
+		self.in_flight_fences[frame_index]:Wait()
 	end
 
+	local texture_index
+
 	if self.swapchain then
-		local texture_index = self.swapchain:GetNextImage(self.image_available_semaphores[self.current_frame])
+		texture_index = self.swapchain:GetNextImage(self.image_available_semaphores[frame_index])
 
 		if texture_index == nil then
 			self:RebuildFramebuffers()
@@ -419,8 +421,10 @@ function ImageRenderTarget:BeginFrame()
 		self.texture_index = texture_index + 1
 	else
 		self.texture_index = 1
+		texture_index = 0
 	end
 
+	self.current_frame = frame_index
 	local cmd = self:GetCommandBuffer()
 	cmd:Reset()
 	cmd:Begin()

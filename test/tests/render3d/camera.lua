@@ -97,6 +97,15 @@ local function TestCamera(name, cb)
 	local ents = {}
 
 	local function start()
+		if not white_tex then
+			white_tex = Texture.New({
+				width = 1,
+				height = 1,
+				format = "r8g8b8a8_unorm",
+			})
+			white_tex:Shade("return vec4(1, 1, 1, 1);")
+		end
+
 		local sun = Entity.New(
 			{
 				transform = {

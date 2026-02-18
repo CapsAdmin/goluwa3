@@ -21,13 +21,14 @@ function test_render.Draw2D(cb)
 		test_render.render2d_init = true
 	end
 
-	render.BeginFrame()
-	render2d.BindPipeline()
-	render2d.ResetState()
-	local finish = cb(width, height)
-	render.EndFrame()
+	if render.BeginFrame() then
+		render2d.BindPipeline()
+		render2d.ResetState()
+		local finish = cb(width, height)
+		render.EndFrame()
 
-	if finish then finish() end
+		if finish then finish() end
+	end
 end
 
 local function draw_3d_func()

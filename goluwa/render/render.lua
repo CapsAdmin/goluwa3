@@ -87,10 +87,12 @@ function render.Initialize(config)
 		render.target:WaitForPreviousFrame()
 		-- Shadow passes run before main frame (before swapchain acquire)
 		event.Call("PreFrame", dt)
-		render.BeginFrame()
-		event.Call("Draw", render.GetCommandBuffer(), dt)
-		event.Call("PostDraw", render.GetCommandBuffer(), dt)
-		render.EndFrame()
+
+		if render.BeginFrame() then
+			event.Call("Draw", render.GetCommandBuffer(), dt)
+			event.Call("PostDraw", render.GetCommandBuffer(), dt)
+			render.EndFrame()
+		end
 	end
 
 	event.AddListener("Update", "window_update", render.Draw)
@@ -101,8 +103,11 @@ function render.Initialize(config)
 end
 
 function render.BeginFrame()
-	render.in_frame = true
 	render.cmd = render.target:BeginFrame()
+
+	if render.cmd then render.in_frame = true end
+
+	return render.cmd
 end
 
 function render.GetCommandBuffer()
@@ -110,6 +115,8 @@ function render.GetCommandBuffer()
 end
 
 function render.EndFrame()
+	if not render.in_frame then return end
+
 	render.target:EndFrame()
 	render.cmd = nil
 	render.in_frame = false
