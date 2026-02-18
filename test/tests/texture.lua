@@ -6,7 +6,6 @@ T.Test("texture bindless index reuse with __gc", function()
 	local render = require("render.render")
 	render.Initialize({headless = true})
 	render2d.Initialize()
-	render2d.UpdatePipeline()
 	local pipeline = render2d.pipeline
 	T(pipeline)["~="](nil)
 	local start_index = pipeline.next_texture_index

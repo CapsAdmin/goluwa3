@@ -1071,6 +1071,34 @@ function EasyPipeline:Bind(cmd, frame_index)
 	self.pipeline:Bind(cmd, frame_index)
 end
 
+function EasyPipeline:SetState(...)
+	return self.pipeline:SetState(...)
+end
+
+function EasyPipeline:UpdateDescriptorSetArray(...)
+	return self.pipeline:UpdateDescriptorSetArray(...)
+end
+
+function EasyPipeline:UpdateDescriptorSet(...)
+	return self.pipeline:UpdateDescriptorSet(...)
+end
+
+function EasyPipeline:ResetToBase(...)
+	return self.pipeline:ResetToBase(...)
+end
+
+function EasyPipeline:GetUniformBuffer(...)
+	return self.pipeline:GetUniformBuffer(...)
+end
+
+function EasyPipeline:GetFallbackView(...)
+	return self.pipeline:GetFallbackView(...)
+end
+
+function EasyPipeline:GetFallbackSampler(...)
+	return self.pipeline:GetFallbackSampler(...)
+end
+
 function EasyPipeline:GetDebugViews()
 	return self.debug_views
 end
