@@ -120,7 +120,7 @@ function META:OnGlobalMouseInput(button, press, pos)
 			end
 
 			self:StartDragging(button)
-			return true
+		--return true
 		end
 	end
 end

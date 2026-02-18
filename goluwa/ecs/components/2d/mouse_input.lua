@@ -61,6 +61,24 @@ local function get_hovered_entity(entity, mouse_pos)
 	return nil
 end
 
+local function call_global_event(entity, event_name, ...)
+	local children = entity:GetChildren()
+
+	for i = #children, 1, -1 do
+		local res, cmp = call_global_event(children[i], event_name, ...)
+
+		if res ~= nil then return res, cmp end
+	end
+
+	if entity.mouse_input then
+		local res = entity:CallLocalEvent(event_name, ...)
+
+		if res ~= nil then return res, entity.mouse_input end
+	end
+
+	return nil
+end
+
 local Panel = require("ecs.panel")
 
 function META:IsHoveredExclusively(mouse_pos)
@@ -82,17 +100,9 @@ function META:OnFirstCreated()
 		local pos = window.GetMousePosition()
 
 		do
-			local global_handled = false
+			local res, cmp = call_global_event(Panel.World, "OnGlobalMouseInput", button, press, pos)
 
-			for _, cmp in ipairs(META.Instances) do
-				if cmp.Owner:CallLocalEvent("OnGlobalMouseInput", button, press, pos) then
-					global_handled = true
-
-					if press then break end
-				end
-			end
-
-			if global_handled and press then return true end
+			if res and press then return true end
 		end
 
 		if press then
@@ -192,12 +202,12 @@ function META:OnFirstCreated()
 		local cursor = "arrow"
 		local global_handled_move = false
 
-		for _, cmp in ipairs(META.Instances) do
-			if cmp.Owner:CallLocalEvent("OnGlobalMouseMove", pos) then
+		do
+			local res, cmp = call_global_event(Panel.World, "OnGlobalMouseMove", pos)
+
+			if res then
 				cursor = cmp:GetCursor()
 				global_handled_move = true
-
-				break
 			end
 		end
 
