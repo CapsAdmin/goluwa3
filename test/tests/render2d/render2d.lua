@@ -41,7 +41,11 @@ T.Test2D("Graphics render2d color rendering", function()
 	render2d.SetColor(1, 0, 0, 1)
 	render2d.DrawRect(10, 10, 1, 1)
 	return function()
-		T.ScreenPixel(10, 10, 1, 0, 0, 1)
+		T.AssertScreenPixel({
+			pos = {10, 10},
+			color = {1, 0, 0, 1},
+			tolerance = 0.1,
+		})
 	end
 end)
 
@@ -69,7 +73,11 @@ T.Test2D("Graphics render2d alpha multiplier rendering", function()
 	return function()
 		-- With alpha blending, white at 0.5 alpha over black background = gray
 		-- Result: RGB = 1 * 0.5 + 0 * 0.5 = 0.5 (127/255)
-		T.ScreenPixel(20, 20, 0.5, 0.5, 0.5, 0.5, 0.01)
+		T.AssertScreenPixel({
+			pos = {20, 20},
+			color = {0.5, 0.5, 0.5, 0.5},
+			tolerance = 0.1,
+		})
 	end
 end)
 
@@ -181,7 +189,11 @@ T.Test2D("Graphics render2d Translate", function()
 	render2d.PopMatrix()
 	-- Pixel should be at (50, 50)
 	return function()
-		T.ScreenPixel(50, 50, 1, 0, 0, 1)
+		T.AssertScreenPixel({
+			pos = {50, 50},
+			color = {1, 0, 0, 1},
+			tolerance = 0.1,
+		})
 	end
 end)
 
@@ -193,7 +205,7 @@ T.Test2D("Graphics render2d Translatef", function()
 	render2d.PopMatrix()
 	-- Should be near (60, 60) or (61, 61) due to sub-pixel positioning
 	return function()
-		T.ScreenPixel(60, 60, 0, 1, 0, 1, 0.5)
+		T.AssertScreenPixel({pos = {60, 60}, color = {0, 1, 0, 1}, tolerance = 0.8})
 	end
 end)
 
@@ -205,8 +217,16 @@ T.Test2D("Graphics render2d Scale", function()
 	render2d.PopMatrix()
 	-- Should be scaled to 2x2
 	return function()
-		T.ScreenPixel(0, 0, 0, 0, 1, 1)
-		T.ScreenPixel(1, 1, 0, 0, 1, 1)
+		T.AssertScreenPixel({
+			pos = {0, 0},
+			color = {0, 0, 1, 1},
+			tolerance = 0.3,
+		})
+		T.AssertScreenPixel({
+			pos = {1, 1},
+			color = {0, 0, 1, 1},
+			tolerance = 0.3,
+		})
 	end
 end)
 
@@ -219,7 +239,7 @@ T.Test2D("Graphics render2d Rotate", function()
 	render2d.PopMatrix()
 	-- Center pixel should be rendered
 	return function()
-		T.ScreenPixel(100, 100, 1, 1, 0, 1, 0.1)
+		T.AssertScreenPixel({pos = {100, 100}, color = {1, 1, 0, 1}, tolerance = 0.1})
 	end
 end)
 
@@ -234,7 +254,7 @@ T.Test2D("Graphics render2d combined transforms", function()
 	render2d.PopMatrix()
 	-- Center should have the color
 	return function()
-		T.ScreenPixel(150, 150, 1, 0, 1, 1, 0.1)
+		T.AssertScreenPixel({pos = {150, 150}, color = {1, 0, 1, 1}, tolerance = 0.1})
 	end
 end)
 
@@ -245,7 +265,7 @@ T.Test2D("Graphics render2d PushMatrix with parameters", function()
 	render2d.DrawRect(0, 0, 1, 1)
 	render2d.PopMatrix()
 	return function()
-		T.ScreenPixel(200, 200, 0, 1, 1, 1, 0.1)
+		T.AssertScreenPixel({pos = {200, 200}, color = {0, 1, 1, 1}, tolerance = 0.6})
 	end
 end)
 
@@ -263,8 +283,16 @@ T.Test2D("Graphics render2d DrawRect basic", function()
 	render2d.SetColor(1, 0.5, 0, 1)
 	render2d.DrawRect(250, 250, 10, 10)
 	return function()
-		T.ScreenPixel(250, 250, 1, 0.5, 0, 1)
-		T.ScreenPixel(259, 259, 1, 0.5, 0, 1)
+		T.AssertScreenPixel({
+			pos = {250, 250},
+			color = {1, 0.5, 0, 1},
+			tolerance = 0.1,
+		})
+		T.AssertScreenPixel({
+			pos = {259, 259},
+			color = {1, 0.5, 0, 1},
+			tolerance = 0.1,
+		})
 	end
 end)
 
@@ -279,7 +307,7 @@ T.Test2D("Graphics render2d DrawRect with rotation", function()
 	render2d.PopMatrix()
 	-- Center of rotated rectangle should have the color
 	return function()
-		T.ScreenPixel(300, 300, 0.5, 0.5, 1, 1, 0.1)
+		T.AssertScreenPixel({pos = {300, 300}, color = {0.5, 0.5, 1, 1}, tolerance = 0.1})
 	end
 end)
 
@@ -288,7 +316,7 @@ T.Test2D("Graphics render2d DrawRect with offset", function()
 	render2d.DrawRect(350, 350, 20, 20, 0, 10, 10)
 	-- Should be offset by (10, 10)
 	return function()
-		T.ScreenPixel(340, 340, 1, 1, 1, 1, 0.1)
+		T.AssertScreenPixel({pos = {340, 340}, color = {1, 1, 1, 1}, tolerance = 0.1})
 	end
 end)
 
@@ -298,7 +326,7 @@ T.Test2D("Graphics render2d DrawTriangle basic", function()
 	-- Triangle vertices at (-0.5,-0.5), (0.5,0.5), (-0.5,0.5) in local space
 	-- Scaled by 20x20 at (400,400): check upper-left area around (395, 405)
 	return function()
-		T.ScreenPixel(395, 405, 1, 0, 0.5, 1, 0.1)
+		T.AssertScreenPixel({pos = {395, 405}, color = {1, 0, 0.5, 1}, tolerance = 0.1})
 	end
 end)
 
@@ -307,7 +335,7 @@ T.Test2D("Graphics render2d DrawTriangle with rotation", function()
 	render2d.DrawTriangle(450, 450, 20, 20, math.rad(60))
 	-- With rotation, check a point that should be inside
 	return function()
-		T.ScreenPixel(445, 455, 0, 1, 0.5, 1, 0.2)
+		T.AssertScreenPixel({pos = {445, 455}, color = {0, 1, 0.5, 1}, tolerance = 0.2})
 	end
 end)
 
@@ -339,7 +367,7 @@ T.Test2D("Graphics render2d custom mesh rendering", function()
 	mesh:DrawIndexed(render2d.cmd, 6)
 	render2d.PopMatrix()
 	return function()
-		T.ScreenPixel(105, 105, 0.5, 0, 0.5, 1, 0.1)
+		T.AssertScreenPixel({pos = {105, 105}, color = {0.5, 0, 0.5, 1}, tolerance = 0.1})
 	end
 end)
 
@@ -398,7 +426,11 @@ T.Test2D("Graphics render2d nested PushMatrix calls", function()
 	render2d.PopMatrix()
 	-- Should be at (60, 60)
 	return function()
-		T.ScreenPixel(60, 60, 1, 1, 1, 1)
+		T.AssertScreenPixel({
+			pos = {60, 60},
+			color = {1, 1, 1, 1},
+			tolerance = 0.1,
+		})
 	end
 end)
 
@@ -542,11 +574,23 @@ T.Test2D("Graphics render2d stencil rendering", function()
 	render2d.SetStencilMode("none")
 	return function()
 		-- (110, 110) should be green (overlap of red write and green test)
-		T.ScreenPixel(110, 110, 0, 1, 0, 1)
+		T.AssertScreenPixel({
+			pos = {110, 110},
+			color = {0, 1, 0, 1},
+			tolerance = 0.1,
+		})
 		-- (80, 80) should be black/background (green test failed)
-		T.ScreenPixel(80, 80, 0, 0, 0, 1)
+		T.AssertScreenPixel({
+			pos = {80, 80},
+			color = {0, 0, 0, 1},
+			tolerance = 0.1,
+		})
 		-- (160, 160) should be blue (test_inverse passed, stencil was 0)
-		T.ScreenPixel(160, 160, 0, 0, 1, 1)
+		T.AssertScreenPixel({
+			pos = {160, 160},
+			color = {0, 0, 1, 1},
+			tolerance = 0.1,
+		})
 	end
 end)
 
@@ -569,10 +613,19 @@ T.Test2D("Graphics render2d PushStencilMask and PopStencilMask", function()
 	render2d.SetStencilMode("none")
 	return function()
 		-- Center should be red
-		T.ScreenPixel(250, 250, 1, 0, 0, 1)
+		T.AssertScreenPixel({
+			pos = {250, 250},
+			color = {1, 0, 0, 1},
+		})
 		-- Outside center but inside white box should be white
-		T.ScreenPixel(210, 210, 1, 1, 1, 1)
+		T.AssertScreenPixel({
+			pos = {210, 210},
+			color = {1, 1, 1, 1},
+		})
 		-- Outside everything should be black
-		T.ScreenPixel(190, 190, 0, 0, 0, 1)
+		T.AssertScreenPixel({
+			pos = {190, 190},
+			color = {0, 0, 0, 1},
+		})
 	end
 end)

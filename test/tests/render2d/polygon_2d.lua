@@ -168,7 +168,7 @@ T.Test2D("Graphics Polygon2D render simple rect", function()
 	poly:Draw()
 	return function()
 		-- Higher tolerance to account for potential gamma/color space differences when tests run in sequence
-		T.ScreenPixel(105, 105, 1, 0, 0, 1, 0.25)
+		T.AssertScreenPixel({pos = {105, 105}, color = {1, 0, 0, 1}, tolerance = 0.25})
 	end
 end)
 
@@ -179,7 +179,7 @@ T.Test2D("Graphics Polygon2D render triangle", function()
 	poly:Draw()
 	-- Higher tolerance to account for potential gamma/color space differences when tests run in sequence
 	return function()
-		T.ScreenPixel(155, 155, 0, 1, 0, 1, 0.2)
+		T.AssertScreenPixel({pos = {155, 155}, color = {0, 1, 0, 1}, tolerance = 0.2})
 	end
 end)
 
@@ -191,8 +191,8 @@ T.Test2D("Graphics Polygon2D render with custom count", function()
 	poly:Draw(12)
 	return function()
 		-- Higher tolerance to account for potential gamma/color space differences when tests run in sequence
-		T.ScreenPixel(202, 202, 0, 0, 1, 1, 0.25)
-		T.ScreenPixel(212, 212, 0, 0, 1, 1, 0.25)
+		T.AssertScreenPixel({pos = {202, 202}, color = {0, 0, 1, 1}, tolerance = 0.25})
+		T.AssertScreenPixel({pos = {212, 212}, color = {0, 0, 1, 1}, tolerance = 0.25})
 	end
 end)
 
@@ -204,7 +204,7 @@ T.Test2D("Graphics Polygon2D render line", function()
 	-- Check midpoint of line
 	-- Higher tolerance to account for potential gamma/color space differences when tests run in sequence
 	return function()
-		T.ScreenPixel(255, 255, 1, 1, 0, 1, 0.25)
+		T.AssertScreenPixel({pos = {255, 255}, color = {1, 1, 0, 1}, tolerance = 0.25})
 	end
 end)
 
@@ -232,9 +232,9 @@ T.Test2D("Graphics Polygon2D render NinePatch", function()
 	return function()
 		-- Check corners and center
 		-- Higher tolerance to account for potential gamma/color space differences when tests run in sequence
-		T.ScreenPixel(305, 305, 1, 0, 1, 1, 0.25) -- Top-left
-		T.ScreenPixel(340, 340, 1, 0, 1, 1, 0.25) -- Center
-		T.ScreenPixel(375, 375, 1, 0, 1, 1, 0.25) -- Bottom-right
+		T.AssertScreenPixel({pos = {305, 305}, color = {1, 0, 1, 1}, tolerance = 0.25}) -- Top-left
+		T.AssertScreenPixel({pos = {340, 340}, color = {1, 0, 1, 1}, tolerance = 0.25}) -- Center
+		T.AssertScreenPixel({pos = {375, 375}, color = {1, 0, 1, 1}, tolerance = 0.25}) -- Bottom-right
 	end
 end)
 
@@ -278,7 +278,7 @@ T.Test2D("Graphics Polygon2D render with world matrix", function()
 	return function()
 		-- Should be drawn at (50, 50) due to world matrix
 		-- Higher tolerance to account for potential gamma/color space differences when tests run in sequence
-		T.ScreenPixel(52, 52, 0, 1, 1, 1, 0.25)
+		T.AssertScreenPixel({pos = {52, 52}, color = {0, 1, 1, 1}, tolerance = 0.25})
 	end
 end)
 

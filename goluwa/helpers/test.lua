@@ -34,6 +34,7 @@ local LOGGING = false
 local VERBOSE = false
 local NESTING = false
 local IS_TERMINAL = true -- or system.IsTTY()
+local NO_SUMMARY = false
 local completed_test_count = 0
 local shown_running_line = false
 local has_failed_tests = false
@@ -98,7 +99,13 @@ local function traceback(msg, co_lines)
 end
 
 function test.RunTestsWithFilter(filter, config)
-	test.BeginTests(config.logging, config.profiling, config.profiling_mode, config.verbose)
+	test.BeginTests(
+		config.logging,
+		config.profiling,
+		config.profiling_mode,
+		config.verbose,
+		config.no_summary
+	)
 	local tests = test.FindTests(filter)
 	test.SetTestPaths(tests)
 
@@ -106,7 +113,7 @@ function test.RunTestsWithFilter(filter, config)
 		test.RunSingleTestSet(test_item)
 	end
 
-	if config.logging then
+	if config.logging and not config.no_summary then
 		local filter_str = (filter and (" with filter '" .. filter .. "'") or "")
 
 		if #tests == 0 then
@@ -218,7 +225,7 @@ function test._CreateTestTask(name, cb, start, stop)
 			-- Show progress indication
 			completed_test_count = completed_test_count + 1
 
-			if LOGGING and IS_TERMINAL then
+			if LOGGING and IS_TERMINAL and not NO_SUMMARY then
 				-- Clear the RUNNING line if it's still there
 				if shown_running_line then
 					io_write("\r" .. string.rep(" ", 80) .. "\r")
@@ -299,7 +306,7 @@ function test._CreateTestTask(name, cb, start, stop)
 			-- Show progress indication
 			completed_test_count = completed_test_count + 1
 
-			if LOGGING and IS_TERMINAL then
+			if LOGGING and IS_TERMINAL and not NO_SUMMARY then
 				-- Clear the RUNNING line if it's still there
 				if shown_running_line then
 					io_write("\r" .. string.rep(" ", 80) .. "\r")
@@ -378,7 +385,7 @@ function test.Pending(name)
 			-- Show progress indication
 			completed_test_count = completed_test_count + 1
 
-			if LOGGING and IS_TERMINAL then
+			if LOGGING and IS_TERMINAL and not NO_SUMMARY then
 				-- Clear the RUNNING line if it's still there
 				if shown_running_line then
 					io_write("\r" .. string.rep(" ", 80) .. "\r")
@@ -507,7 +514,7 @@ do
 	local spinner_index = 1
 
 	local function update_test_line(status, time_str, gc_str)
-		if not LOGGING then return end
+		if not LOGGING or NO_SUMMARY then return end
 
 		local padded_name = current_test_name .. string.rep(" ", max_path_width - #current_test_name)
 		local cr = IS_TERMINAL and "\r" or ""
@@ -525,7 +532,7 @@ do
 	end
 
 	function test.LoadingIndicator()
-		if not LOGGING then return end
+		if not LOGGING or NO_SUMMARY then return end
 
 		if not IS_TERMINAL then return end
 
@@ -550,10 +557,11 @@ do
 	local test_file_count = 0
 	local test_results = {} -- Store results for each test file
 	local test_order = {} -- Track the order tests were loaded
-	function test.BeginTests(logging, profiling, profiling_mode, verbose)
+	function test.BeginTests(logging, profiling, profiling_mode, verbose, no_summary)
 		LOGGING = logging or false
 		VERBOSE = verbose or false
 		PROFILING = profiling or false
+		NO_SUMMARY = no_summary or false
 		completed_test_count = 0
 		shown_running_line = false
 		has_failed_tests = false
@@ -629,7 +637,7 @@ do
 
 		-- You'll need to pass the expected test count somehow, or estimate it
 		-- For now, setting to 0 means no progress counter shown
-		if LOGGING then update_test_line("RUNNING") end
+		if LOGGING and not NO_SUMMARY then update_test_line("RUNNING") end
 
 		local func, err = loadfile(test_item.path)
 
@@ -644,7 +652,7 @@ do
 		test_file_count = test_file_count + 1
 	end
 
-	function test.EndTests()
+	function test.EndTests(no_summary)
 		local luajit_startup_time = _G.EARLY_STARTUP_TIME or 0
 		local actual_total = os.clock() - luajit_startup_time
 
@@ -713,6 +721,11 @@ do
 							)
 						)
 					end
+				end
+
+				if no_summary then
+					io_write(string.format("\n#tests=%d\n", total_test_count))
+					return
 				end
 
 				if total_failed > 0 then
@@ -832,11 +845,6 @@ end
 function test.ScreenshotAlbedo(name)
 	local render3d = require("render3d.render3d")
 	render3d.pipelines.gbuffer:GetFramebuffer():GetAttachment(1):SaveAs(name)
-end
-
-function test.ScreenPixel(x, y, r, g, b, a, tolerance)
-	local render = require("render.render")
-	return test.TexturePixel(render.target:GetTexture(), x, y, r, g, b, a, tolerance)
 end
 
 function test.AssertScreenPixel(tbl)
