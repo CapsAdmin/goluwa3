@@ -87,7 +87,7 @@ T.Test("MarkupBuffer GetFullText variations", function()
 	T(buffer:GetFullTextSub(1, 4))["=="]("a<color=1,0,0,1>b<color=0,1,0,1>c")
 end)
 
-T.Test("Markup basic usage", function()
+T.Test2D("Markup basic usage", function()
 	local m = Markup.New("test")
 	T(m:GetText())["=="]("test")
 	m:SetText("<color=1,0,0,1>red</color> blue", true)
@@ -98,7 +98,7 @@ T.Test("Markup basic usage", function()
 	T(m:GetText())["=="]("rd blue")
 end)
 
-T.Test("Markup tags", function()
+T.Test2D("Markup tags", function()
 	local m = Markup.New()
 	m:SetText("normal <font=default>custom font</font>", true)
 	-- We can't easily verify the font was applied without layout, but we can verify it doesn't crash
@@ -107,7 +107,7 @@ T.Test("Markup tags", function()
 	T(text)["=="]("normal custom font")
 end)
 
-T.Test("Markup editor actions", function()
+T.Test2D("Markup editor actions", function()
 	local m = Markup.New("hello world")
 	m:SetCaretSubPosition(6) -- at the space
 	m:Enter()
@@ -121,7 +121,7 @@ T.Test("Markup editor actions", function()
 	T(m:GetText())["=="]("hello testworld")
 end)
 
-T.Test("Markup selection and deletion", function()
+T.Test2D("Markup selection and deletion", function()
 	local m = Markup.New("hello world")
 	m.editor.SelectionStart = 1
 	m.editor.Cursor = 6 -- after 'hello'
@@ -130,10 +130,10 @@ T.Test("Markup selection and deletion", function()
 	T(m:GetText())["=="](" world")
 end)
 
-T.Test("Markup complex formatting", function() -- ...
+T.Test2D("Markup complex formatting", function()
 end)
 
-T.Test("Markup caret and movement", function()
+T.Test2D("Markup caret and movement", function()
 	local m = Markup.New("hello world")
 	m:SetCaretSubPosition(1)
 	T(m:GetCaretSubPosition())["=="](1)

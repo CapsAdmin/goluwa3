@@ -8,7 +8,7 @@ T.Test("texture bindless index reuse with __gc", function()
 	render2d.Initialize()
 	local pipeline = render2d.pipeline
 	T(pipeline)["~="](nil)
-	local start_index = pipeline.next_texture_index
+	local start_index = pipeline.pipeline.next_texture_index
 	collectgarbage("stop")
 	local textures = {}
 
@@ -18,7 +18,7 @@ T.Test("texture bindless index reuse with __gc", function()
 		table.insert(textures, tex)
 	end
 
-	T(pipeline.next_texture_index)["=="](start_index + 10)
+	T(pipeline.pipeline.next_texture_index)["=="](start_index + 10)
 
 	for _, tex in ipairs(textures) do
 		-- The user specifically asked to call :__gc() manually
@@ -37,10 +37,10 @@ T.Test("texture bindless index reuse with __gc", function()
 	end
 
 	-- next_texture_index should NOT have increased because we reused from free list
-	T(pipeline.next_texture_index)["=="](start_index + 10)
+	T(pipeline.pipeline.next_texture_index)["=="](start_index + 10)
 	-- If we add one more, it should increase
 	local one_more = Texture.New({width = 1, height = 1})
 	pipeline:GetTextureIndex(one_more)
-	T(pipeline.next_texture_index)["=="](start_index + 11)
+	T(pipeline.pipeline.next_texture_index)["=="](start_index + 11)
 	collectgarbage("restart")
 end)
