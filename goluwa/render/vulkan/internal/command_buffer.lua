@@ -46,63 +46,6 @@ function CommandBuffer:UpdateBuffer(buffer, offset, size, data)
 	vulkan.lib.vkCmdUpdateBuffer(self.ptr[0], buffer.ptr[0], offset, size, data)
 end
 
-function CommandBuffer:CreateImageMemoryBarrier(imageIndex, swapchainImages, isFirstFrame)
-	local oldLayout = isFirstFrame and "undefined" or "present_src_khr"
-	local barrier = vulkan.vk.s.ImageMemoryBarrierInfo(
-		{
-			oldLayout = oldLayout,
-			newLayout = "color_attachment_optimal",
-			srcQueueFamilyIndex = 0xFFFFFFFF,
-			dstQueueFamilyIndex = 0xFFFFFFFF,
-			image = swapchainImages[imageIndex],
-			subresourceRange = {
-				aspectMask = "color",
-				baseMipLevel = 0,
-				levelCount = 1,
-				baseArrayLayer = 0,
-				layerCount = 1,
-			},
-			srcAccessMask = "none",
-			dstAccessMask = "color_attachment_write",
-		}
-	)
-	return barrier
-end
-
-function CommandBuffer:StartPipelineBarrier(barrier)
-	vulkan.lib.vkCmdPipelineBarrier(
-		self.ptr[0],
-		vulkan.vk.e.VkPipelineStageFlagBits("top_of_pipe"),
-		vulkan.vk.e.VkPipelineStageFlagBits("transfer"),
-		0,
-		0,
-		nil,
-		0,
-		nil,
-		1,
-		barrier
-	)
-end
-
-function CommandBuffer:EndPipelineBarrier(barrier)
-	barrier[0].oldLayout = vulkan.vk.e.VkImageLayout("transfer_dst_optimal")
-	barrier[0].newLayout = vulkan.vk.e.VkImageLayout("present_src_khr")
-	barrier[0].srcAccessMask = vulkan.vk.e.VkAccessFlagBits("transfer_write")
-	barrier[0].dstAccessMask = 0
-	vulkan.lib.vkCmdPipelineBarrier(
-		self.ptr[0],
-		vulkan.vk.e.VkPipelineStageFlagBits("transfer"),
-		vulkan.vk.e.VkPipelineStageFlagBits("bottom_of_pipe"),
-		0,
-		0,
-		nil,
-		0,
-		nil,
-		1,
-		barrier
-	)
-end
-
 function CommandBuffer:End()
 	vulkan.assert(vulkan.lib.vkEndCommandBuffer(self.ptr[0]), "failed to end command buffer")
 end
@@ -642,6 +585,12 @@ local function translate_stage(stage)
 	return stage_map[stage] or stage
 end
 
+local vkCmdPipelineBarrier
+
+if jit.os ~= "OSX" then
+	vkCmdPipelineBarrier = vulkan.lib.vkCmdPipelineBarrier
+end
+
 function CommandBuffer:PipelineBarrier(config)
 	local srcStage = vulkan.vk.e.VkPipelineStageFlagBits(translate_stage(config.srcStage or "compute"))
 	local dstStage = vulkan.vk.e.VkPipelineStageFlagBits(translate_stage(config.dstStage or "fragment"))
@@ -734,7 +683,14 @@ function CommandBuffer:PipelineBarrier(config)
 		end
 	end
 
-	vulkan.lib.vkCmdPipelineBarrier(
+	if not vkCmdPipelineBarrier then
+		vkCmdPipelineBarrier = function(...)
+			return vulkan.lib.vkCmdPipelineBarrier(...)
+		end
+		jit.off(vkCmdPipelineBarrier)
+	end
+
+	vkCmdPipelineBarrier(
 		self.ptr[0],
 		srcStage,
 		dstStage,
@@ -742,9 +698,9 @@ function CommandBuffer:PipelineBarrier(config)
 		0,
 		nil,
 		bufferBarrierCount,
-		bufferBarriers,
+		bufferBarrierCount > 0 and bufferBarriers or nil,
 		imageBarrierCount,
-		imageBarriers
+		imageBarrierCount > 0 and imageBarriers or nil
 	)
 end
 
