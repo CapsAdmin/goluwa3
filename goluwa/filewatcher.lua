@@ -1,5 +1,6 @@
 local hotreload = library()
 local fs = require("fs")
+local system = require("system")
 local event = require("event")
 local last_content = {}
 
@@ -42,7 +43,27 @@ local function run_hotreload_config(path, code)
 end
 
 local function default_reload(path)
-	local func, err = loadfile(path)
+	local content, err
+
+	for i = 1, 30 do
+		content, err = fs.read_file(path)
+
+		if content ~= "" then
+			break
+		elseif i == 30 then
+			io.write("failed to read file after multiple attempts:", err, "\n")
+			return
+		end
+
+		system.Sleep(0.001)
+	end
+
+	if not content then
+		io.write("failed to read file:", err, "\n")
+		return
+	end
+
+	local func, err = loadstring(content, "@" .. path)
 
 	if not func then
 		io.write("failed to compile ", path, ": ", tostring(err), "\n")
@@ -50,13 +71,14 @@ local function default_reload(path)
 	end
 
 	local ok, err = xpcall(func, debug.traceback)
+	print(ok, err, func)
 
 	if not ok then
 		io.write("failed to reload ", path, ": ", tostring(err), "\n")
 		return
 	end
 
-	io.write("ran  ", path, "\n")
+	io.write("ran ", tostring(func), " ", path, "\n")
 end
 
 local function on_reload(path, from_terminal)
@@ -125,10 +147,12 @@ end
 
 function hotreload.Start()
 	hotreload.Stop()
-	if not fs.watch then 
+
+	if not fs.watch then
 		logn("fs.watch is not available, hotreload cannot work")
-		return 
+		return
 	end
+
 	local last_reloaded = {}
 	hotreload.stop_watch = fs.watch(
 		".",
