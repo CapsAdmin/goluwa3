@@ -1,6 +1,9 @@
 local callback = require("callback")
 local sockets = require("sockets.sockets")
 local event = require("event")
+local tasks = require("tasks")
+local codec = require("codec")
+local timer = require("timer")
 local http = library()
 
 do
@@ -134,12 +137,34 @@ do
 			)
 		end
 		client.OnError = function(_, err, tr)
+			if client.timedout then return end
+
+			client.errored = true
+
 			if tbl.error_callback then
 				tbl.error_callback(err)
 			else
 				llog("sockets.Request: " .. err)
 				logn(tr)
 			end
+		end
+
+		if tbl.timeout then
+			timer.Delay(tbl.timeout, function()
+				if client:IsValid() and not client.errored then
+					client.timedout = true
+
+					if tbl.timedout_callback then
+						tbl.timedout_callback()
+					elseif tbl.error_callback then
+						tbl.error_callback("timeout")
+					else
+						llog("sockets.Request: timeout (" .. tbl.url .. ")")
+					end
+
+					client:Remove()
+				end
+			end)
 		end
 
 		if tbl.files then
@@ -163,7 +188,12 @@ do
 			tbl.header["Content-Type"] = multipart
 		end
 
-		client:Request(tbl.method or "GET", tbl.url, tbl.header, tbl.post_data)
+		local ok, err = pcall(function()
+			client:Request(tbl.method or "GET", tbl.url, tbl.header, tbl.post_data)
+		end)
+
+		if not ok then client:Error(err) end
+
 		return client
 	end
 end
@@ -191,15 +221,25 @@ do
 			{
 				url = url,
 				method = method,
-				header_callback = self.callbacks.header,
-				on_chunks = self.callbacks.chunks,
-				callback = function(data)
+				header_callback = function(...)
+					self.callbacks.header(...)
+
+					if data.header_callback then data.header_callback(...) end
+				end,
+				on_chunks = function(...)
+					self.callbacks.chunks(...)
+
+					if data.on_chunks then data.on_chunks(...) end
+				end,
+				callback = function(data_res)
 					if
-						table.lowecase_lookup(data.header, "content-type"):starts_with("application/json")
+						data_res.header and
+						table.lowecase_lookup(data_res.header, "content-type") and
+						table.lowecase_lookup(data_res.header, "content-type"):starts_with("application/json")
 					then
-						resolve(codec.Decode("json", data.body))
+						resolve(codec.Decode("json", data_res.body))
 					else
-						resolve(data.body)
+						resolve(data_res.body)
 					end
 				end,
 				code_callback = function(code, status)
@@ -208,15 +248,21 @@ do
 						reject(status .. "(" .. code .. ") url:" .. url)
 						return false
 					end
+
+					if data.code_callback then return data.code_callback(code, status) end
 				end,
 				error_callback = function(err)
 					if socket then socket:Remove() end
 
 					reject(err)
+
+					if data.error_callback then data.error_callback(err) end
 				end,
-				post_data = post_data,
 				header = data and data.headers,
+				post_data = post_data,
 				files = data and data.files,
+				timeout = data and data.timeout,
+				timedout_callback = data and data.timedout_callback,
 			},
 			true
 		)
@@ -238,9 +284,9 @@ do
 
 	for _, method in ipairs(methods) do
 		http[method] = function(url, data)
-			if tasks.GetActiveTask() then return start(url, data, method):Get() end
-
-			return start(url, data, method)
+			local cb = start(url, data, data, method)
+			cb.warn_unhandled = false
+			return cb
 		end
 	end
 
@@ -264,13 +310,9 @@ do
 					end
 				end
 
-				--table.print(data)
-				--print(base_url .. url)
-				if tasks.GetActiveTask() then
-					return start(base_url .. url, data, method):Get()
-				end
-
-				return start(base_url .. url, data, method)
+				local cb = start(base_url .. url, data, data, method)
+				cb.warn_unhandled = false
+				return cb
 			end
 		end
 

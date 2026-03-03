@@ -56,10 +56,14 @@ do
 		for _, cb in ipairs(self.funcs.resolved) do
 			local ok, err, err2 = pcall(cb, ...)
 
-			if not ok then return self:Reject(err) end
+			if not ok then
+				self:Reject(err)
+				return false, err
+			end
 
 			if ok and err == false and type(err2) == "string" then
-				return self:Reject(err2)
+				self:Reject(err2)
+				return false, err2
 			end
 		end
 
@@ -70,7 +74,7 @@ do
 
 	local handled = false
 
-	function meta:Reject(...)
+	function meta:Reject(msg, ...)
 		if self.is_resolved then
 			--logn(self, "attempted to resolve resolved promise")
 			--logn(self.debug_trace)
@@ -78,16 +82,16 @@ do
 		end
 
 		handled = false
-		self.rejected_values = list.pack(...)
+		self.rejected_values = list.pack(msg, ...)
 
 		if self.children then
 			for _, cb in ipairs(self.children) do
-				cb:Reject(...)
+				cb:Reject(msg, ...)
 			end
 		end
 
 		for _, cb in ipairs(self.funcs.rejected) do
-			cb(...)
+			cb(msg, ...)
 			handled = true
 		end
 
@@ -104,9 +108,9 @@ do
 
 	function meta:Then(func)
 		local cb = callback.Create()
-		cb.parent = self
+		cb:SetParent(self)
+		cb.error_level = self.error_level
 		cb.warn_unhandled = false
-		list.insert(self.children, cb)
 
 		local function resolve(...)
 			local ret = list.pack(func(...))
@@ -128,9 +132,12 @@ do
 			return list.unpack(ret)
 		end
 
-		list.insert(self.funcs.resolved, resolve)
+		if self.is_resolved then
+			local result = list.pack(resolve(unpack(self.resolved_values)))
+			return result[1]
+		end
 
-		if self.is_resolved then resolve(unpack(self.resolved_values)) end
+		list.insert(self.funcs.resolved, resolve)
 
 		if self.start_on_callback then
 			self.start_on_callback = nil
@@ -153,6 +160,18 @@ do
 		return self
 	end
 
+	function meta:ErrorLevel(level)
+		self.error_level = level
+
+		if self.children then
+			for _, child in ipairs(self.children) do
+				child:ErrorLevel(level)
+			end
+		end
+
+		return self
+	end
+
 	function meta:Get()
 		local res
 		local err
@@ -166,7 +185,7 @@ do
 		end)
 
 		while not res do
-			if err then error(err, 3) end
+			if err then error(tostring(err), self.error_level or 3) end
 
 			tasks.Wait()
 		end
@@ -175,11 +194,54 @@ do
 	end
 
 	function meta:Subscribe(what, callback)
-		if self.parent then return self.parent:Subscribe(what, callback) end
-
 		self.funcs[what] = self.funcs[what] or {}
-		list.insert(self.funcs[what], callback)
+		table.insert(self.funcs[what], callback)
+
+		if self.values and self.values[what] then
+			for _, args in ipairs(self.values[what]) do
+				callback(table.unpack(args))
+			end
+		end
+
+		if self.children then
+			for _, child in ipairs(self.children) do
+				child:Subscribe(what, callback)
+			end
+		end
+
 		return self
+	end
+
+	function meta:Trigger(what, ...)
+		self.values = self.values or {}
+		self.values[what] = self.values[what] or {}
+		table.insert(self.values[what], {...})
+
+		if self.funcs[what] then
+			for _, cb in ipairs(self.funcs[what]) do
+				local ok, res, err = pcall(cb, ...)
+
+				if not ok then
+					self:Reject(res)
+					return false, res
+				end
+
+				if res == false and type(err) == "string" then
+					self:Reject(err)
+					return false, err
+				end
+			end
+		end
+
+		if self.children then
+			for _, child in ipairs(self.children) do
+				local ok, err = child:Trigger(what, ...)
+
+				if ok == false then return false, err end
+			end
+		end
+
+		return true
 	end
 
 	local function on_index(t, key)
@@ -188,19 +250,18 @@ do
 			if key == "resolve" then
 				local ok, err = self:Resolve(...)
 
-				if ok == false and err then
+				if ok == false and type(err) == "string" then
 					self.is_resolved = false
 					self:Reject(err)
 				end
+
+				return
 			elseif key == "reject" then
 				return self:Reject(...)
-			elseif self.funcs[key] then
-				for _, cb in ipairs(self.funcs[key]) do
-					local ok, ret, err = pcall(cb, ...)
-
-					if not ok or ret == false and err then return self:Reject(err) end
-				end
 			end
+
+			print(self, key)
+			self:Trigger(key, ...)
 		end
 	end
 
@@ -214,6 +275,12 @@ do
 		self.warn_unhandled = true
 		return self
 	end
+
+	function meta:SetParent(parent)
+		self.parent = parent
+		list.insert(parent.children, self)
+		return self
+	end
 end
 
 function callback.WrapKeyedTask(create_callback, max, queue_callback, start_on_callback)
@@ -222,54 +289,62 @@ function callback.WrapKeyedTask(create_callback, max, queue_callback, start_on_c
 	local queue = {}
 	max = max or math.huge
 
-	local function add(key, ...)
+	local function add(key, options, ...)
 		local args = list.pack(...)
 
-		if not callbacks[key] or callbacks[key].is_resolved or callbacks[key].is_rejected then
-			callbacks[key] = callback.Create(function(self)
-				create_callback(self, key, list.unpack(args))
-			end)
-			callbacks[key].warn_unhandled = false
-			callbacks[key].start_on_callback = start_on_callback
+		if callbacks[key] and not (callbacks[key].is_resolved or callbacks[key].is_rejected) then
+			return callbacks[key]
+		end
 
-			if total >= max then
-				list.insert(queue, callbacks[key])
-				callbacks[key].key = key
+		local last_cb = callbacks[key]
+		callbacks[key] = callback.Create(function(self)
+			create_callback(self, key, list.unpack(args))
+		end)
+		callbacks[key].warn_unhandled = false
+		callbacks[key].start_on_callback = start_on_callback
 
-				if queue_callback then
-					queue_callback("push", callbacks[key], key, queue)
-				end
-			else
-				callbacks[key]:Start()
+		if type(options) == "table" then
+			if options.error_level then
+				callbacks[key]:ErrorLevel(options.error_level)
+			end
+		end
 
-				if max ~= math.huge then
-					callbacks[key]:Done(function()
-						total = total - 1
+		if total >= max then
+			list.insert(queue, callbacks[key])
+			callbacks[key].key = key
 
-						if total < max then
-							local cb = list.remove(queue)
+			if queue_callback then
+				queue_callback("push", callbacks[key], key, queue)
+			end
+		else
+			callbacks[key]:Start()
 
-							if cb then
-								if queue_callback then
-									queue_callback("pop", cb, cb.key, queue)
-								end
+			if max ~= math.huge then
+				callbacks[key]:Done(function()
+					total = total - 1
 
-								cb:Start()
+					if total < max then
+						local cb = list.remove(queue)
+
+						if cb then
+							if queue_callback then
+								queue_callback("pop", cb, cb.key, queue)
 							end
-						end
-					end)
 
-					total = total + 1
-				end
+							cb:Start()
+						end
+					end
+				end)
+
+				total = total + 1
 			end
 		end
 
 		if tasks and tasks.IsEnabled() and tasks.GetActiveTask() then
 			local active_task = tasks.GetActiveTask()
+
 			-- Don't auto-wait for test tasks - they need to control async behavior
-			if not active_task.is_test_task then
-				callbacks[key]:Get()
-			end
+			if not active_task.is_test_task then return callbacks[key]:Get() end
 		end
 
 		return callbacks[key]

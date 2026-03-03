@@ -169,6 +169,8 @@ function test._CreateTestTask(name, cb, start, stop)
 	local task_error = nil
 	local task = tasks.CreateTask(
 		function(task_self)
+			task_self.is_test_task = true
+
 			-- Check for timeout at start
 			if system.GetTime() > test_timeout_time then
 				error(string.format("Test timeout: exceeded %d second limit", TEST_TIMEOUT), 0)
