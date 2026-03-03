@@ -2,6 +2,8 @@
 
 if ... == "test" then
     require("goluwa.main")("test/run.lua", select(2, ...))
+elseif ... == "agent" then
+    require("goluwa.main")("agent/lua/init.lua")
 elseif not ... then
     require("goluwa.main")("game/run.lua")
 end
