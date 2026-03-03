@@ -71,7 +71,6 @@ local function default_reload(path)
 	end
 
 	local ok, err = xpcall(func, debug.traceback)
-	print(ok, err, func)
 
 	if not ok then
 		io.write("failed to reload ", path, ": ", tostring(err), "\n")
