@@ -139,13 +139,21 @@ return function(sockets)
 					self:OnConnect()
 					self.connected = true
 					self.connecting = false
-				elseif err ~= "tryagain" then
-					self:Error(err)
+				elseif err == "connecting" or err == "tryagain" then
+
+				-- still connecting
+				else
+					self:Error(err or "failed to connect (tls)")
 				end
 			elseif self.socket:is_connected() then
 				self:OnConnect()
 				self.connected = true
 				self.connecting = false
+			else
+				-- For non-TLS sockets, check for connection errors during asynchronous connect
+				local ok, err = self.socket:get_option("error")
+
+				if ok and ok ~= 0 then self:Error(ljsocket.socket.lasterror(ok)) end
 			end
 		elseif self.connected then
 			if self.buffered_send then
