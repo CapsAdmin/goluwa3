@@ -341,6 +341,208 @@ do
 				ffi.C.CloseHandle(handle)
 			end
 		end
+	elseif jit.os == "OSX" then
+		local active_watches = {}
+		local ffi = require("ffi")
+		ffi.cdef([[
+            typedef uint32_t FSEventStreamCreateFlags;
+            typedef uint32_t FSEventStreamEventFlags;
+            typedef uint64_t FSEventStreamEventId;
+            typedef struct __FSEventStream *FSEventStreamRef;
+            typedef void (*FSEventStreamCallback)(
+                FSEventStreamRef streamRef,
+                void *clientCallBackInfo,
+                size_t numEvents,
+                void *eventPaths,
+                const FSEventStreamEventFlags eventFlags[],
+                const FSEventStreamEventId eventIds[]
+            );
+
+            typedef struct {
+                long version;
+                void *info;
+                void *retain;
+                void *release;
+                void *copyDescription;
+            } FSEventStreamContext;
+
+            FSEventStreamRef FSEventStreamCreate(
+                void *allocator,
+                FSEventStreamCallback callback,
+                FSEventStreamContext *context,
+                void *pathsToWatch,
+                FSEventStreamEventId sinceWhen,
+                double latency,
+                FSEventStreamCreateFlags flags
+            );
+
+            void FSEventStreamScheduleWithRunLoop(
+                FSEventStreamRef streamRef,
+                void *runLoop,
+                void *runLoopMode
+            );
+
+            bool FSEventStreamStart(FSEventStreamRef streamRef);
+            void FSEventStreamStop(FSEventStreamRef streamRef);
+            void FSEventStreamInvalidate(FSEventStreamRef streamRef);
+            void FSEventStreamRelease(FSEventStreamRef streamRef);
+
+            void *CFArrayCreate(void *allocator, const void **values, long numValues, void *callBacks);
+            void CFRelease(void *cf);
+            void *CFStringCreateWithCString(void *alloc, const char *cStr, uint32_t encoding);
+            extern void *kCFRunLoopDefaultMode;
+            void *CFRunLoopGetCurrent(void);
+            int32_t CFRunLoopRunInMode(void *mode, double seconds, bool returnAfterSourceHandled);
+            void CFRunLoopRun(void);
+            void CFRunLoopStop(void *runLoop);
+
+			typedef void (*CFRunLoopTimerCallBack)(void *timer, void *info);
+			void *CFRunLoopTimerCreate(void *allocator, double fireDate, double interval, uint32_t flags, int32_t order, CFRunLoopTimerCallBack callout, void *context);
+			void CFRunLoopAddTimer(void *rl, void *timer, void *mode);
+        ]])
+		fs.kFSEventStreamCreateFlagNone = 0x00000000
+		fs.kFSEventStreamCreateFlagUseCFTypes = 0x00000001
+		fs.kFSEventStreamCreateFlagNoDefer = 0x00000002
+		fs.kFSEventStreamCreateFlagWatchRoot = 0x00000004
+		fs.kFSEventStreamCreateFlagIgnoreSelf = 0x00000008
+		fs.kFSEventStreamCreateFlagFileEvents = 0x00000010
+		fs.kFSEventStreamEventFlagNone = 0x00000000
+		fs.kFSEventStreamEventFlagMustScanSubDirs = 0x00000001
+		fs.kFSEventStreamEventFlagUserDropped = 0x00000002
+		fs.kFSEventStreamEventFlagKernelDropped = 0x00000004
+		fs.kFSEventStreamEventFlagEventIdsWrapped = 0x00000008
+		fs.kFSEventStreamEventFlagHistoryDone = 0x00000010
+		fs.kFSEventStreamEventFlagRootChanged = 0x00000020
+		fs.kFSEventStreamEventFlagMount = 0x00000040
+		fs.kFSEventStreamEventFlagUnmount = 0x00000080
+		fs.kFSEventStreamEventFlagItemCreated = 0x00000100
+		fs.kFSEventStreamEventFlagItemRemoved = 0x00000200
+		fs.kFSEventStreamEventFlagItemInodeMetaMod = 0x00000400
+		fs.kFSEventStreamEventFlagItemRenamed = 0x00000800
+		fs.kFSEventStreamEventFlagItemModified = 0x00001000
+		fs.kFSEventStreamEventFlagItemFinderInfoMod = 0x00002000
+		fs.kFSEventStreamEventFlagItemChangeOwner = 0x00004000
+		fs.kFSEventStreamEventFlagItemXattrMod = 0x00008000
+		fs.kFSEventStreamEventFlagItemIsFile = 0x00010000
+		fs.kFSEventStreamEventFlagItemIsDir = 0x00020000
+		fs.kFSEventStreamEventFlagItemIsSymlink = 0x00040000
+		fs.kCFStringEncodingUTF8 = 0x08000100
+		fs.kFSEventStreamEventIdSinceNow = 0xFFFFFFFFFFFFFFFFULL
+		local ok, lib = pcall(ffi.load, "/System/Library/Frameworks/CoreServices.framework/CoreServices")
+
+		if ok then
+			fs.CoreServices = lib
+		else
+			-- Fallback to default if load fails, though CF functions might be missing
+			fs.CoreServices = ffi.C
+		end
+
+		local function setup_macos_watch_timer(lib)
+			if _G.MACOS_WATCH_TIMER_SETUP then return end
+
+			_G.MACOS_WATCH_TIMER_SETUP = true
+
+			local function timer_callback(timer, info) -- Just a dummy callback to keep the run loop alive and returning
+			end
+
+			local c_timer_callback = ffi.cast("CFRunLoopTimerCallBack", timer_callback)
+			-- Anchor the callback
+			active_watches[c_timer_callback] = {timer_callback, c_timer_callback}
+			local rl = lib.CFRunLoopGetCurrent()
+			local timer = lib.CFRunLoopTimerCreate(nil, 0, 0.1, 0, 0, c_timer_callback, nil)
+			lib.CFRunLoopAddTimer(rl, timer, lib.kCFRunLoopDefaultMode)
+		end
+
+		function fs.watch(path, callback, recursive)
+			local lib = fs.CoreServices
+
+			if not lib then return nil, "CoreServices not loaded" end
+
+			if path:sub(-1) == "/" then path = path:sub(1, -2) end
+
+			local results = {}
+
+			local function internal_callback(streamRef, clientCallBackInfo, numEvents, eventPaths, eventFlags, eventIds)
+				local paths_ptr = ffi.cast("char **", eventPaths)
+
+				for i = 0, tonumber(numEvents) - 1 do
+					local full_path = ffi.string(paths_ptr[i])
+					local flags = eventFlags[i]
+					local type = "modified"
+
+					if bit.band(flags, fs.kFSEventStreamEventFlagItemCreated) ~= 0 then
+						type = "created"
+					elseif bit.band(flags, fs.kFSEventStreamEventFlagItemRemoved) ~= 0 then
+						type = "deleted"
+					elseif bit.band(flags, fs.kFSEventStreamEventFlagItemRenamed) ~= 0 then
+						type = "renamed"
+					end
+
+					table.insert(results, {path = full_path, type = type})
+				end
+			end
+
+			if recursive == nil then recursive = true end
+
+			local c_callback = ffi.cast("FSEventStreamCallback", internal_callback)
+			local path_cf = lib.CFStringCreateWithCString(nil, path, fs.kCFStringEncodingUTF8)
+			local paths_array = lib.CFArrayCreate(nil, ffi.cast("const void **", ffi.new("void *[1]", {path_cf})), 1, nil)
+			local flags = bit.bor(
+				fs.kFSEventStreamCreateFlagFileEvents,
+				fs.kFSEventStreamCreateFlagNoDefer,
+				fs.kFSEventStreamCreateFlagWatchRoot
+			)
+			local stream = lib.FSEventStreamCreate(
+				nil,
+				c_callback,
+				nil,
+				paths_array,
+				fs.kFSEventStreamEventIdSinceNow,
+				0.1,
+				flags
+			)
+
+			if stream == nil then
+				lib.CFRelease(paths_array)
+				lib.CFRelease(path_cf)
+				return nil, "Failed to create FSEventStream"
+			end
+
+			setup_macos_watch_timer(lib)
+			active_watches[c_callback] = {internal_callback, c_callback}
+			lib.FSEventStreamScheduleWithRunLoop(stream, lib.CFRunLoopGetCurrent(), lib.kCFRunLoopDefaultMode)
+
+			if not lib.FSEventStreamStart(stream) then
+				lib.FSEventStreamInvalidate(stream)
+				lib.FSEventStreamRelease(stream)
+				lib.CFRelease(paths_array)
+				lib.CFRelease(path_cf)
+				return nil, "Failed to start FSEventStream"
+			end
+
+			local remove_event = event.AddListener("Update", {}, function()
+				if lib.CFRunLoopRunInMode then
+					lib.CFRunLoopRunInMode(lib.kCFRunLoopDefaultMode, 0, true)
+				end
+
+				if #results > 0 then
+					for i, res in ipairs(results) do
+						callback(res.path, res.type)
+						results[i] = nil
+					end
+				end
+			end)
+			return function()
+				remove_event()
+				lib.FSEventStreamStop(stream)
+				lib.FSEventStreamInvalidate(stream)
+				lib.FSEventStreamRelease(stream)
+				lib.CFRelease(paths_array)
+				lib.CFRelease(path_cf)
+				active_watches[c_callback] = nil
+				c_callback:free()
+			end
+		end
 	end
 end
 
