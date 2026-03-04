@@ -266,3 +266,5 @@ end
 
 table.sort = require("helpers.table_sort")
 table.new = require("table.new")
+table.print = require("helpers.tostring_object").dump_object
+table.tostring = require("helpers.tostring_object").tostring_object

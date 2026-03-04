@@ -62,7 +62,6 @@ require("helpers.table")
 require("helpers.string")
 require("helpers.string_format")
 require("helpers.math")
-_G.table.print = require("helpers.tostring_object").dump_object
 
 do
 	local logging = require("logging")
