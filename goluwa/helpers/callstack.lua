@@ -5,9 +5,27 @@ local debug = _G.debug
 do
 	local prof = require("jit.profile")
 
-	function callstack.traceback(msg--[[#: string | nil]])
+	function callstack.traceback(msg--[[#: string | nil]], level--[[#: 1 .. inf | nil]])
+		level = level or 1
 		msg = msg or "stack traceback:\n"
-		return msg .. prof.dumpstack("pl\n", 100)
+		local str = prof.dumpstack("pl\n", 50)
+		local count = 0
+		local pos = 1
+
+		for _ = 1, level + 1 do
+			local _, stop = str:find("\n", pos, true)
+
+			if not stop then
+				pos = #str + 1
+
+				break
+			end
+
+			pos = stop + 1
+		end
+
+		local out = msg .. str:sub(pos)
+		return out
 	end
 
 	function callstack.get_line(level--[[#: 1 .. inf]])
