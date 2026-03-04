@@ -1,7 +1,7 @@
 HOTRELOAD = false
 local http = require("http")
-local llamacpp = require("llamacpp")
-local jinja2 = require("jinja2")
+local llamacpp = require("llamacpp.api")
+local jinja2 = require("llamacpp.jinja2")
 
 local function get_tool_call_format(model)
 	local props = llamacpp.GetProps(model)

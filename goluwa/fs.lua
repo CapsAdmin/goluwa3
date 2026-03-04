@@ -304,7 +304,8 @@ function fs.grep(pattern, path, opts)
 				local lo, hi = 0, nls_n
 
 				while lo < hi do
-					local mid = (lo + hi + 1) // 2
+					local mid = math.floor((lo + hi + 1) / 2)
+
 					if nls[mid] < ms then lo = mid else hi = mid - 1 end
 				end
 
