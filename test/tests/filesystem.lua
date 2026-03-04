@@ -193,6 +193,42 @@ T.Test("filesystem fd objects (low-level)", function()
 	cleanup()
 end)
 
+T.Test("filesystem glob", function()
+	cleanup()
+	local base = test_dir .. "glob/"
+	fs.create_directory_recursive(base .. "a/b/c/")
+	fs.create_directory_recursive(base .. "x/y/")
+	fs.write_file(base .. "a/file1.lua", "1")
+	fs.write_file(base .. "a/b/file2.lua", "2")
+	fs.write_file(base .. "a/b/c/file3.txt", "3")
+	fs.write_file(base .. "x/y/file4.lua", "4")
+	fs.write_file(base .. "root.lua", "5")
+	-- Simple glob
+	local res = fs.glob(base .. "*.lua")
+	T(#res)["=="](1)
+	T(res[1])["=="](base .. "root.lua")
+	-- Recursive glob **
+	res = fs.glob(base .. "**/*.lua")
+	-- Should find:
+	-- base/a/b/file2.lua
+	-- base/a/file1.lua
+	-- base/root.lua
+	-- base/x/y/file4.lua
+	T(#res)["=="](4)
+	-- Recursive glob with specific extension
+	res = fs.glob(base .. "**/f*.txt")
+	T(#res)["=="](1)
+	T(res[1])["=="](base .. "a/b/c/file3.txt")
+	-- Glob in middle
+	res = fs.glob(base .. "x/*/file4.lua")
+	T(#res)["=="](1)
+	T(res[1])["=="](base .. "x/y/file4.lua")
+	-- No match
+	res = fs.glob(base .. "**/*.js")
+	T(#res)["=="](0)
+	cleanup()
+end)
+
 T.Test("filesystem path utilities", function()
 	T(fs.get_parent_directory("a/b/c"))["=="]("a/b")
 	T(fs.get_parent_directory("a/b/c/"))["=="]("a/b")
