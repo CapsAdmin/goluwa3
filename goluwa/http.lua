@@ -284,7 +284,7 @@ do
 
 	for _, method in ipairs(methods) do
 		http[method] = function(url, data)
-			local cb = start(url, data, data, method)
+			local cb = start(url, data, method)
 			cb.warn_unhandled = false
 			return cb
 		end
@@ -310,7 +310,7 @@ do
 					end
 				end
 
-				local cb = start(base_url .. url, data, data, method)
+				local cb = start(base_url .. url, data, method)
 				cb.warn_unhandled = false
 				return cb
 			end

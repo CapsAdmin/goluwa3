@@ -121,16 +121,18 @@ function META:Start(now, ...)
 				self.error = string.format("Test timeout: exceeded hard limit")
 				self.Running = false
 				tasks.created[self] = nil
-				if self.OnError then
-					self:OnError(self.error, co)
-				end
+
+				if self.OnError then self:OnError(self.error, co) end
+
 				self:Remove()
 				return true
 			end
-			
+
 			-- Check if coroutine is already dead or currently running
 			local status = coroutine.status(co)
+
 			if status == "dead" then return true end
+
 			-- Don't resume if already running (handles re-entrancy)
 			if status == "running" or tasks.running_tasks[co] then return false end
 
@@ -138,12 +140,10 @@ function META:Start(now, ...)
 			tasks.running_tasks[co] = true
 			local ok, res = coroutine.resume(co, self)
 			tasks.running_tasks[co] = nil
-			
+
 			-- Task was removed during coroutine resume (e.g., by test cleanup or explicit removal)
 			-- This is valid - treat as completed
-			if not self:IsValid() then 
-				return true 
-			end 
+			if not self:IsValid() then return true end
 
 			-- Handle errors
 			if not ok then
@@ -154,7 +154,7 @@ function META:Start(now, ...)
 				if self.OnError then
 					self:OnError(res, co)
 				else
-					logf("%s error: %s\n", self, res)
+					logn(string.format("%s error: %s\n", self, res))
 				end
 
 				self.Running = false
@@ -292,6 +292,7 @@ function tasks.WaitForNestedTask(nested_task)
 	if not tasks.IsEnabled() then return end
 
 	local current = tasks.GetActiveTask()
+
 	if not current then return end
 
 	-- Wait until the nested task completes
@@ -300,9 +301,7 @@ function tasks.WaitForNestedTask(nested_task)
 	end
 
 	-- Return error status if nested task failed
-	if nested_task.failed then
-		return false, nested_task.error
-	end
+	if nested_task.failed then return false, nested_task.error end
 
 	return true
 end

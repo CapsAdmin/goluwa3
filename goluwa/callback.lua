@@ -1,4 +1,5 @@
 local timer = require("timer")
+local callstack = require("helpers.callstack")
 local tasks = require("tasks")
 local callback = library()
 
@@ -156,7 +157,9 @@ do
 		end)
 
 		while not res do
-			if err then error(tostring(err), self.error_level or 3) end
+			if err then
+				error(callstack.get_line(self.error_level) .. ": " .. tostring(err), self.error_level or 3)
+			end
 
 			tasks.Wait()
 		end
@@ -244,7 +247,6 @@ do
 						elseif key == "reject" then
 							s:Reject(...)
 						else
-							print(s, key)
 							s:Trigger(key, ...)
 						end
 					end
@@ -260,7 +262,7 @@ function callback.WrapKeyedTask(create_callback, max, queue_callback, start_on_c
 	local active = 0
 	local queue = {}
 	max = max or math.huge
-	return function(key, options, ...)
+	return function(key, ...)
 		local args = list.pack(...)
 
 		if callbacks[key] and not (callbacks[key].is_resolved or callbacks[key].is_rejected) then
@@ -273,10 +275,6 @@ function callback.WrapKeyedTask(create_callback, max, queue_callback, start_on_c
 		cb.warn_unhandled = false
 		cb.start_on_callback = start_on_callback
 		callbacks[key] = cb
-
-		if type(options) == "table" and options.error_level then
-			cb:ErrorLevel(options.error_level)
-		end
 
 		if active >= max then
 			list.insert(queue, cb)
@@ -307,10 +305,9 @@ function callback.WrapKeyedTask(create_callback, max, queue_callback, start_on_c
 			end
 		end
 
-		if tasks and tasks.IsEnabled() and tasks.GetActiveTask() then
-			if not tasks.GetActiveTask().is_test_task then return cb:Get() end
-		end
-
+		--if tasks and tasks.IsEnabled() and tasks.GetActiveTask() then
+		--if not tasks.GetActiveTask().is_test_task then return cb:Get() end
+		--end
 		return cb
 	end
 end

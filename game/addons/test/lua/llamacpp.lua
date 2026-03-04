@@ -1,14 +1,15 @@
+HOTRELOAD = false
 local http = require("http")
 local llamacpp = library()
 local api = http.CreateAPI("http://127.0.0.1:8080/")
 llamacpp.model = "Qwen3.5-35B-A3B-UD-Q4_K_XL_2"
 
 function llamacpp.GetProps()
-	return api.GET("props", {error_level = 4}):Get()
+	return api.GET("props"):ErrorLevel(2):Get()
 end
 
 function llamacpp.GetModels()
-	return api.GET("models", {error_level = 4}):Get()
+	return api.GET("models"):ErrorLevel(2):Get()
 end
 
 function llamacpp.Completion(body)
@@ -22,7 +23,7 @@ function llamacpp.Completion(body)
 			body = body,
 			error_level = 4,
 		}
-	)
+	):ErrorLevel(2)
 end
 
 function llamacpp.ChatCompletionStream(messages, on_delta)
@@ -42,7 +43,7 @@ function llamacpp.ChatCompletionStream(messages, on_delta)
 			error_level = 4,
 			timeout = 60,
 		}
-	):Subscribe("chunks", function(chunk)
+	):ErrorLevel(2):Subscribe("chunks", function(chunk)
 		buffer = buffer .. chunk
 
 		while true do
@@ -69,7 +70,7 @@ function llamacpp.ChatCompletionStream(messages, on_delta)
 				end
 			end
 		end
-	end)
+	end):Get()
 end
 
 http.async(function()
@@ -84,17 +85,19 @@ http.async(function()
 				prompt = "The meaning of life is",
 				n_predict = 32,
 			}
-		):Get()
+		)
 		print("Full Result:", result.content)
 	end
 
 	print("\nStreaming response:")
+
 	llamacpp.ChatCompletionStream({
 		{role = "system", content = "You are a helpful assistant."},
 		{role = "user", content = "Write a haiku about Lua."},
 	}, function(delta)
 		io.write(delta)
 		io.flush()
-	end):Get()
+	end)
+
 	print("\nStream finished.")
 end)
