@@ -42,9 +42,7 @@ return function(...)
 		profiler.Start("update")
 	end
 
-	if _G.CLI_MODE then
-		system.KeepAlive("cli_mode")
-	end
+	if _G.CLI_MODE then system.KeepAlive("cli_mode") end
 
 	while (system.IsRunning() or _G.CLI_MODE) and not os.exitcode do
 		local time = system.GetTime()
