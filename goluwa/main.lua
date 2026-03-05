@@ -60,7 +60,7 @@ return function(...)
 		if _G.CLI_MODE then
 			local tasks = require("tasks")
 
-			if not tasks.IsBusy() then break end
+			if not tasks.IsBusy() and not _G.INTERACTIVE_MODE then break end
 		end
 	end
 

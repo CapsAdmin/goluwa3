@@ -14,6 +14,7 @@ if _G.CLI_MODE then
 	end
 	_G.R = vfs.GetAbsolutePath
 	require("repl").Initialize()
+	_G.INTERACTIVE_MODE = true
 	system.KeepAlive("agent")
 	require("filewatcher").Start()
 	return
