@@ -664,3 +664,41 @@ T.Test("callback.WrapKeyedTask trigger propagation", function()
 	T(#results)["=="](1)
 	T(results[1])["=="]("test")
 end)
+T.Test("callback.WrapKeyedTask uniqueness via ! suffix", function()
+local task_count = 0
+local wrapper = callback.WrapKeyedTask(function(self, key, custom)
+task_count = task_count + 1
+self.key_received = key
+self.custom_received = custom
+end)
+
+local c1 = wrapper("foo!1", "param1")
+local c2 = wrapper("foo!2", "param2")
+
+T(c1 ~= c2)["=="](true)
+T(task_count)["=="](2)
+
+-- Verify the key passed to the implementation stripped the suffix
+T(c1.key_received)["=="]("foo")
+T(c2.key_received)["=="]("foo")
+T(c1.custom_received)["=="]("param1")
+T(c2.custom_received)["=="]("param2")
+
+-- Verify cache still works for exact same string
+local c3 = wrapper("foo!1", "param1")
+T(c3)["=="](c1)
+T(task_count)["=="](2)
+end)
+
+T.Test("callback.WrapKeyedTask normal sharing without suffix", function()
+local task_count = 0
+local wrapper = callback.WrapKeyedTask(function(self, key)
+task_count = task_count + 1
+end)
+
+local c1 = wrapper("bar")
+local c2 = wrapper("bar")
+
+T(c1)["=="](c2)
+T(task_count)["=="](1)
+end)

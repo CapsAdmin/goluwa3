@@ -296,7 +296,7 @@ function tasks.WaitForNestedTask(nested_task)
 	if not current then return end
 
 	-- Wait until the nested task completes
-	while nested_task:IsValid() and nested_task:IsRunning() do
+	while nested_task:IsValid() and (nested_task.Running or nested_task.run_me) do
 		current:Wait(0.001)
 	end
 
