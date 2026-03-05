@@ -199,7 +199,7 @@ do
 end
 
 do
-	local start = callback.WrapKeyedTask(function(self, url, data, method)
+	local function make_request(self, url, data, method)
 		local reject = self.callbacks.reject
 		local resolve = self.callbacks.resolve
 		local post_data
@@ -224,12 +224,12 @@ do
 				header_callback = function(...)
 					self.callbacks.header(...)
 
-					if data.header_callback then data.header_callback(...) end
+					if data and data.header_callback then data.header_callback(...) end
 				end,
 				on_chunks = function(...)
 					self.callbacks.chunks(...)
 
-					if data.on_chunks then data.on_chunks(...) end
+					if data and data.on_chunks then data.on_chunks(...) end
 				end,
 				callback = function(data_res)
 					if
@@ -249,14 +249,14 @@ do
 						return false
 					end
 
-					if data.code_callback then return data.code_callback(code, status) end
+					if data and data.code_callback then return data.code_callback(code, status) end
 				end,
 				error_callback = function(err)
 					if socket then socket:Remove() end
 
 					reject(err)
 
-					if data.error_callback then data.error_callback(err) end
+					if data and data.error_callback then data.error_callback(err) end
 				end,
 				header = data and data.headers,
 				post_data = post_data,
@@ -269,7 +269,9 @@ do
 		self.on_stop = function()
 			if socket:IsValid() then socket:Remove() end
 		end
-	end)
+	end
+
+	local start = callback.WrapKeyedTask(make_request)
 	local methods = {
 		"GET",
 		"HEAD",
@@ -310,7 +312,9 @@ do
 					end
 				end
 
-				local cb = start(base_url .. url, data, method)
+				local cb = callback.Create()
+				make_request(cb, base_url .. url, data, method)
+				cb:Start()
 				cb.warn_unhandled = false
 				return cb
 			end
@@ -321,7 +325,7 @@ do
 end
 
 function http.async(func)
-	tasks.CreateTask(func)
+	return tasks.CreateTask(func)
 end
 
 function http.query(url, tbl)

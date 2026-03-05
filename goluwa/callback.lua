@@ -264,9 +264,16 @@ function callback.WrapKeyedTask(create_callback, max, queue_callback, start_on_c
 	max = max or math.huge
 	return function(key, ...)
 		local args = list.pack(...)
+		local cache_key = key
 
-		if callbacks[key] and not (callbacks[key].is_resolved or callbacks[key].is_rejected) then
-			return callbacks[key]
+		if
+			callbacks[cache_key] and
+			not (
+				callbacks[cache_key].is_resolved or
+				callbacks[cache_key].is_rejected
+			)
+		then
+			return callbacks[cache_key]
 		end
 
 		local cb = callback.Create(function(self)
@@ -274,7 +281,7 @@ function callback.WrapKeyedTask(create_callback, max, queue_callback, start_on_c
 		end)
 		cb.warn_unhandled = false
 		cb.start_on_callback = start_on_callback
-		callbacks[key] = cb
+		callbacks[cache_key] = cb
 
 		if active >= max then
 			list.insert(queue, cb)
