@@ -77,7 +77,7 @@ local function default_reload(path)
 		return
 	end
 
-	io.write("ran ", tostring(func), " ", path, "\n")
+	io.write("ran ", path, "\n")
 end
 
 local function on_reload(path, from_terminal)
