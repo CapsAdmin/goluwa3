@@ -2,8 +2,12 @@
 
 if ... == "test" then
     require("goluwa.main")("test/run.lua", select(2, ...))
-elseif ... == "agent" then
-    require("goluwa.main")("agent/lua/init.lua")
+elseif ... == "cli" then
+    _G.CLI_MODE = true
+    require("goluwa.main")("game/run.lua")
+elseif ... == "run" then
+    _G.CLI_MODE = true
+    require("goluwa.main")(select(2, ...))
 elseif not ... then
     require("goluwa.main")("game/run.lua")
 end

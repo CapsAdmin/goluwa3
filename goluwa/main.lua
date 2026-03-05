@@ -42,7 +42,11 @@ return function(...)
 		profiler.Start("update")
 	end
 
-	while system.IsRunning() and not os.exitcode do
+	if _G.CLI_MODE then
+		system.KeepAlive("cli_mode")
+	end
+
+	while (system.IsRunning() or _G.CLI_MODE) and not os.exitcode do
 		local time = system.GetTime()
 		local dt = time - (last_time or 0)
 		--if dt > 0.1 then print("LONG FRAME", dt) end
@@ -54,6 +58,12 @@ return function(...)
 		i = i + 1
 		last_time = time
 		event.Call("FrameEnd")
+
+		if _G.CLI_MODE then
+			local tasks = require("tasks")
+
+			if not tasks.IsBusy() then break end
+		end
 	end
 
 	if _G.PROFILE then profiler.Stop("update") end
