@@ -9,7 +9,7 @@ local tasks = require("tasks")
 local Agent = prototype.CreateTemplate("llamacpp_agent")
 tools.sub_agent = {
 	description = [[
-		creates a new sub-agent with its own model and system prompt, runs it asynchronously, and returns immediately. 
+		creates a new sub-agent with its own model and system prompt. 
 		Use this to delegate tasks to specialized agents or to break down complex problems into simpler steps.
 	]],
 	parameters = {
@@ -29,8 +29,7 @@ tools.sub_agent = {
 		sub_agent:AddMessage({role = "system", content = args.system_prompt})
 		sub_agent:AddMessage({role = "user", content = args.message})
 		sub_agent.is_sub_agent = true
-		local task = sub_agent:Run()
-		tasks.WaitForNestedTask(task)
+		tasks.WaitForNestedTask(sub_agent:Run())
 		return "sub-agent finished"
 	end,
 }
