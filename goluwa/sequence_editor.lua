@@ -10,6 +10,7 @@ SequenceEditor:GetSet("ControlDown", false)
 SequenceEditor:GetSet("Multiline", true)
 SequenceEditor:GetSet("PreserveTabsOnEnter", true)
 SequenceEditor:GetSet("WrapWidth", nil)
+SequenceEditor:GetSet("PreferredVCol", nil)
 
 function SequenceEditor.New(buffer)
 	if type(buffer) == "string" then buffer = SequenceBuffer.New(buffer) end
@@ -95,6 +96,7 @@ function SequenceEditor:Insert(data)
 	local length = self.Buffer:Insert(cursor, data)
 	self.Cursor = cursor + length
 	self:NotifyChanged()
+	self.PreferredVCol = nil
 end
 
 function SequenceEditor:InsertString(str)
@@ -118,6 +120,8 @@ function SequenceEditor:Backspace()
 			self:NotifyChanged()
 		end
 	end
+
+	self.PreferredVCol = nil
 end
 
 function SequenceEditor:Delete()
@@ -135,6 +139,8 @@ function SequenceEditor:Delete()
 			self:NotifyChanged()
 		end
 	end
+
+	self.PreferredVCol = nil
 end
 
 function SequenceEditor:MoveWord(pos, dir)
@@ -154,24 +160,31 @@ function SequenceEditor:OnKeyInput(key)
 		else
 			self.Cursor = math.max(1, self.Cursor - 1)
 		end
+
+		self.PreferredVCol = nil
 	elseif key == "right" then
 		if self.ControlDown then
 			self.Cursor = self:MoveWord(self.Cursor, 1)
 		else
 			self.Cursor = math.min(self.Buffer:GetLength() + 1, self.Cursor + 1)
 		end
+
+		self.PreferredVCol = nil
 	elseif key == "home" then
 		self.Cursor = self.Buffer:GetLineStart(self.Cursor)
+		self.PreferredVCol = nil
 	elseif key == "end" then
 		self.Cursor = self.Buffer:GetLineEnd(self.Cursor)
+		self.PreferredVCol = nil
 	elseif key == "up" and self.Multiline then
 		if self.OnMoveUp then
 			self.OnMoveUp(self)
 		else
 			-- Fallback: move to previous line same column
 			local line, col = self:GetVisualLineCol()
+			self.PreferredVCol = self.PreferredVCol or col
 
-			if line > 1 then self:SetVisualLineCol(line - 1, col) end
+			if line > 1 then self:SetVisualLineCol(line - 1, self.PreferredVCol) end
 		end
 	elseif key == "down" and self.Multiline then
 		if self.OnMoveDown then
@@ -179,24 +192,27 @@ function SequenceEditor:OnKeyInput(key)
 		else
 			-- Fallback: move to next line same column
 			local line, col = self:GetVisualLineCol()
+			self.PreferredVCol = self.PreferredVCol or col
 			local line_count = self:GetVisualLineCount()
 
-			if line < line_count then self:SetVisualLineCol(line + 1, col) end
+			if line < line_count then self:SetVisualLineCol(line + 1, self.PreferredVCol) end
 		end
 	elseif key == "pageup" and self.Multiline then
 		if self.OnPageUp then
 			self.OnPageUp(self)
 		else
 			local line, col = self:GetVisualLineCol()
-			self:SetVisualLineCol(math.max(1, line - 10), col)
+			self.PreferredVCol = self.PreferredVCol or col
+			self:SetVisualLineCol(math.max(1, line - 10), self.PreferredVCol)
 		end
 	elseif key == "pagedown" and self.Multiline then
 		if self.OnPageDown then
 			self.OnPageDown(self)
 		else
 			local line, col = self:GetVisualLineCol()
+			self.PreferredVCol = self.PreferredVCol or col
 			local line_count = self:GetVisualLineCount()
-			self:SetVisualLineCol(math.min(line_count, line + 10), col)
+			self:SetVisualLineCol(math.min(line_count, line + 10), self.PreferredVCol)
 		end
 	elseif key == "backspace" then
 		self:Backspace()
@@ -258,7 +274,27 @@ end
 function SequenceEditor:GetVisualLineCol(pos)
 	pos = pos or self.Cursor
 
-	if not self.WrapWidth then return self:GetCursorLineCol(pos) end
+	if not self.WrapWidth then
+		local line, col = self:GetCursorLineCol(pos)
+		local line_text = self.Buffer:GetLine(line) or ""
+		local vcol = 1
+		local current_col = 1
+		local tab_size = 4
+
+		for char in line_text:gmatch("[%z\1-\127\194-\244][\128-\191]*") do
+			if current_col >= col then break end
+
+			if char == "\t" then
+				vcol = vcol + (tab_size - ((vcol - 1) % tab_size))
+			else
+				vcol = vcol + 1
+			end
+
+			current_col = current_col + 1
+		end
+
+		return line, vcol
+	end
 
 	local logical_line, logical_col = self:GetCursorLineCol(pos)
 	local lines = self.Buffer:GetLines()
@@ -277,7 +313,28 @@ end
 
 function SequenceEditor:SetVisualLineCol(target_line, target_col)
 	if not self.WrapWidth then
-		return self:SetCursorLineCol(target_line, target_col)
+		local line_text = (self.Buffer:GetLine(target_line) or ""):gsub("[\r\n]", "")
+		local current_vcol = 1
+		local logical_col = 1
+		local tab_size = 4
+
+		-- Iterate through characters to find the logical column that matches target_col
+		for char in line_text:gmatch("[%z\1-\127\194-\244][\128-\191]*") do
+			local char_vwidth = 1
+
+			if char == "\t" then
+				char_vwidth = tab_size - ((current_vcol - 1) % tab_size)
+			end
+
+			-- If the next expansion would pass our target, we've found the closest logical position
+			if current_vcol + char_vwidth > target_col then break end
+
+			current_vcol = current_vcol + char_vwidth
+			logical_col = logical_col + 1
+		end
+
+		self.Cursor = self.Buffer:GetPosByLineCol(target_line, logical_col)
+		return
 	end
 
 	local lines = self.Buffer:GetLines()

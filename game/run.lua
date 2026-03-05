@@ -1,3 +1,4 @@
+require("tui")
 if _G.CLI_MODE then
 	local system = require("system")
 	_G.PROFILE = false
@@ -17,6 +18,7 @@ if _G.CLI_MODE then
 	_G.INTERACTIVE_MODE = true
 	system.KeepAlive("agent")
 	require("filewatcher").Start()
+	
 	return
 end
 

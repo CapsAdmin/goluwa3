@@ -5,12 +5,15 @@ local SequenceBuffer = prototype.CreateTemplate("sequence_buffer")
 function SequenceBuffer.New(str)
 	return SequenceBuffer:CreateObject({
 		Text = str or "",
+		list = nil,
+		lines = nil,
 	})
 end
 
 function SequenceBuffer:SetText(str)
 	self.Text = str
 	self.lines = nil
+	self.list = nil
 end
 
 function SequenceBuffer:GetLines()
@@ -22,10 +25,22 @@ end
 function SequenceBuffer:SetLines(lines)
 	self:SetText(table.concat(lines, self:GetNewline()))
 	self.lines = lines
+	self.list = nil
 end
 
 function SequenceBuffer:GetText()
+	if self.list and not self.Text then
+		self.Text = table.concat(self.list)
+	end
 	return self.Text
+end
+
+function SequenceBuffer:GetList()
+	if not self.list then
+		self.list = utf8.to_list(self.Text)
+	end
+
+	return self.list
 end
 
 function SequenceBuffer:GetNewline()
@@ -41,17 +56,26 @@ function SequenceBuffer:GetLength(str)
 
 	if str then return utf8.length(str) end
 
-	return utf8.length(self.Text)
+	return #self:GetList()
 end
 
 function SequenceBuffer:Sub(i, j)
 	if type(self) ~= "table" then return utf8.sub(self, i, j) end
 
-	return utf8.sub(self.Text, i, j)
+	local list = self:GetList()
+	local len = #list
+	if i < 0 then i = len + i + 1 end
+	if not j then j = -1 end
+	if j < 0 then j = len + j + 1 end
+	if i < 1 then i = 1 end
+	if j > len then j = len end
+	if i > j then return "" end
+
+	return table.concat(list, "", i, j)
 end
 
 function SequenceBuffer:ToTable()
-	return utf8.to_list(self.Text)
+	return self:GetList()
 end
 
 function SequenceBuffer.GetTable(str)
@@ -63,20 +87,27 @@ function SequenceBuffer.MidSplit(str)
 end
 
 function SequenceBuffer:Insert(pos, str)
-	local text = self.Text
-	self.Text = utf8.sub(text, 1, pos - 1) .. str .. utf8.sub(text, pos)
+	local list = self:GetList()
+	local str_list = utf8.to_list(str)
+	for i = 1, #str_list do
+		table.insert(list, pos + i - 1, str_list[i])
+	end
+	self.Text = nil
 	self.lines = nil
 	return utf8.length(str)
 end
 
 function SequenceBuffer:RemoveRange(start, stop)
-	local text = self.Text
-	self.Text = utf8.sub(text, 1, start - 1) .. utf8.sub(text, stop)
+	local list = self:GetList()
+	for i = 1, stop - start do
+		table.remove(list, start)
+	end
+	self.Text = nil
 	self.lines = nil
 end
 
 function SequenceBuffer:Split(sep)
-	return self.Text:split(sep, true)
+	return self:GetText():split(sep, true)
 end
 
 function SequenceBuffer:GetLineCount()

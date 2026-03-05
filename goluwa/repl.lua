@@ -129,8 +129,41 @@ repl.raw_input = repl.raw_input or nil
 repl.saved_input = repl.saved_input or "" -- Saves current input when navigating history
 repl.is_executing = repl.is_executing or false -- Tracks if we're executing a command
 repl.last_drawn_lines = 0 -- Track how many lines we drew last frame
+repl.enabled = true
+-- Pre-declare local function to be accessible by SetEnabled
+local clear_display
+
+function repl.SetEnabled(b)
+	if repl.enabled == b then return end
+
+	if not b then
+		if repl.term then
+			clear_display(repl.term)
+			repl.term:Flush()
+		end
+
+		repl.last_drawn_lines = 0
+	end
+
+	repl.enabled = b
+
+	if repl.term then
+		repl.term:UseAlternateScreen(not b)
+
+		if b then
+			repl.needs_redraw = true
+		else
+			repl.term:EnableCaret(false)
+		end
+	end
+end
+
+function repl.GetEnabled()
+	return repl.enabled
+end
+
 function repl.IsFocused()
-	return true
+	return repl.enabled
 end
 
 do
@@ -454,7 +487,11 @@ function repl.HandleEvent(ev)
 			system.ShutDown()
 		elseif ev.modifiers and ev.modifiers.ctrl then
 			if ev.key == "c" then
-				repl.CopyText()
+				if repl.term and repl.term.in_alternate_screen then
+					repl.SetEnabled(true)
+				else
+					repl.CopyText()
+				end
 			elseif ev.key == "x" then
 				repl.CutText()
 			elseif ev.key == "v" then
@@ -498,7 +535,7 @@ function repl.HandleEvent(ev)
 end
 
 -- Clear the display area we drew last time
-local function clear_display(term)
+clear_display = function(term)
 	if repl.last_drawn_lines > 0 then
 		-- Move to beginning of current line first
 		term:Write("\r")
@@ -687,6 +724,10 @@ local function draw(term)
 	term:Flush()
 end
 
+function repl.GetTerminal()
+	return repl.term
+end
+
 function repl.Initialize()
 	require("logging").ReplMode()
 	local stdout_handle = output.original_stdout_file or io.stdout
@@ -698,6 +739,8 @@ function repl.Initialize()
 	event.AddListener("Update", "repl", function()
 		-- Process any pending stdout data from the pipe
 		output.Flush()
+
+		if not repl.enabled then return end
 
 		while true do
 			local ev = term:ReadEvent()
@@ -711,7 +754,7 @@ function repl.Initialize()
 	end)
 
 	event.AddListener("StdOutWrite", "repl", function(str)
-		if repl.started then
+		if repl.started and repl.enabled then
 			-- Clear current display before output is written
 			if repl.term then
 				clear_display(repl.term)

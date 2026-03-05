@@ -204,10 +204,13 @@ end
 function meta:EnableMouse(b)
 	if b then
 		-- Enable mouse tracking with SGR (1006) mode for better coordinate support
-		self:Write("\27[?1000h\27[?1006h") -- Enable mouse reporting + SGR extended mode
+		-- ?1000h: basic mouse tracking (press/release)
+		-- ?1003h: all mouse tracking (including movement)
+		-- ?1006h: SGR extended mode
+		self:Write("\27[?1000h\27[?1003h\27[?1006h") -- Enable mouse reporting + movement + SGR mode
 	else
 		-- Disable mouse tracking
-		self:Write("\27[?1006l\27[?1000l") -- Disable SGR mode + mouse reporting
+		self:Write("\27[?1006l\27[?1003l\27[?1000l") -- Disable SGR mode + movement + mouse reporting
 	end
 
 	self.mouse_enabled = b
@@ -465,13 +468,17 @@ if jit.os == "Windows" then
 		if type(output) == "table" and output.file then output = output.file end
 
 		-- Only call setvbuf on Lua file objects (userdata), not raw FILE* pointers (cdata)
-		if type(input) == "userdata" then pcall(function()
-			input:setvbuf("no")
-		end) end
+		if type(input) == "userdata" then
+			pcall(function()
+				input:setvbuf("no")
+			end)
+		end
 
-		if type(output) == "userdata" then pcall(function()
-			output:setvbuf("no")
-		end) end
+		if type(output) == "userdata" then
+			pcall(function()
+				output:setvbuf("no")
+			end)
+		end
 
 		-- Set console to UTF-8 (code page 65001)
 		ffi.C.SetConsoleOutputCP(65001)
@@ -1223,6 +1230,7 @@ else
 		["\27[21~"] = "f10",
 		["\27[23~"] = "f11",
 		["\27[24~"] = "f12",
+		["\27[Z"] = "tab", -- Shift+Tab
 	}
 	-- CSI sequences with modifiers: \x1b[1;MODIFIERkey
 	-- Modifier codes: 2=Shift, 3=Alt, 4=Shift+Alt, 5=Ctrl, 6=Ctrl+Shift, 7=Ctrl+Alt, 8=Ctrl+Shift+Alt
@@ -1408,9 +1416,11 @@ else
 
 				-- Check for complete escape sequence
 				if escape_sequences[escape_buffer] then
+					-- Shift+Tab (\27[Z) should have shift=true
+					local is_shift_tab = (escape_buffer == "\27[Z")
 					return {
 						key = escape_sequences[escape_buffer],
-						modifiers = {ctrl = false, shift = false, alt = false},
+						modifiers = {ctrl = false, shift = is_shift_tab, alt = false},
 						raw_input = raw_input,
 					}
 				end
@@ -1453,10 +1463,27 @@ else
 			-- Alt + key combinations (ESC followed by regular character)
 			if
 				#escape_buffer == 2 and
-				escape_buffer:byte(2) >= 32 and
-				escape_buffer:byte(2) <= 126
+				(
+					(
+						escape_buffer:byte(2) >= 32 and
+						escape_buffer:byte(2) <= 126
+					)
+					or
+					escape_buffer:byte(2) == 10 or
+					escape_buffer:byte(2) == 13
+				)
 			then
+				local key_byte = escape_buffer:byte(2)
 				local key = escape_buffer:sub(2, 2)
+
+				-- Special case: Alt+Enter (\e\n or \e\r)
+				if key_byte == 10 or key_byte == 13 then
+					return {
+						key = "enter",
+						modifiers = {ctrl = false, shift = false, alt = true},
+						raw_input = raw_input,
+					}
+				end
 
 				-- Special case: Alt+d is often sent by Ctrl+Delete
 				if key == "d" then
