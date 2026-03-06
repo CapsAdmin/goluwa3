@@ -33,7 +33,8 @@ function meta:SetCaretPosition(x, y)
 	end
 
 	self.drawing_suppressed = false
-	self:Write(string.format("\27[%i;%if", y, x))
+
+	if not self._cell_frame then self:Write(string.format("\27[%i;%if", y, x)) end
 end
 
 function meta:SetViewport(x, y, w, h)
@@ -49,6 +50,53 @@ end
 function meta:ClearViewport()
 	self.viewport = nil
 	self.drawing_suppressed = false
+end
+
+do
+	local function intersect_rects(ax, ay, aw, ah, bx, by, bw, bh)
+		local x1 = math.max(ax, bx)
+		local y1 = math.max(ay, by)
+		local x2 = math.min(ax + aw, bx + bw)
+		local y2 = math.min(ay + ah, by + bh)
+
+		if x2 <= x1 or y2 <= y1 then return nil end
+
+		return x1, y1, x2 - x1, y2 - y1
+	end
+
+	function meta:PushViewport(x, y, w, h)
+		local stack = self.viewport_stack
+		local top = stack[#stack]
+
+		if top then
+			local nx, ny, nw, nh = intersect_rects(top[1], top[2], top[3], top[4], x, y, w, h)
+
+			if not nx then
+				table.insert(stack, false)
+				return false
+			end
+
+			table.insert(stack, {nx, ny, nw, nh})
+			self:SetViewport(nx, ny, nw, nh)
+		else
+			table.insert(stack, {x, y, w, h})
+			self:SetViewport(x, y, w, h)
+		end
+
+		return true
+	end
+
+	function meta:PopViewport()
+		local stack = self.viewport_stack
+		table.remove(stack)
+		local top = stack[#stack]
+
+		if top then
+			self:SetViewport(top[1], top[2], top[3], top[4])
+		else
+			self:ClearViewport()
+		end
+	end
 end
 
 function meta:WriteStringToScreen(x, y, str)
@@ -121,54 +169,94 @@ function meta:PopAttribute()
 	end
 end
 
--- Text attribute stack management
 function meta:ForegroundColor(r, g, b)
-	local old = self.drawing_suppressed
-	self.drawing_suppressed = false
-	self:Write(string.format("\27[38;2;%i;%i;%im", r, g, b))
-	self.drawing_suppressed = old
+	self._cur_fr = r
+	self._cur_fg = g
+	self._cur_fb = b
+
+	if not self._cell_frame then
+		local old = self.drawing_suppressed
+		self.drawing_suppressed = false
+		self:Write(string.format("\27[38;2;%i;%i;%im", r, g, b))
+		self.drawing_suppressed = old
+	end
 end
 
 function meta:BackgroundColor(r, g, b)
-	local old = self.drawing_suppressed
-	self.drawing_suppressed = false
-	self:Write(string.format("\27[48;2;%i;%i;%im", r, g, b))
-	self.drawing_suppressed = old
+	self._cur_br = r
+	self._cur_bg2 = g
+	self._cur_bb = b
+
+	if not self._cell_frame then
+		local old = self.drawing_suppressed
+		self.drawing_suppressed = false
+		self:Write(string.format("\27[48;2;%i;%i;%im", r, g, b))
+		self.drawing_suppressed = old
+	end
 end
 
 function meta:Bold()
-	local old = self.drawing_suppressed
-	self.drawing_suppressed = false
-	self:Write("\27[1m")
-	self.drawing_suppressed = old
+	self._cur_bold = true
+
+	if not self._cell_frame then
+		local old = self.drawing_suppressed
+		self.drawing_suppressed = false
+		self:Write("\27[1m")
+		self.drawing_suppressed = old
+	end
 end
 
 function meta:Underline()
-	local old = self.drawing_suppressed
-	self.drawing_suppressed = false
-	self:Write("\27[4m")
-	self.drawing_suppressed = old
+	self._cur_ul = true
+
+	if not self._cell_frame then
+		local old = self.drawing_suppressed
+		self.drawing_suppressed = false
+		self:Write("\27[4m")
+		self.drawing_suppressed = old
+	end
 end
 
 function meta:Italic()
-	local old = self.drawing_suppressed
-	self.drawing_suppressed = false
-	self:Write("\27[3m")
-	self.drawing_suppressed = old
+	self._cur_italic = true
+
+	if not self._cell_frame then
+		local old = self.drawing_suppressed
+		self.drawing_suppressed = false
+		self:Write("\27[3m")
+		self.drawing_suppressed = old
+	end
 end
 
 function meta:Dim()
-	local old = self.drawing_suppressed
-	self.drawing_suppressed = false
-	self:Write("\27[2m")
-	self.drawing_suppressed = old
+	self._cur_dim = true
+
+	if not self._cell_frame then
+		local old = self.drawing_suppressed
+		self.drawing_suppressed = false
+		self:Write("\27[2m")
+		self.drawing_suppressed = old
+	end
 end
 
 function meta:NoAttributes()
-	local old = self.drawing_suppressed
-	self.drawing_suppressed = false
-	self:Write("\27[0m")
-	self.drawing_suppressed = old
+	self._cur_fr = false
+	self._cur_fg = false
+	self._cur_fb = false
+	self._cur_br = false
+	self._cur_bg2 = false
+	self._cur_bb = false
+	self._cur_bold = false
+	self._cur_italic = false
+	self._cur_dim = false
+	self._cur_ul = false
+
+	if not self._cell_frame then
+		local old = self.drawing_suppressed
+		self.drawing_suppressed = false
+		self:Write("\27[0m")
+		self.drawing_suppressed = old
+	end
 end
 
 function meta:ClearAttributeStack()
@@ -176,20 +264,15 @@ function meta:ClearAttributeStack()
 	self:NoAttributes()
 end
 
--- Readline mode: manages just the input line without full-screen
--- The prompt stays at the current position; output flows above it naturally
 function meta:ClearLine()
-	-- Clear from cursor to end of line
 	self:Write("\27[K")
 end
 
 function meta:ClearCurrentLine()
-	-- Move to beginning of line and clear it
 	self:Write("\r\27[K")
 end
 
 function meta:MoveToColumn(col)
-	-- Move cursor to specific column (1-based)
 	self:Write(string.format("\27[%dG", col))
 end
 
@@ -214,14 +297,19 @@ function meta:RestoreCursor()
 end
 
 function meta:Clear()
+	if self._cell_frame then return end
+
 	self:Write("\27[2J\27[3J\27[H")
 end
 
 function meta:UseAlternateScreen(enable)
 	if enable then
 		self:Write("\27[?1049h") -- Switch to alternate screen
+		self:Write("\27[?7l") -- Disable line wrap so viewport clipping works correctly
 		self.in_alternate_screen = true
+		self._prev_buf = nil
 	elseif self.in_alternate_screen then
+		self:Write("\27[?7h") -- Re-enable line wrap
 		self:Write("\27[?1049l") -- Switch back to main screen
 		self.in_alternate_screen = false
 	end
@@ -231,27 +319,231 @@ function meta:Flush()
 	ffi.C.fflush(self.output)
 end
 
+local SYNC_BEGIN = "\027[?2026h"
+local SYNC_END = "\027[?2026l"
+
 function meta:BeginFrame()
-	self._frame_buffer = {}
+	local w, h = self:GetSize()
+	local resized = self._prev_buf and (self._buf_w ~= w or self._buf_h ~= h)
+	self._buf_w = w
+	self._buf_h = h
+	self._cell_frame = true
+	self._new_buf = {}
+
+	if not self._prev_buf or resized then
+		local old = self.drawing_suppressed
+		self.drawing_suppressed = false
+		self._cell_frame = false
+		self:Write("\27[2J\27[3J\27[H")
+		self._cell_frame = true
+		self.drawing_suppressed = old
+		self._prev_buf = {}
+	end
+
+	self._cur_fr = false
+	self._cur_fg = false
+	self._cur_fb = false
+	self._cur_br = false
+	self._cur_bg2 = false
+	self._cur_bb = false
+	self._cur_bold = false
+	self._cur_italic = false
+	self._cur_dim = false
+	self._cur_ul = false
 end
 
 function meta:EndFrame()
-	if self._frame_buffer then
-		local buffer = table.concat(self._frame_buffer)
-		self._frame_buffer = nil
-		ffi.C.fwrite(buffer, 1, #buffer, self.output)
-		ffi.C.fflush(self.output)
+	if not self._cell_frame then return end
+
+	self._cell_frame = false
+	local w = self._buf_w
+	local h = self._buf_h
+	local new = self._new_buf
+	local prev = self._prev_buf or {}
+	local out = {SYNC_BEGIN, "\27[?25l"} -- sync + hide cursor during paint
+	local lfr, lfg, lfb = false, false, false
+	local lbr, lbg, lbb = false, false, false
+	local lbold, litalic, ldim, lul = false, false, false, false
+
+	for y = 1, h do
+		for x = 1, w do
+			local idx = (y - 1) * w + x
+			local ncell = new[idx]
+			local pcell = prev[idx]
+			local changed
+
+			if ncell == pcell then
+				changed = false
+			elseif ncell == nil then
+				local p = pcell
+				changed = p[1] ~= " " or p[2] or p[5] or p[8] or p[9] or p[10] or p[11]
+			elseif pcell == nil then
+				changed = true
+			else
+				changed = ncell[1] ~= pcell[1] or
+					ncell[2] ~= pcell[2] or
+					ncell[3] ~= pcell[3] or
+					ncell[4] ~= pcell[4] or
+					ncell[5] ~= pcell[5] or
+					ncell[6] ~= pcell[6] or
+					ncell[7] ~= pcell[7] or
+					ncell[8] ~= pcell[8] or
+					ncell[9] ~= pcell[9] or
+					ncell[10] ~= pcell[10] or
+					ncell[11] ~= pcell[11]
+			end
+
+			if changed then
+				table.insert(out, string.format("\27[%i;%if", y, x))
+				local char, fr, fg2, fb, br, bg2, bb, bold, italic, dim, ul
+
+				if ncell then
+					char = ncell[1]
+					fr = ncell[2]
+					fg2 = ncell[3]
+					fb = ncell[4]
+					br = ncell[5]
+					bg2 = ncell[6]
+					bb = ncell[7]
+					bold = ncell[8]
+					italic = ncell[9]
+					dim = ncell[10]
+					ul = ncell[11]
+				else
+					char = " "
+					fr, fg2, fb = false, false, false
+					br, bg2, bb = false, false, false
+					bold, italic, dim, ul = false, false, false, false
+				end
+
+				if
+					fr ~= lfr or
+					fg2 ~= lfg or
+					fb ~= lfb or
+					br ~= lbr or
+					bg2 ~= lbg or
+					bb ~= lbb or
+					bold ~= lbold or
+					italic ~= litalic or
+					dim ~= ldim or
+					ul ~= lul
+				then
+					table.insert(out, "\27[0m")
+
+					if fr then
+						table.insert(out, string.format("\27[38;2;%i;%i;%im", fr, fg2, fb))
+					end
+
+					if br then
+						table.insert(out, string.format("\27[48;2;%i;%i;%im", br, bg2, bb))
+					end
+
+					if bold then table.insert(out, "\27[1m") end
+
+					if italic then table.insert(out, "\27[3m") end
+
+					if dim then table.insert(out, "\27[2m") end
+
+					if ul then table.insert(out, "\27[4m") end
+
+					lfr, lfg, lfb = fr, fg2, fb
+					lbr, lbg, lbb = br, bg2, bb
+					lbold, litalic, ldim, lul = bold, italic, dim, ul
+				end
+
+				table.insert(out, char)
+			end
+		end
 	end
+
+	table.insert(out, SYNC_END)
+	local buffer = table.concat(out)
+	ffi.C.fwrite(buffer, 1, #buffer, self.output)
+	ffi.C.fflush(self.output)
+	self._prev_buf = new
+	self._new_buf = {}
 end
 
 function meta:Write(str)
 	if self.drawing_suppressed then return end
+
+	if self._cell_frame then return end
 
 	if self._frame_buffer then
 		table.insert(self._frame_buffer, str)
 	else
 		ffi.C.fwrite(str, 1, #str, self.output)
 	end
+end
+
+function meta:WriteText(str)
+	if self.drawing_suppressed then return end
+
+	if not self._cell_frame then
+		if self._frame_buffer then
+			table.insert(self._frame_buffer, str)
+		else
+			ffi.C.fwrite(str, 1, #str, self.output)
+		end
+
+		return
+	end
+
+	local cx = self.cursor_x
+	local cy = self.cursor_y
+
+	if not cx or not cy then return end
+
+	local bw = self._buf_w
+	local bh = self._buf_h
+	local buf = self._new_buf
+	local vp = self.viewport
+	local fr = self._cur_fr
+	local fg2 = self._cur_fg
+	local fb = self._cur_fb
+	local br = self._cur_br
+	local bg2 = self._cur_bg2
+	local bb = self._cur_bb
+	local bold = self._cur_bold
+	local italic = self._cur_italic
+	local dim = self._cur_dim
+	local ul = self._cur_ul
+	local col = cx
+	local i = 1
+
+	while i <= #str do
+		local byte = str:byte(i)
+		local char_len
+
+		if byte < 0x80 then
+			char_len = 1
+		elseif byte < 0xE0 then
+			char_len = 2
+		elseif byte < 0xF0 then
+			char_len = 3
+		else
+			char_len = 4
+		end
+
+		local char = str:sub(i, i + char_len - 1)
+		i = i + char_len
+		local in_vp = true
+
+		if vp then
+			if col < vp.x or col >= vp.x + vp.w or cy < vp.y or cy >= vp.y + vp.h then
+				in_vp = false
+			end
+		end
+
+		if in_vp and col >= 1 and col <= bw and cy >= 1 and cy <= bh then
+			local idx = (cy - 1) * bw + col
+			buf[idx] = {char, fr, fg2, fb, br, bg2, bb, bold, italic, dim, ul}
+		end
+
+		col = col + 1
+	end
+
+	self.cursor_x = col
 end
 
 function meta:EnableCaret(b)
@@ -563,6 +855,7 @@ if jit.os == "Windows" then
 				old_flags_input = old_flags_input,
 				old_flags_output = old_flags_output,
 				attribute_stack = {},
+				viewport_stack = {},
 				mouse_enabled = false,
 			},
 			meta
@@ -1196,6 +1489,7 @@ else
 				output = output,
 				old_attributes = old_attributes,
 				attribute_stack = {},
+				viewport_stack = {},
 				mouse_enabled = false,
 			},
 			meta

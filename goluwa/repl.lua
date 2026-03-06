@@ -564,7 +564,6 @@ local function draw(term)
 	local w, h = term:GetSize()
 	-- Clear previous display
 	clear_display(term)
-	term:BeginFrame()
 	local buffer = repl.editor:GetText()
 	-- Split input into lines
 	local input_lines = {}
@@ -705,7 +704,6 @@ local function draw(term)
 		cursor_screen_col = 3 + cursor_wrapped_col - 1
 	end
 
-	term:EndFrame()
 	-- Position cursor (move up if we're not on the last line)
 	local lines_to_move_up = visible_input_lines - cursor_screen_line
 
