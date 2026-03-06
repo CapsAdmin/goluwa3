@@ -159,8 +159,10 @@ end
 
 do
 	local callstack = require("helpers.callstack")
+	local logging
 	local old = print
 	print = function(...)
+		logging = logging or require("logging")
 		local str = {}
 
 		for i = 1, select("#", ...) do
@@ -174,13 +176,13 @@ do
 		if path:find("tostring_object") then path = callstack.get_line(3) end
 
 		if path:starts_with("[string]:1") then
-			io.write(str)
+			logging.RawLog(str)
 			return
 		end
 
 		if path then str = string.format("%s %s", path, str) end
 
-		io.write(str)
+		logging.RawLog(str)
 	end
 end
 

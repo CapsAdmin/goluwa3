@@ -754,50 +754,49 @@ function repl.Initialize()
 	end)
 
 	event.AddListener("StdOutWrite", "repl", function(str)
-		if repl.started and repl.enabled then
-			-- Clear current display before output is written
-			if repl.term then
-				clear_display(repl.term)
-				repl.term:Flush()
-				repl.last_drawn_lines = 0
-			end
+		if not repl.started or not repl.enabled then return end
 
-			-- Style the output with "< " prefix when executing
-			if repl.is_executing and repl.term then
-				-- Process each line and add the prefix
-				local lines = {}
-
-				for line in (str .. "\n"):gmatch("(.-)\n") do
-					table.insert(lines, line)
-				end
-
-				-- Remove trailing empty line caused by the pattern when string ends with \n
-				if #lines > 0 and lines[#lines] == "" then table.remove(lines) end
-
-				for i, line in ipairs(lines) do
-					-- Output styling: dim cyan "< " prefix
-					-- Output styling: dim cyan "< " prefix
-					repl.term:PushDim()
-					repl.term:PushForegroundColor(100, 180, 180)
-					repl.term:Write("< ")
-					repl.term:PopAttribute()
-					repl.term:PopAttribute()
-					-- Write the actual output line with syntax highlighting
-					repl.ColorizeAndWrite(repl.term, line)
-					repl.term:NoAttributes()
-
-					if i < #lines or str:match("\n$") then repl.term:Write("\n") end
-				end
-
-				repl.term:Flush()
-				repl.needs_redraw = true
-				return false -- We handled the output ourselves (log already written by output.lua)
-			end
-
-			-- Allow output to proceed, prompt will redraw on next update
-			repl.needs_redraw = true
-			return true
+		-- Clear current display before output is written
+		if repl.term then
+			clear_display(repl.term)
+			repl.term:Flush()
+			repl.last_drawn_lines = 0
 		end
+
+		-- Style the output with "< " prefix when executing
+		if repl.is_executing and repl.term then
+			-- Process each line and add the prefix
+			local lines = {}
+
+			for line in (str .. "\n"):gmatch("(.-)\n") do
+				table.insert(lines, line)
+			end
+
+			-- Remove trailing empty line caused by the pattern when string ends with \n
+			if #lines > 0 and lines[#lines] == "" then table.remove(lines) end
+
+			for i, line in ipairs(lines) do
+				-- Output styling: dim cyan "< " prefix
+				-- Output styling: dim cyan "< " prefix
+				repl.term:PushDim()
+				repl.term:PushForegroundColor(100, 180, 180)
+				repl.term:Write("< ")
+				repl.term:PopAttribute()
+				repl.term:PopAttribute()
+				-- Write the actual output line with syntax highlighting
+				repl.ColorizeAndWrite(repl.term, line)
+				repl.term:NoAttributes()
+
+				if i < #lines or str:match("\n$") then repl.term:Write("\n") end
+			end
+
+			repl.term:Flush()
+			repl.needs_redraw = true
+			return false -- We handled the output ourselves (log already written by output.lua)
+		end
+
+		-- Allow output to proceed, prompt will redraw on next update
+		repl.needs_redraw = true
 	end)
 
 	event.AddListener("ShutDown", "repl", function()
