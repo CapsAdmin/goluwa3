@@ -2,7 +2,6 @@ local prototype = require("prototype")
 local Vec2 = require("structs.vec2")
 local Rect = require("structs.rect")
 local event = require("event")
-local render2d = require("render2d.render2d")
 local layout_lib = library()
 local META = prototype.CreateTemplate("layout")
 META.layout_count = 0
@@ -27,7 +26,6 @@ META:GetSet("LastSize", Vec2(0, 0))
 META:EndStorable()
 
 function META:Initialize()
-	self.Owner:EnsureComponent("gui_element")
 	self.Owner:EnsureComponent("transform")
 
 	self.Owner:AddLocalListener("OnParent", function()
