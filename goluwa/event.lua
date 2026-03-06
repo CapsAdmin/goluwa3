@@ -116,6 +116,7 @@ end
 function event.Call(event_type, a_, b_, c_, d_, e_)
 	if event.active[event_type] then
 		local a, b, c, d, e
+		local ok
 
 		for index = 1, #event.active[event_type] do
 			local data = event.active[event_type][index]
@@ -127,16 +128,26 @@ function event.Call(event_type, a_, b_, c_, d_, e_)
 					if data.self_arg then
 						if data.self_arg:IsValid() then
 							if data.self_arg_with_callback then
-								a, b, c, d, e = data.callback(a_, b_, c_, d_, e_)
+								ok, a, b, c, d, e = pcall(data.callback, a_, b_, c_, d_, e_)
 							else
-								a, b, c, d, e = data.callback(data.self_arg, a_, b_, c_, d_, e_)
+								ok, a, b, c, d, e = pcall(data.callback, data.self_arg, a_, b_, c_, d_, e_)
 							end
 						else
 							event.RemoveListener(event_type, data.id)
 							llog("[%q][%q] removed because self is invalid", event_type, data.unique)
 						end
 					else
-						a, b, c, d, e = data.callback(a_, b_, c_, d_, e_)
+						ok, a, b, c, d, e = pcall(data.callback, a_, b_, c_, d_, e_)
+					end
+
+					if not ok then
+						event.RemoveListener(event_type, data.id)
+						llog(
+							"[%q][%q] removed because callback threw an error: %s",
+							event_type,
+							data.unique,
+							a
+						)
 					end
 
 					if a == event.destroy_tag or data.remove_after_one_call then
