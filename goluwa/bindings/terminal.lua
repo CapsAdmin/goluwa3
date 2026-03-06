@@ -17,11 +17,49 @@ function meta:SetTitle(str)
 end
 
 function meta:SetCaretPosition(x, y)
+	self.cursor_x = x
+	self.cursor_y = y
+
+	if self.viewport then
+		if
+			x < self.viewport.x or
+			x >= self.viewport.x + self.viewport.w or
+			y < self.viewport.y or
+			y >= self.viewport.y + self.viewport.h
+		then
+			self.drawing_suppressed = true
+			return
+		end
+	end
+
+	self.drawing_suppressed = false
 	self:Write(string.format("\27[%i;%if", y, x))
 end
 
+function meta:SetViewport(x, y, w, h)
+	self.viewport = {x = x, y = y, w = w, h = h}
+end
+
+function meta:GetViewport()
+	if not self.viewport then return nil end
+
+	return self.viewport.x, self.viewport.y, self.viewport.w, self.viewport.h
+end
+
+function meta:ClearViewport()
+	self.viewport = nil
+	self.drawing_suppressed = false
+end
+
 function meta:WriteStringToScreen(x, y, str)
-	self:Write(string.format("\27[s\27[%i;%if%s\27[u", y, x, str))
+	local old_x, old_y = self.cursor_x, self.cursor_y
+	self:SetCaretPosition(x, y)
+
+	if not self.drawing_suppressed then
+		self:Write(string.format("\27[s\27[%i;%if%s\27[u", y, x, str))
+	end
+
+	if old_x and old_y then self:SetCaretPosition(old_x, old_y) end
 end
 
 function meta:PushForegroundColor(r, g, b)
@@ -85,31 +123,52 @@ end
 
 -- Text attribute stack management
 function meta:ForegroundColor(r, g, b)
+	local old = self.drawing_suppressed
+	self.drawing_suppressed = false
 	self:Write(string.format("\27[38;2;%i;%i;%im", r, g, b))
+	self.drawing_suppressed = old
 end
 
 function meta:BackgroundColor(r, g, b)
+	local old = self.drawing_suppressed
+	self.drawing_suppressed = false
 	self:Write(string.format("\27[48;2;%i;%i;%im", r, g, b))
+	self.drawing_suppressed = old
 end
 
 function meta:Bold()
+	local old = self.drawing_suppressed
+	self.drawing_suppressed = false
 	self:Write("\27[1m")
+	self.drawing_suppressed = old
 end
 
 function meta:Underline()
+	local old = self.drawing_suppressed
+	self.drawing_suppressed = false
 	self:Write("\27[4m")
+	self.drawing_suppressed = old
 end
 
 function meta:Italic()
+	local old = self.drawing_suppressed
+	self.drawing_suppressed = false
 	self:Write("\27[3m")
+	self.drawing_suppressed = old
 end
 
 function meta:Dim()
+	local old = self.drawing_suppressed
+	self.drawing_suppressed = false
 	self:Write("\27[2m")
+	self.drawing_suppressed = old
 end
 
 function meta:NoAttributes()
+	local old = self.drawing_suppressed
+	self.drawing_suppressed = false
 	self:Write("\27[0m")
+	self.drawing_suppressed = old
 end
 
 function meta:ClearAttributeStack()
@@ -186,6 +245,8 @@ function meta:EndFrame()
 end
 
 function meta:Write(str)
+	if self.drawing_suppressed then return end
+
 	if self._frame_buffer then
 		table.insert(self._frame_buffer, str)
 	else
