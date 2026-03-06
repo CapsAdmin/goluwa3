@@ -9,7 +9,6 @@ tui.editor = sequence_editor.New()
 tui.last_event = "No events yet"
 tui.last_cursor_blink = false
 tui.last_input_time = 0
-tui.scroll_offset = 0
 tui.frame_count = 0
 tui.click_count = 0
 tui.needs_redraw = true
@@ -51,15 +50,16 @@ function tui.OnEvent(ev, time)
 	if ev.mouse then
 		local term = repl.GetTerminal()
 		local w, h = term:GetSize()
-		local num_lines = #current_input_lines
+		local input_lines = tui.editor.Buffer:GetLines()
+		local num_lines = #input_lines
 		local max_visible_lines = h - 2
-		local visible_end = math.min(num_lines, tui.scroll_offset + max_visible_lines)
+		local visible_end = math.min(num_lines, tui.editor.ScrollOffset + max_visible_lines)
 		local screen_y_bottom = h
 		local line_index = visible_end - (screen_y_bottom - ev.y)
 		local target_vcol = ev.x - 2
 
 		if ev.action == "pressed" and ev.button == "left" then
-			if current_input_lines[line_index] then
+			if input_lines[line_index] then
 				if time - tui.last_click_time < 0.3 then
 					tui.click_count = tui.click_count + 1
 				else
@@ -88,18 +88,15 @@ function tui.OnEvent(ev, time)
 				tui.editor:SetSelectionStart(nil)
 			end
 		elseif ev.action == "moved" and tui.is_selecting then
-			if current_input_lines[line_index] then
+			if input_lines[line_index] then
 				tui.editor:SetVisualLineCol(line_index, target_vcol)
 			end
 		elseif ev.button == "wheel_up" then
-			tui.scroll_offset = math.max(0, tui.scroll_offset - 1)
-			tui.user_scrolled = true
+			tui.editor:OnMouseWheel(1)
 		elseif ev.button == "wheel_down" then
-			tui.scroll_offset = math.min(math.max(0, num_lines - max_visible_lines), tui.scroll_offset + 1)
-			tui.user_scrolled = true
+			tui.editor:OnMouseWheel(-1)
 		end
 	elseif ev.key then
-		tui.user_scrolled = false
 		tui.editor:SetShiftDown(ev.modifiers and ev.modifiers.shift or false)
 		tui.editor:SetControlDown(ev.modifiers and ev.modifiers.ctrl or false)
 
@@ -268,27 +265,13 @@ local function draw_repl(term, h, time)
 	local blink_time = time - tui.last_input_time
 	local cursor_blink = math.floor(blink_time * 2) % 2 == 0
 	local cur_line, cur_col = tui.editor:GetCursorLineCol()
-	local input_text = tui.editor:GetText()
-	local input_lines = {}
-
-	for line in (input_text .. "\n"):gmatch("(.-)\n") do
-		table.insert(input_lines, line)
-	end
-
+	local input_lines = tui.editor.Buffer:GetLines()
 	local num_lines = #input_lines
 	local max_visible_lines = h - 2
-
-	if not tui.user_scrolled then
-		if cur_line <= tui.scroll_offset then
-			tui.scroll_offset = cur_line - 1
-		elseif cur_line > tui.scroll_offset + max_visible_lines then
-			tui.scroll_offset = cur_line - max_visible_lines
-		end
-	end
-
-	tui.scroll_offset = math.max(0, math.min(tui.scroll_offset, math.max(0, num_lines - max_visible_lines)))
-	local visible_start = tui.scroll_offset + 1
-	local visible_end = math.min(num_lines, tui.scroll_offset + max_visible_lines)
+	tui.editor:SetViewportHeight(max_visible_lines)
+	tui.editor:UpdateViewport()
+	local visible_start = tui.editor.ScrollOffset + 1
+	local visible_end = math.min(num_lines, tui.editor.ScrollOffset + max_visible_lines)
 	term:PushForegroundColor(100, 180, 180)
 	local sel_start, sel_stop = tui.editor:GetSelection()
 	local current_char_idx = 1

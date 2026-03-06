@@ -11,6 +11,9 @@ SequenceEditor:GetSet("Multiline", true)
 SequenceEditor:GetSet("PreserveTabsOnEnter", true)
 SequenceEditor:GetSet("WrapWidth", nil)
 SequenceEditor:GetSet("PreferredVCol", nil)
+SequenceEditor:GetSet("ScrollOffset", 0)
+SequenceEditor:GetSet("ViewportHeight", 0)
+SequenceEditor:GetSet("UserScrolled", false)
 
 function SequenceEditor.New(buffer)
 	if type(buffer) == "string" then buffer = SequenceBuffer.New(buffer) end
@@ -152,6 +155,7 @@ function SequenceEditor:OnCharInput(char)
 end
 
 function SequenceEditor:OnKeyInput(key)
+	self.UserScrolled = false
 	local old_cursor = self.Cursor
 
 	if key == "left" then
@@ -516,6 +520,37 @@ end
 
 function SequenceEditor:GetCursorLineCol(pos)
 	return self.Buffer:GetLineColByPos(pos or self.Cursor)
+end
+
+function SequenceEditor:UpdateViewport()
+	if self.ViewportHeight <= 0 then return end
+
+	local line, _ = self:GetCursorLineCol()
+	local max_visible = self.ViewportHeight
+
+	if not self.UserScrolled then
+		if line <= self.ScrollOffset then
+			self.ScrollOffset = line - 1
+		elseif line > self.ScrollOffset + max_visible then
+			self.ScrollOffset = line - max_visible
+		end
+	end
+
+	local num_lines = #self.Buffer:GetLines()
+	self.ScrollOffset = math.max(0, math.min(self.ScrollOffset, math.max(0, num_lines - max_visible)))
+end
+
+function SequenceEditor:OnMouseWheel(delta)
+	local num_lines = #self.Buffer:GetLines()
+	local max_visible = self.ViewportHeight
+
+	if delta > 0 then
+		self.ScrollOffset = math.max(0, self.ScrollOffset - 1)
+		self.UserScrolled = true
+	elseif delta < 0 then
+		self.ScrollOffset = math.min(math.max(0, num_lines - max_visible), self.ScrollOffset + 1)
+		self.UserScrolled = true
+	end
 end
 
 return SequenceEditor:Register()
