@@ -142,16 +142,16 @@ function Agent:ToolCall(name, json_args)
 
 	do
 		local display_args = name == "lua" and args.lua_code or table.tostring(args)
-		self:OnLogEvent({type = "tool_execute", name = name, args = display_args})
+		self:OnLogEvent({type = "tool_execute", name = name, args = display_args, slot_id = name})
 	end
 
 	if not ok then
-		self:OnLogEvent({type = "tool_error", error = tostring(res)})
+		self:OnLogEvent({type = "tool_error", error = tostring(res), slot_id = name})
 		return "error: " .. tostring(res)
 	end
 
 	res = table.tostring(res)
-	self:OnLogEvent({type = "tool_result", result = res})
+	self:OnLogEvent({type = "tool_result", result = res, slot_id = name})
 	return res
 end
 
@@ -161,8 +161,6 @@ function Agent:OnChoice(choice)
 			self:OnLogEvent({type = "reasoning_end"})
 			self.in_reasoning = false
 		end
-
-		if #self.Messages > 0 then self:OnLogEvent({type = "message_separator"}) end
 
 		self:OnLogEvent({type = "role", role = tostring(choice.delta.role)})
 	elseif choice.delta.content then

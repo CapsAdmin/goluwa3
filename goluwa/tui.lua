@@ -4,7 +4,29 @@ local repl = require("repl")
 local event = require("event")
 local sequence_editor = require("sequence_editor")
 local system = require("system")
+local utf8 = require("utf8")
+local Agent = require("llamacpp.agent")
 local tui = library()
+tui.colors = {
+	border = {100, 100, 100},
+	user_text = {180, 220, 180},
+	assistant_text = {200, 200, 200},
+	thinking_text = {100, 100, 100},
+	tool_text = {220, 220, 100},
+	tool_border = {180, 180, 50},
+	code_bg = {30, 30, 30},
+	scrollbar = {150, 150, 150},
+}
+tui.chars = {
+	top_left = "╭",
+	top_right = "╮",
+	bottom_left = "╰",
+	bottom_right = "╯",
+	horizontal = "─",
+	vertical = "│",
+	scroll_track = "░",
+	scroll_thumb = "█",
+}
 tui.editor = tui.editor or sequence_editor.New()
 tui.last_event = "No events yet"
 tui.last_cursor_blink = false
@@ -15,6 +37,143 @@ tui.click_count = 0
 tui.needs_redraw = true
 tui.history = tui.history or {}
 tui.history_scroll_offset = tui.history_scroll_offset or 0
+local agent = Agent.New("Qwen3.5-35B-A3B-UD-Q4_K_XL")
+agent:AddMessage(
+	{
+		role = "system",
+		content = "You are a helpful assistant directly integrated into a TUI. Keep your responses concise and naturally formatted.",
+	}
+)
+
+function agent:OnLogEvent(event)
+	tui.Invalidate()
+
+	if event.type == "role" then
+		local align = event.role == "user" and "right" or "left"
+
+		if event.role == "assistant" then
+			local last = tui.history[#tui.history]
+
+			if
+				last and
+				last.role == "assistant" and
+				(
+					last.content == "" or
+					last.content == nil
+				)
+				and
+				(
+					last.thoughts == "" or
+					last.thoughts == nil
+				)
+			then
+				return
+			end
+		end
+
+		table.insert(tui.history, {role = event.role, content = "", thoughts = "", align = align})
+	elseif event.type == "message_content" then
+		local last = tui.history[#tui.history]
+
+		if last then
+			last.content = (last.content or "") .. event.content .. "\n"
+		end
+	elseif event.type == "message_tool_calls" then
+		for _, tc in ipairs(event.tool_calls) do
+			table.insert(
+				tui.history,
+				{
+					role = "tool",
+					content = "[Tool Call: " .. tc["function"].name .. "]",
+					align = "left",
+					slot_id = tc["function"].name,
+				}
+			)
+		end
+	elseif event.type == "content_token" then
+		local last = tui.history[#tui.history]
+
+		if not last or last.role ~= "assistant" then
+			table.insert(tui.history, {role = "assistant", content = "", align = "left"})
+			last = tui.history[#tui.history]
+		end
+
+		last.content = (last.content or "") .. event.content
+	elseif event.type == "reasoning_token" then
+		local last = tui.history[#tui.history]
+
+		if not last or last.role ~= "assistant" then
+			table.insert(tui.history, {role = "assistant", content = "", thoughts = "", align = "left"})
+			last = tui.history[#tui.history]
+		end
+
+		last.thoughts = (last.thoughts or "") .. event.content
+	elseif event.type == "tool_execute" then
+		for i = #tui.history, 1, -1 do
+			local item = tui.history[i]
+
+			if item.role == "tool" and item.slot_id == event.slot_id then
+				item.content = (item.content or "") .. "\n[Executing " .. event.name .. "...]"
+				return
+			end
+		end
+
+		table.insert(
+			tui.history,
+			{
+				role = "tool",
+				content = "[Executing " .. event.name .. "...]",
+				align = "left",
+				slot_id = event.slot_id,
+			}
+		)
+	elseif event.type == "tool_result" then
+		for i = #tui.history, 1, -1 do
+			local item = tui.history[i]
+
+			if item.role == "tool" and item.slot_id == event.slot_id then
+				item.content = (item.content or "") .. "\n[Result: " .. event.result .. "]"
+				return
+			end
+		end
+
+		table.insert(
+			tui.history,
+			{
+				role = "tool",
+				content = "[Result: " .. event.result .. "]",
+				align = "left",
+				slot_id = event.slot_id,
+			}
+		)
+	elseif event.type == "tool_error" then
+		for i = #tui.history, 1, -1 do
+			local item = tui.history[i]
+
+			if item.role == "tool" and item.slot_id == event.slot_id then
+				item.content = (item.content or "") .. "\n[Error: " .. event.error .. "]"
+				return
+			end
+		end
+
+		table.insert(
+			tui.history,
+			{
+				role = "tool",
+				content = "[Error: " .. event.error .. "]",
+				align = "left",
+				slot_id = event.slot_id,
+			}
+		)
+	elseif event.type == "message_separator" then
+
+	-- Handled by role usually
+	elseif event.type == "finished" then
+		local last = tui.history[#tui.history]
+
+		if last then last.content = (last.content or "") .. "\n" end
+	end
+end
 
 function tui.Invalidate()
 	tui.needs_redraw = true
@@ -39,17 +198,26 @@ local function expand_tabs(s, tab_size)
 	return res, col
 end
 
-local function get_text_size(text, tab_size)
+local function get_text_size(text, tab_size, max_width)
 	local width = 0
 	local height = 0
 
 	if not text or text == "" then return 0, 0 end
 
 	for _, line in ipairs(text:split("\n")) do
-		height = height + 1
-		local _, w = expand_tabs(line, tab_size)
+		if not line:match("^```") then
+			local _, total_w = expand_tabs(line, tab_size)
 
-		if w > width then width = w end
+			if max_width and total_w > max_width then
+				local lines_needed = math.ceil(total_w / max_width)
+				height = height + lines_needed
+				width = max_width
+			else
+				height = height + 1
+
+				if total_w > width then width = total_w end
+			end
+		end
 	end
 
 	return width, height
@@ -117,10 +285,13 @@ function tui.OnEvent(ev, time)
 
 			if ev.y <= history_h then
 				local total_history_h = 0
+				local max_content_w = w - 6
 
 				for i = 1, #tui.history do
-					local _, th = get_text_size(tui.history[i], 4)
-					total_history_h = total_history_h + th + 2
+					local item = tui.history[i]
+					local _, mh = get_text_size(item.content, 4, max_content_w)
+					local _, th = get_text_size(item.thoughts, 4, max_content_w)
+					total_history_h = total_history_h + mh + th + 2
 				end
 
 				local max_scroll = math.max(0, total_history_h - history_h)
@@ -153,8 +324,8 @@ function tui.OnEvent(ev, time)
 				local text = tui.editor:GetText()
 
 				if text ~= "" then
-					table.insert(tui.history, text)
-					logn("TUI Input: " .. text)
+					agent:AddMessage({role = "user", content = text})
+					agent:Run()
 				end
 
 				tui.editor:SetText("")
@@ -170,58 +341,144 @@ end
 
 local function draw_text(term, x, y, text, w, h)
 	local line_offset = 0
+	local is_in_code_block = false
 
 	for _, line in ipairs(text:split("\n")) do
-		local screen_y = y + 1 + line_offset
-
-		if h and line_offset >= h then break end
-
-		local expanded = expand_tabs(line, 4)
-		local display_line = " " .. expanded .. " "
-		term:SetCaretPosition(x + 1, screen_y)
-
-		if w then
-			term:Write(display_line:sub(1, w - 2))
+		if line:match("^```") then
+			is_in_code_block = not is_in_code_block
+			line_offset = line_offset + 1
 		else
-			term:Write(display_line)
-		end
+			local expanded = " " .. expand_tabs(line, 4) .. " "
+			local current_line_content = expanded
+			local sub_line_idx = 0
 
-		line_offset = line_offset + 1
+			while #current_line_content > 0 do
+				local screen_y = y + 1 + line_offset
+
+				if h and line_offset >= h then break end
+
+				term:SetCaretPosition(x + 1, screen_y)
+				local col = 0
+				local is_bold = false
+				local is_italic = false
+				local chunk_w = w and (w - 2) or #current_line_content
+				local chunk = current_line_content:sub(1, chunk_w)
+				current_line_content = current_line_content:sub(chunk_w + 1)
+
+				if is_in_code_block then
+					term:PushBackgroundColor(unpack(tui.colors.code_bg))
+					term:PushForegroundColor(220, 220, 220)
+					local content = chunk:sub(sub_line_idx == 0 and 2 or 1, #chunk - (current_line_content == "" and 1 or 0))
+					term:Write(content)
+					term:PopAttribute()
+					term:PopAttribute()
+				else
+					local i = 1
+
+					while i <= #chunk do
+						local char = chunk:sub(i, i)
+						local next_char = chunk:sub(i + 1, i + 1)
+
+						if char == "*" and next_char == "*" then
+							is_bold = not is_bold
+
+							if is_bold then
+								term:PushBold()
+							else
+								term:PopAttribute()
+							end
+
+							i = i + 2
+						elseif char == "_" and next_char == "_" then
+							is_italic = not is_italic
+
+							if is_italic then
+								term:PushItalic()
+							else
+								term:PopAttribute()
+							end
+
+							i = i + 2
+						elseif char == "-" and sub_line_idx == 0 and i == 2 and chunk:sub(i + 1, i + 1) == " " then
+							term:Write("•")
+							col = col + 1
+							i = i + 1
+						else
+							term:Write(char)
+							col = col + 1
+							i = i + 1
+						end
+					end
+
+					if is_bold then term:PopAttribute() end
+
+					if is_italic then term:PopAttribute() end
+				end
+
+				line_offset = line_offset + 1
+				sub_line_idx = sub_line_idx + 1
+			end
+		end
 	end
 end
 
-local function draw_decorative_box(term, x, y, rect_w, rect_h)
-	term:PushBackgroundColor(50, 50, 150)
-	term:PushForegroundColor(255, 255, 255)
+local function draw_decorative_box(term, x, y, rect_w, rect_h, title, align)
+	term:PushForegroundColor(unpack(tui.colors.border))
+	local effective_title = title and title:upper() or nil
+	local top_border = tui.chars.top_left .. string.rep(tui.chars.horizontal, rect_w - 2) .. tui.chars.top_right
+	local bottom_border = tui.chars.bottom_left .. string.rep(tui.chars.horizontal, rect_w - 2) .. tui.chars.bottom_right
+
+	if effective_title then
+		local title_str = " " .. effective_title .. " "
+		local title_len = utf8.length(title_str)
+		local start_pos
+
+		if align == "right" then
+			start_pos = rect_w - title_len
+		else
+			start_pos = 2
+		end
+
+		local prefix_len = start_pos - 1
+		local suffix_len = rect_w - prefix_len - title_len
+		local prefix = tui.chars.top_left .. string.rep(tui.chars.horizontal, prefix_len - 1)
+		local suffix = string.rep(tui.chars.horizontal, suffix_len - 1) .. tui.chars.top_right
+		top_border = prefix .. title_str .. suffix
+	end
 
 	for i = 0, rect_h - 1 do
-		local screen_y = y + i
-		term:SetCaretPosition(x, screen_y)
+		term:SetCaretPosition(x, y + i)
 
-		if i == 0 or i == rect_h - 1 then
-			term:Write("+" .. string.rep("-", rect_w - 2) .. "+")
+		if i == 0 then
+			term:Write(top_border)
+		elseif i == rect_h - 1 then
+			term:Write(bottom_border)
 		else
-			term:Write("|" .. string.rep(" ", rect_w - 2) .. "|")
+			term:Write(tui.chars.vertical .. string.rep(" ", rect_w - 2) .. tui.chars.vertical)
 		end
 	end
 
-	term:PopAttribute()
 	term:PopAttribute()
 end
 
 local function draw_scrollbar(term, x, y, h, total_h, scroll_offset)
 	if total_h <= h then return end
 
+	term:PushForegroundColor(unpack(tui.colors.scrollbar))
+
+	for i = 0, h - 1 do
+		term:SetCaretPosition(x, y + i)
+		term:Write(tui.chars.scroll_track)
+	end
+
 	local bar_h = math.max(1, math.floor(h * (h / total_h)))
-	local max_scroll = total_h - h
-	-- Scrollbar position: (offset/max) maps 0..h-bar_h
+	local max_scroll = math.max(1, total_h - h)
 	local fraction = scroll_offset / max_scroll
 	local bar_y = y + math.floor((h - bar_h) * fraction)
-	term:PushForegroundColor(100, 100, 100) -- Using grey for visibility
-	-- Use absolute positioning to ensure visibility outside viewport logic
+
 	for i = 0, bar_h - 1 do
 		term:SetCaretPosition(x, bar_y + i)
-		term:Write("▓")
+		term:Write(tui.chars.scroll_thumb)
 	end
 
 	term:PopAttribute()
@@ -233,26 +490,72 @@ local function draw_chat_history(term, x, y, w, h)
 	local total_height = 0
 	local box_heights = {}
 	local history_count = #tui.history
+	local max_content_w = w - 6
 
 	for i = 1, history_count do
-		local _, th = get_text_size(tui.history[i], 4)
-		local rh = th + 2
-		box_heights[i] = rh
+		local item = tui.history[i]
+		local mw, mh = get_text_size(item.content, 4, max_content_w)
+		local tw, th = get_text_size(item.thoughts, 4, max_content_w)
+		local rh = mh + th + 2
+		box_heights[i] = {rect_h = rh, text_h = mh, thought_h = th, text_w = math.max(mw, tw)}
 		total_height = total_height + rh
 	end
 
 	draw_scrollbar(term, w, y, h, total_height, total_height - h - tui.history_scroll_offset)
-	term:PushForegroundColor(150, 200, 150)
 	local current_y = y + h + tui.history_scroll_offset
 
 	for i = history_count, 1, -1 do
-		local rect_h = box_heights[i]
-		local rect_w = math.min(w - 2, get_text_size(tui.history[i], 4) + 4)
+		local item = tui.history[i]
+		local text = item.content
+		local thoughts = item.thoughts
+		local role = item.role
+		local align = item.align or "left"
+		local info = box_heights[i]
+		local rect_h = info.rect_h
+		local rect_w = math.min(w - 4, info.text_w + 4)
+
+		if role and #role + 4 > rect_w then rect_w = #role + 4 end
+
+		local rect_x = x
+
+		if align == "right" then rect_x = x + w - rect_w - 1 end
+
 		local rect_y = current_y - rect_h
 
 		if rect_y < y + h and rect_y + rect_h > y then
-			draw_decorative_box(term, x, rect_y, rect_w, rect_h)
-			draw_text(term, x, rect_y, tui.history[i], rect_w, rect_h - 2)
+			local header = role
+			local is_tool = role == "tool"
+
+			if is_tool then
+				header = "TOOL"
+				term:PushForegroundColor(unpack(tui.colors.tool_border))
+			end
+
+			draw_decorative_box(term, rect_x, rect_y, rect_w, rect_h, header, align)
+
+			if is_tool then term:PopAttribute() end
+
+			local content_y = rect_y
+
+			if thoughts and thoughts ~= "" then
+				term:PushForegroundColor(unpack(tui.colors.thinking_text))
+				term:PushItalic()
+				draw_text(term, rect_x, content_y, thoughts, rect_w, info.thought_h)
+				term:PopAttribute()
+				term:PopAttribute()
+				content_y = content_y + info.thought_h
+			end
+
+			if is_tool then
+				term:PushForegroundColor(unpack(tui.colors.tool_text))
+			elseif align == "right" then
+				term:PushForegroundColor(unpack(tui.colors.user_text))
+			else
+				term:PushForegroundColor(unpack(tui.colors.assistant_text))
+			end
+
+			draw_text(term, rect_x, content_y, text, rect_w, info.text_h)
+			term:PopAttribute()
 		end
 
 		current_y = rect_y
@@ -260,7 +563,6 @@ local function draw_chat_history(term, x, y, w, h)
 		if current_y < y then break end
 	end
 
-	term:PopAttribute()
 	term:ClearViewport()
 end
 
