@@ -135,10 +135,12 @@ event.AddListener("Initialize", "tests", function()
 			end
 
 			io.write("ran " .. total_test_count .. " tests in " .. #tests .. " files\n")
-			io.write("total time: " .. string.format("%.2f", end_time - start_time) .. "s\n")
+			io.write("total time: " .. string.format("%.2f", system.GetTime() - start_time) .. "s\n")
 			io.flush()
-			os.exit(total_exit_code)
+			system.ShutDown(total_exit_code)
 		end
+
+		return
 	end
 
 	test.RunTestsWithFilter(

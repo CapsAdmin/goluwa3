@@ -54,6 +54,10 @@ local function traceback(msg, co_lines)
 		table.remove(lines, 1)
 	else
 		lines = callstack.format(callstack.traceback(""))
+
+		for i, line in ipairs(lines) do
+			lines[i] = line:trim()
+		end
 	end
 
 	-- Find the last instance of atttest.lua
@@ -268,7 +272,11 @@ function test._CreateTestTask(name, cb, start, stop)
 			-- OnError
 			has_failed_tests = true
 			self.failed = true
-			self.error = traceback(err, debug.traceback(co))
+			local tb = debug.traceback(co)
+			local current_dir = fs.get_current_directory() .. "/"
+			err = tostring(err):gsub(current_dir, ""):gsub("^%.%.%.[^/]*", ""):gsub("^.-/projects/goluwa3/", "")
+			tb = tb:gsub(current_dir, ""):gsub("[\n ]+%.%.%.[^/]*", ""):gsub("^.-/projects/goluwa3/", "")
+			self.error = traceback(err, tb)
 			local test_location = self.error:match("^(test/.-:%d+)\n\n")
 
 			if test_location then
@@ -465,9 +473,10 @@ do
 end
 
 function test.FindTests(filter)
-	local test_directory = fs.get_current_directory() .. "/test/tests/"
+	local test_directory_full = fs.get_current_directory() .. "/test/tests/"
+	local test_directory_rel = "test/tests/"
 	local filtered = {}
-	local files = fs.get_files_recursive(test_directory)
+	local files = fs.get_files_recursive(test_directory_full)
 
 	if not filter or filter == "all" then
 		filtered = files
@@ -486,9 +495,10 @@ function test.FindTests(filter)
 	local expanded = {}
 
 	for i, path in ipairs(other) do
-		local name = path:gsub(test_directory, "")
+		local name = path:gsub(test_directory_full, "")
+		local relative_path = path:gsub(fs.get_current_directory() .. "/", "")
 		table.insert(expanded, {
-			path = path,
+			path = relative_path,
 			name = name,
 		})
 	end
@@ -709,8 +719,6 @@ do
 
 							if test.unavailable_reason then
 								io_write(colors.dim("    " .. test.unavailable_reason) .. "\n")
-							elseif test.error then
-								io_write(colors.red("    " .. test.error:gsub("\n", "\n    ")) .. "\n")
 							end
 						end -- Print file total
 						io_write(
