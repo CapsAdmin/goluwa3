@@ -353,10 +353,21 @@ do
 		threads.join_thread(self.id)
 
 		if self.shared_mode then
-			-- Shared memory mode: no result to deserialize
+			local result, err
+			local status = self.input_data.status
+
+			if status == threads.STATUS_ERROR then
+				local res = threads.pointer_decode(self.input_data.output_buffer, self.input_data.output_buffer_len)
+				result, err = res[1], res[2]
+			end
+
+			-- Shared memory mode: no result to deserialize if successful
 			self.buffer = nil
 			self.input_data = nil
 			self.shared_ptr_ref = nil
+
+			if status == threads.STATUS_ERROR then return result, err end
+
 			return nil
 		else
 			local result = threads.pointer_decode(self.input_data.output_buffer, self.input_data.output_buffer_len)
