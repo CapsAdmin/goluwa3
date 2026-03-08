@@ -6,6 +6,7 @@ local event = require("event")
 local process = require("bindings.process")
 local fs = require("fs")
 local vfs = require("vfs")
+local tasks = require("tasks")
 
 local function normalize_path(path)
 	local wdir = vfs.GetStorageDirectory("working_directory")
@@ -42,9 +43,7 @@ return function(...)
 		profiler.Start("update")
 	end
 
-	if _G.CLI_MODE then system.KeepAlive("cli_mode") end
-
-	while (system.IsRunning() or _G.CLI_MODE) and not os.exitcode do
+	while system.IsRunning() and not os.exitcode do
 		local time = system.GetTime()
 		local dt = time - (last_time or 0)
 		--if dt > 0.1 then print("LONG FRAME", dt) end
@@ -56,12 +55,6 @@ return function(...)
 		i = i + 1
 		last_time = time
 		event.Call("FrameEnd")
-
-		if _G.CLI_MODE then
-			local tasks = require("tasks")
-
-			if not tasks.IsBusy() and not _G.INTERACTIVE_MODE then break end
-		end
 	end
 
 	if _G.PROFILE then profiler.Stop("update") end

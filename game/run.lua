@@ -1,6 +1,7 @@
 require("audio_mixer").Initialize()
 
 if _G.CLI_MODE then
+	system.KeepAlive("cli_mode")
 	local system = require("system")
 	_G.PROFILE = false
 	local vfs = require("vfs")
@@ -17,7 +18,6 @@ if _G.CLI_MODE then
 	_G.R = vfs.GetAbsolutePath
 	require("repl").Initialize()
 	_G.INTERACTIVE_MODE = true
-	system.KeepAlive("agent")
 	require("filewatcher").Start()
 	return
 end
@@ -31,8 +31,7 @@ local render = require("render.render")
 
 if not render.available then
 	logf("[game] Graphics not available - running in headless mode\n")
-	system.KeepAlive("headless_mode")
-	-- Load REPL for headless mode
+	system.KeepAlive("cli_mode")
 	local repl = require("repl")
 	repl.Initialize()
 	return
