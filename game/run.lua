@@ -1,3 +1,5 @@
+require("audio_mixer").Initialize()
+
 if _G.CLI_MODE then
 	local system = require("system")
 	_G.PROFILE = false

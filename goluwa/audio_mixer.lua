@@ -169,13 +169,10 @@ local function mixer_worker(shared_state_ptr)
 end
 
 function audio_mixer.Initialize()
-	print("init called", audio_mixer.thread)
-
 	if audio_mixer.thread then return end
 
 	audio_mixer.thread = threads.new(mixer_worker)
 	audio_mixer.thread:run(audio_mixer.state, true)
-	print("created worker")
 
 	require("timer").Delay(0.1, function()
 		if

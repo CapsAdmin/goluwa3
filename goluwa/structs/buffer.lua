@@ -789,6 +789,50 @@ do -- push pop position
 end
 
 do -- read bits
+	local function set_bit_pos(self, bit_pos)
+		if bit_pos <= 0 then
+			self.Position = 0
+			self.buf_nbit = 0
+			self.buf_byte = 0
+			return
+		end
+
+		local byte_pos = math.floor(bit_pos / 8)
+		local bit_offset = bit_pos % 8
+
+		if bit_offset == 0 then
+			self.Position = byte_pos
+			self.buf_nbit = 0
+		else
+			self.Position = byte_pos + 1
+			self.buf_nbit = 8 - bit_offset
+		end
+
+		self.buf_byte = 0
+	end
+
+	local function read_bits_at(self, bit_pos, nbits)
+		local out = 0
+		local out_shift = 0
+		local remaining = nbits
+		local current_bit_pos = bit_pos
+
+		while remaining > 0 do
+			local byte_pos = math.floor(current_bit_pos / 8)
+			local bit_offset = current_bit_pos % 8
+			local chunk = math.min(remaining, 8 - bit_offset)
+			local byte = self:GetByte(byte_pos)
+			local mask = bit.rshift(0xff, 8 - chunk)
+			local chunk_bits = bit.band(bit.rshift(byte, bit_offset), mask)
+			out = out + chunk_bits * (2 ^ out_shift)
+			current_bit_pos = current_bit_pos + chunk
+			out_shift = out_shift + chunk
+			remaining = remaining - chunk
+		end
+
+		return out
+	end
+
 	function META:RestartReadBits()
 		self.buf_start_pos = self.buf_start_pos or 0
 		self.buf_byte = 0
@@ -804,41 +848,73 @@ do -- read bits
 		return self.buf_nbit
 	end
 
+	function META:BitPos()
+		local bit_pos = self:GetPosition() * 8 - (self.buf_nbit or 0)
+
+		if bit_pos < 0 then return 0 end
+
+		return bit_pos
+	end
+
+	function META:RemainingBits()
+		return math.max(0, self:GetSize() * 8 - self:BitPos())
+	end
+
 	function META:ReadBits(nbits)
 		if nbits == 0 then return 0 end
 
-		-- If starting fresh bit reading, save position
+		local bit_pos = self:BitPos()
+
+		if self:GetSize() * 8 - bit_pos < nbits then return nil end
+
 		if self.buf_nbit == 0 then self.buf_start_pos = self:GetPosition() end
 
-		-- Accumulate bytes until we have enough bits
-		-- Limit to 32 bits to prevent overflow of uint32_t buf_byte
-		while self.buf_nbit < nbits and self.buf_nbit < 32 do
-			if self:TheEnd() then
-				-- No more bytes available
-				if self.buf_nbit >= nbits then break else return nil end
-			end
+		local out = read_bits_at(self, bit_pos, nbits)
+		set_bit_pos(self, bit_pos + nbits)
+		return out
+	end
 
-			-- Use bit.bor instead of addition to avoid signed/unsigned issues
-			self.buf_byte = bit.bor(self.buf_byte, bit.lshift(self:ReadByte(), self.buf_nbit))
-			self.buf_nbit = self.buf_nbit + 8
-		end
+	function META:PeekBits(nbits)
+		if nbits == 0 then return 0 end
 
-		-- Check if we have enough bits before proceeding
-		if self.buf_nbit < nbits then return nil -- Not enough bits available
-		end
+		local bit_pos = self:BitPos()
 
-		self.buf_nbit = self.buf_nbit - nbits
-		local bits
+		if self:GetSize() * 8 - bit_pos < nbits then return nil end
 
-		if nbits == 32 then
-			bits = self.buf_byte
-			self.buf_byte = 0
-		else
-			bits = bit.band(self.buf_byte, bit.rshift(0xffffffff, 32 - nbits))
-			self.buf_byte = bit.rshift(self.buf_byte, nbits)
-		end
+		return read_bits_at(self, bit_pos, nbits)
+	end
 
-		return bits
+	function META:SkipBits(nbits)
+		if nbits == 0 then return end
+
+		local bit_pos = self:BitPos()
+
+		if self:GetSize() * 8 - bit_pos < nbits then return nil end
+
+		if self.buf_nbit == 0 then self.buf_start_pos = self:GetPosition() end
+
+		set_bit_pos(self, bit_pos + nbits)
+		return true
+	end
+
+	function META:Read(nbits)
+		if nbits == 0 then return 0 end
+
+		local remaining = self:RemainingBits()
+
+		if remaining <= 0 then return 0 end
+
+		return self:ReadBits(math.min(nbits, remaining)) or 0
+	end
+
+	function META:Peek(nbits)
+		if nbits == 0 then return 0 end
+
+		local remaining = self:RemainingBits()
+
+		if remaining <= 0 then return 0 end
+
+		return self:PeekBits(math.min(nbits, remaining)) or 0
 	end
 end
 
