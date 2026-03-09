@@ -195,7 +195,7 @@ end)
 
 T.Test("resource.Download:Get works inside tasks.CreateTask", function()
 	local url = "https://example.invalid/chatsounds/list.msgpack"
-	local expected_path = "/home/caps/projects/goluwa3/README.md"
+	local expected_path = "./README.md"
 	local finished = false
 	local result = nil
 
@@ -219,12 +219,12 @@ T.Test("resource.Download:Get works inside tasks.CreateTask", function()
 	end)
 
 	T(result)["=="](expected_path)
-	T(vfs.Exists(result))["=="](true)
+	T(fs.is_file(result))["=="](true)
 end)
 
 T.Test("pcall must wrap resource.Download:Get in a function", function()
 	local url = "https://example.invalid/chatsounds/list.msgpack"
-	local expected_path = "/home/caps/projects/goluwa3/README.md"
+	local expected_path = "./README.md"
 	local finished = false
 	local ok = nil
 	local result = nil
