@@ -2,7 +2,6 @@ require("audio").Initialize()
 local system = require("system")
 local chatsounds = require("chatsounds.chatsounds")
 chatsounds.Initialize()
-_G.ch = chatsounds
 
 if _G.CLI_MODE then
 	system.KeepAlive("cli_mode")

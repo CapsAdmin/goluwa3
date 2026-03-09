@@ -258,6 +258,53 @@ do
 		)
 		return self
 	end
+
+	function callback.All(...)
+		local input = {...}
+
+		if #input == 1 and type(input[1]) == "table" and getmetatable(input[1]) ~= meta then
+			input = input[1]
+		end
+
+		local all = callback.Create()
+		local remaining = #input
+		local results = {}
+		local done = false
+
+		if remaining == 0 then
+			all:Resolve(results)
+			return all
+		end
+
+		local function finish_one()
+			remaining = remaining - 1
+
+			if remaining <= 0 and not done then
+				done = true
+				all:Resolve(results)
+			end
+		end
+
+		for i, cb in ipairs(input) do
+			if getmetatable(cb) == meta then
+				cb:Then(function(...)
+					results[i] = list.pack(...)
+					finish_one()
+				end)
+
+				cb:Catch(function(...)
+					if done then return end
+					done = true
+					all:Reject(...)
+				end)
+			else
+				results[i] = list.pack(cb)
+				finish_one()
+			end
+		end
+
+		return all
+	end
 end
 
 function callback.WrapKeyedTask(create_callback, max, queue_callback, start_on_callback)

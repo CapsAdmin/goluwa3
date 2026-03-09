@@ -230,6 +230,51 @@ T.Test("callback.WrapTask basic usage", function()
 	T(result_value)["=="]("result")
 end)
 
+T.Test("callback.All resolves when all callbacks resolve", function()
+	local a = callback.Create()
+	local b = callback.Create()
+	local resolved = nil
+
+	callback.All({a, b}):Then(function(results)
+		resolved = results
+	end)
+
+	timer.Delay(0, function()
+		a:Resolve("first")
+	end)
+
+	timer.Delay(0.01, function()
+		b:Resolve("second", 2)
+	end)
+
+	T.Sleep(0.03)
+	T(type(resolved))["=="]("table")
+	T(resolved[1][1])["=="]("first")
+	T(resolved[2][1])["=="]("second")
+	T(resolved[2][2])["=="](2)
+end)
+
+T.Test("callback.All rejects when any callback rejects", function()
+	local a = callback.Create()
+	local b = callback.Create()
+	local err = nil
+
+	callback.All(a, b):Catch(function(reason)
+		err = reason
+	end)
+
+	timer.Delay(0, function()
+		a:Resolve("ok")
+	end)
+
+	timer.Delay(0.01, function()
+		b:Reject("boom")
+	end)
+
+	T.Sleep(0.03)
+	T(err)["=="]("boom")
+end)
+
 T.Test("callback.WrapKeyedTask basic usage", function()
 	local executions = {}
 	local task = callback.WrapKeyedTask(function(self, key, value)
