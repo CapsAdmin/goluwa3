@@ -2,7 +2,7 @@ local ffi = require("ffi")
 local threads = require("bindings.threads")
 local event = require("event")
 local prototype = require("prototype")
-local ogg = require("codecs.ogg")
+local codec = require("codec")
 local fs = require("fs")
 local resource = require("resource")
 local audio = {}
@@ -56,6 +56,18 @@ do
 	Sound:IsSet("Paused", false)
 	Sound:IsSet("Ready", false)
 
+	function Sound:GetDuration() -- in seconds
+		local buffer_len = self:GetBufferLength()
+		local channels = self:GetChannels()
+		local sample_rate = self:GetSampleRate()
+
+		if channels <= 0 then channels = 2 end
+
+		if sample_rate <= 0 then sample_rate = 44100 end
+
+		return buffer_len / (channels * sample_rate)
+	end
+
 	function Sound:MakeReady()
 		self:SetReady(true)
 		self:SetPlaying(false)
@@ -64,7 +76,7 @@ do
 	end
 
 	function Sound:LoadPath(path)
-		local function load(res)
+		local function load(res, full_path)
 			self:SetName(path)
 			self:SetVolume(1)
 			self:SetBuffer(res.data)
@@ -74,28 +86,35 @@ do
 			self:SetLooping(false)
 			-- Keep the buffer alive
 			self.buffer_ref = res.data
+			self:MakeReady()
+
+			if self.play_on_ready then
+				self.play_on_ready = nil
+				self:Play()
+			end
 		end
 
-		resource.Download(path):Then(function(p)
-			local ok, ogg_or_err = pcall(ogg.Decode, p)
+		resource.Download(path):Then(function(full_path)
+			local ogg, err = codec.ReadFile("ogg", full_path)
 
-			if ok and ogg_or_err then
-				load(ogg_or_err)
-			else
-				if ok == false then
-					debug.trace()
-					print("Warning: Failed to load sound:", path, ogg_or_err)
-				end
-
-				self:MakeReady()
+			if not ogg then
+				print("failed to decode sound:", full_path, err)
+				return
 			end
+
+			load(ogg, full_path)
 		end):Catch(function(err)
-			print("Warning: Failed to download sound:", path, err)
+			print("failed to download sound:", full_path, err)
 			self:MakeReady()
 		end)
 	end
 
 	function Sound:Play()
+		if not self:IsReady() or not self:GetBuffer() then
+			self.play_on_ready = true
+			return nil
+		end
+
 		local slot = audio.GetFreeSlot()
 
 		if not slot then return nil end
