@@ -117,11 +117,39 @@ do
 		client.NoCodeError = true
 		client.OnReceiveStatus = function(_, code, status)
 			if tbl.code_callback then
-				return tbl.code_callback(tonumber(code), status)
+				local ret = tbl.code_callback(tonumber(code), status)
+
+				if ret == false then client:Close() end
+
+				return ret
 			end
 		end
 		client.OnReceiveHeader = function(_, header)
-			if tbl.header_callback then tbl.header_callback(header) end
+			local ret
+
+			if tbl.header_callback then
+				ret = tbl.header_callback(header)
+
+				if ret == false then client:Close() end
+			end
+
+			if tbl.method == "HEAD" then
+				if tbl.callback then
+					tbl.callback(
+						{
+							body = "",
+							content = "",
+							header = client.http.header,
+							code = tonumber(client.http.code),
+						}
+					)
+				end
+
+				client:Close()
+				return false
+			end
+
+			return ret
 		end
 		client.OnReceiveBodyChunk = function(_, chunk)
 			if tbl.on_chunks then tbl.on_chunks(chunk, length, header) end

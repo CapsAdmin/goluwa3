@@ -146,25 +146,28 @@ do
 	end
 
 	function meta:Get()
-		local res, err
+		if self.start_on_callback then
+			self.start_on_callback = nil
+			self:Start()
+		end
 
-		self:Then(function(...)
-			res = {...}
-		end)
-
-		self:Catch(function(msg)
-			err = msg
-		end)
-
-		while not res do
-			if err then
-				error(callstack.get_line(self.error_level) .. ": " .. tostring(err), self.error_level or 3)
+		while not self.is_resolved do
+			if self.is_rejected then
+				local msg = self.rejected_values and self.rejected_values[1]
+				local level = self.error_level or 3
+				error(callstack.get_line(level) .. ": " .. tostring(msg), level)
 			end
 
 			tasks.Wait()
 		end
 
-		return unpack(res)
+		return unpack(self.resolved_values or {})
+	end
+
+	function meta:TryGet()
+		return pcall(function()
+			return self:Get()
+		end)
 	end
 
 	function meta:Subscribe(what, func)

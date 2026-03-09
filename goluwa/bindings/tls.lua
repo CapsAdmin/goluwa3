@@ -45,7 +45,6 @@ local loaders = {
 			uint32_t cBuffers;
 			uint32_t cbBlockSize;
 		}]])
-
 		ffi.cdef[[
 			int recv(uintptr_t, void*, int, int);
 			int send(uintptr_t, const void*, int, int);
@@ -718,7 +717,6 @@ local loaders = {
 		local lib_crypto = nil
 
 		for _, name in ipairs(crypto_libs) do
-			
 			local success, loaded = pcall(ffi.load, name)
 
 			if success then
@@ -1180,16 +1178,18 @@ local loaders = {
 local callbacks = {}
 
 function ssl.tls_client()
-	if ssl.lib then return ssl.lib end
+	if ssl.loader then return assert(ssl.loader()) end
+
 	local errors = {}
+
 	for _, loader in ipairs(loaders) do
 		local success, result = pcall(loader)
 
-		if success then 
-			ssl.lib = result
-			return result 
-		else 
-			table.insert(errors, result) 
+		if success then
+			ssl.loader = loader
+			return result
+		else
+			table.insert(errors, result)
 		end
 	end
 

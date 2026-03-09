@@ -77,10 +77,32 @@ return function(sockets)
 		local buffer = {}
 		local written_size = 0
 		local total_size = math.huge
+		local done = false
+
+		local function cleanup()
+			if done then return false end
+
+			done = true
+			list.remove_value(sockets.active_downloads, lookup)
+			return true
+		end
+
+		local function fail(reason)
+			if not cleanup() then return end
+
+			if on_error then
+				on_error(reason)
+			else
+				llog("sockets.Download(" .. url .. ") failed: " .. tostring(reason))
+			end
+
+			client:Close()
+		end
 
 		function client:OnReceiveStatus(status, reason)
-			if status:starts_with("4") then
-				self:Error(reason)
+			if status:starts_with("4") or status:starts_with("5") then
+				local message = (reason or "HTTP error") .. "(" .. status .. ") url:" .. url
+				fail(message)
 				return false
 			elseif on_code then
 				on_code(tonumber(status))
@@ -112,19 +134,17 @@ return function(sockets)
 		end
 
 		function client:OnReceiveBody(body)
+			if not cleanup() then return end
+
 			on_finish(body)
-			list.remove_value(sockets.active_downloads, lookup)
 		end
 
 		function client:OnError(reason)
-			if on_error then
-				on_error(reason)
-			else
-				llog("sockets.Download(" .. url .. ") failed: " .. reason)
-			end
+			fail(reason)
+		end
 
-			self:Close()
-			list.remove_value(sockets.active_downloads, lookup)
+		function client:OnClose(reason)
+			if not done then fail(reason or "closed") end
 		end
 
 		client:Request("GET", url)

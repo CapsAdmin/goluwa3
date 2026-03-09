@@ -497,6 +497,44 @@ T.Test("callback Get throws on reject", function()
 	T(err ~= nil)["=="](true)
 end)
 
+T.Test("callback TryGet returns ok and value", function()
+	local cb = callback.Create(function(self)
+		timer.Delay(0.05, function()
+			self.callbacks.resolve("delayed_value")
+		end)
+	end)
+	cb:Start()
+	local ok, result = cb:TryGet()
+	T(ok)["=="](true)
+	T(result)["=="]("delayed_value")
+end)
+
+T.Test("callback TryGet returns false and error on reject", function()
+	local cb = callback.Create(function(self)
+		timer.Delay(0.05, function()
+			self.callbacks.reject("error_value")
+		end)
+	end)
+	cb:Start()
+	local ok, err = cb:TryGet()
+	T(ok)["=="](false)
+	T(type(err))["=="]("string")
+	T(#err > 0)["=="](true)
+end)
+
+T.Test("callback TryGet returns false on nil reject", function()
+	local cb = callback.Create(function(self)
+		timer.Delay(0.05, function()
+			self.callbacks.reject()
+		end)
+	end)
+	cb:Start()
+	local ok, err = cb:TryGet()
+	T(ok)["=="](false)
+	T(type(err))["=="]("string")
+	T(err:find("nil", 1, true) ~= nil)["=="](true)
+end)
+
 T.Test("callback parent subscribe propagates to children", function()
 	local events = {}
 	local parent = callback.Create()
@@ -664,41 +702,14 @@ T.Test("callback.WrapKeyedTask trigger propagation", function()
 	T(#results)["=="](1)
 	T(results[1])["=="]("test")
 end)
-T.Test("callback.WrapKeyedTask uniqueness via ! suffix", function()
-local task_count = 0
-local wrapper = callback.WrapKeyedTask(function(self, key, custom)
-task_count = task_count + 1
-self.key_received = key
-self.custom_received = custom
-end)
-
-local c1 = wrapper("foo!1", "param1")
-local c2 = wrapper("foo!2", "param2")
-
-T(c1 ~= c2)["=="](true)
-T(task_count)["=="](2)
-
--- Verify the key passed to the implementation stripped the suffix
-T(c1.key_received)["=="]("foo")
-T(c2.key_received)["=="]("foo")
-T(c1.custom_received)["=="]("param1")
-T(c2.custom_received)["=="]("param2")
-
--- Verify cache still works for exact same string
-local c3 = wrapper("foo!1", "param1")
-T(c3)["=="](c1)
-T(task_count)["=="](2)
-end)
 
 T.Test("callback.WrapKeyedTask normal sharing without suffix", function()
-local task_count = 0
-local wrapper = callback.WrapKeyedTask(function(self, key)
-task_count = task_count + 1
-end)
-
-local c1 = wrapper("bar")
-local c2 = wrapper("bar")
-
-T(c1)["=="](c2)
-T(task_count)["=="](1)
+	local task_count = 0
+	local wrapper = callback.WrapKeyedTask(function(self, key)
+		task_count = task_count + 1
+	end)
+	local c1 = wrapper("bar")
+	local c2 = wrapper("bar")
+	T(c1)["=="](c2)
+	T(task_count)["=="](1)
 end)

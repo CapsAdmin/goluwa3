@@ -76,7 +76,7 @@ local function download(
 					if not res then
 						llog(from, ": no etag found")
 						check_etag()
-						return
+						return false
 					end
 
 					if res ~= etag then
@@ -97,10 +97,12 @@ local function download(
 							need_extension,
 							ext_override
 						)
+						return false
 					else
 						if VERBOSE then llog(from, ": etag is the same") end
 
 						check_etag()
+						return false
 					end
 				end,
 			}

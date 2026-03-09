@@ -1,5 +1,6 @@
 local T = require("test.environment")
 local sockets = require("sockets.sockets")
+local tls = require("bindings.tls")
 require("http") -- This adds sockets.Request to the sockets module
 -- Test basic socket utilities that don't require network
 T.Test("sockets.DecodeURI parses HTTP URL correctly", function()
@@ -52,6 +53,14 @@ T.Test("sockets.HTTPClient can be created", function()
 	local client = sockets.HTTPClient()
 	T(client)["~="](nil)
 	T(type(client))["=="]("table")
+end)
+
+T.Test("bindings.tls.tls_client returns fresh instances", function()
+	local client_a = tls.tls_client()
+	local client_b = tls.tls_client()
+	T(type(client_a))["=="]("table")
+	T(type(client_b))["=="]("table")
+	T(client_a ~= client_b)["=="](true)
 end)
 
 -- Use high port numbers to avoid conflicts
