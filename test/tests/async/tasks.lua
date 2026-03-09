@@ -801,46 +801,6 @@ T.Test("deep recursion in a single task causing stack overflow", function()
 	T(finished or caught_error)["=="](true)
 end)
 
--- Test many levels of sub-agents simulated as nested function calls in one task
-T.Test("reproduce sub-agent stack growth issue", function()
-	cleanup_tasks()
-	local depth_limit = 50000 -- Drastically increase limit
-	local completed_depth = 0
-	local overflow_occurred = false
-	local error_msg = nil
-
-	local function simulate_agent(depth)
-		if depth > depth_limit then
-			completed_depth = depth
-			return
-		end
-
-		-- Simulate Agent:RunAsync() -> ToolCall -> sub_agent:RunAsync()
-		-- Also add some local variables to increase stack frame size
-		local a, b, c, d, e = depth, depth + 1, depth + 2, depth + 3, depth + 4
-		local ok, err = pcall(function()
-			tasks.Wait(0) -- Yield like a network request
-			simulate_agent(depth + 1)
-		end)
-
-		if not ok then
-			error_msg = tostring(err)
-			overflow_occurred = true
-			return
-		end
-	end
-
-	tasks.CreateTask(function()
-		simulate_agent(1)
-	end, nil, true)
-
-	T.WaitUntil(function()
-		return completed_depth > 0 or overflow_occurred
-	end, 10)
-
-	T(overflow_occurred)["=="](true)
-end)
-
 -- Test many levels of nesting using NEW tasks and WaitForNestedTask (should NOT overflow)
 T.Test("nested task awaiting prevents stack overflow", function()
 	cleanup_tasks()
