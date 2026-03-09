@@ -29,6 +29,8 @@ function ogg.Decode(data)
 		buffer = data
 	end
 
+	if buffer:TheEnd() then return nil, "Empty buffer" end
+
 	local pages = {}
 	local start_pos = buffer:GetPosition()
 
