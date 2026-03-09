@@ -718,7 +718,7 @@ local loaders = {
 		local lib_crypto = nil
 
 		for _, name in ipairs(crypto_libs) do
-			print("Trying to load Crypto library: " .. name)
+			
 			local success, loaded = pcall(ffi.load, name)
 
 			if success then
@@ -740,7 +740,6 @@ local loaders = {
 		local lib_ssl = nil
 
 		for _, name in ipairs(ssl_libs) do
-			print("Trying to load SSL library: " .. name)
 			local success, loaded = pcall(ffi.load, name)
 
 			if success then
@@ -1181,11 +1180,13 @@ local loaders = {
 local callbacks = {}
 
 function ssl.tls_client()
+	if ssl.lib then return ssl.lib end
 	local errors = {}
 	for _, loader in ipairs(loaders) do
 		local success, result = pcall(loader)
 
 		if success then 
+			ssl.lib = result
 			return result 
 		else 
 			table.insert(errors, result) 
