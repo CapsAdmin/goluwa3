@@ -1,4 +1,5 @@
 local vfs = require("vfs")
+local fs = require("fs")
 local crypto = require("crypto")
 local callback = require("callback")
 local codec = require("codec")
@@ -16,6 +17,39 @@ local ok, err = vfs.CreateDirectory("os:" .. DOWNLOAD_FOLDER)
 if not ok then wlog(err) end
 
 vfs.Mount("os:" .. DOWNLOAD_FOLDER, "os:downloads")
+
+local function delete_download_cache(path)
+	local abs_path = vfs.GetAbsolutePath(path, true) or vfs.GetAbsolutePath(path)
+
+	if not abs_path then return true end
+
+	if fs.is_file(abs_path) then return fs.remove_file(abs_path) end
+
+	local function delete_recursive(dir)
+		local files, err = fs.get_files(dir)
+
+		if not files then return nil, err end
+
+		for _, name in ipairs(files) do
+			local found_path = dir .. "/" .. name
+			local typ = fs.get_type(found_path)
+
+			if typ == "file" then
+				local ok, remove_err = fs.remove_file(found_path)
+
+				if not ok then return nil, remove_err end
+			elseif typ == "directory" then
+				local ok, remove_err = delete_recursive(found_path)
+
+				if not ok then return nil, remove_err end
+			end
+		end
+
+		return fs.remove_directory(dir)
+	end
+
+	return delete_recursive(abs_path:gsub("/$", ""))
+end
 
 function resource.AddProvider(provider, no_autodownload)
 	for i, v in ipairs(resource.providers) do
@@ -110,96 +144,172 @@ local function download(
 	end
 
 	local file
-	return http.Download(from):Then(function()
-		file:Close()
-		local full_path = R("os:" .. DOWNLOAD_FOLDER .. to .. ".temp")
+	local base_to = to
+	local current_to = to
+	local current_temp_path
+	local local_done = false
+	local client
 
-		if full_path then
-			local ok, err = vfs.Rename(full_path, full_path:gsub(".+/(.+).temp", "%1"))
+	local function fail(...)
+		if local_done then return end
+
+		local_done = true
+
+		if file then
+			file:Close()
+			file = nil
+		end
+
+		on_fail(...)
+
+		if client and client:IsValid() then client:Close() end
+	end
+
+	client = sockets.Download(
+		from,
+		function()
+			if local_done then return end
+
+			local_done = true
+
+			if file then
+				file:Close()
+				file = nil
+			end
+
+			local full_path = R("os:" .. DOWNLOAD_FOLDER .. current_to .. ".temp")
+
+			if full_path then
+				local ok, err = vfs.Rename(full_path, full_path:gsub(".+/(.+)%.temp$", "%1"))
+
+				if not ok then
+					fail(("unable to rename %q: %s\n"):format(full_path, err))
+					return
+				end
+
+				local full_path = R("os:" .. DOWNLOAD_FOLDER .. current_to)
+
+				if not full_path then
+					fail(("open error: %q not found!\n"):format("data/downloads/" .. current_to))
+					return
+				end
+
+				callback(full_path, true)
+				return
+			end
+
+			fail(
+				(
+					"open error: %q not found!\n"
+				):format("data/downloads/" .. DOWNLOAD_FOLDER .. to .. ".temp")
+			)
+		end,
+		fail,
+		function(chunk)
+			if not file then
+				fail(("unable to write chunk for %q: file not open\n"):format(from))
+				return
+			end
+
+			local ok, err = file:Write(chunk)
+
+			if ok == false then
+				fail(("unable to write chunk for %q: %s\n"):format(from, err or "unknown error"))
+			end
+		end,
+		function(header)
+			local dir = base_to
+			local next_to = base_to
+
+			if ext_override then
+				next_to = next_to .. "/file." .. ext_override
+			elseif need_extension then
+				local ext = from:match("%.([%a%d]+)$") or from:match("%.([%a%d]+)%?")
+
+				if not ext then
+					ext = header["content-type"] and
+						(
+							header["content-type"]:match(".-/(.-);") or
+							header["content-type"]:match(".-/(.+)")
+						)
+						or
+						"dat"
+				end
+
+				if ext == "dat" or ext == "octet-stream" then
+					ext = from:match("%.([%a%d]+)$") or from:match("%.([%a%d]+)%?") or ext
+				end
+
+				if ext == "jpeg" then ext = "jpg" end
+
+				next_to = next_to .. "/file." .. ext
+			end
+
+			local next_temp_path = "os:" .. DOWNLOAD_FOLDER .. next_to .. ".temp"
+
+			if current_temp_path and current_temp_path ~= next_temp_path then
+				if file then
+					file:Close()
+					file = nil
+				end
+
+				if vfs.Exists(current_temp_path) then vfs.Delete(current_temp_path) end
+			end
+
+			current_to = next_to
+			current_temp_path = next_temp_path
+
+			if file then
+				file:Close()
+				file = nil
+			end
+
+			local ok, err = vfs.CreateDirectoriesFromPath("os:" .. DOWNLOAD_FOLDER .. current_to)
 
 			if not ok then
-				return false, ("unable to rename %q: %s\n"):format(full_path, err)
-			end
-
-			local full_path = R("os:" .. DOWNLOAD_FOLDER .. to)
-
-			if not full_path then
-				return false, ("open error: %q not found!\n"):format("data/downloads/" .. to)
-			end
-
-			--llog("finished donwnloading ", from)
-			callback(full_path, true)
-			return
-		end
-
-		return false,
-		(
-			"open error: %q not found!\n"
-		):format("data/downloads/" .. DOWNLOAD_FOLDER .. to .. ".temp")
-	end):Catch(function(...)
-		on_fail(...)
-	end):Subscribe("chunks", function(chunk)
-		file:Write(chunk)
-	end):Subscribe("header", function(header)
-		local dir = to
-
-		if ext_override then
-			to = to .. "/file." .. ext_override
-		elseif need_extension then
-			local ext = header["content-type"] and
-				(
-					header["content-type"]:match(".-/(.-);") or
-					header["content-type"]:match(".-/(.+)")
+				fail(
+					llog(
+						"unable to create directories %q download error: %s",
+						"os:" .. DOWNLOAD_FOLDER .. current_to,
+						err
+					)
 				)
-				or
-				"dat"
-
-			if ext == "dat" or ext == "octet-stream" then
-				ext = from:match("%.([%a%d]+)$") or from:match("%.([%a%d]+)%?") or ext
+				return
 			end
 
-			if ext == "jpeg" then ext = "jpg" end
+			if resource.debug then
+				codec.WriteFile(
+					"luadata",
+					"os:" .. DOWNLOAD_FOLDER .. dir .. "info.txt",
+					{header = header, url = from}
+				)
+			end
 
-			to = to .. "/file." .. ext
+			local file_, err = vfs.Open(current_temp_path, "write")
+			file = file_
+
+			if not file then
+				fail(("unable to open file for writing %q: %s\n"):format(current_temp_path, err))
+				return
+			end
+
+			local etag = header.etag or header["last-modified"]
+
+			if etag then
+				codec.StoreInFile("luadata", etags_file, etag_path_override or from, etag)
+			end
+
+			local ok, res, extra = pcall(on_header, header)
+
+			if not ok then
+				fail(res)
+				return
+			end
+
+			if res == false and type(extra) == "string" then fail(extra) end
 		end
-
-		local ok, err = vfs.CreateDirectoriesFromPath("os:" .. DOWNLOAD_FOLDER .. to)
-
-		if not ok then
-			return false,
-			llog(
-				"unable to create directories %q download error: %s",
-				"os:" .. DOWNLOAD_FOLDER .. to,
-				err
-			)
-		end
-
-		if resource.debug then
-			codec.WriteFile(
-				"luadata",
-				"os:" .. DOWNLOAD_FOLDER .. dir .. "info.txt",
-				{header = header, url = from}
-			)
-		end
-
-		local file_, err = vfs.Open("os:" .. DOWNLOAD_FOLDER .. to .. ".temp", "write")
-		file = file_
-
-		if not file then
-			return false,
-			(
-				"unable to open file for writing %q: %s\n"
-			):format("os:" .. DOWNLOAD_FOLDER .. to .. ".temp", err)
-		end
-
-		local etag = header.etag or header["last-modified"]
-
-		if etag then
-			codec.StoreInFile("luadata", etags_file, etag_path_override or from, etag)
-		end
-
-		on_header(header)
-	end)
+	)
+	return {socket = client}
 end
 
 local function download_from_providers(path, callback, on_fail, check_etag)
@@ -270,21 +380,13 @@ resource.Download = callback.WrapKeyedTask(
 
 			if found[1] and found[1]:ends_with(".temp") then
 				llog("deleting unfinished download: ", path)
-
-				for _, path in ipairs(vfs.Find("os:" .. DOWNLOAD_FOLDER .. "url/" .. crc .. "/", true)) do
-					vfs.Delete(path)
-				end
-
+				delete_download_cache("os:" .. DOWNLOAD_FOLDER .. "url/" .. crc .. "/")
 				found = {}
 			end
 
-			if PLATFORM == "gmod" and found[1] and vfs.IsDirectory(found[1]) then
+			if found[1] and vfs.IsDirectory(found[1]) then
 				llog("deleting bad cache data:", path)
-
-				for _, path in ipairs(vfs.Find("os:" .. DOWNLOAD_FOLDER .. "url/" .. crc .. "/", true)) do
-					vfs.Delete(path)
-				end
-
+				delete_download_cache("os:" .. DOWNLOAD_FOLDER .. "url/" .. crc .. "/")
 				found = {}
 			end
 
@@ -366,29 +468,7 @@ resource.Download = callback.WrapKeyedTask(
 )
 
 function resource.ClearDownloads()
-	local dirs = {}
-
-	vfs.GetFilesRecursive(
-		"os:" .. DOWNLOAD_FOLDER,
-		nil,
-		function(path)
-			if vfs.IsDirectory(path) then
-				list.insert(dirs, path)
-			else
-				vfs.Delete(path)
-			end
-		end,
-		nil,
-		true
-	)
-
-	list.sort(dirs, function(a, b)
-		return #a > #b
-	end)
-
-	for _, dir in ipairs(dirs) do
-		vfs.Delete(dir .. "/")
-	end
+	delete_download_cache("os:" .. DOWNLOAD_FOLDER)
 end
 
 function resource.CheckDownloadedFiles()
