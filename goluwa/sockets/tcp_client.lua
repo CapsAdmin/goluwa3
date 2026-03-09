@@ -180,7 +180,12 @@ return function(sockets)
 				if err == "tryagain" then break end
 
 				if chunk then
+					local current_socket = self.socket
 					self:OnReceiveChunk(chunk)
+
+					if current_socket ~= self.socket or self.connecting or not self.connected then
+						break
+					end
 				else
 					if err == "closed" then
 						self:OnClose("receive")
