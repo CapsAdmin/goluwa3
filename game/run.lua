@@ -1,4 +1,4 @@
-require("audio_mixer").Initialize()
+require("audio").Initialize()
 local system = require("system")
 local chatsounds = require("chatsounds.chatsounds")
 chatsounds.Initialize()

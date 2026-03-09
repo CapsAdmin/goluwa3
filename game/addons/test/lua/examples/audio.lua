@@ -1,4 +1,4 @@
-local audio = require("bindings.audio")
+local audio = require("bindings.audio_buffer")
 local time = 0
 
 local function getpitch(offset)

@@ -1,4 +1,5 @@
 local event = require("event")
+local audio = require("audio")
 local system = require("system")
 local chatsounds = library()
 package.loaded["chatsounds.chatsounds"] = chatsounds
@@ -778,7 +779,8 @@ function chatsounds.PlayScript(script)
 					if info.base_path then path = info.base_path .. path end
 
 					local sound = {}
-					sound.snd = audio.CreateSource(path)
+					sound.snd = audio.CreateSound()
+					sound.snd:LoadPath(path)
 					sound.duration = chunk.val.duration
 					sound.trigger = chunk.val.trigger
 					sound.modifiers = chunk.modifiers
