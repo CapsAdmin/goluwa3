@@ -246,7 +246,12 @@ do
 
 	local function get_function_pointer(L, code, func)
 		check_error(L, ffi.C.luaL_loadstring(L, code))
-		local str = string.dump(func)
+		-- Accept either a source string or a function.
+		-- Using a source string avoids the upvalue-serialization bug: when a
+		-- function is serialized with string.dump, any upvalues it closes over
+		-- (e.g. `local io = require("io")` in the outer scope) become nil in
+		-- the new Lua state, causing confusing "attempt to index upvalue" errors.
+		local str = type(func) == "string" and func or string.dump(func)
 		ffi.C.lua_pushlstring(L, str, #str)
 		check_error(L, ffi.C.lua_pcall(L, 1, 1, 0))
 		local ptr = ffi.C.lua_topointer(L, -1)

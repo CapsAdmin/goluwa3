@@ -1,16 +1,4 @@
 #!/usr/bin/env luajit
 
-if ... == "test" then
-    require("goluwa.main")("test/run.lua", select(2, ...))
-elseif ... == "cli" then
-    _G.CLI_MODE = true
-    require("goluwa.main")("game/run.lua")
-elseif ... == "run" then
-    _G.CLI_MODE = true
-    require("goluwa.main")(select(2, ...))
-elseif not ... then
-    require("goluwa.main")("game/run.lua")
-end
-
 --require("goluwa.main_wrapped")(...)
 require("goluwa.main")(...)

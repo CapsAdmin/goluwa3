@@ -7,7 +7,8 @@ local process = require("bindings.process")
 local fs = require("fs")
 local vfs = require("vfs")
 local tasks = require("tasks")
-
+local commands = require("commands")
+require("helpers.test") -- add test command
 local function normalize_path(path)
 	local wdir = vfs.GetStorageDirectory("working_directory")
 
@@ -16,21 +17,51 @@ local function normalize_path(path)
 	return path
 end
 
-return function(...)
-	if ... == "-e" then
-		local lua = select(2, ...)
-		assert(loadstring(lua))(select(3, ...))
-		return
-	elseif ... == "--reload" then
-		local path = select(2, ...)
-		path = normalize_path(path)
-		assert(loadfile(path))(select(3, ...))
+commands.Add("run", function(path, ...)
+	local path = normalize_path(path)
+	assert(loadfile(path))(...)
+end)
 
-		if not path:starts_with("test/") then return end
+commands.Add("lua", function(code, ...)
+	assert(loadstring(code))(...)
+end)
+
+commands.Add("reload", function(path, ...)
+	path = normalize_path(path)
+	assert(loadfile(path))(...)
+end)
+
+commands.Add("cli", function(path, ...)
+	_G.GRAPHICS = false
+	_G.AUDIO = true
+	assert(loadfile("game/run.lua"))()
+end)
+
+return function(...)
+	if ... then
+		local args = {...}
+		local cmd = args[1]
+
+		if cmd == "test" then
+			local f = assert(loadfile("test/run.lua"))
+			f(...)
+		else
+			if cmd == "-e" then
+				cmd = "lua"
+			elseif cmd == "--reload" then
+				cmd = "reload"
+			elseif cmd:ends_with(".lua") then
+				cmd = "run"
+				args = {"run", cmd, unpack(args, 2)}
+			end
+
+			args[1] = cmd
+			commands.RunArguments(args)
+		end
 	else
-		local path = ...
-		path = normalize_path(path)
-		assert(loadfile(path))(select(2, ...))
+		_G.GRAPHICS = true
+		_G.AUDIO = true
+		assert(loadfile("game/run.lua"))()
 	end
 
 	fs.write_file(".running_pid", tostring(process.current:get_id()))

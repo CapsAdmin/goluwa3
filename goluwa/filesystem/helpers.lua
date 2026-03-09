@@ -318,7 +318,7 @@ add_helper(
 		end
 
 		if not found then
-			if CLI then vfs.CreateDirectoriesFromPath(path, true) end
+			vfs.CreateDirectoriesFromPath(path, true)
 		end
 	end
 )

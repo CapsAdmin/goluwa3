@@ -2,10 +2,7 @@ local T = require("test.environment")
 local render2d = require("render2d.render2d")
 local Texture = require("render.texture")
 
-T.Test("texture bindless index reuse with __gc", function()
-	local render = require("render.render")
-	render.Initialize({headless = true})
-	render2d.Initialize()
+T.Test2D("texture bindless index reuse with __gc", function()
 	local pipeline = render2d.pipeline
 	T(pipeline)["~="](nil)
 	local start_index = pipeline.pipeline.next_texture_index

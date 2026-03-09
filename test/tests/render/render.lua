@@ -2,9 +2,8 @@ local T = require("test.environment")
 local render = require("render.render")
 local Texture = require("render.texture")
 
-T.Test("Graphics render multiple outputs", function()
+T.Test3D("Graphics render multiple outputs", function()
 	local width, height = 512, 512
-	render.Initialize({headless = true, width = width, height = height})
 	-- Create 3 textures for outputs
 	local tex1 = Texture.New(
 		{

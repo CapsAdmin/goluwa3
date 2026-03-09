@@ -10,18 +10,9 @@ local Quat = require("structs.quat")
 local Color = require("structs.color")
 local Rect = require("structs.rect")
 
-local function init_render3d()
-	render.Initialize({headless = true, width = 512, height = 512})
-	render3d.Initialize()
-	local cam = render3d.GetCamera()
-	cam:SetPosition(Vec3(0, 0, -5))
-	cam:SetRotation(Quat(0, 0, 0, 1))
-	cam:SetViewport(Rect(0, 0, 512, 512))
-	cam:SetFOV(math.rad(45))
-end
 
-T.Test("Raycast basic triangle hit", function()
-	init_render3d()
+T.Test3D("Raycast basic triangle hit", function()
+	
 	-- Create entity with triangle mesh
 	local ent = Entity.New({Name = "test_triangle"})
 	ent:AddComponent("transform")
@@ -46,8 +37,8 @@ T.Test("Raycast basic triangle hit", function()
 	ent:Remove()
 end)
 
-T.Test("Raycast miss", function()
-	init_render3d()
+T.Test3D("Raycast miss", function()
+	
 	-- Create entity with triangle mesh
 	local ent = Entity.New({Name = "test_triangle"})
 	ent:AddComponent("transform")
@@ -68,8 +59,8 @@ T.Test("Raycast miss", function()
 	ent:Remove()
 end)
 
-T.Test("Raycast cube", function()
-	init_render3d()
+T.Test3D("Raycast cube", function()
+	
 	-- Create entity with cube mesh
 	local ent = Entity.New({Name = "test_cube"})
 	ent:AddComponent("transform")
@@ -98,8 +89,8 @@ T.Test("Raycast cube", function()
 	ent:Remove()
 end)
 
-T.Test("Raycast with transform", function()
-	init_render3d()
+T.Test3D("Raycast with transform", function()
+	
 	-- Create entity with triangle mesh at offset position
 	local ent = Entity.New({Name = "test_triangle"})
 	ent:AddComponent("transform")
@@ -124,8 +115,8 @@ T.Test("Raycast with transform", function()
 	ent:Remove()
 end)
 
-T.Test("Raycast multiple entities", function()
-	init_render3d()
+T.Test3D("Raycast multiple entities", function()
+	
 	-- Create two entities at different positions
 	local ent1 = Entity.New({Name = "cube1"})
 	ent1:AddComponent("transform")
@@ -160,8 +151,8 @@ T.Test("Raycast multiple entities", function()
 	ent2:Remove()
 end)
 
-T.Test("Raycast with filter", function()
-	init_render3d()
+T.Test3D("Raycast with filter", function()
+	
 	-- Create two entities
 	local ent1 = Entity.New({Name = "include_me"})
 	ent1:AddComponent("transform")
@@ -201,8 +192,8 @@ T.Test("Raycast with filter", function()
 	ent2:Remove()
 end)
 
-T.Test("Raycast CastClosest", function()
-	init_render3d()
+T.Test3D("Raycast CastClosest", function()
+	
 	local ent = Entity.New({Name = "test_cube"})
 	ent:AddComponent("transform")
 	ent:AddComponent("model")
@@ -219,8 +210,8 @@ T.Test("Raycast CastClosest", function()
 	ent:Remove()
 end)
 
-T.Test("Raycast CastAny", function()
-	init_render3d()
+T.Test3D("Raycast CastAny", function()
+	
 	local ent = Entity.New({Name = "test_cube"})
 	ent:AddComponent("transform")
 	ent:AddComponent("model")
