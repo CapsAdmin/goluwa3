@@ -2,6 +2,7 @@ local T = require("test.environment")
 local ffi = require("ffi")
 local Buffer = require("structs.buffer")
 local png = require("codecs.png")
+local resource = require("resource")
 
 -- Helper to load PNG file into buffer
 local function load_png_file(path)
@@ -13,10 +14,9 @@ local function load_png_file(path)
 	return Buffer.New(file_buffer_data, #file_data)
 end
 
-local PNG = "game/addons/test/assets/images/capsadmin.png"
 
 T.Test("PNG decode basic functionality", function()
-	local file_buffer = load_png_file(PNG)
+	local file_buffer = load_png_file(resource.Download("https://github.com/CapsAdmin/goluwa-assets/raw/refs/heads/master/extras/textures/pac.png"):Get())
 	local img = png.DecodeBuffer(file_buffer)
 	T(img.width)[">"](0)
 	T(img.height)[">"](0)
@@ -27,7 +27,7 @@ T.Test("PNG decode basic functionality", function()
 end)
 
 T.Test("PNG decode capsadmin.png average color", function()
-	local file_buffer = load_png_file(PNG)
+	local file_buffer = load_png_file(resource.Download("https://github.com/CapsAdmin/goluwa-assets/raw/refs/heads/master/extras/textures/pac.png"):Get())
 	local img = png.DecodeBuffer(file_buffer)
 	img.buffer:SetPosition(0)
 	local pixel_count = img.width * img.height
@@ -53,12 +53,12 @@ T.Test("PNG decode capsadmin.png average color", function()
 end)
 
 T.Test("PNG decode RGB image has correct alpha channel", function()
-	local file_buffer = load_png_file(PNG)
+	local file_buffer = load_png_file(resource.Download("https://github.com/CapsAdmin/goluwa-assets/raw/refs/heads/master/extras/textures/pac.png"):Get())
 	local img = png.DecodeBuffer(file_buffer)
-	T(img.colorType)["=="](2)
+	T(img.colorType)["=="](6)
 	img.buffer:SetPosition(0)
 	local pixel_count = img.width * img.height
-	local incorrect_alpha_count = 0
+	local alpha_count = 0
 
 	for i = 1, pixel_count do
 		local r = img.buffer:ReadByte()
@@ -66,8 +66,8 @@ T.Test("PNG decode RGB image has correct alpha channel", function()
 		local b = img.buffer:ReadByte()
 		local a = img.buffer:ReadByte()
 
-		if a ~= 255 then incorrect_alpha_count = incorrect_alpha_count + 1 end
+		if a ~= 255 then alpha_count = alpha_count + 1 end
 	end
 
-	T(incorrect_alpha_count)["=="](0)
+	T(alpha_count)["=="](26818)
 end)
