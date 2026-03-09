@@ -2,15 +2,16 @@ local T = require("test.environment")
 local ffi = require("ffi")
 local Buffer = require("structs.buffer")
 local vtf = require("codecs.vtf")
+local resource = require("resource")
 local vfs = require("vfs")
-local VTF = "/home/caps/.steam/steam/steamapps/common/GarrysMod/garrysmod/garrysmod_dir.vpk/materials/gm_construct/grass1.vtf"
+local VTF = "https://github.com/CapsAdmin/goluwa-assets/raw/refs/heads/master/extras/materials/nature/grassfloor002a.vtf"
 
--- Helper to load VTF file into buffer using vfs
 local function load_vtf_file(path)
-	local file = vfs.Open(path)
+	local full_path = resource.Download(path):Get()
 
-	if not file then error("Could not open VTF file: " .. path) end
+	if not full_path then error("Could not open VTF file: " .. path) end
 
+	local file = assert(vfs.Open(full_path))
 	local file_data = file:ReadAll()
 	file:Close()
 	local file_buffer_data = ffi.new("uint8_t[?]", #file_data)
@@ -19,7 +20,7 @@ local function load_vtf_file(path)
 end
 
 -- Test basic VTF decoding functionality with real VTF file
-T.Test("VTF decode gm_construct grass1.vtf", function()
+T.Test("VTF decode", function()
 	local file_buffer = load_vtf_file(VTF)
 	local img = vtf.DecodeBuffer(file_buffer)
 	T(img)["~="](nil)

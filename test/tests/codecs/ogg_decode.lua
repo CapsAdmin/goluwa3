@@ -1,12 +1,12 @@
 local T = require("test.environment")
 local ffi = require("ffi")
-local ogg = require("goluwa.codecs.ogg")
-local fs = require("goluwa.fs")
-local TEST_FILE = "./test.ogg"
+local ogg = require("codecs.ogg")
+local fs = require("fs")
+local resource = require("resource")
 
-T.Test("Ogg/Vorbis from-scratch decoder test", function()
-	print("wtf")
-	local data = fs.read_file(TEST_FILE)
+T.Test("Ogg/Vorbis decoder", function()
+	local path = resource.Download("https://github.com/CapsAdmin/goluwa-assets/raw/refs/heads/master/test/ogg/test_sweep.ogg"):Get()
+	local data = fs.read_file(path)
 	T(data)["~="](nil)
 	T(#data)[">"](0)
 	local res = assert(ogg.Decode(data))
@@ -55,36 +55,20 @@ T.Test("Ogg/Vorbis from-scratch decoder test", function()
 		if v < min_val then min_val = v end
 	end
 
-	print(string.format("Sample range: [%f, %f]", min_val or 0, max_val or 0))
-
-	-- PCM samples should be roughly in [-1, 1] range after IMDCT
 	if max_val and max_val > 10 then
-		print(string.format("Warning: max_val is high: %f", max_val))
+		error(string.format("max_val is high: %f", max_val))
 	end
 
 	if min_val and min_val < -10 then
-		print(string.format("Warning: min_val is low: %f", min_val))
+		error(string.format("min_val is low: %f", min_val))
 	end
 
-	-- Verify duration matches metadata/granulepos
-	-- test.ogg is known to be around 1 second
 	local duration = num_samples / res.sample_rate
-	print(
-		string.format(
-			"Decoded duration: %.2fs (%d samples @ %dHz)",
-			duration,
-			num_samples,
-			res.sample_rate
-		)
-	)
+
 	T(has_nan)["=="](false)
 	T(duration)[">"](0.75)
 	T(duration)["<"](1.2)
-	-- Verify Audio Packet Decoding Coverage 
-	-- Check if we have processed at least one audio packet (Packet 3+)
 	T(res.packets_decoded or 0)[">"](0)
-	print("Verified decoding of", res.packets_decoded, "audio packets.")
-	-- Verify non-zero PCM data
 	local ptr = ffi.cast("float*", res.data)
 	local non_zero = false
 
@@ -102,11 +86,9 @@ end)
 -- Frequency verification test using a sine sweep
 -- Decodes a 100Hz->1000Hz sweep and verifies the dominant frequency
 -- increases over time using zero-crossing analysis
-local SWEEP_FILE = "./test_sweep.ogg"
-local SWEEP_REF_FILE = "./test_sweep_ref.raw"
 
 T.Test("Ogg/Vorbis sine sweep frequency verification", function()
-	local data = fs.read_file(SWEEP_FILE)
+	local data = fs.read_file(resource.Download("https://github.com/CapsAdmin/goluwa-assets/raw/refs/heads/master/test/ogg/test_sweep.ogg"):Get())
 	T(data)["~="](nil)
 	local res = assert(ogg.Decode(data))
 	T(res.channels)["=="](2)
@@ -115,13 +97,10 @@ T.Test("Ogg/Vorbis sine sweep frequency verification", function()
 	local sr = res.sample_rate
 	local ptr = ffi.cast("float*", res.data)
 	-- Also load the reference raw PCM for correlation
-	local ref_data = fs.read_file(SWEEP_REF_FILE)
+	local ref_data = fs.read_file(resource.Download("https://github.com/CapsAdmin/goluwa-assets/raw/refs/heads/master/test/ogg/test_sweep_ref.raw"):Get())
 	T(ref_data)["~="](nil)
 	local ref_ptr = ffi.cast("float*", ref_data)
 	local ref_samples = #ref_data / 4 / 2 -- float32, stereo
-	print(
-		string.format("Decoded sweep: %d samples, reference: %d samples", num_samples, ref_samples)
-	)
 	-- Extract left channel from decoded output
 	local decoded_left = {}
 
@@ -219,20 +198,22 @@ T.Test("Ogg/Vorbis sine sweep frequency verification", function()
 		ref_freqs[w] = measure_freq_zc(ref_left, start, window_size)
 	end
 
-	print("Window | Decoded Freq | Reference Freq | Ratio")
-	print("-------+-------------+----------------+------")
+	if _G.DEBUG then
+		print("Window | Decoded Freq | Reference Freq | Ratio")
+		print("-------+-------------+----------------+------")
 
-	for w = 0, n_windows - 1 do
-		local ratio = decoded_freqs[w] / math.max(ref_freqs[w], 1)
-		print(
-			string.format(
-				"  %2d   |  %7.1f Hz  |  %7.1f Hz     | %.3f",
-				w,
-				decoded_freqs[w],
-				ref_freqs[w],
-				ratio
+		for w = 0, n_windows - 1 do
+			local ratio = decoded_freqs[w] / math.max(ref_freqs[w], 1)
+			print(
+				string.format(
+					"  %2d   |  %7.1f Hz  |  %7.1f Hz     | %.3f",
+					w,
+					decoded_freqs[w],
+					ref_freqs[w],
+					ratio
+				)
 			)
-		)
+		end
 	end
 
 	-- Verify: decoded frequencies should roughly track reference frequencies
@@ -245,18 +226,8 @@ T.Test("Ogg/Vorbis sine sweep frequency verification", function()
 		if ratio > 0.5 and ratio < 2.0 then good_windows = good_windows + 1 end
 	end
 
-	print(
-		string.format("Frequency tracking: %d/%d windows within 2x tolerance", good_windows, n_windows)
-	)
 	T(good_windows)[">="](n_windows * 0.7) -- at least 70% of windows should track
 	-- Verify the sweep goes up: last window freq > first window freq
-	print(
-		string.format(
-			"Frequency sweep: %.1f Hz -> %.1f Hz (decoded)",
-			decoded_freqs[0],
-			decoded_freqs[n_windows - 1]
-		)
-	)
 	T(decoded_freqs[n_windows - 1])[">"](decoded_freqs[0] * 1.5)
 	-- Cross-correlation of a small segment to check waveform similarity
 	-- Use a segment from the middle of the file where the sweep is well-established
@@ -273,7 +244,6 @@ T.Test("Ogg/Vorbis sine sweep frequency verification", function()
 	end
 
 	local correlation = sum_xy / (math.sqrt(sum_xx * sum_yy) + 1e-10)
-	print(string.format("Mid-file correlation with reference: %.4f", correlation))
 	-- For a properly decoded sine sweep, correlation should be positive
 	-- (Vorbis is lossy so we can't expect perfect correlation, but it should be > 0)
 	T(correlation)[">"](0.1)
@@ -307,24 +277,7 @@ T.Test("Ogg/Vorbis sine sweep frequency verification", function()
 	local env_max_err = max_abs_diff(decoded_env_norm, ref_env_norm)
 	local decoded_flutter = mean_adjacent_change(decoded_env_norm)
 	local ref_flutter = mean_adjacent_change(ref_env_norm)
-	print(
-		string.format(
-			"Volume envelope: mean decoded=%.4f ref=%.4f ratio=%.4f, mae=%.4f, max_err=%.4f",
-			decoded_env_mean,
-			ref_env_mean,
-			volume_ratio,
-			env_mae,
-			env_max_err
-		)
-	)
-	print(
-		string.format(
-			"Envelope flutter: decoded=%.4f ref=%.4f ratio=%.3f",
-			decoded_flutter,
-			ref_flutter,
-			decoded_flutter / math.max(ref_flutter, 1e-9)
-		)
-	)
+
 	-- Allow some deviation because Vorbis is lossy, but sustained amplitude
 	-- modulation should still stay close to the reference envelope.
 	T(volume_ratio)[">"](0.2)

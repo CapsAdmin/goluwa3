@@ -838,13 +838,6 @@ T.Test("reproduce sub-agent stack growth issue", function()
 		return completed_depth > 0 or overflow_occurred
 	end, 10)
 
-	print(
-		"Final depth reached: " .. (
-				completed_depth > 0 and
-				completed_depth or
-				"overflow at " .. tostring(error_msg)
-			)
-	)
 	T(overflow_occurred)["=="](true)
 end)
 

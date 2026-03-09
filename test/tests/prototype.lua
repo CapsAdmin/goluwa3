@@ -150,8 +150,6 @@ T.Test("prototype parenting OnUnParent once", function()
 	local unparent_count = 0
 
 	function META:OnUnParent(parent)
-		print(self, parent)
-		debug.trace()
 		unparent_count = unparent_count + 1
 	end
 
