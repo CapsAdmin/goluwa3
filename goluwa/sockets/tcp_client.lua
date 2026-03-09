@@ -35,9 +35,10 @@ return function(sockets)
 		function META:SetupTLS()
 			if self.tls_setup then return end
 
-			self.tls_setup = true
+			ssl.initialize()
 			local tls = ssl.tls_client()
 			local tls_closed = false
+			self.tls_setup = true
 
 			function self.socket:on_connect(host, service)
 				return tls.connect(self.fd, host)
