@@ -1,6 +1,3 @@
-do
-	return
-end -- this whole test is pending
 local T = require("test.environment")
 local ffi = require("ffi")
 local render = require("render.render")
@@ -21,7 +18,7 @@ local width = 512
 local height = 512
 local Quat = require("structs.quat")
 
-T.Test3D("Graphics Polygon3D environment map reflection colors", function(draw)
+T.Pending("Graphics Polygon3D environment map reflection colors", function(draw)
 	local function sphere(lp, ly, config)
 		local M = config.metallic or 1
 		local R = config.roughness or 1
