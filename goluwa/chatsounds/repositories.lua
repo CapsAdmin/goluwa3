@@ -3,6 +3,7 @@ local resource = require("resource")
 local crypto = require("crypto")
 local codec = require("codec")
 local tasks = require("tasks")
+local vfs = require("vfs")
 
 local function read_list(base_url, sounds, list_id, skip_list)
 	local tree = {}
@@ -21,7 +22,7 @@ local function read_list(base_url, sounds, list_id, skip_list)
 			tree[realm] = tree[realm] or {}
 			list[realm] = list[realm] or {}
 			tree[realm][trigger] = tree[realm][trigger] or {}
-			list.insert(tree[realm][trigger], {
+			_G.list.insert(tree[realm][trigger], {
 				path = path,
 				base_path = base_url,
 			})
@@ -47,7 +48,7 @@ local function read_list(base_url, sounds, list_id, skip_list)
 	chatsounds.GenerateAutocomplete()
 
 	if list_id then
-		llog("loaded " .. #sounds .. " unqiue sounds from ", base_url)
+		llog("loaded " .. #sounds .. " unique sounds from ", base_url)
 	end
 end
 
@@ -61,7 +62,7 @@ function chatsounds.BuildFromGithub(repo, location, list_id)
 		if ok then
 			local path = res
 			llog("found list.msgpack for ", location)
-			local val = vfs.Read(path)
+			local val = codec.ReadFile("msgpack", path)
 			read_list(base_url, val, list_id)
 			return res
 		end

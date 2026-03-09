@@ -1,4 +1,5 @@
 local chatsounds = require("chatsounds.chatsounds")
+local autocomplete = require("autocomplete")
 
 function chatsounds.BuildFromSoundDirectory(where)
 	where = where or "sounds/chatsounds/"
@@ -133,7 +134,7 @@ function chatsounds.TableToTree(tbl)
 			local words = {}
 
 			for word in (trigger .. " "):gmatch("(.-)%s+") do
-				list.insert(words, word)
+				_G.list.insert(words, word)
 			end
 
 			local next = tree

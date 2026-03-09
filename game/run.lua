@@ -1,8 +1,11 @@
 require("audio_mixer").Initialize()
+local system = require("system")
+local chatsounds = require("chatsounds.chatsounds")
+chatsounds.Initialize()
+_G.ch = chatsounds
 
 if _G.CLI_MODE then
 	system.KeepAlive("cli_mode")
-	local system = require("system")
 	_G.PROFILE = false
 	local vfs = require("vfs")
 	vfs.MountStorageDirectories()

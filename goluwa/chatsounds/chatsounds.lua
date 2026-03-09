@@ -1,6 +1,5 @@
 local event = require("event")
 local system = require("system")
-
 local chatsounds = library()
 package.loaded["chatsounds.chatsounds"] = chatsounds
 require("chatsounds.list_parsing")
@@ -930,6 +929,16 @@ end
 
 function chatsounds.Say(str, seed, custom_id)
 	str = str:lower()
+
+	if not chatsounds.tree and not custom_id then
+		local ids = {}
+
+		for id, data in pairs(chatsounds.custom) do
+			list.insert(ids, id)
+		end
+
+		custom_id = ids
+	end
 
 	if
 		str == "sh" or
