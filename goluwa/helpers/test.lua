@@ -935,4 +935,255 @@ setmetatable(test, {
 		return attest.AssertHelper(val)
 	end,
 })
+local event = require("event")
+local threads = require("bindings.threads")
+local system = require("system")
+local colors = require("helpers.colors")
+local commands = require("commands")
+
+commands.Add({
+	aliases = "test2",
+	argtypes = "string|nil",
+	flags = {
+		filter = {
+			type = "string",
+			description = "Only run tests whose path contains this filter",
+		},
+		verbose = {
+			type = "boolean",
+			description = "Print each completed test name",
+		},
+		["no-separate"] = {
+			type = "boolean",
+			description = "Run in-process instead of spawning one process per file",
+		},
+		["no-parallel"] = {
+			type = "boolean",
+			description = "Disable parallel file execution when running separate processes",
+		},
+		["no-summary"] = {
+			type = "boolean",
+			description = "Suppress the final summary and only print the test count marker",
+		},
+	},
+}, function(filter, flags)
+	local logging = true
+	local verbose = flags.verbose == true
+	local profiling = false
+	local profiling_mode = nil
+	local separate = flags["no-separate"] ~= true
+	local parallel = flags["no-parallel"] ~= true
+	local summary = flags["no-summary"] ~= true
+	filter = flags.filter or filter
+
+	if separate then
+		local tests = test.FindTests(filter)
+
+		if not tests[1] then
+			error("no tests found" .. (filter and (" with filter '" .. filter .. "'") or ""), 0)
+		end
+
+		-- Thread worker passed as source string to avoid upvalue-serialization bugs.
+		-- If a function were used, any modules required in the outer scope
+		-- (e.g. `local io = require("io")`) would be nil in the new Lua state
+		-- because string.dump does not preserve upvalue values.
+		local thread_worker = [[
+			local input = ...
+			local io = require("io")
+			local output_parts = {}
+			local function capture(...)
+				for i = 1, select("#", ...) do
+					table.insert(output_parts, tostring(select(i, ...)))
+				end
+			end
+			-- Override io.write before requiring helpers.test so that the module's
+			-- `local io_write = io.write` alias picks up our capture function.
+			io.write = capture
+			io.flush = function() end
+
+			-- Intercept ShutDown: the test framework calls system.ShutDown() when all
+			-- tests complete. In a thread's Lua state this would kill the whole process.
+			-- Capture the exit code instead and use it to break the event loop.
+			local shutdown_code = nil
+			local system = require("system")
+			system.ShutDown = function(code) shutdown_code = code or 0 os.exitcode = code end
+
+			local ok, run_err = pcall(function()
+				local t = require("helpers.test")
+				t.BeginTests(true, false, nil, input.verbose, true)
+				t.SetTestPaths({{name = input.name, path = input.path}})
+				t.RunSingleTestSet({name = input.name, path = input.path})
+
+			local event = require("event")
+			local task = require("tasks")
+
+			-- IsBusy normally counts ALL tasks, including raw tasks created inside tests.
+			-- Those raw tasks may outlive the test tasks, preventing shutdown_code from
+			-- ever being set. Patch IsBusy to only count test tasks so the shutdown
+			-- signal fires as soon as all T.Test() wrappers have finished.
+			task.IsBusy = function(exclude)
+				for task in pairs(task.created) do
+					if task ~= exclude and task.is_test_task then return true end
+				end
+				return false
+			end
+
+			local start_t = system.GetTime()
+			local deadline = start_t + 60
+			local next_warn = start_t + 10
+			local stderr = io.stderr
+
+			while (shutdown_code == nil) and system.GetTime() < deadline do
+				local now = system.GetTime()
+
+				if now >= next_warn then
+					local elapsed = math.floor(now - start_t)
+					stderr:write(string.format("[warning] test '%s' still running after %ds\n", input.name, elapsed))
+					stderr:flush()
+					next_warn = now + 10
+				end
+
+				local dt = 0.016
+				system.SetElapsedTime(system.GetElapsedTime() + dt)
+				event.Call("Update", dt)
+				system.Sleep(0.001)
+			end
+			
+			t.EndTests(true)
+			end)
+
+			if not ok then
+				return {output = tostring(run_err), exit_code = 1, test_count = 0}
+			end
+
+			local output = table.concat(output_parts)
+			local test_count = tonumber(output:match("#tests=(%d+)") or "0")
+			local exit_code = shutdown_code or (output:find("\xe2\x9c\x97") ~= nil and 1 or 0)
+			os.exitcode = exit_code
+			return {output = output, exit_code = exit_code, test_count = test_count}
+		]]
+		local start_time = system.GetTime()
+		local total_exit_code = 0
+		local total_test_count = 0
+		local failed_files = 0
+		local failed_file_names = {}
+		local running = {}
+		local next_test_idx = 1
+		local max_running = parallel and 8 or 1
+		print(
+			max_running == 1 and
+				"Running tests in threads..." or
+				"Running " .. max_running .. " tests in parallel threads..."
+		)
+
+		while next_test_idx <= #tests or #running > 0 do
+			while #running < max_running and next_test_idx <= #tests do
+				local test_item = tests[next_test_idx]
+				next_test_idx = next_test_idx + 1
+				local ok, thread_or_err = pcall(function()
+					local t = threads.new(thread_worker)
+					t:run({path = test_item.path, name = test_item.name, verbose = verbose})
+					return t
+				end)
+
+				if ok then
+					thread_or_err.test_name = test_item.name
+					thread_or_err.start_time = system.GetTime()
+					thread_or_err.next_warn_time = system.GetTime() + 5
+					table.insert(running, thread_or_err)
+				else
+					io.write(
+						"failed to start thread for " .. test_item.name .. ": " .. tostring(thread_or_err) .. "\n"
+					)
+					total_exit_code = 1
+					failed_files = failed_files + 1
+					table.insert(failed_file_names, test_item.name)
+				end
+			end
+
+			for i = #running, 1, -1 do
+				local t = running[i]
+
+				-- Warn if this thread has been running too long
+				if t.next_warn_time and system.GetTime() >= t.next_warn_time then
+					local elapsed = math.floor(system.GetTime() - t.start_time)
+					io.write(
+						colors.yellow(string.format("[warning] %s has been running for %ds\n", t.test_name, elapsed))
+					)
+					io.flush()
+					t.next_warn_time = system.GetTime() + 5
+				end
+
+				-- Check for both completed and error status (status ~= STATUS_UNDEFINED)
+				local status = t.input_data and t.input_data.status
+
+				if status and status ~= 0 then
+					local result, join_err = t:join()
+
+					if join_err then
+						io.write("thread error for " .. t.test_name .. ": " .. tostring(join_err) .. "\n")
+						total_exit_code = 1
+						failed_files = failed_files + 1
+						table.insert(failed_file_names, t.test_name)
+					else
+						if result.exit_code ~= 0 then
+							total_exit_code = 1
+							failed_files = failed_files + 1
+							table.insert(failed_file_names, t.test_name)
+						end
+
+						total_test_count = total_test_count + (result.test_count or 0)
+						local final_output = result.output:gsub("\n#tests=%d+\n", "\n")
+
+						if result.exit_code ~= 0 and #final_output == 0 then
+							io.write(colors.red("test file failed: " .. t.test_name) .. "\n")
+						end
+
+						if #final_output > 0 then io.write(final_output) end
+
+						io.flush()
+					end
+
+					table.remove(running, i)
+				end
+			end
+
+			system.Sleep(0.01)
+		end
+
+		local end_time = system.GetTime()
+
+		if total_exit_code == 0 then
+			io.write("\n" .. colors.green("ALL TESTS PASSED") .. "\n")
+		else
+			io.write("\n" .. colors.red("FAILED: " .. failed_files .. " test files failed") .. "\n")
+
+			for _, name in ipairs(failed_file_names) do
+				io.write(colors.red("  - " .. name) .. "\n")
+			end
+		end
+
+		io.write("ran " .. total_test_count .. " tests in " .. #tests .. " files\n")
+		io.write("total time: " .. string.format("%.2f", end_time - start_time) .. "s\n")
+		io.flush()
+		system.ShutDown(total_exit_code)
+		return
+	end
+
+	test.RunTestsWithFilter(
+		filter,
+		{
+			logging = logging,
+			verbose = verbose,
+			profiling = profiling,
+			profiling_mode = profiling_mode,
+			no_summary = not summary,
+		}
+	)
+
+	event.AddListener("ShutDown", "tests", function()
+		test.EndTests(not summary)
+	end)
+end)
+
 return test

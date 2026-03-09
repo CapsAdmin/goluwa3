@@ -131,7 +131,8 @@ test.Test("commands table spec passes flags without positionals", function()
 end)
 
 test.Test("test command rejects unknown flags", function()
-	local ok, err = commands.ExecuteCommandArguments("test2", {"--wat", "--no-separate", "--no-summary"})
+	local test_command = commands.IsAdded("test") and "test" or "test2"
+	local ok, err = commands.ExecuteCommandArguments(test_command, {"--wat", "--no-separate", "--no-summary"})
 	attest.falsy(ok)
 	attest.contains(err, "unknown flag --wat")
 	attest.contains(err, "--filter")
