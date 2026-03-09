@@ -847,39 +847,45 @@ T.Test("reproduce sub-agent stack growth issue", function()
 	)
 	T(overflow_occurred)["=="](true)
 end)
+
 -- Test many levels of nesting using NEW tasks and WaitForNestedTask (should NOT overflow)
 T.Test("nested task awaiting prevents stack overflow", function()
-cleanup_tasks()
-local depth_limit = 50 
-local completed_depth = 0
+	cleanup_tasks()
+	local depth_limit = 50
+	local completed_depth = 0
 
-local function simulate_agent_task(depth)
-if depth > depth_limit then
-completed_depth = depth
-return "done"
-end
+	local function simulate_agent_task(depth)
+		if depth > depth_limit then
+			completed_depth = depth
+			return "done"
+		end
 
--- Create a NEW task handle
-local sub_task = tasks.CreateTask(function()
--- Simulate what Agent:RunAsync does (yield + work)
-tasks.Wait(0)
-return simulate_agent_task(depth + 1)
-end, nil, true)
+		-- Create a NEW task handle
+		local sub_task = tasks.CreateTask(
+			function()
+				-- Simulate what Agent:RunAsync does (yield + work)
+				tasks.Wait(0)
+				return simulate_agent_task(depth + 1)
+			end,
+			nil,
+			true
+		)
+		-- Await it synchronously within our Task
+		-- This should YIELD current coroutine, NOT add to stack
+		local ok, res = tasks.WaitForNestedTask(sub_task)
 
--- Await it synchronously within our Task
--- This should YIELD current coroutine, NOT add to stack
-local ok, res = tasks.WaitForNestedTask(sub_task)
-if not ok then error(res) end
-return res
-end
+		if not ok then error(res) end
 
-tasks.CreateTask(function()
-simulate_agent_task(1)
-end, nil, true)
+		return res
+	end
 
-T.WaitUntil(function()
-return completed_depth > 0
-end, 5)
+	tasks.CreateTask(function()
+		simulate_agent_task(1)
+	end, nil, true)
 
-T(completed_depth)["=="](depth_limit + 1)
+	T.WaitUntil(function()
+		return completed_depth > 0
+	end, 5)
+
+	T(completed_depth)["=="](depth_limit + 1)
 end)
