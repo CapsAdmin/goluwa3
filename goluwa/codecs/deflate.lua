@@ -6,6 +6,7 @@ local ffi = require("ffi")
 local assert = assert
 local error = error
 local ipairs = ipairs
+local pcall = pcall
 local print = print
 local require = require
 local tostring = tostring
@@ -550,6 +551,7 @@ function deflate.inflate(t)
 		debug("Inflation complete, output size:", outbuf:GetPosition())
 	end
 
+	outbuf:SetPosition(0)
 	return outbuf
 end
 
@@ -597,6 +599,7 @@ function deflate.gunzip(t)
 
 	if not inbuf:TheEnd() then warn("trailing garbage ignored") end
 
+	outbuf:SetPosition(0)
 	return outbuf
 end
 
@@ -656,20 +659,51 @@ function deflate.inflate_zlib(t)
 	return outbuf
 end
 
-function deflate.Decode(str)
-	local out = {}
-	local i = 1
-	gz.gunzip(
-		{
-			input = str,
-			output = function(byte)
-				out[i] = string.char(byte)
-				i = i + 1
-			end,
-			disable_crc = true,
-		}
-	)
-	return list.concat(out)
+local function looks_like_gzip(input)
+	return #input >= 2 and input:byte(1) == 0x1f and input:byte(2) == 0x8b
+end
+
+local function looks_like_zlib(input)
+	if #input < 2 then return false end
+
+	local cmf = input:byte(1)
+	local flg = input:byte(2)
+	local cm = cmf % 16
+	local cinfo = math.floor(cmf / 16)
+
+	if cm ~= 8 then return false end
+
+	if cinfo > 7 then return false end
+
+	return (cmf * 256 + flg) % 31 == 0
+end
+
+function deflate.Decode(str, format, output)
+	local opts = {
+		input = Buffer.New(str),
+		output = output or Buffer.New(),
+		disable_crc = true,
+	}
+
+	if format == "gzip" then
+		return deflate.gunzip(opts)
+	elseif format == "zlib" then
+		return deflate.inflate_zlib(opts)
+	elseif format == "raw" then
+		return deflate.inflate(opts)
+	elseif format ~= nil and format ~= "auto" then
+		runtime_error("unknown deflate container format: " .. tostring(format))
+	end
+
+	if looks_like_gzip(str) then return deflate.gunzip(opts) end
+
+	if looks_like_zlib(str) then
+		local ok, result = pcall(deflate.inflate_zlib, opts)
+
+		if ok then return result end
+	end
+
+	return deflate.inflate(opts)
 end
 
 return deflate

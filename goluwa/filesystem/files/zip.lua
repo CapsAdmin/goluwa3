@@ -172,10 +172,11 @@ function CONTEXT:Open(path_info, mode, ...)
 
 		-- Decompress if needed
 		if file_info.compressionMethod == 8 then -- DEFLATE
-			local decompressed = deflate.inflate_raw({
-				input = compressed_data,
-				disable_crc = true,
-			})
+			local decompressed = deflate.Decode(
+				compressed_data,
+				"raw",
+				Buffer.New(ffi.new("uint8_t[?]", file_info.size), file_info.size):MakeWritable()
+			)
 			self.data = decompressed:ReadBytes(file_info.size)
 		elseif file_info.compressionMethod == 0 then -- Stored (no compression)
 			self.data = compressed_data
