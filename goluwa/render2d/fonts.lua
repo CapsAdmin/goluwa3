@@ -133,6 +133,24 @@ function fonts.GetSystemFonts()
 end
 
 function fonts.GetDefaultSystemFontPath()
+	local function path_exists(path)
+		if not path or path == "" then return false end
+		if fs.exists(path) then return true end
+		local file = io.open(path, "rb")
+
+		if file then
+			file:close()
+			return true
+		end
+
+		return false
+	end
+
+	local function normalize_fontconfig_path(path)
+		if not path then return path end
+		return path:gsub("%b[]", "")
+	end
+
 	if WINDOWS then
 		return os.getenv("WINDIR") .. "/Fonts/arial.ttf"
 	elseif OSX then
@@ -145,7 +163,10 @@ function fonts.GetDefaultSystemFontPath()
 			local path = handle:read("*a")
 			handle:close()
 
-			if path and path ~= "" and fs.exists(path) then return path end
+			if path then path = path:match("^%s*(.-)%s*$") end
+			if not path_exists(path) then path = normalize_fontconfig_path(path) end
+
+			if path_exists(path) then return path end
 		end
 
 		local home = os.getenv("HOME")
@@ -217,7 +238,7 @@ function fonts.GetDefaultSystemFontPath()
 		}
 
 		for _, path in ipairs(candidates) do
-			if fs.is_file(path) then return path end
+			if path_exists(path) then return path end
 		end
 
 		local list = fonts.GetSystemFonts()

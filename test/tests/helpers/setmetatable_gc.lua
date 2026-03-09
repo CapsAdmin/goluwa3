@@ -127,7 +127,11 @@ T.Test("setmetatable_gc error", function()
 
 	_G.print = old
 	T(str)["contains"]("Intentional GC error")
-	T(str)["contains"]("create_object") -- traceback
+
+	if _G.DEBUG then
+		T(str)["contains"]("create_object") -- creation traceback is only printed in debug mode
+	end
+
 	T(called)["=="](true)
 	T(never_reached)["=="](false)
 end)

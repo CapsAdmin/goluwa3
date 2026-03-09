@@ -67,13 +67,13 @@ local function create_face(pos, normal, up, color)
 	local v3 = pos + right * size - up * size
 	local v4 = pos - right * size - up * size
 	-- CCW winding for looking from origin (inside)
-	-- Triangle 1: v1, v4, v3
+	-- Triangle 1: v1, v3, v4
 	poly:AddVertex({pos = v1})
+	poly:AddVertex({pos = v3})
 	poly:AddVertex({pos = v4})
-	poly:AddVertex({pos = v3})
 	poly:AddVertex({pos = v1})
-	poly:AddVertex({pos = v3})
 	poly:AddVertex({pos = v2})
+	poly:AddVertex({pos = v3})
 	poly:BuildUVsPlanar()
 	poly:BuildNormals()
 	poly:BuildTangents()
@@ -93,8 +93,9 @@ local function create_face(pos, normal, up, color)
 	return ent
 end
 
-local function TestCamera(name, cb)
+local function TestCamera(name, cb, opts)
 	local ents = {}
+	opts = opts or {}
 
 	local function start()
 		if not white_tex then
@@ -139,24 +140,26 @@ local function TestCamera(name, cb)
 			table.insert(ents, create_face(Vec3(0, -10, 0), Vec3(0, -1, 0), Vec3(0, 0, 1), Color(1, 0, 1)))
 		end
 
-		do -- small white cube in the center
-			local poly = Polygon3D.New()
-			poly:CreateCube(0.5, 1.0)
-			poly:Upload()
-			local material = Material.New(
-				{
-					AlbedoTexture = white_tex,
-					EmissiveMultiplier = Color(1, 1, 1, 100),
-					DoubleSided = false,
-				}
-			)
-			local ent = Entity.New({Name = "mdl"})
-			ent:AddComponent("transform")
-			ent:AddComponent("model")
-			ent.model:AddPrimitive(poly, material)
-			ent.model:BuildAABB()
-			ent.model:SetUseOcclusionCulling(false)
-			table.insert(ents, ent)
+		if not opts.skip_center_cube then
+			do -- small white cube in the center
+				local poly = Polygon3D.New()
+				poly:CreateCube(0.5, 1.0)
+				poly:Upload()
+				local material = Material.New(
+					{
+						AlbedoTexture = white_tex,
+						EmissiveMultiplier = Color(1, 1, 1, 100),
+						DoubleSided = false,
+					}
+				)
+				local ent = Entity.New({Name = "mdl"})
+				ent:AddComponent("transform")
+				ent:AddComponent("model")
+				ent.model:AddPrimitive(poly, material)
+				ent.model:BuildAABB()
+				ent.model:SetUseOcclusionCulling(false)
+				table.insert(ents, ent)
+			end
 		end
 	end
 
@@ -188,7 +191,7 @@ T.Test3D("camera tests", function(draw)
 		cam:SetRotation(Quat(0, 0, 0, 1))
 		draw()
 		test_color("center", "yellow") -- Should see Yellow (-Z)
-	end)
+	end, {skip_center_cube = true})
 
 	TestCamera("Pitch 90 degrees should look Up", function(draw)
 		orient_camera(Deg3(90, 0, 0))
