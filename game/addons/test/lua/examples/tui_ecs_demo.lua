@@ -13,7 +13,7 @@ local Vec2 = require("structs.vec2")
 local event = require("event")
 local repl = require("repl")
 local Rect = require("structs.rect")
-require("tui") -- activates the terminal event loop
+
 -- ── helpers ────────────────────────────────────────────────────────────────
 -- Shorthand that always adds transform + tui_element + layout to the component
 -- set, plus any extras supplied via `extra_components`.
@@ -198,7 +198,7 @@ for i, item in ipairs(sidebar_items) do
 		selected_sidebar = my_i
 		self.tui_animation:AnimateForeground("fg", my_item.color, 0.2)
 		self.tui_text:SetText("> " .. my_item.label)
-		needs_redraw = true
+		TuiPanel.NeedsRedraw()
 	end
 end
 
@@ -491,100 +491,16 @@ TextNode(
 		layout = {GrowWidth = 1, FitHeight = true},
 	}
 )
--- ── dirty tracking ────────────────────────────────────────────────────────
-local needs_redraw = true
-local last_term_w, last_term_h = 0, 0
 
 -- Any layout update in the tree bubbles up and settles at root;
 -- fire needs_redraw so we draw exactly once after each change.
 root:AddLocalListener("OnLayoutUpdated", function()
-	needs_redraw = true
-end)
-
--- ── event wiring ───────────────────────────────────────────────────────────
-local function teardown()
-	event.RemoveListener("Update", "tui_ecs_demo_draw")
-	event.RemoveListener("TerminalKeyInput", "tui_ecs_demo_key")
-	event.RemoveListener("TerminalResized", "tui_ecs_demo_resize")
-	event.RemoveListener("TerminalMouseInput", "tui_ecs_demo_mouse")
-	event.RemoveListener("TerminalMouseMoved", "tui_ecs_demo_mouse_moved")
-	event.RemoveListener("TerminalMouseWheel", "tui_ecs_demo_wheel")
-	event.RemoveListener("TuiAnimating", "tui_ecs_demo_anim")
-	TuiPanel.World:RemoveChildren()
-end
-
--- Ctrl+C → back to REPL (high priority so it runs before other key handlers)
-event.AddListener(
-	"TerminalKeyInput",
-	"tui_ecs_demo_key",
-	function(key, press, modifiers)
-		if key == "c" and modifiers and modifiers.ctrl and press then
-			repl.SetEnabled(true)
-			teardown()
-		end
-	end,
-	{priority = 100}
-)
-
--- Any input marks the UI dirty so it redraws.
-event.AddListener("TerminalMouseInput", "tui_ecs_demo_mouse", function()
-	needs_redraw = true
-end)
-
-event.AddListener("TerminalMouseMoved", "tui_ecs_demo_mouse_moved", function()
-	needs_redraw = true
-end)
-
-event.AddListener("TerminalMouseWheel", "tui_ecs_demo_wheel", function()
-	needs_redraw = true
-end)
-
--- Animations running → keep redrawing until they finish.
-event.AddListener("TuiAnimating", "tui_ecs_demo_anim", function()
-	needs_redraw = true
-end)
-
-event.AddListener("TerminalKeyInput", "tui_ecs_demo_key_dirty", function()
-	needs_redraw = true
+	TuiPanel.NeedsRedraw()
 end)
 
 -- Resize → update root transform (OnLayoutUpdated will set needs_redraw).
 event.AddListener("TerminalResized", "tui_ecs_demo_resize", function(w, h)
-	last_term_w, last_term_h = w, h
 	root.transform:SetSize(Vec2(w, h))
 end)
-
--- ── draw loop ──────────────────────────────────────────────────────────────
--- Layout auto-updates via its own "Update" listener at priority=-100.
--- We run at priority=-200 (after layout) so transforms are already settled.
-event.AddListener(
-	"Update",
-	"tui_ecs_demo_draw",
-	function()
-		local ok, err = pcall(function()
-			if repl.GetEnabled() then return end
-
-			if not needs_redraw then return end
-
-			local term = repl.GetTerminal()
-
-			if not term then return end
-
-			needs_redraw = false
-			term:BeginFrame()
-			term:Clear()
-			TuiPanel.Draw(term)
-			term:EndFrame()
-			term:Flush()
-		end)
-
-		if not ok then
-			repl.SetEnabled(true)
-			teardown()
-			print("Error in draw loop:", err)
-		end
-	end,
-	{priority = -200}
-)
 
 if HOTRELOAD then repl.SetEnabled(false) end

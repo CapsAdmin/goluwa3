@@ -1,6 +1,5 @@
 local prototype = require("prototype")
 local event = require("event")
-require("tui")
 local META = prototype.CreateTemplate("tui_key_input")
 
 local function focused_ki()

@@ -8,7 +8,6 @@ local Vec2 = require("structs.vec2")
 local Rect = require("structs.rect")
 local event = require("event")
 local repl = require("repl")
-require("tui")
 -- ── state ──────────────────────────────────────────────────────────────────
 local needs_redraw = true
 local lines = {}

@@ -79,7 +79,6 @@ function META:OnFirstCreated()
 	end
 
 	local event = require("event")
-	require("tui")
 
 	event.AddListener("TerminalMouseMoved", "tui_mouse_input", function(x, y)
 		local world = get_world()
