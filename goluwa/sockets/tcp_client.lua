@@ -14,9 +14,22 @@ function UDPClient:__tostring2()
 	return "[" .. tostring(self.socket) .. "]"
 end
 
+function UDPClient:InsertIntoSocketPool()
+	if self.in_socket_pool then return end
+
+	socket_pool:insert(self)
+	self.in_socket_pool = true
+end
+
+function UDPClient:RemoveFromSocketPool()
+	if not self.in_socket_pool then return end
+
+	socket_pool:remove(self)
+	self.in_socket_pool = nil
+end
+
 function UDPClient:Initialize(socket)
 	self:SocketRestart(socket)
-	socket_pool:insert(self)
 end
 
 function UDPClient:SocketRestart(socket)
@@ -62,7 +75,7 @@ do
 end
 
 function UDPClient:OnRemove()
-	socket_pool:remove(self)
+	self:RemoveFromSocketPool()
 
 	if self.socket and self.socket.fd and self.socket.fd >= 0 then
 		self.socket:close()
@@ -86,6 +99,7 @@ function UDPClient:Connect(host, service)
 
 	if ok then
 		self.connecting = true
+		self:InsertIntoSocketPool()
 		return true
 	end
 
@@ -129,7 +143,25 @@ function UDPClient:Send(data)
 	return ok, err
 end
 
-function UDPClient:Update()
+function UDPClient:GetPollSocket()
+	return self.socket
+end
+
+function UDPClient:GetPollFlags()
+	if self.connecting then return {"in", "out"} end
+
+	if self.connected then
+		if self.buffered_send and #self.buffered_send > 0 then
+			return {"in", "out"}
+		end
+
+		return {"in"}
+	end
+
+	error(tostring(self) .. " is in socket pool without an active poll state")
+end
+
+function UDPClient:HandleConnectReady()
 	if self.connecting then
 		-- For TLS sockets, try_connect handles the handshake
 		-- For regular sockets, just check if connected
@@ -156,23 +188,29 @@ function UDPClient:Update()
 
 			if ok and ok ~= 0 then self:Error(ljsocket.socket.lasterror(ok)) end
 		end
-	elseif self.connected then
-		if self.buffered_send then
-			for _ = 1, #self.buffered_send * 4 do
-				local data = self.buffered_send[1]
+	end
+end
 
-				if not data then break end
+function UDPClient:HandleWriteReady()
+	if self.connected and self.buffered_send then
+		for _ = 1, #self.buffered_send * 4 do
+			local data = self.buffered_send[1]
 
-				local ok, err = self:Send(data)
+			if not data then break end
 
-				if ok then
-					list.remove(self.buffered_send)
-				elseif err ~= "tryagain" then
-					self:Error("error while processing buffered queue: " .. err)
-				end
+			local ok, err = self:Send(data)
+
+			if ok then
+				list.remove(self.buffered_send)
+			elseif err ~= "tryagain" then
+				self:Error("error while processing buffered queue: " .. err)
 			end
 		end
+	end
+end
 
+function UDPClient:HandleReadReady()
+	if self.connected then
 		for i = 1, 500 do
 			local chunk, err = self.socket:receive(self.BufferSize)
 
@@ -200,6 +238,41 @@ function UDPClient:Update()
 			end
 		end
 	end
+end
+
+function UDPClient:OnPollReady(events)
+	if
+		self.connecting and
+		(
+			events["in"] or
+			events.out or
+			events.err or
+			events.hup or
+			events.nval
+		)
+	then
+		self:HandleConnectReady()
+	end
+
+	if self.connected and (events.out or events.err or events.hup or events.nval) then
+		self:HandleWriteReady()
+	end
+
+	if self.connected and (events["in"] or events.err or events.hup or events.nval) then
+		self:HandleReadReady()
+	end
+end
+
+function UDPClient:Update()
+	self:OnPollReady(
+		{
+			["in"] = true,
+			out = true,
+			err = true,
+			hup = true,
+			nval = true,
+		}
+	)
 end
 
 function UDPClient:Error(message, ...)

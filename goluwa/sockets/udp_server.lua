@@ -20,8 +20,7 @@ end
 
 function UDPServer:SocketRestart(socket)
 	self.socket = socket or ljsocket.create("inet", "dgram", "udp")
-
-	if not self:assert(self.socket:set_blocking(false)) then return end
+	self:assert(self.socket:set_blocking(false))
 end
 
 function UDPServer:OnRemove()
@@ -47,18 +46,40 @@ function UDPServer:Send(data, host, port)
 	return self.socket:send_to(address, data)
 end
 
-function UDPServer:Update()
-	local chunk, err = self.socket:receive_from(self.address)
+
+function UDPServer:GetPollSocket()
+	return self.socket
+end
+
+function UDPServer:GetPollFlags()
+	return {"in"}
+end
+
+function UDPServer:OnPollReady(events)
+	if not (events["in"] or events.err or events.hup or events.nval) then return end
+
+	local chunk, err = self.socket:receive_from()
 
 	if chunk then
 		self:OnReceiveChunk(chunk, err)
 	else
 		if err == "closed" then
 			self:OnClose("receive")
-		elseif err ~= "timeout" then
+		elseif err ~= "timeout" and err ~= "tryagain" then
 			self:Error(err)
 		end
 	end
+end
+
+function UDPServer:Update()
+	self:OnPollReady(
+		{
+			["in"] = true,
+			err = true,
+			hup = true,
+			nval = true,
+		}
+	)
 end
 
 function UDPServer:Error(message, ...)

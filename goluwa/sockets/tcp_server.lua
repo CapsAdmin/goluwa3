@@ -15,9 +15,22 @@ function UDPServer:__tostring2()
 	return "[" .. tostring(self.socket) .. "]"
 end
 
+function UDPServer:InsertIntoSocketPool()
+	if self.in_socket_pool then return end
+
+	socket_pool:insert(self)
+	self.in_socket_pool = true
+end
+
+function UDPServer:RemoveFromSocketPool()
+	if not self.in_socket_pool then return end
+
+	socket_pool:remove(self)
+	self.in_socket_pool = nil
+end
+
 function UDPServer:Initialize(socket)
 	self:SocketRestart(socket)
-	socket_pool:insert(self)
 end
 
 function UDPServer:SocketRestart()
@@ -30,7 +43,7 @@ function UDPServer:SocketRestart()
 end
 
 function UDPServer:OnRemove()
-	socket_pool:remove(self)
+	self:RemoveFromSocketPool()
 	self:assert(self.socket:close())
 end
 
@@ -54,10 +67,25 @@ function UDPServer:Host(host, service)
 	end
 
 	self.hosting = true
+	self:InsertIntoSocketPool()
 	return true
 end
 
-function UDPServer:Update()
+function UDPServer:GetPollSocket()
+	return self.socket
+end
+
+function UDPServer:GetPollFlags()
+	if self.hosting then return {"in"} end
+
+	error(tostring(self) .. " is in socket pool without an active poll state")
+end
+
+function UDPServer:OnPollReady(events)
+	if not self.hosting then return end
+
+	if not (events["in"] or events.err or events.hup or events.nval) then return end
+
 	if not self.hosting then return end
 
 	for i = 1, 512 do
@@ -67,6 +95,7 @@ function UDPServer:Update()
 			if client then
 				local client = TCPClient.New(client)
 				client.connected = true
+				client:InsertIntoSocketPool()
 				self:OnClientConnected(client)
 			else
 				self:Error(err)
@@ -75,6 +104,15 @@ function UDPServer:Update()
 			end
 		end
 	end
+end
+
+function UDPServer:Update()
+	self:OnPollReady({
+		["in"] = true,
+		err = true,
+		hup = true,
+		nval = true,
+	})
 end
 
 function UDPServer:Error(message, ...)
@@ -102,4 +140,3 @@ function UDPServer.New()
 end
 
 return UDPServer:Register()
-

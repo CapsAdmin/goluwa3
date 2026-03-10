@@ -993,50 +993,60 @@ timeout_messages[errno.EINPROGRESS] = true
 timeout_messages[errno.EAGAIN] = true
 timeout_messages[errno.EWOULDBLOCK] = true
 timeout_messages[errno.ETIMEDOUT] = true
-local pollfd_box = ffi.typeof("$[1]", pollfd)
+local pollfd_array = ffi.typeof("$[?]", pollfd)
 
-function M.poll(socks, flags, timeout)
-	-- Transform single socket to array
-	local events = 0
+local function normalize_poll_flags(flags)
+	if not flags then return 0 end
 
-	if flags then
-		-- On Windows, POLLERR and POLLHUP are output-only flags and cannot be requested
-		if ffi.os == "Windows" then
-			local filtered_flags = {}
+	if type(flags) == "string" then flags = {flags} end
 
-			for i, flag in ipairs(flags) do
-				if flag ~= "err" and flag ~= "hup" then
-					table.insert(filtered_flags, flag)
-				end
+	if ffi.os == "Windows" then
+		local filtered_flags = {}
+
+		for _, flag in ipairs(flags) do
+			if flag ~= "err" and flag ~= "hup" then
+				table.insert(filtered_flags, flag)
 			end
-
-			events = #filtered_flags > 0 and POLL.table_to_flags(filtered_flags, bit.bor) or 0
-		else
-			events = POLL.table_to_flags(flags, bit.bor)
 		end
+
+		if #filtered_flags == 0 then return 0 end
+
+		return POLL.table_to_flags(filtered_flags, bit.bor)
 	end
 
-	-- Create pollfd array for all sockets
-	local pfds = {}
+	return POLL.table_to_flags(flags, bit.bor)
+end
 
-	for i, sock in ipairs(socks) do
-		pfds[i] = {
-			fd = sock.fd,
-			events = events,
-			revents = 0,
-		}
+function M.poll(entries, timeout)
+	if #entries == 0 then return {}, 0 end
+
+	local pfd = ffi.new(pollfd_array, #entries)
+
+	for i, entry in ipairs(entries) do
+		local sock = entry[1] or entry.sock
+		local flags = entry[2] or entry.flags
+		assert(sock, "poll entry " .. i .. " is missing a socket")
+		assert(sock.fd, "poll entry " .. i .. " socket is missing fd")
+		pfd[i - 1].fd = sock.fd
+		pfd[i - 1].events = normalize_poll_flags(flags)
+		pfd[i - 1].revents = 0
 	end
 
-	local pfd = ffi.new(pollfd_box, pfds)
-	local ok, err = socket.poll(pfd, #socks, timeout or 0)
+	local ok, err = socket.poll(pfd, #entries, timeout or 0)
 
 	if not ok then return ok, err end
 
-	-- Return array of results for each socket
 	local results = {}
 
-	for i = 0, #socks - 1 do
-		results[i + 1] = POLL.flags_to_table(pfd[i].revents, bit.bor)
+	for i = 0, #entries - 1 do
+		local events = POLL.flags_to_table(pfd[i].revents, bit.bor)
+
+		if next(events) ~= nil then
+			results[#results + 1] = {
+				entry = entries[i + 1],
+				events = events,
+			}
+		end
 	end
 
 	return results, ok
@@ -1459,13 +1469,13 @@ do
 	end
 
 	function meta:poll(timeout, ...)
-		local results, count = M.poll({self}, {...}, timeout)
+		local results, count = M.poll({{self, {...}}}, timeout)
 
 		if not results then return results, count end
 
 		if count == 0 then return true end
 
-		return results[1]
+		return results[1].events
 	end
 
 	function meta:is_connected()

@@ -1,7 +1,12 @@
 local T = require("test.environment")
+local ljsocket = require("bindings.socket")
 local tls = require("bindings.tls")
 local HTTPClient = require("sockets.http.http11_client")
 local HTTPServer = require("sockets.http.http11_server")
+local TCPClient = require("sockets.tcp_client")
+local TCPServer = require("sockets.tcp_server")
+local UDPClient = require("sockets.udp_client")
+local UDPServer = require("sockets.udp_server")
 local http = require("sockets.http")
 
 T.Test("http.DecodeURI parses HTTP URL correctly", function()
@@ -71,14 +76,27 @@ end)
 local test_port = 5400
 local test_host = "0.0.0.0"
 
+local function next_port()
+	local port = test_port
+	test_port = test_port + 1
+	return port
+end
+
+local function close_if_possible(obj)
+	if obj and obj.IsValid and obj:IsValid() then
+		obj:Close()
+	elseif obj and obj.close then
+		obj:close()
+	end
+end
+
 T.Test("sockets HTTP server and client communication", function()
 	local done = false
 	local received_request = nil
 	local client_response = nil
 	-- Create server
 	local server = HTTPServer.New()
-	assert(server:Host(test_host, test_port))
-	test_port = test_port + 1
+	assert(server:Host(test_host, next_port()))
 
 	function server:OnReceiveResponse(client, method, path)
 		received_request = {method = method, path = path}
@@ -125,8 +143,7 @@ T.Test("sockets HTTP POST request with body", function()
 	local client_response = nil
 	-- Create server
 	local server = HTTPServer.New()
-	local ok = server:Host(test_host, test_port)
-	test_port = test_port + 1
+	local ok = server:Host(test_host, next_port())
 
 	if not ok then return end
 
@@ -169,8 +186,7 @@ T.Test("http.Request wrapper function", function()
 	local server_got_request = false
 	-- Create server
 	local server = HTTPServer.New()
-	assert(server:Host(test_host, test_port))
-	test_port = test_port + 1
+	assert(server:Host(test_host, next_port()))
 
 	function server:OnReceiveResponse(client, method, path)
 		server_got_request = true
@@ -209,8 +225,7 @@ T.Test("http.Request with custom headers", function()
 	local done = false
 	local received_headers = nil
 	local server = HTTPServer.New()
-	assert(server:Host(test_host, test_port))
-	test_port = test_port + 1
+	assert(server:Host(test_host, next_port()))
 
 	function server:OnReceiveHeader(client, header)
 		received_headers = header
@@ -249,8 +264,7 @@ T.Test("sockets HTTP chunked body receiving", function()
 	local chunks = {}
 	local final_body = nil
 	local server = HTTPServer.New()
-	assert(server:Host(test_host, test_port))
-	test_port = test_port + 1
+	assert(server:Host(test_host, next_port()))
 
 	function server:OnReceiveHeader(client, header)
 		-- Send a response that will come in chunks
@@ -284,4 +298,102 @@ T.Test("sockets HTTP chunked body receiving", function()
 	T(#chunks)[">="](1)
 	T(final_body)["~="](nil)
 	T(#final_body)["=="](1000)
+end)
+
+T.Test("bindings.socket.poll supports per-socket readiness masks", function()
+	local results, count = ljsocket.poll({}, 0)
+	T(type(results))["=="]("table")
+	T(#results)["=="](0)
+	T(count)["=="](0)
+end)
+
+T.Test("socket_tcp_client flushes buffered sends after poll connect", function()
+	local port = next_port()
+	local server = TCPServer.New()
+	local client = TCPClient.New()
+	local connected = false
+	local received = nil
+	assert(server:Host(test_host, port))
+
+	function server:OnClientConnected(peer)
+		function peer:OnReceiveChunk(chunk)
+			received = chunk
+		end
+	end
+
+	function client:OnConnect()
+		connected = true
+	end
+
+	assert(client:Connect("127.0.0.1", port))
+	assert(client:Send("buffered over poll"))
+
+	T.WaitUntil(function()
+		return connected and received == "buffered over poll"
+	end)
+
+	client:Close()
+	server:Close()
+	T(connected)["=="](true)
+	T(received)["=="]("buffered over poll")
+end)
+
+T.Test("socket pool dispatches multiple TCP clients in one cycle", function()
+	local port = next_port()
+	local server = TCPServer.New()
+	local clients = {TCPClient.New(), TCPClient.New()}
+	local received = {}
+	assert(server:Host(test_host, port))
+
+	function server:OnClientConnected(peer)
+		function peer:OnReceiveChunk(chunk)
+			received[chunk] = true
+		end
+	end
+
+	assert(clients[1]:Connect("127.0.0.1", port))
+	assert(clients[2]:Connect("127.0.0.1", port))
+	assert(clients[1]:Send("client-a"))
+	assert(clients[2]:Send("client-b"))
+
+	T.WaitUntil(function()
+		return received["client-a"] and received["client-b"]
+	end)
+
+	for _, client in ipairs(clients) do
+		client:Close()
+	end
+
+	server:Close()
+	T(received["client-a"])["=="](true)
+	T(received["client-b"])["=="](true)
+end)
+
+T.Test("socket_udp_server receives datagrams through poll dispatch", function()
+	local port = next_port()
+	local raw_server = assert(ljsocket.create("inet", "dgram", "udp"))
+	local server = nil
+	local client = UDPClient.New()
+	local chunk = nil
+	local address = nil
+	assert(raw_server:set_blocking(false))
+	assert(raw_server:bind("127.0.0.1", port))
+	server = UDPServer.New(raw_server)
+
+	function server:OnReceiveChunk(data, addr)
+		chunk = data
+		address = addr
+	end
+
+	assert(client:Send("udp over poll", "127.0.0.1", port))
+
+	T.WaitUntil(function()
+		return chunk ~= nil
+	end)
+
+	server:Close()
+	client:Close()
+	T(chunk)["=="]("udp over poll")
+	T(address)["~="](nil)
+	T(address:get_ip())["=="]("127.0.0.1")
 end)
