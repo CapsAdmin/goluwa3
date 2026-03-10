@@ -1,4 +1,6 @@
 local http = require("sockets.http")
+local callback = require("callback")
+local codec = require("codec")
 
 function http.CreateAPI(base_url, default_headers)
 	local function make_request(self, url, data, method)
