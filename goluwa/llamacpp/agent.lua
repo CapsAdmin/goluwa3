@@ -1,5 +1,4 @@
 HOTRELOAD = false
-local http = require("http")
 local llamacpp = require("llamacpp.api")
 local codec = require("codec")
 local colors = require("helpers.colors")

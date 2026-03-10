@@ -20,7 +20,7 @@ return function(sockets)
 	end
 
 	function META:OnClientConnected(client)
-		sockets.ConnectedTCP2HTTP(client)
+		require("sockets.http").ConnectedTCP2HTTP(client)
 
 		function client.OnReceiveHeader(client, headers)
 			self:Respond(
@@ -95,7 +95,7 @@ return function(sockets)
 		local http_port = 1235
 		local ws_port = 9998
 		local ws_server = utility.RemoveOldObject(sockets.WebSocketServer(), "ws_server")
-		local http_server = utility.RemoveOldObject(sockets.HTTPServer(), "http_server")
+		local http_server = utility.RemoveOldObject(require("sockets.http").HTTPServer(), "http_server")
 		ws_server:Host("*", ws_port)
 		http_server:Host("*", http_port)
 

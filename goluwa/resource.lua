@@ -3,7 +3,7 @@ local fs = require("fs")
 local crypto = require("crypto")
 local callback = require("callback")
 local codec = require("codec")
-local http = require("http")
+local http = require("sockets.http")
 local event = require("event")
 local sockets = require("sockets.sockets")
 local resource = library()
@@ -89,7 +89,7 @@ local function download(
 			llog("checking if ", etag_path_override or from, " has been modified.")
 		end
 
-		return sockets.Request(
+		return http.Request(
 			{
 				method = "HEAD",
 				url = from,
@@ -165,7 +165,7 @@ local function download(
 		if client and client:IsValid() then client:Close() end
 	end
 
-	client = sockets.Download(
+	client = http.DownloadSocket(
 		from,
 		function()
 			if local_done then return end
@@ -344,7 +344,7 @@ local function download_from_providers(path, callback, on_fail, check_etag)
 			function(header)
 				for _, other_provider in ipairs(resource.providers) do
 					if provider ~= other_provider then
-						sockets.StopDownload(other_provider .. path)
+						http.StopDownload(other_provider .. path)
 						event.Call("DownloadStop", client.socket, path, nil, "download found in " .. provider)
 					end
 				end

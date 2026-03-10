@@ -1,10 +1,10 @@
 local T = require("test.environment")
 local sockets = require("sockets.sockets")
 local tls = require("bindings.tls")
-require("http") -- This adds sockets.Request to the sockets module
--- Test basic socket utilities that don't require network
-T.Test("sockets.DecodeURI parses HTTP URL correctly", function()
-	local uri = sockets.DecodeURI("http://example.com:8080/path/to/resource?query=value#fragment")
+local http = require("sockets.http")
+
+T.Test("http.DecodeURI parses HTTP URL correctly", function()
+	local uri = http.DecodeURI("http://example.com:8080/path/to/resource?query=value#fragment")
 	T(uri)["~="](nil)
 	T(uri.scheme)["=="]("http")
 	T(uri.host)["=="]("example.com")
@@ -12,20 +12,20 @@ T.Test("sockets.DecodeURI parses HTTP URL correctly", function()
 	T(uri.path)["=="]("/path/to/resource?query=value#fragment")
 end)
 
-T.Test("sockets.DecodeURI parses simple URL", function()
-	local uri = sockets.DecodeURI("http://example.com/test")
+T.Test("http.DecodeURI parses simple URL", function()
+	local uri = http.DecodeURI("http://example.com/test")
 	T(uri)["~="](nil)
 	T(uri.scheme)["=="]("http")
 	T(uri.host)["=="]("example.com")
 	T(uri.path)["=="]("/test")
 end)
 
-T.Test("sockets.HTTPRequest builds valid GET request", function()
-	local uri = sockets.DecodeURI("http://example.com/test")
+T.Test("http.HTTPRequest builds valid GET request", function()
+	local uri = http.DecodeURI("http://example.com/test")
 	local header = {
 		["User-Agent"] = "Test",
 	}
-	local request = sockets.HTTPRequest("GET", uri, header, nil)
+	local request = http.HTTPRequest("GET", uri, header, nil)
 	T(request)["~="](nil)
 	T(type(request))["=="]("string")
 	local has_method = request:find("GET")
@@ -36,9 +36,9 @@ T.Test("sockets.HTTPRequest builds valid GET request", function()
 	T(has_path)["~="](nil)
 end)
 
-T.Test("sockets.HTTPRequest builds POST request with body", function()
-	local uri = sockets.DecodeURI("http://example.com/api")
-	local request = sockets.HTTPRequest("POST", uri, {}, "test body")
+T.Test("http.HTTPRequest builds POST request with body", function()
+	local uri = http.DecodeURI("http://example.com/api")
+	local request = http.HTTPRequest("POST", uri, {}, "test body")
 	T(request)["~="](nil)
 	T(type(request))["=="]("string")
 	local has_method = request:find("POST")
@@ -49,8 +49,8 @@ T.Test("sockets.HTTPRequest builds POST request with body", function()
 	T(has_body)["~="](nil)
 end)
 
-T.Test("sockets.HTTPClient can be created", function()
-	local client = sockets.HTTPClient()
+T.Test("http.HTTPClient can be created", function()
+	local client = http.HTTPClient()
 	T(client)["~="](nil)
 	T(type(client))["=="]("table")
 end)
@@ -75,7 +75,7 @@ T.Test("sockets HTTP server and client communication", function()
 	local received_request = nil
 	local client_response = nil
 	-- Create server
-	local server = sockets.HTTPServer()
+	local server = http.HTTPServer()
 	assert(server:Host(test_host, test_port))
 	test_port = test_port + 1
 
@@ -85,12 +85,12 @@ T.Test("sockets HTTP server and client communication", function()
 
 	function server:OnReceiveHeader(client, header)
 		-- Send response
-		client:Send(sockets.HTTPResponse(200, "OK", {}, "Hello, World!"))
+		client:Send(http.HTTPResponse(200, "OK", {}, "Hello, World!"))
 		client:Close()
 	end
 
 	-- Create client and make request
-	local client = sockets.HTTPClient()
+	local client = http.HTTPClient()
 
 	function client:OnReceiveStatus(code, status)
 		client_response = {code = tonumber(code), status = status}
@@ -123,7 +123,7 @@ T.Test("sockets HTTP POST request with body", function()
 	local received_body = nil
 	local client_response = nil
 	-- Create server
-	local server = sockets.HTTPServer()
+	local server = http.HTTPServer()
 	local ok = server:Host(test_host, test_port)
 	test_port = test_port + 1
 
@@ -135,12 +135,12 @@ T.Test("sockets HTTP POST request with body", function()
 
 	function server:OnReceiveBody(client, body)
 		received_body = body
-		client:Send(sockets.HTTPResponse(200, "OK", {}, "Received: " .. body))
+		client:Send(http.HTTPResponse(200, "OK", {}, "Received: " .. body))
 		client:Close()
 	end
 
 	-- Create client
-	local client = sockets.HTTPClient()
+	local client = http.HTTPClient()
 
 	function client:OnReceiveBody(body)
 		client_response = body
@@ -162,12 +162,12 @@ T.Test("sockets HTTP POST request with body", function()
 	T(client_response)["=="]("Received: test data")
 end)
 
-T.Test("sockets.Request wrapper function", function()
+T.Test("http.Request wrapper function", function()
 	local done = false
 	local result = nil
 	local server_got_request = false
 	-- Create server
-	local server = sockets.HTTPServer()
+	local server = http.HTTPServer()
 	assert(server:Host(test_host, test_port))
 	test_port = test_port + 1
 
@@ -176,11 +176,11 @@ T.Test("sockets.Request wrapper function", function()
 	end
 
 	function server:OnReceiveHeader(client, header)
-		client:Send(sockets.HTTPResponse(200, "OK", {}, "{\"result\":\"success\"}"))
+		client:Send(http.HTTPResponse(200, "OK", {}, "{\"result\":\"success\"}"))
 		client:Close()
 	end
 
-	sockets.Request(
+	http.Request(
 		{
 			url = "http://127.0.0.1:" .. (test_port - 1) .. "/test",
 			callback = function(data)
@@ -204,20 +204,20 @@ T.Test("sockets.Request wrapper function", function()
 	T(result.body)["~="](nil)
 end)
 
-T.Test("sockets.Request with custom headers", function()
+T.Test("http.Request with custom headers", function()
 	local done = false
 	local received_headers = nil
-	local server = sockets.HTTPServer()
+	local server = http.HTTPServer()
 	assert(server:Host(test_host, test_port))
 	test_port = test_port + 1
 
 	function server:OnReceiveHeader(client, header)
 		received_headers = header
-		client:Send(sockets.HTTPResponse(200, "OK", {}, "OK"))
+		client:Send(http.HTTPResponse(200, "OK", {}, "OK"))
 		client:Close()
 	end
 
-	sockets.Request(
+	http.Request(
 		{
 			url = "http://127.0.0.1:" .. (test_port - 1) .. "/test",
 			header = {
@@ -247,18 +247,18 @@ T.Test("sockets HTTP chunked body receiving", function()
 	local done = false
 	local chunks = {}
 	local final_body = nil
-	local server = sockets.HTTPServer()
+	local server = http.HTTPServer()
 	assert(server:Host(test_host, test_port))
 	test_port = test_port + 1
 
 	function server:OnReceiveHeader(client, header)
 		-- Send a response that will come in chunks
 		local response_body = string.rep("A", 1000)
-		client:Send(sockets.HTTPResponse(200, "OK", {}, response_body))
+		client:Send(http.HTTPResponse(200, "OK", {}, response_body))
 		client:Close()
 	end
 
-	local client = sockets.HTTPClient()
+	local client = http.HTTPClient()
 
 	function client:OnReceiveBodyChunk(chunk)
 		table.insert(chunks, chunk)

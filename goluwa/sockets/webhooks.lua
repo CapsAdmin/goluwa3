@@ -64,7 +64,7 @@ return function(sockets)
 		end
 
 		function server:OnClientConnected(client)
-			sockets.ConnectedTCP2HTTP(client)
+			require("sockets.http").ConnectedTCP2HTTP(client)
 
 			function client:OnReceiveBody()
 				sockets.HandleWebhookRequest(

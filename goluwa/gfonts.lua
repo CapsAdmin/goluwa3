@@ -1,4 +1,4 @@
-local http = require("http")
+local http = require("sockets.http")
 local resource = require("resource")
 local callback = require("callback")
 local sockets = require("sockets.sockets")
@@ -33,7 +33,7 @@ local _Download = callback.WrapKeyedTask(function(self, key, options)
 	local headers = {
 		["User-Agent"] = "Mozilla/5.0 (Linux; U; Android 2.2; en-us; Nexus One Build/FRF91) AppleWebKit/533.1 (KHTML, like Gecko) Version/4.0 Mobile Safari/533.1",
 	}
-	sockets.Request(
+	http.Request(
 		{
 			url = url,
 			method = "GET",

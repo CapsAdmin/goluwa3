@@ -1,6 +1,7 @@
 local tasks = require("tasks")
 local resource = require("resource")
 local codec = require("codec")
+local http = require("sockets.http")
 local sockets = require("sockets.sockets")
 local steam = library()
 steam.source2meters = 0.01905
@@ -12,7 +13,7 @@ function steam.DownloadWorkshop(id, callback, on_error, last_modified)
 	if not tonumber(id) then id = id:match("id=(%d+)") end
 
 	on_error = on_error or llog
-	sockets.Request(
+	http.Request(
 		{
 			method = "POST",
 			url = "http://api.steampowered.com/ISteamRemoteStorage/GetPublishedFileDetails/v0001/",
@@ -64,7 +65,7 @@ function steam.DownloadWorkshopCollection(id, callback, on_error)
 	if not tonumber(id) then id = id:match("id=(%d+)") end
 
 	on_error = on_error or llog
-	sockets.Request(
+	http.Request(
 		{
 			method = "POST",
 			url = "http://api.steampowered.com/ISteamRemoteStorage/GetCollectionDetails/v0001/",

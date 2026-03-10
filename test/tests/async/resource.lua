@@ -3,6 +3,7 @@ local resource = require("resource")
 local tasks = require("tasks")
 local timer = require("timer")
 local vfs = require("vfs")
+local http = require("sockets.http")
 local sockets = require("sockets.sockets")
 local crypto = require("crypto")
 local fs = require("fs")
@@ -58,10 +59,18 @@ local function download_resource_and_wait(url, timeout, ...)
 end
 
 local function with_mock_socket_download(mock, callback)
-	local old_download = sockets.Download
-	sockets.Download = mock
+	local old_download = http.DownloadSocket
+	local old_download_raw = http.DownloadRaw
+	local old_request = http.Request
+	http.DownloadSocket = mock
+	http.DownloadRaw = mock
+	http.Request = function()
+		error("unexpected http.Request during mocked download")
+	end
 	local ok, err = xpcall(callback, debug.traceback)
-	sockets.Download = old_download
+	http.DownloadSocket = old_download
+	http.DownloadRaw = old_download_raw
+	http.Request = old_request
 
 	if not ok then error(err, 0) end
 end

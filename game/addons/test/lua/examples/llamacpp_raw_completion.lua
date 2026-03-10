@@ -1,5 +1,5 @@
 HOTRELOAD = false
-local http = require("http")
+local http = require("sockets.http")
 local llamacpp = require("llamacpp.api")
 local jinja2 = require("llamacpp.jinja2")
 

@@ -1,4 +1,4 @@
-local http = require("http")
+local http = require("sockets.http")
 local llamacpp = library()
 local api = http.CreateAPI("http://127.0.0.1:8080/")
 local codec = require("codec")
