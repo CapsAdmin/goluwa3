@@ -1,6 +1,7 @@
 HOTRELOAD = false
 local http = require("sockets.http")
 local llamacpp = require("llamacpp.api")
+local tasks = require("tasks")
 local jinja2 = require("llamacpp.jinja2")
 
 local function get_tool_call_format(model)
@@ -70,7 +71,7 @@ local function run_lua(args)
 	return ok and tostring(result) or tostring(result)
 end
 
-http.async(function()
+tasks.CreateTask(function()
 	local MODEL = "Qwen3.5-35B-A3B-UD-Q4_K_XL_2"
 	local fmt = get_tool_call_format(MODEL)
 	local tools = {
