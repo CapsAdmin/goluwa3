@@ -721,11 +721,15 @@ function META:GetDescent()
 end
 
 function META:GetGlyph(char_code)
+	if type(char_code) == "string" then char_code = utf8.uint32(char_code) end
+
+	if not char_code or char_code < 0 then return nil end
+
 	if self.glyphs[char_code] then return self.glyphs[char_code] end
 
 	local glyph_index = self.font:GetGlyphIndex(char_code)
 
-	if not glyph_index then return nil end
+	if not glyph_index or glyph_index == 0 then return nil end
 
 	local metrics = self.font:GetGlyphMetrics(glyph_index)
 	local glyph_data = self:ResolveGlyphData(self.font:GetGlyphData(glyph_index))
@@ -770,7 +774,7 @@ function META:GetTextSize(str)
 	local max_x = 0
 
 	for i, char in ipairs(utf8.to_list(str)) do
-		local char_code = string.byte(char)
+		local char_code = utf8.uint32(char)
 		local glyph = self:GetGlyph(char_code)
 
 		if char == "\n" then
@@ -824,7 +828,7 @@ function META:DrawString(str, x, y, spacing)
 	local X, Y = 0, 0
 
 	for i, char in ipairs(utf8.to_list(str)) do
-		local char_code = string.byte(char)
+		local char_code = utf8.uint32(char)
 		local glyph = self:GetGlyph(char_code)
 
 		if char == "\n" then
