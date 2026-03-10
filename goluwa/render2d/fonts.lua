@@ -16,6 +16,7 @@ function fonts.New(props)
 	props.Size = props.Size or 16
 	props.Padding = props.Padding or 1
 	props.Spread = props.Spread or 16
+	props.Path = props.Path or fonts.GetDefaultSystemFontPath()
 
 	if props.Path then
 		local ext = tostring(props.Path):match("%.([^%.]+)$")
