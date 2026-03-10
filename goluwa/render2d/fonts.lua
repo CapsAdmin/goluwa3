@@ -48,7 +48,7 @@ function fonts.New(props)
 end
 
 function fonts.GetDefaultFont()
-	if not default_font then default_font = sdf_font.New(base_font.New()) end
+	if not default_font then default_font = fonts.New({}) end
 
 	return default_font
 end
