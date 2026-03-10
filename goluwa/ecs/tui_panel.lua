@@ -111,7 +111,6 @@ do
 	-- Resize → update root transform (OnLayoutUpdated will set needs_redraw).
 	event.AddListener("TerminalResized", "tui_panel", function(w, h)
 		last_term_w, last_term_h = w, h
-		root.transform:SetSize(Vec2(w, h))
 	end)
 
 	-- ── draw loop ──────────────────────────────────────────────────────────────
