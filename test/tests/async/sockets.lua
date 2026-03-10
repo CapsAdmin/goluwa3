@@ -1,6 +1,7 @@
 local T = require("test.environment")
-local sockets = require("sockets.sockets")
 local tls = require("bindings.tls")
+local HTTPClient = require("sockets.http.http11_client")
+local HTTPServer = require("sockets.http.http11_server")
 local http = require("sockets.http")
 
 T.Test("http.DecodeURI parses HTTP URL correctly", function()
@@ -49,8 +50,8 @@ T.Test("http.HTTPRequest builds POST request with body", function()
 	T(has_body)["~="](nil)
 end)
 
-T.Test("http.HTTPClient can be created", function()
-	local client = http.HTTPClient()
+T.Test("HTTPClient.New can be created", function()
+	local client = HTTPClient.New()
 	T(client)["~="](nil)
 	T(type(client))["=="]("table")
 end)
@@ -75,7 +76,7 @@ T.Test("sockets HTTP server and client communication", function()
 	local received_request = nil
 	local client_response = nil
 	-- Create server
-	local server = http.HTTPServer()
+	local server = HTTPServer.New()
 	assert(server:Host(test_host, test_port))
 	test_port = test_port + 1
 
@@ -90,7 +91,7 @@ T.Test("sockets HTTP server and client communication", function()
 	end
 
 	-- Create client and make request
-	local client = http.HTTPClient()
+	local client = HTTPClient.New()
 
 	function client:OnReceiveStatus(code, status)
 		client_response = {code = tonumber(code), status = status}
@@ -123,7 +124,7 @@ T.Test("sockets HTTP POST request with body", function()
 	local received_body = nil
 	local client_response = nil
 	-- Create server
-	local server = http.HTTPServer()
+	local server = HTTPServer.New()
 	local ok = server:Host(test_host, test_port)
 	test_port = test_port + 1
 
@@ -140,7 +141,7 @@ T.Test("sockets HTTP POST request with body", function()
 	end
 
 	-- Create client
-	local client = http.HTTPClient()
+	local client = HTTPClient.New()
 
 	function client:OnReceiveBody(body)
 		client_response = body
@@ -167,7 +168,7 @@ T.Test("http.Request wrapper function", function()
 	local result = nil
 	local server_got_request = false
 	-- Create server
-	local server = http.HTTPServer()
+	local server = HTTPServer.New()
 	assert(server:Host(test_host, test_port))
 	test_port = test_port + 1
 
@@ -207,7 +208,7 @@ end)
 T.Test("http.Request with custom headers", function()
 	local done = false
 	local received_headers = nil
-	local server = http.HTTPServer()
+	local server = HTTPServer.New()
 	assert(server:Host(test_host, test_port))
 	test_port = test_port + 1
 
@@ -247,7 +248,7 @@ T.Test("sockets HTTP chunked body receiving", function()
 	local done = false
 	local chunks = {}
 	local final_body = nil
-	local server = http.HTTPServer()
+	local server = HTTPServer.New()
 	assert(server:Host(test_host, test_port))
 	test_port = test_port + 1
 
@@ -258,7 +259,7 @@ T.Test("sockets HTTP chunked body receiving", function()
 		client:Close()
 	end
 
-	local client = http.HTTPClient()
+	local client = HTTPClient.New()
 
 	function client:OnReceiveBodyChunk(chunk)
 		table.insert(chunks, chunk)

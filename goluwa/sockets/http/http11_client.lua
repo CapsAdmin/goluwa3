@@ -1,27 +1,27 @@
 local prototype = require("prototype")
 local http = require("sockets.http")
-local META = prototype.CreateTemplate("socket_http11_client")
-META.Base = prototype.GetRegistered("socket_tcp_client")
-META.Stage = "none"
+local HTTPClient = prototype.CreateTemplate("socket_http11_client")
+HTTPClient.Base = require("sockets.tcp_client")
+HTTPClient.Stage = "none"
 
 do
-	http.MixinHTTP(META)
+	http.MixinHTTP(HTTPClient)
 
-	function META:OnReceiveChunk(data)
+	function HTTPClient:OnReceiveChunk(data)
 		self:WriteHTTP(data, self.FromClient)
 	end
 
-	function META:OnReceiveResponse(method, path) end
+	function HTTPClient:OnReceiveResponse(method, path) end
 
-	function META:OnReceiveStatus(code, status) end
+	function HTTPClient:OnReceiveStatus(code, status) end
 
-	function META:OnReceiveHeader(header, raw_header) end
+	function HTTPClient:OnReceiveHeader(header, raw_header) end
 
-	function META:OnReceiveBodyChunk(chunk) end
+	function HTTPClient:OnReceiveBodyChunk(chunk) end
 
-	function META:OnReceiveBody(body) end
+	function HTTPClient:OnReceiveBody(body) end
 
-	function META:OnHTTPEvent(what)
+	function HTTPClient:OnHTTPEvent(what)
 		local ret = nil
 
 		if what == "response" then
@@ -63,7 +63,7 @@ do
 	end
 end
 
-function META:Request(method, url, header, body)
+function HTTPClient:Request(method, url, header, body)
 	local uri = assert(http.DecodeURI(url))
 	header = header or {}
 	self:Connect(uri.host, uri.port or uri.scheme)
@@ -80,7 +80,7 @@ function META:Request(method, url, header, body)
 	}
 end
 
-function META:Redirect(location)
+function HTTPClient:Redirect(location)
 	local req = self.CurrentRequest
 
 	if not req then
@@ -107,23 +107,23 @@ function META:Redirect(location)
 	list.insert(self.LocationHistory, location)
 end
 
-function META:GetRedirectHistory()
+function HTTPClient:GetRedirectHistory()
 	return self.LocationHistory or {}
 end
 
-META:Register()
-
-function http.HTTPClient(socket)
-	local self = META:CreateObject()
+function HTTPClient.New(socket)
+	local self = HTTPClient:CreateObject()
 	self:Initialize(socket)
 	return self
 end
 
-function http.ConnectedTCP2HTTP(obj)
-	setmetatable(obj, prototype.GetRegistered("socket_http11_client"))
+function HTTPClient.ConnectedTCP2HTTP(obj)
+	setmetatable(obj, prototype.GetRegistered(HTTPClient.Type))
 	obj:InitializeHTTPParser()
 	obj:OnConnect()
 	obj.connected = true
 	obj.connecting = false
 	obj.FromClient = true
 end
+
+return HTTPClient:Register()

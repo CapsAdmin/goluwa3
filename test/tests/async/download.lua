@@ -1,6 +1,6 @@
 local T = require("test.environment")
-local sockets = require("sockets.sockets")
 local http = require("sockets.http")
+local HTTPServer = require("sockets.http.http11_server")
 -- Use high port numbers to avoid conflicts
 local test_port = 55000
 
@@ -9,7 +9,7 @@ local function host_server(on_receive_header)
 	local last_err
 
 	for _ = 1, 50 do
-		local server = http.HTTPServer()
+		local server = HTTPServer.New()
 		local port = test_port
 		test_port = test_port + 1
 		local ok, res = pcall(function()

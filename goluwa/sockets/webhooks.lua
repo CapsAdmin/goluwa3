@@ -1,3 +1,5 @@
+local HTTPClient = require("sockets.http.http11_client")
+
 return function(sockets)
 	sockets.webook_servers = sockets.webook_servers or {}
 
@@ -64,7 +66,7 @@ return function(sockets)
 		end
 
 		function server:OnClientConnected(client)
-			require("sockets.http").ConnectedTCP2HTTP(client)
+			HTTPClient.ConnectedTCP2HTTP(client)
 
 			function client:OnReceiveBody()
 				sockets.HandleWebhookRequest(

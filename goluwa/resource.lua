@@ -5,7 +5,6 @@ local callback = require("callback")
 local codec = require("codec")
 local http = require("sockets.http")
 local event = require("event")
-local sockets = require("sockets.sockets")
 local resource = library()
 resource.providers = resource.providers or {}
 local DOWNLOAD_FOLDER = vfs.GetStorageDirectory("shared") .. "downloads/"
@@ -426,8 +425,6 @@ resource.Download = callback.WrapKeyedTask(
 		if check_etag then check_etag = function()
 			resolve(existing_path)
 		end end
-
-		if not sockets then return reject("sockets not availble") end
 
 		if url then
 			-- if not check_etag then

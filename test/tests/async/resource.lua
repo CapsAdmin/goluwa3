@@ -4,7 +4,6 @@ local tasks = require("tasks")
 local timer = require("timer")
 local vfs = require("vfs")
 local http = require("sockets.http")
-local sockets = require("sockets.sockets")
 local crypto = require("crypto")
 local fs = require("fs")
 

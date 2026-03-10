@@ -1,4 +1,5 @@
 local http = require("sockets.http")
+local HTTPClient = require("sockets.http.http11_client")
 local callback = require("callback")
 local event = require("event")
 local vfs = require("vfs")
@@ -73,7 +74,7 @@ end
 http.active_downloads = http.active_downloads or {}
 
 function http.DownloadSocket(url, on_finish, on_error, on_chunks, on_header, on_code)
-    local client = http.HTTPClient()
+    local client = HTTPClient.New()
     local lookup = {url = url, client = client}
     list.insert(http.active_downloads, lookup)
     local buffer = {}
@@ -194,7 +195,7 @@ function http.DownloadToPath(url, path, on_finish, on_error, on_progress, on_hea
 
     if current_size > 0 then header["range"] = "bytes=" .. current_size .. "-" end
 
-    local client = http.HTTPClient()
+    local client = HTTPClient.New()
     client.url = url
     local lookup = {url = url, client = client}
     list.insert(http.active_downloads, lookup)

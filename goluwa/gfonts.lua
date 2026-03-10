@@ -1,7 +1,6 @@
 local http = require("sockets.http")
 local resource = require("resource")
 local callback = require("callback")
-local sockets = require("sockets.sockets")
 local gfonts = library()
 local weight_map = {
 	thin = 100,

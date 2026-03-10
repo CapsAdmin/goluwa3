@@ -3,7 +3,6 @@ local event = require("event")
 local tasks = require("tasks")
 local codec = require("codec")
 local timer = require("timer")
-local sockets = require("sockets.sockets")
 local http = library()
 package.loaded["http"] = http
 package.loaded["sockets.http"] = http
@@ -356,13 +355,16 @@ do
 	local multipart = string.format("multipart/form-data;boundary=%q", multipart_boundary)
 
 	function http.Request(tbl, no_task)
+
+		local HTTPClient = require("sockets.http.http11_client")
+
 		if not no_task then
 			local a, b, c = event.Call("SocketRequest", tbl)
 
 			if a ~= nil then return a, b, c end
 		end
 
-		local client = http.HTTPClient()
+		local client = HTTPClient.New()
 		client.socket:set_option("keepalive", true)
 		client.NoCodeError = true
 		client.OnReceiveStatus = function(_, code, status)
@@ -658,8 +660,6 @@ end
 
 
 require("sockets.http.uri")
-require("sockets.http.http11_client")
-require("sockets.http.http11_server")
 require("sockets.http.download")
 
 return http

@@ -1,12 +1,12 @@
-local http = require("sockets.http")
 local prototype = require("prototype")
-local META = prototype.CreateTemplate("socket_http11_server")
-META.Base = prototype.GetRegistered("socket_tcp_server")
+local HTTPClient = require("sockets.http.http11_client")
+local HTTPServer = prototype.CreateTemplate("socket_http11_server")
+HTTPServer.Base = require("sockets.tcp_server")
 
-function META:OnClientConnected(client)
+function HTTPServer:OnClientConnected(client)
 	if self:OnClientConnected2(client) == false then return false end
 
-	http.ConnectedTCP2HTTP(client)
+	HTTPClient.ConnectedTCP2HTTP(client)
 	list.insert(self.Clients, client)
 	client.OnReceiveResponse = function(client, method, path)
 		if not self:IsValid() then return end
@@ -29,19 +29,19 @@ function META:OnClientConnected(client)
 	end)
 end
 
-function META:OnReceiveResponse(client, method, path) end
+function HTTPServer:OnReceiveResponse(client, method, path) end
 
-function META:OnReceiveHeader(client, header) end
+function HTTPServer:OnReceiveHeader(client, header) end
 
-function META:OnReceiveBody(client, body) end
+function HTTPServer:OnReceiveBody(client, body) end
 
-function META:OnClientConnected2() end -- idk what to do here
+function HTTPServer:OnClientConnected2() end -- idk what to do here
 
-META:Register()
-
-function http.HTTPServer(socket)
-	local self = META:CreateObject()
+function HTTPServer.New(socket)
+	local self = HTTPServer:CreateObject()
 	self:Initialize(socket)
 	self.Clients = {}
 	return self
 end
+
+return HTTPServer:Register()
