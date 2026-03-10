@@ -175,4 +175,14 @@ do
 	end
 end
 
+function system.OpenURL(url)
+	if jit.os == "Windows" then
+		os.execute(string.format('start "" "%s"', url))
+	elseif jit.os == "OSX" then
+		os.execute(string.format('open "%s"', url))
+	else
+		os.execute(string.format('xdg-open "%s"', url))
+	end
+end
+
 return system
