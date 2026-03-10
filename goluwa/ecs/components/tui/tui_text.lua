@@ -1,6 +1,7 @@
 local prototype = require("prototype")
 local Vec2 = require("structs.vec2")
 local system = require("system")
+local clipboard = require("bindings.clipboard")
 local META = prototype.CreateTemplate("tui_text")
 META:StartStorable()
 META:GetSet("Text", "", {callback = "OnTextChanged"})
@@ -150,6 +151,34 @@ local function draw_scrollbar(term, x, y, h, total_h, scroll_offset)
 	term:PopAttribute()
 end
 
+local function setup_clipboard(self)
+	self.readonly_click_active = false
+	self.Owner:EnsureComponent("tui_mouse_input")
+	self.Owner.tui_mouse_input:SetFocusOnClick(true)
+
+	self.Owner:AddLocalListener("OnMouseInput", function(_, button, press)
+		if self:GetEditable() then return end
+
+		if button ~= "left" then return end
+
+		local text = self:GetText()
+
+		if not text or text == "" then
+			self.readonly_click_active = false
+			return
+		end
+
+		if press then
+			self.readonly_click_active = true
+			clipboard.Set(text)
+		else
+			self.readonly_click_active = false
+		end
+
+		return true
+	end)
+end
+
 function META:_SetupEditor()
 	if self.Editor then return end
 
@@ -273,6 +302,7 @@ end
 
 function META:SetEditable(val)
 	self.Editable = val
+	self.readonly_click_active = false
 
 	if val then self:_SetupEditor() end
 end
@@ -399,6 +429,7 @@ end
 
 function META:Initialize()
 	self.Owner:EnsureComponent("tui_element")
+	setup_clipboard(self)
 
 	self.Owner:AddLocalListener("OnDraw", function(_, term, abs_x, abs_y, w, h)
 		self:OnDraw(term, abs_x, abs_y, w, h)
@@ -441,6 +472,11 @@ function META:OnDraw(term, abs_x, abs_y, w, h)
 
 	if not text or text == "" then return end
 
+	if self.readonly_click_active then
+		term:PushBackgroundColor(150, 150, 150)
+		term:PushForegroundColor(0, 0, 0)
+	end
+
 	render_text(
 		term,
 		abs_x,
@@ -450,6 +486,11 @@ function META:OnDraw(term, abs_x, abs_y, w, h)
 		h > 0 and h or nil,
 		self:GetTabSize()
 	)
+
+	if self.readonly_click_active then
+		term:PopAttribute()
+		term:PopAttribute()
+	end
 end
 
 function META:GetTextSize(max_width)
