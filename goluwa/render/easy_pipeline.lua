@@ -4,6 +4,7 @@ local render = require("render.render")
 local UniformBuffer = require("render.uniform_buffer")
 local Framebuffer = require("render.framebuffer")
 local system = require("system")
+local timer = require("timer")
 local EasyPipeline = prototype.CreateTemplate("render_easy_pipeline")
 
 function EasyPipeline.GetColorFormats(config)
@@ -1120,24 +1121,26 @@ end
 function EasyPipeline:OnWindowFramebufferResized()
 	if render.target and render.target.config.offscreen then return end
 
-	self:RecreateFramebuffers()
-	-- Update descriptor sets if they reference framebuffer textures
-	local textures = {}
-	local fb = self.framebuffer
+	timer.Delay(0.01, function() 
+		self:RecreateFramebuffers()
+		-- Update descriptor sets if they reference framebuffer textures
+		local textures = {}
+		local fb = self.framebuffer
 
-	if fb then
-		for _, tex in ipairs(fb.color_textures or {}) do
-			table.insert(textures, tex)
-		end
+		if fb then
+			for _, tex in ipairs(fb.color_textures or {}) do
+				table.insert(textures, tex)
+			end
 
-		if fb.depth_texture then table.insert(textures, fb.depth_texture) end
+			if fb.depth_texture then table.insert(textures, fb.depth_texture) end
 
-		if #textures > 0 then
-			for i = 1, #self.pipeline.descriptor_sets do
-				self.pipeline:UpdateDescriptorSetArray(i, 0, 1, textures)
+			if #textures > 0 then
+				for i = 1, #self.pipeline.descriptor_sets do
+					self.pipeline:UpdateDescriptorSetArray(i, 0, 1, textures)
+				end
 			end
 		end
-	end
+	end, self)
 end
 
 function EasyPipeline:Bind(cmd, frame_index, dynamic_offsets)

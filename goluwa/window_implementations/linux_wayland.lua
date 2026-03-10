@@ -595,10 +595,18 @@ return function(META)
 			elseif event.type == "window_close" then
 				self:CallEvent("Close")
 			elseif event.type == "window_resize" then
-				self.cached_size = nil
-				self.cached_fb_size = nil
-				self:CallEvent("SizeChanged", Vec2(event.width, event.height))
-				self:CallEvent("FramebufferResized", Vec2(event.width, event.height))
+				local size = Vec2(event.width, event.height)
+				
+				if self.last_size ~= size then
+					print(size)
+					self.cached_size = nil
+					self.cached_fb_size = nil
+					self:CallEvent("SizeChanged", size:Copy())
+					self:CallEvent("FramebufferResized", size:Copy())
+					self.last_size = size
+				end
+				
+				
 			elseif event.type == "window_focus" then
 				self.focused = event.focused
 				self:CallEvent(event.focused and "GainedFocus" or "LostFocus")
