@@ -6,6 +6,7 @@ local vfs = require("vfs")
 local Color = require("structs.color")
 local Vec2 = require("structs.vec2")
 local event = require("event")
+local window = require("window")
 local m
 local markup = Markup.New()
 markup:SetEditable(true)
@@ -47,9 +48,9 @@ if false then
 				"<texture=textures/silkicons/%s>%s"
 			):format(path, i % 16 == 0 and "\n" or "")
 	end
+	markup:AddString(tags, true)
 end
 
-markup:AddString(tags, true)
 markup:AddString(
 	[[<font=default><color=0.5,0.62,0.75,1>if<color=1,1,1,1> CLIENT<color=0.5,0.62,0.75,1> then
 if<color=1,1,1,1> window<color=0.5,0.62,0.75,1> and<color=0.75,0.75,0.62,1> #<color=1,1,1,1>window<color=0.75,0.75,0.62,1>.<color=1,1,1,1>GetSize<color=0.75,0.75,0.62,1>() ><color=0.5,0.75,0.5,1> 5<color=0.5,0.62,0.75,1> then<color=1,1,1,1>
@@ -96,7 +97,8 @@ markup:AddString("did you forget your <mark>eggs</mark>?\n", true)
 markup:AddString("no but that's <wrong>wierd</wrong>\n", true)
 markup:AddString("what's so <rotate=-3>wierd</rotate> about that?\n", true)
 markup:AddString("<hsv=[t()+input.rand/10],[(t()+input.rand)/100]>", true)
---markup:AddString("<rotate=1>i'm not sure it seems to be</rotate><rotate=-1>some kind of</rotate><physics=0,0>interference</physics>\n", true)
+markup:AddString("<rotate=1>i'm not sure it seems to be</rotate><rotate=-1>some kind of</rotate><physics=0,0>interference</physics>\n", true)
+markup:AddString("</hsv>", true)
 markup:AddString("<scale=[((t()/10)%5^5)+1],1>you don't say</scale>\n", true)
 markup:AddString("smileys?")
 markup:AddString("\n")
@@ -125,13 +127,16 @@ markup:AddString([[
 © 2012, Author
 Self publishing
 (Possibly email address or contact data)]])
-
 event.AddListener("Draw2D", "markup_test", function()
 	local x, y = gfx.GetMousePosition()
+	x = x - 50
+	y = y - 50
 	markup:SetMousePosition(Vec2(x, y))
 	local x = (os.clock() * 10) % 500
 	x = gfx.GetMousePosition()
-	x = 100
+	x = 500
+	render2d.SetColor(0, 0, 0, 0.2)
+	render2d.DrawRect(50, 50, x, 1000)
 	render2d.PushMatrix(50, 50)
 	markup:Update()
 	markup:Draw()
@@ -142,8 +147,6 @@ event.AddListener("Draw2D", "markup_test", function()
 end)
 
 event.AddListener("KeyInput", "markup", function(key, press)
-	print(key)
-
 	if key == "left_ctrl" then
 		markup:SetControlDown(press)
 	elseif key == "left_shift" then
@@ -156,10 +159,12 @@ event.AddListener("KeyInput", "markup", function(key, press)
 end)
 
 event.AddListener("CharInput", "markup", function(char)
+	if char:byte() < 32 then return end
+
+	if char:byte() == 127 then return end
 	markup:OnCharInput(char)
 end)
 
-event.AddListener("MouseInput", "markup", function(button, press, pos)
-	markup:SetMousePosition(pos)
+event.AddListener("MouseInput", "markup", function(button, press)
 	markup:OnMouseInput(button, press)
-end)
+end, {priority = 1000})

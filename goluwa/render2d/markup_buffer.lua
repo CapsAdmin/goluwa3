@@ -1,8 +1,7 @@
 local prototype = require("prototype")
 local utf8 = require("utf8")
-local SequenceBuffer = require("sequence_buffer")
 local MarkupBuffer = prototype.CreateTemplate("markup_buffer")
-MarkupBuffer.Base = SequenceBuffer
+MarkupBuffer.Base = require("sequence_buffer")
 
 function MarkupBuffer.New(str_or_chunks, markup_obj)
 	local self = MarkupBuffer:CreateObject({

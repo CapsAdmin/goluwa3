@@ -2,6 +2,7 @@ local T = require("test.environment")
 local MarkupBuffer = require("render2d.markup_buffer")
 local Markup = require("render2d.markup")
 local Color = require("structs.color")
+local Vec2 = require("structs.vec2")
 
 T.Test("MarkupBuffer basic operations", function()
 	local buffer = MarkupBuffer.New("hello world")
@@ -146,4 +147,23 @@ T.Test2D("Markup caret and movement", function()
 	-- We can just check if it runs without error for now
 	local x, y = m:GetNextCharacterClassPosition(1)
 	T(type(x))["=="]("number")
+end)
+
+T.Test2D("Markup caret from nearby pixels uses nearest line", function()
+	local m = Markup.New("hello")
+	local data = m.chars[2].data
+	local caret = m:CaretFromPixels(data.x + math.max(data.w * 0.5, 1), data.top + 1)
+	T(caret.i)["=="](2)
+end)
+
+T.Test2D("Markup mouse release updates selection stop", function()
+	local m = Markup.New("hello")
+	local start = m.chars[1].data
+	local stop = m.chars[4].data
+	local stop_caret = m:CaretFromPixels(stop.x + math.max(stop.w * 0.5, 1), stop.y + 1)
+	m:SetMousePosition(Vec2(start.x + 1, start.y + 1))
+	m:OnMouseInput("button_1", true)
+	m:SetMousePosition(Vec2(stop.x + math.max(stop.w * 0.5, 1), stop.y + 1))
+	m:OnMouseInput("button_1", false)
+	T(m.editor.Cursor)["=="](stop_caret.i)
 end)

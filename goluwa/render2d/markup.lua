@@ -29,7 +29,7 @@ Markup:GetSet("SelectionColor", Color(1, 1, 1, 0.5))
 Markup:GetSet("CaretColor", Color(1, 1, 1, 1))
 Markup:IsSet("Selectable", true)
 Markup:GetSet("MinimumHeight", 0)
-Markup:GetSet("HeightSpacing", 15)
+Markup:GetSet("HeightSpacing", 3)
 Markup:GetSet("LightMode", false)
 Markup:GetSet("SuperLightMode", false)
 Markup:GetSet("CopyTags", true)
@@ -356,7 +356,7 @@ do -- tags
 			end
 		end,
 		post_draw_chunks = function(markup, self, chunk)
-			local y_offset = markup.HeightSpacing + 1
+			local y_offset = markup.HeightSpacing - 5
 			gfx.DrawLine(chunk.x - 2, chunk.top - y_offset, chunk.right + 2, chunk.top - y_offset)
 		end,
 	}
@@ -420,7 +420,7 @@ do -- tags
 		arguments = {},
 		post_draw_chunks = function(markup, self, chunk)
 			render2d.PushColor(1, 0, 0, 1)
-			local y_offset = markup.HeightSpacing + 1
+			local y_offset = markup.HeightSpacing - 5
 
 			for x = chunk.x, chunk.right do
 				gfx.DrawLine(x, chunk.top + math.sin(x) - y_offset, x + 1, chunk.top + math.sin(x) - y_offset)
@@ -513,10 +513,10 @@ do -- tags
 	Markup.tags.alpha = {
 		arguments = {1},
 		pre_draw = function(markup, self, x, y, alpha)
-			render2d.SetAlphaMultiplier(alpha)
+			render2d.PushAlphaMultiplier(alpha)
 		end,
 		post_draw = function(markup, self)
-			render2d.SetAlphaMultiplier(1)
+			render2d.PopAlphaMultiplier()
 		end,
 	}
 	Markup.tags.blackhole = {
@@ -1960,13 +1960,36 @@ do -- caret
 	function Markup:CaretFromPixels(x, y)
 		local CHAR
 		local POS
+		local line_candidates = {}
 
 		for i, char in ipairs(self.chars) do
+			local data = char.data
+			local line = line_candidates[char.y]
+
+			if not line then
+				line = {
+					dist = math.huge,
+					chars = {},
+				}
+				line_candidates[char.y] = line
+			end
+
+			local dist = 0
+
+			if y < data.y then
+				dist = data.y - y
+			elseif y > data.top then
+				dist = y - data.top
+			end
+
+			if dist < line.dist then line.dist = dist end
+			list.insert(line.chars, {i, char})
+
 			if
-				x > char.data.x and
-				x < char.data.right and
-				y > char.data.y and
-				y < char.data.top
+				x >= data.x and
+				x <= data.right and
+				y >= data.y and
+				y <= data.top
 			then
 				POS = i
 				CHAR = char
@@ -1978,10 +2001,12 @@ do -- caret
 		-- if nothing was found we need to check things differently
 		if not CHAR then
 			local line = {}
+			local best_line_dist = math.huge
 
-			for i, char in ipairs(self.chars) do
-				if y >= char.data.y and y <= char.data.top then
-					list.insert(line, {i, char})
+			for _, candidate in pairs(line_candidates) do
+				if candidate.dist < best_line_dist then
+					best_line_dist = candidate.dist
+					line = candidate.chars
 				end
 			end
 
@@ -2344,6 +2369,7 @@ do -- input
 
 				self.last_click = system.GetElapsedTime() + 0.2
 
+
 				if self.times_clicked > 1 then return end
 			end
 
@@ -2353,6 +2379,11 @@ do -- input
 				self.editor.Cursor = caret.i
 				self.caret_pos = caret
 			else
+				if self.mouse_selecting and caret then
+					self.editor.Cursor = caret.i
+					self.caret_pos = caret
+				end
+
 				if not self.Editable then
 					local str = self:Copy(self.CopyTags)
 
@@ -2441,7 +2472,7 @@ do -- drawing
 							chunk.alpha = 1
 						end
 
-						render2d.SetAlphaMultiplier(chunk.alpha)
+						render2d.PushAlphaMultiplier(chunk.alpha)
 
 						if chunk.alpha <= 0 then start_remove = true end
 					end
@@ -2455,10 +2486,10 @@ do -- drawing
 						set_font(self, chunk.font)
 						local c = chunk.color
 
-						if c then render2d.SetColor(c.r, c.g, c.b, c.a) end
-
+						if c then render2d.PushColor(c.r, c.g, c.b, c.a) end
 						--print(fonts.GetFont(), c, chunk.val, chunk.x, chunk.y, max_w)
 						fonts.GetFont():DrawText(chunk.val, chunk.x, chunk.y, max_w)
+						if c then render2d.PopColor() end
 					elseif chunk.type == "custom" then
 						-- init
 						if not chunk.draw_init_called and not chunk.val.stop_tag then
@@ -2515,7 +2546,7 @@ do -- drawing
 					end
 
 					if chunk.type == "end_fade" then
-						render2d.SetAlphaMultiplier(1)
+						render2d.PopAlphaMultiplier()
 						start_remove = false
 					end
 
@@ -2580,7 +2611,7 @@ do -- drawing
 				end
 			end
 
-			if self.Editable then self:DrawLineHighlight(self.select_stop.y) end
+			if self.Editable and self.select_stop then self:DrawLineHighlight(self.select_stop.y) end
 		elseif self.Editable then
 			self:DrawCaret()
 			self:DrawLineHighlight(self.caret_pos.char.y)
@@ -2610,13 +2641,14 @@ do -- drawing
 			if h < self.MinimumHeight then h = self.MinimumHeight end
 
 			render2d.SetTexture()
-			render2d.SetColor(
+			render2d.PushColor(
 				self.CaretColor.r,
 				self.CaretColor.g,
 				self.CaretColor.b,
 				self:IsCaretVisible() and self.CaretColor.a or 0
 			)
 			render2d.DrawRect(x, y, 1, h)
+			render2d.PopColor()
 		end
 	end
 end
