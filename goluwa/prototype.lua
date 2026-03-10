@@ -974,6 +974,10 @@ do -- base object
 		end
 	end
 
+	function META:KeepApplicationAlive()
+		self:CallOnRemove(system.KeepAlive(self))
+	end
+
 	function META:RequestFocus()
 		prototype.SetFocusedObject(self)
 	end

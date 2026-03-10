@@ -186,10 +186,12 @@ event.AddListener("Update", "audio_sync", function()
 		local state = audio.state.slots[slot]
 
 		if not state.active then
+			audio.active_sounds[slot]:Remove()
 			audio.active_sounds[slot] = nil
 			sound_obj:SetPlaying(false)
 		elseif not sound_obj:IsPlaying() then
 			state.active = false
+			audio.active_sounds[slot]:Remove()
 			audio.active_sounds[slot] = nil
 		else
 			state.volume = sound_obj:GetVolume()

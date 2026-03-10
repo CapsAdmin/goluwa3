@@ -150,15 +150,23 @@ end
 
 do
 	local refs = {}
+	local obj_refs = setmetatable({}, {__mode = "v"})
 	local is_running = false
 
 	function system.KeepAlive(name)
-		refs[name] = debug.traceback()
+		if type(name) == "table" then
+			obj_refs[name] = debug.traceback()
+		else
+			refs[name] = debug.traceback()
+		end
+
 		is_running = true
+
 		return function()
 			refs[name] = nil
-
-			if not next(refs) then is_running = false end
+			obj_refs[name] = nil
+			
+			if not next(refs) and not next(obj_refs) then is_running = false end
 		end
 	end
 
