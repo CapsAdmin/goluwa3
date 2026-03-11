@@ -3,11 +3,11 @@ local utf8 = require("utf8")
 local SequenceBuffer = prototype.CreateTemplate("sequence_buffer")
 
 function SequenceBuffer.New(str)
-	return SequenceBuffer:CreateObject({
+	return SequenceBuffer:CreateObject{
 		Text = str or "",
 		list = nil,
 		lines = nil,
-	})
+	}
 end
 
 function SequenceBuffer:SetText(str)
@@ -29,16 +29,13 @@ function SequenceBuffer:SetLines(lines)
 end
 
 function SequenceBuffer:GetText()
-	if self.list and not self.Text then
-		self.Text = table.concat(self.list)
-	end
+	if self.list and not self.Text then self.Text = table.concat(self.list) end
+
 	return self.Text
 end
 
 function SequenceBuffer:GetList()
-	if not self.list then
-		self.list = utf8.to_list(self.Text)
-	end
+	if not self.list then self.list = utf8.to_list(self.Text) end
 
 	return self.list
 end
@@ -64,11 +61,17 @@ function SequenceBuffer:Sub(i, j)
 
 	local list = self:GetList()
 	local len = #list
+
 	if i < 0 then i = len + i + 1 end
+
 	if not j then j = -1 end
+
 	if j < 0 then j = len + j + 1 end
+
 	if i < 1 then i = 1 end
+
 	if j > len then j = len end
+
 	if i > j then return "" end
 
 	return table.concat(list, "", i, j)
@@ -89,9 +92,11 @@ end
 function SequenceBuffer:Insert(pos, str)
 	local list = self:GetList()
 	local str_list = utf8.to_list(str)
+
 	for i = 1, #str_list do
 		table.insert(list, pos + i - 1, str_list[i])
 	end
+
 	self.Text = nil
 	self.lines = nil
 	return utf8.length(str)
@@ -99,9 +104,11 @@ end
 
 function SequenceBuffer:RemoveRange(start, stop)
 	local list = self:GetList()
+
 	for i = 1, stop - start do
 		table.remove(list, start)
 	end
+
 	self.Text = nil
 	self.lines = nil
 end

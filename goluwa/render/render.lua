@@ -40,33 +40,29 @@ function render.Initialize(config)
 		local surface_handle, display_handle = assert(window:GetSurfaceHandle())
 		vulkan_instance = VulkanInstance.New(surface_handle, display_handle)
 		local size = window:GetSize()
-		local target = vulkan_instance:CreateWindowRenderTarget(
-			{
-				present_mode = "immediate_khr", --"fifo_khr",
-				image_count = nil, -- Use default (minImageCount + 1)
-				--surface_format_index = 1,
-				composite_alpha = "opaque_khr",
-				width = size.x,
-				height = size.y,
-				samples = config.samples,
-			}
-		)
+		local target = vulkan_instance:CreateWindowRenderTarget{
+			present_mode = "immediate_khr", --"fifo_khr",
+			image_count = nil, -- Use default (minImageCount + 1)
+			--surface_format_index = 1,
+			composite_alpha = "opaque_khr",
+			width = size.x,
+			height = size.y,
+			samples = config.samples,
+		}
 		render.target = target
 	else
 		vulkan_instance = VulkanInstance.New(nil, nil)
 		local width = config.width or 512
 		local height = config.height or 512
-		local target = vulkan_instance:CreateWindowRenderTarget(
-			{
-				offscreen = true,
-				width = width,
-				height = height,
-				format = "r8g8b8a8_unorm",
-				usage = {"color_attachment", "transfer_src"},
-				samples = "1",
-				final_layout = "transfer_src_optimal",
-			}
-		)
+		local target = vulkan_instance:CreateWindowRenderTarget{
+			offscreen = true,
+			width = width,
+			height = height,
+			format = "r8g8b8a8_unorm",
+			usage = {"color_attachment", "transfer_src"},
+			samples = "1",
+			final_layout = "transfer_src_optimal",
+		}
 		render.target = target
 	end
 
@@ -243,17 +239,15 @@ end
 
 function render.CreateBlankTexture(size, format, filtering)
 	local Texture = require("render.texture")
-	return Texture.New(
-		{
-			width = size.x,
-			height = size.y,
-			format = format or "r8g8b8a8_unorm",
-			sampler = {
-				min_filter = filtering or "linear",
-				mag_filter = filtering or "linear",
-			},
-		}
-	)
+	return Texture.New{
+		width = size.x,
+		height = size.y,
+		format = format or "r8g8b8a8_unorm",
+		sampler = {
+			min_filter = filtering or "linear",
+			mag_filter = filtering or "linear",
+		},
+	}
 end
 
 function render.GetWidth()
@@ -270,18 +264,16 @@ end
 
 function render.TriggerValidationError()
 	local vulkan = require("render.vulkan.internal.vulkan")
-	local create_info = vulkan.vk.VkBufferCreateInfo(
-		{
-			sType = vulkan.vk.VkStructureType.VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO + 10, -- INVALID STYPE,
-			pNext = nil,
-			flags = 1110, -- INVALID FLAGS
-			size = 0, -- INVALID SIZE
-			usage = vulkan.vk.VkBufferUsageFlagBits.VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-			sharingMode = vulkan.vk.VkSharingMode.VK_SHARING_MODE_EXCLUSIVE,
-			queueFamilyIndexCount = 0,
-			pQueueFamilyIndices = nil,
-		}
-	)
+	local create_info = vulkan.vk.VkBufferCreateInfo{
+		sType = vulkan.vk.VkStructureType.VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO + 10, -- INVALID STYPE,
+		pNext = nil,
+		flags = 1110, -- INVALID FLAGS
+		size = 0, -- INVALID SIZE
+		usage = vulkan.vk.VkBufferUsageFlagBits.VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+		sharingMode = vulkan.vk.VkSharingMode.VK_SHARING_MODE_EXCLUSIVE,
+		queueFamilyIndexCount = 0,
+		pQueueFamilyIndices = nil,
+	}
 	local buffer = ffi.new("void*[1]")
 	assert(
 		vulkan.lib.vkCreateBuffer(assert(vulkan_instance.device.ptr[0]), create_info, nil, buffer) ~= 0

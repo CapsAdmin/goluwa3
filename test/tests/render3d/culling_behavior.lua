@@ -19,12 +19,10 @@ local function spawn_test_object(pos, size, color)
 	poly:CreateCube(size or 1)
 	poly:BuildBoundingBox()
 	poly:Upload()
-	local material = Material.New(
-		{
-			ColorMultiplier = Color(color.r, color.g, color.b, 1),
-			EmissiveMultiplier = Color(1, 1, 1, 1), -- Make it bright so we can see it easily
-		}
-	)
+	local material = Material.New{
+		ColorMultiplier = Color(color.r, color.g, color.b, 1),
+		EmissiveMultiplier = Color(1, 1, 1, 1), -- Make it bright so we can see it easily
+	}
 	local ent = Entity.New()
 	ent:AddComponent("transform")
 	ent.transform:SetPosition(pos)
@@ -35,16 +33,14 @@ end
 
 local function TestCullingBehavior(name, cb)
 	T.Test3D(name, function(draw)
-		local sun = Entity.New(
-			{
-				transform = {},
-				light = {
-					LightType = "sun",
-					Color = Color(1, 1, 1),
-					Intensity = 1,
-				},
-			}
-		)
+		local sun = Entity.New{
+			transform = {},
+			light = {
+				LightType = "sun",
+				Color = Color(1, 1, 1),
+				Intensity = 1,
+			},
+		}
 		local cam = render3d.GetCamera()
 		cam:SetFOV(math.rad(90))
 		cam:SetNearZ(0.1)

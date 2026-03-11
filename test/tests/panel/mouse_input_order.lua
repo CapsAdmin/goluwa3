@@ -7,23 +7,21 @@ local prototype = require("prototype")
 
 T.Test("mouse input event order (local and global)", function()
 	local old_world = Panel.World
-	Panel.World = Panel.New({
+	Panel.World = Panel.New{
 		ComponentSet = {"transform", "gui_element"},
-	})
+	}
 	Panel.World:SetName("TestWorld")
 	Panel.World.transform:SetSize(Vec2(1000, 1000))
 	local call_stack = {}
 
 	local function create_panel(name, pos, size)
-		local pnl = Panel.New(
-			{
-				Parent = Panel.World,
-				Name = name,
-				transform = true,
-				gui_element = true,
-				mouse_input = true,
-			}
-		)
+		local pnl = Panel.New{
+			Parent = Panel.World,
+			Name = name,
+			transform = true,
+			gui_element = true,
+			mouse_input = true,
+		}
 		pnl.transform:SetPosition(pos or Vec2(0, 0))
 		pnl.transform:SetSize(size or Vec2(100, 100))
 
@@ -62,9 +60,7 @@ T.Test("mouse input event order (local and global)", function()
 	local global_calls = {}
 
 	for _, call in ipairs(call_stack) do
-		if call.type == "global" then
-			table.insert(global_calls, call.name)
-		end
+		if call.type == "global" then table.insert(global_calls, call.name) end
 	end
 
 	T(global_calls[1])["=="]("p2")
@@ -73,9 +69,7 @@ T.Test("mouse input event order (local and global)", function()
 	local local_calls = {}
 
 	for _, call in ipairs(call_stack) do
-		if call.type == "local" then
-			table.insert(local_calls, call.name)
-		end
+		if call.type == "local" then table.insert(local_calls, call.name) end
 	end
 
 	T(local_calls[1])["=="]("p2")
@@ -90,9 +84,7 @@ T.Test("mouse input event order (local and global)", function()
 	global_calls = {}
 
 	for _, call in ipairs(call_stack) do
-		if call.type == "global" then
-			table.insert(global_calls, call.name)
-		end
+		if call.type == "global" then table.insert(global_calls, call.name) end
 	end
 
 	T(#global_calls)["=="](1)
@@ -104,9 +96,7 @@ T.Test("mouse input event order (local and global)", function()
 	global_calls = {}
 
 	for _, call in ipairs(call_stack) do
-		if call.type == "global" then
-			table.insert(global_calls, call.name)
-		end
+		if call.type == "global" then table.insert(global_calls, call.name) end
 	end
 
 	-- note: p2 still has the "blocker" but p1 is now checked first
@@ -119,9 +109,7 @@ T.Test("mouse input event order (local and global)", function()
 	local move_calls = {}
 
 	for _, call in ipairs(call_stack) do
-		if call.type == "move" then
-			table.insert(move_calls, call.name)
-		end
+		if call.type == "move" then table.insert(move_calls, call.name) end
 	end
 
 	-- p1 is on top from Test 4

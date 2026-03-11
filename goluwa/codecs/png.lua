@@ -322,10 +322,10 @@ function png.DecodeBuffer(inputBuffer)
 	-- Determine Vulkan format based on source format
 	local vulkan_format = png_to_vulkan_format(colorType, bitDepth)
 	-- Get the decoded pixel buffer
-	local pixelData, pixelSize = getPixels(deflate.inflate_zlib({
+	local pixelData, pixelSize = getPixels(deflate.inflate_zlib{
 		input = data.IDAT.data,
 		disable_crc = true,
-	}), data)
+	}, data)
 	-- Cast to uint8_t* for consistency (pixelData might be uint16_t* for 16-bit images)
 	local pixelDataPtr = ffi.cast("uint8_t*", pixelData)
 	return {

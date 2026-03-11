@@ -46,45 +46,42 @@ function ShadowMap.New(config)
 			light_space_matrix = Matrix44(),
 		}
 		-- Create depth texture for each cascade
-		self.cascade[i].depth_texture = Texture.New(
-			{
-				width = self.size.w,
-				height = self.size.h,
-				format = self.format,
-				image = {
-					usage = {"depth_stencil_attachment", "sampled"},
-					properties = "device_local",
-				},
-				view = {
-					aspect = "depth",
-				},
-				sampler = {
-					min_filter = "linear",
-					mag_filter = "linear",
-					wrap_s = "clamp_to_border",
-					wrap_t = "clamp_to_border",
-					border_color = "float_opaque_white",
-				-- No compare_enable - we do manual PCF in the shader
-				},
-			}
-		)
+		self.cascade[i].depth_texture = Texture.New{
+			width = self.size.w,
+			height = self.size.h,
+			format = self.format,
+			image = {
+				usage = {"depth_stencil_attachment", "sampled"},
+				properties = "device_local",
+			},
+			view = {
+				aspect = "depth",
+			},
+			sampler = {
+				min_filter = "linear",
+				mag_filter = "linear",
+				wrap_s = "clamp_to_border",
+				wrap_t = "clamp_to_border",
+				border_color = "float_opaque_white",
+			-- No compare_enable - we do manual PCF in the shader
+			},
+		}
 	end
 
 	-- Create depth-only pipeline for shadow pass
-	self.pipeline = render.CreateGraphicsPipeline(
-		{
-			dynamic_states = {"viewport", "scissor"},
-			-- Even with dynamic states, must provide initial viewport/scissor matching what we'll use
-			viewport = {x = 0, y = 0, w = self.size.w, h = self.size.h, min_depth = 0, max_depth = 1},
-			scissor = {x = 0, y = 0, w = self.size.w, h = self.size.h},
-			color_format = false, -- No color attachment for shadow pass
-			depth_format = self.format,
-			samples = "1", -- Shadow map uses single sample
-			descriptor_set_count = 1, -- Just bindless textures for alpha testing
-			shader_stages = {
-				{
-					type = "vertex",
-					code = [[
+	self.pipeline = render.CreateGraphicsPipeline{
+		dynamic_states = {"viewport", "scissor"},
+		-- Even with dynamic states, must provide initial viewport/scissor matching what we'll use
+		viewport = {x = 0, y = 0, w = self.size.w, h = self.size.h, min_depth = 0, max_depth = 1},
+		scissor = {x = 0, y = 0, w = self.size.w, h = self.size.h},
+		color_format = false, -- No color attachment for shadow pass
+		depth_format = self.format,
+		samples = "1", -- Shadow map uses single sample
+		descriptor_set_count = 1, -- Just bindless textures for alpha testing
+		shader_stages = {
+			{
+				type = "vertex",
+				code = [[
 					#version 450
 					#extension GL_EXT_scalar_block_layout : require
 
@@ -109,57 +106,57 @@ function ShadowMap.New(config)
 					out_uv = in_uv;
 					}
 				]],
-					bindings = {
-						{
-							binding = 0,
-							stride = ffi.sizeof("float") * (3 + 3 + 2 + 4 + 1), -- Match render3d vertex format (pos, normal, uv, tangent, blend)
-							input_rate = "vertex",
-						},
-					},
-					attributes = {
-						{
-							binding = 0,
-							location = 0,
-							format = "r32g32b32_sfloat",
-							offset = 0,
-						},
-						{
-							binding = 0,
-							location = 1,
-							format = "r32g32b32_sfloat",
-							offset = ffi.sizeof("float") * 3,
-						},
-						{
-							binding = 0,
-							location = 2,
-							format = "r32g32_sfloat",
-							offset = ffi.sizeof("float") * 6,
-						},
-						{
-							binding = 0,
-							location = 3,
-							format = "r32g32b32a32_sfloat",
-							offset = ffi.sizeof("float") * 8,
-						},
-						{
-							binding = 0,
-							location = 4,
-							format = "r32_sfloat",
-							offset = ffi.sizeof("float") * 12,
-						},
-					},
-					input_assembly = {
-						topology = "triangle_list",
-						primitive_restart = false,
-					},
-					push_constants = {
-						size = ffi.sizeof(ShadowVertexConstants),
-						offset = 0,
+				bindings = {
+					{
+						binding = 0,
+						stride = ffi.sizeof("float") * (3 + 3 + 2 + 4 + 1), -- Match render3d vertex format (pos, normal, uv, tangent, blend)
+						input_rate = "vertex",
 					},
 				},
-				{
-					type = "fragment",
-					code = [[
+				attributes = {
+					{
+						binding = 0,
+						location = 0,
+						format = "r32g32b32_sfloat",
+						offset = 0,
+					},
+					{
+						binding = 0,
+						location = 1,
+						format = "r32g32b32_sfloat",
+						offset = ffi.sizeof("float") * 3,
+					},
+					{
+						binding = 0,
+						location = 2,
+						format = "r32g32_sfloat",
+						offset = ffi.sizeof("float") * 6,
+					},
+					{
+						binding = 0,
+						location = 3,
+						format = "r32g32b32a32_sfloat",
+						offset = ffi.sizeof("float") * 8,
+					},
+					{
+						binding = 0,
+						location = 4,
+						format = "r32_sfloat",
+						offset = ffi.sizeof("float") * 12,
+					},
+				},
+				input_assembly = {
+					topology = "triangle_list",
+					primitive_restart = false,
+				},
+				push_constants = {
+					size = ffi.sizeof(ShadowVertexConstants),
+					offset = 0,
+				},
+			},
+			{
+				type = "fragment",
+				code = [[
 					#version 450
 					#extension GL_EXT_nonuniform_qualifier : require
 					#extension GL_EXT_scalar_block_layout : require
@@ -210,49 +207,48 @@ function ShadowMap.New(config)
 						// Depth is written automatically for non-discarded fragments
 					}
 				]],
-					push_constants = {
-						size = ffi.sizeof(ShadowVertexConstants),
-						offset = 0,
-					},
-					descriptor_sets = {
-						{
-							type = "combined_image_sampler",
-							binding_index = 0,
-							count = 1024,
-						},
+				push_constants = {
+					size = ffi.sizeof(ShadowVertexConstants),
+					offset = 0,
+				},
+				descriptor_sets = {
+					{
+						type = "combined_image_sampler",
+						binding_index = 0,
+						count = 1024,
 					},
 				},
 			},
-			rasterizer = {
-				depth_clamp = true,
-				discard = false,
-				polygon_mode = "fill",
-				line_width = 1.0,
-				cull_mode = "none", -- Disabled - was causing device lost
-				front_face = "clockwise",
-				depth_bias = 0.1, -- Disabled - was causing device lost with some primitives
-				depth_bias_constant_factor = 0.0,
-				depth_bias_slope_factor = 0.0,
-			},
-			color_blend = {
-				logic_op_enabled = false,
-				logic_op = "copy",
-				constants = {0.0, 0.0, 0.0, 0.0},
-				attachments = {}, -- No color attachments
-			},
-			multisampling = {
-				sample_shading = false,
-				rasterization_samples = "1",
-			},
-			depth_stencil = {
-				depth_test = true,
-				depth_write = true,
-				depth_compare_op = "less",
-				depth_bounds_test = false,
-				stencil_test = false,
-			},
-		}
-	)
+		},
+		rasterizer = {
+			depth_clamp = true,
+			discard = false,
+			polygon_mode = "fill",
+			line_width = 1.0,
+			cull_mode = "none", -- Disabled - was causing device lost
+			front_face = "clockwise",
+			depth_bias = 0.1, -- Disabled - was causing device lost with some primitives
+			depth_bias_constant_factor = 0.0,
+			depth_bias_slope_factor = 0.0,
+		},
+		color_blend = {
+			logic_op_enabled = false,
+			logic_op = "copy",
+			constants = {0.0, 0.0, 0.0, 0.0},
+			attachments = {}, -- No color attachments
+		},
+		multisampling = {
+			sample_shading = false,
+			rasterization_samples = "1",
+		},
+		depth_stencil = {
+			depth_test = true,
+			depth_write = true,
+			depth_compare_op = "less",
+			depth_bounds_test = false,
+			stencil_test = false,
+		},
+	}
 	-- Command buffer for shadow pass
 	self.command_pool = render.GetCommandPool()
 	self.cmd = self.command_pool:AllocateCommandBuffer()
@@ -329,36 +325,32 @@ function ShadowMap:Begin(cascade_index)
 	self.cmd:Reset()
 	self.cmd:Begin()
 	-- Transition depth texture to depth attachment optimal
-	self.cmd:PipelineBarrier(
-		{
-			srcStage = "fragment",
-			dstStage = "early_fragment_tests",
-			imageBarriers = {
-				{
-					image = depth_texture:GetImage(),
-					srcAccessMask = "shader_read",
-					dstAccessMask = "depth_stencil_attachment_write",
-					oldLayout = "undefined",
-					newLayout = "depth_attachment_optimal",
-				-- aspect is automatically determined from image format by PipelineBarrier
-				},
+	self.cmd:PipelineBarrier{
+		srcStage = "fragment",
+		dstStage = "early_fragment_tests",
+		imageBarriers = {
+			{
+				image = depth_texture:GetImage(),
+				srcAccessMask = "shader_read",
+				dstAccessMask = "depth_stencil_attachment_write",
+				oldLayout = "undefined",
+				newLayout = "depth_attachment_optimal",
+			-- aspect is automatically determined from image format by PipelineBarrier
 			},
-		}
-	)
+		},
+	}
 	-- Use integer values from the depth texture to ensure consistency
 	local w = depth_texture:GetWidth()
 	local h = depth_texture:GetHeight()
 	-- Begin rendering (depth-only)
-	self.cmd:BeginRendering(
-		{
-			depth_image_view = depth_texture:GetView(),
-			depth_store = true, -- We need to store the depth for sampling later
-			depth_layout = "depth_attachment_optimal",
-			w = w,
-			h = h,
-			clear_depth = 1.0,
-		}
-	)
+	self.cmd:BeginRendering{
+		depth_image_view = depth_texture:GetView(),
+		depth_store = true, -- We need to store the depth for sampling later
+		depth_layout = "depth_attachment_optimal",
+		w = w,
+		h = h,
+		clear_depth = 1.0,
+	}
 	-- Bind shadow pipeline
 	self.pipeline:Bind(self.cmd)
 	-- Set viewport and scissor (dynamic states)
@@ -411,22 +403,20 @@ function ShadowMap:End(cascade_index)
 	local depth_texture = self.cascade[cascade_index].depth_texture
 	self.cmd:EndRendering()
 	-- Transition depth texture to shader read optimal for sampling
-	self.cmd:PipelineBarrier(
-		{
-			srcStage = "late_fragment_tests",
-			dstStage = "fragment",
-			imageBarriers = {
-				{
-					image = depth_texture:GetImage(),
-					srcAccessMask = "depth_stencil_attachment_write",
-					dstAccessMask = "shader_read",
-					oldLayout = "depth_attachment_optimal",
-					newLayout = "shader_read_only_optimal",
-				-- aspect is automatically determined from image format by PipelineBarrier
-				},
+	self.cmd:PipelineBarrier{
+		srcStage = "late_fragment_tests",
+		dstStage = "fragment",
+		imageBarriers = {
+			{
+				image = depth_texture:GetImage(),
+				srcAccessMask = "depth_stencil_attachment_write",
+				dstAccessMask = "shader_read",
+				oldLayout = "depth_attachment_optimal",
+				newLayout = "shader_read_only_optimal",
+			-- aspect is automatically determined from image format by PipelineBarrier
 			},
-		}
-	)
+		},
+	}
 	self.cmd:End()
 	-- Submit and wait
 	render.SubmitAndWait(self.cmd)

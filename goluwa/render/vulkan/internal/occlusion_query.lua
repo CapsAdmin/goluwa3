@@ -12,14 +12,12 @@ function OcclusionQuery.New(config)
 	vulkan.assert(
 		vulkan.lib.vkCreateQueryPool(
 			device.ptr[0],
-			vulkan.vk.s.QueryPoolCreateInfo(
-				{
-					flags = 0,
-					queryType = "occlusion",
-					queryCount = 1,
-					pipelineStatistics = 0,
-				}
-			),
+			vulkan.vk.s.QueryPoolCreateInfo{
+				flags = 0,
+				queryType = "occlusion",
+				queryCount = 1,
+				pipelineStatistics = 0,
+			},
 			nil,
 			query_pool_ptr
 		),
@@ -27,26 +25,22 @@ function OcclusionQuery.New(config)
 	)
 	-- Create a buffer to hold the occlusion query result for conditional rendering
 	-- Use host_visible so we can initialize it directly without a copy command
-	local conditional_buffer = Buffer.New(
-		{
-			device = device,
-			size = 4,
-			usage = {"conditional_rendering_ext", "transfer_dst"},
-			properties = {"host_visible", "host_coherent"},
-		}
-	)
+	local conditional_buffer = Buffer.New{
+		device = device,
+		size = 4,
+		usage = {"conditional_rendering_ext", "transfer_dst"},
+		properties = {"host_visible", "host_coherent"},
+	}
 	-- Initialize buffer to 1 (visible) so objects start visible
 	local initial_value = ffi.new("uint32_t[1]", 1)
 	conditional_buffer:CopyData(initial_value, 4)
-	local self = OcclusionQuery:CreateObject(
-		{
-			query_pool = query_pool_ptr,
-			conditional_buffer = conditional_buffer,
-			device = device,
-			instance = instance,
-			needs_reset = true, -- Track if query needs reset before use
-		}
-	)
+	local self = OcclusionQuery:CreateObject{
+		query_pool = query_pool_ptr,
+		conditional_buffer = conditional_buffer,
+		device = device,
+		instance = instance,
+		needs_reset = true, -- Track if query needs reset before use
+	}
 	return self
 end
 
@@ -141,11 +135,11 @@ function OcclusionQuery:BeginConditional(cmd)
 		self.device.vkCmdEndConditionalRenderingEXT = func2
 	end
 
-	local begin_info = vulkan.vk.s.ConditionalRenderingBeginInfoEXT({
+	local begin_info = vulkan.vk.s.ConditionalRenderingBeginInfoEXT{
 		buffer = self.conditional_buffer.ptr[0],
 		offset = 0,
 		flags = 0,
-	})
+	}
 	self.device.vkCmdBeginConditionalRenderingEXT(cmd.ptr[0], begin_info)
 	return true
 end

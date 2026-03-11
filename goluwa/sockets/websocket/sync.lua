@@ -145,15 +145,13 @@ local connect = function(self, ws_url, ws_protocol, ssl_params)
 	end
 
 	local key = tools.generate_key()
-	local req = handshake.upgrade_request(
-		{
-			key = key,
-			host = host,
-			port = port,
-			protocols = ws_protocols_tbl,
-			uri = uri,
-		}
-	)
+	local req = handshake.upgrade_request{
+		key = key,
+		host = host,
+		port = port,
+		protocols = ws_protocols_tbl,
+		uri = uri,
+	}
 	local n, err = self:sock_send(req)
 
 	if n ~= #req then return nil, err, nil end

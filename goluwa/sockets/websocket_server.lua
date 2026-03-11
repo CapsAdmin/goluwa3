@@ -70,7 +70,7 @@ function WebSocketServer:OnClientConnected(client)
 					end
 				elseif #encoded > 0 then
 					client.last_encoded = encoded
-				end				
+				end			
 			until not decoded
 		end
 

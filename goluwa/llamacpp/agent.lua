@@ -25,8 +25,8 @@ tools.sub_agent = {
 		end
 
 		local sub_agent = Agent.New(agent:GetModel())
-		sub_agent:AddMessage({role = "system", content = args.system_prompt})
-		sub_agent:AddMessage({role = "user", content = args.message})
+		sub_agent:AddMessage{role = "system", content = args.system_prompt}
+		sub_agent:AddMessage{role = "user", content = args.message}
 		sub_agent.is_sub_agent = true
 		tasks.WaitForNestedTask(sub_agent:Run())
 		return "sub-agent finished"
@@ -37,18 +37,16 @@ Agent:GetSet("Messages")
 Agent:GetSet("Model", "Qwen3.5-35B-A3B-UD-Q4_K_XL")
 
 function Agent.New(model)
-	local self = Agent:CreateObject(
-		{
-			Tools = {},
-			Messages = {},
-			Model = model or Agent.Model,
-			message_queue = {},
-			active_tools = {},
-			current_content = "",
-			in_reasoning = false,
-			slots = {},
-		}
-	)
+	local self = Agent:CreateObject{
+		Tools = {},
+		Messages = {},
+		Model = model or Agent.Model,
+		message_queue = {},
+		active_tools = {},
+		current_content = "",
+		in_reasoning = false,
+		slots = {},
+	}
 	self.slots = {}
 	return self
 end
@@ -106,14 +104,14 @@ function Agent:AddMessage(msg, silent)
 	if not silent then
 		if #self.Messages > 0 then self:OnLogEvent({type = "message_separator"}) end
 
-		self:OnLogEvent({type = "role", role = tostring(msg.role)})
+		self:OnLogEvent{type = "role", role = tostring(msg.role)}
 
 		if msg.content then
-			self:OnLogEvent({type = "message_content", content = tostring(msg.content)})
+			self:OnLogEvent{type = "message_content", content = tostring(msg.content)}
 		end
 
 		if msg.tool_calls then
-			self:OnLogEvent({type = "message_tool_calls", tool_calls = msg.tool_calls})
+			self:OnLogEvent{type = "message_tool_calls", tool_calls = msg.tool_calls}
 		end
 	end
 
@@ -141,16 +139,16 @@ function Agent:ToolCall(name, json_args)
 
 	do
 		local display_args = name == "lua" and args.lua_code or table.tostring(args)
-		self:OnLogEvent({type = "tool_execute", name = name, args = display_args, slot_id = name})
+		self:OnLogEvent{type = "tool_execute", name = name, args = display_args, slot_id = name}
 	end
 
 	if not ok then
-		self:OnLogEvent({type = "tool_error", error = tostring(res), slot_id = name})
+		self:OnLogEvent{type = "tool_error", error = tostring(res), slot_id = name}
 		return "error: " .. tostring(res)
 	end
 
 	res = table.tostring(res)
-	self:OnLogEvent({type = "tool_result", result = res, slot_id = name})
+	self:OnLogEvent{type = "tool_result", result = res, slot_id = name}
 	return res
 end
 
@@ -161,7 +159,7 @@ function Agent:OnChoice(choice)
 			self.in_reasoning = false
 		end
 
-		self:OnLogEvent({type = "role", role = tostring(choice.delta.role)})
+		self:OnLogEvent{type = "role", role = tostring(choice.delta.role)}
 	elseif choice.delta.content then
 		if self.in_reasoning then
 			self:OnLogEvent({type = "reasoning_end"})
@@ -170,10 +168,10 @@ function Agent:OnChoice(choice)
 
 		local content = tostring(choice.delta.content)
 		self.current_content = self.current_content .. content
-		self:OnLogEvent({type = "content_token", content = content})
+		self:OnLogEvent{type = "content_token", content = content}
 	elseif choice.delta.reasoning_content then
 		self.in_reasoning = true
-		self:OnLogEvent({type = "reasoning_token", content = tostring(choice.delta.reasoning_content)})
+		self:OnLogEvent{type = "reasoning_token", content = tostring(choice.delta.reasoning_content)}
 	elseif choice.delta.tool_calls then
 		if self.in_reasoning then
 			self:OnLogEvent({type = "reasoning_end"})
@@ -194,13 +192,11 @@ function Agent:OnChoice(choice)
 					arguments = tc["function"].arguments or "",
 				}
 				self.slots[idx] = slot
-				self:OnLogEvent(
-					{
-						type = "tool_call_start",
-						name = tc["function"].name,
-						args = tc["function"].arguments or "",
-					}
-				)
+				self:OnLogEvent{
+					type = "tool_call_start",
+					name = tc["function"].name,
+					args = tc["function"].arguments or "",
+				}
 			elseif tc["function"] then
 				-- If we don't have a slot for this index yet, create a skeleton
 				if not slot then
@@ -217,7 +213,7 @@ function Agent:OnChoice(choice)
 
 				if tc["function"].arguments then
 					slot.arguments = (slot.arguments or "") .. tc["function"].arguments
-					self:OnLogEvent({type = "tool_call_arg_fragment", fragment = tc["function"].arguments})
+					self:OnLogEvent{type = "tool_call_arg_fragment", fragment = tc["function"].arguments}
 				end
 			end
 		end
@@ -294,7 +290,7 @@ function Agent:OnChoice(choice)
 		table.clear(self.active_tools)
 
 		if self.current_content ~= "" then
-			self:AddMessage({role = "assistant", content = self.current_content})
+			self:AddMessage{role = "assistant", content = self.current_content}
 			self.current_content = ""
 		end
 
@@ -326,23 +322,21 @@ function Agent:RunAsync()
 	self.should_run = true
 
 	while self.should_run do
-		llamacpp.ChatCompletion(
-			{
-				model = self:GetModel(),
-				temperature = 0.6,
-				top_p = 0.95,
-				top_k = 20,
-				min_p = 0.0,
-				--
-				messages = self:GetMessages(),
-				tools = self:GetToolDescriptions(),
-				on_data = function(data)
-					for _, choice in ipairs(data.choices) do
-						self:OnChoice(choice)
-					end
-				end,
-			}
-		)
+		llamacpp.ChatCompletion{
+			model = self:GetModel(),
+			temperature = 0.6,
+			top_p = 0.95,
+			top_k = 20,
+			min_p = 0.0,
+			--
+			messages = self:GetMessages(),
+			tools = self:GetToolDescriptions(),
+			on_data = function(data)
+				for _, choice in ipairs(data.choices) do
+					self:OnChoice(choice)
+				end
+			end,
+		}
 	end
 
 	self:OnLogEvent({type = "run_end"})

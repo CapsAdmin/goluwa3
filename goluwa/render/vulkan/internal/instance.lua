@@ -46,15 +46,13 @@ end
 function Instance.New(extensions, layers)
 	local self = Instance:CreateObject({})
 	local version = vulkan.vk.VK_API_VERSION_1_4
-	local appInfo = vulkan.vk.s.ApplicationInfo(
-		{
-			pApplicationName = "MoltenVK LuaJIT Example",
-			applicationVersion = 1,
-			pEngineName = "No Engine",
-			engineVersion = 1,
-			apiVersion = version,
-		}
-	)
+	local appInfo = vulkan.vk.s.ApplicationInfo{
+		pApplicationName = "MoltenVK LuaJIT Example",
+		applicationVersion = 1,
+		pEngineName = "No Engine",
+		engineVersion = 1,
+		apiVersion = version,
+	}
 	-- Add debug utils extension if validation layers are enabled
 	local has_validation = layers and #layers > 0
 
@@ -90,15 +88,13 @@ function Instance.New(extensions, layers)
 	local debug_create_info
 
 	if has_validation then
-		debug_create_info = vulkan.vk.s.DebugUtilsMessengerCreateInfoEXT(
-			{
-				flags = 0,
-				messageSeverity = {"warning_ext", "error_ext"},
-				messageType = {"general_ext", "validation_ext", "performance_ext"},
-				pfnUserCallback = self:CreateDebugCallback(),
-				pUserData = nil,
-			}
-		)
+		debug_create_info = vulkan.vk.s.DebugUtilsMessengerCreateInfoEXT{
+			flags = 0,
+			messageSeverity = {"warning_ext", "error_ext"},
+			messageType = {"general_ext", "validation_ext", "performance_ext"},
+			pfnUserCallback = self:CreateDebugCallback(),
+			pUserData = nil,
+		}
 		self.debug_create_info_ref = debug_create_info
 	end
 
@@ -110,17 +106,15 @@ function Instance.New(extensions, layers)
 	local ptr = vulkan.T.Box(vulkan.vk.VkInstance)()
 	vulkan.assert(
 		vulkan.lib.vkCreateInstance(
-			vulkan.vk.s.InstanceCreateInfo(
-				{
-					pNext = has_validation and debug_create_info or nil,
-					flags = instance_flags,
-					pApplicationInfo = appInfo,
-					enabledLayerCount = layers and #layers or 0,
-					ppEnabledLayerNames = layer_names,
-					enabledExtensionCount = extensions and #extensions or 0,
-					ppEnabledExtensionNames = extension_names,
-				}
-			),
+			vulkan.vk.s.InstanceCreateInfo{
+				pNext = has_validation and debug_create_info or nil,
+				flags = instance_flags,
+				pApplicationInfo = appInfo,
+				enabledLayerCount = layers and #layers or 0,
+				ppEnabledLayerNames = layer_names,
+				enabledExtensionCount = extensions and #extensions or 0,
+				ppEnabledExtensionNames = extension_names,
+			},
 			nil,
 			ptr
 		),

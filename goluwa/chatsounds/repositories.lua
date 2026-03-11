@@ -162,7 +162,6 @@ function chatsounds.LoadRepositories()
 		"Metastruct/garrysmod-chatsounds/sound/chatsounds/autoadd",
 		"PAC3-Server/chatsounds",
 	}
-
 	local jobs = {}
 
 	for i, sub in ipairs(default_lists) do

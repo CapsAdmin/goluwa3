@@ -294,6 +294,7 @@ do
 
 				cb:Catch(function(...)
 					if done then return end
+
 					done = true
 					all:Reject(...)
 				end)

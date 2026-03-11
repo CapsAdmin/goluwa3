@@ -4,10 +4,10 @@ local MarkupBuffer = prototype.CreateTemplate("markup_buffer")
 MarkupBuffer.Base = require("sequence_buffer")
 
 function MarkupBuffer.New(str_or_chunks, markup_obj)
-	local self = MarkupBuffer:CreateObject({
+	local self = MarkupBuffer:CreateObject{
 		chunks = {},
 		markup = markup_obj,
-	})
+	}
 
 	if type(str_or_chunks) == "string" then
 		self:SetText(str_or_chunks)

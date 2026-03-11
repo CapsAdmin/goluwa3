@@ -82,9 +82,8 @@ end
 
 function META:GetHash(visited)--[[#: string]]
 	local data = self.Data
-	if #data == 1 then
-		return (data[1]--[[# as any]]):GetHash()
-	end
+
+	if #data == 1 then return (data[1]--[[# as any]]):GetHash() end
 
 	visited = visited or {}
 
@@ -112,7 +111,6 @@ function META:__tostring()
 
 	local s = {}
 	self.suppress = true
-	
 	local data = self.Data
 	local len = #data
 
@@ -166,7 +164,7 @@ local function find_index(self--[[#: TUnion]], obj--[[#: any]])
 
 	for i = 1, len do
 		local v = data[i]--[[# as any]]
-		
+
 		-- Check type first before expensive Equal call
 		if v.Type == obj_type and v:Equal(obj) then
 			if obj_type ~= "function" or v:GetFunctionBodyNode() == obj:GetFunctionBodyNode() then
@@ -581,18 +579,16 @@ function META:GetParentTable()
 end
 
 function META.New(data--[[#: nil | List<|TBaseType|>]])
-	local self = META.NewObject(
-		{
-			Type = "union",
-			Data = {},
-			LiteralDataCache = {},
-			suppress = false,
-			left_right_source = false,
-			parent_table = false,
-			Contract = false,
-			Upvalue = false,
-		}
-	)
+	local self = META.NewObject{
+		Type = "union",
+		Data = {},
+		LiteralDataCache = {},
+		suppress = false,
+		left_right_source = false,
+		parent_table = false,
+		Contract = false,
+		Upvalue = false,
+	}
 
 	if data then for _, v in ipairs(data) do
 		self:AddType(v)
@@ -619,6 +615,6 @@ return {
 		return META.New({typ, Nil()})
 	end,
 	Boolean = function()
-		return META.New({True(), False()})
+		return META.New{True(), False()}
 	end,
 }

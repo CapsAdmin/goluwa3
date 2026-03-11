@@ -3,30 +3,26 @@ local render2d = require("render2d.render2d")
 local Color = require("structs.color")
 local fonts = require("render2d.fonts")
 local fontPath = fonts.GetDefaultSystemFontPath()
-local font = fonts.New({Path = fontPath, Size = 64})
-local rainbow = render2d.CreateGradient(
-	{
-		mode = "linear",
-		angle = 90, -- Horizontal
-		stops = {
-			{pos = 0.0, color = Color(1, 0, 0, 1)},
-			{pos = 0.2, color = Color(1, 1, 0, 1)},
-			{pos = 0.4, color = Color(0, 1, 0, 1)},
-			{pos = 0.6, color = Color(0, 1, 1, 1)},
-			{pos = 0.8, color = Color(0, 0, 1, 1)},
-			{pos = 1.0, color = Color(1, 0, 1, 1)},
-		},
-	}
-)
-local radial = render2d.CreateGradient(
-	{
-		mode = "radial",
-		stops = {
-			{pos = 0.0, color = Color(1, 1, 1, 1)},
-			{pos = 1.0, color = Color(0, 0, 0, 0)},
-		},
-	}
-)
+local font = fonts.New{Path = fontPath, Size = 64}
+local rainbow = render2d.CreateGradient{
+	mode = "linear",
+	angle = 90, -- Horizontal
+	stops = {
+		{pos = 0.0, color = Color(1, 0, 0, 1)},
+		{pos = 0.2, color = Color(1, 1, 0, 1)},
+		{pos = 0.4, color = Color(0, 1, 0, 1)},
+		{pos = 0.6, color = Color(0, 1, 1, 1)},
+		{pos = 0.8, color = Color(0, 0, 1, 1)},
+		{pos = 1.0, color = Color(1, 0, 1, 1)},
+	},
+}
+local radial = render2d.CreateGradient{
+	mode = "radial",
+	stops = {
+		{pos = 0.0, color = Color(1, 1, 1, 1)},
+		{pos = 1.0, color = Color(0, 0, 0, 0)},
+	},
+}
 
 event.AddListener("Draw2D", "render2d_gradient_demo", function()
 	render2d.SetTexture(nil)

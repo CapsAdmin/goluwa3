@@ -15,12 +15,10 @@ test.Test("repl input", function()
 	end
 
 	local function send_key(key, modifiers)
-		repl.HandleEvent(
-			{
-				key = key,
-				modifiers = modifiers or {ctrl = false, shift = false, alt = false},
-			}
-		)
+		repl.HandleEvent{
+			key = key,
+			modifiers = modifiers or {ctrl = false, shift = false, alt = false},
+		}
 	end
 
 	-- 1. Basic typing
@@ -194,12 +192,10 @@ test.Test("repl multiline navigation", function()
 	end
 
 	local function send_key(key, modifiers)
-		repl.HandleEvent(
-			{
-				key = key,
-				modifiers = modifiers or {ctrl = false, shift = false, alt = false},
-			}
-		)
+		repl.HandleEvent{
+			key = key,
+			modifiers = modifiers or {ctrl = false, shift = false, alt = false},
+		}
 	end
 
 	-- 1. Up/down navigation between lines
@@ -262,12 +258,10 @@ test.Test("repl advanced editing", function()
 	end
 
 	local function send_key(key, modifiers)
-		repl.HandleEvent(
-			{
-				key = key,
-				modifiers = modifiers or {ctrl = false, shift = false, alt = false},
-			}
-		)
+		repl.HandleEvent{
+			key = key,
+			modifiers = modifiers or {ctrl = false, shift = false, alt = false},
+		}
 	end
 
 	-- 1. Ctrl+A to select all
@@ -318,28 +312,28 @@ test.Test("repl history", function()
 	-- 1. No duplicate history entries
 	reset()
 	repl.input_buffer = "test"
-	repl.HandleEvent({key = "enter", modifiers = {ctrl = false, shift = false, alt = false}})
+	repl.HandleEvent{key = "enter", modifiers = {ctrl = false, shift = false, alt = false}}
 	repl.input_buffer = "test"
-	repl.HandleEvent({key = "enter", modifiers = {ctrl = false, shift = false, alt = false}})
+	repl.HandleEvent{key = "enter", modifiers = {ctrl = false, shift = false, alt = false}}
 	attest.equal(#commands.history, 1)
 	attest.equal(commands.history[1], "test")
 	-- 2. No empty history entries
 	reset()
 	repl.input_buffer = ""
-	repl.HandleEvent({key = "enter", modifiers = {ctrl = false, shift = false, alt = false}})
+	repl.HandleEvent{key = "enter", modifiers = {ctrl = false, shift = false, alt = false}}
 	attest.equal(#commands.history, 0)
 	-- 3. Different entries are added
 	reset()
 	repl.input_buffer = "first"
-	repl.HandleEvent({key = "enter", modifiers = {ctrl = false, shift = false, alt = false}})
+	repl.HandleEvent{key = "enter", modifiers = {ctrl = false, shift = false, alt = false}}
 	repl.input_buffer = "second"
-	repl.HandleEvent({key = "enter", modifiers = {ctrl = false, shift = false, alt = false}})
+	repl.HandleEvent{key = "enter", modifiers = {ctrl = false, shift = false, alt = false}}
 	attest.equal(#commands.history, 2)
 	attest.equal(commands.history[1], "first")
 	attest.equal(commands.history[2], "second")
 	-- 4. Move to top
 	repl.input_buffer = "first"
-	repl.HandleEvent({key = "enter", modifiers = {ctrl = false, shift = false, alt = false}})
+	repl.HandleEvent{key = "enter", modifiers = {ctrl = false, shift = false, alt = false}}
 	attest.equal(#commands.history, 2)
 	attest.equal(commands.history[1], "second")
 	attest.equal(commands.history[2], "first")

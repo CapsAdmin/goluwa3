@@ -161,11 +161,10 @@ do
 		end
 
 		is_running = true
-
 		return function()
 			refs[name] = nil
 			obj_refs[name] = nil
-			
+
 			if not next(refs) and not next(obj_refs) then is_running = false end
 		end
 	end
@@ -177,11 +176,11 @@ end
 
 function system.OpenURL(url)
 	if jit.os == "Windows" then
-		os.execute(string.format('start "" "%s"', url))
+		os.execute(string.format("start \"\" \"%s\"", url))
 	elseif jit.os == "OSX" then
-		os.execute(string.format('open "%s"', url))
+		os.execute(string.format("open \"%s\"", url))
 	else
-		os.execute(string.format('xdg-open "%s"', url))
+		os.execute(string.format("xdg-open \"%s\"", url))
 	end
 end
 

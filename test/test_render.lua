@@ -13,7 +13,7 @@ local height = 512
 
 function test_render.Draw2D(cb)
 	if not test_render.init then
-		render.Initialize({headless = true, width = width, height = height})
+		render.Initialize{headless = true, width = width, height = height}
 	end
 
 	if not test_render.render2d_init then
@@ -37,7 +37,7 @@ end
 
 function test_render.Draw3D(cb)
 	if not test_render.init then
-		render.Initialize({headless = true, width = width, height = height})
+		render.Initialize{headless = true, width = width, height = height}
 	end
 
 	if not test_render.render3d_init then

@@ -94,36 +94,30 @@ T.Test("layout - reactive invalidation", function()
 end)
 
 T.Test("layout - collapse repro", function()
-	local parent = Panel.New(
-		{
-			Name = "Parent",
-			transform = true,
-			layout = {
-				Direction = "y",
-				FitHeight = true,
-			},
-		}
-	)
-	local child1 = Panel.New(
-		{
-			Parent = parent,
-			Name = "Child1",
-			transform = true,
-			layout = {
-				FitHeight = true, -- This will collapse to 0 because no children
-			},
-		}
-	)
-	local child2 = Panel.New(
-		{
-			Parent = parent,
-			Name = "Child2",
-			transform = true,
-			layout = {
-				FitHeight = true, -- Also collapses to 0
-			},
-		}
-	)
+	local parent = Panel.New{
+		Name = "Parent",
+		transform = true,
+		layout = {
+			Direction = "y",
+			FitHeight = true,
+		},
+	}
+	local child1 = Panel.New{
+		Parent = parent,
+		Name = "Child1",
+		transform = true,
+		layout = {
+			FitHeight = true, -- This will collapse to 0 because no children
+		},
+	}
+	local child2 = Panel.New{
+		Parent = parent,
+		Name = "Child2",
+		transform = true,
+		layout = {
+			FitHeight = true, -- Also collapses to 0
+		},
+	}
 	parent.layout:UpdateLayout()
 	-- If they collapse to 0, they both sit at 0
 	T(child1.transform:GetY())["=="](0)
@@ -134,27 +128,23 @@ T.Test("layout - collapse repro", function()
 end)
 
 T.Test("layout - text content intrinsic size", function()
-	local parent = Panel.New(
-		{
-			Name = "Parent",
-			transform = true,
-			layout = {
-				FitWidth = true,
-				FitHeight = true,
-			},
-		}
-	)
-	local text = Panel.New(
-		{
-			Parent = parent,
-			Text = "Hello World",
-			text = true,
-			layout = {
-				FitWidth = true,
-				FitHeight = true,
-			},
-		}
-	)
+	local parent = Panel.New{
+		Name = "Parent",
+		transform = true,
+		layout = {
+			FitWidth = true,
+			FitHeight = true,
+		},
+	}
+	local text = Panel.New{
+		Parent = parent,
+		Text = "Hello World",
+		text = true,
+		layout = {
+			FitWidth = true,
+			FitHeight = true,
+		},
+	}
 	-- Mock font size for consistent testing in headless
 	local font = text.text:GetFont()
 	local w, h = 100, 20
@@ -170,43 +160,37 @@ T.Test("layout - text content intrinsic size", function()
 end)
 
 T.Test("layout - nested grow and fit", function()
-	local outer = Panel.New(
-		{
-			Name = "Outer",
-			transform = true,
-			layout = {
-				Direction = "y",
-				FitWidth = true,
-				FitHeight = true,
-				Padding = Rect(10, 10, 10, 10),
-			},
-		}
-	)
-	local row = Panel.New(
-		{
-			Parent = outer,
-			Name = "Row",
-			transform = true,
-			layout = {
-				Direction = "x",
-				GrowWidth = 1, -- Conflicts with FitWidth on parent if not handled
-				FitHeight = true,
-				MinSize = Vec2(0, 50),
-				AlignmentY = "center",
-			},
-		}
-	)
-	local item = Panel.New(
-		{
-			Parent = row,
-			Name = "Item",
-			transform = true,
-			layout = {
-				FitWidth = true,
-				FitHeight = true,
-			},
-		}
-	)
+	local outer = Panel.New{
+		Name = "Outer",
+		transform = true,
+		layout = {
+			Direction = "y",
+			FitWidth = true,
+			FitHeight = true,
+			Padding = Rect(10, 10, 10, 10),
+		},
+	}
+	local row = Panel.New{
+		Parent = outer,
+		Name = "Row",
+		transform = true,
+		layout = {
+			Direction = "x",
+			GrowWidth = 1, -- Conflicts with FitWidth on parent if not handled
+			FitHeight = true,
+			MinSize = Vec2(0, 50),
+			AlignmentY = "center",
+		},
+	}
+	local item = Panel.New{
+		Parent = row,
+		Name = "Item",
+		transform = true,
+		layout = {
+			FitWidth = true,
+			FitHeight = true,
+		},
+	}
 	-- Mock intrinsic size for item
 	item:AddComponent("text")
 	item.text.GetFont = function()
@@ -230,28 +214,24 @@ T.Test("layout - nested grow and fit", function()
 end)
 
 T.Test("layout - default cross axis stretch", function()
-	local parent = Panel.New(
-		{
-			Name = "Parent",
-			transform = true,
-			Size = Vec2(200, 200),
-			layout = {
-				Direction = "y", -- Vertical
-				Padding = Rect(0, 0, 0, 0),
-			},
-		}
-	)
-	local child = Panel.New(
-		{
-			Parent = parent,
-			Name = "Child",
-			transform = true,
-			layout = {
-				Direction = "x",
-				MinSize = Vec2(50, 50),
-			},
-		}
-	)
+	local parent = Panel.New{
+		Name = "Parent",
+		transform = true,
+		Size = Vec2(200, 200),
+		layout = {
+			Direction = "y", -- Vertical
+			Padding = Rect(0, 0, 0, 0),
+		},
+	}
+	local child = Panel.New{
+		Parent = parent,
+		Name = "Child",
+		transform = true,
+		layout = {
+			Direction = "x",
+			MinSize = Vec2(50, 50),
+		},
+	}
 	parent.layout:UpdateLayout()
 	-- Direction is Y, so cross axis is X. 
 	-- AlignmentX defaults to stretch.
@@ -261,30 +241,26 @@ T.Test("layout - default cross axis stretch", function()
 end)
 
 T.Test("layout - text wrapping", function()
-	local container = Panel.New(
-		{
-			Name = "WrapContainer",
-			transform = true,
-			layout = {
-				Direction = "y",
-				FitWidth = true,
-				FitHeight = true,
-				MinSize = Vec2(100, 0),
-				MaxSize = Vec2(100, 0),
-			},
-		}
-	)
-	local text_panel = Panel.New(
-		{
-			Parent = container,
-			Name = "TextPanel",
-			transform = true,
-			layout = {
-				GrowWidth = 1,
-				FitHeight = true,
-			},
-		}
-	)
+	local container = Panel.New{
+		Name = "WrapContainer",
+		transform = true,
+		layout = {
+			Direction = "y",
+			FitWidth = true,
+			FitHeight = true,
+			MinSize = Vec2(100, 0),
+			MaxSize = Vec2(100, 0),
+		},
+	}
+	local text_panel = Panel.New{
+		Parent = container,
+		Name = "TextPanel",
+		transform = true,
+		layout = {
+			GrowWidth = 1,
+			FitHeight = true,
+		},
+	}
 	local text_comp = text_panel:AddComponent("text")
 	-- Mock font measurement for wrapping
 	-- We want to simulate that at 100px width, "A B C" wraps to 3 lines

@@ -17,20 +17,18 @@ function DescriptorPool.New(device, poolSizes, maxSets)
 		end
 	end
 
-	local poolInfo = vulkan.vk.s.DescriptorPoolCreateInfo(
-		{
-			flags = {"free_descriptor_set", "update_after_bind"},
-			poolSizeCount = #poolSizes,
-			pPoolSizes = poolSizeArray,
-			maxSets = maxSets or 1,
-		}
-	)
+	local poolInfo = vulkan.vk.s.DescriptorPoolCreateInfo{
+		flags = {"free_descriptor_set", "update_after_bind"},
+		poolSizeCount = #poolSizes,
+		pPoolSizes = poolSizeArray,
+		maxSets = maxSets or 1,
+	}
 	local ptr = vulkan.T.Box(vulkan.vk.VkDescriptorPool)()
 	vulkan.assert(
 		vulkan.lib.vkCreateDescriptorPool(device.ptr[0], poolInfo, nil, ptr),
 		"failed to create descriptor pool"
 	)
-	return DescriptorPool:CreateObject({device = device, ptr = ptr, poolSizeArray = poolSizeArray})
+	return DescriptorPool:CreateObject{device = device, ptr = ptr, poolSizeArray = poolSizeArray}
 end
 
 function DescriptorPool:OnRemove()
@@ -48,13 +46,11 @@ function DescriptorPool:Reset()
 end
 
 function DescriptorPool:AllocateDescriptorSet(layout)
-	local allocInfo = vulkan.vk.s.DescriptorSetAllocateInfo(
-		{
-			descriptorPool = self.ptr[0],
-			descriptorSetCount = 1,
-			pSetLayouts = layout.ptr,
-		}
-	)
+	local allocInfo = vulkan.vk.s.DescriptorSetAllocateInfo{
+		descriptorPool = self.ptr[0],
+		descriptorSetCount = 1,
+		pSetLayouts = layout.ptr,
+	}
 	local ptr = vulkan.T.Box(vulkan.vk.VkDescriptorSet)()
 	vulkan.assert(
 		vulkan.lib.vkAllocateDescriptorSets(self.device.ptr[0], allocInfo, ptr),

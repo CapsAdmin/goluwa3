@@ -992,9 +992,9 @@ function steam.SpawnMapEntities(path, parent)
 				--parent.world_params:SetSunIntensity(1)
 				elseif info.classname:lower():find("light") and info._light then
 					handled[info.classname] = (handled[info.classname] or 0) + 1
-					parent.light_group = parent.light_group or Entity.New({Name = "lights", Parent = parent})
+					parent.light_group = parent.light_group or Entity.New{Name = "lights", Parent = parent}
 					parent.light_group:SetName("lights")
-					local ent = Entity.New({Name = "light", Parent = parent.light_group})
+					local ent = Entity.New{Name = "light", Parent = parent.light_group}
 					local tr = ent:AddComponent("transform")
 					local position = Vec3(-info.origin.y, info.origin.z, -info.origin.x) * steam.source2meters
 					tr:SetPosition(position)
@@ -1044,9 +1044,9 @@ function steam.SpawnMapEntities(path, parent)
 				if vfs.IsFile(info.model) then
 					handled[info.classname] = (handled[info.classname] or 0) + 1
 					parent[info.classname .. "_group"] = parent[info.classname .. "_group"] or
-						Entity.New({Name = info.classname, Parent = parent})
+						Entity.New{Name = info.classname, Parent = parent}
 					parent[info.classname .. "_group"]:SetName(info.classname)
-					local ent = Entity.New({Name = "prop", Parent = parent[info.classname .. "_group"]})
+					local ent = Entity.New{Name = "prop", Parent = parent[info.classname .. "_group"]}
 					local rotation = Quat()
 					rotation:SetAngles(Deg3(info.angles.x, info.angles.y, info.angles.r))
 					local position = Vec3(-info.origin.y, info.origin.z, -info.origin.x) * steam.source2meters

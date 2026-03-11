@@ -143,14 +143,12 @@ function Mesh:UploadIndices(indices, index_type)
 		self.index_buffer.byte_size = byte_size
 
 		if not self.index_buffer.buffer or self.index_buffer.buffer_size ~= byte_size then
-			self.index_buffer.buffer = render.CreateBuffer(
-				{
-					buffer_usage = "index_buffer",
-					data_type = self.index_buffer.index_type,
-					data = index_data,
-					byte_size = byte_size,
-				}
-			)
+			self.index_buffer.buffer = render.CreateBuffer{
+				buffer_usage = "index_buffer",
+				data_type = self.index_buffer.index_type,
+				data = index_data,
+				byte_size = byte_size,
+			}
 			self.index_buffer.buffer_size = byte_size
 		else
 			self.index_buffer.buffer:CopyData(index_data, byte_size)

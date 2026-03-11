@@ -17,14 +17,14 @@ local function read_all_stdout(proc)
 end
 
 T.Test("echo command with piped output", function()
-	local proc = assert(process.spawn({command = "echo", args = {"hello", "world"}, stdout = "pipe"}))
+	local proc = assert(process.spawn{command = "echo", args = {"hello", "world"}, stdout = "pipe"})
 	T(proc.pid)["~="](nil)
 	T(read_all_stdout(proc))["contains"]("hello world")
 	T(assert(proc:wait()))["=="](0)
 end)
 
 T.Test("cat with stdin/stdout pipe", function()
-	local proc = assert(process.spawn({command = "cat", stdin = "pipe", stdout = "pipe"}))
+	local proc = assert(process.spawn{command = "cat", stdin = "pipe", stdout = "pipe"})
 	local test_msg = "Hello from stdin!"
 	local written = proc:write(test_msg .. "\n")
 	T(written)[">"](0)
@@ -43,7 +43,7 @@ T.Test("cat with stdin/stdout pipe", function()
 end)
 
 T.Test("try_wait non-blocking check", function()
-	local proc = assert(process.spawn({command = "sh", args = {"-c", "exit 0"}}))
+	local proc = assert(process.spawn{command = "sh", args = {"-c", "exit 0"}})
 	local success = T.RunUntil2(function()
 		done, code = proc:try_wait()
 		return done == true
@@ -55,13 +55,11 @@ end)
 
 T.Test("directory listing with ls", function()
 	local proc = assert(
-		process.spawn(
-			{
-				command = "ls",
-				args = {"-1"}, -- one file per line
-				stdout = "pipe",
-			}
-		)
+		process.spawn{
+			command = "ls",
+			args = {"-1"}, -- one file per line
+			stdout = "pipe",
+		}
 	)
 	local ls_output = read_all_stdout(proc)
 	local lines = {}
@@ -76,14 +74,12 @@ end)
 
 T.Test("stderr capture with invalid path", function()
 	local proc = assert(
-		process.spawn(
-			{
-				command = "ls",
-				args = {"/this/path/does/not/exist"},
-				stdout = "pipe",
-				stderr = "pipe",
-			}
-		)
+		process.spawn{
+			command = "ls",
+			args = {"/this/path/does/not/exist"},
+			stdout = "pipe",
+			stderr = "pipe",
+		}
 	)
 	local stderr = ""
 	local success = T.RunUntil2(function()

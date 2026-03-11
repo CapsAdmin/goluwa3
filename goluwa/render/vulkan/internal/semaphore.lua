@@ -6,12 +6,12 @@ local Semaphore = prototype.CreateTemplate("vulkan_semaphore")
 function Semaphore.New(device)
 	local ptr = vulkan.T.Box(vulkan.vk.VkSemaphore)()
 	vulkan.assert(
-		vulkan.lib.vkCreateSemaphore(device.ptr[0], vulkan.vk.s.SemaphoreCreateInfo({
+		vulkan.lib.vkCreateSemaphore(device.ptr[0], vulkan.vk.s.SemaphoreCreateInfo{
 			flags = 0,
-		}), nil, ptr),
+		}, nil, ptr),
 		"failed to create semaphore"
 	)
-	return Semaphore:CreateObject({ptr = ptr, device = device})
+	return Semaphore:CreateObject{ptr = ptr, device = device}
 end
 
 function Semaphore:OnRemove()

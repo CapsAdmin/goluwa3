@@ -30,18 +30,16 @@ T.Pending("mdl rendering", function(draw)
 	cam:SetPosition(Vec3(0, 0.68, 3))
 	cam:SetRotation(Quat(0, 0, 0, 1))
 	cam:SetFOV(math.rad(30))
-	local sun = Entity.New(
-		{
-			transform = {
-				Rotation = Quat(0.5, 0, 0, -1),
-			},
-			light = {
-				LightType = "sun",
-				Color = Color(1, 1, 1),
-				Intensity = 10,
-			},
-		}
-	)
+	local sun = Entity.New{
+		transform = {
+			Rotation = Quat(0.5, 0, 0, -1),
+		},
+		light = {
+			LightType = "sun",
+			Color = Color(1, 1, 1),
+			Intensity = 10,
+		},
+	}
 	local ent = Entity.New({Name = "mdl"})
 	ent:AddComponent("transform")
 	ent:AddComponent("model")

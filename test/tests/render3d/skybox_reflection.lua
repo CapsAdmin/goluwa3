@@ -23,14 +23,12 @@ T.Pending("Graphics Polygon3D environment map reflection colors", function(draw)
 		local M = config.metallic or 1
 		local R = config.roughness or 1
 		local color = config.color or Color(1, 1, 1, 1)
-		local env_tex = Texture.New(
-			{
-				width = 1024,
-				height = 512,
-				format = "r8g8b8a8_unorm",
-				mip_map_levels = "auto",
-			}
-		)
+		local env_tex = Texture.New{
+			width = 1024,
+			height = 512,
+			format = "r8g8b8a8_unorm",
+			mip_map_levels = "auto",
+		}
 		env_tex:Shade([[
 			float theta = uv.y * 3.14159265359;
 			float phi = uv.x * 6.28318530718;
@@ -54,37 +52,30 @@ T.Pending("Graphics Polygon3D environment map reflection colors", function(draw)
 		cam:SetRotation(Quat(0, 0, 0, 1))
 		cam:SetFOV(math.rad(45))
 		cam:SetOrthoMode(false)
-		Entity.New(
-			{
-				transform = {
-					Rotation = Quat(0, 0, 0, 1):Normalize(),
-				},
-				light = {
-					LightType = "sun",
-					Color = Color(1, 1, 1),
-					Intensity = 0,
-				},
-			}
-		)
+		Entity.New{
+			transform = {
+				Rotation = Quat(0, 0, 0, 1):Normalize(),
+			},
+			light = {
+				LightType = "sun",
+				Color = Color(1, 1, 1),
+				Intensity = 0,
+			},
+		}
 		local mat = Material.New()
 		mat:SetColorMultiplier(color)
 		mat:SetMetallicRoughnessTexture(
-			Texture.New(
-				{
-					width = 1,
-					height = 1,
-					format = "r8g8b8a8_unorm",
-					buffer = ffi.new(
-						"uint8_t[4]",
-						{
-							255,
-							255 * R,
-							255 * M,
-							255,
-						}
-					),
-				}
-			)
+			Texture.New{
+				width = 1,
+				height = 1,
+				format = "r8g8b8a8_unorm",
+				buffer = ffi.new("uint8_t[4]", {
+					255,
+					255 * R,
+					255 * M,
+					255,
+				}),
+			}
 		)
 		local r = 10
 		render3d.GetCamera():SetFOV(0.001 * r)
@@ -110,16 +101,16 @@ T.Pending("Graphics Polygon3D environment map reflection colors", function(draw)
 		sphere(90, 0, {metallic = 0.5, roughness = 0.1, color = Color(1, 1, 1, 1)})
 		local tolerance = 0.6
 		-- Center: Blue (Left -X)
-		T.AssertScreenPixel({pos = {256, 256}, color = {0, 0, 1, 1}, tolerance = tolerance})
+		T.AssertScreenPixel{pos = {256, 256}, color = {0, 0, 1, 1}, tolerance = tolerance}
 		-- Top: Green (Up +Y)
-		T.AssertScreenPixel({pos = {256, 128}, color = {0, 1, 0, 1}, tolerance = tolerance})
+		T.AssertScreenPixel{pos = {256, 128}, color = {0, 1, 0, 1}, tolerance = tolerance}
 		-- Bottom: Pink (Down -Y)
-		T.AssertScreenPixel({pos = {256, 384}, color = {1, 0, 1, 1}, tolerance = tolerance})
+		T.AssertScreenPixel{pos = {256, 384}, color = {1, 0, 1, 1}, tolerance = tolerance}
 		-- Left: Red (Back +Z)
-		T.AssertScreenPixel({pos = {128, 256}, color = {1, 0, 0, 1}, tolerance = tolerance})
+		T.AssertScreenPixel{pos = {128, 256}, color = {1, 0, 0, 1}, tolerance = tolerance}
 		-- Right: Teal (Front -Z)
-		T.AssertScreenPixel({pos = {384, 256}, color = {0, 1, 1, 1}, tolerance = tolerance})
+		T.AssertScreenPixel{pos = {384, 256}, color = {0, 1, 1, 1}, tolerance = tolerance}
 		-- Rim: Yellow (Right +X)
-		T.AssertScreenPixel({pos = {256, 10}, color = {1, 1, 0, 1}, tolerance = tolerance})
+		T.AssertScreenPixel{pos = {256, 10}, color = {1, 1, 0, 1}, tolerance = tolerance}
 	end)
 end)

@@ -9,59 +9,47 @@ local theme = require("ui.theme")
 return {
 	Name = "progress bars",
 	Create = function()
-		local canvas = Column(
-			{
-				layout = {
-					Direction = "y",
-					FitHeight = true,
-					GrowWidth = 1,
-					ChildGap = 20,
-					AlignmentX = "start",
-					Padding = Rect(
-						theme.GetPadding("M"),
-						theme.GetPadding("M"),
-						theme.GetPadding("M"),
-						theme.GetPadding("M")
-					),
-				},
-			}
-		)
+		local canvas = Column{
+			layout = {
+				Direction = "y",
+				FitHeight = true,
+				GrowWidth = 1,
+				ChildGap = 20,
+				AlignmentX = "start",
+				Padding = Rect(
+					theme.GetPadding("M"),
+					theme.GetPadding("M"),
+					theme.GetPadding("M"),
+					theme.GetPadding("M")
+				),
+			},
+		}
 		local animated_pb = ProgressBar({Value = 0})
-		canvas(
-			{
-				Text(
-					{
-						Text = "Static Progress Bars",
-						FontName = "heading",
-						Size = Vec2() + theme.GetSize("L"),
-					}
-				),
-				Column({layout = {ChildGap = 5}})({
-					Text({Text = "Default (25%)"}),
-					ProgressBar({Value = 0.25}),
-				}),
-				Column({layout = {ChildGap = 5}})(
-					{
-						Text({Text = "Orange (50%)"}),
-						ProgressBar({Value = 0.5, Color = Color.FromHex("#ff8800")}),
-					}
-				),
-				Column({layout = {ChildGap = 5}})(
-					{
-						Text({Text = "Teal (75%)"}),
-						ProgressBar({Value = 0.75, Color = Color.FromHex("#00ffd4")}),
-					}
-				),
-				Text(
-					{
-						Text = "Animated Progress Bar",
-						FontName = "heading",
-						FontSize = "L",
-					}
-				),
-				animated_pb,
-			}
-		)
+		canvas{
+			Text{
+				Text = "Static Progress Bars",
+				FontName = "heading",
+				Size = Vec2() + theme.GetSize("L"),
+			},
+			Column{layout = {ChildGap = 5}}{
+				Text({Text = "Default (25%)"}),
+				ProgressBar({Value = 0.25}),
+			},
+			Column{layout = {ChildGap = 5}}{
+				Text({Text = "Orange (50%)"}),
+				ProgressBar{Value = 0.5, Color = Color.FromHex("#ff8800")},
+			},
+			Column{layout = {ChildGap = 5}}{
+				Text({Text = "Teal (75%)"}),
+				ProgressBar{Value = 0.75, Color = Color.FromHex("#00ffd4")},
+			},
+			Text{
+				Text = "Animated Progress Bar",
+				FontName = "heading",
+				FontSize = "L",
+			},
+			animated_pb,
+		}
 		local t = 0
 
 		timer.Repeat(

@@ -11,37 +11,35 @@ return function(props)
 	local body_panel = NULL
 	local clip_panel = NULL
 	local open_fraction = collapsed and 0 or 1
-	local container = Panel.New(
+	local container = Panel.New{
+		props,
 		{
-			props,
-			{
-				Name = "Collapsible",
-				OnSetProperty = theme.OnSetProperty,
-				transform = true,
-				layout = {
-					Direction = "y",
-					FitHeight = true,
-					GrowWidth = 1,
-				},
-				PreChildAdd = function(self, child)
-					if child.IsInternal then return end
-
-					if not body_panel:IsValid() then return end
-
-					body_panel:AddChild(child)
-					return false
-				end,
-				PreRemoveChildren = function(self)
-					if not body_panel:IsValid() then return end
-
-					body_panel:RemoveChildren()
-					return false
-				end,
-				gui_element = true,
-				animation = true,
+			Name = "Collapsible",
+			OnSetProperty = theme.OnSetProperty,
+			transform = true,
+			layout = {
+				Direction = "y",
+				FitHeight = true,
+				GrowWidth = 1,
 			},
-		}
-	)
+			PreChildAdd = function(self, child)
+				if child.IsInternal then return end
+
+				if not body_panel:IsValid() then return end
+
+				body_panel:AddChild(child)
+				return false
+			end,
+			PreRemoveChildren = function(self)
+				if not body_panel:IsValid() then return end
+
+				body_panel:RemoveChildren()
+				return false
+			end,
+			gui_element = true,
+			animation = true,
+		},
+	}
 
 	local function update_height()
 		if not body_panel:IsValid() or not clip_panel:IsValid() or not container:IsValid() then
@@ -57,126 +55,112 @@ return function(props)
 		container.layout:InvalidateLayout()
 	end
 
-	local header = Clickable(
-		{
-			IsInternal = true,
-			Name = "Header",
-			Mode = "outline",
-			gui_element = {
-				Color = "primary",
-			},
-			layout = {
-				Direction = "x",
-				AlignmentY = "center",
-				FitHeight = true,
-				Padding = "XS",
-				ChildGap = "XXS",
-			},
-			OnClick = function(self)
-				collapsed = not collapsed
-				container.animation:Animate(
-					{
-						id = "collapsible_slide",
-						get = function()
-							return open_fraction
-						end,
-						set = function(v)
-							open_fraction = v
-							update_height()
-						end,
-						to = collapsed and 0 or 1,
-						time = 0.3,
-						interpolation = "outExpo",
-					}
-				)
-			end,
-		}
-	)(
-		{
-			Panel.New(
-				{
-					IsInternal = true,
-					Name = "ArrowContainer",
-					OnSetProperty = theme.OnSetProperty,
-					transform = {
-						Size = Vec2(16, 16),
-					},
-					gui_element = {
-						OnDraw = function(self)
-							local size = 10
-							local center = self.Owner.transform:GetSize() / 2
-							render2d.PushMatrix()
-							render2d.Translatef(center.x, center.y)
-							render2d.Rotate(math.rad(open_fraction * 90))
-							render2d.SetColor(theme.GetColor("text_foreground"):Unpack())
-							render2d.SetTexture(nil)
-							theme.DrawArrow(0, 0, size)
-							render2d.PopMatrix()
-						end,
-					},
-					mouse_input = {
-						Cursor = "pointer",
-						IgnoreMouseInput = true,
-					},
-				}
-			),
-			Text(
-				{
-					Text = props.Title or "Collapsible",
-					FontName = "heading",
-					layout = {
-						GrowWidth = 1,
-						FitHeight = true,
-					},
-					mouse_input = {
-						IgnoreMouseInput = true,
-					},
-				}
-			),
-		}
-	)
-	body_panel = Panel.New(
-		{
-			IsInternal = true,
-			Name = "Body",
-			OnSetProperty = theme.OnSetProperty,
-			layout = {
-				Direction = "y",
-				FitHeight = true,
-				GrowWidth = 1,
-				AlignmentX = "stretch",
-				Padding = "XS",
-				Floating = true,
-			},
-			transform = true,
-			Events = {
-				OnLayoutUpdated = function()
+	local header = Clickable{
+		IsInternal = true,
+		Name = "Header",
+		Mode = "outline",
+		gui_element = {
+			Color = "primary",
+		},
+		layout = {
+			Direction = "x",
+			AlignmentY = "center",
+			FitHeight = true,
+			Padding = "XS",
+			ChildGap = "XXS",
+		},
+		OnClick = function(self)
+			collapsed = not collapsed
+			container.animation:Animate{
+				id = "collapsible_slide",
+				get = function()
+					return open_fraction
+				end,
+				set = function(v)
+					open_fraction = v
 					update_height()
 				end,
-			},
-		}
-	)
-	clip_panel = Panel.New(
-		{
+				to = collapsed and 0 or 1,
+				time = 0.3,
+				interpolation = "outExpo",
+			}
+		end,
+	}{
+		Panel.New{
 			IsInternal = true,
-			Name = "ClipContainer",
+			Name = "ArrowContainer",
 			OnSetProperty = theme.OnSetProperty,
 			transform = {
-				Size = Vec2(0, 0),
-			},
-			layout = {
-				FitHeight = false,
-				GrowWidth = 1,
+				Size = Vec2(16, 16),
 			},
 			gui_element = {
-				Clipping = true,
-				Visible = not collapsed,
+				OnDraw = function(self)
+					local size = 10
+					local center = self.Owner.transform:GetSize() / 2
+					render2d.PushMatrix()
+					render2d.Translatef(center.x, center.y)
+					render2d.Rotate(math.rad(open_fraction * 90))
+					render2d.SetColor(theme.GetColor("text_foreground"):Unpack())
+					render2d.SetTexture(nil)
+					theme.DrawArrow(0, 0, size)
+					render2d.PopMatrix()
+				end,
 			},
-		}
-	)(body_panel)
+			mouse_input = {
+				Cursor = "pointer",
+				IgnoreMouseInput = true,
+			},
+		},
+		Text{
+			Text = props.Title or "Collapsible",
+			FontName = "heading",
+			layout = {
+				GrowWidth = 1,
+				FitHeight = true,
+			},
+			mouse_input = {
+				IgnoreMouseInput = true,
+			},
+		},
+	}
+	body_panel = Panel.New{
+		IsInternal = true,
+		Name = "Body",
+		OnSetProperty = theme.OnSetProperty,
+		layout = {
+			Direction = "y",
+			FitHeight = true,
+			GrowWidth = 1,
+			AlignmentX = "stretch",
+			Padding = "XS",
+			Floating = true,
+		},
+		transform = true,
+		Events = {
+			OnLayoutUpdated = function()
+				update_height()
+			end,
+		},
+	}
+	clip_panel = Panel.New{
+		IsInternal = true,
+		Name = "ClipContainer",
+		OnSetProperty = theme.OnSetProperty,
+		transform = {
+			Size = Vec2(0, 0),
+		},
+		layout = {
+			FitHeight = false,
+			GrowWidth = 1,
+		},
+		gui_element = {
+			Clipping = true,
+			Visible = not collapsed,
+		},
+	}(body_panel)
 	update_height()
-	return container({
+	return container{
 		header,
 		clip_panel,
-	})
+	}
 end

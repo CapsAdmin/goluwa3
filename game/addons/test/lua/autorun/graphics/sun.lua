@@ -5,18 +5,16 @@ local Entity = require("ecs.entity")
 local Color = require("structs.color")
 local input = require("input")
 local atmosphere = require("render3d.atmosphere")
-local sun = Entity.New(
-	{
-		transform = {
-			Rotation = Quat(-0.2, 0.8, 0.4, 0.4),
-		},
-		light = {
-			LightType = "sun",
-			Color = Color(1.0, 0.98, 1),
-			Intensity = 0.035,
-		},
-	}
-)
+local sun = Entity.New{
+	transform = {
+		Rotation = Quat(-0.2, 0.8, 0.4, 0.4),
+	},
+	light = {
+		LightType = "sun",
+		Color = Color(1.0, 0.98, 1),
+		Intensity = 0.035,
+	},
+}
 
 event.AddListener("Update", "sun_orientation", function(dt)
 	if not sun or not sun:IsValid() or not sun.transform then return end

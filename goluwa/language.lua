@@ -45,16 +45,14 @@ resource.Download("data/countries.lua"):Then(function(path)
 	end
 end)
 
-local cvar = pvars.Setup2(
-	{
-		key = "system_language",
-		default = "english",
-		table = language.available,
-		callback = function(val)
-			language.Set(val)
-		end,
-	}
-)
+local cvar = pvars.Setup2{
+	key = "system_language",
+	default = "english",
+	table = language.available,
+	callback = function(val)
+		language.Set(val)
+	end,
+}
 
 function language.LanguageString(val)
 	local key = val:trim():lower()
@@ -84,36 +82,34 @@ function language.ShowLanguageEditor()
 	for english, other in pairs(strings) do
 		local line = list:AddEntry(english, other)
 		line.OnRightClick = function()
-			gui.CreateMenu(
+			gui.CreateMenu{
 				{
-					{
-						L("edit"),
-						function()
-							local window = gui.StringInput(
-								L("translate"),
-								L("translate"),
-								english,
-								function(new)
-									language.current_translation[english] = new
-									line:UpdateLine(2, new)
-									language.SaveCurrentTranslation()
-								end
-							)
-						end,
-						gui.skin.icons.edit,
-					},
-					{
-						L("revert"),
-						function()
-							local new = codec.ReadFile("simple", "translations/" .. lang)[english]
-							language.current_translation[english] = new
-							line:SetValue(2, new or english)
-							language.SaveCurrentTranslation()
-						end,
-						gui.skin.icons.revert,
-					},
-				}
-			)
+					L("edit"),
+					function()
+						local window = gui.StringInput(
+							L("translate"),
+							L("translate"),
+							english,
+							function(new)
+								language.current_translation[english] = new
+								line:UpdateLine(2, new)
+								language.SaveCurrentTranslation()
+							end
+						)
+					end,
+					gui.skin.icons.edit,
+				},
+				{
+					L("revert"),
+					function()
+						local new = codec.ReadFile("simple", "translations/" .. lang)[english]
+						language.current_translation[english] = new
+						line:SetValue(2, new or english)
+						language.SaveCurrentTranslation()
+					end,
+					gui.skin.icons.revert,
+				},
+			}
 		end
 	end
 --	list:SizeToContents()

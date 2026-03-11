@@ -56,14 +56,12 @@ event.AddListener("Initialize", "tests", function()
 
 					if verbose then table.insert(args, "--verbose") end
 
-					local proc, err = process.spawn(
-						{
-							command = "luajit",
-							args = args,
-							stdout = "pipe",
-							stderr = "pipe",
-						}
-					)
+					local proc, err = process.spawn{
+						command = "luajit",
+						args = args,
+						stdout = "pipe",
+						stderr = "pipe",
+					}
 
 					if proc then
 						proc.test_name = test_item.name

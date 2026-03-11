@@ -48,28 +48,24 @@ function Framebuffer.New(config)
 	vulkan.assert(
 		vulkan.lib.vkCreateFramebuffer(
 			device.ptr[0],
-			vulkan.vk.s.FramebufferCreateInfo(
-				{
-					renderPass = render_pass.ptr[0],
-					attachmentCount = attachmentCount,
-					pAttachments = attachments,
-					width = width,
-					height = height,
-					layers = 1,
-				}
-			),
+			vulkan.vk.s.FramebufferCreateInfo{
+				renderPass = render_pass.ptr[0],
+				attachmentCount = attachmentCount,
+				pAttachments = attachments,
+				width = width,
+				height = height,
+				layers = 1,
+			},
 			nil,
 			ptr
 		),
 		"failed to create framebuffer"
 	)
-	return Framebuffer:CreateObject(
-		{
-			ptr = ptr,
-			device = device,
-			_attachments = attachments, -- Keep attachment array alive
-		}
-	)
+	return Framebuffer:CreateObject{
+		ptr = ptr,
+		device = device,
+		_attachments = attachments, -- Keep attachment array alive
+	}
 end
 
 function Framebuffer:OnRemove()

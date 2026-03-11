@@ -3,26 +3,24 @@ local Color = require("structs.color")
 local Panel = require("ecs.panel")
 local theme = require("ui.theme")
 return function(props)
-	return Panel.New(
+	return Panel.New{
+		props,
 		{
-			props,
-			{
-				Name = "Column",
-				OnSetProperty = theme.OnSetProperty,
-				layout = {
-					Direction = "y",
-					GrowWidth = 1,
-					FitHeight = true,
-					AlignmentX = "center",
-					ChildGap = "S",
-					props.layout,
-				},
-				transform = true,
-				gui_element = true,
-				mouse_input = true,
-				clickable = true,
-				animation = true,
+			Name = "Column",
+			OnSetProperty = theme.OnSetProperty,
+			layout = {
+				Direction = "y",
+				GrowWidth = 1,
+				FitHeight = true,
+				AlignmentX = "center",
+				ChildGap = "S",
+				props.layout,
 			},
-		}
-	)
+			transform = true,
+			gui_element = true,
+			mouse_input = true,
+			clickable = true,
+			animation = true,
+		},
+	}
 end

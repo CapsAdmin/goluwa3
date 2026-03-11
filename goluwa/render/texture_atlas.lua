@@ -9,17 +9,15 @@ META:GetSet("MipMapLevels", 1)
 
 function META.New(page_width, page_height, filtering, format)
 	page_height = page_height or page_width
-	return META:CreateObject(
-		{
-			dirty_textures = {},
-			pages = {},
-			textures = {},
-			width = page_width,
-			height = page_height,
-			filtering = filtering,
-			format = format or "r8g8b8a8_unorm",
-		}
-	)
+	return META:CreateObject{
+		dirty_textures = {},
+		pages = {},
+		textures = {},
+		width = page_width,
+		height = page_height,
+		filtering = filtering,
+		format = format or "r8g8b8a8_unorm",
+	}
 end
 
 local function insert_rect(node, w, h)
@@ -64,18 +62,16 @@ function META:FindFreePage(w, h)
 	if node then
 		local size = Vec2(self.width, self.height) + self.Padding
 		local page = {
-			texture = Texture.New(
-				{
-					width = size.x,
-					height = size.y,
-					format = self.format,
-					mip_map_levels = self.MipMapLevels,
-					sampler = {
-						min_filter = self.filtering,
-						mag_filter = self.filtering,
-					},
-				}
-			),
+			texture = Texture.New{
+				width = size.x,
+				height = size.y,
+				format = self.format,
+				mip_map_levels = self.MipMapLevels,
+				sampler = {
+					min_filter = self.filtering,
+					mag_filter = self.filtering,
+				},
+			},
 			textures = {},
 			tree = tree,
 		}
@@ -156,21 +152,19 @@ function META:Build(cmd)
 	for _, page in ipairs(self.pages) do
 		if page.dirty then
 			-- Transition page texture to transfer_dst
-			cmd:PipelineBarrier(
-				{
-					srcStage = "all_commands",
-					dstStage = "transfer",
-					imageBarriers = {
-						{
-							image = page.texture:GetImage(),
-							oldLayout = page.texture:GetImage().layout or "shader_read_only_optimal",
-							newLayout = "transfer_dst_optimal",
-							srcAccessMask = "none",
-							dstAccessMask = "transfer_write",
-						},
+			cmd:PipelineBarrier{
+				srcStage = "all_commands",
+				dstStage = "transfer",
+				imageBarriers = {
+					{
+						image = page.texture:GetImage(),
+						oldLayout = page.texture:GetImage().layout or "shader_read_only_optimal",
+						newLayout = "transfer_dst_optimal",
+						srcAccessMask = "none",
+						dstAccessMask = "transfer_write",
 					},
-				}
-			)
+				},
+			}
 
 			for _, data in pairs(page.textures) do
 				if not data.uploaded then
@@ -182,21 +176,19 @@ function META:Build(cmd)
 					elseif data.texture then
 						local other = data.texture
 						-- Transition src to transfer_src
-						cmd:PipelineBarrier(
-							{
-								srcStage = "all_commands",
-								dstStage = "transfer",
-								imageBarriers = {
-									{
-										image = other:GetImage(),
-										oldLayout = other:GetImage().layout or "shader_read_only_optimal",
-										newLayout = "transfer_src_optimal",
-										srcAccessMask = "memory_read",
-										dstAccessMask = "transfer_read",
-									},
+						cmd:PipelineBarrier{
+							srcStage = "all_commands",
+							dstStage = "transfer",
+							imageBarriers = {
+								{
+									image = other:GetImage(),
+									oldLayout = other:GetImage().layout or "shader_read_only_optimal",
+									newLayout = "transfer_src_optimal",
+									srcAccessMask = "memory_read",
+									dstAccessMask = "transfer_read",
 								},
-							}
-						)
+							},
+						}
 						cmd:CopyImageToImage(
 							other:GetImage(),
 							page.texture:GetImage(),
@@ -208,21 +200,19 @@ function META:Build(cmd)
 							data.page_y
 						)
 						-- Transition src back later or now? Let's do it now to be safe.
-						cmd:PipelineBarrier(
-							{
-								srcStage = "transfer",
-								dstStage = "all_commands",
-								imageBarriers = {
-									{
-										image = other:GetImage(),
-										oldLayout = "transfer_src_optimal",
-										newLayout = "shader_read_only_optimal",
-										srcAccessMask = "transfer_read",
-										dstAccessMask = "memory_read",
-									},
+						cmd:PipelineBarrier{
+							srcStage = "transfer",
+							dstStage = "all_commands",
+							imageBarriers = {
+								{
+									image = other:GetImage(),
+									oldLayout = "transfer_src_optimal",
+									newLayout = "shader_read_only_optimal",
+									srcAccessMask = "transfer_read",
+									dstAccessMask = "memory_read",
 								},
-							}
-						)
+							},
+						}
 						data.uploaded = true
 					end
 				end
@@ -232,21 +222,19 @@ function META:Build(cmd)
 			if page.texture:GetMipMapLevels() > 1 then
 				page.texture:GenerateMipmaps("transfer_dst_optimal", cmd)
 			else
-				cmd:PipelineBarrier(
-					{
-						srcStage = "transfer",
-						dstStage = "all_commands",
-						imageBarriers = {
-							{
-								image = page.texture:GetImage(),
-								oldLayout = "transfer_dst_optimal",
-								newLayout = "shader_read_only_optimal",
-								srcAccessMask = "transfer_write",
-								dstAccessMask = "memory_read",
-							},
+				cmd:PipelineBarrier{
+					srcStage = "transfer",
+					dstStage = "all_commands",
+					imageBarriers = {
+						{
+							image = page.texture:GetImage(),
+							oldLayout = "transfer_dst_optimal",
+							newLayout = "shader_read_only_optimal",
+							srcAccessMask = "transfer_write",
+							dstAccessMask = "memory_read",
 						},
-					}
-				)
+					},
+				}
 			end
 
 			page.dirty = false

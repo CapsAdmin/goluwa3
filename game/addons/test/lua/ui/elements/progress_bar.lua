@@ -5,29 +5,27 @@ return function(props)
 	local state = {
 		value = props.Value or 0,
 	}
-	local pnl = Panel.New(
-		{
-			props,
-			Name = "progress_bar",
-			OnSetProperty = theme.OnSetProperty,
-			transform = {
-				Size = props.Size or Vec2(200, theme.GetSize("S")),
+	local pnl = Panel.New{
+		props,
+		Name = "progress_bar",
+		OnSetProperty = theme.OnSetProperty,
+		transform = {
+			Size = props.Size or Vec2(200, theme.GetSize("S")),
+		},
+		layout = {
+			{
+				MinSize = Vec2(100, theme.GetSize("XXS")),
 			},
-			layout = {
-				{
-					MinSize = Vec2(100, theme.GetSize("XXS")),
-				},
-				props.layout,
-			},
-			gui_element = {
-				DrawAlpha = 1,
-				OnDraw = function(self)
-					theme.panels.progress_bar(self, state)
-				end,
-				Color = props.Color or "primary",
-			},
-		}
-	)
+			props.layout,
+		},
+		gui_element = {
+			DrawAlpha = 1,
+			OnDraw = function(self)
+				theme.panels.progress_bar(self, state)
+			end,
+			Color = props.Color or "primary",
+		},
+	}
 	pnl.ProgressBarState = state
 
 	function pnl:SetValue(val)

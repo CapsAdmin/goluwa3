@@ -10,29 +10,27 @@ local gfx = require("render2d.gfx")
 local Panel = require("ecs.panel")
 local theme = require("ui.theme")
 return function(props)
-	return Panel.New(
+	return Panel.New{
+		props,
 		{
-			props,
-			{
-				Name = "frame",
-				OnSetProperty = theme.OnSetProperty,
-				gui_element = {
-					OnDraw = function(self)
-						theme.panels.frame(self.Owner, props.Emphasis or 1)
-					end,
-					OnPostDraw = function(self)
-						theme.panels.frame_post(self.Owner, props.Emphasis or 1)
-					end,
-				},
-				layout = {
-					Padding = props.Padding,
-					props.layout,
-				},
-				transform = true,
-				mouse_input = true,
-				clickable = true,
-				animation = true,
+			Name = "frame",
+			OnSetProperty = theme.OnSetProperty,
+			gui_element = {
+				OnDraw = function(self)
+					theme.panels.frame(self.Owner, props.Emphasis or 1)
+				end,
+				OnPostDraw = function(self)
+					theme.panels.frame_post(self.Owner, props.Emphasis or 1)
+				end,
 			},
-		}
-	)
+			layout = {
+				Padding = props.Padding,
+				props.layout,
+			},
+			transform = true,
+			mouse_input = true,
+			clickable = true,
+			animation = true,
+		},
+	}
 end

@@ -4,25 +4,23 @@ local vulkan = require("render.vulkan.internal.vulkan")
 local ComputePipeline = prototype.CreateTemplate("vulkan_compute_pipeline")
 
 function ComputePipeline.New(device, shaderModule, pipelineLayout)
-	local info = vulkan.vk.s.PipelineShaderStageCreateInfo({
+	local info = vulkan.vk.s.PipelineShaderStageCreateInfo{
 		stage = compute,
 		module = shaderModule.ptr[0],
 		pName = "main",
-	})
-	local computePipelineCreateInfo = vulkan.vk.s.ComputePipelineCreateInfo(
-		{
-			stage = info,
-			layout = pipelineLayout.ptr[0],
-			basePipelineHandle = nil,
-			basePipelineIndex = -1,
-		}
-	)
+	}
+	local computePipelineCreateInfo = vulkan.vk.s.ComputePipelineCreateInfo{
+		stage = info,
+		layout = pipelineLayout.ptr[0],
+		basePipelineHandle = nil,
+		basePipelineIndex = -1,
+	}
 	local ptr = vulkan.T.Box(vulkan.vk.VkPipeline)()
 	vulkan.assert(
 		vulkan.lib.vkCreateComputePipelines(device.ptr[0], nil, 1, computePipelineCreateInfo, nil, ptr),
 		"failed to create compute pipeline"
 	)
-	return ComputePipeline:CreateObject({device = device, ptr = ptr})
+	return ComputePipeline:CreateObject{device = device, ptr = ptr}
 end
 
 function ComputePipeline:OnRemove()

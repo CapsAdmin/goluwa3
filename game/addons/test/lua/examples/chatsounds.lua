@@ -9,7 +9,6 @@ chatsounds.LoadRepositories():Then(function()
 		return
 	end
 
-
 	chatsounds.Say([[
 		nice of the princess to invite us over for a picnic eh luigi
 		(cdi%130--1 cdi%50--1 cdi%180--1 cdi%115--1 cdi%170--1)*5
@@ -24,7 +23,6 @@ chatsounds.LoadRepositories():Then(function()
 		and you gotta help us if you need instructions on how to get through
 		the hotels check out the:choose(4, cdihm_mario) enclosed instruction book
 	]])
-
 	chatsounds.Say([[
 		cdi%100--5=0.25 cdi%125--5=0.25 cdi%150--5=0.25 cdi%165--5=0.25 cdi%175--5=0.25 cdi%165--5=0.25 cdi%150--5=0.25 cdi%125--5=0.25
 		cdi%100--5=0.25 cdi%125--5=0.25 cdi%150--5=0.25 cdi%165--5=0.25 cdi%175--5=0.25 cdi%165--5=0.25 cdi%150--5=0.25 cdi%125--5=0.25

@@ -8,45 +8,41 @@ function Swapchain.New(config)
 	vulkan.assert(
 		vulkan.lib.vkCreateSwapchainKHR(
 			config.device.ptr[0],
-			vulkan.vk.s.SwapchainCreateInfoKHR(
-				{
-					surface = config.surface.ptr[0],
-					minImageCount = math.clamp(
-						config.image_count or config.surface_capabilities.minImageCount,
-						config.surface_capabilities.minImageCount,
-						config.surface_capabilities.maxImageCount
-					),
-					imageFormat = config.surface_format.format,
-					imageColorSpace = config.surface_format.color_space,
-					imageExtent = config.surface_capabilities.currentExtent,
-					imageArrayLayers = 1,
-					imageUsage = config.image_usage or {"color_attachment", "transfer_dst"},
-					imageSharingMode = "exclusive",
-					preTransform = config.pre_transform or config.surface_capabilities.currentTransform,
-					compositeAlpha = config.composite_alpha or "opaque_khr",
-					presentMode = config.present_mode or "fifo_khr",
-					clipped = config.clipped ~= nil and (config.clipped and 1 or 0) or 1,
-					oldSwapchain = config.old_swapchain and config.old_swapchain.ptr[0],
-					--
-					flags = 0,
-					queueFamilyIndexCount = 0,
-				}
-			),
+			vulkan.vk.s.SwapchainCreateInfoKHR{
+				surface = config.surface.ptr[0],
+				minImageCount = math.clamp(
+					config.image_count or config.surface_capabilities.minImageCount,
+					config.surface_capabilities.minImageCount,
+					config.surface_capabilities.maxImageCount
+				),
+				imageFormat = config.surface_format.format,
+				imageColorSpace = config.surface_format.color_space,
+				imageExtent = config.surface_capabilities.currentExtent,
+				imageArrayLayers = 1,
+				imageUsage = config.image_usage or {"color_attachment", "transfer_dst"},
+				imageSharingMode = "exclusive",
+				preTransform = config.pre_transform or config.surface_capabilities.currentTransform,
+				compositeAlpha = config.composite_alpha or "opaque_khr",
+				presentMode = config.present_mode or "fifo_khr",
+				clipped = config.clipped ~= nil and (config.clipped and 1 or 0) or 1,
+				oldSwapchain = config.old_swapchain and config.old_swapchain.ptr[0],
+				--
+				flags = 0,
+				queueFamilyIndexCount = 0,
+			},
 			nil,
 			ptr
 		),
 		"failed to create swapchain"
 	)
-	return Swapchain:CreateObject(
-		{
-			ptr = ptr,
-			device = config.device,
-			format = config.surface_format.format,
-			-- pointer references to prevent GC
-			old_swapchain = config.old_swapchain,
-			surface = config.surface,
-		}
-	)
+	return Swapchain:CreateObject{
+		ptr = ptr,
+		device = config.device,
+		format = config.surface_format.format,
+		-- pointer references to prevent GC
+		old_swapchain = config.old_swapchain,
+		surface = config.surface,
+	}
 end
 
 function Swapchain:OnRemove()
@@ -67,14 +63,12 @@ function Swapchain:GetImages()
 	for i = 0, imageCount[0] - 1 do
 		local ptr = vulkan.T.Box(vulkan.vk.VkImage)()
 		ptr[0] = swapchainImages[i]
-		out[i + 1] = Image:CreateObject(
-			{
-				ptr = ptr,
-				device = self.device,
-				format = self.format,
-				dont_destroy = true,
-			}
-		)
+		out[i + 1] = Image:CreateObject{
+			ptr = ptr,
+			device = self.device,
+			format = self.format,
+			dont_destroy = true,
+		}
 	end
 
 	return out
@@ -105,15 +99,13 @@ end
 function Swapchain:Present(renderFinishedSemaphore, deviceQueue, imageIndex)
 	local result = vulkan.lib.vkQueuePresentKHR(
 		deviceQueue.ptr[0],
-		vulkan.vk.s.PresentInfoKHR(
-			{
-				waitSemaphoreCount = 1,
-				pWaitSemaphores = renderFinishedSemaphore.ptr,
-				swapchainCount = 1,
-				pSwapchains = self.ptr,
-				pImageIndices = imageIndex,
-			}
-		)
+		vulkan.vk.s.PresentInfoKHR{
+			waitSemaphoreCount = 1,
+			pWaitSemaphores = renderFinishedSemaphore.ptr,
+			swapchainCount = 1,
+			pSwapchains = self.ptr,
+			pImageIndices = imageIndex,
+		}
 	)
 
 	if result == vulkan.vk.VkResult.VK_ERROR_OUT_OF_DATE_KHR then

@@ -244,7 +244,7 @@ return {
 						if val.Type == "upvalue" then
 							self:GetScope():AddDependency(val)
 						else
-							self:GetScope():AddDependency({key = key, val = val})
+							self:GetScope():AddDependency{key = key, val = val}
 						end
 					end
 				else

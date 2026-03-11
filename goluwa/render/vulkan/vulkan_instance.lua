@@ -40,19 +40,21 @@ function VulkanInstance.New(surface_handle, display_handle)
 	end
 
 	local validation_layers = nil
+
 	if os.getenv("VK_INSTANCE_LAYERS") then
 		logn("Using VK_INSTANCE_LAYERS from environment: " .. os.getenv("VK_INSTANCE_LAYERS"))
 	else
 		local available_layers = vulkan.GetAvailableLayers()
-		
+
 		for _, layer in ipairs(available_layers) do
 			if layer == "VK_LAYER_KHRONOS_validation" then
 				validation_layers = {"VK_LAYER_KHRONOS_validation"}
+
 				break
 			end
 		end
 	end
-	
+
 	self.instance = Instance.New(extensions, validation_layers)
 
 	-- Create surface only if not headless
@@ -103,7 +105,6 @@ function VulkanInstance.New(surface_handle, display_handle)
 	local props = self.physical_device:GetProperties()
 	local device_name = ffi.string(props.deviceName)
 	self.graphics_queue_family = self.physical_device:FindGraphicsQueueFamily(self.surface)
-
 	local available_extensions = self.physical_device:GetAvailableDeviceExtensions()
 	local requested_device_extensions = {
 		"VK_EXT_conditional_rendering",
@@ -149,14 +150,12 @@ function VulkanInstance:CreateBuffer(config)
 		end
 	end
 
-	local buffer = Buffer.New(
-		{
-			device = self.device,
-			size = byte_size,
-			usage = config.buffer_usage,
-			properties = config.memory_property,
-		}
-	)
+	local buffer = Buffer.New{
+		device = self.device,
+		size = byte_size,
+		usage = config.buffer_usage,
+		properties = config.memory_property,
+	}
 
 	if data then buffer:CopyData(data, byte_size) end
 
@@ -177,7 +176,7 @@ function VulkanInstance:CreateComputePipeline(config)
 end
 
 function VulkanInstance:CreateOcclusionQuery()
-	return OcclusionQuery.New({device = self.device, instance = self.instance})
+	return OcclusionQuery.New{device = self.device, instance = self.instance}
 end
 
 function VulkanInstance:OnRemove()

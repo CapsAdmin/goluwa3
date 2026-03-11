@@ -10,36 +10,32 @@ end
 
 function gfx.Initialize()
 	-- Create a 1x1 white texture for use as a default
-	local white_tex = Texture.New(
-		{
-			width = 1,
-			height = 1,
-			format = "r8g8b8a8_unorm",
-			sampler = {
-				min_filter = "nearest",
-				mag_filter = "nearest",
-			},
-		}
-	)
+	local white_tex = Texture.New{
+		width = 1,
+		height = 1,
+		format = "r8g8b8a8_unorm",
+		sampler = {
+			min_filter = "nearest",
+			mag_filter = "nearest",
+		},
+	}
 	white_tex:Shade([[
 		return vec4(1.0, 1.0, 1.0, 1.0);
 	]])
 	gfx.white_texture = white_tex
-	local tex = Texture.New(
-		{
-			width = 512,
-			height = 512,
-			format = "r8g8b8a8_unorm",
-			mip_map_levels = "auto",
-			sampler = {
-				min_filter = "linear",
-				mag_filter = "linear",
-				mipmap_mode = "linear",
-				wrap_s = "clamp_to_edge",
-				wrap_t = "clamp_to_edge",
-			},
-		}
-	)
+	local tex = Texture.New{
+		width = 512,
+		height = 512,
+		format = "r8g8b8a8_unorm",
+		mip_map_levels = "auto",
+		sampler = {
+			min_filter = "linear",
+			mag_filter = "linear",
+			mipmap_mode = "linear",
+			wrap_s = "clamp_to_edge",
+			wrap_t = "clamp_to_edge",
+		},
+	}
 	tex:Shade([[
 		float dist = length(uv - 0.5);
 		float alpha = smoothstep(0.5, 0.25, dist);

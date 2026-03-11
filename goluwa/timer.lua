@@ -145,7 +145,6 @@ function timer.UpdateTimers(a_, b_, c_, d_, e_)
 	-- Allow re-entrant calls but skip non-thinker timers to prevent double-firing
 	local was_updating = updating
 	updating = true
-	
 	local cur = system.GetElapsedTime()
 
 	for i, data in ipairs(timer.timers) do
@@ -237,7 +236,7 @@ function timer.UpdateTimers(a_, b_, c_, d_, e_)
 		list.fix_indices(timer.timers)
 		list.clear(remove_these)
 	end
-	
+
 	updating = false
 end
 

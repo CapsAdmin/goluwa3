@@ -58,7 +58,7 @@ function model_loader.LoadModel(path, callback, callback2, on_fail)
 	if data then
 		if callback2 then
 			for _, entry in ipairs(data) do
-				callback2({mesh = entry.mesh, material = entry.material})
+				callback2{mesh = entry.mesh, material = entry.material}
 			end
 		end
 

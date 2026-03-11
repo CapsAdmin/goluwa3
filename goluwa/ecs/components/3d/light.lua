@@ -27,11 +27,11 @@ function Light:SetLightType(light_type)
 
 	if light_type == "sun" then
 		self:SetName("sun")
-		self:SetCastShadows({
+		self:SetCastShadows{
 			ortho_size = 5,
 			near_plane = 1,
 			far_plane = 500,
-		})
+		}
 	end
 end
 
@@ -51,14 +51,12 @@ function Light:SetCastShadows(config)
 	self.CastShadows = config
 
 	if self.LightType == "directional" or self.LightType == "sun" then
-		self.ShadowMap = ShadowMap.New(
-			{
-				size = config.size,
-				ortho_size = config.ortho_size or 50.0,
-				near_plane = config.near_plane or 1.0,
-				far_plane = config.far_plane or 200.0,
-			}
-		)
+		self.ShadowMap = ShadowMap.New{
+			size = config.size,
+			ortho_size = config.ortho_size or 50.0,
+			near_plane = config.near_plane or 1.0,
+			far_plane = config.far_plane or 200.0,
+		}
 	elseif self.LightType == "point" then
 		error("NYI point light", 2)
 		self.CastShadows = false

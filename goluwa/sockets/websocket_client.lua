@@ -82,16 +82,14 @@ function WebSocketClient.New()
 	self.socket.socket:set_option("keepalive", true)
 	self.socket.OnConnect = function()
 		self.key = tools.generate_key()
-		local req = handshake.upgrade_request(
-			{
-				key = self.key,
-				host = self.host,
-				port = self.port,
-				protocols = self.protocols_tbl or {""},
-				origin = self.origin,
-				uri = self.uri,
-			}
-		)
+		local req = handshake.upgrade_request{
+			key = self.key,
+			host = self.host,
+			port = self.port,
+			protocols = self.protocols_tbl or {""},
+			origin = self.origin,
+			uri = self.uri,
+		}
 		self.socket:Send(req)
 	end
 	self.socket.OnClose = function(socket, why)
@@ -170,7 +168,7 @@ function WebSocketClient.New()
 					end
 				elseif #encoded > 0 then
 					self.last_encoded = encoded
-				end				
+				end			
 			until not decoded
 		end
 	end

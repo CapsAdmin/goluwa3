@@ -226,11 +226,11 @@ local function mixer_worker(shared_state_ptr)
 		} MixerState;
 	]]
 	local state = ffi.cast("MixerState*", shared_state_ptr)
-	local config = audio_buffer.start({
+	local config = audio_buffer.start{
 		sample_rate = 44100,
 		buffer_size = 512,
 		channels = 2,
-	})
+	}
 
 	function audio_buffer.callback(out_buffer, num_samples, config)
 		for i = 0, num_samples - 1 do

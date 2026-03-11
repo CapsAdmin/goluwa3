@@ -25,19 +25,17 @@ return function(props)
 			local val = type(opt) == "table" and opt.Value or opt
 			table.insert(
 				menu_items,
-				MenuItem(
-					{
-						Text = text,
-						OnClick = function()
-							-- Close the context menu
-							local active = world_panel:GetKeyed("ActiveContextMenu")
+				MenuItem{
+					Text = text,
+					OnClick = function()
+						-- Close the context menu
+						local active = world_panel:GetKeyed("ActiveContextMenu")
 
-							if active then active:Remove() end
+						if active then active:Remove() end
 
-							if on_select then on_select(val, text, i) end
-						end,
-					}
-				)
+						if on_select then on_select(val, text, i) end
+					end,
+				}
 			)
 		end
 
@@ -46,14 +44,12 @@ return function(props)
 			if not child.IsInternal then table.insert(menu_items, child) end
 		end
 
-		local context_menu = ContextMenu(
-			{
-				Key = "ActiveContextMenu",
-				OnClose = function(ent)
-					ent:Remove()
-				end,
-			}
-		)(menu_items)
+		local context_menu = ContextMenu{
+			Key = "ActiveContextMenu",
+			OnClose = function(ent)
+				ent:Remove()
+			end,
+		}(menu_items)
 		local real_ctx = context_menu:GetChildren()[1]
 
 		event.AddListener("Update", dropdown, function()
@@ -71,37 +67,29 @@ return function(props)
 		world_panel:Ensure(context_menu)
 	end
 
-	dropdown = Clickable(
-		{
-			layout = {Direction = "x", FitHeight = true, AlignmentY = "center"},
-			OnClick = open_menu,
-			Padding = props.Padding or "M",
-		}
-	)(
-		{
-			Text(
-				{
-					IsInternal = true,
-					Text = props.Text or "Select...",
-					Ref = function(self)
-						label_ent = self
-					end,
-					IgnoreMouseInput = true,
-					layout = {GrowWidth = 1, FitHeight = true},
-					Color = props.Disabled and "text_disabled" or "text_foreground",
-				}
-			),
-			Text(
-				{
-					IsInternal = true,
-					Text = " ▼",
-					IgnoreMouseInput = true,
-					layout = {FitWidth = true, FitHeight = true},
-					Color = props.Disabled and "text_disabled" or "text_foreground",
-				}
-			),
-		}
-	)
+	dropdown = Clickable{
+		layout = {Direction = "x", FitHeight = true, AlignmentY = "center"},
+		OnClick = open_menu,
+		Padding = props.Padding or "M",
+	}{
+		Text{
+			IsInternal = true,
+			Text = props.Text or "Select...",
+			Ref = function(self)
+				label_ent = self
+			end,
+			IgnoreMouseInput = true,
+			layout = {GrowWidth = 1, FitHeight = true},
+			Color = props.Disabled and "text_disabled" or "text_foreground",
+		},
+		Text{
+			IsInternal = true,
+			Text = " ▼",
+			IgnoreMouseInput = true,
+			layout = {FitWidth = true, FitHeight = true},
+			Color = props.Disabled and "text_disabled" or "text_foreground",
+		},
+	}
 
 	function dropdown:PreChildAdd(child)
 		if child.IsInternal then return true end

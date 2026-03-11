@@ -85,7 +85,13 @@ do
 			local last_x = vertices_x[num_vertices]
 			local last_y = vertices_y[num_vertices]
 
-			if num_vertices == 0 or (math.abs(last_x - x) > 1e-12 or math.abs(last_y - y) > 1e-12) then
+			if
+				num_vertices == 0 or
+				(
+					math.abs(last_x - x) > 1e-12 or
+					math.abs(last_y - y) > 1e-12
+				)
+			then
 				num_vertices = num_vertices + 1
 				vertices_x[num_vertices] = x
 				vertices_y[num_vertices] = y
@@ -165,6 +171,7 @@ do
 						local cp1 = (bx - ax) * (py - ay) - (by - ay) * (px - ax)
 						local cp2 = (cx - bx) * (py - by) - (cy - by) * (px - bx)
 						local cp3 = (ax - cx) * (py - cy) - (ay - cy) * (px - cx)
+
 						if cp1 >= -1e-12 and cp2 >= -1e-12 and cp3 >= -1e-12 then return false end
 					end
 				end

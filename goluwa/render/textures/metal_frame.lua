@@ -18,20 +18,18 @@ return function(options)
 	local base_color_r = options.base_color.r or 0.6
 	local base_color_g = options.base_color.g or 0.63
 	local base_color_b = options.base_color.b or 0.65
-	local tex = Texture.New(
-		{
-			width = width,
-			height = height,
-			format = "r8g8b8a8_unorm",
-			mip_map_levels = "auto",
-			sampler = {
-				min_filter = "linear",
-				mag_filter = "linear",
-				wrap_s = "clamp_to_edge",
-				wrap_t = "clamp_to_edge",
-			},
-		}
-	)
+	local tex = Texture.New{
+		width = width,
+		height = height,
+		format = "r8g8b8a8_unorm",
+		mip_map_levels = "auto",
+		sampler = {
+			min_filter = "linear",
+			mag_filter = "linear",
+			wrap_s = "clamp_to_edge",
+			wrap_t = "clamp_to_edge",
+		},
+	}
 
 	local function f(v)
 		return tostring(v)

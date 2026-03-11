@@ -192,20 +192,18 @@ function META:SetPath(path)
 		end
 	end
 
-	self.tex = Texture.New(
-		{
-			width = TEXTURE_WIDTH,
-			height = TEXTURE_HEIGHT,
-			format = "r8g8b8a8_unorm",
-			buffer = buffer_data,
-			sampler = {
-				min_filter = "nearest",
-				mag_filter = "nearest",
-				wrap_s = "clamp_to_edge",
-				wrap_t = "clamp_to_edge",
-			},
-		}
-	)
+	self.tex = Texture.New{
+		width = TEXTURE_WIDTH,
+		height = TEXTURE_HEIGHT,
+		format = "r8g8b8a8_unorm",
+		buffer = buffer_data,
+		sampler = {
+			min_filter = "nearest",
+			mag_filter = "nearest",
+			wrap_s = "clamp_to_edge",
+			wrap_t = "clamp_to_edge",
+		},
+	}
 end
 
 function META:GetGlyph(char)

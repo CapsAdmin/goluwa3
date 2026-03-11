@@ -3,7 +3,7 @@ local fonts = require("render2d.fonts")
 local render2d = require("render2d.render2d")
 local gfx = require("render2d.gfx")
 local fontPath = fonts.GetDefaultSystemFontPath()
-local labelFont = fonts.New({Path = fontPath, Size = 10})
+local labelFont = fonts.New{Path = fontPath, Size = 10}
 local modes = {"none", "rgb", "bgr", "vrgb", "vbgr"}
 local amounts = {0, 0.1, 0.3, 0.6, 1.0}
 local sizes = {7, 8, 9, 10, 11, 12, 13, 14, 15}
@@ -15,7 +15,7 @@ for i, size in ipairs(sizes) do
 end
 ]]
 for _, size in ipairs(sizes) do
-	cached_fonts[size] = fonts.New({Path = fontPath, Size = size})
+	cached_fonts[size] = fonts.New{Path = fontPath, Size = size}
 end
 
 event.AddListener("Draw2D", "fonts_subpixel_demo", function()

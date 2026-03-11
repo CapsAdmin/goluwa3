@@ -29,20 +29,18 @@ local function get_checkerboard_texture()
 		end
 	end
 
-	checkerboard_texture = Texture.New(
-		{
-			width = size,
-			height = size,
-			format = "r8g8b8a8_unorm",
-			buffer = buffer,
-			sampler = {
-				min_filter = "nearest",
-				mag_filter = "nearest",
-				wrap_s = "repeat",
-				wrap_t = "repeat",
-			},
-		}
-	)
+	checkerboard_texture = Texture.New{
+		width = size,
+		height = size,
+		format = "r8g8b8a8_unorm",
+		buffer = buffer,
+		sampler = {
+			min_filter = "nearest",
+			mag_filter = "nearest",
+			wrap_s = "repeat",
+			wrap_t = "repeat",
+		},
+	}
 	return checkerboard_texture
 end
 

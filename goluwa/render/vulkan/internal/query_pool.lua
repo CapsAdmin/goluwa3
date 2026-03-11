@@ -5,23 +5,21 @@ local QueryPool = prototype.CreateTemplate("vulkan_query_pool")
 
 function QueryPool.New(device, query_type, query_count)
 	local ptr = vulkan.T.Box(vulkan.vk.VkQueryPool)()
-	local createInfo = vulkan.vk.s.QueryPoolCreateInfo(
-		{
-			queryType = vulkan.vk.e.VkQueryType(query_type or "occlusion"),
-			queryCount = query_count or 1,
-			pipelineStatistics = 0,
-			flags = 0,
-		}
-	)
+	local createInfo = vulkan.vk.s.QueryPoolCreateInfo{
+		queryType = vulkan.vk.e.VkQueryType(query_type or "occlusion"),
+		queryCount = query_count or 1,
+		pipelineStatistics = 0,
+		flags = 0,
+	}
 	vulkan.assert(
 		vulkan.lib.vkCreateQueryPool(device.ptr[0], createInfo, nil, ptr),
 		"failed to create query pool"
 	)
-	return QueryPool:CreateObject({
+	return QueryPool:CreateObject{
 		ptr = ptr,
 		device = device,
 		query_count = query_count or 1,
-	})
+	}
 end
 
 function QueryPool:OnRemove()

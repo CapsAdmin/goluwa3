@@ -14,26 +14,24 @@ function Buffer.New(config)
 	vulkan.assert(
 		vulkan.lib.vkCreateBuffer(
 			device.ptr[0],
-			vulkan.vk.s.BufferCreateInfo(
-				{
-					flags = 0,
-					size = size,
-					usage = usage,
-					sharingMode = "exclusive",
-					queueFamilyIndexCount = 0,
-					pQueueFamilyIndices = nil,
-				}
-			),
+			vulkan.vk.s.BufferCreateInfo{
+				flags = 0,
+				size = size,
+				usage = usage,
+				sharingMode = "exclusive",
+				queueFamilyIndexCount = 0,
+				pQueueFamilyIndices = nil,
+			},
 			nil,
 			ptr
 		),
 		"failed to create buffer"
 	)
-	local self = Buffer:CreateObject({
+	local self = Buffer:CreateObject{
 		ptr = ptr,
 		size = size,
 		device = device,
-	})
+	}
 	local requirements = device:GetBufferMemoryRequirements(self)
 	local allocate_flags
 
@@ -77,12 +75,10 @@ end
 function Buffer:GetDeviceAddress()
 	if not vulkan.lib.vkGetBufferDeviceAddress then return 0 end
 
-	local info = vulkan.vk.VkBufferDeviceAddressInfo(
-		{
-			sType = vulkan.vk.VkStructureType.VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
-			buffer = self.ptr[0],
-		}
-	)
+	local info = vulkan.vk.VkBufferDeviceAddressInfo{
+		sType = vulkan.vk.VkStructureType.VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
+		buffer = self.ptr[0],
+	}
 	return vulkan.lib.vkGetBufferDeviceAddress(self.device.ptr[0], info)
 end
 

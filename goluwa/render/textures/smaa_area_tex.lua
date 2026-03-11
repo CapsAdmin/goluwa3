@@ -3,22 +3,20 @@
 -- Generates the 160x560 RG8 area texture at runtime
 local Texture = require("render.texture")
 local ffi = require("ffi")
-local tex = Texture.New(
-	{
-		width = 160,
-		height = 560,
-		format = "r8g8_unorm",
-		image = {
-			usage = {"storage", "sampled", "transfer_dst", "transfer_src", "color_attachment"},
-		},
-		sampler = {
-			min_filter = "linear",
-			mag_filter = "linear",
-			wrap_s = "clamp_to_edge",
-			wrap_t = "clamp_to_edge",
-		},
-	}
-)
+local tex = Texture.New{
+	width = 160,
+	height = 560,
+	format = "r8g8_unorm",
+	image = {
+		usage = {"storage", "sampled", "transfer_dst", "transfer_src", "color_attachment"},
+	},
+	sampler = {
+		min_filter = "linear",
+		mag_filter = "linear",
+		wrap_s = "clamp_to_edge",
+		wrap_t = "clamp_to_edge",
+	},
+}
 tex:Shade([[
 	#define SIZE_ORTHO 16.0
 	#define SIZE_DIAG 20.0

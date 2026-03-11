@@ -107,12 +107,12 @@ function UDPServer:OnPollReady(events)
 end
 
 function UDPServer:Update()
-	self:OnPollReady({
+	self:OnPollReady{
 		["in"] = true,
 		err = true,
 		hup = true,
 		nval = true,
-	})
+	}
 end
 
 function UDPServer:Error(message, ...)

@@ -2,7 +2,6 @@
 local ffi = require("ffi")
 local ssl = {}
 local callbacks = {}
-
 local initialized_backend = nil
 local initialized_loader = nil
 
@@ -48,7 +47,6 @@ local function load_windows_tls()
 		uint32_t cBuffers;
 		uint32_t cbBlockSize;
 	}]])
-
 	ffi.cdef[[
 		int recv(uintptr_t, void*, int, int);
 		int send(uintptr_t, const void*, int, int);
@@ -71,7 +69,6 @@ local function load_windows_tls()
 			void* Arguments
 		);
 	]]
-
 	local security_status_names = {
 		[0x00000000] = "SEC_E_OK",
 		[0x00090312] = "SEC_I_CONTINUE_NEEDED",
@@ -154,7 +151,8 @@ local function load_windows_tls()
 		)
 
 		if status ~= SEC_E_OK then
-			return nil, "AcquireCredentialsHandle failed: " .. get_security_error_string(status)
+			return nil,
+			"AcquireCredentialsHandle failed: " .. get_security_error_string(status)
 		end
 
 		local function connect(fd, host)
@@ -219,7 +217,11 @@ local function load_windows_tls()
 						if sent <= 0 then return nil, "Failed to send handshake data" end
 					end
 
-					if inBuffers and inBuffers[1].BufferType == SECBUFFER_EXTRA and inBuffers[1].cbBuffer > 0 then
+					if
+						inBuffers and
+						inBuffers[1].BufferType == SECBUFFER_EXTRA and
+						inBuffers[1].cbBuffer > 0
+					then
 						local extra_offset = recv_len - inBuffers[1].cbBuffer
 						ffi.copy(recv_buffer, recv_buffer + extra_offset, inBuffers[1].cbBuffer)
 						recv_len = inBuffers[1].cbBuffer
@@ -232,7 +234,8 @@ local function load_windows_tls()
 						local query_status = secur32.QueryContextAttributesA(hContext, SECPKG_ATTR_STREAM_SIZES, stream_sizes)
 
 						if query_status ~= SEC_E_OK then
-							return nil, "QueryContextAttributes failed: " .. get_security_error_string(query_status)
+							return nil,
+							"QueryContextAttributes failed: " .. get_security_error_string(query_status)
 						end
 
 						state = "connected"
@@ -268,6 +271,7 @@ local function load_windows_tls()
 
 		local function send(data)
 			if state ~= "connected" then return nil, "Not connected" end
+
 			if not stream_sizes then return nil, "Stream sizes not initialized" end
 
 			local msg_buffer = ffi.new("uint8_t[?]", stream_sizes.cbHeader + #data + stream_sizes.cbTrailer)
@@ -349,7 +353,11 @@ local function load_windows_tls()
 						ffi.copy(buffer, buffers[data_buffer_idx].pvBuffer, data_len)
 
 						if extra_buffer_idx >= 0 and buffers[extra_buffer_idx].cbBuffer > 0 then
-							ffi.copy(recv_buffer, buffers[extra_buffer_idx].pvBuffer, buffers[extra_buffer_idx].cbBuffer)
+							ffi.copy(
+								recv_buffer,
+								buffers[extra_buffer_idx].pvBuffer,
+								buffers[extra_buffer_idx].cbBuffer
+							)
 							recv_len = buffers[extra_buffer_idx].cbBuffer
 						else
 							recv_len = 0
@@ -498,7 +506,6 @@ local function load_libtls()
 	int(tls_config_set_session_fd)(struct tls_config*,int);
 	void(tls_config_clear_keys)(struct tls_config*);
 	]])
-
 	local library = {
 		tls_peer_ocsp_url = CLIB.tls_peer_ocsp_url,
 		tls_config_set_dheparams = CLIB.tls_config_set_dheparams,
@@ -596,7 +603,6 @@ local function load_libtls()
 		tls_config_set_session_fd = CLIB.tls_config_set_session_fd,
 		tls_config_clear_keys = CLIB.tls_config_clear_keys,
 	}
-
 	library.e = {
 		HEADER_TLS_H = 1,
 		TLS_API = 20180210,
@@ -628,7 +634,6 @@ local function load_libtls()
 		TLS_MAX_SESSION_ID_LENGTH = 32,
 		TLS_TICKET_KEY_SIZE = 48,
 	}
-
 	library.clib = CLIB
 	library.tls_init()
 
@@ -705,6 +710,7 @@ local function load_openssl()
 
 		if success then
 			lib_crypto = loaded
+
 			break
 		end
 	end
@@ -723,6 +729,7 @@ local function load_openssl()
 
 		if success then
 			lib_ssl = loaded
+
 			break
 		end
 	end
@@ -747,7 +754,6 @@ local function load_openssl()
 		void SSL_free(SSL *ssl);
 		long SSL_ctrl(SSL *ssl, int cmd, long larg, void *parg);
 	]])
-
 	local initialized = false
 	local modern_init = pcall(function()
 		ffi.cdef([[int OPENSSL_init_ssl(uint64_t opts, void *settings);]])
@@ -796,7 +802,9 @@ local function load_openssl()
 		end
 	end
 
-	if method == nil then error("Failed to get SSL method - OpenSSL library may be incompatible") end
+	if method == nil then
+		error("Failed to get SSL method - OpenSSL library may be incompatible")
+	end
 
 	local SSL_CTRL_SET_TLSEXT_HOSTNAME = 55
 	local TLSEXT_NAMETYPE_host_name = 0
@@ -924,7 +932,6 @@ end
 local function load_security_framework_tls()
 	local lib = ffi.load("/System/Library/Frameworks/Security.framework/Security")
 	local cf = ffi.load("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")
-
 	ffi.cdef([[
 		typedef void* SSLContextRef;
 		SSLContextRef SSLCreateContext(void* alloc, int protocolSide, int connectionType);
@@ -947,7 +954,6 @@ local function load_security_framework_tls()
 		signed long CFStringGetMaximumSizeForEncoding(signed long length, unsigned long encoding);
 		unsigned char CFStringGetCString(void *theString, char *buffer, signed long bufferSize, unsigned long encoding);
 	]])
-
 	local errSecSuccess = 0
 	local errSSLWouldBlock = -9803
 	local errSSLClosedGraceful = -9805
@@ -977,55 +983,56 @@ local function load_security_framework_tls()
 	end
 
 	local EAGAIN = 35
-	callbacks.read = callbacks.read or ffi.cast("SSLReadFunc", function(connection, data, dataLength)
-		local fd_ptr = ffi.cast("int*", connection)
-		local fd = fd_ptr[0]
-		local len = tonumber(dataLength[0])
-		local result = ffi.C.read(fd, data, len)
+	callbacks.read = callbacks.read or
+		ffi.cast("SSLReadFunc", function(connection, data, dataLength)
+			local fd_ptr = ffi.cast("int*", connection)
+			local fd = fd_ptr[0]
+			local len = tonumber(dataLength[0])
+			local result = ffi.C.read(fd, data, len)
 
-		if result > 0 then
-			dataLength[0] = result
-			return errSecSuccess
-		elseif result == 0 then
-			dataLength[0] = 0
-			return errSSLClosedGraceful
-		end
+			if result > 0 then
+				dataLength[0] = result
+				return errSecSuccess
+			elseif result == 0 then
+				dataLength[0] = 0
+				return errSSLClosedGraceful
+			end
 
-		local errno = get_errno()
+			local errno = get_errno()
 
-		if errno == EAGAIN then
-			dataLength[0] = 0
-			return errSSLWouldBlock
-		end
+			if errno == EAGAIN then
+				dataLength[0] = 0
+				return errSSLWouldBlock
+			end
 
-		dataLength[0] = 0
-		return errSSLClosedAbort
-	end)
-
-	callbacks.write = callbacks.write or ffi.cast("SSLWriteFunc", function(connection, data, dataLength)
-		local fd_ptr = ffi.cast("int*", connection)
-		local fd = fd_ptr[0]
-		local len = tonumber(dataLength[0])
-		local result = ffi.C.write(fd, data, len)
-
-		if result > 0 then
-			dataLength[0] = result
-			return errSecSuccess
-		elseif result == 0 then
 			dataLength[0] = 0
 			return errSSLClosedAbort
-		end
+		end)
+	callbacks.write = callbacks.write or
+		ffi.cast("SSLWriteFunc", function(connection, data, dataLength)
+			local fd_ptr = ffi.cast("int*", connection)
+			local fd = fd_ptr[0]
+			local len = tonumber(dataLength[0])
+			local result = ffi.C.write(fd, data, len)
 
-		local errno = get_errno()
+			if result > 0 then
+				dataLength[0] = result
+				return errSecSuccess
+			elseif result == 0 then
+				dataLength[0] = 0
+				return errSSLClosedAbort
+			end
 
-		if errno == EAGAIN then
+			local errno = get_errno()
+
+			if errno == EAGAIN then
+				dataLength[0] = 0
+				return errSSLWouldBlock
+			end
+
 			dataLength[0] = 0
-			return errSSLWouldBlock
-		end
-
-		dataLength[0] = 0
-		return errSSLClosedAbort
-	end)
+			return errSSLClosedAbort
+		end)
 
 	local function create_client()
 		local ctx = lib.SSLCreateContext(nil, kSSLClientSide, kSSLStreamType)
@@ -1169,7 +1176,9 @@ function ssl.initialize()
 		table.insert(errors, result)
 	end
 
-	error("No SSL/TLS implementation available for " .. tostring(jit.os) .. ": " .. table.concat(errors, "\n\n"))
+	error(
+		"No SSL/TLS implementation available for " .. tostring(jit.os) .. ": " .. table.concat(errors, "\n\n")
+	)
 end
 
 function ssl.tls_client()

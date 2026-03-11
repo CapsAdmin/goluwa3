@@ -65,16 +65,14 @@ local function TextNode(config)
 end
 
 local function Spacer(parent, name)
-	return Node(
-		{
-			Name = name,
-			Parent = parent,
-			layout = {
-				GrowWidth = 1,
-				MinSize = Vec2(1, 0),
-			},
-		}
-	)
+	return Node{
+		Name = name,
+		Parent = parent,
+		layout = {
+			GrowWidth = 1,
+			MinSize = Vec2(1, 0),
+		},
+	}
 end
 
 local function get_text(node)
@@ -95,216 +93,188 @@ local state = {
 	last_input_lines = 0,
 	last_input_height = 0,
 }
-local root = Node(
-	{
-		Name = "root",
-		Parent = TuiPanel.World,
-		layout = {
-			Direction = "y",
-			GrowWidth = 1,
-			GrowHeight = 1,
-			ChildGap = 1,
-		},
-	}
-)
-local header = BorderBox(
-	{
-		Name = "header",
-		Parent = root,
-		tui_element = {ForegroundColor = palette.header},
-		tui_border = {Title = "TUI ECS Chat"},
-		layout = {
-			Direction = "x",
-			GrowWidth = 1,
-			MinSize = Vec2(0, 3),
-			MaxSize = Vec2(0, 3),
-			Padding = Rect(1, 1, 1, 1),
-			ChildGap = 2,
-			AlignmentY = "center",
-		},
-	}
-)
-local header_title = TextNode(
-	{
-		Name = "header_title",
-		Parent = header,
-		tui_element = {ForegroundColor = palette.header_text},
-		tui_text = {Text = "**Chat UI** powered by ecs.tui_panel + llamacpp.agent"},
-		layout = {GrowWidth = 1, FitHeight = true},
-	}
-)
-local header_status = TextNode(
-	{
-		Name = "header_status",
-		Parent = header,
-		tui_element = {ForegroundColor = palette.muted},
-		tui_text = {Text = "idle"},
-		layout = {FitWidth = true, FitHeight = true},
-	}
-)
-local history_shell = BorderBox(
-	{
-		Name = "history_shell",
-		Parent = root,
-		tui_element = {ForegroundColor = palette.panel},
-		tui_border = {Title = "Conversation"},
-		layout = {
-			Direction = "y",
-			GrowWidth = 1,
-			GrowHeight = 1,
-			Padding = Rect(1, 1, 1, 1),
-		},
-	}
-)
-local history_viewport = Node(
-	{
-		Name = "history_viewport",
-		Parent = history_shell,
-		ComponentSet = {"tui_mouse_input"},
-		tui_element = {Clipping = true},
-		transform = {ScrollEnabled = true},
-		layout = {
-			Direction = "y",
-			GrowWidth = 1,
-			GrowHeight = 1,
-			AlignmentY = "start",
-			AlignmentX = "stretch",
-			MinSize = Vec2(1, 1),
-			MaxSize = Vec2(0, 1),
-		},
-		OnMouseWheel = function(self, delta)
-			local content = self.layout.content_size
-			local height = self.transform:GetHeight()
+local root = Node{
+	Name = "root",
+	Parent = TuiPanel.World,
+	layout = {
+		Direction = "y",
+		GrowWidth = 1,
+		GrowHeight = 1,
+		ChildGap = 1,
+	},
+}
+local header = BorderBox{
+	Name = "header",
+	Parent = root,
+	tui_element = {ForegroundColor = palette.header},
+	tui_border = {Title = "TUI ECS Chat"},
+	layout = {
+		Direction = "x",
+		GrowWidth = 1,
+		MinSize = Vec2(0, 3),
+		MaxSize = Vec2(0, 3),
+		Padding = Rect(1, 1, 1, 1),
+		ChildGap = 2,
+		AlignmentY = "center",
+	},
+}
+local header_title = TextNode{
+	Name = "header_title",
+	Parent = header,
+	tui_element = {ForegroundColor = palette.header_text},
+	tui_text = {Text = "**Chat UI** powered by ecs.tui_panel + llamacpp.agent"},
+	layout = {GrowWidth = 1, FitHeight = true},
+}
+local header_status = TextNode{
+	Name = "header_status",
+	Parent = header,
+	tui_element = {ForegroundColor = palette.muted},
+	tui_text = {Text = "idle"},
+	layout = {FitWidth = true, FitHeight = true},
+}
+local history_shell = BorderBox{
+	Name = "history_shell",
+	Parent = root,
+	tui_element = {ForegroundColor = palette.panel},
+	tui_border = {Title = "Conversation"},
+	layout = {
+		Direction = "y",
+		GrowWidth = 1,
+		GrowHeight = 1,
+		Padding = Rect(1, 1, 1, 1),
+	},
+}
+local history_viewport = Node{
+	Name = "history_viewport",
+	Parent = history_shell,
+	ComponentSet = {"tui_mouse_input"},
+	tui_element = {Clipping = true},
+	transform = {ScrollEnabled = true},
+	layout = {
+		Direction = "y",
+		GrowWidth = 1,
+		GrowHeight = 1,
+		AlignmentY = "start",
+		AlignmentX = "stretch",
+		MinSize = Vec2(1, 1),
+		MaxSize = Vec2(0, 1),
+	},
+	OnMouseWheel = function(self, delta)
+		local content = self.layout.content_size
+		local height = self.transform:GetHeight()
 
-			if not content or content.y <= height then return true end
+		if not content or content.y <= height then return true end
 
-			local max_scroll = math.max(0, content.y - height)
-			local scroll = self.transform:GetScroll():Copy()
-			scroll.y = clamp(scroll.y - delta * 3, 0, max_scroll)
-			self.transform:SetScroll(scroll)
-			state.auto_follow = scroll.y >= max_scroll - 1
-			TuiPanel.NeedsRedraw()
-			return true
-		end,
-	}
-)
-local history_content = Node(
-	{
-		Name = "history_content",
-		Parent = history_viewport,
-		layout = {
-			Direction = "y",
-			GrowWidth = 1,
-			FitHeight = true,
-			ChildGap = 1,
-			AlignmentX = "stretch",
-			AlignmentY = "start",
-		},
-	}
-)
-local history_scrollbar = Node(
-	{
-		Name = "history_scrollbar",
-		Parent = history_shell,
-		tui_element = {ForegroundColor = palette.scrollbar},
-		layout = {Floating = true},
-		OnDraw = function(self, term, abs_x, abs_y, w, h)
-			local content = history_viewport.layout.content_size
+		local max_scroll = math.max(0, content.y - height)
+		local scroll = self.transform:GetScroll():Copy()
+		scroll.y = clamp(scroll.y - delta * 3, 0, max_scroll)
+		self.transform:SetScroll(scroll)
+		state.auto_follow = scroll.y >= max_scroll - 1
+		TuiPanel.NeedsRedraw()
+		return true
+	end,
+}
+local history_content = Node{
+	Name = "history_content",
+	Parent = history_viewport,
+	layout = {
+		Direction = "y",
+		GrowWidth = 1,
+		FitHeight = true,
+		ChildGap = 1,
+		AlignmentX = "stretch",
+		AlignmentY = "start",
+	},
+}
+local history_scrollbar = Node{
+	Name = "history_scrollbar",
+	Parent = history_shell,
+	tui_element = {ForegroundColor = palette.scrollbar},
+	layout = {Floating = true},
+	OnDraw = function(self, term, abs_x, abs_y, w, h)
+		local content = history_viewport.layout.content_size
 
-			if not content or content.y <= h or h <= 0 then return end
+		if not content or content.y <= h or h <= 0 then return end
 
-			for i = 0, h - 1 do
-				term:SetCaretPosition(abs_x, abs_y + i)
-				term:WriteText("░")
-			end
+		for i = 0, h - 1 do
+			term:SetCaretPosition(abs_x, abs_y + i)
+			term:WriteText("░")
+		end
 
-			local total_h = content.y
-			local scroll = history_viewport.transform:GetScroll().y
-			local bar_h = math.max(1, math.floor(h * (h / total_h)))
-			local max_scroll = math.max(1, total_h - h)
-			local fraction = scroll / max_scroll
-			local bar_y = abs_y + math.floor((h - bar_h) * fraction)
+		local total_h = content.y
+		local scroll = history_viewport.transform:GetScroll().y
+		local bar_h = math.max(1, math.floor(h * (h / total_h)))
+		local max_scroll = math.max(1, total_h - h)
+		local fraction = scroll / max_scroll
+		local bar_y = abs_y + math.floor((h - bar_h) * fraction)
 
-			for i = 0, bar_h - 1 do
-				term:SetCaretPosition(abs_x, bar_y + i)
-				term:WriteText("█")
-			end
-		end,
-	}
-)
-local composer = BorderBox(
-	{
-		Name = "composer",
-		Parent = root,
-		tui_element = {ForegroundColor = palette.panel},
-		tui_border = {Title = "Compose"},
-		layout = {
-			Direction = "y",
-			GrowWidth = 1,
-			MinSize = Vec2(0, 3),
-			MaxSize = Vec2(0, 3),
-			Padding = Rect(1, 1, 1, 1),
-		},
-	}
-)
-local input_field = TextNode(
-	{
-		Name = "input_field",
-		Parent = composer,
-		tui_element = {ForegroundColor = palette.assistant_text},
-		tui_text = {
-			Editable = true,
-			ShowLinePrefix = true,
-			ShowScrollbar = true,
-			Text = "",
-		},
-		layout = {GrowWidth = 1, GrowHeight = 1},
-	}
-)
-local footer = BorderBox(
-	{
-		Name = "footer",
-		Parent = root,
-		tui_element = {ForegroundColor = palette.panel},
-		tui_border = {},
-		layout = {
-			Direction = "x",
-			GrowWidth = 1,
-			MinSize = Vec2(0, 3),
-			MaxSize = Vec2(0, 3),
-			Padding = Rect(1, 1, 1, 1),
-			ChildGap = 1,
-			AlignmentY = "center",
-		},
-	}
-)
-local footer_model = TextNode(
-	{
-		Name = "footer_model",
-		Parent = footer,
-		tui_element = {ForegroundColor = {160, 160, 160}},
-		tui_text = {Text = "Qwen3.5-35B-A3B-UD-Q4_K_XL"},
-		layout = {GrowWidth = 1, FitHeight = true},
-	}
-)
-local footer_stats = TextNode(
-	{
-		Name = "footer_stats",
-		Parent = footer,
-		tui_element = {ForegroundColor = {120, 180, 120}},
-		tui_text = {Text = "messages: 0"},
-		layout = {GrowWidth = 1, FitHeight = true},
-	}
-)
-local footer_help = TextNode(
-	{
-		Name = "footer_help",
-		Parent = footer,
-		tui_element = {ForegroundColor = {180, 120, 120}},
-		tui_text = {Text = "enter → send  ·  alt+enter → newline  ·  ctrl+c → repl"},
-		layout = {GrowWidth = 1, FitHeight = true},
-	}
-)
+		for i = 0, bar_h - 1 do
+			term:SetCaretPosition(abs_x, bar_y + i)
+			term:WriteText("█")
+		end
+	end,
+}
+local composer = BorderBox{
+	Name = "composer",
+	Parent = root,
+	tui_element = {ForegroundColor = palette.panel},
+	tui_border = {Title = "Compose"},
+	layout = {
+		Direction = "y",
+		GrowWidth = 1,
+		MinSize = Vec2(0, 3),
+		MaxSize = Vec2(0, 3),
+		Padding = Rect(1, 1, 1, 1),
+	},
+}
+local input_field = TextNode{
+	Name = "input_field",
+	Parent = composer,
+	tui_element = {ForegroundColor = palette.assistant_text},
+	tui_text = {
+		Editable = true,
+		ShowLinePrefix = true,
+		ShowScrollbar = true,
+		Text = "",
+	},
+	layout = {GrowWidth = 1, GrowHeight = 1},
+}
+local footer = BorderBox{
+	Name = "footer",
+	Parent = root,
+	tui_element = {ForegroundColor = palette.panel},
+	tui_border = {},
+	layout = {
+		Direction = "x",
+		GrowWidth = 1,
+		MinSize = Vec2(0, 3),
+		MaxSize = Vec2(0, 3),
+		Padding = Rect(1, 1, 1, 1),
+		ChildGap = 1,
+		AlignmentY = "center",
+	},
+}
+local footer_model = TextNode{
+	Name = "footer_model",
+	Parent = footer,
+	tui_element = {ForegroundColor = {160, 160, 160}},
+	tui_text = {Text = "Qwen3.5-35B-A3B-UD-Q4_K_XL"},
+	layout = {GrowWidth = 1, FitHeight = true},
+}
+local footer_stats = TextNode{
+	Name = "footer_stats",
+	Parent = footer,
+	tui_element = {ForegroundColor = {120, 180, 120}},
+	tui_text = {Text = "messages: 0"},
+	layout = {GrowWidth = 1, FitHeight = true},
+}
+local footer_help = TextNode{
+	Name = "footer_help",
+	Parent = footer,
+	tui_element = {ForegroundColor = {180, 120, 120}},
+	tui_text = {Text = "enter → send  ·  alt+enter → newline  ·  ctrl+c → repl"},
+	layout = {GrowWidth = 1, FitHeight = true},
+}
 
 local function sync_status()
 	header_status.tui_text:SetText(state.running and "thinking..." or "idle")
@@ -400,60 +370,52 @@ local function create_message(role, options)
 	options = options or {}
 	local align = options.align or "left"
 	local id = tostring(#state.history + 1)
-	local row = Node(
-		{
-			Name = "chat_row_" .. id,
-			Parent = history_content,
-			layout = {
-				Direction = "x",
-				GrowWidth = 1,
-				FitHeight = true,
-			},
-		}
-	)
+	local row = Node{
+		Name = "chat_row_" .. id,
+		Parent = history_content,
+		layout = {
+			Direction = "x",
+			GrowWidth = 1,
+			FitHeight = true,
+		},
+	}
 
 	if align == "right" then Spacer(row, "spacer_l_" .. id) end
 
-	local bubble = BorderBox(
-		{
-			Name = "chat_bubble_" .. id,
-			Parent = row,
-			tui_element = {ForegroundColor = options.border_color},
-			tui_border = {
-				Title = options.title or role,
-				TitleAlign = align == "right" and "right" or "left",
-			},
-			layout = {
-				Direction = "y",
-				FitHeight = true,
-				Padding = Rect(1, 1, 1, 1),
-				ChildGap = 1,
-				MinSize = Vec2(24, 0),
-				MaxSize = Vec2(24, 0),
-			},
-		}
-	)
+	local bubble = BorderBox{
+		Name = "chat_bubble_" .. id,
+		Parent = row,
+		tui_element = {ForegroundColor = options.border_color},
+		tui_border = {
+			Title = options.title or role,
+			TitleAlign = align == "right" and "right" or "left",
+		},
+		layout = {
+			Direction = "y",
+			FitHeight = true,
+			Padding = Rect(1, 1, 1, 1),
+			ChildGap = 1,
+			MinSize = Vec2(24, 0),
+			MaxSize = Vec2(24, 0),
+		},
+	}
 
 	if align ~= "right" then Spacer(row, "spacer_r_" .. id) end
 
-	local thoughts = TextNode(
-		{
-			Name = "thoughts_" .. id,
-			Parent = bubble,
-			tui_element = {ForegroundColor = options.thought_color or palette.thinking_text},
-			tui_text = {Text = ""},
-			layout = {GrowWidth = 1, FitHeight = true},
-		}
-	)
-	local content = TextNode(
-		{
-			Name = "content_" .. id,
-			Parent = bubble,
-			tui_element = {ForegroundColor = options.text_color},
-			tui_text = {Text = options.text or ""},
-			layout = {GrowWidth = 1, FitHeight = true},
-		}
-	)
+	local thoughts = TextNode{
+		Name = "thoughts_" .. id,
+		Parent = bubble,
+		tui_element = {ForegroundColor = options.thought_color or palette.thinking_text},
+		tui_text = {Text = ""},
+		layout = {GrowWidth = 1, FitHeight = true},
+	}
+	local content = TextNode{
+		Name = "content_" .. id,
+		Parent = bubble,
+		tui_element = {ForegroundColor = options.text_color},
+		tui_text = {Text = options.text or ""},
+		layout = {GrowWidth = 1, FitHeight = true},
+	}
 	local msg = {
 		role = role,
 		align = align,
@@ -682,7 +644,8 @@ local function submit_input()
 
 	state.running = true
 	sync_status()
-	agent:AddMessage({role = "user", content = text})
+	agent:AddMessage{role = "user", content = text}
+
 	tasks.CreateTask(
 		function()
 			agent:RunAsync()
@@ -693,6 +656,7 @@ local function submit_input()
 			show_agent_error(err)
 		end
 	)
+
 	local editor = input_field.tui_text:GetEditor()
 
 	if editor then

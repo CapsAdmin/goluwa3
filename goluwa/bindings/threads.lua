@@ -338,12 +338,12 @@ do
 		if shared_ptr then
 			self.buffer = nil
 			self.shared_ptr_ref = obj
-			self.input_data = thread_data_t({shared_pointer = ffi.cast("void *", obj)})
+			self.input_data = thread_data_t{shared_pointer = ffi.cast("void *", obj)}
 			self.shared_mode = true
 		else
 			local buf, ptr, len = threads.pointer_encode(obj)
 			self.buffer = buf
-			self.input_data = thread_data_t({input_buffer = ptr, input_buffer_len = len})
+			self.input_data = thread_data_t{input_buffer = ptr, input_buffer_len = len}
 			self.shared_mode = false
 		end
 

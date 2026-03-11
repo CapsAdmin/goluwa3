@@ -169,16 +169,16 @@ do
 	end
 
 	local SRGBTexture = function(path)
-		return Texture.New({
+		return Texture.New{
 			path = path,
 			srgb = true,
-		})
+		}
 	end
 	local LinearTexture = function(path)
-		return Texture.New({
+		return Texture.New{
 			path = path,
 			srgb = false,
-		})
+		}
 	end
 
 	local function on_load_vmt(self, vmt)

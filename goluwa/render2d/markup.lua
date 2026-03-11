@@ -37,20 +37,18 @@ Markup:GetSet("PreserveTabsOnEnter", true)
 Markup:GetSet("FixedSize", 0)
 
 function Markup.New(str, skip_invalidate)
-	local self = Markup:CreateObject(
-		{
-			w = 0,
-			h = 0,
-			chunks = {},
-			cull_x = 0,
-			cull_y = 0,
-			cull_w = math.huge,
-			cull_h = math.huge,
-			blink_offset = 0,
-			remove_these = {},
-			started_tags = {},
-		}
-	)
+	local self = Markup:CreateObject{
+		w = 0,
+		h = 0,
+		chunks = {},
+		cull_x = 0,
+		cull_y = 0,
+		cull_w = math.huge,
+		cull_h = math.huge,
+		blink_offset = 0,
+		remove_these = {},
+		started_tags = {},
+	}
 	self.editor = sequence_editor.New(MarkupBuffer.New(nil, self))
 
 	if str then self:SetText(str) end
@@ -643,18 +641,16 @@ do -- tags
 			end
 		end,
 		init = function(markup, self, font, size, blur_size, bgr, bgg, bgb, bga, blur_overdraw)
-			self.font = fonts.New(
-				{
-					Path = font,
-					Size = size,
-					Shadow = bldur_size > 0 and
-						{
-							BlurRadius = blur_size,
-							Color = Color(bgr, bgg, bgb, bga),
-						} or
-						nil,
-				}
-			)
+			self.font = fonts.New{
+				Path = font,
+				Size = size,
+				Shadow = bldur_size > 0 and
+					{
+						BlurRadius = blur_size,
+						Color = Color(bgr, bgg, bgb, bga),
+					} or
+					nil,
+			}
 		end,
 	}
 	Markup.tags.texture = {
@@ -1097,7 +1093,7 @@ do -- parse tags
 									list.insert(chunks, {type = "font", val = last_font})
 								end
 							else
-								local font = fonts.New({Path = (args[1])})
+								local font = fonts.New{Path = (args[1])}
 								list.insert(chunks, {type = "font", val = font})
 								last_font = font
 							end
@@ -1983,14 +1979,10 @@ do -- caret
 			end
 
 			if dist < line.dist then line.dist = dist end
+
 			list.insert(line.chars, {i, char})
 
-			if
-				x >= data.x and
-				x <= data.right and
-				y >= data.y and
-				y <= data.top
-			then
+			if x >= data.x and x <= data.right and y >= data.y and y <= data.top then
 				POS = i
 				CHAR = char
 
@@ -2369,7 +2361,6 @@ do -- input
 
 				self.last_click = system.GetElapsedTime() + 0.2
 
-
 				if self.times_clicked > 1 then return end
 			end
 
@@ -2487,8 +2478,10 @@ do -- drawing
 						local c = chunk.color
 
 						if c then render2d.PushColor(c.r, c.g, c.b, c.a) end
+
 						--print(fonts.GetFont(), c, chunk.val, chunk.x, chunk.y, max_w)
 						fonts.GetFont():DrawText(chunk.val, chunk.x, chunk.y, max_w)
+
 						if c then render2d.PopColor() end
 					elseif chunk.type == "custom" then
 						-- init
@@ -2611,7 +2604,9 @@ do -- drawing
 				end
 			end
 
-			if self.Editable and self.select_stop then self:DrawLineHighlight(self.select_stop.y) end
+			if self.Editable and self.select_stop then
+				self:DrawLineHighlight(self.select_stop.y)
+			end
 		elseif self.Editable then
 			self:DrawCaret()
 			self:DrawLineHighlight(self.caret_pos.char.y)

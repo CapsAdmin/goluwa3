@@ -532,17 +532,15 @@ function META.New(
 	stop--[[#: number]],
 	whitespace_start--[[#: nil | number]]
 )--[[#: META.@Self]]
-	return META.NewObject(
-		{
-			type = type,
-			lexer = lexer,
-			sub_type = false,
-			value = false,
-			start = start,
-			stop = stop,
-			whitespace_start = whitespace_start,
-		}--[[# as META.@Self]]
-	)
+	return META.NewObject{
+		type = type,
+		lexer = lexer,
+		sub_type = false,
+		value = false,
+		start = start,
+		stop = stop,
+		whitespace_start = whitespace_start,
+	}--[[# as META.@Self]]
 end
 
 function META.NewVirtualToken(
@@ -551,15 +549,13 @@ function META.NewVirtualToken(
 	start--[[#: number]],
 	stop--[[#: number]]
 )--[[#: META.@Self]]
-	return META.NewObject(
-		{
-			type = type,
-			sub_type = value,
-			value = value,
-			start = start,
-			stop = stop,
-		}--[[# as META.@Self]]
-	)
+	return META.NewObject{
+		type = type,
+		sub_type = value,
+		value = value,
+		start = start,
+		stop = stop,
+	}--[[# as META.@Self]]
 end
 
 return META

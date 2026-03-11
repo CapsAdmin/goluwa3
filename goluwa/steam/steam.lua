@@ -12,50 +12,48 @@ function steam.DownloadWorkshop(id, callback, on_error, last_modified)
 	if not tonumber(id) then id = id:match("id=(%d+)") end
 
 	on_error = on_error or llog
-	http.Request(
-		{
-			method = "POST",
-			url = "http://api.steampowered.com/ISteamRemoteStorage/GetPublishedFileDetails/v0001/",
-			post_data = "itemcount=1&publishedfileids[0]=" .. id .. "&format=json",
-			header = {["Content-Type"] = "application/x-www-form-urlencoded"},
-			callback = function(data)
-				local data, err = codec.Decode("json", data.content)
+	http.Request{
+		method = "POST",
+		url = "http://api.steampowered.com/ISteamRemoteStorage/GetPublishedFileDetails/v0001/",
+		post_data = "itemcount=1&publishedfileids[0]=" .. id .. "&format=json",
+		header = {["Content-Type"] = "application/x-www-form-urlencoded"},
+		callback = function(data)
+			local data, err = codec.Decode("json", data.content)
 
-				if not data then
-					on_error(err)
+			if not data then
+				on_error(err)
+				return
+			end
+
+			local details = data.response.publishedfiledetails[1]
+
+			if details.file_url and details.file_url ~= "" then
+				if last_modified and details.time_updated < last_modified then
+					logn(id, ": no changes since last time")
 					return
 				end
 
-				local details = data.response.publishedfiledetails[1]
+				resource.Download(details.file_url, nil, nil, true, details.creator_app_id == 4000 and "gma" or "zip"):Then(function(path)
+					local bin, err = codec.ReadFile("lzma", path)
 
-				if details.file_url and details.file_url ~= "" then
-					if last_modified and details.time_updated < last_modified then
-						logn(id, ": no changes since last time")
+					if not bin then
+						on_error("unable to extract data: " .. err)
 						return
 					end
 
-					resource.Download(details.file_url, nil, nil, true, details.creator_app_id == 4000 and "gma" or "zip"):Then(function(path)
-						local bin, err = codec.ReadFile("lzma", path)
-
-						if not bin then
-							on_error("unable to extract data: " .. err)
-							return
-						end
-
-						vfs.Write(path, bin)
-						callback(path, data.response)
-					end):Catch(on_error)
-				else
-					on_error("error downloading " .. id .. " no file url?")
-				end
-			end,
-			code_callback = function(code)
-				if code == 404 or code == 400 then on_error("error code " .. code) end
-			end,
-			error_callback = on_error,
-			timedout_callback = on_error,
-		}
-	)
+					vfs.Write(path, bin)
+					callback(path, data.response)
+				end):Catch(on_error)
+			else
+				on_error("error downloading " .. id .. " no file url?")
+			end
+		end,
+		code_callback = function(code)
+			if code == 404 or code == 400 then on_error("error code " .. code) end
+		end,
+		error_callback = on_error,
+		timedout_callback = on_error,
+	}
 end
 
 tasks.WrapCallback(steam, "DownloadWorkshop")
@@ -64,35 +62,33 @@ function steam.DownloadWorkshopCollection(id, callback, on_error)
 	if not tonumber(id) then id = id:match("id=(%d+)") end
 
 	on_error = on_error or llog
-	http.Request(
-		{
-			method = "POST",
-			url = "http://api.steampowered.com/ISteamRemoteStorage/GetCollectionDetails/v0001/",
-			post_data = "itemcount=1&publishedfileids[0]=" .. id .. "&collectioncount=1&format=json",
-			header = {
-				["Content-Type"] = "application/x-www-form-urlencoded",
-			},
-			callback = function(data)
-				local data, err = codec.Decode("json", data.content)
+	http.Request{
+		method = "POST",
+		url = "http://api.steampowered.com/ISteamRemoteStorage/GetCollectionDetails/v0001/",
+		post_data = "itemcount=1&publishedfileids[0]=" .. id .. "&collectioncount=1&format=json",
+		header = {
+			["Content-Type"] = "application/x-www-form-urlencoded",
+		},
+		callback = function(data)
+			local data, err = codec.Decode("json", data.content)
 
-				if not data then
-					on_error(err)
-					return
-				end
+			if not data then
+				on_error(err)
+				return
+			end
 
-				for i, v in ipairs(data.response.collectiondetails[1].children) do
-					data.response.collectiondetails[1].children[i] = v.publishedfileid
-				end
+			for i, v in ipairs(data.response.collectiondetails[1].children) do
+				data.response.collectiondetails[1].children[i] = v.publishedfileid
+			end
 
-				callback(data.response.collectiondetails[1].children)
-			end,
-			code_callback = function(code)
-				if code == 404 or code == 400 then on_error("error code " .. code) end
-			end,
-			error_callback = on_error,
-			timedout_callback = on_error,
-		}
-	)
+			callback(data.response.collectiondetails[1].children)
+		end,
+		code_callback = function(code)
+			if code == 404 or code == 400 then on_error("error code " .. code) end
+		end,
+		error_callback = on_error,
+		timedout_callback = on_error,
+	}
 end
 
 tasks.WrapCallback(steam, "DownloadWorkshopCollection")

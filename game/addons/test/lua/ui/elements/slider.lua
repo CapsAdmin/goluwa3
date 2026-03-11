@@ -61,13 +61,22 @@ return function(props)
 		if props.OnChange then props.OnChange(state.value) end
 	end
 
-	return Panel.New(
-		{
-			props,
-			Name = "slider",
-			OnSetProperty = theme.OnSetProperty,
-			transform = {
-				Size = state.mode == "vertical" and
+	return Panel.New{
+		props,
+		Name = "slider",
+		OnSetProperty = theme.OnSetProperty,
+		transform = {
+			Size = state.mode == "vertical" and
+				Vec2(theme.GetSize("S"), 100) or
+				(
+					state.mode == "2d" and
+					Vec2(100, 100) or
+					Vec2(100, theme.GetSize("S"))
+				),
+		},
+		layout = {
+			{
+				MinSize = state.mode == "vertical" and
 					Vec2(theme.GetSize("S"), 100) or
 					(
 						state.mode == "2d" and
@@ -75,54 +84,43 @@ return function(props)
 						Vec2(100, theme.GetSize("S"))
 					),
 			},
-			layout = {
-				{
-					MinSize = state.mode == "vertical" and
-						Vec2(theme.GetSize("S"), 100) or
-						(
-							state.mode == "2d" and
-							Vec2(100, 100) or
-							Vec2(100, theme.GetSize("S"))
-						),
-				},
-				props.layout,
-			},
-			mouse_input = {
-				Cursor = "hand",
-				OnMouseInput = function(self, button, press, local_pos)
-					if button == "button_1" then
-						if press then
-							state.is_dragging = true
-							SetValueFromPosition(self.Owner, local_pos)
-						end
-
-						return true
-					end
-				end,
-				OnGlobalMouseInput = function(self, button, press, mouse_pos)
-					if button == "button_1" and not press and state.is_dragging then
-						state.is_dragging = false
-						return true
-					end
-				end,
-				OnHover = function(self, hovered)
-					state.is_hovered = hovered
-					theme.UpdateSliderAnimations(self.Owner, state)
-				end,
-			},
-			gui_element = {
-				OnDraw = function(self)
-					if state.is_dragging then
-						local mpos = window.GetMousePosition()
-						local lpos = self.Owner.transform:GlobalToLocal(mpos)
-						SetValueFromPosition(self.Owner, lpos)
+			props.layout,
+		},
+		mouse_input = {
+			Cursor = "hand",
+			OnMouseInput = function(self, button, press, local_pos)
+				if button == "button_1" then
+					if press then
+						state.is_dragging = true
+						SetValueFromPosition(self.Owner, local_pos)
 					end
 
-					theme.panels.slider(self, state)
-				end,
-			},
-			animation = true,
-			clickable = true,
-		}
-	)
+					return true
+				end
+			end,
+			OnGlobalMouseInput = function(self, button, press, mouse_pos)
+				if button == "button_1" and not press and state.is_dragging then
+					state.is_dragging = false
+					return true
+				end
+			end,
+			OnHover = function(self, hovered)
+				state.is_hovered = hovered
+				theme.UpdateSliderAnimations(self.Owner, state)
+			end,
+		},
+		gui_element = {
+			OnDraw = function(self)
+				if state.is_dragging then
+					local mpos = window.GetMousePosition()
+					local lpos = self.Owner.transform:GlobalToLocal(mpos)
+					SetValueFromPosition(self.Owner, lpos)
+				end
+
+				theme.panels.slider(self, state)
+			end,
+		},
+		animation = true,
+		clickable = true,
+	}
 end

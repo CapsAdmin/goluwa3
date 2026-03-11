@@ -138,14 +138,12 @@ function VertexBuffer.New(vertices, vertex_attributes)
 	end
 
 	-- Create GPU buffer
-	self.buffer = render.CreateBuffer(
-		{
-			buffer_usage = {"vertex_buffer", "storage_buffer", "shader_device_address"},
-			data_type = "float",
-			data = self.data,
-			byte_size = self.byte_size,
-		}
-	)
+	self.buffer = render.CreateBuffer{
+		buffer_usage = {"vertex_buffer", "storage_buffer", "shader_device_address"},
+		data_type = "float",
+		data = self.data,
+		byte_size = self.byte_size,
+	}
 	return self
 end
 

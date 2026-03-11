@@ -131,8 +131,7 @@ T.Test2D("Markup selection and deletion", function()
 	T(m:GetText())["=="](" world")
 end)
 
-T.Test2D("Markup complex formatting", function()
-end)
+T.Test2D("Markup complex formatting", function() end)
 
 T.Test2D("Markup caret and movement", function()
 	local m = Markup.New("hello world")

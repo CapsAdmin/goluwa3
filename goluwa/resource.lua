@@ -88,58 +88,56 @@ local function download(
 			llog("checking if ", etag_path_override or from, " has been modified.")
 		end
 
-		return http.Request(
-			{
-				method = "HEAD",
-				url = from,
-				error_callback = function(reason)
-					llog(from, ": unable to fetch etag, socket error: ", reason)
+		return http.Request{
+			method = "HEAD",
+			url = from,
+			error_callback = function(reason)
+				llog(from, ": unable to fetch etag, socket error: ", reason)
+				check_etag()
+			end,
+			code_callback = function(code)
+				if code ~= 200 then
+					llog(from, ": unable to fetch etag, server returned code ", code)
 					check_etag()
-				end,
-				code_callback = function(code)
-					if code ~= 200 then
-						llog(from, ": unable to fetch etag, server returned code ", code)
-						check_etag()
-						return false
-					end
-				end,
-				header_callback = function(header)
-					local res = header.etag or header["last-modified"]
+					return false
+				end
+			end,
+			header_callback = function(header)
+				local res = header.etag or header["last-modified"]
 
-					if not res then
-						llog(from, ": no etag found")
-						check_etag()
-						return false
-					end
+				if not res then
+					llog(from, ": no etag found")
+					check_etag()
+					return false
+				end
 
-					if res ~= etag then
-						if etag then
-							llog(from, ": etag has changed ", res)
-						else
-							llog(from, ": no previous etag stored", res)
-						end
-
-						download(
-							from,
-							to,
-							callback,
-							on_fail,
-							on_header,
-							nil,
-							etag_path_override,
-							need_extension,
-							ext_override
-						)
-						return false
+				if res ~= etag then
+					if etag then
+						llog(from, ": etag has changed ", res)
 					else
-						if VERBOSE then llog(from, ": etag is the same") end
-
-						check_etag()
-						return false
+						llog(from, ": no previous etag stored", res)
 					end
-				end,
-			}
-		)
+
+					download(
+						from,
+						to,
+						callback,
+						on_fail,
+						on_header,
+						nil,
+						etag_path_override,
+						need_extension,
+						ext_override
+					)
+					return false
+				else
+					if VERBOSE then llog(from, ": etag is the same") end
+
+					check_etag()
+					return false
+				end
+			end,
+		}
 	end
 
 	local file

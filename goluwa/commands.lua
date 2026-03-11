@@ -291,6 +291,7 @@ do -- commands
 
 	local function get_flag_info(flags, key)
 		if not flags then return nil end
+
 		if flags.by_alias then return flags.by_alias[key] end
 
 		local legacy = flags[key]
@@ -334,6 +335,7 @@ do -- commands
 
 	local function convert_flag_value(info, value)
 		if value == nil then return value end
+
 		if not info or not info.type or info.type == "string" then return value end
 
 		local converter = commands.ArgumentTypes[info.type]
@@ -378,9 +380,9 @@ do -- commands
 		end
 
 		if type(aliases) == "string" then aliases = aliases:split("|") end
+
 		assert(aliases and aliases[1], "command requires at least one alias")
 		assert(type(final_callback) == "function", aliases[1] .. ": callback must be a function")
-
 		local parsed_argtypes, parsed_defaults = parse_argtypes_definition(aliases, argtypes)
 
 		if parsed_defaults then defaults = defaults or parsed_defaults end
@@ -433,7 +435,6 @@ do -- commands
 	function commands.Add(command, callback)
 		local spec = normalize_command_definition(command, callback)
 		local aliases = spec.aliases
-
 		commands.added[aliases[1]] = spec
 
 		for _, alias in ipairs(aliases) do
@@ -581,6 +582,7 @@ do -- commands
 				end
 
 				if info.default ~= nil then line = line .. " = " .. tostring(info.default) end
+
 				if info.description then line = line .. " - " .. info.description end
 
 				help = help .. line .. "\n"
@@ -609,17 +611,20 @@ do -- commands
 				for i2 = i + 1, #args do
 					list.insert(positional, args[i2])
 				end
-		local call_args = {}
-		local positional_count = #args
 
-		if command.argtypes then positional_count = math.max(positional_count, #command.argtypes) end
+				local call_args = {}
+				local positional_count = #args
 
-		for i = 1, positional_count do
-			call_args[i] = args[i]
-		end
+				if command.argtypes then
+					positional_count = math.max(positional_count, #command.argtypes)
+				end
 
-		call_args[positional_count + 1] = named_args
-		local ret, reason = event.Call("PreCommandExecute", command, alias, unpack(call_args, 1, positional_count + 1))
+				for i = 1, positional_count do
+					call_args[i] = args[i]
+				end
+
+				call_args[positional_count + 1] = named_args
+				local ret, reason = event.Call("PreCommandExecute", command, alias, unpack(call_args, 1, positional_count + 1))
 			elseif type(arg) == "string" and arg:starts_with("--") then
 				local key, value = arg:match("^%-%-([^=]+)=(.*)$")
 				local info
@@ -779,7 +784,9 @@ do -- commands
 			local call_args = {}
 			local positional_count = #args
 
-			if command.argtypes then positional_count = math.max(positional_count, #command.argtypes) end
+			if command.argtypes then
+				positional_count = math.max(positional_count, #command.argtypes)
+			end
 
 			for i = 1, positional_count do
 				call_args[i] = args[i]

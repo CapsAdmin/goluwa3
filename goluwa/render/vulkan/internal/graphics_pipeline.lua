@@ -19,14 +19,12 @@ function GraphicsPipeline.New(device, config, render_passes, pipelineLayout)
 			isMeshPipeline = true
 		end
 
-		shaderStagesArray[i - 1] = vulkan.vk.s.PipelineShaderStageCreateInfo(
-			{
-				stage = stage_bits,
-				module = stage.module.ptr[0],
-				pName = "main",
-				flags = 0,
-			}
-		)
+		shaderStagesArray[i - 1] = vulkan.vk.s.PipelineShaderStageCreateInfo{
+			stage = stage_bits,
+			module = stage.module.ptr[0],
+			pName = "main",
+			flags = 0,
+		}
 	end
 
 	-- Vertex input state
@@ -62,115 +60,99 @@ function GraphicsPipeline.New(device, config, render_passes, pipelineLayout)
 			end
 		end
 
-		vertexInputInfo = vulkan.vk.s.PipelineVertexInputStateCreateInfo(
-			{
-				vertexBindingDescriptionCount = bindingCount,
-				pVertexBindingDescriptions = bindingArray,
-				vertexAttributeDescriptionCount = attributeCount,
-				pVertexAttributeDescriptions = attributeArray,
-				flags = 0,
-			}
-		)
+		vertexInputInfo = vulkan.vk.s.PipelineVertexInputStateCreateInfo{
+			vertexBindingDescriptionCount = bindingCount,
+			pVertexBindingDescriptions = bindingArray,
+			vertexAttributeDescriptionCount = attributeCount,
+			pVertexAttributeDescriptions = attributeArray,
+			flags = 0,
+		}
 		config.input_assembly = config.input_assembly or {}
-		inputAssembly = vulkan.vk.s.PipelineInputAssemblyStateCreateInfo(
-			{
-				topology = config.input_assembly.topology or "triangle_list",
-				primitiveRestartEnable = config.input_assembly.primitive_restart or 0,
-				flags = 0,
-			}
-		)
+		inputAssembly = vulkan.vk.s.PipelineInputAssemblyStateCreateInfo{
+			topology = config.input_assembly.topology or "triangle_list",
+			primitiveRestartEnable = config.input_assembly.primitive_restart or 0,
+			flags = 0,
+		}
 	end
 
 	config.viewport = config.viewport or {}
-	local viewport = vulkan.vk.VkViewport(
-		{
-			x = config.viewport.x or 0.0,
-			y = config.viewport.y or 0.0,
-			width = config.viewport.w or 800,
-			height = config.viewport.h or 600,
-			minDepth = config.viewport.min_depth or 0.0,
-			maxDepth = config.viewport.max_depth or 1.0,
-		}
-	)
+	local viewport = vulkan.vk.VkViewport{
+		x = config.viewport.x or 0.0,
+		y = config.viewport.y or 0.0,
+		width = config.viewport.w or 800,
+		height = config.viewport.h or 600,
+		minDepth = config.viewport.min_depth or 0.0,
+		maxDepth = config.viewport.max_depth or 1.0,
+	}
 	config.scissor = config.scissor or {}
-	local scissor = vulkan.vk.VkRect2D(
-		{
-			offset = {x = config.scissor.x or 0, y = config.scissor.y or 0},
-			extent = {
-				width = config.scissor.w or 800,
-				height = config.scissor.h or 600,
-			},
-		}
-	)
+	local scissor = vulkan.vk.VkRect2D{
+		offset = {x = config.scissor.x or 0, y = config.scissor.y or 0},
+		extent = {
+			width = config.scissor.w or 800,
+			height = config.scissor.h or 600,
+		},
+	}
 	-- TODO: support more than one viewport/scissor
-	local viewportState = vulkan.vk.s.PipelineViewportStateCreateInfo(
-		{
-			viewportCount = 1,
-			pViewports = viewport,
-			scissorCount = 1,
-			pScissors = scissor,
-			flags = 0,
-		}
-	)
+	local viewportState = vulkan.vk.s.PipelineViewportStateCreateInfo{
+		viewportCount = 1,
+		pViewports = viewport,
+		scissorCount = 1,
+		pScissors = scissor,
+		flags = 0,
+	}
 	config.rasterizer = config.rasterizer or {}
-	local rasterizer = vulkan.vk.s.PipelineRasterizationStateCreateInfo(
-		{
-			depthClampEnable = config.rasterizer.depth_clamp or 0,
-			rasterizerDiscardEnable = config.rasterizer.discard or 0,
-			polygonMode = config.rasterizer.polygon_mode or "fill",
-			lineWidth = config.rasterizer.line_width or 1.0,
-			cullMode = config.rasterizer.cull_mode or "back",
-			frontFace = config.rasterizer.front_face or "clockwise",
-			depthBiasEnable = (config.rasterizer.depth_bias and config.rasterizer.depth_bias ~= 0) and 1 or 0,
-			-- 
-			flags = 0,
-			depthBiasConstantFactor = config.rasterizer.depth_bias_constant_factor or 0,
-			depthBiasClamp = config.rasterizer.depth_bias_clamp or 0,
-			depthBiasSlopeFactor = config.rasterizer.depth_bias_slope_factor or 0,
-		}
-	)
+	local rasterizer = vulkan.vk.s.PipelineRasterizationStateCreateInfo{
+		depthClampEnable = config.rasterizer.depth_clamp or 0,
+		rasterizerDiscardEnable = config.rasterizer.discard or 0,
+		polygonMode = config.rasterizer.polygon_mode or "fill",
+		lineWidth = config.rasterizer.line_width or 1.0,
+		cullMode = config.rasterizer.cull_mode or "back",
+		frontFace = config.rasterizer.front_face or "clockwise",
+		depthBiasEnable = (config.rasterizer.depth_bias and config.rasterizer.depth_bias ~= 0) and 1 or 0,
+		-- 
+		flags = 0,
+		depthBiasConstantFactor = config.rasterizer.depth_bias_constant_factor or 0,
+		depthBiasClamp = config.rasterizer.depth_bias_clamp or 0,
+		depthBiasSlopeFactor = config.rasterizer.depth_bias_slope_factor or 0,
+	}
 	config.multisampling = config.multisampling or {}
-	local multisampling = vulkan.vk.s.PipelineMultisampleStateCreateInfo(
-		{
-			sampleShadingEnable = config.multisampling.sample_shading or 0,
-			rasterizationSamples = config.multisampling.rasterization_samples or "1",
-			--
-			flags = 0,
-			minSampleShading = 0,
-			pSampleMask = nil,
-			alphaToCoverageEnable = 0,
-			alphaToOneEnable = 0,
-		}
-	)
+	local multisampling = vulkan.vk.s.PipelineMultisampleStateCreateInfo{
+		sampleShadingEnable = config.multisampling.sample_shading or 0,
+		rasterizationSamples = config.multisampling.rasterization_samples or "1",
+		--
+		flags = 0,
+		minSampleShading = 0,
+		pSampleMask = nil,
+		alphaToCoverageEnable = 0,
+		alphaToOneEnable = 0,
+	}
 	config.color_blend = config.color_blend or {}
 	config.color_blend.attachments = config.color_blend.attachments or {}
 	local colorBlendAttachments = {}
 
 	for i, color_blend_attachment in ipairs(config.color_blend.attachments) do
-		colorBlendAttachments[i] = vulkan.vk.s.PipelineColorBlendAttachmentState(
-			{
-				colorWriteMask = color_blend_attachment.color_write_mask or {"R", "G", "B", "A"},
-				blendEnable = color_blend_attachment.blend or 0,
-				srcColorBlendFactor = color_blend_attachment.src_color_blend_factor and
-					color_blend_attachment.src_color_blend_factor or
-					"one",
-				dstColorBlendFactor = color_blend_attachment.dst_color_blend_factor and
-					color_blend_attachment.dst_color_blend_factor or
-					"zero",
-				colorBlendOp = color_blend_attachment.color_blend_op and
-					color_blend_attachment.color_blend_op or
-					"add",
-				srcAlphaBlendFactor = color_blend_attachment.src_alpha_blend_factor and
-					color_blend_attachment.src_alpha_blend_factor or
-					"one",
-				dstAlphaBlendFactor = color_blend_attachment.dst_alpha_blend_factor and
-					color_blend_attachment.dst_alpha_blend_factor or
-					"zero",
-				alphaBlendOp = color_blend_attachment.alpha_blend_op and
-					color_blend_attachment.alpha_blend_op or
-					"add",
-			}
-		)
+		colorBlendAttachments[i] = vulkan.vk.s.PipelineColorBlendAttachmentState{
+			colorWriteMask = color_blend_attachment.color_write_mask or {"R", "G", "B", "A"},
+			blendEnable = color_blend_attachment.blend or 0,
+			srcColorBlendFactor = color_blend_attachment.src_color_blend_factor and
+				color_blend_attachment.src_color_blend_factor or
+				"one",
+			dstColorBlendFactor = color_blend_attachment.dst_color_blend_factor and
+				color_blend_attachment.dst_color_blend_factor or
+				"zero",
+			colorBlendOp = color_blend_attachment.color_blend_op and
+				color_blend_attachment.color_blend_op or
+				"add",
+			srcAlphaBlendFactor = color_blend_attachment.src_alpha_blend_factor and
+				color_blend_attachment.src_alpha_blend_factor or
+				"one",
+			dstAlphaBlendFactor = color_blend_attachment.dst_alpha_blend_factor and
+				color_blend_attachment.dst_alpha_blend_factor or
+				"zero",
+			alphaBlendOp = color_blend_attachment.alpha_blend_op and
+				color_blend_attachment.alpha_blend_op or
+				"add",
+		}
 	end
 
 	local colorBlendAttachment = vulkan.T.Array(vulkan.vk.VkPipelineColorBlendAttachmentState)(#colorBlendAttachments)
@@ -182,47 +164,41 @@ function GraphicsPipeline.New(device, config, render_passes, pipelineLayout)
 
 	local blend_constants_data = (config.color_blend and config.color_blend.constants) or {0.0, 0.0, 0.0, 0.0}
 	local blend_constants = ffi.new("float[4]", blend_constants_data)
-	local colorBlending = vulkan.vk.s.PipelineColorBlendStateCreateInfo(
-		{
-			logicOpEnable = config.color_blend.logic_op_enabled or 0,
-			logicOp = config.color_blend.logic_op or "copy",
-			attachmentCount = #colorBlendAttachments,
-			pAttachments = colorBlendAttachment,
-			blendConstants = blend_constants,
-			flags = 0,
-		}
-	)
+	local colorBlending = vulkan.vk.s.PipelineColorBlendStateCreateInfo{
+		logicOpEnable = config.color_blend.logic_op_enabled or 0,
+		logicOp = config.color_blend.logic_op or "copy",
+		attachmentCount = #colorBlendAttachments,
+		pAttachments = colorBlendAttachment,
+		blendConstants = blend_constants,
+		flags = 0,
+	}
 	config.depth_stencil = config.depth_stencil or {}
 
 	local function make_stencil_op_state(cfg)
 		cfg = cfg or {}
-		return vulkan.vk.s.StencilOpState(
-			{
-				failOp = cfg.fail_op or "keep",
-				passOp = cfg.pass_op or "keep",
-				depthFailOp = cfg.depth_fail_op or "keep",
-				compareOp = cfg.compare_op or "always",
-				compareMask = cfg.compare_mask or 0xFF,
-				writeMask = cfg.write_mask or 0xFF,
-				reference = cfg.reference or 0,
-			}
-		)
+		return vulkan.vk.s.StencilOpState{
+			failOp = cfg.fail_op or "keep",
+			passOp = cfg.pass_op or "keep",
+			depthFailOp = cfg.depth_fail_op or "keep",
+			compareOp = cfg.compare_op or "always",
+			compareMask = cfg.compare_mask or 0xFF,
+			writeMask = cfg.write_mask or 0xFF,
+			reference = cfg.reference or 0,
+		}
 	end
 
-	local depthStencilState = vulkan.vk.s.PipelineDepthStencilStateCreateInfo(
-		{
-			depthTestEnable = config.depth_stencil.depth_test or 0,
-			depthWriteEnable = config.depth_stencil.depth_write or 0,
-			depthCompareOp = config.depth_stencil.depth_compare_op or "less",
-			depthBoundsTestEnable = config.depth_stencil.depth_bounds_test or 0,
-			stencilTestEnable = config.depth_stencil.stencil_test or 0,
-			flags = 0,
-			front = make_stencil_op_state(config.depth_stencil.front),
-			back = make_stencil_op_state(config.depth_stencil.back),
-			minDepthBounds = 0,
-			maxDepthBounds = 0,
-		}
-	)
+	local depthStencilState = vulkan.vk.s.PipelineDepthStencilStateCreateInfo{
+		depthTestEnable = config.depth_stencil.depth_test or 0,
+		depthWriteEnable = config.depth_stencil.depth_write or 0,
+		depthCompareOp = config.depth_stencil.depth_compare_op or "less",
+		depthBoundsTestEnable = config.depth_stencil.depth_bounds_test or 0,
+		stencilTestEnable = config.depth_stencil.stencil_test or 0,
+		flags = 0,
+		front = make_stencil_op_state(config.depth_stencil.front),
+		back = make_stencil_op_state(config.depth_stencil.back),
+		minDepthBounds = 0,
+		maxDepthBounds = 0,
+	}
 	-- Dynamic state configuration
 	local dynamicStateInfo = nil
 
@@ -234,14 +210,12 @@ function GraphicsPipeline.New(device, config, render_passes, pipelineLayout)
 			dynamicStateArray[i - 1] = vulkan.vk.e.VkDynamicState(state)
 		end
 
-		dynamicStateInfo = vulkan.vk.s.PipelineDynamicStateCreateInfo(
-			{
-				pNext = nil,
-				flags = 0,
-				dynamicStateCount = dynamicStateCount,
-				pDynamicStates = dynamicStateArray,
-			}
-		)
+		dynamicStateInfo = vulkan.vk.s.PipelineDynamicStateCreateInfo{
+			pNext = nil,
+			flags = 0,
+			dynamicStateCount = dynamicStateCount,
+			pDynamicStates = dynamicStateArray,
+		}
 	end
 
 	if render_passes[2] or (config.subpass and config.subpass ~= 0) then
@@ -266,60 +240,56 @@ function GraphicsPipeline.New(device, config, render_passes, pipelineLayout)
 		end
 	end
 
-	local pipelineRenderingCreateInfo = vulkan.vk.s.PipelineRenderingCreateInfo(
-		{
-			pNext = nil,
-			viewMask = 0,
-			colorAttachmentCount = colorAttachmentCount,
-			pColorAttachmentFormats = pColorAttachmentFormats,
-			depthAttachmentFormat = (
-					render_passes[1].depth_format and
-					render_passes[1].depth_format ~= false
+	local pipelineRenderingCreateInfo = vulkan.vk.s.PipelineRenderingCreateInfo{
+		pNext = nil,
+		viewMask = 0,
+		colorAttachmentCount = colorAttachmentCount,
+		pColorAttachmentFormats = pColorAttachmentFormats,
+		depthAttachmentFormat = (
+				render_passes[1].depth_format and
+				render_passes[1].depth_format ~= false
+			)
+			and
+			render_passes[1].depth_format or
+			"undefined",
+		stencilAttachmentFormat = (
+				render_passes[1].depth_format and
+				render_passes[1].depth_format ~= false and
+				(
+					render_passes[1].depth_format:match("s8") or
+					render_passes[1].depth_format:match("stencil")
 				)
-				and
-				render_passes[1].depth_format or
-				"undefined",
-			stencilAttachmentFormat = (
-					render_passes[1].depth_format and
-					render_passes[1].depth_format ~= false and
-					(
-						render_passes[1].depth_format:match("s8") or
-						render_passes[1].depth_format:match("stencil")
-					)
-				)
-				and
-				render_passes[1].depth_format or
-				"undefined",
-		}
-	)
-	local pipelineInfo = vulkan.vk.s.GraphicsPipelineCreateInfo(
-		{
-			pNext = pipelineRenderingCreateInfo,
-			flags = 0,
-			stageCount = #config.shaderModules,
-			pStages = shaderStagesArray,
-			pVertexInputState = vertexInputInfo,
-			pInputAssemblyState = inputAssembly,
-			pTessellationState = nil,
-			pViewportState = viewportState,
-			pRasterizationState = rasterizer,
-			pMultisampleState = multisampling,
-			pDepthStencilState = depthStencilState,
-			pColorBlendState = colorBlending,
-			pDynamicState = dynamicStateInfo,
-			layout = pipelineLayout.ptr[0],
-			renderPass = nil,
-			subpass = 0,
-			basePipelineHandle = nil,
-			basePipelineIndex = -1,
-		}
-	)
+			)
+			and
+			render_passes[1].depth_format or
+			"undefined",
+	}
+	local pipelineInfo = vulkan.vk.s.GraphicsPipelineCreateInfo{
+		pNext = pipelineRenderingCreateInfo,
+		flags = 0,
+		stageCount = #config.shaderModules,
+		pStages = shaderStagesArray,
+		pVertexInputState = vertexInputInfo,
+		pInputAssemblyState = inputAssembly,
+		pTessellationState = nil,
+		pViewportState = viewportState,
+		pRasterizationState = rasterizer,
+		pMultisampleState = multisampling,
+		pDepthStencilState = depthStencilState,
+		pColorBlendState = colorBlending,
+		pDynamicState = dynamicStateInfo,
+		layout = pipelineLayout.ptr[0],
+		renderPass = nil,
+		subpass = 0,
+		basePipelineHandle = nil,
+		basePipelineIndex = -1,
+	}
 	local ptr = vulkan.T.Box(vulkan.vk.VkPipeline)()
 	vulkan.assert(
 		vulkan.lib.vkCreateGraphicsPipelines(device.ptr[0], nil, 1, pipelineInfo, nil, ptr),
 		"failed to create graphics pipeline"
 	)
-	return GraphicsPipeline:CreateObject({device = device, ptr = ptr, config = config})
+	return GraphicsPipeline:CreateObject{device = device, ptr = ptr, config = config}
 end
 
 function GraphicsPipeline:OnRemove()

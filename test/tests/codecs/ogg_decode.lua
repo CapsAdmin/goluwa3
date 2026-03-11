@@ -5,7 +5,9 @@ local fs = require("fs")
 local resource = require("resource")
 
 T.Test("Ogg/Vorbis decoder", function()
-	local path = resource.Download("https://github.com/CapsAdmin/goluwa-assets/raw/refs/heads/master/test/ogg/test_sweep.ogg"):Get()
+	local path = resource.Download(
+		"https://github.com/CapsAdmin/goluwa-assets/raw/refs/heads/master/test/ogg/test_sweep.ogg"
+	):Get()
 	local data = fs.read_file(path)
 	T(data)["~="](nil)
 	T(#data)[">"](0)
@@ -64,7 +66,6 @@ T.Test("Ogg/Vorbis decoder", function()
 	end
 
 	local duration = num_samples / res.sample_rate
-
 	T(has_nan)["=="](false)
 	T(duration)[">"](0.75)
 	T(duration)["<"](1.2)
@@ -86,9 +87,12 @@ end)
 -- Frequency verification test using a sine sweep
 -- Decodes a 100Hz->1000Hz sweep and verifies the dominant frequency
 -- increases over time using zero-crossing analysis
-
 T.Test("Ogg/Vorbis sine sweep frequency verification", function()
-	local data = fs.read_file(resource.Download("https://github.com/CapsAdmin/goluwa-assets/raw/refs/heads/master/test/ogg/test_sweep.ogg"):Get())
+	local data = fs.read_file(
+		resource.Download(
+			"https://github.com/CapsAdmin/goluwa-assets/raw/refs/heads/master/test/ogg/test_sweep.ogg"
+		):Get()
+	)
 	T(data)["~="](nil)
 	local res = assert(ogg.Decode(data))
 	T(res.channels)["=="](2)
@@ -97,7 +101,11 @@ T.Test("Ogg/Vorbis sine sweep frequency verification", function()
 	local sr = res.sample_rate
 	local ptr = ffi.cast("float*", res.data)
 	-- Also load the reference raw PCM for correlation
-	local ref_data = fs.read_file(resource.Download("https://github.com/CapsAdmin/goluwa-assets/raw/refs/heads/master/test/ogg/test_sweep_ref.raw"):Get())
+	local ref_data = fs.read_file(
+		resource.Download(
+			"https://github.com/CapsAdmin/goluwa-assets/raw/refs/heads/master/test/ogg/test_sweep_ref.raw"
+		):Get()
+	)
 	T(ref_data)["~="](nil)
 	local ref_ptr = ffi.cast("float*", ref_data)
 	local ref_samples = #ref_data / 4 / 2 -- float32, stereo
@@ -277,7 +285,6 @@ T.Test("Ogg/Vorbis sine sweep frequency verification", function()
 	local env_max_err = max_abs_diff(decoded_env_norm, ref_env_norm)
 	local decoded_flutter = mean_adjacent_change(decoded_env_norm)
 	local ref_flutter = mean_adjacent_change(ref_env_norm)
-
 	-- Allow some deviation because Vorbis is lossy, but sustained amplitude
 	-- modulation should still stay close to the reference envelope.
 	T(volume_ratio)[">"](0.2)

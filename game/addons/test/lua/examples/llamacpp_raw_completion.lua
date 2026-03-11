@@ -106,17 +106,15 @@ tasks.CreateTask(function()
 
 	while true do
 		local generated = ""
-		local res = llamacpp.Completion(
-			{
-				model = MODEL,
-				prompt = prompt,
-				n_predict = 512,
-				stop = {fmt.tool_call_close, fmt.eos_token},
-				on_data = function(data)
-					generated = generated .. data.content
-				end,
-			}
-		)
+		local res = llamacpp.Completion{
+			model = MODEL,
+			prompt = prompt,
+			n_predict = 512,
+			stop = {fmt.tool_call_close, fmt.eos_token},
+			on_data = function(data)
+				generated = generated .. data.content
+			end,
+		}
 		local stop_word = res[#res].stopping_word
 
 		if stop_word == fmt.eos_token or stop_word == "" then

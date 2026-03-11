@@ -18,15 +18,13 @@ SequenceEditor:GetSet("UserScrolled", false)
 function SequenceEditor.New(buffer)
 	if type(buffer) == "string" then buffer = SequenceBuffer.New(buffer) end
 
-	local self = SequenceEditor:CreateObject(
-		{
-			Buffer = buffer or SequenceBuffer.New(""),
-			Cursor = 1,
-			undo_stack = {},
-			redo_stack = {},
-			ClipboardState = nil,
-		}
-	)
+	local self = SequenceEditor:CreateObject{
+		Buffer = buffer or SequenceBuffer.New(""),
+		Cursor = 1,
+		undo_stack = {},
+		redo_stack = {},
+		ClipboardState = nil,
+	}
 	return self
 end
 

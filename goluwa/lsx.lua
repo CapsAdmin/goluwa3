@@ -41,10 +41,10 @@ function META:RegisterElement(ctor)
 	return function(self, props)
 		if props == nil then props = self end
 
-		return Element:CreateObject({
+		return Element:CreateObject{
 			ctor = ctor,
 			props = props or {},
-		})
+		}
 	end
 end
 
@@ -301,10 +301,10 @@ function META:Build(node, parent, existing, adapter)
 
 	if type(node) == "function" then
 		return self:Build(
-			Component:CreateObject({
+			Component:CreateObject{
 				build = node,
 				props = {},
-			}),
+			},
 			parent,
 			existing,
 			adapter
@@ -320,10 +320,10 @@ function META:Build(node, parent, existing, adapter)
 		end
 
 		return self:Build(
-			Component:CreateObject({
+			Component:CreateObject{
 				build = fn,
 				props = props,
-			}),
+			},
 			parent,
 			existing,
 			adapter
@@ -434,9 +434,7 @@ function META:Build(node, parent, existing, adapter)
 			type(panel) ~= "table" or
 			not panel.Remove
 		then
-			if panel then
-				SafeRemove(panel)
-			end
+			if panel then SafeRemove(panel) end
 
 			panel = node.ctor({Parent = parent})
 			panel.__lsx_ctor = node.ctor
@@ -563,7 +561,6 @@ end
 function META:Mount(node, parent, adapter)
 	adapter = adapter or self.DefaultAdapter
 	parent = parent or (adapter.GetRoot and adapter.GetRoot())
-
 	local existing = self.mounted_on_parent[parent]
 	local panel = self:Build(node, parent, existing, adapter)
 	self.mounted_on_parent[parent] = panel
@@ -618,16 +615,14 @@ function META:Update()
 end
 
 function META.New(adapter)
-	local self = META:CreateObject(
-		{
-			DefaultAdapter = adapter,
-			component_states = setmetatable({}, {__mode = "k"}),
-			mounted_on_parent = setmetatable({}, {__mode = "k"}),
-			pending_effects = {},
-			pending_renders = {},
-			hook_index = 0,
-		}
-	)
+	local self = META:CreateObject{
+		DefaultAdapter = adapter,
+		component_states = setmetatable({}, {__mode = "k"}),
+		mounted_on_parent = setmetatable({}, {__mode = "k"}),
+		pending_effects = {},
+		pending_renders = {},
+		hook_index = 0,
+	}
 
 	event.AddListener("Update", self, function()
 		self:Update()

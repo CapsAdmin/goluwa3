@@ -81,23 +81,21 @@ float fBm(vec2 p){
 ]]
 
 local function CreateDesertTerrain()
-	local albedo_tex = Texture.New(
-		{
-			width = 1024,
-			height = 1024,
-			format = "r8g8b8a8_unorm",
-			mip_map_levels = "auto",
-			image = {
-				usage = {"storage", "sampled", "transfer_dst", "transfer_src", "color_attachment"},
-			},
-			sampler = {
-				min_filter = "linear",
-				mag_filter = "linear",
-				wrap_s = "repeat",
-				wrap_t = "repeat",
-			},
-		}
-	)
+	local albedo_tex = Texture.New{
+		width = 1024,
+		height = 1024,
+		format = "r8g8b8a8_unorm",
+		mip_map_levels = "auto",
+		image = {
+			usage = {"storage", "sampled", "transfer_dst", "transfer_src", "color_attachment"},
+		},
+		sampler = {
+			min_filter = "linear",
+			mag_filter = "linear",
+			wrap_s = "repeat",
+			wrap_t = "repeat",
+		},
+	}
 	albedo_tex:Shade(
 		[[
         vec2 p = uv * 20.0;
@@ -118,17 +116,15 @@ local function CreateDesertTerrain()
     ]],
 		{header = HEADER}
 	)
-	local normal_tex = Texture.New(
-		{
-			width = 1024,
-			height = 1024,
-			format = "r8g8b8a8_unorm",
-			mip_map_levels = "auto",
-			image = {
-				usage = {"storage", "sampled", "transfer_dst", "transfer_src", "color_attachment"},
-			},
-		}
-	)
+	local normal_tex = Texture.New{
+		width = 1024,
+		height = 1024,
+		format = "r8g8b8a8_unorm",
+		mip_map_levels = "auto",
+		image = {
+			usage = {"storage", "sampled", "transfer_dst", "transfer_src", "color_attachment"},
+		},
+	}
 	normal_tex:Shade(
 		[[
         vec2 p = uv * 20.0;
@@ -176,11 +172,11 @@ local function CreateDesertTerrain()
 	end
 
 	-- 1. Heightmap Texture
-	local height_tex = Texture.New({
+	local height_tex = Texture.New{
 		width = 512,
 		height = 512,
 		format = "r8g8b8a8_unorm",
-	})
+	}
 	height_tex:Shade(
 		[[
         vec3 p = vec3(uv.x * 20.0, 0.0, uv.y * 20.0);

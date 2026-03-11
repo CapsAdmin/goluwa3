@@ -17,14 +17,17 @@ if ffi.os == "Windows" then
 		return ffi.cast("uint64_t", elapsed * 1000000000ULL / freq)
 	end
 elseif ffi.os == "OSX" then
-	pcall(ffi.cdef, [[
+	pcall(
+		ffi.cdef,
+		[[
 		struct mach_timebase_info {
 			uint32_t	numer;
 			uint32_t	denom;
 		};
 		int mach_timebase_info(struct mach_timebase_info *info);
 		uint64_t mach_absolute_time(void);
-	]])
+	]]
+	)
 	local tb = ffi.new("struct mach_timebase_info")
 	ffi.C.mach_timebase_info(tb)
 	local timebase = tonumber(tb.numer) / tonumber(tb.denom)

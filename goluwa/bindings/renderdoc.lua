@@ -92,10 +92,10 @@ local function launch_ui(path, args)
 
 	print(table.concat(args, " "))
 	local process = require("bindings.process")
-	return assert(process.spawn({
+	return assert(process.spawn{
 		command = store_path .. "/bin/qrenderdoc",
 		args = args,
-	}))
+	})
 end
 
 local function find_renderdoc_lib()

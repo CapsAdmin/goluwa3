@@ -54,13 +54,13 @@ return function(steam)
 				if not vfs.IsFile(v.include) then
 					v.include = vfs.FindMixedCasePath(v.include) or v.include
 				end
-				
+
 				local str, err = vfs.Read(v.include)
 
 				if not str then
 					on_error("cannot include " .. v.include .. ": " .. err)
 					--main_cb:Reject(err)
-					return 
+					return
 				end
 
 				local vmt2, err2 = steam.VDFToTable(str, function(key)
@@ -140,14 +140,17 @@ return function(steam)
 						cb:Catch(function(reason)
 							-- Try mixed case path before giving up
 							local mixed_path = vfs.FindMixedCasePath(new_path)
+
 							if mixed_path then
 								vmt[k] = mixed_path
 							else
 								if on_error then
 									on_error("texture " .. k .. " " .. new_path .. " not found: " .. reason)
 								end
+
 								vmt[k] = nil -- Remove failed texture from vmt
 							end
+
 							pending = pending - 1
 							check_done()
 						end)
@@ -164,7 +167,7 @@ return function(steam)
 			check_done()
 		end):Catch(function(reason)
 			on_error("material " .. path .. " not found: " .. reason)
-			--main_cb:Reject(reason)
+		--main_cb:Reject(reason)
 		end)
 		return main_cb
 	end

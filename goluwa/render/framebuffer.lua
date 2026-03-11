@@ -19,24 +19,22 @@ function Framebuffer.New(config)
 	local clear_colors = config.clear_colors or {config.clear_color or {0, 0, 0, 1}}
 
 	for i, format in ipairs(formats) do
-		local color_texture = Texture.New(
-			{
-				width = width,
-				height = height,
-				format = format,
-				mip_map_levels = config.mip_map_levels or 1,
-				image = {
-					usage = {"color_attachment", "sampled", "transfer_src", "transfer_dst"},
-					samples = samples,
-				},
-				sampler = {
-					min_filter = config.min_filter or "linear",
-					mag_filter = config.mag_filter or "linear",
-					wrap_s = config.wrap_s or "repeat",
-					wrap_t = config.wrap_t or "repeat",
-				},
-			}
-		)
+		local color_texture = Texture.New{
+			width = width,
+			height = height,
+			format = format,
+			mip_map_levels = config.mip_map_levels or 1,
+			image = {
+				usage = {"color_attachment", "sampled", "transfer_src", "transfer_dst"},
+				samples = samples,
+			},
+			sampler = {
+				min_filter = config.min_filter or "linear",
+				mag_filter = config.mag_filter or "linear",
+				wrap_s = config.wrap_s or "repeat",
+				wrap_t = config.wrap_t or "repeat",
+			},
+		}
 		table.insert(self.color_textures, color_texture)
 		table.insert(self.clear_colors, clear_colors[i] or {0, 0, 0, 1})
 	end
@@ -45,25 +43,23 @@ function Framebuffer.New(config)
 	self.clear_color = self.clear_colors[1]
 
 	if config.depth then
-		self.depth_texture = Texture.New(
-			{
-				width = width,
-				height = height,
-				format = config.depth_format or "d32_sfloat",
-				image = {
-					usage = {"depth_stencil_attachment", "sampled"},
-					properties = "device_local",
-					samples = samples,
-				},
-				view = {
-					aspect = "depth",
-				},
-				sampler = {
-					min_filter = "linear",
-					mag_filter = "linear",
-				},
-			}
-		)
+		self.depth_texture = Texture.New{
+			width = width,
+			height = height,
+			format = config.depth_format or "d32_sfloat",
+			image = {
+				usage = {"depth_stencil_attachment", "sampled"},
+				properties = "device_local",
+				samples = samples,
+			},
+			view = {
+				aspect = "depth",
+			},
+			sampler = {
+				min_filter = "linear",
+				mag_filter = "linear",
+			},
+		}
 	end
 
 	self.command_pool = render.GetCommandPool()
@@ -110,13 +106,11 @@ function Framebuffer:Begin(cmd, load_op)
 		)
 	end
 
-	cmd:PipelineBarrier(
-		{
-			srcStage = "top_of_pipe",
-			dstStage = {"color_attachment_output", "early_fragment_tests", "late_fragment_tests"},
-			imageBarriers = imageBarriers,
-		}
-	)
+	cmd:PipelineBarrier{
+		srcStage = "top_of_pipe",
+		dstStage = {"color_attachment_output", "early_fragment_tests", "late_fragment_tests"},
+		imageBarriers = imageBarriers,
+	}
 	-- Begin rendering
 	local color_attachments = {}
 
@@ -183,13 +177,11 @@ function Framebuffer:End(cmd)
 		)
 	end
 
-	cmd:PipelineBarrier(
-		{
-			srcStage = {"color_attachment_output", "late_fragment_tests"},
-			dstStage = "fragment",
-			imageBarriers = imageBarriers,
-		}
-	)
+	cmd:PipelineBarrier{
+		srcStage = {"color_attachment_output", "late_fragment_tests"},
+		dstStage = "fragment",
+		imageBarriers = imageBarriers,
+	}
 	self.initialized = true
 
 	for _, tex in ipairs(self.color_textures) do

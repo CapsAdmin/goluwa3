@@ -80,34 +80,33 @@ function META:GetJFAPipelines()
 	if self.jfa_pipelines then return self.jfa_pipelines end
 
 	self.jfa_pipelines = {
-		init = EasyPipeline.FragmentOnly(
-			{
-				color_format = {{"r32g32_sfloat", {"rg", "rg"}}},
-				block = {
-					{
-						"tex_idx",
-						"int",
-						function(p, b, k)
-							b[k] = p:GetTextureIndex(p.current_jfa_tex)
-						end,
-					},
-					{
-						"mode",
-						"int",
-						function(p, b, k)
-							b[k] = p.current_jfa_mode
-						end,
-					},
-					{
-						"size",
-						"vec2",
-						function(p, b, k)
-							b[k][0] = p.current_jfa_size.x
-							b[k][1] = p.current_jfa_size.y
-						end,
-					},
+		init = EasyPipeline.FragmentOnly{
+			color_format = {{"r32g32_sfloat", {"rg", "rg"}}},
+			block = {
+				{
+					"tex_idx",
+					"int",
+					function(p, b, k)
+						b[k] = p:GetTextureIndex(p.current_jfa_tex)
+					end,
 				},
-				shader = [[
+				{
+					"mode",
+					"int",
+					function(p, b, k)
+						b[k] = p.current_jfa_mode
+					end,
+				},
+				{
+					"size",
+					"vec2",
+					function(p, b, k)
+						b[k][0] = p.current_jfa_size.x
+						b[k][1] = p.current_jfa_size.y
+					end,
+				},
+			},
+			shader = [[
 					layout(location = 0) in vec2 in_uv;
 					void main() {
 						vec4 tex = texture(TEXTURE(fragment.tex_idx), in_uv);
@@ -122,36 +121,34 @@ function META:GetJFAPipelines()
 						}
 					}
 				]],
-			}
-		),
-		step = EasyPipeline.FragmentOnly(
-			{
-				color_format = {{"r32g32_sfloat", {"rg", "rg"}}},
-				block = {
-					{
-						"tex_idx",
-						"int",
-						function(p, b, k)
-							b[k] = p:GetTextureIndex(p.current_jfa_tex)
-						end,
-					},
-					{
-						"step_size",
-						"float",
-						function(p, b, k)
-							b[k] = p.current_jfa_step
-						end,
-					},
-					{
-						"size",
-						"vec2",
-						function(p, b, k)
-							b[k][0] = p.current_jfa_size.x
-							b[k][1] = p.current_jfa_size.y
-						end,
-					},
+		},
+		step = EasyPipeline.FragmentOnly{
+			color_format = {{"r32g32_sfloat", {"rg", "rg"}}},
+			block = {
+				{
+					"tex_idx",
+					"int",
+					function(p, b, k)
+						b[k] = p:GetTextureIndex(p.current_jfa_tex)
+					end,
 				},
-				shader = [[
+				{
+					"step_size",
+					"float",
+					function(p, b, k)
+						b[k] = p.current_jfa_step
+					end,
+				},
+				{
+					"size",
+					"vec2",
+					function(p, b, k)
+						b[k][0] = p.current_jfa_size.x
+						b[k][1] = p.current_jfa_size.y
+					end,
+				},
+			},
+			shader = [[
 					layout(location = 0) in vec2 in_uv;
 					void main() {
 						vec2 best_seed = texture(TEXTURE(fragment.tex_idx), in_uv).rg;
@@ -174,36 +171,34 @@ function META:GetJFAPipelines()
 						set_rg(best_seed);
 					}
 				]],
-			}
-		),
-		final = EasyPipeline.FragmentOnly(
-			{
-				color_format = {{"r32_sfloat", {"r", "r"}}},
-				block = {
-					{
-						"tex_idx",
-						"int",
-						function(p, b, k)
-							b[k] = p:GetTextureIndex(p.current_jfa_tex)
-						end,
-					},
-					{
-						"size",
-						"vec2",
-						function(p, b, k)
-							b[k][0] = p.current_jfa_size.x
-							b[k][1] = p.current_jfa_size.y
-						end,
-					},
-					{
-						"max_dist",
-						"float",
-						function(p, b, k)
-							b[k] = p.current_jfa_max_dist
-						end,
-					},
+		},
+		final = EasyPipeline.FragmentOnly{
+			color_format = {{"r32_sfloat", {"r", "r"}}},
+			block = {
+				{
+					"tex_idx",
+					"int",
+					function(p, b, k)
+						b[k] = p:GetTextureIndex(p.current_jfa_tex)
+					end,
 				},
-				shader = [[
+				{
+					"size",
+					"vec2",
+					function(p, b, k)
+						b[k][0] = p.current_jfa_size.x
+						b[k][1] = p.current_jfa_size.y
+					end,
+				},
+				{
+					"max_dist",
+					"float",
+					function(p, b, k)
+						b[k] = p.current_jfa_max_dist
+					end,
+				},
+			},
+			shader = [[
 					layout(location = 0) in vec2 in_uv;
 					void main() {
 						vec2 seed = texture(TEXTURE(fragment.tex_idx), in_uv).rg;
@@ -211,42 +206,40 @@ function META:GetJFAPipelines()
 						set_r(dist);
 					}
 				]],
-			}
-		),
-		combine = EasyPipeline.FragmentOnly(
-			{
-				color_format = {{self:GetAtlasFormat(), {"rgba", "rgba"}}},
-				block = {
-					{
-						"dist_on_idx",
-						"int",
-						function(p, b, k)
-							b[k] = p:GetTextureIndex(p.current_jfa_dist_on)
-						end,
-					},
-					{
-						"dist_off_idx",
-						"int",
-						function(p, b, k)
-							b[k] = p:GetTextureIndex(p.current_jfa_dist_off)
-						end,
-					},
-					{
-						"mask_idx",
-						"int",
-						function(p, b, k)
-							b[k] = p:GetTextureIndex(p.current_jfa_mask_tex)
-						end,
-					},
-					{
-						"max_dist",
-						"float",
-						function(p, b, k)
-							b[k] = p.current_jfa_max_dist
-						end,
-					},
+		},
+		combine = EasyPipeline.FragmentOnly{
+			color_format = {{self:GetAtlasFormat(), {"rgba", "rgba"}}},
+			block = {
+				{
+					"dist_on_idx",
+					"int",
+					function(p, b, k)
+						b[k] = p:GetTextureIndex(p.current_jfa_dist_on)
+					end,
 				},
-				shader = [[
+				{
+					"dist_off_idx",
+					"int",
+					function(p, b, k)
+						b[k] = p:GetTextureIndex(p.current_jfa_dist_off)
+					end,
+				},
+				{
+					"mask_idx",
+					"int",
+					function(p, b, k)
+						b[k] = p:GetTextureIndex(p.current_jfa_mask_tex)
+					end,
+				},
+				{
+					"max_dist",
+					"float",
+					function(p, b, k)
+						b[k] = p.current_jfa_max_dist
+					end,
+				},
+			},
+			shader = [[
 					layout(location = 0) in vec2 in_uv;
 					void main() {
 						float d_on = texture(TEXTURE(fragment.dist_on_idx), in_uv).r;
@@ -270,8 +263,7 @@ function META:GetJFAPipelines()
 						set_rgba(vec4(norm_dist, norm_dist, norm_dist, 1.0));
 					}
 				]],
-			}
-		),
+		},
 	}
 	return self.jfa_pipelines
 end
@@ -370,19 +362,17 @@ local function get_temp_fb(w, h, format, mip_maps, filter)
 	local fb = table.remove(pool)
 
 	if not fb then
-		fb = Framebuffer.New(
-			{
-				width = w,
-				height = h,
-				clear_color = {0, 0, 0, 0},
-				format = format,
-				mip_map_levels = mip_maps and "auto" or 1,
-				min_filter = filter or "linear",
-				mag_filter = filter or "linear",
-				wrap_s = "clamp_to_edge",
-				wrap_t = "clamp_to_edge",
-			}
-		)
+		fb = Framebuffer.New{
+			width = w,
+			height = h,
+			clear_color = {0, 0, 0, 0},
+			format = format,
+			mip_map_levels = mip_maps and "auto" or 1,
+			min_filter = filter or "linear",
+			mag_filter = filter or "linear",
+			wrap_s = "clamp_to_edge",
+			wrap_t = "clamp_to_edge",
+		}
 		fb._pool_key = key
 	end
 

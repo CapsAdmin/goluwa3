@@ -226,7 +226,7 @@ do
 		local cache_key = style[1] .. "_" .. style[2] .. "_" .. size_val
 
 		if not font_cache[cache_key] then
-			font_cache[cache_key] = fonts.New({Name = style[1], Weight = style[2], Size = size_val})
+			font_cache[cache_key] = fonts.New{Name = style[1], Weight = style[2], Size = size_val}
 		end
 
 		return font_cache[cache_key], size_val
@@ -347,19 +347,17 @@ do -- primitives
 		render2d.PopMatrix()
 	end
 
-	local gradient_classic = Texture.New(
-		{
-			width = 16,
-			height = 16,
-			format = "r8g8b8a8_unorm",
-			sampler = {
-				min_filter = "linear",
-				mag_filter = "linear",
-				wrap_s = "clamp_to_edge",
-				wrap_t = "clamp_to_edge",
-			},
-		}
-	)
+	local gradient_classic = Texture.New{
+		width = 16,
+		height = 16,
+		format = "r8g8b8a8_unorm",
+		sampler = {
+			min_filter = "linear",
+			mag_filter = "linear",
+			wrap_s = "clamp_to_edge",
+			wrap_t = "clamp_to_edge",
+		},
+	}
 	local start = Color.FromHex("#060086")
 	local stop = Color.FromHex("#04013e")
 	gradient_classic:Shade(
@@ -369,9 +367,9 @@ do -- primitives
 		]]
 	)
 	local create_metal_frame = require("render.textures.metal_frame")
-	local metal_frame = create_metal_frame({
+	local metal_frame = create_metal_frame{
 		base_color = Color.FromHex("#8f8b92"),
-	})
+	}
 
 	function theme.DrawClassicFrame(x, y, w, h)
 		render2d.PushBorderRadius(h * 0.2)
@@ -406,14 +404,12 @@ do -- primitives
 	end
 
 	local create_metal_frame = require("render.textures.metal_frame")
-	local metal_frame = create_metal_frame(
-		{
-			base_color = Color.FromHex("#8f8b92"),
-			frame_inner = 0.02,
-			frame_outer = 0.002,
-			corner_radius = 0.02,
-		}
-	)
+	local metal_frame = create_metal_frame{
+		base_color = Color.FromHex("#8f8b92"),
+		frame_inner = 0.02,
+		frame_outer = 0.002,
+		corner_radius = 0.02,
+	}
 
 	function theme.DrawWhiteFrame(x, y, w, h)
 		render2d.PushBorderRadius(h * 0.2)
@@ -572,19 +568,17 @@ do -- primitives
 
 	do
 		local glow_color = theme.GetColor("light")
-		local gradient = Texture.New(
-			{
-				width = 16,
-				height = 16,
-				format = "r8g8b8a8_unorm",
-				sampler = {
-					min_filter = "linear",
-					mag_filter = "linear",
-					wrap_s = "clamp_to_edge",
-					wrap_t = "clamp_to_edge",
-				},
-			}
-		)
+		local gradient = Texture.New{
+			width = 16,
+			height = 16,
+			format = "r8g8b8a8_unorm",
+			sampler = {
+				min_filter = "linear",
+				mag_filter = "linear",
+				wrap_s = "clamp_to_edge",
+				wrap_t = "clamp_to_edge",
+			},
+		}
 		local start = theme.GetColor("primary")
 		local stop = theme.GetColor("darkest")
 		gradient:Shade(
@@ -658,213 +652,195 @@ do -- animations
 		local is_tilting = is_active
 
 		if is_active ~= s.last_active then
-			pnl.animation:Animate(
-				{
-					id = "press_scale",
-					get = function()
-						return s.press_scale
-					end,
-					set = function(val)
-						s.press_scale = val
-					end,
-					to = is_active and 1 or 0,
-					interpolation = (s.is_pressed and not s.is_hovered) and "linear" or "inOutSine",
-					time = (s.is_pressed and not s.is_hovered) and 0.2 or 0.1,
-				}
-			)
-			pnl.animation:Animate(
-				{
-					id = "DrawScaleOffset",
-					get = function()
-						return pnl.transform:GetDrawScaleOffset()
-					end,
-					set = function(v)
-						pnl.transform:SetDrawScaleOffset(v)
-					end,
-					to = is_active and (Vec2() + 0.97) or (Vec2(1, 1)),
-					interpolation = (
-							s.is_pressed and
-							not s.is_hovered
-						)
-						and
-						"linear" or
-						{
-							type = "spring",
-							bounce = 0.6,
-							duration = 100,
-						},
-					time = (s.is_pressed and not s.is_hovered) and 0.2 or nil,
-				}
-			)
+			pnl.animation:Animate{
+				id = "press_scale",
+				get = function()
+					return s.press_scale
+				end,
+				set = function(val)
+					s.press_scale = val
+				end,
+				to = is_active and 1 or 0,
+				interpolation = (s.is_pressed and not s.is_hovered) and "linear" or "inOutSine",
+				time = (s.is_pressed and not s.is_hovered) and 0.2 or 0.1,
+			}
+			pnl.animation:Animate{
+				id = "DrawScaleOffset",
+				get = function()
+					return pnl.transform:GetDrawScaleOffset()
+				end,
+				set = function(v)
+					pnl.transform:SetDrawScaleOffset(v)
+				end,
+				to = is_active and (Vec2() + 0.97) or (Vec2(1, 1)),
+				interpolation = (
+						s.is_pressed and
+						not s.is_hovered
+					)
+					and
+					"linear" or
+					{
+						type = "spring",
+						bounce = 0.6,
+						duration = 100,
+					},
+				time = (s.is_pressed and not s.is_hovered) and 0.2 or nil,
+			}
 			s.last_active = is_active
 		end
 
 		if s.is_hovered ~= s.last_hovered then
-			pnl.animation:Animate(
-				{
-					id = "glow_alpha",
-					get = function()
-						return s.glow_alpha
-					end,
-					set = function(val)
-						s.glow_alpha = val
-					end,
-					to = (s.is_hovered and not s.is_disabled) and 1 or 0,
-					interpolation = "inOutSine",
-					time = 0.1,
-				}
-			)
+			pnl.animation:Animate{
+				id = "glow_alpha",
+				get = function()
+					return s.glow_alpha
+				end,
+				set = function(val)
+					s.glow_alpha = val
+				end,
+				to = (s.is_hovered and not s.is_disabled) and 1 or 0,
+				interpolation = "inOutSine",
+				time = 0.1,
+			}
 			s.last_hovered = s.is_hovered
 		end
 
 		if is_tilting ~= s.last_tilting or is_tilting then
-			pnl.animation:Animate(
-				{
-					id = "Pivot",
-					get = function()
-						return pnl.transform:GetPivot()
-					end,
-					set = function(v)
-						pnl.transform:SetPivot(v)
-					end,
-					to = not is_tilting and
-						Vec2(0.5, 0.5) or
-						{
-							__lsx_value = function(pnl)
-								local mpos = window.GetMousePosition()
-								local local_pos = pnl.transform:GlobalToLocal(mpos)
-								local size = pnl.transform:GetSize()
-								local pivot = local_pos / size
-								return -pivot + Vec2(1, 1)
-							end,
-						},
-					interpolation = (
-							s.is_pressed and
-							not s.is_hovered
-						)
-						and
-						"linear" or
-						{
-							type = "spring",
-							bounce = 0.6,
-							duration = 10,
-						},
-					time = is_tilting and 0.3 or 10,
-				}
-			)
-			pnl.animation:Animate(
-				{
-					id = "DrawAngleOffset",
-					get = function()
-						return pnl.transform:GetDrawAngleOffset()
-					end,
-					set = function(v)
-						pnl.transform:SetDrawAngleOffset(v)
-					end,
-					to = not is_tilting and
-						Ang3(0, 0, 0) or
-						{
-							__lsx_value = function(pnl)
-								local mpos = window.GetMousePosition()
-								local local_pos = pnl.transform:GlobalToLocal(mpos)
-								local size = pnl.transform:GetSize()
-								local nx = (local_pos.x / size.x) * 2 - 1
-								local ny = (local_pos.y / size.y) * 2 - 1
-								return Ang3(-ny, nx, 0) * 0.01
-							end,
-						},
-					interpolation = (
-							s.is_pressed and
-							not s.is_hovered
-						)
-						and
-						"linear" or
-						{
-							type = "spring",
-							bounce = 0.6,
-							duration = 10,
-						},
-					time = is_tilting and 0.3 or 10,
-				}
-			)
+			pnl.animation:Animate{
+				id = "Pivot",
+				get = function()
+					return pnl.transform:GetPivot()
+				end,
+				set = function(v)
+					pnl.transform:SetPivot(v)
+				end,
+				to = not is_tilting and
+					Vec2(0.5, 0.5) or
+					{
+						__lsx_value = function(pnl)
+							local mpos = window.GetMousePosition()
+							local local_pos = pnl.transform:GlobalToLocal(mpos)
+							local size = pnl.transform:GetSize()
+							local pivot = local_pos / size
+							return -pivot + Vec2(1, 1)
+						end,
+					},
+				interpolation = (
+						s.is_pressed and
+						not s.is_hovered
+					)
+					and
+					"linear" or
+					{
+						type = "spring",
+						bounce = 0.6,
+						duration = 10,
+					},
+				time = is_tilting and 0.3 or 10,
+			}
+			pnl.animation:Animate{
+				id = "DrawAngleOffset",
+				get = function()
+					return pnl.transform:GetDrawAngleOffset()
+				end,
+				set = function(v)
+					pnl.transform:SetDrawAngleOffset(v)
+				end,
+				to = not is_tilting and
+					Ang3(0, 0, 0) or
+					{
+						__lsx_value = function(pnl)
+							local mpos = window.GetMousePosition()
+							local local_pos = pnl.transform:GlobalToLocal(mpos)
+							local size = pnl.transform:GetSize()
+							local nx = (local_pos.x / size.x) * 2 - 1
+							local ny = (local_pos.y / size.y) * 2 - 1
+							return Ang3(-ny, nx, 0) * 0.01
+						end,
+					},
+				interpolation = (
+						s.is_pressed and
+						not s.is_hovered
+					)
+					and
+					"linear" or
+					{
+						type = "spring",
+						bounce = 0.6,
+						duration = 10,
+					},
+				time = is_tilting and 0.3 or 10,
+			}
 			s.last_tilting = is_tilting
 		end
 	end
 
 	function theme.UpdateSliderAnimations(pnl, s)
 		if s.is_hovered ~= s.last_hovered then
-			pnl.animation:Animate(
-				{
-					id = "glow_alpha",
-					get = function()
-						return s.glow_alpha
-					end,
-					set = function(val)
-						s.glow_alpha = val
-					end,
-					to = s.is_hovered and 1 or 0,
-					interpolation = "inOutSine",
-					time = 0.15,
-				}
-			)
-			pnl.animation:Animate(
-				{
-					id = "knob_scale",
-					get = function()
-						return s.knob_scale
-					end,
-					set = function(val)
-						s.knob_scale = val
-					end,
-					to = s.is_hovered and 1.2 or 1,
-					interpolation = {
-						type = "spring",
-						bounce = 0.5,
-						duration = 80,
-					},
-				}
-			)
+			pnl.animation:Animate{
+				id = "glow_alpha",
+				get = function()
+					return s.glow_alpha
+				end,
+				set = function(val)
+					s.glow_alpha = val
+				end,
+				to = s.is_hovered and 1 or 0,
+				interpolation = "inOutSine",
+				time = 0.15,
+			}
+			pnl.animation:Animate{
+				id = "knob_scale",
+				get = function()
+					return s.knob_scale
+				end,
+				set = function(val)
+					s.knob_scale = val
+				end,
+				to = s.is_hovered and 1.2 or 1,
+				interpolation = {
+					type = "spring",
+					bounce = 0.5,
+					duration = 80,
+				},
+			}
 			s.last_hovered = s.is_hovered
 		end
 	end
 
 	function theme.UpdateCheckboxAnimations(pnl, s)
 		if s.is_hovered ~= s.last_hovered then
-			pnl.animation:Animate(
-				{
-					id = "glow_alpha",
-					get = function()
-						return s.glow_alpha
-					end,
-					set = function(val)
-						s.glow_alpha = val
-					end,
-					to = s.is_hovered and 1 or 0,
-					interpolation = "inOutSine",
-					time = 0.15,
-				}
-			)
+			pnl.animation:Animate{
+				id = "glow_alpha",
+				get = function()
+					return s.glow_alpha
+				end,
+				set = function(val)
+					s.glow_alpha = val
+				end,
+				to = s.is_hovered and 1 or 0,
+				interpolation = "inOutSine",
+				time = 0.15,
+			}
 			s.last_hovered = s.is_hovered
 		end
 
 		if s.value ~= s.last_value then
-			pnl.animation:Animate(
-				{
-					id = "check_anim",
-					get = function()
-						return s.check_anim
-					end,
-					set = function(val)
-						s.check_anim = val
-					end,
-					to = s.value and 1 or 0,
-					interpolation = {
-						type = "spring",
-						bounce = 0.4,
-						duration = 100,
-					},
-				}
-			)
+			pnl.animation:Animate{
+				id = "check_anim",
+				get = function()
+					return s.check_anim
+				end,
+				set = function(val)
+					s.check_anim = val
+				end,
+				to = s.value and 1 or 0,
+				interpolation = {
+					type = "spring",
+					bounce = 0.4,
+					duration = 100,
+				},
+			}
 			s.last_value = s.value
 		end
 	end

@@ -9,15 +9,13 @@ local gfx = require("render2d.gfx")
 local fonts = require("render2d.fonts")
 local system = require("system")
 local render2d = require("render2d.render2d")
-local zsnes = Texture.New(
-	{
-		path = "textures/gui/skins/zsnes.png",
-		sampler = {
-			min_filter = "nearest",
-			mag_filter = "nearest",
-		},
-	}
-)
+local zsnes = Texture.New{
+	path = "textures/gui/skins/zsnes.png",
+	sampler = {
+		min_filter = "nearest",
+		mag_filter = "nearest",
+	},
+}
 print(zsnes:IsReady())
 local skin = {}
 

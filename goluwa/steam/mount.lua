@@ -40,35 +40,33 @@ return function(steam)
 		end
 	end)
 
-	pvars.Setup2(
-		{
-			key = "steam_mount",
-			default = {},
-			get_list = function()
-				local lst = {}
+	pvars.Setup2{
+		key = "steam_mount",
+		default = {},
+		get_list = function()
+			local lst = {}
 
-				for _, info in pairs(steam.GetSourceGames()) do
-					lst[info.filesystem.steamappid] = {friendly = info.name}
-				end
+			for _, info in pairs(steam.GetSourceGames()) do
+				lst[info.filesystem.steamappid] = {friendly = info.name}
+			end
 
-				return lst
-			end,
-			callback = function(lst)
-				-- TODO
-				do
-					return
-				end
+			return lst
+		end,
+		callback = function(lst)
+			-- TODO
+			do
+				return
+			end
 
-				for appid, v in pairs(steam.GetMountedSourceGames()) do
-					steam.UnmountSourceGame(appid)
-				end
+			for appid, v in pairs(steam.GetMountedSourceGames()) do
+				steam.UnmountSourceGame(appid)
+			end
 
-				for i, v in ipairs(lst) do
-					steam.MountSourceGame(v)
-				end
-			end,
-		}
-	)
+			for i, v in ipairs(lst) do
+				steam.MountSourceGame(v)
+			end
+		end,
+	}
 
 	commands.Add("list_games", function()
 		if not next(steam.GetSourceGames()) then

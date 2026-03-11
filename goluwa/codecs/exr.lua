@@ -231,13 +231,11 @@ function exr.DecodeBuffer(inputBuffer)
 				expected_size = expected_size + (ch.pixel_type == 1 and 2 or 4) * width * numLinesInThisBlock
 			end
 
-			local decompressed_buffer = deflate.inflate_zlib(
-				{
-					input = compressed_data,
-					output = Buffer.New(ffi.new("uint8_t[?]", expected_size), expected_size):MakeWritable(),
-					disable_crc = true,
-				}
-			)
+			local decompressed_buffer = deflate.inflate_zlib{
+				input = compressed_data,
+				output = Buffer.New(ffi.new("uint8_t[?]", expected_size), expected_size):MakeWritable(),
+				disable_crc = true,
+			}
 			local decompressed_data = decompressed_buffer:GetBuffer()
 			local decompressed_size = decompressed_buffer:GetSize()
 			predictor(decompressed_data, decompressed_size)

@@ -121,7 +121,7 @@ do -- mounting/links
 					out_i = out_i + 1
 				elseif
 					not is_folder and
-					context:IsFolder({full_path = vfs.GetParentFolderFromPath(path_info.full_path)})
+					context:IsFolder{full_path = vfs.GetParentFolderFromPath(path_info.full_path)}
 				then
 					out[out_i] = {path_info = path_info, context = context, userdata = path_info.userdata}
 					out_i = out_i + 1

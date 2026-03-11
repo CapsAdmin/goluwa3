@@ -1088,29 +1088,25 @@ function EasyPipeline:RecreateFramebuffers()
 
 	if framebuffer_count == 1 then
 		-- Single framebuffer (backward compatible)
-		self.framebuffer = Framebuffer.New(
-			{
+		self.framebuffer = Framebuffer.New{
+			width = size.x,
+			height = size.y,
+			formats = #self.actual_color_formats > 0 and self.actual_color_formats or nil,
+			depth = self.config.depth_format ~= nil,
+			depth_format = self.config.depth_format,
+		}
+	else
+		-- Multiple framebuffers (ping-pong)
+		self.framebuffers = {}
+
+		for i = 1, framebuffer_count do
+			self.framebuffers[i] = Framebuffer.New{
 				width = size.x,
 				height = size.y,
 				formats = #self.actual_color_formats > 0 and self.actual_color_formats or nil,
 				depth = self.config.depth_format ~= nil,
 				depth_format = self.config.depth_format,
 			}
-		)
-	else
-		-- Multiple framebuffers (ping-pong)
-		self.framebuffers = {}
-
-		for i = 1, framebuffer_count do
-			self.framebuffers[i] = Framebuffer.New(
-				{
-					width = size.x,
-					height = size.y,
-					formats = #self.actual_color_formats > 0 and self.actual_color_formats or nil,
-					depth = self.config.depth_format ~= nil,
-					depth_format = self.config.depth_format,
-				}
-			)
 		end
 
 		-- Also set first one as default for backward compatibility
@@ -1121,26 +1117,30 @@ end
 function EasyPipeline:OnWindowFramebufferResized()
 	if render.target and render.target.config.offscreen then return end
 
-	timer.Delay(0.01, function() 
-		self:RecreateFramebuffers()
-		-- Update descriptor sets if they reference framebuffer textures
-		local textures = {}
-		local fb = self.framebuffer
+	timer.Delay(
+		0.01,
+		function()
+			self:RecreateFramebuffers()
+			-- Update descriptor sets if they reference framebuffer textures
+			local textures = {}
+			local fb = self.framebuffer
 
-		if fb then
-			for _, tex in ipairs(fb.color_textures or {}) do
-				table.insert(textures, tex)
-			end
+			if fb then
+				for _, tex in ipairs(fb.color_textures or {}) do
+					table.insert(textures, tex)
+				end
 
-			if fb.depth_texture then table.insert(textures, fb.depth_texture) end
+				if fb.depth_texture then table.insert(textures, fb.depth_texture) end
 
-			if #textures > 0 then
-				for i = 1, #self.pipeline.descriptor_sets do
-					self.pipeline:UpdateDescriptorSetArray(i, 0, 1, textures)
+				if #textures > 0 then
+					for i = 1, #self.pipeline.descriptor_sets do
+						self.pipeline:UpdateDescriptorSetArray(i, 0, 1, textures)
+					end
 				end
 			end
-		end
-	end, self)
+		end,
+		self
+	)
 end
 
 function EasyPipeline:Bind(cmd, frame_index, dynamic_offsets)
@@ -1271,15 +1271,14 @@ function EasyPipeline:DrawMeshTasks(gx, gy, gz, cmd, framebuffer, frame_index)
 end
 
 function EasyPipeline.FragmentOnly(config)
-	return EasyPipeline.New(
-		{
-			color_format = config.color_format,
-			samples = "1",
-			rasterizer = {
-				cull_mode = "none",
-			},
-			vertex = {
-				shader = [[
+	return EasyPipeline.New{
+		color_format = config.color_format,
+		samples = "1",
+		rasterizer = {
+			cull_mode = "none",
+		},
+		vertex = {
+			shader = [[
 				vec2 positions[3] = vec2[](vec2(-1.0, -1.0), vec2( 3.0, -1.0), vec2(-1.0,  3.0));
 				layout(location = 0) out vec2 out_uv;
 				void main() {
@@ -1288,16 +1287,15 @@ function EasyPipeline.FragmentOnly(config)
 					out_uv = pos * 0.5 + 0.5;
 				}
 			]],
-			},
-			fragment = {
-				push_constants = {{
-					name = "fragment",
-					block = config.block,
-				}},
-				shader = config.shader,
-			},
-		}
-	)
+		},
+		fragment = {
+			push_constants = {{
+				name = "fragment",
+				block = config.block,
+			}},
+			shader = config.shader,
+		},
+	}
 end
 
 return EasyPipeline:Register()

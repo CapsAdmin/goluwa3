@@ -129,7 +129,6 @@ function META:Copy(map--[[#: Map<|any, any|> | nil]], copy_tables)
 
 	local copy = META.New({})
 	map[self] = copy
-	
 	local data = self.Data
 	local copy_data = copy.Data
 	local len = #data
@@ -735,18 +734,16 @@ function META:SetTable(data)
 end
 
 function META.New(data--[[#: nil | List<|TBaseType|>]])
-	local self = META.NewObject(
-		{
-			Type = "tuple",
-			Data = {},
-			Unpackable = false,
-			suppress = false,
-			Remainder = false,
-			Repeat = false,
-			Upvalue = false,
-			Contract = false,
-		}
-	)
+	local self = META.NewObject{
+		Type = "tuple",
+		Data = {},
+		Unpackable = false,
+		suppress = false,
+		Remainder = false,
+		Repeat = false,
+		Upvalue = false,
+		Contract = false,
+	}
 
 	if data and data[1] then self:SetTable(data) end
 

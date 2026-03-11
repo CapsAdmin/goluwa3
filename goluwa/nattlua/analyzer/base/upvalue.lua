@@ -85,22 +85,20 @@ end
 local id = 0
 
 function META.New(obj)
-	local self = META.NewObject(
-		{
-			Type = "upvalue",
-			truthy_falsy_union = false,
-			Value = false,
-			Key = false,
-			FromForLoop = false,
-			Immutable = false,
-			Shadow = false,
-			Position = false,
-			Scope = false,
-			Mutations = false,
-			UseCount = 0,
-			statement = false,
-		}
-	)
+	local self = META.NewObject{
+		Type = "upvalue",
+		truthy_falsy_union = false,
+		Value = false,
+		Key = false,
+		FromForLoop = false,
+		Immutable = false,
+		Shadow = false,
+		Position = false,
+		Scope = false,
+		Mutations = false,
+		UseCount = 0,
+		statement = false,
+	}
 	id = id + 1
 	self:SetValue(obj)
 	return self

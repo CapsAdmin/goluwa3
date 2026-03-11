@@ -27,9 +27,9 @@ T.Test3D("Polygon3D", function(draw)
 
 	T.Test3D("Graphics Polygon3D AddVertex", function()
 		local poly = Polygon3D.New()
-		poly:AddVertex({pos = Vec3(0, 0, 0), uv = Vec2(0, 0)})
-		poly:AddVertex({pos = Vec3(1, 0, 0), uv = Vec2(1, 0)})
-		poly:AddVertex({pos = Vec3(0, 1, 0), uv = Vec2(0, 1)})
+		poly:AddVertex{pos = Vec3(0, 0, 0), uv = Vec2(0, 0)}
+		poly:AddVertex{pos = Vec3(1, 0, 0), uv = Vec2(1, 0)}
+		poly:AddVertex{pos = Vec3(0, 1, 0), uv = Vec2(0, 1)}
 		T(#poly.Vertices)["=="](3)
 	end)
 
@@ -39,9 +39,9 @@ T.Test3D("Polygon3D", function(draw)
 	T.Test3D("Graphics Polygon3D simple triangle", function()
 		local poly = Polygon3D.New()
 		-- Create a simple triangle
-		poly:AddVertex({pos = Vec3(-1, -1, 0), uv = Vec2(0, 0), normal = Vec3(0, 0, 1)})
-		poly:AddVertex({pos = Vec3(1, -1, 0), uv = Vec2(1, 0), normal = Vec3(0, 0, 1)})
-		poly:AddVertex({pos = Vec3(0, 1, 0), uv = Vec2(0.5, 1), normal = Vec3(0, 0, 1)})
+		poly:AddVertex{pos = Vec3(-1, -1, 0), uv = Vec2(0, 0), normal = Vec3(0, 0, 1)}
+		poly:AddVertex{pos = Vec3(1, -1, 0), uv = Vec2(1, 0), normal = Vec3(0, 0, 1)}
+		poly:AddVertex{pos = Vec3(0, 1, 0), uv = Vec2(0.5, 1), normal = Vec3(0, 0, 1)}
 		poly:Upload()
 		T(poly.mesh)["~="](nil)
 		T(poly.mesh.vertex_buffer)["~="](nil)
@@ -70,9 +70,9 @@ T.Test3D("Polygon3D", function(draw)
 	-- ============================================================================
 	T.Test3D("Graphics Polygon3D Upload with indices", function()
 		local poly = Polygon3D.New()
-		poly:AddVertex({pos = Vec3(0, 0, 0)})
-		poly:AddVertex({pos = Vec3(1, 0, 0)})
-		poly:AddVertex({pos = Vec3(0, 1, 0)})
+		poly:AddVertex{pos = Vec3(0, 0, 0)}
+		poly:AddVertex{pos = Vec3(1, 0, 0)}
+		poly:AddVertex{pos = Vec3(0, 1, 0)}
 		poly:Upload({0, 1, 2})
 		T(poly.indices)["~="](nil)
 		T(#poly.indices)["=="](3)
@@ -85,9 +85,9 @@ T.Test3D("Polygon3D", function(draw)
 		local poly = Polygon3D.New()
 		-- Create triangle without normals
 		-- XY plane triangle, facing +Z
-		poly:AddVertex({pos = Vec3(0, 0, 0), uv = Vec2(0, 0)})
-		poly:AddVertex({pos = Vec3(1, 0, 0), uv = Vec2(1, 0)})
-		poly:AddVertex({pos = Vec3(0, 1, 0), uv = Vec2(0, 1)})
+		poly:AddVertex{pos = Vec3(0, 0, 0), uv = Vec2(0, 0)}
+		poly:AddVertex{pos = Vec3(1, 0, 0), uv = Vec2(1, 0)}
+		poly:AddVertex{pos = Vec3(0, 1, 0), uv = Vec2(0, 1)}
 		poly:BuildNormals()
 
 		-- Check that normals were generated correctly
@@ -106,9 +106,9 @@ T.Test3D("Polygon3D", function(draw)
 		-- Create triangle without tangents
 		-- Pos: (0,0,0), (1,0,0), (0,1,0)
 		-- UV:  (0,0),   (1,0),   (0,1)
-		poly:AddVertex({pos = Vec3(0, 0, 0), uv = Vec2(0, 0), normal = Vec3(0, 0, 1)})
-		poly:AddVertex({pos = Vec3(1, 0, 0), uv = Vec2(1, 0), normal = Vec3(0, 0, 1)})
-		poly:AddVertex({pos = Vec3(0, 1, 0), uv = Vec2(0, 1), normal = Vec3(0, 0, 1)})
+		poly:AddVertex{pos = Vec3(0, 0, 0), uv = Vec2(0, 0), normal = Vec3(0, 0, 1)}
+		poly:AddVertex{pos = Vec3(1, 0, 0), uv = Vec2(1, 0), normal = Vec3(0, 0, 1)}
+		poly:AddVertex{pos = Vec3(0, 1, 0), uv = Vec2(0, 1), normal = Vec3(0, 0, 1)}
 		poly:BuildTangents()
 
 		-- Check that tangents were generated correctly
@@ -127,9 +127,9 @@ T.Test3D("Polygon3D", function(draw)
 		-- YZ plane triangle, facing +X
 		-- Pos: (0,0,0), (0,1,0), (0,0,1)
 		-- UVs: (0,0), (1,0), (0,1)
-		poly:AddVertex({pos = Vec3(0, 0, 0), uv = Vec2(0, 0)})
-		poly:AddVertex({pos = Vec3(0, 1, 0), uv = Vec2(1, 0)})
-		poly:AddVertex({pos = Vec3(0, 0, 1), uv = Vec2(0, 1)})
+		poly:AddVertex{pos = Vec3(0, 0, 0), uv = Vec2(0, 0)}
+		poly:AddVertex{pos = Vec3(0, 1, 0), uv = Vec2(1, 0)}
+		poly:AddVertex{pos = Vec3(0, 0, 1), uv = Vec2(0, 1)}
 		poly:BuildNormals()
 		poly:BuildTangents()
 
@@ -150,9 +150,9 @@ T.Test3D("Polygon3D", function(draw)
 	T.Test3D("Graphics Polygon3D BuildTangents zero UV area", function()
 		local poly = Polygon3D.New()
 		-- Degenerate UVs
-		poly:AddVertex({pos = Vec3(0, 0, 0), uv = Vec2(0, 0), normal = Vec3(0, 0, 1)})
-		poly:AddVertex({pos = Vec3(1, 0, 0), uv = Vec2(0, 0), normal = Vec3(0, 0, 1)})
-		poly:AddVertex({pos = Vec3(0, 1, 0), uv = Vec2(0, 0), normal = Vec3(0, 0, 1)})
+		poly:AddVertex{pos = Vec3(0, 0, 0), uv = Vec2(0, 0), normal = Vec3(0, 0, 1)}
+		poly:AddVertex{pos = Vec3(1, 0, 0), uv = Vec2(0, 0), normal = Vec3(0, 0, 1)}
+		poly:AddVertex{pos = Vec3(0, 1, 0), uv = Vec2(0, 0), normal = Vec3(0, 0, 1)}
 		poly:BuildTangents()
 
 		-- Should not crash and should produce some tangent
@@ -227,9 +227,9 @@ T.Test3D("Polygon3D", function(draw)
 	-- ============================================================================
 	T.Test3D("Graphics Polygon3D Upload creates mesh", function()
 		local poly = Polygon3D.New()
-		poly:AddVertex({pos = Vec3(0, 0, 0), uv = Vec2(0, 0), normal = Vec3(0, 0, 1)})
-		poly:AddVertex({pos = Vec3(1, 0, 0), uv = Vec2(1, 0), normal = Vec3(0, 0, 1)})
-		poly:AddVertex({pos = Vec3(0, 1, 0), uv = Vec2(0, 1), normal = Vec3(0, 0, 1)})
+		poly:AddVertex{pos = Vec3(0, 0, 0), uv = Vec2(0, 0), normal = Vec3(0, 0, 1)}
+		poly:AddVertex{pos = Vec3(1, 0, 0), uv = Vec2(1, 0), normal = Vec3(0, 0, 1)}
+		poly:AddVertex{pos = Vec3(0, 1, 0), uv = Vec2(0, 1), normal = Vec3(0, 0, 1)}
 		poly:Upload()
 		T(poly.mesh)["~="](nil)
 		T(poly.mesh.vertex_buffer)["~="](nil)
@@ -249,27 +249,25 @@ T.Test3D("Polygon3D", function(draw)
 		local cam = render3d.GetCamera()
 		cam:SetPosition(Vec3(0, 0, -10))
 		cam:SetFOV(math.rad(45))
-		return Entity.New(
-			{
-				Name = "sun",
-				transform = {
-					Rotation = Quat(0, 0, 0, -1):Normalize(),
-				},
-				light = {
-					LightType = "sun",
-					Color = Color(1, 1, 1),
-					Intensity = 1,
-				},
-			}
-		)
+		return Entity.New{
+			Name = "sun",
+			transform = {
+				Rotation = Quat(0, 0, 0, -1):Normalize(),
+			},
+			light = {
+				LightType = "sun",
+				Color = Color(1, 1, 1),
+				Intensity = 1,
+			},
+		}
 	end
 
 	T.Test3D("Graphics Polygon3D render simple triangle", function(draw)
 		local poly = Polygon3D.New()
 		-- Create a triangle facing camera
-		poly:AddVertex({pos = Vec3(-0.5, -0.5, 0), uv = Vec2(0, 0), normal = Vec3(0, 0, 1)})
-		poly:AddVertex({pos = Vec3(0.5, -0.5, 0), uv = Vec2(1, 0), normal = Vec3(0, 0, 1)})
-		poly:AddVertex({pos = Vec3(0, 0.5, 0), uv = Vec2(0.5, 1), normal = Vec3(0, 0, 1)})
+		poly:AddVertex{pos = Vec3(-0.5, -0.5, 0), uv = Vec2(0, 0), normal = Vec3(0, 0, 1)}
+		poly:AddVertex{pos = Vec3(0.5, -0.5, 0), uv = Vec2(1, 0), normal = Vec3(0, 0, 1)}
+		poly:AddVertex{pos = Vec3(0, 0.5, 0), uv = Vec2(0.5, 1), normal = Vec3(0, 0, 1)}
 		poly:BuildNormals()
 		poly:Upload()
 		local sun = setup_view()
@@ -310,9 +308,9 @@ T.Test3D("Polygon3D", function(draw)
 	T.Test3D("Graphics Polygon3D render with world matrix", function(draw)
 		local poly = Polygon3D.New()
 		-- Small triangle
-		poly:AddVertex({pos = Vec3(-0.3, -0.3, 0), uv = Vec2(0, 0), normal = Vec3(0, 0, 1)})
-		poly:AddVertex({pos = Vec3(0.3, -0.3, 0), uv = Vec2(1, 0), normal = Vec3(0, 0, 1)})
-		poly:AddVertex({pos = Vec3(0, 0.3, 0), uv = Vec2(0.5, 1), normal = Vec3(0, 0, 1)})
+		poly:AddVertex{pos = Vec3(-0.3, -0.3, 0), uv = Vec2(0, 0), normal = Vec3(0, 0, 1)}
+		poly:AddVertex{pos = Vec3(0.3, -0.3, 0), uv = Vec2(1, 0), normal = Vec3(0, 0, 1)}
+		poly:AddVertex{pos = Vec3(0, 0.3, 0), uv = Vec2(0.5, 1), normal = Vec3(0, 0, 1)}
 		poly:BuildNormals()
 		poly:Upload()
 		local sun = setup_view()
@@ -338,16 +336,16 @@ T.Test3D("Polygon3D", function(draw)
 	T.Test3D("Graphics Polygon3D render multiple objects", function(draw)
 		-- First triangle
 		local poly1 = Polygon3D.New()
-		poly1:AddVertex({pos = Vec3(-0.8, -0.5, 0), uv = Vec2(0, 0), normal = Vec3(0, 0, 1)})
-		poly1:AddVertex({pos = Vec3(-0.4, -0.5, 0), uv = Vec2(1, 0), normal = Vec3(0, 0, 1)})
-		poly1:AddVertex({pos = Vec3(-0.6, -0.1, 0), uv = Vec2(0.5, 1), normal = Vec3(0, 0, 1)})
+		poly1:AddVertex{pos = Vec3(-0.8, -0.5, 0), uv = Vec2(0, 0), normal = Vec3(0, 0, 1)}
+		poly1:AddVertex{pos = Vec3(-0.4, -0.5, 0), uv = Vec2(1, 0), normal = Vec3(0, 0, 1)}
+		poly1:AddVertex{pos = Vec3(-0.6, -0.1, 0), uv = Vec2(0.5, 1), normal = Vec3(0, 0, 1)}
 		poly1:BuildNormals()
 		poly1:Upload()
 		-- Second triangle
 		local poly2 = Polygon3D.New()
-		poly2:AddVertex({pos = Vec3(0.4, 0.1, 0), uv = Vec2(0, 0), normal = Vec3(0, 0, 1)})
-		poly2:AddVertex({pos = Vec3(0.8, 0.1, 0), uv = Vec2(1, 0), normal = Vec3(0, 0, 1)})
-		poly2:AddVertex({pos = Vec3(0.6, 0.5, 0), uv = Vec2(0.5, 1), normal = Vec3(0, 0, 1)})
+		poly2:AddVertex{pos = Vec3(0.4, 0.1, 0), uv = Vec2(0, 0), normal = Vec3(0, 0, 1)}
+		poly2:AddVertex{pos = Vec3(0.8, 0.1, 0), uv = Vec2(1, 0), normal = Vec3(0, 0, 1)}
+		poly2:AddVertex{pos = Vec3(0.6, 0.5, 0), uv = Vec2(0.5, 1), normal = Vec3(0, 0, 1)}
 		poly2:BuildNormals()
 		poly2:Upload()
 		local sun = setup_view()
@@ -375,9 +373,9 @@ T.Test3D("Polygon3D", function(draw)
 	-- ============================================================================
 	T.Test3D("Graphics Polygon3D Clear", function()
 		local poly = Polygon3D.New()
-		poly:AddVertex({pos = Vec3(0, 0, 0)})
-		poly:AddVertex({pos = Vec3(1, 0, 0)})
-		poly:AddVertex({pos = Vec3(0, 1, 0)})
+		poly:AddVertex{pos = Vec3(0, 0, 0)}
+		poly:AddVertex{pos = Vec3(1, 0, 0)}
+		poly:AddVertex{pos = Vec3(0, 1, 0)}
 		T(#poly.Vertices)["=="](3)
 		poly:Clear()
 		T(#poly.Vertices)["=="](0)
@@ -389,9 +387,9 @@ T.Test3D("Polygon3D", function(draw)
 	-- ============================================================================
 	T.Test3D("Graphics Polygon3D BuildBoundingBox", function()
 		local poly = Polygon3D.New()
-		poly:AddVertex({pos = Vec3(-1, -1, -1)})
-		poly:AddVertex({pos = Vec3(1, 1, 1)})
-		poly:AddVertex({pos = Vec3(0, 0, 0)})
+		poly:AddVertex{pos = Vec3(-1, -1, -1)}
+		poly:AddVertex{pos = Vec3(1, 1, 1)}
+		poly:AddVertex{pos = Vec3(0, 0, 0)}
 		poly:BuildBoundingBox()
 		-- AABB should have been expanded
 		T(poly.AABB)["~="](nil)

@@ -11,15 +11,13 @@ local system = require("system")
 local render2d = require("render2d.render2d")
 
 if false then
-	local zsnes = Texture.New(
-		{
-			path = "game/assets/images/zsnes.png",
-			sampler = {
-				min_filter = "nearest",
-				mag_filter = "nearest",
-			},
-		}
-	)
+	local zsnes = Texture.New{
+		path = "game/assets/images/zsnes.png",
+		sampler = {
+			min_filter = "nearest",
+			mag_filter = "nearest",
+		},
+	}
 	local skin = {}
 
 	do
@@ -145,15 +143,13 @@ if false then
 end
 
 if false then
-	local rope = Texture.New(
-		{
-			path = "game/assets/images/rope.png",
-			sampler = {
-				min_filter = "linear",
-				mag_filter = "linear",
-			},
-		}
-	)
+	local rope = Texture.New{
+		path = "game/assets/images/rope.png",
+		sampler = {
+			min_filter = "linear",
+			mag_filter = "linear",
+		},
+	}
 	local QuadricBezierCurve = require("render2d.quadric_bezier_curve")
 	local curve = QuadricBezierCurve.New()
 	curve:Add(Vec2(0, 0))
@@ -193,12 +189,11 @@ end
 if false then
 	local ffi = require("ffi")
 	local WORKGROUP_SIZE = 16
-	local pipeline = render.CreateComputePipeline(
-		{
-			push_constant_ranges = {
-				{stage = "compute", offset = 0, size = 16},
-			},
-			shader = [[
+	local pipeline = render.CreateComputePipeline{
+		push_constant_ranges = {
+			{stage = "compute", offset = 0, size = 16},
+		},
+		shader = [[
 				#version 450
 
 				layout (local_size_x = 16, local_size_y = 16) in;
@@ -268,17 +263,16 @@ if false then
 					imageStore(outputImage, pos, vec4(val, val, val, 1.0));
 				}
 			]],
-			workgroup_size = WORKGROUP_SIZE,
-			descriptor_set_count = 2,
-			descriptor_layout = {
-				{binding_index = 0, type = "storage_image", stageFlags = "compute", count = 1},
-				{binding_index = 1, type = "storage_image", stageFlags = "compute", count = 1},
-			},
-			descriptor_pool = {
-				{type = "storage_image", count = 4},
-			},
-		}
-	)
+		workgroup_size = WORKGROUP_SIZE,
+		descriptor_set_count = 2,
+		descriptor_layout = {
+			{binding_index = 0, type = "storage_image", stageFlags = "compute", count = 1},
+			{binding_index = 1, type = "storage_image", stageFlags = "compute", count = 1},
+		},
+		descriptor_pool = {
+			{type = "storage_image", count = 4},
+		},
+	}
 	local mouse_pressed = 0
 	local PushConstants = ffi.typeof([[
 		struct {
@@ -299,13 +293,11 @@ if false then
 			"compute",
 			0,
 			ffi.sizeof(PushConstants),
-			PushConstants(
-				{
-					iFrame = system.GetFrameNumber(),
-					iMouse = {window.GetMousePosition():Unpack()},
-					mousePressed = input.IsMouseDown("button_1") and 1 or 0,
-				}
-			)
+			PushConstants{
+				iFrame = system.GetFrameNumber(),
+				iMouse = {window.GetMousePosition():Unpack()},
+				mousePressed = input.IsMouseDown("button_1") and 1 or 0,
+			}
 		)
 		pipeline:Dispatch(cmd)
 		cmd:End()
@@ -324,25 +316,22 @@ if false then
 
 		local Framebuffer = require("render.framebuffer")
 		local device = render.GetDevice()
-		presentation_framebuffer = Framebuffer.New(
-			{
-				width = 512,
-				height = 512,
-				format = "r8g8b8a8_unorm",
-				min_filter = "linear",
-				mag_filter = "linear",
-				clear_color = {0, 0, 0, 1},
-			}
-		)
-		presentation_pipeline = render.CreateGraphicsPipeline(
-			{
-				dynamic_states = {"viewport", "scissor"},
-				color_format = presentation_framebuffer.format,
-				samples = "1",
-				shader_stages = {
-					{
-						type = "vertex",
-						code = [[
+		presentation_framebuffer = Framebuffer.New{
+			width = 512,
+			height = 512,
+			format = "r8g8b8a8_unorm",
+			min_filter = "linear",
+			mag_filter = "linear",
+			clear_color = {0, 0, 0, 1},
+		}
+		presentation_pipeline = render.CreateGraphicsPipeline{
+			dynamic_states = {"viewport", "scissor"},
+			color_format = presentation_framebuffer.format,
+			samples = "1",
+			shader_stages = {
+				{
+					type = "vertex",
+					code = [[
 						#version 450
 
 						vec2 positions[3] = vec2[](
@@ -359,14 +348,14 @@ if false then
 							frag_uv = pos * 0.5 + 0.5;
 						}
 					]],
-						input_assembly = {
-							topology = "triangle_list",
-							primitive_restart = false,
-						},
+					input_assembly = {
+						topology = "triangle_list",
+						primitive_restart = false,
 					},
-					{
-						type = "fragment",
-						code = [[
+				},
+				{
+					type = "fragment",
+					code = [[
 						#version 450
 
 						layout(location = 0) in vec2 in_uv;
@@ -399,50 +388,49 @@ if false then
 							mainImage(out_color, in_uv * vec2(512.0, 512.0), vec2(512.0, 512.0));
 						}
 					]],
-						descriptor_sets = {
-							{binding_index = 0, type = "combined_image_sampler", count = 1},
-						},
+					descriptor_sets = {
+						{binding_index = 0, type = "combined_image_sampler", count = 1},
 					},
 				},
-				rasterizer = {
-					depth_clamp = false,
-					discard = false,
-					polygon_mode = "fill",
-					line_width = 1.0,
-					cull_mode = "front",
-					front_face = "counter_clockwise",
-					depth_bias = 0,
-				},
-				color_blend = {
-					logic_op_enabled = false,
-					logic_op = "copy",
-					constants = {0.0, 0.0, 0.0, 0.0},
-					attachments = {
-						{
-							blend = false,
-							src_color_blend_factor = "one",
-							dst_color_blend_factor = "zero",
-							color_blend_op = "add",
-							src_alpha_blend_factor = "one",
-							dst_alpha_blend_factor = "zero",
-							alpha_blend_op = "add",
-							color_write_mask = {"r", "g", "b", "a"},
-						},
+			},
+			rasterizer = {
+				depth_clamp = false,
+				discard = false,
+				polygon_mode = "fill",
+				line_width = 1.0,
+				cull_mode = "front",
+				front_face = "counter_clockwise",
+				depth_bias = 0,
+			},
+			color_blend = {
+				logic_op_enabled = false,
+				logic_op = "copy",
+				constants = {0.0, 0.0, 0.0, 0.0},
+				attachments = {
+					{
+						blend = false,
+						src_color_blend_factor = "one",
+						dst_color_blend_factor = "zero",
+						color_blend_op = "add",
+						src_alpha_blend_factor = "one",
+						dst_alpha_blend_factor = "zero",
+						alpha_blend_op = "add",
+						color_write_mask = {"r", "g", "b", "a"},
 					},
 				},
-				multisampling = {
-					sample_shading = false,
-					rasterization_samples = "1",
-				},
-				depth_stencil = {
-					depth_test = false,
-					depth_write = false,
-					depth_compare_op = "less",
-					depth_bounds_test = false,
-					stencil_test = false,
-				},
-			}
-		)
+			},
+			multisampling = {
+				sample_shading = false,
+				rasterization_samples = "1",
+			},
+			depth_stencil = {
+				depth_test = false,
+				depth_write = false,
+				depth_compare_op = "less",
+				depth_bounds_test = false,
+				stencil_test = false,
+			},
+		}
 		device:UpdateDescriptorSet(
 			"combined_image_sampler",
 			presentation_pipeline.descriptor_sets[1],
@@ -476,9 +464,9 @@ end
 
 if false then
 	local path = "/home/caps/projects/RTXDI-Assets/bistro/textures/shared/tiling/brick_large_01/brick_large_01_diff.dds"
-	local tex = Texture.New({
+	local tex = Texture.New{
 		path = path,
-	})
+	}
 
 	function events.Draw2D.test(dt)
 		render2d.SetTexture(tex)

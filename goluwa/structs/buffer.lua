@@ -928,24 +928,20 @@ function META.New(data, len)
 			error("Failed to allocate buffer of size " .. size)
 		end
 
-		local self = META.CType(
-			{
-				Buffer = ffi.cast("uint8_t*", buffer),
-				ByteSize = size,
-				OwnsMemory = true,
-			}
-		)
+		local self = META.CType{
+			Buffer = ffi.cast("uint8_t*", buffer),
+			ByteSize = size,
+			OwnsMemory = true,
+		}
 		refs[self] = true
 		return self
 	else
 		-- Use existing data
-		local self = META.CType(
-			{
-				Buffer = ffi.cast("uint8_t *", data),
-				ByteSize = len or #data,
-				OwnsMemory = false,
-			}
-		)
+		local self = META.CType{
+			Buffer = ffi.cast("uint8_t *", data),
+			ByteSize = len or #data,
+			OwnsMemory = false,
+		}
 		refs[self] = {data}
 		return self
 	end

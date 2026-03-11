@@ -315,15 +315,13 @@ function http.HTTPRequest(method, uri, header, body)
 		default_header(header, "Content-Type", "application/octet-stream")
 	end
 
-	local str = build_http(
-		{
-			protocol = "HTTP/1.1",
-			method = method,
-			path = uri.path,
-			header = header,
-			body = body,
-		}
-	)
+	local str = build_http{
+		protocol = "HTTP/1.1",
+		method = method,
+		path = uri.path,
+		header = header,
+		body = body,
+	}
 	return str
 end
 
@@ -332,15 +330,13 @@ function http.HTTPResponse(code, status, header, body)
 
 	if body then default_header(header, "Content-Length", #body) end
 
-	local str = build_http(
-		{
-			protocol = "HTTP/1.1",
-			code = code,
-			status = status,
-			header = header,
-			body = body,
-		}
-	)
+	local str = build_http{
+		protocol = "HTTP/1.1",
+		code = code,
+		status = status,
+		header = header,
+		body = body,
+	}
 	return str
 end
 

@@ -5,24 +5,22 @@ local Color = require("structs.color")
 local Rect = require("structs.rect")
 
 T.Test("panel constructor 2d entities", function()
-	local pnl = Panel.New(
-		{
-			Name = "test_panel",
-			transform = true,
-			rect = true,
-			mouse_input = true,
-		}
-	)
+	local pnl = Panel.New{
+		Name = "test_panel",
+		transform = true,
+		rect = true,
+		mouse_input = true,
+	}
 	T(pnl:IsValid())["=="](true)
 	T(pnl.transform)["~="](nil)
 	T(pnl.rect)["~="](nil)
 	T(pnl.mouse_input)["~="](nil)
-	local txt = Panel.New({
+	local txt = Panel.New{
 		Name = "test_text",
 		Parent = pnl,
 		text = true,
 		transform = true,
-	})
+	}
 	T(txt:IsValid())["=="](true)
 	T(txt.text)["~="](nil)
 	T(txt.transform)["~="](nil)
@@ -30,11 +28,11 @@ T.Test("panel constructor 2d entities", function()
 end)
 
 T.Test("panel mouse input states", function()
-	local pnl = Panel.New({
+	local pnl = Panel.New{
 		Name = "mouse_test",
 		transform = true,
 		mouse_input = true,
-	})
+	}
 	pnl.transform:SetSize(Vec2(100, 100))
 	pnl.mouse_input:SetFocusOnClick(true)
 	T(pnl.mouse_input:GetFocusOnClick())["=="](true)
@@ -46,28 +44,24 @@ T.Test("panel mouse input states", function()
 end)
 
 T.Test("panel resize layout invalidation", function()
-	local parent = Panel.New(
-		{
-			Name = "parent",
-			transform = true,
-			layout = {
-				Padding = Rect(0, 0, 0, 0),
-				AlignmentX = "stretch",
-				AlignmentY = "stretch",
-			},
-		}
-	)
+	local parent = Panel.New{
+		Name = "parent",
+		transform = true,
+		layout = {
+			Padding = Rect(0, 0, 0, 0),
+			AlignmentX = "stretch",
+			AlignmentY = "stretch",
+		},
+	}
 	parent.transform:SetSize(Vec2(200, 200))
-	local child = Panel.New(
-		{
-			Parent = parent,
-			Name = "child",
-			layout = {
-				GrowWidth = 1,
-				GrowHeight = 1,
-			},
-		}
-	)
+	local child = Panel.New{
+		Parent = parent,
+		Name = "child",
+		layout = {
+			GrowWidth = 1,
+			GrowHeight = 1,
+		},
+	}
 	parent.layout:UpdateLayout()
 	T(child.transform:GetSize())["=="](Vec2(200, 200))
 	parent.transform:SetSize(Vec2(300, 300))
@@ -76,22 +70,20 @@ T.Test("panel resize layout invalidation", function()
 end)
 
 T.Test("panel flex layout", function()
-	local parent = Panel.New(
-		{
-			Name = "flex_parent",
-			transform = true,
-			layout = {
-				Direction = "y",
-				ChildGap = 10,
-				AlignmentX = "start",
-				AlignmentY = "start",
-			},
-		}
-	)
+	local parent = Panel.New{
+		Name = "flex_parent",
+		transform = true,
+		layout = {
+			Direction = "y",
+			ChildGap = 10,
+			AlignmentX = "start",
+			AlignmentY = "start",
+		},
+	}
 	parent.transform:SetSize(Vec2(200, 200))
-	local child1 = Panel.New({Parent = parent, transform = true})
+	local child1 = Panel.New{Parent = parent, transform = true}
 	child1.transform:SetSize(Vec2(50, 50))
-	local child2 = Panel.New({Parent = parent, transform = true})
+	local child2 = Panel.New{Parent = parent, transform = true}
 	child2.transform:SetSize(Vec2(50, 50))
 	parent.layout:UpdateLayout()
 	-- With column flex and 10px gap:
@@ -102,30 +94,28 @@ T.Test("panel flex layout", function()
 end)
 
 T.Test("panel animations basic", function()
-	local pnl = Panel.New({
+	local pnl = Panel.New{
 		Name = "anim_test",
 		transform = true,
 		rect = true,
 		animation = true,
-	})
+	}
 	pnl.gui_element:SetColor(Color(1, 0, 0, 1))
 	-- Animations usually require time to pass, 
 	-- but we can check if the component exists and responds to Animate.
 	T(pnl.animation)["~="](nil)
-	pnl.animation:Animate(
-		{
-			id = "color",
-			base = pnl.gui_element:GetDrawColor(),
-			get = function()
-				return pnl.gui_element:GetDrawColor()
-			end,
-			set = function(v)
-				pnl.gui_element:SetDrawColor(v)
-			end,
-			to = Color(0, 1, 0, 1),
-			time = 0.1,
-		}
-	)
+	pnl.animation:Animate{
+		id = "color",
+		base = pnl.gui_element:GetDrawColor(),
+		get = function()
+			return pnl.gui_element:GetDrawColor()
+		end,
+		set = function(v)
+			pnl.gui_element:SetDrawColor(v)
+		end,
+		to = Color(0, 1, 0, 1),
+		time = 0.1,
+	}
 -- Without a system update, it might not change immediately
 -- but we check it doesn't crash and initializes the animation.
 end)
@@ -136,11 +126,11 @@ T.Pending("panel mouse simulation and hover", function()
 	local world = require("ecs.panel").World
 	world:RemoveChildren()
 	world.transform:SetSize(Vec2(2000, 2000))
-	local pnl = Panel.New({
+	local pnl = Panel.New{
 		Name = "mouse_test",
 		transform = true,
 		mouse_input = true,
-	})
+	}
 	pnl.transform:SetPosition(Vec2(100, 100))
 	pnl.transform:SetSize(Vec2(50, 50))
 	local clicked = false
@@ -184,14 +174,12 @@ end)
 T.Test("panel key simulation", function()
 	local prototype = require("prototype")
 	local event = require("event")
-	local pnl = Panel.New(
-		{
-			Name = "key_test",
-			transform = true,
-			key_input = true,
-			mouse_input = true,
-		}
-	)
+	local pnl = Panel.New{
+		Name = "key_test",
+		transform = true,
+		key_input = true,
+		mouse_input = true,
+	}
 	pnl.mouse_input:SetFocusOnClick(true)
 	local key_received = false
 

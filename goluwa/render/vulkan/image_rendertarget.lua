@@ -164,60 +164,54 @@ local function create_swapchain(self)
 	if self.config.offscreen then
 		-- Offscreen mode: create a single color attachment image
 		local usage = self.config.usage or {"color_attachment", "sampled"}
-		local texture = Texture.New(
-			{
+		local texture = Texture.New{
+			width = self.extent.width,
+			height = self.extent.height,
+			format = self.color_format,
+			buffer = false, -- Don't upload any data, and skip automatic layout transition
+			image = {
 				width = self.extent.width,
 				height = self.extent.height,
 				format = self.color_format,
-				buffer = false, -- Don't upload any data, and skip automatic layout transition
-				image = {
-					width = self.extent.width,
-					height = self.extent.height,
-					format = self.color_format,
-					usage = usage,
-					properties = "device_local",
-					samples = self.samples,
-				},
-				view = {
-					format = self.color_format,
-					aspect = "color",
-				},
-				sampler = false,
-			}
-		)
+				usage = usage,
+				properties = "device_local",
+				samples = self.samples,
+			},
+			view = {
+				format = self.color_format,
+				aspect = "color",
+			},
+			sampler = false,
+		}
 		self.textures = {texture}
 		return
 	end
 
 	-- Windowed mode: recreate swapchain
-	self.swapchain = SwapChain.New(
-		{
-			device = self.vulkan_instance.device,
-			surface = self.vulkan_instance.surface,
-			surface_format = self.surface_format,
-			surface_capabilities = self.surface_capabilities,
-			image_count = self.config.image_count or
-				(
-					self.surface_capabilities.minImageCount + 1
-				),
-			present_mode = self.config.present_mode,
-			composite_alpha = self.config.composite_alpha,
-			clipped = self.config.clipped,
-			image_usage = self.config.image_usage,
-			pre_transform = self.config.pre_transform,
-			old_swapchain = self.swapchain,
-		}
-	)
+	self.swapchain = SwapChain.New{
+		device = self.vulkan_instance.device,
+		surface = self.vulkan_instance.surface,
+		surface_format = self.surface_format,
+		surface_capabilities = self.surface_capabilities,
+		image_count = self.config.image_count or
+			(
+				self.surface_capabilities.minImageCount + 1
+			),
+		present_mode = self.config.present_mode,
+		composite_alpha = self.config.composite_alpha,
+		clipped = self.config.clipped,
+		image_usage = self.config.image_usage,
+		pre_transform = self.config.pre_transform,
+		old_swapchain = self.swapchain,
+	}
 	local textures = {}
 
 	for i, img in ipairs(self.swapchain:GetImages()) do
-		textures[i] = Texture.New(
-			{
-				image = img,
-				view = {format = self.surface_format.format},
-				sampler = false,
-			}
-		)
+		textures[i] = Texture.New{
+			image = img,
+			view = {format = self.surface_format.format},
+			sampler = false,
+		}
 	end
 
 	self.textures = textures
@@ -225,27 +219,25 @@ end
 
 local function create_depth_buffer(self)
 	local extent = self.config.offscreen and self.extent or self.surface_capabilities.currentExtent
-	self.depth_texture = Texture.New(
-		{
+	self.depth_texture = Texture.New{
+		width = extent.width,
+		height = extent.height,
+		format = self.depth_format,
+		buffer = false,
+		image = {
 			width = extent.width,
 			height = extent.height,
 			format = self.depth_format,
-			buffer = false,
-			image = {
-				width = extent.width,
-				height = extent.height,
-				format = self.depth_format,
-				usage = {"depth_stencil_attachment"},
-				properties = "device_local",
-				samples = self.samples,
-			},
-			view = {
-				format = self.depth_format,
-				aspect = "depth",
-			},
-			sampler = false,
-		}
-	)
+			usage = {"depth_stencil_attachment"},
+			properties = "device_local",
+			samples = self.samples,
+		},
+		view = {
+			format = self.depth_format,
+			aspect = "depth",
+		},
+		sampler = false,
+	}
 end
 
 local function create_msaa_buffer(self)
@@ -254,24 +246,22 @@ local function create_msaa_buffer(self)
 	-- Recreate MSAA color buffer if using MSAA
 	if self.samples ~= "1" then
 		local format = self.config.offscreen and self.color_format or self.surface_format.format
-		self.msaa_image = Texture.New(
-			{
+		self.msaa_image = Texture.New{
+			width = extent.width,
+			height = extent.height,
+			format = format,
+			buffer = false,
+			image = {
 				width = extent.width,
 				height = extent.height,
 				format = format,
-				buffer = false,
-				image = {
-					width = extent.width,
-					height = extent.height,
-					format = format,
-					usage = {"color_attachment"},
-					properties = "device_local",
-					samples = self.samples,
-				},
-				view = {format = format},
-				sampler = false,
-			}
-		)
+				usage = {"color_attachment"},
+				properties = "device_local",
+				samples = self.samples,
+			},
+			view = {format = format},
+			sampler = false,
+		}
 	end
 end
 
@@ -467,13 +457,11 @@ function ImageRenderTarget:BeginFrame()
 		)
 	end
 
-	cmd:PipelineBarrier(
-		{
-			srcStage = self.config.offscreen and "top_of_pipe" or "color_attachment_output",
-			dstStage = {"early_fragment_tests", "color_attachment_output"},
-			imageBarriers = imageBarriers,
-		}
-	)
+	cmd:PipelineBarrier{
+		srcStage = self.config.offscreen and "top_of_pipe" or "color_attachment_output",
+		dstStage = {"early_fragment_tests", "color_attachment_output"},
+		imageBarriers = imageBarriers,
+	}
 	local extent = self:GetExtent()
 	event.Call("PreRenderPass", cmd)
 	local render_config = {
@@ -510,21 +498,19 @@ function ImageRenderTarget:EndFrame()
 	local final_layout = self.config.offscreen and self.final_layout or "present_src_khr"
 	local dst_stage = self.config.offscreen and "transfer" or "color_attachment_output"
 	local dst_access = self.config.offscreen and "transfer_read" or "none"
-	command_buffer:PipelineBarrier(
-		{
-			srcStage = "color_attachment_output",
-			dstStage = dst_stage,
-			imageBarriers = {
-				{
-					image = self:GetImage(),
-					srcAccessMask = "color_attachment_write",
-					dstAccessMask = dst_access,
-					oldLayout = "color_attachment_optimal",
-					newLayout = final_layout,
-				},
+	command_buffer:PipelineBarrier{
+		srcStage = "color_attachment_output",
+		dstStage = dst_stage,
+		imageBarriers = {
+			{
+				image = self:GetImage(),
+				srcAccessMask = "color_attachment_write",
+				dstAccessMask = dst_access,
+				oldLayout = "color_attachment_optimal",
+				newLayout = final_layout,
 			},
-		}
-	)
+		},
+	}
 	command_buffer:End()
 
 	-- Submit command buffer
@@ -595,21 +581,19 @@ function ImageRenderTarget:WriteMode(cmd)
 		return -- Only applicable in offscreen mode
 	end
 
-	cmd:PipelineBarrier(
-		{
-			srcStage = "fragment",
-			dstStage = "all_commands",
-			imageBarriers = {
-				{
-					image = self:GetImage(),
-					srcAccessMask = "shader_read",
-					dstAccessMask = "color_attachment_write",
-					oldLayout = "shader_read_only_optimal",
-					newLayout = "color_attachment_optimal",
-				},
+	cmd:PipelineBarrier{
+		srcStage = "fragment",
+		dstStage = "all_commands",
+		imageBarriers = {
+			{
+				image = self:GetImage(),
+				srcAccessMask = "shader_read",
+				dstAccessMask = "color_attachment_write",
+				oldLayout = "shader_read_only_optimal",
+				newLayout = "color_attachment_optimal",
 			},
-		}
-	)
+		},
+	}
 end
 
 function ImageRenderTarget:ReadMode(cmd)
@@ -617,21 +601,19 @@ function ImageRenderTarget:ReadMode(cmd)
 		return -- Only applicable in offscreen mode
 	end
 
-	cmd:PipelineBarrier(
-		{
-			srcStage = "all_commands",
-			dstStage = "fragment",
-			imageBarriers = {
-				{
-					image = self:GetImage(),
-					srcAccessMask = "color_attachment_write",
-					dstAccessMask = "shader_read",
-					oldLayout = "color_attachment_optimal",
-					newLayout = "shader_read_only_optimal",
-				},
+	cmd:PipelineBarrier{
+		srcStage = "all_commands",
+		dstStage = "fragment",
+		imageBarriers = {
+			{
+				image = self:GetImage(),
+				srcAccessMask = "color_attachment_write",
+				dstAccessMask = "shader_read",
+				oldLayout = "color_attachment_optimal",
+				newLayout = "shader_read_only_optimal",
 			},
-		}
-	)
+		},
+	}
 end
 
 return ImageRenderTarget:Register()

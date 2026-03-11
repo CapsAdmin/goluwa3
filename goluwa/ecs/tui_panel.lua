@@ -22,20 +22,18 @@ end)
 package.loaded["ecs.tui_panel"] = TuiPanel
 local Vec2 = require("structs.vec2")
 local event = require("event")
-TuiPanel.World = TuiPanel.New(
-	{
-		ComponentSet = {
-			"transform",
-			"layout",
-			"tui_element",
-		},
-		layout = {
-			Direction = "y",
-			GrowWidth = 1,
-			GrowHeight = 1,
-		},
-	}
-)
+TuiPanel.World = TuiPanel.New{
+	ComponentSet = {
+		"transform",
+		"layout",
+		"tui_element",
+	},
+	layout = {
+		Direction = "y",
+		GrowWidth = 1,
+		GrowHeight = 1,
+	},
+}
 TuiPanel.World:SetName("TuiWorldPanel")
 TuiPanel.World.transform:SetPosition(Vec2(1, 1))
 

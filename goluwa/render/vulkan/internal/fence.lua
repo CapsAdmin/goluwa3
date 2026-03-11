@@ -4,15 +4,15 @@ local vulkan = require("render.vulkan.internal.vulkan")
 local Fence = prototype.CreateTemplate("vulkan_fence")
 
 function Fence.New(device)
-	local fenceCreateInfo = vulkan.vk.s.FenceCreateInfo({
+	local fenceCreateInfo = vulkan.vk.s.FenceCreateInfo{
 		flags = "signaled",
-	})
+	}
 	local ptr = vulkan.T.Box(vulkan.vk.VkFence)()
 	vulkan.assert(
 		vulkan.lib.vkCreateFence(device.ptr[0], fenceCreateInfo, nil, ptr),
 		"failed to create fence"
 	)
-	return Fence:CreateObject({ptr = ptr, device = device})
+	return Fence:CreateObject{ptr = ptr, device = device}
 end
 
 function Fence:OnRemove()

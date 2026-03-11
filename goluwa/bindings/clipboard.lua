@@ -94,13 +94,11 @@ local function wayland_init()
 	local wlr_load_ok, wlr_load_err = pcall(function()
 		wlr_data_control = require("bindings.wayland.wlr_data_control")
 	end)
-	
 	-- Try to load ext_data_control (standardized version used by GNOME/KDE)
 	local ext_data_control
 	local ext_load_ok, ext_load_err = pcall(function()
 		ext_data_control = require("bindings.wayland.ext_data_control")
 	end)
-
 	wayland_state.core = wayland_core
 	wayland_state.display = wayland_core.wl_client.wl_display_connect(nil)
 
@@ -109,52 +107,62 @@ local function wayland_init()
 	end
 
 	wayland_state.registry = wayland_state.display:get_registry()
-	wayland_state.registry:add_listener(
-		{
-			global = function(data, registry_proxy, name, interface, version)
-				local iface = ffi.string(interface)
-				local reg = ffi.cast("struct wl_registry*", registry_proxy)
+	wayland_state.registry:add_listener{
+		global = function(data, registry_proxy, name, interface, version)
+			local iface = ffi.string(interface)
+			local reg = ffi.cast("struct wl_registry*", registry_proxy)
 
-				if iface == "wl_data_device_manager" then
-					wayland_state.manager = ffi.cast(
-						"struct wl_data_device_manager*",
-						reg:bind(name, wayland_core.get_interface("wl_data_device_manager"), math.min(version, 3))
+			if iface == "wl_data_device_manager" then
+				wayland_state.manager = ffi.cast(
+					"struct wl_data_device_manager*",
+					reg:bind(name, wayland_core.get_interface("wl_data_device_manager"), math.min(version, 3))
+				)
+			elseif iface == "wl_seat" then
+				wayland_state.seat = ffi.cast(
+					"struct wl_seat*",
+					reg:bind(name, wayland_core.get_interface("wl_seat"), math.min(version, 2))
+				)
+			elseif iface == "wl_compositor" then
+				wayland_state.compositor = ffi.cast(
+					"struct wl_compositor*",
+					reg:bind(name, wayland_core.get_interface("wl_compositor"), 1)
+				)
+			elseif iface == "wl_shm" then
+				wayland_state.shm = ffi.cast("struct wl_shm*", reg:bind(name, wayland_core.get_interface("wl_shm"), 1))
+			elseif iface == "wl_shell" then
+				wayland_state.shell = ffi.cast(
+					"struct wl_shell*",
+					reg:bind(name, wayland_core.get_interface("wl_shell"), 1)
+				)
+			elseif iface == "zwlr_data_control_manager_v1" and wlr_data_control then
+				wayland_state.wlr_manager = ffi.cast(
+					"struct zwlr_data_control_manager_v1*",
+					reg:bind(
+						name,
+						wlr_data_control.get_interface("zwlr_data_control_manager_v1"),
+						math.min(version, 2)
 					)
-				elseif iface == "wl_seat" then
-					wayland_state.seat = ffi.cast(
-						"struct wl_seat*",
-						reg:bind(name, wayland_core.get_interface("wl_seat"), math.min(version, 2))
+				)
+			elseif iface == "ext_data_control_manager_v1" and ext_data_control then
+				wayland_state.ext_manager = ffi.cast(
+					"struct ext_data_control_manager_v1*",
+					reg:bind(
+						name,
+						ext_data_control.get_interface("ext_data_control_manager_v1"),
+						math.min(version, 2)
 					)
-				elseif iface == "wl_compositor" then
-					wayland_state.compositor = ffi.cast(
-						"struct wl_compositor*",
-						reg:bind(name, wayland_core.get_interface("wl_compositor"), 1)
-					)
-				elseif iface == "wl_shm" then
-					wayland_state.shm = ffi.cast("struct wl_shm*", reg:bind(name, wayland_core.get_interface("wl_shm"), 1))
-				elseif iface == "wl_shell" then
-					wayland_state.shell = ffi.cast(
-						"struct wl_shell*",
-						reg:bind(name, wayland_core.get_interface("wl_shell"), 1)
-					)
-				elseif iface == "zwlr_data_control_manager_v1" and wlr_data_control then
-					wayland_state.wlr_manager = ffi.cast(
-						"struct zwlr_data_control_manager_v1*",
-						reg:bind(name, wlr_data_control.get_interface("zwlr_data_control_manager_v1"), math.min(version, 2))
-					)
-				elseif iface == "ext_data_control_manager_v1" and ext_data_control then
-					wayland_state.ext_manager = ffi.cast(
-						"struct ext_data_control_manager_v1*",
-						reg:bind(name, ext_data_control.get_interface("ext_data_control_manager_v1"), math.min(version, 2))
-					)
-				end
-			end,
-			global_remove = function() end,
-		}
-	)
+				)
+			end
+		end,
+		global_remove = function() end,
+	}
 	wayland_core.wl_client.wl_display_roundtrip(wayland_state.display)
 
-	if not wayland_state.manager and not wayland_state.wlr_manager and not wayland_state.ext_manager then
+	if
+		not wayland_state.manager and
+		not wayland_state.wlr_manager and
+		not wayland_state.ext_manager
+	then
 		return false, "Wayland: No data device manager found"
 	end
 
@@ -163,60 +171,68 @@ local function wayland_init()
 	-- Use ext_data_control if available (standardized, GNOME/KDE)
 	if wayland_state.ext_manager then
 		wayland_state.ext_device = wayland_state.ext_manager:get_data_device(wayland_state.seat)
+
 		if wayland_state.ext_device then
-			wayland_state.ext_device:add_listener({
+			wayland_state.ext_device:add_listener{
 				data_offer = function(data, device, offer)
 					if offer == nil then return end
+
 					local off = ffi.cast("struct ext_data_control_offer_v1*", offer)
 					local key = tonumber(ffi.cast("intptr_t", off))
 					wayland_state.ext_mime_types[key] = {}
-					off:add_listener({
+					off:add_listener{
 						offer = function(data, offer, mime_type)
 							if mime_type == nil then return end
+
 							local m = ffi.string(mime_type)
+
 							if wayland_state.ext_mime_types[key] then
 								wayland_state.ext_mime_types[key][m] = true
 							end
 						end,
-					})
+					}
 				end,
 				selection = function(data, device, offer)
 					wayland_state.ext_current_offer = offer ~= nil and ffi.cast("struct ext_data_control_offer_v1*", offer) or nil
-					-- Note: don't clear data here - the cancelled event handles ownership loss
+				-- Note: don't clear data here - the cancelled event handles ownership loss
 				end,
 				finished = function() end,
 				primary_selection = function() end,
-			})
+			}
 		end
 	end
 
 	-- Use wlr_data_control if available (doesn't require focus)
 	if wayland_state.wlr_manager then
 		wayland_state.wlr_device = wayland_state.wlr_manager:get_data_device(wayland_state.seat)
+
 		if wayland_state.wlr_device then
-			wayland_state.wlr_device:add_listener({
+			wayland_state.wlr_device:add_listener{
 				data_offer = function(data, device, offer)
 					if offer == nil then return end
+
 					local off = ffi.cast("struct zwlr_data_control_offer_v1*", offer)
 					local key = tonumber(ffi.cast("intptr_t", off))
 					wayland_state.wlr_mime_types[key] = {}
-					off:add_listener({
+					off:add_listener{
 						offer = function(data, offer, mime_type)
 							if mime_type == nil then return end
+
 							local m = ffi.string(mime_type)
+
 							if wayland_state.wlr_mime_types[key] then
 								wayland_state.wlr_mime_types[key][m] = true
 							end
 						end,
-					})
+					}
 				end,
 				selection = function(data, device, offer)
 					wayland_state.wlr_current_offer = offer ~= nil and ffi.cast("struct zwlr_data_control_offer_v1*", offer) or nil
-					-- Note: don't clear data here - the cancelled event handles ownership loss
+				-- Note: don't clear data here - the cancelled event handles ownership loss
 				end,
 				finished = function() end,
 				primary_selection = function() end,
-			})
+			}
 		end
 	end
 
@@ -226,8 +242,7 @@ local function wayland_init()
 	end
 
 	if wayland_state.device then
-		wayland_state.device:add_listener(
-		{
+		wayland_state.device:add_listener{
 			data_offer = function(data, device, offer)
 				if offer == nil then return end
 
@@ -235,35 +250,33 @@ local function wayland_init()
 				local key = tonumber(ffi.cast("intptr_t", off))
 				-- print("Wayland: New data offer: " .. key)
 				wayland_state.mime_types[key] = {}
-				off:add_listener(
-					{
-						offer = function(data, offer, mime_type)
-							if mime_type == nil then return end
+				off:add_listener{
+					offer = function(data, offer, mime_type)
+						if mime_type == nil then return end
 
-							local m = ffi.string(mime_type)
+						local m = ffi.string(mime_type)
 
-							-- print("Wayland: Offer " .. key .. " supports " .. m)
-							if wayland_state.mime_types[key] then
-								wayland_state.mime_types[key][m] = true
-							end
-						end,
-					}
-				)
+						-- print("Wayland: Offer " .. key .. " supports " .. m)
+						if wayland_state.mime_types[key] then
+							wayland_state.mime_types[key][m] = true
+						end
+					end,
+				}
 			end,
 			selection = function(data, device, offer)
 				wayland_state.current_offer = offer ~= nil and ffi.cast("struct wl_data_offer*", offer) or nil
-				-- Note: don't clear data here - the cancelled event handles ownership loss
+			-- Note: don't clear data here - the cancelled event handles ownership loss
 			end,
 		}
-	)
 	end
 
 	-- Create a dummy surface to gain focus if needed (some compositors require this)
 	if wayland_state.compositor and wayland_state.shell and wayland_state.shm then
 		-- Get keyboard from seat to receive enter events with serial
 		wayland_state.keyboard = wayland_state.seat:get_keyboard()
+
 		if wayland_state.keyboard then
-			wayland_state.keyboard:add_listener({
+			wayland_state.keyboard:add_listener{
 				keymap = function(data, keyboard, format, fd, size)
 					ffi.C.close(fd)
 				end,
@@ -275,37 +288,38 @@ local function wayland_init()
 				key = function(data, keyboard, serial, time, key, state) end,
 				modifiers = function(data, keyboard, serial, mods_depressed, mods_latched, mods_locked, group) end,
 				repeat_info = function(data, keyboard, rate, delay) end,
-			})
+			}
 		end
 
 		-- Dispatch to get keyboard before creating surface
 		wayland_core.wl_client.wl_display_dispatch(wayland_state.display)
-
 		-- Create surface
 		wayland_state.surface = wayland_state.compositor:create_surface()
 		wayland_state.shell_surface = wayland_state.shell:get_shell_surface(wayland_state.surface)
 		wayland_state.shell_surface:set_toplevel()
 		wayland_state.shell_surface:set_title("goluwa-clipboard")
-
 		-- Create a 1x1 transparent buffer using shared memory
 		local width, height = 1, 1
 		local stride = width * 4
 		local size = stride * height
-
 		-- Create anonymous file for shared memory
 		local fd = ffi.C.memfd_create("wl_shm", 0)
+
 		if fd >= 0 then
 			if ffi.C.ftruncate(fd, size) == 0 then
 				wayland_state.shm_pool = wayland_state.shm:create_pool(fd, size)
+
 				if wayland_state.shm_pool then
 					-- WL_SHM_FORMAT_ARGB8888 = 0, zero bytes = transparent
 					wayland_state.buffer = wayland_state.shm_pool:create_buffer(0, width, height, stride, 0)
+
 					if wayland_state.buffer then
 						wayland_state.surface:attach(wayland_state.buffer, 0, 0)
 						wayland_state.surface:damage(0, 0, width, height)
 					end
 				end
 			end
+
 			ffi.C.close(fd)
 		end
 
@@ -350,9 +364,7 @@ local function wayland_init()
 					end
 				end)
 
-				if not ok then
-					timer.RemoveTimer("wayland_clipboard_dispatch")
-				end
+				if not ok then timer.RemoveTimer("wayland_clipboard_dispatch") end
 			end
 		)
 	end
@@ -702,7 +714,9 @@ elseif jit.os == "Linux" then
 	-- Check for wl-paste/wl-copy availability
 	local function run_command(cmd)
 		local handle = io.popen(cmd .. " 2>/dev/null")
+
 		if not handle then return nil end
+
 		local result = handle:read("*a")
 		local ok = handle:close()
 		return ok and result or nil
@@ -716,6 +730,7 @@ elseif jit.os == "Linux" then
 			-- Try wl-paste first as it's the most reliable
 			if wl_paste_available then
 				local result = run_command("wl-paste --no-newline 2>/dev/null")
+
 				if result then return result end
 			end
 
@@ -728,10 +743,12 @@ elseif jit.os == "Linux" then
 			-- Dispatch to get latest selection and MIME types
 			wayland_state.core.wl_client.wl_display_roundtrip(wayland_state.display)
 			wayland_state.core.wl_client.wl_display_roundtrip(wayland_state.display)
-
 			-- Prefer ext_data_control (GNOME/KDE) > wlr_data_control (Sway) > regular (requires focus)
-			local current_offer = wayland_state.ext_current_offer or wayland_state.wlr_current_offer or wayland_state.current_offer
+			local current_offer = wayland_state.ext_current_offer or
+				wayland_state.wlr_current_offer or
+				wayland_state.current_offer
 			local mime_types_table
+
 			if wayland_state.ext_current_offer then
 				mime_types_table = wayland_state.ext_mime_types
 			elseif wayland_state.wlr_current_offer then
@@ -741,7 +758,14 @@ elseif jit.os == "Linux" then
 			end
 
 			-- If we are the owner (have an active source and no external offer), return our own data
-			local we_own_clipboard = (wayland_state.ext_source or wayland_state.wlr_source or wayland_state.source) and wayland_state.data
+			local we_own_clipboard = (
+					wayland_state.ext_source or
+					wayland_state.wlr_source or
+					wayland_state.source
+				)
+				and
+				wayland_state.data
+
 			if we_own_clipboard and not current_offer then
 				return wayland_state.data
 			end
@@ -756,9 +780,11 @@ elseif jit.os == "Linux" then
 			if not mime_types or next(mime_types) == nil then
 				-- Try one more roundtrip if mime_types is missing or empty
 				wayland_state.core.wl_client.wl_display_roundtrip(wayland_state.display)
-
 				-- Re-check current_offer as it might have changed during roundtrip
-				current_offer = wayland_state.ext_current_offer or wayland_state.wlr_current_offer or wayland_state.current_offer
+				current_offer = wayland_state.ext_current_offer or
+					wayland_state.wlr_current_offer or
+					wayland_state.current_offer
+
 				if not current_offer then
 					return nil, "Clipboard offer lost during roundtrip"
 				end
@@ -768,9 +794,7 @@ elseif jit.os == "Linux" then
 
 				if not mime_types or next(mime_types) == nil then
 					-- If we are the owner, return our own data
-					if wayland_state.data then
-						return wayland_state.data
-					end
+					if wayland_state.data then return wayland_state.data end
 
 					local msg = "No MIME types found for current offer " .. offer_ptr
 
@@ -847,9 +871,11 @@ elseif jit.os == "Linux" then
 			-- Try wl-copy first as it's the most reliable
 			if wl_copy_available then
 				local handle = io.popen("wl-copy 2>/dev/null", "w")
+
 				if handle then
 					handle:write(str)
 					local ok = handle:close()
+
 					if ok then return true end
 				end
 			end
@@ -877,7 +903,7 @@ elseif jit.os == "Linux" then
 				wayland_state.ext_source:offer("text/plain;charset=utf-8")
 				wayland_state.ext_source:offer("text/plain")
 				wayland_state.ext_source:offer("UTF8_STRING")
-				wayland_state.ext_source:add_listener({
+				wayland_state.ext_source:add_listener{
 					send = function(data, source, mime_type, fd)
 						if mime_type == nil then
 							ffi.C.close(fd)
@@ -890,9 +916,11 @@ elseif jit.os == "Linux" then
 						end
 
 						local n = ffi.C.write(fd, wayland_state.data, #wayland_state.data)
+
 						if n < 0 then
 							print("Wayland: Failed to write to clipboard pipe (errno: " .. ffi.errno() .. ")")
 						end
+
 						ffi.C.close(fd)
 					end,
 					cancelled = function()
@@ -900,13 +928,12 @@ elseif jit.os == "Linux" then
 							wayland_state.core.wl_client.wl_proxy_destroy(wayland_state.ext_source)
 							wayland_state.ext_source = nil
 						end
+
 						wayland_state.data = nil
 					end,
-				})
-
+				}
 				-- ext_data_control doesn't need a serial - just set the selection
 				wayland_state.ext_device:set_selection(wayland_state.ext_source)
-
 				wayland_state.core.wl_client.wl_display_flush(wayland_state.display)
 				wayland_state.core.wl_client.wl_display_roundtrip(wayland_state.display)
 
@@ -935,7 +962,7 @@ elseif jit.os == "Linux" then
 				wayland_state.wlr_source:offer("text/plain;charset=utf-8")
 				wayland_state.wlr_source:offer("text/plain")
 				wayland_state.wlr_source:offer("UTF8_STRING")
-				wayland_state.wlr_source:add_listener({
+				wayland_state.wlr_source:add_listener{
 					send = function(data, source, mime_type, fd)
 						if mime_type == nil then
 							ffi.C.close(fd)
@@ -948,9 +975,11 @@ elseif jit.os == "Linux" then
 						end
 
 						local n = ffi.C.write(fd, wayland_state.data, #wayland_state.data)
+
 						if n < 0 then
 							print("Wayland: Failed to write to clipboard pipe (errno: " .. ffi.errno() .. ")")
 						end
+
 						ffi.C.close(fd)
 					end,
 					cancelled = function()
@@ -958,13 +987,12 @@ elseif jit.os == "Linux" then
 							wayland_state.core.wl_client.wl_proxy_destroy(wayland_state.wlr_source)
 							wayland_state.wlr_source = nil
 						end
+
 						wayland_state.data = nil
 					end,
-				})
-
+				}
 				-- wlr_data_control doesn't need a serial - just set the selection
 				wayland_state.wlr_device:set_selection(wayland_state.wlr_source)
-
 				wayland_state.core.wl_client.wl_display_flush(wayland_state.display)
 				wayland_state.core.wl_client.wl_display_roundtrip(wayland_state.display)
 
@@ -991,44 +1019,42 @@ elseif jit.os == "Linux" then
 			wayland_state.source:offer("text/plain;charset=utf-8")
 			wayland_state.source:offer("text/plain")
 			wayland_state.source:offer("UTF8_STRING")
-			wayland_state.source:add_listener(
-				{
-					target = function() end,
-					send = function(data, source, mime_type, fd)
-						if mime_type == nil then
-							ffi.C.close(fd)
-							return
-						end
-
-						local m = ffi.string(mime_type)
-
-						if not wayland_state.data then
-							ffi.C.close(fd)
-							return
-						end
-
-						local n = ffi.C.write(fd, wayland_state.data, #wayland_state.data)
-
-						if n < 0 then
-							print("Wayland: Failed to write to clipboard pipe (errno: " .. ffi.errno() .. ")")
-						end
-
+			wayland_state.source:add_listener{
+				target = function() end,
+				send = function(data, source, mime_type, fd)
+					if mime_type == nil then
 						ffi.C.close(fd)
-					end,
-					cancelled = function()
-						-- print("Wayland: Clipboard selection cancelled (lost ownership)")
-						if wayland_state.source then
-							wayland_state.core.wl_client.wl_proxy_destroy(wayland_state.source)
-							wayland_state.source = nil
-						end
+						return
+					end
 
-						wayland_state.data = nil
-					end,
-					dnd_drop_performed = function() end,
-					dnd_finished = function() end,
-					action = function() end,
-				}
-			)
+					local m = ffi.string(mime_type)
+
+					if not wayland_state.data then
+						ffi.C.close(fd)
+						return
+					end
+
+					local n = ffi.C.write(fd, wayland_state.data, #wayland_state.data)
+
+					if n < 0 then
+						print("Wayland: Failed to write to clipboard pipe (errno: " .. ffi.errno() .. ")")
+					end
+
+					ffi.C.close(fd)
+				end,
+				cancelled = function()
+					-- print("Wayland: Clipboard selection cancelled (lost ownership)")
+					if wayland_state.source then
+						wayland_state.core.wl_client.wl_proxy_destroy(wayland_state.source)
+						wayland_state.source = nil
+					end
+
+					wayland_state.data = nil
+				end,
+				dnd_drop_performed = function() end,
+				dnd_finished = function() end,
+				action = function() end,
+			}
 			local serial = 0
 			local window = package.loaded["window"]
 

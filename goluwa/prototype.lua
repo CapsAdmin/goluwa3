@@ -691,15 +691,13 @@ do -- get is set
 
 		for _, info in pairs(prototype.GetStorableVariables(from)) do
 			if not meta[info.var_name] then
-				prototype.SetupProperty(
-					{
-						meta = meta,
-						var_name = info.var_name,
-						default = info.default,
-						set_name = info.set_name,
-						get_name = info.get_name,
-					}
-				)
+				prototype.SetupProperty{
+					meta = meta,
+					var_name = info.var_name,
+					default = info.default,
+					set_name = info.set_name,
+					get_name = info.get_name,
+				}
 
 				if callback then
 					meta[info.set_name] = function(self, var)

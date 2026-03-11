@@ -78,12 +78,10 @@ local function create_face(pos, normal, up, color)
 	poly:BuildNormals()
 	poly:BuildTangents()
 	poly:Upload()
-	local material = Material.New(
-		{
-			ColorMultiplier = Color(color.r, color.g, color.b, 1),
-			DoubleSided = true,
-		}
-	)
+	local material = Material.New{
+		ColorMultiplier = Color(color.r, color.g, color.b, 1),
+		DoubleSided = true,
+	}
 	local ent = Entity.New({Name = "face"})
 	ent:AddComponent("transform")
 	ent:AddComponent("model")
@@ -99,26 +97,24 @@ local function TestCamera(name, cb, opts)
 
 	local function start()
 		if not white_tex then
-			white_tex = Texture.New({
+			white_tex = Texture.New{
 				width = 1,
 				height = 1,
 				format = "r8g8b8a8_unorm",
-			})
+			}
 			white_tex:Shade("return vec4(1, 1, 1, 1);")
 		end
 
-		local sun = Entity.New(
-			{
-				transform = {
-					Rotation = Quat(-0.2, 0.8, 0.4, 0.4),
-				},
-				light = {
-					LightType = "sun",
-					Color = Color(1.0, 1, 1),
-					Intensity = 1,
-				},
-			}
-		)
+		local sun = Entity.New{
+			transform = {
+				Rotation = Quat(-0.2, 0.8, 0.4, 0.4),
+			},
+			light = {
+				LightType = "sun",
+				Color = Color(1.0, 1, 1),
+				Intensity = 1,
+			},
+		}
 		sun:SetName("sun")
 		local cam = render3d.GetCamera()
 		cam:SetFOV(math.rad(90))
@@ -145,13 +141,11 @@ local function TestCamera(name, cb, opts)
 				local poly = Polygon3D.New()
 				poly:CreateCube(0.5, 1.0)
 				poly:Upload()
-				local material = Material.New(
-					{
-						AlbedoTexture = white_tex,
-						EmissiveMultiplier = Color(1, 1, 1, 100),
-						DoubleSided = false,
-					}
-				)
+				local material = Material.New{
+					AlbedoTexture = white_tex,
+					EmissiveMultiplier = Color(1, 1, 1, 100),
+					DoubleSided = false,
+				}
 				local ent = Entity.New({Name = "mdl"})
 				ent:AddComponent("transform")
 				ent:AddComponent("model")
@@ -185,13 +179,17 @@ local function orient_camera(ang, pos)
 end
 
 T.Test3D("camera tests", function(draw)
-	TestCamera("Identity rotation", function(draw)
-		local cam = render3d.GetCamera()
-		cam:SetPosition(Vec3(0, 0, 0))
-		cam:SetRotation(Quat(0, 0, 0, 1))
-		draw()
-		test_color("center", "yellow") -- Should see Yellow (-Z)
-	end, {skip_center_cube = true})
+	TestCamera(
+		"Identity rotation",
+		function(draw)
+			local cam = render3d.GetCamera()
+			cam:SetPosition(Vec3(0, 0, 0))
+			cam:SetRotation(Quat(0, 0, 0, 1))
+			draw()
+			test_color("center", "yellow") -- Should see Yellow (-Z)
+		end,
+		{skip_center_cube = true}
+	)
 
 	TestCamera("Pitch 90 degrees should look Up", function(draw)
 		orient_camera(Deg3(90, 0, 0))

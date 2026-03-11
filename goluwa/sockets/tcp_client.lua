@@ -264,15 +264,13 @@ function UDPClient:OnPollReady(events)
 end
 
 function UDPClient:Update()
-	self:OnPollReady(
-		{
-			["in"] = true,
-			out = true,
-			err = true,
-			hup = true,
-			nval = true,
-		}
-	)
+	self:OnPollReady{
+		["in"] = true,
+		out = true,
+		err = true,
+		hup = true,
+		nval = true,
+	}
 end
 
 function UDPClient:Error(message, ...)

@@ -4,14 +4,14 @@ local fonts = require("render2d.fonts")
 local tasks = require("tasks")
 
 T.Test("gfonts download Orbitron", function()
-	local promise = gfonts.Download({name = "Orbitron", weight = "Regular"})
+	local promise = gfonts.Download{name = "Orbitron", weight = "Regular"}
 	local path, changed = promise:Get()
 	T(type(path))["=="]("string")
 	T(path:find(".ttf", 1, true))["~="](nil)
 end)
 
 T.Test("gfonts download invalid font", function()
-	local promise = gfonts.Download({name = "ThisFontDoesNotExistProbably12345", weight = "Regular"})
+	local promise = gfonts.Download{name = "ThisFontDoesNotExistProbably12345", weight = "Regular"}
 	local ok, err = pcall(function()
 		promise:Get()
 	end)
@@ -20,7 +20,7 @@ T.Test("gfonts download invalid font", function()
 end)
 
 T.Test2D("gfonts hotswap", function()
-	local font = fonts.New({Name = "Orbitron", Weight = "Regular", Size = 20})
+	local font = fonts.New{Name = "Orbitron", Weight = "Regular", Size = 20}
 	T(font.IsFont)["=="](true)
 	local initial_ttf = font:GetFonts()[1]
 	T(initial_ttf)["~="](nil)

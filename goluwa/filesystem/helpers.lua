@@ -270,8 +270,8 @@ add_helper(
 	"write",
 	function(path, content, on_change)
 		path = path:gsub("(.+/)(.+)", function(folder, file_name)
-			for _, char in ipairs({--[['\\', '/', ]]
-			":", "%*", "%?", "\"", "<", ">", "|"}) do
+			for _, char in ipairs{--[['\\', '/', ]]
+			":", "%*", "%?", "\"", "<", ">", "|"} do
 				file_name = file_name:gsub(char, "_il" .. char:byte() .. "_")
 			end
 
@@ -317,9 +317,7 @@ add_helper(
 			end
 		end
 
-		if not found then
-			vfs.CreateDirectoriesFromPath(path, true)
-		end
+		if not found then vfs.CreateDirectoriesFromPath(path, true) end
 	end
 )
 

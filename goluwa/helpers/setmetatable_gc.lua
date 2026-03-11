@@ -4,6 +4,7 @@ local getmetatable = getmetatable
 local newproxy = newproxy
 local setmetatable = setmetatable
 local DEBUG = _G.DEBUG
+
 local function gc(s)
 	local tbl = getmetatable(s).__div
 	local tr = DEBUG and getmetatable(s).__mul
@@ -33,9 +34,9 @@ local function setmetatable_with_gc(tbl, meta)
 		local proxy = newproxy(true)
 		rawset(tbl, "__gc_proxy", proxy)
 		getmetatable(proxy).__div = tbl
-		if DEBUG then
-			getmetatable(proxy).__mul = debug.traceback()
-		end
+
+		if DEBUG then getmetatable(proxy).__mul = debug.traceback() end
+
 		getmetatable(proxy).__gc = gc
 	end
 

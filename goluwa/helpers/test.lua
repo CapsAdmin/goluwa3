@@ -1082,7 +1082,7 @@ commands.Add({
 				next_test_idx = next_test_idx + 1
 				local ok, thread_or_err = pcall(function()
 					local t = threads.new(thread_worker)
-					t:run({path = test_item.path, name = test_item.name, verbose = verbose})
+					t:run{path = test_item.path, name = test_item.name, verbose = verbose}
 					return t
 				end)
 

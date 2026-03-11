@@ -199,15 +199,13 @@ function render3d.Initialize()
 	render3d.pipelines = {}
 	render3d.pipelines_i = {}
 	local i = 1
-	local pipelines = list.flatten(
-		{
-			require("render3d.passes.gbuffer"),
-			require("render3d.passes.ssr"),
-			require("render3d.passes.lighting"),
-			require("render3d.passes.smaa"),
-			require("render3d.passes.blit"),
-		}
-	)
+	local pipelines = list.flatten{
+		require("render3d.passes.gbuffer"),
+		require("render3d.passes.ssr"),
+		require("render3d.passes.lighting"),
+		require("render3d.passes.smaa"),
+		require("render3d.passes.blit"),
+	}
 
 	for i, config in ipairs(pipelines) do
 		render3d.pipelines_i[i] = EasyPipeline.New(config)

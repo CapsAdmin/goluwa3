@@ -8,26 +8,24 @@ local fonts = require("render2d.fonts")
 local Panel = require("ecs.panel")
 local theme = require("ui.theme")
 return function(props)
-	return Panel.New(
+	return Panel.New{
 		{
-			{
-				Name = "text",
-				OnSetProperty = theme.OnSetProperty,
-				text = {
-					Font = props.Font or props.FontName or "body",
-					FontSize = props.FontSize or "M",
-					Color = "text_foreground",
-				},
-				layout = {
-					FitWidth = not props.Wrap,
-					FitHeight = true,
-				},
-				transform = true,
-				gui_element = true,
-				mouse_input = true,
-				animation = true,
+			Name = "text",
+			OnSetProperty = theme.OnSetProperty,
+			text = {
+				Font = props.Font or props.FontName or "body",
+				FontSize = props.FontSize or "M",
+				Color = "text_foreground",
 			},
-			props,
-		}
-	)
+			layout = {
+				FitWidth = not props.Wrap,
+				FitHeight = true,
+			},
+			transform = true,
+			gui_element = true,
+			mouse_input = true,
+			animation = true,
+		},
+		props,
+	}
 end

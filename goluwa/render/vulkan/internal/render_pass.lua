@@ -47,19 +47,17 @@ function RenderPass.New(device, config)
 			)
 		else
 			attachment_count = 1
-			attachments = vulkan.vk.VkAttachmentDescription(
-				{
-					flags = 0,
-					format = vulkan.vk.e.VkFormat(format_string),
-					samples = vulkan.vk.VkSampleCountFlagBits.VK_SAMPLE_COUNT_1_BIT,
-					loadOp = vulkan.vk.VkAttachmentLoadOp.VK_ATTACHMENT_LOAD_OP_CLEAR,
-					storeOp = vulkan.vk.VkAttachmentStoreOp.VK_ATTACHMENT_STORE_OP_STORE,
-					stencilLoadOp = vulkan.vk.VkAttachmentLoadOp.VK_ATTACHMENT_LOAD_OP_DONT_CARE,
-					stencilStoreOp = vulkan.vk.VkAttachmentStoreOp.VK_ATTACHMENT_STORE_OP_DONT_CARE,
-					initialLayout = vulkan.vk.VkImageLayout.VK_IMAGE_LAYOUT_UNDEFINED,
-					finalLayout = vulkan.vk.e.VkImageLayout(config.final_layout),
-				}
-			)
+			attachments = vulkan.vk.VkAttachmentDescription{
+				flags = 0,
+				format = vulkan.vk.e.VkFormat(format_string),
+				samples = vulkan.vk.VkSampleCountFlagBits.VK_SAMPLE_COUNT_1_BIT,
+				loadOp = vulkan.vk.VkAttachmentLoadOp.VK_ATTACHMENT_LOAD_OP_CLEAR,
+				storeOp = vulkan.vk.VkAttachmentStoreOp.VK_ATTACHMENT_STORE_OP_STORE,
+				stencilLoadOp = vulkan.vk.VkAttachmentLoadOp.VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+				stencilStoreOp = vulkan.vk.VkAttachmentStoreOp.VK_ATTACHMENT_STORE_OP_DONT_CARE,
+				initialLayout = vulkan.vk.VkImageLayout.VK_IMAGE_LAYOUT_UNDEFINED,
+				finalLayout = vulkan.vk.e.VkImageLayout(config.final_layout),
+			}
 		end
 	else
 		if has_depth then
@@ -141,97 +139,83 @@ function RenderPass.New(device, config)
 		end
 	end
 
-	local colorAttachmentRef = vulkan.vk.VkAttachmentReference(
-		{
-			attachment = 0,
-			layout = vulkan.vk.VkImageLayout.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-		}
-	)
+	local colorAttachmentRef = vulkan.vk.VkAttachmentReference{
+		attachment = 0,
+		layout = vulkan.vk.VkImageLayout.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+	}
 	local depthAttachmentRef = has_depth and
-		vulkan.vk.VkAttachmentReference(
-			{
-				attachment = config.samples == "1" and 1 or 2,
-				layout = vulkan.vk.VkImageLayout.VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-			}
-		) or
+		vulkan.vk.VkAttachmentReference{
+			attachment = config.samples == "1" and 1 or 2,
+			layout = vulkan.vk.VkImageLayout.VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+		} or
 		nil
-	local subpass = vulkan.vk.VkSubpassDescription(
-		{
-			flags = 0,
-			pipelineBindPoint = vulkan.vk.VkPipelineBindPoint.VK_PIPELINE_BIND_POINT_GRAPHICS,
-			inputAttachmentCount = 0,
-			pInputAttachments = nil,
-			colorAttachmentCount = 1,
-			pColorAttachments = colorAttachmentRef,
-			pResolveAttachments = config.samples ~= "1" and
-				vulkan.vk.VkAttachmentReference(
-					{
-						attachment = 1,
-						layout = vulkan.vk.VkImageLayout.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-					}
-				) or
-				nil,
-			pDepthStencilAttachment = depthAttachmentRef,
-			preserveAttachmentCount = 0,
-			pPreserveAttachments = nil,
-		}
-	)
-	local dependency = vulkan.vk.VkSubpassDependency(
-		{
-			srcSubpass = vulkan.vk.VK_SUBPASS_EXTERNAL,
-			dstSubpass = 0,
-			srcStageMask = has_depth and
-				bit.bor(
-					vulkan.vk.VkPipelineStageFlagBits.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-					vulkan.vk.VkPipelineStageFlagBits.VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT
-				) or
+	local subpass = vulkan.vk.VkSubpassDescription{
+		flags = 0,
+		pipelineBindPoint = vulkan.vk.VkPipelineBindPoint.VK_PIPELINE_BIND_POINT_GRAPHICS,
+		inputAttachmentCount = 0,
+		pInputAttachments = nil,
+		colorAttachmentCount = 1,
+		pColorAttachments = colorAttachmentRef,
+		pResolveAttachments = config.samples ~= "1" and
+			vulkan.vk.VkAttachmentReference{
+				attachment = 1,
+				layout = vulkan.vk.VkImageLayout.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+			} or
+			nil,
+		pDepthStencilAttachment = depthAttachmentRef,
+		preserveAttachmentCount = 0,
+		pPreserveAttachments = nil,
+	}
+	local dependency = vulkan.vk.VkSubpassDependency{
+		srcSubpass = vulkan.vk.VK_SUBPASS_EXTERNAL,
+		dstSubpass = 0,
+		srcStageMask = has_depth and
+			bit.bor(
 				vulkan.vk.VkPipelineStageFlagBits.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-			srcAccessMask = 0,
-			dstStageMask = has_depth and
-				bit.bor(
-					vulkan.vk.VkPipelineStageFlagBits.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-					vulkan.vk.VkPipelineStageFlagBits.VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT
-				) or
+				vulkan.vk.VkPipelineStageFlagBits.VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT
+			) or
+			vulkan.vk.VkPipelineStageFlagBits.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+		srcAccessMask = 0,
+		dstStageMask = has_depth and
+			bit.bor(
 				vulkan.vk.VkPipelineStageFlagBits.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-			dstAccessMask = has_depth and
-				bit.bor(
-					vulkan.vk.VkAccessFlagBits.VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
-					vulkan.vk.VkAccessFlagBits.VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT
-				) or
+				vulkan.vk.VkPipelineStageFlagBits.VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT
+			) or
+			vulkan.vk.VkPipelineStageFlagBits.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+		dstAccessMask = has_depth and
+			bit.bor(
 				vulkan.vk.VkAccessFlagBits.VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
-			dependencyFlags = 0,
-		}
-	)
-	local renderPassInfo = vulkan.vk.s.RenderPassCreateInfo(
-		{
-			attachmentCount = attachment_count,
-			pAttachments = attachments,
-			subpassCount = 1,
-			pSubpasses = subpass,
-			dependencyCount = 1,
-			pDependencies = dependency,
-		}
-	)
+				vulkan.vk.VkAccessFlagBits.VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT
+			) or
+			vulkan.vk.VkAccessFlagBits.VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+		dependencyFlags = 0,
+	}
+	local renderPassInfo = vulkan.vk.s.RenderPassCreateInfo{
+		attachmentCount = attachment_count,
+		pAttachments = attachments,
+		subpassCount = 1,
+		pSubpasses = subpass,
+		dependencyCount = 1,
+		pDependencies = dependency,
+	}
 	local ptr = vulkan.T.Box(vulkan.vk.VkRenderPass)()
 	vulkan.assert(
 		vulkan.lib.vkCreateRenderPass(device.ptr[0], renderPassInfo, nil, ptr),
 		"failed to create render pass with MSAA"
 	)
-	return RenderPass:CreateObject(
-		{
-			ptr = ptr,
-			device = device,
-			samples = config.samples,
-			has_depth = has_depth,
-			-- Anchor all temporary FFI structures to prevent premature GC
-			_attachments = attachments,
-			_colorAttachmentRef = colorAttachmentRef,
-			_depthAttachmentRef = depthAttachmentRef,
-			_subpass = subpass,
-			_dependency = dependency,
-			_renderPassInfo = renderPassInfo,
-		}
-	)
+	return RenderPass:CreateObject{
+		ptr = ptr,
+		device = device,
+		samples = config.samples,
+		has_depth = has_depth,
+		-- Anchor all temporary FFI structures to prevent premature GC
+		_attachments = attachments,
+		_colorAttachmentRef = colorAttachmentRef,
+		_depthAttachmentRef = depthAttachmentRef,
+		_subpass = subpass,
+		_dependency = dependency,
+		_renderPassInfo = renderPassInfo,
+	}
 end
 
 function RenderPass:OnRemove()

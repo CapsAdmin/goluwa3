@@ -133,14 +133,12 @@ return {
 			local process = require("bindings.process")
 			local system = require("system")
 			local ok, res = pcall(function()
-				local p, err = process.spawn(
-					{
-						command = "bash",
-						args = {"-c", command},
-						stdout = "pipe",
-						stderr = "pipe",
-					}
-				)
+				local p, err = process.spawn{
+					command = "bash",
+					args = {"-c", command},
+					stdout = "pipe",
+					stderr = "pipe",
+				}
 
 				if not p then error(err) end
 

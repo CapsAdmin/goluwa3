@@ -63,20 +63,18 @@ local function create_fallback_texture()
 		end
 	end
 
-	fallback_texture = Texture.New(
-		{
-			width = size,
-			height = size,
-			format = "r8g8b8a8_unorm",
-			buffer = buffer,
-			sampler = {
-				min_filter = "nearest",
-				mag_filter = "nearest",
-				wrap_s = "repeat",
-				wrap_t = "repeat",
-			},
-		}
-	)
+	fallback_texture = Texture.New{
+		width = size,
+		height = size,
+		format = "r8g8b8a8_unorm",
+		buffer = buffer,
+		sampler = {
+			min_filter = "nearest",
+			mag_filter = "nearest",
+			wrap_s = "repeat",
+			wrap_t = "repeat",
+		},
+	}
 	return fallback_texture
 end
 
@@ -102,10 +100,10 @@ function Texture.New(config)
 		return texture_cache[cache_key]
 	end
 
-	local self = Texture:CreateObject({
+	local self = Texture:CreateObject{
 		config = config,
 		is_ready = false,
-	})
+	}
 
 	local function load(img_or_err)
 		local reflectivity = nil -- VTF specifc
@@ -178,24 +176,22 @@ function Texture.New(config)
 
 			if is_compressed then default_usage = {"sampled", "transfer_dst"} end
 
-			image = render.CreateImage(
-				{
-					width = image_config.width or width,
-					height = image_config.height or height,
-					format = image_config.format or format,
-					usage = image_config.usage or default_usage,
-					properties = image_config.properties or "device_local",
-					samples = image_config.samples,
-					mip_levels = image_config.mip_levels or mip_levels,
-					tiling = image_config.tiling,
-					image_type = image_config.image_type,
-					depth = image_config.depth,
-					array_layers = image_config.array_layers,
-					sharing_mode = image_config.sharing_mode,
-					initial_layout = image_config.initial_layout,
-					flags = image_config.flags,
-				}
-			)
+			image = render.CreateImage{
+				width = image_config.width or width,
+				height = image_config.height or height,
+				format = image_config.format or format,
+				usage = image_config.usage or default_usage,
+				properties = image_config.properties or "device_local",
+				samples = image_config.samples,
+				mip_levels = image_config.mip_levels or mip_levels,
+				tiling = image_config.tiling,
+				image_type = image_config.image_type,
+				depth = image_config.depth,
+				array_layers = image_config.array_layers,
+				sharing_mode = image_config.sharing_mode,
+				initial_layout = image_config.initial_layout,
+				flags = image_config.flags,
+			}
 		end
 
 		-- Create or use view
@@ -209,22 +205,20 @@ function Texture.New(config)
 		elseif image then
 			-- Create view from config
 			local view_config = config.view or {}
-			view = image:CreateView(
-				{
-					view_type = view_config.view_type,
-					format = view_config.format or format,
-					aspect = view_config.aspect,
-					base_mip_level = view_config.base_mip_level,
-					level_count = view_config.level_count,
-					base_array_layer = view_config.base_array_layer,
-					layer_count = view_config.layer_count,
-					component_r = view_config.component_r,
-					component_g = view_config.component_g,
-					component_b = view_config.component_b,
-					component_a = view_config.component_a,
-					flags = view_config.flags,
-				}
-			)
+			view = image:CreateView{
+				view_type = view_config.view_type,
+				format = view_config.format or format,
+				aspect = view_config.aspect,
+				base_mip_level = view_config.base_mip_level,
+				level_count = view_config.level_count,
+				base_array_layer = view_config.base_array_layer,
+				layer_count = view_config.layer_count,
+				component_r = view_config.component_r,
+				component_g = view_config.component_g,
+				component_b = view_config.component_b,
+				component_a = view_config.component_a,
+				flags = view_config.flags,
+			}
 		end
 
 		-- Create or use sampler
@@ -238,25 +232,23 @@ function Texture.New(config)
 		else
 			-- Create sampler from config
 			local sampler_config = config.sampler or {}
-			sampler = render.CreateSampler(
-				{
-					min_filter = sampler_config.min_filter or "linear",
-					mag_filter = sampler_config.mag_filter or "linear",
-					mipmap_mode = sampler_config.mipmap_mode or "linear",
-					wrap_s = sampler_config.wrap_s or "repeat",
-					wrap_t = sampler_config.wrap_t or "repeat",
-					wrap_r = sampler_config.wrap_r or "repeat",
-					max_lod = sampler_config.max_lod or mip_levels,
-					min_lod = sampler_config.min_lod,
-					mip_lod_bias = sampler_config.mip_lod_bias,
-					anisotropy = sampler_config.anisotropy or 16,
-					border_color = sampler_config.border_color,
-					unnormalized_coordinates = sampler_config.unnormalized_coordinates,
-					compare_enable = sampler_config.compare_enable,
-					compare_op = sampler_config.compare_op,
-					flags = sampler_config.flags,
-				}
-			)
+			sampler = render.CreateSampler{
+				min_filter = sampler_config.min_filter or "linear",
+				mag_filter = sampler_config.mag_filter or "linear",
+				mipmap_mode = sampler_config.mipmap_mode or "linear",
+				wrap_s = sampler_config.wrap_s or "repeat",
+				wrap_t = sampler_config.wrap_t or "repeat",
+				wrap_r = sampler_config.wrap_r or "repeat",
+				max_lod = sampler_config.max_lod or mip_levels,
+				min_lod = sampler_config.min_lod,
+				mip_lod_bias = sampler_config.mip_lod_bias,
+				anisotropy = sampler_config.anisotropy or 16,
+				border_color = sampler_config.border_color,
+				unnormalized_coordinates = sampler_config.unnormalized_coordinates,
+				compare_enable = sampler_config.compare_enable,
+				compare_op = sampler_config.compare_op,
+				flags = sampler_config.flags,
+			}
 		end
 
 		self.image = image
@@ -343,14 +335,12 @@ function Texture.FromColor(color, config)
 
 	local has_config = config ~= nil
 	config = config or {}
-	local tex = Texture.New(
-		{
-			buffer = ffi.new("uint8_t[4]", color:Get255():Unpack()),
-			width = config.width or 1,
-			height = config.height or 1,
-			format = config.format or "r8g8b8a8_unorm",
-		}
-	)
+	local tex = Texture.New{
+		buffer = ffi.new("uint8_t[4]", color:Get255():Unpack()),
+		width = config.width or 1,
+		height = config.height or 1,
+		format = config.format or "r8g8b8a8_unorm",
+	}
 
 	if not has_config then cache[tostring(color)] = tex end
 
@@ -358,70 +348,68 @@ function Texture.FromColor(color, config)
 end
 
 function Texture.LoadNinePatch(path, on_ready)
-	return Texture.New(
-		{
-			path = path,
-			on_ready = function(self)
-				local data = self:Download()
-				local w, h = data:GetWidth(), data:GetHeight()
+	return Texture.New{
+		path = path,
+		on_ready = function(self)
+			local data = self:Download()
+			local w, h = data:GetWidth(), data:GetHeight()
 
-				local function is_black(x, y)
-					local r, g, b, a = data:GetPixel(x, y)
-					return a == 255 and r == 0 and g == 0 and b == 0
-				end
+			local function is_black(x, y)
+				local r, g, b, a = data:GetPixel(x, y)
+				return a == 255 and r == 0 and g == 0 and b == 0
+			end
 
-				local function find_regions(start_x, start_y, dx, dy, count)
-					local regions = {}
-					local s = -1
+			local function find_regions(start_x, start_y, dx, dy, count)
+				local regions = {}
+				local s = -1
 
-					for i = 0, count - 1 do
-						if is_black(start_x + i * dx, start_y + i * dy) then
-							if s == -1 then s = i end
-						else
-							if s ~= -1 then
-								table.insert(regions, {s, i})
-								s = -1
-							end
+				for i = 0, count - 1 do
+					if is_black(start_x + i * dx, start_y + i * dy) then
+						if s == -1 then s = i end
+					else
+						if s ~= -1 then
+							table.insert(regions, {s, i})
+							s = -1
 						end
 					end
-
-					if s ~= -1 then table.insert(regions, {s, count}) end
-
-					return regions
 				end
 
-				-- Top/Left lines define stretchable regions
-				local x_stretch_raw = find_regions(1, h - 1, 1, 0, w - 2)
-				local y_stretch_raw = find_regions(0, 1, 0, 1, h - 2)
-				-- Bottom/Right lines define content regions
-				local x_content_raw = find_regions(1, 0, 1, 0, w - 2)
-				local y_content_raw = find_regions(w - 1, 1, 0, 1, h - 2)
-				-- Crop the texture to remove the 1px metadata border
-				local clean_tex = self:Crop(1, 1, w - 2, h - 2)
-				local cw, ch = w - 2, h - 2
-				local x_stretch = {}
+				if s ~= -1 then table.insert(regions, {s, count}) end
 
-				for _, r in ipairs(x_stretch_raw) do
-					table.insert(x_stretch, {r[1], r[2]})
-				end
+				return regions
+			end
 
-				local y_stretch = {}
+			-- Top/Left lines define stretchable regions
+			local x_stretch_raw = find_regions(1, h - 1, 1, 0, w - 2)
+			local y_stretch_raw = find_regions(0, 1, 0, 1, h - 2)
+			-- Bottom/Right lines define content regions
+			local x_content_raw = find_regions(1, 0, 1, 0, w - 2)
+			local y_content_raw = find_regions(w - 1, 1, 0, 1, h - 2)
+			-- Crop the texture to remove the 1px metadata border
+			local clean_tex = self:Crop(1, 1, w - 2, h - 2)
+			local cw, ch = w - 2, h - 2
+			local x_stretch = {}
 
-				for _, r in ipairs(y_stretch_raw) do
-					table.insert(y_stretch, {r[1], r[2]})
-				end
+			for _, r in ipairs(x_stretch_raw) do
+				table.insert(x_stretch, {r[1], r[2]})
+			end
 
-				clean_tex.nine_patch = {
-					x_stretch = x_stretch,
-					y_stretch = y_stretch,
-					x_content = x_content_raw,
-					y_content = y_content_raw,
-				}
+			local y_stretch = {}
 
-				if on_ready then on_ready(clean_tex) end
-			end,
-		}
-	)
+			for _, r in ipairs(y_stretch_raw) do
+				table.insert(y_stretch, {r[1], r[2]})
+			end
+
+			clean_tex.nine_patch = {
+				x_stretch = x_stretch,
+				y_stretch = y_stretch,
+				x_content = x_content_raw,
+				y_content = y_content_raw,
+			}
+
+			if on_ready then on_ready(clean_tex) end
+		end,
+	}
 end
 
 function Texture:CopyFrom(other, width, height, srcX, srcY, dstX, dstY)
@@ -429,61 +417,55 @@ function Texture:CopyFrom(other, width, height, srcX, srcY, dstX, dstY)
 	local cmd = cmd_pool:AllocateCommandBuffer()
 	cmd:Begin()
 	-- Transition src to transfer_src
-	cmd:PipelineBarrier(
-		{
-			srcStage = "all_commands",
-			dstStage = "transfer",
-			imageBarriers = {
-				{
-					image = other:GetImage(),
-					oldLayout = other:GetImage().layout or "shader_read_only_optimal",
-					newLayout = "transfer_src_optimal",
-					srcAccessMask = "memory_read",
-					dstAccessMask = "transfer_read",
-				},
+	cmd:PipelineBarrier{
+		srcStage = "all_commands",
+		dstStage = "transfer",
+		imageBarriers = {
+			{
+				image = other:GetImage(),
+				oldLayout = other:GetImage().layout or "shader_read_only_optimal",
+				newLayout = "transfer_src_optimal",
+				srcAccessMask = "memory_read",
+				dstAccessMask = "transfer_read",
 			},
-		}
-	)
+		},
+	}
 	-- Transition dst to transfer_dst
-	cmd:PipelineBarrier(
-		{
-			srcStage = "all_commands",
-			dstStage = "transfer",
-			imageBarriers = {
-				{
-					image = self:GetImage(),
-					oldLayout = self:GetImage().layout or "shader_read_only_optimal",
-					newLayout = "transfer_dst_optimal",
-					srcAccessMask = "none",
-					dstAccessMask = "transfer_write",
-				},
+	cmd:PipelineBarrier{
+		srcStage = "all_commands",
+		dstStage = "transfer",
+		imageBarriers = {
+			{
+				image = self:GetImage(),
+				oldLayout = self:GetImage().layout or "shader_read_only_optimal",
+				newLayout = "transfer_dst_optimal",
+				srcAccessMask = "none",
+				dstAccessMask = "transfer_write",
 			},
-		}
-	)
+		},
+	}
 	cmd:CopyImageToImage(other:GetImage(), self:GetImage(), width, height, srcX, srcY, dstX, dstY)
 	-- Transition back
-	cmd:PipelineBarrier(
-		{
-			srcStage = "transfer",
-			dstStage = "all_commands",
-			imageBarriers = {
-				{
-					image = other:GetImage(),
-					oldLayout = "transfer_src_optimal",
-					newLayout = other:GetImage().layout or "shader_read_only_optimal",
-					srcAccessMask = "transfer_read",
-					dstAccessMask = "memory_read",
-				},
-				{
-					image = self:GetImage(),
-					oldLayout = "transfer_dst_optimal",
-					newLayout = "shader_read_only_optimal",
-					srcAccessMask = "transfer_write",
-					dstAccessMask = "memory_read",
-				},
+	cmd:PipelineBarrier{
+		srcStage = "transfer",
+		dstStage = "all_commands",
+		imageBarriers = {
+			{
+				image = other:GetImage(),
+				oldLayout = "transfer_src_optimal",
+				newLayout = other:GetImage().layout or "shader_read_only_optimal",
+				srcAccessMask = "transfer_read",
+				dstAccessMask = "memory_read",
 			},
-		}
-	)
+			{
+				image = self:GetImage(),
+				oldLayout = "transfer_dst_optimal",
+				newLayout = "shader_read_only_optimal",
+				srcAccessMask = "transfer_write",
+				dstAccessMask = "memory_read",
+			},
+		},
+	}
 	cmd:End()
 	render.SubmitAndWait(cmd)
 end
@@ -493,14 +475,12 @@ function Texture:Crop(x, y, w, h)
 	y = math.floor(y)
 	w = math.floor(w)
 	h = math.floor(h)
-	local new_tex = Texture.New(
-		{
-			width = w,
-			height = h,
-			format = self.format,
-			sampler = self.config.sampler,
-		}
-	)
+	local new_tex = Texture.New{
+		width = w,
+		height = h,
+		format = self.format,
+		sampler = self.config.sampler,
+	}
 	new_tex:CopyFrom(self, w, h, x, y, 0, 0)
 	return new_tex
 end
@@ -531,37 +511,33 @@ function Texture:Upload(data, keep_in_transfer_dst)
 	local pixel_count = width * height
 	local bytes_per_pixel = get_bytes_per_pixel(self.format)
 	-- Create staging buffer
-	local staging_buffer = Buffer.New(
-		{
-			device = device,
-			size = pixel_count * bytes_per_pixel,
-			usage = "transfer_src",
-			properties = {"host_visible", "host_coherent"},
-		}
-	)
+	local staging_buffer = Buffer.New{
+		device = device,
+		size = pixel_count * bytes_per_pixel,
+		usage = "transfer_src",
+		properties = {"host_visible", "host_coherent"},
+	}
 	staging_buffer:CopyData(buffer, pixel_count * bytes_per_pixel)
 	-- Copy to image using command buffer
 	local cmd_pool = render.GetCommandPool()
 	local cmd = cmd_pool:AllocateCommandBuffer()
 	cmd:Begin()
 	-- Transition image to transfer dst (only mip level 0)
-	cmd:PipelineBarrier(
-		{
-			srcStage = "compute",
-			dstStage = "transfer",
-			imageBarriers = {
-				{
-					image = self.image,
-					srcAccessMask = "none",
-					dstAccessMask = "transfer_write",
-					oldLayout = "undefined",
-					newLayout = "transfer_dst_optimal",
-					base_mip_level = 0,
-					level_count = 1,
-				},
+	cmd:PipelineBarrier{
+		srcStage = "compute",
+		dstStage = "transfer",
+		imageBarriers = {
+			{
+				image = self.image,
+				srcAccessMask = "none",
+				dstAccessMask = "transfer_write",
+				oldLayout = "undefined",
+				newLayout = "transfer_dst_optimal",
+				base_mip_level = 0,
+				level_count = 1,
 			},
-		}
-	)
+		},
+	}
 	-- Copy buffer to image
 	cmd:CopyBufferToImage(staging_buffer, self.image, width, height, x, y)
 
@@ -583,23 +559,21 @@ function Texture:Upload(data, keep_in_transfer_dst)
 		end
 
 		-- Transition to final layout
-		cmd:PipelineBarrier(
-			{
-				srcStage = "transfer",
-				dstStage = dst_stage,
-				imageBarriers = {
-					{
-						image = self.image,
-						srcAccessMask = "transfer_write",
-						dstAccessMask = "shader_read",
-						oldLayout = "transfer_dst_optimal",
-						newLayout = final_layout,
-						base_mip_level = 0,
-						level_count = 1,
-					},
+		cmd:PipelineBarrier{
+			srcStage = "transfer",
+			dstStage = dst_stage,
+			imageBarriers = {
+				{
+					image = self.image,
+					srcAccessMask = "transfer_write",
+					dstAccessMask = "shader_read",
+					oldLayout = "transfer_dst_optimal",
+					newLayout = final_layout,
+					base_mip_level = 0,
+					level_count = 1,
 				},
-			}
-		)
+			},
+		}
 	end
 
 	cmd:End()
@@ -615,37 +589,33 @@ function Texture:UploadCompressed(data, vulkan_info)
 	local mip_count = vulkan_info.mip_count
 	local total_size = vulkan_info.data_size
 	-- Create staging buffer for all data
-	local staging_buffer = Buffer.New(
-		{
-			device = device,
-			size = total_size,
-			usage = "transfer_src",
-			properties = {"host_visible", "host_coherent"},
-		}
-	)
+	local staging_buffer = Buffer.New{
+		device = device,
+		size = total_size,
+		usage = "transfer_src",
+		properties = {"host_visible", "host_coherent"},
+	}
 	staging_buffer:CopyData(data, total_size)
 	-- Copy to image using command buffer
 	local cmd_pool = render.GetCommandPool()
 	local cmd = cmd_pool:AllocateCommandBuffer()
 	cmd:Begin()
 	-- Transition all mip levels to transfer dst
-	cmd:PipelineBarrier(
-		{
-			srcStage = "top_of_pipe",
-			dstStage = "transfer",
-			imageBarriers = {
-				{
-					image = self.image,
-					srcAccessMask = "none",
-					dstAccessMask = "transfer_write",
-					oldLayout = "undefined",
-					newLayout = "transfer_dst_optimal",
-					base_mip_level = 0,
-					level_count = mip_count,
-				},
+	cmd:PipelineBarrier{
+		srcStage = "top_of_pipe",
+		dstStage = "transfer",
+		imageBarriers = {
+			{
+				image = self.image,
+				srcAccessMask = "none",
+				dstAccessMask = "transfer_write",
+				oldLayout = "undefined",
+				newLayout = "transfer_dst_optimal",
+				base_mip_level = 0,
+				level_count = mip_count,
 			},
-		}
-	)
+		},
+	}
 
 	-- Copy each mip level from the staging buffer
 	for mip = 1, mip_count do
@@ -665,23 +635,21 @@ function Texture:UploadCompressed(data, vulkan_info)
 	end
 
 	-- Transition all mip levels to shader read optimal
-	cmd:PipelineBarrier(
-		{
-			srcStage = "transfer",
-			dstStage = "fragment",
-			imageBarriers = {
-				{
-					image = self.image,
-					srcAccessMask = "transfer_write",
-					dstAccessMask = "shader_read",
-					oldLayout = "transfer_dst_optimal",
-					newLayout = "shader_read_only_optimal",
-					base_mip_level = 0,
-					level_count = mip_count,
-				},
+	cmd:PipelineBarrier{
+		srcStage = "transfer",
+		dstStage = "fragment",
+		imageBarriers = {
+			{
+				image = self.image,
+				srcAccessMask = "transfer_write",
+				dstAccessMask = "shader_read",
+				oldLayout = "transfer_dst_optimal",
+				newLayout = "shader_read_only_optimal",
+				base_mip_level = 0,
+				level_count = mip_count,
 			},
-		}
-	)
+		},
+	}
 	cmd:End()
 	-- Submit and wait
 	render.SubmitAndWait(cmd)
@@ -782,24 +750,22 @@ function Texture:GenerateMipmaps(initial_layout, cmd)
 		) ~= 0
 
 	if not blit_dst_supported or not blit_src_supported then
-		cmd:PipelineBarrier(
-			{
-				srcStage = src_stage,
-				dstStage = "fragment",
-				imageBarriers = {
-					{
-						image = self.image,
-						srcAccessMask = src_access,
-						dstAccessMask = "shader_read",
-						oldLayout = old_layout,
-						newLayout = "shader_read_only_optimal",
-						base_mip_level = 0,
-						level_count = self.mip_map_levels,
-						layer_count = layers,
-					},
+		cmd:PipelineBarrier{
+			srcStage = src_stage,
+			dstStage = "fragment",
+			imageBarriers = {
+				{
+					image = self.image,
+					srcAccessMask = src_access,
+					dstAccessMask = "shader_read",
+					oldLayout = old_layout,
+					newLayout = "shader_read_only_optimal",
+					base_mip_level = 0,
+					level_count = self.mip_map_levels,
+					layer_count = layers,
 				},
-			}
-		)
+			},
+		}
 
 		if internal_cmd then
 			cmd:End()
@@ -811,24 +777,22 @@ function Texture:GenerateMipmaps(initial_layout, cmd)
 	end
 
 	-- Transition first mip level (0) to transfer_src
-	cmd:PipelineBarrier(
-		{
-			srcStage = src_stage,
-			dstStage = "transfer",
-			imageBarriers = {
-				{
-					image = self.image,
-					srcAccessMask = src_access,
-					dstAccessMask = "transfer_read",
-					oldLayout = old_layout,
-					newLayout = "transfer_src_optimal",
-					base_mip_level = 0,
-					level_count = 1,
-					layer_count = layers,
-				},
+	cmd:PipelineBarrier{
+		srcStage = src_stage,
+		dstStage = "transfer",
+		imageBarriers = {
+			{
+				image = self.image,
+				srcAccessMask = src_access,
+				dstAccessMask = "transfer_read",
+				oldLayout = old_layout,
+				newLayout = "transfer_src_optimal",
+				base_mip_level = 0,
+				level_count = 1,
+				layer_count = layers,
 			},
-		}
-	)
+		},
+	}
 	local mip_width = self.image:GetWidth()
 	local mip_height = self.image:GetHeight()
 
@@ -837,84 +801,76 @@ function Texture:GenerateMipmaps(initial_layout, cmd)
 		local next_mip_width = math.max(1, math.floor(mip_width / 2))
 		local next_mip_height = math.max(1, math.floor(mip_height / 2))
 		-- Transition current mip level to transfer_dst before blitting into it
-		cmd:PipelineBarrier(
-			{
-				srcStage = "transfer",
-				dstStage = "transfer",
-				imageBarriers = {
-					{
-						image = self.image,
-						srcAccessMask = "none",
-						dstAccessMask = "transfer_write",
-						oldLayout = "undefined",
-						newLayout = "transfer_dst_optimal",
-						base_mip_level = i,
-						level_count = 1,
-						layer_count = layers,
-					},
+		cmd:PipelineBarrier{
+			srcStage = "transfer",
+			dstStage = "transfer",
+			imageBarriers = {
+				{
+					image = self.image,
+					srcAccessMask = "none",
+					dstAccessMask = "transfer_write",
+					oldLayout = "undefined",
+					newLayout = "transfer_dst_optimal",
+					base_mip_level = i,
+					level_count = 1,
+					layer_count = layers,
 				},
-			}
-		)
+			},
+		}
 		-- Blit from previous mip level to current mip level
-		cmd:BlitImage(
-			{
-				src_image = self.image,
-				dst_image = self.image,
-				src_mip_level = i - 1,
-				dst_mip_level = i,
-				src_width = mip_width,
-				src_height = mip_height,
-				dst_width = next_mip_width,
-				dst_height = next_mip_height,
-				src_layout = "transfer_src_optimal",
-				dst_layout = "transfer_dst_optimal",
-				filter = "linear",
-				src_layer_count = layers,
-				dst_layer_count = layers,
-			}
-		)
+		cmd:BlitImage{
+			src_image = self.image,
+			dst_image = self.image,
+			src_mip_level = i - 1,
+			dst_mip_level = i,
+			src_width = mip_width,
+			src_height = mip_height,
+			dst_width = next_mip_width,
+			dst_height = next_mip_height,
+			src_layout = "transfer_src_optimal",
+			dst_layout = "transfer_dst_optimal",
+			filter = "linear",
+			src_layer_count = layers,
+			dst_layer_count = layers,
+		}
 		-- Transition current mip level from transfer_dst to transfer_src
-		cmd:PipelineBarrier(
-			{
-				srcStage = "transfer",
-				dstStage = "transfer",
-				imageBarriers = {
-					{
-						image = self.image,
-						srcAccessMask = "transfer_write",
-						dstAccessMask = "transfer_read",
-						oldLayout = "transfer_dst_optimal",
-						newLayout = "transfer_src_optimal",
-						base_mip_level = i,
-						level_count = 1,
-						layer_count = layers,
-					},
+		cmd:PipelineBarrier{
+			srcStage = "transfer",
+			dstStage = "transfer",
+			imageBarriers = {
+				{
+					image = self.image,
+					srcAccessMask = "transfer_write",
+					dstAccessMask = "transfer_read",
+					oldLayout = "transfer_dst_optimal",
+					newLayout = "transfer_src_optimal",
+					base_mip_level = i,
+					level_count = 1,
+					layer_count = layers,
 				},
-			}
-		)
+			},
+		}
 		mip_width = next_mip_width
 		mip_height = next_mip_height
 	end
 
 	-- Transition all mip levels to shader_read_only_optimal for sampling
-	cmd:PipelineBarrier(
-		{
-			srcStage = "transfer",
-			dstStage = "fragment",
-			imageBarriers = {
-				{
-					image = self.image,
-					srcAccessMask = "transfer_read",
-					dstAccessMask = "shader_read",
-					oldLayout = "transfer_src_optimal",
-					newLayout = "shader_read_only_optimal",
-					base_mip_level = 0,
-					level_count = self.mip_map_levels,
-					layer_count = layers,
-				},
+	cmd:PipelineBarrier{
+		srcStage = "transfer",
+		dstStage = "fragment",
+		imageBarriers = {
+			{
+				image = self.image,
+				srcAccessMask = "transfer_read",
+				dstAccessMask = "shader_read",
+				oldLayout = "transfer_src_optimal",
+				newLayout = "shader_read_only_optimal",
+				base_mip_level = 0,
+				level_count = self.mip_map_levels,
+				layer_count = layers,
 			},
-		}
-	)
+		},
+	}
 
 	if internal_cmd then
 		cmd:End()
@@ -962,18 +918,16 @@ function Texture:Shade(glsl, extra_config)
 	for i = 0, layers - 1 do
 		table.insert(
 			views,
-			ImageView.New(
-				{
-					device = device,
-					image = self.image,
-					format = self.format,
-					base_mip_level = 0,
-					level_count = 1,
-					base_array_layer = i,
-					layer_count = 1,
-					view_type = "2d",
-				}
-			)
+			ImageView.New{
+				device = device,
+				image = self.image,
+				format = self.format,
+				base_mip_level = 0,
+				level_count = 1,
+				base_array_layer = i,
+				layer_count = 1,
+				view_type = "2d",
+			}
 		)
 	end
 
@@ -1016,27 +970,26 @@ function Texture:Shade(glsl, extra_config)
 		}
 	]]
 	-- Create graphics pipeline
-	local pipeline = render.CreateGraphicsPipeline(
-		{
-			dynamic_states = {"viewport", "scissor"},
-			color_format = self.format,
-			samples = "1",
-			shader_stages = {
-				{
-					type = "vertex",
-					code = vertex_code,
-					input_assembly = {
-						topology = "triangle_list",
-						primitive_restart = false,
-					},
-					push_constants = {
-						size = 4,
-						offset = 0,
-					},
+	local pipeline = render.CreateGraphicsPipeline{
+		dynamic_states = {"viewport", "scissor"},
+		color_format = self.format,
+		samples = "1",
+		shader_stages = {
+			{
+				type = "vertex",
+				code = vertex_code,
+				input_assembly = {
+					topology = "triangle_list",
+					primitive_restart = false,
 				},
-				{
-					type = "fragment",
-					code = [[
+				push_constants = {
+					size = 4,
+					offset = 0,
+				},
+			},
+			{
+				type = "fragment",
+				code = [[
 							#version 450
 							#extension GL_EXT_nonuniform_qualifier : require
 
@@ -1048,9 +1001,9 @@ function Texture:Shade(glsl, extra_config)
 							layout(location = 0) out vec4 out_color;
 
 							]] .. (
-							extra_config.custom_declarations or
-							""
-						) .. [[
+						extra_config.custom_declarations or
+						""
+					) .. [[
 
 							]] .. header .. [[
 							]] .. glsl .. [[
@@ -1059,59 +1012,58 @@ function Texture:Shade(glsl, extra_config)
 								out_color = shade(in_uv, in_dir);
 							}
 						]],
-					descriptor_sets = {
-						{
-							type = "combined_image_sampler",
-							binding_index = 0,
-							count = 1024,
-						},
-						{
-							type = "combined_image_sampler",
-							binding_index = 1,
-							count = 1024,
-						},
-					},
-				},
-			},
-			rasterizer = {
-				depth_clamp = false,
-				discard = false,
-				polygon_mode = "fill",
-				line_width = 1.0,
-				cull_mode = "front",
-				front_face = "counter_clockwise",
-				depth_bias = 0,
-			},
-			color_blend = {
-				logic_op_enabled = false,
-				logic_op = "copy",
-				constants = {0.0, 0.0, 0.0, 0.0},
-				attachments = {
+				descriptor_sets = {
 					{
-						blend = extra_config.blend or false,
-						src_color_blend_factor = "src_alpha",
-						dst_color_blend_factor = "one_minus_src_alpha",
-						color_blend_op = "add",
-						src_alpha_blend_factor = "one",
-						dst_alpha_blend_factor = "zero",
-						alpha_blend_op = "add",
-						color_write_mask = {"r", "g", "b", "a"},
+						type = "combined_image_sampler",
+						binding_index = 0,
+						count = 1024,
+					},
+					{
+						type = "combined_image_sampler",
+						binding_index = 1,
+						count = 1024,
 					},
 				},
 			},
-			multisampling = {
-				sample_shading = false,
-				rasterization_samples = "1",
+		},
+		rasterizer = {
+			depth_clamp = false,
+			discard = false,
+			polygon_mode = "fill",
+			line_width = 1.0,
+			cull_mode = "front",
+			front_face = "counter_clockwise",
+			depth_bias = 0,
+		},
+		color_blend = {
+			logic_op_enabled = false,
+			logic_op = "copy",
+			constants = {0.0, 0.0, 0.0, 0.0},
+			attachments = {
+				{
+					blend = extra_config.blend or false,
+					src_color_blend_factor = "src_alpha",
+					dst_color_blend_factor = "one_minus_src_alpha",
+					color_blend_op = "add",
+					src_alpha_blend_factor = "one",
+					dst_alpha_blend_factor = "zero",
+					alpha_blend_op = "add",
+					color_write_mask = {"r", "g", "b", "a"},
+				},
 			},
-			depth_stencil = {
-				depth_test = false,
-				depth_write = false,
-				depth_compare_op = "less",
-				depth_bounds_test = false,
-				stencil_test = false,
-			},
-		}
-	)
+		},
+		multisampling = {
+			sample_shading = false,
+			rasterization_samples = "1",
+		},
+		depth_stencil = {
+			depth_test = false,
+			depth_write = false,
+			depth_compare_op = "less",
+			depth_bounds_test = false,
+			stencil_test = false,
+		},
+	}
 
 	if extra_config.textures then
 		for _, tex in ipairs(extra_config.textures) do
@@ -1124,38 +1076,34 @@ function Texture:Shade(glsl, extra_config)
 	cmd:Begin()
 	-- Transition image from undefined/shader_read to color_attachment_optimal
 	local old_layout = self.image.layout or "undefined"
-	cmd:PipelineBarrier(
-		{
-			srcStage = "top_of_pipe",
-			dstStage = "color_attachment_output",
-			imageBarriers = {
-				{
-					image = self.image,
-					srcAccessMask = "none",
-					dstAccessMask = "color_attachment_write",
-					oldLayout = (extra_config.load_op == "load") and old_layout or "undefined",
-					newLayout = "color_attachment_optimal",
-					level_count = 1,
-					layer_count = layers,
-				},
+	cmd:PipelineBarrier{
+		srcStage = "top_of_pipe",
+		dstStage = "color_attachment_output",
+		imageBarriers = {
+			{
+				image = self.image,
+				srcAccessMask = "none",
+				dstAccessMask = "color_attachment_write",
+				oldLayout = (extra_config.load_op == "load") and old_layout or "undefined",
+				newLayout = "color_attachment_optimal",
+				level_count = 1,
+				layer_count = layers,
 			},
-		}
-	)
+		},
+	}
 	pipeline:Bind(cmd)
 
 	for i = 0, layers - 1 do
 		local face_const = ffi.new("int[1]", i)
 		pipeline:PushConstants(cmd, "vertex", 0, face_const)
 		-- Begin rendering
-		cmd:BeginRendering(
-			{
-				color_image_view = views[i + 1],
-				w = self.image:GetWidth(),
-				h = self.image:GetHeight(),
-				clear_color = extra_config.clear_color or {0, 0, 0, 0},
-				load_op = extra_config.load_op or "clear",
-			}
-		)
+		cmd:BeginRendering{
+			color_image_view = views[i + 1],
+			w = self.image:GetWidth(),
+			h = self.image:GetHeight(),
+			clear_color = extra_config.clear_color or {0, 0, 0, 0},
+			load_op = extra_config.load_op or "clear",
+		}
 		-- Draw fullscreen triangle
 		cmd:SetViewport(0.0, 0.0, self.image:GetWidth(), self.image:GetHeight(), 0.0, 1.0)
 		cmd:SetScissor(0, 0, self.image:GetWidth(), self.image:GetHeight())
@@ -1168,23 +1116,21 @@ function Texture:Shade(glsl, extra_config)
 		self:GenerateMipmaps("color_attachment_optimal", cmd)
 	else
 		-- Transition to shader_read_only_optimal
-		cmd:PipelineBarrier(
-			{
-				srcStage = "color_attachment_output",
-				dstStage = "fragment",
-				imageBarriers = {
-					{
-						image = self.image,
-						srcAccessMask = "color_attachment_write",
-						dstAccessMask = "shader_read",
-						oldLayout = "color_attachment_optimal",
-						newLayout = "shader_read_only_optimal",
-						level_count = 1,
-						layer_count = layers,
-					},
+		cmd:PipelineBarrier{
+			srcStage = "color_attachment_output",
+			dstStage = "fragment",
+			imageBarriers = {
+				{
+					image = self.image,
+					srcAccessMask = "color_attachment_write",
+					dstAccessMask = "shader_read",
+					oldLayout = "color_attachment_optimal",
+					newLayout = "shader_read_only_optimal",
+					level_count = 1,
+					layer_count = layers,
 				},
-			}
-		)
+			},
+		}
 	end
 
 	-- End command buffer
@@ -1375,35 +1321,31 @@ do
 
 		-- Create staging buffer
 		local device = render.GetDevice()
-		local staging_buffer = Buffer.New(
-			{
-				device = device,
-				size = width * height * bytes_per_pixel,
-				usage = "transfer_dst",
-				properties = {"host_visible", "host_coherent"},
-			}
-		)
+		local staging_buffer = Buffer.New{
+			device = device,
+			size = width * height * bytes_per_pixel,
+			usage = "transfer_dst",
+			properties = {"host_visible", "host_coherent"},
+		}
 		-- Create command buffer for copy
 		local copy_cmd = render.GetCommandPool():AllocateCommandBuffer()
 		copy_cmd:Begin()
 		local old_layout = image.layout or "undefined"
 
 		if old_layout ~= "transfer_src_optimal" then
-			copy_cmd:PipelineBarrier(
-				{
-					srcStage = "all_commands",
-					dstStage = "transfer",
-					imageBarriers = {
-						{
-							image = image,
-							oldLayout = old_layout,
-							newLayout = "transfer_src_optimal",
-							srcAccessMask = "memory_read",
-							dstAccessMask = "transfer_read",
-						},
+			copy_cmd:PipelineBarrier{
+				srcStage = "all_commands",
+				dstStage = "transfer",
+				imageBarriers = {
+					{
+						image = image,
+						oldLayout = old_layout,
+						newLayout = "transfer_src_optimal",
+						srcAccessMask = "memory_read",
+						dstAccessMask = "transfer_read",
 					},
-				}
-			)
+				},
+			}
 		end
 
 		vulkan.lib.vkCmdCopyImageToBuffer(
@@ -1412,41 +1354,35 @@ do
 			vulkan.vk.e.VkImageLayout("transfer_src_optimal"),
 			staging_buffer.ptr[0],
 			1,
-			vulkan.vk.VkBufferImageCopy(
-				{
-					bufferOffset = 0,
-					bufferRowLength = 0,
-					bufferImageHeight = 0,
-					imageSubresource = vulkan.vk.s.ImageSubresourceLayers(
-						{
-							aspectMask = (image.format and image.format:match("^d")) and "depth" or "color",
-							mipLevel = 0,
-							baseArrayLayer = 0,
-							layerCount = 1,
-						}
-					),
-					imageOffset = vulkan.vk.VkOffset3D({x = 0, y = 0, z = 0}),
-					imageExtent = vulkan.vk.VkExtent3D({width = width, height = height, depth = 1}),
-				}
-			)
+			vulkan.vk.VkBufferImageCopy{
+				bufferOffset = 0,
+				bufferRowLength = 0,
+				bufferImageHeight = 0,
+				imageSubresource = vulkan.vk.s.ImageSubresourceLayers{
+					aspectMask = (image.format and image.format:match("^d")) and "depth" or "color",
+					mipLevel = 0,
+					baseArrayLayer = 0,
+					layerCount = 1,
+				},
+				imageOffset = vulkan.vk.VkOffset3D{x = 0, y = 0, z = 0},
+				imageExtent = vulkan.vk.VkExtent3D{width = width, height = height, depth = 1},
+			}
 		)
 
 		if old_layout ~= "transfer_src_optimal" then
-			copy_cmd:PipelineBarrier(
-				{
-					srcStage = "transfer",
-					dstStage = "all_commands",
-					imageBarriers = {
-						{
-							image = image,
-							oldLayout = "transfer_src_optimal",
-							newLayout = old_layout,
-							srcAccessMask = "transfer_read",
-							dstAccessMask = "memory_read",
-						},
+			copy_cmd:PipelineBarrier{
+				srcStage = "transfer",
+				dstStage = "all_commands",
+				imageBarriers = {
+					{
+						image = image,
+						oldLayout = "transfer_src_optimal",
+						newLayout = old_layout,
+						srcAccessMask = "transfer_read",
+						dstAccessMask = "memory_read",
 					},
-				}
-			)
+				},
+			}
 		end
 
 		copy_cmd:End()
@@ -1457,16 +1393,14 @@ do
 		local pixels = ffi.new("uint8_t[?]", width * height * bytes_per_pixel)
 		ffi.copy(pixels, pixel_data, width * height * bytes_per_pixel)
 		staging_buffer:Unmap()
-		return TextureDownloaded:CreateObject(
-			{
-				pixels = pixels,
-				width = width,
-				height = height,
-				format = format,
-				bytes_per_pixel = bytes_per_pixel,
-				size = width * height * bytes_per_pixel,
-			}
-		)
+		return TextureDownloaded:CreateObject{
+			pixels = pixels,
+			width = width,
+			height = height,
+			format = format,
+			bytes_per_pixel = bytes_per_pixel,
+			size = width * height * bytes_per_pixel,
+		}
 	end
 
 	function Texture:GetPixel(x, y)

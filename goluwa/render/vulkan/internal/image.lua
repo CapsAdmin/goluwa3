@@ -19,45 +19,41 @@ function Image.New(config)
 	vulkan.assert(
 		vulkan.lib.vkCreateImage(
 			config.device.ptr[0],
-			vulkan.vk.s.ImageCreateInfo(
-				{
-					flags = config.flags,
-					imageType = config.image_type or "2d",
-					format = config.format,
-					extent = {
-						width = config.width,
-						height = config.height,
-						depth = config.depth or 1,
-					},
-					mipLevels = mip_levels,
-					arrayLayers = config.array_layers or 1,
-					samples = config.samples or "1",
-					tiling = config.tiling or "optimal",
-					usage = config.usage,
-					sharingMode = config.sharing_mode or "exclusive",
-					initialLayout = config.initial_layout or "undefined",
-					--
-					queueFamilyIndexCount = 0,
-				}
-			),
+			vulkan.vk.s.ImageCreateInfo{
+				flags = config.flags,
+				imageType = config.image_type or "2d",
+				format = config.format,
+				extent = {
+					width = config.width,
+					height = config.height,
+					depth = config.depth or 1,
+				},
+				mipLevels = mip_levels,
+				arrayLayers = config.array_layers or 1,
+				samples = config.samples or "1",
+				tiling = config.tiling or "optimal",
+				usage = config.usage,
+				sharingMode = config.sharing_mode or "exclusive",
+				initialLayout = config.initial_layout or "undefined",
+				--
+				queueFamilyIndexCount = 0,
+			},
 			nil,
 			ptr
 		),
 		"failed to create image"
 	)
-	local self = Image:CreateObject(
-		{
-			ptr = ptr,
-			device = config.device,
-			width = config.width,
-			height = config.height,
-			format = config.format,
-			usage = config.usage,
-			mip_levels = mip_levels,
-			array_layers = config.array_layers or 1,
-			layout = config.initial_layout or "undefined",
-		}
-	)
+	local self = Image:CreateObject{
+		ptr = ptr,
+		device = config.device,
+		width = config.width,
+		height = config.height,
+		format = config.format,
+		usage = config.usage,
+		mip_levels = mip_levels,
+		array_layers = config.array_layers or 1,
+		layout = config.initial_layout or "undefined",
+	}
 	local requirements = config.device:GetImageMemoryRequirements(self)
 	assert(requirements.size > 0)
 	self.memory = Memory.New(
@@ -104,19 +100,17 @@ function Image:GetArrayLayers()
 end
 
 function Image:CreateView(config)
-	return ImageView.New(
-		{
-			device = self.device,
-			image = self,
-			view_type = config.view_type,
-			format = config.format or self.format,
-			level_count = config.level_count or self.mip_levels or 1,
-			aspect = config.aspect,
-			layer_count = config.layer_count or self.array_layers or 1,
-			base_array_layer = config.base_array_layer,
-			base_mip_level = config.base_mip_level,
-		}
-	)
+	return ImageView.New{
+		device = self.device,
+		image = self,
+		view_type = config.view_type,
+		format = config.format or self.format,
+		level_count = config.level_count or self.mip_levels or 1,
+		aspect = config.aspect,
+		layer_count = config.layer_count or self.array_layers or 1,
+		base_array_layer = config.base_array_layer,
+		base_mip_level = config.base_mip_level,
+	}
 end
 
 function Image:TransitionLayout(old_layout, new_layout)
@@ -144,21 +138,19 @@ function Image:TransitionLayout(old_layout, new_layout)
 	end
 
 	-- Transition image layout
-	cmd:PipelineBarrier(
-		{
-			srcStage = src_stage,
-			dstStage = dst_stage,
-			imageBarriers = {
-				{
-					image = self,
-					srcAccessMask = src_access,
-					dstAccessMask = dst_access,
-					oldLayout = old_layout,
-					newLayout = new_layout,
-				},
+	cmd:PipelineBarrier{
+		srcStage = src_stage,
+		dstStage = dst_stage,
+		imageBarriers = {
+			{
+				image = self,
+				srcAccessMask = src_access,
+				dstAccessMask = dst_access,
+				oldLayout = old_layout,
+				newLayout = new_layout,
 			},
-		}
-	)
+		},
+	}
 	cmd:End()
 	-- Submit and wait for completion
 	local fence = Fence.New(device)

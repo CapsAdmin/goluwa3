@@ -34,11 +34,7 @@ function mod.find_library()
 		for _, name in ipairs(tbl) do
 			local status, lib = pcall(ffi.load, name)
 
-			if status then
-				return lib
-			else
-				table.insert(errors, lib)
-			end
+			if status then return lib else table.insert(errors, lib) end
 		end
 
 		return nil, table.concat(errors, "\n")

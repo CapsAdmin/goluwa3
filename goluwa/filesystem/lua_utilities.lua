@@ -302,11 +302,10 @@ end
 vfs.module_directories = {}
 
 function vfs.Require(name, ...)
-	if package.loaded[name] then
-		return package.loaded[name]
-	end
+	if package.loaded[name] then return package.loaded[name] end
+
 	if package.searchpath(name, package.path) then
---		print("requiring normally:", name)
+		--		print("requiring normally:", name)
 		return _OLD_G.require(name)
 	end
 
@@ -323,8 +322,9 @@ function vfs.Require(name, ...)
 			if lua_dir:starts_with("/") then lua_dir = lua_dir:sub(2) end
 
 			local path = lua_dir:replace("/", ".") .. name
+
 			if package.searchpath(path, package.path) then
-			--	print("requiring from addon:", v.name, path)
+				--	print("requiring from addon:", v.name, path)
 				return _OLD_G.require(path)
 			end
 		end
@@ -337,12 +337,13 @@ function vfs.Require(name, ...)
 	for _, dir in ipairs(vfs.module_directories) do
 		for _, data in ipairs(vfs.TranslatePath(dir, true)) do
 			fs.PushWorkingDirectory(data.path_info.full_path)
+
 			if package.searchpath(name, package.path) then
 				local ok, ret = pcall(_OLD_G.require, name)
 				fs.PopWorkingDirectory()
-				if not ok then
-					error(err, 2)
-				end
+
+				if not ok then error(err, 2) end
+
 				return ret
 			else
 				fs.PopWorkingDirectory()
@@ -359,16 +360,17 @@ function vfs.Require(name, ...)
 
 		if dir then
 			fs.PushWorkingDirectory(dir)
+
 			if package.searchpath(name, package.path) then
 				local ok, ret = pcall(_OLD_G.require, name)
 				fs.PopWorkingDirectory()
-				if not ok then
-					error(err, 2)
-				end
+
+				if not ok then error(err, 2) end
 			else
 				fs.PopWorkingDirectory()
 				list.insert(errors, "no file in: " .. dir)
 			end
+
 			fs.PopWorkingDirectory()
 		end
 	end
@@ -473,14 +475,12 @@ if ffi then
 		local errors = {}
 
 		if vfs and vfs and fs.PushWorkingDirectory then
-			local files = vfs.GetFiles(
-				{
-					path = "bin/" .. jit.os:lower() .. "_" .. jit.arch:lower() .. "/",
-					filter = path,
-					filter_plain = true,
-					full_path = true,
-				}
-			)
+			local files = vfs.GetFiles{
+				path = "bin/" .. jit.os:lower() .. "_" .. jit.arch:lower() .. "/",
+				filter = path,
+				filter_plain = true,
+				full_path = true,
+			}
 
 			for _, full_path in ipairs(files) do
 				if codec.LookupInFile("luadata", "shared/library_crashes.lua", full_path) then

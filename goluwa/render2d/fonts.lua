@@ -33,7 +33,7 @@ function fonts.New(props)
 		font:SetSize(props.Size)
 		font:SetName(props.Name .. "-" .. tostring(props.Weight or "regular"))
 
-		gfonts.Download({name = props.Name, weight = props.Weight}):Then(function(path)
+		gfonts.Download{name = props.Name, weight = props.Weight}:Then(function(path)
 			local new_ttf = ttf_font.New(path)
 			new_ttf:SetSize(font:GetSize())
 			font:SetFonts({new_ttf})
@@ -136,7 +136,9 @@ end
 function fonts.GetDefaultSystemFontPath()
 	local function path_exists(path)
 		if not path or path == "" then return false end
+
 		if fs.exists(path) then return true end
+
 		local file = io.open(path, "rb")
 
 		if file then
@@ -149,6 +151,7 @@ function fonts.GetDefaultSystemFontPath()
 
 	local function normalize_fontconfig_path(path)
 		if not path then return path end
+
 		return path:gsub("%b[]", "")
 	end
 
@@ -165,6 +168,7 @@ function fonts.GetDefaultSystemFontPath()
 			handle:close()
 
 			if path then path = path:match("^%s*(.-)%s*$") end
+
 			if not path_exists(path) then path = normalize_fontconfig_path(path) end
 
 			if path_exists(path) then return path end

@@ -73,14 +73,12 @@ function CONTEXT:OnParseArchive(file, archive_path)
 
 		if name:ends_with(".lzma") then name = name:sub(1, -6) end
 
-		self:AddEntry(
-			{
-				full_path = name,
-				archive_path = cache_path,
-				size = decompressed:GetSize(),
-				offset = 0,
-			}
-		)
+		self:AddEntry{
+			full_path = name,
+			archive_path = cache_path,
+			size = decompressed:GetSize(),
+			offset = 0,
+		}
 	end
 
 	return true

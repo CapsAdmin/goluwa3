@@ -3,22 +3,20 @@
 -- Generates the 64x16 R8 search texture at runtime
 local Texture = require("render.texture")
 local ffi = require("ffi")
-local tex = Texture.New(
-	{
-		width = 64,
-		height = 16,
-		format = "r8_unorm",
-		image = {
-			usage = {"storage", "sampled", "transfer_dst", "transfer_src", "color_attachment"},
-		},
-		sampler = {
-			min_filter = "linear",
-			mag_filter = "linear",
-			wrap_s = "clamp_to_edge",
-			wrap_t = "clamp_to_edge",
-		},
-	}
-)
+local tex = Texture.New{
+	width = 64,
+	height = 16,
+	format = "r8_unorm",
+	image = {
+		usage = {"storage", "sampled", "transfer_dst", "transfer_src", "color_attachment"},
+	},
+	sampler = {
+		min_filter = "linear",
+		mag_filter = "linear",
+		wrap_s = "clamp_to_edge",
+		wrap_t = "clamp_to_edge",
+	},
+}
 tex:Shade([[
 	// Calculates the bilinear fetch for a certain edge combination:
 	// e[0]       e[1]

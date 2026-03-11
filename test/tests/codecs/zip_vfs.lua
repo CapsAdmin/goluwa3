@@ -1,7 +1,9 @@
 local T = require("test.environment")
 local vfs = require("filesystem.vfs")
 local resource = require("resource")
-local ZIP_PATH = function() return resource.Download("https://github.com/CapsAdmin/goluwa-assets/raw/refs/heads/master/test/test.zip"):Get() end
+local ZIP_PATH = function()
+	return resource.Download("https://github.com/CapsAdmin/goluwa-assets/raw/refs/heads/master/test/test.zip"):Get()
+end
 
 T.Test("ZIP VFS registration", function()
 	local filesystems = vfs.GetFileSystems()
@@ -22,10 +24,8 @@ T.Test("ZIP VFS file reading", function()
 	-- Find a file to open
 	local files = vfs.Find(ZIP_PATH() .. "/codecs/", nil, nil, nil, nil, true)
 	T(#files)["=="](8)
-
 	local test_file_path = files[1].full_path
 	local file = assert(vfs.Open(test_file_path))
-
 	local size = file:GetSize()
 	T(size)[">="](0)
 	local content = file:ReadBytes(math.min(100, size))

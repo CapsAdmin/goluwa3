@@ -17,12 +17,12 @@ local Panel = require("ecs.base")("panel", "ecs.components.2d.", function()
 	return valid
 end)
 package.loaded["ecs.panel"] = Panel
-Panel.World = Panel.New({
+Panel.World = Panel.New{
 	ComponentSet = {
 		"transform",
 		"gui_element",
 	},
-})
+}
 
 do
 	local window = require("window")

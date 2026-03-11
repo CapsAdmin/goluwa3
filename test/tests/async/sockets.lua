@@ -197,18 +197,16 @@ T.Test("http.Request wrapper function", function()
 		client:Close()
 	end
 
-	http.Request(
-		{
-			url = "http://127.0.0.1:" .. (test_port - 1) .. "/test",
-			callback = function(data)
-				result = data
-				done = true
-			end,
-			error_callback = function(err)
-				done = true
-			end,
-		}
-	)
+	http.Request{
+		url = "http://127.0.0.1:" .. (test_port - 1) .. "/test",
+		callback = function(data)
+			result = data
+			done = true
+		end,
+		error_callback = function(err)
+			done = true
+		end,
+	}
 
 	T.WaitUntil(function()
 		return done
@@ -233,21 +231,19 @@ T.Test("http.Request with custom headers", function()
 		client:Close()
 	end
 
-	http.Request(
-		{
-			url = "http://127.0.0.1:" .. (test_port - 1) .. "/test",
-			header = {
-				["X-Custom-Header"] = "test-value",
-				["User-Agent"] = "Goluwa-Test",
-			},
-			callback = function(data)
-				done = true
-			end,
-			error_callback = function(err)
-				done = true
-			end,
-		}
-	)
+	http.Request{
+		url = "http://127.0.0.1:" .. (test_port - 1) .. "/test",
+		header = {
+			["X-Custom-Header"] = "test-value",
+			["User-Agent"] = "Goluwa-Test",
+		},
+		callback = function(data)
+			done = true
+		end,
+		error_callback = function(err)
+			done = true
+		end,
+	}
 
 	T.WaitUntil(function()
 		return done

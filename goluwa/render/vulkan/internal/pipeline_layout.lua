@@ -35,21 +35,19 @@ function PipelineLayout.New(device, descriptorSetLayouts, pushConstantRanges)
 		end
 	end
 
-	local pipelineLayoutInfo = vulkan.vk.s.PipelineLayoutCreateInfo(
-		{
-			setLayoutCount = setLayoutCount,
-			pSetLayouts = setLayoutArray,
-			pushConstantRangeCount = pushConstantCount,
-			pPushConstantRanges = pushConstantArray,
-			flags = 0,
-		}
-	)
+	local pipelineLayoutInfo = vulkan.vk.s.PipelineLayoutCreateInfo{
+		setLayoutCount = setLayoutCount,
+		pSetLayouts = setLayoutArray,
+		pushConstantRangeCount = pushConstantCount,
+		pPushConstantRanges = pushConstantArray,
+		flags = 0,
+	}
 	local ptr = vulkan.T.Box(vulkan.vk.VkPipelineLayout)()
 	vulkan.assert(
 		vulkan.lib.vkCreatePipelineLayout(device.ptr[0], pipelineLayoutInfo, nil, ptr),
 		"failed to create pipeline layout"
 	)
-	return PipelineLayout:CreateObject({device = device, ptr = ptr})
+	return PipelineLayout:CreateObject{device = device, ptr = ptr}
 end
 
 function PipelineLayout:OnRemove()

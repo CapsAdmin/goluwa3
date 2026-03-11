@@ -12,36 +12,34 @@ function ImageView.New(config)
 	vulkan.assert(
 		vulkan.lib.vkCreateImageView(
 			config.device.ptr[0],
-			vulkan.vk.s.ImageViewCreateInfo(
-				{
-					flags = config.flags,
-					image = config.image.ptr[0],
-					viewType = config.view_type or "2d",
-					format = config.format,
-					components = {
-						r = config.component_r or "identity",
-						g = config.component_g or "identity",
-						b = config.component_b or "identity",
-						a = config.component_a or "identity",
-					},
-					subresourceRange = {
-						aspectMask = config.aspect or "color",
-						baseMipLevel = config.base_mip_level or 0,
-						levelCount = config.level_count or 1,
-						baseArrayLayer = config.base_array_layer or 0,
-						layerCount = config.layer_count or 1,
-					},
-				}
-			),
+			vulkan.vk.s.ImageViewCreateInfo{
+				flags = config.flags,
+				image = config.image.ptr[0],
+				viewType = config.view_type or "2d",
+				format = config.format,
+				components = {
+					r = config.component_r or "identity",
+					g = config.component_g or "identity",
+					b = config.component_b or "identity",
+					a = config.component_a or "identity",
+				},
+				subresourceRange = {
+					aspectMask = config.aspect or "color",
+					baseMipLevel = config.base_mip_level or 0,
+					levelCount = config.level_count or 1,
+					baseArrayLayer = config.base_array_layer or 0,
+					layerCount = config.layer_count or 1,
+				},
+			},
 			nil,
 			ptr
 		),
 		"failed to create image view"
 	)
-	return ImageView:CreateObject({
+	return ImageView:CreateObject{
 		ptr = ptr,
 		device = config.device,
-	})
+	}
 end
 
 function ImageView:OnRemove()

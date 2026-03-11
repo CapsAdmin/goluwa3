@@ -10,18 +10,16 @@ local Quat = require("structs.quat")
 local Color = require("structs.color")
 local Rect = require("structs.rect")
 
-
 T.Test3D("Raycast basic triangle hit", function()
-	
 	-- Create entity with triangle mesh
 	local ent = Entity.New({Name = "test_triangle"})
 	ent:AddComponent("transform")
 	ent:AddComponent("model")
 	local poly = Polygon3D.New()
 	-- Triangle facing +Z (CCW winding from +Z)
-	poly:AddVertex({pos = Vec3(-1, -1, 0), uv = Vec2(0, 0), normal = Vec3(0, 0, 1)})
-	poly:AddVertex({pos = Vec3(1, -1, 0), uv = Vec2(1, 0), normal = Vec3(0, 0, 1)})
-	poly:AddVertex({pos = Vec3(0, 1, 0), uv = Vec2(0.5, 1), normal = Vec3(0, 0, 1)})
+	poly:AddVertex{pos = Vec3(-1, -1, 0), uv = Vec2(0, 0), normal = Vec3(0, 0, 1)}
+	poly:AddVertex{pos = Vec3(1, -1, 0), uv = Vec2(1, 0), normal = Vec3(0, 0, 1)}
+	poly:AddVertex{pos = Vec3(0, 1, 0), uv = Vec2(0.5, 1), normal = Vec3(0, 0, 1)}
 	poly:BuildBoundingBox()
 	poly:Upload()
 	ent.model:AddPrimitive(poly)
@@ -38,15 +36,14 @@ T.Test3D("Raycast basic triangle hit", function()
 end)
 
 T.Test3D("Raycast miss", function()
-	
 	-- Create entity with triangle mesh
 	local ent = Entity.New({Name = "test_triangle"})
 	ent:AddComponent("transform")
 	ent:AddComponent("model")
 	local poly = Polygon3D.New()
-	poly:AddVertex({pos = Vec3(-1, -1, 0), uv = Vec2(0, 0), normal = Vec3(0, 0, -1)})
-	poly:AddVertex({pos = Vec3(1, -1, 0), uv = Vec2(1, 0), normal = Vec3(0, 0, -1)})
-	poly:AddVertex({pos = Vec3(0, 1, 0), uv = Vec2(0.5, 1), normal = Vec3(0, 0, -1)})
+	poly:AddVertex{pos = Vec3(-1, -1, 0), uv = Vec2(0, 0), normal = Vec3(0, 0, -1)}
+	poly:AddVertex{pos = Vec3(1, -1, 0), uv = Vec2(1, 0), normal = Vec3(0, 0, -1)}
+	poly:AddVertex{pos = Vec3(0, 1, 0), uv = Vec2(0.5, 1), normal = Vec3(0, 0, -1)}
 	poly:BuildBoundingBox()
 	poly:Upload()
 	ent.model:AddPrimitive(poly)
@@ -60,7 +57,6 @@ T.Test3D("Raycast miss", function()
 end)
 
 T.Test3D("Raycast cube", function()
-	
 	-- Create entity with cube mesh
 	local ent = Entity.New({Name = "test_cube"})
 	ent:AddComponent("transform")
@@ -90,7 +86,6 @@ T.Test3D("Raycast cube", function()
 end)
 
 T.Test3D("Raycast with transform", function()
-	
 	-- Create entity with triangle mesh at offset position
 	local ent = Entity.New({Name = "test_triangle"})
 	ent:AddComponent("transform")
@@ -98,9 +93,9 @@ T.Test3D("Raycast with transform", function()
 	-- Position entity to the right
 	ent.transform:SetPosition(Vec3(5, 0, 0))
 	local poly = Polygon3D.New()
-	poly:AddVertex({pos = Vec3(-1, -1, 0), uv = Vec2(0, 0), normal = Vec3(0, 0, -1)})
-	poly:AddVertex({pos = Vec3(1, -1, 0), uv = Vec2(1, 0), normal = Vec3(0, 0, -1)})
-	poly:AddVertex({pos = Vec3(0, 1, 0), uv = Vec2(0.5, 1), normal = Vec3(0, 0, -1)})
+	poly:AddVertex{pos = Vec3(-1, -1, 0), uv = Vec2(0, 0), normal = Vec3(0, 0, -1)}
+	poly:AddVertex{pos = Vec3(1, -1, 0), uv = Vec2(1, 0), normal = Vec3(0, 0, -1)}
+	poly:AddVertex{pos = Vec3(0, 1, 0), uv = Vec2(0.5, 1), normal = Vec3(0, 0, -1)}
 	poly:BuildBoundingBox()
 	poly:Upload()
 	ent.model:AddPrimitive(poly)
@@ -116,7 +111,6 @@ T.Test3D("Raycast with transform", function()
 end)
 
 T.Test3D("Raycast multiple entities", function()
-	
 	-- Create two entities at different positions
 	local ent1 = Entity.New({Name = "cube1"})
 	ent1:AddComponent("transform")
@@ -152,7 +146,6 @@ T.Test3D("Raycast multiple entities", function()
 end)
 
 T.Test3D("Raycast with filter", function()
-	
 	-- Create two entities
 	local ent1 = Entity.New({Name = "include_me"})
 	ent1:AddComponent("transform")
@@ -193,7 +186,6 @@ T.Test3D("Raycast with filter", function()
 end)
 
 T.Test3D("Raycast CastClosest", function()
-	
 	local ent = Entity.New({Name = "test_cube"})
 	ent:AddComponent("transform")
 	ent:AddComponent("model")
@@ -211,7 +203,6 @@ T.Test3D("Raycast CastClosest", function()
 end)
 
 T.Test3D("Raycast CastAny", function()
-	
 	local ent = Entity.New({Name = "test_cube"})
 	ent:AddComponent("transform")
 	ent:AddComponent("model")

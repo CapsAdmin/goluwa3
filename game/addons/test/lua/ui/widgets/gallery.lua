@@ -24,15 +24,13 @@ return function(props)
 		end
 	end
 
-	local content_panel = ScrollablePanel(
-		{
-			layout = {
-				GrowWidth = 1,
-				GrowHeight = 1,
-			},
-			Padding = Rect() + theme.GetPadding("S"),
-		}
-	)
+	local content_panel = ScrollablePanel{
+		layout = {
+			GrowWidth = 1,
+			GrowHeight = 1,
+		},
+		Padding = Rect() + theme.GetPadding("S"),
+	}
 
 	local function select_page(page)
 		print("Selecting page: " .. tostring(page.Name))
@@ -71,63 +69,49 @@ return function(props)
 	for _, page in ipairs(pages) do
 		table.insert(
 			page_buttons,
-			Button(
-				{
-					Text = page.Name or "Unnamed Page",
-					OnClick = function()
-						select_page(page)
-					end,
-					layout = {
-						GrowWidth = 1,
-					},
-				}
-			)
+			Button{
+				Text = page.Name or "Unnamed Page",
+				OnClick = function()
+					select_page(page)
+				end,
+				layout = {
+					GrowWidth = 1,
+				},
+			}
 		)
 	end
 
 	local world_panel = Panel.World
-	return Window(
-		{
-			Key = props.Key or "GalleryWindow",
-			Title = "UI GALLERY",
-			Size = props.Size or Vec2(800, 600),
-			Padding = "none",
-			Position = props.Position or (world_panel.transform:GetSize() - Vec2(800, 600)) / 2,
-			layout = {
-				FitHeight = false,
-				FitWidth = false,
+	return Window{
+		Key = props.Key or "GalleryWindow",
+		Title = "UI GALLERY",
+		Size = props.Size or Vec2(800, 600),
+		Padding = "none",
+		Position = props.Position or (world_panel.transform:GetSize() - Vec2(800, 600)) / 2,
+		layout = {
+			FitHeight = false,
+			FitWidth = false,
+		},
+	}{
+		Splitter{
+			InitialSize = 220,
+		}{
+			ScrollablePanel{
+				Color = theme.GetColor("black"):SetAlpha(0.3),
+				layout = {
+					GrowHeight = 1,
+				},
+				Padding = Rect() + theme.GetPadding("XXS"),
+			}{
+				Column{
+					layout = {
+						ChildGap = 4,
+						GrowWidth = 1,
+						AlignmentX = "stretch",
+					},
+				}(page_buttons),
 			},
-		}
-	)(
-		{
-			Splitter({
-				InitialSize = 220,
-			})(
-				{
-					ScrollablePanel(
-						{
-							Color = theme.GetColor("black"):SetAlpha(0.3),
-							layout = {
-								GrowHeight = 1,
-							},
-							Padding = Rect() + theme.GetPadding("XXS"),
-						}
-					)(
-						{
-							Column(
-								{
-									layout = {
-										ChildGap = 4,
-										GrowWidth = 1,
-										AlignmentX = "stretch",
-									},
-								}
-							)(page_buttons),
-						}
-					),
-					content_panel,
-				}
-			),
-		}
-	)
+			content_panel,
+		},
+	}
 end

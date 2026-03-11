@@ -37,8 +37,8 @@ return function(META)
 		self:PushCurrentStatement(statement)
 		context:PushCurrentAnalyzer(self)
 		local argument_tuple = a and
-			Tuple({a, b, c, d, e, f}) or
-			Tuple({a, b, c, d, e, f}):AddRemainder(Tuple({Any()}):SetRepeat(math.huge))
+			Tuple{a, b, c, d, e, f} or
+			Tuple{a, b, c, d, e, f}:AddRemainder(Tuple({Any()}):SetRepeat(math.huge))
 		self:CreateAndPushModuleScope()
 		self:PushGlobalEnvironment(statement, self:GetDefaultEnvironment("runtime"), "runtime")
 		self:PushGlobalEnvironment(statement, self:GetDefaultEnvironment("typesystem"), "typesystem")
@@ -442,7 +442,7 @@ return function(META)
 					error("cannot find typesystem function " .. name:GetData())
 				end
 
-				local argument_tuple = Tuple({a, b, c, d, e, f})
+				local argument_tuple = Tuple{a, b, c, d, e, f}
 				local returned_tuple, err = self:Call(generics_func, argument_tuple)
 				self:PopAnalyzerEnvironment()
 
@@ -598,7 +598,7 @@ return function(META)
 		end
 
 		do
-			for _, type in ipairs({"Function", "Table", "Tuple", "Union"}) do
+			for _, type in ipairs{"Function", "Table", "Tuple", "Union"} do
 				local push, get, get_offset, pop = META:SetupContextValue("current_type_" .. type)
 				META["PushCurrentType" .. type] = function(self, obj)
 					push(self, obj)

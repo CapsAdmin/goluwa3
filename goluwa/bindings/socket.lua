@@ -1147,14 +1147,12 @@ do -- addrinfo
 		local addrinfo_out_array_boxed = ffi.typeof("$*[1]", addrinfo_out)
 
 		function M.find_address_info(host, service, flags, socket_type, protocol, family)
-			local hints = addrinfo_hints(
-				{
-					ai_family = family and AF.strict_lookup(family) or nil,
-					ai_socktype = socket_type and SOCK.strict_lookup(socket_type) or nil,
-					ai_protocol = protocol and IPPROTO.strict_lookup(protocol) or nil,
-					ai_flags = flags and AI.table_to_flags(flags, bit.bor) or nil,
-				}
-			)
+			local hints = addrinfo_hints{
+				ai_family = family and AF.strict_lookup(family) or nil,
+				ai_socktype = socket_type and SOCK.strict_lookup(socket_type) or nil,
+				ai_protocol = protocol and IPPROTO.strict_lookup(protocol) or nil,
+				ai_flags = flags and AI.table_to_flags(flags, bit.bor) or nil,
+			}
 			local out = addrinfo_out_array_boxed()
 			local ok, err = socket.getaddrinfo(host, service and tostring(service) or nil, hints, out)
 
@@ -1574,13 +1572,11 @@ do
 
 			if len and len > 0 then
 				addrinfo = M.addressinfo(
-					addrinfo_out(
-						{
-							ai_addr = ffi.cast(sockaddr_ptr, src_address),
-							ai_addrlen = ai_addrlen_res[0],
-							ai_family = AF.strict_lookup(self.family),
-						}
-					)
+					addrinfo_out{
+						ai_addr = ffi.cast(sockaddr_ptr, src_address),
+						ai_addrlen = ai_addrlen_res[0],
+						ai_family = AF.strict_lookup(self.family),
+					}
 				)
 			end
 		else

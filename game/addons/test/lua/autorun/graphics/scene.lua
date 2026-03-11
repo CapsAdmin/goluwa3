@@ -13,23 +13,21 @@ runfile("lua/examples/desert.lua")
 
 local function shaded_texture(glsl, shared)
 	if type(glsl) ~= "string" then return glsl end -- already a texture
-	local tex = Texture.New(
-		{
-			width = 1024,
-			height = 1024,
-			format = "r8g8b8a8_unorm",
-			mip_map_levels = "auto",
-			image = {
-				usage = {"storage", "sampled", "transfer_dst", "transfer_src", "color_attachment"},
-			},
-			sampler = {
-				min_filter = "linear",
-				mag_filter = "linear",
-				wrap_s = "repeat",
-				wrap_t = "clamp_to_edge",
-			},
-		}
-	)
+	local tex = Texture.New{
+		width = 1024,
+		height = 1024,
+		format = "r8g8b8a8_unorm",
+		mip_map_levels = "auto",
+		image = {
+			usage = {"storage", "sampled", "transfer_dst", "transfer_src", "color_attachment"},
+		},
+		sampler = {
+			min_filter = "linear",
+			mag_filter = "linear",
+			wrap_s = "repeat",
+			wrap_t = "clamp_to_edge",
+		},
+	}
 	tex:Shade(glsl, {custom_declarations = shared})
 	return tex
 end
@@ -161,60 +159,49 @@ do
 		#define n get_equirect_dir(uv)
 	]]
 	--gold
-	MATERIAL(
-		{
-			shared = shared,
-			albedo = "return vec4(1.022, 0.782, 0.344, 1.0);",
-			metal = "return vec4(1.0);",
-			roughness = "return vec4(0.05);",
-			normal = "return vec4(getDetailNormal(p, n, 0.2) * 0.5 + 0.5, 1.0);",
-		}
-	)
+	MATERIAL{
+		shared = shared,
+		albedo = "return vec4(1.022, 0.782, 0.344, 1.0);",
+		metal = "return vec4(1.0);",
+		roughness = "return vec4(0.05);",
+		normal = "return vec4(getDetailNormal(p, n, 0.2) * 0.5 + 0.5, 1.0);",
+	}
 	-- silver
-	MATERIAL(
-		{
-			shared = shared,
-			albedo = "return vec4(0.972, 0.960, 0.915, 1.0);",
-			metal = "return vec4(1.0);",
-			roughness = "return vec4(0.2);",
-			normal = "return vec4(getDetailNormal(p, n, 0.2) * 0.5 + 0.5, 1.0);",
-		}
-	)
+	MATERIAL{
+		shared = shared,
+		albedo = "return vec4(0.972, 0.960, 0.915, 1.0);",
+		metal = "return vec4(1.0);",
+		roughness = "return vec4(0.2);",
+		normal = "return vec4(getDetailNormal(p, n, 0.2) * 0.5 + 0.5, 1.0);",
+	}
 	-- copper
-	MATERIAL(
-		{
-			shared = shared,
-			albedo = "return vec4(0.955, 0.637, 0.538, 1.0);",
-			metal = "return vec4(1.0);",
-			roughness = "return vec4(0.3);",
-			normal = "return vec4(getDetailNormal(p, n, 0.2) * 0.5 + 0.5, 1.0);",
-		}
-	)
+	MATERIAL{
+		shared = shared,
+		albedo = "return vec4(0.955, 0.637, 0.538, 1.0);",
+		metal = "return vec4(1.0);",
+		roughness = "return vec4(0.3);",
+		normal = "return vec4(getDetailNormal(p, n, 0.2) * 0.5 + 0.5, 1.0);",
+	}
 	--green plastic
-	MATERIAL(
-		{
-			shared = shared,
-			albedo = "return vec4(0, 1, 0, 1.0);",
-			metal = "return vec4(0.0);",
-			roughness = "return vec4(0.00);",
-			normal = "return vec4(getDetailNormal(p, n, 1.0) * 0.5 + 0.5, 1.0);",
-		}
-	)
+	MATERIAL{
+		shared = shared,
+		albedo = "return vec4(0, 1, 0, 1.0);",
+		metal = "return vec4(0.0);",
+		roughness = "return vec4(0.00);",
+		normal = "return vec4(getDetailNormal(p, n, 1.0) * 0.5 + 0.5, 1.0);",
+	}
 	-- (2, 0) Orange
-	MATERIAL(
-		{
-			shared = shared,
-			albedo = "return vec4(0.875, 0.125, 0.0, 1.0);",
-			metal = "return vec4(0.0);",
-			roughness = "return vec4(0.05);",
-			normal = "return vec4(0.5, 0.5, 1.0, 1.0);",
-		}
-	)
+	MATERIAL{
+		shared = shared,
+		albedo = "return vec4(0.875, 0.125, 0.0, 1.0);",
+		metal = "return vec4(0.0);",
+		roughness = "return vec4(0.05);",
+		normal = "return vec4(0.5, 0.5, 1.0, 1.0);",
+	}
 	-- (0, 1) Mixed sphere
-	MATERIAL(
-		{
-			shared = shared,
-			albedo = [[
+	MATERIAL{
+		shared = shared,
+		albedo = [[
 			float m = smoothstep(0.38, 0.42, length(getTriplanar(12.0*p, n)));
 
 			return mix(
@@ -223,8 +210,8 @@ do
 				m
 			);
 		]],
-			metal = "return vec4(smoothstep(0.38, 0.42, length(getTriplanar(12.0*p, n))));",
-			roughness = [[
+		metal = "return vec4(smoothstep(0.38, 0.42, length(getTriplanar(12.0*p, n))));",
+		roughness = [[
 			float m = smoothstep(0.38, 0.42, length(getTriplanar(12.0*p, n)));
 			float r = mix(
 				length(getTriplanar(12.0*p, n)),
@@ -233,63 +220,53 @@ do
 			);
 			return vec4(clamp(r, 0.05, 0.999));
 		]],
-			normal = "return vec4(getDetailNormal(p, n, 1.0) * 0.5 + 0.5, 1.0);",
-		--heightmap = [[return vec4(length(getTriplanar(12.0*p, n)));]],
-		}
-	)
+		normal = "return vec4(getDetailNormal(p, n, 1.0) * 0.5 + 0.5, 1.0);",
+	--heightmap = [[return vec4(length(getTriplanar(12.0*p, n)));]],
+	}
 	-- (1, 1) Silver
-	MATERIAL(
-		{
-			shared = shared,
-			albedo = "return vec4(0.972, 0.960, 0.915, 1.0);",
-			metal = "return vec4(1.0);",
-			roughness = "return vec4(1.0 / 3.0);",
-			normal = "return vec4(getDetailNormal(p, n, 0.2) * 0.5 + 0.5, 1.0);",
-		}
-	)
+	MATERIAL{
+		shared = shared,
+		albedo = "return vec4(0.972, 0.960, 0.915, 1.0);",
+		metal = "return vec4(1.0);",
+		roughness = "return vec4(1.0 / 3.0);",
+		normal = "return vec4(getDetailNormal(p, n, 0.2) * 0.5 + 0.5, 1.0);",
+	}
 	-- (2, 1) Striped
-	MATERIAL(
-		{
-			shared = shared,
-			albedo = [[
+	MATERIAL{
+		shared = shared,
+		albedo = [[
 			return vec4(mix(vec3(0.0625), vec3(1.0, 0.8125, 0.125), 
 				smoothstep(0.0, 0.2, sin(5.8*p.y + 5.8*p.z))), 1.0);
 		]],
-			metal = "return vec4(0.0);",
-			roughness = "return vec4(1.0 / 3.0);",
-			normal = "return vec4(0.5, 0.5, 1.0, 1.0);",
-		}
-	)
+		metal = "return vec4(0.0);",
+		roughness = "return vec4(1.0 / 3.0);",
+		normal = "return vec4(0.5, 0.5, 1.0, 1.0);",
+	}
 	-- light blue ball
-	MATERIAL(
-		{
-			shared = shared,
-			albedo = "return vec4(0.1125, 0.4125, 1.0, 1.0);",
-			metal = "return vec4(0.0);",
-			roughness = "return vec4(2.0 / 3.0);",
-			normal = "return vec4(getDetailNormal(p, n, 1.0) * 0.5 + 0.5, 1.0);",
-		}
-	)
+	MATERIAL{
+		shared = shared,
+		albedo = "return vec4(0.1125, 0.4125, 1.0, 1.0);",
+		metal = "return vec4(0.0);",
+		roughness = "return vec4(2.0 / 3.0);",
+		normal = "return vec4(getDetailNormal(p, n, 1.0) * 0.5 + 0.5, 1.0);",
+	}
 	-- (1, 2) Copper
-	MATERIAL(
-		{
-			shared = shared,
-			albedo = [[
+	MATERIAL{
+		shared = shared,
+		albedo = [[
 			float weight = length(getTriplanar(8.0*(p.xxx+p.yyy+p.zzz), n));
 			return vec4(saturate(0.6 + max(0.2, weight)) * vec3(0.955, 0.637, 0.538), 1.0);
 		]],
-			metal = "return vec4(1.0);",
-			roughness = "return vec4(0.3);",
-			normal = "return vec4(0.5, 0.5, 1.0, 1.0);",
-		}
-	)
+		metal = "return vec4(1.0);",
+		roughness = "return vec4(0.3);",
+		normal = "return vec4(0.5, 0.5, 1.0, 1.0);",
+	}
 	-- Worn/polished metal - roughness varies based on noise (like naturally worn metal)
-	MATERIAL(
-		{
-			shared = shared,
-			albedo = "return vec4(0.91, 0.92, 0.92, 1.0);", -- Silver base
-			metal = "return vec4(1.0);",
-			roughness = [[
+	MATERIAL{
+		shared = shared,
+		albedo = "return vec4(0.91, 0.92, 0.92, 1.0);", -- Silver base
+		metal = "return vec4(1.0);",
+		roughness = [[
             // Layered noise for organic worn-metal look
             float large_wear = perlin_noise(p * 2.0) * 0.5 + 0.5;
             float medium_wear = perlin_noise(p * 6.0) * 0.5 + 0.5;
@@ -299,32 +276,28 @@ do
             float roughness = mix(0.05, 0.6, large_wear * 0.6 + medium_wear * 0.3 + fine_detail * 0.1);
             return vec4(roughness);
         ]],
-			normal = "return vec4(getDetailNormal(p, n, 0.3) * 0.5 + 0.5, 1.0);",
-		}
-	)
+		normal = "return vec4(getDetailNormal(p, n, 0.3) * 0.5 + 0.5, 1.0);",
+	}
 	-- Brushed metal - directional roughness variation
-	MATERIAL(
-		{
-			shared = shared,
-			albedo = "return vec4(0.972, 0.960, 0.915, 1.0);", -- Silver
-			metal = "return vec4(1.0);",
-			roughness = [[
+	MATERIAL{
+		shared = shared,
+		albedo = "return vec4(0.972, 0.960, 0.915, 1.0);", -- Silver
+		metal = "return vec4(1.0);",
+		roughness = [[
             // Brushed streaks along one direction
             float streaks = sin(p.x * 40.0 + perlin_noise(p * 8.0) * 2.0) * 0.5 + 0.5;
             float base_rough = 0.15;
             float roughness = base_rough + streaks * 0.25;
             return vec4(roughness);
         ]],
-			normal = "return vec4(getDetailNormal(p, n, 0.15) * 0.5 + 0.5, 1.0);",
-		}
-	)
+		normal = "return vec4(getDetailNormal(p, n, 0.15) * 0.5 + 0.5, 1.0);",
+	}
 	-- Fingerprint/smudge metal - glossy with matte patches
-	MATERIAL(
-		{
-			shared = shared,
-			albedo = "return vec4(0.91, 0.92, 0.92, 1.0);",
-			metal = "return vec4(1.0);",
-			roughness = [[
+	MATERIAL{
+		shared = shared,
+		albedo = "return vec4(0.91, 0.92, 0.92, 1.0);",
+		metal = "return vec4(1.0);",
+		roughness = [[
             // Soft blobs like fingerprints/smudges on polished metal
             float smudge1 = smoothstep(0.3, 0.7, perlin_noise(p * 3.0 + vec3(0.0)));
             float smudge2 = smoothstep(0.2, 0.6, perlin_noise(p * 4.0 + vec3(5.0)));
@@ -333,34 +306,30 @@ do
             // Mostly glossy (0.02) with matte smudges (0.4)
             return vec4(mix(0.02, 0.4, smudges));
         ]],
-			normal = "return vec4(0.5, 0.5, 1.0, 1.0);",
-		}
-	)
+		normal = "return vec4(0.5, 0.5, 1.0, 1.0);",
+	}
 	-- Aged/patina copper with varying roughness
-	MATERIAL(
-		{
-			shared = shared,
-			albedo = [[
+	MATERIAL{
+		shared = shared,
+		albedo = [[
             float age = smoothstep(0.3, 0.7, perlin_noise(p * 4.0) * 0.5 + 0.5);
             // Fresh copper to aged patina
             vec3 fresh = vec3(0.955, 0.637, 0.538);
             vec3 aged = vec3(0.4, 0.65, 0.55); // greenish patina tint
             return vec4(mix(fresh, aged, age * 0.3), 1.0);
         ]],
-			metal = "return vec4(1.0);",
-			roughness = [[
+		metal = "return vec4(1.0);",
+		roughness = [[
             float age = perlin_noise(p * 4.0) * 0.5 + 0.5;
             float detail = perlin_noise(p * 15.0) * 0.5 + 0.5;
             // Polished areas (0.1) vs aged rough areas (0.7)
             return vec4(mix(0.1, 0.7, age * 0.8 + detail * 0.2));
         ]],
-			normal = "return vec4(getDetailNormal(p, n, 0.4) * 0.5 + 0.5, 1.0);",
-		}
-	)
-	MATERIAL(
-		{
-			shared = shared,
-			albedo = [[
+		normal = "return vec4(getDetailNormal(p, n, 0.4) * 0.5 + 0.5, 1.0);",
+	}
+	MATERIAL{
+		shared = shared,
+		albedo = [[
             float is_metal = step(0.0, n.y);
             
             vec3 plastic_color = vec3(0.8, 0.1, 0.1);  // Red plastic
@@ -368,16 +337,15 @@ do
             
             return vec4(mix(metal_color, plastic_color, is_metal), 1.0);
         ]],
-			metal = [[
+		metal = [[
             return vec4(step(0.0, n.y));
         ]],
-			roughness = [[
+		roughness = [[
             float roughness = smoothstep(-1.0, 1.0, n.x);
             return vec4(mix(0.02, 0.95, roughness));
         ]],
-			normal = "return vec4(0.5, 0.5, 1.0, 1.0);",
-		}
-	)
+		normal = "return vec4(0.5, 0.5, 1.0, 1.0);",
+	}
 
 	for i = 1, #materials do
 		spawn()

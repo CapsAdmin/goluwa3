@@ -20,68 +20,66 @@ return function(props)
 		active_prop = props.Active,
 		mode = props.Mode or "filled",
 	}
-	return Panel.New(
+	return Panel.New{
+		props,
 		{
-			props,
-			{
-				Name = "clickable",
-				OnSetProperty = theme.OnSetProperty,
-				transform = {
-					Size = props.Size or Vec2(200, 50),
-					Perspective = 400,
-					DrawScaleOffset = Vec2(1, 1),
-					DrawAngleOffset = Ang3(0, 0, 0),
-				},
-				layout = {
-					Padding = "XXS",
-					props.layout,
-				},
-				gui_element = {
-					Color = props.Disabled and
-						"clickable_disabled" or
-						props.Color or
-						"primary",
-					Shadows = false,
-					BorderRadius = 10,
-					ShadowSize = 10,
-					ShadowColor = "clickable_shadow",
-					ShadowOffset = Vec2(2, 2),
-					Clipping = true,
-					DrawAlpha = props.Disabled and 0.5 or 1,
-					OnDraw = function(self)
-						theme.panels.button(self, state)
-					end,
-					OnPostDraw = function(self)
-						theme.panels.button_post(self, state)
-					end,
-				},
-				mouse_input = {
-					Cursor = props.Disabled and "arrow" or "hand",
-					OnMouseInput = function(self, button, press, local_pos)
-						if props.Disabled then return end
-
-						if button == "button_1" then
-							state.is_pressed = press
-							theme.UpdateButtonAnimations(self.Owner, state)
-						end
-					end,
-					OnHover = function(self, hovered)
-						state.is_hovered = hovered
-						theme.UpdateButtonAnimations(self.Owner, state)
-					end,
-				},
-				animation = true,
-				clickable = true,
-				OnClick = not props.Disabled and
-					(
-						props.OnClick or
-						function()
-							print("clicked!")
-						end
-					)
-					or
-					nil,
+			Name = "clickable",
+			OnSetProperty = theme.OnSetProperty,
+			transform = {
+				Size = props.Size or Vec2(200, 50),
+				Perspective = 400,
+				DrawScaleOffset = Vec2(1, 1),
+				DrawAngleOffset = Ang3(0, 0, 0),
 			},
-		}
-	)
+			layout = {
+				Padding = "XXS",
+				props.layout,
+			},
+			gui_element = {
+				Color = props.Disabled and
+					"clickable_disabled" or
+					props.Color or
+					"primary",
+				Shadows = false,
+				BorderRadius = 10,
+				ShadowSize = 10,
+				ShadowColor = "clickable_shadow",
+				ShadowOffset = Vec2(2, 2),
+				Clipping = true,
+				DrawAlpha = props.Disabled and 0.5 or 1,
+				OnDraw = function(self)
+					theme.panels.button(self, state)
+				end,
+				OnPostDraw = function(self)
+					theme.panels.button_post(self, state)
+				end,
+			},
+			mouse_input = {
+				Cursor = props.Disabled and "arrow" or "hand",
+				OnMouseInput = function(self, button, press, local_pos)
+					if props.Disabled then return end
+
+					if button == "button_1" then
+						state.is_pressed = press
+						theme.UpdateButtonAnimations(self.Owner, state)
+					end
+				end,
+				OnHover = function(self, hovered)
+					state.is_hovered = hovered
+					theme.UpdateButtonAnimations(self.Owner, state)
+				end,
+			},
+			animation = true,
+			clickable = true,
+			OnClick = not props.Disabled and
+				(
+					props.OnClick or
+					function()
+						print("clicked!")
+					end
+				)
+				or
+				nil,
+		},
+	}
 end

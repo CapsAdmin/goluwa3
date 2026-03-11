@@ -21,139 +21,129 @@ return function(props)
 			menu_ent.transform:SetDrawScaleOffset(Vec2(1, 0))
 		end
 
-		menu_ent.animation:Animate(
-			{
-				id = "menu_open_close",
-				get = function()
-					local s = menu_ent.transform:GetDrawScaleOffset()
-					return s
-				end,
-				set = function(v)
-					menu_ent.transform:SetDrawScaleOffset(Vec2(1, v.y))
-				end,
-				to = is_closing and Vec2(1, 0) or Vec2(1, 1),
-				time = 0.2,
-				interpolation = "outExpo",
-				callback = function()
-					if is_closing and menu_ent:IsValid() and props.OnClose and ent:IsValid() then
-						props.OnClose(ent)
-					end
-				end,
-			}
-		)
-		menu_ent.animation:Animate(
-			{
-				id = "menu_open_close_fade",
-				get = function()
-					local s = menu_ent.gui_element:GetDrawAlpha()
-					return s
-				end,
-				set = function(v)
-					menu_ent.gui_element:SetDrawAlpha(v)
-				end,
-				to = is_closing and 0 or 1,
-				time = 1,
-				interpolation = "outExpo",
-			}
-		)
+		menu_ent.animation:Animate{
+			id = "menu_open_close",
+			get = function()
+				local s = menu_ent.transform:GetDrawScaleOffset()
+				return s
+			end,
+			set = function(v)
+				menu_ent.transform:SetDrawScaleOffset(Vec2(1, v.y))
+			end,
+			to = is_closing and Vec2(1, 0) or Vec2(1, 1),
+			time = 0.2,
+			interpolation = "outExpo",
+			callback = function()
+				if is_closing and menu_ent:IsValid() and props.OnClose and ent:IsValid() then
+					props.OnClose(ent)
+				end
+			end,
+		}
+		menu_ent.animation:Animate{
+			id = "menu_open_close_fade",
+			get = function()
+				local s = menu_ent.gui_element:GetDrawAlpha()
+				return s
+			end,
+			set = function(v)
+				menu_ent.gui_element:SetDrawAlpha(v)
+			end,
+			to = is_closing and 0 or 1,
+			time = 1,
+			interpolation = "outExpo",
+		}
 	end
 
-	return Panel.New(
+	return Panel.New{
 		{
-			{
-				OnSetProperty = theme.OnSetProperty,
-				PreChildAdd = function(self, child)
-					if child.IsInternal then return end
+			OnSetProperty = theme.OnSetProperty,
+			PreChildAdd = function(self, child)
+				if child.IsInternal then return end
 
-					if menu_ent:IsValid() then menu_ent:AddChild(child) end
+				if menu_ent:IsValid() then menu_ent:AddChild(child) end
 
-					return false
-				end,
-				PreRemoveChildren = function(self)
-					if menu_ent:IsValid() then menu_ent:RemoveChildren() end
+				return false
+			end,
+			PreRemoveChildren = function(self)
+				if menu_ent:IsValid() then menu_ent:RemoveChildren() end
 
-					return false
-				end,
-				Name = "ContextMenuContainer",
-				transform = {
-					Size = Vec2(render2d.GetSize()),
-				},
-				mouse_input = {
-					BringToFrontOnClick = true,
-					OnMouseInput = function(self, button, press)
-						if press and button == "button_1" then
-							is_closing = true
-							UpdateAnimations(self.Owner)
-							self:SetIgnoreMouseInput(true)
-							return true
-						end
-					end,
-				},
-				OnVisibilityChanged = function(self, visible)
-					if visible then is_closing = false else is_closing = true end
-
-					UpdateAnimations(self)
-				end,
-				Events = {
-					OnKeyInput = function(self, key, press)
-						if press and key == "escape" then
-							is_closing = true
-							UpdateAnimations(self.Owner)
-							self.mouse_input:SetIgnoreMouseInput(true)
-							return true
-						end
-					end,
-				},
-				gui_element = true,
-				animation = true,
-				clickable = true,
-				layout = true,
+				return false
+			end,
+			Name = "ContextMenuContainer",
+			transform = {
+				Size = Vec2(render2d.GetSize()),
 			},
-		}
-	)(
-		{
-			Frame(
-				{
-					IsInternal = true,
-					Name = "ContextMenu",
-					transform = {
-						Pivot = Vec2(0, 0),
-						Position = props.Position or Vec2(100, 100),
-						Size = props.Size or "M",
-					},
-					Emphasis = 0,
-					Padding = "XS",
-					layout = {
-						Floating = true,
-						Direction = "y",
-						ChildGap = 0,
-						AlignmentX = "stretch",
-						FitHeight = true,
-						FitWidth = true,
-					},
-					OnMouseInput = function(self, button, press)
+			mouse_input = {
+				BringToFrontOnClick = true,
+				OnMouseInput = function(self, button, press)
+					if press and button == "button_1" then
+						is_closing = true
+						UpdateAnimations(self.Owner)
+						self:SetIgnoreMouseInput(true)
 						return true
-					end,
-					Ref = function(self)
-						self:RequestFocus()
-						menu_ent = self
-						UpdateAnimations(self)
-					end,
-					Events = {
-						OnKeyInput = function(self, key, press)
-							if press and key == "escape" then
-								is_closing = true
-								UpdateAnimations(self.Owner)
+					end
+				end,
+			},
+			OnVisibilityChanged = function(self, visible)
+				if visible then is_closing = false else is_closing = true end
 
-								if self.Owner:HasParent() then
-									self.Owner:GetParent().mouse_input:SetIgnoreMouseInput(true)
-									return true
-								end
-							end
-						end,
-					},
-				}
-			),
-		}
-	)
+				UpdateAnimations(self)
+			end,
+			Events = {
+				OnKeyInput = function(self, key, press)
+					if press and key == "escape" then
+						is_closing = true
+						UpdateAnimations(self.Owner)
+						self.mouse_input:SetIgnoreMouseInput(true)
+						return true
+					end
+				end,
+			},
+			gui_element = true,
+			animation = true,
+			clickable = true,
+			layout = true,
+		},
+	}{
+		Frame{
+			IsInternal = true,
+			Name = "ContextMenu",
+			transform = {
+				Pivot = Vec2(0, 0),
+				Position = props.Position or Vec2(100, 100),
+				Size = props.Size or "M",
+			},
+			Emphasis = 0,
+			Padding = "XS",
+			layout = {
+				Floating = true,
+				Direction = "y",
+				ChildGap = 0,
+				AlignmentX = "stretch",
+				FitHeight = true,
+				FitWidth = true,
+			},
+			OnMouseInput = function(self, button, press)
+				return true
+			end,
+			Ref = function(self)
+				self:RequestFocus()
+				menu_ent = self
+				UpdateAnimations(self)
+			end,
+			Events = {
+				OnKeyInput = function(self, key, press)
+					if press and key == "escape" then
+						is_closing = true
+						UpdateAnimations(self.Owner)
+
+						if self.Owner:HasParent() then
+							self.Owner:GetParent().mouse_input:SetIgnoreMouseInput(true)
+							return true
+						end
+					end
+				end,
+			},
+		},
+	}
 end

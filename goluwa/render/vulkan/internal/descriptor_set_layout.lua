@@ -40,26 +40,22 @@ function DescriptorSetLayout.New(device, bindings)
 	vulkan.assert(
 		vulkan.lib.vkCreateDescriptorSetLayout(
 			device.ptr[0],
-			vulkan.vk.s.DescriptorSetLayoutCreateInfo(
-				{
-					flags = flags,
-					pNext = vulkan.vk.s.DescriptorSetLayoutBindingFlagsCreateInfo(
-						{
-							pNext = nil,
-							bindingCount = #bindings,
-							pBindingFlags = bindingFlagsArray,
-						}
-					),
+			vulkan.vk.s.DescriptorSetLayoutCreateInfo{
+				flags = flags,
+				pNext = vulkan.vk.s.DescriptorSetLayoutBindingFlagsCreateInfo{
+					pNext = nil,
 					bindingCount = #bindings,
-					pBindings = bindingArray,
-				}
-			),
+					pBindingFlags = bindingFlagsArray,
+				},
+				bindingCount = #bindings,
+				pBindings = bindingArray,
+			},
 			nil,
 			ptr
 		),
 		"failed to create descriptor set layout"
 	)
-	return DescriptorSetLayout:CreateObject({ptr = ptr, device = device, bindingArray = bindingArray})
+	return DescriptorSetLayout:CreateObject{ptr = ptr, device = device, bindingArray = bindingArray}
 end
 
 function DescriptorSetLayout:OnRemove()

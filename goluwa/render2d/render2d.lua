@@ -612,13 +612,11 @@ function render2d.Initialize()
 		},
 		{0, 1, 2, 2, 1, 3}
 	)
-	render2d.triangle_mesh = render2d.CreateMesh(
-		{
-			{pos = Vec3(-0.5, -0.5, 0), uv = Vec2(0, 0), color = Color(1, 1, 1, 1)},
-			{pos = Vec3(0.5, 0.5, 0), uv = Vec2(1, 1), color = Color(1, 1, 1, 1)},
-			{pos = Vec3(-0.5, 0.5, 0), uv = Vec2(0, 1), color = Color(1, 1, 1, 1)},
-		}
-	)
+	render2d.triangle_mesh = render2d.CreateMesh{
+		{pos = Vec3(-0.5, -0.5, 0), uv = Vec2(0, 0), color = Color(1, 1, 1, 1)},
+		{pos = Vec3(0.5, 0.5, 0), uv = Vec2(1, 1), color = Color(1, 1, 1, 1)},
+		{pos = Vec3(-0.5, 0.5, 0), uv = Vec2(0, 1), color = Color(1, 1, 1, 1)},
+	}
 end
 
 function render2d.ResetState()
@@ -924,20 +922,18 @@ do
 			stop.pos = stop.pos or i - 1
 		end
 
-		local tex = Texture.New(
-			{
-				width = width,
-				height = height,
-				format = "r8g8b8a8_unorm",
-				mip_map_levels = 1,
-				sampler = {
-					min_filter = "linear",
-					mag_filter = "linear",
-					wrap_s = "clamp_to_edge",
-					wrap_t = "clamp_to_edge",
-				},
-			}
-		)
+		local tex = Texture.New{
+			width = width,
+			height = height,
+			format = "r8g8b8a8_unorm",
+			mip_map_levels = 1,
+			sampler = {
+				min_filter = "linear",
+				mag_filter = "linear",
+				wrap_s = "clamp_to_edge",
+				wrap_t = "clamp_to_edge",
+			},
+		}
 		local glsl
 
 		if mode == "linear" then

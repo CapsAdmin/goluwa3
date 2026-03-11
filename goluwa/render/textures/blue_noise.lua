@@ -4,19 +4,17 @@ return function()
 	if tex then return tex end
 
 	local size = 64
-	tex = Texture.New(
-		{
-			width = size,
-			height = size,
-			format = "r32g32b32a32_sfloat",
-			sampler = {
-				min_filter = "nearest",
-				mag_filter = "nearest",
-				wrap_s = "repeat",
-				wrap_t = "repeat",
-			},
-		}
-	)
+	tex = Texture.New{
+		width = size,
+		height = size,
+		format = "r32g32b32a32_sfloat",
+		sampler = {
+			min_filter = "nearest",
+			mag_filter = "nearest",
+			wrap_s = "repeat",
+			wrap_t = "repeat",
+		},
+	}
 	tex:Shade(
 		[[
 				return vec4(B(uv*1000.2), B(uv*300.4), 1, 1);

@@ -54,48 +54,42 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 	local pNextChain = nil
 	-- Maintenance4 features
 	local maintenance4Features = vulkan.T.Box(vulkan.vk.VkPhysicalDeviceMaintenance4Features)(
-		vulkan.vk.s.PhysicalDeviceMaintenance4Features(
-			{
-				sType = "physical_device_maintenance_4_features",
-				pNext = nil,
-				maintenance4 = 1,
-			}
-		)
+		vulkan.vk.s.PhysicalDeviceMaintenance4Features{
+			sType = "physical_device_maintenance_4_features",
+			pNext = nil,
+			maintenance4 = 1,
+		}
 	)
 	pNextChain = maintenance4Features
 	-- Query available Vulkan 1.1 features
 	local availableVulkan11Features = physical_device:GetVulkan11Features()
 	local vulkan11Features = vulkan.T.Box(vulkan.vk.VkPhysicalDeviceVulkan11Features)(
-		vulkan.vk.s.PhysicalDeviceVulkan11Features(
-			{
-				sType = "physical_device_vulkan_1_1_features",
-				pNext = pNextChain,
-				-- Only enable 16-bit features if they're actually supported
-				storageBuffer16BitAccess = availableVulkan11Features.storageBuffer16BitAccess,
-				uniformAndStorageBuffer16BitAccess = availableVulkan11Features.uniformAndStorageBuffer16BitAccess,
-				storagePushConstant16 = 0,
-				storageInputOutput16 = 0,
-				multiview = 0,
-				multiviewGeometryShader = 0,
-				multiviewTessellationShader = 0,
-				variablePointersStorageBuffer = 0,
-				variablePointers = 0,
-				protectedMemory = 0,
-				samplerYcbcrConversion = 0,
-				shaderDrawParameters = 0,
-			}
-		)
+		vulkan.vk.s.PhysicalDeviceVulkan11Features{
+			sType = "physical_device_vulkan_1_1_features",
+			pNext = pNextChain,
+			-- Only enable 16-bit features if they're actually supported
+			storageBuffer16BitAccess = availableVulkan11Features.storageBuffer16BitAccess,
+			uniformAndStorageBuffer16BitAccess = availableVulkan11Features.uniformAndStorageBuffer16BitAccess,
+			storagePushConstant16 = 0,
+			storageInputOutput16 = 0,
+			multiview = 0,
+			multiviewGeometryShader = 0,
+			multiviewTessellationShader = 0,
+			variablePointersStorageBuffer = 0,
+			variablePointers = 0,
+			protectedMemory = 0,
+			samplerYcbcrConversion = 0,
+			shaderDrawParameters = 0,
+		}
 	)
 	pNextChain = vulkan11Features
 	-- Shader demote features
 	local demoteFeatures = vulkan.T.Box(vulkan.vk.VkPhysicalDeviceShaderDemoteToHelperInvocationFeaturesEXT)(
-		vulkan.vk.s.PhysicalDeviceShaderDemoteToHelperInvocationFeatures(
-			{
-				sType = "physical_device_shader_demote_to_helper_invocation_features",
-				pNext = pNextChain,
-				shaderDemoteToHelperInvocation = 1,
-			}
-		)
+		vulkan.vk.s.PhysicalDeviceShaderDemoteToHelperInvocationFeatures{
+			sType = "physical_device_shader_demote_to_helper_invocation_features",
+			pNext = pNextChain,
+			shaderDemoteToHelperInvocation = 1,
+		}
 	)
 	pNextChain = demoteFeatures
 	local hasDynamicRenderingFeatures = physical_device:GetDynamicRenderingFeatures()
@@ -111,115 +105,103 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 		dynamicStateFeatures.extendedDynamicState3PolygonMode -- Set to true to enable wireframe support (requires VK_EXT_extended_dynamic_state3)
 	if has_mesh_shader then
 		local meshShaderFeatures = vulkan.T.Box(vulkan.vk.VkPhysicalDeviceMeshShaderFeaturesEXT)(
-			vulkan.vk.s.PhysicalDeviceMeshShaderFeaturesEXT(
-				{
-					sType = "physical_device_mesh_shader_features_ext",
-					pNext = pNextChain,
-					taskShader = 1,
-					meshShader = 1,
-					multiviewMeshShader = 0,
-					primitiveFragmentShadingRateMeshShader = 0,
-					meshShaderQueries = 0,
-				}
-			)
+			vulkan.vk.s.PhysicalDeviceMeshShaderFeaturesEXT{
+				sType = "physical_device_mesh_shader_features_ext",
+				pNext = pNextChain,
+				taskShader = 1,
+				meshShader = 1,
+				multiviewMeshShader = 0,
+				primitiveFragmentShadingRateMeshShader = 0,
+				meshShaderQueries = 0,
+			}
 		)
 		pNextChain = meshShaderFeatures
 	end
 
 	if has_extended_dynamic_state then
 		local extendedDynamicStateFeatures = vulkan.T.Box(vulkan.vk.VkPhysicalDeviceExtendedDynamicStateFeaturesEXT)(
-			vulkan.vk.s.PhysicalDeviceExtendedDynamicStateFeaturesEXT(
-				{
-					sType = "physical_device_extended_dynamic_state_features_ext",
-					pNext = pNextChain,
-					extendedDynamicState = 1,
-				}
-			)
+			vulkan.vk.s.PhysicalDeviceExtendedDynamicStateFeaturesEXT{
+				sType = "physical_device_extended_dynamic_state_features_ext",
+				pNext = pNextChain,
+				extendedDynamicState = 1,
+			}
 		)
 		pNextChain = extendedDynamicStateFeatures
 	end
 
 	if has_extended_dynamic_state2 then
 		local extendedDynamicState2Features = vulkan.T.Box(vulkan.vk.VkPhysicalDeviceExtendedDynamicState2FeaturesEXT)(
-			vulkan.vk.s.PhysicalDeviceExtendedDynamicState2FeaturesEXT(
-				{
-					sType = "physical_device_extended_dynamic_state_2_features_ext",
-					pNext = pNextChain,
-					extendedDynamicState2 = 1,
-					extendedDynamicState2LogicOp = 0,
-					extendedDynamicState2PatchControlPoints = 0,
-				}
-			)
+			vulkan.vk.s.PhysicalDeviceExtendedDynamicState2FeaturesEXT{
+				sType = "physical_device_extended_dynamic_state_2_features_ext",
+				pNext = pNextChain,
+				extendedDynamicState2 = 1,
+				extendedDynamicState2LogicOp = 0,
+				extendedDynamicState2PatchControlPoints = 0,
+			}
 		)
 		pNextChain = extendedDynamicState2Features
 	end
 
 	if has_extended_dynamic_state3 then
 		local extendedDynamicState3Features = vulkan.T.Box(vulkan.vk.VkPhysicalDeviceExtendedDynamicState3FeaturesEXT)(
-			vulkan.vk.s.PhysicalDeviceExtendedDynamicState3FeaturesEXT(
-				{
-					sType = "physical_device_extended_dynamic_state_3_features_ext",
-					pNext = pNextChain,
-					extendedDynamicState3TessellationDomainOrigin = 0,
-					extendedDynamicState3DepthClampEnable = 0,
-					extendedDynamicState3PolygonMode = has_polygon_mode_dynamic_state and 1 or 0,
-					extendedDynamicState3RasterizationSamples = 0,
-					extendedDynamicState3SampleMask = 0,
-					extendedDynamicState3AlphaToCoverageEnable = 0,
-					extendedDynamicState3AlphaToOneEnable = 0,
-					extendedDynamicState3LogicOpEnable = 0,
-					extendedDynamicState3ColorBlendEnable = dynamicStateFeatures.extendedDynamicState3ColorBlendEnable and 1 or 0,
-					extendedDynamicState3ColorBlendEquation = dynamicStateFeatures.extendedDynamicState3ColorBlendEquation and 1 or 0,
-					extendedDynamicState3ColorWriteMask = 0,
-					extendedDynamicState3RasterizationStream = 0,
-					extendedDynamicState3ConservativeRasterizationMode = 0,
-					extendedDynamicState3ExtraPrimitiveOverestimationSize = 0,
-					extendedDynamicState3DepthClipEnable = 0,
-					extendedDynamicState3SampleLocationsEnable = 0,
-					extendedDynamicState3ColorBlendAdvanced = 0,
-					extendedDynamicState3ProvokingVertexMode = 0,
-					extendedDynamicState3LineRasterizationMode = 0,
-					extendedDynamicState3LineStippleEnable = 0,
-					extendedDynamicState3DepthClipNegativeOneToOne = 0,
-					extendedDynamicState3ViewportWScalingEnable = 0,
-					extendedDynamicState3ViewportSwizzle = 0,
-					extendedDynamicState3CoverageToColorEnable = 0,
-					extendedDynamicState3CoverageToColorLocation = 0,
-					extendedDynamicState3CoverageModulationMode = 0,
-					extendedDynamicState3CoverageModulationTableEnable = 0,
-					extendedDynamicState3CoverageModulationTable = 0,
-					extendedDynamicState3CoverageReductionMode = 0,
-					extendedDynamicState3RepresentativeFragmentTestEnable = 0,
-					extendedDynamicState3ShadingRateImageEnable = 0,
-				}
-			)
+			vulkan.vk.s.PhysicalDeviceExtendedDynamicState3FeaturesEXT{
+				sType = "physical_device_extended_dynamic_state_3_features_ext",
+				pNext = pNextChain,
+				extendedDynamicState3TessellationDomainOrigin = 0,
+				extendedDynamicState3DepthClampEnable = 0,
+				extendedDynamicState3PolygonMode = has_polygon_mode_dynamic_state and 1 or 0,
+				extendedDynamicState3RasterizationSamples = 0,
+				extendedDynamicState3SampleMask = 0,
+				extendedDynamicState3AlphaToCoverageEnable = 0,
+				extendedDynamicState3AlphaToOneEnable = 0,
+				extendedDynamicState3LogicOpEnable = 0,
+				extendedDynamicState3ColorBlendEnable = dynamicStateFeatures.extendedDynamicState3ColorBlendEnable and 1 or 0,
+				extendedDynamicState3ColorBlendEquation = dynamicStateFeatures.extendedDynamicState3ColorBlendEquation and 1 or 0,
+				extendedDynamicState3ColorWriteMask = 0,
+				extendedDynamicState3RasterizationStream = 0,
+				extendedDynamicState3ConservativeRasterizationMode = 0,
+				extendedDynamicState3ExtraPrimitiveOverestimationSize = 0,
+				extendedDynamicState3DepthClipEnable = 0,
+				extendedDynamicState3SampleLocationsEnable = 0,
+				extendedDynamicState3ColorBlendAdvanced = 0,
+				extendedDynamicState3ProvokingVertexMode = 0,
+				extendedDynamicState3LineRasterizationMode = 0,
+				extendedDynamicState3LineStippleEnable = 0,
+				extendedDynamicState3DepthClipNegativeOneToOne = 0,
+				extendedDynamicState3ViewportWScalingEnable = 0,
+				extendedDynamicState3ViewportSwizzle = 0,
+				extendedDynamicState3CoverageToColorEnable = 0,
+				extendedDynamicState3CoverageToColorLocation = 0,
+				extendedDynamicState3CoverageModulationMode = 0,
+				extendedDynamicState3CoverageModulationTableEnable = 0,
+				extendedDynamicState3CoverageModulationTable = 0,
+				extendedDynamicState3CoverageReductionMode = 0,
+				extendedDynamicState3RepresentativeFragmentTestEnable = 0,
+				extendedDynamicState3ShadingRateImageEnable = 0,
+			}
 		)
 		pNextChain = extendedDynamicState3Features
 	end
 
 	if hasDynamicRenderingFeatures then
 		local dynamicRenderingFeatures = vulkan.T.Box(vulkan.vk.VkPhysicalDeviceDynamicRenderingFeatures)(
-			vulkan.vk.s.PhysicalDeviceDynamicRenderingFeatures(
-				{
-					sType = "physical_device_dynamic_rendering_features",
-					pNext = pNextChain,
-					dynamicRendering = 1,
-				}
-			)
+			vulkan.vk.s.PhysicalDeviceDynamicRenderingFeatures{
+				sType = "physical_device_dynamic_rendering_features",
+				pNext = pNextChain,
+				dynamicRendering = 1,
+			}
 		)
 		pNextChain = dynamicRenderingFeatures
 	end
 
 	if table.has_value(available_extensions, "VK_EXT_conditional_rendering") then
 		local conditionalRenderingFeatures = vulkan.T.Box(vulkan.vk.VkPhysicalDeviceConditionalRenderingFeaturesEXT)(
-			vulkan.vk.s.PhysicalDeviceConditionalRenderingFeaturesEXT(
-				{
-					sType = "physical_device_conditional_rendering_features_ext",
-					pNext = pNextChain,
-					conditionalRendering = 1,
-					inheritedConditionalRendering = 0,
-				}
-			)
+			vulkan.vk.s.PhysicalDeviceConditionalRenderingFeaturesEXT{
+				sType = "physical_device_conditional_rendering_features_ext",
+				pNext = pNextChain,
+				conditionalRendering = 1,
+				inheritedConditionalRendering = 0,
+			}
 		)
 		pNextChain = conditionalRenderingFeatures
 	end
@@ -243,60 +225,58 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 	-- and descriptor indexing features for bindless textures
 	local availableVulkan12Features = physical_device:GetVulkan12Features()
 	local vulkan12Features = vulkan.T.Box(vulkan.vk.VkPhysicalDeviceVulkan12Features)(
-		vulkan.vk.s.PhysicalDeviceVulkan12Features(
-			{
-				sType = "physical_device_vulkan_1_2_features",
-				pNext = pNextChain,
-				scalarBlockLayout = 1,
-				-- Descriptor indexing features for bindless rendering
-				descriptorIndexing = 1,
-				shaderSampledImageArrayNonUniformIndexing = 1,
-				descriptorBindingPartiallyBound = 1,
-				runtimeDescriptorArray = 1,
-				descriptorBindingSampledImageUpdateAfterBind = 1,
-				bufferDeviceAddress = 1,
-				samplerMirrorClampToEdge = 0,
-				drawIndirectCount = 0,
-				storageBuffer8BitAccess = 0,
-				uniformAndStorageBuffer8BitAccess = 0,
-				storagePushConstant8 = 0,
-				shaderBufferInt64Atomics = 0,
-				shaderSharedInt64Atomics = 0,
-				shaderFloat16 = 0,
-				shaderInt8 = 0,
-				shaderInputAttachmentArrayDynamicIndexing = 0,
-				shaderUniformTexelBufferArrayDynamicIndexing = 0,
-				shaderStorageTexelBufferArrayDynamicIndexing = 0,
-				shaderUniformBufferArrayNonUniformIndexing = 0,
-				shaderStorageBufferArrayNonUniformIndexing = 0,
-				shaderStorageImageArrayNonUniformIndexing = 0,
-				shaderInputAttachmentArrayNonUniformIndexing = 0,
-				shaderUniformTexelBufferArrayNonUniformIndexing = 0,
-				shaderStorageTexelBufferArrayNonUniformIndexing = 0,
-				descriptorBindingUniformBufferUpdateAfterBind = 0,
-				descriptorBindingStorageImageUpdateAfterBind = 0,
-				descriptorBindingStorageBufferUpdateAfterBind = 0,
-				descriptorBindingUniformTexelBufferUpdateAfterBind = 0,
-				descriptorBindingStorageTexelBufferUpdateAfterBind = 0,
-				descriptorBindingUpdateUnusedWhilePending = 0,
-				descriptorBindingVariableDescriptorCount = 0,
-				samplerFilterMinmax = 0,
-				imagelessFramebuffer = 0,
-				uniformBufferStandardLayout = 0,
-				shaderSubgroupExtendedTypes = 0,
-				separateDepthStencilLayouts = 0,
-				hostQueryReset = 0,
-				timelineSemaphore = 0,
-				bufferDeviceAddressCaptureReplay = 0,
-				bufferDeviceAddressMultiDevice = 0,
-				vulkanMemoryModel = 0,
-				vulkanMemoryModelDeviceScope = 0,
-				vulkanMemoryModelAvailabilityVisibilityChains = 0,
-				shaderOutputViewportIndex = 0,
-				shaderOutputLayer = 0,
-				subgroupBroadcastDynamicId = 0,
-			}
-		)
+		vulkan.vk.s.PhysicalDeviceVulkan12Features{
+			sType = "physical_device_vulkan_1_2_features",
+			pNext = pNextChain,
+			scalarBlockLayout = 1,
+			-- Descriptor indexing features for bindless rendering
+			descriptorIndexing = 1,
+			shaderSampledImageArrayNonUniformIndexing = 1,
+			descriptorBindingPartiallyBound = 1,
+			runtimeDescriptorArray = 1,
+			descriptorBindingSampledImageUpdateAfterBind = 1,
+			bufferDeviceAddress = 1,
+			samplerMirrorClampToEdge = 0,
+			drawIndirectCount = 0,
+			storageBuffer8BitAccess = 0,
+			uniformAndStorageBuffer8BitAccess = 0,
+			storagePushConstant8 = 0,
+			shaderBufferInt64Atomics = 0,
+			shaderSharedInt64Atomics = 0,
+			shaderFloat16 = 0,
+			shaderInt8 = 0,
+			shaderInputAttachmentArrayDynamicIndexing = 0,
+			shaderUniformTexelBufferArrayDynamicIndexing = 0,
+			shaderStorageTexelBufferArrayDynamicIndexing = 0,
+			shaderUniformBufferArrayNonUniformIndexing = 0,
+			shaderStorageBufferArrayNonUniformIndexing = 0,
+			shaderStorageImageArrayNonUniformIndexing = 0,
+			shaderInputAttachmentArrayNonUniformIndexing = 0,
+			shaderUniformTexelBufferArrayNonUniformIndexing = 0,
+			shaderStorageTexelBufferArrayNonUniformIndexing = 0,
+			descriptorBindingUniformBufferUpdateAfterBind = 0,
+			descriptorBindingStorageImageUpdateAfterBind = 0,
+			descriptorBindingStorageBufferUpdateAfterBind = 0,
+			descriptorBindingUniformTexelBufferUpdateAfterBind = 0,
+			descriptorBindingStorageTexelBufferUpdateAfterBind = 0,
+			descriptorBindingUpdateUnusedWhilePending = 0,
+			descriptorBindingVariableDescriptorCount = 0,
+			samplerFilterMinmax = 0,
+			imagelessFramebuffer = 0,
+			uniformBufferStandardLayout = 0,
+			shaderSubgroupExtendedTypes = 0,
+			separateDepthStencilLayouts = 0,
+			hostQueryReset = 0,
+			timelineSemaphore = 0,
+			bufferDeviceAddressCaptureReplay = 0,
+			bufferDeviceAddressMultiDevice = 0,
+			vulkanMemoryModel = 0,
+			vulkanMemoryModelDeviceScope = 0,
+			vulkanMemoryModelAvailabilityVisibilityChains = 0,
+			shaderOutputViewportIndex = 0,
+			shaderOutputLayer = 0,
+			subgroupBroadcastDynamicId = 0,
+		}
 	)
 	pNextChain = vulkan12Features
 	local has_null_descriptor = false
@@ -308,15 +288,13 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 		if robustness2Features.nullDescriptor == 1 then
 			has_null_descriptor = true
 			local enabledRobustness2Features = vulkan.T.Box(vulkan.vk.VkPhysicalDeviceRobustness2FeaturesEXT)(
-				vulkan.vk.s.PhysicalDeviceRobustness2FeaturesEXT(
-					{
-						sType = "physical_device_robustness_2_features_ext",
-						pNext = pNextChain,
-						nullDescriptor = 1,
-						robustBufferAccess2 = 0,
-						robustImageAccess2 = 0,
-					}
-				)
+				vulkan.vk.s.PhysicalDeviceRobustness2FeaturesEXT{
+					sType = "physical_device_robustness_2_features_ext",
+					pNext = pNextChain,
+					nullDescriptor = 1,
+					robustBufferAccess2 = 0,
+					robustImageAccess2 = 0,
+				}
 			)
 			pNextChain = enabledRobustness2Features
 		end
@@ -324,14 +302,12 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 
 	local queuePriority = ffi.new("float[1]", 1.0)
 	local queueCreateInfo = vulkan.T.Box(vulkan.vk.VkDeviceQueueCreateInfo)(
-		vulkan.vk.s.DeviceQueueCreateInfo(
-			{
-				queueFamilyIndex = graphicsQueueFamily,
-				queueCount = 1,
-				pQueuePriorities = queuePriority,
-				flags = 0,
-			}
-		)
+		vulkan.vk.s.DeviceQueueCreateInfo{
+			queueFamilyIndex = graphicsQueueFamily,
+			queueCount = 1,
+			pQueuePriorities = queuePriority,
+			flags = 0,
+		}
 	)
 
 	if
@@ -339,13 +315,11 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 	then
 		table.insert(finalExtensions, "VK_KHR_shader_demote_to_helper_invocation")
 		local demoteFeatures = vulkan.T.Box(vulkan.vk.VkPhysicalDeviceShaderDemoteToHelperInvocationFeatures)(
-			vulkan.vk.s.PhysicalDeviceShaderDemoteToHelperInvocationFeatures(
-				{
-					sType = "physical_device_shader_demote_to_helper_invocation_features",
-					pNext = pNextChain,
-					shaderDemoteToHelperInvocation = 1,
-				}
-			)
+			vulkan.vk.s.PhysicalDeviceShaderDemoteToHelperInvocationFeatures{
+				sType = "physical_device_shader_demote_to_helper_invocation_features",
+				pNext = pNextChain,
+				shaderDemoteToHelperInvocation = 1,
+			}
 		)
 		pNextChain = demoteFeatures
 	end
@@ -356,35 +330,31 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 		deviceExtensions[i - 1] = ext
 	end
 
-	local deviceCreateInfo = vulkan.vk.s.DeviceCreateInfo(
-		{
-			pNext = pNextChain,
-			queueCreateInfoCount = 1,
-			pQueueCreateInfos = queueCreateInfo,
-			enabledExtensionCount = #finalExtensions,
-			ppEnabledExtensionNames = deviceExtensions,
-			flags = 0,
-			enabledLayerCount = 0,
-			ppEnabledLayerNames = nil,
-			pEnabledFeatures = enabled_features,
-		}
-	)
+	local deviceCreateInfo = vulkan.vk.s.DeviceCreateInfo{
+		pNext = pNextChain,
+		queueCreateInfoCount = 1,
+		pQueueCreateInfos = queueCreateInfo,
+		enabledExtensionCount = #finalExtensions,
+		ppEnabledExtensionNames = deviceExtensions,
+		flags = 0,
+		enabledLayerCount = 0,
+		ppEnabledLayerNames = nil,
+		pEnabledFeatures = enabled_features,
+	}
 	local ptr = vulkan.T.Box(vulkan.vk.VkDevice)()
 	vulkan.assert(
 		vulkan.lib.vkCreateDevice(physical_device.ptr[0], deviceCreateInfo, nil, ptr),
 		"failed to create device"
 	)
-	local device = Device:CreateObject(
-		{
-			ptr = ptr,
-			has_extended_dynamic_state = has_extended_dynamic_state,
-			has_extended_dynamic_state3 = has_extended_dynamic_state3,
-			has_polygon_mode_dynamic_state = has_polygon_mode_dynamic_state,
-			nullDescriptorEnabled = has_null_descriptor,
-			physical_device = physical_device,
-			extensions = finalExtensions,
-		}
-	)
+	local device = Device:CreateObject{
+		ptr = ptr,
+		has_extended_dynamic_state = has_extended_dynamic_state,
+		has_extended_dynamic_state3 = has_extended_dynamic_state3,
+		has_polygon_mode_dynamic_state = has_polygon_mode_dynamic_state,
+		nullDescriptorEnabled = has_null_descriptor,
+		physical_device = physical_device,
+		extensions = finalExtensions,
+	}
 
 	if has_extended_dynamic_state then
 		vulkan.ext.vkCmdSetPrimitiveTopologyEXT = device:TryGetExtension("vkCmdSetPrimitiveTopologyEXT")
@@ -474,13 +444,11 @@ function Device:UpdateDescriptorSet(type, descriptorSet, binding_index, ...)
 		if type == "storage_image" then
 			local imageView = assert(...)
 			local view_handle = (imageView:IsValid() and imageView.ptr) and imageView.ptr[0] or nil
-			info[0] = vulkan.vk.s.DescriptorImageInfo(
-				{
-					sampler = nil,
-					imageView = view_handle,
-					imageLayout = "general",
-				}
-			)
+			info[0] = vulkan.vk.s.DescriptorImageInfo{
+				sampler = nil,
+				imageView = view_handle,
+				imageLayout = "general",
+			}
 		else -- combined_image_sampler
 			local imageView, sampler, fallback_view, fallback_sampler = select(1, ...)
 			local view_handle = (imageView:IsValid() and imageView.ptr) and imageView.ptr[0] or nil
@@ -504,13 +472,11 @@ function Device:UpdateDescriptorSet(type, descriptorSet, binding_index, ...)
 					)
 			end
 
-			info[0] = vulkan.vk.s.DescriptorImageInfo(
-				{
-					sampler = sampler_handle,
-					imageView = view_handle,
-					imageLayout = "shader_read_only_optimal",
-				}
-			)
+			info[0] = vulkan.vk.s.DescriptorImageInfo{
+				sampler = sampler_handle,
+				imageView = view_handle,
+				imageLayout = "shader_read_only_optimal",
+			}
 		end
 
 		descriptor_info = info
@@ -519,17 +485,15 @@ function Device:UpdateDescriptorSet(type, descriptorSet, binding_index, ...)
 		error("unsupported descriptor type: " .. tostring(type))
 	end
 
-	local descriptorWrite = vulkan.vk.s.WriteDescriptorSet(
-		{
-			dstSet = descriptorSet.ptr[0],
-			dstBinding = binding_index,
-			dstArrayElement = 0,
-			descriptorType = type,
-			descriptorCount = 1,
-			pBufferInfo = pBufferInfo,
-			pImageInfo = pImageInfo,
-		}
-	)
+	local descriptorWrite = vulkan.vk.s.WriteDescriptorSet{
+		dstSet = descriptorSet.ptr[0],
+		dstBinding = binding_index,
+		dstArrayElement = 0,
+		descriptorType = type,
+		descriptorCount = 1,
+		pBufferInfo = pBufferInfo,
+		pImageInfo = pImageInfo,
+	}
 	vulkan.lib.vkUpdateDescriptorSets(self.ptr[0], 1, descriptorWrite, 0, nil)
 end
 
@@ -581,25 +545,21 @@ function Device:UpdateDescriptorSetArray(
 			sampler_handle = fallback_sampler_handle or sampler_handle
 		end
 
-		imageInfoArray[i - 1] = vulkan.vk.s.DescriptorImageInfo(
-			{
-				sampler = sampler_handle,
-				imageView = view_handle,
-				imageLayout = "shader_read_only_optimal",
-			}
-		)
+		imageInfoArray[i - 1] = vulkan.vk.s.DescriptorImageInfo{
+			sampler = sampler_handle,
+			imageView = view_handle,
+			imageLayout = "shader_read_only_optimal",
+		}
 	end
 
-	local descriptorWrite = vulkan.vk.s.WriteDescriptorSet(
-		{
-			dstSet = descriptorSet.ptr[0],
-			dstBinding = binding_index,
-			dstArrayElement = 0,
-			descriptorType = "combined_image_sampler",
-			descriptorCount = count,
-			pImageInfo = imageInfoArray,
-		}
-	)
+	local descriptorWrite = vulkan.vk.s.WriteDescriptorSet{
+		dstSet = descriptorSet.ptr[0],
+		dstBinding = binding_index,
+		dstArrayElement = 0,
+		descriptorType = "combined_image_sampler",
+		descriptorCount = count,
+		pImageInfo = imageInfoArray,
+	}
 	vulkan.lib.vkUpdateDescriptorSets(self.ptr[0], 1, descriptorWrite, 0, nil)
 end
 

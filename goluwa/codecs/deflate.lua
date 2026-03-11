@@ -515,8 +515,8 @@ local function parse_block(buf, outstate)
 		if btype == BTYPE_DYNAMIC_HUFFMAN then
 			littable, disttable = parse_huffmantables(buf)
 		else
-			littable = HuffmanTable({0, 8, 144, 9, 256, 7, 280, 8, 288, nil})
-			disttable = HuffmanTable({0, 5, 32, nil})
+			littable = HuffmanTable{0, 8, 144, 9, 256, 7, 280, 8, 288, nil}
+			disttable = HuffmanTable{0, 5, 32, nil}
 		end
 
 		repeat
@@ -568,11 +568,11 @@ function deflate.gunzip(t)
 	local data_crc32 = 0
 
 	if disable_crc then
-		inflate({input = inbuf, output = outbuf})
+		inflate{input = inbuf, output = outbuf}
 	else
 		-- For CRC calculation, we need to intercept bytes
 		local crc_outbuf = get_output_buffer(nil)
-		inflate({input = inbuf, output = crc_outbuf})
+		inflate{input = inbuf, output = crc_outbuf}
 		-- Calculate CRC and copy to output
 		crc_outbuf:SetPosition(0)
 
@@ -623,11 +623,11 @@ function deflate.inflate_zlib(t)
 	local data_adler32 = 1
 
 	if disable_crc then
-		inflate({input = inbuf, output = outbuf})
+		inflate{input = inbuf, output = outbuf}
 	else
 		-- For adler32 calculation, we need to intercept bytes
 		local crc_outbuf = get_output_buffer(nil)
-		inflate({input = inbuf, output = crc_outbuf})
+		inflate{input = inbuf, output = crc_outbuf}
 		-- Calculate adler32 and copy to output
 		crc_outbuf:SetPosition(0)
 

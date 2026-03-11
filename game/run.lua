@@ -10,9 +10,7 @@ _G.runfile = function(...)
 
 	return list.unpack(ret)
 end
-
 _G.R = vfs.GetAbsolutePath
-
 require("pvars").Initialize()
 require("repl").Initialize()
 require("filewatcher").Start()
@@ -34,9 +32,7 @@ end
 
 vfs.AutorunAddons()
 
-if _G.AUDIO then
-	vfs.AutorunAddons("audio/")
-end
+if _G.AUDIO then vfs.AutorunAddons("audio/") end
 
 if _G.GRAPHICS then
 	print("autorunning graphics addons")

@@ -15,7 +15,7 @@ local function try_load(paths)
 end
 
 local function find_library_linux(name)
-	local lib = try_load({name .. ".so", name .. ".so.2", name .. ".so.1"})
+	local lib = try_load{name .. ".so", name .. ".so.2", name .. ".so.1"}
 
 	if lib then return lib end
 

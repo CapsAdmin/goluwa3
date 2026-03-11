@@ -140,16 +140,14 @@ local ev = function(ws)
 			function(loop, connect_io)
 				connect_io:stop(loop)
 				local key = tools.generate_key()
-				local req = handshake.upgrade_request(
-					{
-						key = key,
-						host = host,
-						port = port,
-						protocols = ws_protocols_tbl,
-						origin = ws.origin,
-						uri = uri,
-					}
-				)
+				local req = handshake.upgrade_request{
+					key = key,
+					host = host,
+					port = port,
+					protocols = ws_protocols_tbl,
+					origin = ws.origin,
+					uri = uri,
+				}
 
 				async_send(
 					req,

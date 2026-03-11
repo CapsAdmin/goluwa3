@@ -532,13 +532,13 @@ do -- helpers
 		local p4 = pos - right * size_x + up * size_y
 		-- Counter-clockwise winding when viewed from outside (along normal direction)
 		-- Triangle 1: p1 -> p3 -> p2 (reversed to match sphere winding)
-		self:AddVertex({pos = p1, uv = Vec2(0, 0), normal = normal})
-		self:AddVertex({pos = p3, uv = Vec2(texture_scale, texture_scale), normal = normal})
-		self:AddVertex({pos = p2, uv = Vec2(texture_scale, 0), normal = normal})
+		self:AddVertex{pos = p1, uv = Vec2(0, 0), normal = normal}
+		self:AddVertex{pos = p3, uv = Vec2(texture_scale, texture_scale), normal = normal}
+		self:AddVertex{pos = p2, uv = Vec2(texture_scale, 0), normal = normal}
 		-- Triangle 2: p1 -> p4 -> p3 (reversed to match sphere winding)
-		self:AddVertex({pos = p1, uv = Vec2(0, 0), normal = normal})
-		self:AddVertex({pos = p4, uv = Vec2(0, texture_scale), normal = normal})
-		self:AddVertex({pos = p3, uv = Vec2(texture_scale, texture_scale), normal = normal})
+		self:AddVertex{pos = p1, uv = Vec2(0, 0), normal = normal}
+		self:AddVertex{pos = p4, uv = Vec2(0, texture_scale), normal = normal}
+		self:AddVertex{pos = p3, uv = Vec2(texture_scale, texture_scale), normal = normal}
 	end
 
 	function Polygon3D:CreateCube(size, texture_scale)
@@ -648,16 +648,16 @@ do -- helpers
 
 				-- First triangle (top-left, top-right, bottom-right)
 				if ring > 0 then -- Skip degenerate triangles at top pole
-					self:AddVertex({pos = Vec3(x1, y1, z1), uv = Vec2(u1, v1), normal = n1})
-					self:AddVertex({pos = Vec3(x2, y2, z2), uv = Vec2(u2, v1), normal = n2})
-					self:AddVertex({pos = Vec3(x3, y3, z3), uv = Vec2(u2, v2), normal = n3})
+					self:AddVertex{pos = Vec3(x1, y1, z1), uv = Vec2(u1, v1), normal = n1}
+					self:AddVertex{pos = Vec3(x2, y2, z2), uv = Vec2(u2, v1), normal = n2}
+					self:AddVertex{pos = Vec3(x3, y3, z3), uv = Vec2(u2, v2), normal = n3}
 				end
 
 				-- Second triangle (top-left, bottom-right, bottom-left)
 				if ring < rings - 1 then -- Skip degenerate triangles at bottom pole
-					self:AddVertex({pos = Vec3(x1, y1, z1), uv = Vec2(u1, v1), normal = n1})
-					self:AddVertex({pos = Vec3(x3, y3, z3), uv = Vec2(u2, v2), normal = n3})
-					self:AddVertex({pos = Vec3(x4, y4, z4), uv = Vec2(u1, v2), normal = n4})
+					self:AddVertex{pos = Vec3(x1, y1, z1), uv = Vec2(u1, v1), normal = n1}
+					self:AddVertex{pos = Vec3(x3, y3, z3), uv = Vec2(u2, v2), normal = n3}
+					self:AddVertex{pos = Vec3(x4, y4, z4), uv = Vec2(u1, v2), normal = n4}
 				end
 			end
 		end
@@ -680,7 +680,7 @@ do -- helpers
 			local offset = -Vec3(size.x, height, size.y) / 2
 
 			local function add(x, y, z, u, v)
-				self:AddVertex({pos = Vec3(x, y, z) + offset, uv = Vec2(u, v) * uv_scale})
+				self:AddVertex{pos = Vec3(x, y, z) + offset, uv = Vec2(u, v) * uv_scale}
 			end
 
 			for x = 0, res.x - 1 do

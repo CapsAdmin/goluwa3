@@ -69,13 +69,11 @@ function UniformBuffer.New(decl)
 	self.ring_size = self.aligned_size * self.max_uploads * self.frame_count
 	self.data = struct()
 	self.struct = struct
-	self.buffer = render.CreateBuffer(
-		{
-			byte_size = self.ring_size,
-			buffer_usage = {"uniform_buffer"},
-			memory_property = {"host_visible", "host_coherent"},
-		}
-	)
+	self.buffer = render.CreateBuffer{
+		byte_size = self.ring_size,
+		buffer_usage = {"uniform_buffer"},
+		memory_property = {"host_visible", "host_coherent"},
+	}
 	self.current_offset = 0
 	self.current_slot = 0
 	return self

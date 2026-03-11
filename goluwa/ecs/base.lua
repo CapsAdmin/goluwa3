@@ -36,19 +36,17 @@ return function(name, base_path, get_valid_components)
 	end
 
 	function BaseEntity.New(config)
-		local self = BaseEntity:CreateObject(
-			{
-				Children = {},
-				ChildrenMap = {},
-				component_map = {},
-				component_list = {},
-			}
-		)
+		local self = BaseEntity:CreateObject{
+			Children = {},
+			ChildrenMap = {},
+			component_map = {},
+			component_list = {},
+		}
 		local ent = self
 		local components = {}
 		local local_events = {}
-		local ref
-		local parent = BaseEntity.World
+		local ref local
+		parent = BaseEntity.World
 		local OnSetProperty
 
 		local function find_special_props(config)

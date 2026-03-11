@@ -35,104 +35,85 @@ local function toggle()
 
 	if window.current then window.current:SetMouseTrapped(false) end
 
-	local top_bar = Frame(
-		{
-			layout = {
-				GrowWidth = 1,
-				FitHeight = true,
-			},
-			Padding = Rect() + theme.GetSize("XXS"),
-		}
-	)(
-		{
-			Row({})(
-				{
-					Button(
-						{
-							Text = "GAME",
-							OnClick = function(ent)
-								print("click?")
-								local x, y = ent.transform:GetWorldMatrix():GetTranslation()
-								y = y + ent.transform:GetHeight()
-								world_panel:Ensure(
-									ContextMenu(
-										{
-											Key = "ActiveContextMenu",
-											Position = Vec2(x, y),
-											OnClose = function(ent)
-												print("removing context menu")
-												ent:Remove()
-											end,
-										}
-									)(
-										{
-											MenuItem(
-												{
-													Text = "LOAD",
-													OnClick = function()
-														world_panel:Ensure(Gallery({Key = "GalleryWindow"}))
-													end,
-												}
-											),
-											MenuItem({Text = "RUN (ESCAPE)"}),
-											MenuItem({Text = "RESET", Disabled = true}),
-											MenuSpacer(),
-											MenuItem({Text = "SAVE STATE", Disabled = true}),
-											MenuItem({Text = "OPEN STATE", Disabled = true}),
-											MenuItem({Text = "PICK STATE", Disabled = true}),
-											MenuSpacer(),
-											MenuItem(
-												{
-													Text = "QUIT",
-													OnClick = function()
-														system.ShutDown()
-													end,
-												}
-											),
-										}
-									)
-								)
+	local top_bar = Frame{
+		layout = {
+			GrowWidth = 1,
+			FitHeight = true,
+		},
+		Padding = Rect() + theme.GetSize("XXS"),
+	}{
+		Row({}){
+			Button{
+				Text = "GAME",
+				OnClick = function(ent)
+					print("click?")
+					local x, y = ent.transform:GetWorldMatrix():GetTranslation()
+					y = y + ent.transform:GetHeight()
+					world_panel:Ensure(
+						ContextMenu{
+							Key = "ActiveContextMenu",
+							Position = Vec2(x, y),
+							OnClose = function(ent)
+								print("removing context menu")
+								ent:Remove()
 							end,
+						}{
+							MenuItem{
+								Text = "LOAD",
+								OnClick = function()
+									world_panel:Ensure(Gallery({Key = "GalleryWindow"}))
+								end,
+							},
+							MenuItem({Text = "RUN (ESCAPE)"}),
+							MenuItem{Text = "RESET", Disabled = true},
+							MenuSpacer(),
+							MenuItem{Text = "SAVE STATE", Disabled = true},
+							MenuItem{Text = "OPEN STATE", Disabled = true},
+							MenuItem{Text = "PICK STATE", Disabled = true},
+							MenuSpacer(),
+							MenuItem{
+								Text = "QUIT",
+								OnClick = function()
+									system.ShutDown()
+								end,
+							},
 						}
-					),
-					Button({
-						Text = "CONFIG",
-					}),
-					Button({
-						Text = "CHEAT",
-					}),
-					Button({
-						Text = "NETPLAY",
-					}),
-					Button({
-						Text = "MISC",
-					}),
-				}
-			),
-		}
-	)
-
-	menu = Panel.New(
-		{
-			Name = "GameMenuPanel",
-			OnSetProperty = theme.OnSetProperty,
-			transform = {
-				Size = world_panel.transform:GetSize(),
+					)
+				end,
 			},
-			gui_element = {
-				Color = Color(0, 0, 0, 0.5),
+			Button{
+				Text = "CONFIG",
 			},
-			layout = {
-				Direction = "y",
+			Button{
+				Text = "CHEAT",
 			},
-			gui_element = true,
-			mouse_input = true,
-			clickable = true,
-			animation = true,
-		}
-	)({
+			Button{
+				Text = "NETPLAY",
+			},
+			Button{
+				Text = "MISC",
+			},
+		},
+	}
+	menu = Panel.New{
+		Name = "GameMenuPanel",
+		OnSetProperty = theme.OnSetProperty,
+		transform = {
+			Size = world_panel.transform:GetSize(),
+		},
+		gui_element = {
+			Color = Color(0, 0, 0, 0.5),
+		},
+		layout = {
+			Direction = "y",
+		},
+		gui_element = true,
+		mouse_input = true,
+		clickable = true,
+		animation = true,
+	}{
 		top_bar,
-	})
+	}
 	menu:AddGlobalEvent("WindowFramebufferResized")
 
 	function menu:OnWindowFramebufferResized(window, size)
@@ -158,4 +139,4 @@ end)
 
 event.AddListener("WindowGainedFocus", "mouse_trap", function()
 	if not visible and window.current then window.current:SetMouseTrapped(true) end
-end)--toggle()
+end) --toggle()

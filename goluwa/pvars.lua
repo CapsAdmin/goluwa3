@@ -119,15 +119,13 @@ function pvars.Setup2(info)
 end
 
 function pvars.Setup(key, def, callback, help, dont_save)
-	return pvars.Setup2(
-		{
-			key = key,
-			default = def,
-			callback = callback,
-			help = help,
-			store = not dont_save,
-		}
-	)
+	return pvars.Setup2{
+		key = key,
+		default = def,
+		callback = callback,
+		help = help,
+		store = not dont_save,
+	}
 end
 
 function pvars.GetAll()

@@ -41,7 +41,7 @@ function utility.GetLikelyLibraryDependencies(path)
 
 		for i, info in ipairs(found) do
 			local where = "bin/" .. jit.os:lower() .. "_" .. jit.arch:lower() .. "/"
-			local found = vfs.GetFiles({path = where, filter = path, filter_plain = true, full_path = true})
+			local found = vfs.GetFiles{path = where, filter = path, filter_plain = true, full_path = true}
 
 			if found[1] then
 				for _, full_path in ipairs(found) do

@@ -13,54 +13,52 @@ return function(props)
 		last_hovered = false,
 		last_value = props.Selected or false,
 	}
-	return Panel.New(
+	return Panel.New{
+		props,
 		{
-			props,
-			{
-				Name = "radio_button_graphic",
-				OnSetProperty = theme.OnSetProperty,
-				transform = {
-					Size = props.Size or "M",
-				},
-				layout = {
-					props.layout,
-				},
-				mouse_input = {
-					Cursor = "hand",
-					OnMouseInput = function(self, button, press, local_pos)
-						if button == "button_1" and press then
-							local selected = props.IsSelected and props.IsSelected() or state.value
-
-							if not selected then
-								if props.OnSelect then props.OnSelect() end
-
-								state.value = true
-								theme.UpdateCheckboxAnimations(self.Owner, state)
-							end
-
-							return true
-						end
-					end,
-					OnHover = function(self, hovered)
-						state.is_hovered = hovered
-						theme.UpdateCheckboxAnimations(self.Owner, state)
-					end,
-				},
-				gui_element = {
-					OnDraw = function(self)
-						if props.IsSelected then
-							state.value = props.IsSelected()
-						else
-							state.value = props.Selected
-						end
-
-						theme.UpdateCheckboxAnimations(self.Owner, state)
-						theme.panels.button_radio(self.Owner, state)
-					end,
-				},
-				animation = true,
-				clickable = true,
+			Name = "radio_button_graphic",
+			OnSetProperty = theme.OnSetProperty,
+			transform = {
+				Size = props.Size or "M",
 			},
-		}
-	)
+			layout = {
+				props.layout,
+			},
+			mouse_input = {
+				Cursor = "hand",
+				OnMouseInput = function(self, button, press, local_pos)
+					if button == "button_1" and press then
+						local selected = props.IsSelected and props.IsSelected() or state.value
+
+						if not selected then
+							if props.OnSelect then props.OnSelect() end
+
+							state.value = true
+							theme.UpdateCheckboxAnimations(self.Owner, state)
+						end
+
+						return true
+					end
+				end,
+				OnHover = function(self, hovered)
+					state.is_hovered = hovered
+					theme.UpdateCheckboxAnimations(self.Owner, state)
+				end,
+			},
+			gui_element = {
+				OnDraw = function(self)
+					if props.IsSelected then
+						state.value = props.IsSelected()
+					else
+						state.value = props.Selected
+					end
+
+					theme.UpdateCheckboxAnimations(self.Owner, state)
+					theme.panels.button_radio(self.Owner, state)
+				end,
+			},
+			animation = true,
+			clickable = true,
+		},
+	}
 end

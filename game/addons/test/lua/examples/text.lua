@@ -6,19 +6,17 @@ local gfx = require("render2d.gfx")
 local fonts = require("render2d.fonts")
 local system = require("system")
 local window = require("window")
-local font_small = fonts.New({Path = fonts.GetDefaultSystemFontPath(), Size = 14})
-local font_medium = fonts.New({Path = fonts.GetDefaultSystemFontPath(), Size = 24})
-local font_large = fonts.New({Path = fonts.GetDefaultSystemFontPath(), Size = 48})
-local font_sdf = fonts.New({Path = fonts.GetDefaultSystemFontPath(), Size = 64})
-local gold_gradient = render2d.CreateGradient(
-	{
-		mode = "linear",
-		stops = {
-			{pos = 0, color = Color(1, 1, 1, 1)},
-			{pos = 1, color = Color(1, 0.8, 0.2, 1)},
-		},
-	}
-)
+local font_small = fonts.New{Path = fonts.GetDefaultSystemFontPath(), Size = 14}
+local font_medium = fonts.New{Path = fonts.GetDefaultSystemFontPath(), Size = 24}
+local font_large = fonts.New{Path = fonts.GetDefaultSystemFontPath(), Size = 48}
+local font_sdf = fonts.New{Path = fonts.GetDefaultSystemFontPath(), Size = 64}
+local gold_gradient = render2d.CreateGradient{
+	mode = "linear",
+	stops = {
+		{pos = 0, color = Color(1, 1, 1, 1)},
+		{pos = 1, color = Color(1, 0.8, 0.2, 1)},
+	},
+}
 local wrap_text = "The quick brown fox jumps over the lazy dog. This is a very long string that should be wrapped according to the dynamic width of the box. Notice how the layout adjusts as the box size changes over time."
 
 local function draw_debug_text(font, text, x, y, align_x, align_y)
@@ -132,15 +130,13 @@ event.AddListener("Draw2D", "text_demo", function()
 	font_medium:DrawText(unicode_text, win_w - 400, 350)
 end)
 
-local dynamic_gradient = render2d.CreateGradient(
-	{
-		mode = "linear",
-		stops = {
-			{pos = 0, color = Color(0, 0, 0, 1)},
-			{pos = 1, color = Color(1, 1, 1, 1)},
-		},
-	}
-)
+local dynamic_gradient = render2d.CreateGradient{
+	mode = "linear",
+	stops = {
+		{pos = 0, color = Color(0, 0, 0, 1)},
+		{pos = 1, color = Color(1, 1, 1, 1)},
+	},
+}
 
 event.AddListener("Draw2D", "text_sdf_demo", function()
 	local time = system.GetTime()

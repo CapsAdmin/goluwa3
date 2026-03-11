@@ -5,25 +5,21 @@ local Clickable = require("ui.elements.clickable")
 local Text = require("ui.elements.text")
 local theme = require("ui.theme")
 return function(props)
-	return Clickable(
-		{
-			Active = props.Active,
-			Disabled = props.Disabled,
-			Mode = props.Mode or "filled",
-			layout = {
-				FitWidth = true,
-				FitHeight = true,
-			},
-			OnClick = props.OnClick,
-			Padding = "XS",
+	return Clickable{
+		Active = props.Active,
+		Disabled = props.Disabled,
+		Mode = props.Mode or "filled",
+		layout = {
+			FitWidth = true,
+			FitHeight = true,
+		},
+		OnClick = props.OnClick,
+		Padding = "XS",
+	}(
+		Text{
+			Text = props.Text,
+			IgnoreMouseInput = true,
+			Color = props.Disabled and "text_disabled" or "text_foreground",
 		}
-	)(
-		Text(
-			{
-				Text = props.Text,
-				IgnoreMouseInput = true,
-				Color = props.Disabled and "text_disabled" or "text_foreground",
-			}
-		)
 	)
 end

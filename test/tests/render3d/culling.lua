@@ -18,9 +18,9 @@ local function spawn_sphere(pos, use_occlusion)
 	local poly = Polygon3D.New()
 	poly:CreateSphere(1, 16, 16)
 	poly:Upload()
-	local material = Material.New({
+	local material = Material.New{
 		ColorMultiplier = Color(1, 1, 1, 1),
-	})
+	}
 	local mdl = ent:AddComponent("model")
 	mdl:AddPrimitive(poly, material)
 	mdl:SetUseOcclusionCulling(use_occlusion or false)

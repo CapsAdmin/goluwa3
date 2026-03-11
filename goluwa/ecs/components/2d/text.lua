@@ -11,7 +11,7 @@ local META = prototype.CreateTemplate("text")
 META:StartStorable()
 META:GetSet(
 	"Font",
-	fonts.New({Path = fonts.GetDefaultSystemFontPath(), Size = 14}),
+	fonts.New{Path = fonts.GetDefaultSystemFontPath(), Size = 14},
 	{callback = "OnTextChanged"}
 )
 META:GetSet("FontSize", 14, {callback = "OnTextChanged"})

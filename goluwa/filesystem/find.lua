@@ -85,18 +85,16 @@ function vfs.Find(path, full_path, reverse_sort, start, plain, verbose)
 
 	if filter == "" then filter = nil end
 
-	return vfs.GetFiles(
-		{
-			path = path,
-			filter = filter,
-			filter_pos = start,
-			filter_plain = plain,
-			verbose = verbose,
-			full_path = full_path,
-			reverse_sort = reverse_sort,
-			no_filter = reverse_sort == nil,
-		}
-	)
+	return vfs.GetFiles{
+		path = path,
+		filter = filter,
+		filter_pos = start,
+		filter_plain = plain,
+		verbose = verbose,
+		full_path = full_path,
+		reverse_sort = reverse_sort,
+		no_filter = reverse_sort == nil,
+	}
 end
 
 function vfs.Iterate(path, ...)
@@ -114,7 +112,7 @@ do
 	local out
 
 	local function search(path, ext, callback, dir_blacklist, include_directories, userdata)
-		for _, v in ipairs(vfs.GetFiles({path = path, verbose = true, no_sort = true})) do
+		for _, v in ipairs(vfs.GetFiles{path = path, verbose = true, no_sort = true}) do
 			local is_dir = vfs.IsDirectory(v.full_path)
 
 			if (not ext or v.name:ends_with_these(ext)) and (not is_dir or include_directories) then

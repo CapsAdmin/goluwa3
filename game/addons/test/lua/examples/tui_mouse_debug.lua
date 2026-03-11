@@ -21,45 +21,39 @@ local function log(s)
 end
 
 -- ── centering container ────────────────────────────────────────────────────
-local center = TuiPanel.New(
-	{
-		Parent = TuiPanel.World,
-		ComponentSet = {"transform", "layout"},
-		layout = {
-			Direction = "y",
-			GrowWidth = 1,
-			GrowHeight = 1,
-			AlignmentX = "center",
-			AlignmentY = "center",
-		},
-	}
-)
+local center = TuiPanel.New{
+	Parent = TuiPanel.World,
+	ComponentSet = {"transform", "layout"},
+	layout = {
+		Direction = "y",
+		GrowWidth = 1,
+		GrowHeight = 1,
+		AlignmentX = "center",
+		AlignmentY = "center",
+	},
+}
 -- ── outer box with an inner box nested inside ─────────────────────────────
-local outer = TuiPanel.New(
-	{
-		Parent = center,
-		ComponentSet = {"transform", "layout", "tui_element", "tui_mouse_input", "tui_border"},
-		layout = {
-			MinSize = Vec2(60, 24),
-			Direction = "y",
-			AlignmentX = "center",
-			AlignmentY = "center",
-			Padding = Rect(2, 2, 2, 2),
-		},
-		tui_border = {Title = "outer"},
-	}
-)
+local outer = TuiPanel.New{
+	Parent = center,
+	ComponentSet = {"transform", "layout", "tui_element", "tui_mouse_input", "tui_border"},
+	layout = {
+		MinSize = Vec2(60, 24),
+		Direction = "y",
+		AlignmentX = "center",
+		AlignmentY = "center",
+		Padding = Rect(2, 2, 2, 2),
+	},
+	tui_border = {Title = "outer"},
+}
 outer:SetName("outer")
-local inner = TuiPanel.New(
-	{
-		Parent = outer,
-		ComponentSet = {"transform", "layout", "tui_element", "tui_mouse_input", "tui_border"},
-		layout = {
-			MinSize = Vec2(28, 10),
-		},
-		tui_border = {Title = "inner"},
-	}
-)
+local inner = TuiPanel.New{
+	Parent = outer,
+	ComponentSet = {"transform", "layout", "tui_element", "tui_mouse_input", "tui_border"},
+	layout = {
+		MinSize = Vec2(28, 10),
+	},
+	tui_border = {Title = "inner"},
+}
 inner:SetName("inner")
 local box_a = outer
 local box_b = inner

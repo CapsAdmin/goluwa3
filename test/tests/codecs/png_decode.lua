@@ -14,9 +14,12 @@ local function load_png_file(path)
 	return Buffer.New(file_buffer_data, #file_data)
 end
 
-
 T.Test("PNG decode basic functionality", function()
-	local file_buffer = load_png_file(resource.Download("https://github.com/CapsAdmin/goluwa-assets/raw/refs/heads/master/extras/textures/pac.png"):Get())
+	local file_buffer = load_png_file(
+		resource.Download(
+			"https://github.com/CapsAdmin/goluwa-assets/raw/refs/heads/master/extras/textures/pac.png"
+		):Get()
+	)
 	local img = png.DecodeBuffer(file_buffer)
 	T(img.width)[">"](0)
 	T(img.height)[">"](0)
@@ -27,7 +30,11 @@ T.Test("PNG decode basic functionality", function()
 end)
 
 T.Test("PNG decode capsadmin.png average color", function()
-	local file_buffer = load_png_file(resource.Download("https://github.com/CapsAdmin/goluwa-assets/raw/refs/heads/master/extras/textures/pac.png"):Get())
+	local file_buffer = load_png_file(
+		resource.Download(
+			"https://github.com/CapsAdmin/goluwa-assets/raw/refs/heads/master/extras/textures/pac.png"
+		):Get()
+	)
 	local img = png.DecodeBuffer(file_buffer)
 	img.buffer:SetPosition(0)
 	local pixel_count = img.width * img.height
@@ -53,7 +60,11 @@ T.Test("PNG decode capsadmin.png average color", function()
 end)
 
 T.Test("PNG decode RGB image has correct alpha channel", function()
-	local file_buffer = load_png_file(resource.Download("https://github.com/CapsAdmin/goluwa-assets/raw/refs/heads/master/extras/textures/pac.png"):Get())
+	local file_buffer = load_png_file(
+		resource.Download(
+			"https://github.com/CapsAdmin/goluwa-assets/raw/refs/heads/master/extras/textures/pac.png"
+		):Get()
+	)
 	local img = png.DecodeBuffer(file_buffer)
 	T(img.colorType)["=="](6)
 	img.buffer:SetPosition(0)

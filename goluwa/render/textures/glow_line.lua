@@ -2,21 +2,19 @@ local Texture = require("render.texture")
 return function(core_thickness, glow_radius, glow_intensity)
 	local height = core_thickness + (glow_radius * 2)
 	local width = 256
-	local glow_line = Texture.New(
-		{
-			width = width,
-			height = height,
-			format = "r8g8b8a8_unorm",
-			mip_map_levels = 1,
-			anisotropy = 0,
-			sampler = {
-				min_filter = "linear",
-				mag_filter = "linear",
-				wrap_s = "clamp_to_edge",
-				wrap_t = "clamp_to_edge",
-			},
-		}
-	)
+	local glow_line = Texture.New{
+		width = width,
+		height = height,
+		format = "r8g8b8a8_unorm",
+		mip_map_levels = 1,
+		anisotropy = 0,
+		sampler = {
+			min_filter = "linear",
+			mag_filter = "linear",
+			wrap_s = "clamp_to_edge",
+			wrap_t = "clamp_to_edge",
+		},
+	}
 	local shader_code = string.format(
 		[[
         float core_thickness_px = %d.0;

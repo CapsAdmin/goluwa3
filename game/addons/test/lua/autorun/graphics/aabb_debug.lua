@@ -21,16 +21,14 @@ local function get_unit_cube_mesh()
 	return unit_cube_mesh
 end
 
-local aabb_material = Material.New(
-	{
-		AlbedoTexture = nil,
-		ColorMultiplier = Color(1, 1, 1, 1),
-		EmissiveMultiplier = Color(1, 1, 1, 1),
-		AlbedoAlphaIsEmissive = true,
-		Translucent = true,
-		DepthWrite = false,
-	}
-)
+local aabb_material = Material.New{
+	AlbedoTexture = nil,
+	ColorMultiplier = Color(1, 1, 1, 1),
+	EmissiveMultiplier = Color(1, 1, 1, 1),
+	AlbedoAlphaIsEmissive = true,
+	Translucent = true,
+	DepthWrite = false,
+}
 
 event.AddListener("KeyInput", "aabb_debug_toggle", function(key, press)
 	if not press then return end

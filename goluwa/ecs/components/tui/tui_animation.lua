@@ -32,80 +32,72 @@ function META:AnimateForeground(id, to_color, duration, interp)
 	local el = self.Owner.tui_element
 	assert(el, "tui_animation:AnimateForeground – owner needs tui_element")
 	local target = Vec3(to_color[1], to_color[2], to_color[3])
-	self:Animate(
-		{
-			id = id,
-			get = function()
-				local c = el:GetForegroundColor() or {0, 0, 0}
-				return Vec3(c[1], c[2], c[3])
-			end,
-			set = function(v)
-				el:SetForegroundColor({v.x, v.y, v.z})
-			end,
-			to = {target},
-			time = duration or 0.15,
-			interpolation = interp or "linear",
-		}
-	)
+	self:Animate{
+		id = id,
+		get = function()
+			local c = el:GetForegroundColor() or {0, 0, 0}
+			return Vec3(c[1], c[2], c[3])
+		end,
+		set = function(v)
+			el:SetForegroundColor{v.x, v.y, v.z}
+		end,
+		to = {target},
+		time = duration or 0.15,
+		interpolation = interp or "linear",
+	}
 end
 
 function META:AnimateBackground(id, to_color, duration, interp)
 	local el = self.Owner.tui_element
 	assert(el, "tui_animation:AnimateBackground – owner needs tui_element")
 	local target = Vec3(to_color[1], to_color[2], to_color[3])
-	self:Animate(
-		{
-			id = id,
-			get = function()
-				local c = el:GetBackgroundColor() or {0, 0, 0}
-				return Vec3(c[1], c[2], c[3])
-			end,
-			set = function(v)
-				el:SetBackgroundColor({v.x, v.y, v.z})
-			end,
-			to = {target},
-			time = duration or 0.15,
-			interpolation = interp or "linear",
-		}
-	)
+	self:Animate{
+		id = id,
+		get = function()
+			local c = el:GetBackgroundColor() or {0, 0, 0}
+			return Vec3(c[1], c[2], c[3])
+		end,
+		set = function(v)
+			el:SetBackgroundColor{v.x, v.y, v.z}
+		end,
+		to = {target},
+		time = duration or 0.15,
+		interpolation = interp or "linear",
+	}
 end
 
 function META:AnimateMinSize(id, to_size, duration, interp)
 	local layout = self.Owner.layout
 	assert(layout, "tui_animation:AnimateMinSize – owner needs layout")
-	self:Animate(
-		{
-			id = id,
-			get = function()
-				return layout:GetMinSize():Copy()
-			end,
-			set = function(v)
-				layout:SetMinSize(Vec2(math.max(0, v.x), math.max(0, v.y)))
-			end,
-			to = {to_size},
-			time = duration or 0.25,
-			interpolation = interp or "linear",
-		}
-	)
+	self:Animate{
+		id = id,
+		get = function()
+			return layout:GetMinSize():Copy()
+		end,
+		set = function(v)
+			layout:SetMinSize(Vec2(math.max(0, v.x), math.max(0, v.y)))
+		end,
+		to = {to_size},
+		time = duration or 0.25,
+		interpolation = interp or "linear",
+	}
 end
 
 function META:AnimatePosition(id, to_pos, duration, interp)
 	local tr = self.Owner.transform
 	assert(tr, "tui_animation:AnimatePosition – owner needs transform")
-	self:Animate(
-		{
-			id = id,
-			get = function()
-				return tr:GetPosition():Copy()
-			end,
-			set = function(v)
-				tr:SetPosition(v)
-			end,
-			to = {to_pos},
-			time = duration or 0.3,
-			interpolation = interp or "linear",
-		}
-	)
+	self:Animate{
+		id = id,
+		get = function()
+			return tr:GetPosition():Copy()
+		end,
+		set = function(v)
+			tr:SetPosition(v)
+		end,
+		to = {to_pos},
+		time = duration or 0.3,
+		interpolation = interp or "linear",
+	}
 end
 
 function META:OnFirstCreated()

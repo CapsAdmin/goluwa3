@@ -13,23 +13,21 @@ local function create_storage_images(self, extent)
 	self.storage_textures = {}
 
 	for i = 1, 2 do
-		local tex = Texture.New(
-			{
-				width = 512,
-				height = 512,
-				format = "r8g8b8a8_unorm",
-				mip_map_levels = 1,
-				image = {
-					usage = {"storage", "sampled", "transfer_dst", "transfer_src"},
-				},
-				sampler = {
-					min_filter = "linear",
-					mag_filter = "linear",
-					wrap_s = "mirrored_repeat",
-					wrap_t = "mirrored_repeat",
-				},
-			}
-		)
+		local tex = Texture.New{
+			width = 512,
+			height = 512,
+			format = "r8g8b8a8_unorm",
+			mip_map_levels = 1,
+			image = {
+				usage = {"storage", "sampled", "transfer_dst", "transfer_src"},
+			},
+			sampler = {
+				min_filter = "linear",
+				mag_filter = "linear",
+				wrap_s = "mirrored_repeat",
+				wrap_t = "mirrored_repeat",
+			},
+		}
 		tex:Shade([[
 			float n = fract(sin(dot(uv * 12.9898, vec2(78.233, 37.719))) * 43758.5453);
 			return vec4(vec3(n), 1.0);
@@ -40,13 +38,11 @@ local function create_storage_images(self, extent)
 end
 
 function ComputePipeline.New(vulkan_instance, config)
-	local self = ComputePipeline:CreateObject(
-		{
-			vulkan_instance = vulkan_instance,
-			config = config,
-			current_texture_index = 1,
-		}
-	)
+	local self = ComputePipeline:CreateObject{
+		vulkan_instance = vulkan_instance,
+		config = config,
+		current_texture_index = 1,
+	}
 	local shader = ShaderModule.New(vulkan_instance.device, config.shader, "compute")
 	local descriptor_set_layout = DescriptorSetLayout.New(vulkan_instance.device, config.descriptor_layout)
 	local push_constant_ranges = config.push_constant_ranges or {}
@@ -95,21 +91,19 @@ function ComputePipeline:Dispatch(cmd)
 	local group_count_y = math.ceil(h / self.workgroup_size)
 	cmd:Dispatch(group_count_x, group_count_y, 1)
 	-- Barrier: compute write -> fragment read
-	cmd:PipelineBarrier(
-		{
-			srcStage = "compute",
-			dstStage = "fragment",
-			imageBarriers = {
-				{
-					image = self.storage_textures[(self.current_texture_index % #self.storage_textures) + 1]:GetImage(),
-					srcAccessMask = "shader_write",
-					dstAccessMask = "shader_read",
-					oldLayout = "general",
-					newLayout = "general",
-				},
+	cmd:PipelineBarrier{
+		srcStage = "compute",
+		dstStage = "fragment",
+		imageBarriers = {
+			{
+				image = self.storage_textures[(self.current_texture_index % #self.storage_textures) + 1]:GetImage(),
+				srcAccessMask = "shader_write",
+				dstAccessMask = "shader_read",
+				oldLayout = "general",
+				newLayout = "general",
 			},
-		}
-	)
+		},
+	}
 	-- Swap descriptor sets for next frame
 	self.current_texture_index = (self.current_texture_index % #self.storage_textures) + 1
 end

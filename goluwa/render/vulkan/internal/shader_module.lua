@@ -10,19 +10,17 @@ function ShaderModule.New(device, glsl, type)
 	vulkan.assert(
 		vulkan.lib.vkCreateShaderModule(
 			device.ptr[0],
-			vulkan.vk.s.ShaderModuleCreateInfo(
-				{
-					codeSize = spirv_size,
-					pCode = ffi.cast("const uint32_t*", spirv_data),
-					flags = 0,
-				}
-			),
+			vulkan.vk.s.ShaderModuleCreateInfo{
+				codeSize = spirv_size,
+				pCode = ffi.cast("const uint32_t*", spirv_data),
+				flags = 0,
+			},
 			nil,
 			ptr
 		),
 		"failed to create shader module"
 	)
-	return ShaderModule:CreateObject({ptr = ptr, device = device})
+	return ShaderModule:CreateObject{ptr = ptr, device = device}
 end
 
 function ShaderModule:OnRemove()

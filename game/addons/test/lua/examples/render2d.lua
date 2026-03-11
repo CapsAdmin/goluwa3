@@ -4,37 +4,31 @@ local Color = require("structs.color")
 local Vec2 = require("structs.vec2")
 local fonts = require("render2d.fonts")
 local fontPath = fonts.GetDefaultSystemFontPath()
-local font = fonts.New({Path = fontPath, Size = 64})
-local gfont = fonts.New({Name = "Orbitron", Weight = "Bold", Size = 64, Padding = 32})
+local font = fonts.New{Path = fontPath, Size = 64}
+local gfont = fonts.New{Name = "Orbitron", Weight = "Bold", Size = 64, Padding = 32}
 font.debug = false
 font:SetPadding(64)
-local blue_gradient = render2d.CreateGradient(
-	{
-		mode = "linear",
-		stops = {
-			{pos = 0, color = Color(1, 1, 1, 1)},
-			{pos = 1, color = Color(0, 0, 1, 1)},
-		},
-	}
-)
-local glassy_gradient = render2d.CreateGradient(
-	{
-		mode = "linear",
-		stops = {
-			{pos = 0, color = Color(1, 1, 1, 1)},
-			{pos = 1, color = Color(1, 1, 1, 0.05)},
-		},
-	}
-)
-local red_gradient = render2d.CreateGradient(
-	{
-		mode = "linear",
-		stops = {
-			{pos = 0, color = Color(1, 0, 0, 1)},
-			{pos = 1, color = Color(0, 0, 1, 1)},
-		},
-	}
-)
+local blue_gradient = render2d.CreateGradient{
+	mode = "linear",
+	stops = {
+		{pos = 0, color = Color(1, 1, 1, 1)},
+		{pos = 1, color = Color(0, 0, 1, 1)},
+	},
+}
+local glassy_gradient = render2d.CreateGradient{
+	mode = "linear",
+	stops = {
+		{pos = 0, color = Color(1, 1, 1, 1)},
+		{pos = 1, color = Color(1, 1, 1, 0.05)},
+	},
+}
+local red_gradient = render2d.CreateGradient{
+	mode = "linear",
+	stops = {
+		{pos = 0, color = Color(1, 0, 0, 1)},
+		{pos = 1, color = Color(0, 0, 1, 1)},
+	},
+}
 
 local function DrawRoundedRectGradientShadow(x, y, w, h)
 	-- 1. Rounded Rectangle with Gradient and Shadow

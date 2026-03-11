@@ -5,33 +5,29 @@ local Vec2 = require("structs.vec2")
 local gfx = require("render2d.gfx")
 local fonts = require("render2d.fonts")
 local path = fonts.GetDefaultSystemFontPath()
-local font_simple = fonts.New({Path = path, Size = 50})
-local font_shadow = fonts.New(
-	{
-		Path = path,
-		Size = 30,
-		Shadow = {
-			Dir = Vec2() + -2,
-			Color = Color.FromHex("#022d58"):SetAlpha(0.75),
-			BlurRadius = 0.25,
-			BlurPasses = 1,
-		},
-	}
-)
-local font_glow = fonts.New(
-	{
-		Path = path,
-		Size = 50,
-		Padding = 2,
-		Shadow = {
-			Dir = Vec2(),
-			Color = Color(1, 1, 1, 1),
-			BlurRadius = 1,
-			BlurPasses = 2,
-			AlphaPow = 1,
-		},
-	}
-)
+local font_simple = fonts.New{Path = path, Size = 50}
+local font_shadow = fonts.New{
+	Path = path,
+	Size = 30,
+	Shadow = {
+		Dir = Vec2() + -2,
+		Color = Color.FromHex("#022d58"):SetAlpha(0.75),
+		BlurRadius = 0.25,
+		BlurPasses = 1,
+	},
+}
+local font_glow = fonts.New{
+	Path = path,
+	Size = 50,
+	Padding = 2,
+	Shadow = {
+		Dir = Vec2(),
+		Color = Color(1, 1, 1, 1),
+		BlurRadius = 1,
+		BlurPasses = 2,
+		AlphaPow = 1,
+	},
+}
 
 -- Force render2d pipeline to rebuild after font shading operations
 local function bg()

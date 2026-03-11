@@ -46,7 +46,6 @@ function UDPServer:Send(data, host, port)
 	return self.socket:send_to(address, data)
 end
 
-
 function UDPServer:GetPollSocket()
 	return self.socket
 end
@@ -72,14 +71,12 @@ function UDPServer:OnPollReady(events)
 end
 
 function UDPServer:Update()
-	self:OnPollReady(
-		{
-			["in"] = true,
-			err = true,
-			hup = true,
-			nval = true,
-		}
-	)
+	self:OnPollReady{
+		["in"] = true,
+		err = true,
+		hup = true,
+		nval = true,
+	}
 end
 
 function UDPServer:Error(message, ...)

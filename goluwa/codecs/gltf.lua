@@ -510,20 +510,18 @@ local function get_white_texture()
 		buffer[i * 4 + 3] = 255 -- A
 	end
 
-	white_texture = Texture.New(
-		{
-			width = size,
-			height = size,
-			format = "r8g8b8a8_unorm",
-			buffer = buffer,
-			sampler = {
-				min_filter = "nearest",
-				mag_filter = "nearest",
-				wrap_s = "repeat",
-				wrap_t = "repeat",
-			},
-		}
-	)
+	white_texture = Texture.New{
+		width = size,
+		height = size,
+		format = "r8g8b8a8_unorm",
+		buffer = buffer,
+		sampler = {
+			min_filter = "nearest",
+			mag_filter = "nearest",
+			wrap_s = "repeat",
+			wrap_t = "repeat",
+		},
+	}
 	return white_texture
 end
 
@@ -537,14 +535,12 @@ function gltf.CreateVertexBuffer(primitive)
 	end
 
 	local byte_size = vertex_count * stride * ffi.sizeof("float")
-	local buffer = render.CreateBuffer(
-		{
-			buffer_usage = "vertex_buffer",
-			data_type = "float",
-			data = vertex_data,
-			byte_size = byte_size,
-		}
-	)
+	local buffer = render.CreateBuffer{
+		buffer_usage = "vertex_buffer",
+		data_type = "float",
+		data = vertex_data,
+		byte_size = byte_size,
+	}
 	return buffer, vertex_count, aabb
 end
 
@@ -572,14 +568,12 @@ function gltf.CreateIndexBuffer(primitive, vertex_count)
 		end
 	end
 
-	local buffer = render.CreateBuffer(
-		{
-			buffer_usage = "index_buffer",
-			data_type = indices.component_type,
-			data = indices.data,
-			byte_size = indices.byte_size,
-		}
-	)
+	local buffer = render.CreateBuffer{
+		buffer_usage = "index_buffer",
+		data_type = indices.component_type,
+		data = indices.data,
+		byte_size = indices.byte_size,
+	}
 	-- Convert component type to Vulkan-style name
 	local index_type = "uint16"
 
@@ -682,15 +676,13 @@ function gltf.LoadTexture(gltf_result, texture_index)
 	-- Use cache_key to enable caching in Texture.New
 	local cache_key = gltf_result.path .. ":" .. texture_index
 	-- Create texture using Texture.New (handles caching, loading, mipmaps, and fallback)
-	local texture = Texture.New(
-		{
-			path = image_path,
-			cache_key = cache_key,
-			format = not image_path:ends_with(".dds") and "r8g8b8a8_unorm" or nil,
-			mip_map_levels = "auto",
-			sampler = sampler_config,
-		}
-	)
+	local texture = Texture.New{
+		path = image_path,
+		cache_key = cache_key,
+		format = not image_path:ends_with(".dds") and "r8g8b8a8_unorm" or nil,
+		mip_map_levels = "auto",
+		sampler = sampler_config,
+	}
 	return texture
 end
 
@@ -821,7 +813,7 @@ end
 function gltf.CreateEntityHierarchy(gltf_result, parent_entity, options)
 	options = options or {}
 	-- Create root entity for this glTF scene
-	local root_entity = Entity.New({Name = gltf_result.path or "gltf_root", Parent = parent_entity})
+	local root_entity = Entity.New{Name = gltf_result.path or "gltf_root", Parent = parent_entity}
 	root_entity:AddComponent("transform")
 	-- Map from glTF node index to entity
 	local node_to_entity = {}
@@ -835,7 +827,7 @@ function gltf.CreateEntityHierarchy(gltf_result, parent_entity, options)
 
 	-- First pass: create all entities with transforms
 	for node_index, node in ipairs(gltf_result.nodes) do
-		local entity = Entity.New({Name = node.name or ("node_" .. node_index)})
+		local entity = Entity.New{Name = node.name or ("node_" .. node_index)}
 		entity:AddComponent("transform")
 		-- Set local transform from glTF node
 		local transform = entity.transform
@@ -1016,7 +1008,7 @@ function gltf.CreateEntityHierarchy(gltf_result, parent_entity, options)
 
 							-- Create a child entity for this primitive
 							local prim_name = (mesh.name or "mesh") .. "_prim" .. prim_idx
-							local prim_entity = Entity.New({Name = prim_name, Parent = entity})
+							local prim_entity = Entity.New{Name = prim_name, Parent = entity}
 							prim_entity:AddComponent("transform")
 							-- Transform is identity since it inherits from parent node
 							local prim_model = prim_entity:AddComponent("model")

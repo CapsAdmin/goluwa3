@@ -1,9 +1,7 @@
 -- Generated from wayland protocol
-local ffi = require('ffi')
-
+local ffi = require("ffi")
 -- Global table to keep listener callbacks alive (prevent GC)
 local listeners_registry = {}
-
 ffi.cdef[[
 // Protocol: wayland
 struct wl_display {};
@@ -306,14 +304,12 @@ enum wl_subsurface_error {
 	WL_SUBSURFACE_ERROR_BAD_SURFACE = 0,
 };
 ]]
-
 local output_table = {}
 
 -- Interface: wl_display
 do
 	local meta = {}
 	meta.__index = meta
-
 	local iface = {
 		enums = {
 			[1] = {
@@ -406,7 +402,7 @@ do
 	-- Request: sync
 	function meta:sync(...)
 		local args = {...}
-		local args_array = ffi.new('union wl_argument[1]')
+		local args_array = ffi.new("union wl_argument[1]")
 		local arg_idx = 1
 		local array_idx = 0
 		local has_new_id = false
@@ -416,21 +412,24 @@ do
 
 		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[1].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				has_new_id = true
 				new_id_interface = arg.interface
+
 				if not new_id_interface then generic_new_id = true end
+
 				break
 			end
 		end
 
 		-- Process arguments
 		for i, arg in ipairs(iface.requests[1].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				if not arg.interface then
 					local target_iface = args[arg_idx]
 					local target_ver = args[arg_idx + 1]
 					arg_idx = arg_idx + 2
+
 					if target_iface then
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
@@ -439,32 +438,33 @@ do
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
+
 					array_idx = array_idx + 3
 				else
 					args_array[array_idx].n = 0
 					array_idx = array_idx + 1
 				end
-			elseif arg.type == 'fixed' then
+			elseif arg.type == "fixed" then
 				local val = args[arg_idx] or 0
 				arg_idx = arg_idx + 1
-				args_array[array_idx].f = ffi.cast('wl_fixed_t', val * 256.0)
+				args_array[array_idx].f = ffi.cast("wl_fixed_t", val * 256.0)
 				array_idx = array_idx + 1
-			elseif arg.type == 'object' then
+			elseif arg.type == "object" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].o = val and ffi.cast('struct wl_object*', val) or nil
+				args_array[array_idx].o = val and ffi.cast("struct wl_object*", val) or nil
 				array_idx = array_idx + 1
-			elseif arg.type == 'array' then
+			elseif arg.type == "array" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].a = ffi.cast('struct wl_array*', val)
+				args_array[array_idx].a = ffi.cast("struct wl_array*", val)
 				array_idx = array_idx + 1
-			elseif arg.type == 'string' then
+			elseif arg.type == "string" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].s = val
 				array_idx = array_idx + 1
-			elseif arg.type == 'fd' then
+			elseif arg.type == "fd" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].h = tonumber(val)
@@ -472,11 +472,13 @@ do
 			else
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				if arg.type == 'uint' then
+
+				if arg.type == "uint" then
 					args_array[array_idx].u = tonumber(val)
 				else
 					args_array[array_idx].i = tonumber(val)
 				end
+
 				array_idx = array_idx + 1
 			end
 		end
@@ -485,32 +487,27 @@ do
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
-					ffi.cast('struct wl_proxy*', self),
+					ffi.cast("struct wl_proxy*", self),
 					0,
 					args_array,
 					new_id_interface,
 					version_for_generic
 				)
-				return ffi.cast('void*', new_proxy)
+				return ffi.cast("void*", new_proxy)
 			elseif new_id_interface then
-				local target_interface = ffi.C[new_id_interface .. '_interface']
-				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(
-					ffi.cast('struct wl_proxy*', self),
-					0,
-					args_array,
-					target_interface
-				)
-				return ffi.cast('struct ' .. new_id_interface .. '*', new_proxy)
+				local target_interface = ffi.C[new_id_interface .. "_interface"]
+				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(ffi.cast("struct wl_proxy*", self), 0, args_array, target_interface)
+				return ffi.cast("struct " .. new_id_interface .. "*", new_proxy)
 			end
 		else
-			ffi.C.wl_proxy_marshal_array(ffi.cast('struct wl_proxy*', self), 0, args_array)
+			ffi.C.wl_proxy_marshal_array(ffi.cast("struct wl_proxy*", self), 0, args_array)
 		end
 	end
 
 	-- Request: get_registry
 	function meta:get_registry(...)
 		local args = {...}
-		local args_array = ffi.new('union wl_argument[1]')
+		local args_array = ffi.new("union wl_argument[1]")
 		local arg_idx = 1
 		local array_idx = 0
 		local has_new_id = false
@@ -520,21 +517,24 @@ do
 
 		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[2].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				has_new_id = true
 				new_id_interface = arg.interface
+
 				if not new_id_interface then generic_new_id = true end
+
 				break
 			end
 		end
 
 		-- Process arguments
 		for i, arg in ipairs(iface.requests[2].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				if not arg.interface then
 					local target_iface = args[arg_idx]
 					local target_ver = args[arg_idx + 1]
 					arg_idx = arg_idx + 2
+
 					if target_iface then
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
@@ -543,32 +543,33 @@ do
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
+
 					array_idx = array_idx + 3
 				else
 					args_array[array_idx].n = 0
 					array_idx = array_idx + 1
 				end
-			elseif arg.type == 'fixed' then
+			elseif arg.type == "fixed" then
 				local val = args[arg_idx] or 0
 				arg_idx = arg_idx + 1
-				args_array[array_idx].f = ffi.cast('wl_fixed_t', val * 256.0)
+				args_array[array_idx].f = ffi.cast("wl_fixed_t", val * 256.0)
 				array_idx = array_idx + 1
-			elseif arg.type == 'object' then
+			elseif arg.type == "object" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].o = val and ffi.cast('struct wl_object*', val) or nil
+				args_array[array_idx].o = val and ffi.cast("struct wl_object*", val) or nil
 				array_idx = array_idx + 1
-			elseif arg.type == 'array' then
+			elseif arg.type == "array" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].a = ffi.cast('struct wl_array*', val)
+				args_array[array_idx].a = ffi.cast("struct wl_array*", val)
 				array_idx = array_idx + 1
-			elseif arg.type == 'string' then
+			elseif arg.type == "string" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].s = val
 				array_idx = array_idx + 1
-			elseif arg.type == 'fd' then
+			elseif arg.type == "fd" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].h = tonumber(val)
@@ -576,11 +577,13 @@ do
 			else
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				if arg.type == 'uint' then
+
+				if arg.type == "uint" then
 					args_array[array_idx].u = tonumber(val)
 				else
 					args_array[array_idx].i = tonumber(val)
 				end
+
 				array_idx = array_idx + 1
 			end
 		end
@@ -589,80 +592,76 @@ do
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
-					ffi.cast('struct wl_proxy*', self),
+					ffi.cast("struct wl_proxy*", self),
 					1,
 					args_array,
 					new_id_interface,
 					version_for_generic
 				)
-				return ffi.cast('void*', new_proxy)
+				return ffi.cast("void*", new_proxy)
 			elseif new_id_interface then
-				local target_interface = ffi.C[new_id_interface .. '_interface']
-				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(
-					ffi.cast('struct wl_proxy*', self),
-					1,
-					args_array,
-					target_interface
-				)
-				return ffi.cast('struct ' .. new_id_interface .. '*', new_proxy)
+				local target_interface = ffi.C[new_id_interface .. "_interface"]
+				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(ffi.cast("struct wl_proxy*", self), 1, args_array, target_interface)
+				return ffi.cast("struct " .. new_id_interface .. "*", new_proxy)
 			end
 		else
-			ffi.C.wl_proxy_marshal_array(ffi.cast('struct wl_proxy*', self), 1, args_array)
+			ffi.C.wl_proxy_marshal_array(ffi.cast("struct wl_proxy*", self), 1, args_array)
 		end
 	end
 
 	-- Helper to create listener
 	function meta:add_listener(callbacks, data)
 		local count = #iface.events
-		local listener = ffi.new('void*[' .. count .. ']')
-		local ptr_key = tonumber(ffi.cast('intptr_t', ffi.cast('struct wl_proxy*', self)))
+		local listener = ffi.new("void*[" .. count .. "]")
+		local ptr_key = tonumber(ffi.cast("intptr_t", ffi.cast("struct wl_proxy*", self)))
 		listeners_registry[ptr_key] = listeners_registry[ptr_key] or {}
 		table.insert(listeners_registry[ptr_key], listener)
 		table.insert(listeners_registry[ptr_key], callbacks)
 
 		for i, evt in ipairs(iface.events) do
 			local cb = callbacks[evt.name]
+
 			if cb then
-				local sig_args = {'void*', 'struct wl_proxy*'}
+				local sig_args = {"void*", "struct wl_proxy*"}
+
 				for _, arg in ipairs(evt.args) do
-					if arg.type == 'int' then
-						table.insert(sig_args, 'int32_t')
-					elseif arg.type == 'uint' then
-						table.insert(sig_args, 'uint32_t')
-					elseif arg.type == 'fixed' then
-						table.insert(sig_args, 'wl_fixed_t')
-					elseif arg.type == 'string' then
-						table.insert(sig_args, 'const char*')
-					elseif arg.type == 'object' then
-						table.insert(sig_args, 'struct wl_proxy*')
-					elseif arg.type == 'new_id' then
-						table.insert(sig_args, 'struct wl_proxy*')
-					elseif arg.type == 'array' then
-						table.insert(sig_args, 'struct wl_array*')
-					elseif arg.type == 'fd' then
-						table.insert(sig_args, 'int32_t')
+					if arg.type == "int" then
+						table.insert(sig_args, "int32_t")
+					elseif arg.type == "uint" then
+						table.insert(sig_args, "uint32_t")
+					elseif arg.type == "fixed" then
+						table.insert(sig_args, "wl_fixed_t")
+					elseif arg.type == "string" then
+						table.insert(sig_args, "const char*")
+					elseif arg.type == "object" then
+						table.insert(sig_args, "struct wl_proxy*")
+					elseif arg.type == "new_id" then
+						table.insert(sig_args, "struct wl_proxy*")
+					elseif arg.type == "array" then
+						table.insert(sig_args, "struct wl_array*")
+					elseif arg.type == "fd" then
+						table.insert(sig_args, "int32_t")
 					end
 				end
 
-				local sig = 'void (*)(' .. table.concat(sig_args, ', ') .. ')'
+				local sig = "void (*)(" .. table.concat(sig_args, ", ") .. ")"
 				local cb_func = ffi.cast(sig, function(data, proxy, ...)
 					local args = {...}
 					local lua_args = {}
 					local arg_idx = 1
-
-					proxy = ffi.cast('struct wl_display*', proxy)
+					proxy = ffi.cast("struct wl_display*", proxy)
 
 					for _, arg in ipairs(evt.args) do
 						local val = args[arg_idx]
 						arg_idx = arg_idx + 1
 
-						if arg.type == 'fixed' then
+						if arg.type == "fixed" then
 							val = tonumber(val) / 256.0
-						elseif arg.type == 'string' then
+						elseif arg.type == "string" then
 							val = ffi.string(val)
-						elseif arg.type == 'object' or arg.type == 'new_id' then
+						elseif arg.type == "object" or arg.type == "new_id" then
 							if arg.interface then
-								val = ffi.cast('struct ' .. arg.interface .. '*', val)
+								val = ffi.cast("struct " .. arg.interface .. "*", val)
 							end
 						end
 
@@ -677,24 +676,22 @@ do
 		end
 
 		ffi.C.wl_proxy_add_listener(
-			ffi.cast('struct wl_proxy*', self),
-			ffi.cast('void(**)(void)', listener),
-			ffi.cast('void*', data)
+			ffi.cast("struct wl_proxy*", self),
+			ffi.cast("void(**)(void)", listener),
+			ffi.cast("void*", data)
 		)
 	end
 
-	output_table['wl_display'] = meta
-	ffi.metatype('struct wl_display', meta)
+	output_table["wl_display"] = meta
+	ffi.metatype("struct wl_display", meta)
 end
 
 -- Interface: wl_registry
 do
 	local meta = {}
 	meta.__index = meta
-
 	local iface = {
-		enums = {
-		},
+		enums = {},
 		events = {
 			[1] = {
 				args = {
@@ -750,7 +747,7 @@ do
 	-- Request: bind
 	function meta:bind(...)
 		local args = {...}
-		local args_array = ffi.new('union wl_argument[4]')
+		local args_array = ffi.new("union wl_argument[4]")
 		local arg_idx = 1
 		local array_idx = 0
 		local has_new_id = false
@@ -760,21 +757,24 @@ do
 
 		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[1].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				has_new_id = true
 				new_id_interface = arg.interface
+
 				if not new_id_interface then generic_new_id = true end
+
 				break
 			end
 		end
 
 		-- Process arguments
 		for i, arg in ipairs(iface.requests[1].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				if not arg.interface then
 					local target_iface = args[arg_idx]
 					local target_ver = args[arg_idx + 1]
 					arg_idx = arg_idx + 2
+
 					if target_iface then
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
@@ -783,32 +783,33 @@ do
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
+
 					array_idx = array_idx + 3
 				else
 					args_array[array_idx].n = 0
 					array_idx = array_idx + 1
 				end
-			elseif arg.type == 'fixed' then
+			elseif arg.type == "fixed" then
 				local val = args[arg_idx] or 0
 				arg_idx = arg_idx + 1
-				args_array[array_idx].f = ffi.cast('wl_fixed_t', val * 256.0)
+				args_array[array_idx].f = ffi.cast("wl_fixed_t", val * 256.0)
 				array_idx = array_idx + 1
-			elseif arg.type == 'object' then
+			elseif arg.type == "object" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].o = val and ffi.cast('struct wl_object*', val) or nil
+				args_array[array_idx].o = val and ffi.cast("struct wl_object*", val) or nil
 				array_idx = array_idx + 1
-			elseif arg.type == 'array' then
+			elseif arg.type == "array" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].a = ffi.cast('struct wl_array*', val)
+				args_array[array_idx].a = ffi.cast("struct wl_array*", val)
 				array_idx = array_idx + 1
-			elseif arg.type == 'string' then
+			elseif arg.type == "string" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].s = val
 				array_idx = array_idx + 1
-			elseif arg.type == 'fd' then
+			elseif arg.type == "fd" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].h = tonumber(val)
@@ -816,11 +817,13 @@ do
 			else
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				if arg.type == 'uint' then
+
+				if arg.type == "uint" then
 					args_array[array_idx].u = tonumber(val)
 				else
 					args_array[array_idx].i = tonumber(val)
 				end
+
 				array_idx = array_idx + 1
 			end
 		end
@@ -829,80 +832,76 @@ do
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
-					ffi.cast('struct wl_proxy*', self),
+					ffi.cast("struct wl_proxy*", self),
 					0,
 					args_array,
 					new_id_interface,
 					version_for_generic
 				)
-				return ffi.cast('void*', new_proxy)
+				return ffi.cast("void*", new_proxy)
 			elseif new_id_interface then
-				local target_interface = ffi.C[new_id_interface .. '_interface']
-				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(
-					ffi.cast('struct wl_proxy*', self),
-					0,
-					args_array,
-					target_interface
-				)
-				return ffi.cast('struct ' .. new_id_interface .. '*', new_proxy)
+				local target_interface = ffi.C[new_id_interface .. "_interface"]
+				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(ffi.cast("struct wl_proxy*", self), 0, args_array, target_interface)
+				return ffi.cast("struct " .. new_id_interface .. "*", new_proxy)
 			end
 		else
-			ffi.C.wl_proxy_marshal_array(ffi.cast('struct wl_proxy*', self), 0, args_array)
+			ffi.C.wl_proxy_marshal_array(ffi.cast("struct wl_proxy*", self), 0, args_array)
 		end
 	end
 
 	-- Helper to create listener
 	function meta:add_listener(callbacks, data)
 		local count = #iface.events
-		local listener = ffi.new('void*[' .. count .. ']')
-		local ptr_key = tonumber(ffi.cast('intptr_t', ffi.cast('struct wl_proxy*', self)))
+		local listener = ffi.new("void*[" .. count .. "]")
+		local ptr_key = tonumber(ffi.cast("intptr_t", ffi.cast("struct wl_proxy*", self)))
 		listeners_registry[ptr_key] = listeners_registry[ptr_key] or {}
 		table.insert(listeners_registry[ptr_key], listener)
 		table.insert(listeners_registry[ptr_key], callbacks)
 
 		for i, evt in ipairs(iface.events) do
 			local cb = callbacks[evt.name]
+
 			if cb then
-				local sig_args = {'void*', 'struct wl_proxy*'}
+				local sig_args = {"void*", "struct wl_proxy*"}
+
 				for _, arg in ipairs(evt.args) do
-					if arg.type == 'int' then
-						table.insert(sig_args, 'int32_t')
-					elseif arg.type == 'uint' then
-						table.insert(sig_args, 'uint32_t')
-					elseif arg.type == 'fixed' then
-						table.insert(sig_args, 'wl_fixed_t')
-					elseif arg.type == 'string' then
-						table.insert(sig_args, 'const char*')
-					elseif arg.type == 'object' then
-						table.insert(sig_args, 'struct wl_proxy*')
-					elseif arg.type == 'new_id' then
-						table.insert(sig_args, 'struct wl_proxy*')
-					elseif arg.type == 'array' then
-						table.insert(sig_args, 'struct wl_array*')
-					elseif arg.type == 'fd' then
-						table.insert(sig_args, 'int32_t')
+					if arg.type == "int" then
+						table.insert(sig_args, "int32_t")
+					elseif arg.type == "uint" then
+						table.insert(sig_args, "uint32_t")
+					elseif arg.type == "fixed" then
+						table.insert(sig_args, "wl_fixed_t")
+					elseif arg.type == "string" then
+						table.insert(sig_args, "const char*")
+					elseif arg.type == "object" then
+						table.insert(sig_args, "struct wl_proxy*")
+					elseif arg.type == "new_id" then
+						table.insert(sig_args, "struct wl_proxy*")
+					elseif arg.type == "array" then
+						table.insert(sig_args, "struct wl_array*")
+					elseif arg.type == "fd" then
+						table.insert(sig_args, "int32_t")
 					end
 				end
 
-				local sig = 'void (*)(' .. table.concat(sig_args, ', ') .. ')'
+				local sig = "void (*)(" .. table.concat(sig_args, ", ") .. ")"
 				local cb_func = ffi.cast(sig, function(data, proxy, ...)
 					local args = {...}
 					local lua_args = {}
 					local arg_idx = 1
-
-					proxy = ffi.cast('struct wl_registry*', proxy)
+					proxy = ffi.cast("struct wl_registry*", proxy)
 
 					for _, arg in ipairs(evt.args) do
 						local val = args[arg_idx]
 						arg_idx = arg_idx + 1
 
-						if arg.type == 'fixed' then
+						if arg.type == "fixed" then
 							val = tonumber(val) / 256.0
-						elseif arg.type == 'string' then
+						elseif arg.type == "string" then
 							val = ffi.string(val)
-						elseif arg.type == 'object' or arg.type == 'new_id' then
+						elseif arg.type == "object" or arg.type == "new_id" then
 							if arg.interface then
-								val = ffi.cast('struct ' .. arg.interface .. '*', val)
+								val = ffi.cast("struct " .. arg.interface .. "*", val)
 							end
 						end
 
@@ -917,24 +916,22 @@ do
 		end
 
 		ffi.C.wl_proxy_add_listener(
-			ffi.cast('struct wl_proxy*', self),
-			ffi.cast('void(**)(void)', listener),
-			ffi.cast('void*', data)
+			ffi.cast("struct wl_proxy*", self),
+			ffi.cast("void(**)(void)", listener),
+			ffi.cast("void*", data)
 		)
 	end
 
-	output_table['wl_registry'] = meta
-	ffi.metatype('struct wl_registry', meta)
+	output_table["wl_registry"] = meta
+	ffi.metatype("struct wl_registry", meta)
 end
 
 -- Interface: wl_callback
 do
 	local meta = {}
 	meta.__index = meta
-
 	local iface = {
-		enums = {
-		},
+		enums = {},
 		events = {
 			[1] = {
 				args = {
@@ -948,63 +945,63 @@ do
 			},
 		},
 		name = "wl_callback",
-		requests = {
-		},
+		requests = {},
 		version = 1,
 	}
 
 	-- Helper to create listener
 	function meta:add_listener(callbacks, data)
 		local count = #iface.events
-		local listener = ffi.new('void*[' .. count .. ']')
-		local ptr_key = tonumber(ffi.cast('intptr_t', ffi.cast('struct wl_proxy*', self)))
+		local listener = ffi.new("void*[" .. count .. "]")
+		local ptr_key = tonumber(ffi.cast("intptr_t", ffi.cast("struct wl_proxy*", self)))
 		listeners_registry[ptr_key] = listeners_registry[ptr_key] or {}
 		table.insert(listeners_registry[ptr_key], listener)
 		table.insert(listeners_registry[ptr_key], callbacks)
 
 		for i, evt in ipairs(iface.events) do
 			local cb = callbacks[evt.name]
+
 			if cb then
-				local sig_args = {'void*', 'struct wl_proxy*'}
+				local sig_args = {"void*", "struct wl_proxy*"}
+
 				for _, arg in ipairs(evt.args) do
-					if arg.type == 'int' then
-						table.insert(sig_args, 'int32_t')
-					elseif arg.type == 'uint' then
-						table.insert(sig_args, 'uint32_t')
-					elseif arg.type == 'fixed' then
-						table.insert(sig_args, 'wl_fixed_t')
-					elseif arg.type == 'string' then
-						table.insert(sig_args, 'const char*')
-					elseif arg.type == 'object' then
-						table.insert(sig_args, 'struct wl_proxy*')
-					elseif arg.type == 'new_id' then
-						table.insert(sig_args, 'struct wl_proxy*')
-					elseif arg.type == 'array' then
-						table.insert(sig_args, 'struct wl_array*')
-					elseif arg.type == 'fd' then
-						table.insert(sig_args, 'int32_t')
+					if arg.type == "int" then
+						table.insert(sig_args, "int32_t")
+					elseif arg.type == "uint" then
+						table.insert(sig_args, "uint32_t")
+					elseif arg.type == "fixed" then
+						table.insert(sig_args, "wl_fixed_t")
+					elseif arg.type == "string" then
+						table.insert(sig_args, "const char*")
+					elseif arg.type == "object" then
+						table.insert(sig_args, "struct wl_proxy*")
+					elseif arg.type == "new_id" then
+						table.insert(sig_args, "struct wl_proxy*")
+					elseif arg.type == "array" then
+						table.insert(sig_args, "struct wl_array*")
+					elseif arg.type == "fd" then
+						table.insert(sig_args, "int32_t")
 					end
 				end
 
-				local sig = 'void (*)(' .. table.concat(sig_args, ', ') .. ')'
+				local sig = "void (*)(" .. table.concat(sig_args, ", ") .. ")"
 				local cb_func = ffi.cast(sig, function(data, proxy, ...)
 					local args = {...}
 					local lua_args = {}
 					local arg_idx = 1
-
-					proxy = ffi.cast('struct wl_callback*', proxy)
+					proxy = ffi.cast("struct wl_callback*", proxy)
 
 					for _, arg in ipairs(evt.args) do
 						local val = args[arg_idx]
 						arg_idx = arg_idx + 1
 
-						if arg.type == 'fixed' then
+						if arg.type == "fixed" then
 							val = tonumber(val) / 256.0
-						elseif arg.type == 'string' then
+						elseif arg.type == "string" then
 							val = ffi.string(val)
-						elseif arg.type == 'object' or arg.type == 'new_id' then
+						elseif arg.type == "object" or arg.type == "new_id" then
 							if arg.interface then
-								val = ffi.cast('struct ' .. arg.interface .. '*', val)
+								val = ffi.cast("struct " .. arg.interface .. "*", val)
 							end
 						end
 
@@ -1019,26 +1016,23 @@ do
 		end
 
 		ffi.C.wl_proxy_add_listener(
-			ffi.cast('struct wl_proxy*', self),
-			ffi.cast('void(**)(void)', listener),
-			ffi.cast('void*', data)
+			ffi.cast("struct wl_proxy*", self),
+			ffi.cast("void(**)(void)", listener),
+			ffi.cast("void*", data)
 		)
 	end
 
-	output_table['wl_callback'] = meta
-	ffi.metatype('struct wl_callback', meta)
+	output_table["wl_callback"] = meta
+	ffi.metatype("struct wl_callback", meta)
 end
 
 -- Interface: wl_compositor
 do
 	local meta = {}
 	meta.__index = meta
-
 	local iface = {
-		enums = {
-		},
-		events = {
-		},
+		enums = {},
+		events = {},
 		name = "wl_compositor",
 		requests = {
 			[1] = {
@@ -1072,7 +1066,7 @@ do
 	-- Request: create_surface
 	function meta:create_surface(...)
 		local args = {...}
-		local args_array = ffi.new('union wl_argument[1]')
+		local args_array = ffi.new("union wl_argument[1]")
 		local arg_idx = 1
 		local array_idx = 0
 		local has_new_id = false
@@ -1082,21 +1076,24 @@ do
 
 		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[1].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				has_new_id = true
 				new_id_interface = arg.interface
+
 				if not new_id_interface then generic_new_id = true end
+
 				break
 			end
 		end
 
 		-- Process arguments
 		for i, arg in ipairs(iface.requests[1].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				if not arg.interface then
 					local target_iface = args[arg_idx]
 					local target_ver = args[arg_idx + 1]
 					arg_idx = arg_idx + 2
+
 					if target_iface then
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
@@ -1105,32 +1102,33 @@ do
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
+
 					array_idx = array_idx + 3
 				else
 					args_array[array_idx].n = 0
 					array_idx = array_idx + 1
 				end
-			elseif arg.type == 'fixed' then
+			elseif arg.type == "fixed" then
 				local val = args[arg_idx] or 0
 				arg_idx = arg_idx + 1
-				args_array[array_idx].f = ffi.cast('wl_fixed_t', val * 256.0)
+				args_array[array_idx].f = ffi.cast("wl_fixed_t", val * 256.0)
 				array_idx = array_idx + 1
-			elseif arg.type == 'object' then
+			elseif arg.type == "object" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].o = val and ffi.cast('struct wl_object*', val) or nil
+				args_array[array_idx].o = val and ffi.cast("struct wl_object*", val) or nil
 				array_idx = array_idx + 1
-			elseif arg.type == 'array' then
+			elseif arg.type == "array" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].a = ffi.cast('struct wl_array*', val)
+				args_array[array_idx].a = ffi.cast("struct wl_array*", val)
 				array_idx = array_idx + 1
-			elseif arg.type == 'string' then
+			elseif arg.type == "string" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].s = val
 				array_idx = array_idx + 1
-			elseif arg.type == 'fd' then
+			elseif arg.type == "fd" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].h = tonumber(val)
@@ -1138,11 +1136,13 @@ do
 			else
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				if arg.type == 'uint' then
+
+				if arg.type == "uint" then
 					args_array[array_idx].u = tonumber(val)
 				else
 					args_array[array_idx].i = tonumber(val)
 				end
+
 				array_idx = array_idx + 1
 			end
 		end
@@ -1151,32 +1151,27 @@ do
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
-					ffi.cast('struct wl_proxy*', self),
+					ffi.cast("struct wl_proxy*", self),
 					0,
 					args_array,
 					new_id_interface,
 					version_for_generic
 				)
-				return ffi.cast('void*', new_proxy)
+				return ffi.cast("void*", new_proxy)
 			elseif new_id_interface then
-				local target_interface = ffi.C[new_id_interface .. '_interface']
-				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(
-					ffi.cast('struct wl_proxy*', self),
-					0,
-					args_array,
-					target_interface
-				)
-				return ffi.cast('struct ' .. new_id_interface .. '*', new_proxy)
+				local target_interface = ffi.C[new_id_interface .. "_interface"]
+				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(ffi.cast("struct wl_proxy*", self), 0, args_array, target_interface)
+				return ffi.cast("struct " .. new_id_interface .. "*", new_proxy)
 			end
 		else
-			ffi.C.wl_proxy_marshal_array(ffi.cast('struct wl_proxy*', self), 0, args_array)
+			ffi.C.wl_proxy_marshal_array(ffi.cast("struct wl_proxy*", self), 0, args_array)
 		end
 	end
 
 	-- Request: create_region
 	function meta:create_region(...)
 		local args = {...}
-		local args_array = ffi.new('union wl_argument[1]')
+		local args_array = ffi.new("union wl_argument[1]")
 		local arg_idx = 1
 		local array_idx = 0
 		local has_new_id = false
@@ -1186,21 +1181,24 @@ do
 
 		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[2].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				has_new_id = true
 				new_id_interface = arg.interface
+
 				if not new_id_interface then generic_new_id = true end
+
 				break
 			end
 		end
 
 		-- Process arguments
 		for i, arg in ipairs(iface.requests[2].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				if not arg.interface then
 					local target_iface = args[arg_idx]
 					local target_ver = args[arg_idx + 1]
 					arg_idx = arg_idx + 2
+
 					if target_iface then
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
@@ -1209,32 +1207,33 @@ do
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
+
 					array_idx = array_idx + 3
 				else
 					args_array[array_idx].n = 0
 					array_idx = array_idx + 1
 				end
-			elseif arg.type == 'fixed' then
+			elseif arg.type == "fixed" then
 				local val = args[arg_idx] or 0
 				arg_idx = arg_idx + 1
-				args_array[array_idx].f = ffi.cast('wl_fixed_t', val * 256.0)
+				args_array[array_idx].f = ffi.cast("wl_fixed_t", val * 256.0)
 				array_idx = array_idx + 1
-			elseif arg.type == 'object' then
+			elseif arg.type == "object" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].o = val and ffi.cast('struct wl_object*', val) or nil
+				args_array[array_idx].o = val and ffi.cast("struct wl_object*", val) or nil
 				array_idx = array_idx + 1
-			elseif arg.type == 'array' then
+			elseif arg.type == "array" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].a = ffi.cast('struct wl_array*', val)
+				args_array[array_idx].a = ffi.cast("struct wl_array*", val)
 				array_idx = array_idx + 1
-			elseif arg.type == 'string' then
+			elseif arg.type == "string" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].s = val
 				array_idx = array_idx + 1
-			elseif arg.type == 'fd' then
+			elseif arg.type == "fd" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].h = tonumber(val)
@@ -1242,11 +1241,13 @@ do
 			else
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				if arg.type == 'uint' then
+
+				if arg.type == "uint" then
 					args_array[array_idx].u = tonumber(val)
 				else
 					args_array[array_idx].i = tonumber(val)
 				end
+
 				array_idx = array_idx + 1
 			end
 		end
@@ -1255,80 +1256,76 @@ do
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
-					ffi.cast('struct wl_proxy*', self),
+					ffi.cast("struct wl_proxy*", self),
 					1,
 					args_array,
 					new_id_interface,
 					version_for_generic
 				)
-				return ffi.cast('void*', new_proxy)
+				return ffi.cast("void*", new_proxy)
 			elseif new_id_interface then
-				local target_interface = ffi.C[new_id_interface .. '_interface']
-				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(
-					ffi.cast('struct wl_proxy*', self),
-					1,
-					args_array,
-					target_interface
-				)
-				return ffi.cast('struct ' .. new_id_interface .. '*', new_proxy)
+				local target_interface = ffi.C[new_id_interface .. "_interface"]
+				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(ffi.cast("struct wl_proxy*", self), 1, args_array, target_interface)
+				return ffi.cast("struct " .. new_id_interface .. "*", new_proxy)
 			end
 		else
-			ffi.C.wl_proxy_marshal_array(ffi.cast('struct wl_proxy*', self), 1, args_array)
+			ffi.C.wl_proxy_marshal_array(ffi.cast("struct wl_proxy*", self), 1, args_array)
 		end
 	end
 
 	-- Helper to create listener
 	function meta:add_listener(callbacks, data)
 		local count = #iface.events
-		local listener = ffi.new('void*[' .. count .. ']')
-		local ptr_key = tonumber(ffi.cast('intptr_t', ffi.cast('struct wl_proxy*', self)))
+		local listener = ffi.new("void*[" .. count .. "]")
+		local ptr_key = tonumber(ffi.cast("intptr_t", ffi.cast("struct wl_proxy*", self)))
 		listeners_registry[ptr_key] = listeners_registry[ptr_key] or {}
 		table.insert(listeners_registry[ptr_key], listener)
 		table.insert(listeners_registry[ptr_key], callbacks)
 
 		for i, evt in ipairs(iface.events) do
 			local cb = callbacks[evt.name]
+
 			if cb then
-				local sig_args = {'void*', 'struct wl_proxy*'}
+				local sig_args = {"void*", "struct wl_proxy*"}
+
 				for _, arg in ipairs(evt.args) do
-					if arg.type == 'int' then
-						table.insert(sig_args, 'int32_t')
-					elseif arg.type == 'uint' then
-						table.insert(sig_args, 'uint32_t')
-					elseif arg.type == 'fixed' then
-						table.insert(sig_args, 'wl_fixed_t')
-					elseif arg.type == 'string' then
-						table.insert(sig_args, 'const char*')
-					elseif arg.type == 'object' then
-						table.insert(sig_args, 'struct wl_proxy*')
-					elseif arg.type == 'new_id' then
-						table.insert(sig_args, 'struct wl_proxy*')
-					elseif arg.type == 'array' then
-						table.insert(sig_args, 'struct wl_array*')
-					elseif arg.type == 'fd' then
-						table.insert(sig_args, 'int32_t')
+					if arg.type == "int" then
+						table.insert(sig_args, "int32_t")
+					elseif arg.type == "uint" then
+						table.insert(sig_args, "uint32_t")
+					elseif arg.type == "fixed" then
+						table.insert(sig_args, "wl_fixed_t")
+					elseif arg.type == "string" then
+						table.insert(sig_args, "const char*")
+					elseif arg.type == "object" then
+						table.insert(sig_args, "struct wl_proxy*")
+					elseif arg.type == "new_id" then
+						table.insert(sig_args, "struct wl_proxy*")
+					elseif arg.type == "array" then
+						table.insert(sig_args, "struct wl_array*")
+					elseif arg.type == "fd" then
+						table.insert(sig_args, "int32_t")
 					end
 				end
 
-				local sig = 'void (*)(' .. table.concat(sig_args, ', ') .. ')'
+				local sig = "void (*)(" .. table.concat(sig_args, ", ") .. ")"
 				local cb_func = ffi.cast(sig, function(data, proxy, ...)
 					local args = {...}
 					local lua_args = {}
 					local arg_idx = 1
-
-					proxy = ffi.cast('struct wl_compositor*', proxy)
+					proxy = ffi.cast("struct wl_compositor*", proxy)
 
 					for _, arg in ipairs(evt.args) do
 						local val = args[arg_idx]
 						arg_idx = arg_idx + 1
 
-						if arg.type == 'fixed' then
+						if arg.type == "fixed" then
 							val = tonumber(val) / 256.0
-						elseif arg.type == 'string' then
+						elseif arg.type == "string" then
 							val = ffi.string(val)
-						elseif arg.type == 'object' or arg.type == 'new_id' then
+						elseif arg.type == "object" or arg.type == "new_id" then
 							if arg.interface then
-								val = ffi.cast('struct ' .. arg.interface .. '*', val)
+								val = ffi.cast("struct " .. arg.interface .. "*", val)
 							end
 						end
 
@@ -1343,26 +1340,23 @@ do
 		end
 
 		ffi.C.wl_proxy_add_listener(
-			ffi.cast('struct wl_proxy*', self),
-			ffi.cast('void(**)(void)', listener),
-			ffi.cast('void*', data)
+			ffi.cast("struct wl_proxy*", self),
+			ffi.cast("void(**)(void)", listener),
+			ffi.cast("void*", data)
 		)
 	end
 
-	output_table['wl_compositor'] = meta
-	ffi.metatype('struct wl_compositor', meta)
+	output_table["wl_compositor"] = meta
+	ffi.metatype("struct wl_compositor", meta)
 end
 
 -- Interface: wl_shm_pool
 do
 	local meta = {}
 	meta.__index = meta
-
 	local iface = {
-		enums = {
-		},
-		events = {
-		},
+		enums = {},
+		events = {},
 		name = "wl_shm_pool",
 		requests = {
 			[1] = {
@@ -1403,8 +1397,7 @@ do
 				since = 1,
 			},
 			[2] = {
-				args = {
-				},
+				args = {},
 				name = "destroy",
 				since = 1,
 				type = "destructor",
@@ -1427,7 +1420,7 @@ do
 	-- Request: create_buffer
 	function meta:create_buffer(...)
 		local args = {...}
-		local args_array = ffi.new('union wl_argument[6]')
+		local args_array = ffi.new("union wl_argument[6]")
 		local arg_idx = 1
 		local array_idx = 0
 		local has_new_id = false
@@ -1437,21 +1430,24 @@ do
 
 		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[1].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				has_new_id = true
 				new_id_interface = arg.interface
+
 				if not new_id_interface then generic_new_id = true end
+
 				break
 			end
 		end
 
 		-- Process arguments
 		for i, arg in ipairs(iface.requests[1].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				if not arg.interface then
 					local target_iface = args[arg_idx]
 					local target_ver = args[arg_idx + 1]
 					arg_idx = arg_idx + 2
+
 					if target_iface then
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
@@ -1460,32 +1456,33 @@ do
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
+
 					array_idx = array_idx + 3
 				else
 					args_array[array_idx].n = 0
 					array_idx = array_idx + 1
 				end
-			elseif arg.type == 'fixed' then
+			elseif arg.type == "fixed" then
 				local val = args[arg_idx] or 0
 				arg_idx = arg_idx + 1
-				args_array[array_idx].f = ffi.cast('wl_fixed_t', val * 256.0)
+				args_array[array_idx].f = ffi.cast("wl_fixed_t", val * 256.0)
 				array_idx = array_idx + 1
-			elseif arg.type == 'object' then
+			elseif arg.type == "object" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].o = val and ffi.cast('struct wl_object*', val) or nil
+				args_array[array_idx].o = val and ffi.cast("struct wl_object*", val) or nil
 				array_idx = array_idx + 1
-			elseif arg.type == 'array' then
+			elseif arg.type == "array" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].a = ffi.cast('struct wl_array*', val)
+				args_array[array_idx].a = ffi.cast("struct wl_array*", val)
 				array_idx = array_idx + 1
-			elseif arg.type == 'string' then
+			elseif arg.type == "string" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].s = val
 				array_idx = array_idx + 1
-			elseif arg.type == 'fd' then
+			elseif arg.type == "fd" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].h = tonumber(val)
@@ -1493,11 +1490,13 @@ do
 			else
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				if arg.type == 'uint' then
+
+				if arg.type == "uint" then
 					args_array[array_idx].u = tonumber(val)
 				else
 					args_array[array_idx].i = tonumber(val)
 				end
+
 				array_idx = array_idx + 1
 			end
 		end
@@ -1506,32 +1505,27 @@ do
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
-					ffi.cast('struct wl_proxy*', self),
+					ffi.cast("struct wl_proxy*", self),
 					0,
 					args_array,
 					new_id_interface,
 					version_for_generic
 				)
-				return ffi.cast('void*', new_proxy)
+				return ffi.cast("void*", new_proxy)
 			elseif new_id_interface then
-				local target_interface = ffi.C[new_id_interface .. '_interface']
-				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(
-					ffi.cast('struct wl_proxy*', self),
-					0,
-					args_array,
-					target_interface
-				)
-				return ffi.cast('struct ' .. new_id_interface .. '*', new_proxy)
+				local target_interface = ffi.C[new_id_interface .. "_interface"]
+				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(ffi.cast("struct wl_proxy*", self), 0, args_array, target_interface)
+				return ffi.cast("struct " .. new_id_interface .. "*", new_proxy)
 			end
 		else
-			ffi.C.wl_proxy_marshal_array(ffi.cast('struct wl_proxy*', self), 0, args_array)
+			ffi.C.wl_proxy_marshal_array(ffi.cast("struct wl_proxy*", self), 0, args_array)
 		end
 	end
 
 	-- Request: destroy
 	function meta:destroy(...)
 		local args = {...}
-		local args_array = ffi.new('union wl_argument[1]') -- Dummy for empty args
+		local args_array = ffi.new("union wl_argument[1]") -- Dummy for empty args
 		local arg_idx = 1
 		local array_idx = 0
 		local has_new_id = false
@@ -1541,21 +1535,24 @@ do
 
 		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[2].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				has_new_id = true
 				new_id_interface = arg.interface
+
 				if not new_id_interface then generic_new_id = true end
+
 				break
 			end
 		end
 
 		-- Process arguments
 		for i, arg in ipairs(iface.requests[2].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				if not arg.interface then
 					local target_iface = args[arg_idx]
 					local target_ver = args[arg_idx + 1]
 					arg_idx = arg_idx + 2
+
 					if target_iface then
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
@@ -1564,32 +1561,33 @@ do
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
+
 					array_idx = array_idx + 3
 				else
 					args_array[array_idx].n = 0
 					array_idx = array_idx + 1
 				end
-			elseif arg.type == 'fixed' then
+			elseif arg.type == "fixed" then
 				local val = args[arg_idx] or 0
 				arg_idx = arg_idx + 1
-				args_array[array_idx].f = ffi.cast('wl_fixed_t', val * 256.0)
+				args_array[array_idx].f = ffi.cast("wl_fixed_t", val * 256.0)
 				array_idx = array_idx + 1
-			elseif arg.type == 'object' then
+			elseif arg.type == "object" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].o = val and ffi.cast('struct wl_object*', val) or nil
+				args_array[array_idx].o = val and ffi.cast("struct wl_object*", val) or nil
 				array_idx = array_idx + 1
-			elseif arg.type == 'array' then
+			elseif arg.type == "array" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].a = ffi.cast('struct wl_array*', val)
+				args_array[array_idx].a = ffi.cast("struct wl_array*", val)
 				array_idx = array_idx + 1
-			elseif arg.type == 'string' then
+			elseif arg.type == "string" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].s = val
 				array_idx = array_idx + 1
-			elseif arg.type == 'fd' then
+			elseif arg.type == "fd" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].h = tonumber(val)
@@ -1597,11 +1595,13 @@ do
 			else
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				if arg.type == 'uint' then
+
+				if arg.type == "uint" then
 					args_array[array_idx].u = tonumber(val)
 				else
 					args_array[array_idx].i = tonumber(val)
 				end
+
 				array_idx = array_idx + 1
 			end
 		end
@@ -1610,32 +1610,27 @@ do
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
-					ffi.cast('struct wl_proxy*', self),
+					ffi.cast("struct wl_proxy*", self),
 					1,
 					args_array,
 					new_id_interface,
 					version_for_generic
 				)
-				return ffi.cast('void*', new_proxy)
+				return ffi.cast("void*", new_proxy)
 			elseif new_id_interface then
-				local target_interface = ffi.C[new_id_interface .. '_interface']
-				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(
-					ffi.cast('struct wl_proxy*', self),
-					1,
-					args_array,
-					target_interface
-				)
-				return ffi.cast('struct ' .. new_id_interface .. '*', new_proxy)
+				local target_interface = ffi.C[new_id_interface .. "_interface"]
+				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(ffi.cast("struct wl_proxy*", self), 1, args_array, target_interface)
+				return ffi.cast("struct " .. new_id_interface .. "*", new_proxy)
 			end
 		else
-			ffi.C.wl_proxy_marshal_array(ffi.cast('struct wl_proxy*', self), 1, args_array)
+			ffi.C.wl_proxy_marshal_array(ffi.cast("struct wl_proxy*", self), 1, args_array)
 		end
 	end
 
 	-- Request: resize
 	function meta:resize(...)
 		local args = {...}
-		local args_array = ffi.new('union wl_argument[1]')
+		local args_array = ffi.new("union wl_argument[1]")
 		local arg_idx = 1
 		local array_idx = 0
 		local has_new_id = false
@@ -1645,21 +1640,24 @@ do
 
 		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[3].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				has_new_id = true
 				new_id_interface = arg.interface
+
 				if not new_id_interface then generic_new_id = true end
+
 				break
 			end
 		end
 
 		-- Process arguments
 		for i, arg in ipairs(iface.requests[3].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				if not arg.interface then
 					local target_iface = args[arg_idx]
 					local target_ver = args[arg_idx + 1]
 					arg_idx = arg_idx + 2
+
 					if target_iface then
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
@@ -1668,32 +1666,33 @@ do
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
+
 					array_idx = array_idx + 3
 				else
 					args_array[array_idx].n = 0
 					array_idx = array_idx + 1
 				end
-			elseif arg.type == 'fixed' then
+			elseif arg.type == "fixed" then
 				local val = args[arg_idx] or 0
 				arg_idx = arg_idx + 1
-				args_array[array_idx].f = ffi.cast('wl_fixed_t', val * 256.0)
+				args_array[array_idx].f = ffi.cast("wl_fixed_t", val * 256.0)
 				array_idx = array_idx + 1
-			elseif arg.type == 'object' then
+			elseif arg.type == "object" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].o = val and ffi.cast('struct wl_object*', val) or nil
+				args_array[array_idx].o = val and ffi.cast("struct wl_object*", val) or nil
 				array_idx = array_idx + 1
-			elseif arg.type == 'array' then
+			elseif arg.type == "array" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].a = ffi.cast('struct wl_array*', val)
+				args_array[array_idx].a = ffi.cast("struct wl_array*", val)
 				array_idx = array_idx + 1
-			elseif arg.type == 'string' then
+			elseif arg.type == "string" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].s = val
 				array_idx = array_idx + 1
-			elseif arg.type == 'fd' then
+			elseif arg.type == "fd" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].h = tonumber(val)
@@ -1701,11 +1700,13 @@ do
 			else
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				if arg.type == 'uint' then
+
+				if arg.type == "uint" then
 					args_array[array_idx].u = tonumber(val)
 				else
 					args_array[array_idx].i = tonumber(val)
 				end
+
 				array_idx = array_idx + 1
 			end
 		end
@@ -1714,80 +1715,76 @@ do
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
-					ffi.cast('struct wl_proxy*', self),
+					ffi.cast("struct wl_proxy*", self),
 					2,
 					args_array,
 					new_id_interface,
 					version_for_generic
 				)
-				return ffi.cast('void*', new_proxy)
+				return ffi.cast("void*", new_proxy)
 			elseif new_id_interface then
-				local target_interface = ffi.C[new_id_interface .. '_interface']
-				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(
-					ffi.cast('struct wl_proxy*', self),
-					2,
-					args_array,
-					target_interface
-				)
-				return ffi.cast('struct ' .. new_id_interface .. '*', new_proxy)
+				local target_interface = ffi.C[new_id_interface .. "_interface"]
+				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(ffi.cast("struct wl_proxy*", self), 2, args_array, target_interface)
+				return ffi.cast("struct " .. new_id_interface .. "*", new_proxy)
 			end
 		else
-			ffi.C.wl_proxy_marshal_array(ffi.cast('struct wl_proxy*', self), 2, args_array)
+			ffi.C.wl_proxy_marshal_array(ffi.cast("struct wl_proxy*", self), 2, args_array)
 		end
 	end
 
 	-- Helper to create listener
 	function meta:add_listener(callbacks, data)
 		local count = #iface.events
-		local listener = ffi.new('void*[' .. count .. ']')
-		local ptr_key = tonumber(ffi.cast('intptr_t', ffi.cast('struct wl_proxy*', self)))
+		local listener = ffi.new("void*[" .. count .. "]")
+		local ptr_key = tonumber(ffi.cast("intptr_t", ffi.cast("struct wl_proxy*", self)))
 		listeners_registry[ptr_key] = listeners_registry[ptr_key] or {}
 		table.insert(listeners_registry[ptr_key], listener)
 		table.insert(listeners_registry[ptr_key], callbacks)
 
 		for i, evt in ipairs(iface.events) do
 			local cb = callbacks[evt.name]
+
 			if cb then
-				local sig_args = {'void*', 'struct wl_proxy*'}
+				local sig_args = {"void*", "struct wl_proxy*"}
+
 				for _, arg in ipairs(evt.args) do
-					if arg.type == 'int' then
-						table.insert(sig_args, 'int32_t')
-					elseif arg.type == 'uint' then
-						table.insert(sig_args, 'uint32_t')
-					elseif arg.type == 'fixed' then
-						table.insert(sig_args, 'wl_fixed_t')
-					elseif arg.type == 'string' then
-						table.insert(sig_args, 'const char*')
-					elseif arg.type == 'object' then
-						table.insert(sig_args, 'struct wl_proxy*')
-					elseif arg.type == 'new_id' then
-						table.insert(sig_args, 'struct wl_proxy*')
-					elseif arg.type == 'array' then
-						table.insert(sig_args, 'struct wl_array*')
-					elseif arg.type == 'fd' then
-						table.insert(sig_args, 'int32_t')
+					if arg.type == "int" then
+						table.insert(sig_args, "int32_t")
+					elseif arg.type == "uint" then
+						table.insert(sig_args, "uint32_t")
+					elseif arg.type == "fixed" then
+						table.insert(sig_args, "wl_fixed_t")
+					elseif arg.type == "string" then
+						table.insert(sig_args, "const char*")
+					elseif arg.type == "object" then
+						table.insert(sig_args, "struct wl_proxy*")
+					elseif arg.type == "new_id" then
+						table.insert(sig_args, "struct wl_proxy*")
+					elseif arg.type == "array" then
+						table.insert(sig_args, "struct wl_array*")
+					elseif arg.type == "fd" then
+						table.insert(sig_args, "int32_t")
 					end
 				end
 
-				local sig = 'void (*)(' .. table.concat(sig_args, ', ') .. ')'
+				local sig = "void (*)(" .. table.concat(sig_args, ", ") .. ")"
 				local cb_func = ffi.cast(sig, function(data, proxy, ...)
 					local args = {...}
 					local lua_args = {}
 					local arg_idx = 1
-
-					proxy = ffi.cast('struct wl_shm_pool*', proxy)
+					proxy = ffi.cast("struct wl_shm_pool*", proxy)
 
 					for _, arg in ipairs(evt.args) do
 						local val = args[arg_idx]
 						arg_idx = arg_idx + 1
 
-						if arg.type == 'fixed' then
+						if arg.type == "fixed" then
 							val = tonumber(val) / 256.0
-						elseif arg.type == 'string' then
+						elseif arg.type == "string" then
 							val = ffi.string(val)
-						elseif arg.type == 'object' or arg.type == 'new_id' then
+						elseif arg.type == "object" or arg.type == "new_id" then
 							if arg.interface then
-								val = ffi.cast('struct ' .. arg.interface .. '*', val)
+								val = ffi.cast("struct " .. arg.interface .. "*", val)
 							end
 						end
 
@@ -1802,21 +1799,20 @@ do
 		end
 
 		ffi.C.wl_proxy_add_listener(
-			ffi.cast('struct wl_proxy*', self),
-			ffi.cast('void(**)(void)', listener),
-			ffi.cast('void*', data)
+			ffi.cast("struct wl_proxy*", self),
+			ffi.cast("void(**)(void)", listener),
+			ffi.cast("void*", data)
 		)
 	end
 
-	output_table['wl_shm_pool'] = meta
-	ffi.metatype('struct wl_shm_pool', meta)
+	output_table["wl_shm_pool"] = meta
+	ffi.metatype("struct wl_shm_pool", meta)
 end
 
 -- Interface: wl_shm
 do
 	local meta = {}
 	meta.__index = meta
-
 	local iface = {
 		enums = {
 			[1] = {
@@ -2487,8 +2483,7 @@ do
 				since = 1,
 			},
 			[2] = {
-				args = {
-				},
+				args = {},
 				name = "release",
 				since = 2,
 				type = "destructor",
@@ -2500,7 +2495,7 @@ do
 	-- Request: create_pool
 	function meta:create_pool(...)
 		local args = {...}
-		local args_array = ffi.new('union wl_argument[3]')
+		local args_array = ffi.new("union wl_argument[3]")
 		local arg_idx = 1
 		local array_idx = 0
 		local has_new_id = false
@@ -2510,21 +2505,24 @@ do
 
 		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[1].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				has_new_id = true
 				new_id_interface = arg.interface
+
 				if not new_id_interface then generic_new_id = true end
+
 				break
 			end
 		end
 
 		-- Process arguments
 		for i, arg in ipairs(iface.requests[1].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				if not arg.interface then
 					local target_iface = args[arg_idx]
 					local target_ver = args[arg_idx + 1]
 					arg_idx = arg_idx + 2
+
 					if target_iface then
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
@@ -2533,32 +2531,33 @@ do
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
+
 					array_idx = array_idx + 3
 				else
 					args_array[array_idx].n = 0
 					array_idx = array_idx + 1
 				end
-			elseif arg.type == 'fixed' then
+			elseif arg.type == "fixed" then
 				local val = args[arg_idx] or 0
 				arg_idx = arg_idx + 1
-				args_array[array_idx].f = ffi.cast('wl_fixed_t', val * 256.0)
+				args_array[array_idx].f = ffi.cast("wl_fixed_t", val * 256.0)
 				array_idx = array_idx + 1
-			elseif arg.type == 'object' then
+			elseif arg.type == "object" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].o = val and ffi.cast('struct wl_object*', val) or nil
+				args_array[array_idx].o = val and ffi.cast("struct wl_object*", val) or nil
 				array_idx = array_idx + 1
-			elseif arg.type == 'array' then
+			elseif arg.type == "array" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].a = ffi.cast('struct wl_array*', val)
+				args_array[array_idx].a = ffi.cast("struct wl_array*", val)
 				array_idx = array_idx + 1
-			elseif arg.type == 'string' then
+			elseif arg.type == "string" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].s = val
 				array_idx = array_idx + 1
-			elseif arg.type == 'fd' then
+			elseif arg.type == "fd" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].h = tonumber(val)
@@ -2566,11 +2565,13 @@ do
 			else
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				if arg.type == 'uint' then
+
+				if arg.type == "uint" then
 					args_array[array_idx].u = tonumber(val)
 				else
 					args_array[array_idx].i = tonumber(val)
 				end
+
 				array_idx = array_idx + 1
 			end
 		end
@@ -2579,32 +2580,27 @@ do
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
-					ffi.cast('struct wl_proxy*', self),
+					ffi.cast("struct wl_proxy*", self),
 					0,
 					args_array,
 					new_id_interface,
 					version_for_generic
 				)
-				return ffi.cast('void*', new_proxy)
+				return ffi.cast("void*", new_proxy)
 			elseif new_id_interface then
-				local target_interface = ffi.C[new_id_interface .. '_interface']
-				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(
-					ffi.cast('struct wl_proxy*', self),
-					0,
-					args_array,
-					target_interface
-				)
-				return ffi.cast('struct ' .. new_id_interface .. '*', new_proxy)
+				local target_interface = ffi.C[new_id_interface .. "_interface"]
+				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(ffi.cast("struct wl_proxy*", self), 0, args_array, target_interface)
+				return ffi.cast("struct " .. new_id_interface .. "*", new_proxy)
 			end
 		else
-			ffi.C.wl_proxy_marshal_array(ffi.cast('struct wl_proxy*', self), 0, args_array)
+			ffi.C.wl_proxy_marshal_array(ffi.cast("struct wl_proxy*", self), 0, args_array)
 		end
 	end
 
 	-- Request: release
 	function meta:release(...)
 		local args = {...}
-		local args_array = ffi.new('union wl_argument[1]') -- Dummy for empty args
+		local args_array = ffi.new("union wl_argument[1]") -- Dummy for empty args
 		local arg_idx = 1
 		local array_idx = 0
 		local has_new_id = false
@@ -2614,21 +2610,24 @@ do
 
 		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[2].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				has_new_id = true
 				new_id_interface = arg.interface
+
 				if not new_id_interface then generic_new_id = true end
+
 				break
 			end
 		end
 
 		-- Process arguments
 		for i, arg in ipairs(iface.requests[2].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				if not arg.interface then
 					local target_iface = args[arg_idx]
 					local target_ver = args[arg_idx + 1]
 					arg_idx = arg_idx + 2
+
 					if target_iface then
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
@@ -2637,32 +2636,33 @@ do
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
+
 					array_idx = array_idx + 3
 				else
 					args_array[array_idx].n = 0
 					array_idx = array_idx + 1
 				end
-			elseif arg.type == 'fixed' then
+			elseif arg.type == "fixed" then
 				local val = args[arg_idx] or 0
 				arg_idx = arg_idx + 1
-				args_array[array_idx].f = ffi.cast('wl_fixed_t', val * 256.0)
+				args_array[array_idx].f = ffi.cast("wl_fixed_t", val * 256.0)
 				array_idx = array_idx + 1
-			elseif arg.type == 'object' then
+			elseif arg.type == "object" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].o = val and ffi.cast('struct wl_object*', val) or nil
+				args_array[array_idx].o = val and ffi.cast("struct wl_object*", val) or nil
 				array_idx = array_idx + 1
-			elseif arg.type == 'array' then
+			elseif arg.type == "array" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].a = ffi.cast('struct wl_array*', val)
+				args_array[array_idx].a = ffi.cast("struct wl_array*", val)
 				array_idx = array_idx + 1
-			elseif arg.type == 'string' then
+			elseif arg.type == "string" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].s = val
 				array_idx = array_idx + 1
-			elseif arg.type == 'fd' then
+			elseif arg.type == "fd" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].h = tonumber(val)
@@ -2670,11 +2670,13 @@ do
 			else
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				if arg.type == 'uint' then
+
+				if arg.type == "uint" then
 					args_array[array_idx].u = tonumber(val)
 				else
 					args_array[array_idx].i = tonumber(val)
 				end
+
 				array_idx = array_idx + 1
 			end
 		end
@@ -2683,80 +2685,76 @@ do
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
-					ffi.cast('struct wl_proxy*', self),
+					ffi.cast("struct wl_proxy*", self),
 					1,
 					args_array,
 					new_id_interface,
 					version_for_generic
 				)
-				return ffi.cast('void*', new_proxy)
+				return ffi.cast("void*", new_proxy)
 			elseif new_id_interface then
-				local target_interface = ffi.C[new_id_interface .. '_interface']
-				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(
-					ffi.cast('struct wl_proxy*', self),
-					1,
-					args_array,
-					target_interface
-				)
-				return ffi.cast('struct ' .. new_id_interface .. '*', new_proxy)
+				local target_interface = ffi.C[new_id_interface .. "_interface"]
+				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(ffi.cast("struct wl_proxy*", self), 1, args_array, target_interface)
+				return ffi.cast("struct " .. new_id_interface .. "*", new_proxy)
 			end
 		else
-			ffi.C.wl_proxy_marshal_array(ffi.cast('struct wl_proxy*', self), 1, args_array)
+			ffi.C.wl_proxy_marshal_array(ffi.cast("struct wl_proxy*", self), 1, args_array)
 		end
 	end
 
 	-- Helper to create listener
 	function meta:add_listener(callbacks, data)
 		local count = #iface.events
-		local listener = ffi.new('void*[' .. count .. ']')
-		local ptr_key = tonumber(ffi.cast('intptr_t', ffi.cast('struct wl_proxy*', self)))
+		local listener = ffi.new("void*[" .. count .. "]")
+		local ptr_key = tonumber(ffi.cast("intptr_t", ffi.cast("struct wl_proxy*", self)))
 		listeners_registry[ptr_key] = listeners_registry[ptr_key] or {}
 		table.insert(listeners_registry[ptr_key], listener)
 		table.insert(listeners_registry[ptr_key], callbacks)
 
 		for i, evt in ipairs(iface.events) do
 			local cb = callbacks[evt.name]
+
 			if cb then
-				local sig_args = {'void*', 'struct wl_proxy*'}
+				local sig_args = {"void*", "struct wl_proxy*"}
+
 				for _, arg in ipairs(evt.args) do
-					if arg.type == 'int' then
-						table.insert(sig_args, 'int32_t')
-					elseif arg.type == 'uint' then
-						table.insert(sig_args, 'uint32_t')
-					elseif arg.type == 'fixed' then
-						table.insert(sig_args, 'wl_fixed_t')
-					elseif arg.type == 'string' then
-						table.insert(sig_args, 'const char*')
-					elseif arg.type == 'object' then
-						table.insert(sig_args, 'struct wl_proxy*')
-					elseif arg.type == 'new_id' then
-						table.insert(sig_args, 'struct wl_proxy*')
-					elseif arg.type == 'array' then
-						table.insert(sig_args, 'struct wl_array*')
-					elseif arg.type == 'fd' then
-						table.insert(sig_args, 'int32_t')
+					if arg.type == "int" then
+						table.insert(sig_args, "int32_t")
+					elseif arg.type == "uint" then
+						table.insert(sig_args, "uint32_t")
+					elseif arg.type == "fixed" then
+						table.insert(sig_args, "wl_fixed_t")
+					elseif arg.type == "string" then
+						table.insert(sig_args, "const char*")
+					elseif arg.type == "object" then
+						table.insert(sig_args, "struct wl_proxy*")
+					elseif arg.type == "new_id" then
+						table.insert(sig_args, "struct wl_proxy*")
+					elseif arg.type == "array" then
+						table.insert(sig_args, "struct wl_array*")
+					elseif arg.type == "fd" then
+						table.insert(sig_args, "int32_t")
 					end
 				end
 
-				local sig = 'void (*)(' .. table.concat(sig_args, ', ') .. ')'
+				local sig = "void (*)(" .. table.concat(sig_args, ", ") .. ")"
 				local cb_func = ffi.cast(sig, function(data, proxy, ...)
 					local args = {...}
 					local lua_args = {}
 					local arg_idx = 1
-
-					proxy = ffi.cast('struct wl_shm*', proxy)
+					proxy = ffi.cast("struct wl_shm*", proxy)
 
 					for _, arg in ipairs(evt.args) do
 						local val = args[arg_idx]
 						arg_idx = arg_idx + 1
 
-						if arg.type == 'fixed' then
+						if arg.type == "fixed" then
 							val = tonumber(val) / 256.0
-						elseif arg.type == 'string' then
+						elseif arg.type == "string" then
 							val = ffi.string(val)
-						elseif arg.type == 'object' or arg.type == 'new_id' then
+						elseif arg.type == "object" or arg.type == "new_id" then
 							if arg.interface then
-								val = ffi.cast('struct ' .. arg.interface .. '*', val)
+								val = ffi.cast("struct " .. arg.interface .. "*", val)
 							end
 						end
 
@@ -2771,28 +2769,25 @@ do
 		end
 
 		ffi.C.wl_proxy_add_listener(
-			ffi.cast('struct wl_proxy*', self),
-			ffi.cast('void(**)(void)', listener),
-			ffi.cast('void*', data)
+			ffi.cast("struct wl_proxy*", self),
+			ffi.cast("void(**)(void)", listener),
+			ffi.cast("void*", data)
 		)
 	end
 
-	output_table['wl_shm'] = meta
-	ffi.metatype('struct wl_shm', meta)
+	output_table["wl_shm"] = meta
+	ffi.metatype("struct wl_shm", meta)
 end
 
 -- Interface: wl_buffer
 do
 	local meta = {}
 	meta.__index = meta
-
 	local iface = {
-		enums = {
-		},
+		enums = {},
 		events = {
 			[1] = {
-				args = {
-				},
+				args = {},
 				name = "release",
 				since = 1,
 			},
@@ -2800,8 +2795,7 @@ do
 		name = "wl_buffer",
 		requests = {
 			[1] = {
-				args = {
-				},
+				args = {},
 				name = "destroy",
 				since = 1,
 				type = "destructor",
@@ -2813,7 +2807,7 @@ do
 	-- Request: destroy
 	function meta:destroy(...)
 		local args = {...}
-		local args_array = ffi.new('union wl_argument[1]') -- Dummy for empty args
+		local args_array = ffi.new("union wl_argument[1]") -- Dummy for empty args
 		local arg_idx = 1
 		local array_idx = 0
 		local has_new_id = false
@@ -2823,21 +2817,24 @@ do
 
 		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[1].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				has_new_id = true
 				new_id_interface = arg.interface
+
 				if not new_id_interface then generic_new_id = true end
+
 				break
 			end
 		end
 
 		-- Process arguments
 		for i, arg in ipairs(iface.requests[1].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				if not arg.interface then
 					local target_iface = args[arg_idx]
 					local target_ver = args[arg_idx + 1]
 					arg_idx = arg_idx + 2
+
 					if target_iface then
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
@@ -2846,32 +2843,33 @@ do
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
+
 					array_idx = array_idx + 3
 				else
 					args_array[array_idx].n = 0
 					array_idx = array_idx + 1
 				end
-			elseif arg.type == 'fixed' then
+			elseif arg.type == "fixed" then
 				local val = args[arg_idx] or 0
 				arg_idx = arg_idx + 1
-				args_array[array_idx].f = ffi.cast('wl_fixed_t', val * 256.0)
+				args_array[array_idx].f = ffi.cast("wl_fixed_t", val * 256.0)
 				array_idx = array_idx + 1
-			elseif arg.type == 'object' then
+			elseif arg.type == "object" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].o = val and ffi.cast('struct wl_object*', val) or nil
+				args_array[array_idx].o = val and ffi.cast("struct wl_object*", val) or nil
 				array_idx = array_idx + 1
-			elseif arg.type == 'array' then
+			elseif arg.type == "array" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].a = ffi.cast('struct wl_array*', val)
+				args_array[array_idx].a = ffi.cast("struct wl_array*", val)
 				array_idx = array_idx + 1
-			elseif arg.type == 'string' then
+			elseif arg.type == "string" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].s = val
 				array_idx = array_idx + 1
-			elseif arg.type == 'fd' then
+			elseif arg.type == "fd" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].h = tonumber(val)
@@ -2879,11 +2877,13 @@ do
 			else
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				if arg.type == 'uint' then
+
+				if arg.type == "uint" then
 					args_array[array_idx].u = tonumber(val)
 				else
 					args_array[array_idx].i = tonumber(val)
 				end
+
 				array_idx = array_idx + 1
 			end
 		end
@@ -2892,80 +2892,76 @@ do
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
-					ffi.cast('struct wl_proxy*', self),
+					ffi.cast("struct wl_proxy*", self),
 					0,
 					args_array,
 					new_id_interface,
 					version_for_generic
 				)
-				return ffi.cast('void*', new_proxy)
+				return ffi.cast("void*", new_proxy)
 			elseif new_id_interface then
-				local target_interface = ffi.C[new_id_interface .. '_interface']
-				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(
-					ffi.cast('struct wl_proxy*', self),
-					0,
-					args_array,
-					target_interface
-				)
-				return ffi.cast('struct ' .. new_id_interface .. '*', new_proxy)
+				local target_interface = ffi.C[new_id_interface .. "_interface"]
+				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(ffi.cast("struct wl_proxy*", self), 0, args_array, target_interface)
+				return ffi.cast("struct " .. new_id_interface .. "*", new_proxy)
 			end
 		else
-			ffi.C.wl_proxy_marshal_array(ffi.cast('struct wl_proxy*', self), 0, args_array)
+			ffi.C.wl_proxy_marshal_array(ffi.cast("struct wl_proxy*", self), 0, args_array)
 		end
 	end
 
 	-- Helper to create listener
 	function meta:add_listener(callbacks, data)
 		local count = #iface.events
-		local listener = ffi.new('void*[' .. count .. ']')
-		local ptr_key = tonumber(ffi.cast('intptr_t', ffi.cast('struct wl_proxy*', self)))
+		local listener = ffi.new("void*[" .. count .. "]")
+		local ptr_key = tonumber(ffi.cast("intptr_t", ffi.cast("struct wl_proxy*", self)))
 		listeners_registry[ptr_key] = listeners_registry[ptr_key] or {}
 		table.insert(listeners_registry[ptr_key], listener)
 		table.insert(listeners_registry[ptr_key], callbacks)
 
 		for i, evt in ipairs(iface.events) do
 			local cb = callbacks[evt.name]
+
 			if cb then
-				local sig_args = {'void*', 'struct wl_proxy*'}
+				local sig_args = {"void*", "struct wl_proxy*"}
+
 				for _, arg in ipairs(evt.args) do
-					if arg.type == 'int' then
-						table.insert(sig_args, 'int32_t')
-					elseif arg.type == 'uint' then
-						table.insert(sig_args, 'uint32_t')
-					elseif arg.type == 'fixed' then
-						table.insert(sig_args, 'wl_fixed_t')
-					elseif arg.type == 'string' then
-						table.insert(sig_args, 'const char*')
-					elseif arg.type == 'object' then
-						table.insert(sig_args, 'struct wl_proxy*')
-					elseif arg.type == 'new_id' then
-						table.insert(sig_args, 'struct wl_proxy*')
-					elseif arg.type == 'array' then
-						table.insert(sig_args, 'struct wl_array*')
-					elseif arg.type == 'fd' then
-						table.insert(sig_args, 'int32_t')
+					if arg.type == "int" then
+						table.insert(sig_args, "int32_t")
+					elseif arg.type == "uint" then
+						table.insert(sig_args, "uint32_t")
+					elseif arg.type == "fixed" then
+						table.insert(sig_args, "wl_fixed_t")
+					elseif arg.type == "string" then
+						table.insert(sig_args, "const char*")
+					elseif arg.type == "object" then
+						table.insert(sig_args, "struct wl_proxy*")
+					elseif arg.type == "new_id" then
+						table.insert(sig_args, "struct wl_proxy*")
+					elseif arg.type == "array" then
+						table.insert(sig_args, "struct wl_array*")
+					elseif arg.type == "fd" then
+						table.insert(sig_args, "int32_t")
 					end
 				end
 
-				local sig = 'void (*)(' .. table.concat(sig_args, ', ') .. ')'
+				local sig = "void (*)(" .. table.concat(sig_args, ", ") .. ")"
 				local cb_func = ffi.cast(sig, function(data, proxy, ...)
 					local args = {...}
 					local lua_args = {}
 					local arg_idx = 1
-
-					proxy = ffi.cast('struct wl_buffer*', proxy)
+					proxy = ffi.cast("struct wl_buffer*", proxy)
 
 					for _, arg in ipairs(evt.args) do
 						local val = args[arg_idx]
 						arg_idx = arg_idx + 1
 
-						if arg.type == 'fixed' then
+						if arg.type == "fixed" then
 							val = tonumber(val) / 256.0
-						elseif arg.type == 'string' then
+						elseif arg.type == "string" then
 							val = ffi.string(val)
-						elseif arg.type == 'object' or arg.type == 'new_id' then
+						elseif arg.type == "object" or arg.type == "new_id" then
 							if arg.interface then
-								val = ffi.cast('struct ' .. arg.interface .. '*', val)
+								val = ffi.cast("struct " .. arg.interface .. "*", val)
 							end
 						end
 
@@ -2980,21 +2976,20 @@ do
 		end
 
 		ffi.C.wl_proxy_add_listener(
-			ffi.cast('struct wl_proxy*', self),
-			ffi.cast('void(**)(void)', listener),
-			ffi.cast('void*', data)
+			ffi.cast("struct wl_proxy*", self),
+			ffi.cast("void(**)(void)", listener),
+			ffi.cast("void*", data)
 		)
 	end
 
-	output_table['wl_buffer'] = meta
-	ffi.metatype('struct wl_buffer', meta)
+	output_table["wl_buffer"] = meta
+	ffi.metatype("struct wl_buffer", meta)
 end
 
 -- Interface: wl_data_offer
 do
 	local meta = {}
 	meta.__index = meta
-
 	local iface = {
 		enums = {
 			[1] = {
@@ -3091,15 +3086,13 @@ do
 				since = 1,
 			},
 			[3] = {
-				args = {
-				},
+				args = {},
 				name = "destroy",
 				since = 1,
 				type = "destructor",
 			},
 			[4] = {
-				args = {
-				},
+				args = {},
 				name = "finish",
 				since = 3,
 			},
@@ -3126,7 +3119,7 @@ do
 	-- Request: accept
 	function meta:accept(...)
 		local args = {...}
-		local args_array = ffi.new('union wl_argument[3]')
+		local args_array = ffi.new("union wl_argument[3]")
 		local arg_idx = 1
 		local array_idx = 0
 		local has_new_id = false
@@ -3136,21 +3129,24 @@ do
 
 		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[1].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				has_new_id = true
 				new_id_interface = arg.interface
+
 				if not new_id_interface then generic_new_id = true end
+
 				break
 			end
 		end
 
 		-- Process arguments
 		for i, arg in ipairs(iface.requests[1].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				if not arg.interface then
 					local target_iface = args[arg_idx]
 					local target_ver = args[arg_idx + 1]
 					arg_idx = arg_idx + 2
+
 					if target_iface then
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
@@ -3159,32 +3155,33 @@ do
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
+
 					array_idx = array_idx + 3
 				else
 					args_array[array_idx].n = 0
 					array_idx = array_idx + 1
 				end
-			elseif arg.type == 'fixed' then
+			elseif arg.type == "fixed" then
 				local val = args[arg_idx] or 0
 				arg_idx = arg_idx + 1
-				args_array[array_idx].f = ffi.cast('wl_fixed_t', val * 256.0)
+				args_array[array_idx].f = ffi.cast("wl_fixed_t", val * 256.0)
 				array_idx = array_idx + 1
-			elseif arg.type == 'object' then
+			elseif arg.type == "object" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].o = val and ffi.cast('struct wl_object*', val) or nil
+				args_array[array_idx].o = val and ffi.cast("struct wl_object*", val) or nil
 				array_idx = array_idx + 1
-			elseif arg.type == 'array' then
+			elseif arg.type == "array" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].a = ffi.cast('struct wl_array*', val)
+				args_array[array_idx].a = ffi.cast("struct wl_array*", val)
 				array_idx = array_idx + 1
-			elseif arg.type == 'string' then
+			elseif arg.type == "string" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].s = val
 				array_idx = array_idx + 1
-			elseif arg.type == 'fd' then
+			elseif arg.type == "fd" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].h = tonumber(val)
@@ -3192,11 +3189,13 @@ do
 			else
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				if arg.type == 'uint' then
+
+				if arg.type == "uint" then
 					args_array[array_idx].u = tonumber(val)
 				else
 					args_array[array_idx].i = tonumber(val)
 				end
+
 				array_idx = array_idx + 1
 			end
 		end
@@ -3205,32 +3204,27 @@ do
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
-					ffi.cast('struct wl_proxy*', self),
+					ffi.cast("struct wl_proxy*", self),
 					0,
 					args_array,
 					new_id_interface,
 					version_for_generic
 				)
-				return ffi.cast('void*', new_proxy)
+				return ffi.cast("void*", new_proxy)
 			elseif new_id_interface then
-				local target_interface = ffi.C[new_id_interface .. '_interface']
-				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(
-					ffi.cast('struct wl_proxy*', self),
-					0,
-					args_array,
-					target_interface
-				)
-				return ffi.cast('struct ' .. new_id_interface .. '*', new_proxy)
+				local target_interface = ffi.C[new_id_interface .. "_interface"]
+				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(ffi.cast("struct wl_proxy*", self), 0, args_array, target_interface)
+				return ffi.cast("struct " .. new_id_interface .. "*", new_proxy)
 			end
 		else
-			ffi.C.wl_proxy_marshal_array(ffi.cast('struct wl_proxy*', self), 0, args_array)
+			ffi.C.wl_proxy_marshal_array(ffi.cast("struct wl_proxy*", self), 0, args_array)
 		end
 	end
 
 	-- Request: receive
 	function meta:receive(...)
 		local args = {...}
-		local args_array = ffi.new('union wl_argument[2]')
+		local args_array = ffi.new("union wl_argument[2]")
 		local arg_idx = 1
 		local array_idx = 0
 		local has_new_id = false
@@ -3240,21 +3234,24 @@ do
 
 		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[2].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				has_new_id = true
 				new_id_interface = arg.interface
+
 				if not new_id_interface then generic_new_id = true end
+
 				break
 			end
 		end
 
 		-- Process arguments
 		for i, arg in ipairs(iface.requests[2].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				if not arg.interface then
 					local target_iface = args[arg_idx]
 					local target_ver = args[arg_idx + 1]
 					arg_idx = arg_idx + 2
+
 					if target_iface then
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
@@ -3263,32 +3260,33 @@ do
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
+
 					array_idx = array_idx + 3
 				else
 					args_array[array_idx].n = 0
 					array_idx = array_idx + 1
 				end
-			elseif arg.type == 'fixed' then
+			elseif arg.type == "fixed" then
 				local val = args[arg_idx] or 0
 				arg_idx = arg_idx + 1
-				args_array[array_idx].f = ffi.cast('wl_fixed_t', val * 256.0)
+				args_array[array_idx].f = ffi.cast("wl_fixed_t", val * 256.0)
 				array_idx = array_idx + 1
-			elseif arg.type == 'object' then
+			elseif arg.type == "object" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].o = val and ffi.cast('struct wl_object*', val) or nil
+				args_array[array_idx].o = val and ffi.cast("struct wl_object*", val) or nil
 				array_idx = array_idx + 1
-			elseif arg.type == 'array' then
+			elseif arg.type == "array" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].a = ffi.cast('struct wl_array*', val)
+				args_array[array_idx].a = ffi.cast("struct wl_array*", val)
 				array_idx = array_idx + 1
-			elseif arg.type == 'string' then
+			elseif arg.type == "string" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].s = val
 				array_idx = array_idx + 1
-			elseif arg.type == 'fd' then
+			elseif arg.type == "fd" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].h = tonumber(val)
@@ -3296,11 +3294,13 @@ do
 			else
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				if arg.type == 'uint' then
+
+				if arg.type == "uint" then
 					args_array[array_idx].u = tonumber(val)
 				else
 					args_array[array_idx].i = tonumber(val)
 				end
+
 				array_idx = array_idx + 1
 			end
 		end
@@ -3309,32 +3309,27 @@ do
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
-					ffi.cast('struct wl_proxy*', self),
+					ffi.cast("struct wl_proxy*", self),
 					1,
 					args_array,
 					new_id_interface,
 					version_for_generic
 				)
-				return ffi.cast('void*', new_proxy)
+				return ffi.cast("void*", new_proxy)
 			elseif new_id_interface then
-				local target_interface = ffi.C[new_id_interface .. '_interface']
-				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(
-					ffi.cast('struct wl_proxy*', self),
-					1,
-					args_array,
-					target_interface
-				)
-				return ffi.cast('struct ' .. new_id_interface .. '*', new_proxy)
+				local target_interface = ffi.C[new_id_interface .. "_interface"]
+				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(ffi.cast("struct wl_proxy*", self), 1, args_array, target_interface)
+				return ffi.cast("struct " .. new_id_interface .. "*", new_proxy)
 			end
 		else
-			ffi.C.wl_proxy_marshal_array(ffi.cast('struct wl_proxy*', self), 1, args_array)
+			ffi.C.wl_proxy_marshal_array(ffi.cast("struct wl_proxy*", self), 1, args_array)
 		end
 	end
 
 	-- Request: destroy
 	function meta:destroy(...)
 		local args = {...}
-		local args_array = ffi.new('union wl_argument[1]') -- Dummy for empty args
+		local args_array = ffi.new("union wl_argument[1]") -- Dummy for empty args
 		local arg_idx = 1
 		local array_idx = 0
 		local has_new_id = false
@@ -3344,21 +3339,24 @@ do
 
 		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[3].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				has_new_id = true
 				new_id_interface = arg.interface
+
 				if not new_id_interface then generic_new_id = true end
+
 				break
 			end
 		end
 
 		-- Process arguments
 		for i, arg in ipairs(iface.requests[3].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				if not arg.interface then
 					local target_iface = args[arg_idx]
 					local target_ver = args[arg_idx + 1]
 					arg_idx = arg_idx + 2
+
 					if target_iface then
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
@@ -3367,32 +3365,33 @@ do
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
+
 					array_idx = array_idx + 3
 				else
 					args_array[array_idx].n = 0
 					array_idx = array_idx + 1
 				end
-			elseif arg.type == 'fixed' then
+			elseif arg.type == "fixed" then
 				local val = args[arg_idx] or 0
 				arg_idx = arg_idx + 1
-				args_array[array_idx].f = ffi.cast('wl_fixed_t', val * 256.0)
+				args_array[array_idx].f = ffi.cast("wl_fixed_t", val * 256.0)
 				array_idx = array_idx + 1
-			elseif arg.type == 'object' then
+			elseif arg.type == "object" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].o = val and ffi.cast('struct wl_object*', val) or nil
+				args_array[array_idx].o = val and ffi.cast("struct wl_object*", val) or nil
 				array_idx = array_idx + 1
-			elseif arg.type == 'array' then
+			elseif arg.type == "array" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].a = ffi.cast('struct wl_array*', val)
+				args_array[array_idx].a = ffi.cast("struct wl_array*", val)
 				array_idx = array_idx + 1
-			elseif arg.type == 'string' then
+			elseif arg.type == "string" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].s = val
 				array_idx = array_idx + 1
-			elseif arg.type == 'fd' then
+			elseif arg.type == "fd" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].h = tonumber(val)
@@ -3400,11 +3399,13 @@ do
 			else
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				if arg.type == 'uint' then
+
+				if arg.type == "uint" then
 					args_array[array_idx].u = tonumber(val)
 				else
 					args_array[array_idx].i = tonumber(val)
 				end
+
 				array_idx = array_idx + 1
 			end
 		end
@@ -3413,32 +3414,27 @@ do
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
-					ffi.cast('struct wl_proxy*', self),
+					ffi.cast("struct wl_proxy*", self),
 					2,
 					args_array,
 					new_id_interface,
 					version_for_generic
 				)
-				return ffi.cast('void*', new_proxy)
+				return ffi.cast("void*", new_proxy)
 			elseif new_id_interface then
-				local target_interface = ffi.C[new_id_interface .. '_interface']
-				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(
-					ffi.cast('struct wl_proxy*', self),
-					2,
-					args_array,
-					target_interface
-				)
-				return ffi.cast('struct ' .. new_id_interface .. '*', new_proxy)
+				local target_interface = ffi.C[new_id_interface .. "_interface"]
+				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(ffi.cast("struct wl_proxy*", self), 2, args_array, target_interface)
+				return ffi.cast("struct " .. new_id_interface .. "*", new_proxy)
 			end
 		else
-			ffi.C.wl_proxy_marshal_array(ffi.cast('struct wl_proxy*', self), 2, args_array)
+			ffi.C.wl_proxy_marshal_array(ffi.cast("struct wl_proxy*", self), 2, args_array)
 		end
 	end
 
 	-- Request: finish
 	function meta:finish(...)
 		local args = {...}
-		local args_array = ffi.new('union wl_argument[1]') -- Dummy for empty args
+		local args_array = ffi.new("union wl_argument[1]") -- Dummy for empty args
 		local arg_idx = 1
 		local array_idx = 0
 		local has_new_id = false
@@ -3448,21 +3444,24 @@ do
 
 		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[4].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				has_new_id = true
 				new_id_interface = arg.interface
+
 				if not new_id_interface then generic_new_id = true end
+
 				break
 			end
 		end
 
 		-- Process arguments
 		for i, arg in ipairs(iface.requests[4].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				if not arg.interface then
 					local target_iface = args[arg_idx]
 					local target_ver = args[arg_idx + 1]
 					arg_idx = arg_idx + 2
+
 					if target_iface then
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
@@ -3471,32 +3470,33 @@ do
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
+
 					array_idx = array_idx + 3
 				else
 					args_array[array_idx].n = 0
 					array_idx = array_idx + 1
 				end
-			elseif arg.type == 'fixed' then
+			elseif arg.type == "fixed" then
 				local val = args[arg_idx] or 0
 				arg_idx = arg_idx + 1
-				args_array[array_idx].f = ffi.cast('wl_fixed_t', val * 256.0)
+				args_array[array_idx].f = ffi.cast("wl_fixed_t", val * 256.0)
 				array_idx = array_idx + 1
-			elseif arg.type == 'object' then
+			elseif arg.type == "object" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].o = val and ffi.cast('struct wl_object*', val) or nil
+				args_array[array_idx].o = val and ffi.cast("struct wl_object*", val) or nil
 				array_idx = array_idx + 1
-			elseif arg.type == 'array' then
+			elseif arg.type == "array" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].a = ffi.cast('struct wl_array*', val)
+				args_array[array_idx].a = ffi.cast("struct wl_array*", val)
 				array_idx = array_idx + 1
-			elseif arg.type == 'string' then
+			elseif arg.type == "string" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].s = val
 				array_idx = array_idx + 1
-			elseif arg.type == 'fd' then
+			elseif arg.type == "fd" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].h = tonumber(val)
@@ -3504,11 +3504,13 @@ do
 			else
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				if arg.type == 'uint' then
+
+				if arg.type == "uint" then
 					args_array[array_idx].u = tonumber(val)
 				else
 					args_array[array_idx].i = tonumber(val)
 				end
+
 				array_idx = array_idx + 1
 			end
 		end
@@ -3517,32 +3519,27 @@ do
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
-					ffi.cast('struct wl_proxy*', self),
+					ffi.cast("struct wl_proxy*", self),
 					3,
 					args_array,
 					new_id_interface,
 					version_for_generic
 				)
-				return ffi.cast('void*', new_proxy)
+				return ffi.cast("void*", new_proxy)
 			elseif new_id_interface then
-				local target_interface = ffi.C[new_id_interface .. '_interface']
-				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(
-					ffi.cast('struct wl_proxy*', self),
-					3,
-					args_array,
-					target_interface
-				)
-				return ffi.cast('struct ' .. new_id_interface .. '*', new_proxy)
+				local target_interface = ffi.C[new_id_interface .. "_interface"]
+				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(ffi.cast("struct wl_proxy*", self), 3, args_array, target_interface)
+				return ffi.cast("struct " .. new_id_interface .. "*", new_proxy)
 			end
 		else
-			ffi.C.wl_proxy_marshal_array(ffi.cast('struct wl_proxy*', self), 3, args_array)
+			ffi.C.wl_proxy_marshal_array(ffi.cast("struct wl_proxy*", self), 3, args_array)
 		end
 	end
 
 	-- Request: set_actions
 	function meta:set_actions(...)
 		local args = {...}
-		local args_array = ffi.new('union wl_argument[2]')
+		local args_array = ffi.new("union wl_argument[2]")
 		local arg_idx = 1
 		local array_idx = 0
 		local has_new_id = false
@@ -3552,21 +3549,24 @@ do
 
 		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[5].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				has_new_id = true
 				new_id_interface = arg.interface
+
 				if not new_id_interface then generic_new_id = true end
+
 				break
 			end
 		end
 
 		-- Process arguments
 		for i, arg in ipairs(iface.requests[5].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				if not arg.interface then
 					local target_iface = args[arg_idx]
 					local target_ver = args[arg_idx + 1]
 					arg_idx = arg_idx + 2
+
 					if target_iface then
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
@@ -3575,32 +3575,33 @@ do
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
+
 					array_idx = array_idx + 3
 				else
 					args_array[array_idx].n = 0
 					array_idx = array_idx + 1
 				end
-			elseif arg.type == 'fixed' then
+			elseif arg.type == "fixed" then
 				local val = args[arg_idx] or 0
 				arg_idx = arg_idx + 1
-				args_array[array_idx].f = ffi.cast('wl_fixed_t', val * 256.0)
+				args_array[array_idx].f = ffi.cast("wl_fixed_t", val * 256.0)
 				array_idx = array_idx + 1
-			elseif arg.type == 'object' then
+			elseif arg.type == "object" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].o = val and ffi.cast('struct wl_object*', val) or nil
+				args_array[array_idx].o = val and ffi.cast("struct wl_object*", val) or nil
 				array_idx = array_idx + 1
-			elseif arg.type == 'array' then
+			elseif arg.type == "array" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].a = ffi.cast('struct wl_array*', val)
+				args_array[array_idx].a = ffi.cast("struct wl_array*", val)
 				array_idx = array_idx + 1
-			elseif arg.type == 'string' then
+			elseif arg.type == "string" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].s = val
 				array_idx = array_idx + 1
-			elseif arg.type == 'fd' then
+			elseif arg.type == "fd" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].h = tonumber(val)
@@ -3608,11 +3609,13 @@ do
 			else
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				if arg.type == 'uint' then
+
+				if arg.type == "uint" then
 					args_array[array_idx].u = tonumber(val)
 				else
 					args_array[array_idx].i = tonumber(val)
 				end
+
 				array_idx = array_idx + 1
 			end
 		end
@@ -3621,80 +3624,76 @@ do
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
-					ffi.cast('struct wl_proxy*', self),
+					ffi.cast("struct wl_proxy*", self),
 					4,
 					args_array,
 					new_id_interface,
 					version_for_generic
 				)
-				return ffi.cast('void*', new_proxy)
+				return ffi.cast("void*", new_proxy)
 			elseif new_id_interface then
-				local target_interface = ffi.C[new_id_interface .. '_interface']
-				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(
-					ffi.cast('struct wl_proxy*', self),
-					4,
-					args_array,
-					target_interface
-				)
-				return ffi.cast('struct ' .. new_id_interface .. '*', new_proxy)
+				local target_interface = ffi.C[new_id_interface .. "_interface"]
+				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(ffi.cast("struct wl_proxy*", self), 4, args_array, target_interface)
+				return ffi.cast("struct " .. new_id_interface .. "*", new_proxy)
 			end
 		else
-			ffi.C.wl_proxy_marshal_array(ffi.cast('struct wl_proxy*', self), 4, args_array)
+			ffi.C.wl_proxy_marshal_array(ffi.cast("struct wl_proxy*", self), 4, args_array)
 		end
 	end
 
 	-- Helper to create listener
 	function meta:add_listener(callbacks, data)
 		local count = #iface.events
-		local listener = ffi.new('void*[' .. count .. ']')
-		local ptr_key = tonumber(ffi.cast('intptr_t', ffi.cast('struct wl_proxy*', self)))
+		local listener = ffi.new("void*[" .. count .. "]")
+		local ptr_key = tonumber(ffi.cast("intptr_t", ffi.cast("struct wl_proxy*", self)))
 		listeners_registry[ptr_key] = listeners_registry[ptr_key] or {}
 		table.insert(listeners_registry[ptr_key], listener)
 		table.insert(listeners_registry[ptr_key], callbacks)
 
 		for i, evt in ipairs(iface.events) do
 			local cb = callbacks[evt.name]
+
 			if cb then
-				local sig_args = {'void*', 'struct wl_proxy*'}
+				local sig_args = {"void*", "struct wl_proxy*"}
+
 				for _, arg in ipairs(evt.args) do
-					if arg.type == 'int' then
-						table.insert(sig_args, 'int32_t')
-					elseif arg.type == 'uint' then
-						table.insert(sig_args, 'uint32_t')
-					elseif arg.type == 'fixed' then
-						table.insert(sig_args, 'wl_fixed_t')
-					elseif arg.type == 'string' then
-						table.insert(sig_args, 'const char*')
-					elseif arg.type == 'object' then
-						table.insert(sig_args, 'struct wl_proxy*')
-					elseif arg.type == 'new_id' then
-						table.insert(sig_args, 'struct wl_proxy*')
-					elseif arg.type == 'array' then
-						table.insert(sig_args, 'struct wl_array*')
-					elseif arg.type == 'fd' then
-						table.insert(sig_args, 'int32_t')
+					if arg.type == "int" then
+						table.insert(sig_args, "int32_t")
+					elseif arg.type == "uint" then
+						table.insert(sig_args, "uint32_t")
+					elseif arg.type == "fixed" then
+						table.insert(sig_args, "wl_fixed_t")
+					elseif arg.type == "string" then
+						table.insert(sig_args, "const char*")
+					elseif arg.type == "object" then
+						table.insert(sig_args, "struct wl_proxy*")
+					elseif arg.type == "new_id" then
+						table.insert(sig_args, "struct wl_proxy*")
+					elseif arg.type == "array" then
+						table.insert(sig_args, "struct wl_array*")
+					elseif arg.type == "fd" then
+						table.insert(sig_args, "int32_t")
 					end
 				end
 
-				local sig = 'void (*)(' .. table.concat(sig_args, ', ') .. ')'
+				local sig = "void (*)(" .. table.concat(sig_args, ", ") .. ")"
 				local cb_func = ffi.cast(sig, function(data, proxy, ...)
 					local args = {...}
 					local lua_args = {}
 					local arg_idx = 1
-
-					proxy = ffi.cast('struct wl_data_offer*', proxy)
+					proxy = ffi.cast("struct wl_data_offer*", proxy)
 
 					for _, arg in ipairs(evt.args) do
 						local val = args[arg_idx]
 						arg_idx = arg_idx + 1
 
-						if arg.type == 'fixed' then
+						if arg.type == "fixed" then
 							val = tonumber(val) / 256.0
-						elseif arg.type == 'string' then
+						elseif arg.type == "string" then
 							val = ffi.string(val)
-						elseif arg.type == 'object' or arg.type == 'new_id' then
+						elseif arg.type == "object" or arg.type == "new_id" then
 							if arg.interface then
-								val = ffi.cast('struct ' .. arg.interface .. '*', val)
+								val = ffi.cast("struct " .. arg.interface .. "*", val)
 							end
 						end
 
@@ -3709,21 +3708,20 @@ do
 		end
 
 		ffi.C.wl_proxy_add_listener(
-			ffi.cast('struct wl_proxy*', self),
-			ffi.cast('void(**)(void)', listener),
-			ffi.cast('void*', data)
+			ffi.cast("struct wl_proxy*", self),
+			ffi.cast("void(**)(void)", listener),
+			ffi.cast("void*", data)
 		)
 	end
 
-	output_table['wl_data_offer'] = meta
-	ffi.metatype('struct wl_data_offer', meta)
+	output_table["wl_data_offer"] = meta
+	ffi.metatype("struct wl_data_offer", meta)
 end
 
 -- Interface: wl_data_source
 do
 	local meta = {}
 	meta.__index = meta
-
 	local iface = {
 		enums = {
 			[1] = {
@@ -3769,20 +3767,17 @@ do
 				since = 1,
 			},
 			[3] = {
-				args = {
-				},
+				args = {},
 				name = "cancelled",
 				since = 1,
 			},
 			[4] = {
-				args = {
-				},
+				args = {},
 				name = "dnd_drop_performed",
 				since = 3,
 			},
 			[5] = {
-				args = {
-				},
+				args = {},
 				name = "dnd_finished",
 				since = 3,
 			},
@@ -3811,8 +3806,7 @@ do
 				since = 1,
 			},
 			[2] = {
-				args = {
-				},
+				args = {},
 				name = "destroy",
 				since = 1,
 				type = "destructor",
@@ -3835,7 +3829,7 @@ do
 	-- Request: offer
 	function meta:offer(...)
 		local args = {...}
-		local args_array = ffi.new('union wl_argument[1]')
+		local args_array = ffi.new("union wl_argument[1]")
 		local arg_idx = 1
 		local array_idx = 0
 		local has_new_id = false
@@ -3845,21 +3839,24 @@ do
 
 		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[1].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				has_new_id = true
 				new_id_interface = arg.interface
+
 				if not new_id_interface then generic_new_id = true end
+
 				break
 			end
 		end
 
 		-- Process arguments
 		for i, arg in ipairs(iface.requests[1].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				if not arg.interface then
 					local target_iface = args[arg_idx]
 					local target_ver = args[arg_idx + 1]
 					arg_idx = arg_idx + 2
+
 					if target_iface then
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
@@ -3868,32 +3865,33 @@ do
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
+
 					array_idx = array_idx + 3
 				else
 					args_array[array_idx].n = 0
 					array_idx = array_idx + 1
 				end
-			elseif arg.type == 'fixed' then
+			elseif arg.type == "fixed" then
 				local val = args[arg_idx] or 0
 				arg_idx = arg_idx + 1
-				args_array[array_idx].f = ffi.cast('wl_fixed_t', val * 256.0)
+				args_array[array_idx].f = ffi.cast("wl_fixed_t", val * 256.0)
 				array_idx = array_idx + 1
-			elseif arg.type == 'object' then
+			elseif arg.type == "object" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].o = val and ffi.cast('struct wl_object*', val) or nil
+				args_array[array_idx].o = val and ffi.cast("struct wl_object*", val) or nil
 				array_idx = array_idx + 1
-			elseif arg.type == 'array' then
+			elseif arg.type == "array" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].a = ffi.cast('struct wl_array*', val)
+				args_array[array_idx].a = ffi.cast("struct wl_array*", val)
 				array_idx = array_idx + 1
-			elseif arg.type == 'string' then
+			elseif arg.type == "string" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].s = val
 				array_idx = array_idx + 1
-			elseif arg.type == 'fd' then
+			elseif arg.type == "fd" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].h = tonumber(val)
@@ -3901,11 +3899,13 @@ do
 			else
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				if arg.type == 'uint' then
+
+				if arg.type == "uint" then
 					args_array[array_idx].u = tonumber(val)
 				else
 					args_array[array_idx].i = tonumber(val)
 				end
+
 				array_idx = array_idx + 1
 			end
 		end
@@ -3914,32 +3914,27 @@ do
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
-					ffi.cast('struct wl_proxy*', self),
+					ffi.cast("struct wl_proxy*", self),
 					0,
 					args_array,
 					new_id_interface,
 					version_for_generic
 				)
-				return ffi.cast('void*', new_proxy)
+				return ffi.cast("void*", new_proxy)
 			elseif new_id_interface then
-				local target_interface = ffi.C[new_id_interface .. '_interface']
-				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(
-					ffi.cast('struct wl_proxy*', self),
-					0,
-					args_array,
-					target_interface
-				)
-				return ffi.cast('struct ' .. new_id_interface .. '*', new_proxy)
+				local target_interface = ffi.C[new_id_interface .. "_interface"]
+				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(ffi.cast("struct wl_proxy*", self), 0, args_array, target_interface)
+				return ffi.cast("struct " .. new_id_interface .. "*", new_proxy)
 			end
 		else
-			ffi.C.wl_proxy_marshal_array(ffi.cast('struct wl_proxy*', self), 0, args_array)
+			ffi.C.wl_proxy_marshal_array(ffi.cast("struct wl_proxy*", self), 0, args_array)
 		end
 	end
 
 	-- Request: destroy
 	function meta:destroy(...)
 		local args = {...}
-		local args_array = ffi.new('union wl_argument[1]') -- Dummy for empty args
+		local args_array = ffi.new("union wl_argument[1]") -- Dummy for empty args
 		local arg_idx = 1
 		local array_idx = 0
 		local has_new_id = false
@@ -3949,21 +3944,24 @@ do
 
 		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[2].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				has_new_id = true
 				new_id_interface = arg.interface
+
 				if not new_id_interface then generic_new_id = true end
+
 				break
 			end
 		end
 
 		-- Process arguments
 		for i, arg in ipairs(iface.requests[2].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				if not arg.interface then
 					local target_iface = args[arg_idx]
 					local target_ver = args[arg_idx + 1]
 					arg_idx = arg_idx + 2
+
 					if target_iface then
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
@@ -3972,32 +3970,33 @@ do
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
+
 					array_idx = array_idx + 3
 				else
 					args_array[array_idx].n = 0
 					array_idx = array_idx + 1
 				end
-			elseif arg.type == 'fixed' then
+			elseif arg.type == "fixed" then
 				local val = args[arg_idx] or 0
 				arg_idx = arg_idx + 1
-				args_array[array_idx].f = ffi.cast('wl_fixed_t', val * 256.0)
+				args_array[array_idx].f = ffi.cast("wl_fixed_t", val * 256.0)
 				array_idx = array_idx + 1
-			elseif arg.type == 'object' then
+			elseif arg.type == "object" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].o = val and ffi.cast('struct wl_object*', val) or nil
+				args_array[array_idx].o = val and ffi.cast("struct wl_object*", val) or nil
 				array_idx = array_idx + 1
-			elseif arg.type == 'array' then
+			elseif arg.type == "array" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].a = ffi.cast('struct wl_array*', val)
+				args_array[array_idx].a = ffi.cast("struct wl_array*", val)
 				array_idx = array_idx + 1
-			elseif arg.type == 'string' then
+			elseif arg.type == "string" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].s = val
 				array_idx = array_idx + 1
-			elseif arg.type == 'fd' then
+			elseif arg.type == "fd" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].h = tonumber(val)
@@ -4005,11 +4004,13 @@ do
 			else
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				if arg.type == 'uint' then
+
+				if arg.type == "uint" then
 					args_array[array_idx].u = tonumber(val)
 				else
 					args_array[array_idx].i = tonumber(val)
 				end
+
 				array_idx = array_idx + 1
 			end
 		end
@@ -4018,32 +4019,27 @@ do
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
-					ffi.cast('struct wl_proxy*', self),
+					ffi.cast("struct wl_proxy*", self),
 					1,
 					args_array,
 					new_id_interface,
 					version_for_generic
 				)
-				return ffi.cast('void*', new_proxy)
+				return ffi.cast("void*", new_proxy)
 			elseif new_id_interface then
-				local target_interface = ffi.C[new_id_interface .. '_interface']
-				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(
-					ffi.cast('struct wl_proxy*', self),
-					1,
-					args_array,
-					target_interface
-				)
-				return ffi.cast('struct ' .. new_id_interface .. '*', new_proxy)
+				local target_interface = ffi.C[new_id_interface .. "_interface"]
+				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(ffi.cast("struct wl_proxy*", self), 1, args_array, target_interface)
+				return ffi.cast("struct " .. new_id_interface .. "*", new_proxy)
 			end
 		else
-			ffi.C.wl_proxy_marshal_array(ffi.cast('struct wl_proxy*', self), 1, args_array)
+			ffi.C.wl_proxy_marshal_array(ffi.cast("struct wl_proxy*", self), 1, args_array)
 		end
 	end
 
 	-- Request: set_actions
 	function meta:set_actions(...)
 		local args = {...}
-		local args_array = ffi.new('union wl_argument[1]')
+		local args_array = ffi.new("union wl_argument[1]")
 		local arg_idx = 1
 		local array_idx = 0
 		local has_new_id = false
@@ -4053,21 +4049,24 @@ do
 
 		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[3].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				has_new_id = true
 				new_id_interface = arg.interface
+
 				if not new_id_interface then generic_new_id = true end
+
 				break
 			end
 		end
 
 		-- Process arguments
 		for i, arg in ipairs(iface.requests[3].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				if not arg.interface then
 					local target_iface = args[arg_idx]
 					local target_ver = args[arg_idx + 1]
 					arg_idx = arg_idx + 2
+
 					if target_iface then
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
@@ -4076,32 +4075,33 @@ do
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
+
 					array_idx = array_idx + 3
 				else
 					args_array[array_idx].n = 0
 					array_idx = array_idx + 1
 				end
-			elseif arg.type == 'fixed' then
+			elseif arg.type == "fixed" then
 				local val = args[arg_idx] or 0
 				arg_idx = arg_idx + 1
-				args_array[array_idx].f = ffi.cast('wl_fixed_t', val * 256.0)
+				args_array[array_idx].f = ffi.cast("wl_fixed_t", val * 256.0)
 				array_idx = array_idx + 1
-			elseif arg.type == 'object' then
+			elseif arg.type == "object" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].o = val and ffi.cast('struct wl_object*', val) or nil
+				args_array[array_idx].o = val and ffi.cast("struct wl_object*", val) or nil
 				array_idx = array_idx + 1
-			elseif arg.type == 'array' then
+			elseif arg.type == "array" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].a = ffi.cast('struct wl_array*', val)
+				args_array[array_idx].a = ffi.cast("struct wl_array*", val)
 				array_idx = array_idx + 1
-			elseif arg.type == 'string' then
+			elseif arg.type == "string" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].s = val
 				array_idx = array_idx + 1
-			elseif arg.type == 'fd' then
+			elseif arg.type == "fd" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].h = tonumber(val)
@@ -4109,11 +4109,13 @@ do
 			else
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				if arg.type == 'uint' then
+
+				if arg.type == "uint" then
 					args_array[array_idx].u = tonumber(val)
 				else
 					args_array[array_idx].i = tonumber(val)
 				end
+
 				array_idx = array_idx + 1
 			end
 		end
@@ -4122,80 +4124,76 @@ do
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
-					ffi.cast('struct wl_proxy*', self),
+					ffi.cast("struct wl_proxy*", self),
 					2,
 					args_array,
 					new_id_interface,
 					version_for_generic
 				)
-				return ffi.cast('void*', new_proxy)
+				return ffi.cast("void*", new_proxy)
 			elseif new_id_interface then
-				local target_interface = ffi.C[new_id_interface .. '_interface']
-				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(
-					ffi.cast('struct wl_proxy*', self),
-					2,
-					args_array,
-					target_interface
-				)
-				return ffi.cast('struct ' .. new_id_interface .. '*', new_proxy)
+				local target_interface = ffi.C[new_id_interface .. "_interface"]
+				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(ffi.cast("struct wl_proxy*", self), 2, args_array, target_interface)
+				return ffi.cast("struct " .. new_id_interface .. "*", new_proxy)
 			end
 		else
-			ffi.C.wl_proxy_marshal_array(ffi.cast('struct wl_proxy*', self), 2, args_array)
+			ffi.C.wl_proxy_marshal_array(ffi.cast("struct wl_proxy*", self), 2, args_array)
 		end
 	end
 
 	-- Helper to create listener
 	function meta:add_listener(callbacks, data)
 		local count = #iface.events
-		local listener = ffi.new('void*[' .. count .. ']')
-		local ptr_key = tonumber(ffi.cast('intptr_t', ffi.cast('struct wl_proxy*', self)))
+		local listener = ffi.new("void*[" .. count .. "]")
+		local ptr_key = tonumber(ffi.cast("intptr_t", ffi.cast("struct wl_proxy*", self)))
 		listeners_registry[ptr_key] = listeners_registry[ptr_key] or {}
 		table.insert(listeners_registry[ptr_key], listener)
 		table.insert(listeners_registry[ptr_key], callbacks)
 
 		for i, evt in ipairs(iface.events) do
 			local cb = callbacks[evt.name]
+
 			if cb then
-				local sig_args = {'void*', 'struct wl_proxy*'}
+				local sig_args = {"void*", "struct wl_proxy*"}
+
 				for _, arg in ipairs(evt.args) do
-					if arg.type == 'int' then
-						table.insert(sig_args, 'int32_t')
-					elseif arg.type == 'uint' then
-						table.insert(sig_args, 'uint32_t')
-					elseif arg.type == 'fixed' then
-						table.insert(sig_args, 'wl_fixed_t')
-					elseif arg.type == 'string' then
-						table.insert(sig_args, 'const char*')
-					elseif arg.type == 'object' then
-						table.insert(sig_args, 'struct wl_proxy*')
-					elseif arg.type == 'new_id' then
-						table.insert(sig_args, 'struct wl_proxy*')
-					elseif arg.type == 'array' then
-						table.insert(sig_args, 'struct wl_array*')
-					elseif arg.type == 'fd' then
-						table.insert(sig_args, 'int32_t')
+					if arg.type == "int" then
+						table.insert(sig_args, "int32_t")
+					elseif arg.type == "uint" then
+						table.insert(sig_args, "uint32_t")
+					elseif arg.type == "fixed" then
+						table.insert(sig_args, "wl_fixed_t")
+					elseif arg.type == "string" then
+						table.insert(sig_args, "const char*")
+					elseif arg.type == "object" then
+						table.insert(sig_args, "struct wl_proxy*")
+					elseif arg.type == "new_id" then
+						table.insert(sig_args, "struct wl_proxy*")
+					elseif arg.type == "array" then
+						table.insert(sig_args, "struct wl_array*")
+					elseif arg.type == "fd" then
+						table.insert(sig_args, "int32_t")
 					end
 				end
 
-				local sig = 'void (*)(' .. table.concat(sig_args, ', ') .. ')'
+				local sig = "void (*)(" .. table.concat(sig_args, ", ") .. ")"
 				local cb_func = ffi.cast(sig, function(data, proxy, ...)
 					local args = {...}
 					local lua_args = {}
 					local arg_idx = 1
-
-					proxy = ffi.cast('struct wl_data_source*', proxy)
+					proxy = ffi.cast("struct wl_data_source*", proxy)
 
 					for _, arg in ipairs(evt.args) do
 						local val = args[arg_idx]
 						arg_idx = arg_idx + 1
 
-						if arg.type == 'fixed' then
+						if arg.type == "fixed" then
 							val = tonumber(val) / 256.0
-						elseif arg.type == 'string' then
+						elseif arg.type == "string" then
 							val = ffi.string(val)
-						elseif arg.type == 'object' or arg.type == 'new_id' then
+						elseif arg.type == "object" or arg.type == "new_id" then
 							if arg.interface then
-								val = ffi.cast('struct ' .. arg.interface .. '*', val)
+								val = ffi.cast("struct " .. arg.interface .. "*", val)
 							end
 						end
 
@@ -4210,21 +4208,20 @@ do
 		end
 
 		ffi.C.wl_proxy_add_listener(
-			ffi.cast('struct wl_proxy*', self),
-			ffi.cast('void(**)(void)', listener),
-			ffi.cast('void*', data)
+			ffi.cast("struct wl_proxy*", self),
+			ffi.cast("void(**)(void)", listener),
+			ffi.cast("void*", data)
 		)
 	end
 
-	output_table['wl_data_source'] = meta
-	ffi.metatype('struct wl_data_source', meta)
+	output_table["wl_data_source"] = meta
+	ffi.metatype("struct wl_data_source", meta)
 end
 
 -- Interface: wl_data_device
 do
 	local meta = {}
 	meta.__index = meta
-
 	local iface = {
 		enums = {
 			[1] = {
@@ -4285,8 +4282,7 @@ do
 				since = 1,
 			},
 			[3] = {
-				args = {
-				},
+				args = {},
 				name = "leave",
 				since = 1,
 			},
@@ -4309,8 +4305,7 @@ do
 				since = 1,
 			},
 			[5] = {
-				args = {
-				},
+				args = {},
 				name = "drop",
 				since = 1,
 			},
@@ -4375,8 +4370,7 @@ do
 				since = 1,
 			},
 			[3] = {
-				args = {
-				},
+				args = {},
 				name = "release",
 				since = 2,
 				type = "destructor",
@@ -4388,7 +4382,7 @@ do
 	-- Request: start_drag
 	function meta:start_drag(...)
 		local args = {...}
-		local args_array = ffi.new('union wl_argument[6]')
+		local args_array = ffi.new("union wl_argument[6]")
 		local arg_idx = 1
 		local array_idx = 0
 		local has_new_id = false
@@ -4398,21 +4392,24 @@ do
 
 		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[1].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				has_new_id = true
 				new_id_interface = arg.interface
+
 				if not new_id_interface then generic_new_id = true end
+
 				break
 			end
 		end
 
 		-- Process arguments
 		for i, arg in ipairs(iface.requests[1].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				if not arg.interface then
 					local target_iface = args[arg_idx]
 					local target_ver = args[arg_idx + 1]
 					arg_idx = arg_idx + 2
+
 					if target_iface then
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
@@ -4421,32 +4418,33 @@ do
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
+
 					array_idx = array_idx + 3
 				else
 					args_array[array_idx].n = 0
 					array_idx = array_idx + 1
 				end
-			elseif arg.type == 'fixed' then
+			elseif arg.type == "fixed" then
 				local val = args[arg_idx] or 0
 				arg_idx = arg_idx + 1
-				args_array[array_idx].f = ffi.cast('wl_fixed_t', val * 256.0)
+				args_array[array_idx].f = ffi.cast("wl_fixed_t", val * 256.0)
 				array_idx = array_idx + 1
-			elseif arg.type == 'object' then
+			elseif arg.type == "object" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].o = val and ffi.cast('struct wl_object*', val) or nil
+				args_array[array_idx].o = val and ffi.cast("struct wl_object*", val) or nil
 				array_idx = array_idx + 1
-			elseif arg.type == 'array' then
+			elseif arg.type == "array" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].a = ffi.cast('struct wl_array*', val)
+				args_array[array_idx].a = ffi.cast("struct wl_array*", val)
 				array_idx = array_idx + 1
-			elseif arg.type == 'string' then
+			elseif arg.type == "string" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].s = val
 				array_idx = array_idx + 1
-			elseif arg.type == 'fd' then
+			elseif arg.type == "fd" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].h = tonumber(val)
@@ -4454,11 +4452,13 @@ do
 			else
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				if arg.type == 'uint' then
+
+				if arg.type == "uint" then
 					args_array[array_idx].u = tonumber(val)
 				else
 					args_array[array_idx].i = tonumber(val)
 				end
+
 				array_idx = array_idx + 1
 			end
 		end
@@ -4467,32 +4467,27 @@ do
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
-					ffi.cast('struct wl_proxy*', self),
+					ffi.cast("struct wl_proxy*", self),
 					0,
 					args_array,
 					new_id_interface,
 					version_for_generic
 				)
-				return ffi.cast('void*', new_proxy)
+				return ffi.cast("void*", new_proxy)
 			elseif new_id_interface then
-				local target_interface = ffi.C[new_id_interface .. '_interface']
-				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(
-					ffi.cast('struct wl_proxy*', self),
-					0,
-					args_array,
-					target_interface
-				)
-				return ffi.cast('struct ' .. new_id_interface .. '*', new_proxy)
+				local target_interface = ffi.C[new_id_interface .. "_interface"]
+				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(ffi.cast("struct wl_proxy*", self), 0, args_array, target_interface)
+				return ffi.cast("struct " .. new_id_interface .. "*", new_proxy)
 			end
 		else
-			ffi.C.wl_proxy_marshal_array(ffi.cast('struct wl_proxy*', self), 0, args_array)
+			ffi.C.wl_proxy_marshal_array(ffi.cast("struct wl_proxy*", self), 0, args_array)
 		end
 	end
 
 	-- Request: set_selection
 	function meta:set_selection(...)
 		local args = {...}
-		local args_array = ffi.new('union wl_argument[3]')
+		local args_array = ffi.new("union wl_argument[3]")
 		local arg_idx = 1
 		local array_idx = 0
 		local has_new_id = false
@@ -4502,21 +4497,24 @@ do
 
 		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[2].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				has_new_id = true
 				new_id_interface = arg.interface
+
 				if not new_id_interface then generic_new_id = true end
+
 				break
 			end
 		end
 
 		-- Process arguments
 		for i, arg in ipairs(iface.requests[2].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				if not arg.interface then
 					local target_iface = args[arg_idx]
 					local target_ver = args[arg_idx + 1]
 					arg_idx = arg_idx + 2
+
 					if target_iface then
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
@@ -4525,32 +4523,33 @@ do
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
+
 					array_idx = array_idx + 3
 				else
 					args_array[array_idx].n = 0
 					array_idx = array_idx + 1
 				end
-			elseif arg.type == 'fixed' then
+			elseif arg.type == "fixed" then
 				local val = args[arg_idx] or 0
 				arg_idx = arg_idx + 1
-				args_array[array_idx].f = ffi.cast('wl_fixed_t', val * 256.0)
+				args_array[array_idx].f = ffi.cast("wl_fixed_t", val * 256.0)
 				array_idx = array_idx + 1
-			elseif arg.type == 'object' then
+			elseif arg.type == "object" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].o = val and ffi.cast('struct wl_object*', val) or nil
+				args_array[array_idx].o = val and ffi.cast("struct wl_object*", val) or nil
 				array_idx = array_idx + 1
-			elseif arg.type == 'array' then
+			elseif arg.type == "array" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].a = ffi.cast('struct wl_array*', val)
+				args_array[array_idx].a = ffi.cast("struct wl_array*", val)
 				array_idx = array_idx + 1
-			elseif arg.type == 'string' then
+			elseif arg.type == "string" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].s = val
 				array_idx = array_idx + 1
-			elseif arg.type == 'fd' then
+			elseif arg.type == "fd" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].h = tonumber(val)
@@ -4558,11 +4557,13 @@ do
 			else
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				if arg.type == 'uint' then
+
+				if arg.type == "uint" then
 					args_array[array_idx].u = tonumber(val)
 				else
 					args_array[array_idx].i = tonumber(val)
 				end
+
 				array_idx = array_idx + 1
 			end
 		end
@@ -4571,32 +4572,27 @@ do
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
-					ffi.cast('struct wl_proxy*', self),
+					ffi.cast("struct wl_proxy*", self),
 					1,
 					args_array,
 					new_id_interface,
 					version_for_generic
 				)
-				return ffi.cast('void*', new_proxy)
+				return ffi.cast("void*", new_proxy)
 			elseif new_id_interface then
-				local target_interface = ffi.C[new_id_interface .. '_interface']
-				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(
-					ffi.cast('struct wl_proxy*', self),
-					1,
-					args_array,
-					target_interface
-				)
-				return ffi.cast('struct ' .. new_id_interface .. '*', new_proxy)
+				local target_interface = ffi.C[new_id_interface .. "_interface"]
+				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(ffi.cast("struct wl_proxy*", self), 1, args_array, target_interface)
+				return ffi.cast("struct " .. new_id_interface .. "*", new_proxy)
 			end
 		else
-			ffi.C.wl_proxy_marshal_array(ffi.cast('struct wl_proxy*', self), 1, args_array)
+			ffi.C.wl_proxy_marshal_array(ffi.cast("struct wl_proxy*", self), 1, args_array)
 		end
 	end
 
 	-- Request: release
 	function meta:release(...)
 		local args = {...}
-		local args_array = ffi.new('union wl_argument[1]') -- Dummy for empty args
+		local args_array = ffi.new("union wl_argument[1]") -- Dummy for empty args
 		local arg_idx = 1
 		local array_idx = 0
 		local has_new_id = false
@@ -4606,21 +4602,24 @@ do
 
 		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[3].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				has_new_id = true
 				new_id_interface = arg.interface
+
 				if not new_id_interface then generic_new_id = true end
+
 				break
 			end
 		end
 
 		-- Process arguments
 		for i, arg in ipairs(iface.requests[3].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				if not arg.interface then
 					local target_iface = args[arg_idx]
 					local target_ver = args[arg_idx + 1]
 					arg_idx = arg_idx + 2
+
 					if target_iface then
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
@@ -4629,32 +4628,33 @@ do
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
+
 					array_idx = array_idx + 3
 				else
 					args_array[array_idx].n = 0
 					array_idx = array_idx + 1
 				end
-			elseif arg.type == 'fixed' then
+			elseif arg.type == "fixed" then
 				local val = args[arg_idx] or 0
 				arg_idx = arg_idx + 1
-				args_array[array_idx].f = ffi.cast('wl_fixed_t', val * 256.0)
+				args_array[array_idx].f = ffi.cast("wl_fixed_t", val * 256.0)
 				array_idx = array_idx + 1
-			elseif arg.type == 'object' then
+			elseif arg.type == "object" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].o = val and ffi.cast('struct wl_object*', val) or nil
+				args_array[array_idx].o = val and ffi.cast("struct wl_object*", val) or nil
 				array_idx = array_idx + 1
-			elseif arg.type == 'array' then
+			elseif arg.type == "array" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].a = ffi.cast('struct wl_array*', val)
+				args_array[array_idx].a = ffi.cast("struct wl_array*", val)
 				array_idx = array_idx + 1
-			elseif arg.type == 'string' then
+			elseif arg.type == "string" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].s = val
 				array_idx = array_idx + 1
-			elseif arg.type == 'fd' then
+			elseif arg.type == "fd" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].h = tonumber(val)
@@ -4662,11 +4662,13 @@ do
 			else
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				if arg.type == 'uint' then
+
+				if arg.type == "uint" then
 					args_array[array_idx].u = tonumber(val)
 				else
 					args_array[array_idx].i = tonumber(val)
 				end
+
 				array_idx = array_idx + 1
 			end
 		end
@@ -4675,80 +4677,76 @@ do
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
-					ffi.cast('struct wl_proxy*', self),
+					ffi.cast("struct wl_proxy*", self),
 					2,
 					args_array,
 					new_id_interface,
 					version_for_generic
 				)
-				return ffi.cast('void*', new_proxy)
+				return ffi.cast("void*", new_proxy)
 			elseif new_id_interface then
-				local target_interface = ffi.C[new_id_interface .. '_interface']
-				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(
-					ffi.cast('struct wl_proxy*', self),
-					2,
-					args_array,
-					target_interface
-				)
-				return ffi.cast('struct ' .. new_id_interface .. '*', new_proxy)
+				local target_interface = ffi.C[new_id_interface .. "_interface"]
+				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(ffi.cast("struct wl_proxy*", self), 2, args_array, target_interface)
+				return ffi.cast("struct " .. new_id_interface .. "*", new_proxy)
 			end
 		else
-			ffi.C.wl_proxy_marshal_array(ffi.cast('struct wl_proxy*', self), 2, args_array)
+			ffi.C.wl_proxy_marshal_array(ffi.cast("struct wl_proxy*", self), 2, args_array)
 		end
 	end
 
 	-- Helper to create listener
 	function meta:add_listener(callbacks, data)
 		local count = #iface.events
-		local listener = ffi.new('void*[' .. count .. ']')
-		local ptr_key = tonumber(ffi.cast('intptr_t', ffi.cast('struct wl_proxy*', self)))
+		local listener = ffi.new("void*[" .. count .. "]")
+		local ptr_key = tonumber(ffi.cast("intptr_t", ffi.cast("struct wl_proxy*", self)))
 		listeners_registry[ptr_key] = listeners_registry[ptr_key] or {}
 		table.insert(listeners_registry[ptr_key], listener)
 		table.insert(listeners_registry[ptr_key], callbacks)
 
 		for i, evt in ipairs(iface.events) do
 			local cb = callbacks[evt.name]
+
 			if cb then
-				local sig_args = {'void*', 'struct wl_proxy*'}
+				local sig_args = {"void*", "struct wl_proxy*"}
+
 				for _, arg in ipairs(evt.args) do
-					if arg.type == 'int' then
-						table.insert(sig_args, 'int32_t')
-					elseif arg.type == 'uint' then
-						table.insert(sig_args, 'uint32_t')
-					elseif arg.type == 'fixed' then
-						table.insert(sig_args, 'wl_fixed_t')
-					elseif arg.type == 'string' then
-						table.insert(sig_args, 'const char*')
-					elseif arg.type == 'object' then
-						table.insert(sig_args, 'struct wl_proxy*')
-					elseif arg.type == 'new_id' then
-						table.insert(sig_args, 'struct wl_proxy*')
-					elseif arg.type == 'array' then
-						table.insert(sig_args, 'struct wl_array*')
-					elseif arg.type == 'fd' then
-						table.insert(sig_args, 'int32_t')
+					if arg.type == "int" then
+						table.insert(sig_args, "int32_t")
+					elseif arg.type == "uint" then
+						table.insert(sig_args, "uint32_t")
+					elseif arg.type == "fixed" then
+						table.insert(sig_args, "wl_fixed_t")
+					elseif arg.type == "string" then
+						table.insert(sig_args, "const char*")
+					elseif arg.type == "object" then
+						table.insert(sig_args, "struct wl_proxy*")
+					elseif arg.type == "new_id" then
+						table.insert(sig_args, "struct wl_proxy*")
+					elseif arg.type == "array" then
+						table.insert(sig_args, "struct wl_array*")
+					elseif arg.type == "fd" then
+						table.insert(sig_args, "int32_t")
 					end
 				end
 
-				local sig = 'void (*)(' .. table.concat(sig_args, ', ') .. ')'
+				local sig = "void (*)(" .. table.concat(sig_args, ", ") .. ")"
 				local cb_func = ffi.cast(sig, function(data, proxy, ...)
 					local args = {...}
 					local lua_args = {}
 					local arg_idx = 1
-
-					proxy = ffi.cast('struct wl_data_device*', proxy)
+					proxy = ffi.cast("struct wl_data_device*", proxy)
 
 					for _, arg in ipairs(evt.args) do
 						local val = args[arg_idx]
 						arg_idx = arg_idx + 1
 
-						if arg.type == 'fixed' then
+						if arg.type == "fixed" then
 							val = tonumber(val) / 256.0
-						elseif arg.type == 'string' then
+						elseif arg.type == "string" then
 							val = ffi.string(val)
-						elseif arg.type == 'object' or arg.type == 'new_id' then
+						elseif arg.type == "object" or arg.type == "new_id" then
 							if arg.interface then
-								val = ffi.cast('struct ' .. arg.interface .. '*', val)
+								val = ffi.cast("struct " .. arg.interface .. "*", val)
 							end
 						end
 
@@ -4763,21 +4761,20 @@ do
 		end
 
 		ffi.C.wl_proxy_add_listener(
-			ffi.cast('struct wl_proxy*', self),
-			ffi.cast('void(**)(void)', listener),
-			ffi.cast('void*', data)
+			ffi.cast("struct wl_proxy*", self),
+			ffi.cast("void(**)(void)", listener),
+			ffi.cast("void*", data)
 		)
 	end
 
-	output_table['wl_data_device'] = meta
-	ffi.metatype('struct wl_data_device', meta)
+	output_table["wl_data_device"] = meta
+	ffi.metatype("struct wl_data_device", meta)
 end
 
 -- Interface: wl_data_device_manager
 do
 	local meta = {}
 	meta.__index = meta
-
 	local iface = {
 		enums = {
 			[1] = {
@@ -4807,8 +4804,7 @@ do
 				name = "dnd_action",
 			},
 		},
-		events = {
-		},
+		events = {},
 		name = "wl_data_device_manager",
 		requests = {
 			[1] = {
@@ -4848,7 +4844,7 @@ do
 	-- Request: create_data_source
 	function meta:create_data_source(...)
 		local args = {...}
-		local args_array = ffi.new('union wl_argument[1]')
+		local args_array = ffi.new("union wl_argument[1]")
 		local arg_idx = 1
 		local array_idx = 0
 		local has_new_id = false
@@ -4858,21 +4854,24 @@ do
 
 		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[1].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				has_new_id = true
 				new_id_interface = arg.interface
+
 				if not new_id_interface then generic_new_id = true end
+
 				break
 			end
 		end
 
 		-- Process arguments
 		for i, arg in ipairs(iface.requests[1].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				if not arg.interface then
 					local target_iface = args[arg_idx]
 					local target_ver = args[arg_idx + 1]
 					arg_idx = arg_idx + 2
+
 					if target_iface then
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
@@ -4881,32 +4880,33 @@ do
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
+
 					array_idx = array_idx + 3
 				else
 					args_array[array_idx].n = 0
 					array_idx = array_idx + 1
 				end
-			elseif arg.type == 'fixed' then
+			elseif arg.type == "fixed" then
 				local val = args[arg_idx] or 0
 				arg_idx = arg_idx + 1
-				args_array[array_idx].f = ffi.cast('wl_fixed_t', val * 256.0)
+				args_array[array_idx].f = ffi.cast("wl_fixed_t", val * 256.0)
 				array_idx = array_idx + 1
-			elseif arg.type == 'object' then
+			elseif arg.type == "object" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].o = val and ffi.cast('struct wl_object*', val) or nil
+				args_array[array_idx].o = val and ffi.cast("struct wl_object*", val) or nil
 				array_idx = array_idx + 1
-			elseif arg.type == 'array' then
+			elseif arg.type == "array" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].a = ffi.cast('struct wl_array*', val)
+				args_array[array_idx].a = ffi.cast("struct wl_array*", val)
 				array_idx = array_idx + 1
-			elseif arg.type == 'string' then
+			elseif arg.type == "string" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].s = val
 				array_idx = array_idx + 1
-			elseif arg.type == 'fd' then
+			elseif arg.type == "fd" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].h = tonumber(val)
@@ -4914,11 +4914,13 @@ do
 			else
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				if arg.type == 'uint' then
+
+				if arg.type == "uint" then
 					args_array[array_idx].u = tonumber(val)
 				else
 					args_array[array_idx].i = tonumber(val)
 				end
+
 				array_idx = array_idx + 1
 			end
 		end
@@ -4927,32 +4929,27 @@ do
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
-					ffi.cast('struct wl_proxy*', self),
+					ffi.cast("struct wl_proxy*", self),
 					0,
 					args_array,
 					new_id_interface,
 					version_for_generic
 				)
-				return ffi.cast('void*', new_proxy)
+				return ffi.cast("void*", new_proxy)
 			elseif new_id_interface then
-				local target_interface = ffi.C[new_id_interface .. '_interface']
-				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(
-					ffi.cast('struct wl_proxy*', self),
-					0,
-					args_array,
-					target_interface
-				)
-				return ffi.cast('struct ' .. new_id_interface .. '*', new_proxy)
+				local target_interface = ffi.C[new_id_interface .. "_interface"]
+				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(ffi.cast("struct wl_proxy*", self), 0, args_array, target_interface)
+				return ffi.cast("struct " .. new_id_interface .. "*", new_proxy)
 			end
 		else
-			ffi.C.wl_proxy_marshal_array(ffi.cast('struct wl_proxy*', self), 0, args_array)
+			ffi.C.wl_proxy_marshal_array(ffi.cast("struct wl_proxy*", self), 0, args_array)
 		end
 	end
 
 	-- Request: get_data_device
 	function meta:get_data_device(...)
 		local args = {...}
-		local args_array = ffi.new('union wl_argument[2]')
+		local args_array = ffi.new("union wl_argument[2]")
 		local arg_idx = 1
 		local array_idx = 0
 		local has_new_id = false
@@ -4962,21 +4959,24 @@ do
 
 		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[2].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				has_new_id = true
 				new_id_interface = arg.interface
+
 				if not new_id_interface then generic_new_id = true end
+
 				break
 			end
 		end
 
 		-- Process arguments
 		for i, arg in ipairs(iface.requests[2].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				if not arg.interface then
 					local target_iface = args[arg_idx]
 					local target_ver = args[arg_idx + 1]
 					arg_idx = arg_idx + 2
+
 					if target_iface then
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
@@ -4985,32 +4985,33 @@ do
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
+
 					array_idx = array_idx + 3
 				else
 					args_array[array_idx].n = 0
 					array_idx = array_idx + 1
 				end
-			elseif arg.type == 'fixed' then
+			elseif arg.type == "fixed" then
 				local val = args[arg_idx] or 0
 				arg_idx = arg_idx + 1
-				args_array[array_idx].f = ffi.cast('wl_fixed_t', val * 256.0)
+				args_array[array_idx].f = ffi.cast("wl_fixed_t", val * 256.0)
 				array_idx = array_idx + 1
-			elseif arg.type == 'object' then
+			elseif arg.type == "object" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].o = val and ffi.cast('struct wl_object*', val) or nil
+				args_array[array_idx].o = val and ffi.cast("struct wl_object*", val) or nil
 				array_idx = array_idx + 1
-			elseif arg.type == 'array' then
+			elseif arg.type == "array" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].a = ffi.cast('struct wl_array*', val)
+				args_array[array_idx].a = ffi.cast("struct wl_array*", val)
 				array_idx = array_idx + 1
-			elseif arg.type == 'string' then
+			elseif arg.type == "string" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].s = val
 				array_idx = array_idx + 1
-			elseif arg.type == 'fd' then
+			elseif arg.type == "fd" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].h = tonumber(val)
@@ -5018,11 +5019,13 @@ do
 			else
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				if arg.type == 'uint' then
+
+				if arg.type == "uint" then
 					args_array[array_idx].u = tonumber(val)
 				else
 					args_array[array_idx].i = tonumber(val)
 				end
+
 				array_idx = array_idx + 1
 			end
 		end
@@ -5031,80 +5034,76 @@ do
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
-					ffi.cast('struct wl_proxy*', self),
+					ffi.cast("struct wl_proxy*", self),
 					1,
 					args_array,
 					new_id_interface,
 					version_for_generic
 				)
-				return ffi.cast('void*', new_proxy)
+				return ffi.cast("void*", new_proxy)
 			elseif new_id_interface then
-				local target_interface = ffi.C[new_id_interface .. '_interface']
-				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(
-					ffi.cast('struct wl_proxy*', self),
-					1,
-					args_array,
-					target_interface
-				)
-				return ffi.cast('struct ' .. new_id_interface .. '*', new_proxy)
+				local target_interface = ffi.C[new_id_interface .. "_interface"]
+				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(ffi.cast("struct wl_proxy*", self), 1, args_array, target_interface)
+				return ffi.cast("struct " .. new_id_interface .. "*", new_proxy)
 			end
 		else
-			ffi.C.wl_proxy_marshal_array(ffi.cast('struct wl_proxy*', self), 1, args_array)
+			ffi.C.wl_proxy_marshal_array(ffi.cast("struct wl_proxy*", self), 1, args_array)
 		end
 	end
 
 	-- Helper to create listener
 	function meta:add_listener(callbacks, data)
 		local count = #iface.events
-		local listener = ffi.new('void*[' .. count .. ']')
-		local ptr_key = tonumber(ffi.cast('intptr_t', ffi.cast('struct wl_proxy*', self)))
+		local listener = ffi.new("void*[" .. count .. "]")
+		local ptr_key = tonumber(ffi.cast("intptr_t", ffi.cast("struct wl_proxy*", self)))
 		listeners_registry[ptr_key] = listeners_registry[ptr_key] or {}
 		table.insert(listeners_registry[ptr_key], listener)
 		table.insert(listeners_registry[ptr_key], callbacks)
 
 		for i, evt in ipairs(iface.events) do
 			local cb = callbacks[evt.name]
+
 			if cb then
-				local sig_args = {'void*', 'struct wl_proxy*'}
+				local sig_args = {"void*", "struct wl_proxy*"}
+
 				for _, arg in ipairs(evt.args) do
-					if arg.type == 'int' then
-						table.insert(sig_args, 'int32_t')
-					elseif arg.type == 'uint' then
-						table.insert(sig_args, 'uint32_t')
-					elseif arg.type == 'fixed' then
-						table.insert(sig_args, 'wl_fixed_t')
-					elseif arg.type == 'string' then
-						table.insert(sig_args, 'const char*')
-					elseif arg.type == 'object' then
-						table.insert(sig_args, 'struct wl_proxy*')
-					elseif arg.type == 'new_id' then
-						table.insert(sig_args, 'struct wl_proxy*')
-					elseif arg.type == 'array' then
-						table.insert(sig_args, 'struct wl_array*')
-					elseif arg.type == 'fd' then
-						table.insert(sig_args, 'int32_t')
+					if arg.type == "int" then
+						table.insert(sig_args, "int32_t")
+					elseif arg.type == "uint" then
+						table.insert(sig_args, "uint32_t")
+					elseif arg.type == "fixed" then
+						table.insert(sig_args, "wl_fixed_t")
+					elseif arg.type == "string" then
+						table.insert(sig_args, "const char*")
+					elseif arg.type == "object" then
+						table.insert(sig_args, "struct wl_proxy*")
+					elseif arg.type == "new_id" then
+						table.insert(sig_args, "struct wl_proxy*")
+					elseif arg.type == "array" then
+						table.insert(sig_args, "struct wl_array*")
+					elseif arg.type == "fd" then
+						table.insert(sig_args, "int32_t")
 					end
 				end
 
-				local sig = 'void (*)(' .. table.concat(sig_args, ', ') .. ')'
+				local sig = "void (*)(" .. table.concat(sig_args, ", ") .. ")"
 				local cb_func = ffi.cast(sig, function(data, proxy, ...)
 					local args = {...}
 					local lua_args = {}
 					local arg_idx = 1
-
-					proxy = ffi.cast('struct wl_data_device_manager*', proxy)
+					proxy = ffi.cast("struct wl_data_device_manager*", proxy)
 
 					for _, arg in ipairs(evt.args) do
 						local val = args[arg_idx]
 						arg_idx = arg_idx + 1
 
-						if arg.type == 'fixed' then
+						if arg.type == "fixed" then
 							val = tonumber(val) / 256.0
-						elseif arg.type == 'string' then
+						elseif arg.type == "string" then
 							val = ffi.string(val)
-						elseif arg.type == 'object' or arg.type == 'new_id' then
+						elseif arg.type == "object" or arg.type == "new_id" then
 							if arg.interface then
-								val = ffi.cast('struct ' .. arg.interface .. '*', val)
+								val = ffi.cast("struct " .. arg.interface .. "*", val)
 							end
 						end
 
@@ -5119,21 +5118,20 @@ do
 		end
 
 		ffi.C.wl_proxy_add_listener(
-			ffi.cast('struct wl_proxy*', self),
-			ffi.cast('void(**)(void)', listener),
-			ffi.cast('void*', data)
+			ffi.cast("struct wl_proxy*", self),
+			ffi.cast("void(**)(void)", listener),
+			ffi.cast("void*", data)
 		)
 	end
 
-	output_table['wl_data_device_manager'] = meta
-	ffi.metatype('struct wl_data_device_manager', meta)
+	output_table["wl_data_device_manager"] = meta
+	ffi.metatype("struct wl_data_device_manager", meta)
 end
 
 -- Interface: wl_shell
 do
 	local meta = {}
 	meta.__index = meta
-
 	local iface = {
 		enums = {
 			[1] = {
@@ -5148,8 +5146,7 @@ do
 				name = "error",
 			},
 		},
-		events = {
-		},
+		events = {},
 		name = "wl_shell",
 		requests = {
 			[1] = {
@@ -5177,7 +5174,7 @@ do
 	-- Request: get_shell_surface
 	function meta:get_shell_surface(...)
 		local args = {...}
-		local args_array = ffi.new('union wl_argument[2]')
+		local args_array = ffi.new("union wl_argument[2]")
 		local arg_idx = 1
 		local array_idx = 0
 		local has_new_id = false
@@ -5187,21 +5184,24 @@ do
 
 		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[1].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				has_new_id = true
 				new_id_interface = arg.interface
+
 				if not new_id_interface then generic_new_id = true end
+
 				break
 			end
 		end
 
 		-- Process arguments
 		for i, arg in ipairs(iface.requests[1].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				if not arg.interface then
 					local target_iface = args[arg_idx]
 					local target_ver = args[arg_idx + 1]
 					arg_idx = arg_idx + 2
+
 					if target_iface then
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
@@ -5210,32 +5210,33 @@ do
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
+
 					array_idx = array_idx + 3
 				else
 					args_array[array_idx].n = 0
 					array_idx = array_idx + 1
 				end
-			elseif arg.type == 'fixed' then
+			elseif arg.type == "fixed" then
 				local val = args[arg_idx] or 0
 				arg_idx = arg_idx + 1
-				args_array[array_idx].f = ffi.cast('wl_fixed_t', val * 256.0)
+				args_array[array_idx].f = ffi.cast("wl_fixed_t", val * 256.0)
 				array_idx = array_idx + 1
-			elseif arg.type == 'object' then
+			elseif arg.type == "object" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].o = val and ffi.cast('struct wl_object*', val) or nil
+				args_array[array_idx].o = val and ffi.cast("struct wl_object*", val) or nil
 				array_idx = array_idx + 1
-			elseif arg.type == 'array' then
+			elseif arg.type == "array" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].a = ffi.cast('struct wl_array*', val)
+				args_array[array_idx].a = ffi.cast("struct wl_array*", val)
 				array_idx = array_idx + 1
-			elseif arg.type == 'string' then
+			elseif arg.type == "string" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].s = val
 				array_idx = array_idx + 1
-			elseif arg.type == 'fd' then
+			elseif arg.type == "fd" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].h = tonumber(val)
@@ -5243,11 +5244,13 @@ do
 			else
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				if arg.type == 'uint' then
+
+				if arg.type == "uint" then
 					args_array[array_idx].u = tonumber(val)
 				else
 					args_array[array_idx].i = tonumber(val)
 				end
+
 				array_idx = array_idx + 1
 			end
 		end
@@ -5256,80 +5259,76 @@ do
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
-					ffi.cast('struct wl_proxy*', self),
+					ffi.cast("struct wl_proxy*", self),
 					0,
 					args_array,
 					new_id_interface,
 					version_for_generic
 				)
-				return ffi.cast('void*', new_proxy)
+				return ffi.cast("void*", new_proxy)
 			elseif new_id_interface then
-				local target_interface = ffi.C[new_id_interface .. '_interface']
-				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(
-					ffi.cast('struct wl_proxy*', self),
-					0,
-					args_array,
-					target_interface
-				)
-				return ffi.cast('struct ' .. new_id_interface .. '*', new_proxy)
+				local target_interface = ffi.C[new_id_interface .. "_interface"]
+				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(ffi.cast("struct wl_proxy*", self), 0, args_array, target_interface)
+				return ffi.cast("struct " .. new_id_interface .. "*", new_proxy)
 			end
 		else
-			ffi.C.wl_proxy_marshal_array(ffi.cast('struct wl_proxy*', self), 0, args_array)
+			ffi.C.wl_proxy_marshal_array(ffi.cast("struct wl_proxy*", self), 0, args_array)
 		end
 	end
 
 	-- Helper to create listener
 	function meta:add_listener(callbacks, data)
 		local count = #iface.events
-		local listener = ffi.new('void*[' .. count .. ']')
-		local ptr_key = tonumber(ffi.cast('intptr_t', ffi.cast('struct wl_proxy*', self)))
+		local listener = ffi.new("void*[" .. count .. "]")
+		local ptr_key = tonumber(ffi.cast("intptr_t", ffi.cast("struct wl_proxy*", self)))
 		listeners_registry[ptr_key] = listeners_registry[ptr_key] or {}
 		table.insert(listeners_registry[ptr_key], listener)
 		table.insert(listeners_registry[ptr_key], callbacks)
 
 		for i, evt in ipairs(iface.events) do
 			local cb = callbacks[evt.name]
+
 			if cb then
-				local sig_args = {'void*', 'struct wl_proxy*'}
+				local sig_args = {"void*", "struct wl_proxy*"}
+
 				for _, arg in ipairs(evt.args) do
-					if arg.type == 'int' then
-						table.insert(sig_args, 'int32_t')
-					elseif arg.type == 'uint' then
-						table.insert(sig_args, 'uint32_t')
-					elseif arg.type == 'fixed' then
-						table.insert(sig_args, 'wl_fixed_t')
-					elseif arg.type == 'string' then
-						table.insert(sig_args, 'const char*')
-					elseif arg.type == 'object' then
-						table.insert(sig_args, 'struct wl_proxy*')
-					elseif arg.type == 'new_id' then
-						table.insert(sig_args, 'struct wl_proxy*')
-					elseif arg.type == 'array' then
-						table.insert(sig_args, 'struct wl_array*')
-					elseif arg.type == 'fd' then
-						table.insert(sig_args, 'int32_t')
+					if arg.type == "int" then
+						table.insert(sig_args, "int32_t")
+					elseif arg.type == "uint" then
+						table.insert(sig_args, "uint32_t")
+					elseif arg.type == "fixed" then
+						table.insert(sig_args, "wl_fixed_t")
+					elseif arg.type == "string" then
+						table.insert(sig_args, "const char*")
+					elseif arg.type == "object" then
+						table.insert(sig_args, "struct wl_proxy*")
+					elseif arg.type == "new_id" then
+						table.insert(sig_args, "struct wl_proxy*")
+					elseif arg.type == "array" then
+						table.insert(sig_args, "struct wl_array*")
+					elseif arg.type == "fd" then
+						table.insert(sig_args, "int32_t")
 					end
 				end
 
-				local sig = 'void (*)(' .. table.concat(sig_args, ', ') .. ')'
+				local sig = "void (*)(" .. table.concat(sig_args, ", ") .. ")"
 				local cb_func = ffi.cast(sig, function(data, proxy, ...)
 					local args = {...}
 					local lua_args = {}
 					local arg_idx = 1
-
-					proxy = ffi.cast('struct wl_shell*', proxy)
+					proxy = ffi.cast("struct wl_shell*", proxy)
 
 					for _, arg in ipairs(evt.args) do
 						local val = args[arg_idx]
 						arg_idx = arg_idx + 1
 
-						if arg.type == 'fixed' then
+						if arg.type == "fixed" then
 							val = tonumber(val) / 256.0
-						elseif arg.type == 'string' then
+						elseif arg.type == "string" then
 							val = ffi.string(val)
-						elseif arg.type == 'object' or arg.type == 'new_id' then
+						elseif arg.type == "object" or arg.type == "new_id" then
 							if arg.interface then
-								val = ffi.cast('struct ' .. arg.interface .. '*', val)
+								val = ffi.cast("struct " .. arg.interface .. "*", val)
 							end
 						end
 
@@ -5344,21 +5343,20 @@ do
 		end
 
 		ffi.C.wl_proxy_add_listener(
-			ffi.cast('struct wl_proxy*', self),
-			ffi.cast('void(**)(void)', listener),
-			ffi.cast('void*', data)
+			ffi.cast("struct wl_proxy*", self),
+			ffi.cast("void(**)(void)", listener),
+			ffi.cast("void*", data)
 		)
 	end
 
-	output_table['wl_shell'] = meta
-	ffi.metatype('struct wl_shell', meta)
+	output_table["wl_shell"] = meta
+	ffi.metatype("struct wl_shell", meta)
 end
 
 -- Interface: wl_shell_surface
 do
 	local meta = {}
 	meta.__index = meta
-
 	local iface = {
 		enums = {
 			[1] = {
@@ -5480,8 +5478,7 @@ do
 				since = 1,
 			},
 			[3] = {
-				args = {
-				},
+				args = {},
 				name = "popup_done",
 				since = 1,
 			},
@@ -5550,8 +5547,7 @@ do
 				since = 1,
 			},
 			[4] = {
-				args = {
-				},
+				args = {},
 				name = "set_toplevel",
 				since = 1,
 			},
@@ -5672,7 +5668,7 @@ do
 	-- Request: pong
 	function meta:pong(...)
 		local args = {...}
-		local args_array = ffi.new('union wl_argument[1]')
+		local args_array = ffi.new("union wl_argument[1]")
 		local arg_idx = 1
 		local array_idx = 0
 		local has_new_id = false
@@ -5682,21 +5678,24 @@ do
 
 		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[1].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				has_new_id = true
 				new_id_interface = arg.interface
+
 				if not new_id_interface then generic_new_id = true end
+
 				break
 			end
 		end
 
 		-- Process arguments
 		for i, arg in ipairs(iface.requests[1].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				if not arg.interface then
 					local target_iface = args[arg_idx]
 					local target_ver = args[arg_idx + 1]
 					arg_idx = arg_idx + 2
+
 					if target_iface then
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
@@ -5705,32 +5704,33 @@ do
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
+
 					array_idx = array_idx + 3
 				else
 					args_array[array_idx].n = 0
 					array_idx = array_idx + 1
 				end
-			elseif arg.type == 'fixed' then
+			elseif arg.type == "fixed" then
 				local val = args[arg_idx] or 0
 				arg_idx = arg_idx + 1
-				args_array[array_idx].f = ffi.cast('wl_fixed_t', val * 256.0)
+				args_array[array_idx].f = ffi.cast("wl_fixed_t", val * 256.0)
 				array_idx = array_idx + 1
-			elseif arg.type == 'object' then
+			elseif arg.type == "object" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].o = val and ffi.cast('struct wl_object*', val) or nil
+				args_array[array_idx].o = val and ffi.cast("struct wl_object*", val) or nil
 				array_idx = array_idx + 1
-			elseif arg.type == 'array' then
+			elseif arg.type == "array" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].a = ffi.cast('struct wl_array*', val)
+				args_array[array_idx].a = ffi.cast("struct wl_array*", val)
 				array_idx = array_idx + 1
-			elseif arg.type == 'string' then
+			elseif arg.type == "string" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].s = val
 				array_idx = array_idx + 1
-			elseif arg.type == 'fd' then
+			elseif arg.type == "fd" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].h = tonumber(val)
@@ -5738,11 +5738,13 @@ do
 			else
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				if arg.type == 'uint' then
+
+				if arg.type == "uint" then
 					args_array[array_idx].u = tonumber(val)
 				else
 					args_array[array_idx].i = tonumber(val)
 				end
+
 				array_idx = array_idx + 1
 			end
 		end
@@ -5751,32 +5753,27 @@ do
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
-					ffi.cast('struct wl_proxy*', self),
+					ffi.cast("struct wl_proxy*", self),
 					0,
 					args_array,
 					new_id_interface,
 					version_for_generic
 				)
-				return ffi.cast('void*', new_proxy)
+				return ffi.cast("void*", new_proxy)
 			elseif new_id_interface then
-				local target_interface = ffi.C[new_id_interface .. '_interface']
-				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(
-					ffi.cast('struct wl_proxy*', self),
-					0,
-					args_array,
-					target_interface
-				)
-				return ffi.cast('struct ' .. new_id_interface .. '*', new_proxy)
+				local target_interface = ffi.C[new_id_interface .. "_interface"]
+				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(ffi.cast("struct wl_proxy*", self), 0, args_array, target_interface)
+				return ffi.cast("struct " .. new_id_interface .. "*", new_proxy)
 			end
 		else
-			ffi.C.wl_proxy_marshal_array(ffi.cast('struct wl_proxy*', self), 0, args_array)
+			ffi.C.wl_proxy_marshal_array(ffi.cast("struct wl_proxy*", self), 0, args_array)
 		end
 	end
 
 	-- Request: move
 	function meta:move(...)
 		local args = {...}
-		local args_array = ffi.new('union wl_argument[2]')
+		local args_array = ffi.new("union wl_argument[2]")
 		local arg_idx = 1
 		local array_idx = 0
 		local has_new_id = false
@@ -5786,21 +5783,24 @@ do
 
 		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[2].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				has_new_id = true
 				new_id_interface = arg.interface
+
 				if not new_id_interface then generic_new_id = true end
+
 				break
 			end
 		end
 
 		-- Process arguments
 		for i, arg in ipairs(iface.requests[2].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				if not arg.interface then
 					local target_iface = args[arg_idx]
 					local target_ver = args[arg_idx + 1]
 					arg_idx = arg_idx + 2
+
 					if target_iface then
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
@@ -5809,32 +5809,33 @@ do
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
+
 					array_idx = array_idx + 3
 				else
 					args_array[array_idx].n = 0
 					array_idx = array_idx + 1
 				end
-			elseif arg.type == 'fixed' then
+			elseif arg.type == "fixed" then
 				local val = args[arg_idx] or 0
 				arg_idx = arg_idx + 1
-				args_array[array_idx].f = ffi.cast('wl_fixed_t', val * 256.0)
+				args_array[array_idx].f = ffi.cast("wl_fixed_t", val * 256.0)
 				array_idx = array_idx + 1
-			elseif arg.type == 'object' then
+			elseif arg.type == "object" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].o = val and ffi.cast('struct wl_object*', val) or nil
+				args_array[array_idx].o = val and ffi.cast("struct wl_object*", val) or nil
 				array_idx = array_idx + 1
-			elseif arg.type == 'array' then
+			elseif arg.type == "array" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].a = ffi.cast('struct wl_array*', val)
+				args_array[array_idx].a = ffi.cast("struct wl_array*", val)
 				array_idx = array_idx + 1
-			elseif arg.type == 'string' then
+			elseif arg.type == "string" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].s = val
 				array_idx = array_idx + 1
-			elseif arg.type == 'fd' then
+			elseif arg.type == "fd" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].h = tonumber(val)
@@ -5842,11 +5843,13 @@ do
 			else
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				if arg.type == 'uint' then
+
+				if arg.type == "uint" then
 					args_array[array_idx].u = tonumber(val)
 				else
 					args_array[array_idx].i = tonumber(val)
 				end
+
 				array_idx = array_idx + 1
 			end
 		end
@@ -5855,32 +5858,27 @@ do
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
-					ffi.cast('struct wl_proxy*', self),
+					ffi.cast("struct wl_proxy*", self),
 					1,
 					args_array,
 					new_id_interface,
 					version_for_generic
 				)
-				return ffi.cast('void*', new_proxy)
+				return ffi.cast("void*", new_proxy)
 			elseif new_id_interface then
-				local target_interface = ffi.C[new_id_interface .. '_interface']
-				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(
-					ffi.cast('struct wl_proxy*', self),
-					1,
-					args_array,
-					target_interface
-				)
-				return ffi.cast('struct ' .. new_id_interface .. '*', new_proxy)
+				local target_interface = ffi.C[new_id_interface .. "_interface"]
+				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(ffi.cast("struct wl_proxy*", self), 1, args_array, target_interface)
+				return ffi.cast("struct " .. new_id_interface .. "*", new_proxy)
 			end
 		else
-			ffi.C.wl_proxy_marshal_array(ffi.cast('struct wl_proxy*', self), 1, args_array)
+			ffi.C.wl_proxy_marshal_array(ffi.cast("struct wl_proxy*", self), 1, args_array)
 		end
 	end
 
 	-- Request: resize
 	function meta:resize(...)
 		local args = {...}
-		local args_array = ffi.new('union wl_argument[3]')
+		local args_array = ffi.new("union wl_argument[3]")
 		local arg_idx = 1
 		local array_idx = 0
 		local has_new_id = false
@@ -5890,21 +5888,24 @@ do
 
 		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[3].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				has_new_id = true
 				new_id_interface = arg.interface
+
 				if not new_id_interface then generic_new_id = true end
+
 				break
 			end
 		end
 
 		-- Process arguments
 		for i, arg in ipairs(iface.requests[3].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				if not arg.interface then
 					local target_iface = args[arg_idx]
 					local target_ver = args[arg_idx + 1]
 					arg_idx = arg_idx + 2
+
 					if target_iface then
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
@@ -5913,32 +5914,33 @@ do
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
+
 					array_idx = array_idx + 3
 				else
 					args_array[array_idx].n = 0
 					array_idx = array_idx + 1
 				end
-			elseif arg.type == 'fixed' then
+			elseif arg.type == "fixed" then
 				local val = args[arg_idx] or 0
 				arg_idx = arg_idx + 1
-				args_array[array_idx].f = ffi.cast('wl_fixed_t', val * 256.0)
+				args_array[array_idx].f = ffi.cast("wl_fixed_t", val * 256.0)
 				array_idx = array_idx + 1
-			elseif arg.type == 'object' then
+			elseif arg.type == "object" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].o = val and ffi.cast('struct wl_object*', val) or nil
+				args_array[array_idx].o = val and ffi.cast("struct wl_object*", val) or nil
 				array_idx = array_idx + 1
-			elseif arg.type == 'array' then
+			elseif arg.type == "array" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].a = ffi.cast('struct wl_array*', val)
+				args_array[array_idx].a = ffi.cast("struct wl_array*", val)
 				array_idx = array_idx + 1
-			elseif arg.type == 'string' then
+			elseif arg.type == "string" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].s = val
 				array_idx = array_idx + 1
-			elseif arg.type == 'fd' then
+			elseif arg.type == "fd" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].h = tonumber(val)
@@ -5946,11 +5948,13 @@ do
 			else
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				if arg.type == 'uint' then
+
+				if arg.type == "uint" then
 					args_array[array_idx].u = tonumber(val)
 				else
 					args_array[array_idx].i = tonumber(val)
 				end
+
 				array_idx = array_idx + 1
 			end
 		end
@@ -5959,32 +5963,27 @@ do
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
-					ffi.cast('struct wl_proxy*', self),
+					ffi.cast("struct wl_proxy*", self),
 					2,
 					args_array,
 					new_id_interface,
 					version_for_generic
 				)
-				return ffi.cast('void*', new_proxy)
+				return ffi.cast("void*", new_proxy)
 			elseif new_id_interface then
-				local target_interface = ffi.C[new_id_interface .. '_interface']
-				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(
-					ffi.cast('struct wl_proxy*', self),
-					2,
-					args_array,
-					target_interface
-				)
-				return ffi.cast('struct ' .. new_id_interface .. '*', new_proxy)
+				local target_interface = ffi.C[new_id_interface .. "_interface"]
+				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(ffi.cast("struct wl_proxy*", self), 2, args_array, target_interface)
+				return ffi.cast("struct " .. new_id_interface .. "*", new_proxy)
 			end
 		else
-			ffi.C.wl_proxy_marshal_array(ffi.cast('struct wl_proxy*', self), 2, args_array)
+			ffi.C.wl_proxy_marshal_array(ffi.cast("struct wl_proxy*", self), 2, args_array)
 		end
 	end
 
 	-- Request: set_toplevel
 	function meta:set_toplevel(...)
 		local args = {...}
-		local args_array = ffi.new('union wl_argument[1]') -- Dummy for empty args
+		local args_array = ffi.new("union wl_argument[1]") -- Dummy for empty args
 		local arg_idx = 1
 		local array_idx = 0
 		local has_new_id = false
@@ -5994,21 +5993,24 @@ do
 
 		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[4].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				has_new_id = true
 				new_id_interface = arg.interface
+
 				if not new_id_interface then generic_new_id = true end
+
 				break
 			end
 		end
 
 		-- Process arguments
 		for i, arg in ipairs(iface.requests[4].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				if not arg.interface then
 					local target_iface = args[arg_idx]
 					local target_ver = args[arg_idx + 1]
 					arg_idx = arg_idx + 2
+
 					if target_iface then
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
@@ -6017,32 +6019,33 @@ do
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
+
 					array_idx = array_idx + 3
 				else
 					args_array[array_idx].n = 0
 					array_idx = array_idx + 1
 				end
-			elseif arg.type == 'fixed' then
+			elseif arg.type == "fixed" then
 				local val = args[arg_idx] or 0
 				arg_idx = arg_idx + 1
-				args_array[array_idx].f = ffi.cast('wl_fixed_t', val * 256.0)
+				args_array[array_idx].f = ffi.cast("wl_fixed_t", val * 256.0)
 				array_idx = array_idx + 1
-			elseif arg.type == 'object' then
+			elseif arg.type == "object" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].o = val and ffi.cast('struct wl_object*', val) or nil
+				args_array[array_idx].o = val and ffi.cast("struct wl_object*", val) or nil
 				array_idx = array_idx + 1
-			elseif arg.type == 'array' then
+			elseif arg.type == "array" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].a = ffi.cast('struct wl_array*', val)
+				args_array[array_idx].a = ffi.cast("struct wl_array*", val)
 				array_idx = array_idx + 1
-			elseif arg.type == 'string' then
+			elseif arg.type == "string" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].s = val
 				array_idx = array_idx + 1
-			elseif arg.type == 'fd' then
+			elseif arg.type == "fd" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].h = tonumber(val)
@@ -6050,11 +6053,13 @@ do
 			else
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				if arg.type == 'uint' then
+
+				if arg.type == "uint" then
 					args_array[array_idx].u = tonumber(val)
 				else
 					args_array[array_idx].i = tonumber(val)
 				end
+
 				array_idx = array_idx + 1
 			end
 		end
@@ -6063,32 +6068,27 @@ do
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
-					ffi.cast('struct wl_proxy*', self),
+					ffi.cast("struct wl_proxy*", self),
 					3,
 					args_array,
 					new_id_interface,
 					version_for_generic
 				)
-				return ffi.cast('void*', new_proxy)
+				return ffi.cast("void*", new_proxy)
 			elseif new_id_interface then
-				local target_interface = ffi.C[new_id_interface .. '_interface']
-				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(
-					ffi.cast('struct wl_proxy*', self),
-					3,
-					args_array,
-					target_interface
-				)
-				return ffi.cast('struct ' .. new_id_interface .. '*', new_proxy)
+				local target_interface = ffi.C[new_id_interface .. "_interface"]
+				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(ffi.cast("struct wl_proxy*", self), 3, args_array, target_interface)
+				return ffi.cast("struct " .. new_id_interface .. "*", new_proxy)
 			end
 		else
-			ffi.C.wl_proxy_marshal_array(ffi.cast('struct wl_proxy*', self), 3, args_array)
+			ffi.C.wl_proxy_marshal_array(ffi.cast("struct wl_proxy*", self), 3, args_array)
 		end
 	end
 
 	-- Request: set_transient
 	function meta:set_transient(...)
 		local args = {...}
-		local args_array = ffi.new('union wl_argument[4]')
+		local args_array = ffi.new("union wl_argument[4]")
 		local arg_idx = 1
 		local array_idx = 0
 		local has_new_id = false
@@ -6098,21 +6098,24 @@ do
 
 		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[5].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				has_new_id = true
 				new_id_interface = arg.interface
+
 				if not new_id_interface then generic_new_id = true end
+
 				break
 			end
 		end
 
 		-- Process arguments
 		for i, arg in ipairs(iface.requests[5].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				if not arg.interface then
 					local target_iface = args[arg_idx]
 					local target_ver = args[arg_idx + 1]
 					arg_idx = arg_idx + 2
+
 					if target_iface then
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
@@ -6121,32 +6124,33 @@ do
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
+
 					array_idx = array_idx + 3
 				else
 					args_array[array_idx].n = 0
 					array_idx = array_idx + 1
 				end
-			elseif arg.type == 'fixed' then
+			elseif arg.type == "fixed" then
 				local val = args[arg_idx] or 0
 				arg_idx = arg_idx + 1
-				args_array[array_idx].f = ffi.cast('wl_fixed_t', val * 256.0)
+				args_array[array_idx].f = ffi.cast("wl_fixed_t", val * 256.0)
 				array_idx = array_idx + 1
-			elseif arg.type == 'object' then
+			elseif arg.type == "object" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].o = val and ffi.cast('struct wl_object*', val) or nil
+				args_array[array_idx].o = val and ffi.cast("struct wl_object*", val) or nil
 				array_idx = array_idx + 1
-			elseif arg.type == 'array' then
+			elseif arg.type == "array" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].a = ffi.cast('struct wl_array*', val)
+				args_array[array_idx].a = ffi.cast("struct wl_array*", val)
 				array_idx = array_idx + 1
-			elseif arg.type == 'string' then
+			elseif arg.type == "string" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].s = val
 				array_idx = array_idx + 1
-			elseif arg.type == 'fd' then
+			elseif arg.type == "fd" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].h = tonumber(val)
@@ -6154,11 +6158,13 @@ do
 			else
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				if arg.type == 'uint' then
+
+				if arg.type == "uint" then
 					args_array[array_idx].u = tonumber(val)
 				else
 					args_array[array_idx].i = tonumber(val)
 				end
+
 				array_idx = array_idx + 1
 			end
 		end
@@ -6167,32 +6173,27 @@ do
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
-					ffi.cast('struct wl_proxy*', self),
+					ffi.cast("struct wl_proxy*", self),
 					4,
 					args_array,
 					new_id_interface,
 					version_for_generic
 				)
-				return ffi.cast('void*', new_proxy)
+				return ffi.cast("void*", new_proxy)
 			elseif new_id_interface then
-				local target_interface = ffi.C[new_id_interface .. '_interface']
-				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(
-					ffi.cast('struct wl_proxy*', self),
-					4,
-					args_array,
-					target_interface
-				)
-				return ffi.cast('struct ' .. new_id_interface .. '*', new_proxy)
+				local target_interface = ffi.C[new_id_interface .. "_interface"]
+				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(ffi.cast("struct wl_proxy*", self), 4, args_array, target_interface)
+				return ffi.cast("struct " .. new_id_interface .. "*", new_proxy)
 			end
 		else
-			ffi.C.wl_proxy_marshal_array(ffi.cast('struct wl_proxy*', self), 4, args_array)
+			ffi.C.wl_proxy_marshal_array(ffi.cast("struct wl_proxy*", self), 4, args_array)
 		end
 	end
 
 	-- Request: set_fullscreen
 	function meta:set_fullscreen(...)
 		local args = {...}
-		local args_array = ffi.new('union wl_argument[4]')
+		local args_array = ffi.new("union wl_argument[4]")
 		local arg_idx = 1
 		local array_idx = 0
 		local has_new_id = false
@@ -6202,21 +6203,24 @@ do
 
 		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[6].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				has_new_id = true
 				new_id_interface = arg.interface
+
 				if not new_id_interface then generic_new_id = true end
+
 				break
 			end
 		end
 
 		-- Process arguments
 		for i, arg in ipairs(iface.requests[6].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				if not arg.interface then
 					local target_iface = args[arg_idx]
 					local target_ver = args[arg_idx + 1]
 					arg_idx = arg_idx + 2
+
 					if target_iface then
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
@@ -6225,32 +6229,33 @@ do
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
+
 					array_idx = array_idx + 3
 				else
 					args_array[array_idx].n = 0
 					array_idx = array_idx + 1
 				end
-			elseif arg.type == 'fixed' then
+			elseif arg.type == "fixed" then
 				local val = args[arg_idx] or 0
 				arg_idx = arg_idx + 1
-				args_array[array_idx].f = ffi.cast('wl_fixed_t', val * 256.0)
+				args_array[array_idx].f = ffi.cast("wl_fixed_t", val * 256.0)
 				array_idx = array_idx + 1
-			elseif arg.type == 'object' then
+			elseif arg.type == "object" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].o = val and ffi.cast('struct wl_object*', val) or nil
+				args_array[array_idx].o = val and ffi.cast("struct wl_object*", val) or nil
 				array_idx = array_idx + 1
-			elseif arg.type == 'array' then
+			elseif arg.type == "array" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].a = ffi.cast('struct wl_array*', val)
+				args_array[array_idx].a = ffi.cast("struct wl_array*", val)
 				array_idx = array_idx + 1
-			elseif arg.type == 'string' then
+			elseif arg.type == "string" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].s = val
 				array_idx = array_idx + 1
-			elseif arg.type == 'fd' then
+			elseif arg.type == "fd" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].h = tonumber(val)
@@ -6258,11 +6263,13 @@ do
 			else
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				if arg.type == 'uint' then
+
+				if arg.type == "uint" then
 					args_array[array_idx].u = tonumber(val)
 				else
 					args_array[array_idx].i = tonumber(val)
 				end
+
 				array_idx = array_idx + 1
 			end
 		end
@@ -6271,32 +6278,27 @@ do
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
-					ffi.cast('struct wl_proxy*', self),
+					ffi.cast("struct wl_proxy*", self),
 					5,
 					args_array,
 					new_id_interface,
 					version_for_generic
 				)
-				return ffi.cast('void*', new_proxy)
+				return ffi.cast("void*", new_proxy)
 			elseif new_id_interface then
-				local target_interface = ffi.C[new_id_interface .. '_interface']
-				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(
-					ffi.cast('struct wl_proxy*', self),
-					5,
-					args_array,
-					target_interface
-				)
-				return ffi.cast('struct ' .. new_id_interface .. '*', new_proxy)
+				local target_interface = ffi.C[new_id_interface .. "_interface"]
+				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(ffi.cast("struct wl_proxy*", self), 5, args_array, target_interface)
+				return ffi.cast("struct " .. new_id_interface .. "*", new_proxy)
 			end
 		else
-			ffi.C.wl_proxy_marshal_array(ffi.cast('struct wl_proxy*', self), 5, args_array)
+			ffi.C.wl_proxy_marshal_array(ffi.cast("struct wl_proxy*", self), 5, args_array)
 		end
 	end
 
 	-- Request: set_popup
 	function meta:set_popup(...)
 		local args = {...}
-		local args_array = ffi.new('union wl_argument[6]')
+		local args_array = ffi.new("union wl_argument[6]")
 		local arg_idx = 1
 		local array_idx = 0
 		local has_new_id = false
@@ -6306,21 +6308,24 @@ do
 
 		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[7].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				has_new_id = true
 				new_id_interface = arg.interface
+
 				if not new_id_interface then generic_new_id = true end
+
 				break
 			end
 		end
 
 		-- Process arguments
 		for i, arg in ipairs(iface.requests[7].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				if not arg.interface then
 					local target_iface = args[arg_idx]
 					local target_ver = args[arg_idx + 1]
 					arg_idx = arg_idx + 2
+
 					if target_iface then
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
@@ -6329,32 +6334,33 @@ do
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
+
 					array_idx = array_idx + 3
 				else
 					args_array[array_idx].n = 0
 					array_idx = array_idx + 1
 				end
-			elseif arg.type == 'fixed' then
+			elseif arg.type == "fixed" then
 				local val = args[arg_idx] or 0
 				arg_idx = arg_idx + 1
-				args_array[array_idx].f = ffi.cast('wl_fixed_t', val * 256.0)
+				args_array[array_idx].f = ffi.cast("wl_fixed_t", val * 256.0)
 				array_idx = array_idx + 1
-			elseif arg.type == 'object' then
+			elseif arg.type == "object" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].o = val and ffi.cast('struct wl_object*', val) or nil
+				args_array[array_idx].o = val and ffi.cast("struct wl_object*", val) or nil
 				array_idx = array_idx + 1
-			elseif arg.type == 'array' then
+			elseif arg.type == "array" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].a = ffi.cast('struct wl_array*', val)
+				args_array[array_idx].a = ffi.cast("struct wl_array*", val)
 				array_idx = array_idx + 1
-			elseif arg.type == 'string' then
+			elseif arg.type == "string" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].s = val
 				array_idx = array_idx + 1
-			elseif arg.type == 'fd' then
+			elseif arg.type == "fd" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].h = tonumber(val)
@@ -6362,11 +6368,13 @@ do
 			else
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				if arg.type == 'uint' then
+
+				if arg.type == "uint" then
 					args_array[array_idx].u = tonumber(val)
 				else
 					args_array[array_idx].i = tonumber(val)
 				end
+
 				array_idx = array_idx + 1
 			end
 		end
@@ -6375,32 +6383,27 @@ do
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
-					ffi.cast('struct wl_proxy*', self),
+					ffi.cast("struct wl_proxy*", self),
 					6,
 					args_array,
 					new_id_interface,
 					version_for_generic
 				)
-				return ffi.cast('void*', new_proxy)
+				return ffi.cast("void*", new_proxy)
 			elseif new_id_interface then
-				local target_interface = ffi.C[new_id_interface .. '_interface']
-				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(
-					ffi.cast('struct wl_proxy*', self),
-					6,
-					args_array,
-					target_interface
-				)
-				return ffi.cast('struct ' .. new_id_interface .. '*', new_proxy)
+				local target_interface = ffi.C[new_id_interface .. "_interface"]
+				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(ffi.cast("struct wl_proxy*", self), 6, args_array, target_interface)
+				return ffi.cast("struct " .. new_id_interface .. "*", new_proxy)
 			end
 		else
-			ffi.C.wl_proxy_marshal_array(ffi.cast('struct wl_proxy*', self), 6, args_array)
+			ffi.C.wl_proxy_marshal_array(ffi.cast("struct wl_proxy*", self), 6, args_array)
 		end
 	end
 
 	-- Request: set_maximized
 	function meta:set_maximized(...)
 		local args = {...}
-		local args_array = ffi.new('union wl_argument[2]')
+		local args_array = ffi.new("union wl_argument[2]")
 		local arg_idx = 1
 		local array_idx = 0
 		local has_new_id = false
@@ -6410,21 +6413,24 @@ do
 
 		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[8].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				has_new_id = true
 				new_id_interface = arg.interface
+
 				if not new_id_interface then generic_new_id = true end
+
 				break
 			end
 		end
 
 		-- Process arguments
 		for i, arg in ipairs(iface.requests[8].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				if not arg.interface then
 					local target_iface = args[arg_idx]
 					local target_ver = args[arg_idx + 1]
 					arg_idx = arg_idx + 2
+
 					if target_iface then
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
@@ -6433,32 +6439,33 @@ do
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
+
 					array_idx = array_idx + 3
 				else
 					args_array[array_idx].n = 0
 					array_idx = array_idx + 1
 				end
-			elseif arg.type == 'fixed' then
+			elseif arg.type == "fixed" then
 				local val = args[arg_idx] or 0
 				arg_idx = arg_idx + 1
-				args_array[array_idx].f = ffi.cast('wl_fixed_t', val * 256.0)
+				args_array[array_idx].f = ffi.cast("wl_fixed_t", val * 256.0)
 				array_idx = array_idx + 1
-			elseif arg.type == 'object' then
+			elseif arg.type == "object" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].o = val and ffi.cast('struct wl_object*', val) or nil
+				args_array[array_idx].o = val and ffi.cast("struct wl_object*", val) or nil
 				array_idx = array_idx + 1
-			elseif arg.type == 'array' then
+			elseif arg.type == "array" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].a = ffi.cast('struct wl_array*', val)
+				args_array[array_idx].a = ffi.cast("struct wl_array*", val)
 				array_idx = array_idx + 1
-			elseif arg.type == 'string' then
+			elseif arg.type == "string" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].s = val
 				array_idx = array_idx + 1
-			elseif arg.type == 'fd' then
+			elseif arg.type == "fd" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].h = tonumber(val)
@@ -6466,11 +6473,13 @@ do
 			else
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				if arg.type == 'uint' then
+
+				if arg.type == "uint" then
 					args_array[array_idx].u = tonumber(val)
 				else
 					args_array[array_idx].i = tonumber(val)
 				end
+
 				array_idx = array_idx + 1
 			end
 		end
@@ -6479,32 +6488,27 @@ do
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
-					ffi.cast('struct wl_proxy*', self),
+					ffi.cast("struct wl_proxy*", self),
 					7,
 					args_array,
 					new_id_interface,
 					version_for_generic
 				)
-				return ffi.cast('void*', new_proxy)
+				return ffi.cast("void*", new_proxy)
 			elseif new_id_interface then
-				local target_interface = ffi.C[new_id_interface .. '_interface']
-				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(
-					ffi.cast('struct wl_proxy*', self),
-					7,
-					args_array,
-					target_interface
-				)
-				return ffi.cast('struct ' .. new_id_interface .. '*', new_proxy)
+				local target_interface = ffi.C[new_id_interface .. "_interface"]
+				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(ffi.cast("struct wl_proxy*", self), 7, args_array, target_interface)
+				return ffi.cast("struct " .. new_id_interface .. "*", new_proxy)
 			end
 		else
-			ffi.C.wl_proxy_marshal_array(ffi.cast('struct wl_proxy*', self), 7, args_array)
+			ffi.C.wl_proxy_marshal_array(ffi.cast("struct wl_proxy*", self), 7, args_array)
 		end
 	end
 
 	-- Request: set_title
 	function meta:set_title(...)
 		local args = {...}
-		local args_array = ffi.new('union wl_argument[1]')
+		local args_array = ffi.new("union wl_argument[1]")
 		local arg_idx = 1
 		local array_idx = 0
 		local has_new_id = false
@@ -6514,21 +6518,24 @@ do
 
 		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[9].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				has_new_id = true
 				new_id_interface = arg.interface
+
 				if not new_id_interface then generic_new_id = true end
+
 				break
 			end
 		end
 
 		-- Process arguments
 		for i, arg in ipairs(iface.requests[9].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				if not arg.interface then
 					local target_iface = args[arg_idx]
 					local target_ver = args[arg_idx + 1]
 					arg_idx = arg_idx + 2
+
 					if target_iface then
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
@@ -6537,32 +6544,33 @@ do
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
+
 					array_idx = array_idx + 3
 				else
 					args_array[array_idx].n = 0
 					array_idx = array_idx + 1
 				end
-			elseif arg.type == 'fixed' then
+			elseif arg.type == "fixed" then
 				local val = args[arg_idx] or 0
 				arg_idx = arg_idx + 1
-				args_array[array_idx].f = ffi.cast('wl_fixed_t', val * 256.0)
+				args_array[array_idx].f = ffi.cast("wl_fixed_t", val * 256.0)
 				array_idx = array_idx + 1
-			elseif arg.type == 'object' then
+			elseif arg.type == "object" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].o = val and ffi.cast('struct wl_object*', val) or nil
+				args_array[array_idx].o = val and ffi.cast("struct wl_object*", val) or nil
 				array_idx = array_idx + 1
-			elseif arg.type == 'array' then
+			elseif arg.type == "array" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].a = ffi.cast('struct wl_array*', val)
+				args_array[array_idx].a = ffi.cast("struct wl_array*", val)
 				array_idx = array_idx + 1
-			elseif arg.type == 'string' then
+			elseif arg.type == "string" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].s = val
 				array_idx = array_idx + 1
-			elseif arg.type == 'fd' then
+			elseif arg.type == "fd" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].h = tonumber(val)
@@ -6570,11 +6578,13 @@ do
 			else
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				if arg.type == 'uint' then
+
+				if arg.type == "uint" then
 					args_array[array_idx].u = tonumber(val)
 				else
 					args_array[array_idx].i = tonumber(val)
 				end
+
 				array_idx = array_idx + 1
 			end
 		end
@@ -6583,32 +6593,27 @@ do
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
-					ffi.cast('struct wl_proxy*', self),
+					ffi.cast("struct wl_proxy*", self),
 					8,
 					args_array,
 					new_id_interface,
 					version_for_generic
 				)
-				return ffi.cast('void*', new_proxy)
+				return ffi.cast("void*", new_proxy)
 			elseif new_id_interface then
-				local target_interface = ffi.C[new_id_interface .. '_interface']
-				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(
-					ffi.cast('struct wl_proxy*', self),
-					8,
-					args_array,
-					target_interface
-				)
-				return ffi.cast('struct ' .. new_id_interface .. '*', new_proxy)
+				local target_interface = ffi.C[new_id_interface .. "_interface"]
+				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(ffi.cast("struct wl_proxy*", self), 8, args_array, target_interface)
+				return ffi.cast("struct " .. new_id_interface .. "*", new_proxy)
 			end
 		else
-			ffi.C.wl_proxy_marshal_array(ffi.cast('struct wl_proxy*', self), 8, args_array)
+			ffi.C.wl_proxy_marshal_array(ffi.cast("struct wl_proxy*", self), 8, args_array)
 		end
 	end
 
 	-- Request: set_class
 	function meta:set_class(...)
 		local args = {...}
-		local args_array = ffi.new('union wl_argument[1]')
+		local args_array = ffi.new("union wl_argument[1]")
 		local arg_idx = 1
 		local array_idx = 0
 		local has_new_id = false
@@ -6618,21 +6623,24 @@ do
 
 		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[10].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				has_new_id = true
 				new_id_interface = arg.interface
+
 				if not new_id_interface then generic_new_id = true end
+
 				break
 			end
 		end
 
 		-- Process arguments
 		for i, arg in ipairs(iface.requests[10].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				if not arg.interface then
 					local target_iface = args[arg_idx]
 					local target_ver = args[arg_idx + 1]
 					arg_idx = arg_idx + 2
+
 					if target_iface then
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
@@ -6641,32 +6649,33 @@ do
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
+
 					array_idx = array_idx + 3
 				else
 					args_array[array_idx].n = 0
 					array_idx = array_idx + 1
 				end
-			elseif arg.type == 'fixed' then
+			elseif arg.type == "fixed" then
 				local val = args[arg_idx] or 0
 				arg_idx = arg_idx + 1
-				args_array[array_idx].f = ffi.cast('wl_fixed_t', val * 256.0)
+				args_array[array_idx].f = ffi.cast("wl_fixed_t", val * 256.0)
 				array_idx = array_idx + 1
-			elseif arg.type == 'object' then
+			elseif arg.type == "object" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].o = val and ffi.cast('struct wl_object*', val) or nil
+				args_array[array_idx].o = val and ffi.cast("struct wl_object*", val) or nil
 				array_idx = array_idx + 1
-			elseif arg.type == 'array' then
+			elseif arg.type == "array" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].a = ffi.cast('struct wl_array*', val)
+				args_array[array_idx].a = ffi.cast("struct wl_array*", val)
 				array_idx = array_idx + 1
-			elseif arg.type == 'string' then
+			elseif arg.type == "string" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].s = val
 				array_idx = array_idx + 1
-			elseif arg.type == 'fd' then
+			elseif arg.type == "fd" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].h = tonumber(val)
@@ -6674,11 +6683,13 @@ do
 			else
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				if arg.type == 'uint' then
+
+				if arg.type == "uint" then
 					args_array[array_idx].u = tonumber(val)
 				else
 					args_array[array_idx].i = tonumber(val)
 				end
+
 				array_idx = array_idx + 1
 			end
 		end
@@ -6687,80 +6698,76 @@ do
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
-					ffi.cast('struct wl_proxy*', self),
+					ffi.cast("struct wl_proxy*", self),
 					9,
 					args_array,
 					new_id_interface,
 					version_for_generic
 				)
-				return ffi.cast('void*', new_proxy)
+				return ffi.cast("void*", new_proxy)
 			elseif new_id_interface then
-				local target_interface = ffi.C[new_id_interface .. '_interface']
-				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(
-					ffi.cast('struct wl_proxy*', self),
-					9,
-					args_array,
-					target_interface
-				)
-				return ffi.cast('struct ' .. new_id_interface .. '*', new_proxy)
+				local target_interface = ffi.C[new_id_interface .. "_interface"]
+				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(ffi.cast("struct wl_proxy*", self), 9, args_array, target_interface)
+				return ffi.cast("struct " .. new_id_interface .. "*", new_proxy)
 			end
 		else
-			ffi.C.wl_proxy_marshal_array(ffi.cast('struct wl_proxy*', self), 9, args_array)
+			ffi.C.wl_proxy_marshal_array(ffi.cast("struct wl_proxy*", self), 9, args_array)
 		end
 	end
 
 	-- Helper to create listener
 	function meta:add_listener(callbacks, data)
 		local count = #iface.events
-		local listener = ffi.new('void*[' .. count .. ']')
-		local ptr_key = tonumber(ffi.cast('intptr_t', ffi.cast('struct wl_proxy*', self)))
+		local listener = ffi.new("void*[" .. count .. "]")
+		local ptr_key = tonumber(ffi.cast("intptr_t", ffi.cast("struct wl_proxy*", self)))
 		listeners_registry[ptr_key] = listeners_registry[ptr_key] or {}
 		table.insert(listeners_registry[ptr_key], listener)
 		table.insert(listeners_registry[ptr_key], callbacks)
 
 		for i, evt in ipairs(iface.events) do
 			local cb = callbacks[evt.name]
+
 			if cb then
-				local sig_args = {'void*', 'struct wl_proxy*'}
+				local sig_args = {"void*", "struct wl_proxy*"}
+
 				for _, arg in ipairs(evt.args) do
-					if arg.type == 'int' then
-						table.insert(sig_args, 'int32_t')
-					elseif arg.type == 'uint' then
-						table.insert(sig_args, 'uint32_t')
-					elseif arg.type == 'fixed' then
-						table.insert(sig_args, 'wl_fixed_t')
-					elseif arg.type == 'string' then
-						table.insert(sig_args, 'const char*')
-					elseif arg.type == 'object' then
-						table.insert(sig_args, 'struct wl_proxy*')
-					elseif arg.type == 'new_id' then
-						table.insert(sig_args, 'struct wl_proxy*')
-					elseif arg.type == 'array' then
-						table.insert(sig_args, 'struct wl_array*')
-					elseif arg.type == 'fd' then
-						table.insert(sig_args, 'int32_t')
+					if arg.type == "int" then
+						table.insert(sig_args, "int32_t")
+					elseif arg.type == "uint" then
+						table.insert(sig_args, "uint32_t")
+					elseif arg.type == "fixed" then
+						table.insert(sig_args, "wl_fixed_t")
+					elseif arg.type == "string" then
+						table.insert(sig_args, "const char*")
+					elseif arg.type == "object" then
+						table.insert(sig_args, "struct wl_proxy*")
+					elseif arg.type == "new_id" then
+						table.insert(sig_args, "struct wl_proxy*")
+					elseif arg.type == "array" then
+						table.insert(sig_args, "struct wl_array*")
+					elseif arg.type == "fd" then
+						table.insert(sig_args, "int32_t")
 					end
 				end
 
-				local sig = 'void (*)(' .. table.concat(sig_args, ', ') .. ')'
+				local sig = "void (*)(" .. table.concat(sig_args, ", ") .. ")"
 				local cb_func = ffi.cast(sig, function(data, proxy, ...)
 					local args = {...}
 					local lua_args = {}
 					local arg_idx = 1
-
-					proxy = ffi.cast('struct wl_shell_surface*', proxy)
+					proxy = ffi.cast("struct wl_shell_surface*", proxy)
 
 					for _, arg in ipairs(evt.args) do
 						local val = args[arg_idx]
 						arg_idx = arg_idx + 1
 
-						if arg.type == 'fixed' then
+						if arg.type == "fixed" then
 							val = tonumber(val) / 256.0
-						elseif arg.type == 'string' then
+						elseif arg.type == "string" then
 							val = ffi.string(val)
-						elseif arg.type == 'object' or arg.type == 'new_id' then
+						elseif arg.type == "object" or arg.type == "new_id" then
 							if arg.interface then
-								val = ffi.cast('struct ' .. arg.interface .. '*', val)
+								val = ffi.cast("struct " .. arg.interface .. "*", val)
 							end
 						end
 
@@ -6775,21 +6782,20 @@ do
 		end
 
 		ffi.C.wl_proxy_add_listener(
-			ffi.cast('struct wl_proxy*', self),
-			ffi.cast('void(**)(void)', listener),
-			ffi.cast('void*', data)
+			ffi.cast("struct wl_proxy*", self),
+			ffi.cast("void(**)(void)", listener),
+			ffi.cast("void*", data)
 		)
 	end
 
-	output_table['wl_shell_surface'] = meta
-	ffi.metatype('struct wl_shell_surface', meta)
+	output_table["wl_shell_surface"] = meta
+	ffi.metatype("struct wl_shell_surface", meta)
 end
 
 -- Interface: wl_surface
 do
 	local meta = {}
 	meta.__index = meta
-
 	local iface = {
 		enums = {
 			[1] = {
@@ -6871,8 +6877,7 @@ do
 		name = "wl_surface",
 		requests = {
 			[1] = {
-				args = {
-				},
+				args = {},
 				name = "destroy",
 				since = 1,
 				type = "destructor",
@@ -7004,8 +7009,7 @@ do
 				since = 1,
 			},
 			[7] = {
-				args = {
-				},
+				args = {},
 				name = "commit",
 				since = 1,
 			},
@@ -7038,7 +7042,7 @@ do
 	-- Request: destroy
 	function meta:destroy(...)
 		local args = {...}
-		local args_array = ffi.new('union wl_argument[1]') -- Dummy for empty args
+		local args_array = ffi.new("union wl_argument[1]") -- Dummy for empty args
 		local arg_idx = 1
 		local array_idx = 0
 		local has_new_id = false
@@ -7048,21 +7052,24 @@ do
 
 		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[1].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				has_new_id = true
 				new_id_interface = arg.interface
+
 				if not new_id_interface then generic_new_id = true end
+
 				break
 			end
 		end
 
 		-- Process arguments
 		for i, arg in ipairs(iface.requests[1].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				if not arg.interface then
 					local target_iface = args[arg_idx]
 					local target_ver = args[arg_idx + 1]
 					arg_idx = arg_idx + 2
+
 					if target_iface then
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
@@ -7071,32 +7078,33 @@ do
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
+
 					array_idx = array_idx + 3
 				else
 					args_array[array_idx].n = 0
 					array_idx = array_idx + 1
 				end
-			elseif arg.type == 'fixed' then
+			elseif arg.type == "fixed" then
 				local val = args[arg_idx] or 0
 				arg_idx = arg_idx + 1
-				args_array[array_idx].f = ffi.cast('wl_fixed_t', val * 256.0)
+				args_array[array_idx].f = ffi.cast("wl_fixed_t", val * 256.0)
 				array_idx = array_idx + 1
-			elseif arg.type == 'object' then
+			elseif arg.type == "object" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].o = val and ffi.cast('struct wl_object*', val) or nil
+				args_array[array_idx].o = val and ffi.cast("struct wl_object*", val) or nil
 				array_idx = array_idx + 1
-			elseif arg.type == 'array' then
+			elseif arg.type == "array" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].a = ffi.cast('struct wl_array*', val)
+				args_array[array_idx].a = ffi.cast("struct wl_array*", val)
 				array_idx = array_idx + 1
-			elseif arg.type == 'string' then
+			elseif arg.type == "string" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].s = val
 				array_idx = array_idx + 1
-			elseif arg.type == 'fd' then
+			elseif arg.type == "fd" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].h = tonumber(val)
@@ -7104,11 +7112,13 @@ do
 			else
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				if arg.type == 'uint' then
+
+				if arg.type == "uint" then
 					args_array[array_idx].u = tonumber(val)
 				else
 					args_array[array_idx].i = tonumber(val)
 				end
+
 				array_idx = array_idx + 1
 			end
 		end
@@ -7117,32 +7127,27 @@ do
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
-					ffi.cast('struct wl_proxy*', self),
+					ffi.cast("struct wl_proxy*", self),
 					0,
 					args_array,
 					new_id_interface,
 					version_for_generic
 				)
-				return ffi.cast('void*', new_proxy)
+				return ffi.cast("void*", new_proxy)
 			elseif new_id_interface then
-				local target_interface = ffi.C[new_id_interface .. '_interface']
-				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(
-					ffi.cast('struct wl_proxy*', self),
-					0,
-					args_array,
-					target_interface
-				)
-				return ffi.cast('struct ' .. new_id_interface .. '*', new_proxy)
+				local target_interface = ffi.C[new_id_interface .. "_interface"]
+				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(ffi.cast("struct wl_proxy*", self), 0, args_array, target_interface)
+				return ffi.cast("struct " .. new_id_interface .. "*", new_proxy)
 			end
 		else
-			ffi.C.wl_proxy_marshal_array(ffi.cast('struct wl_proxy*', self), 0, args_array)
+			ffi.C.wl_proxy_marshal_array(ffi.cast("struct wl_proxy*", self), 0, args_array)
 		end
 	end
 
 	-- Request: attach
 	function meta:attach(...)
 		local args = {...}
-		local args_array = ffi.new('union wl_argument[4]')
+		local args_array = ffi.new("union wl_argument[4]")
 		local arg_idx = 1
 		local array_idx = 0
 		local has_new_id = false
@@ -7152,21 +7157,24 @@ do
 
 		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[2].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				has_new_id = true
 				new_id_interface = arg.interface
+
 				if not new_id_interface then generic_new_id = true end
+
 				break
 			end
 		end
 
 		-- Process arguments
 		for i, arg in ipairs(iface.requests[2].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				if not arg.interface then
 					local target_iface = args[arg_idx]
 					local target_ver = args[arg_idx + 1]
 					arg_idx = arg_idx + 2
+
 					if target_iface then
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
@@ -7175,32 +7183,33 @@ do
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
+
 					array_idx = array_idx + 3
 				else
 					args_array[array_idx].n = 0
 					array_idx = array_idx + 1
 				end
-			elseif arg.type == 'fixed' then
+			elseif arg.type == "fixed" then
 				local val = args[arg_idx] or 0
 				arg_idx = arg_idx + 1
-				args_array[array_idx].f = ffi.cast('wl_fixed_t', val * 256.0)
+				args_array[array_idx].f = ffi.cast("wl_fixed_t", val * 256.0)
 				array_idx = array_idx + 1
-			elseif arg.type == 'object' then
+			elseif arg.type == "object" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].o = val and ffi.cast('struct wl_object*', val) or nil
+				args_array[array_idx].o = val and ffi.cast("struct wl_object*", val) or nil
 				array_idx = array_idx + 1
-			elseif arg.type == 'array' then
+			elseif arg.type == "array" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].a = ffi.cast('struct wl_array*', val)
+				args_array[array_idx].a = ffi.cast("struct wl_array*", val)
 				array_idx = array_idx + 1
-			elseif arg.type == 'string' then
+			elseif arg.type == "string" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].s = val
 				array_idx = array_idx + 1
-			elseif arg.type == 'fd' then
+			elseif arg.type == "fd" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].h = tonumber(val)
@@ -7208,11 +7217,13 @@ do
 			else
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				if arg.type == 'uint' then
+
+				if arg.type == "uint" then
 					args_array[array_idx].u = tonumber(val)
 				else
 					args_array[array_idx].i = tonumber(val)
 				end
+
 				array_idx = array_idx + 1
 			end
 		end
@@ -7221,32 +7232,27 @@ do
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
-					ffi.cast('struct wl_proxy*', self),
+					ffi.cast("struct wl_proxy*", self),
 					1,
 					args_array,
 					new_id_interface,
 					version_for_generic
 				)
-				return ffi.cast('void*', new_proxy)
+				return ffi.cast("void*", new_proxy)
 			elseif new_id_interface then
-				local target_interface = ffi.C[new_id_interface .. '_interface']
-				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(
-					ffi.cast('struct wl_proxy*', self),
-					1,
-					args_array,
-					target_interface
-				)
-				return ffi.cast('struct ' .. new_id_interface .. '*', new_proxy)
+				local target_interface = ffi.C[new_id_interface .. "_interface"]
+				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(ffi.cast("struct wl_proxy*", self), 1, args_array, target_interface)
+				return ffi.cast("struct " .. new_id_interface .. "*", new_proxy)
 			end
 		else
-			ffi.C.wl_proxy_marshal_array(ffi.cast('struct wl_proxy*', self), 1, args_array)
+			ffi.C.wl_proxy_marshal_array(ffi.cast("struct wl_proxy*", self), 1, args_array)
 		end
 	end
 
 	-- Request: damage
 	function meta:damage(...)
 		local args = {...}
-		local args_array = ffi.new('union wl_argument[4]')
+		local args_array = ffi.new("union wl_argument[4]")
 		local arg_idx = 1
 		local array_idx = 0
 		local has_new_id = false
@@ -7256,21 +7262,24 @@ do
 
 		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[3].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				has_new_id = true
 				new_id_interface = arg.interface
+
 				if not new_id_interface then generic_new_id = true end
+
 				break
 			end
 		end
 
 		-- Process arguments
 		for i, arg in ipairs(iface.requests[3].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				if not arg.interface then
 					local target_iface = args[arg_idx]
 					local target_ver = args[arg_idx + 1]
 					arg_idx = arg_idx + 2
+
 					if target_iface then
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
@@ -7279,32 +7288,33 @@ do
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
+
 					array_idx = array_idx + 3
 				else
 					args_array[array_idx].n = 0
 					array_idx = array_idx + 1
 				end
-			elseif arg.type == 'fixed' then
+			elseif arg.type == "fixed" then
 				local val = args[arg_idx] or 0
 				arg_idx = arg_idx + 1
-				args_array[array_idx].f = ffi.cast('wl_fixed_t', val * 256.0)
+				args_array[array_idx].f = ffi.cast("wl_fixed_t", val * 256.0)
 				array_idx = array_idx + 1
-			elseif arg.type == 'object' then
+			elseif arg.type == "object" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].o = val and ffi.cast('struct wl_object*', val) or nil
+				args_array[array_idx].o = val and ffi.cast("struct wl_object*", val) or nil
 				array_idx = array_idx + 1
-			elseif arg.type == 'array' then
+			elseif arg.type == "array" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].a = ffi.cast('struct wl_array*', val)
+				args_array[array_idx].a = ffi.cast("struct wl_array*", val)
 				array_idx = array_idx + 1
-			elseif arg.type == 'string' then
+			elseif arg.type == "string" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].s = val
 				array_idx = array_idx + 1
-			elseif arg.type == 'fd' then
+			elseif arg.type == "fd" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].h = tonumber(val)
@@ -7312,11 +7322,13 @@ do
 			else
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				if arg.type == 'uint' then
+
+				if arg.type == "uint" then
 					args_array[array_idx].u = tonumber(val)
 				else
 					args_array[array_idx].i = tonumber(val)
 				end
+
 				array_idx = array_idx + 1
 			end
 		end
@@ -7325,32 +7337,27 @@ do
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
-					ffi.cast('struct wl_proxy*', self),
+					ffi.cast("struct wl_proxy*", self),
 					2,
 					args_array,
 					new_id_interface,
 					version_for_generic
 				)
-				return ffi.cast('void*', new_proxy)
+				return ffi.cast("void*", new_proxy)
 			elseif new_id_interface then
-				local target_interface = ffi.C[new_id_interface .. '_interface']
-				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(
-					ffi.cast('struct wl_proxy*', self),
-					2,
-					args_array,
-					target_interface
-				)
-				return ffi.cast('struct ' .. new_id_interface .. '*', new_proxy)
+				local target_interface = ffi.C[new_id_interface .. "_interface"]
+				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(ffi.cast("struct wl_proxy*", self), 2, args_array, target_interface)
+				return ffi.cast("struct " .. new_id_interface .. "*", new_proxy)
 			end
 		else
-			ffi.C.wl_proxy_marshal_array(ffi.cast('struct wl_proxy*', self), 2, args_array)
+			ffi.C.wl_proxy_marshal_array(ffi.cast("struct wl_proxy*", self), 2, args_array)
 		end
 	end
 
 	-- Request: frame
 	function meta:frame(...)
 		local args = {...}
-		local args_array = ffi.new('union wl_argument[1]')
+		local args_array = ffi.new("union wl_argument[1]")
 		local arg_idx = 1
 		local array_idx = 0
 		local has_new_id = false
@@ -7360,21 +7367,24 @@ do
 
 		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[4].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				has_new_id = true
 				new_id_interface = arg.interface
+
 				if not new_id_interface then generic_new_id = true end
+
 				break
 			end
 		end
 
 		-- Process arguments
 		for i, arg in ipairs(iface.requests[4].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				if not arg.interface then
 					local target_iface = args[arg_idx]
 					local target_ver = args[arg_idx + 1]
 					arg_idx = arg_idx + 2
+
 					if target_iface then
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
@@ -7383,32 +7393,33 @@ do
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
+
 					array_idx = array_idx + 3
 				else
 					args_array[array_idx].n = 0
 					array_idx = array_idx + 1
 				end
-			elseif arg.type == 'fixed' then
+			elseif arg.type == "fixed" then
 				local val = args[arg_idx] or 0
 				arg_idx = arg_idx + 1
-				args_array[array_idx].f = ffi.cast('wl_fixed_t', val * 256.0)
+				args_array[array_idx].f = ffi.cast("wl_fixed_t", val * 256.0)
 				array_idx = array_idx + 1
-			elseif arg.type == 'object' then
+			elseif arg.type == "object" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].o = val and ffi.cast('struct wl_object*', val) or nil
+				args_array[array_idx].o = val and ffi.cast("struct wl_object*", val) or nil
 				array_idx = array_idx + 1
-			elseif arg.type == 'array' then
+			elseif arg.type == "array" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].a = ffi.cast('struct wl_array*', val)
+				args_array[array_idx].a = ffi.cast("struct wl_array*", val)
 				array_idx = array_idx + 1
-			elseif arg.type == 'string' then
+			elseif arg.type == "string" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].s = val
 				array_idx = array_idx + 1
-			elseif arg.type == 'fd' then
+			elseif arg.type == "fd" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].h = tonumber(val)
@@ -7416,11 +7427,13 @@ do
 			else
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				if arg.type == 'uint' then
+
+				if arg.type == "uint" then
 					args_array[array_idx].u = tonumber(val)
 				else
 					args_array[array_idx].i = tonumber(val)
 				end
+
 				array_idx = array_idx + 1
 			end
 		end
@@ -7429,32 +7442,27 @@ do
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
-					ffi.cast('struct wl_proxy*', self),
+					ffi.cast("struct wl_proxy*", self),
 					3,
 					args_array,
 					new_id_interface,
 					version_for_generic
 				)
-				return ffi.cast('void*', new_proxy)
+				return ffi.cast("void*", new_proxy)
 			elseif new_id_interface then
-				local target_interface = ffi.C[new_id_interface .. '_interface']
-				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(
-					ffi.cast('struct wl_proxy*', self),
-					3,
-					args_array,
-					target_interface
-				)
-				return ffi.cast('struct ' .. new_id_interface .. '*', new_proxy)
+				local target_interface = ffi.C[new_id_interface .. "_interface"]
+				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(ffi.cast("struct wl_proxy*", self), 3, args_array, target_interface)
+				return ffi.cast("struct " .. new_id_interface .. "*", new_proxy)
 			end
 		else
-			ffi.C.wl_proxy_marshal_array(ffi.cast('struct wl_proxy*', self), 3, args_array)
+			ffi.C.wl_proxy_marshal_array(ffi.cast("struct wl_proxy*", self), 3, args_array)
 		end
 	end
 
 	-- Request: set_opaque_region
 	function meta:set_opaque_region(...)
 		local args = {...}
-		local args_array = ffi.new('union wl_argument[2]')
+		local args_array = ffi.new("union wl_argument[2]")
 		local arg_idx = 1
 		local array_idx = 0
 		local has_new_id = false
@@ -7464,21 +7472,24 @@ do
 
 		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[5].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				has_new_id = true
 				new_id_interface = arg.interface
+
 				if not new_id_interface then generic_new_id = true end
+
 				break
 			end
 		end
 
 		-- Process arguments
 		for i, arg in ipairs(iface.requests[5].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				if not arg.interface then
 					local target_iface = args[arg_idx]
 					local target_ver = args[arg_idx + 1]
 					arg_idx = arg_idx + 2
+
 					if target_iface then
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
@@ -7487,32 +7498,33 @@ do
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
+
 					array_idx = array_idx + 3
 				else
 					args_array[array_idx].n = 0
 					array_idx = array_idx + 1
 				end
-			elseif arg.type == 'fixed' then
+			elseif arg.type == "fixed" then
 				local val = args[arg_idx] or 0
 				arg_idx = arg_idx + 1
-				args_array[array_idx].f = ffi.cast('wl_fixed_t', val * 256.0)
+				args_array[array_idx].f = ffi.cast("wl_fixed_t", val * 256.0)
 				array_idx = array_idx + 1
-			elseif arg.type == 'object' then
+			elseif arg.type == "object" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].o = val and ffi.cast('struct wl_object*', val) or nil
+				args_array[array_idx].o = val and ffi.cast("struct wl_object*", val) or nil
 				array_idx = array_idx + 1
-			elseif arg.type == 'array' then
+			elseif arg.type == "array" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].a = ffi.cast('struct wl_array*', val)
+				args_array[array_idx].a = ffi.cast("struct wl_array*", val)
 				array_idx = array_idx + 1
-			elseif arg.type == 'string' then
+			elseif arg.type == "string" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].s = val
 				array_idx = array_idx + 1
-			elseif arg.type == 'fd' then
+			elseif arg.type == "fd" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].h = tonumber(val)
@@ -7520,11 +7532,13 @@ do
 			else
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				if arg.type == 'uint' then
+
+				if arg.type == "uint" then
 					args_array[array_idx].u = tonumber(val)
 				else
 					args_array[array_idx].i = tonumber(val)
 				end
+
 				array_idx = array_idx + 1
 			end
 		end
@@ -7533,32 +7547,27 @@ do
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
-					ffi.cast('struct wl_proxy*', self),
+					ffi.cast("struct wl_proxy*", self),
 					4,
 					args_array,
 					new_id_interface,
 					version_for_generic
 				)
-				return ffi.cast('void*', new_proxy)
+				return ffi.cast("void*", new_proxy)
 			elseif new_id_interface then
-				local target_interface = ffi.C[new_id_interface .. '_interface']
-				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(
-					ffi.cast('struct wl_proxy*', self),
-					4,
-					args_array,
-					target_interface
-				)
-				return ffi.cast('struct ' .. new_id_interface .. '*', new_proxy)
+				local target_interface = ffi.C[new_id_interface .. "_interface"]
+				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(ffi.cast("struct wl_proxy*", self), 4, args_array, target_interface)
+				return ffi.cast("struct " .. new_id_interface .. "*", new_proxy)
 			end
 		else
-			ffi.C.wl_proxy_marshal_array(ffi.cast('struct wl_proxy*', self), 4, args_array)
+			ffi.C.wl_proxy_marshal_array(ffi.cast("struct wl_proxy*", self), 4, args_array)
 		end
 	end
 
 	-- Request: set_input_region
 	function meta:set_input_region(...)
 		local args = {...}
-		local args_array = ffi.new('union wl_argument[2]')
+		local args_array = ffi.new("union wl_argument[2]")
 		local arg_idx = 1
 		local array_idx = 0
 		local has_new_id = false
@@ -7568,21 +7577,24 @@ do
 
 		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[6].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				has_new_id = true
 				new_id_interface = arg.interface
+
 				if not new_id_interface then generic_new_id = true end
+
 				break
 			end
 		end
 
 		-- Process arguments
 		for i, arg in ipairs(iface.requests[6].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				if not arg.interface then
 					local target_iface = args[arg_idx]
 					local target_ver = args[arg_idx + 1]
 					arg_idx = arg_idx + 2
+
 					if target_iface then
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
@@ -7591,32 +7603,33 @@ do
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
+
 					array_idx = array_idx + 3
 				else
 					args_array[array_idx].n = 0
 					array_idx = array_idx + 1
 				end
-			elseif arg.type == 'fixed' then
+			elseif arg.type == "fixed" then
 				local val = args[arg_idx] or 0
 				arg_idx = arg_idx + 1
-				args_array[array_idx].f = ffi.cast('wl_fixed_t', val * 256.0)
+				args_array[array_idx].f = ffi.cast("wl_fixed_t", val * 256.0)
 				array_idx = array_idx + 1
-			elseif arg.type == 'object' then
+			elseif arg.type == "object" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].o = val and ffi.cast('struct wl_object*', val) or nil
+				args_array[array_idx].o = val and ffi.cast("struct wl_object*", val) or nil
 				array_idx = array_idx + 1
-			elseif arg.type == 'array' then
+			elseif arg.type == "array" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].a = ffi.cast('struct wl_array*', val)
+				args_array[array_idx].a = ffi.cast("struct wl_array*", val)
 				array_idx = array_idx + 1
-			elseif arg.type == 'string' then
+			elseif arg.type == "string" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].s = val
 				array_idx = array_idx + 1
-			elseif arg.type == 'fd' then
+			elseif arg.type == "fd" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].h = tonumber(val)
@@ -7624,11 +7637,13 @@ do
 			else
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				if arg.type == 'uint' then
+
+				if arg.type == "uint" then
 					args_array[array_idx].u = tonumber(val)
 				else
 					args_array[array_idx].i = tonumber(val)
 				end
+
 				array_idx = array_idx + 1
 			end
 		end
@@ -7637,32 +7652,27 @@ do
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
-					ffi.cast('struct wl_proxy*', self),
+					ffi.cast("struct wl_proxy*", self),
 					5,
 					args_array,
 					new_id_interface,
 					version_for_generic
 				)
-				return ffi.cast('void*', new_proxy)
+				return ffi.cast("void*", new_proxy)
 			elseif new_id_interface then
-				local target_interface = ffi.C[new_id_interface .. '_interface']
-				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(
-					ffi.cast('struct wl_proxy*', self),
-					5,
-					args_array,
-					target_interface
-				)
-				return ffi.cast('struct ' .. new_id_interface .. '*', new_proxy)
+				local target_interface = ffi.C[new_id_interface .. "_interface"]
+				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(ffi.cast("struct wl_proxy*", self), 5, args_array, target_interface)
+				return ffi.cast("struct " .. new_id_interface .. "*", new_proxy)
 			end
 		else
-			ffi.C.wl_proxy_marshal_array(ffi.cast('struct wl_proxy*', self), 5, args_array)
+			ffi.C.wl_proxy_marshal_array(ffi.cast("struct wl_proxy*", self), 5, args_array)
 		end
 	end
 
 	-- Request: commit
 	function meta:commit(...)
 		local args = {...}
-		local args_array = ffi.new('union wl_argument[1]') -- Dummy for empty args
+		local args_array = ffi.new("union wl_argument[1]") -- Dummy for empty args
 		local arg_idx = 1
 		local array_idx = 0
 		local has_new_id = false
@@ -7672,21 +7682,24 @@ do
 
 		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[7].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				has_new_id = true
 				new_id_interface = arg.interface
+
 				if not new_id_interface then generic_new_id = true end
+
 				break
 			end
 		end
 
 		-- Process arguments
 		for i, arg in ipairs(iface.requests[7].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				if not arg.interface then
 					local target_iface = args[arg_idx]
 					local target_ver = args[arg_idx + 1]
 					arg_idx = arg_idx + 2
+
 					if target_iface then
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
@@ -7695,32 +7708,33 @@ do
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
+
 					array_idx = array_idx + 3
 				else
 					args_array[array_idx].n = 0
 					array_idx = array_idx + 1
 				end
-			elseif arg.type == 'fixed' then
+			elseif arg.type == "fixed" then
 				local val = args[arg_idx] or 0
 				arg_idx = arg_idx + 1
-				args_array[array_idx].f = ffi.cast('wl_fixed_t', val * 256.0)
+				args_array[array_idx].f = ffi.cast("wl_fixed_t", val * 256.0)
 				array_idx = array_idx + 1
-			elseif arg.type == 'object' then
+			elseif arg.type == "object" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].o = val and ffi.cast('struct wl_object*', val) or nil
+				args_array[array_idx].o = val and ffi.cast("struct wl_object*", val) or nil
 				array_idx = array_idx + 1
-			elseif arg.type == 'array' then
+			elseif arg.type == "array" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].a = ffi.cast('struct wl_array*', val)
+				args_array[array_idx].a = ffi.cast("struct wl_array*", val)
 				array_idx = array_idx + 1
-			elseif arg.type == 'string' then
+			elseif arg.type == "string" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].s = val
 				array_idx = array_idx + 1
-			elseif arg.type == 'fd' then
+			elseif arg.type == "fd" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].h = tonumber(val)
@@ -7728,11 +7742,13 @@ do
 			else
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				if arg.type == 'uint' then
+
+				if arg.type == "uint" then
 					args_array[array_idx].u = tonumber(val)
 				else
 					args_array[array_idx].i = tonumber(val)
 				end
+
 				array_idx = array_idx + 1
 			end
 		end
@@ -7741,32 +7757,27 @@ do
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
-					ffi.cast('struct wl_proxy*', self),
+					ffi.cast("struct wl_proxy*", self),
 					6,
 					args_array,
 					new_id_interface,
 					version_for_generic
 				)
-				return ffi.cast('void*', new_proxy)
+				return ffi.cast("void*", new_proxy)
 			elseif new_id_interface then
-				local target_interface = ffi.C[new_id_interface .. '_interface']
-				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(
-					ffi.cast('struct wl_proxy*', self),
-					6,
-					args_array,
-					target_interface
-				)
-				return ffi.cast('struct ' .. new_id_interface .. '*', new_proxy)
+				local target_interface = ffi.C[new_id_interface .. "_interface"]
+				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(ffi.cast("struct wl_proxy*", self), 6, args_array, target_interface)
+				return ffi.cast("struct " .. new_id_interface .. "*", new_proxy)
 			end
 		else
-			ffi.C.wl_proxy_marshal_array(ffi.cast('struct wl_proxy*', self), 6, args_array)
+			ffi.C.wl_proxy_marshal_array(ffi.cast("struct wl_proxy*", self), 6, args_array)
 		end
 	end
 
 	-- Request: set_buffer_transform
 	function meta:set_buffer_transform(...)
 		local args = {...}
-		local args_array = ffi.new('union wl_argument[1]')
+		local args_array = ffi.new("union wl_argument[1]")
 		local arg_idx = 1
 		local array_idx = 0
 		local has_new_id = false
@@ -7776,21 +7787,24 @@ do
 
 		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[8].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				has_new_id = true
 				new_id_interface = arg.interface
+
 				if not new_id_interface then generic_new_id = true end
+
 				break
 			end
 		end
 
 		-- Process arguments
 		for i, arg in ipairs(iface.requests[8].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				if not arg.interface then
 					local target_iface = args[arg_idx]
 					local target_ver = args[arg_idx + 1]
 					arg_idx = arg_idx + 2
+
 					if target_iface then
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
@@ -7799,32 +7813,33 @@ do
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
+
 					array_idx = array_idx + 3
 				else
 					args_array[array_idx].n = 0
 					array_idx = array_idx + 1
 				end
-			elseif arg.type == 'fixed' then
+			elseif arg.type == "fixed" then
 				local val = args[arg_idx] or 0
 				arg_idx = arg_idx + 1
-				args_array[array_idx].f = ffi.cast('wl_fixed_t', val * 256.0)
+				args_array[array_idx].f = ffi.cast("wl_fixed_t", val * 256.0)
 				array_idx = array_idx + 1
-			elseif arg.type == 'object' then
+			elseif arg.type == "object" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].o = val and ffi.cast('struct wl_object*', val) or nil
+				args_array[array_idx].o = val and ffi.cast("struct wl_object*", val) or nil
 				array_idx = array_idx + 1
-			elseif arg.type == 'array' then
+			elseif arg.type == "array" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].a = ffi.cast('struct wl_array*', val)
+				args_array[array_idx].a = ffi.cast("struct wl_array*", val)
 				array_idx = array_idx + 1
-			elseif arg.type == 'string' then
+			elseif arg.type == "string" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].s = val
 				array_idx = array_idx + 1
-			elseif arg.type == 'fd' then
+			elseif arg.type == "fd" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].h = tonumber(val)
@@ -7832,11 +7847,13 @@ do
 			else
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				if arg.type == 'uint' then
+
+				if arg.type == "uint" then
 					args_array[array_idx].u = tonumber(val)
 				else
 					args_array[array_idx].i = tonumber(val)
 				end
+
 				array_idx = array_idx + 1
 			end
 		end
@@ -7845,32 +7862,27 @@ do
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
-					ffi.cast('struct wl_proxy*', self),
+					ffi.cast("struct wl_proxy*", self),
 					7,
 					args_array,
 					new_id_interface,
 					version_for_generic
 				)
-				return ffi.cast('void*', new_proxy)
+				return ffi.cast("void*", new_proxy)
 			elseif new_id_interface then
-				local target_interface = ffi.C[new_id_interface .. '_interface']
-				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(
-					ffi.cast('struct wl_proxy*', self),
-					7,
-					args_array,
-					target_interface
-				)
-				return ffi.cast('struct ' .. new_id_interface .. '*', new_proxy)
+				local target_interface = ffi.C[new_id_interface .. "_interface"]
+				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(ffi.cast("struct wl_proxy*", self), 7, args_array, target_interface)
+				return ffi.cast("struct " .. new_id_interface .. "*", new_proxy)
 			end
 		else
-			ffi.C.wl_proxy_marshal_array(ffi.cast('struct wl_proxy*', self), 7, args_array)
+			ffi.C.wl_proxy_marshal_array(ffi.cast("struct wl_proxy*", self), 7, args_array)
 		end
 	end
 
 	-- Request: set_buffer_scale
 	function meta:set_buffer_scale(...)
 		local args = {...}
-		local args_array = ffi.new('union wl_argument[1]')
+		local args_array = ffi.new("union wl_argument[1]")
 		local arg_idx = 1
 		local array_idx = 0
 		local has_new_id = false
@@ -7880,21 +7892,24 @@ do
 
 		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[9].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				has_new_id = true
 				new_id_interface = arg.interface
+
 				if not new_id_interface then generic_new_id = true end
+
 				break
 			end
 		end
 
 		-- Process arguments
 		for i, arg in ipairs(iface.requests[9].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				if not arg.interface then
 					local target_iface = args[arg_idx]
 					local target_ver = args[arg_idx + 1]
 					arg_idx = arg_idx + 2
+
 					if target_iface then
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
@@ -7903,32 +7918,33 @@ do
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
+
 					array_idx = array_idx + 3
 				else
 					args_array[array_idx].n = 0
 					array_idx = array_idx + 1
 				end
-			elseif arg.type == 'fixed' then
+			elseif arg.type == "fixed" then
 				local val = args[arg_idx] or 0
 				arg_idx = arg_idx + 1
-				args_array[array_idx].f = ffi.cast('wl_fixed_t', val * 256.0)
+				args_array[array_idx].f = ffi.cast("wl_fixed_t", val * 256.0)
 				array_idx = array_idx + 1
-			elseif arg.type == 'object' then
+			elseif arg.type == "object" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].o = val and ffi.cast('struct wl_object*', val) or nil
+				args_array[array_idx].o = val and ffi.cast("struct wl_object*", val) or nil
 				array_idx = array_idx + 1
-			elseif arg.type == 'array' then
+			elseif arg.type == "array" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].a = ffi.cast('struct wl_array*', val)
+				args_array[array_idx].a = ffi.cast("struct wl_array*", val)
 				array_idx = array_idx + 1
-			elseif arg.type == 'string' then
+			elseif arg.type == "string" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].s = val
 				array_idx = array_idx + 1
-			elseif arg.type == 'fd' then
+			elseif arg.type == "fd" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].h = tonumber(val)
@@ -7936,11 +7952,13 @@ do
 			else
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				if arg.type == 'uint' then
+
+				if arg.type == "uint" then
 					args_array[array_idx].u = tonumber(val)
 				else
 					args_array[array_idx].i = tonumber(val)
 				end
+
 				array_idx = array_idx + 1
 			end
 		end
@@ -7949,32 +7967,27 @@ do
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
-					ffi.cast('struct wl_proxy*', self),
+					ffi.cast("struct wl_proxy*", self),
 					8,
 					args_array,
 					new_id_interface,
 					version_for_generic
 				)
-				return ffi.cast('void*', new_proxy)
+				return ffi.cast("void*", new_proxy)
 			elseif new_id_interface then
-				local target_interface = ffi.C[new_id_interface .. '_interface']
-				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(
-					ffi.cast('struct wl_proxy*', self),
-					8,
-					args_array,
-					target_interface
-				)
-				return ffi.cast('struct ' .. new_id_interface .. '*', new_proxy)
+				local target_interface = ffi.C[new_id_interface .. "_interface"]
+				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(ffi.cast("struct wl_proxy*", self), 8, args_array, target_interface)
+				return ffi.cast("struct " .. new_id_interface .. "*", new_proxy)
 			end
 		else
-			ffi.C.wl_proxy_marshal_array(ffi.cast('struct wl_proxy*', self), 8, args_array)
+			ffi.C.wl_proxy_marshal_array(ffi.cast("struct wl_proxy*", self), 8, args_array)
 		end
 	end
 
 	-- Request: damage_buffer
 	function meta:damage_buffer(...)
 		local args = {...}
-		local args_array = ffi.new('union wl_argument[4]')
+		local args_array = ffi.new("union wl_argument[4]")
 		local arg_idx = 1
 		local array_idx = 0
 		local has_new_id = false
@@ -7984,21 +7997,24 @@ do
 
 		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[10].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				has_new_id = true
 				new_id_interface = arg.interface
+
 				if not new_id_interface then generic_new_id = true end
+
 				break
 			end
 		end
 
 		-- Process arguments
 		for i, arg in ipairs(iface.requests[10].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				if not arg.interface then
 					local target_iface = args[arg_idx]
 					local target_ver = args[arg_idx + 1]
 					arg_idx = arg_idx + 2
+
 					if target_iface then
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
@@ -8007,32 +8023,33 @@ do
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
+
 					array_idx = array_idx + 3
 				else
 					args_array[array_idx].n = 0
 					array_idx = array_idx + 1
 				end
-			elseif arg.type == 'fixed' then
+			elseif arg.type == "fixed" then
 				local val = args[arg_idx] or 0
 				arg_idx = arg_idx + 1
-				args_array[array_idx].f = ffi.cast('wl_fixed_t', val * 256.0)
+				args_array[array_idx].f = ffi.cast("wl_fixed_t", val * 256.0)
 				array_idx = array_idx + 1
-			elseif arg.type == 'object' then
+			elseif arg.type == "object" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].o = val and ffi.cast('struct wl_object*', val) or nil
+				args_array[array_idx].o = val and ffi.cast("struct wl_object*", val) or nil
 				array_idx = array_idx + 1
-			elseif arg.type == 'array' then
+			elseif arg.type == "array" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].a = ffi.cast('struct wl_array*', val)
+				args_array[array_idx].a = ffi.cast("struct wl_array*", val)
 				array_idx = array_idx + 1
-			elseif arg.type == 'string' then
+			elseif arg.type == "string" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].s = val
 				array_idx = array_idx + 1
-			elseif arg.type == 'fd' then
+			elseif arg.type == "fd" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].h = tonumber(val)
@@ -8040,11 +8057,13 @@ do
 			else
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				if arg.type == 'uint' then
+
+				if arg.type == "uint" then
 					args_array[array_idx].u = tonumber(val)
 				else
 					args_array[array_idx].i = tonumber(val)
 				end
+
 				array_idx = array_idx + 1
 			end
 		end
@@ -8053,32 +8072,27 @@ do
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
-					ffi.cast('struct wl_proxy*', self),
+					ffi.cast("struct wl_proxy*", self),
 					9,
 					args_array,
 					new_id_interface,
 					version_for_generic
 				)
-				return ffi.cast('void*', new_proxy)
+				return ffi.cast("void*", new_proxy)
 			elseif new_id_interface then
-				local target_interface = ffi.C[new_id_interface .. '_interface']
-				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(
-					ffi.cast('struct wl_proxy*', self),
-					9,
-					args_array,
-					target_interface
-				)
-				return ffi.cast('struct ' .. new_id_interface .. '*', new_proxy)
+				local target_interface = ffi.C[new_id_interface .. "_interface"]
+				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(ffi.cast("struct wl_proxy*", self), 9, args_array, target_interface)
+				return ffi.cast("struct " .. new_id_interface .. "*", new_proxy)
 			end
 		else
-			ffi.C.wl_proxy_marshal_array(ffi.cast('struct wl_proxy*', self), 9, args_array)
+			ffi.C.wl_proxy_marshal_array(ffi.cast("struct wl_proxy*", self), 9, args_array)
 		end
 	end
 
 	-- Request: offset
 	function meta:offset(...)
 		local args = {...}
-		local args_array = ffi.new('union wl_argument[2]')
+		local args_array = ffi.new("union wl_argument[2]")
 		local arg_idx = 1
 		local array_idx = 0
 		local has_new_id = false
@@ -8088,21 +8102,24 @@ do
 
 		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[11].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				has_new_id = true
 				new_id_interface = arg.interface
+
 				if not new_id_interface then generic_new_id = true end
+
 				break
 			end
 		end
 
 		-- Process arguments
 		for i, arg in ipairs(iface.requests[11].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				if not arg.interface then
 					local target_iface = args[arg_idx]
 					local target_ver = args[arg_idx + 1]
 					arg_idx = arg_idx + 2
+
 					if target_iface then
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
@@ -8111,32 +8128,33 @@ do
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
+
 					array_idx = array_idx + 3
 				else
 					args_array[array_idx].n = 0
 					array_idx = array_idx + 1
 				end
-			elseif arg.type == 'fixed' then
+			elseif arg.type == "fixed" then
 				local val = args[arg_idx] or 0
 				arg_idx = arg_idx + 1
-				args_array[array_idx].f = ffi.cast('wl_fixed_t', val * 256.0)
+				args_array[array_idx].f = ffi.cast("wl_fixed_t", val * 256.0)
 				array_idx = array_idx + 1
-			elseif arg.type == 'object' then
+			elseif arg.type == "object" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].o = val and ffi.cast('struct wl_object*', val) or nil
+				args_array[array_idx].o = val and ffi.cast("struct wl_object*", val) or nil
 				array_idx = array_idx + 1
-			elseif arg.type == 'array' then
+			elseif arg.type == "array" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].a = ffi.cast('struct wl_array*', val)
+				args_array[array_idx].a = ffi.cast("struct wl_array*", val)
 				array_idx = array_idx + 1
-			elseif arg.type == 'string' then
+			elseif arg.type == "string" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].s = val
 				array_idx = array_idx + 1
-			elseif arg.type == 'fd' then
+			elseif arg.type == "fd" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].h = tonumber(val)
@@ -8144,11 +8162,13 @@ do
 			else
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				if arg.type == 'uint' then
+
+				if arg.type == "uint" then
 					args_array[array_idx].u = tonumber(val)
 				else
 					args_array[array_idx].i = tonumber(val)
 				end
+
 				array_idx = array_idx + 1
 			end
 		end
@@ -8157,80 +8177,76 @@ do
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
-					ffi.cast('struct wl_proxy*', self),
+					ffi.cast("struct wl_proxy*", self),
 					10,
 					args_array,
 					new_id_interface,
 					version_for_generic
 				)
-				return ffi.cast('void*', new_proxy)
+				return ffi.cast("void*", new_proxy)
 			elseif new_id_interface then
-				local target_interface = ffi.C[new_id_interface .. '_interface']
-				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(
-					ffi.cast('struct wl_proxy*', self),
-					10,
-					args_array,
-					target_interface
-				)
-				return ffi.cast('struct ' .. new_id_interface .. '*', new_proxy)
+				local target_interface = ffi.C[new_id_interface .. "_interface"]
+				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(ffi.cast("struct wl_proxy*", self), 10, args_array, target_interface)
+				return ffi.cast("struct " .. new_id_interface .. "*", new_proxy)
 			end
 		else
-			ffi.C.wl_proxy_marshal_array(ffi.cast('struct wl_proxy*', self), 10, args_array)
+			ffi.C.wl_proxy_marshal_array(ffi.cast("struct wl_proxy*", self), 10, args_array)
 		end
 	end
 
 	-- Helper to create listener
 	function meta:add_listener(callbacks, data)
 		local count = #iface.events
-		local listener = ffi.new('void*[' .. count .. ']')
-		local ptr_key = tonumber(ffi.cast('intptr_t', ffi.cast('struct wl_proxy*', self)))
+		local listener = ffi.new("void*[" .. count .. "]")
+		local ptr_key = tonumber(ffi.cast("intptr_t", ffi.cast("struct wl_proxy*", self)))
 		listeners_registry[ptr_key] = listeners_registry[ptr_key] or {}
 		table.insert(listeners_registry[ptr_key], listener)
 		table.insert(listeners_registry[ptr_key], callbacks)
 
 		for i, evt in ipairs(iface.events) do
 			local cb = callbacks[evt.name]
+
 			if cb then
-				local sig_args = {'void*', 'struct wl_proxy*'}
+				local sig_args = {"void*", "struct wl_proxy*"}
+
 				for _, arg in ipairs(evt.args) do
-					if arg.type == 'int' then
-						table.insert(sig_args, 'int32_t')
-					elseif arg.type == 'uint' then
-						table.insert(sig_args, 'uint32_t')
-					elseif arg.type == 'fixed' then
-						table.insert(sig_args, 'wl_fixed_t')
-					elseif arg.type == 'string' then
-						table.insert(sig_args, 'const char*')
-					elseif arg.type == 'object' then
-						table.insert(sig_args, 'struct wl_proxy*')
-					elseif arg.type == 'new_id' then
-						table.insert(sig_args, 'struct wl_proxy*')
-					elseif arg.type == 'array' then
-						table.insert(sig_args, 'struct wl_array*')
-					elseif arg.type == 'fd' then
-						table.insert(sig_args, 'int32_t')
+					if arg.type == "int" then
+						table.insert(sig_args, "int32_t")
+					elseif arg.type == "uint" then
+						table.insert(sig_args, "uint32_t")
+					elseif arg.type == "fixed" then
+						table.insert(sig_args, "wl_fixed_t")
+					elseif arg.type == "string" then
+						table.insert(sig_args, "const char*")
+					elseif arg.type == "object" then
+						table.insert(sig_args, "struct wl_proxy*")
+					elseif arg.type == "new_id" then
+						table.insert(sig_args, "struct wl_proxy*")
+					elseif arg.type == "array" then
+						table.insert(sig_args, "struct wl_array*")
+					elseif arg.type == "fd" then
+						table.insert(sig_args, "int32_t")
 					end
 				end
 
-				local sig = 'void (*)(' .. table.concat(sig_args, ', ') .. ')'
+				local sig = "void (*)(" .. table.concat(sig_args, ", ") .. ")"
 				local cb_func = ffi.cast(sig, function(data, proxy, ...)
 					local args = {...}
 					local lua_args = {}
 					local arg_idx = 1
-
-					proxy = ffi.cast('struct wl_surface*', proxy)
+					proxy = ffi.cast("struct wl_surface*", proxy)
 
 					for _, arg in ipairs(evt.args) do
 						local val = args[arg_idx]
 						arg_idx = arg_idx + 1
 
-						if arg.type == 'fixed' then
+						if arg.type == "fixed" then
 							val = tonumber(val) / 256.0
-						elseif arg.type == 'string' then
+						elseif arg.type == "string" then
 							val = ffi.string(val)
-						elseif arg.type == 'object' or arg.type == 'new_id' then
+						elseif arg.type == "object" or arg.type == "new_id" then
 							if arg.interface then
-								val = ffi.cast('struct ' .. arg.interface .. '*', val)
+								val = ffi.cast("struct " .. arg.interface .. "*", val)
 							end
 						end
 
@@ -8245,21 +8261,20 @@ do
 		end
 
 		ffi.C.wl_proxy_add_listener(
-			ffi.cast('struct wl_proxy*', self),
-			ffi.cast('void(**)(void)', listener),
-			ffi.cast('void*', data)
+			ffi.cast("struct wl_proxy*", self),
+			ffi.cast("void(**)(void)", listener),
+			ffi.cast("void*", data)
 		)
 	end
 
-	output_table['wl_surface'] = meta
-	ffi.metatype('struct wl_surface', meta)
+	output_table["wl_surface"] = meta
+	ffi.metatype("struct wl_surface", meta)
 end
 
 -- Interface: wl_seat
 do
 	local meta = {}
 	meta.__index = meta
-
 	local iface = {
 		enums = {
 			[1] = {
@@ -8356,8 +8371,7 @@ do
 				since = 1,
 			},
 			[4] = {
-				args = {
-				},
+				args = {},
 				name = "release",
 				since = 5,
 				type = "destructor",
@@ -8369,7 +8383,7 @@ do
 	-- Request: get_pointer
 	function meta:get_pointer(...)
 		local args = {...}
-		local args_array = ffi.new('union wl_argument[1]')
+		local args_array = ffi.new("union wl_argument[1]")
 		local arg_idx = 1
 		local array_idx = 0
 		local has_new_id = false
@@ -8379,21 +8393,24 @@ do
 
 		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[1].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				has_new_id = true
 				new_id_interface = arg.interface
+
 				if not new_id_interface then generic_new_id = true end
+
 				break
 			end
 		end
 
 		-- Process arguments
 		for i, arg in ipairs(iface.requests[1].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				if not arg.interface then
 					local target_iface = args[arg_idx]
 					local target_ver = args[arg_idx + 1]
 					arg_idx = arg_idx + 2
+
 					if target_iface then
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
@@ -8402,32 +8419,33 @@ do
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
+
 					array_idx = array_idx + 3
 				else
 					args_array[array_idx].n = 0
 					array_idx = array_idx + 1
 				end
-			elseif arg.type == 'fixed' then
+			elseif arg.type == "fixed" then
 				local val = args[arg_idx] or 0
 				arg_idx = arg_idx + 1
-				args_array[array_idx].f = ffi.cast('wl_fixed_t', val * 256.0)
+				args_array[array_idx].f = ffi.cast("wl_fixed_t", val * 256.0)
 				array_idx = array_idx + 1
-			elseif arg.type == 'object' then
+			elseif arg.type == "object" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].o = val and ffi.cast('struct wl_object*', val) or nil
+				args_array[array_idx].o = val and ffi.cast("struct wl_object*", val) or nil
 				array_idx = array_idx + 1
-			elseif arg.type == 'array' then
+			elseif arg.type == "array" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].a = ffi.cast('struct wl_array*', val)
+				args_array[array_idx].a = ffi.cast("struct wl_array*", val)
 				array_idx = array_idx + 1
-			elseif arg.type == 'string' then
+			elseif arg.type == "string" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].s = val
 				array_idx = array_idx + 1
-			elseif arg.type == 'fd' then
+			elseif arg.type == "fd" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].h = tonumber(val)
@@ -8435,11 +8453,13 @@ do
 			else
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				if arg.type == 'uint' then
+
+				if arg.type == "uint" then
 					args_array[array_idx].u = tonumber(val)
 				else
 					args_array[array_idx].i = tonumber(val)
 				end
+
 				array_idx = array_idx + 1
 			end
 		end
@@ -8448,32 +8468,27 @@ do
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
-					ffi.cast('struct wl_proxy*', self),
+					ffi.cast("struct wl_proxy*", self),
 					0,
 					args_array,
 					new_id_interface,
 					version_for_generic
 				)
-				return ffi.cast('void*', new_proxy)
+				return ffi.cast("void*", new_proxy)
 			elseif new_id_interface then
-				local target_interface = ffi.C[new_id_interface .. '_interface']
-				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(
-					ffi.cast('struct wl_proxy*', self),
-					0,
-					args_array,
-					target_interface
-				)
-				return ffi.cast('struct ' .. new_id_interface .. '*', new_proxy)
+				local target_interface = ffi.C[new_id_interface .. "_interface"]
+				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(ffi.cast("struct wl_proxy*", self), 0, args_array, target_interface)
+				return ffi.cast("struct " .. new_id_interface .. "*", new_proxy)
 			end
 		else
-			ffi.C.wl_proxy_marshal_array(ffi.cast('struct wl_proxy*', self), 0, args_array)
+			ffi.C.wl_proxy_marshal_array(ffi.cast("struct wl_proxy*", self), 0, args_array)
 		end
 	end
 
 	-- Request: get_keyboard
 	function meta:get_keyboard(...)
 		local args = {...}
-		local args_array = ffi.new('union wl_argument[1]')
+		local args_array = ffi.new("union wl_argument[1]")
 		local arg_idx = 1
 		local array_idx = 0
 		local has_new_id = false
@@ -8483,21 +8498,24 @@ do
 
 		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[2].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				has_new_id = true
 				new_id_interface = arg.interface
+
 				if not new_id_interface then generic_new_id = true end
+
 				break
 			end
 		end
 
 		-- Process arguments
 		for i, arg in ipairs(iface.requests[2].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				if not arg.interface then
 					local target_iface = args[arg_idx]
 					local target_ver = args[arg_idx + 1]
 					arg_idx = arg_idx + 2
+
 					if target_iface then
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
@@ -8506,32 +8524,33 @@ do
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
+
 					array_idx = array_idx + 3
 				else
 					args_array[array_idx].n = 0
 					array_idx = array_idx + 1
 				end
-			elseif arg.type == 'fixed' then
+			elseif arg.type == "fixed" then
 				local val = args[arg_idx] or 0
 				arg_idx = arg_idx + 1
-				args_array[array_idx].f = ffi.cast('wl_fixed_t', val * 256.0)
+				args_array[array_idx].f = ffi.cast("wl_fixed_t", val * 256.0)
 				array_idx = array_idx + 1
-			elseif arg.type == 'object' then
+			elseif arg.type == "object" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].o = val and ffi.cast('struct wl_object*', val) or nil
+				args_array[array_idx].o = val and ffi.cast("struct wl_object*", val) or nil
 				array_idx = array_idx + 1
-			elseif arg.type == 'array' then
+			elseif arg.type == "array" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].a = ffi.cast('struct wl_array*', val)
+				args_array[array_idx].a = ffi.cast("struct wl_array*", val)
 				array_idx = array_idx + 1
-			elseif arg.type == 'string' then
+			elseif arg.type == "string" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].s = val
 				array_idx = array_idx + 1
-			elseif arg.type == 'fd' then
+			elseif arg.type == "fd" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].h = tonumber(val)
@@ -8539,11 +8558,13 @@ do
 			else
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				if arg.type == 'uint' then
+
+				if arg.type == "uint" then
 					args_array[array_idx].u = tonumber(val)
 				else
 					args_array[array_idx].i = tonumber(val)
 				end
+
 				array_idx = array_idx + 1
 			end
 		end
@@ -8552,32 +8573,27 @@ do
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
-					ffi.cast('struct wl_proxy*', self),
+					ffi.cast("struct wl_proxy*", self),
 					1,
 					args_array,
 					new_id_interface,
 					version_for_generic
 				)
-				return ffi.cast('void*', new_proxy)
+				return ffi.cast("void*", new_proxy)
 			elseif new_id_interface then
-				local target_interface = ffi.C[new_id_interface .. '_interface']
-				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(
-					ffi.cast('struct wl_proxy*', self),
-					1,
-					args_array,
-					target_interface
-				)
-				return ffi.cast('struct ' .. new_id_interface .. '*', new_proxy)
+				local target_interface = ffi.C[new_id_interface .. "_interface"]
+				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(ffi.cast("struct wl_proxy*", self), 1, args_array, target_interface)
+				return ffi.cast("struct " .. new_id_interface .. "*", new_proxy)
 			end
 		else
-			ffi.C.wl_proxy_marshal_array(ffi.cast('struct wl_proxy*', self), 1, args_array)
+			ffi.C.wl_proxy_marshal_array(ffi.cast("struct wl_proxy*", self), 1, args_array)
 		end
 	end
 
 	-- Request: get_touch
 	function meta:get_touch(...)
 		local args = {...}
-		local args_array = ffi.new('union wl_argument[1]')
+		local args_array = ffi.new("union wl_argument[1]")
 		local arg_idx = 1
 		local array_idx = 0
 		local has_new_id = false
@@ -8587,21 +8603,24 @@ do
 
 		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[3].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				has_new_id = true
 				new_id_interface = arg.interface
+
 				if not new_id_interface then generic_new_id = true end
+
 				break
 			end
 		end
 
 		-- Process arguments
 		for i, arg in ipairs(iface.requests[3].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				if not arg.interface then
 					local target_iface = args[arg_idx]
 					local target_ver = args[arg_idx + 1]
 					arg_idx = arg_idx + 2
+
 					if target_iface then
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
@@ -8610,32 +8629,33 @@ do
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
+
 					array_idx = array_idx + 3
 				else
 					args_array[array_idx].n = 0
 					array_idx = array_idx + 1
 				end
-			elseif arg.type == 'fixed' then
+			elseif arg.type == "fixed" then
 				local val = args[arg_idx] or 0
 				arg_idx = arg_idx + 1
-				args_array[array_idx].f = ffi.cast('wl_fixed_t', val * 256.0)
+				args_array[array_idx].f = ffi.cast("wl_fixed_t", val * 256.0)
 				array_idx = array_idx + 1
-			elseif arg.type == 'object' then
+			elseif arg.type == "object" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].o = val and ffi.cast('struct wl_object*', val) or nil
+				args_array[array_idx].o = val and ffi.cast("struct wl_object*", val) or nil
 				array_idx = array_idx + 1
-			elseif arg.type == 'array' then
+			elseif arg.type == "array" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].a = ffi.cast('struct wl_array*', val)
+				args_array[array_idx].a = ffi.cast("struct wl_array*", val)
 				array_idx = array_idx + 1
-			elseif arg.type == 'string' then
+			elseif arg.type == "string" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].s = val
 				array_idx = array_idx + 1
-			elseif arg.type == 'fd' then
+			elseif arg.type == "fd" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].h = tonumber(val)
@@ -8643,11 +8663,13 @@ do
 			else
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				if arg.type == 'uint' then
+
+				if arg.type == "uint" then
 					args_array[array_idx].u = tonumber(val)
 				else
 					args_array[array_idx].i = tonumber(val)
 				end
+
 				array_idx = array_idx + 1
 			end
 		end
@@ -8656,32 +8678,27 @@ do
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
-					ffi.cast('struct wl_proxy*', self),
+					ffi.cast("struct wl_proxy*", self),
 					2,
 					args_array,
 					new_id_interface,
 					version_for_generic
 				)
-				return ffi.cast('void*', new_proxy)
+				return ffi.cast("void*", new_proxy)
 			elseif new_id_interface then
-				local target_interface = ffi.C[new_id_interface .. '_interface']
-				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(
-					ffi.cast('struct wl_proxy*', self),
-					2,
-					args_array,
-					target_interface
-				)
-				return ffi.cast('struct ' .. new_id_interface .. '*', new_proxy)
+				local target_interface = ffi.C[new_id_interface .. "_interface"]
+				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(ffi.cast("struct wl_proxy*", self), 2, args_array, target_interface)
+				return ffi.cast("struct " .. new_id_interface .. "*", new_proxy)
 			end
 		else
-			ffi.C.wl_proxy_marshal_array(ffi.cast('struct wl_proxy*', self), 2, args_array)
+			ffi.C.wl_proxy_marshal_array(ffi.cast("struct wl_proxy*", self), 2, args_array)
 		end
 	end
 
 	-- Request: release
 	function meta:release(...)
 		local args = {...}
-		local args_array = ffi.new('union wl_argument[1]') -- Dummy for empty args
+		local args_array = ffi.new("union wl_argument[1]") -- Dummy for empty args
 		local arg_idx = 1
 		local array_idx = 0
 		local has_new_id = false
@@ -8691,21 +8708,24 @@ do
 
 		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[4].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				has_new_id = true
 				new_id_interface = arg.interface
+
 				if not new_id_interface then generic_new_id = true end
+
 				break
 			end
 		end
 
 		-- Process arguments
 		for i, arg in ipairs(iface.requests[4].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				if not arg.interface then
 					local target_iface = args[arg_idx]
 					local target_ver = args[arg_idx + 1]
 					arg_idx = arg_idx + 2
+
 					if target_iface then
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
@@ -8714,32 +8734,33 @@ do
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
+
 					array_idx = array_idx + 3
 				else
 					args_array[array_idx].n = 0
 					array_idx = array_idx + 1
 				end
-			elseif arg.type == 'fixed' then
+			elseif arg.type == "fixed" then
 				local val = args[arg_idx] or 0
 				arg_idx = arg_idx + 1
-				args_array[array_idx].f = ffi.cast('wl_fixed_t', val * 256.0)
+				args_array[array_idx].f = ffi.cast("wl_fixed_t", val * 256.0)
 				array_idx = array_idx + 1
-			elseif arg.type == 'object' then
+			elseif arg.type == "object" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].o = val and ffi.cast('struct wl_object*', val) or nil
+				args_array[array_idx].o = val and ffi.cast("struct wl_object*", val) or nil
 				array_idx = array_idx + 1
-			elseif arg.type == 'array' then
+			elseif arg.type == "array" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].a = ffi.cast('struct wl_array*', val)
+				args_array[array_idx].a = ffi.cast("struct wl_array*", val)
 				array_idx = array_idx + 1
-			elseif arg.type == 'string' then
+			elseif arg.type == "string" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].s = val
 				array_idx = array_idx + 1
-			elseif arg.type == 'fd' then
+			elseif arg.type == "fd" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].h = tonumber(val)
@@ -8747,11 +8768,13 @@ do
 			else
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				if arg.type == 'uint' then
+
+				if arg.type == "uint" then
 					args_array[array_idx].u = tonumber(val)
 				else
 					args_array[array_idx].i = tonumber(val)
 				end
+
 				array_idx = array_idx + 1
 			end
 		end
@@ -8760,80 +8783,76 @@ do
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
-					ffi.cast('struct wl_proxy*', self),
+					ffi.cast("struct wl_proxy*", self),
 					3,
 					args_array,
 					new_id_interface,
 					version_for_generic
 				)
-				return ffi.cast('void*', new_proxy)
+				return ffi.cast("void*", new_proxy)
 			elseif new_id_interface then
-				local target_interface = ffi.C[new_id_interface .. '_interface']
-				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(
-					ffi.cast('struct wl_proxy*', self),
-					3,
-					args_array,
-					target_interface
-				)
-				return ffi.cast('struct ' .. new_id_interface .. '*', new_proxy)
+				local target_interface = ffi.C[new_id_interface .. "_interface"]
+				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(ffi.cast("struct wl_proxy*", self), 3, args_array, target_interface)
+				return ffi.cast("struct " .. new_id_interface .. "*", new_proxy)
 			end
 		else
-			ffi.C.wl_proxy_marshal_array(ffi.cast('struct wl_proxy*', self), 3, args_array)
+			ffi.C.wl_proxy_marshal_array(ffi.cast("struct wl_proxy*", self), 3, args_array)
 		end
 	end
 
 	-- Helper to create listener
 	function meta:add_listener(callbacks, data)
 		local count = #iface.events
-		local listener = ffi.new('void*[' .. count .. ']')
-		local ptr_key = tonumber(ffi.cast('intptr_t', ffi.cast('struct wl_proxy*', self)))
+		local listener = ffi.new("void*[" .. count .. "]")
+		local ptr_key = tonumber(ffi.cast("intptr_t", ffi.cast("struct wl_proxy*", self)))
 		listeners_registry[ptr_key] = listeners_registry[ptr_key] or {}
 		table.insert(listeners_registry[ptr_key], listener)
 		table.insert(listeners_registry[ptr_key], callbacks)
 
 		for i, evt in ipairs(iface.events) do
 			local cb = callbacks[evt.name]
+
 			if cb then
-				local sig_args = {'void*', 'struct wl_proxy*'}
+				local sig_args = {"void*", "struct wl_proxy*"}
+
 				for _, arg in ipairs(evt.args) do
-					if arg.type == 'int' then
-						table.insert(sig_args, 'int32_t')
-					elseif arg.type == 'uint' then
-						table.insert(sig_args, 'uint32_t')
-					elseif arg.type == 'fixed' then
-						table.insert(sig_args, 'wl_fixed_t')
-					elseif arg.type == 'string' then
-						table.insert(sig_args, 'const char*')
-					elseif arg.type == 'object' then
-						table.insert(sig_args, 'struct wl_proxy*')
-					elseif arg.type == 'new_id' then
-						table.insert(sig_args, 'struct wl_proxy*')
-					elseif arg.type == 'array' then
-						table.insert(sig_args, 'struct wl_array*')
-					elseif arg.type == 'fd' then
-						table.insert(sig_args, 'int32_t')
+					if arg.type == "int" then
+						table.insert(sig_args, "int32_t")
+					elseif arg.type == "uint" then
+						table.insert(sig_args, "uint32_t")
+					elseif arg.type == "fixed" then
+						table.insert(sig_args, "wl_fixed_t")
+					elseif arg.type == "string" then
+						table.insert(sig_args, "const char*")
+					elseif arg.type == "object" then
+						table.insert(sig_args, "struct wl_proxy*")
+					elseif arg.type == "new_id" then
+						table.insert(sig_args, "struct wl_proxy*")
+					elseif arg.type == "array" then
+						table.insert(sig_args, "struct wl_array*")
+					elseif arg.type == "fd" then
+						table.insert(sig_args, "int32_t")
 					end
 				end
 
-				local sig = 'void (*)(' .. table.concat(sig_args, ', ') .. ')'
+				local sig = "void (*)(" .. table.concat(sig_args, ", ") .. ")"
 				local cb_func = ffi.cast(sig, function(data, proxy, ...)
 					local args = {...}
 					local lua_args = {}
 					local arg_idx = 1
-
-					proxy = ffi.cast('struct wl_seat*', proxy)
+					proxy = ffi.cast("struct wl_seat*", proxy)
 
 					for _, arg in ipairs(evt.args) do
 						local val = args[arg_idx]
 						arg_idx = arg_idx + 1
 
-						if arg.type == 'fixed' then
+						if arg.type == "fixed" then
 							val = tonumber(val) / 256.0
-						elseif arg.type == 'string' then
+						elseif arg.type == "string" then
 							val = ffi.string(val)
-						elseif arg.type == 'object' or arg.type == 'new_id' then
+						elseif arg.type == "object" or arg.type == "new_id" then
 							if arg.interface then
-								val = ffi.cast('struct ' .. arg.interface .. '*', val)
+								val = ffi.cast("struct " .. arg.interface .. "*", val)
 							end
 						end
 
@@ -8848,21 +8867,20 @@ do
 		end
 
 		ffi.C.wl_proxy_add_listener(
-			ffi.cast('struct wl_proxy*', self),
-			ffi.cast('void(**)(void)', listener),
-			ffi.cast('void*', data)
+			ffi.cast("struct wl_proxy*", self),
+			ffi.cast("void(**)(void)", listener),
+			ffi.cast("void*", data)
 		)
 	end
 
-	output_table['wl_seat'] = meta
-	ffi.metatype('struct wl_seat', meta)
+	output_table["wl_seat"] = meta
+	ffi.metatype("struct wl_seat", meta)
 end
 
 -- Interface: wl_pointer
 do
 	local meta = {}
 	meta.__index = meta
-
 	local iface = {
 		enums = {
 			[1] = {
@@ -9077,8 +9095,7 @@ do
 				since = 1,
 			},
 			[6] = {
-				args = {
-				},
+				args = {},
 				name = "frame",
 				since = 5,
 			},
@@ -9151,8 +9168,7 @@ do
 				since = 1,
 			},
 			[2] = {
-				args = {
-				},
+				args = {},
 				name = "release",
 				since = 3,
 				type = "destructor",
@@ -9164,7 +9180,7 @@ do
 	-- Request: set_cursor
 	function meta:set_cursor(...)
 		local args = {...}
-		local args_array = ffi.new('union wl_argument[5]')
+		local args_array = ffi.new("union wl_argument[5]")
 		local arg_idx = 1
 		local array_idx = 0
 		local has_new_id = false
@@ -9174,21 +9190,24 @@ do
 
 		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[1].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				has_new_id = true
 				new_id_interface = arg.interface
+
 				if not new_id_interface then generic_new_id = true end
+
 				break
 			end
 		end
 
 		-- Process arguments
 		for i, arg in ipairs(iface.requests[1].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				if not arg.interface then
 					local target_iface = args[arg_idx]
 					local target_ver = args[arg_idx + 1]
 					arg_idx = arg_idx + 2
+
 					if target_iface then
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
@@ -9197,32 +9216,33 @@ do
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
+
 					array_idx = array_idx + 3
 				else
 					args_array[array_idx].n = 0
 					array_idx = array_idx + 1
 				end
-			elseif arg.type == 'fixed' then
+			elseif arg.type == "fixed" then
 				local val = args[arg_idx] or 0
 				arg_idx = arg_idx + 1
-				args_array[array_idx].f = ffi.cast('wl_fixed_t', val * 256.0)
+				args_array[array_idx].f = ffi.cast("wl_fixed_t", val * 256.0)
 				array_idx = array_idx + 1
-			elseif arg.type == 'object' then
+			elseif arg.type == "object" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].o = val and ffi.cast('struct wl_object*', val) or nil
+				args_array[array_idx].o = val and ffi.cast("struct wl_object*", val) or nil
 				array_idx = array_idx + 1
-			elseif arg.type == 'array' then
+			elseif arg.type == "array" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].a = ffi.cast('struct wl_array*', val)
+				args_array[array_idx].a = ffi.cast("struct wl_array*", val)
 				array_idx = array_idx + 1
-			elseif arg.type == 'string' then
+			elseif arg.type == "string" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].s = val
 				array_idx = array_idx + 1
-			elseif arg.type == 'fd' then
+			elseif arg.type == "fd" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].h = tonumber(val)
@@ -9230,11 +9250,13 @@ do
 			else
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				if arg.type == 'uint' then
+
+				if arg.type == "uint" then
 					args_array[array_idx].u = tonumber(val)
 				else
 					args_array[array_idx].i = tonumber(val)
 				end
+
 				array_idx = array_idx + 1
 			end
 		end
@@ -9243,32 +9265,27 @@ do
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
-					ffi.cast('struct wl_proxy*', self),
+					ffi.cast("struct wl_proxy*", self),
 					0,
 					args_array,
 					new_id_interface,
 					version_for_generic
 				)
-				return ffi.cast('void*', new_proxy)
+				return ffi.cast("void*", new_proxy)
 			elseif new_id_interface then
-				local target_interface = ffi.C[new_id_interface .. '_interface']
-				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(
-					ffi.cast('struct wl_proxy*', self),
-					0,
-					args_array,
-					target_interface
-				)
-				return ffi.cast('struct ' .. new_id_interface .. '*', new_proxy)
+				local target_interface = ffi.C[new_id_interface .. "_interface"]
+				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(ffi.cast("struct wl_proxy*", self), 0, args_array, target_interface)
+				return ffi.cast("struct " .. new_id_interface .. "*", new_proxy)
 			end
 		else
-			ffi.C.wl_proxy_marshal_array(ffi.cast('struct wl_proxy*', self), 0, args_array)
+			ffi.C.wl_proxy_marshal_array(ffi.cast("struct wl_proxy*", self), 0, args_array)
 		end
 	end
 
 	-- Request: release
 	function meta:release(...)
 		local args = {...}
-		local args_array = ffi.new('union wl_argument[1]') -- Dummy for empty args
+		local args_array = ffi.new("union wl_argument[1]") -- Dummy for empty args
 		local arg_idx = 1
 		local array_idx = 0
 		local has_new_id = false
@@ -9278,21 +9295,24 @@ do
 
 		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[2].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				has_new_id = true
 				new_id_interface = arg.interface
+
 				if not new_id_interface then generic_new_id = true end
+
 				break
 			end
 		end
 
 		-- Process arguments
 		for i, arg in ipairs(iface.requests[2].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				if not arg.interface then
 					local target_iface = args[arg_idx]
 					local target_ver = args[arg_idx + 1]
 					arg_idx = arg_idx + 2
+
 					if target_iface then
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
@@ -9301,32 +9321,33 @@ do
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
+
 					array_idx = array_idx + 3
 				else
 					args_array[array_idx].n = 0
 					array_idx = array_idx + 1
 				end
-			elseif arg.type == 'fixed' then
+			elseif arg.type == "fixed" then
 				local val = args[arg_idx] or 0
 				arg_idx = arg_idx + 1
-				args_array[array_idx].f = ffi.cast('wl_fixed_t', val * 256.0)
+				args_array[array_idx].f = ffi.cast("wl_fixed_t", val * 256.0)
 				array_idx = array_idx + 1
-			elseif arg.type == 'object' then
+			elseif arg.type == "object" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].o = val and ffi.cast('struct wl_object*', val) or nil
+				args_array[array_idx].o = val and ffi.cast("struct wl_object*", val) or nil
 				array_idx = array_idx + 1
-			elseif arg.type == 'array' then
+			elseif arg.type == "array" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].a = ffi.cast('struct wl_array*', val)
+				args_array[array_idx].a = ffi.cast("struct wl_array*", val)
 				array_idx = array_idx + 1
-			elseif arg.type == 'string' then
+			elseif arg.type == "string" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].s = val
 				array_idx = array_idx + 1
-			elseif arg.type == 'fd' then
+			elseif arg.type == "fd" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].h = tonumber(val)
@@ -9334,11 +9355,13 @@ do
 			else
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				if arg.type == 'uint' then
+
+				if arg.type == "uint" then
 					args_array[array_idx].u = tonumber(val)
 				else
 					args_array[array_idx].i = tonumber(val)
 				end
+
 				array_idx = array_idx + 1
 			end
 		end
@@ -9347,80 +9370,76 @@ do
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
-					ffi.cast('struct wl_proxy*', self),
+					ffi.cast("struct wl_proxy*", self),
 					1,
 					args_array,
 					new_id_interface,
 					version_for_generic
 				)
-				return ffi.cast('void*', new_proxy)
+				return ffi.cast("void*", new_proxy)
 			elseif new_id_interface then
-				local target_interface = ffi.C[new_id_interface .. '_interface']
-				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(
-					ffi.cast('struct wl_proxy*', self),
-					1,
-					args_array,
-					target_interface
-				)
-				return ffi.cast('struct ' .. new_id_interface .. '*', new_proxy)
+				local target_interface = ffi.C[new_id_interface .. "_interface"]
+				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(ffi.cast("struct wl_proxy*", self), 1, args_array, target_interface)
+				return ffi.cast("struct " .. new_id_interface .. "*", new_proxy)
 			end
 		else
-			ffi.C.wl_proxy_marshal_array(ffi.cast('struct wl_proxy*', self), 1, args_array)
+			ffi.C.wl_proxy_marshal_array(ffi.cast("struct wl_proxy*", self), 1, args_array)
 		end
 	end
 
 	-- Helper to create listener
 	function meta:add_listener(callbacks, data)
 		local count = #iface.events
-		local listener = ffi.new('void*[' .. count .. ']')
-		local ptr_key = tonumber(ffi.cast('intptr_t', ffi.cast('struct wl_proxy*', self)))
+		local listener = ffi.new("void*[" .. count .. "]")
+		local ptr_key = tonumber(ffi.cast("intptr_t", ffi.cast("struct wl_proxy*", self)))
 		listeners_registry[ptr_key] = listeners_registry[ptr_key] or {}
 		table.insert(listeners_registry[ptr_key], listener)
 		table.insert(listeners_registry[ptr_key], callbacks)
 
 		for i, evt in ipairs(iface.events) do
 			local cb = callbacks[evt.name]
+
 			if cb then
-				local sig_args = {'void*', 'struct wl_proxy*'}
+				local sig_args = {"void*", "struct wl_proxy*"}
+
 				for _, arg in ipairs(evt.args) do
-					if arg.type == 'int' then
-						table.insert(sig_args, 'int32_t')
-					elseif arg.type == 'uint' then
-						table.insert(sig_args, 'uint32_t')
-					elseif arg.type == 'fixed' then
-						table.insert(sig_args, 'wl_fixed_t')
-					elseif arg.type == 'string' then
-						table.insert(sig_args, 'const char*')
-					elseif arg.type == 'object' then
-						table.insert(sig_args, 'struct wl_proxy*')
-					elseif arg.type == 'new_id' then
-						table.insert(sig_args, 'struct wl_proxy*')
-					elseif arg.type == 'array' then
-						table.insert(sig_args, 'struct wl_array*')
-					elseif arg.type == 'fd' then
-						table.insert(sig_args, 'int32_t')
+					if arg.type == "int" then
+						table.insert(sig_args, "int32_t")
+					elseif arg.type == "uint" then
+						table.insert(sig_args, "uint32_t")
+					elseif arg.type == "fixed" then
+						table.insert(sig_args, "wl_fixed_t")
+					elseif arg.type == "string" then
+						table.insert(sig_args, "const char*")
+					elseif arg.type == "object" then
+						table.insert(sig_args, "struct wl_proxy*")
+					elseif arg.type == "new_id" then
+						table.insert(sig_args, "struct wl_proxy*")
+					elseif arg.type == "array" then
+						table.insert(sig_args, "struct wl_array*")
+					elseif arg.type == "fd" then
+						table.insert(sig_args, "int32_t")
 					end
 				end
 
-				local sig = 'void (*)(' .. table.concat(sig_args, ', ') .. ')'
+				local sig = "void (*)(" .. table.concat(sig_args, ", ") .. ")"
 				local cb_func = ffi.cast(sig, function(data, proxy, ...)
 					local args = {...}
 					local lua_args = {}
 					local arg_idx = 1
-
-					proxy = ffi.cast('struct wl_pointer*', proxy)
+					proxy = ffi.cast("struct wl_pointer*", proxy)
 
 					for _, arg in ipairs(evt.args) do
 						local val = args[arg_idx]
 						arg_idx = arg_idx + 1
 
-						if arg.type == 'fixed' then
+						if arg.type == "fixed" then
 							val = tonumber(val) / 256.0
-						elseif arg.type == 'string' then
+						elseif arg.type == "string" then
 							val = ffi.string(val)
-						elseif arg.type == 'object' or arg.type == 'new_id' then
+						elseif arg.type == "object" or arg.type == "new_id" then
 							if arg.interface then
-								val = ffi.cast('struct ' .. arg.interface .. '*', val)
+								val = ffi.cast("struct " .. arg.interface .. "*", val)
 							end
 						end
 
@@ -9435,21 +9454,20 @@ do
 		end
 
 		ffi.C.wl_proxy_add_listener(
-			ffi.cast('struct wl_proxy*', self),
-			ffi.cast('void(**)(void)', listener),
-			ffi.cast('void*', data)
+			ffi.cast("struct wl_proxy*", self),
+			ffi.cast("void(**)(void)", listener),
+			ffi.cast("void*", data)
 		)
 	end
 
-	output_table['wl_pointer'] = meta
-	ffi.metatype('struct wl_pointer', meta)
+	output_table["wl_pointer"] = meta
+	ffi.metatype("struct wl_pointer", meta)
 end
 
 -- Interface: wl_keyboard
 do
 	local meta = {}
 	meta.__index = meta
-
 	local iface = {
 		enums = {
 			[1] = {
@@ -9609,8 +9627,7 @@ do
 		name = "wl_keyboard",
 		requests = {
 			[1] = {
-				args = {
-				},
+				args = {},
 				name = "release",
 				since = 3,
 				type = "destructor",
@@ -9622,7 +9639,7 @@ do
 	-- Request: release
 	function meta:release(...)
 		local args = {...}
-		local args_array = ffi.new('union wl_argument[1]') -- Dummy for empty args
+		local args_array = ffi.new("union wl_argument[1]") -- Dummy for empty args
 		local arg_idx = 1
 		local array_idx = 0
 		local has_new_id = false
@@ -9632,21 +9649,24 @@ do
 
 		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[1].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				has_new_id = true
 				new_id_interface = arg.interface
+
 				if not new_id_interface then generic_new_id = true end
+
 				break
 			end
 		end
 
 		-- Process arguments
 		for i, arg in ipairs(iface.requests[1].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				if not arg.interface then
 					local target_iface = args[arg_idx]
 					local target_ver = args[arg_idx + 1]
 					arg_idx = arg_idx + 2
+
 					if target_iface then
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
@@ -9655,32 +9675,33 @@ do
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
+
 					array_idx = array_idx + 3
 				else
 					args_array[array_idx].n = 0
 					array_idx = array_idx + 1
 				end
-			elseif arg.type == 'fixed' then
+			elseif arg.type == "fixed" then
 				local val = args[arg_idx] or 0
 				arg_idx = arg_idx + 1
-				args_array[array_idx].f = ffi.cast('wl_fixed_t', val * 256.0)
+				args_array[array_idx].f = ffi.cast("wl_fixed_t", val * 256.0)
 				array_idx = array_idx + 1
-			elseif arg.type == 'object' then
+			elseif arg.type == "object" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].o = val and ffi.cast('struct wl_object*', val) or nil
+				args_array[array_idx].o = val and ffi.cast("struct wl_object*", val) or nil
 				array_idx = array_idx + 1
-			elseif arg.type == 'array' then
+			elseif arg.type == "array" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].a = ffi.cast('struct wl_array*', val)
+				args_array[array_idx].a = ffi.cast("struct wl_array*", val)
 				array_idx = array_idx + 1
-			elseif arg.type == 'string' then
+			elseif arg.type == "string" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].s = val
 				array_idx = array_idx + 1
-			elseif arg.type == 'fd' then
+			elseif arg.type == "fd" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].h = tonumber(val)
@@ -9688,11 +9709,13 @@ do
 			else
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				if arg.type == 'uint' then
+
+				if arg.type == "uint" then
 					args_array[array_idx].u = tonumber(val)
 				else
 					args_array[array_idx].i = tonumber(val)
 				end
+
 				array_idx = array_idx + 1
 			end
 		end
@@ -9701,80 +9724,76 @@ do
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
-					ffi.cast('struct wl_proxy*', self),
+					ffi.cast("struct wl_proxy*", self),
 					0,
 					args_array,
 					new_id_interface,
 					version_for_generic
 				)
-				return ffi.cast('void*', new_proxy)
+				return ffi.cast("void*", new_proxy)
 			elseif new_id_interface then
-				local target_interface = ffi.C[new_id_interface .. '_interface']
-				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(
-					ffi.cast('struct wl_proxy*', self),
-					0,
-					args_array,
-					target_interface
-				)
-				return ffi.cast('struct ' .. new_id_interface .. '*', new_proxy)
+				local target_interface = ffi.C[new_id_interface .. "_interface"]
+				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(ffi.cast("struct wl_proxy*", self), 0, args_array, target_interface)
+				return ffi.cast("struct " .. new_id_interface .. "*", new_proxy)
 			end
 		else
-			ffi.C.wl_proxy_marshal_array(ffi.cast('struct wl_proxy*', self), 0, args_array)
+			ffi.C.wl_proxy_marshal_array(ffi.cast("struct wl_proxy*", self), 0, args_array)
 		end
 	end
 
 	-- Helper to create listener
 	function meta:add_listener(callbacks, data)
 		local count = #iface.events
-		local listener = ffi.new('void*[' .. count .. ']')
-		local ptr_key = tonumber(ffi.cast('intptr_t', ffi.cast('struct wl_proxy*', self)))
+		local listener = ffi.new("void*[" .. count .. "]")
+		local ptr_key = tonumber(ffi.cast("intptr_t", ffi.cast("struct wl_proxy*", self)))
 		listeners_registry[ptr_key] = listeners_registry[ptr_key] or {}
 		table.insert(listeners_registry[ptr_key], listener)
 		table.insert(listeners_registry[ptr_key], callbacks)
 
 		for i, evt in ipairs(iface.events) do
 			local cb = callbacks[evt.name]
+
 			if cb then
-				local sig_args = {'void*', 'struct wl_proxy*'}
+				local sig_args = {"void*", "struct wl_proxy*"}
+
 				for _, arg in ipairs(evt.args) do
-					if arg.type == 'int' then
-						table.insert(sig_args, 'int32_t')
-					elseif arg.type == 'uint' then
-						table.insert(sig_args, 'uint32_t')
-					elseif arg.type == 'fixed' then
-						table.insert(sig_args, 'wl_fixed_t')
-					elseif arg.type == 'string' then
-						table.insert(sig_args, 'const char*')
-					elseif arg.type == 'object' then
-						table.insert(sig_args, 'struct wl_proxy*')
-					elseif arg.type == 'new_id' then
-						table.insert(sig_args, 'struct wl_proxy*')
-					elseif arg.type == 'array' then
-						table.insert(sig_args, 'struct wl_array*')
-					elseif arg.type == 'fd' then
-						table.insert(sig_args, 'int32_t')
+					if arg.type == "int" then
+						table.insert(sig_args, "int32_t")
+					elseif arg.type == "uint" then
+						table.insert(sig_args, "uint32_t")
+					elseif arg.type == "fixed" then
+						table.insert(sig_args, "wl_fixed_t")
+					elseif arg.type == "string" then
+						table.insert(sig_args, "const char*")
+					elseif arg.type == "object" then
+						table.insert(sig_args, "struct wl_proxy*")
+					elseif arg.type == "new_id" then
+						table.insert(sig_args, "struct wl_proxy*")
+					elseif arg.type == "array" then
+						table.insert(sig_args, "struct wl_array*")
+					elseif arg.type == "fd" then
+						table.insert(sig_args, "int32_t")
 					end
 				end
 
-				local sig = 'void (*)(' .. table.concat(sig_args, ', ') .. ')'
+				local sig = "void (*)(" .. table.concat(sig_args, ", ") .. ")"
 				local cb_func = ffi.cast(sig, function(data, proxy, ...)
 					local args = {...}
 					local lua_args = {}
 					local arg_idx = 1
-
-					proxy = ffi.cast('struct wl_keyboard*', proxy)
+					proxy = ffi.cast("struct wl_keyboard*", proxy)
 
 					for _, arg in ipairs(evt.args) do
 						local val = args[arg_idx]
 						arg_idx = arg_idx + 1
 
-						if arg.type == 'fixed' then
+						if arg.type == "fixed" then
 							val = tonumber(val) / 256.0
-						elseif arg.type == 'string' then
+						elseif arg.type == "string" then
 							val = ffi.string(val)
-						elseif arg.type == 'object' or arg.type == 'new_id' then
+						elseif arg.type == "object" or arg.type == "new_id" then
 							if arg.interface then
-								val = ffi.cast('struct ' .. arg.interface .. '*', val)
+								val = ffi.cast("struct " .. arg.interface .. "*", val)
 							end
 						end
 
@@ -9789,24 +9808,22 @@ do
 		end
 
 		ffi.C.wl_proxy_add_listener(
-			ffi.cast('struct wl_proxy*', self),
-			ffi.cast('void(**)(void)', listener),
-			ffi.cast('void*', data)
+			ffi.cast("struct wl_proxy*", self),
+			ffi.cast("void(**)(void)", listener),
+			ffi.cast("void*", data)
 		)
 	end
 
-	output_table['wl_keyboard'] = meta
-	ffi.metatype('struct wl_keyboard', meta)
+	output_table["wl_keyboard"] = meta
+	ffi.metatype("struct wl_keyboard", meta)
 end
 
 -- Interface: wl_touch
 do
 	local meta = {}
 	meta.__index = meta
-
 	local iface = {
-		enums = {
-		},
+		enums = {},
 		events = {
 			[1] = {
 				args = {
@@ -9880,14 +9897,12 @@ do
 				since = 1,
 			},
 			[4] = {
-				args = {
-				},
+				args = {},
 				name = "frame",
 				since = 1,
 			},
 			[5] = {
-				args = {
-				},
+				args = {},
 				name = "cancel",
 				since = 1,
 			},
@@ -9927,8 +9942,7 @@ do
 		name = "wl_touch",
 		requests = {
 			[1] = {
-				args = {
-				},
+				args = {},
 				name = "release",
 				since = 3,
 				type = "destructor",
@@ -9940,7 +9954,7 @@ do
 	-- Request: release
 	function meta:release(...)
 		local args = {...}
-		local args_array = ffi.new('union wl_argument[1]') -- Dummy for empty args
+		local args_array = ffi.new("union wl_argument[1]") -- Dummy for empty args
 		local arg_idx = 1
 		local array_idx = 0
 		local has_new_id = false
@@ -9950,21 +9964,24 @@ do
 
 		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[1].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				has_new_id = true
 				new_id_interface = arg.interface
+
 				if not new_id_interface then generic_new_id = true end
+
 				break
 			end
 		end
 
 		-- Process arguments
 		for i, arg in ipairs(iface.requests[1].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				if not arg.interface then
 					local target_iface = args[arg_idx]
 					local target_ver = args[arg_idx + 1]
 					arg_idx = arg_idx + 2
+
 					if target_iface then
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
@@ -9973,32 +9990,33 @@ do
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
+
 					array_idx = array_idx + 3
 				else
 					args_array[array_idx].n = 0
 					array_idx = array_idx + 1
 				end
-			elseif arg.type == 'fixed' then
+			elseif arg.type == "fixed" then
 				local val = args[arg_idx] or 0
 				arg_idx = arg_idx + 1
-				args_array[array_idx].f = ffi.cast('wl_fixed_t', val * 256.0)
+				args_array[array_idx].f = ffi.cast("wl_fixed_t", val * 256.0)
 				array_idx = array_idx + 1
-			elseif arg.type == 'object' then
+			elseif arg.type == "object" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].o = val and ffi.cast('struct wl_object*', val) or nil
+				args_array[array_idx].o = val and ffi.cast("struct wl_object*", val) or nil
 				array_idx = array_idx + 1
-			elseif arg.type == 'array' then
+			elseif arg.type == "array" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].a = ffi.cast('struct wl_array*', val)
+				args_array[array_idx].a = ffi.cast("struct wl_array*", val)
 				array_idx = array_idx + 1
-			elseif arg.type == 'string' then
+			elseif arg.type == "string" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].s = val
 				array_idx = array_idx + 1
-			elseif arg.type == 'fd' then
+			elseif arg.type == "fd" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].h = tonumber(val)
@@ -10006,11 +10024,13 @@ do
 			else
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				if arg.type == 'uint' then
+
+				if arg.type == "uint" then
 					args_array[array_idx].u = tonumber(val)
 				else
 					args_array[array_idx].i = tonumber(val)
 				end
+
 				array_idx = array_idx + 1
 			end
 		end
@@ -10019,80 +10039,76 @@ do
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
-					ffi.cast('struct wl_proxy*', self),
+					ffi.cast("struct wl_proxy*", self),
 					0,
 					args_array,
 					new_id_interface,
 					version_for_generic
 				)
-				return ffi.cast('void*', new_proxy)
+				return ffi.cast("void*", new_proxy)
 			elseif new_id_interface then
-				local target_interface = ffi.C[new_id_interface .. '_interface']
-				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(
-					ffi.cast('struct wl_proxy*', self),
-					0,
-					args_array,
-					target_interface
-				)
-				return ffi.cast('struct ' .. new_id_interface .. '*', new_proxy)
+				local target_interface = ffi.C[new_id_interface .. "_interface"]
+				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(ffi.cast("struct wl_proxy*", self), 0, args_array, target_interface)
+				return ffi.cast("struct " .. new_id_interface .. "*", new_proxy)
 			end
 		else
-			ffi.C.wl_proxy_marshal_array(ffi.cast('struct wl_proxy*', self), 0, args_array)
+			ffi.C.wl_proxy_marshal_array(ffi.cast("struct wl_proxy*", self), 0, args_array)
 		end
 	end
 
 	-- Helper to create listener
 	function meta:add_listener(callbacks, data)
 		local count = #iface.events
-		local listener = ffi.new('void*[' .. count .. ']')
-		local ptr_key = tonumber(ffi.cast('intptr_t', ffi.cast('struct wl_proxy*', self)))
+		local listener = ffi.new("void*[" .. count .. "]")
+		local ptr_key = tonumber(ffi.cast("intptr_t", ffi.cast("struct wl_proxy*", self)))
 		listeners_registry[ptr_key] = listeners_registry[ptr_key] or {}
 		table.insert(listeners_registry[ptr_key], listener)
 		table.insert(listeners_registry[ptr_key], callbacks)
 
 		for i, evt in ipairs(iface.events) do
 			local cb = callbacks[evt.name]
+
 			if cb then
-				local sig_args = {'void*', 'struct wl_proxy*'}
+				local sig_args = {"void*", "struct wl_proxy*"}
+
 				for _, arg in ipairs(evt.args) do
-					if arg.type == 'int' then
-						table.insert(sig_args, 'int32_t')
-					elseif arg.type == 'uint' then
-						table.insert(sig_args, 'uint32_t')
-					elseif arg.type == 'fixed' then
-						table.insert(sig_args, 'wl_fixed_t')
-					elseif arg.type == 'string' then
-						table.insert(sig_args, 'const char*')
-					elseif arg.type == 'object' then
-						table.insert(sig_args, 'struct wl_proxy*')
-					elseif arg.type == 'new_id' then
-						table.insert(sig_args, 'struct wl_proxy*')
-					elseif arg.type == 'array' then
-						table.insert(sig_args, 'struct wl_array*')
-					elseif arg.type == 'fd' then
-						table.insert(sig_args, 'int32_t')
+					if arg.type == "int" then
+						table.insert(sig_args, "int32_t")
+					elseif arg.type == "uint" then
+						table.insert(sig_args, "uint32_t")
+					elseif arg.type == "fixed" then
+						table.insert(sig_args, "wl_fixed_t")
+					elseif arg.type == "string" then
+						table.insert(sig_args, "const char*")
+					elseif arg.type == "object" then
+						table.insert(sig_args, "struct wl_proxy*")
+					elseif arg.type == "new_id" then
+						table.insert(sig_args, "struct wl_proxy*")
+					elseif arg.type == "array" then
+						table.insert(sig_args, "struct wl_array*")
+					elseif arg.type == "fd" then
+						table.insert(sig_args, "int32_t")
 					end
 				end
 
-				local sig = 'void (*)(' .. table.concat(sig_args, ', ') .. ')'
+				local sig = "void (*)(" .. table.concat(sig_args, ", ") .. ")"
 				local cb_func = ffi.cast(sig, function(data, proxy, ...)
 					local args = {...}
 					local lua_args = {}
 					local arg_idx = 1
-
-					proxy = ffi.cast('struct wl_touch*', proxy)
+					proxy = ffi.cast("struct wl_touch*", proxy)
 
 					for _, arg in ipairs(evt.args) do
 						local val = args[arg_idx]
 						arg_idx = arg_idx + 1
 
-						if arg.type == 'fixed' then
+						if arg.type == "fixed" then
 							val = tonumber(val) / 256.0
-						elseif arg.type == 'string' then
+						elseif arg.type == "string" then
 							val = ffi.string(val)
-						elseif arg.type == 'object' or arg.type == 'new_id' then
+						elseif arg.type == "object" or arg.type == "new_id" then
 							if arg.interface then
-								val = ffi.cast('struct ' .. arg.interface .. '*', val)
+								val = ffi.cast("struct " .. arg.interface .. "*", val)
 							end
 						end
 
@@ -10107,21 +10123,20 @@ do
 		end
 
 		ffi.C.wl_proxy_add_listener(
-			ffi.cast('struct wl_proxy*', self),
-			ffi.cast('void(**)(void)', listener),
-			ffi.cast('void*', data)
+			ffi.cast("struct wl_proxy*", self),
+			ffi.cast("void(**)(void)", listener),
+			ffi.cast("void*", data)
 		)
 	end
 
-	output_table['wl_touch'] = meta
-	ffi.metatype('struct wl_touch', meta)
+	output_table["wl_touch"] = meta
+	ffi.metatype("struct wl_touch", meta)
 end
 
 -- Interface: wl_output
 do
 	local meta = {}
 	meta.__index = meta
-
 	local iface = {
 		enums = {
 			[1] = {
@@ -10285,8 +10300,7 @@ do
 				since = 1,
 			},
 			[3] = {
-				args = {
-				},
+				args = {},
 				name = "done",
 				since = 2,
 			},
@@ -10324,8 +10338,7 @@ do
 		name = "wl_output",
 		requests = {
 			[1] = {
-				args = {
-				},
+				args = {},
 				name = "release",
 				since = 3,
 				type = "destructor",
@@ -10337,7 +10350,7 @@ do
 	-- Request: release
 	function meta:release(...)
 		local args = {...}
-		local args_array = ffi.new('union wl_argument[1]') -- Dummy for empty args
+		local args_array = ffi.new("union wl_argument[1]") -- Dummy for empty args
 		local arg_idx = 1
 		local array_idx = 0
 		local has_new_id = false
@@ -10347,21 +10360,24 @@ do
 
 		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[1].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				has_new_id = true
 				new_id_interface = arg.interface
+
 				if not new_id_interface then generic_new_id = true end
+
 				break
 			end
 		end
 
 		-- Process arguments
 		for i, arg in ipairs(iface.requests[1].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				if not arg.interface then
 					local target_iface = args[arg_idx]
 					local target_ver = args[arg_idx + 1]
 					arg_idx = arg_idx + 2
+
 					if target_iface then
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
@@ -10370,32 +10386,33 @@ do
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
+
 					array_idx = array_idx + 3
 				else
 					args_array[array_idx].n = 0
 					array_idx = array_idx + 1
 				end
-			elseif arg.type == 'fixed' then
+			elseif arg.type == "fixed" then
 				local val = args[arg_idx] or 0
 				arg_idx = arg_idx + 1
-				args_array[array_idx].f = ffi.cast('wl_fixed_t', val * 256.0)
+				args_array[array_idx].f = ffi.cast("wl_fixed_t", val * 256.0)
 				array_idx = array_idx + 1
-			elseif arg.type == 'object' then
+			elseif arg.type == "object" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].o = val and ffi.cast('struct wl_object*', val) or nil
+				args_array[array_idx].o = val and ffi.cast("struct wl_object*", val) or nil
 				array_idx = array_idx + 1
-			elseif arg.type == 'array' then
+			elseif arg.type == "array" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].a = ffi.cast('struct wl_array*', val)
+				args_array[array_idx].a = ffi.cast("struct wl_array*", val)
 				array_idx = array_idx + 1
-			elseif arg.type == 'string' then
+			elseif arg.type == "string" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].s = val
 				array_idx = array_idx + 1
-			elseif arg.type == 'fd' then
+			elseif arg.type == "fd" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].h = tonumber(val)
@@ -10403,11 +10420,13 @@ do
 			else
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				if arg.type == 'uint' then
+
+				if arg.type == "uint" then
 					args_array[array_idx].u = tonumber(val)
 				else
 					args_array[array_idx].i = tonumber(val)
 				end
+
 				array_idx = array_idx + 1
 			end
 		end
@@ -10416,80 +10435,76 @@ do
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
-					ffi.cast('struct wl_proxy*', self),
+					ffi.cast("struct wl_proxy*", self),
 					0,
 					args_array,
 					new_id_interface,
 					version_for_generic
 				)
-				return ffi.cast('void*', new_proxy)
+				return ffi.cast("void*", new_proxy)
 			elseif new_id_interface then
-				local target_interface = ffi.C[new_id_interface .. '_interface']
-				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(
-					ffi.cast('struct wl_proxy*', self),
-					0,
-					args_array,
-					target_interface
-				)
-				return ffi.cast('struct ' .. new_id_interface .. '*', new_proxy)
+				local target_interface = ffi.C[new_id_interface .. "_interface"]
+				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(ffi.cast("struct wl_proxy*", self), 0, args_array, target_interface)
+				return ffi.cast("struct " .. new_id_interface .. "*", new_proxy)
 			end
 		else
-			ffi.C.wl_proxy_marshal_array(ffi.cast('struct wl_proxy*', self), 0, args_array)
+			ffi.C.wl_proxy_marshal_array(ffi.cast("struct wl_proxy*", self), 0, args_array)
 		end
 	end
 
 	-- Helper to create listener
 	function meta:add_listener(callbacks, data)
 		local count = #iface.events
-		local listener = ffi.new('void*[' .. count .. ']')
-		local ptr_key = tonumber(ffi.cast('intptr_t', ffi.cast('struct wl_proxy*', self)))
+		local listener = ffi.new("void*[" .. count .. "]")
+		local ptr_key = tonumber(ffi.cast("intptr_t", ffi.cast("struct wl_proxy*", self)))
 		listeners_registry[ptr_key] = listeners_registry[ptr_key] or {}
 		table.insert(listeners_registry[ptr_key], listener)
 		table.insert(listeners_registry[ptr_key], callbacks)
 
 		for i, evt in ipairs(iface.events) do
 			local cb = callbacks[evt.name]
+
 			if cb then
-				local sig_args = {'void*', 'struct wl_proxy*'}
+				local sig_args = {"void*", "struct wl_proxy*"}
+
 				for _, arg in ipairs(evt.args) do
-					if arg.type == 'int' then
-						table.insert(sig_args, 'int32_t')
-					elseif arg.type == 'uint' then
-						table.insert(sig_args, 'uint32_t')
-					elseif arg.type == 'fixed' then
-						table.insert(sig_args, 'wl_fixed_t')
-					elseif arg.type == 'string' then
-						table.insert(sig_args, 'const char*')
-					elseif arg.type == 'object' then
-						table.insert(sig_args, 'struct wl_proxy*')
-					elseif arg.type == 'new_id' then
-						table.insert(sig_args, 'struct wl_proxy*')
-					elseif arg.type == 'array' then
-						table.insert(sig_args, 'struct wl_array*')
-					elseif arg.type == 'fd' then
-						table.insert(sig_args, 'int32_t')
+					if arg.type == "int" then
+						table.insert(sig_args, "int32_t")
+					elseif arg.type == "uint" then
+						table.insert(sig_args, "uint32_t")
+					elseif arg.type == "fixed" then
+						table.insert(sig_args, "wl_fixed_t")
+					elseif arg.type == "string" then
+						table.insert(sig_args, "const char*")
+					elseif arg.type == "object" then
+						table.insert(sig_args, "struct wl_proxy*")
+					elseif arg.type == "new_id" then
+						table.insert(sig_args, "struct wl_proxy*")
+					elseif arg.type == "array" then
+						table.insert(sig_args, "struct wl_array*")
+					elseif arg.type == "fd" then
+						table.insert(sig_args, "int32_t")
 					end
 				end
 
-				local sig = 'void (*)(' .. table.concat(sig_args, ', ') .. ')'
+				local sig = "void (*)(" .. table.concat(sig_args, ", ") .. ")"
 				local cb_func = ffi.cast(sig, function(data, proxy, ...)
 					local args = {...}
 					local lua_args = {}
 					local arg_idx = 1
-
-					proxy = ffi.cast('struct wl_output*', proxy)
+					proxy = ffi.cast("struct wl_output*", proxy)
 
 					for _, arg in ipairs(evt.args) do
 						local val = args[arg_idx]
 						arg_idx = arg_idx + 1
 
-						if arg.type == 'fixed' then
+						if arg.type == "fixed" then
 							val = tonumber(val) / 256.0
-						elseif arg.type == 'string' then
+						elseif arg.type == "string" then
 							val = ffi.string(val)
-						elseif arg.type == 'object' or arg.type == 'new_id' then
+						elseif arg.type == "object" or arg.type == "new_id" then
 							if arg.interface then
-								val = ffi.cast('struct ' .. arg.interface .. '*', val)
+								val = ffi.cast("struct " .. arg.interface .. "*", val)
 							end
 						end
 
@@ -10504,31 +10519,27 @@ do
 		end
 
 		ffi.C.wl_proxy_add_listener(
-			ffi.cast('struct wl_proxy*', self),
-			ffi.cast('void(**)(void)', listener),
-			ffi.cast('void*', data)
+			ffi.cast("struct wl_proxy*", self),
+			ffi.cast("void(**)(void)", listener),
+			ffi.cast("void*", data)
 		)
 	end
 
-	output_table['wl_output'] = meta
-	ffi.metatype('struct wl_output', meta)
+	output_table["wl_output"] = meta
+	ffi.metatype("struct wl_output", meta)
 end
 
 -- Interface: wl_region
 do
 	local meta = {}
 	meta.__index = meta
-
 	local iface = {
-		enums = {
-		},
-		events = {
-		},
+		enums = {},
+		events = {},
 		name = "wl_region",
 		requests = {
 			[1] = {
-				args = {
-				},
+				args = {},
 				name = "destroy",
 				since = 1,
 				type = "destructor",
@@ -10592,7 +10603,7 @@ do
 	-- Request: destroy
 	function meta:destroy(...)
 		local args = {...}
-		local args_array = ffi.new('union wl_argument[1]') -- Dummy for empty args
+		local args_array = ffi.new("union wl_argument[1]") -- Dummy for empty args
 		local arg_idx = 1
 		local array_idx = 0
 		local has_new_id = false
@@ -10602,21 +10613,24 @@ do
 
 		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[1].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				has_new_id = true
 				new_id_interface = arg.interface
+
 				if not new_id_interface then generic_new_id = true end
+
 				break
 			end
 		end
 
 		-- Process arguments
 		for i, arg in ipairs(iface.requests[1].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				if not arg.interface then
 					local target_iface = args[arg_idx]
 					local target_ver = args[arg_idx + 1]
 					arg_idx = arg_idx + 2
+
 					if target_iface then
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
@@ -10625,32 +10639,33 @@ do
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
+
 					array_idx = array_idx + 3
 				else
 					args_array[array_idx].n = 0
 					array_idx = array_idx + 1
 				end
-			elseif arg.type == 'fixed' then
+			elseif arg.type == "fixed" then
 				local val = args[arg_idx] or 0
 				arg_idx = arg_idx + 1
-				args_array[array_idx].f = ffi.cast('wl_fixed_t', val * 256.0)
+				args_array[array_idx].f = ffi.cast("wl_fixed_t", val * 256.0)
 				array_idx = array_idx + 1
-			elseif arg.type == 'object' then
+			elseif arg.type == "object" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].o = val and ffi.cast('struct wl_object*', val) or nil
+				args_array[array_idx].o = val and ffi.cast("struct wl_object*", val) or nil
 				array_idx = array_idx + 1
-			elseif arg.type == 'array' then
+			elseif arg.type == "array" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].a = ffi.cast('struct wl_array*', val)
+				args_array[array_idx].a = ffi.cast("struct wl_array*", val)
 				array_idx = array_idx + 1
-			elseif arg.type == 'string' then
+			elseif arg.type == "string" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].s = val
 				array_idx = array_idx + 1
-			elseif arg.type == 'fd' then
+			elseif arg.type == "fd" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].h = tonumber(val)
@@ -10658,11 +10673,13 @@ do
 			else
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				if arg.type == 'uint' then
+
+				if arg.type == "uint" then
 					args_array[array_idx].u = tonumber(val)
 				else
 					args_array[array_idx].i = tonumber(val)
 				end
+
 				array_idx = array_idx + 1
 			end
 		end
@@ -10671,32 +10688,27 @@ do
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
-					ffi.cast('struct wl_proxy*', self),
+					ffi.cast("struct wl_proxy*", self),
 					0,
 					args_array,
 					new_id_interface,
 					version_for_generic
 				)
-				return ffi.cast('void*', new_proxy)
+				return ffi.cast("void*", new_proxy)
 			elseif new_id_interface then
-				local target_interface = ffi.C[new_id_interface .. '_interface']
-				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(
-					ffi.cast('struct wl_proxy*', self),
-					0,
-					args_array,
-					target_interface
-				)
-				return ffi.cast('struct ' .. new_id_interface .. '*', new_proxy)
+				local target_interface = ffi.C[new_id_interface .. "_interface"]
+				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(ffi.cast("struct wl_proxy*", self), 0, args_array, target_interface)
+				return ffi.cast("struct " .. new_id_interface .. "*", new_proxy)
 			end
 		else
-			ffi.C.wl_proxy_marshal_array(ffi.cast('struct wl_proxy*', self), 0, args_array)
+			ffi.C.wl_proxy_marshal_array(ffi.cast("struct wl_proxy*", self), 0, args_array)
 		end
 	end
 
 	-- Request: add
 	function meta:add(...)
 		local args = {...}
-		local args_array = ffi.new('union wl_argument[4]')
+		local args_array = ffi.new("union wl_argument[4]")
 		local arg_idx = 1
 		local array_idx = 0
 		local has_new_id = false
@@ -10706,21 +10718,24 @@ do
 
 		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[2].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				has_new_id = true
 				new_id_interface = arg.interface
+
 				if not new_id_interface then generic_new_id = true end
+
 				break
 			end
 		end
 
 		-- Process arguments
 		for i, arg in ipairs(iface.requests[2].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				if not arg.interface then
 					local target_iface = args[arg_idx]
 					local target_ver = args[arg_idx + 1]
 					arg_idx = arg_idx + 2
+
 					if target_iface then
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
@@ -10729,32 +10744,33 @@ do
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
+
 					array_idx = array_idx + 3
 				else
 					args_array[array_idx].n = 0
 					array_idx = array_idx + 1
 				end
-			elseif arg.type == 'fixed' then
+			elseif arg.type == "fixed" then
 				local val = args[arg_idx] or 0
 				arg_idx = arg_idx + 1
-				args_array[array_idx].f = ffi.cast('wl_fixed_t', val * 256.0)
+				args_array[array_idx].f = ffi.cast("wl_fixed_t", val * 256.0)
 				array_idx = array_idx + 1
-			elseif arg.type == 'object' then
+			elseif arg.type == "object" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].o = val and ffi.cast('struct wl_object*', val) or nil
+				args_array[array_idx].o = val and ffi.cast("struct wl_object*", val) or nil
 				array_idx = array_idx + 1
-			elseif arg.type == 'array' then
+			elseif arg.type == "array" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].a = ffi.cast('struct wl_array*', val)
+				args_array[array_idx].a = ffi.cast("struct wl_array*", val)
 				array_idx = array_idx + 1
-			elseif arg.type == 'string' then
+			elseif arg.type == "string" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].s = val
 				array_idx = array_idx + 1
-			elseif arg.type == 'fd' then
+			elseif arg.type == "fd" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].h = tonumber(val)
@@ -10762,11 +10778,13 @@ do
 			else
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				if arg.type == 'uint' then
+
+				if arg.type == "uint" then
 					args_array[array_idx].u = tonumber(val)
 				else
 					args_array[array_idx].i = tonumber(val)
 				end
+
 				array_idx = array_idx + 1
 			end
 		end
@@ -10775,32 +10793,27 @@ do
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
-					ffi.cast('struct wl_proxy*', self),
+					ffi.cast("struct wl_proxy*", self),
 					1,
 					args_array,
 					new_id_interface,
 					version_for_generic
 				)
-				return ffi.cast('void*', new_proxy)
+				return ffi.cast("void*", new_proxy)
 			elseif new_id_interface then
-				local target_interface = ffi.C[new_id_interface .. '_interface']
-				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(
-					ffi.cast('struct wl_proxy*', self),
-					1,
-					args_array,
-					target_interface
-				)
-				return ffi.cast('struct ' .. new_id_interface .. '*', new_proxy)
+				local target_interface = ffi.C[new_id_interface .. "_interface"]
+				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(ffi.cast("struct wl_proxy*", self), 1, args_array, target_interface)
+				return ffi.cast("struct " .. new_id_interface .. "*", new_proxy)
 			end
 		else
-			ffi.C.wl_proxy_marshal_array(ffi.cast('struct wl_proxy*', self), 1, args_array)
+			ffi.C.wl_proxy_marshal_array(ffi.cast("struct wl_proxy*", self), 1, args_array)
 		end
 	end
 
 	-- Request: subtract
 	function meta:subtract(...)
 		local args = {...}
-		local args_array = ffi.new('union wl_argument[4]')
+		local args_array = ffi.new("union wl_argument[4]")
 		local arg_idx = 1
 		local array_idx = 0
 		local has_new_id = false
@@ -10810,21 +10823,24 @@ do
 
 		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[3].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				has_new_id = true
 				new_id_interface = arg.interface
+
 				if not new_id_interface then generic_new_id = true end
+
 				break
 			end
 		end
 
 		-- Process arguments
 		for i, arg in ipairs(iface.requests[3].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				if not arg.interface then
 					local target_iface = args[arg_idx]
 					local target_ver = args[arg_idx + 1]
 					arg_idx = arg_idx + 2
+
 					if target_iface then
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
@@ -10833,32 +10849,33 @@ do
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
+
 					array_idx = array_idx + 3
 				else
 					args_array[array_idx].n = 0
 					array_idx = array_idx + 1
 				end
-			elseif arg.type == 'fixed' then
+			elseif arg.type == "fixed" then
 				local val = args[arg_idx] or 0
 				arg_idx = arg_idx + 1
-				args_array[array_idx].f = ffi.cast('wl_fixed_t', val * 256.0)
+				args_array[array_idx].f = ffi.cast("wl_fixed_t", val * 256.0)
 				array_idx = array_idx + 1
-			elseif arg.type == 'object' then
+			elseif arg.type == "object" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].o = val and ffi.cast('struct wl_object*', val) or nil
+				args_array[array_idx].o = val and ffi.cast("struct wl_object*", val) or nil
 				array_idx = array_idx + 1
-			elseif arg.type == 'array' then
+			elseif arg.type == "array" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].a = ffi.cast('struct wl_array*', val)
+				args_array[array_idx].a = ffi.cast("struct wl_array*", val)
 				array_idx = array_idx + 1
-			elseif arg.type == 'string' then
+			elseif arg.type == "string" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].s = val
 				array_idx = array_idx + 1
-			elseif arg.type == 'fd' then
+			elseif arg.type == "fd" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].h = tonumber(val)
@@ -10866,11 +10883,13 @@ do
 			else
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				if arg.type == 'uint' then
+
+				if arg.type == "uint" then
 					args_array[array_idx].u = tonumber(val)
 				else
 					args_array[array_idx].i = tonumber(val)
 				end
+
 				array_idx = array_idx + 1
 			end
 		end
@@ -10879,80 +10898,76 @@ do
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
-					ffi.cast('struct wl_proxy*', self),
+					ffi.cast("struct wl_proxy*", self),
 					2,
 					args_array,
 					new_id_interface,
 					version_for_generic
 				)
-				return ffi.cast('void*', new_proxy)
+				return ffi.cast("void*", new_proxy)
 			elseif new_id_interface then
-				local target_interface = ffi.C[new_id_interface .. '_interface']
-				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(
-					ffi.cast('struct wl_proxy*', self),
-					2,
-					args_array,
-					target_interface
-				)
-				return ffi.cast('struct ' .. new_id_interface .. '*', new_proxy)
+				local target_interface = ffi.C[new_id_interface .. "_interface"]
+				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(ffi.cast("struct wl_proxy*", self), 2, args_array, target_interface)
+				return ffi.cast("struct " .. new_id_interface .. "*", new_proxy)
 			end
 		else
-			ffi.C.wl_proxy_marshal_array(ffi.cast('struct wl_proxy*', self), 2, args_array)
+			ffi.C.wl_proxy_marshal_array(ffi.cast("struct wl_proxy*", self), 2, args_array)
 		end
 	end
 
 	-- Helper to create listener
 	function meta:add_listener(callbacks, data)
 		local count = #iface.events
-		local listener = ffi.new('void*[' .. count .. ']')
-		local ptr_key = tonumber(ffi.cast('intptr_t', ffi.cast('struct wl_proxy*', self)))
+		local listener = ffi.new("void*[" .. count .. "]")
+		local ptr_key = tonumber(ffi.cast("intptr_t", ffi.cast("struct wl_proxy*", self)))
 		listeners_registry[ptr_key] = listeners_registry[ptr_key] or {}
 		table.insert(listeners_registry[ptr_key], listener)
 		table.insert(listeners_registry[ptr_key], callbacks)
 
 		for i, evt in ipairs(iface.events) do
 			local cb = callbacks[evt.name]
+
 			if cb then
-				local sig_args = {'void*', 'struct wl_proxy*'}
+				local sig_args = {"void*", "struct wl_proxy*"}
+
 				for _, arg in ipairs(evt.args) do
-					if arg.type == 'int' then
-						table.insert(sig_args, 'int32_t')
-					elseif arg.type == 'uint' then
-						table.insert(sig_args, 'uint32_t')
-					elseif arg.type == 'fixed' then
-						table.insert(sig_args, 'wl_fixed_t')
-					elseif arg.type == 'string' then
-						table.insert(sig_args, 'const char*')
-					elseif arg.type == 'object' then
-						table.insert(sig_args, 'struct wl_proxy*')
-					elseif arg.type == 'new_id' then
-						table.insert(sig_args, 'struct wl_proxy*')
-					elseif arg.type == 'array' then
-						table.insert(sig_args, 'struct wl_array*')
-					elseif arg.type == 'fd' then
-						table.insert(sig_args, 'int32_t')
+					if arg.type == "int" then
+						table.insert(sig_args, "int32_t")
+					elseif arg.type == "uint" then
+						table.insert(sig_args, "uint32_t")
+					elseif arg.type == "fixed" then
+						table.insert(sig_args, "wl_fixed_t")
+					elseif arg.type == "string" then
+						table.insert(sig_args, "const char*")
+					elseif arg.type == "object" then
+						table.insert(sig_args, "struct wl_proxy*")
+					elseif arg.type == "new_id" then
+						table.insert(sig_args, "struct wl_proxy*")
+					elseif arg.type == "array" then
+						table.insert(sig_args, "struct wl_array*")
+					elseif arg.type == "fd" then
+						table.insert(sig_args, "int32_t")
 					end
 				end
 
-				local sig = 'void (*)(' .. table.concat(sig_args, ', ') .. ')'
+				local sig = "void (*)(" .. table.concat(sig_args, ", ") .. ")"
 				local cb_func = ffi.cast(sig, function(data, proxy, ...)
 					local args = {...}
 					local lua_args = {}
 					local arg_idx = 1
-
-					proxy = ffi.cast('struct wl_region*', proxy)
+					proxy = ffi.cast("struct wl_region*", proxy)
 
 					for _, arg in ipairs(evt.args) do
 						local val = args[arg_idx]
 						arg_idx = arg_idx + 1
 
-						if arg.type == 'fixed' then
+						if arg.type == "fixed" then
 							val = tonumber(val) / 256.0
-						elseif arg.type == 'string' then
+						elseif arg.type == "string" then
 							val = ffi.string(val)
-						elseif arg.type == 'object' or arg.type == 'new_id' then
+						elseif arg.type == "object" or arg.type == "new_id" then
 							if arg.interface then
-								val = ffi.cast('struct ' .. arg.interface .. '*', val)
+								val = ffi.cast("struct " .. arg.interface .. "*", val)
 							end
 						end
 
@@ -10967,21 +10982,20 @@ do
 		end
 
 		ffi.C.wl_proxy_add_listener(
-			ffi.cast('struct wl_proxy*', self),
-			ffi.cast('void(**)(void)', listener),
-			ffi.cast('void*', data)
+			ffi.cast("struct wl_proxy*", self),
+			ffi.cast("void(**)(void)", listener),
+			ffi.cast("void*", data)
 		)
 	end
 
-	output_table['wl_region'] = meta
-	ffi.metatype('struct wl_region', meta)
+	output_table["wl_region"] = meta
+	ffi.metatype("struct wl_region", meta)
 end
 
 -- Interface: wl_subcompositor
 do
 	local meta = {}
 	meta.__index = meta
-
 	local iface = {
 		enums = {
 			[1] = {
@@ -11001,13 +11015,11 @@ do
 				name = "error",
 			},
 		},
-		events = {
-		},
+		events = {},
 		name = "wl_subcompositor",
 		requests = {
 			[1] = {
-				args = {
-				},
+				args = {},
 				name = "destroy",
 				since = 1,
 				type = "destructor",
@@ -11043,7 +11055,7 @@ do
 	-- Request: destroy
 	function meta:destroy(...)
 		local args = {...}
-		local args_array = ffi.new('union wl_argument[1]') -- Dummy for empty args
+		local args_array = ffi.new("union wl_argument[1]") -- Dummy for empty args
 		local arg_idx = 1
 		local array_idx = 0
 		local has_new_id = false
@@ -11053,21 +11065,24 @@ do
 
 		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[1].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				has_new_id = true
 				new_id_interface = arg.interface
+
 				if not new_id_interface then generic_new_id = true end
+
 				break
 			end
 		end
 
 		-- Process arguments
 		for i, arg in ipairs(iface.requests[1].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				if not arg.interface then
 					local target_iface = args[arg_idx]
 					local target_ver = args[arg_idx + 1]
 					arg_idx = arg_idx + 2
+
 					if target_iface then
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
@@ -11076,32 +11091,33 @@ do
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
+
 					array_idx = array_idx + 3
 				else
 					args_array[array_idx].n = 0
 					array_idx = array_idx + 1
 				end
-			elseif arg.type == 'fixed' then
+			elseif arg.type == "fixed" then
 				local val = args[arg_idx] or 0
 				arg_idx = arg_idx + 1
-				args_array[array_idx].f = ffi.cast('wl_fixed_t', val * 256.0)
+				args_array[array_idx].f = ffi.cast("wl_fixed_t", val * 256.0)
 				array_idx = array_idx + 1
-			elseif arg.type == 'object' then
+			elseif arg.type == "object" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].o = val and ffi.cast('struct wl_object*', val) or nil
+				args_array[array_idx].o = val and ffi.cast("struct wl_object*", val) or nil
 				array_idx = array_idx + 1
-			elseif arg.type == 'array' then
+			elseif arg.type == "array" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].a = ffi.cast('struct wl_array*', val)
+				args_array[array_idx].a = ffi.cast("struct wl_array*", val)
 				array_idx = array_idx + 1
-			elseif arg.type == 'string' then
+			elseif arg.type == "string" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].s = val
 				array_idx = array_idx + 1
-			elseif arg.type == 'fd' then
+			elseif arg.type == "fd" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].h = tonumber(val)
@@ -11109,11 +11125,13 @@ do
 			else
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				if arg.type == 'uint' then
+
+				if arg.type == "uint" then
 					args_array[array_idx].u = tonumber(val)
 				else
 					args_array[array_idx].i = tonumber(val)
 				end
+
 				array_idx = array_idx + 1
 			end
 		end
@@ -11122,32 +11140,27 @@ do
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
-					ffi.cast('struct wl_proxy*', self),
+					ffi.cast("struct wl_proxy*", self),
 					0,
 					args_array,
 					new_id_interface,
 					version_for_generic
 				)
-				return ffi.cast('void*', new_proxy)
+				return ffi.cast("void*", new_proxy)
 			elseif new_id_interface then
-				local target_interface = ffi.C[new_id_interface .. '_interface']
-				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(
-					ffi.cast('struct wl_proxy*', self),
-					0,
-					args_array,
-					target_interface
-				)
-				return ffi.cast('struct ' .. new_id_interface .. '*', new_proxy)
+				local target_interface = ffi.C[new_id_interface .. "_interface"]
+				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(ffi.cast("struct wl_proxy*", self), 0, args_array, target_interface)
+				return ffi.cast("struct " .. new_id_interface .. "*", new_proxy)
 			end
 		else
-			ffi.C.wl_proxy_marshal_array(ffi.cast('struct wl_proxy*', self), 0, args_array)
+			ffi.C.wl_proxy_marshal_array(ffi.cast("struct wl_proxy*", self), 0, args_array)
 		end
 	end
 
 	-- Request: get_subsurface
 	function meta:get_subsurface(...)
 		local args = {...}
-		local args_array = ffi.new('union wl_argument[3]')
+		local args_array = ffi.new("union wl_argument[3]")
 		local arg_idx = 1
 		local array_idx = 0
 		local has_new_id = false
@@ -11157,21 +11170,24 @@ do
 
 		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[2].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				has_new_id = true
 				new_id_interface = arg.interface
+
 				if not new_id_interface then generic_new_id = true end
+
 				break
 			end
 		end
 
 		-- Process arguments
 		for i, arg in ipairs(iface.requests[2].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				if not arg.interface then
 					local target_iface = args[arg_idx]
 					local target_ver = args[arg_idx + 1]
 					arg_idx = arg_idx + 2
+
 					if target_iface then
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
@@ -11180,32 +11196,33 @@ do
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
+
 					array_idx = array_idx + 3
 				else
 					args_array[array_idx].n = 0
 					array_idx = array_idx + 1
 				end
-			elseif arg.type == 'fixed' then
+			elseif arg.type == "fixed" then
 				local val = args[arg_idx] or 0
 				arg_idx = arg_idx + 1
-				args_array[array_idx].f = ffi.cast('wl_fixed_t', val * 256.0)
+				args_array[array_idx].f = ffi.cast("wl_fixed_t", val * 256.0)
 				array_idx = array_idx + 1
-			elseif arg.type == 'object' then
+			elseif arg.type == "object" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].o = val and ffi.cast('struct wl_object*', val) or nil
+				args_array[array_idx].o = val and ffi.cast("struct wl_object*", val) or nil
 				array_idx = array_idx + 1
-			elseif arg.type == 'array' then
+			elseif arg.type == "array" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].a = ffi.cast('struct wl_array*', val)
+				args_array[array_idx].a = ffi.cast("struct wl_array*", val)
 				array_idx = array_idx + 1
-			elseif arg.type == 'string' then
+			elseif arg.type == "string" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].s = val
 				array_idx = array_idx + 1
-			elseif arg.type == 'fd' then
+			elseif arg.type == "fd" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].h = tonumber(val)
@@ -11213,11 +11230,13 @@ do
 			else
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				if arg.type == 'uint' then
+
+				if arg.type == "uint" then
 					args_array[array_idx].u = tonumber(val)
 				else
 					args_array[array_idx].i = tonumber(val)
 				end
+
 				array_idx = array_idx + 1
 			end
 		end
@@ -11226,80 +11245,76 @@ do
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
-					ffi.cast('struct wl_proxy*', self),
+					ffi.cast("struct wl_proxy*", self),
 					1,
 					args_array,
 					new_id_interface,
 					version_for_generic
 				)
-				return ffi.cast('void*', new_proxy)
+				return ffi.cast("void*", new_proxy)
 			elseif new_id_interface then
-				local target_interface = ffi.C[new_id_interface .. '_interface']
-				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(
-					ffi.cast('struct wl_proxy*', self),
-					1,
-					args_array,
-					target_interface
-				)
-				return ffi.cast('struct ' .. new_id_interface .. '*', new_proxy)
+				local target_interface = ffi.C[new_id_interface .. "_interface"]
+				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(ffi.cast("struct wl_proxy*", self), 1, args_array, target_interface)
+				return ffi.cast("struct " .. new_id_interface .. "*", new_proxy)
 			end
 		else
-			ffi.C.wl_proxy_marshal_array(ffi.cast('struct wl_proxy*', self), 1, args_array)
+			ffi.C.wl_proxy_marshal_array(ffi.cast("struct wl_proxy*", self), 1, args_array)
 		end
 	end
 
 	-- Helper to create listener
 	function meta:add_listener(callbacks, data)
 		local count = #iface.events
-		local listener = ffi.new('void*[' .. count .. ']')
-		local ptr_key = tonumber(ffi.cast('intptr_t', ffi.cast('struct wl_proxy*', self)))
+		local listener = ffi.new("void*[" .. count .. "]")
+		local ptr_key = tonumber(ffi.cast("intptr_t", ffi.cast("struct wl_proxy*", self)))
 		listeners_registry[ptr_key] = listeners_registry[ptr_key] or {}
 		table.insert(listeners_registry[ptr_key], listener)
 		table.insert(listeners_registry[ptr_key], callbacks)
 
 		for i, evt in ipairs(iface.events) do
 			local cb = callbacks[evt.name]
+
 			if cb then
-				local sig_args = {'void*', 'struct wl_proxy*'}
+				local sig_args = {"void*", "struct wl_proxy*"}
+
 				for _, arg in ipairs(evt.args) do
-					if arg.type == 'int' then
-						table.insert(sig_args, 'int32_t')
-					elseif arg.type == 'uint' then
-						table.insert(sig_args, 'uint32_t')
-					elseif arg.type == 'fixed' then
-						table.insert(sig_args, 'wl_fixed_t')
-					elseif arg.type == 'string' then
-						table.insert(sig_args, 'const char*')
-					elseif arg.type == 'object' then
-						table.insert(sig_args, 'struct wl_proxy*')
-					elseif arg.type == 'new_id' then
-						table.insert(sig_args, 'struct wl_proxy*')
-					elseif arg.type == 'array' then
-						table.insert(sig_args, 'struct wl_array*')
-					elseif arg.type == 'fd' then
-						table.insert(sig_args, 'int32_t')
+					if arg.type == "int" then
+						table.insert(sig_args, "int32_t")
+					elseif arg.type == "uint" then
+						table.insert(sig_args, "uint32_t")
+					elseif arg.type == "fixed" then
+						table.insert(sig_args, "wl_fixed_t")
+					elseif arg.type == "string" then
+						table.insert(sig_args, "const char*")
+					elseif arg.type == "object" then
+						table.insert(sig_args, "struct wl_proxy*")
+					elseif arg.type == "new_id" then
+						table.insert(sig_args, "struct wl_proxy*")
+					elseif arg.type == "array" then
+						table.insert(sig_args, "struct wl_array*")
+					elseif arg.type == "fd" then
+						table.insert(sig_args, "int32_t")
 					end
 				end
 
-				local sig = 'void (*)(' .. table.concat(sig_args, ', ') .. ')'
+				local sig = "void (*)(" .. table.concat(sig_args, ", ") .. ")"
 				local cb_func = ffi.cast(sig, function(data, proxy, ...)
 					local args = {...}
 					local lua_args = {}
 					local arg_idx = 1
-
-					proxy = ffi.cast('struct wl_subcompositor*', proxy)
+					proxy = ffi.cast("struct wl_subcompositor*", proxy)
 
 					for _, arg in ipairs(evt.args) do
 						local val = args[arg_idx]
 						arg_idx = arg_idx + 1
 
-						if arg.type == 'fixed' then
+						if arg.type == "fixed" then
 							val = tonumber(val) / 256.0
-						elseif arg.type == 'string' then
+						elseif arg.type == "string" then
 							val = ffi.string(val)
-						elseif arg.type == 'object' or arg.type == 'new_id' then
+						elseif arg.type == "object" or arg.type == "new_id" then
 							if arg.interface then
-								val = ffi.cast('struct ' .. arg.interface .. '*', val)
+								val = ffi.cast("struct " .. arg.interface .. "*", val)
 							end
 						end
 
@@ -11314,21 +11329,20 @@ do
 		end
 
 		ffi.C.wl_proxy_add_listener(
-			ffi.cast('struct wl_proxy*', self),
-			ffi.cast('void(**)(void)', listener),
-			ffi.cast('void*', data)
+			ffi.cast("struct wl_proxy*", self),
+			ffi.cast("void(**)(void)", listener),
+			ffi.cast("void*", data)
 		)
 	end
 
-	output_table['wl_subcompositor'] = meta
-	ffi.metatype('struct wl_subcompositor', meta)
+	output_table["wl_subcompositor"] = meta
+	ffi.metatype("struct wl_subcompositor", meta)
 end
 
 -- Interface: wl_subsurface
 do
 	local meta = {}
 	meta.__index = meta
-
 	local iface = {
 		enums = {
 			[1] = {
@@ -11343,13 +11357,11 @@ do
 				name = "error",
 			},
 		},
-		events = {
-		},
+		events = {},
 		name = "wl_subsurface",
 		requests = {
 			[1] = {
-				args = {
-				},
+				args = {},
 				name = "destroy",
 				since = 1,
 				type = "destructor",
@@ -11395,14 +11407,12 @@ do
 				since = 1,
 			},
 			[5] = {
-				args = {
-				},
+				args = {},
 				name = "set_sync",
 				since = 1,
 			},
 			[6] = {
-				args = {
-				},
+				args = {},
 				name = "set_desync",
 				since = 1,
 			},
@@ -11413,7 +11423,7 @@ do
 	-- Request: destroy
 	function meta:destroy(...)
 		local args = {...}
-		local args_array = ffi.new('union wl_argument[1]') -- Dummy for empty args
+		local args_array = ffi.new("union wl_argument[1]") -- Dummy for empty args
 		local arg_idx = 1
 		local array_idx = 0
 		local has_new_id = false
@@ -11423,21 +11433,24 @@ do
 
 		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[1].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				has_new_id = true
 				new_id_interface = arg.interface
+
 				if not new_id_interface then generic_new_id = true end
+
 				break
 			end
 		end
 
 		-- Process arguments
 		for i, arg in ipairs(iface.requests[1].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				if not arg.interface then
 					local target_iface = args[arg_idx]
 					local target_ver = args[arg_idx + 1]
 					arg_idx = arg_idx + 2
+
 					if target_iface then
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
@@ -11446,32 +11459,33 @@ do
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
+
 					array_idx = array_idx + 3
 				else
 					args_array[array_idx].n = 0
 					array_idx = array_idx + 1
 				end
-			elseif arg.type == 'fixed' then
+			elseif arg.type == "fixed" then
 				local val = args[arg_idx] or 0
 				arg_idx = arg_idx + 1
-				args_array[array_idx].f = ffi.cast('wl_fixed_t', val * 256.0)
+				args_array[array_idx].f = ffi.cast("wl_fixed_t", val * 256.0)
 				array_idx = array_idx + 1
-			elseif arg.type == 'object' then
+			elseif arg.type == "object" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].o = val and ffi.cast('struct wl_object*', val) or nil
+				args_array[array_idx].o = val and ffi.cast("struct wl_object*", val) or nil
 				array_idx = array_idx + 1
-			elseif arg.type == 'array' then
+			elseif arg.type == "array" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].a = ffi.cast('struct wl_array*', val)
+				args_array[array_idx].a = ffi.cast("struct wl_array*", val)
 				array_idx = array_idx + 1
-			elseif arg.type == 'string' then
+			elseif arg.type == "string" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].s = val
 				array_idx = array_idx + 1
-			elseif arg.type == 'fd' then
+			elseif arg.type == "fd" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].h = tonumber(val)
@@ -11479,11 +11493,13 @@ do
 			else
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				if arg.type == 'uint' then
+
+				if arg.type == "uint" then
 					args_array[array_idx].u = tonumber(val)
 				else
 					args_array[array_idx].i = tonumber(val)
 				end
+
 				array_idx = array_idx + 1
 			end
 		end
@@ -11492,32 +11508,27 @@ do
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
-					ffi.cast('struct wl_proxy*', self),
+					ffi.cast("struct wl_proxy*", self),
 					0,
 					args_array,
 					new_id_interface,
 					version_for_generic
 				)
-				return ffi.cast('void*', new_proxy)
+				return ffi.cast("void*", new_proxy)
 			elseif new_id_interface then
-				local target_interface = ffi.C[new_id_interface .. '_interface']
-				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(
-					ffi.cast('struct wl_proxy*', self),
-					0,
-					args_array,
-					target_interface
-				)
-				return ffi.cast('struct ' .. new_id_interface .. '*', new_proxy)
+				local target_interface = ffi.C[new_id_interface .. "_interface"]
+				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(ffi.cast("struct wl_proxy*", self), 0, args_array, target_interface)
+				return ffi.cast("struct " .. new_id_interface .. "*", new_proxy)
 			end
 		else
-			ffi.C.wl_proxy_marshal_array(ffi.cast('struct wl_proxy*', self), 0, args_array)
+			ffi.C.wl_proxy_marshal_array(ffi.cast("struct wl_proxy*", self), 0, args_array)
 		end
 	end
 
 	-- Request: set_position
 	function meta:set_position(...)
 		local args = {...}
-		local args_array = ffi.new('union wl_argument[2]')
+		local args_array = ffi.new("union wl_argument[2]")
 		local arg_idx = 1
 		local array_idx = 0
 		local has_new_id = false
@@ -11527,21 +11538,24 @@ do
 
 		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[2].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				has_new_id = true
 				new_id_interface = arg.interface
+
 				if not new_id_interface then generic_new_id = true end
+
 				break
 			end
 		end
 
 		-- Process arguments
 		for i, arg in ipairs(iface.requests[2].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				if not arg.interface then
 					local target_iface = args[arg_idx]
 					local target_ver = args[arg_idx + 1]
 					arg_idx = arg_idx + 2
+
 					if target_iface then
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
@@ -11550,32 +11564,33 @@ do
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
+
 					array_idx = array_idx + 3
 				else
 					args_array[array_idx].n = 0
 					array_idx = array_idx + 1
 				end
-			elseif arg.type == 'fixed' then
+			elseif arg.type == "fixed" then
 				local val = args[arg_idx] or 0
 				arg_idx = arg_idx + 1
-				args_array[array_idx].f = ffi.cast('wl_fixed_t', val * 256.0)
+				args_array[array_idx].f = ffi.cast("wl_fixed_t", val * 256.0)
 				array_idx = array_idx + 1
-			elseif arg.type == 'object' then
+			elseif arg.type == "object" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].o = val and ffi.cast('struct wl_object*', val) or nil
+				args_array[array_idx].o = val and ffi.cast("struct wl_object*", val) or nil
 				array_idx = array_idx + 1
-			elseif arg.type == 'array' then
+			elseif arg.type == "array" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].a = ffi.cast('struct wl_array*', val)
+				args_array[array_idx].a = ffi.cast("struct wl_array*", val)
 				array_idx = array_idx + 1
-			elseif arg.type == 'string' then
+			elseif arg.type == "string" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].s = val
 				array_idx = array_idx + 1
-			elseif arg.type == 'fd' then
+			elseif arg.type == "fd" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].h = tonumber(val)
@@ -11583,11 +11598,13 @@ do
 			else
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				if arg.type == 'uint' then
+
+				if arg.type == "uint" then
 					args_array[array_idx].u = tonumber(val)
 				else
 					args_array[array_idx].i = tonumber(val)
 				end
+
 				array_idx = array_idx + 1
 			end
 		end
@@ -11596,32 +11613,27 @@ do
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
-					ffi.cast('struct wl_proxy*', self),
+					ffi.cast("struct wl_proxy*", self),
 					1,
 					args_array,
 					new_id_interface,
 					version_for_generic
 				)
-				return ffi.cast('void*', new_proxy)
+				return ffi.cast("void*", new_proxy)
 			elseif new_id_interface then
-				local target_interface = ffi.C[new_id_interface .. '_interface']
-				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(
-					ffi.cast('struct wl_proxy*', self),
-					1,
-					args_array,
-					target_interface
-				)
-				return ffi.cast('struct ' .. new_id_interface .. '*', new_proxy)
+				local target_interface = ffi.C[new_id_interface .. "_interface"]
+				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(ffi.cast("struct wl_proxy*", self), 1, args_array, target_interface)
+				return ffi.cast("struct " .. new_id_interface .. "*", new_proxy)
 			end
 		else
-			ffi.C.wl_proxy_marshal_array(ffi.cast('struct wl_proxy*', self), 1, args_array)
+			ffi.C.wl_proxy_marshal_array(ffi.cast("struct wl_proxy*", self), 1, args_array)
 		end
 	end
 
 	-- Request: place_above
 	function meta:place_above(...)
 		local args = {...}
-		local args_array = ffi.new('union wl_argument[1]')
+		local args_array = ffi.new("union wl_argument[1]")
 		local arg_idx = 1
 		local array_idx = 0
 		local has_new_id = false
@@ -11631,21 +11643,24 @@ do
 
 		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[3].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				has_new_id = true
 				new_id_interface = arg.interface
+
 				if not new_id_interface then generic_new_id = true end
+
 				break
 			end
 		end
 
 		-- Process arguments
 		for i, arg in ipairs(iface.requests[3].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				if not arg.interface then
 					local target_iface = args[arg_idx]
 					local target_ver = args[arg_idx + 1]
 					arg_idx = arg_idx + 2
+
 					if target_iface then
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
@@ -11654,32 +11669,33 @@ do
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
+
 					array_idx = array_idx + 3
 				else
 					args_array[array_idx].n = 0
 					array_idx = array_idx + 1
 				end
-			elseif arg.type == 'fixed' then
+			elseif arg.type == "fixed" then
 				local val = args[arg_idx] or 0
 				arg_idx = arg_idx + 1
-				args_array[array_idx].f = ffi.cast('wl_fixed_t', val * 256.0)
+				args_array[array_idx].f = ffi.cast("wl_fixed_t", val * 256.0)
 				array_idx = array_idx + 1
-			elseif arg.type == 'object' then
+			elseif arg.type == "object" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].o = val and ffi.cast('struct wl_object*', val) or nil
+				args_array[array_idx].o = val and ffi.cast("struct wl_object*", val) or nil
 				array_idx = array_idx + 1
-			elseif arg.type == 'array' then
+			elseif arg.type == "array" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].a = ffi.cast('struct wl_array*', val)
+				args_array[array_idx].a = ffi.cast("struct wl_array*", val)
 				array_idx = array_idx + 1
-			elseif arg.type == 'string' then
+			elseif arg.type == "string" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].s = val
 				array_idx = array_idx + 1
-			elseif arg.type == 'fd' then
+			elseif arg.type == "fd" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].h = tonumber(val)
@@ -11687,11 +11703,13 @@ do
 			else
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				if arg.type == 'uint' then
+
+				if arg.type == "uint" then
 					args_array[array_idx].u = tonumber(val)
 				else
 					args_array[array_idx].i = tonumber(val)
 				end
+
 				array_idx = array_idx + 1
 			end
 		end
@@ -11700,32 +11718,27 @@ do
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
-					ffi.cast('struct wl_proxy*', self),
+					ffi.cast("struct wl_proxy*", self),
 					2,
 					args_array,
 					new_id_interface,
 					version_for_generic
 				)
-				return ffi.cast('void*', new_proxy)
+				return ffi.cast("void*", new_proxy)
 			elseif new_id_interface then
-				local target_interface = ffi.C[new_id_interface .. '_interface']
-				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(
-					ffi.cast('struct wl_proxy*', self),
-					2,
-					args_array,
-					target_interface
-				)
-				return ffi.cast('struct ' .. new_id_interface .. '*', new_proxy)
+				local target_interface = ffi.C[new_id_interface .. "_interface"]
+				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(ffi.cast("struct wl_proxy*", self), 2, args_array, target_interface)
+				return ffi.cast("struct " .. new_id_interface .. "*", new_proxy)
 			end
 		else
-			ffi.C.wl_proxy_marshal_array(ffi.cast('struct wl_proxy*', self), 2, args_array)
+			ffi.C.wl_proxy_marshal_array(ffi.cast("struct wl_proxy*", self), 2, args_array)
 		end
 	end
 
 	-- Request: place_below
 	function meta:place_below(...)
 		local args = {...}
-		local args_array = ffi.new('union wl_argument[1]')
+		local args_array = ffi.new("union wl_argument[1]")
 		local arg_idx = 1
 		local array_idx = 0
 		local has_new_id = false
@@ -11735,21 +11748,24 @@ do
 
 		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[4].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				has_new_id = true
 				new_id_interface = arg.interface
+
 				if not new_id_interface then generic_new_id = true end
+
 				break
 			end
 		end
 
 		-- Process arguments
 		for i, arg in ipairs(iface.requests[4].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				if not arg.interface then
 					local target_iface = args[arg_idx]
 					local target_ver = args[arg_idx + 1]
 					arg_idx = arg_idx + 2
+
 					if target_iface then
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
@@ -11758,32 +11774,33 @@ do
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
+
 					array_idx = array_idx + 3
 				else
 					args_array[array_idx].n = 0
 					array_idx = array_idx + 1
 				end
-			elseif arg.type == 'fixed' then
+			elseif arg.type == "fixed" then
 				local val = args[arg_idx] or 0
 				arg_idx = arg_idx + 1
-				args_array[array_idx].f = ffi.cast('wl_fixed_t', val * 256.0)
+				args_array[array_idx].f = ffi.cast("wl_fixed_t", val * 256.0)
 				array_idx = array_idx + 1
-			elseif arg.type == 'object' then
+			elseif arg.type == "object" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].o = val and ffi.cast('struct wl_object*', val) or nil
+				args_array[array_idx].o = val and ffi.cast("struct wl_object*", val) or nil
 				array_idx = array_idx + 1
-			elseif arg.type == 'array' then
+			elseif arg.type == "array" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].a = ffi.cast('struct wl_array*', val)
+				args_array[array_idx].a = ffi.cast("struct wl_array*", val)
 				array_idx = array_idx + 1
-			elseif arg.type == 'string' then
+			elseif arg.type == "string" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].s = val
 				array_idx = array_idx + 1
-			elseif arg.type == 'fd' then
+			elseif arg.type == "fd" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].h = tonumber(val)
@@ -11791,11 +11808,13 @@ do
 			else
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				if arg.type == 'uint' then
+
+				if arg.type == "uint" then
 					args_array[array_idx].u = tonumber(val)
 				else
 					args_array[array_idx].i = tonumber(val)
 				end
+
 				array_idx = array_idx + 1
 			end
 		end
@@ -11804,32 +11823,27 @@ do
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
-					ffi.cast('struct wl_proxy*', self),
+					ffi.cast("struct wl_proxy*", self),
 					3,
 					args_array,
 					new_id_interface,
 					version_for_generic
 				)
-				return ffi.cast('void*', new_proxy)
+				return ffi.cast("void*", new_proxy)
 			elseif new_id_interface then
-				local target_interface = ffi.C[new_id_interface .. '_interface']
-				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(
-					ffi.cast('struct wl_proxy*', self),
-					3,
-					args_array,
-					target_interface
-				)
-				return ffi.cast('struct ' .. new_id_interface .. '*', new_proxy)
+				local target_interface = ffi.C[new_id_interface .. "_interface"]
+				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(ffi.cast("struct wl_proxy*", self), 3, args_array, target_interface)
+				return ffi.cast("struct " .. new_id_interface .. "*", new_proxy)
 			end
 		else
-			ffi.C.wl_proxy_marshal_array(ffi.cast('struct wl_proxy*', self), 3, args_array)
+			ffi.C.wl_proxy_marshal_array(ffi.cast("struct wl_proxy*", self), 3, args_array)
 		end
 	end
 
 	-- Request: set_sync
 	function meta:set_sync(...)
 		local args = {...}
-		local args_array = ffi.new('union wl_argument[1]') -- Dummy for empty args
+		local args_array = ffi.new("union wl_argument[1]") -- Dummy for empty args
 		local arg_idx = 1
 		local array_idx = 0
 		local has_new_id = false
@@ -11839,21 +11853,24 @@ do
 
 		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[5].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				has_new_id = true
 				new_id_interface = arg.interface
+
 				if not new_id_interface then generic_new_id = true end
+
 				break
 			end
 		end
 
 		-- Process arguments
 		for i, arg in ipairs(iface.requests[5].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				if not arg.interface then
 					local target_iface = args[arg_idx]
 					local target_ver = args[arg_idx + 1]
 					arg_idx = arg_idx + 2
+
 					if target_iface then
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
@@ -11862,32 +11879,33 @@ do
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
+
 					array_idx = array_idx + 3
 				else
 					args_array[array_idx].n = 0
 					array_idx = array_idx + 1
 				end
-			elseif arg.type == 'fixed' then
+			elseif arg.type == "fixed" then
 				local val = args[arg_idx] or 0
 				arg_idx = arg_idx + 1
-				args_array[array_idx].f = ffi.cast('wl_fixed_t', val * 256.0)
+				args_array[array_idx].f = ffi.cast("wl_fixed_t", val * 256.0)
 				array_idx = array_idx + 1
-			elseif arg.type == 'object' then
+			elseif arg.type == "object" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].o = val and ffi.cast('struct wl_object*', val) or nil
+				args_array[array_idx].o = val and ffi.cast("struct wl_object*", val) or nil
 				array_idx = array_idx + 1
-			elseif arg.type == 'array' then
+			elseif arg.type == "array" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].a = ffi.cast('struct wl_array*', val)
+				args_array[array_idx].a = ffi.cast("struct wl_array*", val)
 				array_idx = array_idx + 1
-			elseif arg.type == 'string' then
+			elseif arg.type == "string" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].s = val
 				array_idx = array_idx + 1
-			elseif arg.type == 'fd' then
+			elseif arg.type == "fd" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].h = tonumber(val)
@@ -11895,11 +11913,13 @@ do
 			else
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				if arg.type == 'uint' then
+
+				if arg.type == "uint" then
 					args_array[array_idx].u = tonumber(val)
 				else
 					args_array[array_idx].i = tonumber(val)
 				end
+
 				array_idx = array_idx + 1
 			end
 		end
@@ -11908,32 +11928,27 @@ do
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
-					ffi.cast('struct wl_proxy*', self),
+					ffi.cast("struct wl_proxy*", self),
 					4,
 					args_array,
 					new_id_interface,
 					version_for_generic
 				)
-				return ffi.cast('void*', new_proxy)
+				return ffi.cast("void*", new_proxy)
 			elseif new_id_interface then
-				local target_interface = ffi.C[new_id_interface .. '_interface']
-				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(
-					ffi.cast('struct wl_proxy*', self),
-					4,
-					args_array,
-					target_interface
-				)
-				return ffi.cast('struct ' .. new_id_interface .. '*', new_proxy)
+				local target_interface = ffi.C[new_id_interface .. "_interface"]
+				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(ffi.cast("struct wl_proxy*", self), 4, args_array, target_interface)
+				return ffi.cast("struct " .. new_id_interface .. "*", new_proxy)
 			end
 		else
-			ffi.C.wl_proxy_marshal_array(ffi.cast('struct wl_proxy*', self), 4, args_array)
+			ffi.C.wl_proxy_marshal_array(ffi.cast("struct wl_proxy*", self), 4, args_array)
 		end
 	end
 
 	-- Request: set_desync
 	function meta:set_desync(...)
 		local args = {...}
-		local args_array = ffi.new('union wl_argument[1]') -- Dummy for empty args
+		local args_array = ffi.new("union wl_argument[1]") -- Dummy for empty args
 		local arg_idx = 1
 		local array_idx = 0
 		local has_new_id = false
@@ -11943,21 +11958,24 @@ do
 
 		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[6].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				has_new_id = true
 				new_id_interface = arg.interface
+
 				if not new_id_interface then generic_new_id = true end
+
 				break
 			end
 		end
 
 		-- Process arguments
 		for i, arg in ipairs(iface.requests[6].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				if not arg.interface then
 					local target_iface = args[arg_idx]
 					local target_ver = args[arg_idx + 1]
 					arg_idx = arg_idx + 2
+
 					if target_iface then
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
@@ -11966,32 +11984,33 @@ do
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
+
 					array_idx = array_idx + 3
 				else
 					args_array[array_idx].n = 0
 					array_idx = array_idx + 1
 				end
-			elseif arg.type == 'fixed' then
+			elseif arg.type == "fixed" then
 				local val = args[arg_idx] or 0
 				arg_idx = arg_idx + 1
-				args_array[array_idx].f = ffi.cast('wl_fixed_t', val * 256.0)
+				args_array[array_idx].f = ffi.cast("wl_fixed_t", val * 256.0)
 				array_idx = array_idx + 1
-			elseif arg.type == 'object' then
+			elseif arg.type == "object" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].o = val and ffi.cast('struct wl_object*', val) or nil
+				args_array[array_idx].o = val and ffi.cast("struct wl_object*", val) or nil
 				array_idx = array_idx + 1
-			elseif arg.type == 'array' then
+			elseif arg.type == "array" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].a = ffi.cast('struct wl_array*', val)
+				args_array[array_idx].a = ffi.cast("struct wl_array*", val)
 				array_idx = array_idx + 1
-			elseif arg.type == 'string' then
+			elseif arg.type == "string" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].s = val
 				array_idx = array_idx + 1
-			elseif arg.type == 'fd' then
+			elseif arg.type == "fd" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].h = tonumber(val)
@@ -11999,11 +12018,13 @@ do
 			else
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				if arg.type == 'uint' then
+
+				if arg.type == "uint" then
 					args_array[array_idx].u = tonumber(val)
 				else
 					args_array[array_idx].i = tonumber(val)
 				end
+
 				array_idx = array_idx + 1
 			end
 		end
@@ -12012,80 +12033,76 @@ do
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
-					ffi.cast('struct wl_proxy*', self),
+					ffi.cast("struct wl_proxy*", self),
 					5,
 					args_array,
 					new_id_interface,
 					version_for_generic
 				)
-				return ffi.cast('void*', new_proxy)
+				return ffi.cast("void*", new_proxy)
 			elseif new_id_interface then
-				local target_interface = ffi.C[new_id_interface .. '_interface']
-				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(
-					ffi.cast('struct wl_proxy*', self),
-					5,
-					args_array,
-					target_interface
-				)
-				return ffi.cast('struct ' .. new_id_interface .. '*', new_proxy)
+				local target_interface = ffi.C[new_id_interface .. "_interface"]
+				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(ffi.cast("struct wl_proxy*", self), 5, args_array, target_interface)
+				return ffi.cast("struct " .. new_id_interface .. "*", new_proxy)
 			end
 		else
-			ffi.C.wl_proxy_marshal_array(ffi.cast('struct wl_proxy*', self), 5, args_array)
+			ffi.C.wl_proxy_marshal_array(ffi.cast("struct wl_proxy*", self), 5, args_array)
 		end
 	end
 
 	-- Helper to create listener
 	function meta:add_listener(callbacks, data)
 		local count = #iface.events
-		local listener = ffi.new('void*[' .. count .. ']')
-		local ptr_key = tonumber(ffi.cast('intptr_t', ffi.cast('struct wl_proxy*', self)))
+		local listener = ffi.new("void*[" .. count .. "]")
+		local ptr_key = tonumber(ffi.cast("intptr_t", ffi.cast("struct wl_proxy*", self)))
 		listeners_registry[ptr_key] = listeners_registry[ptr_key] or {}
 		table.insert(listeners_registry[ptr_key], listener)
 		table.insert(listeners_registry[ptr_key], callbacks)
 
 		for i, evt in ipairs(iface.events) do
 			local cb = callbacks[evt.name]
+
 			if cb then
-				local sig_args = {'void*', 'struct wl_proxy*'}
+				local sig_args = {"void*", "struct wl_proxy*"}
+
 				for _, arg in ipairs(evt.args) do
-					if arg.type == 'int' then
-						table.insert(sig_args, 'int32_t')
-					elseif arg.type == 'uint' then
-						table.insert(sig_args, 'uint32_t')
-					elseif arg.type == 'fixed' then
-						table.insert(sig_args, 'wl_fixed_t')
-					elseif arg.type == 'string' then
-						table.insert(sig_args, 'const char*')
-					elseif arg.type == 'object' then
-						table.insert(sig_args, 'struct wl_proxy*')
-					elseif arg.type == 'new_id' then
-						table.insert(sig_args, 'struct wl_proxy*')
-					elseif arg.type == 'array' then
-						table.insert(sig_args, 'struct wl_array*')
-					elseif arg.type == 'fd' then
-						table.insert(sig_args, 'int32_t')
+					if arg.type == "int" then
+						table.insert(sig_args, "int32_t")
+					elseif arg.type == "uint" then
+						table.insert(sig_args, "uint32_t")
+					elseif arg.type == "fixed" then
+						table.insert(sig_args, "wl_fixed_t")
+					elseif arg.type == "string" then
+						table.insert(sig_args, "const char*")
+					elseif arg.type == "object" then
+						table.insert(sig_args, "struct wl_proxy*")
+					elseif arg.type == "new_id" then
+						table.insert(sig_args, "struct wl_proxy*")
+					elseif arg.type == "array" then
+						table.insert(sig_args, "struct wl_array*")
+					elseif arg.type == "fd" then
+						table.insert(sig_args, "int32_t")
 					end
 				end
 
-				local sig = 'void (*)(' .. table.concat(sig_args, ', ') .. ')'
+				local sig = "void (*)(" .. table.concat(sig_args, ", ") .. ")"
 				local cb_func = ffi.cast(sig, function(data, proxy, ...)
 					local args = {...}
 					local lua_args = {}
 					local arg_idx = 1
-
-					proxy = ffi.cast('struct wl_subsurface*', proxy)
+					proxy = ffi.cast("struct wl_subsurface*", proxy)
 
 					for _, arg in ipairs(evt.args) do
 						local val = args[arg_idx]
 						arg_idx = arg_idx + 1
 
-						if arg.type == 'fixed' then
+						if arg.type == "fixed" then
 							val = tonumber(val) / 256.0
-						elseif arg.type == 'string' then
+						elseif arg.type == "string" then
 							val = ffi.string(val)
-						elseif arg.type == 'object' or arg.type == 'new_id' then
+						elseif arg.type == "object" or arg.type == "new_id" then
 							if arg.interface then
-								val = ffi.cast('struct ' .. arg.interface .. '*', val)
+								val = ffi.cast("struct " .. arg.interface .. "*", val)
 							end
 						end
 
@@ -12100,31 +12117,27 @@ do
 		end
 
 		ffi.C.wl_proxy_add_listener(
-			ffi.cast('struct wl_proxy*', self),
-			ffi.cast('void(**)(void)', listener),
-			ffi.cast('void*', data)
+			ffi.cast("struct wl_proxy*", self),
+			ffi.cast("void(**)(void)", listener),
+			ffi.cast("void*", data)
 		)
 	end
 
-	output_table['wl_subsurface'] = meta
-	ffi.metatype('struct wl_subsurface', meta)
+	output_table["wl_subsurface"] = meta
+	ffi.metatype("struct wl_subsurface", meta)
 end
 
 -- Interface: wl_fixes
 do
 	local meta = {}
 	meta.__index = meta
-
 	local iface = {
-		enums = {
-		},
-		events = {
-		},
+		enums = {},
+		events = {},
 		name = "wl_fixes",
 		requests = {
 			[1] = {
-				args = {
-				},
+				args = {},
 				name = "destroy",
 				since = 1,
 				type = "destructor",
@@ -12148,7 +12161,7 @@ do
 	-- Request: destroy
 	function meta:destroy(...)
 		local args = {...}
-		local args_array = ffi.new('union wl_argument[1]') -- Dummy for empty args
+		local args_array = ffi.new("union wl_argument[1]") -- Dummy for empty args
 		local arg_idx = 1
 		local array_idx = 0
 		local has_new_id = false
@@ -12158,21 +12171,24 @@ do
 
 		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[1].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				has_new_id = true
 				new_id_interface = arg.interface
+
 				if not new_id_interface then generic_new_id = true end
+
 				break
 			end
 		end
 
 		-- Process arguments
 		for i, arg in ipairs(iface.requests[1].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				if not arg.interface then
 					local target_iface = args[arg_idx]
 					local target_ver = args[arg_idx + 1]
 					arg_idx = arg_idx + 2
+
 					if target_iface then
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
@@ -12181,32 +12197,33 @@ do
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
+
 					array_idx = array_idx + 3
 				else
 					args_array[array_idx].n = 0
 					array_idx = array_idx + 1
 				end
-			elseif arg.type == 'fixed' then
+			elseif arg.type == "fixed" then
 				local val = args[arg_idx] or 0
 				arg_idx = arg_idx + 1
-				args_array[array_idx].f = ffi.cast('wl_fixed_t', val * 256.0)
+				args_array[array_idx].f = ffi.cast("wl_fixed_t", val * 256.0)
 				array_idx = array_idx + 1
-			elseif arg.type == 'object' then
+			elseif arg.type == "object" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].o = val and ffi.cast('struct wl_object*', val) or nil
+				args_array[array_idx].o = val and ffi.cast("struct wl_object*", val) or nil
 				array_idx = array_idx + 1
-			elseif arg.type == 'array' then
+			elseif arg.type == "array" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].a = ffi.cast('struct wl_array*', val)
+				args_array[array_idx].a = ffi.cast("struct wl_array*", val)
 				array_idx = array_idx + 1
-			elseif arg.type == 'string' then
+			elseif arg.type == "string" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].s = val
 				array_idx = array_idx + 1
-			elseif arg.type == 'fd' then
+			elseif arg.type == "fd" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].h = tonumber(val)
@@ -12214,11 +12231,13 @@ do
 			else
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				if arg.type == 'uint' then
+
+				if arg.type == "uint" then
 					args_array[array_idx].u = tonumber(val)
 				else
 					args_array[array_idx].i = tonumber(val)
 				end
+
 				array_idx = array_idx + 1
 			end
 		end
@@ -12227,32 +12246,27 @@ do
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
-					ffi.cast('struct wl_proxy*', self),
+					ffi.cast("struct wl_proxy*", self),
 					0,
 					args_array,
 					new_id_interface,
 					version_for_generic
 				)
-				return ffi.cast('void*', new_proxy)
+				return ffi.cast("void*", new_proxy)
 			elseif new_id_interface then
-				local target_interface = ffi.C[new_id_interface .. '_interface']
-				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(
-					ffi.cast('struct wl_proxy*', self),
-					0,
-					args_array,
-					target_interface
-				)
-				return ffi.cast('struct ' .. new_id_interface .. '*', new_proxy)
+				local target_interface = ffi.C[new_id_interface .. "_interface"]
+				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(ffi.cast("struct wl_proxy*", self), 0, args_array, target_interface)
+				return ffi.cast("struct " .. new_id_interface .. "*", new_proxy)
 			end
 		else
-			ffi.C.wl_proxy_marshal_array(ffi.cast('struct wl_proxy*', self), 0, args_array)
+			ffi.C.wl_proxy_marshal_array(ffi.cast("struct wl_proxy*", self), 0, args_array)
 		end
 	end
 
 	-- Request: destroy_registry
 	function meta:destroy_registry(...)
 		local args = {...}
-		local args_array = ffi.new('union wl_argument[1]')
+		local args_array = ffi.new("union wl_argument[1]")
 		local arg_idx = 1
 		local array_idx = 0
 		local has_new_id = false
@@ -12262,21 +12276,24 @@ do
 
 		-- Check if this request has a new_id (constructor)
 		for _, arg in ipairs(iface.requests[2].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				has_new_id = true
 				new_id_interface = arg.interface
+
 				if not new_id_interface then generic_new_id = true end
+
 				break
 			end
 		end
 
 		-- Process arguments
 		for i, arg in ipairs(iface.requests[2].args) do
-			if arg.type == 'new_id' then
+			if arg.type == "new_id" then
 				if not arg.interface then
 					local target_iface = args[arg_idx]
 					local target_ver = args[arg_idx + 1]
 					arg_idx = arg_idx + 2
+
 					if target_iface then
 						args_array[array_idx].s = target_iface.name
 						args_array[array_idx + 1].u = tonumber(target_ver)
@@ -12285,32 +12302,33 @@ do
 						new_id_interface = target_iface.ptr or target_iface
 						version_for_generic = tonumber(target_ver)
 					end
+
 					array_idx = array_idx + 3
 				else
 					args_array[array_idx].n = 0
 					array_idx = array_idx + 1
 				end
-			elseif arg.type == 'fixed' then
+			elseif arg.type == "fixed" then
 				local val = args[arg_idx] or 0
 				arg_idx = arg_idx + 1
-				args_array[array_idx].f = ffi.cast('wl_fixed_t', val * 256.0)
+				args_array[array_idx].f = ffi.cast("wl_fixed_t", val * 256.0)
 				array_idx = array_idx + 1
-			elseif arg.type == 'object' then
+			elseif arg.type == "object" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].o = val and ffi.cast('struct wl_object*', val) or nil
+				args_array[array_idx].o = val and ffi.cast("struct wl_object*", val) or nil
 				array_idx = array_idx + 1
-			elseif arg.type == 'array' then
+			elseif arg.type == "array" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				args_array[array_idx].a = ffi.cast('struct wl_array*', val)
+				args_array[array_idx].a = ffi.cast("struct wl_array*", val)
 				array_idx = array_idx + 1
-			elseif arg.type == 'string' then
+			elseif arg.type == "string" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].s = val
 				array_idx = array_idx + 1
-			elseif arg.type == 'fd' then
+			elseif arg.type == "fd" then
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
 				args_array[array_idx].h = tonumber(val)
@@ -12318,11 +12336,13 @@ do
 			else
 				local val = args[arg_idx]
 				arg_idx = arg_idx + 1
-				if arg.type == 'uint' then
+
+				if arg.type == "uint" then
 					args_array[array_idx].u = tonumber(val)
 				else
 					args_array[array_idx].i = tonumber(val)
 				end
+
 				array_idx = array_idx + 1
 			end
 		end
@@ -12331,80 +12351,76 @@ do
 		if has_new_id then
 			if generic_new_id then
 				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor_versioned(
-					ffi.cast('struct wl_proxy*', self),
+					ffi.cast("struct wl_proxy*", self),
 					1,
 					args_array,
 					new_id_interface,
 					version_for_generic
 				)
-				return ffi.cast('void*', new_proxy)
+				return ffi.cast("void*", new_proxy)
 			elseif new_id_interface then
-				local target_interface = ffi.C[new_id_interface .. '_interface']
-				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(
-					ffi.cast('struct wl_proxy*', self),
-					1,
-					args_array,
-					target_interface
-				)
-				return ffi.cast('struct ' .. new_id_interface .. '*', new_proxy)
+				local target_interface = ffi.C[new_id_interface .. "_interface"]
+				local new_proxy = ffi.C.wl_proxy_marshal_array_constructor(ffi.cast("struct wl_proxy*", self), 1, args_array, target_interface)
+				return ffi.cast("struct " .. new_id_interface .. "*", new_proxy)
 			end
 		else
-			ffi.C.wl_proxy_marshal_array(ffi.cast('struct wl_proxy*', self), 1, args_array)
+			ffi.C.wl_proxy_marshal_array(ffi.cast("struct wl_proxy*", self), 1, args_array)
 		end
 	end
 
 	-- Helper to create listener
 	function meta:add_listener(callbacks, data)
 		local count = #iface.events
-		local listener = ffi.new('void*[' .. count .. ']')
-		local ptr_key = tonumber(ffi.cast('intptr_t', ffi.cast('struct wl_proxy*', self)))
+		local listener = ffi.new("void*[" .. count .. "]")
+		local ptr_key = tonumber(ffi.cast("intptr_t", ffi.cast("struct wl_proxy*", self)))
 		listeners_registry[ptr_key] = listeners_registry[ptr_key] or {}
 		table.insert(listeners_registry[ptr_key], listener)
 		table.insert(listeners_registry[ptr_key], callbacks)
 
 		for i, evt in ipairs(iface.events) do
 			local cb = callbacks[evt.name]
+
 			if cb then
-				local sig_args = {'void*', 'struct wl_proxy*'}
+				local sig_args = {"void*", "struct wl_proxy*"}
+
 				for _, arg in ipairs(evt.args) do
-					if arg.type == 'int' then
-						table.insert(sig_args, 'int32_t')
-					elseif arg.type == 'uint' then
-						table.insert(sig_args, 'uint32_t')
-					elseif arg.type == 'fixed' then
-						table.insert(sig_args, 'wl_fixed_t')
-					elseif arg.type == 'string' then
-						table.insert(sig_args, 'const char*')
-					elseif arg.type == 'object' then
-						table.insert(sig_args, 'struct wl_proxy*')
-					elseif arg.type == 'new_id' then
-						table.insert(sig_args, 'struct wl_proxy*')
-					elseif arg.type == 'array' then
-						table.insert(sig_args, 'struct wl_array*')
-					elseif arg.type == 'fd' then
-						table.insert(sig_args, 'int32_t')
+					if arg.type == "int" then
+						table.insert(sig_args, "int32_t")
+					elseif arg.type == "uint" then
+						table.insert(sig_args, "uint32_t")
+					elseif arg.type == "fixed" then
+						table.insert(sig_args, "wl_fixed_t")
+					elseif arg.type == "string" then
+						table.insert(sig_args, "const char*")
+					elseif arg.type == "object" then
+						table.insert(sig_args, "struct wl_proxy*")
+					elseif arg.type == "new_id" then
+						table.insert(sig_args, "struct wl_proxy*")
+					elseif arg.type == "array" then
+						table.insert(sig_args, "struct wl_array*")
+					elseif arg.type == "fd" then
+						table.insert(sig_args, "int32_t")
 					end
 				end
 
-				local sig = 'void (*)(' .. table.concat(sig_args, ', ') .. ')'
+				local sig = "void (*)(" .. table.concat(sig_args, ", ") .. ")"
 				local cb_func = ffi.cast(sig, function(data, proxy, ...)
 					local args = {...}
 					local lua_args = {}
 					local arg_idx = 1
-
-					proxy = ffi.cast('struct wl_fixes*', proxy)
+					proxy = ffi.cast("struct wl_fixes*", proxy)
 
 					for _, arg in ipairs(evt.args) do
 						local val = args[arg_idx]
 						arg_idx = arg_idx + 1
 
-						if arg.type == 'fixed' then
+						if arg.type == "fixed" then
 							val = tonumber(val) / 256.0
-						elseif arg.type == 'string' then
+						elseif arg.type == "string" then
 							val = ffi.string(val)
-						elseif arg.type == 'object' or arg.type == 'new_id' then
+						elseif arg.type == "object" or arg.type == "new_id" then
 							if arg.interface then
-								val = ffi.cast('struct ' .. arg.interface .. '*', val)
+								val = ffi.cast("struct " .. arg.interface .. "*", val)
 							end
 						end
 
@@ -12419,14 +12435,14 @@ do
 		end
 
 		ffi.C.wl_proxy_add_listener(
-			ffi.cast('struct wl_proxy*', self),
-			ffi.cast('void(**)(void)', listener),
-			ffi.cast('void*', data)
+			ffi.cast("struct wl_proxy*", self),
+			ffi.cast("void(**)(void)", listener),
+			ffi.cast("void*", data)
 		)
 	end
 
-	output_table['wl_fixes'] = meta
-	ffi.metatype('struct wl_fixes', meta)
+	output_table["wl_fixes"] = meta
+	ffi.metatype("struct wl_fixes", meta)
 end
 
 output_table._interface_data = interface_data
