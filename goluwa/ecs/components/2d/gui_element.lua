@@ -43,11 +43,16 @@ end
 function META:DrawRecursive()
 	if not self:GetVisible() then return end
 
+	local transform = self.Owner.transform
+
+	if not transform:GetVisibleLocalRect(0, 0, transform.Size.x, transform.Size.y) then
+		return
+	end
+
 	local c = self.Color + self.DrawColor
 
 	if c.a <= 0 then return end
 
-	local transform = self.Owner.transform
 	local clipping = self:GetClipping()
 
 	if clipping then

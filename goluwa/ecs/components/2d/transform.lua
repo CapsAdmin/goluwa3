@@ -105,6 +105,110 @@ function META:GetWorldRectFast()
 	return x, y, x + self.Size.x, y + self.Size.y
 end
 
+function META:GetWorldBounds(x, y, w, h)
+	x = x or 0
+	y = y or 0
+	w = w or self.Size.x
+	h = h or self.Size.y
+	local mat = self:GetWorldMatrix()
+	local x1, y1 = mat:TransformVector(x, y, 0)
+	local x2, y2 = mat:TransformVector(x + w, y, 0)
+	local x3, y3 = mat:TransformVector(x, y + h, 0)
+	local x4, y4 = mat:TransformVector(x + w, y + h, 0)
+	return math.min(x1, x2, x3, x4),
+	math.min(y1, y2, y3, y4),
+	math.max(x1, x2, x3, x4),
+	math.max(y1, y2, y3, y4)
+end
+
+function META:GetScrollViewportWorldBounds()
+	local viewport_x1, viewport_y1, viewport_x2, viewport_y2
+	local found = false
+	local parent = self.Owner and self.Owner:GetParent()
+
+	while parent and parent:IsValid() do
+		local transform = parent.transform
+
+		if transform and transform:GetScrollEnabled() then
+			local x1, y1, x2, y2 = transform:GetWorldBounds(0, 0, transform.Size.x, transform.Size.y)
+
+			if found then
+				viewport_x1 = math.max(viewport_x1, x1)
+				viewport_y1 = math.max(viewport_y1, y1)
+				viewport_x2 = math.min(viewport_x2, x2)
+				viewport_y2 = math.min(viewport_y2, y2)
+			else
+				viewport_x1 = x1
+				viewport_y1 = y1
+				viewport_x2 = x2
+				viewport_y2 = y2
+				found = true
+			end
+		end
+
+		parent = parent:GetParent()
+	end
+
+	if not found then return end
+
+	return viewport_x1, viewport_y1, viewport_x2, viewport_y2
+end
+
+function META:GetVisibleLocalRect(x, y, w, h)
+	x = x or 0
+	y = y or 0
+	w = w or self.Size.x
+	h = h or self.Size.y
+	local viewport_x1, viewport_y1, viewport_x2, viewport_y2 = self:GetScrollViewportWorldBounds()
+
+	if not viewport_x1 then return x, y, x + w, y + h, false end
+
+	local inv = self:GetWorldMatrixInverse()
+	local lx1, ly1 = inv:TransformVector(viewport_x1, viewport_y1, 0)
+	local lx2, ly2 = inv:TransformVector(viewport_x2, viewport_y1, 0)
+	local lx3, ly3 = inv:TransformVector(viewport_x1, viewport_y2, 0)
+	local lx4, ly4 = inv:TransformVector(viewport_x2, viewport_y2, 0)
+	local local_x1 = math.min(lx1, lx2, lx3, lx4)
+	local local_y1 = math.min(ly1, ly2, ly3, ly4)
+	local local_x2 = math.max(lx1, lx2, lx3, lx4)
+	local local_y2 = math.max(ly1, ly2, ly3, ly4)
+	local clip_x1 = math.max(x, local_x1)
+	local clip_y1 = math.max(y, local_y1)
+	local clip_x2 = math.min(x + w, local_x2)
+	local clip_y2 = math.min(y + h, local_y2)
+
+	if clip_x2 <= clip_x1 or clip_y2 <= clip_y1 then return nil end
+
+	return clip_x1, clip_y1, clip_x2, clip_y2, true
+end
+
+function META:BeginScrollViewportMask(x, y, w, h)
+	local clip_x1, clip_y1, clip_x2, clip_y2, masked = self:GetVisibleLocalRect(x, y, w, h)
+
+	if not clip_x1 then return nil end
+
+	if not masked then return false, clip_x1, clip_y1, clip_x2, clip_y2 end
+
+	render2d.PushStencilMask()
+	render2d.PushMatrix()
+	render2d.SetWorldMatrix(self:GetWorldMatrix())
+	render2d.DrawRect(clip_x1, clip_y1, clip_x2 - clip_x1, clip_y2 - clip_y1)
+	render2d.PopMatrix()
+	render2d.BeginStencilTest()
+	return true, clip_x1, clip_y1, clip_x2, clip_y2
+end
+
+function META:EndScrollViewportMask(masked, clip_x1, clip_y1, clip_x2, clip_y2)
+	if not masked then return end
+
+	render2d.SetStencilMode("mask_decrement", render2d.stencil_level)
+	render2d.PushMatrix()
+	render2d.SetWorldMatrix(self:GetWorldMatrix())
+	render2d.DrawRect(clip_x1, clip_y1, clip_x2 - clip_x1, clip_y2 - clip_y1)
+	render2d.PopMatrix()
+	render2d.PopStencilMask()
+end
+
 function META:GetLocalMatrix()
 	if not self.LocalMatrix then
 		self.LocalMatrix = Matrix44():Identity()

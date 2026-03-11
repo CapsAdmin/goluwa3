@@ -269,24 +269,43 @@ function META:IsCaretVisible()
 		) % 2 < 1
 end
 
+function META:GetVisibleTextLines(text, font, lx, ly, clip_y1, clip_y2)
+	local lines = text:split("\n", true)
+	local line_height = font:GetLineHeight()
+	local vertical_step = line_height + font:GetSpacing()
+	local first = 1
+	local last = #lines
+
+	if vertical_step > 0 then
+		first = math.max(1, math.floor((clip_y1 - ly) / vertical_step) + 1)
+		last = math.min(#lines, math.floor((clip_y2 - ly) / vertical_step) + 1)
+	end
+
+	return lines, line_height, vertical_step, first, last
+end
+
 function META:OnDraw()
+	local transform = self.Owner.transform
 	local font = self:GetFont() or fonts.GetDefaultFont()
 	local text = self.wrapped_text or self:GetText()
 	local lx, ly = self:GetTextOffset()
+	local tw, th = font:GetTextSize(text)
+	local masked, clip_x1, clip_y1, clip_x2, clip_y2 = transform:BeginScrollViewportMask(lx, ly, tw, th)
+
+	if masked == nil then return end
+
+	local lines, line_height, vertical_step, visible_start, visible_stop = self:GetVisibleTextLines(text, font, lx, ly, clip_y1, clip_y2)
 
 	if self:GetEditable() and self.editor and prototype.GetFocusedObject() == self.Owner then
 		local start, stop = self.editor:GetSelection()
 
 		if start and start ~= stop then
-			local line_height = font:GetLineHeight()
-			local vertical_step = line_height + font:GetSpacing()
-			local lines = text:split("\n")
 			local line_start, col_start = self:GetLineColFromIndex(start)
 			local line_stop, col_stop = self:GetLineColFromIndex(stop)
 			render2d.SetColor(1, 1, 1, 0.3)
 			render2d.SetTexture(nil)
 
-			for i = line_start, line_stop do
+			for i = math.max(line_start, visible_start), math.min(line_stop, visible_stop) do
 				local line_text = lines[i] or ""
 				local c_start = (i == line_start) and col_start or 1
 				local c_stop = (i == line_stop) and col_stop or utf8.length(line_text) + 1
@@ -303,7 +322,10 @@ function META:OnDraw()
 	end
 
 	render2d.SetColor(self:GetColor():Unpack())
-	font:DrawText(text, lx, ly, 0)
+
+	for i = visible_start, visible_stop do
+		font:DrawText(lines[i] or "", lx, ly + (i - 1) * vertical_step, 0)
+	end
 
 	if
 		self:GetEditable() and
@@ -313,16 +335,18 @@ function META:OnDraw()
 	then
 		local cursor = self.editor.Cursor
 		local found_line, found_col = self:GetLineColFromIndex(cursor)
-		local lines = text:split("\n", true)
-		local line_text = lines[found_line] or ""
-		local prefix = utf8.sub(line_text, 1, found_col - 1)
-		local cw = font:GetTextSize(prefix)
-		local line_height = font:GetLineHeight()
-		local vertical_step = line_height + font:GetSpacing()
-		render2d.SetColor(self:GetColor():Unpack())
-		render2d.SetTexture(nil)
-		render2d.DrawRect(lx + cw, ly + (found_line - 1) * vertical_step, 2, line_height)
+
+		if found_line >= visible_start and found_line <= visible_stop then
+			local line_text = lines[found_line] or ""
+			local prefix = utf8.sub(line_text, 1, found_col - 1)
+			local cw = font:GetTextSize(prefix)
+			render2d.SetColor(self:GetColor():Unpack())
+			render2d.SetTexture(nil)
+			render2d.DrawRect(lx + cw, ly + (found_line - 1) * vertical_step, 2, line_height)
+		end
 	end
+
+	transform:EndScrollViewportMask(masked, clip_x1, clip_y1, clip_x2, clip_y2)
 end
 
 function META:GetTextOffset()
