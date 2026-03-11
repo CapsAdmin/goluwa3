@@ -406,6 +406,7 @@ do -- 44
 	end
 
 	function META.GetMultiplied(a, b, o)
+		o = o or META.CType()
 		local o00 = a.m00 * b.m00 + a.m01 * b.m10 + a.m02 * b.m20 + a.m03 * b.m30
 		local o01 = a.m00 * b.m01 + a.m01 * b.m11 + a.m02 * b.m21 + a.m03 * b.m31
 		local o02 = a.m00 * b.m02 + a.m01 * b.m12 + a.m02 * b.m22 + a.m03 * b.m32
@@ -422,7 +423,6 @@ do -- 44
 		local o31 = a.m30 * b.m01 + a.m31 * b.m11 + a.m32 * b.m21 + a.m33 * b.m31
 		local o32 = a.m30 * b.m02 + a.m31 * b.m12 + a.m32 * b.m22 + a.m33 * b.m32
 		local o33 = a.m30 * b.m03 + a.m31 * b.m13 + a.m32 * b.m23 + a.m33 * b.m33
-		o = o or META.CType()
 		o.m00 = o00
 		o.m01 = o01
 		o.m02 = o02

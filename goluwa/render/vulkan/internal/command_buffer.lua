@@ -2,6 +2,14 @@ local ffi = require("ffi")
 local prototype = require("prototype")
 local vulkan = require("render.vulkan.internal.vulkan")
 local CommandBuffer = prototype.CreateTemplate("vulkan_command_buffer")
+local type = _G.type
+local VkBufferArray = vulkan.T.Array(vulkan.vk.VkBuffer)
+local VkBufferArray1 = vulkan.T.Array(vulkan.vk.VkBuffer, 1)
+local VkDescriptorSetArray = vulkan.T.Array(vulkan.vk.VkDescriptorSet)
+local VkDeviceSizeArray = vulkan.T.Array(vulkan.vk.VkDeviceSize)
+local VkDeviceSizeArray1 = vulkan.T.Array(vulkan.vk.VkDeviceSize, 1)
+local UInt32Array = ffi.typeof("uint32_t[?]")
+local UInt32Array1 = ffi.typeof("uint32_t[1]")
 
 function CommandBuffer.New(command_pool)
 	local ptr = vulkan.T.Box(vulkan.vk.VkCommandBuffer)()
@@ -186,49 +194,57 @@ function CommandBuffer:EndRendering()
 	self.is_rendering = false
 end
 
-function CommandBuffer:BindPipeline(pipeline, type)
-	vulkan.lib.vkCmdBindPipeline(self.ptr[0], vulkan.vk.e.VkPipelineBindPoint(type), pipeline.ptr[0])
+function CommandBuffer:BindPipeline(pipeline, bind_point)
+	vulkan.lib.vkCmdBindPipeline(self.ptr[0], vulkan.vk.e.VkPipelineBindPoint(bind_point), pipeline.ptr[0])
 end
 
 function CommandBuffer:BindVertexBuffers(firstBinding, buffers, offsets)
 	local bufferCount = #buffers
-	local bufferArray = vulkan.T.Array(vulkan.vk.VkBuffer)(bufferCount)
-	local offsetArray = vulkan.T.Array(vulkan.vk.VkDeviceSize)(bufferCount)
+	local bufferArray = VkBufferArray(bufferCount)
+	local offsetArray = VkDeviceSizeArray(bufferCount)
+	local hasOffsets = offsets ~= nil
 
-	for i, buffer in ipairs(buffers) do
+	for i = 1, bufferCount do
+		local buffer = buffers[i]
 		bufferArray[i - 1] = buffer.ptr[0]
-		offsetArray[i - 1] = offsets and offsets[i] or 0
+		offsetArray[i - 1] = hasOffsets and offsets[i] or 0
 	end
 
 	vulkan.lib.vkCmdBindVertexBuffers(self.ptr[0], firstBinding or 0, bufferCount, bufferArray, offsetArray)
 end
 
 function CommandBuffer:BindVertexBuffer(buffer, binding, offset)
-	self:BindVertexBuffers(binding, {buffer}, offset and {offset} or nil)
+	local bufferArray = VkBufferArray1()
+	local offsetArray = VkDeviceSizeArray1()
+	bufferArray[0] = buffer.ptr[0]
+	offsetArray[0] = offset or 0
+	vulkan.lib.vkCmdBindVertexBuffers(self.ptr[0], binding or 0, 1, bufferArray, offsetArray)
 end
 
 function CommandBuffer:BindDescriptorSets(pipeline_bind_point, pipelineLayout, descriptorSets, dynamicOffsets, firstSet)
 	local setCount = #descriptorSets
-	local setArray = vulkan.T.Array(vulkan.vk.VkDescriptorSet)(setCount)
+	local setArray = VkDescriptorSetArray(setCount)
 
-	for i, ds in ipairs(descriptorSets) do
+	for i = 1, setCount do
+		local ds = descriptorSets[i]
 		setArray[i - 1] = ds.ptr[0]
 	end
 
 	local dynamicOffsetCount = 0
 	local pDynamicOffsets = nil
+	local dynamicOffsetsType = type(dynamicOffsets)
 
-	if _G.type(dynamicOffsets) == "table" then
+	if dynamicOffsetsType == "table" then
 		dynamicOffsetCount = #dynamicOffsets
-		pDynamicOffsets = vulkan.T.Array(ffi.typeof("uint32_t"))(dynamicOffsetCount)
+		pDynamicOffsets = UInt32Array(dynamicOffsetCount)
 
-		for i, offset in ipairs(dynamicOffsets) do
+		for i = 1, dynamicOffsetCount do
+			local offset = dynamicOffsets[i]
 			pDynamicOffsets[i - 1] = offset
 		end
-	elseif _G.type(dynamicOffsets) == "number" and dynamicOffsets > 0 then
+	elseif dynamicOffsetsType == "number" and dynamicOffsets > 0 then
 		dynamicOffsetCount = 1
-		pDynamicOffsets = vulkan.T.Array(ffi.typeof("uint32_t"))(1)
-		pDynamicOffsets[0] = dynamicOffsets
+		pDynamicOffsets = UInt32Array1(dynamicOffsets)
 	end
 
 	local firstSetInt = firstSet or 0
@@ -375,11 +391,11 @@ function CommandBuffer:SetColorBlendEnable(first_attachment, blend_enable)
 	local count
 
 	if type(blend_enable) == "boolean" then
-		enable_array = ffi.new("uint32_t[1]", blend_enable and 1 or 0)
+		enable_array = UInt32Array1(blend_enable and 1 or 0)
 		count = 1
 	elseif type(blend_enable) == "table" then
 		count = #blend_enable
-		enable_array = ffi.new("uint32_t[?]", count)
+		enable_array = UInt32Array(count)
 
 		for i = 1, count do
 			enable_array[i - 1] = blend_enable[i] and 1 or 0

@@ -343,11 +343,14 @@ function ImageRenderTarget:GetSamples()
 end
 
 function ImageRenderTarget:RequiresManualGamma()
-	if self.color_format:find("_srgb$") then return false end
+	if self.color_format:ends_with("_srgb") then return false end
 
-	if self.color_format:find("_sfloat$") then return false end
+	if self.color_format:ends_with("_sfloat") then return false end
 
-	if self.surface_format and self.surface_format.color_space:find("_linear_") then
+	if
+		self.surface_format and
+		self.surface_format.color_space:find("_linear_", nil, true)
+	then
 		return false
 	end
 

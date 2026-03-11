@@ -14,7 +14,7 @@ local function get_value(v, group)
 	return v
 end
 
-local function lerp_linear(values, alpha, group, interpolation)
+local function lerp_linear(values, alpha, group, interpolation, a, b, c)
 	local count = #values
 
 	if count <= 1 then return get_value(values[1], group) end
@@ -32,7 +32,7 @@ local function lerp_linear(values, alpha, group, interpolation)
 		segment_alpha = total_alpha
 	end
 
-	if interpolation then segment_alpha = interpolation(segment_alpha) end
+	if interpolation then segment_alpha = interpolation(segment_alpha, a, b, c) end
 
 	local v1 = get_value(values[segment_index], group)
 	local v2 = get_value(values[segment_index + 1], group)
@@ -59,6 +59,10 @@ local function lerp_bezier(values, alpha, group)
 	end
 
 	if #tbl > 1 then return lerp_bezier(tbl, alpha, group) else return tbl[1] end
+end
+
+local function spring_callback(a, animation, segment_duration)
+	return animation.interpolation(a, segment_duration)
 end
 
 function animations.Update(dt, group)
@@ -122,14 +126,7 @@ function animations.Update(dt, group)
 				local total_duration = animation.time
 				local segment_count = #to - 1
 				local segment_duration = total_duration / segment_count
-				val = lerp_linear(
-					to,
-					alpha,
-					group,
-					function(a)
-						return animation.interpolation(a, segment_duration)
-					end
-				)
+				val = lerp_linear(to, alpha, group, spring_callback, animation, segment_duration)
 			end
 		else
 			if type(animation.interpolation) == "function" then

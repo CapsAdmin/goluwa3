@@ -13,6 +13,116 @@ local function hash_table(tbl)
 	return luadata.Encode(tbl)
 end
 
+local function get_color_attachment_count(self)
+	if type(self.config.color_format) == "table" then
+		return math.max(#self.config.color_format, 1)
+	end
+
+	return 1
+end
+
+local function get_state(self, section, key, subkey)
+	if self.overridden_state[section] and self.overridden_state[section][key] ~= nil then
+		local val = self.overridden_state[section][key]
+
+		if subkey and type(val) == "table" then return val[subkey] end
+
+		return val
+	end
+
+	if section == "color_blend" then
+		local cb = self.config.color_blend
+
+		if cb and cb.attachments and cb.attachments[1] then
+			if key == "blend" then return cb.attachments[1].blend end
+
+			return cb.attachments[1][key]
+		end
+	end
+
+	if self.config[section] and self.config[section][key] ~= nil then
+		local val = self.config[section][key]
+
+		if subkey and type(val) == "table" then return val[subkey] end
+
+		return val
+	end
+
+	return nil
+end
+
+local function get_color_blend_enable(self, index)
+	local overridden_color_blend = self.overridden_state.color_blend
+
+	if overridden_color_blend and overridden_color_blend.attachments then
+		local attachment = overridden_color_blend.attachments[index]
+
+		if attachment and attachment.blend ~= nil then
+			return attachment.blend == true
+		end
+	end
+
+	local color_blend = self.config.color_blend
+
+	if color_blend and color_blend.attachments then
+		local attachment = color_blend.attachments[index]
+
+		if attachment and attachment.blend ~= nil then
+			return attachment.blend == true
+		end
+
+		local default_attachment = color_blend.attachments[1]
+
+		if default_attachment and default_attachment.blend ~= nil then
+			return default_attachment.blend == true
+		end
+	end
+
+	if overridden_color_blend and overridden_color_blend.blend ~= nil then
+		return overridden_color_blend.blend == true
+	end
+
+	if color_blend and color_blend.attachments and color_blend.attachments[1] then
+		return color_blend.attachments[1].blend == true
+	end
+
+	return false
+end
+
+local function get_color_blend_state(self, index, key, default)
+	local overridden_color_blend = self.overridden_state.color_blend
+
+	if overridden_color_blend and overridden_color_blend.attachments then
+		local attachment = overridden_color_blend.attachments[index]
+
+		if attachment and attachment[key] ~= nil then return attachment[key] end
+	end
+
+	local val = get_state(self, "color_blend", key)
+
+	if val ~= nil then return val end
+
+	local color_blend = self.config.color_blend
+
+	if color_blend and color_blend.attachments then
+		local attachment = color_blend.attachments[index]
+
+		if attachment and attachment[key] ~= nil then return attachment[key] end
+
+		local default_attachment = color_blend.attachments[1]
+
+		if default_attachment and default_attachment[key] ~= nil then
+			return default_attachment[key]
+		end
+	end
+
+	if overridden_color_blend and overridden_color_blend[key] ~= nil then
+		return overridden_color_blend[key]
+	end
+
+	return default
+end
+
 function GraphicsPipeline.New(vulkan_instance, config)
 	local self = GraphicsPipeline:CreateObject({})
 	local uniform_buffers = {}
@@ -539,83 +649,15 @@ function GraphicsPipeline:Bind(cmd, frame_index, dynamic_offsets)
 	frame_index = frame_index or 1
 	cmd:BindPipeline(self.pipeline, "graphics")
 
-	local function get_color_attachment_count()
-		if type(self.config.color_format) == "table" then
-			return math.max(#self.config.color_format, 1)
-		end
-
-		return 1
-	end
-
-	-- Helper to get effective state (overridden or config)
-	local function get_state(section, key, subkey)
-		if self.overridden_state[section] and self.overridden_state[section][key] ~= nil then
-			local val = self.overridden_state[section][key]
-
-			if subkey and type(val) == "table" then return val[subkey] end
-
-			return val
-		end
-
-		if section == "color_blend" then
-			local cb = self.config.color_blend
-
-			if cb and cb.attachments and cb.attachments[1] then
-				if key == "blend" then return cb.attachments[1].blend end
-
-				return cb.attachments[1][key]
-			end
-		end
-
-		if self.config[section] and self.config[section][key] ~= nil then
-			local val = self.config[section][key]
-
-			if subkey and type(val) == "table" then return val[subkey] end
-
-			return val
-		end
-
-		return nil
-	end
-
 	-- Always apply dynamic states if they are enabled in this pipeline
 	if self.dynamic_states.color_blend_enable_ext then
-		local attachment_count = get_color_attachment_count()
+		local attachment_count = get_color_attachment_count(self)
 
 		if attachment_count > 0 then
 			local enables = {}
 
 			for i = 1, attachment_count do
-				local val
-
-				if
-					self.overridden_state.color_blend and
-					self.overridden_state.color_blend.attachments and
-					self.overridden_state.color_blend.attachments[i]
-				then
-					val = self.overridden_state.color_blend.attachments[i].blend
-				end
-
-				if val == nil then
-					local cb = self.config.color_blend
-
-					if cb and cb.attachments and cb.attachments[i] and cb.attachments[i].blend ~= nil then
-						val = cb.attachments[i].blend
-					elseif cb and cb.attachments and cb.attachments[1] and cb.attachments[1].blend ~= nil then
-						val = cb.attachments[1].blend
-					elseif
-						self.overridden_state.color_blend and
-						self.overridden_state.color_blend.blend ~= nil
-					then
-						val = self.overridden_state.color_blend.blend
-					elseif cb and cb.attachments and cb.attachments[1] then
-						val = cb.attachments[1].blend
-					else
-						val = false
-					end
-				end
-
-				enables[i] = val == true
+				enables[i] = get_color_blend_enable(self, i)
 			end
 
 			cmd:SetColorBlendEnable(0, enables)
@@ -623,50 +665,19 @@ function GraphicsPipeline:Bind(cmd, frame_index, dynamic_offsets)
 	end
 
 	if self.dynamic_states.color_blend_equation_ext then
-		local attachment_count = get_color_attachment_count()
+		local attachment_count = get_color_attachment_count(self)
 
 		if attachment_count > 0 then
 			for i = 1, attachment_count do
-				local function get_cb_state(key, default)
-					local val
-
-					if
-						self.overridden_state.color_blend and
-						self.overridden_state.color_blend.attachments and
-						self.overridden_state.color_blend.attachments[i]
-					then
-						val = self.overridden_state.color_blend.attachments[i][key]
-					end
-
-					if val == nil then val = get_state("color_blend", key) end
-
-					if val == nil then
-						local cb = self.config.color_blend
-
-						if cb and cb.attachments and cb.attachments[i] and cb.attachments[i][key] ~= nil then
-							val = cb.attachments[i][key]
-						elseif cb and cb.attachments and cb.attachments[1] and cb.attachments[1][key] ~= nil then
-							val = cb.attachments[1][key]
-						elseif
-							self.overridden_state.color_blend and
-							self.overridden_state.color_blend[key] ~= nil
-						then
-							val = self.overridden_state.color_blend[key]
-						end
-					end
-
-					return val or default
-				end
-
 				cmd:SetColorBlendEquation(
 					i - 1,
 					{
-						src_color_blend_factor = get_cb_state("src_color_blend_factor", "src_alpha"),
-						dst_color_blend_factor = get_cb_state("dst_color_blend_factor", "one_minus_src_alpha"),
-						color_blend_op = get_cb_state("color_blend_op", "add"),
-						src_alpha_blend_factor = get_cb_state("src_alpha_blend_factor", "one"),
-						dst_alpha_blend_factor = get_cb_state("dst_alpha_blend_factor", "one_minus_src_alpha"),
-						alpha_blend_op = get_cb_state("alpha_blend_op", "add"),
+						src_color_blend_factor = get_color_blend_state(self, i, "src_color_blend_factor", "src_alpha"),
+						dst_color_blend_factor = get_color_blend_state(self, i, "dst_color_blend_factor", "one_minus_src_alpha"),
+						color_blend_op = get_color_blend_state(self, i, "color_blend_op", "add"),
+						src_alpha_blend_factor = get_color_blend_state(self, i, "src_alpha_blend_factor", "one"),
+						dst_alpha_blend_factor = get_color_blend_state(self, i, "dst_alpha_blend_factor", "one_minus_src_alpha"),
+						alpha_blend_op = get_color_blend_state(self, i, "alpha_blend_op", "add"),
 					}
 				)
 			end
@@ -674,37 +685,40 @@ function GraphicsPipeline:Bind(cmd, frame_index, dynamic_offsets)
 	end
 
 	if self.dynamic_states.polygon_mode_ext then
-		cmd:SetPolygonMode(get_state("rasterizer", "polygon_mode") or "fill")
+		cmd:SetPolygonMode(get_state(self, "rasterizer", "polygon_mode") or "fill")
 	end
 
 	if self.dynamic_states.cull_mode then
-		cmd:SetCullMode(get_state("rasterizer", "cull_mode") or "none")
+		cmd:SetCullMode(get_state(self, "rasterizer", "cull_mode") or "none")
 	end
 
 	if self.dynamic_states.stencil_test_enable then
-		cmd:SetStencilTestEnable(get_state("depth_stencil", "stencil_test") == true)
+		cmd:SetStencilTestEnable(get_state(self, "depth_stencil", "stencil_test") == true)
 	end
 
 	if self.dynamic_states.stencil_op then
 		cmd:SetStencilOp(
 			"front_and_back",
-			get_state("depth_stencil", "front", "fail_op") or "keep",
-			get_state("depth_stencil", "front", "pass_op") or "keep",
-			get_state("depth_stencil", "front", "depth_fail_op") or "keep",
-			get_state("depth_stencil", "front", "compare_op") or "always"
+			get_state(self, "depth_stencil", "front", "fail_op") or "keep",
+			get_state(self, "depth_stencil", "front", "pass_op") or "keep",
+			get_state(self, "depth_stencil", "front", "depth_fail_op") or "keep",
+			get_state(self, "depth_stencil", "front", "compare_op") or "always"
 		)
 	end
 
 	if self.dynamic_states.stencil_reference then
-		cmd:SetStencilReference("front_and_back", get_state("depth_stencil", "front", "reference") or 0)
+		cmd:SetStencilReference("front_and_back", get_state(self, "depth_stencil", "front", "reference") or 0)
 	end
 
 	if self.dynamic_states.stencil_compare_mask then
-		cmd:SetStencilCompareMask("front_and_back", get_state("depth_stencil", "front", "compare_mask") or 0xFF)
+		cmd:SetStencilCompareMask(
+			"front_and_back",
+			get_state(self, "depth_stencil", "front", "compare_mask") or 0xFF
+		)
 	end
 
 	if self.dynamic_states.stencil_write_mask then
-		cmd:SetStencilWriteMask("front_and_back", get_state("depth_stencil", "front", "write_mask") or 0xFF)
+		cmd:SetStencilWriteMask("front_and_back", get_state(self, "depth_stencil", "front", "write_mask") or 0xFF)
 	end
 
 	if self.dynamic_states.viewport then

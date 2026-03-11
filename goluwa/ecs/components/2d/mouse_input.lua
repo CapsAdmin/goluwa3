@@ -61,17 +61,17 @@ local function get_hovered_entity(entity, mouse_pos)
 	return nil
 end
 
-local function call_global_event(entity, event_name, ...)
+local function call_global_event(entity, event_name, a, b, c, d, e, f, g)
 	local children = entity:GetChildren()
 
 	for i = #children, 1, -1 do
-		local res, cmp = call_global_event(children[i], event_name, ...)
+		local res, cmp = call_global_event(children[i], event_name, a, b, c, d, e, f, g)
 
 		if res ~= nil then return res, cmp end
 	end
 
 	if entity.mouse_input then
-		local res = entity:CallLocalEvent(event_name, ...)
+		local res = entity:CallLocalEvent(event_name, a, b, c, d, e, f, g)
 
 		if res ~= nil then return res, entity.mouse_input end
 	end

@@ -718,50 +718,79 @@ function EasyPipeline.New(config)
 		end
 	end
 
-	function self:UploadConstants(cmd)
+	do
+		local function append_callback_lines(lines, block_expr, fields, target_expr)
+			for i, field in ipairs(fields) do
+				if type(field[3]) == "function" then
+					lines[#lines + 1] = string.format("do")
+					lines[#lines + 1] = string.format("    local field = %s[%d]", block_expr, i)
+					lines[#lines + 1] = "    local callback = field[3]"
+					lines[#lines + 1] = "    if callback then"
+					lines[#lines + 1] = string.format("        local result = callback(self, %s, %q)", target_expr, field[1])
+					lines[#lines + 1] = "        if type(result) == \"function\" then field[3] = result end"
+					lines[#lines + 1] = "    end"
+					lines[#lines + 1] = "end"
+				end
+			end
+		end
+
+		local upload_lines = {
+			"return function(self, cmd, render, active_stages, push_constant_blocks, push_constant_block_offsets, constant_structs, uniform_buffer_order, uniform_buffer_types)",
+		}
+
 		for _, name in ipairs(push_constant_block_order) do
-			local offset = push_constant_block_offsets[name]
-			local block = push_constant_blocks[name]
 			local struct_name = name:sub(1, 1):upper() .. name:sub(2) .. "Constants"
-			local constants = constant_structs[struct_name]
-
-			for i, field in ipairs(block.block) do
-				local info = get_field_info(field)
-
-				if info.callback then
-					local result = info.callback(self, constants, info.name)
-
-					-- If callback returns a function, use that for future updates
-					if type(result) == "function" then field[3] = result end
-				end
-			end
-
-			self.pipeline:PushConstants(cmd, active_stages, offset, constants)
+			upload_lines[#upload_lines + 1] = "do"
+			upload_lines[#upload_lines + 1] = string.format("    local constants = constant_structs[%q]", struct_name)
+			append_callback_lines(
+				upload_lines,
+				string.format("push_constant_blocks[%q].block", name),
+				push_constant_blocks[name].block,
+				"constants"
+			)
+			upload_lines[#upload_lines + 1] = string.format(
+				"    self.pipeline:PushConstants(cmd, active_stages, push_constant_block_offsets[%q], constants)",
+				name
+			)
+			upload_lines[#upload_lines + 1] = "end"
 		end
 
-		-- Update uniform buffers
-		local offsets = {}
-		local frame_index = render.GetCurrentFrame()
+		upload_lines[#upload_lines + 1] = "local offsets = {}"
+		upload_lines[#upload_lines + 1] = "local frame_index = render.GetCurrentFrame()"
 
-		for _, name in ipairs(uniform_buffer_order) do
-			local info = uniform_buffer_types[name]
-			local ubo_data = info.ubo:GetData()
-
-			for i, field in ipairs(info.block.block) do
-				local field_info = get_field_info(field)
-
-				if field_info.callback then
-					local result = field_info.callback(self, ubo_data, field_info.name)
-
-					-- If callback returns a function, use that for future updates
-					if type(result) == "function" then field[3] = result end
-				end
-			end
-
-			table.insert(offsets, info.ubo:Upload(frame_index))
+		for i, name in ipairs(uniform_buffer_order) do
+			upload_lines[#upload_lines + 1] = "do"
+			upload_lines[#upload_lines + 1] = string.format("    local info = uniform_buffer_types[%q]", name)
+			upload_lines[#upload_lines + 1] = "    local ubo_data = info.ubo:GetData()"
+			append_callback_lines(
+				upload_lines,
+				string.format("info.block.block"),
+				uniform_buffer_types[name].block.block,
+				"ubo_data"
+			)
+			upload_lines[#upload_lines + 1] = string.format("    offsets[%d] = info.ubo:Upload(frame_index)", i)
+			upload_lines[#upload_lines + 1] = "end"
 		end
 
-		if #offsets > 0 then self.pipeline:Bind(cmd, frame_index, offsets) end
+		upload_lines[#upload_lines + 1] = "if #offsets > 0 then self.pipeline:Bind(cmd, frame_index, offsets) end"
+		upload_lines[#upload_lines + 1] = "end"
+		local upload_constants_source = table.concat(upload_lines, "\n")
+		local upload_constants_chunk = assert(loadstring(upload_constants_source, "UploadConstants_unrolled"))
+		local upload_constants_impl = upload_constants_chunk()
+
+		function self:UploadConstants(cmd)
+			return upload_constants_impl(
+				self,
+				cmd,
+				render,
+				active_stages,
+				push_constant_blocks,
+				push_constant_block_offsets,
+				constant_structs,
+				uniform_buffer_order,
+				uniform_buffer_types
+			)
+		end
 	end
 
 	local glsl_to_lua_type = {

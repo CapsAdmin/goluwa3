@@ -1155,11 +1155,11 @@ do -- base object
 		end
 	end
 
-	function META:CallLocalEvent(what, ...)
+	function META:CallLocalEvent(what, a, b, c, d, e, f, g)
 		local ret = nil
 
 		if self[what] then
-			ret = self[what](self, ...)
+			ret = self[what](self, a, b, c, d, e, f, g)
 
 			if ret ~= nil then return ret end
 		end
@@ -1167,7 +1167,7 @@ do -- base object
 		if self.component_list then
 			for _, component in pairs(self.component_list) do
 				if component[what] then
-					ret = component[what](component, ...)
+					ret = component[what](component, a, b, c, d, e, f, g)
 
 					if ret ~= nil then return ret end
 				end
@@ -1180,9 +1180,9 @@ do -- base object
 			if self[what] then event.SkipCallback(self[what]) end
 
 			if unique_event then
-				return event.Call(unique_event, ...)
+				return event.Call(unique_event, a, b, c, d, e, f, g)
 			elseif event.IsEvent(what) then
-				return event.Call(what, ...)
+				return event.Call(what, a, b, c, d, e, f, g)
 			end
 		end
 	end
@@ -1218,7 +1218,7 @@ do -- base object
 				event.AddListener(
 					real_event_name,
 					"prototype_events:" .. event_type,
-					function(...)
+					function(a, b, c, d, e, f, g)
 						for i = 1, #events[event_type] do
 							local self = events[event_type][i]
 
@@ -1226,7 +1226,7 @@ do -- base object
 								local func = config and config.callback or self[func_name]
 
 								if func then
-									func(self, ...)
+									func(self, a, b, c, d, e, f, g)
 								else
 									wlog("%s.%s is nil", self, func_name)
 									self:RemoveEvent(event_type)
