@@ -1888,6 +1888,10 @@ do -- shortcuts
 end
 
 do -- caret
+	function Markup:ResetCaretBlink()
+		self.blink_offset = system.GetElapsedTime() - 0.251
+	end
+
 	function Markup:SetCaretPosition(x, y)
 		local caret = self:CaretFromPosition(x, y)
 
@@ -2170,7 +2174,7 @@ do -- caret
 			self.suppress_end_char = false
 		end
 
-		self.blink_offset = system.GetElapsedTime() + 0.25
+		self:ResetCaretBlink()
 	end
 end
 
@@ -2320,6 +2324,7 @@ do -- input
 
 		self.editor:OnKeyInput(key)
 		self:Invalidate()
+		self:ResetCaretBlink()
 	end
 
 	function Markup:OnMouseInput(button, press)
@@ -2354,6 +2359,7 @@ do -- input
 				if self.times_clicked == 2 then
 					self.editor.Cursor = caret.i
 					self.caret_pos = caret
+					self:ResetCaretBlink()
 					self:SelectCurrentWord()
 				elseif self.times_clicked == 3 then
 					self:SelectCurrentLine()
@@ -2369,10 +2375,12 @@ do -- input
 				self.editor.SelectionStart = caret.i
 				self.editor.Cursor = caret.i
 				self.caret_pos = caret
+				self:ResetCaretBlink()
 			else
 				if self.mouse_selecting and caret then
 					self.editor.Cursor = caret.i
 					self.caret_pos = caret
+					self:ResetCaretBlink()
 				end
 
 				if not self.Editable then
@@ -2408,6 +2416,7 @@ do -- drawing
 			if caret then
 				self.editor.Cursor = caret.i
 				self.caret_pos = caret
+				self:ResetCaretBlink()
 			end
 		end
 	end
@@ -2642,7 +2651,7 @@ do -- drawing
 				self.CaretColor.b,
 				self:IsCaretVisible() and self.CaretColor.a or 0
 			)
-			render2d.DrawRect(x, y, 1, h)
+			render2d.DrawRect(x, y, 2, h)
 			render2d.PopColor()
 		end
 	end

@@ -67,7 +67,10 @@ function META:Initialize()
 					self.editor:SetControlDown(press)
 				end
 
-				if press then self.editor:OnKeyInput(key) end
+				if press then
+					self.editor:OnKeyInput(key)
+					self:ResetCaretBlink()
+				end
 			end
 		end,
 		"text_edit"
@@ -82,6 +85,7 @@ function META:Initialize()
 
 			if self:GetEditable() and self.editor and prototype.GetFocusedObject() == self.Owner then
 				self.editor:OnCharInput(char)
+				self:ResetCaretBlink()
 			end
 		end,
 		"text_edit"
@@ -94,6 +98,7 @@ function META:Initialize()
 				local local_pos = self.Owner.transform:GlobalToLocal(pos)
 				local index = self:GetIndexAtPosition(local_pos.x, local_pos.y)
 				self.editor:SetCursor(index)
+				self:ResetCaretBlink()
 			end
 		end,
 		"text_selection"
@@ -249,6 +254,21 @@ function META:GetWrappedSize(width)
 	return Vec2(w, h)
 end
 
+function META:ResetCaretBlink()
+	self.caret_blink_reset_time = system.GetElapsedTime()
+end
+
+function META:IsCaretVisible()
+	return (
+			(
+				system.GetElapsedTime() - (
+					self.caret_blink_reset_time or
+					0
+				)
+			) * 2
+		) % 2 < 1
+end
+
 function META:OnDraw()
 	local font = self:GetFont() or fonts.GetDefaultFont()
 	local text = self.wrapped_text or self:GetText()
@@ -260,7 +280,7 @@ function META:OnDraw()
 		if start and start ~= stop then
 			local line_height = font:GetLineHeight()
 			local vertical_step = line_height + font:GetSpacing()
-			local lines = text:split("\n", true)
+			local lines = text:split("\n")
 			local line_start, col_start = self:GetLineColFromIndex(start)
 			local line_stop, col_stop = self:GetLineColFromIndex(stop)
 			render2d.SetColor(1, 1, 1, 0.3)
@@ -289,9 +309,7 @@ function META:OnDraw()
 		self:GetEditable() and
 		self.editor and
 		prototype.GetFocusedObject() == self.Owner and
-		(
-			system.GetElapsedTime() * 2
-		) % 2 < 1
+		self:IsCaretVisible()
 	then
 		local cursor = self.editor.Cursor
 		local found_line, found_col = self:GetLineColFromIndex(cursor)
@@ -303,7 +321,7 @@ function META:OnDraw()
 		local vertical_step = line_height + font:GetSpacing()
 		render2d.SetColor(self:GetColor():Unpack())
 		render2d.SetTexture(nil)
-		render2d.DrawRect(lx + cw, ly + (found_line - 1) * vertical_step, 1, line_height)
+		render2d.DrawRect(lx + cw, ly + (found_line - 1) * vertical_step, 2, line_height)
 	end
 end
 
@@ -539,6 +557,7 @@ function META:OnMouseInput(button, press, local_pos)
 					self.editor:SetSelectionStart(start_idx)
 					self.editor:SetCursor(stop_idx)
 					self.dragging = false
+					self:ResetCaretBlink()
 				elseif self.click_count >= 3 then
 					-- Triple click: select line
 					local buffer = self.editor.Buffer
@@ -558,10 +577,12 @@ function META:OnMouseInput(button, press, local_pos)
 					self.editor:SetSelectionStart(start_idx)
 					self.editor:SetCursor(stop_idx)
 					self.dragging = false
+					self:ResetCaretBlink()
 				else
 					self.editor:SetSelectionStart(index)
 					self.editor:SetCursor(index)
 					self.dragging = true
+					self:ResetCaretBlink()
 				end
 
 				return true
