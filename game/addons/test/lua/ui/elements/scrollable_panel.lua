@@ -11,6 +11,8 @@ return function(props)
 	local scrollbar_visible = props.ScrollBarVisible ~= false
 	local scrollbar_auto_hide = props.ScrollBarAutoHide ~= false
 	local viewport
+	local track_v
+	local track_h
 	local handle_v
 	local handle_h
 
@@ -21,6 +23,10 @@ return function(props)
 		local view_size = viewport.transform.Size
 
 		if not content_size or not view_size then
+			if track_v and track_v:IsValid() then track_v.gui_element:SetVisible(false) end
+
+			if track_h and track_h:IsValid() then track_h.gui_element:SetVisible(false) end
+
 			if handle_v:IsValid() then handle_v.gui_element:SetVisible(false) end
 
 			if handle_h:IsValid() then handle_h.gui_element:SetVisible(false) end
@@ -34,8 +40,16 @@ return function(props)
 			local can_scroll = content_size.y > view_size.y
 
 			if not scroll_v or not scrollbar_visible or (scrollbar_auto_hide and not can_scroll) then
+				if track_v and track_v:IsValid() then track_v.gui_element:SetVisible(false) end
+
 				handle_v.gui_element:SetVisible(false)
 			else
+				if track_v and track_v:IsValid() then
+					track_v.gui_element:SetVisible(true)
+					track_v.transform:SetSize(Vec2(6, view_size.y))
+					track_v.transform:SetPosition(Vec2(view_size.x - 8, 0))
+				end
+
 				handle_v.gui_element:SetVisible(true)
 				local ratio = math.min(1, view_size.y / content_size.y)
 				local handle_height = math.max(20, view_size.y * ratio)
@@ -56,8 +70,16 @@ return function(props)
 			local can_scroll = content_size.x > view_size.x
 
 			if not scroll_h or not scrollbar_visible or (scrollbar_auto_hide and not can_scroll) then
+				if track_h and track_h:IsValid() then track_h.gui_element:SetVisible(false) end
+
 				handle_h.gui_element:SetVisible(false)
 			else
+				if track_h and track_h:IsValid() then
+					track_h.gui_element:SetVisible(true)
+					track_h.transform:SetSize(Vec2(view_size.x, 6))
+					track_h.transform:SetPosition(Vec2(0, view_size.y - 8))
+				end
+
 				handle_h.gui_element:SetVisible(true)
 				local ratio = math.min(1, view_size.x / content_size.x)
 				local handle_width = math.max(20, view_size.x * ratio)
@@ -75,6 +97,32 @@ return function(props)
 		end
 	end
 
+	local function create_track(axis)
+		local is_v = axis == "y"
+		return Panel.New{
+			IsInternal = true,
+			Name = "scrollbar_track_" .. axis,
+			OnSetProperty = theme.OnSetProperty,
+			Ref = function(s)
+				if is_v then track_v = s else track_h = s end
+			end,
+			transform = {
+				Size = is_v and Vec2(6, 40) or Vec2(40, 6),
+			},
+			gui_element = {
+				Color = props.ScrollBarTrackColor or "scrollbar_track",
+				BorderRadius = 3,
+				Visible = false,
+				OnDraw = function(self)
+					theme.panels.surface(self)
+				end,
+			},
+			layout = {
+				Floating = true,
+			},
+		}
+	end
+
 	local function create_handle(axis)
 		local is_v = axis == "y"
 		return Panel.New{
@@ -90,8 +138,12 @@ return function(props)
 				Size = is_v and Vec2(6, 40) or Vec2(40, 6),
 			},
 			gui_element = {
-				Color = Color(1, 1, 1, 0.4),
+				Color = props.ScrollBarColor or "scrollbar",
 				BorderRadius = 3,
+				Visible = false,
+				OnDraw = function(self)
+					theme.panels.surface(self)
+				end,
 			},
 			layout = {
 				Floating = true,
@@ -208,6 +260,8 @@ return function(props)
 				end
 			end,
 		},
+		create_track("y"),
+		create_track("x"),
 		create_handle("y"),
 		create_handle("x"),
 	}

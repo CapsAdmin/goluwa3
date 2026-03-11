@@ -115,7 +115,11 @@ do
 			background = pallete.black,
 			text_background = pallete.black,
 			main_background = pallete.black,
+			surface = pallete.darkest,
+			surface_variant = pallete.dark,
 			card = pallete.darkest,
+			scrollbar_track = Color(1, 1, 1, 0.08),
+			scrollbar = Color(1, 1, 1, 0.45),
 			frame_border = Color(0.106, 0.463, 0.678),
 			invisible = Color(0, 0, 0, 0),
 			clickable_disabled = Color(0.3, 0.3, 0.3, 1),
@@ -890,6 +894,20 @@ do
 			local ps = s.press_scale * 150
 			render2d.DrawRect(lpos.x - ps / 2, lpos.y - ps / 2, ps, ps)
 			render2d.SetBlendMode("alpha")
+		end
+	end
+
+	function theme.panels.surface(pnl)
+		local size = pnl.Owner.transform.Size + pnl.Owner.transform.DrawSizeOffset
+		local c = pnl.Color + pnl.DrawColor
+		local radius = pnl:GetBorderRadius()
+		render2d.SetTexture(nil)
+		render2d.SetColor(c.r, c.g, c.b, c.a * pnl.DrawAlpha)
+
+		if radius > 0 then
+			gfx.DrawRoundedRect(0, 0, size.x, size.y, radius)
+		else
+			render2d.DrawRect(0, 0, size.x, size.y)
 		end
 	end
 
