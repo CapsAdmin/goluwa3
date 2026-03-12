@@ -942,7 +942,7 @@ local colors = require("helpers.colors")
 local commands = require("commands")
 
 commands.Add({
-	aliases = "test2",
+	aliases = "test",
 	argtypes = "string|nil",
 	flags = {
 		filter = {

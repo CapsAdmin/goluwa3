@@ -41,23 +41,18 @@ return function(...)
 	if ... then
 		local args = {...}
 		local cmd = args[1]
-
-		if cmd == "test" then
-			local f = assert(loadfile("test/run.lua"))
-			f(...)
-		else
-			if cmd == "-e" then
-				cmd = "lua"
-			elseif cmd == "--reload" then
-				cmd = "reload"
-			elseif cmd:ends_with(".lua") then
-				cmd = "run"
-				args = {"run", cmd, unpack(args, 2)}
-			end
-
-			args[1] = cmd
-			commands.RunArguments(args)
+	
+		if cmd == "-e" then
+			cmd = "lua"
+		elseif cmd == "--reload" then
+			cmd = "reload"
+		elseif cmd:ends_with(".lua") then
+			cmd = "run"
+			args = {"run", cmd, unpack(args, 2)}
 		end
+
+		args[1] = cmd
+		commands.RunArguments(args)
 	else
 		_G.GRAPHICS = true
 		_G.AUDIO = true
