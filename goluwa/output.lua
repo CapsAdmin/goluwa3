@@ -16,8 +16,8 @@ function output.Initialize()
 	if output.initialized then return end
 
 	output.initialized = true
-	fs.create_directory("logs/")
-	output.file = assert(fs.file_open("logs/log.txt", "w"))
+	fs.create_directory("game/storage/logs/")
+	output.file = assert(fs.file_open("game/storage/logs/log.txt", "w"))
 end
 
 function output.Write(str)

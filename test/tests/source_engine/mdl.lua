@@ -47,7 +47,7 @@ T.Pending("mdl rendering", function(draw)
 	ent.transform:SetRotation(Quat(0, -1, 0, 1))
 	tasks.WaitAll(15)
 	draw()
-	T.ScreenshotAlbedo("logs/screenshots/combine.png")
+	T.ScreenshotAlbedo("game/storage/logs/screenshots/combine.png")
 
 	T.ScreenAlbedoPixel(256, 256, function(r, g, b, a)
 		return r > 0 and g > 0 and b > 0
@@ -65,7 +65,7 @@ T.Pending("mdl rendering", function(draw)
 	ent.transform:SetRotation(Quat(0, -1, 0, 1))
 	tasks.WaitAll(15)
 	draw()
-	T.ScreenshotAlbedo("logs/screenshots/alyx.png")
+	T.ScreenshotAlbedo("game/storage/logs/screenshots/alyx.png")
 
 	T.ScreenAlbedoPixel(256, 256, function(r, g, b, a)
 		return r > 0 and g > 0 and b > 0

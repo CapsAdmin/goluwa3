@@ -6,7 +6,7 @@ local jit_profiler
 function profiler.Start(id)
 	time_start = system.GetTime()
 	jit_profiler = JitProfiler.New{
-		path = "logs/jit_profile_" .. id .. ".html",
+		path = "game/storage/logs/jit_profile_" .. id .. ".html",
 		file_url = "vscode://file/${path}:${line}:1",
 		get_time = system.GetTime,
 	}

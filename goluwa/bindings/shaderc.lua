@@ -199,7 +199,7 @@ function mod.compile(source, shader_type, entry_point)
 		end
 
 		local hash = import("goluwa/crypto.lua").CRC32(source)
-		local path = "./logs/last_shader_error.glsl"
+		local path = "./game/storage/logs/last_shader_error.glsl"
 		import("goluwa/fs.lua").write_file(path, source)
 		error_message = error_message:gsub(shader_type .. ":", path .. ":")
 		lib.shaderc_result_release(result)

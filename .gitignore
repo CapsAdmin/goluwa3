@@ -1,5 +1,4 @@
 .DS_Store
-logs/
 .running_pid
 lsp_session_*
 local_stuff
