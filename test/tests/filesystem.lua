@@ -1,7 +1,7 @@
 local T = import("test/environment.lua")
 local fs = import("goluwa/fs.lua")
 local system = import("goluwa/system.lua")
-local test_dir = "storage/userdata/test_filesystem_temp/"
+local test_dir = "game/storage/userdata/test_filesystem_temp/"
 
 -- Helper to ensure test directory is clean
 local function cleanup()
