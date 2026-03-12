@@ -160,7 +160,7 @@ do
 	function meta:__gc()
 		if self.id and ran[self.id] then return end
 
-		local ok, err = pcall(self.callback, table.unpack(self.args))
+		local ok, err = pcall(self.callback, list.unpack(self.args))
 
 		if not ok then
 			logn("error in RunOnNextGarbageCollection callback:\n", err)
@@ -170,12 +170,12 @@ do
 	end
 
 	function utility.RunOnNextGarbageCollection(callback, ...)
-		local obj = setmetatable({callback = callback, args = table.pack(...)}, meta)
+		local obj = setmetatable({callback = callback, args = list.pack(...)}, meta)
 	-- obj will get collected at some point
 	end
 
 	function utility.RunOnNextGarbageCollectionId(callback, id, ...)
-		local obj = setmetatable({callback = callback, id = id, args = table.pack(...)}, meta)
+		local obj = setmetatable({callback = callback, id = id, args = list.pack(...)}, meta)
 	-- obj will get collected at some point
 	end
 end
