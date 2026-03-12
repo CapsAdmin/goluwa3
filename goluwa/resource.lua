@@ -1,10 +1,10 @@
-local vfs = require("vfs")
-local fs = require("fs")
-local crypto = require("crypto")
-local callback = require("callback")
-local codec = require("codec")
-local http = require("sockets.http")
-local event = require("event")
+local vfs = import("goluwa/vfs.lua")
+local fs = import("goluwa/fs.lua")
+local crypto = import("goluwa/crypto.lua")
+local callback = import("goluwa/callback.lua")
+local codec = import("goluwa/codec.lua")
+local http = import("goluwa/sockets/http.lua")
+local event = import("goluwa/event.lua")
 local resource = library()
 resource.providers = resource.providers or {}
 local DOWNLOAD_FOLDER = vfs.GetStorageDirectory("shared") .. "downloads/"

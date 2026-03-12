@@ -1,1 +1,1 @@
-return require("nattlua.init")
+return import("goluwa/nattlua/init.lua")

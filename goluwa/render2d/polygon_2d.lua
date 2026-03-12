@@ -1,7 +1,7 @@
-local render2d = require("render2d.render2d")
-local VertexBuffer = require("render.vertex_buffer")
-local IndexBuffer = require("render.index_buffer")
-local prototype = require("prototype")
+local render2d = import("goluwa/render2d/render2d.lua")
+local VertexBuffer = import("goluwa/render/vertex_buffer.lua")
+local IndexBuffer = import("goluwa/render/index_buffer.lua")
+local prototype = import("goluwa/prototype.lua")
 local Polygon2D = prototype.CreateTemplate("render2d_polygon_2d")
 Polygon2D:GetSet("WorldMatrixMultiply", false)
 

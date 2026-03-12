@@ -1,13 +1,13 @@
-local socket = require("socket")
-local tools = require("websocket.tools")
-local frame = require("websocket.frame")
-local handshake = require("websocket.handshake")
+local socket = import("goluwa/socket.lua")
+local tools = import("goluwa/websocket/tools.lua")
+local frame = import("goluwa/websocket/frame.lua")
+local handshake = import("goluwa/websocket/handshake.lua")
 local debug = require("debug")
 local tconcat = table.concat
 local tinsert = table.insert
 local ev = function(ws)
 	ws = ws or {}
-	local ev = require("ev")
+	local ev = import("goluwa/ev.lua")
 	local sock
 	local loop = ws.loop or ev.Loop.default
 	local fd
@@ -135,7 +135,7 @@ local ev = function(ws)
 		-- set non blocking
 		sock:settimeout(0)
 		sock:setoption("tcp-nodelay", true)
-		async_send, send_io_stop = require("websocket.ev_common").async_send(sock, loop)
+		async_send, send_io_stop = import("goluwa/websocket/ev_common.lua").async_send(sock, loop)
 		handshake_io = ev.IO.new(
 			function(loop, connect_io)
 				connect_io:stop(loop)
@@ -189,7 +189,7 @@ local ev = function(ws)
 								return
 							end
 
-							message_io = require("websocket.ev_common").message_io(sock, loop, on_message, handle_socket_err)
+							message_io = import("goluwa/websocket/ev_common.lua").message_io(sock, loop, on_message, handle_socket_err)
 							on_open(self, headers)
 						end
 						handshake_io = ev.IO.new(read_upgrade, fd, ev.READ)

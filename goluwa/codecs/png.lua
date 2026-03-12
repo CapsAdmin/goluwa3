@@ -1,8 +1,8 @@
 -- initially based on https://github.com/DelusionalLogic/pngLua
 local ffi = require("ffi")
 local bit_band = require("bit").band
-local Buffer = require("structs.buffer")
-local deflate = require("codecs.deflate")
+local Buffer = import("goluwa/structs/buffer.lua")
+local deflate = import("goluwa/codecs/deflate.lua")
 local png = library()
 png.file_extensions = {"png"}
 

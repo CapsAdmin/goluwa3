@@ -113,13 +113,13 @@ ffi.cdef[[
 	struct wl_cursor *wl_cursor_theme_get_cursor(struct wl_cursor_theme *theme, const char *name);
 	struct wl_buffer *wl_cursor_image_get_buffer(struct wl_cursor_image *image);
 ]]
---require("bindings.wayland.rebuild")
+--import("goluwa/bindings/wayland/rebuild.lua")
 wayland.xkb = ffi.load("xkbcommon", true) -- load globally
 wayland.wl_client = ffi.load("wayland-client", true) -- load globally
 wayland.wl_cursor = ffi.load("wayland-cursor", true) -- load globally
 -- Load generated bindings
-require("bindings.wayland.wayland")
-local xdg_bindings = require("bindings.wayland.xdg_shell")
+import("goluwa/bindings/wayland/wayland.lua")
+local xdg_bindings = import("goluwa/bindings/wayland/xdg_shell.lua")
 
 function wayland.get_interface(name)
 	local iface_ptr = ffi.C[name .. "_interface"]

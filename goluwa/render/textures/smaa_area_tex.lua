@@ -1,7 +1,7 @@
 -- SMAA Area Texture Generator
 -- Based on https://github.com/iryoku/smaa/blob/master/Scripts/AreaTex.py
 -- Generates the 160x560 RG8 area texture at runtime
-local Texture = require("render.texture")
+local Texture = import("goluwa/render/texture.lua")
 local ffi = require("ffi")
 local tex = Texture.New{
 	width = 160,

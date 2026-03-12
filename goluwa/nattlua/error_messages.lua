@@ -9,7 +9,9 @@ local callstack = require("nattlua.other.callstack")
 local error_messages = {}
 --[[#local type Reason = {[number] = any | string}]]
 
-function error_messages.ErrorMessageToString(tbl--[[#: List<|string | Reason|>]])--[[#: string]]
+function error_messages.ErrorMessageToString(tbl--[[#: any]])--[[#: string]]
+	if type(tbl) == "string" then return tbl end
+
 	local out = {}
 
 	for i, v in ipairs(tbl) do
@@ -288,9 +290,11 @@ function error_messages.argument_mutation(i--[[#: number]], arg--[[#: any]])--[[
 	}
 end
 
-function error_messages.argument_contract_mutation(obj--[[#: any]])--[[#: Reason]]
+function error_messages.argument_contract_mutation(obj--[[#: any]], obj--[[#: any]])--[[#: Reason]]
 	return {
-		"cannot mutate argument with contract ",
+		"cannot mutate argument ",
+		obj,
+		" with contract ",
 		obj,
 	}
 end
@@ -336,6 +340,10 @@ do
 
 	function error_messages.too_many_mutations()
 		return {"too many mutations"}
+	end
+
+	function error_messages.recursion_limit_reached()
+		return {"recursion limit reached"}
 	end
 end
 

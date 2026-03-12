@@ -1,5 +1,5 @@
-local utility = require("utility")
-local tostringx = require("helpers.tostring_object").tostring_object
+local utility = import("goluwa/utility.lua")
+local tostringx = import("goluwa/helpers/tostring_object.lua").tostring_object
 local traceback = library()
 -- this should be used for xpcall
 local suppress = false
@@ -17,7 +17,7 @@ function traceback.OnError(msg, ...)
 	end
 
 	suppress = true
-	local event = require("event")
+	local event = import("goluwa/event.lua")
 
 	if event.Call("LuaError", msg) == false then return end
 

@@ -1,6 +1,6 @@
-local vfs = require("vfs")
-local fs = require("fs")
-local Buffer = require("structs.buffer")
+local vfs = import("goluwa/vfs.lua")
+local fs = import("goluwa/fs.lua")
+local Buffer = import("goluwa/structs/buffer.lua")
 local codec = library()
 
 function codec.GetLibrary(name)
@@ -8,20 +8,20 @@ function codec.GetLibrary(name)
 end
 
 function codec.Encode(lib, ...)
-	local data = require("codecs." .. lib)
+	local data = import("goluwa/codecs/" .. lib .. ".lua")
 	local encode = data.encode or data.Encode
 	return encode(...)
 end
 
 function codec.Decode(lib, ...)
-	local data = require("codecs." .. lib)
+	local data = import("goluwa/codecs/" .. lib .. ".lua")
 	local decode = data.decode or data.Decode
 	return decode(...)
 end
 
 function codec.GuessFormatFromPath(path)
 	for _, name in ipairs(fs.get_files("goluwa/codecs")) do
-		local mod = require("codecs." .. name:sub(1, -5))
+		local mod = import("goluwa/codecs/" .. name:sub(1, -5) .. ".lua")
 
 		if mod.file_extensions then
 			for _, ext in ipairs(mod.file_extensions) do
@@ -32,7 +32,7 @@ function codec.GuessFormatFromPath(path)
 end
 
 function codec.DecodeFile(path, lib)
-	local mod = lib and require("codecs." .. lib) or codec.GuessFormatFromPath(path)
+	local mod = lib and import("goluwa/codecs/" .. lib .. ".lua") or codec.GuessFormatFromPath(path)
 	local file = assert(vfs.Open(path))
 	local file_content = file:ReadAll()
 

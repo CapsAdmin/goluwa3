@@ -1,7 +1,7 @@
 local ffi = require("ffi")
-local prototype = require("prototype")
-local vulkan = require("render.vulkan.internal.vulkan")
-local shaderc = require("bindings.shaderc")
+local prototype = import("goluwa/prototype.lua")
+local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
+local shaderc = import("goluwa/bindings/shaderc.lua")
 local ShaderModule = prototype.CreateTemplate("vulkan_shader_module")
 
 function ShaderModule.New(device, glsl, type)

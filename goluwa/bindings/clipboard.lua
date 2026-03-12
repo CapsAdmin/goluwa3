@@ -92,12 +92,12 @@ local function wayland_init()
 	-- Try to load wlr_data_control for clipboard manager support (no focus required)
 	local wlr_data_control
 	local wlr_load_ok, wlr_load_err = pcall(function()
-		wlr_data_control = require("bindings.wayland.wlr_data_control")
+		wlr_data_control = import("goluwa/bindings/wayland/wlr_data_control.lua")
 	end)
 	-- Try to load ext_data_control (standardized version used by GNOME/KDE)
 	local ext_data_control
 	local ext_load_ok, ext_load_err = pcall(function()
-		ext_data_control = require("bindings.wayland.ext_data_control")
+		ext_data_control = import("goluwa/bindings/wayland/ext_data_control.lua")
 	end)
 	wayland_state.core = wayland_core
 	wayland_state.display = wayland_core.wl_client.wl_display_connect(nil)
@@ -329,7 +329,7 @@ local function wayland_init()
 	wayland_core.wl_client.wl_display_roundtrip(wayland_state.display)
 	wayland_core.wl_client.wl_display_roundtrip(wayland_state.display)
 	wayland_core.wl_client.wl_display_flush(wayland_state.display)
-	local timer = require("timer")
+	local timer = import("goluwa/timer.lua")
 
 	if timer then
 		timer.Repeat(
@@ -657,7 +657,7 @@ if jit.os == "Windows" then
 		return true
 	end
 elseif jit.os == "OSX" then
-	local objc = require("bindings.objc")
+	local objc = import("goluwa/bindings/objc.lua")
 	-- Load AppKit framework for NSPasteboard
 	objc.loadFramework("AppKit")
 	-- Cache commonly used classes and selectors
@@ -1056,7 +1056,7 @@ elseif jit.os == "Linux" then
 				action = function() end,
 			}
 			local serial = 0
-			local window = package.loaded["window"]
+			local window = import.loaded["goluwa/window/lua"]
 
 			if window and window.active then
 				for _, wnd in pairs(window.active) do

@@ -1,4 +1,4 @@
-local diff = require("helpers.diff")
+local diff = import("goluwa/helpers/diff.lua")
 local attest = {}
 
 function attest.equal(a, b, LEVEL)

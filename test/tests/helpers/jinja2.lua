@@ -1,5 +1,5 @@
-local T = require("test.environment")
-local jinja2 = require("llamacpp.jinja2")
+local T = import("test/environment.lua")
+local jinja2 = import("goluwa/llamacpp/jinja2.lua")
 local BIG_TEST = [==[
 {%- set image_count = namespace(value=0) %}
 {%- set video_count = namespace(value=0) %}

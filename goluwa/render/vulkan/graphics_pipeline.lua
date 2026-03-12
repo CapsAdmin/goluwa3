@@ -1,11 +1,11 @@
-local prototype = require("prototype")
-local ShaderModule = require("render.vulkan.internal.shader_module")
-local DescriptorSetLayout = require("render.vulkan.internal.descriptor_set_layout")
-local PipelineLayout = require("render.vulkan.internal.pipeline_layout")
-local InternalGraphicsPipeline = require("render.vulkan.internal.graphics_pipeline")
-local DescriptorPool = require("render.vulkan.internal.descriptor_pool")
-local vulkan = require("render.vulkan.internal.vulkan")
-local luadata = require("codecs.luadata")
+local prototype = import("goluwa/prototype.lua")
+local ShaderModule = import("goluwa/render/vulkan/internal/shader_module.lua")
+local DescriptorSetLayout = import("goluwa/render/vulkan/internal/descriptor_set_layout.lua")
+local PipelineLayout = import("goluwa/render/vulkan/internal/pipeline_layout.lua")
+local InternalGraphicsPipeline = import("goluwa/render/vulkan/internal/graphics_pipeline.lua")
+local DescriptorPool = import("goluwa/render/vulkan/internal/descriptor_pool.lua")
+local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
+local luadata = import("goluwa/codecs/luadata.lua")
 local ffi = require("ffi")
 local GraphicsPipeline = prototype.CreateTemplate("render_graphics_pipeline")
 
@@ -383,7 +383,7 @@ function GraphicsPipeline.New(vulkan_instance, config)
 		self.max_textures = 1024
 	end
 
-	local event = require("event")
+	local event = import("goluwa/event.lua")
 
 	event.AddListener("TextureRemoved", self, function(removed_tex)
 		if self:IsValid() then
@@ -411,7 +411,7 @@ function GraphicsPipeline.New(vulkan_instance, config)
 end
 
 function GraphicsPipeline:GetFallbackView()
-	local Texture = require("render.texture")
+	local Texture = import("goluwa/render/texture.lua")
 	local fallback = Texture.GetFallback()
 
 	if fallback and fallback.GetView then return fallback:GetView() end
@@ -420,7 +420,7 @@ function GraphicsPipeline:GetFallbackView()
 end
 
 function GraphicsPipeline:GetFallbackSampler()
-	local Texture = require("render.texture")
+	local Texture = import("goluwa/render/texture.lua")
 	local fallback = Texture.GetFallback()
 
 	if fallback and fallback.GetSampler then return fallback:GetSampler() end
@@ -824,7 +824,7 @@ local function deep_copy(obj, seen)
 end
 
 function GraphicsPipeline:OnRemove()
-	local event = require("event")
+	local event = import("goluwa/event.lua")
 	event.RemoveListener("TextureRemoved", self)
 
 	if self.descriptorPools then

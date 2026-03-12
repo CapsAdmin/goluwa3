@@ -1,7 +1,7 @@
 local ffi = require("ffi")
-local prototype = require("prototype")
-local vulkan = require("render.vulkan.internal.vulkan")
-local Memory = require("render.vulkan.internal.memory")
+local prototype = import("goluwa/prototype.lua")
+local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
+local Memory = import("goluwa/render/vulkan/internal/memory.lua")
 local Buffer = prototype.CreateTemplate("vulkan_buffer")
 
 function Buffer.New(config)

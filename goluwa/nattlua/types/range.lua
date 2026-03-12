@@ -6,6 +6,7 @@ local tostring = _G.tostring
 local tonumber = _G.tonumber
 local setmetatable = _G.setmetatable
 local type = _G.type
+local shared = require("nattlua.types.shared")
 local error_messages = require("nattlua.error_messages")
 local bit = require("nattlua.other.bit")
 local jit = _G.jit
@@ -16,7 +17,7 @@ local False = require("nattlua.types.symbol").False
 local META = require("nattlua.types.base")()
 --[[#local type TBaseType = META.TBaseType]]
 --[[#type META.@Name = "TRange"]]
---[[#local type TRange = META.@Self]]
+--[[#local type TRange = META.@SelfArgument]]
 --[[#type TRange.DontWiden = boolean]]
 --[[#type TRange.Type = "range"]]
 --[[#type TRange.Data = nil]]
@@ -24,11 +25,6 @@ META.Type = "range"
 META:GetSet("MinNumber", false--[[# as TNumber]])
 META:GetSet("MaxNumber", false--[[# as TNumber]])
 META:GetSet("Hash", ""--[[# as string]])
---[[#local type TUnion = {
-	@Name = "TUnion",
-	Type = "union",
-	GetLargestNumber = function=(self)>(TRange | nil, nil | any),
-}]]
 local VERSION = jit and "LUAJIT" or _VERSION
 
 local function compute_hash(min--[[#: TNumber]], max--[[#: TNumber]])
@@ -73,10 +69,6 @@ function META:GetHashForMutationTracking()
 	return self.Hash
 end
 
-function META.Equal(a--[[#: TRange]], b--[[#: TBaseType]])
-	return a.Hash == b.Hash
-end
-
 function META:IsLiteral()
 	return false
 end
@@ -100,23 +92,8 @@ end
 function META:Copy()
 	local copy = LNumberRange(self:GetMin(), self:GetMax())
 	copy:CopyInternalsFrom(self)
+	copy.LengthSourceTable = self.LengthSourceTable
 	return copy
-end
-
-function META.IsSubsetOf(a--[[#: TRange]], b--[[#: TBaseType]])
-	if b.Type == "tuple" then b = b:GetWithNumber(1) end
-
-	if b.Type == "any" then return true end
-
-	if b.Type == "union" then return b:IsTargetSubsetOfChild(a) end
-
-	if b.Type == "number" and not b.Data then return true end
-
-	if b.Type ~= "range" then return false, error_messages.subset(a, b) end
-
-	if a:GetMin() >= b:GetMin() and a:GetMax() <= b:GetMax() then return true end
-
-	return false, error_messages.subset(a, b)
 end
 
 function META:__tostring()

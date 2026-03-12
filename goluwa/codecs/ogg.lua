@@ -1,7 +1,7 @@
-local Buffer = require("structs.buffer")
+local Buffer = import("goluwa/structs/buffer.lua")
 local bit = require("bit")
 local ffi = require("ffi")
-local vorbis_codec = require("codecs.internal.vorbis")
+local vorbis_codec = import("goluwa/codecs/internal/vorbis.lua")
 local ogg = library()
 ogg.file_extensions = {"ogg"}
 

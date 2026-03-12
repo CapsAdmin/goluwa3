@@ -1,7 +1,7 @@
-local T = require("test.environment")
-local tasks = require("tasks")
-local timer = require("timer")
-local system = require("system")
+local T = import("test/environment.lua")
+local tasks = import("goluwa/tasks.lua")
+local timer = import("goluwa/timer.lua")
+local system = import("goluwa/system.lua")
 
 -- Helper to clean up tasks between tests
 local function cleanup_tasks()
@@ -469,7 +469,7 @@ end)
 -- Test re-entrancy protection
 T.Test("task re-entrancy protection with event.Call", function()
 	cleanup_tasks()
-	local event = require("event")
+	local event = import("goluwa/event.lua")
 	local resume_attempts = 0
 	local completed = false
 	local task = tasks.CreateTask(

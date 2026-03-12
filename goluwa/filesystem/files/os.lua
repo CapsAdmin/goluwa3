@@ -1,9 +1,9 @@
-local fs = require("fs")
+local fs = import("goluwa/fs.lua")
 local ffi = desire("ffi")
-local vfs = require("filesystem.vfs")
-local prototype = require("prototype")
+local vfs = import("goluwa/filesystem/vfs.lua")
+local prototype = import("goluwa/prototype.lua")
 local CONTEXT = prototype.CreateTemplate("file_system_os")
-CONTEXT.Base = require("filesystem.base_file")
+CONTEXT.Base = import("goluwa/filesystem/base_file.lua")
 CONTEXT.Name = "os"
 CONTEXT.Position = 0
 

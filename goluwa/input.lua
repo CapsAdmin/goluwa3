@@ -1,4 +1,4 @@
-local system = require("system")
+local system = import("goluwa/system.lua")
 local input = library()
 input.PressedThreshold = 0.2
 

@@ -1,5 +1,5 @@
-local benchmark = require("helpers.benchmark")
-local Matrix44 = require("structs.matrix44")
+local benchmark = import("goluwa/helpers/benchmark.lua")
+local Matrix44 = import("goluwa/structs/matrix44.lua")
 
 local function RandomMatrix()
 	local m = Matrix44()

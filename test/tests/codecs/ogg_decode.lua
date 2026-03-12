@@ -1,8 +1,8 @@
-local T = require("test.environment")
+local T = import("test/environment.lua")
 local ffi = require("ffi")
-local ogg = require("codecs.ogg")
-local fs = require("fs")
-local resource = require("resource")
+local ogg = import("goluwa/codecs/ogg.lua")
+local fs = import("goluwa/fs.lua")
+local resource = import("goluwa/resource.lua")
 
 T.Test("Ogg/Vorbis decoder", function()
 	local path = resource.Download(

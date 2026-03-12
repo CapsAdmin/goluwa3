@@ -1,7 +1,7 @@
-local T = require("test.environment")
-local TextureAtlas = require("render.texture_atlas")
-local Texture = require("render.texture")
-local render = require("render.render")
+local T = import("test/environment.lua")
+local TextureAtlas = import("goluwa/render/texture_atlas.lua")
+local Texture = import("goluwa/render/texture.lua")
+local render = import("goluwa/render/render.lua")
 
 T.Test3D("Texture Atlas bin packing and management", function()
 	local atlas = TextureAtlas.New(512, 512, "linear", "r8g8b8a8_unorm")

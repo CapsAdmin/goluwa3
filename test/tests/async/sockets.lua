@@ -1,13 +1,13 @@
-local T = require("test.environment")
-local ljsocket = require("bindings.socket")
-local tls = require("bindings.tls")
-local HTTPClient = require("sockets.http.http11_client")
-local HTTPServer = require("sockets.http.http11_server")
-local TCPClient = require("sockets.tcp_client")
-local TCPServer = require("sockets.tcp_server")
-local UDPClient = require("sockets.udp_client")
-local UDPServer = require("sockets.udp_server")
-local http = require("sockets.http")
+local T = import("test/environment.lua")
+local ljsocket = import("goluwa/bindings/socket.lua")
+local tls = import("goluwa/bindings/tls.lua")
+local HTTPClient = import("goluwa/sockets/http/http11_client.lua")
+local HTTPServer = import("goluwa/sockets/http/http11_server.lua")
+local TCPClient = import("goluwa/sockets/tcp_client.lua")
+local TCPServer = import("goluwa/sockets/tcp_server.lua")
+local UDPClient = import("goluwa/sockets/udp_client.lua")
+local UDPServer = import("goluwa/sockets/udp_server.lua")
+local http = import("goluwa/sockets/http.lua")
 local https_test_url = "https://www.google.com/robots.txt"
 
 T.Test("http.DecodeURI parses HTTP URL correctly", function()
@@ -394,10 +394,10 @@ T.Test("socket_udp_server receives datagrams through poll dispatch", function()
 	T(address)["~="](nil)
 	T(address:get_ip())["=="]("127.0.0.1")
 end)
+
 T.Test("HTTPS GET request to google.com via http.Request", function()
 	local done = false
 	local result = nil
-
 	http.Request{
 		url = https_test_url,
 		callback = function(data)
@@ -426,7 +426,6 @@ T.Test("HTTPS GET via HTTPClient directly", function()
 	local done = false
 	local status_code = nil
 	local body = nil
-
 	local client = HTTPClient.New()
 
 	function client:OnReceiveStatus(code, status)
@@ -457,7 +456,6 @@ end)
 T.Test("HTTPS request receives correct headers", function()
 	local done = false
 	local response_header = nil
-
 	http.Request{
 		url = https_test_url,
 		callback = function(data)

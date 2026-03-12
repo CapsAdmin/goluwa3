@@ -19,12 +19,20 @@ return {
 						blocks,
 						{
 							statements = statements,
-							upvalues = self:GetTrackedUpvalues(),
-							tables = self:GetTrackedTables(),
+							tracked_objects = self:GetTrackedObjects(),
 							obj = obj,
 						}
 					)
 					self:ClearTracked()
+				elseif self.config.remove_unused and obj:IsFalsy() then
+					table_insert(
+						blocks,
+						{
+							statements = statements,
+							tracked_objects = self:GetTrackedObjects(),
+							obj = obj,
+						}
+					)
 				end
 
 				if self:IsRuntime() then
@@ -34,6 +42,12 @@ return {
 						for _, statement in ipairs(statements) do
 							if statement.Unreachable == nil then
 								statement:SetUnreachable(true)
+							end
+						end
+					elseif obj:IsUncertain() then
+						for _, statement in ipairs(statements) do
+							if statement.Unreachable == nil then
+								statement:SetUnreachable(false)
 							end
 						end
 					elseif obj:IsCertainlyTrue() then
@@ -56,8 +70,16 @@ return {
 								else
 									local exp = statement.expressions[i - 1]
 									self:PushCurrentExpression(exp)
-									self:ConstantIfExpressionWarning(nil, og_statement.tokens["if/else/elseif"][i])
+
+									if og_statement.tokens["if/else/elseif"] then
+										self:ConstantIfExpressionWarning(nil, og_statement.tokens["if/else/elseif"][i])
+									end
+
 									self:PopCurrentExpression()
+								end
+
+								for _, stmt in ipairs(statements) do
+									if stmt.Unreachable == nil then stmt:SetUnreachable(true) end
 								end
 							end
 						end
@@ -90,8 +112,7 @@ return {
 						blocks,
 						{
 							statements = statements,
-							upvalues = blocks[#blocks] and blocks[#blocks].upvalues,
-							tables = blocks[#blocks] and blocks[#blocks].tables,
+							tracked_objects = blocks[#blocks] and blocks[#blocks].tracked_objects,
 							obj = prev_obj,
 							is_else = true,
 						}
@@ -114,8 +135,7 @@ return {
 			end
 
 			last_scope = scope
-			scope:SetTrackedUpvalues(block.upvalues or false)
-			scope:SetTrackedTables(block.tables or false)
+			scope:SetTrackedNarrowings(block.tracked_objects or false)
 
 			if block.is_else then
 				scope:SetElseConditionalScope(true)
@@ -124,14 +144,14 @@ return {
 				if blocks[i - 1] then
 					local prev = {}
 
-					for i = 1, i do
-						table_insert(prev, blocks[i])
+					for j = 1, i do
+						table_insert(prev, blocks[j])
 					end
 
 					self:ApplyMutationsInIfElse(prev)
 				end
 
-				self:ApplyMutationsInIf(block.upvalues, block.tables)
+				self:ApplyMutationsInIf(block.tracked_objects)
 			end
 
 			self:AnalyzeStatements(block.statements)

@@ -1,4 +1,4 @@
-local audio = require("bindings.audio_buffer")
+local audio = import("goluwa/bindings/audio_buffer.lua")
 local time = 0
 
 local function getpitch(offset)

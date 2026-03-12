@@ -1,6 +1,6 @@
-local T = require("test.environment")
-local vfs = require("filesystem.vfs")
-local resource = require("resource")
+local T = import("test/environment.lua")
+local vfs = import("goluwa/filesystem/vfs.lua")
+local resource = import("goluwa/resource.lua")
 local ZIP_PATH = function()
 	return resource.Download("https://github.com/CapsAdmin/goluwa-assets/raw/refs/heads/master/test/test.zip"):Get()
 end

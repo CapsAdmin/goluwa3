@@ -1,4 +1,4 @@
-local system = require("system")
+local system = import("goluwa/system.lua")
 
 do
 	local pretty_prints = {}
@@ -92,7 +92,7 @@ function desire(name)
 		return nil, res
 	end
 
-	if not res and package.loaded[name] then return package.loaded[name] end
+	if not res and import.loaded[name] then return import.loaded[name] end
 
 	return res
 end
@@ -158,11 +158,11 @@ function typex(var)
 end
 
 do
-	local callstack = require("helpers.callstack")
+	local callstack = import("goluwa/helpers/callstack.lua")
 	local logging
 	local old = print
 	print = function(...)
-		logging = logging or require("logging")
+		logging = logging or import("goluwa/logging.lua")
 		local str = {}
 
 		for i = 1, select("#", ...) do

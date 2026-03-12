@@ -21,6 +21,7 @@ local loadstring = require("nattlua.other.loadstring")
 local stringx = require("nattlua.other.string")
 local callstack = require("nattlua.other.callstack")
 local META = class.CreateTemplate("compiler")
+local NATTLUA_MARKDOWN_OUTPUT = _G.NATTLUA_MARKDOWN_OUTPUT
 --[[#local type CompilerConfig = Partial<|
 	{
 		file_path = string | nil,
@@ -30,7 +31,7 @@ local META = class.CreateTemplate("compiler")
 		emitter = Partial<|import("~/nattlua/emitter/config.nlua")|>,
 	}
 |>]]
---[[#type META.@Self = {
+--[[#type META.@SelfArgument = {
 	Code = any,
 	ParentSourceLine = string,
 	ParentSourceName = string,
@@ -63,12 +64,10 @@ function META:__tostring()
 	return str
 end
 
-function META:OnDiagnostic(code, msg, severity, start, stop, node, ...)
-	local t = 0
+function META:OnDiagnostic(code, msg, severity, start, stop, node, level, ...)
+	local t = #self.errors + 1
 	msg = stringx.replace(msg, " because ", "\nbecause ")
-
-	if t > 0 then msg = "\n" .. msg end
-
+	msg = formating.FormatMessage(msg, ...)
 	local messages = {}
 
 	if self.analyzer then
@@ -89,28 +88,47 @@ function META:OnDiagnostic(code, msg, severity, start, stop, node, ...)
 					table.insert(messages, path .. ":" .. info.line_start .. ":" .. info.character_start)
 				else
 					for k, v in pairs(v.obj) do
-						print(k, v)
+
+					-- print(k, v)
 					end
 				end
 			end
 		end
 	end
 
-	table.insert(messages, formating.FormatMessage(msg, ...))
-	local msg = formating.BuildSourceCodePointMessage2(
-			code:GetString(),
+	local title = severity
+
+	if
+		level and
+		self.Config and
+		self.Config.analyzer and
+		self.Config.analyzer.show_severity
+	then
+		title = severity .. "(" .. level .. ")"
+	end
+
+	table.insert(messages, msg)
+	local str_code = "unknown code"
+	local path = "unknown path"
+
+	if code then
+		str_code = code:GetString()
+		path = code:GetName()
+	end
+
+	msg = formating.BuildSourceCodePointMessage2(
+			str_code,
 			start,
 			stop,
-			{path = code:GetName(), messages = messages, surrounding_line_count = 1}
+			{
+				path = path,
+				messages = messages,
+				surrounding_line_count = 1,
+				title = title,
+				severity = severity,
+				level = level,
+			}
 		) .. "\n"
-
-	if severity == "error" then
-		msg = "\x1b[0;31m" .. msg .. "\x1b[0m"
-	elseif severity == "warning" then
-		msg = "\x1b[0;33m" .. msg .. "\x1b[0m"
-	elseif severity == "fatal" then
-		msg = "\x1b[0;35m" .. msg .. "\x1b[0m"
-	end
 
 	if not _G.TEST then
 		io.write(msg)
@@ -143,18 +161,18 @@ function META:OnDiagnostic(code, msg, severity, start, stop, node, ...)
 			end
 		end
 
-		if not _G.TEST then print(msg) end
+		if not _G.TEST and not NATTLUA_MARKDOWN_OUTPUT then print(msg) end
 
 		table.insert(self.errors, msg)
 	end
 end
 
 local traceback = function(self, obj, msg)
-	if self.debug or _G.TEST then
+	if self.debug or _G.TEST or NATTLUA_MARKDOWN_OUTPUT then
 		local ret = {
 			xpcall(function()
 				msg = msg or "no error"
-				local s = msg .. "\n" .. callstack.traceback(nil, 2)
+				local s = tostring(msg) .. "\n" .. callstack.traceback(nil, 2)
 
 				if self.analyzer then s = s .. self.analyzer:DebugStateToString() end
 
@@ -175,7 +193,7 @@ end
 function META:Lex()
 	local lexer = Lexer(self.Code, self.Config and self.Config.lexer)
 	lexer.OnError = function(lexer, code, msg, start, stop, ...)
-		self:OnDiagnostic(code, msg, "fatal", start, stop, nil, ...)
+		self:OnDiagnostic(code, msg, "fatal", start, stop, nil, nil, ...)
 	end
 	local ok, tokens = xpcall(function()
 		return lexer:GetTokens()
@@ -198,7 +216,7 @@ function META:Parse()
 
 	local parser = Parser(self.Tokens, self.Code, self.Config and self.Config.parser)
 	parser.OnError = function(parser, code, msg, start, stop, ...)
-		self:OnDiagnostic(code, msg, "fatal", start, stop, nil, ...)
+		self:OnDiagnostic(code, msg, "fatal", start, stop, nil, nil, ...)
 	end
 	parser.OnPreCreateNode = function(_, node)
 		self:OnPreCreateNode(node)
@@ -214,6 +232,7 @@ function META:Parse()
 	if self.errors[1] then return nil, table.concat(self.errors, "\n") end
 
 	self.SyntaxTree = res
+	self.SyntaxTree.code = self.Code
 	return self
 end
 
@@ -236,15 +255,15 @@ function META:Analyze(analyzer, ...)
 	analyzer = analyzer or Analyzer(self.Config and self.Config.analyzer)
 	analyzer.compiler = self
 	self.analyzer = analyzer
-	analyzer.OnDiagnostic = function(analyzer, ...)
-		self:OnDiagnostic(...)
+	analyzer.OnDiagnostic = function(analyzer, code, msg, severity, start, stop, node, level)
+		self:OnDiagnostic(code, msg, severity, start, stop, node, level)
 	end
 
 	if self.default_environment then
 		analyzer:SetDefaultEnvironment(self.default_environment["runtime"], "runtime")
 		analyzer:SetDefaultEnvironment(self.default_environment["typesystem"], "typesystem")
 	else
-		local runtime_env, typesystem_env = BuildBaseEnvironment(self.SyntaxTree)
+		local runtime_env, typesystem_env = BuildBaseEnvironment(self.SyntaxTree, analyzer)
 		analyzer:SetDefaultEnvironment(runtime_env, "runtime")
 		analyzer:SetDefaultEnvironment(typesystem_env, "typesystem")
 	end
@@ -253,9 +272,14 @@ function META:Analyze(analyzer, ...)
 	local ok, res = xpcall(function()
 		local res = analyzer:AnalyzeRootStatement(self.SyntaxTree, table.unpack(args))
 		analyzer:AnalyzeUnreachableCode()
+
+		if self.Config and self.Config.analyzer and self.Config.analyzer.remove_unused then
+			analyzer:ReportUnusedUpvalues(analyzer:GetScope())
+		end
+
 		return res
 	end, function(msg)
-		return traceback(self, analyzer, msg)
+		return traceback(self, analyzer, msg) .. "\n" .. callstack.traceback(nil, 2)
 	end)
 	self.AnalyzedResult = res
 
@@ -285,7 +309,7 @@ function META.New(
 	config--[[#: CompilerConfig]],
 	level--[[#: number | nil]]
 )
-	local path, line, name = callstack.get_path_line(level or 2)
+	local path, line, parent_name = callstack.get_path_line(level or 2)
 	path = path or "unknown name"
 	line = line or "unknown line"
 	name = name or path .. ":" .. line
@@ -301,8 +325,8 @@ function META.New(
 
 	return META.NewObject(
 		{
-			Code = Code(lua_code, name),
-			ParentSourceLine = parent_line,
+			Code = Code(lua_code or "", name),
+			ParentSourceLine = line,
 			ParentSourceName = parent_name,
 			Config = config or false,
 			Tokens = false,

@@ -1,9 +1,9 @@
-local Vec3 = require("structs.vec3")
-local GetBlueNoiseTexture = require("render.textures.blue_noise")
-local system = require("system")
-local render3d = require("render3d.render3d")
-local atmosphere = require("render3d.atmosphere")
-local lightprobes = require("render3d.lightprobes")
+local Vec3 = import("goluwa/structs/vec3.lua")
+local GetBlueNoiseTexture = import("goluwa/render/textures/blue_noise.lua")
+local system = import("goluwa/system.lua")
+local render3d = import("goluwa/render3d/render3d.lua")
+local atmosphere = import("goluwa/render3d/atmosphere.lua")
+local lightprobes = import("goluwa/render3d/lightprobes.lua")
 return {
 	{
 		name = "lighting",
@@ -294,7 +294,7 @@ return {
 			}
 
 
-			]] .. require("render3d.atmosphere").GetGLSLCode() .. [[
+			]] .. import("goluwa/render3d/atmosphere.lua").GetGLSLCode() .. [[
 
 
 			#define SSR 1
@@ -658,7 +658,7 @@ return {
 				}
 				vec3 sky_color_output = vec3(0.0);
 
-				]] .. require("render3d.atmosphere").GetGLSLMainCode(
+				]] .. import("goluwa/render3d/atmosphere.lua").GetGLSLMainCode(
 					"sky_dir",
 					"sunDir",
 					"lighting_data.camera_position.xyz",

@@ -10,6 +10,7 @@ local Union = require("nattlua.types.union").Union
 local Nil = require("nattlua.types.symbol").Nil
 local Any = require("nattlua.types.any").Any
 local error_messages = require("nattlua.error_messages")
+local shared = require("nattlua.types.shared")
 local ipairs = _G.ipairs
 local type = _G.type
 local table_unpack = _G.unpack or _G.table.unpack
@@ -17,34 +18,15 @@ local META = require("nattlua.types.base")()
 --[[#local type TBaseType = META.TBaseType]]
 META.Type = "tuple"
 --[[#type META.@Name = "TTuple"]]
---[[#type TTuple = META.@Self]]
-META:GetSet("Data", nil--[[# as List<|TBaseType|>]])
+--[[#local type TTuple = META.@SelfArgument]]
+--[[#type TTuple.Type = "tuple"]]
+META:GetSet("Data", nil--[[# as List<|any|>]])
 META:GetSet("Unpackable", false--[[# as boolean]])
+--[[#type TTuple.Remainder = TBaseType | false]]
+META.Repeat = false
+--[[#type TTuple.Repeat = number | false]]
 
-function META.Equal(a--[[#: TTuple]], b--[[#: TBaseType]], visited--[[#: Map<|TBaseType, boolean|>]])
-	if a.Type ~= b.Type then return false, "types differ" end
-
-	visited = visited or {}
-
-	if visited[a] then return true, "circular reference detected" end
-
-	if #a.Data ~= #b.Data then return false, "length mismatch" end
-
-	local ok, reason = true, "all match"
-	visited[a] = true
-
-	for i = 1, #a.Data do
-		ok, reason = a.Data[i]:Equal(b.Data[i], visited)
-
-		if not ok then break end
-	end
-
-	if not ok then reason = reason or "unknown reason" end
-
-	return ok, reason
-end
-
-function META:GetHash(visited)
+function META:GetHash(visited--[[#: Map<|TBaseType, string|> | nil]])
 	visited = visited or {}
 
 	if visited[self] then return visited[self] end
@@ -55,7 +37,7 @@ function META:GetHash(visited)
 	local len = #data
 
 	for i = 1, len do
-		types[i] = data[i]:GetHash(visited)
+		types[i] = (data[i]--[[# as any]]):GetHash(visited)
 	end
 
 	visited[self] = table.concat(types, ",")
@@ -63,9 +45,9 @@ function META:GetHash(visited)
 end
 
 function META:__tostring()
-	if self.suppress then return "current_tuple" end
+	if self:IsSuppressed() then return "current_tuple" end
 
-	self.suppress = true
+	self:PushSuppress()--[[# as any]]
 	local strings--[[#: List<|string|>]] = {}
 	local data = self.Data
 	local len = #data
@@ -88,7 +70,7 @@ function META:__tostring()
 
 	if self.Repeat then s = s .. "*" .. tostring(self.Repeat) end
 
-	self.suppress = false
+	self:PopSuppress()
 	return s
 end
 
@@ -112,20 +94,24 @@ function META:Merge(tup--[[#: TTuple]])
 	return self
 end
 
-local function copy_val(val, map, copy_tables)
+local function copy_val(
+	val--[[#: TBaseType]],
+	map--[[#: Map<|any, TTuple|>]],
+	copy_tables--[[#: boolean | nil]]
+)
 	if not val then return val end
 
 	-- if it's already copied
-	if map[val] then return map[val] end
+	if map[val] then return assert(map[val]) end
 
 	map[val] = val:Copy(map, copy_tables)
-	return map[val]
+	return assert(map[val])
 end
 
-function META:Copy(map--[[#: Map<|any, any|> | nil]], copy_tables)
+function META:Copy(map--[[#: Map<|any, TTuple|> | nil]], copy_tables--[[#: boolean | nil]])--[[#: TTuple]]
 	map = map or {}
 
-	if map[self] then return map[self] end
+	if map[self] then return assert(map[self]) end
 
 	local copy = META.New({})
 	map[self] = copy
@@ -134,72 +120,14 @@ function META:Copy(map--[[#: Map<|any, any|> | nil]], copy_tables)
 	local len = #data
 
 	for i = 1, len do
-		copy_data[i] = copy_val(data[i], map, copy_tables)
+		copy_data[i] = copy_val(assert(data[i]), map, copy_tables)
 	end
 
 	copy.Repeat = self.Repeat
-	copy.Remainder = copy_val(self.Remainder, map, copy_tables)
+	copy.Remainder = copy_val(self.Remainder, map, copy_tables) or false
 	copy.Unpackable = self.Unpackable
 	copy:CopyInternalsFrom(self)
 	return copy
-end
-
-function META.IsSubsetOf(a--[[#: TTuple]], b--[[#: TBaseType]], max_length--[[#: nil | number]])
-	if a == b then return true end
-
-	if a.suppress then return true end
-
-	if a.Remainder then
-		local t = a:GetWithNumber(1)
-
-		if t and t.Type == "any" and #a:GetData() == 0 then return true end
-	end
-
-	if b.Type == "union" then return b:IsTargetSubsetOfChild(a) end
-
-	do
-		local t = a:GetWithNumber(1)
-
-		if t and t.Type == "any" and b.Type == "tuple" and b:IsEmpty() then
-			return true
-		end
-	end
-
-	if b.Type == "any" then return true end
-
-	if b.Type == "table" then
-		if not b:IsNumericallyIndexed() then
-			return false, error_messages.numerically_indexed(b)
-		end
-	end
-
-	if b.Type ~= "tuple" then return false, error_messages.subset(a, b) end
-
-	max_length = max_length or math.max(a:GetMinimumLength(), b:GetMinimumLength())
-
-	for i = 1, max_length do
-		local a_val, err = a:GetWithNumber(i)
-
-		if not a_val then return false, error_messages.subset(a, b, err) end
-
-		local b_val, err = b:GetWithNumber(i)
-
-		if not b_val and a_val.Type == "any" then break end
-
-		if not b_val then
-			return false, error_messages.because(error_messages.table_index(b, i), err)
-		end
-
-		a.suppress = true
-		local ok, reason = a_val:IsSubsetOf(b_val)
-		a.suppress = false
-
-		if not ok then
-			return false, error_messages.because(error_messages.subset(a_val, b_val), reason)
-		end
-	end
-
-	return true
 end
 
 function META.IsSubsetOfTupleWithoutExpansion(a--[[#: TTuple]], b--[[#: TBaseType]])
@@ -208,7 +136,7 @@ function META.IsSubsetOfTupleWithoutExpansion(a--[[#: TTuple]], b--[[#: TBaseTyp
 
 		if not b_val then return b_val, err, a_val, "nil", i end
 
-		local ok, err = a_val:IsSubsetOf(b_val)
+		local ok, err = shared.IsSubsetOf(a_val, b_val)
 
 		if not ok then return ok, err, a_val, b_val, i end
 	end
@@ -217,17 +145,23 @@ function META.IsSubsetOfTupleWithoutExpansion(a--[[#: TTuple]], b--[[#: TBaseTyp
 end
 
 function META.IsSubsetOfTupleAtIndexWithoutExpansion(a--[[#: TTuple]], b--[[#: TTuple]], i--[[#: number]])
-	local a_val = a:GetWithNumber(i)
+	local a_val, a_err = a:GetWithNumber(i)
 
 	if not a_val then
-		return false, error_messages.missing_index(i), Nil(), b:GetWithoutExpansion(i), i
+		local b_val, b_err = b:GetWithoutExpansion(i)
+
+		if b_val and b_val:CanBeNil() then
+			a_val = Nil()
+		else
+			return false, a_err, Nil(), b_val or Nil(), i
+		end
 	end
 
 	local b_val, err = b:GetWithoutExpansion(i)
 
 	if not b_val then return false, err, a_val, Nil(), i end
 
-	local ok, err = a_val:IsSubsetOf(b_val)
+	local ok, err = shared.IsSubsetOf(a_val, b_val)
 
 	if not ok then return false, err, a_val, b_val or Nil(), i end
 
@@ -247,8 +181,8 @@ function META.IsSubsetOfTupleAtIndex(a--[[#: TTuple]], b--[[#: TTuple]], i--[[#:
 	end
 
 	if not a_val then
-		if b_val and b_val.Type == "any" then
-			a_val = Any()
+		if b_val and b_val:CanBeNil() then
+			a_val = Nil()
 		else
 			return false, a_err, a_val or Nil(), b_val or Nil(), i
 		end
@@ -264,7 +198,7 @@ function META.IsSubsetOfTupleAtIndex(a--[[#: TTuple]], b--[[#: TTuple]], i--[[#:
 
 	a_val = a_val or Nil()
 	b_val = b_val or Nil()
-	local ok, reason = a_val:IsSubsetOf(b_val)
+	local ok, reason = shared.IsSubsetOf(a_val, b_val)
 
 	if not ok then return false, reason, a_val, b_val or Nil(), i end
 
@@ -272,7 +206,7 @@ function META.IsSubsetOfTupleAtIndex(a--[[#: TTuple]], b--[[#: TTuple]], i--[[#:
 end
 
 function META.IsSubsetOfTuple(a--[[#: TTuple]], b--[[#: TTuple]])
-	if a:Equal(b) then return true end
+	if shared.Equal(a, b) then return true end
 
 	for i = 1, math.max(a:GetMinimumLength2(), b:GetMinimumLength2()) do
 		local ok, reason, a_val, b_val, i = a.IsSubsetOfTupleAtIndex(a, b, i)
@@ -284,7 +218,7 @@ function META.IsSubsetOfTuple(a--[[#: TTuple]], b--[[#: TTuple]])
 end
 
 function META.SubsetOrFallbackWithTuple(a--[[#: TTuple]], b--[[#: TTuple]])
-	if a:Equal(b) then return a end
+	if shared.Equal(a, b) then return a end
 
 	local errors = {}
 
@@ -303,7 +237,7 @@ function META.SubsetOrFallbackWithTuple(a--[[#: TTuple]], b--[[#: TTuple]])
 end
 
 function META.IsNotSubsetOfTuple(a--[[#: TTuple]], b--[[#: TTuple]])
-	if a:Equal(b) then return nil end
+	if shared.Equal(a, b) then return nil end
 
 	local errors = {}
 
@@ -317,7 +251,7 @@ function META.IsNotSubsetOfTuple(a--[[#: TTuple]], b--[[#: TTuple]])
 end
 
 function META.SubsetWithoutExpansionOrFallbackWithTuple(a--[[#: TTuple]], b--[[#: TTuple]])
-	if a:Equal(b) then return a end
+	if shared.Equal(a, b) then return a end
 
 	local errors = {}
 
@@ -399,7 +333,7 @@ end
 function META:GetAtTupleIndex(i)
 	if i > self:GetTupleLength() then return nil end
 
-	local obj = self:GetWithNumber(i)
+	local obj = self:GetWithNumber(i)--[[# as any]]
 
 	if obj then
 		if obj.Type == "union" then
@@ -470,8 +404,8 @@ function META:Get(key--[[#: TBaseType]])
 		local union = Union()
 
 		for _, v in ipairs(key:GetData()) do
-			if key.Type == "number" then
-				local val = (self--[[# as any]]):Get(v)
+			if v.Type == "number" then
+				local val = self:Get(v)
 				union:AddType(val)
 			end
 		end
@@ -513,7 +447,7 @@ function META:GetWithoutExpansion(i--[[#: number]])
 end
 
 -- TODO, this should really be SetWithNumber, and Set should take a number object
-function META:Set(i--[[#: number]], val--[[#: TBaseType]])
+function META:Set(i--[[#: number]], val--[[#: any]])
 	if type(i) == "table" then
 		if i.Type ~= "number" then return false, "expected number" end
 
@@ -589,19 +523,11 @@ function META:GetMinimumLength()
 	if self.Repeat == math.huge or self.Repeat == 0 then return 0 end
 
 	local len = #self.Data
-	local found_nil--[[#: boolean]] = false
 
 	for i = #self.Data, 1, -1 do
 		local obj = self.Data[i]--[[# as TBaseType]]
 
-		if obj:IsNil() and obj.Type ~= "any" then
-			found_nil = true
-			len = i - 1
-		elseif found_nil then
-			len = i
-
-			break
-		end
+		if obj:CanBeNil() then len = i - 1 else break end
 	end
 
 	return len
@@ -614,7 +540,10 @@ function META:GetSafeLength(arguments--[[#: TTuple | nil]])
 
 		if len == math.huge or arg_len == math.huge then
 			if arg_len == math.huge then
-				return math.max(self:GetMinimumLength(), arguments:GetMinimumLength())
+				return math.max(
+					len ~= math.huge and len or self:GetMinimumLength(),
+					arguments:GetMinimumLength()
+				)
 			else
 				return math.max(self:GetMinimumLength(), arguments:GetMinimumLength(), arg_len)
 			end
@@ -648,7 +577,7 @@ function META:ToTable(length--[[#: nil | number]])
 	local out = {}
 
 	for i = 1, length do
-		out[i] = self:GetWithNumber(i)
+		out[i] = self:GetWithNumber(i) or Nil()
 	end
 
 	return out
@@ -678,10 +607,7 @@ function META:Slice(start--[[#: number]], stop--[[#: number]])
 
 	for i = start, stop do
 		local val, err = self:GetWithNumber(i)
-
-		if not val then return val, err end
-
-		table.insert(data, val)
+		table.insert(data, val or Nil())
 	end
 
 	local copy = META.New(data)
@@ -714,7 +640,7 @@ function META:Concat(tup--[[#: TTuple]])
 	return self
 end
 
-function META:SetTable(data)
+function META:SetTable(data--[[#: List<|TBaseType|>]])
 	self.Data = {}
 
 	for i, v in ipairs(data) do
@@ -726,23 +652,24 @@ function META:SetTable(data)
 			--[[# as TTuple]]).Remainder and
 			v ~= self
 		then
-			self:AddRemainder(v)
+			self:AddRemainder(v--[[# as TTuple]])
 		else
-			table.insert(self.Data, v--[[# as any]])
+			table.insert(self.Data, v)
 		end
 	end
 end
 
-function META.New(data--[[#: nil | List<|TBaseType|>]])
+function META.New(data--[[#: nil | List<|TBaseType|>]])--[[#: TTuple]]
 	local self = META.NewObject{
 		Type = "tuple",
 		Data = {},
 		Unpackable = false,
-		suppress = false,
 		Remainder = false,
 		Repeat = false,
+		TruthyFalsy = "unknown",
 		Upvalue = false,
 		Contract = false,
+		MetaTable = false,
 	}
 
 	if data and data[1] then self:SetTable(data) end
@@ -751,6 +678,7 @@ function META.New(data--[[#: nil | List<|TBaseType|>]])
 end
 
 return {
+	TTuple = TTuple,
 	Tuple = META.New,
 	VarArg = function(t--[[#: TBaseType]])
 		local self = META.New({t})

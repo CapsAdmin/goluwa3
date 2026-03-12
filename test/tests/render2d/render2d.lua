@@ -1,11 +1,11 @@
-local T = require("test.environment")
+local T = import("test/environment.lua")
 local ffi = require("ffi")
-local render = require("render.render")
-local render2d = require("render2d.render2d")
-local fs = require("fs")
-local Vec2 = require("structs.vec2")
-local Vec3 = require("structs.vec3")
-local Color = require("structs.color")
+local render = import("goluwa/render/render.lua")
+local render2d = import("goluwa/render2d/render2d.lua")
+local fs = import("goluwa/fs.lua")
+local Vec2 = import("goluwa/structs/vec2.lua")
+local Vec3 = import("goluwa/structs/vec3.lua")
+local Color = import("goluwa/structs/color.lua")
 
 T.Test2D("Graphics render2d SetColor and GetColor", function()
 	-- Test RGB

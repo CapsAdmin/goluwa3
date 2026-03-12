@@ -1,7 +1,7 @@
 local Compiler = require("nattlua.compiler")
 local fs = require("nattlua.other.fs")
 local path = require("nattlua.other.path")
-local colors = require("nattlua.cli.colors")
+local ansi = require("nattlua.other.ansi")
 local version = "forever pre alpha"
 local DEFAULT_CONFIG_NAME = "nlconfig.lua"
 local config_path = "./" .. DEFAULT_CONFIG_NAME
@@ -23,13 +23,11 @@ local function parse_args(args, allowed_options)
 		if arg:sub(1, 2) == "--" then
 			local option = arg:sub(3)
 			local val = true
+			local exp = arg:match("=(.+)$")
 
-			if arg:sub(-#"=true") == "=true" then
-				arg = arg:sub(1, -#"=true" - 1)
-				val = true
-			elseif arg:sub(-#"=false") == "=false" then
-				arg = arg:sub(1, -#"=false" - 1)
-				val = false
+			if exp then
+				option = option:sub(1, #option - #exp - 1)
+				val = loadstring("return " .. exp)()
 			end
 
 			if allowed_options and options[option] == nil then
@@ -81,6 +79,7 @@ config.emitter = {
 	no_semicolon = true,
 	type_annotations = "explicit",
 	force_parenthesis = true,
+	omit_parentheses_for_single_table_call = true,
 	trailing_newline = true,
 	comment_type_annotations_in_lua_files = true,
 }
@@ -97,15 +96,26 @@ config.commands["run"] = {
 config.commands["check"] = {
 	description = "type check a nattlua or lua script",
 	usage = "nattlua check <file>",
+	options = {
+		{name = "parse-only", description = "Only parse the file, do not analyze"},
+		{name = "profile", description = "Run with profiler"},
+		{name = "error-only", description = "Only print errors, not warnings"},
+		{name = "show-severity", description = "Show severity level for warnings"},
+	},
 	cb = function(args, options, config, cli)
-		require("test.helpers.profiler").Start()
+		local prof
+
+		if options.profile then prof = require("test.helpers.profiler").New() end
+
 		args[1] = args[1] or "./*"
 		local cmp = {}
 		local entry_point = nil
 
+		if options["show-severity"] then config.analyzer.show_severity = true end
+
 		if #args == 1 and args[1] == "-" then
 			cmp[1] = Compiler.New(assert(io.read("*all")), "stdin-", config)
-		elseif config.entry_point then
+		elseif #args == 0 and config.entry_point then
 			entry_point = config.entry_point
 			cmp[1] = Compiler.FromFile(entry_point, config)
 		else
@@ -114,13 +124,31 @@ config.commands["check"] = {
 			) do
 				cmp[i] = Compiler.FromFile(path, config)
 			end
+
+			if not cmp[1] then
+				cli.print_error("No files found to check")
+				os.exit(1)
+			end
 		end
 
 		for _, cmp in ipairs(cmp) do
-			cmp:Analyze()
+			if options["error-only"] then
+				local original_OnDiagnostic = cmp.OnDiagnostic
+				cmp.OnDiagnostic = function(self, code, msg, severity, start, stop, node, level)
+					if severity == "error" or severity == "fatal" then
+						return original_OnDiagnostic(self, code, msg, severity, start, stop, node, level)
+					end
+				end
+			end
+
+			if options["parse-only"] then
+				assert(cmp:Parse())
+			else
+				assert(cmp:Analyze())
+			end
 		end
 
-		require("test.helpers.profiler").Stop()
+		if options.profile then prof:Stop() end
 	end,
 }
 config.commands["build"] = {
@@ -248,6 +276,7 @@ config.commands["init"] = {
         string_quote = "\"",
         no_semicolon = true,
         force_parenthesis = true,
+		omit_parentheses_for_single_table_call = true,
         max_line_length = 80,
     }
     
@@ -325,20 +354,32 @@ config.commands["lsp"] = {
 	end,
 }
 
-function cli.print_error(msg)
-	io.stderr:write(colors.red("error") .. ": " .. msg .. "\n")
+function cli.print_error(msg--[[#: any]])
+	if _G.NATTLUA_MARKDOWN_OUTPUT then
+		io.stderr:write("### error: " .. tostring(msg) .. "\n")
+	else
+		io.stderr:write(ansi.wrap(ansi.red, "error") .. ": " .. tostring(msg) .. "\n")
+	end
 end
 
-function cli.print_warning(msg)
-	io.stderr:write(colors.yellow("warning") .. ": " .. msg .. "\n")
+function cli.print_warning(msg--[[#: any]])
+	if _G.NATTLUA_MARKDOWN_OUTPUT then
+		io.stderr:write("### warning: " .. tostring(msg) .. "\n")
+	else
+		io.stderr:write(ansi.wrap(ansi.yellow, "warning") .. ": " .. tostring(msg) .. "\n")
+	end
 end
 
 function cli.print_success(msg)
-	io.write(colors.green("success") .. ": " .. msg .. "\n")
+	if _G.NATTLUA_MARKDOWN_OUTPUT then
+		io.write("### success: " .. msg .. "\n")
+	else
+		io.write(ansi.wrap(ansi.green, "success") .. ": " .. msg .. "\n")
+	end
 end
 
 function cli.version()
-	io.write("NattLua version " .. colors.cyan(version) .. "\n")
+	io.write("NattLua version " .. ansi.wrap(ansi.cyan, version) .. "\n")
 	io.write("LuaJIT " .. jit.version .. "\n")
 end
 
@@ -358,16 +399,16 @@ local function sorted_pairs(tbl--[[#: AnyTable]])
 	end
 end
 
-function cli.help(command)
+function cli.help(command--[[#: string | nil]])
 	local commands = cli.get_config().commands
 
 	if command and commands[command] then
 		local cmd = commands[command]
-		io.write(colors.bold(cmd.description) .. "\n\n")
-		io.write(colors.bold("Usage:") .. "\n  " .. cmd.usage .. "\n\n")
+		io.write(ansi.wrap(ansi.bold, cmd.description) .. "\n\n")
+		io.write(ansi.wrap(ansi.bold, "Usage:") .. "\n  " .. cmd.usage .. "\n\n")
 
 		if #cmd.options > 0 then
-			io.write(colors.bold("Options:") .. "\n")
+			io.write(ansi.wrap(ansi.bold, "Options:") .. "\n")
 
 			for _, option in ipairs(cmd.options) do
 				local option_text = "  " .. option.name
@@ -376,19 +417,19 @@ function cli.help(command)
 					option_text = option_text .. " <" .. option.arg .. ">"
 				end
 
-				io.write(colors.yellow(option_text) .. "\n    " .. option.description .. "\n")
+				io.write(ansi.wrap(ansi.yellow, option_text) .. "\n    " .. option.description .. "\n")
 			end
 
 			io.write("\n")
 		end
 	else
 		cli.version()
-		io.write("\n" .. colors.bold("Usage:") .. "\n  nattlua <command> [options]\n\n")
-		io.write(colors.bold("Commands:") .. "\n")
+		io.write("\n" .. ansi.wrap(ansi.bold, "Usage:") .. "\n  nattlua <command> [options]\n\n")
+		io.write(ansi.wrap(ansi.bold, "Commands:") .. "\n")
 
 		for name, cmd in sorted_pairs(commands) do
 			io.write(
-				"  " .. colors.yellow(name) .. "\n    " .. (
+				"  " .. ansi.wrap(ansi.yellow, name) .. "\n    " .. (
 						cmd.description or
 						"*no description*"
 					) .. "\n"
@@ -396,7 +437,7 @@ function cli.help(command)
 		end
 
 		io.write(
-			"\nRun " .. colors.yellow("nattlua help <command>") .. " for more information about a command.\n"
+			"\nRun " .. ansi.wrap(ansi.yellow, "nattlua help <command>") .. " for more information about a command.\n"
 		)
 	end
 end
@@ -437,7 +478,7 @@ function cli.get_config()
 	return copy_and_deep_merge(config, {})
 end
 
-function cli.load_config(config_path)
+function cli.load_config(config_path--[[#: string | nil]])
 	config_path = config_path or DEFAULT_CONFIG_NAME
 
 	if not fs.is_file(config_path) then
@@ -452,14 +493,14 @@ function cli.load_config(config_path)
 	local load_func, err = loadfile(config_path)
 
 	if not load_func then
-		cli.print_error("Failed to load config: " .. err)
+		cli.print_error("Failed to load config: " .. tostring(err))
 		os.exit(1)
 	end
 
 	local success, config = pcall(load_func)
 
 	if not success then
-		cli.print_error("Failed to execute config: " .. config)
+		cli.print_error("Failed to execute config: " .. tostring(config))
 		os.exit(1)
 	end
 
@@ -473,9 +514,55 @@ end
 
 function cli.main(...)
 	local args = {...}
+	local markdown_output_path = nil
+
+	for i = #args, 1, -1 do
+		if args[i]:sub(1, 13) == "--to-markdown" then
+			local arg = args[i]
+			table.remove(args, i)
+			_G.NATTLUA_MARKDOWN_OUTPUT = true
+			ansi.Disable()
+			require("nattlua.other.formating").SetMarkdown(true)
+
+			if arg:sub(14, 14) == "=" then
+				markdown_output_path = arg:sub(15)
+			else
+				markdown_output_path = "output.md"
+			end
+		end
+	end
+
+	if _G.NATTLUA_MARKDOWN_OUTPUT and markdown_output_path ~= "stdout" then
+		local f, err = io.open(markdown_output_path, "w")
+
+		if not f then
+			cli.print_error("Failed to open output file: " .. tostring(err))
+			os.exit(1)
+		end
+
+		_G.io.write = function(...)
+			if f then
+				f:write(...)
+				f:flush()
+			end
+		end
+		_G.io.stderr = f
+		_G.io.stdout = f
+		_G.print = function(...)
+			local n = select("#", ...)
+
+			for i = 1, n do
+				_G.io.write(tostring(select(i, ...)))
+
+				if i < n then _G.io.write("\t") end
+			end
+
+			_G.io.write("\n")
+		end
+	end
 
 	if #args == 0 then
-		cli.help()
+		cli.help(nil)
 		os.exit(0)
 	end
 
@@ -483,7 +570,7 @@ function cli.main(...)
 	table.remove(args, 1)
 
 	if command == "help" then
-		cli.help(args)
+		cli.help(args[1])
 		os.exit(0)
 	end
 
@@ -496,21 +583,28 @@ function cli.main(...)
 
 	if not config.commands[command] then
 		cli.print_error("Unknown command: " .. command)
-		cli.help()
+		cli.help(nil)
 		os.exit(1)
 	end
 
 	local ok, args, options = pcall(parse_args, args, config.commands[command].options)
 
 	if not ok then
-		cli.print_error("Failed to parse command " .. command .. ": " .. args)
+		cli.print_error("Failed to parse command " .. tostring(command) .. ": " .. tostring(args))
 		os.exit(1)
 	end
 
-	local ok, err = xpcall(config.commands[command].cb, debug.traceback, args, options, config, cli)
+	local ok, err = pcall(config.commands[command].cb, args, options, config, cli)
 
 	if not ok then
-		cli.print_error("Failed to execute command " .. command .. ": " .. err)
+		if _G.NATTLUA_MARKDOWN_OUTPUT then
+			io.stderr:write(
+				"### error: Failed to execute command " .. tostring(command) .. "\n\n" .. tostring(err) .. "\n"
+			)
+		else
+			cli.print_error("Failed to execute command " .. tostring(command) .. ": " .. tostring(err))
+		end
+
 		os.exit(1)
 	end
 end

@@ -117,6 +117,22 @@ local function index_table(analyzer, self, key, raw)
 
 	local val = self:GetMutatedValue(key, analyzer:GetScope())
 
+	-- If the key comes from a for loop bounded by #table (LengthSourceTable),
+	-- and the table is the same one, then the access is guaranteed to be within bounds.
+	-- Remove nil from the mutation result since all indices 1..#table are valid.
+	if
+		val and
+		val.Type == "union" and
+		val:IsNil() and
+		key.LengthSourceTable and
+		key.LengthSourceTable == self
+	then
+		val = val:Copy()
+		val:RemoveType(Nil())
+
+		if val:GetCardinality() == 0 then val = nil end
+	end
+
 	if key:IsLiteral() then
 		local found_key = self:FindKeyValWide(key)
 
@@ -180,7 +196,7 @@ local function index_tuple(analyzer, obj, key)
 end
 
 return {
-	Index = function(META)
+	Index = function(META--[[#: any]])
 		function META:IndexOperator(obj, key, raw)
 			self:CheckTimeout()
 
@@ -188,6 +204,8 @@ return {
 				obj = self:GetFirstValue(obj)
 				key = self:GetFirstValue(key)
 			end
+
+			if obj.Type == "deferred" then obj = obj:Unwrap() end
 
 			if obj.Type == "union" then
 				return index_union(self, obj, key)

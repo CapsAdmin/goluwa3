@@ -1,16 +1,16 @@
-local T = require("test.environment")
+local T = import("test/environment.lua")
 local ffi = require("ffi")
-local Polygon3D = require("render3d.polygon_3d")
-local Material = require("render3d.material")
-local render3d = require("render3d.render3d")
-local Vec3 = require("structs.vec3")
-local Rect = require("structs.rect")
-local Quat = require("structs.quat")
-local Color = require("structs.color")
-local Vec2 = require("structs.vec2")
-local Matrix44 = require("structs.matrix44")
-local AABB = require("structs.aabb")
-local Entity = require("ecs.entity")
+local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
+local Material = import("goluwa/render3d/material.lua")
+local render3d = import("goluwa/render3d/render3d.lua")
+local Vec3 = import("goluwa/structs/vec3.lua")
+local Rect = import("goluwa/structs/rect.lua")
+local Quat = import("goluwa/structs/quat.lua")
+local Color = import("goluwa/structs/color.lua")
+local Vec2 = import("goluwa/structs/vec2.lua")
+local Matrix44 = import("goluwa/structs/matrix44.lua")
+local AABB = import("goluwa/structs/aabb.lua")
+local Entity = import("goluwa/ecs/entity.lua")
 local width = 512
 local height = 512
 
@@ -137,13 +137,13 @@ TestCullingBehavior("Freezing culling", function(draw)
 	cam:SetRotation(Quat():Identity())
 	draw()
 	T(mdl.frustum_culled)["=="](false)
-	require("ecs.components.3d.model").Library.freeze_culling = true
+	import("goluwa/ecs/components/3d/model.lua").Library.freeze_culling = true
 	-- Move camera so object would normally be culled (it will be behind)
 	cam:SetPosition(Vec3(0, 0, -10))
 	draw()
 	-- Should still be NOT culled because frustum was frozen at original camera position
 	T(mdl.frustum_culled)["=="](false)
-	require("ecs.components.3d.model").Library.freeze_culling = false
+	import("goluwa/ecs/components/3d/model.lua").Library.freeze_culling = false
 	draw()
 	-- Now it should be culled
 	T(mdl.frustum_culled)["=="](true)

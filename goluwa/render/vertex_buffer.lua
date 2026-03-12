@@ -1,6 +1,6 @@
 local ffi = require("ffi")
-local render = require("render.render")
-local prototype = require("prototype")
+local render = import("goluwa/render/render.lua")
+local prototype = import("goluwa/prototype.lua")
 local VertexBuffer = prototype.CreateTemplate("render_vertex_buffer")
 
 -- Calculate vertex stride from vertex attributes
@@ -168,7 +168,7 @@ function VertexBuffer:SetVertex(index, val)
 end
 
 function VertexBuffer:Draw(index_buffer, count)
-	local render2d = require("render2d.render2d")
+	local render2d = import("goluwa/render2d/render2d.lua")
 	count = count or self.vertex_count
 
 	if not render2d.cmd then

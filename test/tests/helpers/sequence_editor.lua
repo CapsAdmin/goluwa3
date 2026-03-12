@@ -1,5 +1,5 @@
-local T = require("test.environment")
-local sequence_editor = require("sequence_editor")
+local T = import("test/environment.lua")
+local sequence_editor = import("goluwa/sequence_editor.lua")
 
 T.Test("sequence_editor basics", function()
 	local editor = sequence_editor.New("hello world")

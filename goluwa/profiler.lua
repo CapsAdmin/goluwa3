@@ -1,5 +1,5 @@
-local JitProfiler = require("helpers.jit_profiler")
-local system = require("system")
+local JitProfiler = import("goluwa/helpers/jit_profiler.lua")
+local system = import("goluwa/system.lua")
 local profiler = library()
 local jit_profiler
 

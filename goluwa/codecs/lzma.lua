@@ -2,7 +2,7 @@
 -- Based on LZMA SDK and .lzma file format specification
 local ffi = require("ffi")
 local bit = require("bit")
-local Buffer = require("structs.buffer")
+local Buffer = import("goluwa/structs/buffer.lua")
 local lzma = library()
 local bit_band = bit.band
 local bit_bor = bit.bor

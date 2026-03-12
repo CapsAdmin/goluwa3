@@ -1,7 +1,7 @@
-local T = require("test.environment")
-local Panel = require("ecs.panel")
-local Vec2 = require("structs.vec2")
-local Rect = require("structs.rect")
+local T = import("test/environment.lua")
+local Panel = import("goluwa/ecs/panel.lua")
+local Vec2 = import("goluwa/structs/vec2.lua")
+local Rect = import("goluwa/structs/rect.lua")
 
 local function NewBox(name, size)
 	local e = Panel.New()

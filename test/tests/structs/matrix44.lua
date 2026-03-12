@@ -1,5 +1,5 @@
-local T = require("test.environment")
-local Matrix44 = require("structs.matrix44")
+local T = import("test/environment.lua")
+local Matrix44 = import("goluwa/structs/matrix44.lua")
 
 T.Test("Matrix44 identity construction", function()
 	local m = Matrix44()

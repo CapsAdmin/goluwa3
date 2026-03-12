@@ -1,15 +1,15 @@
-local Vec3 = require("structs.vec3")
-local Color = require("structs.color")
-local Quat = require("structs.quat")
-local render3d = require("render3d.render3d")
-local lightprobes = require("render3d.lightprobes")
-local Material = require("render3d.material")
-local Texture = require("render.texture")
+local Vec3 = import("goluwa/structs/vec3.lua")
+local Color = import("goluwa/structs/color.lua")
+local Quat = import("goluwa/structs/quat.lua")
+local render3d = import("goluwa/render3d/render3d.lua")
+local lightprobes = import("goluwa/render3d/lightprobes.lua")
+local Material = import("goluwa/render3d/material.lua")
+local Texture = import("goluwa/render/texture.lua")
 local ffi = require("ffi")
-local Polygon3D = require("render3d.polygon_3d")
-local Entity = require("ecs.entity")
+local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
+local Entity = import("goluwa/ecs/entity.lua")
 local materials = {}
-runfile("lua/examples/desert.lua")
+import("lua/examples/desert.lua")
 
 local function shaded_texture(glsl, shared)
 	if type(glsl) ~= "string" then return glsl end -- already a texture
@@ -371,8 +371,8 @@ if false then -- reflection plane
 end
 
 if false then
-	local vfs = require("vfs")
-	local steam = require("steam")
+	local vfs = import("goluwa/vfs.lua")
+	local steam = import("goluwa/steam.lua")
 	steam.MountSourceGame("gmod")
 	local models = {
 		"models/zombie/classic.mdl",

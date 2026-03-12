@@ -1,9 +1,9 @@
-local Vec2 = require("structs.vec2")
-local Color = require("structs.color")
-local Rect = require("structs.rect")
-local Panel = require("ecs.panel")
-local theme = require("ui.theme")
-local Text = require("ui.elements.text")
+local Vec2 = import("goluwa/structs/vec2.lua")
+local Color = import("goluwa/structs/color.lua")
+local Rect = import("goluwa/structs/rect.lua")
+local Panel = import("goluwa/ecs/panel.lua")
+local theme = import("lua/ui/theme.lua")
+local Text = import("lua/ui/elements/text.lua")
 return function(props)
 	local state = {
 		value = props.Value or false,

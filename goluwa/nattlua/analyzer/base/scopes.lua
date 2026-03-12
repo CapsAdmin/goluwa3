@@ -8,7 +8,7 @@ local table = _G.table
 local table_remove = _G.table.remove
 local table_insert = _G.table.insert
 local error_messages = require("nattlua.error_messages")
-return function(META)
+return function(META--[[#: any]])
 	require("nattlua.other.context_mixin")(META)
 
 	META:AddInitializer(function(self)
@@ -84,12 +84,16 @@ return function(META)
 		return self.upvalue_position
 	end
 
-	function META:CreateLocalValue(key, obj, const)
+	function META:CreateLocalValue(key, obj, const, node)
 		local upvalue = self:GetScope():CreateUpvalue(key, obj, self:GetCurrentAnalyzerEnvironment())
 		upvalue.statement = self:GetCurrentStatement()
 		upvalue:SetPosition(self:IncrementUpvaluePosition())
+		upvalue:SetIdentifier(node)
 		self:MutateUpvalue(upvalue, obj)
 		upvalue:SetImmutable(const or false)
+
+		if node then self:MapTypeToNode(upvalue, node) end
+
 		return upvalue
 	end
 
@@ -132,7 +136,7 @@ return function(META)
 
 	local TEST_GARBAGE = _G.TEST_GARBAGE
 
-	function META:SetLocalOrGlobalValue(key, val, scope)
+	function META:SetLocalOrGlobalValue(key, val, scope, node)
 		local upvalue = self:FindLocalUpvalue(key, scope)
 
 		if upvalue then
@@ -152,7 +156,7 @@ return function(META)
 		end
 
 		if self:IsRuntime() then
-			self:Warning(error_messages.global_assignment(key, val), self:GetCurrentStatement())
+			self:Warning(error_messages.global_assignment(key, val), node or self:GetCurrentStatement())
 		elseif TEST_GARBAGE then
 			TEST_GARBAGE[key] = val
 		end

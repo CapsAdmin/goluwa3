@@ -26,7 +26,7 @@ local table = _G.table
 local table_insert = table.insert
 local table_remove = table.remove
 local math = _G.math
-return function(META)
+return function(META--[[#: any]])
 	require("nattlua.analyzer.base.scopes")(META)
 	require("nattlua.analyzer.base.error_handling")(META)
 
@@ -98,88 +98,9 @@ return function(META)
 	end
 
 	do
-		local function add_potential_self(tup)
-			local tbl = tup:GetWithNumber(1)
-
-			if tbl and tbl.Type == "union" then tbl = tbl:GetType("table") end
-
-			if not tbl or tbl.Type ~= "table" then return end
-
-			if tbl.Self then
-				local self = tbl.Self:Copy()
-				local new_tup = Tuple()
-
-				for i, obj in ipairs(tup:GetData()) do
-					if i == 1 then
-						new_tup:Set(i, self)
-					else
-						new_tup:Set(i, obj)
-					end
-				end
-
-				return new_tup
-			elseif tbl.Self2 then
-				local self = tbl.Self2
-				local new_tup = Tuple()
-
-				for i, obj in ipairs(tup:GetData()) do
-					if i == 1 then
-						new_tup:Set(i, self)
-					else
-						new_tup:Set(i, obj)
-					end
-				end
-
-				return new_tup
-			elseif tbl.PotentialSelf then
-				local meta = tbl
-				local self = tbl.PotentialSelf
-
-				if self.Type == "union" then
-					for _, obj in ipairs(self:GetData()) do
-						obj:SetMetaTable(meta)
-					end
-				else
-					self:SetMetaTable(meta)
-				end
-
-				local new_tup = Tuple()
-
-				for i, obj in ipairs(tup:GetData()) do
-					if i == 1 then
-						new_tup:Set(i, self)
-					else
-						new_tup:Set(i, obj)
-					end
-				end
-
-				return new_tup
-			end
-		end
-
 		function META:CrawlFunctionWithoutOrigin(obj)
 			-- use function's arguments in case they have been maniupulated (ie string.gsub)
 			local arguments = obj:GetInputSignature():Copy()
-
-			if obj:IsExplicitInputSignature() then
-				local new_arguments = add_potential_self(arguments)
-				arguments = new_arguments or arguments
-
-				for i = 1, arguments:GetSafeLength() do
-					if new_arguments then i = i + 1 end
-
-					arguments:Set(i, Any())
-				end
-			else
-				arguments = add_potential_self(arguments) or arguments
-
-				for _, obj in ipairs(arguments:GetData()) do
-					if obj.Type == "upvalue" or obj.Type == "table" then
-						obj:ClearMutations()
-					end
-				end
-			end
-
 			self:CreateAndPushFunctionScope(obj)
 			self:PushCurrentStatement(obj:GetFunctionBodyNode())
 			self:ErrorIfFalse(self:Call(obj, arguments, obj:GetFunctionBodyNode()))
@@ -373,20 +294,35 @@ return function(META)
 			return ret
 		end
 
+		function META:ProtectedCall(func, ...)
+			local old_scope = self.scope
+			local old_scope_stack_len = #self.scope_stack
+			local ok, a, b, c, d, e, f, g = xpcall(func, on_error_safe, ...)
+
+			if not ok then
+				self.scope = old_scope
+
+				while #self.scope_stack > old_scope_stack_len do
+					table.remove(self.scope_stack)
+				end
+			end
+
+			return ok, a, b, c, d, e, f, g
+		end
+
 		function META:CallLuaTypeFunction(func, scope, args)
 			self.function_scope = scope
 			current_func = func
-			local ok, a, b, c, d, e, f, g = xpcall(func, on_error_safe, table.unpack(args))
+			local ok, a, b, c, d, e, f, g = self:ProtectedCall(func, table.unpack(args))
 			current_func = nil
 
 			if not ok then
 				local err = assert(a)
-				local trace = traceback
 				local stack = self:GetCallStack()
 
 				if stack[1] then self:PushCurrentExpression(stack[#stack].call_node) end
 
-				self:Error(error_messages.analyzer_error(err, trace))
+				self:Error(error_messages.analyzer_error(err, traceback))
 
 				if stack[1] then self:PopCurrentExpression() end
 
@@ -502,7 +438,12 @@ return function(META)
 				print(debug.traceback(err))
 			end)
 
-			if not ok then s = "* error in rendering statement * " end
+			if not ok then
+				s = "* error in rendering statement * "
+				print("error in rendering statement:")
+				print(err)
+				print(debug.traceback())
+			end
 
 			return s
 		end

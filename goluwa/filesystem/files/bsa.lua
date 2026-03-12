@@ -1,9 +1,9 @@
-local vfs = require("filesystem.vfs")
-local prototype = require("prototype")
+local vfs = import("goluwa/filesystem/vfs.lua")
+local prototype = import("goluwa/prototype.lua")
 local CONTEXT = prototype.CreateTemplate("file_system_bethesda_archive")
 CONTEXT.Name = "bethesda archive"
 CONTEXT.Extension = "bsa"
-CONTEXT.Base = require("filesystem.files.generic_archive")
+CONTEXT.Base = import("goluwa/filesystem/files/generic_archive.lua")
 
 function CONTEXT:OnParseArchive(file, archive_path)
 	local header = file:ReadStructure([[

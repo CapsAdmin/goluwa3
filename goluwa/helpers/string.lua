@@ -141,7 +141,7 @@ function string.starts_with(a, b)
 end
 
 do
-	local utf8 = require("utf8")
+	local utf8 = import("goluwa/utf8.lua")
 
 	function string.levenshtein(a, b)
 		local distance = {}

@@ -1,6 +1,6 @@
-local ljsocket = require("bindings.socket")
-local prototype = require("prototype")
-local event = require("event")
+local ljsocket = import("goluwa/bindings/socket.lua")
+local prototype = import("goluwa/prototype.lua")
+local event = import("goluwa/event.lua")
 local pool = prototype.CreateObjectPool("sockets")
 
 event.AddListener("Update", "sockets", function()

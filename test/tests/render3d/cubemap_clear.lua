@@ -1,10 +1,10 @@
-local T = require("test.environment")
+local T = import("test/environment.lua")
 local ffi = require("ffi")
-local render = require("render.render")
-local Texture = require("render.texture")
-local vulkan = require("render.vulkan.internal.vulkan")
-local Buffer = require("render.vulkan.internal.buffer")
-local Color = require("structs.color")
+local render = import("goluwa/render/render.lua")
+local Texture = import("goluwa/render/texture.lua")
+local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
+local Buffer = import("goluwa/render/vulkan/internal/buffer.lua")
+local Color = import("goluwa/structs/color.lua")
 
 T.Test3D("cubemap clear and validate", function()
 	local width, height = 32, 32

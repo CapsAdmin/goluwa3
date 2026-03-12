@@ -1,7 +1,7 @@
 local hotreload = library()
-local fs = require("fs")
-local system = require("system")
-local event = require("event")
+local fs = import("goluwa/fs.lua")
+local system = import("goluwa/system.lua")
+local event = import("goluwa/event.lua")
 local last_content = {}
 
 local function run_hotreload_code(code)

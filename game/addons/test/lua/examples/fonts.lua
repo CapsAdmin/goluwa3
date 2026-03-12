@@ -1,8 +1,8 @@
-local event = require("event")
-local fonts = require("render2d.fonts")
-local render2d = require("render2d.render2d")
-local gfx = require("render2d.gfx")
-local utf8 = require("utf8")
+local event = import("goluwa/event.lua")
+local fonts = import("goluwa/render2d/fonts.lua")
+local render2d = import("goluwa/render2d/render2d.lua")
+local gfx = import("goluwa/render2d/gfx.lua")
+local utf8 = import("goluwa/utf8.lua")
 local fontSize = 256
 local fontPath = fonts.GetDefaultSystemFontPath()
 local font = fonts.New{Path = fontPath, Size = fontSize}

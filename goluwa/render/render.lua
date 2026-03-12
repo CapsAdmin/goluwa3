@@ -1,9 +1,9 @@
 local ffi = require("ffi")
 local render = {}
---local renderdoc = require("bindings.renderdoc")
+--local renderdoc = import("goluwa/bindings/renderdoc.lua")
 --if pcall(renderdoc.init) then render.renderdoc = renderdoc end
 -- Check if shaderc is available before loading Vulkan
-local shaderc = require("bindings.shaderc")
+local shaderc = import("goluwa/bindings/shaderc.lua")
 
 if not shaderc.available then
 	logf("[render] WARNING: shaderc library not found - render will not be initialized\n")
@@ -17,12 +17,12 @@ if not shaderc.available then
 end
 
 render.available = true
-local VulkanInstance = require("render.vulkan.vulkan_instance")
-local event = require("event")
-local system = require("system")
-local Image = require("render.vulkan.internal.image")
-local Sampler = require("render.vulkan.internal.sampler")
-local Vec2 = require("structs.vec2")
+local VulkanInstance = import("goluwa/render/vulkan/vulkan_instance.lua")
+local event = import("goluwa/event.lua")
+local system = import("goluwa/system.lua")
+local Image = import("goluwa/render/vulkan/internal/image.lua")
+local Sampler = import("goluwa/render/vulkan/internal/sampler.lua")
+local Vec2 = import("goluwa/structs/vec2.lua")
 local vulkan_instance
 
 function render.Initialize(config)
@@ -36,7 +36,7 @@ function render.Initialize(config)
 
 	if not is_headless then
 		-- Windowed mode: create window and surface
-		local window = require("render.window")
+		local window = import("goluwa/render/window.lua")
 		local surface_handle, display_handle = assert(window:GetSurfaceHandle())
 		vulkan_instance = VulkanInstance.New(surface_handle, display_handle)
 		local size = window:GetSize()
@@ -186,7 +186,7 @@ local sync_fence
 
 function render.GetSyncFence()
 	if not sync_fence then
-		local Fence = require("render.vulkan.internal.fence")
+		local Fence = import("goluwa/render/vulkan/internal/fence.lua")
 		sync_fence = Fence.New(render.GetDevice())
 	end
 
@@ -238,7 +238,7 @@ function render.GetVulkanFormatSize(format)
 end
 
 function render.CreateBlankTexture(size, format, filtering)
-	local Texture = require("render.texture")
+	local Texture = import("goluwa/render/texture.lua")
 	return Texture.New{
 		width = size.x,
 		height = size.y,
@@ -263,7 +263,7 @@ function render.GetAspectRatio()
 end
 
 function render.TriggerValidationError()
-	local vulkan = require("render.vulkan.internal.vulkan")
+	local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 	local create_info = vulkan.vk.VkBufferCreateInfo{
 		sType = vulkan.vk.VkStructureType.VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO + 10, -- INVALID STYPE,
 		pNext = nil,

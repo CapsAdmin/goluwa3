@@ -1,9 +1,9 @@
-local prototype = require("prototype")
-local Vec3 = require("structs.vec3")
-local Vec2 = require("structs.vec2")
-local Matrix44 = require("structs.matrix44")
-local Quat = require("structs.quat")
-local Rect = require("structs.rect")
+local prototype = import("goluwa/prototype.lua")
+local Vec3 = import("goluwa/structs/vec3.lua")
+local Vec2 = import("goluwa/structs/vec2.lua")
+local Matrix44 = import("goluwa/structs/matrix44.lua")
+local Quat = import("goluwa/structs/quat.lua")
+local Rect = import("goluwa/structs/rect.lua")
 local META = prototype.CreateTemplate("render3d_camera3d")
 
 do

@@ -1,5 +1,5 @@
-local callstack = require("helpers.callstack")
-local vfs = require("filesystem.vfs")
+local callstack = import("goluwa/helpers/callstack.lua")
+local vfs = import("goluwa/filesystem/vfs.lua")
 vfs.loaded_addons = vfs.loaded_addons or {}
 vfs.disabled_addons = vfs.disabled_addons or {}
 local whitelist

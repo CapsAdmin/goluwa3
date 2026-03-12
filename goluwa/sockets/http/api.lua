@@ -1,6 +1,6 @@
-local http = require("sockets.http")
-local callback = require("callback")
-local codec = require("codec")
+local http = import("goluwa/sockets/http.lua")
+local callback = import("goluwa/callback.lua")
+local codec = import("goluwa/codec.lua")
 
 function http.CreateAPI(base_url, default_headers)
 	local function make_request(self, url, data, method)

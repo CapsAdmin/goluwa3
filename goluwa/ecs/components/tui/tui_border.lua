@@ -1,5 +1,5 @@
-local prototype = require("prototype")
-local utf8 = require("utf8")
+local prototype = import("goluwa/prototype.lua")
+local utf8 = import("goluwa/utf8.lua")
 local META = prototype.CreateTemplate("tui_border")
 META:StartStorable()
 -- Optional title shown in the top border ("" = no title)

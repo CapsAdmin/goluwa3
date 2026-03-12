@@ -1,7 +1,7 @@
-local T = require("test.environment")
-local gfonts = require("gfonts")
-local fonts = require("render2d.fonts")
-local tasks = require("tasks")
+local T = import("test/environment.lua")
+local gfonts = import("goluwa/gfonts.lua")
+local fonts = import("goluwa/render2d/fonts.lua")
+local tasks = import("goluwa/tasks.lua")
 
 T.Test("gfonts download Orbitron", function()
 	local promise = gfonts.Download{name = "Orbitron", weight = "Regular"}
@@ -24,10 +24,14 @@ T.Pending("gfonts hotswap", function()
 	T(font.IsFont)["=="](true)
 	local initial_ttf = font:GetFonts()[1]
 	T(initial_ttf)["~="](nil)
-	
-	T.WaitUntil(function()
-		return font:GetFonts()[1] ~= initial_ttf
-	end, 5, "Font did not update within timeout")
+
+	T.WaitUntil(
+		function()
+			return font:GetFonts()[1] ~= initial_ttf
+		end,
+		5,
+		"Font did not update within timeout"
+	)
 
 	local new_ttf = font:GetFonts()[1]
 	T(new_ttf)["~="](initial_ttf)

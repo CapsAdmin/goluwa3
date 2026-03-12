@@ -1,6 +1,6 @@
 local ffi = require("ffi")
 local buffer = require("string.buffer")
-local setmetatable = require("helpers.setmetatable_gc")
+local setmetatable = import("goluwa/helpers/setmetatable_gc.lua")
 local threads = {}
 
 if ffi.os == "Windows" then
@@ -280,7 +280,7 @@ do
             local run = assert(load(...))
             local ffi = require("ffi")
 			require("goluwa.global_environment")
-			local threads = require("bindings.threads")
+			local threads = import("goluwa/bindings/threads.lua")
 
             local function main(udata)
                 local data = ffi.cast(threads.thread_data_ptr_t, udata)
@@ -447,7 +447,7 @@ do
 		-- Create persistent worker that loops waiting for work
 		local persistent_worker = function(shared_ptr)
 			local ffi = require("ffi")
-			local threads = require("threads")
+			local threads = import("goluwa/threads.lua")
 			local buffer = require("string.buffer")
 			local control = ffi.cast(threads.thread_control_ptr_t, shared_ptr)
 			local thread_id = control.thread_id

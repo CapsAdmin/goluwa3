@@ -1,5 +1,5 @@
-local ljsocket = require("bindings.socket")
-local prototype = require("prototype")
+local ljsocket = import("goluwa/bindings/socket.lua")
+local prototype = import("goluwa/prototype.lua")
 local UDPClient = prototype.CreateTemplate("socket_udp_client")
 
 function UDPClient:assert(val, err)

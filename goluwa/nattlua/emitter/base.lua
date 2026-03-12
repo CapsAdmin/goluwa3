@@ -1,6 +1,7 @@
---ANALYZE
 local runtime_syntax = require("nattlua.syntax.runtime")
 local characters = require("nattlua.syntax.characters")
+local Code = require("nattlua.code").New
+local Lexer = require("nattlua.lexer.lexer").New
 local class = require("nattlua.other.class")
 local print = _G.print
 local error = _G.error
@@ -11,6 +12,7 @@ local table = _G.table
 local ipairs = _G.ipairs
 local assert = _G.assert
 local type = _G.type
+local pcall = _G.pcall
 local setmetatable = _G.setmetatable
 local B = string.byte
 
@@ -22,26 +24,138 @@ local B = string.byte
 --[[#local type EmitterConfig = import("~/nattlua/emitter/config.nlua")]]
 return function()
 	local META = class.CreateTemplate("emitter")
-	--[[#type META.@Self.toggled_indents = Map<|string, true | nil|>]]
-	--[[#type META.@Self.last_indent_index = nil | number]]
-	--[[#type META.@Self.level = number]]
-	--[[#type META.@Self.out = List<|string|>]]
-	--[[#type META.@Self.i = number]]
-	--[[#type META.@Self.config = EmitterConfig]]
-	--[[#type META.@Self.last_non_space_index = false | number]]
-	--[[#type META.@Self.last_newline_index = nil | number]]
-	--[[#type META.@Self.force_newlines = nil | List<|boolean|>]]
-	--[[#type META.@Self.during_comment_type = false | number]]
-	--[[#type META.@Self.is_call_expression = boolean]]
-	--[[#type META.@Self.inside_call_expression = boolean]]
-	--[[#type META.@Self.OnEmitStatement = false | Function]]
-	--[[#type META.@Self.loop_nodes = false | List<|Node|>]]
-	--[[#type META.@Self.tracking_indents = nil | Map<|string, List<|{info = any, level = number}|>|>]]
-	--[[#type META.@Self.done = nil | Map<|string, true|>]]
-	--[[#type META.@Self.FFI_DECLARATION_EMITTER = false | any]]
-	--[[#type META.@Self.pre_toggle_level = nil | number]]
+	--[[#type META.@SelfArgument.toggled_indents = Map<|string, true | nil|>]]
+	--[[#type META.@SelfArgument.last_indent_index = nil | number]]
+	--[[#type META.@SelfArgument.level = number]]
+	--[[#type META.@SelfArgument.out = List<|string|>]]
+	--[[#type META.@SelfArgument.i = number]]
+	--[[#type META.@SelfArgument.config = EmitterConfig]]
+	--[[#type META.@SelfArgument.last_non_space_index = false | number]]
+	--[[#type META.@SelfArgument.last_newline_index = nil | number]]
+	--[[#type META.@SelfArgument.force_newlines = nil | List<|boolean|>]]
+	--[[#type META.@SelfArgument.during_comment_type = false | number]]
+	--[[#type META.@SelfArgument.is_call_expression = boolean]]
+	--[[#type META.@SelfArgument.inside_call_expression = boolean]]
+	--[[#type META.@SelfArgument.OnEmitStatement = false | Function]]
+	--[[#type META.@SelfArgument.loop_nodes = false | List<|Node|>]]
+	--[[#type META.@SelfArgument.tracking_indents = nil | Map<|string, List<|{info = any, level = number}|>|>]]
+	--[[#type META.@SelfArgument.done = nil | Map<|string, true|>]]
+	--[[#type META.@SelfArgument.FFI_DECLARATION_EMITTER = false | any]]
+	--[[#type META.@SelfArgument.pre_toggle_level = nil | number]]
 
 	do -- internal
+		function META:IsNodeUnused(node)
+			if not self.config.remove_unused then return false end
+
+			local types = node:GetAssociatedTypes()
+
+			if types then
+				local has_upvalue = false
+
+				for _, typ in ipairs(types) do
+					if type(typ) == "table" and typ.Type == "upvalue" then
+						has_upvalue = true
+
+						if
+							typ.RuntimeUseCount > 0 or
+							typ:GetUseCount() > 0 or
+							typ:GetKey() == "_" or
+							typ:GetKey() == "..."
+						then
+							return false
+						end
+					end
+				end
+
+				if has_upvalue then return true end
+			end
+
+			return false
+		end
+
+		function META:IsUnused(node)
+			if not self.config.remove_unused then return false end
+
+			if node.Type == "statement_expression" then
+				local expr = node.value
+
+				if expr.Type == "expression_postfix_call" then
+					if
+						expr.import_expression or
+						(
+							expr.left.Type == "expression_value" and
+							expr.left.value:GetValueString() == "require"
+						)
+					then
+						return self:IsNodeUnused(expr.left)
+					end
+				end
+			elseif node.Type == "statement_local_assignment" then
+				local all_unused = true
+
+				for _, left in ipairs(node.left) do
+					if not self:IsNodeUnused(left) then
+						all_unused = false
+
+						break
+					end
+				end
+
+				if all_unused then
+					if node.right then
+						for _, expr in ipairs(node.right) do
+							local is_safe = expr.Type == "expression_value" or
+								(
+									expr.Type == "expression_postfix_call" and
+									(
+										expr.import_expression or
+										(
+											expr.left.Type == "expression_value" and
+											expr.left.value:GetValueString() == "require"
+										)
+									)
+								)
+
+							if not is_safe and expr.Type == "expression_binary_operator" then
+								is_safe = true
+							end
+
+							if not is_safe then return false end
+						end
+					end
+
+					return true
+				end
+
+				return false
+			elseif
+				node.Type == "statement_local_function" or
+				node.Type == "statement_local_analyzer_function" or
+				node.Type == "statement_local_type_function"
+			then
+				return self:IsNodeUnused(node.tokens["identifier"])
+			elseif node.Type == "statement_local_type" then
+				return self:IsNodeUnused(node.left)
+			elseif
+				node.Type == "statement_local_declaration" or
+				node.Type == "statement_local_analyzer_declaration"
+			then
+				local all_unused = true
+
+				for _, left in ipairs(node.left) do
+					if not self:IsNodeUnused(left) then
+						all_unused = false
+
+						break
+					end
+				end
+
+				return all_unused
+			end
+
+			return false
+		end
+
 		function META:Whitespace(str--[[#: string]], force--[[#: boolean]])
 			if self.config.pretty_print == nil and not force then return end
 
@@ -714,8 +828,82 @@ return function()
 		self:EmitToken(node.tokens["]"])
 	end
 
+	do
+		local OMIT_PAREN_TABLE_CALL_TOKEN_LIMIT = 10
+
+		local function count_significant_tokens(str)
+			local ok, tokens = pcall(function()
+				return Lexer(Code(str, "@emitter_call")):GetTokens()
+			end)
+
+			if not ok or not tokens then return 0 end
+
+			local count = 0
+
+			for _, token in ipairs(tokens) do
+				if
+					token.type ~= "space" and
+					token.type ~= "line_comment" and
+					token.type ~= "multiline_comment" and
+					token.type ~= "comment_escape" and
+					token.type ~= "end_of_file"
+				then
+					count = count + 1
+				end
+			end
+
+			return count
+		end
+
+		function META:ShouldOmitCallParentheses(node--[[#: Node]])
+			if self.config.pretty_print ~= true then return false end
+
+			if
+				self.config.force_parenthesis and
+				not self.config.omit_parentheses_for_single_table_call
+			then
+				return false
+			end
+
+			if #node.expressions ~= 1 then return false end
+
+			local expression = node.expressions[1]
+
+			if not expression or expression.Type ~= "expression_table" then return false end
+
+			if not node.tokens["call("] or not node.tokens["call)"] then
+				return self.config.omit_parentheses_for_single_table_call == true
+			end
+
+			if self:ShouldLineBreakNode(expression) then return true end
+
+			if not node.Code then return false end
+
+			local start
+			local stop
+
+			if node.tokens["call("] and node.tokens["call)"] then
+				start = node.tokens["call("].start
+				stop = node.tokens["call)"].stop
+			else
+				start = expression.code_start
+				stop = expression.code_stop
+			end
+
+			if not start or not stop then return false end
+
+			local data = node.Code:SubPosToLineChar(start, stop)
+
+			if data.line_start ~= data.line_stop then return true end
+
+			local source = node.Code:GetStringSlice(start, stop)
+			return count_significant_tokens(source) > OMIT_PAREN_TABLE_CALL_TOKEN_LIMIT
+		end
+	end
+
 	function META:EmitCall(node--[[#: Node]])
 		local multiline_string = false
+		local omit_call_parentheses = self:ShouldOmitCallParentheses(node)
 
 		if #node.expressions == 1 and node.expressions[1].Type == "expression_value" then
 			multiline_string = node.expressions[1].value:GetValueString():sub(1, 1) == "["
@@ -733,10 +921,14 @@ return function()
 			self:StopEmittingInvalidLuaCode(emitted)
 		end
 
-		if node.tokens["call("] then
+		if node.tokens["call("] and not omit_call_parentheses then
 			self:EmitToken(node.tokens["call("])
 		else
-			if self.config.force_parenthesis and not multiline_string then
+			if
+				self.config.force_parenthesis and
+				not multiline_string and
+				not omit_call_parentheses
+			then
 				self:EmitNonSpace("(")
 			end
 		end
@@ -751,7 +943,7 @@ return function()
 			newlines = false
 		end
 
-		if node.tokens["call("] and newlines then
+		if node.tokens["call("] and not omit_call_parentheses and newlines then
 			self:Indent()
 			self:Whitespace("\n")
 			self:Whitespace("\t")
@@ -761,9 +953,9 @@ return function()
 		self:EmitExpressionList(node.expressions)
 		self:PopForcedLineBreaking()
 
-		if newlines then self:Outdent() end
+		if newlines and not omit_call_parentheses then self:Outdent() end
 
-		if node.tokens["call)"] then
+		if node.tokens["call)"] and not omit_call_parentheses then
 			if newlines then
 				self:Whitespace("\n")
 				self:Whitespace("\t")
@@ -771,7 +963,11 @@ return function()
 
 			self:EmitToken(node.tokens["call)"])
 		else
-			if self.config.force_parenthesis and not multiline_string then
+			if
+				self.config.force_parenthesis and
+				not multiline_string and
+				not omit_call_parentheses
+			then
 				if newlines then
 					self:Whitespace("\n")
 					self:Whitespace("\t")
@@ -1350,7 +1546,10 @@ return function()
 		end
 
 		if node.tokens["local"] then
-			self:EmitIdentifierList(node.left)
+			local old = self.emitting_function_signature
+			self.emitting_function_signature = true
+			self:EmitNodeList(node.left, self.EmitExpression)
+			self.emitting_function_signature = old
 		else
 			self:EmitExpressionList(node.left)
 		end
@@ -1366,6 +1565,8 @@ return function()
 	end
 
 	function META:EmitStatement(node--[[#: Node]])
+		if self:IsUnused(node) then return end
+
 		if node.Type == "statement_if" then
 			self:EmitIfStatement(node)
 		elseif node.Type == "statement_goto" then
@@ -1459,7 +1660,7 @@ return function()
 		end
 	end
 
-	local function general_kind(self--[[#: META.@Self]], node--[[#: Node]])
+	local function general_kind(self--[[#: META.@SelfArgument]], node--[[#: Node]])
 		if node.Type == "statement_call_expression" then
 			for i, v in ipairs(node.value.expressions) do
 				if v.Type == "expression_function" then return "other" end
@@ -1479,6 +1680,14 @@ return function()
 	end
 
 	function META:EmitStatements(tbl--[[#: List<|Node|>]])
+		local temp = {}
+
+		for _, node in ipairs(tbl) do
+			if not self:IsUnused(node) then table.insert(temp, node) end
+		end
+
+		tbl = temp
+
 		for i, node in ipairs(tbl) do
 			if
 				i > 1 and
@@ -1636,7 +1845,14 @@ return function()
 	function META:EmitModifiers(node--[[#: Node]])
 		if node.modifiers then
 			for i, mod in ipairs(node.modifiers) do
-				self:EmitToken(mod)
+				if mod[1] and mod[2] and mod[3] then
+					self:EmitToken(mod[1])
+					self:EmitToken(mod[2])
+					self:EmitToken(mod[3])
+				else
+					self:EmitToken(mod)
+				end
+
 				self:Whitespace(" ")
 			end
 		end
@@ -1966,7 +2182,7 @@ return function()
 		end
 
 		function META:EmitImportExpression(node--[[#: Node]])
-			if not node.path then
+			if not node.path or self.config.skip_import then
 				self:EmitToken(node.left.value)
 			else
 				self:EmitToken(node.left.value, "IMPORTS['" .. node.key .. "']")

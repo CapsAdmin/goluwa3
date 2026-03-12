@@ -1,7 +1,7 @@
-local http = require("sockets.http")
+local http = import("goluwa/sockets/http.lua")
 local llamacpp = library()
 local api = http.CreateAPI("http://127.0.0.1:8080/")
-local codec = require("codec")
+local codec = import("goluwa/codec.lua")
 
 function llamacpp.GetProps(model)
 	local url = model and ("props?model=" .. model) or "props"

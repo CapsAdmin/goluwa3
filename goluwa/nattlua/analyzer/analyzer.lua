@@ -26,6 +26,7 @@ do
 	local error_messages = require("nattlua.error_messages")
 
 	function META:AnalyzeStatement(node)
+		self.statement_count = self.statement_count + 1
 		self:CheckTimeout()
 		self:PushCurrentStatement(node)
 		self:PushAnalyzerEnvironment(node.environment or "runtime")
@@ -62,25 +63,31 @@ do
 			node.Type == "statement_local_type_function"
 		then
 			self:PushAnalyzerEnvironment(node.Type == "statement_local_function" and "runtime" or "typesystem")
-			self:CreateLocalValue(node.tokens["identifier"]:GetValueString(), AnalyzeFunction(self, node))
+			local val = AnalyzeFunction(self, node)
+			local ident_token = node.tokens["identifier"]
+			local upvalue = self:CreateLocalValue(ident_token:GetValueString(), val, false, ident_token)
+			self:MapTypeToNode(val, ident_token)
+			self:MapTypeToNode(upvalue, ident_token)
 			self:PopAnalyzerEnvironment()
 		elseif
 			node.Type == "statement_function" or
 			node.Type == "statement_analyzer_function" or
 			node.Type == "statement_type_function"
 		then
-			local key = node.expression
+			local key_node = node.expression
 			self:PushAnalyzerEnvironment(node.Type == "statement_function" and "runtime" or "typesystem")
 
-			if key.Type == "expression_binary_operator" then
-				local obj = self:AnalyzeExpression(key.left)
-				local key = self:AnalyzeExpression(key.right)
+			if key_node.Type == "expression_binary_operator" then
+				local obj = self:AnalyzeExpression(key_node.left)
+				local key = self:AnalyzeExpression(key_node.right)
 				local val = AnalyzeFunction(self, node)
 				self:NewIndexOperator(obj, key, val)
+				self:MapTypeToNode(val, key_node.right)
 			else
-				local key = ConstString(key.value:GetValueString())
+				local key = ConstString(key_node.value:GetValueString())
 				local val = AnalyzeFunction(self, node)
-				self:SetLocalOrGlobalValue(key, val)
+				self:SetLocalOrGlobalValue(key, val, nil, key_node)
+				self:MapTypeToNode(val, key_node)
 			end
 
 			self:PopAnalyzerEnvironment()
@@ -270,13 +277,23 @@ do
 		return obj
 	end
 
-	local max_iterations = 20000
+	local max_iterations = 200000
+	local max_time_seconds = 20
+
+	local function sort(a, b)
+		return a.count > b.count
+	end
 
 	function META:CheckTimeout()
+		local start_prof = os.clock()
+
+		if not self.start_time then self.start_time = os.clock() end
+
 		self.check_count = (self.check_count or 0) + 1
 		local count = self.check_count
+		local elapsed = os.clock() - self.start_time
 
-		if count < max_iterations then return end
+		if count < max_iterations and elapsed < max_time_seconds then return end
 
 		self.timeout = self.timeout or {}
 		local node = self:GetCurrentStatement()
@@ -285,7 +302,7 @@ do
 
 		self.timeout[node] = (self.timeout[node] or 0) + 1
 
-		if count < max_iterations then return end
+		if count < max_iterations and elapsed < max_time_seconds then return end
 
 		local top = {}
 
@@ -293,9 +310,7 @@ do
 			if count > 5 then table.insert(top, {node = node, count = count}) end
 		end
 
-		table.sort(top, function(a, b)
-			return a.count > b.count
-		end)
+		table.sort(top, sort)
 
 		for i, info in ipairs(top) do
 			if i > 10 then break end
@@ -304,15 +319,18 @@ do
 			io.write(tostring(info.node), " was crawled ", info.count, " times\n")
 		end
 
-		debug.trace()
-		self:FatalError("too many iterations (" .. count .. "), stopping execution")
+		self:FatalError(
+			"too many iterations (" .. count .. ") or timeout (" .. elapsed .. "s > " .. max_time_seconds .. "s), stopping execution"
+		)
 	end
 end
 
-function META:OnDiagnostic() end
-
 function META:MapTypeToNode(typ, node)
+	if not typ or not node then return end
+
 	self.type_to_node[typ] = node
+
+	if node.AssociateType then node:AssociateType(typ) end
 end
 
 function META:GetTypeToNodeMap()
@@ -342,15 +360,13 @@ function META.New(config)
 			max_iterations = false,
 			break_out_scope = false,
 			_continue_ = false,
-			tracked_tables = false,
 			inverted_index_tracking = false,
 			deferred_calls = false,
 			function_scope = false,
 			call_stack = false,
 			self_arg_stack = false,
-			tracked_upvalues_done = false,
-			tracked_upvalues = false,
-			tracked_tables_done = false,
+			tracked_objects_done = false,
+			tracked_objects = false,
 			scope = false,
 			current_statement = false,
 			left_assigned = false,
@@ -377,6 +393,7 @@ function META.New(config)
 			context_values = {},
 			context_ref = {},
 			ReferenceTypes = {},
+			statement_count = 0,
 		},
 		true
 	)

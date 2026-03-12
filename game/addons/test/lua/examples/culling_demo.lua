@@ -2,14 +2,14 @@ do
 	return
 end
 
-local Vec3 = require("structs.vec3")
-local Color = require("structs.color")
-local Quat = require("structs.quat")
-local render3d = require("render3d.render3d")
-local Material = require("render3d.material")
-local Entity = require("entity")
-local Polygon3D = require("render3d.polygon_3d")
-local system = require("system")
+local Vec3 = import("goluwa/structs/vec3.lua")
+local Color = import("goluwa/structs/color.lua")
+local Quat = import("goluwa/structs/quat.lua")
+local render3d = import("goluwa/render3d/render3d.lua")
+local Material = import("goluwa/render3d/material.lua")
+local Entity = import("goluwa/entity.lua")
+local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
+local system = import("goluwa/system.lua")
 
 if HOTRELOAD then ecs.Clear3DWorld() end
 
@@ -53,10 +53,10 @@ end
 spawn_sphere(Vec3(-10, 0, -10), Vec3(1, 1, 1), Color(1, 0, 0, 1), true)
 spawn_sphere(Vec3(10, 0, -10), Vec3(1, 1, 1), Color(0, 1, 0, 1), true)
 print("Culling demo loaded. Use 'goluwa_occlusion_culling 1' to enable.")
-local command = require("commands")
-local event = require("event")
-local render2d = require("render2d.render2d")
-local fonts = require("render2d.fonts")
+local command = import("goluwa/commands.lua")
+local event = import("goluwa/event.lua")
+local render2d = import("goluwa/render2d/render2d.lua")
+local fonts = import("goluwa/render2d/fonts.lua")
 local stats_font = nil
 
 event.AddListener("Draw2D", "culling_demo_hud", function()

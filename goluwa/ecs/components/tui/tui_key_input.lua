@@ -1,5 +1,5 @@
-local prototype = require("prototype")
-local event = require("event")
+local prototype = import("goluwa/prototype.lua")
+local event = import("goluwa/event.lua")
 local META = prototype.CreateTemplate("tui_key_input")
 
 local function focused_ki()

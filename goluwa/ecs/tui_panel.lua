@@ -1,27 +1,27 @@
-local repl = require("repl")
+local repl = import("goluwa/repl.lua")
 local valid = nil
-local TuiPanel = require("ecs.base")("tui_panel", "ecs.components.tui.", function()
+local TuiPanel = import("goluwa/ecs/base.lua")("tui_panel", "ecs.components.tui.", function()
 	valid = valid or
 		{
 			-- reuse 2d components
-			transform = require("ecs.components.2d.transform"),
-			layout = require("ecs.components.2d.layout"),
+			transform = import("goluwa/ecs/components/2d/transform.lua"),
+			layout = import("goluwa/ecs/components/2d/layout.lua"),
 			-- tui-specific  components
-			tui_element = require("ecs.components.tui.tui_element"),
-			tui_text = require("ecs.components.tui.tui_text"),
-			tui_border = require("ecs.components.tui.tui_border"),
-			tui_mouse_input = require("ecs.components.tui.tui_mouse_input"),
-			tui_key_input = require("ecs.components.tui.tui_key_input"),
-			tui_clickable = require("ecs.components.tui.tui_clickable"),
-			tui_resizable = require("ecs.components.tui.tui_resizable"),
-			tui_draggable = require("ecs.components.tui.tui_draggable"),
-			tui_animation = require("ecs.components.tui.tui_animation"),
+			tui_element = import("goluwa/ecs/components/tui/tui_element.lua"),
+			tui_text = import("goluwa/ecs/components/tui/tui_text.lua"),
+			tui_border = import("goluwa/ecs/components/tui/tui_border.lua"),
+			tui_mouse_input = import("goluwa/ecs/components/tui/tui_mouse_input.lua"),
+			tui_key_input = import("goluwa/ecs/components/tui/tui_key_input.lua"),
+			tui_clickable = import("goluwa/ecs/components/tui/tui_clickable.lua"),
+			tui_resizable = import("goluwa/ecs/components/tui/tui_resizable.lua"),
+			tui_draggable = import("goluwa/ecs/components/tui/tui_draggable.lua"),
+			tui_animation = import("goluwa/ecs/components/tui/tui_animation.lua"),
 		}
 	return valid
 end)
-package.loaded["ecs.tui_panel"] = TuiPanel
-local Vec2 = require("structs.vec2")
-local event = require("event")
+import.loaded["goluwa/ecs/tui_panel.lua"] = TuiPanel
+local Vec2 = import("goluwa/structs/vec2.lua")
+local event = import("goluwa/event.lua")
 TuiPanel.World = TuiPanel.New{
 	ComponentSet = {
 		"transform",
@@ -38,7 +38,7 @@ TuiPanel.World:SetName("TuiWorldPanel")
 TuiPanel.World.transform:SetPosition(Vec2(1, 1))
 
 local function sync_terminal_size()
-	local repl = require("repl")
+	local repl = import("goluwa/repl.lua")
 	local term = repl.GetTerminal()
 
 	if not term then return end
@@ -146,10 +146,10 @@ do
 end
 
 do
-	local repl = require("repl")
-	local event = require("event")
-	local system = require("system")
-	local input = require("input")
+	local repl = import("goluwa/repl.lua")
+	local event = import("goluwa/event.lua")
+	local system = import("goluwa/system.lua")
+	local input = import("goluwa/input.lua")
 	local tui = library()
 	local key_trigger = input.SetupInputEvent("TerminalKey")
 	local mouse_trigger = input.SetupInputEvent("TerminalMouse")

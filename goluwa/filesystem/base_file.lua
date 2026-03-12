@@ -1,5 +1,5 @@
-local prototype = require("prototype")
-local vfs = require("filesystem.vfs")
+local prototype = import("goluwa/prototype.lua")
+local vfs = import("goluwa/filesystem/vfs.lua")
 local CONTEXT = prototype.CreateTemplate("file_system_base")
 CONTEXT.Name = "base"
 CONTEXT:GetSet("Mode", "read")
@@ -137,5 +137,5 @@ function CONTEXT:IsArchive(path_info)
 	return false
 end
 
-require("filesystem.buffer_template")(CONTEXT)
+import("goluwa/filesystem/buffer_template.lua")(CONTEXT)
 return CONTEXT:Register()

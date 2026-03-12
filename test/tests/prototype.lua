@@ -1,6 +1,6 @@
-local T = require("test.environment")
-local prototype = require("prototype")
-local event = require("event")
+local T = import("test/environment.lua")
+local prototype = import("goluwa/prototype.lua")
+local event = import("goluwa/event.lua")
 
 T.Test("prototype basic registration and creation", function()
 	local META = prototype.CreateTemplate("test_type")

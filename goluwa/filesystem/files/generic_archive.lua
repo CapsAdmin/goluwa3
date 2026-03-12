@@ -1,11 +1,11 @@
-local crypto = require("crypto")
-local utility = require("utility")
-local timer = require("timer")
-local Tree = require("structs.tree")
-local vfs = require("filesystem.vfs")
-local prototype = require("prototype")
+local crypto = import("goluwa/crypto.lua")
+local utility = import("goluwa/utility.lua")
+local timer = import("goluwa/timer.lua")
+local Tree = import("goluwa/structs/tree.lua")
+local vfs = import("goluwa/filesystem/vfs.lua")
+local prototype = import("goluwa/prototype.lua")
 local CONTEXT = prototype.CreateTemplate("file_system_generic_archive")
-CONTEXT.Base = require("filesystem.base_file")
+CONTEXT.Base = import("goluwa/filesystem/base_file.lua")
 CONTEXT.Name = "generic_archive"
 CONTEXT.Position = 0
 
@@ -77,7 +77,7 @@ timer.Repeat(
 )
 
 local function save_vpk_disk_cache(cache_path, tree)
-	local codec = require("codec")
+	local codec = import("goluwa/codec.lua")
 	codec.WriteFile("msgpack", cache_path, tree.tree)
 end
 
@@ -127,7 +127,7 @@ function CONTEXT:GetFileTree(path_info)
 	local cache_path = "os:cache/archive/" .. crypto.CRC32(cache_key)
 
 	if vfs.IsFile(cache_path) then
-		local codec = require("codec")
+		local codec = import("goluwa/codec.lua")
 		never = true
 		local tree_data, err, what = codec.ReadFile("msgpack", cache_path)
 		never = false
@@ -156,7 +156,7 @@ function CONTEXT:GetFileTree(path_info)
 	if not ok then return false, err end
 
 	set_cache(cache_key, tree)
-	local codec = require("codec")
+	local codec = import("goluwa/codec.lua")
 	utility.RunOnNextGarbageCollection(save_vpk_disk_cache, cache_path, tree)
 	return tree, relative, archive_path
 end

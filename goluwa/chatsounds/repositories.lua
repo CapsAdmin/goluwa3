@@ -1,10 +1,10 @@
-local chatsounds = require("chatsounds.chatsounds")
-local resource = require("resource")
-local crypto = require("crypto")
-local codec = require("codec")
-local callback = require("callback")
-local tasks = require("tasks")
-local vfs = require("vfs")
+local chatsounds = import("goluwa/chatsounds/chatsounds.lua")
+local resource = import("goluwa/resource.lua")
+local crypto = import("goluwa/crypto.lua")
+local codec = import("goluwa/codec.lua")
+local callback = import("goluwa/callback.lua")
+local tasks = import("goluwa/tasks.lua")
+local vfs = import("goluwa/vfs.lua")
 
 local function read_list(base_url, sounds, list_id, skip_list)
 	local tree = {}
@@ -145,7 +145,7 @@ function chatsounds.BuildFromGithub(repo, location, list_id)
 	end)(repo, location, list_id)
 end
 
-local autocomplete = require("autocomplete")
+local autocomplete = import("goluwa/autocomplete.lua")
 
 function chatsounds.LoadRepositories()
 	local default_lists = {

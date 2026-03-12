@@ -3,7 +3,7 @@
 -- Returns compressed data as-is for GPU upload (no decompression to RGBA)
 local ffi = require("ffi")
 local bit = require("bit")
-local Buffer = require("structs.buffer")
+local Buffer = import("goluwa/structs/buffer.lua")
 local dds = library()
 dds.file_extensions = {"dds"}
 local band, bor, lshift, rshift = bit.band, bit.bor, bit.lshift, bit.rshift

@@ -1,4 +1,4 @@
-local T = require("test.environment")
+local T = import("test/environment.lua")
 local setmetatable_with_gc = dofile("goluwa/helpers/setmetatable_gc.lua")
 
 T.Test("setmetatable_gc triggers during runtime GC", function()

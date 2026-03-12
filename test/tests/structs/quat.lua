@@ -1,7 +1,7 @@
-local T = require("test.environment")
-local Quat = require("structs.quat")
-local Vec3 = require("structs.vec3")
-local Ang3 = require("structs.ang3")
+local T = import("test/environment.lua")
+local Quat = import("goluwa/structs/quat.lua")
+local Vec3 = import("goluwa/structs/vec3.lua")
+local Ang3 = import("goluwa/structs/ang3.lua")
 
 T.Test("Quat construction", function()
 	local q = Quat(1, 2, 3, 4)

@@ -1,6 +1,6 @@
-local ljsocket = require("bindings.socket")
-local prototype = require("prototype")
-local socket_pool = require("sockets.socket_pool")
+local ljsocket = import("goluwa/bindings/socket.lua")
+local prototype = import("goluwa/prototype.lua")
+local socket_pool = import("goluwa/sockets/socket_pool.lua")
 local UDPClient = prototype.CreateTemplate("socket_tcp_client")
 UDPClient:GetSet("BufferSize", 64000)
 
@@ -43,7 +43,7 @@ function UDPClient:SocketRestart(socket)
 end
 
 do
-	local ssl = require("bindings.tls")
+	local ssl = import("goluwa/bindings/tls.lua")
 
 	function UDPClient:SetupTLS()
 		if self.tls_setup then return end

@@ -1,12 +1,12 @@
-local get_time = require("bindings.time")
-local event = require("event")
+local get_time = import("goluwa/bindings/time.lua")
+local event = import("goluwa/event.lua")
 local system = library()
 
 function system.GetTime()
 	return get_time()
 end
 
-local get_time_ns = require("bindings.time_ns")
+local get_time_ns = import("goluwa/bindings/time_ns.lua")
 
 function system.GetTimeNS()
 	return get_time_ns()
@@ -143,7 +143,7 @@ function system.IsTTY()
 	return true
 end
 
-local sleep = require("bindings.threads").sleep -- in ms
+local sleep = import("goluwa/bindings/threads.lua").sleep -- in ms
 function system.Sleep(seconds)
 	sleep(seconds * 1000)
 end

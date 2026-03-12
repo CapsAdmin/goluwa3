@@ -3,7 +3,7 @@
 -- Supports DXT1/3/5, RGBA8888, RGB888, BGR888, BGRA8888, and other common formats
 local ffi = require("ffi")
 local bit = require("bit")
-local Buffer = require("structs.buffer")
+local Buffer = import("goluwa/structs/buffer.lua")
 local vtf = library()
 vtf.file_extensions = {"vtf"}
 local band, bor, lshift, rshift = bit.band, bit.bor, bit.lshift, bit.rshift

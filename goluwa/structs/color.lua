@@ -1,4 +1,4 @@
-local structs = require("structs.structs")
+local structs = import("goluwa/structs/structs.lua")
 local out = {}
 local META = structs.Template("Color")
 META.Args = {{"r", "g", "b", "a"}}
@@ -348,7 +348,7 @@ function META.FromName(name)
 	return META.FromHex(names[name:lower()] or names.black)
 end
 
-local Vec3 = require("structs.vec3")
+local Vec3 = import("goluwa/structs/vec3.lua")
 
 function META.ToName(color)
 	local vec3color = Vec3(color.r, color.g, color.b)

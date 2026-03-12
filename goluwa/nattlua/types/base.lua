@@ -3,19 +3,17 @@ local assert = _G.assert
 local tostring = _G.tostring
 local setmetatable = _G.setmetatable
 local error_messages = require("nattlua.error_messages")
+local shared = require("nattlua.types.shared")
 local class = require("nattlua.other.class")
 return function()
 	local META = class.CreateTemplate("base")
 	--[[#type META.Type = string]]
-	--[[#type META.@Self = {
+	--[[#type META.@SelfArgument = {
 		Type = string,
 	}]]
-	--[[#local type TBaseType = META.@Self]]
+	--[[#local type TBaseType = META.@SelfArgument]]
 	--[[#type META.TBaseType = TBaseType]]
 	--[[#type META.Type = string]]
-
-	function META.Equal(a--[[#: TBaseType]], b--[[#: TBaseType]]) --error("nyi " .. a.Type .. " == " .. b.Type)
-	end
 
 	function META:IsNil()
 		return false
@@ -106,12 +104,20 @@ return function()
 		return self
 	end
 
-	function META.LogicalComparison(l--[[#: TBaseType]], r--[[#: TBaseType]], op--[[#: string]])
-		return false, error_messages.binary(op, l, r)
-	end
-
 	function META:IsNumeric()
 		return false
+	end
+
+	function META:PushSuppress()
+		self.suppress_depth = (self.suppress_depth or 0) + 1
+	end
+
+	function META:PopSuppress()
+		self.suppress_depth = self.suppress_depth - 1
+	end
+
+	function META:IsSuppressed()
+		return (self.suppress_depth or 0) > 0
 	end
 
 	return META

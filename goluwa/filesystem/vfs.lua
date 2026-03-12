@@ -1,4 +1,4 @@
-local prototype = require("prototype")
+local prototype = import("goluwa/prototype.lua")
 local vfs = {}
 vfs.use_appdata = false
 vfs.mounted_paths = vfs.mounted_paths or {}
@@ -309,19 +309,19 @@ function vfs.Open(path, mode, sub_mode)
 	return false, "unable to open file: \n" .. list.concat(errors, "\n")
 end
 
-package.loaded["filesystem.vfs"] = vfs
-require("filesystem.path_utilities")
-require("filesystem.base_file")
-require("filesystem.find")
-require("filesystem.helpers")
-require("filesystem.addons")
-require("filesystem.lua_utilities")
-require("filesystem.storage")
-vfs.InstantiateFilesystem(require("filesystem.files.os"))
-vfs.InstantiateFilesystem(require("filesystem.files.vpk"))
-vfs.InstantiateFilesystem(require("filesystem.files.zip"))
-vfs.InstantiateFilesystem(require("filesystem.files.gma"))
-vfs.InstantiateFilesystem(require("filesystem.files.lzma"))
+import.loaded["goluwa/filesystem/vfs.lua"] = vfs
+import("goluwa/filesystem/path_utilities.lua")
+import("goluwa/filesystem/base_file.lua")
+import("goluwa/filesystem/find.lua")
+import("goluwa/filesystem/helpers.lua")
+import("goluwa/filesystem/addons.lua")
+import("goluwa/filesystem/lua_utilities.lua")
+import("goluwa/filesystem/storage.lua")
+vfs.InstantiateFilesystem(import("goluwa/filesystem/files/os.lua"))
+vfs.InstantiateFilesystem(import("goluwa/filesystem/files/vpk.lua"))
+vfs.InstantiateFilesystem(import("goluwa/filesystem/files/zip.lua"))
+vfs.InstantiateFilesystem(import("goluwa/filesystem/files/gma.lua"))
+vfs.InstantiateFilesystem(import("goluwa/filesystem/files/lzma.lua"))
 
 for _, context in ipairs(vfs.GetFileSystems()) do
 	if context.VFSOpened then context:VFSOpened() end

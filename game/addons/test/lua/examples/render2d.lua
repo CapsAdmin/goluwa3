@@ -1,8 +1,8 @@
-local event = require("event")
-local render2d = require("render2d.render2d")
-local Color = require("structs.color")
-local Vec2 = require("structs.vec2")
-local fonts = require("render2d.fonts")
+local event = import("goluwa/event.lua")
+local render2d = import("goluwa/render2d/render2d.lua")
+local Color = import("goluwa/structs/color.lua")
+local Vec2 = import("goluwa/structs/vec2.lua")
+local fonts = import("goluwa/render2d/fonts.lua")
 local fontPath = fonts.GetDefaultSystemFontPath()
 local font = fonts.New{Path = fontPath, Size = 64}
 local gfont = fonts.New{Name = "Orbitron", Weight = "Bold", Size = 64, Padding = 32}

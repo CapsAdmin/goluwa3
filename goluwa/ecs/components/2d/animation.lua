@@ -1,8 +1,8 @@
-local prototype = require("prototype")
-local animations = require("animations")
-local system = require("system")
-local event = require("event")
-local Vec2 = require("structs.vec2")
+local prototype = import("goluwa/prototype.lua")
+local animations = import("goluwa/animations.lua")
+local system = import("goluwa/system.lua")
+local event = import("goluwa/event.lua")
+local Vec2 = import("goluwa/structs/vec2.lua")
 local META = prototype.CreateTemplate("animation")
 
 local function call_on_ent_or_comps(ent, func_name, ...)

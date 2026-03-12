@@ -1,4 +1,4 @@
-local prototype = require("prototype")
+local prototype = import("goluwa/prototype.lua")
 local META = prototype.CreateTemplate("tui_clickable")
 
 function META:Initialize()

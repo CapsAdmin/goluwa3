@@ -1,4 +1,4 @@
-local system = require("system")
+local system = import("goluwa/system.lua")
 -- used like <tag=[pi * rand()]>
 local expression = {}
 local lib = {

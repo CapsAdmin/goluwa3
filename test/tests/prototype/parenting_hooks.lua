@@ -1,5 +1,5 @@
-local T = require("test.environment")
-local prototype = require("prototype")
+local T = import("test/environment.lua")
+local prototype = import("goluwa/prototype.lua")
 
 T.Test("prototype parenting hooks", function()
 	local META = prototype.CreateTemplate("test_parenting_hooks")

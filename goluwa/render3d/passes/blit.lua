@@ -1,7 +1,7 @@
-local render = require("render.render")
-local event = require("event")
-local system = require("system")
-local render3d = require("render3d.render3d")
+local render = import("goluwa/render/render.lua")
+local event = import("goluwa/event.lua")
+local system = import("goluwa/system.lua")
+local render3d = import("goluwa/render3d/render3d.lua")
 
 local function get_source_texture(self, block, key)
 	-- SMAA resolve can be re-enabled explicitly once the post-AA regression is fixed.
@@ -452,7 +452,7 @@ table.insert(
 )
 
 if HOTRELOAD then
-	require("timer").Delay(0, function()
+	import("goluwa/timer.lua").Delay(0, function()
 		render3d.Initialize()
 	end)
 end

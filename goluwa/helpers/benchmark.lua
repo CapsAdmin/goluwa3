@@ -1,4 +1,4 @@
-local system = require("system")
+local system = import("goluwa/system.lua")
 local get_time = system.GetTime
 local benchmark = {}
 local timer_overhead = 0

@@ -1,5 +1,5 @@
-local T = require("test.environment")
-local process = require("bindings.process")
+local T = import("test/environment.lua")
+local process = import("goluwa/bindings/process.lua")
 
 -- Helper to read all output with retries
 local function read_all_stdout(proc)

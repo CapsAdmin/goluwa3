@@ -1,8 +1,8 @@
 local ffi = require("ffi")
-local cocoa = require("bindings.cocoa")
-local Vec2 = require("structs.vec2")
-local system = require("system")
-local event = require("event")
+local cocoa = import("goluwa/bindings/cocoa.lua")
+local Vec2 = import("goluwa/structs/vec2.lua")
+local system = import("goluwa/system.lua")
+local event = import("goluwa/event.lua")
 return function(META)
 	-- Button translation from cocoa to window system
 	local button_translate = {

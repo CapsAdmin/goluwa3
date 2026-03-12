@@ -5,7 +5,7 @@ local math_huge = _G.math.huge
 local ipairs = _G.ipairs
 local assert = _G.assert
 local tostring = _G.tostring
-return function(META)
+return function(META--[[#: any]])
 	do -- destructure statement
 		function META:IsDestructureStatement(offset--[[#: number]])
 			offset = offset or 0
@@ -457,6 +457,7 @@ return function(META)
 			{key = "bit", path = "nattlua.other.bit"},
 			{key = "nl", path = "nattlua.init"},
 			{key = "types", path = "nattlua.types.types"},
+			{key = "shared", path = "nattlua.types.shared"},
 			{key = "context", path = "nattlua.analyzer.context"},
 			{
 				key = "error_messages",

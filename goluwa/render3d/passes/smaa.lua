@@ -1,6 +1,6 @@
-local Vec2 = require("structs.vec2")
-local system = require("system")
-local render3d = require("render3d.render3d")
+local Vec2 = import("goluwa/structs/vec2.lua")
+local system = import("goluwa/system.lua")
+local render3d = import("goluwa/render3d/render3d.lua")
 return {
 	{
 		name = "smaa_edge",
@@ -89,7 +89,7 @@ return {
 							"area_tex",
 							"int",
 							function()
-								local tex = require("render.textures.smaa_area_tex")
+								local tex = import("goluwa/render/textures/smaa_area_tex.lua")
 								return function(self, block, key)
 									block[key] = self:GetTextureIndex(tex)
 								end
@@ -99,7 +99,7 @@ return {
 							"search_tex",
 							"int",
 							function()
-								local tex = require("render.textures.smaa_search_tex")
+								local tex = import("goluwa/render/textures/smaa_search_tex.lua")
 								return function(self, block, key)
 									block[key] = self:GetTextureIndex(tex)
 								end

@@ -1,6 +1,4 @@
---ANALYZE
 local tostring = tostring
-local setmetatable = _G.setmetatable
 local table = _G.table
 local type = _G.type
 local ipairs = _G.ipairs
@@ -12,6 +10,7 @@ local table_concat = _G.table.concat
 local table_remove = _G.table.remove
 local table_sort = require("nattlua.other.sort")
 local table_clear = require("nattlua.other.tablex").clear
+local shared = require("nattlua.types.shared")
 local assert = _G.assert
 local math_max = _G.math.max
 local math_huge = _G.math.huge
@@ -23,11 +22,12 @@ local math_huge = _G.math.huge
 local META = require("nattlua.types.base")()
 --[[#local type TBaseType = META.TBaseType]]
 --[[#type META.@Name = "TUnion"]]
---[[#type TUnion = META.@Self]]
---[[#type TUnion.LiteralDataCache = Map<|string, TBaseType|>]]
---[[#type TUnion.suppress = boolean]]
+--[[#local type TUnion = META.@SelfArgument]]
+--[[#type TUnion.Type = "union"]]
+--[[#type TUnion.literal_data_cache = Map<|string, TBaseType|>]]
 --[[#type TUnion.left_right_source = {left = TBaseType, right = TBaseType} | false]]
 --[[#type TUnion.parent_table = {table = TBaseType, key = string} | false]]
+--[[#type TUnion.stored_truthy_falsy = any]]
 META.Type = "union"
 META:GetSet("Data", false--[[# as List<|TBaseType|>]])
 
@@ -35,55 +35,10 @@ function META:GetHashForMutationTracking()
 	return tostring(self)
 end
 
-function META.Equal(
-	a--[[#: TUnion]],
-	b--[[#: TBaseType]],
-	visited--[[#: nil | Map<|TBaseType, boolean|>]]
-)
-	visited = visited or {}
-
-	if visited[a] then return true, "circular reference detected" end
-
-	if b.Type ~= "union" and a:GetCardinality() == 1 and a.Data[1] then
-		return a.Data[1]:Equal(b, visited)
-	end
-
-	if a.Type ~= b.Type then return false, "types differ" end
-
-	local b = b
-	local len = #a.Data
-
-	if len ~= #b.Data then return false, "length mismatch" end
-
-	for i = 1, len do
-		local a = assert(a.Data[i])
-		local ok = false
-		local reasons = {}
-
-		for i = 1, len do
-			local b = b.Data[i]
-			local reason
-			ok, reason = a:Equal(b, visited)
-
-			if ok then break end
-
-			table.insert(reasons, reason--[[# as string]])
-		end
-
-		if a.Type == "table" then visited[a] = true end
-
-		if not ok then
-			return false, "union value mismatch: " .. table.concat(reasons, "\n")
-		end
-	end
-
-	return true, "all union values match"
-end
-
-function META:GetHash(visited)--[[#: string]]
+function META:GetHash(visited--[[#: Map<|any, string|> | nil]])--[[#: string]]
 	local data = self.Data
 
-	if #data == 1 then return (data[1]--[[# as any]]):GetHash() end
+	if #data == 1 then return (data[1]--[[# as any]]):GetHash(visited) end
 
 	visited = visited or {}
 
@@ -94,7 +49,7 @@ function META:GetHash(visited)--[[#: string]]
 	local len = #data
 
 	for i = 1, len do
-		types[i] = data[i]:GetHash(visited)
+		types[i] = assert(data[i]):GetHash(visited)
 	end
 
 	table_sort(types)
@@ -107,10 +62,10 @@ local sort = function(a--[[#: string]], b--[[#: string]])
 end
 
 function META:__tostring()
-	if self.suppress then return "current_union" end
+	if self:IsSuppressed() then return "current_union" end
 
 	local s = {}
-	self.suppress = true
+	self:PushSuppress()
 	local data = self.Data
 	local len = #data
 
@@ -119,11 +74,11 @@ function META:__tostring()
 	end
 
 	if not s[1] then
-		self.suppress = false
+		self:PopSuppress()
 		return "|"
 	end
 
-	self.suppress = false
+	self:PopSuppress()
 
 	if len == 1 then return (s[1]--[[# as string]]) .. "|" end
 
@@ -144,7 +99,7 @@ end
 local function add(self--[[#: TUnion]], obj--[[#: any]])
 	local s = hash(obj)
 
-	if s then self.LiteralDataCache[s] = obj end
+	if s then self.literal_data_cache[s] = obj end
 
 	self.Data[#self.Data + 1] = obj
 end
@@ -154,7 +109,7 @@ local function remove(self--[[#: TUnion]], index--[[#: number]])
 	table_remove(self.Data, index)
 	local s = hash(obj)
 
-	if s then self.LiteralDataCache[s] = nil end
+	if s then self.literal_data_cache[s] = nil end
 end
 
 local function find_index(self--[[#: TUnion]], obj--[[#: any]])
@@ -166,7 +121,7 @@ local function find_index(self--[[#: TUnion]], obj--[[#: any]])
 		local v = data[i]--[[# as any]]
 
 		-- Check type first before expensive Equal call
-		if v.Type == obj_type and v:Equal(obj) then
+		if v.Type == obj_type and shared.Equal(v, obj) then
 			if obj_type ~= "function" or v:GetFunctionBodyNode() == obj:GetFunctionBodyNode() then
 				return i
 			end
@@ -188,13 +143,50 @@ function META:AddType(e--[[#: TBaseType]])
 	do
 		local s = hash(e)
 
-		if s and self.LiteralDataCache[s] then return self end
+		if s and self.literal_data_cache[s] then return self end
 	end
 
 	if find_index(self, e) then return self end
 
 	add(self, e)
 	return self
+end
+
+local function add_data(self, data--[[#: List<|TBaseType|>]])
+	local len = #data
+
+	for i = 1, len do
+		local v = data[i]
+
+		if v.Type == "union" then
+			local ulen = #v.Data
+
+			for j = 1, ulen do
+				local w = v.Data[j]
+				local s = hash(w)
+
+				if s and self.literal_data_cache[s] then goto w_continue end
+
+				if find_index(self, w) then goto w_continue end
+
+				add(self, w)
+
+				::w_continue::
+			end
+
+			goto continue
+		end
+
+		local s = hash(v)
+
+		if s and self.literal_data_cache[s] then goto continue end
+
+		if find_index(self, v) then goto continue end
+
+		add(self, v)
+
+		::continue::
+	end
 end
 
 function META:GetData()
@@ -222,13 +214,8 @@ function META:RemoveType(e--[[#: TBaseType]])
 end
 
 function META:Clear()
-	do
-		(table_clear--[[# as any]])(self.Data)
-	end
-
-	do
-		(table_clear--[[# as any]])(self.LiteralDataCache)
-	end
+	table_clear(self.Data)
+	table_clear(self.literal_data_cache)
 end
 
 function META:HasTuples()
@@ -325,7 +312,7 @@ function META:IsTypeObjectSubsetOf(typ--[[#: TBaseType]])
 	local errors
 
 	for i, obj in ipairs(self.Data) do
-		local ok, reason = typ:IsSubsetOf(obj)
+		local ok, reason = shared.IsSubsetOf(typ, obj)
 
 		if ok then return obj end
 
@@ -338,7 +325,7 @@ end
 
 function META:HasTypeObject(obj--[[#: TBaseType]])
 	for i, v in ipairs(self.Data) do
-		local ok, reason = obj:IsSubsetOf(v)
+		local ok, reason = shared.IsSubsetOf(obj, v)
 
 		if ok then return v end
 	end
@@ -436,7 +423,7 @@ function META:IsTargetSubsetOfChild(target--[[#: TBaseType]])
 	local errors = {}
 
 	for i, obj in ipairs(self.Data) do
-		local ok, reason = target:IsSubsetOf(obj)
+		local ok, reason = shared.IsSubsetOf(target, obj)
 
 		if ok then return true end
 
@@ -444,54 +431,6 @@ function META:IsTargetSubsetOfChild(target--[[#: TBaseType]])
 	end
 
 	return false, error_messages.subset(target, self, errors)
-end
-
-function META.IsSubsetOf(a--[[#: TUnion]], b--[[#: any]])
-	if a.suppress then return true, "suppressed" end
-
-	if b.Type == "tuple" then b = b:GetWithNumber(1) end
-
-	if b.Type == "any" then return true end
-
-	if a:IsEmpty() then
-		return false,
-		error_messages.because(error_messages.subset(a, b), {"union is empty"})
-	end
-
-	for _, a_val in ipairs(a.Data) do
-		a.suppress = true
-		local b_val, reason
-		local ok
-
-		if b.Type == "union" then
-			b_val, reason = b:IsTypeObjectSubsetOf(a_val)
-		else
-			ok, reason = a_val:IsSubsetOf(b)
-
-			if ok then
-				b_val = b
-			else
-				b_val = false
-				reason = reason
-			end
-		end
-
-		a.suppress = false
-
-		if not b_val then
-			return false, error_messages.because(error_messages.subset(b, a_val), reason)
-		end
-
-		a.suppress = true
-		local ok, reason = a_val:IsSubsetOf(b_val)
-		a.suppress = false
-
-		if not ok then
-			return false, error_messages.because(error_messages.subset(a_val, b_val), reason)
-		end
-	end
-
-	return true
 end
 
 function META:Union(union--[[#: TUnion]])
@@ -562,8 +501,8 @@ function META:IsLiteral()
 	return true
 end
 
-function META:SetLeftRightSource(l, r)
-	self.left_right_source = {left = l, right = r}
+function META:SetLeftRightSource(l, r, op)
+	self.left_right_source = {left = l, right = r, op = op}
 end
 
 function META:GetLeftRightSource()
@@ -578,21 +517,38 @@ function META:GetParentTable()
 	return self.parent_table
 end
 
-function META.New(data--[[#: nil | List<|TBaseType|>]])
+function META:SetTupleSourceUnion(source_union, index)
+	self.tuple_source_union = {union = source_union, index = index}
+end
+
+function META:GetTupleSourceUnion()
+	return self.tuple_source_union
+end
+
+function META:SetStoredTruthyFalsy(truthy, falsy)
+	self.stored_truthy_falsy = {truthy = truthy, falsy = falsy}
+end
+
+function META:GetStoredTruthyFalsy()
+	return self.stored_truthy_falsy
+end
+
+function META.New(data--[[#: nil | List<|TBaseType|>]])--[[#: TUnion]]
 	local self = META.NewObject{
 		Type = "union",
 		Data = {},
-		LiteralDataCache = {},
-		suppress = false,
+		literal_data_cache = {},
+		suppress = false--[[# as boolean]],
 		left_right_source = false,
 		parent_table = false,
-		Contract = false,
+		stored_truthy_falsy = false,
+		tuple_source_union = false,
+		TruthyFalsy = "unknown",
 		Upvalue = false,
+		Contract = false,
 	}
 
-	if data then for _, v in ipairs(data) do
-		self:AddType(v)
-	end end
+	if data then add_data(self, data) end
 
 	return self
 end
@@ -610,6 +566,7 @@ function META:IsNumeric()
 end
 
 return {
+	TUnion = TUnion,
 	Union = META.New,
 	Nilable = function(typ--[[#: TBaseType]])
 		return META.New({typ, Nil()})

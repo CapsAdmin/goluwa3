@@ -1,10 +1,10 @@
-local Panel = require("ecs.panel")
-local Vec2 = require("structs.vec2")
-local Color = require("structs.color")
-local theme = require("ui.theme")
-local input = require("input")
-local render2d = require("render2d.render2d")
-local gfx = require("render2d.gfx")
+local Panel = import("goluwa/ecs/panel.lua")
+local Vec2 = import("goluwa/structs/vec2.lua")
+local Color = import("goluwa/structs/color.lua")
+local theme = import("lua/ui/theme.lua")
+local input = import("goluwa/input.lua")
+local render2d = import("goluwa/render2d/render2d.lua")
+local gfx = import("goluwa/render2d/gfx.lua")
 return function(props)
 	local scroll_v = props.ScrollY ~= false
 	local scroll_h = props.ScrollX == true

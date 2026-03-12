@@ -1,11 +1,11 @@
 --[[HOTRELOAD
 	os.execute("luajit glw test gui")
 ]]
-local event = require("event")
-local prototype = require("prototype")
-local Vec2 = require("structs.vec2")
-local window = require("window")
-local timer = require("timer")
+local event = import("goluwa/event.lua")
+local prototype = import("goluwa/prototype.lua")
+local Vec2 = import("goluwa/structs/vec2.lua")
+local window = import("goluwa/window.lua")
+local timer = import("goluwa/timer.lua")
 local META = prototype.CreateTemplate("lsx_realm")
 local Fragment = prototype.CreateTemplate("lsx_fragment"):Register()
 local Element = prototype.CreateTemplate("lsx_element"):Register()

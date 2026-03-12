@@ -15,6 +15,7 @@ local False = require("nattlua.types.symbol").False
 local Nil = require("nattlua.types.symbol").Nil
 local LNumber = require("nattlua.types.number").LNumber
 local LNumberRange = require("nattlua.types.range").LNumberRange
+local shared = require("nattlua.types.shared")
 local error_messages = require("nattlua.error_messages")
 local ARITHMETIC_OPS = {
 	["+"] = "__add",
@@ -178,14 +179,14 @@ function Binary(self, node, l, r, op)
 		if l.Type ~= r.Type then return is_not_equal and True() or False() end
 
 		if is_not_equal then
-			local val, err = l.LogicalComparison(l, r, "==", self:GetCurrentAnalyzerEnvironment())
+			local val, err = shared.LogicalComparison(l, r, "==", self:GetCurrentAnalyzerEnvironment())
 
 			if val ~= nil then val = not val end
 
 			return logical_cmp_cast(val, err)
 		end
 
-		return logical_cmp_cast(l.LogicalComparison(l, r, op, self:GetCurrentAnalyzerEnvironment()))
+		return logical_cmp_cast(shared.LogicalComparison(l, r, op, self:GetCurrentAnalyzerEnvironment()))
 	elseif op == "." or op == ":" then
 		return self:IndexOperator(l, r)
 	elseif op == ".." then
@@ -260,7 +261,7 @@ function Binary(self, node, l, r, op)
 
 		if res then return res end
 
-		return logical_cmp_cast(l.LogicalComparison(l, r, op))
+		return logical_cmp_cast(shared.LogicalComparison(l, r, op))
 	end
 
 	return false, error_messages.binary(op, l, r)
@@ -269,9 +270,13 @@ end
 local function BinaryWithUnion(self, node, l, r, op)
 	if l.Type == "any" or r.Type == "any" then return Any() end
 
+	if l.Type == "deferred" then l = l:Unwrap() end
+
+	if r.Type == "deferred" then r = r:Unwrap() end
+
 	if self:IsTypesystem() then
 		if op == "==" then
-			return l:Equal(r) and True() or False()
+			return shared.Equal(l, r) and True() or False()
 		elseif op == "~" then
 			if l.Type == "union" then return l:Copy():RemoveType(r):Simplify() end
 
@@ -285,9 +290,9 @@ local function BinaryWithUnion(self, node, l, r, op)
 
 			return l:Extend(r)
 		elseif op == "supersetof" then
-			return r:IsSubsetOf(l) and True() or False()
+			return shared.IsSubsetOf(r, l) and True() or False()
 		elseif op == "subsetof" then
-			return l:IsSubsetOf(r) and True() or False()
+			return shared.IsSubsetOf(l, r) and True() or False()
 		elseif op == ".." then
 			if l.Type == "tuple" and r.Type == "tuple" then
 				return l:Copy():Concat(r)
@@ -327,11 +332,15 @@ local function BinaryWithUnion(self, node, l, r, op)
 
 		if l.Type == "union" and r.Type == "union" then
 			local new_union = Union()
-			new_union:SetLeftRightSource(l, r)
+			new_union:SetLeftRightSource(l, r, op)
 			local truthy_union = Union():SetUpvalue(upvalue)
 			local falsy_union = Union():SetUpvalue(upvalue)
 
 			if upvalue then upvalue:SetTruthyFalsyUnion(truthy_union, falsy_union) end
+
+			-- Store truthy/falsy on the left value for table field narrowing
+			-- through stored checks (e.g., local check = t.x ~= nil; if check then)
+			if l:GetParentTable() then l:SetStoredTruthyFalsy(truthy_union, falsy_union) end
 
 			-- special case for type(x) ==/~=
 			if self.type_checked and (op == "==" or op == "!=" or op == "~=") then
@@ -449,6 +458,33 @@ local function BinaryWithUnion(self, node, l, r, op)
 	return Binary(self, node, l, r, op)
 end
 
+local function is_condition_expression(node)
+	-- walk up through nested binary operators to find if we're
+	-- inside a conditional statement's expression (if/while/repeat)
+	local n = node
+
+	while n do
+		local parent = n.parent
+
+		if not parent then break end
+
+		local pt = parent.Type
+
+		if pt == "statement_if" or pt == "statement_while" or pt == "statement_repeat" then
+			return true
+		end
+
+		-- keep walking up through nested binary/prefix operators
+		if pt == "expression_binary_operator" or pt == "expression_prefix_operator" then
+			n = parent
+		else
+			break
+		end
+	end
+
+	return false
+end
+
 return {
 	BinaryCustom = BinaryWithUnion,
 	Binary = function(self, node)
@@ -479,6 +515,17 @@ return {
 				r = Nil()
 			else
 				-- right hand side of and is the "true" part
+				-- create a conditional scope so narrowing is visible inside function calls
+				-- but only when not already inside a conditional statement (if/while/repeat handle their own scopes)
+				local tracked, scope
+
+				if not is_condition_expression(node) then
+					tracked = self:GetTrackedObjects()
+					scope = self:PushConditionalScope(node, l:IsTruthy(), l:IsFalsy())
+					scope:SetTrackedNarrowings(tracked)
+					self:ApplyMutationsInIf(tracked)
+				end
+
 				self:PushTruthyExpressionContext()
 				r = self:Assert(self:AnalyzeExpression(node.right))
 				self:PopTruthyExpressionContext()
@@ -486,11 +533,20 @@ return {
 				if r.Type == "union" then
 					self:TrackUpvalueUnion(r, r:GetTruthy(), r:GetFalsy())
 				end
+
+				if scope then
+					self:ClearScopedTrackedObjects(scope)
+					self:PopConditionalScope()
+				end
 			end
 		elseif op == "or" then
 			self:PushFalsyExpressionContext()
 			l = self:Assert(self:AnalyzeExpression(node.left))
 			self:PopFalsyExpressionContext()
+
+			if l.Type == "union" then
+				self:TrackUpvalueUnion(l, l:GetTruthy(), l:GetFalsy())
+			end
 
 			if l:IsCertainlyFalse() then
 				self:PushFalsyExpressionContext()
@@ -500,6 +556,18 @@ return {
 				r = Nil()
 			else
 				-- right hand side of or is the "false" part
+				-- create a conditional scope so narrowing is visible inside function calls
+				-- but only when not already inside a conditional statement (if/while/repeat handle their own scopes)
+				local tracked, scope
+
+				if not is_condition_expression(node) then
+					tracked = self:GetTrackedObjects()
+					scope = self:PushConditionalScope(node, l:IsTruthy(), l:IsFalsy())
+					scope:SetTrackedNarrowings(tracked)
+					scope:SetElseConditionalScope(true)
+					self:ApplyMutationsInIfElse({{tracked_objects = tracked}})
+				end
+
 				self.LEFT_SIDE_OR = l
 				self:PushFalsyExpressionContext()
 				r = self:Assert(self:AnalyzeExpression(node.right))
@@ -508,6 +576,11 @@ return {
 
 				if r.Type == "union" then
 					self:TrackUpvalueUnion(r, r:GetTruthy(), r:GetFalsy())
+				end
+
+				if scope then
+					self:ClearScopedTrackedObjects(scope)
+					self:PopConditionalScope()
 				end
 			end
 		else
@@ -527,6 +600,12 @@ return {
 			if r.Type == "tuple" then r = self:GetFirstValue(r) or Nil() end
 		end
 
-		return BinaryWithUnion(self, node, l, r, op)
+		local ok, err = BinaryWithUnion(self, node, l, r, op)
+
+		if not ok and not err then
+			print("Binary operator failed without error message", node, op, l, r)
+		end
+
+		return ok, err
 	end,
 }

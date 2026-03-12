@@ -1,12 +1,12 @@
 local ffi = require("ffi")
-local Buffer = require("structs.buffer")
+local Buffer = import("goluwa/structs/buffer.lua")
 local bit = require("bit")
-local deflate = require("codecs.deflate")
-local Buffer = require("structs.buffer")
-local vfs = require("filesystem.vfs")
-local prototype = require("prototype")
+local deflate = import("goluwa/codecs/deflate.lua")
+local Buffer = import("goluwa/structs/buffer.lua")
+local vfs = import("goluwa/filesystem/vfs.lua")
+local prototype = import("goluwa/prototype.lua")
 local CONTEXT = prototype.CreateTemplate("file_system_zip")
-CONTEXT.Base = require("filesystem.files.generic_archive")
+CONTEXT.Base = import("goluwa/filesystem/files/generic_archive.lua")
 CONTEXT.Name = "zip archive"
 CONTEXT.Extension = "zip"
 

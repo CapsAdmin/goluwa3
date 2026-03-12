@@ -1,5 +1,5 @@
-local event = require("event")
-local fs = require("fs")
+local event = import("goluwa/event.lua")
+local fs = import("goluwa/fs.lua")
 local output = library()
 local suppress_print = false
 

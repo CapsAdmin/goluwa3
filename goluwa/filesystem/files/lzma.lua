@@ -1,11 +1,11 @@
-local vfs = require("filesystem.vfs")
-local lzma = require("codecs.lzma")
-local crypto = require("crypto")
-local prototype = require("prototype")
+local vfs = import("goluwa/filesystem/vfs.lua")
+local lzma = import("goluwa/codecs/lzma.lua")
+local crypto = import("goluwa/crypto.lua")
+local prototype = import("goluwa/prototype.lua")
 local CONTEXT = prototype.CreateTemplate("file_system_lzma")
 CONTEXT.Name = "lzma archive"
 CONTEXT.Extension = {"lzma", "bin"}
-CONTEXT.Base = require("filesystem.files.generic_archive")
+CONTEXT.Base = import("goluwa/filesystem/files/generic_archive.lua")
 CONTEXT.Position = 4
 
 function CONTEXT:OnParseArchive(file, archive_path)

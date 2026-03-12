@@ -1,5 +1,5 @@
-local ev = require("ev")
-local frame = require("websocket.frame")
+local ev = import("goluwa/ev.lua")
+local frame = import("goluwa/websocket/frame.lua")
 local tinsert = table.insert
 local tconcat = table.concat
 local eps = 2 ^ -40

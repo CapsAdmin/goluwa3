@@ -1,10 +1,10 @@
-local prototype = require("prototype")
-local system = require("system")
-local Vec2 = require("structs.vec2")
-local event = require("event")
+local prototype = import("goluwa/prototype.lua")
+local system = import("goluwa/system.lua")
+local Vec2 = import("goluwa/structs/vec2.lua")
+local event = import("goluwa/event.lua")
 local window = library()
-local input = require("input")
-local timer = require("timer")
+local input = import("goluwa/input.lua")
+local timer = import("goluwa/timer.lua")
 window.active = window.active or {}
 window.current = nil
 
@@ -147,9 +147,9 @@ do
 	end
 
 	if jit.os == "OSX" then
-		require("window_implementations.macos")(META)
+		import("goluwa/window_implementations/macos.lua")(META)
 	elseif jit.os == "Linux" then
-		require("window_implementations.linux_wayland")(META)
+		import("goluwa/window_implementations/linux_wayland.lua")(META)
 	end
 
 	function window.CreateWindow(width, height, title, flags)

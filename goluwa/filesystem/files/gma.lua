@@ -1,9 +1,9 @@
-local vfs = require("filesystem.vfs")
-local prototype = require("prototype")
+local vfs = import("goluwa/filesystem/vfs.lua")
+local prototype = import("goluwa/prototype.lua")
 local CONTEXT = prototype.CreateTemplate("file_system_gma_archive")
 CONTEXT.Name = "gmod addon archive"
 CONTEXT.Extension = "gma"
-CONTEXT.Base = require("filesystem.files.generic_archive")
+CONTEXT.Base = import("goluwa/filesystem/files/generic_archive.lua")
 CONTEXT.Position = 5
 
 function CONTEXT:OnParseArchive(file, archive_path)

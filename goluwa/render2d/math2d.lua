@@ -1,5 +1,5 @@
-local prototype = require("prototype")
-local Vec2 = require("structs.vec2")
+local prototype = import("goluwa/prototype.lua")
+local Vec2 = import("goluwa/structs/vec2.lua")
 local math2d = library()
 
 function math2d.IsCoordinatesConvex(points)

@@ -1,15 +1,15 @@
 --[[HOTRELOAD
 test("repl")
 ]]
-local event = require("event")
-local terminal = require("bindings.terminal")
-local system = require("system")
-local output = require("output")
-local commands = require("commands")
-local codec = require("codec")
-local clipboard = require("bindings.clipboard")
-local utf8 = require("utf8")
-local sequence_editor = require("sequence_editor")
+local event = import("goluwa/event.lua")
+local terminal = import("goluwa/bindings/terminal.lua")
+local system = import("goluwa/system.lua")
+local output = import("goluwa/output.lua")
+local commands = import("goluwa/commands.lua")
+local codec = import("goluwa/codec.lua")
+local clipboard = import("goluwa/bindings/clipboard.lua")
+local utf8 = import("goluwa/utf8.lua")
+local sequence_editor = import("goluwa/sequence_editor.lua")
 local repl = library()
 commands.history = codec.ReadFile("luadata", "data/cmd_history.txt") or {}
 
@@ -167,8 +167,11 @@ function repl.IsFocused()
 end
 
 do
+	local old = package.path
+	package.path = package.path .. ";" .. "goluwa/?.lua"
 	local Code = require("nattlua.code")
 	local Lexer = require("nattlua.lexer.lexer")
+	package.path = old
 	local colors = {
 		keyword = "#569cd6",
 		operator = "#d4d4d4",
@@ -727,7 +730,7 @@ function repl.GetTerminal()
 end
 
 function repl.Initialize()
-	require("logging").ReplMode()
+	import("goluwa/logging.lua").ReplMode()
 	local stdout_handle = output.original_stdout_file or io.stdout
 	local term = terminal.WrapFile(io.stdin, stdout_handle)
 	-- Don't use alternate screen - let output flow naturally

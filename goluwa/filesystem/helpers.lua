@@ -1,4 +1,4 @@
-local vfs = require("filesystem.vfs")
+local vfs = import("goluwa/filesystem/vfs.lua")
 
 function vfs.CopyRecursively(from, to)
 	assert(vfs.CreateDirectory(to))
@@ -36,7 +36,7 @@ function vfs.FindMixedCasePath(path)
 			local abs_dir = vfs.GetAbsolutePath(dir == "" and "." or dir, true)
 
 			if abs_dir then
-				local fs = require("fs")
+				local fs = import("goluwa/fs.lua")
 				local files = fs.get_files(abs_dir)
 
 				if files then
@@ -60,7 +60,7 @@ function vfs.FindMixedCasePath(path)
 	return nil
 end
 
-local fs = require("fs")
+local fs = import("goluwa/fs.lua")
 
 function vfs.Delete(path, ...)
 	local abs_path = vfs.GetAbsolutePath(path, ...)

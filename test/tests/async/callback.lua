@@ -1,6 +1,6 @@
-local T = require("test.environment")
-local callback = require("callback")
-local timer = require("timer")
+local T = import("test/environment.lua")
+local callback = import("goluwa/callback.lua")
+local timer = import("goluwa/timer.lua")
 
 T.Test("callback.Create basic resolve", function()
 	local resolved = false

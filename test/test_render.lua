@@ -1,12 +1,12 @@
-local event = require("event")
-local Entity = require("ecs.entity")
-local Panel = require("ecs.panel")
-local render = require("render.render")
-local render3d = require("render3d.render3d")
-local render2d = require("render2d.render2d")
-local Rect = require("structs.rect")
-local Quat = require("structs.quat")
-local Vec3 = require("structs.vec3")
+local event = import("goluwa/event.lua")
+local Entity = import("goluwa/ecs/entity.lua")
+local Panel = import("goluwa/ecs/panel.lua")
+local render = import("goluwa/render/render.lua")
+local render3d = import("goluwa/render3d/render3d.lua")
+local render2d = import("goluwa/render2d/render2d.lua")
+local Rect = import("goluwa/structs/rect.lua")
+local Quat = import("goluwa/structs/quat.lua")
+local Vec3 = import("goluwa/structs/vec3.lua")
 local test_render = {}
 local width = 512
 local height = 512
@@ -45,7 +45,7 @@ function test_render.Draw3D(cb)
 		test_render.render3d_init = true
 	end
 
-	local T = require("helpers.test")
+	local T = import("goluwa/helpers/test.lua")
 	render3d.ResetState()
 	cb(draw_3d_func)
 	local found = false

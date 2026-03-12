@@ -1,6 +1,6 @@
-local socket = require("socket")
-local sync = require("websocket.sync")
-local tools = require("websocket.tools")
+local socket = import("goluwa/socket.lua")
+local sync = import("goluwa/websocket/sync.lua")
+local tools = import("goluwa/websocket/tools.lua")
 local new = function(ws)
 	ws = ws or {}
 	local self = {}

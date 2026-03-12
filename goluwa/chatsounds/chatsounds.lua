@@ -1,10 +1,10 @@
-local event = require("event")
-local audio = require("audio")
-local system = require("system")
+local event = import("goluwa/event.lua")
+local audio = import("goluwa/audio.lua")
+local system = import("goluwa/system.lua")
 local chatsounds = library()
-package.loaded["chatsounds.chatsounds"] = chatsounds
-require("chatsounds.list_parsing")
-require("chatsounds.repositories")
+import.loaded["goluwa/chatsounds/chatsounds.lua"] = chatsounds
+import("goluwa/chatsounds/list_parsing.lua")
+import("goluwa/chatsounds/repositories.lua")
 chatsounds.max_iterations = 1000
 -- utilities
 local choose_realm

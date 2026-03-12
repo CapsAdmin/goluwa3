@@ -1,11 +1,11 @@
-local event = require("event")
-local input = require("input")
-local Vec3 = require("structs.vec3")
-local Matrix44 = require("structs.matrix44")
-local Quat = require("structs.quat")
-local window = require("window")
-local render3d = require("render3d.render3d")
-local orientation = require("render3d.orientation")
+local event = import("goluwa/event.lua")
+local input = import("goluwa/input.lua")
+local Vec3 = import("goluwa/structs/vec3.lua")
+local Matrix44 = import("goluwa/structs/matrix44.lua")
+local Quat = import("goluwa/structs/quat.lua")
+local window = import("goluwa/window.lua")
+local render3d = import("goluwa/render3d/render3d.lua")
+local orientation = import("goluwa/render3d/orientation.lua")
 
 local function get_speed_multiplier()
 	if input.IsKeyDown("left_shift") and input.IsKeyDown("left_control") then
@@ -20,10 +20,10 @@ local function get_speed_multiplier()
 end
 
 do
-	local Vec3 = require("structs.vec3")
-	local Ang3 = require("structs.ang3")
-	local Polygon3D = require("render3d.polygon_3d")
-	local Material = require("render3d.material")
+	local Vec3 = import("goluwa/structs/vec3.lua")
+	local Ang3 = import("goluwa/structs/ang3.lua")
+	local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
+	local Material = import("goluwa/render3d/material.lua")
 
 	event.AddListener("KeyInput", "camera_movement", function(key, down)
 		if key == "o" and down then

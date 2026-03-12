@@ -9,6 +9,7 @@ local table = _G.table
 local type = _G.type
 local class = require("nattlua.other.class")
 local Upvalue = require("nattlua.analyzer.base.upvalue").New
+local shared = require("nattlua.types.shared")
 local META = class.CreateTemplate("lexical_scope")
 
 do
@@ -141,6 +142,18 @@ function META:GetUpvalues(type--[[#: "runtime" | "typesystem"]])
 	return self.upvalues[type].list
 end
 
+function META:GetAllUpvaluesInScope()
+	local out = {}
+
+	for _, scope in ipairs(self.ParentList) do
+		for _, upvalue in ipairs(scope.upvalues.runtime.list) do
+			table_insert(out, upvalue)
+		end
+	end
+
+	return out
+end
+
 function META:Copy()
 	local copy = self.New()
 
@@ -161,45 +174,61 @@ function META:Copy()
 	return copy
 end
 
-META:GetSet("TrackedUpvalues", false)
-META:GetSet("TrackedTables", false)
+META:GetSet("TrackedNarrowings", false)
 
 function META:FindTrackedUpvalue(upvalue)
-	local upvalues = self:GetTrackedUpvalues()
+	local objects = self:GetTrackedNarrowings()
 
-	if not upvalues then return false end
+	if not objects then return false end
 
-	for _, data in ipairs(upvalues) do
-		if data.upvalue == upvalue then return data end
+	for _, data in ipairs(objects) do
+		if data.kind == "upvalue" and data.upvalue == upvalue then return data end
+	end
+end
+
+function META:FindTrackedTable(tbl, key)
+	local objects = self:GetTrackedNarrowings()
+
+	if not objects then return false end
+
+	local hash = key:GetHashForMutationTracking()
+
+	if hash == nil then return false end
+
+	for _, data in ipairs(objects) do
+		if
+			data.kind == "table" and
+			data.obj == tbl and
+			data.key and
+			data.key:GetHashForMutationTracking() == hash
+		then
+			return data
+		end
 	end
 end
 
 function META:TracksSameAs(scope, obj)
-	local upvalues_a, tables_a = self:GetTrackedUpvalues(), self:GetTrackedTables()
-	local upvalues_b, tables_b = scope:GetTrackedUpvalues(), scope:GetTrackedTables()
+	local objects_a = self:GetTrackedNarrowings()
+	local objects_b = scope:GetTrackedNarrowings()
 
-	if not upvalues_a or not upvalues_b then return false end
+	if not objects_a or not objects_b then return false end
 
-	if not tables_a or not tables_b then return false end
+	for i, data_a in ipairs(objects_a) do
+		for i, data_b in ipairs(objects_b) do
+			if data_a.kind == "upvalue" and data_b.kind == "upvalue" then
+				if data_a.upvalue == data_b.upvalue then
+					if data_a.stack and data_b.stack then
+						local a = data_a.stack[#data_a.stack].truthy
+						local b = data_b.stack[#data_b.stack].truthy
 
-	for i, data_a in ipairs(upvalues_a) do
-		for i, data_b in ipairs(upvalues_b) do
-			if data_a.upvalue == data_b.upvalue then
-				if data_a.stack and data_b.stack then
-					local a = data_a.stack[#data_a.stack].truthy
-					local b = data_b.stack[#data_b.stack].truthy
-
-					if a:Equal(b) then return true end
-				else
-					return true
+						if shared.Equal(a, b) then return true end
+					else
+						return true
+					end
 				end
+			elseif data_a.kind == "table" and data_b.kind == "table" then
+				if data_a.obj == data_b.obj and data_a.obj == obj then return true end
 			end
-		end
-	end
-
-	for i, data_a in ipairs(tables_a) do
-		for i, data_b in ipairs(tables_b) do
-			if data_a.obj == data_b.obj and data_a.obj == obj then return true end
 		end
 	end
 
@@ -411,15 +440,18 @@ function META:FindUnusedUpvalues(unused)
 	unused = unused or {}
 
 	for _, upvalue in ipairs(self.upvalues.runtime.list) do
-		if upvalue:GetUseCount() == 0 and upvalue:GetKey() ~= "..." then
+		if
+			upvalue.RuntimeUseCount == 0 and
+			upvalue:GetUseCount() == 0 and
+			upvalue:GetKey() ~= "..."
+		then
 			table.insert(unused, upvalue)
 		end
 	end
 
 	for _, upvalue in ipairs(self.upvalues.typesystem.list) do
-		if upvalue:GetUseCount() == 0 and upvalue:GetKey() ~= "..." then
-			table.insert(unused, upvalue)
-		end
+
+	-- we don't care about unused typesystem upvalues for now since they are not emitted
 	end
 
 	for _, child in ipairs(self:GetChildren()) do

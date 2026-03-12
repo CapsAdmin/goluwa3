@@ -1,6 +1,6 @@
-local T = require("test.environment")
+local T = import("test/environment.lua")
 -- Tests for the XML parser
-local xml = require("codecs.xml")
+local xml = import("goluwa/codecs/xml.lua")
 
 T.Test("parse simple element", function()
 	local doc = xml.Decode("<root></root>")

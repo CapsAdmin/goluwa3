@@ -1,6 +1,6 @@
-local structs = require("structs.structs")
+local structs = import("goluwa/structs/structs.lua")
 local ffi = require("ffi")
-local orientation = require("render3d.orientation")
+local orientation = import("goluwa/render3d/orientation.lua")
 
 -- ORIENTATION / TRANSFORMATION
 -- matrix is row-major or column-major????
@@ -365,7 +365,7 @@ local out = {}
 do -- 44
 	local name, META = matrix_template(4, 4, {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1})
 	out[name] = META.CType
-	package.loaded["structs.matrix44"] = META.CType
+	import.loaded["goluwa/structs/matrix44.lua"] = META.CType
 
 	function META.GetInverse(m, o)
 		o = o or META.CType()
@@ -705,7 +705,7 @@ do -- 44
 		self.m20 * x + self.m21 * y + self.m22 * z + self.m23
 	end
 
-	local Quat = require("structs.quat")
+	local Quat = import("goluwa/structs/quat.lua")
 
 	function META:GetRotation(out)
 		local w = math.sqrt(1 + self.m00 + self.m11 + self.m22) / 2

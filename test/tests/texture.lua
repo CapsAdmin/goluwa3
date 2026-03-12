@@ -1,6 +1,6 @@
-local T = require("test.environment")
-local render2d = require("render2d.render2d")
-local Texture = require("render.texture")
+local T = import("test/environment.lua")
+local render2d = import("goluwa/render2d/render2d.lua")
+local Texture = import("goluwa/render/texture.lua")
 
 T.Test2D("texture bindless index reuse with __gc", function()
 	local pipeline = render2d.pipeline

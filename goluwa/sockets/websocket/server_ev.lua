@@ -1,7 +1,7 @@
-local socket = require("socket")
-local tools = require("sockets.websocket.tools")
-local frame = require("sockets.websocket.frame")
-local handshake = require("sockets.websocket.handshake")
+local socket = import("goluwa/socket.lua")
+local tools = import("goluwa/sockets/websocket/tools.lua")
+local frame = import("goluwa/sockets/websocket/frame.lua")
+local handshake = import("goluwa/sockets/websocket/handshake.lua")
 local tconcat = table.concat
 local tinsert = table.insert
 local clients = {}
@@ -113,7 +113,7 @@ local client = function(sock, protocol)
 		end
 	end
 	self.start = function()
-		message_io = require("websocket.ev_common").message_io(sock, loop, on_message, handle_sock_err)
+		message_io = import("goluwa/websocket/ev_common.lua").message_io(sock, loop, on_message, handle_sock_err)
 	end
 	return self
 end

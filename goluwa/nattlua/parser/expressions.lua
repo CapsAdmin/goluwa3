@@ -8,9 +8,11 @@ local runtime_syntax = require("nattlua.syntax.runtime")
 local typesystem_syntax = require("nattlua.syntax.typesystem")
 local path_util = require("nattlua.other.path")
 
+--[[#local type { Token, TokenType } = import("~/nattlua/lexer/token.lua")]]
+
 --[[#local type { Node } = import("~/nattlua/parser/node.lua")]]
 
-return function(META)
+return function(META--[[#: any]])
 	function META:ParseValueExpressionToken(expect_value--[[#: nil | string]])
 		local node = self:StartNode("expression_value")
 		node.value = expect_value and self:ExpectTokenValue(expect_value) or self:ParseToken()
@@ -425,6 +427,16 @@ return function(META)
 
 			if self:IsToken("^") then force_upvalue = self:ExpectToken("^") end
 
+			if
+				self:IsToken("|") and
+				not self:IsTokenOffset("|", 1)
+				and
+				typesystem_syntax:IsTypesystemExpression(self:GetTokenOffset(1)) and
+				not self.Code:GetStringSlice(self:GetToken().stop + 1, self:GetTokenOffset(1).start - 1):find("\n")
+			then
+				self:ParseToken()
+			end
+
 			node = self:ParseParenthesisOrTupleTypeExpression() or
 				self:ParseEmptyUnionTypeExpression() or
 				self:ParsePrefixOperatorTypeExpression() or
@@ -462,6 +474,8 @@ return function(META)
 
 				if not (info and info.left_priority > priority) then break end
 
+				if not node then break end
+
 				local left_node = node
 				node = self:StartNode("expression_binary_operator", left_node)
 				node.value = self:ParseToken()
@@ -472,7 +486,7 @@ return function(META)
 
 			self:PopParserEnvironment()
 
-			if node then node.modifiers = modifiers end
+			if node then node.first_node = first end
 
 			return node
 		end
@@ -519,7 +533,7 @@ return function(META)
 			local exp = self:ParseTypeExpression(priority)
 
 			if not exp then
-				self:Error("faiiled to parse type expression, got $1", nil, nil, token.type)
+				self:Error("failed to parse type expression, got $1", nil, nil, token.type)
 				return self:ErrorExpression()
 			end
 
@@ -860,7 +874,7 @@ return function(META)
 		function META:HandleImportExpression(
 			node--[[#: Node]],
 			tkname--[[#: Token]],
-			tk_path--[[#: string]],
+			tk_path--[[#: Token]],
 			start--[[#: number]]
 		)
 			assert(tk_path.type == "string", "expected string token for import path")
@@ -1072,6 +1086,8 @@ return function(META)
 
 				if not info or info.left_priority <= priority then break end
 
+				if not node then break end
+
 				local left_node = node or false
 				node = self:StartNode("expression_binary_operator", left_node)
 				node.value = self:ParseToken()
@@ -1101,13 +1117,14 @@ return function(META)
 
 		function META:ExpectRuntimeExpression(priority--[[#: number]])
 			local token = self:GetToken()
+			local exp = self:ParseRuntimeExpression(priority)
 
-			if not runtime_syntax:IsRuntimeExpression(token) then
+			if not exp then
 				self:Error("expected beginning of expression, got $1", nil, nil, token.type)
 				return self:ErrorExpression()
 			end
 
-			return self:ParseRuntimeExpression(priority)
+			return exp
 		end
 	end
 end

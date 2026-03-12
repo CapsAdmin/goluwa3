@@ -1,8 +1,8 @@
-local T = require("test.environment")
+local T = import("test/environment.lua")
 local ffi = require("ffi")
-local Buffer = require("structs.buffer")
-local png = require("codecs.png")
-local resource = require("resource")
+local Buffer = import("goluwa/structs/buffer.lua")
+local png = import("goluwa/codecs/png.lua")
+local resource = import("goluwa/resource.lua")
 
 -- Helper to load PNG file into buffer
 local function load_png_file(path)

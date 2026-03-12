@@ -1,7 +1,7 @@
-local T = require("test.environment")
+local T = import("test/environment.lua")
 local ffi = require("ffi")
-local vorbis = require("codecs.internal.vorbis")
-local Buffer = require("structs.buffer")
+local vorbis = import("goluwa/codecs/internal/vorbis.lua")
+local Buffer = import("goluwa/structs/buffer.lua")
 
 local function NewReader(packet)
 	local reader = Buffer.New(packet)

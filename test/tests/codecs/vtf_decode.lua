@@ -1,9 +1,9 @@
-local T = require("test.environment")
+local T = import("test/environment.lua")
 local ffi = require("ffi")
-local Buffer = require("structs.buffer")
-local vtf = require("codecs.vtf")
-local resource = require("resource")
-local vfs = require("vfs")
+local Buffer = import("goluwa/structs/buffer.lua")
+local vtf = import("goluwa/codecs/vtf.lua")
+local resource = import("goluwa/resource.lua")
+local vfs = import("goluwa/vfs.lua")
 local VTF = "https://github.com/CapsAdmin/goluwa-assets/raw/refs/heads/master/extras/materials/nature/grassfloor002a.vtf"
 
 local function load_vtf_file(path)

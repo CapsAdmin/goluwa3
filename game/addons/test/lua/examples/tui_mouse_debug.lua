@@ -3,11 +3,11 @@ HOTRELOAD = false
 -- Run: runfile("game/addons/test/lua/examples/tui_mouse_debug.lua")
 -- Move mouse over the terminal and watch the output.
 -- Ctrl+C returns to REPL.
-local TuiPanel = require("ecs.tui_panel")
-local Vec2 = require("structs.vec2")
-local Rect = require("structs.rect")
-local event = require("event")
-local repl = require("repl")
+local TuiPanel = import("goluwa/ecs/tui_panel.lua")
+local Vec2 = import("goluwa/structs/vec2.lua")
+local Rect = import("goluwa/structs/rect.lua")
+local event = import("goluwa/event.lua")
+local repl = import("goluwa/repl.lua")
 -- ── state ──────────────────────────────────────────────────────────────────
 local needs_redraw = true
 local lines = {}

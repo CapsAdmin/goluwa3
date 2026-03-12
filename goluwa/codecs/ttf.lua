@@ -1,5 +1,5 @@
-local vfs = require("vfs")
-local Buffer = require("structs.buffer")
+local vfs = import("goluwa/vfs.lua")
+local Buffer = import("goluwa/structs/buffer.lua")
 local ttf = library()
 ttf.file_extensions = {"ttf", "otf"}
 

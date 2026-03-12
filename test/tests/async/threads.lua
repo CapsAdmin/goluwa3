@@ -1,5 +1,5 @@
-local T = require("test.environment")
-local threads = require("bindings.threads")
+local T = import("test/environment.lua")
+local threads = import("goluwa/bindings/threads.lua")
 
 T.Test("thread returns incremented value", function()
 	local thread = threads.new(function(input)

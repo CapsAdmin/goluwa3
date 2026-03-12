@@ -1,4 +1,4 @@
-local vfs = require("filesystem.vfs")
+local vfs = import("goluwa/filesystem/vfs.lua")
 
 do
 	local ext = OSX and "dylib" or UNIX and "so" or WINDOWS and "dll"

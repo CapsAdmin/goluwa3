@@ -6,8 +6,9 @@ local Union = require("nattlua.types.union").Union
 local Tuple = require("nattlua.types.tuple").Tuple
 local ConstString = require("nattlua.types.string").ConstString
 local error_messages = require("nattlua.error_messages")
+local shared = require("nattlua.types.shared")
 return {
-	NewIndex = function(META)
+	NewIndex = function(META--[[#: any]])
 		local function newindex_union(analyzer, obj, key, val)
 			for _, v in ipairs(obj:GetData()) do
 				analyzer:NewIndexOperator(v, key, val)
@@ -45,7 +46,7 @@ return {
 					local err
 
 					if obj == contract then
-						if obj:GetMetaTable() and obj:GetMetaTable().Self == obj then
+						if obj:GetMetaTable() then
 							analyzer:MutateTable(obj, key, val)
 							return obj:SetExplicit(key, val)
 						else
@@ -76,7 +77,7 @@ return {
 							val:SetCalled(false)
 						end
 
-						local ok, err = val:IsSubsetOf(existing)
+						local ok, err = shared.IsSubsetOf(val, existing)
 
 						if ok then
 							if obj == contract then
@@ -84,7 +85,19 @@ return {
 								return true
 							end
 						else
-							analyzer:Error(err)
+							if existing.Type == "symbol" and existing:IsNil() then
+								local contract_keyval = contract:FindKeyValWide(key)
+
+								if contract_keyval then
+									local ok, reason = shared.IsSubsetOf(val, contract_keyval.val)
+
+									if not ok then analyzer:Error(reason) end
+								else
+									analyzer:Error(err)
+								end
+							else
+								analyzer:Error(err)
+							end
 						end
 					elseif err then
 						analyzer:Error(err)
@@ -111,42 +124,6 @@ return {
 
 		function META:NewIndexOperator(obj, key, val, raw, allow_nil_set)
 			if obj.Type == "any" then return true end
-
-			if val.Type == "function" then
-				local node = val:GetFunctionBodyNode()
-
-				if
-					node and
-					(
-						node.Type == "expression_function" or
-						node.Type == "expression_type_function" or
-						node.Type == "expression_analyzer_function" or
-						node.Type == "statement_function" or
-						node.Type == "statement_type_function" or
-						node.Type == "statement_analyzer_function"
-					)
-					and
-					node.self_call
-				then
-					local arg = val:GetInputSignature():GetWithNumber(1)
-
-					if
-						arg and
-						arg.Type == "table" and
-						not arg:GetContract()
-						and
-						not arg.Self and
-						obj.Self2 ~= arg and
-						not self:IsTypesystem()
-					then
-						val:SetCalled(true)
-						val = val:Copy()
-						val:SetCalled(false)
-						val:GetInputSignature():Set(1, Union({Any(), obj}))
-						self:AddToUnreachableCodeAnalysis(val)
-					end
-				end
-			end
 
 			local ok, err
 

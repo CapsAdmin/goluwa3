@@ -1,6 +1,7 @@
 type _ = any
 type boolean = true | false
 type AnyTable = {[any] = any}
+type AnyList = {[number] = any}
 type AnyFunction = function=(...any)>(...any)
 type userdata = AnyTable
 type ctype = AnyTable
@@ -156,7 +157,7 @@ analyzer function copy(obj: any)
 
 	if copy.Type == "table" then
 		copy:SetCreationScope(false)
-		copy.PotentialSelf = false
+		copy.potential_self = false
 	end
 
 	return copy

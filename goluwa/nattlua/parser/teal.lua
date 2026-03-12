@@ -1,13 +1,13 @@
 --[[#local type { Node, statement } = import("~/nattlua/parser/node.lua")]]
 
---[[#local type { TokenType } = import("~/nattlua/lexer/token.lua")]]
+--[[#local type { Token, TokenType } = import("~/nattlua/lexer/token.lua")]]
 
 local runtime_syntax = require("nattlua.syntax.runtime")
 local typesystem_syntax = require("nattlua.syntax.typesystem")
 local math_huge = math.huge
 local table_insert = table.insert
 local tostring = tostring
-return function(META)
+return function(META--[[#: any]])
 	function META:ParseTealFunctionArgument(expect_type--[[#: nil | boolean]])
 		if
 			expect_type or
@@ -323,7 +323,7 @@ return function(META)
 	end
 
 	local function ParseRecordBody(
-		self--[[#: META.@Self]],
+		self--[[#: META.@SelfArgument]],
 		assignment--[[#: statement.assignment | statement.local_assignment]]
 	)
 		local func
@@ -426,7 +426,7 @@ return function(META)
 
 	do
 		local function ParseBody(
-			self--[[#: META.@Self]],
+			self--[[#: META.@SelfArgument]],
 			assignment--[[#: statement.assignment | statement.local_assignment]]
 		)
 			assignment.tokens["type"] = self:ExpectValueTranslate("enum", "type")

@@ -1,6 +1,6 @@
-local Vec3 = require("structs.vec3")
-local AABB = require("structs.aabb")
-local Model = require("ecs.components.3d.model")
+local Vec3 = import("goluwa/structs/vec3.lua")
+local AABB = import("goluwa/structs/aabb.lua")
+local Model = import("goluwa/ecs/components/3d/model.lua")
 local ffi = require("ffi")
 local raycast = library()
 

@@ -1,15 +1,15 @@
-local prototype = require("prototype")
-local ShaderModule = require("render.vulkan.internal.shader_module")
-local DescriptorSetLayout = require("render.vulkan.internal.descriptor_set_layout")
-local PipelineLayout = require("render.vulkan.internal.pipeline_layout")
-local ComputePipelineInternal = require("render.vulkan.internal.compute_pipeline")
-local DescriptorPool = require("render.vulkan.internal.descriptor_pool")
+local prototype = import("goluwa/prototype.lua")
+local ShaderModule = import("goluwa/render/vulkan/internal/shader_module.lua")
+local DescriptorSetLayout = import("goluwa/render/vulkan/internal/descriptor_set_layout.lua")
+local PipelineLayout = import("goluwa/render/vulkan/internal/pipeline_layout.lua")
+local ComputePipelineInternal = import("goluwa/render/vulkan/internal/compute_pipeline.lua")
+local DescriptorPool = import("goluwa/render/vulkan/internal/descriptor_pool.lua")
 local ComputePipeline = prototype.CreateTemplate("render_compute_pipeline")
 local storage_images = {}
 local storage_image_views = {}
 
 local function create_storage_images(self, extent)
-	local Texture = require("render.texture")
+	local Texture = import("goluwa/render/texture.lua")
 	self.storage_textures = {}
 
 	for i = 1, 2 do

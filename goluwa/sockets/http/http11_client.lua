@@ -1,7 +1,7 @@
-local prototype = require("prototype")
-local http = require("sockets.http")
+local prototype = import("goluwa/prototype.lua")
+local http = import("goluwa/sockets/http.lua")
 local HTTPClient = prototype.CreateTemplate("socket_http11_client")
-HTTPClient.Base = require("sockets.tcp_client")
+HTTPClient.Base = import("goluwa/sockets/tcp_client.lua")
 HTTPClient.Stage = "none"
 
 do

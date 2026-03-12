@@ -1,1 +1,1 @@
-return require("structs.matrix").Matrix44
+return import("goluwa/structs/matrix.lua").Matrix44

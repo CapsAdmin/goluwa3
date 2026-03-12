@@ -1,6 +1,6 @@
-local T = require("test.environment")
+local T = import("test/environment.lua")
 local ffi = require("ffi")
-local Buffer = require("structs.buffer")
+local Buffer = import("goluwa/structs/buffer.lua")
 
 T.Test("Buffer basic read operations", function()
 	local buf = ffi.new("uint8_t[10]", {1, 2, 3, 4, 5, 6, 7, 8, 9, 10})

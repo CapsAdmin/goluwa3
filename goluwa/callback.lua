@@ -1,6 +1,6 @@
-local timer = require("timer")
-local callstack = require("helpers.callstack")
-local tasks = require("tasks")
+local timer = import("goluwa/timer.lua")
+local callstack = import("goluwa/helpers/callstack.lua")
+local tasks = import("goluwa/tasks.lua")
 local callback = library()
 
 do

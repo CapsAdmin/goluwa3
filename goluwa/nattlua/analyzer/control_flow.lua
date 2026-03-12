@@ -10,7 +10,7 @@ local error_messages = require("nattlua.error_messages")
 local debug_getinfo = _G.debug.getinfo
 -- this turns out to be really hard so I'm trying 
 -- naive approaches while writing tests
-return function(META)
+return function(META--[[#: any]])
 	META:AddInitializer(function(self)
 		self.call_stack_map = {}
 		self.recursively_called = {}
@@ -58,7 +58,7 @@ return function(META)
 			}
 			push_break_state(self, break_state)
 			self:PushScope(loop_scope)
-			self:ApplyMutationsAfterStatement(scope, true, scope:GetTrackedUpvalues(), scope:GetTrackedTables())
+			self:ApplyMutationsAfterStatement(scope, true, scope:GetTrackedNarrowings())
 			self:PopScope()
 		end
 
@@ -256,45 +256,42 @@ return function(META)
 
 			if assert_expression and assert_expression:IsTruthy() then
 				-- track the assertion expression
-				local upvalues
-				local tracked = self:GetTrackedUpvalues(nil, frame.scope)
+				local tracked_objects
+				local tracked_from_scope = self:GetTrackedObjects(nil, frame.scope)
 
-				if tracked[1] then
-					upvalues = {}
+				if tracked_from_scope[1] then
+					local current_tracked = self:GetTrackedObjects()
+					tracked_objects = {}
 
-					for _, a in ipairs(tracked) do
-						for _, b in ipairs(self:GetTrackedUpvalues()) do
-							if a.upvalue == b.upvalue then table_insert(upvalues, a) end
-						end
-					end
-				end
-
-				local tables
-				local tracked = self:GetTrackedTables(nil, frame.scope)
-
-				if tracked[1] then
-					tables = {}
-
-					for _, a in ipairs(tracked) do
-						for _, b in ipairs(self:GetTrackedTables()) do
-							if a.obj == b.obj then table_insert(tables, a) end
+					for _, a in ipairs(tracked_from_scope) do
+						for _, b in ipairs(current_tracked) do
+							if
+								(
+									a.kind == "upvalue" and
+									b.kind == "upvalue" and
+									a.upvalue == b.upvalue
+								)
+								or
+								(
+									a.kind == "table" and
+									b.kind == "table" and
+									a.obj == b.obj
+								)
+							then
+								table_insert(tracked_objects, a)
+							end
 						end
 					end
 				end
 
 				self:PushScope(function_scope)
-				self:ApplyMutationsAfterStatement(frame.scope, false, upvalues, tables)
+				self:ApplyMutationsAfterStatement(frame.scope, false, tracked_objects)
 				self:PopScope()
 				return
 			end
 
 			self:PushScope(function_scope)
-			self:ApplyMutationsAfterStatement(
-				frame.scope,
-				true,
-				frame.scope:GetTrackedUpvalues(),
-				frame.scope:GetTrackedTables()
-			)
+			self:ApplyMutationsAfterStatement(frame.scope, true, frame.scope:GetTrackedNarrowings())
 			self:PopScope()
 		end
 	end
@@ -323,9 +320,9 @@ return function(META)
 		end
 
 		local scope = self:GetScope()
-		local u, t = self:GetTrackedUpvalues(old), self:GetTrackedTables()
+		local tracked = self:GetTrackedObjects(old)
 		self:PushScope(self:GetScope():GetNearestFunctionScope())
-		self:ApplyMutationsAfterStatement(scope, false, u, t)
+		self:ApplyMutationsAfterStatement(scope, false, tracked)
 		self:PopScope()
 
 		if not no_report then
@@ -391,7 +388,7 @@ return function(META)
 		end
 
 		self:PushScope(function_scope)
-		self:ApplyMutationsAfterStatement(scope, true, scope:GetTrackedUpvalues(), scope:GetTrackedTables())
+		self:ApplyMutationsAfterStatement(scope, true, scope:GetTrackedNarrowings())
 		self:PopScope()
 	end
 
@@ -409,6 +406,14 @@ return function(META)
 		function META:PushCallFrame(obj, call_node, not_recursive_call)
 			if self.recursively_called[obj] then return self.recursively_called[obj] end
 
+			local current_unrolls = 0
+
+			if call_node then
+				for _, frame in ipairs(self:GetCallStack()) do
+					if frame.call_node == call_node then current_unrolls = current_unrolls + 1 end
+				end
+			end
+
 			if
 				self:IsRuntime() and
 				call_node and
@@ -416,17 +421,17 @@ return function(META)
 				not obj:HasReferenceTypes()
 			then
 				-- if the callnode is the same, we're doing some infinite recursion
-				if self.call_stack_map[call_node] then
+				if current_unrolls > 10 then
+					self:Warning(error_messages.recursion_limit_reached())
+
 					if obj:IsExplicitOutputSignature() then
 						-- so if we have explicit return types, just return those
 						self.recursively_called[obj] = obj:GetOutputSignature():Copy()
 						return self.recursively_called[obj]
-					else
-						-- if not we sadly have to resort to any
-						-- TODO: error?
-						self.recursively_called[obj] = Tuple():AddRemainder(Tuple({Any()}):SetRepeat(math_huge))
-						return self.recursively_called[obj]
 					end
+
+					self.recursively_called[obj] = Tuple():AddRemainder(Tuple({Any()}):SetRepeat(math_huge))
+					return self.recursively_called[obj]
 				end
 			end
 

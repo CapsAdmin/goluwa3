@@ -1,7 +1,7 @@
-local Vec2 = require("structs.vec2")
-local Color = require("structs.color")
-local Panel = require("ecs.panel")
-local theme = require("ui.theme")
+local Vec2 = import("goluwa/structs/vec2.lua")
+local Color = import("goluwa/structs/color.lua")
+local Panel = import("goluwa/ecs/panel.lua")
+local theme = import("lua/ui/theme.lua")
 return function(props)
 	return Panel.New{
 		props,

@@ -12,8 +12,9 @@ local loadstring = require("nattlua.other.loadstring")
 local string_to_integer = require("nattlua.other.integer")
 local jit = _G.jit
 local False = require("nattlua.types.symbol").False
+local shared = require("nattlua.types.shared")
 local META = require("nattlua.types.base")()
---[[#local type TNumber = META.@Self]]
+--[[#local type TNumber = META.@SelfArgument]]
 --[[#type TNumber.Type = "number"]]
 --[[#local type TBaseType = TNumber]]
 META.Type = "number"
@@ -87,12 +88,6 @@ function META:GetHashForMutationTracking()
 	return self
 end
 
-function META.Equal(a--[[#: TNumber]], b--[[#: TBaseType]])
-	if a.Type ~= b.Type then return false, "types differ" end
-
-	return a.Hash == b.Hash, "hash values are equal"
-end
-
 function META:IsLiteral()
 	return self.Data ~= false
 end
@@ -125,45 +120,9 @@ end
 function META:Copy()--[[#: TNumber]]
 	local copy = self.New(self.Data)
 	copy:CopyInternalsFrom(self)
+	copy.LengthSourceTable = self.LengthSourceTable
+	copy:SetDontWiden(self:IsDontWiden())
 	return copy
-end
-
-function META.IsSubsetOf(a--[[#: TNumber]], b--[[#: TBaseType]])
-	if b.Type == "tuple" then b = b:GetWithNumber(1) end
-
-	if b.Type == "any" then return true end
-
-	if b.Type == "union" then return b:IsTargetSubsetOfChild(a) end
-
-	if b.Type == "range" then
-		if a.Data and a.Data >= b:GetMin() and a.Data <= b:GetMax() then
-			return true
-		end
-
-		return false, error_messages.subset(a, b)
-	end
-
-	if b.Type ~= "number" then return false, error_messages.subset(a, b) end
-
-	if a.Data and b.Data then
-		if a:IsNan() and b:IsNan() then return true end
-
-		if a.Data == b.Data then return true end
-
-		return false, error_messages.subset(a, b)
-	elseif a.Data == false and b.Data == false then
-		-- number contains number
-		return true
-	elseif a.Data and not b.Data then
-		-- 42 subset of number?
-		return true
-	elseif not a.Data and b.Data then
-		-- number subset of 42 ?
-		return false, error_messages.subset(a, b)
-	end
-
-	-- number == number
-	return true
 end
 
 function META:IsNan()--[[#: boolean]]
@@ -244,7 +203,6 @@ do
 
 		if l.Data == false then return Number() end
 
-		r = r--[[# as TBaseType]] --?
 		if r.Type == "range" then
 			local l_min = l.Data
 			local l_max = l.Data
@@ -261,6 +219,9 @@ end
 
 do
 	local operators--[[#: {[string] = function=(number)>(number)}]] = {
+		["+"] = function(x)
+			return x
+		end,
 		["-"] = function(x)
 			return -x
 		end,

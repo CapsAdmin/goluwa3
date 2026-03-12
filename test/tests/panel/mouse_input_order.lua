@@ -1,9 +1,9 @@
-local T = require("test.environment")
-local Panel = require("ecs.panel")
-local Vec2 = require("structs.vec2")
-local window = require("window")
-local event = require("event")
-local prototype = require("prototype")
+local T = import("test/environment.lua")
+local Panel = import("goluwa/ecs/panel.lua")
+local Vec2 = import("goluwa/structs/vec2.lua")
+local window = import("goluwa/window.lua")
+local event = import("goluwa/event.lua")
+local prototype = import("goluwa/prototype.lua")
 
 T.Test("mouse input event order (local and global)", function()
 	local old_world = Panel.World
@@ -105,7 +105,7 @@ T.Test("mouse input event order (local and global)", function()
 	T(#global_calls)["=="](2)
 	-- Test 5: Global mouse move order
 	call_stack = {}
-	require("event").Call("Update") -- ecs_gui_system listens to Update for mouse move
+	import("goluwa/event.lua").Call("Update") -- ecs_gui_system listens to Update for mouse move
 	local move_calls = {}
 
 	for _, call in ipairs(call_stack) do

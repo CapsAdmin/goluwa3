@@ -1,7 +1,7 @@
 local ffi = require("ffi")
-local prototype = require("prototype")
-local vulkan = require("render.vulkan.internal.vulkan")
-local PhysicalDevice = require("render.vulkan.internal.physical_device")
+local prototype = import("goluwa/prototype.lua")
+local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
+local PhysicalDevice = import("goluwa/render/vulkan/internal/physical_device.lua")
 local Instance = prototype.CreateTemplate("vulkan_instance")
 
 function Instance:CreateDebugCallback()

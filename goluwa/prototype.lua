@@ -1,6 +1,6 @@
-local event = require("event")
-local system = require("system")
-local traceback = require("helpers.traceback")
+local event = import("goluwa/event.lua")
+local system = import("goluwa/system.lua")
+local traceback = import("goluwa/helpers/traceback.lua")
 local prototype = library()
 prototype.registered = prototype.registered or {}
 prototype.prepared_metatables = prototype.prepared_metatables or {}

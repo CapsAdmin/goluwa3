@@ -1,8 +1,8 @@
-local Texture = require("render.texture")
-local ImageView = require("render.vulkan.internal.image_view")
-local CommandPool = require("render.vulkan.internal.command_pool")
-local render = require("render.render")
-local prototype = require("prototype")
+local Texture = import("goluwa/render/texture.lua")
+local ImageView = import("goluwa/render/vulkan/internal/image_view.lua")
+local CommandPool = import("goluwa/render/vulkan/internal/command_pool.lua")
+local render = import("goluwa/render/render.lua")
+local prototype = import("goluwa/prototype.lua")
 local Framebuffer = prototype.CreateTemplate("render_framebuffer")
 
 function Framebuffer.New(config)

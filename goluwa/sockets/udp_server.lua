@@ -1,6 +1,6 @@
-local ljsocket = require("bindings.socket")
-local prototype = require("prototype")
-local socket_pool = require("sockets.socket_pool")
+local ljsocket = import("goluwa/bindings/socket.lua")
+local prototype = import("goluwa/prototype.lua")
+local socket_pool = import("goluwa/sockets/socket_pool.lua")
 local UDPServer = prototype.CreateTemplate("socket_udp_server")
 
 function UDPServer:assert(val, err)

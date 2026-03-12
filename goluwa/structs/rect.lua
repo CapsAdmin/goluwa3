@@ -1,5 +1,5 @@
-local Vec2 = require("structs.vec2")
-local structs = require("structs.structs")
+local Vec2 = import("goluwa/structs/vec2.lua")
+local structs = import("goluwa/structs/structs.lua")
 local META = structs.Template("Rect")
 META.Args = {{"x", "y", "w", "h"}, {"left", "top", "right", "bottom"}}
 structs.AddAllOperators(META)

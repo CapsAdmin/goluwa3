@@ -1,8 +1,8 @@
-local timer = require("timer")
-local event = require("event")
-local system = require("system")
-local prototype = require("prototype")
-local callstack = require("helpers.callstack")
+local timer = import("goluwa/timer.lua")
+local event = import("goluwa/event.lua")
+local system = import("goluwa/system.lua")
+local prototype = import("goluwa/prototype.lua")
+local callstack = import("goluwa/helpers/callstack.lua")
 local tasks = library()
 tasks.max = 128
 tasks.coroutine_lookup = tasks.coroutine_lookup or table.weak()
@@ -399,7 +399,7 @@ do
 				local data
 				local err
 				-- Lazy load callback to avoid circular dependency
-				local callback = require("callback")
+				local callback = import("goluwa/callback.lua")
 				-- Create a callback object for async resolution
 				local cb = callback.Create()
 

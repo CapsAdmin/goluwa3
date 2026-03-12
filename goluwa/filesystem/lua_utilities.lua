@@ -1,6 +1,6 @@
-local utility = require("utility")
-local fs = require("fs")
-local vfs = require("filesystem.vfs")
+local utility = import("goluwa/utility.lua")
+local fs = import("goluwa/fs.lua")
+local vfs = import("goluwa/filesystem/vfs.lua")
 vfs.files_ran_ = vfs.files_ran_ or {}
 
 local function store_run_file_path(path)
@@ -64,7 +64,12 @@ local function loadfile(path, chunkname)
 		-- for nicer error messages and debug
 		if vfs.modify_chunkname then chunkname = vfs.modify_chunkname(full_path) end
 
-		res, err = loadstring(res, chunkname or "@" .. full_path:replace(vfs.GetStorageDirectory("root"), ""))
+		if not chunkname then
+			local relative_path = full_path:replace(vfs.GetStorageDirectory("working_directory"), "")
+			chunkname = "@" .. relative_path
+		end
+
+		res, err = loadstring(res, chunkname)
 
 		if event and res then
 			res = event.Call("PostLoadString", res, full_path) or res
@@ -302,7 +307,7 @@ end
 vfs.module_directories = {}
 
 function vfs.Require(name, ...)
-	if package.loaded[name] then return package.loaded[name] end
+	if import.loaded[name] then return import.loaded[name] end
 
 	if package.searchpath(name, package.path) then
 		--		print("requiring normally:", name)

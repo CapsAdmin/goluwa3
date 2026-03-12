@@ -1,7 +1,7 @@
-local prototype = require("prototype")
-local Vec2 = require("structs.vec2")
-local Rect = require("structs.rect")
-local event = require("event")
+local prototype = import("goluwa/prototype.lua")
+local Vec2 = import("goluwa/structs/vec2.lua")
+local Rect = import("goluwa/structs/rect.lua")
+local event = import("goluwa/event.lua")
 local layout_lib = library()
 local META = prototype.CreateTemplate("layout")
 META.layout_count = 0

@@ -1,7 +1,7 @@
-local Vec2 = require("structs.vec2")
-local Clickable = require("ui.elements.clickable")
-local Text = require("ui.elements.text")
-local theme = require("ui.theme")
+local Vec2 = import("goluwa/structs/vec2.lua")
+local Clickable = import("lua/ui/elements/clickable.lua")
+local Text = import("lua/ui/elements/text.lua")
+local theme = import("lua/ui/theme.lua")
 return function(props)
 	return Clickable(props){
 		Text{

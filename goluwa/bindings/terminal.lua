@@ -1,4 +1,4 @@
-local setmetatable = require("helpers.setmetatable_gc")
+local setmetatable = import("goluwa/helpers/setmetatable_gc.lua")
 local ffi = require("ffi")
 -- FILE operations
 ffi.cdef[[
@@ -762,7 +762,7 @@ if jit.os == "Windows" then
 
 	-- Helper to get the correct handle (saved console handle if available, otherwise standard handle)
 	local function get_console_handle(handle_type)
-		local output_module = package.loaded["stdout"]
+		local output_module = import.loaded["goluwa/stdout/lua"]
 
 		if
 			output_module and

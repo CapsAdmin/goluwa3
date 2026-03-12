@@ -1,4 +1,4 @@
---local render3d = require("render3d.render3d")
+--local render3d = import("goluwa/render3d/render3d.lua")
 --local cam = render3d.GetCamera()
 local math3d = library()
 

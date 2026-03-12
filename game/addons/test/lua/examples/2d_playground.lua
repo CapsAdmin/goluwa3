@@ -1,9 +1,9 @@
-local event = require("event")
-local render2d = require("render2d.render2d")
-local Color = require("structs.color")
-local Vec2 = require("structs.vec2")
-local gfx = require("render2d.gfx")
-local fonts = require("render2d.fonts")
+local event = import("goluwa/event.lua")
+local render2d = import("goluwa/render2d/render2d.lua")
+local Color = import("goluwa/structs/color.lua")
+local Vec2 = import("goluwa/structs/vec2.lua")
+local gfx = import("goluwa/render2d/gfx.lua")
+local fonts = import("goluwa/render2d/fonts.lua")
 local path = fonts.GetDefaultSystemFontPath()
 local font_simple = fonts.New{Path = path, Size = 50}
 local font_shadow = fonts.New{

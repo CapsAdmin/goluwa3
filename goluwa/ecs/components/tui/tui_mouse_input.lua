@@ -1,4 +1,4 @@
-local prototype = require("prototype")
+local prototype = import("goluwa/prototype.lua")
 local META = prototype.CreateTemplate("tui_mouse_input")
 META:StartStorable()
 META:GetSet("Hovered", false)
@@ -50,7 +50,7 @@ end
 
 function META:OnFirstCreated()
 	local function get_world()
-		local tp = package.loaded["ecs.tui_panel"]
+		local tp = import.loaded["goluwa/ecs/tui_panel/lua"]
 		return tp and tp.World
 	end
 
@@ -78,7 +78,7 @@ function META:OnFirstCreated()
 		last_hovered = hovered
 	end
 
-	local event = require("event")
+	local event = import("goluwa/event.lua")
 
 	event.AddListener("TerminalMouseMoved", "tui_mouse_input", function(x, y)
 		local world = get_world()
@@ -151,7 +151,7 @@ function META:OnFirstCreated()
 end
 
 function META:OnLastRemoved()
-	local event = require("event")
+	local event = import("goluwa/event.lua")
 	event.RemoveListener("TerminalMouseMoved", "tui_mouse_input")
 	event.RemoveListener("TerminalMouseWheel", "tui_mouse_input")
 	event.RemoveListener("TerminalMouseInput", "tui_mouse_input")

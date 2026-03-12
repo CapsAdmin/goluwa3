@@ -1,8 +1,8 @@
-local T = require("test.environment")
-local Panel = require("ecs.panel")
-local Vec2 = require("structs.vec2")
-local Color = require("structs.color")
-local Rect = require("structs.rect")
+local T = import("test/environment.lua")
+local Panel = import("goluwa/ecs/panel.lua")
+local Vec2 = import("goluwa/structs/vec2.lua")
+local Color = import("goluwa/structs/color.lua")
+local Rect = import("goluwa/structs/rect.lua")
 
 T.Test("panel constructor 2d entities", function()
 	local pnl = Panel.New{
@@ -121,9 +121,9 @@ T.Test("panel animations basic", function()
 end)
 
 T.Pending("panel mouse simulation and hover", function()
-	local window = require("window")
-	local event = require("event")
-	local world = require("ecs.panel").World
+	local window = import("goluwa/window.lua")
+	local event = import("goluwa/event.lua")
+	local world = import("goluwa/ecs/panel.lua").World
 	world:RemoveChildren()
 	world.transform:SetSize(Vec2(2000, 2000))
 	local pnl = Panel.New{
@@ -172,8 +172,8 @@ T.Pending("panel mouse simulation and hover", function()
 end)
 
 T.Test("panel key simulation", function()
-	local prototype = require("prototype")
-	local event = require("event")
+	local prototype = import("goluwa/prototype.lua")
+	local event = import("goluwa/event.lua")
 	local pnl = Panel.New{
 		Name = "key_test",
 		transform = true,

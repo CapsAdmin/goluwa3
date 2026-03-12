@@ -1,6 +1,6 @@
-local T = require("test.environment")
-local render = require("render.render")
-local Texture = require("render.texture")
+local T = import("test/environment.lua")
+local render = import("goluwa/render/render.lua")
+local Texture = import("goluwa/render/texture.lua")
 
 T.Test3D("Graphics render multiple outputs", function()
 	local width, height = 512, 512

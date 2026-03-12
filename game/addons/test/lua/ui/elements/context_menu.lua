@@ -1,10 +1,10 @@
-local render2d = require("render2d.render2d")
-local Vec2 = require("structs.vec2")
-local Color = require("structs.color")
-local Rect = require("structs.rect")
-local Panel = require("ecs.panel")
-local Frame = require("ui.elements.frame")
-local theme = require("ui.theme")
+local render2d = import("goluwa/render2d/render2d.lua")
+local Vec2 = import("goluwa/structs/vec2.lua")
+local Color = import("goluwa/structs/color.lua")
+local Rect = import("goluwa/structs/rect.lua")
+local Panel = import("goluwa/ecs/panel.lua")
+local Frame = import("lua/ui/elements/frame.lua")
+local theme = import("lua/ui/theme.lua")
 return function(props)
 	local menu_ent = NULL
 	local is_closing = false

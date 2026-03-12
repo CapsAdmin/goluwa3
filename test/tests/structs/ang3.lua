@@ -1,5 +1,5 @@
-local T = require("test.environment")
-local Ang3 = require("structs.ang3")
+local T = import("test/environment.lua")
+local Ang3 = import("goluwa/structs/ang3.lua")
 
 T.Test("Ang3 construction", function()
 	T(Ang3(1, 2, 3))["=="](Ang3(1, 2, 3))

@@ -1,6 +1,6 @@
 local ffi = require("ffi")
-local render = require("render.render")
-local prototype = require("prototype")
+local render = import("goluwa/render/render.lua")
+local prototype = import("goluwa/prototype.lua")
 local UniformBuffer = prototype.CreateTemplate("render_uniform_buffer")
 
 function UniformBuffer.New(decl)

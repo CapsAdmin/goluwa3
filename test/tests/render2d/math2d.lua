@@ -1,5 +1,5 @@
-local T = require("test.environment")
-local math2d = require("render2d.math2d")
+local T = import("test/environment.lua")
+local math2d = import("goluwa/render2d/math2d.lua")
 
 -- ============================================================================
 -- math2d.GetPolygonArea Tests

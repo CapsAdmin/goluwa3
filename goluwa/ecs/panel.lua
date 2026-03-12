@@ -1,22 +1,22 @@
 local valid = nil
-local Panel = require("ecs.base")("panel", "ecs.components.2d.", function()
+local Panel = import("goluwa/ecs/base.lua")("panel", "ecs.components.2d.", function()
 	valid = valid or
 		{
-			animation = require("ecs.components.2d.animation"),
-			clickable = require("ecs.components.2d.clickable"),
-			gui_element = require("ecs.components.2d.gui_element"),
-			key_input = require("ecs.components.2d.key_input"),
-			layout = require("ecs.components.2d.layout"),
-			mouse_input = require("ecs.components.2d.mouse_input"),
-			rect = require("ecs.components.2d.rect"),
-			resizable = require("ecs.components.2d.resizable"),
-			text = require("ecs.components.2d.text"),
-			transform = require("ecs.components.2d.transform"),
-			draggable = require("ecs.components.2d.draggable"),
+			animation = import("goluwa/ecs/components/2d/animation.lua"),
+			clickable = import("goluwa/ecs/components/2d/clickable.lua"),
+			gui_element = import("goluwa/ecs/components/2d/gui_element.lua"),
+			key_input = import("goluwa/ecs/components/2d/key_input.lua"),
+			layout = import("goluwa/ecs/components/2d/layout.lua"),
+			mouse_input = import("goluwa/ecs/components/2d/mouse_input.lua"),
+			rect = import("goluwa/ecs/components/2d/rect.lua"),
+			resizable = import("goluwa/ecs/components/2d/resizable.lua"),
+			text = import("goluwa/ecs/components/2d/text.lua"),
+			transform = import("goluwa/ecs/components/2d/transform.lua"),
+			draggable = import("goluwa/ecs/components/2d/draggable.lua"),
 		}
 	return valid
 end)
-package.loaded["ecs.panel"] = Panel
+import.loaded["goluwa/ecs/panel.lua"] = Panel
 Panel.World = Panel.New{
 	ComponentSet = {
 		"transform",
@@ -25,8 +25,8 @@ Panel.World = Panel.New{
 }
 
 do
-	local window = require("window")
-	local Vec2 = require("structs.vec2")
+	local window = import("goluwa/window.lua")
+	local Vec2 = import("goluwa/structs/vec2.lua")
 	Panel.World:SetName("WorldPanel")
 	Panel.World.transform:SetSize(Vec2(window.GetSize()))
 	Panel.World:AddGlobalEvent("WindowFramebufferResized")

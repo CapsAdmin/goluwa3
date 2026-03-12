@@ -1,4 +1,4 @@
-local http = require("sockets.http")
+local http = import("goluwa/sockets/http.lua")
 local legal_uri_characters = {
 	["-"] = true,
 	["."] = true,

@@ -1,8 +1,8 @@
-local Entity = require("ecs.base")("entity", "ecs.components.3d.", function()
+local Entity = import("goluwa/ecs/base.lua")("entity", "ecs.components.3d.", function()
 	return {
-		transform = require("ecs.components.3d.transform"),
-		light = require("ecs.components.3d.light"),
-		model = require("ecs.components.3d.model"),
+		transform = import("goluwa/ecs/components/3d/transform.lua"),
+		light = import("goluwa/ecs/components/3d/light.lua"),
+		model = import("goluwa/ecs/components/3d/model.lua"),
 	}
 end)
 Entity.World = Entity.New()

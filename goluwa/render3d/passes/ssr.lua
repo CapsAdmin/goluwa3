@@ -1,6 +1,6 @@
-local GetBlueNoiseTexture = require("render.textures.blue_noise")
-local render3d = require("render3d.render3d")
-local system = require("system")
+local GetBlueNoiseTexture = import("goluwa/render/textures/blue_noise.lua")
+local render3d = import("goluwa/render3d/render3d.lua")
+local system = import("goluwa/system.lua")
 return {
 	{
 		name = "ssr",

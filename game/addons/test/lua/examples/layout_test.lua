@@ -1,8 +1,8 @@
-local Panel = require("ecs.panel")
-local Vec2 = require("structs.vec2")
-local Rect = require("structs.rect")
-local theme = runfile("lua/ui/theme.lua")
-local Color = require("structs.color")
+local Panel = import("goluwa/ecs/panel.lua")
+local Vec2 = import("goluwa/structs/vec2.lua")
+local Rect = import("goluwa/structs/rect.lua")
+local theme = import("lua/ui/theme.lua")
+local Color = import("goluwa/structs/color.lua")
 Panel.World:RemoveChildren()
 local sidebarItems = {
 	{text = "Copy", icon = "C"},

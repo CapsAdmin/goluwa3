@@ -1,6 +1,6 @@
-local T = require("test.environment")
-local timer = require("timer")
-local system = require("system")
+local T = import("test/environment.lua")
+local timer = import("goluwa/timer.lua")
+local system = import("goluwa/system.lua")
 
 T.Test("timer.Delay executes callback after 200ms", function()
 	local callback_executed = false

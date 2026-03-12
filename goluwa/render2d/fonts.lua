@@ -1,10 +1,10 @@
-local fs = require("fs")
-local Vec2 = require("structs.vec2")
-local gfonts = require("gfonts")
-local Color = require("structs.color")
-local ttf_font = require("render2d.fonts.ttf")
-local base_font = require("render2d.fonts.base")
-local sdf_font = require("render2d.fonts.sdf")
+local fs = import("goluwa/fs.lua")
+local Vec2 = import("goluwa/structs/vec2.lua")
+local gfonts = import("goluwa/gfonts.lua")
+local Color = import("goluwa/structs/color.lua")
+local ttf_font = import("goluwa/render2d/fonts/ttf.lua")
+local base_font = import("goluwa/render2d/fonts/base.lua")
+local sdf_font = import("goluwa/render2d/fonts/sdf.lua")
 local fonts = library()
 -- Font management
 local current_font = nil

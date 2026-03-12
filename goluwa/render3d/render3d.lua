@@ -1,24 +1,24 @@
 local render3d = library()
-package.loaded["render3d.render3d"] = render3d
+import.loaded["goluwa/render3d/render3d.lua"] = render3d
 local ffi = require("ffi")
-local render = require("render.render")
-local EasyPipeline = require("render.easy_pipeline")
-local event = require("event")
-local orientation = require("render3d.orientation")
-local Material = require("render3d.material")
-local Matrix44 = require("structs.matrix44")
-local Vec3 = require("structs.vec3")
-local Ang3 = require("structs.ang3")
-local Quat = require("structs.quat")
-local Rect = require("structs.rect")
-local Camera3D = require("render3d.camera3d")
-local GetBlueNoiseTexture = require("render.textures.blue_noise")
-local Framebuffer = require("render.framebuffer")
-local system = require("system")
-local atmosphere = require("render3d.atmosphere")
-local lightprobes = require("render3d.lightprobes")
-local Light = require("ecs.components.3d.light")
-local prototype = require("prototype")
+local render = import("goluwa/render/render.lua")
+local EasyPipeline = import("goluwa/render/easy_pipeline.lua")
+local event = import("goluwa/event.lua")
+local orientation = import("goluwa/render3d/orientation.lua")
+local Material = import("goluwa/render3d/material.lua")
+local Matrix44 = import("goluwa/structs/matrix44.lua")
+local Vec3 = import("goluwa/structs/vec3.lua")
+local Ang3 = import("goluwa/structs/ang3.lua")
+local Quat = import("goluwa/structs/quat.lua")
+local Rect = import("goluwa/structs/rect.lua")
+local Camera3D = import("goluwa/render3d/camera3d.lua")
+local GetBlueNoiseTexture = import("goluwa/render/textures/blue_noise.lua")
+local Framebuffer = import("goluwa/render/framebuffer.lua")
+local system = import("goluwa/system.lua")
+local atmosphere = import("goluwa/render3d/atmosphere.lua")
+local lightprobes = import("goluwa/render3d/lightprobes.lua")
+local Light = import("goluwa/ecs/components/3d/light.lua")
+local prototype = import("goluwa/prototype.lua")
 
 do
 	render3d.debug_block = {
@@ -200,11 +200,11 @@ function render3d.Initialize()
 	render3d.pipelines_i = {}
 	local i = 1
 	local pipelines = list.flatten{
-		require("render3d.passes.gbuffer"),
-		require("render3d.passes.ssr"),
-		require("render3d.passes.lighting"),
-		require("render3d.passes.smaa"),
-		require("render3d.passes.blit"),
+		import("goluwa/render3d/passes/gbuffer.lua"),
+		import("goluwa/render3d/passes/ssr.lua"),
+		import("goluwa/render3d/passes/lighting.lua"),
+		import("goluwa/render3d/passes/smaa.lua"),
+		import("goluwa/render3d/passes/blit.lua"),
 	}
 
 	for i, config in ipairs(pipelines) do
@@ -344,7 +344,7 @@ function render3d.GetEnvironmentTexture()
 end
 
 do -- mesh
-	local Mesh = require("render.mesh")
+	local Mesh = import("goluwa/render/mesh.lua")
 
 	function render3d.CreateMesh(vertices, indices, index_type, index_count)
 		return Mesh.New(

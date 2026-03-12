@@ -1,15 +1,15 @@
-local http = require("sockets.http")
-local HTTPClient = require("sockets.http.http11_client")
-local callback = require("callback")
-local event = require("event")
-local vfs = require("vfs")
+local http = import("goluwa/sockets/http.lua")
+local HTTPClient = import("goluwa/sockets/http/http11_client.lua")
+local callback = import("goluwa/callback.lua")
+local event = import("goluwa/event.lua")
+local vfs = import("goluwa/vfs.lua")
 
 local function posixtime2http(posix_time)
-	return require("date")(posix_time):fmt("${http}")
+	return import("goluwa/date.lua")(posix_time):fmt("${http}")
 end
 
 local function http2posixtime(http_time)
-	return (require("date")(http_time) - require("date").epoch()):spanseconds()
+	return (import("goluwa/date.lua")(http_time) - import("goluwa/date.lua").epoch()):spanseconds()
 end
 
 local function decode_data_uri(uri)

@@ -1,8 +1,8 @@
-local ljsocket = require("bindings.socket")
-local prototype = require("prototype")
-local repl = require("repl")
-local socket_pool = require("sockets.socket_pool")
-local TCPClient = require("sockets.tcp_client")
+local ljsocket = import("goluwa/bindings/socket.lua")
+local prototype = import("goluwa/prototype.lua")
+local repl = import("goluwa/repl.lua")
+local socket_pool = import("goluwa/sockets/socket_pool.lua")
+local TCPClient = import("goluwa/sockets/tcp_client.lua")
 local UDPServer = prototype.CreateTemplate("socket_tcp_server")
 
 function UDPServer:assert(val, err)

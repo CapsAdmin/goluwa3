@@ -1,4 +1,4 @@
-local xml = require("codecs.xml")
+local xml = import("goluwa/codecs/xml.lua")
 local scanner = {}
 
 -- Helper to escape strings for Lua code generation

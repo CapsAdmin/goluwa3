@@ -1,7 +1,6 @@
-require("goluwa.global_environment")
 local bit = require("bit")
 local ffi = require("ffi")
-local Buffer = require("structs.buffer")
+local Buffer = import("goluwa/structs/buffer.lua")
 local vorbis = {}
 local math_pi = math.pi
 local math_cos = math.cos
@@ -1699,12 +1698,12 @@ function vorbis.DecodePacket(packet, info, setup, state)
 end
 
 if HOTRELOAD then
-	package.loaded["codecs.internal.vorbis"] = vorbis
-	package.loaded["codecs.ogg"] = nil
-	local profiler = require("profiler")
+	import.loaded["goluwa/codecs/internal/vorbis.lua"] = vorbis
+	import.loaded["goluwa/codecs/ogg.lua"] = nil
+	local profiler = import("goluwa/profiler.lua")
 	profiler.Start("ogg")
-	local fs = require("fs")
-	local ogg = require("codecs.ogg")
+	local fs = import("goluwa/fs.lua")
+	local ogg = import("goluwa/codecs/ogg.lua")
 	local f = fs.read_file("./test.ogg")
 	local res = assert(ogg.Decode(f))
 	profiler.Stop()

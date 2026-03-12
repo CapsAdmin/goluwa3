@@ -36,8 +36,8 @@ local colors = {
 	bg_white = "47",
 }
 
-local function wrap_color(code)
-	return function(text)
+local function wrap_color(code--[[#: string]])
+	return function(text--[[#: string]])
 		if use_colors then
 			return string.format("\27[%sm%s\27[0m", code, text)
 		else
@@ -47,11 +47,21 @@ local function wrap_color(code)
 end
 
 for name, code in pairs(colors) do
-	colors[name] = wrap_color(code)
+	if type(code) == "string" then colors[name] = wrap_color(code) end
 end
 
-function colors.set_enabled(enabled)
-	use_colors = enabled
+function colors.Disable()
+	use_colors = false
+end
+
+function colors.set_enabled(b)
+	use_colors = b
+end
+
+colors.SetEnabled = colors.set_enabled
+
+function colors.IsEnabled()
+	return use_colors
 end
 
 return colors

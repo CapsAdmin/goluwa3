@@ -1,15 +1,15 @@
 local ffi = require("ffi")
-local event = require("event")
-local render = require("render.render")
-local render3d = require("render3d.render3d")
-local Camera3D = require("render3d.camera3d")
-local Texture = require("render.texture")
-local Framebuffer = require("render.framebuffer")
-local Matrix44 = require("structs.matrix44")
-local Vec3 = require("structs.vec3")
-local Rect = require("structs.rect")
-local system = require("system")
-local atmosphere = require("render3d.atmosphere")
+local event = import("goluwa/event.lua")
+local render = import("goluwa/render/render.lua")
+local render3d = import("goluwa/render3d/render3d.lua")
+local Camera3D = import("goluwa/render3d/camera3d.lua")
+local Texture = import("goluwa/render/texture.lua")
+local Framebuffer = import("goluwa/render/framebuffer.lua")
+local Matrix44 = import("goluwa/structs/matrix44.lua")
+local Vec3 = import("goluwa/structs/vec3.lua")
+local Rect = import("goluwa/structs/rect.lua")
+local system = import("goluwa/system.lua")
+local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local lightprobes = {}
 -- Probe types
 lightprobes.TYPE_ENVIRONMENT = "environment" -- Sky-only, dynamic, updated based on sun
@@ -253,10 +253,10 @@ function lightprobes.InitializeCubemapLayouts()
 end
 
 function lightprobes.CreatePipelines()
-	local EasyPipeline = require("render.easy_pipeline")
-	local orientation = require("render3d.orientation")
-	local Material = require("render3d.material")
-	local Light = require("ecs.components.3d.light")
+	local EasyPipeline = import("goluwa/render/easy_pipeline.lua")
+	local orientation = import("goluwa/render3d/orientation.lua")
+	local Material = import("goluwa/render3d/material.lua")
+	local Light = import("goluwa/ecs/components/3d/light.lua")
 	-- Pipeline to render the scene into a cubemap face
 	lightprobes.scene_pipeline = EasyPipeline.New{
 		color_format = {

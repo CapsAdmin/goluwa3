@@ -320,14 +320,14 @@ end
 local PROFILE = false
 
 if PROFILE then
-	local fs = require("fs")
+	local fs = import("goluwa/fs.lua")
 	local files = {}
 
 	for i, v in ipairs(fs.walk("goluwa/bindings/wayland/")) do
 		if v:ends_with(".xml") then files[#files + 1] = fs.read_file(v) end
 	end
 
-	local profiler = require("profiler")
+	local profiler = import("goluwa/profiler.lua")
 
 	do
 		profiler.Start("XML")

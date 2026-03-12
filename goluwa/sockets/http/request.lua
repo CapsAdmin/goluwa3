@@ -1,11 +1,11 @@
-local http = require("sockets.http")
-local timer = require("timer")
-local event = require("event")
+local http = import("goluwa/sockets/http.lua")
+local timer = import("goluwa/timer.lua")
+local event = import("goluwa/event.lua")
 local multipart_boundary = "Goluwa" .. os.time()
 local multipart = string.format("multipart/form-data;boundary=%q", multipart_boundary)
 
 function http.Request(tbl, no_task)
-	local HTTPClient = require("sockets.http.http11_client")
+	local HTTPClient = import("goluwa/sockets/http/http11_client.lua")
 
 	if not no_task then
 		local a, b, c = event.Call("SocketRequest", tbl)

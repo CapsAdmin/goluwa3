@@ -1,7 +1,7 @@
-local render2d = require("render2d.render2d")
-local Rect = require("structs.rect")
-local Texture = require("render.texture")
-local Polygon2D = require("render2d.polygon_2d")
+local render2d = import("goluwa/render2d/render2d.lua")
+local Rect = import("goluwa/structs/rect.lua")
+local Texture = import("goluwa/render/texture.lua")
+local Polygon2D = import("goluwa/render2d/polygon_2d.lua")
 local gfx = library()
 
 function gfx.CreatePolygon2D(vertex_count, map)
@@ -252,8 +252,8 @@ function gfx.DrawCircle(x, y, radius, width, resolution)
 end
 
 do
-	local window = require("window")
-	local render = require("render.render")
+	local window = import("goluwa/window.lua")
+	local render = import("goluwa/render/render.lua")
 
 	function gfx.GetMousePosition()
 		if window.GetMouseTrapped() then

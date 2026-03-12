@@ -1,7 +1,7 @@
-local prototype = require("prototype")
-local window = require("window")
-local event = require("event")
-local Vec2 = require("structs.vec2")
+local prototype = import("goluwa/prototype.lua")
+local window = import("goluwa/window.lua")
+local event = import("goluwa/event.lua")
+local Vec2 = import("goluwa/structs/vec2.lua")
 local META = prototype.CreateTemplate("mouse_input")
 META:StartStorable()
 META:GetSet("Hovered", false)
@@ -79,7 +79,7 @@ local function call_global_event(entity, event_name, a, b, c, d, e, f, g)
 	return nil
 end
 
-local Panel = require("ecs.panel")
+local Panel = import("goluwa/ecs/panel.lua")
 
 function META:IsHoveredExclusively(mouse_pos)
 	if mouse_pos then

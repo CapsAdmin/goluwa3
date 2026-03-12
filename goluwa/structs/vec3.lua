@@ -1,5 +1,5 @@
-local structs = require("structs.structs")
-local math3d = require("render3d.math3d")
+local structs = import("goluwa/structs/structs.lua")
+local math3d = import("goluwa/render3d/math3d.lua")
 local META = structs.Template("Vec3")
 META.Args = {{"x", "y", "z"}, {"r", "g", "b"}, {"p", "y", "r"}, {"u", "v", "w"}}
 structs.AddAllOperators(META)
@@ -19,7 +19,7 @@ structs.AddGetFunc(META, "Cross")
 local Ang3
 
 function META:GetAngles()
-	Ang3 = Ang3 or require("structs.ang3")
+	Ang3 = Ang3 or import("goluwa/structs/ang3.lua")
 	local n = self:GetNormalized()
 	local p = math.atan2(math.sqrt((n.x ^ 2) + (n.y ^ 2)), n.z)
 	local y = math.atan2(self.y, self.x)

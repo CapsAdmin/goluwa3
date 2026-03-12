@@ -1,9 +1,11 @@
 local setmetatable = _G.setmetatable
 local error_messages = require("nattlua.error_messages")
+local shared = require("nattlua.types.shared")
 local META = require("nattlua.types.base")()
 --[[#local type TBaseType = META.TBaseType]]
 --[[#type META.@Name = "TAny"]]
---[[#type TAny = META.@Self]]
+--[[#local type TAny = META.@SelfArgument]]
+--[[#type TAny.Type = "any"]]
 META.Type = "any"
 
 function META:Get(key--[[#: TBaseType]])
@@ -16,10 +18,6 @@ end
 
 function META:Copy()
 	return self
-end
-
-function META.IsSubsetOf(A--[[#: TAny]], B--[[#: TBaseType]])
-	return true
 end
 
 function META:GetHashForMutationTracking() end
@@ -36,19 +34,8 @@ function META:CanBeNil()
 	return true
 end
 
-function META.Equal(a--[[#: TAny]], b--[[#: TBaseType]])
-	return a.Type == b.Type, "any types match"
-end
-
 function META:GetHash()
 	return "?"
-end
-
-function META.LogicalComparison(l--[[#: TAny]], r--[[#: TBaseType]], op--[[#: string]])
-	if op == "==" then return true -- TODO: should be nil (true | false)?
-	end
-
-	return false, error_messages.binary(op, l, r)
 end
 
 function META:IsLiteral()
@@ -66,5 +53,6 @@ function META.New()
 end
 
 return {
+	TAny = TAny,
 	Any = META.New,
 }

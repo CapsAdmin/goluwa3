@@ -1,4 +1,4 @@
-local structs = require("structs.structs")
+local structs = import("goluwa/structs/structs.lua")
 local META = structs.Template("Vec4")
 META.Args = {{"x", "y", "z", "w"}, {"r", "g", "b", "a"}, {"u", "v", "s", "t"}}
 structs.AddAllOperators(META)

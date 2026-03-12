@@ -1,4 +1,4 @@
-local Agent = require("llamacpp.agent")
+local Agent = import("goluwa/llamacpp/agent.lua")
 local agent = Agent.New("Qwen3.5-35B-A3B-UD-Q4_K_XL")
 agent:AddMessage{
 	role = "system",
@@ -10,8 +10,8 @@ agent:AddMessage{
 }
 
 local function image(path)
-	local fs = require("fs")
-	local codec = require("codec")
+	local fs = import("goluwa/fs.lua")
+	local codec = import("goluwa/codec.lua")
 	local content = assert(fs.read_file(path))
 	return "data:image/jpeg;base64," .. codec.Encode("base64", content)
 end

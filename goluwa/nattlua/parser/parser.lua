@@ -19,10 +19,8 @@ local io = _G.io
 
 --[[#local type { Token, TokenType } = import("~/nattlua/lexer/token.lua")]]
 
---[[#local type { ExpressionKind, StatementKind, Nodes } = import("./node.lua")]]
+--[[#local type { NodeKind, ExpressionKind, StatementKind, Nodes, Node, expression, statement } = import("./node.lua")]]
 
---[[#local type expression = Nodes.expression]]
---[[#local type statement = Nodes.statement]]
 local META = require("nattlua.parser.base")()
 require("nattlua.parser.expressions")(META)
 require("nattlua.parser.statements")(META)
@@ -32,12 +30,38 @@ require("nattlua.parser.lsx")(META)
 function META:ParseModifiers()
 	local modifiers
 
+	while
+		self:IsToken("<") and
+		self:IsTokenTypeOffset("letter", 1) and
+		self:IsTokenOffset(">", 2)
+	do
+		local tk_left = self:ParseToken()
+		local tk = self:ParseToken()
+		local tk_right = self:ParseToken()
+
+		if not modifiers then modifiers = {} end
+
+		modifiers[tk.value] = tk_left
+		table.insert(modifiers, {tk_left, tk, tk_right})
+	end
+
 	while self:IsTokenType("letter") do
 		local tk = self:GetToken()
 
 		if tk.sub_type == "ref" or tk.sub_type == "literal" then
+			if
+				self:IsTokenOffset("=", 1) or
+				self:IsTokenOffset(",", 1) or
+				self:IsTokenOffset(")", 1) or
+				self:IsTokenOffset("in", 1) or
+				self:IsTokenOffset(":", 1)
+			then
+				break
+			end
+
 			if not modifiers then modifiers = {} end
 
+			modifiers[tk.sub_type] = tk
 			table.insert(modifiers, tk)
 			self:Advance(1)
 		else
@@ -49,17 +73,20 @@ function META:ParseModifiers()
 end
 
 function META:ParseIdentifier(expect_type--[[#: nil | boolean]], expect_modifiers--[[#: nil | boolean]])
+	local modifiers = expect_modifiers ~= false and self:ParseModifiers()
+
 	if not self:IsTokenType("letter") and not self:IsToken("...") then return end
 
 	local node = self:StartNode("expression_value") -- as ValueExpression ]]
 	node.is_identifier = true
+	node.modifiers = modifiers
 
 	if self:IsToken("...") then
 		node.value = self:ExpectToken("...")
 	else
 		node.value = self:ExpectTokenType("letter")
 
-		if self:IsToken("<") then
+		if self:IsToken("<") and not node.modifiers then
 			node.tokens["<"] = self:ExpectToken("<")
 			node.attribute = self:ExpectTokenType("letter")
 			node.tokens[">"] = self:ExpectToken(">")
@@ -70,7 +97,19 @@ function META:ParseIdentifier(expect_type--[[#: nil | boolean]], expect_modifier
 		if self:IsToken(":") or expect_type then
 			node.tokens[":"] = self:ExpectToken(":")
 
-			if expect_modifiers then node.modifiers = self:ParseModifiers() end
+			if expect_modifiers then
+				local more_modifiers = self:ParseModifiers()
+
+				if more_modifiers then
+					if node.modifiers then
+						for _, v in ipairs(more_modifiers) do
+							table.insert(node.modifiers, v)
+						end
+					else
+						node.modifiers = more_modifiers
+					end
+				end
+			end
 
 			node.type_expression = self:ExpectTypeExpression(0)
 		end
@@ -348,6 +387,7 @@ function META:ParseFile(path--[[#: string]], config--[[#: nil | any]])
 	config.file_path = config.file_path or path
 	config.file_name = config.file_name or "@" .. path
 	return self:ParseString(code, config)
+
 end
 
 local imported_index = nil

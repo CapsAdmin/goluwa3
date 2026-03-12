@@ -1,9 +1,9 @@
-local Vec2 = require("structs.vec2")
-local Color = require("structs.color")
-local Panel = require("ecs.panel")
-local theme = require("ui.theme")
-local window = require("window")
-local timer = require("timer")
+local Vec2 = import("goluwa/structs/vec2.lua")
+local Color = import("goluwa/structs/color.lua")
+local Panel = import("goluwa/ecs/panel.lua")
+local theme = import("lua/ui/theme.lua")
+local window = import("goluwa/window.lua")
+local timer = import("goluwa/timer.lua")
 return function(props)
 	local divider_width = props.DividerWidth or 6
 	local initial_size = props.InitialSize or props.InitialWidth or props.InitialHeight or 220

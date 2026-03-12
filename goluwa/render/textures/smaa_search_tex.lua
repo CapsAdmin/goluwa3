@@ -1,7 +1,7 @@
 -- SMAA Search Texture Generator
 -- Based on https://github.com/iryoku/smaa/blob/master/Scripts/SearchTex.py
 -- Generates the 64x16 R8 search texture at runtime
-local Texture = require("render.texture")
+local Texture = import("goluwa/render/texture.lua")
 local ffi = require("ffi")
 local tex = Texture.New{
 	width = 64,

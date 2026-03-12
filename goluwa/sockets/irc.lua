@@ -1,4 +1,4 @@
-local prototype = require("prototype")
+local prototype = import("goluwa/prototype.lua")
 return function(sockets)
 	local META = prototype.CreateTemplate("irc_client")
 	META:GetSet("Nick", e.USERNAME:gsub("^(.)", string.upper) .. "Bot")

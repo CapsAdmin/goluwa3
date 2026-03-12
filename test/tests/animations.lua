@@ -1,7 +1,7 @@
-local T = require("test.environment")
-local animations = require("animations")
-local Vec2 = require("structs.vec2")
-local Ang3 = require("structs.ang3")
+local T = import("test/environment.lua")
+local animations = import("goluwa/animations.lua")
+local Vec2 = import("goluwa/structs/vec2.lua")
+local Ang3 = import("goluwa/structs/ang3.lua")
 
 T.Test("animation override with spring and single target", function()
 	local val = Ang3(0, 0, 0)

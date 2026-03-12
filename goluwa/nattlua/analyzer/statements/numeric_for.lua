@@ -40,7 +40,7 @@ return {
 		local step = statement.expressions[3] and
 			self:GetFirstValue(self:AnalyzeExpression(statement.expressions[3]))
 
-		if step then assert(step:IsNumeric()) end
+		if step then self:Assert(step:IsNumeric(), "step is not a number") end
 
 		local literal_init = get_largest_number(init)
 		local literal_max = get_largest_number(max)
@@ -73,6 +73,12 @@ return {
 					brk = true
 				else
 					i = LNumber(i)
+				end
+
+				-- Carry LengthSourceTable from the init expression to the loop variable
+				-- so that bounded table access (e.g. t[i] where i comes from #t) can skip nil
+				if init.LengthSourceTable then
+					i.LengthSourceTable = init.LengthSourceTable
 				end
 
 				local upvalue = self:CreateLocalValue(statement.identifiers[1].value:GetValueString(), i)
@@ -110,6 +116,11 @@ return {
 					end
 				else
 					init = LNumber(literal_init)
+				end
+
+				-- Carry the LengthSourceTable tag from max to the range
+				if init.Type == "range" and max.LengthSourceTable then
+					init.LengthSourceTable = max.LengthSourceTable
 				end
 
 				if init.Type == "number" then init:SetDontWiden(true) end

@@ -1,10 +1,10 @@
 local ffi = require("ffi")
-local threads = require("bindings.threads")
-local event = require("event")
-local prototype = require("prototype")
-local codec = require("codec")
-local fs = require("fs")
-local resource = require("resource")
+local threads = import("goluwa/bindings/threads.lua")
+local event = import("goluwa/event.lua")
+local prototype = import("goluwa/prototype.lua")
+local codec = import("goluwa/codec.lua")
+local fs = import("goluwa/fs.lua")
+local resource = import("goluwa/resource.lua")
 local audio = {}
 ffi.cdef[[
     typedef struct {
@@ -204,8 +204,8 @@ end)
 
 local function mixer_worker(shared_state_ptr)
 	local ffi = require("ffi")
-	local audio_buffer = require("bindings.audio_buffer")
-	local threads = require("bindings.threads")
+	local audio_buffer = import("goluwa/bindings/audio_buffer.lua")
+	local threads = import("goluwa/bindings/threads.lua")
 	ffi.cdef[[
 		typedef struct {
 			void* buffer;           // float* pointer
@@ -292,7 +292,7 @@ function audio.Initialize()
 	audio.thread = threads.new(mixer_worker)
 	audio.thread:run(audio.state, true)
 
-	require("timer").Delay(0.1, function()
+	import("goluwa/timer.lua").Delay(0.1, function()
 		if
 			audio.thread and
 			audio.thread.input_data and

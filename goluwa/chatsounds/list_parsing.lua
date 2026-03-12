@@ -1,5 +1,5 @@
-local chatsounds = require("chatsounds.chatsounds")
-local autocomplete = require("autocomplete")
+local chatsounds = import("goluwa/chatsounds/chatsounds.lua")
+local autocomplete = import("goluwa/autocomplete.lua")
 
 function chatsounds.BuildFromSoundDirectory(where)
 	where = where or "sounds/chatsounds/"

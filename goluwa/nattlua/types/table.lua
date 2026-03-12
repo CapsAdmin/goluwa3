@@ -16,26 +16,28 @@ local context = require("nattlua.analyzer.context")
 local mutation_solver = require("nattlua.analyzer.mutation_solver")
 local table_sort = require("nattlua.other.sort")
 local Any = require("nattlua.types.any").Any
+local shared = require("nattlua.types.shared")
 local math_abs = math.abs
 local math_huge = math.huge
 local META = require("nattlua.types.base")()
 --[[#local type TBaseType = META.TBaseType]]
---[[#type TTable = META.@Self]]
---[[#type TTable.suppress = boolean]]
+--[[#local type TTable = META.@SelfArgument]]
+--[[#type TTable.Type = "table"]]
 --[[#type TTable.mutations = Map<|
 		TBaseType,
 		List<|{scope = TBaseType, value = TBaseType, contract = TBaseType, key = TBaseType}|>
 	|> | false]]
---[[#type TTable.LiteralDataCache = Map<|TBaseType, TBaseType|>]]
---[[#type TTable.PotentialSelf = TBaseType | false]]
+--[[#type TTable.literal_data_cache = Map<|TBaseType, {key = TBaseType, val = TBaseType} | nil|>]]
+--[[#type TTable.potential_self = TBaseType | false]]
+--[[#type TTable.size = number | false]]
+--[[#type TTable.disabled_unique_id = number | false]]
 --[[#type META.@Name = "TTable"]]
 META.Type = "table"
 META:GetSet("Data", nil--[[# as List<|{key = TBaseType, val = TBaseType}|>]])
-META:GetSet("BaseTable", nil--[[# as TTable | false]])
 META:GetSet("ReferenceId", nil--[[# as string | false]])
-META:GetSet("Self", nil--[[# as false | TTable]])
 META:GetSet("Contracts", nil--[[# as List<|TTable|>]])
 META:GetSet("CreationScope", nil--[[# as any]])
+META:GetSet("SelfArgument", nil--[[# as any]])
 META:GetSet("AnalyzerEnvironment", false--[[# as false | "runtime" | "typesystem"]])
 META:GetSet("MutationLimit", 100)
 
@@ -49,11 +51,13 @@ do -- comes from tbl.@Name = "my name"
 	end
 end
 
-function META:GetName()
+function META:GetName()--[[#: TBaseType | false]]
 	if not self.Name then
 		local meta = self:GetMetaTable()
 
-		if meta and meta ~= self then return meta:GetName() end
+		if meta and meta ~= self and meta.Type == "table" then
+			return (meta--[[# as TTable]]):GetName()
+		end
 	end
 
 	return self.Name
@@ -62,105 +66,33 @@ end
 do
 	META:GetSet("MetaTable", false--[[# as TBaseType | false]])
 
-	function META:GetMetaTable()
+	function META:GetMetaTable()--[[#: TBaseType | false]]
 		local contract = self:GetContract()
 
-		if contract and contract.Type == "table" and contract.MetaTable then
-			return contract.MetaTable
+		if contract and contract.Type == "table" and (contract--[[# as TTable]]).MetaTable then
+			return (contract--[[# as TTable]]).MetaTable
 		end
 
 		return self.MetaTable
 	end
 end
 
-function META:SetSelf(tbl--[[#: TTable]])
-	tbl:SetMetaTable(self)
-	tbl:SetContract(tbl)
-	self.Self = tbl
-end
-
-function META:SetSelf2(tbl)
-	self.Self2 = tbl
-end
-
-function META:GetSelf2()
-	return self.Self2
-end
-
-function META.Equal(a--[[#: TBaseType]], b--[[#: TBaseType]], visited--[[#: Map<|TBaseType, boolean|>]])
-	if a.Type ~= b.Type then return false, "types differ" end
-
-	if a:IsUnique() then
-		return a:GetUniqueID() == b:GetUniqueID(), "unique ids match"
+function META:GetHash(visited--[[#: Map<|TBaseType, string|> | nil]])--[[#: string]]
+	if self:IsUnique() then
+		return "{*" .. (self:GetUniqueID()--[[# as any]]) .. "*}"
 	end
-
-	do
-		local contract = a:GetContract()
-
-		if contract and contract.Type == "table" and contract.Name then
-			if not b:GetContract() or not b:GetContract().Name then
-				return false, "contract name mismatch"
-			end
-
-			-- never called
-			return contract.Name:GetData() == b:GetContract().Name:GetData(),
-			"contract names match"
-		end
-	end
-
-	if a.Name then
-		if not b.Name then return false, "name property mismatch" end
-
-		return a.Name:GetData() == b.Name:GetData(), "names match"
-	end
-
-	visited = visited or {}
-
-	if visited[a] then return true, "circular reference detected" end
-
-	visited[a] = true
-	local adata = a:GetData()
-	local bdata = b:GetData()
-
-	if #adata ~= #bdata then return false, "table size mismatch" end
-
-	local matched = {}
-
-	for i = 1, #adata do
-		local akv = adata[i]
-		local ok = false
-
-		for i = 1, #bdata do
-			if not matched[i] then -- Skip already matched entries
-				if akv.key:Equal(bdata[i].key, visited) and akv.val:Equal(bdata[i].val, visited) then
-					ok = true
-					matched[i] = true
-
-					break
-				end
-			end
-		end
-
-		if not ok then return false, "table key-value mismatch" end
-	end
-
-	return true, "all table entries match"
-end
-
-function META:GetHash(visited)
-	if self:IsUnique() then return "{*" .. self:GetUniqueID() .. "*}" end
 
 	local contract = self:GetContract()
 
-	if contract and contract.Type == "table" and contract.Name then
-		return "{*" .. contract.Name:GetData() .. "*}"
+	if contract and contract.Type == "table" and (contract--[[# as TTable]]).Name then
+		return "{*" .. ((contract--[[# as TTable]]).Name--[[# as TBaseType]]):GetData() .. "*}"
 	end
 
-	if self.Name then return "{*" .. self.Name:GetData() .. "*}" end
+	if self.Name then return "{*" .. (self.Name:GetData()--[[# as any]]) .. "*}" end
 
 	visited = visited or {}
 
-	if visited[self] then return visited[self] end
+	if visited[self] then return (visited[self]--[[# as any]]) end
 
 	visited[self] = "*circular*"
 	local data = self.Data
@@ -177,38 +109,42 @@ end
 
 local level = 0
 
-function META:__tostring()
-	if self.suppress then return "current_table" end
+function META:__tostring()--[[#: string]]
+	local self = self--[[# as any]]
 
-	self.suppress = true
+	if self:IsSuppressed() then return "current_table" end
+
+	self:PushSuppress()
 
 	do
 		local contract = self:GetContract()
 
-		if contract and contract.Name then -- never called
-			self.suppress = false
-			return tostring(contract.Name:GetData())
+		if contract and contract.Type == "table" and (contract--[[# as TTable]]).Name then -- never called
+			self:PopSuppress()
+			return tostring(((contract--[[# as TTable]]).Name--[[# as TBaseType]]):GetData())
 		end
 	end
 
 	if self.Name then
-		self.suppress = false
+		self:PopSuppress()
 		return tostring(self.Name:GetData())
 	end
 
 	local meta = self:GetMetaTable()
 
-	if meta then
-		local func = meta:Get(ConstString("__tostring"))
+	if meta and meta.Type == "table" then
+		local func = (meta--[[# as any]]):Get(ConstString("__tostring"))
 
 		if func then
 			local analyzer = context:GetCurrentAnalyzer()
 
 			if analyzer then
-				local str = analyzer:GetFirstValue(analyzer:Call(func, Tuple({self})))
+				local str = (
+					analyzer
+				--[[# as any]]):GetFirstValue((analyzer--[[# as any]]):Call(func, Tuple({self})))
 
 				if str and str.Type == "string" and str:IsLiteral() then
-					self.suppress = false
+					self:PopSuppress()
 					return tostring(str:GetData())
 				end
 			end
@@ -224,11 +160,11 @@ function META:__tostring()
 	local contract = self:GetContract()
 
 	if contract and contract.Type == "table" and contract ~= self then
-		local contract_data = contract:GetData()
+		local contract_data = (contract--[[# as any]]):GetData()
 		local contract_len = #contract_data
 
 		for i = 1, contract_len do
-			local keyval = contract_data[i]
+			local keyval = assert(contract_data[i])
 			local table_kv = self:FindKeyValExact(keyval.key)
 			local key = tostring(table_kv and table_kv.key or "nil")
 			local val = tostring(table_kv and table_kv.val or "nil")
@@ -252,24 +188,28 @@ function META:__tostring()
 		local len = #data
 
 		for i = 1, len do
-			local keyval = data[i]
+			local keyval = assert(data[i])
 			local key, val = tostring(keyval.key), tostring(keyval.val)
 			s[i] = indent .. "[" .. key .. "]" .. " = " .. val
 		end
 	end
 
 	level = level - 1
-	self.suppress = false
+	self:PopSuppress()
 
 	if #self.Data <= 1 then return "{" .. table.concat(s, ",") .. " }" end
 
 	return "{\n" .. table.concat(s, ",\n") .. "\n" .. ("\t"):rep(level) .. "}"
 end
 
-function META:GetArrayLength()
-	local contract = self:GetContract()
+function META:GetArrayLength()--[[#: TBaseType]]
+	if #self.Data == 0 then
+		local contract = self:GetContract()
 
-	if contract and contract ~= self then return contract:GetArrayLength() end
+		if contract and contract ~= self and contract.Type == "table" then
+			return (contract--[[# as TTable]]):GetArrayLength()
+		end
+	end
 
 	local len = 0
 	local data = self.Data
@@ -283,8 +223,8 @@ function META:GetArrayLength()
 				-- TODO: not very accurate
 				if kv.key.Type == "range" then return kv.key:Copy() end
 
-				if len + 1 == kv.key:GetData() then
-					len = kv.key:GetData()
+				if len + 1 == (kv.key--[[# as any]]):GetData() then
+					len = (kv.key--[[# as any]]):GetData()
 				else
 					break
 				end
@@ -297,8 +237,8 @@ function META:GetArrayLength()
 	return LNumber(len)
 end
 
-function META:FollowsContract(contract--[[#: TTable]])
-	if self.suppress then return true end
+function META:FollowsContract(contract--[[#: TTable]])--[[#: boolean, string | nil]]
+	if self:IsSuppressed() then return true end
 
 	if self:GetContract() == contract then return true end
 
@@ -311,27 +251,27 @@ function META:FollowsContract(contract--[[#: TTable]])
 			if not keyval.val:IsNil() then
 				local res, err = self:FindKeyValExact(required_key)
 
-				if not res and self:GetMetaTable() then
-					res, err = self:GetMetaTable():FindKeyValExact(required_key)
+				if not res and self:GetMetaTable() and self:GetMetaTable().Type == "table" then
+					res, err = (self:GetMetaTable()--[[# as TTable]]):FindKeyValExact(required_key)
 				end
 
 				if not res then return res, err end
 
-				local ok, err = res.val:IsSubsetOf(keyval.val)
+				local ok, err = shared.IsSubsetOf((res--[[# as any]]).val, keyval.val)
 
 				if not ok then
 					return false,
-					error_messages.because(error_messages.table_key(error_messages.subset(res.key, keyval.key)), err)
+					error_messages.because(error_messages.table_key(error_messages.subset((res--[[# as any]]).key, keyval.key)), err)
 				end
 			end
 		else
 			local found_anything = false
 
 			for _, keyval2 in ipairs(self.Data) do
-				if keyval2.key:IsSubsetOf(required_key) then
-					self.suppress = true
-					local ok, err = keyval2.val:IsSubsetOf(keyval.val)
-					self.suppress = false
+				if shared.IsSubsetOf(keyval2.key, required_key) then
+					self:PushSuppress()
+					local ok, err = shared.IsSubsetOf(keyval2.val, keyval.val)
+					self:PopSuppress()
 					found_anything = true
 
 					if not ok then
@@ -359,11 +299,11 @@ function META:FollowsContract(contract--[[#: TTable]])
 			-- it's ok if the key is not found, as we're doing structural checking
 			if res then
 				-- if it is found, we make sure its type matches
-				local ok, err = keyval.val:IsSubsetOf(res.val)
+				local ok, err = shared.IsSubsetOf(keyval.val, (res--[[# as any]]).val)
 
 				if not ok then
 					return false,
-					error_messages.because(error_messages.table_value(error_messages.subset(res.val, keyval.val)), err)
+					error_messages.because(error_messages.table_value(error_messages.subset((res--[[# as any]]).val, keyval.val)), err)
 				end
 			end
 		end
@@ -372,7 +312,7 @@ function META:FollowsContract(contract--[[#: TTable]])
 	return true
 end
 
-function META:CanBeEmpty()
+function META:CanBeEmpty()--[[#: boolean]]
 	local data = self.Data
 	local len = #data
 
@@ -383,83 +323,18 @@ function META:CanBeEmpty()
 	return true
 end
 
-function META:IsEmpty()
-	if
-		self:GetContract() and
-		self:GetContract() ~= self and
-		self:GetContract().Type == "table"
-	then
-		return self:GetContract():IsEmpty()
+function META:IsEmpty()--[[#: boolean]]
+	local contract = self:GetContract()
+
+	if contract and contract ~= self and contract.Type == "table" then
+		return (contract--[[# as TTable]]):IsEmpty()
 	end
 
 	return not self.Data[1]
 end
 
-function META.IsSubsetOf(a--[[#: TBaseType]], b--[[#: TBaseType]])
-	if a.suppress then return true, "suppressed" end
-
-	if b.Type == "tuple" then b = b:GetWithNumber(1) end
-
-	if b.Type == "any" then return true, "b is any" end
-
-	if b.Type == "table" then
-		if a == b then return true, "same type" end
-
-		local ok, err = a:IsSameUniqueType(b)
-
-		if not ok then return ok, err end
-	end
-
-	if b.Type == "table" then
-		if b:GetMetaTable() and b:GetMetaTable() == a then
-			return true, "same metatable"
-		end
-
-		if a:IsEmpty() then
-			if b:CanBeEmpty() then return true, "can be empty" end
-
-			return false, error_messages.subset(a, b)
-		end
-
-		for _, bkeyval in ipairs(b:GetData()) do
-			local akeyval, reason = a:FindKeyValWide(bkeyval.key, true)
-
-			if not bkeyval.val:CanBeNil() then
-				if not akeyval then
-					if b.BaseTable and b.BaseTable == a then
-						akeyval = bkeyval
-					else
-						return akeyval, reason
-					end
-				end
-
-				a.suppress = true
-				local ok, err = akeyval.val:IsSubsetOf(bkeyval.val)
-				a.suppress = false
-
-				if not ok then
-					return false,
-					error_messages.because(error_messages.table_subset(bkeyval.key, akeyval.key, bkeyval.val, akeyval.val), err)
-				end
-			end
-		end
-
-		if b:IsNumericallyIndexed() and not a:IsNumericallyIndexed() then
-			return false, error_messages.subset(a, b)
-		end
-
-		return true, "all is equal"
-	elseif b.Type == "union" then
-		for _, obj in ipairs(b.Data) do
-			local ok, err = a:IsSubsetOf(obj)
-
-			if ok then return true, "a is subset of one in the union" end
-		end
-
-		return false, error_messages.subset(a, b)
-	end
-
-	return false, error_messages.subset(a, b)
+function META.IsSubsetOf(a--[[#: TTable]], b--[[#: TBaseType]])--[[#: boolean, any | nil]]
+	return shared.IsSubsetOf(a, b)
 end
 
 function META:ContainsAllKeysIn(contract--[[#: TTable]])
@@ -479,25 +354,27 @@ function META:ContainsAllKeysIn(contract--[[#: TTable]])
 	return true
 end
 
-local function get_hash(key)
+local function get_hash(key--[[#: TBaseType]])
 	if key.Type ~= "table" and key.Type ~= "function" and key.Type ~= "tuple" then
 		return key:GetHash()
 	end
-
-	return nil
 end
 
-local function write_cache(self, key, val)
+local function write_cache(
+	self--[[#: TTable]],
+	key--[[#: TBaseType]],
+	val--[[#: {key = TBaseType, val = TBaseType} | nil]]
+)
 	local hash = get_hash(key)
 
-	if hash then self.LiteralDataCache[hash] = val end
+	if hash then self.literal_data_cache[hash] = val end
 end
 
-local function read_cache(self, key)
+local function read_cache(self--[[#: TTable]], key--[[#: TBaseType]])
 	local hash = get_hash(key)
 
 	if hash then
-		local val = self.LiteralDataCache[hash]
+		local val = self.literal_data_cache[hash]
 
 		if val then return val end
 
@@ -507,38 +384,42 @@ local function read_cache(self, key)
 	return nil
 end
 
-local function read_cache_no_error(self, key)
+local function read_cache_no_error(self--[[#: TTable]], key--[[#: TBaseType]])
 	local hash = get_hash(key)
 
-	if hash then return self.LiteralDataCache[hash] end
+	if hash then return self.literal_data_cache[hash] end
 
 	return nil
 end
 
-local function AddKey(self, keyval, key, val)
+function META:AddKey(
+	keyval--[[#: {key = TBaseType, val = TBaseType} | false | nil]],
+	key--[[#: TBaseType]],
+	val--[[#: TBaseType]]
+)
 	if not keyval then
 		local keyval = {key = key, val = val}
-		table.insert(self.Data, keyval)
+		table.insert(self.Data--[[# as any]], keyval)
 		write_cache(self, key, keyval)
 	else
-		if keyval.key:IsLiteral() and keyval.key:Equal(key) then
-			keyval.val = val
+		if keyval.key:IsLiteral() and shared.Equal(keyval.key, key) then
+			(keyval--[[# as any]]).val = val
 		else
-			keyval.val = Union({keyval.val, val})
+			(keyval--[[# as any]]).val = Union({keyval.val, val})
 		end
 	end
 end
 
 function META:RemoveRedundantNilValues()
 	for i = #self.Data, 1, -1 do
-		local keyval = self.Data[i]
+		local keyval = assert(self.Data[i])
 
 		if
 			keyval.key.Type == "number" and
 			keyval.val.Type == "symbol" and
 			keyval.val:IsNil()
 		then
-			table.remove(self.Data, i)
+			table.remove(self.Data--[[# as any]], i)
 			write_cache(self, keyval.key, nil)
 		else
 			break
@@ -546,11 +427,11 @@ function META:RemoveRedundantNilValues()
 	end
 end
 
-function META:Delete(key--[[#: TBaseType]])
+function META:Delete(key--[[#: TBaseType]])--[[#: boolean]]
 	for i = #self.Data, 1, -1 do
 		local keyval = self.Data[i]
 
-		if key:Equal(keyval.key) then
+		if keyval and shared.Equal(key, keyval.key) then
 			table.remove(self.Data, i)
 			write_cache(self, keyval.key, nil)
 		end
@@ -561,12 +442,12 @@ end
 
 do
 	function META:Insert(val--[[#: TBaseType]])
-		self.size = self.size or 1
-		self:Set(LNumber(self.size), val)
-		self.size = self.size + 1
+		self.size = (self.size--[[# as number]]) or 1
+		self:Set(LNumber(self.size--[[# as number]]), val)
+		self.size = (self.size--[[# as number]]) + 1
 	end
 
-	function META:Concat(separator--[[#: TBaseType]])
+	function META:Concat(separator--[[#: TBaseType | nil]])--[[#: TBaseType | string]]
 		if not self:IsLiteral() then return String() end
 
 		if
@@ -579,7 +460,9 @@ do
 				and
 				(
 					separator.Type ~= "symbol" or
-					separator:IsBoolean()
+					(
+						separator
+					--[[# as any]]):IsBoolean()
 				)
 			)
 		then
@@ -593,22 +476,22 @@ do
 				return String()
 			end
 
-			out[i] = keyval.val:GetData()
+			out[i] = (keyval.val--[[# as any]]):GetData()
 		end
 
-		return table.concat(out, separator and separator:GetData() or nil)
+		return table.concat(out, separator and (separator--[[# as any]]):GetData() or nil)
 	end
 
-	function META:Remove(index--[[#: TBaseType]])
-		local index_num = index:GetData()
-		local removed_val = nil
-		local found_index = nil
+	function META:Remove(index--[[#: TBaseType]])--[[#: TBaseType | false]]
+		local index_num = (index--[[# as any]]):GetData()
+		local removed_val--[[#: TBaseType | nil]] = nil
+		local found_index--[[#: number | nil]] = nil
 
 		for i = #self.Data, 1, -1 do
 			local keyval = self.Data[i]
 
-			if keyval.key.Type == "number" and keyval.key:IsLiteral() then
-				local key_num = keyval.key:GetData()
+			if keyval and keyval.key.Type == "number" and keyval.key:IsLiteral() then
+				local key_num = (keyval.key--[[# as any]]):GetData()
 
 				if key_num == index_num then
 					removed_val = keyval.val
@@ -626,10 +509,10 @@ do
 		end
 
 		for i, keyval in ipairs(self.Data) do
-			if keyval.key.Type == "number" and keyval.key:IsLiteral() then
-				local key_num = keyval.key:GetData()
+			if keyval and keyval.key.Type == "number" and keyval.key:IsLiteral() then
+				local key_num = (keyval.key--[[# as any]]):GetData()
 
-				if key_num > index_num then
+				if key_num > (index_num--[[# as number]]) then
 					write_cache(self, keyval.key, nil)
 					local new_key = LNumber(key_num - 1)
 					keyval.key = new_key
@@ -638,13 +521,15 @@ do
 			end
 		end
 
-		if self.size and self.size > index_num then self.size = self.size - 1 end
+		if self.size and (self.size--[[# as number]]) > (index_num--[[# as number]]) then
+			self.size = (self.size--[[# as number]]) - 1
+		end
 
-		return removed_val
+		return removed_val--[[# as TBaseType]]
 	end
 end
 
-function META:GetValueUnion()
+function META:GetValueUnion()--[[#: TBaseType]]
 	local union = Union()
 
 	for _, keyval in ipairs(self.Data) do
@@ -654,77 +539,77 @@ function META:GetValueUnion()
 	return union
 end
 
-function META:HasKey(key--[[#: TBaseType]])
+function META:HasKey(key--[[#: TBaseType]])--[[#: boolean]]
+	if key.Type == "deferred" then key = key:Unwrap() end
+
 	if read_cache(self, key) then return true end
 
 	for i, keyval in ipairs(self.Data) do
-		if key:Equal(keyval.key) or key:IsSubsetOf(keyval.key) then return true end
+		if shared.Equal(key, keyval.key) or shared.IsSubsetOf(key, keyval.key) then
+			return true
+		end
 	end
-
-	if self.BaseTable then if self.BaseTable:HasKey(key) then return true end end
 
 	return false
 end
 
-function META:FindKeyValExact(key--[[#: TBaseType]])
-	local keyval, reason = read_cache(self, key)
+function META:FindKeyValExact(key--[[#: TBaseType]])--[[#: ({key = TBaseType, val = TBaseType} | false), (any | nil)]]
+	if key.Type == "deferred" then key = key:Unwrap() end
 
-	if keyval then return keyval, reason end
+	local keyval, reason = read_cache(self--[[# as any]], key)
+
+	if keyval then return keyval--[[# as any]], reason end
 
 	local reasons = {}
 
-	for i, keyval in ipairs(self.Data) do
-		local ok, reason = keyval.key:IsSubsetOf(key)
+	for i, keyval in ipairs(self.Data--[[# as any]]) do
+		if keyval then
+			local ok, reason = shared.IsSubsetOf((keyval--[[# as any]]).key, key)
 
-		if ok then return keyval end
+			if ok then return keyval--[[# as any]] end
 
-		if i <= 20 then reasons[i] = reason end
+			if i <= 20 then reasons[i] = reason end
+		end
 	end
 
-	if not reasons[1] then
-		reasons[1] = error_messages.because(error_messages.table_index(self, key), {"table is empty"})
-	end
+	if not reasons[1] then reasons[1] = error_messages.table_index(self, key) end
 
 	return false,
 	error_messages.because(error_messages.table_index(self, key), reasons)
 end
 
-function META:FindKeyValWide(key--[[#: TBaseType]], reverse--[[#: boolean | nil]])
-	local keyval = read_cache(self, key)
+function META:FindKeyValWide(key--[[#: TBaseType]], reverse--[[#: boolean | nil]])--[[#: ({key = TBaseType, val = TBaseType} | false), (any | nil)]]
+	if key.Type == "deferred" then key = key:Unwrap() end
 
-	if keyval then return keyval end
+	local keyval = read_cache(self--[[# as any]], key)
 
-	local reasons = {}
-	local data = self.Data
+	if keyval then return keyval--[[# as any]] end
+
+	local reasons--[[#: List<|any|>]] = {}
+	local data = self.Data--[[# as any]]
 	local len = #data
 
 	for i = 1, len do
 		local keyval = data[i]
 
-		if key:Equal(keyval.key) then return keyval end
+		if keyval then
+			if shared.Equal(key, keyval.key) then return keyval--[[# as any]] end
 
-		local ok, reason
+			local ok, reason
 
-		if reverse then
-			ok, reason = keyval.key:IsSubsetOf(key)
-		else
-			ok, reason = key:IsSubsetOf(keyval.key)
+			if reverse then
+				ok, reason = shared.IsSubsetOf(keyval.key, key)
+			else
+				ok, reason = shared.IsSubsetOf(key, keyval.key)
+			end
+
+			if ok then return keyval--[[# as any]] end
+
+			if i <= 20 then reasons[i] = reason end
 		end
-
-		if ok then return keyval end
-
-		if i <= 20 then reasons[i] = reason end
 	end
 
 	if #reasons > 20 then reasons = {error_messages.table_index(self, key)} end
-
-	if self.BaseTable then
-		local ok, reason = self.BaseTable:FindKeyValWide(key)
-
-		if ok then return ok end
-
-		table.insert(reasons, reason)
-	end
 
 	if not reasons[1] then
 		reasons[1] = error_messages.because(error_messages.table_index(self, key), {"table is empty"})
@@ -734,13 +619,24 @@ function META:FindKeyValWide(key--[[#: TBaseType]], reverse--[[#: boolean | nil]
 	error_messages.because(error_messages.table_index(self, key), reasons)
 end
 
-function META:Set(key--[[#: TBaseType]], val--[[#: TBaseType | nil]], no_delete--[[#: boolean | nil]])
-	if key.Type == "string" and key:IsLiteral() and key:GetData():sub(1, 1) == "@" then
+function META:Set(key--[[#: TBaseType]], val--[[#: TBaseType | nil]], no_delete--[[#: boolean | nil]])--[[#: boolean, (any | nil)]]
+	if
+		key.Type == "string" and
+		key:IsLiteral() and
+		(
+			key
+		--[[# as any]]):GetData():sub(1, 1) == "@"
+	then
 		if
 			context:GetCurrentAnalyzer() and
-			context:GetCurrentAnalyzer():GetCurrentAnalyzerEnvironment() == "typesystem"
+			(
+				context:GetCurrentAnalyzer()
+			--[[# as any]]):GetCurrentAnalyzerEnvironment() == "typesystem"
 		then
-			assert(self["Set" .. key:GetData():sub(2)], key:GetData() .. " is not a function")(self, val)
+			(assert(
+				(self--[[# as any]])["Set" .. (key--[[# as any]]):GetData():sub(2)],
+				(key--[[# as any]]):GetData() .. " is not a function"
+			))(self, val)
 			return true
 		end
 	end
@@ -749,30 +645,32 @@ function META:Set(key--[[#: TBaseType]], val--[[#: TBaseType | nil]], no_delete-
 		return false, error_messages.invalid_table_index(key)
 	end
 
-	if key.Type == "number" and key:IsNan() then
+	if key.Type == "number" and (key--[[# as any]]):IsNan() then
 		return false, error_messages.invalid_table_index(key)
 	end
 
 	-- delete entry
 	if not no_delete and not self:GetContract() then
 		if (not val or (val.Type == "symbol" and val:IsNil())) then
-			return self:Delete(key)
+			return self:Delete(key--[[# as any]])
 		end
 	end
 
-	if self:GetContract() and self:GetContract().Type == "table" then -- TODO
-		local keyval, reason = self:GetContract():FindKeyValWide(key)
+	local contract = self:GetContract()
 
-		if not keyval then return keyval, reason end
+	if contract and contract.Type == "table" then -- TODO
+		local keyval, reason = (contract--[[# as TTable]]):FindKeyValWide(key)
 
-		local keyval, reason = val:IsSubsetOf(keyval.val)
+		if not keyval then return (keyval--[[# as any]]), reason end
 
-		if not keyval then return keyval, reason end
+		local ok, reason = shared.IsSubsetOf(val--[[# as TBaseType]], (keyval--[[# as any]]).val)
+
+		if not ok then return ok, reason end
 	end
 
 	-- if the key exists, check if we can replace it and maybe the value
 	local keyval, reason = self:FindKeyValWide(key)
-	AddKey(self, keyval, key, val)
+	self:AddKey(keyval, key, val or Nil())
 	return true
 end
 
@@ -788,28 +686,40 @@ function META:SetExplicit(key--[[#: TBaseType]], val--[[#: TBaseType]])
 	end
 
 	-- if the key exists, check if we can replace it and maybe the value
-	AddKey(self, read_cache_no_error(self, key), key, val)
+	self:AddKey(read_cache_no_error(self, key), key, val)
 	return true
 end
 
-function META:Get(key--[[#: TBaseType | TString]])
-	if key.Type == "string" and key:IsLiteral() and key:GetData():sub(1, 1) == "@" then
-		if
-			context:GetCurrentAnalyzer() and
-			context:GetCurrentAnalyzer():GetCurrentAnalyzerEnvironment() == "typesystem"
-		then
-			return assert(self["Get" .. key:GetData():sub(2)], key:GetData() .. " is not a function")(self) or
+function META:Get(key--[[#: TBaseType]])--[[#: (TBaseType | false), (any | nil)]]
+	if
+		key.Type == "string" and
+		key:IsLiteral() and
+		(
+			key
+		--[[# as any]]):GetData():sub(1, 1) == "@"
+	then
+		local a = context:GetCurrentAnalyzer()--[[# as any]]
+
+		if a and a:GetCurrentAnalyzerEnvironment() == "typesystem" then
+			return (
+					assert(
+						(self--[[# as any]])["Get" .. (key--[[# as any]]):GetData():sub(2)],
+						(key--[[# as any]]):GetData() .. " is not a function"
+					)
+				)(self) or
 				Nil()
 		end
 	end
 
 	if key.Type == "union" then
-		if key:IsEmpty() then return false, error_messages.union_key_empty() end
+		if (key--[[# as any]]):IsEmpty() then
+			return false, error_messages.union_key_empty()
+		end
 
 		local union = Union()
 		local errors = {}
 
-		for _, k in ipairs(key:GetData()) do
+		for _, k in ipairs((key--[[# as any]]):GetData()) do
 			local obj, reason = self:Get(k)
 
 			if obj then
@@ -825,17 +735,43 @@ function META:Get(key--[[#: TBaseType | TString]])
 	end
 
 	if (key.Type == "string" or key.Type == "number") and not key:IsLiteral() then
-		local union = Union({Nil()})
+		local is_bounded = key.LengthSourceTable and key.LengthSourceTable == self
+		local union = is_bounded and Union() or Union({Nil()})
 		local found_non_literal = false
 
 		for _, keyval in ipairs(self.Data) do
 			if keyval.key.Type == "union" then
-				for _, ukey in ipairs(keyval.key:GetData()) do
-					if ukey:IsSubsetOf(key) then union:AddType(keyval.val) end
+				for _, ukey in ipairs((keyval.key--[[# as any]]):GetData()) do
+					if shared.IsSubsetOf(ukey, key) then
+						local val = keyval.val
+
+						if is_bounded and val.Type == "union" and val:IsNil() then
+							val = val:Copy()
+							val:RemoveType(Nil())
+						end
+
+						union:AddType(val)
+					end
 				end
 			elseif keyval.key.Type == key.Type or keyval.key.Type == "any" then
 				if keyval.key:IsLiteral() then
-					union:AddType(keyval.val)
+					local val = keyval.val
+
+					if is_bounded and val.Type == "union" and val:IsNil() then
+						val = val:Copy()
+						val:RemoveType(Nil())
+					end
+
+					union:AddType(val)
+				elseif is_bounded then
+					local val = keyval.val
+
+					if val.Type == "union" and val:IsNil() then
+						val = val:Copy()
+						val:RemoveType(Nil())
+					end
+
+					union:AddType(val)
 				else
 					found_non_literal = true
 
@@ -849,14 +785,26 @@ function META:Get(key--[[#: TBaseType | TString]])
 
 	if key.Type == "range" then
 		local union = Union()
-		local min, max = key:GetMin(), key:GetMax()
+		local min, max = (key--[[# as any]]):GetMin(), (key--[[# as any]]):GetMax()
 		local len = math_abs(min - max)
+		local source = key.LengthSourceTable
+		local is_bounded = source and source == self
 
 		if len == math_huge or len == -math_huge then
-			union:AddType(Nil())
+			if not is_bounded then union:AddType(Nil()) end
 
 			for _, keyval in ipairs(self.Data) do
-				if keyval.key.Type == "number" then union:AddType(keyval.val) end
+				if keyval.key.Type == "number" then
+					local val = keyval.val
+
+					-- Strip nil from the value when access is bounded by #table
+					if is_bounded and val.Type == "union" and val:IsNil() then
+						val = val:Copy()
+						val:RemoveType(Nil())
+					end
+
+					union:AddType(val)
+				end
 			end
 
 			return union
@@ -869,7 +817,14 @@ function META:Get(key--[[#: TBaseType | TString]])
 
 			if not res then res = Nil() end
 
-			union:AddType(res)
+			if is_bounded and res and res.Type == "union" then
+				res = res:Copy()
+				res:RemoveOneType(Nil())
+			elseif is_bounded and res and res.Type == "symbol" and res:GetData() == nil then
+				res = nil
+			end
+
+			if res then union:AddType(res) end
 		end
 
 		return union
@@ -887,12 +842,14 @@ function META:Get(key--[[#: TBaseType | TString]])
 
 	local keyval, reason = self:FindKeyValWide(key)
 
-	if keyval then return keyval.val end
+	if keyval then return (keyval--[[# as any]]).val end
 
-	if self:GetContract() then
-		local keyval, reason = self:GetContract():FindKeyValWide(key)
+	local contract = self:GetContract()
 
-		if keyval then return keyval.val end
+	if contract and contract.Type == "table" then
+		local keyval, reason = (contract--[[# as TTable]]):FindKeyValWide(key)
+
+		if keyval then return (keyval--[[# as any]]).val end
 
 		return false, reason
 	end
@@ -908,29 +865,34 @@ function META:IsNumericallyIndexed()
 	return true
 end
 
-function META:CopyLiteralness(from)
+function META:CopyLiteralness(from, map)--[[#: TTable]]
 	if from.Type ~= self.Type then return self end
 
-	if self:Equal(from) then return self end
+	if shared.Equal(self, from) then return self end
 
-	local self = self:Copy()
+	map = map or {}
+
+	if map[from] then return map[from] end
+
+	local copy = self:Copy()
+	map[from] = copy
 
 	for _, keyval_from in ipairs(from:GetData()) do
-		local keyval, reason = self:FindKeyValExact(keyval_from.key)
+		local keyval = copy:FindKeyValExact(keyval_from.key)
 
 		if keyval then
-			keyval.key = keyval.key:CopyLiteralness(keyval_from.key)
-			keyval.val = keyval.val:CopyLiteralness(keyval_from.val)
+			keyval.key = (keyval.key--[[# as any]]):CopyLiteralness(keyval_from.key, map)
+			keyval.val = (keyval.val--[[# as any]]):CopyLiteralness(keyval_from.val, map)
 		end
 	end
 
-	return self
+	return copy--[[# as TTable]]
 end
 
 function META:CopyLiteralness2(from)
 	if from.Type ~= self.Type then return self end
 
-	if self:Equal(from) then return self end
+	if shared.Equal(self, from) then return self end
 
 	local ref_map = {[from] = self}
 
@@ -939,7 +901,7 @@ function META:CopyLiteralness2(from)
 
 		if keyval then
 			self:Delete(keyval.key)
-			AddKey(self, nil, keyval_from.key:Copy(ref_map), keyval_from.val:Copy(ref_map))
+			self:AddKey(nil, keyval_from.key:Copy(ref_map), keyval_from.val:Copy(ref_map))
 		end
 	end
 
@@ -984,36 +946,29 @@ function META:Copy(map--[[#: Map<|any, any|> | nil]], copy_tables)
 	local copy = META.New()
 	map[self] = copy -- map any lua references from self to this new copy
 	for i, keyval in ipairs(self.Data) do
-		local k = copy_val(keyval.key, map, copy_tables)
-		local v = copy_val(keyval.val, map, copy_tables)
-		copy.Data[i] = {key = k, val = v}
-		write_cache(copy, k, copy.Data[i])
+		local k = copy_val(keyval.key, map, copy_tables)--[[# as TBaseType]]
+		local v = copy_val(keyval.val, map, copy_tables)--[[# as TBaseType]]
+		local d = copy.Data--[[# as any]]
+		d[i] = {key = k, val = v}--[[# as any]]
+		write_cache(copy, k, d[i])
 	end
 
 	copy:CopyInternalsFrom(self)
-
-	if self.Self then
-		local tbl = self.Self
-		local m, c = tbl.MetaTable, tbl.Contract
-		tbl.MetaTable = false
-		tbl.Contract = false
-		local tbl_copy = copy_val(self.Self, map, copy_tables)
-		tbl.MetaTable = m
-		tbl.Contract = c
-		copy:SetSelf(tbl_copy)
-	end
-
-	copy.Self2 = self.Self2
-	copy.MetaTable = self.MetaTable --copy_val(self.MetaTable, map, copy_tables)
-	copy.Contract = self:GetContract() --copy_val(self.Contract, map, copy_tables)
+	copy.MetaTable = self.MetaTable
+	copy.Contract = self.Contract
 	copy:SetAnalyzerEnvironment(self:GetAnalyzerEnvironment())
-	copy.PotentialSelf = copy_val(self.PotentialSelf, map, copy_tables)
 	copy.mutations = self.mutations or false
 	copy:SetCreationScope(self:GetCreationScope())
-	copy.BaseTable = self.BaseTable
 	copy.UniqueID = self.UniqueID
 	copy:SetName(self:GetName())
 	copy:SetTypeOverride(self:GetTypeOverride())
+	copy:SetReferenceId(self:GetReferenceId())
+	copy:SetMutationLimit(self:GetMutationLimit())
+
+	if self:GetSelfArgument() then
+		copy:SetSelfArgument(self:GetSelfArgument():Copy(map, copy_tables))
+	end
+
 	return copy
 end
 
@@ -1030,11 +985,17 @@ function META:PopContract()
 end
 
 function META:HasLiteralKeys()
-	if self.suppress then return true end
+	if self:IsSuppressed() then return true end
 
 	local contract = self:GetContract()
 
-	if contract and contract ~= self and not contract:HasLiteralKeys() then
+	if
+		contract and
+		contract ~= self and
+		not (
+			contract
+		--[[# as TTable]]):HasLiteralKeys()
+	then
 		return false
 	end
 
@@ -1045,9 +1006,9 @@ function META:HasLiteralKeys()
 			v.val.Type ~= "function" and
 			v.key.Type ~= "function"
 		then
-			self.suppress = true
+			self:PushSuppress()
 			local ok, reason = v.key:IsLiteral()
-			self.suppress = false
+			self:PopSuppress()
 
 			if not ok then return false end
 		end
@@ -1057,7 +1018,7 @@ function META:HasLiteralKeys()
 end
 
 function META:IsLiteral()
-	if self.suppress then return true end
+	if self:IsSuppressed() then return true end
 
 	if self:GetContract() then return false end
 
@@ -1068,15 +1029,15 @@ function META:IsLiteral()
 			v.val.Type ~= "function" and
 			v.key.Type ~= "function"
 		then
-			self.suppress = true
+			self:PushSuppress()
 			local ok, reason = v.key:IsLiteral()
-			self.suppress = false
+			self:PopSuppress()
 
 			if not ok then return false end
 
-			self.suppress = true
+			self:PushSuppress()
 			local ok, reason = v.val:IsLiteral()
-			self.suppress = false
+			self:PopSuppress()
 
 			if not ok then return false end
 		end
@@ -1121,22 +1082,6 @@ function META.Union(a--[[#: TTable]], b--[[#: TTable]])
 	end
 
 	return copy
-end
-
-function META.LogicalComparison(l, r, op, env)
-	if op == "==" then
-		if env == "runtime" then
-			if l:GetReferenceId() and r:GetReferenceId() then
-				return l:GetReferenceId() == r:GetReferenceId()
-			end
-
-			return nil
-		elseif env == "typesystem" then
-			return l:IsSubsetOf(r) and r:IsSubsetOf(l)
-		end
-	end
-
-	return false, error_messages.binary(op, l, r)
 end
 
 do
@@ -1202,6 +1147,18 @@ do
 	function META:ClearMutations()
 		self.mutations = false
 		self.mutationsi = false
+	end
+
+	function META:ClearTrackedMutations()
+		if not self:HasMutations() then return end
+
+		for _, mutations in ipairs(self:GetMutationsi()) do
+			for i = #mutations, 1, -1 do
+				local mut = mutations[i]
+
+				if mut.from_tracking then table.remove(mutations, i) end
+			end
+		end
 	end
 
 	function META:SetMutations(tbl)
@@ -1347,24 +1304,25 @@ function META.New()
 		UniqueID = false,
 		Name = false,
 		Self = false,
-		Self2 = false,
-		LiteralDataCache = {},
+		literal_data_cache = {},
 		Contracts = {},
 		TypeOverride = false,
-		suppress = false,
 		mutations = false,
-		PotentialSelf = false,
+		potential_self = false,
 		string_metatable = false,
 		size = false,
 		disabled_unique_id = false,
 		co_func = false,
 		func = false,
-		BaseTable = false,
 		ReferenceId = false,
 		MetaTable = false,
 		Contract = false,
 		MutationLimit = 100,
+		mutationsi = false,
 	}
 end
 
-return {Table = META.New}
+return {
+	TTable = TTable,
+	Table = META.New,
+}

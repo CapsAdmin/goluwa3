@@ -110,10 +110,10 @@ elseif jit.arch ~= "Windows" then
 		else
 			ffi.cdef("unsigned long syscall(int number, ...);")
 			local arch = jit.arch
-			stat_func = function(path, buff)
+			stat_func = function(path--[[#: string]], buff--[[#: any]])
 				return ffi.C.syscall(arch == "x64" and 4 or 195, path, buff)
 			end
-			stat_func_link = function(path, buff)
+			stat_func_link = function(path--[[#: string]], buff--[[#: any]])
 				return ffi.C.syscall(arch == "x64" and 6 or 196, path, buff)
 			end
 		end
@@ -152,7 +152,7 @@ elseif jit.arch ~= "Windows" then
 		do
 			local buff = statbox()
 
-			function fs.get_type(path)
+			function fs.get_type(path--[[#: string]])
 				if stat_func(path, buff) == 0 then
 					return bit_band(buff[0].st_mode, DIRECTORY) ~= 0 and "directory" or "file"
 				end
@@ -587,17 +587,17 @@ else
 	end
 end
 
-function fs.is_directory(path)
+function fs.is_directory(path--[[#: string]])
 	local type = fs.get_type(path)
 	return type == "directory"
 end
 
-function fs.is_file(path)
+function fs.is_file(path--[[#: string]])
 	local type = fs.get_type(path)
 	return type == "file"
 end
 
-function fs.exists(path)
+function fs.exists(path--[[#: string]])
 	local type = fs.get_type(path)
 	return type ~= nil
 end
@@ -635,10 +635,7 @@ function fs.read(path)
 
 	local content = f:read("*all")
 
-	if content == nil then
-		f:close()
-		return nil, "file is empty"
-	end
+	if content == nil then content = "" end
 
 	f:close()
 	return content

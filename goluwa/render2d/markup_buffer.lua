@@ -1,7 +1,7 @@
-local prototype = require("prototype")
-local utf8 = require("utf8")
+local prototype = import("goluwa/prototype.lua")
+local utf8 = import("goluwa/utf8.lua")
 local MarkupBuffer = prototype.CreateTemplate("markup_buffer")
-MarkupBuffer.Base = require("sequence_buffer")
+MarkupBuffer.Base = import("goluwa/sequence_buffer.lua")
 
 function MarkupBuffer.New(str_or_chunks, markup_obj)
 	local self = MarkupBuffer:CreateObject{

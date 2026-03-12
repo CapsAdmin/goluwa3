@@ -1,5 +1,5 @@
 local ffi = require("ffi")
-local vk = require("bindings.vk")
+local vk = import("goluwa/bindings/vk.lua")
 local vulkan = {}
 vulkan.ext = {}
 vulkan.vk = vk

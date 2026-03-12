@@ -1,4 +1,4 @@
-local vfs = require("filesystem.vfs")
+local vfs = import("goluwa/filesystem/vfs.lua")
 
 function vfs.GetFiles(info)
 	local out = {}

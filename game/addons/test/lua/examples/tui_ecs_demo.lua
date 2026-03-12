@@ -8,11 +8,11 @@ _G.HOTRELOAD = false
 -- then type: runfile("game/addons/test/lua/examples/tui_ecs_demo.lua")
 --
 -- Ctrl+C returns to the REPL.
-local TuiPanel = require("ecs.tui_panel")
-local Vec2 = require("structs.vec2")
-local event = require("event")
-local repl = require("repl")
-local Rect = require("structs.rect")
+local TuiPanel = import("goluwa/ecs/tui_panel.lua")
+local Vec2 = import("goluwa/structs/vec2.lua")
+local event = import("goluwa/event.lua")
+local repl = import("goluwa/repl.lua")
+local Rect = import("goluwa/structs/rect.lua")
 
 -- ── helpers ────────────────────────────────────────────────────────────────
 -- Shorthand that always adds transform + tui_element + layout to the component

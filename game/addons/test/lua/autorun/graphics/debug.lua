@@ -1,13 +1,13 @@
-local event = require("event")
-local render = require("render.render")
-local system = require("system")
-local input = require("input")
-local render2d = require("render2d.render2d")
-local gfx = require("render2d.gfx")
-local render3d = require("render3d.render3d")
-local Model = require("ecs.components.3d.model").Library
-local window = require("window")
-local fonts = require("render2d.fonts")
+local event = import("goluwa/event.lua")
+local render = import("goluwa/render/render.lua")
+local system = import("goluwa/system.lua")
+local input = import("goluwa/input.lua")
+local render2d = import("goluwa/render2d/render2d.lua")
+local gfx = import("goluwa/render2d/gfx.lua")
+local render3d = import("goluwa/render3d/render3d.lua")
+local Model = import("goluwa/ecs/components/3d/model.lua").Library
+local window = import("goluwa/window.lua")
+local fonts = import("goluwa/render2d/fonts.lua")
 -- Debug: Show debug info
 local show_debug_info = false
 local font = fonts.New{Name = "Roboto", Weight = "Regular", Size = 20}

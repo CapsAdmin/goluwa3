@@ -1,8 +1,8 @@
 local path = ...
 require("goluwa.global_environment")
-local fs = require("fs")
-local process = require("bindings.process")
+local fs = import("goluwa/fs.lua")
+local process = import("goluwa/bindings/process.lua")
 
 if process.from_id(tonumber(fs.read_file(".running_pid"))) then return end
 
-require("filewatcher").Reload(path, true)
+import("goluwa/filewatcher.lua").Reload(path, true)

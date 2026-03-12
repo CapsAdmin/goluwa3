@@ -1,6 +1,6 @@
-local vfs = require("vfs")
-local resource = require("resource")
-local callback = require("callback")
+local vfs = import("goluwa/vfs.lua")
+local resource = import("goluwa/resource.lua")
+local callback = import("goluwa/callback.lua")
 return function(steam)
 	local texture_paths = {
 		basetexture = true,

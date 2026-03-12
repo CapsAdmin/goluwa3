@@ -1,4 +1,4 @@
-local fs = require("bindings.filesystem")
+local fs = import("goluwa/bindings/filesystem.lua")
 
 function fs.write_file(path, data)
 	local file, err = io.open(path, "wb")
@@ -372,7 +372,7 @@ end
 do
 	fs.SetWorkingDirectory = fs.set_current_directory
 	fs.GetWorkingDirectory = fs.get_current_directory
-	require("utility").MakePushPopFunction(fs, "WorkingDirectory")
+	import("goluwa/utility.lua").MakePushPopFunction(fs, "WorkingDirectory")
 end
 
 fs.GetAttributes = fs.get_attributes
@@ -380,7 +380,7 @@ fs.GetAttributes = fs.get_attributes
 do
 	local ffi = require("ffi")
 	local bit = require("bit")
-	local event = require("event")
+	local event = import("goluwa/event.lua")
 
 	if jit.os == "Linux" then
 		function fs.watch(path, callback, recursive)

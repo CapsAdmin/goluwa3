@@ -1,6 +1,6 @@
-local T = require("test.environment")
-local Panel = require("ecs.panel")
-local Vec2 = require("structs.vec2")
+local T = import("test/environment.lua")
+local Panel = import("goluwa/ecs/panel.lua")
+local Vec2 = import("goluwa/structs/vec2.lua")
 
 T.Test("panel children parenting via constructor", function()
 	local child = Panel.New({Name = "Child"})

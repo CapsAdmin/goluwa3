@@ -1,7 +1,7 @@
 -- Comprehensive test suite for goluwa/event.lua
 -- Some tests are designed to fail to highlight strange behaviors/bugs.
-local T = require("test.environment")
-local event = require("event")
+local T = import("test/environment.lua")
+local event = import("goluwa/event.lua")
 
 T.Test("Basic Event Call", function()
 	local called = 0

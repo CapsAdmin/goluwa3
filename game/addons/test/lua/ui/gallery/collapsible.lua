@@ -1,8 +1,8 @@
-local Vec2 = require("structs.vec2")
-local Text = require("ui.elements.text")
-local Column = require("ui.elements.column")
-local Button = require("ui.elements.button")
-local Collapsible = require("ui.elements.collapsible")
+local Vec2 = import("goluwa/structs/vec2.lua")
+local Text = import("../elements/text.lua")
+local Column = import("../elements/column.lua")
+local Button = import("../elements/button.lua")
+local Collapsible = import("../elements/collapsible.lua")
 return {
 	Name = "collapsible",
 	Create = function()

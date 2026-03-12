@@ -1,13 +1,13 @@
-local Polygon3D = require("render3d.polygon_3d")
-local Texture = require("render.texture")
-local Material = require("render3d.material")
-local Vec3 = require("structs.vec3")
-local Vec2 = require("structs.vec2")
-local Color = require("structs.color")
-local utility = require("utility")
-local transform = require("ecs.components.3d.transform")
-local model = require("ecs.components.3d.model")
-local Entity = require("ecs.entity")
+local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
+local Texture = import("goluwa/render/texture.lua")
+local Material = import("goluwa/render3d/material.lua")
+local Vec3 = import("goluwa/structs/vec3.lua")
+local Vec2 = import("goluwa/structs/vec2.lua")
+local Color = import("goluwa/structs/color.lua")
+local utility = import("goluwa/utility.lua")
+local transform = import("goluwa/ecs/components/3d/transform.lua")
+local model = import("goluwa/ecs/components/3d/model.lua")
+local Entity = import("goluwa/ecs/entity.lua")
 local HEADER = [[
 float n2D(vec2 p) {
 	vec2 i = floor(p); p -= i; 
@@ -208,7 +208,7 @@ end
 -- Run it
 if _G.desert_ent then _G.desert_ent:Remove() end
 
-require("timer").Delay(0.2, function()
+import("goluwa/timer.lua").Delay(0.2, function()
 	_G.desert_ent = CreateDesertTerrain()
 	print("Desert terrain created!")
 end)

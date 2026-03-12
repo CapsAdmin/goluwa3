@@ -1,5 +1,5 @@
-local T = require("test.environment")
-local Vec3 = require("structs.vec3")
+local T = import("test/environment.lua")
+local Vec3 = import("goluwa/structs/vec3.lua")
 
 T.Test("Vec3 construction", function()
 	local v = Vec3(1, 2, 3)

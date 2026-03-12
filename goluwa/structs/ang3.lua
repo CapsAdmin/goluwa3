@@ -1,6 +1,6 @@
-local Vec3 = require("structs.vec3")
-local structs = require("structs.structs")
-local orientation = require("render3d.orientation")
+local Vec3 = import("goluwa/structs/vec3.lua")
+local structs = import("goluwa/structs/structs.lua")
+local orientation = import("goluwa/render3d/orientation.lua")
 local META = structs.Template("Ang3")
 local CTOR
 

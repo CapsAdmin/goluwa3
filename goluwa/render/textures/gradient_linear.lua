@@ -1,4 +1,4 @@
-local Texture = require("render.texture")
+local Texture = import("goluwa/render/texture.lua")
 local tex = Texture.New{
 	width = 256,
 	height = 1,

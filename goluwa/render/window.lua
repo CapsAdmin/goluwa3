@@ -1,7 +1,7 @@
-local window = require("window")
-local event = require("event")
-local system = require("system")
-local input = require("input")
+local window = import("goluwa/window.lua")
+local event = import("goluwa/event.lua")
+local system = import("goluwa/system.lua")
+local input = import("goluwa/input.lua")
 local wnd = window.Open()
 wnd:SetMouseTrapped(false)
 

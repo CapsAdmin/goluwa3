@@ -1,6 +1,6 @@
-local T = require("test.environment")
-local prototype = require("prototype")
-local Vec2 = require("structs.vec2")
+local T = import("test/environment.lua")
+local prototype = import("goluwa/prototype.lua")
+local Vec2 = import("goluwa/structs/vec2.lua")
 
 T.Test("prototype property callback stabilizer", function()
 	local META = prototype.CreateTemplate("test_stabilizer")

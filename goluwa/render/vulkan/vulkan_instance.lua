@@ -1,16 +1,16 @@
 local ffi = require("ffi")
-local prototype = require("prototype")
-local vulkan = require("render.vulkan.internal.vulkan")
-local Instance = require("render.vulkan.internal.instance")
-local Device = require("render.vulkan.internal.device")
-local PhysicalDevice = require("render.vulkan.internal.physical_device")
-local Buffer = require("render.vulkan.internal.buffer")
-local CommandPool = require("render.vulkan.internal.command_pool")
-local Surface = require("render.vulkan.internal.surface")
-local GraphicsPipeline = require("render.vulkan.graphics_pipeline")
-local ComputePipeline = require("render.vulkan.compute_pipeline")
-local OcclusionQuery = require("render.vulkan.internal.occlusion_query")
-local process = require("bindings.process")
+local prototype = import("goluwa/prototype.lua")
+local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
+local Instance = import("goluwa/render/vulkan/internal/instance.lua")
+local Device = import("goluwa/render/vulkan/internal/device.lua")
+local PhysicalDevice = import("goluwa/render/vulkan/internal/physical_device.lua")
+local Buffer = import("goluwa/render/vulkan/internal/buffer.lua")
+local CommandPool = import("goluwa/render/vulkan/internal/command_pool.lua")
+local Surface = import("goluwa/render/vulkan/internal/surface.lua")
+local GraphicsPipeline = import("goluwa/render/vulkan/graphics_pipeline.lua")
+local ComputePipeline = import("goluwa/render/vulkan/compute_pipeline.lua")
+local OcclusionQuery = import("goluwa/render/vulkan/internal/occlusion_query.lua")
+local process = import("goluwa/bindings/process.lua")
 
 if jit.os == "OSX" then
 	local VULKAN_SDK = "/Users/caps/VulkanSDK/1.4.328.1"
@@ -163,7 +163,7 @@ function VulkanInstance:CreateBuffer(config)
 end
 
 function VulkanInstance:CreateWindowRenderTarget(config)
-	local ImageRenderTarget = require("render.vulkan.image_rendertarget")
+	local ImageRenderTarget = import("goluwa/render/vulkan/image_rendertarget.lua")
 	return ImageRenderTarget.New(self, config)
 end
 

@@ -1,8 +1,8 @@
 local ffi = require("ffi")
-local prototype = require("prototype")
-local vulkan = require("render.vulkan.internal.vulkan")
+local prototype = import("goluwa/prototype.lua")
+local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 local CommandPool = prototype.CreateTemplate("vulkan_command_pool")
-CommandPool.AllocateCommandBuffer = require("render.vulkan.internal.command_buffer").New
+CommandPool.AllocateCommandBuffer = import("goluwa/render/vulkan/internal/command_buffer.lua").New
 
 function CommandPool.New(device, graphicsQueueFamily)
 	local info = vulkan.vk.s.CommandPoolCreateInfo{

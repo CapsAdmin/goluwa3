@@ -1,7 +1,7 @@
 -- JPEG decoder ported from jpeg-js (https://github.com/eugeneware/jpeg-js)
 -- Original JavaScript code is MIT licensed
 local ffi = require("ffi")
-local Buffer = require("structs.buffer")
+local Buffer = import("goluwa/structs/buffer.lua")
 local jpg = library()
 jpg.file_extensions = {"jpg", "jpeg"}
 local bit_band = bit.band

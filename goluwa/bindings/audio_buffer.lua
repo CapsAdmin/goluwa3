@@ -417,7 +417,7 @@ elseif ffi.os == "Linux" then
 
 	-- Fill and write one buffer. Blocks until the hardware accepts it (~buffer_size/sample_rate seconds).
 	-- Call this in a loop to drive audio from the main thread, or run the loop
-	-- inside a thread via require("bindings.threads").run_thread / threads.new.
+	-- inside a thread via import("goluwa/bindings/threads.lua").run_thread / threads.new.
 	function audio.update()
 		local config = audio._config
 		local nsamples = config.buffer_size * config.channels

@@ -1094,9 +1094,7 @@ local function load_security_framework_tls()
 		end
 
 		local function send(data_str)
-			if state ~= "connected" then
-				return nil, "context not connected"
-			end
+			if state ~= "connected" then return nil, "context not connected" end
 
 			local processed = ffi.new("size_t[1]")
 			local data_len = #data_str
@@ -1112,9 +1110,7 @@ local function load_security_framework_tls()
 		end
 
 		local function receive(buffer_ptr, buffer_size)
-			if state ~= "connected" then
-				return nil, "context not connected"
-			end
+			if state ~= "connected" then return nil, "context not connected" end
 
 			local processed = ffi.new("size_t[1]")
 			local status = lib.SSLRead(ctx, buffer_ptr, buffer_size, processed)

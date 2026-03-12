@@ -1,4 +1,4 @@
-local output = require("output")
+local output = import("goluwa/output.lua")
 local list_concat = table.concat
 local select = select
 local logging = library()
@@ -102,7 +102,7 @@ function logging.WarningLog(fmt, ...)
 end
 
 do
-	local codec = require("codec")
+	local codec = import("goluwa/codec.lua")
 
 	function logging.VariablePrint(...)
 		logf("%s:\n", debug.getinfo(logging.SourceLevel() + 1, "n").name or "unknown")
@@ -126,7 +126,7 @@ do
 end
 
 do -- nospam
-	local system = require("system")
+	local system = import("goluwa/system.lua")
 	local last = {}
 
 	function logging.LogFormatNoSpam(str, ...)

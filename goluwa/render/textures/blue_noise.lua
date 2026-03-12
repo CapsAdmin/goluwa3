@@ -1,4 +1,4 @@
-local Texture = require("render.texture")
+local Texture = import("goluwa/render/texture.lua")
 local tex
 return function()
 	if tex then return tex end

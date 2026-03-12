@@ -1,14 +1,14 @@
-local T = require("test.environment")
+local T = import("test/environment.lua")
 local ffi = require("ffi")
-local render = require("render.render")
-local render3d = require("render3d.render3d")
-local Polygon3D = require("render3d.polygon_3d")
-local Material = require("render3d.material")
-local Vec3 = require("structs.vec3")
-local Rect = require("structs.rect")
-local Quat = require("structs.quat")
-local Color = require("structs.color")
-local Entity = require("ecs.entity")
+local render = import("goluwa/render/render.lua")
+local render3d = import("goluwa/render3d/render3d.lua")
+local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
+local Material = import("goluwa/render3d/material.lua")
+local Vec3 = import("goluwa/structs/vec3.lua")
+local Rect = import("goluwa/structs/rect.lua")
+local Quat = import("goluwa/structs/quat.lua")
+local Color = import("goluwa/structs/color.lua")
+local Entity = import("goluwa/ecs/entity.lua")
 local width, height = 512, 512
 
 local function spawn_sphere(pos, use_occlusion)
@@ -55,7 +55,7 @@ T.Test3D("culling and occlusion", function(draw)
 	end)
 
 	T.Test3D("occlusion culling", function(draw)
-		require("ecs.components.3d.model").Library.SetOcclusionCulling(true)
+		import("goluwa/ecs/components/3d/model.lua").Library.SetOcclusionCulling(true)
 		-- Spawn a large occluder in front
 		local occluder_ent, occluder_mdl = spawn_sphere(Vec3(0, 0, -5))
 		occluder_ent.transform:SetScale(Vec3(5, 5, 1))
@@ -67,7 +67,7 @@ T.Test3D("culling and occlusion", function(draw)
 		T(occludee_mdl.using_conditional_rendering)["=="](true)
 		-- Second frame: should use results from first frame
 		draw()
-		local stats = require("ecs.components.3d.model").Library.GetOcclusionStats()
+		local stats = import("goluwa/ecs/components/3d/model.lua").Library.GetOcclusionStats()
 		--print("Occlusion stats:", stats.total, stats.with_occlusion, stats.submitted_with_conditional)
 		-- We can't easily check if the GPU actually culled it, 
 		-- but we can check if it was submitted with conditional rendering.

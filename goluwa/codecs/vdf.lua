@@ -1,5 +1,5 @@
-local Color = require("structs.color")
-local Vec3 = require("structs.vec3")
+local Color = import("goluwa/structs/color.lua")
+local Vec3 = import("goluwa/structs/vec3.lua")
 local vdf = library()
 
 local function check_condition(cond)

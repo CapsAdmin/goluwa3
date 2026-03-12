@@ -1,9 +1,9 @@
-local socket = require("socket")
-local copas = require("copas")
-local tools = require("sockets.websocket.tools")
-local frame = require("sockets.websocket.frame")
-local handshake = require("sockets.websocket.handshake")
-local sync = require("sockets.websocket.sync")
+local socket = import("goluwa/socket.lua")
+local copas = import("goluwa/copas.lua")
+local tools = import("goluwa/sockets/websocket/tools.lua")
+local frame = import("goluwa/sockets/websocket/frame.lua")
+local handshake = import("goluwa/sockets/websocket/handshake.lua")
+local sync = import("goluwa/sockets/websocket/sync.lua")
 local tconcat = table.concat
 local tinsert = table.insert
 local clients = {}
@@ -35,7 +35,7 @@ local client = function(sock, protocol)
 	return self
 end
 local listen = function(opts)
-	local copas = require("copas")
+	local copas = import("goluwa/copas.lua")
 	assert(opts and (opts.protocols or opts.default))
 	local on_error = opts.on_error or function(s)
 		print(s)

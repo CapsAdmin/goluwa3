@@ -1,7 +1,7 @@
-local event = require("event")
-local orientation = require("render3d.orientation")
-local Material = require("render3d.material")
-local render3d = require("render3d.render3d")
+local event = import("goluwa/event.lua")
+local orientation = import("goluwa/render3d/orientation.lua")
+local Material = import("goluwa/render3d/material.lua")
+local render3d = import("goluwa/render3d/render3d.lua")
 return {
 	{
 		name = "gbuffer",

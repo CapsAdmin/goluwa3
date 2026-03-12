@@ -1,10 +1,10 @@
-local callback = require("callback")
-local event = require("event")
-local tasks = require("tasks")
-local codec = require("codec")
-local timer = require("timer")
+local callback = import("goluwa/callback.lua")
+local event = import("goluwa/event.lua")
+local tasks = import("goluwa/tasks.lua")
+local codec = import("goluwa/codec.lua")
+local timer = import("goluwa/timer.lua")
 local http = library()
-package.loaded["sockets.http"] = http
+import.loaded["goluwa/sockets/http.lua"] = http
 http.MimeToExtension = {
 	["audio/aac"] = "aac",
 	["application/x-abiword"] = "abw",
@@ -340,8 +340,8 @@ function http.HTTPResponse(code, status, header, body)
 	return str
 end
 
-require("sockets.http.request")
-require("sockets.http.api")
-require("sockets.http.uri")
-require("sockets.http.download")
+import("goluwa/sockets/http/request.lua")
+import("goluwa/sockets/http/api.lua")
+import("goluwa/sockets/http/uri.lua")
+import("goluwa/sockets/http/download.lua")
 return http

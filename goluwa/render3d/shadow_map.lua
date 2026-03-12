@@ -1,14 +1,14 @@
 local ffi = require("ffi")
-local render = require("render.render")
+local render = import("goluwa/render/render.lua")
 local render3d = nil
-local Texture = require("render.texture")
-local Material = require("render3d.material")
-local Matrix44 = require("structs.matrix44")
-local Vec3 = require("structs.vec3")
-local Ang3 = require("structs.ang3")
-local Vec2 = require("structs.vec2")
-local Quat = require("structs.quat")
-local prototype = require("prototype")
+local Texture = import("goluwa/render/texture.lua")
+local Material = import("goluwa/render3d/material.lua")
+local Matrix44 = import("goluwa/structs/matrix44.lua")
+local Vec3 = import("goluwa/structs/vec3.lua")
+local Ang3 = import("goluwa/structs/ang3.lua")
+local Vec2 = import("goluwa/structs/vec2.lua")
+local Quat = import("goluwa/structs/quat.lua")
+local prototype = import("goluwa/prototype.lua")
 local ShadowMap = prototype.CreateTemplate("render3d_shadow_map")
 -- Default shadow map settings
 local DEFAULT_SIZE = Vec2() + 2048 --Vec2(800, 600) --Vec2() + 2048 -- Shadow map resolution
@@ -281,7 +281,7 @@ end
 -- view_camera: the main view camera to calculate frustum splits from
 -- light_rotation: quaternion rotation of the directional light
 function ShadowMap:UpdateCascadeLightMatrices(light_rotation)
-	render3d = render3d or require("render3d.render3d")
+	render3d = render3d or import("goluwa/render3d/render3d.lua")
 	local cam = render3d.GetCamera()
 	self:CalculateCascadeSplits()
 

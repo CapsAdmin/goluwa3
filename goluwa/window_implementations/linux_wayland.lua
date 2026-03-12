@@ -1,11 +1,11 @@
 local ffi = require("ffi")
-local wayland = require("bindings.wayland.core")
-local xdg_decoration = require("bindings.wayland.xdg_decoration")
-local pointer_constraints = require("bindings.wayland.pointer_constraints")
-local relative_pointer = require("bindings.wayland.relative_pointer")
-local Vec2 = require("structs.vec2")
-local system = require("system")
-local event = require("event")
+local wayland = import("goluwa/bindings/wayland/core.lua")
+local xdg_decoration = import("goluwa/bindings/wayland/xdg_decoration.lua")
+local pointer_constraints = import("goluwa/bindings/wayland/pointer_constraints.lua")
+local relative_pointer = import("goluwa/bindings/wayland/relative_pointer.lua")
+local Vec2 = import("goluwa/structs/vec2.lua")
+local system = import("goluwa/system.lua")
+local event = import("goluwa/event.lua")
 -- Expose libraries
 -- Constants
 wayland.PROT_READ = 1

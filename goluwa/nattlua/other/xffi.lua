@@ -566,7 +566,7 @@ function xffi.load_table(path--[[#: string]], tbl--[[#: ref Map<|string, any|>]]
 	return out
 end
 
-if false then -- TEST
+do -- TEST
 	local ffi = require("ffi")
 	local timespec = ffi.typeof("struct {long int tv_sec; long tv_nsec; }")
 	local funcs = xffi.load_table(

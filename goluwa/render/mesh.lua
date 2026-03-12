@@ -1,8 +1,8 @@
 local ffi = require("ffi")
-local VertexBuffer = require("render.vertex_buffer")
-local IndexBuffer = require("render.index_buffer")
-local render = require("render.render")
-local prototype = require("prototype")
+local VertexBuffer = import("goluwa/render/vertex_buffer.lua")
+local IndexBuffer = import("goluwa/render/index_buffer.lua")
+local render = import("goluwa/render/render.lua")
+local prototype = import("goluwa/prototype.lua")
 local Mesh = prototype.CreateTemplate("render_mesh")
 
 function Mesh.New(vertex_attributes, vertices, indices, index_type, index_count)
@@ -69,7 +69,7 @@ end
 
 -- Compute AABB from vertex positions
 function Mesh:ComputeAABB()
-	local AABB = require("structs.aabb")
+	local AABB = import("goluwa/structs/aabb.lua")
 	local vertices = self:GetVertices()
 
 	if not vertices or self.vertex_buffer.vertex_count == 0 then

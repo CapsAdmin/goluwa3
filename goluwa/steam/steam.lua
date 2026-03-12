@@ -1,12 +1,12 @@
-local tasks = require("tasks")
-local resource = require("resource")
-local codec = require("codec")
-local http = require("sockets.http")
+local tasks = import("goluwa/tasks.lua")
+local resource = import("goluwa/resource.lua")
+local codec = import("goluwa/codec.lua")
+local http = import("goluwa/sockets/http.lua")
 local steam = library()
 steam.source2meters = 0.01905
-require("steam.mount")(steam)
-require("steam.vmt")(steam)
-steam.VDFToTable = require("codecs.vdf").Decode
+import("goluwa/steam/mount.lua")(steam)
+import("goluwa/steam/vmt.lua")(steam)
+steam.VDFToTable = import("goluwa/codecs/vdf.lua").Decode
 
 function steam.DownloadWorkshop(id, callback, on_error, last_modified)
 	if not tonumber(id) then id = id:match("id=(%d+)") end
@@ -95,7 +95,7 @@ tasks.WrapCallback(steam, "DownloadWorkshopCollection")
 
 function steam.InitializeSteamWorks()
 	local ok, err = pcall(function()
-		local steamworks_api = require("steamworks")
+		local steamworks_api = import("goluwa/steamworks.lua")
 
 		for k, v in pairs(steamworks_api) do
 			if not steam[k] then steam[k] = v end
@@ -612,7 +612,7 @@ function steam.GetAppIdFromName(search)
 end
 
 do
-	local vfs = require("vfs")
+	local vfs = import("goluwa/vfs.lua")
 	local tbl = nil
 
 	function steam.GetSurfaceProps()

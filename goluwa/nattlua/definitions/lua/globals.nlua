@@ -41,7 +41,7 @@ analyzer function next(t: Map<|any, any|>, k: any)
 	if t:IsLiteral() then
 		if k and not (k.Type == "symbol" and k:IsNil()) then
 			for i, kv in ipairs(t:GetData()) do
-				if kv.key:IsSubsetOf(k) then
+				if shared.IsSubsetOf(kv.key, k) then
 					local kv = t:GetData()[i + 1]
 
 					if kv then
@@ -84,7 +84,7 @@ analyzer function next(t: Map<|any, any|>, k: any)
 	return k, v
 end
 
-analyzer function pairs(tbl: Table)
+analyzer function pairs(tbl: AnyTable)
 	if tbl.Type == "table" and (tbl:HasLiteralKeys() or analyzer:IsTypesystem()) then
 		local i = 1
 		return function()
@@ -114,7 +114,7 @@ analyzer function pairs(tbl: Table)
 	end
 end
 
-analyzer function ipairs(tbl: {[number] = any} | {})
+analyzer function ipairs(tbl: AnyList)
 	if tbl:IsLiteral() then
 		local i = 1
 		return function(key, val)
@@ -191,7 +191,7 @@ analyzer function require(name: string)
 
 					if analyzer.loaded_modules[path] then return analyzer.loaded_modules[path] end
 
-					local res = analyzer:AnalyzeRootStatement(analyzer:ParseFile(path))
+					local res = analyzer:AnalyzeRootStatement(analyzer:ParseFile(path), str)
 					analyzer.loaded_modules[path] = res
 					return res
 				end
@@ -207,7 +207,12 @@ analyzer function type_error(str: string, level: number | nil)
 	error(str:GetData(), level and level:GetData() or nil)
 end
 
-analyzer function load(code: string | function=()>(string | nil), chunk_name: string | nil)
+analyzer function load(
+	code: string | function=()>(string | nil),
+	chunk_name: string | nil,
+	mode: string | nil,
+	env: AnyTable | nil
+)
 	if not code:IsLiteral() or code.Type == "union" then
 		return types.Tuple{
 			types.Union{types.Nil(), types.AnyFunction()},
@@ -354,29 +359,32 @@ type pcall = ReturnIfNonLiteral<|
 		do
 			local errors = {}
 
-			for i = math.max(diagnostics_index, 1), #diagnostics do
+			for i = diagnostics_index + 1, #diagnostics do
 				local d = diagnostics[i]
 
-				if d.severity == "error" then
-					return types.Boolean(), types.Union{types.LString(d.msg), types.Any()}
-				end
+				if d.severity == "error" then return false, types.LString(d.msg) end
 			end
 		end
 
-		if
-			callable.Type ~= "function" or
-			not callable:GetFunctionBodyNode()
-			or
-			not callable:GetFunctionBodyNode()
-		then
-			return types.Boolean(), tuple
+		if callable.Type ~= "function" or not callable:GetFunctionBodyNode() then
+			return types.Union{
+				types.Tuple{types.True(), tuple},
+				types.Tuple{types.False(), types.String()},
+			}
+		end
+
+		if callable.scope and callable.scope.lua_silent_error then
+			return types.Union{
+				types.Tuple{types.True(), tuple},
+				types.Tuple{types.False(), types.String()},
+			}
 		end
 
 		return true, tuple
 	end
 |>
 type xpcall = ReturnIfNonLiteral<|
-	analyzer function(callable: Function, error_cb: function=(any)>(), ...: ...any): (boolean,
+	analyzer function(callable: Function, error_cb: function=(any)>(...any), ...: ...any): (boolean,
 	...any)
 		local diagnostics_index = #analyzer:GetDiagnostics()
 		analyzer:PushProtectedCall()
@@ -387,23 +395,35 @@ type xpcall = ReturnIfNonLiteral<|
 		do
 			local errors = {}
 
-			for i = math.max(diagnostics_index, 1), #diagnostics do
+			for i = diagnostics_index + 1, #diagnostics do
 				local d = diagnostics[i]
 
 				if d.severity == "error" then
-					analyzer:ErrorIfFalse(analyzer:Call(callable, types.Union{types.LString(d.msg)}))
-					return types.Boolean(), types.Union{types.LString(d.msg), types.Any()}
+					local _, res = analyzer:Call(error_cb, types.Tuple{types.LString(d.msg)})
+
+					if res then
+						if res.Type == "tuple" then return false, res:Get(1) end
+
+						return false, res
+					end
+
+					return false, types.LString(d.msg)
 				end
 			end
 		end
 
-		if
-			callable.Type ~= "function" or
-			not callable:GetFunctionBodyNode()
-			or
-			not callable:GetFunctionBodyNode()
-		then
-			return types.Boolean(), tuple
+		if callable.Type ~= "function" or not callable:GetFunctionBodyNode() then
+			return types.Union{
+				types.Tuple{types.True(), tuple},
+				types.Tuple{types.False(), types.String()},
+			}
+		end
+
+		if callable.scope and callable.scope.lua_silent_error then
+			return types.Union{
+				types.Tuple{types.True(), tuple},
+				types.Tuple{types.False(), types.String()},
+			}
 		end
 
 		return true, tuple
@@ -495,41 +515,7 @@ analyzer function setmetatable(tbl: Table, meta: Table | nil)
 		end
 	end
 
-	if meta.Type == "table" then
-		if meta.Self then
-			analyzer:ErrorIfFalse(tbl:FollowsContract(meta.Self))
-			tbl:CopyLiteralness2(meta.Self)
-			tbl:SetContract(meta.Self)
-			-- clear mutations so that when looking up values in the table they won't return their initial value
-			tbl:ClearMutations()
-		elseif analyzer:IsRuntime() then
-			meta.PotentialSelf = meta.PotentialSelf or types.Union()
-			meta.PotentialSelf:AddType(tbl)
-		end
-
-		tbl:SetMetaTable(meta)
-
-		if analyzer:IsTypesystem() then return tbl end
-
-		local metatable_functions = analyzer:CallTypesystemUpvalue(types.ConstString("MetaTableFunctions"), tbl)
-
-		for _, kv in ipairs(metatable_functions:GetData()) do
-			local a = kv.val
-			local b = meta:Get(kv.key)
-
-			if b and b.Type == "function" then
-				local ok = a:IsSubsetOf(b)
-
-				if ok then
-
-				--TODO: enrich callback types
-				--b:SetOutputSignature(a:GetOutputSignature())
-				--b:SetInputSignature(a:GetInputSignature())
-				--b.arguments_inferred = true
-				end
-			end
-		end
-	end
+	if meta.Type == "table" then tbl:SetMetaTable(meta) end
 
 	return tbl
 end
@@ -593,7 +579,10 @@ analyzer function tostring(val: any)
 	return tostring(val:GetData())
 end
 
-analyzer function tonumber(val: string | number | {__is_cdata_number = true}, base: number | nil)
+analyzer function tonumber(
+	val: string | number | {__is_cdata_number = true} | {__is_ctype = true},
+	base: number | nil
+)
 	if val.Type == "table" then
 		local T = val:Get(types.ConstString("T"))
 		return T or types.Number()

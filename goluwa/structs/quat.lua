@@ -1,10 +1,10 @@
-local Ang3 = require("structs.ang3")
-local Vec3 = require("structs.vec3")
-local structs = require("structs.structs")
-local orientation = require("render3d.orientation")
+local Ang3 = import("goluwa/structs/ang3.lua")
+local Vec3 = import("goluwa/structs/vec3.lua")
+local structs = import("goluwa/structs/structs.lua")
+local orientation = import("goluwa/render3d/orientation.lua")
 local META = structs.Template("Quat")
-package.loaded["structs.quat"] = META
-local Matrix44 = require("structs.matrix44")
+import.loaded["goluwa/structs/quat.lua"] = META
+local Matrix44 = import("goluwa/structs/matrix44.lua")
 local ffi = require("ffi")
 local CTOR
 META.Args = {{"x", "y", "z", "w"}}

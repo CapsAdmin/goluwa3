@@ -1,8 +1,8 @@
-local prototype = require("prototype")
-local tools = require("sockets.websocket.tools")
-local frame = require("sockets.websocket.frame")
-local handshake = require("sockets.websocket.handshake")
-local TCPClient = require("sockets.tcp_client")
+local prototype = import("goluwa/prototype.lua")
+local tools = import("goluwa/sockets/websocket/tools.lua")
+local frame = import("goluwa/sockets/websocket/frame.lua")
+local handshake = import("goluwa/sockets/websocket/handshake.lua")
+local TCPClient = import("goluwa/sockets/tcp_client.lua")
 local WebSocketClient = prototype.CreateTemplate("websocket_client")
 
 function WebSocketClient:Connect(url, ws_protocol, ssl_params)

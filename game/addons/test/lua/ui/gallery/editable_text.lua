@@ -1,7 +1,7 @@
-local Rect = require("structs.rect")
-local Text = require("ui.elements.text")
-local Column = require("ui.elements.column")
-local TextEdit = require("ui.elements.text_edit")
+local Rect = import("goluwa/structs/rect.lua")
+local Text = import("../elements/text.lua")
+local Column = import("../elements/column.lua")
+local TextEdit = import("../elements/text_edit.lua")
 return {
 	Name = "text edit",
 	Create = function()

@@ -1,6 +1,6 @@
 local ffi = require("ffi")
-local render = require("render.render")
-local prototype = require("prototype")
+local render = import("goluwa/render/render.lua")
+local prototype = import("goluwa/prototype.lua")
 local IndexBuffer = prototype.CreateTemplate("render_index_buffer")
 
 -- Convert indices to appropriate format

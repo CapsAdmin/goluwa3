@@ -1,5 +1,5 @@
-local fs = require("fs")
-local vfs = require("filesystem.vfs")
+local fs = import("goluwa/fs.lua")
+local vfs = import("goluwa/filesystem/vfs.lua")
 local USERNAME = _G.USERNAME or
 	tostring(os.getenv("USERNAME") or os.getenv("USER")):gsub(" ", "_"):gsub("%p", "")
 

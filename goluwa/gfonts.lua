@@ -1,6 +1,6 @@
-local http = require("sockets.http")
-local resource = require("resource")
-local callback = require("callback")
+local http = import("goluwa/sockets/http.lua")
+local resource = import("goluwa/resource.lua")
+local callback = import("goluwa/callback.lua")
 local gfonts = library()
 local weight_map = {
 	thin = 100,

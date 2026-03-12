@@ -1,5 +1,5 @@
 local ffi = require("ffi")
-local objc = require("bindings.objc")
+local objc = import("goluwa/bindings/objc.lua")
 local cocoa = {}
 -- Load required frameworks
 objc.loadFramework("Cocoa")

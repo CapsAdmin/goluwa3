@@ -1,6 +1,6 @@
-local T = require("test.environment")
-local http = require("sockets.http")
-local HTTPServer = require("sockets.http.http11_server")
+local T = import("test/environment.lua")
+local http = import("goluwa/sockets/http.lua")
+local HTTPServer = import("goluwa/sockets/http/http11_server.lua")
 -- Use high port numbers to avoid conflicts
 local test_port = 55000
 

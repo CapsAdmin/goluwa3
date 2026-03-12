@@ -1,4 +1,4 @@
-local bindgen = require("bindings.wayland.bindgen")
+local bindgen = import("goluwa/bindings/wayland/bindgen.lua")
 
 do
 	local f = io.open("goluwa/bindings/wayland/wayland.lua", "w")

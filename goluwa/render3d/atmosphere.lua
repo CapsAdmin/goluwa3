@@ -1,7 +1,7 @@
 -- Atmosphere / Sky rendering GLSL code
 -- Extracted from skybox.lua for reuse in reflection probes and main rendering
 local atmosphere = {}
-local Vec3 = require("structs.vec3")
+local Vec3 = import("goluwa/structs/vec3.lua")
 -- Configuration
 atmosphere.USE_TEMPLE = false
 atmosphere.stars_texture = nil
@@ -15,7 +15,7 @@ function atmosphere.GetStarsTexture()
 end
 
 function atmosphere.GetGLSLCode()
-	return require("render3d.atmospheres.nishita") .. require("render3d.atmospheres.night_sky")
+	return import("goluwa/render3d/atmospheres/nishita.lua") .. import("goluwa/render3d/atmospheres/night_sky.lua")
 end
 
 function atmosphere.GetGLSLMainCode(dir_var, sun_dir_var, cam_pos_var, stars_texture_index_var)

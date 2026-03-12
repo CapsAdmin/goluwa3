@@ -1,9 +1,9 @@
-local socket = require("socket")
-local sync = require("websocket.sync")
-local tools = require("websocket.tools")
+local socket = import("goluwa/socket.lua")
+local sync = import("goluwa/websocket/sync.lua")
+local tools = import("goluwa/websocket/tools.lua")
 local new = function(ws)
 	ws = ws or {}
-	local copas = require("copas")
+	local copas = import("goluwa/copas.lua")
 	local self = {}
 	self.sock_connect = function(self, host, port)
 		self.sock = socket.tcp()

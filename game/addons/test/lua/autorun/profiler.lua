@@ -1,5 +1,5 @@
-local commands = require("commands")
-local Profiler = require("profiler")
+local commands = import("goluwa/commands.lua")
+local Profiler = import("goluwa/profiler.lua")
 local started = false
 
 commands.Add("profile", function()

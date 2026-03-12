@@ -1,8 +1,8 @@
-local system = require("system")
-local easing = require("helpers.easing")
-local spring = require("helpers.spring")
-local list = require("helpers.list")
-local event = require("event")
+local system = import("goluwa/system.lua")
+local easing = import("goluwa/helpers/easing.lua")
+local spring = import("goluwa/helpers/spring.lua")
+local list = import("goluwa/helpers/list.lua")
+local event = import("goluwa/event.lua")
 local animations = library()
 animations.Groups = animations.Groups or {}
 

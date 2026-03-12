@@ -1,4 +1,4 @@
-local chatsounds = require("chatsounds.chatsounds")
+local chatsounds = import("goluwa/chatsounds/chatsounds.lua")
 
 chatsounds.LoadRepositories():Then(function()
 	chatsounds.Say([[

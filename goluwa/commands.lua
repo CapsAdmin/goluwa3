@@ -1,7 +1,7 @@
-local utf8 = require("utf8")
-local event = require("event")
-local tasks = require("tasks")
-local prototype = require("prototype")
+local utf8 = import("goluwa/utf8.lua")
+local event = import("goluwa/event.lua")
+local tasks = import("goluwa/tasks.lua")
+local prototype = import("goluwa/prototype.lua")
 local commands = library()
 
 do
@@ -940,7 +940,7 @@ do -- commands
 			return
 		end
 
-		local pvars = require("pvars")
+		local pvars = import("goluwa/pvars.lua")
 
 		if pvars then
 			local key, val = line:match("^([%w_]+)%s+(.+)")
@@ -981,7 +981,7 @@ do -- commands
 		if not args or not args[1] then return end
 
 		local line = join_args(args, " ")
-		local pvars = require("pvars")
+		local pvars = import("goluwa/pvars.lua")
 
 		if pvars then
 			local key, val = line:match("^([%w_]+)%s+(.+)")

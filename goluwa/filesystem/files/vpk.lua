@@ -1,10 +1,10 @@
-local vfs = require("filesystem.vfs")
-local prototype = require("prototype")
+local vfs = import("goluwa/filesystem/vfs.lua")
+local prototype = import("goluwa/prototype.lua")
 local CONTEXT = prototype.CreateTemplate("file_system_vpk")
 CONTEXT.Name = "valve package"
 CONTEXT.NameEndsWith = "_dir"
 CONTEXT.Extension = "vpk"
-CONTEXT.Base = require("filesystem.files.generic_archive")
+CONTEXT.Base = import("goluwa/filesystem/files/generic_archive.lua")
 
 function CONTEXT:OnParseArchive(file, archive_path)
 	file:ReadStructure([[

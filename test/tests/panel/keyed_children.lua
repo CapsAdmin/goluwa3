@@ -1,5 +1,5 @@
-local T = require("test.environment")
-local Panel = require("ecs.panel")
+local T = import("test/environment.lua")
+local Panel = import("goluwa/ecs/panel.lua")
 
 T.Test("panel keyed children basic", function()
 	local parent = Panel.New{
@@ -39,9 +39,9 @@ T.Test("panel keyed children cleanup", function()
 end)
 
 T.Test("panel removal unparents", function()
-	local parent = require("ecs.panel").World
+	local parent = import("goluwa/ecs/panel.lua").World
 	local original_count = #parent:GetChildren()
-	local child = require("ecs.panel").New{
+	local child = import("goluwa/ecs/panel.lua").New{
 		Name = "Temporary",
 	}
 	T(#parent:GetChildren())["=="](original_count + 1)
@@ -98,7 +98,7 @@ T.Test("panel Ensure already created", function()
 		Name = "Child 2",
 	}
 	T(parent:GetKeyed("MyKey"))["=="](child1)
-	T(require("ecs.panel").World:GetKeyed("MyKey"))["=="](child2)
+	T(import("goluwa/ecs/panel.lua").World:GetKeyed("MyKey"))["=="](child2)
 	local result = parent:Ensure(child2)
 	T(result)["=="](child1)
 	T(child2:IsValid())["=="](false)

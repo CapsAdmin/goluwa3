@@ -1,8 +1,8 @@
-local T = require("test.environment")
-local MarkupBuffer = require("render2d.markup_buffer")
-local Markup = require("render2d.markup")
-local Color = require("structs.color")
-local Vec2 = require("structs.vec2")
+local T = import("test/environment.lua")
+local MarkupBuffer = import("goluwa/render2d/markup_buffer.lua")
+local Markup = import("goluwa/render2d/markup.lua")
+local Color = import("goluwa/structs/color.lua")
+local Vec2 = import("goluwa/structs/vec2.lua")
 
 T.Test("MarkupBuffer basic operations", function()
 	local buffer = MarkupBuffer.New("hello world")

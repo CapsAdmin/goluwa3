@@ -1,1 +1,1 @@
-return require("filesystem.vfs")
+return import("goluwa/filesystem/vfs.lua")

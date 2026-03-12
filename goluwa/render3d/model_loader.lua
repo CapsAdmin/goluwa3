@@ -1,10 +1,10 @@
 local model_loader = library()
-package.loaded["render3d.model_loader"] = model_loader
-local callback = require("callback")
-local event = require("event")
-local resource = require("resource")
-local utility = require("utility")
-local tasks = require("tasks")
+import.loaded["goluwa/render3d/model_loader.lua"] = model_loader
+local callback = import("goluwa/callback.lua")
+local event = import("goluwa/event.lua")
+local resource = import("goluwa/resource.lua")
+local utility = import("goluwa/utility.lua")
+local tasks = import("goluwa/tasks.lua")
 model_loader.model_decoders = model_loader.model_decoders or {}
 
 function model_loader.AddModelDecoder(id, callback, ext)
@@ -108,7 +108,7 @@ function model_loader.LoadModel(path, callback, callback2, on_fail)
 	return true
 end
 
-package.loaded["render3d.model_loader"] = model_loader
-require("render3d.model_decoders.mdl")
-require("render3d.model_decoders.bsp")
+import.loaded["goluwa/render3d/model_loader.lua"] = model_loader
+import("goluwa/render3d/model_decoders/mdl.lua")
+import("goluwa/render3d/model_decoders/bsp.lua")
 return model_loader

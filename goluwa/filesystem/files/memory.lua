@@ -1,7 +1,7 @@
-local vfs = require("filesystem.vfs")
-local prototype = require("prototype")
+local vfs = import("goluwa/filesystem/vfs.lua")
+local prototype = import("goluwa/prototype.lua")
 local CONTEXT = prototype.CreateTemplate("file_system_memory")
-CONTEXT.Base = require("filesystem.base_file")
+CONTEXT.Base = import("goluwa/filesystem/base_file.lua")
 CONTEXT.Name = "memory"
 local file_tree = {is_folder = true}
 

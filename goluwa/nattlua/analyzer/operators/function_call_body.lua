@@ -8,6 +8,7 @@ local Nil = require("nattlua.types.symbol").Nil
 local Any = require("nattlua.types.any").Any
 local Function = require("nattlua.types.function").Function
 local table_clear = require("nattlua.other.tablex").clear
+local shared = require("nattlua.types.shared")
 
 local function mutate_type(self, i, arg, contract, arguments, func, identifier_index)
 	local env = self:GetScope():GetNearestFunctionScope()
@@ -57,7 +58,7 @@ local function check_argument_against_contract(self, arg, contract, i)
 	elseif arg.Type == "function" and contract.Type == "function" then
 		ok, reason = arg:IsCallbackSubsetOf(contract)
 	else
-		ok, reason = arg:IsSubsetOf(contract)
+		ok, reason = shared.IsSubsetOf(arg, contract)
 	end
 
 	if not ok then return false, error_messages.argument(i, reason) end
@@ -164,7 +165,7 @@ return function(self, obj, input)
 
 					if arg.Type == "any" and arg.Type ~= contract.Type then arg = contract end
 
-					obj:SetInputModifiers(identifier_index, {ref = true})
+					obj:SetInputModifier(identifier_index, {ref = true})
 					local ok, err = check_argument_against_contract(self, arg, contract, i)
 
 					if not ok then self:Error(error_messages.argument(i, err)) end
@@ -331,7 +332,7 @@ return function(self, obj, input)
 				if contract.Type == "union" then
 					local t = contract:GetType("table")
 
-					if t and t.PotentialSelf then doit = false end
+					if t and t.potential_self then doit = false end
 				end
 
 				if doit then
@@ -370,7 +371,32 @@ return function(self, obj, input)
 			function_node.Type == "statement_type_function"
 		then
 			if function_node.self_call then
-				self:CreateLocalValue("self", input:GetWithNumber(1) or Nil())
+				local arg = input:GetWithNumber(1) or Nil()
+				self:CreateLocalValue("self", arg)
+
+				-- if the meta table has @SelfArgument, also create a typesystem self
+				-- so that --[[#type]] blocks see the contract type instead of the concrete value
+				if not is_type_function and arg.Type == "table" then
+					local self_arg_contract
+
+					if arg:GetSelfArgument() then
+						self_arg_contract = arg:GetSelfArgument()
+					elseif arg:GetMetaTable() and arg:GetMetaTable().Type == "table" then
+						self_arg_contract = arg:GetMetaTable():GetSelfArgument()
+					end
+
+					if self_arg_contract then
+						-- make @SelfArgument accessible from the contract itself
+						-- so that self.@SelfArgument works in typesystem blocks
+						if not self_arg_contract:GetSelfArgument() then
+							self_arg_contract:SetSelfArgument(self_arg_contract)
+						end
+
+						self:PushAnalyzerEnvironment("typesystem")
+						self:CreateLocalValue("self", self_arg_contract)
+						self:PopAnalyzerEnvironment()
+					end
+				end
 			end
 		end
 
@@ -385,12 +411,9 @@ return function(self, obj, input)
 			for i, identifier in ipairs(function_node.identifiers_typesystem) do
 				local generic_expression = call_expression.expressions_typesystem and
 					call_expression.expressions_typesystem[i] or
-					nil
-
-				if generic_expression then
-					local T = self:AnalyzeExpression(generic_expression)
-					self:CreateLocalValue(identifier.value:GetValueString(), T)
-				end
+					identifier
+				local T = self:AnalyzeExpression(generic_expression)
+				self:CreateLocalValue(identifier.value:GetValueString(), T)
 			end
 		end
 
@@ -454,20 +477,20 @@ return function(self, obj, input)
 					local node = function_node.identifiers[i + 1]
 
 					if node and not node.type_expression then
-						self:Warning(error_messages.untyped_argument(), node.type_expression)
+						self:Warning(error_messages.untyped_argument(), 2, node.type_expression or node)
 					end
 				elseif
 					function_node.identifiers[i] and
 					not function_node.identifiers[i].type_expression
 				then
 					if not obj:IsInputArgumentsInferred() then
-						self:Warning(error_messages.untyped_argument(), function_node.identifiers[i])
+						self:Warning(error_messages.untyped_argument(), 2, function_node.identifiers[i])
 					end
 				end
 			end
 		end
 
-		local tup, err = input:Slice(1, obj:GetInputSignature():GetMinimumLength())
+		local tup, err = input:Slice(1, obj:GetInputSignature():GetSafeLength(input))
 
 		if not tup then
 			self:Error(err)

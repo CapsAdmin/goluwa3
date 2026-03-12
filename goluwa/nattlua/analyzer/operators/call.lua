@@ -3,6 +3,7 @@ local ConstString = require("nattlua.types.string").ConstString
 local Union = require("nattlua.types.union").Union
 local Any = require("nattlua.types.any").Any
 local error_messages = require("nattlua.error_messages")
+local shared = require("nattlua.types.shared")
 local ipairs = _G.ipairs
 local table_insert = _G.table.insert
 local math_huge = _G.math.huge
@@ -153,10 +154,10 @@ do
 					(
 						(
 							a.Type == "function" and
-							not a:GetOutputSignature():IsSubsetOf(b:GetOutputSignature())
+							not shared.IsSubsetOf(a:GetOutputSignature(), b:GetOutputSignature())
 						)
 						or
-						not a:IsSubsetOf(b)
+						not shared.IsSubsetOf(a, b)
 					)
 				then
 					local func = a
@@ -271,7 +272,7 @@ local function any_call(self, analyzer, input, call_node)
 			if arg:GetContract() then
 				-- error if we call any with tables that have contracts
 				-- since anything might happen to them in an any call
-				analyzer:Error(error_messages.argument_contract_mutation(arg:GetContract()))
+				analyzer:Warning(error_messages.argument_contract_mutation(arg, arg:GetContract()))
 			else
 				-- if we pass a table without a contract to an any call, we add any to its key values
 				for _, keyval in ipairs(arg:GetData()) do
@@ -302,7 +303,7 @@ local function call(self, obj, input, call_node, not_recursive_call)
 end
 
 return {
-	Call = function(META)
+	Call = function(META--[[#: any]])
 		function META:Call(obj, input, call_node, not_recursive_call)
 			self:PushCurrentExpression(call_node)
 			local ret, err = call(self, obj, input, call_node, not_recursive_call)

@@ -1,4 +1,4 @@
-local Texture = require("render.texture")
+local Texture = import("goluwa/render/texture.lua")
 return function(core_thickness, glow_radius, glow_intensity)
 	local height = core_thickness + (glow_radius * 2)
 	local width = 256

@@ -1,7 +1,7 @@
-local prototype = require("prototype")
-local Vec2 = require("structs.vec2")
-local system = require("system")
-local clipboard = require("bindings.clipboard")
+local prototype = import("goluwa/prototype.lua")
+local Vec2 = import("goluwa/structs/vec2.lua")
+local system = import("goluwa/system.lua")
+local clipboard = import("goluwa/bindings/clipboard.lua")
 local META = prototype.CreateTemplate("tui_text")
 META:StartStorable()
 META:GetSet("Text", "", {callback = "OnTextChanged"})
@@ -182,7 +182,7 @@ end
 function META:_SetupEditor()
 	if self.Editor then return end
 
-	local sequence_editor = require("sequence_editor")
+	local sequence_editor = import("goluwa/sequence_editor.lua")
 	self.Editor = sequence_editor.New()
 	self.Editor:SetText(self.Text or "")
 	self._last_input_time = 0
@@ -268,7 +268,7 @@ function META:_SetupEditor()
 		return true
 	end)
 
-	local event = require("event")
+	local event = import("goluwa/event.lua")
 	local listener_id = tostring(self)
 
 	event.AddListener("TerminalMouseMoved", listener_id, function(mx, my)

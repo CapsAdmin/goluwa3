@@ -4,6 +4,8 @@ local table = _G.table
 local ConstString = require("nattlua.types.string").ConstString
 local Union = require("nattlua.types.union").Union
 local Nil = require("nattlua.types.symbol").Nil
+local Deferred = require("nattlua.types.deferred").Deferred
+local shared = require("nattlua.types.shared")
 
 local function check_type_against_contract(val, contract)
 	-- if the contract is unique / nominal, ie
@@ -19,7 +21,7 @@ local function check_type_against_contract(val, contract)
 		end
 	end
 
-	local ok, reason = val:IsSubsetOf(contract)
+	local ok, reason = shared.IsSubsetOf(val, contract)
 
 	if not ok then return ok, reason end
 
@@ -109,7 +111,13 @@ return {
 							-- unpack unions with tuples
 							-- ⦗false, string, 2⦘ | ⦗true, 1⦘ at first index would be true | false
 							local index = right_pos + i - 1
-							right[index] = obj:GetAtTupleIndex(index)
+							local val = obj:GetAtTupleIndex(index)
+
+							if val and val.Type == "union" then
+								val:SetTupleSourceUnion(obj, index)
+							end
+
+							right[index] = val
 						end
 					end
 				else
@@ -140,7 +148,19 @@ return {
 
 		-- here we check the types
 		for left_pos, exp_key in ipairs(statement.left) do
-			local val = right[left_pos] or Nil()
+			local val = right[left_pos]
+
+			if
+				not val and
+				self.TealCompat and
+				not exp_key.type_expression and
+				self:GetCurrentAnalyzerEnvironment() == "typesystem" and
+				statement.Type == "statement_local_assignment"
+			then
+				val = Deferred(exp_key.value:GetValueString())
+			end
+
+			val = val or Nil()
 
 			-- do we have a type expression? 
 			-- local a: >>number<< = 1
@@ -208,11 +228,17 @@ return {
 				local immutable = false
 
 				if exp_key.attribute then
-					if exp_key.attribute.sub_type == "const" then immutable = true end
+					if exp_key.attribute.value == "const" or exp_key.attribute.sub_type == "const" then
+						immutable = true
+					end
+				end
+
+				if exp_key.modifiers then
+					if exp_key.modifiers.const then immutable = true end
 				end
 
 				-- local assignment: local a = 1
-				self:MapTypeToNode(self:CreateLocalValue(exp_key.value:GetValueString(), val, immutable), exp_key)
+				self:CreateLocalValue(exp_key.value:GetValueString(), val, immutable, exp_key)
 			elseif statement.Type == "statement_assignment" then
 				local key = left[left_pos]
 
@@ -237,7 +263,8 @@ return {
 						end
 					end
 
-					local val = self:SetLocalOrGlobalValue(key, val)
+					local val = self:SetLocalOrGlobalValue(key, val, nil, exp_key)
+					self:MapTypeToNode(val, exp_key)
 
 					if false and val then
 						-- this is used for tracking function dependencies

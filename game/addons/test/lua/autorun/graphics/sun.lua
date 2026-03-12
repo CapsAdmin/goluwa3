@@ -1,10 +1,10 @@
-local Quat = require("structs.quat")
-local render3d = require("render3d.render3d")
-local event = require("event")
-local Entity = require("ecs.entity")
-local Color = require("structs.color")
-local input = require("input")
-local atmosphere = require("render3d.atmosphere")
+local Quat = import("goluwa/structs/quat.lua")
+local render3d = import("goluwa/render3d/render3d.lua")
+local event = import("goluwa/event.lua")
+local Entity = import("goluwa/ecs/entity.lua")
+local Color = import("goluwa/structs/color.lua")
+local input = import("goluwa/input.lua")
+local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local sun = Entity.New{
 	transform = {
 		Rotation = Quat(-0.2, 0.8, 0.4, 0.4),

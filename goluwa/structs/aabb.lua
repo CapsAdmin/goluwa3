@@ -1,5 +1,5 @@
-local Vec3 = require("structs.vec3")
-local structs = require("structs.structs")
+local Vec3 = import("goluwa/structs/vec3.lua")
+local structs = import("goluwa/structs/structs.lua")
 local META = structs.Template("AABB")
 META.Args = {{"min_x", "min_y", "min_z", "max_x", "max_y", "max_z"}}
 structs.AddAllOperators(META)

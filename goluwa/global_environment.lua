@@ -24,9 +24,15 @@ if not _G._OLD_G then
 	_G._OLD_G = _OLD_G
 end
 
-package.path = package.path .. ";" .. "goluwa/?.lua"
-package.path = package.path .. ";" .. "bin/LuaJIT/src/?.lua"
-require("helpers.jit_options").SetOptimized()
+do
+	
+	_G.import = require("goluwa.import")
+	_G.import.loaded["goluwa/import.lua"] = package.loaded["goluwa.import"]
+	package.path = package.path .. ";" .. "goluwa/?.lua"
+	package.path = package.path .. ";" .. "bin/LuaJIT/src/?.lua"
+end
+
+import("goluwa/helpers/jit_options.lua").SetOptimized()
 
 do
 	_G.registered_libs = _G.registered_libs or {}
@@ -47,24 +53,24 @@ do
 	end
 end
 
-_G.list = require("helpers.list")
+_G.list = import("goluwa/helpers/list.lua")
 _G.WINDOWS = jit.os == "Windows"
 _G.LINUX = jit.os == "Linux"
 _G.OSX = jit.os == "OSX"
 _G.UNIX = _G.LINUX or _G.OSX
 
-if _G.PROFILE then require("profiler").Start("init") end
+if _G.PROFILE then import("goluwa/profiler.lua").Start("init") end
 
-_G.setmetatable = require("helpers.setmetatable_gc")
-require("helpers.globals")
-require("helpers.debug")
-require("helpers.table")
-require("helpers.string")
-require("helpers.string_format")
-require("helpers.math")
+_G.setmetatable = import("goluwa/helpers/setmetatable_gc.lua")
+import("goluwa/helpers/globals.lua")
+import("goluwa/helpers/debug.lua")
+import("goluwa/helpers/table.lua")
+import("goluwa/helpers/string.lua")
+import("goluwa/helpers/string_format.lua")
+import("goluwa/helpers/math.lua")
 
 do
-	local logging = require("logging")
+	local logging = import("goluwa/logging.lua")
 	_G.logf_nospam = logging.LogFormatNoSpam
 	_G.logn_nospam = logging.LogNewlineNoSpam
 	_G.vprint = logging.VariablePrint
@@ -78,7 +84,7 @@ do
 end
 
 do
-	local event = require("event")
+	local event = import("goluwa/event.lua")
 	local events = {}
 	setmetatable(
 		events,

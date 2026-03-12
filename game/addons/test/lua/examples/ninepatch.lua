@@ -1,6 +1,6 @@
-local Texture = require("render.texture")
-local event = require("event")
-local render2d = require("render2d.render2d")
+local Texture = import("goluwa/render/texture.lua")
+local event = import("goluwa/event.lua")
+local render2d = import("goluwa/render2d/render2d.lua")
 local nine_patch_tex
 
 Texture.LoadNinePatch("/home/caps/Pictures/a1b9c72430f0fa4f5611ff0a838bc993.png", function(tex)

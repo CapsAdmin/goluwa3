@@ -1,4 +1,4 @@
-local Texture = require("render.texture")
+local Texture = import("goluwa/render/texture.lua")
 return function(options)
 	options = options or {}
 	local width = options.width or 256

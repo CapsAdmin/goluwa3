@@ -1,7 +1,7 @@
-local prototype = require("prototype")
-local HTTPClient = require("sockets.http.http11_client")
+local prototype = import("goluwa/prototype.lua")
+local HTTPClient = import("goluwa/sockets/http/http11_client.lua")
 local HTTPServer = prototype.CreateTemplate("socket_http11_server")
-HTTPServer.Base = require("sockets.tcp_server")
+HTTPServer.Base = import("goluwa/sockets/tcp_server.lua")
 
 function HTTPServer:OnClientConnected(client)
 	if self:OnClientConnected2(client) == false then return false end

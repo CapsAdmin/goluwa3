@@ -1,5 +1,5 @@
-local T = require("test.environment")
-local vdf = require("codecs.vdf")
+local T = import("test/environment.lua")
+local vdf = import("goluwa/codecs/vdf.lua")
 
 T.Test("vdf: basic", function()
 	local test = [["basic"

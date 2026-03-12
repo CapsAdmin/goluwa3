@@ -1,15 +1,15 @@
 local ffi = require("ffi")
-local vulkan = require("render.vulkan.internal.vulkan")
-local render = require("render.render")
-local Vec2 = require("structs.vec2")
-local Buffer = require("render.vulkan.internal.buffer")
-local CommandPool = require("render.vulkan.internal.command_pool")
-local ImageView = require("render.vulkan.internal.image_view")
-local Image = require("render.vulkan.internal.image")
-local Sampler = require("render.vulkan.internal.sampler")
-local codec = require("codec")
-local resource = require("resource")
-local prototype = require("prototype")
+local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
+local render = import("goluwa/render/render.lua")
+local Vec2 = import("goluwa/structs/vec2.lua")
+local Buffer = import("goluwa/render/vulkan/internal/buffer.lua")
+local CommandPool = import("goluwa/render/vulkan/internal/command_pool.lua")
+local ImageView = import("goluwa/render/vulkan/internal/image_view.lua")
+local Image = import("goluwa/render/vulkan/internal/image.lua")
+local Sampler = import("goluwa/render/vulkan/internal/sampler.lua")
+local codec = import("goluwa/codec.lua")
+local resource = import("goluwa/resource.lua")
+local prototype = import("goluwa/prototype.lua")
 local Texture = prototype.CreateTemplate("render_texture")
 -- Texture cache for path-based textures
 local texture_cache = {}
@@ -153,7 +153,7 @@ function Texture.New(config)
 		if config.srgb and not format:ends_with("_srgb") then
 			local test = format:replace("_unorm", "_srgb")
 
-			if require("bindings.vk").e.VkFormat(test) then
+			if import("goluwa/bindings/vk.lua").e.VkFormat(test) then
 				format = test
 			else
 				print("Warning: sRGB format requested but not available for", format)
@@ -696,7 +696,7 @@ function Texture:MakeReady()
 end
 
 function Texture:OnRemove()
-	local event = require("event")
+	local event = import("goluwa/event.lua")
 	event.Call("TextureRemoved", self)
 	local cache_key = self.config.cache_key or self.config.path
 
@@ -1142,7 +1142,7 @@ function Texture:Shade(glsl, extra_config)
 end
 
 do
-	local vulkan = require("render.vulkan.internal.vulkan")
+	local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 	local TextureDownloaded = prototype.CreateTemplate("texture_downloaded")
 
 	function TextureDownloaded:GetWidth()
@@ -1229,7 +1229,7 @@ do
 			error("Can only save as PNG format", 2)
 		end
 
-		local png = require("codecs.png")
+		local png = import("goluwa/codecs/png.lua")
 		local png_file = png.Encode(self.width, self.height, "rgba")
 		local pixel_table = {}
 		local w, h = self.width, self.height
@@ -1299,8 +1299,8 @@ do
 	TextureDownloaded:Register()
 
 	do
-		local png = require("codecs.png")
-		local fs = require("fs")
+		local png = import("goluwa/codecs/png.lua")
+		local fs = import("goluwa/fs.lua")
 
 		function Texture:SaveAs(path)
 			return self:Download():SaveAs(path)

@@ -1,7 +1,7 @@
-local event = require("event")
-local render2d = require("render2d.render2d")
-local Color = require("structs.color")
-local fonts = require("render2d.fonts")
+local event = import("goluwa/event.lua")
+local render2d = import("goluwa/render2d/render2d.lua")
+local Color = import("goluwa/structs/color.lua")
+local fonts = import("goluwa/render2d/fonts.lua")
 local font = fonts.New{WebName = "Orbitron", Weight = "Regular", Size = 50}
 
 event.AddListener("Draw2D", "test_2d", function()

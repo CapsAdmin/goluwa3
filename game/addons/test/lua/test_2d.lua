@@ -1,14 +1,14 @@
-local Vec2 = require("structs.vec2")
-local Vec2 = require("structs.vec2")
-local Color = require("structs.color")
-local Rect = require("structs.rect")
-local event = require("event")
-local render = require("render.render")
-local Texture = require("render.texture")
-local gfx = require("render2d.gfx")
-local fonts = require("render2d.fonts")
-local system = require("system")
-local render2d = require("render2d.render2d")
+local Vec2 = import("goluwa/structs/vec2.lua")
+local Vec2 = import("goluwa/structs/vec2.lua")
+local Color = import("goluwa/structs/color.lua")
+local Rect = import("goluwa/structs/rect.lua")
+local event = import("goluwa/event.lua")
+local render = import("goluwa/render/render.lua")
+local Texture = import("goluwa/render/texture.lua")
+local gfx = import("goluwa/render2d/gfx.lua")
+local fonts = import("goluwa/render2d/fonts.lua")
+local system = import("goluwa/system.lua")
+local render2d = import("goluwa/render2d/render2d.lua")
 
 if false then
 	local zsnes = Texture.New{
@@ -150,7 +150,7 @@ if false then
 			mag_filter = "linear",
 		},
 	}
-	local QuadricBezierCurve = require("render2d.quadric_bezier_curve")
+	local QuadricBezierCurve = import("goluwa/render2d/quadric_bezier_curve.lua")
 	local curve = QuadricBezierCurve.New()
 	curve:Add(Vec2(0, 0))
 	curve:Add(Vec2(1, 0))
@@ -282,8 +282,8 @@ if false then
 		}
 	]])
 	local cmd = render.GetCommandPool():AllocateCommandBuffer()
-	local window = require("window")
-	local input = require("input")
+	local window = import("goluwa/window.lua")
+	local input = import("goluwa/input.lua")
 
 	local function compute()
 		cmd:Reset()
@@ -314,7 +314,7 @@ if false then
 	local function init_presentation()
 		if presentation_framebuffer then return end
 
-		local Framebuffer = require("render.framebuffer")
+		local Framebuffer = import("goluwa/render/framebuffer.lua")
 		local device = render.GetDevice()
 		presentation_framebuffer = Framebuffer.New{
 			width = 512,

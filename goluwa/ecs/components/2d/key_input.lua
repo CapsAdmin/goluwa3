@@ -1,5 +1,5 @@
-local prototype = require("prototype")
-local event = require("event")
+local prototype = import("goluwa/prototype.lua")
+local event = import("goluwa/event.lua")
 local META = prototype.CreateTemplate("key_input")
 
 function META:KeyInput(key, press)

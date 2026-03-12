@@ -1,5 +1,5 @@
-local sha1 = require("sockets.websocket.tools").sha1
-local base64 = require("sockets.websocket.tools").base64
+local sha1 = import("goluwa/sockets/websocket/tools.lua").sha1
+local base64 = import("goluwa/sockets/websocket/tools.lua").base64
 local tinsert = table.insert
 local guid = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 local sec_websocket_accept = function(sec_websocket_key)

@@ -41,12 +41,10 @@ local function analyze_arguments(self, node, func)
 		self:PopAnalyzerEnvironment()
 
 		if val then
-			if val.Self then
-				args[1] = val.Self
-			elseif val.Self2 then
-				args[1] = val.Self2
-			elseif val:GetContract() then
+			if val:GetContract() then
 				args[1] = val
+			elseif val:GetSelfArgument() then
+				args[1] = val:GetSelfArgument()
 			else
 				args[1] = Union({Any(), val})
 			end
@@ -66,11 +64,11 @@ local function analyze_arguments(self, node, func)
 			-- stem type so that we can allow
 			-- function(x: foo<x>): nil
 			local ident = key.value:GetValueString()
-			self:MapTypeToNode(self:CreateLocalValue(ident, Any()), key)
+			self:CreateLocalValue(ident, Any(), false, key)
 
 			if key.type_expression then
 				if key.modifiers then
-					func:SetInputModifiers((node.self_call and i - 1) or i, collect_modifiers(key.modifiers))
+					func:SetInputModifier((node.self_call and i - 1) or i, collect_modifiers(key.modifiers))
 				end
 
 				args[i] = self:AssertFallback(Nil(), self:AnalyzeExpression(key.type_expression))
@@ -80,7 +78,7 @@ local function analyze_arguments(self, node, func)
 				args[i] = Any()
 			end
 
-			self:MapTypeToNode(self:CreateLocalValue(ident, assert(args[i])), key)
+			self:CreateLocalValue(ident, assert(args[i]), false, key)
 		end
 	elseif
 		node.Type == "statement_analyzer_function" or
@@ -180,7 +178,7 @@ local function analyze_return_types(self, node, func)
 			local obj = self:AnalyzeExpression(type_exp)
 
 			if type_exp.modifiers then
-				func:SetOutputModifiers(i, collect_modifiers(type_exp.modifiers))
+				func:SetOutputModifier(i, collect_modifiers(type_exp.modifiers))
 			end
 
 			if i == 1 and obj.Type == "tuple" and #node.identifiers == 1 and not obj.Repeat then

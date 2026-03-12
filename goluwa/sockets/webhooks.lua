@@ -1,4 +1,4 @@
-local HTTPClient = require("sockets.http.http11_client")
+local HTTPClient = import("goluwa/sockets/http/http11_client.lua")
 return function(sockets)
 	sockets.webook_servers = sockets.webook_servers or {}
 

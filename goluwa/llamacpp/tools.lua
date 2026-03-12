@@ -1,4 +1,4 @@
-local fs = require("fs")
+local fs = import("goluwa/fs.lua")
 return {
 	glob = {
 		description = [[Find files matching a glob pattern (e.g., '**/*.py', 'src/**/*.js'). 
@@ -130,8 +130,8 @@ return {
 		func = function(args)
 			local command = args.command
 			local cmd_lower = command:lower():trim()
-			local process = require("bindings.process")
-			local system = require("system")
+			local process = import("goluwa/bindings/process.lua")
+			local system = import("goluwa/system.lua")
 			local ok, res = pcall(function()
 				local p, err = process.spawn{
 					command = "bash",

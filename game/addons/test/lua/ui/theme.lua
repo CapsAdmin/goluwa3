@@ -1,20 +1,20 @@
-local Color = require("structs.color")
-local Vec2 = require("structs.vec2")
-local Rect = require("structs.rect")
-local fonts = require("render2d.fonts")
-local render2d = require("render2d.render2d")
-local Ang3 = require("structs.ang3")
-local window = require("window")
-local event = require("event")
-local Texture = require("render.texture")
-local gfx = require("render2d.gfx")
-local system = require("system")
+local Color = import("goluwa/structs/color.lua")
+local Vec2 = import("goluwa/structs/vec2.lua")
+local Rect = import("goluwa/structs/rect.lua")
+local fonts = import("goluwa/render2d/fonts.lua")
+local render2d = import("goluwa/render2d/render2d.lua")
+local Ang3 = import("goluwa/structs/ang3.lua")
+local window = import("goluwa/window.lua")
+local event = import("goluwa/event.lua")
+local Texture = import("goluwa/render/texture.lua")
+local gfx = import("goluwa/render2d/gfx.lua")
+local system = import("goluwa/system.lua")
 local theme = library()
 local PRIMARY = Color.FromHex("#062a67"):SetAlpha(0.9)
 local Textures = {
-	GlowLinear = require("render.textures.glow_linear"),
-	GlowPoint = require("render.textures.glow_point"),
-	Gradient = require("render.textures.gradient_linear"),
+	GlowLinear = import("goluwa/render/textures/glow_linear.lua"),
+	GlowPoint = import("goluwa/render/textures/glow_point.lua"),
+	Gradient = import("goluwa/render/textures/gradient_linear.lua"),
 }
 
 function theme.OnSetProperty(obj, key, val)
@@ -334,7 +334,7 @@ do -- primitives
 		render2d.PopMatrix()
 	end
 
-	local create_glow_line = require("render.textures.glow_line")
+	local create_glow_line = import("goluwa/render/textures/glow_line.lua")
 	local glow_line = create_glow_line(1, 9, 0.2) -- 1px thick line, 10px fade on each side
 	function theme.DrawGlowLine(x1, y1, x2, y2, thickness)
 		thickness = thickness or 1
@@ -370,7 +370,7 @@ do -- primitives
 				return vec4(mix(vec3(]] .. start.r .. ", " .. start.g .. ", " .. start.b .. "), vec3(" .. stop.r .. ", " .. stop.g .. ", " .. stop.b .. [[), -uv.y + 1.0), 1.0);
 		]]
 	)
-	local create_metal_frame = require("render.textures.metal_frame")
+	local create_metal_frame = import("goluwa/render/textures/metal_frame.lua")
 	local metal_frame = create_metal_frame{
 		base_color = Color.FromHex("#8f8b92"),
 	}
@@ -407,7 +407,7 @@ do -- primitives
 		end
 	end
 
-	local create_metal_frame = require("render.textures.metal_frame")
+	local create_metal_frame = import("goluwa/render/textures/metal_frame.lua")
 	local metal_frame = create_metal_frame{
 		base_color = Color.FromHex("#8f8b92"),
 		frame_inner = 0.02,

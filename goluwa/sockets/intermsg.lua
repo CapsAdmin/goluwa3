@@ -1,4 +1,4 @@
-local sockets = require("sockets")
+local sockets = import("goluwa/sockets.lua")
 local intermsg = _G.intermsg or {}
 intermsg.client_sockets = intermsg.client_sockets or {udp = {}, tcp = {}}
 intermsg.server_sockets = intermsg.server_sockets or {udp = {}, tcp = {}}

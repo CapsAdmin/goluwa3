@@ -1,5 +1,5 @@
 local ffi = require("ffi")
-local process = require("bindings.process")
+local process = import("goluwa/bindings/process.lua")
 local RENDERDOC_CaptureOption = ffi.typeof([[enum {
     eRENDERDOC_Option_AllowVSync = 0,
     eRENDERDOC_Option_AllowFullscreen = 1,
@@ -91,7 +91,7 @@ local function launch_ui(path, args)
 	end
 
 	print(table.concat(args, " "))
-	local process = require("bindings.process")
+	local process = import("goluwa/bindings/process.lua")
 	return assert(process.spawn{
 		command = store_path .. "/bin/qrenderdoc",
 		args = args,

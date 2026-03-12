@@ -137,7 +137,7 @@ do
 			end
 
 			if not lib_name then
-				for k, v in pairs(package.loaded) do
+				for k, v in pairs(import.loaded) do
 					if v == library then lib_name = k end
 				end
 			end

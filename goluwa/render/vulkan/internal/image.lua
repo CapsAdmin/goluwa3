@@ -1,10 +1,10 @@
 local ffi = require("ffi")
-local prototype = require("prototype")
-local vulkan = require("render.vulkan.internal.vulkan")
-local ImageView = require("render.vulkan.internal.image_view")
-local CommandPool = require("render.vulkan.internal.command_pool")
-local Fence = require("render.vulkan.internal.fence")
-local Memory = require("render.vulkan.internal.memory")
+local prototype = import("goluwa/prototype.lua")
+local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
+local ImageView = import("goluwa/render/vulkan/internal/image_view.lua")
+local CommandPool = import("goluwa/render/vulkan/internal/command_pool.lua")
+local Fence = import("goluwa/render/vulkan/internal/fence.lua")
+local Memory = import("goluwa/render/vulkan/internal/memory.lua")
 local Image = prototype.CreateTemplate("vulkan_image")
 
 function Image.New(config)
@@ -116,7 +116,7 @@ end
 function Image:TransitionLayout(old_layout, new_layout)
 	-- Get the vulkan_instance instance to access queue and command pool
 	-- This is a bit hacky but necessary for one-off transitions
-	local render = require("render.render")
+	local render = import("goluwa/render/render.lua")
 	local device = render.GetDevice()
 	local queue = render.GetQueue()
 	local cmd = render.GetCommandPool():AllocateCommandBuffer()

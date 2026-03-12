@@ -1,4 +1,4 @@
-local Vec3 = require("structs.vec3")
+local Vec3 = import("goluwa/structs/vec3.lua")
 -- ORIENTATION / TRANSFORMATION
 local orientation = library()
 -- Current configuration: Y-up, X-right, Z-forward (right-handed)

@@ -1,5 +1,5 @@
 local jinja2 = library()
-local json = require("codecs.json")
+local json = import("goluwa/codecs/json.lua")
 local openers = {
 	{open = "{%", close = "%}", type = "statement"},
 	{open = "{{", close = "}}", type = "expression"},

@@ -1,6 +1,6 @@
 local ffi = require("ffi")
-local prototype = require("prototype")
-local vulkan = require("render.vulkan.internal.vulkan")
+local prototype = import("goluwa/prototype.lua")
+local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 local Swapchain = prototype.CreateTemplate("vulkan_swap_chain")
 
 function Swapchain.New(config)
@@ -57,7 +57,7 @@ function Swapchain:GetImages()
 	vulkan.lib.vkGetSwapchainImagesKHR(self.device.ptr[0], self.ptr[0], imageCount, nil)
 	local swapchainImages = vulkan.T.Array(vulkan.vk.VkImage)(imageCount[0])
 	vulkan.lib.vkGetSwapchainImagesKHR(self.device.ptr[0], self.ptr[0], imageCount, swapchainImages)
-	local Image = require("render.vulkan.internal.image")
+	local Image = import("goluwa/render/vulkan/internal/image.lua")
 	local out = {}
 
 	for i = 0, imageCount[0] - 1 do

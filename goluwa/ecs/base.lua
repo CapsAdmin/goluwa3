@@ -1,5 +1,5 @@
 return function(name, base_path, get_valid_components)
-	local prototype = require("prototype")
+	local prototype = import("goluwa/prototype.lua")
 	local BaseEntity = prototype.CreateTemplate(name)
 	prototype.ParentingTemplate(BaseEntity)
 	local valid_components

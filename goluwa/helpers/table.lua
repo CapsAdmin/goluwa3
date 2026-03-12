@@ -264,7 +264,7 @@ do
 	end
 end
 
-table.sort = require("helpers.table_sort")
+table.sort = import("goluwa/helpers/table_sort.lua")
 table.new = require("table.new")
-table.print = require("helpers.tostring_object").dump_object
-table.tostring = require("helpers.tostring_object").tostring_object
+table.print = import("goluwa/helpers/tostring_object.lua").dump_object
+table.tostring = import("goluwa/helpers/tostring_object.lua").tostring_object

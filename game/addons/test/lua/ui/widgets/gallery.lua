@@ -1,26 +1,25 @@
-local Vec2 = require("structs.vec2")
-local Rect = require("structs.rect")
-local vfs = require("vfs")
-local theme = require("ui.theme")
-local Button = require("ui.elements.button")
-local Column = require("ui.elements.column")
-local Splitter = require("ui.elements.splitter")
-local Window = require("ui.elements.window")
-local ScrollablePanel = require("ui.elements.scrollable_panel")
-local Panel = require("ecs.panel")
-local timer = require("timer")
+local Vec2 = import("goluwa/structs/vec2.lua")
+local Rect = import("goluwa/structs/rect.lua")
+local vfs = import("goluwa/vfs.lua")
+local theme = import("../theme.lua")
+local Button = import("../elements/button.lua")
+local Column = import("../elements/column.lua")
+local Splitter = import("../elements/splitter.lua")
+local Window = import("../elements/window.lua")
+local ScrollablePanel = import("../elements/scrollable_panel.lua")
+local Panel = import("goluwa/ecs/panel.lua")
+local timer = import("goluwa/timer.lua")
 return function(props)
 	local pages = {}
 	local gallery_files = vfs.Find("lua/ui/gallery/%.lua$")
 
 	for _, file in ipairs(gallery_files) do
-		local mod_name = file:gsub("%.lua$", "")
-		local ok, page = pcall(require, "ui.gallery." .. mod_name)
+		local ok, page = pcall(import, "lua/ui/gallery/" .. file)
 
 		if ok then
 			table.insert(pages, page)
 		else
-			print("Failed to load page: " .. mod_name .. " - " .. tostring(page))
+			print("Failed to load page: " .. file .. " - " .. tostring(page))
 		end
 	end
 

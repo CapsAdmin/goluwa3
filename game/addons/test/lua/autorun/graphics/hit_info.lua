@@ -1,10 +1,10 @@
-local raycast = require("raycast")
-local event = require("event")
-local render2d = require("render2d.render2d")
-local render3d = require("render3d.render3d")
-local tostring_object = require("helpers.tostring_object").tostring_object
-local gfx = require("render2d.gfx")
-local fonts = require("render2d.fonts")
+local raycast = import("goluwa/raycast.lua")
+local event = import("goluwa/event.lua")
+local render2d = import("goluwa/render2d/render2d.lua")
+local render3d = import("goluwa/render3d/render3d.lua")
+local tostring_object = import("goluwa/helpers/tostring_object.lua").tostring_object
+local gfx = import("goluwa/render2d/gfx.lua")
+local fonts = import("goluwa/render2d/fonts.lua")
 local cached_material = nil
 local cached_lines = {}
 

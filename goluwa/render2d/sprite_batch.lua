@@ -1,6 +1,6 @@
-local prototype = require("prototype")
-local Polygon2D = require("render2d.polygon_2d")
-local render2d = require("render2d.render2d")
+local prototype = import("goluwa/prototype.lua")
+local Polygon2D = import("goluwa/render2d/polygon_2d.lua")
+local render2d = import("goluwa/render2d/render2d.lua")
 local META = prototype.CreateTemplate("render2d_sprite_batch")
 META:GetSet("AutoFlush", true)
 

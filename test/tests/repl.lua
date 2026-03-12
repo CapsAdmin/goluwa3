@@ -1,8 +1,8 @@
-local test = require("helpers.test")
-local attest = require("helpers.attest")
-local commands = require("commands")
-local clipboard = require("bindings.clipboard")
-local repl = require("repl")
+local test = import("goluwa/helpers/test.lua")
+local attest = import("goluwa/helpers/attest.lua")
+local commands = import("goluwa/commands.lua")
+local clipboard = import("goluwa/bindings/clipboard.lua")
+local repl = import("goluwa/repl.lua")
 
 test.Test("repl input", function()
 	local function reset()

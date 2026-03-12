@@ -1,10 +1,10 @@
 local ffi = require("ffi")
-local commands = require("commands")
-local tasks = require("tasks")
-local Texture = require("render.texture")
-local Color = require("structs.color")
-local prototype = require("prototype")
-local Vec3 = require("structs.vec3")
+local commands = import("goluwa/commands.lua")
+local tasks = import("goluwa/tasks.lua")
+local Texture = import("goluwa/render/texture.lua")
+local Color = import("goluwa/structs/color.lua")
+local prototype = import("goluwa/prototype.lua")
+local Vec3 = import("goluwa/structs/vec3.lua")
 local Material = prototype.CreateTemplate("render3d_material")
 -- textures
 Material:StartStorable()
@@ -155,7 +155,7 @@ function Material.BuildGlslFlags(var_name)
 end
 
 do
-	local steam = require("steam")
+	local steam = import("goluwa/steam.lua")
 
 	local function unpack_numbers(str)
 		str = str:gsub("%s+", " ")

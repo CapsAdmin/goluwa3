@@ -1,7 +1,7 @@
 local io = require("io")
 local io_write = io.write
-local diff = require("helpers.diff")
-local fs = require("fs")
+local diff = import("goluwa/helpers/diff.lua")
+local fs = import("goluwa/fs.lua")
 local debug = require("debug")
 local pcall = _G.pcall
 local type = _G.type
@@ -9,15 +9,15 @@ local ipairs = _G.ipairs
 local xpcall = _G.xpcall
 local assert = _G.assert
 local loadfile = _G.loadfile
-local profiler = require("profiler")
+local profiler = import("goluwa/profiler.lua")
 local jit = _G.jit
 local table = _G.table
-local memory = require("bindings.memory")
-local colors = require("helpers.colors")
-local callstack = require("helpers.callstack")
-local system = require("system")
-local event = require("event")
-local tasks = require("tasks")
+local memory = import("goluwa/bindings/memory.lua")
+local colors = import("goluwa/helpers/colors.lua")
+local callstack = import("goluwa/helpers/callstack.lua")
+local system = import("goluwa/system.lua")
+local event = import("goluwa/event.lua")
+local tasks = import("goluwa/tasks.lua")
 local test = {}
 local total_test_count = 0
 local coroutine = _G.coroutine
@@ -128,7 +128,7 @@ function test.RunTestsWithFilter(filter, config)
 	end
 end
 
-local tasks = require("tasks")
+local tasks = import("goluwa/tasks.lua")
 local active_test_tasks = {}
 -- Create a marker object for unavailable tests
 local unavailable_marker = {}
@@ -848,17 +848,17 @@ function test.RunUntil2(condition, timeout)
 end
 
 function test.Screenshot(name)
-	local render = require("render.render")
+	local render = import("goluwa/render/render.lua")
 	render.target:GetTexture():SaveAs(name)
 end
 
 function test.ScreenshotAlbedo(name)
-	local render3d = require("render3d.render3d")
+	local render3d = import("goluwa/render3d/render3d.lua")
 	render3d.pipelines.gbuffer:GetFramebuffer():GetAttachment(1):SaveAs(name)
 end
 
 function test.AssertScreenPixel(tbl)
-	local render = require("render.render")
+	local render = import("goluwa/render/render.lua")
 	return test.TexturePixel(
 		render.target:GetTexture(),
 		tbl.pos[1],
@@ -872,7 +872,7 @@ function test.AssertScreenPixel(tbl)
 end
 
 function test.ScreenAlbedoPixel(x, y, r, g, b, a, tolerance)
-	local render3d = require("render3d.render3d")
+	local render3d = import("goluwa/render3d/render3d.lua")
 	return test.TexturePixel(render3d.pipelines.gbuffer:GetFramebuffer():GetAttachment(1), x, y, r, g, b, a, tolerance)
 end
 
@@ -929,17 +929,17 @@ function test.TexturePixel(tex, x, y, r, g, b, a, tolerance)
 	end
 end
 
-local attest = require("helpers.attest")
+local attest = import("goluwa/helpers/attest.lua")
 setmetatable(test, {
 	__call = function(_, val)
 		return attest.AssertHelper(val)
 	end,
 })
-local event = require("event")
-local threads = require("bindings.threads")
-local system = require("system")
-local colors = require("helpers.colors")
-local commands = require("commands")
+local event = import("goluwa/event.lua")
+local threads = import("goluwa/bindings/threads.lua")
+local system = import("goluwa/system.lua")
+local colors = import("goluwa/helpers/colors.lua")
+local commands = import("goluwa/commands.lua")
 
 commands.Add({
 	aliases = "test",
@@ -1005,17 +1005,17 @@ commands.Add({
 			-- tests complete. In a thread's Lua state this would kill the whole process.
 			-- Capture the exit code instead and use it to break the event loop.
 			local shutdown_code = nil
-			local system = require("system")
+			local system = import("goluwa/system.lua")
 			system.ShutDown = function(code) shutdown_code = code or 0 os.exitcode = code end
 
 			local ok, run_err = pcall(function()
-				local t = require("helpers.test")
+				local t = import("goluwa/helpers/test.lua")
 				t.BeginTests(true, false, nil, input.verbose, true)
 				t.SetTestPaths({{name = input.name, path = input.path}})
 				t.RunSingleTestSet({name = input.name, path = input.path})
 
-			local event = require("event")
-			local task = require("tasks")
+			local event = import("goluwa/event.lua")
+			local task = import("goluwa/tasks.lua")
 
 			-- IsBusy normally counts ALL tasks, including raw tasks created inside tests.
 			-- Those raw tasks may outlive the test tasks, preventing shutdown_code from
