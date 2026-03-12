@@ -311,12 +311,12 @@ test.Test("repl history", function()
 
 	-- 1. No duplicate history entries
 	reset()
-	repl.input_buffer = "test"
+	repl.input_buffer = "asdf"
 	repl.HandleEvent{key = "enter", modifiers = {ctrl = false, shift = false, alt = false}}
-	repl.input_buffer = "test"
+	repl.input_buffer = "asdf"
 	repl.HandleEvent{key = "enter", modifiers = {ctrl = false, shift = false, alt = false}}
 	attest.equal(#commands.history, 1)
-	attest.equal(commands.history[1], "test")
+	attest.equal(commands.history[1], "asdf")
 	-- 2. No empty history entries
 	reset()
 	repl.input_buffer = ""
