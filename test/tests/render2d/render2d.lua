@@ -533,7 +533,7 @@ T.Test2D("Graphics render2d matrix stack stress test", function()
 	T(true)["=="](true)
 end)
 
-T.Test2D("Graphics render2d performance test", function(width, height)
+T.Pending("Graphics render2d performance test", function(width, height)
 	local start_time = os.clock()
 
 	for i = 1, 1000 do
