@@ -875,7 +875,9 @@ local function load_openssl()
 		end
 
 		local function send(data_str)
-			if not ssl_conn then return nil, "Not connected" end
+			if state ~= "connected" or not ssl_conn then
+				return nil, "context not connected"
+			end
 
 			local ret = lib_ssl.SSL_write(ssl_conn, data_str, #data_str)
 
@@ -889,7 +891,9 @@ local function load_openssl()
 		end
 
 		local function receive(buffer_ptr, buffer_size)
-			if not ssl_conn then return nil, "Not connected" end
+			if state ~= "connected" or not ssl_conn then
+				return nil, "context not connected"
+			end
 
 			local ret = lib_ssl.SSL_read(ssl_conn, buffer_ptr, buffer_size)
 
@@ -905,6 +909,10 @@ local function load_openssl()
 		end
 
 		local function close()
+			if state == "closed" then return true end
+
+			state = "closed"
+
 			if ssl_conn then
 				lib_ssl.SSL_shutdown(ssl_conn)
 				lib_ssl.SSL_free(ssl_conn)
@@ -1040,7 +1048,7 @@ local function load_security_framework_tls()
 		if ctx == nil then return nil, "Failed to create SSL context" end
 
 		if lib.SSLSetIOFuncs(ctx, callbacks.read, callbacks.write) ~= 0 then
-			lib.CFRelease(ctx)
+			cf.CFRelease(ctx)
 			return nil, "Failed to set I/O functions"
 		end
 
@@ -1086,6 +1094,10 @@ local function load_security_framework_tls()
 		end
 
 		local function send(data_str)
+			if state ~= "connected" then
+				return nil, "context not connected"
+			end
+
 			local processed = ffi.new("size_t[1]")
 			local data_len = #data_str
 			local data_buf = ffi.new("uint8_t[?]", data_len)
@@ -1100,6 +1112,10 @@ local function load_security_framework_tls()
 		end
 
 		local function receive(buffer_ptr, buffer_size)
+			if state ~= "connected" then
+				return nil, "context not connected"
+			end
+
 			local processed = ffi.new("size_t[1]")
 			local status = lib.SSLRead(ctx, buffer_ptr, buffer_size, processed)
 
@@ -1117,8 +1133,11 @@ local function load_security_framework_tls()
 		end
 
 		local function close()
+			if state == "closed" then return true end
+
+			state = "closed"
 			lib.SSLClose(ctx)
-			lib.CFRelease(ctx)
+			cf.CFRelease(ctx)
 		end
 
 		return {
@@ -1145,9 +1164,9 @@ local function get_candidate_loaders()
 
 	if jit.os == "OSX" then
 		return {
-			load_security_framework_tls,
-			load_libtls,
 			load_openssl,
+			load_libtls,
+			load_security_framework_tls,
 		}
 	end
 

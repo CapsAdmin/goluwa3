@@ -8,6 +8,7 @@ local TCPServer = require("sockets.tcp_server")
 local UDPClient = require("sockets.udp_client")
 local UDPServer = require("sockets.udp_server")
 local http = require("sockets.http")
+local https_test_url = "https://www.google.com/robots.txt"
 
 T.Test("http.DecodeURI parses HTTP URL correctly", function()
 	local uri = http.DecodeURI("http://example.com:8080/path/to/resource?query=value#fragment")
@@ -392,4 +393,86 @@ T.Test("socket_udp_server receives datagrams through poll dispatch", function()
 	T(chunk)["=="]("udp over poll")
 	T(address)["~="](nil)
 	T(address:get_ip())["=="]("127.0.0.1")
+end)
+T.Test("HTTPS GET request to google.com via http.Request", function()
+	local done = false
+	local result = nil
+
+	http.Request{
+		url = https_test_url,
+		callback = function(data)
+			result = data
+			done = true
+		end,
+		error_callback = function(err)
+			result = {error = err}
+			done = true
+		end,
+	}
+
+	T.WaitUntil(function()
+		return done
+	end)
+
+	T(result)["~="](nil)
+	T(result.error)["=="](nil)
+	T(result.code)["=="](200)
+	T(result.body)["~="](nil)
+	T(#result.body)[">"](0)
+	T(result.body:find("User%-agent:"))["~="](nil)
+end)
+
+T.Test("HTTPS GET via HTTPClient directly", function()
+	local done = false
+	local status_code = nil
+	local body = nil
+
+	local client = HTTPClient.New()
+
+	function client:OnReceiveStatus(code, status)
+		status_code = tonumber(code)
+	end
+
+	function client:OnReceiveBody(b)
+		body = b
+		done = true
+	end
+
+	function client:OnError(err)
+		done = true
+	end
+
+	client:Request("GET", https_test_url)
+
+	T.WaitUntil(function()
+		return done
+	end)
+
+	T(status_code)["=="](200)
+	T(body)["~="](nil)
+	T(#body)[">"](0)
+	T(body:find("User%-agent:"))["~="](nil)
+end)
+
+T.Test("HTTPS request receives correct headers", function()
+	local done = false
+	local response_header = nil
+
+	http.Request{
+		url = https_test_url,
+		callback = function(data)
+			response_header = data.header
+			done = true
+		end,
+		error_callback = function(err)
+			done = true
+		end,
+	}
+
+	T.WaitUntil(function()
+		return done
+	end)
+
+	T(response_header)["~="](nil)
+	T(response_header["content-type"])["=="]("text/plain")
 end)
