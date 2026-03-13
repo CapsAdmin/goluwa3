@@ -93,20 +93,6 @@ end
 
 tasks.WrapCallback(steam, "DownloadWorkshopCollection")
 
-function steam.InitializeSteamWorks()
-	local ok, err = pcall(function()
-		local steamworks_api = import("goluwa/steamworks.lua")
-
-		for k, v in pairs(steamworks_api) do
-			if not steam[k] then steam[k] = v end
-		end
-	end)
-
-	if not ok then llog(err) end
-
-	return ok
-end
-
 --[[
 if steamfriends then
 	for k,v in pairs(steamfriends) do

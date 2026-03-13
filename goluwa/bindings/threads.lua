@@ -447,7 +447,7 @@ do
 		-- Create persistent worker that loops waiting for work
 		local persistent_worker = function(shared_ptr)
 			local ffi = require("ffi")
-			local threads = import("goluwa/threads.lua")
+			local threads = import("goluwa/bindings/threads.lua")
 			local buffer = require("string.buffer")
 			local control = ffi.cast(threads.thread_control_ptr_t, shared_ptr)
 			local thread_id = control.thread_id
