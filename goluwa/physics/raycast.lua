@@ -1,11 +1,11 @@
 local Vec3 = import("goluwa/structs/vec3.lua")
-local AABB = import("goluwa/structs/aabb.lua")
-local BVH = import("goluwa/bvh.lua")
+local BVH = import("goluwa/physics/bvh.lua")
 local Model = import("goluwa/ecs/components/3d/model.lua")
-local ffi = require("ffi")
 local raycast = library()
 local BVH_BUILD_TRIANGLE_THRESHOLD = 128
 local BVH_LEAF_TRIANGLE_COUNT = 8
+import.loaded["goluwa/physics/raycast.lua"] = raycast
+import.loaded["goluwa/physics/raycast.lua"] = raycast
 
 local function create_ray(origin, direction, max_distance)
 	local tbl = {}
@@ -57,7 +57,6 @@ local function ray_triangle_intersection(ray, v0, v1, v2)
 
 	if t > epsilon and t <= ray.max_distance then return true, t, u, v end
 
-	-- Line intersection but not ray intersection
 	return false, math.huge, 0, 0
 end
 
@@ -178,7 +177,7 @@ local function build_triangle_acceleration(vertices, indices, triangle_count)
 	return tree
 end
 
-local function get_triangle_acceleration(primitive, poly3d, vertices, indices, triangle_count)
+local function get_triangle_acceleration(primitive, vertices, indices, triangle_count)
 	if triangle_count < BVH_BUILD_TRIANGLE_THRESHOLD then return nil end
 
 	local accel = primitive.raycast_acceleration
@@ -206,19 +205,14 @@ local function get_triangle_acceleration(primitive, poly3d, vertices, indices, t
 	return built
 end
 
--- Get vertices from a mesh
--- Returns vertices as an array of Vec3 positions
 local function get_mesh_vertices(poly3d)
 	if not poly3d or not poly3d.Vertices then return nil end
 
 	return poly3d.Vertices
 end
 
--- Test ray against a single triangle
--- Returns hit info if successful
 local function test_triangle(ray, vertices, indices, tri_idx, primitive_idx, entity)
-	-- Get vertex indices (note: indices are 0-based from submesh)
-	local i0 = indices[tri_idx * 3 + 1] + 1 -- Convert to 1-based
+	local i0 = indices[tri_idx * 3 + 1] + 1
 	local i1 = indices[tri_idx * 3 + 2] + 1
 	local i2 = indices[tri_idx * 3 + 3] + 1
 	return test_triangle_vertices(ray, vertices, i0, i1, i2, tri_idx, primitive_idx, entity)
@@ -264,7 +258,7 @@ local function test_primitive(ray, local_ray, primitive, primitive_idx, entity, 
 
 	local closest_hit = nil
 	local indices, triangle_count = get_index_buffer(poly3d, vertices, poly3d.indices)
-	local acceleration = get_triangle_acceleration(primitive, poly3d, vertices, indices, triangle_count)
+	local acceleration = get_triangle_acceleration(primitive, vertices, indices, triangle_count)
 
 	if acceleration then
 		local traversal_context = {
