@@ -32,7 +32,7 @@ local PLAYER_RADIUS = 0.35
 local player = Entity.New({Name = "player_controller"})
 local player_transform = player:AddComponent("transform")
 local player_body = player:AddComponent(
-	"physics_body",
+	"kinematic_body",
 	{
 		Radius = PLAYER_RADIUS,
 		GroundSnapDistance = 0.4,

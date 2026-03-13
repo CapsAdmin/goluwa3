@@ -17,11 +17,11 @@ T.Test3D("Physics body lands on ground mesh", function()
 	poly:Upload()
 	ground.model:AddPrimitive(poly)
 	ground.model:BuildAABB()
-	local body_ent = Entity.New({Name = "physics_body"})
+	local body_ent = Entity.New({Name = "kinematic_body"})
 	body_ent:AddComponent("transform")
 	body_ent.transform:SetPosition(Vec3(0, 3, 0))
 	local body = body_ent:AddComponent(
-		"physics_body",
+		"kinematic_body",
 		{
 			Radius = 0.5,
 			Acceleration = 0,

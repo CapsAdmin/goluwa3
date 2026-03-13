@@ -1,6 +1,6 @@
 local prototype = import("goluwa/prototype.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
-local META = prototype.CreateTemplate("physics_body")
+local META = prototype.CreateTemplate("kinematic_body")
 local physics = import("goluwa/physics.lua")
 META:GetSet("Enabled", true)
 META:GetSet("Radius", 0.5)

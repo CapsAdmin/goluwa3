@@ -90,7 +90,7 @@ do
 		local model = ent:AddComponent("model")
 		model:AddPrimitive(poly, material)
 		ent:AddComponent(
-			"physics_body",
+			"kinematic_body",
 			{
 				Radius = 1,
 				GroundSnapDistance = 0.5,

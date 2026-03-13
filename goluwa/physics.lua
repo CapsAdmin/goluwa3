@@ -5,13 +5,13 @@ import.loaded["goluwa/physics.lua"] = physics
 physics.Gravity = physics.Gravity or Vec3(0, -28, 0)
 physics.Up = physics.Up or Vec3(0, 1, 0)
 physics.DefaultSkin = physics.DefaultSkin or 0.02
-local physics_body = import("goluwa/ecs/components/3d/physics_body.lua")
+local kinematic_body = import("goluwa/ecs/components/3d/kinematic_body.lua")
 local raycast = import("goluwa/raycast.lua")
 
 local function filter(entity)
 	if entity == ignore_entity then return false end
 
-	if entity.physics_body then return false end
+	if entity.kinematic_body then return false end
 
 	if filter_fn and not filter_fn(entity) then return false end
 
@@ -117,12 +117,12 @@ end
 function physics.Update(dt)
 	if not dt or dt <= 0 then return end
 
-	for i = #(physics_body.Instances or {}), 1, -1 do
-		physics.UpdateBody(physics_body.Instances[i], dt)
+	for i = #(kinematic_body.Instances or {}), 1, -1 do
+		physics.UpdateBody(kinematic_body.Instances[i], dt)
 	end
 end
 
-event.AddListener("Update", "minimal_physics", function(dt)
+event.AddListener("Update", "physics", function(dt)
 	physics.Update(dt)
 end)
 
