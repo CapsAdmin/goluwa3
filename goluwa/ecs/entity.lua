@@ -4,6 +4,7 @@ local Entity = import("goluwa/ecs/base.lua")("entity", "ecs.components.3d.", fun
 		light = import("goluwa/ecs/components/3d/light.lua"),
 		model = import("goluwa/ecs/components/3d/model.lua"),
 		kinematic_body = import("goluwa/ecs/components/3d/kinematic_body.lua"),
+		rigid_body = import("goluwa/ecs/components/3d/rigid_body.lua"),
 	}
 end)
 Entity.World = Entity.New()

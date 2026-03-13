@@ -1,0 +1,16 @@
+goluwa/helpers/test.lua:1073 Running 8 tests in parallel threads...
+
+[1mphysics.lua[0m
+  [32m✓[0m Physics body lands on ground mesh  366[2m ms[0m     3[2m mb[0m
+  [32m✓[0m Rigid body smoke test lands on ground mesh  425[2m ms[0m     6[2m mb[0m
+  [32m✓[0m Kinematic body can stand on rigid body  463[2m ms[0m     5[2m mb[0m
+  [32m✓[0m Rigid body ground damping does not slow falling  486[2m ms[0m     8[2m mb[0m
+  [32m✓[0m Rigid sphere can move along uneven ground  546[2m ms[0m     6[2m mb[0m
+  [32m✓[0m Rigid spheres separate without exploding  611[2m ms[0m     9[2m mb[0m
+  [32m✓[0m Rigid sphere can rest on rigid box  713[2m ms[0m     5[2m mb[0m
+[2m  - total  714[2m ms[0m    45[2m mb[0m
+[0m
+
+[32mALL TESTS PASSED[0m
+ran 7 tests in 1 files
+total time: 0.85s

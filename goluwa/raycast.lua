@@ -1,5 +1,6 @@
 local Vec3 = import("goluwa/structs/vec3.lua")
 local AABB = import("goluwa/structs/aabb.lua")
+local BVH = import("goluwa/bvh.lua")
 local Model = import("goluwa/ecs/components/3d/model.lua")
 local ffi = require("ffi")
 local raycast = library()
@@ -32,22 +33,6 @@ local function transform_ray(ray, world_to_local)
 	return create_ray(local_origin, local_direction, ray.max_distance)
 end
 
-local function ray_aabb_intersection(ray, aabb)
-	local tx1 = (aabb.min_x - ray.origin.x) * ray.inv_direction.x
-	local tx2 = (aabb.max_x - ray.origin.x) * ray.inv_direction.x
-	local tmin = math.min(tx1, tx2)
-	local tmax = math.max(tx1, tx2)
-	local ty1 = (aabb.min_y - ray.origin.y) * ray.inv_direction.y
-	local ty2 = (aabb.max_y - ray.origin.y) * ray.inv_direction.y
-	tmin = math.max(tmin, math.min(ty1, ty2))
-	tmax = math.min(tmax, math.max(ty1, ty2))
-	local tz1 = (aabb.min_z - ray.origin.z) * ray.inv_direction.z
-	local tz2 = (aabb.max_z - ray.origin.z) * ray.inv_direction.z
-	tmin = math.max(tmin, math.min(tz1, tz2))
-	tmax = math.min(tmax, math.max(tz1, tz2))
-	return tmax >= tmin and tmax >= 0 and tmin <= ray.max_distance, tmin, tmax
-end
-
 local function ray_triangle_intersection(ray, v0, v1, v2)
 	local epsilon = 0.0000001
 	local edge1 = v1 - v0
@@ -74,43 +59,6 @@ local function ray_triangle_intersection(ray, v0, v1, v2)
 
 	-- Line intersection but not ray intersection
 	return false, math.huge, 0, 0
-end
-
-local function create_empty_bounds()
-	return {
-		min_x = math.huge,
-		min_y = math.huge,
-		min_z = math.huge,
-		max_x = -math.huge,
-		max_y = -math.huge,
-		max_z = -math.huge,
-	}
-end
-
-local function expand_bounds(bounds, min_x, min_y, min_z, max_x, max_y, max_z)
-	if min_x < bounds.min_x then bounds.min_x = min_x end
-
-	if min_y < bounds.min_y then bounds.min_y = min_y end
-
-	if min_z < bounds.min_z then bounds.min_z = min_z end
-
-	if max_x > bounds.max_x then bounds.max_x = max_x end
-
-	if max_y > bounds.max_y then bounds.max_y = max_y end
-
-	if max_z > bounds.max_z then bounds.max_z = max_z end
-end
-
-local function get_longest_axis(bounds)
-	local size_x = bounds.max_x - bounds.min_x
-	local size_y = bounds.max_y - bounds.min_y
-	local size_z = bounds.max_z - bounds.min_z
-
-	if size_x >= size_y and size_x >= size_z then return "x", size_x end
-
-	if size_y >= size_z then return "y", size_y end
-
-	return "z", size_z
 end
 
 local function get_index_buffer(poly3d, vertices, indices)
@@ -170,58 +118,6 @@ local function test_triangle_vertices(ray, vertices, i0, i1, i2, tri_idx, primit
 	return result
 end
 
-local function build_bvh_node(triangles, first, last)
-	local bounds = create_empty_bounds()
-	local centroid_bounds = create_empty_bounds()
-
-	for i = first, last do
-		local tri = triangles[i]
-		expand_bounds(bounds, tri.min_x, tri.min_y, tri.min_z, tri.max_x, tri.max_y, tri.max_z)
-		expand_bounds(
-			centroid_bounds,
-			tri.centroid_x,
-			tri.centroid_y,
-			tri.centroid_z,
-			tri.centroid_x,
-			tri.centroid_y,
-			tri.centroid_z
-		)
-	end
-
-	local count = last - first + 1
-
-	if count <= BVH_LEAF_TRIANGLE_COUNT then
-		return {aabb = bounds, first = first, last = last}
-	end
-
-	local axis, extent = get_longest_axis(centroid_bounds)
-
-	if extent <= 0 then return {aabb = bounds, first = first, last = last} end
-
-	local slice = {}
-
-	for i = first, last do
-		slice[#slice + 1] = triangles[i]
-	end
-
-	local centroid_key = "centroid_" .. axis
-
-	table.sort(slice, function(a, b)
-		return a[centroid_key] < b[centroid_key]
-	end)
-
-	for i = 1, #slice do
-		triangles[first + i - 1] = slice[i]
-	end
-
-	local mid = math.floor((first + last) / 2)
-	return {
-		aabb = bounds,
-		left = build_bvh_node(triangles, first, mid),
-		right = build_bvh_node(triangles, mid + 1, last),
-	}
-end
-
 local function build_triangle_acceleration(vertices, indices, triangle_count)
 	local triangles = {}
 
@@ -264,10 +160,22 @@ local function build_triangle_acceleration(vertices, indices, triangle_count)
 
 	if #triangles == 0 then return nil end
 
-	return {
-		triangles = triangles,
-		root = build_bvh_node(triangles, 1, #triangles),
-	}
+	local tree = BVH.Build(
+		triangles,
+		function(tri)
+			return tri
+		end,
+		function(tri)
+			return tri.centroid_x, tri.centroid_y, tri.centroid_z
+		end,
+		BVH_LEAF_TRIANGLE_COUNT
+	)
+
+	if not tree then return nil end
+
+	tree.triangles = tree.items
+	tree.items = nil
+	return tree
 end
 
 local function get_triangle_acceleration(primitive, poly3d, vertices, indices, triangle_count)
@@ -298,121 +206,6 @@ local function get_triangle_acceleration(primitive, poly3d, vertices, indices, t
 	return built
 end
 
-local function traverse_bvh(
-	ray,
-	node,
-	vertices,
-	triangles,
-	primitive_idx,
-	entity,
-	closest_hit,
-	closest_distance
-)
-	local hit_node, node_tmin = ray_aabb_intersection(ray, node.aabb)
-
-	if not hit_node or node_tmin > closest_distance then
-		return closest_hit, closest_distance
-	end
-
-	if node.first then
-		for i = node.first, node.last do
-			local tri = triangles[i]
-			local hit = test_triangle_vertices(
-				ray,
-				vertices,
-				tri.i0,
-				tri.i1,
-				tri.i2,
-				tri.tri_idx,
-				primitive_idx,
-				entity
-			)
-
-			if hit and hit.distance < closest_distance then
-				closest_hit = hit
-				closest_distance = hit.distance
-			end
-		end
-
-		return closest_hit, closest_distance
-	end
-
-	local left = node.left
-	local right = node.right
-	local left_hit, left_tmin = ray_aabb_intersection(ray, left.aabb)
-	local right_hit, right_tmin = ray_aabb_intersection(ray, right.aabb)
-
-	if left_hit and right_hit then
-		if left_tmin <= right_tmin then
-			closest_hit, closest_distance = traverse_bvh(
-				ray,
-				left,
-				vertices,
-				triangles,
-				primitive_idx,
-				entity,
-				closest_hit,
-				closest_distance
-			)
-			closest_hit, closest_distance = traverse_bvh(
-				ray,
-				right,
-				vertices,
-				triangles,
-				primitive_idx,
-				entity,
-				closest_hit,
-				closest_distance
-			)
-		else
-			closest_hit, closest_distance = traverse_bvh(
-				ray,
-				right,
-				vertices,
-				triangles,
-				primitive_idx,
-				entity,
-				closest_hit,
-				closest_distance
-			)
-			closest_hit, closest_distance = traverse_bvh(
-				ray,
-				left,
-				vertices,
-				triangles,
-				primitive_idx,
-				entity,
-				closest_hit,
-				closest_distance
-			)
-		end
-	elseif left_hit then
-		closest_hit, closest_distance = traverse_bvh(
-			ray,
-			left,
-			vertices,
-			triangles,
-			primitive_idx,
-			entity,
-			closest_hit,
-			closest_distance
-		)
-	elseif right_hit then
-		closest_hit, closest_distance = traverse_bvh(
-			ray,
-			right,
-			vertices,
-			triangles,
-			primitive_idx,
-			entity,
-			closest_hit,
-			closest_distance
-		)
-	end
-
-	return closest_hit, closest_distance
-end
-
 -- Get vertices from a mesh
 -- Returns vertices as an array of Vec3 positions
 local function get_mesh_vertices(poly3d)
@@ -431,6 +224,29 @@ local function test_triangle(ray, vertices, indices, tri_idx, primitive_idx, ent
 	return test_triangle_vertices(ray, vertices, i0, i1, i2, tri_idx, primitive_idx, entity)
 end
 
+local function visit_triangle_bvh_leaf(node, context, best_hit, best_distance)
+	for i = node.first, node.last do
+		local tri = context.acceleration.triangles[i]
+		local hit = test_triangle_vertices(
+			context.local_ray,
+			context.vertices,
+			tri.i0,
+			tri.i1,
+			tri.i2,
+			tri.tri_idx,
+			context.primitive_idx,
+			context.entity
+		)
+
+		if hit and hit.distance < best_distance then
+			best_hit = hit
+			best_distance = hit.distance
+		end
+	end
+
+	return best_hit, best_distance
+end
+
 local function test_primitive(ray, local_ray, primitive, primitive_idx, entity, local_to_world)
 	local poly3d = primitive.polygon3d
 
@@ -441,7 +257,7 @@ local function test_primitive(ray, local_ray, primitive, primitive_idx, entity, 
 	if not vertices then return nil end
 
 	if primitive.aabb then
-		local aabb_hit = ray_aabb_intersection(local_ray, primitive.aabb)
+		local aabb_hit = BVH.RayAABBIntersection(local_ray, primitive.aabb)
 
 		if not aabb_hit then return nil end
 	end
@@ -451,15 +267,20 @@ local function test_primitive(ray, local_ray, primitive, primitive_idx, entity, 
 	local acceleration = get_triangle_acceleration(primitive, poly3d, vertices, indices, triangle_count)
 
 	if acceleration then
+		local traversal_context = {
+			acceleration = acceleration,
+			local_ray = local_ray,
+			vertices = vertices,
+			primitive_idx = primitive_idx,
+			entity = entity,
+		}
 		closest_hit = select(
 			1,
-			traverse_bvh(
+			BVH.TraverseRay(
 				local_ray,
 				acceleration.root,
-				vertices,
-				acceleration.triangles,
-				primitive_idx,
-				entity,
+				visit_triangle_bvh_leaf,
+				traversal_context,
 				nil,
 				math.huge
 			)
@@ -525,7 +346,7 @@ function raycast.Cast(origin, direction, max_distance, filter_fn, a, b, c, d, e,
 		local local_ray = transform_ray(ray, world_to_local)
 
 		if model.AABB then
-			local aabb_hit = ray_aabb_intersection(local_ray, model.AABB)
+			local aabb_hit = BVH.RayAABBIntersection(local_ray, model.AABB)
 
 			if not aabb_hit then goto continue end
 		end

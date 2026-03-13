@@ -1,4 +1,5 @@
 local Vec3 = import("goluwa/structs/vec3.lua")
+local Vec2 = import("goluwa/structs/vec2.lua")
 local Color = import("goluwa/structs/color.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
@@ -67,8 +68,96 @@ do
 	local material_index = 1
 	local pos = Vec3(0, -0.75, 0)
 	local PADDING = 2.3
+	local BASKET_HOLE_RADIUS = 0.35
+	local SMALL_SPHERE_RADIUS = 0.28
+
+	local function add_basket_vertex(poly, pos, u, v)
+		poly:AddVertex{
+			pos = pos,
+			uv = Vec2(u, v),
+		}
+	end
+
+	local function create_basket_polygon(radius, lat_segments, lon_segments, inward)
+		local poly = Polygon3D.New()
+		local rings = {}
+		local min_phi = math.asin(math.min(BASKET_HOLE_RADIUS / radius, 0.999))
+
+		local function add_triangle(a, b, c)
+			add_basket_vertex(poly, a.pos:Copy(), a.u, a.v)
+			add_basket_vertex(poly, b.pos:Copy(), b.u, b.v)
+			add_basket_vertex(poly, c.pos:Copy(), c.u, c.v)
+		end
+
+		for lat = 1, lat_segments do
+			local t = lat_segments > 1 and ((lat - 1) / (lat_segments - 1)) or 1
+			local phi = min_phi + (math.pi * 0.5 - min_phi) * t
+			local y = -math.cos(phi) * radius
+			local horizontal_radius = math.sin(phi) * radius
+			local ring = {}
+
+			for lon = 0, lon_segments - 1 do
+				local theta = (lon / lon_segments) * math.pi * 2
+				ring[lon + 1] = {
+					pos = Vec3(math.cos(theta) * horizontal_radius, y, math.sin(theta) * horizontal_radius),
+					u = lon / lon_segments,
+					v = lat / lat_segments,
+				}
+			end
+
+			rings[lat] = ring
+		end
+
+		for lat = 1, lat_segments - 1 do
+			local ring_a = rings[lat]
+			local ring_b = rings[lat + 1]
+
+			for lon = 1, lon_segments do
+				local next_lon = lon % lon_segments + 1
+				local p00 = ring_a[lon]
+				local p01 = ring_a[next_lon]
+				local p10 = ring_b[lon]
+				local p11 = ring_b[next_lon]
+
+				if inward then
+					add_triangle(p00, p01, p10)
+					add_triangle(p10, p01, p11)
+				else
+					add_triangle(p00, p10, p01)
+					add_triangle(p10, p11, p01)
+				end
+			end
+		end
+
+		poly:Upload()
+		return poly
+	end
+
+	local function spawn_basket()
+		local basket_material = Material.New()
+		basket_material:SetAlbedoTexture(shaded_texture("return vec4(0.12, 0.08, 0.05, 1.0);"))
+		basket_material:SetMetallicTexture(shaded_texture("return vec4(0.0);"))
+		basket_material:SetRoughnessTexture(shaded_texture("return vec4(0.95);"))
+		local row_count = math.ceil(#materials / 3)
+		local basket_radius = math.max(PADDING * 1.8, ((row_count - 1) * PADDING) * 0.5) + 3.25
+		local basket_center = Vec3(PADDING, -basket_radius + 0.75, (row_count - 1) * PADDING * 0.5)
+		local basket = Entity.New({Name = "debug_basket"})
+		basket:AddComponent("transform")
+		basket.transform:SetPosition(basket_center)
+		basket:AddComponent("model")
+		basket.model:AddPrimitive(create_basket_polygon(basket_radius, 18, 48, true), basket_material)
+		basket.model:BuildAABB()
+		local basket_visual = Entity.New({Name = "debug_basket_visual"})
+		basket_visual.PhysicsNoCollision = true
+		basket_visual:AddComponent("transform")
+		basket_visual.transform:SetPosition(basket_center)
+		basket_visual:AddComponent("model")
+		basket_visual.model:AddPrimitive(create_basket_polygon(basket_radius + 0.4, 18, 48, false), basket_material)
+		basket_visual.model:BuildAABB()
+	end
 
 	local function spawn()
+		local sphere_radius = material_index % 4 == 0 and SMALL_SPHERE_RADIUS or 1
 		local ent = Entity.New({Name = "debug_ent"})
 		local transform = ent:AddComponent("transform")
 		transform:SetPosition((pos * PADDING):Copy())
@@ -80,7 +169,7 @@ do
 		end
 
 		local poly = Polygon3D.New()
-		poly:CreateSphere(1)
+		poly:CreateSphere(sphere_radius)
 		local material = materials[material_index]
 		material_index = material_index + 1
 
@@ -89,16 +178,10 @@ do
 		poly:Upload()
 		local model = ent:AddComponent("model")
 		model:AddPrimitive(poly, material)
-		ent:AddComponent(
-			"kinematic_body",
-			{
-				Radius = 1,
-				GroundSnapDistance = 0.5,
-				LinearDamping = 6,
-				Acceleration = 0,
-				AirAcceleration = 0,
-			}
-		)
+		ent:AddComponent("rigid_body", {
+			Shape = "sphere",
+			Radius = sphere_radius,
+		})
 	end
 
 	local shared = [[
@@ -357,6 +440,7 @@ do
         ]],
 		normal = "return vec4(0.5, 0.5, 1.0, 1.0);",
 	}
+	spawn_basket()
 
 	for i = 1, #materials do
 		spawn()
