@@ -23,8 +23,17 @@ META:GetSet("AngularDamping", 0)
 META:GetSet("AirLinearDamping", 0)
 META:GetSet("AirAngularDamping", 0)
 META:GetSet("CollisionEnabled", true)
+META:GetSet("CollisionGroup", 1)
+META:GetSet("CollisionMask", -1)
 META:GetSet("CollisionMargin", default_skin)
 META:GetSet("CollisionProbeDistance", 0.125)
+META:GetSet("Friction", 0)
+META:GetSet("Restitution", 0)
+META:GetSet("Awake", true)
+META:GetSet("CanSleep", true)
+META:GetSet("SleepLinearThreshold", 0.15)
+META:GetSet("SleepAngularThreshold", 0.15)
+META:GetSet("SleepDelay", 0.5)
 META:GetSet("MaxLinearSpeed", 240)
 META:GetSet("MaxAngularSpeed", 60)
 META:GetSet("MinGroundNormalY", 0.2)
@@ -33,6 +42,10 @@ META:GetSet("Grounded", false)
 
 local function component_mul(a, b)
 	return Vec3(a.x * b.x, a.y * b.y, a.z * b.z)
+end
+
+local function zero_vec3()
+	return Vec3(0, 0, 0)
 end
 
 local function clamp_vec_length(vec, max_length)
@@ -66,6 +79,9 @@ function META:Initialize()
 	self.InverseMass = self.InverseMass or 0
 	self.InverseInertia = self.InverseInertia or Vec3(0, 0, 0)
 	self.StepDt = self.StepDt or 0
+	self.SleepTimer = self.SleepTimer or 0
+	self.AccumulatedForce = self.AccumulatedForce or zero_vec3()
+	self.AccumulatedTorque = self.AccumulatedTorque or zero_vec3()
 	self:RefreshMassProperties()
 
 	if self.Owner and self.Owner.transform then
@@ -132,6 +148,13 @@ end
 
 function META:SetVelocity(vec)
 	self.Velocity = vec:Copy()
+
+	if
+		self.InverseMass ~= 0 and
+		vec:GetLength() > math.max(self.SleepLinearThreshold or 0, 0)
+	then
+		self:Wake()
+	end
 end
 
 function META:GetAngularVelocity()
@@ -140,6 +163,13 @@ end
 
 function META:SetAngularVelocity(vec)
 	self.AngularVelocity = vec:Copy()
+
+	if
+		self.InverseMass ~= 0 and
+		vec:GetLength() > math.max(self.SleepAngularThreshold or 0, 0)
+	then
+		self:Wake()
+	end
 end
 
 function META:GetPosition()
@@ -148,6 +178,8 @@ end
 
 function META:SetPosition(vec)
 	self.Position = vec:Copy()
+
+	if self.InverseMass ~= 0 then self:Wake() end
 end
 
 function META:GetPreviousPosition()
@@ -160,6 +192,8 @@ end
 
 function META:SetRotation(quat)
 	self.Rotation = quat:Copy()
+
+	if self.InverseMass ~= 0 then self:Wake() end
 end
 
 function META:GetPreviousRotation()
@@ -180,6 +214,112 @@ end
 
 function META:GetGrounded()
 	return self.Grounded
+end
+
+function META:GetAccumulatedForce()
+	return self.AccumulatedForce
+end
+
+function META:GetAccumulatedTorque()
+	return self.AccumulatedTorque
+end
+
+function META:ClearAccumulators()
+	self.AccumulatedForce = zero_vec3()
+	self.AccumulatedTorque = zero_vec3()
+end
+
+function META:GetAngularVelocityDelta(world_impulse)
+	local local_impulse = self.Rotation:GetConjugated():VecMul(world_impulse)
+	local local_delta = component_mul(local_impulse, self.InverseInertia)
+	return self.Rotation:VecMul(local_delta)
+end
+
+function META:ApplyAngularImpulse(world_impulse)
+	if self.InverseMass == 0 then return self end
+
+	self:Wake()
+	self.AngularVelocity = self.AngularVelocity + self:GetAngularVelocityDelta(world_impulse)
+	return self
+end
+
+function META:ApplyImpulse(impulse, world_pos)
+	if self.InverseMass == 0 then return self end
+
+	self:Wake()
+	self.Velocity = self.Velocity + impulse * self.InverseMass
+
+	if world_pos then
+		self:ApplyAngularImpulse((world_pos - self.Position):GetCross(impulse))
+	end
+
+	return self
+end
+
+function META:ApplyTorque(torque)
+	if self.InverseMass == 0 then return self end
+
+	self:Wake()
+	self.AccumulatedTorque = self.AccumulatedTorque + torque
+	return self
+end
+
+function META:ApplyForce(force, world_pos)
+	if self.InverseMass == 0 then return self end
+
+	self:Wake()
+	self.AccumulatedForce = self.AccumulatedForce + force
+
+	if world_pos then
+		self:ApplyTorque((world_pos - self.Position):GetCross(force))
+	end
+
+	return self
+end
+
+META.AddForce = META.ApplyForce
+META.AddTorque = META.ApplyTorque
+META.AddImpulse = META.ApplyImpulse
+
+function META:Wake()
+	if self.InverseMass == 0 then return end
+
+	self.Awake = true
+	self.SleepTimer = 0
+end
+
+function META:Sleep()
+	if self.InverseMass == 0 then return end
+
+	self.Awake = false
+	self.SleepTimer = 0
+	self.Velocity = Vec3(0, 0, 0)
+	self.AngularVelocity = Vec3(0, 0, 0)
+	self.PreviousPosition = self.Position:Copy()
+	self.PreviousRotation = self.Rotation:Copy()
+end
+
+function META:UpdateSleepState(dt)
+	if self.InverseMass == 0 or not self.CanSleep then return end
+
+	if not self.Awake then
+		self.Velocity = Vec3(0, 0, 0)
+		self.AngularVelocity = Vec3(0, 0, 0)
+		self.PreviousPosition = self.Position:Copy()
+		self.PreviousRotation = self.Rotation:Copy()
+		return
+	end
+
+	if
+		self.Velocity:GetLength() <= self.SleepLinearThreshold and
+		self.AngularVelocity:GetLength() <= self.SleepAngularThreshold
+	then
+		self.SleepTimer = self.SleepTimer + dt
+
+		if self.SleepTimer >= self.SleepDelay then self:Sleep() end
+	else
+		self.SleepTimer = 0
+	end
 end
 
 function META:GetHalfExtents()
@@ -302,10 +442,14 @@ function META:Integrate(dt, gravity)
 	self.PreviousPosition = self.Position:Copy()
 	self.PreviousRotation = self.Rotation:Copy()
 
-	if self.InverseMass == 0 then return end
+	if self.InverseMass == 0 or not self.Awake then return end
 
-	local velocity = self.Velocity + gravity * (self.GravityScale * dt)
-	local angular_velocity = self.AngularVelocity:Copy()
+	local velocity = self.Velocity + gravity * (
+			self.GravityScale * dt
+		) + self.AccumulatedForce * (
+			self.InverseMass * dt
+		)
+	local angular_velocity = self.AngularVelocity + self:GetAngularVelocityDelta(self.AccumulatedTorque * dt)
 	self.Velocity = clamp_vec_length(velocity, self.MaxLinearSpeed)
 	self.AngularVelocity = clamp_vec_length(angular_velocity, self.MaxAngularSpeed)
 	self.Position = self.Position + self.Velocity * dt
@@ -316,6 +460,14 @@ function META:UpdateVelocities(dt)
 	if self.InverseMass == 0 then
 		self.Velocity = Vec3(0, 0, 0)
 		self.AngularVelocity = Vec3(0, 0, 0)
+		return
+	end
+
+	if not self.Awake then
+		self.Velocity = Vec3(0, 0, 0)
+		self.AngularVelocity = Vec3(0, 0, 0)
+		self.PreviousPosition = self.Position:Copy()
+		self.PreviousRotation = self.Rotation:Copy()
 		return
 	end
 

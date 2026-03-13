@@ -12,6 +12,7 @@ function physics.UpdateRigidBodies(dt)
 	local substeps = math.max(1, physics.RigidBodySubsteps or 1)
 	local iterations = math.max(1, physics.RigidBodyIterations or 1)
 	local sub_dt = dt / substeps
+	physics.BeginCollisionFrame()
 
 	for _, body in ipairs(bodies) do
 		if physics.IsActiveRigidBody(body) then body:SynchronizeFromTransform() end
@@ -20,9 +21,14 @@ function physics.UpdateRigidBodies(dt)
 	for _ = 1, substeps do
 		for _, body in ipairs(bodies) do
 			if physics.IsActiveRigidBody(body) then
-				body:SetGrounded(false)
-				body:SetGroundNormal(physics.Up)
-				body:Integrate(sub_dt, physics.Gravity)
+				if body:GetAwake() then
+					body:SetGrounded(false)
+					body:SetGroundNormal(physics.Up)
+					body:Integrate(sub_dt, physics.Gravity)
+				else
+					body.PreviousPosition = body.Position:Copy()
+					body.PreviousRotation = body.Rotation:Copy()
+				end
 			end
 		end
 
@@ -32,19 +38,28 @@ function physics.UpdateRigidBodies(dt)
 
 			for _, body in ipairs(bodies) do
 				if physics.IsActiveRigidBody(body) then
-					solver.SolveBodyContacts(body, sub_dt)
+					if body:GetAwake() then solver.SolveBodyContacts(body, sub_dt) end
 				end
 			end
 		end
 
 		for _, body in ipairs(bodies) do
-			if physics.IsActiveRigidBody(body) then body:UpdateVelocities(sub_dt) end
+			if physics.IsActiveRigidBody(body) then
+				body:UpdateVelocities(sub_dt)
+				body:UpdateSleepState(sub_dt)
+			end
 		end
+	end
+
+	for _, body in ipairs(bodies) do
+		if physics.IsActiveRigidBody(body) then body:ClearAccumulators() end
 	end
 
 	for _, body in ipairs(bodies) do
 		if physics.IsActiveRigidBody(body) then body:WriteToTransform() end
 	end
+
+	physics.DispatchCollisionEvents()
 end
 
 return physics

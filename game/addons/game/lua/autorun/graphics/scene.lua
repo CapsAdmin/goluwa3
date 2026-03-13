@@ -145,7 +145,7 @@ do
 		basket:AddComponent("transform")
 		basket.transform:SetPosition(basket_center)
 		basket:AddComponent("model")
-		basket.model:AddPrimitive(create_basket_polygon(basket_radius, 18, 48, true), basket_material)
+		basket.model:AddPrimitive(create_basket_polygon(basket_radius, 18, 48, false), basket_material)
 		basket.model:BuildAABB()
 		local basket_visual = Entity.New({Name = "debug_basket_visual"})
 		basket_visual.PhysicsNoCollision = true
