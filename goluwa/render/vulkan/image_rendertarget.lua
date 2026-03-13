@@ -11,10 +11,10 @@ local Framebuffer = import("goluwa/render/vulkan/internal/framebuffer.lua")
 local Texture = import("goluwa/render/texture.lua")
 local event = import("goluwa/event.lua")
 local ImageRenderTarget = prototype.CreateTemplate("render_image_rendertarget")
-local USE_HDR = true
 local default_config = {
 	-- Mode selection
 	offscreen = false, -- Set to true for offscreen rendering
+	enable_hdr = false, -- HDR output requires an explicit opt-in and proper display calibration
 	-- Swapchain settings (windowed mode only)
 	present_mode = "fifo_khr", -- FIFO (vsync), IMMEDIATE (no vsync), MAILBOX (triple buffer)
 	image_count = nil, -- nil = minImageCount + 1 (usually triple buffer)
@@ -75,21 +75,21 @@ local function choose_format(self)
 	local chosen_format_index = self.config.surface_format_index
 
 	if not chosen_format_index then
-		if USE_HDR then
+		if self.config.enable_hdr then
 			-- Prioritize HDR formats
 			local preferred_hdr_formats = {
 				"r16g16b16a16_sfloat",
 				"a2b10g10r10_unorm_pack32",
 				"a2r10g10b10_unorm_pack32",
 			}
-			-- Try to find high-quality formats with modern color spaces first
+			-- Only prefer explicit HDR output spaces here.
+			-- Some Linux compositors advertise extended_srgb_linear_ext even when
+			-- the desktop is still effectively SDR, which can make the image look
+			-- washed out if we auto-switch into the HDR path.
 			local preferred_color_spaces = {
-				"extended_srgb_linear_ext",
 				"hdr10_st2084_ext",
 				"hdr10_hlg_ext",
 				"bt2020_linear_ext",
-				"bt709_linear_ext",
-				"srgb_nonlinear_khr",
 			}
 
 			for _, cs in ipairs(preferred_color_spaces) do
@@ -116,9 +116,9 @@ local function choose_format(self)
 				"r8g8b8a8_srgb",
 				"a2b10g10r10_unorm_pack32",
 				"a2r10g10b10_unorm_pack32",
-				"r16g16b16a16_sfloat",
 				"b8g8r8a8_unorm",
 				"r8g8b8a8_unorm",
+				"r16g16b16a16_sfloat",
 			}
 
 			for _, preferred in ipairs(preferred_formats) do
@@ -363,7 +363,7 @@ function ImageRenderTarget:IsHDR()
 	if self.surface_format then
 		local cs = self.surface_format.color_space
 
-		if cs:find("hdr10") or cs:find("bt2020") or cs:find("extended") then
+		if cs:find("hdr10") or cs:find("hlg") or cs:find("bt2020") then
 			return true
 		end
 	end
