@@ -5,6 +5,7 @@ local render3d = import("goluwa/render3d/render3d.lua")
 local lightprobes = import("goluwa/render3d/lightprobes.lua")
 local Material = import("goluwa/render3d/material.lua")
 local Texture = import("goluwa/render/texture.lua")
+local physics = import("goluwa/physics.lua")
 local ffi = require("ffi")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
 local Entity = import("goluwa/ecs/entity.lua")
@@ -88,6 +89,16 @@ do
 		poly:Upload()
 		local model = ent:AddComponent("model")
 		model:AddPrimitive(poly, material)
+		ent:AddComponent(
+			"physics_body",
+			{
+				Radius = 1,
+				GroundSnapDistance = 0.5,
+				LinearDamping = 6,
+				Acceleration = 0,
+				AirAcceleration = 0,
+			}
+		)
 	end
 
 	local shared = [[

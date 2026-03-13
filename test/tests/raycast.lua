@@ -220,3 +220,22 @@ T.Test3D("Raycast CastAny", function()
 	T(miss)["=="](false)
 	ent:Remove()
 end)
+
+T.Test3D("Raycast ground normal faces ray", function()
+	local ent = Entity.New({Name = "test_ground"})
+	ent:AddComponent("transform")
+	ent:AddComponent("model")
+	local poly = Polygon3D.New()
+	poly:AddVertex{pos = Vec3(-2, 0, -2), uv = Vec2(0, 0), normal = Vec3(0, -1, 0)}
+	poly:AddVertex{pos = Vec3(0, 0, 2), uv = Vec2(0.5, 1), normal = Vec3(0, -1, 0)}
+	poly:AddVertex{pos = Vec3(2, 0, -2), uv = Vec2(1, 0), normal = Vec3(0, -1, 0)}
+	poly:BuildBoundingBox()
+	poly:Upload()
+	ent.model:AddPrimitive(poly)
+	ent.model:BuildAABB()
+	local hit = raycast.Cast(Vec3(0, 2, 0), Vec3(0, -1, 0), 10)[1]
+	T(hit)["~="](nil)
+	T(hit.entity)["=="](ent)
+	T(hit.normal.y)[">"](0.9)
+	ent:Remove()
+end)

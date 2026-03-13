@@ -202,6 +202,10 @@ local function test_primitive(ray, primitive, primitive_idx, entity, world_to_lo
 		closest_hit.entity = entity
 	end
 
+	if closest_hit and closest_hit.normal and closest_hit.normal:Dot(ray.direction) > 0 then
+		closest_hit.normal = closest_hit.normal * -1
+	end
+
 	return closest_hit
 end
 
@@ -209,14 +213,14 @@ local function distance_sort(a, b)
 	return a.distance < b.distance
 end
 
-function raycast.Cast(origin, direction, max_distance, filter_fn)
+function raycast.Cast(origin, direction, max_distance, filter_fn, a, b, c, d, e, f)
 	max_distance = max_distance or math.huge
 	local ray = create_ray(origin, direction, max_distance)
 	local hits = {}
 	local models = Model.Instances
 
 	for _, model in ipairs(models) do
-		if filter_fn and not filter_fn(model.Owner) then goto continue end
+		if filter_fn and not filter_fn(model.Owner, a, b, c, d, e, f) then goto continue end
 
 		if not model.Visible or #model.Primitives == 0 then goto continue end
 

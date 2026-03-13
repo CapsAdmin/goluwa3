@@ -3,6 +3,7 @@ local Entity = import("goluwa/ecs/base.lua")("entity", "ecs.components.3d.", fun
 		transform = import("goluwa/ecs/components/3d/transform.lua"),
 		light = import("goluwa/ecs/components/3d/light.lua"),
 		model = import("goluwa/ecs/components/3d/model.lua"),
+		physics_body = import("goluwa/ecs/components/3d/physics_body.lua"),
 	}
 end)
 Entity.World = Entity.New()
