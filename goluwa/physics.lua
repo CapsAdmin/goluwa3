@@ -24,49 +24,73 @@ local function is_active_rigid_body(body)
 		body.Owner.transform
 end
 
-local function build_filter(ignore_entity, filter_fn, options)
+local function filter(entity, options)
 	options = options or {}
 	local ignore_kinematic = options.IgnoreKinematicBodies ~= false
 	local ignore_rigid = options.IgnoreRigidBodies ~= false
-	return function(entity)
-		if entity == ignore_entity then return false end
 
-		if entity.PhysicsNoCollision or entity.NoPhysicsCollision then return false end
+	if entity == options.IgnoreEntity then return false end
 
-		if ignore_kinematic and entity.kinematic_body then return false end
+	if entity.PhysicsNoCollision or entity.NoPhysicsCollision then return false end
 
-		if ignore_rigid and entity.rigid_body then return false end
+	if ignore_kinematic and entity.kinematic_body then return false end
 
-		if filter_fn and not filter_fn(entity) then return false end
+	if ignore_rigid and entity.rigid_body then return false end
 
-		return true
+	if options.FilterFunction and not options.FilterFunction(entity) then
+		return false
 	end
+
+	return true
+end
+
+local function cast_with_filter(
+	origin,
+	direction,
+	max_distance,
+	ignore_entity,
+	filter_fn,
+	options,
+	ignore_rigid_override
+)
+	local cast_options = options or {}
+	local previous_ignore_entity = cast_options.IgnoreEntity
+	local previous_filter_function = cast_options.FilterFunction
+	local previous_ignore_rigid = cast_options.IgnoreRigidBodies
+	cast_options.IgnoreEntity = ignore_entity
+	cast_options.FilterFunction = filter_fn
+
+	if ignore_rigid_override ~= nil then
+		cast_options.IgnoreRigidBodies = ignore_rigid_override
+	end
+
+	local hits = raycast.Cast(origin, direction, max_distance or math.huge, filter, cast_options)
+	cast_options.IgnoreEntity = previous_ignore_entity
+	cast_options.FilterFunction = previous_filter_function
+
+	if ignore_rigid_override ~= nil then
+		cast_options.IgnoreRigidBodies = previous_ignore_rigid
+	end
+
+	return hits
 end
 
 function physics.Trace(origin, direction, max_distance, ignore_entity, filter_fn, options)
-	local hits = raycast.Cast(
-		origin,
-		direction,
-		max_distance or math.huge,
-		build_filter(ignore_entity, filter_fn, options)
-	)
+	local hits = cast_with_filter(origin, direction, max_distance, ignore_entity, filter_fn, options)
 	return hits[1]
 end
 
 function physics.TraceDown(origin, radius, ignore_entity, max_distance, filter_fn, options)
 	options = options or {}
 	local allow_rigid = options.IgnoreRigidBodies == false
-	local hits = raycast.Cast(
+	local hits = cast_with_filter(
 		origin,
 		Vec3(0, -1, 0),
-		max_distance or math.huge,
-		build_filter(
-			ignore_entity,
-			filter_fn,
-			allow_rigid and
-				{IgnoreRigidBodies = true, IgnoreKinematicBodies = options.IgnoreKinematicBodies} or
-				options
-		)
+		max_distance,
+		ignore_entity,
+		filter_fn,
+		options,
+		allow_rigid and true or nil
 	)
 	local best_hit = nil
 
@@ -140,21 +164,6 @@ function physics.TraceDown(origin, radius, ignore_entity, max_distance, filter_f
 	end
 
 	return best_hit
-end
-
-function physics.FindGroundPosition(position, radius, ignore_entity, max_distance, filter_fn)
-	local cast_up = radius + 1
-	local hit = physics.TraceDown(
-		position + physics.Up * cast_up,
-		radius,
-		ignore_entity,
-		(max_distance or 4096) + cast_up,
-		filter_fn
-	)
-
-	if not hit then return nil end
-
-	return hit.position + hit.normal * (radius + physics.DefaultSkin), hit
 end
 
 local function approach_vec(current, target, delta)
