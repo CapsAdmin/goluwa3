@@ -7,6 +7,7 @@ function module.CreateServices(services)
 	local EPSILON = services.EPSILON
 	local get_pair_restitution = services.get_pair_restitution
 	local get_pair_friction = services.get_pair_friction
+	local get_pair_rolling_friction = services.get_pair_rolling_friction
 	local get_persistent_manifolds = services.get_persistent_manifolds
 	local get_step_stamp = services.get_step_stamp
 	local get_manifolds = services.get_manifolds
@@ -57,20 +58,25 @@ function module.CreateServices(services)
 	end
 
 	local function mark_pair_grounding(body_a, body_b, normal)
+		local rolling_friction = get_pair_rolling_friction(body_a, body_b)
+
 		if -normal.y >= body_a.MinGroundNormalY then
 			body_a:SetGrounded(true)
 			body_a:SetGroundNormal(-normal)
+			body_a:SetGroundRollingFriction(rolling_friction)
 		end
 
 		if normal.y >= body_b.MinGroundNormalY then
 			body_b:SetGrounded(true)
 			body_b:SetGroundNormal(normal)
+			body_b:SetGroundRollingFriction(rolling_friction)
 		end
 	end
 
 	local function try_mark_body_grounded_from_contacts(self_body, other_body, contacts, self_key, other_key)
 		if self_body:GetGrounded() then return end
 
+		local rolling_friction = get_pair_rolling_friction(self_body, other_body)
 		local self_half = self_body:GetHalfExtents()
 		local other_half = other_body:GetHalfExtents()
 		local self_threshold = self_half.y * 0.25
@@ -94,6 +100,7 @@ function module.CreateServices(services)
 					if other_body:GetPosition().y <= self_body:GetPosition().y then
 						self_body:SetGrounded(true)
 						self_body:SetGroundNormal(physics.Up)
+						self_body:SetGroundRollingFriction(rolling_friction)
 						return
 					end
 
@@ -103,6 +110,7 @@ function module.CreateServices(services)
 						if candidate.y >= self_body.MinGroundNormalY then
 							self_body:SetGrounded(true)
 							self_body:SetGroundNormal(candidate)
+							self_body:SetGroundRollingFriction(rolling_friction)
 							return
 						end
 					end

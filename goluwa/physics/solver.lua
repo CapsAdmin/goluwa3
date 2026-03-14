@@ -19,13 +19,69 @@ local contacts
 local fallback
 local manifolds
 local shape_helpers
+local COMBINE_MODE_PRIORITY = {
+	average = 0,
+	min = 1,
+	multiply = 2,
+	max = 3,
+}
+
+local function resolve_pair_combine_mode(mode_a, mode_b)
+	if mode_a == mode_b then return mode_a end
+
+	if mode_a == nil then return mode_b end
+
+	if mode_b == nil then return mode_a end
+
+	local priority_a = COMBINE_MODE_PRIORITY[mode_a]
+	local priority_b = COMBINE_MODE_PRIORITY[mode_b]
+
+	if priority_a and priority_b then
+		if priority_a >= priority_b then return mode_a end
+
+		return mode_b
+	end
+
+	if priority_a then return mode_a end
+
+	if priority_b then return mode_b end
+
+	return mode_a
+end
+
+local function combine_material_value(value_a, value_b, mode, legacy_mode)
+	if mode == "average" then return (value_a + value_b) * 0.5 end
+
+	if mode == "min" then return math.min(value_a, value_b) end
+
+	if mode == "multiply" then return value_a * value_b end
+
+	if mode == "max" then return math.max(value_a, value_b) end
+
+	if legacy_mode == "friction" then return math.sqrt(value_a * value_b) end
+
+	return math.max(value_a, value_b)
+end
 
 local function get_pair_restitution(body_a, body_b)
-	return math.max(body_a.Restitution or 0, body_b.Restitution or 0)
+	local restitution_a = math.max(body_a.Restitution or 0, 0)
+	local restitution_b = math.max(body_b.Restitution or 0, 0)
+	local mode = resolve_pair_combine_mode(body_a.RestitutionCombineMode, body_b.RestitutionCombineMode)
+	return combine_material_value(restitution_a, restitution_b, mode, "restitution")
 end
 
 local function get_pair_friction(body_a, body_b)
-	return math.sqrt(math.max(body_a.Friction or 0, 0) * math.max(body_b.Friction or 0, 0))
+	local friction_a = math.max(body_a.Friction or 0, 0)
+	local friction_b = math.max(body_b.Friction or 0, 0)
+	local mode = resolve_pair_combine_mode(body_a.FrictionCombineMode, body_b.FrictionCombineMode)
+	return combine_material_value(friction_a, friction_b, mode, "friction")
+end
+
+local function get_pair_rolling_friction(body_a, body_b)
+	local friction_a = math.max(body_a.RollingFriction or 0, 0)
+	local friction_b = math.max(body_b.RollingFriction or 0, 0)
+	local mode = resolve_pair_combine_mode(body_a.RollingFrictionCombineMode, body_b.RollingFrictionCombineMode)
+	return combine_material_value(friction_a, friction_b, mode, "friction")
 end
 
 function solver:BeginStep()
@@ -123,6 +179,7 @@ contacts = contact_services.CreateServices{
 	EPSILON = EPSILON,
 	get_pair_restitution = get_pair_restitution,
 	get_pair_friction = get_pair_friction,
+	get_pair_rolling_friction = get_pair_rolling_friction,
 	get_persistent_manifolds = function()
 		return solver.PersistentManifolds
 	end,
@@ -143,6 +200,7 @@ manifolds = manifold_services.CreateServices{
 	WARM_START_SCALE = 0.9,
 	get_pair_restitution = get_pair_restitution,
 	get_pair_friction = get_pair_friction,
+	get_pair_rolling_friction = get_pair_rolling_friction,
 	get_point_velocity = contacts.GetPointVelocity,
 	apply_impulse_to_motion = contacts.ApplyImpulseToMotion,
 	set_body_motion_from_current_state = contacts.SetBodyMotionFromCurrentState,

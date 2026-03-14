@@ -112,13 +112,22 @@ function META:SolveSupportContacts(body, dt)
 	end
 end
 
-function META:OnGroundedVelocityUpdate(body)
+function META:OnGroundedVelocityUpdate(body, dt)
 	local radius = self:GetRadius()
 
 	if radius <= 0 then return end
 
-	local tangent_velocity = body.Velocity - body.GroundNormal * body.Velocity:Dot(body.GroundNormal)
+	local normal_velocity = body.GroundNormal * body.Velocity:Dot(body.GroundNormal)
+	local tangent_velocity = body.Velocity - normal_velocity
 	local tangent_speed = tangent_velocity:GetLength()
+	local rolling_friction = math.max(body:GetGroundRollingFriction() or 0, 0)
+
+	if tangent_speed > 0.0001 and rolling_friction > 0 and dt and dt > 0 then
+		local damping = math.exp(-rolling_friction * dt)
+		tangent_velocity = tangent_velocity * damping
+		body.Velocity = normal_velocity + tangent_velocity
+		tangent_speed = tangent_velocity:GetLength()
+	end
 
 	if tangent_speed <= 0.0001 then return end
 

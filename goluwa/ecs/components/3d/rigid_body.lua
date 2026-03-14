@@ -26,7 +26,11 @@ META:GetSet("CollisionMask", -1)
 META:GetSet("CollisionMargin", default_skin)
 META:GetSet("CollisionProbeDistance", 0.125)
 META:GetSet("Friction", 0)
+META:GetSet("RollingFriction", 0)
 META:GetSet("Restitution", 0)
+META:GetSet("FrictionCombineMode", nil)
+META:GetSet("RollingFrictionCombineMode", nil)
+META:GetSet("RestitutionCombineMode", nil)
 META:GetSet("Awake", true)
 META:GetSet("CanSleep", true)
 META:GetSet("SleepLinearThreshold", 0.15)
@@ -37,6 +41,7 @@ META:GetSet("MaxAngularSpeed", 60)
 META:GetSet("MinGroundNormalY", 0.2)
 META:GetSet("FilterFunction", nil)
 META:GetSet("Grounded", false)
+META:GetSet("GroundRollingFriction", 0)
 
 local function component_mul(a, b)
 	return Vec3(a.x * b.x, a.y * b.y, a.z * b.z)
@@ -247,6 +252,8 @@ end
 
 function META:SetGrounded(grounded)
 	self.Grounded = grounded
+
+	if not grounded then self.GroundRollingFriction = 0 end
 end
 
 function META:GetGrounded()
