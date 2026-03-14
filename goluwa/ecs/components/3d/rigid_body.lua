@@ -13,6 +13,7 @@ META:GetSet("Enabled", true)
 META:GetSet("Shape", "box", {callback = "OnGeometryChanged"})
 META:GetSet("Size", Vec3(1, 1, 1), {callback = "OnGeometryChanged"})
 META:GetSet("Radius", 0.5, {callback = "OnGeometryChanged"})
+META:GetSet("ConvexHull", nil, {callback = "OnGeometryChanged"})
 META:GetSet("Density", 1, {callback = "RefreshMassProperties"})
 META:GetSet("Mass", 1, {callback = "RefreshMassProperties"})
 META:GetSet("AutomaticMass", true, {callback = "RefreshMassProperties"})
@@ -98,17 +99,64 @@ end
 function META:OnGeometryChanged()
 	self.CollisionLocalPoints = nil
 	self.SupportLocalPoints = nil
+	self.ResolvedConvexHull = nil
 	self:RefreshMassProperties()
+end
+
+local function get_bounds_from_points(points)
+	if not points or not points[1] then return nil end
+
+	local min_bounds = Vec3(math.huge, math.huge, math.huge)
+	local max_bounds = Vec3(-math.huge, -math.huge, -math.huge)
+
+	for _, point in ipairs(points) do
+		min_bounds.x = math.min(min_bounds.x, point.x)
+		min_bounds.y = math.min(min_bounds.y, point.y)
+		min_bounds.z = math.min(min_bounds.z, point.z)
+		max_bounds.x = math.max(max_bounds.x, point.x)
+		max_bounds.y = math.max(max_bounds.y, point.y)
+		max_bounds.z = math.max(max_bounds.z, point.z)
+	end
+
+	return min_bounds, max_bounds
+end
+
+function META:GetResolvedConvexHull()
+	if self.Shape ~= "convex" then return nil end
+
+	if self.ResolvedConvexHull then return self.ResolvedConvexHull end
+
+	local physics = import("goluwa/physics/shared.lua")
+	local hull = self.ConvexHull
+
+	if not hull and self.Owner and self.Owner.model then
+		hull = physics.BuildConvexHullFromModel(self.Owner.model)
+	end
+
+	if hull then hull = physics.NormalizeConvexHull(hull) end
+
+	self.ResolvedConvexHull = hull
+	return hull
 end
 
 function META:RefreshMassProperties()
 	local mass = self.Mass or 0
+	local bounds_size = self.Size
 
 	if self.Static then
 		mass = 0
 	elseif self.AutomaticMass then
 		if self.Shape == "sphere" then
 			mass = (4 / 3) * math.pi * self.Radius * self.Radius * self.Radius * self.Density
+		elseif self.Shape == "convex" then
+			local hull = self:GetResolvedConvexHull()
+
+			if hull and hull.bounds_min and hull.bounds_max then
+				bounds_size = hull.bounds_max - hull.bounds_min
+				mass = math.max(bounds_size.x * bounds_size.y * bounds_size.z * self.Density * 0.75, 0)
+			else
+				mass = self.Size.x * self.Size.y * self.Size.z * self.Density
+			end
 		else
 			mass = self.Size.x * self.Size.y * self.Size.z * self.Density
 		end
@@ -131,7 +179,15 @@ function META:RefreshMassProperties()
 		return
 	end
 
-	local sx, sy, sz = self.Size.x, self.Size.y, self.Size.z
+	if self.Shape == "convex" then
+		local hull = self:GetResolvedConvexHull()
+
+		if hull and hull.bounds_min and hull.bounds_max then
+			bounds_size = hull.bounds_max - hull.bounds_min
+		end
+	end
+
+	local sx, sy, sz = bounds_size.x, bounds_size.y, bounds_size.z
 	local ix = (1 / 12) * mass * (sy * sy + sz * sz)
 	local iy = (1 / 12) * mass * (sx * sx + sz * sz)
 	local iz = (1 / 12) * mass * (sx * sx + sy * sy)
@@ -325,6 +381,14 @@ end
 function META:GetHalfExtents()
 	if self.Shape == "sphere" then
 		return Vec3(self.Radius, self.Radius, self.Radius)
+	end
+
+	if self.Shape == "convex" then
+		local hull = self:GetResolvedConvexHull()
+
+		if hull and hull.bounds_min and hull.bounds_max then
+			return (hull.bounds_max - hull.bounds_min) * 0.5
+		end
 	end
 
 	return self.Size * 0.5
@@ -580,6 +644,12 @@ function META:BuildCollisionLocalPoints()
 		}
 	end
 
+	if self.Shape == "convex" then
+		local hull = self:GetResolvedConvexHull()
+
+		if hull and hull.vertices and hull.vertices[1] then return hull.vertices end
+	end
+
 	local ex = self.Size.x * 0.5
 	local ey = self.Size.y * 0.5
 	local ez = self.Size.z * 0.5
@@ -619,6 +689,35 @@ function META:BuildSupportLocalPoints()
 			Vec3(0, -r * 0.7, r * 0.7),
 			Vec3(0, -r * 0.7, -r * 0.7),
 		}
+	end
+
+	if self.Shape == "convex" then
+		local hull = self:GetResolvedConvexHull()
+
+		if hull and hull.vertices and hull.vertices[1] then
+			local min_y = math.huge
+			local support = {}
+			local tolerance = 0.08
+
+			for _, point in ipairs(hull.vertices) do
+				min_y = math.min(min_y, point.y)
+			end
+
+			for _, point in ipairs(hull.vertices) do
+				if math.abs(point.y - min_y) <= tolerance then support[#support + 1] = point end
+			end
+
+			if support[1] then
+				local center = Vec3(0, 0, 0)
+
+				for _, point in ipairs(support) do
+					center = center + point
+				end
+
+				support[#support + 1] = center / #support
+				return support
+			end
+		end
 	end
 
 	local ex = self.Size.x * 0.5
