@@ -58,6 +58,8 @@ function bvh.RayAABBIntersection(ray, bounds)
 	return tmax >= tmin and tmax >= 0 and tmin <= ray.max_distance, tmin, tmax
 end
 
+local ray_aabb_intersection = bvh.RayAABBIntersection
+
 local function build_node(items, first, last, get_bounds, get_centroid, leaf_item_count)
 	local bounds = bvh.CreateEmptyBounds()
 	local centroid_bounds = bvh.CreateEmptyBounds()
@@ -137,33 +139,61 @@ end
 
 function bvh.TraverseRay(ray, node, visit_leaf, context, closest_hit, closest_distance)
 	closest_distance = closest_distance or math.huge
-	local hit_node, node_tmin = bvh.RayAABBIntersection(ray, node.aabb)
+	local hit_node, node_tmin = ray_aabb_intersection(ray, node.aabb)
 
 	if not hit_node or node_tmin > closest_distance then
 		return closest_hit, closest_distance
 	end
 
-	if node.first then
-		return visit_leaf(node, context, closest_hit, closest_distance)
-	end
+	local node_stack = {node}
+	local tmin_stack = {node_tmin}
+	local stack_size = 1
 
-	local left = node.left
-	local right = node.right
-	local left_hit, left_tmin = bvh.RayAABBIntersection(ray, left.aabb)
-	local right_hit, right_tmin = bvh.RayAABBIntersection(ray, right.aabb)
+	while stack_size > 0 do
+		local current = node_stack[stack_size]
+		local current_tmin = tmin_stack[stack_size]
+		node_stack[stack_size] = nil
+		tmin_stack[stack_size] = nil
+		stack_size = stack_size - 1
 
-	if left_hit and right_hit then
-		if left_tmin <= right_tmin then
-			closest_hit, closest_distance = bvh.TraverseRay(ray, left, visit_leaf, context, closest_hit, closest_distance)
-			closest_hit, closest_distance = bvh.TraverseRay(ray, right, visit_leaf, context, closest_hit, closest_distance)
-		else
-			closest_hit, closest_distance = bvh.TraverseRay(ray, right, visit_leaf, context, closest_hit, closest_distance)
-			closest_hit, closest_distance = bvh.TraverseRay(ray, left, visit_leaf, context, closest_hit, closest_distance)
+		if current_tmin <= closest_distance then
+			if current.first then
+				closest_hit, closest_distance = visit_leaf(current, context, closest_hit, closest_distance)
+			else
+				local left = current.left
+				local right = current.right
+				local left_hit, left_tmin = ray_aabb_intersection(ray, left.aabb)
+				local right_hit, right_tmin = ray_aabb_intersection(ray, right.aabb)
+
+				if left_hit and left_tmin <= closest_distance then
+					if right_hit and right_tmin <= closest_distance then
+						if left_tmin <= right_tmin then
+							stack_size = stack_size + 1
+							node_stack[stack_size] = right
+							tmin_stack[stack_size] = right_tmin
+							stack_size = stack_size + 1
+							node_stack[stack_size] = left
+							tmin_stack[stack_size] = left_tmin
+						else
+							stack_size = stack_size + 1
+							node_stack[stack_size] = left
+							tmin_stack[stack_size] = left_tmin
+							stack_size = stack_size + 1
+							node_stack[stack_size] = right
+							tmin_stack[stack_size] = right_tmin
+						end
+					else
+						stack_size = stack_size + 1
+						node_stack[stack_size] = left
+						tmin_stack[stack_size] = left_tmin
+					end
+				elseif right_hit and right_tmin <= closest_distance then
+					stack_size = stack_size + 1
+					node_stack[stack_size] = right
+					tmin_stack[stack_size] = right_tmin
+				end
+			end
 		end
-	elseif left_hit then
-		closest_hit, closest_distance = bvh.TraverseRay(ray, left, visit_leaf, context, closest_hit, closest_distance)
-	elseif right_hit then
-		closest_hit, closest_distance = bvh.TraverseRay(ray, right, visit_leaf, context, closest_hit, closest_distance)
 	end
 
 	return closest_hit, closest_distance
