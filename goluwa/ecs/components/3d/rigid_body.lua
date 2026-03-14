@@ -1,7 +1,7 @@
 local prototype = import("goluwa/prototype.lua")
-local AABB = import("goluwa/structs/aabb.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
+local BoxShape = import("goluwa/physics/shapes/box.lua")
 local default_skin = (
 		import.loaded["goluwa/physics.lua"] and
 		import.loaded["goluwa/physics.lua"].DefaultSkin
@@ -10,10 +10,7 @@ local default_skin = (
 	0.02
 local META = prototype.CreateTemplate("rigid_body")
 META:GetSet("Enabled", true)
-META:GetSet("Shape", "box", {callback = "OnGeometryChanged"})
-META:GetSet("Size", Vec3(1, 1, 1), {callback = "OnGeometryChanged"})
-META:GetSet("Radius", 0.5, {callback = "OnGeometryChanged"})
-META:GetSet("ConvexHull", nil, {callback = "OnGeometryChanged"})
+META:GetSet("Shape", nil, {callback = "OnGeometryChanged"})
 META:GetSet("Density", 1, {callback = "RefreshMassProperties"})
 META:GetSet("Mass", 1, {callback = "RefreshMassProperties"})
 META:GetSet("AutomaticMass", true, {callback = "RefreshMassProperties"})
@@ -70,6 +67,7 @@ local function integrate_rotation(rotation, angular_velocity, dt)
 end
 
 function META:Initialize()
+	self.Shape = self.Shape or BoxShape.New(Vec3(1, 1, 1))
 	self.Velocity = self.Velocity or Vec3(0, 0, 0)
 	self.AngularVelocity = self.AngularVelocity or Vec3(0, 0, 0)
 	self.Position = self.Position or Vec3(0, 0, 0)
@@ -90,6 +88,17 @@ function META:Initialize()
 	end
 end
 
+function META:GetPhysicsShape()
+	if not self.Shape then self.Shape = BoxShape.New(Vec3(1, 1, 1)) end
+
+	return self.Shape
+end
+
+function META:GetShapeType()
+	local shape = self:GetPhysicsShape()
+	return shape and shape.GetTypeName and shape:GetTypeName() or "unknown"
+end
+
 function META:OnAdd(entity)
 	self.Owner = entity
 
@@ -99,7 +108,12 @@ end
 function META:OnGeometryChanged()
 	self.CollisionLocalPoints = nil
 	self.SupportLocalPoints = nil
-	self.ResolvedConvexHull = nil
+	local shape = self:GetPhysicsShape()
+
+	if shape and shape.OnBodyGeometryChanged then
+		shape:OnBodyGeometryChanged(self)
+	end
+
 	self:RefreshMassProperties()
 end
 
@@ -122,46 +136,16 @@ local function get_bounds_from_points(points)
 end
 
 function META:GetResolvedConvexHull()
-	if self.Shape ~= "convex" then return nil end
+	local shape = self:GetPhysicsShape()
 
-	if self.ResolvedConvexHull then return self.ResolvedConvexHull end
+	if not (shape and shape.GetResolvedHull) then return nil end
 
-	local physics = import("goluwa/physics/shared.lua")
-	local hull = self.ConvexHull
-
-	if not hull and self.Owner and self.Owner.model then
-		hull = physics.BuildConvexHullFromModel(self.Owner.model)
-	end
-
-	if hull then hull = physics.NormalizeConvexHull(hull) end
-
-	self.ResolvedConvexHull = hull
-	return hull
+	return shape:GetResolvedHull(self)
 end
 
 function META:RefreshMassProperties()
-	local mass = self.Mass or 0
-	local bounds_size = self.Size
-
-	if self.Static then
-		mass = 0
-	elseif self.AutomaticMass then
-		if self.Shape == "sphere" then
-			mass = (4 / 3) * math.pi * self.Radius * self.Radius * self.Radius * self.Density
-		elseif self.Shape == "convex" then
-			local hull = self:GetResolvedConvexHull()
-
-			if hull and hull.bounds_min and hull.bounds_max then
-				bounds_size = hull.bounds_max - hull.bounds_min
-				mass = math.max(bounds_size.x * bounds_size.y * bounds_size.z * self.Density * 0.75, 0)
-			else
-				mass = self.Size.x * self.Size.y * self.Size.z * self.Density
-			end
-		else
-			mass = self.Size.x * self.Size.y * self.Size.z * self.Density
-		end
-	end
-
+	local shape = self:GetPhysicsShape()
+	local mass, inverse_inertia = shape:GetMassProperties(self)
 	self.ComputedMass = mass
 
 	if mass <= 0 then
@@ -171,27 +155,7 @@ function META:RefreshMassProperties()
 	end
 
 	self.InverseMass = 1 / mass
-
-	if self.Shape == "sphere" then
-		local inertia = (2 / 5) * mass * self.Radius * self.Radius
-		local inv = inertia > 0 and 1 / inertia or 0
-		self.InverseInertia = Vec3(inv, inv, inv)
-		return
-	end
-
-	if self.Shape == "convex" then
-		local hull = self:GetResolvedConvexHull()
-
-		if hull and hull.bounds_min and hull.bounds_max then
-			bounds_size = hull.bounds_max - hull.bounds_min
-		end
-	end
-
-	local sx, sy, sz = bounds_size.x, bounds_size.y, bounds_size.z
-	local ix = (1 / 12) * mass * (sy * sy + sz * sz)
-	local iy = (1 / 12) * mass * (sx * sx + sz * sz)
-	local iz = (1 / 12) * mass * (sx * sx + sy * sy)
-	self.InverseInertia = Vec3(ix > 0 and 1 / ix or 0, iy > 0 and 1 / iy or 0, iz > 0 and 1 / iz or 0)
+	self.InverseInertia = inverse_inertia or Vec3(0, 0, 0)
 end
 
 function META:GetBody()
@@ -379,19 +343,7 @@ function META:UpdateSleepState(dt)
 end
 
 function META:GetHalfExtents()
-	if self.Shape == "sphere" then
-		return Vec3(self.Radius, self.Radius, self.Radius)
-	end
-
-	if self.Shape == "convex" then
-		local hull = self:GetResolvedConvexHull()
-
-		if hull and hull.bounds_min and hull.bounds_max then
-			return (hull.bounds_max - hull.bounds_min) * 0.5
-		end
-	end
-
-	return self.Size * 0.5
+	return self:GetPhysicsShape():GetHalfExtents(self)
 end
 
 function META:IsStatic()
@@ -421,12 +373,7 @@ function META:LocalToWorld(local_pos, position, rotation)
 end
 
 function META:GeometryLocalToWorld(local_pos, position, rotation)
-	position = position or self.Position
-
-	if self.Shape == "sphere" then return position + local_pos end
-
-	rotation = rotation or self.Rotation
-	return position + rotation:VecMul(local_pos)
+	return self:GetPhysicsShape():GeometryLocalToWorld(self, local_pos, position, rotation)
 end
 
 function META:WorldToLocal(world_pos, position, rotation)
@@ -436,69 +383,7 @@ function META:WorldToLocal(world_pos, position, rotation)
 end
 
 function META:GetBroadphaseAABB(position, rotation)
-	position = position or self.Position
-	rotation = rotation or self.Rotation
-
-	if self.Shape == "sphere" then
-		local r = self.Radius
-		return AABB(
-			position.x - r,
-			position.y - r,
-			position.z - r,
-			position.x + r,
-			position.y + r,
-			position.z + r
-		)
-	end
-
-	if self.Shape == "box" then
-		local bounds = AABB(math.huge, math.huge, math.huge, -math.huge, -math.huge, -math.huge)
-		local ex = self.Size.x * 0.5
-		local ey = self.Size.y * 0.5
-		local ez = self.Size.z * 0.5
-		local corners = {
-			Vec3(-ex, -ey, -ez),
-			Vec3(ex, -ey, -ez),
-			Vec3(ex, ey, -ez),
-			Vec3(-ex, ey, -ez),
-			Vec3(-ex, -ey, ez),
-			Vec3(ex, -ey, ez),
-			Vec3(ex, ey, ez),
-			Vec3(-ex, ey, ez),
-		}
-
-		for _, corner in ipairs(corners) do
-			bounds:ExpandVec3(position + rotation:VecMul(corner))
-		end
-
-		return bounds
-	end
-
-	if self.Owner and self.Owner.model and self.Owner.model.GetWorldAABB then
-		return self.Owner.model:GetWorldAABB()
-	end
-
-	local points = self:GetCollisionLocalPoints()
-
-	if not points or not points[1] then
-		local half = self:GetHalfExtents()
-		return AABB(
-			position.x - half.x,
-			position.y - half.y,
-			position.z - half.z,
-			position.x + half.x,
-			position.y + half.y,
-			position.z + half.z
-		)
-	end
-
-	local bounds = AABB(math.huge, math.huge, math.huge, -math.huge, -math.huge, -math.huge)
-
-	for _, point in ipairs(points) do
-		bounds:ExpandVec3(self:GeometryLocalToWorld(point, position, rotation))
-	end
-
-	return bounds
+	return self:GetPhysicsShape():GetBroadphaseAABB(self, position, rotation)
 end
 
 function META:Integrate(dt, gravity)
@@ -548,16 +433,7 @@ function META:UpdateVelocities(dt)
 			self.Velocity = self.Velocity - self.GroundNormal * normal_speed
 		end
 
-		if self.Shape == "sphere" and self.Radius > 0 then
-			local tangent_velocity = self.Velocity - self.GroundNormal * self.Velocity:Dot(self.GroundNormal)
-			local tangent_speed = tangent_velocity:GetLength()
-
-			if tangent_speed > 0.0001 then
-				local rolling_angular = self.GroundNormal:GetCross(tangent_velocity) / self.Radius
-				local normal_angular = self.GroundNormal * self.AngularVelocity:Dot(self.GroundNormal)
-				self.AngularVelocity = rolling_angular + normal_angular
-			end
-		end
+		self:GetPhysicsShape():OnGroundedVelocityUpdate(self, dt)
 	end
 
 	local linear_damping_value = self.Grounded and self.LinearDamping or self.AirLinearDamping
@@ -632,43 +508,7 @@ function META:ApplyCorrection(compliance, correction, pos, other_body, other_pos
 end
 
 function META:BuildCollisionLocalPoints()
-	if self.Shape == "sphere" then
-		local r = self.Radius
-		return {
-			Vec3(0, -r, 0),
-			Vec3(0, r, 0),
-			Vec3(r, 0, 0),
-			Vec3(-r, 0, 0),
-			Vec3(0, 0, r),
-			Vec3(0, 0, -r),
-		}
-	end
-
-	if self.Shape == "convex" then
-		local hull = self:GetResolvedConvexHull()
-
-		if hull and hull.vertices and hull.vertices[1] then return hull.vertices end
-	end
-
-	local ex = self.Size.x * 0.5
-	local ey = self.Size.y * 0.5
-	local ez = self.Size.z * 0.5
-	return {
-		Vec3(-ex, -ey, -ez),
-		Vec3(ex, -ey, -ez),
-		Vec3(ex, ey, -ez),
-		Vec3(-ex, ey, -ez),
-		Vec3(-ex, -ey, ez),
-		Vec3(ex, -ey, ez),
-		Vec3(ex, ey, ez),
-		Vec3(-ex, ey, ez),
-		Vec3(0, -ey, 0),
-		Vec3(0, ey, 0),
-		Vec3(ex, 0, 0),
-		Vec3(-ex, 0, 0),
-		Vec3(0, 0, ez),
-		Vec3(0, 0, -ez),
-	}
+	return self:GetPhysicsShape():BuildCollisionLocalPoints(self)
 end
 
 function META:GetCollisionLocalPoints()
@@ -680,56 +520,7 @@ function META:GetCollisionLocalPoints()
 end
 
 function META:BuildSupportLocalPoints()
-	if self.Shape == "sphere" then
-		local r = self.Radius
-		return {
-			Vec3(0, -r, 0),
-			Vec3(r * 0.7, -r * 0.7, 0),
-			Vec3(-r * 0.7, -r * 0.7, 0),
-			Vec3(0, -r * 0.7, r * 0.7),
-			Vec3(0, -r * 0.7, -r * 0.7),
-		}
-	end
-
-	if self.Shape == "convex" then
-		local hull = self:GetResolvedConvexHull()
-
-		if hull and hull.vertices and hull.vertices[1] then
-			local min_y = math.huge
-			local support = {}
-			local tolerance = 0.08
-
-			for _, point in ipairs(hull.vertices) do
-				min_y = math.min(min_y, point.y)
-			end
-
-			for _, point in ipairs(hull.vertices) do
-				if math.abs(point.y - min_y) <= tolerance then support[#support + 1] = point end
-			end
-
-			if support[1] then
-				local center = Vec3(0, 0, 0)
-
-				for _, point in ipairs(support) do
-					center = center + point
-				end
-
-				support[#support + 1] = center / #support
-				return support
-			end
-		end
-	end
-
-	local ex = self.Size.x * 0.5
-	local ey = self.Size.y * 0.5
-	local ez = self.Size.z * 0.5
-	return {
-		Vec3(-ex, -ey, -ez),
-		Vec3(ex, -ey, -ez),
-		Vec3(ex, -ey, ez),
-		Vec3(-ex, -ey, ez),
-		Vec3(0, -ey, 0),
-	}
+	return self:GetPhysicsShape():BuildSupportLocalPoints(self)
 end
 
 function META:GetSupportLocalPoints()

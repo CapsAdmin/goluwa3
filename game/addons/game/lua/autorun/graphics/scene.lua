@@ -7,6 +7,7 @@ local lightprobes = import("goluwa/render3d/lightprobes.lua")
 local Material = import("goluwa/render3d/material.lua")
 local Texture = import("goluwa/render/texture.lua")
 local physics = import("goluwa/physics.lua")
+local SphereShape = import("goluwa/physics/shapes/sphere.lua")
 local ffi = require("ffi")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
 local Entity = import("goluwa/ecs/entity.lua")
@@ -179,8 +180,7 @@ do
 		local model = ent:AddComponent("model")
 		model:AddPrimitive(poly, material)
 		ent:AddComponent("rigid_body", {
-			Shape = "sphere",
-			Radius = sphere_radius,
+			Shape = SphereShape.New(sphere_radius),
 		})
 	end
 

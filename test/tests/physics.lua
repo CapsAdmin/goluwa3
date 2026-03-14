@@ -4,6 +4,12 @@ local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
 local Entity = import("goluwa/ecs/entity.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
+local SphereShape = import("goluwa/physics/shapes/sphere.lua")
+local BoxShape = import("goluwa/physics/shapes/box.lua")
+local ConvexShape = import("goluwa/physics/shapes/convex.lua")
+local sphere_shape = SphereShape.New
+local box_shape = BoxShape.New
+local convex_shape = ConvexShape.New
 
 local function simulate_physics(steps, dt)
 	dt = dt or (1 / 120)
@@ -209,7 +215,7 @@ T.Test3D("Rigid body smoke test lands on ground mesh", function()
 	local body = body_ent:AddComponent(
 		"rigid_body",
 		{
-			Shape = "sphere",
+			Shape = sphere_shape(0.5),
 			Radius = 0.5,
 			LinearDamping = 0,
 			AngularDamping = 0,
@@ -252,7 +258,7 @@ T.Test3D("Kinematic body can stand on rigid body", function()
 	platform_ent.model:AddPrimitive(platform_poly)
 	platform_ent.model:BuildAABB()
 	platform_ent:AddComponent("rigid_body", {
-		Shape = "sphere",
+		Shape = sphere_shape(1),
 		Radius = 1,
 		Static = true,
 	})
@@ -301,7 +307,7 @@ T.Test3D("Rigid body ground damping does not slow falling", function()
 	local body = body_ent:AddComponent(
 		"rigid_body",
 		{
-			Shape = "sphere",
+			Shape = sphere_shape(0.5),
 			Radius = 0.5,
 			LinearDamping = 6,
 			AngularDamping = 2,
@@ -345,7 +351,7 @@ T.Test3D("Rigid sphere can move along uneven ground", function()
 	local body = body_ent:AddComponent(
 		"rigid_body",
 		{
-			Shape = "sphere",
+			Shape = sphere_shape(0.5),
 			Radius = 0.5,
 			LinearDamping = 0,
 			AngularDamping = 0,
@@ -380,14 +386,14 @@ T.Test3D("Rigid spheres separate without exploding", function()
 	sphere_a:AddComponent("transform")
 	sphere_a.transform:SetPosition(Vec3(-0.45, 2.5, 0))
 	local body_a = sphere_a:AddComponent("rigid_body", {
-		Shape = "sphere",
+		Shape = sphere_shape(0.5),
 		Radius = 0.5,
 	})
 	local sphere_b = Entity.New({Name = "rigid_pair_b"})
 	sphere_b:AddComponent("transform")
 	sphere_b.transform:SetPosition(Vec3(0.45, 2.5, 0))
 	local body_b = sphere_b:AddComponent("rigid_body", {
-		Shape = "sphere",
+		Shape = sphere_shape(0.5),
 		Radius = 0.5,
 	})
 
@@ -423,16 +429,19 @@ T.Test3D("Rigid sphere can rest on rigid box", function()
 	local box_ent = Entity.New({Name = "rigid_box"})
 	box_ent:AddComponent("transform")
 	box_ent.transform:SetPosition(Vec3(0, 1, 0))
-	box_ent:AddComponent("rigid_body", {
-		Shape = "box",
-		Size = Vec3(2, 1, 2),
-		Static = true,
-	})
+	box_ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = box_shape(Vec3(2, 1, 2)),
+			Size = Vec3(2, 1, 2),
+			Static = true,
+		}
+	)
 	local sphere_ent = Entity.New({Name = "rigid_sphere_on_box"})
 	sphere_ent:AddComponent("transform")
 	sphere_ent.transform:SetPosition(Vec3(0, 3, 0))
 	local sphere = sphere_ent:AddComponent("rigid_body", {
-		Shape = "sphere",
+		Shape = sphere_shape(0.5),
 		Radius = 0.5,
 	})
 
@@ -454,18 +463,21 @@ T.Test3D("Rigid box can rest on static box", function()
 	local base_ent = Entity.New({Name = "rigid_box_base"})
 	base_ent:AddComponent("transform")
 	base_ent.transform:SetPosition(Vec3(0, 1, 0))
-	base_ent:AddComponent("rigid_body", {
-		Shape = "box",
-		Size = Vec3(2, 1, 2),
-		Static = true,
-	})
+	base_ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = box_shape(Vec3(2, 1, 2)),
+			Size = Vec3(2, 1, 2),
+			Static = true,
+		}
+	)
 	local top_ent = Entity.New({Name = "rigid_box_top"})
 	top_ent:AddComponent("transform")
 	top_ent.transform:SetPosition(Vec3(0, 3.5, 0))
 	local top = top_ent:AddComponent(
 		"rigid_body",
 		{
-			Shape = "box",
+			Shape = box_shape(Vec3(1, 1, 1)),
 			Size = Vec3(1, 1, 1),
 			LinearDamping = 0,
 			AngularDamping = 0,
@@ -487,18 +499,21 @@ T.Test3D("Rigid resting contact stays stable over time", function()
 	local box_ent = Entity.New({Name = "rigid_rest_box"})
 	box_ent:AddComponent("transform")
 	box_ent.transform:SetPosition(Vec3(0, 1, 0))
-	box_ent:AddComponent("rigid_body", {
-		Shape = "box",
-		Size = Vec3(2, 1, 2),
-		Static = true,
-	})
+	box_ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = box_shape(Vec3(2, 1, 2)),
+			Size = Vec3(2, 1, 2),
+			Static = true,
+		}
+	)
 	local sphere_ent = Entity.New({Name = "rigid_rest_sphere"})
 	sphere_ent:AddComponent("transform")
 	sphere_ent.transform:SetPosition(Vec3(0.1, 3, 0.05))
 	local sphere = sphere_ent:AddComponent(
 		"rigid_body",
 		{
-			Shape = "sphere",
+			Shape = sphere_shape(0.5),
 			Radius = 0.5,
 			LinearDamping = 0,
 			AngularDamping = 0,
@@ -524,18 +539,21 @@ T.Test3D("Rigid sphere rolls off rotated box instead of resting on its AABB", fu
 	ramp_ent:AddComponent("transform")
 	ramp_ent.transform:SetPosition(Vec3(0, 1.5, 0))
 	ramp_ent.transform:SetAngles(Deg3(0, 0, -35))
-	ramp_ent:AddComponent("rigid_body", {
-		Shape = "box",
-		Size = Vec3(4, 1, 4),
-		Static = true,
-	})
+	ramp_ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = box_shape(Vec3(4, 1, 4)),
+			Size = Vec3(4, 1, 4),
+			Static = true,
+		}
+	)
 	local sphere_ent = Entity.New({Name = "rigid_sphere_rotated_box"})
 	sphere_ent:AddComponent("transform")
 	sphere_ent.transform:SetPosition(Vec3(0, 5, 0))
 	local sphere = sphere_ent:AddComponent(
 		"rigid_body",
 		{
-			Shape = "sphere",
+			Shape = sphere_shape(0.5),
 			Radius = 0.5,
 			LinearDamping = 0,
 			AngularDamping = 0,
@@ -554,18 +572,21 @@ T.Test3D("Fast rigid sphere does not tunnel through thin static box", function()
 	local blocker_ent = Entity.New({Name = "rigid_ccd_blocker"})
 	blocker_ent:AddComponent("transform")
 	blocker_ent.transform:SetPosition(Vec3(0, 1, 0))
-	blocker_ent:AddComponent("rigid_body", {
-		Shape = "box",
-		Size = Vec3(6, 0.2, 6),
-		Static = true,
-	})
+	blocker_ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = box_shape(Vec3(6, 0.2, 6)),
+			Size = Vec3(6, 0.2, 6),
+			Static = true,
+		}
+	)
 	local sphere_ent = Entity.New({Name = "rigid_ccd_sphere"})
 	sphere_ent:AddComponent("transform")
 	sphere_ent.transform:SetPosition(Vec3(0, 8, 0))
 	local sphere = sphere_ent:AddComponent(
 		"rigid_body",
 		{
-			Shape = "sphere",
+			Shape = sphere_shape(0.5),
 			Radius = 0.5,
 			LinearDamping = 0,
 			AngularDamping = 0,
@@ -588,7 +609,7 @@ T.Test3D("Rigid body collision response supports friction and restitution", func
 	platform_ent:AddComponent(
 		"rigid_body",
 		{
-			Shape = "box",
+			Shape = box_shape(Vec3(8, 1, 8)),
 			Size = Vec3(8, 1, 8),
 			Static = true,
 			Friction = 1,
@@ -601,7 +622,7 @@ T.Test3D("Rigid body collision response supports friction and restitution", func
 	local sphere = sphere_ent:AddComponent(
 		"rigid_body",
 		{
-			Shape = "sphere",
+			Shape = sphere_shape(0.5),
 			Radius = 0.5,
 			LinearDamping = 0,
 			AngularDamping = 0,
@@ -623,26 +644,32 @@ T.Test3D("Rigid bodies support persistent multi-point contact manifolds", functi
 	local left_support = Entity.New({Name = "rigid_manifold_left"})
 	left_support:AddComponent("transform")
 	left_support.transform:SetPosition(Vec3(-1.6, 1, 0))
-	left_support:AddComponent("rigid_body", {
-		Shape = "box",
-		Size = Vec3(1, 1, 2),
-		Static = true,
-	})
+	left_support:AddComponent(
+		"rigid_body",
+		{
+			Shape = box_shape(Vec3(1, 1, 2)),
+			Size = Vec3(1, 1, 2),
+			Static = true,
+		}
+	)
 	local right_support = Entity.New({Name = "rigid_manifold_right"})
 	right_support:AddComponent("transform")
 	right_support.transform:SetPosition(Vec3(1.6, 1, 0))
-	right_support:AddComponent("rigid_body", {
-		Shape = "box",
-		Size = Vec3(1, 1, 2),
-		Static = true,
-	})
+	right_support:AddComponent(
+		"rigid_body",
+		{
+			Shape = box_shape(Vec3(1, 1, 2)),
+			Size = Vec3(1, 1, 2),
+			Static = true,
+		}
+	)
 	local plank_ent = Entity.New({Name = "rigid_manifold_plank"})
 	plank_ent:AddComponent("transform")
 	plank_ent.transform:SetPosition(Vec3(0, 4, 0))
 	local plank = plank_ent:AddComponent(
 		"rigid_body",
 		{
-			Shape = "box",
+			Shape = box_shape(Vec3(4.5, 0.6, 1.5)),
 			Size = Vec3(4.5, 0.6, 1.5),
 			LinearDamping = 0,
 			AngularDamping = 0,
@@ -668,7 +695,7 @@ T.Test3D("Rigid bodies can sleep and wake on contact", function()
 	ground_ent:AddComponent(
 		"rigid_body",
 		{
-			Shape = "box",
+			Shape = box_shape(Vec3(8, 1, 8)),
 			Size = Vec3(8, 1, 8),
 			Static = true,
 			Friction = 1,
@@ -680,7 +707,7 @@ T.Test3D("Rigid bodies can sleep and wake on contact", function()
 	local sphere = sphere_ent:AddComponent(
 		"rigid_body",
 		{
-			Shape = "sphere",
+			Shape = sphere_shape(0.5),
 			Radius = 0.5,
 			LinearDamping = 12,
 			AngularDamping = 12,
@@ -710,7 +737,7 @@ T.Test3D("Rigid body force and impulse API", function()
 	local sphere = sphere_ent:AddComponent(
 		"rigid_body",
 		{
-			Shape = "sphere",
+			Shape = sphere_shape(0.5),
 			Radius = 0.5,
 			AutomaticMass = false,
 			Mass = 2,
@@ -739,7 +766,7 @@ T.Test3D("Rigid body force and impulse API", function()
 	local box = box_ent:AddComponent(
 		"rigid_body",
 		{
-			Shape = "box",
+			Shape = box_shape(Vec3(2, 1, 1)),
 			Size = Vec3(2, 1, 1),
 			AutomaticMass = false,
 			Mass = 1,
@@ -780,7 +807,7 @@ T.Test3D("Rigid bodies support collision layers and collision events", function(
 	local no_hit_a, body_a, no_hit_b, body_b = spawn_pair(
 		"rigid_layers_skip",
 		{
-			Shape = "sphere",
+			Shape = sphere_shape(0.5),
 			Radius = 0.5,
 			GravityScale = 0,
 			Restitution = 1,
@@ -788,7 +815,7 @@ T.Test3D("Rigid bodies support collision layers and collision events", function(
 			CollisionMask = 1,
 		},
 		{
-			Shape = "sphere",
+			Shape = sphere_shape(0.5),
 			Radius = 0.5,
 			GravityScale = 0,
 			Restitution = 1,
@@ -816,7 +843,7 @@ T.Test3D("Rigid bodies support collision layers and collision events", function(
 	local hit_body_b = hit_b:AddComponent(
 		"rigid_body",
 		{
-			Shape = "box",
+			Shape = box_shape(Vec3(4, 1, 4)),
 			Size = Vec3(4, 1, 4),
 			Static = true,
 			CollisionGroup = 2,
@@ -829,7 +856,7 @@ T.Test3D("Rigid bodies support collision layers and collision events", function(
 	local hit_body_a = hit_a:AddComponent(
 		"rigid_body",
 		{
-			Shape = "sphere",
+			Shape = sphere_shape(0.5),
 			Radius = 0.5,
 			CollisionGroup = 1,
 			CollisionMask = 3,
@@ -873,18 +900,21 @@ T.Test3D("Fast rigid boxes do not tunnel through thin static world geometry", fu
 	local blocker_ent = Entity.New({Name = "rigid_ccd_box_blocker"})
 	blocker_ent:AddComponent("transform")
 	blocker_ent.transform:SetPosition(Vec3(0, 1, 0))
-	blocker_ent:AddComponent("rigid_body", {
-		Shape = "box",
-		Size = Vec3(6, 0.2, 6),
-		Static = true,
-	})
+	blocker_ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = box_shape(Vec3(6, 0.2, 6)),
+			Size = Vec3(6, 0.2, 6),
+			Static = true,
+		}
+	)
 	local box_ent = Entity.New({Name = "rigid_ccd_fast_box"})
 	box_ent:AddComponent("transform")
 	box_ent.transform:SetPosition(Vec3(0, 8, 0))
 	local box = box_ent:AddComponent(
 		"rigid_body",
 		{
-			Shape = "box",
+			Shape = box_shape(Vec3(1, 1, 1)),
 			Size = Vec3(1, 1, 1),
 			LinearDamping = 0,
 			AngularDamping = 0,
@@ -908,7 +938,7 @@ T.Test3D("Fast rigid bodies do not tunnel through other moving rigid bodies", fu
 	local left = left_ent:AddComponent(
 		"rigid_body",
 		{
-			Shape = "sphere",
+			Shape = sphere_shape(0.5),
 			Radius = 0.5,
 			GravityScale = 0,
 			LinearDamping = 0,
@@ -923,7 +953,7 @@ T.Test3D("Fast rigid bodies do not tunnel through other moving rigid bodies", fu
 	local right = right_ent:AddComponent(
 		"rigid_body",
 		{
-			Shape = "sphere",
+			Shape = sphere_shape(0.5),
 			Radius = 0.5,
 			GravityScale = 0,
 			LinearDamping = 0,
@@ -949,11 +979,14 @@ T.Test3D("Rigid body depenetration is clamped and tall stacks remain stable", fu
 	local base_ent = Entity.New({Name = "rigid_tall_stack_base"})
 	base_ent:AddComponent("transform")
 	base_ent.transform:SetPosition(Vec3(0, 1, 0))
-	base_ent:AddComponent("rigid_body", {
-		Shape = "box",
-		Size = Vec3(3, 1, 3),
-		Static = true,
-	})
+	base_ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = box_shape(Vec3(3, 1, 3)),
+			Size = Vec3(3, 1, 3),
+			Static = true,
+		}
+	)
 	local boxes = {}
 	local stack_count = 20
 
@@ -965,7 +998,7 @@ T.Test3D("Rigid body depenetration is clamped and tall stacks remain stable", fu
 		local body = ent:AddComponent(
 			"rigid_body",
 			{
-				Shape = "box",
+				Shape = box_shape(Vec3(1, 1, 1)),
 				Size = Vec3(1, 1, 1),
 				LinearDamping = 0,
 				AngularDamping = 0,
@@ -1012,7 +1045,7 @@ T.Test3D("Rigid bodies keep warm-started persistent contact manifolds stable acr
 	base_ent:AddComponent(
 		"rigid_body",
 		{
-			Shape = "box",
+			Shape = box_shape(Vec3(5, 1, 5)),
 			Size = Vec3(5, 1, 5),
 			Static = true,
 			Friction = 1,
@@ -1025,7 +1058,7 @@ T.Test3D("Rigid bodies keep warm-started persistent contact manifolds stable acr
 	local top = top_ent:AddComponent(
 		"rigid_body",
 		{
-			Shape = "box",
+			Shape = box_shape(Vec3(4, 0.9, 4)),
 			Size = Vec3(4, 0.9, 4),
 			LinearDamping = 0,
 			AngularDamping = 0,
@@ -1065,7 +1098,7 @@ T.Test3D("Rigid rotated boxes generate stable multi-point contact patches", func
 	base_ent:AddComponent(
 		"rigid_body",
 		{
-			Shape = "box",
+			Shape = box_shape(Vec3(5, 1, 5)),
 			Size = Vec3(5, 1, 5),
 			Static = true,
 			Friction = 1,
@@ -1078,7 +1111,7 @@ T.Test3D("Rigid rotated boxes generate stable multi-point contact patches", func
 	local top = top_ent:AddComponent(
 		"rigid_body",
 		{
-			Shape = "box",
+			Shape = box_shape(Vec3(4, 0.8, 4)),
 			Size = Vec3(4, 0.8, 4),
 			LinearDamping = 0,
 			AngularDamping = 0,
@@ -1109,7 +1142,7 @@ T.Test3D("Rigid body collisions apply angular impulse from off-center impacts", 
 	local sphere = sphere_ent:AddComponent(
 		"rigid_body",
 		{
-			Shape = "sphere",
+			Shape = sphere_shape(0.5),
 			Radius = 0.5,
 			GravityScale = 0,
 			LinearDamping = 0,
@@ -1124,7 +1157,7 @@ T.Test3D("Rigid body collisions apply angular impulse from off-center impacts", 
 	local box = box_ent:AddComponent(
 		"rigid_body",
 		{
-			Shape = "box",
+			Shape = box_shape(Vec3(1.5, 1.5, 1.5)),
 			Size = Vec3(1.5, 1.5, 1.5),
 			GravityScale = 0,
 			LinearDamping = 0,
@@ -1176,7 +1209,7 @@ T.Test3D("Convex rigid body can rest on triangle world geometry", function()
 	local body = body_ent:AddComponent(
 		"rigid_body",
 		{
-			Shape = "convex",
+			Shape = convex_shape(hull),
 			ConvexHull = hull,
 			LinearDamping = 0,
 			AngularDamping = 0,
@@ -1197,18 +1230,21 @@ T.Test3D("Rigid sphere collides with static convex hull", function()
 	local convex_ent = Entity.New({Name = "convex_static_octahedron"})
 	convex_ent:AddComponent("transform")
 	convex_ent.transform:SetPosition(Vec3(0, 1, 0))
-	convex_ent:AddComponent("rigid_body", {
-		Shape = "convex",
-		ConvexHull = hull,
-		Static = true,
-	})
+	convex_ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = convex_shape(hull),
+			ConvexHull = hull,
+			Static = true,
+		}
+	)
 	local sphere_ent = Entity.New({Name = "convex_hit_sphere"})
 	sphere_ent:AddComponent("transform")
 	sphere_ent.transform:SetPosition(Vec3(-3, 1, 0))
 	local sphere = sphere_ent:AddComponent(
 		"rigid_body",
 		{
-			Shape = "sphere",
+			Shape = sphere_shape(0.5),
 			Radius = 0.5,
 			GravityScale = 0,
 			LinearDamping = 0,
@@ -1233,18 +1269,21 @@ T.Test3D("Convex rigid body collides with static box", function()
 	local box_ent = Entity.New({Name = "convex_static_box"})
 	box_ent:AddComponent("transform")
 	box_ent.transform:SetPosition(Vec3(0, 1, 0))
-	box_ent:AddComponent("rigid_body", {
-		Shape = "box",
-		Size = Vec3(4, 1, 4),
-		Static = true,
-	})
+	box_ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = box_shape(Vec3(4, 1, 4)),
+			Size = Vec3(4, 1, 4),
+			Static = true,
+		}
+	)
 	local convex_ent = Entity.New({Name = "convex_dynamic_box_test"})
 	convex_ent:AddComponent("transform")
 	convex_ent.transform:SetPosition(Vec3(0, 4, 0))
 	local convex = convex_ent:AddComponent(
 		"rigid_body",
 		{
-			Shape = "convex",
+			Shape = convex_shape(hull),
 			ConvexHull = hull,
 			LinearDamping = 0,
 			AngularDamping = 0,
@@ -1265,18 +1304,21 @@ T.Test3D("Fast rigid sphere does not tunnel through thin static convex hull", fu
 	local blocker_ent = Entity.New({Name = "rigid_ccd_convex_blocker"})
 	blocker_ent:AddComponent("transform")
 	blocker_ent.transform:SetPosition(Vec3(0, 1, 0))
-	blocker_ent:AddComponent("rigid_body", {
-		Shape = "convex",
-		ConvexHull = hull,
-		Static = true,
-	})
+	blocker_ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = convex_shape(hull),
+			ConvexHull = hull,
+			Static = true,
+		}
+	)
 	local sphere_ent = Entity.New({Name = "rigid_ccd_convex_sphere"})
 	sphere_ent:AddComponent("transform")
 	sphere_ent.transform:SetPosition(Vec3(0, 8, 0))
 	local sphere = sphere_ent:AddComponent(
 		"rigid_body",
 		{
-			Shape = "sphere",
+			Shape = sphere_shape(0.5),
 			Radius = 0.5,
 			LinearDamping = 0,
 			AngularDamping = 0,
@@ -1297,11 +1339,14 @@ T.Test3D("Fast rigid convex body does not tunnel through thin static box", funct
 	local blocker_ent = Entity.New({Name = "rigid_ccd_box_blocker_for_convex"})
 	blocker_ent:AddComponent("transform")
 	blocker_ent.transform:SetPosition(Vec3(0, 1, 0))
-	blocker_ent:AddComponent("rigid_body", {
-		Shape = "box",
-		Size = Vec3(6, 0.2, 6),
-		Static = true,
-	})
+	blocker_ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = box_shape(Vec3(6, 0.2, 6)),
+			Size = Vec3(6, 0.2, 6),
+			Static = true,
+		}
+	)
 	local hull = physics.ApproximateConvexMeshFromTriangles(create_box_source_mesh(Vec3(1, 1, 1)))
 	local convex_ent = Entity.New({Name = "rigid_ccd_fast_convex"})
 	convex_ent:AddComponent("transform")
@@ -1309,7 +1354,7 @@ T.Test3D("Fast rigid convex body does not tunnel through thin static box", funct
 	local convex = convex_ent:AddComponent(
 		"rigid_body",
 		{
-			Shape = "convex",
+			Shape = convex_shape(hull),
 			ConvexHull = hull,
 			LinearDamping = 0,
 			AngularDamping = 0,
@@ -1331,18 +1376,21 @@ T.Test3D("Fast rigid box does not tunnel through thin static convex hull", funct
 	local blocker_ent = Entity.New({Name = "rigid_ccd_static_convex_for_box"})
 	blocker_ent:AddComponent("transform")
 	blocker_ent.transform:SetPosition(Vec3(0, 1, 0))
-	blocker_ent:AddComponent("rigid_body", {
-		Shape = "convex",
-		ConvexHull = hull,
-		Static = true,
-	})
+	blocker_ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = convex_shape(hull),
+			ConvexHull = hull,
+			Static = true,
+		}
+	)
 	local box_ent = Entity.New({Name = "rigid_ccd_fast_box_vs_convex"})
 	box_ent:AddComponent("transform")
 	box_ent.transform:SetPosition(Vec3(0, 8, 0))
 	local box = box_ent:AddComponent(
 		"rigid_body",
 		{
-			Shape = "box",
+			Shape = box_shape(Vec3(1, 1, 1)),
 			Size = Vec3(1, 1, 1),
 			LinearDamping = 0,
 			AngularDamping = 0,
@@ -1367,7 +1415,7 @@ T.Test3D("Fast rigid convex bodies do not tunnel through each other", function()
 	local left = left_ent:AddComponent(
 		"rigid_body",
 		{
-			Shape = "convex",
+			Shape = convex_shape(hull),
 			ConvexHull = hull,
 			GravityScale = 0,
 			LinearDamping = 0,
@@ -1382,7 +1430,7 @@ T.Test3D("Fast rigid convex bodies do not tunnel through each other", function()
 	local right = right_ent:AddComponent(
 		"rigid_body",
 		{
-			Shape = "convex",
+			Shape = convex_shape(hull),
 			ConvexHull = hull,
 			GravityScale = 0,
 			LinearDamping = 0,
@@ -1411,7 +1459,7 @@ T.Test3D("Fast rigid convex and box bodies do not tunnel through each other", fu
 	local convex = convex_ent:AddComponent(
 		"rigid_body",
 		{
-			Shape = "convex",
+			Shape = convex_shape(hull),
 			ConvexHull = hull,
 			GravityScale = 0,
 			LinearDamping = 0,
@@ -1426,7 +1474,7 @@ T.Test3D("Fast rigid convex and box bodies do not tunnel through each other", fu
 	local box = box_ent:AddComponent(
 		"rigid_body",
 		{
-			Shape = "box",
+			Shape = box_shape(Vec3(1, 1, 1)),
 			Size = Vec3(1, 1, 1),
 			GravityScale = 0,
 			LinearDamping = 0,
@@ -1451,18 +1499,21 @@ T.Test3D("Fast rotating rigid box does not miss a thin static box", function()
 	local blocker_ent = Entity.New({Name = "rigid_ccd_rotating_box_target"})
 	blocker_ent:AddComponent("transform")
 	blocker_ent.transform:SetPosition(Vec3(0.6, 1.6, 0))
-	blocker_ent:AddComponent("rigid_body", {
-		Shape = "box",
-		Size = Vec3(0.3, 0.3, 1),
-		Static = true,
-	})
+	blocker_ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = box_shape(Vec3(0.3, 0.3, 1)),
+			Size = Vec3(0.3, 0.3, 1),
+			Static = true,
+		}
+	)
 	local rod_ent = Entity.New({Name = "rigid_ccd_rotating_box_rod"})
 	rod_ent:AddComponent("transform")
 	rod_ent.transform:SetPosition(Vec3(0, 1, 0))
 	local rod = rod_ent:AddComponent(
 		"rigid_body",
 		{
-			Shape = "box",
+			Shape = box_shape(Vec3(0.15, 4, 0.15)),
 			Size = Vec3(0.15, 4, 0.15),
 			GravityScale = 0,
 			LinearDamping = 0,
@@ -1490,11 +1541,14 @@ T.Test3D("Fast rotating rigid convex body does not miss a thin static box", func
 	local blocker_ent = Entity.New({Name = "rigid_ccd_rotating_convex_target"})
 	blocker_ent:AddComponent("transform")
 	blocker_ent.transform:SetPosition(Vec3(0.6, 1.6, 0))
-	blocker_ent:AddComponent("rigid_body", {
-		Shape = "box",
-		Size = Vec3(0.3, 0.3, 1),
-		Static = true,
-	})
+	blocker_ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = box_shape(Vec3(0.3, 0.3, 1)),
+			Size = Vec3(0.3, 0.3, 1),
+			Static = true,
+		}
+	)
 	local hull = physics.ApproximateConvexMeshFromTriangles(create_box_source_mesh(Vec3(0.15, 4, 0.15)))
 	local rod_ent = Entity.New({Name = "rigid_ccd_rotating_convex_rod"})
 	rod_ent:AddComponent("transform")
@@ -1502,7 +1556,7 @@ T.Test3D("Fast rotating rigid convex body does not miss a thin static box", func
 	local rod = rod_ent:AddComponent(
 		"rigid_body",
 		{
-			Shape = "convex",
+			Shape = convex_shape(hull),
 			ConvexHull = hull,
 			GravityScale = 0,
 			LinearDamping = 0,

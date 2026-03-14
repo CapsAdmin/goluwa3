@@ -86,13 +86,7 @@ function physics.TraceDown(origin, radius, ignore_entity, max_distance, filter_f
 		local rigid_body = physics.GetRigidBodyMeta()
 
 		for _, body in ipairs(rigid_body.Instances or {}) do
-			if
-				not (
-					physics.IsActiveRigidBody(body) and
-					body.Shape == "sphere" and
-					body.Owner ~= ignore_entity
-				)
-			then
+			if not (physics.IsActiveRigidBody(body) and body.Owner ~= ignore_entity) then
 				goto continue
 			end
 
@@ -102,39 +96,13 @@ function physics.TraceDown(origin, radius, ignore_entity, max_distance, filter_f
 
 			if filter_fn and not filter_fn(body.Owner) then goto continue end
 
-			local center = body.Owner and
-				body.Owner.transform and
-				body.Owner.transform:GetPosition() or
-				body:GetPosition()
-			local offset = origin - center
-			local sphere_radius = body.Radius
-			local c = offset:Dot(offset) - sphere_radius * sphere_radius
+			local shape = body.GetPhysicsShape and body:GetPhysicsShape()
+			local hit = shape and
+				shape.TraceDownAgainstBody and
+				shape:TraceDownAgainstBody(body, origin, max_distance)
 
-			if c > 0 and offset.y <= 0 then goto continue end
-
-			local discriminant = offset.y * offset.y - c
-
-			if discriminant < 0 then goto continue end
-
-			local distance = offset.y - math.sqrt(discriminant)
-
-			if distance < 0 then distance = offset.y + math.sqrt(discriminant) end
-
-			if distance < 0 or distance > (max_distance or math.huge) then goto continue end
-
-			local position = origin + Vec3(0, -distance, 0)
-			local normal = (position - center):GetNormalized()
-
-			if normal.y < 0 then goto continue end
-
-			if not best_hit or distance < best_hit.distance then
-				best_hit = {
-					entity = body.Owner,
-					distance = distance,
-					position = position,
-					normal = normal,
-					rigid_body = body,
-				}
+			if hit and (not best_hit or hit.distance < best_hit.distance) then
+				best_hit = hit
 			end
 
 			::continue::
