@@ -11,7 +11,14 @@ local function filter(entity, options)
 
 	if entity.PhysicsNoCollision or entity.NoPhysicsCollision then return false end
 
-	if ignore_kinematic and entity.kinematic_body then return false end
+	if
+		ignore_kinematic and
+		entity.rigid_body and
+		entity.rigid_body.IsKinematic and
+		entity.rigid_body:IsKinematic()
+	then
+		return false
+	end
 
 	if ignore_rigid and entity.rigid_body then return false end
 

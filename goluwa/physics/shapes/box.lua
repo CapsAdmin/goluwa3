@@ -63,7 +63,7 @@ function META:GetMassProperties(body)
 	local size = self:GetSize()
 	local mass = body.Mass or 0
 
-	if body.Static then
+	if body.IsDynamic and not body:IsDynamic() then
 		mass = 0
 	elseif body.AutomaticMass then
 		mass = size.x * size.y * size.z * body.Density

@@ -24,7 +24,12 @@ function module.CreateServices(services)
 	end
 
 	local function shift_body_position(body, delta)
-		if body.InverseMass ~= 0 and delta:GetLength() > 0.01 and body.Wake then
+		if
+			body.HasSolverMass and
+			body:HasSolverMass() and
+			delta:GetLength() > 0.01 and
+			body.Wake
+		then
 			body:Wake()
 		end
 
@@ -38,14 +43,14 @@ function module.CreateServices(services)
 	end
 
 	local function set_body_angular_velocity_from_current_rotation(body, angular_velocity, dt)
-		if body.InverseMass == 0 then return end
+		if body.IsSolverImmovable and body:IsSolverImmovable() then return end
 
 		body.AngularVelocity = angular_velocity:Copy()
 		body.PreviousRotation = integrate_rotation(body.Rotation, angular_velocity, -dt)
 	end
 
 	local function set_body_motion_from_current_state(body, linear_velocity, angular_velocity, dt)
-		if body.InverseMass == 0 then return end
+		if body.IsSolverImmovable and body:IsSolverImmovable() then return end
 
 		set_body_velocity_from_current_position(body, linear_velocity, dt)
 		set_body_angular_velocity_from_current_rotation(body, angular_velocity, dt)
@@ -116,13 +121,15 @@ function module.CreateServices(services)
 	end
 
 	local function get_point_velocity(body, linear_velocity, angular_velocity, point)
-		if body.InverseMass == 0 or not point then return linear_velocity end
+		if not point then return linear_velocity end
 
 		return linear_velocity + angular_velocity:GetCross(point - body:GetPosition())
 	end
 
 	local function apply_impulse_to_motion(body, linear_velocity, angular_velocity, impulse, point)
-		if body.InverseMass == 0 then return linear_velocity, angular_velocity end
+		if body.IsSolverImmovable and body:IsSolverImmovable() then
+			return linear_velocity, angular_velocity
+		end
 
 		linear_velocity = linear_velocity + impulse * body.InverseMass
 

@@ -280,7 +280,16 @@ function module.Register(solver, services)
 	end
 
 	local function solve_swept_polyhedron_polyhedron_collision(dynamic_body, static_body, static_polyhedron, dt)
-		if static_body.InverseMass ~= 0 or dynamic_body.InverseMass == 0 then
+		if
+			not (
+				static_body.IsSolverImmovable and
+				static_body:IsSolverImmovable()
+			) or
+			not (
+				dynamic_body.HasSolverMass and
+				dynamic_body:HasSolverMass()
+			)
+		then
 			return false
 		end
 
@@ -446,12 +455,12 @@ function module.Register(solver, services)
 
 		if not result then return false end
 
-		if body_a.InverseMass ~= 0 then
+		if body_a:HasSolverMass() then
 			body_a.Position = result.position_a
 			body_a.Rotation = result.rotation_a
 		end
 
-		if body_b.InverseMass ~= 0 then
+		if body_b:HasSolverMass() then
 			body_b.Position = result.position_b
 			body_b.Rotation = result.rotation_b
 		end
@@ -464,7 +473,7 @@ function module.Register(solver, services)
 	end
 
 	local function solve_relative_swept_polyhedron_pair_collision(body_a, body_b, poly_a, poly_b, dt)
-		if body_a.InverseMass == 0 or body_b.InverseMass == 0 then return false end
+		if body_a:IsSolverImmovable() or body_b:IsSolverImmovable() then return false end
 
 		local previous_position_a = body_a:GetPreviousPosition()
 		local previous_position_b = body_b:GetPreviousPosition()
@@ -552,7 +561,7 @@ function module.Register(solver, services)
 			if temporal then return true end
 		end
 
-		if body_a.InverseMass ~= 0 and body_b.InverseMass ~= 0 then
+		if body_a:HasSolverMass() and body_b:HasSolverMass() then
 			local previous_bounds_a = body_a:GetBroadphaseAABB(body_a:GetPreviousPosition(), body_a:GetPreviousRotation())
 			local previous_bounds_b = body_b:GetBroadphaseAABB(body_b:GetPreviousPosition(), body_b:GetPreviousRotation())
 
@@ -591,11 +600,11 @@ function module.Register(solver, services)
 		local best_normal = nil
 
 		local function try_swept_fallback()
-			if body_a.InverseMass == 0 and body_b.InverseMass ~= 0 then
+			if body_a:IsSolverImmovable() and body_b:HasSolverMass() then
 				return solve_swept_polyhedron_polyhedron_collision(body_b, body_a, poly_a, dt)
 			end
 
-			if body_b.InverseMass == 0 and body_a.InverseMass ~= 0 then
+			if body_b:IsSolverImmovable() and body_a:HasSolverMass() then
 				return solve_swept_polyhedron_polyhedron_collision(body_a, body_b, poly_b, dt)
 			end
 

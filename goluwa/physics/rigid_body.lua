@@ -1,5 +1,6 @@
 local physics = import("goluwa/physics/shared.lua")
 local solver = import("goluwa/physics/solver.lua")
+local kinematic_controller = import("goluwa/physics/kinematic_controller.lua")
 
 function physics.UpdateRigidBodies(dt)
 	if not dt or dt <= 0 then return end
@@ -23,7 +24,9 @@ function physics.UpdateRigidBodies(dt)
 
 		for _, body in ipairs(bodies) do
 			if physics.IsActiveRigidBody(body) then
-				if body:GetAwake() then
+				if body:IsKinematic() or body:HasKinematicController() then
+					kinematic_controller.UpdateBody(body, sub_dt, physics.Gravity)
+				elseif body:GetAwake() then
 					body:SetGrounded(false)
 					body:SetGroundNormal(physics.Up)
 					body:Integrate(sub_dt, physics.Gravity)
@@ -40,7 +43,9 @@ function physics.UpdateRigidBodies(dt)
 
 			for _, body in ipairs(bodies) do
 				if physics.IsActiveRigidBody(body) then
-					if body:GetAwake() then solver.SolveBodyContacts(body, sub_dt) end
+					if body:IsDynamic() and body:GetAwake() then
+						solver.SolveBodyContacts(body, sub_dt)
+					end
 				end
 			end
 		end

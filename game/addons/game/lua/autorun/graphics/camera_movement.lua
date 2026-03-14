@@ -6,6 +6,7 @@ local window = import("goluwa/window.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local physics = import("goluwa/physics.lua")
 local Entity = import("goluwa/ecs/entity.lua")
+local SphereShape = import("goluwa/physics/shapes/sphere.lua")
 
 local function get_speed_multiplier()
 	if input.IsKeyDown("left_shift") and input.IsKeyDown("left_control") then
@@ -27,16 +28,22 @@ do
 	end)
 end
 
-local PLAYER_EYE_HEIGHT = 1.35
-local PLAYER_RADIUS = 0.35
+local PLAYER_EYE_HEIGHT = 1.75
+local PLAYER_RADIUS = 1
 local player = Entity.New({Name = "player_controller"})
 local player_transform = player:AddComponent("transform")
 local player_body = player:AddComponent(
-	"kinematic_body",
+	"rigid_body",
 	{
-		Radius = PLAYER_RADIUS,
-		GroundSnapDistance = 0.4,
+		MotionType = "kinematic",
+		Shape = SphereShape.New(PLAYER_RADIUS),
 		LinearDamping = 14,
+	}
+)
+local player_motion = player:AddComponent(
+	"kinematic_controller",
+	{
+		GroundSnapDistance = 0.4,
 		Acceleration = 70,
 		AirAcceleration = 18,
 	}
@@ -73,10 +80,15 @@ local function try_initialize_player(reset_velocity, snap_to_ground)
 	end
 
 	player_transform:SetPosition(body_position)
+	player_body:SynchronizeFromTransform()
+	player_body.PreviousPosition = player_body.Position:Copy()
+	player_body.PreviousRotation = player_body.Rotation:Copy()
 
 	if reset_velocity or not player_initialized then
 		player_body:SetVelocity(Vec3(0, 0, 0))
-		player_body:SetDesiredVelocity(Vec3(0, 0, 0))
+		player_body:SetAngularVelocity(Vec3(0, 0, 0))
+		player_motion:SetVelocity(Vec3(0, 0, 0))
+		player_motion:SetDesiredVelocity(Vec3(0, 0, 0))
 	end
 
 	player_initialized = true
@@ -88,10 +100,13 @@ local function set_movement_mode(mode)
 	player_body:SetEnabled(mode == "walk")
 
 	if mode == "walk" then
+		player_body:SetMotionType("kinematic")
+		player_motion:EnsureKinematicBody()
 		try_initialize_player(true, false)
 	else
 		player_body:SetVelocity(Vec3(0, 0, 0))
-		player_body:SetDesiredVelocity(Vec3(0, 0, 0))
+		player_motion:SetVelocity(Vec3(0, 0, 0))
+		player_motion:SetDesiredVelocity(Vec3(0, 0, 0))
 	end
 end
 
@@ -116,7 +131,7 @@ event.AddListener(
 		end
 
 		if not window.GetMouseTrapped() then
-			player_body:SetDesiredVelocity(Vec3(0, 0, 0))
+			player_motion:SetDesiredVelocity(Vec3(0, 0, 0))
 			return
 		end
 
@@ -130,7 +145,7 @@ event.AddListener(
 			pitch = 0
 			cam_fov = math.rad(90)
 
-			if movement_mode == "walk" then try_initialize_player(true, true) end
+			if movement_mode == "walk" then try_initialize_player(true, false) end
 		end
 
 		mouse_delta = mouse_delta * (cam_fov / 175)
@@ -211,7 +226,7 @@ event.AddListener(
 
 			position = position + ((forward + right + up) * dt * get_speed_multiplier() * 5)
 			cam:SetPosition(position)
-			player_body:SetDesiredVelocity(Vec3(0, 0, 0))
+			player_motion:SetDesiredVelocity(Vec3(0, 0, 0))
 		else
 			local forward = flatten_direction(rotation:GetForward(), Vec3(0, 0, -1))
 			local right = flatten_direction(rotation:GetRight(), Vec3(1, 0, 0))
@@ -227,12 +242,13 @@ event.AddListener(
 
 			if move:GetLength() > 0.0001 then move = move:GetNormalized() end
 
-			player_body:SetDesiredVelocity(move * (7 * get_speed_multiplier()))
+			player_motion:SetDesiredVelocity(move * (7 * get_speed_multiplier()))
 
 			if input.WasKeyPressed("space") and player_body:GetGrounded() then
 				local velocity = player_body:GetVelocity():Copy()
 				velocity.y = 8
 				player_body:SetVelocity(velocity)
+				player_motion:SetVelocity(velocity)
 				player_body:SetGrounded(false)
 			end
 		end

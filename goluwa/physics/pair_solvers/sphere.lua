@@ -56,7 +56,9 @@ function module.Register(solver, services)
 	end
 
 	local function solve_swept_sphere_box_collision(sphere_body, box_body, dt)
-		if box_body.InverseMass ~= 0 then return false end
+		if not (box_body.IsSolverImmovable and box_body:IsSolverImmovable()) then
+			return false
+		end
 
 		local start_world = sphere_body:GetPreviousPosition()
 		local end_world = sphere_body:GetPosition()
@@ -186,7 +188,9 @@ function module.Register(solver, services)
 	end
 
 	local function solve_swept_sphere_convex_collision(sphere_body, convex_body, dt)
-		if convex_body.InverseMass ~= 0 then return false end
+		if not (convex_body.IsSolverImmovable and convex_body:IsSolverImmovable()) then
+			return false
+		end
 
 		local hull = convex_body:GetResolvedConvexHull()
 

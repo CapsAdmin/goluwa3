@@ -4,13 +4,11 @@ import("goluwa/physics/trace.lua")
 import("goluwa/physics/constraint.lua")
 import("goluwa/physics/solver.lua")
 import("goluwa/physics/rigid_body.lua")
-import("goluwa/physics/kinematic.lua")
 
 function physics.Update(dt)
 	if not dt or dt <= 0 then return end
 
 	physics.UpdateRigidBodies(dt)
-	physics.UpdateKinematicBodies(dt)
 end
 
 if not physics.UpdateListenerRegistered then

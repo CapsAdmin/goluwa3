@@ -54,7 +54,7 @@ function META:GetMassProperties(body)
 	local mass = body.Mass or 0
 	local bounds_size = self:GetHalfExtents(body) * 2
 
-	if body.Static then
+	if body.IsDynamic and not body:IsDynamic() then
 		mass = 0
 	elseif body.AutomaticMass then
 		local hull = self:GetResolvedHull(body)

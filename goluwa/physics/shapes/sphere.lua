@@ -25,7 +25,7 @@ function META:GetMassProperties(body)
 	local radius = self:GetRadius()
 	local mass = body.Mass or 0
 
-	if body.Static then
+	if body.IsDynamic and not body:IsDynamic() then
 		mass = 0
 	elseif body.AutomaticMass then
 		mass = (4 / 3) * math.pi * radius * radius * radius * body.Density

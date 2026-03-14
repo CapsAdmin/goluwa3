@@ -249,7 +249,16 @@ function module.Register(solver, services)
 	end
 
 	local function solve_swept_box_box_collision(dynamic_body, static_body, dt)
-		if static_body.InverseMass ~= 0 or dynamic_body.InverseMass == 0 then
+		if
+			not (
+				static_body.IsSolverImmovable and
+				static_body:IsSolverImmovable()
+			) or
+			not (
+				dynamic_body.HasSolverMass and
+				dynamic_body:HasSolverMass()
+			)
+		then
 			return false
 		end
 
@@ -311,11 +320,11 @@ function module.Register(solver, services)
 
 		for i = 1, 3 do
 			if not test_obb_axis(axes_a[i], delta, extents_a, axes_a, extents_b, axes_b, best) then
-				if body_a.InverseMass == 0 and body_b.InverseMass ~= 0 then
+				if body_a:IsSolverImmovable() and body_b:HasSolverMass() then
 					return solve_swept_box_box_collision(body_b, body_a, dt)
 				end
 
-				if body_b.InverseMass == 0 and body_a.InverseMass ~= 0 then
+				if body_b:IsSolverImmovable() and body_a:HasSolverMass() then
 					return solve_swept_box_box_collision(body_a, body_b, dt)
 				end
 
@@ -323,11 +332,11 @@ function module.Register(solver, services)
 			end
 
 			if not test_obb_axis(axes_b[i], delta, extents_a, axes_a, extents_b, axes_b, best) then
-				if body_a.InverseMass == 0 and body_b.InverseMass ~= 0 then
+				if body_a:IsSolverImmovable() and body_b:HasSolverMass() then
 					return solve_swept_box_box_collision(body_b, body_a, dt)
 				end
 
-				if body_b.InverseMass == 0 and body_a.InverseMass ~= 0 then
+				if body_b:IsSolverImmovable() and body_a:HasSolverMass() then
 					return solve_swept_box_box_collision(body_a, body_b, dt)
 				end
 
@@ -340,11 +349,11 @@ function module.Register(solver, services)
 				if
 					not test_obb_axis(axes_a[i]:GetCross(axes_b[j]), delta, extents_a, axes_a, extents_b, axes_b, best)
 				then
-					if body_a.InverseMass == 0 and body_b.InverseMass ~= 0 then
+					if body_a:IsSolverImmovable() and body_b:HasSolverMass() then
 						return solve_swept_box_box_collision(body_b, body_a, dt)
 					end
 
-					if body_b.InverseMass == 0 and body_a.InverseMass ~= 0 then
+					if body_b:IsSolverImmovable() and body_a:HasSolverMass() then
 						return solve_swept_box_box_collision(body_a, body_b, dt)
 					end
 

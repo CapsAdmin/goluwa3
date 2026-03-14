@@ -11,10 +11,10 @@ local default_skin = (
 local META = prototype.CreateTemplate("rigid_body")
 META:GetSet("Enabled", true)
 META:GetSet("Shape", nil, {callback = "OnGeometryChanged"})
+META:GetSet("MotionType", "dynamic", {callback = "OnMotionTypeChanged"})
 META:GetSet("Density", 1, {callback = "RefreshMassProperties"})
 META:GetSet("Mass", 1, {callback = "RefreshMassProperties"})
 META:GetSet("AutomaticMass", true, {callback = "RefreshMassProperties"})
-META:GetSet("Static", false, {callback = "RefreshMassProperties"})
 META:GetSet("GravityScale", 1)
 META:GetSet("LinearDamping", 0)
 META:GetSet("AngularDamping", 0)
@@ -88,6 +88,10 @@ function META:Initialize()
 	end
 end
 
+function META:OnMotionTypeChanged()
+	self:RefreshMassProperties()
+end
+
 function META:GetPhysicsShape()
 	if not self.Shape then self.Shape = BoxShape.New(Vec3(1, 1, 1)) end
 
@@ -101,6 +105,11 @@ end
 
 function META:OnAdd(entity)
 	self.Owner = entity
+	local controller = entity.kinematic_controller
+
+	if controller and self:GetMotionType() ~= "kinematic" then
+		self:SetMotionType("kinematic")
+	end
 
 	if entity.transform then self:SynchronizeFromTransform() end
 end
@@ -162,6 +171,14 @@ function META:GetBody()
 	return self
 end
 
+function META:GetKinematicController()
+	return self.Owner and self.Owner.kinematic_controller or nil
+end
+
+function META:HasKinematicController()
+	return self:GetKinematicController() ~= nil
+end
+
 function META:GetVelocity()
 	return self.Velocity
 end
@@ -170,7 +187,7 @@ function META:SetVelocity(vec)
 	self.Velocity = vec:Copy()
 
 	if
-		self.InverseMass ~= 0 and
+		self:HasSolverMass() and
 		vec:GetLength() > math.max(self.SleepLinearThreshold or 0, 0)
 	then
 		self:Wake()
@@ -185,7 +202,7 @@ function META:SetAngularVelocity(vec)
 	self.AngularVelocity = vec:Copy()
 
 	if
-		self.InverseMass ~= 0 and
+		self:HasSolverMass() and
 		vec:GetLength() > math.max(self.SleepAngularThreshold or 0, 0)
 	then
 		self:Wake()
@@ -199,7 +216,7 @@ end
 function META:SetPosition(vec)
 	self.Position = vec:Copy()
 
-	if self.InverseMass ~= 0 then self:Wake() end
+	if self:HasSolverMass() then self:Wake() end
 end
 
 function META:GetPreviousPosition()
@@ -213,7 +230,7 @@ end
 function META:SetRotation(quat)
 	self.Rotation = quat:Copy()
 
-	if self.InverseMass ~= 0 then self:Wake() end
+	if self:HasSolverMass() then self:Wake() end
 end
 
 function META:GetPreviousRotation()
@@ -256,7 +273,7 @@ function META:GetAngularVelocityDelta(world_impulse)
 end
 
 function META:ApplyAngularImpulse(world_impulse)
-	if self.InverseMass == 0 then return self end
+	if not self:HasSolverMass() then return self end
 
 	self:Wake()
 	self.AngularVelocity = self.AngularVelocity + self:GetAngularVelocityDelta(world_impulse)
@@ -264,7 +281,7 @@ function META:ApplyAngularImpulse(world_impulse)
 end
 
 function META:ApplyImpulse(impulse, world_pos)
-	if self.InverseMass == 0 then return self end
+	if not self:HasSolverMass() then return self end
 
 	self:Wake()
 	self.Velocity = self.Velocity + impulse * self.InverseMass
@@ -277,7 +294,7 @@ function META:ApplyImpulse(impulse, world_pos)
 end
 
 function META:ApplyTorque(torque)
-	if self.InverseMass == 0 then return self end
+	if not self:HasSolverMass() then return self end
 
 	self:Wake()
 	self.AccumulatedTorque = self.AccumulatedTorque + torque
@@ -285,7 +302,7 @@ function META:ApplyTorque(torque)
 end
 
 function META:ApplyForce(force, world_pos)
-	if self.InverseMass == 0 then return self end
+	if not self:HasSolverMass() then return self end
 
 	self:Wake()
 	self.AccumulatedForce = self.AccumulatedForce + force
@@ -302,14 +319,14 @@ META.AddTorque = META.ApplyTorque
 META.AddImpulse = META.ApplyImpulse
 
 function META:Wake()
-	if self.InverseMass == 0 then return end
+	if not self:HasSolverMass() then return end
 
 	self.Awake = true
 	self.SleepTimer = 0
 end
 
 function META:Sleep()
-	if self.InverseMass == 0 then return end
+	if not self:HasSolverMass() then return end
 
 	self.Awake = false
 	self.SleepTimer = 0
@@ -320,7 +337,7 @@ function META:Sleep()
 end
 
 function META:UpdateSleepState(dt)
-	if self.InverseMass == 0 or not self.CanSleep then return end
+	if not self:HasSolverMass() or not self.CanSleep then return end
 
 	if not self.Awake then
 		self.Velocity = Vec3(0, 0, 0)
@@ -347,16 +364,41 @@ function META:GetHalfExtents()
 end
 
 function META:IsStatic()
-	return self.InverseMass == 0
+	return self.MotionType == "static"
+end
+
+function META:IsKinematic()
+	return self.MotionType == "kinematic"
+end
+
+function META:IsDynamic()
+	return self.MotionType == "dynamic"
+end
+
+function META:HasSolverMass()
+	return self:IsDynamic() and self.InverseMass > 0
+end
+
+function META:IsSolverImmovable()
+	return not self:HasSolverMass()
 end
 
 function META:SynchronizeFromTransform()
 	if not (self.Owner and self.Owner.transform) then return end
 
-	self.Position = self.Owner.transform:GetPosition():Copy()
-	self.Rotation = self.Owner.transform:GetRotation():Copy()
-	self.PreviousPosition = self.Position:Copy()
-	self.PreviousRotation = self.Rotation:Copy()
+	local position = self.Owner.transform:GetPosition():Copy()
+	local rotation = self.Owner.transform:GetRotation():Copy()
+
+	if self:IsKinematic() then
+		self.PreviousPosition = self.Position and self.Position:Copy() or position:Copy()
+		self.PreviousRotation = self.Rotation and self.Rotation:Copy() or rotation:Copy()
+	else
+		self.PreviousPosition = position:Copy()
+		self.PreviousRotation = rotation:Copy()
+	end
+
+	self.Position = position
+	self.Rotation = rotation
 end
 
 function META:WriteToTransform()
@@ -391,7 +433,9 @@ function META:Integrate(dt, gravity)
 	self.PreviousPosition = self.Position:Copy()
 	self.PreviousRotation = self.Rotation:Copy()
 
-	if self.InverseMass == 0 or not self.Awake then return end
+	if self:IsKinematic() then return end
+
+	if not self:HasSolverMass() or not self.Awake then return end
 
 	local velocity = self.Velocity + gravity * (
 			self.GravityScale * dt
@@ -406,7 +450,19 @@ function META:Integrate(dt, gravity)
 end
 
 function META:UpdateVelocities(dt)
-	if self.InverseMass == 0 then
+	if self:IsKinematic() then
+		self.Velocity = (self.Position - self.PreviousPosition) / dt
+		local delta = (self.Rotation * self.PreviousRotation:GetConjugated()):GetNormalized()
+		self.AngularVelocity = Vec3(delta.x * 2 / dt, delta.y * 2 / dt, delta.z * 2 / dt)
+
+		if delta.w < 0 then self.AngularVelocity = self.AngularVelocity * -1 end
+
+		self.PreviousPosition = self.Position:Copy()
+		self.PreviousRotation = self.Rotation:Copy()
+		return
+	end
+
+	if not self:HasSolverMass() then
 		self.Velocity = Vec3(0, 0, 0)
 		self.AngularVelocity = Vec3(0, 0, 0)
 		return
@@ -445,7 +501,7 @@ function META:UpdateVelocities(dt)
 end
 
 function META:GetInverseMassAlong(normal, pos)
-	if self.InverseMass == 0 then return 0 end
+	if not self:HasSolverMass() then return 0 end
 
 	local tangent = normal:Copy()
 
@@ -460,7 +516,7 @@ function META:GetInverseMassAlong(normal, pos)
 end
 
 function META:_ApplyCorrection(correction, pos)
-	if self.InverseMass == 0 then return end
+	if not self:HasSolverMass() then return end
 
 	self.Position = self.Position + correction * self.InverseMass
 
