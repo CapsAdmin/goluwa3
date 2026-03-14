@@ -167,7 +167,7 @@ function render2d.Initialize()
 		samples = render.target:GetSamples(),
 		color_format = render.target:GetColorFormat(),
 		vertex = {
-			push_constants = {
+			uniform_buffers = {
 				{
 					block = {
 						{
@@ -194,7 +194,7 @@ function render2d.Initialize()
 			]],
 		},
 		fragment = {
-			push_constants = {
+			uniform_buffers = {
 				{
 					block = {
 						{

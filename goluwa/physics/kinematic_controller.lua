@@ -497,13 +497,13 @@ local function try_step_up_against_obstacle(body, controller, support_center, su
 	end
 
 	local raised_support_center = raised_origin + move
-	local hit = physics.TraceDown(
+	local hit = physics.Trace(
 		raised_support_center,
-		radius,
-		body.Owner,
+		physics.Up * -1,
 		step_height + radius * 2 + body.CollisionMargin + controller.GroundSnapDistance + 0.2,
+		body.Owner,
 		body.FilterFunction,
-		trace_options(body)
+		trace_options(body, radius)
 	)
 	local hit_normal = physics.GetHitNormal(hit, raised_support_center)
 
@@ -543,13 +543,13 @@ local function probe_step_landing(body, controller, support_center, support_offs
 		) + physics.Up * (
 			step_height + radius + body.CollisionMargin + 0.05
 		)
-	local hit = physics.TraceDown(
+	local hit = physics.Trace(
 		probe_origin,
-		radius,
-		body.Owner,
+		physics.Up * -1,
 		step_height + radius * 2 + body.CollisionMargin + controller.GroundSnapDistance + 0.25,
+		body.Owner,
 		body.FilterFunction,
-		trace_options(body)
+		trace_options(body, radius)
 	)
 	local hit_normal = physics.GetHitNormal(hit, probe_origin)
 
@@ -936,13 +936,13 @@ function module.UpdateBody(body, dt, gravity)
 	local cast_origin = predicted_support_center + physics.Up * cast_up
 	local cast_distance = cast_up + radius + controller.GroundSnapDistance + fall_distance + 0.25
 	hit = hit or
-		physics.TraceDown(
+		physics.Trace(
 			cast_origin,
-			radius,
-			owner,
+			physics.Up * -1,
 			cast_distance,
+			owner,
 			body.FilterFunction,
-			trace_options(body)
+			trace_options(body, radius)
 		)
 
 	if
@@ -956,17 +956,17 @@ function module.UpdateBody(body, dt, gravity)
 	then
 		local previous_ground_owner = hit.rigid_body.Owner
 		local previous_filter = body.FilterFunction
-		hit = physics.TraceDown(
+		hit = physics.Trace(
 			cast_origin,
-			radius,
-			owner,
+			physics.Up * -1,
 			cast_distance,
+			owner,
 			function(entity)
 				if entity == previous_ground_owner then return false end
 
 				return not previous_filter or previous_filter(entity)
 			end,
-			trace_options(body)
+			trace_options(body, radius)
 		)
 		hit_normal = nil
 	end

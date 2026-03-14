@@ -74,40 +74,12 @@ local function flatten_direction(dir, fallback)
 	return dir:GetNormalized()
 end
 
-local function is_effectively_grounded()
-	if player_body:GetGrounded() then return true end
-
-	local velocity = player_body:GetVelocity()
-
-	if velocity and velocity.y > 2 then return false end
-
-	local support_center = player_transform:GetPosition():Copy() + PLAYER_SUPPORT_LOCAL
-	local probe_origin = support_center + Vec3(0, WALK_GROUND_PROBE_DISTANCE, 0)
-	local hit = physics.TraceDown(probe_origin, PLAYER_RADIUS, player, WALK_GROUND_PROBE_DISTANCE + 0.08)
-	return hit and hit.normal and hit.normal.y >= 0.55 or false
-end
-
-local function try_initialize_player(reset_velocity, snap_to_ground)
+local function try_initialize_player(reset_velocity)
 	if player_initialized and not reset_velocity then return end
 
 	local cam = render3d.GetCamera()
 	local cam_pos = cam:GetPosition():Copy()
-	local body_position = cam_pos - PLAYER_BODY_TO_EYE_OFFSET
-	local hit = nil
-
-	if snap_to_ground then
-		hit = physics.TraceDown(Vec3(body_position.x, 1024, body_position.z), PLAYER_RADIUS, player, 4096)
-
-		if not hit then
-			hit = physics.TraceDown(Vec3(0, 1024, 0), PLAYER_RADIUS, player, 4096)
-		end
-	end
-
-	if hit and hit.normal and hit.normal.y > 0.1 then
-		body_position = hit.position + hit.normal * (PLAYER_RADIUS + 0.05) - PLAYER_SUPPORT_LOCAL
-	end
-
-	player_transform:SetPosition(body_position)
+	player_transform:SetPosition(cam_pos - PLAYER_BODY_TO_EYE_OFFSET)
 	player_body:SynchronizeFromTransform()
 	player_body.PreviousPosition = player_body.Position:Copy()
 	player_body.PreviousRotation = player_body.Rotation:Copy()
@@ -270,7 +242,7 @@ event.AddListener(
 
 			if move:GetLength() > 0.0001 then move = move:GetNormalized() end
 
-			local grounded_for_input = is_effectively_grounded()
+			local grounded_for_input = player_body:GetGrounded()
 			local move_speed = grounded_for_input and WALK_GROUND_SPEED or WALK_AIR_SPEED
 			player_motion:SetDesiredVelocity(move * (move_speed * get_speed_multiplier()))
 

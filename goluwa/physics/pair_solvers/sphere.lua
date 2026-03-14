@@ -117,16 +117,27 @@ function module.Register(solver, services)
 
 		if not hit_normal_local or t_enter < 0 or t_enter > 1 then return false end
 
-		sphere_body.Position = start_world + movement_world * math.max(0, t_enter - EPSILON)
+		local hit_fraction = math.max(0, math.min(1, t_enter))
+		sphere_body.Position = start_world + movement_world * math.max(0, hit_fraction - EPSILON)
 		local hit_normal = box_body:GetRotation():VecMul(hit_normal_local):GetNormalized()
 		apply_pair_impulse(box_body, sphere_body, hit_normal, dt)
 		mark_pair_grounding(box_body, sphere_body, hit_normal)
+		local remaining_fraction = 1 - hit_fraction
+
+		if remaining_fraction > EPSILON then
+			local post_velocity = sphere_body:GetVelocity()
+			sphere_body.Position = sphere_body.Position + post_velocity * (dt * remaining_fraction)
+			sphere_body.PreviousPosition = sphere_body.Position - post_velocity * dt
+		end
+
 		return true
 	end
 
 	local function solve_sphere_box_collision(sphere_body, box_body, dt)
 		local center = sphere_body:GetPosition()
 		local local_center = box_body:WorldToLocal(center)
+		local previous_local_center = box_body:WorldToLocal(sphere_body:GetPreviousPosition())
+		local movement_local = local_center - previous_local_center
 		local extents = get_box_extents(box_body)
 		local closest_local = Vec3(
 			clamp(local_center.x, -extents.x, extents.x),
@@ -147,27 +158,56 @@ function module.Register(solver, services)
 			math.abs(local_center.y) <= extents.y and
 			math.abs(local_center.z) <= extents.z
 		then
-			local distances = {
+			local candidates = {
 				{
-					axis = Vec3(get_sign(local_center.x), 0, 0),
+					axis = Vec3(1, 0, 0),
+					center = local_center.x,
+					movement = movement_local.x,
 					overlap = extents.x - math.abs(local_center.x),
 				},
 				{
-					axis = Vec3(0, get_sign(local_center.y), 0),
+					axis = Vec3(0, 1, 0),
+					center = local_center.y,
+					movement = movement_local.y,
 					overlap = extents.y - math.abs(local_center.y),
 				},
 				{
-					axis = Vec3(0, 0, get_sign(local_center.z)),
+					axis = Vec3(0, 0, 1),
+					center = local_center.z,
+					movement = movement_local.z,
 					overlap = extents.z - math.abs(local_center.z),
 				},
 			}
+			local best = nil
 
-			table.sort(distances, function(a, b)
-				return a.overlap < b.overlap
-			end)
+			for _, candidate in ipairs(candidates) do
+				local sign = get_sign(candidate.center)
 
-			normal = box_body:GetRotation():VecMul(distances[1].axis):GetNormalized()
-			overlap = sphere_radius + distances[1].overlap
+				if sign == 0 then
+					if math.abs(candidate.movement) > EPSILON then
+						sign = get_sign(-candidate.movement)
+					else
+						sign = 1
+					end
+				end
+
+				candidate.axis = candidate.axis * sign
+				candidate.motion_weight = math.abs(candidate.movement)
+
+				if
+					not best or
+					candidate.overlap < best.overlap - EPSILON or
+					(
+						math.abs(candidate.overlap - best.overlap) <= EPSILON and
+						candidate.motion_weight > best.motion_weight + EPSILON
+					)
+				then
+					best = candidate
+				end
+			end
+
+			normal = box_body:GetRotation():VecMul(best.axis):GetNormalized()
+			overlap = sphere_radius + best.overlap
 		else
 			return
 		end

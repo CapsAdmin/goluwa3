@@ -61,9 +61,29 @@ local function cast_with_filter(
 	return hits
 end
 
+local function is_straight_down(direction)
+	return direction and
+		math.abs(direction.x) <= 0.00001 and
+		direction.y < -0.00001 and
+		math.abs(direction.z) <= 0.00001
+end
+
+local function pick_best_world_hit(hits, direction)
+	if not (hits and hits[1]) then return nil end
+
+	if is_straight_down(direction) then
+		for _, hit in ipairs(hits) do
+			if hit.normal and hit.normal.y >= 0 then return hit end
+		end
+	end
+
+	return hits[1]
+end
+
 function physics.Trace(origin, direction, max_distance, ignore_entity, filter_fn, options)
 	options = options or {}
 	local allow_rigid = options.IgnoreRigidBodies == false
+	local downward_trace = is_straight_down(direction)
 	local hits = cast_with_filter(
 		origin,
 		direction,
@@ -73,7 +93,7 @@ function physics.Trace(origin, direction, max_distance, ignore_entity, filter_fn
 		options,
 		allow_rigid and true or nil
 	)
-	local best_hit = hits[1]
+	local best_hit = pick_best_world_hit(hits, direction)
 
 	if allow_rigid then
 		local trace_radius = options.TraceRadius or 0
@@ -98,63 +118,15 @@ function physics.Trace(origin, direction, max_distance, ignore_entity, filter_fn
 			if filter_fn and not filter_fn(body.Owner) then goto continue end
 
 			local shape = body.GetPhysicsShape and body:GetPhysicsShape()
-			local hit = shape and
-				shape.TraceAgainstBody and
-				shape:TraceAgainstBody(body, origin, direction, max_distance, trace_radius)
+			local hit = nil
 
-			if hit and (not best_hit or hit.distance < best_hit.distance) then
-				best_hit = hit
+			if downward_trace and shape and shape.TraceDownAgainstBody then
+				hit = shape:TraceDownAgainstBody(body, origin, max_distance, trace_radius)
+			elseif shape and shape.TraceAgainstBody then
+				hit = shape:TraceAgainstBody(body, origin, direction, max_distance, trace_radius)
 			end
 
-			::continue::
-		end
-	end
-
-	return best_hit
-end
-
-function physics.TraceDown(origin, radius, ignore_entity, max_distance, filter_fn, options)
-	options = options or {}
-	local allow_rigid = options.IgnoreRigidBodies == false
-	local hits = cast_with_filter(
-		origin,
-		Vec3(0, -1, 0),
-		max_distance,
-		ignore_entity,
-		filter_fn,
-		options,
-		allow_rigid and true or nil
-	)
-	local best_hit = nil
-
-	for _, hit in ipairs(hits) do
-		if hit.normal and hit.normal.y >= 0 then
-			best_hit = hit
-
-			break
-		end
-	end
-
-	if not best_hit then best_hit = hits[1] end
-
-	if allow_rigid then
-		local trace_radius = radius or 0
-
-		for _, body in ipairs(RigidBodyComponent.Instances or {}) do
-			if not (physics.IsActiveRigidBody(body) and body.Owner ~= ignore_entity) then
-				goto continue
-			end
-
-			if body.Owner and (body.Owner.PhysicsNoCollision or body.Owner.NoPhysicsCollision) then
-				goto continue
-			end
-
-			if filter_fn and not filter_fn(body.Owner) then goto continue end
-
-			local shape = body.GetPhysicsShape and body:GetPhysicsShape()
-			local hit = shape and
-				shape.TraceDownAgainstBody and
-				shape:TraceDownAgainstBody(body, origin, max_distance, trace_radius)
+			if downward_trace and hit and hit.normal and hit.normal.y < 0 then hit = nil end
 
 			if hit and (not best_hit or hit.distance < best_hit.distance) then
 				best_hit = hit

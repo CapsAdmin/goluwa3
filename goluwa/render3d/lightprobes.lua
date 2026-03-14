@@ -280,7 +280,7 @@ function lightprobes.CreatePipelines()
 				{"tangent", "vec4", "r32g32b32a32_sfloat"},
 				{"texture_blend", "float", "r32_sfloat"},
 			},
-			push_constants = {
+			uniform_buffers = {
 				{
 					name = "vertex",
 					block = {

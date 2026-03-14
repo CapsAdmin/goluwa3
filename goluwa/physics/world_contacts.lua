@@ -106,11 +106,11 @@ function module.CreateServices(services)
 
 	local function query_support_contact(body, local_point, cast_up, cast_distance)
 		local point = body:GeometryLocalToWorld(local_point)
-		local hit = physics.TraceDown(
+		local hit = physics.Trace(
 			point + physics.Up * cast_up,
-			0,
-			body.Owner,
+			physics.Up * -1,
 			cast_distance,
+			body.Owner,
 			body.FilterFunction
 		)
 		local normal = physics.GetHitNormal(hit, point)

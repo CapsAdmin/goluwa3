@@ -66,8 +66,6 @@ return {
 						render3d.debug_block,
 					},
 				},
-			},
-			push_constants = {
 				{
 					name = "model",
 					block = {

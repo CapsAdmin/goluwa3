@@ -146,11 +146,11 @@ function META:SolveSupportContacts(body, dt)
 	local cast_distance = cast_up + downward + body.CollisionProbeDistance + body.CollisionMargin
 	local radius = self:GetRadius()
 	local bottom_center = body:LocalToWorld(self:GetBottomSphereCenterLocal())
-	local hit = physics.TraceDown(
+	local hit = physics.Trace(
 		bottom_center + physics.Up * cast_up,
-		0,
-		body.Owner,
+		physics.Up * -1,
 		cast_distance + radius,
+		body.Owner,
 		body.FilterFunction
 	)
 	local normal = physics.GetHitNormal(hit, bottom_center)
