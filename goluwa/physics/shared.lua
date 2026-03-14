@@ -21,6 +21,8 @@ physics.PreviousWorldCollisionPairs = physics.PreviousWorldCollisionPairs or {}
 physics.CurrentWorldCollisionPairs = physics.CurrentWorldCollisionPairs or {}
 
 function physics.IsActiveRigidBody(body)
+	if body and body.GetBody then body = body:GetBody() end
+
 	return body and
 		body.Enabled and
 		body.Owner and
@@ -45,10 +47,18 @@ function physics.ShouldBodiesCollide(body_a, body_b)
 		return false
 	end
 
-	local group_a = body_a.CollisionGroup or 1
-	local group_b = body_b.CollisionGroup or 1
-	local mask_a = body_a.CollisionMask == nil and -1 or body_a.CollisionMask
-	local mask_b = body_b.CollisionMask == nil and -1 or body_b.CollisionMask
+	local group_a = body_a.GetCollisionGroup and
+		body_a:GetCollisionGroup() or
+		body_a.CollisionGroup or
+		1
+	local group_b = body_b.GetCollisionGroup and
+		body_b:GetCollisionGroup() or
+		body_b.CollisionGroup or
+		1
+	local mask_a = body_a.GetCollisionMask and body_a:GetCollisionMask() or body_a.CollisionMask
+	local mask_b = body_b.GetCollisionMask and body_b:GetCollisionMask() or body_b.CollisionMask
+	mask_a = mask_a == nil and -1 or mask_a
+	mask_b = mask_b == nil and -1 or mask_b
 	return bit.band(mask_a, group_b) ~= 0 and bit.band(mask_b, group_a) ~= 0
 end
 
@@ -60,6 +70,8 @@ end
 function physics.RecordCollisionPair(body_a, body_b, normal, overlap)
 	if not physics.ShouldBodiesCollide(body_a, body_b) then return end
 
+	body_a = body_a.GetBody and body_a:GetBody() or body_a
+	body_b = body_b.GetBody and body_b:GetBody() or body_b
 	local key, swapped = get_pair_key(body_a, body_b)
 	local stored_normal = swapped and normal * -1 or normal
 	local stored_overlap = overlap or 0

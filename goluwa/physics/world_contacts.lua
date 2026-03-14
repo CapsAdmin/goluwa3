@@ -40,7 +40,7 @@ function module.CreateServices(services)
 
 		if not (hit and normal) then return false end
 
-		local target = hit.position + normal * body.CollisionMargin
+		local target = hit.position + normal * body:GetCollisionMargin()
 		local correction = target - point
 		local depth = correction:Dot(normal)
 
@@ -48,7 +48,7 @@ function module.CreateServices(services)
 
 		body:ApplyCorrection(0, normal * depth, point, nil, nil, dt)
 
-		if normal.y >= body.MinGroundNormalY then
+		if normal.y >= body:GetMinGroundNormalY() then
 			body:SetGrounded(true)
 			body:SetGroundNormal(normal)
 		end
@@ -86,7 +86,7 @@ function module.CreateServices(services)
 
 		if tangent_speed <= EPSILON then return end
 
-		local friction = math.max(body.Friction or 0, 0)
+		local friction = math.max(body:GetFriction() or 0, 0)
 
 		if friction <= 0 then return end
 
@@ -110,14 +110,14 @@ function module.CreateServices(services)
 			point + physics.Up * cast_up,
 			physics.Up * -1,
 			cast_distance,
-			body.Owner,
-			body.FilterFunction
+			body:GetOwner(),
+			body:GetFilterFunction()
 		)
 		local normal = physics.GetHitNormal(hit, point)
 
 		if not (hit and normal) then return nil end
 
-		local target = hit.position + normal * body.CollisionMargin
+		local target = hit.position + normal * body:GetCollisionMargin()
 		local correction = target - point
 		local depth = correction:Dot(normal)
 
@@ -135,8 +135,8 @@ function module.CreateServices(services)
 	local function solve_support_contact_patch(body, dt)
 		local velocity = body:GetVelocity()
 		local downward = math.max(0, -velocity.y * dt)
-		local cast_up = body.CollisionProbeDistance + body.CollisionMargin
-		local cast_distance = cast_up + downward + body.CollisionProbeDistance + body.CollisionMargin
+		local cast_up = body:GetCollisionProbeDistance() + body:GetCollisionMargin()
+		local cast_distance = cast_up + downward + body:GetCollisionProbeDistance() + body:GetCollisionMargin()
 		local support_points = get_world_support_points(body)
 		local grounded_normal = nil
 		local grounded_weight = 0
@@ -150,7 +150,7 @@ function module.CreateServices(services)
 					body:ApplyCorrection(0, contact.normal * contact.depth, contact.point, nil, nil, dt)
 					apply_static_contact_impulse(body, contact.point, contact.normal)
 
-					if contact.normal.y >= body.MinGroundNormalY then
+					if contact.normal.y >= body:GetMinGroundNormalY() then
 						grounded_normal = (grounded_normal or physics.Up * 0) + contact.normal * contact.depth
 						grounded_weight = grounded_weight + contact.depth
 						body:SetGrounded(true)
@@ -175,7 +175,7 @@ function module.CreateServices(services)
 	local function solve_motion_contacts(body, dt)
 		if not body.CollisionEnabled then return end
 
-		local sweep_margin = body.CollisionMargin + body.CollisionProbeDistance
+		local sweep_margin = body:GetCollisionMargin() + body:GetCollisionProbeDistance()
 
 		for _, local_point in ipairs(body:GetCollisionLocalPoints()) do
 			local previous = body:GeometryLocalToWorld(local_point, body:GetPreviousPosition(), body:GetPreviousRotation())
@@ -188,8 +188,8 @@ function module.CreateServices(services)
 					previous,
 					delta,
 					distance + sweep_margin,
-					body.Owner,
-					body.FilterFunction
+					body:GetOwner(),
+					body:GetFilterFunction()
 				)
 
 				if hit and hit.distance <= distance + sweep_margin then

@@ -117,11 +117,12 @@ function physics.Trace(origin, direction, max_distance, ignore_entity, filter_fn
 
 			if filter_fn and not filter_fn(body.Owner) then goto continue end
 
-			local shape = body.GetPhysicsShape and body:GetPhysicsShape()
-			local hit = shape:TraceAgainstBody(body, origin, direction, max_distance, trace_radius)
+			for _, collider in ipairs(body.GetColliders and body:GetColliders() or {}) do
+				local hit = collider:GetPhysicsShape():TraceAgainstBody(collider, origin, direction, max_distance, trace_radius)
 
-			if hit and (not best_hit or hit.distance < best_hit.distance) then
-				best_hit = hit
+				if hit and (not best_hit or hit.distance < best_hit.distance) then
+					best_hit = hit
+				end
 			end
 
 			::continue::

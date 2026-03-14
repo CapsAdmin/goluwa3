@@ -25,9 +25,10 @@ function META:GetResolvedHull(body)
 	if self.ResolvedHull then return self.ResolvedHull end
 
 	local hull = self:GetConvexHull()
+	local owner = body and body.GetOwner and body:GetOwner() or body and body.Owner
 
-	if not hull and body and body.Owner and body.Owner.model then
-		hull = physics.BuildConvexHullFromModel(body.Owner.model)
+	if not hull and owner and owner.model then
+		hull = physics.BuildConvexHullFromModel(owner.model)
 	end
 
 	if hull then hull = physics.NormalizeConvexHull(hull) end
@@ -51,19 +52,19 @@ function META:GetHalfExtents(body)
 end
 
 function META:GetMassProperties(body)
-	local mass = body.Mass or 0
+	local mass = body:GetMass()
 	local bounds_size = self:GetHalfExtents(body) * 2
 
 	if body.IsDynamic and not body:IsDynamic() then
 		mass = 0
-	elseif body.AutomaticMass then
+	elseif body:GetAutomaticMass() then
 		local hull = self:GetResolvedHull(body)
 
 		if hull and hull.bounds_min and hull.bounds_max then
 			bounds_size = hull.bounds_max - hull.bounds_min
-			mass = math.max(bounds_size.x * bounds_size.y * bounds_size.z * body.Density * 0.75, 0)
+			mass = math.max(bounds_size.x * bounds_size.y * bounds_size.z * body:GetDensity() * 0.75, 0)
 		else
-			mass = bounds_size.x * bounds_size.y * bounds_size.z * body.Density
+			mass = bounds_size.x * bounds_size.y * bounds_size.z * body:GetDensity()
 		end
 	end
 

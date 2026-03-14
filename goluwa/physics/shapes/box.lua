@@ -61,12 +61,12 @@ end
 
 function META:GetMassProperties(body)
 	local size = self:GetSize()
-	local mass = body.Mass or 0
+	local mass = body:GetMass()
 
 	if body.IsDynamic and not body:IsDynamic() then
 		mass = 0
-	elseif body.AutomaticMass then
-		mass = size.x * size.y * size.z * body.Density
+	elseif body:GetAutomaticMass() then
+		mass = size.x * size.y * size.z * body:GetDensity()
 	end
 
 	if mass <= 0 then return 0, Vec3(0, 0, 0) end
@@ -243,11 +243,11 @@ function META:TraceAgainstBody(body, origin, direction, max_distance, trace_radi
 	local normal = body:GetRotation():VecMul(hit_normal_local):GetNormalized()
 	local position = expanded_position - normal * expansion
 	return {
-		entity = body.Owner,
+		entity = body:GetOwner(),
 		distance = distance_limit * t_enter,
 		position = position,
 		normal = normal,
-		rigid_body = body,
+		rigid_body = body.GetBody and body:GetBody() or body,
 	}
 end
 

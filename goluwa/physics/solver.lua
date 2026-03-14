@@ -64,23 +64,23 @@ local function combine_material_value(value_a, value_b, mode, legacy_mode)
 end
 
 local function get_pair_restitution(body_a, body_b)
-	local restitution_a = math.max(body_a.Restitution or 0, 0)
-	local restitution_b = math.max(body_b.Restitution or 0, 0)
-	local mode = resolve_pair_combine_mode(body_a.RestitutionCombineMode, body_b.RestitutionCombineMode)
+	local restitution_a = math.max(body_a:GetRestitution() or 0, 0)
+	local restitution_b = math.max(body_b:GetRestitution() or 0, 0)
+	local mode = resolve_pair_combine_mode(body_a:GetRestitutionCombineMode(), body_b:GetRestitutionCombineMode())
 	return combine_material_value(restitution_a, restitution_b, mode, "restitution")
 end
 
 local function get_pair_friction(body_a, body_b)
-	local friction_a = math.max(body_a.Friction or 0, 0)
-	local friction_b = math.max(body_b.Friction or 0, 0)
-	local mode = resolve_pair_combine_mode(body_a.FrictionCombineMode, body_b.FrictionCombineMode)
+	local friction_a = math.max(body_a:GetFriction() or 0, 0)
+	local friction_b = math.max(body_b:GetFriction() or 0, 0)
+	local mode = resolve_pair_combine_mode(body_a:GetFrictionCombineMode(), body_b:GetFrictionCombineMode())
 	return combine_material_value(friction_a, friction_b, mode, "friction")
 end
 
 local function get_pair_rolling_friction(body_a, body_b)
-	local friction_a = math.max(body_a.RollingFriction or 0, 0)
-	local friction_b = math.max(body_b.RollingFriction or 0, 0)
-	local mode = resolve_pair_combine_mode(body_a.RollingFrictionCombineMode, body_b.RollingFrictionCombineMode)
+	local friction_a = math.max(body_a:GetRollingFriction() or 0, 0)
+	local friction_b = math.max(body_b:GetRollingFriction() or 0, 0)
+	local mode = resolve_pair_combine_mode(body_a:GetRollingFrictionCombineMode(), body_b:GetRollingFrictionCombineMode())
 	return combine_material_value(friction_a, friction_b, mode, "friction")
 end
 
@@ -127,17 +127,54 @@ function solver:WarnMissingPairHandler(shape_a, shape_b)
 end
 
 local function solve_rigid_body_pair(body_a, body_b, entry_a, entry_b, dt)
-	local shape_a = body_a:GetShapeType()
-	local shape_b = body_b:GetShapeType()
-
 	if not physics.ShouldBodiesCollide(body_a, body_b) then return end
 
-	local handler = solver:GetPairHandler(shape_a, shape_b)
+	local colliders_a = body_a:GetColliders()
+	local colliders_b = body_b:GetColliders()
 
-	if handler then return handler(body_a, body_b, entry_a, entry_b, dt) end
+	local function is_simple_body(collider_list)
+		if #collider_list ~= 1 then return false end
 
-	solver:WarnMissingPairHandler(shape_a, shape_b)
-	return fallback.SolveAABBPairCollision(body_a, body_b, entry_a.bounds, entry_b.bounds, dt)
+		local collider = collider_list[1]
+		local local_position = collider:GetLocalPosition()
+		local local_rotation = collider:GetLocalRotation()
+		return local_position:GetLength() <= EPSILON and
+			math.abs(local_rotation.x) <= EPSILON and
+			math.abs(local_rotation.y) <= EPSILON and
+			math.abs(local_rotation.z) <= EPSILON and
+			math.abs(local_rotation.w - 1) <= EPSILON
+	end
+
+	if is_simple_body(colliders_a) and is_simple_body(colliders_b) then
+		local shape_a = body_a:GetShapeType()
+		local shape_b = body_b:GetShapeType()
+		local handler = solver:GetPairHandler(shape_a, shape_b)
+
+		if handler then return handler(body_a, body_b, entry_a, entry_b, dt) end
+
+		solver:WarnMissingPairHandler(shape_a, shape_b)
+		return fallback.SolveAABBPairCollision(body_a, body_b, entry_a.bounds, entry_b.bounds, dt)
+	end
+
+	local handled = false
+
+	for _, collider_a in ipairs(colliders_a) do
+		for _, collider_b in ipairs(colliders_b) do
+			if physics.ShouldBodiesCollide(collider_a, collider_b) then
+				local shape_a = collider_a:GetShapeType()
+				local shape_b = collider_b:GetShapeType()
+				local handler = solver:GetPairHandler(shape_a, shape_b)
+
+				if handler then
+					if handler(collider_a, collider_b, entry_a, entry_b, dt) then handled = true end
+				else
+					solver:WarnMissingPairHandler(shape_a, shape_b)
+				end
+			end
+		end
+	end
+
+	return handled
 end
 
 function solver.SolveDistanceConstraints(dt)

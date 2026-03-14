@@ -60,13 +60,13 @@ function module.CreateServices(services)
 	local function mark_pair_grounding(body_a, body_b, normal)
 		local rolling_friction = get_pair_rolling_friction(body_a, body_b)
 
-		if -normal.y >= body_a.MinGroundNormalY then
+		if -normal.y >= body_a:GetMinGroundNormalY() then
 			body_a:SetGrounded(true)
 			body_a:SetGroundNormal(-normal)
 			body_a:SetGroundRollingFriction(rolling_friction)
 		end
 
-		if normal.y >= body_b.MinGroundNormalY then
+		if normal.y >= body_b:GetMinGroundNormalY() then
 			body_b:SetGrounded(true)
 			body_b:SetGroundNormal(normal)
 			body_b:SetGroundRollingFriction(rolling_friction)
@@ -107,7 +107,7 @@ function module.CreateServices(services)
 					if candidate:GetLength() > EPSILON then
 						candidate = candidate:GetNormalized()
 
-						if candidate.y >= self_body.MinGroundNormalY then
+						if candidate.y >= self_body:GetMinGroundNormalY() then
 							self_body:SetGrounded(true)
 							self_body:SetGroundNormal(candidate)
 							self_body:SetGroundRollingFriction(rolling_friction)

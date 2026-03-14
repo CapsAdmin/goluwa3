@@ -6,6 +6,7 @@ local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local CapsuleShape = import("goluwa/physics/shapes/capsule.lua")
 local BoxShape = import("goluwa/physics/shapes/box.lua")
+local test_helpers = import("test/tests/physics/mocks.lua")
 local capsule_shape = CapsuleShape.New
 local box_shape = BoxShape.New
 
@@ -59,26 +60,13 @@ end)
 T.Test("Capsule shape mass properties include cylindrical section", function()
 	local short = capsule_shape(0.5, 1.0)
 	local tall = capsule_shape(0.5, 3.0)
-	local short_mass = select(
-		1,
-		short:GetMassProperties{
-			AutomaticMass = true,
-			Density = 1,
-			IsDynamic = function()
-				return true
-			end,
-		}
-	)
-	local tall_mass = select(
-		1,
-		tall:GetMassProperties{
-			AutomaticMass = true,
-			Density = 1,
-			IsDynamic = function()
-				return true
-			end,
-		}
-	)
+	local mock_body = test_helpers.CreateMockBody{
+		AutomaticMass = true,
+		Density = 1,
+		IsDynamic = true,
+	}
+	local short_mass = select(1, short:GetMassProperties(mock_body))
+	local tall_mass = select(1, tall:GetMassProperties(mock_body))
 	local short_half = short:GetHalfExtents()
 	local tall_half = tall:GetHalfExtents()
 	T(tall_mass)[">"](short_mass)

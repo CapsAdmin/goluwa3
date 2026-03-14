@@ -51,14 +51,14 @@ end
 function META:GetMassProperties(body)
 	local radius = self:GetRadius()
 	local cylinder_height = self:GetCylinderHeight()
-	local mass = body.Mass or 0
+	local mass = body:GetMass()
 
 	if body.IsDynamic and not body:IsDynamic() then
 		mass = 0
-	elseif body.AutomaticMass then
+	elseif body:GetAutomaticMass() then
 		local cylinder_volume = math.pi * radius * radius * cylinder_height
 		local sphere_volume = (4 / 3) * math.pi * radius * radius * radius
-		mass = (cylinder_volume + sphere_volume) * body.Density
+		mass = (cylinder_volume + sphere_volume) * body:GetDensity()
 	end
 
 	if mass <= 0 then return 0, Vec3(0, 0, 0) end
@@ -142,22 +142,22 @@ end
 function META:SolveSupportContacts(body, dt)
 	local velocity = body:GetVelocity()
 	local downward = math.max(0, -velocity.y * dt)
-	local cast_up = body.CollisionProbeDistance + body.CollisionMargin
-	local cast_distance = cast_up + downward + body.CollisionProbeDistance + body.CollisionMargin
+	local cast_up = body:GetCollisionProbeDistance() + body:GetCollisionMargin()
+	local cast_distance = cast_up + downward + body:GetCollisionProbeDistance() + body:GetCollisionMargin()
 	local radius = self:GetRadius()
 	local bottom_center = body:LocalToWorld(self:GetBottomSphereCenterLocal())
 	local hit = physics.Trace(
 		bottom_center + physics.Up * cast_up,
 		physics.Up * -1,
 		cast_distance + radius,
-		body.Owner,
-		body.FilterFunction
+		body:GetOwner(),
+		body:GetFilterFunction()
 	)
 	local normal = physics.GetHitNormal(hit, bottom_center)
 
 	if not (hit and normal) then return end
 
-	local target_center = hit.position + normal * (radius + body.CollisionMargin)
+	local target_center = hit.position + normal * (radius + body:GetCollisionMargin())
 	local correction = target_center - bottom_center
 	local depth = correction:Dot(normal)
 
@@ -165,7 +165,7 @@ function META:SolveSupportContacts(body, dt)
 
 	body:ApplyCorrection(0, normal * depth, bottom_center - normal * radius, nil, nil, dt)
 
-	if normal.y >= body.MinGroundNormalY then
+	if normal.y >= body:GetMinGroundNormalY() then
 		body:SetGrounded(true)
 		body:SetGroundNormal(normal)
 	end

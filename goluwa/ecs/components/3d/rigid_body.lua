@@ -1,7 +1,10 @@
 local prototype = import("goluwa/prototype.lua")
+local AABB = import("goluwa/structs/aabb.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local BoxShape = import("goluwa/physics/shapes/box.lua")
+local ConvexShape = import("goluwa/physics/shapes/convex.lua")
+local Collider = import("goluwa/physics/collider.lua")
 local default_skin = (
 		import.loaded["goluwa/physics.lua"] and
 		import.loaded["goluwa/physics.lua"].DefaultSkin
@@ -11,6 +14,7 @@ local default_skin = (
 local META = prototype.CreateTemplate("rigid_body")
 META:GetSet("Enabled", true)
 META:GetSet("Shape", nil, {callback = "OnGeometryChanged"})
+META:GetSet("Shapes", nil, {callback = "OnGeometryChanged"})
 META:GetSet("MotionType", "dynamic", {callback = "OnMotionTypeChanged"})
 META:GetSet("Density", 1, {callback = "RefreshMassProperties"})
 META:GetSet("Mass", 1, {callback = "RefreshMassProperties"})
@@ -53,6 +57,130 @@ local function zero_vec3()
 	return Vec3(0, 0, 0)
 end
 
+local function identity_quat()
+	return Quat(0, 0, 0, 1)
+end
+
+local function copy_position(position)
+	if position and position.Copy then return position:Copy() end
+
+	return zero_vec3()
+end
+
+local function copy_rotation(rotation)
+	if rotation and rotation.Copy then return rotation:Copy() end
+
+	return identity_quat()
+end
+
+local function inverse_to_inertia(value)
+	if not value or value <= 0 then return 0 end
+
+	return 1 / value
+end
+
+local function get_rotated_inertia_diagonal(rotation, inertia)
+	local axis_x = rotation:VecMul(Vec3(1, 0, 0))
+	local axis_y = rotation:VecMul(Vec3(0, 1, 0))
+	local axis_z = rotation:VecMul(Vec3(0, 0, 1))
+	return Vec3(
+		inertia.x * axis_x.x * axis_x.x + inertia.y * axis_y.x * axis_y.x + inertia.z * axis_z.x * axis_z.x,
+		inertia.x * axis_x.y * axis_x.y + inertia.y * axis_y.y * axis_y.y + inertia.z * axis_z.y * axis_z.y,
+		inertia.x * axis_x.z * axis_x.z + inertia.y * axis_y.z * axis_y.z + inertia.z * axis_z.z * axis_z.z
+	)
+end
+
+local function is_shape_definition(value)
+	return type(value) == "table" and
+		(
+			value.Shape ~= nil or
+			value.shape ~= nil or
+			value.Position ~= nil or
+			value.position ~= nil or
+			value.Rotation ~= nil or
+			value.rotation ~= nil or
+			value.ConvexHull ~= nil
+		)
+end
+
+local function get_shape_from_definition(data)
+	local shape = data.Shape or data.shape
+
+	if not shape and data.ConvexHull then
+		shape = ConvexShape.New(data.ConvexHull)
+	end
+
+	return shape
+end
+
+local function append_shape_entry(entries, entry, parent_position, parent_rotation)
+	parent_position = parent_position or zero_vec3()
+	parent_rotation = parent_rotation or identity_quat()
+	local data = is_shape_definition(entry) and entry or {Shape = entry}
+	local shape = get_shape_from_definition(data)
+	local local_position = copy_position(data.Position or data.position)
+	local local_rotation = copy_rotation(data.Rotation or data.rotation)
+	local combined_position = parent_position + parent_rotation:VecMul(local_position)
+	local combined_rotation = (parent_rotation * local_rotation):GetNormalized()
+
+	if
+		shape and
+		shape.GetTypeName and
+		shape:GetTypeName() == "compound" and
+		shape.GetChildren
+	then
+		for _, child in ipairs(shape:GetChildren()) do
+			append_shape_entry(entries, child, combined_position, combined_rotation)
+		end
+
+		return
+	end
+
+	entries[#entries + 1] = {
+		Shape = shape,
+		Position = combined_position,
+		Rotation = combined_rotation,
+		Density = data.Density,
+		Mass = data.Mass,
+		AutomaticMass = data.AutomaticMass,
+		CollisionGroup = data.CollisionGroup,
+		CollisionMask = data.CollisionMask,
+		CollisionMargin = data.CollisionMargin,
+		CollisionProbeDistance = data.CollisionProbeDistance,
+		Friction = data.Friction,
+		RollingFriction = data.RollingFriction,
+		Restitution = data.Restitution,
+		FrictionCombineMode = data.FrictionCombineMode,
+		RollingFrictionCombineMode = data.RollingFrictionCombineMode,
+		RestitutionCombineMode = data.RestitutionCombineMode,
+		FilterFunction = data.FilterFunction,
+		MinGroundNormalY = data.MinGroundNormalY,
+	}
+end
+
+local function build_collider_entries(body)
+	local entries = {}
+	local shapes = body.Shapes
+
+	if shapes and shapes[1] then
+		for _, entry in ipairs(shapes) do
+			append_shape_entry(entries, entry)
+		end
+	elseif body.Shape then
+		append_shape_entry(entries, body.Shape)
+	end
+
+	if not entries[1] then
+		entries[1] = {
+			Shape = BoxShape.New(Vec3(1, 1, 1)),
+			Position = zero_vec3(),
+			Rotation = identity_quat(),
+		}
+	end
+
+	return entries
+end
+
 local function clamp_vec_length(vec, max_length)
 	local length = vec:GetLength()
 
@@ -74,7 +202,6 @@ local function integrate_rotation(rotation, angular_velocity, dt)
 end
 
 function META:Initialize()
-	self.Shape = self.Shape or BoxShape.New(Vec3(1, 1, 1))
 	self.Velocity = self.Velocity or Vec3(0, 0, 0)
 	self.AngularVelocity = self.AngularVelocity or Vec3(0, 0, 0)
 	self.Position = self.Position or Vec3(0, 0, 0)
@@ -88,6 +215,8 @@ function META:Initialize()
 	self.SleepTimer = self.SleepTimer or 0
 	self.AccumulatedForce = self.AccumulatedForce or zero_vec3()
 	self.AccumulatedTorque = self.AccumulatedTorque or zero_vec3()
+	self.Colliders = nil
+	self:RebuildColliders()
 	self:RefreshMassProperties()
 
 	if self.Owner and self.Owner.transform then
@@ -99,15 +228,46 @@ function META:OnMotionTypeChanged()
 	self:RefreshMassProperties()
 end
 
-function META:GetPhysicsShape()
-	if not self.Shape then self.Shape = BoxShape.New(Vec3(1, 1, 1)) end
+function META:GetOwner()
+	return self.Owner
+end
 
-	return self.Shape
+function META:RebuildColliders()
+	local colliders = {}
+
+	for index, entry in ipairs(build_collider_entries(self)) do
+		colliders[index] = Collider.New(self, entry, index):InvalidateGeometry()
+	end
+
+	self.Colliders = colliders
+	self.CollisionLocalPoints = nil
+	self.SupportLocalPoints = nil
+	self.LocalBounds = nil
+	return colliders
+end
+
+function META:GetColliders()
+	if not self.Colliders or not self.Colliders[1] then
+		self:RebuildColliders()
+	end
+
+	return self.Colliders
+end
+
+function META:GetPhysicsShape()
+	local colliders = self:GetColliders()
+
+	if #colliders ~= 1 then return nil end
+
+	return colliders[1]:GetPhysicsShape()
 end
 
 function META:GetShapeType()
-	local shape = self:GetPhysicsShape()
-	return shape and shape.GetTypeName and shape:GetTypeName() or "unknown"
+	local colliders = self:GetColliders()
+
+	if #colliders ~= 1 then return "compound" end
+
+	return colliders[1]:GetShapeType()
 end
 
 function META:OnAdd(entity)
@@ -122,14 +282,7 @@ function META:OnAdd(entity)
 end
 
 function META:OnGeometryChanged()
-	self.CollisionLocalPoints = nil
-	self.SupportLocalPoints = nil
-	local shape = self:GetPhysicsShape()
-
-	if shape and shape.OnBodyGeometryChanged then
-		shape:OnBodyGeometryChanged(self)
-	end
-
+	self:RebuildColliders()
 	self:RefreshMassProperties()
 end
 
@@ -152,17 +305,52 @@ local function get_bounds_from_points(points)
 end
 
 function META:GetResolvedConvexHull()
-	local shape = self:GetPhysicsShape()
+	local colliders = self:GetColliders()
 
-	if not (shape and shape.GetResolvedHull) then return nil end
+	if #colliders ~= 1 then return nil end
 
-	return shape:GetResolvedHull(self)
+	return colliders[1]:GetResolvedConvexHull()
 end
 
 function META:RefreshMassProperties()
-	local shape = self:GetPhysicsShape()
-	local mass, inverse_inertia = shape:GetMassProperties(self)
-	self.ComputedMass = mass
+	local computed_mass = 0
+	local inertia = Vec3(0, 0, 0)
+	local has_collider_inertia = false
+
+	for _, collider in ipairs(self:GetColliders()) do
+		local collider_mass, collider_inverse_inertia = collider:GetPhysicsShape():GetMassProperties(collider)
+
+		if collider_mass and collider_mass > 0 then
+			computed_mass = computed_mass + collider_mass
+			has_collider_inertia = true
+			local collider_inertia = Vec3(
+				inverse_to_inertia(collider_inverse_inertia and collider_inverse_inertia.x or 0),
+				inverse_to_inertia(collider_inverse_inertia and collider_inverse_inertia.y or 0),
+				inverse_to_inertia(collider_inverse_inertia and collider_inverse_inertia.z or 0)
+			)
+			local rotated = get_rotated_inertia_diagonal(collider:GetLocalRotation(), collider_inertia)
+			local position = collider:GetLocalPosition()
+			inertia.x = inertia.x + rotated.x + collider_mass * (
+					position.y * position.y + position.z * position.z
+				)
+			inertia.y = inertia.y + rotated.y + collider_mass * (
+					position.x * position.x + position.z * position.z
+				)
+			inertia.z = inertia.z + rotated.z + collider_mass * (
+					position.x * position.x + position.y * position.y
+				)
+		end
+	end
+
+	local mass = self:GetMass()
+
+	if not self:IsDynamic() then
+		mass = 0
+	elseif self:GetAutomaticMass() then
+		mass = computed_mass
+	end
+
+	self.ComputedMass = computed_mass
 
 	if mass <= 0 then
 		self.InverseMass = 0
@@ -171,7 +359,33 @@ function META:RefreshMassProperties()
 	end
 
 	self.InverseMass = 1 / mass
-	self.InverseInertia = inverse_inertia or Vec3(0, 0, 0)
+
+	if has_collider_inertia and computed_mass > 0 then
+		if not self:GetAutomaticMass() and mass ~= computed_mass then
+			inertia = inertia * (mass / computed_mass)
+		end
+
+		self.InverseInertia = Vec3(
+			inertia.x > 0 and 1 / inertia.x or 0,
+			inertia.y > 0 and 1 / inertia.y or 0,
+			inertia.z > 0 and 1 / inertia.z or 0
+		)
+		return
+	end
+
+	local min_bounds, max_bounds = get_bounds_from_points(self:GetCollisionLocalPoints())
+
+	if not (min_bounds and max_bounds) then
+		self.InverseInertia = Vec3(0, 0, 0)
+		return
+	end
+
+	local size = max_bounds - min_bounds
+	local sx, sy, sz = size.x, size.y, size.z
+	local ix = (1 / 12) * mass * (sy * sy + sz * sz)
+	local iy = (1 / 12) * mass * (sx * sx + sz * sz)
+	local iz = (1 / 12) * mass * (sx * sx + sy * sy)
+	self.InverseInertia = Vec3(ix > 0 and 1 / ix or 0, iy > 0 and 1 / iy or 0, iz > 0 and 1 / iz or 0)
 end
 
 function META:GetBody()
@@ -373,7 +587,18 @@ function META:UpdateSleepState(dt)
 end
 
 function META:GetHalfExtents()
-	return self:GetPhysicsShape():GetHalfExtents(self)
+	local bounds = self.LocalBounds
+
+	if not bounds then
+		local min_bounds, max_bounds = get_bounds_from_points(self:GetCollisionLocalPoints())
+
+		if not (min_bounds and max_bounds) then return Vec3(0.5, 0.5, 0.5) end
+
+		bounds = {min = min_bounds, max = max_bounds}
+		self.LocalBounds = bounds
+	end
+
+	return (bounds.max - bounds.min) * 0.5
 end
 
 function META:IsStatic()
@@ -428,7 +653,7 @@ function META:LocalToWorld(local_pos, position, rotation)
 end
 
 function META:GeometryLocalToWorld(local_pos, position, rotation)
-	return self:GetPhysicsShape():GeometryLocalToWorld(self, local_pos, position, rotation)
+	return self:LocalToWorld(local_pos, position, rotation)
 end
 
 function META:WorldToLocal(world_pos, position, rotation)
@@ -438,7 +663,45 @@ function META:WorldToLocal(world_pos, position, rotation)
 end
 
 function META:GetBroadphaseAABB(position, rotation)
-	return self:GetPhysicsShape():GetBroadphaseAABB(self, position, rotation)
+	position = position or self.Position
+	rotation = rotation or self.Rotation
+	local min_bounds = Vec3(math.huge, math.huge, math.huge)
+	local max_bounds = Vec3(-math.huge, -math.huge, -math.huge)
+	local has_bounds = false
+
+	for _, collider in ipairs(self:GetColliders()) do
+		local collider_position = position + rotation:VecMul(collider:GetLocalPosition())
+		local collider_rotation = (rotation * collider:GetLocalRotation()):GetNormalized()
+		local bounds = collider:GetBroadphaseAABB(collider_position, collider_rotation)
+		min_bounds.x = math.min(min_bounds.x, bounds.min_x)
+		min_bounds.y = math.min(min_bounds.y, bounds.min_y)
+		min_bounds.z = math.min(min_bounds.z, bounds.min_z)
+		max_bounds.x = math.max(max_bounds.x, bounds.max_x)
+		max_bounds.y = math.max(max_bounds.y, bounds.max_y)
+		max_bounds.z = math.max(max_bounds.z, bounds.max_z)
+		has_bounds = true
+	end
+
+	if not has_bounds then
+		local half = Vec3(0.5, 0.5, 0.5)
+		return AABB(
+			position.x - half.x,
+			position.y - half.y,
+			position.z - half.z,
+			position.x + half.x,
+			position.y + half.y,
+			position.z + half.z
+		)
+	end
+
+	return AABB(
+		min_bounds.x,
+		min_bounds.y,
+		min_bounds.z,
+		max_bounds.x,
+		max_bounds.y,
+		max_bounds.z
+	)
 end
 
 function META:Integrate(dt, gravity)
@@ -502,7 +765,9 @@ function META:UpdateVelocities(dt)
 			self.Velocity = self.Velocity - self.GroundNormal * normal_speed
 		end
 
-		self:GetPhysicsShape():OnGroundedVelocityUpdate(self, dt)
+		for _, collider in ipairs(self:GetColliders()) do
+			collider:GetPhysicsShape():OnGroundedVelocityUpdate(self, dt)
+		end
 	end
 
 	local linear_damping_value = self.Grounded and self.LinearDamping or self.AirLinearDamping
@@ -577,7 +842,15 @@ function META:ApplyCorrection(compliance, correction, pos, other_body, other_pos
 end
 
 function META:BuildCollisionLocalPoints()
-	return self:GetPhysicsShape():BuildCollisionLocalPoints(self)
+	local points = {}
+
+	for _, collider in ipairs(self:GetColliders()) do
+		for _, point in ipairs(collider:GetCollisionLocalPoints() or {}) do
+			points[#points + 1] = collider:GetLocalPosition() + collider:GetLocalRotation():VecMul(point)
+		end
+	end
+
+	return points
 end
 
 function META:GetCollisionLocalPoints()
@@ -589,7 +862,15 @@ function META:GetCollisionLocalPoints()
 end
 
 function META:BuildSupportLocalPoints()
-	return self:GetPhysicsShape():BuildSupportLocalPoints(self)
+	local points = {}
+
+	for _, collider in ipairs(self:GetColliders()) do
+		for _, point in ipairs(collider:GetSupportLocalPoints() or {}) do
+			points[#points + 1] = collider:GetLocalPosition() + collider:GetLocalRotation():VecMul(point)
+		end
+	end
+
+	return points
 end
 
 function META:GetSupportLocalPoints()

@@ -24,12 +24,12 @@ end
 
 function META:GetMassProperties(body)
 	local radius = self:GetRadius()
-	local mass = body.Mass or 0
+	local mass = body:GetMass()
 
 	if body.IsDynamic and not body:IsDynamic() then
 		mass = 0
-	elseif body.AutomaticMass then
-		mass = (4 / 3) * math.pi * radius * radius * radius * body.Density
+	elseif body:GetAutomaticMass() then
+		mass = (4 / 3) * math.pi * radius * radius * radius * body:GetDensity()
 	end
 
 	if mass <= 0 then return 0, Vec3(0, 0, 0) end
@@ -83,22 +83,22 @@ end
 function META:SolveSupportContacts(body, dt)
 	local velocity = body:GetVelocity()
 	local downward = math.max(0, -velocity.y * dt)
-	local cast_up = body.CollisionProbeDistance + body.CollisionMargin
-	local cast_distance = cast_up + downward + body.CollisionProbeDistance + body.CollisionMargin
+	local cast_up = body:GetCollisionProbeDistance() + body:GetCollisionMargin()
+	local cast_distance = cast_up + downward + body:GetCollisionProbeDistance() + body:GetCollisionMargin()
 	local radius = self:GetRadius()
 	local center = body:GetPosition()
 	local hit = physics.Trace(
 		center + physics.Up * cast_up,
 		physics.Up * -1,
 		cast_distance + radius,
-		body.Owner,
-		body.FilterFunction
+		body:GetOwner(),
+		body:GetFilterFunction()
 	)
 	local normal = physics.GetHitNormal(hit, center)
 
 	if not (hit and normal) then return end
 
-	local target_center = hit.position + normal * (radius + body.CollisionMargin)
+	local target_center = hit.position + normal * (radius + body:GetCollisionMargin())
 	local correction = target_center - center
 	local depth = correction:Dot(normal)
 
@@ -106,7 +106,7 @@ function META:SolveSupportContacts(body, dt)
 
 	body:ApplyCorrection(0, normal * depth, center - normal * radius, nil, nil, dt)
 
-	if normal.y >= body.MinGroundNormalY then
+	if normal.y >= body:GetMinGroundNormalY() then
 		body:SetGrounded(true)
 		body:SetGroundNormal(normal)
 	end
@@ -141,9 +141,10 @@ function META:OnGroundedVelocityUpdate(body, dt)
 end
 
 function META:TraceAgainstBody(body, origin, direction, max_distance, trace_radius)
-	local center = body.Owner and
-		body.Owner.transform and
-		body.Owner.transform:GetPosition() or
+	local owner = body:GetOwner()
+	local center = owner and
+		owner.transform and
+		owner.transform:GetPosition() or
 		body:GetPosition()
 	local ray_direction = direction and direction:GetNormalized() or Vec3(0, 0, 0)
 
@@ -167,11 +168,11 @@ function META:TraceAgainstBody(body, origin, direction, max_distance, trace_radi
 	local normal = (expanded_position - center):GetNormalized()
 	local position = expanded_position - normal * math.max(trace_radius or 0, 0)
 	return {
-		entity = body.Owner,
+		entity = owner,
 		distance = distance,
 		position = position,
 		normal = normal,
-		rigid_body = body,
+		rigid_body = body.GetBody and body:GetBody() or body,
 	}
 end
 

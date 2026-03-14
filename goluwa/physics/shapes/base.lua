@@ -116,8 +116,8 @@ end
 function META:SolveSupportContacts(body, dt, solve_contact)
 	local velocity = body:GetVelocity()
 	local downward = math.max(0, -velocity.y * dt)
-	local cast_up = body.CollisionProbeDistance + body.CollisionMargin
-	local cast_distance = cast_up + downward + body.CollisionProbeDistance + body.CollisionMargin
+	local cast_up = body:GetCollisionProbeDistance() + body:GetCollisionMargin()
+	local cast_distance = cast_up + downward + body:GetCollisionProbeDistance() + body:GetCollisionMargin()
 
 	for _, local_point in ipairs(body:GetSupportLocalPoints()) do
 		local point = body:GeometryLocalToWorld(local_point)
@@ -125,8 +125,8 @@ function META:SolveSupportContacts(body, dt, solve_contact)
 			point + physics.Up * cast_up,
 			physics.Up * -1,
 			cast_distance,
-			body.Owner,
-			body.FilterFunction
+			body:GetOwner(),
+			body:GetFilterFunction()
 		)
 
 		if hit then solve_contact(body, point, hit, dt) end
