@@ -139,4 +139,8 @@ function META:TraceDownAgainstBody()
 	return nil
 end
 
+function META:TraceAgainstBody()
+	return nil
+end
+
 return META:Register()

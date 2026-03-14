@@ -124,6 +124,80 @@ T.Test3D("Rigid bodies support collision layers and collision events", function(
 	hit_b:Remove()
 end)
 
-T.Pending(
-	"Rigid bodies emit enter, stay, and exit collision events for static world geometry"
-)
+T.Test3D("Rigid bodies emit enter, stay, and exit collision events for static world geometry", function()
+	local ground = Entity.New({Name = "rigid_world_events_ground"})
+	ground:AddComponent("transform")
+	ground:AddComponent("model")
+	local poly = Polygon3D.New()
+	poly:AddVertex{pos = Vec3(-6, 0, -6), uv = Vec2(0, 0), normal = Vec3(0, -1, 0)}
+	poly:AddVertex{pos = Vec3(0, 0, 6), uv = Vec2(0.5, 1), normal = Vec3(0, -1, 0)}
+	poly:AddVertex{pos = Vec3(6, 0, -6), uv = Vec2(1, 0), normal = Vec3(0, -1, 0)}
+	poly:BuildBoundingBox()
+	poly:Upload()
+	ground.model:AddPrimitive(poly)
+	ground.model:BuildAABB()
+	local sphere_ent = Entity.New({Name = "rigid_world_events_sphere"})
+	sphere_ent:AddComponent("transform")
+	sphere_ent.transform:SetPosition(Vec3(0, 3, 0))
+	local sphere = sphere_ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = sphere_shape(0.5),
+			Radius = 0.5,
+			LinearDamping = 0,
+			AngularDamping = 0,
+		}
+	)
+	local enter_hits = 0
+	local stay_hits = 0
+	local exit_hits = 0
+	local ground_enter_hits = 0
+
+	sphere_ent:AddLocalListener("OnCollisionEnter", function(self, other, info)
+		if other ~= ground then return end
+
+		enter_hits = enter_hits + 1
+		T(self)["=="](sphere_ent)
+		T(info.self_body)["=="](sphere)
+		T(info.other_body)["=="](nil)
+		T(info.other_entity)["=="](ground)
+		T(info.hit ~= nil)["=="](true)
+		T(info.normal.y)[">"](0.9)
+	end)
+
+	sphere_ent:AddLocalListener("OnCollisionStay", function(self, other, info)
+		if other ~= ground then return end
+
+		stay_hits = stay_hits + 1
+		T(self)["=="](sphere_ent)
+		T(info.other_entity)["=="](ground)
+	end)
+
+	sphere_ent:AddLocalListener("OnCollisionExit", function(self, other, info)
+		if other ~= ground then return end
+
+		exit_hits = exit_hits + 1
+		T(self)["=="](sphere_ent)
+		T(info.other_entity)["=="](ground)
+	end)
+
+	ground:AddLocalListener("OnCollisionEnter", function(self, other, info)
+		if other ~= sphere_ent then return end
+
+		ground_enter_hits = ground_enter_hits + 1
+		T(self)["=="](ground)
+		T(info.other_body)["=="](sphere)
+		T(info.self_body)["=="](nil)
+		T(info.normal.y)["<"](-0.9)
+	end)
+
+	simulate_physics(240)
+	T(enter_hits)[">"](0)
+	T(stay_hits)[">"](0)
+	T(ground_enter_hits)[">"](0)
+	sphere:SetCollisionEnabled(false)
+	simulate_physics(2)
+	T(exit_hits)[">"](0)
+	sphere_ent:Remove()
+	ground:Remove()
+end)

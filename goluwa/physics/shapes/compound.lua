@@ -48,6 +48,23 @@ local function get_child_world_rotation(parent, child, rotation)
 	return (rotation * child.Rotation):GetNormalized()
 end
 
+local function inverse_to_inertia(value)
+	if not value or value <= 0 then return 0 end
+
+	return 1 / value
+end
+
+local function get_rotated_inertia_diagonal(rotation, inertia)
+	local axis_x = rotation:VecMul(Vec3(1, 0, 0))
+	local axis_y = rotation:VecMul(Vec3(0, 1, 0))
+	local axis_z = rotation:VecMul(Vec3(0, 0, 1))
+	return Vec3(
+		inertia.x * axis_x.x * axis_x.x + inertia.y * axis_y.x * axis_y.x + inertia.z * axis_z.x * axis_z.x,
+		inertia.x * axis_x.y * axis_x.y + inertia.y * axis_y.y * axis_y.y + inertia.z * axis_z.y * axis_z.y,
+		inertia.x * axis_x.z * axis_x.z + inertia.y * axis_y.z * axis_y.z + inertia.z * axis_z.z * axis_z.z
+	)
+end
+
 local ProxyMT = {}
 
 function ProxyMT:__tostring()
@@ -336,19 +353,56 @@ end
 
 function META:GetMassProperties(body)
 	local mass = body.Mass or 0
+	local computed_mass = 0
+	local inertia = Vec3(0, 0, 0)
+	local has_child_inertia = false
+
+	for _, child_body in ipairs(self:GetChildProxyBodies(body)) do
+		local child_mass, child_inverse_inertia = child_body:GetPhysicsShape():GetMassProperties(child_body)
+
+		if child_mass and child_mass > 0 then
+			computed_mass = computed_mass + child_mass
+			has_child_inertia = true
+			local child_inertia = Vec3(
+				inverse_to_inertia(child_inverse_inertia and child_inverse_inertia.x or 0),
+				inverse_to_inertia(child_inverse_inertia and child_inverse_inertia.y or 0),
+				inverse_to_inertia(child_inverse_inertia and child_inverse_inertia.z or 0)
+			)
+			local rotated = get_rotated_inertia_diagonal(child_body.Child.Rotation, child_inertia)
+			local position = child_body.Child.Position or zero_vec3()
+			inertia.x = inertia.x + rotated.x + child_mass * (
+					position.y * position.y + position.z * position.z
+				)
+			inertia.y = inertia.y + rotated.y + child_mass * (
+					position.x * position.x + position.z * position.z
+				)
+			inertia.z = inertia.z + rotated.z + child_mass * (
+					position.x * position.x + position.y * position.y
+				)
+		end
+	end
 
 	if body.IsDynamic and not body:IsDynamic() then
 		mass = 0
 	elseif body.AutomaticMass then
-		mass = 0
-
-		for _, child_body in ipairs(self:GetChildProxyBodies(body)) do
-			local child_mass = select(1, child_body:GetPhysicsShape():GetMassProperties(child_body)) or 0
-			mass = mass + child_mass
-		end
+		mass = computed_mass
 	end
 
 	if mass <= 0 then return 0, Vec3(0, 0, 0) end
+
+	if has_child_inertia and computed_mass > 0 then
+		if not body.AutomaticMass and mass ~= computed_mass then
+			local scale = mass / computed_mass
+			inertia = inertia * scale
+		end
+
+		return mass,
+		Vec3(
+			inertia.x > 0 and 1 / inertia.x or 0,
+			inertia.y > 0 and 1 / inertia.y or 0,
+			inertia.z > 0 and 1 / inertia.z or 0
+		)
+	end
 
 	local bounds = self.LocalBounds or self:BuildLocalBounds(body)
 	local size = bounds.max - bounds.min

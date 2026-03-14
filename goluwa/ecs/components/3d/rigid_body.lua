@@ -42,6 +42,8 @@ META:GetSet("MinGroundNormalY", 0.2)
 META:GetSet("FilterFunction", nil)
 META:GetSet("Grounded", false)
 META:GetSet("GroundRollingFriction", 0)
+META:GetSet("GroundEntity", nil)
+META:GetSet("GroundBody", nil)
 
 local function component_mul(a, b)
 	return Vec3(a.x * b.x, a.y * b.y, a.z * b.z)
@@ -253,7 +255,11 @@ end
 function META:SetGrounded(grounded)
 	self.Grounded = grounded
 
-	if not grounded then self.GroundRollingFriction = 0 end
+	if not grounded then
+		self.GroundRollingFriction = 0
+		self.GroundEntity = nil
+		self.GroundBody = nil
+	end
 end
 
 function META:GetGrounded()

@@ -7,6 +7,7 @@ META:GetSet("Velocity", Vec3(0, 0, 0))
 META:GetSet("Acceleration", 40)
 META:GetSet("AirAcceleration", 8)
 META:GetSet("GroundSnapDistance", 0.01)
+META:GetSet("StepHeight", 0)
 META:GetSet("MaxFallSpeed", 120)
 
 function META:Initialize()

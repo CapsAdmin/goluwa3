@@ -110,6 +110,10 @@ function META:SolveSupportContacts(body, dt)
 		body:SetGrounded(true)
 		body:SetGroundNormal(normal)
 	end
+
+	if physics.RecordWorldCollision then
+		physics.RecordWorldCollision(body, hit, normal, depth)
+	end
 end
 
 function META:OnGroundedVelocityUpdate(body, dt)
@@ -162,6 +166,40 @@ function META:TraceDownAgainstBody(body, origin, max_distance)
 
 	if normal.y < 0 then return nil end
 
+	return {
+		entity = body.Owner,
+		distance = distance,
+		position = position,
+		normal = normal,
+		rigid_body = body,
+	}
+end
+
+function META:TraceAgainstBody(body, origin, direction, max_distance, trace_radius)
+	local center = body.Owner and
+		body.Owner.transform and
+		body.Owner.transform:GetPosition() or
+		body:GetPosition()
+	local ray_direction = direction and direction:GetNormalized() or Vec3(0, 0, 0)
+
+	if ray_direction:GetLength() <= 0.00001 then return nil end
+
+	local sphere_radius = self:GetRadius() + math.max(trace_radius or 0, 0)
+	local offset = origin - center
+	local b = offset:Dot(ray_direction)
+	local c = offset:Dot(offset) - sphere_radius * sphere_radius
+	local discriminant = b * b - c
+
+	if discriminant < 0 then return nil end
+
+	local distance = -b - math.sqrt(discriminant)
+
+	if distance < 0 then distance = -b + math.sqrt(discriminant) end
+
+	if distance < 0 or distance > (max_distance or math.huge) then return nil end
+
+	local position = origin + ray_direction * distance
+	local normal = (position - center):GetNormalized()
 	return {
 		entity = body.Owner,
 		distance = distance,

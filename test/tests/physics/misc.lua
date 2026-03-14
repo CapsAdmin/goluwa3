@@ -6,9 +6,11 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local SphereShape = import("goluwa/physics/shapes/sphere.lua")
 local BoxShape = import("goluwa/physics/shapes/box.lua")
+local CompoundShape = import("goluwa/physics/shapes/compound.lua")
 local ConvexShape = import("goluwa/physics/shapes/convex.lua")
 local sphere_shape = SphereShape.New
 local box_shape = BoxShape.New
+local compound_shape = CompoundShape.New
 local convex_shape = ConvexShape.New
 
 local function simulate_physics(steps, dt)
@@ -361,6 +363,39 @@ T.Test3D("Rigid sphere can rest on rigid box", function()
 	T(sphere:GetGrounded())["=="](true)
 	T(position.y)[">="](1.95)
 	T(position.y)["<="](2.1)
+	sphere_ent:Remove()
+	box_ent:Remove()
+	ground:Remove()
+end)
+
+T.Test3D("Rigid sphere does not perch unrealistically on box edge", function()
+	local ground = create_flat_ground("rigid_edge_ground")
+	local box_ent = Entity.New({Name = "rigid_edge_box"})
+	box_ent:AddComponent("transform")
+	box_ent.transform:SetPosition(Vec3(0, 1, 0))
+	box_ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = box_shape(Vec3(2, 1, 2)),
+			Size = Vec3(2, 1, 2),
+			MotionType = "static",
+		}
+	)
+	local sphere_ent = Entity.New({Name = "rigid_edge_sphere"})
+	sphere_ent:AddComponent("transform")
+	sphere_ent.transform:SetPosition(Vec3(1.55, 3, 0))
+	local sphere = sphere_ent:AddComponent("rigid_body", {
+		Shape = sphere_shape(0.5),
+		Radius = 0.5,
+	})
+
+	for _ = 1, 240 do
+		physics.Update(1 / 120)
+	end
+
+	local position = sphere_ent.transform:GetPosition()
+	T(math.abs(position.x))[">"](1.2)
+	T(position.y)["<"](1.8)
 	sphere_ent:Remove()
 	box_ent:Remove()
 	ground:Remove()
@@ -1026,9 +1061,59 @@ T.Test3D("Fast rotating rigid box does not miss a thin static box", function()
 	T(math.abs(angles.z))["<"](1.45)
 end)
 
-T.Pending(
-	"Rigid bodies generate stable multi-point contacts against static triangle world geometry"
-)
-T.Pending(
-	"Rigid bodies derive accurate mass properties and full inertia behavior from shape geometry"
-)
+T.Test3D("Rigid bodies generate stable multi-point contacts against static triangle world geometry", function()
+	local ground = Entity.New({Name = "rigid_world_patch_ground"})
+	ground:AddComponent("transform")
+	ground:AddComponent("model")
+
+	local function add_world_triangle(a, b, c)
+		local tri = Polygon3D.New()
+		tri:AddVertex{pos = a, uv = Vec2(0, 0), normal = Vec3(0, -1, 0)}
+		tri:AddVertex{pos = b, uv = Vec2(1, 0), normal = Vec3(0, -1, 0)}
+		tri:AddVertex{pos = c, uv = Vec2(0, 1), normal = Vec3(0, -1, 0)}
+		tri:BuildBoundingBox()
+		tri:Upload()
+		ground.model:AddPrimitive(tri)
+	end
+
+	add_world_triangle(Vec3(-2.1, 1, -1), Vec3(-1.1, 1, -1), Vec3(-2.1, 1, 1))
+	add_world_triangle(Vec3(-1.1, 1, -1), Vec3(-1.1, 1, 1), Vec3(-2.1, 1, 1))
+	add_world_triangle(Vec3(1.1, 1, -1), Vec3(2.1, 1, -1), Vec3(1.1, 1, 1))
+	add_world_triangle(Vec3(2.1, 1, -1), Vec3(2.1, 1, 1), Vec3(1.1, 1, 1))
+	ground.model:BuildAABB()
+	local plank_ent = Entity.New({Name = "rigid_world_patch_plank"})
+	plank_ent:AddComponent("transform")
+	plank_ent.transform:SetPosition(Vec3(0, 4, 0))
+	plank_ent.transform:SetAngles(Deg3(0, 0, 3))
+	local plank = plank_ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = box_shape(Vec3(4.5, 0.6, 1.5)),
+			Size = Vec3(4.5, 0.6, 1.5),
+			LinearDamping = 0,
+			AngularDamping = 0,
+			Friction = 1,
+			Restitution = 0,
+		}
+	)
+	simulate_physics(360)
+	local settled_position = plank_ent.transform:GetPosition():Copy()
+	local settled_angles = plank_ent.transform:GetRotation():GetAngles()
+	simulate_physics(720)
+	local final_position = plank_ent.transform:GetPosition()
+	local final_angles = plank_ent.transform:GetRotation():GetAngles()
+	local drift = (final_position - settled_position):GetLength()
+	local pitch_drift = math.abs(final_angles.x - settled_angles.x)
+	local roll_drift = math.abs(final_angles.z - settled_angles.z)
+	ground:Remove()
+	plank_ent:Remove()
+	T(plank:GetGrounded())["=="](true)
+	T(final_position.y)[">="](1.18)
+	T(final_position.y)["<="](1.5)
+	T(math.abs(final_position.x))["<"](0.5)
+	T(math.abs(final_angles.z))["<"](0.35)
+	T(drift)["<"](0.08)
+	T(pitch_drift)["<"](0.08)
+	T(roll_drift)["<"](0.08)
+	T(plank:GetAngularVelocity():GetLength())["<"](0.6)
+end)

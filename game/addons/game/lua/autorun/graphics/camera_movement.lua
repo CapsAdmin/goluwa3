@@ -6,15 +6,26 @@ local window = import("goluwa/window.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local physics = import("goluwa/physics.lua")
 local Entity = import("goluwa/ecs/entity.lua")
-local SphereShape = import("goluwa/physics/shapes/sphere.lua")
+local CapsuleShape = import("goluwa/physics/shapes/capsule.lua")
+local WALK_GROUND_SPEED = 1
+local WALK_AIR_SPEED = 3.8
+local WALK_SPRINT_MULTIPLIER = 1.75
+local WALK_CROUCH_MULTIPLIER = 0.45
+local WALK_SUPER_MULTIPLIER = 3
+local WALK_GROUND_SNAP_DISTANCE = 0.08
+local WALK_STEP_HEIGHT = 0.35
+local WALK_ACCELERATION = 45
+local WALK_AIR_ACCELERATION = 18
+local WALK_JUMP_SPEED = 8
+local WALK_GROUND_PROBE_DISTANCE = 0.2
 
 local function get_speed_multiplier()
 	if input.IsKeyDown("left_shift") and input.IsKeyDown("left_control") then
-		return 16
+		return WALK_SUPER_MULTIPLIER
 	elseif input.IsKeyDown("left_shift") then
-		return 8
+		return WALK_SPRINT_MULTIPLIER
 	elseif input.IsKeyDown("left_control") then
-		return 0.25
+		return WALK_CROUCH_MULTIPLIER
 	end
 
 	return 1
@@ -29,23 +40,27 @@ do
 end
 
 local PLAYER_EYE_HEIGHT = 1.75
-local PLAYER_RADIUS = 1
+local PLAYER_RADIUS = 0.35
+local PLAYER_HEIGHT = 2
+local PLAYER_BODY_TO_EYE_OFFSET = Vec3(0, PLAYER_EYE_HEIGHT - PLAYER_HEIGHT * 0.5, 0)
+local PLAYER_SUPPORT_LOCAL = Vec3(0, -(PLAYER_HEIGHT * 0.5 - PLAYER_RADIUS), 0)
 local player = Entity.New({Name = "player_controller"})
 local player_transform = player:AddComponent("transform")
 local player_body = player:AddComponent(
 	"rigid_body",
 	{
 		MotionType = "kinematic",
-		Shape = SphereShape.New(PLAYER_RADIUS),
+		Shape = CapsuleShape.New(PLAYER_RADIUS, PLAYER_HEIGHT),
 		LinearDamping = 14,
 	}
 )
 local player_motion = player:AddComponent(
 	"kinematic_controller",
 	{
-		GroundSnapDistance = 0.4,
-		Acceleration = 70,
-		AirAcceleration = 18,
+		GroundSnapDistance = WALK_GROUND_SNAP_DISTANCE,
+		StepHeight = WALK_STEP_HEIGHT,
+		Acceleration = WALK_ACCELERATION,
+		AirAcceleration = WALK_AIR_ACCELERATION,
 	}
 )
 local movement_mode = "fly"
@@ -59,12 +74,25 @@ local function flatten_direction(dir, fallback)
 	return dir:GetNormalized()
 end
 
+local function is_effectively_grounded()
+	if player_body:GetGrounded() then return true end
+
+	local velocity = player_body:GetVelocity()
+
+	if velocity and velocity.y > 2 then return false end
+
+	local support_center = player_transform:GetPosition():Copy() + PLAYER_SUPPORT_LOCAL
+	local probe_origin = support_center + Vec3(0, WALK_GROUND_PROBE_DISTANCE, 0)
+	local hit = physics.TraceDown(probe_origin, PLAYER_RADIUS, player, WALK_GROUND_PROBE_DISTANCE + 0.08)
+	return hit and hit.normal and hit.normal.y >= 0.55 or false
+end
+
 local function try_initialize_player(reset_velocity, snap_to_ground)
 	if player_initialized and not reset_velocity then return end
 
 	local cam = render3d.GetCamera()
 	local cam_pos = cam:GetPosition():Copy()
-	local body_position = cam_pos - Vec3(0, PLAYER_EYE_HEIGHT, 0)
+	local body_position = cam_pos - PLAYER_BODY_TO_EYE_OFFSET
 	local hit = nil
 
 	if snap_to_ground then
@@ -76,7 +104,7 @@ local function try_initialize_player(reset_velocity, snap_to_ground)
 	end
 
 	if hit and hit.normal and hit.normal.y > 0.1 then
-		body_position = hit.position + hit.normal * (PLAYER_RADIUS + 0.05)
+		body_position = hit.position + hit.normal * (PLAYER_RADIUS + 0.05) - PLAYER_SUPPORT_LOCAL
 	end
 
 	player_transform:SetPosition(body_position)
@@ -92,7 +120,7 @@ local function try_initialize_player(reset_velocity, snap_to_ground)
 	end
 
 	player_initialized = true
-	cam:SetPosition(body_position + Vec3(0, PLAYER_EYE_HEIGHT, 0))
+	cam:SetPosition(body_position + PLAYER_BODY_TO_EYE_OFFSET)
 end
 
 local function set_movement_mode(mode)
@@ -242,11 +270,13 @@ event.AddListener(
 
 			if move:GetLength() > 0.0001 then move = move:GetNormalized() end
 
-			player_motion:SetDesiredVelocity(move * (7 * get_speed_multiplier()))
+			local grounded_for_input = is_effectively_grounded()
+			local move_speed = grounded_for_input and WALK_GROUND_SPEED or WALK_AIR_SPEED
+			player_motion:SetDesiredVelocity(move * (move_speed * get_speed_multiplier()))
 
-			if input.WasKeyPressed("space") and player_body:GetGrounded() then
+			if input.WasKeyPressed("space") and grounded_for_input then
 				local velocity = player_body:GetVelocity():Copy()
-				velocity.y = 8
+				velocity.y = WALK_JUMP_SPEED
 				player_body:SetVelocity(velocity)
 				player_motion:SetVelocity(velocity)
 				player_body:SetGrounded(false)
@@ -266,7 +296,7 @@ event.AddListener(
 		if movement_mode ~= "walk" or not player_initialized then return end
 
 		local cam = render3d.GetCamera()
-		cam:SetPosition(player_transform:GetPosition():Copy() + Vec3(0, PLAYER_EYE_HEIGHT, 0))
+		cam:SetPosition(player_transform:GetPosition():Copy() + PLAYER_BODY_TO_EYE_OFFSET)
 	end,
 	{priority = -100}
 )

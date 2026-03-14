@@ -4,6 +4,7 @@ function pair_solvers.RegisterAll(solver, services)
 	local modules = {
 		import("goluwa/physics/pair_solvers/polyhedron.lua"),
 		import("goluwa/physics/pair_solvers/sphere.lua"),
+		import("goluwa/physics/pair_solvers/capsule.lua"),
 		import("goluwa/physics/pair_solvers/box.lua"),
 		import("goluwa/physics/pair_solvers/compound.lua"),
 	}

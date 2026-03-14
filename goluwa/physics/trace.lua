@@ -62,8 +62,55 @@ local function cast_with_filter(
 end
 
 function physics.Trace(origin, direction, max_distance, ignore_entity, filter_fn, options)
-	local hits = cast_with_filter(origin, direction, max_distance, ignore_entity, filter_fn, options)
-	return hits[1]
+	options = options or {}
+	local allow_rigid = options.IgnoreRigidBodies == false
+	local hits = cast_with_filter(
+		origin,
+		direction,
+		max_distance,
+		ignore_entity,
+		filter_fn,
+		options,
+		allow_rigid and true or nil
+	)
+	local best_hit = hits[1]
+
+	if allow_rigid then
+		local trace_radius = options.TraceRadius or 0
+
+		for _, body in ipairs(RigidBodyComponent.Instances or {}) do
+			if not (physics.IsActiveRigidBody(body) and body.Owner ~= ignore_entity) then
+				goto continue
+			end
+
+			if body.Owner and (body.Owner.PhysicsNoCollision or body.Owner.NoPhysicsCollision) then
+				goto continue
+			end
+
+			if
+				options.IgnoreKinematicBodies ~= false and
+				body.IsKinematic and
+				body:IsKinematic()
+			then
+				goto continue
+			end
+
+			if filter_fn and not filter_fn(body.Owner) then goto continue end
+
+			local shape = body.GetPhysicsShape and body:GetPhysicsShape()
+			local hit = shape and
+				shape.TraceAgainstBody and
+				shape:TraceAgainstBody(body, origin, direction, max_distance, trace_radius)
+
+			if hit and (not best_hit or hit.distance < best_hit.distance) then
+				best_hit = hit
+			end
+
+			::continue::
+		end
+	end
+
+	return best_hit
 end
 
 function physics.TraceDown(origin, radius, ignore_entity, max_distance, filter_fn, options)
@@ -91,6 +138,8 @@ function physics.TraceDown(origin, radius, ignore_entity, max_distance, filter_f
 	if not best_hit then best_hit = hits[1] end
 
 	if allow_rigid then
+		local trace_radius = radius or 0
+
 		for _, body in ipairs(RigidBodyComponent.Instances or {}) do
 			if not (physics.IsActiveRigidBody(body) and body.Owner ~= ignore_entity) then
 				goto continue
@@ -105,7 +154,7 @@ function physics.TraceDown(origin, radius, ignore_entity, max_distance, filter_f
 			local shape = body.GetPhysicsShape and body:GetPhysicsShape()
 			local hit = shape and
 				shape.TraceDownAgainstBody and
-				shape:TraceDownAgainstBody(body, origin, max_distance)
+				shape:TraceDownAgainstBody(body, origin, max_distance, trace_radius)
 
 			if hit and (not best_hit or hit.distance < best_hit.distance) then
 				best_hit = hit
