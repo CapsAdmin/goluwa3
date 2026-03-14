@@ -2,7 +2,7 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local BVH = import("goluwa/physics/bvh.lua")
 local Model = import("goluwa/ecs/components/3d/model.lua")
 local raycast = library()
-local BVH_BUILD_TRIANGLE_THRESHOLD = 128
+local BVH_BUILD_TRIANGLE_THRESHOLD = 8
 local BVH_LEAF_TRIANGLE_COUNT = 8
 import.loaded["goluwa/physics/raycast.lua"] = raycast
 import.loaded["goluwa/physics/raycast.lua"] = raycast
@@ -40,24 +40,28 @@ local function ray_triangle_intersection(ray, v0, v1, v2)
 	local h = ray.direction:GetCross(edge2)
 	local a = edge1:Dot(h)
 
-	if a > -epsilon and a < epsilon then return false, math.huge, 0, 0 end
+	if a > -epsilon and a < epsilon then return false end
 
 	local f = 1.0 / a
 	local s = ray.origin - v0
 	local u = f * s:Dot(h)
 
-	if u < 0.0 or u > 1.0 then return false, math.huge, 0, 0 end
+	if u < 0.0 then return false end
+
+	if u > 1.0 then return false end
 
 	local q = s:GetCross(edge1)
 	local v = f * ray.direction:Dot(q)
 
-	if v < 0.0 or u + v > 1.0 then return false, math.huge, 0, 0 end
+	if v < 0.0 then return false end
+
+	if u + v > 1.0 then return false end
 
 	local t = f * edge2:Dot(q)
 
 	if t > epsilon and t <= ray.max_distance then return true, t, u, v end
 
-	return false, math.huge, 0, 0
+	return false
 end
 
 local function get_index_buffer(poly3d, vertices, indices)
