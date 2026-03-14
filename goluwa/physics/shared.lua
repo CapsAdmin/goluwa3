@@ -343,6 +343,125 @@ local function finalize_convex_hull(points, faces, indices, epsilon)
 	}
 end
 
+local function get_indexed_triangles(vertices, indices)
+	local triangles = {}
+
+	for tri_idx = 0, math.floor(#indices / 3) - 1 do
+		local base = tri_idx * 3
+		local a = get_vertex_position(vertices[indices[base + 1] + 1])
+		local b = get_vertex_position(vertices[indices[base + 2] + 1])
+		local c = get_vertex_position(vertices[indices[base + 3] + 1])
+
+		if a and b and c then triangles[#triangles + 1] = {a, b, c} end
+	end
+
+	return triangles
+end
+
+local function append_source_triangles(triangles, source)
+	if not source then return end
+
+	if source.Primitives then
+		for _, primitive in ipairs(source.Primitives) do
+			append_source_triangles(triangles, primitive and primitive.polygon3d)
+		end
+
+		return
+	end
+
+	if source.Vertices then
+		local vertices = source.Vertices
+		local indices = source.indices
+
+		if indices and #indices >= 3 then
+			local indexed = get_indexed_triangles(vertices, indices)
+
+			for _, triangle in ipairs(indexed) do
+				triangles[#triangles + 1] = triangle
+			end
+
+			return
+		end
+
+		for i = 1, #vertices, 3 do
+			local a = get_vertex_position(vertices[i])
+			local b = get_vertex_position(vertices[i + 1])
+			local c = get_vertex_position(vertices[i + 2])
+
+			if a and b and c then triangles[#triangles + 1] = {a, b, c} end
+		end
+
+		return
+	end
+
+	for i = 1, #source, 3 do
+		local a = get_vertex_position(source[i])
+		local b = get_vertex_position(source[i + 1])
+		local c = get_vertex_position(source[i + 2])
+
+		if a and b and c then triangles[#triangles + 1] = {a, b, c} end
+	end
+end
+
+local function copy_hull_vertices(vertices)
+	local out = {}
+
+	for i, point in ipairs(vertices or {}) do
+		out[i] = copy_vec3(point)
+	end
+
+	return out
+end
+
+local function build_triangle_components(triangles, epsilon)
+	epsilon = epsilon or 0.0001
+	local vertex_to_triangles = {}
+	local visited = {}
+
+	for tri_index, triangle in ipairs(triangles) do
+		for _, point in ipairs(triangle) do
+			local key = vec3_key(point, epsilon)
+			vertex_to_triangles[key] = vertex_to_triangles[key] or {}
+			vertex_to_triangles[key][#vertex_to_triangles[key] + 1] = tri_index
+		end
+	end
+
+	local components = {}
+
+	for tri_index = 1, #triangles do
+		if visited[tri_index] then goto continue_component end
+
+		local queue = {tri_index}
+		local queue_index = 1
+		visited[tri_index] = true
+		local component_points = {}
+
+		while queue_index <= #queue do
+			local current = queue[queue_index]
+			queue_index = queue_index + 1
+			local triangle = triangles[current]
+
+			for _, point in ipairs(triangle) do
+				component_points[#component_points + 1] = copy_vec3(point)
+				local key = vec3_key(point, epsilon)
+
+				for _, linked in ipairs(vertex_to_triangles[key] or {}) do
+					if not visited[linked] then
+						visited[linked] = true
+						queue[#queue + 1] = linked
+					end
+				end
+			end
+		end
+
+		components[#components + 1] = dedupe_points(component_points, epsilon)
+
+		::continue_component::
+	end
+
+	return components
+end
+
 local function build_convex_hull(points, epsilon)
 	epsilon = epsilon or 0.0001
 	points = dedupe_points(points, epsilon)
@@ -496,6 +615,52 @@ function physics.BuildConvexHullFromModel(model, epsilon)
 	local points = {}
 	append_source_points(points, model)
 	return build_convex_hull(points, epsilon)
+end
+
+function physics.BuildCompoundShapeFromTriangles(source, epsilon)
+	epsilon = epsilon or 0.0001
+	local triangles = {}
+	append_source_triangles(triangles, source)
+
+	if not triangles[1] then return nil end
+
+	local components = build_triangle_components(triangles, epsilon)
+	local children = {}
+
+	for _, points in ipairs(components) do
+		local hull = build_convex_hull(points, epsilon)
+
+		if hull and hull.vertices and hull.vertices[1] then
+			local center = (hull.bounds_min + hull.bounds_max) * 0.5
+			local local_vertices = copy_hull_vertices(hull.vertices)
+
+			for _, point in ipairs(local_vertices) do
+				point.x = point.x - center.x
+				point.y = point.y - center.y
+				point.z = point.z - center.z
+			end
+
+			local local_hull = build_convex_hull(local_vertices, epsilon)
+
+			if local_hull then
+				children[#children + 1] = {
+					Position = center,
+					ConvexHull = local_hull,
+				}
+			end
+		end
+	end
+
+	if not children[1] then return nil end
+
+	return {
+		children = children,
+		epsilon = epsilon,
+	}
+end
+
+function physics.BuildCompoundShapeFromModel(model, epsilon)
+	return physics.BuildCompoundShapeFromTriangles(model, epsilon)
 end
 
 physics.ApproximateConvexMeshFromTriangles = physics.BuildConvexHullFromTriangles

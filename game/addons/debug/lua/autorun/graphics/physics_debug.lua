@@ -1,0 +1,280 @@
+local event = import("goluwa/event.lua")
+local Material = import("goluwa/render3d/material.lua")
+local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
+local Matrix44 = import("goluwa/structs/matrix44.lua")
+local Vec2 = import("goluwa/structs/vec2.lua")
+local Vec3 = import("goluwa/structs/vec3.lua")
+local Quat = import("goluwa/structs/quat.lua")
+local Color = import("goluwa/structs/color.lua")
+local Entity = import("goluwa/ecs/entity.lua")
+local debug_enabled = false
+local identity_rotation = Quat(0, 0, 0, 1)
+local zero_vec = Vec3(0, 0, 0)
+local unit_box_poly
+local unit_sphere_poly
+local convex_mesh_cache = setmetatable({}, {__mode = "k"})
+local debug_entries = setmetatable({}, {__mode = "k"})
+local debug_materials = {}
+local rigid_body_component
+local shape_colors = {
+	sphere = Color(0.25, 0.85, 1.0, 0.35),
+	box = Color(1.0, 0.7, 0.2, 0.35),
+	convex = Color(0.35, 1.0, 0.45, 0.35),
+	compound = Color(1.0, 0.3, 0.9, 0.25),
+}
+
+local function get_shape_color(shape_type)
+	return shape_colors[shape_type] or Color(1, 0.2, 0.2, 0.35)
+end
+
+local function get_debug_material(shape_type)
+	local material = debug_materials[shape_type]
+
+	if material then return material end
+
+	material = Material.New{
+		AlbedoTexture = nil,
+		ColorMultiplier = get_shape_color(shape_type),
+		EmissiveMultiplier = Color(0.15, 0.15, 0.15, 1.0),
+		AlbedoAlphaIsEmissive = true,
+		Translucent = true,
+		DoubleSided = true,
+		MetallicMultiplier = 0,
+		RoughnessMultiplier = 1,
+	}
+	debug_materials[shape_type] = material
+	return material
+end
+
+local function make_matrix(position, rotation, scale)
+	local m = Matrix44():Identity()
+	m:SetRotation(rotation or identity_rotation)
+
+	if scale then m:Scale(scale.x, scale.y, scale.z) end
+
+	m:SetTranslation(position.x, position.y, position.z)
+	return m
+end
+
+local function get_unit_box_poly()
+	if unit_box_poly then return unit_box_poly end
+
+	local poly = Polygon3D.New()
+	poly:CreateCube(0.5)
+	poly:Upload()
+	unit_box_poly = poly
+	return unit_box_poly
+end
+
+local function get_unit_sphere_poly()
+	if unit_sphere_poly then return unit_sphere_poly end
+
+	local poly = Polygon3D.New()
+	poly:CreateSphere(1, 18, 10)
+	poly:Upload()
+	unit_sphere_poly = poly
+	return unit_sphere_poly
+end
+
+local function build_convex_poly(hull)
+	if not (hull and hull.vertices and hull.indices and hull.indices[1]) then
+		return nil
+	end
+
+	local cached = convex_mesh_cache[hull]
+
+	if cached then return cached end
+
+	local poly = Polygon3D.New()
+
+	for i = 1, #hull.indices, 3 do
+		local a = hull.vertices[hull.indices[i]]
+		local b = hull.vertices[hull.indices[i + 1]]
+		local c = hull.vertices[hull.indices[i + 2]]
+
+		if a and b and c then
+			local normal = (b - a):GetCross(c - a):GetNormalized()
+			poly:AddVertex{pos = a, uv = Vec2(0, 0), normal = normal}
+			poly:AddVertex{pos = b, uv = Vec2(1, 0), normal = normal}
+			poly:AddVertex{pos = c, uv = Vec2(0.5, 1), normal = normal}
+		end
+	end
+
+	poly:Upload()
+	convex_mesh_cache[hull] = poly
+	return poly
+end
+
+local function add_primitive(model, polygon3d, shape_type, local_matrix)
+	if not polygon3d then return end
+
+	model:AddPrimitive(polygon3d, get_debug_material(shape_type))
+	local primitive = model.Primitives[#model.Primitives]
+	primitive.local_matrix = local_matrix
+end
+
+local function append_shape(model, body, shape, local_matrix)
+	if not shape then return end
+
+	local shape_type = shape.GetTypeName and shape:GetTypeName() or "unknown"
+
+	if shape_type == "sphere" then
+		local radius = shape:GetRadius()
+		add_primitive(
+			model,
+			get_unit_sphere_poly(),
+			shape_type,
+			make_matrix(zero_vec, identity_rotation, Vec3(radius, radius, radius)):GetMultiplied(local_matrix)
+		)
+		return
+	end
+
+	if shape_type == "box" then
+		add_primitive(
+			model,
+			get_unit_box_poly(),
+			shape_type,
+			make_matrix(zero_vec, identity_rotation, shape:GetSize()):GetMultiplied(local_matrix)
+		)
+		return
+	end
+
+	if shape_type == "convex" then
+		add_primitive(model, build_convex_poly(shape:GetResolvedHull(body)), shape_type, local_matrix)
+		return
+	end
+
+	if shape_type == "compound" then
+		for _, child in ipairs(shape:GetChildren() or {}) do
+			local child_matrix = make_matrix(child.Position or zero_vec, child.Rotation or identity_rotation)
+			append_shape(model, body, child.Shape, child_matrix:GetMultiplied(local_matrix))
+		end
+
+		return
+	end
+
+	add_primitive(
+		model,
+		build_convex_poly(shape.GetResolvedHull and shape:GetResolvedHull(body) or nil),
+		shape_type,
+		local_matrix
+	)
+end
+
+local function get_shape_signature(body)
+	local shape = body:GetPhysicsShape()
+	local shape_type = body:GetShapeType()
+	local hull = shape.GetResolvedHull and shape:GetResolvedHull(body) or nil
+	local children = shape.GetChildren and shape:GetChildren() or nil
+	return shape, shape_type, hull, children and #children or 0
+end
+
+local function rebuild_debug_model(body, entry)
+	local owner = body.Owner
+
+	if not (owner and owner.IsValid and owner:IsValid()) then return end
+
+	local debug_ent = entry.entity
+
+	if not (debug_ent and debug_ent.IsValid and debug_ent:IsValid()) then
+		debug_ent = Entity.New{Name = "physics_debug_mesh", Parent = owner}
+		debug_ent.PhysicsNoCollision = true
+		debug_ent:AddComponent("transform")
+		debug_ent.transform:SetPosition(Vec3(0, 0, 0))
+		debug_ent.transform:SetRotation(identity_rotation:Copy())
+		debug_ent:AddComponent("model", {
+			UseOcclusionCulling = false,
+			CastShadows = false,
+		})
+		entry.entity = debug_ent
+	end
+
+	debug_ent.model:RemovePrimitives()
+	append_shape(debug_ent.model, body, body:GetPhysicsShape(), Matrix44():Identity())
+	debug_ent.model:BuildAABB()
+	debug_ent.model:SetVisible(debug_enabled)
+	entry.shape, entry.shape_type, entry.hull, entry.child_count = get_shape_signature(body)
+	entry.owner = owner
+end
+
+local function ensure_debug_model(body)
+	local entry = debug_entries[body]
+
+	if not entry then
+		entry = {}
+		debug_entries[body] = entry
+	end
+
+	local shape, shape_type, hull, child_count = get_shape_signature(body)
+	local debug_ent = entry.entity
+
+	if
+		not debug_ent or
+		not debug_ent.IsValid or
+		not debug_ent:IsValid()
+		or
+		entry.owner ~= body.Owner or
+		entry.shape ~= shape or
+		entry.shape_type ~= shape_type or
+		entry.hull ~= hull or
+		entry.child_count ~= child_count
+	then
+		rebuild_debug_model(body, entry)
+	elseif debug_ent.model:GetVisible() ~= debug_enabled then
+		debug_ent.model:SetVisible(debug_enabled)
+	end
+end
+
+local function cleanup_removed_bodies()
+	for body, entry in pairs(debug_entries) do
+		if not (body and body.Owner and body.Owner.IsValid and body.Owner:IsValid()) then
+			if entry.entity and entry.entity.IsValid and entry.entity:IsValid() then
+				entry.entity:Remove()
+			end
+
+			debug_entries[body] = nil
+		end
+	end
+end
+
+event.AddListener("KeyInput", "physics_debug_toggle", function(key, press)
+	if not press then return end
+
+	if key == "n" then
+		debug_enabled = not debug_enabled
+
+		for _, entry in pairs(debug_entries) do
+			if entry.entity and entry.entity.IsValid and entry.entity:IsValid() then
+				entry.entity.model:SetVisible(debug_enabled)
+			end
+		end
+
+		print("[Physics Debug] " .. (debug_enabled and "Enabled" or "Disabled"))
+	end
+
+	if debug_enabled then
+		local RigidBodyComponent = import("goluwa/ecs/components/3d/rigid_body.lua")
+
+		event.AddListener("Update", "physics_debug_sync", function()
+			cleanup_removed_bodies()
+
+			for _, body in ipairs(RigidBodyComponent.Instances or {}) do
+				if not (body and body.Owner and body.Owner.IsValid and body.Owner:IsValid()) then
+					goto continue
+				end
+
+				if not body.CollisionEnabled then goto continue end
+
+				if body.Owner.PhysicsNoCollision or body.Owner.NoPhysicsCollision then
+					goto continue
+				end
+
+				ensure_debug_model(body)
+
+				::continue::
+			end
+		end)
+	else
+		event.RemoveListener("Update", "physics_debug_sync")
+	end
+end)

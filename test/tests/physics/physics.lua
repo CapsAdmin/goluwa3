@@ -713,9 +713,9 @@ T.Test3D("Rigid bodies can sleep and wake on contact", function()
 			LinearDamping = 12,
 			AngularDamping = 12,
 			Friction = 1,
-			SleepDelay = 0.2,
-			SleepLinearThreshold = 0.05,
-			SleepAngularThreshold = 0.05,
+			SleepDelay = 0.5,
+			SleepLinearThreshold = 0.025,
+			SleepAngularThreshold = 0.025,
 		}
 	)
 	simulate_physics(240)

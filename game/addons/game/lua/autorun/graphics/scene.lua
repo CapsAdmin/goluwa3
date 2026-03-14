@@ -8,6 +8,8 @@ local Material = import("goluwa/render3d/material.lua")
 local Texture = import("goluwa/render/texture.lua")
 local physics = import("goluwa/physics.lua")
 local SphereShape = import("goluwa/physics/shapes/sphere.lua")
+local BoxShape = import("goluwa/physics/shapes/box.lua")
+local CompoundShape = import("goluwa/physics/shapes/compound.lua")
 local ffi = require("ffi")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
 local Entity = import("goluwa/ecs/entity.lua")
@@ -69,92 +71,78 @@ do
 	local material_index = 1
 	local pos = Vec3(0, -0.75, 0)
 	local PADDING = 2.3
-	local BASKET_HOLE_RADIUS = 0.35
 	local SMALL_SPHERE_RADIUS = 0.28
+	local sphere_shape = SphereShape.New
+	local box_shape = BoxShape.New
+	local compound_shape = CompoundShape.New
 
-	local function add_basket_vertex(poly, pos, u, v)
-		poly:AddVertex{
-			pos = pos,
-			uv = Vec2(u, v),
-		}
+	local function make_rotation(pitch, yaw, roll)
+		return Quat():SetAngles(Deg3(pitch or 0, yaw or 0, roll or 0))
 	end
 
-	local function create_basket_polygon(radius, lat_segments, lon_segments, inward)
+	local function add_box_visual(center, rotation, size, material)
+		local ent = Entity.New({Name = "debug_compound_visual"})
+		ent.PhysicsNoCollision = true
+		ent:AddComponent("transform")
+		ent.transform:SetPosition(center)
+		ent.transform:SetRotation(rotation)
+		ent.transform:SetScale(size)
+		ent:AddComponent("model")
 		local poly = Polygon3D.New()
-		local rings = {}
-		local min_phi = math.asin(math.min(BASKET_HOLE_RADIUS / radius, 0.999))
-
-		local function add_triangle(a, b, c)
-			add_basket_vertex(poly, a.pos:Copy(), a.u, a.v)
-			add_basket_vertex(poly, b.pos:Copy(), b.u, b.v)
-			add_basket_vertex(poly, c.pos:Copy(), c.u, c.v)
-		end
-
-		for lat = 1, lat_segments do
-			local t = lat_segments > 1 and ((lat - 1) / (lat_segments - 1)) or 1
-			local phi = min_phi + (math.pi * 0.5 - min_phi) * t
-			local y = -math.cos(phi) * radius
-			local horizontal_radius = math.sin(phi) * radius
-			local ring = {}
-
-			for lon = 0, lon_segments - 1 do
-				local theta = (lon / lon_segments) * math.pi * 2
-				ring[lon + 1] = {
-					pos = Vec3(math.cos(theta) * horizontal_radius, y, math.sin(theta) * horizontal_radius),
-					u = lon / lon_segments,
-					v = lat / lat_segments,
-				}
-			end
-
-			rings[lat] = ring
-		end
-
-		for lat = 1, lat_segments - 1 do
-			local ring_a = rings[lat]
-			local ring_b = rings[lat + 1]
-
-			for lon = 1, lon_segments do
-				local next_lon = lon % lon_segments + 1
-				local p00 = ring_a[lon]
-				local p01 = ring_a[next_lon]
-				local p10 = ring_b[lon]
-				local p11 = ring_b[next_lon]
-
-				if inward then
-					add_triangle(p00, p01, p10)
-					add_triangle(p10, p01, p11)
-				else
-					add_triangle(p00, p10, p01)
-					add_triangle(p10, p11, p01)
-				end
-			end
-		end
-
+		poly:CreateCube(0.5)
 		poly:Upload()
-		return poly
+		ent.model:AddPrimitive(poly, material)
+		ent.model:BuildAABB()
+		return ent
 	end
 
-	local function spawn_basket()
-		local basket_material = Material.New()
-		basket_material:SetAlbedoTexture(shaded_texture("return vec4(0.12, 0.08, 0.05, 1.0);"))
-		basket_material:SetMetallicTexture(shaded_texture("return vec4(0.0);"))
-		basket_material:SetRoughnessTexture(shaded_texture("return vec4(0.95);"))
-		local row_count = math.ceil(#materials / 3)
-		local basket_radius = math.max(PADDING * 1.8, ((row_count - 1) * PADDING) * 0.5) + 3.25
-		local basket_center = Vec3(PADDING, -basket_radius + 0.75, (row_count - 1) * PADDING * 0.5)
-		local basket = Entity.New({Name = "debug_basket"})
-		basket:AddComponent("transform")
-		basket.transform:SetPosition(basket_center)
-		basket:AddComponent("model")
-		basket.model:AddPrimitive(create_basket_polygon(basket_radius, 18, 48, false), basket_material)
-		basket.model:BuildAABB()
-		local basket_visual = Entity.New({Name = "debug_basket_visual"})
-		basket_visual.PhysicsNoCollision = true
-		basket_visual:AddComponent("transform")
-		basket_visual.transform:SetPosition(basket_center)
-		basket_visual:AddComponent("model")
-		basket_visual.model:AddPrimitive(create_basket_polygon(basket_radius + 0.4, 18, 48, false), basket_material)
-		basket_visual.model:BuildAABB()
+	local function spawn_compound_bumper(center, yaw, tilt, material)
+		local parent_rotation = make_rotation(0, yaw, 0)
+		local beam_size = Vec3(4.6, 0.6, 1.8)
+		local brace_size = Vec3(0.7, 1.4, 1.8)
+		local foot_size = Vec3(1.1, 0.45, 1.8)
+		local low_side = tilt > 0 and 1 or -1
+		local children = {
+			{
+				Shape = box_shape(beam_size),
+				Position = Vec3(0, 0, 0),
+				Rotation = make_rotation(0, 0, tilt),
+				Size = beam_size,
+			},
+			{
+				Shape = box_shape(brace_size),
+				Position = Vec3(-1.75 * low_side, -0.85, 0),
+				Rotation = make_rotation(),
+				Size = brace_size,
+			},
+			{
+				Shape = box_shape(foot_size),
+				Position = Vec3(1.55 * low_side, -1.25, 0),
+				Rotation = make_rotation(),
+				Size = foot_size,
+			},
+		}
+		local ent = Entity.New({Name = "debug_compound_bumper"})
+		ent:AddComponent("transform")
+		ent.transform:SetPosition(center)
+		ent.transform:SetRotation(parent_rotation)
+		ent:AddComponent(
+			"rigid_body",
+			{
+				Shape = compound_shape(children),
+				MotionType = "static",
+				Friction = 0.35,
+				Restitution = 0.15,
+			}
+		)
+
+		for _, child in ipairs(children) do
+			local world_rotation = (parent_rotation * child.Rotation):GetNormalized()
+			local world_position = center + parent_rotation:VecMul(child.Position)
+			add_box_visual(world_position, world_rotation, child.Size, material)
+		end
+
+		return ent
 	end
 
 	local function spawn()
@@ -179,9 +167,16 @@ do
 		poly:Upload()
 		local model = ent:AddComponent("model")
 		model:AddPrimitive(poly, material)
-		ent:AddComponent("rigid_body", {
-			Shape = SphereShape.New(sphere_radius),
-		})
+		ent:AddComponent(
+			"rigid_body",
+			{
+				Shape = sphere_shape(sphere_radius),
+				LinearDamping = 0.08,
+				AngularDamping = 0.35,
+				Friction = 0.2,
+				Restitution = 0.25,
+			}
+		)
 	end
 
 	local shared = [[
@@ -440,7 +435,22 @@ do
         ]],
 		normal = "return vec4(0.5, 0.5, 1.0, 1.0);",
 	}
-	spawn_basket()
+	local bumper_material = Material.New()
+	bumper_material:SetAlbedoTexture(shaded_texture("return vec4(0.11, 0.07, 0.03, 1.0);"))
+	bumper_material:SetMetallicTexture(shaded_texture("return vec4(0.0);"))
+	bumper_material:SetRoughnessTexture(shaded_texture("return vec4(0.9);"))
+	local row_count = math.ceil(#materials / 3)
+	local bumper_levels = {
+		Vec3(PADDING, -4.8, (row_count - 1) * PADDING * 0.25),
+		Vec3(PADDING * 0.35, -8.0, (row_count - 1) * PADDING * 0.5),
+		Vec3(PADDING * 1.65, -11.0, (row_count - 1) * PADDING * 0.75),
+	}
+	local yaw_angles = {0, 65, -55}
+	local tilt_angles = {18, -20, 16}
+
+	for i, center in ipairs(bumper_levels) do
+		spawn_compound_bumper(center, yaw_angles[i], tilt_angles[i], bumper_material)
+	end
 
 	for i = 1, #materials do
 		spawn()
