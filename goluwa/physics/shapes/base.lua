@@ -135,10 +135,6 @@ end
 
 function META:OnGroundedVelocityUpdate() end
 
-function META:TraceDownAgainstBody()
-	return nil
-end
-
 function META:TraceAgainstBody()
 	return nil
 end

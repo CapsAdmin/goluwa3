@@ -140,41 +140,6 @@ function META:OnGroundedVelocityUpdate(body, dt)
 	body.AngularVelocity = rolling_angular + normal_angular
 end
 
-function META:TraceDownAgainstBody(body, origin, max_distance)
-	local center = body.Owner and
-		body.Owner.transform and
-		body.Owner.transform:GetPosition() or
-		body:GetPosition()
-	local offset = origin - center
-	local sphere_radius = self:GetRadius()
-	local c = offset:Dot(offset) - sphere_radius * sphere_radius
-
-	if c > 0 and offset.y <= 0 then return nil end
-
-	local discriminant = offset.y * offset.y - c
-
-	if discriminant < 0 then return nil end
-
-	local distance = offset.y - math.sqrt(discriminant)
-
-	if distance < 0 then distance = offset.y + math.sqrt(discriminant) end
-
-	if distance < 0 or distance > (max_distance or math.huge) then return nil end
-
-	local position = origin + Vec3(0, -distance, 0)
-	local normal = (position - center):GetNormalized()
-
-	if normal.y < 0 then return nil end
-
-	return {
-		entity = body.Owner,
-		distance = distance,
-		position = position,
-		normal = normal,
-		rigid_body = body,
-	}
-end
-
 function META:TraceAgainstBody(body, origin, direction, max_distance, trace_radius)
 	local center = body.Owner and
 		body.Owner.transform and
@@ -198,8 +163,9 @@ function META:TraceAgainstBody(body, origin, direction, max_distance, trace_radi
 
 	if distance < 0 or distance > (max_distance or math.huge) then return nil end
 
-	local position = origin + ray_direction * distance
-	local normal = (position - center):GetNormalized()
+	local expanded_position = origin + ray_direction * distance
+	local normal = (expanded_position - center):GetNormalized()
+	local position = expanded_position - normal * math.max(trace_radius or 0, 0)
 	return {
 		entity = body.Owner,
 		distance = distance,

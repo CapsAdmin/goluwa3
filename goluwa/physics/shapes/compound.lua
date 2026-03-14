@@ -460,20 +460,4 @@ function META:GetBroadphaseAABB(body, position, rotation)
 	return BaseShape.GetBroadphaseAABB(self, body, position, rotation)
 end
 
-function META:TraceDownAgainstBody(body, origin, max_distance)
-	local best_hit = nil
-
-	for _, child_body in ipairs(self:GetChildProxyBodies(body)) do
-		local shape = child_body:GetPhysicsShape()
-		local hit = shape.TraceDownAgainstBody and
-			shape:TraceDownAgainstBody(child_body, origin, max_distance)
-
-		if hit and (not best_hit or hit.distance < best_hit.distance) then
-			best_hit = hit
-		end
-	end
-
-	return best_hit
-end
-
 return META:Register()

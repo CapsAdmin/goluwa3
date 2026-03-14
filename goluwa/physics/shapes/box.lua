@@ -182,78 +182,6 @@ function META:GetPolyhedron()
 	return self.Polyhedron
 end
 
-function META:TraceDownAgainstBody(body, origin, max_distance, trace_radius)
-	local physics = import("goluwa/physics/shared.lua")
-	local distance_limit = max_distance or math.huge
-	local movement_world = physics.Up * -distance_limit
-
-	if movement_world:GetLength() <= 0.00001 then return nil end
-
-	local start_local = body:WorldToLocal(origin)
-	local end_local = body:WorldToLocal(origin + movement_world)
-	local movement_local = end_local - start_local
-	local expansion = math.max(trace_radius or 0, 0)
-	local extents = self:GetExtents() + Vec3(expansion, expansion, expansion)
-	local t_enter = 0
-	local t_exit = 1
-	local hit_normal_local = nil
-	local axis_data = {
-		{"x", Vec3(-1, 0, 0), Vec3(1, 0, 0)},
-		{"y", Vec3(0, -1, 0), Vec3(0, 1, 0)},
-		{"z", Vec3(0, 0, -1), Vec3(0, 0, 1)},
-	}
-
-	for _, axis in ipairs(axis_data) do
-		local name = axis[1]
-		local s = start_local[name]
-		local d = movement_local[name]
-		local min_value = -extents[name]
-		local max_value = extents[name]
-
-		if math.abs(d) <= 0.00001 then
-			if s < min_value or s > max_value then return nil end
-		else
-			local enter_t
-			local exit_t
-			local enter_normal
-
-			if d > 0 then
-				enter_t = (min_value - s) / d
-				exit_t = (max_value - s) / d
-				enter_normal = axis[2]
-			else
-				enter_t = (max_value - s) / d
-				exit_t = (min_value - s) / d
-				enter_normal = axis[3]
-			end
-
-			if enter_t > t_enter then
-				t_enter = enter_t
-				hit_normal_local = enter_normal
-			end
-
-			if exit_t < t_exit then t_exit = exit_t end
-
-			if t_enter > t_exit then return nil end
-		end
-	end
-
-	if not hit_normal_local or t_enter < 0 or t_enter > 1 then return nil end
-
-	local position = origin + movement_world * t_enter
-	local normal = body:GetRotation():VecMul(hit_normal_local):GetNormalized()
-
-	if normal.y < 0 then return nil end
-
-	return {
-		entity = body.Owner,
-		distance = distance_limit * t_enter,
-		position = position,
-		normal = normal,
-		rigid_body = body,
-	}
-end
-
 function META:TraceAgainstBody(body, origin, direction, max_distance, trace_radius)
 	local distance_limit = max_distance or math.huge
 	local movement_world = direction and direction:GetNormalized() * distance_limit or Vec3(0, 0, 0)
@@ -311,8 +239,9 @@ function META:TraceAgainstBody(body, origin, direction, max_distance, trace_radi
 
 	if not hit_normal_local or t_enter < 0 or t_enter > 1 then return nil end
 
-	local position = origin + movement_world * t_enter
+	local expanded_position = origin + movement_world * t_enter
 	local normal = body:GetRotation():VecMul(hit_normal_local):GetNormalized()
+	local position = expanded_position - normal * expansion
 	return {
 		entity = body.Owner,
 		distance = distance_limit * t_enter,

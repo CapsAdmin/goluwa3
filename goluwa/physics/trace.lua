@@ -118,15 +118,7 @@ function physics.Trace(origin, direction, max_distance, ignore_entity, filter_fn
 			if filter_fn and not filter_fn(body.Owner) then goto continue end
 
 			local shape = body.GetPhysicsShape and body:GetPhysicsShape()
-			local hit = nil
-
-			if downward_trace and shape and shape.TraceDownAgainstBody then
-				hit = shape:TraceDownAgainstBody(body, origin, max_distance, trace_radius)
-			elseif shape and shape.TraceAgainstBody then
-				hit = shape:TraceAgainstBody(body, origin, direction, max_distance, trace_radius)
-			end
-
-			if downward_trace and hit and hit.normal and hit.normal.y < 0 then hit = nil end
+			local hit = shape:TraceAgainstBody(body, origin, direction, max_distance, trace_radius)
 
 			if hit and (not best_hit or hit.distance < best_hit.distance) then
 				best_hit = hit
