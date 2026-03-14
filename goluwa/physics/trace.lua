@@ -1,6 +1,7 @@
 local Vec3 = import("goluwa/structs/vec3.lua")
 local physics = import("goluwa/physics/shared.lua")
 local raycast = import("goluwa/physics/raycast.lua")
+local RigidBodyComponent = import("goluwa/ecs/components/3d/rigid_body.lua")
 
 local function filter(entity, options)
 	options = options or {}
@@ -90,9 +91,7 @@ function physics.TraceDown(origin, radius, ignore_entity, max_distance, filter_f
 	if not best_hit then best_hit = hits[1] end
 
 	if allow_rigid then
-		local rigid_body = physics.GetRigidBodyMeta()
-
-		for _, body in ipairs(rigid_body.Instances or {}) do
+		for _, body in ipairs(RigidBodyComponent.Instances or {}) do
 			if not (physics.IsActiveRigidBody(body) and body.Owner ~= ignore_entity) then
 				goto continue
 			end

@@ -41,19 +41,4 @@ function module.BuildEntries(physics, bodies)
 	return entries
 end
 
-function module.ForEachCandidate(entries, callback)
-	for i = 1, #entries do
-		local a = entries[i]
-		local max_right = a.right
-
-		for j = i + 1, #entries do
-			local b = entries[j]
-
-			if b.left > max_right then break end
-
-			if a.bounds:IsBoxIntersecting(b.bounds) then callback(a, b) end
-		end
-	end
-end
-
 return module

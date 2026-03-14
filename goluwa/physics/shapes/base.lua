@@ -1,6 +1,7 @@
 local prototype = import("goluwa/prototype.lua")
 local AABB = import("goluwa/structs/aabb.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
+local physics = import("goluwa/physics/shared.lua")
 local META = prototype.CreateTemplate("physics_shape_base")
 
 local function zero_vec3()
@@ -113,7 +114,6 @@ function META:GetBroadphaseAABB(body, position, rotation)
 end
 
 function META:SolveSupportContacts(body, dt, solve_contact)
-	local physics = import("goluwa/physics/shared.lua")
 	local velocity = body:GetVelocity()
 	local downward = math.max(0, -velocity.y * dt)
 	local cast_up = body.CollisionProbeDistance + body.CollisionMargin

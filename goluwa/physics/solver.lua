@@ -95,9 +95,20 @@ end
 function solver.SolveRigidBodyPairs(bodies, dt)
 	local entries = broadphase.BuildEntries(physics, bodies)
 
-	broadphase.ForEachCandidate(entries, function(a, b)
-		solve_rigid_body_pair(a.body, b.body, a, b, dt)
-	end)
+	for i = 1, #entries do
+		local a = entries[i]
+		local max_right = a.right
+
+		for j = i + 1, #entries do
+			local b = entries[j]
+
+			if b.left > max_right then break end
+
+			if a.bounds:IsBoxIntersecting(b.bounds) then
+				solve_rigid_body_pair(a.body, b.body, a, b, dt)
+			end
+		end
+	end
 end
 
 function solver.SolveBodyContacts(body, dt)

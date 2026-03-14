@@ -1,6 +1,7 @@
 local prototype = import("goluwa/prototype.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local BaseShape = import("goluwa/physics/shapes/base.lua")
+local physics = import("goluwa/physics/shared.lua")
 local META = prototype.CreateTemplate("physics_shape_convex")
 META.Base = BaseShape
 META:GetSet("ConvexHull", nil)
@@ -23,7 +24,6 @@ end
 function META:GetResolvedHull(body)
 	if self.ResolvedHull then return self.ResolvedHull end
 
-	local physics = import("goluwa/physics/shared.lua")
 	local hull = self:GetConvexHull()
 
 	if not hull and body and body.Owner and body.Owner.model then
@@ -117,7 +117,6 @@ function META:BuildSupportLocalPoints(body)
 end
 
 function META:TraceDownAgainstBody(body, origin, max_distance)
-	local physics = import("goluwa/physics/shared.lua")
 	local hull = self:GetResolvedHull(body)
 
 	if not (hull and hull.vertices and hull.faces and hull.faces[1]) then

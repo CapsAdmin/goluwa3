@@ -2,6 +2,7 @@ local prototype = import("goluwa/prototype.lua")
 local AABB = import("goluwa/structs/aabb.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local BaseShape = import("goluwa/physics/shapes/base.lua")
+local physics = import("goluwa/physics/shared.lua")
 local META = prototype.CreateTemplate("physics_shape_sphere")
 META.Base = BaseShape
 META:GetSet("Radius", 0.5)
@@ -80,7 +81,6 @@ function META:BuildSupportLocalPoints()
 end
 
 function META:SolveSupportContacts(body, dt)
-	local physics = import("goluwa/physics/shared.lua")
 	local velocity = body:GetVelocity()
 	local downward = math.max(0, -velocity.y * dt)
 	local cast_up = body.CollisionProbeDistance + body.CollisionMargin

@@ -18,10 +18,6 @@ physics.DistanceConstraints = physics.DistanceConstraints or {}
 physics.PreviousCollisionPairs = physics.PreviousCollisionPairs or {}
 physics.CurrentCollisionPairs = physics.CurrentCollisionPairs or {}
 
-function physics.GetRigidBodyMeta()
-	return import("goluwa/ecs/components/3d/rigid_body.lua")
-end
-
 function physics.IsActiveRigidBody(body)
 	return body and
 		body.Enabled and
