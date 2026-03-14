@@ -744,3 +744,282 @@ T.Test3D("Rigid bodies support collision layers and collision events", function(
 	hit_a:Remove()
 	hit_b:Remove()
 end)
+
+T.Test3D("Fast rigid boxes do not tunnel through thin static world geometry", function()
+	local blocker_ent = Entity.New({Name = "rigid_ccd_box_blocker"})
+	blocker_ent:AddComponent("transform")
+	blocker_ent.transform:SetPosition(Vec3(0, 1, 0))
+	blocker_ent:AddComponent("rigid_body", {
+		Shape = "box",
+		Size = Vec3(6, 0.2, 6),
+		Static = true,
+	})
+	local box_ent = Entity.New({Name = "rigid_ccd_fast_box"})
+	box_ent:AddComponent("transform")
+	box_ent.transform:SetPosition(Vec3(0, 8, 0))
+	local box = box_ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = "box",
+			Size = Vec3(1, 1, 1),
+			LinearDamping = 0,
+			AngularDamping = 0,
+			MaxLinearSpeed = 1000,
+		}
+	)
+	box:SetVelocity(Vec3(0, -320, 0))
+	physics.Update(1 / 10)
+	local position = box_ent.transform:GetPosition()
+	blocker_ent:Remove()
+	box_ent:Remove()
+	T(position.y)[">="](1.45)
+	T(math.abs(position.x))["<"](0.15)
+	T(math.abs(position.z))["<"](0.15)
+end)
+
+T.Test3D("Fast rigid bodies do not tunnel through other moving rigid bodies", function()
+	local left_ent = Entity.New({Name = "rigid_ccd_dynamic_left"})
+	left_ent:AddComponent("transform")
+	left_ent.transform:SetPosition(Vec3(-4, 1, 0))
+	local left = left_ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = "sphere",
+			Radius = 0.5,
+			GravityScale = 0,
+			LinearDamping = 0,
+			AngularDamping = 0,
+			MaxLinearSpeed = 1000,
+			Restitution = 0,
+		}
+	)
+	local right_ent = Entity.New({Name = "rigid_ccd_dynamic_right"})
+	right_ent:AddComponent("transform")
+	right_ent.transform:SetPosition(Vec3(4, 1, 0))
+	local right = right_ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = "sphere",
+			Radius = 0.5,
+			GravityScale = 0,
+			LinearDamping = 0,
+			AngularDamping = 0,
+			MaxLinearSpeed = 1000,
+			Restitution = 0,
+		}
+	)
+	left:SetVelocity(Vec3(140, 0, 0))
+	right:SetVelocity(Vec3(-140, 0, 0))
+	physics.Update(1 / 30)
+	local left_pos = left_ent.transform:GetPosition()
+	local right_pos = right_ent.transform:GetPosition()
+	local separation = (right_pos - left_pos):GetLength()
+	left_ent:Remove()
+	right_ent:Remove()
+	T(separation)[">="](0.95)
+	T(left_pos.x)["<="](right_pos.x)
+end)
+
+T.Test3D("Rigid body depenetration is clamped and tall stacks remain stable", function()
+	local ground = create_flat_ground("rigid_tall_stack_ground", 12)
+	local base_ent = Entity.New({Name = "rigid_tall_stack_base"})
+	base_ent:AddComponent("transform")
+	base_ent.transform:SetPosition(Vec3(0, 1, 0))
+	base_ent:AddComponent("rigid_body", {
+		Shape = "box",
+		Size = Vec3(3, 1, 3),
+		Static = true,
+	})
+	local boxes = {}
+	local stack_count = 20
+
+	for i = 1, stack_count do
+		local ent = Entity.New({Name = "rigid_tall_stack_box_" .. i})
+		ent:AddComponent("transform")
+		ent.transform:SetPosition(Vec3((i % 2 == 0 and 0.03 or -0.03), 1.9 + i * 0.9, 0))
+		ent.transform:SetAngles(Deg3(0, 0, i % 2 == 0 and 2 or -2))
+		local body = ent:AddComponent(
+			"rigid_body",
+			{
+				Shape = "box",
+				Size = Vec3(1, 1, 1),
+				LinearDamping = 0,
+				AngularDamping = 0,
+				Friction = 1,
+			}
+		)
+		boxes[i] = {ent = ent, body = body}
+	end
+
+	simulate_physics(960)
+	local previous_y = 1.4
+
+	for i, box in ipairs(boxes) do
+		local position = box.ent.transform:GetPosition()
+		local angles = box.ent.transform:GetRotation():GetAngles()
+		T(position.y)[">="](previous_y - 0.05)
+		T(position.y)["<"](21.5)
+		T(math.abs(position.x))["<"](1.1)
+		T(math.abs(position.z))["<"](0.35)
+		T(math.abs(angles.z))["<"](0.7)
+		T(math.abs(angles.x))["<"](0.25)
+		previous_y = position.y
+	end
+
+	local top_box = boxes[#boxes]
+	T(top_box.body:GetVelocity():GetLength())["<"](3)
+	T(top_box.body:GetAngularVelocity():GetLength())["<"](3)
+	T(boxes[1].body:GetGrounded())["=="](true)
+
+	for _, box in ipairs(boxes) do
+		box.ent:Remove()
+	end
+
+	base_ent:Remove()
+	ground:Remove()
+end)
+
+T.Test3D("Rigid bodies keep warm-started persistent contact manifolds stable across frames", function()
+	local ground = create_flat_ground("rigid_manifold_warm_start_ground", 12)
+	local base_ent = Entity.New({Name = "rigid_manifold_warm_start_base"})
+	base_ent:AddComponent("transform")
+	base_ent.transform:SetPosition(Vec3(0, 1, 0))
+	base_ent.transform:SetAngles(Deg3(0, 28, 0))
+	base_ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = "box",
+			Size = Vec3(5, 1, 5),
+			Static = true,
+			Friction = 1,
+		}
+	)
+	local top_ent = Entity.New({Name = "rigid_manifold_warm_start_top"})
+	top_ent:AddComponent("transform")
+	top_ent.transform:SetPosition(Vec3(0.12, 4.1, -0.08))
+	top_ent.transform:SetAngles(Deg3(4, -14, 6))
+	local top = top_ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = "box",
+			Size = Vec3(4, 0.9, 4),
+			LinearDamping = 0,
+			AngularDamping = 0,
+			Friction = 1,
+			Restitution = 0,
+		}
+	)
+	simulate_physics(360)
+	local settled_position = top_ent.transform:GetPosition():Copy()
+	local settled_angles = top_ent.transform:GetRotation():GetAngles()
+	simulate_physics(720)
+	local final_position = top_ent.transform:GetPosition()
+	local final_angles = top_ent.transform:GetRotation():GetAngles()
+	local drift = (final_position - settled_position):GetLength()
+	local pitch_drift = math.abs(final_angles.x - settled_angles.x)
+	local roll_drift = math.abs(final_angles.z - settled_angles.z)
+	top_ent:Remove()
+	base_ent:Remove()
+	ground:Remove()
+	T(top:GetGrounded())["=="](true)
+	T(final_position.y)[">="](1.8)
+	T(final_position.y)["<="](2.35)
+	T(math.abs(final_position.x))["<"](0.35)
+	T(math.abs(final_position.z))["<"](0.35)
+	T(drift)["<"](0.08)
+	T(pitch_drift)["<"](0.06)
+	T(roll_drift)["<"](0.06)
+	T(top:GetAngularVelocity():GetLength())["<"](0.4)
+end)
+
+T.Test3D("Rigid rotated boxes generate stable multi-point contact patches", function()
+	local ground = create_flat_ground("rigid_rotated_patch_ground", 12)
+	local base_ent = Entity.New({Name = "rigid_rotated_patch_base"})
+	base_ent:AddComponent("transform")
+	base_ent.transform:SetPosition(Vec3(0, 1, 0))
+	base_ent.transform:SetAngles(Deg3(0, 32, 0))
+	base_ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = "box",
+			Size = Vec3(5, 1, 5),
+			Static = true,
+			Friction = 1,
+		}
+	)
+	local top_ent = Entity.New({Name = "rigid_rotated_patch_top"})
+	top_ent:AddComponent("transform")
+	top_ent.transform:SetPosition(Vec3(0.1, 4.2, -0.08))
+	top_ent.transform:SetAngles(Deg3(5, -18, 7))
+	local top = top_ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = "box",
+			Size = Vec3(4, 0.8, 4),
+			LinearDamping = 0,
+			AngularDamping = 0,
+			Friction = 1,
+			Restitution = 0,
+		}
+	)
+	simulate_physics(480)
+	local position = top_ent.transform:GetPosition()
+	local angles = top_ent.transform:GetRotation():GetAngles()
+	top_ent:Remove()
+	base_ent:Remove()
+	ground:Remove()
+	T(top:GetGrounded())["=="](true)
+	T(position.y)[">="](1.75)
+	T(position.y)["<="](2.35)
+	T(math.abs(position.x))["<"](0.35)
+	T(math.abs(position.z))["<"](0.35)
+	T(math.abs(angles.x))["<"](0.28)
+	T(math.abs(angles.z))["<"](0.28)
+	T(top:GetAngularVelocity():GetLength())["<"](1.25)
+end)
+
+T.Test3D("Rigid body collisions apply angular impulse from off-center impacts", function()
+	local sphere_ent = Entity.New({Name = "rigid_angular_hit_sphere"})
+	sphere_ent:AddComponent("transform")
+	sphere_ent.transform:SetPosition(Vec3(-3, 1.45, 0))
+	local sphere = sphere_ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = "sphere",
+			Radius = 0.5,
+			GravityScale = 0,
+			LinearDamping = 0,
+			AngularDamping = 0,
+			MaxLinearSpeed = 1000,
+			Restitution = 0,
+		}
+	)
+	local box_ent = Entity.New({Name = "rigid_angular_hit_box"})
+	box_ent:AddComponent("transform")
+	box_ent.transform:SetPosition(Vec3(0, 1, 0))
+	local box = box_ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = "box",
+			Size = Vec3(1.5, 1.5, 1.5),
+			GravityScale = 0,
+			LinearDamping = 0,
+			AngularDamping = 0,
+			MaxLinearSpeed = 1000,
+			Restitution = 0,
+		}
+	)
+	sphere:SetVelocity(Vec3(40, 0, 0))
+	simulate_physics(18, 1 / 120)
+	local angular = box:GetAngularVelocity()
+	local linear = box:GetVelocity()
+	local sphere_position = sphere_ent.transform:GetPosition()
+	local box_position = box_ent.transform:GetPosition()
+	sphere_ent:Remove()
+	box_ent:Remove()
+	T(linear.x)[">"](2)
+	T(math.abs(angular.z))[">"](1.2)
+	T(math.abs(angular.x))["<"](0.75)
+	T(math.abs(box_position.y - 1))["<"](0.5)
+	T(sphere_position.x)["<"](box_position.x)
+end)

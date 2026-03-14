@@ -19,6 +19,8 @@ function physics.UpdateRigidBodies(dt)
 	end
 
 	for _ = 1, substeps do
+		if solver.BeginStep then solver:BeginStep() end
+
 		for _, body in ipairs(bodies) do
 			if physics.IsActiveRigidBody(body) then
 				if body:GetAwake() then
