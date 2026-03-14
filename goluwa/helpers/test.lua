@@ -35,6 +35,7 @@ local VERBOSE = false
 local NESTING = false
 local IS_TERMINAL = true -- or system.IsTTY()
 local NO_SUMMARY = false
+local SUBFILTER = nil
 local completed_test_count = 0
 local shown_running_line = false
 local has_failed_tests = false
@@ -108,7 +109,8 @@ function test.RunTestsWithFilter(filter, config)
 		config.profiling,
 		config.profiling_mode,
 		config.verbose,
-		config.no_summary
+		config.no_summary,
+		config.subfilter
 	)
 	local tests = test.FindTests(filter)
 	test.SetTestPaths(tests)
@@ -118,7 +120,15 @@ function test.RunTestsWithFilter(filter, config)
 	end
 
 	if config.logging and not config.no_summary then
-		local filter_str = (filter and (" with filter '" .. filter .. "'") or "")
+		local filter_parts = {}
+
+		if filter then table.insert(filter_parts, "path filter '" .. filter .. "'") end
+
+		if config.subfilter then
+			table.insert(filter_parts, "test filter '" .. config.subfilter .. "'")
+		end
+
+		local filter_str = #filter_parts > 0 and (" with " .. table.concat(filter_parts, " and ")) or ""
 
 		if #tests == 0 then
 			logn("no tests found" .. filter_str)
@@ -133,7 +143,16 @@ local active_test_tasks = {}
 -- Create a marker object for unavailable tests
 local unavailable_marker = {}
 
+local function matches_subfilter(name)
+	return not SUBFILTER or
+		SUBFILTER == "" or
+		SUBFILTER == "all" or
+		name:find(SUBFILTER, nil, true)
+end
+
 function test.Test(name, cb, start, stop)
+	if not matches_subfilter(name) then return nil end
+
 	-- Check if we're inside another test task (nested test)
 	local current_task = tasks.GetActiveTask()
 
@@ -357,6 +376,8 @@ function test._CreateTestTask(name, cb, start, stop)
 end
 
 function test.Pending(name)
+	if not matches_subfilter(name) then return nil end
+
 	total_test_count = total_test_count + 1
 	-- Track that this test belongs to the current file
 	tests_by_file[current_test_name] = (tests_by_file[current_test_name] or 0) + 1
@@ -569,11 +590,12 @@ do
 	local test_file_count = 0
 	local test_results = {} -- Store results for each test file
 	local test_order = {} -- Track the order tests were loaded
-	function test.BeginTests(logging, profiling, profiling_mode, verbose, no_summary)
+	function test.BeginTests(logging, profiling, profiling_mode, verbose, no_summary, subfilter)
 		LOGGING = logging or false
 		VERBOSE = verbose or false
 		PROFILING = profiling or false
 		NO_SUMMARY = no_summary or false
+		SUBFILTER = subfilter
 		completed_test_count = 0
 		shown_running_line = false
 		has_failed_tests = false
@@ -949,6 +971,10 @@ commands.Add({
 			type = "string",
 			description = "Only run tests whose path contains this filter",
 		},
+		subfilter = {
+			type = "string",
+			description = "Only run tests whose description contains this filter",
+		},
 		verbose = {
 			type = "boolean",
 			description = "Print each completed test name",
@@ -974,6 +1000,10 @@ commands.Add({
 	local separate = flags["no-separate"] ~= true
 	local parallel = flags["no-parallel"] ~= true
 	local summary = flags["no-summary"] ~= true
+	local subfilter = flags.subfilter
+
+	if subfilter == "" or subfilter == "all" then subfilter = nil end
+
 	filter = flags.filter or filter
 
 	if separate then
@@ -1010,7 +1040,7 @@ commands.Add({
 
 			local ok, run_err = pcall(function()
 				local t = import("goluwa/helpers/test.lua")
-				t.BeginTests(true, false, nil, input.verbose, true)
+				t.BeginTests(true, false, nil, input.verbose, true, input.subfilter)
 				t.SetTestPaths({{name = input.name, path = input.path}})
 				t.RunSingleTestSet({name = input.name, path = input.path})
 
@@ -1082,7 +1112,12 @@ commands.Add({
 				next_test_idx = next_test_idx + 1
 				local ok, thread_or_err = pcall(function()
 					local t = threads.new(thread_worker)
-					t:run{path = test_item.path, name = test_item.name, verbose = verbose}
+					t:run{
+						path = test_item.path,
+						name = test_item.name,
+						verbose = verbose,
+						subfilter = subfilter,
+					}
 					return t
 				end)
 
@@ -1177,6 +1212,7 @@ commands.Add({
 			verbose = verbose,
 			profiling = profiling,
 			profiling_mode = profiling_mode,
+			subfilter = subfilter,
 			no_summary = not summary,
 		}
 	)
