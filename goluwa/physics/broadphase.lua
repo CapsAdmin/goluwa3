@@ -41,4 +41,29 @@ function module.BuildEntries(physics, bodies)
 	return entries
 end
 
+function module.BuildCandidatePairs(physics, bodies)
+	local entries = module.BuildEntries(physics, bodies)
+	local pairs = {}
+
+	for i = 1, #entries do
+		local a = entries[i]
+		local max_right = a.right
+
+		for j = i + 1, #entries do
+			local b = entries[j]
+
+			if b.left > max_right then break end
+
+			if a.bounds:IsBoxIntersecting(b.bounds) then
+				pairs[#pairs + 1] = {
+					entry_a = a,
+					entry_b = b,
+				}
+			end
+		end
+	end
+
+	return pairs
+end
+
 return module

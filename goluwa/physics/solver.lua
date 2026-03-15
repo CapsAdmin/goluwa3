@@ -186,21 +186,13 @@ function solver.SolveDistanceConstraints(dt)
 end
 
 function solver.SolveRigidBodyPairs(bodies, dt)
-	local entries = broadphase.BuildEntries(physics, bodies)
+	local pairs = broadphase.BuildCandidatePairs(physics, bodies)
 
-	for i = 1, #entries do
-		local a = entries[i]
-		local max_right = a.right
-
-		for j = i + 1, #entries do
-			local b = entries[j]
-
-			if b.left > max_right then break end
-
-			if a.bounds:IsBoxIntersecting(b.bounds) then
-				solve_rigid_body_pair(a.body, b.body, a, b, dt)
-			end
-		end
+	for i = 1, #pairs do
+		local pair = pairs[i]
+		local entry_a = pair.entry_a
+		local entry_b = pair.entry_b
+		solve_rigid_body_pair(entry_a.body, entry_b.body, entry_a, entry_b, dt)
 	end
 end
 
