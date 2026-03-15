@@ -3,24 +3,16 @@ local Quat = import("goluwa/structs/quat.lua")
 local META = {}
 local METHODS = {}
 
-local function zero_vec3()
-	return Vec3(0, 0, 0)
-end
-
-local function identity_quat()
-	return Quat(0, 0, 0, 1)
-end
-
 local function copy_position(position)
 	if position and position.Copy then return position:Copy() end
 
-	return zero_vec3()
+	return Vec3()
 end
 
 local function copy_rotation(rotation)
 	if rotation and rotation.Copy then return rotation:Copy() end
 
-	return identity_quat()
+	return Quat():Identity()
 end
 
 local function get_override(self, key, fallback)

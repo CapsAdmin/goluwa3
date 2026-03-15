@@ -4,10 +4,6 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local physics = import("goluwa/physics/shared.lua")
 local META = prototype.CreateTemplate("physics_shape_base")
 
-local function zero_vec3()
-	return Vec3(0, 0, 0)
-end
-
 function META.New(data)
 	return META:CreateObject(data or {})
 end
@@ -33,7 +29,7 @@ function META:GetHalfExtents()
 end
 
 function META:GetMassProperties()
-	return 0, zero_vec3()
+	return 0, Vec3()
 end
 
 function META:GeometryLocalToWorld(body, local_pos, position, rotation)

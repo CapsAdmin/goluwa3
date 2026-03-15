@@ -25,6 +25,7 @@ function META:Identity()
 	self.y = 0
 	self.z = 0
 	self.w = 1
+	return self
 end
 
 function META.__mul(a, b)

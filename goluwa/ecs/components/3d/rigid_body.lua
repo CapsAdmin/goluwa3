@@ -53,24 +53,16 @@ local function component_mul(a, b)
 	return Vec3(a.x * b.x, a.y * b.y, a.z * b.z)
 end
 
-local function zero_vec3()
-	return Vec3(0, 0, 0)
-end
-
-local function identity_quat()
-	return Quat(0, 0, 0, 1)
-end
-
 local function copy_position(position)
 	if position and position.Copy then return position:Copy() end
 
-	return zero_vec3()
+	return Vec3()
 end
 
 local function copy_rotation(rotation)
 	if rotation and rotation.Copy then return rotation:Copy() end
 
-	return identity_quat()
+	return Quat():Identity()
 end
 
 local function inverse_to_inertia(value)
@@ -114,8 +106,8 @@ local function get_shape_from_definition(data)
 end
 
 local function append_shape_entry(entries, entry, parent_position, parent_rotation)
-	parent_position = parent_position or zero_vec3()
-	parent_rotation = parent_rotation or identity_quat()
+	parent_position = parent_position or Vec3()
+	parent_rotation = parent_rotation or Quat():Identity()
 	local data = is_shape_definition(entry) and entry or {Shape = entry}
 	local shape = get_shape_from_definition(data)
 	local local_position = copy_position(data.Position or data.position)
@@ -173,8 +165,8 @@ local function build_collider_entries(body)
 	if not entries[1] then
 		entries[1] = {
 			Shape = BoxShape.New(Vec3(1, 1, 1)),
-			Position = zero_vec3(),
-			Rotation = identity_quat(),
+			Position = Vec3(),
+			Rotation = Quat():Identity(),
 		}
 	end
 
@@ -213,8 +205,8 @@ function META:Initialize()
 	self.InverseInertia = self.InverseInertia or Vec3(0, 0, 0)
 	self.StepDt = self.StepDt or 0
 	self.SleepTimer = self.SleepTimer or 0
-	self.AccumulatedForce = self.AccumulatedForce or zero_vec3()
-	self.AccumulatedTorque = self.AccumulatedTorque or zero_vec3()
+	self.AccumulatedForce = self.AccumulatedForce or Vec3()
+	self.AccumulatedTorque = self.AccumulatedTorque or Vec3()
 	self.Colliders = nil
 	self:RebuildColliders()
 	self:RefreshMassProperties()
@@ -489,8 +481,8 @@ function META:GetAccumulatedTorque()
 end
 
 function META:ClearAccumulators()
-	self.AccumulatedForce = zero_vec3()
-	self.AccumulatedTorque = zero_vec3()
+	self.AccumulatedForce = Vec3()
+	self.AccumulatedTorque = Vec3()
 end
 
 function META:GetAngularVelocityDelta(world_impulse)
