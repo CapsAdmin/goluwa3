@@ -171,6 +171,7 @@ function META:OnUpdate(dt)
 
 	if input.IsKeyDown("x") then self.move_local.y = self.move_local.y + 1 end
 
+	self.Owner:CallLocalEvent("OnBeforeCameraInputUpdate", dt, self)
 	self.Owner:CallLocalEvent("OnCameraInputUpdate", dt, self)
 	self.jump_pressed = false
 end
