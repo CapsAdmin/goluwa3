@@ -12,7 +12,7 @@ function module.CreateServices(services)
 			local ey = half.y
 			local ez = half.z
 			local points = {}
-			local samples_x = {-1, -0.75, -0.5, 0, 0.5, 0.75, 1}
+			local samples_x = {-1, 0, 1}
 			local samples_z = {-1, 0, 1}
 
 			for _, sx in ipairs(samples_x) do
@@ -143,10 +143,13 @@ function module.CreateServices(services)
 		local solved = false
 
 		for _ = 1, 2 do
+			local pass_solved = false
+
 			for _, point_data in ipairs(support_points) do
 				local contact = query_support_contact(body, point_data.local_point, cast_up, cast_distance)
 
 				if contact then
+					pass_solved = true
 					body:ApplyCorrection(0, contact.normal * contact.depth, contact.point, nil, nil, dt)
 					apply_static_contact_impulse(body, contact.point, contact.normal)
 
@@ -163,6 +166,8 @@ function module.CreateServices(services)
 					solved = true
 				end
 			end
+
+			if not pass_solved then break end
 		end
 
 		if grounded_normal and grounded_weight > EPSILON then

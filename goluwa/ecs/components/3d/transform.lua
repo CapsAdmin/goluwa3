@@ -55,6 +55,13 @@ function META:InvalidateMatrices()
 	self.LocalMatrixFrame = nil
 	self.WorldMatrixFrame = nil
 	self.WorldMatrixInverseFrame = nil
+
+	if self.Owner and self.Owner.model then
+		self.Owner.model.WorldAABBCache = nil
+		self.Owner.model.WorldAABBCacheMatrix = nil
+		self.Owner.model.WorldAABBCacheSource = nil
+	end
+
 	self:InvalidateChildWorldMatrices()
 end
 
@@ -67,6 +74,13 @@ function META:InvalidateChildWorldMatrices()
 			child.transform.WorldMatrixInverse = nil
 			child.transform.WorldMatrixFrame = nil
 			child.transform.WorldMatrixInverseFrame = nil
+
+			if child.model then
+				child.model.WorldAABBCache = nil
+				child.model.WorldAABBCacheMatrix = nil
+				child.model.WorldAABBCacheSource = nil
+			end
+
 			child.transform:InvalidateChildWorldMatrices()
 		end
 	end

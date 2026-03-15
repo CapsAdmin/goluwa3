@@ -3,12 +3,8 @@ local physics = import("goluwa/physics/shared.lua")
 local raycast = import("goluwa/physics/raycast.lua")
 local RigidBodyComponent = import("goluwa/ecs/components/3d/rigid_body.lua")
 
-local function filter(entity, options)
-	options = options or {}
-	local ignore_kinematic = options.IgnoreKinematicBodies ~= false
-	local ignore_rigid = options.IgnoreRigidBodies ~= false
-
-	if entity == options.IgnoreEntity then return false end
+local function filter(entity, ignore_entity, filter_fn, ignore_kinematic, ignore_rigid)
+	if entity == ignore_entity then return false end
 
 	if entity.PhysicsNoCollision or entity.NoPhysicsCollision then return false end
 
@@ -23,9 +19,7 @@ local function filter(entity, options)
 
 	if ignore_rigid and entity.rigid_body then return false end
 
-	if options.FilterFunction and not options.FilterFunction(entity) then
-		return false
-	end
+	if filter_fn and not filter_fn(entity) then return false end
 
 	return true
 end
@@ -40,24 +34,73 @@ local function cast_with_filter(
 	ignore_rigid_override
 )
 	local cast_options = options or {}
-	local previous_ignore_entity = cast_options.IgnoreEntity
-	local previous_filter_function = cast_options.FilterFunction
-	local previous_ignore_rigid = cast_options.IgnoreRigidBodies
-	cast_options.IgnoreEntity = ignore_entity
-	cast_options.FilterFunction = filter_fn
+	local ignore_kinematic = cast_options.IgnoreKinematicBodies ~= false
+	local ignore_rigid = cast_options.IgnoreRigidBodies ~= false
+	local world_source = cast_options.WorldSource
 
-	if ignore_rigid_override ~= nil then
-		cast_options.IgnoreRigidBodies = ignore_rigid_override
+	if ignore_rigid_override ~= nil then ignore_rigid = ignore_rigid_override end
+
+	if world_source == nil and physics.GetWorldTraceSource then
+		world_source = physics.GetWorldTraceSource()
 	end
 
-	local hits = raycast.Cast(origin, direction, max_distance or math.huge, filter, cast_options)
-	cast_options.IgnoreEntity = previous_ignore_entity
-	cast_options.FilterFunction = previous_filter_function
+	if cast_options.ClosestOnly ~= false then
+		if world_source then
+			local hit = raycast.CastClosestFromSource(
+				world_source,
+				origin,
+				direction,
+				max_distance or math.huge,
+				filter,
+				ignore_entity,
+				filter_fn,
+				ignore_kinematic,
+				ignore_rigid
+			)
+			return hit and {hit} or {}
+		end
 
-	if ignore_rigid_override ~= nil then
-		cast_options.IgnoreRigidBodies = previous_ignore_rigid
+		if not cast_options.UseRenderMeshes then return {} end
+
+		local hit = raycast.CastClosest(
+			origin,
+			direction,
+			max_distance or math.huge,
+			filter,
+			ignore_entity,
+			filter_fn,
+			ignore_kinematic,
+			ignore_rigid
+		)
+		return hit and {hit} or {}
 	end
 
+	if world_source then
+		return raycast.CastFromSource(
+			world_source,
+			origin,
+			direction,
+			max_distance or math.huge,
+			filter,
+			ignore_entity,
+			filter_fn,
+			ignore_kinematic,
+			ignore_rigid
+		)
+	end
+
+	if not cast_options.UseRenderMeshes then return {} end
+
+	local hits = raycast.Cast(
+		origin,
+		direction,
+		max_distance or math.huge,
+		filter,
+		ignore_entity,
+		filter_fn,
+		ignore_kinematic,
+		ignore_rigid
+	)
 	return hits
 end
 
@@ -133,6 +176,8 @@ function physics.Trace(origin, direction, max_distance, ignore_entity, filter_fn
 end
 
 local function get_hit_face_normal(hit)
+	if hit and hit.face_normal then return hit.face_normal end
+
 	if
 		not (
 			hit and

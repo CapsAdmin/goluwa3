@@ -9,6 +9,7 @@ local Vec2 = import("goluwa/structs/vec2.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local Color = import("goluwa/structs/color.lua")
 local Rect = import("goluwa/structs/rect.lua")
+local AABB = import("goluwa/structs/aabb.lua")
 
 T.Test3D("Raycast basic triangle hit", function()
 	-- Create entity with triangle mesh
@@ -237,5 +238,102 @@ T.Test3D("Raycast ground normal faces ray", function()
 	T(hit)["~="](nil)
 	T(hit.entity)["=="](ent)
 	T(hit.normal.y)[">"](0.9)
+	ent:Remove()
+end)
+
+T.Test3D("Raycast custom model source", function()
+	local ent = Entity.New({Name = "test_source"})
+	ent:AddComponent("transform")
+	local poly = Polygon3D.New()
+	poly:AddVertex{pos = Vec3(-1, -1, 0), uv = Vec2(0, 0), normal = Vec3(0, 0, 1)}
+	poly:AddVertex{pos = Vec3(1, -1, 0), uv = Vec2(1, 0), normal = Vec3(0, 0, 1)}
+	poly:AddVertex{pos = Vec3(0, 1, 0), uv = Vec2(0.5, 1), normal = Vec3(0, 0, 1)}
+	poly:BuildBoundingBox()
+	poly:Upload()
+	local source = raycast.CreateModelSource{
+		{
+			Owner = ent,
+			Visible = true,
+			WorldSpaceVertices = true,
+			AABB = poly.AABB,
+			Primitives = {
+				{
+					polygon3d = poly,
+					aabb = poly.AABB,
+				},
+			},
+		},
+	}
+	local hit = raycast.CastClosestFromSource(source, Vec3(0, 0, 2), Vec3(0, 0, -1), 10)
+	T(hit)["~="](nil)
+	T(hit.entity)["=="](ent)
+	T(hit.distance)[">="](1.9)
+	T(hit.distance)["<="](2.1)
+	ent:Remove()
+end)
+
+T.Test3D("Raycast convex brush primitive source", function()
+	local ent = Entity.New({Name = "test_brush_source"})
+	ent:AddComponent("transform")
+	local source = raycast.CreateModelSource{
+		{
+			Owner = ent,
+			Visible = true,
+			WorldSpaceVertices = true,
+			AABB = AABB(-1, -1, -1, 1, 1, 1),
+			Primitives = {
+				{
+					brush_planes = {
+						{normal = Vec3(1, 0, 0), dist = 1},
+						{normal = Vec3(-1, 0, 0), dist = 1},
+						{normal = Vec3(0, 1, 0), dist = 1},
+						{normal = Vec3(0, -1, 0), dist = 1},
+						{normal = Vec3(0, 0, 1), dist = 1},
+						{normal = Vec3(0, 0, -1), dist = 1},
+					},
+					aabb = AABB(-1, -1, -1, 1, 1, 1),
+				},
+			},
+		},
+	}
+	local hit = raycast.CastClosestFromSource(source, Vec3(0, 2, 0), Vec3(0, -1, 0), 10)
+	T(hit)["~="](nil)
+	T(hit.entity)["=="](ent)
+	T(hit.distance)[">="](0.9)
+	T(hit.distance)["<="](1.1)
+	T(hit.normal.y)[">"](0.9)
+	ent:Remove()
+end)
+
+T.Test3D("Raycast convex brush immediate inside hit", function()
+	local ent = Entity.New({Name = "test_brush_inside"})
+	ent:AddComponent("transform")
+	local source = raycast.CreateModelSource{
+		{
+			Owner = ent,
+			Visible = true,
+			WorldSpaceVertices = true,
+			AABB = AABB(-1, -1, -1, 1, 1, 1),
+			Primitives = {
+				{
+					brush_planes = {
+						{normal = Vec3(1, 0, 0), dist = 1},
+						{normal = Vec3(-1, 0, 0), dist = 1},
+						{normal = Vec3(0, 1, 0), dist = 1},
+						{normal = Vec3(0, -1, 0), dist = 1},
+						{normal = Vec3(0, 0, 1), dist = 1},
+						{normal = Vec3(0, 0, -1), dist = 1},
+					},
+					aabb = AABB(-1, -1, -1, 1, 1, 1),
+				},
+			},
+		},
+	}
+	local hit = raycast.CastClosestFromSource(source, Vec3(0.95, 0, 0), Vec3(1, 0, 0), 10)
+	T(hit)["~="](nil)
+	T(hit.entity)["=="](ent)
+	T(hit.distance)[">="](0)
+	T(hit.distance)["<="](0.0001)
+	T(hit.normal.x)[">"](0.9)
 	ent:Remove()
 end)

@@ -24,6 +24,16 @@ physics.PreviousCollisionPairs = physics.PreviousCollisionPairs or {}
 physics.CurrentCollisionPairs = physics.CurrentCollisionPairs or {}
 physics.PreviousWorldCollisionPairs = physics.PreviousWorldCollisionPairs or {}
 physics.CurrentWorldCollisionPairs = physics.CurrentWorldCollisionPairs or {}
+physics.WorldTraceSource = physics.WorldTraceSource or nil
+
+function physics.SetWorldTraceSource(source)
+	physics.WorldTraceSource = source
+	return source
+end
+
+function physics.GetWorldTraceSource()
+	return physics.WorldTraceSource
+end
 
 function physics.GetInterpolationAlpha()
 	return math.min(math.max(physics.InterpolationAlpha or 0, 0), 1)

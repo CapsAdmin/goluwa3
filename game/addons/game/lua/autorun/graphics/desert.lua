@@ -1,6 +1,8 @@
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
 local Texture = import("goluwa/render/texture.lua")
 local Material = import("goluwa/render3d/material.lua")
+local physics = import("goluwa/physics/shared.lua")
+local raycast = import("goluwa/physics/raycast.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Color = import("goluwa/structs/color.lua")
@@ -202,11 +204,34 @@ local function CreateDesertTerrain()
 	local model = ent:AddComponent("model")
 	transform:SetPosition(Vec3(0, -127, 0))
 	model:AddPrimitive(poly, mat)
+	model:BuildAABB()
+
+	if physics and physics.SetWorldTraceSource and raycast and raycast.CreateModelSource then
+		local previous_source = physics.GetWorldTraceSource and physics.GetWorldTraceSource() or nil
+		local merged_models = {}
+
+		for _, existing_model in ipairs(previous_source and previous_source.models or {}) do
+			merged_models[#merged_models + 1] = existing_model
+		end
+
+		merged_models[#merged_models + 1] = model
+		physics.SetWorldTraceSource(raycast.CreateModelSource(merged_models))
+		ent.DesertRestoreWorldTraceSource = function()
+			physics.SetWorldTraceSource(previous_source)
+		end
+	end
+
 	return ent
 end
 
 -- Run it
-if _G.desert_ent then _G.desert_ent:Remove() end
+if _G.desert_ent then
+	if _G.desert_ent.DesertRestoreWorldTraceSource then
+		_G.desert_ent.DesertRestoreWorldTraceSource()
+	end
+
+	_G.desert_ent:Remove()
+end
 
 import("goluwa/timer.lua").Delay(0.2, function()
 	_G.desert_ent = CreateDesertTerrain()

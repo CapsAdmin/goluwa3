@@ -145,8 +145,10 @@ function bvh.TraverseRay(ray, node, visit_leaf, context, closest_hit, closest_di
 		return closest_hit, closest_distance
 	end
 
-	local node_stack = {node}
-	local tmin_stack = {node_tmin}
+	local node_stack = context and context.node_stack or {}
+	local tmin_stack = context and context.tmin_stack or {}
+	node_stack[1] = node
+	tmin_stack[1] = node_tmin
 	local stack_size = 1
 
 	while stack_size > 0 do

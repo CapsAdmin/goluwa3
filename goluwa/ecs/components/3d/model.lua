@@ -26,6 +26,12 @@ META:GetSet("MetallicMultiplier", 1)
 META:IsSet("Loading", false)
 local model = library()
 
+local function invalidate_raycast_acceleration(self)
+	self.WorldAABBCache = nil
+	self.WorldAABBCacheMatrix = nil
+	self.WorldAABBCacheSource = nil
+end
+
 function META:SetUseOcclusionCulling(enabled)
 	self.UseOcclusionCulling = enabled
 
@@ -37,6 +43,7 @@ end
 function META:Initialize()
 	self.Primitives = {}
 	self:SetAABB(AABB(math.huge, math.huge, math.huge, -math.huge, -math.huge, -math.huge))
+	invalidate_raycast_acceleration(self)
 	self:AddGlobalEvent("Draw3DGeometry")
 end
 
@@ -89,6 +96,7 @@ function META:RemovePrimitives()
 
 	self.Primitives = {}
 	self:SetAABB(AABB(math.huge, math.huge, math.huge, -math.huge, -math.huge, -math.huge))
+	invalidate_raycast_acceleration(self)
 end
 
 function META:MakeError()
@@ -111,6 +119,7 @@ function META:OnRemove()
 	end
 
 	self.Primitives = {}
+	invalidate_raycast_acceleration(self)
 end
 
 -- Add a Polygon3D to this model
@@ -132,6 +141,8 @@ function META:AddPrimitive(obj, material)
 	table.insert(self.Primitives, primitive)
 
 	if obj.AABB then self.AABB:Expand(obj.AABB) end
+
+	invalidate_raycast_acceleration(self)
 end
 
 -- Build/rebuild the combined AABB from all primitives
@@ -142,6 +153,7 @@ function META:BuildAABB()
 		if prim.aabb then self.AABB:Expand(prim.aabb) end
 	end
 
+	invalidate_raycast_acceleration(self)
 	return self.AABB
 end
 
@@ -149,7 +161,17 @@ end
 function META:GetWorldAABB()
 	local world_matrix = self:GetWorldMatrix()
 
-	if not world_matrix or not self.AABB then return nil end
+	if not self.AABB then return nil end
+
+	if not world_matrix then return self.AABB end
+
+	if
+		self.WorldAABBCache and
+		self.WorldAABBCacheMatrix == world_matrix and
+		self.WorldAABBCacheSource == self.AABB
+	then
+		return self.WorldAABBCache
+	end
 
 	-- Transform all 8 corners of the AABB and compute new bounds
 	local corners = {
@@ -180,6 +202,9 @@ function META:GetWorldAABB()
 		if wz > world_aabb.max_z then world_aabb.max_z = wz end
 	end
 
+	self.WorldAABBCache = world_aabb
+	self.WorldAABBCacheMatrix = world_matrix
+	self.WorldAABBCacheSource = self.AABB
 	return world_aabb
 end
 
