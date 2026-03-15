@@ -596,6 +596,15 @@ do
 		PROFILING = profiling or false
 		NO_SUMMARY = no_summary or false
 		SUBFILTER = subfilter
+		total_test_count = 0
+		tests_by_file = {}
+		current_test_name = ""
+		current_test_start_time = nil
+		current_test_start_gc = nil
+		total_gc = 0
+		test_file_count = 0
+		test_results = {}
+		test_order = {}
 		completed_test_count = 0
 		shown_running_line = false
 		has_failed_tests = false
@@ -666,8 +675,7 @@ do
 		if VERBOSE then logn("loading test: " .. test_item.path) end
 
 		current_test_name = test_item.name
-		-- Track the order for display later
-		table.insert(test_order, test_item.name)
+		local file_test_count_before = tests_by_file[current_test_name] or 0
 
 		-- You'll need to pass the expected test count somehow, or estimate it
 		-- For now, setting to 0 means no progress counter shown
@@ -683,7 +691,22 @@ do
 
 		if not ok then error("failed to run " .. test_item.name .. ":\n" .. err, 2) end
 
+		local registered_test_count = (tests_by_file[current_test_name] or 0) - file_test_count_before
+
+		if registered_test_count <= 0 then
+			if LOGGING and shown_running_line then
+				io_write("\r" .. string.rep(" ", 80) .. "\r")
+				io.flush()
+				shown_running_line = false
+			end
+
+			return false
+		end
+
+		-- Track the order for display later only for files that actually registered tests.
+		table.insert(test_order, test_item.name)
 		test_file_count = test_file_count + 1
+		return true
 	end
 
 	function test.EndTests(no_summary)
@@ -1035,6 +1058,7 @@ commands.Add({
 			-- tests complete. In a thread's Lua state this would kill the whole process.
 			-- Capture the exit code instead and use it to break the event loop.
 			local shutdown_code = nil
+			local has_tests = false
 			local system = import("goluwa/system.lua")
 			system.ShutDown = function(code) shutdown_code = code or 0 os.exitcode = code end
 
@@ -1042,7 +1066,12 @@ commands.Add({
 				local t = import("goluwa/helpers/test.lua")
 				t.BeginTests(true, false, nil, input.verbose, true, input.subfilter)
 				t.SetTestPaths({{name = input.name, path = input.path}})
-				t.RunSingleTestSet({name = input.name, path = input.path})
+				has_tests = t.RunSingleTestSet({name = input.name, path = input.path})
+
+				if not has_tests then
+					t.EndTests(true)
+					return
+				end
 
 			local event = import("goluwa/event.lua")
 			local task = import("goluwa/tasks.lua")
@@ -1083,18 +1112,24 @@ commands.Add({
 			end)
 
 			if not ok then
-				return {output = tostring(run_err), exit_code = 1, test_count = 0}
+				return {output = tostring(run_err), exit_code = 1, test_count = 0, test_file_count = 0}
 			end
 
 			local output = table.concat(output_parts)
 			local test_count = tonumber(output:match("#tests=(%d+)") or "0")
 			local exit_code = shutdown_code or (output:find("\xe2\x9c\x97") ~= nil and 1 or 0)
 			os.exitcode = exit_code
-			return {output = output, exit_code = exit_code, test_count = test_count}
+			return {
+				output = output,
+				exit_code = exit_code,
+				test_count = test_count,
+				test_file_count = has_tests and 1 or 0,
+			}
 		]]
 		local start_time = system.GetTime()
 		local total_exit_code = 0
 		local total_test_count = 0
+		local total_test_file_count = 0
 		local failed_files = 0
 		local failed_file_names = {}
 		local running = {}
@@ -1168,6 +1203,7 @@ commands.Add({
 						end
 
 						total_test_count = total_test_count + (result.test_count or 0)
+						total_test_file_count = total_test_file_count + (result.test_file_count or 0)
 						local final_output = result.output:gsub("\n#tests=%d+\n", "\n")
 
 						if result.exit_code ~= 0 and #final_output == 0 then
@@ -1198,7 +1234,7 @@ commands.Add({
 			end
 		end
 
-		io.write("ran " .. total_test_count .. " tests in " .. #tests .. " files\n")
+		io.write("ran " .. total_test_count .. " tests in " .. total_test_file_count .. " files\n")
 		io.write("total time: " .. string.format("%.2f", end_time - start_time) .. "s\n")
 		io.flush()
 		system.ShutDown(total_exit_code)
@@ -1216,6 +1252,12 @@ commands.Add({
 			no_summary = not summary,
 		}
 	)
+
+	if total_test_count == 0 then
+		test.EndTests(not summary)
+		system.ShutDown(0)
+		return
+	end
 
 	event.AddListener("ShutDown", "tests", function()
 		test.EndTests(not summary)
