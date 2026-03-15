@@ -63,63 +63,91 @@ function module.Register(solver, services)
 		local start_world = sphere_body:GetPreviousPosition()
 		local end_world = sphere_body:GetPosition()
 		local movement_world = end_world - start_world
+		local extents = get_box_extents(box_body)
+		local start_local_center = box_body:WorldToLocal(start_world)
+		local end_local_center = box_body:WorldToLocal(end_world)
+		local center_movement_local = end_local_center - start_local_center
+		local descending_from_above =
+			start_local_center.y > extents.y + EPSILON and center_movement_local.y < -EPSILON
 
 		if movement_world:GetLength() <= EPSILON then return false end
 
-		local start_local = box_body:WorldToLocal(start_world)
-		local end_local = box_body:WorldToLocal(end_world)
-		local movement_local = end_local - start_local
-		local sphere_radius = get_sphere_radius(sphere_body)
-		local extents = get_box_extents(box_body) + Vec3(sphere_radius, sphere_radius, sphere_radius)
-		local t_enter = 0
-		local t_exit = 1
-		local hit_normal_local = nil
-		local axis_data = {
-			{"x", Vec3(-1, 0, 0), Vec3(1, 0, 0)},
-			{"y", Vec3(0, -1, 0), Vec3(0, 1, 0)},
-			{"z", Vec3(0, 0, -1), Vec3(0, 0, 1)},
-		}
+		local function sweep_point_against_box(start_point_world, end_point_world)
+			local start_local = box_body:WorldToLocal(start_point_world)
+			local end_local = box_body:WorldToLocal(end_point_world)
+			local movement_local = end_local - start_local
+			local extents = get_box_extents(box_body)
+			local t_enter = 0
+			local t_exit = 1
+			local hit_normal_local = nil
+			local axis_data = {
+				{"x", Vec3(-1, 0, 0), Vec3(1, 0, 0)},
+				{"y", Vec3(0, -1, 0), Vec3(0, 1, 0)},
+				{"z", Vec3(0, 0, -1), Vec3(0, 0, 1)},
+			}
 
-		for _, axis in ipairs(axis_data) do
-			local name = axis[1]
-			local s = start_local[name]
-			local d = movement_local[name]
-			local min_value = -extents[name]
-			local max_value = extents[name]
+			for _, axis in ipairs(axis_data) do
+				local name = axis[1]
+				local s = start_local[name]
+				local d = movement_local[name]
+				local min_value = -extents[name]
+				local max_value = extents[name]
 
-			if math.abs(d) <= EPSILON then
-				if s < min_value or s > max_value then return false end
-			else
-				local enter_t
-				local exit_t
-				local enter_normal
-
-				if d > 0 then
-					enter_t = (min_value - s) / d
-					exit_t = (max_value - s) / d
-					enter_normal = axis[2]
+				if math.abs(d) <= EPSILON then
+					if s < min_value or s > max_value then return nil end
 				else
-					enter_t = (max_value - s) / d
-					exit_t = (min_value - s) / d
-					enter_normal = axis[3]
+					local enter_t
+					local exit_t
+					local enter_normal
+
+					if d > 0 then
+						enter_t = (min_value - s) / d
+						exit_t = (max_value - s) / d
+						enter_normal = axis[2]
+					else
+						enter_t = (max_value - s) / d
+						exit_t = (min_value - s) / d
+						enter_normal = axis[3]
+					end
+
+					if enter_t > t_enter then
+						t_enter = enter_t
+						hit_normal_local = enter_normal
+					end
+
+					if exit_t < t_exit then t_exit = exit_t end
+
+					if t_enter > t_exit then return nil end
 				end
+			end
 
-				if enter_t > t_enter then
-					t_enter = enter_t
-					hit_normal_local = enter_normal
+			if not hit_normal_local or t_enter < 0 or t_enter > 1 then return nil end
+
+			return {t = t_enter, normal_local = hit_normal_local}
+		end
+
+		local earliest_hit = nil
+		for _, local_point in ipairs(sphere_body:GetSupportLocalPoints() or {}) do
+			local start_point_world = sphere_body:GeometryLocalToWorld(
+				local_point,
+				sphere_body:GetPreviousPosition(),
+				sphere_body:GetPreviousRotation()
+			)
+			local end_point_world = sphere_body:GeometryLocalToWorld(local_point)
+			local hit = sweep_point_against_box(start_point_world, end_point_world)
+
+			if hit and not (descending_from_above and hit.normal_local.y <= EPSILON) then
+				if not earliest_hit or hit.t < earliest_hit.t then
+					earliest_hit = hit
 				end
-
-				if exit_t < t_exit then t_exit = exit_t end
-
-				if t_enter > t_exit then return false end
 			end
 		end
 
-		if not hit_normal_local or t_enter < 0 or t_enter > 1 then return false end
+		if not earliest_hit then return false end
 
-		local hit_fraction = math.max(0, math.min(1, t_enter))
+		local hit_fraction = math.max(0, math.min(1, earliest_hit.t))
 		sphere_body.Position = start_world + movement_world * math.max(0, hit_fraction - EPSILON)
-		local hit_normal = box_body:GetRotation():VecMul(hit_normal_local):GetNormalized()
+		local hit_normal = box_body:GetRotation():VecMul(earliest_hit.normal_local):GetNormalized()
 		apply_pair_impulse(box_body, sphere_body, hit_normal, dt)
 		mark_pair_grounding(box_body, sphere_body, hit_normal)
 		local remaining_fraction = 1 - hit_fraction
@@ -139,6 +167,40 @@ function module.Register(solver, services)
 		local previous_local_center = box_body:WorldToLocal(sphere_body:GetPreviousPosition())
 		local movement_local = local_center - previous_local_center
 		local extents = get_box_extents(box_body)
+		local sphere_radius = get_sphere_radius(sphere_body)
+
+		if previous_local_center.y > extents.y + EPSILON and movement_local.y < -EPSILON then
+			local top_local = Vec3(
+				clamp(local_center.x, -extents.x, extents.x),
+				extents.y,
+				clamp(local_center.z, -extents.z, extents.z)
+			)
+			local top_world = box_body:LocalToWorld(top_local)
+			local top_delta = center - top_world
+			local top_distance = top_delta:GetLength()
+			local top_overlap = sphere_radius - top_distance
+
+			if top_overlap > -EPSILON then
+				local top_normal
+
+				if top_distance > EPSILON then
+					top_normal = top_delta / top_distance
+				else
+					top_normal = box_body:GetRotation():VecMul(Vec3(0, 1, 0)):GetNormalized()
+				end
+
+				return resolve_pair_penetration(
+					box_body,
+					sphere_body,
+					top_normal,
+					math.max(top_overlap, EPSILON),
+					dt,
+					top_world,
+					center - top_normal * sphere_radius
+				)
+			end
+		end
+
 		local closest_local = Vec3(
 			clamp(local_center.x, -extents.x, extents.x),
 			clamp(local_center.y, -extents.y, extents.y),
@@ -147,7 +209,6 @@ function module.Register(solver, services)
 		local closest_world = box_body:LocalToWorld(closest_local)
 		local delta = center - closest_world
 		local distance = delta:GetLength()
-		local sphere_radius = get_sphere_radius(sphere_body)
 		local overlap = sphere_radius - distance
 		local normal
 

@@ -198,3 +198,44 @@ T.Test3D("Rigid body collisions apply angular impulse from off-center impacts", 
 	T(math.abs(box_position.y - 1))["<"](0.5)
 	T(sphere_position.x)["<"](box_position.x)
 end)
+
+T.Test3D("Sphere dropped above the scene box edge does not snag on the platform", function()
+	local box_center = Vec3(1.4, 1.85, 0)
+	local box_size = Vec3(6, 0.7, 4.5)
+	local sphere_radius = 0.28
+	local sphere_spawn = Vec3(4.6, 100, 0)
+	local bottom_y = box_center.y - box_size.y * 0.5
+	local platform_ent = Entity.New({Name = "rigid_scene_edge_platform"})
+	platform_ent:AddComponent("transform")
+	platform_ent.transform:SetPosition(box_center)
+	platform_ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = box_shape(box_size),
+			Size = box_size,
+			MotionType = "static",
+			Friction = 0.7,
+			Restitution = 0,
+		}
+	)
+	local sphere_ent = Entity.New({Name = "rigid_scene_edge_sphere"})
+	sphere_ent:AddComponent("transform")
+	sphere_ent.transform:SetPosition(sphere_spawn)
+	sphere_ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = sphere_shape(sphere_radius),
+			Radius = sphere_radius,
+			LinearDamping = 0.08,
+			AngularDamping = 0.35,
+			Friction = 0.2,
+			Restitution = 0.25,
+		}
+	)
+	simulate_physics(480)
+	local position = sphere_ent.transform:GetPosition()
+	sphere_ent:Remove()
+	platform_ent:Remove()
+	T(math.abs(position.z))["<"](0.2)
+	T(position.y)["<"](bottom_y - sphere_radius - 0.2)
+end)

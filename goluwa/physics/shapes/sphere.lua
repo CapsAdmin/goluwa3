@@ -71,13 +71,34 @@ end
 
 function META:BuildSupportLocalPoints()
 	local radius = self:GetRadius()
-	return {
-		Vec3(0, -radius, 0),
-		Vec3(radius * 0.7, -radius * 0.7, 0),
-		Vec3(-radius * 0.7, -radius * 0.7, 0),
-		Vec3(0, -radius * 0.7, radius * 0.7),
-		Vec3(0, -radius * 0.7, -radius * 0.7),
+	local points = {Vec3(0, -radius, 0)}
+	local rings = {
+		{horizontal = 0.5, vertical = 0.8660254037844386},
+		{horizontal = 0.7071067811865476, vertical = 0.7071067811865476},
+		{horizontal = 0.8660254037844386, vertical = 0.5},
 	}
+	local directions = {
+		Vec3(1, 0, 0),
+		Vec3(-1, 0, 0),
+		Vec3(0, 0, 1),
+		Vec3(0, 0, -1),
+		Vec3(0.7071067811865476, 0, 0.7071067811865476),
+		Vec3(-0.7071067811865476, 0, 0.7071067811865476),
+		Vec3(0.7071067811865476, 0, -0.7071067811865476),
+		Vec3(-0.7071067811865476, 0, -0.7071067811865476),
+	}
+
+	for _, ring in ipairs(rings) do
+		for _, dir in ipairs(directions) do
+			points[#points + 1] = Vec3(
+				dir.x * radius * ring.horizontal,
+				-radius * ring.vertical,
+				dir.z * radius * ring.horizontal
+			)
+		end
+	end
+
+	return points
 end
 
 function META:SolveSupportContacts(body, dt)
