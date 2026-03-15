@@ -4,15 +4,12 @@ local Entity = import("goluwa/ecs/entity.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local SphereShape = import("goluwa/physics/shapes/sphere.lua")
 local BoxShape = import("goluwa/physics/shapes/box.lua")
+local test_helpers = import("test/tests/physics/test_helpers.lua")
 local sphere_shape = SphereShape.New
 local box_shape = BoxShape.New
 
 local function simulate_physics(steps, dt)
-	dt = dt or (1 / 120)
-
-	for _ = 1, steps do
-		physics.Update(dt)
-	end
+	return test_helpers.SimulatePhysics(physics, steps, dt)
 end
 
 T.Test3D("Rigid body materials support richer friction and restitution combination behavior", function()

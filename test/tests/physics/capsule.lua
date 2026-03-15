@@ -1,37 +1,16 @@
 local T = import("test/environment.lua")
 local physics = import("goluwa/physics.lua")
-local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
 local Entity = import("goluwa/ecs/entity.lua")
-local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local CapsuleShape = import("goluwa/physics/shapes/capsule.lua")
 local BoxShape = import("goluwa/physics/shapes/box.lua")
 local test_helpers = import("test/tests/physics/test_helpers.lua")
 local capsule_shape = CapsuleShape.New
 local box_shape = BoxShape.New
+local create_flat_ground = test_helpers.CreateFlatGround
 
 local function simulate_physics(steps, dt)
-	dt = dt or (1 / 120)
-
-	for _ = 1, steps do
-		physics.Update(dt)
-	end
-end
-
-local function create_flat_ground(name, extent)
-	extent = extent or 8
-	local ground = Entity.New({Name = name})
-	ground:AddComponent("transform")
-	ground:AddComponent("model")
-	local poly = Polygon3D.New()
-	poly:AddVertex{pos = Vec3(-extent, 0, -extent), uv = Vec2(0, 0), normal = Vec3(0, -1, 0)}
-	poly:AddVertex{pos = Vec3(0, 0, extent), uv = Vec2(0.5, 1), normal = Vec3(0, -1, 0)}
-	poly:AddVertex{pos = Vec3(extent, 0, -extent), uv = Vec2(1, 0), normal = Vec3(0, -1, 0)}
-	poly:BuildBoundingBox()
-	poly:Upload()
-	ground.model:AddPrimitive(poly)
-	ground.model:BuildAABB()
-	return ground
+	return test_helpers.SimulatePhysics(physics, steps, dt)
 end
 
 T.Test3D("Capsule rigid body lands on ground mesh", function()
