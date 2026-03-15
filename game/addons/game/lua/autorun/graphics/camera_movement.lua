@@ -92,7 +92,7 @@ local function try_initialize_player(reset_velocity)
 	end
 
 	player_initialized = true
-	cam:SetPosition(body_position + PLAYER_BODY_TO_EYE_OFFSET)
+	cam:SetPosition(player_body:GetPosition() + PLAYER_BODY_TO_EYE_OFFSET)
 end
 
 local function set_movement_mode(mode)
