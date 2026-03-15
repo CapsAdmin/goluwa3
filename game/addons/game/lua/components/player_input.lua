@@ -35,7 +35,6 @@ function META:Initialize()
 	self.crouching = false
 	self.speed_multiplier = 1
 	self.jump_pressed = false
-	self.reset_requested = false
 	self:ApplyMode(self.Mode)
 	self:AddGlobalEvent("Update", {priority = 100})
 end
@@ -47,6 +46,8 @@ function META:KeyInput(key, press)
 		self.jump_pressed = true
 	elseif key == "v" then
 		self:OnCameraToggleMode()
+	elseif key == "r" then
+		self:Reset()
 	end
 end
 
@@ -87,6 +88,7 @@ function META:ApplyMode(mode)
 	local camera = owner.camera
 
 	if camera and mode ~= "walk" then camera:SetViewOffset(Vec3()) end
+
 	owner:CallLocalEvent("OnCameraModeChanged", mode)
 end
 
@@ -144,7 +146,6 @@ function META:OnUpdate(dt)
 	self.mouse_trapped = window.GetMouseTrapped()
 	self.roll_mode = input.IsMouseDown("button_2")
 	self.speed_multiplier = self:GetSpeedMultiplier(self.crouching)
-	self.reset_requested = self.mouse_trapped and input.IsKeyDown("r")
 
 	if input.IsKeyDown("left") then
 		self.look_nudge.x = self.look_nudge.x - dt
@@ -159,10 +160,15 @@ function META:OnUpdate(dt)
 	end
 
 	if input.IsKeyDown("w") then self.move_local.z = self.move_local.z + 1 end
+
 	if input.IsKeyDown("s") then self.move_local.z = self.move_local.z - 1 end
+
 	if input.IsKeyDown("a") then self.move_local.x = self.move_local.x - 1 end
+
 	if input.IsKeyDown("d") then self.move_local.x = self.move_local.x + 1 end
+
 	if input.IsKeyDown("z") then self.move_local.y = self.move_local.y - 1 end
+
 	if input.IsKeyDown("x") then self.move_local.y = self.move_local.y + 1 end
 
 	self.Owner:CallLocalEvent("OnCameraInputUpdate", dt, self)
@@ -170,10 +176,7 @@ function META:OnUpdate(dt)
 end
 
 function META:OnCameraInputUpdate(dt)
-	print(self.mouse_trapped)
 	if not self.mouse_trapped then return end
-
-	if self.reset_requested then self:Reset() end
 
 	local rotation = self:GetRotation():Copy()
 	local mouse_delta = (self.look_delta + self.look_nudge * self.ArrowLookSpeed) * self.MouseSensitivity
@@ -182,7 +185,9 @@ function META:OnCameraInputUpdate(dt)
 	if self.roll_mode then
 		rotation:RotateRoll(mouse_delta.x)
 		self:SetRotation(rotation)
-		self:SetFOV(math.clamp(self.FOV + mouse_delta.y * 10 * (self.FOV / math.pi), self.MinFOV, self.MaxFOV))
+		self:SetFOV(
+			math.clamp(self.FOV + mouse_delta.y * 10 * (self.FOV / math.pi), self.MinFOV, self.MaxFOV)
+		)
 		return
 	end
 
@@ -194,7 +199,6 @@ function META:OnCameraInputUpdate(dt)
 	rotation = (yaw_quat * rotation):GetNormalized()
 	rotation:RotatePitch(-pitch_delta)
 	self:SetRotation(rotation)
-	print("Rotation:", self:GetRotation())
 end
 
 return META:Register()
