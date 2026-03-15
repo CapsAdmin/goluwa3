@@ -16,28 +16,100 @@ META:GetSet("EyeHeight", 1.75)
 META:GetSet("Radius", 0.35)
 META:GetSet("Height", 2)
 META:GetSet("CrouchScale", 0.5)
+META:GetSet("CrouchTransitionTime", 0.05)
 META:GetSet("FlySpeed", 30)
 
 function META:Initialize()
 	self.Owner:EnsureComponent("transform")
 	self.Owner:EnsureComponent("rigid_body")
 	assert(self.Owner.rigid_body)
+	self.crouch_alpha = self:IsCrouching() and 1 or 0
 	self:OnCameraModeChanged(self.Owner.player_input)
 end
 
-function META:GetDimensions()
-	if self:IsCrouching() then
-		return self.Radius * self.CrouchScale,
-		self.Height * self.CrouchScale,
-		self.EyeHeight * self.CrouchScale
-	end
-
-	return self.Radius, self.Height, self.EyeHeight
+function META:GetDimensions(alpha)
+	alpha = alpha == nil and (self.crouch_alpha or (self:IsCrouching() and 1 or 0)) or alpha
+	return math.lerp(alpha, self.Radius, self.Radius * self.CrouchScale),
+	math.lerp(alpha, self.Height, self.Height * self.CrouchScale),
+	math.lerp(alpha, self.EyeHeight, self.EyeHeight * self.CrouchScale)
 end
 
-function META:GetEyeOffset()
-	local _, height, eye_height = self:GetDimensions()
+function META:GetEyeOffset(alpha)
+	local _, height, eye_height = self:GetDimensions(alpha)
 	return Vec3(0, eye_height - height * 0.5, 0)
+end
+
+function META:InvalidateBodyGeometry()
+	local body = self.Owner.rigid_body
+
+	if not body then return end
+
+	for _, collider in ipairs(body:GetColliders()) do
+		collider:InvalidateGeometry()
+	end
+
+	body.CollisionLocalPoints = nil
+	body.SupportLocalPoints = nil
+	body.LocalBounds = nil
+	body:RefreshMassProperties()
+
+	if body.SetAwake then body:SetAwake(true) end
+end
+
+function META:ApplyCrouchAlpha(alpha)
+	local body = self.Owner.rigid_body
+	local camera = self.Owner.camera
+
+	if not body then return end
+
+	self.crouch_alpha = alpha
+	local radius, height = self:GetDimensions(alpha)
+	local shape = body:GetPhysicsShape()
+
+	if shape and shape.GetTypeName and shape:GetTypeName() == "capsule" then
+		shape:SetRadius(radius)
+		shape:SetHeight(height)
+		self:InvalidateBodyGeometry()
+	end
+
+	if self.CrouchAnchorMode and self.CrouchAnchorPosition then
+		local new_position
+
+		if self.CrouchAnchorMode == "feet" then
+			new_position = self.CrouchAnchorPosition + Vec3(0, height * 0.5, 0)
+		else
+			new_position = self.CrouchAnchorPosition - Vec3(0, height * 0.5, 0)
+		end
+
+		local velocity = body:GetVelocity():Copy()
+		local angular_velocity = body:GetAngularVelocity():Copy()
+		self.Owner.transform:SetPosition(new_position)
+		body:SynchronizeFromTransform()
+		body.PreviousPosition = body.Position:Copy()
+		body:SetVelocity(velocity)
+		body:SetAngularVelocity(angular_velocity)
+	end
+
+	if camera then camera:SetViewOffset(self:GetEyeOffset(alpha)) end
+end
+
+function META:UpdateCrouchTransition(dt)
+	if not self.CrouchTransition then return end
+
+	self.CrouchTransitionElapsed = math.min((self.CrouchTransitionElapsed or 0) + dt, self.CrouchTransitionTime)
+	local duration = math.max(self.CrouchTransitionTime, 0.001)
+	local frac = math.min(1, self.CrouchTransitionElapsed / duration)
+	local alpha = math.lerp(frac, self.CrouchTransitionStartAlpha, self.CrouchTransitionTargetAlpha)
+	self:ApplyCrouchAlpha(alpha)
+
+	if frac >= 1 then
+		self.CrouchTransition = false
+		self.CrouchAnchorMode = nil
+		self.CrouchAnchorPosition = nil
+		self.CrouchTransitionStartAlpha = nil
+		self.CrouchTransitionTargetAlpha = nil
+		self.CrouchTransitionElapsed = nil
+	end
 end
 
 function META:ResetBodyRotation()
@@ -59,21 +131,22 @@ function META:SetCrouch(b)
 
 	if self:IsCrouching() == b then return end
 
-	local _, old_height = self:GetDimensions()
-	local new_radius, new_height = self:GetDimensions()
-	local velocity = body:GetVelocity():Copy()
-	local angular_velocity = body:GetAngularVelocity():Copy()
-	local feet_position = body:GetPosition():Copy() - Vec3(0, old_height * 0.5, 0)
-	local new_position = feet_position + Vec3(0, new_height * 0.5, 0)
+	local _, current_height = self:GetDimensions()
+	local position = body:GetPosition():Copy()
+	self.CrouchTransition = true
+	self.CrouchTransitionElapsed = 0
+	self.CrouchTransitionStartAlpha = self.crouch_alpha or (self:IsCrouching() and 1 or 0)
+	self.CrouchTransitionTargetAlpha = b and 1 or 0
+
+	if body:GetGrounded() then
+		self.CrouchAnchorMode = "feet"
+		self.CrouchAnchorPosition = position - Vec3(0, current_height * 0.5, 0)
+	else
+		self.CrouchAnchorMode = "head"
+		self.CrouchAnchorPosition = position + Vec3(0, current_height * 0.5, 0)
+	end
+
 	self.Crouching = b
-	body:SetShape(CapsuleShape.New(new_radius, new_height))
-	self.Owner.transform:SetPosition(new_position)
-	body:SynchronizeFromTransform()
-	body.PreviousPosition = body.Position:Copy()
-	body:SetVelocity(velocity)
-	body:SetAngularVelocity(angular_velocity)
-	local camera = self.Owner.camera
-	camera:SetViewOffset(self:GetEyeOffset())
 end
 
 function META:OnCameraModeChanged(mode)
@@ -137,6 +210,7 @@ do
 
 		if look.Mode == "walk" then
 			self:SetCrouch(state.crouching)
+			self:UpdateCrouchTransition(dt)
 			self:ResetBodyRotation()
 			camera:SetViewOffset(self:GetEyeOffset())
 
