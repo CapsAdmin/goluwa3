@@ -17,8 +17,11 @@ local transform = import("goluwa/ecs/components/3d/transform.lua")
 local math3d = import("goluwa/render3d/math3d.lua")
 local R = vfs.GetAbsolutePath
 local ffi = require("ffi")
+local bit = require("bit")
 local Entity = import("goluwa/ecs/entity.lua")
 local utility = import("goluwa/utility.lua")
+local physics
+local raycast
 local CUBEMAPS = true
 steam.loaded_bsp = steam.loaded_bsp or {}
 local scale = 1 / 0.0254
@@ -32,8 +35,322 @@ local skyboxes = {
 	["rp_hometown1999"] = {AABB(78, -61, -1, 98, -45, 5) * scale, 0.003},
 	["gm_freespace_13"] = {AABB(-500, -500, 200, 500, 500, 600) * scale, 0},
 }
+local BSP_LUMP_PLANES = 2
+local BSP_CONTENTS_SOLID = 0x1
+local BSP_CONTENTS_WINDOW = 0x2
+local BSP_CONTENTS_GRATE = 0x8
+local BSP_CONTENTS_PLAYERCLIP = 0x10000
+local BSP_CONTENTS_MONSTERCLIP = 0x20000
+local BSP_CONTENTS_DETAIL = 0x8000000
+local BSP_COLLISION_CONTENTS_MASK = bit.bor(
+	BSP_CONTENTS_SOLID,
+	BSP_CONTENTS_WINDOW,
+	BSP_CONTENTS_GRATE,
+	BSP_CONTENTS_PLAYERCLIP,
+	BSP_CONTENTS_MONSTERCLIP
+)
+local BRUSH_POINT_EPSILON = 0.01
+
+local function get_physics_modules()
+	if not physics and (PHYSICS or import.loaded["goluwa/physics/shared.lua"]) then
+		physics = import("goluwa/physics/shared.lua")
+	end
+
+	if physics and not raycast then
+		raycast = import("goluwa/physics/raycast.lua")
+	end
+
+	return physics, raycast
+end
+
+local function set_world_trace_source(source)
+	local physics = get_physics_modules()
+
+	if physics and physics.SetWorldTraceSource then
+		physics.SetWorldTraceSource(source)
+	end
+end
+
+local function build_bounds_from_vertices(vertices)
+	if not (vertices and vertices[1]) then return nil end
+
+	local bounds = AABB(math.huge, math.huge, math.huge, -math.huge, -math.huge, -math.huge)
+
+	for _, vertex in ipairs(vertices) do
+		local pos = vertex.pos
+
+		if type(pos) == "cdata" then
+			bounds:ExpandVec3(pos)
+		else
+			bounds:ExpandVec3(Vec3(pos[1], pos[2], pos[3]))
+		end
+	end
+
+	return bounds
+end
+
+local function source_pos_to_engine(pos)
+	return Vec3(-pos.y, pos.z, -pos.x) * steam.source2meters
+end
+
+local function source_plane_to_engine(plane)
+	return {
+		normal = Vec3(-plane.normal.y, plane.normal.z, -plane.normal.x),
+		dist = plane.dist * steam.source2meters,
+	}
+end
+
+local function is_collidable_brush(brush)
+	return brush and
+		brush.numsides >= 4 and
+		bit.band(brush.contents or 0, BSP_COLLISION_CONTENTS_MASK) ~= 0
+end
+
+local function intersect_brush_planes(plane_a, plane_b, plane_c)
+	local n1 = plane_a.normal
+	local n2 = plane_b.normal
+	local n3 = plane_c.normal
+	local n2_cross_n3 = n2:GetCross(n3)
+	local determinant = n1:Dot(n2_cross_n3)
+
+	if math.abs(determinant) <= 0.000001 then return nil end
+
+	return (
+			n2_cross_n3 * plane_a.dist + n3:GetCross(n1) * plane_b.dist + n1:GetCross(n2) * plane_c.dist
+		) / determinant
+end
+
+local function is_point_inside_brush(point, planes)
+	for _, plane in ipairs(planes) do
+		if point:Dot(plane.normal) - plane.dist > BRUSH_POINT_EPSILON then
+			return false
+		end
+	end
+
+	return true
+end
+
+local function get_brush_planes(header, brush)
+	local planes = {}
+
+	for side_index = 0, brush.numsides - 1 do
+		local side = header.brushsides[brush.firstside + side_index + 1]
+
+		if side and side.planenum then
+			local plane = header.planes[side.planenum + 1]
+
+			if plane then planes[#planes + 1] = plane end
+		end
+	end
+
+	return planes
+end
+
+local function build_brush_hull(header, brush, planes)
+	local physics = get_physics_modules()
+
+	if not (physics and physics.NormalizeConvexHull and header.planes) then
+		return nil
+	end
+
+	planes = planes or get_brush_planes(header, brush)
+
+	if #planes < 4 then return nil end
+
+	local points = {}
+	local seen = {}
+
+	for i = 1, #planes - 2 do
+		for j = i + 1, #planes - 1 do
+			for k = j + 1, #planes do
+				local point = intersect_brush_planes(planes[i], planes[j], planes[k])
+
+				if point and is_point_inside_brush(point, planes) then
+					local engine_point = source_pos_to_engine(point)
+					local key = string.format("%.3f:%.3f:%.3f", engine_point.x, engine_point.y, engine_point.z)
+
+					if not seen[key] then
+						seen[key] = true
+						points[#points + 1] = engine_point
+					end
+				end
+			end
+		end
+	end
+
+	if #points < 4 then return nil end
+
+	return physics.NormalizeConvexHull(points, BRUSH_POINT_EPSILON)
+end
+
+local function build_primitive_from_hull(hull, brush_planes)
+	if
+		not (
+			hull and
+			hull.bounds_min and
+			hull.bounds_max and
+			brush_planes and
+			brush_planes[1]
+		)
+	then
+		return nil
+	end
+
+	return {
+		brush_planes = brush_planes,
+		aabb = AABB(
+			hull.bounds_min.x,
+			hull.bounds_min.y,
+			hull.bounds_min.z,
+			hull.bounds_max.x,
+			hull.bounds_max.y,
+			hull.bounds_max.z
+		),
+	}
+end
+
+local function build_source_model_from_meshes(meshes, owner)
+	local source_model = {
+		Owner = owner,
+		Visible = true,
+		WorldSpaceVertices = true,
+		Primitives = {},
+		AABB = AABB(math.huge, math.huge, math.huge, -math.huge, -math.huge, -math.huge),
+	}
+
+	for _, data in ipairs(meshes or {}) do
+		local mesh = data.mesh
+		local vertices = mesh and
+			mesh.Vertices or
+			mesh and
+			mesh.GetVertices and
+			mesh:GetVertices()
+			or
+			mesh
+
+		if vertices and vertices[1] then
+			local polygon = mesh and mesh.Vertices and mesh or {Vertices = vertices}
+			local primitive_bounds = mesh and mesh.AABB or build_bounds_from_vertices(vertices)
+
+			if primitive_bounds then
+				source_model.Primitives[#source_model.Primitives + 1] = {
+					polygon3d = polygon,
+					aabb = primitive_bounds,
+				}
+				source_model.AABB:Expand(primitive_bounds)
+			end
+		end
+	end
+
+	if not source_model.Primitives[1] then return nil end
+
+	return source_model
+end
+
+local function build_bsp_brush_model(header, owner)
+	local model = {
+		Owner = owner,
+		Visible = true,
+		WorldSpaceVertices = true,
+		Primitives = {},
+		AABB = AABB(math.huge, math.huge, math.huge, -math.huge, -math.huge, -math.huge),
+	}
+
+	for _, brush in ipairs(header.brushes or {}) do
+		if is_collidable_brush(brush) then
+			local source_planes = get_brush_planes(header, brush)
+			local brush_planes = {}
+
+			for i, plane in ipairs(source_planes) do
+				brush_planes[i] = source_plane_to_engine(plane)
+			end
+
+			local primitive = build_primitive_from_hull(build_brush_hull(header, brush, source_planes), brush_planes)
+
+			if primitive and primitive.aabb then
+				model.Primitives[#model.Primitives + 1] = primitive
+				model.AABB:Expand(primitive.aabb)
+			end
+		end
+	end
+
+	if not model.Primitives[1] then return nil end
+
+	return model
+end
+
+local function build_bsp_physics_source(header, render_meshes, displacement_meshes, owner)
+	local _, raycast = get_physics_modules()
+
+	if not (raycast and raycast.CreateModelSource) then
+		return nil, {
+			mode = "unavailable",
+		}
+	end
+
+	local collidable_brushes = 0
+
+	for _, brush in ipairs(header.brushes or {}) do
+		if is_collidable_brush(brush) then
+			collidable_brushes = collidable_brushes + 1
+		end
+	end
+
+	local brush_model = build_bsp_brush_model(header, owner)
+	local displacement_model = build_source_model_from_meshes(displacement_meshes, owner)
+
+	if brush_model or displacement_model then
+		local source_models = {}
+
+		if brush_model then source_models[#source_models + 1] = brush_model end
+
+		if displacement_model then
+			source_models[#source_models + 1] = displacement_model
+		end
+
+		return raycast.CreateModelSource(source_models),
+		{
+			mode = brush_model and
+				displacement_model and
+				"brushes+displacements" or
+				brush_model and
+				"brushes" or
+				"displacements",
+			collidable_brushes = collidable_brushes,
+			primitives = (
+					brush_model and
+					#brush_model.Primitives or
+					0
+				) + (
+					displacement_model and
+					#displacement_model.Primitives or
+					0
+				),
+			displacement_primitives = displacement_model and #displacement_model.Primitives or 0,
+		}
+	end
+
+	local source_model = build_source_model_from_meshes(render_meshes, owner)
+
+	if not source_model then
+		return nil, {
+			mode = "empty",
+			collidable_brushes = collidable_brushes,
+		}
+	end
+
+	return raycast.CreateModelSource({source_model}),
+	{
+		mode = "render_fallback",
+		collidable_brushes = collidable_brushes,
+		primitives = #source_model.Primitives,
+		displacement_primitives = 0,
+	}
+end
 
 function steam.SetMap(name)
+	set_world_trace_source(nil)
+
 	if tonumber(name) then
 		local workshop_id = tonumber(name)
 		local info = codec.LookupInFile("luadata", "workshop_maps.cfg", workshop_id)
@@ -500,6 +817,18 @@ function steam.LoadMap(path)
 		short		bevel;		// is the side a bevel plane?
 	]]
 	)
+	header.planes = read_lump_data(
+		"reading planes",
+		bsp_file,
+		header,
+		BSP_LUMP_PLANES,
+		20,
+		[[
+		vec3 normal;
+		float dist;
+		int type;
+	]]
+	)
 	header.vertices = read_lump_data("reading verticies", bsp_file, header, 4, 12, "vec3")
 	header.surfedges = read_lump_data("reading surfedges", bsp_file, header, 14, 4, "long")
 	header.edges = read_lump_data(
@@ -651,6 +980,7 @@ function steam.LoadMap(path)
 	end
 
 	local models = {}
+	local displacement_collision_meshes = {}
 
 	do
 		local function add_vertex(model, texinfo, texdata, pos, blend)
@@ -681,9 +1011,11 @@ function steam.LoadMap(path)
 				),
 			}
 
-			if GRAPHICS then model:AddVertex(vertex) end
-
-			if SERVER then list.insert(model, vertex) end
+			if model.AddVertex then
+				model:AddVertex(vertex)
+			else
+				list.insert(model, vertex)
+			end
 		end
 
 		local function lerp_corners(dims, corners, start_corner, dispinfo, x, y)
@@ -762,6 +1094,7 @@ function steam.LoadMap(path)
 						local start_corner_dist = math.huge
 						local start_corner = 0
 						local corners = {}
+						local collision_mesh = {}
 
 						for j = 1, 4 do
 							local face = header.faces[1 + info.MapFace]
@@ -791,14 +1124,24 @@ function steam.LoadMap(path)
 								do
 									-- CW winding (matches coordinate transform from Source)
 									add_vertex(mesh, texinfo, texdata, a, a_blend)
+									add_vertex(collision_mesh, texinfo, texdata, a, a_blend)
 									add_vertex(mesh, texinfo, texdata, c, c_blend)
+									add_vertex(collision_mesh, texinfo, texdata, c, c_blend)
 									add_vertex(mesh, texinfo, texdata, b, b_blend)
+									add_vertex(collision_mesh, texinfo, texdata, b, b_blend)
 									-- 
 									add_vertex(mesh, texinfo, texdata, c, c_blend)
+									add_vertex(collision_mesh, texinfo, texdata, c, c_blend)
 									add_vertex(mesh, texinfo, texdata, d, d_blend)
+									add_vertex(collision_mesh, texinfo, texdata, d, d_blend)
 									add_vertex(mesh, texinfo, texdata, b, b_blend)
+									add_vertex(collision_mesh, texinfo, texdata, b, b_blend)
 								end
 							end
+						end
+
+						if collision_mesh[1] then
+							list.insert(displacement_collision_meshes, {mesh = collision_mesh})
 						end
 
 						mesh.smooth_normals = true
@@ -931,13 +1274,32 @@ function steam.LoadMap(path)
 		end
 	end
 
+	local physics_source, physics_source_info = build_bsp_physics_source(header, render_meshes, displacement_collision_meshes, steam.bsp_world)
 	steam.loaded_bsp[path] = {
 		render_meshes = render_meshes,
 		entities = header.entities,
 		physics_meshes = physics_meshes,
+		physics_source = physics_source,
+		physics_source_info = physics_source_info,
 		cubemaps = header.cubemaps,
 		path = path, -- Store the absolute path
 	}
+
+	if physics_source_info then
+		logn(
+			"BSP physics source for ",
+			path,
+			": mode=",
+			physics_source_info.mode,
+			", collidable_brushes=",
+			physics_source_info.collidable_brushes or 0,
+			", displacement_primitives=",
+			physics_source_info.displacement_primitives or 0,
+			", primitives=",
+			physics_source_info.primitives or 0
+		)
+	end
+
 	tasks.ReportProgress("finished reading " .. path)
 	return steam.loaded_bsp[path]
 end
@@ -1128,6 +1490,8 @@ model_loader.AddModelDecoder("bsp", function(path, full_path, mesh_callback)
 	if steam.bsp_world and steam.bsp_world:IsValid() then
 		steam.bsp_world.bsp_resolved_path = full_path
 	end
+
+	set_world_trace_source(result.physics_source)
 
 	for _, prim in ipairs(result.render_meshes) do
 		mesh_callback(prim.mesh, prim.material)
