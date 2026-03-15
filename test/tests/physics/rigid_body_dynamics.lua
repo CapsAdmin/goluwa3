@@ -1,0 +1,200 @@
+local T = import("test/environment.lua")
+local physics = import("goluwa/physics.lua")
+local Entity = import("goluwa/ecs/entity.lua")
+local Vec3 = import("goluwa/structs/vec3.lua")
+local SphereShape = import("goluwa/physics/shapes/sphere.lua")
+local BoxShape = import("goluwa/physics/shapes/box.lua")
+local test_helpers = import("test/tests/physics/test_helpers.lua")
+local sphere_shape = SphereShape.New
+local box_shape = BoxShape.New
+
+local function simulate_physics(steps, dt)
+	return test_helpers.SimulatePhysics(physics, steps, dt)
+end
+
+T.Test3D("Rigid body collision response supports friction and restitution", function()
+	local platform_ent = Entity.New({Name = "rigid_material_platform"})
+	platform_ent:AddComponent("transform")
+	platform_ent.transform:SetPosition(Vec3(0, 1, 0))
+	platform_ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = box_shape(Vec3(8, 1, 8)),
+			Size = Vec3(8, 1, 8),
+			MotionType = "static",
+			Friction = 1,
+			Restitution = 0.8,
+		}
+	)
+	local sphere_ent = Entity.New({Name = "rigid_material_sphere"})
+	sphere_ent:AddComponent("transform")
+	sphere_ent.transform:SetPosition(Vec3(0, 4, 0))
+	local sphere = sphere_ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = sphere_shape(0.5),
+			Radius = 0.5,
+			LinearDamping = 0,
+			AngularDamping = 0,
+			MaxLinearSpeed = 1000,
+			Friction = 1,
+			Restitution = 0.8,
+		}
+	)
+	sphere:SetVelocity(Vec3(8, -18, 0))
+	simulate_physics(24)
+	local velocity = sphere:GetVelocity()
+	T(velocity.y)[">"](6)
+	T(math.abs(velocity.x))["<"](2)
+	platform_ent:Remove()
+	sphere_ent:Remove()
+end)
+
+T.Test3D("Rigid bodies can sleep and wake on contact", function()
+	local ground_ent = Entity.New({Name = "rigid_sleep_ground"})
+	ground_ent:AddComponent("transform")
+	ground_ent.transform:SetPosition(Vec3(0, 1, 0))
+	ground_ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = box_shape(Vec3(8, 1, 8)),
+			Size = Vec3(8, 1, 8),
+			MotionType = "static",
+			Friction = 1,
+		}
+	)
+	local sphere_ent = Entity.New({Name = "rigid_sleep_sphere"})
+	sphere_ent:AddComponent("transform")
+	sphere_ent.transform:SetPosition(Vec3(0, 4, 0))
+	local sphere = sphere_ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = sphere_shape(0.5),
+			Radius = 0.5,
+			LinearDamping = 12,
+			AngularDamping = 12,
+			Friction = 1,
+			SleepDelay = 0.5,
+			SleepLinearThreshold = 0.025,
+			SleepAngularThreshold = 0.025,
+		}
+	)
+	simulate_physics(240)
+	local settled_x = sphere_ent.transform:GetPosition().x
+	T(sphere:GetAwake())["=="](false)
+	T(sphere:GetVelocity():GetLength())["<"](0.01)
+	sphere:SetVelocity(Vec3(4, 0, 0))
+	simulate_physics(1, 1 / 60)
+	local moved_x = sphere_ent.transform:GetPosition().x
+	T(sphere:GetAwake())["=="](true)
+	T(moved_x)[">"](settled_x + 0.01)
+	ground_ent:Remove()
+	sphere_ent:Remove()
+end)
+
+T.Test3D("Rigid body force and impulse API", function()
+	local sphere_ent = Entity.New({Name = "rigid_force_sphere"})
+	sphere_ent:AddComponent("transform")
+	sphere_ent.transform:SetPosition(Vec3(0, 0, 0))
+	local sphere = sphere_ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = sphere_shape(0.5),
+			Radius = 0.5,
+			AutomaticMass = false,
+			Mass = 2,
+			GravityScale = 0,
+			LinearDamping = 0,
+			AngularDamping = 0,
+			AirLinearDamping = 0,
+			AirAngularDamping = 0,
+		}
+	)
+	sphere:ApplyImpulse(Vec3(4, 0, 0))
+	T(sphere:GetVelocity().x)["=="](2)
+
+	for _ = 1, 30 do
+		sphere:ApplyForce(Vec3(0, 12, 0))
+		physics.Update(1 / 60)
+	end
+
+	local sphere_position = sphere_ent.transform:GetPosition()
+	T(sphere:GetVelocity().y)[">"](2.9)
+	T(sphere_position.x)[">"](0.9)
+	T(sphere_position.y)[">"](0.7)
+	local box_ent = Entity.New({Name = "rigid_force_box"})
+	box_ent:AddComponent("transform")
+	box_ent.transform:SetPosition(Vec3(0, 0, 0))
+	local box = box_ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = box_shape(Vec3(2, 1, 1)),
+			Size = Vec3(2, 1, 1),
+			AutomaticMass = false,
+			Mass = 1,
+			GravityScale = 0,
+			LinearDamping = 0,
+			AngularDamping = 0,
+			AirLinearDamping = 0,
+			AirAngularDamping = 0,
+		}
+	)
+	box:ApplyAngularImpulse(Vec3(0, 0, 2))
+
+	for _ = 1, 30 do
+		box:ApplyForce(Vec3(0, 0, 12), box:GetPosition() + Vec3(1, 0, 0))
+		physics.Update(1 / 60)
+	end
+
+	local box_angular = box:GetAngularVelocity()
+	T(math.abs(box_angular.z))[">"](1.5)
+	T(math.abs(box_angular.y))[">"](2.5)
+	sphere_ent:Remove()
+	box_ent:Remove()
+end)
+
+T.Test3D("Rigid body collisions apply angular impulse from off-center impacts", function()
+	local sphere_ent = Entity.New({Name = "rigid_angular_hit_sphere"})
+	sphere_ent:AddComponent("transform")
+	sphere_ent.transform:SetPosition(Vec3(-3, 1.45, 0))
+	local sphere = sphere_ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = sphere_shape(0.5),
+			Radius = 0.5,
+			GravityScale = 0,
+			LinearDamping = 0,
+			AngularDamping = 0,
+			MaxLinearSpeed = 1000,
+			Restitution = 0,
+		}
+	)
+	local box_ent = Entity.New({Name = "rigid_angular_hit_box"})
+	box_ent:AddComponent("transform")
+	box_ent.transform:SetPosition(Vec3(0, 1, 0))
+	local box = box_ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = box_shape(Vec3(1.5, 1.5, 1.5)),
+			Size = Vec3(1.5, 1.5, 1.5),
+			GravityScale = 0,
+			LinearDamping = 0,
+			AngularDamping = 0,
+			MaxLinearSpeed = 1000,
+			Restitution = 0,
+		}
+	)
+	sphere:SetVelocity(Vec3(40, 0, 0))
+	simulate_physics(18, 1 / 120)
+	local angular = box:GetAngularVelocity()
+	local linear = box:GetVelocity()
+	local sphere_position = sphere_ent.transform:GetPosition()
+	local box_position = box_ent.transform:GetPosition()
+	sphere_ent:Remove()
+	box_ent:Remove()
+	T(linear.x)[">"](2)
+	T(math.abs(angular.z))[">"](1.2)
+	T(math.abs(angular.x))["<"](0.75)
+	T(math.abs(box_position.y - 1))["<"](0.5)
+	T(sphere_position.x)["<"](box_position.x)
+end)

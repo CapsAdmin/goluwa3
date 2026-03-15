@@ -6,7 +6,7 @@ local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local CapsuleShape = import("goluwa/physics/shapes/capsule.lua")
 local BoxShape = import("goluwa/physics/shapes/box.lua")
-local test_helpers = import("test/tests/physics/mocks.lua")
+local test_helpers = import("test/tests/physics/test_helpers.lua")
 local capsule_shape = CapsuleShape.New
 local box_shape = BoxShape.New
 
