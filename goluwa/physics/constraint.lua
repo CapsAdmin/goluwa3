@@ -1,11 +1,19 @@
+local Vec3 = import("goluwa/structs/vec3.lua")
 local physics = import("goluwa/physics/shared.lua")
 local DistanceConstraint = {}
 DistanceConstraint.__index = DistanceConstraint
+local EPSILON = 0.000001
 
-local function remove_distance_constraint(target)
-	for i = #physics.DistanceConstraints, 1, -1 do
-		if physics.DistanceConstraints[i] == target then
-			table.remove(physics.DistanceConstraints, i)
+local function get_constraint_list()
+	return physics.Constraints or physics.DistanceConstraints
+end
+
+local function remove_constraint(target)
+	local constraints = get_constraint_list()
+
+	for i = #constraints, 1, -1 do
+		if constraints[i] == target then
+			table.remove(constraints, i)
 			return
 		end
 	end
@@ -43,27 +51,176 @@ function DistanceConstraint:SetWorldPosition1(vec)
 	return self
 end
 
+function DistanceConstraint:SetDistance(distance)
+	distance = math.max(distance or 0, 0)
+	self.Distance = distance
+
+	if self.Unilateral then
+		self.MinDistance = nil
+		self.MaxDistance = distance
+	else
+		self.MinDistance = distance
+		self.MaxDistance = distance
+	end
+
+	return self
+end
+
+function DistanceConstraint:SetCompliance(compliance)
+	self.Compliance = math.max(compliance or 0, 0)
+	return self
+end
+
+function DistanceConstraint:SetUnilateral(unilateral)
+	self.Unilateral = unilateral and true or false
+	return self:SetDistance(self.Distance)
+end
+
+function DistanceConstraint:SetEnabled(enabled)
+	self.Enabled = enabled ~= false
+
+	if self.Enabled == false then self.AccumulatedLambda = 0 end
+
+	return self
+end
+
+function DistanceConstraint:BeginStep()
+	self.AccumulatedLambda = 0
+	return self
+end
+
+function DistanceConstraint:GetCurrentLength()
+	local world_pos0 = self:GetWorldPosition0()
+	local world_pos1 = self:GetWorldPosition1()
+
+	if not (world_pos0 and world_pos1) then return nil end
+
+	return (world_pos1 - world_pos0):GetLength()
+end
+
+function DistanceConstraint:GetConstraintError(length)
+	length = length or self:GetCurrentLength()
+
+	if not length then return nil end
+
+	if self.Unilateral then
+		local max_distance = self.MaxDistance or self.Distance or 0
+
+		if length <= max_distance then return 0 end
+
+		return length - max_distance
+	end
+
+	local min_distance = self.MinDistance
+	local max_distance = self.MaxDistance
+
+	if min_distance ~= nil and length < min_distance then
+		return length - min_distance
+	end
+
+	if max_distance ~= nil and length > max_distance then
+		return length - max_distance
+	end
+
+	if self.Distance ~= nil then return length - self.Distance end
+
+	return 0
+end
+
+function DistanceConstraint:GetSolveDirection(world_pos0, world_pos1)
+	local delta = world_pos1 - world_pos0
+	local length = delta:GetLength()
+
+	if length > EPSILON then
+		self.LastDirection = delta / length
+		return self.LastDirection, length
+	end
+
+	if self.LastDirection and self.LastDirection:GetLength() > EPSILON then
+		return self.LastDirection, 0
+	end
+
+	if self.Body0 and self.Body1 then
+		local body_delta = self.Body1.Position - self.Body0.Position
+		local body_length = body_delta:GetLength()
+
+		if body_length > EPSILON then
+			self.LastDirection = body_delta / body_length
+			return self.LastDirection, 0
+		end
+	end
+
+	self.LastDirection = Vec3(1, 0, 0)
+	return self.LastDirection, 0
+end
+
 function DistanceConstraint:Solve(dt)
 	if not self.Enabled then return 0 end
 
 	local world_pos0 = self:GetWorldPosition0()
 	local world_pos1 = self:GetWorldPosition1()
 
-	if not (world_pos0 and world_pos1 and self.Body0) then return 0 end
+	if not (world_pos0 and world_pos1) then return 0 end
 
-	local correction = world_pos1 - world_pos0
-	local length = correction:GetLength()
+	local normal, length = self:GetSolveDirection(world_pos0, world_pos1)
+	local error = self:GetConstraintError(length)
 
-	if length == 0 then return 0 end
+	if not error then return 0 end
 
-	if self.Unilateral and length < self.Distance then return 0 end
+	if math.abs(error) <= EPSILON then
+		if self.Unilateral then self.AccumulatedLambda = 0 end
 
-	correction = correction / length * (length - self.Distance)
-	return self.Body0:ApplyCorrection(self.Compliance or 0, correction, world_pos0, self.Body1, world_pos1, dt)
+		return 0
+	end
+
+	dt = dt or 0
+
+	if dt <= 0 then dt = 1 / 60 end
+
+	local inverse_mass = 0
+
+	if self.Body0 then
+		inverse_mass = inverse_mass + self.Body0:GetInverseMassAlong(normal, world_pos0)
+	end
+
+	if self.Body1 then
+		inverse_mass = inverse_mass + self.Body1:GetInverseMassAlong(normal, world_pos1)
+	end
+
+	if inverse_mass == 0 then return 0 end
+
+	local alpha = (self.Compliance or 0) / (dt * dt)
+	local accumulated_lambda = self.AccumulatedLambda or 0
+	local delta_lambda = -(error + alpha * accumulated_lambda) / (inverse_mass + alpha)
+
+	if delta_lambda == 0 then return 0 end
+
+	self.AccumulatedLambda = accumulated_lambda + delta_lambda
+	local correction = normal * -delta_lambda
+
+	if self.Body0 then
+		if self.Body0.HasSolverMass and self.Body0:HasSolverMass() then
+			self.Body0:Wake()
+		end
+
+		self.Body0:_ApplyCorrection(correction, world_pos0)
+	end
+
+	if self.Body1 then
+		if self.Body1.HasSolverMass and self.Body1:HasSolverMass() then
+			self.Body1:Wake()
+		end
+
+		self.Body1:_ApplyCorrection(correction * -1, world_pos1)
+	end
+
+	return delta_lambda / (dt * dt)
 end
 
 function DistanceConstraint:Destroy()
-	remove_distance_constraint(self)
+	self.Enabled = false
+	self.AccumulatedLambda = 0
+	remove_constraint(self)
 end
 
 function physics.CreateDistanceConstraint(body0, body1, pos0, pos1, distance, compliance, unilateral)
@@ -71,10 +228,11 @@ function physics.CreateDistanceConstraint(body0, body1, pos0, pos1, distance, co
 		{
 			Body0 = body0,
 			Body1 = body1,
-			Distance = distance or ((pos1 - pos0):GetLength()),
-			Compliance = compliance or 0,
+			Distance = 0,
+			Compliance = 0,
 			Unilateral = unilateral or false,
 			Enabled = true,
+			AccumulatedLambda = 0,
 		},
 		DistanceConstraint
 	)
@@ -91,8 +249,20 @@ function physics.CreateDistanceConstraint(body0, body1, pos0, pos1, distance, co
 		constraint.WorldPosition1 = copy_vec(pos1)
 	end
 
-	table.insert(physics.DistanceConstraints, constraint)
+	constraint:SetCompliance(compliance)
+	constraint:SetDistance(distance or ((pos1 - pos0):GetLength()))
+	table.insert(get_constraint_list(), constraint)
 	return constraint
+end
+
+function physics.RemoveAllConstraints()
+	local constraints = get_constraint_list()
+
+	for i = #constraints, 1, -1 do
+		constraints[i] = nil
+	end
+
+	return physics
 end
 
 physics.AddDistanceConstraint = physics.CreateDistanceConstraint

@@ -87,6 +87,13 @@ end
 function solver:BeginStep()
 	self.StepStamp = (self.StepStamp or 0) + 1
 	manifolds.PruneOld(self.PersistentManifolds, self.StepStamp, MANIFOLD_PRUNE_STEPS)
+	local constraints = physics.Constraints or physics.DistanceConstraints or {}
+
+	for i = 1, #constraints do
+		local constraint = constraints[i]
+
+		if constraint and constraint.BeginStep then constraint:BeginStep() end
+	end
 end
 
 function solver:RegisterPairHandler(shape_a, shape_b, handler)
@@ -178,12 +185,16 @@ local function solve_rigid_body_pair(body_a, body_b, entry_a, entry_b, dt)
 end
 
 function solver.SolveDistanceConstraints(dt)
-	for i = #physics.DistanceConstraints, 1, -1 do
-		local constraint = physics.DistanceConstraints[i]
+	local constraints = physics.Constraints or physics.DistanceConstraints or {}
+
+	for i = #constraints, 1, -1 do
+		local constraint = constraints[i]
 
 		if constraint and constraint.Enabled ~= false then constraint:Solve(dt) end
 	end
 end
+
+solver.SolveConstraints = solver.SolveDistanceConstraints
 
 function solver.SolveRigidBodyPairs(bodies, dt)
 	local pairs = broadphase.BuildCandidatePairs(physics, bodies)

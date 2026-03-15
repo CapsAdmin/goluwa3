@@ -13,7 +13,6 @@ local ffi = require("ffi")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
 local Entity = import("goluwa/ecs/entity.lua")
 local materials = {}
-import("lua/examples/desert.lua")
 
 local function shaded_texture(glsl, shared)
 	if type(glsl) ~= "string" then return glsl end -- already a texture
@@ -119,40 +118,6 @@ do
 			local center = base_center + Vec3(step_size.x * (i - 0.5), size.y * 0.5, 0)
 			spawn_static_box(center, size, material)
 		end
-	end
-
-	local function spawn()
-		local sphere_radius = material_index % 4 == 0 and SMALL_SPHERE_RADIUS or 1
-		local ent = Entity.New({Name = "debug_ent"})
-		local transform = ent:AddComponent("transform")
-		transform:SetPosition((pos * PADDING):Copy())
-		pos.x = pos.x + 1
-
-		if pos.x >= 3 then
-			pos.x = 0
-			pos.z = pos.z + 1
-		end
-
-		local poly = Polygon3D.New()
-		poly:CreateSphere(sphere_radius)
-		local material = materials[material_index]
-		material_index = material_index + 1
-
-		if material_index > #materials then material_index = 1 end
-
-		poly:Upload()
-		local model = ent:AddComponent("model")
-		model:AddPrimitive(poly, material)
-		ent:AddComponent(
-			"rigid_body",
-			{
-				Shape = sphere_shape(sphere_radius),
-				LinearDamping = 0.08,
-				AngularDamping = 0.35,
-				Friction = 0.2,
-				Restitution = 0.25,
-			}
-		)
 	end
 
 	local shared = [[
@@ -411,27 +376,60 @@ do
         ]],
 		normal = "return vec4(0.5, 0.5, 1.0, 1.0);",
 	}
-	local walk_material = Material.New()
-	walk_material:SetAlbedoTexture(shaded_texture("return vec4(0.22, 0.20, 0.18, 1.0);"))
-	walk_material:SetMetallicTexture(shaded_texture("return vec4(0.0);"))
-	walk_material:SetRoughnessTexture(shaded_texture("return vec4(0.88);"))
-	spawn_static_box(Vec3(-10, -3.5, 3.5), Vec3(18, 1, 14), walk_material)
-	spawn_stairs(Vec3(-16, -3.0, 0), 6, Vec3(1.1, 0.45, 4.5), walk_material)
-	spawn_static_box(Vec3(-8.4, -0.075, 0), Vec3(5.5, 0.45, 4.5), walk_material)
-	spawn_static_box(
-		Vec3(-3.8, 0.75, 0),
-		Vec3(6.5, 0.6, 4.5),
-		walk_material,
-		make_rotation(0, 0, -18),
-		0.8
-	)
-	spawn_static_box(Vec3(1.4, 1.85, 0), Vec3(6, 0.7, 4.5), walk_material)
-	spawn_static_box(Vec3(5.5, 2.55, 0), Vec3(2.2, 2.1, 4.5), walk_material)
-	spawn_static_box(Vec3(9.2, 3.05, 0), Vec3(5.2, 0.55, 4.5), walk_material)
-	spawn_static_box(Vec3(12.8, 2.15, 0), Vec3(2.2, 1.25, 4.5), walk_material)
+
+	if false then
+		local walk_material = Material.New()
+		walk_material:SetAlbedoTexture(shaded_texture("return vec4(0.22, 0.20, 0.18, 1.0);"))
+		walk_material:SetMetallicTexture(shaded_texture("return vec4(0.0);"))
+		walk_material:SetRoughnessTexture(shaded_texture("return vec4(0.88);"))
+		spawn_static_box(Vec3(-10, -3.5, 3.5), Vec3(18, 1, 14), walk_material)
+		spawn_stairs(Vec3(-16, -3.0, 0), 6, Vec3(1.1, 0.45, 4.5), walk_material)
+		spawn_static_box(Vec3(-8.4, -0.075, 0), Vec3(5.5, 0.45, 4.5), walk_material)
+		spawn_static_box(
+			Vec3(-3.8, 0.75, 0),
+			Vec3(6.5, 0.6, 4.5),
+			walk_material,
+			make_rotation(0, 0, -18),
+			0.8
+		)
+		spawn_static_box(Vec3(1.4, 1.85, 0), Vec3(6, 0.7, 4.5), walk_material)
+		spawn_static_box(Vec3(5.5, 2.55, 0), Vec3(2.2, 2.1, 4.5), walk_material)
+		spawn_static_box(Vec3(9.2, 3.05, 0), Vec3(5.2, 0.55, 4.5), walk_material)
+		spawn_static_box(Vec3(12.8, 2.15, 0), Vec3(2.2, 1.25, 4.5), walk_material)
+	end
 
 	for i = 1, #materials do
-		spawn()
+		local sphere_radius = 1
+		local ent = Entity.New({Name = "debug_ent"})
+		local transform = ent:AddComponent("transform")
+		transform:SetPosition((pos * PADDING):Copy())
+		pos.x = pos.x + 1
+
+		if pos.x >= 3 then
+			pos.x = 0
+			pos.z = pos.z + 1
+		end
+
+		local poly = Polygon3D.New()
+		poly:CreateSphere(sphere_radius)
+		local material = materials[material_index]
+		material_index = material_index + 1
+
+		if material_index > #materials then material_index = 1 end
+
+		poly:Upload()
+		local model = ent:AddComponent("model")
+		model:AddPrimitive(poly, material)
+		ent:AddComponent(
+			"rigid_body",
+			{
+				Shape = sphere_shape(sphere_radius),
+				LinearDamping = 0.08,
+				AngularDamping = 0.35,
+				Friction = 0.2,
+				Restitution = 0.25,
+			}
+		)
 	end
 end
 

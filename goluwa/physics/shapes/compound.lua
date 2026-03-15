@@ -51,8 +51,8 @@ function META:AddChild(shape, local_position, local_rotation, data)
 
 	child.Shape = shape or get_child_shape(child)
 	assert(child.Shape, "compound child requires Shape or ConvexHull")
-	child.Position = (local_position or child.Position or child.position):Copy()
-	child.Rotation = (local_rotation or child.Rotation or child.rotation):Copy()
+	child.Position = (local_position or child.Position or child.position or Vec3()):Copy()
+	child.Rotation = (local_rotation or child.Rotation or child.rotation or Quat():Identity()):Copy()
 	self.Children[#self.Children + 1] = child
 	return child
 end

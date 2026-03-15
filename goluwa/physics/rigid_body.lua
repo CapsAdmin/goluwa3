@@ -38,7 +38,6 @@ function physics.UpdateRigidBodies(dt)
 		end
 
 		for _ = 1, iterations do
-			solver.SolveDistanceConstraints(sub_dt)
 			solver.SolveRigidBodyPairs(bodies, sub_dt)
 
 			for _, body in ipairs(bodies) do
@@ -48,6 +47,8 @@ function physics.UpdateRigidBodies(dt)
 					end
 				end
 			end
+
+			solver.SolveDistanceConstraints(sub_dt)
 		end
 
 		for _, body in ipairs(bodies) do
