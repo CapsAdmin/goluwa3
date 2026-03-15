@@ -858,6 +858,9 @@ body { background: var(--bg-base); color: #e0e0e0; overflow-x: hidden; }
 .filter-separator { width: 100%; height: 1px; background: var(--border); margin: 4px 0; }
 #flamegraph-container { overflow: hidden; max-height: 0; flex-shrink: 0; contain: strict; }
 #flamegraph-container.open { max-height: none; display: block; overflow-x: hidden; overflow-y: auto; flex: 1; contain: layout style; }
+#flamegraph-toolbar { display: flex; align-items: center; justify-content: flex-end; gap: 10px; padding: 8px 16px 0; }
+#fg-copy-status { color: var(--text-dim); font-size: 11px; min-height: 1em; }
+#btn-copy-fg-summary { padding: 2px 10px; }
 #flamegraph-canvas { width: 100%; min-height: 400px; }
 #tooltip { position: fixed; background: var(--bg-panel); border: 1px solid var(--border-strong); padding: 8px 12px; border-radius: 4px; font-size: 11px; pointer-events: none; display: none; z-index: 100; max-width: 500px; white-space: pre-wrap; line-height: 1.5; }
 .loc-link { color: var(--accent); text-decoration: none; opacity: 0.8; }
@@ -907,6 +910,10 @@ body { background: var(--bg-base); color: #e0e0e0; overflow-x: hidden; }
   <button id="btn-toggle-fg">flamegraph</button>
 </div>
 <div id="flamegraph-container" class="open">
+  <div id="flamegraph-toolbar">
+    <span id="fg-copy-status"></span>
+    <button id="btn-copy-fg-summary" class="panel-btn">copy summary</button>
+  </div>
   <div id="fg-section-filter"></div>
   <canvas id="flamegraph-canvas"></canvas>
 </div>
@@ -1701,6 +1708,22 @@ document.getElementById('btn-toggle-fg').addEventListener('click', () => {
   btn.classList.toggle('collapsed', !isOpen);
   if (isOpen) drawFlamegraph(viewStart, viewEnd);
 });
+
+let fgCopyStatusTimer = null;
+function setFlamegraphCopyStatus(message, isError) {
+  const el = document.getElementById('fg-copy-status');
+  if (!el) return;
+  el.textContent = message || '';
+  el.style.color = isError ? COLORS.abort : COLORS.textDim;
+  if (fgCopyStatusTimer) clearTimeout(fgCopyStatusTimer);
+  if (!message) return;
+  fgCopyStatusTimer = setTimeout(() => {
+    if (el.textContent === message) {
+      el.textContent = '';
+      el.style.color = COLORS.textDim;
+    }
+  }, 2400);
+}
 
 // Sync: highlight traces row when timeline hover changes
 function syncTraceListHighlight(span) {
@@ -2898,6 +2921,7 @@ const fgCtx = fgCanvas.getContext('2d');
 let fgRects = [];
 let _fgCacheKey = '';
 let _fgCachedResult = null;
+let fgLastRange = [0, timeDuration];
 
 function buildFlamegraph(tStart, tEnd) {
   const cacheKey = tStart.toFixed(6) + ':' + tEnd.toFixed(6) + ':' +
@@ -2963,9 +2987,158 @@ const FG_ROW_HEIGHT = 20;
 const FG_FONT_SIZE = 11;
 const FG_MIN_WIDTH_PX = 2;
 
+function formatFlamegraphDuration(seconds) {
+  if (seconds < 0.001) return (seconds * 1e6).toFixed(0) + 'µs';
+  if (seconds < 1) return (seconds * 1000).toFixed(2) + 'ms';
+  return seconds.toFixed(3) + 's';
+}
+
+function formatFlamegraphOffset(seconds) {
+  return seconds.toFixed(6) + 's';
+}
+
+function escapeMarkdownText(text) {
+  return String(text || '')
+    .replace(/\\/g, '\\\\')
+    .replace(/\|/g, '\\|')
+    .replace(/`/g, '\\`')
+    .replace(/\n+/g, ' ');
+}
+
+function aggregateFlamegraphFrames(node, totals) {
+  const children = Object.values(node.children || {});
+  for (const child of children) {
+    let entry = totals.get(child.name);
+    if (!entry) {
+      entry = {name: child.name, count: 0, self: 0, occurrences: 0};
+      totals.set(child.name, entry);
+    }
+    entry.count += child.count || 0;
+    entry.self += child._self || 0;
+    entry.occurrences++;
+    aggregateFlamegraphFrames(child, totals);
+  }
+}
+
+function appendFlamegraphTreeLines(lines, node, totalSamples, depth, maxDepth, maxChildren) {
+  const indent = '  '.repeat(depth);
+  const pct = totalSamples > 0 ? ((node.count / totalSamples) * 100).toFixed(1) : '0.0';
+  const selfPct = totalSamples > 0 ? ((node._self / totalSamples) * 100).toFixed(1) : '0.0';
+  let line = `${indent}- ${node.name} — ${node.count} samples (${pct}%)`;
+  if (node._self > 0) line += `, self ${node._self} (${selfPct}%)`;
+  lines.push(line);
+  if (depth >= maxDepth) return;
+
+  const children = Object.values(node.children || {}).sort((a, b) => b.count - a.count);
+  const visibleChildren = children.slice(0, maxChildren);
+  for (const child of visibleChildren) {
+    appendFlamegraphTreeLines(lines, child, totalSamples, depth + 1, maxDepth, maxChildren);
+  }
+  const hiddenCount = children.length - visibleChildren.length;
+  if (hiddenCount > 0) {
+    lines.push(`${'  '.repeat(depth + 1)}- … ${hiddenCount} more child${hiddenCount === 1 ? '' : 'ren'}`);
+  }
+}
+
+function getFlamegraphFilterSummary() {
+  const activeStates = hoverState
+    ? [(VM_STATE_LABELS[hoverState] || hoverState) + ' (hover preview)']
+    : Array.from(enabledStates)
+      .sort()
+      .map(state => VM_STATE_LABELS[state] || state);
+
+  const activeSections = hoverSection
+    ? [(hoverSection === SECTION_OTHER ? 'other' : hoverSection) + ' (hover preview)']
+    : Array.from(enabledSections)
+      .sort()
+      .map(section => section === SECTION_OTHER ? 'other' : section);
+
+  return {
+    states: activeStates.length > 0 ? activeStates : ['none'],
+    sections: activeSections.length > 0 ? activeSections : ['none'],
+  };
+}
+
+function buildFlamegraphSummaryMarkdown(tStart, tEnd) {
+  const {root, totalSamples} = buildFlamegraph(tStart, tEnd);
+  const filters = getFlamegraphFilterSummary();
+  const duration = Math.max(0, tEnd - tStart);
+  const lines = [
+    '# Flamegraph Summary',
+    '',
+    `- Window: ${formatFlamegraphOffset(tStart)} → ${formatFlamegraphOffset(tEnd)} (${formatFlamegraphDuration(duration)})`,
+    `- Samples: ${totalSamples}`,
+    `- VM states: ${filters.states.join(', ')}`,
+    `- Sections: ${filters.sections.join(', ')}`,
+  ];
+
+  if (hoverState || hoverSection) {
+    lines.push(`- Hover preview: ${[
+      hoverState ? `state=${VM_STATE_LABELS[hoverState] || hoverState}` : null,
+      hoverSection ? `section=${hoverSection === SECTION_OTHER ? 'other' : hoverSection}` : null,
+    ].filter(Boolean).join(', ')}`);
+  }
+
+  if (totalSamples === 0) {
+    lines.push('', 'No samples matched the current range and filter selection.');
+    return lines.join('\n');
+  }
+
+  const totals = new Map();
+  aggregateFlamegraphFrames(root, totals);
+  const hottestFrames = Array.from(totals.values())
+    .sort((a, b) => (b.count - a.count) || (b.self - a.self) || a.name.localeCompare(b.name))
+    .slice(0, 12);
+  const hottestSelfFrames = Array.from(totals.values())
+    .filter(entry => entry.self > 0)
+    .sort((a, b) => (b.self - a.self) || (b.count - a.count) || a.name.localeCompare(b.name))
+    .slice(0, 12);
+
+  lines.push('', '## Hottest Frames', '', '| Frame | Inclusive | Inclusive % | Self | Self % | Seen |', '| --- | ---: | ---: | ---: | ---: | ---: |');
+  for (const entry of hottestFrames) {
+    const inclusivePct = ((entry.count / totalSamples) * 100).toFixed(1) + '%';
+    const selfPct = ((entry.self / totalSamples) * 100).toFixed(1) + '%';
+    lines.push(`| ${escapeMarkdownText(entry.name)} | ${entry.count} | ${inclusivePct} | ${entry.self} | ${selfPct} | ${entry.occurrences} |`);
+  }
+
+  if (hottestSelfFrames.length > 0) {
+    lines.push('', '## Hottest Self Time', '', '| Frame | Self | Self % | Inclusive | Inclusive % | Seen |', '| --- | ---: | ---: | ---: | ---: | ---: |');
+    for (const entry of hottestSelfFrames) {
+      const selfPct = ((entry.self / totalSamples) * 100).toFixed(1) + '%';
+      const inclusivePct = ((entry.count / totalSamples) * 100).toFixed(1) + '%';
+      lines.push(`| ${escapeMarkdownText(entry.name)} | ${entry.self} | ${selfPct} | ${entry.count} | ${inclusivePct} | ${entry.occurrences} |`);
+    }
+  }
+
+  lines.push('', '## Hottest Call Tree', '');
+  appendFlamegraphTreeLines(lines, root, totalSamples, 0, 5, 5);
+  return lines.join('\n');
+}
+
+async function copyTextToClipboard(text) {
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.setAttribute('readonly', '');
+  ta.style.position = 'fixed';
+  ta.style.opacity = '0';
+  ta.style.left = '-9999px';
+  document.body.appendChild(ta);
+  ta.select();
+  ta.setSelectionRange(0, ta.value.length);
+  const ok = document.execCommand('copy');
+  document.body.removeChild(ta);
+  if (!ok) throw new Error('copy failed');
+}
+
 function drawFlamegraph(tStart, tEnd) {
   const container = document.getElementById('flamegraph-container');
   if (!container || !container.classList.contains('open')) return;
+  fgLastRange = [tStart, tEnd];
   const {root, maxDepth, totalSamples} = buildFlamegraph(tStart, tEnd);
   const containerW = fgCanvas.parentElement.clientWidth;
   const canvasH = Math.max(400, (maxDepth + 2) * FG_ROW_HEIGHT + 40);
@@ -3101,6 +3274,16 @@ fgCanvas.addEventListener('click', (ev) => {
 });
 
 fgCanvas.addEventListener('mouseleave', () => { hideTooltip(); });
+
+document.getElementById('btn-copy-fg-summary').addEventListener('click', async () => {
+  try {
+    const summary = buildFlamegraphSummaryMarkdown(fgLastRange[0], fgLastRange[1]);
+    await copyTextToClipboard(summary);
+    setFlamegraphCopyStatus('copied markdown summary', false);
+  } catch (err) {
+    setFlamegraphCopyStatus('copy failed', true);
+  }
+});
 
 // --- Init ---
 timelineContainerH = computeDefaultTimelineH();
