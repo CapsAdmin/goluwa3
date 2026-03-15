@@ -35,6 +35,16 @@ return function(name, base_path, get_valid_components)
 		end
 	end
 
+	function BaseEntity.RegisterComponent(name, meta)
+		BaseEntity.RegieredComponents = BaseEntity.RegieredComponents or get_valid_components()
+		BaseEntity.RegieredComponents[name] = meta
+	end
+
+	function BaseEntity.GetValidComponents()
+		BaseEntity.RegieredComponents = BaseEntity.RegieredComponents or get_valid_components()
+		return BaseEntity.RegieredComponents
+	end
+
 	function BaseEntity.New(config)
 		local self = BaseEntity:CreateObject{
 			Children = {},
@@ -90,7 +100,7 @@ return function(name, base_path, get_valid_components)
 					end
 				end
 
-				valid_components = valid_components or get_valid_components()
+				local valid_components = BaseEntity.GetValidComponents()
 
 				for key, val in pairs(config) do
 					if
@@ -227,7 +237,7 @@ return function(name, base_path, get_valid_components)
 	end
 
 	function BaseEntity:AddComponent(name, tbl, skip_init, OnSetProperty)
-		valid_components = valid_components or get_valid_components()
+		local valid_components = BaseEntity.GetValidComponents()
 		local meta = valid_components[name] --require(base_path .. name)
 		self[name] = self:CreateSubObject(meta)
 		apply_config(self[name], tbl, OnSetProperty)
