@@ -4,6 +4,8 @@ local Ang3 = import("goluwa/structs/ang3.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local AABB = import("goluwa/structs/aabb.lua")
+local system = import("goluwa/system.lua")
+local physics
 local META = prototype.CreateTemplate("transform_3d")
 META:StartStorable()
 META:GetSet("Position", Vec3(0, 0, 0), {callback = "InvalidateMatrices"})
@@ -50,6 +52,9 @@ function META:InvalidateMatrices()
 	self.LocalMatrix = nil
 	self.WorldMatrix = nil
 	self.WorldMatrixInverse = nil
+	self.LocalMatrixFrame = nil
+	self.WorldMatrixFrame = nil
+	self.WorldMatrixInverseFrame = nil
 	self:InvalidateChildWorldMatrices()
 end
 
@@ -60,20 +65,64 @@ function META:InvalidateChildWorldMatrices()
 		if child.transform then
 			child.transform.WorldMatrix = nil
 			child.transform.WorldMatrixInverse = nil
+			child.transform.WorldMatrixFrame = nil
+			child.transform.WorldMatrixInverseFrame = nil
 			child.transform:InvalidateChildWorldMatrices()
 		end
 	end
 end
 
+function META:ShouldUseInterpolatedPhysicsTransform()
+	local owner = self.Owner
+	local body = owner and owner.rigid_body
+	return body and
+		body.ShouldInterpolateTransform and
+		body:ShouldInterpolateTransform() or
+		false
+end
+
+function META:IsFrameDynamic()
+	if self:ShouldUseInterpolatedPhysicsTransform() then return true end
+
+	local parent = self.Owner and self.Owner:GetParent()
+	return parent and parent.transform and parent.transform:IsFrameDynamic() or false
+end
+
+function META:GetRenderPositionRotation()
+	if not self:ShouldUseInterpolatedPhysicsTransform() then return nil end
+
+	local frame = system.GetFrameNumber()
+
+	if self.InterpolatedFrame ~= frame then
+		local body = self.Owner.rigid_body
+		physics = physics or import("goluwa/physics.lua")
+		local alpha = physics.GetInterpolationAlpha and physics.GetInterpolationAlpha() or 0
+		self.InterpolatedPosition = body:GetInterpolatedPosition(alpha)
+		self.InterpolatedRotation = body:GetInterpolatedRotation(alpha)
+		self.InterpolatedFrame = frame
+	end
+
+	return self.InterpolatedPosition, self.InterpolatedRotation
+end
+
 -- Get local matrix (without parent transforms)
 function META:GetLocalMatrix()
-	if not self.LocalMatrix then
+	local frame = system.GetFrameNumber()
+	local dynamic = self:IsFrameDynamic()
+
+	if dynamic and self.LocalMatrixFrame == frame and self.LocalMatrix then
+		return self.LocalMatrix
+	end
+
+	if not self.LocalMatrix or dynamic then
 		self.LocalMatrix = Matrix44()
+		self.LocalMatrixFrame = dynamic and frame or nil
 
 		if not self.SkipRebuild then
 			-- ORIENTATION / TRANSFORMATION
-			local pos = self.OverridePosition or self.Position
-			local rot = self.OverrideRotation or self.Rotation
+			local interpolated_pos, interpolated_rot = self:GetRenderPositionRotation()
+			local pos = self.OverridePosition or interpolated_pos or self.Position
+			local rot = self.OverrideRotation or interpolated_rot or self.Rotation
 			self.LocalMatrix:Identity()
 			self.LocalMatrix:SetRotation(rot)
 
@@ -91,8 +140,16 @@ end
 
 -- Get world matrix (with parent transforms applied)
 function META:GetWorldMatrix()
-	if not self.WorldMatrix then
+	local frame = system.GetFrameNumber()
+	local dynamic = self:IsFrameDynamic()
+
+	if dynamic and self.WorldMatrixFrame == frame and self.WorldMatrix then
+		return self.WorldMatrix
+	end
+
+	if not self.WorldMatrix or dynamic then
 		local local_matrix = self:GetLocalMatrix()
+		self.WorldMatrixFrame = dynamic and frame or nil
 
 		if self.Owner and self.Owner:HasParent() then
 			local parent = self.Owner:GetParent()
@@ -113,7 +170,15 @@ function META:GetWorldMatrix()
 end
 
 function META:GetWorldMatrixInverse()
-	if not self.WorldMatrixInverse then
+	local frame = system.GetFrameNumber()
+	local dynamic = self:IsFrameDynamic()
+
+	if dynamic and self.WorldMatrixInverseFrame == frame and self.WorldMatrixInverse then
+		return self.WorldMatrixInverse
+	end
+
+	if not self.WorldMatrixInverse or dynamic then
+		self.WorldMatrixInverseFrame = dynamic and frame or nil
 		self.WorldMatrixInverse = self:GetWorldMatrix():GetInverse()
 	end
 

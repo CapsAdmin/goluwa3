@@ -6,6 +6,7 @@ local Texture = import("goluwa/render/texture.lua")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
 local Entity = import("goluwa/ecs/entity.lua")
 local physics = import("goluwa/physics.lua")
+import("goluwa/physics/constraint.lua")
 local SphereShape = import("goluwa/physics/shapes/sphere.lua")
 local BoxShape = import("goluwa/physics/shapes/box.lua")
 local sphere_shape = SphereShape.New

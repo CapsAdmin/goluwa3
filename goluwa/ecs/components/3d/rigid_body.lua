@@ -638,6 +638,33 @@ function META:WriteToTransform()
 	self.Owner.transform:SetRotation(self.Rotation:Copy())
 end
 
+function META:ShouldInterpolateTransform()
+	return self:IsDynamic() and
+		self.PreviousPosition and
+		self.PreviousRotation and
+		self.Position and
+		self.Rotation
+end
+
+function META:GetInterpolatedPosition(alpha)
+	if not self:ShouldInterpolateTransform() then return self.Position end
+
+	alpha = math.min(math.max(alpha or 0, 0), 1)
+	return self.PreviousPosition + (self.Position - self.PreviousPosition) * alpha
+end
+
+function META:GetInterpolatedRotation(alpha)
+	if not self:ShouldInterpolateTransform() then return self.Rotation end
+
+	alpha = math.min(math.max(alpha or 0, 0), 1)
+	local previous = self.PreviousRotation
+	local current = self.Rotation
+
+	if previous:Dot(current) < 0 then current = current * -1 end
+
+	return previous:GetLerped(alpha, current):GetNormalized()
+end
+
 function META:LocalToWorld(local_pos, position, rotation)
 	position = position or self.Position
 	rotation = rotation or self.Rotation
