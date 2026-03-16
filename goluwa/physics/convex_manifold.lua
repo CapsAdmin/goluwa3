@@ -3,10 +3,21 @@ local solver = import("goluwa/physics/solver.lua")
 local convex_manifold = {}
 local EPSILON = solver.EPSILON or 0.00001
 
-function convex_manifold.CollectSupportVertices(vertices, axis, want_max, tolerance)
-	local support = {}
+local function clear_array(array, from_index)
+	from_index = from_index or 1
+
+	for i = from_index, #array do
+		array[i] = nil
+	end
+
+	return array
+end
+
+function convex_manifold.CollectSupportVertices(vertices, axis, want_max, tolerance, support)
+	support = support or {}
 	local best = want_max and -math.huge or math.huge
 	tolerance = tolerance or 0.06
+	local count = 0
 
 	for _, point in ipairs(vertices) do
 		local projection = point:Dot(axis)
@@ -14,21 +25,25 @@ function convex_manifold.CollectSupportVertices(vertices, axis, want_max, tolera
 		if want_max then
 			if projection > best + tolerance then
 				best = projection
-				support = {point}
+				count = 1
+				support[1] = point
 			elseif math.abs(projection - best) <= tolerance then
-				support[#support + 1] = point
+				count = count + 1
+				support[count] = point
 			end
 		else
 			if projection < best - tolerance then
 				best = projection
-				support = {point}
+				count = 1
+				support[1] = point
 			elseif math.abs(projection - best) <= tolerance then
-				support[#support + 1] = point
+				count = count + 1
+				support[count] = point
 			end
 		end
 	end
 
-	return support, best
+	return clear_array(support, count + 1), best
 end
 
 function convex_manifold.AverageWorldPoints(points)
@@ -41,6 +56,41 @@ function convex_manifold.AverageWorldPoints(points)
 	end
 
 	return sum / #points
+end
+
+function convex_manifold.AverageSupportPoint(vertices, axis, want_max, tolerance)
+	local best = want_max and -math.huge or math.huge
+	tolerance = tolerance or 0.06
+	local sum = nil
+	local count = 0
+
+	for _, point in ipairs(vertices) do
+		local projection = point:Dot(axis)
+
+		if want_max then
+			if projection > best + tolerance then
+				best = projection
+				sum = point
+				count = 1
+			elseif math.abs(projection - best) <= tolerance then
+				sum = sum + point
+				count = count + 1
+			end
+		else
+			if projection < best - tolerance then
+				best = projection
+				sum = point
+				count = 1
+			elseif math.abs(projection - best) <= tolerance then
+				sum = sum + point
+				count = count + 1
+			end
+		end
+	end
+
+	if count == 0 then return nil end
+
+	return sum / count
 end
 
 function convex_manifold.AddContactPoint(contacts, point_a, point_b, merge_distance)
@@ -61,9 +111,14 @@ end
 
 function convex_manifold.BuildSupportPairContacts(vertices_a, vertices_b, normal, options)
 	options = options or {}
-	local contacts = {}
-	local support_a = convex_manifold.CollectSupportVertices(vertices_a, normal, true, options.support_tolerance)
-	local support_b = convex_manifold.CollectSupportVertices(vertices_b, normal, false, options.support_tolerance)
+	local scratch = options.scratch or {}
+	local contacts = scratch.contacts or {}
+	scratch.contacts = clear_array(contacts)
+	scratch.support_a = scratch.support_a or {}
+	scratch.support_b = scratch.support_b or {}
+	contacts = scratch.contacts
+	local support_a = convex_manifold.CollectSupportVertices(vertices_a, normal, true, options.support_tolerance, scratch.support_a)
+	local support_b = convex_manifold.CollectSupportVertices(vertices_b, normal, false, options.support_tolerance, scratch.support_b)
 
 	if not support_a[1] or not support_b[1] then return contacts end
 

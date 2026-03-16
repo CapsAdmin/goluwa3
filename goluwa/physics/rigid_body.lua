@@ -37,8 +37,10 @@ function physics.UpdateRigidBodies(dt)
 			end
 		end
 
+		local rigid_body_pairs = solver.BuildBroadphasePairs and solver.BuildBroadphasePairs(bodies) or bodies
+
 		for _ = 1, iterations do
-			solver.SolveRigidBodyPairs(bodies, sub_dt)
+			solver.SolveRigidBodyPairs(rigid_body_pairs, sub_dt)
 
 			for _, body in ipairs(bodies) do
 				if physics.IsActiveRigidBody(body) then

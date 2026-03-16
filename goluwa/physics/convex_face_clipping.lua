@@ -40,13 +40,25 @@ local function get_edge_side(a, b, point)
 	return (b.x - a.x) * (point.y - a.y) - (b.y - a.y) * (point.x - a.x)
 end
 
-local function clip_polygon_to_edge(points, edge_a, edge_b, inside_sign)
-	if not points[1] then return {} end
+local function clear_array(array, from_index)
+	from_index = from_index or 1
 
-	local clipped = {}
+	for i = from_index, #array do
+		array[i] = nil
+	end
+
+	return array
+end
+
+local function clip_polygon_to_edge(points, edge_a, edge_b, inside_sign, out)
+	out = out or {}
+
+	if not points[1] then return clear_array(out) end
+
 	local previous = points[#points]
 	local previous_distance = inside_sign * get_edge_side(edge_a, edge_b, previous)
 	local previous_inside = previous_distance >= -EPSILON
+	local count = 0
 
 	for _, point in ipairs(points) do
 		local distance = inside_sign * get_edge_side(edge_a, edge_b, point)
@@ -58,27 +70,33 @@ local function clip_polygon_to_edge(points, edge_a, edge_b, inside_sign)
 
 			if math.abs(denominator) > EPSILON then
 				local t = previous_distance / denominator
-				clipped[#clipped + 1] = previous + delta * t
+				count = count + 1
+				out[count] = previous + delta * t
 			end
 		end
 
-		if inside then clipped[#clipped + 1] = point end
+		if inside then
+			count = count + 1
+			out[count] = point
+		end
 
 		previous = point
 		previous_distance = distance
 		previous_inside = inside
 	end
 
-	return clipped
+	return clear_array(out, count + 1)
 end
 
-local function clip_polygon_component(points, axis_index, limit, keep_less_equal)
-	if not points[1] then return {} end
+local function clip_polygon_component(points, axis_index, limit, keep_less_equal, out)
+	out = out or {}
 
-	local clipped = {}
+	if not points[1] then return clear_array(out) end
+
 	local previous = points[#points]
 	local previous_distance = get_component(previous, axis_index) - limit
 	local previous_inside = keep_less_equal and previous_distance <= 0 or previous_distance >= 0
+	local count = 0
 
 	for _, point in ipairs(points) do
 		local distance = get_component(point, axis_index) - limit
@@ -90,31 +108,71 @@ local function clip_polygon_component(points, axis_index, limit, keep_less_equal
 
 			if math.abs(denominator) > EPSILON then
 				local t = previous_distance / denominator
-				clipped[#clipped + 1] = previous + delta * t
+				count = count + 1
+				out[count] = previous + delta * t
 			end
 		end
 
-		if inside then clipped[#clipped + 1] = point end
+		if inside then
+			count = count + 1
+			out[count] = point
+		end
 
 		previous = point
 		previous_distance = distance
 		previous_inside = inside
 	end
 
-	return clipped
+	return clear_array(out, count + 1)
 end
 
-function convex_face_clipping.ClipFacePolygonToReference(reference_body, reference_face, incident_points)
-	local polygon = {}
+function convex_face_clipping.ClipFacePolygonToReference(reference_body, reference_face, incident_points, scratch)
+	scratch = scratch or {}
+	local polygon_a = scratch.polygon_a or {}
+	local polygon_b = scratch.polygon_b or {}
+	scratch.polygon_a = polygon_a
+	scratch.polygon_b = polygon_b
+	local count = 0
 
 	for i, point in ipairs(incident_points or {}) do
-		polygon[i] = reference_body:WorldToLocal(point)
+		polygon_a[i] = reference_body:WorldToLocal(point)
+		count = i
 	end
 
-	polygon = clip_polygon_component(polygon, reference_face.tangent_u_index, reference_face.tangent_u_extent, true)
-	polygon = clip_polygon_component(polygon, reference_face.tangent_u_index, -reference_face.tangent_u_extent, false)
-	polygon = clip_polygon_component(polygon, reference_face.tangent_v_index, reference_face.tangent_v_extent, true)
-	polygon = clip_polygon_component(polygon, reference_face.tangent_v_index, -reference_face.tangent_v_extent, false)
+	clear_array(polygon_a, count + 1)
+	local polygon = polygon_a
+	local out = polygon_b
+	polygon = clip_polygon_component(
+		polygon,
+		reference_face.tangent_u_index,
+		reference_face.tangent_u_extent,
+		true,
+		out
+	)
+	out = polygon == polygon_a and polygon_b or polygon_a
+	polygon = clip_polygon_component(
+		polygon,
+		reference_face.tangent_u_index,
+		-reference_face.tangent_u_extent,
+		false,
+		out
+	)
+	out = polygon == polygon_a and polygon_b or polygon_a
+	polygon = clip_polygon_component(
+		polygon,
+		reference_face.tangent_v_index,
+		reference_face.tangent_v_extent,
+		true,
+		out
+	)
+	out = polygon == polygon_a and polygon_b or polygon_a
+	polygon = clip_polygon_component(
+		polygon,
+		reference_face.tangent_v_index,
+		-reference_face.tangent_v_extent,
+		false,
+		out
+	)
 
 	for i, point in ipairs(polygon) do
 		local clamped_u = math.max(
@@ -135,9 +193,10 @@ function convex_face_clipping.ClipFacePolygonToReference(reference_body, referen
 	return polygon
 end
 
-function convex_face_clipping.BuildReferenceFace(points, normal, tangent_u, tangent_v)
+function convex_face_clipping.BuildReferenceFace(points, normal, tangent_u, tangent_v, scratch)
 	if not points or not points[1] then return nil end
 
+	scratch = scratch or {}
 	normal = normal:GetNormalized()
 	local center = Vec3(0, 0, 0)
 
@@ -188,44 +247,57 @@ function convex_face_clipping.BuildReferenceFace(points, normal, tangent_u, tang
 		tangent_u, tangent_v = get_plane_basis(normal)
 	end
 
-	local projected_points = {}
+	local projected_points = scratch.projected_points or {}
+	scratch.projected_points = projected_points
 
 	for i, point in ipairs(points) do
 		local relative = point - center
-		projected_points[i] = {
-			x = relative:Dot(tangent_u),
-			y = relative:Dot(tangent_v),
-		}
+		local projected_point = projected_points[i] or {}
+		projected_point.x = relative:Dot(tangent_u)
+		projected_point.y = relative:Dot(tangent_v)
+		projected_points[i] = projected_point
 	end
 
-	return {
-		center = center,
-		normal = normal,
-		tangent_u = tangent_u,
-		tangent_v = tangent_v,
-		points = points,
-		projected_points = projected_points,
-	}
+	clear_array(projected_points, #points + 1)
+	local reference_face = scratch.reference_face or {}
+	scratch.reference_face = reference_face
+	reference_face.center = center
+	reference_face.normal = normal
+	reference_face.tangent_u = tangent_u
+	reference_face.tangent_v = tangent_v
+	reference_face.points = points
+	reference_face.projected_points = projected_points
+	return reference_face
 end
 
-function convex_face_clipping.ClipIncidentPolygonToReferenceFace(reference_face, incident_points)
-	local polygon = {}
+function convex_face_clipping.ClipIncidentPolygonToReferenceFace(reference_face, incident_points, scratch)
+	scratch = scratch or {}
+	local polygon_a = scratch.polygon_a or {}
+	local polygon_b = scratch.polygon_b or {}
+	scratch.polygon_a = polygon_a
+	scratch.polygon_b = polygon_b
+	local count = 0
 
 	for i, point in ipairs(incident_points or {}) do
 		local relative = point - reference_face.center
-		polygon[i] = Vec3(
+		polygon_a[i] = Vec3(
 			relative:Dot(reference_face.tangent_u),
 			relative:Dot(reference_face.tangent_v),
 			relative:Dot(reference_face.normal)
 		)
+		count = i
 	end
 
+	clear_array(polygon_a, count + 1)
 	local inside_point = {x = 0, y = 0}
+	local polygon = polygon_a
+	local out = polygon_b
 
 	for i, edge_a in ipairs(reference_face.projected_points or {}) do
 		local edge_b = reference_face.projected_points[i % #reference_face.projected_points + 1]
 		local inside_sign = get_edge_side(edge_a, edge_b, inside_point) >= 0 and 1 or -1
-		polygon = clip_polygon_to_edge(polygon, edge_a, edge_b, inside_sign)
+		polygon = clip_polygon_to_edge(polygon, edge_a, edge_b, inside_sign, out)
+		out = polygon == polygon_a and polygon_b or polygon_a
 
 		if not polygon[1] then break end
 	end
@@ -233,29 +305,33 @@ function convex_face_clipping.ClipIncidentPolygonToReferenceFace(reference_face,
 	return polygon
 end
 
-function convex_face_clipping.BuildFaceContactEntries(reference_face, incident_points, separation_tolerance)
-	local entries = {}
-	local clipped = convex_face_clipping.ClipIncidentPolygonToReferenceFace(reference_face, incident_points)
+function convex_face_clipping.BuildFaceContactEntries(reference_face, incident_points, separation_tolerance, scratch)
+	scratch = scratch or {}
+	local entries = scratch.entries or {}
+	scratch.entries = entries
+	local clipped = convex_face_clipping.ClipIncidentPolygonToReferenceFace(reference_face, incident_points, scratch)
 	separation_tolerance = separation_tolerance or 0.08
+	local count = 0
 
 	for _, local_point in ipairs(clipped) do
 		local separation = local_point.z
 
 		if separation <= separation_tolerance then
 			local reference_point = reference_face.center + reference_face.tangent_u * local_point.x + reference_face.tangent_v * local_point.y
-			entries[#entries + 1] = {
-				separation = separation,
-				local_point = local_point,
-				point_reference = reference_point,
-				point_incident = reference_point + reference_face.normal * separation,
-			}
+			count = count + 1
+			local entry = entries[count] or {}
+			entry.separation = separation
+			entry.local_point = local_point
+			entry.point_reference = reference_point
+			entry.point_incident = reference_point + reference_face.normal * separation
+			entries[count] = entry
 		end
 	end
 
-	return entries
+	return clear_array(entries, count + 1)
 end
 
-function convex_face_clipping.SelectFaceContactEntries(entries, reference_face, max_contacts)
+function convex_face_clipping.SelectFaceContactEntries(entries, reference_face, max_contacts, scratch)
 	max_contacts = max_contacts or 4
 
 	if #entries <= max_contacts then
@@ -266,8 +342,16 @@ function convex_face_clipping.SelectFaceContactEntries(entries, reference_face, 
 		return entries
 	end
 
-	local selected = {}
-	local chosen = {}
+	scratch = scratch or {}
+	local selected = scratch.selected or {}
+	local chosen = scratch.chosen or {}
+	scratch.selected = selected
+	scratch.chosen = chosen
+
+	for i = 1, #selected do
+		selected[i] = nil
+	end
+
 	local tangent_u_name = reference_face and
 		reference_face.tangent_u_index == 1 and
 		"x" or
@@ -326,6 +410,10 @@ function convex_face_clipping.SelectFaceContactEntries(entries, reference_face, 
 
 			if #selected >= math.min(max_contacts, #entries) then break end
 		end
+	end
+
+	for entry in pairs(chosen) do
+		chosen[entry] = nil
 	end
 
 	return selected

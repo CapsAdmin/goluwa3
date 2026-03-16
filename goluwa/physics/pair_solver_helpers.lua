@@ -49,7 +49,7 @@ function pair_solver_helpers.GetSafeCollisionNormal(delta, relative_velocity)
 	return Vec3(1, 0, 0), 0
 end
 
-function pair_solver_helpers.SweepPointAgainstBox(box_body, start_world, end_world)
+function pair_solver_helpers.SweepPointAgainstBox(box_body, start_world, end_world, extra_radius)
 	local movement_world = end_world - start_world
 
 	if movement_world:GetLength() <= EPSILON then return nil end
@@ -58,6 +58,7 @@ function pair_solver_helpers.SweepPointAgainstBox(box_body, start_world, end_wor
 	local end_local = box_body:WorldToLocal(end_world)
 	local movement_local = end_local - start_local
 	local extents = box_body:GetPhysicsShape():GetExtents()
+	extra_radius = math.max(extra_radius or 0, 0)
 	local t_enter = 0
 	local t_exit = 1
 	local hit_normal_local = nil
@@ -66,8 +67,8 @@ function pair_solver_helpers.SweepPointAgainstBox(box_body, start_world, end_wor
 		local name = axis[1]
 		local s = start_local[name]
 		local d = movement_local[name]
-		local min_value = -extents[name]
-		local max_value = extents[name]
+		local min_value = -extents[name] - extra_radius
+		local max_value = extents[name] + extra_radius
 
 		if math.abs(d) <= EPSILON then
 			if s < min_value or s > max_value then return nil end

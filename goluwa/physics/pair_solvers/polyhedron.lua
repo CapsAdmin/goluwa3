@@ -14,15 +14,114 @@ local EPSILON = physics_solver.EPSILON or 0.00001
 local FACE_CONTACT_SEPARATION_TOLERANCE = 0.08
 local FACE_AXIS_RELATIVE_TOLERANCE = 1.05
 local FACE_AXIS_ABSOLUTE_TOLERANCE = 0.03
+local TEMPORAL_TOI_MIN_SAMPLE_STEPS = 10
+local TEMPORAL_TOI_MAX_SAMPLE_STEPS = 48
+local TEMPORAL_TOI_REFINE_STEPS = 12
+local POLYHEDRON_FACE_CONTACT_SCRATCH = {}
+local POLYHEDRON_SUPPORT_CONTACT_SCRATCH = {}
+local POLYHEDRON_CONTACT_OUTPUT_SCRATCH = {
+	face_contacts = {},
+	edge_contacts = {
+		{},
+	},
+}
 
-function polyhedron.GetPolyhedronWorldVertices(body, polyhedron_data)
-	local out = {}
+local function local_to_world_at(position, rotation, local_point)
+	return position + rotation:VecMul(local_point)
+end
+
+local function fill_polyhedron_world_vertices(polyhedron_data, position, rotation, out)
+	out = out or {}
+	local count = 0
 
 	for i, point in ipairs(polyhedron_data.vertices or {}) do
-		out[i] = body:LocalToWorld(point)
+		out[i] = local_to_world_at(position, rotation, point)
+		count = i
+	end
+
+	for i = count + 1, #out do
+		out[i] = nil
 	end
 
 	return out
+end
+
+local function fill_polyhedron_world_faces(polyhedron_data, world_vertices, rotation, out)
+	out = out or {}
+	local face_count = 0
+
+	for face_index, face in ipairs(polyhedron_data.faces or {}) do
+		local cached_face = out[face_index] or {points = {}}
+		local points = cached_face.points
+		local count = 0
+
+		for i, vertex_index in ipairs(face.indices or {}) do
+			points[i] = world_vertices[vertex_index]
+			count = i
+		end
+
+		for i = count + 1, #points do
+			points[i] = nil
+		end
+
+		cached_face.normal = rotation:VecMul(face.normal):GetNormalized()
+		cached_face.face_index = face_index
+		out[face_index] = cached_face
+		face_count = face_index
+	end
+
+	for i = face_count + 1, #out do
+		out[i] = nil
+	end
+
+	return out
+end
+
+local function get_polyhedron_world_cache(body, polyhedron_data)
+	local position = body:GetPosition()
+	local rotation = body:GetRotation()
+	local cache = body._PhysicsPolyhedronWorldVerticesCache or {}
+	body._PhysicsPolyhedronWorldVerticesCache = cache
+
+	if
+		cache.polyhedron == polyhedron_data and
+		cache.px == position.x and
+		cache.py == position.y and
+		cache.pz == position.z and
+		cache.rx == rotation.x and
+		cache.ry == rotation.y and
+		cache.rz == rotation.z and
+		cache.rw == rotation.w
+	then
+		return cache
+	end
+
+	cache.polyhedron = polyhedron_data
+	cache.px = position.x
+	cache.py = position.y
+	cache.pz = position.z
+	cache.rx = rotation.x
+	cache.ry = rotation.y
+	cache.rz = rotation.z
+	cache.rw = rotation.w
+	cache.vertices = fill_polyhedron_world_vertices(polyhedron_data, position, rotation, cache.vertices)
+	cache.faces_valid = false
+	return cache
+end
+
+function polyhedron.GetPolyhedronWorldVertices(body, polyhedron_data)
+	return get_polyhedron_world_cache(body, polyhedron_data).vertices
+end
+
+function polyhedron.GetPolyhedronWorldFace(body, polyhedron_data, face_index)
+	local cache = get_polyhedron_world_cache(body, polyhedron_data)
+
+	if not cache.faces_valid then
+		cache.faces = fill_polyhedron_world_faces(polyhedron_data, cache.vertices, body:GetRotation(), cache.faces)
+		cache.faces_valid = true
+	end
+
+	return cache.faces and cache.faces[face_index]
 end
 
 function polyhedron.ClosestPointOnTriangle(point, a, b, c)
@@ -73,18 +172,8 @@ function polyhedron.ClosestPointOnTriangle(point, a, b, c)
 	return a + ab * v + ac * w
 end
 
-local function local_to_world_at(position, rotation, local_point)
-	return position + rotation:VecMul(local_point)
-end
-
-local function get_polyhedron_world_vertices_at(polyhedron, position, rotation)
-	local out = {}
-
-	for i, point in ipairs(polyhedron.vertices or {}) do
-		out[i] = local_to_world_at(position, rotation, point)
-	end
-
-	return out
+local function get_polyhedron_world_vertices_at(polyhedron, position, rotation, out)
+	return fill_polyhedron_world_vertices(polyhedron, position, rotation, out)
 end
 
 local function interpolate_position(previous, current, t)
@@ -106,6 +195,27 @@ local function interpolate_rotation(previous, current, t)
 	):GetNormalized()
 end
 
+local function get_body_motion_scale(body)
+	local linear = (body:GetPosition() - body:GetPreviousPosition()):GetLength()
+	local dot = math.min(1, math.max(-1, math.abs(body:GetPreviousRotation():Dot(body:GetRotation()))))
+	local angular = math.acos(dot) * 2
+	local bounds = body:GetBroadphaseAABB()
+	local extent = Vec3(
+			bounds.max_x - bounds.min_x,
+			bounds.max_y - bounds.min_y,
+			bounds.max_z - bounds.min_z
+		):GetLength() * 0.5
+	return linear + extent * angular
+end
+
+local function get_temporal_toi_sample_steps(body_a, body_b)
+	local motion_scale = math.max(get_body_motion_scale(body_a), get_body_motion_scale(body_b))
+	return math.max(
+		TEMPORAL_TOI_MIN_SAMPLE_STEPS,
+		math.min(TEMPORAL_TOI_MAX_SAMPLE_STEPS, math.ceil(motion_scale / 0.25) * 2)
+	)
+end
+
 local function get_edge_direction(polyhedron, edge)
 	if edge.direction then return edge.direction end
 
@@ -118,26 +228,45 @@ local function get_edge_indices(edge)
 	return edge.a or edge[1], edge.b or edge[2]
 end
 
-local function build_polyhedron_contacts(vertices_a, vertices_b, normal)
-	return convex_manifold.BuildSupportPairContacts(vertices_a, vertices_b, normal)
+local function fill_contact_pair(contacts, index, point_a, point_b)
+	local contact = contacts[index] or {}
+	contact.point_a = point_a
+	contact.point_b = point_b
+	contacts[index] = contact
+	return contact
 end
 
-local function get_world_face(poly_data, world_vertices, rotation, face_index)
-	local face = poly_data.faces and poly_data.faces[face_index]
+local function add_contact_point_reused(contacts, count, point_a, point_b, merge_distance)
+	local midpoint = (point_a + point_b) * 0.5
+	merge_distance = merge_distance or 0.1
 
-	if not face then return nil end
+	for i = 1, count do
+		local existing = contacts[i]
+		local existing_midpoint = (existing.point_a + existing.point_b) * 0.5
 
-	local points = {}
-
-	for i, vertex_index in ipairs(face.indices or {}) do
-		points[i] = world_vertices[vertex_index]
+		if (existing_midpoint - midpoint):GetLength() <= merge_distance then
+			return count
+		end
 	end
 
-	return {
-		points = points,
-		normal = rotation:VecMul(face.normal):GetNormalized(),
-		face_index = face_index,
-	}
+	count = count + 1
+	fill_contact_pair(contacts, count, point_a, point_b)
+	return count
+end
+
+local function build_polyhedron_contacts(vertices_a, vertices_b, normal)
+	return convex_manifold.BuildSupportPairContacts(
+		vertices_a,
+		vertices_b,
+		normal,
+		{
+			scratch = POLYHEDRON_SUPPORT_CONTACT_SCRATCH,
+		}
+	)
+end
+
+local function get_world_face(body, poly_data, face_index)
+	return polyhedron.GetPolyhedronWorldFace(body, poly_data, face_index)
 end
 
 local function find_incident_face_index(poly_data, rotation, reference_normal)
@@ -157,40 +286,57 @@ local function find_incident_face_index(poly_data, rotation, reference_normal)
 	return best_index
 end
 
-local function build_face_contacts_from_features(poly_a, vertices_a, rotation_a, poly_b, vertices_b, rotation_b, candidate)
+local function build_face_contacts_from_features(
+	body_a,
+	poly_a,
+	vertices_a,
+	rotation_a,
+	body_b,
+	poly_b,
+	vertices_b,
+	rotation_b,
+	candidate
+)
 	local reference_is_a = candidate.reference_body == "a"
+	local reference_body = reference_is_a and body_a or body_b
 	local reference_poly = reference_is_a and poly_a or poly_b
 	local reference_vertices = reference_is_a and vertices_a or vertices_b
 	local reference_rotation = reference_is_a and rotation_a or rotation_b
+	local incident_body = reference_is_a and body_b or body_a
 	local incident_poly = reference_is_a and poly_b or poly_a
 	local incident_vertices = reference_is_a and vertices_b or vertices_a
 	local incident_rotation = reference_is_a and rotation_b or rotation_a
 	local reference_normal = reference_is_a and candidate.normal or -candidate.normal
-	local reference_face = get_world_face(
-		reference_poly,
-		reference_vertices,
-		reference_rotation,
-		candidate.face_index
-	)
+	local reference_face = get_world_face(reference_body, reference_poly, candidate.face_index)
 
 	if not reference_face then return {} end
 
 	local incident_face_index = find_incident_face_index(incident_poly, incident_rotation, reference_normal)
-	local incident_face = get_world_face(incident_poly, incident_vertices, incident_rotation, incident_face_index)
+	local incident_face = get_world_face(incident_body, incident_poly, incident_face_index)
 
 	if not incident_face then return {} end
 
-	local reference_descriptor = convex_face_clipping.BuildReferenceFace(reference_face.points, reference_normal)
-	local entries = convex_face_clipping.BuildFaceContactEntries(reference_descriptor, incident_face.points, FACE_CONTACT_SEPARATION_TOLERANCE)
-	entries = convex_face_clipping.SelectFaceContactEntries(entries, reference_descriptor, 4)
-	local contacts = {}
+	local reference_descriptor = convex_face_clipping.BuildReferenceFace(reference_face.points, reference_normal, nil, nil, POLYHEDRON_FACE_CONTACT_SCRATCH)
+	local entries = convex_face_clipping.BuildFaceContactEntries(
+		reference_descriptor,
+		incident_face.points,
+		FACE_CONTACT_SEPARATION_TOLERANCE,
+		POLYHEDRON_FACE_CONTACT_SCRATCH
+	)
+	entries = convex_face_clipping.SelectFaceContactEntries(entries, reference_descriptor, 4, POLYHEDRON_FACE_CONTACT_SCRATCH)
+	local contacts = POLYHEDRON_CONTACT_OUTPUT_SCRATCH.face_contacts
+	local contact_count = 0
 
 	for _, entry in ipairs(entries) do
 		if reference_is_a then
-			convex_manifold.AddContactPoint(contacts, entry.point_reference, entry.point_incident)
+			contact_count = add_contact_point_reused(contacts, contact_count, entry.point_reference, entry.point_incident)
 		else
-			convex_manifold.AddContactPoint(contacts, entry.point_incident, entry.point_reference)
+			contact_count = add_contact_point_reused(contacts, contact_count, entry.point_incident, entry.point_reference)
 		end
+	end
+
+	for i = contact_count + 1, #contacts do
+		contacts[i] = nil
 	end
 
 	return contacts
@@ -205,12 +351,14 @@ local function build_edge_contacts_from_features(poly_a, vertices_a, poly_b, ver
 	local a1, a2 = get_edge_indices(edge_a)
 	local b1, b2 = get_edge_indices(edge_b)
 	local point_a, point_b = convex_manifold.ClosestPointsOnSegments(vertices_a[a1], vertices_a[a2], vertices_b[b1], vertices_b[b2])
-	return {
-		{
-			point_a = point_a,
-			point_b = point_b,
-		},
-	}
+	local contacts = POLYHEDRON_CONTACT_OUTPUT_SCRATCH.edge_contacts
+	fill_contact_pair(contacts, 1, point_a, point_b)
+
+	for i = 2, #contacts do
+		contacts[i] = nil
+	end
+
+	return contacts
 end
 
 local function closest_point_on_triangle(point, a, b, c)
@@ -292,7 +440,8 @@ local function solve_swept_polyhedron_polyhedron_collision(dynamic_body, static_
 	return pair_solver_helpers.ResolveSweptHit(static_body, dynamic_body, previous_position, movement, earliest_hit, dt)
 end
 
-local function evaluate_polyhedron_pair_at_transforms(poly_a, position_a, rotation_a, poly_b, position_b, rotation_b)
+local function evaluate_polyhedron_pair_at_transforms(poly_a, position_a, rotation_a, poly_b, position_b, rotation_b, scratch)
+	scratch = scratch or {}
 	local axes = {}
 
 	for _, face in ipairs(poly_a.faces or {}) do
@@ -314,8 +463,10 @@ local function evaluate_polyhedron_pair_at_transforms(poly_a, position_a, rotati
 
 	if not axes[1] then return nil end
 
-	local vertices_a = get_polyhedron_world_vertices_at(poly_a, position_a, rotation_a)
-	local vertices_b = get_polyhedron_world_vertices_at(poly_b, position_b, rotation_b)
+	local vertices_a = get_polyhedron_world_vertices_at(poly_a, position_a, rotation_a, scratch.vertices_a)
+	local vertices_b = get_polyhedron_world_vertices_at(poly_b, position_b, rotation_b, scratch.vertices_b)
+	scratch.vertices_a = vertices_a
+	scratch.vertices_b = vertices_b
 	local best = convex_sat.CreateBestAxisTracker()
 	local center_delta = position_b - position_a
 
@@ -394,8 +545,8 @@ local function evaluate_polyhedron_pair_at_transforms(poly_a, position_a, rotati
 	if not best_normal or best_overlap == math.huge then return nil end
 
 	local contacts = build_polyhedron_contacts(vertices_a, vertices_b, best_normal)
-	local point_a = convex_manifold.AverageWorldPoints(convex_manifold.CollectSupportVertices(vertices_a, best_normal, true))
-	local point_b = convex_manifold.AverageWorldPoints(convex_manifold.CollectSupportVertices(vertices_b, best_normal, false))
+	local point_a = convex_manifold.AverageSupportPoint(vertices_a, best_normal, true)
+	local point_b = convex_manifold.AverageSupportPoint(vertices_b, best_normal, false)
 	return {
 		overlap = best_overlap,
 		normal = best_normal,
@@ -418,15 +569,20 @@ local function find_polyhedron_pair_time_of_impact(body_a, poly_a, body_b, poly_
 	local previous_rotation_b = body_b:GetPreviousRotation()
 	local current_position_b = body_b:GetPosition()
 	local current_rotation_b = body_b:GetRotation()
-	local sample_steps = 10
+	local sample_steps = get_temporal_toi_sample_steps(body_a, body_b)
 	local previous_t = 0
+	local scratch = {
+		vertices_a = {},
+		vertices_b = {},
+	}
 	local previous_result = evaluate_polyhedron_pair_at_transforms(
 		poly_a,
 		previous_position_a,
 		previous_rotation_a,
 		poly_b,
 		previous_position_b,
-		previous_rotation_b
+		previous_rotation_b,
+		scratch
 	)
 
 	if previous_result then return nil end
@@ -439,7 +595,8 @@ local function find_polyhedron_pair_time_of_impact(body_a, poly_a, body_b, poly_
 			interpolate_rotation(previous_rotation_a, current_rotation_a, t),
 			poly_b,
 			interpolate_position(previous_position_b, current_position_b, t),
-			interpolate_rotation(previous_rotation_b, current_rotation_b, t)
+			interpolate_rotation(previous_rotation_b, current_rotation_b, t),
+			scratch
 		)
 
 		if result then
@@ -447,7 +604,7 @@ local function find_polyhedron_pair_time_of_impact(body_a, poly_a, body_b, poly_
 			local high = t
 			local best = result
 
-			for _ = 1, 10 do
+			for _ = 1, TEMPORAL_TOI_REFINE_STEPS do
 				local mid = (low + high) * 0.5
 				local mid_result = evaluate_polyhedron_pair_at_transforms(
 					poly_a,
@@ -455,7 +612,8 @@ local function find_polyhedron_pair_time_of_impact(body_a, poly_a, body_b, poly_
 					interpolate_rotation(previous_rotation_a, current_rotation_a, mid),
 					poly_b,
 					interpolate_position(previous_position_b, current_position_b, mid),
-					interpolate_rotation(previous_rotation_b, current_rotation_b, mid)
+					interpolate_rotation(previous_rotation_b, current_rotation_b, mid),
+					scratch
 				)
 
 				if mid_result then
@@ -721,9 +879,11 @@ local function solve_polyhedron_pair_collision(body_a, body_b, dt)
 
 	local contacts = chosen.kind == "face" and
 		build_face_contacts_from_features(
+			body_a,
 			poly_a,
 			vertices_a,
 			body_a:GetRotation(),
+			body_b,
 			poly_b,
 			vertices_b,
 			body_b:GetRotation(),
@@ -733,8 +893,8 @@ local function solve_polyhedron_pair_collision(body_a, body_b, dt)
 		build_edge_contacts_from_features(poly_a, vertices_a, poly_b, vertices_b, chosen)
 		or
 		build_polyhedron_contacts(vertices_a, vertices_b, best_normal)
-	local point_a = convex_manifold.AverageWorldPoints(convex_manifold.CollectSupportVertices(vertices_a, best_normal, true))
-	local point_b = convex_manifold.AverageWorldPoints(convex_manifold.CollectSupportVertices(vertices_b, best_normal, false))
+	local point_a = convex_manifold.AverageSupportPoint(vertices_a, best_normal, true)
+	local point_b = convex_manifold.AverageSupportPoint(vertices_b, best_normal, false)
 
 	if contacts[1] then
 		return contact_resolution.ResolvePairPenetration(body_a, body_b, best_normal, best_overlap, dt, nil, nil, contacts)

@@ -14,6 +14,21 @@ local EPSILON = physics_solver.EPSILON or 0.00001
 local FACE_AXIS_RELATIVE_TOLERANCE = 1.05
 local FACE_AXIS_ABSOLUTE_TOLERANCE = 0.03
 local FACE_CONTACT_SEPARATION_TOLERANCE = 0.08
+local BOX_FACE_CONTACT_SCRATCH = {}
+local BOX_SUPPORT_CONTACT_SCRATCH = {}
+local BOX_CONTACT_OUTPUT_SCRATCH = {
+	face_contacts = {},
+	edge_contacts = {
+		{},
+	},
+}
+local BOX_SUPPORT_REDUCTION_SCRATCH = {
+	localized = {},
+	reduced = {},
+	averaged = {
+		{},
+	},
+}
 
 local function get_component(vec, axis_index)
 	if axis_index == 1 then return vec.x end
@@ -43,9 +58,98 @@ local function add_box_contact_point(contacts, point_a, point_b)
 	return convex_manifold.AddContactPoint(contacts, point_a, point_b, 0.12)
 end
 
+local function fill_contact_pair(contacts, index, point_a, point_b)
+	local contact = contacts[index] or {}
+	contact.point_a = point_a
+	contact.point_b = point_b
+	contacts[index] = contact
+	return contact
+end
+
+local function add_box_contact_point_reused(contacts, count, point_a, point_b)
+	local midpoint = (point_a + point_b) * 0.5
+
+	for i = 1, count do
+		local existing = contacts[i]
+		local existing_midpoint = (existing.point_a + existing.point_b) * 0.5
+
+		if (existing_midpoint - midpoint):GetLength() <= 0.12 then return count end
+	end
+
+	count = count + 1
+	fill_contact_pair(contacts, count, point_a, point_b)
+	return count
+end
+
+local function fill_cached_box_faces(polyhedron, world_vertices, out)
+	out = out or {}
+
+	for face_index, face in ipairs(polyhedron.faces or {}) do
+		local cached_face = out[face_index] or {points = {}}
+		local points = cached_face.points
+
+		for i, vertex_index in ipairs(face.indices or {}) do
+			points[i] = world_vertices[vertex_index]
+		end
+
+		for i = #(face.indices or {}) + 1, #points do
+			points[i] = nil
+		end
+
+		out[face_index] = cached_face
+	end
+
+	for i = #(polyhedron.faces or {}) + 1, #out do
+		out[i] = nil
+	end
+
+	return out
+end
+
+local function get_cached_box_faces(body)
+	local shape = body:GetPhysicsShape()
+	local polyhedron = shape.GetPolyhedron and shape:GetPolyhedron()
+
+	if not polyhedron then return nil end
+
+	local position = body:GetPosition()
+	local rotation = body:GetRotation()
+	local cache = body._PhysicsBoxFaceCache or {}
+	body._PhysicsBoxFaceCache = cache
+
+	if
+		cache.polyhedron == polyhedron and
+		cache.px == position.x and
+		cache.py == position.y and
+		cache.pz == position.z and
+		cache.rx == rotation.x and
+		cache.ry == rotation.y and
+		cache.rz == rotation.z and
+		cache.rw == rotation.w
+	then
+		return cache.faces
+	end
+
+	cache.polyhedron = polyhedron
+	cache.px = position.x
+	cache.py = position.y
+	cache.pz = position.z
+	cache.rx = rotation.x
+	cache.ry = rotation.y
+	cache.rz = rotation.z
+	cache.rw = rotation.w
+	cache.faces = fill_cached_box_faces(
+		polyhedron,
+		polyhedron_solver.GetPolyhedronWorldVertices(body, polyhedron),
+		cache.faces
+	)
+	return cache.faces
+end
+
 local function get_box_face(body, desired_normal)
-	local extents = body:GetPhysicsShape():GetExtents()
-	local axes = body:GetPhysicsShape():GetAxes(body)
+	local shape = body:GetPhysicsShape()
+	local extents = shape:GetExtents()
+	local axes = shape:GetAxes(body)
 	local axis_index = 1
 	local alignment = -math.huge
 
@@ -61,40 +165,40 @@ local function get_box_face(body, desired_normal)
 
 	local axis = axes[axis_index]
 	local sign = axis:Dot(desired_normal) >= 0 and 1 or -1
-	local ex, ey, ez = extents.x, extents.y, extents.z
-	local local_points
 	local tangent_u_index, tangent_v_index = get_other_axis_indices(axis_index)
+	local face_index = (axis_index - 1) * 2 + (sign > 0 and 1 or 2)
+	local cached_faces = get_cached_box_faces(body)
+	local world_points = cached_faces and cached_faces[face_index] and cached_faces[face_index].points
 
-	if axis_index == 1 then
-		local_points = {
-			Vec3(sign * ex, -ey, -ez),
-			Vec3(sign * ex, ey, -ez),
-			Vec3(sign * ex, ey, ez),
-			Vec3(sign * ex, -ey, ez),
-		}
-	elseif axis_index == 2 then
-		local_points = {
-			Vec3(-ex, sign * ey, -ez),
-			Vec3(ex, sign * ey, -ez),
-			Vec3(ex, sign * ey, ez),
-			Vec3(-ex, sign * ey, ez),
-		}
-	else
-		local_points = {
-			Vec3(-ex, -ey, sign * ez),
-			Vec3(ex, -ey, sign * ez),
-			Vec3(ex, ey, sign * ez),
-			Vec3(-ex, ey, sign * ez),
-		}
-	end
+	if not world_points then
+		local ex, ey, ez = extents.x, extents.y, extents.z
 
-	local world_points = {}
-
-	for i, local_point in ipairs(local_points) do
-		world_points[i] = body:LocalToWorld(local_point)
+		if axis_index == 1 then
+			world_points = {
+				body:LocalToWorld(Vec3(sign * ex, -ey, -ez)),
+				body:LocalToWorld(Vec3(sign * ex, ey, -ez)),
+				body:LocalToWorld(Vec3(sign * ex, ey, ez)),
+				body:LocalToWorld(Vec3(sign * ex, -ey, ez)),
+			}
+		elseif axis_index == 2 then
+			world_points = {
+				body:LocalToWorld(Vec3(-ex, sign * ey, -ez)),
+				body:LocalToWorld(Vec3(ex, sign * ey, -ez)),
+				body:LocalToWorld(Vec3(ex, sign * ey, ez)),
+				body:LocalToWorld(Vec3(-ex, sign * ey, ez)),
+			}
+		else
+			world_points = {
+				body:LocalToWorld(Vec3(-ex, -ey, sign * ez)),
+				body:LocalToWorld(Vec3(ex, -ey, sign * ez)),
+				body:LocalToWorld(Vec3(ex, ey, sign * ez)),
+				body:LocalToWorld(Vec3(-ex, ey, sign * ez)),
+			}
+		end
 	end
 
 	return {
+		face_index = face_index,
 		axis_index = axis_index,
 		sign = sign,
 		alignment = alignment,
@@ -106,27 +210,37 @@ local function get_box_face(body, desired_normal)
 		tangent_v_index = tangent_v_index,
 		tangent_u_extent = get_component(extents, tangent_u_index),
 		tangent_v_extent = get_component(extents, tangent_v_index),
-		center = body:LocalToWorld((local_points[1] + local_points[3]) * 0.5),
-		local_points = local_points,
+		center = world_points[1] and
+			world_points[3] and
+			(
+				world_points[1] + world_points[3]
+			) * 0.5 or
+			body:GetPosition(),
 		points = world_points,
 	}
 end
 
 local function get_body_world_vertices(body)
 	local polyhedron = shape_accessors.GetBodyPolyhedron(body)
-	local vertices = {}
 
-	for i, point in ipairs((polyhedron and polyhedron.vertices) or {}) do
-		vertices[i] = body:LocalToWorld(point)
-	end
+	if not polyhedron then return {} end
 
-	return vertices
+	return polyhedron_solver.GetPolyhedronWorldVertices(body, polyhedron)
 end
 
 local function build_support_pair_contacts(body_a, body_b, normal)
 	local vertices_a = get_body_world_vertices(body_a)
 	local vertices_b = get_body_world_vertices(body_b)
-	return convex_manifold.BuildSupportPairContacts(vertices_a, vertices_b, normal, {merge_distance = 0.12, max_contacts = 4})
+	return convex_manifold.BuildSupportPairContacts(
+		vertices_a,
+		vertices_b,
+		normal,
+		{
+			merge_distance = 0.12,
+			max_contacts = 4,
+			scratch = BOX_SUPPORT_CONTACT_SCRATCH,
+		}
+	)
 end
 
 local function project_box_radius(extents, axes, normal)
@@ -211,8 +325,15 @@ local function build_face_contacts(body_a, body_b, candidate)
 	local reference_normal = reference_is_a and candidate.normal or -candidate.normal
 	local reference_face = get_box_face(reference_body, reference_normal)
 	local incident_face = get_box_face(incident_body, -reference_normal)
-	local clipped = convex_face_clipping.ClipFacePolygonToReference(reference_body, reference_face, incident_face.points)
-	local ranked_contacts = {}
+	local clipped = convex_face_clipping.ClipFacePolygonToReference(
+		reference_body,
+		reference_face,
+		incident_face.points,
+		BOX_FACE_CONTACT_SCRATCH
+	)
+	local ranked_contacts = BOX_FACE_CONTACT_SCRATCH.ranked_contacts or {}
+	BOX_FACE_CONTACT_SCRATCH.ranked_contacts = ranked_contacts
+	local ranked_count = 0
 
 	for _, local_point in ipairs(clipped) do
 		local separation = reference_face.sign * (
@@ -221,26 +342,36 @@ local function build_face_contacts(body_a, body_b, candidate)
 
 		if separation <= FACE_CONTACT_SEPARATION_TOLERANCE then
 			local reference_point = set_component(local_point, reference_face.axis_index, reference_face.plane)
-			ranked_contacts[#ranked_contacts + 1] = {
-				separation = separation,
-				local_point = local_point,
-				point_reference = reference_body:LocalToWorld(reference_point),
-				point_incident = reference_body:LocalToWorld(local_point),
-			}
+			ranked_count = ranked_count + 1
+			local entry = ranked_contacts[ranked_count] or {}
+			entry.separation = separation
+			entry.local_point = local_point
+			entry.point_reference = reference_body:LocalToWorld(reference_point)
+			entry.point_incident = reference_body:LocalToWorld(local_point)
+			ranked_contacts[ranked_count] = entry
 		end
 	end
 
-	ranked_contacts = convex_face_clipping.SelectFaceContactEntries(ranked_contacts, reference_face, 4)
-	local contacts = {}
+	for i = ranked_count + 1, #ranked_contacts do
+		ranked_contacts[i] = nil
+	end
+
+	ranked_contacts = convex_face_clipping.SelectFaceContactEntries(ranked_contacts, reference_face, 4, BOX_FACE_CONTACT_SCRATCH)
+	local contacts = BOX_CONTACT_OUTPUT_SCRATCH.face_contacts
+	local contact_count = 0
 
 	for _, entry in ipairs(ranked_contacts) do
 		if reference_is_a then
-			add_box_contact_point(contacts, entry.point_reference, entry.point_incident)
+			contact_count = add_box_contact_point_reused(contacts, contact_count, entry.point_reference, entry.point_incident)
 		else
-			add_box_contact_point(contacts, entry.point_incident, entry.point_reference)
+			contact_count = add_box_contact_point_reused(contacts, contact_count, entry.point_incident, entry.point_reference)
 		end
 
-		if #contacts >= 4 then break end
+		if contact_count >= 4 then break end
+	end
+
+	for i = contact_count + 1, #contacts do
+		contacts[i] = nil
 	end
 
 	return contacts
@@ -250,12 +381,14 @@ local function build_edge_contacts(body_a, body_b, candidate)
 	local edge_start_a, edge_end_a = get_support_edge(body_a, candidate.edge_axis_a, candidate.normal)
 	local edge_start_b, edge_end_b = get_support_edge(body_b, candidate.edge_axis_b, -candidate.normal)
 	local point_a, point_b = convex_manifold.ClosestPointsOnSegments(edge_start_a, edge_end_a, edge_start_b, edge_end_b)
-	return {
-		{
-			point_a = point_a,
-			point_b = point_b,
-		},
-	}
+	local contacts = BOX_CONTACT_OUTPUT_SCRATCH.edge_contacts
+	fill_contact_pair(contacts, 1, point_a, point_b)
+
+	for i = 2, #contacts do
+		contacts[i] = nil
+	end
+
+	return contacts
 end
 
 local function reduce_contacts_for_support_polygon(body_a, body_b, normal, contacts)
@@ -271,21 +404,27 @@ local function reduce_contacts_for_support_polygon(body_a, body_b, normal, conta
 	local max_u = -math.huge
 	local min_v = math.huge
 	local max_v = -math.huge
-	local localized = {}
+	local localized = BOX_SUPPORT_REDUCTION_SCRATCH.localized
+	local localized_count = 0
 
 	for index, contact in ipairs(contacts) do
 		local support_point = support_is_a and contact.point_a or contact.point_b
 		local local_point = static_body:WorldToLocal(support_point)
-		localized[index] = {
-			contact = contact,
-			local_point = local_point,
-			u = get_component(local_point, support_face.tangent_u_index),
-			v = get_component(local_point, support_face.tangent_v_index),
-		}
-		min_u = math.min(min_u, localized[index].u)
-		max_u = math.max(max_u, localized[index].u)
-		min_v = math.min(min_v, localized[index].v)
-		max_v = math.max(max_v, localized[index].v)
+		localized_count = index
+		local entry = localized[index] or {}
+		entry.contact = contact
+		entry.local_point = local_point
+		entry.u = get_component(local_point, support_face.tangent_u_index)
+		entry.v = get_component(local_point, support_face.tangent_v_index)
+		localized[index] = entry
+		min_u = math.min(min_u, entry.u)
+		max_u = math.max(max_u, entry.u)
+		min_v = math.min(min_v, entry.v)
+		max_v = math.max(max_v, entry.v)
+	end
+
+	for i = localized_count + 1, #localized do
+		localized[i] = nil
 	end
 
 	local target_u = nil
@@ -305,12 +444,10 @@ local function reduce_contacts_for_support_polygon(body_a, body_b, normal, conta
 		target_v = max_v
 	end
 
-	local owner_a = body_a.Owner and body_a.Owner.Name
-	local owner_b = body_b.Owner and body_b.Owner.Name
-
 	if not target_u and not target_v then return contacts, false end
 
-	local reduced = {}
+	local reduced = BOX_SUPPORT_REDUCTION_SCRATCH.reduced
+	local reduced_count = 0
 
 	for _, entry in ipairs(localized) do
 		local keep = true
@@ -319,11 +456,18 @@ local function reduce_contacts_for_support_polygon(body_a, body_b, normal, conta
 
 		if target_v then keep = keep and math.abs(entry.v - target_v) <= tolerance end
 
-		if keep then reduced[#reduced + 1] = entry.contact end
+		if keep then
+			reduced_count = reduced_count + 1
+			reduced[reduced_count] = entry.contact
+		end
+	end
+
+	for i = reduced_count + 1, #reduced do
+		reduced[i] = nil
 	end
 
 	if reduced[1] then
-		if #reduced > 1 and (target_u == nil) ~= (target_v == nil) then
+		if reduced_count > 1 and (target_u == nil) ~= (target_v == nil) then
 			local average_a = Vec3(0, 0, 0)
 			local average_b = Vec3(0, 0, 0)
 
@@ -332,13 +476,14 @@ local function reduce_contacts_for_support_polygon(body_a, body_b, normal, conta
 				average_b = average_b + contact.point_b
 			end
 
-			return {
-				{
-					point_a = average_a / #reduced,
-					point_b = average_b / #reduced,
-				},
-			},
-			true
+			local averaged = BOX_SUPPORT_REDUCTION_SCRATCH.averaged
+			fill_contact_pair(averaged, 1, average_a / reduced_count, average_b / reduced_count)
+
+			for i = 2, #averaged do
+				averaged[i] = nil
+			end
+
+			return averaged, true
 		end
 
 		return reduced, true

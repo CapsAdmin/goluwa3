@@ -195,8 +195,16 @@ end
 
 solver.SolveConstraints = solver.SolveDistanceConstraints
 
-function solver.SolveRigidBodyPairs(bodies, dt)
-	local pairs = broadphase.BuildCandidatePairs(physics, bodies)
+function solver.BuildBroadphasePairs(bodies)
+	return broadphase.BuildCandidatePairs(physics, bodies)
+end
+
+function solver.SolveRigidBodyPairs(bodies_or_pairs, dt)
+	local pairs = bodies_or_pairs
+
+	if not (pairs and pairs[1] and pairs[1].entry_a and pairs[1].entry_b) then
+		pairs = broadphase.BuildCandidatePairs(physics, bodies_or_pairs)
+	end
 
 	for i = 1, #pairs do
 		local pair = pairs[i]

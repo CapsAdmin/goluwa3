@@ -7,7 +7,7 @@ import("goluwa/physics/solver.lua")
 import("goluwa/physics/rigid_body.lua")
 
 local function get_fixed_step()
-	return math.max(physics.FixedTimeStep or (1 / 120), 0.000001)
+	return math.max(physics.FixedTimeStep or physics.DefaultFixedTimeStep or (1 / 30), 0.000001)
 end
 
 function physics.Step(dt)

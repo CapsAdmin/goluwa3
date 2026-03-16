@@ -10,12 +10,30 @@ local ConvexShape = import("goluwa/physics/shapes/convex.lua")
 local sphere_shape = SphereShape.New
 local box_shape = BoxShape.New
 local convex_shape = ConvexShape.New
+local CCD_FIXED_STEPS = {1 / 60}
 
 local function simulate_physics(steps, dt)
 	dt = dt or (1 / 120)
 
 	for _ = 1, steps do
 		physics.Update(dt)
+	end
+end
+
+local function with_fixed_step(fixed_dt, callback)
+	local previous_fixed_dt = physics.FixedTimeStep
+	local previous_accumulator = physics.FrameAccumulator
+	local previous_alpha = physics.InterpolationAlpha
+	physics.FixedTimeStep = fixed_dt
+	physics.FrameAccumulator = 0
+	physics.InterpolationAlpha = 0
+	local ok, err = xpcall(callback, debug.traceback)
+	physics.FixedTimeStep = previous_fixed_dt
+	physics.FrameAccumulator = previous_accumulator or 0
+	physics.InterpolationAlpha = previous_alpha or 0
+
+	if not ok then
+		error(string.format("[fixed_dt=%.6f] %s", fixed_dt, tostring(err)), 0)
 	end
 end
 
@@ -514,4 +532,91 @@ T.Test3D("Fast rotating rigid convex body does not miss a thin static box", func
 	blocker_ent:Remove()
 	T(enter_hits)[">"](0)
 	T(math.abs(angles.z))["<"](1.45)
+end)
+
+T.Test3D("Fast rigid convex body does not tunnel through thin static box at smaller fixed steps", function()
+	for _, fixed_dt in ipairs(CCD_FIXED_STEPS) do
+		with_fixed_step(fixed_dt, function()
+			local blocker_ent = Entity.New({Name = "rigid_ccd_box_blocker_for_convex_small_step"})
+			blocker_ent:AddComponent("transform")
+			blocker_ent.transform:SetPosition(Vec3(0, 1, 0))
+			blocker_ent:AddComponent(
+				"rigid_body",
+				{
+					Shape = box_shape(Vec3(6, 0.2, 6)),
+					Size = Vec3(6, 0.2, 6),
+					MotionType = "static",
+				}
+			)
+			local hull = physics.ApproximateConvexMeshFromTriangles(create_box_source_mesh(Vec3(1, 1, 1)))
+			local convex_ent = Entity.New({Name = "rigid_ccd_fast_convex_small_step"})
+			convex_ent:AddComponent("transform")
+			convex_ent.transform:SetPosition(Vec3(0, 8, 0))
+			local convex = convex_ent:AddComponent(
+				"rigid_body",
+				{
+					Shape = convex_shape(hull),
+					ConvexHull = hull,
+					LinearDamping = 0,
+					AngularDamping = 0,
+					MaxLinearSpeed = 1000,
+				}
+			)
+			convex:SetVelocity(Vec3(0, -320, 0))
+			physics.Update(1 / 10)
+			local position = convex_ent.transform:GetPosition()
+			blocker_ent:Remove()
+			convex_ent:Remove()
+			T(position.y)[">="](1.45)
+			T(math.abs(position.x))["<"](0.15)
+			T(math.abs(position.z))["<"](0.15)
+		end)
+	end
+end)
+
+T.Test3D("Fast rotating rigid convex body remains detectable at smaller fixed steps", function()
+	for _, fixed_dt in ipairs(CCD_FIXED_STEPS) do
+		with_fixed_step(fixed_dt, function()
+			local blocker_ent = Entity.New({Name = "rigid_ccd_rotating_convex_target_small_step"})
+			blocker_ent:AddComponent("transform")
+			blocker_ent.transform:SetPosition(Vec3(0.6, 1.6, 0))
+			blocker_ent:AddComponent(
+				"rigid_body",
+				{
+					Shape = box_shape(Vec3(0.3, 0.3, 1)),
+					Size = Vec3(0.3, 0.3, 1),
+					MotionType = "static",
+				}
+			)
+			local hull = physics.ApproximateConvexMeshFromTriangles(create_box_source_mesh(Vec3(0.15, 4, 0.15)))
+			local rod_ent = Entity.New({Name = "rigid_ccd_rotating_convex_rod_small_step"})
+			rod_ent:AddComponent("transform")
+			rod_ent.transform:SetPosition(Vec3(0, 1, 0))
+			local rod = rod_ent:AddComponent(
+				"rigid_body",
+				{
+					Shape = convex_shape(hull),
+					ConvexHull = hull,
+					GravityScale = 0,
+					LinearDamping = 0,
+					AngularDamping = 0,
+					MaxAngularSpeed = 1000,
+					Restitution = 0,
+				}
+			)
+			local enter_hits = 0
+
+			rod_ent:AddLocalListener("OnCollisionEnter", function()
+				enter_hits = enter_hits + 1
+			end)
+
+			rod:SetAngularVelocity(Vec3(0, 0, -16))
+			physics.Update(1 / 10)
+			local angles = rod_ent.transform:GetRotation():GetAngles()
+			rod_ent:Remove()
+			blocker_ent:Remove()
+			T(enter_hits)[">"](0)
+			T(math.abs(angles.z))["<"](1.45)
+		end)
+	end
 end)

@@ -10,9 +10,27 @@ local capsule_shape = CapsuleShape.New
 local sphere_shape = SphereShape.New
 local box_shape = BoxShape.New
 local create_flat_ground = test_helpers.CreateFlatGround
+local CCD_FIXED_STEPS = {1 / 60}
 
 local function simulate_physics(steps, dt)
 	return test_helpers.SimulatePhysics(physics, steps, dt)
+end
+
+local function with_fixed_step(fixed_dt, callback)
+	local previous_fixed_dt = physics.FixedTimeStep
+	local previous_accumulator = physics.FrameAccumulator
+	local previous_alpha = physics.InterpolationAlpha
+	physics.FixedTimeStep = fixed_dt
+	physics.FrameAccumulator = 0
+	physics.InterpolationAlpha = 0
+	local ok, err = xpcall(callback, debug.traceback)
+	physics.FixedTimeStep = previous_fixed_dt
+	physics.FrameAccumulator = previous_accumulator or 0
+	physics.InterpolationAlpha = previous_alpha or 0
+
+	if not ok then
+		error(string.format("[fixed_dt=%.6f] %s", fixed_dt, tostring(err)), 0)
+	end
 end
 
 T.Test3D("Capsule rigid body lands on ground mesh", function()
@@ -261,4 +279,77 @@ T.Test3D("Fast capsule does not tunnel through static capsule", function()
 	T(position.x)["<"](-0.8)
 	T(math.abs(position.y - 1.5))["<"](0.2)
 	T(math.abs(position.z))["<"](0.1)
+end)
+
+T.Test3D("Fast capsule CCD remains stable at smaller fixed steps against thin static box", function()
+	for _, fixed_dt in ipairs(CCD_FIXED_STEPS) do
+		with_fixed_step(fixed_dt, function()
+			local blocker_ent = Entity.New({Name = "capsule_ccd_fixed_step_blocker"})
+			blocker_ent:AddComponent("transform")
+			blocker_ent.transform:SetPosition(Vec3(0, 1, 0))
+			blocker_ent:AddComponent(
+				"rigid_body",
+				{
+					Shape = box_shape(Vec3(6, 0.2, 6)),
+					Size = Vec3(6, 0.2, 6),
+					MotionType = "static",
+				}
+			)
+			local capsule_ent = Entity.New({Name = "capsule_ccd_fixed_step_body"})
+			capsule_ent:AddComponent("transform")
+			capsule_ent.transform:SetPosition(Vec3(0, 8, 0))
+			local capsule = capsule_ent:AddComponent(
+				"rigid_body",
+				{
+					Shape = capsule_shape(0.5, 2.0),
+					LinearDamping = 0,
+					AngularDamping = 0,
+					MaxLinearSpeed = 1000,
+				}
+			)
+			capsule:SetVelocity(Vec3(0, -320, 0))
+			simulate_physics(1, 1 / 10)
+			local position = capsule_ent.transform:GetPosition()
+			blocker_ent:Remove()
+			capsule_ent:Remove()
+			T(position.y)[">="](2.05)
+		end)
+	end
+end)
+
+T.Test3D("Fast capsule CCD remains stable at smaller fixed steps against static capsule", function()
+	for _, fixed_dt in ipairs(CCD_FIXED_STEPS) do
+		with_fixed_step(fixed_dt, function()
+			local blocker_ent = Entity.New({Name = "capsule_ccd_fixed_step_capsule_blocker"})
+			blocker_ent:AddComponent("transform")
+			blocker_ent.transform:SetPosition(Vec3(0, 1.5, 0))
+			blocker_ent:AddComponent(
+				"rigid_body",
+				{
+					Shape = capsule_shape(0.5, 2.0),
+					MotionType = "static",
+				}
+			)
+			local capsule_ent = Entity.New({Name = "capsule_ccd_fixed_step_capsule_body"})
+			capsule_ent:AddComponent("transform")
+			capsule_ent.transform:SetPosition(Vec3(-8, 1.5, 0))
+			local capsule = capsule_ent:AddComponent(
+				"rigid_body",
+				{
+					Shape = capsule_shape(0.5, 2.0),
+					GravityScale = 0,
+					LinearDamping = 0,
+					AngularDamping = 0,
+					MaxLinearSpeed = 1000,
+				}
+			)
+			capsule:SetVelocity(Vec3(320, 0, 0))
+			simulate_physics(1, 1 / 20)
+			local position = capsule_ent.transform:GetPosition()
+			blocker_ent:Remove()
+			capsule_ent:Remove()
+			T(position.x)["<"](-0.8)
+			T(math.abs(position.y - 1.5))["<"](0.2)
+		end)
+	end
 end)

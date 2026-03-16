@@ -41,8 +41,7 @@ function broadphase.BuildEntries(physics, bodies)
 	return entries
 end
 
-function broadphase.BuildCandidatePairs(physics, bodies)
-	local entries = broadphase.BuildEntries(physics, bodies)
+function broadphase.BuildCandidatePairsFromEntries(entries)
 	local pairs = {}
 
 	for i = 1, #entries do
@@ -64,6 +63,11 @@ function broadphase.BuildCandidatePairs(physics, bodies)
 	end
 
 	return pairs
+end
+
+function broadphase.BuildCandidatePairs(physics, bodies)
+	local entries = broadphase.BuildEntries(physics, bodies)
+	return broadphase.BuildCandidatePairsFromEntries(entries)
 end
 
 return broadphase
