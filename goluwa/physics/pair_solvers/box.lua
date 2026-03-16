@@ -7,9 +7,14 @@ function module.Register(solver, services)
 	local get_box_extents = services.get_box_extents
 	local get_box_axes = services.get_box_axes
 	local get_body_polyhedron = services.get_body_polyhedron
+	local get_static_dynamic_pair = services.get_static_dynamic_pair
+	local has_solver_mass = services.has_solver_mass
+	local is_solver_immovable = services.is_solver_immovable
 	local resolve_pair_penetration = services.resolve_pair_penetration
 	local apply_pair_impulse = services.apply_pair_impulse
 	local mark_pair_grounding = services.mark_pair_grounding
+	local sweep_point_against_box = services.sweep_point_against_box
+	local resolve_swept_hit = services.resolve_swept_hit
 	local solve_temporal_polyhedron_pair_collision = services.solve_temporal_polyhedron_pair_collision
 	local physics = services.physics
 
@@ -311,78 +316,8 @@ function module.Register(solver, services)
 		return chosen
 	end
 
-	local function sweep_point_against_box(box_body, start_world, end_world)
-		local movement_world = end_world - start_world
-
-		if movement_world:GetLength() <= EPSILON then return nil end
-
-		local start_local = box_body:WorldToLocal(start_world)
-		local end_local = box_body:WorldToLocal(end_world)
-		local movement_local = end_local - start_local
-		local extents = get_box_extents(box_body)
-		local t_enter = 0
-		local t_exit = 1
-		local hit_normal_local = nil
-		local axis_data = {
-			{"x", Vec3(-1, 0, 0), Vec3(1, 0, 0)},
-			{"y", Vec3(0, -1, 0), Vec3(0, 1, 0)},
-			{"z", Vec3(0, 0, -1), Vec3(0, 0, 1)},
-		}
-
-		for _, axis in ipairs(axis_data) do
-			local name = axis[1]
-			local s = start_local[name]
-			local d = movement_local[name]
-			local min_value = -extents[name]
-			local max_value = extents[name]
-
-			if math.abs(d) <= EPSILON then
-				if s < min_value or s > max_value then return nil end
-			else
-				local enter_t
-				local exit_t
-				local enter_normal
-
-				if d > 0 then
-					enter_t = (min_value - s) / d
-					exit_t = (max_value - s) / d
-					enter_normal = axis[2]
-				else
-					enter_t = (max_value - s) / d
-					exit_t = (min_value - s) / d
-					enter_normal = axis[3]
-				end
-
-				if enter_t > t_enter then
-					t_enter = enter_t
-					hit_normal_local = enter_normal
-				end
-
-				if exit_t < t_exit then t_exit = exit_t end
-
-				if t_enter > t_exit then return nil end
-			end
-		end
-
-		if not hit_normal_local or t_enter < 0 or t_enter > 1 then return nil end
-
-		return {
-			t = t_enter,
-			normal = box_body:GetRotation():VecMul(hit_normal_local):GetNormalized(),
-		}
-	end
-
 	local function solve_swept_box_box_collision(dynamic_body, static_body, dt)
-		if
-			not (
-				static_body.IsSolverImmovable and
-				static_body:IsSolverImmovable()
-			) or
-			not (
-				dynamic_body.HasSolverMass and
-				dynamic_body:HasSolverMass()
-			)
-		then
+		if not is_solver_immovable(static_body) or not has_solver_mass(dynamic_body) then
 			return false
 		end
 
@@ -406,15 +341,7 @@ function module.Register(solver, services)
 
 		if not earliest_hit then return false end
 
-		dynamic_body.Position = previous_position + movement * math.max(0, earliest_hit.t - EPSILON)
-		apply_pair_impulse(static_body, dynamic_body, earliest_hit.normal, dt)
-		mark_pair_grounding(static_body, dynamic_body, earliest_hit.normal)
-
-		if physics.RecordCollisionPair then
-			physics.RecordCollisionPair(static_body, dynamic_body, earliest_hit.normal, 0)
-		end
-
-		return true
+		return resolve_swept_hit(static_body, dynamic_body, previous_position, movement, earliest_hit, dt)
 	end
 
 	local function solve_box_pair_collision(body_a, body_b, dt)
@@ -446,12 +373,10 @@ function module.Register(solver, services)
 			if
 				not test_obb_axis(axes_a[i], delta, extents_a, axes_a, extents_b, axes_b, best, "face", "a")
 			then
-				if body_a:IsSolverImmovable() and body_b:HasSolverMass() then
-					return solve_swept_box_box_collision(body_b, body_a, dt)
-				end
+				local static_body, dynamic_body = get_static_dynamic_pair(body_a, body_b)
 
-				if body_b:IsSolverImmovable() and body_a:HasSolverMass() then
-					return solve_swept_box_box_collision(body_a, body_b, dt)
+				if static_body then
+					return solve_swept_box_box_collision(dynamic_body, static_body, dt)
 				end
 
 				return
@@ -460,12 +385,10 @@ function module.Register(solver, services)
 			if
 				not test_obb_axis(axes_b[i], delta, extents_a, axes_a, extents_b, axes_b, best, "face", "b")
 			then
-				if body_a:IsSolverImmovable() and body_b:HasSolverMass() then
-					return solve_swept_box_box_collision(body_b, body_a, dt)
-				end
+				local static_body, dynamic_body = get_static_dynamic_pair(body_a, body_b)
 
-				if body_b:IsSolverImmovable() and body_a:HasSolverMass() then
-					return solve_swept_box_box_collision(body_a, body_b, dt)
+				if static_body then
+					return solve_swept_box_box_collision(dynamic_body, static_body, dt)
 				end
 
 				return
@@ -487,12 +410,10 @@ function module.Register(solver, services)
 						nil
 					)
 				then
-					if body_a:IsSolverImmovable() and body_b:HasSolverMass() then
-						return solve_swept_box_box_collision(body_b, body_a, dt)
-					end
+					local static_body, dynamic_body = get_static_dynamic_pair(body_a, body_b)
 
-					if body_b:IsSolverImmovable() and body_a:HasSolverMass() then
-						return solve_swept_box_box_collision(body_a, body_b, dt)
+					if static_body then
+						return solve_swept_box_box_collision(dynamic_body, static_body, dt)
 					end
 
 					return

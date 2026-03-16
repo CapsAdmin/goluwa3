@@ -5,6 +5,7 @@ local broadphase = import("goluwa/physics/broadphase.lua")
 local contact_services = import("goluwa/physics/contact_services.lua")
 local fallback_services = import("goluwa/physics/fallback_solver.lua")
 local manifold_services = import("goluwa/physics/manifold.lua")
+local pair_solver_helper_services = import("goluwa/physics/pair_solver_helpers.lua")
 local shape_helper_services = import("goluwa/physics/shape_accessors.lua")
 local register_pair_modules = import("goluwa/physics/pair_solvers/init.lua").RegisterAll
 local solver = physics.Solver or {}
@@ -18,6 +19,7 @@ solver.StepStamp = solver.StepStamp or 0
 local contacts
 local fallback
 local manifolds
+local pair_solver_helpers
 local shape_helpers
 local COMBINE_MODE_PRIORITY = {
 	average = 0,
@@ -234,6 +236,16 @@ fallback = fallback_services.CreateServices{
 	Vec3 = Vec3,
 	resolve_pair_penetration = contacts.ResolvePairPenetration,
 }
+pair_solver_helpers = pair_solver_helper_services.CreateServices{
+	Vec3 = Vec3,
+	EPSILON = EPSILON,
+	physics = physics,
+	clamp = shape_helpers.Clamp,
+	get_sign = shape_helpers.GetSign,
+	get_box_extents = shape_helpers.GetBoxExtents,
+	apply_pair_impulse = contacts.ApplyPairImpulse,
+	mark_pair_grounding = contacts.MarkPairGrounding,
+}
 manifolds = manifold_services.CreateServices{
 	Vec3 = Vec3,
 	EPSILON = EPSILON,
@@ -262,6 +274,15 @@ register_pair_modules(
 		resolve_pair_penetration = contacts.ResolvePairPenetration,
 		apply_pair_impulse = contacts.ApplyPairImpulse,
 		mark_pair_grounding = contacts.MarkPairGrounding,
+		get_static_dynamic_pair = pair_solver_helpers.GetStaticDynamicPair,
+		get_safe_collision_normal = pair_solver_helpers.GetSafeCollisionNormal,
+		has_solver_mass = pair_solver_helpers.HasSolverMass,
+		is_solver_immovable = pair_solver_helpers.IsSolverImmovable,
+		get_box_contact_for_point = pair_solver_helpers.GetBoxContactForPoint,
+		sweep_point_against_box = pair_solver_helpers.SweepPointAgainstBox,
+		sweep_point_against_polyhedron = pair_solver_helpers.SweepPointAgainstPolyhedron,
+		resolve_relative_swept_pair_hit = pair_solver_helpers.ResolveRelativeSweptPairHit,
+		resolve_swept_hit = pair_solver_helpers.ResolveSweptHit,
 	}
 )
 return solver

@@ -3,16 +3,22 @@ local module = {}
 function module.Register(solver, services)
 	local Vec3 = services.Vec3
 	local EPSILON = services.EPSILON
-	local get_sign = services.get_sign
 	local clamp = services.clamp
 	local get_sphere_radius = services.get_sphere_radius
 	local get_box_extents = services.get_box_extents
+	local get_box_contact_for_point = services.get_box_contact_for_point
+	local get_safe_collision_normal = services.get_safe_collision_normal
+	local is_solver_immovable = services.is_solver_immovable
 	local resolve_pair_penetration = services.resolve_pair_penetration
 	local apply_pair_impulse = services.apply_pair_impulse
 	local mark_pair_grounding = services.mark_pair_grounding
 	local closest_point_on_triangle = services.closest_point_on_triangle
 	local get_polyhedron_world_vertices = services.get_polyhedron_world_vertices
+	local sweep_point_against_box = services.sweep_point_against_box
 	local sweep_point_against_polyhedron = services.sweep_point_against_polyhedron
+	local resolve_relative_swept_pair_hit = services.resolve_relative_swept_pair_hit
+	local resolve_swept_hit = services.resolve_swept_hit
+	local physics = services.physics
 
 	local function solve_sphere_pair_collision(body_a, body_b, dt)
 		if body_a == body_b then return end
@@ -44,49 +50,25 @@ function module.Register(solver, services)
 					local hit_fraction = (-sweep_b - sqrt_discriminant) / (2 * sweep_a)
 
 					if hit_fraction >= 0 and hit_fraction <= 1 then
-						local safe_fraction = math.max(0, hit_fraction - EPSILON)
-						local hit_pos_a = start_a + move_a * safe_fraction
-						local hit_pos_b = start_b + move_b * safe_fraction
-						local hit_delta = hit_pos_b - hit_pos_a
-						local hit_normal
-
-						if hit_delta:GetLength() > EPSILON then
-							hit_normal = hit_delta:GetNormalized()
-						else
-							local relative_velocity = body_b:GetVelocity() - body_a:GetVelocity()
-							hit_normal = relative_velocity:GetLength() > EPSILON and
-								relative_velocity:GetNormalized() or
-								Vec3(1, 0, 0)
-						end
-
-						body_a.Position = hit_pos_a
-						body_b.Position = hit_pos_b
-						apply_pair_impulse(
+						local hit_pos_a = start_a + move_a * math.max(0, hit_fraction - EPSILON)
+						local hit_pos_b = start_b + move_b * math.max(0, hit_fraction - EPSILON)
+						local hit_normal = get_safe_collision_normal(hit_pos_b - hit_pos_a, body_b:GetVelocity() - body_a:GetVelocity())
+						return resolve_relative_swept_pair_hit(
 							body_a,
 							body_b,
-							hit_normal,
+							start_a,
+							move_a,
+							start_b,
+							move_b,
+							{
+								t = hit_fraction,
+								normal = hit_normal,
+							},
 							dt,
+							true,
 							hit_pos_a + hit_normal * radius_a,
 							hit_pos_b - hit_normal * radius_b
 						)
-						mark_pair_grounding(body_a, body_b, hit_normal)
-
-						if services.physics.RecordCollisionPair then
-							services.physics.RecordCollisionPair(body_a, body_b, hit_normal, 0)
-						end
-
-						local remaining_fraction = 1 - hit_fraction
-
-						if remaining_fraction > EPSILON then
-							local velocity_a = body_a:GetVelocity()
-							local velocity_b = body_b:GetVelocity()
-							body_a.Position = body_a.Position + velocity_a * (dt * remaining_fraction)
-							body_a.PreviousPosition = body_a.Position - velocity_a * dt
-							body_b.Position = body_b.Position + velocity_b * (dt * remaining_fraction)
-							body_b.PreviousPosition = body_b.Position - velocity_b * dt
-						end
-
-						return true
 					end
 				end
 			end
@@ -94,24 +76,8 @@ function module.Register(solver, services)
 			return
 		end
 
-		if distance >= min_distance then return end
-
 		local normal
-
-		if distance > EPSILON then
-			normal = delta / distance
-		else
-			local relative_velocity = body_b:GetVelocity() - body_a:GetVelocity()
-
-			if relative_velocity:GetLength() > EPSILON then
-				normal = relative_velocity:GetNormalized()
-			else
-				normal = Vec3(1, 0, 0)
-			end
-
-			distance = 0
-		end
-
+		normal, distance = get_safe_collision_normal(delta, body_b:GetVelocity() - body_a:GetVelocity())
 		local overlap = min_distance - distance
 		return resolve_pair_penetration(
 			body_a,
@@ -125,9 +91,7 @@ function module.Register(solver, services)
 	end
 
 	local function solve_swept_sphere_box_collision(sphere_body, box_body, dt)
-		if not (box_body.IsSolverImmovable and box_body:IsSolverImmovable()) then
-			return false
-		end
+		if not is_solver_immovable(box_body) then return false end
 
 		local start_world = sphere_body:GetPreviousPosition()
 		local end_world = sphere_body:GetPosition()
@@ -140,60 +104,6 @@ function module.Register(solver, services)
 
 		if movement_world:GetLength() <= EPSILON then return false end
 
-		local function sweep_point_against_box(start_point_world, end_point_world)
-			local start_local = box_body:WorldToLocal(start_point_world)
-			local end_local = box_body:WorldToLocal(end_point_world)
-			local movement_local = end_local - start_local
-			local extents = get_box_extents(box_body)
-			local t_enter = 0
-			local t_exit = 1
-			local hit_normal_local = nil
-			local axis_data = {
-				{"x", Vec3(-1, 0, 0), Vec3(1, 0, 0)},
-				{"y", Vec3(0, -1, 0), Vec3(0, 1, 0)},
-				{"z", Vec3(0, 0, -1), Vec3(0, 0, 1)},
-			}
-
-			for _, axis in ipairs(axis_data) do
-				local name = axis[1]
-				local s = start_local[name]
-				local d = movement_local[name]
-				local min_value = -extents[name]
-				local max_value = extents[name]
-
-				if math.abs(d) <= EPSILON then
-					if s < min_value or s > max_value then return nil end
-				else
-					local enter_t
-					local exit_t
-					local enter_normal
-
-					if d > 0 then
-						enter_t = (min_value - s) / d
-						exit_t = (max_value - s) / d
-						enter_normal = axis[2]
-					else
-						enter_t = (max_value - s) / d
-						exit_t = (min_value - s) / d
-						enter_normal = axis[3]
-					end
-
-					if enter_t > t_enter then
-						t_enter = enter_t
-						hit_normal_local = enter_normal
-					end
-
-					if exit_t < t_exit then t_exit = exit_t end
-
-					if t_enter > t_exit then return nil end
-				end
-			end
-
-			if not hit_normal_local or t_enter < 0 or t_enter > 1 then return nil end
-
-			return {t = t_enter, normal_local = hit_normal_local}
-		end
-
 		local earliest_hit = nil
 
 		for _, local_point in ipairs(sphere_body:GetSupportLocalPoints() or {}) do
@@ -203,7 +113,7 @@ function module.Register(solver, services)
 				sphere_body:GetPreviousRotation()
 			)
 			local end_point_world = sphere_body:GeometryLocalToWorld(local_point)
-			local hit = sweep_point_against_box(start_point_world, end_point_world)
+			local hit = sweep_point_against_box(box_body, start_point_world, end_point_world)
 
 			if hit and not (descending_from_above and hit.normal_local.y <= EPSILON) then
 				if not earliest_hit or hit.t < earliest_hit.t then
@@ -214,20 +124,7 @@ function module.Register(solver, services)
 
 		if not earliest_hit then return false end
 
-		local hit_fraction = math.max(0, math.min(1, earliest_hit.t))
-		sphere_body.Position = start_world + movement_world * math.max(0, hit_fraction - EPSILON)
-		local hit_normal = box_body:GetRotation():VecMul(earliest_hit.normal_local):GetNormalized()
-		apply_pair_impulse(box_body, sphere_body, hit_normal, dt)
-		mark_pair_grounding(box_body, sphere_body, hit_normal)
-		local remaining_fraction = 1 - hit_fraction
-
-		if remaining_fraction > EPSILON then
-			local post_velocity = sphere_body:GetVelocity()
-			sphere_body.Position = sphere_body.Position + post_velocity * (dt * remaining_fraction)
-			sphere_body.PreviousPosition = sphere_body.Position - post_velocity * dt
-		end
-
-		return true
+		return resolve_swept_hit(box_body, sphere_body, start_world, movement_world, earliest_hit, dt, true)
 	end
 
 	local function solve_sphere_box_collision(sphere_body, box_body, dt)
@@ -270,97 +167,25 @@ function module.Register(solver, services)
 			end
 		end
 
-		local closest_local = Vec3(
-			clamp(local_center.x, -extents.x, extents.x),
-			clamp(local_center.y, -extents.y, extents.y),
-			clamp(local_center.z, -extents.z, extents.z)
-		)
-		local closest_world = box_body:LocalToWorld(closest_local)
-		local delta = center - closest_world
-		local distance = delta:GetLength()
-		local overlap = sphere_radius - distance
-		local normal
+		local contact = get_box_contact_for_point(box_body, center, sphere_radius, movement_local)
 
-		if distance > EPSILON then
-			normal = delta / distance
-		elseif
-			math.abs(local_center.x) <= extents.x and
-			math.abs(local_center.y) <= extents.y and
-			math.abs(local_center.z) <= extents.z
-		then
-			local candidates = {
-				{
-					axis = Vec3(1, 0, 0),
-					center = local_center.x,
-					movement = movement_local.x,
-					overlap = extents.x - math.abs(local_center.x),
-				},
-				{
-					axis = Vec3(0, 1, 0),
-					center = local_center.y,
-					movement = movement_local.y,
-					overlap = extents.y - math.abs(local_center.y),
-				},
-				{
-					axis = Vec3(0, 0, 1),
-					center = local_center.z,
-					movement = movement_local.z,
-					overlap = extents.z - math.abs(local_center.z),
-				},
-			}
-			local best = nil
-
-			for _, candidate in ipairs(candidates) do
-				local sign = get_sign(candidate.center)
-
-				if sign == 0 then
-					if math.abs(candidate.movement) > EPSILON then
-						sign = get_sign(-candidate.movement)
-					else
-						sign = 1
-					end
-				end
-
-				candidate.axis = candidate.axis * sign
-				candidate.motion_weight = math.abs(candidate.movement)
-
-				if
-					not best or
-					candidate.overlap < best.overlap - EPSILON or
-					(
-						math.abs(candidate.overlap - best.overlap) <= EPSILON and
-						candidate.motion_weight > best.motion_weight + EPSILON
-					)
-				then
-					best = candidate
-				end
-			end
-
-			normal = box_body:GetRotation():VecMul(best.axis):GetNormalized()
-			overlap = sphere_radius + best.overlap
-		else
-			return
-		end
-
-		if overlap <= 0 then
+		if not contact then
 			return solve_swept_sphere_box_collision(sphere_body, box_body, dt)
 		end
 
 		return resolve_pair_penetration(
 			box_body,
 			sphere_body,
-			normal,
-			overlap,
+			contact.normal,
+			contact.overlap,
 			dt,
-			closest_world,
-			center - normal * sphere_radius
+			contact.point_a,
+			contact.point_b
 		)
 	end
 
 	local function solve_swept_sphere_convex_collision(sphere_body, convex_body, dt)
-		if not (convex_body.IsSolverImmovable and convex_body:IsSolverImmovable()) then
-			return false
-		end
+		if not is_solver_immovable(convex_body) then return false end
 
 		local hull = convex_body:GetResolvedConvexHull()
 
@@ -376,15 +201,7 @@ function module.Register(solver, services)
 
 		if not hit then return false end
 
-		sphere_body.Position = start_world + movement_world * math.max(0, hit.t - EPSILON)
-		apply_pair_impulse(convex_body, sphere_body, hit.normal, dt)
-		mark_pair_grounding(convex_body, sphere_body, hit.normal)
-
-		if services.physics.RecordCollisionPair then
-			services.physics.RecordCollisionPair(convex_body, sphere_body, hit.normal, 0)
-		end
-
-		return true
+		return resolve_swept_hit(convex_body, sphere_body, start_world, movement_world, hit, dt)
 	end
 
 	local function solve_sphere_convex_collision(sphere_body, convex_body, dt)

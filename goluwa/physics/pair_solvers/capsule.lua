@@ -4,8 +4,8 @@ function module.Register(solver, services)
 	local Vec3 = services.Vec3
 	local EPSILON = services.EPSILON
 	local clamp = services.clamp
-	local get_sign = services.get_sign
-	local get_box_extents = services.get_box_extents
+	local get_box_contact_for_point = services.get_box_contact_for_point
+	local get_safe_collision_normal = services.get_safe_collision_normal
 	local resolve_pair_penetration = services.resolve_pair_penetration
 
 	local function get_capsule_shape(body)
@@ -100,62 +100,6 @@ function module.Register(solver, services)
 		return points, radius
 	end
 
-	local function get_box_contact_for_point(box_body, point, radius)
-		local local_point = box_body:WorldToLocal(point)
-		local extents = get_box_extents(box_body)
-		local closest_local = Vec3(
-			clamp(local_point.x, -extents.x, extents.x),
-			clamp(local_point.y, -extents.y, extents.y),
-			clamp(local_point.z, -extents.z, extents.z)
-		)
-		local closest_world = box_body:LocalToWorld(closest_local)
-		local delta = point - closest_world
-		local distance = delta:GetLength()
-		local overlap = radius - distance
-		local normal
-
-		if distance > EPSILON then
-			normal = delta / distance
-		elseif
-			math.abs(local_point.x) <= extents.x and
-			math.abs(local_point.y) <= extents.y and
-			math.abs(local_point.z) <= extents.z
-		then
-			local distances = {
-				{
-					axis = Vec3(get_sign(local_point.x), 0, 0),
-					overlap = extents.x - math.abs(local_point.x),
-				},
-				{
-					axis = Vec3(0, get_sign(local_point.y), 0),
-					overlap = extents.y - math.abs(local_point.y),
-				},
-				{
-					axis = Vec3(0, 0, get_sign(local_point.z)),
-					overlap = extents.z - math.abs(local_point.z),
-				},
-			}
-
-			table.sort(distances, function(lhs, rhs)
-				return lhs.overlap < rhs.overlap
-			end)
-
-			normal = box_body:GetRotation():VecMul(distances[1].axis):GetNormalized()
-			overlap = radius + distances[1].overlap
-		else
-			return nil
-		end
-
-		if overlap <= 0 then return nil end
-
-		return {
-			normal = normal,
-			overlap = overlap,
-			point_a = closest_world,
-			point_b = point - normal * radius,
-		}
-	end
-
 	local function solve_capsule_sphere_collision(capsule_body, sphere_body, dt)
 		local a, b, capsule_radius = get_capsule_segment(capsule_body)
 		local sphere_center = sphere_body:GetPosition()
@@ -163,19 +107,7 @@ function module.Register(solver, services)
 		local delta = sphere_center - closest
 		local sphere_radius = sphere_body:GetPhysicsShape():GetRadius()
 		local min_distance = capsule_radius + sphere_radius
-		local distance = delta:GetLength()
-		local normal
-
-		if distance > EPSILON then
-			normal = delta / distance
-		else
-			local relative_velocity = sphere_body:GetVelocity() - capsule_body:GetVelocity()
-			normal = relative_velocity:GetLength() > EPSILON and
-				relative_velocity:GetNormalized() or
-				Vec3(1, 0, 0)
-			distance = 0
-		end
-
+		local normal, distance = get_safe_collision_normal(delta, sphere_body:GetVelocity() - capsule_body:GetVelocity())
 		local overlap = min_distance - distance
 
 		if overlap <= 0 then return false end
@@ -196,20 +128,8 @@ function module.Register(solver, services)
 		local b0, b1, radius_b = get_capsule_segment(body_b)
 		local point_a, point_b = closest_points_between_segments(a0, a1, b0, b1)
 		local delta = point_b - point_a
-		local distance = delta:GetLength()
 		local min_distance = radius_a + radius_b
-		local normal
-
-		if distance > EPSILON then
-			normal = delta / distance
-		else
-			local relative_velocity = body_b:GetVelocity() - body_a:GetVelocity()
-			normal = relative_velocity:GetLength() > EPSILON and
-				relative_velocity:GetNormalized() or
-				Vec3(1, 0, 0)
-			distance = 0
-		end
-
+		local normal, distance = get_safe_collision_normal(delta, body_b:GetVelocity() - body_a:GetVelocity())
 		local overlap = min_distance - distance
 
 		if overlap <= 0 then return false end
