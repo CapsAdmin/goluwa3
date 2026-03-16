@@ -1,5 +1,6 @@
 local prototype = import("goluwa/prototype.lua")
 local AABB = import("goluwa/structs/aabb.lua")
+local Matrix33 = import("goluwa/structs/matrix33.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local BaseShape = import("goluwa/physics/shapes/base.lua")
 local physics = import("goluwa/physics.lua")
@@ -32,11 +33,10 @@ function META:GetMassProperties(body)
 		mass = (4 / 3) * math.pi * radius * radius * radius * body:GetDensity()
 	end
 
-	if mass <= 0 then return 0, Vec3(0, 0, 0) end
+	if mass <= 0 then return 0, Matrix33():SetZero() end
 
 	local inertia = (2 / 5) * mass * radius * radius
-	local inv = inertia > 0 and 1 / inertia or 0
-	return mass, Vec3(inv, inv, inv)
+	return mass, Matrix33():SetDiagonal(inertia, inertia, inertia)
 end
 
 function META:GeometryLocalToWorld(body, local_pos, position)

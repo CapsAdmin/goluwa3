@@ -1,5 +1,6 @@
 local prototype = import("goluwa/prototype.lua")
 local AABB = import("goluwa/structs/aabb.lua")
+local Matrix33 = import("goluwa/structs/matrix33.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local BaseShape = import("goluwa/physics/shapes/base.lua")
 local physics = import("goluwa/physics.lua")
@@ -61,7 +62,7 @@ function META:GetMassProperties(body)
 		mass = (cylinder_volume + sphere_volume) * body:GetDensity()
 	end
 
-	if mass <= 0 then return 0, Vec3(0, 0, 0) end
+	if mass <= 0 then return 0, Matrix33():SetZero() end
 
 	local total_volume = math.pi * radius * radius * cylinder_height + (
 			4 / 3
@@ -86,8 +87,7 @@ function META:GetMassProperties(body)
 			cylinder_height * cylinder_height
 		) * 0.25
 	local izz = ixx
-	return mass,
-	Vec3(ixx > 0 and 1 / ixx or 0, iyy > 0 and 1 / iyy or 0, izz > 0 and 1 / izz or 0)
+	return mass, Matrix33():SetDiagonal(ixx, iyy, izz)
 end
 
 function META:GetBroadphaseAABB(body, position, rotation)

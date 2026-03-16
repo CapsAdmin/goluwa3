@@ -1,11 +1,11 @@
 local physics = import("goluwa/physics.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local bit = require("bit")
+physics.RigidBodyIterations = physics.RigidBodyIterations or 1
+physics.RigidBodySubsteps = physics.RigidBodySubsteps or 2
 physics.Gravity = physics.Gravity or Vec3(0, -28, 0)
 physics.Up = physics.Up or Vec3(0, 1, 0)
 physics.DefaultSkin = physics.DefaultSkin or 0.02
-physics.RigidBodySubsteps = physics.RigidBodySubsteps or 2
-physics.RigidBodyIterations = physics.RigidBodyIterations or 1
 physics.FixedTimeStep = physics.FixedTimeStep or (1 / 30)
 physics.MaxFrameTime = physics.MaxFrameTime or 0.1
 physics.MaxCatchUpSteps = physics.MaxCatchUpSteps or 8

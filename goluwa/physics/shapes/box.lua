@@ -1,6 +1,7 @@
 local prototype = import("goluwa/prototype.lua")
 local AABB = import("goluwa/structs/aabb.lua")
 local Ang3 = import("goluwa/structs/ang3.lua")
+local Matrix33 = import("goluwa/structs/matrix33.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local BaseShape = import("goluwa/physics/shapes/base.lua")
@@ -71,14 +72,13 @@ function META:GetMassProperties(body)
 		mass = size.x * size.y * size.z * body:GetDensity()
 	end
 
-	if mass <= 0 then return 0, Vec3(0, 0, 0) end
+	if mass <= 0 then return 0, Matrix33():SetZero() end
 
 	local sx, sy, sz = size.x, size.y, size.z
 	local ix = (1 / 12) * mass * (sy * sy + sz * sz)
 	local iy = (1 / 12) * mass * (sx * sx + sz * sz)
 	local iz = (1 / 12) * mass * (sx * sx + sy * sy)
-	return mass,
-	Vec3(ix > 0 and 1 / ix or 0, iy > 0 and 1 / iy or 0, iz > 0 and 1 / iz or 0)
+	return mass, Matrix33():SetDiagonal(ix, iy, iz)
 end
 
 function META:GetAxes(body)

@@ -67,9 +67,7 @@ function META:__index(key)
 
 	if key == "PreviousRotation" then return self:GetPreviousRotation() end
 
-	if key == "InverseMass" or key == "InverseInertia" or key == "Owner" then
-		return self.Body[key]
-	end
+	if key == "InverseMass" or key == "Owner" then return self.Body[key] end
 
 	return self.Body[key]
 end

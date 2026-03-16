@@ -1,5 +1,6 @@
 local prototype = import("goluwa/prototype.lua")
 local AABB = import("goluwa/structs/aabb.lua")
+local Matrix33 = import("goluwa/structs/matrix33.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local BoxShape = import("goluwa/physics/shapes/box.lua")
@@ -49,10 +50,6 @@ META:GetSet("GroundRollingFriction", 0)
 META:GetSet("GroundEntity", nil)
 META:GetSet("GroundBody", nil)
 
-local function component_mul(a, b)
-	return Vec3(a.x * b.x, a.y * b.y, a.z * b.z)
-end
-
 local function copy_position(position)
 	if position and position.Copy then return position:Copy() end
 
@@ -65,21 +62,53 @@ local function copy_rotation(rotation)
 	return Quat():Identity()
 end
 
-local function inverse_to_inertia(value)
-	if not value or value <= 0 then return 0 end
-
-	return 1 / value
+local function new_zero_matrix()
+	return Matrix33():SetZero()
 end
 
-local function get_rotated_inertia_diagonal(rotation, inertia)
-	local axis_x = rotation:VecMul(Vec3(1, 0, 0))
-	local axis_y = rotation:VecMul(Vec3(0, 1, 0))
-	local axis_z = rotation:VecMul(Vec3(0, 0, 1))
-	return Vec3(
-		inertia.x * axis_x.x * axis_x.x + inertia.y * axis_y.x * axis_y.x + inertia.z * axis_z.x * axis_z.x,
-		inertia.x * axis_x.y * axis_x.y + inertia.y * axis_y.y * axis_y.y + inertia.z * axis_z.y * axis_z.y,
-		inertia.x * axis_x.z * axis_x.z + inertia.y * axis_y.z * axis_y.z + inertia.z * axis_z.z * axis_z.z
-	)
+local function get_rotation_matrix(rotation, out)
+	out = out or Matrix33()
+	out:SetRotation(rotation or Quat():Identity())
+	return out
+end
+
+local function rotate_inertia_tensor(rotation, inertia_tensor, out)
+	if not inertia_tensor then return new_zero_matrix() end
+
+	local rotation_matrix = get_rotation_matrix(rotation)
+	local transposed = rotation_matrix:GetTransposed(Matrix33())
+	local rotated = rotation_matrix:GetMultiplied(inertia_tensor, out or Matrix33())
+	return rotated:Multiply(transposed)
+end
+
+local function add_parallel_axis_term(inertia_tensor, mass, position)
+	if not (mass and mass > 0 and position) then return inertia_tensor end
+
+	local x = position.x
+	local y = position.y
+	local z = position.z
+	inertia_tensor.m00 = inertia_tensor.m00 + mass * (y * y + z * z)
+	inertia_tensor.m01 = inertia_tensor.m01 - mass * x * y
+	inertia_tensor.m02 = inertia_tensor.m02 - mass * x * z
+	inertia_tensor.m10 = inertia_tensor.m10 - mass * x * y
+	inertia_tensor.m11 = inertia_tensor.m11 + mass * (x * x + z * z)
+	inertia_tensor.m12 = inertia_tensor.m12 - mass * y * z
+	inertia_tensor.m20 = inertia_tensor.m20 - mass * x * z
+	inertia_tensor.m21 = inertia_tensor.m21 - mass * y * z
+	inertia_tensor.m22 = inertia_tensor.m22 + mass * (x * x + y * y)
+	return inertia_tensor
+end
+
+local function get_box_inertia_tensor(mass, size)
+	local sx, sy, sz = size.x, size.y, size.z
+	local ix = (1 / 12) * mass * (sy * sy + sz * sz)
+	local iy = (1 / 12) * mass * (sx * sx + sz * sz)
+	local iz = (1 / 12) * mass * (sx * sx + sy * sy)
+	return Matrix33():SetDiagonal(ix, iy, iz)
+end
+
+local function get_inverse_tensor(tensor)
+	return tensor:GetInverse(Matrix33())
 end
 
 local function is_shape_definition(value)
@@ -202,7 +231,8 @@ function META:Initialize()
 	self.PreviousRotation = self.PreviousRotation or Quat(0, 0, 0, 1)
 	self.GroundNormal = self.GroundNormal or Vec3(0, 1, 0)
 	self.InverseMass = self.InverseMass or 0
-	self.InverseInertia = self.InverseInertia or Vec3(0, 0, 0)
+	self.InertiaTensor = self.InertiaTensor or new_zero_matrix()
+	self.InverseInertiaTensor = self.InverseInertiaTensor or new_zero_matrix()
 	self.StepDt = self.StepDt or 0
 	self.SleepTimer = self.SleepTimer or 0
 	self.AccumulatedForce = self.AccumulatedForce or Vec3()
@@ -306,31 +336,19 @@ end
 
 function META:RefreshMassProperties()
 	local computed_mass = 0
-	local inertia = Vec3(0, 0, 0)
+	local inertia_tensor = new_zero_matrix()
 	local has_collider_inertia = false
 
 	for _, collider in ipairs(self:GetColliders()) do
-		local collider_mass, collider_inverse_inertia = collider:GetPhysicsShape():GetMassProperties(collider)
+		local collider_mass, collider_inertia_tensor = collider:GetPhysicsShape():GetMassProperties(collider)
 
 		if collider_mass and collider_mass > 0 then
 			computed_mass = computed_mass + collider_mass
 			has_collider_inertia = true
-			local collider_inertia = Vec3(
-				inverse_to_inertia(collider_inverse_inertia and collider_inverse_inertia.x or 0),
-				inverse_to_inertia(collider_inverse_inertia and collider_inverse_inertia.y or 0),
-				inverse_to_inertia(collider_inverse_inertia and collider_inverse_inertia.z or 0)
+			inertia_tensor:Add(
+				rotate_inertia_tensor(collider:GetLocalRotation(), collider_inertia_tensor, Matrix33())
 			)
-			local rotated = get_rotated_inertia_diagonal(collider:GetLocalRotation(), collider_inertia)
-			local position = collider:GetLocalPosition()
-			inertia.x = inertia.x + rotated.x + collider_mass * (
-					position.y * position.y + position.z * position.z
-				)
-			inertia.y = inertia.y + rotated.y + collider_mass * (
-					position.x * position.x + position.z * position.z
-				)
-			inertia.z = inertia.z + rotated.z + collider_mass * (
-					position.x * position.x + position.y * position.y
-				)
+			add_parallel_axis_term(inertia_tensor, collider_mass, collider:GetLocalPosition())
 		end
 	end
 
@@ -346,7 +364,8 @@ function META:RefreshMassProperties()
 
 	if mass <= 0 then
 		self.InverseMass = 0
-		self.InverseInertia = Vec3(0, 0, 0)
+		self.InertiaTensor = new_zero_matrix()
+		self.InverseInertiaTensor = new_zero_matrix()
 		return
 	end
 
@@ -354,30 +373,28 @@ function META:RefreshMassProperties()
 
 	if has_collider_inertia and computed_mass > 0 then
 		if not self:GetAutomaticMass() and mass ~= computed_mass then
-			inertia = inertia * (mass / computed_mass)
+			inertia_tensor = inertia_tensor:ScaleScalar(mass / computed_mass, Matrix33())
+		else
+			inertia_tensor = inertia_tensor:Copy()
 		end
 
-		self.InverseInertia = Vec3(
-			inertia.x > 0 and 1 / inertia.x or 0,
-			inertia.y > 0 and 1 / inertia.y or 0,
-			inertia.z > 0 and 1 / inertia.z or 0
-		)
+		self.InertiaTensor = inertia_tensor
+		self.InverseInertiaTensor = get_inverse_tensor(inertia_tensor)
 		return
 	end
 
 	local min_bounds, max_bounds = get_bounds_from_points(self:GetCollisionLocalPoints())
 
 	if not (min_bounds and max_bounds) then
-		self.InverseInertia = Vec3(0, 0, 0)
+		self.InertiaTensor = new_zero_matrix()
+		self.InverseInertiaTensor = new_zero_matrix()
 		return
 	end
 
 	local size = max_bounds - min_bounds
-	local sx, sy, sz = size.x, size.y, size.z
-	local ix = (1 / 12) * mass * (sy * sy + sz * sz)
-	local iy = (1 / 12) * mass * (sx * sx + sz * sz)
-	local iz = (1 / 12) * mass * (sx * sx + sy * sy)
-	self.InverseInertia = Vec3(ix > 0 and 1 / ix or 0, iy > 0 and 1 / iy or 0, iz > 0 and 1 / iz or 0)
+	self.InertiaTensor = get_box_inertia_tensor(mass, size)
+	self.InverseInertiaTensor = get_inverse_tensor(self.InertiaTensor)
+	return
 end
 
 function META:GetBody()
@@ -487,7 +504,7 @@ end
 
 function META:GetAngularVelocityDelta(world_impulse)
 	local local_impulse = self.Rotation:GetConjugated():VecMul(world_impulse)
-	local local_delta = component_mul(local_impulse, self.InverseInertia)
+	local local_delta = self.InverseInertiaTensor:VecMul(local_impulse)
 	return self.Rotation:VecMul(local_delta)
 end
 
@@ -830,7 +847,8 @@ function META:GetInverseMassAlong(normal, pos)
 	if pos then tangent = (pos - self.Position):GetCross(normal) end
 
 	tangent = self.Rotation:GetConjugated():VecMul(tangent)
-	local angular = tangent.x * tangent.x * self.InverseInertia.x + tangent.y * tangent.y * self.InverseInertia.y + tangent.z * tangent.z * self.InverseInertia.z
+	local angular_delta = self.InverseInertiaTensor:VecMul(tangent)
+	local angular = tangent:Dot(angular_delta)
 
 	if pos then angular = angular + self.InverseMass end
 
@@ -846,7 +864,7 @@ function META:_ApplyCorrection(correction, pos)
 
 	local angular = (pos - self.Position):GetCross(correction)
 	angular = self.Rotation:GetConjugated():VecMul(angular)
-	angular = component_mul(angular, self.InverseInertia)
+	angular = self.InverseInertiaTensor:VecMul(angular)
 	angular = self.Rotation:VecMul(angular)
 	local delta = Quat(angular.x, angular.y, angular.z, 0) * self.Rotation
 	self.Rotation = Quat(

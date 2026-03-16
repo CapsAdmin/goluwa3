@@ -1,5 +1,6 @@
 local prototype = import("goluwa/prototype.lua")
 local AABB = import("goluwa/structs/aabb.lua")
+local Matrix33 = import("goluwa/structs/matrix33.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local physics = import("goluwa/physics.lua")
 local META = prototype.CreateTemplate("physics_shape_base")
@@ -29,7 +30,7 @@ function META:GetHalfExtents()
 end
 
 function META:GetMassProperties()
-	return 0, Vec3()
+	return 0, Matrix33():SetZero()
 end
 
 function META:GeometryLocalToWorld(body, local_pos, position, rotation)
