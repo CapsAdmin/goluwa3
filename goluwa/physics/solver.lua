@@ -2,25 +2,18 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local physics = import("goluwa/physics/shared.lua")
 local broadphase = import("goluwa/physics/broadphase.lua")
-local contact_services = import("goluwa/physics/contact_services.lua")
-local fallback_services = import("goluwa/physics/fallback_solver.lua")
-local manifold_services = import("goluwa/physics/manifold.lua")
-local pair_solver_helper_services = import("goluwa/physics/pair_solver_helpers.lua")
-local shape_helper_services = import("goluwa/physics/shape_accessors.lua")
-local register_pair_modules = import("goluwa/physics/pair_solvers/init.lua").RegisterAll
 local solver = physics.Solver or {}
 physics.Solver = solver
-local EPSILON = 0.00001
-local MANIFOLD_PRUNE_STEPS = 12
+import.loaded["goluwa/physics/solver.lua"] = solver
+local EPSILON = solver.EPSILON or 0.00001
+local MANIFOLD_PRUNE_STEPS = solver.MANIFOLD_PRUNE_STEPS or 12
+solver.EPSILON = EPSILON
+solver.MANIFOLD_PRUNE_STEPS = MANIFOLD_PRUNE_STEPS
+solver.WARM_START_SCALE = solver.WARM_START_SCALE or 0.9
 solver.PersistentManifolds = solver.PersistentManifolds or {}
 solver.PairHandlers = solver.PairHandlers or {}
 solver.MissingPairWarnings = solver.MissingPairWarnings or {}
 solver.StepStamp = solver.StepStamp or 0
-local contacts
-local fallback
-local manifolds
-local pair_solver_helpers
-local shape_helpers
 local COMBINE_MODE_PRIORITY = {
 	average = 0,
 	min = 1,
@@ -65,26 +58,31 @@ local function combine_material_value(value_a, value_b, mode, legacy_mode)
 	return math.max(value_a, value_b)
 end
 
-local function get_pair_restitution(body_a, body_b)
+function solver.GetPairRestitution(body_a, body_b)
 	local restitution_a = math.max(body_a:GetRestitution() or 0, 0)
 	local restitution_b = math.max(body_b:GetRestitution() or 0, 0)
 	local mode = resolve_pair_combine_mode(body_a:GetRestitutionCombineMode(), body_b:GetRestitutionCombineMode())
 	return combine_material_value(restitution_a, restitution_b, mode, "restitution")
 end
 
-local function get_pair_friction(body_a, body_b)
+function solver.GetPairFriction(body_a, body_b)
 	local friction_a = math.max(body_a:GetFriction() or 0, 0)
 	local friction_b = math.max(body_b:GetFriction() or 0, 0)
 	local mode = resolve_pair_combine_mode(body_a:GetFrictionCombineMode(), body_b:GetFrictionCombineMode())
 	return combine_material_value(friction_a, friction_b, mode, "friction")
 end
 
-local function get_pair_rolling_friction(body_a, body_b)
+function solver.GetPairRollingFriction(body_a, body_b)
 	local friction_a = math.max(body_a:GetRollingFriction() or 0, 0)
 	local friction_b = math.max(body_b:GetRollingFriction() or 0, 0)
 	local mode = resolve_pair_combine_mode(body_a:GetRollingFrictionCombineMode(), body_b:GetRollingFrictionCombineMode())
 	return combine_material_value(friction_a, friction_b, mode, "friction")
 end
+
+local fallback = import("goluwa/physics/fallback_solver.lua")
+local manifolds = import("goluwa/physics/manifold.lua")
+local world_contacts = import("goluwa/physics/world_contacts.lua")
+local register_pair_modules = import("goluwa/physics/pair_solvers/init.lua").RegisterAll
 
 function solver:BeginStep()
 	self.StepStamp = (self.StepStamp or 0) + 1
@@ -210,79 +208,8 @@ function solver.SolveRigidBodyPairs(bodies, dt)
 end
 
 function solver.SolveBodyContacts(body, dt)
-	contacts.SolveBodyContacts(body, dt)
+	world_contacts.SolveBodyContacts(body, dt)
 end
 
-shape_helpers = shape_helper_services.CreateServices()
-contacts = contact_services.CreateServices{
-	Vec3 = Vec3,
-	Quat = Quat,
-	physics = physics,
-	EPSILON = EPSILON,
-	get_pair_restitution = get_pair_restitution,
-	get_pair_friction = get_pair_friction,
-	get_pair_rolling_friction = get_pair_rolling_friction,
-	get_persistent_manifolds = function()
-		return solver.PersistentManifolds
-	end,
-	get_step_stamp = function()
-		return solver.StepStamp
-	end,
-	get_manifolds = function()
-		return manifolds
-	end,
-}
-fallback = fallback_services.CreateServices{
-	Vec3 = Vec3,
-	resolve_pair_penetration = contacts.ResolvePairPenetration,
-}
-pair_solver_helpers = pair_solver_helper_services.CreateServices{
-	Vec3 = Vec3,
-	EPSILON = EPSILON,
-	physics = physics,
-	clamp = shape_helpers.Clamp,
-	get_sign = shape_helpers.GetSign,
-	get_box_extents = shape_helpers.GetBoxExtents,
-	apply_pair_impulse = contacts.ApplyPairImpulse,
-	mark_pair_grounding = contacts.MarkPairGrounding,
-}
-manifolds = manifold_services.CreateServices{
-	Vec3 = Vec3,
-	EPSILON = EPSILON,
-	WARM_START_SCALE = 0.9,
-	get_pair_restitution = get_pair_restitution,
-	get_pair_friction = get_pair_friction,
-	get_pair_rolling_friction = get_pair_rolling_friction,
-	get_point_velocity = contacts.GetPointVelocity,
-	apply_impulse_to_motion = contacts.ApplyImpulseToMotion,
-	set_body_motion_from_current_state = contacts.SetBodyMotionFromCurrentState,
-}
-register_pair_modules(
-	solver,
-	{
-		Vec3 = Vec3,
-		Quat = Quat,
-		physics = physics,
-		EPSILON = EPSILON,
-		clamp = shape_helpers.Clamp,
-		get_sign = shape_helpers.GetSign,
-		get_sphere_radius = shape_helpers.GetSphereRadius,
-		get_box_extents = shape_helpers.GetBoxExtents,
-		get_box_axes = shape_helpers.GetBoxAxes,
-		get_body_polyhedron = shape_helpers.GetBodyPolyhedron,
-		body_has_significant_rotation = shape_helpers.BodyHasSignificantRotation,
-		resolve_pair_penetration = contacts.ResolvePairPenetration,
-		apply_pair_impulse = contacts.ApplyPairImpulse,
-		mark_pair_grounding = contacts.MarkPairGrounding,
-		get_static_dynamic_pair = pair_solver_helpers.GetStaticDynamicPair,
-		get_safe_collision_normal = pair_solver_helpers.GetSafeCollisionNormal,
-		has_solver_mass = pair_solver_helpers.HasSolverMass,
-		is_solver_immovable = pair_solver_helpers.IsSolverImmovable,
-		get_box_contact_for_point = pair_solver_helpers.GetBoxContactForPoint,
-		sweep_point_against_box = pair_solver_helpers.SweepPointAgainstBox,
-		sweep_point_against_polyhedron = pair_solver_helpers.SweepPointAgainstPolyhedron,
-		resolve_relative_swept_pair_hit = pair_solver_helpers.ResolveRelativeSweptPairHit,
-		resolve_swept_hit = pair_solver_helpers.ResolveSweptHit,
-	}
-)
+register_pair_modules(solver)
 return solver

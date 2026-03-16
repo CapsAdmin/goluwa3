@@ -1,7 +1,7 @@
 local Vec3 = import("goluwa/structs/vec3.lua")
 local physics = import("goluwa/physics/shared.lua")
 local RigidBodyComponent = import("goluwa/ecs/components/3d/rigid_body.lua")
-local module = {}
+local kinematic_controller = {}
 
 local function approach_vec(current, target, delta)
 	local diff = target - current
@@ -731,7 +731,7 @@ local function project_move_on_ground(move, normal)
 	return tangent / tangent_length * move_length
 end
 
-function module.UpdateBody(body, dt, gravity)
+function kinematic_controller.UpdateBody(body, dt, gravity)
 	if not body then return end
 
 	local owner = body.Owner
@@ -1020,4 +1020,4 @@ function module.UpdateBody(body, dt, gravity)
 	body.Position = predicted
 end
 
-return module
+return kinematic_controller

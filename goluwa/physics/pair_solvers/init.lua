@@ -1,6 +1,6 @@
 local pair_solvers = {}
 
-function pair_solvers.RegisterAll(solver, services)
+function pair_solvers.RegisterAll(solver)
 	local modules = {
 		import("goluwa/physics/pair_solvers/polyhedron.lua"),
 		import("goluwa/physics/pair_solvers/sphere.lua"),
@@ -8,8 +8,8 @@ function pair_solvers.RegisterAll(solver, services)
 		import("goluwa/physics/pair_solvers/box.lua"),
 	}
 
-	for _, module in ipairs(modules) do
-		module.Register(solver, services)
+	for _, pair_solver in ipairs(modules) do
+		pair_solver.Register(solver)
 	end
 end
 

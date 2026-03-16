@@ -1,32 +1,72 @@
-local module = {}
+local Vec3 = import("goluwa/structs/vec3.lua")
+local Quat = import("goluwa/structs/quat.lua")
+local physics = import("goluwa/physics/shared.lua")
+local physics_solver = import("goluwa/physics/solver.lua")
+local shape_accessors = import("goluwa/physics/shape_accessors.lua")
+local pair_solver_helpers = import("goluwa/physics/pair_solver_helpers.lua")
+local contact_resolution = import("goluwa/physics/contact_resolution.lua")
+local polyhedron = {}
+local EPSILON = physics_solver.EPSILON or 0.00001
 
-function module.Register(solver, services)
-	local Vec3 = services.Vec3
-	local Quat = services.Quat
-	local physics = services.physics
-	local EPSILON = services.EPSILON
-	local get_sign = services.get_sign
-	local get_body_polyhedron = services.get_body_polyhedron
-	local get_static_dynamic_pair = services.get_static_dynamic_pair
-	local has_solver_mass = services.has_solver_mass
-	local is_solver_immovable = services.is_solver_immovable
-	local resolve_pair_penetration = services.resolve_pair_penetration
-	local apply_pair_impulse = services.apply_pair_impulse
-	local mark_pair_grounding = services.mark_pair_grounding
-	local resolve_relative_swept_pair_hit = services.resolve_relative_swept_pair_hit
-	local sweep_point_against_polyhedron = services.sweep_point_against_polyhedron
-	local resolve_swept_hit = services.resolve_swept_hit
+function polyhedron.GetPolyhedronWorldVertices(body, polyhedron_data)
+	local out = {}
 
-	local function get_polyhedron_world_vertices(body, polyhedron)
-		local out = {}
-
-		for i, point in ipairs(polyhedron.vertices or {}) do
-			out[i] = body:LocalToWorld(point)
-		end
-
-		return out
+	for i, point in ipairs(polyhedron_data.vertices or {}) do
+		out[i] = body:LocalToWorld(point)
 	end
 
+	return out
+end
+
+function polyhedron.ClosestPointOnTriangle(point, a, b, c)
+	local ab = b - a
+	local ac = c - a
+	local ap = point - a
+	local d1 = ab:Dot(ap)
+	local d2 = ac:Dot(ap)
+
+	if d1 <= 0 and d2 <= 0 then return a end
+
+	local bp = point - b
+	local d3 = ab:Dot(bp)
+	local d4 = ac:Dot(bp)
+
+	if d3 >= 0 and d4 <= d3 then return b end
+
+	local vc = d1 * d4 - d3 * d2
+
+	if vc <= 0 and d1 >= 0 and d3 <= 0 then
+		local v = d1 / (d1 - d3)
+		return a + ab * v
+	end
+
+	local cp = point - c
+	local d5 = ab:Dot(cp)
+	local d6 = ac:Dot(cp)
+
+	if d6 >= 0 and d5 <= d6 then return c end
+
+	local vb = d5 * d2 - d1 * d6
+
+	if vb <= 0 and d2 >= 0 and d6 <= 0 then
+		local w = d2 / (d2 - d6)
+		return a + ac * w
+	end
+
+	local va = d3 * d6 - d5 * d4
+
+	if va <= 0 and (d4 - d3) >= 0 and (d5 - d6) >= 0 then
+		local w = (d4 - d3) / ((d4 - d3) + (d5 - d6))
+		return b + (c - b) * w
+	end
+
+	local denom = 1 / (va + vb + vc)
+	local v = vb * denom
+	local w = vc * denom
+	return a + ab * v + ac * w
+end
+
+function polyhedron.Register(solver)
 	local function local_to_world_at(position, rotation, local_point)
 		return position + rotation:VecMul(local_point)
 	end
@@ -239,7 +279,10 @@ function module.Register(solver, services)
 	end
 
 	local function solve_swept_polyhedron_polyhedron_collision(dynamic_body, static_body, static_polyhedron, dt)
-		if not is_solver_immovable(static_body) or not has_solver_mass(dynamic_body) then
+		if
+			not pair_solver_helpers.IsSolverImmovable(static_body) or
+			not pair_solver_helpers.HasSolverMass(dynamic_body)
+		then
 			return false
 		end
 
@@ -254,7 +297,7 @@ function module.Register(solver, services)
 		for _, local_point in ipairs(dynamic_body:GetCollisionLocalPoints()) do
 			local start_world = dynamic_body:GeometryLocalToWorld(local_point, previous_position, dynamic_body:GetPreviousRotation())
 			local end_world = dynamic_body:GeometryLocalToWorld(local_point)
-			local hit = sweep_point_against_polyhedron(static_body, static_polyhedron, start_world, end_world)
+			local hit = pair_solver_helpers.SweepPointAgainstPolyhedron(static_body, static_polyhedron, start_world, end_world)
 
 			if hit and (not earliest_hit or hit.t < earliest_hit.t) then
 				earliest_hit = hit
@@ -263,7 +306,7 @@ function module.Register(solver, services)
 
 		if not earliest_hit then return false end
 
-		return resolve_swept_hit(static_body, dynamic_body, previous_position, movement, earliest_hit, dt)
+		return pair_solver_helpers.ResolveSweptHit(static_body, dynamic_body, previous_position, movement, earliest_hit, dt)
 	end
 
 	local function evaluate_polyhedron_pair_at_transforms(poly_a, position_a, rotation_a, poly_b, position_b, rotation_b)
@@ -303,7 +346,7 @@ function module.Register(solver, services)
 
 			if overlap < best_overlap then
 				best_overlap = overlap
-				best_normal = axis * get_sign(center_delta:Dot(axis))
+				best_normal = axis * math.sign(center_delta:Dot(axis))
 			end
 		end
 
@@ -408,14 +451,17 @@ function module.Register(solver, services)
 		end
 
 		if result.contacts and result.contacts[1] then
-			return resolve_pair_penetration(body_a, body_b, result.normal, result.overlap, dt, nil, nil, result.contacts)
+			return contact_resolution.ResolvePairPenetration(body_a, body_b, result.normal, result.overlap, dt, nil, nil, result.contacts)
 		end
 
-		return resolve_pair_penetration(body_a, body_b, result.normal, result.overlap, dt, result.point_a, result.point_b)
+		return contact_resolution.ResolvePairPenetration(body_a, body_b, result.normal, result.overlap, dt, result.point_a, result.point_b)
 	end
 
 	local function solve_relative_swept_polyhedron_pair_collision(body_a, body_b, poly_a, poly_b, dt)
-		if is_solver_immovable(body_a) or is_solver_immovable(body_b) then
+		if
+			pair_solver_helpers.IsSolverImmovable(body_a) or
+			pair_solver_helpers.IsSolverImmovable(body_b)
+		then
 			return false
 		end
 
@@ -435,7 +481,7 @@ function module.Register(solver, services)
 
 		for _, local_point in ipairs(body_a:GetCollisionLocalPoints()) do
 			local start_world = body_a:GeometryLocalToWorld(local_point, previous_position_a, previous_rotation_a)
-			local hit = sweep_point_against_polyhedron(
+			local hit = pair_solver_helpers.SweepPointAgainstPolyhedron(
 				body_b,
 				poly_b,
 				start_world,
@@ -455,7 +501,7 @@ function module.Register(solver, services)
 
 		for _, local_point in ipairs(body_b:GetCollisionLocalPoints()) do
 			local start_world = body_b:GeometryLocalToWorld(local_point, previous_position_b, previous_rotation_b)
-			local hit = sweep_point_against_polyhedron(
+			local hit = pair_solver_helpers.SweepPointAgainstPolyhedron(
 				body_a,
 				poly_a,
 				start_world,
@@ -475,7 +521,7 @@ function module.Register(solver, services)
 
 		if not earliest_hit then return false end
 
-		return resolve_relative_swept_pair_hit(
+		return pair_solver_helpers.ResolveRelativeSweptPairHit(
 			body_a,
 			body_b,
 			previous_position_a,
@@ -488,23 +534,26 @@ function module.Register(solver, services)
 	end
 
 	local function solve_polyhedron_pair_collision(body_a, body_b, dt)
-		local poly_a = get_body_polyhedron(body_a)
-		local poly_b = get_body_polyhedron(body_b)
+		local poly_a = shape_accessors.GetBodyPolyhedron(body_a)
+		local poly_b = shape_accessors.GetBodyPolyhedron(body_b)
 
 		if not (poly_a and poly_b and poly_a.vertices and poly_b.vertices) then
 			return false
 		end
 
 		if
-			services.body_has_significant_rotation(body_a) or
-			services.body_has_significant_rotation(body_b)
+			shape_accessors.BodyHasSignificantRotation(body_a) or
+			shape_accessors.BodyHasSignificantRotation(body_b)
 		then
 			local temporal = solve_temporal_polyhedron_pair_collision(body_a, body_b, poly_a, poly_b, dt)
 
 			if temporal then return true end
 		end
 
-		if has_solver_mass(body_a) and has_solver_mass(body_b) then
+		if
+			pair_solver_helpers.HasSolverMass(body_a) and
+			pair_solver_helpers.HasSolverMass(body_b)
+		then
 			local previous_bounds_a = body_a:GetBroadphaseAABB(body_a:GetPreviousPosition(), body_a:GetPreviousRotation())
 			local previous_bounds_b = body_b:GetBroadphaseAABB(body_b:GetPreviousPosition(), body_b:GetPreviousRotation())
 
@@ -537,13 +586,13 @@ function module.Register(solver, services)
 
 		if not axes[1] then return false end
 
-		local vertices_a = get_polyhedron_world_vertices(body_a, poly_a)
-		local vertices_b = get_polyhedron_world_vertices(body_b, poly_b)
+		local vertices_a = polyhedron.GetPolyhedronWorldVertices(body_a, poly_a)
+		local vertices_b = polyhedron.GetPolyhedronWorldVertices(body_b, poly_b)
 		local best_overlap = math.huge
 		local best_normal = nil
 
 		local function try_swept_fallback()
-			local static_body, dynamic_body = get_static_dynamic_pair(body_a, body_b)
+			local static_body, dynamic_body = pair_solver_helpers.GetStaticDynamicPair(body_a, body_b)
 
 			if static_body == body_a then
 				return solve_swept_polyhedron_polyhedron_collision(dynamic_body, static_body, poly_a, dt)
@@ -565,7 +614,7 @@ function module.Register(solver, services)
 
 			if overlap < best_overlap then
 				best_overlap = overlap
-				best_normal = axis * get_sign(center_delta:Dot(axis))
+				best_normal = axis * math.sign(center_delta:Dot(axis))
 			end
 		end
 
@@ -576,17 +625,14 @@ function module.Register(solver, services)
 		local point_b = average_world_points(collect_support_vertices(vertices_b, best_normal, false))
 
 		if contacts[1] then
-			return resolve_pair_penetration(body_a, body_b, best_normal, best_overlap, dt, nil, nil, contacts)
+			return contact_resolution.ResolvePairPenetration(body_a, body_b, best_normal, best_overlap, dt, nil, nil, contacts)
 		end
 
-		return resolve_pair_penetration(body_a, body_b, best_normal, best_overlap, dt, point_a, point_b)
+		return contact_resolution.ResolvePairPenetration(body_a, body_b, best_normal, best_overlap, dt, point_a, point_b)
 	end
 
-	services.get_polyhedron_world_vertices = get_polyhedron_world_vertices
-	services.closest_point_on_triangle = closest_point_on_triangle
-	services.sweep_point_against_polyhedron = sweep_point_against_polyhedron
-	services.solve_temporal_polyhedron_pair_collision = solve_temporal_polyhedron_pair_collision
-	services.solve_polyhedron_pair_collision = solve_polyhedron_pair_collision
+	polyhedron.SolveTemporalPolyhedronPairCollision = solve_temporal_polyhedron_pair_collision
+	polyhedron.SolvePolyhedronPairCollision = solve_polyhedron_pair_collision
 
 	solver:RegisterPairHandler("convex", "box", function(body_a, body_b, _, _, dt)
 		return solve_polyhedron_pair_collision(body_a, body_b, dt)
@@ -601,4 +647,4 @@ function module.Register(solver, services)
 	end)
 end
 
-return module
+return polyhedron

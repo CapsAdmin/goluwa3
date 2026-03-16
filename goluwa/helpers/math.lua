@@ -61,6 +61,10 @@ function math.clamp(self, min, max)
 	return math.min(math.max(self, min), max)
 end
 
+function math.sign(value)
+	return value < 0 and -1 or 1
+end
+
 function math.lerp(m, a, b)
 	return (b - a) * m + a
 end

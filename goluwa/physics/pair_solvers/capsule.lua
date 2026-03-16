@@ -1,13 +1,12 @@
-local module = {}
+local Vec3 = import("goluwa/structs/vec3.lua")
+local physics_solver = import("goluwa/physics/solver.lua")
+local shape_accessors = import("goluwa/physics/shape_accessors.lua")
+local pair_solver_helpers = import("goluwa/physics/pair_solver_helpers.lua")
+local contact_resolution = import("goluwa/physics/contact_resolution.lua")
+local capsule = {}
+local EPSILON = physics_solver.EPSILON or 0.00001
 
-function module.Register(solver, services)
-	local Vec3 = services.Vec3
-	local EPSILON = services.EPSILON
-	local clamp = services.clamp
-	local get_box_contact_for_point = services.get_box_contact_for_point
-	local get_safe_collision_normal = services.get_safe_collision_normal
-	local resolve_pair_penetration = services.resolve_pair_penetration
-
+function capsule.Register(solver)
 	local function get_capsule_shape(body)
 		local shape = body:GetPhysicsShape()
 		return shape and shape.GetTypeName and shape:GetTypeName() == "capsule" and shape or nil
@@ -29,7 +28,7 @@ function module.Register(solver, services)
 
 		if denom <= EPSILON then return a, 0 end
 
-		local t = clamp((point - a):Dot(ab) / denom, 0, 1)
+		local t = math.clamp((point - a):Dot(ab) / denom, 0, 1)
 		return a + ab * t, t
 	end
 
@@ -47,19 +46,19 @@ function module.Register(solver, services)
 
 		if a <= EPSILON then
 			s = 0
-			t = clamp(f / e, 0, 1)
+			t = math.clamp(f / e, 0, 1)
 		else
 			local c = d1:Dot(r)
 
 			if e <= EPSILON then
 				t = 0
-				s = clamp(-c / a, 0, 1)
+				s = math.clamp(-c / a, 0, 1)
 			else
 				local b = d1:Dot(d2)
 				local denom = a * e - b * b
 
 				if denom ~= 0 then
-					s = clamp((b * f - c * e) / denom, 0, 1)
+					s = math.clamp((b * f - c * e) / denom, 0, 1)
 				else
 					s = 0
 				end
@@ -68,10 +67,10 @@ function module.Register(solver, services)
 
 				if t < 0 then
 					t = 0
-					s = clamp(-c / a, 0, 1)
+					s = math.clamp(-c / a, 0, 1)
 				elseif t > 1 then
 					t = 1
-					s = clamp((b - c) / a, 0, 1)
+					s = math.clamp((b - c) / a, 0, 1)
 				end
 			end
 		end
@@ -107,12 +106,12 @@ function module.Register(solver, services)
 		local delta = sphere_center - closest
 		local sphere_radius = sphere_body:GetPhysicsShape():GetRadius()
 		local min_distance = capsule_radius + sphere_radius
-		local normal, distance = get_safe_collision_normal(delta, sphere_body:GetVelocity() - capsule_body:GetVelocity())
+		local normal, distance = pair_solver_helpers.GetSafeCollisionNormal(delta, sphere_body:GetVelocity() - capsule_body:GetVelocity())
 		local overlap = min_distance - distance
 
 		if overlap <= 0 then return false end
 
-		return resolve_pair_penetration(
+		return contact_resolution.ResolvePairPenetration(
 			capsule_body,
 			sphere_body,
 			normal,
@@ -129,12 +128,12 @@ function module.Register(solver, services)
 		local point_a, point_b = closest_points_between_segments(a0, a1, b0, b1)
 		local delta = point_b - point_a
 		local min_distance = radius_a + radius_b
-		local normal, distance = get_safe_collision_normal(delta, body_b:GetVelocity() - body_a:GetVelocity())
+		local normal, distance = pair_solver_helpers.GetSafeCollisionNormal(delta, body_b:GetVelocity() - body_a:GetVelocity())
 		local overlap = min_distance - distance
 
 		if overlap <= 0 then return false end
 
-		return resolve_pair_penetration(
+		return contact_resolution.ResolvePairPenetration(
 			body_a,
 			body_b,
 			normal,
@@ -150,7 +149,7 @@ function module.Register(solver, services)
 		local best_contact = nil
 
 		for _, sample in ipairs(points) do
-			local contact = get_box_contact_for_point(box_body, sample.point, radius)
+			local contact = pair_solver_helpers.GetBoxContactForPoint(box_body, sample.point, radius)
 
 			if contact and (not best_contact or contact.overlap > best_contact.overlap) then
 				best_contact = contact
@@ -159,7 +158,7 @@ function module.Register(solver, services)
 
 		if not best_contact then return false end
 
-		return resolve_pair_penetration(
+		return contact_resolution.ResolvePairPenetration(
 			box_body,
 			capsule_body,
 			best_contact.normal,
@@ -191,4 +190,4 @@ function module.Register(solver, services)
 	end)
 end
 
-return module
+return capsule

@@ -1,25 +1,16 @@
-local module = {}
+local Vec3 = import("goluwa/structs/vec3.lua")
+local physics = import("goluwa/physics/shared.lua")
+local physics_solver = import("goluwa/physics/solver.lua")
+local shape_accessors = import("goluwa/physics/shape_accessors.lua")
+local pair_solver_helpers = import("goluwa/physics/pair_solver_helpers.lua")
+local contact_resolution = import("goluwa/physics/contact_resolution.lua")
+local polyhedron_solver = import("goluwa/physics/pair_solvers/polyhedron.lua")
+local box = {}
+local EPSILON = physics_solver.EPSILON or 0.00001
 
-function module.Register(solver, services)
-	local Vec3 = services.Vec3
-	local EPSILON = services.EPSILON
-	local get_sign = services.get_sign
-	local get_box_extents = services.get_box_extents
-	local get_box_axes = services.get_box_axes
-	local get_body_polyhedron = services.get_body_polyhedron
-	local get_static_dynamic_pair = services.get_static_dynamic_pair
-	local has_solver_mass = services.has_solver_mass
-	local is_solver_immovable = services.is_solver_immovable
-	local resolve_pair_penetration = services.resolve_pair_penetration
-	local apply_pair_impulse = services.apply_pair_impulse
-	local mark_pair_grounding = services.mark_pair_grounding
-	local sweep_point_against_box = services.sweep_point_against_box
-	local resolve_swept_hit = services.resolve_swept_hit
-	local solve_temporal_polyhedron_pair_collision = services.solve_temporal_polyhedron_pair_collision
-	local physics = services.physics
-
+function box.Register(solver)
 	local function should_use_box_contact_patch(body)
-		local axes = get_box_axes(body)
+		local axes = body:GetPhysicsShape():GetAxes(body)
 		local world_axes = {
 			Vec3(1, 0, 0),
 			Vec3(0, 1, 0),
@@ -40,14 +31,14 @@ function module.Register(solver, services)
 	end
 
 	local function is_rod_like_box(body)
-		local extents = get_box_extents(body)
+		local extents = body:GetPhysicsShape():GetExtents()
 		local lengths = {extents.x * 2, extents.y * 2, extents.z * 2}
 		table.sort(lengths)
 		return lengths[3] >= lengths[2] * 2 and lengths[2] <= lengths[1] * 1.2
 	end
 
 	local function is_compact_box(body)
-		local extents = get_box_extents(body)
+		local extents = body:GetPhysicsShape():GetExtents()
 		local lengths = {extents.x * 2, extents.y * 2, extents.z * 2}
 		table.sort(lengths)
 		return lengths[3] <= lengths[1] * 1.35
@@ -73,8 +64,8 @@ function module.Register(solver, services)
 	end
 
 	local function get_box_face(body, desired_normal)
-		local extents = get_box_extents(body)
-		local axes = get_box_axes(body)
+		local extents = body:GetPhysicsShape():GetExtents()
+		local axes = body:GetPhysicsShape():GetAxes(body)
 		local axis_index = 1
 		local alignment = -math.huge
 
@@ -132,7 +123,7 @@ function module.Register(solver, services)
 	end
 
 	local function point_inside_box_face(body, face, point)
-		local extents = get_box_extents(body)
+		local extents = body:GetPhysicsShape():GetExtents()
 		local local_point = body:WorldToLocal(point)
 		local tolerance = 0.08
 
@@ -158,7 +149,7 @@ function module.Register(solver, services)
 	end
 
 	local function get_body_world_vertices(body)
-		local polyhedron = get_body_polyhedron(body)
+		local polyhedron = shape_accessors.GetBodyPolyhedron(body)
 		local vertices = {}
 
 		for i, point in ipairs((polyhedron and polyhedron.vertices) or {}) do
@@ -297,7 +288,7 @@ function module.Register(solver, services)
 
 		if overlap <= 0 then return false end
 
-		update_best_axis(best, overlap, normal * get_sign(distance), kind, reference_body)
+		update_best_axis(best, overlap, normal * math.sign(distance), kind, reference_body)
 		return true
 	end
 
@@ -317,7 +308,10 @@ function module.Register(solver, services)
 	end
 
 	local function solve_swept_box_box_collision(dynamic_body, static_body, dt)
-		if not is_solver_immovable(static_body) or not has_solver_mass(dynamic_body) then
+		if
+			not pair_solver_helpers.IsSolverImmovable(static_body) or
+			not pair_solver_helpers.HasSolverMass(dynamic_body)
+		then
 			return false
 		end
 
@@ -332,7 +326,7 @@ function module.Register(solver, services)
 		for _, local_point in ipairs(dynamic_body:GetCollisionLocalPoints()) do
 			local start_world = dynamic_body:GeometryLocalToWorld(local_point, previous_position, dynamic_body:GetPreviousRotation())
 			local end_world = dynamic_body:GeometryLocalToWorld(local_point)
-			local hit = sweep_point_against_box(static_body, start_world, end_world)
+			local hit = pair_solver_helpers.SweepPointAgainstBox(static_body, start_world, end_world)
 
 			if hit and (not earliest_hit or hit.t < earliest_hit.t) then
 				earliest_hit = hit
@@ -341,19 +335,19 @@ function module.Register(solver, services)
 
 		if not earliest_hit then return false end
 
-		return resolve_swept_hit(static_body, dynamic_body, previous_position, movement, earliest_hit, dt)
+		return pair_solver_helpers.ResolveSweptHit(static_body, dynamic_body, previous_position, movement, earliest_hit, dt)
 	end
 
 	local function solve_box_pair_collision(body_a, body_b, dt)
 		if
-			services.body_has_significant_rotation(body_a) or
-			services.body_has_significant_rotation(body_b)
+			shape_accessors.BodyHasSignificantRotation(body_a) or
+			shape_accessors.BodyHasSignificantRotation(body_b)
 		then
-			local temporal = solve_temporal_polyhedron_pair_collision(
+			local temporal = polyhedron_solver.SolveTemporalPolyhedronPairCollision(
 				body_a,
 				body_b,
-				get_body_polyhedron(body_a),
-				get_body_polyhedron(body_b),
+				shape_accessors.GetBodyPolyhedron(body_a),
+				shape_accessors.GetBodyPolyhedron(body_b),
 				dt
 			)
 
@@ -363,17 +357,17 @@ function module.Register(solver, services)
 		local center_a = body_a:GetPosition()
 		local center_b = body_b:GetPosition()
 		local delta = center_b - center_a
-		local extents_a = get_box_extents(body_a)
-		local extents_b = get_box_extents(body_b)
-		local axes_a = get_box_axes(body_a)
-		local axes_b = get_box_axes(body_b)
+		local extents_a = body_a:GetPhysicsShape():GetExtents()
+		local extents_b = body_b:GetPhysicsShape():GetExtents()
+		local axes_a = body_a:GetPhysicsShape():GetAxes(body_a)
+		local axes_b = body_b:GetPhysicsShape():GetAxes(body_b)
 		local best = {any = {overlap = math.huge, normal = nil, kind = nil}, face = nil}
 
 		for i = 1, 3 do
 			if
 				not test_obb_axis(axes_a[i], delta, extents_a, axes_a, extents_b, axes_b, best, "face", "a")
 			then
-				local static_body, dynamic_body = get_static_dynamic_pair(body_a, body_b)
+				local static_body, dynamic_body = pair_solver_helpers.GetStaticDynamicPair(body_a, body_b)
 
 				if static_body then
 					return solve_swept_box_box_collision(dynamic_body, static_body, dt)
@@ -385,7 +379,7 @@ function module.Register(solver, services)
 			if
 				not test_obb_axis(axes_b[i], delta, extents_a, axes_a, extents_b, axes_b, best, "face", "b")
 			then
-				local static_body, dynamic_body = get_static_dynamic_pair(body_a, body_b)
+				local static_body, dynamic_body = pair_solver_helpers.GetStaticDynamicPair(body_a, body_b)
 
 				if static_body then
 					return solve_swept_box_box_collision(dynamic_body, static_body, dt)
@@ -410,7 +404,7 @@ function module.Register(solver, services)
 						nil
 					)
 				then
-					local static_body, dynamic_body = get_static_dynamic_pair(body_a, body_b)
+					local static_body, dynamic_body = pair_solver_helpers.GetStaticDynamicPair(body_a, body_b)
 
 					if static_body then
 						return solve_swept_box_box_collision(dynamic_body, static_body, dt)
@@ -433,7 +427,7 @@ function module.Register(solver, services)
 				local contacts = build_support_pair_contacts(body_a, body_b, best.normal)
 
 				if contacts and contacts[1] then
-					return resolve_pair_penetration(
+					return contact_resolution.ResolvePairPenetration(
 						body_a,
 						body_b,
 						best.normal,
@@ -446,7 +440,7 @@ function module.Register(solver, services)
 				end
 			end
 
-			return resolve_pair_penetration(
+			return contact_resolution.ResolvePairPenetration(
 				body_a,
 				body_b,
 				raw_best.normal,
@@ -458,7 +452,7 @@ function module.Register(solver, services)
 			)
 		end
 
-		return resolve_pair_penetration(body_a, body_b, best.normal, best.overlap, dt)
+		return contact_resolution.ResolvePairPenetration(body_a, body_b, best.normal, best.overlap, dt)
 	end
 
 	solver:RegisterPairHandler("box", "box", function(body_a, body_b, _, _, dt)
@@ -466,4 +460,4 @@ function module.Register(solver, services)
 	end)
 end
 
-return module
+return box

@@ -1,10 +1,10 @@
-local module = {}
+local broadphase = {}
 
 local function sort(a, b)
 	return a.left < b.left
 end
 
-function module.BuildEntries(physics, bodies)
+function broadphase.BuildEntries(physics, bodies)
 	local entries = {}
 
 	for _, body in ipairs(bodies) do
@@ -41,8 +41,8 @@ function module.BuildEntries(physics, bodies)
 	return entries
 end
 
-function module.BuildCandidatePairs(physics, bodies)
-	local entries = module.BuildEntries(physics, bodies)
+function broadphase.BuildCandidatePairs(physics, bodies)
+	local entries = broadphase.BuildEntries(physics, bodies)
 	local pairs = {}
 
 	for i = 1, #entries do
@@ -66,4 +66,4 @@ function module.BuildCandidatePairs(physics, bodies)
 	return pairs
 end
 
-return module
+return broadphase
