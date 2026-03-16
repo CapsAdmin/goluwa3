@@ -1,4 +1,4 @@
-local physics = import("goluwa/physics/shared.lua")
+local physics = import("goluwa/physics.lua")
 local motion = import("goluwa/physics/motion.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local world_contacts = {}

@@ -1,14 +1,6 @@
+local physics = import("goluwa/physics.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local bit = require("bit")
-local physics = import.loaded["goluwa/physics/shared.lua"] or
-	import.loaded["goluwa/physics/init.lua"] or
-	import.loaded["goluwa/physics.lua"]
-
-if not physics then physics = library() end
-
-import.loaded["goluwa/physics/shared.lua"] = physics
-import.loaded["goluwa/physics/init.lua"] = physics
-import.loaded["goluwa/physics.lua"] = physics
 physics.Gravity = physics.Gravity or Vec3(0, -28, 0)
 physics.Up = physics.Up or Vec3(0, 1, 0)
 physics.DefaultSkin = physics.DefaultSkin or 0.02

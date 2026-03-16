@@ -1,6 +1,6 @@
 local prototype = import("goluwa/prototype.lua")
 local input = import("goluwa/input.lua")
-local physics = import("goluwa/physics/shared.lua")
+local physics = import("goluwa/physics.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")

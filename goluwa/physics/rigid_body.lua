@@ -1,4 +1,4 @@
-local physics = import("goluwa/physics/shared.lua")
+local physics = import("goluwa/physics.lua")
 local solver = import("goluwa/physics/solver.lua")
 local kinematic_controller = import("goluwa/physics/kinematic_controller.lua")
 local RigidBodyComponent = import("goluwa/ecs/components/3d/rigid_body.lua")

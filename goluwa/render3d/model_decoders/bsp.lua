@@ -52,8 +52,8 @@ local BSP_COLLISION_CONTENTS_MASK = bit.bor(
 local BRUSH_POINT_EPSILON = 0.01
 
 local function get_physics_modules()
-	if not physics and (PHYSICS or import.loaded["goluwa/physics/shared.lua"]) then
-		physics = import("goluwa/physics/shared.lua")
+	if not physics and (PHYSICS or import.loaded["goluwa/physics.lua"]) then
+		physics = import("goluwa/physics.lua")
 	end
 
 	if physics and not raycast then

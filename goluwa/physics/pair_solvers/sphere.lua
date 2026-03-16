@@ -1,5 +1,5 @@
 local Vec3 = import("goluwa/structs/vec3.lua")
-local physics = import("goluwa/physics/shared.lua")
+local physics = import("goluwa/physics.lua")
 local solver = import("goluwa/physics/solver.lua")
 local physics_solver = import("goluwa/physics/solver.lua")
 local shape_accessors = import("goluwa/physics/shape_accessors.lua")
@@ -105,9 +105,7 @@ local function solve_swept_sphere_box_collision(sphere_body, box_body, dt)
 		local hit = pair_solver_helpers.SweepPointAgainstBox(box_body, start_point_world, end_point_world)
 
 		if hit and not (descending_from_above and hit.normal_local.y <= EPSILON) then
-			if not earliest_hit or hit.t < earliest_hit.t then
-				earliest_hit = hit
-			end
+			if not earliest_hit or hit.t < earliest_hit.t then earliest_hit = hit end
 		end
 	end
 

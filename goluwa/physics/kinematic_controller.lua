@@ -1,5 +1,5 @@
 local Vec3 = import("goluwa/structs/vec3.lua")
-local physics = import("goluwa/physics/shared.lua")
+local physics = import("goluwa/physics.lua")
 local RigidBodyComponent = import("goluwa/ecs/components/3d/rigid_body.lua")
 local kinematic_controller = {}
 

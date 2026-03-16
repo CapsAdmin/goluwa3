@@ -1,6 +1,6 @@
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
-local physics = import("goluwa/physics/shared.lua")
+local physics = import("goluwa/physics.lua")
 local broadphase = import("goluwa/physics/broadphase.lua")
 local solver = physics.Solver or {}
 physics.Solver = solver

@@ -1,5 +1,6 @@
 local event = import("goluwa/event.lua")
-local physics = import("goluwa/physics/shared.lua")
+local physics = import("goluwa/physics.lua")
+import("goluwa/physics/shared.lua")
 import("goluwa/physics/trace.lua")
 import("goluwa/physics/constraint.lua")
 import("goluwa/physics/solver.lua")

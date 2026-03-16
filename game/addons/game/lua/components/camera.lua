@@ -1,7 +1,7 @@
 local prototype = import("goluwa/prototype.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
-local physics = import("goluwa/physics/shared.lua")
+local physics = import("goluwa/physics.lua")
 local camera_system = library()
 local META = prototype.CreateTemplate("camera")
 META:GetSet("Active", false)

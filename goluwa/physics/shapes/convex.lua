@@ -1,7 +1,7 @@
 local prototype = import("goluwa/prototype.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local BaseShape = import("goluwa/physics/shapes/base.lua")
-local physics = import("goluwa/physics/shared.lua")
+local physics = import("goluwa/physics.lua")
 local META = prototype.CreateTemplate("physics_shape_convex")
 META.Base = BaseShape
 META:GetSet("ConvexHull", nil)

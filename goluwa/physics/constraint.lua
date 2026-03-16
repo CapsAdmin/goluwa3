@@ -1,6 +1,6 @@
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
-local physics = import("goluwa/physics/shared.lua")
+local physics = import("goluwa/physics.lua")
 local DistanceConstraint = {}
 DistanceConstraint.__index = DistanceConstraint
 local EPSILON = 0.000001
