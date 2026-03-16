@@ -555,7 +555,7 @@ function steam.LoadMap(path)
 		local length = lump.filelen
 		bsp_file:SetPosition(lump.fileofs)
 		local pak = bsp_file:ReadBytes(length)
-		local name = "temp_bsp.zip"
+		local name = "os:cache/temp_bsp.zip"
 		vfs.Write(name, pak)
 		local ok, err = vfs.Mount(R(name))
 
