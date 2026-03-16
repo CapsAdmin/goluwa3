@@ -853,9 +853,27 @@ function META:ApplyCorrection(compliance, correction, pos, other_body, other_pos
 	local alpha = (compliance or 0) / (dt * dt)
 	local lambda = -length / (inverse_mass + alpha)
 	local impulse = normal * -lambda
+	local self_previous_position = self.Position:Copy()
+	local self_previous_rotation = self.Rotation:Copy()
 	self:_ApplyCorrection(impulse, pos)
+	self.PreviousPosition = self.PreviousPosition + (self.Position - self_previous_position)
+	self.PreviousRotation = (
+		(
+			self.Rotation * self_previous_rotation:GetConjugated()
+		) * self.PreviousRotation
+	):GetNormalized()
 
-	if other_body then other_body:_ApplyCorrection(impulse * -1, other_pos) end
+	if other_body then
+		local other_previous_position = other_body.Position:Copy()
+		local other_previous_rotation = other_body.Rotation:Copy()
+		other_body:_ApplyCorrection(impulse * -1, other_pos)
+		other_body.PreviousPosition = other_body.PreviousPosition + (other_body.Position - other_previous_position)
+		other_body.PreviousRotation = (
+			(
+				other_body.Rotation * other_previous_rotation:GetConjugated()
+			) * other_body.PreviousRotation
+		):GetNormalized()
+	end
 
 	return lambda / (dt * dt)
 end

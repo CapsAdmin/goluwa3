@@ -14,9 +14,12 @@ physics.Up = physics.Up or Vec3(0, 1, 0)
 physics.DefaultSkin = physics.DefaultSkin or 0.02
 physics.RigidBodySubsteps = physics.RigidBodySubsteps or 2
 physics.RigidBodyIterations = physics.RigidBodyIterations or 1
-physics.FixedTimeStep = physics.FixedTimeStep or (1 / 30)
+physics.FixedTimeStep = physics.FixedTimeStep or (1 / 60)
 physics.MaxFrameTime = physics.MaxFrameTime or 0.1
 physics.MaxCatchUpSteps = physics.MaxCatchUpSteps or 8
+physics.BusyMaxFrameTime = physics.BusyMaxFrameTime or (1 / 30)
+physics.BusyMaxCatchUpSteps = physics.BusyMaxCatchUpSteps or 1
+physics.DropBusyFrameDebt = physics.DropBusyFrameDebt ~= false
 physics.FrameAccumulator = physics.FrameAccumulator or 0
 physics.InterpolationAlpha = physics.InterpolationAlpha or 0
 physics.DistanceConstraints = physics.DistanceConstraints or {}

@@ -44,6 +44,10 @@ local function cast_with_filter(
 		world_source = physics.GetWorldTraceSource()
 	end
 
+	local use_render_meshes = cast_options.UseRenderMeshes
+
+	if use_render_meshes == nil then use_render_meshes = world_source == nil end
+
 	if cast_options.ClosestOnly ~= false then
 		if world_source then
 			local hit = raycast.CastClosestFromSource(
@@ -60,7 +64,7 @@ local function cast_with_filter(
 			return hit and {hit} or {}
 		end
 
-		if not cast_options.UseRenderMeshes then return {} end
+		if not use_render_meshes then return {} end
 
 		local hit = raycast.CastClosest(
 			origin,
@@ -89,7 +93,7 @@ local function cast_with_filter(
 		)
 	end
 
-	if not cast_options.UseRenderMeshes then return {} end
+	if not use_render_meshes then return {} end
 
 	local hits = raycast.Cast(
 		origin,

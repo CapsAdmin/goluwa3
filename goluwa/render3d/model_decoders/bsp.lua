@@ -330,21 +330,21 @@ local function build_bsp_physics_source(header, render_meshes, displacement_mesh
 		}
 	end
 
-	local source_model = build_source_model_from_meshes(render_meshes, owner)
+	local render_model = build_source_model_from_meshes(render_meshes, owner)
 
-	if not source_model then
-		return nil, {
-			mode = "empty",
+	if render_model then
+		return raycast.CreateModelSource({render_model}),
+		{
+			mode = "render_fallback",
 			collidable_brushes = collidable_brushes,
+			primitives = #render_model.Primitives,
+			displacement_primitives = 0,
 		}
 	end
 
-	return raycast.CreateModelSource({source_model}),
-	{
-		mode = "render_fallback",
+	return nil, {
+		mode = "empty",
 		collidable_brushes = collidable_brushes,
-		primitives = #source_model.Primitives,
-		displacement_primitives = 0,
 	}
 end
 

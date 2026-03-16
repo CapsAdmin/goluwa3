@@ -25,6 +25,75 @@ function module.Register(solver, services)
 		local min_distance = radius_a + radius_b
 		local distance = delta:GetLength()
 
+		if distance >= min_distance then
+			local start_a = body_a:GetPreviousPosition()
+			local start_b = body_b:GetPreviousPosition()
+			local move_a = pos_a - start_a
+			local move_b = pos_b - start_b
+			local relative_start = start_b - start_a
+			local relative_move = move_b - move_a
+			local sweep_a = relative_move:Dot(relative_move)
+
+			if sweep_a > EPSILON then
+				local sweep_b = 2 * relative_start:Dot(relative_move)
+				local sweep_c = relative_start:Dot(relative_start) - min_distance * min_distance
+				local discriminant = sweep_b * sweep_b - 4 * sweep_a * sweep_c
+
+				if discriminant >= 0 and sweep_c > EPSILON then
+					local sqrt_discriminant = math.sqrt(discriminant)
+					local hit_fraction = (-sweep_b - sqrt_discriminant) / (2 * sweep_a)
+
+					if hit_fraction >= 0 and hit_fraction <= 1 then
+						local safe_fraction = math.max(0, hit_fraction - EPSILON)
+						local hit_pos_a = start_a + move_a * safe_fraction
+						local hit_pos_b = start_b + move_b * safe_fraction
+						local hit_delta = hit_pos_b - hit_pos_a
+						local hit_normal
+
+						if hit_delta:GetLength() > EPSILON then
+							hit_normal = hit_delta:GetNormalized()
+						else
+							local relative_velocity = body_b:GetVelocity() - body_a:GetVelocity()
+							hit_normal = relative_velocity:GetLength() > EPSILON and
+								relative_velocity:GetNormalized() or
+								Vec3(1, 0, 0)
+						end
+
+						body_a.Position = hit_pos_a
+						body_b.Position = hit_pos_b
+						apply_pair_impulse(
+							body_a,
+							body_b,
+							hit_normal,
+							dt,
+							hit_pos_a + hit_normal * radius_a,
+							hit_pos_b - hit_normal * radius_b
+						)
+						mark_pair_grounding(body_a, body_b, hit_normal)
+
+						if services.physics.RecordCollisionPair then
+							services.physics.RecordCollisionPair(body_a, body_b, hit_normal, 0)
+						end
+
+						local remaining_fraction = 1 - hit_fraction
+
+						if remaining_fraction > EPSILON then
+							local velocity_a = body_a:GetVelocity()
+							local velocity_b = body_b:GetVelocity()
+							body_a.Position = body_a.Position + velocity_a * (dt * remaining_fraction)
+							body_a.PreviousPosition = body_a.Position - velocity_a * dt
+							body_b.Position = body_b.Position + velocity_b * (dt * remaining_fraction)
+							body_b.PreviousPosition = body_b.Position - velocity_b * dt
+						end
+
+						return true
+					end
+				end
+			end
+
+			return
+		end
+
 		if distance >= min_distance then return end
 
 		local normal
@@ -67,8 +136,7 @@ function module.Register(solver, services)
 		local start_local_center = box_body:WorldToLocal(start_world)
 		local end_local_center = box_body:WorldToLocal(end_world)
 		local center_movement_local = end_local_center - start_local_center
-		local descending_from_above =
-			start_local_center.y > extents.y + EPSILON and center_movement_local.y < -EPSILON
+		local descending_from_above = start_local_center.y > extents.y + EPSILON and center_movement_local.y < -EPSILON
 
 		if movement_world:GetLength() <= EPSILON then return false end
 
@@ -127,6 +195,7 @@ function module.Register(solver, services)
 		end
 
 		local earliest_hit = nil
+
 		for _, local_point in ipairs(sphere_body:GetSupportLocalPoints() or {}) do
 			local start_point_world = sphere_body:GeometryLocalToWorld(
 				local_point,

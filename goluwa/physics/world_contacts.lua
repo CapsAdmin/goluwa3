@@ -5,8 +5,12 @@ function module.CreateServices(services)
 	local EPSILON = 0.00001
 	local Vec3 = import("goluwa/structs/vec3.lua")
 
+	local function has_world_trace_source()
+		return physics.GetWorldTraceSource and physics.GetWorldTraceSource() ~= nil
+	end
+
 	local function get_world_support_points(body)
-		if body.GetShapeType and body:GetShapeType() == "box" then
+		if has_world_trace_source() and body.GetShapeType and body:GetShapeType() == "box" then
 			local half = body:GetHalfExtents()
 			local ex = half.x
 			local ey = half.y
@@ -27,8 +31,12 @@ function module.CreateServices(services)
 		end
 
 		local points = {}
+		local support_points = body:GetSupportLocalPoints() or {}
+		local sparse = has_world_trace_source() and #support_points > 9
+		local stride = sparse and math.max(1, math.floor(#support_points / 9)) or 1
 
-		for _, local_point in ipairs(body:GetSupportLocalPoints() or {}) do
+		for index = 1, #support_points, stride do
+			local local_point = support_points[index]
 			points[#points + 1] = {local_point = local_point}
 		end
 
@@ -138,11 +146,12 @@ function module.CreateServices(services)
 		local cast_up = body:GetCollisionProbeDistance() + body:GetCollisionMargin()
 		local cast_distance = cast_up + downward + body:GetCollisionProbeDistance() + body:GetCollisionMargin()
 		local support_points = get_world_support_points(body)
+		local support_passes = has_world_trace_source() and 1 or 2
 		local grounded_normal = nil
 		local grounded_weight = 0
 		local solved = false
 
-		for _ = 1, 2 do
+		for _ = 1, support_passes do
 			local pass_solved = false
 
 			for _, point_data in ipairs(support_points) do

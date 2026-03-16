@@ -145,21 +145,17 @@ function META:BuildSupportLocalPoints()
 	local ex = extents.x
 	local ey = extents.y
 	local ez = extents.z
-	return {
-		Vec3(-ex, -ey, -ez),
-		Vec3(ex, -ey, -ez),
-		Vec3(ex, -ey, ez),
-		Vec3(-ex, -ey, ez),
-		Vec3(-ex * 0.5, -ey, -ez),
-		Vec3(ex * 0.5, -ey, -ez),
-		Vec3(ex * 0.5, -ey, ez),
-		Vec3(-ex * 0.5, -ey, ez),
-		Vec3(-ex, -ey, 0),
-		Vec3(ex, -ey, 0),
-		Vec3(0, -ey, -ez),
-		Vec3(0, -ey, ez),
-		Vec3(0, -ey, 0),
-	}
+	local points = {}
+	local samples_x = {-1, -0.75, -0.5, 0, 0.5, 0.75, 1}
+	local samples_z = {-1, 0, 1}
+
+	for _, sx in ipairs(samples_x) do
+		for _, sz in ipairs(samples_z) do
+			points[#points + 1] = Vec3(ex * sx, -ey, ez * sz)
+		end
+	end
+
+	return points
 end
 
 function META:GetPolyhedron()

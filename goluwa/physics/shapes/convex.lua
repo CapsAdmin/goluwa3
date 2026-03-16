@@ -104,13 +104,21 @@ function META:BuildSupportLocalPoints(body)
 
 		if support[1] then
 			local center = Vec3(0, 0, 0)
+			local points = {}
 
 			for _, point in ipairs(support) do
 				center = center + point
+				points[#points + 1] = point
 			end
 
-			support[#support + 1] = center / #support
-			return support
+			center = center / #support
+
+			for _, point in ipairs(support) do
+				points[#points + 1] = (point + center) * 0.5
+			end
+
+			points[#points + 1] = center
+			return points
 		end
 	end
 
