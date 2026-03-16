@@ -5,75 +5,42 @@ local physics_solver = import("goluwa/physics/solver.lua")
 local shape_accessors = import("goluwa/physics/shape_accessors.lua")
 local pair_solver_helpers = import("goluwa/physics/pair_solver_helpers.lua")
 local contact_resolution = import("goluwa/physics/contact_resolution.lua")
+local convex_manifold = import("goluwa/physics/convex_manifold.lua")
+local convex_face_clipping = import("goluwa/physics/convex_face_clipping.lua")
+local convex_sat = import("goluwa/physics/convex_sat.lua")
 local polyhedron_solver = import("goluwa/physics/pair_solvers/polyhedron.lua")
 local box = {}
 local EPSILON = physics_solver.EPSILON or 0.00001
+local FACE_AXIS_RELATIVE_TOLERANCE = 1.05
+local FACE_AXIS_ABSOLUTE_TOLERANCE = 0.03
+local FACE_CONTACT_SEPARATION_TOLERANCE = 0.08
 
-local function should_use_box_contact_patch(body)
-	local axes = body:GetPhysicsShape():GetAxes(body)
-	local world_axes = {
-		Vec3(1, 0, 0),
-		Vec3(0, 1, 0),
-		Vec3(0, 0, 1),
-	}
+local function get_component(vec, axis_index)
+	if axis_index == 1 then return vec.x end
 
-	for _, axis in ipairs(axes) do
-		local best_alignment = 0
+	if axis_index == 2 then return vec.y end
 
-		for _, world_axis in ipairs(world_axes) do
-			best_alignment = math.max(best_alignment, math.abs(axis:Dot(world_axis)))
-		end
-
-		if best_alignment < 0.97 then return true end
-	end
-
-	return false
+	return vec.z
 end
 
-local function is_rod_like_box(body)
-	local extents = body:GetPhysicsShape():GetExtents()
-	local lengths = {extents.x * 2, extents.y * 2, extents.z * 2}
-	table.sort(lengths)
-	return lengths[3] >= lengths[2] * 2 and lengths[2] <= lengths[1] * 1.2
+local function set_component(vec, axis_index, value)
+	if axis_index == 1 then return Vec3(value, vec.y, vec.z) end
+
+	if axis_index == 2 then return Vec3(vec.x, value, vec.z) end
+
+	return Vec3(vec.x, vec.y, value)
 end
 
-local function is_compact_box(body)
-	local extents = body:GetPhysicsShape():GetExtents()
-	local lengths = {extents.x * 2, extents.y * 2, extents.z * 2}
-	table.sort(lengths)
-	return lengths[3] <= lengths[1] * 1.35 or
-		(
-			lengths[3] <= lengths[2] * 1.25 and
-			lengths[2] <= lengths[1] * 2.6
-		)
-end
+local function get_other_axis_indices(axis_index)
+	if axis_index == 1 then return 2, 3 end
 
-local function is_slab_like_box(body)
-	local extents = body:GetPhysicsShape():GetExtents()
-	local lengths = {extents.x * 2, extents.y * 2, extents.z * 2}
-	table.sort(lengths)
-	return lengths[1] <= lengths[2] * 0.6 and
-		lengths[3] >= lengths[2] * 1.4 and
-		lengths[3] <= lengths[2] * 2.25
-end
+	if axis_index == 2 then return 1, 3 end
 
-local function should_use_face_biased_settling(body)
-	return is_rod_like_box(body) or is_compact_box(body) or is_slab_like_box(body)
+	return 1, 2
 end
 
 local function add_box_contact_point(contacts, point_a, point_b)
-	local midpoint = (point_a + point_b) * 0.5
-
-	for _, existing in ipairs(contacts) do
-		local existing_midpoint = (existing.point_a + existing.point_b) * 0.5
-
-		if (existing_midpoint - midpoint):GetLength() <= 0.12 then return end
-	end
-
-	contacts[#contacts + 1] = {
-		point_a = point_a,
-		point_b = point_b,
-	}
+	return convex_manifold.AddContactPoint(contacts, point_a, point_b, 0.12)
 end
 
 local function get_box_face(body, desired_normal)
@@ -96,6 +63,7 @@ local function get_box_face(body, desired_normal)
 	local sign = axis:Dot(desired_normal) >= 0 and 1 or -1
 	local ex, ey, ez = extents.x, extents.y, extents.z
 	local local_points
+	local tangent_u_index, tangent_v_index = get_other_axis_indices(axis_index)
 
 	if axis_index == 1 then
 		local_points = {
@@ -130,35 +98,18 @@ local function get_box_face(body, desired_normal)
 		axis_index = axis_index,
 		sign = sign,
 		alignment = alignment,
+		normal = axis * sign,
+		tangent_u = axes[tangent_u_index],
+		tangent_v = axes[tangent_v_index],
+		plane = sign * get_component(extents, axis_index),
+		tangent_u_index = tangent_u_index,
+		tangent_v_index = tangent_v_index,
+		tangent_u_extent = get_component(extents, tangent_u_index),
+		tangent_v_extent = get_component(extents, tangent_v_index),
 		center = body:LocalToWorld((local_points[1] + local_points[3]) * 0.5),
+		local_points = local_points,
 		points = world_points,
 	}
-end
-
-local function point_inside_box_face(body, face, point)
-	local extents = body:GetPhysicsShape():GetExtents()
-	local local_point = body:WorldToLocal(point)
-	local tolerance = 0.08
-
-	if face.axis_index == 1 then
-		return math.abs(local_point.x - face.sign * extents.x) <= tolerance and
-			math.abs(local_point.y) <= extents.y + tolerance and
-			math.abs(local_point.z) <= extents.z + tolerance
-	end
-
-	if face.axis_index == 2 then
-		return math.abs(local_point.y - face.sign * extents.y) <= tolerance and
-			math.abs(local_point.x) <= extents.x + tolerance and
-			math.abs(local_point.z) <= extents.z + tolerance
-	end
-
-	return math.abs(local_point.z - face.sign * extents.z) <= tolerance and
-		math.abs(local_point.x) <= extents.x + tolerance and
-		math.abs(local_point.y) <= extents.y + tolerance
-end
-
-local function project_to_plane(point, plane_point, plane_normal)
-	return point - plane_normal * (point - plane_point):Dot(plane_normal)
 end
 
 local function get_body_world_vertices(body)
@@ -172,150 +123,17 @@ local function get_body_world_vertices(body)
 	return vertices
 end
 
-local function collect_support_vertices(vertices, axis, want_max)
-	local support = {}
-	local best = want_max and -math.huge or math.huge
-	local tolerance = 0.06
-
-	for _, point in ipairs(vertices) do
-		local projection = point:Dot(axis)
-
-		if want_max then
-			if projection > best + tolerance then
-				best = projection
-				support = {point}
-			elseif math.abs(projection - best) <= tolerance then
-				support[#support + 1] = point
-			end
-		else
-			if projection < best - tolerance then
-				best = projection
-				support = {point}
-			elseif math.abs(projection - best) <= tolerance then
-				support[#support + 1] = point
-			end
-		end
-	end
-
-	return support
-end
-
 local function build_support_pair_contacts(body_a, body_b, normal)
-	local contacts = {}
 	local vertices_a = get_body_world_vertices(body_a)
 	local vertices_b = get_body_world_vertices(body_b)
-	local support_a = collect_support_vertices(vertices_a, normal, true)
-	local support_b = collect_support_vertices(vertices_b, normal, false)
-
-	if not support_a[1] or not support_b[1] then return contacts end
-
-	local primary = #support_a <= #support_b and support_a or support_b
-	local secondary = primary == support_a and support_b or support_a
-	local primary_is_a = primary == support_a
-
-	for _, point in ipairs(primary) do
-		local closest_other = nil
-		local closest_distance = math.huge
-
-		for _, other in ipairs(secondary) do
-			local tangent_delta = other - point
-			tangent_delta = tangent_delta - normal * tangent_delta:Dot(normal)
-			local tangent_distance = tangent_delta:GetLength()
-
-			if tangent_distance < closest_distance then
-				closest_distance = tangent_distance
-				closest_other = other
-			end
-		end
-
-		if closest_other then
-			if primary_is_a then
-				add_box_contact_point(contacts, point, closest_other)
-			else
-				add_box_contact_point(contacts, closest_other, point)
-			end
-		end
-
-		if #contacts >= 4 then break end
-	end
-
-	return contacts
-end
-
-local function build_projected_box_contacts(body_a, body_b, normal)
-	local face_a = get_box_face(body_a, normal)
-	local face_b = get_box_face(body_b, -normal)
-	local contacts = {}
-
-	if face_a.alignment < 0.55 or face_b.alignment < 0.55 then return contacts end
-
-	for _, point_a in ipairs(face_a.points) do
-		local projected = project_to_plane(point_a, face_b.center, normal)
-
-		if point_inside_box_face(body_b, face_b, projected) then
-			add_box_contact_point(contacts, point_a, projected)
-		end
-	end
-
-	for _, point_b in ipairs(face_b.points) do
-		local projected = project_to_plane(point_b, face_a.center, normal)
-
-		if point_inside_box_face(body_a, face_a, projected) then
-			add_box_contact_point(contacts, projected, point_b)
-		end
-	end
-
-	return contacts
-end
-
-local function should_use_static_overhang_patch(body_a, body_b, normal)
-	local static_body, dynamic_body = pair_solver_helpers.GetStaticDynamicPair(body_a, body_b)
-
-	if not static_body then return false end
-
-	local support_face = get_box_face(static_body, dynamic_body:GetPosition() - static_body:GetPosition())
-	local local_center = static_body:WorldToLocal(dynamic_body:GetPosition())
-	local extents = static_body:GetPhysicsShape():GetExtents()
-	local margin = 0.02
-
-	if support_face.axis_index == 1 then
-		return math.abs(local_center.y) > extents.y + margin or
-			math.abs(local_center.z) > extents.z + margin
-	end
-
-	if support_face.axis_index == 2 then
-		return math.abs(local_center.x) > extents.x + margin or
-			math.abs(local_center.z) > extents.z + margin
-	end
-
-	return math.abs(local_center.x) > extents.x + margin or
-		math.abs(local_center.y) > extents.y + margin
+	return convex_manifold.BuildSupportPairContacts(vertices_a, vertices_b, normal, {merge_distance = 0.12, max_contacts = 4})
 end
 
 local function project_box_radius(extents, axes, normal)
 	return extents.x * math.abs(normal:Dot(axes[1])) + extents.y * math.abs(normal:Dot(axes[2])) + extents.z * math.abs(normal:Dot(axes[3]))
 end
 
-local function update_best_axis(best, overlap, normal, kind, reference_body)
-	local candidate = {
-		overlap = overlap,
-		normal = normal,
-		kind = kind,
-		reference_body = reference_body,
-	}
-
-	if overlap < best.any.overlap then best.any = candidate end
-
-	if kind == "face" and (not best.face or overlap < best.face.overlap) then
-		best.face = candidate
-	end
-end
-
-local function orient_axis_normal(axis, distance)
-	return axis * (distance >= 0 and 1 or -1)
-end
-
-local function test_obb_axis(axis, delta, extents_a, axes_a, extents_b, axes_b, best, kind, reference_body)
+local function test_obb_axis(axis, delta, extents_a, axes_a, extents_b, axes_b, best, candidate)
 	local axis_length = axis:GetLength()
 
 	if axis_length <= EPSILON then return true end
@@ -329,23 +147,204 @@ local function test_obb_axis(axis, delta, extents_a, axes_a, extents_b, axes_b, 
 
 	if overlap <= 0 then return false end
 
-	update_best_axis(best, overlap, orient_axis_normal(normal, distance), kind, reference_body)
+	local resolved_candidate = {
+		overlap = overlap,
+		normal = convex_sat.OrientAxisNormal(normal, distance),
+		kind = candidate.kind,
+		reference_body = candidate.reference_body,
+		axis_index = candidate.axis_index,
+		edge_axis_a = candidate.edge_axis_a,
+		edge_axis_b = candidate.edge_axis_b,
+	}
+	convex_sat.UpdateBestAxis(best, resolved_candidate)
 	return true
 end
 
-local function choose_best_axis(best, face_preference_slop)
-	local chosen = best.any
-	face_preference_slop = face_preference_slop or 0.12
+local function choose_best_axis(best)
+	return convex_sat.ChoosePreferredAxis(best, FACE_AXIS_RELATIVE_TOLERANCE, FACE_AXIS_ABSOLUTE_TOLERANCE)
+end
 
-	if
-		chosen.kind == "edge" and
-		best.face and
-		best.face.overlap <= chosen.overlap + face_preference_slop
-	then
-		chosen = best.face
+local function is_outside_static_support_face(body_a, body_b, normal)
+	local static_body, dynamic_body = pair_solver_helpers.GetStaticDynamicPair(body_a, body_b)
+
+	if not static_body then return false end
+
+	local support_normal = static_body == body_a and normal or -normal
+	local support_face = get_box_face(static_body, support_normal)
+	local local_center = static_body:WorldToLocal(dynamic_body:GetPosition())
+	local margin = 0.02
+	local center_u = get_component(local_center, support_face.tangent_u_index)
+	local center_v = get_component(local_center, support_face.tangent_v_index)
+	return math.abs(center_u) > support_face.tangent_u_extent + margin or
+		math.abs(center_v) > support_face.tangent_v_extent + margin
+end
+
+local function get_support_edge(body, edge_axis_index, support_direction)
+	local extents = body:GetPhysicsShape():GetExtents()
+	local axes = body:GetPhysicsShape():GetAxes(body)
+	local local_start = Vec3(0, 0, 0)
+	local local_end = Vec3(0, 0, 0)
+
+	for axis_index = 1, 3 do
+		local extent = get_component(extents, axis_index)
+
+		if axis_index == edge_axis_index then
+			local_start = set_component(local_start, axis_index, -extent)
+			local_end = set_component(local_end, axis_index, extent)
+		else
+			local_start = set_component(
+				local_start,
+				axis_index,
+				axes[axis_index]:Dot(support_direction) >= 0 and extent or -extent
+			)
+			local_end = set_component(local_end, axis_index, get_component(local_start, axis_index))
+		end
 	end
 
-	return chosen
+	return body:LocalToWorld(local_start), body:LocalToWorld(local_end)
+end
+
+local function build_face_contacts(body_a, body_b, candidate)
+	local reference_is_a = candidate.reference_body == "a"
+	local reference_body = reference_is_a and body_a or body_b
+	local incident_body = reference_is_a and body_b or body_a
+	local reference_normal = reference_is_a and candidate.normal or -candidate.normal
+	local reference_face = get_box_face(reference_body, reference_normal)
+	local incident_face = get_box_face(incident_body, -reference_normal)
+	local clipped = convex_face_clipping.ClipFacePolygonToReference(reference_body, reference_face, incident_face.points)
+	local ranked_contacts = {}
+
+	for _, local_point in ipairs(clipped) do
+		local separation = reference_face.sign * (
+				get_component(local_point, reference_face.axis_index) - reference_face.plane
+			)
+
+		if separation <= FACE_CONTACT_SEPARATION_TOLERANCE then
+			local reference_point = set_component(local_point, reference_face.axis_index, reference_face.plane)
+			ranked_contacts[#ranked_contacts + 1] = {
+				separation = separation,
+				local_point = local_point,
+				point_reference = reference_body:LocalToWorld(reference_point),
+				point_incident = reference_body:LocalToWorld(local_point),
+			}
+		end
+	end
+
+	ranked_contacts = convex_face_clipping.SelectFaceContactEntries(ranked_contacts, reference_face, 4)
+	local contacts = {}
+
+	for _, entry in ipairs(ranked_contacts) do
+		if reference_is_a then
+			add_box_contact_point(contacts, entry.point_reference, entry.point_incident)
+		else
+			add_box_contact_point(contacts, entry.point_incident, entry.point_reference)
+		end
+
+		if #contacts >= 4 then break end
+	end
+
+	return contacts
+end
+
+local function build_edge_contacts(body_a, body_b, candidate)
+	local edge_start_a, edge_end_a = get_support_edge(body_a, candidate.edge_axis_a, candidate.normal)
+	local edge_start_b, edge_end_b = get_support_edge(body_b, candidate.edge_axis_b, -candidate.normal)
+	local point_a, point_b = convex_manifold.ClosestPointsOnSegments(edge_start_a, edge_end_a, edge_start_b, edge_end_b)
+	return {
+		{
+			point_a = point_a,
+			point_b = point_b,
+		},
+	}
+end
+
+local function reduce_contacts_for_support_polygon(body_a, body_b, normal, contacts)
+	local static_body, dynamic_body = pair_solver_helpers.GetStaticDynamicPair(body_a, body_b)
+
+	if not static_body or #contacts < 3 then return contacts, false end
+
+	local support_is_a = static_body == body_a
+	local support_face = get_box_face(static_body, support_is_a and normal or -normal)
+	local dynamic_center_local = static_body:WorldToLocal(dynamic_body:GetPosition())
+	local tolerance = 0.04
+	local min_u = math.huge
+	local max_u = -math.huge
+	local min_v = math.huge
+	local max_v = -math.huge
+	local localized = {}
+
+	for index, contact in ipairs(contacts) do
+		local support_point = support_is_a and contact.point_a or contact.point_b
+		local local_point = static_body:WorldToLocal(support_point)
+		localized[index] = {
+			contact = contact,
+			local_point = local_point,
+			u = get_component(local_point, support_face.tangent_u_index),
+			v = get_component(local_point, support_face.tangent_v_index),
+		}
+		min_u = math.min(min_u, localized[index].u)
+		max_u = math.max(max_u, localized[index].u)
+		min_v = math.min(min_v, localized[index].v)
+		max_v = math.max(max_v, localized[index].v)
+	end
+
+	local target_u = nil
+	local target_v = nil
+	local center_u = get_component(dynamic_center_local, support_face.tangent_u_index)
+	local center_v = get_component(dynamic_center_local, support_face.tangent_v_index)
+
+	if center_u < min_u - tolerance then
+		target_u = min_u
+	elseif center_u > max_u + tolerance then
+		target_u = max_u
+	end
+
+	if center_v < min_v - tolerance then
+		target_v = min_v
+	elseif center_v > max_v + tolerance then
+		target_v = max_v
+	end
+
+	local owner_a = body_a.Owner and body_a.Owner.Name
+	local owner_b = body_b.Owner and body_b.Owner.Name
+
+	if not target_u and not target_v then return contacts, false end
+
+	local reduced = {}
+
+	for _, entry in ipairs(localized) do
+		local keep = true
+
+		if target_u then keep = keep and math.abs(entry.u - target_u) <= tolerance end
+
+		if target_v then keep = keep and math.abs(entry.v - target_v) <= tolerance end
+
+		if keep then reduced[#reduced + 1] = entry.contact end
+	end
+
+	if reduced[1] then
+		if #reduced > 1 and (target_u == nil) ~= (target_v == nil) then
+			local average_a = Vec3(0, 0, 0)
+			local average_b = Vec3(0, 0, 0)
+
+			for _, contact in ipairs(reduced) do
+				average_a = average_a + contact.point_a
+				average_b = average_b + contact.point_b
+			end
+
+			return {
+				{
+					point_a = average_a / #reduced,
+					point_b = average_b / #reduced,
+				},
+			},
+			true
+		end
+
+		return reduced, true
+	end
+
+	return contacts, false
 end
 
 local function solve_swept_box_box_collision(dynamic_body, static_body, dt)
@@ -402,11 +401,20 @@ local function solve_box_pair_collision(body_a, body_b, dt)
 	local extents_b = body_b:GetPhysicsShape():GetExtents()
 	local axes_a = body_a:GetPhysicsShape():GetAxes(body_a)
 	local axes_b = body_b:GetPhysicsShape():GetAxes(body_b)
-	local best = {any = {overlap = math.huge, normal = nil, kind = nil}, face = nil}
+	local best = convex_sat.CreateBestAxisTracker()
 
 	for i = 1, 3 do
 		if
-			not test_obb_axis(axes_a[i], delta, extents_a, axes_a, extents_b, axes_b, best, "face", "a")
+			not test_obb_axis(
+				axes_a[i],
+				delta,
+				extents_a,
+				axes_a,
+				extents_b,
+				axes_b,
+				best,
+				{kind = "face", reference_body = "a", axis_index = i}
+			)
 		then
 			local static_body, dynamic_body = pair_solver_helpers.GetStaticDynamicPair(body_a, body_b)
 
@@ -418,7 +426,16 @@ local function solve_box_pair_collision(body_a, body_b, dt)
 		end
 
 		if
-			not test_obb_axis(axes_b[i], delta, extents_a, axes_a, extents_b, axes_b, best, "face", "b")
+			not test_obb_axis(
+				axes_b[i],
+				delta,
+				extents_a,
+				axes_a,
+				extents_b,
+				axes_b,
+				best,
+				{kind = "face", reference_body = "b", axis_index = i}
+			)
 		then
 			local static_body, dynamic_body = pair_solver_helpers.GetStaticDynamicPair(body_a, body_b)
 
@@ -441,8 +458,7 @@ local function solve_box_pair_collision(body_a, body_b, dt)
 					extents_b,
 					axes_b,
 					best,
-					"edge",
-					nil
+					{kind = "edge", edge_axis_a = i, edge_axis_b = j}
 				)
 			then
 				local static_body, dynamic_body = pair_solver_helpers.GetStaticDynamicPair(body_a, body_b)
@@ -457,79 +473,80 @@ local function solve_box_pair_collision(body_a, body_b, dt)
 	end
 
 	local raw_best = best.any
-	local static_body, dynamic_body = pair_solver_helpers.GetStaticDynamicPair(body_a, body_b)
-	local use_face_biased_settling = (
-			pair_solver_helpers.HasSolverMass(body_a) and
-			should_use_face_biased_settling(body_a)
-		) or
-		(
-			pair_solver_helpers.HasSolverMass(body_b) and
-			should_use_face_biased_settling(body_b)
-		)
-	local face_preference_slop = use_face_biased_settling and 0.4 or 0.12
+	best = choose_best_axis(best)
 
 	if
-		static_body and
-		dynamic_body and
-		best.face and
-		math.abs(best.face.normal.y) >= dynamic_body:GetMinGroundNormalY()
-		and
-		not should_use_static_overhang_patch(body_a, body_b, best.face.normal)
+		raw_best and
+		raw_best.kind == "edge" and
+		best and
+		best.kind == "face" and
+		is_outside_static_support_face(body_a, body_b, best.normal)
 	then
-		face_preference_slop = math.max(face_preference_slop, 0.32)
+		best = raw_best
 	end
-
-	best = choose_best_axis(best, face_preference_slop)
 
 	if not best.normal or best.overlap == math.huge then return end
 
-	if should_use_box_contact_patch(body_a) or should_use_box_contact_patch(body_b) then
-		if use_face_biased_settling then
-			local contacts = build_support_pair_contacts(body_a, body_b, best.normal)
+	local contacts
+	local resolve_options
+	local is_overhang_edge = best.kind == "edge" and
+		is_outside_static_support_face(body_a, body_b, best.normal)
 
-			if contacts and contacts[1] then
-				return contact_resolution.ResolvePairPenetration(
-					body_a,
-					body_b,
-					best.normal,
-					best.overlap,
-					dt,
-					nil,
-					nil,
-					contacts
-				)
+	if best.kind == "face" then
+		contacts = build_face_contacts(body_a, body_b, best)
+		local reduced_for_support
+		contacts, reduced_for_support = reduce_contacts_for_support_polygon(body_a, body_b, best.normal, contacts)
+
+		if reduced_for_support and raw_best and raw_best.kind == "edge" then
+			local edge_contacts = build_edge_contacts(body_a, body_b, raw_best)
+
+			if edge_contacts and edge_contacts[1] then
+				best = raw_best
+				contacts = edge_contacts
+				resolve_options = {skip_grounding = true}
 			end
 		end
+	else
+		contacts = build_edge_contacts(body_a, body_b, best)
 
-		local patch_normal = use_face_biased_settling and best.normal or raw_best.normal
-		local patch_overlap = use_face_biased_settling and best.overlap or raw_best.overlap
-		return contact_resolution.ResolvePairPenetration(
-			body_a,
-			body_b,
-			patch_normal,
-			patch_overlap,
-			dt,
-			nil,
-			nil,
-			build_projected_box_contacts(body_a, body_b, patch_normal)
-		)
+		if is_overhang_edge then
+			resolve_options = {
+				skip_grounding = true,
+				skip_friction = true,
+			}
+		end
 	end
 
-	if should_use_static_overhang_patch(body_a, body_b, best.normal) then
-		local contacts = build_projected_box_contacts(body_a, body_b, best.normal)
+	if not contacts or not contacts[1] then
+		contacts = build_support_pair_contacts(body_a, body_b, best.normal)
+	end
 
-		if contacts and contacts[1] then
+	if contacts and contacts[1] then
+		if resolve_options and resolve_options.skip_grounding and #contacts == 1 then
 			return contact_resolution.ResolvePairPenetration(
 				body_a,
 				body_b,
 				best.normal,
 				best.overlap,
 				dt,
+				contacts[1].point_a,
+				contacts[1].point_b,
 				nil,
-				nil,
-				contacts
+				resolve_options
 			)
 		end
+
+		return contact_resolution.ResolvePairPenetration(
+			body_a,
+			body_b,
+			best.normal,
+			best.overlap,
+			dt,
+			nil,
+			nil,
+			contacts,
+			resolve_options
+		)
 	end
 
 	return contact_resolution.ResolvePairPenetration(body_a, body_b, best.normal, best.overlap, dt)

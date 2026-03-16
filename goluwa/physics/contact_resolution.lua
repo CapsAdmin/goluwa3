@@ -88,10 +88,11 @@ function contact_resolution.SetBodyMotionFromCurrentState(body, linear_velocity,
 	return motion.SetBodyMotionFromCurrentState(body, linear_velocity, angular_velocity, dt)
 end
 
-function contact_resolution.ApplyPairImpulse(body_a, body_b, normal, dt, point_a, point_b)
+function contact_resolution.ApplyPairImpulse(body_a, body_b, normal, dt, point_a, point_b, options)
 	local inverse_mass_a = body_a.InverseMass
 	local inverse_mass_b = body_b.InverseMass
 	local inverse_mass_sum = inverse_mass_a + inverse_mass_b
+	options = options or {}
 
 	if inverse_mass_sum <= 0 then return end
 
@@ -135,7 +136,7 @@ function contact_resolution.ApplyPairImpulse(body_a, body_b, normal, dt, point_a
 	local tangent_velocity = relative_velocity - normal * relative_velocity:Dot(normal)
 	local tangent_speed = tangent_velocity:GetLength()
 
-	if tangent_speed > EPSILON then
+	if tangent_speed > EPSILON and not options.skip_friction then
 		local tangent = tangent_velocity / tangent_speed
 		local friction = solver.GetPairFriction(body_a, body_b)
 		local tangent_inverse_mass = inverse_mass_sum
@@ -180,10 +181,11 @@ function contact_resolution.ApplyPairImpulse(body_a, body_b, normal, dt, point_a
 	end
 end
 
-function contact_resolution.ResolvePairPenetration(body_a, body_b, normal, overlap, dt, point_a, point_b, contacts)
+function contact_resolution.ResolvePairPenetration(body_a, body_b, normal, overlap, dt, point_a, point_b, contacts, options)
 	local inverse_mass_a = body_a.InverseMass
 	local inverse_mass_b = body_b.InverseMass
 	local inverse_mass_sum = inverse_mass_a + inverse_mass_b
+	options = options or {}
 
 	if inverse_mass_sum <= 0 or overlap <= 0 then return false end
 
@@ -206,8 +208,11 @@ function contact_resolution.ResolvePairPenetration(body_a, body_b, normal, overl
 		end
 
 		manifolds.SolveImpulses(body_a, body_b, normal, manifold, dt)
-		contact_resolution.MarkPairGrounding(body_a, body_b, normal)
-		mark_pair_grounding_from_contacts(body_a, body_b, contacts)
+
+		if not options.skip_grounding then
+			contact_resolution.MarkPairGrounding(body_a, body_b, normal)
+			mark_pair_grounding_from_contacts(body_a, body_b, contacts)
+		end
 
 		if physics.RecordCollisionPair then
 			physics.RecordCollisionPair(body_a, body_b, normal, overlap)
@@ -226,8 +231,11 @@ function contact_resolution.ResolvePairPenetration(body_a, body_b, normal, overl
 		motion.ShiftBodyPosition(body_b, correction * (inverse_mass_b / inverse_mass_sum))
 	end
 
-	contact_resolution.ApplyPairImpulse(body_a, body_b, normal, dt, point_a, point_b)
-	contact_resolution.MarkPairGrounding(body_a, body_b, normal)
+	contact_resolution.ApplyPairImpulse(body_a, body_b, normal, dt, point_a, point_b, options)
+
+	if not options.skip_grounding then
+		contact_resolution.MarkPairGrounding(body_a, body_b, normal)
+	end
 
 	if physics.RecordCollisionPair then
 		physics.RecordCollisionPair(body_a, body_b, normal, overlap)

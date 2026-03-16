@@ -6,8 +6,14 @@ local physics_solver = import("goluwa/physics/solver.lua")
 local shape_accessors = import("goluwa/physics/shape_accessors.lua")
 local pair_solver_helpers = import("goluwa/physics/pair_solver_helpers.lua")
 local contact_resolution = import("goluwa/physics/contact_resolution.lua")
+local convex_manifold = import("goluwa/physics/convex_manifold.lua")
+local convex_face_clipping = import("goluwa/physics/convex_face_clipping.lua")
+local convex_sat = import("goluwa/physics/convex_sat.lua")
 local polyhedron = {}
 local EPSILON = physics_solver.EPSILON or 0.00001
+local FACE_CONTACT_SEPARATION_TOLERANCE = 0.08
+local FACE_AXIS_RELATIVE_TOLERANCE = 1.05
+local FACE_AXIS_ABSOLUTE_TOLERANCE = 0.03
 
 function polyhedron.GetPolyhedronWorldVertices(body, polyhedron_data)
 	local out = {}
@@ -108,130 +114,103 @@ local function get_edge_direction(polyhedron, edge)
 	return polyhedron.vertices[b] - polyhedron.vertices[a]
 end
 
-local function add_unique_axis(axes, axis)
-	local axis_length = axis:GetLength()
-
-	if axis_length <= EPSILON then return end
-
-	local normalized = axis / axis_length
-
-	for _, existing in ipairs(axes) do
-		if math.abs(existing:Dot(normalized)) >= 0.995 then return end
-	end
-
-	axes[#axes + 1] = normalized
-end
-
-local function orient_axis_normal(axis, distance)
-	return axis * (distance >= 0 and 1 or -1)
-end
-
-local function project_vertices(vertices, axis)
-	local min_projection = math.huge
-	local max_projection = -math.huge
-
-	for _, point in ipairs(vertices) do
-		local projection = point:Dot(axis)
-		min_projection = math.min(min_projection, projection)
-		max_projection = math.max(max_projection, projection)
-	end
-
-	return min_projection, max_projection
-end
-
-local function collect_support_vertices(vertices, axis, want_max)
-	local support = {}
-	local best = want_max and -math.huge or math.huge
-	local tolerance = 0.06
-
-	for _, point in ipairs(vertices) do
-		local projection = point:Dot(axis)
-
-		if want_max then
-			if projection > best + tolerance then
-				best = projection
-				support = {point}
-			elseif math.abs(projection - best) <= tolerance then
-				support[#support + 1] = point
-			end
-		else
-			if projection < best - tolerance then
-				best = projection
-				support = {point}
-			elseif math.abs(projection - best) <= tolerance then
-				support[#support + 1] = point
-			end
-		end
-	end
-
-	return support, best
-end
-
-local function average_world_points(points)
-	if not points or not points[1] then return nil end
-
-	local sum = Vec3(0, 0, 0)
-
-	for _, point in ipairs(points) do
-		sum = sum + point
-	end
-
-	return sum / #points
-end
-
-local function add_contact_point(contacts, point_a, point_b)
-	local midpoint = (point_a + point_b) * 0.5
-
-	for _, existing in ipairs(contacts) do
-		local existing_midpoint = (existing.point_a + existing.point_b) * 0.5
-
-		if (existing_midpoint - midpoint):GetLength() <= 0.1 then return end
-	end
-
-	contacts[#contacts + 1] = {
-		point_a = point_a,
-		point_b = point_b,
-	}
+local function get_edge_indices(edge)
+	return edge.a or edge[1], edge.b or edge[2]
 end
 
 local function build_polyhedron_contacts(vertices_a, vertices_b, normal)
+	return convex_manifold.BuildSupportPairContacts(vertices_a, vertices_b, normal)
+end
+
+local function get_world_face(poly_data, world_vertices, rotation, face_index)
+	local face = poly_data.faces and poly_data.faces[face_index]
+
+	if not face then return nil end
+
+	local points = {}
+
+	for i, vertex_index in ipairs(face.indices or {}) do
+		points[i] = world_vertices[vertex_index]
+	end
+
+	return {
+		points = points,
+		normal = rotation:VecMul(face.normal):GetNormalized(),
+		face_index = face_index,
+	}
+end
+
+local function find_incident_face_index(poly_data, rotation, reference_normal)
+	local best_index = nil
+	local best_dot = math.huge
+
+	for face_index, face in ipairs(poly_data.faces or {}) do
+		local world_normal = rotation:VecMul(face.normal):GetNormalized()
+		local dot = world_normal:Dot(reference_normal)
+
+		if dot < best_dot then
+			best_dot = dot
+			best_index = face_index
+		end
+	end
+
+	return best_index
+end
+
+local function build_face_contacts_from_features(poly_a, vertices_a, rotation_a, poly_b, vertices_b, rotation_b, candidate)
+	local reference_is_a = candidate.reference_body == "a"
+	local reference_poly = reference_is_a and poly_a or poly_b
+	local reference_vertices = reference_is_a and vertices_a or vertices_b
+	local reference_rotation = reference_is_a and rotation_a or rotation_b
+	local incident_poly = reference_is_a and poly_b or poly_a
+	local incident_vertices = reference_is_a and vertices_b or vertices_a
+	local incident_rotation = reference_is_a and rotation_b or rotation_a
+	local reference_normal = reference_is_a and candidate.normal or -candidate.normal
+	local reference_face = get_world_face(
+		reference_poly,
+		reference_vertices,
+		reference_rotation,
+		candidate.face_index
+	)
+
+	if not reference_face then return {} end
+
+	local incident_face_index = find_incident_face_index(incident_poly, incident_rotation, reference_normal)
+	local incident_face = get_world_face(incident_poly, incident_vertices, incident_rotation, incident_face_index)
+
+	if not incident_face then return {} end
+
+	local reference_descriptor = convex_face_clipping.BuildReferenceFace(reference_face.points, reference_normal)
+	local entries = convex_face_clipping.BuildFaceContactEntries(reference_descriptor, incident_face.points, FACE_CONTACT_SEPARATION_TOLERANCE)
+	entries = convex_face_clipping.SelectFaceContactEntries(entries, reference_descriptor, 4)
 	local contacts = {}
-	local support_a = collect_support_vertices(vertices_a, normal, true)
-	local support_b = collect_support_vertices(vertices_b, normal, false)
 
-	if not support_a[1] or not support_b[1] then return contacts end
-
-	local primary = #support_a <= #support_b and support_a or support_b
-	local secondary = primary == support_a and support_b or support_a
-	local primary_is_a = primary == support_a
-
-	for _, point in ipairs(primary) do
-		local closest_other = nil
-		local closest_distance = math.huge
-
-		for _, other in ipairs(secondary) do
-			local tangent_delta = other - point
-			tangent_delta = tangent_delta - normal * tangent_delta:Dot(normal)
-			local tangent_distance = tangent_delta:GetLength()
-
-			if tangent_distance < closest_distance then
-				closest_distance = tangent_distance
-				closest_other = other
-			end
+	for _, entry in ipairs(entries) do
+		if reference_is_a then
+			convex_manifold.AddContactPoint(contacts, entry.point_reference, entry.point_incident)
+		else
+			convex_manifold.AddContactPoint(contacts, entry.point_incident, entry.point_reference)
 		end
-
-		if closest_other then
-			if primary_is_a then
-				add_contact_point(contacts, point, closest_other)
-			else
-				add_contact_point(contacts, closest_other, point)
-			end
-		end
-
-		if #contacts >= 4 then break end
 	end
 
 	return contacts
+end
+
+local function build_edge_contacts_from_features(poly_a, vertices_a, poly_b, vertices_b, candidate)
+	local edge_a = poly_a.edges and poly_a.edges[candidate.edge_index_a]
+	local edge_b = poly_b.edges and poly_b.edges[candidate.edge_index_b]
+
+	if not (edge_a and edge_b) then return {} end
+
+	local a1, a2 = get_edge_indices(edge_a)
+	local b1, b2 = get_edge_indices(edge_b)
+	local point_a, point_b = convex_manifold.ClosestPointsOnSegments(vertices_a[a1], vertices_a[a2], vertices_b[b1], vertices_b[b2])
+	return {
+		{
+			point_a = point_a,
+			point_b = point_b,
+		},
+	}
 end
 
 local function closest_point_on_triangle(point, a, b, c)
@@ -317,11 +296,11 @@ local function evaluate_polyhedron_pair_at_transforms(poly_a, position_a, rotati
 	local axes = {}
 
 	for _, face in ipairs(poly_a.faces or {}) do
-		add_unique_axis(axes, rotation_a:VecMul(face.normal))
+		convex_sat.AddUniqueAxis(axes, rotation_a:VecMul(face.normal))
 	end
 
 	for _, face in ipairs(poly_b.faces or {}) do
-		add_unique_axis(axes, rotation_b:VecMul(face.normal))
+		convex_sat.AddUniqueAxis(axes, rotation_b:VecMul(face.normal))
 	end
 
 	for _, edge_a in ipairs(poly_a.edges or {}) do
@@ -329,7 +308,7 @@ local function evaluate_polyhedron_pair_at_transforms(poly_a, position_a, rotati
 
 		for _, edge_b in ipairs(poly_b.edges or {}) do
 			local dir_b = rotation_b:VecMul(get_edge_direction(poly_b, edge_b))
-			add_unique_axis(axes, dir_a:GetCross(dir_b))
+			convex_sat.AddUniqueAxis(axes, dir_a:GetCross(dir_b))
 		end
 	end
 
@@ -337,28 +316,86 @@ local function evaluate_polyhedron_pair_at_transforms(poly_a, position_a, rotati
 
 	local vertices_a = get_polyhedron_world_vertices_at(poly_a, position_a, rotation_a)
 	local vertices_b = get_polyhedron_world_vertices_at(poly_b, position_b, rotation_b)
-	local best_overlap = math.huge
-	local best_normal = nil
+	local best = convex_sat.CreateBestAxisTracker()
 	local center_delta = position_b - position_a
 
 	for _, axis in ipairs(axes) do
-		local min_a, max_a = project_vertices(vertices_a, axis)
-		local min_b, max_b = project_vertices(vertices_b, axis)
+		local min_a, max_a = convex_sat.ProjectVertices(vertices_a, axis)
+		local min_b, max_b = convex_sat.ProjectVertices(vertices_b, axis)
 		local overlap = math.min(max_a, max_b) - math.max(min_a, min_b)
 
 		if overlap <= 0 then return nil end
+	end
 
-		if overlap < best_overlap then
-			best_overlap = overlap
-			best_normal = orient_axis_normal(axis, center_delta:Dot(axis))
+	for face_index, face in ipairs(poly_a.faces or {}) do
+		local axis = rotation_a:VecMul(face.normal)
+		local min_a, max_a = convex_sat.ProjectVertices(vertices_a, axis)
+		local min_b, max_b = convex_sat.ProjectVertices(vertices_b, axis)
+		local overlap = math.min(max_a, max_b) - math.max(min_a, min_b)
+		convex_sat.UpdateBestAxis(
+			best,
+			{
+				overlap = overlap,
+				normal = convex_sat.OrientAxisNormal(axis, center_delta:Dot(axis)),
+				kind = "face",
+				reference_body = "a",
+				face_index = face_index,
+			}
+		)
+	end
+
+	for face_index, face in ipairs(poly_b.faces or {}) do
+		local axis = rotation_b:VecMul(face.normal)
+		local min_a, max_a = convex_sat.ProjectVertices(vertices_a, axis)
+		local min_b, max_b = convex_sat.ProjectVertices(vertices_b, axis)
+		local overlap = math.min(max_a, max_b) - math.max(min_a, min_b)
+		convex_sat.UpdateBestAxis(
+			best,
+			{
+				overlap = overlap,
+				normal = convex_sat.OrientAxisNormal(axis, center_delta:Dot(axis)),
+				kind = "face",
+				reference_body = "b",
+				face_index = face_index,
+			}
+		)
+	end
+
+	for edge_index_a, edge_a in ipairs(poly_a.edges or {}) do
+		local dir_a = rotation_a:VecMul(get_edge_direction(poly_a, edge_a))
+
+		for edge_index_b, edge_b in ipairs(poly_b.edges or {}) do
+			local axis = dir_a:GetCross(rotation_b:VecMul(get_edge_direction(poly_b, edge_b)))
+			local axis_length = axis:GetLength()
+
+			if axis_length > EPSILON then
+				local normalized = axis / axis_length
+				local min_a, max_a = convex_sat.ProjectVertices(vertices_a, normalized)
+				local min_b, max_b = convex_sat.ProjectVertices(vertices_b, normalized)
+				local overlap = math.min(max_a, max_b) - math.max(min_a, min_b)
+				convex_sat.UpdateBestAxis(
+					best,
+					{
+						overlap = overlap,
+						normal = convex_sat.OrientAxisNormal(normalized, center_delta:Dot(normalized)),
+						kind = "edge",
+						edge_index_a = edge_index_a,
+						edge_index_b = edge_index_b,
+					}
+				)
+			end
 		end
 	end
+
+	local chosen = convex_sat.ChoosePreferredAxis(best, FACE_AXIS_RELATIVE_TOLERANCE, FACE_AXIS_ABSOLUTE_TOLERANCE)
+	local best_overlap = chosen and chosen.overlap or math.huge
+	local best_normal = chosen and chosen.normal or nil
 
 	if not best_normal or best_overlap == math.huge then return nil end
 
 	local contacts = build_polyhedron_contacts(vertices_a, vertices_b, best_normal)
-	local point_a = average_world_points(collect_support_vertices(vertices_a, best_normal, true))
-	local point_b = average_world_points(collect_support_vertices(vertices_b, best_normal, false))
+	local point_a = convex_manifold.AverageWorldPoints(convex_manifold.CollectSupportVertices(vertices_a, best_normal, true))
+	local point_b = convex_manifold.AverageWorldPoints(convex_manifold.CollectSupportVertices(vertices_b, best_normal, false))
 	return {
 		overlap = best_overlap,
 		normal = best_normal,
@@ -572,11 +609,11 @@ local function solve_polyhedron_pair_collision(body_a, body_b, dt)
 	local center_delta = body_b:GetPosition() - body_a:GetPosition()
 
 	for _, face in ipairs(poly_a.faces or {}) do
-		add_unique_axis(axes, body_a:GetRotation():VecMul(face.normal))
+		convex_sat.AddUniqueAxis(axes, body_a:GetRotation():VecMul(face.normal))
 	end
 
 	for _, face in ipairs(poly_b.faces or {}) do
-		add_unique_axis(axes, body_b:GetRotation():VecMul(face.normal))
+		convex_sat.AddUniqueAxis(axes, body_b:GetRotation():VecMul(face.normal))
 	end
 
 	for _, edge_a in ipairs(poly_a.edges or {}) do
@@ -584,7 +621,7 @@ local function solve_polyhedron_pair_collision(body_a, body_b, dt)
 
 		for _, edge_b in ipairs(poly_b.edges or {}) do
 			local dir_b = body_b:GetRotation():VecMul(get_edge_direction(poly_b, edge_b))
-			add_unique_axis(axes, dir_a:GetCross(dir_b))
+			convex_sat.AddUniqueAxis(axes, dir_a:GetCross(dir_b))
 		end
 	end
 
@@ -592,8 +629,7 @@ local function solve_polyhedron_pair_collision(body_a, body_b, dt)
 
 	local vertices_a = polyhedron.GetPolyhedronWorldVertices(body_a, poly_a)
 	local vertices_b = polyhedron.GetPolyhedronWorldVertices(body_b, poly_b)
-	local best_overlap = math.huge
-	local best_normal = nil
+	local best = convex_sat.CreateBestAxisTracker()
 
 	local function try_swept_fallback()
 		local static_body, dynamic_body = pair_solver_helpers.GetStaticDynamicPair(body_a, body_b)
@@ -610,23 +646,95 @@ local function solve_polyhedron_pair_collision(body_a, body_b, dt)
 	end
 
 	for _, axis in ipairs(axes) do
-		local min_a, max_a = project_vertices(vertices_a, axis)
-		local min_b, max_b = project_vertices(vertices_b, axis)
+		local min_a, max_a = convex_sat.ProjectVertices(vertices_a, axis)
+		local min_b, max_b = convex_sat.ProjectVertices(vertices_b, axis)
 		local overlap = math.min(max_a, max_b) - math.max(min_a, min_b)
 
 		if overlap <= 0 then return try_swept_fallback() end
+	end
 
-		if overlap < best_overlap then
-			best_overlap = overlap
-			best_normal = orient_axis_normal(axis, center_delta:Dot(axis))
+	for face_index, face in ipairs(poly_a.faces or {}) do
+		local axis = body_a:GetRotation():VecMul(face.normal)
+		local min_a, max_a = convex_sat.ProjectVertices(vertices_a, axis)
+		local min_b, max_b = convex_sat.ProjectVertices(vertices_b, axis)
+		local overlap = math.min(max_a, max_b) - math.max(min_a, min_b)
+		convex_sat.UpdateBestAxis(
+			best,
+			{
+				overlap = overlap,
+				normal = convex_sat.OrientAxisNormal(axis, center_delta:Dot(axis)),
+				kind = "face",
+				reference_body = "a",
+				face_index = face_index,
+			}
+		)
+	end
+
+	for face_index, face in ipairs(poly_b.faces or {}) do
+		local axis = body_b:GetRotation():VecMul(face.normal)
+		local min_a, max_a = convex_sat.ProjectVertices(vertices_a, axis)
+		local min_b, max_b = convex_sat.ProjectVertices(vertices_b, axis)
+		local overlap = math.min(max_a, max_b) - math.max(min_a, min_b)
+		convex_sat.UpdateBestAxis(
+			best,
+			{
+				overlap = overlap,
+				normal = convex_sat.OrientAxisNormal(axis, center_delta:Dot(axis)),
+				kind = "face",
+				reference_body = "b",
+				face_index = face_index,
+			}
+		)
+	end
+
+	for edge_index_a, edge_a in ipairs(poly_a.edges or {}) do
+		local dir_a = body_a:GetRotation():VecMul(get_edge_direction(poly_a, edge_a))
+
+		for edge_index_b, edge_b in ipairs(poly_b.edges or {}) do
+			local axis = dir_a:GetCross(body_b:GetRotation():VecMul(get_edge_direction(poly_b, edge_b)))
+			local axis_length = axis:GetLength()
+
+			if axis_length > EPSILON then
+				local normalized = axis / axis_length
+				local min_a, max_a = convex_sat.ProjectVertices(vertices_a, normalized)
+				local min_b, max_b = convex_sat.ProjectVertices(vertices_b, normalized)
+				local overlap = math.min(max_a, max_b) - math.max(min_a, min_b)
+				convex_sat.UpdateBestAxis(
+					best,
+					{
+						overlap = overlap,
+						normal = convex_sat.OrientAxisNormal(normalized, center_delta:Dot(normalized)),
+						kind = "edge",
+						edge_index_a = edge_index_a,
+						edge_index_b = edge_index_b,
+					}
+				)
+			end
 		end
 	end
 
+	local chosen = convex_sat.ChoosePreferredAxis(best, FACE_AXIS_RELATIVE_TOLERANCE, FACE_AXIS_ABSOLUTE_TOLERANCE)
+	local best_overlap = chosen and chosen.overlap or math.huge
+	local best_normal = chosen and chosen.normal or nil
+
 	if not best_normal or best_overlap == math.huge then return false end
 
-	local contacts = build_polyhedron_contacts(vertices_a, vertices_b, best_normal)
-	local point_a = average_world_points(collect_support_vertices(vertices_a, best_normal, true))
-	local point_b = average_world_points(collect_support_vertices(vertices_b, best_normal, false))
+	local contacts = chosen.kind == "face" and
+		build_face_contacts_from_features(
+			poly_a,
+			vertices_a,
+			body_a:GetRotation(),
+			poly_b,
+			vertices_b,
+			body_b:GetRotation(),
+			chosen
+		) or
+		chosen.kind == "edge" and
+		build_edge_contacts_from_features(poly_a, vertices_a, poly_b, vertices_b, chosen)
+		or
+		build_polyhedron_contacts(vertices_a, vertices_b, best_normal)
+	local point_a = convex_manifold.AverageWorldPoints(convex_manifold.CollectSupportVertices(vertices_a, best_normal, true))
+	local point_b = convex_manifold.AverageWorldPoints(convex_manifold.CollectSupportVertices(vertices_b, best_normal, false))
 
 	if contacts[1] then
 		return contact_resolution.ResolvePairPenetration(body_a, body_b, best_normal, best_overlap, dt, nil, nil, contacts)

@@ -72,6 +72,10 @@ end
 
 local function spawn_dynamic_box(position, size, material, rotation, options)
 	options = options or {}
+	options.LinearDamping = 0
+	options.AngularDamping = 0
+	options.AirLinearDamping = 0
+	options.AirAngularDamping = 0
 	local ent = Entity.New{Name = options.Name or "box_settling_dynamic_box"}
 	ent:AddComponent("transform")
 	ent.transform:SetPosition(position)
