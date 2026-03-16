@@ -16,7 +16,6 @@ local model_acceleration = {
 	frame = -1,
 	model_count = 0,
 }
-import.loaded["goluwa/physics/raycast.lua"] = raycast
 
 local function create_ray(origin, direction, max_distance)
 	local tbl = {}
