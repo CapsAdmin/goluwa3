@@ -3,13 +3,19 @@ local system = import("goluwa/system.lua")
 local traceback = import("goluwa/helpers/traceback.lua")
 local timer = library()
 timer.timers = timer.timers or {}
+timer.MaxThinkerIterations = timer.MaxThinkerIterations or 128
+
+local function get_precise_time_seconds()
+	if system.GetTimeNS then return system.GetTimeNS() / 1000000000 end
+
+	return system.GetTime()
+end
 
 function timer.Thinker(callback, run_now, frequency, iterations, id)
 	if run_now and callback() == true then return end
 
 	local info = {
 		key = id or callback,
-		key = callback,
 		type = "thinker",
 		realtime = 0,
 		callback = callback,
@@ -81,6 +87,7 @@ function timer.Repeat(id, time, repeats, callback, run_now, error_callback)
 		end
 	end
 
+	local is_new = data == nil
 	data = data or {}
 	data.key = id
 	data.type = "timer"
@@ -94,7 +101,8 @@ function timer.Repeat(id, time, repeats, callback, run_now, error_callback)
 	data.error_callback = error_callback or function(id, msg)
 		logn(id, msg)
 	end
-	list.insert(timer.timers, data)
+
+	if is_new then list.insert(timer.timers, data) end
 
 	if run_now then
 		callback(repeats - 1)
@@ -139,33 +147,42 @@ function timer.IsTimer(id)
 end
 
 local remove_these = {}
-local updating = false
+local updating = 0
 
 function timer.UpdateTimers(a_, b_, c_, d_, e_)
-	-- Allow re-entrant calls but skip non-thinker timers to prevent double-firing
-	local was_updating = updating
-	updating = true
+	updating = updating + 1
 	local cur = system.GetElapsedTime()
+	local snapshot = {}
 
 	for i, data in ipairs(timer.timers) do
+		snapshot[i] = data
+	end
+
+	for _, data in ipairs(snapshot) do
+		if remove_these[data] then goto continue end
+
 		if data.type == "thinker" then
 			if data.fps then
-				local time = 0
+				local spent_time = 0
+				local max_iterations = math.max(1, data.max_iterations or timer.MaxThinkerIterations or 128)
+				local iterations = 0
 
 				repeat
-					local start = system.GetTime()
+					iterations = iterations + 1
+					local callback_start = get_precise_time_seconds()
 					local res = data.callback()
+					local callback_time = tonumber(get_precise_time_seconds() - callback_start) or 0
+
+					if callback_time > 0 then spent_time = spent_time + callback_time end
 
 					if res == true then
-						list.insert(remove_these, i)
+						remove_these[data] = true
 
 						break
 					elseif res == false then
 						break
-					end
-
-					time = time + math.max(system.GetTime() - start, 0)
-				until time >= data.fps
+					end				
+				until iterations >= max_iterations or spent_time >= data.fps
 			else
 				if data.realtime < cur then
 					local fps = ((cur + data.frequency) - data.realtime)
@@ -187,13 +204,12 @@ function timer.UpdateTimers(a_, b_, c_, d_, e_)
 						end
 					end
 
-					if done then list.insert(remove_these, i) end
+					if done then remove_these[data] = true end
 
 					data.realtime = cur + data.frequency
 				end
 			end
-		elseif not was_updating and data.type == "delay" then
-			-- Skip delay timers during re-entrant calls to prevent double-firing
+		elseif data.type == "delay" then
 			if data.realtime < cur then
 				if not data.args then
 					data.callback()
@@ -201,21 +217,20 @@ function timer.UpdateTimers(a_, b_, c_, d_, e_)
 					data.callback(unpack(data.args))
 				end
 
-				list.insert(remove_these, i)
+				remove_these[data] = true
 			end
-		elseif not was_updating and data.type == "timer" then
-			-- Skip repeat timers during re-entrant calls to prevent double-firing
+		elseif data.type == "timer" then
 			if not data.paused and data.realtime < cur then
 				local msg = data.callback(data.times_ran - 1, a_, b_, c_, d_, e_)
 
-				if msg == "stop" then list.insert(remove_these, i) end
+				if msg == "stop" then remove_these[data] = true end
 
 				if msg == "restart" then data.times_ran = 1 end
 
 				if type(msg) == "number" then data.realtime = cur + msg end
 
 				if data.times_ran == data.repeats then
-					list.insert(remove_these, i)
+					remove_these[data] = true
 				--profiler.RemoveSection(data.id)
 				else
 					data.times_ran = data.times_ran + 1
@@ -223,19 +238,30 @@ function timer.UpdateTimers(a_, b_, c_, d_, e_)
 				end
 			end
 		end
+
+		::continue::
 	end
 
-	if remove_these[1] then
-		for _, v in ipairs(remove_these) do
-			--print(timer.timers[v].type)
-			timer.timers[v] = nil
+	updating = updating - 1
+
+	if updating == 0 and next(remove_these) then
+		local write = 1
+
+		for read = 1, #timer.timers do
+			local data = timer.timers[read]
+
+			if data and not remove_these[data] then
+				timer.timers[write] = data
+				write = write + 1
+			end
 		end
 
-		list.fix_indices(timer.timers)
-		list.clear(remove_these)
-	end
+		for i = write, #timer.timers do
+			timer.timers[i] = nil
+		end
 
-	updating = false
+		remove_these = {}
+	end
 end
 
 event.AddListener("Update", "timers", timer.UpdateTimers, {on_error = traceback.OnError})

@@ -63,6 +63,89 @@ T.Test("timer.Repeat executes multiple times", function()
 	T(execution_count)["=="](3)
 end)
 
+T.Test("timer.Repeat replacing an existing id does not duplicate callbacks", function()
+	local old_count = 0
+	local new_count = 0
+	local id = "test_repeat_replace"
+
+	timer.Repeat(id, 0.05, 3, function()
+		old_count = old_count + 1
+	end)
+
+	timer.Repeat(id, 0.05, 3, function()
+		new_count = new_count + 1
+	end)
+
+	local matches = 0
+
+	for _, data in ipairs(timer.timers) do
+		if data.key == id then matches = matches + 1 end
+	end
+
+	T(matches)["=="](1)
+
+	T.WaitUntil(function()
+		return new_count >= 3
+	end)
+
+	T.Sleep(0.1)
+
+	T.WaitUntil(function()
+		return not (timer.IsTimer(id) or false)
+	end, 1)
+
+	T(old_count)["=="](0)
+	T(new_count)["=="](3)
+	T(timer.IsTimer(id) or false)["=="](false)
+end)
+
+T.Test("timer.Thinker preserves explicit ids for removal", function()
+	local count = 0
+	local id = "test_thinker_remove_by_id"
+
+	timer.Thinker(function()
+		count = count + 1
+	end, false, 30, true, id)
+
+	T(timer.IsTimer(id))["=="](true)
+	T(timer.RemoveTimer(id))["=="](true)
+	T(timer.IsTimer(id) or false)["=="](false)
+	T.Sleep(0.05)
+	T(count)["=="](0)
+end)
+
+T.Test("nested timer updates do not lose pending repeat timers", function()
+	local id = "test_repeat_nested_update"
+	local repeat_count = 0
+	local nested_updates = 0
+	local reentered = false
+
+	timer.Repeat(id, 0.05, 3, function()
+		repeat_count = repeat_count + 1
+	end)
+
+	timer.Delay(0.01, function()
+		if reentered then return end
+
+		reentered = true
+		nested_updates = nested_updates + 1
+		system.SetElapsedTime(system.GetElapsedTime() + 0.016)
+		timer.UpdateTimers()
+	end)
+
+	T.WaitUntil(function()
+		return repeat_count >= 3
+	end)
+
+	T.WaitUntil(function()
+		return not (timer.IsTimer(id) or false)
+	end, 1)
+
+	T(nested_updates)["=="](1)
+	T(repeat_count)["=="](3)
+	T(timer.IsTimer(id) or false)["=="](false)
+end)
+
 T.Test("sleep helper with timer", function()
 	local done = false
 
