@@ -82,6 +82,7 @@ end
 local fallback = import("goluwa/physics/fallback_solver.lua")
 local manifolds = import("goluwa/physics/manifold.lua")
 local world_contacts = import("goluwa/physics/world_contacts.lua")
+local islands = import("goluwa/physics/islands.lua")
 
 function solver:BeginStep()
 	self.StepStamp = (self.StepStamp or 0) + 1
@@ -183,8 +184,8 @@ local function solve_rigid_body_pair(body_a, body_b, entry_a, entry_b, dt)
 	return handled
 end
 
-function solver.SolveDistanceConstraints(dt)
-	local constraints = physics.Constraints or physics.DistanceConstraints or {}
+function solver.SolveDistanceConstraints(dt, constraints_override)
+	local constraints = constraints_override or physics.Constraints or physics.DistanceConstraints or {}
 
 	for i = #constraints, 1, -1 do
 		local constraint = constraints[i]
@@ -197,6 +198,22 @@ solver.SolveConstraints = solver.SolveDistanceConstraints
 
 function solver.BuildBroadphasePairs(bodies)
 	return broadphase.BuildCandidatePairs(physics, bodies)
+end
+
+function solver.BuildSimulationIslands(bodies, pairs, constraints)
+	return islands.BuildSimulationIslands(bodies, pairs, constraints)
+end
+
+function solver.PrepareSimulationIslands(simulation_islands, newly_awoken_bodies)
+	return islands.PrepareSimulationIslands(simulation_islands, newly_awoken_bodies)
+end
+
+function solver.FinalizeSimulationIslands(simulation_islands)
+	return islands.FinalizeSimulationIslands(simulation_islands)
+end
+
+function solver.IsSimulationIslandSleeping(island)
+	return islands.IsSleepingIsland(island)
 end
 
 function solver.SolveRigidBodyPairs(bodies_or_pairs, dt)

@@ -38,19 +38,76 @@ function physics.UpdateRigidBodies(dt)
 		end
 
 		local rigid_body_pairs = solver.BuildBroadphasePairs and solver.BuildBroadphasePairs(bodies) or bodies
+		local constraints = physics.Constraints or physics.DistanceConstraints or {}
+		local simulation_islands = solver.BuildSimulationIslands and
+			solver.BuildSimulationIslands(bodies, rigid_body_pairs, constraints) or
+			nil
+		local newly_awoken_bodies = {}
 
-		for _ = 1, iterations do
-			solver.SolveRigidBodyPairs(rigid_body_pairs, sub_dt)
+		if simulation_islands and simulation_islands[1] and solver.PrepareSimulationIslands then
+			local woke_any
+			woke_any, newly_awoken_bodies = solver.PrepareSimulationIslands(simulation_islands, newly_awoken_bodies)
 
-			for _, body in ipairs(bodies) do
-				if physics.IsActiveRigidBody(body) then
-					if body:IsDynamic() and body:GetAwake() then
-						solver.SolveBodyContacts(body, sub_dt)
+			if woke_any then
+				for body_index = 1, #newly_awoken_bodies do
+					local body = newly_awoken_bodies[body_index]
+
+					if physics.IsActiveRigidBody(body) and body:GetAwake() then
+						body:SetGrounded(false)
+						body:SetGroundNormal(physics.Up)
+						body:Integrate(sub_dt, physics.Gravity)
 					end
 				end
-			end
 
-			solver.SolveDistanceConstraints(sub_dt)
+				rigid_body_pairs = solver.BuildBroadphasePairs and solver.BuildBroadphasePairs(bodies) or bodies
+				simulation_islands = solver.BuildSimulationIslands and
+					solver.BuildSimulationIslands(bodies, rigid_body_pairs, constraints) or
+					nil
+
+				if simulation_islands and simulation_islands[1] and solver.PrepareSimulationIslands then
+					solver.PrepareSimulationIslands(simulation_islands, newly_awoken_bodies)
+				end
+			end
+		end
+
+		for _ = 1, iterations do
+			if simulation_islands and simulation_islands[1] then
+				for island_index = 1, #simulation_islands do
+					local island = simulation_islands[island_index]
+
+					if
+						not (
+							solver.IsSimulationIslandSleeping and
+							solver.IsSimulationIslandSleeping(island)
+						)
+					then
+						solver.SolveRigidBodyPairs(island.pairs, sub_dt)
+						local dynamic_bodies = island.awake_dynamic_bodies or island.dynamic_bodies or island.bodies
+
+						for body_index = 1, #dynamic_bodies do
+							local body = dynamic_bodies[body_index]
+
+							if physics.IsActiveRigidBody(body) then
+								solver.SolveBodyContacts(body, sub_dt)
+							end
+						end
+
+						solver.SolveDistanceConstraints(sub_dt, island.constraints)
+					end
+				end
+			else
+				solver.SolveRigidBodyPairs(rigid_body_pairs, sub_dt)
+
+				for _, body in ipairs(bodies) do
+					if physics.IsActiveRigidBody(body) then
+						if body:IsDynamic() and body:GetAwake() then
+							solver.SolveBodyContacts(body, sub_dt)
+						end
+					end
+				end
+
+				solver.SolveDistanceConstraints(sub_dt, constraints)
+			end
 		end
 
 		for _, body in ipairs(bodies) do
@@ -58,6 +115,10 @@ function physics.UpdateRigidBodies(dt)
 				body:UpdateVelocities(sub_dt)
 				body:UpdateSleepState(sub_dt)
 			end
+		end
+
+		if simulation_islands and simulation_islands[1] and solver.FinalizeSimulationIslands then
+			solver.FinalizeSimulationIslands(simulation_islands)
 		end
 	end
 

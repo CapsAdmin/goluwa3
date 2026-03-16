@@ -572,21 +572,12 @@ function META:Sleep()
 	self.PreviousRotation = self.Rotation:Copy()
 end
 
-function META:UpdateSleepState(dt)
-	if not self:HasSolverMass() or not self.CanSleep then return end
-
-	if not self.Awake then
-		self.Velocity = Vec3(0, 0, 0)
-		self.AngularVelocity = Vec3(0, 0, 0)
-		self.PreviousPosition = self.Position:Copy()
-		self.PreviousRotation = self.Rotation:Copy()
-		return
-	end
-
+local function get_sleep_state_metrics(self)
 	local linear_threshold = self.SleepLinearThreshold
 	local angular_threshold = self.SleepAngularThreshold
 	local linear_speed = self.Velocity:GetLength()
 	local angular_speed = self.AngularVelocity:GetLength()
+	local force_grounded_sleep = false
 
 	if self:GetGrounded() then
 		linear_threshold = linear_threshold * 1.2
@@ -598,20 +589,53 @@ function META:UpdateSleepState(dt)
 			angular_speed = self.AngularVelocity:GetLength()
 		end
 
-		if
-			shape and
+		force_grounded_sleep = shape and
 			shape.ShouldForceGroundedSleep and
 			shape:ShouldForceGroundedSleep(self) and
 			linear_speed <= math.max(0.02, self.SleepLinearThreshold * 0.35)
 			and
 			angular_speed <= math.max(0.03, self.SleepAngularThreshold * 0.35)
-		then
-			self:Sleep()
-			return
-		end
 	end
 
-	if linear_speed <= linear_threshold and angular_speed <= angular_threshold then
+	return linear_speed,
+	angular_speed,
+	linear_threshold,
+	angular_threshold,
+	force_grounded_sleep
+end
+
+function META:IsReadyToSleep()
+	if not self:HasSolverMass() or not self.CanSleep then return false, false end
+
+	if not self.Awake then return true, false end
+
+	local linear_speed, angular_speed, linear_threshold, angular_threshold, force_grounded_sleep = get_sleep_state_metrics(self)
+
+	if force_grounded_sleep then return true, true end
+
+	return linear_speed <= linear_threshold and angular_speed <= angular_threshold,
+	false
+end
+
+function META:UpdateSleepState(dt)
+	if not self:HasSolverMass() or not self.CanSleep then return end
+
+	if not self.Awake then
+		self.Velocity = Vec3(0, 0, 0)
+		self.AngularVelocity = Vec3(0, 0, 0)
+		self.PreviousPosition = self.Position:Copy()
+		self.PreviousRotation = self.Rotation:Copy()
+		return
+	end
+
+	local ready_to_sleep, force_grounded_sleep = self:IsReadyToSleep()
+
+	if force_grounded_sleep then
+		self:Sleep()
+		return
+	end
+
+	if ready_to_sleep then
 		self.SleepTimer = self.SleepTimer + dt
 
 		if self.SleepTimer >= self.SleepDelay then self:Sleep() end

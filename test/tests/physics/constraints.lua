@@ -14,7 +14,8 @@ local function reset_constraints()
 	if physics.RemoveAllConstraints then physics.RemoveAllConstraints() end
 end
 
-local function create_dynamic_sphere(name, position)
+local function create_dynamic_sphere(name, position, config)
+	config = config or {}
 	local ent = Entity.New({Name = name})
 	ent:AddComponent("transform")
 	ent.transform:SetPosition(position)
@@ -23,15 +24,18 @@ local function create_dynamic_sphere(name, position)
 		{
 			Shape = sphere_shape(0.25),
 			Radius = 0.25,
-			AutomaticMass = false,
-			Mass = 1,
-			GravityScale = 0,
-			LinearDamping = 0,
-			AngularDamping = 0,
-			AirLinearDamping = 0,
-			AirAngularDamping = 0,
-			MaxLinearSpeed = 1000,
-			MaxAngularSpeed = 1000,
+			AutomaticMass = config.AutomaticMass == nil and false or config.AutomaticMass,
+			Mass = config.Mass or 1,
+			GravityScale = config.GravityScale or 0,
+			LinearDamping = config.LinearDamping or 0,
+			AngularDamping = config.AngularDamping or 0,
+			AirLinearDamping = config.AirLinearDamping or 0,
+			AirAngularDamping = config.AirAngularDamping or 0,
+			MaxLinearSpeed = config.MaxLinearSpeed or 1000,
+			MaxAngularSpeed = config.MaxAngularSpeed or 1000,
+			SleepDelay = config.SleepDelay,
+			SleepLinearThreshold = config.SleepLinearThreshold,
+			SleepAngularThreshold = config.SleepAngularThreshold,
 		}
 	)
 	return ent, body
