@@ -1,6 +1,5 @@
 local bvh = library()
 import.loaded["goluwa/physics/bvh.lua"] = bvh
-import.loaded["goluwa/physics/bvh.lua"] = bvh
 bvh.DefaultLeafItemCount = bvh.DefaultLeafItemCount or 8
 
 function bvh.CreateEmptyBounds()

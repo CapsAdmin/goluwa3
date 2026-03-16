@@ -82,7 +82,6 @@ end
 local fallback = import("goluwa/physics/fallback_solver.lua")
 local manifolds = import("goluwa/physics/manifold.lua")
 local world_contacts = import("goluwa/physics/world_contacts.lua")
-local register_pair_modules = import("goluwa/physics/pair_solvers/init.lua").RegisterAll
 
 function solver:BeginStep()
 	self.StepStamp = (self.StepStamp or 0) + 1
@@ -211,5 +210,8 @@ function solver.SolveBodyContacts(body, dt)
 	world_contacts.SolveBodyContacts(body, dt)
 end
 
-register_pair_modules(solver)
+import("goluwa/physics/pair_solvers/polyhedron.lua")
+import("goluwa/physics/pair_solvers/sphere.lua")
+import("goluwa/physics/pair_solvers/capsule.lua")
+import("goluwa/physics/pair_solvers/box.lua")
 return solver
