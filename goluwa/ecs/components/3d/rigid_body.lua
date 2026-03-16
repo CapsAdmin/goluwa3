@@ -566,10 +566,35 @@ function META:UpdateSleepState(dt)
 		return
 	end
 
-	if
-		self.Velocity:GetLength() <= self.SleepLinearThreshold and
-		self.AngularVelocity:GetLength() <= self.SleepAngularThreshold
-	then
+	local linear_threshold = self.SleepLinearThreshold
+	local angular_threshold = self.SleepAngularThreshold
+	local linear_speed = self.Velocity:GetLength()
+	local angular_speed = self.AngularVelocity:GetLength()
+
+	if self:GetGrounded() then
+		linear_threshold = linear_threshold * 1.2
+		angular_threshold = angular_threshold * 1.4
+		local shape = self.GetPhysicsShape and self:GetPhysicsShape() or nil
+
+		if shape and shape.SnapGroundedSleepPose and shape:SnapGroundedSleepPose(self) then
+			linear_speed = self.Velocity:GetLength()
+			angular_speed = self.AngularVelocity:GetLength()
+		end
+
+		if
+			shape and
+			shape.ShouldForceGroundedSleep and
+			shape:ShouldForceGroundedSleep(self) and
+			linear_speed <= math.max(0.02, self.SleepLinearThreshold * 0.35)
+			and
+			angular_speed <= math.max(0.03, self.SleepAngularThreshold * 0.35)
+		then
+			self:Sleep()
+			return
+		end
+	end
+
+	if linear_speed <= linear_threshold and angular_speed <= angular_threshold then
 		self.SleepTimer = self.SleepTimer + dt
 
 		if self.SleepTimer >= self.SleepDelay then self:Sleep() end

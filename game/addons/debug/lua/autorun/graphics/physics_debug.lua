@@ -13,6 +13,7 @@ local zero_vec = Vec3(0, 0, 0)
 local unit_box_poly
 local unit_sphere_poly
 local convex_mesh_cache = setmetatable({}, {__mode = "k"})
+local polyhedron_mesh_cache = setmetatable({}, {__mode = "k"})
 local debug_entries = setmetatable({}, {__mode = "k"})
 local debug_materials = {}
 local rigid_body_component
@@ -105,6 +106,49 @@ local function build_convex_poly(hull)
 	return poly
 end
 
+local function build_polyhedron_poly(polyhedron_data)
+	if
+		not (
+			polyhedron_data and
+			polyhedron_data.vertices and
+			polyhedron_data.faces and
+			polyhedron_data.faces[1]
+		)
+	then
+		return nil
+	end
+
+	local cached = polyhedron_mesh_cache[polyhedron_data]
+
+	if cached then return cached end
+
+	local poly = Polygon3D.New()
+
+	for _, face in ipairs(polyhedron_data.faces or {}) do
+		local indices = face.indices or {}
+		local a = indices[1]
+
+		for i = 2, #indices - 1 do
+			local b = indices[i]
+			local c = indices[i + 1]
+			local va = polyhedron_data.vertices[a]
+			local vb = polyhedron_data.vertices[b]
+			local vc = polyhedron_data.vertices[c]
+
+			if va and vb and vc then
+				local normal = face.normal or (vb - va):GetCross(vc - va):GetNormalized()
+				poly:AddVertex{pos = va, uv = Vec2(0, 0), normal = normal}
+				poly:AddVertex{pos = vb, uv = Vec2(1, 0), normal = normal}
+				poly:AddVertex{pos = vc, uv = Vec2(0.5, 1), normal = normal}
+			end
+		end
+	end
+
+	poly:Upload()
+	polyhedron_mesh_cache[polyhedron_data] = poly
+	return poly
+end
+
 local function add_primitive(model, polygon3d, shape_type, local_matrix)
 	if not polygon3d then return end
 
@@ -130,12 +174,7 @@ local function append_shape(model, body, shape, local_matrix)
 	end
 
 	if shape_type == "box" then
-		add_primitive(
-			model,
-			get_unit_box_poly(),
-			shape_type,
-			make_matrix(zero_vec, identity_rotation, shape:GetSize()):GetMultiplied(local_matrix)
-		)
+		add_primitive(model, build_polyhedron_poly(shape:GetPolyhedron()), shape_type, local_matrix)
 		return
 	end
 
@@ -169,6 +208,24 @@ local function get_shape_signature(body)
 	return shape, shape_type, hull, children and #children or 0
 end
 
+local function sync_debug_transform(body, debug_ent)
+	if not (debug_ent and debug_ent.transform) then return end
+
+	local position = body.GetPosition and body:GetPosition() or zero_vec
+	local rotation = body.GetRotation and body:GetRotation() or identity_rotation
+	local owner = body.Owner
+
+	if owner and owner.transform then
+		local render_position, render_rotation = owner.transform:GetRenderPositionRotation()
+		position = render_position or owner.transform:GetPosition() or position
+		rotation = render_rotation or owner.transform:GetRotation() or rotation
+	end
+
+	debug_ent.transform:SetPosition(position:Copy())
+	debug_ent.transform:SetRotation(rotation:Copy())
+	debug_ent.transform:SetScale(Vec3(1, 1, 1))
+end
+
 local function rebuild_debug_model(body, entry)
 	local owner = body.Owner
 
@@ -177,11 +234,12 @@ local function rebuild_debug_model(body, entry)
 	local debug_ent = entry.entity
 
 	if not (debug_ent and debug_ent.IsValid and debug_ent:IsValid()) then
-		debug_ent = Entity.New{Name = "physics_debug_mesh", Parent = owner}
+		debug_ent = Entity.New{Name = "physics_debug_mesh"}
 		debug_ent.PhysicsNoCollision = true
 		debug_ent:AddComponent("transform")
 		debug_ent.transform:SetPosition(Vec3(0, 0, 0))
 		debug_ent.transform:SetRotation(identity_rotation:Copy())
+		debug_ent.transform:SetScale(Vec3(1, 1, 1))
 		debug_ent:AddComponent("model", {
 			UseOcclusionCulling = false,
 			CastShadows = false,
@@ -189,6 +247,7 @@ local function rebuild_debug_model(body, entry)
 		entry.entity = debug_ent
 	end
 
+	sync_debug_transform(body, debug_ent)
 	debug_ent.model:RemovePrimitives()
 	append_shape(debug_ent.model, body, body:GetPhysicsShape(), Matrix44():Identity())
 	debug_ent.model:BuildAABB()
@@ -223,6 +282,8 @@ local function ensure_debug_model(body)
 	elseif debug_ent.model:GetVisible() ~= debug_enabled then
 		debug_ent.model:SetVisible(debug_enabled)
 	end
+
+	sync_debug_transform(body, entry.entity)
 end
 
 local function cleanup_removed_bodies()

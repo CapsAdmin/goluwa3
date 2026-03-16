@@ -122,6 +122,10 @@ local function add_unique_axis(axes, axis)
 	axes[#axes + 1] = normalized
 end
 
+local function orient_axis_normal(axis, distance)
+	return axis * (distance >= 0 and 1 or -1)
+end
+
 local function project_vertices(vertices, axis)
 	local min_projection = math.huge
 	local max_projection = -math.huge
@@ -346,7 +350,7 @@ local function evaluate_polyhedron_pair_at_transforms(poly_a, position_a, rotati
 
 		if overlap < best_overlap then
 			best_overlap = overlap
-			best_normal = axis * math.sign(center_delta:Dot(axis))
+			best_normal = orient_axis_normal(axis, center_delta:Dot(axis))
 		end
 	end
 
@@ -614,7 +618,7 @@ local function solve_polyhedron_pair_collision(body_a, body_b, dt)
 
 		if overlap < best_overlap then
 			best_overlap = overlap
-			best_normal = axis * math.sign(center_delta:Dot(axis))
+			best_normal = orient_axis_normal(axis, center_delta:Dot(axis))
 		end
 	end
 

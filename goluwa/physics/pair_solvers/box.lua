@@ -41,11 +41,24 @@ local function is_compact_box(body)
 	local extents = body:GetPhysicsShape():GetExtents()
 	local lengths = {extents.x * 2, extents.y * 2, extents.z * 2}
 	table.sort(lengths)
-	return lengths[3] <= lengths[1] * 1.35
+	return lengths[3] <= lengths[1] * 1.35 or
+		(
+			lengths[3] <= lengths[2] * 1.25 and
+			lengths[2] <= lengths[1] * 2.6
+		)
+end
+
+local function is_slab_like_box(body)
+	local extents = body:GetPhysicsShape():GetExtents()
+	local lengths = {extents.x * 2, extents.y * 2, extents.z * 2}
+	table.sort(lengths)
+	return lengths[1] <= lengths[2] * 0.6 and
+		lengths[3] >= lengths[2] * 1.4 and
+		lengths[3] <= lengths[2] * 2.25
 end
 
 local function should_use_face_biased_settling(body)
-	return is_rod_like_box(body) or is_compact_box(body)
+	return is_rod_like_box(body) or is_compact_box(body) or is_slab_like_box(body)
 end
 
 local function add_box_contact_point(contacts, point_a, point_b)
@@ -255,6 +268,30 @@ local function build_projected_box_contacts(body_a, body_b, normal)
 	return contacts
 end
 
+local function should_use_static_overhang_patch(body_a, body_b, normal)
+	local static_body, dynamic_body = pair_solver_helpers.GetStaticDynamicPair(body_a, body_b)
+
+	if not static_body then return false end
+
+	local support_face = get_box_face(static_body, dynamic_body:GetPosition() - static_body:GetPosition())
+	local local_center = static_body:WorldToLocal(dynamic_body:GetPosition())
+	local extents = static_body:GetPhysicsShape():GetExtents()
+	local margin = 0.02
+
+	if support_face.axis_index == 1 then
+		return math.abs(local_center.y) > extents.y + margin or
+			math.abs(local_center.z) > extents.z + margin
+	end
+
+	if support_face.axis_index == 2 then
+		return math.abs(local_center.x) > extents.x + margin or
+			math.abs(local_center.z) > extents.z + margin
+	end
+
+	return math.abs(local_center.x) > extents.x + margin or
+		math.abs(local_center.y) > extents.y + margin
+end
+
 local function project_box_radius(extents, axes, normal)
 	return extents.x * math.abs(normal:Dot(axes[1])) + extents.y * math.abs(normal:Dot(axes[2])) + extents.z * math.abs(normal:Dot(axes[3]))
 end
@@ -274,6 +311,10 @@ local function update_best_axis(best, overlap, normal, kind, reference_body)
 	end
 end
 
+local function orient_axis_normal(axis, distance)
+	return axis * (distance >= 0 and 1 or -1)
+end
+
 local function test_obb_axis(axis, delta, extents_a, axes_a, extents_b, axes_b, best, kind, reference_body)
 	local axis_length = axis:GetLength()
 
@@ -288,7 +329,7 @@ local function test_obb_axis(axis, delta, extents_a, axes_a, extents_b, axes_b, 
 
 	if overlap <= 0 then return false end
 
-	update_best_axis(best, overlap, normal * math.sign(distance), kind, reference_body)
+	update_best_axis(best, overlap, orient_axis_normal(normal, distance), kind, reference_body)
 	return true
 end
 
@@ -416,9 +457,29 @@ local function solve_box_pair_collision(body_a, body_b, dt)
 	end
 
 	local raw_best = best.any
-	local use_face_biased_settling = should_use_face_biased_settling(body_a) or
-		should_use_face_biased_settling(body_b)
-	best = choose_best_axis(best, use_face_biased_settling and 0.4 or 0.12)
+	local static_body, dynamic_body = pair_solver_helpers.GetStaticDynamicPair(body_a, body_b)
+	local use_face_biased_settling = (
+			pair_solver_helpers.HasSolverMass(body_a) and
+			should_use_face_biased_settling(body_a)
+		) or
+		(
+			pair_solver_helpers.HasSolverMass(body_b) and
+			should_use_face_biased_settling(body_b)
+		)
+	local face_preference_slop = use_face_biased_settling and 0.4 or 0.12
+
+	if
+		static_body and
+		dynamic_body and
+		best.face and
+		math.abs(best.face.normal.y) >= dynamic_body:GetMinGroundNormalY()
+		and
+		not should_use_static_overhang_patch(body_a, body_b, best.face.normal)
+	then
+		face_preference_slop = math.max(face_preference_slop, 0.32)
+	end
+
+	best = choose_best_axis(best, face_preference_slop)
 
 	if not best.normal or best.overlap == math.huge then return end
 
@@ -440,16 +501,35 @@ local function solve_box_pair_collision(body_a, body_b, dt)
 			end
 		end
 
+		local patch_normal = use_face_biased_settling and best.normal or raw_best.normal
+		local patch_overlap = use_face_biased_settling and best.overlap or raw_best.overlap
 		return contact_resolution.ResolvePairPenetration(
 			body_a,
 			body_b,
-			raw_best.normal,
-			raw_best.overlap,
+			patch_normal,
+			patch_overlap,
 			dt,
 			nil,
 			nil,
-			build_projected_box_contacts(body_a, body_b, raw_best.normal)
+			build_projected_box_contacts(body_a, body_b, patch_normal)
 		)
+	end
+
+	if should_use_static_overhang_patch(body_a, body_b, best.normal) then
+		local contacts = build_projected_box_contacts(body_a, body_b, best.normal)
+
+		if contacts and contacts[1] then
+			return contact_resolution.ResolvePairPenetration(
+				body_a,
+				body_b,
+				best.normal,
+				best.overlap,
+				dt,
+				nil,
+				nil,
+				contacts
+			)
+		end
 	end
 
 	return contact_resolution.ResolvePairPenetration(body_a, body_b, best.normal, best.overlap, dt)

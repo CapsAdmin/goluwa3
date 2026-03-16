@@ -1,6 +1,8 @@
 local prototype = import("goluwa/prototype.lua")
 local AABB = import("goluwa/structs/aabb.lua")
+local Ang3 = import("goluwa/structs/ang3.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
+local Quat = import("goluwa/structs/quat.lua")
 local BaseShape = import("goluwa/physics/shapes/base.lua")
 local META = prototype.CreateTemplate("physics_shape_box")
 META.Base = BaseShape
@@ -176,6 +178,143 @@ function META:GetPolyhedron()
 		edges = BOX_EDGE_PAIRS,
 	}
 	return self.Polyhedron
+end
+
+function META:GetGroundedSupportMetrics(body, ground_normal)
+	local ground_normal = body.GroundNormal or Vec3(0, 1, 0)
+	local axes = self:GetAxes(body)
+	local best_alignment = -1
+	local support_axis = 1
+
+	for i = 1, 3 do
+		local alignment = math.abs(axes[i]:Dot(ground_normal))
+
+		if alignment > best_alignment then
+			best_alignment = alignment
+			support_axis = i
+		end
+	end
+
+	local size = self:GetSize()
+	local face_areas = {
+		size.y * size.z,
+		size.x * size.z,
+		size.x * size.y,
+	}
+	local support_area = face_areas[support_axis]
+	local max_face_area = math.max(face_areas[1], face_areas[2], face_areas[3])
+	return best_alignment, support_area, max_face_area, support_axis
+end
+
+function META:OnGroundedVelocityUpdate(body, dt)
+	if not dt or dt <= 0 then return end
+
+	local ground_normal = body.GroundNormal or Vec3(0, 1, 0)
+	local best_alignment, support_area, max_face_area = self:GetGroundedSupportMetrics(body, ground_normal)
+
+	if best_alignment < 0.94 or support_area < max_face_area * 0.85 then return end
+
+	local friction = math.max(body:GetGroundRollingFriction() or 0, body:GetFriction() or 0)
+
+	if friction <= 0 then return end
+
+	local normal_velocity = ground_normal * body.Velocity:Dot(ground_normal)
+	local tangent_velocity = body.Velocity - normal_velocity
+	local tangent_speed = tangent_velocity:GetLength()
+	local tangent_angular = body.AngularVelocity - ground_normal * body.AngularVelocity:Dot(ground_normal)
+	local tangent_angular_speed = tangent_angular:GetLength()
+
+	if tangent_speed > 0.08 or tangent_angular_speed > 0.22 then return end
+
+	local damping_strength = friction * (2.5 + best_alignment * 2.0)
+
+	if tangent_speed > 0.0001 then
+		local tangent_damping = math.exp(-damping_strength * dt)
+		tangent_velocity = tangent_velocity * tangent_damping
+
+		if tangent_velocity:GetLength() < 0.015 then tangent_velocity = Vec3(0, 0, 0) end
+
+		body.Velocity = normal_velocity + tangent_velocity
+	end
+
+	if tangent_angular_speed > 0.0001 then
+		local angular_damping = math.exp(-(damping_strength * 1.35) * dt)
+		tangent_angular = tangent_angular * angular_damping
+
+		if tangent_angular:GetLength() < 0.035 then tangent_angular = Vec3(0, 0, 0) end
+
+		body.AngularVelocity = tangent_angular + ground_normal * body.AngularVelocity:Dot(ground_normal)
+	end
+end
+
+function META:ShouldForceGroundedSleep(body)
+	local best_alignment, support_area, max_face_area = self:GetGroundedSupportMetrics(body)
+	return (
+			best_alignment >= 0.992 and
+			support_area >= max_face_area * 0.85
+		)
+		or
+		best_alignment >= 0.997
+end
+
+function META:SnapGroundedSleepPose(body)
+	local ground_normal = body.GroundNormal or Vec3(0, 1, 0)
+
+	if math.abs(ground_normal.y) < 0.98 then return false end
+
+	local best_alignment, support_area, max_face_area, support_axis = self:GetGroundedSupportMetrics(body, ground_normal)
+
+	if best_alignment < 0.985 or support_area < max_face_area * 0.85 then
+		return false
+	end
+
+	local size = self:GetSize()
+	local face_dims = support_axis == 1 and
+		{size.y, size.z} or
+		support_axis == 2 and
+		{size.x, size.z} or
+		{size.x, size.y}
+	local major = math.max(face_dims[1], face_dims[2])
+	local minor = math.min(face_dims[1], face_dims[2])
+
+	if minor <= 0 or major / minor < 1.3 then return false end
+
+	local angles = body:GetRotation():GetAngles()
+	local step = math.pi * 0.5
+
+	local function snap_angle(angle)
+		local scaled = angle / step
+
+		if scaled >= 0 then return math.floor(scaled + 0.5) * step end
+
+		return math.ceil(scaled - 0.5) * step
+	end
+
+	local snapped_pitch = snap_angle(angles.x)
+	local snapped_roll = snap_angle(angles.z)
+
+	if
+		math.abs(snapped_pitch - angles.x) > 0.24 or
+		math.abs(snapped_roll - angles.z) > 0.24
+	then
+		return false
+	end
+
+	local rotation = Quat():SetAngles(Ang3(snapped_pitch, angles.y, snapped_roll))
+	local extents = self:GetExtents()
+	local axes = self:GetAxes(body)
+	local current_support_radius = extents.x * math.abs(ground_normal:Dot(axes[1])) + extents.y * math.abs(ground_normal:Dot(axes[2])) + extents.z * math.abs(ground_normal:Dot(axes[3]))
+	local snapped_axes = {
+		rotation:VecMul(Vec3(1, 0, 0)):GetNormalized(),
+		rotation:VecMul(Vec3(0, 1, 0)):GetNormalized(),
+		rotation:VecMul(Vec3(0, 0, 1)):GetNormalized(),
+	}
+	local desired_support_radius = extents.x * math.abs(ground_normal:Dot(snapped_axes[1])) + extents.y * math.abs(ground_normal:Dot(snapped_axes[2])) + extents.z * math.abs(ground_normal:Dot(snapped_axes[3]))
+	body.Position = body.Position + ground_normal * (desired_support_radius - current_support_radius)
+	body.Rotation = rotation
+	body.PreviousPosition = body.Position:Copy()
+	body.PreviousRotation = rotation:Copy()
+	return true
 end
 
 function META:TraceAgainstBody(body, origin, direction, max_distance, trace_radius)

@@ -129,18 +129,21 @@ function pair_solver_helpers.GetBoxContactForPoint(box_body, point, radius, move
 	then
 		local candidates = {
 			{
+				name = "x",
 				axis = Vec3(1, 0, 0),
 				center = local_point.x,
 				movement = movement_local and movement_local.x or 0,
 				overlap = extents.x - math.abs(local_point.x),
 			},
 			{
+				name = "y",
 				axis = Vec3(0, 1, 0),
 				center = local_point.y,
 				movement = movement_local and movement_local.y or 0,
 				overlap = extents.y - math.abs(local_point.y),
 			},
 			{
+				name = "z",
 				axis = Vec3(0, 0, 1),
 				center = local_point.z,
 				movement = movement_local and movement_local.z or 0,
@@ -175,6 +178,15 @@ function pair_solver_helpers.GetBoxContactForPoint(box_body, point, radius, move
 			end
 		end
 
+		if best.name == "x" then
+			closest_local = Vec3(best.axis.x * extents.x, local_point.y, local_point.z)
+		elseif best.name == "y" then
+			closest_local = Vec3(local_point.x, best.axis.y * extents.y, local_point.z)
+		else
+			closest_local = Vec3(local_point.x, local_point.y, best.axis.z * extents.z)
+		end
+
+		closest_world = box_body:LocalToWorld(closest_local)
 		normal = box_body:GetRotation():VecMul(best.axis):GetNormalized()
 		overlap = radius + best.overlap
 	else
