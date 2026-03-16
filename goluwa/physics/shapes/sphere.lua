@@ -154,10 +154,14 @@ function META:OnGroundedVelocityUpdate(body, dt)
 		tangent_speed = tangent_velocity:GetLength()
 	end
 
-	if tangent_speed <= 0.0001 then return end
-
 	local rolling_angular = body.GroundNormal:GetCross(tangent_velocity) / radius
 	local normal_angular = body.GroundNormal * body.AngularVelocity:Dot(body.GroundNormal)
+
+	if tangent_speed <= 0.0001 then
+		body.AngularVelocity = normal_angular
+		return
+	end
+
 	body.AngularVelocity = rolling_angular + normal_angular
 end
 

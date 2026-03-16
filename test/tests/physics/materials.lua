@@ -81,10 +81,16 @@ T.Test3D("Rigid body materials support richer friction and restitution combinati
 			}
 		)
 		sphere:SetVelocity(Vec3(10, -8, 0))
-		simulate_physics(120)
+		simulate_physics(60)
 		local velocity = sphere:GetVelocity()
+		local angular = sphere:GetAngularVelocity()
+		local rolling_ratio = math.abs(velocity.x) / math.max(math.abs(angular.z) * 0.5, 0.00001)
 		T(sphere:GetGrounded())["=="](true)
-		T(math.abs(velocity.x))["<"](1.0)
+		T(math.abs(velocity.x))[">"](4.0)
+		T(math.abs(velocity.x))["<"](9.5)
+		T(math.abs(angular.z))[">"](8.0)
+		T(rolling_ratio)[">"](0.75)
+		T(rolling_ratio)["<"](1.25)
 		sphere_ent:Remove()
 		platform_ent:Remove()
 	end

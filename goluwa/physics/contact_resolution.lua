@@ -159,13 +159,21 @@ function module.CreateServices(services)
 		local velocity_b = body_b:GetVelocity()
 		local angular_velocity_a = body_a:GetAngularVelocity()
 		local angular_velocity_b = body_b:GetAngularVelocity()
-		local relative_velocity = velocity_b - velocity_a
+		local relative_velocity = get_point_velocity(body_b, velocity_b, angular_velocity_b, point_b) - get_point_velocity(body_a, velocity_a, angular_velocity_a, point_a)
 		local normal_speed = relative_velocity:Dot(normal)
 
 		if normal_speed >= 0 then return end
 
 		local restitution = get_pair_restitution(body_a, body_b)
-		local normal_impulse = -(1 + restitution) * normal_speed / inverse_mass_sum
+		local normal_inverse_mass = inverse_mass_sum
+
+		if point_a or point_b then
+			normal_inverse_mass = body_a:GetInverseMassAlong(normal, point_a) + body_b:GetInverseMassAlong(normal, point_b)
+		end
+
+		if normal_inverse_mass <= EPSILON then return end
+
+		local normal_impulse = -(1 + restitution) * normal_speed / normal_inverse_mass
 
 		if inverse_mass_a > 0 then
 			velocity_a = velocity_a - normal * (normal_impulse * inverse_mass_a)
@@ -183,14 +191,24 @@ function module.CreateServices(services)
 			end
 		end
 
-		relative_velocity = velocity_b - velocity_a
+		relative_velocity = get_point_velocity(body_b, velocity_b, angular_velocity_b, point_b) - get_point_velocity(body_a, velocity_a, angular_velocity_a, point_a)
 		local tangent_velocity = relative_velocity - normal * relative_velocity:Dot(normal)
 		local tangent_speed = tangent_velocity:GetLength()
 
 		if tangent_speed > EPSILON then
 			local tangent = tangent_velocity / tangent_speed
 			local friction = get_pair_friction(body_a, body_b)
-			local tangent_impulse = -relative_velocity:Dot(tangent) / inverse_mass_sum
+			local tangent_inverse_mass = inverse_mass_sum
+
+			if point_a or point_b then
+				tangent_inverse_mass = body_a:GetInverseMassAlong(tangent, point_a) + body_b:GetInverseMassAlong(tangent, point_b)
+			end
+
+			if tangent_inverse_mass <= EPSILON then
+				tangent_inverse_mass = inverse_mass_sum
+			end
+
+			local tangent_impulse = -relative_velocity:Dot(tangent) / tangent_inverse_mass
 			local max_friction_impulse = normal_impulse * friction
 			tangent_impulse = math.max(-max_friction_impulse, math.min(max_friction_impulse, tangent_impulse))
 
