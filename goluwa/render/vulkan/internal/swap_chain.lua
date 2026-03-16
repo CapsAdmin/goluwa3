@@ -3,6 +3,16 @@ local prototype = import("goluwa/prototype.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 local Swapchain = prototype.CreateTemplate("vulkan_swap_chain")
 
+local function get_image_count(config)
+	local desired = config.image_count or config.surface_capabilities.minImageCount
+	local min = config.surface_capabilities.minImageCount
+	local max = config.surface_capabilities.maxImageCount
+
+	if max == 0 then return math.max(desired, min) end
+
+	return math.clamp(desired, min, max)
+end
+
 function Swapchain.New(config)
 	local ptr = vulkan.T.Box(vulkan.vk.VkSwapchainKHR)()
 	vulkan.assert(
@@ -10,11 +20,7 @@ function Swapchain.New(config)
 			config.device.ptr[0],
 			vulkan.vk.s.SwapchainCreateInfoKHR{
 				surface = config.surface.ptr[0],
-				minImageCount = math.clamp(
-					config.image_count or config.surface_capabilities.minImageCount,
-					config.surface_capabilities.minImageCount,
-					config.surface_capabilities.maxImageCount
-				),
+				minImageCount = get_image_count(config),
 				imageFormat = config.surface_format.format,
 				imageColorSpace = config.surface_format.color_space,
 				imageExtent = config.surface_capabilities.currentExtent,

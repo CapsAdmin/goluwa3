@@ -14,8 +14,8 @@
           name = "luajit";
           src = pkgs.fetchgit {
             url = "https://github.com/LuaJIT/LuaJIT.git";
-            rev = "45b771bb2c693a4cc7e34e79b7d30ab10bb7776a";
-            sha256 = "sha256-VR69KuUXQD6aICVNuBafdthCD558/Ri4haH2LY9AXcU=";
+            rev = "659a61693aa3b87661864ad0f12eee14c865cd7f";
+            sha256 = "sha256-4iqMh8QDhprKqwElZ2EKmRc8ycSH1nq4qjwa5syXa+o=";
           };
 
           buildInputs = [pkgs.makeWrapper];
@@ -42,8 +42,8 @@
           name = "luajit-debug";
           src = pkgs.fetchgit {
             url = "https://github.com/LuaJIT/LuaJIT.git";
-            rev = "45b771bb2c693a4cc7e34e79b7d30ab10bb7776a";
-            sha256 = "sha256-VR69KuUXQD6aICVNuBafdthCD558/Ri4haH2LY9AXcU=";
+            rev = "659a61693aa3b87661864ad0f12eee14c865cd7f";
+            sha256 = "sha256-4iqMh8QDhprKqwElZ2EKmRc8ycSH1nq4qjwa5syXa+o=";
           };
 
           buildInputs = [pkgs.makeWrapper];
@@ -59,6 +59,65 @@
             make install PREFIX=$out
             mv $out/bin/luajit-2.1.ROLLING $out/bin/luajit_debug
             rm -f $out/bin/luajit
+          '';
+        };
+
+        ciShell = pkgs.mkShell {
+          name = "goluwa3-ci";
+
+          buildInputs = with pkgs; [
+            # Lua runtime
+            luajit
+            luajit-debug
+
+            # Vulkan development
+            vulkan-headers
+            vulkan-loader
+            vulkan-validation-layers
+            vulkan-tools        # vulkaninfo
+            shaderc             # GLSL to SPIRV compiler - glslc
+            mesa                # lavapipe CPU-based Vulkan implementation
+
+            # Wayland development
+            wayland
+            wayland-protocols
+            wayland-scanner
+            libxkbcommon
+
+            # TLS/SSL support
+            openssl
+
+            # Development and debugging tools
+            gdb                 # GNU debugger
+          ];
+
+          # Force lavapipe by putting mesa drivers first and setting VK_ICD_FILENAMES
+          LD_LIBRARY_PATH = with pkgs; "${mesa}/lib:${vulkan-loader}/lib:${vulkan-validation-layers}/lib:${shaderc.lib}/lib:${wayland}/lib:${libxkbcommon}/lib:${openssl.out}/lib";
+          VULKAN_SDK = "${pkgs.vulkan-headers}";
+          VK_LAYER_PATH = "${pkgs.vulkan-validation-layers}/share/vulkan/explicit_layer.d";
+
+          # Force lavapipe software renderer
+          VK_ICD_FILENAMES = "${pkgs.mesa}/share/vulkan/icd.d/lvp_icd.x86_64.json";
+          LIBGL_ALWAYS_SOFTWARE = "1";
+
+          # Wayland environment
+          XDG_RUNTIME_DIR = "/run/user/1000";
+          WAYLAND_DISPLAY = "wayland-0";
+
+          shellHook = ''
+            export OPENRESTY_GDB="${openresty-gdb-utils}"
+            echo "Running with lavapipe software Vulkan renderer"
+            echo "VK_ICD_FILENAMES=$VK_ICD_FILENAMES"
+
+            run_tests() {
+              ./glw test
+            }
+
+            ljgdb() {
+              PYTHONPATH="${openresty-gdb-utils}:$PYTHONPATH" gdb -q \
+                -ex "source ${openresty-gdb-utils}/luajit21.py" \
+                --args luajit_debug "$@"
+            }
           '';
         };
       in
@@ -98,7 +157,6 @@
           LD_LIBRARY_PATH = with pkgs; "${vulkan-loader}/lib:${vulkan-validation-layers}/lib:${shaderc.lib}/lib:${wayland}/lib:${libxkbcommon}/lib:${renderdoc}/lib:${openssl.out}/lib:${mesa}/lib";
           VULKAN_SDK = "${pkgs.vulkan-headers}";
           VK_LAYER_PATH = "${pkgs.vulkan-validation-layers}/share/vulkan/explicit_layer.d";
-          VK_ICD_FILENAMES = "${pkgs.mesa}/share/vulkan/icd.d/lvp_icd.x86_64.json";
           RENDERDOC_LIB = "${pkgs.renderdoc}/lib/librenderdoc.so";
           
           # Wayland environment
@@ -118,65 +176,8 @@
           '';
         };
 
-        # Lavapipe (software Vulkan) shell for running tests without GPU
-        devShells.lavapipe = pkgs.mkShell {
-          name = "goluwa3-lavapipe";
-          
-          buildInputs = with pkgs; [
-            # Lua runtime
-            luajit
-            luajit-debug
-            
-            # Vulkan development
-            vulkan-headers
-            vulkan-loader
-            vulkan-validation-layers
-            vulkan-tools        # vulkaninfo
-            shaderc             # GLSL to SPIRV compiler - glslc
-            mesa                # lavapipe CPU-based Vulkan implementation
-            
-            # Wayland development
-            wayland
-            wayland-protocols
-            wayland-scanner
-            libxkbcommon
-            
-            # TLS/SSL support
-            openssl
-            
-            # Development and debugging tools
-            gdb                 # GNU debugger
-          ];
-
-          # Force lavapipe by putting mesa drivers first and setting VK_ICD_FILENAMES
-          LD_LIBRARY_PATH = with pkgs; "${mesa}/lib:${vulkan-loader}/lib:${vulkan-validation-layers}/lib:${shaderc.lib}/lib:${wayland}/lib:${libxkbcommon}/lib:${openssl.out}/lib";
-          VULKAN_SDK = "${pkgs.vulkan-headers}";
-          VK_LAYER_PATH = "${pkgs.vulkan-validation-layers}/share/vulkan/explicit_layer.d";
-          
-          # Force lavapipe software renderer
-          VK_ICD_FILENAMES = "${pkgs.mesa}/share/vulkan/icd.d/lvp_icd.x86_64.json";
-          LIBGL_ALWAYS_SOFTWARE = "1";
-          
-          # Wayland environment
-          XDG_RUNTIME_DIR = "/run/user/1000";
-          WAYLAND_DISPLAY = "wayland-0";
-          
-          shellHook = ''
-            export OPENRESTY_GDB="${openresty-gdb-utils}"
-            echo "Running with lavapipe software Vulkan renderer"
-            echo "VK_ICD_FILENAMES=$VK_ICD_FILENAMES"
-            
-            run_tests() {
-              ./glw test
-            }
-
-            ljgdb() {
-              PYTHONPATH="${openresty-gdb-utils}:$PYTHONPATH" gdb -q \
-                -ex "source ${openresty-gdb-utils}/luajit21.py" \
-                --args luajit_debug "$@"
-            }
-          '';
-        };
+        # CI shell uses lavapipe (software Vulkan) for reproducible headless runs
+        devShells.ci = ciShell;
       }
     );
 }
