@@ -156,8 +156,6 @@ function timer.UpdateTimers(a_, b_, c_, d_, e_)
 					local start = system.GetTime()
 					local res = data.callback()
 
-					if system.GetFrameTime() >= data.fps then break end
-
 					if res == true then
 						list.insert(remove_these, i)
 
@@ -166,7 +164,7 @@ function timer.UpdateTimers(a_, b_, c_, d_, e_)
 						break
 					end
 
-					time = time + (system.GetTime() - start)				
+					time = time + math.max(system.GetTime() - start, 0)
 				until time >= data.fps
 			else
 				if data.realtime < cur then
