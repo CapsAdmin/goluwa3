@@ -11,7 +11,6 @@ function module.Register(solver, services)
 	local apply_pair_impulse = services.apply_pair_impulse
 	local mark_pair_grounding = services.mark_pair_grounding
 	local solve_temporal_polyhedron_pair_collision = services.solve_temporal_polyhedron_pair_collision
-	local solve_polyhedron_pair_collision = services.solve_polyhedron_pair_collision
 	local physics = services.physics
 
 	local function should_use_box_contact_patch(body)
@@ -33,6 +32,24 @@ function module.Register(solver, services)
 		end
 
 		return false
+	end
+
+	local function is_rod_like_box(body)
+		local extents = get_box_extents(body)
+		local lengths = {extents.x * 2, extents.y * 2, extents.z * 2}
+		table.sort(lengths)
+		return lengths[3] >= lengths[2] * 2 and lengths[2] <= lengths[1] * 1.2
+	end
+
+	local function is_compact_box(body)
+		local extents = get_box_extents(body)
+		local lengths = {extents.x * 2, extents.y * 2, extents.z * 2}
+		table.sort(lengths)
+		return lengths[3] <= lengths[1] * 1.35
+	end
+
+	local function should_use_face_biased_settling(body)
+		return is_rod_like_box(body) or is_compact_box(body)
 	end
 
 	local function add_box_contact_point(contacts, point_a, point_b)
@@ -135,7 +152,88 @@ function module.Register(solver, services)
 		return point - plane_normal * (point - plane_point):Dot(plane_normal)
 	end
 
-	local function build_box_box_contacts(body_a, body_b, normal)
+	local function get_body_world_vertices(body)
+		local polyhedron = get_body_polyhedron(body)
+		local vertices = {}
+
+		for i, point in ipairs((polyhedron and polyhedron.vertices) or {}) do
+			vertices[i] = body:LocalToWorld(point)
+		end
+
+		return vertices
+	end
+
+	local function collect_support_vertices(vertices, axis, want_max)
+		local support = {}
+		local best = want_max and -math.huge or math.huge
+		local tolerance = 0.06
+
+		for _, point in ipairs(vertices) do
+			local projection = point:Dot(axis)
+
+			if want_max then
+				if projection > best + tolerance then
+					best = projection
+					support = {point}
+				elseif math.abs(projection - best) <= tolerance then
+					support[#support + 1] = point
+				end
+			else
+				if projection < best - tolerance then
+					best = projection
+					support = {point}
+				elseif math.abs(projection - best) <= tolerance then
+					support[#support + 1] = point
+				end
+			end
+		end
+
+		return support
+	end
+
+	local function build_support_pair_contacts(body_a, body_b, normal)
+		local contacts = {}
+		local vertices_a = get_body_world_vertices(body_a)
+		local vertices_b = get_body_world_vertices(body_b)
+		local support_a = collect_support_vertices(vertices_a, normal, true)
+		local support_b = collect_support_vertices(vertices_b, normal, false)
+
+		if not support_a[1] or not support_b[1] then return contacts end
+
+		local primary = #support_a <= #support_b and support_a or support_b
+		local secondary = primary == support_a and support_b or support_a
+		local primary_is_a = primary == support_a
+
+		for _, point in ipairs(primary) do
+			local closest_other = nil
+			local closest_distance = math.huge
+
+			for _, other in ipairs(secondary) do
+				local tangent_delta = other - point
+				tangent_delta = tangent_delta - normal * tangent_delta:Dot(normal)
+				local tangent_distance = tangent_delta:GetLength()
+
+				if tangent_distance < closest_distance then
+					closest_distance = tangent_distance
+					closest_other = other
+				end
+			end
+
+			if closest_other then
+				if primary_is_a then
+					add_box_contact_point(contacts, point, closest_other)
+				else
+					add_box_contact_point(contacts, closest_other, point)
+				end
+			end
+
+			if #contacts >= 4 then break end
+		end
+
+		return contacts
+	end
+
+	local function build_projected_box_contacts(body_a, body_b, normal)
 		local face_a = get_box_face(body_a, normal)
 		local face_b = get_box_face(body_b, -normal)
 		local contacts = {}
@@ -165,7 +263,22 @@ function module.Register(solver, services)
 		return extents.x * math.abs(normal:Dot(axes[1])) + extents.y * math.abs(normal:Dot(axes[2])) + extents.z * math.abs(normal:Dot(axes[3]))
 	end
 
-	local function test_obb_axis(axis, delta, extents_a, axes_a, extents_b, axes_b, best)
+	local function update_best_axis(best, overlap, normal, kind, reference_body)
+		local candidate = {
+			overlap = overlap,
+			normal = normal,
+			kind = kind,
+			reference_body = reference_body,
+		}
+
+		if overlap < best.any.overlap then best.any = candidate end
+
+		if kind == "face" and (not best.face or overlap < best.face.overlap) then
+			best.face = candidate
+		end
+	end
+
+	local function test_obb_axis(axis, delta, extents_a, axes_a, extents_b, axes_b, best, kind, reference_body)
 		local axis_length = axis:GetLength()
 
 		if axis_length <= EPSILON then return true end
@@ -179,12 +292,23 @@ function module.Register(solver, services)
 
 		if overlap <= 0 then return false end
 
-		if overlap < best.overlap then
-			best.overlap = overlap
-			best.normal = normal * get_sign(distance)
+		update_best_axis(best, overlap, normal * get_sign(distance), kind, reference_body)
+		return true
+	end
+
+	local function choose_best_axis(best, face_preference_slop)
+		local chosen = best.any
+		face_preference_slop = face_preference_slop or 0.12
+
+		if
+			chosen.kind == "edge" and
+			best.face and
+			best.face.overlap <= chosen.overlap + face_preference_slop
+		then
+			chosen = best.face
 		end
 
-		return true
+		return chosen
 	end
 
 	local function sweep_point_against_box(box_body, start_world, end_world)
@@ -316,10 +440,12 @@ function module.Register(solver, services)
 		local extents_b = get_box_extents(body_b)
 		local axes_a = get_box_axes(body_a)
 		local axes_b = get_box_axes(body_b)
-		local best = {overlap = math.huge, normal = nil}
+		local best = {any = {overlap = math.huge, normal = nil, kind = nil}, face = nil}
 
 		for i = 1, 3 do
-			if not test_obb_axis(axes_a[i], delta, extents_a, axes_a, extents_b, axes_b, best) then
+			if
+				not test_obb_axis(axes_a[i], delta, extents_a, axes_a, extents_b, axes_b, best, "face", "a")
+			then
 				if body_a:IsSolverImmovable() and body_b:HasSolverMass() then
 					return solve_swept_box_box_collision(body_b, body_a, dt)
 				end
@@ -331,7 +457,9 @@ function module.Register(solver, services)
 				return
 			end
 
-			if not test_obb_axis(axes_b[i], delta, extents_a, axes_a, extents_b, axes_b, best) then
+			if
+				not test_obb_axis(axes_b[i], delta, extents_a, axes_a, extents_b, axes_b, best, "face", "b")
+			then
 				if body_a:IsSolverImmovable() and body_b:HasSolverMass() then
 					return solve_swept_box_box_collision(body_b, body_a, dt)
 				end
@@ -347,7 +475,17 @@ function module.Register(solver, services)
 		for i = 1, 3 do
 			for j = 1, 3 do
 				if
-					not test_obb_axis(axes_a[i]:GetCross(axes_b[j]), delta, extents_a, axes_a, extents_b, axes_b, best)
+					not test_obb_axis(
+						axes_a[i]:GetCross(axes_b[j]),
+						delta,
+						extents_a,
+						axes_a,
+						extents_b,
+						axes_b,
+						best,
+						"edge",
+						nil
+					)
 				then
 					if body_a:IsSolverImmovable() and body_b:HasSolverMass() then
 						return solve_swept_box_box_collision(body_b, body_a, dt)
@@ -362,18 +500,40 @@ function module.Register(solver, services)
 			end
 		end
 
+		local raw_best = best.any
+		local use_face_biased_settling = should_use_face_biased_settling(body_a) or
+			should_use_face_biased_settling(body_b)
+		best = choose_best_axis(best, use_face_biased_settling and 0.4 or 0.12)
+
 		if not best.normal or best.overlap == math.huge then return end
 
 		if should_use_box_contact_patch(body_a) or should_use_box_contact_patch(body_b) then
+			if use_face_biased_settling then
+				local contacts = build_support_pair_contacts(body_a, body_b, best.normal)
+
+				if contacts and contacts[1] then
+					return resolve_pair_penetration(
+						body_a,
+						body_b,
+						best.normal,
+						best.overlap,
+						dt,
+						nil,
+						nil,
+						contacts
+					)
+				end
+			end
+
 			return resolve_pair_penetration(
 				body_a,
 				body_b,
-				best.normal,
-				best.overlap,
+				raw_best.normal,
+				raw_best.overlap,
 				dt,
 				nil,
 				nil,
-				build_box_box_contacts(body_a, body_b, best.normal)
+				build_projected_box_contacts(body_a, body_b, raw_best.normal)
 			)
 		end
 

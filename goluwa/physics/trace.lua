@@ -230,15 +230,56 @@ local function get_hit_face_normal(hit)
 	return (v1 - v0):GetCross(v2 - v0):GetNormalized()
 end
 
+local function get_hit_brush_feature_normal(hit, reference_point)
+	if
+		not (
+			hit and
+			reference_point and
+			hit.primitive and
+			hit.primitive.brush_planes and
+			hit.primitive.brush_planes[1]
+		)
+	then
+		return nil
+	end
+
+	local max_signed_distance = -math.huge
+	local signed_distances = {}
+
+	for i, plane in ipairs(hit.primitive.brush_planes) do
+		local signed_distance = reference_point:Dot(plane.normal) - plane.dist
+		signed_distances[i] = signed_distance
+
+		if signed_distance > max_signed_distance then
+			max_signed_distance = signed_distance
+		end
+	end
+
+	local blend_epsilon = 0.05
+	local summed = Vec3(0, 0, 0)
+	local count = 0
+
+	for i, plane in ipairs(hit.primitive.brush_planes) do
+		if signed_distances[i] >= max_signed_distance - blend_epsilon then
+			summed = summed + plane.normal
+			count = count + 1
+		end
+	end
+
+	if count == 0 or summed:GetLength() <= 0.00001 then return nil end
+
+	return summed:GetNormalized()
+end
+
 function physics.GetHitNormal(hit, reference_point)
-	local normal = get_hit_face_normal(hit)
+	local normal = get_hit_brush_feature_normal(hit, reference_point) or get_hit_face_normal(hit)
 
 	if not normal then return nil end
 
-	if reference_point and hit and hit.position then
+	if hit and hit.normal then
+		if normal:Dot(hit.normal) < 0 then normal = normal * -1 end
+	elseif reference_point and hit and hit.position then
 		if (reference_point - hit.position):Dot(normal) < 0 then normal = normal * -1 end
-	elseif hit and hit.normal and normal:Dot(hit.normal) < 0 then
-		normal = normal * -1
 	end
 
 	return normal

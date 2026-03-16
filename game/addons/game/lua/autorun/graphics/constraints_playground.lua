@@ -9,8 +9,10 @@ local physics = import("goluwa/physics.lua")
 import("goluwa/physics/constraint.lua")
 local SphereShape = import("goluwa/physics/shapes/sphere.lua")
 local BoxShape = import("goluwa/physics/shapes/box.lua")
+local CapsuleShape = import("goluwa/physics/shapes/capsule.lua")
 local sphere_shape = SphereShape.New
 local box_shape = BoxShape.New
+local capsule_shape = CapsuleShape.New
 local ORIGIN = Vec3(34, -1.5, -8)
 
 local function solid_texture(r, g, b, a)
@@ -60,6 +62,17 @@ local function add_sphere_model(ent, radius, material)
 	ent:AddComponent("model")
 	local poly = Polygon3D.New()
 	poly:CreateSphere(radius)
+	poly:Upload()
+	ent.model:AddPrimitive(poly, material)
+	ent.model:BuildAABB()
+	return ent
+end
+
+local function add_capsule_model(ent, radius, height, material)
+	ent.transform:SetScale(Vec3(radius * 2, math.max(height, radius * 2), radius * 2))
+	ent:AddComponent("model")
+	local poly = Polygon3D.New()
+	poly:CreateSphere(0.5)
 	poly:Upload()
 	ent.model:AddPrimitive(poly, material)
 	ent.model:BuildAABB()
@@ -150,6 +163,35 @@ local function spawn_dynamic_box(position, size, material, rotation, options)
 			AirLinearDamping = options.AirLinearDamping or 0.02,
 			AirAngularDamping = options.AirAngularDamping or 0.05,
 			Friction = options.Friction or 0.7,
+			Restitution = options.Restitution or 0,
+			GravityScale = options.GravityScale,
+			MaxLinearSpeed = options.MaxLinearSpeed or 1000,
+			MaxAngularSpeed = options.MaxAngularSpeed or 1000,
+		}
+	)
+	return ent, body
+end
+
+local function spawn_dynamic_capsule(position, radius, height, material, rotation, options)
+	options = options or {}
+	local ent = Entity.New{Name = options.Name or "constraint_dynamic_capsule"}
+	ent:AddComponent("transform")
+	ent.transform:SetPosition(position)
+	ent.transform:SetRotation(rotation or make_rotation())
+	add_capsule_model(ent, radius, height, material)
+	local body = ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = capsule_shape(radius, height),
+			Radius = radius,
+			Height = height,
+			Mass = options.Mass,
+			AutomaticMass = options.AutomaticMass,
+			LinearDamping = options.LinearDamping or 0.05,
+			AngularDamping = options.AngularDamping or 0.1,
+			AirLinearDamping = options.AirLinearDamping or 0.02,
+			AirAngularDamping = options.AirAngularDamping or 0.05,
+			Friction = options.Friction or 0.45,
 			Restitution = options.Restitution or 0,
 			GravityScale = options.GravityScale,
 			MaxLinearSpeed = options.MaxLinearSpeed or 1000,
@@ -348,4 +390,88 @@ do
 	)
 	add_distance_constraint(left, right, left:GetPosition(), right:GetPosition(), 3.2, 0, false)
 	left:SetVelocity(Vec3(12, 0, 0))
+end
+
+-- Unconstrained clutter of different boxes and capsules to knock around.
+do
+	local clutter_origin = ORIGIN + Vec3(11.5, 0.2, 6.0)
+	local loose_boxes = {
+		{
+			position = clutter_origin + Vec3(-1.8, 1.4, -1.2),
+			size = Vec3(0.9, 0.9, 0.9),
+			rotation = make_rotation(8, 20, -6),
+			material = steel_material,
+			options = {Mass = 1.2, AutomaticMass = false, Friction = 0.65, AngularDamping = 0.08},
+		},
+		{
+			position = clutter_origin + Vec3(0.2, 2.4, -0.3),
+			size = Vec3(0.7, 2.0, 0.7),
+			rotation = make_rotation(0, 32, 14),
+			material = wood_material,
+			options = {Mass = 1.6, AutomaticMass = false, Friction = 0.82, AngularDamping = 0.12},
+		},
+		{
+			position = clutter_origin + Vec3(1.8, 1.1, 0.8),
+			size = Vec3(1.8, 0.45, 1.0),
+			rotation = make_rotation(-6, -18, 9),
+			material = accent_material,
+			options = {Mass = 1.1, AutomaticMass = false, Friction = 0.55, AngularDamping = 0.09},
+		},
+		{
+			position = clutter_origin + Vec3(3.1, 2.9, -1.0),
+			size = Vec3(1.2, 1.4, 0.5),
+			rotation = make_rotation(12, -26, -12),
+			material = payload_material,
+			options = {Mass = 1.45, AutomaticMass = false, Friction = 0.58, AngularDamping = 0.1},
+		},
+	}
+	local loose_capsules = {
+		{
+			position = clutter_origin + Vec3(-2.8, 3.1, 1.6),
+			radius = 0.38,
+			height = 1.8,
+			rotation = make_rotation(18, 14, 24),
+			material = rope_material,
+			options = {Mass = 1.0, AutomaticMass = false, Friction = 0.42, AngularDamping = 0.08},
+		},
+		{
+			position = clutter_origin + Vec3(-0.6, 4.0, 1.0),
+			radius = 0.28,
+			height = 2.4,
+			rotation = make_rotation(-10, -22, 34),
+			material = steel_material,
+			options = {Mass = 1.15, AutomaticMass = false, Friction = 0.35, AngularDamping = 0.06},
+		},
+		{
+			position = clutter_origin + Vec3(1.4, 2.3, 1.9),
+			radius = 0.46,
+			height = 1.6,
+			rotation = make_rotation(6, 40, -18),
+			material = payload_material,
+			options = {Mass = 1.5, AutomaticMass = false, Friction = 0.5, AngularDamping = 0.09},
+		},
+		{
+			position = clutter_origin + Vec3(3.4, 3.7, 1.4),
+			radius = 0.32,
+			height = 2.8,
+			rotation = make_rotation(24, -12, 16),
+			material = accent_material,
+			options = {Mass = 1.25, AutomaticMass = false, Friction = 0.38, AngularDamping = 0.07},
+		},
+	}
+
+	for _, def in ipairs(loose_boxes) do
+		spawn_dynamic_box(def.position, def.size, def.material, def.rotation, def.options)
+	end
+
+	for _, def in ipairs(loose_capsules) do
+		spawn_dynamic_capsule(
+			def.position,
+			def.radius,
+			def.height,
+			def.material,
+			def.rotation,
+			def.options
+		)
+	end
 end

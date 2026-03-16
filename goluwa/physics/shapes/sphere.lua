@@ -59,6 +59,7 @@ end
 
 function META:BuildCollisionLocalPoints()
 	local radius = self:GetRadius()
+	local diagonal = radius * 0.7071067811865476
 	return {
 		Vec3(0, -radius, 0),
 		Vec3(0, radius, 0),
@@ -66,6 +67,18 @@ function META:BuildCollisionLocalPoints()
 		Vec3(-radius, 0, 0),
 		Vec3(0, 0, radius),
 		Vec3(0, 0, -radius),
+		Vec3(diagonal, diagonal, 0),
+		Vec3(-diagonal, diagonal, 0),
+		Vec3(diagonal, -diagonal, 0),
+		Vec3(-diagonal, -diagonal, 0),
+		Vec3(diagonal, 0, diagonal),
+		Vec3(-diagonal, 0, diagonal),
+		Vec3(diagonal, 0, -diagonal),
+		Vec3(-diagonal, 0, -diagonal),
+		Vec3(0, diagonal, diagonal),
+		Vec3(0, -diagonal, diagonal),
+		Vec3(0, diagonal, -diagonal),
+		Vec3(0, -diagonal, -diagonal),
 	}
 end
 
