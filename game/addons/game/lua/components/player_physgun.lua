@@ -33,6 +33,15 @@ local function get_camera_origin(owner)
 	return transform and transform:GetPosition():Copy() or Vec3()
 end
 
+local function sync_body_rotation_to_transform(body)
+	local owner = body and body.Owner
+	local transform = owner and owner.transform
+
+	if not transform then return end
+
+	transform:SetRotation(body:GetRotation():Copy())
+end
+
 local function get_angular_target(current, target, strength)
 	local delta = (target * current:GetConjugated()):GetNormalized()
 
@@ -56,6 +65,10 @@ function META:Initialize()
 end
 
 function META:Release()
+	if self:CanHoldBody(self.held_body) then
+		sync_body_rotation_to_transform(self.held_body)
+	end
+
 	self.held_body = nil
 	self.held_local_point = Vec3()
 	self.held_distance = self.MinHoldDistance
@@ -135,6 +148,7 @@ function META:UpdateHeldBody(dt, look)
 	local target_rotation = (look:GetRotation() * self.held_rotation_offset):GetNormalized()
 	body:SetRotation(target_rotation)
 	body.PreviousRotation = target_rotation:Copy()
+	sync_body_rotation_to_transform(body)
 	body:SetAngularVelocity(Vec3())
 
 	if body.SetGrounded then body:SetGrounded(false) end
