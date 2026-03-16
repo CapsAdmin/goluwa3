@@ -1202,68 +1202,6 @@ function steam.LoadMap(path)
 		end
 	end
 
-	local physics_meshes
-
-	if PHYSICS then
-		physics_meshes = {}
-		local count = #models
-
-		for i_, data in ipairs(models) do
-			local mesh = data.mesh
-			local vertices_tbl = GRAPHICS and mesh:GetVertices() or mesh
-			local vertices_count = #vertices_tbl
-			local triangles = ffi.new("unsigned int[?]", vertices_count)
-
-			for i = 0, vertices_count - 1 do
-				triangles[i] = i
-			end
-
-			local vertices = ffi.new("float[?]", vertices_count * 3)
-			local i = 0
-			--FIX ME
-			local _, huh = next(vertices_tbl)
-
-			if huh then
-				if type(huh.pos) == "cdata" then
-					for _, data in ipairs(vertices_tbl) do
-						vertices[i] = data.pos.x
-						i = i + 1
-						vertices[i] = data.pos.y
-						i = i + 1
-						vertices[i] = data.pos.z
-						i = i + 1
-					end
-				else
-					for _, data in ipairs(vertices_tbl) do
-						vertices[i] = data.pos[1]
-						i = i + 1
-						vertices[i] = data.pos[2]
-						i = i + 1
-						vertices[i] = data.pos[3]
-						i = i + 1
-					end
-				end
-
-				local mesh = {
-					triangles = {
-						count = vertices_count / 3,
-						pointer = triangles,
-						stride = ffi.sizeof("unsigned int") * 3,
-					},
-					vertices = {
-						count = vertices_count,
-						pointer = vertices,
-						stride = ffi.sizeof("float") * 3,
-					},
-				}
-				physics_meshes[i_] = mesh
-			end
-
-			tasks.Wait()
-			tasks.ReportProgress("building physics meshes", count)
-		end
-	end
-
 	local render_meshes = {}
 
 	for _, v in ipairs(models) do
@@ -1278,7 +1216,6 @@ function steam.LoadMap(path)
 	steam.loaded_bsp[path] = {
 		render_meshes = render_meshes,
 		entities = header.entities,
-		physics_meshes = physics_meshes,
 		physics_source = physics_source,
 		physics_source_info = physics_source_info,
 		cubemaps = header.cubemaps,
