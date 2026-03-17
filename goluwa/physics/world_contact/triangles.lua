@@ -95,7 +95,7 @@ function world_contact_triangles.BuildTriangleHit(model, entity, primitive, prim
 	}
 end
 
-function world_contact_triangles.ForEachOverlappingWorldTriangle(poly, local_body_aabb, local_to_world, callback)
+function world_contact_triangles.ForEachOverlappingWorldTriangle(poly, local_body_aabb, local_to_world, callback, ...)
 	local local_vertices = world_contact_triangles.GetPolygonLocalVertices(poly)
 	local indices, triangle_count = world_contact_triangles.GetPolygonIndexBuffer(poly)
 
@@ -116,7 +116,7 @@ function world_contact_triangles.ForEachOverlappingWorldTriangle(poly, local_bod
 			local v0 = local_to_world and world_transform_utils.TransformPosition(local_to_world, v0_local) or v0_local
 			local v1 = local_to_world and world_transform_utils.TransformPosition(local_to_world, v1_local) or v1_local
 			local v2 = local_to_world and world_transform_utils.TransformPosition(local_to_world, v2_local) or v2_local
-			callback(v0, v1, v2, triangle_index)
+			callback(v0, v1, v2, triangle_index, ...)
 		end
 	end
 end

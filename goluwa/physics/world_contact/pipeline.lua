@@ -81,7 +81,11 @@ function world_contact_pipeline.CreateFinalizeWorldContact(options)
 
 		merge_world_contact(contacts, contact, options)
 	end
-	end
+end
+
+local function sort(a, b)
+	return (a.depth or 0) > (b.depth or 0)
+end
 
 function world_contact_pipeline.CollectWorldManifoldContacts(body, kind, contacts, options)
 	local policy = options.get_contact_kind_policy(kind)
@@ -93,9 +97,7 @@ function world_contact_pipeline.CollectWorldManifoldContacts(body, kind, contact
 		policy,
 		options
 	)
-	table.sort(contacts, function(a, b)
-		return (a.depth or 0) > (b.depth or 0)
-	end)
+	table.sort(contacts, sort)
 
 	for i = (options.world_manifold_max_contacts or #contacts) + 1, #contacts do
 		contacts[i] = nil

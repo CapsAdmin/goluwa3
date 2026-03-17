@@ -8,6 +8,7 @@ local polyhedron_triangle_contacts = import("goluwa/physics/polyhedron_triangle_
 local triangle_geometry = import("goluwa/physics/triangle_geometry.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local world_contact_collectors = {}
+local append_polyhedron_triangle_contacts
 
 local function build_triangle_point_contact(collider, world_point, hit, v0, v1, v2, options)
 	local epsilon = options.epsilon
@@ -155,7 +156,72 @@ local function build_capsule_triangle_contact(collider, hit, v0, v1, v2, options
 	}
 end
 
-local function append_polyhedron_triangle_contacts(body, kind, policy, contacts, result, local_point, hit, options)
+local function collect_sphere_triangle_contact(v0, v1, v2, triangle_index, body, collider, model, entity, primitive, primitive_index, contacts, policy, kind, options)
+	local hit = world_contact_triangles.BuildTriangleHit(model, entity, primitive, primitive_index, triangle_index)
+	local contact = build_sphere_triangle_contact(collider, hit, v0, v1, v2, options)
+
+	if contact then
+		options.finalize_world_contact(body, kind, policy, contacts, contact, body:WorldToLocal(contact.point))
+	end
+end
+
+local function collect_capsule_triangle_contact(v0, v1, v2, triangle_index, body, collider, model, entity, primitive, primitive_index, contacts, policy, kind, options)
+	local hit = world_contact_triangles.BuildTriangleHit(model, entity, primitive, primitive_index, triangle_index)
+	local contact = build_capsule_triangle_contact(collider, hit, v0, v1, v2, options)
+
+	if contact then
+		options.finalize_world_contact(body, kind, policy, contacts, contact, body:WorldToLocal(contact.point))
+	end
+end
+
+local function collect_polyhedron_triangle_contact(
+	v0,
+	v1,
+	v2,
+	triangle_index,
+	body,
+	collider,
+	body_polyhedron,
+	model,
+	entity,
+	primitive,
+	primitive_index,
+	contacts,
+	policy,
+	kind,
+	options,
+	samples,
+	find_contact_options
+)
+	local hit = world_contact_triangles.BuildTriangleHit(model, entity, primitive, primitive_index, triangle_index)
+	local result = polyhedron_triangle_contacts.FindContact(collider, body_polyhedron, v0, v1, v2, find_contact_options)
+
+	if result then
+		append_polyhedron_triangle_contacts(body, kind, policy, contacts, result, nil, hit, options)
+	elseif samples[1] then
+		for _, sample in ipairs(samples) do
+			local contact = build_triangle_point_contact(collider, sample.point, hit, v0, v1, v2, options)
+
+			if contact then
+				options.finalize_world_contact(body, kind, policy, contacts, contact, sample.local_point)
+			end
+		end
+	end
+end
+
+local function collect_point_sample_triangle_contact(v0, v1, v2, triangle_index, body, collider, model, entity, primitive, primitive_index, contacts, policy, kind, options, samples)
+	local hit = world_contact_triangles.BuildTriangleHit(model, entity, primitive, primitive_index, triangle_index)
+
+	for _, sample in ipairs(samples) do
+		local contact = build_triangle_point_contact(collider, sample.point, hit, v0, v1, v2, options)
+
+		if contact then
+			options.finalize_world_contact(body, kind, policy, contacts, contact, sample.local_point)
+		end
+	end
+end
+
+append_polyhedron_triangle_contacts = function(body, kind, policy, contacts, result, local_point, hit, options)
 	local bias_world_contact_depth = options.bias_world_contact_depth
 	local get_support_contact_slop = options.get_support_contact_slop
 	local finalize_world_contact = options.finalize_world_contact
@@ -409,63 +475,76 @@ local function collect_triangle_contacts_for_collider(body, collider, model, ent
 	local body_polyhedron = shape_accessors.GetBodyPolyhedron(collider)
 
 	if shape_type == "sphere" then
-		world_contact_triangles.ForEachOverlappingWorldTriangle(poly, local_body_aabb, local_to_world, function(v0, v1, v2, triangle_index)
-			local hit = world_contact_triangles.BuildTriangleHit(model, entity, primitive, primitive_index, triangle_index)
-			local contact = build_sphere_triangle_contact(collider, hit, v0, v1, v2, options)
-
-			if contact then
-				finalize_world_contact(body, kind, policy, contacts, contact, body:WorldToLocal(contact.point))
-			end
-		end)
+		world_contact_triangles.ForEachOverlappingWorldTriangle(
+			poly,
+			local_body_aabb,
+			local_to_world,
+			collect_sphere_triangle_contact,
+			body,
+			collider,
+			model,
+			entity,
+			primitive,
+			primitive_index,
+			contacts,
+			policy,
+			kind,
+			options
+		)
 
 		return
 	end
 
 	if shape_type == "capsule" then
-		world_contact_triangles.ForEachOverlappingWorldTriangle(poly, local_body_aabb, local_to_world, function(v0, v1, v2, triangle_index)
-			local hit = world_contact_triangles.BuildTriangleHit(model, entity, primitive, primitive_index, triangle_index)
-			local contact = build_capsule_triangle_contact(collider, hit, v0, v1, v2, options)
-
-			if contact then
-				finalize_world_contact(body, kind, policy, contacts, contact, body:WorldToLocal(contact.point))
-			end
-		end)
+		world_contact_triangles.ForEachOverlappingWorldTriangle(
+			poly,
+			local_body_aabb,
+			local_to_world,
+			collect_capsule_triangle_contact,
+			body,
+			collider,
+			model,
+			entity,
+			primitive,
+			primitive_index,
+			contacts,
+			policy,
+			kind,
+			options
+		)
 
 		return
 	end
 
 	if body_polyhedron and body_polyhedron.vertices and body_polyhedron.faces then
 		local samples = world_contact_sampling.BuildColliderSamples(body, collider, nil, local_point_key)
+		local find_contact_options = {
+			epsilon = epsilon,
+			triangle_slop = triangle_slop,
+			manifold_merge_distance = manifold_merge_distance,
+			face_axis_relative_tolerance = 1.05,
+			face_axis_absolute_tolerance = 0.03,
+		}
 
-		world_contact_triangles.ForEachOverlappingWorldTriangle(poly, local_body_aabb, local_to_world, function(v0, v1, v2, triangle_index)
-			local hit = world_contact_triangles.BuildTriangleHit(model, entity, primitive, primitive_index, triangle_index)
-			local result = polyhedron_triangle_contacts.FindContact(
-				collider,
-				body_polyhedron,
-				v0,
-				v1,
-				v2,
-				{
-					epsilon = epsilon,
-					triangle_slop = triangle_slop,
-					manifold_merge_distance = manifold_merge_distance,
-					face_axis_relative_tolerance = 1.05,
-					face_axis_absolute_tolerance = 0.03,
-				}
-			)
-
-			if result then
-				append_polyhedron_triangle_contacts(body, kind, policy, contacts, result, nil, hit, options)
-			elseif samples[1] then
-				for _, sample in ipairs(samples) do
-					local contact = build_triangle_point_contact(collider, sample.point, hit, v0, v1, v2, options)
-
-					if contact then
-						finalize_world_contact(body, kind, policy, contacts, contact, sample.local_point)
-					end
-				end
-			end
-		end)
+		world_contact_triangles.ForEachOverlappingWorldTriangle(
+			poly,
+			local_body_aabb,
+			local_to_world,
+			collect_polyhedron_triangle_contact,
+			body,
+			collider,
+			body_polyhedron,
+			model,
+			entity,
+			primitive,
+			primitive_index,
+			contacts,
+			policy,
+			kind,
+			options,
+			samples,
+			find_contact_options
+		)
 
 		return
 	end
@@ -474,17 +553,23 @@ local function collect_triangle_contacts_for_collider(body, collider, model, ent
 
 	if not samples[1] then return end
 
-	world_contact_triangles.ForEachOverlappingWorldTriangle(poly, local_body_aabb, local_to_world, function(v0, v1, v2, triangle_index)
-		local hit = world_contact_triangles.BuildTriangleHit(model, entity, primitive, primitive_index, triangle_index)
-
-		for _, sample in ipairs(samples) do
-			local contact = build_triangle_point_contact(collider, sample.point, hit, v0, v1, v2, options)
-
-			if contact then
-				finalize_world_contact(body, kind, policy, contacts, contact, sample.local_point)
-			end
-		end
-	end)
+	world_contact_triangles.ForEachOverlappingWorldTriangle(
+		poly,
+		local_body_aabb,
+		local_to_world,
+		collect_point_sample_triangle_contact,
+		body,
+		collider,
+		model,
+		entity,
+		primitive,
+		primitive_index,
+		contacts,
+		policy,
+		kind,
+		options,
+		samples
+	)
 end
 
 function world_contact_collectors.CollectWorldPrimitiveContactsCallback(

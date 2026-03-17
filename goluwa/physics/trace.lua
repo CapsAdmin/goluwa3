@@ -256,6 +256,22 @@ local function get_hit_triangle_world_vertices(hit)
 	return get_triangle_world_vertices(hit.primitive.polygon3d, hit.triangle_index, hit.entity)
 end
 
+local function on_segment(a, b, point)
+	local ab = b - a
+	local length_squared = ab:Dot(ab)
+
+	if length_squared <= TRIANGLE_FEATURE_EPSILON then return false end
+
+	local t = (point - a):Dot(ab) / length_squared
+
+	if t <= TRIANGLE_FEATURE_EPSILON or t >= 1 - TRIANGLE_FEATURE_EPSILON then
+		return false
+	end
+
+	local projected = a + ab * t
+	return (projected - point):GetLength() <= TRIANGLE_FEATURE_EPSILON
+end
+
 local function get_triangle_feature_indices(closest_point, v0, v1, v2, i0, i1, i2)
 	if (closest_point - v0):GetLength() <= TRIANGLE_FEATURE_EPSILON then
 		return "vertex", {i0}
@@ -267,22 +283,6 @@ local function get_triangle_feature_indices(closest_point, v0, v1, v2, i0, i1, i
 
 	if (closest_point - v2):GetLength() <= TRIANGLE_FEATURE_EPSILON then
 		return "vertex", {i2}
-	end
-
-	local function on_segment(a, b, point)
-		local ab = b - a
-		local length_squared = ab:Dot(ab)
-
-		if length_squared <= TRIANGLE_FEATURE_EPSILON then return false end
-
-		local t = (point - a):Dot(ab) / length_squared
-
-		if t <= TRIANGLE_FEATURE_EPSILON or t >= 1 - TRIANGLE_FEATURE_EPSILON then
-			return false
-		end
-
-		local projected = a + ab * t
-		return (projected - point):GetLength() <= TRIANGLE_FEATURE_EPSILON
 	end
 
 	if on_segment(v0, v1, closest_point) then return "edge", {i0, i1} end
