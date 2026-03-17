@@ -1,5 +1,6 @@
-local physics = import("goluwa/physics.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
+
+local convex_hull = library()
 
 local function copy_vec3(vec)
 	return Vec3(vec.x, vec.y, vec.z)
@@ -480,7 +481,7 @@ local function build_convex_hull(points, epsilon)
 	return finalize_convex_hull(points, faces, indices, epsilon)
 end
 
-function physics.NormalizeConvexHull(hull, epsilon)
+function convex_hull.Normalize(hull, epsilon)
 	if not hull then return nil end
 
 	if hull.vertices and hull.faces and hull.indices and hull.edges then
@@ -495,19 +496,19 @@ function physics.NormalizeConvexHull(hull, epsilon)
 	return build_convex_hull(hull.vertices or hull, epsilon)
 end
 
-function physics.BuildConvexHullFromTriangles(source, epsilon)
+function convex_hull.BuildFromTriangles(source, epsilon)
 	local points = {}
 	append_source_points(points, source)
 	return build_convex_hull(points, epsilon)
 end
 
-function physics.BuildConvexHullFromModel(model, epsilon)
+function convex_hull.BuildHullFromModel(model, epsilon)
 	local points = {}
 	append_source_points(points, model)
 	return build_convex_hull(points, epsilon)
 end
 
-function physics.BuildCompoundShapeFromTriangles(source, epsilon)
+function convex_hull.BuildCompoundShapeFromTriangles(source, epsilon)
 	epsilon = epsilon or 0.0001
 	local triangles = {}
 	append_source_triangles(triangles, source)
@@ -549,9 +550,8 @@ function physics.BuildCompoundShapeFromTriangles(source, epsilon)
 	}
 end
 
-function physics.BuildCompoundShapeFromModel(model, epsilon)
-	return physics.BuildCompoundShapeFromTriangles(model, epsilon)
+function convex_hull.BuildCompoundShapeFromModel(model, epsilon)
+	return convex_hull.BuildCompoundShapeFromTriangles(model, epsilon)
 end
 
-physics.ApproximateConvexMeshFromTriangles = physics.BuildConvexHullFromTriangles
-return physics
+return convex_hull

@@ -149,7 +149,7 @@ end
 local function build_brush_hull(header, brush, planes)
 	local physics = get_physics_modules()
 
-	if not (physics and physics.NormalizeConvexHull and header.planes) then
+	if not (physics and physics.Normalize and header.planes) then
 		return nil
 	end
 
@@ -180,7 +180,7 @@ local function build_brush_hull(header, brush, planes)
 
 	if #points < 4 then return nil end
 
-	return physics.NormalizeConvexHull(points, BRUSH_POINT_EPSILON)
+	return physics.Normalize(points, BRUSH_POINT_EPSILON)
 end
 
 local function build_primitive_from_hull(hull, brush_planes)

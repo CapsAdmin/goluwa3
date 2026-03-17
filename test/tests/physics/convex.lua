@@ -1,5 +1,6 @@
 local T = import("test/environment.lua")
 local physics = import("goluwa/physics.lua")
+local convex_hull = import("goluwa/physics/convex_hull.lua")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
 local Entity = import("goluwa/ecs/entity.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
@@ -178,7 +179,7 @@ local function create_box_source_mesh(size)
 end
 
 T.Test3D("Convex hull approximation removes interior triangle vertices", function()
-	local hull = physics.ApproximateConvexMeshFromTriangles(create_internal_vertex_cube_mesh())
+	local hull = convex_hull.BuildFromTriangles(create_internal_vertex_cube_mesh())
 	local has_center = false
 
 	for _, point in ipairs(hull.vertices) do
@@ -198,7 +199,7 @@ end)
 
 T.Test3D("Convex rigid body can rest on triangle world geometry", function()
 	local ground = create_flat_ground("convex_ground_world", 10)
-	local hull = physics.ApproximateConvexMeshFromTriangles(create_pyramid_source_mesh())
+	local hull = convex_hull.BuildFromTriangles(create_pyramid_source_mesh())
 	local body_ent = Entity.New({Name = "convex_ground_body"})
 	body_ent:AddComponent("transform")
 	body_ent.transform:SetPosition(Vec3(0, 3, 0))
@@ -222,7 +223,7 @@ T.Test3D("Convex rigid body can rest on triangle world geometry", function()
 end)
 
 T.Test3D("Rigid sphere collides with static convex hull", function()
-	local hull = physics.ApproximateConvexMeshFromTriangles(create_octahedron_source_mesh(1))
+	local hull = convex_hull.BuildFromTriangles(create_octahedron_source_mesh(1))
 	local convex_ent = Entity.New({Name = "convex_static_octahedron"})
 	convex_ent:AddComponent("transform")
 	convex_ent.transform:SetPosition(Vec3(0, 1, 0))
@@ -261,7 +262,7 @@ T.Test3D("Rigid sphere collides with static convex hull", function()
 end)
 
 T.Test3D("Convex rigid body collides with static box", function()
-	local hull = physics.ApproximateConvexMeshFromTriangles(create_pyramid_source_mesh())
+	local hull = convex_hull.BuildFromTriangles(create_pyramid_source_mesh())
 	local box_ent = Entity.New({Name = "convex_static_box"})
 	box_ent:AddComponent("transform")
 	box_ent.transform:SetPosition(Vec3(0, 1, 0))
@@ -296,7 +297,7 @@ T.Test3D("Convex rigid body collides with static box", function()
 end)
 
 T.Test3D("Fast rigid sphere does not tunnel through thin static convex hull", function()
-	local hull = physics.ApproximateConvexMeshFromTriangles(create_box_source_mesh(Vec3(6, 0.2, 6)))
+	local hull = convex_hull.BuildFromTriangles(create_box_source_mesh(Vec3(6, 0.2, 6)))
 	local blocker_ent = Entity.New({Name = "rigid_ccd_convex_blocker"})
 	blocker_ent:AddComponent("transform")
 	blocker_ent.transform:SetPosition(Vec3(0, 1, 0))
@@ -343,7 +344,7 @@ T.Test3D("Fast rigid convex body does not tunnel through thin static box", funct
 			MotionType = "static",
 		}
 	)
-	local hull = physics.ApproximateConvexMeshFromTriangles(create_box_source_mesh(Vec3(1, 1, 1)))
+	local hull = convex_hull.BuildFromTriangles(create_box_source_mesh(Vec3(1, 1, 1)))
 	local convex_ent = Entity.New({Name = "rigid_ccd_fast_convex"})
 	convex_ent:AddComponent("transform")
 	convex_ent.transform:SetPosition(Vec3(0, 8, 0))
@@ -368,7 +369,7 @@ T.Test3D("Fast rigid convex body does not tunnel through thin static box", funct
 end)
 
 T.Test3D("Fast rigid box does not tunnel through thin static convex hull", function()
-	local hull = physics.ApproximateConvexMeshFromTriangles(create_box_source_mesh(Vec3(6, 0.2, 6)))
+	local hull = convex_hull.BuildFromTriangles(create_box_source_mesh(Vec3(6, 0.2, 6)))
 	local blocker_ent = Entity.New({Name = "rigid_ccd_static_convex_for_box"})
 	blocker_ent:AddComponent("transform")
 	blocker_ent.transform:SetPosition(Vec3(0, 1, 0))
@@ -404,7 +405,7 @@ T.Test3D("Fast rigid box does not tunnel through thin static convex hull", funct
 end)
 
 T.Test3D("Fast rigid convex bodies do not tunnel through each other", function()
-	local hull = physics.ApproximateConvexMeshFromTriangles(create_box_source_mesh(Vec3(1, 1, 1)))
+	local hull = convex_hull.BuildFromTriangles(create_box_source_mesh(Vec3(1, 1, 1)))
 	local left_ent = Entity.New({Name = "rigid_ccd_dynamic_convex_left"})
 	left_ent:AddComponent("transform")
 	left_ent.transform:SetPosition(Vec3(-4, 1, 0))
@@ -448,7 +449,7 @@ T.Test3D("Fast rigid convex bodies do not tunnel through each other", function()
 end)
 
 T.Test3D("Fast rigid convex and box bodies do not tunnel through each other", function()
-	local hull = physics.ApproximateConvexMeshFromTriangles(create_box_source_mesh(Vec3(1, 1, 1)))
+	local hull = convex_hull.BuildFromTriangles(create_box_source_mesh(Vec3(1, 1, 1)))
 	local convex_ent = Entity.New({Name = "rigid_ccd_dynamic_convex_vs_box"})
 	convex_ent:AddComponent("transform")
 	convex_ent.transform:SetPosition(Vec3(-4, 1, 0))
@@ -503,7 +504,7 @@ T.Test3D("Fast rotating rigid convex body does not miss a thin static box", func
 			MotionType = "static",
 		}
 	)
-	local hull = physics.ApproximateConvexMeshFromTriangles(create_box_source_mesh(Vec3(0.15, 4, 0.15)))
+	local hull = convex_hull.BuildFromTriangles(create_box_source_mesh(Vec3(0.15, 4, 0.15)))
 	local rod_ent = Entity.New({Name = "rigid_ccd_rotating_convex_rod"})
 	rod_ent:AddComponent("transform")
 	rod_ent.transform:SetPosition(Vec3(0, 1, 0))
@@ -548,7 +549,7 @@ T.Test3D("Fast rigid convex body does not tunnel through thin static box at smal
 					MotionType = "static",
 				}
 			)
-			local hull = physics.ApproximateConvexMeshFromTriangles(create_box_source_mesh(Vec3(1, 1, 1)))
+			local hull = convex_hull.BuildFromTriangles(create_box_source_mesh(Vec3(1, 1, 1)))
 			local convex_ent = Entity.New({Name = "rigid_ccd_fast_convex_small_step"})
 			convex_ent:AddComponent("transform")
 			convex_ent.transform:SetPosition(Vec3(0, 8, 0))
@@ -588,7 +589,7 @@ T.Test3D("Fast rotating rigid convex body remains detectable at smaller fixed st
 					MotionType = "static",
 				}
 			)
-			local hull = physics.ApproximateConvexMeshFromTriangles(create_box_source_mesh(Vec3(0.15, 4, 0.15)))
+			local hull = convex_hull.BuildFromTriangles(create_box_source_mesh(Vec3(0.15, 4, 0.15)))
 			local rod_ent = Entity.New({Name = "rigid_ccd_rotating_convex_rod_small_step"})
 			rod_ent:AddComponent("transform")
 			rod_ent.transform:SetPosition(Vec3(0, 1, 0))

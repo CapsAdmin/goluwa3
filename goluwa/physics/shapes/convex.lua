@@ -3,6 +3,7 @@ local Matrix33 = import("goluwa/structs/matrix33.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local BaseShape = import("goluwa/physics/shapes/base.lua")
 local physics = import("goluwa/physics.lua")
+local convex_hull = import("goluwa/physics/convex_hull.lua")
 local META = prototype.CreateTemplate("physics_shape_convex")
 META.Base = BaseShape
 META:GetSet("ConvexHull", nil)
@@ -29,10 +30,10 @@ function META:GetResolvedHull(body)
 	local owner = body and body.GetOwner and body:GetOwner() or body and body.Owner
 
 	if not hull and owner and owner.model then
-		hull = physics.BuildConvexHullFromModel(owner.model)
+		hull = convex_hull.BuildConvexHullFromModel(owner.model)
 	end
 
-	if hull then hull = physics.NormalizeConvexHull(hull) end
+	if hull then hull = convex_hull.Normalize(hull) end
 
 	self.ResolvedHull = hull
 	return hull
