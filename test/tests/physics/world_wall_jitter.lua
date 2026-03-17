@@ -5,7 +5,9 @@ local Entity = import("goluwa/ecs/entity.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local AABB = import("goluwa/structs/aabb.lua")
 local SphereShape = import("goluwa/physics/shapes/sphere.lua")
+local BoxShape = import("goluwa/physics/shapes/box.lua")
 local sphere_shape = SphereShape.New
+local box_shape = BoxShape.New
 
 local function simulate_physics(steps, dt)
 	dt = dt or (1 / 120)
@@ -232,4 +234,134 @@ T.Test3D("Physgun-style sphere push against brush platform edge does not stick d
 	sphere_ent:Remove()
 	source_ent:Remove()
 	T(min_corner_distance)[">="](0.48)
+end)
+
+T.Test3D("Dynamic box pushed into brush ceiling corner escapes without getting stuck", function()
+	local source_ent, source = create_brush_box_source(Vec3(-2, 2, -2), Vec3(2, 3, 2))
+	physics.SetWorldTraceSource(source)
+	local box_ent = Entity.New({Name = "world_brush_ceiling_corner_box"})
+	box_ent:AddComponent("transform")
+	box_ent.transform:SetPosition(Vec3(2.75, 1.2, 0.05))
+	box_ent.transform:SetAngles(Deg3(0, 14, 12))
+	local box = box_ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = box_shape(Vec3(0.8, 0.8, 0.8)),
+			Size = Vec3(0.8, 0.8, 0.8),
+			GravityScale = 0,
+			LinearDamping = 0,
+			AngularDamping = 0,
+			AirLinearDamping = 0,
+			AirAngularDamping = 0,
+			Friction = 0,
+			Restitution = 0,
+			MaxLinearSpeed = 1000,
+			MaxAngularSpeed = 1000,
+		}
+	)
+	local contact_samples = 0
+
+	for _ = 1, 120 do
+		box:SetVelocity(Vec3(-6, 6, 0))
+		simulate_physics(1)
+
+		for _, local_point in ipairs(box:GetCollisionLocalPoints()) do
+			local world_point = box:GeometryLocalToWorld(local_point)
+
+			if world_point.x > 2 and world_point.y < 2 then
+				contact_samples = contact_samples + 1
+			end
+		end
+	end
+
+	local final_position = box_ent.transform:GetPosition()
+	local final_velocity = box:GetVelocity()
+	physics.SetWorldTraceSource(nil)
+	box_ent:Remove()
+	source_ent:Remove()
+	T(contact_samples)[">"](0)
+	T(final_position.x)["<"](1.6)
+	T(final_position.y)[">"](2.5)
+	T(final_velocity.x)["<"](-0.5)
+	T(final_velocity.y)[">"](0.5)
+end)
+
+T.Test3D("Dynamic box rests stably on brush world support patch", function()
+	local source_ent, source = create_brush_box_source(Vec3(-3, 0, -3), Vec3(3, 1, 3))
+	physics.SetWorldTraceSource(source)
+	local box_ent = Entity.New({Name = "world_brush_support_box"})
+	box_ent:AddComponent("transform")
+	box_ent.transform:SetPosition(Vec3(0.08, 4, -0.05))
+	box_ent.transform:SetAngles(Deg3(2, 14, 3))
+	local box = box_ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = box_shape(Vec3(2.4, 0.8, 2.4)),
+			Size = Vec3(2.4, 0.8, 2.4),
+			LinearDamping = 0,
+			AngularDamping = 0,
+			Friction = 1,
+			Restitution = 0,
+		}
+	)
+	simulate_physics(360)
+	local settled_position = box_ent.transform:GetPosition():Copy()
+	local settled_angles = box_ent.transform:GetRotation():GetAngles()
+	simulate_physics(360)
+	local final_position = box_ent.transform:GetPosition()
+	local final_angles = box_ent.transform:GetRotation():GetAngles()
+	local drift = (final_position - settled_position):GetLength()
+	physics.SetWorldTraceSource(nil)
+	box_ent:Remove()
+	source_ent:Remove()
+	T(box:GetGrounded())["=="](true)
+	T(final_position.y)[">="](1.32)
+	T(final_position.y)["<="](1.65)
+	T(math.abs(final_position.x))["<"](0.35)
+	T(math.abs(final_position.z))["<"](0.35)
+	T(math.abs(final_angles.x - settled_angles.x))["<"](0.08)
+	T(math.abs(final_angles.z - settled_angles.z))["<"](0.08)
+	T(drift)["<"](0.08)
+	T(box:GetAngularVelocity():GetLength())["<"](0.8)
+end)
+
+T.Test3D("Dynamic box slides along brush wall without sticking or twisting deeply", function()
+	local source_ent, source = create_brush_wall_source()
+	physics.SetWorldTraceSource(source)
+	local box_ent = Entity.New({Name = "world_wall_slide_box"})
+	box_ent:AddComponent("transform")
+	box_ent.transform:SetPosition(Vec3(-2.2, 0, -1.8))
+	box_ent.transform:SetAngles(Deg3(0, 18, 0))
+	local box = box_ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = box_shape(Vec3(1.2, 1.2, 1.2)),
+			Size = Vec3(1.2, 1.2, 1.2),
+			GravityScale = 0,
+			LinearDamping = 0,
+			AngularDamping = 0,
+			AirLinearDamping = 0,
+			AirAngularDamping = 0,
+			Friction = 0,
+			Restitution = 0,
+			MaxLinearSpeed = 1000,
+			MaxAngularSpeed = 1000,
+		}
+	)
+	box:SetVelocity(Vec3(8, 0, 3))
+	simulate_physics(120)
+	local position = box_ent.transform:GetPosition()
+	local angles = box_ent.transform:GetRotation():GetAngles()
+	local velocity = box:GetVelocity()
+	physics.SetWorldTraceSource(nil)
+	box_ent:Remove()
+	source_ent:Remove()
+	T(position.z)[">"](0.1)
+	T(position.x)["<"](0.2)
+	T(position.x)[">="](-1.2)
+	T(math.abs(velocity.x))["<"](0.6)
+	T(velocity.z)[">"](0.8)
+	T(math.abs(angles.x))["<"](0.6)
+	T(math.abs(angles.z))["<"](1.0)
+	T(box:GetAngularVelocity():GetLength())["<"](1.5)
 end)

@@ -201,13 +201,12 @@ function contact_resolution.ResolvePairPenetration(body_a, body_b, normal, overl
 			manifold.last_warm_step = solver.StepStamp
 		end
 
+		manifolds.SolveImpulses(body_a, body_b, normal, manifold, dt)
 		local correction = normal * (-overlap / #contacts)
 
 		for _, contact in ipairs(contacts) do
 			body_a:ApplyCorrection(0, correction, contact.point_a, body_b, contact.point_b, dt)
 		end
-
-		manifolds.SolveImpulses(body_a, body_b, normal, manifold, dt)
 
 		if not options.skip_grounding then
 			contact_resolution.MarkPairGrounding(body_a, body_b, normal)
@@ -221,6 +220,7 @@ function contact_resolution.ResolvePairPenetration(body_a, body_b, normal, overl
 		return true
 	end
 
+	contact_resolution.ApplyPairImpulse(body_a, body_b, normal, dt, point_a, point_b, options)
 	local correction = normal * overlap
 
 	if inverse_mass_a > 0 then
@@ -230,8 +230,6 @@ function contact_resolution.ResolvePairPenetration(body_a, body_b, normal, overl
 	if inverse_mass_b > 0 then
 		motion.ShiftBodyPosition(body_b, correction * (inverse_mass_b / inverse_mass_sum))
 	end
-
-	contact_resolution.ApplyPairImpulse(body_a, body_b, normal, dt, point_a, point_b, options)
 
 	if not options.skip_grounding then
 		contact_resolution.MarkPairGrounding(body_a, body_b, normal)

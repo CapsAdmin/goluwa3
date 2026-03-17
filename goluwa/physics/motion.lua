@@ -1,4 +1,5 @@
 local Quat = import("goluwa/structs/quat.lua")
+local Vec3 = import("goluwa/structs/vec3.lua")
 local motion = {}
 
 function motion.IntegrateRotation(rotation, angular_velocity, dt)
@@ -28,15 +29,13 @@ function motion.ShiftBodyPosition(body, delta)
 end
 
 function motion.SetBodyVelocityFromCurrentPosition(body, velocity, dt)
-	body:SetVelocity(velocity)
-	body.PreviousPosition = body.Position - velocity * dt
+	body.Velocity = velocity:Copy()
 end
 
 function motion.SetBodyAngularVelocityFromCurrentRotation(body, angular_velocity, dt)
 	if body.IsSolverImmovable and body:IsSolverImmovable() then return end
 
 	body.AngularVelocity = angular_velocity:Copy()
-	body.PreviousRotation = motion.IntegrateRotation(body.Rotation, angular_velocity, -dt)
 end
 
 function motion.SetBodyMotionFromCurrentState(body, linear_velocity, angular_velocity, dt)
@@ -44,6 +43,24 @@ function motion.SetBodyMotionFromCurrentState(body, linear_velocity, angular_vel
 
 	motion.SetBodyVelocityFromCurrentPosition(body, linear_velocity, dt)
 	motion.SetBodyAngularVelocityFromCurrentRotation(body, angular_velocity, dt)
+end
+
+function motion.GetAngularVelocityFromRotationDelta(previous_rotation, rotation, dt)
+	local delta = (rotation * previous_rotation:GetConjugated()):GetNormalized()
+	local angular_velocity = Vec3(delta.x * 2 / dt, delta.y * 2 / dt, delta.z * 2 / dt)
+
+	if delta.w < 0 then angular_velocity = angular_velocity * -1 end
+
+	return angular_velocity
+end
+
+function motion.ApplyBodyMotionDelta(body, previous_position, previous_rotation, dt)
+	if body.IsSolverImmovable and body:IsSolverImmovable() then return end
+
+	if not dt or dt <= 0 then dt = 1 / 60 end
+
+	body.Velocity = body.Velocity + (body.Position - previous_position) / dt
+	body.AngularVelocity = body.AngularVelocity + motion.GetAngularVelocityFromRotationDelta(previous_rotation, body.Rotation, dt)
 end
 
 function motion.GetPointVelocity(body, linear_velocity, angular_velocity, point)

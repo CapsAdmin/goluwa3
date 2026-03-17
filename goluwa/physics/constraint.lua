@@ -1,6 +1,7 @@
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local physics = import("goluwa/physics.lua")
+local motion = import("goluwa/physics/motion.lua")
 local DistanceConstraint = {}
 DistanceConstraint.__index = DistanceConstraint
 local EPSILON = 0.000001
@@ -223,7 +224,13 @@ function DistanceConstraint:Solve(dt)
 			self.Body0:Wake()
 		end
 
+		local previous_position = self.Body0.Position:Copy()
+		local previous_rotation = self.Body0.Rotation:Copy()
 		self.Body0:_ApplyCorrection(correction, world_pos0)
+
+		if not self.Unilateral then
+			motion.ApplyBodyMotionDelta(self.Body0, previous_position, previous_rotation, dt)
+		end
 
 		if self.Unilateral then preserve_body_motion(self.Body0, dt) end
 	end
@@ -233,7 +240,13 @@ function DistanceConstraint:Solve(dt)
 			self.Body1:Wake()
 		end
 
+		local previous_position = self.Body1.Position:Copy()
+		local previous_rotation = self.Body1.Rotation:Copy()
 		self.Body1:_ApplyCorrection(correction * -1, world_pos1)
+
+		if not self.Unilateral then
+			motion.ApplyBodyMotionDelta(self.Body1, previous_position, previous_rotation, dt)
+		end
 
 		if self.Unilateral then preserve_body_motion(self.Body1, dt) end
 	end

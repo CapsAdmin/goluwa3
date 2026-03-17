@@ -276,3 +276,168 @@ T.Test3D("Rigid bodies generate stable multi-point contacts against static trian
 	T(roll_drift)["<"](0.08)
 	T(plank:GetAngularVelocity():GetLength())["<"](0.6)
 end)
+
+T.Test3D("Rigid bodies rest stably on static triangle seam patches over time", function()
+	local ground = Entity.New({Name = "rigid_world_seam_ground"})
+	ground:AddComponent("transform")
+	ground:AddComponent("model")
+
+	local function add_world_triangle(a, b, c)
+		local tri = Polygon3D.New()
+		add_triangle(tri, a, b, c)
+		tri:BuildBoundingBox()
+		tri:Upload()
+		ground.model:AddPrimitive(tri)
+	end
+
+	add_world_triangle(Vec3(-2, 1, -2), Vec3(0, 1, -2), Vec3(-2, 1, 0))
+	add_world_triangle(Vec3(0, 1, -2), Vec3(0, 1, 0), Vec3(-2, 1, 0))
+	add_world_triangle(Vec3(0, 1, -2), Vec3(2, 1, -2), Vec3(0, 1, 0))
+	add_world_triangle(Vec3(2, 1, -2), Vec3(2, 1, 0), Vec3(0, 1, 0))
+	add_world_triangle(Vec3(-2, 1, 0), Vec3(0, 1, 0), Vec3(-2, 1, 2))
+	add_world_triangle(Vec3(0, 1, 0), Vec3(0, 1, 2), Vec3(-2, 1, 2))
+	add_world_triangle(Vec3(0, 1, 0), Vec3(2, 1, 0), Vec3(0, 1, 2))
+	add_world_triangle(Vec3(2, 1, 0), Vec3(2, 1, 2), Vec3(0, 1, 2))
+	ground.model:BuildAABB()
+	local box_ent = Entity.New({Name = "rigid_world_seam_box"})
+	box_ent:AddComponent("transform")
+	box_ent.transform:SetPosition(Vec3(0.04, 4, -0.03))
+	box_ent.transform:SetAngles(Deg3(2, 13, 3))
+	local box = box_ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = box_shape(Vec3(2.6, 0.8, 2.6)),
+			Size = Vec3(2.6, 0.8, 2.6),
+			LinearDamping = 0,
+			AngularDamping = 0,
+			Friction = 1,
+			Restitution = 0,
+		}
+	)
+	simulate_physics(360)
+	local settled_position = box_ent.transform:GetPosition():Copy()
+	local settled_angles = box_ent.transform:GetRotation():GetAngles()
+	simulate_physics(720)
+	local final_position = box_ent.transform:GetPosition()
+	local final_angles = box_ent.transform:GetRotation():GetAngles()
+	local drift = (final_position - settled_position):GetLength()
+	ground:Remove()
+	box_ent:Remove()
+	T(box:GetGrounded())["=="](true)
+	T(final_position.y)[">="](1.32)
+	T(final_position.y)["<="](1.7)
+	T(math.abs(final_position.x))["<"](0.2)
+	T(math.abs(final_position.z))["<"](0.2)
+	T(math.abs(final_angles.x - settled_angles.x))["<"](0.1)
+	T(math.abs(final_angles.z - settled_angles.z))["<"](0.1)
+	T(drift)["<"](0.08)
+	T(box:GetAngularVelocity():GetLength())["<"](0.9)
+end)
+
+T.Test3D("Rigid bodies slide along static triangle wall seams without sticking", function()
+	local wall = Entity.New({Name = "rigid_world_wall_seam"})
+	wall:AddComponent("transform")
+	wall:AddComponent("model")
+
+	local function add_world_triangle(a, b, c)
+		local tri = Polygon3D.New()
+		add_triangle(tri, a, b, c)
+		tri:BuildBoundingBox()
+		tri:Upload()
+		wall.model:AddPrimitive(tri)
+	end
+
+	add_world_triangle(Vec3(0, -2, -4), Vec3(0, 2, -4), Vec3(0, -2, 0))
+	add_world_triangle(Vec3(0, 2, -4), Vec3(0, 2, 0), Vec3(0, -2, 0))
+	add_world_triangle(Vec3(0, -2, 0), Vec3(0, 2, 0), Vec3(0, -2, 4))
+	add_world_triangle(Vec3(0, 2, 0), Vec3(0, 2, 4), Vec3(0, -2, 4))
+	wall.model:BuildAABB()
+	local box_ent = Entity.New({Name = "rigid_world_wall_slide_box"})
+	box_ent:AddComponent("transform")
+	box_ent.transform:SetPosition(Vec3(-2.2, 0, -1.8))
+	box_ent.transform:SetAngles(Deg3(0, 18, 0))
+	local box = box_ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = box_shape(Vec3(1.2, 1.2, 1.2)),
+			Size = Vec3(1.2, 1.2, 1.2),
+			GravityScale = 0,
+			LinearDamping = 0,
+			AngularDamping = 0,
+			AirLinearDamping = 0,
+			AirAngularDamping = 0,
+			Friction = 0,
+			Restitution = 0,
+			MaxLinearSpeed = 1000,
+			MaxAngularSpeed = 1000,
+		}
+	)
+	box:SetVelocity(Vec3(8, 0, 3))
+	simulate_physics(120)
+	local position = box_ent.transform:GetPosition()
+	local angles = box_ent.transform:GetRotation():GetAngles()
+	local velocity = box:GetVelocity()
+	wall:Remove()
+	box_ent:Remove()
+	T(position.z)[">"](0.1)
+	T(position.x)["<"](0.25)
+	T(position.x)[">="](-1.25)
+	T(math.abs(velocity.x))["<"](0.65)
+	T(velocity.z)[">"](0.8)
+	T(math.abs(angles.x))["<"](0.7)
+	T(math.abs(angles.z))["<"](1.0)
+	T(box:GetAngularVelocity():GetLength())["<"](1.6)
+end)
+
+T.Test3D("Rigid bodies keep frictional sliding stable on static triangle wall seams", function()
+	local wall = Entity.New({Name = "rigid_world_wall_friction_seam"})
+	wall:AddComponent("transform")
+	wall:AddComponent("model")
+
+	local function add_world_triangle(a, b, c)
+		local tri = Polygon3D.New()
+		add_triangle(tri, a, b, c)
+		tri:BuildBoundingBox()
+		tri:Upload()
+		wall.model:AddPrimitive(tri)
+	end
+
+	add_world_triangle(Vec3(0, -2, -4), Vec3(0, 2, -4), Vec3(0, -2, 0))
+	add_world_triangle(Vec3(0, 2, -4), Vec3(0, 2, 0), Vec3(0, -2, 0))
+	add_world_triangle(Vec3(0, -2, 0), Vec3(0, 2, 0), Vec3(0, -2, 4))
+	add_world_triangle(Vec3(0, 2, 0), Vec3(0, 2, 4), Vec3(0, -2, 4))
+	wall.model:BuildAABB()
+	local box_ent = Entity.New({Name = "rigid_world_wall_friction_box"})
+	box_ent:AddComponent("transform")
+	box_ent.transform:SetPosition(Vec3(-2.2, 0, -1.8))
+	box_ent.transform:SetAngles(Deg3(0, 18, 0))
+	local box = box_ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = box_shape(Vec3(1.2, 1.2, 1.2)),
+			Size = Vec3(1.2, 1.2, 1.2),
+			GravityScale = 0,
+			LinearDamping = 0,
+			AngularDamping = 0,
+			AirLinearDamping = 0,
+			AirAngularDamping = 0,
+			Friction = 0.8,
+			Restitution = 0,
+			MaxLinearSpeed = 1000,
+			MaxAngularSpeed = 1000,
+		}
+	)
+	box:SetVelocity(Vec3(8, 0, 3))
+	simulate_physics(180)
+	local position = box_ent.transform:GetPosition()
+	local velocity = box:GetVelocity()
+	local angular_speed = box:GetAngularVelocity():GetLength()
+	wall:Remove()
+	box_ent:Remove()
+	T(position.z)[">"](-1.65)
+	T(position.x)["<"](0.3)
+	T(position.x)[">="](-1.25)
+	T(math.abs(velocity.x))["<"](0.5)
+	T(math.abs(velocity.z))["<"](0.5)
+	T(angular_speed)["<"](1.6)
+end)

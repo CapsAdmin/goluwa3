@@ -793,10 +793,13 @@ local function test_model_closest(
 			)
 
 			if hit and (not closest_hit or hit.distance < closest_hit.distance) then
+				hit.model = model
 				closest_hit = hit
 				closest_distance = hit.distance
 			end
 		end
+
+		if closest_hit then closest_hit.model = model end
 
 		return closest_hit
 	end
@@ -813,10 +816,13 @@ local function test_model_closest(
 		)
 
 		if hit and (not closest_hit or hit.distance < closest_hit.distance) then
+			hit.model = model
 			closest_hit = hit
 			closest_distance = hit.distance
 		end
 	end
+
+	if closest_hit then closest_hit.model = model end
 
 	return closest_hit
 end
@@ -858,7 +864,10 @@ local function collect_model_hits(ray, model, filter_fn, a, b, c, d, e, f, hits,
 			local primitive = model.Primitives[primitive_idx]
 			local hit = test_primitive(ray, local_ray, primitive, primitive_idx, model.Owner, local_to_world)
 
-			if hit then hits[#hits + 1] = hit end
+			if hit then
+				hit.model = model
+				hits[#hits + 1] = hit
+			end
 		end
 
 		return
@@ -867,7 +876,10 @@ local function collect_model_hits(ray, model, filter_fn, a, b, c, d, e, f, hits,
 	for prim_idx, primitive in ipairs(model.Primitives) do
 		local hit = test_primitive(ray, local_ray, primitive, prim_idx, model.Owner, local_to_world)
 
-		if hit then hits[#hits + 1] = hit end
+		if hit then
+			hit.model = model
+			hits[#hits + 1] = hit
+		end
 	end
 end
 

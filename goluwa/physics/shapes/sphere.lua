@@ -128,11 +128,13 @@ function META:SolveSupportContacts(body, dt)
 		body:GetOwner(),
 		body:GetFilterFunction()
 	)
-	local normal = physics.GetHitNormal(hit, center)
+	local surface_contact = physics.GetHitSurfaceContact and physics.GetHitSurfaceContact(hit, center) or nil
+	local normal = surface_contact and surface_contact.normal or nil
+	local contact_position = surface_contact and surface_contact.position or (hit and hit.position) or nil
 
-	if not (hit and normal) then return end
+	if not (hit and normal and contact_position) then return end
 
-	local target_center = hit.position + normal * (radius + body:GetCollisionMargin())
+	local target_center = contact_position + normal * (radius + body:GetCollisionMargin())
 	local correction = target_center - center
 	local depth = correction:Dot(normal)
 

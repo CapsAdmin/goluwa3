@@ -837,12 +837,6 @@ function META:UpdateVelocities(dt)
 		return
 	end
 
-	self.Velocity = (self.Position - self.PreviousPosition) / dt
-	local delta = (self.Rotation * self.PreviousRotation:GetConjugated()):GetNormalized()
-	self.AngularVelocity = Vec3(delta.x * 2 / dt, delta.y * 2 / dt, delta.z * 2 / dt)
-
-	if delta.w < 0 then self.AngularVelocity = self.AngularVelocity * -1 end
-
 	if self.Grounded then
 		local normal_speed = self.Velocity:Dot(self.GroundNormal)
 
