@@ -256,8 +256,6 @@ local function get_hit_triangle_world_vertices(hit)
 	return get_triangle_world_vertices(hit.primitive.polygon3d, hit.triangle_index, hit.entity)
 end
 
-local closest_point_on_triangle = triangle_geometry.ClosestPointOnTriangle
-
 local function get_triangle_feature_indices(closest_point, v0, v1, v2, i0, i1, i2)
 	if (closest_point - v0):GetLength() <= TRIANGLE_FEATURE_EPSILON then
 		return "vertex", {i0}
@@ -394,7 +392,7 @@ local function get_mesh_triangle_feature_contact(hit, reference_point)
 	if not (v0 and v1 and v2 and i0 and i1 and i2) then return nil end
 
 	local primary_face_normal = get_hit_face_normal(hit)
-	local primary_closest_point = closest_point_on_triangle(reference_point, v0, v1, v2)
+	local primary_closest_point = triangle_geometry.ClosestPointOnTriangle(reference_point, v0, v1, v2)
 	local feature_kind, feature_indices = get_triangle_feature_indices(primary_closest_point, v0, v1, v2, i0, i1, i2)
 	local feature_positions = get_triangle_feature_positions(v0, v1, v2, i0, i1, i2, feature_indices)
 	local best_position = primary_closest_point
@@ -426,7 +424,7 @@ local function get_mesh_triangle_feature_contact(hit, reference_point)
 					primary_face_normal and
 					primary_face_normal:Dot(candidate_face_normal) >= TRIANGLE_SEAM_NORMAL_DOT
 				then
-					local candidate_position = closest_point_on_triangle(reference_point, av0, av1, av2)
+					local candidate_position = triangle_geometry.ClosestPointOnTriangle(reference_point, av0, av1, av2)
 					local delta = reference_point - candidate_position
 					local distance_squared = delta:Dot(delta)
 
@@ -468,7 +466,7 @@ local function get_mesh_triangle_feature_contact(hit, reference_point)
 							primary_face_normal and
 							primary_face_normal:Dot(candidate_face_normal) >= TRIANGLE_SEAM_NORMAL_DOT
 						then
-							local candidate_position = closest_point_on_triangle(reference_point, av0, av1, av2)
+							local candidate_position = triangle_geometry.ClosestPointOnTriangle(reference_point, av0, av1, av2)
 							local delta = reference_point - candidate_position
 							local distance_squared = delta:Dot(delta)
 
@@ -527,7 +525,7 @@ local function get_hit_triangle_feature_contact(hit, reference_point)
 
 	if not (v0 and v1 and v2) then return nil end
 
-	local closest_point = closest_point_on_triangle(reference_point, v0, v1, v2)
+	local closest_point = triangle_geometry.ClosestPointOnTriangle(reference_point, v0, v1, v2)
 	local delta = reference_point - closest_point
 	local distance = delta:GetLength()
 	local normal = distance > 0.00001 and (delta / distance) or get_hit_face_normal(hit)

@@ -5,9 +5,6 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local BoxShape = import("goluwa/physics/shapes/box.lua")
 local CapsuleShape = import("goluwa/physics/shapes/capsule.lua")
 local test_helpers = import("test/tests/physics/test_helpers.lua")
-local box_shape = BoxShape.New
-local capsule_shape = CapsuleShape.New
-local create_flat_ground = test_helpers.CreateFlatGround
 
 local function simulate_physics(steps, dt)
 	return test_helpers.SimulatePhysics(physics, steps, dt)
@@ -24,7 +21,7 @@ local function spawn_box_platform(name, position, size, config)
 	local body = ent:AddComponent(
 		"rigid_body",
 		{
-			Shape = box_shape(size),
+			Shape = BoxShape.New(size),
 			Size = size,
 			MotionType = config.MotionType,
 			Mass = config.Mass,
@@ -55,7 +52,7 @@ local function spawn_tilted_box(name, position, size, angles, body_config)
 	local body = ent:AddComponent(
 		"rigid_body",
 		{
-			Shape = box_shape(size),
+			Shape = BoxShape.New(size),
 			Size = size,
 			Mass = body_config.Mass or 3,
 			AutomaticMass = body_config.AutomaticMass == nil and false or body_config.AutomaticMass,
@@ -81,7 +78,7 @@ local function spawn_tilted_capsule(name, position, radius, height, angles, body
 	local body = ent:AddComponent(
 		"rigid_body",
 		{
-			Shape = capsule_shape(radius, height),
+			Shape = CapsuleShape.New(radius, height),
 			Radius = radius,
 			Height = height,
 			Mass = body_config.Mass or 1,
@@ -170,7 +167,7 @@ local function assert_axis_aligned_resting_box(
 end
 
 T.Test3D("Tilted tall box settles onto a face on a static box platform", function()
-	local ground = create_flat_ground("rigid_box_edge_static_ground", 16)
+	local ground = test_helpers.CreateFlatGround("rigid_box_edge_static_ground", 16)
 	local platform_ent = spawn_box_platform(
 		"rigid_box_edge_static_platform",
 		Vec3(0, 1, 0),
@@ -197,7 +194,7 @@ T.Test3D("Tilted tall box settles onto a face on a static box platform", functio
 end)
 
 T.Test3D("Tilted tall box settles onto a face on a dynamic box platform", function()
-	local ground = create_flat_ground("rigid_box_edge_dynamic_ground", 20)
+	local ground = test_helpers.CreateFlatGround("rigid_box_edge_dynamic_ground", 20)
 	local platform_ent, platform = spawn_box_platform(
 		"rigid_box_edge_dynamic_platform",
 		Vec3(0, 4, 0),
@@ -242,7 +239,7 @@ T.Test3D("Tilted tall box settles onto a face on a dynamic box platform", functi
 end)
 
 T.Test3D("Compact rotated box settles flat instead of balancing on an edge", function()
-	local ground = create_flat_ground("rigid_box_edge_compact_ground", 16)
+	local ground = test_helpers.CreateFlatGround("rigid_box_edge_compact_ground", 16)
 	local platform_ent = spawn_box_platform(
 		"rigid_box_edge_compact_platform",
 		Vec3(0, 1, 0),
@@ -274,7 +271,7 @@ T.Test3D("Compact rotated box settles flat instead of balancing on an edge", fun
 end)
 
 T.Test3D("Elongated box settles flat instead of leaving one long edge loaded", function()
-	local ground = create_flat_ground("rigid_box_edge_beam_ground", 18)
+	local ground = test_helpers.CreateFlatGround("rigid_box_edge_beam_ground", 18)
 	local platform_ent = spawn_box_platform(
 		"rigid_box_edge_beam_platform",
 		Vec3(0, 1, 0),
@@ -306,7 +303,7 @@ T.Test3D("Elongated box settles flat instead of leaving one long edge loaded", f
 end)
 
 T.Test3D("Long box overhanging a static platform tips instead of hovering flat", function()
-	local ground = create_flat_ground("rigid_box_overhang_ground", 18)
+	local ground = test_helpers.CreateFlatGround("rigid_box_overhang_ground", 18)
 	local platform_ent = spawn_box_platform(
 		"rigid_box_overhang_platform",
 		Vec3(0, 1, 0),
@@ -323,7 +320,7 @@ T.Test3D("Long box overhanging a static platform tips instead of hovering flat",
 	local top = top_ent:AddComponent(
 		"rigid_body",
 		{
-			Shape = box_shape(Vec3(6.5, 0.8, 1.2)),
+			Shape = BoxShape.New(Vec3(6.5, 0.8, 1.2)),
 			Size = Vec3(6.5, 0.8, 1.2),
 			Mass = 2.5,
 			AutomaticMass = false,
@@ -345,7 +342,7 @@ T.Test3D("Long box overhanging a static platform tips instead of hovering flat",
 end)
 
 T.Test3D("Thin rotated clutter box settles flat on a static platform", function()
-	local ground = create_flat_ground("rigid_box_clutter_ground", 18)
+	local ground = test_helpers.CreateFlatGround("rigid_box_clutter_ground", 18)
 	local platform_ent = spawn_box_platform(
 		"rigid_box_clutter_platform",
 		Vec3(0, 1, 0),
@@ -381,7 +378,7 @@ T.Test3D("Thin rotated clutter box settles flat on a static platform", function(
 end)
 
 T.Test3D("Rotated clutter boxes settle and sleep on a static platform", function()
-	local ground = create_flat_ground("rigid_box_clutter_group_ground", 24)
+	local ground = test_helpers.CreateFlatGround("rigid_box_clutter_group_ground", 24)
 	local platform_ent = spawn_box_platform(
 		"rigid_box_clutter_group_platform",
 		Vec3(0, 1, 0),
@@ -451,7 +448,7 @@ T.Test3D("Rotated clutter boxes settle and sleep on a static platform", function
 end)
 
 T.Test3D("Mixed clutter lets the loose boxes settle cleanly", function()
-	local ground = create_flat_ground("rigid_box_mixed_clutter_ground", 40)
+	local ground = test_helpers.CreateFlatGround("rigid_box_mixed_clutter_ground", 40)
 	local floor_ent = spawn_box_platform(
 		"rigid_box_mixed_clutter_floor",
 		Vec3(0, -2.5, 0),

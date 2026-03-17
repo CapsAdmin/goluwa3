@@ -181,8 +181,6 @@ local function ensure_model_acceleration()
 	return model_acceleration
 end
 
-local get_model_transforms = world_transform_utils.GetModelTransforms
-
 local function ray_triangle_intersection(ray, v0, v1, v2)
 	local epsilon = 0.0000001
 	local edge1 = v1 - v0
@@ -797,7 +795,7 @@ local function test_model_closest(
 
 	if not model.Visible or #model.Primitives == 0 then return nil end
 
-	local world_to_local, local_to_world = get_model_transforms(model)
+	local world_to_local, local_to_world = world_transform_utils.GetModelTransforms(model)
 	local local_ray = transform_ray(ray, world_to_local)
 
 	if not skip_model_aabb and model.AABB then
@@ -877,7 +875,7 @@ local function collect_model_hits(ray, model, filter_fn, a, b, c, d, e, f, hits,
 
 	if not model.Visible or #model.Primitives == 0 then return end
 
-	local world_to_local, local_to_world = get_model_transforms(model)
+	local world_to_local, local_to_world = world_transform_utils.GetModelTransforms(model)
 	local local_ray = transform_ray(ray, world_to_local)
 
 	if not skip_model_aabb and model.AABB then

@@ -9,18 +9,11 @@ local triangle_geometry = import("goluwa/physics/triangle_geometry.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local world_contact_collectors = {}
 
-local closest_point_on_triangle = triangle_geometry.ClosestPointOnTriangle
-local point_in_triangle = triangle_geometry.PointInTriangle
-local closest_points_segment_triangle = triangle_geometry.ClosestPointsOnSegmentTriangle
-local get_triangle_normal = triangle_geometry.GetTriangleNormal
-local transform_position = world_transform_utils.TransformPosition
-local transform_direction = world_transform_utils.TransformDirection
-
 local function build_triangle_point_contact(collider, world_point, hit, v0, v1, v2, options)
 	local epsilon = options.epsilon
 	local bias_world_contact_depth = options.bias_world_contact_depth
 	local get_support_contact_slop = options.get_support_contact_slop
-	local face_normal = get_triangle_normal(v0, v1, v2)
+	local face_normal = triangle_geometry.GetTriangleNormal(v0, v1, v2)
 
 	if face_normal:GetLength() <= epsilon then return nil end
 
@@ -29,7 +22,7 @@ local function build_triangle_point_contact(collider, world_point, hit, v0, v1, 
 
 	if
 		face_normal.y >= collider:GetMinGroundNormalY() and
-		point_in_triangle(projected_point, v0, v1, v2, face_normal)
+		triangle_geometry.PointInTriangle(projected_point, v0, v1, v2, face_normal)
 	then
 		local depth = bias_world_contact_depth(
 			collider:GetCollisionMargin() - signed_distance,
@@ -47,7 +40,7 @@ local function build_triangle_point_contact(collider, world_point, hit, v0, v1, 
 		}
 	end
 
-	local closest_point = closest_point_on_triangle(world_point, v0, v1, v2)
+	local closest_point = triangle_geometry.ClosestPointOnTriangle(world_point, v0, v1, v2)
 	local delta = world_point - closest_point
 	local distance = delta:GetLength()
 	local normal = distance > epsilon and (delta / distance) or face_normal
@@ -74,10 +67,10 @@ local function build_sphere_triangle_contact(collider, hit, v0, v1, v2, options)
 	local shape = collider:GetPhysicsShape()
 	local radius = shape and shape.GetRadius and shape:GetRadius() or 0
 	local center = collider:GetPosition()
-	local closest_point = closest_point_on_triangle(center, v0, v1, v2)
+	local closest_point = triangle_geometry.ClosestPointOnTriangle(center, v0, v1, v2)
 	local delta = center - closest_point
 	local distance = delta:GetLength()
-	local face_normal = get_triangle_normal(v0, v1, v2)
+	local face_normal = triangle_geometry.GetTriangleNormal(v0, v1, v2)
 
 	if face_normal:GetLength() <= epsilon then return nil end
 
@@ -118,7 +111,7 @@ local function build_capsule_triangle_contact(collider, hit, v0, v1, v2, options
 	local start_point = collider:LocalToWorld(shape:GetBottomSphereCenterLocal())
 	local end_point = collider:LocalToWorld(shape:GetTopSphereCenterLocal())
 	local radius = shape:GetRadius()
-	local segment_point, triangle_point, distance, triangle_normal = closest_points_segment_triangle(
+	local segment_point, triangle_point, distance, triangle_normal = triangle_geometry.ClosestPointsOnSegmentTriangle(
 		start_point,
 		end_point,
 		v0,
@@ -210,8 +203,8 @@ local function collect_brush_contacts_for_collider(body, collider, hit, world_to
 			hit,
 			world_to_local,
 			local_to_world,
-			transform_position,
-			transform_direction,
+			world_transform_utils.TransformPosition,
+			world_transform_utils.TransformDirection,
 			get_support_contact_slop,
 			bias_world_contact_depth,
 			epsilon
@@ -232,7 +225,7 @@ local function collect_brush_contacts_for_collider(body, collider, hit, world_to
 		local preferred_direction = velocity:GetLength() > epsilon and
 			(
 				world_to_local and
-				transform_direction(world_to_local, velocity) or
+				world_transform_utils.TransformDirection(world_to_local, velocity) or
 				velocity:GetNormalized()
 			)
 			or
@@ -243,7 +236,7 @@ local function collect_brush_contacts_for_collider(body, collider, hit, world_to
 			hit.primitive.brush_planes,
 			world_to_local,
 			preferred_direction,
-			transform_position,
+			world_transform_utils.TransformPosition,
 			brush_feature_epsilon,
 			epsilon
 		)
@@ -258,7 +251,7 @@ local function collect_brush_contacts_for_collider(body, collider, hit, world_to
 
 			for _, local_vertex in ipairs(body_polyhedron.vertices) do
 				local world_point = collider:LocalToWorld(local_vertex)
-				local brush_local_point = world_to_local and transform_position(world_to_local, world_point) or world_point
+				local brush_local_point = world_to_local and world_transform_utils.TransformPosition(world_to_local, world_point) or world_point
 				local signed_distance = brush_local_point:Dot(plane.normal) - plane.dist
 
 				if signed_distance > best_signed_distance + plane_vertex_tolerance then
@@ -282,10 +275,10 @@ local function collect_brush_contacts_for_collider(body, collider, hit, world_to
 						candidate.brush_local_point:Dot(plane.normal) - plane.dist
 					)
 				local projected_world = local_to_world and
-					transform_position(local_to_world, projected_local) or
+					world_transform_utils.TransformPosition(local_to_world, projected_local) or
 					projected_local
 				local normal_world = local_to_world and
-					transform_direction(local_to_world, plane.normal) or
+					world_transform_utils.TransformDirection(local_to_world, plane.normal) or
 					plane.normal
 				local target = projected_world + normal_world * collider:GetCollisionMargin()
 				local correction = target - candidate.world_point
@@ -312,7 +305,7 @@ local function collect_brush_contacts_for_collider(body, collider, hit, world_to
 
 		for _, sample in ipairs(world_contact_sampling.BuildColliderSamples(body, collider, nil, local_point_key)) do
 			local brush_local_point = world_to_local and
-				transform_position(world_to_local, sample.point) or
+				world_transform_utils.TransformPosition(world_to_local, sample.point) or
 				sample.point
 
 			for _, plane in ipairs(planes) do
@@ -321,10 +314,10 @@ local function collect_brush_contacts_for_collider(body, collider, hit, world_to
 				if signed_distance >= -plane_sample_tolerance then
 					local projected_local = brush_local_point - plane.normal * signed_distance
 					local projected_world = local_to_world and
-						transform_position(local_to_world, projected_local) or
+						world_transform_utils.TransformPosition(local_to_world, projected_local) or
 						projected_local
 					local normal_world = local_to_world and
-						transform_direction(local_to_world, plane.normal) or
+						world_transform_utils.TransformDirection(local_to_world, plane.normal) or
 						plane.normal
 					local target = projected_world + normal_world * collider:GetCollisionMargin()
 					local correction = target - sample.point
@@ -359,8 +352,8 @@ local function collect_brush_contacts_for_collider(body, collider, hit, world_to
 					world_to_local,
 					local_to_world,
 					sample.preferred_direction,
-					transform_position,
-					transform_direction,
+					world_transform_utils.TransformPosition,
+					world_transform_utils.TransformDirection,
 					brush_feature_epsilon,
 					epsilon,
 					get_support_contact_slop,
@@ -384,8 +377,8 @@ local function collect_brush_contacts_for_collider(body, collider, hit, world_to
 			world_to_local,
 			local_to_world,
 			sample.preferred_direction,
-			transform_position,
-			transform_direction,
+			world_transform_utils.TransformPosition,
+			world_transform_utils.TransformDirection,
 			brush_feature_epsilon,
 			epsilon,
 			get_support_contact_slop,

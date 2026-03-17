@@ -6,10 +6,6 @@ local CapsuleShape = import("goluwa/physics/shapes/capsule.lua")
 local SphereShape = import("goluwa/physics/shapes/sphere.lua")
 local BoxShape = import("goluwa/physics/shapes/box.lua")
 local test_helpers = import("test/tests/physics/test_helpers.lua")
-local capsule_shape = CapsuleShape.New
-local sphere_shape = SphereShape.New
-local box_shape = BoxShape.New
-local create_flat_ground = test_helpers.CreateFlatGround
 local CCD_FIXED_STEPS = {1 / 60}
 
 local function simulate_physics(steps, dt)
@@ -34,14 +30,14 @@ local function with_fixed_step(fixed_dt, callback)
 end
 
 T.Test3D("Capsule rigid body lands on ground mesh", function()
-	local ground = create_flat_ground("capsule_ground", 16)
+	local ground = test_helpers.CreateFlatGround("capsule_ground", 16)
 	local body_ent = Entity.New({Name = "capsule_body"})
 	body_ent:AddComponent("transform")
 	body_ent.transform:SetPosition(Vec3(0, 4, 0))
 	local body = body_ent:AddComponent(
 		"rigid_body",
 		{
-			Shape = capsule_shape(0.5, 2.0),
+			Shape = CapsuleShape.New(0.5, 2.0),
 			LinearDamping = 0,
 			AngularDamping = 0,
 		}
@@ -57,8 +53,8 @@ T.Test3D("Capsule rigid body lands on ground mesh", function()
 end)
 
 T.Test("Capsule shape mass properties include cylindrical section", function()
-	local short = capsule_shape(0.5, 1.0)
-	local tall = capsule_shape(0.5, 3.0)
+	local short = CapsuleShape.New(0.5, 1.0)
+	local tall = CapsuleShape.New(0.5, 3.0)
 	local mock_body = test_helpers.CreateMockBody{
 		AutomaticMass = true,
 		Density = 1,
@@ -74,14 +70,14 @@ T.Test("Capsule shape mass properties include cylindrical section", function()
 end)
 
 T.Test3D("Capsule rigid body can rest on static box", function()
-	local ground = create_flat_ground("capsule_box_ground", 16)
+	local ground = test_helpers.CreateFlatGround("capsule_box_ground", 16)
 	local box_ent = Entity.New({Name = "capsule_static_box"})
 	box_ent:AddComponent("transform")
 	box_ent.transform:SetPosition(Vec3(0, 1, 0))
 	box_ent:AddComponent(
 		"rigid_body",
 		{
-			Shape = box_shape(Vec3(2, 1, 2)),
+			Shape = BoxShape.New(Vec3(2, 1, 2)),
 			Size = Vec3(2, 1, 2),
 			MotionType = "static",
 		}
@@ -92,7 +88,7 @@ T.Test3D("Capsule rigid body can rest on static box", function()
 	local capsule = capsule_ent:AddComponent(
 		"rigid_body",
 		{
-			Shape = capsule_shape(0.5, 2.0),
+			Shape = CapsuleShape.New(0.5, 2.0),
 			LinearDamping = 0,
 			AngularDamping = 0,
 		}
@@ -108,7 +104,7 @@ T.Test3D("Capsule rigid body can rest on static box", function()
 end)
 
 T.Test3D("Capsule rigid body rolls off rotated static box instead of resting on its AABB", function()
-	local ground = create_flat_ground("capsule_rotated_box_ground", 20)
+	local ground = test_helpers.CreateFlatGround("capsule_rotated_box_ground", 20)
 	local ramp_ent = Entity.New({Name = "capsule_rotated_box"})
 	ramp_ent:AddComponent("transform")
 	ramp_ent.transform:SetPosition(Vec3(0, 1.5, 0))
@@ -116,7 +112,7 @@ T.Test3D("Capsule rigid body rolls off rotated static box instead of resting on 
 	ramp_ent:AddComponent(
 		"rigid_body",
 		{
-			Shape = box_shape(Vec3(4, 1, 4)),
+			Shape = BoxShape.New(Vec3(4, 1, 4)),
 			Size = Vec3(4, 1, 4),
 			MotionType = "static",
 		}
@@ -127,7 +123,7 @@ T.Test3D("Capsule rigid body rolls off rotated static box instead of resting on 
 	local capsule = capsule_ent:AddComponent(
 		"rigid_body",
 		{
-			Shape = capsule_shape(0.5, 2.0),
+			Shape = CapsuleShape.New(0.5, 2.0),
 			LinearDamping = 0,
 			AngularDamping = 0,
 			Friction = 0.4,
@@ -150,7 +146,7 @@ T.Test3D("Fast capsule does not tunnel through thin static box", function()
 	blocker_ent:AddComponent(
 		"rigid_body",
 		{
-			Shape = box_shape(Vec3(6, 0.2, 6)),
+			Shape = BoxShape.New(Vec3(6, 0.2, 6)),
 			Size = Vec3(6, 0.2, 6),
 			MotionType = "static",
 		}
@@ -161,7 +157,7 @@ T.Test3D("Fast capsule does not tunnel through thin static box", function()
 	local capsule = capsule_ent:AddComponent(
 		"rigid_body",
 		{
-			Shape = capsule_shape(0.5, 2.0),
+			Shape = CapsuleShape.New(0.5, 2.0),
 			LinearDamping = 0,
 			AngularDamping = 0,
 			MaxLinearSpeed = 1000,
@@ -184,7 +180,7 @@ T.Test3D("Fast capsule does not tunnel through static sphere", function()
 	blocker_ent:AddComponent(
 		"rigid_body",
 		{
-			Shape = sphere_shape(0.7),
+			Shape = SphereShape.New(0.7),
 			Radius = 0.7,
 			MotionType = "static",
 		}
@@ -195,7 +191,7 @@ T.Test3D("Fast capsule does not tunnel through static sphere", function()
 	local capsule = capsule_ent:AddComponent(
 		"rigid_body",
 		{
-			Shape = capsule_shape(0.5, 2.0),
+			Shape = CapsuleShape.New(0.5, 2.0),
 			GravityScale = 0,
 			LinearDamping = 0,
 			AngularDamping = 0,
@@ -219,7 +215,7 @@ T.Test3D("Fast sphere does not tunnel through static capsule", function()
 	blocker_ent:AddComponent(
 		"rigid_body",
 		{
-			Shape = capsule_shape(0.5, 2.0),
+			Shape = CapsuleShape.New(0.5, 2.0),
 			MotionType = "static",
 		}
 	)
@@ -229,7 +225,7 @@ T.Test3D("Fast sphere does not tunnel through static capsule", function()
 	local sphere = sphere_ent:AddComponent(
 		"rigid_body",
 		{
-			Shape = sphere_shape(0.6),
+			Shape = SphereShape.New(0.6),
 			Radius = 0.6,
 			GravityScale = 0,
 			LinearDamping = 0,
@@ -254,7 +250,7 @@ T.Test3D("Fast capsule does not tunnel through static capsule", function()
 	blocker_ent:AddComponent(
 		"rigid_body",
 		{
-			Shape = capsule_shape(0.5, 2.0),
+			Shape = CapsuleShape.New(0.5, 2.0),
 			MotionType = "static",
 		}
 	)
@@ -264,7 +260,7 @@ T.Test3D("Fast capsule does not tunnel through static capsule", function()
 	local capsule = capsule_ent:AddComponent(
 		"rigid_body",
 		{
-			Shape = capsule_shape(0.5, 2.0),
+			Shape = CapsuleShape.New(0.5, 2.0),
 			GravityScale = 0,
 			LinearDamping = 0,
 			AngularDamping = 0,
@@ -290,7 +286,7 @@ T.Test3D("Fast capsule CCD remains stable at smaller fixed steps against thin st
 			blocker_ent:AddComponent(
 				"rigid_body",
 				{
-					Shape = box_shape(Vec3(6, 0.2, 6)),
+					Shape = BoxShape.New(Vec3(6, 0.2, 6)),
 					Size = Vec3(6, 0.2, 6),
 					MotionType = "static",
 				}
@@ -301,7 +297,7 @@ T.Test3D("Fast capsule CCD remains stable at smaller fixed steps against thin st
 			local capsule = capsule_ent:AddComponent(
 				"rigid_body",
 				{
-					Shape = capsule_shape(0.5, 2.0),
+					Shape = CapsuleShape.New(0.5, 2.0),
 					LinearDamping = 0,
 					AngularDamping = 0,
 					MaxLinearSpeed = 1000,
@@ -326,7 +322,7 @@ T.Test3D("Fast capsule CCD remains stable at smaller fixed steps against static 
 			blocker_ent:AddComponent(
 				"rigid_body",
 				{
-					Shape = capsule_shape(0.5, 2.0),
+					Shape = CapsuleShape.New(0.5, 2.0),
 					MotionType = "static",
 				}
 			)
@@ -336,7 +332,7 @@ T.Test3D("Fast capsule CCD remains stable at smaller fixed steps against static 
 			local capsule = capsule_ent:AddComponent(
 				"rigid_body",
 				{
-					Shape = capsule_shape(0.5, 2.0),
+					Shape = CapsuleShape.New(0.5, 2.0),
 					GravityScale = 0,
 					LinearDamping = 0,
 					AngularDamping = 0,

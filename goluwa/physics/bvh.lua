@@ -56,7 +56,6 @@ function bvh.RayAABBIntersection(ray, bounds)
 	return tmax >= tmin and tmax >= 0 and tmin <= ray.max_distance, tmin, tmax
 end
 
-local ray_aabb_intersection = bvh.RayAABBIntersection
 
 function bvh.AABBIntersects(a, b)
 	if not (a and b) then return false end
@@ -69,8 +68,6 @@ function bvh.AABBIntersects(a, b)
 
 	return true
 end
-
-local aabb_intersects = bvh.AABBIntersects
 
 local function build_node(items, first, last, get_bounds, get_centroid, leaf_item_count)
 	local bounds = bvh.CreateEmptyBounds()
@@ -151,7 +148,7 @@ end
 
 function bvh.TraverseRay(ray, node, visit_leaf, context, closest_hit, closest_distance)
 	closest_distance = closest_distance or math.huge
-	local hit_node, node_tmin = ray_aabb_intersection(ray, node.aabb)
+	local hit_node, node_tmin = bvh.RayAABBIntersection(ray, node.aabb)
 
 	if not hit_node or node_tmin > closest_distance then
 		return closest_hit, closest_distance
@@ -176,8 +173,8 @@ function bvh.TraverseRay(ray, node, visit_leaf, context, closest_hit, closest_di
 			else
 				local left = current.left
 				local right = current.right
-				local left_hit, left_tmin = ray_aabb_intersection(ray, left.aabb)
-				local right_hit, right_tmin = ray_aabb_intersection(ray, right.aabb)
+				local left_hit, left_tmin = bvh.RayAABBIntersection(ray, left.aabb)
+				local right_hit, right_tmin = bvh.RayAABBIntersection(ray, right.aabb)
 
 				if left_hit and left_tmin <= closest_distance then
 					if right_hit and right_tmin <= closest_distance then
@@ -216,7 +213,7 @@ end
 function bvh.TraverseAABB(bounds, node, visit_leaf, context, result)
 	if not (bounds and node and visit_leaf) then return result end
 
-	if not aabb_intersects(bounds, node.aabb) then return result end
+	if not bvh.AABBIntersects(bounds, node.aabb) then return result end
 
 	local node_stack = context and context.node_stack or {}
 	node_stack[1] = node
@@ -227,19 +224,19 @@ function bvh.TraverseAABB(bounds, node, visit_leaf, context, result)
 		node_stack[stack_size] = nil
 		stack_size = stack_size - 1
 
-		if aabb_intersects(bounds, current.aabb) then
+		if bvh.AABBIntersects(bounds, current.aabb) then
 			if current.first then
 				result = visit_leaf(current, context, result)
 			else
 				local left = current.left
 				local right = current.right
 
-				if right and aabb_intersects(bounds, right.aabb) then
+				if right and bvh.AABBIntersects(bounds, right.aabb) then
 					stack_size = stack_size + 1
 					node_stack[stack_size] = right
 				end
 
-				if left and aabb_intersects(bounds, left.aabb) then
+				if left and bvh.AABBIntersects(bounds, left.aabb) then
 					stack_size = stack_size + 1
 					node_stack[stack_size] = left
 				end

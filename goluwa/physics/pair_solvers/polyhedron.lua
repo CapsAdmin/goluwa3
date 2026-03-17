@@ -196,9 +196,6 @@ local function build_polyhedron_contacts(vertices_a, vertices_b, normal)
 	)
 end
 
-local get_world_face = polyhedron_cache.GetPolyhedronWorldFace
-local find_incident_face_index = polyhedron_cache.FindIncidentFaceIndex
-
 local function build_face_contacts_from_features(
 	body_a,
 	poly_a,
@@ -217,12 +214,12 @@ local function build_face_contacts_from_features(
 	local incident_poly = reference_is_a and poly_b or poly_a
 	local incident_rotation = reference_is_a and rotation_b or rotation_a
 	local reference_normal = reference_is_a and candidate.normal or -candidate.normal
-	local reference_face = get_world_face(reference_body, reference_poly, candidate.face_index)
+	local reference_face = polyhedron_cache.GetPolyhedronWorldFace(reference_body, reference_poly, candidate.face_index)
 
 	if not reference_face then return {} end
 
-	local incident_face_index = find_incident_face_index(incident_poly, incident_rotation, reference_normal)
-	local incident_face = get_world_face(incident_body, incident_poly, incident_face_index)
+	local incident_face_index = polyhedron_cache.FindIncidentFaceIndex(incident_poly, incident_rotation, reference_normal)
+	local incident_face = polyhedron_cache.GetPolyhedronWorldFace(incident_body, incident_poly, incident_face_index)
 
 	if not incident_face then return {} end
 
@@ -252,8 +249,6 @@ local function build_edge_contacts_from_features(poly_a, vertices_a, poly_b, ver
 	local point_a, point_b = convex_manifold.ClosestPointsOnSegments(vertices_a[a1], vertices_a[a2], vertices_b[b1], vertices_b[b2])
 	return convex_manifold.BuildSingleContact(POLYHEDRON_CONTACT_OUTPUT_SCRATCH.edge_contacts, point_a, point_b)
 end
-
-local closest_point_on_triangle = triangle_geometry.ClosestPointOnTriangle
 
 local function solve_swept_polyhedron_polyhedron_collision(dynamic_body, static_body, static_polyhedron, dt)
 	if

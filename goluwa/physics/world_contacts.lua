@@ -12,18 +12,6 @@ local WORLD_CONTACT_NORMAL_DOT = 0.9
 local WORLD_MANIFOLD_MAX_CONTACTS = 8
 local WORLD_MANIFOLD_MERGE_DISTANCE = 0.08
 
-local get_contact_kind_policy = world_contact_state.GetContactKindPolicy
-local cache_contacts = world_contact_state.CacheContacts
-local age_contact_cache = world_contact_state.AgeContactCache
-local get_cached_contact_entry_for_contact = world_contact_state.GetCachedContactEntryForContact
-local try_hydrate_cached_contact = world_contact_state.TryHydrateCachedContact
-local apply_contact_patch = world_contact_resolution.ApplyContactPatch
-local apply_contact_sequence = world_contact_resolution.ApplyContactSequence
-
-local local_point_key = world_contact_cache.LocalPointKey
-local world_feature_key = world_contact_cache.WorldFeatureKey
-local triangle_local_feature_key = world_contact_cache.TriangleLocalFeatureKey
-
 local function bias_world_contact_depth(depth, slop)
 	slop = slop or 0
 
@@ -51,11 +39,11 @@ end
 
 local finalize_world_contact = world_contact_pipeline.CreateFinalizeWorldContact({
 	epsilon = EPSILON,
-	local_point_key = local_point_key,
+	local_point_key = world_contact_cache.LocalPointKey,
 	world_manifold_merge_distance = WORLD_MANIFOLD_MERGE_DISTANCE,
-	world_feature_key = world_feature_key,
-	get_cached_contact_entry_for_contact = get_cached_contact_entry_for_contact,
-	try_hydrate_cached_contact = try_hydrate_cached_contact,
+	world_feature_key = world_contact_cache.WorldFeatureKey,
+	get_cached_contact_entry_for_contact = world_contact_state.GetCachedContactEntryForContact,
+	try_hydrate_cached_contact = world_contact_state.TryHydrateCachedContact,
 })
 
 local world_manifold_contact_options = {
@@ -65,12 +53,12 @@ local world_manifold_contact_options = {
 	world_contact_triangle_slop = WORLD_CONTACT_TRIANGLE_SLOP,
 	world_manifold_merge_distance = WORLD_MANIFOLD_MERGE_DISTANCE,
 	world_manifold_max_contacts = WORLD_MANIFOLD_MAX_CONTACTS,
-	local_point_key = local_point_key,
-	triangle_local_feature_key = triangle_local_feature_key,
+	local_point_key = world_contact_cache.LocalPointKey,
+	triangle_local_feature_key = world_contact_cache.TriangleLocalFeatureKey,
 	finalize_world_contact = finalize_world_contact,
 	bias_world_contact_depth = bias_world_contact_depth,
 	get_support_contact_slop = get_support_contact_slop,
-	get_contact_kind_policy = get_contact_kind_policy,
+	get_contact_kind_policy = world_contact_state.GetContactKindPolicy,
 }
 
 local function solve_world_manifold_contacts(body, dt)
@@ -88,9 +76,9 @@ local function solve_world_manifold_contacts(body, dt)
 			contacts,
 			{
 				epsilon = EPSILON,
-				get_contact_kind_policy = get_contact_kind_policy,
+				get_contact_kind_policy = world_contact_state.GetContactKindPolicy,
 				finalize_world_contact = finalize_world_contact,
-				local_point_key = local_point_key,
+				local_point_key = world_contact_cache.LocalPointKey,
 			}
 		)
 	end
@@ -125,7 +113,7 @@ local function solve_world_manifold_contacts(body, dt)
 
 	if not contacts[1] then
 		local cached_ground_normal = world_contact_state.GetCachedSupportGroundNormal(body, kind, EPSILON)
-		age_contact_cache(body, kind)
+		world_contact_state.AgeContactCache(body, kind)
 
 		if cached_ground_normal then
 			body:SetGrounded(true)
@@ -140,12 +128,12 @@ local function solve_world_manifold_contacts(body, dt)
 	local solved
 
 	if world_contact_pipeline.ShouldUseWorldManifoldPatch(body, contacts, WORLD_CONTACT_NORMAL_DOT) then
-		solved, grounded_normal, grounded_weight = apply_contact_patch(body, contacts, dt, grounded_normal, grounded_weight)
+		solved, grounded_normal, grounded_weight = world_contact_resolution.ApplyContactPatch(body, contacts, dt, grounded_normal, grounded_weight)
 	else
-		solved, grounded_normal, grounded_weight = apply_contact_sequence(body, contacts, dt, grounded_normal, grounded_weight)
+		solved, grounded_normal, grounded_weight = world_contact_resolution.ApplyContactSequence(body, contacts, dt, grounded_normal, grounded_weight)
 	end
 
-	cache_contacts(body, kind, contacts)
+	world_contact_state.CacheContacts(body, kind, contacts)
 
 	if grounded_normal and grounded_weight > EPSILON then
 		body:SetGroundNormal((grounded_normal / grounded_weight):GetNormalized())
