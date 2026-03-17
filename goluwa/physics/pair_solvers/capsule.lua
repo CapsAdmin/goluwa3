@@ -1,11 +1,10 @@
 local Vec3 = import("goluwa/structs/vec3.lua")
 local solver = import("goluwa/physics/solver.lua")
-local physics_solver = import("goluwa/physics/solver.lua")
 local shape_accessors = import("goluwa/physics/shape_accessors.lua")
 local pair_solver_helpers = import("goluwa/physics/pair_solver_helpers.lua")
 local contact_resolution = import("goluwa/physics/contact_resolution.lua")
 local capsule = {}
-local EPSILON = physics_solver.EPSILON or 0.00001
+local EPSILON = solver.EPSILON or 0.00001
 local CCD_MIN_SAMPLE_STEPS = 12
 local CCD_MAX_SAMPLE_STEPS = 96
 local CCD_REFINE_STEPS = 14

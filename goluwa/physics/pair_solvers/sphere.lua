@@ -1,13 +1,12 @@
 local Vec3 = import("goluwa/structs/vec3.lua")
 local physics = import("goluwa/physics.lua")
 local solver = import("goluwa/physics/solver.lua")
-local physics_solver = import("goluwa/physics/solver.lua")
 local shape_accessors = import("goluwa/physics/shape_accessors.lua")
 local pair_solver_helpers = import("goluwa/physics/pair_solver_helpers.lua")
 local contact_resolution = import("goluwa/physics/contact_resolution.lua")
 local polyhedron_solver = import("goluwa/physics/pair_solvers/polyhedron.lua")
 local sphere = {}
-local EPSILON = physics_solver.EPSILON or 0.00001
+local EPSILON = solver.EPSILON or 0.00001
 
 local function solve_sphere_pair_collision(body_a, body_b, dt)
 	if body_a == body_b then return end
