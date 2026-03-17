@@ -1,7 +1,7 @@
-local world_contact_cache = import("goluwa/physics/world_contact_cache.lua")
-local world_contact_collectors = import("goluwa/physics/world_contact_collectors.lua")
-local world_contact_scene = import("goluwa/physics/world_contact_scene.lua")
-local world_contact_resolution = import("goluwa/physics/world_contact_resolution.lua")
+local world_contact_cache = import("goluwa/physics/world_contact/cache.lua")
+local world_contact_collectors = import("goluwa/physics/world_contact/collectors.lua")
+local world_contact_scene = import("goluwa/physics/world_contact/scene.lua")
+local world_contact_resolution = import("goluwa/physics/world_contact/resolution.lua")
 local world_contact_pipeline = {}
 
 local function merge_world_contact(contacts, contact, options)

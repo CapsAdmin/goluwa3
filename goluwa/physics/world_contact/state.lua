@@ -1,5 +1,5 @@
 local physics = import("goluwa/physics.lua")
-local world_contact_cache = import("goluwa/physics/world_contact_cache.lua")
+local world_contact_cache = import("goluwa/physics/world_contact/cache.lua")
 local world_contact_state = {}
 local EPSILON = 0.00001
 local WORLD_CONTACT_TANGENT_LIMIT = 0.08

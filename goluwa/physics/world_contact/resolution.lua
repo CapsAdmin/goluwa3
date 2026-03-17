@@ -1,6 +1,6 @@
 local physics = import("goluwa/physics.lua")
 local motion = import("goluwa/physics/motion.lua")
-local world_contact_cache = import("goluwa/physics/world_contact_cache.lua")
+local world_contact_cache = import("goluwa/physics/world_contact/cache.lua")
 local world_contact_resolution = {}
 local EPSILON = 0.00001
 local WORLD_TANGENT_WARM_START_SCALE = 0.15
