@@ -2,14 +2,6 @@ local AABB = import("goluwa/structs/aabb.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local world_transform_utils = {}
 
-function world_transform_utils.TransformDirection(matrix, direction)
-	if not matrix then return direction:GetNormalized() end
-
-	local origin = Vec3(matrix:TransformVectorUnpacked(0, 0, 0))
-	local tip = Vec3(matrix:TransformVectorUnpacked(direction.x, direction.y, direction.z))
-	return (tip - origin):GetNormalized()
-end
-
 function world_transform_utils.GetModelTransforms(model)
 	if model.WorldSpaceVertices then return nil, nil end
 
