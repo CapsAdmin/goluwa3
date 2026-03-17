@@ -1,17 +1,12 @@
+local AABB = import("goluwa/structs/aabb.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local world_transform_utils = {}
-
-function world_transform_utils.TransformPosition(matrix, point)
-	if not matrix then return point:Copy() end
-
-	return Vec3(matrix:TransformVector(point.x, point.y, point.z))
-end
 
 function world_transform_utils.TransformDirection(matrix, direction)
 	if not matrix then return direction:GetNormalized() end
 
-	local origin = Vec3(matrix:TransformVector(0, 0, 0))
-	local tip = Vec3(matrix:TransformVector(direction.x, direction.y, direction.z))
+	local origin = Vec3(matrix:TransformVectorUnpacked(0, 0, 0))
+	local tip = Vec3(matrix:TransformVectorUnpacked(direction.x, direction.y, direction.z))
 	return (tip - origin):GetNormalized()
 end
 
@@ -42,7 +37,7 @@ function world_transform_utils.BuildLocalAABBFromWorldAABB(world_aabb, world_to_
 	}
 
 	for i = 1, #corners do
-		local point = world_transform_utils.TransformPosition(world_to_local, corners[i])
+		local point = world_to_local:TransformVector(corners[i])
 		local_min.x = math.min(local_min.x, point.x)
 		local_min.y = math.min(local_min.y, point.y)
 		local_min.z = math.min(local_min.z, point.z)
@@ -51,14 +46,14 @@ function world_transform_utils.BuildLocalAABBFromWorldAABB(world_aabb, world_to_
 		local_max.z = math.max(local_max.z, point.z)
 	end
 
-	return {
-		min_x = local_min.x,
-		min_y = local_min.y,
-		min_z = local_min.z,
-		max_x = local_max.x,
-		max_y = local_max.y,
-		max_z = local_max.z,
-	}
+	return AABB(
+		local_min.x,
+		local_min.y,
+		local_min.z,
+		local_max.x,
+		local_max.y,
+		local_max.z
+	)
 end
 
 function world_transform_utils.AABBIntersects(a, b)

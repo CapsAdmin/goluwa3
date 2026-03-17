@@ -113,9 +113,9 @@ function world_contact_triangles.ForEachOverlappingWorldTriangle(poly, local_bod
 			v2_local and
 			triangle_overlaps_local_aabb(v0_local, v1_local, v2_local, local_body_aabb)
 		then
-			local v0 = local_to_world and world_transform_utils.TransformPosition(local_to_world, v0_local) or v0_local
-			local v1 = local_to_world and world_transform_utils.TransformPosition(local_to_world, v1_local) or v1_local
-			local v2 = local_to_world and world_transform_utils.TransformPosition(local_to_world, v2_local) or v2_local
+			local v0 = local_to_world and local_to_world:TransformVector(v0_local) or v0_local
+			local v1 = local_to_world and local_to_world:TransformVector(v1_local) or v1_local
+			local v2 = local_to_world and local_to_world:TransformVector(v2_local) or v2_local
 			callback(v0, v1, v2, triangle_index, ...)
 		end
 	end

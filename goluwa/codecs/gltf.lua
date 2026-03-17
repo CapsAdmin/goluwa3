@@ -736,7 +736,7 @@ function gltf.ComputeSceneBounds(gltf_result, node_to_entity)
 
 					for _, corner in ipairs(corners) do
 						-- Transform by world matrix (in glTF coordinates)
-						local tx, ty, tz = world_matrix:TransformVector(corner[1], corner[2], corner[3])
+						local tx, ty, tz = world_matrix:TransformVectorUnpacked(corner[1], corner[2], corner[3])
 						-- Convert to our coordinate system
 						local our_x, our_y, our_z = tx, ty, tz
 						min_x = math.min(min_x, our_x)

@@ -187,7 +187,7 @@ function META:GetWorldAABB()
 	local world_aabb = AABB(math.huge, math.huge, math.huge, -math.huge, -math.huge, -math.huge)
 
 	for _, corner in ipairs(corners) do
-		local wx, wy, wz = world_matrix:TransformVector(corner[1], corner[2], corner[3])
+		local wx, wy, wz = world_matrix:TransformVectorUnpacked(corner[1], corner[2], corner[3])
 
 		if wx < world_aabb.min_x then world_aabb.min_x = wx end
 

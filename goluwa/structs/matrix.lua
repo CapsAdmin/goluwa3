@@ -686,23 +686,23 @@ do -- 44
 		end
 	end
 
-	-- Optimized TransformVector using local caching for better LuaJIT performance
-	function META:TransformVector(x, y, z)
-		-- Cache matrix values in locals for better register allocation
-		local m00, m01, m02, m03 = self.m00, self.m01, self.m02, self.m03
-		local m10, m11, m12, m13 = self.m10, self.m11, self.m12, self.m13
-		local m20, m21, m22, m23 = self.m20, self.m21, self.m22, self.m23
-		local m30, m31, m32, m33 = self.m30, self.m31, self.m32, self.m33
-		local div = x * m03 + y * m13 + z * m23 + m33
-		return (x * m00 + y * m10 + z * m20 + m30) / div,
-		(x * m01 + y * m11 + z * m21 + m31) / div,
-		(x * m02 + y * m12 + z * m22 + m32) / div
+	function META:TransformVectorUnpacked(x, y, z)
+		local div = x * self.m03 + y * self.m13 + z * self.m23 + self.m33
+		return (x * self.m00 + y * self.m10 + z * self.m20 + self.m30) / div,
+		(x * self.m01 + y * self.m11 + z * self.m21 + self.m31) / div,
+		(x * self.m02 + y * self.m12 + z * self.m22 + self.m32) / div
 	end
 
-	function META:TransformPoint(x, y, z)
-		return self.m00 * x + self.m01 * y + self.m02 * z + self.m03,
-		self.m10 * x + self.m11 * y + self.m12 * z + self.m13,
-		self.m20 * x + self.m21 * y + self.m22 * z + self.m23
+	local Vec3 = import("goluwa/structs/vec3.lua")
+
+	function META:TransformVector(vec)
+		return Vec3(self:TransformVectorUnpacked(vec.x, vec.y, vec.z))
+	end
+
+	function META:TransformDirection(vec)
+		local origin = self:TransformVector(0, 0, 0)
+		local tip = self:TransformVector(vec)
+		return (tip - origin):GetNormalized()
 	end
 
 	local Quat = import("goluwa/structs/quat.lua")
@@ -879,14 +879,28 @@ for X = 2, 4 do
 					return META.GetScaled(self, scalar, out or self)
 				end
 
-				function META:TransformVector(x, y, z)
+				function META:TransformVectorUnpacked(x, y, z)
 					return self.m00 * x + self.m01 * y + self.m02 * z,
 					self.m10 * x + self.m11 * y + self.m12 * z,
 					self.m20 * x + self.m21 * y + self.m22 * z
 				end
 
+				function META:TransformVector(vec)
+					return Vec3(self:TransformVectorUnpacked(vec.x, vec.y, vec.z))
+				end
+
+				function META:TransformDirection(vec)
+					local origin = self:TransformVector(0, 0, 0)
+					local tip = self:TransformVector(vec)
+					return (tip - origin):GetNormalized()
+				end
+
+				function META:TransformVector(vec)
+					return Vec3(self:TransformVectorUnpacked(vec.x, vec.y, vec.z))
+				end
+
 				function META:VecMul(vec, out)
-					local x, y, z = self:TransformVector(vec.x, vec.y, vec.z)
+					local x, y, z = self:TransformVectorUnpacked(vec.x, vec.y, vec.z)
 					out = out or Vec3()
 					out.x = x
 					out.y = y

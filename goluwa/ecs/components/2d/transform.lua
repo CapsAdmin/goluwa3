@@ -111,10 +111,10 @@ function META:GetWorldBounds(x, y, w, h)
 	w = w or self.Size.x
 	h = h or self.Size.y
 	local mat = self:GetWorldMatrix()
-	local x1, y1 = mat:TransformVector(x, y, 0)
-	local x2, y2 = mat:TransformVector(x + w, y, 0)
-	local x3, y3 = mat:TransformVector(x, y + h, 0)
-	local x4, y4 = mat:TransformVector(x + w, y + h, 0)
+	local x1, y1 = mat:TransformVectorUnpacked(x, y, 0)
+	local x2, y2 = mat:TransformVectorUnpacked(x + w, y, 0)
+	local x3, y3 = mat:TransformVectorUnpacked(x, y + h, 0)
+	local x4, y4 = mat:TransformVectorUnpacked(x + w, y + h, 0)
 	return math.min(x1, x2, x3, x4),
 	math.min(y1, y2, y3, y4),
 	math.max(x1, x2, x3, x4),
@@ -164,10 +164,10 @@ function META:GetVisibleLocalRect(x, y, w, h)
 	if not viewport_x1 then return x, y, x + w, y + h, false end
 
 	local inv = self:GetWorldMatrixInverse()
-	local lx1, ly1 = inv:TransformVector(viewport_x1, viewport_y1, 0)
-	local lx2, ly2 = inv:TransformVector(viewport_x2, viewport_y1, 0)
-	local lx3, ly3 = inv:TransformVector(viewport_x1, viewport_y2, 0)
-	local lx4, ly4 = inv:TransformVector(viewport_x2, viewport_y2, 0)
+	local lx1, ly1 = inv:TransformVectorUnpacked(viewport_x1, viewport_y1, 0)
+	local lx2, ly2 = inv:TransformVectorUnpacked(viewport_x2, viewport_y1, 0)
+	local lx3, ly3 = inv:TransformVectorUnpacked(viewport_x1, viewport_y2, 0)
+	local lx4, ly4 = inv:TransformVectorUnpacked(viewport_x2, viewport_y2, 0)
 	local local_x1 = math.min(lx1, lx2, lx3, lx4)
 	local local_y1 = math.min(ly1, ly2, ly3, ly4)
 	local local_x2 = math.max(lx1, lx2, lx3, lx4)
@@ -223,7 +223,7 @@ function META:GetLocalMatrix()
 			local p = Matrix44()
 			p:Identity()
 			-- CSS perspective projection: divides x,y by (1 - z/d)
-			-- In TransformVector: w = z * m23 + m33, then x/w, y/w
+			-- In TransformVectorUnpacked: w = z * m23 + m33, then x/w, y/w
 			-- For w = 1 - z/d: m23 = -1/d, m33 = 1
 			p.m23 = -1 / perspective
 			self.LocalMatrix = p * self.LocalMatrix
@@ -285,7 +285,7 @@ end
 
 function META:GlobalToLocal(vec, out)
 	local mat = self:GetWorldMatrixInverse()
-	local x, y, z = mat:TransformVector(vec.x, vec.y, vec.z or 0)
+	local x, y, z = mat:TransformVectorUnpacked(vec.x, vec.y, vec.z or 0)
 
 	if out then
 		out.x = x

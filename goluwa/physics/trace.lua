@@ -212,9 +212,9 @@ local function get_triangle_world_vertices(poly, triangle_index, entity)
 
 	if entity and entity.transform then
 		local world = entity.transform:GetWorldMatrix()
-		v0 = Vec3(world:TransformVector(v0.x, v0.y, v0.z))
-		v1 = Vec3(world:TransformVector(v1.x, v1.y, v1.z))
-		v2 = Vec3(world:TransformVector(v2.x, v2.y, v2.z))
+		v0 = world:TransformVector(v0)
+		v1 = world:TransformVector(v1)
+		v2 = world:TransformVector(v2)
 	end
 
 	return v0, v1, v2, i0, i1, i2

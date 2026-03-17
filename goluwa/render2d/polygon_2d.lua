@@ -91,7 +91,7 @@ function Polygon2D:SetVertex(i, x, y, u, v)
 	end
 
 	if self.WorldMatrixMultiply then
-		x, y = render2d.GetWorldMatrix():TransformVector(x, y, 0)
+		x, y = render2d.GetWorldMatrix():TransformVectorUnpacked(x, y, 0)
 	end
 
 	local vtx = self.vertex_buffer:GetVertices()

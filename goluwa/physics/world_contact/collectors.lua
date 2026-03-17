@@ -269,8 +269,6 @@ local function collect_brush_contacts_for_collider(body, collider, hit, world_to
 			hit,
 			world_to_local,
 			local_to_world,
-			world_transform_utils.TransformPosition,
-			world_transform_utils.TransformDirection,
 			get_support_contact_slop,
 			bias_world_contact_depth,
 			epsilon
@@ -291,7 +289,7 @@ local function collect_brush_contacts_for_collider(body, collider, hit, world_to
 		local preferred_direction = velocity:GetLength() > epsilon and
 			(
 				world_to_local and
-				world_transform_utils.TransformDirection(world_to_local, velocity) or
+				world_to_local:TransformDirection(velocity) or
 				velocity:GetNormalized()
 			)
 			or
@@ -317,7 +315,7 @@ local function collect_brush_contacts_for_collider(body, collider, hit, world_to
 
 			for _, local_vertex in ipairs(body_polyhedron.vertices) do
 				local world_point = collider:LocalToWorld(local_vertex)
-				local brush_local_point = world_to_local and world_transform_utils.TransformPosition(world_to_local, world_point) or world_point
+				local brush_local_point = world_to_local and world_to_local:TransformVector(world_point) or world_point
 				local signed_distance = brush_local_point:Dot(plane.normal) - plane.dist
 
 				if signed_distance > best_signed_distance + plane_vertex_tolerance then
@@ -341,10 +339,10 @@ local function collect_brush_contacts_for_collider(body, collider, hit, world_to
 						candidate.brush_local_point:Dot(plane.normal) - plane.dist
 					)
 				local projected_world = local_to_world and
-					world_transform_utils.TransformPosition(local_to_world, projected_local) or
+					local_to_world:TransformVector(projected_local) or
 					projected_local
 				local normal_world = local_to_world and
-					world_transform_utils.TransformDirection(local_to_world, plane.normal) or
+					local_to_world:TransformDirection(plane.normal) or
 					plane.normal
 				local target = projected_world + normal_world * collider:GetCollisionMargin()
 				local correction = target - candidate.world_point
@@ -371,7 +369,7 @@ local function collect_brush_contacts_for_collider(body, collider, hit, world_to
 
 		for _, sample in ipairs(world_contact_sampling.BuildColliderSamples(body, collider, nil, local_point_key)) do
 			local brush_local_point = world_to_local and
-				world_transform_utils.TransformPosition(world_to_local, sample.point) or
+				world_to_local:TransformVector(sample.point) or
 				sample.point
 
 			for _, plane in ipairs(planes) do
@@ -380,10 +378,10 @@ local function collect_brush_contacts_for_collider(body, collider, hit, world_to
 				if signed_distance >= -plane_sample_tolerance then
 					local projected_local = brush_local_point - plane.normal * signed_distance
 					local projected_world = local_to_world and
-						world_transform_utils.TransformPosition(local_to_world, projected_local) or
+						local_to_world:TransformVector(projected_local) or
 						projected_local
 					local normal_world = local_to_world and
-						world_transform_utils.TransformDirection(local_to_world, plane.normal) or
+						local_to_world:TransformDirection(plane.normal) or
 						plane.normal
 					local target = projected_world + normal_world * collider:GetCollisionMargin()
 					local correction = target - sample.point
@@ -418,8 +416,6 @@ local function collect_brush_contacts_for_collider(body, collider, hit, world_to
 					world_to_local,
 					local_to_world,
 					sample.preferred_direction,
-					world_transform_utils.TransformPosition,
-					world_transform_utils.TransformDirection,
 					brush_feature_epsilon,
 					epsilon,
 					get_support_contact_slop,
@@ -443,8 +439,6 @@ local function collect_brush_contacts_for_collider(body, collider, hit, world_to
 			world_to_local,
 			local_to_world,
 			sample.preferred_direction,
-			world_transform_utils.TransformPosition,
-			world_transform_utils.TransformDirection,
 			brush_feature_epsilon,
 			epsilon,
 			get_support_contact_slop,

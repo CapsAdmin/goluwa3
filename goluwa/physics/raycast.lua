@@ -34,7 +34,7 @@ end
 local function transform_ray(ray, world_to_local)
 	if not world_to_local then return ray end
 
-	local local_origin = Vec3(world_to_local:TransformVector(ray.origin.x, ray.origin.y, ray.origin.z))
+	local local_origin = world_to_local:TransformVector(ray.origin)
 	local m = world_to_local
 	local dx, dy, dz = ray.direction.x, ray.direction.y, ray.direction.z
 	local local_dir_x = m.m00 * dx + m.m10 * dy + m.m20 * dz
@@ -637,16 +637,16 @@ local function test_primitive_with_limit(
 	if closest_hit and local_to_world then
 		local local_position = closest_hit.position
 		closest_hit.position = Vec3(
-			local_to_world:TransformVector(local_position.x, local_position.y, local_position.z)
+			local_to_world:TransformVectorUnpacked(local_position.x, local_position.y, local_position.z)
 		)
 		local normal_end = local_position + closest_hit.normal
-		local world_normal_end = Vec3(local_to_world:TransformVector(normal_end.x, normal_end.y, normal_end.z))
+		local world_normal_end = Vec3(local_to_world:TransformVectorUnpacked(normal_end.x, normal_end.y, normal_end.z))
 		closest_hit.normal = (world_normal_end - closest_hit.position):GetNormalized()
 
 		if closest_hit.face_normal then
 			local local_face_end = local_position + closest_hit.face_normal
 			local world_face_end = Vec3(
-				local_to_world:TransformVector(local_face_end.x, local_face_end.y, local_face_end.z)
+				local_to_world:TransformVectorUnpacked(local_face_end.x, local_face_end.y, local_face_end.z)
 			)
 			closest_hit.face_normal = (world_face_end - closest_hit.position):GetNormalized()
 		end
