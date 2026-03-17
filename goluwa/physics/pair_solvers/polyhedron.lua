@@ -11,7 +11,7 @@ local convex_sat = import("goluwa/physics/convex_sat.lua")
 local polyhedron_cache = import("goluwa/physics/polyhedron_cache.lua")
 local triangle_geometry = import("goluwa/physics/triangle_geometry.lua")
 local polyhedron = {}
-local EPSILON = solver.EPSILON or 0.00001
+
 local FACE_CONTACT_SEPARATION_TOLERANCE = 0.08
 local FACE_AXIS_RELATIVE_TOLERANCE = 1.05
 local FACE_AXIS_ABSOLUTE_TOLERANCE = 0.03
@@ -129,7 +129,7 @@ local function update_face_axis_candidates(best, vertices_a, vertices_b, poly_da
 			},
 			nil,
 			false,
-			EPSILON
+			physics.EPSILON
 		)
 	end
 
@@ -164,7 +164,7 @@ local function update_edge_axis_candidates(
 				},
 				nil,
 				true,
-				EPSILON
+				physics.EPSILON
 			)
 		end
 	end
@@ -261,7 +261,7 @@ local function solve_swept_polyhedron_polyhedron_collision(dynamic_body, static_
 	local current_position = dynamic_body:GetPosition()
 	local movement = current_position - previous_position
 
-	if movement:GetLength() <= EPSILON then return false end
+	if movement:GetLength() <= physics.EPSILON then return false end
 
 	local earliest_hit
 
@@ -442,7 +442,7 @@ local function solve_relative_swept_polyhedron_pair_collision(body_a, body_b, po
 	local movement_b = current_position_b - previous_position_b
 	local relative_movement = movement_a - movement_b
 
-	if relative_movement:GetLength() <= EPSILON then return false end
+	if relative_movement:GetLength() <= physics.EPSILON then return false end
 
 	local previous_rotation_a = body_a:GetPreviousRotation()
 	local previous_rotation_b = body_b:GetPreviousRotation()

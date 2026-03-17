@@ -5,9 +5,8 @@ local broadphase = import("goluwa/physics/broadphase.lua")
 local solver = physics.Solver or {}
 physics.Solver = solver
 import.loaded["goluwa/physics/solver.lua"] = solver
-local EPSILON = solver.EPSILON or 0.00001
+
 local MANIFOLD_PRUNE_STEPS = solver.MANIFOLD_PRUNE_STEPS or 12
-solver.EPSILON = EPSILON
 solver.MANIFOLD_PRUNE_STEPS = MANIFOLD_PRUNE_STEPS
 solver.WARM_START_SCALE = solver.WARM_START_SCALE or 0.9
 solver.PersistentManifolds = solver.PersistentManifolds or {}
@@ -139,11 +138,11 @@ local function is_simple_body(collider_list)
 	local collider = collider_list[1]
 	local local_position = collider:GetLocalPosition()
 	local local_rotation = collider:GetLocalRotation()
-	return local_position:GetLength() <= EPSILON and
-		math.abs(local_rotation.x) <= EPSILON and
-		math.abs(local_rotation.y) <= EPSILON and
-		math.abs(local_rotation.z) <= EPSILON and
-		math.abs(local_rotation.w - 1) <= EPSILON
+	return local_position:GetLength() <= physics.EPSILON and
+		math.abs(local_rotation.x) <= physics.EPSILON and
+		math.abs(local_rotation.y) <= physics.EPSILON and
+		math.abs(local_rotation.z) <= physics.EPSILON and
+		math.abs(local_rotation.w - 1) <= physics.EPSILON
 end
 
 local function solve_rigid_body_pair(body_a, body_b, entry_a, entry_b, dt)

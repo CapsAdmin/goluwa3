@@ -4,7 +4,6 @@ local physics = import("goluwa/physics.lua")
 local motion = import("goluwa/physics/motion.lua")
 local DistanceConstraint = {}
 DistanceConstraint.__index = DistanceConstraint
-local EPSILON = 0.000001
 
 local function integrate_rotation(rotation, angular_velocity, dt)
 	if angular_velocity:GetLength() == 0 then return rotation:Copy() end
@@ -152,12 +151,12 @@ function DistanceConstraint:GetSolveDirection(world_pos0, world_pos1)
 	local delta = world_pos1 - world_pos0
 	local length = delta:GetLength()
 
-	if length > EPSILON then
+	if length > physics.EPSILON then
 		self.LastDirection = delta / length
 		return self.LastDirection, length
 	end
 
-	if self.LastDirection and self.LastDirection:GetLength() > EPSILON then
+	if self.LastDirection and self.LastDirection:GetLength() > physics.EPSILON then
 		return self.LastDirection, 0
 	end
 
@@ -165,7 +164,7 @@ function DistanceConstraint:GetSolveDirection(world_pos0, world_pos1)
 		local body_delta = self.Body1.Position - self.Body0.Position
 		local body_length = body_delta:GetLength()
 
-		if body_length > EPSILON then
+		if body_length > physics.EPSILON then
 			self.LastDirection = body_delta / body_length
 			return self.LastDirection, 0
 		end
@@ -188,7 +187,7 @@ function DistanceConstraint:Solve(dt)
 
 	if not error then return 0 end
 
-	if math.abs(error) <= EPSILON then
+	if math.abs(error) <= physics.EPSILON then
 		if self.Unilateral then self.AccumulatedLambda = 0 end
 
 		return 0

@@ -9,7 +9,7 @@ local convex_face_clipping = import("goluwa/physics/convex_face_clipping.lua")
 local convex_sat = import("goluwa/physics/convex_sat.lua")
 local polyhedron_solver = import("goluwa/physics/pair_solvers/polyhedron.lua")
 local box = {}
-local EPSILON = solver.EPSILON or 0.00001
+
 local FACE_AXIS_RELATIVE_TOLERANCE = 1.05
 local FACE_AXIS_ABSOLUTE_TOLERANCE = 0.03
 local FACE_CONTACT_SEPARATION_TOLERANCE = 0.08
@@ -226,7 +226,7 @@ end
 local function test_obb_axis(axis, delta, extents_a, axes_a, extents_b, axes_b, best, candidate)
 	local axis_length = axis:GetLength()
 
-	if axis_length <= EPSILON then return true end
+	if axis_length <= physics.EPSILON then return true end
 
 	local normal = axis / axis_length
 	local distance = delta:Dot(normal)
@@ -476,7 +476,7 @@ local function solve_swept_box_box_collision(dynamic_body, static_body, dt)
 	local current_position = dynamic_body:GetPosition()
 	local movement = current_position - previous_position
 
-	if movement:GetLength() <= EPSILON then return false end
+	if movement:GetLength() <= physics.EPSILON then return false end
 
 	local earliest_hit
 

@@ -2,7 +2,6 @@ local physics = import("goluwa/physics.lua")
 local motion = import("goluwa/physics/motion.lua")
 local world_contact_cache = import("goluwa/physics/world_contact/cache.lua")
 local world_contact_resolution = {}
-local EPSILON = 0.00001
 local WORLD_TANGENT_WARM_START_SCALE = 0.15
 local WORLD_MAX_TANGENT_WARM_SPEED = 0.25
 
@@ -28,7 +27,7 @@ function world_contact_resolution.ApplyStaticContactImpulse(body, point, normal,
 	local previous_tangent_impulse = allow_persistent_tangent and (contact.tangent_impulse or 0) or 0
 	local tangent_warmed = false
 
-	if tangent and math.abs(previous_tangent_impulse) > EPSILON then
+	if tangent and math.abs(previous_tangent_impulse) > physics.EPSILON then
 		local tangent_speed = math.abs(point_velocity:Dot(tangent))
 
 		if tangent_speed <= WORLD_MAX_TANGENT_WARM_SPEED then
@@ -41,10 +40,10 @@ function world_contact_resolution.ApplyStaticContactImpulse(body, point, normal,
 		end
 	end
 
-	if normal_speed < -EPSILON then
+	if normal_speed < -physics.EPSILON then
 		local inverse_mass = body:GetInverseMassAlong(normal, point)
 
-		if inverse_mass > EPSILON then
+		if inverse_mass > physics.EPSILON then
 			normal_impulse = -normal_speed / inverse_mass
 			body:ApplyImpulse(normal * normal_impulse, point)
 			point_velocity = get_point_velocity(body, point)
@@ -55,7 +54,7 @@ function world_contact_resolution.ApplyStaticContactImpulse(body, point, normal,
 	local tangent_velocity = point_velocity - normal * point_velocity:Dot(normal)
 	local tangent_speed = tangent_velocity:GetLength()
 
-	if tangent_speed <= EPSILON then
+	if tangent_speed <= physics.EPSILON then
 		if contact then
 			contact.tangent_impulse = 0
 			contact.tangent = nil
@@ -82,7 +81,7 @@ function world_contact_resolution.ApplyStaticContactImpulse(body, point, normal,
 	tangent = tangent_velocity / tangent_speed
 	local tangent_inverse_mass = body:GetInverseMassAlong(tangent, point)
 
-	if tangent_inverse_mass <= EPSILON then return end
+	if tangent_inverse_mass <= physics.EPSILON then return end
 
 	local tangent_impulse = -point_velocity:Dot(tangent) / tangent_inverse_mass
 	local max_friction_impulse = math.max(normal_impulse, 0.05) * friction
@@ -99,7 +98,7 @@ function world_contact_resolution.ApplyStaticContactImpulse(body, point, normal,
 		tangent_impulse = math.max(-max_friction_impulse, math.min(max_friction_impulse, tangent_impulse))
 	end
 
-	if math.abs(tangent_impulse) > EPSILON then
+	if math.abs(tangent_impulse) > physics.EPSILON then
 		body:ApplyImpulse(tangent * tangent_impulse, point)
 		applied_impulse = true
 	elseif contact and tangent_warmed then

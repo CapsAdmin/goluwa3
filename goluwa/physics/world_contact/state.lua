@@ -1,7 +1,6 @@
 local physics = import("goluwa/physics.lua")
 local world_contact_cache = import("goluwa/physics/world_contact/cache.lua")
 local world_contact_state = {}
-local EPSILON = 0.00001
 local WORLD_CONTACT_TANGENT_LIMIT = 0.08
 local WORLD_CONTACT_NORMAL_DOT = 0.9
 
@@ -160,7 +159,7 @@ end
 
 function world_contact_state.CollectCachedManifoldContacts(body, kind, contacts, options)
 	options = options or {}
-	local epsilon = options.epsilon or EPSILON
+	local epsilon = options.epsilon or physics.EPSILON
 	local finalize_world_contact = options.finalize_world_contact
 	local bias_world_contact_depth = options.bias_world_contact_depth
 	local get_support_contact_slop = options.get_support_contact_slop
@@ -240,7 +239,7 @@ function world_contact_state.CollectCachedManifoldContacts(body, kind, contacts,
 end
 
 function world_contact_state.GetCachedSupportGroundNormal(body, kind, epsilon)
-	epsilon = epsilon or EPSILON
+	epsilon = epsilon or physics.EPSILON
 	local state = world_contact_state.GetContactState(body, kind)
 	local velocity = body:GetVelocity()
 	local angular_speed = body:GetAngularVelocity():GetLength()

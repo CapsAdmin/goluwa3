@@ -1,11 +1,12 @@
+local physics = import("goluwa/physics.lua")
 local solver = import("goluwa/physics/solver.lua")
 local convex_sat = {}
-local EPSILON = solver.EPSILON or 0.00001
+
 
 function convex_sat.AddUniqueAxis(axes, axis, duplicate_dot_threshold)
 	local axis_length = axis:GetLength()
 
-	if axis_length <= EPSILON then return end
+	if axis_length <= physics.EPSILON then return end
 
 	local normalized = axis / axis_length
 	duplicate_dot_threshold = duplicate_dot_threshold or 0.995
@@ -46,7 +47,7 @@ function convex_sat.TryUpdateAxis(best, vertices_a, vertices_b, axis, center_del
 	if normalize then
 		local axis_length = axis:GetLength()
 
-		if axis_length <= (epsilon or EPSILON) then return false end
+		if axis_length <= (epsilon or physics.EPSILON) then return false end
 
 		resolved_axis = axis / axis_length
 	end

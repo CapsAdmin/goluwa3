@@ -3,8 +3,8 @@ local world_contact_pipeline = import("goluwa/physics/world_contact/pipeline.lua
 local world_contact_resolution = import("goluwa/physics/world_contact/resolution.lua")
 local world_contact_state = import("goluwa/physics/world_contact/state.lua")
 local world_contact_sampling = import("goluwa/physics/world_contact/sampling.lua")
+local physics = import("goluwa/physics.lua")
 local world_contacts = {}
-local EPSILON = 0.00001
 local BRUSH_FEATURE_EPSILON = 0.05
 local WORLD_CONTACT_BRUSH_SLOP = 0.03
 local WORLD_CONTACT_TRIANGLE_SLOP = 0.05
@@ -38,7 +38,7 @@ local function get_support_contact_slop(body, normal, hit)
 end
 
 local finalize_world_contact = world_contact_pipeline.CreateFinalizeWorldContact({
-	epsilon = EPSILON,
+	epsilon = physics.EPSILON,
 	local_point_key = world_contact_cache.LocalPointKey,
 	world_manifold_merge_distance = WORLD_MANIFOLD_MERGE_DISTANCE,
 	world_feature_key = world_contact_cache.WorldFeatureKey,
@@ -48,7 +48,7 @@ local finalize_world_contact = world_contact_pipeline.CreateFinalizeWorldContact
 
 local world_manifold_contact_options = {
 	kind = "manifold",
-	epsilon = EPSILON,
+	epsilon = physics.EPSILON,
 	brush_feature_epsilon = BRUSH_FEATURE_EPSILON,
 	world_contact_triangle_slop = WORLD_CONTACT_TRIANGLE_SLOP,
 	world_manifold_merge_distance = WORLD_MANIFOLD_MERGE_DISTANCE,
@@ -75,7 +75,7 @@ local function solve_world_manifold_contacts(body, dt)
 			kind,
 			contacts,
 			{
-				epsilon = EPSILON,
+				epsilon = physics.EPSILON,
 				get_contact_kind_policy = world_contact_state.GetContactKindPolicy,
 				finalize_world_contact = finalize_world_contact,
 				local_point_key = world_contact_cache.LocalPointKey,
@@ -89,7 +89,7 @@ local function solve_world_manifold_contacts(body, dt)
 			kind,
 			contacts,
 			{
-				epsilon = EPSILON,
+				epsilon = physics.EPSILON,
 				finalize_world_contact = finalize_world_contact,
 				bias_world_contact_depth = bias_world_contact_depth,
 				get_support_contact_slop = get_support_contact_slop,
@@ -103,7 +103,7 @@ local function solve_world_manifold_contacts(body, dt)
 			kind,
 			contacts,
 			{
-				epsilon = EPSILON,
+				epsilon = physics.EPSILON,
 				finalize_world_contact = finalize_world_contact,
 				bias_world_contact_depth = bias_world_contact_depth,
 				get_support_contact_slop = get_support_contact_slop,
@@ -112,7 +112,7 @@ local function solve_world_manifold_contacts(body, dt)
 	end
 
 	if not contacts[1] then
-		local cached_ground_normal = world_contact_state.GetCachedSupportGroundNormal(body, kind, EPSILON)
+		local cached_ground_normal = world_contact_state.GetCachedSupportGroundNormal(body, kind, physics.EPSILON)
 		world_contact_state.AgeContactCache(body, kind)
 
 		if cached_ground_normal then
@@ -135,7 +135,7 @@ local function solve_world_manifold_contacts(body, dt)
 
 	world_contact_state.CacheContacts(body, kind, contacts)
 
-	if grounded_normal and grounded_weight > EPSILON then
+	if grounded_normal and grounded_weight > physics.EPSILON then
 		body:SetGroundNormal((grounded_normal / grounded_weight):GetNormalized())
 	end
 

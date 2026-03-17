@@ -22,6 +22,7 @@ physics.CurrentCollisionPairs = physics.CurrentCollisionPairs or {}
 physics.PreviousWorldCollisionPairs = physics.PreviousWorldCollisionPairs or {}
 physics.CurrentWorldCollisionPairs = physics.CurrentWorldCollisionPairs or {}
 physics.WorldTraceSource = physics.WorldTraceSource or nil
+physics.EPSILON = 0.000001
 
 function physics.SetWorldTraceSource(source)
 	physics.WorldTraceSource = source

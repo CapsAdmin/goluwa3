@@ -3,7 +3,7 @@ local solver = import("goluwa/physics/solver.lua")
 local manifolds = import("goluwa/physics/manifold.lua")
 local motion = import("goluwa/physics/motion.lua")
 local contact_resolution = {}
-local EPSILON = solver.EPSILON or 0.00001
+
 
 function contact_resolution.MarkPairGrounding(body_a, body_b, normal)
 	local rolling_friction = solver.GetPairRollingFriction(body_a, body_b)
@@ -41,7 +41,7 @@ local function try_mark_body_grounded_from_contacts(self_body, other_body, conta
 			if self_offset.y <= -self_threshold and other_offset.y >= other_threshold then
 				local candidate = self_point - other_point
 
-				if candidate:GetLength() <= EPSILON then
+				if candidate:GetLength() <= physics.EPSILON then
 					candidate = self_body:GetPosition() - other_body:GetPosition()
 				end
 
@@ -52,7 +52,7 @@ local function try_mark_body_grounded_from_contacts(self_body, other_body, conta
 					return
 				end
 
-				if candidate:GetLength() > EPSILON then
+				if candidate:GetLength() > physics.EPSILON then
 					candidate = candidate:GetNormalized()
 
 					if candidate.y >= self_body:GetMinGroundNormalY() then
@@ -112,7 +112,7 @@ function contact_resolution.ApplyPairImpulse(body_a, body_b, normal, dt, point_a
 		normal_inverse_mass = body_a:GetInverseMassAlong(normal, point_a) + body_b:GetInverseMassAlong(normal, point_b)
 	end
 
-	if normal_inverse_mass <= EPSILON then return end
+	if normal_inverse_mass <= physics.EPSILON then return end
 
 	local normal_impulse = -(1 + restitution) * normal_speed / normal_inverse_mass
 
@@ -136,7 +136,7 @@ function contact_resolution.ApplyPairImpulse(body_a, body_b, normal, dt, point_a
 	local tangent_velocity = relative_velocity - normal * relative_velocity:Dot(normal)
 	local tangent_speed = tangent_velocity:GetLength()
 
-	if tangent_speed > EPSILON and not options.skip_friction then
+	if tangent_speed > physics.EPSILON and not options.skip_friction then
 		local tangent = tangent_velocity / tangent_speed
 		local friction = solver.GetPairFriction(body_a, body_b)
 		local tangent_inverse_mass = inverse_mass_sum
@@ -145,7 +145,7 @@ function contact_resolution.ApplyPairImpulse(body_a, body_b, normal, dt, point_a
 			tangent_inverse_mass = body_a:GetInverseMassAlong(tangent, point_a) + body_b:GetInverseMassAlong(tangent, point_b)
 		end
 
-		if tangent_inverse_mass <= EPSILON then
+		if tangent_inverse_mass <= physics.EPSILON then
 			tangent_inverse_mass = inverse_mass_sum
 		end
 

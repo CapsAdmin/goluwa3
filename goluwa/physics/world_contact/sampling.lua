@@ -1,7 +1,6 @@
 local physics = import("goluwa/physics.lua")
 local shape_accessors = import("goluwa/physics/shape_accessors.lua")
 local world_contact_sampling = {}
-local EPSILON = 0.00001
 
 local function append_unique_sample(samples, lookup, key_fn, body_local_point, world_point, previous_world_point, preferred_direction)
 	local key = key_fn(body_local_point)
@@ -26,7 +25,7 @@ local function add_collider_sample(samples, lookup, key_fn, body, collider, loca
 	)
 	local body_local_point = body:WorldToLocal(world_point)
 	local delta = world_point - previous_world_point
-	local preferred_direction = delta:GetLength() > EPSILON and (delta / delta:GetLength()) or nil
+	local preferred_direction = delta:GetLength() > physics.EPSILON and (delta / delta:GetLength()) or nil
 	append_unique_sample(
 		samples,
 		lookup,
@@ -58,7 +57,7 @@ function world_contact_sampling.BuildColliderSamples(body, collider, source, key
 end
 
 function world_contact_sampling.BuildTraceContact(body, point, hit, epsilon)
-	epsilon = epsilon or EPSILON
+	epsilon = epsilon or physics.EPSILON
 	local surface_contact = physics.GetHitSurfaceContact and physics.GetHitSurfaceContact(hit, point) or nil
 	local normal = surface_contact and surface_contact.normal or hit.normal or hit.face_normal or nil
 	local contact_position = surface_contact and surface_contact.position or hit.position or nil
@@ -82,7 +81,7 @@ end
 
 function world_contact_sampling.CollectTraceContacts(body, kind, contacts, options)
 	options = options or {}
-	local epsilon = options.epsilon or EPSILON
+	local epsilon = options.epsilon or physics.EPSILON
 	local get_contact_kind_policy = options.get_contact_kind_policy
 	local finalize_world_contact = options.finalize_world_contact
 	local local_point_key = options.local_point_key

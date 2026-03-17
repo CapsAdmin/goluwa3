@@ -6,7 +6,7 @@ local pair_solver_helpers = import("goluwa/physics/pair_solver_helpers.lua")
 local contact_resolution = import("goluwa/physics/contact_resolution.lua")
 local polyhedron_solver = import("goluwa/physics/pair_solvers/polyhedron.lua")
 local sphere = {}
-local EPSILON = solver.EPSILON or 0.00001
+
 
 local function solve_sphere_pair_collision(body_a, body_b, dt)
 	if body_a == body_b then return end
@@ -28,18 +28,18 @@ local function solve_sphere_pair_collision(body_a, body_b, dt)
 		local relative_move = move_b - move_a
 		local sweep_a = relative_move:Dot(relative_move)
 
-		if sweep_a > EPSILON then
+		if sweep_a > physics.EPSILON then
 			local sweep_b = 2 * relative_start:Dot(relative_move)
 			local sweep_c = relative_start:Dot(relative_start) - min_distance * min_distance
 			local discriminant = sweep_b * sweep_b - 4 * sweep_a * sweep_c
 
-			if discriminant >= 0 and sweep_c > EPSILON then
+			if discriminant >= 0 and sweep_c > physics.EPSILON then
 				local sqrt_discriminant = math.sqrt(discriminant)
 				local hit_fraction = (-sweep_b - sqrt_discriminant) / (2 * sweep_a)
 
 				if hit_fraction >= 0 and hit_fraction <= 1 then
-					local hit_pos_a = start_a + move_a * math.max(0, hit_fraction - EPSILON)
-					local hit_pos_b = start_b + move_b * math.max(0, hit_fraction - EPSILON)
+					local hit_pos_a = start_a + move_a * math.max(0, hit_fraction - physics.EPSILON)
+					local hit_pos_b = start_b + move_b * math.max(0, hit_fraction - physics.EPSILON)
 					local hit_normal = pair_solver_helpers.GetSafeCollisionNormal(hit_pos_b - hit_pos_a, body_b:GetVelocity() - body_a:GetVelocity())
 					return pair_solver_helpers.ResolveRelativeSweptPairHit(
 						body_a,
@@ -88,9 +88,9 @@ local function solve_swept_sphere_box_collision(sphere_body, box_body, dt)
 	local start_local_center = box_body:WorldToLocal(start_world)
 	local end_local_center = box_body:WorldToLocal(end_world)
 	local center_movement_local = end_local_center - start_local_center
-	local descending_from_above = start_local_center.y > extents.y + EPSILON and center_movement_local.y < -EPSILON
+	local descending_from_above = start_local_center.y > extents.y + physics.EPSILON and center_movement_local.y < -physics.EPSILON
 
-	if movement_world:GetLength() <= EPSILON then return false end
+	if movement_world:GetLength() <= physics.EPSILON then return false end
 
 	local earliest_hit = nil
 
@@ -103,7 +103,7 @@ local function solve_swept_sphere_box_collision(sphere_body, box_body, dt)
 		local end_point_world = sphere_body:GeometryLocalToWorld(local_point)
 		local hit = pair_solver_helpers.SweepPointAgainstBox(box_body, start_point_world, end_point_world)
 
-		if hit and not (descending_from_above and hit.normal_local.y <= EPSILON) then
+		if hit and not (descending_from_above and hit.normal_local.y <= physics.EPSILON) then
 			if not earliest_hit or hit.t < earliest_hit.t then earliest_hit = hit end
 		end
 	end
@@ -121,7 +121,7 @@ local function solve_sphere_box_collision(sphere_body, box_body, dt)
 	local extents = box_body:GetPhysicsShape():GetExtents()
 	local sphere_radius = shape_accessors.GetSphereRadius(sphere_body)
 
-	if previous_local_center.y > extents.y + EPSILON and movement_local.y < -EPSILON then
+	if previous_local_center.y > extents.y + physics.EPSILON and movement_local.y < -physics.EPSILON then
 		local top_local = Vec3(
 			math.clamp(local_center.x, -extents.x, extents.x),
 			extents.y,
@@ -132,10 +132,10 @@ local function solve_sphere_box_collision(sphere_body, box_body, dt)
 		local top_distance = top_delta:GetLength()
 		local top_overlap = sphere_radius - top_distance
 
-		if top_overlap > -EPSILON then
+		if top_overlap > -physics.EPSILON then
 			local top_normal
 
-			if top_distance > EPSILON then
+			if top_distance > physics.EPSILON then
 				top_normal = top_delta / top_distance
 			else
 				top_normal = box_body:GetRotation():VecMul(Vec3(0, 1, 0)):GetNormalized()
@@ -145,7 +145,7 @@ local function solve_sphere_box_collision(sphere_body, box_body, dt)
 				box_body,
 				sphere_body,
 				top_normal,
-				math.max(top_overlap, EPSILON),
+				math.max(top_overlap, physics.EPSILON),
 				dt,
 				top_world,
 				center - top_normal * sphere_radius
@@ -243,7 +243,7 @@ local function solve_sphere_convex_collision(sphere_body, convex_body, dt)
 		point_a = center - normal * nearest_face_distance
 		point_b = center - normal * sphere_radius
 	elseif best_point and best_distance < sphere_radius then
-		if best_distance > EPSILON then
+		if best_distance > physics.EPSILON then
 			normal = (center - best_point) / best_distance
 		else
 			normal = nearest_face_normal or Vec3(0, 1, 0)
