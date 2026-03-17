@@ -36,6 +36,7 @@ local NESTING = false
 local IS_TERMINAL = true -- or system.IsTTY()
 local NO_SUMMARY = false
 local SUBFILTER = nil
+local FAILURES_ONLY = false
 local completed_test_count = 0
 local shown_running_line = false
 local has_failed_tests = false
@@ -110,7 +111,8 @@ function test.RunTestsWithFilter(filter, config)
 		config.profiling_mode,
 		config.verbose,
 		config.no_summary,
-		config.subfilter
+		config.subfilter,
+		config.failures_only
 	)
 	local tests = test.FindTests(filter)
 	test.SetTestPaths(tests)
@@ -250,7 +252,7 @@ function test._CreateTestTask(name, cb, start, stop)
 			-- Show progress indication
 			completed_test_count = completed_test_count + 1
 
-			if LOGGING and IS_TERMINAL and not NO_SUMMARY then
+			if LOGGING and IS_TERMINAL and not NO_SUMMARY and not FAILURES_ONLY then
 				-- Clear the RUNNING line if it's still there
 				if shown_running_line then
 					io_write("\r" .. string.rep(" ", 80) .. "\r")
@@ -335,7 +337,7 @@ function test._CreateTestTask(name, cb, start, stop)
 			-- Show progress indication
 			completed_test_count = completed_test_count + 1
 
-			if LOGGING and IS_TERMINAL and not NO_SUMMARY then
+			if LOGGING and IS_TERMINAL and not NO_SUMMARY and not FAILURES_ONLY then
 				-- Clear the RUNNING line if it's still there
 				if shown_running_line then
 					io_write("\r" .. string.rep(" ", 80) .. "\r")
@@ -416,7 +418,7 @@ function test.Pending(name)
 			-- Show progress indication
 			completed_test_count = completed_test_count + 1
 
-			if LOGGING and IS_TERMINAL and not NO_SUMMARY then
+			if LOGGING and IS_TERMINAL and not NO_SUMMARY and not FAILURES_ONLY then
 				-- Clear the RUNNING line if it's still there
 				if shown_running_line then
 					io_write("\r" .. string.rep(" ", 80) .. "\r")
@@ -547,7 +549,7 @@ do
 	local spinner_index = 1
 
 	local function update_test_line(status, time_str, gc_str)
-		if not LOGGING or NO_SUMMARY then return end
+		if not LOGGING or NO_SUMMARY or FAILURES_ONLY then return end
 
 		local padded_name = current_test_name .. string.rep(" ", max_path_width - #current_test_name)
 		local cr = IS_TERMINAL and "\r" or ""
@@ -565,7 +567,7 @@ do
 	end
 
 	function test.LoadingIndicator()
-		if not LOGGING or NO_SUMMARY then return end
+		if not LOGGING or NO_SUMMARY or FAILURES_ONLY then return end
 
 		if not IS_TERMINAL then return end
 
@@ -590,12 +592,13 @@ do
 	local test_file_count = 0
 	local test_results = {} -- Store results for each test file
 	local test_order = {} -- Track the order tests were loaded
-	function test.BeginTests(logging, profiling, profiling_mode, verbose, no_summary, subfilter)
+	function test.BeginTests(logging, profiling, profiling_mode, verbose, no_summary, subfilter, failures_only)
 		LOGGING = logging or false
 		VERBOSE = verbose or false
 		PROFILING = profiling or false
 		NO_SUMMARY = no_summary or false
 		SUBFILTER = subfilter
+		FAILURES_ONLY = failures_only or false
 		total_test_count = 0
 		tests_by_file = {}
 		current_test_name = ""
@@ -679,7 +682,7 @@ do
 
 		-- You'll need to pass the expected test count somehow, or estimate it
 		-- For now, setting to 0 means no progress counter shown
-		if LOGGING and not NO_SUMMARY then update_test_line("RUNNING") end
+		if LOGGING and not NO_SUMMARY and not FAILURES_ONLY then update_test_line("RUNNING") end
 
 		local func, err = loadfile(test_item.path)
 
@@ -719,7 +722,7 @@ do
 			-- Display results for each test file that has completed, in order
 			if LOGGING then
 				-- Add newline after progress dots if needed
-				if IS_TERMINAL and completed_test_count > 0 then io_write("\n") end
+				if IS_TERMINAL and completed_test_count > 0 and not FAILURES_ONLY then io_write("\n") end
 
 				local total_failed = 0
 				local total_pending = 0
@@ -729,8 +732,7 @@ do
 					local result = test_results[file_name]
 
 					if result then
-						-- Print file name
-						io_write(colors.bold(file_name) .. "\n")
+						local printed_file_header = false
 
 						-- Print individual tests
 						for _, test in ipairs(result.tests) do
@@ -760,26 +762,36 @@ do
 								total_pending = total_pending + 1
 							end
 
-							io_write(string.format("  %s %s%s%s\n", status, test.name, time_str, gc_str))
+							if not FAILURES_ONLY or test.success == false then
+								if not printed_file_header then
+									io_write(colors.bold(file_name) .. "\n")
+									printed_file_header = true
+								end
 
-							if test.unavailable_reason then
+								io_write(string.format("  %s %s%s%s\n", status, test.name, time_str, gc_str))
+							end
+
+							if test.unavailable_reason and not FAILURES_ONLY then
 								io_write(colors.dim("    " .. test.unavailable_reason) .. "\n")
 							end
-						end -- Print file total
-						io_write(
-							colors.dim(
-								string.format(
-									"  - total %s  %s\n",
-									format_time(result.total_time),
-									format_gc(result.total_gc)
+						end
+
+						if printed_file_header then
+							io_write(
+								colors.dim(
+									string.format(
+										"  - total %s  %s\n",
+										format_time(result.total_time),
+										format_gc(result.total_gc)
+									)
 								)
 							)
-						)
+						end
 					end
 				end
 
 				if no_summary then
-					io_write(string.format("\n#tests=%d\n", total_test_count))
+					io_write(string.format("#tests=%d\n", total_test_count))
 					return
 				end
 
@@ -1014,6 +1026,10 @@ commands.Add({
 			type = "boolean",
 			description = "Suppress the final summary and only print the test count marker",
 		},
+		["failures-only"] = {
+			type = "boolean",
+			description = "Only print failed tests and the final summary",
+		},
 	},
 }, function(filter, flags)
 	local logging = true
@@ -1023,6 +1039,7 @@ commands.Add({
 	local separate = flags["no-separate"] ~= true
 	local parallel = flags["no-parallel"] ~= true
 	local summary = flags["no-summary"] ~= true
+	local failures_only = flags["failures-only"] == true
 	local subfilter = flags.subfilter
 
 	if subfilter == "" or subfilter == "all" then subfilter = nil end
@@ -1064,7 +1081,7 @@ commands.Add({
 
 			local ok, run_err = pcall(function()
 				local t = import("goluwa/helpers/test.lua")
-				t.BeginTests(true, false, nil, input.verbose, true, input.subfilter)
+				t.BeginTests(true, false, nil, input.verbose, true, input.subfilter, input.failures_only)
 				t.SetTestPaths({{name = input.name, path = input.path}})
 				has_tests = t.RunSingleTestSet({name = input.name, path = input.path})
 
@@ -1151,6 +1168,7 @@ commands.Add({
 						path = test_item.path,
 						name = test_item.name,
 						verbose = verbose,
+						failures_only = failures_only,
 						subfilter = subfilter,
 					}
 					return t
@@ -1204,7 +1222,9 @@ commands.Add({
 
 						total_test_count = total_test_count + (result.test_count or 0)
 						total_test_file_count = total_test_file_count + (result.test_file_count or 0)
-						local final_output = result.output:gsub("\n#tests=%d+\n", "\n")
+						local final_output = result.output
+						final_output = final_output:gsub("\n#tests=%d+\n", "\n")
+						final_output = final_output:gsub("#tests=%d+\n", "")
 
 						if result.exit_code ~= 0 and #final_output == 0 then
 							io.write(colors.red("test file failed: " .. t.test_name) .. "\n")
@@ -1249,6 +1269,7 @@ commands.Add({
 			profiling = profiling,
 			profiling_mode = profiling_mode,
 			subfilter = subfilter,
+			failures_only = failures_only,
 			no_summary = not summary,
 		}
 	)
