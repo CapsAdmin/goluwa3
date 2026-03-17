@@ -58,6 +58,20 @@ end
 
 local ray_aabb_intersection = bvh.RayAABBIntersection
 
+function bvh.AABBIntersects(a, b)
+	if not (a and b) then return false end
+
+	if a.min_x > b.max_x or b.min_x > a.max_x then return false end
+
+	if a.min_y > b.max_y or b.min_y > a.max_y then return false end
+
+	if a.min_z > b.max_z or b.min_z > a.max_z then return false end
+
+	return true
+end
+
+local aabb_intersects = bvh.AABBIntersects
+
 local function build_node(items, first, last, get_bounds, get_centroid, leaf_item_count)
 	local bounds = bvh.CreateEmptyBounds()
 	local centroid_bounds = bvh.CreateEmptyBounds()
@@ -197,6 +211,43 @@ function bvh.TraverseRay(ray, node, visit_leaf, context, closest_hit, closest_di
 	end
 
 	return closest_hit, closest_distance
+end
+
+function bvh.TraverseAABB(bounds, node, visit_leaf, context, result)
+	if not (bounds and node and visit_leaf) then return result end
+
+	if not aabb_intersects(bounds, node.aabb) then return result end
+
+	local node_stack = context and context.node_stack or {}
+	node_stack[1] = node
+	local stack_size = 1
+
+	while stack_size > 0 do
+		local current = node_stack[stack_size]
+		node_stack[stack_size] = nil
+		stack_size = stack_size - 1
+
+		if aabb_intersects(bounds, current.aabb) then
+			if current.first then
+				result = visit_leaf(current, context, result)
+			else
+				local left = current.left
+				local right = current.right
+
+				if right and aabb_intersects(bounds, right.aabb) then
+					stack_size = stack_size + 1
+					node_stack[stack_size] = right
+				end
+
+				if left and aabb_intersects(bounds, left.aabb) then
+					stack_size = stack_size + 1
+					node_stack[stack_size] = left
+				end
+			end
+		end
+	end
+
+	return result
 end
 
 return bvh

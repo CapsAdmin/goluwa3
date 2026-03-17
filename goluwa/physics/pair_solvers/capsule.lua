@@ -668,28 +668,28 @@ local function solve_capsule_capsule_collision(body_a, body_b, dt)
 	)
 end
 
-local function solve_capsule_box_collision(capsule_body, box_body, dt)
-	local function get_best_contact(samples, previous_samples, radius)
-		local best_contact = nil
+local function get_capsule_box_best_contact(box_body, samples, previous_samples, radius)
+	local best_contact = nil
 
-		for i, sample in ipairs(samples) do
-			local previous_sample = previous_samples and previous_samples[i] or sample
-			local movement_local
+	for i, sample in ipairs(samples) do
+		local previous_sample = previous_samples and previous_samples[i] or sample
+		local movement_local
 
-			if previous_sample then
-				movement_local = box_body:WorldToLocal(sample) - box_body:WorldToLocal(previous_sample)
-			end
-
-			local contact = pair_solver_helpers.GetBoxContactForPoint(box_body, sample, radius, movement_local)
-
-			if contact and (not best_contact or contact.overlap > best_contact.overlap) then
-				best_contact = contact
-			end
+		if previous_sample then
+			movement_local = box_body:WorldToLocal(sample) - box_body:WorldToLocal(previous_sample)
 		end
 
-		return best_contact
+		local contact = pair_solver_helpers.GetBoxContactForPoint(box_body, sample, radius, movement_local)
+
+		if contact and (not best_contact or contact.overlap > best_contact.overlap) then
+			best_contact = contact
+		end
 	end
 
+	return best_contact
+end
+
+local function solve_capsule_box_collision(capsule_body, box_body, dt)
 	local points, radius = iterate_capsule_points(capsule_body, nil, nil, CAPSULE_BOX_POINT_SCRATCH.current)
 	local previous_points = iterate_capsule_points(
 		capsule_body,
@@ -699,10 +699,10 @@ local function solve_capsule_box_collision(capsule_body, box_body, dt)
 	)
 	local movement = capsule_body:GetPosition() - capsule_body:GetPreviousPosition()
 	local previous_contact = nil
-	local best_contact = get_best_contact(points, previous_points, radius)
+	local best_contact = get_capsule_box_best_contact(box_body, points, previous_points, radius)
 
 	if should_prefer_swept_recovery(movement:GetLength(), radius) then
-		previous_contact = get_best_contact(previous_points, nil, radius)
+		previous_contact = get_capsule_box_best_contact(box_body, previous_points, nil, radius)
 
 		if not previous_contact then
 			local swept = solve_swept_capsule_box_collision(capsule_body, box_body, dt)
@@ -726,24 +726,29 @@ local function solve_capsule_box_collision(capsule_body, box_body, dt)
 	)
 end
 
-solver:RegisterPairHandler("capsule", "sphere", function(body_a, body_b, _, _, dt)
+local function solve_capsule_sphere_pair_handler(body_a, body_b, _, _, dt)
 	return solve_capsule_sphere_collision(body_a, body_b, dt)
-end)
+end
 
-solver:RegisterPairHandler("sphere", "capsule", function(body_a, body_b, _, _, dt)
+local function solve_sphere_capsule_pair_handler(body_a, body_b, _, _, dt)
 	return solve_capsule_sphere_collision(body_b, body_a, dt)
-end)
+end
 
-solver:RegisterPairHandler("capsule", "capsule", function(body_a, body_b, _, _, dt)
+local function solve_capsule_capsule_pair_handler(body_a, body_b, _, _, dt)
 	return solve_capsule_capsule_collision(body_a, body_b, dt)
-end)
+end
 
-solver:RegisterPairHandler("capsule", "box", function(body_a, body_b, _, _, dt)
+local function solve_capsule_box_pair_handler(body_a, body_b, _, _, dt)
 	return solve_capsule_box_collision(body_a, body_b, dt)
-end)
+end
 
-solver:RegisterPairHandler("box", "capsule", function(body_a, body_b, _, _, dt)
+local function solve_box_capsule_pair_handler(body_a, body_b, _, _, dt)
 	return solve_capsule_box_collision(body_b, body_a, dt)
-end)
+end
 
+solver:RegisterPairHandler("capsule", "sphere", solve_capsule_sphere_pair_handler)
+solver:RegisterPairHandler("sphere", "capsule", solve_sphere_capsule_pair_handler)
+solver:RegisterPairHandler("capsule", "capsule", solve_capsule_capsule_pair_handler)
+solver:RegisterPairHandler("capsule", "box", solve_capsule_box_pair_handler)
+solver:RegisterPairHandler("box", "capsule", solve_box_capsule_pair_handler)
 return capsule

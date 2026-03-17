@@ -3,15 +3,6 @@ local solver = import("goluwa/physics/solver.lua")
 local convex_manifold = {}
 local EPSILON = solver.EPSILON or 0.00001
 
-local function clear_array(array, from_index)
-	from_index = from_index or 1
-
-	for i = from_index, #array do
-		array[i] = nil
-	end
-
-	return array
-end
 
 function convex_manifold.CollectSupportVertices(vertices, axis, want_max, tolerance, support)
 	support = support or {}
@@ -43,7 +34,7 @@ function convex_manifold.CollectSupportVertices(vertices, axis, want_max, tolera
 		end
 	end
 
-	return clear_array(support, count + 1), best
+	return list.clear_from_index(support, count + 1), best
 end
 
 function convex_manifold.AverageWorldPoints(points)
@@ -93,27 +84,50 @@ function convex_manifold.AverageSupportPoint(vertices, axis, want_max, tolerance
 	return sum / count
 end
 
-function convex_manifold.AddContactPoint(contacts, point_a, point_b, merge_distance)
+function convex_manifold.FillContactPair(contacts, index, point_a, point_b)
+	local contact = contacts[index] or {}
+	contact.point_a = point_a
+	contact.point_b = point_b
+	contacts[index] = contact
+	return contact
+end
+
+function convex_manifold.TrimContacts(contacts, count)
+	return list.clear_from_index(contacts, (count or 0) + 1)
+end
+
+function convex_manifold.BuildSingleContact(contacts, point_a, point_b)
+	convex_manifold.FillContactPair(contacts, 1, point_a, point_b)
+	return convex_manifold.TrimContacts(contacts, 1)
+end
+
+function convex_manifold.AddContactPointReused(contacts, count, point_a, point_b, merge_distance)
 	local midpoint = (point_a + point_b) * 0.5
 	merge_distance = merge_distance or 0.1
 
-	for _, existing in ipairs(contacts) do
+	for i = 1, count do
+		local existing = contacts[i]
 		local existing_midpoint = (existing.point_a + existing.point_b) * 0.5
 
-		if (existing_midpoint - midpoint):GetLength() <= merge_distance then return end
+		if (existing_midpoint - midpoint):GetLength() <= merge_distance then
+			return count
+		end
 	end
 
-	contacts[#contacts + 1] = {
-		point_a = point_a,
-		point_b = point_b,
-	}
+	count = count + 1
+	convex_manifold.FillContactPair(contacts, count, point_a, point_b)
+	return count
+end
+
+function convex_manifold.AddContactPoint(contacts, point_a, point_b, merge_distance)
+	convex_manifold.AddContactPointReused(contacts, #contacts, point_a, point_b, merge_distance)
 end
 
 function convex_manifold.BuildSupportPairContacts(vertices_a, vertices_b, normal, options)
 	options = options or {}
 	local scratch = options.scratch or {}
 	local contacts = scratch.contacts or {}
-	scratch.contacts = clear_array(contacts)
+	scratch.contacts = list.clear(contacts)
 	scratch.support_a = scratch.support_a or {}
 	scratch.support_b = scratch.support_b or {}
 	contacts = scratch.contacts

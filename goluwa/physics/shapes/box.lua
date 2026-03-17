@@ -257,6 +257,14 @@ function META:ShouldForceGroundedSleep(body)
 		best_alignment >= 0.997
 end
 
+local function snap_angle_to_step(angle, step)
+	local scaled = angle / step
+
+	if scaled >= 0 then return math.floor(scaled + 0.5) * step end
+
+	return math.ceil(scaled - 0.5) * step
+end
+
 function META:SnapGroundedSleepPose(body)
 	local ground_normal = body.GroundNormal or Vec3(0, 1, 0)
 
@@ -281,17 +289,8 @@ function META:SnapGroundedSleepPose(body)
 
 	local angles = body:GetRotation():GetAngles()
 	local step = math.pi * 0.5
-
-	local function snap_angle(angle)
-		local scaled = angle / step
-
-		if scaled >= 0 then return math.floor(scaled + 0.5) * step end
-
-		return math.ceil(scaled - 0.5) * step
-	end
-
-	local snapped_pitch = snap_angle(angles.x)
-	local snapped_roll = snap_angle(angles.z)
+	local snapped_pitch = snap_angle_to_step(angles.x, step)
+	local snapped_roll = snap_angle_to_step(angles.z, step)
 
 	if
 		math.abs(snapped_pitch - angles.x) > 0.24 or

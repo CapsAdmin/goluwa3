@@ -4,14 +4,63 @@ local world_contacts = import("goluwa/physics/world_contacts.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
 
+local function count_pairs(tbl)
+	local count = 0
+
+	for _ in pairs(tbl or {}) do
+		count = count + 1
+	end
+
+	return count
+end
+
+local function create_box_brush_model(mins, maxs)
+	local primitive = {
+		brush_planes = {
+			{normal = Vec3(1, 0, 0), dist = maxs.x},
+			{normal = Vec3(-1, 0, 0), dist = -mins.x},
+			{normal = Vec3(0, 1, 0), dist = maxs.y},
+			{normal = Vec3(0, -1, 0), dist = -mins.y},
+			{normal = Vec3(0, 0, 1), dist = maxs.z},
+			{normal = Vec3(0, 0, -1), dist = -mins.z},
+		},
+		aabb = {
+			min_x = mins.x,
+			min_y = mins.y,
+			min_z = mins.z,
+			max_x = maxs.x,
+			max_y = maxs.y,
+			max_z = maxs.z,
+		},
+	}
+	local owner = {
+		IsValid = function()
+			return true
+		end,
+	}
+	local model = {
+		Owner = owner,
+		Primitives = {primitive},
+		AABB = primitive.aabb,
+	}
+
+	function model:GetWorldAABB()
+		return self.AABB
+	end
+
+	return model, primitive
+end
+
 local function create_mock_body(data)
 	data = data or {}
+	local radius = data.Radius or 0.1
+	local margin = data.Margin or 0.01
 	local body = {
 		CollisionEnabled = true,
 		Position = data.Position or Vec3(),
-		PreviousPosition = data.PreviousPosition or Vec3(),
+		PreviousPosition = data.PreviousPosition or data.Position or Vec3(),
 		Rotation = data.Rotation or Quat():Identity(),
-		PreviousRotation = data.PreviousRotation or Quat():Identity(),
+		PreviousRotation = data.PreviousRotation or data.Rotation or Quat():Identity(),
 		Velocity = data.Velocity or Vec3(),
 		AngularVelocity = data.AngularVelocity or Vec3(),
 		CorrectionCount = 0,
@@ -22,6 +71,11 @@ local function create_mock_body(data)
 				return true
 			end,
 		},
+	}
+	local shape = {
+		GetRadius = function()
+			return radius
+		end,
 	}
 
 	function body:GetPosition()
@@ -49,7 +103,7 @@ local function create_mock_body(data)
 	end
 
 	function body:GetCollisionMargin()
-		return 0.01
+		return margin
 	end
 
 	function body:GetCollisionProbeDistance()
@@ -57,11 +111,11 @@ local function create_mock_body(data)
 	end
 
 	function body:GetCollisionLocalPoints()
-		return {Vec3()}
+		return {Vec3(0, -radius, 0)}
 	end
 
 	function body:GetSupportLocalPoints()
-		return {}
+		return {Vec3(0, -radius, 0)}
 	end
 
 	function body:GetOwner()
@@ -89,11 +143,39 @@ local function create_mock_body(data)
 	end
 
 	function body:GetPhysicsShape()
-		return nil
+		return shape
+	end
+
+	function body:GetShapeType()
+		return "sphere"
+	end
+
+	function body:GetColliders()
+		return {self}
+	end
+
+	function body:LocalToWorld(local_point, position)
+		return (position or self.Position) + local_point
 	end
 
 	function body:GeometryLocalToWorld(local_point, position)
-		return (position or self.Position) + local_point
+		return self:LocalToWorld(local_point, position)
+	end
+
+	function body:WorldToLocal(world_point, position)
+		return world_point - (position or self.Position)
+	end
+
+	function body:GetBroadphaseAABB()
+		local inflate = radius + margin
+		return {
+			min_x = self.Position.x - inflate,
+			min_y = self.Position.y - inflate,
+			min_z = self.Position.z - inflate,
+			max_x = self.Position.x + inflate,
+			max_y = self.Position.y + inflate,
+			max_z = self.Position.z + inflate,
+		}
 	end
 
 	function body:ApplyCorrection(_, _, point)
@@ -118,391 +200,97 @@ local function create_mock_body(data)
 	return body
 end
 
-T.Test("World contacts keep cached motion contacts in a unified manifold structure", function()
+T.Test("World contacts use manifold-only world collision state", function()
 	local old_trace = physics.Trace
-	local old_surface_contact = physics.GetHitSurfaceContact
-	local old_record_world_collision = physics.RecordWorldCollision
-	local old_world_trace_source = physics.GetWorldTraceSource
+	local old_source = physics.GetWorldTraceSource
+	local old_record = physics.RecordWorldCollision
+	local model = create_box_brush_model(Vec3(-1, -1, -1), Vec3(1, 0, 1))
 	local body = create_mock_body{
-		PreviousPosition = Vec3(0, 0, 0),
-		Position = Vec3(0.05, 0, 0),
-		Velocity = Vec3(0.03, 0, 0),
+		Position = Vec3(0, 0.05, 0),
+		PreviousPosition = Vec3(0, 0.05, 0),
 	}
-	local hit = {
-		entity = {
-			IsValid = function()
-				return true
-			end,
-		},
-		primitive = {},
-		primitive_index = 1,
-		distance = 0.02,
-		position = Vec3(0, 0, 0),
-	}
-	local trace_calls = 0
-	physics.RecordWorldCollision = function() end
-	physics.GetHitSurfaceContact = function()
-		return {
-			normal = Vec3(-1, 0, 0),
-			position = Vec3(0, 0, 0),
-		}
-	end
 	physics.Trace = function()
-		trace_calls = trace_calls + 1
-
-		if trace_calls == 1 then return hit end
-
-		return nil
+		error("legacy trace path should not run")
 	end
+	physics.GetWorldTraceSource = function()
+		return {models = {model}}
+	end
+	physics.RecordWorldCollision = function() end
 	world_contacts.SolveBodyContacts(body, 1 / 60)
 	T(body.CorrectionCount)[">"](0)
 	T(body.WorldContactManifold ~= nil)["=="](true)
-	T(body.WorldContactManifold.motion ~= nil)["=="](true)
-	T(body.WorldMotionContactCache == body.WorldContactManifold.motion)["=="](true)
-	T(next(body.WorldContactManifold.motion) ~= nil)["=="](true)
-	body.PreviousPosition = body.Position:Copy()
-	body.Position = Vec3(0.08, 0, 0)
-	body.CorrectionCount = 0
-	world_contacts.SolveBodyContacts(body, 1 / 60)
-	T(body.CorrectionCount)[">"](0)
-	T(next(body.WorldContactManifold.motion) ~= nil)["=="](true)
+	T(body.WorldContactManifold.manifold ~= nil)["=="](true)
+	T(body.WorldContactManifold.support == nil)["=="](true)
+	T(body.WorldContactManifold.motion == nil)["=="](true)
+	T(body.WorldContactManifold.state.manifold.policy.kind)["=="]("manifold")
+	T(next(body.WorldContactManifold.manifold) ~= nil)["=="](true)
+	local _, entry = next(body.WorldContactManifold.manifold)
+	T(entry.primitive_index)["=="](1)
+	T(entry.feature_key ~= nil)["=="](true)
 	physics.Trace = old_trace
-	physics.GetHitSurfaceContact = old_surface_contact
-	physics.RecordWorldCollision = old_record_world_collision
-	physics.GetWorldTraceSource = old_world_trace_source
+	physics.GetWorldTraceSource = old_source
+	physics.RecordWorldCollision = old_record
 end)
 
-T.Test("World contacts keep cached support contacts in a unified manifold structure", function()
-	local old_trace = physics.Trace
-	local old_surface_contact = physics.GetHitSurfaceContact
-	local old_record_world_collision = physics.RecordWorldCollision
-	local old_world_trace_source = physics.GetWorldTraceSource
+T.Test("World contacts retain manifold feature entries briefly across flicker", function()
+	local old_source = physics.GetWorldTraceSource
+	local old_record = physics.RecordWorldCollision
+	local model = create_box_brush_model(Vec3(-1, -1, -1), Vec3(1, 0, 1))
 	local body = create_mock_body{
-		PreviousPosition = Vec3(0, 0.005, 0),
-		Position = Vec3(0, 0.005, 0),
-		Grounded = true,
+		Position = Vec3(0, 0.05, 0),
+		PreviousPosition = Vec3(0, 0.05, 0),
 	}
-	local hit = {
-		entity = {
-			IsValid = function()
-				return true
-			end,
-		},
-		primitive = {},
-		primitive_index = 2,
-		distance = 0.01,
-		position = Vec3(0, 0, 0),
-	}
-	local trace_calls = 0
-
-	function body:GetCollisionLocalPoints()
-		return {}
-	end
-
-	function body:GetSupportLocalPoints()
-		return {Vec3()}
-	end
-
-	physics.RecordWorldCollision = function() end
-	physics.GetHitSurfaceContact = function()
-		return {
-			normal = Vec3(0, 1, 0),
-			position = Vec3(0, 0, 0),
-		}
-	end
 	physics.GetWorldTraceSource = function()
-		return {}
+		return {models = {model}}
 	end
-	physics.Trace = function()
-		trace_calls = trace_calls + 1
-
-		if trace_calls == 1 then return hit end
-
-		return nil
+	physics.RecordWorldCollision = function() end
+	world_contacts.SolveBodyContacts(body, 1 / 60)
+	local state = body.WorldContactManifold.state.manifold
+	T(count_pairs(state.entries))["=="](1)
+	physics.GetWorldTraceSource = function()
+		return {models = {}}
 	end
 	world_contacts.SolveBodyContacts(body, 1 / 60)
-	T(body.CorrectionCount)[">"](0)
-	T(body.WorldContactManifold ~= nil)["=="](true)
-	T(body.WorldContactManifold.support ~= nil)["=="](true)
-	T(body.WorldSupportContactCache == body.WorldContactManifold.support)["=="](true)
-	T(next(body.WorldContactManifold.support) ~= nil)["=="](true)
-	body.CorrectionCount = 0
+	T(count_pairs(state.entries))["=="](1)
 	world_contacts.SolveBodyContacts(body, 1 / 60)
-	T(body.CorrectionCount)[">"](0)
-	T(next(body.WorldContactManifold.support) ~= nil)["=="](true)
-	physics.Trace = old_trace
-	physics.GetHitSurfaceContact = old_surface_contact
-	physics.RecordWorldCollision = old_record_world_collision
-	physics.GetWorldTraceSource = old_world_trace_source
+	T(count_pairs(state.entries))["=="](1)
+	world_contacts.SolveBodyContacts(body, 1 / 60)
+	T(count_pairs(state.entries))["=="](0)
+	physics.GetWorldTraceSource = old_source
+	physics.RecordWorldCollision = old_record
 end)
 
-T.Test("World contacts keep support and motion manifolds separate within the unified cache", function()
-	local old_trace = physics.Trace
-	local old_surface_contact = physics.GetHitSurfaceContact
-	local old_record_world_collision = physics.RecordWorldCollision
-	local old_world_trace_source = physics.GetWorldTraceSource
+T.Test("World contacts expose manifold cache aliases without legacy per-kind caches", function()
+	local old_source = physics.GetWorldTraceSource
+	local old_record = physics.RecordWorldCollision
+	local model = create_box_brush_model(Vec3(-1, -1, -1), Vec3(1, 0, 1))
 	local body = create_mock_body{
-		PreviousPosition = Vec3(0, 0.005, 0),
-		Position = Vec3(0.05, 0.005, 0),
-		Velocity = Vec3(0.03, 0, 0),
+		Position = Vec3(0, 0.05, 0),
+		PreviousPosition = Vec3(0, 0.05, 0),
 	}
-	local motion_hit = {
-		entity = {
-			IsValid = function()
-				return true
-			end,
-		},
-		primitive = {kind = "motion"},
-		primitive_index = 3,
-		distance = 0.02,
-		position = Vec3(0, 0.005, 0),
-	}
-	local support_hit = {
-		entity = {
-			IsValid = function()
-				return true
-			end,
-		},
-		primitive = {kind = "support"},
-		primitive_index = 4,
-		distance = 0.01,
-		position = Vec3(0.05, 0, 0),
-	}
-
-	function body:GetCollisionLocalPoints()
-		return {Vec3()}
-	end
-
-	function body:GetSupportLocalPoints()
-		return {Vec3()}
-	end
-
-	physics.RecordWorldCollision = function() end
 	physics.GetWorldTraceSource = function()
-		return {}
+		return {models = {model}}
 	end
-	physics.GetHitSurfaceContact = function(hit)
-		if hit == motion_hit then
-			return {
-				normal = Vec3(-1, 0, 0),
-				position = Vec3(0, 0.005, 0),
-			}
-		end
-
-		return {
-			normal = Vec3(0, 1, 0),
-			position = Vec3(0.05, 0, 0),
-		}
-	end
-	physics.Trace = function(_, direction)
-		if math.abs(direction.x) > 0.0001 then return motion_hit end
-
-		if direction.y < -0.5 then return support_hit end
-
-		return nil
-	end
-	world_contacts.SolveBodyContacts(body, 1 / 60)
-	T(body.WorldContactManifold ~= nil)["=="](true)
-	T(body.WorldContactManifold.motion ~= nil)["=="](true)
-	T(body.WorldContactManifold.support ~= nil)["=="](true)
-	T(body.WorldContactManifold.motion == body.WorldContactManifold.support)["=="](false)
-	T(next(body.WorldContactManifold.motion) ~= nil)["=="](true)
-	T(next(body.WorldContactManifold.support) ~= nil)["=="](true)
-	T(body.WorldContactManifold.motion["0.00000|0.00000|0.00000"].primitive_index)["=="](3)
-	T(body.WorldContactManifold.support["0.00000|0.00000|0.00000"].primitive_index)["=="](4)
-	physics.Trace = old_trace
-	physics.GetHitSurfaceContact = old_surface_contact
-	physics.RecordWorldCollision = old_record_world_collision
-	physics.GetWorldTraceSource = old_world_trace_source
-end)
-
-T.Test("World contacts adopt legacy support and motion caches into the unified manifold", function()
-	local old_trace = physics.Trace
-	local old_surface_contact = physics.GetHitSurfaceContact
-	local old_record_world_collision = physics.RecordWorldCollision
-	local old_world_trace_source = physics.GetWorldTraceSource
-	local body = create_mock_body{
-		PreviousPosition = Vec3(0, 0.005, 0),
-		Position = Vec3(0.05, 0.005, 0),
-		Velocity = Vec3(0.03, 0, 0),
-	}
-	local legacy_support = {
-		["0.00000|0.00000|0.00000"] = {primitive_index = 10},
-	}
-	local legacy_motion = {
-		["1.00000|0.00000|0.00000"] = {primitive_index = 11},
-	}
-	local motion_hit = {
-		entity = {
-			IsValid = function()
-				return true
-			end,
-		},
-		primitive = {kind = "motion"},
-		primitive_index = 12,
-		distance = 0.02,
-		position = Vec3(0, 0.005, 0),
-	}
-	local support_hit = {
-		entity = {
-			IsValid = function()
-				return true
-			end,
-		},
-		primitive = {kind = "support"},
-		primitive_index = 13,
-		distance = 0.01,
-		position = Vec3(0.05, 0, 0),
-	}
-
-	function body:GetCollisionLocalPoints()
-		return {Vec3()}
-	end
-
-	function body:GetSupportLocalPoints()
-		return {Vec3()}
-	end
-
-	body.WorldSupportContactCache = legacy_support
-	body.WorldMotionContactCache = legacy_motion
 	physics.RecordWorldCollision = function() end
-	physics.GetWorldTraceSource = function()
-		return {}
-	end
-	physics.GetHitSurfaceContact = function(hit)
-		if hit == motion_hit then
-			return {
-				normal = Vec3(-1, 0, 0),
-				position = Vec3(0, 0.005, 0),
-			}
-		end
-
-		return {
-			normal = Vec3(0, 1, 0),
-			position = Vec3(0.05, 0, 0),
-		}
-	end
-	physics.Trace = function(_, direction)
-		if math.abs(direction.x) > 0.0001 then return motion_hit end
-
-		if direction.y < -0.5 then return support_hit end
-
-		return nil
-	end
 	world_contacts.SolveBodyContacts(body, 1 / 60)
-	T(body.WorldContactManifold ~= nil)["=="](true)
-	T(body.WorldContactManifold.support)["=="](legacy_support)
-	T(body.WorldContactManifold.motion)["=="](legacy_motion)
-	T(body.WorldSupportContactCache)["=="](legacy_support)
-	T(body.WorldMotionContactCache)["=="](legacy_motion)
-	T(body.WorldContactManifold.motion["0.00000|0.00000|0.00000"].primitive_index)["=="](12)
-	T(body.WorldContactManifold.support["0.00000|0.00000|0.00000"].primitive_index)["=="](13)
-	physics.Trace = old_trace
-	physics.GetHitSurfaceContact = old_surface_contact
-	physics.RecordWorldCollision = old_record_world_collision
-	physics.GetWorldTraceSource = old_world_trace_source
-end)
+	local cache = body.WorldContactManifold.manifold
+	local state = body.WorldContactManifold.state.manifold
+	local entry = nil
 
-T.Test("World contacts expose per-kind manifold state without replacing cache tables", function()
-	local body = create_mock_body{}
-	local support_cache = {support = true}
-	local motion_cache = {motion = true}
-	body.WorldSupportContactCache = support_cache
-	body.WorldMotionContactCache = motion_cache
-	world_contacts.SolveBodyContacts(body, 1 / 60)
-	T(body.WorldContactManifold ~= nil)["=="](true)
-	T(body.WorldContactManifold.state ~= nil)["=="](true)
-	T(body.WorldContactManifold.state.support ~= nil)["=="](true)
-	T(body.WorldContactManifold.state.motion ~= nil)["=="](true)
-	T(body.WorldContactManifold.state.support.cache)["=="](support_cache)
-	T(body.WorldContactManifold.state.motion.cache)["=="](motion_cache)
-	T(body.WorldContactManifold.state.support.policy.kind)["=="]("support")
-	T(body.WorldContactManifold.state.motion.policy.kind)["=="]("motion")
-	T(body.WorldContactManifold.support)["=="](support_cache)
-	T(body.WorldContactManifold.motion)["=="](motion_cache)
-end)
+	for _, value in pairs(state.entries) do
+		entry = value
 
-T.Test("World contacts populate per-kind descriptor state fields", function()
-	local old_trace = physics.Trace
-	local old_surface_contact = physics.GetHitSurfaceContact
-	local old_record_world_collision = physics.RecordWorldCollision
-	local old_world_trace_source = physics.GetWorldTraceSource
-	local body = create_mock_body{
-		PreviousPosition = Vec3(0, 0.005, 0),
-		Position = Vec3(0.05, 0.005, 0),
-		Velocity = Vec3(0.03, 0, 0),
-		Grounded = true,
-	}
-
-	function body:GetCollisionLocalPoints()
-		return {Vec3(), Vec3(1, 0, 0)}
+		break
 	end
 
-	function body:GetSupportLocalPoints()
-		return {Vec3(), Vec3(0, -1, 0)}
-	end
-
-	physics.RecordWorldCollision = function() end
-	physics.GetWorldTraceSource = function()
-		return {}
-	end
-	physics.GetHitSurfaceContact = function(hit)
-		return {
-			normal = hit.kind == "motion" and Vec3(-1, 0, 0) or Vec3(0, 1, 0),
-			position = hit.position,
-		}
-	end
-	physics.Trace = function(_, direction)
-		if math.abs(direction.x) > 0.0001 then
-			return {
-				kind = "motion",
-				primitive = {},
-				primitive_index = 20,
-				position = Vec3(0, 0.005, 0),
-				distance = 0.02,
-			}
-		end
-
-		if direction.y < -0.5 then
-			return {
-				kind = "support",
-				primitive = {},
-				primitive_index = 21,
-				position = Vec3(0.05, 0, 0),
-				distance = 0.01,
-			}
-		end
-
-		return nil
-	end
-	body:SetGrounded(true)
-	world_contacts.SolveBodyContacts(body, 1 / 60)
-	T(body.WorldContactManifold.state.support.cast_up)["=="](0.01)
-	T(body.WorldContactManifold.state.support.allow_cached)["=="](true)
-	T(#body.WorldContactManifold.state.support.support_points)["=="](2)
-	T(body.WorldContactManifold.state.support.trace_mode)["=="]("support")
-	T(body.WorldContactManifold.state.support.point_source)["=="]("support_points")
-	T(body.WorldContactManifold.state.support.query_builder)["=="]("support_probe")
-	T(body.WorldContactManifold.state.support.cached_surface_mode)["=="]("support_position")
-	T(#body.WorldContactManifold.state.support.point_items)["=="](2)
-	T(body.WorldContactManifold.state.support.kind)["=="]("support")
-	T(body.WorldContactManifold.state.support.dt)["=="](1 / 60)
-	T(body.WorldContactManifold.state.support.patch_velocity_y_limit)["=="](0.75)
-	T(body.WorldContactManifold.state.support.patch_angular_speed_limit)["=="](1.5)
-	T(body.WorldContactManifold.state.support.patch_up_y_limit)["=="](0.9)
-	T(body.WorldContactManifold.state.motion.sweep_margin)["=="](0.01)
-	T(body.WorldContactManifold.state.motion.allow_cached)["=="](false)
-	T(#body.WorldContactManifold.state.motion.collision_points)["=="](2)
-	T(body.WorldContactManifold.state.motion.trace_mode)["=="]("sweep")
-	T(body.WorldContactManifold.state.motion.point_source)["=="]("collision_points")
-	T(body.WorldContactManifold.state.motion.query_builder)["=="]("motion_sweep")
-	T(body.WorldContactManifold.state.motion.cached_surface_mode)["=="]("motion_projection")
-	T(#body.WorldContactManifold.state.motion.point_items)["=="](2)
-	T(body.WorldContactManifold.state.motion.kind)["=="]("motion")
-	T(body.WorldContactManifold.state.motion.dt)["=="](1 / 60)
-	T(body.WorldContactManifold.state.motion.patch_requires_coherent_contacts)["=="](true)
-	physics.Trace = old_trace
-	physics.GetHitSurfaceContact = old_surface_contact
-	physics.RecordWorldCollision = old_record_world_collision
-	physics.GetWorldTraceSource = old_world_trace_source
+	T(entry ~= nil)["=="](true)
+	T(entry.local_point_key ~= nil)["=="](true)
+	T(entry.feature_key ~= nil)["=="](true)
+	T(cache[entry.local_point_key])["=="](entry)
+	T(cache[entry.feature_key])["=="](entry)
+	T(body.WorldManifoldContactCache == nil)["=="](true)
+	T(body.WorldSupportContactCache == nil)["=="](true)
+	T(body.WorldMotionContactCache == nil)["=="](true)
+	physics.GetWorldTraceSource = old_source
+	physics.RecordWorldCollision = old_record
 end)

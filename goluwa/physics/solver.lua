@@ -133,24 +133,24 @@ function solver:WarnMissingPairHandler(shape_a, shape_b)
 	end
 end
 
+local function is_simple_body(collider_list)
+	if #collider_list ~= 1 then return false end
+
+	local collider = collider_list[1]
+	local local_position = collider:GetLocalPosition()
+	local local_rotation = collider:GetLocalRotation()
+	return local_position:GetLength() <= EPSILON and
+		math.abs(local_rotation.x) <= EPSILON and
+		math.abs(local_rotation.y) <= EPSILON and
+		math.abs(local_rotation.z) <= EPSILON and
+		math.abs(local_rotation.w - 1) <= EPSILON
+end
+
 local function solve_rigid_body_pair(body_a, body_b, entry_a, entry_b, dt)
 	if not physics.ShouldBodiesCollide(body_a, body_b) then return end
 
 	local colliders_a = body_a:GetColliders()
 	local colliders_b = body_b:GetColliders()
-
-	local function is_simple_body(collider_list)
-		if #collider_list ~= 1 then return false end
-
-		local collider = collider_list[1]
-		local local_position = collider:GetLocalPosition()
-		local local_rotation = collider:GetLocalRotation()
-		return local_position:GetLength() <= EPSILON and
-			math.abs(local_rotation.x) <= EPSILON and
-			math.abs(local_rotation.y) <= EPSILON and
-			math.abs(local_rotation.z) <= EPSILON and
-			math.abs(local_rotation.w - 1) <= EPSILON
-	end
 
 	if is_simple_body(colliders_a) and is_simple_body(colliders_b) then
 		local shape_a = body_a:GetShapeType()

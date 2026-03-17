@@ -1,5 +1,6 @@
 local Vec3 = import("goluwa/structs/vec3.lua")
 local BVH = import("goluwa/physics/bvh.lua")
+local world_transform_utils = import("goluwa/physics/world_transform_utils.lua")
 local Model = import("goluwa/ecs/components/3d/model.lua")
 local system = import("goluwa/system.lua")
 local raycast = library()
@@ -78,6 +79,14 @@ local function add_model_acceleration_item(items, model, bounds)
 	}
 end
 
+local function get_bvh_item_bounds(item)
+	return item
+end
+
+local function get_bvh_item_centroid(item)
+	return item.centroid_x, item.centroid_y, item.centroid_z
+end
+
 local function rebuild_model_acceleration()
 	local items = {}
 	local dynamic_models = {}
@@ -97,12 +106,8 @@ local function rebuild_model_acceleration()
 	model_acceleration.tree = #items > 0 and
 		BVH.Build(
 			items,
-			function(item)
-				return item
-			end,
-			function(item)
-				return item.centroid_x, item.centroid_y, item.centroid_z
-			end,
+			get_bvh_item_bounds,
+			get_bvh_item_centroid,
 			MODEL_BVH_LEAF_ITEM_COUNT
 		) or
 		nil
@@ -136,12 +141,8 @@ local function build_static_model_source(models)
 		tree = #items > 0 and
 			BVH.Build(
 				items,
-				function(item)
-					return item
-				end,
-				function(item)
-					return item.centroid_x, item.centroid_y, item.centroid_z
-				end,
+				get_bvh_item_bounds,
+				get_bvh_item_centroid,
 				MODEL_BVH_LEAF_ITEM_COUNT
 			) or
 			nil,
@@ -180,19 +181,7 @@ local function ensure_model_acceleration()
 	return model_acceleration
 end
 
-local function get_model_transforms(model)
-	local world_to_local = nil
-	local local_to_world = nil
-
-	if model.WorldSpaceVertices then return nil, nil end
-
-	if model.Owner and model.Owner.transform then
-		world_to_local = model.Owner.transform:GetWorldMatrixInverse()
-		local_to_world = model.Owner.transform:GetWorldMatrix()
-	end
-
-	return world_to_local, local_to_world
-end
+local get_model_transforms = world_transform_utils.GetModelTransforms
 
 local function ray_triangle_intersection(ray, v0, v1, v2)
 	local epsilon = 0.0000001
@@ -327,12 +316,8 @@ local function build_triangle_acceleration(vertices, indices, triangle_count)
 
 	local tree = BVH.Build(
 		triangles,
-		function(tri)
-			return tri
-		end,
-		function(tri)
-			return tri.centroid_x, tri.centroid_y, tri.centroid_z
-		end,
+		get_bvh_item_bounds,
+		get_bvh_item_centroid,
 		BVH_LEAF_TRIANGLE_COUNT
 	)
 
@@ -413,12 +398,8 @@ local function build_model_primitive_acceleration(model)
 
 	local tree = BVH.Build(
 		items,
-		function(item)
-			return item
-		end,
-		function(item)
-			return item.centroid_x, item.centroid_y, item.centroid_z
-		end,
+		get_bvh_item_bounds,
+		get_bvh_item_centroid,
 		MODEL_PRIMITIVE_BVH_LEAF_ITEM_COUNT
 	)
 
@@ -733,6 +714,70 @@ local function visit_primitive_bvh_leaf_collect(node, context, best_hit, best_di
 	end
 
 	return best_hit, best_distance
+end
+
+local function visit_primitive_bvh_leaf_aabb(node, context, out)
+	for i = node.first, node.last do
+		local item = context.acceleration.primitives[i]
+		out[#out + 1] = item
+	end
+
+	return out
+end
+
+function raycast.CollectModelPrimitiveCandidatesByLocalAABB(model, local_aabb, out)
+	out = out or {}
+
+	if not (model and local_aabb and model.Primitives and model.Primitives[1]) then
+		return out
+	end
+
+	local primitive_acceleration = get_model_primitive_acceleration(model)
+
+	if primitive_acceleration and primitive_acceleration.tree then
+		local traversal_context = primitive_acceleration.tree.traversal_context
+		traversal_context.acceleration = primitive_acceleration.tree
+		traversal_context.node_stack = traversal_context.node_stack or {}
+		BVH.TraverseAABB(
+			local_aabb,
+			primitive_acceleration.tree.root,
+			visit_primitive_bvh_leaf_aabb,
+			traversal_context,
+			out
+		)
+
+		for _, primitive_idx in ipairs(primitive_acceleration.uncached_indices or {}) do
+			local primitive = model.Primitives[primitive_idx]
+
+			if
+				not primitive or
+				not primitive.aabb or
+				BVH.AABBIntersects(local_aabb, primitive.aabb)
+			then
+				out[#out + 1] = {
+					primitive = primitive,
+					primitive_idx = primitive_idx,
+				}
+			end
+		end
+
+		return out
+	end
+
+	for primitive_idx, primitive in ipairs(model.Primitives) do
+		if
+			not primitive or
+			not primitive.aabb or
+			BVH.AABBIntersects(local_aabb, primitive.aabb)
+		then
+			out[#out + 1] = {
+				primitive = primitive,
+				primitive_idx = primitive_idx,
+			}
+		end
+	end
+
+	return out
 end
 
 local function test_model_closest(

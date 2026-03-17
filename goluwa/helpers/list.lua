@@ -12,7 +12,20 @@ list.move = _G.table.move
 list.concat = _G.table.concat
 list.sort = _G.table.sort
 list.pairs = assert(_G.ipairs)
-list.clear = require("table.clear")
+
+local clear = require("table.clear")
+
+function list.clear(lst)
+	clear(lst)
+	return lst
+end
+
+function list.clear_from_index(array, from_index)
+	for i = from_index, #array do
+		array[i] = nil
+	end
+	return array
+end
 
 do
 	local function flatten(tbl, out)

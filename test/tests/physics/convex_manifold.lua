@@ -78,3 +78,20 @@ T.Test("Convex manifold average support point matches averaged extreme support v
 	T(average_min.x)["=="](-1)
 	T(average_min.y)["=="](1)
 end)
+
+T.Test("Convex manifold single contact builder reuses and trims the output array", function()
+	local contacts = {
+		{point_a = Vec3(9, 9, 9), point_b = Vec3(9, 9, 9)},
+		{point_a = Vec3(8, 8, 8), point_b = Vec3(8, 8, 8)},
+	}
+	local built = convex_manifold.BuildSingleContact(contacts, Vec3(1, 2, 3), Vec3(4, 5, 6))
+	T(built == contacts)["=="](true)
+	T(#built)["=="](1)
+	T(built[1].point_a.x)["=="](1)
+	T(built[1].point_a.y)["=="](2)
+	T(built[1].point_a.z)["=="](3)
+	T(built[1].point_b.x)["=="](4)
+	T(built[1].point_b.y)["=="](5)
+	T(built[1].point_b.z)["=="](6)
+	T(built[2] == nil)["=="](true)
+end)

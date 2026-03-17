@@ -1,5 +1,6 @@
 local Vec3 = import("goluwa/structs/vec3.lua")
 local solver = import("goluwa/physics/solver.lua")
+local convex_manifold = import("goluwa/physics/convex_manifold.lua")
 local convex_face_clipping = {}
 local EPSILON = solver.EPSILON or 0.00001
 
@@ -40,20 +41,10 @@ local function get_edge_side(a, b, point)
 	return (b.x - a.x) * (point.y - a.y) - (b.y - a.y) * (point.x - a.x)
 end
 
-local function clear_array(array, from_index)
-	from_index = from_index or 1
-
-	for i = from_index, #array do
-		array[i] = nil
-	end
-
-	return array
-end
-
 local function clip_polygon_to_edge(points, edge_a, edge_b, inside_sign, out)
 	out = out or {}
 
-	if not points[1] then return clear_array(out) end
+	if not points[1] then return list.clear(out) end
 
 	local previous = points[#points]
 	local previous_distance = inside_sign * get_edge_side(edge_a, edge_b, previous)
@@ -85,13 +76,13 @@ local function clip_polygon_to_edge(points, edge_a, edge_b, inside_sign, out)
 		previous_inside = inside
 	end
 
-	return clear_array(out, count + 1)
+	return list.clear_from_index(out, count + 1)
 end
 
 local function clip_polygon_component(points, axis_index, limit, keep_less_equal, out)
 	out = out or {}
 
-	if not points[1] then return clear_array(out) end
+	if not points[1] then return list.clear(out) end
 
 	local previous = points[#points]
 	local previous_distance = get_component(previous, axis_index) - limit
@@ -123,7 +114,7 @@ local function clip_polygon_component(points, axis_index, limit, keep_less_equal
 		previous_inside = inside
 	end
 
-	return clear_array(out, count + 1)
+	return list.clear_from_index(out, count + 1)
 end
 
 function convex_face_clipping.ClipFacePolygonToReference(reference_body, reference_face, incident_points, scratch)
@@ -139,7 +130,7 @@ function convex_face_clipping.ClipFacePolygonToReference(reference_body, referen
 		count = i
 	end
 
-	clear_array(polygon_a, count + 1)
+	list.clear_from_index(polygon_a, count + 1)
 	local polygon = polygon_a
 	local out = polygon_b
 	polygon = clip_polygon_component(
@@ -258,7 +249,7 @@ function convex_face_clipping.BuildReferenceFace(points, normal, tangent_u, tang
 		projected_points[i] = projected_point
 	end
 
-	clear_array(projected_points, #points + 1)
+	list.clear_from_index(projected_points, #points + 1)
 	local reference_face = scratch.reference_face or {}
 	scratch.reference_face = reference_face
 	reference_face.center = center
@@ -288,7 +279,7 @@ function convex_face_clipping.ClipIncidentPolygonToReferenceFace(reference_face,
 		count = i
 	end
 
-	clear_array(polygon_a, count + 1)
+	list.clear_from_index(polygon_a, count + 1)
 	local inside_point = {x = 0, y = 0}
 	local polygon = polygon_a
 	local out = polygon_b
@@ -328,17 +319,41 @@ function convex_face_clipping.BuildFaceContactEntries(reference_face, incident_p
 		end
 	end
 
-	return clear_array(entries, count + 1)
+	return list.clear_from_index(entries, count + 1)
+end
+
+local function compare_entry_separation(left, right)
+	return left.separation < right.separation
+end
+
+local function add_selected_entry(selected, chosen, entry)
+	if not entry or chosen[entry] then return end
+
+	chosen[entry] = true
+	selected[#selected + 1] = entry
+end
+
+local function pick_extreme_entry(entries, component_name, want_max)
+	local best_entry
+	local best_value = want_max and -math.huge or math.huge
+
+	for _, entry in ipairs(entries) do
+		local value = entry.local_point[component_name]
+
+		if (want_max and value > best_value) or (not want_max and value < best_value) then
+			best_value = value
+			best_entry = entry
+		end
+	end
+
+	return best_entry
 end
 
 function convex_face_clipping.SelectFaceContactEntries(entries, reference_face, max_contacts, scratch)
 	max_contacts = max_contacts or 4
 
 	if #entries <= max_contacts then
-		table.sort(entries, function(left, right)
-			return left.separation < right.separation
-		end)
-
+		table.sort(entries, compare_entry_separation)
 		return entries
 	end
 
@@ -371,44 +386,18 @@ function convex_face_clipping.SelectFaceContactEntries(entries, reference_face, 
 			"z" or
 			"y"
 		)
-
-	local function add_entry(entry)
-		if not entry or chosen[entry] then return end
-
-		chosen[entry] = true
-		selected[#selected + 1] = entry
-	end
-
-	local function pick_extreme(component_name, want_max)
-		local best_entry
-		local best_value = want_max and -math.huge or math.huge
-
-		for _, entry in ipairs(entries) do
-			local value = entry.local_point[component_name]
-
-			if (want_max and value > best_value) or (not want_max and value < best_value) then
-				best_value = value
-				best_entry = entry
-			end
-		end
-
-		return best_entry
-	end
-
-	add_entry(pick_extreme(tangent_u_name, false))
-	add_entry(pick_extreme(tangent_u_name, true))
-	add_entry(pick_extreme(tangent_v_name, false))
-	add_entry(pick_extreme(tangent_v_name, true))
+	add_selected_entry(selected, chosen, pick_extreme_entry(entries, tangent_u_name, false))
+	add_selected_entry(selected, chosen, pick_extreme_entry(entries, tangent_u_name, true))
+	add_selected_entry(selected, chosen, pick_extreme_entry(entries, tangent_v_name, false))
+	add_selected_entry(selected, chosen, pick_extreme_entry(entries, tangent_v_name, true))
 
 	if #selected < math.min(max_contacts, #entries) then
-		table.sort(entries, function(left, right)
-			return left.separation < right.separation
-		end)
+		table.sort(entries, compare_entry_separation)
 
 		for _, entry in ipairs(entries) do
-			add_entry(entry)
+			add_selected_entry(selected, chosen, entry)
 
-			if #selected >= math.min(max_contacts, #entries) then break end
+			if #selected >= max_contacts then break end
 		end
 	end
 
@@ -417,6 +406,33 @@ function convex_face_clipping.SelectFaceContactEntries(entries, reference_face, 
 	end
 
 	return selected
+end
+
+function convex_face_clipping.BuildFaceContactPairs(reference_points, reference_normal, incident_points, options)
+	options = options or {}
+	local scratch = options.scratch or {}
+	local out = options.out or {}
+	local reference_face = convex_face_clipping.BuildReferenceFace(
+		reference_points,
+		reference_normal,
+		options.tangent_u,
+		options.tangent_v,
+		scratch
+	)
+
+	if not reference_face then return list.clear(out) end
+
+	local entries = convex_face_clipping.BuildFaceContactEntries(reference_face, incident_points, options.separation_tolerance, scratch)
+	entries = convex_face_clipping.SelectFaceContactEntries(entries, reference_face, options.max_contacts, scratch)
+	local count = 0
+
+	for _, entry in ipairs(entries or {}) do
+		local point_a = options.swap and entry.point_incident or entry.point_reference
+		local point_b = options.swap and entry.point_reference or entry.point_incident
+		count = convex_manifold.AddContactPointReused(out, count, point_a, point_b, options.merge_distance)
+	end
+
+	return list.clear_from_index(out, count + 1)
 end
 
 return convex_face_clipping

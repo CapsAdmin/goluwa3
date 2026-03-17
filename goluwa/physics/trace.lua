@@ -1,6 +1,7 @@
 local Vec3 = import("goluwa/structs/vec3.lua")
 local physics = import("goluwa/physics.lua")
 local raycast = import("goluwa/physics/raycast.lua")
+local triangle_geometry = import("goluwa/physics/triangle_geometry.lua")
 local RigidBodyComponent = import("goluwa/ecs/components/3d/rigid_body.lua")
 local TRIANGLE_FEATURE_EPSILON = 0.0001
 local TRIANGLE_SEAM_DISTANCE_EPSILON = 0.0001
@@ -237,7 +238,7 @@ local function get_hit_face_normal(hit)
 
 	if not (v0 and v1 and v2) then return hit.normal end
 
-	return (v1 - v0):GetCross(v2 - v0):GetNormalized()
+	return triangle_geometry.GetTriangleNormal(v0, v1, v2)
 end
 
 local function get_hit_triangle_world_vertices(hit)
@@ -255,54 +256,7 @@ local function get_hit_triangle_world_vertices(hit)
 	return get_triangle_world_vertices(hit.primitive.polygon3d, hit.triangle_index, hit.entity)
 end
 
-local function closest_point_on_triangle(point, a, b, c)
-	local ab = b - a
-	local ac = c - a
-	local ap = point - a
-	local d1 = ab:Dot(ap)
-	local d2 = ac:Dot(ap)
-
-	if d1 <= 0 and d2 <= 0 then return a end
-
-	local bp = point - b
-	local d3 = ab:Dot(bp)
-	local d4 = ac:Dot(bp)
-
-	if d3 >= 0 and d4 <= d3 then return b end
-
-	local vc = d1 * d4 - d3 * d2
-
-	if vc <= 0 and d1 >= 0 and d3 <= 0 then
-		local v = d1 / (d1 - d3)
-		return a + ab * v
-	end
-
-	local cp = point - c
-	local d5 = ab:Dot(cp)
-	local d6 = ac:Dot(cp)
-
-	if d6 >= 0 and d5 <= d6 then return c end
-
-	local vb = d5 * d2 - d1 * d6
-
-	if vb <= 0 and d2 >= 0 and d6 <= 0 then
-		local w = d2 / (d2 - d6)
-		return a + ac * w
-	end
-
-	local va = d3 * d6 - d5 * d4
-
-	if va <= 0 and (d4 - d3) >= 0 and (d5 - d6) >= 0 then
-		local bc = c - b
-		local w = (d4 - d3) / ((d4 - d3) + (d5 - d6))
-		return b + bc * w
-	end
-
-	local denom = 1 / (va + vb + vc)
-	local v = vb * denom
-	local w = vc * denom
-	return a + ab * v + ac * w
-end
+local closest_point_on_triangle = triangle_geometry.ClosestPointOnTriangle
 
 local function get_triangle_feature_indices(closest_point, v0, v1, v2, i0, i1, i2)
 	if (closest_point - v0):GetLength() <= TRIANGLE_FEATURE_EPSILON then

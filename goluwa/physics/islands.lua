@@ -65,12 +65,6 @@ local function get_constraint_other_body(constraint, body)
 	return nil
 end
 
-local function clear_array(list)
-	for i = #list, 1, -1 do
-		list[i] = nil
-	end
-end
-
 function islands.BuildSimulationIslands(bodies, pairs, constraints)
 	bodies = bodies or {}
 	pairs = pairs or {}
@@ -188,7 +182,7 @@ end
 
 function islands.PrepareSimulationIslands(simulation_islands, newly_awoken_bodies)
 	newly_awoken_bodies = newly_awoken_bodies or {}
-	clear_array(newly_awoken_bodies)
+	list.clear(newly_awoken_bodies)
 	local woke_any = false
 
 	for island_index = 1, #(simulation_islands or {}) do
@@ -196,7 +190,7 @@ function islands.PrepareSimulationIslands(simulation_islands, newly_awoken_bodie
 		local dynamic_bodies = island.dynamic_bodies or island.bodies or {}
 		local awake_dynamic_bodies = island.awake_dynamic_bodies or {}
 		local active_dynamic_count = 0
-		clear_array(awake_dynamic_bodies)
+		list.clear(awake_dynamic_bodies)
 		island.awake_dynamic_bodies = awake_dynamic_bodies
 
 		for body_index = 1, #dynamic_bodies do
@@ -266,7 +260,7 @@ function islands.FinalizeSimulationIslands(simulation_islands)
 					end
 				end
 
-				if island.awake_dynamic_bodies then clear_array(island.awake_dynamic_bodies) end
+				if island.awake_dynamic_bodies then list.clear(island.awake_dynamic_bodies) end
 
 				island.active_dynamic_count = 0
 				island.sleeping = true

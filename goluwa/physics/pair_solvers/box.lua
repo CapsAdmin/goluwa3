@@ -58,29 +58,6 @@ local function add_box_contact_point(contacts, point_a, point_b)
 	return convex_manifold.AddContactPoint(contacts, point_a, point_b, 0.12)
 end
 
-local function fill_contact_pair(contacts, index, point_a, point_b)
-	local contact = contacts[index] or {}
-	contact.point_a = point_a
-	contact.point_b = point_b
-	contacts[index] = contact
-	return contact
-end
-
-local function add_box_contact_point_reused(contacts, count, point_a, point_b)
-	local midpoint = (point_a + point_b) * 0.5
-
-	for i = 1, count do
-		local existing = contacts[i]
-		local existing_midpoint = (existing.point_a + existing.point_b) * 0.5
-
-		if (existing_midpoint - midpoint):GetLength() <= 0.12 then return count end
-	end
-
-	count = count + 1
-	fill_contact_pair(contacts, count, point_a, point_b)
-	return count
-end
-
 local function fill_cached_box_faces(polyhedron, world_vertices, out)
 	out = out or {}
 
@@ -362,33 +339,34 @@ local function build_face_contacts(body_a, body_b, candidate)
 
 	for _, entry in ipairs(ranked_contacts) do
 		if reference_is_a then
-			contact_count = add_box_contact_point_reused(contacts, contact_count, entry.point_reference, entry.point_incident)
+			contact_count = convex_manifold.AddContactPointReused(
+				contacts,
+				contact_count,
+				entry.point_reference,
+				entry.point_incident,
+				0.12
+			)
 		else
-			contact_count = add_box_contact_point_reused(contacts, contact_count, entry.point_incident, entry.point_reference)
+			contact_count = convex_manifold.AddContactPointReused(
+				contacts,
+				contact_count,
+				entry.point_incident,
+				entry.point_reference,
+				0.12
+			)
 		end
 
 		if contact_count >= 4 then break end
 	end
 
-	for i = contact_count + 1, #contacts do
-		contacts[i] = nil
-	end
-
-	return contacts
+	return convex_manifold.TrimContacts(contacts, contact_count)
 end
 
 local function build_edge_contacts(body_a, body_b, candidate)
 	local edge_start_a, edge_end_a = get_support_edge(body_a, candidate.edge_axis_a, candidate.normal)
 	local edge_start_b, edge_end_b = get_support_edge(body_b, candidate.edge_axis_b, -candidate.normal)
 	local point_a, point_b = convex_manifold.ClosestPointsOnSegments(edge_start_a, edge_end_a, edge_start_b, edge_end_b)
-	local contacts = BOX_CONTACT_OUTPUT_SCRATCH.edge_contacts
-	fill_contact_pair(contacts, 1, point_a, point_b)
-
-	for i = 2, #contacts do
-		contacts[i] = nil
-	end
-
-	return contacts
+	return convex_manifold.BuildSingleContact(BOX_CONTACT_OUTPUT_SCRATCH.edge_contacts, point_a, point_b)
 end
 
 local function reduce_contacts_for_support_polygon(body_a, body_b, normal, contacts)
@@ -477,13 +455,8 @@ local function reduce_contacts_for_support_polygon(body_a, body_b, normal, conta
 			end
 
 			local averaged = BOX_SUPPORT_REDUCTION_SCRATCH.averaged
-			fill_contact_pair(averaged, 1, average_a / reduced_count, average_b / reduced_count)
-
-			for i = 2, #averaged do
-				averaged[i] = nil
-			end
-
-			return averaged, true
+			return convex_manifold.BuildSingleContact(averaged, average_a / reduced_count, average_b / reduced_count),
+			true
 		end
 
 		return reduced, true

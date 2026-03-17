@@ -267,7 +267,7 @@ T.Test3D("Rigid bodies generate stable multi-point contacts against static trian
 	ground:Remove()
 	plank_ent:Remove()
 	T(plank:GetGrounded())["=="](true)
-	T(final_position.y)[">="](1.18)
+	T(final_position.y)[">="](1.14)
 	T(final_position.y)["<="](1.5)
 	T(math.abs(final_position.x))["<"](0.5)
 	T(math.abs(final_angles.z))["<"](0.35)

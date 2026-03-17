@@ -30,8 +30,35 @@ function convex_sat.ProjectVertices(vertices, axis)
 	return min_projection, max_projection
 end
 
+function convex_sat.GetProjectedOverlap(vertices_a, vertices_b, axis)
+	local min_a, max_a = convex_sat.ProjectVertices(vertices_a, axis)
+	local min_b, max_b = convex_sat.ProjectVertices(vertices_b, axis)
+	return math.min(max_a, max_b) - math.max(min_a, min_b)
+end
+
 function convex_sat.OrientAxisNormal(axis, distance)
 	return axis * (distance >= 0 and 1 or -1)
+end
+
+function convex_sat.TryUpdateAxis(best, vertices_a, vertices_b, axis, center_delta, candidate, overlap_bias, normalize, epsilon)
+	local resolved_axis = axis
+
+	if normalize then
+		local axis_length = axis:GetLength()
+
+		if axis_length <= (epsilon or EPSILON) then return false end
+
+		resolved_axis = axis / axis_length
+	end
+
+	local overlap = convex_sat.GetProjectedOverlap(vertices_a, vertices_b, resolved_axis) + (overlap_bias or 0)
+
+	if overlap <= 0 then return false end
+
+	candidate.overlap = overlap
+	candidate.normal = convex_sat.OrientAxisNormal(resolved_axis, center_delta:Dot(resolved_axis))
+	convex_sat.UpdateBestAxis(best, candidate)
+	return true
 end
 
 function convex_sat.CreateBestAxisTracker()
