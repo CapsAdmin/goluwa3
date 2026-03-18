@@ -367,7 +367,7 @@ local function build_convex_hull(points, epsilon)
 
 	centroid = centroid / #points
 	local plane_groups = {}
-	local plane_epsilon = math.max(epsilon * 4, 0.0001)
+	local plane_epsilon = math.max(epsilon * 4, 0.000000001)
 
 	for i = 1, #points - 2 do
 		local a = points[i]

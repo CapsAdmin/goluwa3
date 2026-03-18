@@ -135,7 +135,7 @@ function manifold.SolveImpulses(body_a, body_b, normal, manifold_data, dt)
 		local inverse_mass = body_a:GetInverseMassAlong(normal, point_a) + body_b:GetInverseMassAlong(normal, point_b)
 
 		if inverse_mass > physics.EPSILON then
-			local applied_restitution = normal_speed < -1 and restitution or 0
+			local applied_restitution = normal_speed < -0.33 and restitution or 0
 			local normal_impulse = -(1 + applied_restitution) * normal_speed / inverse_mass
 			local new_impulse = math.max((contact.normal_impulse or 0) + normal_impulse, 0)
 			local impulse_delta = new_impulse - (contact.normal_impulse or 0)
