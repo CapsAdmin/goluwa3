@@ -14,18 +14,51 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local POLYHEDRON_SWEEP_MIN_SAMPLE_STEPS = 4
 local POLYHEDRON_SWEEP_MAX_SAMPLE_STEPS = 18
 local POLYHEDRON_SWEEP_REFINE_STEPS = 10
-local POLYHEDRON_SWEEP_PROXY_METHODS = {}
 local convex_manifold = nil
 local convex_sat = nil
-local POLYHEDRON_SWEEP_PROXY_META = {
-	__index = function(self, key)
-		local method = POLYHEDRON_SWEEP_PROXY_METHODS[key]
+local get_polyhedron_sweep_proxy
 
-		if method ~= nil then return method end
+do
+	local POLYHEDRON_SWEEP_PROXY_METHODS = {}
 
-		return self.collider[key]
-	end,
-}
+	function POLYHEDRON_SWEEP_PROXY_METHODS:GetPosition()
+		return self.sweep_position
+	end
+
+	function POLYHEDRON_SWEEP_PROXY_METHODS:GetRotation()
+		return self.sweep_rotation
+	end
+
+	function POLYHEDRON_SWEEP_PROXY_METHODS:LocalToWorld(local_point, position, rotation)
+		position = position or self.sweep_position
+		rotation = rotation or self.sweep_rotation
+		return position + rotation:VecMul(local_point)
+	end
+
+	local POLYHEDRON_SWEEP_PROXY_META = {
+		__index = function(self, key)
+			local method = POLYHEDRON_SWEEP_PROXY_METHODS[key]
+
+			if method ~= nil then return method end
+
+			return self.collider[key]
+		end,
+	}
+
+	function get_polyhedron_sweep_proxy(collider, position, rotation)
+		local proxy = collider.polyhedron_sweep_proxy
+
+		if not proxy then
+			proxy = setmetatable({_PhysicsPolyhedronWorldVerticesCache = {}}, POLYHEDRON_SWEEP_PROXY_META)
+			collider.polyhedron_sweep_proxy = proxy
+		end
+
+		proxy.collider = collider
+		proxy.sweep_position = position
+		proxy.sweep_rotation = rotation
+		return proxy
+	end
+end
 
 local function get_epsilon()
 	return physics.EPSILON or 0.000001
@@ -114,20 +147,6 @@ end
 local function get_target_pose(state, t, max_fraction)
 	return interpolate_position(state.previous_position, state.movement, t),
 	interpolate_rotation(state.previous_rotation, state.current_rotation, t, max_fraction)
-end
-
-function POLYHEDRON_SWEEP_PROXY_METHODS:GetPosition()
-	return self.sweep_position
-end
-
-function POLYHEDRON_SWEEP_PROXY_METHODS:GetRotation()
-	return self.sweep_rotation
-end
-
-function POLYHEDRON_SWEEP_PROXY_METHODS:LocalToWorld(local_point, position, rotation)
-	position = position or self.sweep_position
-	rotation = rotation or self.sweep_rotation
-	return position + rotation:VecMul(local_point)
 end
 
 local function passes_entity_filter(entity, ignore_entity, filter_fn, options)
@@ -263,20 +282,6 @@ local function get_polyhedron_pair_contact_positions(result, scratch)
 	point = point or get_support_point(vertices_a, normal * -1)
 	position = position or get_support_point(vertices_b, normal)
 	return point, position
-end
-
-local function get_polyhedron_sweep_proxy(collider, position, rotation)
-	local proxy = collider.polyhedron_sweep_proxy
-
-	if not proxy then
-		proxy = setmetatable({_PhysicsPolyhedronWorldVerticesCache = {}}, POLYHEDRON_SWEEP_PROXY_META)
-		collider.polyhedron_sweep_proxy = proxy
-	end
-
-	proxy.collider = collider
-	proxy.sweep_position = position
-	proxy.sweep_rotation = rotation
-	return proxy
 end
 
 local function get_polyhedron_extent(polyhedron)
