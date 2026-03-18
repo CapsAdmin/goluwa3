@@ -203,7 +203,7 @@ function render3d.Initialize()
 		import("goluwa/render3d/passes/gbuffer.lua"),
 		import("goluwa/render3d/passes/ssr.lua"),
 		import("goluwa/render3d/passes/lighting.lua"),
-		import("goluwa/render3d/passes/smaa.lua"),
+		--import("goluwa/render3d/passes/smaa.lua"),
 		import("goluwa/render3d/passes/blit.lua"),
 	}
 
