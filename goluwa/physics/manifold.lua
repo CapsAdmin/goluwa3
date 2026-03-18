@@ -7,10 +7,6 @@ local WARM_START_SCALE = solver.WARM_START_SCALE or 0.9
 local TANGENT_WARM_START_SCALE = solver.TANGENT_WARM_START_SCALE or 0.1
 local MAX_TANGENT_WARM_SPEED = solver.MAX_TANGENT_WARM_SPEED or 0.25
 
-local function copy_vec(vec)
-	return Vec3(vec.x, vec.y, vec.z)
-end
-
 local function get_cached_tangent(contact, normal)
 	local tangent = contact.tangent
 
@@ -67,7 +63,7 @@ function manifold.RebuildContacts(body_a, body_b, manifold_data, contacts)
 			tangent_impulse = matched_contact and matched_contact.tangent_impulse or 0,
 			tangent = matched_contact and
 				matched_contact.tangent and
-				copy_vec(matched_contact.tangent) or
+				matched_contact.tangent:Copy() or
 				nil,
 		}
 	end
@@ -77,10 +73,10 @@ function manifold.RebuildContacts(body_a, body_b, manifold_data, contacts)
 end
 
 function manifold.WarmStart(body_a, body_b, normal, manifold_data, dt)
-	local velocity_a = copy_vec(body_a:GetVelocity())
-	local velocity_b = copy_vec(body_b:GetVelocity())
-	local angular_velocity_a = copy_vec(body_a:GetAngularVelocity())
-	local angular_velocity_b = copy_vec(body_b:GetAngularVelocity())
+	local velocity_a = body_a:GetVelocity():Copy()
+	local velocity_b = body_b:GetVelocity():Copy()
+	local angular_velocity_a = body_a:GetAngularVelocity():Copy()
+	local angular_velocity_b = body_b:GetAngularVelocity():Copy()
 	local did_apply = false
 	local allow_persistent_tangent = supports_persistent_tangent(body_a, body_b, manifold_data)
 
@@ -122,10 +118,10 @@ function manifold.WarmStart(body_a, body_b, normal, manifold_data, dt)
 end
 
 function manifold.SolveImpulses(body_a, body_b, normal, manifold_data, dt)
-	local velocity_a = copy_vec(body_a:GetVelocity())
-	local velocity_b = copy_vec(body_b:GetVelocity())
-	local angular_velocity_a = copy_vec(body_a:GetAngularVelocity())
-	local angular_velocity_b = copy_vec(body_b:GetAngularVelocity())
+	local velocity_a = body_a:GetVelocity():Copy()
+	local velocity_b = body_b:GetVelocity():Copy()
+	local angular_velocity_a = body_a:GetAngularVelocity():Copy()
+	local angular_velocity_b = body_b:GetAngularVelocity():Copy()
 	local restitution = solver.GetPairRestitution(body_a, body_b)
 	local friction = solver.GetPairFriction(body_a, body_b)
 	local allow_persistent_tangent = supports_persistent_tangent(body_a, body_b, manifold_data)
@@ -176,7 +172,7 @@ function manifold.SolveImpulses(body_a, body_b, normal, manifold_data, dt)
 
 				if allow_persistent_tangent then
 					contact.tangent_impulse = new_tangent_impulse
-					contact.tangent = copy_vec(tangent)
+					contact.tangent = tangent:Copy()
 				end
 
 				if math.abs(impulse_delta) > physics.EPSILON then

@@ -549,8 +549,4 @@ function convex_hull.BuildCompoundShapeFromTriangles(source, epsilon)
 	}
 end
 
-function convex_hull.BuildCompoundShapeFromModel(model, epsilon)
-	return convex_hull.BuildCompoundShapeFromTriangles(model, epsilon)
-end
-
 return convex_hull
