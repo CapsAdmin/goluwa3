@@ -35,10 +35,16 @@ end
 function Solver:Initialize(config)
 	config = config or {}
 	self.physics = config.physics or self.physics or physics
-	self.MANIFOLD_PRUNE_STEPS = config.MANIFOLD_PRUNE_STEPS or self.MANIFOLD_PRUNE_STEPS or Solver.MANIFOLD_PRUNE_STEPS
+	self.MANIFOLD_PRUNE_STEPS = config.MANIFOLD_PRUNE_STEPS or
+		self.MANIFOLD_PRUNE_STEPS or
+		Solver.MANIFOLD_PRUNE_STEPS
 	self.WARM_START_SCALE = config.WARM_START_SCALE or self.WARM_START_SCALE or Solver.WARM_START_SCALE
-	self.TANGENT_WARM_START_SCALE = config.TANGENT_WARM_START_SCALE or self.TANGENT_WARM_START_SCALE or Solver.TANGENT_WARM_START_SCALE
-	self.MAX_TANGENT_WARM_SPEED = config.MAX_TANGENT_WARM_SPEED or self.MAX_TANGENT_WARM_SPEED or Solver.MAX_TANGENT_WARM_SPEED
+	self.TANGENT_WARM_START_SCALE = config.TANGENT_WARM_START_SCALE or
+		self.TANGENT_WARM_START_SCALE or
+		Solver.TANGENT_WARM_START_SCALE
+	self.MAX_TANGENT_WARM_SPEED = config.MAX_TANGENT_WARM_SPEED or
+		self.MAX_TANGENT_WARM_SPEED or
+		Solver.MAX_TANGENT_WARM_SPEED
 	self.PersistentManifolds = config.PersistentManifolds or {}
 	self.PairHandlers = clone_pair_handlers(config.PairHandlers or Solver.PairHandlers)
 	self.MissingPairWarnings = config.MissingPairWarnings or {}
@@ -154,7 +160,11 @@ local islands = import("goluwa/physics/islands.lua")
 function Solver:BeginStep()
 	local physics = self:GetPhysics()
 	self.StepStamp = (self.StepStamp or 0) + 1
-	manifolds.PruneOld(self.PersistentManifolds, self.StepStamp, self.MANIFOLD_PRUNE_STEPS or Solver.MANIFOLD_PRUNE_STEPS)
+	manifolds.PruneOld(
+		self.PersistentManifolds,
+		self.StepStamp,
+		self.MANIFOLD_PRUNE_STEPS or Solver.MANIFOLD_PRUNE_STEPS
+	)
 	local constraints = physics.GetConstraints()
 
 	for i = 1, #constraints do
@@ -213,7 +223,6 @@ local function is_simple_body(physics, collider_list)
 		math.abs(local_rotation.z) <= physics.EPSILON and
 		math.abs(local_rotation.w - 1) <= physics.EPSILON
 end
-
 
 local function solve_rigid_body_pair(self, body_a, body_b, entry_a, entry_b, dt)
 	local physics = self:GetPhysics()
@@ -288,7 +297,6 @@ function Solver:SolveBodyContacts(body, dt)
 end
 
 Solver:Register()
-
 import("goluwa/physics/pair_solvers/polyhedron.lua")
 import("goluwa/physics/pair_solvers/sphere.lua")
 import("goluwa/physics/pair_solvers/capsule.lua")
