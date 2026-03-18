@@ -1,17 +1,59 @@
+local prototype = import("goluwa/prototype.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
-local Quat = import("goluwa/structs/quat.lua")
 local physics = import("goluwa/physics.lua")
 local broadphase = import("goluwa/physics/broadphase.lua")
-local solver = physics.Solver or {}
-physics.Solver = solver
-import.loaded["goluwa/physics/solver.lua"] = solver
-local MANIFOLD_PRUNE_STEPS = solver.MANIFOLD_PRUNE_STEPS or 12
-solver.MANIFOLD_PRUNE_STEPS = MANIFOLD_PRUNE_STEPS
-solver.WARM_START_SCALE = solver.WARM_START_SCALE or 0.9
-solver.PersistentManifolds = solver.PersistentManifolds or {}
-solver.PairHandlers = solver.PairHandlers or {}
-solver.MissingPairWarnings = solver.MissingPairWarnings or {}
-solver.StepStamp = solver.StepStamp or 0
+local Solver = prototype.CreateTemplate("physics_solver")
+import.loaded["goluwa/physics/solver.lua"] = Solver
+Solver.MANIFOLD_PRUNE_STEPS = Solver.MANIFOLD_PRUNE_STEPS or 12
+Solver.WARM_START_SCALE = Solver.WARM_START_SCALE or 0.9
+Solver.TANGENT_WARM_START_SCALE = Solver.TANGENT_WARM_START_SCALE or 0.1
+Solver.MAX_TANGENT_WARM_SPEED = Solver.MAX_TANGENT_WARM_SPEED or 0.25
+Solver.PairHandlers = Solver.PairHandlers or {}
+Solver.PersistentManifolds = Solver.PersistentManifolds or {}
+Solver.MissingPairWarnings = Solver.MissingPairWarnings or {}
+Solver.StepStamp = Solver.StepStamp or 0
+
+local function clone_pair_handlers(source)
+	local out = {}
+
+	for shape_a, handlers in pairs(source or {}) do
+		out[shape_a] = {}
+
+		for shape_b, handler in pairs(handlers) do
+			out[shape_a][shape_b] = handler
+		end
+	end
+
+	return out
+end
+
+function Solver.New(config)
+	local self = Solver:CreateObject()
+	return self:Initialize(config)
+end
+
+function Solver:Initialize(config)
+	config = config or {}
+	self.physics = config.physics or self.physics or physics
+	self.MANIFOLD_PRUNE_STEPS = config.MANIFOLD_PRUNE_STEPS or self.MANIFOLD_PRUNE_STEPS or Solver.MANIFOLD_PRUNE_STEPS
+	self.WARM_START_SCALE = config.WARM_START_SCALE or self.WARM_START_SCALE or Solver.WARM_START_SCALE
+	self.TANGENT_WARM_START_SCALE = config.TANGENT_WARM_START_SCALE or self.TANGENT_WARM_START_SCALE or Solver.TANGENT_WARM_START_SCALE
+	self.MAX_TANGENT_WARM_SPEED = config.MAX_TANGENT_WARM_SPEED or self.MAX_TANGENT_WARM_SPEED or Solver.MAX_TANGENT_WARM_SPEED
+	self.PersistentManifolds = config.PersistentManifolds or {}
+	self.PairHandlers = clone_pair_handlers(config.PairHandlers or Solver.PairHandlers)
+	self.MissingPairWarnings = config.MissingPairWarnings or {}
+	self.StepStamp = config.StepStamp or 0
+	return self
+end
+
+function Solver:GetPhysics()
+	return self.physics or physics
+end
+
+function Solver:ResetState()
+	table.clear(self.PersistentManifolds)
+end
+
 local COMBINE_MODE_PRIORITY = {
 	average = 0,
 	min = 1,
@@ -56,35 +98,63 @@ local function combine_material_value(value_a, value_b, mode, legacy_mode)
 	return math.max(value_a, value_b)
 end
 
-function solver.GetPairRestitution(body_a, body_b)
+function Solver:GetPairRestitution(body_a, body_b)
 	local restitution_a = math.max(body_a:GetRestitution() or 0, 0)
 	local restitution_b = math.max(body_b:GetRestitution() or 0, 0)
 	local mode = resolve_pair_combine_mode(body_a:GetRestitutionCombineMode(), body_b:GetRestitutionCombineMode())
 	return combine_material_value(restitution_a, restitution_b, mode, "restitution")
 end
 
-function solver.GetPairFriction(body_a, body_b)
+function Solver:GetPairFriction(body_a, body_b)
 	local friction_a = math.max(body_a:GetFriction() or 0, 0)
 	local friction_b = math.max(body_b:GetFriction() or 0, 0)
 	local mode = resolve_pair_combine_mode(body_a:GetFrictionCombineMode(), body_b:GetFrictionCombineMode())
 	return combine_material_value(friction_a, friction_b, mode, "friction")
 end
 
-function solver.GetPairRollingFriction(body_a, body_b)
+function Solver:GetPairRollingFriction(body_a, body_b)
 	local friction_a = math.max(body_a:GetRollingFriction() or 0, 0)
 	local friction_b = math.max(body_b:GetRollingFriction() or 0, 0)
 	local mode = resolve_pair_combine_mode(body_a:GetRollingFrictionCombineMode(), body_b:GetRollingFrictionCombineMode())
 	return combine_material_value(friction_a, friction_b, mode, "friction")
 end
 
-local fallback = import("goluwa/physics/fallback_solver.lua")
+local contact_resolution = import("goluwa/physics/contact_resolution.lua")
+
+local function fallback_solve_aabb_pair_collision(body_a, body_b, bounds_a, bounds_b, dt)
+	local overlap_x = math.min(bounds_a.max_x, bounds_b.max_x) - math.max(bounds_a.min_x, bounds_b.min_x)
+	local overlap_y = math.min(bounds_a.max_y, bounds_b.max_y) - math.max(bounds_a.min_y, bounds_b.min_y)
+	local overlap_z = math.min(bounds_a.max_z, bounds_b.max_z) - math.max(bounds_a.min_z, bounds_b.min_z)
+
+	if overlap_x <= 0 or overlap_y <= 0 or overlap_z <= 0 then return end
+
+	local center_delta = body_b:GetPosition() - body_a:GetPosition()
+	local normal
+	local overlap = overlap_x
+
+	if overlap_y < overlap then
+		overlap = overlap_y
+		normal = Vec3(0, center_delta.y >= 0 and 1 or -1, 0)
+	end
+
+	if overlap_z < overlap then
+		overlap = overlap_z
+		normal = Vec3(0, 0, center_delta.z >= 0 and 1 or -1)
+	end
+
+	if not normal then normal = Vec3(center_delta.x >= 0 and 1 or -1, 0, 0) end
+
+	return contact_resolution.ResolvePairPenetration(body_a, body_b, normal, overlap, dt)
+end
+
 local manifolds = import("goluwa/physics/manifold.lua")
 local world_contacts = import("goluwa/physics/world_contacts.lua")
 local islands = import("goluwa/physics/islands.lua")
 
-function solver:BeginStep()
+function Solver:BeginStep()
+	local physics = self:GetPhysics()
 	self.StepStamp = (self.StepStamp or 0) + 1
-	manifolds.PruneOld(self.PersistentManifolds, self.StepStamp, MANIFOLD_PRUNE_STEPS)
+	manifolds.PruneOld(self.PersistentManifolds, self.StepStamp, self.MANIFOLD_PRUNE_STEPS or Solver.MANIFOLD_PRUNE_STEPS)
 	local constraints = physics.GetConstraints()
 
 	for i = 1, #constraints do
@@ -94,17 +164,17 @@ function solver:BeginStep()
 	end
 end
 
-function solver:RegisterPairHandler(shape_a, shape_b, handler)
+function Solver:RegisterPairHandler(shape_a, shape_b, handler)
 	if not self.PairHandlers[shape_a] then self.PairHandlers[shape_a] = {} end
 
 	self.PairHandlers[shape_a][shape_b] = handler
 end
 
-function solver:GetPairHandler(shape_a, shape_b)
+function Solver:GetPairHandler(shape_a, shape_b)
 	return self.PairHandlers[shape_a] and self.PairHandlers[shape_a][shape_b] or nil
 end
 
-function solver:WarnMissingPairHandler(shape_a, shape_b)
+function Solver:WarnMissingPairHandler(shape_a, shape_b)
 	local key = tostring(shape_a) .. "|" .. tostring(shape_b)
 
 	if self.MissingPairWarnings[key] then return end
@@ -131,7 +201,7 @@ function solver:WarnMissingPairHandler(shape_a, shape_b)
 	end
 end
 
-local function is_simple_body(collider_list)
+local function is_simple_body(physics, collider_list)
 	if #collider_list ~= 1 then return false end
 
 	local collider = collider_list[1]
@@ -144,21 +214,24 @@ local function is_simple_body(collider_list)
 		math.abs(local_rotation.w - 1) <= physics.EPSILON
 end
 
-local function solve_rigid_body_pair(body_a, body_b, entry_a, entry_b, dt)
+
+local function solve_rigid_body_pair(self, body_a, body_b, entry_a, entry_b, dt)
+	local physics = self:GetPhysics()
+
 	if not physics.ShouldBodiesCollide(body_a, body_b) then return end
 
 	local colliders_a = body_a:GetColliders()
 	local colliders_b = body_b:GetColliders()
 
-	if is_simple_body(colliders_a) and is_simple_body(colliders_b) then
+	if is_simple_body(physics, colliders_a) and is_simple_body(physics, colliders_b) then
 		local shape_a = body_a:GetShapeType()
 		local shape_b = body_b:GetShapeType()
-		local handler = solver:GetPairHandler(shape_a, shape_b)
+		local handler = self:GetPairHandler(shape_a, shape_b)
 
 		if handler then return handler(body_a, body_b, entry_a, entry_b, dt) end
 
-		solver:WarnMissingPairHandler(shape_a, shape_b)
-		return fallback.SolveAABBPairCollision(body_a, body_b, entry_a.bounds, entry_b.bounds, dt)
+		self:WarnMissingPairHandler(shape_a, shape_b)
+		return fallback_solve_aabb_pair_collision(body_a, body_b, entry_a.bounds, entry_b.bounds, dt)
 	end
 
 	local handled = false
@@ -168,12 +241,12 @@ local function solve_rigid_body_pair(body_a, body_b, entry_a, entry_b, dt)
 			if physics.ShouldBodiesCollide(collider_a, collider_b) then
 				local shape_a = collider_a:GetShapeType()
 				local shape_b = collider_b:GetShapeType()
-				local handler = solver:GetPairHandler(shape_a, shape_b)
+				local handler = self:GetPairHandler(shape_a, shape_b)
 
 				if handler then
 					if handler(collider_a, collider_b, entry_a, entry_b, dt) then handled = true end
 				else
-					solver:WarnMissingPairHandler(shape_a, shape_b)
+					self:WarnMissingPairHandler(shape_a, shape_b)
 				end
 			end
 		end
@@ -182,7 +255,8 @@ local function solve_rigid_body_pair(body_a, body_b, entry_a, entry_b, dt)
 	return handled
 end
 
-function solver.SolveDistanceConstraints(dt, constraints_override)
+function Solver:SolveDistanceConstraints(dt, constraints_override)
+	local physics = self:GetPhysics()
 	local constraints = constraints_override or physics.GetConstraints()
 
 	for i = #constraints, 1, -1 do
@@ -192,29 +266,9 @@ function solver.SolveDistanceConstraints(dt, constraints_override)
 	end
 end
 
-solver.SolveConstraints = solver.SolveDistanceConstraints
+Solver.SolveConstraints = Solver.SolveDistanceConstraints
 
-function solver.BuildBroadphasePairs(bodies)
-	return broadphase.BuildCandidatePairs(physics, bodies)
-end
-
-function solver.BuildSimulationIslands(bodies, pairs, constraints)
-	return islands.BuildSimulationIslands(bodies, pairs, constraints)
-end
-
-function solver.PrepareSimulationIslands(simulation_islands, newly_awoken_bodies)
-	return islands.PrepareSimulationIslands(simulation_islands, newly_awoken_bodies)
-end
-
-function solver.FinalizeSimulationIslands(simulation_islands)
-	return islands.FinalizeSimulationIslands(simulation_islands)
-end
-
-function solver.IsSimulationIslandSleeping(island)
-	return islands.IsSleepingIsland(island)
-end
-
-function solver.SolveRigidBodyPairs(bodies_or_pairs, dt)
+function Solver:SolveRigidBodyPairs(bodies_or_pairs, dt)
 	local pairs = bodies_or_pairs
 
 	if not (pairs and pairs[1] and pairs[1].entry_a and pairs[1].entry_b) then
@@ -225,16 +279,18 @@ function solver.SolveRigidBodyPairs(bodies_or_pairs, dt)
 		local pair = pairs[i]
 		local entry_a = pair.entry_a
 		local entry_b = pair.entry_b
-		solve_rigid_body_pair(entry_a.body, entry_b.body, entry_a, entry_b, dt)
+		solve_rigid_body_pair(self, entry_a.body, entry_b.body, entry_a, entry_b, dt)
 	end
 end
 
-function solver.SolveBodyContacts(body, dt)
+function Solver:SolveBodyContacts(body, dt)
 	world_contacts.SolveBodyContacts(body, dt)
 end
+
+Solver:Register()
 
 import("goluwa/physics/pair_solvers/polyhedron.lua")
 import("goluwa/physics/pair_solvers/sphere.lua")
 import("goluwa/physics/pair_solvers/capsule.lua")
 import("goluwa/physics/pair_solvers/box.lua")
-return solver
+return Solver

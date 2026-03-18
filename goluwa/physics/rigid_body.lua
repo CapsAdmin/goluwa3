@@ -1,5 +1,7 @@
 local physics = import("goluwa/physics.lua")
-local solver = import("goluwa/physics/solver.lua")
+local Solver = import("goluwa/physics/solver.lua")
+local broadphase = import("goluwa/physics/broadphase.lua")
+local islands = import("goluwa/physics/islands.lua")
 local kinematic_controller = import("goluwa/physics/kinematic_controller.lua")
 local prototype = import("goluwa/prototype.lua")
 local AABB = import("goluwa/structs/aabb.lua")
@@ -1046,6 +1048,7 @@ function physics.UpdateRigidBodies(dt)
 	if not dt or dt <= 0 then return end
 
 	local bodies = RigidBody.Instances
+	local solver = physics.solver or Solver
 
 	if #bodies == 0 then return end
 
@@ -1076,16 +1079,14 @@ function physics.UpdateRigidBodies(dt)
 			end
 		end
 
-		local rigid_body_pairs = solver.BuildBroadphasePairs and solver.BuildBroadphasePairs(bodies) or bodies
+		local rigid_body_pairs = broadphase.BuildCandidatePairs(physics, bodies)
 		local constraints = physics.GetConstraints()
-		local simulation_islands = solver.BuildSimulationIslands and
-			solver.BuildSimulationIslands(bodies, rigid_body_pairs, constraints) or
-			nil
+		local simulation_islands = islands.BuildSimulationIslands(bodies, rigid_body_pairs, constraints)
 		local newly_awoken_bodies = {}
 
-		if simulation_islands and simulation_islands[1] and solver.PrepareSimulationIslands then
+		if simulation_islands and simulation_islands[1] then
 			local woke_any
-			woke_any, newly_awoken_bodies = solver.PrepareSimulationIslands(simulation_islands, newly_awoken_bodies)
+			woke_any, newly_awoken_bodies = islands.PrepareSimulationIslands(simulation_islands, newly_awoken_bodies)
 
 			if woke_any then
 				for body_index = 1, #newly_awoken_bodies do
@@ -1098,13 +1099,11 @@ function physics.UpdateRigidBodies(dt)
 					end
 				end
 
-				rigid_body_pairs = solver.BuildBroadphasePairs and solver.BuildBroadphasePairs(bodies) or bodies
-				simulation_islands = solver.BuildSimulationIslands and
-					solver.BuildSimulationIslands(bodies, rigid_body_pairs, constraints) or
-					nil
+				rigid_body_pairs = broadphase.BuildCandidatePairs(physics, bodies)
+				simulation_islands = islands.BuildSimulationIslands(bodies, rigid_body_pairs, constraints)
 
-				if simulation_islands and simulation_islands[1] and solver.PrepareSimulationIslands then
-					solver.PrepareSimulationIslands(simulation_islands, newly_awoken_bodies)
+				if simulation_islands and simulation_islands[1] then
+					islands.PrepareSimulationIslands(simulation_islands, newly_awoken_bodies)
 				end
 			end
 		end
@@ -1114,38 +1113,33 @@ function physics.UpdateRigidBodies(dt)
 				for island_index = 1, #simulation_islands do
 					local island = simulation_islands[island_index]
 
-					if
-						not (
-							solver.IsSimulationIslandSleeping and
-							solver.IsSimulationIslandSleeping(island)
-						)
-					then
-						solver.SolveRigidBodyPairs(island.pairs, sub_dt)
+					if not islands.IsSleepingIsland(island) then
+						solver:SolveRigidBodyPairs(island.pairs, sub_dt)
 						local dynamic_bodies = island.awake_dynamic_bodies or island.dynamic_bodies or island.bodies
 
 						for body_index = 1, #dynamic_bodies do
 							local body = dynamic_bodies[body_index]
 
 							if physics.IsActiveRigidBody(body) then
-								solver.SolveBodyContacts(body, sub_dt)
+								solver:SolveBodyContacts(body, sub_dt)
 							end
 						end
 
-						solver.SolveDistanceConstraints(sub_dt, island.constraints)
+						solver:SolveDistanceConstraints(sub_dt, island.constraints)
 					end
 				end
 			else
-				solver.SolveRigidBodyPairs(rigid_body_pairs, sub_dt)
+				solver:SolveRigidBodyPairs(rigid_body_pairs, sub_dt)
 
 				for _, body in ipairs(bodies) do
 					if physics.IsActiveRigidBody(body) then
 						if body:IsDynamic() and body:GetAwake() then
-							solver.SolveBodyContacts(body, sub_dt)
+							solver:SolveBodyContacts(body, sub_dt)
 						end
 					end
 				end
 
-				solver.SolveDistanceConstraints(sub_dt, constraints)
+				solver:SolveDistanceConstraints(sub_dt, constraints)
 			end
 		end
 
@@ -1156,8 +1150,8 @@ function physics.UpdateRigidBodies(dt)
 			end
 		end
 
-		if simulation_islands and simulation_islands[1] and solver.FinalizeSimulationIslands then
-			solver.FinalizeSimulationIslands(simulation_islands)
+		if simulation_islands and simulation_islands[1] then
+			islands.FinalizeSimulationIslands(simulation_islands)
 		end
 	end
 

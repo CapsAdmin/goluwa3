@@ -6,17 +6,16 @@ import("goluwa/physics/convex_hull.lua")
 import("goluwa/physics/sweep.lua")
 import("goluwa/physics/trace.lua")
 import("goluwa/physics/constraint.lua")
-import("goluwa/physics/solver.lua")
+local Solver = import("goluwa/physics/solver.lua")
+physics.solver = Solver.New({physics = physics})
 import("goluwa/physics/rigid_body.lua")
 
 function physics.ResetState()
-	local solver = import("goluwa/physics/solver.lua")
+	local solver = physics.solver or Solver.New({physics = physics})
 	local RigidBody = import("goluwa/physics/rigid_body.lua")
 	local constraints = physics.GetConstraints and physics.GetConstraints() or nil
-
-	if solver and solver.PersistentManifolds then
-		table.clear(solver.PersistentManifolds)
-	end
+	physics.solver = solver
+	solver:ResetState()
 
 	if physics.PreviousCollisionPairs then
 		table.clear(physics.PreviousCollisionPairs)

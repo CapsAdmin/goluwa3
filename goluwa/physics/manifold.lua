@@ -1,11 +1,15 @@
 local physics = import("goluwa/physics.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
-local solver = import("goluwa/physics/solver.lua")
+local Solver = import("goluwa/physics/solver.lua")
 local motion = import("goluwa/physics/motion.lua")
 local manifold = {}
-local WARM_START_SCALE = solver.WARM_START_SCALE or 0.9
-local TANGENT_WARM_START_SCALE = solver.TANGENT_WARM_START_SCALE or 0.1
-local MAX_TANGENT_WARM_SPEED = solver.MAX_TANGENT_WARM_SPEED or 0.25
+local WARM_START_SCALE = Solver.WARM_START_SCALE or 0.9
+local TANGENT_WARM_START_SCALE = Solver.TANGENT_WARM_START_SCALE or 0.1
+local MAX_TANGENT_WARM_SPEED = Solver.MAX_TANGENT_WARM_SPEED or 0.25
+
+local function get_solver()
+	return physics.solver or Solver
+end
 
 local function get_cached_tangent(contact, normal)
 	local tangent = contact.tangent
@@ -118,12 +122,13 @@ function manifold.WarmStart(body_a, body_b, normal, manifold_data, dt)
 end
 
 function manifold.SolveImpulses(body_a, body_b, normal, manifold_data, dt)
+	local solver = get_solver()
 	local velocity_a = body_a:GetVelocity():Copy()
 	local velocity_b = body_b:GetVelocity():Copy()
 	local angular_velocity_a = body_a:GetAngularVelocity():Copy()
 	local angular_velocity_b = body_b:GetAngularVelocity():Copy()
-	local restitution = solver.GetPairRestitution(body_a, body_b)
-	local friction = solver.GetPairFriction(body_a, body_b)
+	local restitution = solver:GetPairRestitution(body_a, body_b)
+	local friction = solver:GetPairFriction(body_a, body_b)
 	local allow_persistent_tangent = supports_persistent_tangent(body_a, body_b, manifold_data)
 
 	for _, contact in ipairs(manifold_data.contacts or {}) do
