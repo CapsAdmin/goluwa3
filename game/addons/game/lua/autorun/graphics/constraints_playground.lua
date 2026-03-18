@@ -6,6 +6,7 @@ local Texture = import("goluwa/render/texture.lua")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
 local Entity = import("goluwa/ecs/entity.lua")
 local physics = import("goluwa/physics.lua")
+local DistanceConstraint = import("goluwa/physics/constraint.lua")
 import("goluwa/physics/constraint.lua")
 local SphereShape = import("goluwa/physics/shapes/sphere.lua")
 local BoxShape = import("goluwa/physics/shapes/box.lua")
@@ -202,7 +203,7 @@ local function spawn_dynamic_capsule(position, radius, height, material, rotatio
 end
 
 local function add_distance_constraint(body0, body1, pos0, pos1, distance, compliance, unilateral)
-	return physics.CreateDistanceConstraint(body0, body1, pos0, pos1, distance, compliance or 0, unilateral)
+	return DistanceConstraint.New(body0, body1, pos0, pos1, distance, compliance or 0, unilateral)
 end
 
 local ground_material = make_material(Color(0.20, 0.18, 0.16, 1), 0.92, 0)

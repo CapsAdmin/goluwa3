@@ -2,8 +2,8 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local physics = import("goluwa/physics.lua")
 local motion = import("goluwa/physics/motion.lua")
-local DistanceConstraint = {}
-DistanceConstraint.__index = DistanceConstraint
+local prototype = import("goluwa/prototype.lua")
+local DistanceConstraint = prototype.CreateTemplate("physics_constraint")
 
 local function integrate_rotation(rotation, angular_velocity, dt)
 	if angular_velocity:GetLength() == 0 then return rotation:Copy() end
@@ -253,25 +253,22 @@ function DistanceConstraint:Solve(dt)
 	return delta_lambda / (dt * dt)
 end
 
-function DistanceConstraint:Destroy()
+function DistanceConstraint:OnRemove()
 	self.Enabled = false
 	self.AccumulatedLambda = 0
 	remove_constraint(self)
 end
 
-function physics.CreateDistanceConstraint(body0, body1, pos0, pos1, distance, compliance, unilateral)
-	local constraint = setmetatable(
-		{
-			Body0 = body0,
-			Body1 = body1,
-			Distance = 0,
-			Compliance = 0,
-			Unilateral = unilateral or false,
-			Enabled = true,
-			AccumulatedLambda = 0,
-		},
-		DistanceConstraint
-	)
+function DistanceConstraint.New(body0, body1, pos0, pos1, distance, compliance, unilateral)
+	local constraint = DistanceConstraint:CreateObject{
+		Body0 = body0,
+		Body1 = body1,
+		Distance = 0,
+		Compliance = 0,
+		Unilateral = unilateral or false,
+		Enabled = true,
+		AccumulatedLambda = 0,
+	}
 
 	if body0 then
 		constraint.LocalPosition0 = body0:WorldToLocal(pos0)
@@ -301,6 +298,4 @@ function physics.RemoveAllConstraints()
 	return physics
 end
 
-physics.AddDistanceConstraint = physics.CreateDistanceConstraint
-physics.DistanceConstraint = DistanceConstraint
-return physics
+return DistanceConstraint:Register()
