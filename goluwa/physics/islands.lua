@@ -17,6 +17,20 @@ local function is_anchor_body(body)
 	return body and physics.IsActiveRigidBody(body) and not is_dynamic_body(body)
 end
 
+local function can_body_sleep_now(body)
+	if not body then return false end
+
+	if body.CanSleepNow then return body:CanSleepNow() end
+
+	if not (body.IsReadyToSleep and body:IsReadyToSleep()) then return false end
+
+	if body.GetAwake and not body:GetAwake() then return true end
+
+	local sleep_timer = math.max(body.SleepTimer or 0, 0)
+	local sleep_delay = math.max(body.GetSleepDelay and body:GetSleepDelay() or body.SleepDelay or 0, 0)
+	return sleep_timer >= sleep_delay
+end
+
 local function add_unique(list, lookup, value)
 	if not value or lookup[value] then return end
 
@@ -244,7 +258,7 @@ function islands.FinalizeSimulationIslands(simulation_islands)
 					has_awake_dynamic_body = true
 				end
 
-				if not (body and body.IsReadyToSleep and body:IsReadyToSleep()) then
+				if not can_body_sleep_now(body) then
 					can_sleep_island = false
 
 					break

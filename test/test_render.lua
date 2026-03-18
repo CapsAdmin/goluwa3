@@ -7,6 +7,7 @@ local render2d = import("goluwa/render2d/render2d.lua")
 local Rect = import("goluwa/structs/rect.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
+local physics = import("goluwa/physics.lua")
 local test_render = {}
 local width = 512
 local height = 512
@@ -65,6 +66,8 @@ function test_render.Draw3D(cb)
 			found = true
 		end
 	end
+
+	if physics and physics.ResetState then physics.ResetState() end
 
 	if found then error("Not all entities were removed after test!") end
 end

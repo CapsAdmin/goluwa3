@@ -204,6 +204,43 @@ T.Test("Simulation islands keep constrained dynamics awake when one body is not 
 	T(dynamic_b.SleepCount)["=="](0)
 end)
 
+T.Test("Simulation islands wait for sleep delay before sleeping constrained dynamics", function()
+	local dynamic_a = create_mock_body("dynamic_a", "dynamic")
+	local dynamic_b = create_mock_body("dynamic_b", "dynamic")
+	dynamic_a.Awake = true
+	dynamic_b.Awake = true
+	dynamic_a.ReadyToSleep = true
+	dynamic_b.ReadyToSleep = true
+	dynamic_a.SleepDelay = 0.5
+	dynamic_b.SleepDelay = 0.5
+	dynamic_a.SleepTimer = 0.2
+	dynamic_b.SleepTimer = 0.2
+	local built = islands.BuildSimulationIslands(
+		{dynamic_a, dynamic_b},
+		{},
+		{
+			{Body0 = dynamic_a, Body1 = dynamic_b, Enabled = true},
+		}
+	)
+	islands.PrepareSimulationIslands(built)
+	local slept_any = islands.FinalizeSimulationIslands(built)
+	T(slept_any)["=="](false)
+	T(islands.IsSleepingIsland(built[1]))["=="](false)
+	T(dynamic_a:GetAwake())["=="](true)
+	T(dynamic_b:GetAwake())["=="](true)
+	T(dynamic_a.SleepCount)["=="](0)
+	T(dynamic_b.SleepCount)["=="](0)
+	dynamic_a.SleepTimer = 0.5
+	dynamic_b.SleepTimer = 0.5
+	slept_any = islands.FinalizeSimulationIslands(built)
+	T(slept_any)["=="](true)
+	T(islands.IsSleepingIsland(built[1]))["=="](true)
+	T(dynamic_a:GetAwake())["=="](false)
+	T(dynamic_b:GetAwake())["=="](false)
+	T(dynamic_a.SleepCount)["=="](1)
+	T(dynamic_b.SleepCount)["=="](1)
+end)
+
 T.Test("Simulation islands do not force sleep single dynamic bodies constrained only to world anchors", function()
 	local dynamic = create_mock_body("dynamic", "dynamic")
 	dynamic.Awake = true

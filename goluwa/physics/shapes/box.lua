@@ -253,7 +253,7 @@ function META:GetPolyhedron()
 end
 
 function META:GetGroundedSupportMetrics(body, ground_normal)
-	local ground_normal = body.GroundNormal or Vec3(0, 1, 0)
+	ground_normal = ground_normal or body.GroundNormal or Vec3(0, 1, 0)
 	local axes = self:GetAxes(body)
 	local best_alignment = -1
 	local support_axis = 1
@@ -342,6 +342,15 @@ function META:SnapGroundedSleepPose(body)
 
 	if math.abs(ground_normal.y) < 0.98 then return false end
 
+	local linear_speed = body:GetVelocity():GetLength()
+	local angular_speed = body:GetAngularVelocity():GetLength()
+	local max_linear_snap_speed = math.max(0.025, (body:GetSleepLinearThreshold() or 0) * 0.2)
+	local max_angular_snap_speed = math.max(0.045, (body:GetSleepAngularThreshold() or 0) * 0.25)
+
+	if linear_speed > max_linear_snap_speed or angular_speed > max_angular_snap_speed then
+		return false
+	end
+
 	local best_alignment, support_area, max_face_area, support_axis = self:GetGroundedSupportMetrics(body, ground_normal)
 
 	if best_alignment < 0.985 or support_area < max_face_area * 0.85 then
@@ -363,10 +372,11 @@ function META:SnapGroundedSleepPose(body)
 	local step = math.pi * 0.5
 	local snapped_pitch = snap_angle_to_step(angles.x, step)
 	local snapped_roll = snap_angle_to_step(angles.z, step)
+	local max_snap_angle_delta = 0.08
 
 	if
-		math.abs(snapped_pitch - angles.x) > 0.24 or
-		math.abs(snapped_roll - angles.z) > 0.24
+		math.abs(snapped_pitch - angles.x) > max_snap_angle_delta or
+		math.abs(snapped_roll - angles.z) > max_snap_angle_delta
 	then
 		return false
 	end

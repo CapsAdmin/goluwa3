@@ -517,7 +517,8 @@ do
 	function RigidBody:ApplyAngularImpulse(world_impulse)
 		if not self:HasSolverMass() then return self end
 
-		self:Wake()
+		if not self.Awake then self:Wake() end
+
 		self.AngularVelocity = self.AngularVelocity + self:GetAngularVelocityDelta(world_impulse)
 		return self
 	end
@@ -525,7 +526,8 @@ do
 	function RigidBody:ApplyImpulse(impulse, world_pos)
 		if not self:HasSolverMass() then return self end
 
-		self:Wake()
+		if not self.Awake then self:Wake() end
+
 		self.Velocity = self.Velocity + impulse * self.InverseMass
 
 		if world_pos then
@@ -538,7 +540,8 @@ do
 	function RigidBody:ApplyTorque(torque)
 		if not self:HasSolverMass() then return self end
 
-		self:Wake()
+		if not self.Awake then self:Wake() end
+
 		self.AccumulatedTorque = self.AccumulatedTorque + torque
 		return self
 	end
@@ -546,7 +549,8 @@ do
 	function RigidBody:ApplyForce(force, world_pos)
 		if not self:HasSolverMass() then return self end
 
-		self:Wake()
+		if not self.Awake then self:Wake() end
+
 		self.AccumulatedForce = self.AccumulatedForce + force
 
 		if world_pos then
@@ -589,13 +593,33 @@ do
 			linear_threshold = linear_threshold * 1.2
 			angular_threshold = angular_threshold * 1.4
 			local shape = self.GetPhysicsShape and self:GetPhysicsShape() or nil
+			local ground_body = self.GetGroundBody and self:GetGroundBody() or nil
+			local ground_ready_to_sleep = ground_body and
+				ground_body.IsReadyToSleep and
+				ground_body:IsReadyToSleep() or
+				false
+			local allow_grounded_sleep_assist = not (
+				ground_body and
+				ground_body ~= self and
+				ground_body.HasSolverMass and
+				ground_body:HasSolverMass() and
+				ground_body.GetAwake and
+				ground_body:GetAwake() and
+				not ground_ready_to_sleep
+			)
 
-			if shape and shape.SnapGroundedSleepPose and shape:SnapGroundedSleepPose(self) then
+			if
+				allow_grounded_sleep_assist and
+				shape and
+				shape.SnapGroundedSleepPose and
+				shape:SnapGroundedSleepPose(self)
+			then
 				linear_speed = self.Velocity:GetLength()
 				angular_speed = self.AngularVelocity:GetLength()
 			end
 
-			force_grounded_sleep = shape and
+			force_grounded_sleep = allow_grounded_sleep_assist and
+				shape and
 				shape.ShouldForceGroundedSleep and
 				shape:ShouldForceGroundedSleep(self) and
 				linear_speed <= math.max(0.02, self.SleepLinearThreshold * 0.35)
@@ -623,6 +647,18 @@ do
 		false
 	end
 
+	function RigidBody:CanSleepNow()
+		if not self:HasSolverMass() or not self.CanSleep then return false, false end
+
+		if not self.Awake then return true, false end
+
+		local ready_to_sleep, force_grounded_sleep = self:IsReadyToSleep()
+
+		if not ready_to_sleep then return false, force_grounded_sleep end
+
+		return self.SleepTimer >= math.max(self.SleepDelay or 0, 0), force_grounded_sleep
+	end
+
 	function RigidBody:UpdateSleepState(dt)
 		if not self:HasSolverMass() or not self.CanSleep then return end
 
@@ -644,7 +680,7 @@ do
 		if ready_to_sleep then
 			self.SleepTimer = self.SleepTimer + dt
 
-			if self.SleepTimer >= self.SleepDelay then self:Sleep() end
+			if self.SleepTimer >= math.max(self.SleepDelay or 0, 0) then self:Sleep() end
 		else
 			self.SleepTimer = 0
 		end

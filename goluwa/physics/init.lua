@@ -9,6 +9,54 @@ import("goluwa/physics/constraint.lua")
 import("goluwa/physics/solver.lua")
 import("goluwa/physics/rigid_body.lua")
 
+function physics.ResetState()
+	local solver = import("goluwa/physics/solver.lua")
+	local RigidBody = import("goluwa/physics/rigid_body.lua")
+	local constraints = physics.GetConstraints and physics.GetConstraints() or nil
+
+	if solver and solver.PersistentManifolds then
+		table.clear(solver.PersistentManifolds)
+	end
+
+	if physics.PreviousCollisionPairs then
+		table.clear(physics.PreviousCollisionPairs)
+	end
+
+	if physics.CurrentCollisionPairs then
+		table.clear(physics.CurrentCollisionPairs)
+	end
+
+	if physics.PreviousWorldCollisionPairs then
+		table.clear(physics.PreviousWorldCollisionPairs)
+	end
+
+	if physics.CurrentWorldCollisionPairs then
+		table.clear(physics.CurrentWorldCollisionPairs)
+	end
+
+	if constraints then
+		for i = #constraints, 1, -1 do
+			local constraint = constraints[i]
+
+			if not (constraint and constraint.IsValid and constraint:IsValid()) then
+				table.remove(constraints, i)
+			end
+		end
+	end
+
+	if RigidBody and RigidBody.Instances then
+		for i = #RigidBody.Instances, 1, -1 do
+			local body = RigidBody.Instances[i]
+
+			if not physics.IsActiveRigidBody(body) then
+				table.remove(RigidBody.Instances, i)
+			elseif body.WorldContactManifold then
+				body.WorldContactManifold = nil
+			end
+		end
+	end
+end
+
 local function get_fixed_step()
 	return math.max(physics.FixedTimeStep or physics.DefaultFixedTimeStep or (1 / 30), 0.000001)
 end

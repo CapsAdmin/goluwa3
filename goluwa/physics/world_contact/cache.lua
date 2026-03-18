@@ -1,4 +1,5 @@
 local Vec3 = import("goluwa/structs/vec3.lua")
+local physics = import("goluwa/physics.lua")
 local world_contact_cache = {}
 
 local function quantize_world_feature_value(value, epsilon)
@@ -22,7 +23,7 @@ end
 function world_contact_cache.WorldFeatureKey(hit, position, normal)
 	if not hit then return nil end
 
-	local entity_key = hit.entity and tostring(hit.entity) or "world"
+	local entity_key = hit.entity and physics.GetObjectCacheKey(hit.entity) or "world"
 	local primitive_index = hit.primitive_index ~= nil and tostring(hit.primitive_index) or "?"
 	local triangle_index = hit.triangle_index ~= nil and tostring(hit.triangle_index) or "-"
 	local position_key = world_contact_cache.QuantizedVec3Key(position, 0.04) or "pos"
@@ -33,7 +34,7 @@ end
 function world_contact_cache.TriangleLocalFeatureKey(hit, local_point, normal)
 	if not (hit and hit.triangle_index ~= nil and local_point) then return nil end
 
-	local entity_key = hit.entity and tostring(hit.entity) or "world"
+	local entity_key = hit.entity and physics.GetObjectCacheKey(hit.entity) or "world"
 	local primitive_index = hit.primitive_index ~= nil and tostring(hit.primitive_index) or "?"
 	local triangle_index = tostring(hit.triangle_index)
 	local local_key = world_contact_cache.QuantizedVec3Key(local_point, 0.04) or "lp"

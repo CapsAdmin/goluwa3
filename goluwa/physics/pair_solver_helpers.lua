@@ -17,8 +17,8 @@ local TEMPORAL_TOI_MAX_SAMPLE_STEPS = 48
 local TEMPORAL_TOI_REFINE_STEPS = 12
 
 local function get_pair_cache_key(body_a, body_b)
-	local key_a = tostring(body_a)
-	local key_b = tostring(body_b)
+	local key_a = physics.GetObjectCacheKey(body_a)
+	local key_b = physics.GetObjectCacheKey(body_b)
 
 	if key_b < key_a then return key_b .. "|" .. key_a, true end
 

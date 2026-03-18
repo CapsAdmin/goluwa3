@@ -95,6 +95,91 @@ T.Test3D("Rigid bodies can sleep and wake on contact", function()
 	sphere_ent:Remove()
 end)
 
+T.Test3D("Rigid boxes respect sleep delay before regular sleep", function()
+	local box_ent = Entity.New({Name = "rigid_sleep_delay_box"})
+	box_ent:AddComponent("transform")
+	box_ent.transform:SetPosition(Vec3(0, 1.5, 0))
+	local box = box_ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = box_shape(Vec3(1, 1, 1)),
+			Size = Vec3(1, 1, 1),
+			LinearDamping = 0,
+			AngularDamping = 0,
+			Friction = 1,
+			SleepDelay = 0.5,
+			SleepLinearThreshold = 0.15,
+			SleepAngularThreshold = 0.15,
+		}
+	)
+	box:SetVelocity(Vec3(0.01, 0, 0))
+	box:SetAngularVelocity(Vec3(0.02, 0, 0))
+
+	for _ = 1, 20 do
+		box:UpdateSleepState(1 / 60)
+	end
+
+	T(box:GetAwake())["=="](true)
+	T(box.SleepTimer)[">"](0.3)
+	T(box.SleepTimer)["<"](box:GetSleepDelay())
+
+	for _ = 1, 20 do
+		box:UpdateSleepState(1 / 60)
+	end
+
+	T(box:GetAwake())["=="](false)
+	box_ent:Remove()
+end)
+
+T.Test3D("Rigid boxes do not force grounded sleep on awake dynamic supports", function()
+	local support_ent = Entity.New({Name = "rigid_sleep_support_box"})
+	support_ent:AddComponent("transform")
+	support_ent.transform:SetPosition(Vec3(0, 0.5, 0))
+	local support = support_ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = box_shape(Vec3(2, 1, 2)),
+			Size = Vec3(2, 1, 2),
+			Mass = 6,
+			AutomaticMass = false,
+			LinearDamping = 0,
+			AngularDamping = 0,
+			Friction = 1,
+		}
+	)
+	local top_ent = Entity.New({Name = "rigid_sleep_top_box"})
+	top_ent:AddComponent("transform")
+	top_ent.transform:SetPosition(Vec3(0, 1.5, 0))
+	local top = top_ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = box_shape(Vec3(1, 1, 1)),
+			Size = Vec3(1, 1, 1),
+			LinearDamping = 0,
+			AngularDamping = 0,
+			Friction = 1,
+			SleepDelay = 0.5,
+			SleepLinearThreshold = 0.15,
+			SleepAngularThreshold = 0.15,
+		}
+	)
+	top:SetGrounded(true)
+	top:SetGroundNormal(Vec3(0, 1, 0))
+	top:SetGroundBody(support)
+	top:SetVelocity(Vec3(0.01, 0, 0))
+	top:SetAngularVelocity(Vec3(0.02, 0, 0))
+	support:SetVelocity(Vec3(0.35, 0, 0))
+	local ready, force_sleep = top:IsReadyToSleep()
+	T(ready)["=="](true)
+	T(force_sleep)["=="](false)
+	support:SetVelocity(Vec3(0, 0, 0))
+	ready, force_sleep = top:IsReadyToSleep()
+	T(ready)["=="](true)
+	T(force_sleep)["=="](true)
+	top_ent:Remove()
+	support_ent:Remove()
+end)
+
 T.Test3D("Rigid body force and impulse API", function()
 	local sphere_ent = Entity.New({Name = "rigid_force_sphere"})
 	sphere_ent:AddComponent("transform")

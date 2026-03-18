@@ -272,7 +272,7 @@ end
 function DistanceConstraint:OnRemove()
 	self.Enabled = false
 	self.AccumulatedLambda = 0
-	keep_alive[constraint] = nil
+	keep_alive[self] = nil
 end
 
 function physics.GetConstraints()

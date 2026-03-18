@@ -2,8 +2,8 @@ local physics = import("goluwa/physics.lua")
 local bit = require("bit")
 
 local function get_pair_key(body_a, body_b)
-	local key_a = tostring(body_a)
-	local key_b = tostring(body_b)
+	local key_a = physics.GetObjectCacheKey(body_a)
+	local key_b = physics.GetObjectCacheKey(body_b)
 
 	if key_b < key_a then return key_b .. "|" .. key_a, true end
 
@@ -60,7 +60,7 @@ end
 local function get_world_pair_key(body, entity)
 	if not (physics.IsActiveRigidBody(body) and entity) then return nil end
 
-	return tostring(body) .. "|world|" .. tostring(entity)
+	return physics.GetObjectCacheKey(body) .. "|world|" .. physics.GetObjectCacheKey(entity)
 end
 
 function physics.RecordWorldCollision(body, hit, normal, overlap)

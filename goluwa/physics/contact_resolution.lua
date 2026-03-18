@@ -11,12 +11,16 @@ function contact_resolution.MarkPairGrounding(body_a, body_b, normal)
 		body_a:SetGrounded(true)
 		body_a:SetGroundNormal(-normal)
 		body_a:SetGroundRollingFriction(rolling_friction)
+		body_a:SetGroundBody(body_b)
+		body_a:SetGroundEntity(body_b.GetOwner and body_b:GetOwner() or nil)
 	end
 
 	if normal.y >= body_b:GetMinGroundNormalY() then
 		body_b:SetGrounded(true)
 		body_b:SetGroundNormal(normal)
 		body_b:SetGroundRollingFriction(rolling_friction)
+		body_b:SetGroundBody(body_a)
+		body_b:SetGroundEntity(body_a.GetOwner and body_a:GetOwner() or nil)
 	end
 end
 
@@ -48,6 +52,8 @@ local function try_mark_body_grounded_from_contacts(self_body, other_body, conta
 					self_body:SetGrounded(true)
 					self_body:SetGroundNormal(physics.Up)
 					self_body:SetGroundRollingFriction(rolling_friction)
+					self_body:SetGroundBody(other_body)
+					self_body:SetGroundEntity(other_body.GetOwner and other_body:GetOwner() or nil)
 					return
 				end
 
@@ -58,6 +64,8 @@ local function try_mark_body_grounded_from_contacts(self_body, other_body, conta
 						self_body:SetGrounded(true)
 						self_body:SetGroundNormal(candidate)
 						self_body:SetGroundRollingFriction(rolling_friction)
+						self_body:SetGroundBody(other_body)
+						self_body:SetGroundEntity(other_body.GetOwner and other_body:GetOwner() or nil)
 						return
 					end
 				end
@@ -72,7 +80,7 @@ local function mark_pair_grounding_from_contacts(body_a, body_b, contacts)
 end
 
 local function get_pair_cache_key(body_a, body_b)
-	return tostring(body_a) .. "|" .. tostring(body_b)
+	return physics.GetObjectCacheKey(body_a) .. "|" .. physics.GetObjectCacheKey(body_b)
 end
 
 function contact_resolution.GetPointVelocity(body, linear_velocity, angular_velocity, point)
