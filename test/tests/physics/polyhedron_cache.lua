@@ -1,32 +1,16 @@
 local T = import("test/environment.lua")
-local Quat = import("goluwa/structs/quat.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local polyhedron_solver = import("goluwa/physics/pair_solvers/polyhedron.lua")
+local test_helpers = import("test/tests/physics/test_helpers.lua")
 
 local function create_mock_body(vertices)
-	local body = {
-		Position = Vec3(0, 0, 0),
-		Rotation = Quat(0, 0, 0, 1),
-		polyhedron = {
-			vertices = vertices,
-			faces = {
-				{indices = {1, 2}, normal = Vec3(0, 1, 0)},
-			},
+	local body = test_helpers.CreateStubBody()
+	body.polyhedron = {
+		vertices = vertices,
+		faces = {
+			{indices = {1, 2}, normal = Vec3(0, 1, 0)},
 		},
 	}
-
-	function body:GetPosition()
-		return self.Position
-	end
-
-	function body:GetRotation()
-		return self.Rotation
-	end
-
-	function body:LocalToWorld(point)
-		return self.Position + self.Rotation:VecMul(point)
-	end
-
 	return body
 end
 

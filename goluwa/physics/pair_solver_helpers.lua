@@ -2,10 +2,8 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local physics = import("goluwa/physics.lua")
 local solver = import("goluwa/physics/solver.lua")
-local shape_accessors = import("goluwa/physics/shape_accessors.lua")
 local contact_resolution = import("goluwa/physics/contact_resolution.lua")
 local pair_solver_helpers = {}
-
 local axis_data = {
 	{"x", Vec3(-1, 0, 0), Vec3(1, 0, 0)},
 	{"y", Vec3(0, -1, 0), Vec3(0, 1, 0)},
@@ -174,10 +172,7 @@ function pair_solver_helpers.GetTemporalTOISampleSteps(body_a, body_b, distance_
 	distance_scale = distance_scale or 0.25
 	min_steps = min_steps or TEMPORAL_TOI_MIN_SAMPLE_STEPS
 	max_steps = max_steps or TEMPORAL_TOI_MAX_SAMPLE_STEPS
-	local motion_scale = math.max(
-		pair_solver_helpers.GetBodyMotionScale(body_a),
-		pair_solver_helpers.GetBodyMotionScale(body_b)
-	)
+	local motion_scale = math.max(pair_solver_helpers.GetBodyMotionScale(body_a), pair_solver_helpers.GetBodyMotionScale(body_b))
 	return math.max(min_steps, math.min(max_steps, math.ceil(motion_scale / distance_scale) * 2))
 end
 

@@ -1,6 +1,5 @@
 local physics = import("goluwa/physics.lua")
 local solver = import("goluwa/physics/solver.lua")
-local shape_accessors = import("goluwa/physics/shape_accessors.lua")
 local pair_solver_helpers = import("goluwa/physics/pair_solver_helpers.lua")
 local contact_resolution = import("goluwa/physics/contact_resolution.lua")
 local convex_manifold = import("goluwa/physics/convex_manifold.lua")
@@ -9,7 +8,6 @@ local convex_sat = import("goluwa/physics/convex_sat.lua")
 local polyhedron_cache = import("goluwa/physics/polyhedron_cache.lua")
 local triangle_geometry = import("goluwa/physics/triangle_geometry.lua")
 local polyhedron = {}
-
 local FACE_CONTACT_SEPARATION_TOLERANCE = 0.08
 local FACE_AXIS_RELATIVE_TOLERANCE = 1.05
 local FACE_AXIS_ABSOLUTE_TOLERANCE = 0.03
@@ -300,18 +298,20 @@ local function find_polyhedron_pair_time_of_impact(body_a, poly_a, body_b, poly_
 		vertices_a = {},
 		vertices_b = {},
 	}
-
-	return pair_solver_helpers.FindSampledTemporalHit(function(t)
-		return evaluate_polyhedron_pair_at_transforms(
-			poly_a,
-			pair_solver_helpers.InterpolatePosition(previous_position_a, current_position_a, t),
-			pair_solver_helpers.InterpolateRotation(previous_rotation_a, current_rotation_a, t),
-			poly_b,
-			pair_solver_helpers.InterpolatePosition(previous_position_b, current_position_b, t),
-			pair_solver_helpers.InterpolateRotation(previous_rotation_b, current_rotation_b, t),
-			scratch
-		)
-	end, sample_steps)
+	return pair_solver_helpers.FindSampledTemporalHit(
+		function(t)
+			return evaluate_polyhedron_pair_at_transforms(
+				poly_a,
+				pair_solver_helpers.InterpolatePosition(previous_position_a, current_position_a, t),
+				pair_solver_helpers.InterpolateRotation(previous_rotation_a, current_rotation_a, t),
+				poly_b,
+				pair_solver_helpers.InterpolatePosition(previous_position_b, current_position_b, t),
+				pair_solver_helpers.InterpolateRotation(previous_rotation_b, current_rotation_b, t),
+				scratch
+			)
+		end,
+		sample_steps
+	)
 end
 
 local function solve_temporal_polyhedron_pair_collision(body_a, body_b, poly_a, poly_b, dt)
@@ -380,7 +380,6 @@ local function solve_relative_swept_polyhedron_pair_collision(body_a, body_b, po
 			}
 		end
 	)
-
 	earliest_hit = pair_solver_helpers.FindEarliestBodyPointSweepHit(
 		body_b,
 		sweep_b.previous_position,
@@ -424,17 +423,14 @@ local function solve_relative_swept_polyhedron_pair_collision(body_a, body_b, po
 end
 
 local function solve_polyhedron_pair_collision(body_a, body_b, dt)
-	local poly_a = shape_accessors.GetBodyPolyhedron(body_a)
-	local poly_b = shape_accessors.GetBodyPolyhedron(body_b)
+	local poly_a = body_a:GetBodyPolyhedron()
+	local poly_b = body_b:GetBodyPolyhedron()
 
 	if not (poly_a and poly_b and poly_a.vertices and poly_b.vertices) then
 		return false
 	end
 
-	if
-		shape_accessors.BodyHasSignificantRotation(body_a) or
-		shape_accessors.BodyHasSignificantRotation(body_b)
-	then
+	if body_a:BodyHasSignificantRotation() or body_b:BodyHasSignificantRotation() then
 		local temporal = solve_temporal_polyhedron_pair_collision(body_a, body_b, poly_a, poly_b, dt)
 
 		if temporal then return true end

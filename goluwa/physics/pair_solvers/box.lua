@@ -1,7 +1,6 @@
 local Vec3 = import("goluwa/structs/vec3.lua")
 local physics = import("goluwa/physics.lua")
 local solver = import("goluwa/physics/solver.lua")
-local shape_accessors = import("goluwa/physics/shape_accessors.lua")
 local pair_solver_helpers = import("goluwa/physics/pair_solver_helpers.lua")
 local contact_resolution = import("goluwa/physics/contact_resolution.lua")
 local convex_manifold = import("goluwa/physics/convex_manifold.lua")
@@ -9,7 +8,6 @@ local convex_face_clipping = import("goluwa/physics/convex_face_clipping.lua")
 local convex_sat = import("goluwa/physics/convex_sat.lua")
 local polyhedron_solver = import("goluwa/physics/pair_solvers/polyhedron.lua")
 local box = {}
-
 local FACE_AXIS_RELATIVE_TOLERANCE = 1.05
 local FACE_AXIS_ABSOLUTE_TOLERANCE = 0.03
 local FACE_CONTACT_SEPARATION_TOLERANCE = 0.08
@@ -197,7 +195,7 @@ local function get_box_face(body, desired_normal)
 end
 
 local function get_body_world_vertices(body)
-	local polyhedron = shape_accessors.GetBodyPolyhedron(body)
+	local polyhedron = body:GetBodyPolyhedron()
 
 	if not polyhedron then return {} end
 
@@ -497,15 +495,12 @@ local function solve_swept_box_box_collision(dynamic_body, static_body, dt)
 end
 
 local function solve_box_pair_collision(body_a, body_b, dt)
-	if
-		shape_accessors.BodyHasSignificantRotation(body_a) or
-		shape_accessors.BodyHasSignificantRotation(body_b)
-	then
+	if body_a:BodyHasSignificantRotation() or body_b:BodyHasSignificantRotation() then
 		local temporal = polyhedron_solver.SolveTemporalPolyhedronPairCollision(
 			body_a,
 			body_b,
-			shape_accessors.GetBodyPolyhedron(body_a),
-			shape_accessors.GetBodyPolyhedron(body_b),
+			body_a:GetBodyPolyhedron(),
+			body_b:GetBodyPolyhedron(),
 			dt
 		)
 

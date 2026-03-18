@@ -1,59 +1,14 @@
 local T = import("test/environment.lua")
 local islands = import("goluwa/physics/islands.lua")
+local test_helpers = import("test/tests/physics/test_helpers.lua")
 
 local function create_mock_body(name, motion_type)
-	local owner = {
-		IsValid = function()
-			return true
-		end,
-		transform = {},
-	}
-	local body = {
+	return test_helpers.CreateStubBody{
 		Name = name,
-		Enabled = true,
-		Owner = owner,
 		MotionType = motion_type or "dynamic",
 		Awake = motion_type ~= "dynamic",
-		WakeCount = 0,
-		SleepCount = 0,
 		ReadyToSleep = false,
 	}
-
-	function body:IsDynamic()
-		return self.MotionType == "dynamic"
-	end
-
-	function body:IsKinematic()
-		return self.MotionType == "kinematic"
-	end
-
-	function body:IsStatic()
-		return self.MotionType == "static"
-	end
-
-	function body:HasSolverMass()
-		return self.MotionType == "dynamic"
-	end
-
-	function body:GetAwake()
-		return self.Awake
-	end
-
-	function body:Wake()
-		self.Awake = true
-		self.WakeCount = self.WakeCount + 1
-	end
-
-	function body:Sleep()
-		self.Awake = false
-		self.SleepCount = self.SleepCount + 1
-	end
-
-	function body:IsReadyToSleep()
-		return self.ReadyToSleep or not self.Awake
-	end
-
-	return body
 end
 
 local function create_pair(body_a, body_b)

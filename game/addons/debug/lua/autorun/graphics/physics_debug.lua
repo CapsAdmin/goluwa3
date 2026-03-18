@@ -314,7 +314,7 @@ event.AddListener("KeyInput", "physics_debug_toggle", function(key, press)
 	end
 
 	if debug_enabled then
-		local RigidBodyComponent = import("goluwa/ecs/components/3d/rigid_body.lua")
+		local RigidBodyComponent = import("goluwa/physics/rigid_body.lua")
 
 		event.AddListener("Update", "physics_debug_sync", function()
 			cleanup_removed_bodies()

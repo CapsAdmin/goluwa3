@@ -1,12 +1,10 @@
 local Vec3 = import("goluwa/structs/vec3.lua")
 local physics = import("goluwa/physics.lua")
 local solver = import("goluwa/physics/solver.lua")
-local shape_accessors = import("goluwa/physics/shape_accessors.lua")
 local pair_solver_helpers = import("goluwa/physics/pair_solver_helpers.lua")
 local contact_resolution = import("goluwa/physics/contact_resolution.lua")
 local polyhedron_solver = import("goluwa/physics/pair_solvers/polyhedron.lua")
 local sphere = {}
-
 
 local function solve_sphere_pair_collision(body_a, body_b, dt)
 	if body_a == body_b then return end
@@ -14,8 +12,8 @@ local function solve_sphere_pair_collision(body_a, body_b, dt)
 	local pos_a = body_a:GetPosition()
 	local pos_b = body_b:GetPosition()
 	local delta = pos_b - pos_a
-	local radius_a = shape_accessors.GetSphereRadius(body_a)
-	local radius_b = shape_accessors.GetSphereRadius(body_b)
+	local radius_a = body_a:GetSphereRadius()
+	local radius_b = body_b:GetSphereRadius()
 	local min_distance = radius_a + radius_b
 	local distance = delta:GetLength()
 
@@ -105,7 +103,8 @@ local function solve_swept_sphere_box_collision(sphere_body, box_body, dt)
 	local start_local_center = box_body:WorldToLocal(start_world)
 	local end_local_center = box_body:WorldToLocal(end_world)
 	local center_movement_local = end_local_center - start_local_center
-	local descending_from_above = start_local_center.y > extents.y + physics.EPSILON and center_movement_local.y < -physics.EPSILON
+	local descending_from_above = start_local_center.y > extents.y + physics.EPSILON and
+		center_movement_local.y < -physics.EPSILON
 
 	if movement_world:GetLength() <= physics.EPSILON then return false end
 
@@ -118,7 +117,11 @@ local function solve_swept_sphere_box_collision(sphere_body, box_body, dt)
 		sphere_body:GetSupportLocalPoints() or {},
 		function(start_point_world, end_point_world)
 			local hit = pair_solver_helpers.SweepPointAgainstBox(box_body, start_point_world, end_point_world)
-			if hit and not (descending_from_above and hit.normal_local.y <= physics.EPSILON) then return hit end
+
+			if hit and not (descending_from_above and hit.normal_local.y <= physics.EPSILON) then
+				return hit
+			end
+
 			return nil
 		end
 	)
@@ -134,9 +137,12 @@ local function solve_sphere_box_collision(sphere_body, box_body, dt)
 	local previous_local_center = box_body:WorldToLocal(sphere_body:GetPreviousPosition())
 	local movement_local = local_center - previous_local_center
 	local extents = box_body:GetPhysicsShape():GetExtents()
-	local sphere_radius = shape_accessors.GetSphereRadius(sphere_body)
+	local sphere_radius = sphere_body:GetSphereRadius()
 
-	if previous_local_center.y > extents.y + physics.EPSILON and movement_local.y < -physics.EPSILON then
+	if
+		previous_local_center.y > extents.y + physics.EPSILON and
+		movement_local.y < -physics.EPSILON
+	then
 		local top_local = Vec3(
 			math.clamp(local_center.x, -extents.x, extents.x),
 			extents.y,
@@ -198,7 +204,7 @@ local function solve_swept_sphere_convex_collision(sphere_body, convex_body, dt)
 	local start_world = sweep.previous_position
 	local end_world = sweep.current_position
 	local movement_world = sweep.movement
-	local sphere_radius = shape_accessors.GetSphereRadius(sphere_body)
+	local sphere_radius = sphere_body:GetSphereRadius()
 	local hit = pair_solver_helpers.SweepPointAgainstPolyhedron(convex_body, hull, start_world, end_world, sphere_radius)
 
 	if not hit then return false end
@@ -214,7 +220,7 @@ local function solve_sphere_convex_collision(sphere_body, convex_body, dt)
 	end
 
 	local center = sphere_body:GetPosition()
-	local sphere_radius = shape_accessors.GetSphereRadius(sphere_body)
+	local sphere_radius = sphere_body:GetSphereRadius()
 	local vertices = polyhedron_solver.GetPolyhedronWorldVertices(convex_body, hull)
 	local inside = true
 	local nearest_face_distance = -math.huge

@@ -1,65 +1,14 @@
 local T = import("test/environment.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local manifold = import("goluwa/physics/manifold.lua")
+local test_helpers = import("test/tests/physics/test_helpers.lua")
 
 local function create_mock_body(data)
 	data = data or {}
-	local body = {
-		Position = data.Position or Vec3(),
-		Velocity = data.Velocity or Vec3(),
-		AngularVelocity = data.AngularVelocity or Vec3(),
-		InverseMass = data.InverseMass or 1,
-	}
 
-	function body:WorldToLocal(point)
-		return point - self.Position
-	end
+	if data.Friction == nil then data.Friction = 1 end
 
-	function body:LocalToWorld(point)
-		return self.Position + point
-	end
-
-	function body:GetVelocity()
-		return self.Velocity
-	end
-
-	function body:GetAngularVelocity()
-		return self.AngularVelocity
-	end
-
-	function body:GetPosition()
-		return self.Position
-	end
-
-	function body:GetInverseMassAlong()
-		return self.InverseMass
-	end
-
-	function body:GetFriction()
-		return data.Friction or 1
-	end
-
-	function body:GetFrictionCombineMode()
-		return data.FrictionCombineMode
-	end
-
-	function body:GetRestitution()
-		return data.Restitution or 0
-	end
-
-	function body:GetRestitutionCombineMode()
-		return data.RestitutionCombineMode
-	end
-
-	function body:GetAngularVelocityDelta()
-		return Vec3()
-	end
-
-	function body:IsSolverImmovable()
-		return false
-	end
-
-	return body
+	return test_helpers.CreateStubBody(data)
 end
 
 T.Test("Manifold rebuild preserves tangent impulse state for matched contacts", function()

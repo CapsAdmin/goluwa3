@@ -3,44 +3,41 @@ local AABB = import("goluwa/structs/aabb.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local broadphase = import("goluwa/physics/broadphase.lua")
+local test_helpers = import("test/tests/physics/test_helpers.lua")
 local identity_rotation = Quat(0, 0, 0, 1)
 
 local function create_mock_body(name, current_bounds, previous_bounds)
-	return {
+	local body = test_helpers.CreateStubBody{
 		Name = name,
-		CollisionEnabled = true,
 		Owner = nil,
-		GetPosition = function()
-			return Vec3(0, 0, 0)
-		end,
-		GetPreviousPosition = function()
-			return Vec3(0, 0, 0)
-		end,
-		GetPreviousRotation = function()
-			return identity_rotation
-		end,
-		GetBroadphaseAABB = function(_, position)
-			if position then
-				return AABB(
-					previous_bounds.min_x,
-					previous_bounds.min_y,
-					previous_bounds.min_z,
-					previous_bounds.max_x,
-					previous_bounds.max_y,
-					previous_bounds.max_z
-				)
-			end
-
-			return AABB(
-				current_bounds.min_x,
-				current_bounds.min_y,
-				current_bounds.min_z,
-				current_bounds.max_x,
-				current_bounds.max_y,
-				current_bounds.max_z
-			)
-		end,
+		IncludeDefaultOwner = false,
+		Rotation = identity_rotation,
+		PreviousRotation = identity_rotation,
 	}
+
+	function body:GetBroadphaseAABB(position)
+		if position then
+			return AABB(
+				previous_bounds.min_x,
+				previous_bounds.min_y,
+				previous_bounds.min_z,
+				previous_bounds.max_x,
+				previous_bounds.max_y,
+				previous_bounds.max_z
+			)
+		end
+
+		return AABB(
+			current_bounds.min_x,
+			current_bounds.min_y,
+			current_bounds.min_z,
+			current_bounds.max_x,
+			current_bounds.max_y,
+			current_bounds.max_z
+		)
+	end
+
+	return body
 end
 
 local mock_physics = {

@@ -1,22 +1,11 @@
 local T = import("test/environment.lua")
 local motion = import("goluwa/physics/motion.lua")
+local test_helpers = import("test/tests/physics/test_helpers.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
 
 local function create_mock_body(data)
-	data = data or {}
-	return {
-		Position = data.Position or Vec3(),
-		PreviousPosition = data.PreviousPosition or Vec3(),
-		Rotation = data.Rotation or Quat():Identity(),
-		PreviousRotation = data.PreviousRotation or Quat():Identity(),
-		Velocity = data.Velocity or Vec3(),
-		AngularVelocity = data.AngularVelocity or Vec3(),
-		IsSolverImmovable = function(self)
-			return self.Immovable == true
-		end,
-		Immovable = data.Immovable == true,
-	}
+	return test_helpers.CreateStubBody(data)
 end
 
 T.Test("Motion setters keep solver velocities authoritative without rewriting previous pose", function()

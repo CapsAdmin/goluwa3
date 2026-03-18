@@ -1,11 +1,9 @@
 local physics = import("goluwa/physics.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local solver = import("goluwa/physics/solver.lua")
-local shape_accessors = import("goluwa/physics/shape_accessors.lua")
 local pair_solver_helpers = import("goluwa/physics/pair_solver_helpers.lua")
 local contact_resolution = import("goluwa/physics/contact_resolution.lua")
 local capsule = {}
-
 local CAPSULE_SWEEP_POINT_SCRATCH = {
 	current = {},
 	previous = {},
@@ -117,7 +115,6 @@ local function iterate_capsule_points(body, position, rotation, out)
 	return out, radius
 end
 
-
 local function sweep_point_against_capsule_segment(start_world, end_world, segment_a, segment_b, radius, relative_velocity)
 	local movement = end_world - start_world
 
@@ -225,7 +222,7 @@ local function solve_swept_capsule_sphere_collision(capsule_body, sphere_body, d
 	local combined_radius = capsule_radius + sphere_radius
 	local relative_velocity = sphere_body:GetVelocity() - capsule_body:GetVelocity()
 
-	if not shape_accessors.BodyHasSignificantRotation(capsule_body) then
+	if not capsule_body:BodyHasSignificantRotation() then
 		local static_a, static_b = get_capsule_segment(capsule_body, previous_position, sweep.previous_rotation)
 		local hit = sweep_point_against_capsule_segment(
 			sphere_center,
@@ -270,12 +267,7 @@ local function solve_swept_capsule_sphere_collision(capsule_body, sphere_body, d
 
 	if start_distance <= combined_radius then return false end
 
-	local hit = pair_solver_helpers.FindDistanceSweepHit(
-		evaluate,
-		combined_radius,
-		relative_velocity,
-		movement:GetLength()
-	)
+	local hit = pair_solver_helpers.FindDistanceSweepHit(evaluate, combined_radius, relative_velocity, movement:GetLength())
 
 	if hit then
 		local normal = get_oriented_normal(hit.delta * -1, sphere_body:GetVelocity() - capsule_body:GetVelocity())
@@ -374,12 +366,7 @@ local function solve_swept_capsule_capsule_collision(dynamic_body, static_body, 
 
 	if start_distance <= combined_radius then return false end
 
-	local hit = pair_solver_helpers.FindDistanceSweepHit(
-		evaluate,
-		combined_radius,
-		relative_velocity,
-		movement:GetLength()
-	)
+	local hit = pair_solver_helpers.FindDistanceSweepHit(evaluate, combined_radius, relative_velocity, movement:GetLength())
 
 	if hit then
 		local normal = get_oriented_normal(hit.delta * -1, static_body:GetVelocity() - dynamic_body:GetVelocity())
@@ -452,16 +439,8 @@ local function solve_capsule_capsule_collision(body_a, body_b, dt)
 	local b0, b1, radius_b = get_capsule_segment(body_b)
 	local point_a, point_b = closest_points_between_segments(a0, a1, b0, b1)
 	local delta = point_b - point_a
-	local previous_a0, previous_a1 = get_capsule_segment(
-		body_a,
-		body_a:GetPreviousPosition(),
-		body_a:GetPreviousRotation()
-	)
-	local previous_b0, previous_b1 = get_capsule_segment(
-		body_b,
-		body_b:GetPreviousPosition(),
-		body_b:GetPreviousRotation()
-	)
+	local previous_a0, previous_a1 = get_capsule_segment(body_a, body_a:GetPreviousPosition(), body_a:GetPreviousRotation())
+	local previous_b0, previous_b1 = get_capsule_segment(body_b, body_b:GetPreviousPosition(), body_b:GetPreviousRotation())
 	local previous_point_a, previous_point_b = closest_points_between_segments(previous_a0, previous_a1, previous_b0, previous_b1)
 	local min_distance = radius_a + radius_b
 	local normal, distance = pair_solver_helpers.GetSafeCollisionNormal(

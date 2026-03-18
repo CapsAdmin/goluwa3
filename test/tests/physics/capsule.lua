@@ -55,7 +55,7 @@ end)
 T.Test("Capsule shape mass properties include cylindrical section", function()
 	local short = CapsuleShape.New(0.5, 1.0)
 	local tall = CapsuleShape.New(0.5, 3.0)
-	local mock_body = test_helpers.CreateMockBody{
+	local mock_body = test_helpers.CreateStubBody{
 		AutomaticMass = true,
 		Density = 1,
 		IsDynamic = true,

@@ -1,6 +1,5 @@
 local physics = import("goluwa/physics.lua")
 local brush_contacts = import("goluwa/physics/brush_contacts.lua")
-local shape_accessors = import("goluwa/physics/shape_accessors.lua")
 local world_contact_sampling = import("goluwa/physics/world_contact/sampling.lua")
 local world_contact_triangles = import("goluwa/physics/world_contact/triangles.lua")
 local world_transform_utils = import("goluwa/physics/world_transform_utils.lua")
@@ -200,13 +199,7 @@ local function collect_capsule_triangle_contact(v0, v1, v2, triangle_index, cont
 	end
 end
 
-local function collect_polyhedron_triangle_contact(
-	v0,
-	v1,
-	v2,
-	triangle_index,
-	context
-)
+local function collect_polyhedron_triangle_contact(v0, v1, v2, triangle_index, context)
 	local hit = world_contact_triangles.BuildTriangleHit(
 		context.model,
 		context.entity,
@@ -224,7 +217,16 @@ local function collect_polyhedron_triangle_contact(
 	)
 
 	if result then
-		append_polyhedron_triangle_contacts(context.body, context.kind, context.policy, context.contacts, result, nil, hit, context.options)
+		append_polyhedron_triangle_contacts(
+			context.body,
+			context.kind,
+			context.policy,
+			context.contacts,
+			result,
+			nil,
+			hit,
+			context.options
+		)
 	elseif context.samples[1] then
 		for _, sample in ipairs(context.samples) do
 			local contact = build_triangle_point_contact(context.collider, sample.point, hit, v0, v1, v2, context.options)
@@ -302,7 +304,17 @@ append_polyhedron_triangle_contacts = function(body, kind, policy, contacts, res
 	end
 end
 
-local function collect_brush_contacts_for_collider(body, collider, hit, world_to_local, local_to_world, contacts, policy, kind, options)
+local function collect_brush_contacts_for_collider(
+	body,
+	collider,
+	hit,
+	world_to_local,
+	local_to_world,
+	contacts,
+	policy,
+	kind,
+	options
+)
 	local epsilon = options.epsilon
 	local brush_feature_epsilon = options.brush_feature_epsilon
 	local finalize_world_contact = options.finalize_world_contact
@@ -328,7 +340,7 @@ local function collect_brush_contacts_for_collider(body, collider, hit, world_to
 		return
 	end
 
-	local body_polyhedron = shape_accessors.GetBodyPolyhedron(collider)
+	local body_polyhedron = collider:GetBodyPolyhedron()
 
 	if body_polyhedron and body_polyhedron.vertices and body_polyhedron.vertices[1] then
 		local initial_contact_count = #contacts
@@ -498,7 +510,20 @@ local function collect_brush_contacts_for_collider(body, collider, hit, world_to
 	end
 end
 
-local function collect_triangle_contacts_for_collider(body, collider, model, entity, primitive, primitive_index, local_body_aabb, local_to_world, contacts, policy, kind, options)
+local function collect_triangle_contacts_for_collider(
+	body,
+	collider,
+	model,
+	entity,
+	primitive,
+	primitive_index,
+	local_body_aabb,
+	local_to_world,
+	contacts,
+	policy,
+	kind,
+	options
+)
 	local epsilon = options.epsilon
 	local triangle_slop = options.world_contact_triangle_slop
 	local manifold_merge_distance = options.world_manifold_merge_distance
@@ -513,7 +538,7 @@ local function collect_triangle_contacts_for_collider(body, collider, model, ent
 	end
 
 	local shape_type = collider:GetShapeType()
-	local body_polyhedron = shape_accessors.GetBodyPolyhedron(collider)
+	local body_polyhedron = collider:GetBodyPolyhedron()
 	local triangle_context = primitive.world_triangle_contact_context or {}
 	primitive.world_triangle_contact_context = triangle_context
 	triangle_context.body = body
@@ -535,7 +560,6 @@ local function collect_triangle_contacts_for_collider(body, collider, model, ent
 			collect_sphere_triangle_contact,
 			triangle_context
 		)
-
 		return
 	end
 
@@ -547,7 +571,6 @@ local function collect_triangle_contacts_for_collider(body, collider, model, ent
 			collect_capsule_triangle_contact,
 			triangle_context
 		)
-
 		return
 	end
 
@@ -563,7 +586,6 @@ local function collect_triangle_contacts_for_collider(body, collider, model, ent
 		triangle_context.body_polyhedron = body_polyhedron
 		triangle_context.find_contact_options = find_contact_options
 		triangle_context.samples = samples
-
 		world_contact_triangles.ForEachOverlappingWorldTriangle(
 			poly,
 			local_body_aabb,
@@ -571,15 +593,14 @@ local function collect_triangle_contacts_for_collider(body, collider, model, ent
 			collect_polyhedron_triangle_contact,
 			triangle_context
 		)
-
 		return
 	end
 
 	local samples = world_contact_sampling.BuildColliderSamples(body, collider, nil, local_point_key)
 
 	if not samples[1] then return end
-	triangle_context.samples = samples
 
+	triangle_context.samples = samples
 	world_contact_triangles.ForEachOverlappingWorldTriangle(
 		poly,
 		local_body_aabb,
@@ -612,7 +633,17 @@ function world_contact_collectors.CollectWorldPrimitiveContactsCallback(
 
 	for _, collider in ipairs(body:GetColliders() or {}) do
 		if primitive.brush_planes then
-			collect_brush_contacts_for_collider(body, collider, base_hit, world_to_local, local_to_world, contacts, policy, kind, options)
+			collect_brush_contacts_for_collider(
+				body,
+				collider,
+				base_hit,
+				world_to_local,
+				local_to_world,
+				contacts,
+				policy,
+				kind,
+				options
+			)
 		elseif primitive.polygon3d then
 			collect_triangle_contacts_for_collider(
 				body,

@@ -2,7 +2,7 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local physics = import("goluwa/physics.lua")
 local raycast = import("goluwa/physics/raycast.lua")
 local triangle_geometry = import("goluwa/physics/triangle_geometry.lua")
-local RigidBodyComponent = import("goluwa/ecs/components/3d/rigid_body.lua")
+local RigidBodyComponent = import("goluwa/physics/rigid_body.lua")
 local TRIANGLE_FEATURE_EPSILON = 0.0001
 local TRIANGLE_SEAM_DISTANCE_EPSILON = 0.0001
 local TRIANGLE_SEAM_NORMAL_DOT = 0.5
@@ -18,7 +18,11 @@ local function normalize_query_options(options)
 		options.IgnoreKinematicBodies = not options.IncludeKinematicBodies
 	end
 
-	if options.IncludeWorld ~= nil and options.UseRenderMeshes == nil and options.WorldSource == nil then
+	if
+		options.IncludeWorld ~= nil and
+		options.UseRenderMeshes == nil and
+		options.WorldSource == nil
+	then
 		options.UseRenderMeshes = options.IncludeWorld
 	end
 

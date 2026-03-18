@@ -1,8 +1,8 @@
 local T = import("test/environment.lua")
 local physics = import("goluwa/physics.lua")
 local world_contacts = import("goluwa/physics/world_contacts.lua")
+local test_helpers = import("test/tests/physics/test_helpers.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
-local Quat = import("goluwa/structs/quat.lua")
 
 local function count_pairs(tbl)
 	local count = 0
@@ -52,152 +52,7 @@ local function create_box_brush_model(mins, maxs)
 end
 
 local function create_mock_body(data)
-	data = data or {}
-	local radius = data.Radius or 0.1
-	local margin = data.Margin or 0.01
-	local body = {
-		CollisionEnabled = true,
-		Position = data.Position or Vec3(),
-		PreviousPosition = data.PreviousPosition or data.Position or Vec3(),
-		Rotation = data.Rotation or Quat():Identity(),
-		PreviousRotation = data.PreviousRotation or data.Rotation or Quat():Identity(),
-		Velocity = data.Velocity or Vec3(),
-		AngularVelocity = data.AngularVelocity or Vec3(),
-		CorrectionCount = 0,
-		Grounded = false,
-		GroundNormal = physics.Up,
-		Owner = {
-			IsValid = function()
-				return true
-			end,
-		},
-	}
-	local shape = {
-		GetRadius = function()
-			return radius
-		end,
-	}
-
-	function body:GetPosition()
-		return self.Position
-	end
-
-	function body:GetPreviousPosition()
-		return self.PreviousPosition
-	end
-
-	function body:GetRotation()
-		return self.Rotation
-	end
-
-	function body:GetPreviousRotation()
-		return self.PreviousRotation
-	end
-
-	function body:GetVelocity()
-		return self.Velocity
-	end
-
-	function body:GetAngularVelocity()
-		return self.AngularVelocity
-	end
-
-	function body:GetCollisionMargin()
-		return margin
-	end
-
-	function body:GetCollisionProbeDistance()
-		return 0
-	end
-
-	function body:GetCollisionLocalPoints()
-		return {Vec3(0, -radius, 0)}
-	end
-
-	function body:GetSupportLocalPoints()
-		return {Vec3(0, -radius, 0)}
-	end
-
-	function body:GetOwner()
-		return self.Owner
-	end
-
-	function body:GetFilterFunction()
-		return nil
-	end
-
-	function body:GetMinGroundNormalY()
-		return 0.7
-	end
-
-	function body:GetGrounded()
-		return self.Grounded
-	end
-
-	function body:SetGrounded(grounded)
-		self.Grounded = grounded
-	end
-
-	function body:SetGroundNormal(normal)
-		self.GroundNormal = normal
-	end
-
-	function body:GetPhysicsShape()
-		return shape
-	end
-
-	function body:GetShapeType()
-		return "sphere"
-	end
-
-	function body:GetColliders()
-		return {self}
-	end
-
-	function body:LocalToWorld(local_point, position)
-		return (position or self.Position) + local_point
-	end
-
-	function body:GeometryLocalToWorld(local_point, position)
-		return self:LocalToWorld(local_point, position)
-	end
-
-	function body:WorldToLocal(world_point, position)
-		return world_point - (position or self.Position)
-	end
-
-	function body:GetBroadphaseAABB()
-		local inflate = radius + margin
-		return {
-			min_x = self.Position.x - inflate,
-			min_y = self.Position.y - inflate,
-			min_z = self.Position.z - inflate,
-			max_x = self.Position.x + inflate,
-			max_y = self.Position.y + inflate,
-			max_z = self.Position.z + inflate,
-		}
-	end
-
-	function body:ApplyCorrection(_, _, point)
-		self.CorrectionCount = self.CorrectionCount + 1
-		self.LastCorrectionPoint = point and point:Copy() or nil
-	end
-
-	function body:HasSolverMass()
-		return false
-	end
-
-	function body:ApplyImpulse() end
-
-	function body:GetInverseMassAlong()
-		return 0
-	end
-
-	function body:GetFriction()
-		return 0
-	end
-
-	return body
+	return test_helpers.CreateTestRigidBody(data)
 end
 
 T.Test("World contacts use manifold-only world collision state", function()

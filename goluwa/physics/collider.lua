@@ -361,4 +361,16 @@ function METHODS:ApplyTorque(torque)
 	return self.Body:ApplyTorque(torque)
 end
 
+function METHODS:GetSphereRadius()
+	return self.Body:GetSphereRadius()
+end
+
+function METHODS:GetBodyPolyhedron()
+	return self.Body:GetBodyPolyhedron()
+end
+
+function METHODS:BodyHasSignificantRotation()
+	return self.Body:BodyHasSignificantRotation()
+end
+
 return META
