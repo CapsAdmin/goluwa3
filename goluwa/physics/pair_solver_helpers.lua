@@ -11,6 +11,25 @@ local axis_data = {
 	{"z", Vec3(0, 0, -1), Vec3(0, 0, 1)},
 }
 
+local function get_pair_cache_key(body_a, body_b)
+	local key_a = tostring(body_a)
+	local key_b = tostring(body_b)
+
+	if key_b < key_a then return key_b .. "|" .. key_a, true end
+
+	return key_a .. "|" .. key_b, false
+end
+
+local function normalize_candidate(vec)
+	if not vec then return nil, 0 end
+
+	local length = vec:GetLength()
+
+	if length <= physics.EPSILON then return nil, 0 end
+
+	return vec / length, length
+end
+
 function pair_solver_helpers.IsSolverImmovable(body)
 	return body.IsSolverImmovable and body:IsSolverImmovable() or false
 end
@@ -37,16 +56,40 @@ function pair_solver_helpers.GetStaticDynamicPair(body_a, body_b)
 	return nil, nil
 end
 
-function pair_solver_helpers.GetSafeCollisionNormal(delta, relative_velocity)
-	local distance = delta:GetLength()
+function pair_solver_helpers.GetCachedPairNormal(body_a, body_b)
+	if not (body_a and body_b) then return nil end
 
-	if distance > physics.EPSILON then return delta / distance, distance end
+	local key, swapped = get_pair_cache_key(body_a, body_b)
+	local pair = physics.CurrentCollisionPairs and physics.CurrentCollisionPairs[key] or nil
 
-	if relative_velocity and relative_velocity:GetLength() > physics.EPSILON then
-		return relative_velocity:GetNormalized(), 0
+	if not pair then
+		pair = physics.PreviousCollisionPairs and physics.PreviousCollisionPairs[key] or nil
 	end
 
-	return Vec3(1, 0, 0), 0
+	if not (pair and pair.normal) then return nil end
+
+	local normal = swapped and pair.normal * -1 or pair.normal
+	return normalize_candidate(normal)
+end
+
+function pair_solver_helpers.GetSafeCollisionNormal(delta, relative_velocity, fallback_delta, fallback_normal)
+	local normal, distance = normalize_candidate(delta)
+
+	if normal then return normal, distance end
+
+	normal = select(1, normalize_candidate(fallback_delta))
+
+	if normal then return normal, 0 end
+
+	normal = select(1, normalize_candidate(fallback_normal))
+
+	if normal then return normal, 0 end
+
+	normal = select(1, normalize_candidate(relative_velocity))
+
+	if normal then return normal, 0 end
+
+	return nil, 0
 end
 
 function pair_solver_helpers.SweepPointAgainstBox(box_body, start_world, end_world, extra_radius)

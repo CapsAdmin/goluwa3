@@ -40,7 +40,15 @@ local function solve_sphere_pair_collision(body_a, body_b, dt)
 				if hit_fraction >= 0 and hit_fraction <= 1 then
 					local hit_pos_a = start_a + move_a * math.max(0, hit_fraction - physics.EPSILON)
 					local hit_pos_b = start_b + move_b * math.max(0, hit_fraction - physics.EPSILON)
-					local hit_normal = pair_solver_helpers.GetSafeCollisionNormal(hit_pos_b - hit_pos_a, body_b:GetVelocity() - body_a:GetVelocity())
+					local hit_normal = pair_solver_helpers.GetSafeCollisionNormal(
+						hit_pos_b - hit_pos_a,
+						body_b:GetVelocity() - body_a:GetVelocity(),
+						relative_start,
+						pair_solver_helpers.GetCachedPairNormal(body_a, body_b)
+					)
+
+					if not hit_normal then return end
+
 					return pair_solver_helpers.ResolveRelativeSweptPairHit(
 						body_a,
 						body_b,
@@ -65,7 +73,15 @@ local function solve_sphere_pair_collision(body_a, body_b, dt)
 	end
 
 	local normal
-	normal, distance = pair_solver_helpers.GetSafeCollisionNormal(delta, body_b:GetVelocity() - body_a:GetVelocity())
+	normal, distance = pair_solver_helpers.GetSafeCollisionNormal(
+		delta,
+		body_b:GetVelocity() - body_a:GetVelocity(),
+		body_b:GetPreviousPosition() - body_a:GetPreviousPosition(),
+		pair_solver_helpers.GetCachedPairNormal(body_a, body_b)
+	)
+
+	if not normal then return false end
+
 	local overlap = min_distance - distance
 	return contact_resolution.ResolvePairPenetration(
 		body_a,
