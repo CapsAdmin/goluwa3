@@ -181,8 +181,20 @@ local function CreateDesertTerrain()
 	}
 	height_tex:Shade(
 		[[
-        vec3 p = vec3(uv.x * 20.0, 0.0, uv.y * 20.0);
-        float h = surfFunc(p);
+				vec2 centered_uv = uv * 2.0 - 1.0;
+				vec2 world_uv = centered_uv * 20.0;
+				vec3 p = vec3(world_uv.x, 0.0, world_uv.y);
+
+				float dunes = surfFunc(p) * 0.18;
+				float alley_walls = smoothstep(0.0, 0.95, abs(centered_uv.x));
+				alley_walls = pow(alley_walls, 1.35);
+
+				float end_rise = smoothstep(0.0, 1.0, abs(centered_uv.y));
+				end_rise = end_rise * end_rise;
+
+				float center_basin = 1.0 - smoothstep(0.0, 0.35, length(centered_uv));
+				float h = 0.08 + dunes + alley_walls * 0.42 + end_rise * 0.12 - center_basin * 0.05;
+				h = clamp(h, 0.0, 1.0);
         return vec4(h, h, h, 1.0);
     ]],
 		{header = HEADER}
