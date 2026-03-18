@@ -1041,7 +1041,7 @@ function physics.UpdateRigidBodies(dt)
 		end
 
 		local rigid_body_pairs = solver.BuildBroadphasePairs and solver.BuildBroadphasePairs(bodies) or bodies
-		local constraints = physics.Constraints or physics.DistanceConstraints or {}
+		local constraints = physics.GetConstraints()
 		local simulation_islands = solver.BuildSimulationIslands and
 			solver.BuildSimulationIslands(bodies, rigid_body_pairs, constraints) or
 			nil

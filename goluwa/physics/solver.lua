@@ -85,7 +85,7 @@ local islands = import("goluwa/physics/islands.lua")
 function solver:BeginStep()
 	self.StepStamp = (self.StepStamp or 0) + 1
 	manifolds.PruneOld(self.PersistentManifolds, self.StepStamp, MANIFOLD_PRUNE_STEPS)
-	local constraints = physics.Constraints or physics.DistanceConstraints or {}
+	local constraints = physics.GetConstraints()
 
 	for i = 1, #constraints do
 		local constraint = constraints[i]
@@ -183,7 +183,7 @@ local function solve_rigid_body_pair(body_a, body_b, entry_a, entry_b, dt)
 end
 
 function solver.SolveDistanceConstraints(dt, constraints_override)
-	local constraints = constraints_override or physics.Constraints or physics.DistanceConstraints or {}
+	local constraints = constraints_override or physics.GetConstraints()
 
 	for i = #constraints, 1, -1 do
 		local constraint = constraints[i]

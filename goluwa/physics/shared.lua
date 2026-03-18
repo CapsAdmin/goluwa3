@@ -16,7 +16,6 @@ physics.BusyMaxCatchUpSteps = physics.BusyMaxCatchUpSteps or 1
 physics.DropBusyFrameDebt = physics.DropBusyFrameDebt ~= false
 physics.FrameAccumulator = physics.FrameAccumulator or 0
 physics.InterpolationAlpha = physics.InterpolationAlpha or 0
-physics.DistanceConstraints = physics.DistanceConstraints or {}
 physics.PreviousCollisionPairs = physics.PreviousCollisionPairs or {}
 physics.CurrentCollisionPairs = physics.CurrentCollisionPairs or {}
 physics.PreviousWorldCollisionPairs = physics.PreviousWorldCollisionPairs or {}

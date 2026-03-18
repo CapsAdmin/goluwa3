@@ -24,21 +24,6 @@ local function preserve_body_motion(body, dt)
 	body.PreviousRotation = integrate_rotation(body.Rotation, body:GetAngularVelocity(), -dt)
 end
 
-local function get_constraint_list()
-	return physics.Constraints or physics.DistanceConstraints
-end
-
-local function remove_constraint(target)
-	local constraints = get_constraint_list()
-
-	for i = #constraints, 1, -1 do
-		if constraints[i] == target then
-			table.remove(constraints, i)
-			return
-		end
-	end
-end
-
 local function copy_vec(vec)
 	return vec and vec:Copy() or nil
 end
@@ -253,11 +238,7 @@ function DistanceConstraint:Solve(dt)
 	return delta_lambda / (dt * dt)
 end
 
-function DistanceConstraint:OnRemove()
-	self.Enabled = false
-	self.AccumulatedLambda = 0
-	remove_constraint(self)
-end
+local keep_alive = {}
 
 function DistanceConstraint.New(body0, body1, pos0, pos1, distance, compliance, unilateral)
 	local constraint = DistanceConstraint:CreateObject{
@@ -284,18 +265,24 @@ function DistanceConstraint.New(body0, body1, pos0, pos1, distance, compliance, 
 
 	constraint:SetCompliance(compliance)
 	constraint:SetDistance(distance or ((pos1 - pos0):GetLength()))
-	table.insert(get_constraint_list(), constraint)
+	keep_alive[constraint] = true
 	return constraint
 end
 
+function DistanceConstraint:OnRemove()
+	self.Enabled = false
+	self.AccumulatedLambda = 0
+	keep_alive[constraint] = nil
+end
+
+function physics.GetConstraints()
+	return DistanceConstraint.Instances
+end
+
 function physics.RemoveAllConstraints()
-	local constraints = get_constraint_list()
-
-	for i = #constraints, 1, -1 do
-		constraints[i] = nil
+	for _, constraint in ipairs(DistanceConstraint.Instances) do
+		constraint:Remove()
 	end
-
-	return physics
 end
 
 return DistanceConstraint:Register()
