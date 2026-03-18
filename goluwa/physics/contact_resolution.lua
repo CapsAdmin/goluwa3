@@ -83,8 +83,24 @@ local function mark_pair_grounding_from_contacts(body_a, body_b, contacts)
 	try_mark_body_grounded_from_contacts(body_b, body_a, contacts, "point_b", "point_a")
 end
 
-local function get_pair_cache_key(body_a, body_b)
-	return physics.GetObjectCacheKey(body_a) .. "|" .. physics.GetObjectCacheKey(body_b)
+local function get_or_create_manifold_row(manifolds, body)
+	local row = manifolds[body]
+
+	if row then return row end
+
+	row = setmetatable({}, {__mode = "k"})
+	manifolds[body] = row
+	return row
+end
+
+local function get_pair_manifold(manifolds, body_a, body_b)
+	local row = manifolds[body_a]
+	return row and row[body_b] or nil
+end
+
+local function set_pair_manifold(manifolds, body_a, body_b, manifold)
+	get_or_create_manifold_row(manifolds, body_a)[body_b] = manifold
+	get_or_create_manifold_row(manifolds, body_b)[body_a] = manifold
 end
 
 function contact_resolution.GetPointVelocity(body, linear_velocity, angular_velocity, point)
@@ -203,11 +219,10 @@ function contact_resolution.ResolvePairPenetration(body_a, body_b, normal, overl
 	if inverse_mass_sum <= 0 or overlap <= 0 then return false end
 
 	if contacts and #contacts > 0 then
-		local key = get_pair_cache_key(body_a, body_b)
-		local manifold = solver.PersistentManifolds[key] or {}
+		local manifold = get_pair_manifold(solver.PersistentManifolds, body_a, body_b) or {}
 		manifold.last_seen_step = solver.StepStamp
 		manifolds.RebuildContacts(body_a, body_b, manifold, contacts)
-		solver.PersistentManifolds[key] = manifold
+		set_pair_manifold(solver.PersistentManifolds, body_a, body_b, manifold)
 
 		if manifold.last_warm_step ~= solver.StepStamp then
 			manifolds.WarmStart(body_a, body_b, normal, manifold, dt)

@@ -32,7 +32,8 @@ local function ensure_contact_state(manifold, kind)
 	end
 
 	state.policy = state.policy or policy
-	state.cache = manifold[kind]
+	state.cache = manifold[kind] or state.cache or world_contact_cache.CreateContactCache()
+	manifold[kind] = state.cache
 	state.entries = state.entries or {}
 	state.step_stamp = state.step_stamp or 0
 end
@@ -48,7 +49,7 @@ function world_contact_state.GetWorldContactManifold(body)
 	manifold.state = manifold.state or {}
 
 	for kind, _ in pairs(CONTACT_KIND_POLICIES) do
-		manifold[kind] = manifold[kind] or {}
+		manifold[kind] = manifold[kind] or world_contact_cache.CreateContactCache()
 		ensure_contact_state(manifold, kind)
 	end
 
@@ -57,14 +58,14 @@ end
 
 function world_contact_state.GetContactCache(body, kind)
 	local manifold = world_contact_state.GetWorldContactManifold(body)
-	manifold[kind] = manifold[kind] or {}
+	manifold[kind] = manifold[kind] or world_contact_cache.CreateContactCache()
 	ensure_contact_state(manifold, kind)
 	return manifold[kind]
 end
 
 function world_contact_state.GetContactState(body, kind)
 	local manifold = world_contact_state.GetWorldContactManifold(body)
-	manifold[kind] = manifold[kind] or {}
+	manifold[kind] = manifold[kind] or world_contact_cache.CreateContactCache()
 	ensure_contact_state(manifold, kind)
 	return manifold.state[kind]
 end
@@ -92,30 +93,22 @@ local function cache_contact_set(state, contacts)
 		local key = world_contact_cache.LocalPointKey(contact.local_point)
 		local feature_key = contact.feature_key or
 			world_contact_cache.WorldFeatureKey(contact.hit, contact.position, contact.normal)
-		local primary_key = world_contact_cache.GetPrimaryContactCacheKey(policy, key, feature_key)
+		local entry
 
-		if primary_key then
-			local entry = entries[primary_key] or
-				(
-					feature_key and
-					cache[feature_key]
-				)
-				or
-				(
-					key and
-					cache[key]
-				)
-				or
-				{}
-
-			if entry.cache_key and entry.cache_key ~= primary_key then
-				entries[entry.cache_key] = nil
-			end
-
-			entry.cache_key = primary_key
-			world_contact_cache.UpdateCachedContactEntry(entry, contact, key, feature_key, step_stamp)
-			entries[primary_key] = entry
+		if policy.persistent_feature_cache and feature_key then
+			entry = world_contact_cache.LookupFeatureEntry(cache, feature_key)
 		end
+
+		if not entry and key then
+			entry = world_contact_cache.LookupLocalEntry(cache, key)
+		end
+
+		if not entry then
+			entry = {}
+			entries[#entries + 1] = entry
+		end
+
+		world_contact_cache.UpdateCachedContactEntry(entry, contact, key, feature_key, step_stamp)
 
 		::continue::
 	end
@@ -139,12 +132,14 @@ function world_contact_state.GetCachedContactEntryForContact(body, kind, local_p
 	local cache = world_contact_state.GetContactCache(body, kind)
 	local feature_key = world_contact_cache.WorldFeatureKey(hit, position, normal)
 
-	if feature_key and cache[feature_key] then
-		return feature_key, cache[feature_key]
+	if feature_key then
+		local cached = world_contact_cache.LookupFeatureEntry(cache, feature_key)
+
+		if cached then return feature_key, cached end
 	end
 
 	local cache_key = world_contact_cache.LocalPointKey(local_point)
-	local cached = cache_key and cache[cache_key] or nil
+	local cached = world_contact_cache.LookupLocalEntry(cache, cache_key)
 	return cache_key, cached
 end
 

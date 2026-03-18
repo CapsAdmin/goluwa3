@@ -194,10 +194,23 @@ function manifold.SolveImpulses(body_a, body_b, normal, manifold_data, dt)
 end
 
 function manifold.PruneOld(manifolds, step_stamp, prune_steps)
-	for key, manifold in pairs(manifolds or {}) do
-		if not manifold.last_seen_step or manifold.last_seen_step < step_stamp - prune_steps then
-			manifolds[key] = nil
+	for body_a, row in pairs(manifolds or {}) do
+		for body_b, pair_manifold in pairs(row or {}) do
+			if
+				not pair_manifold.last_seen_step or
+				pair_manifold.last_seen_step < step_stamp - prune_steps
+			then
+				row[body_b] = nil
+
+				if manifolds[body_b] then
+					manifolds[body_b][body_a] = nil
+
+					if not next(manifolds[body_b]) then manifolds[body_b] = nil end
+				end
+			end
 		end
+
+		if not next(row) then manifolds[body_a] = nil end
 	end
 end
 

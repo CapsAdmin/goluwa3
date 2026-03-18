@@ -4,6 +4,26 @@ local bit = require("bit")
 local CollisionPairs = prototype.CreateTemplate("physics_collision_pairs")
 import.loaded["goluwa/physics/collision_pairs.lua"] = CollisionPairs
 
+local function new_weak_key_table()
+	return setmetatable({}, {__mode = "k"})
+end
+
+local function get_nested_entry(store, key_a, key_b)
+	local row = store[key_a]
+	return row and row[key_b] or nil
+end
+
+local function set_nested_entry(store, key_a, key_b, entry)
+	local row = store[key_a]
+
+	if not row then
+		row = new_weak_key_table()
+		store[key_a] = row
+	end
+
+	row[key_b] = entry
+end
+
 function CollisionPairs.New(config)
 	local self = CollisionPairs:CreateObject()
 	return self:Initialize(config)
@@ -12,10 +32,14 @@ end
 function CollisionPairs:Initialize(config)
 	config = config or {}
 	self.physics = config.physics or self.physics or physics
-	self.PreviousCollisionPairs = config.PreviousCollisionPairs or {}
-	self.CurrentCollisionPairs = config.CurrentCollisionPairs or {}
-	self.PreviousWorldCollisionPairs = config.PreviousWorldCollisionPairs or {}
-	self.CurrentWorldCollisionPairs = config.CurrentWorldCollisionPairs or {}
+	self.PreviousCollisionPairs = config.PreviousCollisionPairs or new_weak_key_table()
+	self.CurrentCollisionPairs = config.CurrentCollisionPairs or new_weak_key_table()
+	self.PreviousCollisionEntries = config.PreviousCollisionEntries or {}
+	self.CurrentCollisionEntries = config.CurrentCollisionEntries or {}
+	self.PreviousWorldCollisionPairs = config.PreviousWorldCollisionPairs or new_weak_key_table()
+	self.CurrentWorldCollisionPairs = config.CurrentWorldCollisionPairs or new_weak_key_table()
+	self.PreviousWorldCollisionEntries = config.PreviousWorldCollisionEntries or {}
+	self.CurrentWorldCollisionEntries = config.CurrentWorldCollisionEntries or {}
 	return self
 end
 
@@ -24,19 +48,14 @@ function CollisionPairs:GetPhysics()
 end
 
 function CollisionPairs:ResetState()
-	table.clear(self.PreviousCollisionPairs)
-	table.clear(self.CurrentCollisionPairs)
-	table.clear(self.PreviousWorldCollisionPairs)
-	table.clear(self.CurrentWorldCollisionPairs)
-end
-
-local function get_pair_key(physics, body_a, body_b)
-	local key_a = physics.GetObjectCacheKey(body_a)
-	local key_b = physics.GetObjectCacheKey(body_b)
-
-	if key_b < key_a then return key_b .. "|" .. key_a, true end
-
-	return key_a .. "|" .. key_b, false
+	self.PreviousCollisionPairs = new_weak_key_table()
+	self.CurrentCollisionPairs = new_weak_key_table()
+	self.PreviousCollisionEntries = {}
+	self.CurrentCollisionEntries = {}
+	self.PreviousWorldCollisionPairs = new_weak_key_table()
+	self.CurrentWorldCollisionPairs = new_weak_key_table()
+	self.PreviousWorldCollisionEntries = {}
+	self.CurrentWorldCollisionEntries = {}
 end
 
 function physics.ShouldBodiesCollide(body_a, body_b)
@@ -62,8 +81,10 @@ function physics.ShouldBodiesCollide(body_a, body_b)
 end
 
 function CollisionPairs:BeginCollisionFrame()
-	table.clear(self.CurrentCollisionPairs)
-	table.clear(self.CurrentWorldCollisionPairs)
+	self.CurrentCollisionPairs = new_weak_key_table()
+	self.CurrentCollisionEntries = {}
+	self.CurrentWorldCollisionPairs = new_weak_key_table()
+	self.CurrentWorldCollisionEntries = {}
 end
 
 function CollisionPairs:GetCachedPair(body_a, body_b)
@@ -71,9 +92,9 @@ function CollisionPairs:GetCachedPair(body_a, body_b)
 
 	body_a = body_a.GetBody and body_a:GetBody() or body_a
 	body_b = body_b.GetBody and body_b:GetBody() or body_b
-	local key, swapped = get_pair_key(self:GetPhysics(), body_a, body_b)
-	local pair = self.CurrentCollisionPairs[key] or self.PreviousCollisionPairs[key]
-	return pair, swapped
+	local pair = get_nested_entry(self.CurrentCollisionPairs, body_a, body_b) or
+		get_nested_entry(self.PreviousCollisionPairs, body_a, body_b)
+	return pair, pair and pair.body_a ~= body_a or false
 end
 
 function CollisionPairs:RecordCollisionPair(body_a, body_b, normal, overlap)
@@ -83,25 +104,27 @@ function CollisionPairs:RecordCollisionPair(body_a, body_b, normal, overlap)
 
 	body_a = body_a.GetBody and body_a:GetBody() or body_a
 	body_b = body_b.GetBody and body_b:GetBody() or body_b
-	local key, swapped = get_pair_key(physics, body_a, body_b)
-	local stored_normal = swapped and normal * -1 or normal
+	local existing = get_nested_entry(self.CurrentCollisionPairs, body_a, body_b)
 	local stored_overlap = overlap or 0
-	local existing = self.CurrentCollisionPairs[key]
 
-	if not existing or stored_overlap > (existing.overlap or 0) then
-		self.CurrentCollisionPairs[key] = {
-			body_a = swapped and body_b or body_a,
-			body_b = swapped and body_a or body_b,
-			normal = stored_normal,
-			overlap = stored_overlap,
-		}
+	if existing then
+		if stored_overlap > (existing.overlap or 0) then
+			existing.normal = existing.body_a == body_a and normal or normal * -1
+			existing.overlap = stored_overlap
+		end
+
+		return
 	end
-end
 
-local function get_world_pair_key(physics, body, entity)
-	if not (physics.IsActiveRigidBody(body) and entity) then return nil end
-
-	return physics.GetObjectCacheKey(body) .. "|world|" .. physics.GetObjectCacheKey(entity)
+	existing = {
+		body_a = body_a,
+		body_b = body_b,
+		normal = normal,
+		overlap = stored_overlap,
+	}
+	set_nested_entry(self.CurrentCollisionPairs, body_a, body_b, existing)
+	set_nested_entry(self.CurrentCollisionPairs, body_b, body_a, existing)
+	self.CurrentCollisionEntries[#self.CurrentCollisionEntries + 1] = existing
 end
 
 function CollisionPairs:RecordWorldCollision(body, hit, normal, overlap)
@@ -113,22 +136,28 @@ function CollisionPairs:RecordWorldCollision(body, hit, normal, overlap)
 
 	if hit.entity == body.Owner then return end
 
-	local key = get_world_pair_key(physics, body, hit.entity)
-
-	if not key then return end
-
 	local stored_overlap = overlap or 0
-	local existing = self.CurrentWorldCollisionPairs[key]
+	local existing = get_nested_entry(self.CurrentWorldCollisionPairs, body, hit.entity)
 
-	if not existing or stored_overlap > (existing.overlap or 0) then
-		self.CurrentWorldCollisionPairs[key] = {
-			body = body,
-			entity = hit.entity,
-			normal = normal,
-			overlap = stored_overlap,
-			hit = hit,
-		}
+	if existing then
+		if stored_overlap > (existing.overlap or 0) then
+			existing.normal = normal
+			existing.overlap = stored_overlap
+			existing.hit = hit
+		end
+
+		return
 	end
+
+	existing = {
+		body = body,
+		entity = hit.entity,
+		normal = normal,
+		overlap = stored_overlap,
+		hit = hit,
+	}
+	set_nested_entry(self.CurrentWorldCollisionPairs, body, hit.entity, existing)
+	self.CurrentWorldCollisionEntries[#self.CurrentWorldCollisionEntries + 1] = existing
 end
 
 local function emit_collision_event(what, self_owner, self_body, other_entity, other_body, normal, overlap, hit)
@@ -154,8 +183,8 @@ function CollisionPairs:DispatchCollisionEvents()
 	local current = self.CurrentCollisionPairs or {}
 	local previous = self.PreviousCollisionPairs or {}
 
-	for key, pair in pairs(current) do
-		local previous_pair = previous[key]
+	for _, pair in ipairs(self.CurrentCollisionEntries or {}) do
+		local previous_pair = get_nested_entry(previous, pair.body_a, pair.body_b)
 		local event_name = previous_pair and "OnCollisionStay" or "OnCollisionEnter"
 		emit_collision_event(
 			event_name,
@@ -177,8 +206,8 @@ function CollisionPairs:DispatchCollisionEvents()
 		)
 	end
 
-	for key, pair in pairs(previous) do
-		if not current[key] then
+	for _, pair in ipairs(self.PreviousCollisionEntries or {}) do
+		if not get_nested_entry(current, pair.body_a, pair.body_b) then
 			emit_collision_event(
 				"OnCollisionExit",
 				pair.body_a and pair.body_a.Owner or nil,
@@ -203,8 +232,8 @@ function CollisionPairs:DispatchCollisionEvents()
 	local current_world = self.CurrentWorldCollisionPairs or {}
 	local previous_world = self.PreviousWorldCollisionPairs or {}
 
-	for key, pair in pairs(current_world) do
-		local previous_pair = previous_world[key]
+	for _, pair in ipairs(self.CurrentWorldCollisionEntries or {}) do
+		local previous_pair = get_nested_entry(previous_world, pair.body, pair.entity)
 		local event_name = previous_pair and "OnCollisionStay" or "OnCollisionEnter"
 		emit_collision_event(
 			event_name,
@@ -228,8 +257,8 @@ function CollisionPairs:DispatchCollisionEvents()
 		)
 	end
 
-	for key, pair in pairs(previous_world) do
-		if not current_world[key] then
+	for _, pair in ipairs(self.PreviousWorldCollisionEntries or {}) do
+		if not get_nested_entry(current_world, pair.body, pair.entity) then
 			emit_collision_event(
 				"OnCollisionExit",
 				pair.body and pair.body.Owner or nil,
@@ -254,9 +283,13 @@ function CollisionPairs:DispatchCollisionEvents()
 	end
 
 	self.PreviousCollisionPairs = current
-	self.CurrentCollisionPairs = {}
+	self.PreviousCollisionEntries = self.CurrentCollisionEntries
+	self.CurrentCollisionPairs = new_weak_key_table()
+	self.CurrentCollisionEntries = {}
 	self.PreviousWorldCollisionPairs = current_world
-	self.CurrentWorldCollisionPairs = {}
+	self.PreviousWorldCollisionEntries = self.CurrentWorldCollisionEntries
+	self.CurrentWorldCollisionPairs = new_weak_key_table()
+	self.CurrentWorldCollisionEntries = {}
 end
 
 CollisionPairs:Register()

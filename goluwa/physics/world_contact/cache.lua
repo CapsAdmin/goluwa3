@@ -1,6 +1,10 @@
 local Vec3 = import("goluwa/structs/vec3.lua")
-local physics = import("goluwa/physics.lua")
 local world_contact_cache = {}
+local WORLD_FEATURE_ENTITY = {}
+
+local function new_feature_entity_cache()
+	return setmetatable({[WORLD_FEATURE_ENTITY] = {}}, {__mode = "k"})
+end
 
 local function quantize_world_feature_value(value, epsilon)
 	local scaled = value / epsilon
@@ -20,26 +24,59 @@ function world_contact_cache.QuantizedVec3Key(vec, epsilon)
 	return quantize_world_feature_value(vec.x, epsilon) .. "|" .. quantize_world_feature_value(vec.y, epsilon) .. "|" .. quantize_world_feature_value(vec.z, epsilon)
 end
 
+function world_contact_cache.CreateContactCache()
+	return {
+		local_points = {},
+		feature_entities = new_feature_entity_cache(),
+	}
+end
+
+function world_contact_cache.GetFeatureEntity(feature_key)
+	if not feature_key then return nil end
+
+	return feature_key.entity or WORLD_FEATURE_ENTITY
+end
+
+function world_contact_cache.LookupLocalEntry(cache, local_key)
+	return cache and
+		cache.local_points and
+		local_key and
+		cache.local_points[local_key] or
+		nil
+end
+
+function world_contact_cache.LookupFeatureEntry(cache, feature_key)
+	if not (cache and feature_key and feature_key.token) then return nil end
+
+	local entity_cache = cache.feature_entities and
+		cache.feature_entities[world_contact_cache.GetFeatureEntity(feature_key)]
+	return entity_cache and entity_cache[feature_key.token] or nil
+end
+
 function world_contact_cache.WorldFeatureKey(hit, position, normal)
 	if not hit then return nil end
 
-	local entity_key = hit.entity and physics.GetObjectCacheKey(hit.entity) or "world"
 	local primitive_index = hit.primitive_index ~= nil and tostring(hit.primitive_index) or "?"
 	local triangle_index = hit.triangle_index ~= nil and tostring(hit.triangle_index) or "-"
 	local position_key = world_contact_cache.QuantizedVec3Key(position, 0.04) or "pos"
 	local normal_key = world_contact_cache.QuantizedVec3Key(normal, 0.08) or "n"
-	return entity_key .. "|" .. primitive_index .. "|" .. triangle_index .. "|" .. position_key .. "|" .. normal_key
+	return {
+		entity = hit.entity or WORLD_FEATURE_ENTITY,
+		token = primitive_index .. "|" .. triangle_index .. "|" .. position_key .. "|" .. normal_key,
+	}
 end
 
 function world_contact_cache.TriangleLocalFeatureKey(hit, local_point, normal)
 	if not (hit and hit.triangle_index ~= nil and local_point) then return nil end
 
-	local entity_key = hit.entity and physics.GetObjectCacheKey(hit.entity) or "world"
 	local primitive_index = hit.primitive_index ~= nil and tostring(hit.primitive_index) or "?"
 	local triangle_index = tostring(hit.triangle_index)
 	local local_key = world_contact_cache.QuantizedVec3Key(local_point, 0.04) or "lp"
 	local normal_key = world_contact_cache.QuantizedVec3Key(normal, 0.08) or "n"
-	return entity_key .. "|" .. primitive_index .. "|" .. triangle_index .. "|local|" .. local_key .. "|" .. normal_key
+	return {
+		entity = hit.entity or WORLD_FEATURE_ENTITY,
+		token = primitive_index .. "|" .. triangle_index .. "|local|" .. local_key .. "|" .. normal_key,
+	}
 end
 
 function world_contact_cache.MatchesCachedHit(cached, hit)
@@ -81,14 +118,6 @@ function world_contact_cache.HydrateContactFromCache(contact, cached, policy)
 	contact.cached = true
 end
 
-function world_contact_cache.GetPrimaryContactCacheKey(policy, local_key, feature_key)
-	if policy and policy.persistent_feature_cache and feature_key then
-		return feature_key
-	end
-
-	return local_key or feature_key
-end
-
 function world_contact_cache.PruneContactEntries(state)
 	local entries = state and state.entries or nil
 
@@ -96,11 +125,19 @@ function world_contact_cache.PruneContactEntries(state)
 
 	local retain_steps = state.policy and state.policy.retain_steps or 0
 	local min_step = (state.step_stamp or 0) - retain_steps
+	local write_index = 1
 
-	for key, entry in pairs(entries) do
-		if not entry.last_seen_step or entry.last_seen_step < min_step then
-			entries[key] = nil
+	for read_index = 1, #entries do
+		local entry = entries[read_index]
+
+		if entry and entry.last_seen_step and entry.last_seen_step >= min_step then
+			entries[write_index] = entry
+			write_index = write_index + 1
 		end
+	end
+
+	for i = write_index, #entries do
+		entries[i] = nil
 	end
 end
 
@@ -109,14 +146,25 @@ function world_contact_cache.RebuildContactCacheAliases(state)
 
 	if not cache then return end
 
-	for key in pairs(cache) do
-		cache[key] = nil
-	end
+	cache.local_points = {}
+	cache.feature_entities = new_feature_entity_cache()
 
 	for _, entry in pairs(state.entries or {}) do
-		if entry.local_point_key then cache[entry.local_point_key] = entry end
+		if entry.local_point_key then
+			cache.local_points[entry.local_point_key] = entry
+		end
 
-		if entry.feature_key then cache[entry.feature_key] = entry end
+		if entry.feature_key and entry.feature_key.token then
+			local entity = world_contact_cache.GetFeatureEntity(entry.feature_key)
+			local entity_cache = cache.feature_entities[entity]
+
+			if not entity_cache then
+				entity_cache = {}
+				cache.feature_entities[entity] = entity_cache
+			end
+
+			entity_cache[entry.feature_key.token] = entry
+		end
 	end
 end
 

@@ -13,6 +13,10 @@ Solver.PersistentManifolds = Solver.PersistentManifolds or {}
 Solver.MissingPairWarnings = Solver.MissingPairWarnings or {}
 Solver.StepStamp = Solver.StepStamp or 0
 
+local function new_weak_key_table()
+	return setmetatable({}, {__mode = "k"})
+end
+
 local function clone_pair_handlers(source)
 	local out = {}
 
@@ -45,7 +49,7 @@ function Solver:Initialize(config)
 	self.MAX_TANGENT_WARM_SPEED = config.MAX_TANGENT_WARM_SPEED or
 		self.MAX_TANGENT_WARM_SPEED or
 		Solver.MAX_TANGENT_WARM_SPEED
-	self.PersistentManifolds = config.PersistentManifolds or {}
+	self.PersistentManifolds = config.PersistentManifolds or new_weak_key_table()
 	self.PairHandlers = clone_pair_handlers(config.PairHandlers or Solver.PairHandlers)
 	self.MissingPairWarnings = config.MissingPairWarnings or {}
 	self.StepStamp = config.StepStamp or 0

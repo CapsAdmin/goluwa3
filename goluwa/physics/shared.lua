@@ -18,27 +18,6 @@ physics.FrameAccumulator = physics.FrameAccumulator or 0
 physics.InterpolationAlpha = physics.InterpolationAlpha or 0
 physics.WorldTraceSource = physics.WorldTraceSource or nil
 physics.EPSILON = 0.000001
-physics._ObjectCacheKeys = physics._ObjectCacheKeys or setmetatable({}, {__mode = "k"})
-physics._NextObjectCacheKey = physics._NextObjectCacheKey or 0
-
-function physics.GetObjectCacheKey(object)
-	if object == nil then return "nil" end
-
-	local object_type = type(object)
-
-	if object_type == "string" or object_type == "number" or object_type == "boolean" then
-		return tostring(object)
-	end
-
-	local existing = physics._ObjectCacheKeys[object]
-
-	if existing then return existing end
-
-	physics._NextObjectCacheKey = physics._NextObjectCacheKey + 1
-	existing = tostring(physics._NextObjectCacheKey)
-	physics._ObjectCacheKeys[object] = existing
-	return existing
-end
 
 function physics.SetWorldTraceSource(source)
 	physics.WorldTraceSource = source
