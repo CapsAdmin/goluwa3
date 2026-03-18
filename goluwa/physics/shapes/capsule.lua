@@ -49,6 +49,12 @@ function META:GetTopSphereCenterLocal()
 	return Vec3(0, self:GetCylinderHalfHeight(), 0)
 end
 
+function META:GetSupportRadiusAlongNormal(body, normal)
+	normal = normal and normal:GetNormalized() or Vec3(0, 1, 0)
+	local axis = body:GetRotation():VecMul(Vec3(0, 1, 0)):GetNormalized()
+	return self:GetRadius() + self:GetCylinderHalfHeight() * math.abs(axis:Dot(normal))
+end
+
 function META:GetMassProperties(body)
 	local radius = self:GetRadius()
 	local cylinder_height = self:GetCylinderHeight()
@@ -144,30 +150,30 @@ function META:SolveSupportContacts(body, dt)
 	local downward = math.max(0, -velocity.y * dt)
 	local cast_up = body:GetCollisionProbeDistance() + body:GetCollisionMargin()
 	local cast_distance = cast_up + downward + body:GetCollisionProbeDistance() + body:GetCollisionMargin()
-	local radius = self:GetRadius()
-	local bottom_center = body:LocalToWorld(self:GetBottomSphereCenterLocal())
-	local hit = physics.Trace(
-		bottom_center + physics.Up * cast_up,
-		physics.Up * -1,
-		cast_distance + radius,
+	local center = body:GetPosition()
+	local hit = physics.SweepCollider(
+		body,
+		center + physics.Up * cast_up,
+		physics.Up * -cast_distance,
 		body:GetOwner(),
-		body:GetFilterFunction()
+		body:GetFilterFunction(),
+		{
+			Rotation = body:GetRotation(),
+		}
 	)
-	local surface_contact = physics.GetHitSurfaceContact and
-		physics.GetHitSurfaceContact(hit, bottom_center) or
-		nil
-	local normal = surface_contact and surface_contact.normal or nil
-	local contact_position = surface_contact and surface_contact.position or (hit and hit.position) or nil
+	local normal = hit and hit.normal or nil
+	local contact_position = hit and hit.position or nil
 
 	if not (hit and normal and contact_position) then return end
 
-	local target_center = contact_position + normal * (radius + body:GetCollisionMargin())
-	local correction = target_center - bottom_center
+	local support_radius = self:GetSupportRadiusAlongNormal(body, normal)
+	local target_center = contact_position + normal * (support_radius + body:GetCollisionMargin())
+	local correction = target_center - center
 	local depth = correction:Dot(normal)
 
 	if depth <= 0 then return end
 
-	body:ApplyCorrection(0, normal * depth, bottom_center - normal * radius, nil, nil, dt)
+	body:ApplyCorrection(0, normal * depth, center - normal * support_radius, nil, nil, dt)
 
 	if normal.y >= body:GetMinGroundNormalY() then
 		body:SetGrounded(true)

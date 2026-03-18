@@ -100,6 +100,29 @@ T.Test3D("Rigid sphere can move along uneven ground", function()
 	ground:Remove()
 end)
 
+T.Test3D("Fast rigid sphere does not tunnel through triangle world floor", function()
+	local ground = create_flat_ground("rigid_fast_sphere_ground", 6)
+	local body_ent = Entity.New({Name = "rigid_fast_sphere"})
+	body_ent:AddComponent("transform")
+	body_ent.transform:SetPosition(Vec3(0, 4, 0))
+	local body = body_ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = sphere_shape(0.5),
+			Radius = 0.5,
+			LinearDamping = 0,
+			AngularDamping = 0,
+		}
+	)
+	body:SetVelocity(Vec3(0, -60, 0))
+	simulate_physics(12)
+	local position = body_ent.transform:GetPosition()
+	T(position.y)[">="](0.4)
+	T(body:GetGrounded() or body:GetVelocity().y > -5)["=="](true)
+	body_ent:Remove()
+	ground:Remove()
+end)
+
 T.Test3D("Rigid spheres separate without exploding", function()
 	local ground = create_flat_ground("rigid_pair_ground")
 	local sphere_a = Entity.New({Name = "rigid_pair_a"})

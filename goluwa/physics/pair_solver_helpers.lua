@@ -1,4 +1,5 @@
 local Vec3 = import("goluwa/structs/vec3.lua")
+local Quat = import("goluwa/structs/quat.lua")
 local physics = import("goluwa/physics.lua")
 local solver = import("goluwa/physics/solver.lua")
 local shape_accessors = import("goluwa/physics/shape_accessors.lua")
@@ -10,6 +11,12 @@ local axis_data = {
 	{"y", Vec3(0, -1, 0), Vec3(0, 1, 0)},
 	{"z", Vec3(0, 0, -1), Vec3(0, 0, 1)},
 }
+local CCD_MIN_SAMPLE_STEPS = 12
+local CCD_MAX_SAMPLE_STEPS = 96
+local CCD_REFINE_STEPS = 14
+local TEMPORAL_TOI_MIN_SAMPLE_STEPS = 10
+local TEMPORAL_TOI_MAX_SAMPLE_STEPS = 48
+local TEMPORAL_TOI_REFINE_STEPS = 12
 
 local function get_pair_cache_key(body_a, body_b)
 	local key_a = tostring(body_a)
@@ -90,6 +97,242 @@ function pair_solver_helpers.GetSafeCollisionNormal(delta, relative_velocity, fa
 	if normal then return normal, 0 end
 
 	return nil, 0
+end
+
+function pair_solver_helpers.FindEarliestBodyPointSweepHit(
+	body,
+	previous_position,
+	previous_rotation,
+	current_position,
+	current_rotation,
+	local_points,
+	evaluate_hit,
+	best_hit
+)
+	local_points = local_points or body:GetCollisionLocalPoints() or {}
+	current_position = current_position or body:GetPosition()
+	current_rotation = current_rotation or body:GetRotation()
+
+	for _, local_point in ipairs(local_points) do
+		local start_world = body:GeometryLocalToWorld(local_point, previous_position, previous_rotation)
+		local end_world = body:GeometryLocalToWorld(local_point, current_position, current_rotation)
+		local hit = evaluate_hit(start_world, end_world, local_point)
+
+		if hit and (not best_hit or hit.t < best_hit.t) then best_hit = hit end
+	end
+
+	return best_hit
+end
+
+function pair_solver_helpers.GetBodySweepMotion(body)
+	local previous_position = body:GetPreviousPosition()
+	local previous_rotation = body:GetPreviousRotation()
+	local current_position = body:GetPosition()
+	local current_rotation = body:GetRotation()
+	return {
+		previous_position = previous_position,
+		previous_rotation = previous_rotation,
+		current_position = current_position,
+		current_rotation = current_rotation,
+		movement = current_position - previous_position,
+	}
+end
+
+function pair_solver_helpers.InterpolatePosition(previous, current, t)
+	return previous + (current - previous) * t
+end
+
+function pair_solver_helpers.InterpolateRotation(previous, current, t)
+	local target = current
+
+	if previous:Dot(current) < 0 then
+		target = Quat(-current.x, -current.y, -current.z, -current.w)
+	end
+
+	return Quat(
+		previous.x + (target.x - previous.x) * t,
+		previous.y + (target.y - previous.y) * t,
+		previous.z + (target.z - previous.z) * t,
+		previous.w + (target.w - previous.w) * t
+	):GetNormalized()
+end
+
+function pair_solver_helpers.GetBodyMotionScale(body)
+	local linear = (body:GetPosition() - body:GetPreviousPosition()):GetLength()
+	local dot = math.min(1, math.max(-1, math.abs(body:GetPreviousRotation():Dot(body:GetRotation()))))
+	local angular = math.acos(dot) * 2
+	local bounds = body:GetBroadphaseAABB()
+	local extent = Vec3(
+			bounds.max_x - bounds.min_x,
+			bounds.max_y - bounds.min_y,
+			bounds.max_z - bounds.min_z
+		):GetLength() * 0.5
+	return linear + extent * angular
+end
+
+function pair_solver_helpers.GetTemporalTOISampleSteps(body_a, body_b, distance_scale, min_steps, max_steps)
+	distance_scale = distance_scale or 0.25
+	min_steps = min_steps or TEMPORAL_TOI_MIN_SAMPLE_STEPS
+	max_steps = max_steps or TEMPORAL_TOI_MAX_SAMPLE_STEPS
+	local motion_scale = math.max(
+		pair_solver_helpers.GetBodyMotionScale(body_a),
+		pair_solver_helpers.GetBodyMotionScale(body_b)
+	)
+	return math.max(min_steps, math.min(max_steps, math.ceil(motion_scale / distance_scale) * 2))
+end
+
+function pair_solver_helpers.FindSampledTemporalHit(evaluate, sample_steps, refine_steps)
+	local start_result = evaluate(0)
+
+	if start_result then return nil end
+
+	refine_steps = refine_steps or TEMPORAL_TOI_REFINE_STEPS
+	local previous_t = 0
+
+	for i = 1, sample_steps do
+		local sample_t = i / sample_steps
+		local result = evaluate(sample_t)
+
+		if result then
+			local low = previous_t
+			local high = sample_t
+			local best = result
+
+			for _ = 1, refine_steps do
+				local mid = (low + high) * 0.5
+				local mid_result = evaluate(mid)
+
+				if mid_result then
+					best = mid_result
+					high = mid
+				else
+					low = mid
+				end
+			end
+
+			best.t = high
+			return best
+		end
+
+		previous_t = sample_t
+	end
+
+	return nil
+end
+
+function pair_solver_helpers.GetCCDSampleSteps(path_length, distance_scale)
+	distance_scale = math.max(distance_scale or 0.25, 0.05)
+	return math.max(
+		CCD_MIN_SAMPLE_STEPS,
+		math.min(CCD_MAX_SAMPLE_STEPS, math.ceil(path_length / distance_scale) * 2)
+	)
+end
+
+function pair_solver_helpers.RefineDistanceSweepHit(evaluate, hit_distance, low, high)
+	local best_t = high
+	local best_result = evaluate(high)
+
+	for _ = 1, CCD_REFINE_STEPS do
+		local mid = (low + high) * 0.5
+		local result = evaluate(mid)
+
+		if result.distance <= hit_distance then
+			best_t = mid
+			best_result = result
+			high = mid
+		else
+			low = mid
+		end
+	end
+
+	best_result.t = best_t
+	return best_result
+end
+
+function pair_solver_helpers.FindDistanceTimeOfImpact(evaluate, hit_distance, relative_velocity, path_length)
+	local start_result = evaluate(0)
+
+	if start_result.distance <= hit_distance then return nil end
+
+	local sample_steps = pair_solver_helpers.GetCCDSampleSteps(path_length, hit_distance)
+	local t = 0
+	local current = start_result
+
+	for _ = 1, sample_steps do
+		local normal = select(1, pair_solver_helpers.GetSafeCollisionNormal(current.delta, relative_velocity))
+		local approach_speed = math.max(0, -(relative_velocity or Vec3(0, 0, 0)):Dot(normal))
+		local next_t
+
+		if approach_speed > physics.EPSILON then
+			next_t = math.min(
+				1,
+				t + math.max((current.distance - hit_distance) / approach_speed, 1 / sample_steps)
+			)
+		else
+			next_t = math.min(1, t + (1 / sample_steps))
+		end
+
+		if next_t <= t + physics.EPSILON then break end
+
+		local next_result = evaluate(next_t)
+
+		if next_result.distance <= hit_distance then
+			return pair_solver_helpers.RefineDistanceSweepHit(evaluate, hit_distance, t, next_t)
+		end
+
+		local midpoint_t = (t + next_t) * 0.5
+		local midpoint_result = evaluate(midpoint_t)
+
+		if midpoint_result.distance <= hit_distance then
+			return pair_solver_helpers.RefineDistanceSweepHit(evaluate, hit_distance, t, midpoint_t)
+		end
+
+		t = next_t
+		current = next_result
+
+		if t >= 1 - physics.EPSILON then break end
+	end
+
+	local previous_t = 0
+
+	for i = 1, sample_steps do
+		local sample_t = i / sample_steps
+		local result = evaluate(sample_t)
+
+		if result.distance <= hit_distance then
+			return pair_solver_helpers.RefineDistanceSweepHit(evaluate, hit_distance, previous_t, sample_t)
+		end
+
+		previous_t = sample_t
+	end
+
+	return nil
+end
+
+function pair_solver_helpers.FindSampledDistanceThresholdHit(evaluate, hit_distance, sample_steps)
+	sample_steps = sample_steps or 12
+	local previous_t = 0
+
+	for i = 1, sample_steps do
+		local sample_t = i / sample_steps
+		local result = evaluate(sample_t)
+
+		if result.distance <= hit_distance then
+			return pair_solver_helpers.RefineDistanceSweepHit(evaluate, hit_distance, previous_t, sample_t)
+		end
+
+		previous_t = sample_t
+	end
+
+	return nil
+end
+
+function pair_solver_helpers.FindDistanceSweepHit(evaluate, hit_distance, relative_velocity, path_length, sample_steps)
+	local hit = pair_solver_helpers.FindDistanceTimeOfImpact(evaluate, hit_distance, relative_velocity, path_length)
+
+	if hit then return hit end
+
+	return pair_solver_helpers.FindSampledDistanceThresholdHit(evaluate, hit_distance, sample_steps)
 end
 
 function pair_solver_helpers.SweepPointAgainstBox(box_body, start_world, end_world, extra_radius)

@@ -97,9 +97,10 @@ end
 local function solve_swept_sphere_box_collision(sphere_body, box_body, dt)
 	if not pair_solver_helpers.IsSolverImmovable(box_body) then return false end
 
-	local start_world = sphere_body:GetPreviousPosition()
-	local end_world = sphere_body:GetPosition()
-	local movement_world = end_world - start_world
+	local sweep = pair_solver_helpers.GetBodySweepMotion(sphere_body)
+	local start_world = sweep.previous_position
+	local end_world = sweep.current_position
+	local movement_world = sweep.movement
 	local extents = box_body:GetPhysicsShape():GetExtents()
 	local start_local_center = box_body:WorldToLocal(start_world)
 	local end_local_center = box_body:WorldToLocal(end_world)
@@ -108,21 +109,19 @@ local function solve_swept_sphere_box_collision(sphere_body, box_body, dt)
 
 	if movement_world:GetLength() <= physics.EPSILON then return false end
 
-	local earliest_hit = nil
-
-	for _, local_point in ipairs(sphere_body:GetSupportLocalPoints() or {}) do
-		local start_point_world = sphere_body:GeometryLocalToWorld(
-			local_point,
-			sphere_body:GetPreviousPosition(),
-			sphere_body:GetPreviousRotation()
-		)
-		local end_point_world = sphere_body:GeometryLocalToWorld(local_point)
-		local hit = pair_solver_helpers.SweepPointAgainstBox(box_body, start_point_world, end_point_world)
-
-		if hit and not (descending_from_above and hit.normal_local.y <= physics.EPSILON) then
-			if not earliest_hit or hit.t < earliest_hit.t then earliest_hit = hit end
+	local earliest_hit = pair_solver_helpers.FindEarliestBodyPointSweepHit(
+		sphere_body,
+		sweep.previous_position,
+		sweep.previous_rotation,
+		sweep.current_position,
+		sweep.current_rotation,
+		sphere_body:GetSupportLocalPoints() or {},
+		function(start_point_world, end_point_world)
+			local hit = pair_solver_helpers.SweepPointAgainstBox(box_body, start_point_world, end_point_world)
+			if hit and not (descending_from_above and hit.normal_local.y <= physics.EPSILON) then return hit end
+			return nil
 		end
-	end
+	)
 
 	if not earliest_hit then return false end
 
@@ -195,9 +194,10 @@ local function solve_swept_sphere_convex_collision(sphere_body, convex_body, dt)
 		return false
 	end
 
-	local start_world = sphere_body:GetPreviousPosition()
-	local end_world = sphere_body:GetPosition()
-	local movement_world = end_world - start_world
+	local sweep = pair_solver_helpers.GetBodySweepMotion(sphere_body)
+	local start_world = sweep.previous_position
+	local end_world = sweep.current_position
+	local movement_world = sweep.movement
 	local sphere_radius = shape_accessors.GetSphereRadius(sphere_body)
 	local hit = pair_solver_helpers.SweepPointAgainstPolyhedron(convex_body, hull, start_world, end_world, sphere_radius)
 

@@ -70,15 +70,20 @@ local function solve_world_manifold_contacts(body, dt)
 	world_contact_pipeline.CollectWorldManifoldContacts(body, kind, contacts, world_manifold_contact_options)
 
 	if not contacts[1] then
-		world_contact_sampling.CollectTraceContacts(
+		world_contact_sampling.CollectSweepContacts(
 			body,
 			kind,
 			contacts,
 			{
 				epsilon = physics.EPSILON,
+				bias_world_contact_depth = bias_world_contact_depth,
 				get_contact_kind_policy = world_contact_state.GetContactKindPolicy,
+				get_support_contact_slop = get_support_contact_slop,
 				finalize_world_contact = finalize_world_contact,
 				local_point_key = world_contact_cache.LocalPointKey,
+				triangle_local_feature_key = world_contact_cache.TriangleLocalFeatureKey,
+				world_contact_triangle_slop = WORLD_CONTACT_TRIANGLE_SLOP,
+				world_manifold_merge_distance = WORLD_MANIFOLD_MERGE_DISTANCE,
 			}
 		)
 	end

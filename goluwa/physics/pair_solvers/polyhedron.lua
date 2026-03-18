@@ -1,5 +1,3 @@
-local Vec3 = import("goluwa/structs/vec3.lua")
-local Quat = import("goluwa/structs/quat.lua")
 local physics = import("goluwa/physics.lua")
 local solver = import("goluwa/physics/solver.lua")
 local shape_accessors = import("goluwa/physics/shape_accessors.lua")
@@ -15,9 +13,6 @@ local polyhedron = {}
 local FACE_CONTACT_SEPARATION_TOLERANCE = 0.08
 local FACE_AXIS_RELATIVE_TOLERANCE = 1.05
 local FACE_AXIS_ABSOLUTE_TOLERANCE = 0.03
-local TEMPORAL_TOI_MIN_SAMPLE_STEPS = 10
-local TEMPORAL_TOI_MAX_SAMPLE_STEPS = 48
-local TEMPORAL_TOI_REFINE_STEPS = 12
 local POLYHEDRON_FACE_CONTACT_SCRATCH = {}
 local POLYHEDRON_SUPPORT_CONTACT_SCRATCH = {}
 local POLYHEDRON_CONTACT_OUTPUT_SCRATCH = {
@@ -32,46 +27,6 @@ polyhedron.ClosestPointOnTriangle = triangle_geometry.ClosestPointOnTriangle
 
 local function get_polyhedron_world_vertices_at(polyhedron, position, rotation, out)
 	return polyhedron_cache.FillPolyhedronWorldVertices(polyhedron, position, rotation, out)
-end
-
-local function interpolate_position(previous, current, t)
-	return previous + (current - previous) * t
-end
-
-local function interpolate_rotation(previous, current, t)
-	local target = current
-
-	if previous:Dot(current) < 0 then
-		target = Quat(-current.x, -current.y, -current.z, -current.w)
-	end
-
-	return Quat(
-		previous.x + (target.x - previous.x) * t,
-		previous.y + (target.y - previous.y) * t,
-		previous.z + (target.z - previous.z) * t,
-		previous.w + (target.w - previous.w) * t
-	):GetNormalized()
-end
-
-local function get_body_motion_scale(body)
-	local linear = (body:GetPosition() - body:GetPreviousPosition()):GetLength()
-	local dot = math.min(1, math.max(-1, math.abs(body:GetPreviousRotation():Dot(body:GetRotation()))))
-	local angular = math.acos(dot) * 2
-	local bounds = body:GetBroadphaseAABB()
-	local extent = Vec3(
-			bounds.max_x - bounds.min_x,
-			bounds.max_y - bounds.min_y,
-			bounds.max_z - bounds.min_z
-		):GetLength() * 0.5
-	return linear + extent * angular
-end
-
-local function get_temporal_toi_sample_steps(body_a, body_b)
-	local motion_scale = math.max(get_body_motion_scale(body_a), get_body_motion_scale(body_b))
-	return math.max(
-		TEMPORAL_TOI_MIN_SAMPLE_STEPS,
-		math.min(TEMPORAL_TOI_MAX_SAMPLE_STEPS, math.ceil(motion_scale / 0.25) * 2)
-	)
 end
 
 local get_edge_direction
@@ -257,23 +212,24 @@ local function solve_swept_polyhedron_polyhedron_collision(dynamic_body, static_
 		return false
 	end
 
-	local previous_position = dynamic_body:GetPreviousPosition()
-	local current_position = dynamic_body:GetPosition()
-	local movement = current_position - previous_position
+	local sweep = pair_solver_helpers.GetBodySweepMotion(dynamic_body)
+	local previous_position = sweep.previous_position
+	local current_position = sweep.current_position
+	local movement = sweep.movement
 
 	if movement:GetLength() <= physics.EPSILON then return false end
 
-	local earliest_hit
-
-	for _, local_point in ipairs(dynamic_body:GetCollisionLocalPoints()) do
-		local start_world = dynamic_body:GeometryLocalToWorld(local_point, previous_position, dynamic_body:GetPreviousRotation())
-		local end_world = dynamic_body:GeometryLocalToWorld(local_point)
-		local hit = pair_solver_helpers.SweepPointAgainstPolyhedron(static_body, static_polyhedron, start_world, end_world)
-
-		if hit and (not earliest_hit or hit.t < earliest_hit.t) then
-			earliest_hit = hit
+	local earliest_hit = pair_solver_helpers.FindEarliestBodyPointSweepHit(
+		dynamic_body,
+		previous_position,
+		sweep.previous_rotation,
+		current_position,
+		sweep.current_rotation,
+		dynamic_body:GetCollisionLocalPoints(),
+		function(start_world, end_world)
+			return pair_solver_helpers.SweepPointAgainstPolyhedron(static_body, static_polyhedron, start_world, end_world)
 		end
-	end
+	)
 
 	if not earliest_hit then return false end
 
@@ -339,69 +295,23 @@ local function find_polyhedron_pair_time_of_impact(body_a, poly_a, body_b, poly_
 	local previous_rotation_b = body_b:GetPreviousRotation()
 	local current_position_b = body_b:GetPosition()
 	local current_rotation_b = body_b:GetRotation()
-	local sample_steps = get_temporal_toi_sample_steps(body_a, body_b)
-	local previous_t = 0
+	local sample_steps = pair_solver_helpers.GetTemporalTOISampleSteps(body_a, body_b)
 	local scratch = {
 		vertices_a = {},
 		vertices_b = {},
 	}
-	local previous_result = evaluate_polyhedron_pair_at_transforms(
-		poly_a,
-		previous_position_a,
-		previous_rotation_a,
-		poly_b,
-		previous_position_b,
-		previous_rotation_b,
-		scratch
-	)
 
-	if previous_result then return nil end
-
-	for i = 1, sample_steps do
-		local t = i / sample_steps
-		local result = evaluate_polyhedron_pair_at_transforms(
+	return pair_solver_helpers.FindSampledTemporalHit(function(t)
+		return evaluate_polyhedron_pair_at_transforms(
 			poly_a,
-			interpolate_position(previous_position_a, current_position_a, t),
-			interpolate_rotation(previous_rotation_a, current_rotation_a, t),
+			pair_solver_helpers.InterpolatePosition(previous_position_a, current_position_a, t),
+			pair_solver_helpers.InterpolateRotation(previous_rotation_a, current_rotation_a, t),
 			poly_b,
-			interpolate_position(previous_position_b, current_position_b, t),
-			interpolate_rotation(previous_rotation_b, current_rotation_b, t),
+			pair_solver_helpers.InterpolatePosition(previous_position_b, current_position_b, t),
+			pair_solver_helpers.InterpolateRotation(previous_rotation_b, current_rotation_b, t),
 			scratch
 		)
-
-		if result then
-			local low = previous_t
-			local high = t
-			local best = result
-
-			for _ = 1, TEMPORAL_TOI_REFINE_STEPS do
-				local mid = (low + high) * 0.5
-				local mid_result = evaluate_polyhedron_pair_at_transforms(
-					poly_a,
-					interpolate_position(previous_position_a, current_position_a, mid),
-					interpolate_rotation(previous_rotation_a, current_rotation_a, mid),
-					poly_b,
-					interpolate_position(previous_position_b, current_position_b, mid),
-					interpolate_rotation(previous_rotation_b, current_rotation_b, mid),
-					scratch
-				)
-
-				if mid_result then
-					best = mid_result
-					high = mid
-				else
-					low = mid
-				end
-			end
-
-			best.t = high
-			return best
-		end
-
-		previous_t = t
-	end
-
-	return nil
+	end, sample_steps)
 end
 
 local function solve_temporal_polyhedron_pair_collision(body_a, body_b, poly_a, poly_b, dt)
@@ -434,59 +344,70 @@ local function solve_relative_swept_polyhedron_pair_collision(body_a, body_b, po
 		return false
 	end
 
-	local previous_position_a = body_a:GetPreviousPosition()
-	local previous_position_b = body_b:GetPreviousPosition()
-	local current_position_a = body_a:GetPosition()
-	local current_position_b = body_b:GetPosition()
-	local movement_a = current_position_a - previous_position_a
-	local movement_b = current_position_b - previous_position_b
+	local sweep_a = pair_solver_helpers.GetBodySweepMotion(body_a)
+	local sweep_b = pair_solver_helpers.GetBodySweepMotion(body_b)
+	local previous_position_a = sweep_a.previous_position
+	local previous_position_b = sweep_b.previous_position
+	local movement_a = sweep_a.movement
+	local movement_b = sweep_b.movement
 	local relative_movement = movement_a - movement_b
 
 	if relative_movement:GetLength() <= physics.EPSILON then return false end
 
-	local previous_rotation_a = body_a:GetPreviousRotation()
-	local previous_rotation_b = body_b:GetPreviousRotation()
-	local earliest_hit
+	local earliest_hit = pair_solver_helpers.FindEarliestBodyPointSweepHit(
+		body_a,
+		sweep_a.previous_position,
+		sweep_a.previous_rotation,
+		sweep_a.previous_position + relative_movement,
+		sweep_a.previous_rotation,
+		body_a:GetCollisionLocalPoints(),
+		function(start_world, end_world)
+			local hit = pair_solver_helpers.SweepPointAgainstPolyhedron(
+				body_b,
+				poly_b,
+				start_world,
+				end_world,
+				0,
+				sweep_b.previous_position,
+				sweep_b.previous_rotation
+			)
 
-	for _, local_point in ipairs(body_a:GetCollisionLocalPoints()) do
-		local start_world = body_a:GeometryLocalToWorld(local_point, previous_position_a, previous_rotation_a)
-		local hit = pair_solver_helpers.SweepPointAgainstPolyhedron(
-			body_b,
-			poly_b,
-			start_world,
-			start_world + relative_movement,
-			0,
-			previous_position_b,
-			previous_rotation_b
-		)
+			if not hit then return nil end
 
-		if hit and (not earliest_hit or hit.t < earliest_hit.t) then
-			earliest_hit = {
+			return {
 				t = hit.t,
 				normal = hit.normal * -1,
 			}
 		end
-	end
+	)
 
-	for _, local_point in ipairs(body_b:GetCollisionLocalPoints()) do
-		local start_world = body_b:GeometryLocalToWorld(local_point, previous_position_b, previous_rotation_b)
-		local hit = pair_solver_helpers.SweepPointAgainstPolyhedron(
-			body_a,
-			poly_a,
-			start_world,
-			start_world - relative_movement,
-			0,
-			previous_position_a,
-			previous_rotation_a
-		)
+	earliest_hit = pair_solver_helpers.FindEarliestBodyPointSweepHit(
+		body_b,
+		sweep_b.previous_position,
+		sweep_b.previous_rotation,
+		sweep_b.previous_position - relative_movement,
+		sweep_b.previous_rotation,
+		body_b:GetCollisionLocalPoints(),
+		function(start_world, end_world)
+			local hit = pair_solver_helpers.SweepPointAgainstPolyhedron(
+				body_a,
+				poly_a,
+				start_world,
+				end_world,
+				0,
+				sweep_a.previous_position,
+				sweep_a.previous_rotation
+			)
 
-		if hit and (not earliest_hit or hit.t < earliest_hit.t) then
-			earliest_hit = {
+			if not hit then return nil end
+
+			return {
 				t = hit.t,
 				normal = hit.normal,
 			}
-		end
-	end
+		end,
+		earliest_hit
+	)
 
 	if not earliest_hit then return false end
 

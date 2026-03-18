@@ -118,10 +118,10 @@ function META:SolveSupportContacts(body, dt, solve_contact)
 
 	for _, local_point in ipairs(body:GetSupportLocalPoints()) do
 		local point = body:GeometryLocalToWorld(local_point)
-		local hit = physics.Trace(
+		local hit = physics.Sweep(
 			point + physics.Up * cast_up,
-			physics.Up * -1,
-			cast_distance,
+			physics.Up * -cast_distance,
+			0,
 			body:GetOwner(),
 			body:GetFilterFunction()
 		)

@@ -121,16 +121,15 @@ function META:SolveSupportContacts(body, dt)
 	local cast_distance = cast_up + downward + body:GetCollisionProbeDistance() + body:GetCollisionMargin()
 	local radius = self:GetRadius()
 	local center = body:GetPosition()
-	local hit = physics.Trace(
+	local hit = physics.Sweep(
 		center + physics.Up * cast_up,
-		physics.Up * -1,
-		cast_distance + radius,
+		physics.Up * -(cast_distance + radius),
+		radius,
 		body:GetOwner(),
 		body:GetFilterFunction()
 	)
-	local surface_contact = physics.GetHitSurfaceContact and physics.GetHitSurfaceContact(hit, center) or nil
-	local normal = surface_contact and surface_contact.normal or nil
-	local contact_position = surface_contact and surface_contact.position or (hit and hit.position) or nil
+	local normal = hit and hit.normal or nil
+	local contact_position = hit and hit.position or nil
 
 	if not (hit and normal and contact_position) then return end
 

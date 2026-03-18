@@ -7,6 +7,24 @@ local TRIANGLE_FEATURE_EPSILON = 0.0001
 local TRIANGLE_SEAM_DISTANCE_EPSILON = 0.0001
 local TRIANGLE_SEAM_NORMAL_DOT = 0.5
 
+local function normalize_query_options(options)
+	options = options or {}
+
+	if options.IncludeRigidBodies ~= nil and options.IgnoreRigidBodies == nil then
+		options.IgnoreRigidBodies = not options.IncludeRigidBodies
+	end
+
+	if options.IncludeKinematicBodies ~= nil and options.IgnoreKinematicBodies == nil then
+		options.IgnoreKinematicBodies = not options.IncludeKinematicBodies
+	end
+
+	if options.IncludeWorld ~= nil and options.UseRenderMeshes == nil and options.WorldSource == nil then
+		options.UseRenderMeshes = options.IncludeWorld
+	end
+
+	return options
+end
+
 local function filter(entity, ignore_entity, filter_fn, ignore_kinematic, ignore_rigid)
 	if entity == ignore_entity then return false end
 
@@ -132,7 +150,7 @@ local function pick_best_world_hit(hits, direction)
 end
 
 function physics.Trace(origin, direction, max_distance, ignore_entity, filter_fn, options)
-	options = options or {}
+	options = normalize_query_options(options)
 	local allow_rigid = options.IgnoreRigidBodies == false
 	local downward_trace = is_straight_down(direction)
 	local hits = cast_with_filter(
@@ -182,6 +200,8 @@ function physics.Trace(origin, direction, max_distance, ignore_entity, filter_fn
 
 	return best_hit
 end
+
+physics.RayCast = physics.Trace
 
 local function get_hit_triangle_indices(poly, triangle_index)
 	if not (poly and poly.Vertices and triangle_index ~= nil) then return nil end

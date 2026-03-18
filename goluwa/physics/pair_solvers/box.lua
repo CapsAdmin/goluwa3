@@ -472,23 +472,24 @@ local function solve_swept_box_box_collision(dynamic_body, static_body, dt)
 		return false
 	end
 
-	local previous_position = dynamic_body:GetPreviousPosition()
-	local current_position = dynamic_body:GetPosition()
-	local movement = current_position - previous_position
+	local sweep = pair_solver_helpers.GetBodySweepMotion(dynamic_body)
+	local previous_position = sweep.previous_position
+	local current_position = sweep.current_position
+	local movement = sweep.movement
 
 	if movement:GetLength() <= physics.EPSILON then return false end
 
-	local earliest_hit
-
-	for _, local_point in ipairs(dynamic_body:GetCollisionLocalPoints()) do
-		local start_world = dynamic_body:GeometryLocalToWorld(local_point, previous_position, dynamic_body:GetPreviousRotation())
-		local end_world = dynamic_body:GeometryLocalToWorld(local_point)
-		local hit = pair_solver_helpers.SweepPointAgainstBox(static_body, start_world, end_world)
-
-		if hit and (not earliest_hit or hit.t < earliest_hit.t) then
-			earliest_hit = hit
+	local earliest_hit = pair_solver_helpers.FindEarliestBodyPointSweepHit(
+		dynamic_body,
+		previous_position,
+		sweep.previous_rotation,
+		current_position,
+		sweep.current_rotation,
+		dynamic_body:GetCollisionLocalPoints(),
+		function(start_world, end_world)
+			return pair_solver_helpers.SweepPointAgainstBox(static_body, start_world, end_world)
 		end
-	end
+	)
 
 	if not earliest_hit then return false end
 

@@ -4,6 +4,7 @@ local Ang3 = import("goluwa/structs/ang3.lua")
 local Matrix33 = import("goluwa/structs/matrix33.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
+local physics = import("goluwa/physics.lua")
 local BaseShape = import("goluwa/physics/shapes/base.lua")
 local META = prototype.CreateTemplate("physics_shape_box")
 META.Base = BaseShape
@@ -158,6 +159,70 @@ function META:BuildSupportLocalPoints()
 	end
 
 	return points
+end
+
+function META:GetSupportRadiusAlongNormal(body, normal)
+	normal = normal and normal:GetNormalized() or Vec3(0, 1, 0)
+	local extents = self:GetExtents()
+	local axes = self:GetAxes(body)
+	return extents.x * math.abs(normal:Dot(axes[1])) +
+		extents.y * math.abs(normal:Dot(axes[2])) +
+		extents.z * math.abs(normal:Dot(axes[3]))
+end
+
+local function solve_box_support_contact(self, body, normal, contact_position, hit, dt)
+	local support_radius = self:GetSupportRadiusAlongNormal(body, normal)
+	local center = body:GetPosition()
+	local target_center = contact_position + normal * (support_radius + body:GetCollisionMargin())
+	local correction = target_center - center
+	local depth = correction:Dot(normal)
+
+	if depth <= 0 then return end
+
+	body:ApplyCorrection(0, normal * depth, center - normal * support_radius, nil, nil, dt)
+
+	if normal.y >= body:GetMinGroundNormalY() then
+		body:SetGrounded(true)
+		body:SetGroundNormal(normal)
+	end
+
+	if physics.RecordWorldCollision then
+		physics.RecordWorldCollision(body, hit, normal, depth)
+	end
+end
+
+function META:SolveSupportContacts(body, dt)
+	local velocity = body:GetVelocity()
+	local downward = math.max(0, -velocity.y * dt)
+	local cast_up = body:GetCollisionProbeDistance() + body:GetCollisionMargin()
+	local cast_distance = cast_up + downward + body:GetCollisionProbeDistance() + body:GetCollisionMargin()
+	local center = body:GetPosition()
+	local hit = physics.SweepCollider(
+		body,
+		center + physics.Up * cast_up,
+		physics.Up * -cast_distance,
+		body:GetOwner(),
+		body:GetFilterFunction(),
+		{
+			Rotation = body:GetRotation(),
+		}
+	)
+	local normal = hit and hit.normal or nil
+	local contact_position = hit and hit.position or nil
+
+	if hit and normal and contact_position then
+		solve_box_support_contact(self, body, normal, contact_position, hit, dt)
+		return
+	end
+
+	BaseShape.SolveSupportContacts(self, body, dt, function(collider, _, fallback_hit, fallback_dt)
+		local fallback_normal = fallback_hit and fallback_hit.normal or fallback_hit and fallback_hit.face_normal or nil
+		local fallback_position = fallback_hit and fallback_hit.position or nil
+
+		if fallback_normal and fallback_position then
+			solve_box_support_contact(self, collider, fallback_normal, fallback_position, fallback_hit, fallback_dt)
+		end
+	end)
 end
 
 function META:GetPolyhedron()
