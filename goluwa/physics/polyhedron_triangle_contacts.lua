@@ -37,7 +37,15 @@ local function get_edge_direction(polyhedron, edge)
 
 	local a = edge.a or edge[1]
 	local b = edge.b or edge[2]
-	return a and b and polyhedron.vertices[a] and polyhedron.vertices[b] and (polyhedron.vertices[b] - polyhedron.vertices[a]) or nil
+	return a and
+		b and
+		polyhedron.vertices[a] and
+		polyhedron.vertices[b] and
+		(
+			polyhedron.vertices[b] - polyhedron.vertices[a]
+		)
+		or
+		nil
 end
 
 local function build_face_contacts(collider, polyhedron, triangle_vertices, chosen, normal, triangle_slop)
@@ -215,7 +223,10 @@ function polyhedron_triangle_contacts.FindContact(collider, polyhedron, v0, v1, 
 
 	if not (normal and overlap and overlap > epsilon) then return nil end
 
-	local contacts = chosen and chosen.kind == "face" and build_face_contacts(collider, polyhedron, triangle_vertices, chosen, normal, triangle_slop) or nil
+	local contacts = chosen and
+		chosen.kind == "face" and
+		build_face_contacts(collider, polyhedron, triangle_vertices, chosen, normal, triangle_slop) or
+		nil
 	local support_contacts = nil
 
 	if not contacts or #contacts < 3 then

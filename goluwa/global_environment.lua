@@ -25,7 +25,6 @@ if not _G._OLD_G then
 end
 
 do
-	
 	_G.import = require("goluwa.import")
 	_G.import.loaded["goluwa/import.lua"] = package.loaded["goluwa.import"]
 	package.path = package.path .. ";" .. "goluwa/?.lua"

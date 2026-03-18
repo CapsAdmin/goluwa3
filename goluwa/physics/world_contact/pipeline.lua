@@ -28,7 +28,9 @@ local function merge_world_contact(contacts, contact, options)
 		if
 			existing.position and
 			contact.position and
-			(existing.position - contact.position):GetLength() <= merge_distance and
+			(
+				existing.position - contact.position
+			):GetLength() <= merge_distance and
 			existing.normal and
 			contact.normal and
 			existing.normal:Dot(contact.normal) >= 0.95
@@ -51,7 +53,6 @@ function world_contact_pipeline.CreateFinalizeWorldContact(options)
 	local world_feature_key = options.world_feature_key or world_contact_cache.WorldFeatureKey
 	local get_cached_contact_entry_for_contact = options.get_cached_contact_entry_for_contact
 	local try_hydrate_cached_contact = options.try_hydrate_cached_contact
-
 	return function(body, kind, policy, contacts, contact, local_point)
 		if
 			not (
@@ -107,7 +108,9 @@ function world_contact_pipeline.CollectWorldManifoldContacts(body, kind, contact
 end
 
 function world_contact_pipeline.ShouldUseWorldManifoldPatch(body, contacts, normal_dot)
-	if not world_contact_resolution.ContactsFormCoherentPatch(contacts, normal_dot) then return false end
+	if not world_contact_resolution.ContactsFormCoherentPatch(contacts, normal_dot) then
+		return false
+	end
 
 	local velocity = body:GetVelocity()
 	local angular_speed = body:GetAngularVelocity():GetLength()

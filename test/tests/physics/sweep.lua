@@ -107,13 +107,10 @@ T.Test3D("Physics sweep collider capsule hits triangle floor", function()
 	local ent = Entity.New({Name = "sweep_capsule_body"})
 	ent:AddComponent("transform")
 	ent.transform:SetPosition(Vec3(0, 2.2, 0))
-	local body = ent:AddComponent(
-		"rigid_body",
-		{
-			Shape = CapsuleShape.New(0.5, 2.0),
-			GravityScale = 0,
-		}
-	)
+	local body = ent:AddComponent("rigid_body", {
+		Shape = CapsuleShape.New(0.5, 2.0),
+		GravityScale = 0,
+	})
 	physics.SetWorldTraceSource(source)
 	local hit = physics.SweepCollider(body, Vec3(0, 2.2, 0), Vec3(0, -2.5, 0), ent)
 	T(hit)["~="](nil)
@@ -314,7 +311,6 @@ T.Test3D("Physics sweep collider box uses moving rigid body previous pose", func
 	)
 	target_body.PreviousPosition = Vec3(0, 0.5, 0)
 	target_body:SetPosition(Vec3(5, 0.5, 0))
-
 	local query = Entity.New({Name = "sweep_query_box_moving_target"})
 	query:AddComponent("transform")
 	query.transform:SetPosition(Vec3(2.5, 0.5, 0))
@@ -363,7 +359,6 @@ T.Test3D("Physics sweep collider box handles rotating rigid body target pose", f
 	current_rotation:RotateYaw(math.pi / 2)
 	target_body.PreviousRotation = previous_rotation
 	target_body:SetRotation(current_rotation)
-
 	local query = Entity.New({Name = "sweep_query_box_rotating_target"})
 	query:AddComponent("transform")
 	query.transform:SetPosition(Vec3(2.4, 0.5, 0))

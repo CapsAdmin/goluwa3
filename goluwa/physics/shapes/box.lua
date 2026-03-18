@@ -165,9 +165,7 @@ function META:GetSupportRadiusAlongNormal(body, normal)
 	normal = normal and normal:GetNormalized() or Vec3(0, 1, 0)
 	local extents = self:GetExtents()
 	local axes = self:GetAxes(body)
-	return extents.x * math.abs(normal:Dot(axes[1])) +
-		extents.y * math.abs(normal:Dot(axes[2])) +
-		extents.z * math.abs(normal:Dot(axes[3]))
+	return extents.x * math.abs(normal:Dot(axes[1])) + extents.y * math.abs(normal:Dot(axes[2])) + extents.z * math.abs(normal:Dot(axes[3]))
 end
 
 local function solve_box_support_contact(self, body, normal, contact_position, hit, dt)
@@ -215,14 +213,23 @@ function META:SolveSupportContacts(body, dt)
 		return
 	end
 
-	BaseShape.SolveSupportContacts(self, body, dt, function(collider, _, fallback_hit, fallback_dt)
-		local fallback_normal = fallback_hit and fallback_hit.normal or fallback_hit and fallback_hit.face_normal or nil
-		local fallback_position = fallback_hit and fallback_hit.position or nil
+	BaseShape.SolveSupportContacts(
+		self,
+		body,
+		dt,
+		function(collider, _, fallback_hit, fallback_dt)
+			local fallback_normal = fallback_hit and
+				fallback_hit.normal or
+				fallback_hit and
+				fallback_hit.face_normal or
+				nil
+			local fallback_position = fallback_hit and fallback_hit.position or nil
 
-		if fallback_normal and fallback_position then
-			solve_box_support_contact(self, collider, fallback_normal, fallback_position, fallback_hit, fallback_dt)
+			if fallback_normal and fallback_position then
+				solve_box_support_contact(self, collider, fallback_normal, fallback_position, fallback_hit, fallback_dt)
+			end
 		end
-	end)
+	)
 end
 
 function META:GetPolyhedron()

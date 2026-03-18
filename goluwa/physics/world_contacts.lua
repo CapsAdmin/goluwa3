@@ -37,15 +37,14 @@ local function get_support_contact_slop(body, normal, hit)
 	return WORLD_CONTACT_BRUSH_SLOP
 end
 
-local finalize_world_contact = world_contact_pipeline.CreateFinalizeWorldContact({
+local finalize_world_contact = world_contact_pipeline.CreateFinalizeWorldContact{
 	epsilon = physics.EPSILON,
 	local_point_key = world_contact_cache.LocalPointKey,
 	world_manifold_merge_distance = WORLD_MANIFOLD_MERGE_DISTANCE,
 	world_feature_key = world_contact_cache.WorldFeatureKey,
 	get_cached_contact_entry_for_contact = world_contact_state.GetCachedContactEntryForContact,
 	try_hydrate_cached_contact = world_contact_state.TryHydrateCachedContact,
-})
-
+}
 local world_manifold_contact_options = {
 	kind = "manifold",
 	epsilon = physics.EPSILON,
@@ -102,7 +101,10 @@ local function solve_world_manifold_contacts(body, dt)
 		)
 	end
 
-	if #contacts < 3 and world_contact_pipeline.ShouldUseWorldManifoldPatch(body, contacts, WORLD_CONTACT_NORMAL_DOT) then
+	if
+		#contacts < 3 and
+		world_contact_pipeline.ShouldUseWorldManifoldPatch(body, contacts, WORLD_CONTACT_NORMAL_DOT)
+	then
 		world_contact_state.CollectCachedManifoldContacts(
 			body,
 			kind,
@@ -132,7 +134,9 @@ local function solve_world_manifold_contacts(body, dt)
 	local grounded_weight = 0
 	local solved
 
-	if world_contact_pipeline.ShouldUseWorldManifoldPatch(body, contacts, WORLD_CONTACT_NORMAL_DOT) then
+	if
+		world_contact_pipeline.ShouldUseWorldManifoldPatch(body, contacts, WORLD_CONTACT_NORMAL_DOT)
+	then
 		solved, grounded_normal, grounded_weight = world_contact_resolution.ApplyContactPatch(body, contacts, dt, grounded_normal, grounded_weight)
 	else
 		solved, grounded_normal, grounded_weight = world_contact_resolution.ApplyContactSequence(body, contacts, dt, grounded_normal, grounded_weight)

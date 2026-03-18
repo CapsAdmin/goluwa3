@@ -45,7 +45,9 @@ function world_contact_cache.MatchesCachedHit(cached, hit)
 	if not (cached and hit) then return false end
 
 	if cached.entity ~= hit.entity then return false end
+
 	if cached.primitive ~= hit.primitive then return false end
+
 	if cached.primitive_index ~= hit.primitive_index then return false end
 
 	if cached.triangle_index ~= nil or hit.triangle_index ~= nil then
@@ -70,6 +72,7 @@ end
 
 function world_contact_cache.HydrateContactFromCache(contact, cached, policy)
 	if not (contact and cached and cached.normal and contact.normal) then return end
+
 	if contact.normal:Dot(cached.normal) < policy.normal_dot then return end
 
 	contact.tangent_impulse = cached.tangent_impulse or 0
@@ -111,6 +114,7 @@ function world_contact_cache.RebuildContactCacheAliases(state)
 
 	for _, entry in pairs(state.entries or {}) do
 		if entry.local_point_key then cache[entry.local_point_key] = entry end
+
 		if entry.feature_key then cache[entry.feature_key] = entry end
 	end
 end

@@ -4,7 +4,6 @@ local physics = import("goluwa/physics.lua")
 local convex_manifold = import("goluwa/physics/convex_manifold.lua")
 local convex_face_clipping = {}
 
-
 local function get_component(vec, axis_index)
 	if axis_index == 1 then return vec.x end
 
@@ -201,13 +200,17 @@ function convex_face_clipping.BuildReferenceFace(points, normal, tangent_u, tang
 	if tangent_u then
 		tangent_u = (tangent_u - normal * tangent_u:Dot(normal))
 
-		if tangent_u:GetLength() > physics.EPSILON then tangent_u = tangent_u:GetNormalized() end
+		if tangent_u:GetLength() > physics.EPSILON then
+			tangent_u = tangent_u:GetNormalized()
+		end
 	end
 
 	if tangent_v then
 		tangent_v = (tangent_v - normal * tangent_v:Dot(normal))
 
-		if tangent_v:GetLength() > physics.EPSILON then tangent_v = tangent_v:GetNormalized() end
+		if tangent_v:GetLength() > physics.EPSILON then
+			tangent_v = tangent_v:GetNormalized()
+		end
 	end
 
 	if not tangent_u or tangent_u:GetLength() <= physics.EPSILON then
@@ -227,7 +230,9 @@ function convex_face_clipping.BuildReferenceFace(points, normal, tangent_u, tang
 	if tangent_u and (not tangent_v or tangent_v:GetLength() <= physics.EPSILON) then
 		tangent_v = normal:GetCross(tangent_u)
 
-		if tangent_v:GetLength() > physics.EPSILON then tangent_v = tangent_v:GetNormalized() end
+		if tangent_v:GetLength() > physics.EPSILON then
+			tangent_v = tangent_v:GetNormalized()
+		end
 	end
 
 	if

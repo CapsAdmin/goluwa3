@@ -32,7 +32,9 @@ function codec.GuessFormatFromPath(path)
 end
 
 function codec.DecodeFile(path, lib)
-	local mod = lib and import("goluwa/codecs/" .. lib .. ".lua") or codec.GuessFormatFromPath(path)
+	local mod = lib and
+		import("goluwa/codecs/" .. lib .. ".lua") or
+		codec.GuessFormatFromPath(path)
 	local file = assert(vfs.Open(path))
 	local file_content = file:ReadAll()
 

@@ -47,4 +47,5 @@ function physics.IsActiveRigidBody(body)
 		body.Owner:IsValid() and
 		body.Owner.transform
 end
+
 return physics

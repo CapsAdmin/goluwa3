@@ -2,7 +2,6 @@ local physics = import("goluwa/physics.lua")
 local solver = import("goluwa/physics/solver.lua")
 local convex_sat = {}
 
-
 function convex_sat.AddUniqueAxis(axes, axis, duplicate_dot_threshold)
 	local axis_length = axis:GetLength()
 
@@ -41,7 +40,17 @@ function convex_sat.OrientAxisNormal(axis, distance)
 	return axis * (distance >= 0 and 1 or -1)
 end
 
-function convex_sat.TryUpdateAxis(best, vertices_a, vertices_b, axis, center_delta, candidate, overlap_bias, normalize, epsilon)
+function convex_sat.TryUpdateAxis(
+	best,
+	vertices_a,
+	vertices_b,
+	axis,
+	center_delta,
+	candidate,
+	overlap_bias,
+	normalize,
+	epsilon
+)
 	local resolved_axis = axis
 
 	if normalize then
@@ -52,7 +61,10 @@ function convex_sat.TryUpdateAxis(best, vertices_a, vertices_b, axis, center_del
 		resolved_axis = axis / axis_length
 	end
 
-	local overlap = convex_sat.GetProjectedOverlap(vertices_a, vertices_b, resolved_axis) + (overlap_bias or 0)
+	local overlap = convex_sat.GetProjectedOverlap(vertices_a, vertices_b, resolved_axis) + (
+			overlap_bias or
+			0
+		)
 
 	if overlap <= 0 then return false end
 

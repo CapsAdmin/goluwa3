@@ -3,7 +3,6 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local solver = import("goluwa/physics/solver.lua")
 local convex_manifold = {}
 
-
 function convex_manifold.CollectSupportVertices(vertices, axis, want_max, tolerance, support)
 	support = support or {}
 	local best = want_max and -math.huge or math.huge

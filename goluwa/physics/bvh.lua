@@ -56,7 +56,6 @@ function bvh.RayAABBIntersection(ray, bounds)
 	return tmax >= tmin and tmax >= 0 and tmin <= ray.max_distance, tmin, tmax
 end
 
-
 function bvh.AABBIntersects(a, b)
 	if not (a and b) then return false end
 

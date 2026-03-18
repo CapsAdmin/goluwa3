@@ -23,7 +23,9 @@ function world_contact_resolution.ApplyStaticContactImpulse(body, point, normal,
 	local normal_impulse = 0
 	local applied_impulse = false
 	local allow_persistent_tangent = contact and contact.cached and normal.y < body:GetMinGroundNormalY()
-	local tangent = allow_persistent_tangent and world_contact_cache.GetCachedTangent(contact, normal) or nil
+	local tangent = allow_persistent_tangent and
+		world_contact_cache.GetCachedTangent(contact, normal) or
+		nil
 	local previous_tangent_impulse = allow_persistent_tangent and (contact.tangent_impulse or 0) or 0
 	local tangent_warmed = false
 
@@ -135,12 +137,7 @@ function world_contact_resolution.ApplyContactPatch(body, contacts, dt, grounded
 	for i = 1, patch_count do
 		local contact = contacts[i]
 		world_contact_resolution.ApplyStaticContactImpulse(body, contact.point, contact.normal, dt, contact)
-		grounded_normal, grounded_weight = accumulate_ground_contact(
-			body,
-			contact,
-			grounded_normal,
-			grounded_weight
-		)
+		grounded_normal, grounded_weight = accumulate_ground_contact(body, contact, grounded_normal, grounded_weight)
 	end
 
 	return true, grounded_normal, grounded_weight
@@ -171,12 +168,7 @@ function world_contact_resolution.ApplyContactSequence(body, contacts, dt, groun
 		local contact = contacts[i]
 		body:ApplyCorrection(0, contact.normal * contact.depth, contact.point, nil, nil, dt)
 		world_contact_resolution.ApplyStaticContactImpulse(body, contact.point, contact.normal, dt, contact)
-		grounded_normal, grounded_weight = accumulate_ground_contact(
-			body,
-			contact,
-			grounded_normal,
-			grounded_weight
-		)
+		grounded_normal, grounded_weight = accumulate_ground_contact(body, contact, grounded_normal, grounded_weight)
 		solved = true
 	end
 

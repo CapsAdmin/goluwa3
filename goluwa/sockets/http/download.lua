@@ -9,7 +9,9 @@ local function posixtime2http(posix_time)
 end
 
 local function http2posixtime(http_time)
-	return (import("goluwa/date.lua")(http_time) - import("goluwa/date.lua").epoch()):spanseconds()
+	return (
+		import("goluwa/date.lua")(http_time) - import("goluwa/date.lua").epoch()
+	):spanseconds()
 end
 
 local function decode_data_uri(uri)

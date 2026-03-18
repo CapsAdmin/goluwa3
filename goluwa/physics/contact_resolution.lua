@@ -4,7 +4,6 @@ local manifolds = import("goluwa/physics/manifold.lua")
 local motion = import("goluwa/physics/motion.lua")
 local contact_resolution = {}
 
-
 function contact_resolution.MarkPairGrounding(body_a, body_b, normal)
 	local rolling_friction = solver.GetPairRollingFriction(body_a, body_b)
 

@@ -150,7 +150,9 @@ end
 function world_contact_triangles.GetPolygonTriangleAcceleration(poly)
 	local triangles, triangle_count = world_contact_triangles.GetPolygonTriangles(poly)
 
-	if not triangles or triangle_count < TRIANGLE_BVH_THRESHOLD then return nil, triangles, triangle_count end
+	if not triangles or triangle_count < TRIANGLE_BVH_THRESHOLD then
+		return nil, triangles, triangle_count
+	end
 
 	if
 		poly.world_contact_triangle_acceleration and
@@ -210,12 +212,7 @@ end
 
 local function visit_triangle_leaf_world(node, context, result)
 	for i = node.first, node.last do
-		invoke_triangle_callback_world(
-			context.acceleration.triangles[i],
-			context.local_to_world,
-			context.callback,
-			context.user_context
-		)
+		invoke_triangle_callback_world(context.acceleration.triangles[i], context.local_to_world, context.callback, context.user_context)
 	end
 
 	return result

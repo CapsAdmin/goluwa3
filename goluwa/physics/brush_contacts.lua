@@ -58,7 +58,16 @@ function brush_contacts.GetFeaturePlanesLocal(planes, reference_point, preferred
 	return filtered_planes and filtered_planes[1] and filtered_planes or active_planes
 end
 
-function brush_contacts.GetPolyhedronFeaturePlanes(collider, polyhedron, planes, world_to_local, preferred_direction, transform_position, brush_feature_epsilon, epsilon)
+function brush_contacts.GetPolyhedronFeaturePlanes(
+	collider,
+	polyhedron,
+	planes,
+	world_to_local,
+	preferred_direction,
+	transform_position,
+	brush_feature_epsilon,
+	epsilon
+)
 	if
 		not (
 			polyhedron and
@@ -121,7 +130,18 @@ function brush_contacts.GetPolyhedronFeaturePlanes(collider, polyhedron, planes,
 	return filtered_planes and filtered_planes[1] and filtered_planes or active_planes
 end
 
-function brush_contacts.BuildPointContacts(collider, world_point, hit, world_to_local, local_to_world, preferred_direction, brush_feature_epsilon, epsilon, get_support_contact_slop, bias_world_contact_depth)
+function brush_contacts.BuildPointContacts(
+	collider,
+	world_point,
+	hit,
+	world_to_local,
+	local_to_world,
+	preferred_direction,
+	brush_feature_epsilon,
+	epsilon,
+	get_support_contact_slop,
+	bias_world_contact_depth
+)
 	local local_point = world_to_local and world_to_local:TransformVector(world_point) or world_point
 	local local_direction = preferred_direction and
 		(
@@ -144,8 +164,12 @@ function brush_contacts.BuildPointContacts(collider, world_point, hit, world_to_
 
 	for _, plane in ipairs(planes) do
 		local projected_local = local_point - plane.normal * (local_point:Dot(plane.normal) - plane.dist)
-		local projected_world = local_to_world and transform_position(local_to_world, projected_local) or projected_local
-		local normal_world = local_to_world and transform_direction(local_to_world, plane.normal) or plane.normal
+		local projected_world = local_to_world and
+			transform_position(local_to_world, projected_local) or
+			projected_local
+		local normal_world = local_to_world and
+			transform_direction(local_to_world, plane.normal) or
+			plane.normal
 		local target = projected_world + normal_world * collider:GetCollisionMargin()
 		local correction = target - world_point
 		local depth = bias_world_contact_depth(correction:Dot(normal_world), get_support_contact_slop(collider, normal_world))
@@ -164,7 +188,15 @@ function brush_contacts.BuildPointContacts(collider, world_point, hit, world_to_
 	return contacts
 end
 
-function brush_contacts.BuildSphereContact(collider, hit, world_to_local, local_to_world, get_support_contact_slop, bias_world_contact_depth, epsilon)
+function brush_contacts.BuildSphereContact(
+	collider,
+	hit,
+	world_to_local,
+	local_to_world,
+	get_support_contact_slop,
+	bias_world_contact_depth,
+	epsilon
+)
 	local shape = collider:GetPhysicsShape()
 
 	if not (shape and shape.GetRadius) then return nil end
@@ -251,8 +283,12 @@ function brush_contacts.BuildSphereContact(collider, hit, world_to_local, local_
 		contact_position_local = center - normal_local * (inflate - depth)
 	end
 
-	local normal_world = local_to_world and local_to_world:TransformDirection(normal_local) or normal_local
-	local contact_position_world = local_to_world and local_to_world:TransformVector(contact_position_local) or contact_position_local
+	local normal_world = local_to_world and
+		local_to_world:TransformDirection(normal_local) or
+		normal_local
+	local contact_position_world = local_to_world and
+		local_to_world:TransformVector(contact_position_local) or
+		contact_position_local
 	return {
 		point = center_world - normal_world * radius,
 		position = contact_position_world,

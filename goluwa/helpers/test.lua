@@ -682,7 +682,9 @@ do
 
 		-- You'll need to pass the expected test count somehow, or estimate it
 		-- For now, setting to 0 means no progress counter shown
-		if LOGGING and not NO_SUMMARY and not FAILURES_ONLY then update_test_line("RUNNING") end
+		if LOGGING and not NO_SUMMARY and not FAILURES_ONLY then
+			update_test_line("RUNNING")
+		end
 
 		local func, err = loadfile(test_item.path)
 
@@ -722,7 +724,9 @@ do
 			-- Display results for each test file that has completed, in order
 			if LOGGING then
 				-- Add newline after progress dots if needed
-				if IS_TERMINAL and completed_test_count > 0 and not FAILURES_ONLY then io_write("\n") end
+				if IS_TERMINAL and completed_test_count > 0 and not FAILURES_ONLY then
+					io_write("\n")
+				end
 
 				local total_failed = 0
 				local total_pending = 0

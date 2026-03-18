@@ -5,7 +5,6 @@ local broadphase = import("goluwa/physics/broadphase.lua")
 local solver = physics.Solver or {}
 physics.Solver = solver
 import.loaded["goluwa/physics/solver.lua"] = solver
-
 local MANIFOLD_PRUNE_STEPS = solver.MANIFOLD_PRUNE_STEPS or 12
 solver.MANIFOLD_PRUNE_STEPS = MANIFOLD_PRUNE_STEPS
 solver.WARM_START_SCALE = solver.WARM_START_SCALE or 0.9

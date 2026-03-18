@@ -3,7 +3,6 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local solver = import("goluwa/physics/solver.lua")
 local motion = import("goluwa/physics/motion.lua")
 local manifold = {}
-
 local WARM_START_SCALE = solver.WARM_START_SCALE or 0.9
 local TANGENT_WARM_START_SCALE = solver.TANGENT_WARM_START_SCALE or 0.1
 local MAX_TANGENT_WARM_SPEED = solver.MAX_TANGENT_WARM_SPEED or 0.25
@@ -99,7 +98,11 @@ function manifold.WarmStart(body_a, body_b, normal, manifold_data, dt)
 			did_apply = true
 		end
 
-		if allow_persistent_tangent and tangent and math.abs(tangent_impulse) > physics.EPSILON then
+		if
+			allow_persistent_tangent and
+			tangent and
+			math.abs(tangent_impulse) > physics.EPSILON
+		then
 			local relative_velocity = motion.GetPointVelocity(body_b, velocity_b, angular_velocity_b, point_b) - motion.GetPointVelocity(body_a, velocity_a, angular_velocity_a, point_a)
 			local tangent_velocity = relative_velocity - normal * relative_velocity:Dot(normal)
 

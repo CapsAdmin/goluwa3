@@ -3,7 +3,6 @@ local world_contact_cache = import("goluwa/physics/world_contact/cache.lua")
 local world_contact_state = {}
 local WORLD_CONTACT_TANGENT_LIMIT = 0.08
 local WORLD_CONTACT_NORMAL_DOT = 0.9
-
 local CONTACT_KIND_POLICIES = {
 	manifold = {
 		kind = "manifold",
@@ -151,7 +150,10 @@ end
 
 function world_contact_state.TryHydrateCachedContact(contact, cached, policy)
 	if not (contact and cached) then return false end
-	if not world_contact_cache.MatchesCachedHit(cached, contact.hit) then return false end
+
+	if not world_contact_cache.MatchesCachedHit(cached, contact.hit) then
+		return false
+	end
 
 	world_contact_cache.HydrateContactFromCache(contact, cached, policy)
 	return true

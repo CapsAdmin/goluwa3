@@ -38,14 +38,7 @@ function world_transform_utils.BuildLocalAABBFromWorldAABB(world_aabb, world_to_
 		local_max.z = math.max(local_max.z, point.z)
 	end
 
-	return AABB(
-		local_min.x,
-		local_min.y,
-		local_min.z,
-		local_max.x,
-		local_max.y,
-		local_max.z
-	)
+	return AABB(local_min.x, local_min.y, local_min.z, local_max.x, local_max.y, local_max.z)
 end
 
 function world_transform_utils.AABBIntersects(a, b)

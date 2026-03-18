@@ -149,9 +149,7 @@ end
 local function build_brush_hull(header, brush, planes)
 	local physics = get_physics_modules()
 
-	if not (physics and physics.Normalize and header.planes) then
-		return nil
-	end
+	if not (physics and physics.Normalize and header.planes) then return nil end
 
 	planes = planes or get_brush_planes(header, brush)
 
