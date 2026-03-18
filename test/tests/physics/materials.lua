@@ -140,3 +140,85 @@ T.Test3D("Rigid body materials support rolling friction", function()
 	sphere_ent:Remove()
 	platform_ent:Remove()
 end)
+
+T.Test("Rigid body materials expose separate static friction combination behavior", function()
+	local body_a = test_helpers.CreateStubBody{
+		Friction = 0.1,
+		StaticFriction = 0.8,
+		FrictionCombineMode = "max",
+		StaticFrictionCombineMode = "average",
+	}
+	local body_b = test_helpers.CreateStubBody{
+		Friction = 0.6,
+		StaticFriction = 1.4,
+		FrictionCombineMode = "max",
+		StaticFrictionCombineMode = "average",
+	}
+	local body_c = test_helpers.CreateStubBody{
+		Friction = 0.3,
+		FrictionCombineMode = "multiply",
+	}
+	local dynamic_friction = physics.solver:GetPairFriction(body_a, body_b)
+	local static_friction = physics.solver:GetPairStaticFriction(body_a, body_b)
+	local fallback_static = physics.solver:GetPairStaticFriction(body_a, body_c)
+	T(dynamic_friction)["=="](0.6)
+	T(static_friction)["=="](1.1)
+	T(fallback_static)["=="](0.24)
+	T(static_friction)[">"](dynamic_friction)
+end)
+
+T.Test3D("Rigid body static friction reduces shallow-slope drift", function()
+	local function run_probe(name, static_friction)
+		local ramp_ent = Entity.New({Name = name .. "_ramp"})
+		ramp_ent:AddComponent("transform")
+		ramp_ent.transform:SetPosition(Vec3(0, 1, 0))
+		ramp_ent.transform:SetAngles(Deg3(0, 0, -5))
+		ramp_ent:AddComponent(
+			"rigid_body",
+			{
+				Shape = box_shape(Vec3(28, 1, 20)),
+				Size = Vec3(28, 1, 20),
+				MotionType = "static",
+				Friction = 0.02,
+				StaticFriction = static_friction,
+				FrictionCombineMode = "max",
+				StaticFrictionCombineMode = "max",
+			}
+		)
+		local box_ent = Entity.New({Name = name .. "_box"})
+		box_ent:AddComponent("transform")
+		box_ent.transform:SetPosition(Vec3(0, 3.1, 0))
+		local box = box_ent:AddComponent(
+			"rigid_body",
+			{
+				Shape = box_shape(Vec3(1, 1, 1)),
+				Size = Vec3(1, 1, 1),
+				LinearDamping = 0,
+				AngularDamping = 0,
+				AirLinearDamping = 0,
+				AirAngularDamping = 0,
+				MaxLinearSpeed = 1000,
+				Friction = 0.02,
+				StaticFriction = static_friction,
+				FrictionCombineMode = "max",
+				StaticFrictionCombineMode = "max",
+			}
+		)
+		simulate_physics(180)
+		local settled = box_ent.transform:GetPosition():Copy()
+		simulate_physics(240)
+		local final_position = box_ent.transform:GetPosition():Copy()
+		local drift = (final_position - settled):GetLength()
+		local grounded = box:GetGrounded()
+		box_ent:Remove()
+		ramp_ent:Remove()
+		return drift, grounded, final_position, settled
+	end
+
+	local low_drift, low_grounded = run_probe("rigid_material_low_static", 0.02)
+	local high_drift, high_grounded = run_probe("rigid_material_high_static", 1.25)
+	T(low_grounded)["=="](true)
+	T(high_grounded)["=="](true)
+	T(high_drift)["<"](0.35)
+	T(high_drift)["<"](low_drift * 0.6)
+end)

@@ -13,6 +13,8 @@ function Solver.New(config)
 	self.WARM_START_SCALE = config.WARM_START_SCALE or self.WARM_START_SCALE or 0.9
 	self.TANGENT_WARM_START_SCALE = config.TANGENT_WARM_START_SCALE or self.TANGENT_WARM_START_SCALE or 0.1
 	self.MAX_TANGENT_WARM_SPEED = config.MAX_TANGENT_WARM_SPEED or self.MAX_TANGENT_WARM_SPEED or 0.25
+	self.STATIC_FRICTION_SPEED = config.STATIC_FRICTION_SPEED or self.STATIC_FRICTION_SPEED or 0.08
+	self.STATIC_FRICTION_EXIT_SPEED = config.STATIC_FRICTION_EXIT_SPEED or self.STATIC_FRICTION_EXIT_SPEED or 0.12
 	self.PersistentManifolds = setmetatable({}, {__mode = "k"})
 	self.PairHandlers = {}
 	self.MissingPairWarnings = {}
@@ -86,11 +88,64 @@ function Solver:GetPairFriction(body_a, body_b)
 	return combine_material_value(friction_a, friction_b, mode, "friction")
 end
 
+function Solver:GetBodyStaticFriction(body)
+	local static_friction = body.GetStaticFriction and body:GetStaticFriction() or nil
+
+	if static_friction == nil then
+		static_friction = body.GetFriction and body:GetFriction() or body.Friction or 0
+	end
+
+	return math.max(static_friction or 0, 0)
+end
+
+function Solver:GetPairStaticFriction(body_a, body_b)
+	local friction_a = self:GetBodyStaticFriction(body_a)
+	local friction_b = self:GetBodyStaticFriction(body_b)
+	local mode = resolve_pair_combine_mode(
+		body_a.GetStaticFrictionCombineMode and
+			body_a:GetStaticFrictionCombineMode() or
+			body_a.GetFrictionCombineMode and
+			body_a:GetFrictionCombineMode()
+			or
+			nil,
+		body_b.GetStaticFrictionCombineMode and
+			body_b:GetStaticFrictionCombineMode() or
+			body_b.GetFrictionCombineMode and
+			body_b:GetFrictionCombineMode()
+			or
+			nil
+	)
+	return combine_material_value(friction_a, friction_b, mode, "friction")
+end
+
 function Solver:GetPairRollingFriction(body_a, body_b)
 	local friction_a = math.max(body_a:GetRollingFriction() or 0, 0)
 	local friction_b = math.max(body_b:GetRollingFriction() or 0, 0)
 	local mode = resolve_pair_combine_mode(body_a:GetRollingFrictionCombineMode(), body_b:GetRollingFrictionCombineMode())
 	return combine_material_value(friction_a, friction_b, mode, "friction")
+end
+
+function Solver:ShouldUseStaticFriction(contact, tangent_speed, tangent_impulse_length, max_static_impulse)
+	local enter_speed = math.max(self.STATIC_FRICTION_SPEED or 0, 0)
+	local exit_speed = math.max(self.STATIC_FRICTION_EXIT_SPEED or enter_speed, enter_speed)
+	max_static_impulse = math.max(max_static_impulse or 0, 0)
+
+	if
+		max_static_impulse > 0 and
+		(
+			tangent_impulse_length or
+			math.huge
+		) <= max_static_impulse
+	then
+		return true
+	end
+
+	if tangent_speed <= enter_speed then return true end
+
+	return contact and
+		contact.static_friction_active == true and
+		tangent_speed <= exit_speed or
+		false
 end
 
 local contact_resolution = import("goluwa/physics/contact_resolution.lua")

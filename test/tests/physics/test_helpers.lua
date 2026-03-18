@@ -225,8 +225,18 @@ function module.CreateStubBody(data)
 		return data.Friction or 0
 	end
 
+	function body:GetStaticFriction()
+		if data.StaticFriction ~= nil then return data.StaticFriction end
+
+		return data.Friction or 0
+	end
+
 	function body:GetFrictionCombineMode()
 		return data.FrictionCombineMode
+	end
+
+	function body:GetStaticFrictionCombineMode()
+		return data.StaticFrictionCombineMode or data.FrictionCombineMode
 	end
 
 	function body:GetRestitution()
@@ -350,6 +360,12 @@ function module.CreateTestRigidBody(data)
 	end
 
 	function body:GetFriction()
+		return data.Friction or 0
+	end
+
+	function body:GetStaticFriction()
+		if data.StaticFriction ~= nil then return data.StaticFriction end
+
 		return data.Friction or 0
 	end
 

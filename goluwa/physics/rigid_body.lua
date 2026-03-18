@@ -38,9 +38,11 @@ do
 	RigidBody:GetSet("CollisionMargin", default_skin)
 	RigidBody:GetSet("CollisionProbeDistance", 0.125)
 	RigidBody:GetSet("Friction", 0)
+	RigidBody:GetSet("StaticFriction", nil)
 	RigidBody:GetSet("RollingFriction", 0)
 	RigidBody:GetSet("Restitution", 0)
 	RigidBody:GetSet("FrictionCombineMode", nil)
+	RigidBody:GetSet("StaticFrictionCombineMode", nil)
 	RigidBody:GetSet("RollingFrictionCombineMode", nil)
 	RigidBody:GetSet("RestitutionCombineMode", nil)
 	RigidBody:GetSet("Awake", true)
@@ -176,9 +178,11 @@ do
 			CollisionMargin = data.CollisionMargin,
 			CollisionProbeDistance = data.CollisionProbeDistance,
 			Friction = data.Friction,
+			StaticFriction = data.StaticFriction,
 			RollingFriction = data.RollingFriction,
 			Restitution = data.Restitution,
 			FrictionCombineMode = data.FrictionCombineMode,
+			StaticFrictionCombineMode = data.StaticFrictionCombineMode,
 			RollingFrictionCombineMode = data.RollingFrictionCombineMode,
 			RestitutionCombineMode = data.RestitutionCombineMode,
 			FilterFunction = data.FilterFunction,

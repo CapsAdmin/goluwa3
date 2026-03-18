@@ -113,7 +113,10 @@ function world_contact_cache.HydrateContactFromCache(contact, cached, policy)
 
 	if contact.normal:Dot(cached.normal) < policy.normal_dot then return end
 
-	contact.tangent_impulse = cached.tangent_impulse or 0
+	contact.tangent_impulse = cached.tangent_impulse or cached.tangent_impulse_1 or 0
+	contact.tangent_impulse_1 = cached.tangent_impulse_1 or cached.tangent_impulse or 0
+	contact.tangent_impulse_2 = cached.tangent_impulse_2 or 0
+	contact.static_friction_active = cached.static_friction_active == true
 	contact.tangent = cached.tangent and cached.tangent:Copy() or nil
 	contact.cached = true
 end
@@ -172,7 +175,10 @@ function world_contact_cache.UpdateCachedContactEntry(entry, contact, local_key,
 	entry.position = contact.position and contact.position:Copy() or contact.point:Copy()
 	entry.normal = contact.normal:Copy()
 	entry.tangent = contact.tangent and contact.tangent:Copy() or nil
-	entry.tangent_impulse = contact.tangent_impulse or 0
+	entry.tangent_impulse = contact.tangent_impulse or contact.tangent_impulse_1 or 0
+	entry.tangent_impulse_1 = contact.tangent_impulse_1 or contact.tangent_impulse or 0
+	entry.tangent_impulse_2 = contact.tangent_impulse_2 or 0
+	entry.static_friction_active = contact.static_friction_active == true
 	entry.hit = contact.hit
 	entry.entity = contact.hit and contact.hit.entity or nil
 	entry.primitive = contact.hit and contact.hit.primitive or nil

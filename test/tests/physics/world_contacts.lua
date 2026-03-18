@@ -2,6 +2,7 @@ local T = import("test/environment.lua")
 local physics = import("goluwa/physics.lua")
 local world_contacts = import("goluwa/physics/world_contacts.lua")
 local world_contact_state = import("goluwa/physics/world_contact/state.lua")
+local world_contact_resolution = import("goluwa/physics/world_contact/resolution.lua")
 local contact_resolution = import("goluwa/physics/contact_resolution.lua")
 local test_helpers = import("test/tests/physics/test_helpers.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
@@ -157,6 +158,73 @@ T.Test("World contacts keep structured manifold caches without legacy per-kind c
 	T(body.WorldSupportContactCache == nil)["=="](true)
 	T(body.WorldMotionContactCache == nil)["=="](true)
 	physics.GetWorldTraceSource = old_source
+end)
+
+T.Test("World contact cache preserves two tangent impulse components", function()
+	local cached = {
+		normal = Vec3(0, 1, 0),
+		tangent = Vec3(1, 0, 0),
+		tangent_impulse = 0.5,
+		tangent_impulse_1 = 0.5,
+		tangent_impulse_2 = -0.25,
+		hit = {},
+	}
+	local contact = {
+		normal = Vec3(0, 1, 0),
+		hit = {},
+	}
+	local policy = world_contact_state.GetContactKindPolicy("manifold")
+	local cache = import("goluwa/physics/world_contact/cache.lua")
+	cache.HydrateContactFromCache(contact, cached, policy)
+	T(contact.cached)["=="](true)
+	T(contact.tangent_impulse)["=="](0.5)
+	T(contact.tangent_impulse_1)["=="](0.5)
+	T(contact.tangent_impulse_2)["=="](-0.25)
+	T(contact.tangent.x)["=="](1)
+	T(contact.tangent.y)["=="](0)
+	T(contact.tangent.z)["=="](0)
+end)
+
+T.Test("World contacts use static friction for low tangential speed", function()
+	local body = test_helpers.CreateStubBody{
+		Velocity = Vec3(0.05, -0.1, 0),
+		Friction = 0.01,
+		StaticFriction = 0.2,
+	}
+	local contact = {
+		cached = false,
+	}
+	world_contact_resolution.ApplyStaticContactImpulse(body, Vec3(0, 0, 0), Vec3(0, 1, 0), 1 / 60, contact)
+	T(math.abs(body:GetVelocity().x))["<="](0.03)
+end)
+
+T.Test("World contacts use dynamic friction for higher tangential speed", function()
+	local body = test_helpers.CreateStubBody{
+		Velocity = Vec3(1.0, -0.1, 0),
+		Friction = 0.01,
+		StaticFriction = 0.2,
+	}
+	local contact = {
+		cached = false,
+	}
+	world_contact_resolution.ApplyStaticContactImpulse(body, Vec3(0, 0, 0), Vec3(0, 1, 0), 1 / 60, contact)
+	T(math.abs(body:GetVelocity().x))[">"](0.9)
+end)
+
+T.Test("World contacts keep static friction hysteresis slightly above enter threshold", function()
+	local body = test_helpers.CreateStubBody{
+		Velocity = Vec3(0.1, -0.1, 0),
+		Friction = 0.01,
+		StaticFriction = 0.2,
+	}
+	local contact = {
+		cached = true,
+		static_friction_active = true,
+		tangent = Vec3(1, 0, 0),
+	}
+	world_contact_resolution.ApplyStaticContactImpulse(body, Vec3(0, 0, 0), Vec3(0, 1, 0), 1 / 60, contact)
+	T(contact.static_friction_active)["=="](true)
+	T(math.abs(body:GetVelocity().x))["<="](0.08)
 end)
 
 T.Test("Persistent manifolds stay symmetric when accessed in either body order", function()
