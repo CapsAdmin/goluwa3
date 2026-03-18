@@ -1055,7 +1055,8 @@ function physics.UpdateRigidBodies(dt)
 	local substeps = math.max(1, physics.RigidBodySubsteps or 1)
 	local iterations = math.max(1, physics.RigidBodyIterations or 1)
 	local sub_dt = dt / substeps
-	physics.BeginCollisionFrame()
+	local collision_pairs = physics.collision_pairs
+	collision_pairs:BeginCollisionFrame()
 
 	for _, body in ipairs(bodies) do
 		if physics.IsActiveRigidBody(body) then body:SynchronizeFromTransform() end
@@ -1163,7 +1164,7 @@ function physics.UpdateRigidBodies(dt)
 		if physics.IsActiveRigidBody(body) then body:WriteToTransform() end
 	end
 
-	physics.DispatchCollisionEvents()
+	collision_pairs:DispatchCollisionEvents()
 end
 
 return RigidBody

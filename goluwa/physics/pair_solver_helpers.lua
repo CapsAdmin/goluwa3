@@ -16,15 +16,6 @@ local TEMPORAL_TOI_MIN_SAMPLE_STEPS = 10
 local TEMPORAL_TOI_MAX_SAMPLE_STEPS = 48
 local TEMPORAL_TOI_REFINE_STEPS = 12
 
-local function get_pair_cache_key(body_a, body_b)
-	local key_a = physics.GetObjectCacheKey(body_a)
-	local key_b = physics.GetObjectCacheKey(body_b)
-
-	if key_b < key_a then return key_b .. "|" .. key_a, true end
-
-	return key_a .. "|" .. key_b, false
-end
-
 local function normalize_candidate(vec)
 	if not vec then return nil, 0 end
 
@@ -64,12 +55,11 @@ end
 function pair_solver_helpers.GetCachedPairNormal(body_a, body_b)
 	if not (body_a and body_b) then return nil end
 
-	local key, swapped = get_pair_cache_key(body_a, body_b)
-	local pair = physics.CurrentCollisionPairs and physics.CurrentCollisionPairs[key] or nil
+	local collision_pairs = physics.collision_pairs
 
-	if not pair then
-		pair = physics.PreviousCollisionPairs and physics.PreviousCollisionPairs[key] or nil
-	end
+	if not collision_pairs then return nil end
+
+	local pair, swapped = collision_pairs:GetCachedPair(body_a, body_b)
 
 	if not (pair and pair.normal) then return nil end
 
@@ -546,10 +536,7 @@ function pair_solver_helpers.ResolveSweptHit(
 	dynamic_body.Position = start_world + movement_world * math.max(0, hit_fraction - physics.EPSILON)
 	contact_resolution.ApplyPairImpulse(static_body, dynamic_body, normal, dt)
 	contact_resolution.MarkPairGrounding(static_body, dynamic_body, normal)
-
-	if physics.RecordCollisionPair then
-		physics.RecordCollisionPair(static_body, dynamic_body, normal, 0)
-	end
+	physics.collision_pairs:RecordCollisionPair(static_body, dynamic_body, normal, 0)
 
 	if allow_remaining_motion then
 		local remaining_fraction = 1 - hit_fraction
@@ -584,10 +571,7 @@ function pair_solver_helpers.ResolveRelativeSweptPairHit(
 	body_b.Position = start_b + move_b * safe_fraction
 	contact_resolution.ApplyPairImpulse(body_a, body_b, normal, dt, point_a, point_b)
 	contact_resolution.MarkPairGrounding(body_a, body_b, normal)
-
-	if physics.RecordCollisionPair then
-		physics.RecordCollisionPair(body_a, body_b, normal, 0)
-	end
+	physics.collision_pairs:RecordCollisionPair(body_a, body_b, normal, 0)
 
 	if allow_remaining_motion then
 		local remaining_fraction = 1 - hit_fraction

@@ -16,10 +16,6 @@ physics.BusyMaxCatchUpSteps = physics.BusyMaxCatchUpSteps or 1
 physics.DropBusyFrameDebt = physics.DropBusyFrameDebt ~= false
 physics.FrameAccumulator = physics.FrameAccumulator or 0
 physics.InterpolationAlpha = physics.InterpolationAlpha or 0
-physics.PreviousCollisionPairs = physics.PreviousCollisionPairs or {}
-physics.CurrentCollisionPairs = physics.CurrentCollisionPairs or {}
-physics.PreviousWorldCollisionPairs = physics.PreviousWorldCollisionPairs or {}
-physics.CurrentWorldCollisionPairs = physics.CurrentWorldCollisionPairs or {}
 physics.WorldTraceSource = physics.WorldTraceSource or nil
 physics.EPSILON = 0.000001
 physics._ObjectCacheKeys = physics._ObjectCacheKeys or setmetatable({}, {__mode = "k"})

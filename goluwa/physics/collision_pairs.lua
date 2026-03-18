@@ -1,7 +1,36 @@
+local prototype = import("goluwa/prototype.lua")
 local physics = import("goluwa/physics.lua")
 local bit = require("bit")
+local CollisionPairs = prototype.CreateTemplate("physics_collision_pairs")
+import.loaded["goluwa/physics/collision_pairs.lua"] = CollisionPairs
 
-local function get_pair_key(body_a, body_b)
+function CollisionPairs.New(config)
+	local self = CollisionPairs:CreateObject()
+	return self:Initialize(config)
+end
+
+function CollisionPairs:Initialize(config)
+	config = config or {}
+	self.physics = config.physics or self.physics or physics
+	self.PreviousCollisionPairs = config.PreviousCollisionPairs or {}
+	self.CurrentCollisionPairs = config.CurrentCollisionPairs or {}
+	self.PreviousWorldCollisionPairs = config.PreviousWorldCollisionPairs or {}
+	self.CurrentWorldCollisionPairs = config.CurrentWorldCollisionPairs or {}
+	return self
+end
+
+function CollisionPairs:GetPhysics()
+	return self.physics or physics
+end
+
+function CollisionPairs:ResetState()
+	table.clear(self.PreviousCollisionPairs)
+	table.clear(self.CurrentCollisionPairs)
+	table.clear(self.PreviousWorldCollisionPairs)
+	table.clear(self.CurrentWorldCollisionPairs)
+end
+
+local function get_pair_key(physics, body_a, body_b)
 	local key_a = physics.GetObjectCacheKey(body_a)
 	local key_b = physics.GetObjectCacheKey(body_b)
 
@@ -32,23 +61,35 @@ function physics.ShouldBodiesCollide(body_a, body_b)
 	return bit.band(mask_a, group_b) ~= 0 and bit.band(mask_b, group_a) ~= 0
 end
 
-function physics.BeginCollisionFrame()
-	table.clear(physics.CurrentCollisionPairs)
-	table.clear(physics.CurrentWorldCollisionPairs)
+function CollisionPairs:BeginCollisionFrame()
+	table.clear(self.CurrentCollisionPairs)
+	table.clear(self.CurrentWorldCollisionPairs)
 end
 
-function physics.RecordCollisionPair(body_a, body_b, normal, overlap)
+function CollisionPairs:GetCachedPair(body_a, body_b)
+	if not (body_a and body_b) then return nil, false end
+
+	body_a = body_a.GetBody and body_a:GetBody() or body_a
+	body_b = body_b.GetBody and body_b:GetBody() or body_b
+	local key, swapped = get_pair_key(self:GetPhysics(), body_a, body_b)
+	local pair = self.CurrentCollisionPairs[key] or self.PreviousCollisionPairs[key]
+	return pair, swapped
+end
+
+function CollisionPairs:RecordCollisionPair(body_a, body_b, normal, overlap)
+	local physics = self:GetPhysics()
+
 	if not physics.ShouldBodiesCollide(body_a, body_b) then return end
 
 	body_a = body_a.GetBody and body_a:GetBody() or body_a
 	body_b = body_b.GetBody and body_b:GetBody() or body_b
-	local key, swapped = get_pair_key(body_a, body_b)
+	local key, swapped = get_pair_key(physics, body_a, body_b)
 	local stored_normal = swapped and normal * -1 or normal
 	local stored_overlap = overlap or 0
-	local existing = physics.CurrentCollisionPairs[key]
+	local existing = self.CurrentCollisionPairs[key]
 
 	if not existing or stored_overlap > (existing.overlap or 0) then
-		physics.CurrentCollisionPairs[key] = {
+		self.CurrentCollisionPairs[key] = {
 			body_a = swapped and body_b or body_a,
 			body_b = swapped and body_a or body_b,
 			normal = stored_normal,
@@ -57,28 +98,30 @@ function physics.RecordCollisionPair(body_a, body_b, normal, overlap)
 	end
 end
 
-local function get_world_pair_key(body, entity)
+local function get_world_pair_key(physics, body, entity)
 	if not (physics.IsActiveRigidBody(body) and entity) then return nil end
 
 	return physics.GetObjectCacheKey(body) .. "|world|" .. physics.GetObjectCacheKey(entity)
 end
 
-function physics.RecordWorldCollision(body, hit, normal, overlap)
+function CollisionPairs:RecordWorldCollision(body, hit, normal, overlap)
+	local physics = self:GetPhysics()
+
 	if not physics.IsActiveRigidBody(body) then return end
 
 	if not (hit and hit.entity) then return end
 
 	if hit.entity == body.Owner then return end
 
-	local key = get_world_pair_key(body, hit.entity)
+	local key = get_world_pair_key(physics, body, hit.entity)
 
 	if not key then return end
 
 	local stored_overlap = overlap or 0
-	local existing = physics.CurrentWorldCollisionPairs[key]
+	local existing = self.CurrentWorldCollisionPairs[key]
 
 	if not existing or stored_overlap > (existing.overlap or 0) then
-		physics.CurrentWorldCollisionPairs[key] = {
+		self.CurrentWorldCollisionPairs[key] = {
 			body = body,
 			entity = hit.entity,
 			normal = normal,
@@ -107,9 +150,9 @@ local function emit_collision_event(what, self_owner, self_body, other_entity, o
 	)
 end
 
-function physics.DispatchCollisionEvents()
-	local current = physics.CurrentCollisionPairs or {}
-	local previous = physics.PreviousCollisionPairs or {}
+function CollisionPairs:DispatchCollisionEvents()
+	local current = self.CurrentCollisionPairs or {}
+	local previous = self.PreviousCollisionPairs or {}
 
 	for key, pair in pairs(current) do
 		local previous_pair = previous[key]
@@ -157,8 +200,8 @@ function physics.DispatchCollisionEvents()
 		end
 	end
 
-	local current_world = physics.CurrentWorldCollisionPairs or {}
-	local previous_world = physics.PreviousWorldCollisionPairs or {}
+	local current_world = self.CurrentWorldCollisionPairs or {}
+	local previous_world = self.PreviousWorldCollisionPairs or {}
 
 	for key, pair in pairs(current_world) do
 		local previous_pair = previous_world[key]
@@ -210,10 +253,11 @@ function physics.DispatchCollisionEvents()
 		end
 	end
 
-	physics.PreviousCollisionPairs = current
-	physics.CurrentCollisionPairs = {}
-	physics.PreviousWorldCollisionPairs = current_world
-	physics.CurrentWorldCollisionPairs = {}
+	self.PreviousCollisionPairs = current
+	self.CurrentCollisionPairs = {}
+	self.PreviousWorldCollisionPairs = current_world
+	self.CurrentWorldCollisionPairs = {}
 end
 
-return physics
+CollisionPairs:Register()
+return CollisionPairs

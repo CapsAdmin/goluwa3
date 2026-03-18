@@ -1,37 +1,25 @@
 local event = import("goluwa/event.lua")
 local physics = import("goluwa/physics.lua")
 import("goluwa/physics/shared.lua")
-import("goluwa/physics/collision_pairs.lua")
+local CollisionPairs = import("goluwa/physics/collision_pairs.lua")
 import("goluwa/physics/convex_hull.lua")
 import("goluwa/physics/sweep.lua")
 import("goluwa/physics/trace.lua")
 import("goluwa/physics/constraint.lua")
 local Solver = import("goluwa/physics/solver.lua")
+physics.collision_pairs = physics.collision_pairs or CollisionPairs.New({physics = physics})
 physics.solver = Solver.New({physics = physics})
 import("goluwa/physics/rigid_body.lua")
 
 function physics.ResetState()
+	local collision_pairs = physics.collision_pairs or CollisionPairs.New({physics = physics})
 	local solver = physics.solver or Solver.New({physics = physics})
 	local RigidBody = import("goluwa/physics/rigid_body.lua")
 	local constraints = physics.GetConstraints and physics.GetConstraints() or nil
+	physics.collision_pairs = collision_pairs
 	physics.solver = solver
+	collision_pairs:ResetState()
 	solver:ResetState()
-
-	if physics.PreviousCollisionPairs then
-		table.clear(physics.PreviousCollisionPairs)
-	end
-
-	if physics.CurrentCollisionPairs then
-		table.clear(physics.CurrentCollisionPairs)
-	end
-
-	if physics.PreviousWorldCollisionPairs then
-		table.clear(physics.PreviousWorldCollisionPairs)
-	end
-
-	if physics.CurrentWorldCollisionPairs then
-		table.clear(physics.CurrentWorldCollisionPairs)
-	end
 
 	if constraints then
 		for i = #constraints, 1, -1 do

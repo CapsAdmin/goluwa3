@@ -117,10 +117,7 @@ local function accumulate_ground_contact(body, contact, grounded_normal, grounde
 		body:SetGrounded(true)
 	end
 
-	if physics.RecordWorldCollision then
-		physics.RecordWorldCollision(body, contact.hit, contact.normal, contact.depth)
-	end
-
+	physics.collision_pairs:RecordWorldCollision(body, contact.hit, contact.normal, contact.depth)
 	return grounded_normal, grounded_weight
 end
 

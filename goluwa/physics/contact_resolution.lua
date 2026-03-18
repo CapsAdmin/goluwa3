@@ -226,10 +226,7 @@ function contact_resolution.ResolvePairPenetration(body_a, body_b, normal, overl
 			mark_pair_grounding_from_contacts(body_a, body_b, contacts)
 		end
 
-		if physics.RecordCollisionPair then
-			physics.RecordCollisionPair(body_a, body_b, normal, overlap)
-		end
-
+		physics.collision_pairs:RecordCollisionPair(body_a, body_b, normal, overlap)
 		return true
 	end
 
@@ -248,10 +245,7 @@ function contact_resolution.ResolvePairPenetration(body_a, body_b, normal, overl
 		contact_resolution.MarkPairGrounding(body_a, body_b, normal)
 	end
 
-	if physics.RecordCollisionPair then
-		physics.RecordCollisionPair(body_a, body_b, normal, overlap)
-	end
-
+	physics.collision_pairs:RecordCollisionPair(body_a, body_b, normal, overlap)
 	return true
 end
 

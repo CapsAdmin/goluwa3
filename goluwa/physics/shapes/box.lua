@@ -184,9 +184,7 @@ local function solve_box_support_contact(self, body, normal, contact_position, h
 		body:SetGroundNormal(normal)
 	end
 
-	if physics.RecordWorldCollision then
-		physics.RecordWorldCollision(body, hit, normal, depth)
-	end
+	physics.collision_pairs:RecordWorldCollision(body, hit, normal, depth)
 end
 
 function META:SolveSupportContacts(body, dt)

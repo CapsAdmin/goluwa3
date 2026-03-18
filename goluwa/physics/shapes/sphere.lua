@@ -146,9 +146,7 @@ function META:SolveSupportContacts(body, dt)
 		body:SetGroundNormal(normal)
 	end
 
-	if physics.RecordWorldCollision then
-		physics.RecordWorldCollision(body, hit, normal, depth)
-	end
+	physics.collision_pairs:RecordWorldCollision(body, hit, normal, depth)
 end
 
 function META:OnGroundedVelocityUpdate(body, dt)
