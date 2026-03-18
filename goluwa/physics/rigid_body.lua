@@ -1,5 +1,4 @@
 local physics = import("goluwa/physics.lua")
-local Solver = import("goluwa/physics/solver.lua")
 local broadphase = import("goluwa/physics/broadphase.lua")
 local islands = import("goluwa/physics/islands.lua")
 local kinematic_controller = import("goluwa/physics/kinematic_controller.lua")
@@ -1048,7 +1047,7 @@ function physics.UpdateRigidBodies(dt)
 	if not dt or dt <= 0 then return end
 
 	local bodies = RigidBody.Instances
-	local solver = physics.solver or Solver
+	local solver = physics.solver
 
 	if #bodies == 0 then return end
 

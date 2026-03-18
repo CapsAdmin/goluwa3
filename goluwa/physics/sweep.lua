@@ -983,7 +983,7 @@ local function collect_model_candidates(source, world_aabb, out)
 		for _, model in ipairs(source.dynamic_models or {}) do
 			local bounds = model and (model.GetWorldAABB and model:GetWorldAABB() or model.AABB) or nil
 
-			if bounds and world_transform_utils.AABBIntersects(world_aabb, bounds) then
+			if bounds and AABB.IsBoxIntersecting(world_aabb, bounds) then
 				out[#out + 1] = {model = model}
 			end
 		end
@@ -994,7 +994,7 @@ local function collect_model_candidates(source, world_aabb, out)
 	for _, model in ipairs(source.models or source.dynamic_models or {}) do
 		local bounds = model and (model.GetWorldAABB and model:GetWorldAABB() or model.AABB) or nil
 
-		if bounds and world_transform_utils.AABBIntersects(world_aabb, bounds) then
+		if bounds and AABB.IsBoxIntersecting(world_aabb, bounds) then
 			out[#out + 1] = {model = model}
 		end
 	end
@@ -1119,7 +1119,7 @@ local function collect_rigid_body_candidates(world_aabb, ignore_entity, filter_f
 		if not should_skip_rigid_body(body, ignore_entity, filter_fn, options) then
 			local bounds = get_rigid_body_candidate_aabb(body)
 
-			if bounds and world_transform_utils.AABBIntersects(world_aabb, bounds) then
+			if bounds and AABB.IsBoxIntersecting(world_aabb, bounds) then
 				out[#out + 1] = body
 			end
 		end
@@ -1579,7 +1579,7 @@ local function test_rigid_body_sweep(origin, movement, radius, body, ignore_enti
 	local world_aabb = build_swept_aabb(origin, end_position, radius)
 	local body_bounds = get_rigid_body_candidate_aabb(body)
 
-	if body_bounds and not world_transform_utils.AABBIntersects(world_aabb, body_bounds) then
+	if body_bounds and not AABB.IsBoxIntersecting(world_aabb, body_bounds) then
 		return nil
 	end
 
@@ -1588,10 +1588,7 @@ local function test_rigid_body_sweep(origin, movement, radius, body, ignore_enti
 	for _, collider in ipairs(body:GetColliders()) do
 		local collider_bounds = get_collider_candidate_aabb(collider)
 
-		if
-			not collider_bounds or
-			world_transform_utils.AABBIntersects(world_aabb, collider_bounds)
-		then
+		if not collider_bounds or AABB.IsBoxIntersecting(world_aabb, collider_bounds) then
 			local shape_type = collider:GetShapeType()
 			local hit = nil
 
@@ -2225,7 +2222,7 @@ local function test_rigid_body_collider_sweep(
 	local world_aabb = build_collider_swept_aabb(collider, start_position, rotation, movement * best_fraction)
 	local body_bounds = get_rigid_body_candidate_aabb(body)
 
-	if body_bounds and not world_transform_utils.AABBIntersects(world_aabb, body_bounds) then
+	if body_bounds and not AABB.IsBoxIntersecting(world_aabb, body_bounds) then
 		return nil
 	end
 
@@ -2235,10 +2232,7 @@ local function test_rigid_body_collider_sweep(
 	for _, target_collider in ipairs(body:GetColliders() or {}) do
 		local target_bounds = get_collider_candidate_aabb(target_collider)
 
-		if
-			not target_bounds or
-			world_transform_utils.AABBIntersects(world_aabb, target_bounds)
-		then
+		if not target_bounds or AABB.IsBoxIntersecting(world_aabb, target_bounds) then
 			local target_shape_type = target_collider:GetShapeType()
 			local hit = nil
 
@@ -2708,7 +2702,7 @@ local function test_model_sweep(
 	local end_position = start_position + movement * best_fraction
 	local world_aabb = build_swept_aabb(start_position, end_position, radius)
 
-	if model_aabb and not world_transform_utils.AABBIntersects(world_aabb, model_aabb) then
+	if model_aabb and not AABB.IsBoxIntersecting(world_aabb, model_aabb) then
 		return nil
 	end
 
@@ -2718,7 +2712,7 @@ local function test_model_sweep(
 		start_position
 	local end_local = world_to_local and world_to_local:TransformVector(end_position) or end_position
 	local movement_local = end_local - start_local
-	local local_aabb = world_transform_utils.BuildLocalAABBFromWorldAABB(world_aabb, world_to_local)
+	local local_aabb = AABB.BuildLocalAABBFromWorldAABB(world_aabb, world_to_local)
 	local primitive_candidates = model.sweep_primitive_candidates or {}
 	model.sweep_primitive_candidates = primitive_candidates
 	local best_hit
@@ -2840,9 +2834,9 @@ function physics.SweepColliderFromSource(source, collider, start_position, movem
 			if model and not should_skip_model(model, ignore_entity, filter_fn, options) then
 				local model_aabb = model.GetWorldAABB and model:GetWorldAABB() or model.AABB
 
-				if not model_aabb or world_transform_utils.AABBIntersects(world_aabb, model_aabb) then
+				if not model_aabb or AABB.IsBoxIntersecting(world_aabb, model_aabb) then
 					local world_to_local, local_to_world = world_transform_utils.GetModelTransforms(model)
-					local local_body_aabb = world_transform_utils.BuildLocalAABBFromWorldAABB(world_aabb, world_to_local)
+					local local_body_aabb = AABB.BuildLocalAABBFromWorldAABB(world_aabb, world_to_local)
 					local primitive_candidates = collider.polyhedron_sweep_primitive_candidates or {}
 					collider.polyhedron_sweep_primitive_candidates = primitive_candidates
 
@@ -2932,9 +2926,9 @@ function physics.SweepColliderFromSource(source, collider, start_position, movem
 		if model and not should_skip_model(model, ignore_entity, filter_fn, options) then
 			local model_aabb = model.GetWorldAABB and model:GetWorldAABB() or model.AABB
 
-			if not model_aabb or world_transform_utils.AABBIntersects(world_aabb, model_aabb) then
+			if not model_aabb or AABB.IsBoxIntersecting(world_aabb, model_aabb) then
 				local world_to_local, local_to_world = world_transform_utils.GetModelTransforms(model)
-				local local_body_aabb = world_transform_utils.BuildLocalAABBFromWorldAABB(world_aabb, world_to_local)
+				local local_body_aabb = AABB.BuildLocalAABBFromWorldAABB(world_aabb, world_to_local)
 				local primitive_candidates = collider.capsule_sweep_primitive_candidates or {}
 				collider.capsule_sweep_primitive_candidates = primitive_candidates
 

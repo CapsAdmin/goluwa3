@@ -1,6 +1,5 @@
 local physics = import("goluwa/physics.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
-local solver = import("goluwa/physics/solver.lua")
 local pair_solver_helpers = import("goluwa/physics/pair_solver_helpers.lua")
 local contact_resolution = import("goluwa/physics/contact_resolution.lua")
 local capsule = {}
@@ -572,9 +571,9 @@ local function solve_box_capsule_pair_handler(body_a, body_b, _, _, dt)
 	return solve_capsule_box_collision(body_b, body_a, dt)
 end
 
-solver:RegisterPairHandler("capsule", "sphere", solve_capsule_sphere_pair_handler)
-solver:RegisterPairHandler("sphere", "capsule", solve_sphere_capsule_pair_handler)
-solver:RegisterPairHandler("capsule", "capsule", solve_capsule_capsule_pair_handler)
-solver:RegisterPairHandler("capsule", "box", solve_capsule_box_pair_handler)
-solver:RegisterPairHandler("box", "capsule", solve_box_capsule_pair_handler)
+physics.solver:RegisterPairHandler("capsule", "sphere", solve_capsule_sphere_pair_handler)
+physics.solver:RegisterPairHandler("sphere", "capsule", solve_sphere_capsule_pair_handler)
+physics.solver:RegisterPairHandler("capsule", "capsule", solve_capsule_capsule_pair_handler)
+physics.solver:RegisterPairHandler("capsule", "box", solve_capsule_box_pair_handler)
+physics.solver:RegisterPairHandler("box", "capsule", solve_box_capsule_pair_handler)
 return capsule

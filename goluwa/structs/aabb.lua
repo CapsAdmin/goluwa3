@@ -1,6 +1,7 @@
 local Vec3 = import("goluwa/structs/vec3.lua")
 local structs = import("goluwa/structs/structs.lua")
 local META = structs.Template("AABB")
+local CTOR
 META.Args = {{"min_x", "min_y", "min_z", "max_x", "max_y", "max_z"}}
 structs.AddAllOperators(META)
 
@@ -82,6 +83,35 @@ function META:IsBoxIntersecting(box)
 	return true
 end
 
+function META.BuildLocalAABBFromWorldAABB(world_aabb, world_to_local)
+	if not world_to_local then return world_aabb end
+
+	local local_min = Vec3(math.huge, math.huge, math.huge)
+	local local_max = Vec3(-math.huge, -math.huge, -math.huge)
+	local corners = {
+		Vec3(world_aabb.min_x, world_aabb.min_y, world_aabb.min_z),
+		Vec3(world_aabb.min_x, world_aabb.min_y, world_aabb.max_z),
+		Vec3(world_aabb.min_x, world_aabb.max_y, world_aabb.min_z),
+		Vec3(world_aabb.min_x, world_aabb.max_y, world_aabb.max_z),
+		Vec3(world_aabb.max_x, world_aabb.min_y, world_aabb.min_z),
+		Vec3(world_aabb.max_x, world_aabb.min_y, world_aabb.max_z),
+		Vec3(world_aabb.max_x, world_aabb.max_y, world_aabb.min_z),
+		Vec3(world_aabb.max_x, world_aabb.max_y, world_aabb.max_z),
+	}
+
+	for i = 1, #corners do
+		local point = world_to_local:TransformVector(corners[i])
+		local_min.x = math.min(local_min.x, point.x)
+		local_min.y = math.min(local_min.y, point.y)
+		local_min.z = math.min(local_min.z, point.z)
+		local_max.x = math.max(local_max.x, point.x)
+		local_max.y = math.max(local_max.y, point.y)
+		local_max.z = math.max(local_max.z, point.z)
+	end
+
+	return CTOR(local_min.x, local_min.y, local_min.z, local_max.x, local_max.y, local_max.z)
+end
+
 function META:ExtendMax(pos)
 	if pos.x > self.max_x then self.max_x = pos.x end
 
@@ -150,4 +180,5 @@ function META:GetLength()
 	return self:GetMin():Distance(self:GetMax())
 end
 
-return structs.Register(META)
+CTOR = structs.Register(META)
+return CTOR

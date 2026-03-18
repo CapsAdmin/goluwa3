@@ -1,7 +1,6 @@
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local physics = import("goluwa/physics.lua")
-local solver = import("goluwa/physics/solver.lua")
 local contact_resolution = import("goluwa/physics/contact_resolution.lua")
 local pair_solver_helpers = {}
 local axis_data = {

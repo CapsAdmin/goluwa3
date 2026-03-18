@@ -4,6 +4,7 @@ local raycast = import("goluwa/physics/raycast.lua")
 local world_contact_triangles = import("goluwa/physics/world_contact/triangles.lua")
 local world_transform_utils = import("goluwa/physics/world_transform_utils.lua")
 local triangle_geometry = import("goluwa/physics/triangle_geometry.lua")
+local AABB = import("goluwa/structs/aabb.lua")
 local world_contact_sampling = {}
 
 local function append_unique_sample(
@@ -225,7 +226,7 @@ local function build_capsule_triangle_contact(collider, hit, v0, v1, v2, options
 		if not (hit.primitive and hit.primitive.polygon3d) then return false end
 
 		local world_to_local, local_to_world = world_transform_utils.GetModelTransforms(hit.model)
-		local local_body_aabb = world_transform_utils.BuildLocalAABBFromWorldAABB(collider:GetBroadphaseAABB(), world_to_local)
+		local local_body_aabb = AABB.BuildLocalAABBFromWorldAABB(collider:GetBroadphaseAABB(), world_to_local)
 		local primitive_candidates = collider.world_contact_sphere_sweep_primitives or {}
 		collider.world_contact_sphere_sweep_primitives = primitive_candidates
 
@@ -351,8 +352,6 @@ local function collect_polyhedron_swept_triangle_contact(v0, v1, v2, triangle_in
 end
 
 local function collect_polyhedron_swept_triangle_contacts(body, collider, kind, contacts, options, owner, filter, cast_up)
-	if not physics.SweepCollider then return false end
-
 	local polyhedron = collider:GetBodyPolyhedron()
 
 	if not (polyhedron and polyhedron.vertices and polyhedron.faces) then
@@ -384,7 +383,7 @@ local function collect_polyhedron_swept_triangle_contacts(body, collider, kind, 
 	if not (hit.primitive and hit.primitive.polygon3d) then return false end
 
 	local world_to_local, local_to_world = world_transform_utils.GetModelTransforms(hit.model)
-	local local_body_aabb = world_transform_utils.BuildLocalAABBFromWorldAABB(collider:GetBroadphaseAABB(), world_to_local)
+	local local_body_aabb = AABB.BuildLocalAABBFromWorldAABB(collider:GetBroadphaseAABB(), world_to_local)
 	local primitive_candidates = collider.world_contact_sweep_primitives or {}
 	collider.world_contact_sweep_primitives = primitive_candidates
 
@@ -490,7 +489,7 @@ local function collect_capsule_swept_triangle_contacts(body, collider, kind, con
 	if not (hit.primitive and hit.primitive.polygon3d) then return false end
 
 	local world_to_local, local_to_world = world_transform_utils.GetModelTransforms(hit.model)
-	local local_body_aabb = world_transform_utils.BuildLocalAABBFromWorldAABB(collider:GetBroadphaseAABB(), world_to_local)
+	local local_body_aabb = AABB.BuildLocalAABBFromWorldAABB(collider:GetBroadphaseAABB(), world_to_local)
 	local primitive_candidates = collider.world_contact_capsule_sweep_primitives or {}
 	collider.world_contact_capsule_sweep_primitives = primitive_candidates
 

@@ -1,5 +1,4 @@
 local physics = import("goluwa/physics.lua")
-local solver = import("goluwa/physics/solver.lua")
 local convex_sat = {}
 
 function convex_sat.AddUniqueAxis(axes, axis, duplicate_dot_threshold)

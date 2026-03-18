@@ -1,6 +1,5 @@
 local Vec3 = import("goluwa/structs/vec3.lua")
 local physics = import("goluwa/physics.lua")
-local solver = import("goluwa/physics/solver.lua")
 local pair_solver_helpers = import("goluwa/physics/pair_solver_helpers.lua")
 local contact_resolution = import("goluwa/physics/contact_resolution.lua")
 local polyhedron_solver = import("goluwa/physics/pair_solvers/polyhedron.lua")
@@ -283,23 +282,23 @@ local function solve_sphere_convex_collision(sphere_body, convex_body, dt)
 	return contact_resolution.ResolvePairPenetration(convex_body, sphere_body, normal, overlap, dt, point_a, point_b)
 end
 
-solver:RegisterPairHandler("sphere", "sphere", function(body_a, body_b, _, _, dt)
+physics.solver:RegisterPairHandler("sphere", "sphere", function(body_a, body_b, _, _, dt)
 	return solve_sphere_pair_collision(body_a, body_b, dt)
 end)
 
-solver:RegisterPairHandler("sphere", "box", function(body_a, body_b, _, _, dt)
+physics.solver:RegisterPairHandler("sphere", "box", function(body_a, body_b, _, _, dt)
 	return solve_sphere_box_collision(body_a, body_b, dt)
 end)
 
-solver:RegisterPairHandler("box", "sphere", function(body_a, body_b, _, _, dt)
+physics.solver:RegisterPairHandler("box", "sphere", function(body_a, body_b, _, _, dt)
 	return solve_sphere_box_collision(body_b, body_a, dt)
 end)
 
-solver:RegisterPairHandler("sphere", "convex", function(body_a, body_b, _, _, dt)
+physics.solver:RegisterPairHandler("sphere", "convex", function(body_a, body_b, _, _, dt)
 	return solve_sphere_convex_collision(body_a, body_b, dt)
 end)
 
-solver:RegisterPairHandler("convex", "sphere", function(body_a, body_b, _, _, dt)
+physics.solver:RegisterPairHandler("convex", "sphere", function(body_a, body_b, _, _, dt)
 	return solve_sphere_convex_collision(body_b, body_a, dt)
 end)
 

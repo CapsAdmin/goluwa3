@@ -1,15 +1,7 @@
 local physics = import("goluwa/physics.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
-local Solver = import("goluwa/physics/solver.lua")
 local motion = import("goluwa/physics/motion.lua")
 local manifold = {}
-local WARM_START_SCALE = Solver.WARM_START_SCALE or 0.9
-local TANGENT_WARM_START_SCALE = Solver.TANGENT_WARM_START_SCALE or 0.1
-local MAX_TANGENT_WARM_SPEED = Solver.MAX_TANGENT_WARM_SPEED or 0.25
-
-local function get_solver()
-	return physics.solver or Solver
-end
 
 local function get_cached_tangent(contact, normal)
 	local tangent = contact.tangent
@@ -83,12 +75,13 @@ function manifold.WarmStart(body_a, body_b, normal, manifold_data, dt)
 	local angular_velocity_b = body_b:GetAngularVelocity():Copy()
 	local did_apply = false
 	local allow_persistent_tangent = supports_persistent_tangent(body_a, body_b, manifold_data)
+	local solver = physics.solver
 
 	for _, contact in ipairs(manifold_data.contacts or {}) do
 		local point_a = body_a:LocalToWorld(contact.local_point_a)
 		local point_b = body_b:LocalToWorld(contact.local_point_b)
-		local normal_impulse = math.max(contact.normal_impulse or 0, 0) * WARM_START_SCALE
-		local tangent_impulse = (contact.tangent_impulse or 0) * TANGENT_WARM_START_SCALE
+		local normal_impulse = math.max(contact.normal_impulse or 0, 0) * solver.WARM_START_SCALE
+		local tangent_impulse = (contact.tangent_impulse or 0) * solver.TANGENT_WARM_START_SCALE
 		local tangent = get_cached_tangent(contact, normal)
 
 		if normal_impulse > physics.EPSILON then
@@ -106,7 +99,7 @@ function manifold.WarmStart(body_a, body_b, normal, manifold_data, dt)
 			local relative_velocity = motion.GetPointVelocity(body_b, velocity_b, angular_velocity_b, point_b) - motion.GetPointVelocity(body_a, velocity_a, angular_velocity_a, point_a)
 			local tangent_velocity = relative_velocity - normal * relative_velocity:Dot(normal)
 
-			if tangent_velocity:GetLength() <= MAX_TANGENT_WARM_SPEED then
+			if tangent_velocity:GetLength() <= solver.MAX_TANGENT_WARM_SPEED then
 				local impulse = tangent * tangent_impulse
 				velocity_a, angular_velocity_a = motion.ApplyImpulseToMotion(body_a, velocity_a, angular_velocity_a, impulse * -1, point_a)
 				velocity_b, angular_velocity_b = motion.ApplyImpulseToMotion(body_b, velocity_b, angular_velocity_b, impulse, point_b)
@@ -122,13 +115,12 @@ function manifold.WarmStart(body_a, body_b, normal, manifold_data, dt)
 end
 
 function manifold.SolveImpulses(body_a, body_b, normal, manifold_data, dt)
-	local solver = get_solver()
 	local velocity_a = body_a:GetVelocity():Copy()
 	local velocity_b = body_b:GetVelocity():Copy()
 	local angular_velocity_a = body_a:GetAngularVelocity():Copy()
 	local angular_velocity_b = body_b:GetAngularVelocity():Copy()
-	local restitution = solver:GetPairRestitution(body_a, body_b)
-	local friction = solver:GetPairFriction(body_a, body_b)
+	local restitution = physics.solver:GetPairRestitution(body_a, body_b)
+	local friction = physics.solver:GetPairFriction(body_a, body_b)
 	local allow_persistent_tangent = supports_persistent_tangent(body_a, body_b, manifold_data)
 
 	for _, contact in ipairs(manifold_data.contacts or {}) do

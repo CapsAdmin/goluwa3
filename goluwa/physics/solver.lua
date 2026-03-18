@@ -4,54 +4,18 @@ local physics = import("goluwa/physics.lua")
 local broadphase = import("goluwa/physics/broadphase.lua")
 local Solver = prototype.CreateTemplate("physics_solver")
 import.loaded["goluwa/physics/solver.lua"] = Solver
-Solver.MANIFOLD_PRUNE_STEPS = Solver.MANIFOLD_PRUNE_STEPS or 12
-Solver.WARM_START_SCALE = Solver.WARM_START_SCALE or 0.9
-Solver.TANGENT_WARM_START_SCALE = Solver.TANGENT_WARM_START_SCALE or 0.1
-Solver.MAX_TANGENT_WARM_SPEED = Solver.MAX_TANGENT_WARM_SPEED or 0.25
-Solver.PairHandlers = Solver.PairHandlers or {}
-Solver.PersistentManifolds = Solver.PersistentManifolds or {}
-Solver.MissingPairWarnings = Solver.MissingPairWarnings or {}
-Solver.StepStamp = Solver.StepStamp or 0
-
-local function new_weak_key_table()
-	return setmetatable({}, {__mode = "k"})
-end
-
-local function clone_pair_handlers(source)
-	local out = {}
-
-	for shape_a, handlers in pairs(source or {}) do
-		out[shape_a] = {}
-
-		for shape_b, handler in pairs(handlers) do
-			out[shape_a][shape_b] = handler
-		end
-	end
-
-	return out
-end
 
 function Solver.New(config)
 	local self = Solver:CreateObject()
-	return self:Initialize(config)
-end
-
-function Solver:Initialize(config)
 	config = config or {}
 	self.physics = config.physics or self.physics or physics
-	self.MANIFOLD_PRUNE_STEPS = config.MANIFOLD_PRUNE_STEPS or
-		self.MANIFOLD_PRUNE_STEPS or
-		Solver.MANIFOLD_PRUNE_STEPS
-	self.WARM_START_SCALE = config.WARM_START_SCALE or self.WARM_START_SCALE or Solver.WARM_START_SCALE
-	self.TANGENT_WARM_START_SCALE = config.TANGENT_WARM_START_SCALE or
-		self.TANGENT_WARM_START_SCALE or
-		Solver.TANGENT_WARM_START_SCALE
-	self.MAX_TANGENT_WARM_SPEED = config.MAX_TANGENT_WARM_SPEED or
-		self.MAX_TANGENT_WARM_SPEED or
-		Solver.MAX_TANGENT_WARM_SPEED
-	self.PersistentManifolds = config.PersistentManifolds or new_weak_key_table()
-	self.PairHandlers = clone_pair_handlers(config.PairHandlers or Solver.PairHandlers)
-	self.MissingPairWarnings = config.MissingPairWarnings or {}
+	self.MANIFOLD_PRUNE_STEPS = config.MANIFOLD_PRUNE_STEPS or self.MANIFOLD_PRUNE_STEPS or 12
+	self.WARM_START_SCALE = config.WARM_START_SCALE or self.WARM_START_SCALE or 0.9
+	self.TANGENT_WARM_START_SCALE = config.TANGENT_WARM_START_SCALE or self.TANGENT_WARM_START_SCALE or 0.1
+	self.MAX_TANGENT_WARM_SPEED = config.MAX_TANGENT_WARM_SPEED or self.MAX_TANGENT_WARM_SPEED or 0.25
+	self.PersistentManifolds = setmetatable({}, {__mode = "k"})
+	self.PairHandlers = {}
+	self.MissingPairWarnings = {}
 	self.StepStamp = config.StepStamp or 0
 	return self
 end
@@ -301,8 +265,4 @@ function Solver:SolveBodyContacts(body, dt)
 end
 
 Solver:Register()
-import("goluwa/physics/pair_solvers/polyhedron.lua")
-import("goluwa/physics/pair_solvers/sphere.lua")
-import("goluwa/physics/pair_solvers/capsule.lua")
-import("goluwa/physics/pair_solvers/box.lua")
 return Solver

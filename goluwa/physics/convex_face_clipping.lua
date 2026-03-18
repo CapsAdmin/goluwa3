@@ -1,5 +1,4 @@
 local Vec3 = import("goluwa/structs/vec3.lua")
-local solver = import("goluwa/physics/solver.lua")
 local physics = import("goluwa/physics.lua")
 local convex_manifold = import("goluwa/physics/convex_manifold.lua")
 local convex_face_clipping = {}

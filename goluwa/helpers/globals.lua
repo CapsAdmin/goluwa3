@@ -173,14 +173,16 @@ do
 		str = table.concat(str, "\t") .. "\n"
 		local path = callstack.get_line(2)
 
-		if path:find("tostring_object") then path = callstack.get_line(3) end
+		if path then
+			if path:find("tostring_object") then path = callstack.get_line(3) end
 
-		if path:starts_with("[string]:1") then
-			logging.RawLog(str)
-			return
+			if path:starts_with("[string]:1") then
+				logging.RawLog(str)
+				return
+			end
+
+			if path then str = string.format("%s %s", path, str) end
 		end
-
-		if path then str = string.format("%s %s", path, str) end
 
 		logging.RawLog(str)
 	end

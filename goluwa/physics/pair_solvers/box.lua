@@ -1,6 +1,5 @@
 local Vec3 = import("goluwa/structs/vec3.lua")
 local physics = import("goluwa/physics.lua")
-local solver = import("goluwa/physics/solver.lua")
 local pair_solver_helpers = import("goluwa/physics/pair_solver_helpers.lua")
 local contact_resolution = import("goluwa/physics/contact_resolution.lua")
 local convex_manifold = import("goluwa/physics/convex_manifold.lua")
@@ -665,7 +664,7 @@ local function solve_box_pair_collision(body_a, body_b, dt)
 	return contact_resolution.ResolvePairPenetration(body_a, body_b, best.normal, best.overlap, dt)
 end
 
-solver:RegisterPairHandler("box", "box", function(body_a, body_b, _, _, dt)
+physics.solver:RegisterPairHandler("box", "box", function(body_a, body_b, _, _, dt)
 	return solve_box_pair_collision(body_a, body_b, dt)
 end)
 

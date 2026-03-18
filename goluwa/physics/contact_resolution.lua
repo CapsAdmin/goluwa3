@@ -1,15 +1,10 @@
 local physics = import("goluwa/physics.lua")
-local Solver = import("goluwa/physics/solver.lua")
 local manifolds = import("goluwa/physics/manifold.lua")
 local motion = import("goluwa/physics/motion.lua")
 local contact_resolution = {}
 
-local function get_solver()
-	return physics.solver or Solver
-end
-
 function contact_resolution.MarkPairGrounding(body_a, body_b, normal)
-	local rolling_friction = get_solver():GetPairRollingFriction(body_a, body_b)
+	local rolling_friction = physics.solver:GetPairRollingFriction(body_a, body_b)
 
 	if -normal.y >= body_a:GetMinGroundNormalY() then
 		body_a:SetGrounded(true)
@@ -31,7 +26,7 @@ end
 local function try_mark_body_grounded_from_contacts(self_body, other_body, contacts, self_key, other_key)
 	if self_body:GetGrounded() then return end
 
-	local rolling_friction = get_solver():GetPairRollingFriction(self_body, other_body)
+	local rolling_friction = physics.solver:GetPairRollingFriction(self_body, other_body)
 	local self_half = self_body:GetHalfExtents()
 	local other_half = other_body:GetHalfExtents()
 	local self_threshold = self_half.y * 0.25
@@ -116,7 +111,6 @@ function contact_resolution.SetBodyMotionFromCurrentState(body, linear_velocity,
 end
 
 function contact_resolution.ApplyPairImpulse(body_a, body_b, normal, dt, point_a, point_b, options)
-	local solver = get_solver()
 	local inverse_mass_a = body_a.InverseMass
 	local inverse_mass_b = body_b.InverseMass
 	local inverse_mass_sum = inverse_mass_a + inverse_mass_b
@@ -133,7 +127,7 @@ function contact_resolution.ApplyPairImpulse(body_a, body_b, normal, dt, point_a
 
 	if normal_speed >= 0 then return end
 
-	local restitution = solver:GetPairRestitution(body_a, body_b)
+	local restitution = physics.solver:GetPairRestitution(body_a, body_b)
 	local normal_inverse_mass = inverse_mass_sum
 
 	if point_a or point_b then
@@ -166,7 +160,7 @@ function contact_resolution.ApplyPairImpulse(body_a, body_b, normal, dt, point_a
 
 	if tangent_speed > physics.EPSILON and not options.skip_friction then
 		local tangent = tangent_velocity / tangent_speed
-		local friction = solver:GetPairFriction(body_a, body_b)
+		local friction = physics.solver:GetPairFriction(body_a, body_b)
 		local tangent_inverse_mass = inverse_mass_sum
 
 		if point_a or point_b then
@@ -210,7 +204,6 @@ function contact_resolution.ApplyPairImpulse(body_a, body_b, normal, dt, point_a
 end
 
 function contact_resolution.ResolvePairPenetration(body_a, body_b, normal, overlap, dt, point_a, point_b, contacts, options)
-	local solver = get_solver()
 	local inverse_mass_a = body_a.InverseMass
 	local inverse_mass_b = body_b.InverseMass
 	local inverse_mass_sum = inverse_mass_a + inverse_mass_b
@@ -219,6 +212,7 @@ function contact_resolution.ResolvePairPenetration(body_a, body_b, normal, overl
 	if inverse_mass_sum <= 0 or overlap <= 0 then return false end
 
 	if contacts and #contacts > 0 then
+		local solver = physics.solver
 		local manifold = get_pair_manifold(solver.PersistentManifolds, body_a, body_b) or {}
 		manifold.last_seen_step = solver.StepStamp
 		manifolds.RebuildContacts(body_a, body_b, manifold, contacts)

@@ -9,6 +9,10 @@ import("goluwa/physics/constraint.lua")
 local Solver = import("goluwa/physics/solver.lua")
 physics.collision_pairs = physics.collision_pairs or CollisionPairs.New({physics = physics})
 physics.solver = Solver.New({physics = physics})
+import("goluwa/physics/pair_solvers/polyhedron.lua")
+import("goluwa/physics/pair_solvers/sphere.lua")
+import("goluwa/physics/pair_solvers/capsule.lua")
+import("goluwa/physics/pair_solvers/box.lua")
 import("goluwa/physics/rigid_body.lua")
 
 function physics.ResetState()
@@ -100,8 +104,6 @@ function physics.UpdateFixed(dt)
 	physics.InterpolationAlpha = accumulator / fixed_dt
 	return steps
 end
-
-physics.UpdateFrame = physics.UpdateFixed
 
 if not physics.UpdateListenerRegistered then
 	event.AddListener("Update", "physics", function(dt)

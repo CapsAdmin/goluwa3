@@ -1,6 +1,7 @@
 local physics = import("goluwa/physics.lua")
 local raycast = import("goluwa/physics/raycast.lua")
 local world_transform_utils = import("goluwa/physics/world_transform_utils.lua")
+local AABB = import("goluwa/structs/aabb.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local ModelComponent = import("goluwa/ecs/components/3d/model.lua")
 local world_contact_scene = {}
@@ -84,21 +85,12 @@ function world_contact_scene.ForEachWorldPrimitiveCandidate(body, callback, arg1
 
 		local model_aabb = model.GetWorldAABB and model:GetWorldAABB() or model.AABB
 
-		if
-			model_aabb and
-			not (
-				(
-					body_aabb.IsBoxIntersecting and
-					body_aabb:IsBoxIntersecting(model_aabb)
-				) or
-				world_transform_utils.AABBIntersects(body_aabb, model_aabb)
-			)
-		then
+		if model_aabb and not AABB.IsBoxIntersecting(body_aabb, model_aabb) then
 			goto continue_model
 		end
 
 		local world_to_local, local_to_world = world_transform_utils.GetModelTransforms(model)
-		local local_body_aabb = world_transform_utils.BuildLocalAABBFromWorldAABB(body_aabb, world_to_local)
+		local local_body_aabb = AABB.BuildLocalAABBFromWorldAABB(body_aabb, world_to_local)
 
 		for i = #primitive_candidates, 1, -1 do
 			primitive_candidates[i] = nil

@@ -1,5 +1,4 @@
 local physics = import("goluwa/physics.lua")
-local solver = import("goluwa/physics/solver.lua")
 local pair_solver_helpers = import("goluwa/physics/pair_solver_helpers.lua")
 local contact_resolution = import("goluwa/physics/contact_resolution.lua")
 local convex_manifold = import("goluwa/physics/convex_manifold.lua")
@@ -524,15 +523,15 @@ end
 polyhedron.SolveTemporalPolyhedronPairCollision = solve_temporal_polyhedron_pair_collision
 polyhedron.SolvePolyhedronPairCollision = solve_polyhedron_pair_collision
 
-solver:RegisterPairHandler("convex", "box", function(body_a, body_b, _, _, dt)
+physics.solver:RegisterPairHandler("convex", "box", function(body_a, body_b, _, _, dt)
 	return solve_polyhedron_pair_collision(body_a, body_b, dt)
 end)
 
-solver:RegisterPairHandler("box", "convex", function(body_a, body_b, _, _, dt)
+physics.solver:RegisterPairHandler("box", "convex", function(body_a, body_b, _, _, dt)
 	return solve_polyhedron_pair_collision(body_a, body_b, dt)
 end)
 
-solver:RegisterPairHandler("convex", "convex", function(body_a, body_b, _, _, dt)
+physics.solver:RegisterPairHandler("convex", "convex", function(body_a, body_b, _, _, dt)
 	return solve_polyhedron_pair_collision(body_a, body_b, dt)
 end)
 
