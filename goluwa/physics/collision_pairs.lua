@@ -33,8 +33,8 @@ function physics.ShouldBodiesCollide(body_a, body_b)
 end
 
 function physics.BeginCollisionFrame()
-	physics.CurrentCollisionPairs = {}
-	physics.CurrentWorldCollisionPairs = {}
+	table.clear(physics.CurrentCollisionPairs)
+	table.clear(physics.CurrentWorldCollisionPairs)
 end
 
 function physics.RecordCollisionPair(body_a, body_b, normal, overlap)
