@@ -93,8 +93,6 @@ local function spawn_dynamic_box(position, size, material, rotation, options)
 			AirAngularDamping = options.AirAngularDamping or 0.05,
 			Friction = options.Friction or 0.7,
 			Restitution = options.Restitution or 0,
-			MaxLinearSpeed = options.MaxLinearSpeed or 1000,
-			MaxAngularSpeed = options.MaxAngularSpeed or 1000,
 		}
 	)
 	return ent
