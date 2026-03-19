@@ -63,6 +63,36 @@ local function select_triangle_normal(mesh_body, other_body, delta, fallback_del
 	)
 end
 
+local function update_best_mesh_contact(best, triangle_index, normal, overlap, point_a, point_b)
+	if not normal or overlap <= physics.EPSILON then return best end
+
+	if not best or overlap > best.overlap then
+		return {
+			triangle_index = triangle_index,
+			normal = normal,
+			overlap = overlap,
+			point_a = point_a,
+			point_b = point_b,
+		}
+	end
+
+	return best
+end
+
+local function resolve_best_mesh_contact(mesh_body, other_body, best, dt)
+	if not best then return false end
+
+	return contact_resolution.ResolvePairPenetration(
+		mesh_body,
+		other_body,
+		best.normal,
+		best.overlap,
+		dt,
+		best.point_a,
+		best.point_b
+	)
+end
+
 local function build_polyhedron_contact_samples(body)
 	local samples = {}
 	local seen = {}
@@ -156,31 +186,10 @@ local function solve_mesh_sphere_collision(mesh_body, sphere_body, mesh_shape, d
 		if not normal then return end
 
 		local overlap = combined_margin - result.surface_distance
-
-		if overlap <= physics.EPSILON then return end
-
-		if not best or overlap > best.overlap then
-			best = {
-				triangle_index = triangle_index,
-				normal = normal,
-				overlap = overlap,
-				point_a = result.position,
-				point_b = center - normal * radius,
-			}
-		end
+		best = update_best_mesh_contact(best, triangle_index, normal, overlap, result.position, center - normal * radius)
 	end)
 
-	if not best then return false end
-
-	return contact_resolution.ResolvePairPenetration(
-		mesh_body,
-		sphere_body,
-		best.normal,
-		best.overlap,
-		dt,
-		best.point_a,
-		best.point_b
-	)
+	return resolve_best_mesh_contact(mesh_body, sphere_body, best, dt)
 end
 
 local function solve_mesh_capsule_collision(mesh_body, capsule_body, mesh_shape, dt)
@@ -220,31 +229,17 @@ local function solve_mesh_capsule_collision(mesh_body, capsule_body, mesh_shape,
 		if not normal then return end
 
 		local overlap = combined_margin - result.surface_distance
-
-		if overlap <= physics.EPSILON then return end
-
-		if not best or overlap > best.overlap then
-			best = {
-				triangle_index = triangle_index,
-				normal = normal,
-				overlap = overlap,
-				point_a = result.position,
-				point_b = result.segment_point - normal * (result.radius or 0),
-			}
-		end
+		best = update_best_mesh_contact(
+			best,
+			triangle_index,
+			normal,
+			overlap,
+			result.position,
+			result.segment_point - normal * (result.radius or 0)
+		)
 	end)
 
-	if not best then return false end
-
-	return contact_resolution.ResolvePairPenetration(
-		mesh_body,
-		capsule_body,
-		best.normal,
-		best.overlap,
-		dt,
-		best.point_a,
-		best.point_b
-	)
+	return resolve_best_mesh_contact(mesh_body, capsule_body, best, dt)
 end
 
 local function solve_mesh_polyhedron_collision(mesh_body, poly_body, mesh_shape, dt)
