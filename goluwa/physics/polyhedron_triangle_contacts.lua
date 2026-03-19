@@ -3,6 +3,7 @@ local convex_sat = import("goluwa/physics/convex_sat.lua")
 local polyhedron_cache = import("goluwa/physics/polyhedron_cache.lua")
 local polyhedron_face_contacts = import("goluwa/physics/polyhedron_face_contacts.lua")
 local polyhedron_sat = import("goluwa/physics/polyhedron_sat.lua")
+local triangle_contact_queries = import("goluwa/physics/triangle_contact_queries.lua")
 local triangle_geometry = import("goluwa/physics/triangle_geometry.lua")
 local polyhedron_triangle_contacts = {}
 local DEFAULT_EPSILON = 0.00001
@@ -78,9 +79,9 @@ function polyhedron_triangle_contacts.FindContact(collider, polyhedron, v0, v1, 
 			return nil
 		end
 
-	local triangle_normal = triangle_geometry.GetTriangleNormal(v0, v1, v2)
+	local triangle_normal = triangle_contact_queries.GetTriangleFaceNormal(v0, v1, v2, epsilon)
 
-	if triangle_normal:GetLength() <= epsilon then return nil end
+	if not triangle_normal then return nil end
 
 	if
 		not polyhedron_sat.TryUpdateAxisCandidate(
@@ -175,7 +176,11 @@ function polyhedron_triangle_contacts.FindContact(collider, polyhedron, v0, v1, 
 	end
 
 	local point_a = convex_manifold.AverageSupportPoint(poly_vertices, normal, true)
-	local point_b = triangle_geometry.ClosestPointOnTriangle(point_a or collider:GetPosition(), v0, v1, v2)
+	local separation = triangle_contact_queries.GetPointTriangleSeparation(point_a or collider:GetPosition(), v0, v1, v2, {
+		epsilon = epsilon,
+		fallback_normal = normal,
+	})
+	local point_b = separation and separation.position or nil
 
 	if not (point_a and point_b) then return nil end
 

@@ -7,7 +7,6 @@ local polyhedron_face_contacts = import("goluwa/physics/polyhedron_face_contacts
 local polyhedron_sat = import("goluwa/physics/polyhedron_sat.lua")
 local polyhedron_cache = import("goluwa/physics/polyhedron_cache.lua")
 local polyhedron_geometry = import("goluwa/physics/polyhedron_geometry.lua")
-local triangle_geometry = import("goluwa/physics/triangle_geometry.lua")
 local polyhedron = {}
 local FACE_CONTACT_SEPARATION_TOLERANCE = 0.08
 local FACE_AXIS_RELATIVE_TOLERANCE = 1.05
@@ -22,7 +21,6 @@ local POLYHEDRON_CONTACT_OUTPUT_SCRATCH = {
 }
 polyhedron.GetPolyhedronWorldVertices = polyhedron_cache.GetPolyhedronWorldVertices
 polyhedron.GetPolyhedronWorldFace = polyhedron_cache.GetPolyhedronWorldFace
-polyhedron.ClosestPointOnTriangle = triangle_geometry.ClosestPointOnTriangle
 local function get_edge_indices(edge)
 	return polyhedron_geometry.GetEdgeIndices(edge)
 end

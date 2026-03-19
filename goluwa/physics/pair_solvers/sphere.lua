@@ -3,6 +3,7 @@ local physics = import("goluwa/physics.lua")
 local pair_solver_helpers = import("goluwa/physics/pair_solver_helpers.lua")
 local contact_resolution = import("goluwa/physics/contact_resolution.lua")
 local polyhedron_solver = import("goluwa/physics/pair_solvers/polyhedron.lua")
+local triangle_contact_queries = import("goluwa/physics/triangle_contact_queries.lua")
 local sphere = {}
 
 local function solve_sphere_pair_collision(body_a, body_b, dt)
@@ -244,13 +245,21 @@ local function solve_sphere_convex_collision(sphere_body, convex_body, dt)
 		local a = vertices[hull.indices[i]]
 		local b = vertices[hull.indices[i + 1]]
 		local c = vertices[hull.indices[i + 2]]
-		local point = polyhedron_solver.ClosestPointOnTriangle(center, a, b, c)
+		local separation = triangle_contact_queries.GetPointTriangleSeparation(center, a, b, c, {
+			epsilon = physics.EPSILON,
+			fallback_normal = nearest_face_normal,
+		})
+		local point = separation and separation.position or nil
+
+		if not point then goto continue_triangle end
 		local distance = (center - point):GetLength()
 
 		if distance < best_distance then
 			best_distance = distance
 			best_point = point
 		end
+
+		::continue_triangle::
 	end
 
 	local normal

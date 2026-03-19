@@ -8,9 +8,8 @@ local polyhedron_sat = import("goluwa/physics/polyhedron_sat.lua")
 local polyhedron_triangle_contacts = import("goluwa/physics/polyhedron_triangle_contacts.lua")
 local raycast = import("goluwa/physics/raycast.lua")
 local segment_geometry = import("goluwa/physics/segment_geometry.lua")
-local triangle_contact_kernels = import("goluwa/physics/triangle_contact_kernels.lua")
+local triangle_contact_queries = import("goluwa/physics/triangle_contact_queries.lua")
 local triangle_mesh = import("goluwa/physics/triangle_mesh.lua")
-local triangle_geometry = import("goluwa/physics/triangle_geometry.lua")
 local world_static_query = import("goluwa/physics/world_static_query.lua")
 local world_mesh_body = import("goluwa/physics/world_mesh_body.lua")
 local world_transform_utils = import("goluwa/physics/world_transform_utils.lua")
@@ -623,7 +622,7 @@ end
 
 local function get_capsule_triangle_separation(position, rotation, collider, v0, v1, v2, movement)
 	local segment_a, segment_b = get_capsule_segment_world(collider, position, rotation)
-	local result = triangle_contact_kernels.GetCapsuleTriangleSeparation(
+	local result = triangle_contact_queries.GetCapsuleTriangleSeparation(
 		segment_a,
 		segment_b,
 		position,
@@ -633,7 +632,7 @@ local function get_capsule_triangle_separation(position, rotation, collider, v0,
 		{
 			epsilon = get_epsilon(),
 			fallback_normal = movement and movement:GetLength() > get_epsilon() and (movement * -1):GetNormalized() or physics.Up,
-			zero_distance_normal = ensure_normal_faces_motion(triangle_geometry.GetTriangleNormal(v0, v1, v2), movement),
+			zero_distance_normal = ensure_normal_faces_motion(triangle_contact_queries.GetTriangleFaceNormal(v0, v1, v2, get_epsilon()), movement),
 		}
 	)
 
@@ -805,14 +804,14 @@ local function sweep_capsule_against_planes(
 end
 
 local function get_point_triangle_separation(center, v0, v1, v2, movement)
-	local result = triangle_contact_kernels.GetPointTriangleSeparation(
+	local result = triangle_contact_queries.GetPointTriangleSeparation(
 		center,
 		v0,
 		v1,
 		v2,
 		{
 			epsilon = get_epsilon(),
-			fallback_normal = ensure_normal_faces_motion(triangle_geometry.GetTriangleNormal(v0, v1, v2), movement),
+			fallback_normal = ensure_normal_faces_motion(triangle_contact_queries.GetTriangleFaceNormal(v0, v1, v2, get_epsilon()), movement),
 			fallback_direction = movement and movement * -1 or nil,
 		}
 	)
@@ -832,17 +831,12 @@ local function sweep_sphere_against_triangle(start_position, movement, radius, v
 		}
 	end
 
-	local segment_point, _, min_distance = triangle_geometry.ClosestPointsOnSegmentTriangle(
-		start_position,
-		end_position,
-		v0,
-		v1,
-		v2,
-		{
-			epsilon = epsilon,
-			fallback_normal = ensure_normal_faces_motion(triangle_geometry.GetTriangleNormal(v0, v1, v2), movement),
-		}
-	)
+	local segment_separation = triangle_contact_queries.GetSegmentTriangleSeparation(start_position, end_position, v0, v1, v2, {
+		epsilon = epsilon,
+		fallback_normal = ensure_normal_faces_motion(triangle_contact_queries.GetTriangleFaceNormal(v0, v1, v2, epsilon), movement),
+	})
+	local segment_point = segment_separation and segment_separation.segment_point or nil
+	local min_distance = segment_separation and segment_separation.distance or nil
 
 	if not segment_point or min_distance > radius + epsilon then return nil end
 

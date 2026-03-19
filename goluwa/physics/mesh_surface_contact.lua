@@ -1,6 +1,6 @@
 local Vec3 = import("goluwa/structs/vec3.lua")
 local triangle_mesh = import("goluwa/physics/triangle_mesh.lua")
-local triangle_geometry = import("goluwa/physics/triangle_geometry.lua")
+local triangle_contact_queries = import("goluwa/physics/triangle_contact_queries.lua")
 local world_mesh_body = import("goluwa/physics/world_mesh_body.lua")
 local mesh_surface_contact = {}
 local MESH_FEATURE_EPSILON = 0.0001
@@ -49,7 +49,7 @@ function mesh_surface_contact.GetHitFaceNormal(hit)
 
 	if not (v0 and v1 and v2) then return hit.normal end
 
-	return triangle_geometry.GetTriangleNormal(v0, v1, v2)
+	return triangle_contact_queries.GetTriangleFaceNormal(v0, v1, v2, MESH_FEATURE_EPSILON) or hit.normal
 end
 
 local function on_segment(a, b, point)
@@ -153,10 +153,16 @@ local function build_face_search_state(best_position, best_face_normal, best_dis
 end
 
 local function consider_face_candidate(state, reference_point, v0, v1, v2, face_normal)
-	local candidate_position = triangle_geometry.ClosestPointOnTriangle(reference_point, v0, v1, v2)
+	local separation = triangle_contact_queries.GetPointTriangleSeparation(reference_point, v0, v1, v2, {
+		epsilon = MESH_FEATURE_EPSILON,
+	})
+	local candidate_position = separation and separation.position or nil
+
+	if not candidate_position then return end
+
 	local delta = reference_point - candidate_position
 	local distance_squared = delta:Dot(delta)
-	face_normal = face_normal or triangle_geometry.GetTriangleNormal(v0, v1, v2)
+	face_normal = face_normal or separation.face_normal
 
 	if distance_squared + MESH_SEAM_DISTANCE_EPSILON < state.best_distance_squared then
 		reset_best_face_candidate(state, candidate_position, face_normal, distance_squared)
@@ -166,9 +172,9 @@ local function consider_face_candidate(state, reference_point, v0, v1, v2, face_
 end
 
 local function consider_seam_face_candidate(state, reference_point, primary_face_normal, v0, v1, v2)
-	local candidate_face_normal = triangle_geometry.GetTriangleNormal(v0, v1, v2)
+	local candidate_face_normal = triangle_contact_queries.GetTriangleFaceNormal(v0, v1, v2, MESH_FEATURE_EPSILON)
 
-	if not (candidate_face_normal:GetLength() > MESH_FEATURE_EPSILON and primary_face_normal) then
+	if not (candidate_face_normal and primary_face_normal) then
 		return
 	end
 
@@ -310,7 +316,13 @@ local function get_mesh_hit_feature_contact(hit, reference_point)
 	if not (v0 and v1 and v2 and i0 and i1 and i2) then return nil end
 
 	local primary_face_normal = mesh_surface_contact.GetHitFaceNormal(hit)
-	local primary_closest_point = triangle_geometry.ClosestPointOnTriangle(reference_point, v0, v1, v2)
+	local primary_separation = triangle_contact_queries.GetPointTriangleSeparation(reference_point, v0, v1, v2, {
+		epsilon = MESH_FEATURE_EPSILON,
+	})
+	local primary_closest_point = primary_separation and primary_separation.position or nil
+
+	if not primary_closest_point then return nil end
+
 	local feature_kind, feature_indices = get_mesh_feature_indices(primary_closest_point, v0, v1, v2, i0, i1, i2)
 	local local_feature_positions = get_mesh_feature_local_positions(poly, feature_indices)
 	local state = build_face_search_state(
