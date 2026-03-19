@@ -1,4 +1,5 @@
 local physics = import("goluwa/physics.lua")
+local pair_solver_helpers = import("goluwa/physics/pair_solver_helpers.lua")
 local world_static_query = import("goluwa/physics/world_static_query.lua")
 local world_mesh_body = import("goluwa/physics/world_mesh_body.lua")
 local world_rigid_mesh_bridge = {}
@@ -45,7 +46,7 @@ local function get_collider_sweep_hit(dynamic_body, collider)
 		}
 	)
 
-	if not (hit and hit.primitive and (hit.primitive.polygon3d or hit.primitive.brush_planes)) then return nil end
+	if not (hit and world_mesh_body.IsSupportedPrimitive(hit.primitive)) then return nil end
 
 	return {
 		collider = collider,
@@ -78,49 +79,21 @@ local function rewind_body_to_triangle_hit(dynamic_body, sweep_result)
 	return delta
 end
 
-local function resolve_simple_pair(dynamic_body, proxy_body, dt)
-	local shape_a = dynamic_body:GetShapeType()
-	local shape_b = proxy_body:GetShapeType()
-	local handler = physics.solver:GetPairHandler(shape_a, shape_b)
-
-	if handler then return handler(dynamic_body, proxy_body, nil, nil, dt) end
-
-	physics.solver:WarnMissingPairHandler(shape_a, shape_b)
-	return false
-end
-
-local function resolve_compound_pair(dynamic_body, proxy_body, dt)
-	local handled = false
-
-	for _, collider in ipairs(dynamic_body:GetColliders() or {}) do
-		if physics.ShouldBodiesCollide(collider, proxy_body) then
-			local shape_a = collider:GetShapeType()
-			local shape_b = proxy_body:GetShapeType()
-			local handler = physics.solver:GetPairHandler(shape_a, shape_b)
-
-			if handler then
-				if handler(collider, proxy_body, nil, nil, dt) then handled = true end
-			else
-				physics.solver:WarnMissingPairHandler(shape_a, shape_b)
-			end
-		end
-	end
-
-	return handled
-end
-
 function world_rigid_mesh_bridge.ResolveBodyAgainstPrimitive(dynamic_body, model, entity, primitive, dt, primitive_index)
-	if not (dynamic_body and primitive and (primitive.polygon3d or primitive.brush_planes)) then return false end
+	if not (dynamic_body and world_mesh_body.IsSupportedPrimitive(primitive)) then return false end
 
 	local proxy_body = world_mesh_body.GetPrimitiveBody(model, entity, primitive, primitive_index)
 
 	if not (proxy_body and physics.ShouldBodiesCollide(dynamic_body, proxy_body)) then return false end
 
-	if dynamic_body:GetShapeType() ~= "compound" then
-		return resolve_simple_pair(dynamic_body, proxy_body, dt)
-	end
-
-	return resolve_compound_pair(dynamic_body, proxy_body, dt)
+	return pair_solver_helpers.DispatchColliderPairs(
+		physics.solver,
+		dynamic_body:GetShapeType() == "compound" and dynamic_body:GetColliders() or {dynamic_body},
+		proxy_body:GetColliders(),
+		nil,
+		nil,
+		dt
+	)
 end
 
 function world_rigid_mesh_bridge.ResolveBodyAgainstWorldPrimitives(dynamic_body, dt)
@@ -132,7 +105,7 @@ function world_rigid_mesh_bridge.ResolveBodyAgainstWorldPrimitives(dynamic_body,
 	world_static_query.ForEachWorldPrimitiveCandidate(
 		dynamic_body,
 		function(model, entity, primitive, primitive_index)
-			if primitive and (primitive.polygon3d or primitive.brush_planes) then
+			if world_mesh_body.IsSupportedPrimitive(primitive) then
 				if world_rigid_mesh_bridge.ResolveBodyAgainstPrimitive(dynamic_body, model, entity, primitive, dt, primitive_index) then
 					solved = true
 				end

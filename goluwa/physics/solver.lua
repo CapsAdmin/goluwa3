@@ -2,6 +2,7 @@ local prototype = import("goluwa/prototype.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local physics = import("goluwa/physics.lua")
 local broadphase = import("goluwa/physics/broadphase.lua")
+local pair_solver_helpers = import("goluwa/physics/pair_solver_helpers.lua")
 local Solver = prototype.CreateTemplate("physics_solver")
 import.loaded["goluwa/physics/solver.lua"] = Solver
 
@@ -234,19 +235,6 @@ function Solver:WarnMissingPairHandler(shape_a, shape_b)
 	end
 end
 
-local function is_simple_body(physics, collider_list)
-	if #collider_list ~= 1 then return false end
-
-	local collider = collider_list[1]
-	local local_position = collider:GetLocalPosition()
-	local local_rotation = collider:GetLocalRotation()
-	return local_position:GetLength() <= physics.EPSILON and
-		math.abs(local_rotation.x) <= physics.EPSILON and
-		math.abs(local_rotation.y) <= physics.EPSILON and
-		math.abs(local_rotation.z) <= physics.EPSILON and
-		math.abs(local_rotation.w - 1) <= physics.EPSILON
-end
-
 local function solve_rigid_body_pair(self, body_a, body_b, entry_a, entry_b, dt)
 	local physics = self:GetPhysics()
 
@@ -255,36 +243,15 @@ local function solve_rigid_body_pair(self, body_a, body_b, entry_a, entry_b, dt)
 	local colliders_a = body_a:GetColliders()
 	local colliders_b = body_b:GetColliders()
 
-	if is_simple_body(physics, colliders_a) and is_simple_body(physics, colliders_b) then
-		local shape_a = body_a:GetShapeType()
-		local shape_b = body_b:GetShapeType()
-		local handler = self:GetPairHandler(shape_a, shape_b)
+	if pair_solver_helpers.IsSimpleBody(colliders_a) and pair_solver_helpers.IsSimpleBody(colliders_b) then
+		local handled, found = pair_solver_helpers.TryInvokePairHandler(self, body_a, body_b, entry_a, entry_b, dt)
 
-		if handler then return handler(body_a, body_b, entry_a, entry_b, dt) end
+		if found then return handled end
 
-		self:WarnMissingPairHandler(shape_a, shape_b)
 		return fallback_solve_aabb_pair_collision(body_a, body_b, entry_a.bounds, entry_b.bounds, dt)
 	end
 
-	local handled = false
-
-	for _, collider_a in ipairs(colliders_a) do
-		for _, collider_b in ipairs(colliders_b) do
-			if physics.ShouldBodiesCollide(collider_a, collider_b) then
-				local shape_a = collider_a:GetShapeType()
-				local shape_b = collider_b:GetShapeType()
-				local handler = self:GetPairHandler(shape_a, shape_b)
-
-				if handler then
-					if handler(collider_a, collider_b, entry_a, entry_b, dt) then handled = true end
-				else
-					self:WarnMissingPairHandler(shape_a, shape_b)
-				end
-			end
-		end
-	end
-
-	return handled
+	return pair_solver_helpers.DispatchColliderPairs(self, colliders_a, colliders_b, entry_a, entry_b, dt)
 end
 
 function Solver:SolveDistanceConstraints(dt, constraints_override)

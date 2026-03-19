@@ -7,6 +7,7 @@ local contact_resolution = import("goluwa/physics/contact_resolution.lua")
 local polyhedron_triangle_aggregator = import("goluwa/physics/polyhedron_triangle_aggregator.lua")
 local triangle_contact_queries = import("goluwa/physics/triangle_contact_queries.lua")
 local triangle_geometry = import("goluwa/physics/triangle_geometry.lua")
+local world_static_query = import("goluwa/physics/world_static_query.lua")
 local mesh = {}
 
 local function get_mesh_shape(body)
@@ -29,51 +30,19 @@ local function get_static_mesh_dynamic_pair(body_a, body_b)
 	return nil, nil, nil
 end
 
-local function build_local_aabb_from_world_bounds(body, world_aabb)
-	local local_min = Vec3(math.huge, math.huge, math.huge)
-	local local_max = Vec3(-math.huge, -math.huge, -math.huge)
-	local corners = {
-		Vec3(world_aabb.min_x, world_aabb.min_y, world_aabb.min_z),
-		Vec3(world_aabb.min_x, world_aabb.min_y, world_aabb.max_z),
-		Vec3(world_aabb.min_x, world_aabb.max_y, world_aabb.min_z),
-		Vec3(world_aabb.min_x, world_aabb.max_y, world_aabb.max_z),
-		Vec3(world_aabb.max_x, world_aabb.min_y, world_aabb.min_z),
-		Vec3(world_aabb.max_x, world_aabb.min_y, world_aabb.max_z),
-		Vec3(world_aabb.max_x, world_aabb.max_y, world_aabb.min_z),
-		Vec3(world_aabb.max_x, world_aabb.max_y, world_aabb.max_z),
-	}
+local LOCAL_AABB_TRANSFORM_PROXY = {
+	body = nil,
+}
 
-	for i = 1, #corners do
-		local point = body:WorldToLocal(corners[i])
-		local_min.x = math.min(local_min.x, point.x)
-		local_min.y = math.min(local_min.y, point.y)
-		local_min.z = math.min(local_min.z, point.z)
-		local_max.x = math.max(local_max.x, point.x)
-		local_max.y = math.max(local_max.y, point.y)
-		local_max.z = math.max(local_max.z, point.z)
-	end
-
-	return AABB(local_min.x, local_min.y, local_min.z, local_max.x, local_max.y, local_max.z)
-end
-
-local function expand_world_bounds_for_mesh_contact(mesh_body, other_body, world_aabb)
-	local mesh_margin = mesh_body.GetCollisionMargin and mesh_body:GetCollisionMargin() or 0
-	local other_margin = other_body.GetCollisionMargin and other_body:GetCollisionMargin() or 0
-	local probe_distance = other_body.GetCollisionProbeDistance and other_body:GetCollisionProbeDistance() or 0
-	local pad = math.max(mesh_margin + other_margin + probe_distance, physics.DefaultSkin or 0, physics.EPSILON)
-	return AABB(
-		world_aabb.min_x - pad,
-		world_aabb.min_y - pad,
-		world_aabb.min_z - pad,
-		world_aabb.max_x + pad,
-		world_aabb.max_y + pad,
-		world_aabb.max_z + pad
-	)
+function LOCAL_AABB_TRANSFORM_PROXY:TransformVector(point)
+	return self.body:WorldToLocal(point)
 end
 
 local function for_each_overlapping_mesh_triangle(mesh_body, mesh_shape, other_body, callback)
-	local bounds = expand_world_bounds_for_mesh_contact(mesh_body, other_body, other_body:GetBroadphaseAABB())
-	local local_bounds = build_local_aabb_from_world_bounds(mesh_body, bounds)
+	local bounds = world_static_query.BuildExpandedWorldContactAABB(other_body:GetBroadphaseAABB(), mesh_body, other_body)
+	LOCAL_AABB_TRANSFORM_PROXY.body = mesh_body
+	local local_bounds = AABB.BuildLocalAABBFromWorldAABB(bounds, LOCAL_AABB_TRANSFORM_PROXY)
+	LOCAL_AABB_TRANSFORM_PROXY.body = nil
 	mesh_shape:ForEachOverlappingTriangle(mesh_body, local_bounds, function(v0, v1, v2, triangle_index, context)
 		callback(
 			mesh_body:LocalToWorld(v0),

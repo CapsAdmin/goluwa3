@@ -33,6 +33,48 @@ function pair_solver_helpers.HasSolverMass(body)
 	return body.HasSolverMass and body:HasSolverMass() or false
 end
 
+function pair_solver_helpers.IsSimpleBody(collider_list)
+	collider_list = collider_list or {}
+
+	if #collider_list ~= 1 then return false end
+
+	local collider = collider_list[1]
+	local local_position = collider:GetLocalPosition()
+	local local_rotation = collider:GetLocalRotation()
+	return local_position:GetLength() <= physics.EPSILON and
+		math.abs(local_rotation.x) <= physics.EPSILON and
+		math.abs(local_rotation.y) <= physics.EPSILON and
+		math.abs(local_rotation.z) <= physics.EPSILON and
+		math.abs(local_rotation.w - 1) <= physics.EPSILON
+end
+
+function pair_solver_helpers.TryInvokePairHandler(solver, body_a, body_b, entry_a, entry_b, dt)
+	local shape_a = body_a:GetShapeType()
+	local shape_b = body_b:GetShapeType()
+	local handler = solver:GetPairHandler(shape_a, shape_b)
+
+	if handler then return handler(body_a, body_b, entry_a, entry_b, dt), true end
+
+	solver:WarnMissingPairHandler(shape_a, shape_b)
+	return false, false
+end
+
+function pair_solver_helpers.DispatchColliderPairs(solver, colliders_a, colliders_b, entry_a, entry_b, dt)
+	local handled = false
+
+	for _, collider_a in ipairs(colliders_a or {}) do
+		for _, collider_b in ipairs(colliders_b or {}) do
+			if physics.ShouldBodiesCollide(collider_a, collider_b) then
+				local result, found = pair_solver_helpers.TryInvokePairHandler(solver, collider_a, collider_b, entry_a, entry_b, dt)
+
+				if found and result then handled = true end
+			end
+		end
+	end
+
+	return handled
+end
+
 function pair_solver_helpers.GetStaticDynamicPair(body_a, body_b)
 	if
 		pair_solver_helpers.IsSolverImmovable(body_a) and

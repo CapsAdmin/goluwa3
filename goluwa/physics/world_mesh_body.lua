@@ -47,6 +47,10 @@ local function build_brush_polygon(primitive)
 	return primitive.world_brush_polygon
 end
 
+function world_mesh_body.IsSupportedPrimitive(primitive)
+	return primitive and (primitive.polygon3d or primitive.brush_planes) or false
+end
+
 local function build_shape_for_primitive(primitive)
 	if primitive and primitive.polygon3d then return MeshShape.New({Primitive = primitive}) end
 
@@ -57,8 +61,14 @@ local function build_shape_for_primitive(primitive)
 	return nil
 end
 
+function world_mesh_body.GetPrimitiveShape(primitive)
+	if not world_mesh_body.IsSupportedPrimitive(primitive) then return nil end
+
+	return build_shape_for_primitive(primitive)
+end
+
 function world_mesh_body.GetPrimitivePolygon(primitive)
-	if not primitive then return nil end
+	if not world_mesh_body.IsSupportedPrimitive(primitive) then return nil end
 
 	if primitive.polygon3d then return primitive.polygon3d end
 
@@ -268,9 +278,11 @@ local function create_proxy(model, entity, primitive, primitive_index)
 end
 
 function world_mesh_body.GetPrimitiveBody(model, entity, primitive, primitive_index)
-	if not (model and entity and primitive and (primitive.polygon3d or primitive.brush_planes)) then return nil end
+	if not (model and entity and world_mesh_body.IsSupportedPrimitive(primitive)) then return nil end
 
-	if not build_shape_for_primitive(primitive) then return nil end
+	local shape = world_mesh_body.GetPrimitiveShape(primitive)
+
+	if not shape then return nil end
 
 	primitive.world_mesh_body = primitive.world_mesh_body or create_proxy(model, entity, primitive, primitive_index)
 	local proxy = primitive.world_mesh_body
@@ -278,7 +290,7 @@ function world_mesh_body.GetPrimitiveBody(model, entity, primitive, primitive_in
 	proxy.Model = model
 	proxy.Primitive = primitive
 	proxy.PrimitiveIndex = primitive_index
-	proxy.Shape = proxy.Shape or build_shape_for_primitive(primitive)
+	proxy.Shape = proxy.Shape or shape
 	return proxy
 end
 

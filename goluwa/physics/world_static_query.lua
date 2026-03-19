@@ -7,10 +7,12 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local ModelComponent = import("goluwa/ecs/components/3d/model.lua")
 local world_static_query = {}
 
-local function expand_world_contact_aabb(body, bounds)
+function world_static_query.BuildExpandedWorldContactAABB(bounds, body, extra_body)
 	local margin = body and body.GetCollisionMargin and body:GetCollisionMargin() or 0
 	local probe_distance = body and body.GetCollisionProbeDistance and body:GetCollisionProbeDistance() or 0
-	local pad = math.max(margin + probe_distance, physics.DefaultSkin or 0, physics.EPSILON)
+	local extra_margin = extra_body and extra_body.GetCollisionMargin and extra_body:GetCollisionMargin() or 0
+	local extra_probe_distance = extra_body and extra_body.GetCollisionProbeDistance and extra_body:GetCollisionProbeDistance() or 0
+	local pad = math.max(margin + probe_distance + extra_margin + extra_probe_distance, physics.DefaultSkin or 0, physics.EPSILON)
 	return {
 		min_x = bounds.min_x - pad,
 		min_y = bounds.min_y - pad,
@@ -100,7 +102,7 @@ function world_static_query.BuildBodyWorldContactAABB(body)
 end
 
 function world_static_query.BuildExpandedBodyWorldContactAABB(body)
-	return expand_world_contact_aabb(body, world_static_query.BuildBodyWorldContactAABB(body))
+	return world_static_query.BuildExpandedWorldContactAABB(world_static_query.BuildBodyWorldContactAABB(body), body)
 end
 
 local function visit_model_bvh_leaf_aabb(node, context, out)
