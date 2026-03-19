@@ -28,15 +28,12 @@ function triangle_contact_queries.QueryPointSample(collider, world_point, v0, v1
 		}
 	end
 
-	local closest_point = triangle_geometry.ClosestPointOnTriangle(world_point, v0, v1, v2)
-	local delta = world_point - closest_point
-	local distance = delta:GetLength()
-	local normal = distance > epsilon and (delta / distance) or face_normal
+	local result = triangle_contact_kernels.GetPointTriangleSeparation(world_point, v0, v1, v2, options)
 	return {
 		point = world_point,
-		position = closest_point,
-		normal = normal,
-		surface_distance = distance,
+		position = result.position,
+		normal = result.normal,
+		surface_distance = result.distance,
 		face_normal = face_normal,
 	}
 end

@@ -12,23 +12,46 @@ function triangle_contact_kernels.GetTriangleFaceNormal(v0, v1, v2, epsilon)
 	return face_normal
 end
 
-function triangle_contact_kernels.BuildSphereTrianglePair(center, radius, v0, v1, v2, options)
+function triangle_contact_kernels.GetPointTriangleSeparation(point, v0, v1, v2, options)
 	options = options or {}
 	local epsilon = options.epsilon or physics.EPSILON
 	local face_normal = triangle_contact_kernels.GetTriangleFaceNormal(v0, v1, v2, epsilon)
-
-	if not face_normal then return nil end
-
-	local closest_point = triangle_geometry.ClosestPointOnTriangle(center, v0, v1, v2)
-	local delta = center - closest_point
+	local closest_point = triangle_geometry.ClosestPointOnTriangle(point, v0, v1, v2)
+	local delta = point - closest_point
 	local distance = delta:GetLength()
-	local normal = distance > epsilon and (delta / distance) or face_normal
+	local normal = nil
+
+	if distance > epsilon then
+		normal = delta / distance
+	else
+		normal = face_normal or options.fallback_normal
+
+		if not normal or normal:GetLength() <= epsilon then
+			local fallback_direction = options.fallback_direction
+			normal = fallback_direction and fallback_direction:GetLength() > epsilon and fallback_direction:GetNormalized() or Vec3(0, 1, 0)
+		end
+	end
+
 	return {
-		point = center - normal * radius,
+		point = point,
 		position = closest_point,
 		normal = normal,
 		distance = distance,
 		face_normal = face_normal,
+	}
+end
+
+function triangle_contact_kernels.BuildSphereTrianglePair(center, radius, v0, v1, v2, options)
+	local result = triangle_contact_kernels.GetPointTriangleSeparation(center, v0, v1, v2, options)
+
+	if not result.face_normal then return nil end
+
+	return {
+		point = center - result.normal * radius,
+		position = result.position,
+		normal = result.normal,
+		distance = result.distance,
+		face_normal = result.face_normal,
 	}
 end
 

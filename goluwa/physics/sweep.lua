@@ -5,6 +5,7 @@ local pair_solver_helpers = import("goluwa/physics/pair_solver_helpers.lua")
 local polyhedron_cache = import("goluwa/physics/polyhedron_cache.lua")
 local polyhedron_triangle_contacts = import("goluwa/physics/polyhedron_triangle_contacts.lua")
 local raycast = import("goluwa/physics/raycast.lua")
+local triangle_contact_kernels = import("goluwa/physics/triangle_contact_kernels.lua")
 local triangle_mesh = import("goluwa/physics/triangle_mesh.lua")
 local triangle_geometry = import("goluwa/physics/triangle_geometry.lua")
 local world_static_query = import("goluwa/physics/world_static_query.lua")
@@ -823,29 +824,18 @@ local function sweep_capsule_against_planes(
 end
 
 local function get_point_triangle_separation(center, v0, v1, v2, movement)
-	local epsilon = get_epsilon()
-	local closest = triangle_geometry.ClosestPointOnTriangle(center, v0, v1, v2)
-	local delta = center - closest
-	local distance = delta:GetLength()
-	local normal
-
-	if distance > epsilon then
-		normal = delta / distance
-	else
-		normal = triangle_geometry.GetTriangleNormal(v0, v1, v2)
-		normal = ensure_normal_faces_motion(normal, movement)
-
-		if not normal or normal:GetLength() <= epsilon then
-			normal = movement and
-				movement:GetLength() > epsilon and
-				(
-					movement * -1
-				):GetNormalized() or
-				Vec3(0, 1, 0)
-		end
-	end
-
-	return closest, distance, normal
+	local result = triangle_contact_kernels.GetPointTriangleSeparation(
+		center,
+		v0,
+		v1,
+		v2,
+		{
+			epsilon = get_epsilon(),
+			fallback_normal = ensure_normal_faces_motion(triangle_geometry.GetTriangleNormal(v0, v1, v2), movement),
+			fallback_direction = movement and movement * -1 or nil,
+		}
+	)
+	return result.position, result.distance, result.normal
 end
 
 local function sweep_sphere_against_triangle(start_position, movement, radius, v0, v1, v2, max_fraction)
