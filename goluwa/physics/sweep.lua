@@ -1,5 +1,6 @@
 local physics = import("goluwa/physics.lua")
 local BVH = import("goluwa/physics/bvh.lua")
+local capsule_geometry = import("goluwa/physics/capsule_geometry.lua")
 local pair_solver_helpers = import("goluwa/physics/pair_solver_helpers.lua")
 local polyhedron_cache = import("goluwa/physics/polyhedron_cache.lua")
 local polyhedron_triangle_contacts = import("goluwa/physics/polyhedron_triangle_contacts.lua")
@@ -613,22 +614,7 @@ local function build_collider_swept_aabb(collider, start_position, rotation, mov
 end
 
 local function get_capsule_segment_world(collider, position, rotation)
-	local shape = collider:GetPhysicsShape()
-
-	if
-		not (
-			shape and
-			shape.GetBottomSphereCenterLocal and
-			shape.GetTopSphereCenterLocal and
-			shape.GetRadius
-		)
-	then
-		return nil, nil, 0
-	end
-
-	return collider:LocalToWorld(shape:GetBottomSphereCenterLocal(), position, rotation),
-	collider:LocalToWorld(shape:GetTopSphereCenterLocal(), position, rotation),
-	shape:GetRadius()
+	return capsule_geometry.GetSegmentWorld(collider, position, rotation)
 end
 
 local function get_capsule_triangle_separation(position, rotation, collider, v0, v1, v2, movement)

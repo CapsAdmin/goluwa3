@@ -1,6 +1,7 @@
 local physics = import("goluwa/physics.lua")
 local AABB = import("goluwa/structs/aabb.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
+local capsule_geometry = import("goluwa/physics/capsule_geometry.lua")
 local pair_solver_helpers = import("goluwa/physics/pair_solver_helpers.lua")
 local contact_resolution = import("goluwa/physics/contact_resolution.lua")
 local polyhedron_triangle_aggregator = import("goluwa/physics/polyhedron_triangle_aggregator.lua")
@@ -214,21 +215,11 @@ local function solve_mesh_sphere_collision(mesh_body, sphere_body, mesh_shape, d
 end
 
 local function solve_mesh_capsule_collision(mesh_body, capsule_body, mesh_shape, dt)
-	local shape = capsule_body:GetPhysicsShape()
+	local shape = capsule_geometry.GetCapsuleShape(capsule_body)
 
-	if
-		not (
-			shape and
-			shape.GetRadius and
-			shape.GetBottomSphereCenterLocal and
-			shape.GetTopSphereCenterLocal
-		)
-	then
-		return false
-	end
+	if not shape then return false end
 
-	local start_point = capsule_body:LocalToWorld(shape:GetBottomSphereCenterLocal())
-	local end_point = capsule_body:LocalToWorld(shape:GetTopSphereCenterLocal())
+	local start_point, end_point = capsule_geometry.GetSegmentWorld(capsule_body)
 	local combined_margin = (capsule_body:GetCollisionMargin() or 0) + (mesh_body:GetCollisionMargin() or 0)
 	local best = nil
 

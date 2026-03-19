@@ -1,4 +1,5 @@
 local physics = import("goluwa/physics.lua")
+local capsule_geometry = import("goluwa/physics/capsule_geometry.lua")
 local polyhedron_triangle_contacts = import("goluwa/physics/polyhedron_triangle_contacts.lua")
 local triangle_contact_kernels = import("goluwa/physics/triangle_contact_kernels.lua")
 local triangle_geometry = import("goluwa/physics/triangle_geometry.lua")
@@ -53,23 +54,15 @@ function triangle_contact_queries.QuerySphere(collider, v0, v1, v2, options)
 end
 
 function triangle_contact_queries.QueryCapsule(collider, v0, v1, v2, options)
-	local shape = collider:GetPhysicsShape()
+	local shape = capsule_geometry.GetCapsuleShape(collider)
 
-	if
-		not (
-			shape and
-			shape.GetRadius and
-			shape.GetBottomSphereCenterLocal and
-			shape.GetTopSphereCenterLocal
-		)
-	then
-		return nil
-	end
+	if not shape then return nil end
 
 	local radius = shape:GetRadius()
+	local start_point, end_point = capsule_geometry.GetSegmentWorld(collider)
 	local result = triangle_contact_kernels.BuildCapsuleTrianglePair(
-		collider:LocalToWorld(shape:GetBottomSphereCenterLocal()),
-		collider:LocalToWorld(shape:GetTopSphereCenterLocal()),
+		start_point,
+		end_point,
 		radius,
 		collider:GetPosition(),
 		v0,

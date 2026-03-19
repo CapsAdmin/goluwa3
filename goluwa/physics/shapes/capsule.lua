@@ -3,6 +3,7 @@ local AABB = import("goluwa/structs/aabb.lua")
 local Matrix33 = import("goluwa/structs/matrix33.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local BaseShape = import("goluwa/physics/shapes/base.lua")
+local capsule_geometry = import("goluwa/physics/capsule_geometry.lua")
 local physics = import("goluwa/physics.lua")
 local META = prototype.CreateTemplate("physics_shape_capsule")
 META.Base = BaseShape
@@ -30,11 +31,11 @@ function META:OnBodyGeometryChanged(body)
 end
 
 function META:GetCylinderHeight()
-	return math.max(0, self:GetHeight() - self:GetRadius() * 2)
+	return capsule_geometry.GetCylinderHeight(self)
 end
 
 function META:GetCylinderHalfHeight()
-	return self:GetCylinderHeight() * 0.5
+	return capsule_geometry.GetCylinderHalfHeight(self)
 end
 
 function META:GetHalfExtents()
@@ -42,11 +43,11 @@ function META:GetHalfExtents()
 end
 
 function META:GetBottomSphereCenterLocal()
-	return Vec3(0, -self:GetCylinderHalfHeight(), 0)
+	return capsule_geometry.GetBottomSphereCenterLocal(self)
 end
 
 function META:GetTopSphereCenterLocal()
-	return Vec3(0, self:GetCylinderHalfHeight(), 0)
+	return capsule_geometry.GetTopSphereCenterLocal(self)
 end
 
 function META:GetSupportRadiusAlongNormal(body, normal)
