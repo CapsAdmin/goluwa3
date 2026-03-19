@@ -1,4 +1,4 @@
-local world_rigid_mesh_bridge = import("goluwa/physics/world_rigid_mesh_bridge.lua")
+local world_mesh_contacts = import("goluwa/physics/world_mesh_contacts.lua")
 local physics = import("goluwa/physics.lua")
 local world_contacts = {}
 
@@ -9,7 +9,7 @@ function world_contacts.SolveBodyContacts(body, dt)
 		return false
 	end
 
-	local solved = world_rigid_mesh_bridge.ResolveSweptBodyAgainstWorldPrimitives(body, dt)
+	local solved = world_mesh_contacts.ResolveSweptBodyAgainstWorldPrimitives(body, dt)
 
 	return solved
 end

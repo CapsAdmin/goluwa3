@@ -1,8 +1,8 @@
 local T = import("test/environment.lua")
 local physics = import("goluwa/physics.lua")
+local world_mesh_contacts = import("goluwa/physics/world_mesh_contacts.lua")
 local raycast = import("goluwa/physics/raycast.lua")
 local world_contacts = import("goluwa/physics/world_contacts.lua")
-local world_rigid_mesh_bridge = import("goluwa/physics/world_rigid_mesh_bridge.lua")
 local test_helpers = import("test/tests/physics/test_helpers.lua")
 local Entity = import("goluwa/ecs/entity.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
@@ -65,8 +65,8 @@ T.Test("World contacts resolve brush primitives through rigid world bridge", fun
 end)
 
 T.Test("World contacts use swept rigid world bridge as fallback only", function()
-	local old_resolve = world_rigid_mesh_bridge.ResolveBodyAgainstWorldPrimitives
-	local old_resolve_swept = world_rigid_mesh_bridge.ResolveSweptBodyAgainstWorldPrimitives
+	local old_resolve = world_mesh_contacts.ResolveBodyAgainstWorldPrimitives
+	local old_resolve_swept = world_mesh_contacts.ResolveSweptBodyAgainstWorldPrimitives
 	local body = create_mock_body{
 		Position = Vec3(0, 0.05, 0),
 		PreviousPosition = Vec3(0, 0.05, 0),
@@ -74,19 +74,19 @@ T.Test("World contacts use swept rigid world bridge as fallback only", function(
 	local overlap_calls = 0
 	local sweep_calls = 0
 
-	world_rigid_mesh_bridge.ResolveBodyAgainstWorldPrimitives = function()
+	world_mesh_contacts.ResolveBodyAgainstWorldPrimitives = function()
 		overlap_calls = overlap_calls + 1
 		return false
 	end
 
-	world_rigid_mesh_bridge.ResolveSweptBodyAgainstWorldPrimitives = function()
+	world_mesh_contacts.ResolveSweptBodyAgainstWorldPrimitives = function()
 		sweep_calls = sweep_calls + 1
 		return true
 	end
 
 	world_contacts.SolveBodyContacts(body, 1 / 60)
-	world_rigid_mesh_bridge.ResolveBodyAgainstWorldPrimitives = old_resolve
-	world_rigid_mesh_bridge.ResolveSweptBodyAgainstWorldPrimitives = old_resolve_swept
+	world_mesh_contacts.ResolveBodyAgainstWorldPrimitives = old_resolve
+	world_mesh_contacts.ResolveSweptBodyAgainstWorldPrimitives = old_resolve_swept
 	T(overlap_calls)["=="](0)
 	T(sweep_calls)["=="](1)
 end)

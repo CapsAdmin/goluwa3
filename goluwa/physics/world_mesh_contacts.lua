@@ -1,18 +1,15 @@
 local physics = import("goluwa/physics.lua")
+local mesh_contact_solvers = import("goluwa/physics/mesh_contact_solvers.lua")
 local pair_solver_helpers = import("goluwa/physics/pair_solver_helpers.lua")
 local world_static_query = import("goluwa/physics/world_static_query.lua")
 local world_mesh_body = import("goluwa/physics/world_mesh_body.lua")
-local world_rigid_mesh_bridge = {}
+local world_mesh_contacts = {}
 
-local function supports_shape_type(shape_type)
-	return shape_type == "sphere" or shape_type == "capsule" or shape_type == "box" or shape_type == "convex"
-end
-
-local function body_supports_world_bridge(dynamic_body)
+function world_mesh_contacts.CanResolveBody(dynamic_body)
 	if not dynamic_body then return false end
 
 	if dynamic_body:GetShapeType() ~= "compound" then
-		return supports_shape_type(dynamic_body:GetShapeType())
+		return mesh_contact_solvers.SupportsDynamicShapeType(dynamic_body:GetShapeType())
 	end
 
 	local colliders = dynamic_body:GetColliders() or {}
@@ -20,10 +17,23 @@ local function body_supports_world_bridge(dynamic_body)
 	if not colliders[1] then return false end
 
 	for _, collider in ipairs(colliders) do
-		if not supports_shape_type(collider:GetShapeType()) then return false end
+		if not mesh_contact_solvers.SupportsDynamicShapeType(collider:GetShapeType()) then return false end
 	end
 
 	return true
+end
+
+function world_mesh_contacts.ResolveBodyAgainstProxyBody(dynamic_body, proxy_body, dt)
+	if not (proxy_body and physics.ShouldBodiesCollide(dynamic_body, proxy_body)) then return false end
+
+	return pair_solver_helpers.DispatchColliderPairs(
+		physics.solver,
+		dynamic_body:GetShapeType() == "compound" and dynamic_body:GetColliders() or {dynamic_body},
+		proxy_body:GetColliders(),
+		nil,
+		nil,
+		dt
+	)
 end
 
 local function get_collider_sweep_hit(dynamic_body, collider)
@@ -57,7 +67,7 @@ local function get_collider_sweep_hit(dynamic_body, collider)
 	}
 end
 
-local function rewind_body_to_triangle_hit(dynamic_body, sweep_result)
+local function rewind_body_to_sweep_hit(dynamic_body, sweep_result)
 	if not (dynamic_body and sweep_result and sweep_result.hit and sweep_result.collider) then return nil end
 
 	local hit = sweep_result.hit
@@ -79,54 +89,25 @@ local function rewind_body_to_triangle_hit(dynamic_body, sweep_result)
 	return delta
 end
 
-function world_rigid_mesh_bridge.ResolveBodyAgainstPrimitive(dynamic_body, model, entity, primitive, dt, primitive_index)
-	if not (dynamic_body and world_mesh_body.IsSupportedPrimitive(primitive)) then return false end
-
-	local proxy_body = world_mesh_body.GetPrimitiveBody(model, entity, primitive, primitive_index)
-
-	if not (proxy_body and physics.ShouldBodiesCollide(dynamic_body, proxy_body)) then return false end
-
-	return pair_solver_helpers.DispatchColliderPairs(
-		physics.solver,
-		dynamic_body:GetShapeType() == "compound" and dynamic_body:GetColliders() or {dynamic_body},
-		proxy_body:GetColliders(),
-		nil,
-		nil,
-		dt
-	)
-end
-
-function world_rigid_mesh_bridge.ResolveBodyAgainstWorldPrimitives(dynamic_body, dt)
-	if not body_supports_world_bridge(dynamic_body) then return false end
+function world_mesh_contacts.ResolveBodyAgainstWorldPrimitives(dynamic_body, dt)
+	if not world_mesh_contacts.CanResolveBody(dynamic_body) then return false end
 
 	local solved = false
 	local query_aabb = world_static_query.BuildExpandedBodyWorldContactAABB(dynamic_body)
 
-	world_static_query.ForEachWorldPrimitiveCandidate(
+	world_mesh_body.ForEachPrimitiveBodyCandidate(
 		dynamic_body,
-		function(model, entity, primitive, primitive_index)
-			if world_mesh_body.IsSupportedPrimitive(primitive) then
-				if world_rigid_mesh_bridge.ResolveBodyAgainstPrimitive(dynamic_body, model, entity, primitive, dt, primitive_index) then
-					solved = true
-				end
-			end
+		function(proxy_body)
+			if world_mesh_contacts.ResolveBodyAgainstProxyBody(dynamic_body, proxy_body, dt) then solved = true end
 		end,
-		nil,
-		nil,
-		nil,
-		nil,
 		query_aabb
 	)
 
 	return solved
 end
 
-function world_rigid_mesh_bridge.CanResolveBodyAgainstWorldPrimitives(dynamic_body)
-	return body_supports_world_bridge(dynamic_body)
-end
-
-function world_rigid_mesh_bridge.ResolveSweptBodyAgainstWorldPrimitives(dynamic_body, dt)
-	if not body_supports_world_bridge(dynamic_body) then return false end
+function world_mesh_contacts.ResolveSweptBodyAgainstWorldPrimitives(dynamic_body, dt)
+	if not world_mesh_contacts.CanResolveBody(dynamic_body) then return false end
 
 	local best = nil
 
@@ -141,17 +122,14 @@ function world_rigid_mesh_bridge.ResolveSweptBodyAgainstWorldPrimitives(dynamic_
 	if not best then return false end
 
 	local original_position = dynamic_body:GetPosition():Copy()
-	local delta = rewind_body_to_triangle_hit(dynamic_body, best)
+	local delta = rewind_body_to_sweep_hit(dynamic_body, best)
 
 	if not delta then return false end
 
-	local solved = world_rigid_mesh_bridge.ResolveBodyAgainstPrimitive(
+	local solved = world_mesh_contacts.ResolveBodyAgainstProxyBody(
 		dynamic_body,
-		best.hit.model,
-		best.hit.entity,
-		best.hit.primitive,
-		dt,
-		best.hit.primitive_index
+		world_mesh_body.GetPrimitiveBody(best.hit.model, best.hit.entity, best.hit.primitive, best.hit.primitive_index),
+		dt
 	)
 
 	if not solved then dynamic_body:SetPosition(original_position) end
@@ -159,8 +137,4 @@ function world_rigid_mesh_bridge.ResolveSweptBodyAgainstWorldPrimitives(dynamic_
 	return solved
 end
 
-world_rigid_mesh_bridge.ResolveBodyAgainstWorldTriangles = world_rigid_mesh_bridge.ResolveBodyAgainstWorldPrimitives
-world_rigid_mesh_bridge.CanResolveBodyAgainstWorldTriangles = world_rigid_mesh_bridge.CanResolveBodyAgainstWorldPrimitives
-world_rigid_mesh_bridge.ResolveSweptBodyAgainstWorldTriangles = world_rigid_mesh_bridge.ResolveSweptBodyAgainstWorldPrimitives
-
-return world_rigid_mesh_bridge
+return world_mesh_contacts

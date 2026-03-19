@@ -1,4 +1,5 @@
 local physics = import("goluwa/physics.lua")
+local world_static_query = import("goluwa/physics/world_static_query.lua")
 local AABB = import("goluwa/structs/aabb.lua")
 local brush_hull = import("goluwa/physics/brush_hull.lua")
 local MeshShape = import("goluwa/physics/shapes/mesh.lua")
@@ -292,6 +293,25 @@ function world_mesh_body.GetPrimitiveBody(model, entity, primitive, primitive_in
 	proxy.PrimitiveIndex = primitive_index
 	proxy.Shape = proxy.Shape or shape
 	return proxy
+end
+
+function world_mesh_body.ForEachPrimitiveBodyCandidate(body, callback, world_aabb, source)
+	return world_static_query.ForEachWorldPrimitiveCandidate(
+		body,
+		function(model, entity, primitive, primitive_index, local_body_aabb, world_to_local, local_to_world)
+			local proxy_body = world_mesh_body.GetPrimitiveBody(model, entity, primitive, primitive_index)
+
+			if not (proxy_body and physics.ShouldBodiesCollide(body, proxy_body)) then return end
+
+			return callback(proxy_body, model, entity, primitive, primitive_index, local_body_aabb, world_to_local, local_to_world)
+		end,
+		nil,
+		nil,
+		nil,
+		nil,
+		world_aabb,
+		source
+	)
 end
 
 return world_mesh_body

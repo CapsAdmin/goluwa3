@@ -7,8 +7,8 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local AABB = import("goluwa/structs/aabb.lua")
 local SphereShape = import("goluwa/physics/shapes/sphere.lua")
 local BoxShape = import("goluwa/physics/shapes/box.lua")
+local world_mesh_contacts = import("goluwa/physics/world_mesh_contacts.lua")
 local world_mesh_body = import("goluwa/physics/world_mesh_body.lua")
-local world_rigid_mesh_bridge = import("goluwa/physics/world_rigid_mesh_bridge.lua")
 
 local function create_triangle_ground(name)
 	local ground = Entity.New({Name = name})
@@ -73,6 +73,7 @@ end)
 T.Test3D("World rigid mesh bridge resolves sphere against triangle primitive", function()
 	local ground = create_triangle_ground("world_mesh_bridge_sphere_ground")
 	local primitive = ground.model.Primitives[1]
+	local proxy = world_mesh_body.GetPrimitiveBody(ground.model, ground, primitive)
 	local sphere_ent = Entity.New({Name = "world_mesh_bridge_sphere"})
 	sphere_ent:AddComponent("transform")
 	sphere_ent.transform:SetPosition(Vec3(0, 0.42, 0))
@@ -82,7 +83,7 @@ T.Test3D("World rigid mesh bridge resolves sphere against triangle primitive", f
 		LinearDamping = 0,
 		AngularDamping = 0,
 	})
-	local solved = world_rigid_mesh_bridge.ResolveBodyAgainstPrimitive(sphere, ground.model, ground, primitive, 1 / 60)
+	local solved = world_mesh_contacts.ResolveBodyAgainstProxyBody(sphere, proxy, 1 / 60)
 	local position = sphere:GetPosition()
 	sphere_ent:Remove()
 	ground:Remove()
@@ -94,6 +95,7 @@ end)
 T.Test3D("World rigid mesh bridge resolves box against triangle primitive", function()
 	local ground = create_triangle_ground("world_mesh_bridge_box_ground")
 	local primitive = ground.model.Primitives[1]
+	local proxy = world_mesh_body.GetPrimitiveBody(ground.model, ground, primitive)
 	local box_ent = Entity.New({Name = "world_mesh_bridge_box"})
 	box_ent:AddComponent("transform")
 	box_ent.transform:SetPosition(Vec3(0, 0.48, 0))
@@ -103,7 +105,7 @@ T.Test3D("World rigid mesh bridge resolves box against triangle primitive", func
 		LinearDamping = 0,
 		AngularDamping = 0,
 	})
-	local solved = world_rigid_mesh_bridge.ResolveBodyAgainstPrimitive(box, ground.model, ground, primitive, 1 / 60)
+	local solved = world_mesh_contacts.ResolveBodyAgainstProxyBody(box, proxy, 1 / 60)
 	box_ent:Remove()
 	ground:Remove()
 	T(solved)["=="](true)
@@ -113,6 +115,7 @@ end)
 T.Test3D("World rigid mesh bridge resolves near-support sphere without penetration", function()
 	local ground = create_triangle_ground("world_mesh_bridge_support_sphere_ground")
 	local primitive = ground.model.Primitives[1]
+	local proxy = world_mesh_body.GetPrimitiveBody(ground.model, ground, primitive)
 	local sphere_ent = Entity.New({Name = "world_mesh_bridge_support_sphere"})
 	sphere_ent:AddComponent("transform")
 	sphere_ent.transform:SetPosition(Vec3(0, 0.53, 0))
@@ -122,7 +125,7 @@ T.Test3D("World rigid mesh bridge resolves near-support sphere without penetrati
 		LinearDamping = 0,
 		AngularDamping = 0,
 	})
-	local solved = world_rigid_mesh_bridge.ResolveBodyAgainstPrimitive(sphere, ground.model, ground, primitive, 1 / 60)
+	local solved = world_mesh_contacts.ResolveBodyAgainstProxyBody(sphere, proxy, 1 / 60)
 	local position = sphere:GetPosition()
 	sphere_ent:Remove()
 	ground:Remove()
@@ -134,6 +137,7 @@ end)
 
 T.Test3D("World rigid mesh bridge resolves sphere against brush primitive", function()
 	local ground, model, primitive = create_brush_box_ground("world_mesh_bridge_brush_ground")
+	local proxy = world_mesh_body.GetPrimitiveBody(model, ground, primitive)
 	local sphere_ent = Entity.New({Name = "world_mesh_bridge_brush_sphere"})
 	sphere_ent:AddComponent("transform")
 	sphere_ent.transform:SetPosition(Vec3(0, 0.42, 0))
@@ -143,7 +147,7 @@ T.Test3D("World rigid mesh bridge resolves sphere against brush primitive", func
 		LinearDamping = 0,
 		AngularDamping = 0,
 	})
-	local solved = world_rigid_mesh_bridge.ResolveBodyAgainstPrimitive(sphere, model, ground, primitive, 1 / 60)
+	local solved = world_mesh_contacts.ResolveBodyAgainstProxyBody(sphere, proxy, 1 / 60)
 	local position = sphere:GetPosition()
 	sphere_ent:Remove()
 	ground:Remove()
