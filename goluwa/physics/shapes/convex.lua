@@ -31,7 +31,7 @@ function META:GetResolvedHull(body)
 	local owner = body and body.GetOwner and body:GetOwner() or body and body.Owner
 
 	if not hull and owner and owner.model then
-		hull = convex_hull.BuildConvexHullFromModel(owner.model)
+		hull = convex_hull.BuildHullFromModel(owner.model)
 	end
 
 	if hull then hull = convex_hull.Normalize(hull) end
