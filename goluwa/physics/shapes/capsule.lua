@@ -4,6 +4,8 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local BaseShape = import("goluwa/physics/shapes/base.lua")
 local capsule_geometry = import("goluwa/physics/capsule_geometry.lua")
 local physics = import("goluwa/physics.lua")
+local sample_points = import("goluwa/physics/shapes/sample_points.lua")
+local support_contacts = import("goluwa/physics/shapes/support_contacts.lua")
 local META = prototype.CreateTemplate("physics_shape_capsule")
 META.Base = BaseShape
 META:GetSet("Radius", 0.5)
@@ -97,47 +99,15 @@ function META:GetMassProperties(body)
 end
 
 function META:BuildCollisionLocalPoints()
-	local radius = self:GetRadius()
-	local cylinder_half_height = self:GetCylinderHalfHeight()
-	return {
-		Vec3(0, -(cylinder_half_height + radius), 0),
-		Vec3(0, cylinder_half_height + radius, 0),
-		Vec3(radius, -cylinder_half_height, 0),
-		Vec3(-radius, -cylinder_half_height, 0),
-		Vec3(0, -cylinder_half_height, radius),
-		Vec3(0, -cylinder_half_height, -radius),
-		Vec3(radius, cylinder_half_height, 0),
-		Vec3(-radius, cylinder_half_height, 0),
-		Vec3(0, cylinder_half_height, radius),
-		Vec3(0, cylinder_half_height, -radius),
-		Vec3(radius * 0.7071, -cylinder_half_height - radius * 0.2929, radius * 0.7071),
-		Vec3(-radius * 0.7071, -cylinder_half_height - radius * 0.2929, radius * 0.7071),
-		Vec3(radius * 0.7071, -cylinder_half_height - radius * 0.2929, -radius * 0.7071),
-		Vec3(-radius * 0.7071, -cylinder_half_height - radius * 0.2929, -radius * 0.7071),
-	}
+	return sample_points.BuildCapsuleCollisionPoints(self:GetRadius(), self:GetCylinderHalfHeight())
 end
 
 function META:BuildSupportLocalPoints()
-	local radius = self:GetRadius()
-	local cylinder_half_height = self:GetCylinderHalfHeight()
-	return {
-		Vec3(0, -(cylinder_half_height + radius), 0),
-		Vec3(radius, -cylinder_half_height, 0),
-		Vec3(-radius, -cylinder_half_height, 0),
-		Vec3(0, -cylinder_half_height, radius),
-		Vec3(0, -cylinder_half_height, -radius),
-		Vec3(radius * 0.7071, -cylinder_half_height - radius * 0.2929, radius * 0.7071),
-		Vec3(-radius * 0.7071, -cylinder_half_height - radius * 0.2929, radius * 0.7071),
-		Vec3(radius * 0.7071, -cylinder_half_height - radius * 0.2929, -radius * 0.7071),
-		Vec3(-radius * 0.7071, -cylinder_half_height - radius * 0.2929, -radius * 0.7071),
-	}
+	return sample_points.BuildCapsuleSupportPoints(self:GetRadius(), self:GetCylinderHalfHeight())
 end
 
 function META:SolveSupportContacts(body, dt)
-	local velocity = body:GetVelocity()
-	local downward = math.max(0, -velocity.y * dt)
-	local cast_up = body:GetCollisionProbeDistance() + body:GetCollisionMargin()
-	local cast_distance = cast_up + downward + body:GetCollisionProbeDistance() + body:GetCollisionMargin()
+	local cast_up, cast_distance = support_contacts.GetCastDistances(body, dt)
 	local center = body:GetPosition()
 	local hit = physics.SweepCollider(
 		body,
@@ -152,23 +122,16 @@ function META:SolveSupportContacts(body, dt)
 	local normal = hit and hit.normal or nil
 	local contact_position = hit and hit.position or nil
 
-	if not (hit and normal and contact_position) then return end
+	if not hit then return end
 
-	local support_radius = self:GetSupportRadiusAlongNormal(body, normal)
-	local target_center = contact_position + normal * (support_radius + body:GetCollisionMargin())
-	local correction = target_center - center
-	local depth = correction:Dot(normal)
-
-	if depth <= 0 then return end
-
-	body:ApplyCorrection(0, normal * depth, center - normal * support_radius, nil, nil, dt)
-
-	if normal.y >= body:GetMinGroundNormalY() then
-		body:SetGrounded(true)
-		body:SetGroundNormal(normal)
-	end
-
-	physics.collision_pairs:RecordWorldCollision(body, hit, normal, depth)
+	support_contacts.ApplyWorldSupportContact(
+		body,
+		normal,
+		contact_position,
+		self:GetSupportRadiusAlongNormal(body, normal),
+		hit,
+		dt
+	)
 end
 
 return META:Register()

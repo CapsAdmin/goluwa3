@@ -5,6 +5,8 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local physics = import("goluwa/physics.lua")
 local BaseShape = import("goluwa/physics/shapes/base.lua")
+local sample_points = import("goluwa/physics/shapes/sample_points.lua")
+local support_contacts = import("goluwa/physics/shapes/support_contacts.lua")
 local META = prototype.CreateTemplate("physics_shape_box")
 META.Base = BaseShape
 META:GetSet("Size", Vec3(1, 1, 1))
@@ -91,38 +93,11 @@ function META:GetAxes(body)
 end
 
 function META:GetLocalVertices()
-	local extents = self:GetExtents()
-	local ex = extents.x
-	local ey = extents.y
-	local ez = extents.z
-	return {
-		Vec3(-ex, -ey, -ez),
-		Vec3(ex, -ey, -ez),
-		Vec3(ex, ey, -ez),
-		Vec3(-ex, ey, -ez),
-		Vec3(-ex, -ey, ez),
-		Vec3(ex, -ey, ez),
-		Vec3(ex, ey, ez),
-		Vec3(-ex, ey, ez),
-	}
+	return sample_points.BuildBoxCornerPoints(self:GetExtents())
 end
 
 function META:BuildSupportLocalPoints()
-	local extents = self:GetExtents()
-	local ex = extents.x
-	local ey = extents.y
-	local ez = extents.z
-	local points = {}
-	local samples_x = {-1, -0.75, -0.5, 0, 0.5, 0.75, 1}
-	local samples_z = {-1, 0, 1}
-
-	for _, sx in ipairs(samples_x) do
-		for _, sz in ipairs(samples_z) do
-			points[#points + 1] = Vec3(ex * sx, -ey, ez * sz)
-		end
-	end
-
-	return points
+	return sample_points.BuildBoxSupportGridPoints(self:GetExtents())
 end
 
 function META:GetSupportRadiusAlongNormal(body, normal)
@@ -134,28 +109,11 @@ end
 
 local function solve_box_support_contact(self, body, normal, contact_position, hit, dt)
 	local support_radius = self:GetSupportRadiusAlongNormal(body, normal)
-	local center = body:GetPosition()
-	local target_center = contact_position + normal * (support_radius + body:GetCollisionMargin())
-	local correction = target_center - center
-	local depth = correction:Dot(normal)
-
-	if depth <= 0 then return end
-
-	body:ApplyCorrection(0, normal * depth, center - normal * support_radius, nil, nil, dt)
-
-	if normal.y >= body:GetMinGroundNormalY() then
-		body:SetGrounded(true)
-		body:SetGroundNormal(normal)
-	end
-
-	physics.collision_pairs:RecordWorldCollision(body, hit, normal, depth)
+	support_contacts.ApplyWorldSupportContact(body, normal, contact_position, support_radius, hit, dt)
 end
 
 function META:SolveSupportContacts(body, dt)
-	local velocity = body:GetVelocity()
-	local downward = math.max(0, -velocity.y * dt)
-	local cast_up = body:GetCollisionProbeDistance() + body:GetCollisionMargin()
-	local cast_distance = cast_up + downward + body:GetCollisionProbeDistance() + body:GetCollisionMargin()
+	local cast_up, cast_distance = support_contacts.GetCastDistances(body, dt)
 	local center = body:GetPosition()
 	local hit = physics.SweepCollider(
 		body,

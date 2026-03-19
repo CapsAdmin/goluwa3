@@ -3,6 +3,8 @@ local AABB = import("goluwa/structs/aabb.lua")
 local Matrix33 = import("goluwa/structs/matrix33.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local physics = import("goluwa/physics.lua")
+local sample_points = import("goluwa/physics/shapes/sample_points.lua")
+local support_contacts = import("goluwa/physics/shapes/support_contacts.lua")
 local META = prototype.CreateTemplate("physics_shape_base")
 
 function META.New(data)
@@ -40,26 +42,7 @@ function META:GeometryLocalToWorld(body, local_pos, position, rotation)
 end
 
 function META:BuildCollisionLocalPoints()
-	local extents = self:GetHalfExtents()
-	local ex = extents.x
-	local ey = extents.y
-	local ez = extents.z
-	return {
-		Vec3(-ex, -ey, -ez),
-		Vec3(ex, -ey, -ez),
-		Vec3(ex, ey, -ez),
-		Vec3(-ex, ey, -ez),
-		Vec3(-ex, -ey, ez),
-		Vec3(ex, -ey, ez),
-		Vec3(ex, ey, ez),
-		Vec3(-ex, ey, ez),
-		Vec3(0, -ey, 0),
-		Vec3(0, ey, 0),
-		Vec3(ex, 0, 0),
-		Vec3(-ex, 0, 0),
-		Vec3(0, 0, ez),
-		Vec3(0, 0, -ez),
-	}
+	return sample_points.BuildBoxCollisionPoints(self:GetHalfExtents())
 end
 
 function META:GetCollisionLocalPoints(body)
@@ -67,17 +50,7 @@ function META:GetCollisionLocalPoints(body)
 end
 
 function META:BuildSupportLocalPoints()
-	local extents = self:GetHalfExtents()
-	local ex = extents.x
-	local ey = extents.y
-	local ez = extents.z
-	return {
-		Vec3(-ex, -ey, -ez),
-		Vec3(ex, -ey, -ez),
-		Vec3(ex, -ey, ez),
-		Vec3(-ex, -ey, ez),
-		Vec3(0, -ey, 0),
-	}
+	return sample_points.BuildFlatBottomSupportPoints(self:GetHalfExtents())
 end
 
 function META:GetSupportLocalPoints(body)
@@ -111,10 +84,7 @@ function META:GetBroadphaseAABB(body, position, rotation)
 end
 
 function META:SolveSupportContacts(body, dt, solve_contact)
-	local velocity = body:GetVelocity()
-	local downward = math.max(0, -velocity.y * dt)
-	local cast_up = body:GetCollisionProbeDistance() + body:GetCollisionMargin()
-	local cast_distance = cast_up + downward + body:GetCollisionProbeDistance() + body:GetCollisionMargin()
+	local cast_up, cast_distance = support_contacts.GetCastDistances(body, dt)
 
 	for _, local_point in ipairs(body:GetSupportLocalPoints()) do
 		local point = body:GeometryLocalToWorld(local_point)

@@ -4,6 +4,8 @@ local Matrix33 = import("goluwa/structs/matrix33.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local BaseShape = import("goluwa/physics/shapes/base.lua")
 local physics = import("goluwa/physics.lua")
+local sample_points = import("goluwa/physics/shapes/sample_points.lua")
+local support_contacts = import("goluwa/physics/shapes/support_contacts.lua")
 local META = prototype.CreateTemplate("physics_shape_sphere")
 META.Base = BaseShape
 META:GetSet("Radius", 0.5)
@@ -58,67 +60,15 @@ function META:GetBroadphaseAABB(body, position)
 end
 
 function META:BuildCollisionLocalPoints()
-	local radius = self:GetRadius()
-	local diagonal = radius * 0.7071067811865476
-	return {
-		Vec3(0, -radius, 0),
-		Vec3(0, radius, 0),
-		Vec3(radius, 0, 0),
-		Vec3(-radius, 0, 0),
-		Vec3(0, 0, radius),
-		Vec3(0, 0, -radius),
-		Vec3(diagonal, diagonal, 0),
-		Vec3(-diagonal, diagonal, 0),
-		Vec3(diagonal, -diagonal, 0),
-		Vec3(-diagonal, -diagonal, 0),
-		Vec3(diagonal, 0, diagonal),
-		Vec3(-diagonal, 0, diagonal),
-		Vec3(diagonal, 0, -diagonal),
-		Vec3(-diagonal, 0, -diagonal),
-		Vec3(0, diagonal, diagonal),
-		Vec3(0, -diagonal, diagonal),
-		Vec3(0, diagonal, -diagonal),
-		Vec3(0, -diagonal, -diagonal),
-	}
+	return sample_points.BuildSphereCollisionPoints(self:GetRadius())
 end
 
 function META:BuildSupportLocalPoints()
-	local radius = self:GetRadius()
-	local points = {Vec3(0, -radius, 0)}
-	local rings = {
-		{horizontal = 0.5, vertical = 0.8660254037844386},
-		{horizontal = 0.7071067811865476, vertical = 0.7071067811865476},
-		{horizontal = 0.8660254037844386, vertical = 0.5},
-	}
-	local directions = {
-		Vec3(1, 0, 0),
-		Vec3(-1, 0, 0),
-		Vec3(0, 0, 1),
-		Vec3(0, 0, -1),
-		Vec3(0.7071067811865476, 0, 0.7071067811865476),
-		Vec3(-0.7071067811865476, 0, 0.7071067811865476),
-		Vec3(0.7071067811865476, 0, -0.7071067811865476),
-		Vec3(-0.7071067811865476, 0, -0.7071067811865476),
-	}
-
-	for _, ring in ipairs(rings) do
-		for _, dir in ipairs(directions) do
-			points[#points + 1] = Vec3(
-				dir.x * radius * ring.horizontal,
-				-radius * ring.vertical,
-				dir.z * radius * ring.horizontal
-			)
-		end
-	end
-
-	return points
+	return sample_points.BuildSphereSupportPoints(self:GetRadius())
 end
 
 function META:SolveSupportContacts(body, dt)
-	local velocity = body:GetVelocity()
-	local downward = math.max(0, -velocity.y * dt)
-	local cast_up = body:GetCollisionProbeDistance() + body:GetCollisionMargin()
-	local cast_distance = cast_up + downward + body:GetCollisionProbeDistance() + body:GetCollisionMargin()
+	local cast_up, cast_distance = support_contacts.GetCastDistances(body, dt)
 	local radius = self:GetRadius()
 	local center = body:GetPosition()
 	local hit = physics.Sweep(
@@ -131,22 +81,9 @@ function META:SolveSupportContacts(body, dt)
 	local normal = hit and hit.normal or nil
 	local contact_position = hit and hit.position or nil
 
-	if not (hit and normal and contact_position) then return end
+	if not hit then return end
 
-	local target_center = contact_position + normal * (radius + body:GetCollisionMargin())
-	local correction = target_center - center
-	local depth = correction:Dot(normal)
-
-	if depth <= 0 then return end
-
-	body:ApplyCorrection(0, normal * depth, center - normal * radius, nil, nil, dt)
-
-	if normal.y >= body:GetMinGroundNormalY() then
-		body:SetGrounded(true)
-		body:SetGroundNormal(normal)
-	end
-
-	physics.collision_pairs:RecordWorldCollision(body, hit, normal, depth)
+	support_contacts.ApplyWorldSupportContact(body, normal, contact_position, radius, hit, dt)
 end
 
 function META:OnGroundedVelocityUpdate(body, dt)
