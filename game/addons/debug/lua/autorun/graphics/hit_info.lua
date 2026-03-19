@@ -7,12 +7,14 @@ local gfx = import("goluwa/render2d/gfx.lua")
 local fonts = import("goluwa/render2d/fonts.lua")
 local cached_material = nil
 local cached_lines = {}
-
+local font = fonts.New{Weight = "Regular", Size = 12}
 local function draw(cmd, dt)
+	fonts.SetFont(font)
 	local cam = render3d.GetCamera()
 	local origin = cam:GetPosition()
 	local direction = cam:GetRotation():GetForward()
 	local found = raycast.Cast(origin, direction)
+
 
 	if found[1] then
 		local hit = found[1]
@@ -92,11 +94,11 @@ event.AddListener("KeyInput", "material_debug", function(key, press)
 		enabled = not enabled
 
 		if enabled then
-			event.AddListener("Render2D", "material_debug_draw", draw)
+			event.AddListener("Draw2D", "material_debug_draw", draw)
 		else
-			event.RemoveListener("Render2D", "material_debug_draw")
+			event.RemoveListener("Draw2D", "material_debug_draw")
 		end
 
-		print("Material debug: " .. (enable and "ON" or "OFF"))
+		print("Material debug: " .. (enabled and "ON" or "OFF"))
 	end
 end)
