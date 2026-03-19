@@ -2,8 +2,9 @@ local physics = import("goluwa/physics.lua")
 local pair_solver_helpers = import("goluwa/physics/pair_solver_helpers.lua")
 local contact_resolution = import("goluwa/physics/contact_resolution.lua")
 local convex_manifold = import("goluwa/physics/convex_manifold.lua")
-local convex_face_clipping = import("goluwa/physics/convex_face_clipping.lua")
 local convex_sat = import("goluwa/physics/convex_sat.lua")
+local polyhedron_face_contacts = import("goluwa/physics/polyhedron_face_contacts.lua")
+local polyhedron_sat = import("goluwa/physics/polyhedron_sat.lua")
 local polyhedron_cache = import("goluwa/physics/polyhedron_cache.lua")
 local polyhedron_geometry = import("goluwa/physics/polyhedron_geometry.lua")
 local triangle_geometry = import("goluwa/physics/triangle_geometry.lua")
@@ -22,108 +23,13 @@ local POLYHEDRON_CONTACT_OUTPUT_SCRATCH = {
 polyhedron.GetPolyhedronWorldVertices = polyhedron_cache.GetPolyhedronWorldVertices
 polyhedron.GetPolyhedronWorldFace = polyhedron_cache.GetPolyhedronWorldFace
 polyhedron.ClosestPointOnTriangle = triangle_geometry.ClosestPointOnTriangle
-
-local function collect_sat_axes(poly_a, rotation_a, poly_b, rotation_b, axes)
-	axes = axes or {}
-
-	for i = 1, #axes do
-		axes[i] = nil
-	end
-
-	for _, face in ipairs(poly_a.faces or {}) do
-		convex_sat.AddUniqueAxis(axes, rotation_a:VecMul(face.normal))
-	end
-
-	for _, face in ipairs(poly_b.faces or {}) do
-		convex_sat.AddUniqueAxis(axes, rotation_b:VecMul(face.normal))
-	end
-
-	for _, edge_a in ipairs(poly_a.edges or {}) do
-		local dir_a = rotation_a:VecMul(polyhedron_geometry.GetEdgeDirection(poly_a, edge_a))
-
-		for _, edge_b in ipairs(poly_b.edges or {}) do
-			local dir_b = rotation_b:VecMul(polyhedron_geometry.GetEdgeDirection(poly_b, edge_b))
-			convex_sat.AddUniqueAxis(axes, dir_a:GetCross(dir_b))
-		end
-	end
-
-	return axes
-end
-
-local function has_separating_axis(vertices_a, vertices_b, axes)
-	for _, axis in ipairs(axes) do
-		if convex_sat.GetProjectedOverlap(vertices_a, vertices_b, axis) <= 0 then
-			return true
-		end
-	end
-
-	return false
-end
-
-local function update_face_axis_candidates(best, vertices_a, vertices_b, poly_data, rotation, center_delta, reference_body)
-	for face_index, face in ipairs(poly_data.faces or {}) do
-		local axis = rotation:VecMul(face.normal)
-		convex_sat.TryUpdateAxis(
-			best,
-			vertices_a,
-			vertices_b,
-			axis,
-			center_delta,
-			{
-				kind = "face",
-				reference_body = reference_body,
-				face_index = face_index,
-			},
-			nil,
-			false,
-			physics.EPSILON
-		)
-	end
-
-	return best
-end
-
-local function update_edge_axis_candidates(
-	best,
-	vertices_a,
-	vertices_b,
-	poly_a,
-	rotation_a,
-	poly_b,
-	rotation_b,
-	center_delta
-)
-	for edge_index_a, edge_a in ipairs(poly_a.edges or {}) do
-		local dir_a = rotation_a:VecMul(polyhedron_geometry.GetEdgeDirection(poly_a, edge_a))
-
-		for edge_index_b, edge_b in ipairs(poly_b.edges or {}) do
-			local axis = dir_a:GetCross(rotation_b:VecMul(polyhedron_geometry.GetEdgeDirection(poly_b, edge_b)))
-			convex_sat.TryUpdateAxis(
-				best,
-				vertices_a,
-				vertices_b,
-				axis,
-				center_delta,
-				{
-					kind = "edge",
-					edge_index_a = edge_index_a,
-					edge_index_b = edge_index_b,
-				},
-				nil,
-				true,
-				physics.EPSILON
-			)
-		end
-	end
-
-	return best
-end
 local function get_edge_indices(edge)
 	return polyhedron_geometry.GetEdgeIndices(edge)
 end
 
 local function build_polyhedron_contacts(vertices_a, vertices_b, normal)
-	return convex_manifold.BuildSupportPairContacts(
+	return convex_manifold.BuildAndMergeSupportPairContacts(
+		nil,
 		vertices_a,
 		vertices_b,
 		normal,
@@ -151,16 +57,20 @@ local function build_face_contacts_from_features(
 	local incident_poly = reference_is_a and poly_b or poly_a
 	local incident_rotation = reference_is_a and rotation_b or rotation_a
 	local reference_normal = reference_is_a and candidate.normal or -candidate.normal
-	local reference_face = polyhedron_cache.GetPolyhedronWorldFace(reference_body, reference_poly, candidate.face_index)
+	local reference_face = polyhedron_face_contacts.GetWorldFace(reference_body, reference_poly, candidate.face_index)
 
 	if not reference_face then return {} end
 
-	local incident_face_index = polyhedron_cache.FindIncidentFaceIndex(incident_poly, incident_rotation, reference_normal)
-	local incident_face = polyhedron_cache.GetPolyhedronWorldFace(incident_body, incident_poly, incident_face_index)
+	local incident_face = polyhedron_face_contacts.GetIncidentWorldFace(
+		incident_body,
+		incident_poly,
+		incident_rotation,
+		reference_normal
+	)
 
 	if not incident_face then return {} end
 
-	return convex_face_clipping.BuildFaceContactPairs(
+	return polyhedron_face_contacts.BuildClippedPairs(
 		reference_face.points,
 		reference_normal,
 		incident_face.points,
@@ -221,7 +131,7 @@ end
 
 local function evaluate_polyhedron_pair_at_transforms(poly_a, position_a, rotation_a, poly_b, position_b, rotation_b, scratch)
 	scratch = scratch or {}
-	local axes = collect_sat_axes(poly_a, rotation_a, poly_b, rotation_b, scratch.axes)
+	local axes = polyhedron_sat.CollectAxes(poly_a, rotation_a, poly_b, rotation_b, scratch.axes)
 	scratch.axes = axes
 
 	if not axes[1] then return nil end
@@ -230,14 +140,14 @@ local function evaluate_polyhedron_pair_at_transforms(poly_a, position_a, rotati
 	local vertices_b = polyhedron_cache.FillPolyhedronWorldVertices(poly_b, position_b, rotation_b, scratch.vertices_b)
 	scratch.vertices_a = vertices_a
 	scratch.vertices_b = vertices_b
+
+	if polyhedron_sat.HasSeparatingAxis(vertices_a, vertices_b, axes) then return nil end
+
 	local best = convex_sat.CreateBestAxisTracker()
 	local center_delta = position_b - position_a
-
-	if has_separating_axis(vertices_a, vertices_b, axes) then return nil end
-
-	update_face_axis_candidates(best, vertices_a, vertices_b, poly_a, rotation_a, center_delta, "a")
-	update_face_axis_candidates(best, vertices_a, vertices_b, poly_b, rotation_b, center_delta, "b")
-	update_edge_axis_candidates(
+	polyhedron_sat.UpdateFaceAxisCandidates(best, vertices_a, vertices_b, poly_a, rotation_a, center_delta, "a", physics.EPSILON)
+	polyhedron_sat.UpdateFaceAxisCandidates(best, vertices_a, vertices_b, poly_b, rotation_b, center_delta, "b", physics.EPSILON)
+	polyhedron_sat.UpdateEdgeAxisCandidates(
 		best,
 		vertices_a,
 		vertices_b,
@@ -245,7 +155,8 @@ local function evaluate_polyhedron_pair_at_transforms(poly_a, position_a, rotati
 		rotation_a,
 		poly_b,
 		rotation_b,
-		center_delta
+		center_delta,
+		physics.EPSILON
 	)
 	local chosen = convex_sat.ChoosePreferredAxis(best, FACE_AXIS_RELATIVE_TOLERANCE, FACE_AXIS_ABSOLUTE_TOLERANCE)
 	local best_overlap = chosen and chosen.overlap or math.huge
@@ -436,7 +347,7 @@ local function solve_polyhedron_pair_collision(body_a, body_b, dt)
 	end
 
 	local center_delta = body_b:GetPosition() - body_a:GetPosition()
-	local axes = collect_sat_axes(poly_a, body_a:GetRotation(), poly_b, body_b:GetRotation())
+	local axes = polyhedron_sat.CollectAxes(poly_a, body_a:GetRotation(), poly_b, body_b:GetRotation())
 
 	if not axes[1] then return false end
 
@@ -458,13 +369,13 @@ local function solve_polyhedron_pair_collision(body_a, body_b, dt)
 		return solve_relative_swept_polyhedron_pair_collision(body_a, body_b, poly_a, poly_b, dt)
 	end
 
-	if has_separating_axis(vertices_a, vertices_b, axes) then
+	if polyhedron_sat.HasSeparatingAxis(vertices_a, vertices_b, axes) then
 		return try_swept_fallback()
 	end
 
-	update_face_axis_candidates(best, vertices_a, vertices_b, poly_a, body_a:GetRotation(), center_delta, "a")
-	update_face_axis_candidates(best, vertices_a, vertices_b, poly_b, body_b:GetRotation(), center_delta, "b")
-	update_edge_axis_candidates(
+	polyhedron_sat.UpdateFaceAxisCandidates(best, vertices_a, vertices_b, poly_a, body_a:GetRotation(), center_delta, "a", physics.EPSILON)
+	polyhedron_sat.UpdateFaceAxisCandidates(best, vertices_a, vertices_b, poly_b, body_b:GetRotation(), center_delta, "b", physics.EPSILON)
+	polyhedron_sat.UpdateEdgeAxisCandidates(
 		best,
 		vertices_a,
 		vertices_b,
@@ -472,7 +383,8 @@ local function solve_polyhedron_pair_collision(body_a, body_b, dt)
 		body_a:GetRotation(),
 		poly_b,
 		body_b:GetRotation(),
-		center_delta
+		center_delta,
+		physics.EPSILON
 	)
 	local chosen = convex_sat.ChoosePreferredAxis(best, FACE_AXIS_RELATIVE_TOLERANCE, FACE_AXIS_ABSOLUTE_TOLERANCE)
 	local best_overlap = chosen and chosen.overlap or math.huge

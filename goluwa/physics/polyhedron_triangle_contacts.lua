@@ -1,8 +1,8 @@
 local convex_manifold = import("goluwa/physics/convex_manifold.lua")
-local convex_face_clipping = import("goluwa/physics/convex_face_clipping.lua")
 local convex_sat = import("goluwa/physics/convex_sat.lua")
 local polyhedron_cache = import("goluwa/physics/polyhedron_cache.lua")
-local polyhedron_geometry = import("goluwa/physics/polyhedron_geometry.lua")
+local polyhedron_face_contacts = import("goluwa/physics/polyhedron_face_contacts.lua")
+local polyhedron_sat = import("goluwa/physics/polyhedron_sat.lua")
 local triangle_geometry = import("goluwa/physics/triangle_geometry.lua")
 local polyhedron_triangle_contacts = {}
 local DEFAULT_EPSILON = 0.00001
@@ -33,73 +33,6 @@ local function fill_triangle_vertices(out, v0, v1, v2)
 	return out
 end
 
-local function build_face_contacts(collider, polyhedron, triangle_vertices, chosen, normal, triangle_slop)
-	if
-		not (
-			chosen and
-			chosen.face_index and
-			normal and
-			triangle_vertices and
-			triangle_vertices[1]
-		)
-	then
-		return nil
-	end
-
-	if normal.y < collider:GetMinGroundNormalY() then return nil end
-
-	local separation_tolerance = (collider:GetCollisionMargin() or 0) + triangle_slop
-	local swap = false
-	local reference_points = nil
-	local incident_points = nil
-	local triangle_area = triangle_geometry.GetTriangleArea(triangle_vertices[1], triangle_vertices[2], triangle_vertices[3])
-
-	if chosen.reference == "polyhedron" then
-		local reference_face = polyhedron_cache.GetPolyhedronWorldFace(collider, polyhedron, chosen.face_index)
-
-		if not (reference_face and reference_face.points and reference_face.points[1]) then
-			return nil
-		end
-
-		local face_area = triangle_geometry.GetPolygonArea(reference_face.points)
-
-		if triangle_area < face_area * 1.25 then return nil end
-
-		reference_points = reference_face.points
-		incident_points = triangle_vertices
-	elseif chosen.reference == "triangle" then
-		local incident_face_index = polyhedron_cache.FindIncidentFaceIndex(collider and polyhedron, collider:GetRotation(), normal)
-		local incident_face = incident_face_index and
-			polyhedron_cache.GetPolyhedronWorldFace(collider, polyhedron, incident_face_index) or
-			nil
-
-		if not (incident_face and incident_face.points and incident_face.points[1]) then
-			return nil
-		end
-
-		local face_area = triangle_geometry.GetPolygonArea(incident_face.points)
-
-		if triangle_area < face_area * 1.25 then return nil end
-
-		reference_points = triangle_vertices
-		incident_points = incident_face.points
-		swap = true
-	end
-
-	return convex_face_clipping.BuildFaceContactPairs(
-		reference_points,
-		normal,
-		incident_points,
-		{
-			separation_tolerance = separation_tolerance,
-			max_contacts = 4,
-			scratch = FACE_CONTACT_SCRATCH,
-			out = FACE_CONTACT_SCRATCH.contacts,
-			swap = swap,
-		}
-	)
-end
-
 function polyhedron_triangle_contacts.FindContact(collider, polyhedron, v0, v1, v2, options)
 	options = options or {}
 	local epsilon = options.epsilon or DEFAULT_EPSILON
@@ -118,36 +51,39 @@ function polyhedron_triangle_contacts.FindContact(collider, polyhedron, v0, v1, 
 	local margin_overlap = (collider:GetCollisionMargin() or 0) + triangle_slop
 	local support_axis_y = math.max(collider:GetMinGroundNormalY() or 0, 0.5)
 
-	for face_index, face in ipairs(polyhedron.faces or {}) do
-		local axis = collider:GetRotation():VecMul(face.normal):GetNormalized()
-
-		if
-			not convex_sat.TryUpdateAxis(
-				best,
-				poly_vertices,
-				triangle_vertices,
-				axis,
-				center_delta,
-				{
-					kind = "face",
-					reference = "polyhedron",
-					face_index = face_index,
-				},
-				math.abs(axis.y) >= support_axis_y and margin_overlap or 0,
-				false,
-				epsilon
-			)
-		then
+	if
+		not polyhedron_sat.TryUpdatePolyhedronFaceAxisCandidates(
+			best,
+			poly_vertices,
+			triangle_vertices,
+			polyhedron,
+			collider:GetRotation(),
+			center_delta,
+			{
+				epsilon = epsilon,
+				normalize = true,
+				build_candidate = function(face_index)
+					return {
+						kind = "face",
+						reference = "polyhedron",
+						face_index = face_index,
+					}
+				end,
+				get_margin_overlap = function(axis)
+					return math.abs(axis.y) >= support_axis_y and margin_overlap or 0
+				end,
+			}
+		)
+	then
 			return nil
 		end
-	end
 
 	local triangle_normal = triangle_geometry.GetTriangleNormal(v0, v1, v2)
 
 	if triangle_normal:GetLength() <= epsilon then return nil end
 
 	if
-		not convex_sat.TryUpdateAxis(
+		not polyhedron_sat.TryUpdateAxisCandidate(
 			best,
 			poly_vertices,
 			triangle_vertices,
@@ -157,9 +93,10 @@ function polyhedron_triangle_contacts.FindContact(collider, polyhedron, v0, v1, 
 				kind = "face",
 				reference = "triangle",
 			},
-			math.abs(triangle_normal.y) >= support_axis_y and margin_overlap or 0,
-			false,
-			epsilon
+			{
+				epsilon = epsilon,
+				margin_overlap = math.abs(triangle_normal.y) >= support_axis_y and margin_overlap or 0,
+			}
 		)
 	then
 		return nil
@@ -167,39 +104,29 @@ function polyhedron_triangle_contacts.FindContact(collider, polyhedron, v0, v1, 
 
 	local triangle_edges = triangle_geometry.GetTriangleEdges(v0, v1, v2, TRIANGLE_EDGE_SCRATCH)
 
-	for _, edge in ipairs(polyhedron.edges or {}) do
-		local edge_axis = polyhedron_geometry.GetEdgeDirection(polyhedron, edge)
-
-		if edge_axis then
-			edge_axis = collider:GetRotation():VecMul(edge_axis)
-
-			for _, triangle_edge in ipairs(triangle_edges) do
-				local axis = edge_axis:GetCross(triangle_edge)
-				local axis_length = axis:GetLength()
-
-				if axis_length > epsilon then
-					local normal = axis / axis_length
-
-					if
-						not convex_sat.TryUpdateAxis(
-							best,
-							poly_vertices,
-							triangle_vertices,
-							normal,
-							center_delta,
-							{
-								kind = "edge",
-							},
-							math.abs(normal.y) >= support_axis_y and margin_overlap or 0,
-							false,
-							epsilon
-						)
-					then
-						return nil
-					end
-				end
-			end
-		end
+	if
+		not polyhedron_sat.TryUpdatePolyhedronTriangleEdgeAxisCandidates(
+			best,
+			poly_vertices,
+			triangle_vertices,
+			polyhedron,
+			collider:GetRotation(),
+			triangle_edges,
+			center_delta,
+			{
+				epsilon = epsilon,
+				build_candidate = function()
+					return {
+						kind = "edge",
+					}
+				end,
+				get_margin_overlap = function(axis)
+					return math.abs(axis.y) >= support_axis_y and margin_overlap or 0
+				end,
+			}
+		)
+	then
+		return nil
 	end
 
 	local chosen = convex_sat.ChoosePreferredAxis(best, face_axis_relative_tolerance, face_axis_absolute_tolerance)
@@ -210,12 +137,24 @@ function polyhedron_triangle_contacts.FindContact(collider, polyhedron, v0, v1, 
 
 	local contacts = chosen and
 		chosen.kind == "face" and
-		build_face_contacts(collider, polyhedron, triangle_vertices, chosen, normal, triangle_slop) or
+		polyhedron_face_contacts.BuildPolyhedronTriangleFaceContacts(
+			collider,
+			polyhedron,
+			triangle_vertices,
+			chosen,
+			normal,
+			{
+				triangle_slop = triangle_slop,
+				max_contacts = 4,
+				scratch = FACE_CONTACT_SCRATCH,
+				out = FACE_CONTACT_SCRATCH.contacts,
+			}
+		) or
 		nil
-	local support_contacts = nil
 
 	if not contacts or #contacts < 3 then
-		support_contacts = convex_manifold.BuildSupportPairContacts(
+		contacts = convex_manifold.BuildAndMergeSupportPairContacts(
+			contacts,
 			poly_vertices,
 			triangle_vertices,
 			normal * -1,
@@ -225,16 +164,6 @@ function polyhedron_triangle_contacts.FindContact(collider, polyhedron, v0, v1, 
 				scratch = SUPPORT_CONTACT_SCRATCH,
 			}
 		)
-
-		if not contacts then
-			contacts = support_contacts
-		elseif support_contacts and support_contacts[1] then
-			for _, pair in ipairs(support_contacts) do
-				contacts[#contacts + 1] = pair
-
-				if #contacts >= 4 then break end
-			end
-		end
 	end
 
 	if contacts and contacts[1] then

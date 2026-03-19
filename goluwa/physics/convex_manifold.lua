@@ -121,6 +121,22 @@ function convex_manifold.AddContactPoint(contacts, point_a, point_b, merge_dista
 	convex_manifold.AddContactPointReused(contacts, #contacts, point_a, point_b, merge_distance)
 end
 
+function convex_manifold.MergeContacts(contacts, additional_contacts, max_contacts)
+	if not contacts then return additional_contacts end
+
+	if not (additional_contacts and additional_contacts[1]) then return contacts end
+
+	max_contacts = max_contacts or 4
+
+	for _, pair in ipairs(additional_contacts) do
+		contacts[#contacts + 1] = pair
+
+		if #contacts >= max_contacts then break end
+	end
+
+	return contacts
+end
+
 function convex_manifold.BuildSupportPairContacts(vertices_a, vertices_b, normal, options)
 	options = options or {}
 	local scratch = options.scratch or {}
@@ -166,6 +182,14 @@ function convex_manifold.BuildSupportPairContacts(vertices_a, vertices_b, normal
 	end
 
 	return contacts
+end
+
+function convex_manifold.BuildAndMergeSupportPairContacts(contacts, vertices_a, vertices_b, normal, options)
+	local support_contacts = convex_manifold.BuildSupportPairContacts(vertices_a, vertices_b, normal, options)
+
+	if not contacts then return support_contacts end
+
+	return convex_manifold.MergeContacts(contacts, support_contacts, options and options.max_contacts)
 end
 
 local function clamp01(value)
