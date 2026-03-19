@@ -630,16 +630,6 @@ do
 				not ground_ready_to_sleep
 			)
 
-			if
-				allow_grounded_sleep_assist and
-				shape and
-				shape.SnapGroundedSleepPose and
-				shape:SnapGroundedSleepPose(self)
-			then
-				linear_speed = self.Velocity:GetLength()
-				angular_speed = self.AngularVelocity:GetLength()
-			end
-
 			force_grounded_sleep = allow_grounded_sleep_assist and
 				shape and
 				shape.ShouldForceGroundedSleep and
@@ -654,6 +644,10 @@ do
 		linear_threshold,
 		angular_threshold,
 		force_grounded_sleep
+	end
+
+	local function get_effective_sleep_delay(self)
+		return math.max(self.SleepDelay or 0, 0)
 	end
 
 	function RigidBody:IsReadyToSleep()
@@ -678,7 +672,7 @@ do
 
 		if not ready_to_sleep then return false, force_grounded_sleep end
 
-		return self.SleepTimer >= math.max(self.SleepDelay or 0, 0), force_grounded_sleep
+		return self.SleepTimer >= get_effective_sleep_delay(self, force_grounded_sleep), force_grounded_sleep
 	end
 
 	function RigidBody:UpdateSleepState(dt)
@@ -702,7 +696,7 @@ do
 		if ready_to_sleep then
 			self.SleepTimer = self.SleepTimer + dt
 
-			if self.SleepTimer >= math.max(self.SleepDelay or 0, 0) then self:Sleep() end
+			if self.SleepTimer >= get_effective_sleep_delay(self) then self:Sleep() end
 		else
 			self.SleepTimer = 0
 		end
@@ -736,7 +730,7 @@ do
 	end
 
 	function RigidBody:HasSolverMass()
-		return self:IsDynamic() and self.InverseMass > 0
+		return self:IsDynamic() and (self.InverseMass or 0) > 0
 	end
 
 	function RigidBody:IsSolverImmovable()
