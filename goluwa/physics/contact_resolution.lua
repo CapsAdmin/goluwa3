@@ -98,18 +98,6 @@ local function set_pair_manifold(manifolds, body_a, body_b, manifold)
 	get_or_create_manifold_row(manifolds, body_b)[body_a] = manifold
 end
 
-function contact_resolution.GetPointVelocity(body, linear_velocity, angular_velocity, point)
-	return motion.GetPointVelocity(body, linear_velocity, angular_velocity, point)
-end
-
-function contact_resolution.ApplyImpulseToMotion(body, linear_velocity, angular_velocity, impulse, point)
-	return motion.ApplyImpulseToMotion(body, linear_velocity, angular_velocity, impulse, point)
-end
-
-function contact_resolution.SetBodyMotionFromCurrentState(body, linear_velocity, angular_velocity, dt)
-	return motion.SetBodyMotionFromCurrentState(body, linear_velocity, angular_velocity, dt)
-end
-
 function contact_resolution.ApplyPairImpulse(body_a, body_b, normal, dt, point_a, point_b, options)
 	local inverse_mass_a = body_a.InverseMass
 	local inverse_mass_b = body_b.InverseMass
