@@ -77,12 +77,15 @@ T.Test3D("World rigid mesh bridge resolves sphere against triangle primitive", f
 	local sphere_ent = Entity.New({Name = "world_mesh_bridge_sphere"})
 	sphere_ent:AddComponent("transform")
 	sphere_ent.transform:SetPosition(Vec3(0, 0.42, 0))
-	local sphere = sphere_ent:AddComponent("rigid_body", {
-		Shape = SphereShape.New(0.5),
-		Radius = 0.5,
-		LinearDamping = 0,
-		AngularDamping = 0,
-	})
+	local sphere = sphere_ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = SphereShape.New(0.5),
+			Radius = 0.5,
+			LinearDamping = 0,
+			AngularDamping = 0,
+		}
+	)
 	local solved = world_mesh_contacts.ResolveBodyAgainstProxyBody(sphere, proxy, 1 / 60)
 	local position = sphere:GetPosition()
 	sphere_ent:Remove()
@@ -99,12 +102,15 @@ T.Test3D("World rigid mesh bridge resolves box against triangle primitive", func
 	local box_ent = Entity.New({Name = "world_mesh_bridge_box"})
 	box_ent:AddComponent("transform")
 	box_ent.transform:SetPosition(Vec3(0, 0.48, 0))
-	local box = box_ent:AddComponent("rigid_body", {
-		Shape = BoxShape.New(Vec3(1, 1, 1)),
-		Size = Vec3(1, 1, 1),
-		LinearDamping = 0,
-		AngularDamping = 0,
-	})
+	local box = box_ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = BoxShape.New(Vec3(1, 1, 1)),
+			Size = Vec3(1, 1, 1),
+			LinearDamping = 0,
+			AngularDamping = 0,
+		}
+	)
 	local solved = world_mesh_contacts.ResolveBodyAgainstProxyBody(box, proxy, 1 / 60)
 	box_ent:Remove()
 	ground:Remove()
@@ -119,12 +125,15 @@ T.Test3D("World rigid mesh bridge resolves near-support sphere without penetrati
 	local sphere_ent = Entity.New({Name = "world_mesh_bridge_support_sphere"})
 	sphere_ent:AddComponent("transform")
 	sphere_ent.transform:SetPosition(Vec3(0, 0.53, 0))
-	local sphere = sphere_ent:AddComponent("rigid_body", {
-		Shape = SphereShape.New(0.5),
-		Radius = 0.5,
-		LinearDamping = 0,
-		AngularDamping = 0,
-	})
+	local sphere = sphere_ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = SphereShape.New(0.5),
+			Radius = 0.5,
+			LinearDamping = 0,
+			AngularDamping = 0,
+		}
+	)
 	local solved = world_mesh_contacts.ResolveBodyAgainstProxyBody(sphere, proxy, 1 / 60)
 	local position = sphere:GetPosition()
 	sphere_ent:Remove()
@@ -141,12 +150,15 @@ T.Test3D("World rigid mesh bridge resolves sphere against brush primitive", func
 	local sphere_ent = Entity.New({Name = "world_mesh_bridge_brush_sphere"})
 	sphere_ent:AddComponent("transform")
 	sphere_ent.transform:SetPosition(Vec3(0, 0.42, 0))
-	local sphere = sphere_ent:AddComponent("rigid_body", {
-		Shape = SphereShape.New(0.5),
-		Radius = 0.5,
-		LinearDamping = 0,
-		AngularDamping = 0,
-	})
+	local sphere = sphere_ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = SphereShape.New(0.5),
+			Radius = 0.5,
+			LinearDamping = 0,
+			AngularDamping = 0,
+		}
+	)
 	local solved = world_mesh_contacts.ResolveBodyAgainstProxyBody(sphere, proxy, 1 / 60)
 	local position = sphere:GetPosition()
 	sphere_ent:Remove()

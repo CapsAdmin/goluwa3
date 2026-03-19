@@ -183,12 +183,7 @@ T.Test("Triangle hit surface contact crosses seams between separate model primit
 end)
 
 T.Test("Brush hit surface contact resolves face contacts from polygonized world meshes", function()
-	local hit = build_brush_hit(
-		Vec3(-1, -1, -1),
-		Vec3(1, 1, 1),
-		Vec3(1, 0.2, 0.1),
-		Vec3(1, 0, 0)
-	)
+	local hit = build_brush_hit(Vec3(-1, -1, -1), Vec3(1, 1, 1), Vec3(1, 0.2, 0.1), Vec3(1, 0, 0))
 	local reference_point = Vec3(1.4, 0.2, 0.1)
 	local contact = physics.GetHitSurfaceContact(hit, reference_point)
 	T(contact ~= nil)["=="](true)
@@ -201,12 +196,7 @@ T.Test("Brush hit surface contact resolves face contacts from polygonized world 
 end)
 
 T.Test("Brush hit surface contact resolves corner contacts from polygonized world meshes", function()
-	local hit = build_brush_hit(
-		Vec3(-1, -1, -1),
-		Vec3(1, 1, 1),
-		Vec3(1, 1, 1),
-		Vec3(1, 0, 0)
-	)
+	local hit = build_brush_hit(Vec3(-1, -1, -1), Vec3(1, 1, 1), Vec3(1, 1, 1), Vec3(1, 0, 0))
 	local reference_point = Vec3(1.4, 1.4, 1.4)
 	local contact = physics.GetHitSurfaceContact(hit, reference_point)
 	T(contact ~= nil)["=="](true)

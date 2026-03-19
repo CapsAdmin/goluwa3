@@ -76,8 +76,8 @@ function polyhedron_triangle_contacts.FindContact(collider, polyhedron, v0, v1, 
 			}
 		)
 	then
-			return nil
-		end
+		return nil
+	end
 
 	local triangle_normal = triangle_contact_queries.GetTriangleFaceNormal(v0, v1, v2, epsilon)
 
@@ -176,10 +176,16 @@ function polyhedron_triangle_contacts.FindContact(collider, polyhedron, v0, v1, 
 	end
 
 	local point_a = convex_manifold.AverageSupportPoint(poly_vertices, normal, true)
-	local separation = triangle_contact_queries.GetPointTriangleSeparation(point_a or collider:GetPosition(), v0, v1, v2, {
-		epsilon = epsilon,
-		fallback_normal = normal,
-	})
+	local separation = triangle_contact_queries.GetPointTriangleSeparation(
+		point_a or collider:GetPosition(),
+		v0,
+		v1,
+		v2,
+		{
+			epsilon = epsilon,
+			fallback_normal = normal,
+		}
+	)
 	local point_b = separation and separation.position or nil
 
 	if not (point_a and point_b) then return nil end

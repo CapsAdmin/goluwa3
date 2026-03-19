@@ -58,7 +58,12 @@ end
 
 local function get_debug_shape_summary(body)
 	local shape = body:GetPhysicsShape() or body.Shape
-	local shape_type = body:GetShapeType() or shape and shape.GetTypeName and shape:GetTypeName() or "unknown"
+	local shape_type = body:GetShapeType() or
+		shape and
+		shape.GetTypeName and
+		shape:GetTypeName()
+		or
+		"unknown"
 	local colliders = body.GetColliders and body:GetColliders() or {}
 
 	if shape_type == "box" and shape and shape.GetSize then
@@ -101,7 +106,6 @@ local function get_debug_snapshot(body)
 	local angular_velocity = body:GetAngularVelocity()
 	local position = body:GetPosition()
 	local colliders = body.GetColliders and body:GetColliders() or {}
-
 	return {
 		owner = owner,
 		owner_name = owner and owner.Name or "unnamed",
@@ -117,10 +121,16 @@ local function get_debug_snapshot(body)
 		restitution = body:GetRestitution(),
 		gravity_scale = body:GetGravityScale(),
 		linear_speed = velocity and velocity.GetLength and velocity:GetLength() or 0,
-		angular_speed = angular_velocity and angular_velocity.GetLength and angular_velocity:GetLength() or 0,
+		angular_speed = angular_velocity and
+			angular_velocity.GetLength and
+			angular_velocity:GetLength() or
+			0,
 		position = position and position.Copy and position:Copy() or position,
 		velocity = velocity and velocity.Copy and velocity:Copy() or velocity,
-		angular_velocity = angular_velocity and angular_velocity.Copy and angular_velocity:Copy() or angular_velocity,
+		angular_velocity = angular_velocity and
+			angular_velocity.Copy and
+			angular_velocity:Copy() or
+			angular_velocity,
 	}
 end
 
@@ -129,13 +139,19 @@ local function get_look_body_hit()
 
 	if not cam then return nil, nil end
 
-	local hit = physics.Trace(cam:GetPosition(), cam:GetRotation():GetForward(), 4096, nil, nil, {
-		UseRenderMeshes = false,
-		IgnoreRigidBodies = false,
-		IgnoreKinematicBodies = false,
-	})
+	local hit = physics.Trace(
+		cam:GetPosition(),
+		cam:GetRotation():GetForward(),
+		4096,
+		nil,
+		nil,
+		{
+			UseRenderMeshes = false,
+			IgnoreRigidBodies = false,
+			IgnoreKinematicBodies = false,
+		}
+	)
 	local body = hit and (hit.rigid_body or hit.entity and hit.entity.rigid_body) or nil
-
 	return body, hit
 end
 

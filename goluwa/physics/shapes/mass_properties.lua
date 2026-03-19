@@ -1,13 +1,10 @@
 local Matrix33 = import("goluwa/structs/matrix33.lua")
-
 local mass_properties = {}
 
 function mass_properties.ResolveBodyMass(body, automatic_mass)
 	local mass = body:GetMass()
 
-	if body.IsDynamic and not body:IsDynamic() then
-		return 0
-	end
+	if body.IsDynamic and not body:IsDynamic() then return 0 end
 
 	if body:GetAutomaticMass() then return automatic_mass end
 
@@ -16,6 +13,7 @@ end
 
 function mass_properties.ZeroIfStatic(mass)
 	if mass <= 0 then return 0, Matrix33():SetZero() end
+
 	return nil
 end
 

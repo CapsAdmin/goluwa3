@@ -147,14 +147,24 @@ do
 			shape = ConvexShape.New(data.ConvexHull)
 		end
 
-		if not shape and (data.TriangleMesh or data.Mesh or data.Polygon3D or data.Primitive or data.Model or data.Polygons) then
-			shape = MeshShape.New({
+		if
+			not shape and
+			(
+				data.TriangleMesh or
+				data.Mesh or
+				data.Polygon3D or
+				data.Primitive or
+				data.Model or
+				data.Polygons
+			)
+		then
+			shape = MeshShape.New{
 				Source = data.TriangleMesh or data.Mesh,
 				Polygon3D = data.Polygon3D,
 				Primitive = data.Primitive,
 				Model = data.Model,
 				Polygons = data.Polygons,
-			})
+			}
 		end
 
 		return shape
@@ -629,7 +639,6 @@ do
 				ground_body:GetAwake() and
 				not ground_ready_to_sleep
 			)
-
 			force_grounded_sleep = allow_grounded_sleep_assist and
 				shape and
 				shape.ShouldForceGroundedSleep and
@@ -672,7 +681,8 @@ do
 
 		if not ready_to_sleep then return false, force_grounded_sleep end
 
-		return self.SleepTimer >= get_effective_sleep_delay(self, force_grounded_sleep), force_grounded_sleep
+		return self.SleepTimer >= get_effective_sleep_delay(self, force_grounded_sleep),
+		force_grounded_sleep
 	end
 
 	function RigidBody:UpdateSleepState(dt)

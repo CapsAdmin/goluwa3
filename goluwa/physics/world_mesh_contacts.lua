@@ -17,18 +17,24 @@ function world_mesh_contacts.CanResolveBody(dynamic_body)
 	if not colliders[1] then return false end
 
 	for _, collider in ipairs(colliders) do
-		if not mesh_contact_solvers.SupportsDynamicShapeType(collider:GetShapeType()) then return false end
+		if not mesh_contact_solvers.SupportsDynamicShapeType(collider:GetShapeType()) then
+			return false
+		end
 	end
 
 	return true
 end
 
 function world_mesh_contacts.ResolveBodyAgainstProxyBody(dynamic_body, proxy_body, dt)
-	if not (proxy_body and physics.ShouldBodiesCollide(dynamic_body, proxy_body)) then return false end
+	if not (proxy_body and physics.ShouldBodiesCollide(dynamic_body, proxy_body)) then
+		return false
+	end
 
 	return pair_solver_helpers.DispatchColliderPairs(
 		physics.solver,
-		dynamic_body:GetShapeType() == "compound" and dynamic_body:GetColliders() or {dynamic_body},
+		dynamic_body:GetShapeType() == "compound" and
+			dynamic_body:GetColliders() or
+			{dynamic_body},
 		proxy_body:GetColliders(),
 		nil,
 		nil,
@@ -56,7 +62,9 @@ local function get_collider_sweep_hit(dynamic_body, collider)
 		}
 	)
 
-	if not (hit and world_mesh_body.IsSupportedPrimitive(hit.primitive)) then return nil end
+	if not (hit and world_mesh_body.IsSupportedPrimitive(hit.primitive)) then
+		return nil
+	end
 
 	return {
 		collider = collider,
@@ -68,7 +76,16 @@ local function get_collider_sweep_hit(dynamic_body, collider)
 end
 
 local function rewind_body_to_sweep_hit(dynamic_body, sweep_result)
-	if not (dynamic_body and sweep_result and sweep_result.hit and sweep_result.collider) then return nil end
+	if
+		not (
+			dynamic_body and
+			sweep_result and
+			sweep_result.hit and
+			sweep_result.collider
+		)
+	then
+		return nil
+	end
 
 	local hit = sweep_result.hit
 	local collider = sweep_result.collider
@@ -98,7 +115,9 @@ function world_mesh_contacts.ResolveBodyAgainstWorldPrimitives(dynamic_body, dt)
 	world_mesh_body.ForEachPrimitiveBodyCandidate(
 		dynamic_body,
 		function(proxy_body)
-			if world_mesh_contacts.ResolveBodyAgainstProxyBody(dynamic_body, proxy_body, dt) then solved = true end
+			if world_mesh_contacts.ResolveBodyAgainstProxyBody(dynamic_body, proxy_body, dt) then
+				solved = true
+			end
 		end,
 		query_aabb
 	)
@@ -114,7 +133,19 @@ function world_mesh_contacts.ResolveSweptBodyAgainstWorldPrimitives(dynamic_body
 	for _, collider in ipairs(dynamic_body:GetColliders() or {}) do
 		local sweep_hit = get_collider_sweep_hit(dynamic_body, collider)
 
-		if sweep_hit and (not best or (sweep_hit.hit.fraction or 1) < (best.hit.fraction or 1)) then
+		if
+			sweep_hit and
+			(
+				not best or
+				(
+					sweep_hit.hit.fraction or
+					1
+				) < (
+					best.hit.fraction or
+					1
+				)
+			)
+		then
 			best = sweep_hit
 		end
 	end

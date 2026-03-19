@@ -10,7 +10,6 @@ function world_contacts.SolveBodyContacts(body, dt)
 	end
 
 	local solved = world_mesh_contacts.ResolveSweptBodyAgainstWorldPrimitives(body, dt)
-
 	return solved
 end
 

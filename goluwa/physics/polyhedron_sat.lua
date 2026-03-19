@@ -9,7 +9,9 @@ function polyhedron_sat.TryUpdateAxisCandidate(best, vertices_a, vertices_b, axi
 
 	local margin_overlap = options.margin_overlap
 
-	if options.get_margin_overlap then margin_overlap = options.get_margin_overlap(axis, candidate) end
+	if options.get_margin_overlap then
+		margin_overlap = options.get_margin_overlap(axis, candidate)
+	end
 
 	return convex_sat.TryUpdateAxis(
 		best,
@@ -61,7 +63,16 @@ function polyhedron_sat.HasSeparatingAxis(vertices_a, vertices_b, axes)
 	return false
 end
 
-function polyhedron_sat.UpdateFaceAxisCandidates(best, vertices_a, vertices_b, poly_data, rotation, center_delta, reference_body, epsilon)
+function polyhedron_sat.UpdateFaceAxisCandidates(
+	best,
+	vertices_a,
+	vertices_b,
+	poly_data,
+	rotation,
+	center_delta,
+	reference_body,
+	epsilon
+)
 	for face_index, face in ipairs(poly_data.faces or {}) do
 		convex_sat.TryUpdateAxis(
 			best,
@@ -87,9 +98,10 @@ function polyhedron_sat.TryUpdatePolyhedronFaceAxisCandidates(best, vertices_a, 
 	options = options or {}
 	local epsilon = options.epsilon
 	local allow_zero_axis = options.allow_zero_axis or false
-	local build_candidate = options.build_candidate or function(face_index)
-		return {face_index = face_index}
-	end
+	local build_candidate = options.build_candidate or
+		function(face_index)
+			return {face_index = face_index}
+		end
 	local get_margin_overlap = options.get_margin_overlap or function()
 		return nil
 	end
@@ -122,7 +134,17 @@ function polyhedron_sat.TryUpdatePolyhedronFaceAxisCandidates(best, vertices_a, 
 	return true
 end
 
-function polyhedron_sat.UpdateEdgeAxisCandidates(best, vertices_a, vertices_b, poly_a, rotation_a, poly_b, rotation_b, center_delta, epsilon)
+function polyhedron_sat.UpdateEdgeAxisCandidates(
+	best,
+	vertices_a,
+	vertices_b,
+	poly_a,
+	rotation_a,
+	poly_b,
+	rotation_b,
+	center_delta,
+	epsilon
+)
 	for edge_index_a, edge_a in ipairs(poly_a.edges or {}) do
 		local dir_a = rotation_a:VecMul(polyhedron_geometry.GetEdgeDirection(poly_a, edge_a))
 
@@ -148,7 +170,16 @@ function polyhedron_sat.UpdateEdgeAxisCandidates(best, vertices_a, vertices_b, p
 	return best
 end
 
-function polyhedron_sat.TryUpdatePolyhedronTriangleEdgeAxisCandidates(best, vertices_a, vertices_b, polyhedron, rotation, triangle_edges, center_delta, options)
+function polyhedron_sat.TryUpdatePolyhedronTriangleEdgeAxisCandidates(
+	best,
+	vertices_a,
+	vertices_b,
+	polyhedron,
+	rotation,
+	triangle_edges,
+	center_delta,
+	options
+)
 	options = options or {}
 	local epsilon = options.epsilon
 	local allow_zero_axis = options.allow_zero_axis or false

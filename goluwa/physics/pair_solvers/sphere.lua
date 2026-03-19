@@ -245,13 +245,20 @@ local function solve_sphere_convex_collision(sphere_body, convex_body, dt)
 		local a = vertices[hull.indices[i]]
 		local b = vertices[hull.indices[i + 1]]
 		local c = vertices[hull.indices[i + 2]]
-		local separation = triangle_contact_queries.GetPointTriangleSeparation(center, a, b, c, {
-			epsilon = physics.EPSILON,
-			fallback_normal = nearest_face_normal,
-		})
+		local separation = triangle_contact_queries.GetPointTriangleSeparation(
+			center,
+			a,
+			b,
+			c,
+			{
+				epsilon = physics.EPSILON,
+				fallback_normal = nearest_face_normal,
+			}
+		)
 		local point = separation and separation.position or nil
 
 		if not point then goto continue_triangle end
+
 		local distance = (center - point):GetLength()
 
 		if distance < best_distance then

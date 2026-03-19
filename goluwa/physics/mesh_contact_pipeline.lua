@@ -2,7 +2,6 @@ local physics = import("goluwa/physics.lua")
 local mesh_contact_common = import("goluwa/physics/mesh_contact_common.lua")
 local mesh_contact_solvers = import("goluwa/physics/mesh_contact_solvers.lua")
 local mesh_contact_pipeline = {}
-
 local GetStaticMeshDynamicPair = mesh_contact_common.GetStaticMeshDynamicPair
 
 local function SolveStaticMeshPairCollision(body_a, body_b, dt)

@@ -8,13 +8,13 @@ local fonts = import("goluwa/render2d/fonts.lua")
 local cached_material = nil
 local cached_lines = {}
 local font = fonts.New{Weight = "Regular", Size = 12}
+
 local function draw(cmd, dt)
 	fonts.SetFont(font)
 	local cam = render3d.GetCamera()
 	local origin = cam:GetPosition()
 	local direction = cam:GetRotation():GetForward()
 	local found = raycast.Cast(origin, direction)
-
 
 	if found[1] then
 		local hit = found[1]

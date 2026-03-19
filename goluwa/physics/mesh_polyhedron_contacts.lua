@@ -77,7 +77,14 @@ end
 function mesh_polyhedron_contacts.SolveMeshPolyhedronCollision(mesh_body, poly_body, mesh_shape, dt)
 	local polyhedron = poly_body:GetBodyPolyhedron()
 
-	if not (polyhedron and polyhedron.vertices and polyhedron.faces and polyhedron.faces[1]) then
+	if
+		not (
+			polyhedron and
+			polyhedron.vertices and
+			polyhedron.faces and
+			polyhedron.faces[1]
+		)
+	then
 		return false
 	end
 
@@ -89,35 +96,52 @@ function mesh_polyhedron_contacts.SolveMeshPolyhedronCollision(mesh_body, poly_b
 	}
 	local samples = mesh_polyhedron_contacts.BuildContactSamples(poly_body)
 
-	mesh_contact_common.ForEachOverlappingMeshTriangle(mesh_body, mesh_shape, poly_body, function(v0, v1, v2, triangle_index)
-		local result = triangle_contact_queries.QueryPolyhedron(
-			poly_body,
-			polyhedron,
-			v0,
-			v1,
-			v2,
-			{
-				epsilon = physics.EPSILON,
-				triangle_slop = (mesh_body:GetCollisionMargin() or 0) + (poly_body:GetCollisionMargin() or 0),
-				manifold_merge_distance = 0.08,
-				face_axis_relative_tolerance = 1.05,
-				face_axis_absolute_tolerance = 0.03,
-			}
-		)
+	mesh_contact_common.ForEachOverlappingMeshTriangle(
+		mesh_body,
+		mesh_shape,
+		poly_body,
+		function(v0, v1, v2, triangle_index)
+			local result = triangle_contact_queries.QueryPolyhedron(
+				poly_body,
+				polyhedron,
+				v0,
+				v1,
+				v2,
+				{
+					epsilon = physics.EPSILON,
+					triangle_slop = (mesh_body:GetCollisionMargin() or 0) + (poly_body:GetCollisionMargin() or 0),
+					manifold_merge_distance = 0.08,
+					face_axis_relative_tolerance = 1.05,
+					face_axis_absolute_tolerance = 0.03,
+				}
+			)
 
-		if result and result.normal and result.contacts and result.contacts[1] then
-			if (result.overlap or 0) > (state.best_overlap or 0) then state.best_triangle_index = triangle_index end
+			if result and result.normal and result.contacts and result.contacts[1] then
+				if (result.overlap or 0) > (state.best_overlap or 0) then
+					state.best_triangle_index = triangle_index
+				end
 
-			polyhedron_triangle_aggregator.AccumulateMeshContacts(state, poly_body, result, v0, v1, v2, {
-				merge_distance = 0.08,
-				max_contacts = 4,
-			})
+				polyhedron_triangle_aggregator.AccumulateMeshContacts(
+					state,
+					poly_body,
+					result,
+					v0,
+					v1,
+					v2,
+					{
+						merge_distance = 0.08,
+						max_contacts = 4,
+					}
+				)
+			end
+
+			mesh_polyhedron_contacts.AccumulateSampleContacts(state, mesh_body, poly_body, samples, v0, v1, v2, triangle_index)
 		end
+	)
 
-		mesh_polyhedron_contacts.AccumulateSampleContacts(state, mesh_body, poly_body, samples, v0, v1, v2, triangle_index)
-	end)
-
-	if not (state.best_normal and state.best_overlap > physics.EPSILON) then return false end
+	if not (state.best_normal and state.best_overlap > physics.EPSILON) then
+		return false
+	end
 
 	if state.contacts[1] then
 		return contact_resolution.ResolvePairPenetration(

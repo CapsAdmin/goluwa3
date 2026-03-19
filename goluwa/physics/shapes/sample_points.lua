@@ -122,10 +122,26 @@ function sample_points.BuildSphereSupportPoints(radius)
 end
 
 local function append_capsule_lower_hemisphere_points(points, radius, cylinder_half_height)
-	points[#points + 1] = Vec3(radius * CAPSULE_DIAGONAL, -cylinder_half_height - radius * CAPSULE_VERTICAL, radius * CAPSULE_DIAGONAL)
-	points[#points + 1] = Vec3(-radius * CAPSULE_DIAGONAL, -cylinder_half_height - radius * CAPSULE_VERTICAL, radius * CAPSULE_DIAGONAL)
-	points[#points + 1] = Vec3(radius * CAPSULE_DIAGONAL, -cylinder_half_height - radius * CAPSULE_VERTICAL, -radius * CAPSULE_DIAGONAL)
-	points[#points + 1] = Vec3(-radius * CAPSULE_DIAGONAL, -cylinder_half_height - radius * CAPSULE_VERTICAL, -radius * CAPSULE_DIAGONAL)
+	points[#points + 1] = Vec3(
+		radius * CAPSULE_DIAGONAL,
+		-cylinder_half_height - radius * CAPSULE_VERTICAL,
+		radius * CAPSULE_DIAGONAL
+	)
+	points[#points + 1] = Vec3(
+		-radius * CAPSULE_DIAGONAL,
+		-cylinder_half_height - radius * CAPSULE_VERTICAL,
+		radius * CAPSULE_DIAGONAL
+	)
+	points[#points + 1] = Vec3(
+		radius * CAPSULE_DIAGONAL,
+		-cylinder_half_height - radius * CAPSULE_VERTICAL,
+		-radius * CAPSULE_DIAGONAL
+	)
+	points[#points + 1] = Vec3(
+		-radius * CAPSULE_DIAGONAL,
+		-cylinder_half_height - radius * CAPSULE_VERTICAL,
+		-radius * CAPSULE_DIAGONAL
+	)
 	return points
 end
 

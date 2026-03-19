@@ -46,12 +46,15 @@ T.Test("World contacts resolve brush primitives through rigid world bridge", fun
 	local body_ent = Entity.New({Name = "world_contacts_brush_body"})
 	body_ent:AddComponent("transform")
 	body_ent.transform:SetPosition(Vec3(0, 0.05, 0))
-	local body = body_ent:AddComponent("rigid_body", {
-		Shape = SphereShape.New(0.1),
-		Radius = 0.1,
-		LinearDamping = 0,
-		AngularDamping = 0,
-	})
+	local body = body_ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = SphereShape.New(0.1),
+			Radius = 0.1,
+			LinearDamping = 0,
+			AngularDamping = 0,
+		}
+	)
 	physics.GetWorldTraceSource = function()
 		return source
 	end
@@ -73,17 +76,14 @@ T.Test("World contacts use swept rigid world bridge as fallback only", function(
 	}
 	local overlap_calls = 0
 	local sweep_calls = 0
-
 	world_mesh_contacts.ResolveBodyAgainstWorldPrimitives = function()
 		overlap_calls = overlap_calls + 1
 		return false
 	end
-
 	world_mesh_contacts.ResolveSweptBodyAgainstWorldPrimitives = function()
 		sweep_calls = sweep_calls + 1
 		return true
 	end
-
 	world_contacts.SolveBodyContacts(body, 1 / 60)
 	world_mesh_contacts.ResolveBodyAgainstWorldPrimitives = old_resolve
 	world_mesh_contacts.ResolveSweptBodyAgainstWorldPrimitives = old_resolve_swept

@@ -21,6 +21,7 @@ local POLYHEDRON_CONTACT_OUTPUT_SCRATCH = {
 }
 polyhedron.GetPolyhedronWorldVertices = polyhedron_cache.GetPolyhedronWorldVertices
 polyhedron.GetPolyhedronWorldFace = polyhedron_cache.GetPolyhedronWorldFace
+
 local function get_edge_indices(edge)
 	return polyhedron_geometry.GetEdgeIndices(edge)
 end
@@ -59,12 +60,7 @@ local function build_face_contacts_from_features(
 
 	if not reference_face then return {} end
 
-	local incident_face = polyhedron_face_contacts.GetIncidentWorldFace(
-		incident_body,
-		incident_poly,
-		incident_rotation,
-		reference_normal
-	)
+	local incident_face = polyhedron_face_contacts.GetIncidentWorldFace(incident_body, incident_poly, incident_rotation, reference_normal)
 
 	if not incident_face then return {} end
 
@@ -139,12 +135,32 @@ local function evaluate_polyhedron_pair_at_transforms(poly_a, position_a, rotati
 	scratch.vertices_a = vertices_a
 	scratch.vertices_b = vertices_b
 
-	if polyhedron_sat.HasSeparatingAxis(vertices_a, vertices_b, axes) then return nil end
+	if polyhedron_sat.HasSeparatingAxis(vertices_a, vertices_b, axes) then
+		return nil
+	end
 
 	local best = convex_sat.CreateBestAxisTracker()
 	local center_delta = position_b - position_a
-	polyhedron_sat.UpdateFaceAxisCandidates(best, vertices_a, vertices_b, poly_a, rotation_a, center_delta, "a", physics.EPSILON)
-	polyhedron_sat.UpdateFaceAxisCandidates(best, vertices_a, vertices_b, poly_b, rotation_b, center_delta, "b", physics.EPSILON)
+	polyhedron_sat.UpdateFaceAxisCandidates(
+		best,
+		vertices_a,
+		vertices_b,
+		poly_a,
+		rotation_a,
+		center_delta,
+		"a",
+		physics.EPSILON
+	)
+	polyhedron_sat.UpdateFaceAxisCandidates(
+		best,
+		vertices_a,
+		vertices_b,
+		poly_b,
+		rotation_b,
+		center_delta,
+		"b",
+		physics.EPSILON
+	)
 	polyhedron_sat.UpdateEdgeAxisCandidates(
 		best,
 		vertices_a,
@@ -371,8 +387,26 @@ local function solve_polyhedron_pair_collision(body_a, body_b, dt)
 		return try_swept_fallback()
 	end
 
-	polyhedron_sat.UpdateFaceAxisCandidates(best, vertices_a, vertices_b, poly_a, body_a:GetRotation(), center_delta, "a", physics.EPSILON)
-	polyhedron_sat.UpdateFaceAxisCandidates(best, vertices_a, vertices_b, poly_b, body_b:GetRotation(), center_delta, "b", physics.EPSILON)
+	polyhedron_sat.UpdateFaceAxisCandidates(
+		best,
+		vertices_a,
+		vertices_b,
+		poly_a,
+		body_a:GetRotation(),
+		center_delta,
+		"a",
+		physics.EPSILON
+	)
+	polyhedron_sat.UpdateFaceAxisCandidates(
+		best,
+		vertices_a,
+		vertices_b,
+		poly_b,
+		body_b:GetRotation(),
+		center_delta,
+		"b",
+		physics.EPSILON
+	)
 	polyhedron_sat.UpdateEdgeAxisCandidates(
 		best,
 		vertices_a,

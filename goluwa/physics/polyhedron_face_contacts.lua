@@ -4,7 +4,9 @@ local triangle_geometry = import("goluwa/physics/triangle_geometry.lua")
 local polyhedron_face_contacts = {}
 
 function polyhedron_face_contacts.GetWorldFace(body, polyhedron, face_index)
-	local face = face_index and polyhedron_cache.GetPolyhedronWorldFace(body, polyhedron, face_index) or nil
+	local face = face_index and
+		polyhedron_cache.GetPolyhedronWorldFace(body, polyhedron, face_index) or
+		nil
 
 	if not (face and face.points and face.points[1]) then return nil end
 
@@ -16,12 +18,12 @@ function polyhedron_face_contacts.GetIncidentWorldFace(body, polyhedron, rotatio
 
 	if not face_index then return nil end
 
-	return polyhedron_face_contacts.GetWorldFace(body, polyhedron, face_index), face_index
+	return polyhedron_face_contacts.GetWorldFace(body, polyhedron, face_index),
+	face_index
 end
 
 function polyhedron_face_contacts.BuildClippedPairs(reference_points, reference_normal, incident_points, options)
 	options = options or {}
-
 	return convex_face_clipping.BuildFaceContactPairs(
 		reference_points,
 		reference_normal,

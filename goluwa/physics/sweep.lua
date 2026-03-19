@@ -631,7 +631,13 @@ local function get_capsule_triangle_separation(position, rotation, collider, v0,
 		v2,
 		{
 			epsilon = get_epsilon(),
-			fallback_normal = movement and movement:GetLength() > get_epsilon() and (movement * -1):GetNormalized() or physics.Up,
+			fallback_normal = movement and
+				movement:GetLength() > get_epsilon()
+				and
+				(
+					movement * -1
+				):GetNormalized() or
+				physics.Up,
 			zero_distance_normal = ensure_normal_faces_motion(triangle_contact_queries.GetTriangleFaceNormal(v0, v1, v2, get_epsilon()), movement),
 		}
 	)
@@ -831,10 +837,17 @@ local function sweep_sphere_against_triangle(start_position, movement, radius, v
 		}
 	end
 
-	local segment_separation = triangle_contact_queries.GetSegmentTriangleSeparation(start_position, end_position, v0, v1, v2, {
-		epsilon = epsilon,
-		fallback_normal = ensure_normal_faces_motion(triangle_contact_queries.GetTriangleFaceNormal(v0, v1, v2, epsilon), movement),
-	})
+	local segment_separation = triangle_contact_queries.GetSegmentTriangleSeparation(
+		start_position,
+		end_position,
+		v0,
+		v1,
+		v2,
+		{
+			epsilon = epsilon,
+			fallback_normal = ensure_normal_faces_motion(triangle_contact_queries.GetTriangleFaceNormal(v0, v1, v2, epsilon), movement),
+		}
+	)
 	local segment_point = segment_separation and segment_separation.segment_point or nil
 	local min_distance = segment_separation and segment_separation.distance or nil
 
@@ -1627,12 +1640,32 @@ local function evaluate_polyhedron_pair_contact(poly_a, position_a, rotation_a, 
 	scratch.vertices_a = vertices_a
 	scratch.vertices_b = vertices_b
 
-	if polyhedron_sat.HasSeparatingAxis(vertices_a, vertices_b, axes) then return nil end
+	if polyhedron_sat.HasSeparatingAxis(vertices_a, vertices_b, axes) then
+		return nil
+	end
 
 	local best = convex_sat.CreateBestAxisTracker()
 	local center_delta = position_b - position_a
-	polyhedron_sat.UpdateFaceAxisCandidates(best, vertices_a, vertices_b, poly_a, rotation_a, center_delta, "a", get_epsilon())
-	polyhedron_sat.UpdateFaceAxisCandidates(best, vertices_a, vertices_b, poly_b, rotation_b, center_delta, "b", get_epsilon())
+	polyhedron_sat.UpdateFaceAxisCandidates(
+		best,
+		vertices_a,
+		vertices_b,
+		poly_a,
+		rotation_a,
+		center_delta,
+		"a",
+		get_epsilon()
+	)
+	polyhedron_sat.UpdateFaceAxisCandidates(
+		best,
+		vertices_a,
+		vertices_b,
+		poly_b,
+		rotation_b,
+		center_delta,
+		"b",
+		get_epsilon()
+	)
 	polyhedron_sat.UpdateEdgeAxisCandidates(
 		best,
 		vertices_a,
@@ -2377,6 +2410,7 @@ local function test_primitive_sweep(
 	if primitive.aabb and not BVH.AABBIntersects(local_aabb, primitive.aabb) then
 		return nil
 	end
+
 	local poly = world_mesh_body.GetPrimitivePolygon(primitive)
 
 	if not poly then return nil end
@@ -2712,6 +2746,7 @@ function physics.SweepCollider(collider, start_position, movement, ignore_entity
 	local source = options.WorldSource
 	local use_render_meshes = options.UseRenderMeshes
 	source, use_render_meshes = world_static_query.ResolveWorldSource(source, use_render_meshes, options.IgnoreRigidBodies ~= false)
+
 	if source == nil then return nil end
 
 	return physics.SweepColliderFromSource(source, collider, start_position, movement, ignore_entity, filter_fn, options)
@@ -2722,6 +2757,7 @@ function physics.Sweep(origin, movement, radius, ignore_entity, filter_fn, optio
 	local source = options.WorldSource
 	local use_render_meshes = options.UseRenderMeshes
 	source, use_render_meshes = world_static_query.ResolveWorldSource(source, use_render_meshes, options.IgnoreRigidBodies ~= false)
+
 	if source == nil then return nil end
 
 	return physics.SweepFromSource(source, origin, movement, radius, ignore_entity, filter_fn, options)

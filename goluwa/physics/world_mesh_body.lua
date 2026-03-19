@@ -9,7 +9,10 @@ local world_mesh_body = {}
 
 local function get_entity_rotation(entity)
 	local transform = entity and entity.transform or nil
-	return transform and transform.GetRotation and transform:GetRotation() or Quat():Identity()
+	return transform and
+		transform.GetRotation and
+		transform:GetRotation() or
+		Quat():Identity()
 end
 
 local function get_entity_position(entity)
@@ -24,7 +27,17 @@ local function build_brush_polygon(primitive)
 
 	local hull = primitive.brush_hull or brush_hull.BuildHullFromPlanes(primitive.brush_planes)
 
-	if not (hull and hull.vertices and hull.vertices[1] and hull.indices and hull.indices[1]) then return nil end
+	if
+		not (
+			hull and
+			hull.vertices and
+			hull.vertices[1] and
+			hull.indices and
+			hull.indices[1]
+		)
+	then
+		return nil
+	end
 
 	primitive.brush_hull = hull
 	local indices = {}
@@ -53,7 +66,9 @@ function world_mesh_body.IsSupportedPrimitive(primitive)
 end
 
 local function build_shape_for_primitive(primitive)
-	if primitive and primitive.polygon3d then return MeshShape.New({Primitive = primitive}) end
+	if primitive and primitive.polygon3d then
+		return MeshShape.New({Primitive = primitive})
+	end
 
 	local brush_polygon = build_brush_polygon(primitive)
 
@@ -241,9 +256,13 @@ local function create_proxy(model, entity, primitive, primitive_index)
 	end
 
 	function proxy:SetGrounded() end
+
 	function proxy:SetGroundNormal() end
+
 	function proxy:SetGroundRollingFriction() end
+
 	function proxy:SetGroundBody() end
+
 	function proxy:SetGroundEntity() end
 
 	function proxy:IsStatic()
@@ -267,25 +286,43 @@ local function create_proxy(model, entity, primitive, primitive_index)
 	end
 
 	function proxy:ApplyImpulse() end
+
 	function proxy:ApplyAngularImpulse() end
+
 	function proxy:ApplyForce() end
+
 	function proxy:ApplyTorque() end
-	function proxy:ApplyCorrection() return 0 end
-	function proxy:Wake() return self end
-	function proxy:Sleep() return self end
-	function proxy:BodyHasSignificantRotation() return false end
+
+	function proxy:ApplyCorrection()
+		return 0
+	end
+
+	function proxy:Wake()
+		return self
+	end
+
+	function proxy:Sleep()
+		return self
+	end
+
+	function proxy:BodyHasSignificantRotation()
+		return false
+	end
 
 	return proxy
 end
 
 function world_mesh_body.GetPrimitiveBody(model, entity, primitive, primitive_index)
-	if not (model and entity and world_mesh_body.IsSupportedPrimitive(primitive)) then return nil end
+	if not (model and entity and world_mesh_body.IsSupportedPrimitive(primitive)) then
+		return nil
+	end
 
 	local shape = world_mesh_body.GetPrimitiveShape(primitive)
 
 	if not shape then return nil end
 
-	primitive.world_mesh_body = primitive.world_mesh_body or create_proxy(model, entity, primitive, primitive_index)
+	primitive.world_mesh_body = primitive.world_mesh_body or
+		create_proxy(model, entity, primitive, primitive_index)
 	local proxy = primitive.world_mesh_body
 	proxy.Owner = entity
 	proxy.Model = model
@@ -298,12 +335,31 @@ end
 function world_mesh_body.ForEachPrimitiveBodyCandidate(body, callback, world_aabb, source)
 	return world_static_query.ForEachWorldPrimitiveCandidate(
 		body,
-		function(model, entity, primitive, primitive_index, local_body_aabb, world_to_local, local_to_world)
+		function(
+			model,
+			entity,
+			primitive,
+			primitive_index,
+			local_body_aabb,
+			world_to_local,
+			local_to_world
+		)
 			local proxy_body = world_mesh_body.GetPrimitiveBody(model, entity, primitive, primitive_index)
 
-			if not (proxy_body and physics.ShouldBodiesCollide(body, proxy_body)) then return end
+			if not (proxy_body and physics.ShouldBodiesCollide(body, proxy_body)) then
+				return
+			end
 
-			return callback(proxy_body, model, entity, primitive, primitive_index, local_body_aabb, world_to_local, local_to_world)
+			return callback(
+				proxy_body,
+				model,
+				entity,
+				primitive,
+				primitive_index,
+				local_body_aabb,
+				world_to_local,
+				local_to_world
+			)
 		end,
 		nil,
 		nil,

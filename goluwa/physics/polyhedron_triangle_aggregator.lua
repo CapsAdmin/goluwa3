@@ -19,8 +19,12 @@ function polyhedron_triangle_aggregator.MergeContact(contacts, point_a, point_b,
 
 	for _, existing in ipairs(contacts) do
 		if
-			(existing.point_a - point_a):GetLength() <= merge_distance and
-			(existing.point_b - point_b):GetLength() <= merge_distance
+			(
+				existing.point_a - point_a
+			):GetLength() <= merge_distance and
+			(
+				existing.point_b - point_b
+			):GetLength() <= merge_distance
 		then
 			return false
 		end
@@ -34,7 +38,9 @@ function polyhedron_triangle_aggregator.MergeContact(contacts, point_a, point_b,
 end
 
 function polyhedron_triangle_aggregator.AccumulateMeshContacts(state, body, result, v0, v1, v2, options)
-	if not (state and body and result and result.contacts and result.contacts[1]) then return state end
+	if not (state and body and result and result.contacts and result.contacts[1]) then
+		return state
+	end
 
 	options = options or {}
 	local merge_distance = options.merge_distance or 0.08

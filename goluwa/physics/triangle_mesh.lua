@@ -167,7 +167,6 @@ function triangle_mesh.GetPolygonFeatureCache(poly, epsilon)
 			end
 
 			by_vertex[#by_vertex + 1] = face_index
-
 			local local_vertex = local_vertices[vertex_index]
 			local key = triangle_mesh.GetFeaturePositionKey(local_vertex, epsilon)
 

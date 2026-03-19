@@ -69,10 +69,7 @@ function META:GetMassProperties(body)
 	if zero_mass then return zero_mass, zero_inertia end
 
 	local total_volume = cylinder_volume + sphere_volume
-	local cylinder_mass = total_volume > 0 and
-		mass * (cylinder_volume / total_volume)
-		or
-		0
+	local cylinder_mass = total_volume > 0 and mass * (cylinder_volume / total_volume) or 0
 	local sphere_mass = mass - cylinder_mass
 	local iyy = 0.5 * cylinder_mass * radius * radius + (2 / 5) * sphere_mass * radius * radius
 	local ixx = (

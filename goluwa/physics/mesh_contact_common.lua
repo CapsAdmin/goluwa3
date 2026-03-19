@@ -15,11 +15,19 @@ function mesh_contact_common.GetStaticMeshDynamicPair(body_a, body_b)
 	local shape_a = mesh_contact_common.GetMeshShape(body_a)
 	local shape_b = mesh_contact_common.GetMeshShape(body_b)
 
-	if shape_a and pair_solver_helpers.IsSolverImmovable(body_a) and pair_solver_helpers.HasSolverMass(body_b) then
+	if
+		shape_a and
+		pair_solver_helpers.IsSolverImmovable(body_a) and
+		pair_solver_helpers.HasSolverMass(body_b)
+	then
 		return body_a, body_b, shape_a
 	end
 
-	if shape_b and pair_solver_helpers.IsSolverImmovable(body_b) and pair_solver_helpers.HasSolverMass(body_a) then
+	if
+		shape_b and
+		pair_solver_helpers.IsSolverImmovable(body_b) and
+		pair_solver_helpers.HasSolverMass(body_a)
+	then
 		return body_b, body_a, shape_b
 	end
 
@@ -39,6 +47,7 @@ function mesh_contact_common.ForEachOverlappingMeshTriangle(mesh_body, mesh_shap
 	LOCAL_AABB_TRANSFORM_PROXY.body = mesh_body
 	local local_bounds = AABB.BuildLocalAABBFromWorldAABB(bounds, LOCAL_AABB_TRANSFORM_PROXY)
 	LOCAL_AABB_TRANSFORM_PROXY.body = nil
+
 	mesh_shape:ForEachOverlappingTriangle(mesh_body, local_bounds, function(v0, v1, v2, triangle_index, context)
 		callback(
 			mesh_body:LocalToWorld(v0),
@@ -53,7 +62,15 @@ end
 function mesh_contact_common.SelectTriangleNormal(mesh_body, other_body, delta, fallback_delta, fallback_normal)
 	return pair_solver_helpers.GetSafeCollisionNormal(
 		delta,
-		(other_body.GetVelocity and other_body:GetVelocity() or Vec3()) - (mesh_body.GetVelocity and mesh_body:GetVelocity() or Vec3()),
+		(
+				other_body.GetVelocity and
+				other_body:GetVelocity() or
+				Vec3()
+			) - (
+				mesh_body.GetVelocity and
+				mesh_body:GetVelocity() or
+				Vec3()
+			),
 		fallback_delta,
 		fallback_normal or pair_solver_helpers.GetCachedPairNormal(mesh_body, other_body)
 	)
@@ -98,28 +115,35 @@ function mesh_contact_common.SolveBestTriangleContact(mesh_body, other_body, mes
 
 	local best = nil
 
-	mesh_contact_common.ForEachOverlappingMeshTriangle(mesh_body, mesh_shape, other_body, function(v0, v1, v2, triangle_index)
-		local result = handlers.Query(v0, v1, v2)
+	mesh_contact_common.ForEachOverlappingMeshTriangle(
+		mesh_body,
+		mesh_shape,
+		other_body,
+		function(v0, v1, v2, triangle_index)
+			local result = handlers.Query(v0, v1, v2)
 
-		if not result then return end
+			if not result then return end
 
-		local normal = select(
-			1,
-			mesh_contact_common.SelectTriangleNormal(
-				mesh_body,
-				other_body,
-				handlers.GetDelta(result, v0, v1, v2),
-				handlers.GetFallbackDelta(result, v0, v1, v2),
-				handlers.GetFallbackNormal and handlers.GetFallbackNormal(result, v0, v1, v2) or result.face_normal
+			local normal = select(
+				1,
+				mesh_contact_common.SelectTriangleNormal(
+					mesh_body,
+					other_body,
+					handlers.GetDelta(result, v0, v1, v2),
+					handlers.GetFallbackDelta(result, v0, v1, v2),
+					handlers.GetFallbackNormal and
+						handlers.GetFallbackNormal(result, v0, v1, v2) or
+						result.face_normal
+				)
 			)
-		)
-		local overlap = combined_margin - result.surface_distance
+			local overlap = combined_margin - result.surface_distance
 
-		if not normal then return end
+			if not normal then return end
 
-		local point_a, point_b = handlers.GetContactPoints(result, normal, v0, v1, v2)
-		best = mesh_contact_common.UpdateBestContact(best, triangle_index, normal, overlap, point_a, point_b)
-	end)
+			local point_a, point_b = handlers.GetContactPoints(result, normal, v0, v1, v2)
+			best = mesh_contact_common.UpdateBestContact(best, triangle_index, normal, overlap, point_a, point_b)
+		end
+	)
 
 	return mesh_contact_common.ResolveBestContact(mesh_body, other_body, best, dt)
 end

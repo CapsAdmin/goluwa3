@@ -125,7 +125,6 @@ function contact_resolution.ApplyPairImpulse(body_a, body_b, normal, dt, point_a
 
 	local normal_impulse = -(1 + restitution) * normal_speed / normal_inverse_mass
 	impulse_motion.ApplyPairImpulse(state_a, state_b, normal * normal_impulse, point_a, point_b)
-
 	relative_velocity = impulse_motion.GetRelativePointVelocity(state_a, point_a, state_b, point_b)
 	local tangent_velocity = relative_velocity - normal * relative_velocity:Dot(normal)
 	local tangent_speed = tangent_velocity:GetLength()
@@ -146,7 +145,6 @@ function contact_resolution.ApplyPairImpulse(body_a, body_b, normal, dt, point_a
 		local tangent_impulse = -relative_velocity:Dot(tangent) / tangent_inverse_mass
 		local max_friction_impulse = normal_impulse * friction
 		tangent_impulse = math.max(-max_friction_impulse, math.min(max_friction_impulse, tangent_impulse))
-
 		impulse_motion.ApplyPairImpulse(state_a, state_b, tangent * tangent_impulse, point_a, point_b)
 	end
 

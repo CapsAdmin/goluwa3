@@ -20,5 +20,4 @@ register_solver("sphere", mesh_simple_contacts.SolveMeshSphereCollision)
 register_solver("capsule", mesh_simple_contacts.SolveMeshCapsuleCollision)
 register_solver("box", mesh_polyhedron_contacts.SolveMeshPolyhedronCollision)
 register_solver("convex", mesh_polyhedron_contacts.SolveMeshPolyhedronCollision)
-
 return mesh_contact_solvers

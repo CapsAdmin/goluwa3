@@ -20,7 +20,15 @@ function world_mesh_broadphase.AppendCandidatePairs(physics, pairs, entries)
 		local entry_a = entries[i]
 		local body = entry_a and entry_a.body
 
-		if not (body and body.IsDynamic and body:IsDynamic() and body.GetAwake and body:GetAwake()) then
+		if
+			not (
+				body and
+				body.IsDynamic and
+				body:IsDynamic() and
+				body.GetAwake and
+				body:GetAwake()
+			)
+		then
 			goto continue_entry
 		end
 

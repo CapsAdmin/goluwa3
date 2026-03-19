@@ -45,11 +45,11 @@ end)
 
 T.Test("Rigid bodies accept triangle mesh shape definitions", function()
 	local poly = create_quad_polygon()
-	local body = test_helpers.CreateTestRigidBody({
+	local body = test_helpers.CreateTestRigidBody{
 		Shape = {
 			TriangleMesh = poly,
 		},
-	})
+	}
 	local shape = body:GetPhysicsShape()
 	T(body:GetShapeType())["=="]("mesh")
 	T(shape ~= nil)["=="](true)
@@ -61,7 +61,7 @@ end)
 
 T.Test("Mesh shape can resolve polygon primitives from owner models", function()
 	local poly = create_quad_polygon()
-	local body = test_helpers.CreateTestRigidBody({
+	local body = test_helpers.CreateTestRigidBody{
 		Shape = MeshShape.New(),
 		Owner = {
 			IsValid = function()
@@ -83,7 +83,7 @@ T.Test("Mesh shape can resolve polygon primitives from owner models", function()
 				},
 			},
 		},
-	})
+	}
 	local shape = body:GetPhysicsShape()
 	local polygons = shape:GetMeshPolygons(body:GetColliders()[1])
 	T(body:GetShapeType())["=="]("mesh")

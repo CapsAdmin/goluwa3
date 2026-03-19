@@ -111,8 +111,16 @@ function META:TryAcquireBody(look)
 	local body = hit and
 		(
 			hit.rigid_body or
-			(hit.collider and hit.collider.GetBody and hit.collider:GetBody()) or
-			(hit.entity and hit.entity.rigid_body)
+			(
+				hit.collider and
+				hit.collider.GetBody and
+				hit.collider:GetBody()
+			)
+			or
+			(
+				hit.entity and
+				hit.entity.rigid_body
+			)
 		)
 
 	if not self:CanHoldBody(body) or not (hit and hit.position) then return false end

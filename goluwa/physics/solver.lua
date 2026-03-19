@@ -243,7 +243,10 @@ local function solve_rigid_body_pair(self, body_a, body_b, entry_a, entry_b, dt)
 	local colliders_a = body_a:GetColliders()
 	local colliders_b = body_b:GetColliders()
 
-	if pair_solver_helpers.IsSimpleBody(colliders_a) and pair_solver_helpers.IsSimpleBody(colliders_b) then
+	if
+		pair_solver_helpers.IsSimpleBody(colliders_a) and
+		pair_solver_helpers.IsSimpleBody(colliders_b)
+	then
 		local handled, found = pair_solver_helpers.TryInvokePairHandler(self, body_a, body_b, entry_a, entry_b, dt)
 
 		if found then return handled end

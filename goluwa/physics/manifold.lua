@@ -157,9 +157,7 @@ function manifold.WarmStart(body_a, body_b, normal, manifold_data, dt)
 		end
 	end
 
-	if did_apply then
-		impulse_motion.CommitPairMotion(state_a, state_b, dt)
-	end
+	if did_apply then impulse_motion.CommitPairMotion(state_a, state_b, dt) end
 end
 
 function manifold.SolveImpulses(body_a, body_b, normal, manifold_data, dt)

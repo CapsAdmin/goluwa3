@@ -30,7 +30,10 @@ function triangle_contact_queries.GetPointTriangleSeparation(point, v0, v1, v2, 
 
 		if not normal or normal:GetLength() <= epsilon then
 			local fallback_direction = options.fallback_direction
-			normal = fallback_direction and fallback_direction:GetLength() > epsilon and fallback_direction:GetNormalized() or Vec3(0, 1, 0)
+			normal = fallback_direction and
+				fallback_direction:GetLength() > epsilon and
+				fallback_direction:GetNormalized() or
+				Vec3(0, 1, 0)
 		end
 	end
 
@@ -93,7 +96,6 @@ function triangle_contact_queries.GetCapsuleTriangleSeparation(start_point, end_
 	local triangle_point = separation.position
 	local distance = separation.distance
 	local triangle_normal = separation.face_normal
-
 	local normal = nil
 
 	if distance > epsilon then
@@ -122,15 +124,7 @@ function triangle_contact_queries.GetCapsuleTriangleSeparation(start_point, end_
 end
 
 function triangle_contact_queries.BuildCapsuleTrianglePair(start_point, end_point, radius, center, v0, v1, v2, options)
-	local result = triangle_contact_queries.GetCapsuleTriangleSeparation(
-		start_point,
-		end_point,
-		center,
-		v0,
-		v1,
-		v2,
-		options
-	)
+	local result = triangle_contact_queries.GetCapsuleTriangleSeparation(start_point, end_point, center, v0, v1, v2, options)
 
 	if not result then return nil end
 
@@ -215,7 +209,8 @@ function triangle_contact_queries.QueryCapsule(collider, v0, v1, v2, options)
 end
 
 function triangle_contact_queries.QueryPolyhedron(collider, polyhedron, v0, v1, v2, options)
-	polyhedron_triangle_contacts = polyhedron_triangle_contacts or import("goluwa/physics/polyhedron_triangle_contacts.lua")
+	polyhedron_triangle_contacts = polyhedron_triangle_contacts or
+		import("goluwa/physics/polyhedron_triangle_contacts.lua")
 	return polyhedron_triangle_contacts.FindContact(collider, polyhedron, v0, v1, v2, options)
 end
 

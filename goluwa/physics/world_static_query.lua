@@ -10,9 +10,19 @@ local world_static_query = {}
 function world_static_query.BuildExpandedWorldContactAABB(bounds, body, extra_body)
 	local margin = body and body.GetCollisionMargin and body:GetCollisionMargin() or 0
 	local probe_distance = body and body.GetCollisionProbeDistance and body:GetCollisionProbeDistance() or 0
-	local extra_margin = extra_body and extra_body.GetCollisionMargin and extra_body:GetCollisionMargin() or 0
-	local extra_probe_distance = extra_body and extra_body.GetCollisionProbeDistance and extra_body:GetCollisionProbeDistance() or 0
-	local pad = math.max(margin + probe_distance + extra_margin + extra_probe_distance, physics.DefaultSkin or 0, physics.EPSILON)
+	local extra_margin = extra_body and
+		extra_body.GetCollisionMargin and
+		extra_body:GetCollisionMargin() or
+		0
+	local extra_probe_distance = extra_body and
+		extra_body.GetCollisionProbeDistance and
+		extra_body:GetCollisionProbeDistance() or
+		0
+	local pad = math.max(
+		margin + probe_distance + extra_margin + extra_probe_distance,
+		physics.DefaultSkin or 0,
+		physics.EPSILON
+	)
 	return {
 		min_x = bounds.min_x - pad,
 		min_y = bounds.min_y - pad,
@@ -24,7 +34,14 @@ function world_static_query.BuildExpandedWorldContactAABB(bounds, body, extra_bo
 end
 
 function world_static_query.GetWorldModels(source)
-	source = source == nil and (physics.GetWorldTraceSource and physics.GetWorldTraceSource() or nil) or source
+	source = source == nil and
+		(
+			physics.GetWorldTraceSource and
+			physics.GetWorldTraceSource() or
+			nil
+		)
+		or
+		source
 
 	if source and source.models then return source.models end
 
@@ -68,7 +85,9 @@ function world_static_query.BuildBodyWorldContactAABB(body)
 
 	if not points[1] then
 		local position = body.GetPosition and body:GetPosition() or Vec3()
-		local margin = body.GetCollisionMargin and math.max(body:GetCollisionMargin() or 0.01, 0.01) or 0.01
+		local margin = body.GetCollisionMargin and
+			math.max(body:GetCollisionMargin() or 0.01, 0.01) or
+			0.01
 		return {
 			min_x = position.x - margin,
 			min_y = position.y - margin,
@@ -117,11 +136,15 @@ local function append_model_candidate(out, model, world_aabb, include_unbounded)
 	local bounds = model and (model.GetWorldAABB and model:GetWorldAABB() or model.AABB) or nil
 
 	if bounds then
-		if AABB.IsBoxIntersecting(world_aabb, bounds) then out[#out + 1] = {model = model} end
+		if AABB.IsBoxIntersecting(world_aabb, bounds) then
+			out[#out + 1] = {model = model}
+		end
+
 		return out
 	end
 
 	if include_unbounded and model then out[#out + 1] = {model = model} end
+
 	return out
 end
 

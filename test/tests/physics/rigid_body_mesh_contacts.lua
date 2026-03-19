@@ -31,23 +31,29 @@ T.Test3D("Rigid bodies rest on static mesh rigid bodies", function()
 	ground_ent:AddComponent("transform")
 	ground_ent.transform:SetPosition(Vec3(0, 1, 0))
 	local ground_poly = create_quad_mesh(8)
-	ground_ent:AddComponent("rigid_body", {
-		Shape = MeshShape.New(ground_poly),
-		MotionType = "static",
-		Friction = 1,
-	})
+	ground_ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = MeshShape.New(ground_poly),
+			MotionType = "static",
+			Friction = 1,
+		}
+	)
 	local box_ent = Entity.New({Name = "rigid_mesh_box"})
 	box_ent:AddComponent("transform")
 	box_ent.transform:SetPosition(Vec3(0.03, 4.2, -0.02))
 	box_ent.transform:SetAngles(Deg3(2, 9, 3))
-	local box = box_ent:AddComponent("rigid_body", {
-		Shape = BoxShape.New(Vec3(2.4, 0.8, 2.4)),
-		Size = Vec3(2.4, 0.8, 2.4),
-		LinearDamping = 0,
-		AngularDamping = 0,
-		Friction = 1,
-		Restitution = 0,
-	})
+	local box = box_ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = BoxShape.New(Vec3(2.4, 0.8, 2.4)),
+			Size = Vec3(2.4, 0.8, 2.4),
+			LinearDamping = 0,
+			AngularDamping = 0,
+			Friction = 1,
+			Restitution = 0,
+		}
+	)
 	simulate_physics(360)
 	local settled_position = box_ent.transform:GetPosition():Copy()
 	local settled_angles = box_ent.transform:GetRotation():GetAngles()
@@ -75,22 +81,31 @@ T.Test3D("Static mesh rigid bodies collide with falling spheres", function()
 	ground_ent:AddComponent("transform")
 	ground_ent.transform:SetPosition(Vec3(0, 1, 0))
 	local ground_poly = create_quad_mesh(6)
-	ground_ent:AddComponent("rigid_body", {
-		Shape = MeshShape.New(ground_poly),
-		MotionType = "static",
-		Friction = 1,
-	})
+	ground_ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = MeshShape.New(ground_poly),
+			MotionType = "static",
+			Friction = 1,
+		}
+	)
 	local sphere_ent = Entity.New({Name = "rigid_mesh_sphere"})
 	sphere_ent:AddComponent("transform")
 	sphere_ent.transform:SetPosition(Vec3(0, 5, 0))
-	local sphere = sphere_ent:AddComponent("rigid_body", {
-		Radius = 0.75,
-		Shape = physics.SphereShape and physics.SphereShape.New and physics.SphereShape.New(0.75) or import("goluwa/physics/shapes/sphere.lua").New(0.75),
-		LinearDamping = 0,
-		AngularDamping = 0,
-		Friction = 0.5,
-		Restitution = 0,
-	})
+	local sphere = sphere_ent:AddComponent(
+		"rigid_body",
+		{
+			Radius = 0.75,
+			Shape = physics.SphereShape and
+				physics.SphereShape.New and
+				physics.SphereShape.New(0.75) or
+				import("goluwa/physics/shapes/sphere.lua").New(0.75),
+			LinearDamping = 0,
+			AngularDamping = 0,
+			Friction = 0.5,
+			Restitution = 0,
+		}
+	)
 	simulate_physics(240)
 	local position = sphere_ent.transform:GetPosition()
 	sphere_ent:Remove()

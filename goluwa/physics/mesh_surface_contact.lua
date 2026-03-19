@@ -49,7 +49,8 @@ function mesh_surface_contact.GetHitFaceNormal(hit)
 
 	if not (v0 and v1 and v2) then return hit.normal end
 
-	return triangle_contact_queries.GetTriangleFaceNormal(v0, v1, v2, MESH_FEATURE_EPSILON) or hit.normal
+	return triangle_contact_queries.GetTriangleFaceNormal(v0, v1, v2, MESH_FEATURE_EPSILON) or
+		hit.normal
 end
 
 local function on_segment(a, b, point)
@@ -82,7 +83,9 @@ local function get_mesh_feature_indices(closest_point, v0, v1, v2, i0, i1, i2)
 	end
 
 	if on_segment(v0, v1, closest_point) then return "edge", {i0, i1} end
+
 	if on_segment(v1, v2, closest_point) then return "edge", {i1, i2} end
+
 	if on_segment(v2, v0, closest_point) then return "edge", {i2, i0} end
 
 	return "face", nil
@@ -109,7 +112,9 @@ local function get_mesh_feature_local_positions(poly, feature_indices)
 end
 
 local function append_unique_normal(normals, candidate_normal)
-	if not candidate_normal or candidate_normal:GetLength() <= MESH_FEATURE_EPSILON then return end
+	if not candidate_normal or candidate_normal:GetLength() <= MESH_FEATURE_EPSILON then
+		return
+	end
 
 	for _, normal in ipairs(normals) do
 		if normal:Dot(candidate_normal) >= 1 - MESH_FEATURE_EPSILON then return end
@@ -147,7 +152,6 @@ local function build_face_search_state(best_position, best_face_normal, best_dis
 		best_distance_squared = best_distance_squared or math.huge,
 		candidate_normals = {},
 	}
-
 	append_unique_normal(state.candidate_normals, best_face_normal)
 	return state
 end
@@ -166,7 +170,9 @@ local function consider_face_candidate(state, reference_point, v0, v1, v2, face_
 
 	if distance_squared + MESH_SEAM_DISTANCE_EPSILON < state.best_distance_squared then
 		reset_best_face_candidate(state, candidate_position, face_normal, distance_squared)
-	elseif math.abs(distance_squared - state.best_distance_squared) <= MESH_SEAM_DISTANCE_EPSILON then
+	elseif
+		math.abs(distance_squared - state.best_distance_squared) <= MESH_SEAM_DISTANCE_EPSILON
+	then
 		append_unique_normal(state.candidate_normals, face_normal)
 	end
 end
@@ -174,11 +180,11 @@ end
 local function consider_seam_face_candidate(state, reference_point, primary_face_normal, v0, v1, v2)
 	local candidate_face_normal = triangle_contact_queries.GetTriangleFaceNormal(v0, v1, v2, MESH_FEATURE_EPSILON)
 
-	if not (candidate_face_normal and primary_face_normal) then
+	if not (candidate_face_normal and primary_face_normal) then return end
+
+	if primary_face_normal:Dot(candidate_face_normal) < MESH_SEAM_NORMAL_DOT then
 		return
 	end
-
-	if primary_face_normal:Dot(candidate_face_normal) < MESH_SEAM_NORMAL_DOT then return end
 
 	consider_face_candidate(state, reference_point, v0, v1, v2, candidate_face_normal)
 end
@@ -209,6 +215,7 @@ local function get_polygon_closest_contact(poly, world_matrix, hit, reference_po
 
 	local cache = get_polygon_feature_cache(poly)
 	local face_count = cache and cache.face_count or 0
+
 	if face_count <= 0 then return nil end
 
 	local state = build_face_search_state(nil, nil, math.huge)
@@ -283,9 +290,7 @@ local function iterate_matching_feature_position_faces(poly, world_matrix, local
 	local matches = {}
 
 	for _, position in ipairs(local_feature_positions) do
-		local face_indices = cache.faces_by_position_key[
-			triangle_mesh.GetFeaturePositionKey(position, MESH_FEATURE_EPSILON)
-		]
+		local face_indices = cache.faces_by_position_key[triangle_mesh.GetFeaturePositionKey(position, MESH_FEATURE_EPSILON)]
 
 		if face_indices then
 			for i = 1, #face_indices do
@@ -297,9 +302,7 @@ local function iterate_matching_feature_position_faces(poly, world_matrix, local
 	for face_index in pairs(matches) do
 		local v0, v1, v2 = get_mesh_face_world_vertices(poly, face_index, world_matrix)
 
-		if v0 and v1 and v2 then
-			callback(v0, v1, v2, face_index)
-		end
+		if v0 and v1 and v2 then callback(v0, v1, v2, face_index) end
 	end
 end
 
@@ -328,16 +331,24 @@ local function get_mesh_hit_feature_contact(hit, reference_point)
 	local state = build_face_search_state(
 		primary_closest_point,
 		primary_face_normal,
-		(reference_point - primary_closest_point):Dot(reference_point - primary_closest_point)
+		(
+			reference_point - primary_closest_point
+		):Dot(reference_point - primary_closest_point)
 	)
 
 	if feature_kind == "face" or not feature_indices then
 		return finalize_surface_contact(hit, reference_point, state.best_position, primary_face_normal)
 	end
 
-	iterate_matching_feature_faces(poly, world_matrix, feature_indices, function(av0, av1, av2)
-		consider_seam_face_candidate(state, reference_point, primary_face_normal, av0, av1, av2)
-	end, hit.triangle_index)
+	iterate_matching_feature_faces(
+		poly,
+		world_matrix,
+		feature_indices,
+		function(av0, av1, av2)
+			consider_seam_face_candidate(state, reference_point, primary_face_normal, av0, av1, av2)
+		end,
+		hit.triangle_index
+	)
 
 	local model = hit.model
 
@@ -346,9 +357,14 @@ local function get_mesh_hit_feature_contact(hit, reference_point)
 			local primitive_poly = world_mesh_body.GetPrimitivePolygon(primitive)
 
 			if primitive ~= hit.primitive and primitive_poly then
-				iterate_matching_feature_position_faces(primitive_poly, world_matrix, local_feature_positions, function(av0, av1, av2)
-					consider_seam_face_candidate(state, reference_point, primary_face_normal, av0, av1, av2)
-				end)
+				iterate_matching_feature_position_faces(
+					primitive_poly,
+					world_matrix,
+					local_feature_positions,
+					function(av0, av1, av2)
+						consider_seam_face_candidate(state, reference_point, primary_face_normal, av0, av1, av2)
+					end
+				)
 			end
 		end
 	end
@@ -365,11 +381,17 @@ function mesh_surface_contact.GetHitSurfaceContact(hit, reference_point)
 	local contact = get_mesh_hit_feature_contact(hit, reference_point)
 
 	if contact then return contact end
-	if not hit then return nil end
-	local world_matrix = get_entity_world_matrix(hit and hit.entity)
 
-	return get_polygon_closest_contact(get_hit_polygon(hit), world_matrix, hit, reference_point)
-		or finalize_surface_contact(hit, reference_point or hit.position, hit.position, mesh_surface_contact.GetHitFaceNormal(hit))
+	if not hit then return nil end
+
+	local world_matrix = get_entity_world_matrix(hit and hit.entity)
+	return get_polygon_closest_contact(get_hit_polygon(hit), world_matrix, hit, reference_point) or
+		finalize_surface_contact(
+			hit,
+			reference_point or hit.position,
+			hit.position,
+			mesh_surface_contact.GetHitFaceNormal(hit)
+		)
 end
 
 return mesh_surface_contact

@@ -18,13 +18,7 @@ function impulse_motion.GetRelativePointVelocity(state_a, point_a, state_b, poin
 end
 
 function impulse_motion.ApplyImpulse(state, impulse, point)
-	state.linear_velocity, state.angular_velocity = motion.ApplyImpulseToMotion(
-		state.body,
-		state.linear_velocity,
-		state.angular_velocity,
-		impulse,
-		point
-	)
+	state.linear_velocity, state.angular_velocity = motion.ApplyImpulseToMotion(state.body, state.linear_velocity, state.angular_velocity, impulse, point)
 	return state
 end
 
