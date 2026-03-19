@@ -1,6 +1,6 @@
 local physics = import("goluwa/physics.lua")
+local impulse_motion = import("goluwa/physics/impulse_motion.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
-local motion = import("goluwa/physics/motion.lua")
 local manifold = {}
 
 local function project_tangent(tangent, normal)
@@ -106,10 +106,8 @@ function manifold.RebuildContacts(body_a, body_b, manifold_data, contacts)
 end
 
 function manifold.WarmStart(body_a, body_b, normal, manifold_data, dt)
-	local velocity_a = body_a:GetVelocity():Copy()
-	local velocity_b = body_b:GetVelocity():Copy()
-	local angular_velocity_a = body_a:GetAngularVelocity():Copy()
-	local angular_velocity_b = body_b:GetAngularVelocity():Copy()
+	local state_a = impulse_motion.CaptureBodyMotion(body_a)
+	local state_b = impulse_motion.CaptureBodyMotion(body_b)
 	local did_apply = false
 	local allow_persistent_tangent = supports_persistent_tangent(body_a, body_b, manifold_data)
 	local solver = physics.solver
@@ -128,8 +126,7 @@ function manifold.WarmStart(body_a, body_b, normal, manifold_data, dt)
 
 		if normal_impulse > physics.EPSILON then
 			local impulse = normal * normal_impulse
-			velocity_a, angular_velocity_a = motion.ApplyImpulseToMotion(body_a, velocity_a, angular_velocity_a, impulse * -1, point_a)
-			velocity_b, angular_velocity_b = motion.ApplyImpulseToMotion(body_b, velocity_b, angular_velocity_b, impulse, point_b)
+			impulse_motion.ApplyPairImpulse(state_a, state_b, impulse, point_a, point_b)
 			did_apply = true
 		end
 
@@ -141,21 +138,19 @@ function manifold.WarmStart(body_a, body_b, normal, manifold_data, dt)
 				math.abs(tangent_impulse_2) > physics.EPSILON
 			)
 		then
-			local relative_velocity = motion.GetPointVelocity(body_b, velocity_b, angular_velocity_b, point_b) - motion.GetPointVelocity(body_a, velocity_a, angular_velocity_a, point_a)
+			local relative_velocity = impulse_motion.GetRelativePointVelocity(state_a, point_a, state_b, point_b)
 			local tangent_velocity = relative_velocity - normal * relative_velocity:Dot(normal)
 
 			if tangent_velocity:GetLength() <= solver.MAX_TANGENT_WARM_SPEED then
 				if math.abs(tangent_impulse_1) > physics.EPSILON then
 					local impulse = tangent * tangent_impulse_1
-					velocity_a, angular_velocity_a = motion.ApplyImpulseToMotion(body_a, velocity_a, angular_velocity_a, impulse * -1, point_a)
-					velocity_b, angular_velocity_b = motion.ApplyImpulseToMotion(body_b, velocity_b, angular_velocity_b, impulse, point_b)
+					impulse_motion.ApplyPairImpulse(state_a, state_b, impulse, point_a, point_b)
 					did_apply = true
 				end
 
 				if bitangent and math.abs(tangent_impulse_2) > physics.EPSILON then
 					local impulse = bitangent * tangent_impulse_2
-					velocity_a, angular_velocity_a = motion.ApplyImpulseToMotion(body_a, velocity_a, angular_velocity_a, impulse * -1, point_a)
-					velocity_b, angular_velocity_b = motion.ApplyImpulseToMotion(body_b, velocity_b, angular_velocity_b, impulse, point_b)
+					impulse_motion.ApplyPairImpulse(state_a, state_b, impulse, point_a, point_b)
 					did_apply = true
 				end
 			end
@@ -163,16 +158,13 @@ function manifold.WarmStart(body_a, body_b, normal, manifold_data, dt)
 	end
 
 	if did_apply then
-		motion.SetBodyMotionFromCurrentState(body_a, velocity_a, angular_velocity_a, dt)
-		motion.SetBodyMotionFromCurrentState(body_b, velocity_b, angular_velocity_b, dt)
+		impulse_motion.CommitPairMotion(state_a, state_b, dt)
 	end
 end
 
 function manifold.SolveImpulses(body_a, body_b, normal, manifold_data, dt)
-	local velocity_a = body_a:GetVelocity():Copy()
-	local velocity_b = body_b:GetVelocity():Copy()
-	local angular_velocity_a = body_a:GetAngularVelocity():Copy()
-	local angular_velocity_b = body_b:GetAngularVelocity():Copy()
+	local state_a = impulse_motion.CaptureBodyMotion(body_a)
+	local state_b = impulse_motion.CaptureBodyMotion(body_b)
 	local restitution = physics.solver:GetPairRestitution(body_a, body_b)
 	local dynamic_friction = physics.solver:GetPairFriction(body_a, body_b)
 	local static_friction = math.max(dynamic_friction, physics.solver:GetPairStaticFriction(body_a, body_b))
@@ -181,7 +173,7 @@ function manifold.SolveImpulses(body_a, body_b, normal, manifold_data, dt)
 	for _, contact in ipairs(manifold_data.contacts or {}) do
 		local point_a = body_a:LocalToWorld(contact.local_point_a)
 		local point_b = body_b:LocalToWorld(contact.local_point_b)
-		local relative_velocity = motion.GetPointVelocity(body_b, velocity_b, angular_velocity_b, point_b) - motion.GetPointVelocity(body_a, velocity_a, angular_velocity_a, point_a)
+		local relative_velocity = impulse_motion.GetRelativePointVelocity(state_a, point_a, state_b, point_b)
 		local normal_speed = relative_velocity:Dot(normal)
 		local inverse_mass = body_a:GetInverseMassAlong(normal, point_a) + body_b:GetInverseMassAlong(normal, point_b)
 
@@ -194,12 +186,11 @@ function manifold.SolveImpulses(body_a, body_b, normal, manifold_data, dt)
 
 			if math.abs(impulse_delta) > physics.EPSILON then
 				local impulse = normal * impulse_delta
-				velocity_a, angular_velocity_a = motion.ApplyImpulseToMotion(body_a, velocity_a, angular_velocity_a, impulse * -1, point_a)
-				velocity_b, angular_velocity_b = motion.ApplyImpulseToMotion(body_b, velocity_b, angular_velocity_b, impulse, point_b)
+				impulse_motion.ApplyPairImpulse(state_a, state_b, impulse, point_a, point_b)
 			end
 		end
 
-		relative_velocity = motion.GetPointVelocity(body_b, velocity_b, angular_velocity_b, point_b) - motion.GetPointVelocity(body_a, velocity_a, angular_velocity_a, point_a)
+		relative_velocity = impulse_motion.GetRelativePointVelocity(state_a, point_a, state_b, point_b)
 		local tangent_velocity = relative_velocity - normal * relative_velocity:Dot(normal)
 		local tangent_speed = tangent_velocity:GetLength()
 
@@ -267,22 +258,19 @@ function manifold.SolveImpulses(body_a, body_b, normal, manifold_data, dt)
 
 					if math.abs(impulse_delta_1) > physics.EPSILON then
 						local impulse = tangent * impulse_delta_1
-						velocity_a, angular_velocity_a = motion.ApplyImpulseToMotion(body_a, velocity_a, angular_velocity_a, impulse * -1, point_a)
-						velocity_b, angular_velocity_b = motion.ApplyImpulseToMotion(body_b, velocity_b, angular_velocity_b, impulse, point_b)
+						impulse_motion.ApplyPairImpulse(state_a, state_b, impulse, point_a, point_b)
 					end
 
 					if math.abs(impulse_delta_2) > physics.EPSILON then
 						local impulse = bitangent * impulse_delta_2
-						velocity_a, angular_velocity_a = motion.ApplyImpulseToMotion(body_a, velocity_a, angular_velocity_a, impulse * -1, point_a)
-						velocity_b, angular_velocity_b = motion.ApplyImpulseToMotion(body_b, velocity_b, angular_velocity_b, impulse, point_b)
+						impulse_motion.ApplyPairImpulse(state_a, state_b, impulse, point_a, point_b)
 					end
 				end
 			end
 		end
 	end
 
-	motion.SetBodyMotionFromCurrentState(body_a, velocity_a, angular_velocity_a, dt)
-	motion.SetBodyMotionFromCurrentState(body_b, velocity_b, angular_velocity_b, dt)
+	impulse_motion.CommitPairMotion(state_a, state_b, dt)
 end
 
 function manifold.PruneOld(manifolds, step_stamp, prune_steps)

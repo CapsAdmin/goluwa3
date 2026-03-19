@@ -1,4 +1,5 @@
 local physics = import("goluwa/physics.lua")
+local impulse_motion = import("goluwa/physics/impulse_motion.lua")
 local manifolds = import("goluwa/physics/manifold.lua")
 local motion = import("goluwa/physics/motion.lua")
 local contact_resolution = {}
@@ -106,11 +107,9 @@ function contact_resolution.ApplyPairImpulse(body_a, body_b, normal, dt, point_a
 
 	if inverse_mass_sum <= 0 then return end
 
-	local velocity_a = body_a:GetVelocity()
-	local velocity_b = body_b:GetVelocity()
-	local angular_velocity_a = body_a:GetAngularVelocity()
-	local angular_velocity_b = body_b:GetAngularVelocity()
-	local relative_velocity = motion.GetPointVelocity(body_b, velocity_b, angular_velocity_b, point_b) - motion.GetPointVelocity(body_a, velocity_a, angular_velocity_a, point_a)
+	local state_a = impulse_motion.CaptureBodyMotion(body_a)
+	local state_b = impulse_motion.CaptureBodyMotion(body_b)
+	local relative_velocity = impulse_motion.GetRelativePointVelocity(state_a, point_a, state_b, point_b)
 	local normal_speed = relative_velocity:Dot(normal)
 
 	if normal_speed >= 0 then return end
@@ -125,24 +124,9 @@ function contact_resolution.ApplyPairImpulse(body_a, body_b, normal, dt, point_a
 	if normal_inverse_mass <= physics.EPSILON then return end
 
 	local normal_impulse = -(1 + restitution) * normal_speed / normal_inverse_mass
+	impulse_motion.ApplyPairImpulse(state_a, state_b, normal * normal_impulse, point_a, point_b)
 
-	if inverse_mass_a > 0 then
-		velocity_a = velocity_a - normal * (normal_impulse * inverse_mass_a)
-
-		if point_a then
-			angular_velocity_a = angular_velocity_a + body_a:GetAngularVelocityDelta((point_a - body_a:GetPosition()):GetCross(normal * -normal_impulse))
-		end
-	end
-
-	if inverse_mass_b > 0 then
-		velocity_b = velocity_b + normal * (normal_impulse * inverse_mass_b)
-
-		if point_b then
-			angular_velocity_b = angular_velocity_b + body_b:GetAngularVelocityDelta((point_b - body_b:GetPosition()):GetCross(normal * normal_impulse))
-		end
-	end
-
-	relative_velocity = motion.GetPointVelocity(body_b, velocity_b, angular_velocity_b, point_b) - motion.GetPointVelocity(body_a, velocity_a, angular_velocity_a, point_a)
+	relative_velocity = impulse_motion.GetRelativePointVelocity(state_a, point_a, state_b, point_b)
 	local tangent_velocity = relative_velocity - normal * relative_velocity:Dot(normal)
 	local tangent_speed = tangent_velocity:GetLength()
 
@@ -163,32 +147,10 @@ function contact_resolution.ApplyPairImpulse(body_a, body_b, normal, dt, point_a
 		local max_friction_impulse = normal_impulse * friction
 		tangent_impulse = math.max(-max_friction_impulse, math.min(max_friction_impulse, tangent_impulse))
 
-		if inverse_mass_a > 0 then
-			velocity_a = velocity_a - tangent * (tangent_impulse * inverse_mass_a)
-
-			if point_a then
-				angular_velocity_a = angular_velocity_a + body_a:GetAngularVelocityDelta((point_a - body_a:GetPosition()):GetCross(tangent * -tangent_impulse))
-			end
-		end
-
-		if inverse_mass_b > 0 then
-			velocity_b = velocity_b + tangent * (tangent_impulse * inverse_mass_b)
-
-			if point_b then
-				angular_velocity_b = angular_velocity_b + body_b:GetAngularVelocityDelta((point_b - body_b:GetPosition()):GetCross(tangent * tangent_impulse))
-			end
-		end
+		impulse_motion.ApplyPairImpulse(state_a, state_b, tangent * tangent_impulse, point_a, point_b)
 	end
 
-	if inverse_mass_a > 0 then
-		motion.SetBodyVelocityFromCurrentPosition(body_a, velocity_a, dt)
-		motion.SetBodyAngularVelocityFromCurrentRotation(body_a, angular_velocity_a, dt)
-	end
-
-	if inverse_mass_b > 0 then
-		motion.SetBodyVelocityFromCurrentPosition(body_b, velocity_b, dt)
-		motion.SetBodyAngularVelocityFromCurrentRotation(body_b, angular_velocity_b, dt)
-	end
+	impulse_motion.CommitPairMotion(state_a, state_b, dt)
 end
 
 function contact_resolution.ResolvePairPenetration(body_a, body_b, normal, overlap, dt, point_a, point_b, contacts, options)
