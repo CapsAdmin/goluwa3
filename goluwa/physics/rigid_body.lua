@@ -9,6 +9,7 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local BoxShape = import("goluwa/physics/shapes/box.lua")
 local ConvexShape = import("goluwa/physics/shapes/convex.lua")
+local MeshShape = import("goluwa/physics/shapes/mesh.lua")
 local Collider = import("goluwa/physics/collider.lua")
 local Entity = import("goluwa/ecs/entity.lua")
 local default_skin = (
@@ -129,7 +130,13 @@ do
 				value.position ~= nil or
 				value.Rotation ~= nil or
 				value.rotation ~= nil or
-				value.ConvexHull ~= nil
+				value.ConvexHull ~= nil or
+				value.TriangleMesh ~= nil or
+				value.Mesh ~= nil or
+				value.Polygon3D ~= nil or
+				value.Primitive ~= nil or
+				value.Model ~= nil or
+				value.Polygons ~= nil
 			)
 	end
 
@@ -138,6 +145,16 @@ do
 
 		if not shape and data.ConvexHull then
 			shape = ConvexShape.New(data.ConvexHull)
+		end
+
+		if not shape and (data.TriangleMesh or data.Mesh or data.Polygon3D or data.Primitive or data.Model or data.Polygons) then
+			shape = MeshShape.New({
+				Source = data.TriangleMesh or data.Mesh,
+				Polygon3D = data.Polygon3D,
+				Primitive = data.Primitive,
+				Model = data.Model,
+				Polygons = data.Polygons,
+			})
 		end
 
 		return shape

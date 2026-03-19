@@ -4,17 +4,53 @@ local world_transform_utils = import("goluwa/physics/world_transform_utils.lua")
 local AABB = import("goluwa/structs/aabb.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local ModelComponent = import("goluwa/ecs/components/3d/model.lua")
-local world_contact_scene = {}
+local world_static_query = {}
 
-function world_contact_scene.GetWorldModels()
-	local source = physics.GetWorldTraceSource and physics.GetWorldTraceSource() or nil
+local function expand_world_contact_aabb(body, bounds)
+	local margin = body and body.GetCollisionMargin and body:GetCollisionMargin() or 0
+	local probe_distance = body and body.GetCollisionProbeDistance and body:GetCollisionProbeDistance() or 0
+	local pad = math.max(margin + probe_distance, physics.DefaultSkin or 0, physics.EPSILON)
+	return {
+		min_x = bounds.min_x - pad,
+		min_y = bounds.min_y - pad,
+		min_z = bounds.min_z - pad,
+		max_x = bounds.max_x + pad,
+		max_y = bounds.max_y + pad,
+		max_z = bounds.max_z + pad,
+	}
+end
+
+function world_static_query.GetWorldModels(source)
+	source = source == nil and (physics.GetWorldTraceSource and physics.GetWorldTraceSource() or nil) or source
 
 	if source and source.models then return source.models end
 
 	return ModelComponent.Instances or {}
 end
 
-function world_contact_scene.BuildBodyWorldContactAABB(body)
+function world_static_query.ResolveWorldSource(source, use_render_meshes, ignore_rigid_bodies)
+	if source == nil and physics.GetWorldTraceSource then
+		source = physics.GetWorldTraceSource()
+	end
+
+	if use_render_meshes == nil then use_render_meshes = source == nil end
+
+	if not source then
+		if not use_render_meshes then
+			if ignore_rigid_bodies then return nil, use_render_meshes end
+
+			return false, use_render_meshes
+		end
+
+		source = {
+			models = ModelComponent.Instances or {},
+		}
+	end
+
+	return source, use_render_meshes
+end
+
+function world_static_query.BuildBodyWorldContactAABB(body)
 	if body.GetBroadphaseAABB then return body:GetBroadphaseAABB() end
 
 	local points = {}
@@ -29,9 +65,7 @@ function world_contact_scene.BuildBodyWorldContactAABB(body)
 
 	if not points[1] then
 		local position = body.GetPosition and body:GetPosition() or Vec3()
-		local margin = body.GetCollisionMargin and
-			math.max(body:GetCollisionMargin() or 0.01, 0.01) or
-			0.01
+		local margin = body.GetCollisionMargin and math.max(body:GetCollisionMargin() or 0.01, 0.01) or 0.01
 		return {
 			min_x = position.x - margin,
 			min_y = position.y - margin,
@@ -64,11 +98,15 @@ function world_contact_scene.BuildBodyWorldContactAABB(body)
 	return bounds
 end
 
-function world_contact_scene.ForEachWorldPrimitiveCandidate(body, callback, arg1, arg2, arg3, arg4)
-	local body_aabb = world_contact_scene.BuildBodyWorldContactAABB(body)
+function world_static_query.BuildExpandedBodyWorldContactAABB(body)
+	return expand_world_contact_aabb(body, world_static_query.BuildBodyWorldContactAABB(body))
+end
+
+function world_static_query.ForEachWorldPrimitiveCandidate(body, callback, arg1, arg2, arg3, arg4, world_aabb, source)
+	local body_aabb = world_aabb or world_static_query.BuildBodyWorldContactAABB(body)
 	local primitive_candidates = {}
 
-	for _, model in ipairs(world_contact_scene.GetWorldModels()) do
+	for _, model in ipairs(world_static_query.GetWorldModels(source)) do
 		local entity = model and model.Owner or nil
 
 		if not (model and entity and entity ~= body:GetOwner()) then
@@ -124,4 +162,4 @@ function world_contact_scene.ForEachWorldPrimitiveCandidate(body, callback, arg1
 	end
 end
 
-return world_contact_scene
+return world_static_query

@@ -4,9 +4,11 @@ local Entity = import("goluwa/ecs/entity.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local SphereShape = import("goluwa/physics/shapes/sphere.lua")
 local BoxShape = import("goluwa/physics/shapes/box.lua")
+local CapsuleShape = import("goluwa/physics/shapes/capsule.lua")
 local test_helpers = import("test/tests/physics/test_helpers.lua")
 local sphere_shape = SphereShape.New
 local box_shape = BoxShape.New
+local capsule_shape = CapsuleShape.New
 
 local function simulate_physics(steps, dt)
 	return test_helpers.SimulatePhysics(physics, steps, dt)
@@ -79,6 +81,53 @@ T.Test3D("Fast rigid boxes do not tunnel through thin static world geometry", fu
 	T(position.y)[">="](1.45)
 	T(math.abs(position.x))["<"](0.15)
 	T(math.abs(position.z))["<"](0.15)
+end)
+
+T.Test3D("Fast rigid box does not tunnel through triangle world floor", function()
+	local ground = test_helpers.CreateFlatGround("rigid_ccd_triangle_box_ground", 8)
+	local box_ent = Entity.New({Name = "rigid_ccd_triangle_box"})
+	box_ent:AddComponent("transform")
+	box_ent.transform:SetPosition(Vec3(0, 8, 0))
+	local box = box_ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = box_shape(Vec3(1, 1, 1)),
+			Size = Vec3(1, 1, 1),
+			LinearDamping = 0,
+			AngularDamping = 0,
+			MaxLinearSpeed = 1000,
+		}
+	)
+	box:SetVelocity(Vec3(0, -320, 0))
+	simulate_physics(1, 1 / 10)
+	local position = box_ent.transform:GetPosition()
+	T(position.y)[">="](0.45)
+	T(box:GetGrounded() or box:GetVelocity().y > -10)["=="](true)
+	ground:Remove()
+	box_ent:Remove()
+end)
+
+T.Test3D("Fast rigid capsule does not tunnel through triangle world floor", function()
+	local ground = test_helpers.CreateFlatGround("rigid_ccd_triangle_capsule_ground", 8)
+	local capsule_ent = Entity.New({Name = "rigid_ccd_triangle_capsule"})
+	capsule_ent:AddComponent("transform")
+	capsule_ent.transform:SetPosition(Vec3(0, 8, 0))
+	local capsule = capsule_ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = capsule_shape(0.5, 2.0),
+			LinearDamping = 0,
+			AngularDamping = 0,
+			MaxLinearSpeed = 1000,
+		}
+	)
+	capsule:SetVelocity(Vec3(0, -320, 0))
+	simulate_physics(1, 1 / 10)
+	local position = capsule_ent.transform:GetPosition()
+	T(position.y)[">="](1.0)
+	T(capsule:GetGrounded() or capsule:GetVelocity().y > -10)["=="](true)
+	ground:Remove()
+	capsule_ent:Remove()
 end)
 
 T.Test3D("Fast rigid bodies do not tunnel through other moving rigid bodies", function()

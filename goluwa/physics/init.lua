@@ -13,6 +13,7 @@ import("goluwa/physics/pair_solvers/polyhedron.lua")
 import("goluwa/physics/pair_solvers/sphere.lua")
 import("goluwa/physics/pair_solvers/capsule.lua")
 import("goluwa/physics/pair_solvers/box.lua")
+import("goluwa/physics/pair_solvers/mesh.lua")
 import("goluwa/physics/rigid_body.lua")
 
 function physics.ResetState()
@@ -41,8 +42,6 @@ function physics.ResetState()
 
 			if not physics.IsActiveRigidBody(body) then
 				table.remove(RigidBody.Instances, i)
-			elseif body.WorldContactManifold then
-				body.WorldContactManifold = nil
 			end
 		end
 	end

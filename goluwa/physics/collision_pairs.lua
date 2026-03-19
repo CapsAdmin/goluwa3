@@ -97,6 +97,14 @@ function CollisionPairs:GetCachedPair(body_a, body_b)
 	return pair, pair and pair.body_a ~= body_a or false
 end
 
+function CollisionPairs:BodyHasCurrentCollision(body)
+	if not body then return false end
+
+	body = body.GetBody and body:GetBody() or body
+	local row = self.CurrentCollisionPairs[body]
+	return row ~= nil and next(row) ~= nil
+end
+
 function CollisionPairs:RecordCollisionPair(body_a, body_b, normal, overlap)
 	local physics = self:GetPhysics()
 

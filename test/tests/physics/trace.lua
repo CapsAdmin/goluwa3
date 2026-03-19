@@ -69,6 +69,23 @@ local function build_model_triangle_hit(primitives, primitive_index, triangle_in
 	}
 end
 
+local function build_brush_hit(mins, maxs, hit_position, hit_normal)
+	return {
+		primitive = {
+			brush_planes = {
+				{normal = Vec3(1, 0, 0), dist = maxs.x},
+				{normal = Vec3(-1, 0, 0), dist = -mins.x},
+				{normal = Vec3(0, 1, 0), dist = maxs.y},
+				{normal = Vec3(0, -1, 0), dist = -mins.y},
+				{normal = Vec3(0, 0, 1), dist = maxs.z},
+				{normal = Vec3(0, 0, -1), dist = -mins.z},
+			},
+		},
+		position = hit_position,
+		normal = hit_normal,
+	}
+end
+
 T.Test("Triangle hit surface contact keeps interior face contacts stable", function()
 	local hit = build_triangle_hit(
 		Vec3(-1, 0, -1),
@@ -163,4 +180,40 @@ T.Test("Triangle hit surface contact crosses seams between separate model primit
 	T(contact.normal.y)[">"](0.999)
 	T(math.abs(contact.normal.x))["<"](0.0001)
 	T(math.abs(contact.normal.z))["<"](0.0001)
+end)
+
+T.Test("Brush hit surface contact resolves face contacts from polygonized world meshes", function()
+	local hit = build_brush_hit(
+		Vec3(-1, -1, -1),
+		Vec3(1, 1, 1),
+		Vec3(1, 0.2, 0.1),
+		Vec3(1, 0, 0)
+	)
+	local reference_point = Vec3(1.4, 0.2, 0.1)
+	local contact = physics.GetHitSurfaceContact(hit, reference_point)
+	T(contact ~= nil)["=="](true)
+	T(math.abs(contact.position.x - 1))["<"](0.0001)
+	T(math.abs(contact.position.y - 0.2))["<"](0.0001)
+	T(math.abs(contact.position.z - 0.1))["<"](0.0001)
+	T(contact.normal.x)[">"](0.999)
+	T(math.abs(contact.normal.y))["<"](0.0001)
+	T(math.abs(contact.normal.z))["<"](0.0001)
+end)
+
+T.Test("Brush hit surface contact resolves corner contacts from polygonized world meshes", function()
+	local hit = build_brush_hit(
+		Vec3(-1, -1, -1),
+		Vec3(1, 1, 1),
+		Vec3(1, 1, 1),
+		Vec3(1, 0, 0)
+	)
+	local reference_point = Vec3(1.4, 1.4, 1.4)
+	local contact = physics.GetHitSurfaceContact(hit, reference_point)
+	T(contact ~= nil)["=="](true)
+	T(math.abs(contact.position.x - 1))["<"](0.0001)
+	T(math.abs(contact.position.y - 1))["<"](0.0001)
+	T(math.abs(contact.position.z - 1))["<"](0.0001)
+	T(contact.normal.x)[">"](0.55)
+	T(contact.normal.y)[">"](0.55)
+	T(contact.normal.z)[">"](0.55)
 end)

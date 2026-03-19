@@ -1,4 +1,6 @@
 local broadphase = {}
+local world_static_query = import("goluwa/physics/world_static_query.lua")
+local world_mesh_body = import("goluwa/physics/world_mesh_body.lua")
 
 local function sort(a, b)
 	return a.left < b.left
@@ -65,9 +67,63 @@ function broadphase.BuildCandidatePairsFromEntries(entries)
 	return pairs
 end
 
+local function append_world_primitive_pairs(physics, pairs, entries)
+	local seen = setmetatable({}, {__mode = "k"})
+
+	for i = 1, #entries do
+		local entry_a = entries[i]
+		local body = entry_a and entry_a.body
+
+		if not (body and body.IsDynamic and body:IsDynamic() and body.GetAwake and body:GetAwake()) then
+			goto continue_entry
+		end
+
+		world_static_query.ForEachWorldPrimitiveCandidate(
+			body,
+			function(model, entity, primitive, primitive_index)
+				local proxy_body = world_mesh_body.GetPrimitiveBody(model, entity, primitive, primitive_index)
+
+				if not (proxy_body and physics.ShouldBodiesCollide(body, proxy_body)) then return end
+				local body_seen = seen[body]
+
+				if not body_seen then
+					body_seen = setmetatable({}, {__mode = "k"})
+					seen[body] = body_seen
+				elseif body_seen[proxy_body] then
+					return
+				end
+
+				body_seen[proxy_body] = true
+				local proxy_bounds = proxy_body:GetBroadphaseAABB()
+				pairs[#pairs + 1] = {
+					entry_a = entry_a,
+					entry_b = {
+						body = proxy_body,
+						bounds = proxy_bounds,
+						center = proxy_body:GetPosition(),
+						left = proxy_bounds.min_x,
+						right = proxy_bounds.max_x,
+					},
+				}
+			end,
+			nil,
+			nil,
+			nil,
+			nil,
+			world_static_query.BuildExpandedBodyWorldContactAABB(body)
+		)
+
+		::continue_entry::
+	end
+
+	return pairs
+end
+
 function broadphase.BuildCandidatePairs(physics, bodies)
 	local entries = broadphase.BuildEntries(physics, bodies)
-	return broadphase.BuildCandidatePairsFromEntries(entries)
+	local pairs = broadphase.BuildCandidatePairsFromEntries(entries)
+	append_world_primitive_pairs(physics, pairs, entries)
+	return pairs
 end
 
 return broadphase

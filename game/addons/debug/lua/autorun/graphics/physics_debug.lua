@@ -183,6 +183,14 @@ local function append_shape(model, body, shape, local_matrix)
 		return
 	end
 
+	if shape_type == "mesh" then
+		for _, poly in ipairs(shape.GetMeshPolygons and shape:GetMeshPolygons(body) or {}) do
+			add_primitive(model, poly, shape_type, local_matrix)
+		end
+
+		return
+	end
+
 	if shape_type == "compound" then
 		for _, child in ipairs(shape:GetChildren() or {}) do
 			local child_matrix = make_matrix(child.Position or zero_vec, child.Rotation or identity_rotation)

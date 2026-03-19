@@ -4,10 +4,11 @@ local pair_solver_helpers = import("goluwa/physics/pair_solver_helpers.lua")
 local polyhedron_cache = import("goluwa/physics/polyhedron_cache.lua")
 local polyhedron_triangle_contacts = import("goluwa/physics/polyhedron_triangle_contacts.lua")
 local raycast = import("goluwa/physics/raycast.lua")
+local triangle_mesh = import("goluwa/physics/triangle_mesh.lua")
 local triangle_geometry = import("goluwa/physics/triangle_geometry.lua")
-local world_contact_triangles = import("goluwa/physics/world_contact/triangles.lua")
+local world_static_query = import("goluwa/physics/world_static_query.lua")
+local world_mesh_body = import("goluwa/physics/world_mesh_body.lua")
 local world_transform_utils = import("goluwa/physics/world_transform_utils.lua")
-local ModelComponent = import("goluwa/ecs/components/3d/model.lua")
 local RigidBodyComponent = import("goluwa/physics/rigid_body.lua")
 local AABB = import("goluwa/structs/aabb.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
@@ -17,6 +18,42 @@ local POLYHEDRON_SWEEP_REFINE_STEPS = 10
 local convex_manifold = nil
 local convex_sat = nil
 local get_polyhedron_sweep_proxy
+
+local function build_triangle_hit(model, entity, primitive, primitive_index, triangle_index)
+	return {
+		entity = entity,
+		model = model,
+		primitive = primitive,
+		primitive_index = primitive_index,
+		triangle_index = triangle_index,
+	}
+end
+
+local function collect_overlapping_world_triangle(v0, v1, v2, triangle_index, context)
+	local local_to_world = context.world_triangle_transform
+	local callback = context.world_triangle_callback
+
+	if local_to_world then
+		callback(
+			local_to_world:TransformVector(v0),
+			local_to_world:TransformVector(v1),
+			local_to_world:TransformVector(v2),
+			triangle_index,
+			context
+		)
+		return
+	end
+
+	callback(v0, v1, v2, triangle_index, context)
+end
+
+local function for_each_overlapping_world_triangle(poly, local_body_aabb, local_to_world, callback, context)
+	context.world_triangle_callback = callback
+	context.world_triangle_transform = local_to_world
+	triangle_mesh.ForEachOverlappingTriangle(poly, local_body_aabb, collect_overlapping_world_triangle, context)
+	context.world_triangle_callback = nil
+	context.world_triangle_transform = nil
+end
 
 do
 	local POLYHEDRON_SWEEP_PROXY_METHODS = {}
@@ -2411,32 +2448,7 @@ local function test_polyhedron_primitive_sweep(
 	end
 
 	local movement_length = movement:GetLength()
-
-	if primitive.brush_planes then
-		local world_to_local = local_to_world and
-			model and
-			model.Owner and
-			model.Owner.transform and
-			model.Owner.transform:GetWorldMatrixInverse() or
-			nil
-		local hit = sweep_polyhedron_against_planes(
-			collider,
-			polyhedron,
-			start_position,
-			rotation,
-			movement,
-			primitive.brush_planes,
-			max_fraction,
-			world_to_local,
-			local_to_world
-		)
-
-		if not hit then return nil end
-
-		return build_world_hit(hit, movement, movement_length, model, entity, primitive, primitive_index, nil)
-	end
-
-	local poly = primitive.polygon3d
+	local poly = world_mesh_body.GetPrimitivePolygon(primitive)
 
 	if not poly then return nil end
 
@@ -2454,7 +2466,7 @@ local function test_polyhedron_primitive_sweep(
 	triangle_context.primitive_index = primitive_index
 	triangle_context.rotation = rotation
 	triangle_context.start_position = start_position
-	world_contact_triangles.ForEachOverlappingWorldTriangle(
+	for_each_overlapping_world_triangle(
 		poly,
 		local_aabb,
 		local_to_world,
@@ -2519,31 +2531,7 @@ local function test_capsule_primitive_sweep(
 	end
 
 	local movement_length = movement:GetLength()
-
-	if primitive.brush_planes then
-		local world_to_local = local_to_world and
-			model and
-			model.Owner and
-			model.Owner.transform and
-			model.Owner.transform:GetWorldMatrixInverse() or
-			nil
-		local hit = sweep_capsule_against_planes(
-			collider,
-			start_position,
-			rotation,
-			movement,
-			primitive.brush_planes,
-			max_fraction,
-			world_to_local,
-			local_to_world
-		)
-
-		if not hit then return nil end
-
-		return build_world_hit(hit, movement, movement_length, model, entity, primitive, primitive_index, nil)
-	end
-
-	local poly = primitive.polygon3d
+	local poly = world_mesh_body.GetPrimitivePolygon(primitive)
 
 	if not poly then return nil end
 
@@ -2560,7 +2548,7 @@ local function test_capsule_primitive_sweep(
 	triangle_context.primitive_index = primitive_index
 	triangle_context.rotation = rotation
 	triangle_context.start_position = start_position
-	world_contact_triangles.ForEachOverlappingWorldTriangle(
+	for_each_overlapping_world_triangle(
 		poly,
 		local_aabb,
 		local_to_world,
@@ -2634,35 +2622,7 @@ local function test_primitive_sweep(
 	if primitive.aabb and not BVH.AABBIntersects(local_aabb, primitive.aabb) then
 		return nil
 	end
-
-	if primitive.brush_planes then
-		local local_hit = sweep_sphere_against_planes(start_local, movement_local, radius, primitive.brush_planes, max_fraction)
-
-		if not local_hit then return nil end
-
-		local world_position = local_to_world and
-			local_to_world:TransformVector(local_hit.position) or
-			local_hit.position
-		local world_normal = local_to_world and
-			transform_direction(local_to_world, local_hit.normal) or
-			local_hit.normal
-		return build_world_hit(
-			{
-				position = world_position,
-				normal = world_normal,
-				t = local_hit.t,
-			},
-			world_movement,
-			movement_length,
-			model,
-			entity,
-			primitive,
-			primitive_index,
-			nil
-		)
-	end
-
-	local poly = primitive.polygon3d
+	local poly = world_mesh_body.GetPrimitivePolygon(primitive)
 
 	if not poly then return nil end
 
@@ -2680,7 +2640,7 @@ local function test_primitive_sweep(
 	triangle_context.radius = radius
 	triangle_context.start_local = start_local
 	triangle_context.world_movement = world_movement
-	world_contact_triangles.ForEachOverlappingWorldTriangle(poly, local_aabb, nil, collect_triangle_sweep_hit, triangle_context)
+	for_each_overlapping_world_triangle(poly, local_aabb, nil, collect_triangle_sweep_hit, triangle_context)
 	return triangle_context.best_hit
 end
 
@@ -2996,24 +2956,8 @@ function physics.SweepCollider(collider, start_position, movement, ignore_entity
 	options = normalize_query_options(options)
 	local source = options.WorldSource
 	local use_render_meshes = options.UseRenderMeshes
-
-	if source == nil and physics.GetWorldTraceSource then
-		source = physics.GetWorldTraceSource()
-	end
-
-	if use_render_meshes == nil then use_render_meshes = source == nil end
-
-	if not source then
-		if not use_render_meshes then
-			if options.IgnoreRigidBodies ~= false then return nil end
-
-			source = false
-		else
-			source = {
-				models = ModelComponent.Instances or {},
-			}
-		end
-	end
+	source, use_render_meshes = world_static_query.ResolveWorldSource(source, use_render_meshes, options.IgnoreRigidBodies ~= false)
+	if source == nil then return nil end
 
 	return physics.SweepColliderFromSource(source, collider, start_position, movement, ignore_entity, filter_fn, options)
 end
@@ -3022,24 +2966,8 @@ function physics.Sweep(origin, movement, radius, ignore_entity, filter_fn, optio
 	options = normalize_query_options(options)
 	local source = options.WorldSource
 	local use_render_meshes = options.UseRenderMeshes
-
-	if source == nil and physics.GetWorldTraceSource then
-		source = physics.GetWorldTraceSource()
-	end
-
-	if use_render_meshes == nil then use_render_meshes = source == nil end
-
-	if not source then
-		if not use_render_meshes then
-			if options.IgnoreRigidBodies ~= false then return nil end
-
-			source = false
-		else
-			source = {
-				models = ModelComponent.Instances or {},
-			}
-		end
-	end
+	source, use_render_meshes = world_static_query.ResolveWorldSource(source, use_render_meshes, options.IgnoreRigidBodies ~= false)
+	if source == nil then return nil end
 
 	return physics.SweepFromSource(source, origin, movement, radius, ignore_entity, filter_fn, options)
 end
