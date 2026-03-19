@@ -5,6 +5,7 @@ local pair_solver_helpers = import("goluwa/physics/pair_solver_helpers.lua")
 local polyhedron_cache = import("goluwa/physics/polyhedron_cache.lua")
 local polyhedron_triangle_contacts = import("goluwa/physics/polyhedron_triangle_contacts.lua")
 local raycast = import("goluwa/physics/raycast.lua")
+local segment_geometry = import("goluwa/physics/segment_geometry.lua")
 local triangle_contact_kernels = import("goluwa/physics/triangle_contact_kernels.lua")
 local triangle_mesh = import("goluwa/physics/triangle_mesh.lua")
 local triangle_geometry = import("goluwa/physics/triangle_geometry.lua")
@@ -1094,16 +1095,6 @@ local function build_rigid_body_hit(base_hit, movement, movement_length, body, c
 	}
 end
 
-local function closest_point_on_segment(a, b, point)
-	local ab = b - a
-	local denom = ab:Dot(ab)
-
-	if denom <= get_epsilon() * get_epsilon() then return a end
-
-	local t = math.clamp((point - a):Dot(ab) / denom, 0, 1)
-	return a + ab * t
-end
-
 local function sweep_point_against_capsule_segment(start_world, end_world, segment_a, segment_b, radius)
 	local movement = end_world - start_world
 	local movement_length = movement:GetLength()
@@ -1112,7 +1103,7 @@ local function sweep_point_against_capsule_segment(start_world, end_world, segme
 
 	local function evaluate(t)
 		local point = start_world + movement * t
-		local closest = closest_point_on_segment(segment_a, segment_b, point)
+		local closest = segment_geometry.ClosestPointOnSegment(segment_a, segment_b, point, get_epsilon())
 		local delta = point - closest
 		local distance = delta:GetLength()
 		return point, closest, delta, distance
@@ -1354,7 +1345,7 @@ end
 
 local function get_capsule_contact_for_point_at_pose(collider, point, radius, position, rotation, movement_world)
 	local segment_a, segment_b, capsule_radius = get_capsule_segment_world(collider, position, rotation)
-	local closest = closest_point_on_segment(segment_a, segment_b, point)
+	local closest = segment_geometry.ClosestPointOnSegment(segment_a, segment_b, point, get_epsilon())
 	local delta = point - closest
 	local distance = delta:GetLength()
 	local combined_radius = radius + capsule_radius
@@ -1778,52 +1769,6 @@ local function evaluate_polyhedron_pair_contact(poly_a, position_a, rotation_a, 
 	}
 end
 
-local function closest_points_between_segments(p1, q1, p2, q2)
-	local d1 = q1 - p1
-	local d2 = q2 - p2
-	local r = p1 - p2
-	local a = d1:Dot(d1)
-	local e = d2:Dot(d2)
-	local f = d2:Dot(r)
-	local s
-	local t
-
-	if a <= get_epsilon() and e <= get_epsilon() then return p1, p2 end
-
-	if a <= get_epsilon() then
-		s = 0
-		t = math.clamp(f / e, 0, 1)
-	else
-		local c = d1:Dot(r)
-
-		if e <= get_epsilon() then
-			t = 0
-			s = math.clamp(-c / a, 0, 1)
-		else
-			local b = d1:Dot(d2)
-			local denom = a * e - b * b
-
-			if math.abs(denom) > get_epsilon() then
-				s = math.clamp((b * f - c * e) / denom, 0, 1)
-			else
-				s = 0
-			end
-
-			t = (b * s + f) / e
-
-			if t < 0 then
-				t = 0
-				s = math.clamp(-c / a, 0, 1)
-			elseif t > 1 then
-				t = 1
-				s = math.clamp((b - c) / a, 0, 1)
-			end
-		end
-	end
-
-	return p1 + d1 * s, p2 + d2 * t
-end
-
 local function collect_capsule_segment_samples(collider, position, rotation, out)
 	local a, b, radius = get_capsule_segment_world(collider, position, rotation)
 	local count = math.max(3, math.min(9, math.ceil((b - a):GetLength() / math.max(radius, 0.25)) + 1))
@@ -2107,7 +2052,7 @@ local function sweep_capsule_against_capsule_body(
 		local query_b = start_b + (end_b - start_b) * t
 		local target_position_t, target_rotation_t = get_target_pose(target_state, t, max_fraction)
 		local target_a, target_b = get_capsule_segment_world(target_collider, target_position_t, target_rotation_t)
-		local point_a, point_b = closest_points_between_segments(query_a, query_b, target_a, target_b)
+		local point_a, point_b = segment_geometry.ClosestPointsBetweenSegments(query_a, query_b, target_a, target_b, get_epsilon())
 		local delta = point_a - point_b
 		return point_a, point_b, delta, delta:GetLength()
 	end
