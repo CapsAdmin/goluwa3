@@ -8,6 +8,11 @@ return {
 		on_draw = function(self, cmd)
 			event.Call("PreDraw3D", cmd, dt)
 			event.Call("Draw3DGeometry", cmd, dt)
+			self:SetState("depth_stencil", {depth_test = false, depth_write = false})
+			self:Bind(cmd)
+			event.Call("Draw3DGeometryOverlay", cmd, dt)
+			self:ResetToBase()
+			self:Bind(cmd)
 		end,
 		color_format = {
 			{"r8g8b8a8_srgb", {"albedo", "rgb"}, {"alpha", "a"}},

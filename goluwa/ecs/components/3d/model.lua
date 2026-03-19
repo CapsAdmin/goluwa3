@@ -26,6 +26,48 @@ META:GetSet("MetallicMultiplier", 1)
 META:IsSet("Loading", false)
 local model = library()
 
+local function material_ignores_z(material)
+	return material and material.GetIgnoreZ and material:GetIgnoreZ() or false
+end
+
+local function has_primitives_for_pass(self, ignore_z)
+	for _, prim in ipairs(self.Primitives) do
+		local material = self.MaterialOverride or prim.material or render3d.GetDefaultMaterial()
+
+		if material_ignores_z(material) == ignore_z then return true end
+	end
+
+	return false
+end
+
+local function draw_primitives_for_pass(self, cmd, ignore_z)
+	local world_matrix = self:GetWorldMatrix()
+
+	if not world_matrix then return false end
+
+	local drew_any = false
+
+	for _, prim in ipairs(self.Primitives) do
+		local material = self.MaterialOverride or prim.material or render3d.GetDefaultMaterial()
+
+		if material_ignores_z(material) == ignore_z then
+			local final_matrix = world_matrix
+
+			if prim.local_matrix then
+				final_matrix = prim.local_matrix:GetMultiplied(world_matrix, cached_final_matrix)
+			end
+
+			render3d.SetWorldMatrix(final_matrix)
+			render3d.SetMaterial(material)
+			render3d.UploadGBufferConstants(cmd)
+			prim.polygon3d:Draw(cmd)
+			drew_any = true
+		end
+	end
+
+	return drew_any
+end
+
 local function invalidate_raycast_acceleration(self)
 	self.WorldAABBCache = nil
 	self.WorldAABBCacheMatrix = nil
@@ -45,6 +87,7 @@ function META:Initialize()
 	self:SetAABB(AABB(math.huge, math.huge, math.huge, -math.huge, -math.huge, -math.huge))
 	invalidate_raycast_acceleration(self)
 	self:AddGlobalEvent("Draw3DGeometry")
+	self:AddGlobalEvent("Draw3DGeometryOverlay")
 end
 
 function META:SetModelPath(path)
@@ -395,6 +438,8 @@ function META:OnDraw3DGeometry(cmd, dt)
 
 	if #self.Primitives == 0 then return end
 
+	if not has_primitives_for_pass(self, false) then return end
+
 	-- Frustum culling: test local AABB against frustum (efficient - no AABB transformation)
 	if not self:IsAABBVisibleLocal() then
 		self.frustum_culled = true
@@ -416,25 +461,22 @@ function META:OnDraw3DGeometry(cmd, dt)
 		self.using_conditional_rendering = false
 	end
 
-	local world_matrix = self:GetWorldMatrix()
-
-	for i, prim in ipairs(self.Primitives) do
-		-- If primitive has its own local matrix, combine with world matrix
-		local final_matrix = world_matrix
-
-		if prim.local_matrix then
-			-- Reuse cached matrix to avoid per-draw allocation
-			final_matrix = prim.local_matrix:GetMultiplied(world_matrix, cached_final_matrix)
-		end
-
-		render3d.SetWorldMatrix(final_matrix)
-		render3d.SetMaterial(self.MaterialOverride or prim.material or render3d.GetDefaultMaterial())
-		render3d.UploadGBufferConstants(cmd)
-		prim.polygon3d:Draw(cmd)
-	end
+	draw_primitives_for_pass(self, cmd, false)
 
 	-- End occlusion culling
 	if using_occlusion then self.occlusion_query:EndConditional(cmd) end
+end
+
+function META:OnDraw3DGeometryOverlay(cmd, dt)
+	if not self.Visible then return end
+
+	if #self.Primitives == 0 then return end
+
+	if not has_primitives_for_pass(self, true) then return end
+
+	if not self:IsAABBVisibleLocal() then return end
+
+	draw_primitives_for_pass(self, cmd, true)
 end
 
 -- Draw bounding box for occlusion query (simplified geometry)

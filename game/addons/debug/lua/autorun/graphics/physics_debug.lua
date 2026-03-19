@@ -38,6 +38,7 @@ local function get_debug_material(shape_type)
 		ColorMultiplier = get_shape_color(shape_type),
 		EmissiveMultiplier = Color(0.15, 0.15, 0.15, 1.0),
 		AlbedoAlphaIsEmissive = true,
+		IgnoreZ = true,
 		Translucent = true,
 		DoubleSided = true,
 		MetallicMultiplier = 0,
