@@ -1,5 +1,4 @@
 local prototype = import("goluwa/prototype.lua")
-local AABB = import("goluwa/structs/aabb.lua")
 local Ang3 = import("goluwa/structs/ang3.lua")
 local Matrix33 = import("goluwa/structs/matrix33.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
@@ -105,41 +104,6 @@ function META:GetLocalVertices()
 		Vec3(ex, -ey, ez),
 		Vec3(ex, ey, ez),
 		Vec3(-ex, ey, ez),
-	}
-end
-
-function META:GetBroadphaseAABB(body, position, rotation)
-	position = position or body:GetPosition()
-	rotation = rotation or body:GetRotation()
-	local bounds = AABB(math.huge, math.huge, math.huge, -math.huge, -math.huge, -math.huge)
-
-	for _, corner in ipairs(self:GetLocalVertices()) do
-		bounds:ExpandVec3(position + rotation:VecMul(corner))
-	end
-
-	return bounds
-end
-
-function META:BuildCollisionLocalPoints()
-	local extents = self:GetExtents()
-	local ex = extents.x
-	local ey = extents.y
-	local ez = extents.z
-	return {
-		Vec3(-ex, -ey, -ez),
-		Vec3(ex, -ey, -ez),
-		Vec3(ex, ey, -ez),
-		Vec3(-ex, ey, -ez),
-		Vec3(-ex, -ey, ez),
-		Vec3(ex, -ey, ez),
-		Vec3(ex, ey, ez),
-		Vec3(-ex, ey, ez),
-		Vec3(0, -ey, 0),
-		Vec3(0, ey, 0),
-		Vec3(ex, 0, 0),
-		Vec3(-ex, 0, 0),
-		Vec3(0, 0, ez),
-		Vec3(0, 0, -ez),
 	}
 end
 

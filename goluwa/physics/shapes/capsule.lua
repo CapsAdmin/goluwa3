@@ -1,5 +1,4 @@
 local prototype = import("goluwa/prototype.lua")
-local AABB = import("goluwa/structs/aabb.lua")
 local Matrix33 = import("goluwa/structs/matrix33.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local BaseShape = import("goluwa/physics/shapes/base.lua")
@@ -95,18 +94,6 @@ function META:GetMassProperties(body)
 		) * 0.25
 	local izz = ixx
 	return mass, Matrix33():SetDiagonal(ixx, iyy, izz)
-end
-
-function META:GetBroadphaseAABB(body, position, rotation)
-	position = position or body:GetPosition()
-	rotation = rotation or body:GetRotation()
-	local bounds = AABB(math.huge, math.huge, math.huge, -math.huge, -math.huge, -math.huge)
-
-	for _, point in ipairs(self:BuildCollisionLocalPoints(body)) do
-		bounds:ExpandVec3(position + rotation:VecMul(point))
-	end
-
-	return bounds
 end
 
 function META:BuildCollisionLocalPoints()
