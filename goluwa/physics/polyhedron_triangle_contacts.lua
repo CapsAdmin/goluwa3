@@ -2,6 +2,7 @@ local convex_manifold = import("goluwa/physics/convex_manifold.lua")
 local convex_face_clipping = import("goluwa/physics/convex_face_clipping.lua")
 local convex_sat = import("goluwa/physics/convex_sat.lua")
 local polyhedron_cache = import("goluwa/physics/polyhedron_cache.lua")
+local polyhedron_geometry = import("goluwa/physics/polyhedron_geometry.lua")
 local triangle_geometry = import("goluwa/physics/triangle_geometry.lua")
 local polyhedron_triangle_contacts = {}
 local DEFAULT_EPSILON = 0.00001
@@ -30,22 +31,6 @@ local function fill_triangle_vertices(out, v0, v1, v2)
 	end
 
 	return out
-end
-
-local function get_edge_direction(polyhedron, edge)
-	if edge.direction then return edge.direction end
-
-	local a = edge.a or edge[1]
-	local b = edge.b or edge[2]
-	return a and
-		b and
-		polyhedron.vertices[a] and
-		polyhedron.vertices[b] and
-		(
-			polyhedron.vertices[b] - polyhedron.vertices[a]
-		)
-		or
-		nil
 end
 
 local function build_face_contacts(collider, polyhedron, triangle_vertices, chosen, normal, triangle_slop)
@@ -183,7 +168,7 @@ function polyhedron_triangle_contacts.FindContact(collider, polyhedron, v0, v1, 
 	local triangle_edges = triangle_geometry.GetTriangleEdges(v0, v1, v2, TRIANGLE_EDGE_SCRATCH)
 
 	for _, edge in ipairs(polyhedron.edges or {}) do
-		local edge_axis = get_edge_direction(polyhedron, edge)
+		local edge_axis = polyhedron_geometry.GetEdgeDirection(polyhedron, edge)
 
 		if edge_axis then
 			edge_axis = collider:GetRotation():VecMul(edge_axis)

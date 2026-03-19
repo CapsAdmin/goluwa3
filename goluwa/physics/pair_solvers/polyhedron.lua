@@ -5,6 +5,7 @@ local convex_manifold = import("goluwa/physics/convex_manifold.lua")
 local convex_face_clipping = import("goluwa/physics/convex_face_clipping.lua")
 local convex_sat = import("goluwa/physics/convex_sat.lua")
 local polyhedron_cache = import("goluwa/physics/polyhedron_cache.lua")
+local polyhedron_geometry = import("goluwa/physics/polyhedron_geometry.lua")
 local triangle_geometry = import("goluwa/physics/triangle_geometry.lua")
 local polyhedron = {}
 local FACE_CONTACT_SEPARATION_TOLERANCE = 0.08
@@ -26,8 +27,6 @@ local function get_polyhedron_world_vertices_at(polyhedron, position, rotation, 
 	return polyhedron_cache.FillPolyhedronWorldVertices(polyhedron, position, rotation, out)
 end
 
-local get_edge_direction
-
 local function collect_sat_axes(poly_a, rotation_a, poly_b, rotation_b, axes)
 	axes = axes or {}
 
@@ -44,10 +43,10 @@ local function collect_sat_axes(poly_a, rotation_a, poly_b, rotation_b, axes)
 	end
 
 	for _, edge_a in ipairs(poly_a.edges or {}) do
-		local dir_a = rotation_a:VecMul(get_edge_direction(poly_a, edge_a))
+		local dir_a = rotation_a:VecMul(polyhedron_geometry.GetEdgeDirection(poly_a, edge_a))
 
 		for _, edge_b in ipairs(poly_b.edges or {}) do
-			local dir_b = rotation_b:VecMul(get_edge_direction(poly_b, edge_b))
+			local dir_b = rotation_b:VecMul(polyhedron_geometry.GetEdgeDirection(poly_b, edge_b))
 			convex_sat.AddUniqueAxis(axes, dir_a:GetCross(dir_b))
 		end
 	end
@@ -99,10 +98,10 @@ local function update_edge_axis_candidates(
 	center_delta
 )
 	for edge_index_a, edge_a in ipairs(poly_a.edges or {}) do
-		local dir_a = rotation_a:VecMul(get_edge_direction(poly_a, edge_a))
+		local dir_a = rotation_a:VecMul(polyhedron_geometry.GetEdgeDirection(poly_a, edge_a))
 
 		for edge_index_b, edge_b in ipairs(poly_b.edges or {}) do
-			local axis = dir_a:GetCross(rotation_b:VecMul(get_edge_direction(poly_b, edge_b)))
+			local axis = dir_a:GetCross(rotation_b:VecMul(polyhedron_geometry.GetEdgeDirection(poly_b, edge_b)))
 			convex_sat.TryUpdateAxis(
 				best,
 				vertices_a,
@@ -123,17 +122,8 @@ local function update_edge_axis_candidates(
 
 	return best
 end
-
-get_edge_direction = function(polyhedron, edge)
-	if edge.direction then return edge.direction end
-
-	local a = edge.a or edge[1]
-	local b = edge.b or edge[2]
-	return polyhedron.vertices[b] - polyhedron.vertices[a]
-end
-
 local function get_edge_indices(edge)
-	return edge.a or edge[1], edge.b or edge[2]
+	return polyhedron_geometry.GetEdgeIndices(edge)
 end
 
 local function build_polyhedron_contacts(vertices_a, vertices_b, normal)

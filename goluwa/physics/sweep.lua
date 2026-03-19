@@ -3,6 +3,7 @@ local BVH = import("goluwa/physics/bvh.lua")
 local capsule_geometry = import("goluwa/physics/capsule_geometry.lua")
 local pair_solver_helpers = import("goluwa/physics/pair_solver_helpers.lua")
 local polyhedron_cache = import("goluwa/physics/polyhedron_cache.lua")
+local polyhedron_geometry = import("goluwa/physics/polyhedron_geometry.lua")
 local polyhedron_triangle_contacts = import("goluwa/physics/polyhedron_triangle_contacts.lua")
 local raycast = import("goluwa/physics/raycast.lua")
 local segment_geometry = import("goluwa/physics/segment_geometry.lua")
@@ -1618,12 +1619,6 @@ local function test_rigid_body_sweep(origin, movement, radius, body, ignore_enti
 	return best_hit
 end
 
-local function get_edge_direction(polyhedron, edge)
-	local a = edge.a or edge[1]
-	local b = edge.b or edge[2]
-	return polyhedron.vertices[b] - polyhedron.vertices[a]
-end
-
 local function collect_polyhedron_axes(poly_a, rotation_a, poly_b, rotation_b, axes)
 	ensure_convex_helpers()
 	axes = axes or {}
@@ -1641,10 +1636,10 @@ local function collect_polyhedron_axes(poly_a, rotation_a, poly_b, rotation_b, a
 	end
 
 	for _, edge_a in ipairs(poly_a.edges or {}) do
-		local dir_a = rotation_a:VecMul(get_edge_direction(poly_a, edge_a))
+		local dir_a = rotation_a:VecMul(polyhedron_geometry.GetEdgeDirection(poly_a, edge_a))
 
 		for _, edge_b in ipairs(poly_b.edges or {}) do
-			local dir_b = rotation_b:VecMul(get_edge_direction(poly_b, edge_b))
+			local dir_b = rotation_b:VecMul(polyhedron_geometry.GetEdgeDirection(poly_b, edge_b))
 			convex_sat.AddUniqueAxis(axes, dir_a:GetCross(dir_b))
 		end
 	end
@@ -1695,14 +1690,14 @@ local function update_edge_axis_candidates(
 	center_delta
 )
 	for edge_index_a, edge_a in ipairs(poly_a.edges or {}) do
-		local dir_a = rotation_a:VecMul(get_edge_direction(poly_a, edge_a))
+		local dir_a = rotation_a:VecMul(polyhedron_geometry.GetEdgeDirection(poly_a, edge_a))
 
 		for edge_index_b, edge_b in ipairs(poly_b.edges or {}) do
 			convex_sat.TryUpdateAxis(
 				best,
 				vertices_a,
 				vertices_b,
-				dir_a:GetCross(rotation_b:VecMul(get_edge_direction(poly_b, edge_b))),
+				dir_a:GetCross(rotation_b:VecMul(polyhedron_geometry.GetEdgeDirection(poly_b, edge_b))),
 				center_delta,
 				{
 					kind = "edge",
