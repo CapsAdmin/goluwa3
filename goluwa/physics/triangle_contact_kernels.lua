@@ -55,7 +55,7 @@ function triangle_contact_kernels.BuildSphereTrianglePair(center, radius, v0, v1
 	}
 end
 
-function triangle_contact_kernels.BuildCapsuleTrianglePair(start_point, end_point, radius, center, v0, v1, v2, options)
+function triangle_contact_kernels.GetCapsuleTriangleSeparation(start_point, end_point, center, v0, v1, v2, options)
 	options = options or {}
 	local epsilon = options.epsilon or physics.EPSILON
 	local segment_point, triangle_point, distance, triangle_normal = triangle_geometry.ClosestPointsOnSegmentTriangle(
@@ -72,23 +72,53 @@ function triangle_contact_kernels.BuildCapsuleTrianglePair(start_point, end_poin
 
 	if not (segment_point and triangle_point and distance) then return nil end
 
-	local normal
+	local normal = nil
 
 	if distance > epsilon then
 		normal = (segment_point - triangle_point) / distance
 	else
-		local center_delta = (center or ((start_point + end_point) * 0.5)) - triangle_point
-		local center_distance = center_delta:GetLength()
-		normal = center_distance > epsilon and (center_delta / center_distance) or triangle_normal or Vec3(0, 1, 0)
+		normal = options.zero_distance_normal
+
+		if not normal or normal:GetLength() <= epsilon then
+			local center_delta = (center or ((start_point + end_point) * 0.5)) - triangle_point
+			local center_distance = center_delta:GetLength()
+			normal = center_distance > epsilon and (center_delta / center_distance) or nil
+		end
+
+		if not normal or normal:GetLength() <= epsilon then
+			normal = triangle_normal or options.fallback_normal or Vec3(0, 1, 0)
+		end
 	end
 
 	return {
-		point = segment_point - normal * radius,
+		segment_point = segment_point,
 		position = triangle_point,
 		normal = normal,
 		distance = distance,
 		face_normal = triangle_normal,
-		segment_point = segment_point,
+	}
+end
+
+function triangle_contact_kernels.BuildCapsuleTrianglePair(start_point, end_point, radius, center, v0, v1, v2, options)
+	local result = triangle_contact_kernels.GetCapsuleTriangleSeparation(
+		start_point,
+		end_point,
+		center,
+		v0,
+		v1,
+		v2,
+		options
+	)
+
+	if not result then return nil end
+
+	return {
+		point = result.segment_point - result.normal * radius,
+		position = result.position,
+		normal = result.normal,
+		distance = result.distance,
+		face_normal = result.face_normal,
+		segment_point = result.segment_point,
 	}
 end
 

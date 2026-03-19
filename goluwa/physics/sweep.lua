@@ -619,46 +619,24 @@ local function get_capsule_segment_world(collider, position, rotation)
 end
 
 local function get_capsule_triangle_separation(position, rotation, collider, v0, v1, v2, movement)
-	local epsilon = get_epsilon()
 	local segment_a, segment_b = get_capsule_segment_world(collider, position, rotation)
-	local segment_point, triangle_point, distance, triangle_normal = triangle_geometry.ClosestPointsOnSegmentTriangle(
+	local result = triangle_contact_kernels.GetCapsuleTriangleSeparation(
 		segment_a,
 		segment_b,
+		position,
 		v0,
 		v1,
 		v2,
 		{
-			epsilon = epsilon,
-			fallback_normal = movement and
-				movement:GetLength() > epsilon and
-				(
-					movement * -1
-				):GetNormalized() or
-				physics.Up,
+			epsilon = get_epsilon(),
+			fallback_normal = movement and movement:GetLength() > get_epsilon() and (movement * -1):GetNormalized() or physics.Up,
+			zero_distance_normal = ensure_normal_faces_motion(triangle_geometry.GetTriangleNormal(v0, v1, v2), movement),
 		}
 	)
 
-	if not (segment_point and triangle_point and distance) then return nil end
+	if not result then return nil end
 
-	local normal
-
-	if distance > epsilon then
-		normal = (segment_point - triangle_point) / distance
-	else
-		normal = ensure_normal_faces_motion(triangle_normal, movement)
-
-		if not normal or normal:GetLength() <= epsilon then
-			local center_delta = position - triangle_point
-			normal = center_delta:GetLength() > epsilon and
-				(
-					center_delta / center_delta:GetLength()
-				)
-				or
-				physics.Up
-		end
-	end
-
-	return segment_point, triangle_point, distance, normal
+	return result.segment_point, result.position, result.distance, result.normal
 end
 
 local function get_capsule_sweep_sample_steps(collider, movement_length, max_fraction)
