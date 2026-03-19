@@ -1,4 +1,5 @@
 local physics = import("goluwa/physics.lua")
+local BVH = import("goluwa/physics/bvh.lua")
 local raycast = import("goluwa/physics/raycast.lua")
 local world_transform_utils = import("goluwa/physics/world_transform_utils.lua")
 local AABB = import("goluwa/structs/aabb.lua")
@@ -102,11 +103,58 @@ function world_static_query.BuildExpandedBodyWorldContactAABB(body)
 	return expand_world_contact_aabb(body, world_static_query.BuildBodyWorldContactAABB(body))
 end
 
-function world_static_query.ForEachWorldPrimitiveCandidate(body, callback, arg1, arg2, arg3, arg4, world_aabb, source)
-	local body_aabb = world_aabb or world_static_query.BuildBodyWorldContactAABB(body)
-	local primitive_candidates = {}
+local function visit_model_bvh_leaf_aabb(node, context, out)
+	for i = node.first, node.last do
+		out[#out + 1] = context.acceleration.models[i]
+	end
+
+	return out
+end
+
+local function append_model_candidate(out, model, world_aabb, include_unbounded)
+	local bounds = model and (model.GetWorldAABB and model:GetWorldAABB() or model.AABB) or nil
+
+	if bounds then
+		if AABB.IsBoxIntersecting(world_aabb, bounds) then out[#out + 1] = {model = model} end
+		return out
+	end
+
+	if include_unbounded and model then out[#out + 1] = {model = model} end
+	return out
+end
+
+function world_static_query.CollectWorldModelCandidates(source, world_aabb, out, include_unbounded)
+	out = out or {}
+
+	if not world_aabb or source == false then return out end
+
+	if source and source.tree then
+		local traversal_context = source.tree.traversal_context or {}
+		traversal_context.acceleration = source.tree
+		traversal_context.node_stack = traversal_context.node_stack or {}
+		BVH.TraverseAABB(world_aabb, source.tree.root, visit_model_bvh_leaf_aabb, traversal_context, out)
+
+		for _, model in ipairs(source.dynamic_models or {}) do
+			append_model_candidate(out, model, world_aabb, include_unbounded)
+		end
+
+		return out
+	end
 
 	for _, model in ipairs(world_static_query.GetWorldModels(source)) do
+		append_model_candidate(out, model, world_aabb, include_unbounded)
+	end
+
+	return out
+end
+
+function world_static_query.ForEachWorldPrimitiveCandidate(body, callback, arg1, arg2, arg3, arg4, world_aabb, source)
+	local body_aabb = world_aabb or world_static_query.BuildBodyWorldContactAABB(body)
+	local model_candidates = world_static_query.CollectWorldModelCandidates(source, body_aabb, {}, true)
+	local primitive_candidates = {}
+
+	for _, item in ipairs(model_candidates) do
+		local model = item and item.model or nil
 		local entity = model and model.Owner or nil
 
 		if not (model and entity and entity ~= body:GetOwner()) then

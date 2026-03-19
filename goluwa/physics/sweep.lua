@@ -984,47 +984,6 @@ local function sweep_sphere_against_planes(start_position, movement, radius, pla
 	}
 end
 
-local function visit_model_bvh_leaf_aabb(node, context, out)
-	for i = node.first, node.last do
-		out[#out + 1] = context.acceleration.models[i]
-	end
-
-	return out
-end
-
-local function collect_model_candidates(source, world_aabb, out)
-	out = out or {}
-
-	if not source then return out end
-
-	if source.tree then
-		local traversal_context = source.tree.traversal_context or {}
-		traversal_context.acceleration = source.tree
-		traversal_context.node_stack = traversal_context.node_stack or {}
-		BVH.TraverseAABB(world_aabb, source.tree.root, visit_model_bvh_leaf_aabb, traversal_context, out)
-
-		for _, model in ipairs(source.dynamic_models or {}) do
-			local bounds = model and (model.GetWorldAABB and model:GetWorldAABB() or model.AABB) or nil
-
-			if bounds and AABB.IsBoxIntersecting(world_aabb, bounds) then
-				out[#out + 1] = {model = model}
-			end
-		end
-
-		return out
-	end
-
-	for _, model in ipairs(source.models or source.dynamic_models or {}) do
-		local bounds = model and (model.GetWorldAABB and model:GetWorldAABB() or model.AABB) or nil
-
-		if bounds and AABB.IsBoxIntersecting(world_aabb, bounds) then
-			out[#out + 1] = {model = model}
-		end
-	end
-
-	return out
-end
-
 local function should_skip_model(model, ignore_entity, filter_fn, options)
 	if not (model and model.Visible and model.Primitives and model.Primitives[1]) then
 		return true
@@ -2712,7 +2671,7 @@ function physics.SweepFromSource(source, origin, movement, radius, ignore_entity
 	local best_fraction = 1
 
 	if options.IgnoreWorld ~= true then
-		collect_model_candidates(source, world_aabb, model_candidates)
+		world_static_query.CollectWorldModelCandidates(source, world_aabb, model_candidates)
 	end
 
 	collect_rigid_body_candidates(world_aabb, ignore_entity, filter_fn, options, body_candidates)
@@ -2769,7 +2728,7 @@ function physics.SweepColliderFromSource(source, collider, start_position, movem
 		local best_fraction = 1
 
 		if options.IgnoreWorld ~= true then
-			collect_model_candidates(source, world_aabb, model_candidates)
+			world_static_query.CollectWorldModelCandidates(source, world_aabb, model_candidates)
 		end
 
 		collect_rigid_body_candidates(world_aabb, ignore_entity, filter_fn, options, body_candidates)
@@ -2861,7 +2820,7 @@ function physics.SweepColliderFromSource(source, collider, start_position, movem
 	local best_fraction = 1
 
 	if options.IgnoreWorld ~= true then
-		collect_model_candidates(source, world_aabb, model_candidates)
+		world_static_query.CollectWorldModelCandidates(source, world_aabb, model_candidates)
 	end
 
 	collect_rigid_body_candidates(world_aabb, ignore_entity, filter_fn, options, body_candidates)
