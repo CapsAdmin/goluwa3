@@ -3,6 +3,7 @@ local AABB = import("goluwa/structs/aabb.lua")
 local Matrix33 = import("goluwa/structs/matrix33.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local BaseShape = import("goluwa/physics/shapes/base.lua")
+local mass_properties = import("goluwa/physics/shapes/mass_properties.lua")
 local physics = import("goluwa/physics.lua")
 local sample_points = import("goluwa/physics/shapes/sample_points.lua")
 local support_contacts = import("goluwa/physics/shapes/support_contacts.lua")
@@ -27,18 +28,8 @@ end
 
 function META:GetMassProperties(body)
 	local radius = self:GetRadius()
-	local mass = body:GetMass()
-
-	if body.IsDynamic and not body:IsDynamic() then
-		mass = 0
-	elseif body:GetAutomaticMass() then
-		mass = (4 / 3) * math.pi * radius * radius * radius * body:GetDensity()
-	end
-
-	if mass <= 0 then return 0, Matrix33():SetZero() end
-
-	local inertia = (2 / 5) * mass * radius * radius
-	return mass, Matrix33():SetDiagonal(inertia, inertia, inertia)
+	local mass = mass_properties.ResolveBodyMass(body, (4 / 3) * math.pi * radius * radius * radius * body:GetDensity())
+	return mass_properties.BuildSphereInertia(mass, radius)
 end
 
 function META:GeometryLocalToWorld(body, local_pos, position)

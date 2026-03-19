@@ -3,6 +3,7 @@ local Matrix33 = import("goluwa/structs/matrix33.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local BaseShape = import("goluwa/physics/shapes/base.lua")
 local capsule_geometry = import("goluwa/physics/capsule_geometry.lua")
+local mass_properties = import("goluwa/physics/shapes/mass_properties.lua")
 local physics = import("goluwa/physics.lua")
 local sample_points = import("goluwa/physics/shapes/sample_points.lua")
 local support_contacts = import("goluwa/physics/shapes/support_contacts.lua")
@@ -60,27 +61,16 @@ end
 function META:GetMassProperties(body)
 	local radius = self:GetRadius()
 	local cylinder_height = self:GetCylinderHeight()
-	local mass = body:GetMass()
+	local cylinder_volume = math.pi * radius * radius * cylinder_height
+	local sphere_volume = (4 / 3) * math.pi * radius * radius * radius
+	local mass = mass_properties.ResolveBodyMass(body, (cylinder_volume + sphere_volume) * body:GetDensity())
+	local zero_mass, zero_inertia = mass_properties.ZeroIfStatic(mass)
 
-	if body.IsDynamic and not body:IsDynamic() then
-		mass = 0
-	elseif body:GetAutomaticMass() then
-		local cylinder_volume = math.pi * radius * radius * cylinder_height
-		local sphere_volume = (4 / 3) * math.pi * radius * radius * radius
-		mass = (cylinder_volume + sphere_volume) * body:GetDensity()
-	end
+	if zero_mass then return zero_mass, zero_inertia end
 
-	if mass <= 0 then return 0, Matrix33():SetZero() end
-
-	local total_volume = math.pi * radius * radius * cylinder_height + (
-			4 / 3
-		) * math.pi * radius * radius * radius
+	local total_volume = cylinder_volume + sphere_volume
 	local cylinder_mass = total_volume > 0 and
-		mass * (
-			(
-				math.pi * radius * radius * cylinder_height
-			) / total_volume
-		)
+		mass * (cylinder_volume / total_volume)
 		or
 		0
 	local sphere_mass = mass - cylinder_mass

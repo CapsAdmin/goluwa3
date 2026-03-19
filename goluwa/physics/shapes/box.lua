@@ -4,6 +4,7 @@ local Matrix33 = import("goluwa/structs/matrix33.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local physics = import("goluwa/physics.lua")
+local mass_properties = import("goluwa/physics/shapes/mass_properties.lua")
 local BaseShape = import("goluwa/physics/shapes/base.lua")
 local sample_points = import("goluwa/physics/shapes/sample_points.lua")
 local support_contacts = import("goluwa/physics/shapes/support_contacts.lua")
@@ -66,21 +67,8 @@ end
 
 function META:GetMassProperties(body)
 	local size = self:GetSize()
-	local mass = body:GetMass()
-
-	if body.IsDynamic and not body:IsDynamic() then
-		mass = 0
-	elseif body:GetAutomaticMass() then
-		mass = size.x * size.y * size.z * body:GetDensity()
-	end
-
-	if mass <= 0 then return 0, Matrix33():SetZero() end
-
-	local sx, sy, sz = size.x, size.y, size.z
-	local ix = (1 / 12) * mass * (sy * sy + sz * sz)
-	local iy = (1 / 12) * mass * (sx * sx + sz * sz)
-	local iz = (1 / 12) * mass * (sx * sx + sy * sy)
-	return mass, Matrix33():SetDiagonal(ix, iy, iz)
+	local mass = mass_properties.ResolveBodyMass(body, size.x * size.y * size.z * body:GetDensity())
+	return mass_properties.BuildBoxInertia(mass, size.x, size.y, size.z)
 end
 
 function META:GetAxes(body)

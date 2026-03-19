@@ -2,6 +2,7 @@ local prototype = import("goluwa/prototype.lua")
 local Matrix33 = import("goluwa/structs/matrix33.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local BaseShape = import("goluwa/physics/shapes/base.lua")
+local mass_properties = import("goluwa/physics/shapes/mass_properties.lua")
 local physics = import("goluwa/physics.lua")
 local convex_hull = import("goluwa/physics/convex_hull.lua")
 local META = prototype.CreateTemplate("physics_shape_convex")
@@ -54,29 +55,20 @@ function META:GetHalfExtents(body)
 end
 
 function META:GetMassProperties(body)
-	local mass = body:GetMass()
 	local bounds_size = self:GetHalfExtents(body) * 2
+	local automatic_mass = bounds_size.x * bounds_size.y * bounds_size.z * body:GetDensity()
 
-	if body.IsDynamic and not body:IsDynamic() then
-		mass = 0
-	elseif body:GetAutomaticMass() then
+	if body:GetAutomaticMass() then
 		local hull = self:GetResolvedHull(body)
 
 		if hull and hull.bounds_min and hull.bounds_max then
 			bounds_size = hull.bounds_max - hull.bounds_min
-			mass = math.max(bounds_size.x * bounds_size.y * bounds_size.z * body:GetDensity() * 0.75, 0)
-		else
-			mass = bounds_size.x * bounds_size.y * bounds_size.z * body:GetDensity()
+			automatic_mass = math.max(bounds_size.x * bounds_size.y * bounds_size.z * body:GetDensity() * 0.75, 0)
 		end
 	end
 
-	if mass <= 0 then return 0, Matrix33():SetZero() end
-
-	local sx, sy, sz = bounds_size.x, bounds_size.y, bounds_size.z
-	local ix = (1 / 12) * mass * (sy * sy + sz * sz)
-	local iy = (1 / 12) * mass * (sx * sx + sz * sz)
-	local iz = (1 / 12) * mass * (sx * sx + sy * sy)
-	return mass, Matrix33():SetDiagonal(ix, iy, iz)
+	local mass = mass_properties.ResolveBodyMass(body, automatic_mass)
+	return mass_properties.BuildBoxInertia(mass, bounds_size.x, bounds_size.y, bounds_size.z)
 end
 
 function META:BuildCollisionLocalPoints(body)
