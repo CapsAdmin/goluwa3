@@ -93,10 +93,11 @@ end
 
 function META:TryAcquireBody(look)
 	local origin = get_camera_origin(self.Owner)
-	local hit = physics.Trace(
+	local movement = look:GetRotation():GetForward() * self.MaxGrabDistance
+	local hit = physics.Sweep(
 		origin,
-		look:GetRotation():GetForward(),
-		self.MaxGrabDistance,
+		movement,
+		0,
 		self.Owner,
 		function(entity)
 			local body = entity and entity.rigid_body
@@ -107,7 +108,12 @@ function META:TryAcquireBody(look)
 			IgnoreKinematicBodies = true,
 		}
 	)
-	local body = hit and (hit.rigid_body or (hit.entity and hit.entity.rigid_body))
+	local body = hit and
+		(
+			hit.rigid_body or
+			(hit.collider and hit.collider.GetBody and hit.collider:GetBody()) or
+			(hit.entity and hit.entity.rigid_body)
+		)
 
 	if not self:CanHoldBody(body) or not (hit and hit.position) then return false end
 
