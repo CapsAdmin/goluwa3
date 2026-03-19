@@ -23,10 +23,6 @@ polyhedron.GetPolyhedronWorldVertices = polyhedron_cache.GetPolyhedronWorldVerti
 polyhedron.GetPolyhedronWorldFace = polyhedron_cache.GetPolyhedronWorldFace
 polyhedron.ClosestPointOnTriangle = triangle_geometry.ClosestPointOnTriangle
 
-local function get_polyhedron_world_vertices_at(polyhedron, position, rotation, out)
-	return polyhedron_cache.FillPolyhedronWorldVertices(polyhedron, position, rotation, out)
-end
-
 local function collect_sat_axes(poly_a, rotation_a, poly_b, rotation_b, axes)
 	axes = axes or {}
 
@@ -230,8 +226,8 @@ local function evaluate_polyhedron_pair_at_transforms(poly_a, position_a, rotati
 
 	if not axes[1] then return nil end
 
-	local vertices_a = get_polyhedron_world_vertices_at(poly_a, position_a, rotation_a, scratch.vertices_a)
-	local vertices_b = get_polyhedron_world_vertices_at(poly_b, position_b, rotation_b, scratch.vertices_b)
+	local vertices_a = polyhedron_cache.FillPolyhedronWorldVertices(poly_a, position_a, rotation_a, scratch.vertices_a)
+	local vertices_b = polyhedron_cache.FillPolyhedronWorldVertices(poly_b, position_b, rotation_b, scratch.vertices_b)
 	scratch.vertices_a = vertices_a
 	scratch.vertices_b = vertices_b
 	local best = convex_sat.CreateBestAxisTracker()
