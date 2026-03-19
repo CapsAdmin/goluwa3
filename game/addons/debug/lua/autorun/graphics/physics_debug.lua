@@ -1,6 +1,10 @@
 local event = import("goluwa/event.lua")
+local physics = import("goluwa/physics.lua")
 local Material = import("goluwa/render3d/material.lua")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
+local render2d = import("goluwa/render2d/render2d.lua")
+local render3d = import("goluwa/render3d/render3d.lua")
+local fonts = import("goluwa/render2d/fonts.lua")
 local Matrix44 = import("goluwa/structs/matrix44.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
@@ -8,6 +12,7 @@ local Quat = import("goluwa/structs/quat.lua")
 local Color = import("goluwa/structs/color.lua")
 local Entity = import("goluwa/ecs/entity.lua")
 local debug_enabled = false
+local overlay_font = fonts.New{Weight = "Regular", Size = 12}
 local identity_rotation = Quat(0, 0, 0, 1)
 local zero_vec = Vec3(0, 0, 0)
 local unit_box_poly
@@ -26,6 +31,197 @@ local shape_colors = {
 
 local function get_shape_color(shape_type)
 	return shape_colors[shape_type] or Color(1, 0.2, 0.2, 0.35)
+end
+
+local function format_number(value)
+	if type(value) ~= "number" then return tostring(value) end
+
+	if math.abs(value) < 0.0005 then value = 0 end
+
+	return string.format("%.2f", value)
+end
+
+local function format_vec(vec)
+	if not vec then return "0.00, 0.00, 0.00" end
+
+	return string.format(
+		"%s, %s, %s",
+		format_number(vec.x or 0),
+		format_number(vec.y or 0),
+		format_number(vec.z or 0)
+	)
+end
+
+local function yes_no(value)
+	return value and "yes" or "no"
+end
+
+local function get_debug_shape_summary(body)
+	local shape = body:GetPhysicsShape() or body.Shape
+	local shape_type = body:GetShapeType() or shape and shape.GetTypeName and shape:GetTypeName() or "unknown"
+	local colliders = body.GetColliders and body:GetColliders() or {}
+
+	if shape_type == "box" and shape and shape.GetSize then
+		return string.format("box (%s)", format_vec(shape:GetSize()))
+	end
+
+	if shape_type == "sphere" and shape and shape.GetRadius then
+		return string.format("sphere (r=%s)", format_number(shape:GetRadius()))
+	end
+
+	if shape_type == "capsule" and shape and shape.GetRadius and shape.GetHeight then
+		return string.format(
+			"capsule (r=%s, h=%s)",
+			format_number(shape:GetRadius()),
+			format_number(shape:GetHeight())
+		)
+	end
+
+	if shape_type == "convex" and shape and shape.GetResolvedHull then
+		local hull = shape:GetResolvedHull(body)
+
+		if hull and hull.vertices then
+			return string.format("convex (%d verts)", #hull.vertices)
+		end
+	end
+
+	if shape_type == "compound" then
+		local child_count = shape and shape.GetChildren and #(shape:GetChildren() or {}) or #colliders
+		return string.format("compound (%d parts)", child_count)
+	end
+
+	if shape_type == "mesh" then return "mesh collider" end
+
+	return tostring(shape_type)
+end
+
+local function get_debug_snapshot(body)
+	local owner = body:GetOwner()
+	local velocity = body:GetVelocity()
+	local angular_velocity = body:GetAngularVelocity()
+	local position = body:GetPosition()
+	local colliders = body.GetColliders and body:GetColliders() or {}
+
+	return {
+		owner = owner,
+		owner_name = owner and owner.Name or "unnamed",
+		motion_type = body:GetMotionType(),
+		shape = get_debug_shape_summary(body),
+		collider_count = #colliders,
+		mass = body:GetMass(),
+		computed_mass = body.ComputedMass or 0,
+		automatic_mass = body:GetAutomaticMass(),
+		awake = body:GetAwake(),
+		grounded = body:GetGrounded(),
+		friction = body:GetFriction(),
+		restitution = body:GetRestitution(),
+		gravity_scale = body:GetGravityScale(),
+		linear_speed = velocity and velocity.GetLength and velocity:GetLength() or 0,
+		angular_speed = angular_velocity and angular_velocity.GetLength and angular_velocity:GetLength() or 0,
+		position = position and position.Copy and position:Copy() or position,
+		velocity = velocity and velocity.Copy and velocity:Copy() or velocity,
+		angular_velocity = angular_velocity and angular_velocity.Copy and angular_velocity:Copy() or angular_velocity,
+	}
+end
+
+local function get_look_body_hit()
+	local cam = render3d.GetCamera()
+
+	if not cam then return nil, nil end
+
+	local hit = physics.Trace(cam:GetPosition(), cam:GetRotation():GetForward(), 4096, nil, nil, {
+		UseRenderMeshes = false,
+		IgnoreRigidBodies = false,
+		IgnoreKinematicBodies = false,
+	})
+	local body = hit and (hit.rigid_body or hit.entity and hit.entity.rigid_body) or nil
+
+	return body, hit
+end
+
+local function build_overlay_lines(body, hit)
+	local snapshot = body and get_debug_snapshot(body) or nil
+
+	if not snapshot then return nil end
+
+	local lines = {
+		"Rigid body",
+		"Entity: " .. tostring(snapshot.owner_name or "unnamed"),
+	}
+
+	if hit and hit.distance then
+		lines[#lines + 1] = "Distance: " .. format_number(hit.distance)
+	end
+
+	lines[#lines + 1] = string.format(
+		"Mode: %s | Awake: %s | Grounded: %s",
+		tostring(snapshot.motion_type or "unknown"),
+		yes_no(snapshot.awake),
+		yes_no(snapshot.grounded)
+	)
+	lines[#lines + 1] = "Shape: " .. tostring(snapshot.shape or "unknown")
+	lines[#lines + 1] = string.format(
+		"Mass: %s (%s)",
+		format_number(snapshot.mass or 0),
+		snapshot.automatic_mass and "auto" or "manual"
+	)
+
+	if snapshot.automatic_mass == false then
+		lines[#lines + 1] = "Computed mass: " .. format_number(snapshot.computed_mass or 0)
+		lines[#lines + 1] = string.format(
+			"Friction: %s | Restitution: %s",
+			format_number(snapshot.friction or 0),
+			format_number(snapshot.restitution or 0)
+		)
+	else
+		lines[#lines + 1] = string.format(
+			"Friction: %s | Speed: %s",
+			format_number(snapshot.friction or 0),
+			format_number(snapshot.linear_speed or 0)
+		)
+	end
+
+	lines[#lines + 1] = "Angular speed: " .. format_number(snapshot.angular_speed or 0)
+	lines[#lines + 1] = "Position: " .. format_vec(snapshot.position)
+	return lines
+end
+
+local function draw_hovered_body_info()
+	if not debug_enabled then return end
+
+	local body, hit = get_look_body_hit()
+
+	if not body then return end
+
+	local lines = build_overlay_lines(body, hit)
+
+	if not (lines and lines[1]) then return end
+
+	fonts.SetFont(overlay_font)
+	render2d.SetTexture(nil)
+	local font = fonts.GetFont()
+	local x = 12
+	local y = 52
+	local line_gap = 4
+	local padding = 8
+	local width = 0
+	local height = padding * 2
+
+	for _, line in ipairs(lines) do
+		local line_width, line_height = font:GetTextSize(line)
+		width = math.max(width, line_width)
+		height = height + line_height + line_gap
+	end
+
+	render2d.SetColor(0, 0, 0, 0.72)
+	render2d.DrawRect(x - padding, y - padding, width + padding * 2, height)
+
+	for i, line in ipairs(lines) do
+		local _, line_height = font:GetTextSize(line)
+		render2d.SetColor(i == 1 and 0.9 or 1, i == 1 and 0.95 or 1, i == 1 and 1 or 1, 1)
+		font:DrawText(line, x, y)
+		y = y + line_height + line_gap
+	end
 end
 
 local function get_debug_material(shape_type)
@@ -210,10 +406,10 @@ local function append_shape(model, body, shape, local_matrix)
 end
 
 local function get_shape_signature(body)
-	local shape = body:GetPhysicsShape()
+	local shape = body:GetPhysicsShape() or body.Shape
 	local shape_type = body:GetShapeType()
-	local hull = shape.GetResolvedHull and shape:GetResolvedHull(body) or nil
-	local children = shape.GetChildren and shape:GetChildren() or nil
+	local hull = shape and shape.GetResolvedHull and shape:GetResolvedHull(body) or nil
+	local children = shape and shape.GetChildren and shape:GetChildren() or nil
 	return shape, shape_type, hull, children and #children or 0
 end
 
@@ -258,7 +454,7 @@ local function rebuild_debug_model(body, entry)
 
 	sync_debug_transform(body, debug_ent)
 	debug_ent.model:RemovePrimitives()
-	append_shape(debug_ent.model, body, body:GetPhysicsShape(), Matrix44():Identity())
+	append_shape(debug_ent.model, body, body:GetPhysicsShape() or body.Shape, Matrix44():Identity())
 	debug_ent.model:BuildAABB()
 	debug_ent.model:SetVisible(debug_enabled)
 	entry.shape, entry.shape_type, entry.hull, entry.child_count = get_shape_signature(body)
@@ -319,32 +515,38 @@ event.AddListener("KeyInput", "physics_debug_toggle", function(key, press)
 			end
 		end
 
+		if debug_enabled then
+			event.AddListener("Draw2D", "physics_debug_hover_info", draw_hovered_body_info)
+		else
+			event.RemoveListener("Draw2D", "physics_debug_hover_info")
+		end
+
 		print("[Physics Debug] " .. (debug_enabled and "Enabled" or "Disabled"))
-	end
 
-	if debug_enabled then
-		local RigidBodyComponent = import("goluwa/physics/rigid_body.lua")
+		if debug_enabled then
+			local RigidBodyComponent = import("goluwa/physics/rigid_body.lua")
 
-		event.AddListener("Update", "physics_debug_sync", function()
-			cleanup_removed_bodies()
+			event.AddListener("Update", "physics_debug_sync", function()
+				cleanup_removed_bodies()
 
-			for _, body in ipairs(RigidBodyComponent.Instances or {}) do
-				if not (body and body.Owner and body.Owner.IsValid and body.Owner:IsValid()) then
-					goto continue
+				for _, body in ipairs(RigidBodyComponent.Instances or {}) do
+					if not (body and body.Owner and body.Owner.IsValid and body.Owner:IsValid()) then
+						goto continue
+					end
+
+					if not body.CollisionEnabled then goto continue end
+
+					if body.Owner.PhysicsNoCollision or body.Owner.NoPhysicsCollision then
+						goto continue
+					end
+
+					ensure_debug_model(body)
+
+					::continue::
 				end
-
-				if not body.CollisionEnabled then goto continue end
-
-				if body.Owner.PhysicsNoCollision or body.Owner.NoPhysicsCollision then
-					goto continue
-				end
-
-				ensure_debug_model(body)
-
-				::continue::
-			end
-		end)
-	else
-		event.RemoveListener("Update", "physics_debug_sync")
+			end)
+		else
+			event.RemoveListener("Update", "physics_debug_sync")
+		end
 	end
 end)
