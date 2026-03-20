@@ -83,7 +83,7 @@ function META:GetBroadphaseAABB(body, position, rotation)
 	return bounds
 end
 
-function META:SolveSupportContacts(body, dt, solve_contact)
+function META:SolveSupportContacts(body, dt, solve_contact, solve_contact_context)
 	local cast_up, cast_distance = support_contacts.GetCastDistances(body, dt)
 
 	for _, local_point in ipairs(body:GetSupportLocalPoints()) do
@@ -96,7 +96,13 @@ function META:SolveSupportContacts(body, dt, solve_contact)
 			body:GetFilterFunction()
 		)
 
-		if hit then solve_contact(body, point, hit, dt) end
+		if hit then
+			if solve_contact_context ~= nil then
+				solve_contact(solve_contact_context, body, point, hit, dt)
+			else
+				solve_contact(body, point, hit, dt)
+			end
+		end
 	end
 end
 

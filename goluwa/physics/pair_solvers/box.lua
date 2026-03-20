@@ -25,6 +25,19 @@ local BOX_SUPPORT_REDUCTION_SCRATCH = {
 		{},
 	},
 }
+local SWEPT_BOX_BOX_POINT_CALLBACK_CONTEXT = {
+	static_body = nil,
+}
+
+local function evaluate_swept_box_box_point(context, start_world, end_world)
+	if not (context and context.static_body) then
+		end_world = start_world
+		start_world = context
+		context = SWEPT_BOX_BOX_POINT_CALLBACK_CONTEXT
+	end
+
+	return pair_solver_helpers.SweepPointAgainstBox(context.static_body, start_world, end_world)
+end
 
 local function get_component(vec, axis_index)
 	if axis_index == 1 then return vec.x end
@@ -476,6 +489,7 @@ local function solve_swept_box_box_collision(dynamic_body, static_body, dt)
 
 	if movement:GetLength() <= physics.EPSILON then return false end
 
+	SWEPT_BOX_BOX_POINT_CALLBACK_CONTEXT.static_body = static_body
 	local earliest_hit = pair_solver_helpers.FindEarliestBodyPointSweepHit(
 		dynamic_body,
 		previous_position,
@@ -483,10 +497,11 @@ local function solve_swept_box_box_collision(dynamic_body, static_body, dt)
 		current_position,
 		sweep.current_rotation,
 		dynamic_body:GetCollisionLocalPoints(),
-		function(start_world, end_world)
-			return pair_solver_helpers.SweepPointAgainstBox(static_body, start_world, end_world)
-		end
+		evaluate_swept_box_box_point,
+		nil,
+		SWEPT_BOX_BOX_POINT_CALLBACK_CONTEXT
 	)
+	SWEPT_BOX_BOX_POINT_CALLBACK_CONTEXT.static_body = nil
 
 	if not earliest_hit then return false end
 

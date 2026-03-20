@@ -6,30 +6,79 @@ local triangle_contact_queries = import("goluwa/physics/triangle_contact_queries
 local triangle_geometry = import("goluwa/physics/triangle_geometry.lua")
 local mesh_polyhedron_contacts = {}
 
+local SOLVE_MESH_POLYHEDRON_CONTEXT = {
+	mesh_body = nil,
+	poly_body = nil,
+	polyhedron = nil,
+	state = nil,
+	samples = nil,
+}
+
+local function add_contact_sample(body, seen, samples, local_point)
+	if not local_point then return end
+
+	local key = string.format("%.5f:%.5f:%.5f", local_point.x, local_point.y, local_point.z)
+
+	if seen[key] then return end
+
+	seen[key] = true
+	samples[#samples + 1] = {
+		local_point = local_point,
+		point = body:GeometryLocalToWorld(local_point),
+	}
+end
+
+local function solve_mesh_polyhedron_triangle(v0, v1, v2, triangle_index, context)
+	local mesh_body = context.mesh_body
+	local poly_body = context.poly_body
+	local state = context.state
+	local result = triangle_contact_queries.QueryPolyhedron(
+		poly_body,
+		context.polyhedron,
+		v0,
+		v1,
+		v2,
+		{
+			epsilon = physics.EPSILON,
+			triangle_slop = (mesh_body:GetCollisionMargin() or 0) + (poly_body:GetCollisionMargin() or 0),
+			manifold_merge_distance = 0.08,
+			face_axis_relative_tolerance = 1.05,
+			face_axis_absolute_tolerance = 0.03,
+		}
+	)
+
+	if result and result.normal and result.contacts and result.contacts[1] then
+		if (result.overlap or 0) > (state.best_overlap or 0) then
+			state.best_triangle_index = triangle_index
+		end
+
+		polyhedron_triangle_aggregator.AccumulateMeshContacts(
+			state,
+			poly_body,
+			result,
+			v0,
+			v1,
+			v2,
+			{
+				merge_distance = 0.08,
+				max_contacts = 4,
+			}
+		)
+	end
+
+	mesh_polyhedron_contacts.AccumulateSampleContacts(state, mesh_body, poly_body, context.samples, v0, v1, v2, triangle_index)
+end
+
 function mesh_polyhedron_contacts.BuildContactSamples(body)
 	local samples = {}
 	local seen = {}
 
-	local function add_sample(local_point)
-		if not local_point then return end
-
-		local key = string.format("%.5f:%.5f:%.5f", local_point.x, local_point.y, local_point.z)
-
-		if seen[key] then return end
-
-		seen[key] = true
-		samples[#samples + 1] = {
-			local_point = local_point,
-			point = body:GeometryLocalToWorld(local_point),
-		}
-	end
-
 	for _, local_point in ipairs(body:GetCollisionLocalPoints() or {}) do
-		add_sample(local_point)
+		add_contact_sample(body, seen, samples, local_point)
 	end
 
 	for _, local_point in ipairs(body:GetSupportLocalPoints() or {}) do
-		add_sample(local_point)
+		add_contact_sample(body, seen, samples, local_point)
 	end
 
 	return samples
@@ -97,49 +146,24 @@ function mesh_polyhedron_contacts.SolveMeshPolyhedronCollision(mesh_body, poly_b
 		contacts = {},
 	}
 	local samples = mesh_polyhedron_contacts.BuildContactSamples(poly_body)
+	SOLVE_MESH_POLYHEDRON_CONTEXT.mesh_body = mesh_body
+	SOLVE_MESH_POLYHEDRON_CONTEXT.poly_body = poly_body
+	SOLVE_MESH_POLYHEDRON_CONTEXT.polyhedron = polyhedron
+	SOLVE_MESH_POLYHEDRON_CONTEXT.state = state
+	SOLVE_MESH_POLYHEDRON_CONTEXT.samples = samples
 
 	mesh_contact_common.ForEachOverlappingMeshTriangle(
 		mesh_body,
 		mesh_shape,
 		poly_body,
-		function(v0, v1, v2, triangle_index)
-			local result = triangle_contact_queries.QueryPolyhedron(
-				poly_body,
-				polyhedron,
-				v0,
-				v1,
-				v2,
-				{
-					epsilon = physics.EPSILON,
-					triangle_slop = (mesh_body:GetCollisionMargin() or 0) + (poly_body:GetCollisionMargin() or 0),
-					manifold_merge_distance = 0.08,
-					face_axis_relative_tolerance = 1.05,
-					face_axis_absolute_tolerance = 0.03,
-				}
-			)
-
-			if result and result.normal and result.contacts and result.contacts[1] then
-				if (result.overlap or 0) > (state.best_overlap or 0) then
-					state.best_triangle_index = triangle_index
-				end
-
-				polyhedron_triangle_aggregator.AccumulateMeshContacts(
-					state,
-					poly_body,
-					result,
-					v0,
-					v1,
-					v2,
-					{
-						merge_distance = 0.08,
-						max_contacts = 4,
-					}
-				)
-			end
-
-			mesh_polyhedron_contacts.AccumulateSampleContacts(state, mesh_body, poly_body, samples, v0, v1, v2, triangle_index)
-		end
+		solve_mesh_polyhedron_triangle,
+		SOLVE_MESH_POLYHEDRON_CONTEXT
 	)
+	SOLVE_MESH_POLYHEDRON_CONTEXT.mesh_body = nil
+	SOLVE_MESH_POLYHEDRON_CONTEXT.poly_body = nil
+	SOLVE_MESH_POLYHEDRON_CONTEXT.polyhedron = nil
+	SOLVE_MESH_POLYHEDRON_CONTEXT.state = nil
+	SOLVE_MESH_POLYHEDRON_CONTEXT.samples = nil
 
 	if not (state.best_normal and state.best_overlap > physics.EPSILON) then
 		return false

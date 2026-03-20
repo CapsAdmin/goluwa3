@@ -9,6 +9,38 @@ local support_contacts = import("goluwa/physics/shapes/support_contacts.lua")
 local META = prototype.CreateTemplate("physics_shape_convex")
 META.Base = BaseShape
 META:GetSet("ConvexHull", nil)
+local CONVEX_SUPPORT_CONTACT_CONTEXT = {
+	best = nil,
+}
+
+local function collect_convex_support_contact(context, target_body, point, hit, contact_dt)
+	if not (hit and hit.normal and hit.position and point) then return end
+
+	local margin = target_body:GetCollisionMargin() or 0
+	local depth = (hit.position + hit.normal * margin - point):Dot(hit.normal)
+	local support_tolerance = (target_body:GetCollisionProbeDistance() or 0) + margin
+
+	if depth < -support_tolerance then return end
+
+	local best = context.best
+
+	if
+		not best or
+		depth > best.depth or
+		(
+			math.abs(depth - best.depth) <= physics.EPSILON and
+			hit.normal.y > best.hit.normal.y
+		)
+	then
+		context.best = {
+			body = target_body,
+			point = point,
+			hit = hit,
+			dt = contact_dt,
+			depth = depth,
+		}
+	end
+end
 
 function META.New(hull)
 	local shape = META:CreateObject()
@@ -132,39 +164,17 @@ function META:GetSupportRadiusAlongNormal(body, normal)
 end
 
 function META:SolveSupportContacts(body, dt)
-	local best = nil
+	CONVEX_SUPPORT_CONTACT_CONTEXT.best = nil
 
 	BaseShape.SolveSupportContacts(
 		self,
 		body,
 		dt,
-		function(target_body, point, hit, contact_dt)
-			if not (hit and hit.normal and hit.position and point) then return end
-
-			local margin = target_body:GetCollisionMargin() or 0
-			local depth = (hit.position + hit.normal * margin - point):Dot(hit.normal)
-			local support_tolerance = (target_body:GetCollisionProbeDistance() or 0) + margin
-
-			if depth < -support_tolerance then return end
-
-			if
-				not best or
-				depth > best.depth or
-				(
-					math.abs(depth - best.depth) <= physics.EPSILON and
-					hit.normal.y > best.hit.normal.y
-				)
-			then
-				best = {
-					body = target_body,
-					point = point,
-					hit = hit,
-					dt = contact_dt,
-					depth = depth,
-				}
-			end
-		end
+		collect_convex_support_contact,
+		CONVEX_SUPPORT_CONTACT_CONTEXT
 	)
+	local best = CONVEX_SUPPORT_CONTACT_CONTEXT.best
+	CONVEX_SUPPORT_CONTACT_CONTEXT.best = nil
 
 	if not best then return end
 

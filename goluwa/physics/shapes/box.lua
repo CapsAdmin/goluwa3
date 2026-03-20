@@ -100,41 +100,52 @@ local function solve_box_support_contact(self, body, normal, contact_position, h
 	support_contacts.ApplyWorldSupportContact(body, normal, contact_position, support_radius, hit, dt)
 end
 
+local BOX_SUPPORT_CONTACT_CONTEXT = {
+	best_point = nil,
+}
+
+local function collect_box_support_contact(context, collider, point, fallback_hit, fallback_dt)
+	if not (fallback_hit and fallback_hit.normal and fallback_hit.position and point) then return end
+	if not (fallback_hit.rigid_body and fallback_hit.rigid_body.WorldGeometry == true) then return end
+
+	local margin = collider:GetCollisionMargin() or 0
+	local depth = (fallback_hit.position + fallback_hit.normal * margin - point):Dot(fallback_hit.normal)
+	local support_tolerance = (collider:GetCollisionProbeDistance() or 0) + margin
+
+	if depth < -support_tolerance then return end
+
+	local best_point = context.best_point
+
+	if
+		not best_point or
+		depth > best_point.depth or
+		(
+			math.abs(depth - best_point.depth) <= physics.EPSILON and
+			fallback_hit.normal.y > best_point.hit.normal.y
+		)
+	then
+		context.best_point = {
+			body = collider,
+			point = point,
+			hit = fallback_hit,
+			dt = fallback_dt,
+			depth = depth,
+		}
+	end
+end
+
 function META:SolveSupportContacts(body, dt)
-	local best_point = nil
+	BOX_SUPPORT_CONTACT_CONTEXT.best_point = nil
 
 	BaseShape.SolveSupportContacts(
 		self,
 		body,
 		dt,
-		function(collider, point, fallback_hit, fallback_dt)
-			if not (fallback_hit and fallback_hit.normal and fallback_hit.position and point) then return end
-			if not (fallback_hit.rigid_body and fallback_hit.rigid_body.WorldGeometry == true) then return end
-
-			local margin = collider:GetCollisionMargin() or 0
-			local depth = (fallback_hit.position + fallback_hit.normal * margin - point):Dot(fallback_hit.normal)
-			local support_tolerance = (collider:GetCollisionProbeDistance() or 0) + margin
-
-			if depth < -support_tolerance then return end
-
-			if
-				not best_point or
-				depth > best_point.depth or
-				(
-					math.abs(depth - best_point.depth) <= physics.EPSILON and
-					fallback_hit.normal.y > best_point.hit.normal.y
-				)
-			then
-				best_point = {
-					body = collider,
-					point = point,
-					hit = fallback_hit,
-					dt = fallback_dt,
-					depth = depth,
-				}
-			end
-		end
+		collect_box_support_contact,
+		BOX_SUPPORT_CONTACT_CONTEXT
 	)
+	local best_point = BOX_SUPPORT_CONTACT_CONTEXT.best_point
+	BOX_SUPPORT_CONTACT_CONTEXT.best_point = nil
 
 	if best_point then
 		support_contacts.ApplyPointWorldSupportContact(

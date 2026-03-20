@@ -21,6 +21,80 @@ local default_skin = (
 	0.02
 local RigidBody = prototype.CreateTemplate("rigid_body")
 
+local function solve_shape_support_contacts(shape_body, shape, step_dt)
+	if not (shape and shape.SolveSupportContacts) then return end
+	local shape_type = shape.GetTypeName and shape:GetTypeName() or nil
+
+	if shape_type == "box" then
+		local cast_up, cast_distance = support_contacts.GetCastDistances(shape_body, step_dt)
+		local best = nil
+
+		for _, local_point in ipairs(shape_body:GetSupportLocalPoints() or {}) do
+			local point = shape_body:GeometryLocalToWorld(local_point)
+			local hit = physics.Sweep(
+				point + physics.Up * cast_up,
+				physics.Up * -cast_distance,
+				0,
+				shape_body:GetOwner(),
+				shape_body:GetFilterFunction()
+			)
+
+			if hit and hit.normal and hit.position then
+				local margin = shape_body:GetCollisionMargin() or 0
+				local depth = (hit.position + hit.normal * margin - point):Dot(hit.normal)
+				local support_tolerance = (shape_body:GetCollisionProbeDistance() or 0) + margin
+
+				if depth >= -support_tolerance then
+					if
+						not best or
+						depth > best.depth or
+						(
+							math.abs(depth - best.depth) <= physics.EPSILON and
+							hit.normal.y > best.hit.normal.y
+						)
+					then
+						best = {
+							depth = depth,
+							point = point,
+							hit = hit,
+						}
+					end
+				end
+			end
+		end
+
+		if best then
+			support_contacts.ApplyPointWorldSupportContact(
+				shape_body,
+				best.hit.normal,
+				best.hit.position,
+				best.point,
+				best.hit,
+				step_dt
+			)
+			return
+		end
+	end
+
+	shape:SolveSupportContacts(shape_body, step_dt)
+end
+
+local function solve_body_support_contacts(body, step_dt)
+	if not (physics.IsActiveRigidBody(body) and body:IsDynamic() and body:GetAwake() and body.CollisionEnabled) then return end
+	if body:GetGravityScale() == 0 then return end
+
+	local colliders = body:GetColliders()
+
+	if #colliders == 1 then
+		solve_shape_support_contacts(body, body:GetPhysicsShape(), step_dt)
+		return
+	end
+
+	for _, collider in ipairs(colliders) do
+		solve_shape_support_contacts(collider, collider:GetPhysicsShape(), step_dt)
+	end
+end
+
 do
 	RigidBody:GetSet("Enabled", true)
 	RigidBody:GetSet("Shape", nil, {callback = "OnGeometryChanged"})
@@ -1086,80 +1160,6 @@ function physics.UpdateRigidBodies(dt)
 
 	for _, body in ipairs(bodies) do
 		if physics.IsActiveRigidBody(body) then body:SynchronizeFromTransform() end
-	end
-
-	local function solve_body_support_contacts(body, step_dt)
-		if not (physics.IsActiveRigidBody(body) and body:IsDynamic() and body:GetAwake() and body.CollisionEnabled) then return end
-		if body:GetGravityScale() == 0 then return end
-
-		local function solve_shape_support(shape_body, shape)
-			if not (shape and shape.SolveSupportContacts) then return end
-			local shape_type = shape.GetTypeName and shape:GetTypeName() or nil
-
-			if shape_type == "box" then
-				local cast_up, cast_distance = support_contacts.GetCastDistances(shape_body, step_dt)
-				local best = nil
-
-				for _, local_point in ipairs(shape_body:GetSupportLocalPoints() or {}) do
-					local point = shape_body:GeometryLocalToWorld(local_point)
-					local hit = physics.Sweep(
-						point + physics.Up * cast_up,
-						physics.Up * -cast_distance,
-						0,
-						shape_body:GetOwner(),
-						shape_body:GetFilterFunction()
-					)
-
-					if hit and hit.normal and hit.position then
-						local margin = shape_body:GetCollisionMargin() or 0
-						local depth = (hit.position + hit.normal * margin - point):Dot(hit.normal)
-						local support_tolerance = (shape_body:GetCollisionProbeDistance() or 0) + margin
-
-						if depth >= -support_tolerance then
-							if
-								not best or
-								depth > best.depth or
-								(
-									math.abs(depth - best.depth) <= physics.EPSILON and
-									hit.normal.y > best.hit.normal.y
-								)
-							then
-								best = {
-									depth = depth,
-									point = point,
-									hit = hit,
-								}
-							end
-						end
-					end
-				end
-
-				if best then
-					support_contacts.ApplyPointWorldSupportContact(
-						shape_body,
-						best.hit.normal,
-						best.hit.position,
-						best.point,
-						best.hit,
-						step_dt
-					)
-					return
-				end
-			end
-
-			shape:SolveSupportContacts(shape_body, step_dt)
-		end
-
-		local colliders = body:GetColliders()
-
-		if #colliders == 1 then
-			solve_shape_support(body, body:GetPhysicsShape())
-			return
-		end
-
-		for _, collider in ipairs(colliders) do
-			solve_shape_support(collider, collider:GetPhysicsShape())
-		end
 	end
 
 	for _ = 1, substeps do

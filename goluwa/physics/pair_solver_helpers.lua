@@ -136,7 +136,8 @@ function pair_solver_helpers.FindEarliestBodyPointSweepHit(
 	current_rotation,
 	local_points,
 	evaluate_hit,
-	best_hit
+	best_hit,
+	evaluate_context
 )
 	local_points = local_points or body:GetCollisionLocalPoints() or {}
 	current_position = current_position or body:GetPosition()
@@ -145,7 +146,9 @@ function pair_solver_helpers.FindEarliestBodyPointSweepHit(
 	for _, local_point in ipairs(local_points) do
 		local start_world = body:GeometryLocalToWorld(local_point, previous_position, previous_rotation)
 		local end_world = body:GeometryLocalToWorld(local_point, current_position, current_rotation)
-		local hit = evaluate_hit(start_world, end_world, local_point)
+		local hit = evaluate_context ~= nil and
+			evaluate_hit(evaluate_context, start_world, end_world, local_point) or
+			evaluate_hit(start_world, end_world, local_point)
 
 		if hit and (not best_hit or hit.t < best_hit.t) then best_hit = hit end
 	end
@@ -254,13 +257,14 @@ function pair_solver_helpers.GetCCDSampleSteps(path_length, distance_scale)
 	)
 end
 
-function pair_solver_helpers.RefineDistanceSweepHit(evaluate, hit_distance, low, high)
+function pair_solver_helpers.RefineDistanceSweepHit(evaluate, hit_distance, low, high, evaluate_context)
+
 	local best_t = high
-	local best_result = evaluate(high)
+	local best_result = evaluate_context ~= nil and evaluate(evaluate_context, high) or evaluate(high)
 
 	for _ = 1, CCD_REFINE_STEPS do
 		local mid = (low + high) * 0.5
-		local result = evaluate(mid)
+		local result = evaluate_context ~= nil and evaluate(evaluate_context, mid) or evaluate(mid)
 
 		if result.distance <= hit_distance then
 			best_t = mid
@@ -275,8 +279,8 @@ function pair_solver_helpers.RefineDistanceSweepHit(evaluate, hit_distance, low,
 	return best_result
 end
 
-function pair_solver_helpers.FindDistanceTimeOfImpact(evaluate, hit_distance, relative_velocity, path_length)
-	local start_result = evaluate(0)
+function pair_solver_helpers.FindDistanceTimeOfImpact(evaluate, hit_distance, relative_velocity, path_length, evaluate_context)
+	local start_result = evaluate_context ~= nil and evaluate(evaluate_context, 0) or evaluate(0)
 
 	if start_result.distance <= hit_distance then return nil end
 
@@ -300,17 +304,17 @@ function pair_solver_helpers.FindDistanceTimeOfImpact(evaluate, hit_distance, re
 
 		if next_t <= t + physics.EPSILON then break end
 
-		local next_result = evaluate(next_t)
+		local next_result = evaluate_context ~= nil and evaluate(evaluate_context, next_t) or evaluate(next_t)
 
 		if next_result.distance <= hit_distance then
-			return pair_solver_helpers.RefineDistanceSweepHit(evaluate, hit_distance, t, next_t)
+			return pair_solver_helpers.RefineDistanceSweepHit(evaluate, hit_distance, t, next_t, evaluate_context)
 		end
 
 		local midpoint_t = (t + next_t) * 0.5
-		local midpoint_result = evaluate(midpoint_t)
+		local midpoint_result = evaluate_context ~= nil and evaluate(evaluate_context, midpoint_t) or evaluate(midpoint_t)
 
 		if midpoint_result.distance <= hit_distance then
-			return pair_solver_helpers.RefineDistanceSweepHit(evaluate, hit_distance, t, midpoint_t)
+			return pair_solver_helpers.RefineDistanceSweepHit(evaluate, hit_distance, t, midpoint_t, evaluate_context)
 		end
 
 		t = next_t
@@ -323,10 +327,10 @@ function pair_solver_helpers.FindDistanceTimeOfImpact(evaluate, hit_distance, re
 
 	for i = 1, sample_steps do
 		local sample_t = i / sample_steps
-		local result = evaluate(sample_t)
+		local result = evaluate_context ~= nil and evaluate(evaluate_context, sample_t) or evaluate(sample_t)
 
 		if result.distance <= hit_distance then
-			return pair_solver_helpers.RefineDistanceSweepHit(evaluate, hit_distance, previous_t, sample_t)
+			return pair_solver_helpers.RefineDistanceSweepHit(evaluate, hit_distance, previous_t, sample_t, evaluate_context)
 		end
 
 		previous_t = sample_t
@@ -335,16 +339,16 @@ function pair_solver_helpers.FindDistanceTimeOfImpact(evaluate, hit_distance, re
 	return nil
 end
 
-function pair_solver_helpers.FindSampledDistanceThresholdHit(evaluate, hit_distance, sample_steps)
+function pair_solver_helpers.FindSampledDistanceThresholdHit(evaluate, hit_distance, sample_steps, evaluate_context)
 	sample_steps = sample_steps or 12
 	local previous_t = 0
 
 	for i = 1, sample_steps do
 		local sample_t = i / sample_steps
-		local result = evaluate(sample_t)
+		local result = evaluate_context ~= nil and evaluate(evaluate_context, sample_t) or evaluate(sample_t)
 
 		if result.distance <= hit_distance then
-			return pair_solver_helpers.RefineDistanceSweepHit(evaluate, hit_distance, previous_t, sample_t)
+			return pair_solver_helpers.RefineDistanceSweepHit(evaluate, hit_distance, previous_t, sample_t, evaluate_context)
 		end
 
 		previous_t = sample_t
@@ -353,12 +357,12 @@ function pair_solver_helpers.FindSampledDistanceThresholdHit(evaluate, hit_dista
 	return nil
 end
 
-function pair_solver_helpers.FindDistanceSweepHit(evaluate, hit_distance, relative_velocity, path_length, sample_steps)
-	local hit = pair_solver_helpers.FindDistanceTimeOfImpact(evaluate, hit_distance, relative_velocity, path_length)
+function pair_solver_helpers.FindDistanceSweepHit(evaluate, hit_distance, relative_velocity, path_length, sample_steps, evaluate_context)
+	local hit = pair_solver_helpers.FindDistanceTimeOfImpact(evaluate, hit_distance, relative_velocity, path_length, evaluate_context)
 
 	if hit then return hit end
 
-	return pair_solver_helpers.FindSampledDistanceThresholdHit(evaluate, hit_distance, sample_steps)
+	return pair_solver_helpers.FindSampledDistanceThresholdHit(evaluate, hit_distance, sample_steps, evaluate_context)
 end
 
 function pair_solver_helpers.SweepPointAgainstBox(box_body, start_world, end_world, extra_radius)

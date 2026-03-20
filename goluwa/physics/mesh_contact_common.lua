@@ -38,25 +38,78 @@ local LOCAL_AABB_TRANSFORM_PROXY = {
 	body = nil,
 }
 
+local OVERLAPPING_TRIANGLE_CALLBACK_CONTEXT = {
+	mesh_body = nil,
+	callback = nil,
+	user_context = nil,
+}
+
+local SOLVE_BEST_TRIANGLE_CONTACT_CONTEXT = {
+	mesh_body = nil,
+	other_body = nil,
+	handlers = nil,
+	combined_margin = 0,
+	best = nil,
+}
+
 function LOCAL_AABB_TRANSFORM_PROXY:TransformVector(point)
 	return self.body:WorldToLocal(point)
 end
 
-function mesh_contact_common.ForEachOverlappingMeshTriangle(mesh_body, mesh_shape, other_body, callback)
+local function invoke_overlapping_mesh_triangle(v0, v1, v2, triangle_index, context)
+	local mesh_body = context.mesh_body
+	context.callback(
+		mesh_body:LocalToWorld(v0),
+		mesh_body:LocalToWorld(v1),
+		mesh_body:LocalToWorld(v2),
+		triangle_index,
+		context.user_context
+	)
+end
+
+local function solve_best_triangle_contact_callback(v0, v1, v2, triangle_index, context)
+	local handlers = context.handlers
+	local result = handlers.Query(handlers, v0, v1, v2)
+
+	if not result then return end
+
+	local normal = select(
+		1,
+		mesh_contact_common.SelectTriangleNormal(
+			context.mesh_body,
+			context.other_body,
+			handlers.GetDelta(handlers, result, v0, v1, v2),
+			handlers.GetFallbackDelta(handlers, result, v0, v1, v2),
+			handlers.GetFallbackNormal and
+				handlers.GetFallbackNormal(handlers, result, v0, v1, v2) or
+				result.face_normal
+		)
+	)
+	local overlap = context.combined_margin - result.surface_distance
+
+	if not normal then return end
+
+	local point_a, point_b = handlers.GetContactPoints(handlers, result, normal, v0, v1, v2)
+	context.best = mesh_contact_common.UpdateBestContact(context.best, triangle_index, normal, overlap, point_a, point_b)
+end
+
+function mesh_contact_common.ForEachOverlappingMeshTriangle(mesh_body, mesh_shape, other_body, callback, context)
 	local bounds = static_model_query.BuildExpandedWorldContactAABB(other_body:GetBroadphaseAABB(), mesh_body, other_body)
 	LOCAL_AABB_TRANSFORM_PROXY.body = mesh_body
 	local local_bounds = AABB.BuildLocalAABBFromWorldAABB(bounds, LOCAL_AABB_TRANSFORM_PROXY)
 	LOCAL_AABB_TRANSFORM_PROXY.body = nil
-
-	mesh_shape:ForEachOverlappingTriangle(mesh_body, local_bounds, function(v0, v1, v2, triangle_index, context)
-		callback(
-			mesh_body:LocalToWorld(v0),
-			mesh_body:LocalToWorld(v1),
-			mesh_body:LocalToWorld(v2),
-			triangle_index,
-			context
-		)
-	end)
+	OVERLAPPING_TRIANGLE_CALLBACK_CONTEXT.mesh_body = mesh_body
+	OVERLAPPING_TRIANGLE_CALLBACK_CONTEXT.callback = callback
+	OVERLAPPING_TRIANGLE_CALLBACK_CONTEXT.user_context = context
+	mesh_shape:ForEachOverlappingTriangle(
+		mesh_body,
+		local_bounds,
+		invoke_overlapping_mesh_triangle,
+		OVERLAPPING_TRIANGLE_CALLBACK_CONTEXT
+	)
+	OVERLAPPING_TRIANGLE_CALLBACK_CONTEXT.mesh_body = nil
+	OVERLAPPING_TRIANGLE_CALLBACK_CONTEXT.callback = nil
+	OVERLAPPING_TRIANGLE_CALLBACK_CONTEXT.user_context = nil
 end
 
 function mesh_contact_common.SelectTriangleNormal(mesh_body, other_body, delta, fallback_delta, fallback_normal)
@@ -112,38 +165,26 @@ function mesh_contact_common.SolveBestTriangleContact(mesh_body, other_body, mes
 	if combined_margin == nil then
 		combined_margin = (other_body:GetCollisionMargin() or 0) + (mesh_body:GetCollisionMargin() or 0)
 	end
-
-	local best = nil
+	SOLVE_BEST_TRIANGLE_CONTACT_CONTEXT.mesh_body = mesh_body
+	SOLVE_BEST_TRIANGLE_CONTACT_CONTEXT.other_body = other_body
+	SOLVE_BEST_TRIANGLE_CONTACT_CONTEXT.handlers = handlers
+	SOLVE_BEST_TRIANGLE_CONTACT_CONTEXT.combined_margin = combined_margin
+	SOLVE_BEST_TRIANGLE_CONTACT_CONTEXT.best = nil
 
 	mesh_contact_common.ForEachOverlappingMeshTriangle(
 		mesh_body,
 		mesh_shape,
 		other_body,
-		function(v0, v1, v2, triangle_index)
-			local result = handlers.Query(v0, v1, v2)
-
-			if not result then return end
-
-			local normal = select(
-				1,
-				mesh_contact_common.SelectTriangleNormal(
-					mesh_body,
-					other_body,
-					handlers.GetDelta(result, v0, v1, v2),
-					handlers.GetFallbackDelta(result, v0, v1, v2),
-					handlers.GetFallbackNormal and
-						handlers.GetFallbackNormal(result, v0, v1, v2) or
-						result.face_normal
-				)
-			)
-			local overlap = combined_margin - result.surface_distance
-
-			if not normal then return end
-
-			local point_a, point_b = handlers.GetContactPoints(result, normal, v0, v1, v2)
-			best = mesh_contact_common.UpdateBestContact(best, triangle_index, normal, overlap, point_a, point_b)
-		end
+		solve_best_triangle_contact_callback,
+		SOLVE_BEST_TRIANGLE_CONTACT_CONTEXT
 	)
+
+	local best = SOLVE_BEST_TRIANGLE_CONTACT_CONTEXT.best
+	SOLVE_BEST_TRIANGLE_CONTACT_CONTEXT.mesh_body = nil
+	SOLVE_BEST_TRIANGLE_CONTACT_CONTEXT.other_body = nil
+	SOLVE_BEST_TRIANGLE_CONTACT_CONTEXT.handlers = nil
+	SOLVE_BEST_TRIANGLE_CONTACT_CONTEXT.combined_margin = 0
+	SOLVE_BEST_TRIANGLE_CONTACT_CONTEXT.best = nil
 
 	return mesh_contact_common.ResolveBestContact(mesh_body, other_body, best, dt)
 end

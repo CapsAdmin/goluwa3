@@ -2,6 +2,30 @@ local convex_sat = import("goluwa/physics/convex_sat.lua")
 local polyhedron_geometry = import("goluwa/physics/polyhedron_geometry.lua")
 local polyhedron_sat = {}
 
+local function default_face_candidate(face_index)
+	return {face_index = face_index}
+end
+
+local function default_edge_candidate()
+	return {kind = "edge"}
+end
+
+local function default_margin_overlap()
+	return nil
+end
+
+local function build_polyhedron_candidate(build_candidate, context, ...)
+	if context ~= nil then return build_candidate(context, ...) end
+
+	return build_candidate(...)
+end
+
+local function get_polyhedron_margin_overlap(get_margin_overlap, context, ...)
+	if context ~= nil then return get_margin_overlap(context, ...) end
+
+	return get_margin_overlap(...)
+end
+
 function polyhedron_sat.TryUpdateAxisCandidate(best, vertices_a, vertices_b, axis, center_delta, candidate, options)
 	options = options or {}
 
@@ -98,16 +122,20 @@ function polyhedron_sat.TryUpdatePolyhedronFaceAxisCandidates(best, vertices_a, 
 	options = options or {}
 	local epsilon = options.epsilon
 	local allow_zero_axis = options.allow_zero_axis or false
-	local build_candidate = options.build_candidate or
-		function(face_index)
-			return {face_index = face_index}
-		end
-	local get_margin_overlap = options.get_margin_overlap or function()
-		return nil
-	end
+	local build_candidate = options.build_candidate or default_face_candidate
+	local build_candidate_context = options.build_candidate_context
+	local get_margin_overlap = options.get_margin_overlap or default_margin_overlap
+	local get_margin_overlap_context = options.get_margin_overlap_context
 
 	for face_index, face in ipairs(poly_data.faces or {}) do
 		local axis = rotation:VecMul(face.normal)
+		local candidate = build_polyhedron_candidate(build_candidate, build_candidate_context, face_index, axis)
+		local margin_overlap = get_polyhedron_margin_overlap(
+			get_margin_overlap,
+			get_margin_overlap_context,
+			axis,
+			face_index
+		)
 
 		if
 			not polyhedron_sat.TryUpdateAxisCandidate(
@@ -116,14 +144,12 @@ function polyhedron_sat.TryUpdatePolyhedronFaceAxisCandidates(best, vertices_a, 
 				vertices_b,
 				axis,
 				center_delta,
-				build_candidate(face_index, axis),
+				candidate,
 				{
 					epsilon = epsilon,
 					allow_zero_axis = allow_zero_axis,
 					normalize = options.normalize,
-					get_margin_overlap = function(normal)
-						return get_margin_overlap(normal, face_index)
-					end,
+					margin_overlap = margin_overlap,
 				}
 			)
 		then
@@ -183,12 +209,10 @@ function polyhedron_sat.TryUpdatePolyhedronTriangleEdgeAxisCandidates(
 	options = options or {}
 	local epsilon = options.epsilon
 	local allow_zero_axis = options.allow_zero_axis or false
-	local build_candidate = options.build_candidate or function()
-		return {kind = "edge"}
-	end
-	local get_margin_overlap = options.get_margin_overlap or function()
-		return nil
-	end
+	local build_candidate = options.build_candidate or default_edge_candidate
+	local build_candidate_context = options.build_candidate_context
+	local get_margin_overlap = options.get_margin_overlap or default_margin_overlap
+	local get_margin_overlap_context = options.get_margin_overlap_context
 
 	for edge_index, edge in ipairs(polyhedron.edges or {}) do
 		local edge_axis = polyhedron_geometry.GetEdgeDirection(polyhedron, edge)
@@ -202,6 +226,20 @@ function polyhedron_sat.TryUpdatePolyhedronTriangleEdgeAxisCandidates(
 
 				if axis_length > epsilon then
 					local normal = axis / axis_length
+					local candidate = build_polyhedron_candidate(
+						build_candidate,
+						build_candidate_context,
+						edge_index,
+						triangle_edge_index,
+						normal
+					)
+					local margin_overlap = get_polyhedron_margin_overlap(
+						get_margin_overlap,
+						get_margin_overlap_context,
+						normal,
+						edge_index,
+						triangle_edge_index
+					)
 
 					if
 						not polyhedron_sat.TryUpdateAxisCandidate(
@@ -210,11 +248,11 @@ function polyhedron_sat.TryUpdatePolyhedronTriangleEdgeAxisCandidates(
 							vertices_b,
 							normal,
 							center_delta,
-							build_candidate(edge_index, triangle_edge_index, normal),
+							candidate,
 							{
 								epsilon = epsilon,
 								allow_zero_axis = allow_zero_axis,
-								margin_overlap = get_margin_overlap(normal, edge_index, triangle_edge_index),
+								margin_overlap = margin_overlap,
 							}
 						)
 					then

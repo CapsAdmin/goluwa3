@@ -5,6 +5,26 @@ local contact_resolution = import("goluwa/physics/contact_resolution.lua")
 local polyhedron_solver = import("goluwa/physics/pair_solvers/polyhedron.lua")
 local triangle_contact_queries = import("goluwa/physics/triangle_contact_queries.lua")
 local sphere = {}
+local SWEPT_SPHERE_BOX_POINT_CALLBACK_CONTEXT = {
+	box_body = nil,
+	descending_from_above = false,
+}
+
+local function evaluate_swept_sphere_box_point(context, start_point_world, end_point_world)
+	if not (context and context.box_body) then
+		end_point_world = start_point_world
+		start_point_world = context
+		context = SWEPT_SPHERE_BOX_POINT_CALLBACK_CONTEXT
+	end
+
+	local hit = pair_solver_helpers.SweepPointAgainstBox(context.box_body, start_point_world, end_point_world)
+
+	if hit and not (context.descending_from_above and hit.normal_local.y <= physics.EPSILON) then
+		return hit
+	end
+
+	return nil
+end
 
 local function solve_sphere_pair_collision(body_a, body_b, dt)
 	if body_a == body_b then return end
@@ -108,6 +128,8 @@ local function solve_swept_sphere_box_collision(sphere_body, box_body, dt)
 
 	if movement_world:GetLength() <= physics.EPSILON then return false end
 
+	SWEPT_SPHERE_BOX_POINT_CALLBACK_CONTEXT.box_body = box_body
+	SWEPT_SPHERE_BOX_POINT_CALLBACK_CONTEXT.descending_from_above = descending_from_above
 	local earliest_hit = pair_solver_helpers.FindEarliestBodyPointSweepHit(
 		sphere_body,
 		sweep.previous_position,
@@ -115,16 +137,12 @@ local function solve_swept_sphere_box_collision(sphere_body, box_body, dt)
 		sweep.current_position,
 		sweep.current_rotation,
 		sphere_body:GetSupportLocalPoints() or {},
-		function(start_point_world, end_point_world)
-			local hit = pair_solver_helpers.SweepPointAgainstBox(box_body, start_point_world, end_point_world)
-
-			if hit and not (descending_from_above and hit.normal_local.y <= physics.EPSILON) then
-				return hit
-			end
-
-			return nil
-		end
+		evaluate_swept_sphere_box_point,
+		nil,
+		SWEPT_SPHERE_BOX_POINT_CALLBACK_CONTEXT
 	)
+	SWEPT_SPHERE_BOX_POINT_CALLBACK_CONTEXT.box_body = nil
+	SWEPT_SPHERE_BOX_POINT_CALLBACK_CONTEXT.descending_from_above = false
 
 	if not earliest_hit then return false end
 

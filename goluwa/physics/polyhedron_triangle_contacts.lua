@@ -20,6 +20,17 @@ local SINGLE_CONTACT_SCRATCH = {
 local SUPPORT_CONTACT_SCRATCH = {}
 local TRIANGLE_VERTICES_SCRATCH = {}
 local TRIANGLE_EDGE_SCRATCH = {}
+local POLYHEDRON_FACE_CANDIDATE_CONTEXT = {
+	reference = "polyhedron",
+	kind = "face",
+	margin_overlap = 0,
+	support_axis_y = 0,
+}
+local POLYHEDRON_EDGE_CANDIDATE_CONTEXT = {
+	kind = "edge",
+	margin_overlap = 0,
+	support_axis_y = 0,
+}
 
 local function fill_triangle_vertices(out, v0, v1, v2)
 	out = out or {}
@@ -32,6 +43,24 @@ local function fill_triangle_vertices(out, v0, v1, v2)
 	end
 
 	return out
+end
+
+local function build_polyhedron_face_candidate(context, face_index)
+	return {
+		kind = context.kind,
+		reference = context.reference,
+		face_index = face_index,
+	}
+end
+
+local function get_grounded_margin_overlap(context, axis)
+	return math.abs(axis.y) >= context.support_axis_y and context.margin_overlap or 0
+end
+
+local function build_triangle_edge_candidate(context)
+	return {
+		kind = context.kind,
+	}
 end
 
 function polyhedron_triangle_contacts.FindContact(collider, polyhedron, v0, v1, v2, options)
@@ -51,6 +80,8 @@ function polyhedron_triangle_contacts.FindContact(collider, polyhedron, v0, v1, 
 	local center_delta = collider:GetPosition() - triangle_center
 	local margin_overlap = (collider:GetCollisionMargin() or 0) + triangle_slop
 	local support_axis_y = math.max(collider:GetMinGroundNormalY() or 0, 0.5)
+	POLYHEDRON_FACE_CANDIDATE_CONTEXT.margin_overlap = margin_overlap
+	POLYHEDRON_FACE_CANDIDATE_CONTEXT.support_axis_y = support_axis_y
 
 	if
 		not polyhedron_sat.TryUpdatePolyhedronFaceAxisCandidates(
@@ -63,16 +94,10 @@ function polyhedron_triangle_contacts.FindContact(collider, polyhedron, v0, v1, 
 			{
 				epsilon = epsilon,
 				normalize = true,
-				build_candidate = function(face_index)
-					return {
-						kind = "face",
-						reference = "polyhedron",
-						face_index = face_index,
-					}
-				end,
-				get_margin_overlap = function(axis)
-					return math.abs(axis.y) >= support_axis_y and margin_overlap or 0
-				end,
+				build_candidate = build_polyhedron_face_candidate,
+				build_candidate_context = POLYHEDRON_FACE_CANDIDATE_CONTEXT,
+				get_margin_overlap = get_grounded_margin_overlap,
+				get_margin_overlap_context = POLYHEDRON_FACE_CANDIDATE_CONTEXT,
 			}
 		)
 	then
@@ -104,6 +129,8 @@ function polyhedron_triangle_contacts.FindContact(collider, polyhedron, v0, v1, 
 	end
 
 	local triangle_edges = triangle_geometry.GetTriangleEdges(v0, v1, v2, TRIANGLE_EDGE_SCRATCH)
+	POLYHEDRON_EDGE_CANDIDATE_CONTEXT.margin_overlap = margin_overlap
+	POLYHEDRON_EDGE_CANDIDATE_CONTEXT.support_axis_y = support_axis_y
 
 	if
 		not polyhedron_sat.TryUpdatePolyhedronTriangleEdgeAxisCandidates(
@@ -116,19 +143,19 @@ function polyhedron_triangle_contacts.FindContact(collider, polyhedron, v0, v1, 
 			center_delta,
 			{
 				epsilon = epsilon,
-				build_candidate = function()
-					return {
-						kind = "edge",
-					}
-				end,
-				get_margin_overlap = function(axis)
-					return math.abs(axis.y) >= support_axis_y and margin_overlap or 0
-				end,
+				build_candidate = build_triangle_edge_candidate,
+				build_candidate_context = POLYHEDRON_EDGE_CANDIDATE_CONTEXT,
+				get_margin_overlap = get_grounded_margin_overlap,
+				get_margin_overlap_context = POLYHEDRON_EDGE_CANDIDATE_CONTEXT,
 			}
 		)
 	then
 		return nil
 	end
+	POLYHEDRON_FACE_CANDIDATE_CONTEXT.margin_overlap = 0
+	POLYHEDRON_FACE_CANDIDATE_CONTEXT.support_axis_y = 0
+	POLYHEDRON_EDGE_CANDIDATE_CONTEXT.margin_overlap = 0
+	POLYHEDRON_EDGE_CANDIDATE_CONTEXT.support_axis_y = 0
 
 	local chosen = convex_sat.ChoosePreferredAxis(best, face_axis_relative_tolerance, face_axis_absolute_tolerance)
 	local normal = chosen and chosen.normal or nil

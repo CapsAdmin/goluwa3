@@ -9,10 +9,72 @@ local CAPSULE_SWEEP_POINT_SCRATCH = {
 	current = {},
 	previous = {},
 }
+local sweep_point_against_capsule_segment
 local CAPSULE_BOX_POINT_SCRATCH = {
 	current = {},
 	previous = {},
 }
+local CAPSULE_BOX_SWEEP_CALLBACK_CONTEXT = {
+	box_body = nil,
+}
+local SPHERE_CAPSULE_SWEEP_CALLBACK_CONTEXT = {
+	segment_a = nil,
+	segment_b = nil,
+	capsule_radius = 0,
+	relative_velocity = nil,
+}
+local CAPSULE_SEGMENT_SWEEP_EVALUATION_CONTEXT = {
+	start_world = nil,
+	movement = nil,
+	segment_a = nil,
+	segment_b = nil,
+}
+
+local function evaluate_capsule_box_point_sweep(context, start_world, end_world)
+	if not (context and context.box_body) then
+		end_world = start_world
+		start_world = context
+		context = CAPSULE_BOX_SWEEP_CALLBACK_CONTEXT
+	end
+
+	return pair_solver_helpers.SweepPointAgainstBox(context.box_body, start_world, end_world)
+end
+
+local function evaluate_sphere_capsule_point_sweep(context, start_world, end_world)
+	if not (context and context.segment_a) then
+		end_world = start_world
+		start_world = context
+		context = SPHERE_CAPSULE_SWEEP_CALLBACK_CONTEXT
+	end
+
+	return sweep_point_against_capsule_segment(
+		start_world,
+		end_world,
+		context.segment_a,
+		context.segment_b,
+		context.capsule_radius,
+		context.relative_velocity
+	)
+end
+
+local function evaluate_capsule_segment_sweep_distance(context, t)
+	local point = context.start_world + context.movement * t
+	local closest = segment_geometry.ClosestPointOnSegment(context.segment_a, context.segment_b, point, physics.EPSILON)
+	local delta = point - closest
+	local distance = delta:GetLength()
+	return {
+		delta = delta,
+		distance = distance,
+	}
+end
+
+local function evaluate_capsule_segment_point(context, t)
+	local point = context.start_world + context.movement * t
+	local closest = segment_geometry.ClosestPointOnSegment(context.segment_a, context.segment_b, point, physics.EPSILON)
+	local delta = point - closest
+	local distance = delta:GetLength()
+	return point, closest, delta, distance
+end
 
 local function get_capsule_sample_count(radius, a, b)
 	local length = (b - a):GetLength()
@@ -45,35 +107,37 @@ local function iterate_capsule_points(body, position, rotation, out)
 	return out, radius
 end
 
-local function sweep_point_against_capsule_segment(start_world, end_world, segment_a, segment_b, radius, relative_velocity)
+function sweep_point_against_capsule_segment(start_world, end_world, segment_a, segment_b, radius, relative_velocity)
 	local movement = end_world - start_world
 
 	if movement:GetLength() <= physics.EPSILON then return nil end
+	CAPSULE_SEGMENT_SWEEP_EVALUATION_CONTEXT.start_world = start_world
+	CAPSULE_SEGMENT_SWEEP_EVALUATION_CONTEXT.movement = movement
+	CAPSULE_SEGMENT_SWEEP_EVALUATION_CONTEXT.segment_a = segment_a
+	CAPSULE_SEGMENT_SWEEP_EVALUATION_CONTEXT.segment_b = segment_b
 
-	local function evaluate(t)
-		local point = start_world + movement * t
-		local closest = segment_geometry.ClosestPointOnSegment(segment_a, segment_b, point, physics.EPSILON)
-		local delta = point - closest
-		local distance = delta:GetLength()
-		return point, closest, delta, distance
+	local _, _, _, start_distance = evaluate_capsule_segment_point(CAPSULE_SEGMENT_SWEEP_EVALUATION_CONTEXT, 0)
+
+	if start_distance <= radius then
+		CAPSULE_SEGMENT_SWEEP_EVALUATION_CONTEXT.start_world = nil
+		CAPSULE_SEGMENT_SWEEP_EVALUATION_CONTEXT.movement = nil
+		CAPSULE_SEGMENT_SWEEP_EVALUATION_CONTEXT.segment_a = nil
+		CAPSULE_SEGMENT_SWEEP_EVALUATION_CONTEXT.segment_b = nil
+		return nil
 	end
 
-	local _, _, _, start_distance = evaluate(0)
-
-	if start_distance <= radius then return nil end
-
 	local hit = pair_solver_helpers.FindDistanceSweepHit(
-		function(t)
-			local _, _, delta, distance = evaluate(t)
-			return {
-				delta = delta,
-				distance = distance,
-			}
-		end,
+		evaluate_capsule_segment_sweep_distance,
 		radius,
 		relative_velocity or movement,
-		movement:GetLength()
+		movement:GetLength(),
+		nil,
+		CAPSULE_SEGMENT_SWEEP_EVALUATION_CONTEXT
 	)
+	CAPSULE_SEGMENT_SWEEP_EVALUATION_CONTEXT.start_world = nil
+	CAPSULE_SEGMENT_SWEEP_EVALUATION_CONTEXT.movement = nil
+	CAPSULE_SEGMENT_SWEEP_EVALUATION_CONTEXT.segment_a = nil
+	CAPSULE_SEGMENT_SWEEP_EVALUATION_CONTEXT.segment_b = nil
 
 	if hit then
 		hit.normal = get_oriented_normal(hit.delta, (relative_velocity or movement) * -1)
@@ -112,6 +176,7 @@ local function solve_swept_capsule_box_collision(capsule_body, box_body, dt)
 	end
 
 	if not earliest_hit then
+		CAPSULE_BOX_SWEEP_CALLBACK_CONTEXT.box_body = box_body
 		earliest_hit = pair_solver_helpers.FindEarliestBodyPointSweepHit(
 			capsule_body,
 			previous_position,
@@ -119,11 +184,11 @@ local function solve_swept_capsule_box_collision(capsule_body, box_body, dt)
 			current_position,
 			sweep.current_rotation,
 			capsule_body:GetCollisionLocalPoints(),
-			function(start_world, end_world)
-				return pair_solver_helpers.SweepPointAgainstBox(box_body, start_world, end_world)
-			end,
-			earliest_hit
+			evaluate_capsule_box_point_sweep,
+			earliest_hit,
+			CAPSULE_BOX_SWEEP_CALLBACK_CONTEXT
 		)
+		CAPSULE_BOX_SWEEP_CALLBACK_CONTEXT.box_body = nil
 	end
 
 	if not earliest_hit then return false end
@@ -233,6 +298,10 @@ local function solve_swept_sphere_capsule_collision(sphere_body, capsule_body, d
 	if movement:GetLength() <= physics.EPSILON then return false end
 
 	local segment_a, segment_b, capsule_radius = capsule_geometry.GetSegmentWorld(capsule_body)
+	SPHERE_CAPSULE_SWEEP_CALLBACK_CONTEXT.segment_a = segment_a
+	SPHERE_CAPSULE_SWEEP_CALLBACK_CONTEXT.segment_b = segment_b
+	SPHERE_CAPSULE_SWEEP_CALLBACK_CONTEXT.capsule_radius = capsule_radius
+	SPHERE_CAPSULE_SWEEP_CALLBACK_CONTEXT.relative_velocity = sphere_body:GetVelocity() - capsule_body:GetVelocity()
 	local earliest_hit = pair_solver_helpers.FindEarliestBodyPointSweepHit(
 		sphere_body,
 		previous_position,
@@ -240,17 +309,14 @@ local function solve_swept_sphere_capsule_collision(sphere_body, capsule_body, d
 		current_position,
 		sweep.current_rotation,
 		sphere_body:GetCollisionLocalPoints(),
-		function(start_world, end_world)
-			return sweep_point_against_capsule_segment(
-				start_world,
-				end_world,
-				segment_a,
-				segment_b,
-				capsule_radius,
-				sphere_body:GetVelocity() - capsule_body:GetVelocity()
-			)
-		end
+		evaluate_sphere_capsule_point_sweep,
+		nil,
+		SPHERE_CAPSULE_SWEEP_CALLBACK_CONTEXT
 	)
+	SPHERE_CAPSULE_SWEEP_CALLBACK_CONTEXT.segment_a = nil
+	SPHERE_CAPSULE_SWEEP_CALLBACK_CONTEXT.segment_b = nil
+	SPHERE_CAPSULE_SWEEP_CALLBACK_CONTEXT.capsule_radius = 0
+	SPHERE_CAPSULE_SWEEP_CALLBACK_CONTEXT.relative_velocity = nil
 
 	if not earliest_hit then return false end
 
