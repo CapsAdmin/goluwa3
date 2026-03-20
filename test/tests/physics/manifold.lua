@@ -1,4 +1,5 @@
 local T = import("test/environment.lua")
+local physics = import("goluwa/physics.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local manifold = import("goluwa/physics/manifold.lua")
 local test_helpers = import("test/tests/physics/test_helpers.lua")
@@ -173,4 +174,62 @@ T.Test("Manifold static friction hysteresis keeps sticking slightly above enter 
 	manifold.SolveImpulses(body_a, body_b, Vec3(0, 1, 0), data, 1 / 60)
 	T(data.contacts[1].static_friction_active)["=="](true)
 	T(math.abs(body_a:GetVelocity().x))["<"](0.08)
+end)
+
+T.Test("Manifold solver uses extra passes only for slow resting multi-contact patches", function()
+	local solver = physics.solver
+	local old_base = solver.MANIFOLD_SOLVER_PASSES
+	local old_resting = solver.RESTING_MANIFOLD_SOLVER_PASSES
+	local old_min_contacts = solver.RESTING_MANIFOLD_MIN_CONTACTS
+	local old_min_normal_y = solver.RESTING_MANIFOLD_MIN_NORMAL_Y
+	local old_max_relative = solver.RESTING_MANIFOLD_MAX_RELATIVE_SPEED
+	local old_max_tangent = solver.RESTING_MANIFOLD_MAX_TANGENT_SPEED
+	local old_max_angular = solver.RESTING_MANIFOLD_MAX_ANGULAR_SPEED
+	solver.MANIFOLD_SOLVER_PASSES = 1
+	solver.RESTING_MANIFOLD_SOLVER_PASSES = 2
+	solver.RESTING_MANIFOLD_MIN_CONTACTS = 3
+	solver.RESTING_MANIFOLD_MIN_NORMAL_Y = 0.65
+	solver.RESTING_MANIFOLD_MAX_RELATIVE_SPEED = 1.5
+	solver.RESTING_MANIFOLD_MAX_TANGENT_SPEED = 0.75
+	solver.RESTING_MANIFOLD_MAX_ANGULAR_SPEED = 2.5
+
+	local body_a = create_mock_body{
+		Velocity = Vec3(0.1, -0.02, 0.05),
+		AngularVelocity = Vec3(0.05, 0, 0.1),
+	}
+	local fast_body_a = create_mock_body{
+		Velocity = Vec3(3, 0, 0),
+		AngularVelocity = Vec3(0.05, 0, 0.1),
+	}
+	local body_b = create_mock_body{
+		Position = Vec3(0, 1, 0),
+		Velocity = Vec3(),
+		AngularVelocity = Vec3(),
+		IsDynamic = false,
+		InverseMass = 0,
+	}
+	local slow_contacts = {
+		contacts = {
+			{local_point_a = Vec3(-1, 0, -1), local_point_b = Vec3(-1, -1, -1)},
+			{local_point_a = Vec3(1, 0, -1), local_point_b = Vec3(1, -1, -1)},
+			{local_point_a = Vec3(0, 0, 1), local_point_b = Vec3(0, -1, 1)},
+		},
+	}
+	local fast_contacts = {
+		contacts = {
+			{local_point_a = Vec3(-1, 0, 0), local_point_b = Vec3(-1, -1, 0)},
+			{local_point_a = Vec3(1, 0, 0), local_point_b = Vec3(1, -1, 0)},
+		},
+	}
+	local slow_passes = solver:GetManifoldSolverPasses(body_a, body_b, Vec3(0, 1, 0), slow_contacts)
+	local fast_passes = solver:GetManifoldSolverPasses(fast_body_a, body_b, Vec3(0, 1, 0), fast_contacts)
+	solver.MANIFOLD_SOLVER_PASSES = old_base
+	solver.RESTING_MANIFOLD_SOLVER_PASSES = old_resting
+	solver.RESTING_MANIFOLD_MIN_CONTACTS = old_min_contacts
+	solver.RESTING_MANIFOLD_MIN_NORMAL_Y = old_min_normal_y
+	solver.RESTING_MANIFOLD_MAX_RELATIVE_SPEED = old_max_relative
+	solver.RESTING_MANIFOLD_MAX_TANGENT_SPEED = old_max_tangent
+	solver.RESTING_MANIFOLD_MAX_ANGULAR_SPEED = old_max_angular
+	T(slow_passes)["=="](2)
+	T(fast_passes)["=="](1)
 end)

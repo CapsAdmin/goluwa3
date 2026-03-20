@@ -99,6 +99,23 @@ local function set_pair_manifold(manifolds, body_a, body_b, manifold)
 	get_or_create_manifold_row(manifolds, body_b)[body_a] = manifold
 end
 
+local function get_positional_correction_length(overlap, dt)
+	local solver = physics.solver
+	local slop = math.max(solver.PENETRATION_SLOP or 0, 0)
+	local factor = math.max(solver.POSITIONAL_CORRECTION_FACTOR or 0, 0)
+	local max_correction = math.max(solver.MAX_POSITIONAL_CORRECTION or 0, 0)
+	local correction_length = math.max(overlap - slop, 0) * factor
+
+	if dt and dt > 0 then
+		local max_depenetration_speed = math.max(solver.MAX_DEPENETRATION_SPEED or 0, 0)
+		if max_depenetration_speed > 0 then correction_length = math.min(correction_length, max_depenetration_speed * dt) end
+	end
+
+	if max_correction > 0 then correction_length = math.min(correction_length, max_correction) end
+
+	return correction_length
+end
+
 function contact_resolution.ApplyPairImpulse(body_a, body_b, normal, dt, point_a, point_b, options)
 	local inverse_mass_a = body_a.InverseMass
 	local inverse_mass_b = body_b.InverseMass
@@ -172,10 +189,14 @@ function contact_resolution.ResolvePairPenetration(body_a, body_b, normal, overl
 		end
 
 		manifolds.SolveImpulses(body_a, body_b, normal, manifold, dt)
-		local correction = normal * (-overlap / #contacts)
+		local correction_length = get_positional_correction_length(overlap, dt)
 
-		for _, contact in ipairs(contacts) do
-			body_a:ApplyCorrection(0, correction, contact.point_a, body_b, contact.point_b, dt)
+		if correction_length > physics.EPSILON then
+			local correction = normal * (-(correction_length / #contacts))
+
+			for _, contact in ipairs(contacts) do
+				body_a:ApplyCorrection(0, correction, contact.point_a, body_b, contact.point_b, dt)
+			end
 		end
 
 		if not options.skip_grounding then

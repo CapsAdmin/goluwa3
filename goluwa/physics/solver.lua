@@ -11,6 +11,17 @@ function Solver.New(config)
 	config = config or {}
 	self.physics = config.physics or self.physics or physics
 	self.MANIFOLD_PRUNE_STEPS = config.MANIFOLD_PRUNE_STEPS or self.MANIFOLD_PRUNE_STEPS or 12
+	self.MANIFOLD_SOLVER_PASSES = config.MANIFOLD_SOLVER_PASSES or self.MANIFOLD_SOLVER_PASSES or 1
+	self.RESTING_MANIFOLD_SOLVER_PASSES = config.RESTING_MANIFOLD_SOLVER_PASSES or self.RESTING_MANIFOLD_SOLVER_PASSES or 2
+	self.RESTING_MANIFOLD_MIN_CONTACTS = config.RESTING_MANIFOLD_MIN_CONTACTS or self.RESTING_MANIFOLD_MIN_CONTACTS or 3
+	self.RESTING_MANIFOLD_MIN_NORMAL_Y = config.RESTING_MANIFOLD_MIN_NORMAL_Y or self.RESTING_MANIFOLD_MIN_NORMAL_Y or 0.65
+	self.RESTING_MANIFOLD_MAX_RELATIVE_SPEED = config.RESTING_MANIFOLD_MAX_RELATIVE_SPEED or self.RESTING_MANIFOLD_MAX_RELATIVE_SPEED or 1.5
+	self.RESTING_MANIFOLD_MAX_TANGENT_SPEED = config.RESTING_MANIFOLD_MAX_TANGENT_SPEED or self.RESTING_MANIFOLD_MAX_TANGENT_SPEED or 0.75
+	self.RESTING_MANIFOLD_MAX_ANGULAR_SPEED = config.RESTING_MANIFOLD_MAX_ANGULAR_SPEED or self.RESTING_MANIFOLD_MAX_ANGULAR_SPEED or 2.5
+	self.PENETRATION_SLOP = config.PENETRATION_SLOP or self.PENETRATION_SLOP or 0.005
+	self.POSITIONAL_CORRECTION_FACTOR = config.POSITIONAL_CORRECTION_FACTOR or self.POSITIONAL_CORRECTION_FACTOR or 0.9
+	self.MAX_POSITIONAL_CORRECTION = config.MAX_POSITIONAL_CORRECTION or self.MAX_POSITIONAL_CORRECTION or 0.5
+	self.MAX_DEPENETRATION_SPEED = config.MAX_DEPENETRATION_SPEED or self.MAX_DEPENETRATION_SPEED or 24
 	self.WARM_START_SCALE = config.WARM_START_SCALE or self.WARM_START_SCALE or 0.9
 	self.TANGENT_WARM_START_SCALE = config.TANGENT_WARM_START_SCALE or self.TANGENT_WARM_START_SCALE or 0.1
 	self.MAX_TANGENT_WARM_SPEED = config.MAX_TANGENT_WARM_SPEED or self.MAX_TANGENT_WARM_SPEED or 0.25
@@ -147,6 +158,40 @@ function Solver:ShouldUseStaticFriction(contact, tangent_speed, tangent_impulse_
 		contact.static_friction_active == true and
 		tangent_speed <= exit_speed or
 		false
+end
+
+function Solver:GetManifoldSolverPasses(body_a, body_b, normal, manifold_data)
+	local base_passes = math.max(1, self.MANIFOLD_SOLVER_PASSES or 1)
+	local resting_passes = math.max(base_passes, self.RESTING_MANIFOLD_SOLVER_PASSES or base_passes)
+
+	if resting_passes <= base_passes then return base_passes end
+
+	local contacts = manifold_data and manifold_data.contacts or nil
+
+	if #(contacts or {}) < math.max(1, self.RESTING_MANIFOLD_MIN_CONTACTS or 1) then return base_passes end
+
+	if math.abs(normal and normal.y or 0) < math.max(0, self.RESTING_MANIFOLD_MIN_NORMAL_Y or 0) then return base_passes end
+
+	if self:GetPairRestitution(body_a, body_b) > 0.05 then return base_passes end
+
+	local velocity_a = body_a.GetVelocity and body_a:GetVelocity() or Vec3()
+	local velocity_b = body_b.GetVelocity and body_b:GetVelocity() or Vec3()
+	local relative_velocity = velocity_b - velocity_a
+
+	if relative_velocity:GetLength() > math.max(0, self.RESTING_MANIFOLD_MAX_RELATIVE_SPEED or 0) then return base_passes end
+
+	local tangent_velocity = relative_velocity - normal * relative_velocity:Dot(normal)
+
+	if tangent_velocity:GetLength() > math.max(0, self.RESTING_MANIFOLD_MAX_TANGENT_SPEED or 0) then return base_passes end
+
+	local angular_speed_a = body_a.GetAngularVelocity and body_a:GetAngularVelocity():GetLength() or 0
+	local angular_speed_b = body_b.GetAngularVelocity and body_b:GetAngularVelocity():GetLength() or 0
+
+	if math.max(angular_speed_a, angular_speed_b) > math.max(0, self.RESTING_MANIFOLD_MAX_ANGULAR_SPEED or 0) then
+		return base_passes
+	end
+
+	return resting_passes
 end
 
 local contact_resolution = import("goluwa/physics/contact_resolution.lua")

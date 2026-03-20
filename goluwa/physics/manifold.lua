@@ -163,105 +163,111 @@ end
 function manifold.SolveImpulses(body_a, body_b, normal, manifold_data, dt)
 	local state_a = impulse_motion.CaptureBodyMotion(body_a)
 	local state_b = impulse_motion.CaptureBodyMotion(body_b)
-	local restitution = physics.solver:GetPairRestitution(body_a, body_b)
-	local dynamic_friction = physics.solver:GetPairFriction(body_a, body_b)
-	local static_friction = math.max(dynamic_friction, physics.solver:GetPairStaticFriction(body_a, body_b))
+	local solver = physics.solver
+	local restitution = solver:GetPairRestitution(body_a, body_b)
+	local dynamic_friction = solver:GetPairFriction(body_a, body_b)
+	local static_friction = math.max(dynamic_friction, solver:GetPairStaticFriction(body_a, body_b))
 	local allow_persistent_tangent = supports_persistent_tangent(body_a, body_b, manifold_data)
+	local passes = solver.GetManifoldSolverPasses and
+		solver:GetManifoldSolverPasses(body_a, body_b, normal, manifold_data) or
+		math.max(1, solver.MANIFOLD_SOLVER_PASSES or 1)
 
-	for _, contact in ipairs(manifold_data.contacts or {}) do
-		local point_a = body_a:LocalToWorld(contact.local_point_a)
-		local point_b = body_b:LocalToWorld(contact.local_point_b)
-		local relative_velocity = impulse_motion.GetRelativePointVelocity(state_a, point_a, state_b, point_b)
-		local normal_speed = relative_velocity:Dot(normal)
-		local inverse_mass = body_a:GetInverseMassAlong(normal, point_a) + body_b:GetInverseMassAlong(normal, point_b)
+	for pass = 1, passes do
+		for _, contact in ipairs(manifold_data.contacts or {}) do
+			local point_a = body_a:LocalToWorld(contact.local_point_a)
+			local point_b = body_b:LocalToWorld(contact.local_point_b)
+			local relative_velocity = impulse_motion.GetRelativePointVelocity(state_a, point_a, state_b, point_b)
+			local normal_speed = relative_velocity:Dot(normal)
+			local inverse_mass = body_a:GetInverseMassAlong(normal, point_a) + body_b:GetInverseMassAlong(normal, point_b)
 
-		if inverse_mass > physics.EPSILON then
-			local applied_restitution = normal_speed < -0.33 and restitution or 0
-			local normal_impulse = -(1 + applied_restitution) * normal_speed / inverse_mass
-			local new_impulse = math.max((contact.normal_impulse or 0) + normal_impulse, 0)
-			local impulse_delta = new_impulse - (contact.normal_impulse or 0)
-			contact.normal_impulse = new_impulse
+			if inverse_mass > physics.EPSILON then
+				local applied_restitution = pass == 1 and normal_speed < -0.33 and restitution or 0
+				local normal_impulse = -(1 + applied_restitution) * normal_speed / inverse_mass
+				local new_impulse = math.max((contact.normal_impulse or 0) + normal_impulse, 0)
+				local impulse_delta = new_impulse - (contact.normal_impulse or 0)
+				contact.normal_impulse = new_impulse
 
-			if math.abs(impulse_delta) > physics.EPSILON then
-				local impulse = normal * impulse_delta
-				impulse_motion.ApplyPairImpulse(state_a, state_b, impulse, point_a, point_b)
-			end
-		end
-
-		relative_velocity = impulse_motion.GetRelativePointVelocity(state_a, point_a, state_b, point_b)
-		local tangent_velocity = relative_velocity - normal * relative_velocity:Dot(normal)
-		local tangent_speed = tangent_velocity:GetLength()
-
-		if tangent_speed > physics.EPSILON and (dynamic_friction > 0 or static_friction > 0) then
-			local tangent = get_cached_tangent(contact, normal)
-
-			if not tangent or not allow_persistent_tangent then
-				tangent = tangent_velocity / tangent_speed
+				if math.abs(impulse_delta) > physics.EPSILON then
+					local impulse = normal * impulse_delta
+					impulse_motion.ApplyPairImpulse(state_a, state_b, impulse, point_a, point_b)
+				end
 			end
 
-			local bitangent
-			tangent, bitangent = build_tangent_basis(normal, tangent)
+			relative_velocity = impulse_motion.GetRelativePointVelocity(state_a, point_a, state_b, point_b)
+			local tangent_velocity = relative_velocity - normal * relative_velocity:Dot(normal)
+			local tangent_speed = tangent_velocity:GetLength()
 
-			if tangent and bitangent then
-				local tangent_inverse_mass_1 = body_a:GetInverseMassAlong(tangent, point_a) + body_b:GetInverseMassAlong(tangent, point_b)
-				local tangent_inverse_mass_2 = body_a:GetInverseMassAlong(bitangent, point_a) + body_b:GetInverseMassAlong(bitangent, point_b)
+			if pass == passes and tangent_speed > physics.EPSILON and (dynamic_friction > 0 or static_friction > 0) then
+				local tangent = get_cached_tangent(contact, normal)
 
-				if
-					tangent_inverse_mass_1 > physics.EPSILON and
-					tangent_inverse_mass_2 > physics.EPSILON
-				then
-					local tangent_impulse_1 = -relative_velocity:Dot(tangent) / tangent_inverse_mass_1
-					local tangent_impulse_2 = -relative_velocity:Dot(bitangent) / tangent_inverse_mass_2
-					local static_impulse_limit = (contact.normal_impulse or 0) * static_friction
-					local desired_tangent_impulse_length = math.sqrt(tangent_impulse_1 * tangent_impulse_1 + tangent_impulse_2 * tangent_impulse_2)
-					local use_static_friction = physics.solver:ShouldUseStaticFriction(contact, tangent_speed, desired_tangent_impulse_length, static_impulse_limit)
-					local friction_limit = use_static_friction and static_friction or dynamic_friction
-					local max_tangent_impulse = (contact.normal_impulse or 0) * friction_limit
-					local previous_tangent_impulse_1 = allow_persistent_tangent and
-						(
-							contact.tangent_impulse_1 or
-							contact.tangent_impulse or
-							0
-						)
-						or
-						0
-					local previous_tangent_impulse_2 = allow_persistent_tangent and (contact.tangent_impulse_2 or 0) or 0
-					local new_tangent_impulse_1 = previous_tangent_impulse_1 + tangent_impulse_1
-					local new_tangent_impulse_2 = previous_tangent_impulse_2 + tangent_impulse_2
-					local tangent_impulse_length = math.sqrt(
-						new_tangent_impulse_1 * new_tangent_impulse_1 + new_tangent_impulse_2 * new_tangent_impulse_2
-					)
+				if not tangent or not allow_persistent_tangent then
+					tangent = tangent_velocity / tangent_speed
+				end
+
+				local bitangent
+				tangent, bitangent = build_tangent_basis(normal, tangent)
+
+				if tangent and bitangent then
+					local tangent_inverse_mass_1 = body_a:GetInverseMassAlong(tangent, point_a) + body_b:GetInverseMassAlong(tangent, point_b)
+					local tangent_inverse_mass_2 = body_a:GetInverseMassAlong(bitangent, point_a) + body_b:GetInverseMassAlong(bitangent, point_b)
 
 					if
-						tangent_impulse_length > max_tangent_impulse and
-						tangent_impulse_length > physics.EPSILON
+						tangent_inverse_mass_1 > physics.EPSILON and
+						tangent_inverse_mass_2 > physics.EPSILON
 					then
-						local scale = max_tangent_impulse / tangent_impulse_length
-						new_tangent_impulse_1 = new_tangent_impulse_1 * scale
-						new_tangent_impulse_2 = new_tangent_impulse_2 * scale
-					end
+						local tangent_impulse_1 = -relative_velocity:Dot(tangent) / tangent_inverse_mass_1
+						local tangent_impulse_2 = -relative_velocity:Dot(bitangent) / tangent_inverse_mass_2
+						local static_impulse_limit = (contact.normal_impulse or 0) * static_friction
+						local desired_tangent_impulse_length = math.sqrt(tangent_impulse_1 * tangent_impulse_1 + tangent_impulse_2 * tangent_impulse_2)
+						local use_static_friction = solver:ShouldUseStaticFriction(contact, tangent_speed, desired_tangent_impulse_length, static_impulse_limit)
+						local friction_limit = use_static_friction and static_friction or dynamic_friction
+						local max_tangent_impulse = (contact.normal_impulse or 0) * friction_limit
+						local previous_tangent_impulse_1 = allow_persistent_tangent and
+							(
+								contact.tangent_impulse_1 or
+								contact.tangent_impulse or
+								0
+							)
+							or
+							0
+						local previous_tangent_impulse_2 = allow_persistent_tangent and (contact.tangent_impulse_2 or 0) or 0
+						local new_tangent_impulse_1 = previous_tangent_impulse_1 + tangent_impulse_1
+						local new_tangent_impulse_2 = previous_tangent_impulse_2 + tangent_impulse_2
+						local tangent_impulse_length = math.sqrt(
+							new_tangent_impulse_1 * new_tangent_impulse_1 + new_tangent_impulse_2 * new_tangent_impulse_2
+						)
 
-					local impulse_delta_1 = new_tangent_impulse_1 - previous_tangent_impulse_1
-					local impulse_delta_2 = new_tangent_impulse_2 - previous_tangent_impulse_2
+						if
+							tangent_impulse_length > max_tangent_impulse and
+							tangent_impulse_length > physics.EPSILON
+						then
+							local scale = max_tangent_impulse / tangent_impulse_length
+							new_tangent_impulse_1 = new_tangent_impulse_1 * scale
+							new_tangent_impulse_2 = new_tangent_impulse_2 * scale
+						end
 
-					if allow_persistent_tangent then
-						contact.tangent_impulse = new_tangent_impulse_1
-						contact.tangent_impulse_1 = new_tangent_impulse_1
-						contact.tangent_impulse_2 = new_tangent_impulse_2
-						contact.static_friction_active = use_static_friction
-						contact.tangent = tangent:Copy()
-					else
-						contact.static_friction_active = use_static_friction
-					end
+						local impulse_delta_1 = new_tangent_impulse_1 - previous_tangent_impulse_1
+						local impulse_delta_2 = new_tangent_impulse_2 - previous_tangent_impulse_2
 
-					if math.abs(impulse_delta_1) > physics.EPSILON then
-						local impulse = tangent * impulse_delta_1
-						impulse_motion.ApplyPairImpulse(state_a, state_b, impulse, point_a, point_b)
-					end
+						if allow_persistent_tangent then
+							contact.tangent_impulse = new_tangent_impulse_1
+							contact.tangent_impulse_1 = new_tangent_impulse_1
+							contact.tangent_impulse_2 = new_tangent_impulse_2
+							contact.static_friction_active = use_static_friction
+							contact.tangent = tangent:Copy()
+						else
+							contact.static_friction_active = use_static_friction
+						end
 
-					if math.abs(impulse_delta_2) > physics.EPSILON then
-						local impulse = bitangent * impulse_delta_2
-						impulse_motion.ApplyPairImpulse(state_a, state_b, impulse, point_a, point_b)
+						if math.abs(impulse_delta_1) > physics.EPSILON then
+							local impulse = tangent * impulse_delta_1
+							impulse_motion.ApplyPairImpulse(state_a, state_b, impulse, point_a, point_b)
+						end
+
+						if math.abs(impulse_delta_2) > physics.EPSILON then
+							local impulse = bitangent * impulse_delta_2
+							impulse_motion.ApplyPairImpulse(state_a, state_b, impulse, point_a, point_b)
+						end
 					end
 				end
 			end
