@@ -1,6 +1,6 @@
 local Vec3 = import("goluwa/structs/vec3.lua")
 local BVH = import("goluwa/physics/bvh.lua")
-local world_transform_utils = import("goluwa/physics/world_transform_utils.lua")
+local model_transform_utils = import("goluwa/physics/model_transform_utils.lua")
 local Model = import("goluwa/ecs/components/3d/model.lua")
 local system = import("goluwa/system.lua")
 local raycast = library()
@@ -795,7 +795,7 @@ local function test_model_closest(
 
 	if not model.Visible or #model.Primitives == 0 then return nil end
 
-	local world_to_local, local_to_world = world_transform_utils.GetModelTransforms(model)
+	local world_to_local, local_to_world = model_transform_utils.GetModelTransforms(model)
 	local local_ray = transform_ray(ray, world_to_local)
 
 	if not skip_model_aabb and model.AABB then
@@ -875,7 +875,7 @@ local function collect_model_hits(ray, model, filter_fn, a, b, c, d, e, f, hits,
 
 	if not model.Visible or #model.Primitives == 0 then return end
 
-	local world_to_local, local_to_world = world_transform_utils.GetModelTransforms(model)
+	local world_to_local, local_to_world = model_transform_utils.GetModelTransforms(model)
 	local local_ray = transform_ray(ray, world_to_local)
 
 	if not skip_model_aabb and model.AABB then
@@ -1073,12 +1073,6 @@ end
 
 function raycast.CreateModelSource(models)
 	return build_static_model_source(models)
-end
-
-function raycast.CastFromSource(source, origin, direction, max_distance, filter_fn, a, b, c, d, e, f)
-	max_distance = max_distance or math.huge
-	local ray = create_ray(origin, direction, max_distance)
-	return collect_hits_in_source(source, ray, filter_fn, a, b, c, d, e, f)
 end
 
 function raycast.CastClosestFromSource(source, origin, direction, max_distance, filter_fn, a, b, c, d, e, f)

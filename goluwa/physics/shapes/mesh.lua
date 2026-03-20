@@ -1,5 +1,7 @@
 local prototype = import("goluwa/prototype.lua")
 local AABB = import("goluwa/structs/aabb.lua")
+local BVH = import("goluwa/physics/bvh.lua")
+local brush_hull = import("goluwa/physics/brush_hull.lua")
 local Matrix33 = import("goluwa/structs/matrix33.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local BaseShape = import("goluwa/physics/shapes/base.lua")
@@ -7,31 +9,89 @@ local triangle_mesh = import("goluwa/physics/triangle_mesh.lua")
 local META = prototype.CreateTemplate("physics_shape_mesh")
 META.Base = BaseShape
 
-local function append_polygon(polygons, seen, polygon)
+local function create_synthetic_primitive(polygon)
+	return {polygon3d = polygon}
+end
+
+local function build_brush_polygon(primitive)
+	if not (primitive and primitive.brush_planes) then return nil end
+
+	if primitive.mesh_shape_brush_polygon then return primitive.mesh_shape_brush_polygon end
+
+	local hull = primitive.brush_hull or brush_hull.BuildHullFromPlanes(primitive.brush_planes)
+
+	if
+		not (
+			hull and
+			hull.vertices and
+			hull.vertices[1] and
+			hull.indices and
+			hull.indices[1]
+		)
+	then
+		return nil
+	end
+
+	primitive.brush_hull = hull
+	local indices = {}
+
+	for i = 1, #hull.indices do
+		indices[i] = hull.indices[i] - 1
+	end
+
+	primitive.mesh_shape_brush_polygon = {
+		Vertices = hull.vertices,
+		indices = indices,
+		AABB = AABB(
+			hull.bounds_min.x,
+			hull.bounds_min.y,
+			hull.bounds_min.z,
+			hull.bounds_max.x,
+			hull.bounds_max.y,
+			hull.bounds_max.z
+		),
+	}
+	return primitive.mesh_shape_brush_polygon
+end
+
+local function append_polygon_entry(entries, seen, polygon, primitive, primitive_index, model)
 	if not (polygon and polygon.Vertices) then return end
 
 	if seen[polygon] then return end
 
 	seen[polygon] = true
-	polygons[#polygons + 1] = polygon
+	entries[#entries + 1] = {
+		polygon = polygon,
+		primitive = primitive or create_synthetic_primitive(polygon),
+		primitive_index = primitive_index,
+		model = model,
+	}
 end
 
-local function collect_polygons_from_source(polygons, seen, source)
+local function collect_polygon_entries_from_source(entries, seen, source, model, primitive, primitive_index)
 	if not source then return end
 
 	if source.Vertices then
-		append_polygon(polygons, seen, source)
+		append_polygon_entry(entries, seen, source, primitive, primitive_index, model)
 		return
 	end
 
 	if source.polygon3d then
-		append_polygon(polygons, seen, source.polygon3d)
+		append_polygon_entry(entries, seen, source.polygon3d, source, primitive_index, model)
+		return
+	end
+
+	if source.brush_planes then
+		local polygon = build_brush_polygon(source)
+
+		if polygon then append_polygon_entry(entries, seen, polygon, source, primitive_index, model) end
+
 		return
 	end
 
 	if source.Primitives then
-		for _, primitive in ipairs(source.Primitives) do
-			collect_polygons_from_source(polygons, seen, primitive)
+		for index, model_primitive in ipairs(source.Primitives) do
+			collect_polygon_entries_from_source(entries, seen, model_primitive, source, model_primitive, index)
 		end
 
 		return
@@ -39,9 +99,127 @@ local function collect_polygons_from_source(polygons, seen, source)
 
 	if source[1] then
 		for _, entry in ipairs(source) do
-			collect_polygons_from_source(polygons, seen, entry)
+			collect_polygon_entries_from_source(entries, seen, entry, model, primitive, primitive_index)
 		end
 	end
+end
+
+local function create_ray(origin, direction, max_distance)
+	local ray = {
+		origin = origin,
+		direction = direction:GetNormalized(),
+		max_distance = max_distance or math.huge,
+	}
+	ray.inv_direction = Vec3(
+		ray.direction.x ~= 0 and 1 / ray.direction.x or math.huge,
+		ray.direction.y ~= 0 and 1 / ray.direction.y or math.huge,
+		ray.direction.z ~= 0 and 1 / ray.direction.z or math.huge
+	)
+	return ray
+end
+
+local function ray_triangle_intersection(ray, v0, v1, v2)
+	local epsilon = 0.0000001
+	local edge1 = v1 - v0
+	local edge2 = v2 - v0
+	local h = ray.direction:GetCross(edge2)
+	local a = edge1:Dot(h)
+
+	if a > -epsilon and a < epsilon then return false end
+
+	local f = 1.0 / a
+	local s = ray.origin - v0
+	local u = f * s:Dot(h)
+
+	if u < 0.0 or u > 1.0 then return false end
+
+	local q = s:GetCross(edge1)
+	local v = f * ray.direction:Dot(q)
+
+	if v < 0.0 or u + v > 1.0 then return false end
+
+	local t = f * edge2:Dot(q)
+
+	if t > epsilon and t <= ray.max_distance then return true, t end
+
+	return false
+end
+
+local function build_triangle_hit(collider, entry, ray_origin, ray_direction, distance, trace_radius, triangle)
+	local face_normal_local = (triangle.v1 - triangle.v0):Cross(triangle.v2 - triangle.v0):GetNormalized()
+
+	if face_normal_local:GetLength() <= 0.00001 then return nil end
+
+	local face_normal = collider:GetRotation():VecMul(face_normal_local):GetNormalized()
+
+	if face_normal:Dot(ray_direction) > 0 then face_normal = face_normal * -1 end
+
+	local position = ray_origin + ray_direction * distance
+	local radius = math.max(trace_radius or 0, 0)
+
+	if radius > 0 then position = position - face_normal * radius end
+
+	return {
+		entity = collider:GetOwner(),
+		distance = distance,
+		position = position,
+		normal = face_normal,
+		face_normal = face_normal,
+		rigid_body = collider.GetBody and collider:GetBody() or collider,
+		collider = collider,
+		primitive = entry.primitive,
+		primitive_index = entry.primitive_index,
+		triangle_index = triangle.triangle_index,
+		model = entry.model,
+		poly = entry.polygon,
+	}
+end
+
+local function test_triangle_hit(context, triangle)
+	local hit, distance = ray_triangle_intersection(context.local_ray, triangle.v0, triangle.v1, triangle.v2)
+
+	if not hit or distance > context.best_distance then return end
+
+	local candidate = build_triangle_hit(
+		context.collider,
+		context.entry,
+		context.ray_origin,
+		context.ray_direction,
+		distance,
+		context.trace_radius,
+		triangle
+	)
+
+	if candidate then
+		context.best_hit = candidate
+		context.best_distance = candidate.distance
+	end
+end
+
+local function visit_triangle_leaf(node, context, best_hit, best_distance)
+	for i = node.first, node.last do
+		local triangle = context.acceleration.triangles[i]
+		local hit, distance = ray_triangle_intersection(context.local_ray, triangle.v0, triangle.v1, triangle.v2)
+
+		if hit and distance < best_distance then
+			local candidate = build_triangle_hit(
+				context.collider,
+				context.entry,
+				context.ray_origin,
+				context.ray_direction,
+				distance,
+				context.trace_radius,
+				triangle
+			)
+
+			if candidate then
+				best_hit = candidate
+				best_distance = candidate.distance
+			end
+		end
+	end
+
+	return best_hit, best_distance
 end
 
 local function bounds_from_points(points)
@@ -105,6 +283,7 @@ end
 
 function META:OnBodyGeometryChanged(body)
 	BaseShape.OnBodyGeometryChanged(self, body)
+	self.ResolvedPolygonEntries = nil
 	self.ResolvedPolygons = nil
 	self.LocalBounds = nil
 	self.CollisionLocalPoints = nil
@@ -118,11 +297,24 @@ function META:GetMeshSource(body)
 	return owner and owner.model or nil
 end
 
+function META:GetMeshPolygonEntries(body)
+	if self.ResolvedPolygonEntries then return self.ResolvedPolygonEntries end
+
+	local entries = {}
+	collect_polygon_entries_from_source(entries, {}, self:GetMeshSource(body))
+	self.ResolvedPolygonEntries = entries
+	return entries
+end
+
 function META:GetMeshPolygons(body)
 	if self.ResolvedPolygons then return self.ResolvedPolygons end
 
 	local polygons = {}
-	collect_polygons_from_source(polygons, {}, self:GetMeshSource(body))
+
+	for _, entry in ipairs(self:GetMeshPolygonEntries(body)) do
+		polygons[#polygons + 1] = entry.polygon
+	end
+
 	self.ResolvedPolygons = polygons
 	return polygons
 end
@@ -234,6 +426,68 @@ function META:ForEachOverlappingTriangle(body, local_bounds, callback, context)
 	for _, poly in ipairs(self:GetMeshPolygons(body)) do
 		triangle_mesh.ForEachOverlappingTriangle(poly, local_bounds, callback, context)
 	end
+end
+
+function META:TraceAgainstBody(collider, origin, direction, max_distance, trace_radius)
+	local ray_direction = direction and direction:GetNormalized() or Vec3(0, 0, 0)
+
+	if ray_direction:GetLength() <= 0.00001 then return nil end
+
+	local distance_limit = max_distance or math.huge
+	local world_ray = create_ray(origin, ray_direction, distance_limit)
+	local bounds = collider:GetBroadphaseAABB()
+
+	if bounds and not BVH.RayAABBIntersection(world_ray, bounds) then return nil end
+
+	local local_origin = collider:WorldToLocal(origin)
+	local local_direction = collider:GetRotation():GetConjugated():VecMul(ray_direction):GetNormalized()
+	local local_ray = create_ray(local_origin, local_direction, distance_limit)
+	local best_hit = nil
+	local best_distance = distance_limit
+
+	for _, entry in ipairs(self:GetMeshPolygonEntries(collider)) do
+		local acceleration, triangles, triangle_count = triangle_mesh.GetPolygonTriangleAcceleration(entry.polygon)
+
+		if acceleration then
+			local traversal_context = acceleration.traversal_context or {acceleration = acceleration, node_stack = {}, tmin_stack = {}}
+			acceleration.traversal_context = traversal_context
+			traversal_context.acceleration = acceleration
+			traversal_context.local_ray = local_ray
+			traversal_context.collider = collider
+			traversal_context.entry = entry
+			traversal_context.ray_origin = origin
+			traversal_context.ray_direction = ray_direction
+			traversal_context.trace_radius = trace_radius
+			best_hit, best_distance = BVH.TraverseRay(
+				local_ray,
+				acceleration.root,
+				visit_triangle_leaf,
+				traversal_context,
+				best_hit,
+				best_distance
+			)
+		elseif triangles and triangle_count > 0 then
+			local context = {
+				collider = collider,
+				entry = entry,
+				local_ray = local_ray,
+				ray_origin = origin,
+				ray_direction = ray_direction,
+				trace_radius = trace_radius,
+				best_hit = best_hit,
+				best_distance = best_distance,
+			}
+
+			for i = 1, triangle_count do
+				test_triangle_hit(context, triangles[i])
+			end
+
+			best_hit = context.best_hit
+			best_distance = context.best_distance
+		end
+	end
+
+	return best_hit
 end
 
 return META:Register()

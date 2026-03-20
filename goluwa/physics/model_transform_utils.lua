@@ -1,6 +1,6 @@
-local world_transform_utils = {}
+local model_transform_utils = {}
 
-function world_transform_utils.GetModelTransforms(model)
+function model_transform_utils.GetModelTransforms(model)
 	if model.WorldSpaceVertices then return nil, nil end
 
 	local transform = model.Owner and model.Owner.transform or nil
@@ -10,4 +10,4 @@ function world_transform_utils.GetModelTransforms(model)
 	return transform:GetWorldMatrixInverse(), transform:GetWorldMatrix()
 end
 
-return world_transform_utils
+return model_transform_utils

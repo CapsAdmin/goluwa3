@@ -1,8 +1,10 @@
 local T = import("test/environment.lua")
+local physics = import("goluwa/physics.lua")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
 local MeshShape = import("goluwa/physics/shapes/mesh.lua")
 local triangle_mesh = import("goluwa/physics/triangle_mesh.lua")
 local test_helpers = import("test/tests/physics/test_helpers.lua")
+local Quat = import("goluwa/structs/quat.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 
 local function add_triangle(poly, a, b, c)
@@ -91,4 +93,147 @@ T.Test("Mesh shape can resolve polygon primitives from owner models", function()
 	T(polygons[1])["=="](poly)
 	T(shape:GetHalfExtents(body:GetColliders()[1]).x)["=="](2)
 	T(shape:GetHalfExtents(body:GetColliders()[1]).z)["=="](1)
+end)
+
+T.Test("Mesh rigid bodies can be traced and preserve mesh hit metadata", function()
+	local poly = create_quad_polygon()
+	local primitive = {
+		polygon3d = poly,
+		material = {name = "trace_test_material"},
+	}
+	local owner = {
+		IsValid = function()
+			return true
+		end,
+		transform = {
+			position = Vec3(),
+			rotation = Quat():Identity(),
+			GetPosition = function(self)
+				return self.position
+			end,
+			GetRotation = function(self)
+				return self.rotation
+			end,
+			SetPosition = function(self, value)
+				self.position = value
+			end,
+			SetRotation = function(self, value)
+				self.rotation = value
+			end,
+		},
+		model = {
+			Primitives = {primitive},
+		},
+	}
+	local body = test_helpers.CreateTestRigidBody{
+		Shape = MeshShape.New{Model = owner.model},
+		Owner = owner,
+	}
+	local hit = physics.Trace(
+		Vec3(0, 2, 0),
+		Vec3(0, -1, 0),
+		10,
+		nil,
+		function(entity)
+			return entity == owner
+		end,
+		{IgnoreRigidBodies = false, UseRenderMeshes = false}
+	)
+	T(hit ~= nil)["=="](true)
+	T(hit.rigid_body)["=="](body)
+	T(hit.entity)["=="](owner)
+	T(hit.model)["=="](owner.model)
+	T(hit.primitive)["=="](primitive)
+	T(hit.primitive_index)["=="](1)
+	T(hit.triangle_index ~= nil)["=="](true)
+	T(math.abs(hit.position.x))["<"](0.0001)
+	T(math.abs(hit.position.y))["<"](0.0001)
+	T(math.abs(hit.position.z))["<"](0.0001)
+	T(hit.normal.y)[">"](0.999)
+	T(hit.face_normal.y)[">"](0.999)
+end)
+
+T.Test("Mesh shapes can resolve brush primitives from models", function()
+	local owner = {
+		IsValid = function()
+			return true
+		end,
+		transform = {
+			position = Vec3(),
+			rotation = Quat():Identity(),
+			GetPosition = function(self)
+				return self.position
+			end,
+			GetRotation = function(self)
+				return self.rotation
+			end,
+		},
+		model = {
+			Primitives = {
+				{
+					brush_planes = {
+						{normal = Vec3(1, 0, 0), dist = 1},
+						{normal = Vec3(-1, 0, 0), dist = 1},
+						{normal = Vec3(0, 1, 0), dist = 1},
+						{normal = Vec3(0, -1, 0), dist = 1},
+						{normal = Vec3(0, 0, 1), dist = 1},
+						{normal = Vec3(0, 0, -1), dist = 1},
+					},
+				},
+			},
+		},
+	}
+	local body = test_helpers.CreateTestRigidBody{
+		Shape = MeshShape.New{Model = owner.model},
+		Owner = owner,
+	}
+	local shape = body:GetPhysicsShape()
+	local entries = shape:GetMeshPolygonEntries(body:GetColliders()[1])
+	T(#entries)["=="](1)
+	T(entries[1].primitive)["=="](owner.model.Primitives[1])
+	T(entries[1].polygon ~= nil)["=="](true)
+	T(shape:GetLocalBounds(body:GetColliders()[1]).min_x)["=="](-1)
+	T(shape:GetLocalBounds(body:GetColliders()[1]).max_z)["=="](1)
+end)
+
+T.Test("World geometry rigid bodies are traced by default world queries", function()
+	local poly = create_quad_polygon()
+	local primitive = {polygon3d = poly}
+	local owner = {
+		IsValid = function()
+			return true
+		end,
+		transform = {
+			position = Vec3(),
+			rotation = Quat():Identity(),
+			GetPosition = function(self)
+				return self.position
+			end,
+			GetRotation = function(self)
+				return self.rotation
+			end,
+		},
+		model = {
+			Primitives = {primitive},
+		},
+	}
+	local body = test_helpers.CreateTestRigidBody{
+		Shape = MeshShape.New{Model = owner.model},
+		Owner = owner,
+	}
+	body.WorldGeometry = true
+	local hit = physics.Trace(
+		Vec3(0, 2, 0),
+		Vec3(0, -1, 0),
+		10,
+		nil,
+		function(entity)
+			return entity == owner
+		end,
+		{UseRenderMeshes = false}
+	)
+	T(hit ~= nil)["=="](true)
+	T(hit.rigid_body)["=="](body)
+	T(hit.primitive)["=="](primitive)
+	T(hit.normal.y)[">"](0.999)
 end)

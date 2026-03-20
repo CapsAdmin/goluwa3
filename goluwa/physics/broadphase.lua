@@ -1,5 +1,4 @@
 local broadphase = {}
-local world_mesh_broadphase = import("goluwa/physics/world_mesh_broadphase.lua")
 
 local function sort(a, b)
 	return a.left < b.left
@@ -68,9 +67,7 @@ end
 
 function broadphase.BuildCandidatePairs(physics, bodies)
 	local entries = broadphase.BuildEntries(physics, bodies)
-	local pairs = broadphase.BuildCandidatePairsFromEntries(entries)
-	world_mesh_broadphase.AppendCandidatePairs(physics, pairs, entries)
-	return pairs
+	return broadphase.BuildCandidatePairsFromEntries(entries)
 end
 
 return broadphase

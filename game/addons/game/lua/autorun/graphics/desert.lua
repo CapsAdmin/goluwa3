@@ -1,14 +1,10 @@
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
 local Texture = import("goluwa/render/texture.lua")
 local Material = import("goluwa/render3d/material.lua")
-local physics = import("goluwa/physics.lua")
-local raycast = import("goluwa/physics/raycast.lua")
+local MeshShape = import("goluwa/physics/shapes/mesh.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
-local Color = import("goluwa/structs/color.lua")
-local utility = import("goluwa/utility.lua")
-local transform = import("goluwa/ecs/components/3d/transform.lua")
-local model = import("goluwa/ecs/components/3d/model.lua")
+local timer = import("goluwa/timer.lua")
 local Entity = import("goluwa/ecs/entity.lua")
 local HEADER = [[
 float n2D(vec2 p) {
@@ -157,23 +153,6 @@ local function CreateDesertTerrain()
 		{header = HEADER}
 	)
 
-	do
-		local ent = Entity.New({Name = "debug_ent"})
-		local transform = ent:AddComponent("transform")
-		transform:SetPosition(Vec3(0, -10, 0))
-		local poly = Polygon3D.New()
-		poly:CreateSphere(1)
-		local mat = Material.New()
-		mat:SetAlbedoTexture(albedo_tex)
-		mat:SetNormalTexture(normal_tex)
-		mat:SetRoughnessMultiplier(0.9)
-		mat:SetMetallicMultiplier(0)
-		poly:Upload()
-		local model = ent:AddComponent("model")
-		model:AddPrimitive(poly, mat)
-	end
-
-	-- 1. Heightmap Texture
 	local height_tex = Texture.New{
 		width = 512,
 		height = 512,
@@ -199,17 +178,20 @@ local function CreateDesertTerrain()
     ]],
 		{header = HEADER}
 	)
-	-- 4. Build Mesh
 	local poly = Polygon3D.New()
 	poly:LoadHeightmap(height_tex, Vec2(4096, 4096), Vec2(64, 64), Vec2() + 128, 512, 1)
+	local collision_poly = Polygon3D.New()
+	collision_poly:LoadHeightmap(height_tex, Vec2(4096, 4096), Vec2(64, 64), Vec2() + 32, 512, 1)
+	collision_poly:BuildBoundingBox()
+	poly:BuildNormals(true)
+	poly:SmoothNormals()
+	poly:BuildBoundingBox()
+
 	local mat = Material.New()
 	mat:SetAlbedoTexture(albedo_tex)
 	mat:SetNormalTexture(normal_tex)
 	mat:SetRoughnessMultiplier(0.9)
 	mat:SetMetallicMultiplier(0.1)
-	poly:BuildNormals(true)
-	poly:SmoothNormals()
-	poly:BuildBoundingBox()
 	poly:Upload()
 	local ent = Entity.New({Name = "desert_terrain"})
 	local transform = ent:AddComponent("transform")
@@ -217,35 +199,26 @@ local function CreateDesertTerrain()
 	transform:SetPosition(Vec3(0, -127, 0))
 	model:AddPrimitive(poly, mat)
 	model:BuildAABB()
-
-	if physics and physics.SetWorldTraceSource and raycast and raycast.CreateModelSource then
-		local previous_source = physics.GetWorldTraceSource and physics.GetWorldTraceSource() or nil
-		local merged_models = {}
-
-		for _, existing_model in ipairs(previous_source and previous_source.models or {}) do
-			merged_models[#merged_models + 1] = existing_model
-		end
-
-		merged_models[#merged_models + 1] = model
-		physics.SetWorldTraceSource(raycast.CreateModelSource(merged_models))
-		ent.DesertRestoreWorldTraceSource = function()
-			physics.SetWorldTraceSource(previous_source)
-		end
-	end
+	ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = MeshShape.New{Polygons = {collision_poly}},
+			MotionType = "static",
+			WorldGeometry = true,
+			Friction = 0.9,
+			Restitution = 0,
+		}
+	)
 
 	return ent
 end
 
 -- Run it
 if _G.desert_ent then
-	if _G.desert_ent.DesertRestoreWorldTraceSource then
-		_G.desert_ent.DesertRestoreWorldTraceSource()
-	end
-
 	_G.desert_ent:Remove()
 end
 
-import("goluwa/timer.lua").Delay(0.2, function()
+timer.Delay(0.2, function()
 	_G.desert_ent = CreateDesertTerrain()
 	print("Desert terrain created!")
 end)

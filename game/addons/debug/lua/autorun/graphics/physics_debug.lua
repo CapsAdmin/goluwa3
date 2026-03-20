@@ -661,6 +661,10 @@ end
 local function add_primitive(model, polygon3d, shape_type, local_matrix)
 	if not polygon3d then return end
 
+	if not (polygon3d.mesh and polygon3d.mesh.vertex_buffer) then
+		polygon3d:Upload(polygon3d.indices)
+	end
+
 	model:AddPrimitive(polygon3d, debug_draw.GetMaterial({shape_type = shape_type}))
 	local primitive = model.Primitives[#model.Primitives]
 	primitive.local_matrix = local_matrix

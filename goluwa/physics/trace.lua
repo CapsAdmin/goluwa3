@@ -1,8 +1,19 @@
 local physics = import("goluwa/physics.lua")
 local mesh_surface_contact = import("goluwa/physics/mesh_surface_contact.lua")
 local raycast = import("goluwa/physics/raycast.lua")
-local world_static_query = import("goluwa/physics/world_static_query.lua")
 local RigidBodyComponent = import("goluwa/physics/rigid_body.lua")
+
+local function should_query_body_as_world(body, options)
+	return options.IgnoreWorld ~= true and body and body.WorldGeometry == true
+end
+
+local function has_world_geometry_bodies()
+	for _, body in ipairs(RigidBodyComponent.Instances or {}) do
+		if physics.IsActiveRigidBody(body) and body.WorldGeometry == true then return true end
+	end
+
+	return false
+end
 
 local function normalize_query_options(options)
 	options = options or {}
@@ -17,10 +28,17 @@ local function normalize_query_options(options)
 
 	if
 		options.IncludeWorld ~= nil and
-		options.UseRenderMeshes == nil and
-		options.WorldSource == nil
+		options.UseRenderMeshes == nil
 	then
 		options.UseRenderMeshes = options.IncludeWorld
+	end
+
+	if
+		options.UseRenderMeshes == nil and
+		options.IgnoreWorld ~= true and
+		has_world_geometry_bodies()
+	then
+		options.UseRenderMeshes = false
 	end
 
 	return options
@@ -59,29 +77,14 @@ local function cast_with_filter(
 	local cast_options = options or {}
 	local ignore_kinematic = cast_options.IgnoreKinematicBodies ~= false
 	local ignore_rigid = cast_options.IgnoreRigidBodies ~= false
-	local world_source = cast_options.WorldSource
 
 	if ignore_rigid_override ~= nil then ignore_rigid = ignore_rigid_override end
 
 	local use_render_meshes = cast_options.UseRenderMeshes
-	world_source, use_render_meshes = world_static_query.ResolveWorldSource(world_source, use_render_meshes, ignore_rigid)
+
+	if use_render_meshes == nil then use_render_meshes = true end
 
 	if cast_options.ClosestOnly ~= false then
-		if world_source then
-			local hit = raycast.CastClosestFromSource(
-				world_source,
-				origin,
-				direction,
-				max_distance or math.huge,
-				filter,
-				ignore_entity,
-				filter_fn,
-				ignore_kinematic,
-				ignore_rigid
-			)
-			return hit and {hit} or {}
-		end
-
 		if not use_render_meshes then return {} end
 
 		local hit = raycast.CastClosest(
@@ -95,20 +98,6 @@ local function cast_with_filter(
 			ignore_rigid
 		)
 		return hit and {hit} or {}
-	end
-
-	if world_source then
-		return raycast.CastFromSource(
-			world_source,
-			origin,
-			direction,
-			max_distance or math.huge,
-			filter,
-			ignore_entity,
-			filter_fn,
-			ignore_kinematic,
-			ignore_rigid
-		)
 	end
 
 	if not use_render_meshes then return {} end
@@ -148,7 +137,6 @@ end
 function physics.Trace(origin, direction, max_distance, ignore_entity, filter_fn, options)
 	options = normalize_query_options(options)
 	local allow_rigid = options.IgnoreRigidBodies == false
-	local downward_trace = is_straight_down(direction)
 	local hits = cast_with_filter(
 		origin,
 		direction,
@@ -160,10 +148,14 @@ function physics.Trace(origin, direction, max_distance, ignore_entity, filter_fn
 	)
 	local best_hit = pick_best_world_hit(hits, direction)
 
-	if allow_rigid then
+	if allow_rigid or options.IgnoreWorld ~= true then
 		local trace_radius = options.TraceRadius or 0
 
 		for _, body in ipairs(RigidBodyComponent.Instances or {}) do
+			local query_as_world = should_query_body_as_world(body, options)
+
+			if not (allow_rigid or query_as_world) then goto continue end
+
 			if not (physics.IsActiveRigidBody(body) and body.Owner ~= ignore_entity) then
 				goto continue
 			end
@@ -173,6 +165,7 @@ function physics.Trace(origin, direction, max_distance, ignore_entity, filter_fn
 			end
 
 			if
+				not query_as_world and
 				options.IgnoreKinematicBodies ~= false and
 				body.IsKinematic and
 				body:IsKinematic()

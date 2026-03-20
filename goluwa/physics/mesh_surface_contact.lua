@@ -1,7 +1,7 @@
 local Vec3 = import("goluwa/structs/vec3.lua")
 local triangle_mesh = import("goluwa/physics/triangle_mesh.lua")
 local triangle_contact_queries = import("goluwa/physics/triangle_contact_queries.lua")
-local world_mesh_body = import("goluwa/physics/world_mesh_body.lua")
+local primitive_polygon_query = import("goluwa/physics/primitive_polygon_query.lua")
 local mesh_surface_contact = {}
 local MESH_FEATURE_EPSILON = 0.0001
 local MESH_SEAM_DISTANCE_EPSILON = 0.0001
@@ -10,7 +10,7 @@ local MESH_SEAM_NORMAL_DOT = 0.5
 local function get_hit_polygon(hit)
 	if not (hit and hit.primitive) then return nil end
 
-	return world_mesh_body.GetPrimitivePolygon(hit.primitive)
+	return primitive_polygon_query.GetPrimitivePolygon(hit.primitive)
 end
 
 local function get_entity_world_matrix(entity)
@@ -354,7 +354,7 @@ local function get_mesh_hit_feature_contact(hit, reference_point)
 
 	if model and model.Primitives and local_feature_positions then
 		for _, primitive in ipairs(model.Primitives) do
-			local primitive_poly = world_mesh_body.GetPrimitivePolygon(primitive)
+			local primitive_poly = primitive_polygon_query.GetPrimitivePolygon(primitive)
 
 			if primitive ~= hit.primitive and primitive_poly then
 				iterate_matching_feature_position_faces(

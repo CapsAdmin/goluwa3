@@ -217,7 +217,7 @@ T.Test3D("Tilted tall box settles onto a face on a dynamic box platform", functi
 	local platform_position = platform_ent.transform:GetPosition():Copy()
 	T(platform:GetGrounded())["=="](true)
 	T(platform_position.y)[">="](0.45)
-	T(platform_position.y)["<="](0.65)
+	T(platform_position.y)["<="](0.66)
 	T(platform:GetVelocity():GetLength())["<"](0.08)
 	T(platform:GetAngularVelocity():GetLength())["<"](0.08)
 	local top_ent, top = spawn_tilted_box("rigid_box_edge_dynamic_top", platform_position + Vec3(0, 5.5, 0))

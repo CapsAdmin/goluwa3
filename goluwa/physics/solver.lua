@@ -150,6 +150,8 @@ function Solver:ShouldUseStaticFriction(contact, tangent_speed, tangent_impulse_
 end
 
 local contact_resolution = import("goluwa/physics/contact_resolution.lua")
+local manifolds = import("goluwa/physics/manifold.lua")
+local islands = import("goluwa/physics/islands.lua")
 
 local function fallback_solve_aabb_pair_collision(body_a, body_b, bounds_a, bounds_b, dt)
 	local overlap_x = math.min(bounds_a.max_x, bounds_b.max_x) - math.max(bounds_a.min_x, bounds_b.min_x)
@@ -177,9 +179,104 @@ local function fallback_solve_aabb_pair_collision(body_a, body_b, bounds_a, boun
 	return contact_resolution.ResolvePairPenetration(body_a, body_b, normal, overlap, dt)
 end
 
-local manifolds = import("goluwa/physics/manifold.lua")
-local world_contacts = import("goluwa/physics/world_contacts.lua")
-local islands = import("goluwa/physics/islands.lua")
+local function get_collider_sweep_hit(dynamic_body, collider)
+	if not (physics.SweepCollider and collider and dynamic_body) then return nil end
+
+	local previous_position = collider:GetPreviousPosition()
+	local current_position = collider:GetPosition()
+	local movement = current_position - previous_position
+
+	if movement:GetLength() <= physics.EPSILON then return nil end
+
+	local hit = physics.SweepCollider(
+		collider,
+		previous_position,
+		movement,
+		dynamic_body:GetOwner(),
+		dynamic_body:GetFilterFunction(),
+		{
+			Rotation = collider:GetRotation(),
+			UseRenderMeshes = false,
+		}
+	)
+
+	if not (hit and hit.rigid_body and hit.collider and hit.rigid_body ~= dynamic_body) then return nil end
+
+	return {
+		collider = collider,
+		hit = hit,
+		movement = movement,
+		previous_position = previous_position,
+		current_position = current_position,
+	}
+end
+
+local function rewind_body_to_sweep_hit(dynamic_body, sweep_result)
+	if not (dynamic_body and sweep_result and sweep_result.hit and sweep_result.collider) then return nil end
+
+	local hit = sweep_result.hit
+	local collider = sweep_result.collider
+	local movement = sweep_result.movement
+	local movement_length = movement:GetLength()
+
+	if movement_length <= physics.EPSILON then return nil end
+
+	local fraction = math.max(0, math.min(hit.fraction or 0, 1))
+	local skin = math.max(collider:GetCollisionMargin() or 0, physics.DefaultSkin or 0)
+	local post_fraction = math.min(1, fraction + skin / movement_length)
+	local target_position = sweep_result.previous_position + movement * post_fraction
+	local delta = target_position - sweep_result.current_position
+
+	if delta:GetLength() <= physics.EPSILON then return nil end
+
+	dynamic_body:SetPosition(dynamic_body:GetPosition() + delta)
+	return delta
+end
+
+local function solve_body_swept_contacts(solver, body, dt)
+	if not (body and body.CollisionEnabled) then return false end
+
+	local best = nil
+
+	for _, collider in ipairs(body:GetColliders() or {}) do
+		local sweep_hit = get_collider_sweep_hit(body, collider)
+
+		if sweep_hit and ((not best) or (sweep_hit.hit.fraction or 1) < (best.hit.fraction or 1)) then
+			best = sweep_hit
+		end
+	end
+
+	if not best then return false end
+
+	local original_position = body:GetPosition():Copy()
+	local delta = rewind_body_to_sweep_hit(body, best)
+
+	if not delta then return false end
+
+	local target_body = best.hit and best.hit.rigid_body or nil
+	local target_collider = best.hit and best.hit.collider or nil
+
+	if not (target_body and target_collider and physics.ShouldBodiesCollide(body, target_body)) then
+		body:SetPosition(original_position)
+		return false
+	end
+
+	local solved = pair_solver_helpers.DispatchColliderPairs(
+		solver,
+		body:GetShapeType() == "compound" and body:GetColliders() or {body},
+		{target_collider},
+		nil,
+		nil,
+		dt
+	)
+
+	if not solved then
+		body:SetPosition(original_position)
+		return false
+	end
+
+	return true
+end
 
 function Solver:BeginStep()
 	local physics = self:GetPhysics()
@@ -286,7 +383,7 @@ function Solver:SolveRigidBodyPairs(bodies_or_pairs, dt)
 end
 
 function Solver:SolveBodyContacts(body, dt)
-	world_contacts.SolveBodyContacts(body, dt)
+	return solve_body_swept_contacts(self, body, dt)
 end
 
 Solver:Register()

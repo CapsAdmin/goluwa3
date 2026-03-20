@@ -1,7 +1,10 @@
 local T = import("test/environment.lua")
 local physics = import("goluwa/physics.lua")
 local Entity = import("goluwa/ecs/entity.lua")
+local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
+local Vec2 = import("goluwa/structs/vec2.lua")
+local MeshShape = import("goluwa/physics/shapes/mesh.lua")
 local SphereShape = import("goluwa/physics/shapes/sphere.lua")
 local BoxShape = import("goluwa/physics/shapes/box.lua")
 local CapsuleShape = import("goluwa/physics/shapes/capsule.lua")
@@ -12,6 +15,37 @@ local capsule_shape = CapsuleShape.New
 
 local function simulate_physics(steps, dt)
 	return test_helpers.SimulatePhysics(physics, steps, dt)
+end
+
+local function create_world_geometry_ground(name, size)
+	local ground = Entity.New({Name = name})
+	ground:AddComponent("transform")
+	ground:AddComponent("model")
+	local half = (size or 8) * 0.5
+
+	local tri_a = Polygon3D.New()
+	tri_a:AddVertex{pos = Vec3(-half, 0, -half), uv = Vec2(0, 0), normal = Vec3(0, 1, 0)}
+	tri_a:AddVertex{pos = Vec3(half, 0, -half), uv = Vec2(1, 0), normal = Vec3(0, 1, 0)}
+	tri_a:AddVertex{pos = Vec3(-half, 0, half), uv = Vec2(0, 1), normal = Vec3(0, 1, 0)}
+	tri_a:BuildBoundingBox()
+	tri_a:Upload()
+	ground.model:AddPrimitive(tri_a)
+
+	local tri_b = Polygon3D.New()
+	tri_b:AddVertex{pos = Vec3(half, 0, -half), uv = Vec2(1, 0), normal = Vec3(0, 1, 0)}
+	tri_b:AddVertex{pos = Vec3(half, 0, half), uv = Vec2(1, 1), normal = Vec3(0, 1, 0)}
+	tri_b:AddVertex{pos = Vec3(-half, 0, half), uv = Vec2(0, 1), normal = Vec3(0, 1, 0)}
+	tri_b:BuildBoundingBox()
+	tri_b:Upload()
+	ground.model:AddPrimitive(tri_b)
+	ground.model:BuildAABB()
+	ground:AddComponent("rigid_body", {
+		Shape = MeshShape.New{Model = ground.model},
+		MotionType = "static",
+		GravityScale = 0,
+		WorldGeometry = true,
+	})
+	return ground
 end
 
 T.Test3D("Fast rigid sphere does not tunnel through thin static box", function()
@@ -84,7 +118,7 @@ T.Test3D("Fast rigid boxes do not tunnel through thin static world geometry", fu
 end)
 
 T.Test3D("Fast rigid box does not tunnel through triangle world floor", function()
-	local ground = test_helpers.CreateFlatGround("rigid_ccd_triangle_box_ground", 8)
+	local ground = create_world_geometry_ground("rigid_ccd_triangle_box_ground", 8)
 	local box_ent = Entity.New({Name = "rigid_ccd_triangle_box"})
 	box_ent:AddComponent("transform")
 	box_ent.transform:SetPosition(Vec3(0, 8, 0))
@@ -108,7 +142,7 @@ T.Test3D("Fast rigid box does not tunnel through triangle world floor", function
 end)
 
 T.Test3D("Fast rigid capsule does not tunnel through triangle world floor", function()
-	local ground = test_helpers.CreateFlatGround("rigid_ccd_triangle_capsule_ground", 8)
+	local ground = create_world_geometry_ground("rigid_ccd_triangle_capsule_ground", 8)
 	local capsule_ent = Entity.New({Name = "rigid_ccd_triangle_capsule"})
 	capsule_ent:AddComponent("transform")
 	capsule_ent.transform:SetPosition(Vec3(0, 8, 0))

@@ -10,9 +10,9 @@ local raycast = import("goluwa/physics/raycast.lua")
 local segment_geometry = import("goluwa/physics/segment_geometry.lua")
 local triangle_contact_queries = import("goluwa/physics/triangle_contact_queries.lua")
 local triangle_mesh = import("goluwa/physics/triangle_mesh.lua")
-local world_static_query = import("goluwa/physics/world_static_query.lua")
-local world_mesh_body = import("goluwa/physics/world_mesh_body.lua")
-local world_transform_utils = import("goluwa/physics/world_transform_utils.lua")
+local static_model_query = import("goluwa/physics/static_model_query.lua")
+local primitive_polygon_query = import("goluwa/physics/primitive_polygon_query.lua")
+local model_transform_utils = import("goluwa/physics/model_transform_utils.lua")
 local RigidBodyComponent = import("goluwa/physics/rigid_body.lua")
 local AABB = import("goluwa/structs/aabb.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
@@ -125,6 +125,18 @@ local function normalize_query_options(options)
 
 	if options.IncludeWorld ~= nil and options.IgnoreWorld == nil then
 		options.IgnoreWorld = not options.IncludeWorld
+	end
+
+	if
+		options.UseRenderMeshes == nil and
+		options.IgnoreWorld ~= true
+	then
+		for _, body in ipairs(RigidBodyComponent.Instances or {}) do
+			if physics.IsActiveRigidBody(body) and body.WorldGeometry == true then
+				options.UseRenderMeshes = false
+				break
+			end
+		end
 	end
 
 	return options
@@ -996,6 +1008,10 @@ local function should_skip_rigid_body(body, ignore_entity, filter_fn, options)
 	return false
 end
 
+local function should_query_body_as_world(body, options)
+	return options and options.IgnoreWorld ~= true and body and body.WorldGeometry == true
+end
+
 local function get_rigid_body_candidate_aabb(body)
 	if not body.GetBroadphaseAABB then return nil end
 
@@ -1073,10 +1089,10 @@ end
 local function collect_rigid_body_candidates(world_aabb, ignore_entity, filter_fn, options, out)
 	out = out or {}
 
-	if options and options.IgnoreRigidBodies ~= false then return out end
-
 	for _, body in ipairs(RigidBodyComponent.Instances or {}) do
-		if not should_skip_rigid_body(body, ignore_entity, filter_fn, options) then
+		local include_body = (options and options.IgnoreRigidBodies == false) or should_query_body_as_world(body, options or {})
+
+		if include_body and not should_skip_rigid_body(body, ignore_entity, filter_fn, options) then
 			local bounds = get_rigid_body_candidate_aabb(body)
 
 			if bounds and AABB.IsBoxIntersecting(world_aabb, bounds) then
@@ -1095,13 +1111,138 @@ local function build_rigid_body_hit(base_hit, movement, movement_length, body, c
 		entity = body and body.Owner or nil,
 		rigid_body = body,
 		collider = collider,
+		model = base_hit.model,
+		primitive = base_hit.primitive,
+		primitive_index = base_hit.primitive_index,
+		triangle_index = base_hit.triangle_index,
 		position = base_hit.position,
 		point = base_hit.point,
 		normal = ensure_normal_faces_motion(base_hit.normal, movement),
-		face_normal = ensure_normal_faces_motion(base_hit.normal, movement),
+		face_normal = ensure_normal_faces_motion(base_hit.face_normal or base_hit.normal, movement),
 		fraction = base_hit.t,
 		distance = movement_length * base_hit.t,
 	}
+end
+
+local function get_mesh_collider_entries(collider)
+	local shape = collider and collider.GetPhysicsShape and collider:GetPhysicsShape() or nil
+
+	if not (shape and shape.GetMeshPolygonEntries) then return nil end
+
+	return shape:GetMeshPolygonEntries(collider)
+end
+
+local function get_mesh_triangle_world_vertices(collider, position, rotation, v0, v1, v2)
+	return collider:LocalToWorld(v0, position, rotation),
+		collider:LocalToWorld(v1, position, rotation),
+		collider:LocalToWorld(v2, position, rotation)
+end
+
+local SWEEP_LOCAL_AABB_TRANSFORM_PROXY = {
+	collider = nil,
+	position = nil,
+	rotation = nil,
+}
+
+function SWEEP_LOCAL_AABB_TRANSFORM_PROXY:TransformVector(point)
+	return self.collider:WorldToLocal(point, self.position, self.rotation)
+end
+
+local function build_mesh_collider_local_swept_aabb(target_collider, target_position, target_rotation, world_aabb)
+	if not (target_collider and world_aabb) then return nil end
+
+	SWEEP_LOCAL_AABB_TRANSFORM_PROXY.collider = target_collider
+	SWEEP_LOCAL_AABB_TRANSFORM_PROXY.position = target_position
+	SWEEP_LOCAL_AABB_TRANSFORM_PROXY.rotation = target_rotation
+	local local_aabb = AABB.BuildLocalAABBFromWorldAABB(world_aabb, SWEEP_LOCAL_AABB_TRANSFORM_PROXY)
+	SWEEP_LOCAL_AABB_TRANSFORM_PROXY.collider = nil
+	SWEEP_LOCAL_AABB_TRANSFORM_PROXY.position = nil
+	SWEEP_LOCAL_AABB_TRANSFORM_PROXY.rotation = nil
+	return local_aabb
+end
+
+local function test_mesh_body_point_sweep(origin, movement, radius, body, collider, max_fraction)
+	if not ((body and (body.IsStatic and body:IsStatic() or body.IsKinematic and body:IsKinematic()))) then
+		return nil
+	end
+
+	local entries = get_mesh_collider_entries(collider)
+
+	if not (entries and entries[1]) then return nil end
+
+	local best_hit = nil
+	local target_position = collider:GetPosition()
+	local target_rotation = collider:GetRotation()
+	local world_aabb = build_swept_aabb(origin, origin + movement * max_fraction, radius)
+	local local_aabb = build_mesh_collider_local_swept_aabb(collider, target_position, target_rotation, world_aabb)
+
+	for _, entry in ipairs(entries) do
+		triangle_mesh.ForEachOverlappingTriangle(entry.polygon, local_aabb, function(v0, v1, v2, triangle_index)
+			local wv0, wv1, wv2 = get_mesh_triangle_world_vertices(collider, target_position, target_rotation, v0, v1, v2)
+			local hit = sweep_sphere_against_triangle(origin, movement, radius, wv0, wv1, wv2, max_fraction)
+
+			if hit and (not best_hit or hit.t < best_hit.t) then
+				best_hit = {
+					t = hit.t,
+					position = hit.position,
+					normal = hit.normal,
+					face_normal = hit.normal,
+					model = entry.model,
+					primitive = entry.primitive,
+					primitive_index = entry.primitive_index,
+					triangle_index = triangle_index,
+				}
+			end
+		end)
+	end
+
+	return best_hit
+end
+
+local function test_mesh_body_collider_sweep(collider, polyhedron, start_position, rotation, movement, body, target_collider, max_fraction)
+	if not ((body and (body.IsStatic and body:IsStatic() or body.IsKinematic and body:IsKinematic()))) then
+		return nil
+	end
+
+	local entries = get_mesh_collider_entries(target_collider)
+
+	if not (entries and entries[1]) then return nil end
+
+	local best_hit = nil
+	local target_position = target_collider:GetPosition()
+	local target_rotation = target_collider:GetRotation()
+	local query_shape_type = collider:GetShapeType()
+	local world_aabb = build_collider_swept_aabb(collider, start_position, rotation, movement * max_fraction)
+	local local_aabb = build_mesh_collider_local_swept_aabb(target_collider, target_position, target_rotation, world_aabb)
+
+	for _, entry in ipairs(entries) do
+		triangle_mesh.ForEachOverlappingTriangle(entry.polygon, local_aabb, function(v0, v1, v2, triangle_index)
+			local wv0, wv1, wv2 = get_mesh_triangle_world_vertices(target_collider, target_position, target_rotation, v0, v1, v2)
+			local hit = nil
+
+			if query_shape_type == "capsule" then
+				hit = sweep_capsule_against_triangle(collider, start_position, rotation, movement, wv0, wv1, wv2, max_fraction)
+			elseif polyhedron and polyhedron.vertices and polyhedron.faces then
+				hit = sweep_polyhedron_against_triangle(collider, polyhedron, start_position, rotation, movement, wv0, wv1, wv2, max_fraction)
+			end
+
+			if hit and (not best_hit or hit.t < best_hit.t) then
+				best_hit = {
+					t = hit.t,
+					point = hit.point,
+					position = hit.position,
+					normal = hit.normal,
+					face_normal = hit.normal,
+					model = entry.model,
+					primitive = entry.primitive,
+					primitive_index = entry.primitive_index,
+					triangle_index = triangle_index,
+				}
+			end
+		end)
+	end
+
+	return best_hit
 end
 
 local function sweep_point_against_capsule_segment(start_world, end_world, segment_a, segment_b, radius)
@@ -1612,6 +1753,8 @@ local function test_rigid_body_sweep(origin, movement, radius, body, ignore_enti
 							return get_point_contact_for_target_at_pose(collider, point, radius, position, rotation, relative_movement, polyhedron)
 						end
 					)
+				elseif shape_type == "mesh" then
+					hit = test_mesh_body_point_sweep(origin, movement, radius, body, collider, best_fraction)
 				end
 			end
 
@@ -2096,6 +2239,17 @@ local function test_rigid_body_collider_sweep(
 							target_state,
 							best_fraction
 						)
+					elseif target_shape_type == "mesh" then
+						hit = test_mesh_body_collider_sweep(
+							collider,
+							nil,
+							start_position,
+							rotation,
+							movement,
+							body,
+							target_collider,
+							best_fraction
+						)
 					end
 				end
 			elseif polyhedron and polyhedron.vertices and polyhedron.faces then
@@ -2134,6 +2288,17 @@ local function test_rigid_body_collider_sweep(
 							target_collider,
 							target_polyhedron,
 							target_state,
+							best_fraction
+						)
+					elseif target_shape_type == "mesh" then
+						hit = test_mesh_body_collider_sweep(
+							collider,
+							polyhedron,
+							start_position,
+							rotation,
+							movement,
+							body,
+							target_collider,
 							best_fraction
 						)
 					end
@@ -2236,7 +2401,7 @@ local function test_polyhedron_primitive_sweep(
 	end
 
 	local movement_length = movement:GetLength()
-	local poly = world_mesh_body.GetPrimitivePolygon(primitive)
+	local poly = primitive_polygon_query.GetPrimitivePolygon(primitive)
 
 	if not poly then return nil end
 
@@ -2319,7 +2484,7 @@ local function test_capsule_primitive_sweep(
 	end
 
 	local movement_length = movement:GetLength()
-	local poly = world_mesh_body.GetPrimitivePolygon(primitive)
+	local poly = primitive_polygon_query.GetPrimitivePolygon(primitive)
 
 	if not poly then return nil end
 
@@ -2411,7 +2576,7 @@ local function test_primitive_sweep(
 		return nil
 	end
 
-	local poly = world_mesh_body.GetPrimitivePolygon(primitive)
+	local poly = primitive_polygon_query.GetPrimitivePolygon(primitive)
 
 	if not poly then return nil end
 
@@ -2455,7 +2620,7 @@ local function test_model_sweep(
 		return nil
 	end
 
-	local world_to_local, local_to_world = world_transform_utils.GetModelTransforms(model)
+	local world_to_local, local_to_world = model_transform_utils.GetModelTransforms(model)
 	local start_local = world_to_local and
 		world_to_local:TransformVector(start_position) or
 		start_position
@@ -2500,7 +2665,7 @@ local function test_model_sweep(
 	return best_hit
 end
 
-function physics.SweepFromSource(source, origin, movement, radius, ignore_entity, filter_fn, options)
+local function sweep_world(origin, movement, radius, ignore_entity, filter_fn, options)
 	options = normalize_query_options(options)
 	radius = math.max(radius or 0, 0)
 	movement = movement or Vec3(0, 0, 0)
@@ -2514,8 +2679,8 @@ function physics.SweepFromSource(source, origin, movement, radius, ignore_entity
 	local best_hit = nil
 	local best_fraction = 1
 
-	if options.IgnoreWorld ~= true then
-		world_static_query.CollectWorldModelCandidates(source, world_aabb, model_candidates)
+	if options.IgnoreWorld ~= true and options.UseRenderMeshes ~= false then
+		static_model_query.CollectWorldModelCandidates(world_aabb, model_candidates)
 	end
 
 	collect_rigid_body_candidates(world_aabb, ignore_entity, filter_fn, options, body_candidates)
@@ -2547,7 +2712,7 @@ function physics.SweepFromSource(source, origin, movement, radius, ignore_entity
 	return best_hit
 end
 
-function physics.SweepColliderFromSource(source, collider, start_position, movement, ignore_entity, filter_fn, options)
+local function sweep_collider_world(collider, start_position, movement, ignore_entity, filter_fn, options)
 	options = normalize_query_options(options)
 	local polyhedron = collider:GetBodyPolyhedron()
 	local rotation = options.Rotation or collider:GetRotation()
@@ -2571,8 +2736,8 @@ function physics.SweepColliderFromSource(source, collider, start_position, movem
 		local best_hit = nil
 		local best_fraction = 1
 
-		if options.IgnoreWorld ~= true then
-			world_static_query.CollectWorldModelCandidates(source, world_aabb, model_candidates)
+		if options.IgnoreWorld ~= true and options.UseRenderMeshes ~= false then
+			static_model_query.CollectWorldModelCandidates(world_aabb, model_candidates)
 		end
 
 		collect_rigid_body_candidates(world_aabb, ignore_entity, filter_fn, options, body_candidates)
@@ -2584,7 +2749,7 @@ function physics.SweepColliderFromSource(source, collider, start_position, movem
 				local model_aabb = model.GetWorldAABB and model:GetWorldAABB() or model.AABB
 
 				if not model_aabb or AABB.IsBoxIntersecting(world_aabb, model_aabb) then
-					local world_to_local, local_to_world = world_transform_utils.GetModelTransforms(model)
+					local world_to_local, local_to_world = model_transform_utils.GetModelTransforms(model)
 					local local_body_aabb = AABB.BuildLocalAABBFromWorldAABB(world_aabb, world_to_local)
 					local primitive_candidates = collider.polyhedron_sweep_primitive_candidates or {}
 					collider.polyhedron_sweep_primitive_candidates = primitive_candidates
@@ -2650,7 +2815,7 @@ function physics.SweepColliderFromSource(source, collider, start_position, movem
 
 	if not (polyhedron and polyhedron.vertices and polyhedron.vertices[1]) then
 		local radius = shape and shape.GetRadius and shape:GetRadius() or 0
-		return physics.SweepFromSource(source, start_position, movement, radius, ignore_entity, filter_fn, options)
+		return sweep_world(start_position, movement, radius, ignore_entity, filter_fn, options)
 	end
 
 	local movement_length = movement:GetLength()
@@ -2663,8 +2828,8 @@ function physics.SweepColliderFromSource(source, collider, start_position, movem
 	local best_hit = nil
 	local best_fraction = 1
 
-	if options.IgnoreWorld ~= true then
-		world_static_query.CollectWorldModelCandidates(source, world_aabb, model_candidates)
+	if options.IgnoreWorld ~= true and options.UseRenderMeshes ~= false then
+		static_model_query.CollectWorldModelCandidates(world_aabb, model_candidates)
 	end
 
 	collect_rigid_body_candidates(world_aabb, ignore_entity, filter_fn, options, body_candidates)
@@ -2676,7 +2841,7 @@ function physics.SweepColliderFromSource(source, collider, start_position, movem
 			local model_aabb = model.GetWorldAABB and model:GetWorldAABB() or model.AABB
 
 			if not model_aabb or AABB.IsBoxIntersecting(world_aabb, model_aabb) then
-				local world_to_local, local_to_world = world_transform_utils.GetModelTransforms(model)
+				local world_to_local, local_to_world = model_transform_utils.GetModelTransforms(model)
 				local local_body_aabb = AABB.BuildLocalAABBFromWorldAABB(world_aabb, world_to_local)
 				local primitive_candidates = collider.capsule_sweep_primitive_candidates or {}
 				collider.capsule_sweep_primitive_candidates = primitive_candidates
@@ -2742,25 +2907,11 @@ function physics.SweepColliderFromSource(source, collider, start_position, movem
 end
 
 function physics.SweepCollider(collider, start_position, movement, ignore_entity, filter_fn, options)
-	options = normalize_query_options(options)
-	local source = options.WorldSource
-	local use_render_meshes = options.UseRenderMeshes
-	source, use_render_meshes = world_static_query.ResolveWorldSource(source, use_render_meshes, options.IgnoreRigidBodies ~= false)
-
-	if source == nil then return nil end
-
-	return physics.SweepColliderFromSource(source, collider, start_position, movement, ignore_entity, filter_fn, options)
+	return sweep_collider_world(collider, start_position, movement, ignore_entity, filter_fn, options)
 end
 
 function physics.Sweep(origin, movement, radius, ignore_entity, filter_fn, options)
-	options = normalize_query_options(options)
-	local source = options.WorldSource
-	local use_render_meshes = options.UseRenderMeshes
-	source, use_render_meshes = world_static_query.ResolveWorldSource(source, use_render_meshes, options.IgnoreRigidBodies ~= false)
-
-	if source == nil then return nil end
-
-	return physics.SweepFromSource(source, origin, movement, radius, ignore_entity, filter_fn, options)
+	return sweep_world(origin, movement, radius, ignore_entity, filter_fn, options)
 end
 
 physics.SphereCast = physics.Sweep

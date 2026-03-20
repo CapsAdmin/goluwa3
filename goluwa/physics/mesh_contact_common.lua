@@ -3,7 +3,7 @@ local AABB = import("goluwa/structs/aabb.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local pair_solver_helpers = import("goluwa/physics/pair_solver_helpers.lua")
 local contact_resolution = import("goluwa/physics/contact_resolution.lua")
-local world_static_query = import("goluwa/physics/world_static_query.lua")
+local static_model_query = import("goluwa/physics/static_model_query.lua")
 local mesh_contact_common = {}
 
 function mesh_contact_common.GetMeshShape(body)
@@ -43,7 +43,7 @@ function LOCAL_AABB_TRANSFORM_PROXY:TransformVector(point)
 end
 
 function mesh_contact_common.ForEachOverlappingMeshTriangle(mesh_body, mesh_shape, other_body, callback)
-	local bounds = world_static_query.BuildExpandedWorldContactAABB(other_body:GetBroadphaseAABB(), mesh_body, other_body)
+	local bounds = static_model_query.BuildExpandedWorldContactAABB(other_body:GetBroadphaseAABB(), mesh_body, other_body)
 	LOCAL_AABB_TRANSFORM_PROXY.body = mesh_body
 	local local_bounds = AABB.BuildLocalAABBFromWorldAABB(bounds, LOCAL_AABB_TRANSFORM_PROXY)
 	LOCAL_AABB_TRANSFORM_PROXY.body = nil

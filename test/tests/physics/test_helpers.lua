@@ -1,5 +1,6 @@
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
 local Entity = import("goluwa/ecs/entity.lua")
+local MeshShape = import("goluwa/physics/shapes/mesh.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
@@ -49,19 +50,28 @@ function module.SimulatePhysics(physics, steps, dt)
 	end
 end
 
+function module.AttachWorldGeometryBody(entity, source)
+	source = source or {Model = entity.model}
+
+	local body = entity:AddComponent("rigid_body", {
+		Shape = MeshShape.New(source),
+		MotionType = "static",
+		WorldGeometry = true,
+	})
+	body.WorldGeometry = true
+	return body
+end
+
 function module.CreateFlatGround(name, extent)
 	extent = extent or 8
 	local ground = Entity.New({Name = name})
 	ground:AddComponent("transform")
-	ground:AddComponent("model")
 	local poly = Polygon3D.New()
-	poly:AddVertex{pos = Vec3(-extent, 0, -extent), uv = Vec2(0, 0), normal = Vec3(0, -1, 0)}
-	poly:AddVertex{pos = Vec3(0, 0, extent), uv = Vec2(0.5, 1), normal = Vec3(0, -1, 0)}
-	poly:AddVertex{pos = Vec3(extent, 0, -extent), uv = Vec2(1, 0), normal = Vec3(0, -1, 0)}
+	poly:AddVertex{pos = Vec3(-extent, 0, -extent), uv = Vec2(0, 0), normal = Vec3(0, 1, 0)}
+	poly:AddVertex{pos = Vec3(0, 0, extent), uv = Vec2(0.5, 1), normal = Vec3(0, 1, 0)}
+	poly:AddVertex{pos = Vec3(extent, 0, -extent), uv = Vec2(1, 0), normal = Vec3(0, 1, 0)}
 	poly:BuildBoundingBox()
-	poly:Upload()
-	ground.model:AddPrimitive(poly)
-	ground.model:BuildAABB()
+	module.AttachWorldGeometryBody(ground, poly)
 	return ground
 end
 

@@ -7,6 +7,7 @@ local Vec2 = import("goluwa/structs/vec2.lua")
 local SphereShape = import("goluwa/physics/shapes/sphere.lua")
 local BoxShape = import("goluwa/physics/shapes/box.lua")
 local ConvexShape = import("goluwa/physics/shapes/convex.lua")
+local test_helpers = import("test/tests/physics/test_helpers.lua")
 local sphere_shape = SphereShape.New
 local box_shape = BoxShape.New
 local convex_shape = ConvexShape.New
@@ -127,15 +128,12 @@ end)
 T.Test3D("Rigid bodies emit enter, stay, and exit collision events for static world geometry", function()
 	local ground = Entity.New({Name = "rigid_world_events_ground"})
 	ground:AddComponent("transform")
-	ground:AddComponent("model")
 	local poly = Polygon3D.New()
-	poly:AddVertex{pos = Vec3(-6, 0, -6), uv = Vec2(0, 0), normal = Vec3(0, -1, 0)}
-	poly:AddVertex{pos = Vec3(0, 0, 6), uv = Vec2(0.5, 1), normal = Vec3(0, -1, 0)}
-	poly:AddVertex{pos = Vec3(6, 0, -6), uv = Vec2(1, 0), normal = Vec3(0, -1, 0)}
+	poly:AddVertex{pos = Vec3(-6, 0, -6), uv = Vec2(0, 0), normal = Vec3(0, 1, 0)}
+	poly:AddVertex{pos = Vec3(6, 0, -6), uv = Vec2(1, 0), normal = Vec3(0, 1, 0)}
+	poly:AddVertex{pos = Vec3(0, 0, 6), uv = Vec2(0.5, 1), normal = Vec3(0, 1, 0)}
 	poly:BuildBoundingBox()
-	poly:Upload()
-	ground.model:AddPrimitive(poly)
-	ground.model:BuildAABB()
+	test_helpers.AttachWorldGeometryBody(ground, poly)
 	local sphere_ent = Entity.New({Name = "rigid_world_events_sphere"})
 	sphere_ent:AddComponent("transform")
 	sphere_ent.transform:SetPosition(Vec3(0, 3, 0))

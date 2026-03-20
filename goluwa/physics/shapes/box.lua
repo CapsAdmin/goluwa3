@@ -101,6 +101,53 @@ local function solve_box_support_contact(self, body, normal, contact_position, h
 end
 
 function META:SolveSupportContacts(body, dt)
+	local best_point = nil
+
+	BaseShape.SolveSupportContacts(
+		self,
+		body,
+		dt,
+		function(collider, point, fallback_hit, fallback_dt)
+			if not (fallback_hit and fallback_hit.normal and fallback_hit.position and point) then return end
+			if not (fallback_hit.rigid_body and fallback_hit.rigid_body.WorldGeometry == true) then return end
+
+			local margin = collider:GetCollisionMargin() or 0
+			local depth = (fallback_hit.position + fallback_hit.normal * margin - point):Dot(fallback_hit.normal)
+			local support_tolerance = (collider:GetCollisionProbeDistance() or 0) + margin
+
+			if depth < -support_tolerance then return end
+
+			if
+				not best_point or
+				depth > best_point.depth or
+				(
+					math.abs(depth - best_point.depth) <= physics.EPSILON and
+					fallback_hit.normal.y > best_point.hit.normal.y
+				)
+			then
+				best_point = {
+					body = collider,
+					point = point,
+					hit = fallback_hit,
+					dt = fallback_dt,
+					depth = depth,
+				}
+			end
+		end
+	)
+
+	if best_point then
+		support_contacts.ApplyPointWorldSupportContact(
+			best_point.body,
+			best_point.hit.normal,
+			best_point.hit.position,
+			best_point.point,
+			best_point.hit,
+			best_point.dt
+		)
+		return
+	end
+
 	local cast_up, cast_distance = support_contacts.GetCastDistances(body, dt)
 	local center = body:GetPosition()
 	local hit = physics.SweepCollider(
@@ -118,26 +165,7 @@ function META:SolveSupportContacts(body, dt)
 
 	if hit and normal and contact_position then
 		solve_box_support_contact(self, body, normal, contact_position, hit, dt)
-		return
 	end
-
-	BaseShape.SolveSupportContacts(
-		self,
-		body,
-		dt,
-		function(collider, _, fallback_hit, fallback_dt)
-			local fallback_normal = fallback_hit and
-				fallback_hit.normal or
-				fallback_hit and
-				fallback_hit.face_normal or
-				nil
-			local fallback_position = fallback_hit and fallback_hit.position or nil
-
-			if fallback_normal and fallback_position then
-				solve_box_support_contact(self, collider, fallback_normal, fallback_position, fallback_hit, fallback_dt)
-			end
-		end
-	)
 end
 
 function META:GetPolyhedron()

@@ -21,7 +21,6 @@ local bit = require("bit")
 local Entity = import("goluwa/ecs/entity.lua")
 local utility = import("goluwa/utility.lua")
 local physics
-local raycast
 local CUBEMAPS = true
 steam.loaded_bsp = steam.loaded_bsp or {}
 local scale = 1 / 0.0254
@@ -56,19 +55,7 @@ local function get_physics_modules()
 		physics = import("goluwa/physics.lua")
 	end
 
-	if physics and not raycast then
-		raycast = import("goluwa/physics/raycast.lua")
-	end
-
-	return physics, raycast
-end
-
-local function set_world_trace_source(source)
-	local physics = get_physics_modules()
-
-	if physics and physics.SetWorldTraceSource then
-		physics.SetWorldTraceSource(source)
-	end
+	return physics
 end
 
 local function build_bounds_from_vertices(vertices)
@@ -277,15 +264,7 @@ local function build_bsp_brush_model(header, owner)
 	return model
 end
 
-local function build_bsp_physics_source(header, render_meshes, displacement_meshes, owner)
-	local _, raycast = get_physics_modules()
-
-	if not (raycast and raycast.CreateModelSource) then
-		return nil, {
-			mode = "unavailable",
-		}
-	end
-
+local function build_bsp_physics_body(header, render_meshes, displacement_meshes, owner)
 	local collidable_brushes = 0
 
 	for _, brush in ipairs(header.brushes or {}) do
@@ -296,58 +275,60 @@ local function build_bsp_physics_source(header, render_meshes, displacement_mesh
 
 	local brush_model = build_bsp_brush_model(header, owner)
 	local displacement_model = build_source_model_from_meshes(displacement_meshes, owner)
-
-	if brush_model or displacement_model then
-		local source_models = {}
-
-		if brush_model then source_models[#source_models + 1] = brush_model end
-
-		if displacement_model then
-			source_models[#source_models + 1] = displacement_model
-		end
-
-		return raycast.CreateModelSource(source_models),
-		{
-			mode = brush_model and
-				displacement_model and
-				"brushes+displacements" or
-				brush_model and
-				"brushes" or
-				"displacements",
-			collidable_brushes = collidable_brushes,
-			primitives = (
-					brush_model and
-					#brush_model.Primitives or
-					0
-				) + (
-					displacement_model and
-					#displacement_model.Primitives or
-					0
-				),
-			displacement_primitives = displacement_model and #displacement_model.Primitives or 0,
-		}
-	end
-
 	local render_model = build_source_model_from_meshes(render_meshes, owner)
+	local shapes = {}
+	local mode = "empty"
+	local primitive_count = 0
+	local displacement_primitives = 0
 
-	if render_model then
-		return raycast.CreateModelSource({render_model}),
-		{
-			mode = "render_fallback",
-			collidable_brushes = collidable_brushes,
-			primitives = #render_model.Primitives,
-			displacement_primitives = 0,
-		}
+	if brush_model then
+		shapes[#shapes + 1] = {Model = brush_model}
+		primitive_count = primitive_count + #brush_model.Primitives
+		mode = "brushes"
 	end
 
-	return nil, {
-		mode = "empty",
-		collidable_brushes = collidable_brushes,
-	}
+	if displacement_model then
+		shapes[#shapes + 1] = {Model = displacement_model}
+		displacement_primitives = #displacement_model.Primitives
+		primitive_count = primitive_count + displacement_primitives
+		mode = mode == "brushes" and "brushes+displacements" or "displacements"
+	end
+
+	if not shapes[1] and render_model then
+		shapes[#shapes + 1] = {Model = render_model}
+		primitive_count = #render_model.Primitives
+		mode = "render_fallback"
+	end
+
+	if not shapes[1] then
+		return nil,
+			{
+				mode = mode,
+				collidable_brushes = collidable_brushes,
+				displacement_primitives = displacement_primitives,
+				primitives = primitive_count,
+			}
+	end
+
+	return {
+		Shapes = shapes,
+		MotionType = "static",
+		Friction = 0.85,
+		Restitution = 0,
+		WorldGeometry = true,
+	},
+		{
+			mode = mode,
+			collidable_brushes = collidable_brushes,
+			displacement_primitives = displacement_primitives,
+			primitives = primitive_count,
+		}
 end
 
 function steam.SetMap(name)
-	set_world_trace_source(nil)
+	if steam.bsp_world and steam.bsp_world.IsValid and steam.bsp_world:IsValid() and steam.bsp_world:HasComponent("rigid_body") then
+		steam.bsp_world:RemoveComponent("rigid_body")
+	end
 
 	if tonumber(name) then
 		local workshop_id = tonumber(name)
@@ -1210,28 +1191,28 @@ function steam.LoadMap(path)
 		end
 	end
 
-	local physics_source, physics_source_info = build_bsp_physics_source(header, render_meshes, displacement_collision_meshes, steam.bsp_world)
+	local physics_body, physics_body_info = build_bsp_physics_body(header, render_meshes, displacement_collision_meshes, steam.bsp_world)
 	steam.loaded_bsp[path] = {
 		render_meshes = render_meshes,
 		entities = header.entities,
-		physics_source = physics_source,
-		physics_source_info = physics_source_info,
+		physics_body = physics_body,
+		physics_body_info = physics_body_info,
 		cubemaps = header.cubemaps,
 		path = path, -- Store the absolute path
 	}
 
-	if physics_source_info then
+	if physics_body_info then
 		logn(
-			"BSP physics source for ",
+			"BSP physics body for ",
 			path,
 			": mode=",
-			physics_source_info.mode,
+			physics_body_info.mode,
 			", collidable_brushes=",
-			physics_source_info.collidable_brushes or 0,
+			physics_body_info.collidable_brushes or 0,
 			", displacement_primitives=",
-			physics_source_info.displacement_primitives or 0,
+			physics_body_info.displacement_primitives or 0,
 			", primitives=",
-			physics_source_info.primitives or 0
+			physics_body_info.primitives or 0
 		)
 	end
 
@@ -1426,7 +1407,13 @@ model_loader.AddModelDecoder("bsp", function(path, full_path, mesh_callback)
 		steam.bsp_world.bsp_resolved_path = full_path
 	end
 
-	set_world_trace_source(result.physics_source)
+	if steam.bsp_world and steam.bsp_world:IsValid() then
+		if steam.bsp_world:HasComponent("rigid_body") then
+			steam.bsp_world:RemoveComponent("rigid_body")
+		end
+
+		if result.physics_body then steam.bsp_world:AddComponent("rigid_body", result.physics_body) end
+	end
 
 	for _, prim in ipairs(result.render_meshes) do
 		mesh_callback(prim.mesh, prim.material)

@@ -16,17 +16,7 @@ physics.BusyMaxCatchUpSteps = physics.BusyMaxCatchUpSteps or 1
 physics.DropBusyFrameDebt = physics.DropBusyFrameDebt ~= false
 physics.FrameAccumulator = physics.FrameAccumulator or 0
 physics.InterpolationAlpha = physics.InterpolationAlpha or 0
-physics.WorldTraceSource = physics.WorldTraceSource or nil
 physics.EPSILON = 0.000001
-
-function physics.SetWorldTraceSource(source)
-	physics.WorldTraceSource = source
-	return source
-end
-
-function physics.GetWorldTraceSource()
-	return physics.WorldTraceSource
-end
 
 function physics.GetInterpolationAlpha()
 	return math.min(math.max(physics.InterpolationAlpha or 0, 0), 1)

@@ -64,6 +64,8 @@ function mesh_polyhedron_contacts.AccumulateSampleContacts(state, mesh_body, pol
 					state.best_overlap = overlap
 					state.best_normal = normal
 					state.best_triangle_index = triangle_index
+					state.best_point_a = result.position
+					state.best_point_b = sample.point
 				end
 
 				polyhedron_triangle_aggregator.MergeContact(state.contacts, result.position, sample.point, 0.08)
@@ -156,7 +158,20 @@ function mesh_polyhedron_contacts.SolveMeshPolyhedronCollision(mesh_body, poly_b
 		)
 	end
 
+	if state.best_point_a and state.best_point_b then
+		return contact_resolution.ResolvePairPenetration(
+			mesh_body,
+			poly_body,
+			state.best_normal,
+			state.best_overlap,
+			dt,
+			state.best_point_a,
+			state.best_point_b
+		)
+	end
+
 	return false
 end
+
 
 return mesh_polyhedron_contacts

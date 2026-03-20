@@ -63,22 +63,11 @@ end)
 T.Test3D("Rigid sphere can move along uneven ground", function()
 	local ground = Entity.New({Name = "rigid_body_slope_ground"})
 	ground:AddComponent("transform")
-	ground:AddComponent("model")
-	local tri_a = Polygon3D.New()
-	tri_a:AddVertex{pos = Vec3(-4, 2, -4), uv = Vec2(0, 0), normal = Vec3(0, -1, 0)}
-	tri_a:AddVertex{pos = Vec3(4, 0, -4), uv = Vec2(1, 0), normal = Vec3(0, -1, 0)}
-	tri_a:AddVertex{pos = Vec3(-4, 2, 4), uv = Vec2(0, 1), normal = Vec3(0, -1, 0)}
-	tri_a:BuildBoundingBox()
-	tri_a:Upload()
-	ground.model:AddPrimitive(tri_a)
-	local tri_b = Polygon3D.New()
-	tri_b:AddVertex{pos = Vec3(4, 0, -4), uv = Vec2(1, 0), normal = Vec3(0, -1, 0)}
-	tri_b:AddVertex{pos = Vec3(4, 0, 4), uv = Vec2(1, 1), normal = Vec3(0, -1, 0)}
-	tri_b:AddVertex{pos = Vec3(-4, 2, 4), uv = Vec2(0, 1), normal = Vec3(0, -1, 0)}
-	tri_b:BuildBoundingBox()
-	tri_b:Upload()
-	ground.model:AddPrimitive(tri_b)
-	ground.model:BuildAABB()
+	local poly = Polygon3D.New()
+	test_helpers.AddTriangle(poly, Vec3(-4, 2, -4), Vec3(-4, 2, 4), Vec3(4, 0, -4))
+	test_helpers.AddTriangle(poly, Vec3(4, 0, -4), Vec3(-4, 2, 4), Vec3(4, 0, 4))
+	poly:BuildBoundingBox()
+	test_helpers.AttachWorldGeometryBody(ground, poly)
 	local body_ent = Entity.New({Name = "rigid_body_slope"})
 	body_ent:AddComponent("transform")
 	body_ent.transform:SetPosition(Vec3(-1.5, 3, 0))

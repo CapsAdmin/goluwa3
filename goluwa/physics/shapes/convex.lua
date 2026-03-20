@@ -5,6 +5,7 @@ local BaseShape = import("goluwa/physics/shapes/base.lua")
 local mass_properties = import("goluwa/physics/shapes/mass_properties.lua")
 local physics = import("goluwa/physics.lua")
 local convex_hull = import("goluwa/physics/convex_hull.lua")
+local support_contacts = import("goluwa/physics/shapes/support_contacts.lua")
 local META = prototype.CreateTemplate("physics_shape_convex")
 META.Base = BaseShape
 META:GetSet("ConvexHull", nil)
@@ -116,6 +117,65 @@ function META:BuildSupportLocalPoints(body)
 	end
 
 	return BaseShape.BuildSupportLocalPoints(self, body)
+end
+
+function META:GetSupportRadiusAlongNormal(body, normal)
+	normal = normal and normal:GetNormalized() or Vec3(0, 1, 0)
+	local max_projection = 0
+
+	for _, local_point in ipairs(body:GetSupportLocalPoints() or {}) do
+		local world_point = body:GeometryLocalToWorld(local_point)
+		max_projection = math.max(max_projection, (world_point - body:GetPosition()):Dot(normal))
+	end
+
+	return max_projection
+end
+
+function META:SolveSupportContacts(body, dt)
+	local best = nil
+
+	BaseShape.SolveSupportContacts(
+		self,
+		body,
+		dt,
+		function(target_body, point, hit, contact_dt)
+			if not (hit and hit.normal and hit.position and point) then return end
+
+			local margin = target_body:GetCollisionMargin() or 0
+			local depth = (hit.position + hit.normal * margin - point):Dot(hit.normal)
+			local support_tolerance = (target_body:GetCollisionProbeDistance() or 0) + margin
+
+			if depth < -support_tolerance then return end
+
+			if
+				not best or
+				depth > best.depth or
+				(
+					math.abs(depth - best.depth) <= physics.EPSILON and
+					hit.normal.y > best.hit.normal.y
+				)
+			then
+				best = {
+					body = target_body,
+					point = point,
+					hit = hit,
+					dt = contact_dt,
+					depth = depth,
+				}
+			end
+		end
+	)
+
+	if not best then return end
+
+	support_contacts.ApplyPointWorldSupportContact(
+		best.body,
+		best.hit.normal,
+		best.hit.position,
+		best.point,
+		best.hit,
+		best.dt
+	)
 end
 
 return META:Register()
