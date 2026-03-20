@@ -74,26 +74,46 @@ function META:GetBroadphaseAABB(body, position, rotation)
 		)
 	end
 
-	local bounds = AABB(math.huge, math.huge, math.huge, -math.huge, -math.huge, -math.huge)
+	local min_x = math.huge
+	local min_y = math.huge
+	local min_z = math.huge
+	local max_x = -math.huge
+	local max_y = -math.huge
+	local max_z = -math.huge
 
-	for _, point in ipairs(points) do
-		bounds:ExpandVec3(self:GeometryLocalToWorld(body, point, position, rotation))
+	for i = 1, #points do
+		local world_point = self:GeometryLocalToWorld(body, points[i], position, rotation)
+		local x = world_point.x
+		local y = world_point.y
+		local z = world_point.z
+
+		if x < min_x then min_x = x end
+		if y < min_y then min_y = y end
+		if z < min_z then min_z = z end
+		if x > max_x then max_x = x end
+		if y > max_y then max_y = y end
+		if z > max_z then max_z = z end
 	end
 
-	return bounds
+	return AABB(min_x, min_y, min_z, max_x, max_y, max_z)
 end
 
 function META:SolveSupportContacts(body, dt, solve_contact, solve_contact_context)
 	local cast_up, cast_distance = support_contacts.GetCastDistances(body, dt)
+	local support_points = body:GetSupportLocalPoints()
+	local owner = body:GetOwner()
+	local filter_function = body:GetFilterFunction()
+	local cast_origin_offset = physics.Up * cast_up
+	local cast_delta = physics.Up * -cast_distance
 
-	for _, local_point in ipairs(body:GetSupportLocalPoints()) do
-		local point = body:GeometryLocalToWorld(local_point)
+	for i = 1, #support_points do
+		local point = body:GeometryLocalToWorld(support_points[i])
 		local hit = physics.Sweep(
-			point + physics.Up * cast_up,
-			physics.Up * -cast_distance,
+			point + cast_origin_offset,
+			cast_delta,
 			0,
-			body:GetOwner(),
-			body:GetFilterFunction()
+			owner,
+			filter_function
 		)
 
 		if hit then

@@ -44,12 +44,22 @@ function META.VecMul(a, b)
 	local vec, quat
 
 	if typex(a) == "vec3" then vec, quat = a, b else vec, quat = b, a end
+	local qx = quat.x
+	local qy = quat.y
+	local qz = quat.z
+	local qw = quat.w
+	local vx = vec.x
+	local vy = vec.y
+	local vz = vec.z
+	local tx = 2 * (qy * vz - qz * vy)
+	local ty = 2 * (qz * vx - qx * vz)
+	local tz = 2 * (qx * vy - qy * vx)
 
-	local qvec = Vec3(quat.x, quat.y, quat.z)
-	local uvec = qvec:GetCross(vec)
-	local uuvec = qvec:GetCross(uvec)
-	uvec, uuvec = uvec * 2 * quat.w, uuvec * 2
-	return vec + uvec + uuvec
+	return Vec3(
+		vx + qw * tx + (qy * tz - qz * ty),
+		vy + qw * ty + (qz * tx - qx * tz),
+		vz + qw * tz + (qx * ty - qy * tx)
+	)
 end
 
 do -- ORIENTATION / TRANSFORMATION

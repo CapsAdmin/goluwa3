@@ -321,6 +321,18 @@ local function ensure_convex_helpers()
 	convex_sat = import("goluwa/physics/convex_sat.lua")
 end
 
+local function has_world_geometry_bodies()
+	local instances = RigidBodyComponent.Instances or {}
+
+	for i = 1, #instances do
+		local body = instances[i]
+
+		if physics.IsActiveRigidBody(body) and body.WorldGeometry == true then return true end
+	end
+
+	return false
+end
+
 local function normalize_query_options(options)
 	options = options or {}
 
@@ -338,14 +350,10 @@ local function normalize_query_options(options)
 
 	if
 		options.UseRenderMeshes == nil and
-		options.IgnoreWorld ~= true
+		options.IgnoreWorld ~= true and
+		has_world_geometry_bodies()
 	then
-		for _, body in ipairs(RigidBodyComponent.Instances or {}) do
-			if physics.IsActiveRigidBody(body) and body.WorldGeometry == true then
-				options.UseRenderMeshes = false
-				break
-			end
-		end
+		options.UseRenderMeshes = false
 	end
 
 	return options
@@ -1221,43 +1229,112 @@ local function should_query_body_as_world(body, options)
 	return options and options.IgnoreWorld ~= true and body and body.WorldGeometry == true
 end
 
+local function get_cached_candidate_aabb(cache, bounds, previous_bounds)
+	local cached_bounds = cache.bounds
+
+	if not cached_bounds then
+		cached_bounds = AABB(
+			bounds.min_x,
+			bounds.min_y,
+			bounds.min_z,
+			bounds.max_x,
+			bounds.max_y,
+			bounds.max_z
+		)
+		cache.bounds = cached_bounds
+	else
+		cached_bounds.min_x = bounds.min_x
+		cached_bounds.min_y = bounds.min_y
+		cached_bounds.min_z = bounds.min_z
+		cached_bounds.max_x = bounds.max_x
+		cached_bounds.max_y = bounds.max_y
+		cached_bounds.max_z = bounds.max_z
+	end
+
+	if previous_bounds then cached_bounds:Expand(previous_bounds) end
+
+	return cached_bounds
+end
+
+local function matches_candidate_pose(cache, current_position, current_rotation, previous_position, previous_rotation, has_previous)
+	return cache and
+		cache.has_previous == has_previous and
+		cache.current_px == (current_position and current_position.x or nil) and
+		cache.current_py == (current_position and current_position.y or nil) and
+		cache.current_pz == (current_position and current_position.z or nil) and
+		cache.current_rx == (current_rotation and current_rotation.x or nil) and
+		cache.current_ry == (current_rotation and current_rotation.y or nil) and
+		cache.current_rz == (current_rotation and current_rotation.z or nil) and
+		cache.current_rw == (current_rotation and current_rotation.w or nil) and
+		cache.previous_px == (previous_position and previous_position.x or nil) and
+		cache.previous_py == (previous_position and previous_position.y or nil) and
+		cache.previous_pz == (previous_position and previous_position.z or nil) and
+		cache.previous_rx == (previous_rotation and previous_rotation.x or nil) and
+		cache.previous_ry == (previous_rotation and previous_rotation.y or nil) and
+		cache.previous_rz == (previous_rotation and previous_rotation.z or nil) and
+		cache.previous_rw == (previous_rotation and previous_rotation.w or nil)
+end
+
+local function store_candidate_pose(cache, current_position, current_rotation, previous_position, previous_rotation, has_previous)
+	cache.has_previous = has_previous
+	cache.current_px = current_position and current_position.x or nil
+	cache.current_py = current_position and current_position.y or nil
+	cache.current_pz = current_position and current_position.z or nil
+	cache.current_rx = current_rotation and current_rotation.x or nil
+	cache.current_ry = current_rotation and current_rotation.y or nil
+	cache.current_rz = current_rotation and current_rotation.z or nil
+	cache.current_rw = current_rotation and current_rotation.w or nil
+	cache.previous_px = previous_position and previous_position.x or nil
+	cache.previous_py = previous_position and previous_position.y or nil
+	cache.previous_pz = previous_position and previous_position.z or nil
+	cache.previous_rx = previous_rotation and previous_rotation.x or nil
+	cache.previous_ry = previous_rotation and previous_rotation.y or nil
+	cache.previous_rz = previous_rotation and previous_rotation.z or nil
+	cache.previous_rw = previous_rotation and previous_rotation.w or nil
+end
+
 local function get_rigid_body_candidate_aabb(body)
 	if not body.GetBroadphaseAABB then return nil end
 
 	local current_position = body.GetPosition and body:GetPosition() or nil
 	local current_rotation = body.GetRotation and body:GetRotation() or nil
-	local bounds = body:GetBroadphaseAABB(current_position, current_rotation)
 	local previous_position = body.GetPreviousPosition and body:GetPreviousPosition() or nil
 	local previous_rotation = body.GetPreviousRotation and body:GetPreviousRotation() or nil
+	local has_previous = current_position and current_rotation and previous_position and previous_rotation and true or false
+	local cache = body.sweep_candidate_aabb_cache
+
+	if matches_candidate_pose(cache, current_position, current_rotation, previous_position, previous_rotation, has_previous) then
+		return cache.bounds
+	end
+
+	local bounds = body:GetBroadphaseAABB(current_position, current_rotation)
 
 	if
 		not bounds or
-		not previous_position or
-		not previous_rotation or
-		not current_position or
-		not current_rotation
+		not has_previous
 	then
-		return bounds
+		cache = cache or {}
+		body.sweep_candidate_aabb_cache = cache
+		store_candidate_pose(cache, current_position, current_rotation, previous_position, previous_rotation, false)
+		return get_cached_candidate_aabb(cache, bounds)
 	end
 
 	if previous_position == current_position and previous_rotation == current_rotation then
-		return bounds
+		cache = cache or {}
+		body.sweep_candidate_aabb_cache = cache
+		store_candidate_pose(cache, current_position, current_rotation, previous_position, previous_rotation, true)
+		return get_cached_candidate_aabb(cache, bounds)
 	end
 
 	local previous_bounds = body:GetBroadphaseAABB(previous_position, previous_rotation)
 
-	if not previous_bounds then return bounds end
+	cache = cache or {}
+	body.sweep_candidate_aabb_cache = cache
+	store_candidate_pose(cache, current_position, current_rotation, previous_position, previous_rotation, true)
 
-	local swept_bounds = AABB(
-		bounds.min_x,
-		bounds.min_y,
-		bounds.min_z,
-		bounds.max_x,
-		bounds.max_y,
-		bounds.max_z
-	)
-	swept_bounds:Expand(previous_bounds)
-	return swept_bounds
+	if not previous_bounds then return get_cached_candidate_aabb(cache, bounds) end
+
+	return get_cached_candidate_aabb(cache, bounds, previous_bounds)
 end
 
 local function get_collider_candidate_aabb(collider)
@@ -1265,41 +1342,53 @@ local function get_collider_candidate_aabb(collider)
 
 	local current_position = collider.GetPosition and collider:GetPosition() or nil
 	local current_rotation = collider.GetRotation and collider:GetRotation() or nil
-	local bounds = collider:GetBroadphaseAABB(current_position, current_rotation)
 	local previous_position = collider.GetPreviousPosition and collider:GetPreviousPosition() or nil
 	local previous_rotation = collider.GetPreviousRotation and collider:GetPreviousRotation() or nil
+	local has_previous = current_position and current_rotation and previous_position and previous_rotation and true or false
+	local cache = collider.sweep_candidate_aabb_cache
+
+	if matches_candidate_pose(cache, current_position, current_rotation, previous_position, previous_rotation, has_previous) then
+		return cache.bounds
+	end
+
+	local bounds = collider:GetBroadphaseAABB(current_position, current_rotation)
 
 	if
 		not bounds or
-		not previous_position or
-		not previous_rotation or
-		not current_position or
-		not current_rotation
+		not has_previous
 	then
-		return bounds
+		cache = cache or {}
+		collider.sweep_candidate_aabb_cache = cache
+		store_candidate_pose(cache, current_position, current_rotation, previous_position, previous_rotation, false)
+		return get_cached_candidate_aabb(cache, bounds)
+	end
+
+	if previous_position == current_position and previous_rotation == current_rotation then
+		cache = cache or {}
+		collider.sweep_candidate_aabb_cache = cache
+		store_candidate_pose(cache, current_position, current_rotation, previous_position, previous_rotation, true)
+		return get_cached_candidate_aabb(cache, bounds)
 	end
 
 	local previous_bounds = collider:GetBroadphaseAABB(previous_position, previous_rotation)
 
-	if not previous_bounds then return bounds end
+	cache = cache or {}
+	collider.sweep_candidate_aabb_cache = cache
+	store_candidate_pose(cache, current_position, current_rotation, previous_position, previous_rotation, true)
 
-	local swept_bounds = AABB(
-		bounds.min_x,
-		bounds.min_y,
-		bounds.min_z,
-		bounds.max_x,
-		bounds.max_y,
-		bounds.max_z
-	)
-	swept_bounds:Expand(previous_bounds)
-	return swept_bounds
+	if not previous_bounds then return get_cached_candidate_aabb(cache, bounds) end
+
+	return get_cached_candidate_aabb(cache, bounds, previous_bounds)
 end
 
 local function collect_rigid_body_candidates(world_aabb, ignore_entity, filter_fn, options, out)
 	out = out or {}
+	local instances = RigidBodyComponent.Instances or {}
+	local effective_options = options or {}
 
-	for _, body in ipairs(RigidBodyComponent.Instances or {}) do
-		local include_body = (options and options.IgnoreRigidBodies == false) or should_query_body_as_world(body, options or {})
+	for i = 1, #instances do
+		local body = instances[i]
+		local include_body = (options and options.IgnoreRigidBodies == false) or should_query_body_as_world(body, effective_options)
 
 		if include_body and not should_skip_rigid_body(body, ignore_entity, filter_fn, options) then
 			local bounds = get_rigid_body_candidate_aabb(body)

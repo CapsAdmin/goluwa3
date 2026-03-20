@@ -289,13 +289,14 @@ function triangle_mesh.GetPolygonTriangleAcceleration(poly)
 	return tree, triangles, triangle_count
 end
 
-local function invoke_triangle_callback(triangle, callback, context)
-	callback(triangle.v0, triangle.v1, triangle.v2, triangle.triangle_index, context)
-end
-
 local function visit_triangle_leaf(node, context, result)
+	local triangles = context.acceleration.triangles
+	local callback = context.callback
+	local user_context = context.user_context
+
 	for i = node.first, node.last do
-		invoke_triangle_callback(context.acceleration.triangles[i], context.callback, context.user_context)
+		local triangle = triangles[i]
+		callback(triangle.v0, triangle.v1, triangle.v2, triangle.triangle_index, user_context)
 	end
 
 	return result
@@ -319,7 +320,7 @@ function triangle_mesh.ForEachOverlappingTriangle(poly, local_bounds, callback, 
 		local triangle = triangles[i]
 
 		if triangle_bounds_overlap(local_bounds, triangle) then
-			invoke_triangle_callback(triangle, callback, context)
+			callback(triangle.v0, triangle.v1, triangle.v2, triangle.triangle_index, context)
 		end
 	end
 end

@@ -1,5 +1,9 @@
 local Vec3 = import("goluwa/structs/vec3.lua")
 local capsule_geometry = {}
+local CAPSULE_LOCAL_SEGMENT_POINTS = {
+	bottom = Vec3(0, 0, 0),
+	top = Vec3(0, 0, 0),
+}
 
 function capsule_geometry.GetCapsuleShape(shape_or_body)
 	if not shape_or_body then return nil end
@@ -36,9 +40,13 @@ function capsule_geometry.GetSegmentWorld(body, position, rotation)
 	local shape = capsule_geometry.GetCapsuleShape(body)
 
 	if not shape then return nil, nil, 0 end
+	local half_height = capsule_geometry.GetCylinderHalfHeight(shape)
+	local local_points = CAPSULE_LOCAL_SEGMENT_POINTS
+	local_points.bottom.y = -half_height
+	local_points.top.y = half_height
 
-	return body:LocalToWorld(capsule_geometry.GetBottomSphereCenterLocal(shape), position, rotation),
-	body:LocalToWorld(capsule_geometry.GetTopSphereCenterLocal(shape), position, rotation),
+	return body:LocalToWorld(local_points.bottom, position, rotation),
+	body:LocalToWorld(local_points.top, position, rotation),
 	shape:GetRadius()
 end
 

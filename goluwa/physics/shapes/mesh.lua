@@ -9,6 +9,17 @@ local triangle_mesh = import("goluwa/physics/triangle_mesh.lua")
 local META = prototype.CreateTemplate("physics_shape_mesh")
 META.Base = BaseShape
 
+local MESH_BOUNDS_CORNERS = {
+	Vec3(),
+	Vec3(),
+	Vec3(),
+	Vec3(),
+	Vec3(),
+	Vec3(),
+	Vec3(),
+	Vec3(),
+}
+
 local function create_synthetic_primitive(polygon)
 	return {polygon3d = polygon}
 end
@@ -403,28 +414,45 @@ function META:GetBroadphaseAABB(body, position, rotation)
 	local max_x = bounds.max_x
 	local max_y = bounds.max_y
 	local max_z = bounds.max_z
-	local corners = {
-		Vec3(min_x, min_y, min_z),
-		Vec3(max_x, min_y, min_z),
-		Vec3(max_x, max_y, min_z),
-		Vec3(min_x, max_y, min_z),
-		Vec3(min_x, min_y, max_z),
-		Vec3(max_x, min_y, max_z),
-		Vec3(max_x, max_y, max_z),
-		Vec3(min_x, max_y, max_z),
-	}
-	local world_bounds = AABB(math.huge, math.huge, math.huge, -math.huge, -math.huge, -math.huge)
+	local corners = MESH_BOUNDS_CORNERS
+	corners[1].x, corners[1].y, corners[1].z = min_x, min_y, min_z
+	corners[2].x, corners[2].y, corners[2].z = max_x, min_y, min_z
+	corners[3].x, corners[3].y, corners[3].z = max_x, max_y, min_z
+	corners[4].x, corners[4].y, corners[4].z = min_x, max_y, min_z
+	corners[5].x, corners[5].y, corners[5].z = min_x, min_y, max_z
+	corners[6].x, corners[6].y, corners[6].z = max_x, min_y, max_z
+	corners[7].x, corners[7].y, corners[7].z = max_x, max_y, max_z
+	corners[8].x, corners[8].y, corners[8].z = min_x, max_y, max_z
 
-	for _, corner in ipairs(corners) do
-		world_bounds:ExpandVec3(position + rotation:VecMul(corner))
+	local world_min_x = math.huge
+	local world_min_y = math.huge
+	local world_min_z = math.huge
+	local world_max_x = -math.huge
+	local world_max_y = -math.huge
+	local world_max_z = -math.huge
+
+	for i = 1, 8 do
+		local transformed = position + rotation:VecMul(corners[i])
+		local x = transformed.x
+		local y = transformed.y
+		local z = transformed.z
+
+		if x < world_min_x then world_min_x = x end
+		if y < world_min_y then world_min_y = y end
+		if z < world_min_z then world_min_z = z end
+		if x > world_max_x then world_max_x = x end
+		if y > world_max_y then world_max_y = y end
+		if z > world_max_z then world_max_z = z end
 	end
 
-	return world_bounds
+	return AABB(world_min_x, world_min_y, world_min_z, world_max_x, world_max_y, world_max_z)
 end
 
 function META:ForEachOverlappingTriangle(body, local_bounds, callback, context)
-	for _, poly in ipairs(self:GetMeshPolygons(body)) do
-		triangle_mesh.ForEachOverlappingTriangle(poly, local_bounds, callback, context)
+	local polygons = self:GetMeshPolygons(body)
+
+	for i = 1, #polygons do
+		triangle_mesh.ForEachOverlappingTriangle(polygons[i], local_bounds, callback, context)
 	end
 end
 

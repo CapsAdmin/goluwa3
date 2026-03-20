@@ -23,14 +23,15 @@ function physics.GetInterpolationAlpha()
 end
 
 function physics.IsActiveRigidBody(body)
-	if body and body.GetBody then body = body:GetBody() end
+	if not body then return nil end
+	if body.GetBody then body = body:GetBody() end
+	if not (body and body.Enabled) then return nil end
 
-	return body and
-		body.Enabled and
-		body.Owner and
-		body.Owner.IsValid and
-		body.Owner:IsValid() and
-		body.Owner.transform
+	local owner = body.Owner
+
+	if not (owner and owner.transform and owner.IsValid) then return nil end
+
+	return owner:IsValid() and owner.transform or nil
 end
 
 return physics

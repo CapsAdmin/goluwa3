@@ -2,6 +2,16 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local structs = import("goluwa/structs/structs.lua")
 local META = structs.Template("AABB")
 local CTOR
+local LOCAL_AABB_CORNERS = {
+	Vec3(),
+	Vec3(),
+	Vec3(),
+	Vec3(),
+	Vec3(),
+	Vec3(),
+	Vec3(),
+	Vec3(),
+}
 META.Args = {{"min_x", "min_y", "min_z", "max_x", "max_y", "max_z"}}
 structs.AddAllOperators(META)
 
@@ -86,30 +96,37 @@ end
 function META.BuildLocalAABBFromWorldAABB(world_aabb, world_to_local)
 	if not world_to_local then return world_aabb end
 
-	local local_min = Vec3(math.huge, math.huge, math.huge)
-	local local_max = Vec3(-math.huge, -math.huge, -math.huge)
-	local corners = {
-		Vec3(world_aabb.min_x, world_aabb.min_y, world_aabb.min_z),
-		Vec3(world_aabb.min_x, world_aabb.min_y, world_aabb.max_z),
-		Vec3(world_aabb.min_x, world_aabb.max_y, world_aabb.min_z),
-		Vec3(world_aabb.min_x, world_aabb.max_y, world_aabb.max_z),
-		Vec3(world_aabb.max_x, world_aabb.min_y, world_aabb.min_z),
-		Vec3(world_aabb.max_x, world_aabb.min_y, world_aabb.max_z),
-		Vec3(world_aabb.max_x, world_aabb.max_y, world_aabb.min_z),
-		Vec3(world_aabb.max_x, world_aabb.max_y, world_aabb.max_z),
-	}
+	local corners = LOCAL_AABB_CORNERS
+	corners[1].x, corners[1].y, corners[1].z = world_aabb.min_x, world_aabb.min_y, world_aabb.min_z
+	corners[2].x, corners[2].y, corners[2].z = world_aabb.min_x, world_aabb.min_y, world_aabb.max_z
+	corners[3].x, corners[3].y, corners[3].z = world_aabb.min_x, world_aabb.max_y, world_aabb.min_z
+	corners[4].x, corners[4].y, corners[4].z = world_aabb.min_x, world_aabb.max_y, world_aabb.max_z
+	corners[5].x, corners[5].y, corners[5].z = world_aabb.max_x, world_aabb.min_y, world_aabb.min_z
+	corners[6].x, corners[6].y, corners[6].z = world_aabb.max_x, world_aabb.min_y, world_aabb.max_z
+	corners[7].x, corners[7].y, corners[7].z = world_aabb.max_x, world_aabb.max_y, world_aabb.min_z
+	corners[8].x, corners[8].y, corners[8].z = world_aabb.max_x, world_aabb.max_y, world_aabb.max_z
+	local local_min_x = math.huge
+	local local_min_y = math.huge
+	local local_min_z = math.huge
+	local local_max_x = -math.huge
+	local local_max_y = -math.huge
+	local local_max_z = -math.huge
 
-	for i = 1, #corners do
+	for i = 1, 8 do
 		local point = world_to_local:TransformVector(corners[i])
-		local_min.x = math.min(local_min.x, point.x)
-		local_min.y = math.min(local_min.y, point.y)
-		local_min.z = math.min(local_min.z, point.z)
-		local_max.x = math.max(local_max.x, point.x)
-		local_max.y = math.max(local_max.y, point.y)
-		local_max.z = math.max(local_max.z, point.z)
+		local x = point.x
+		local y = point.y
+		local z = point.z
+
+		if x < local_min_x then local_min_x = x end
+		if y < local_min_y then local_min_y = y end
+		if z < local_min_z then local_min_z = z end
+		if x > local_max_x then local_max_x = x end
+		if y > local_max_y then local_max_y = y end
+		if z > local_max_z then local_max_z = z end
 	end
 
-	return CTOR(local_min.x, local_min.y, local_min.z, local_max.x, local_max.y, local_max.z)
+	return CTOR(local_min_x, local_min_y, local_min_z, local_max_x, local_max_y, local_max_z)
 end
 
 function META:ExtendMax(pos)

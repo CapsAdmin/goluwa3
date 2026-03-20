@@ -28,21 +28,26 @@ local function solve_shape_support_contacts(shape_body, shape, step_dt)
 	if shape_type == "box" then
 		local cast_up, cast_distance = support_contacts.GetCastDistances(shape_body, step_dt)
 		local best = nil
+		local support_points = shape_body:GetSupportLocalPoints() or {}
+		local owner = shape_body:GetOwner()
+		local filter_function = shape_body:GetFilterFunction()
+		local cast_origin_offset = physics.Up * cast_up
+		local cast_delta = physics.Up * -cast_distance
+		local margin = shape_body:GetCollisionMargin() or 0
+		local support_tolerance = (shape_body:GetCollisionProbeDistance() or 0) + margin
 
-		for _, local_point in ipairs(shape_body:GetSupportLocalPoints() or {}) do
-			local point = shape_body:GeometryLocalToWorld(local_point)
+		for i = 1, #support_points do
+			local point = shape_body:GeometryLocalToWorld(support_points[i])
 			local hit = physics.Sweep(
-				point + physics.Up * cast_up,
-				physics.Up * -cast_distance,
+				point + cast_origin_offset,
+				cast_delta,
 				0,
-				shape_body:GetOwner(),
-				shape_body:GetFilterFunction()
+				owner,
+				filter_function
 			)
 
 			if hit and hit.normal and hit.position then
-				local margin = shape_body:GetCollisionMargin() or 0
 				local depth = (hit.position + hit.normal * margin - point):Dot(hit.normal)
-				local support_tolerance = (shape_body:GetCollisionProbeDistance() or 0) + margin
 
 				if depth >= -support_tolerance then
 					if
@@ -894,20 +899,26 @@ do
 	function RigidBody:GetBroadphaseAABB(position, rotation)
 		position = position or self.Position
 		rotation = rotation or self.Rotation
-		local min_bounds = Vec3(math.huge, math.huge, math.huge)
-		local max_bounds = Vec3(-math.huge, -math.huge, -math.huge)
+		local min_x = math.huge
+		local min_y = math.huge
+		local min_z = math.huge
+		local max_x = -math.huge
+		local max_y = -math.huge
+		local max_z = -math.huge
 		local has_bounds = false
+		local colliders = self:GetColliders()
 
-		for _, collider in ipairs(self:GetColliders()) do
+		for i = 1, #colliders do
+			local collider = colliders[i]
 			local collider_position = position + rotation:VecMul(collider:GetLocalPosition())
 			local collider_rotation = (rotation * collider:GetLocalRotation()):GetNormalized()
 			local bounds = collider:GetBroadphaseAABB(collider_position, collider_rotation)
-			min_bounds.x = math.min(min_bounds.x, bounds.min_x)
-			min_bounds.y = math.min(min_bounds.y, bounds.min_y)
-			min_bounds.z = math.min(min_bounds.z, bounds.min_z)
-			max_bounds.x = math.max(max_bounds.x, bounds.max_x)
-			max_bounds.y = math.max(max_bounds.y, bounds.max_y)
-			max_bounds.z = math.max(max_bounds.z, bounds.max_z)
+			if bounds.min_x < min_x then min_x = bounds.min_x end
+			if bounds.min_y < min_y then min_y = bounds.min_y end
+			if bounds.min_z < min_z then min_z = bounds.min_z end
+			if bounds.max_x > max_x then max_x = bounds.max_x end
+			if bounds.max_y > max_y then max_y = bounds.max_y end
+			if bounds.max_z > max_z then max_z = bounds.max_z end
 			has_bounds = true
 		end
 
@@ -924,12 +935,12 @@ do
 		end
 
 		return AABB(
-			min_bounds.x,
-			min_bounds.y,
-			min_bounds.z,
-			max_bounds.x,
-			max_bounds.y,
-			max_bounds.z
+			min_x,
+			min_y,
+			min_z,
+			max_x,
+			max_y,
+			max_z
 		)
 	end
 
