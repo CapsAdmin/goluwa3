@@ -19,11 +19,16 @@ local focused_body
 local overlay_config = {
 	contact_marker_radius = 4,
 	contact_normal_length = 0.35,
+	hit_marker_radius = 0.05,
+	hit_normal_length = 0.5,
 	contact_draw_limit = 6,
 	partner_draw_limit = 3,
+	partner_link_limit = 3,
 	label_offset = 24,
 	max_distance = 2200,
 	transition_window = 1.2,
+	debug_draw_time = 0.12,
+	broadphase_alpha = 0.12,
 }
 
 local function format_number(value)
@@ -53,6 +58,22 @@ local function copy_vec(vec, fallback)
 	if vec and vec.Copy then return vec:Copy() end
 
 	return fallback and fallback:Copy() or Vec3(0, 0, 0)
+end
+
+local function get_body_debug_id(body)
+	return tostring(body)
+end
+
+local function get_local_player_entity()
+	local world = Entity.World
+
+	if world and world.GetKeyed then
+		local rig = world:GetKeyed("player_camera_rig")
+
+		if rig and rig.IsValid and rig:IsValid() then return rig end
+	end
+
+	return nil
 end
 
 local function get_body_render_position_rotation(body)
@@ -314,6 +335,7 @@ function get_debug_snapshot(body)
 	local angular_velocity = body:GetAngularVelocity()
 	local position = body:GetPosition()
 	local colliders = body.GetColliders and body:GetColliders() or {}
+	local broadphase = body.GetBroadphaseAABB and body:GetBroadphaseAABB() or nil
 	local overlay_state = get_body_overlay_state(body, body:GetAwake())
 	return {
 		owner = owner,
@@ -326,12 +348,16 @@ function get_debug_snapshot(body)
 		automatic_mass = body:GetAutomaticMass(),
 		awake = body:GetAwake(),
 		grounded = body:GetGrounded(),
+		collision_enabled = body:GetCollisionEnabled(),
+		collision_group = body:GetCollisionGroup(),
+		collision_mask = body:GetCollisionMask(),
 		friction = body:GetFriction(),
 		restitution = body:GetRestitution(),
 		gravity_scale = body:GetGravityScale(),
 		sleep_timer = body.SleepTimer or 0,
 		wake_grace_timer = body.WakeGraceTimer or 0,
 		ground_normal = body.GetGroundNormal and body:GetGroundNormal() or Vec3(0, 1, 0),
+		ground_body = body.GetGroundBody and body:GetGroundBody() or nil,
 		linear_speed = velocity and velocity.GetLength and velocity:GetLength() or 0,
 		angular_speed = angular_velocity and
 			angular_velocity.GetLength and
@@ -343,6 +369,7 @@ function get_debug_snapshot(body)
 			angular_velocity.Copy and
 			angular_velocity:Copy() or
 			angular_velocity,
+		broadphase = broadphase,
 		transition = get_transition_text(overlay_state),
 	}
 end
@@ -352,11 +379,13 @@ local function get_look_body_hit()
 
 	if not cam then return nil, nil end
 
+	local origin = cam:GetPosition()
+	local ignore_entity = get_local_player_entity()
 	local hit = physics.Trace(
-		cam:GetPosition(),
+		origin,
 		cam:GetRotation():GetForward(),
 		4096,
-		nil,
+		ignore_entity,
 		nil,
 		{
 			UseRenderMeshes = false,
@@ -394,6 +423,12 @@ local function build_focus_overlay_lines(body, snapshot, hit, contacts)
 			get_contact_marker_total(contacts),
 			format_number(snapshot.sleep_timer or 0)
 		),
+		string.format(
+			"group %s | mask %s | collide %s",
+			tostring(snapshot.collision_group),
+			tostring(snapshot.collision_mask),
+			yes_no(snapshot.collision_enabled)
+		),
 	}
 
 	if hit and hit.distance then
@@ -407,6 +442,25 @@ local function build_focus_overlay_lines(body, snapshot, hit, contacts)
 			format_number(top_contact.overlap or 0),
 			math.max(top_contact.contact_count or 0, 1)
 		)
+		lines[#lines + 1] = "normal " .. format_vec(top_contact.normal)
+	end
+
+	if snapshot.grounded and snapshot.ground_body and snapshot.ground_body.Owner then
+		lines[#lines + 1] = "ground " .. tostring(snapshot.ground_body.Owner.Name or "body")
+	end
+
+	if snapshot.broadphase then
+		local bounds = snapshot.broadphase
+		lines[#lines + 1] = string.format(
+			"aabb %s",
+			format_vec(
+				Vec3(
+					bounds.max_x - bounds.min_x,
+					bounds.max_y - bounds.min_y,
+					bounds.max_z - bounds.min_z
+				)
+			)
+		)
 	end
 
 	if (snapshot.wake_grace_timer or 0) > 0.001 then
@@ -418,42 +472,90 @@ local function build_focus_overlay_lines(body, snapshot, hit, contacts)
 	return lines
 end
 
-local function draw_contact_markers(contacts)
-	local drawn = 0
-	render2d.SetTexture(nil)
+local function draw_trace_hit(body, hit)
+	if not (hit and hit.position) then return end
 
-	for _, contact in ipairs(contacts) do
-		for _, marker in ipairs(contact.markers or {}) do
+	local hit_id = "physics_debug_trace_hit_" .. get_body_debug_id(body)
+	local normal = hit.normal or hit.face_normal or get_world_up()
+	local end_pos = hit.position + normal * overlay_config.hit_normal_length
+	debug_draw.DrawSphere({
+		id = hit_id .. "_point",
+		position = hit.position,
+		radius = overlay_config.hit_marker_radius,
+		color = {0.95, 0.15, 0.95, 0.95},
+		ignore_z = true,
+		time = overlay_config.debug_draw_time,
+	})
+	debug_draw.DrawLine({
+		id = hit_id .. "_normal",
+		from = hit.position,
+		to = end_pos,
+		color = {1.0, 0.45, 1.0, 0.95},
+		width = 2,
+		time = overlay_config.debug_draw_time,
+	})
+end
+
+local function draw_broadphase_bounds(body, snapshot)
+	local bounds = snapshot.broadphase
+
+	if not bounds then return end
+
+	debug_draw.DrawWireAABB({
+		id = "physics_debug_broadphase_" .. get_body_debug_id(body),
+		aabb = bounds,
+		color = {0.4, 0.95, 1.0, 0.95},
+		width = 1,
+		time = overlay_config.debug_draw_time,
+	})
+end
+
+local function draw_contact_markers(body, contacts)
+	local drawn = 0
+
+	for contact_index, contact in ipairs(contacts) do
+		for marker_index, marker in ipairs(contact.markers or {}) do
 			if drawn >= overlay_config.contact_draw_limit then return end
 
-			local screen_pos = debug_draw.ProjectWorldPosition(marker.position)
+			local marker_id = string.format(
+				"physics_debug_contact_%s_%d_%d",
+				get_body_debug_id(body),
+				contact_index,
+				marker_index
+			)
+			local normal = marker.normal or get_world_up()
+			local end_pos = marker.position + normal * overlay_config.contact_normal_length
+			debug_draw.DrawSphere({
+				id = marker_id .. "_point",
+				position = marker.position,
+				radius = 0.045,
+				color = {1.0, 0.38, 0.24, 0.95},
+				ignore_z = true,
+				time = overlay_config.debug_draw_time,
+			})
+			debug_draw.DrawLine({
+				id = marker_id .. "_normal",
+				from = marker.position,
+				to = end_pos,
+				color = {1.0, 0.75, 0.28, 0.95},
+				width = 2,
+				time = overlay_config.debug_draw_time,
+			})
 
-			if screen_pos then
-				local end_pos = debug_draw.ProjectWorldPosition(
-					marker.position + (
-							marker.normal or
-							get_world_up()
-						) * overlay_config.contact_normal_length
-				)
-				render2d.SetColor(1.0, 0.38, 0.24, 0.95)
-				gfx.DrawFilledCircle(screen_pos.x, screen_pos.y, overlay_config.contact_marker_radius)
-
-				if end_pos then
-					render2d.SetColor(1.0, 0.75, 0.28, 0.95)
-					gfx.DrawLine(screen_pos.x, screen_pos.y, end_pos.x, end_pos.y, 2, true)
-				end
-
-				if marker.normal_impulse and marker.normal_impulse > 0.01 then
-					debug_draw.DrawTextBlock(
-						{"imp " .. format_number(marker.normal_impulse)},
-						screen_pos.x + 8,
-						screen_pos.y - 8,
-						{padding = 4, line_gap = 0, background_alpha = 0.55}
-					)
-				end
-
-				drawn = drawn + 1
+			if marker.normal_impulse and marker.normal_impulse > 0.01 then
+				debug_draw.DrawText({
+					id = marker_id .. "_impulse",
+					position = marker.position,
+					lines = {"imp " .. format_number(marker.normal_impulse)},
+					offset = {8, -8},
+					padding = 4,
+					line_gap = 0,
+					background_alpha = 0.55,
+					time = overlay_config.debug_draw_time,
+				})
 			end
+
+			drawn = drawn + 1
 		end
 	end
 end
@@ -461,32 +563,57 @@ end
 local function draw_partner_badges(body, contacts)
 	local drawn = 0
 
-	for _, contact in ipairs(contacts) do
+	for contact_index, contact in ipairs(contacts) do
 		if drawn >= overlay_config.partner_draw_limit then return end
 
 		local other_body = contact.other_body
 
 		if other_body and other_body ~= body then
-			local screen_pos = debug_draw.ProjectWorldPosition(get_body_label_anchor(other_body))
+			local lines = get_partner_badge_lines(body, contact)
 
-			if screen_pos then
-				local lines = get_partner_badge_lines(body, contact)
-
-				if lines then
-					debug_draw.DrawTextBlock(
-						lines,
-						screen_pos.x + 12,
-						screen_pos.y - 10,
-						{
-							padding = 6,
-							line_gap = 1,
-							background_alpha = 0.55,
-							title_color = {0.86, 0.92, 1.0},
-						}
-					)
-					drawn = drawn + 1
-				end
+			if lines then
+				debug_draw.DrawText({
+					id = string.format("physics_debug_partner_%s_%d", get_body_debug_id(body), contact_index),
+					position = get_body_label_anchor(other_body),
+					lines = lines,
+					offset = {12, -10},
+					padding = 6,
+					line_gap = 1,
+					background_alpha = 0.55,
+					title_color = {0.86, 0.92, 1.0},
+					time = overlay_config.debug_draw_time,
+				})
+				drawn = drawn + 1
 			end
+		end
+	end
+end
+
+local function draw_contact_links(body, contacts)
+	local drawn = 0
+	local start = get_body_label_anchor(body)
+
+	for contact_index, contact in ipairs(contacts) do
+		if drawn >= overlay_config.partner_link_limit then return end
+
+		local target = nil
+
+		if contact.other_body and contact.other_body ~= body then
+			target = get_body_label_anchor(contact.other_body)
+		elseif contact.markers and contact.markers[1] then
+			target = contact.markers[1].position
+		end
+
+		if target then
+			debug_draw.DrawLine({
+				id = string.format("physics_debug_link_%s_%d", get_body_debug_id(body), contact_index),
+				from = start,
+				to = target,
+				color = {0.6, 0.85, 1.0, 0.7},
+				width = 1,
+				time = overlay_config.debug_draw_time,
+			})
+			drawn = drawn + 1
 		end
 	end
 end
@@ -513,7 +640,10 @@ local function draw_hovered_body_info()
 	local contacts = collect_body_contacts(body)
 	local lines = build_focus_overlay_lines(body, snapshot, hit, contacts)
 	local title_r, title_g, title_b = get_awake_color(snapshot)
-	draw_contact_markers(contacts)
+	draw_trace_hit(body, hit)
+	draw_broadphase_bounds(body, snapshot)
+	draw_contact_markers(body, contacts)
+	draw_contact_links(body, contacts)
 	draw_partner_badges(body, contacts)
 	debug_draw.DrawTextBlock(
 		lines,

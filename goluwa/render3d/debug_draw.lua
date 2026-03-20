@@ -60,6 +60,12 @@ local function get_vec2_xy(vec, fallback_x, fallback_y)
 	return vec[1] or fallback_x or 0, vec[2] or fallback_y or 0
 end
 
+local function get_vec3_xyz(vec, fallback_x, fallback_y, fallback_z)
+	if vec == nil then return fallback_x or 0, fallback_y or 0, fallback_z or 0 end
+	if vec.x ~= nil then return vec.x, vec.y, vec.z end
+	return vec[1] or fallback_x or 0, vec[2] or fallback_y or 0, vec[3] or fallback_z or 0
+end
+
 local function get_default_id(level)
 	local info = debug.getinfo(level or 3, "Sl") or {}
 	return tostring(info.source or "?") .. ":" .. tostring(info.currentline or 0)
@@ -214,6 +220,45 @@ local function upsert_entry(kind, options, call_depth)
 	entries[id] = entry
 	return entry
 end
+
+local function get_wire_box_corners_from_min_max(min_vec, max_vec)
+	local min_x, min_y, min_z = get_vec3_xyz(min_vec)
+	local max_x, max_y, max_z = get_vec3_xyz(max_vec)
+	return {
+		Vec3(min_x, min_y, min_z),
+		Vec3(max_x, min_y, min_z),
+		Vec3(max_x, max_y, min_z),
+		Vec3(min_x, max_y, min_z),
+		Vec3(min_x, min_y, max_z),
+		Vec3(max_x, min_y, max_z),
+		Vec3(max_x, max_y, max_z),
+		Vec3(min_x, max_y, max_z),
+	}
+end
+
+local function get_wire_box_corners_from_aabb(aabb)
+	if not aabb then return nil end
+
+	return get_wire_box_corners_from_min_max(
+		Vec3(aabb.min_x, aabb.min_y, aabb.min_z),
+		Vec3(aabb.max_x, aabb.max_y, aabb.max_z)
+	)
+end
+
+local wire_box_edges = {
+	{1, 2},
+	{2, 3},
+	{3, 4},
+	{4, 1},
+	{5, 6},
+	{6, 7},
+	{7, 8},
+	{8, 5},
+	{1, 5},
+	{2, 6},
+	{3, 7},
+	{4, 8},
+}
 
 function debug_draw.GetShapeColor(shape_type)
 	return clone_color(shape_colors[shape_type] or shape_colors.generic)
@@ -452,6 +497,42 @@ function debug_draw.DrawLine(options)
 	entry.line_width = options.line_width or options.width or 1
 	entry.smooth = options.smooth
 	return entry.id
+end
+
+function debug_draw.DrawWireBox(options)
+	options = options or {}
+	local corners = nil
+
+	if options.aabb then
+		corners = get_wire_box_corners_from_aabb(options.aabb)
+	elseif options.min or options.max then
+		corners = get_wire_box_corners_from_min_max(options.min or zero_vec, options.max or zero_vec)
+	else
+		local position = clone_vec3(options.position or options.pos)
+		local half = clone_vec3(options.size or options.scale or Vec3(1, 1, 1), Vec3(1, 1, 1)) * 0.5
+		corners = get_wire_box_corners_from_min_max(position - half, position + half)
+	end
+
+	local id = options.id or get_default_id(3)
+
+	for i, edge in ipairs(wire_box_edges) do
+		debug_draw.DrawLine({
+			id = string.format("%s_edge_%d", tostring(id), i),
+			from = corners[edge[1]],
+			to = corners[edge[2]],
+			color = options.color,
+			width = options.width or options.line_width,
+			smooth = options.smooth,
+			time = options.time,
+		})
+	end
+
+	return id
+end
+
+function debug_draw.DrawWireAABB(options)
+	options = options or {}
+	return debug_draw.DrawWireBox(options)
 end
 
 function debug_draw.DrawSphere(options)
