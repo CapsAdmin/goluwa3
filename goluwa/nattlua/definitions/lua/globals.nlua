@@ -274,7 +274,7 @@ analyzer function rawget(tbl: {[any] = any} | {}, key: any)
 end
 
 analyzer function assert(...: ...any)
-	local obj = select(1, ...)
+	local obj = ...
 
 	if not obj then
 		analyzer:ThrowError("value expected!")

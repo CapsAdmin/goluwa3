@@ -479,8 +479,8 @@ end
 
 function SequenceEditor:Indent(back)
 	local start, stop = self:GetSelection()
-	local start_line = start and select(1, self:GetCursorLineCol(start))
-	local stop_line = stop and select(1, self:GetCursorLineCol(stop - 1))
+	local start_line = start and self:GetCursorLineCol(start)
+	local stop_line = stop and self:GetCursorLineCol(stop - 1)
 
 	if not start or start_line == stop_line then
 		if back then

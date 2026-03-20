@@ -450,7 +450,7 @@ function Device:UpdateDescriptorSet(type, descriptorSet, binding_index, ...)
 				imageLayout = "general",
 			}
 		else -- combined_image_sampler
-			local imageView, sampler, fallback_view, fallback_sampler = select(1, ...)
+			local imageView, sampler, fallback_view, fallback_sampler = ...
 			local view_handle = (imageView:IsValid() and imageView.ptr) and imageView.ptr[0] or nil
 			local sampler_handle = (sampler:IsValid() and sampler.ptr) and sampler.ptr[0] or nil
 

@@ -82,7 +82,7 @@ local function get_capsule_sample_count(radius, a, b)
 end
 
 local function get_oriented_normal(delta, fallback_direction)
-	return select(1, pair_solver_helpers.GetSafeCollisionNormal(delta, fallback_direction))
+	return pair_solver_helpers.GetSafeCollisionNormal(delta, fallback_direction)
 end
 
 local function should_prefer_swept_recovery(travel_distance, feature_radius)
@@ -111,11 +111,11 @@ function sweep_point_against_capsule_segment(start_world, end_world, segment_a, 
 	local movement = end_world - start_world
 
 	if movement:GetLength() <= physics.EPSILON then return nil end
+
 	CAPSULE_SEGMENT_SWEEP_EVALUATION_CONTEXT.start_world = start_world
 	CAPSULE_SEGMENT_SWEEP_EVALUATION_CONTEXT.movement = movement
 	CAPSULE_SEGMENT_SWEEP_EVALUATION_CONTEXT.segment_a = segment_a
 	CAPSULE_SEGMENT_SWEEP_EVALUATION_CONTEXT.segment_b = segment_b
-
 	local _, _, _, start_distance = evaluate_capsule_segment_point(CAPSULE_SEGMENT_SWEEP_EVALUATION_CONTEXT, 0)
 
 	if start_distance <= radius then

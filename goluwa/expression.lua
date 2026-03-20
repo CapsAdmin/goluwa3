@@ -76,7 +76,7 @@ function expression.Compile(str, extra_lib)
 		return system.GetElapsedTime() - t0
 	end
 	env.select = select
-	str = "local input = select(1, ...) return " .. str
+	str = "local input = ... return " .. str
 	local func, err = loadstring(str)
 
 	if func then

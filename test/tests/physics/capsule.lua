@@ -60,8 +60,8 @@ T.Test("Capsule shape mass properties include cylindrical section", function()
 		Density = 1,
 		IsDynamic = true,
 	}
-	local short_mass = select(1, short:GetMassProperties(mock_body))
-	local tall_mass = select(1, tall:GetMassProperties(mock_body))
+	local short_mass = short:GetMassProperties(mock_body)
+	local tall_mass = tall:GetMassProperties(mock_body)
 	local short_half = short:GetHalfExtents()
 	local tall_half = tall:GetHalfExtents()
 	T(tall_mass)[">"](short_mass)

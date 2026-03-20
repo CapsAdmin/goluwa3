@@ -75,7 +75,7 @@ end
 function triangle_mesh.GetPolygonTriangleIndices(poly, triangle_index)
 	if triangle_index == nil then return nil end
 
-	local indices = select(1, triangle_mesh.GetPolygonIndexBuffer(poly))
+	local indices = triangle_mesh.GetPolygonIndexBuffer(poly)
 
 	if not indices then return nil end
 
@@ -84,7 +84,7 @@ function triangle_mesh.GetPolygonTriangleIndices(poly, triangle_index)
 end
 
 function triangle_mesh.GetPolygonTriangleLocalVertices(poly, triangle_index)
-	local local_vertices = select(1, triangle_mesh.GetPolygonLocalVertices(poly))
+	local local_vertices = triangle_mesh.GetPolygonLocalVertices(poly)
 	local i0, i1, i2 = triangle_mesh.GetPolygonTriangleIndices(poly, triangle_index)
 
 	if not (local_vertices and i0 and i1 and i2) then return nil end
