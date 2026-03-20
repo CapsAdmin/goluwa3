@@ -1,37 +1,30 @@
 local event = import("goluwa/event.lua")
 local physics = import("goluwa/physics.lua")
-local Material = import("goluwa/render3d/material.lua")
-local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
+local debug_draw = import("goluwa/render3d/debug_draw.lua")
+local gfx = import("goluwa/render2d/gfx.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
-local fonts = import("goluwa/render2d/fonts.lua")
 local Matrix44 = import("goluwa/structs/matrix44.lua")
-local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
-local Color = import("goluwa/structs/color.lua")
 local Entity = import("goluwa/ecs/entity.lua")
 local debug_enabled = false
-local overlay_font = fonts.New{Weight = "Regular", Size = 12}
 local identity_rotation = Quat(0, 0, 0, 1)
 local zero_vec = Vec3(0, 0, 0)
-local unit_box_poly
-local unit_sphere_poly
-local convex_mesh_cache = setmetatable({}, {__mode = "k"})
-local polyhedron_mesh_cache = setmetatable({}, {__mode = "k"})
 local debug_entries = setmetatable({}, {__mode = "k"})
-local debug_materials = {}
+local body_overlay_states = setmetatable({}, {__mode = "k"})
 local rigid_body_component
-local shape_colors = {
-	sphere = Color(0.25, 0.85, 1.0, 0.35),
-	box = Color(1.0, 0.7, 0.2, 0.35),
-	convex = Color(0.35, 1.0, 0.45, 0.35),
-	compound = Color(1.0, 0.3, 0.9, 0.25),
+local get_debug_snapshot
+local focused_body
+local overlay_config = {
+	contact_marker_radius = 4,
+	contact_normal_length = 0.35,
+	contact_draw_limit = 6,
+	partner_draw_limit = 3,
+	label_offset = 24,
+	max_distance = 2200,
+	transition_window = 1.2,
 }
-
-local function get_shape_color(shape_type)
-	return shape_colors[shape_type] or Color(1, 0.2, 0.2, 0.35)
-end
 
 local function format_number(value)
 	if type(value) ~= "number" then return tostring(value) end
@@ -54,6 +47,221 @@ end
 
 local function yes_no(value)
 	return value and "yes" or "no"
+end
+
+local function copy_vec(vec, fallback)
+	if vec and vec.Copy then return vec:Copy() end
+
+	return fallback and fallback:Copy() or Vec3(0, 0, 0)
+end
+
+local function get_body_render_position_rotation(body)
+	local position = body.GetPosition and body:GetPosition() or zero_vec
+	local rotation = body.GetRotation and body:GetRotation() or identity_rotation
+	local owner = body.Owner
+
+	if owner and owner.transform then
+		local render_position, render_rotation = owner.transform:GetRenderPositionRotation()
+		position = render_position or owner.transform:GetPosition() or position
+		rotation = render_rotation or owner.transform:GetRotation() or rotation
+	end
+
+	return position, rotation
+end
+
+local function get_world_up()
+	local up = physics.Up
+	return up and up.Copy and up:Copy() or Vec3(0, 1, 0)
+end
+
+local function get_body_label_height(body)
+	local shape = body.GetPhysicsShape and body:GetPhysicsShape() or body.Shape
+	local shape_type = body.GetShapeType and body:GetShapeType() or nil
+
+	if shape_type == "sphere" and shape and shape.GetRadius then
+		return shape:GetRadius() + 0.16
+	end
+
+	if shape_type == "box" and shape and shape.GetSize then
+		local size = shape:GetSize()
+		return math.max(size.y * 0.6, 0.2) + 0.08
+	end
+
+	if shape_type == "capsule" and shape and shape.GetRadius and shape.GetHeight then
+		return shape:GetRadius() + shape:GetHeight() * 0.5 + 0.16
+	end
+
+	if shape_type == "compound" then return 0.55 end
+
+	return 0.4
+end
+
+local function get_body_label_anchor(body)
+	local position = get_body_render_position_rotation(body)
+	return position + get_world_up() * get_body_label_height(body)
+end
+
+local function get_body_overlay_state(body, awake)
+	local state = body_overlay_states[body]
+
+	if not state then
+		state = {
+			awake = awake,
+			transition_label = awake and "wake" or "sleep",
+			transition_started = os.clock(),
+		}
+		body_overlay_states[body] = state
+		return state
+	end
+
+	if state.awake ~= awake then
+		state.awake = awake
+		state.transition_label = awake and "wake" or "sleep"
+		state.transition_started = os.clock()
+	end
+
+	return state
+end
+
+local function get_transition_text(state)
+	if not (state and state.transition_started and state.transition_label) then
+		return nil
+	end
+
+	local elapsed = os.clock() - state.transition_started
+
+	if elapsed > overlay_config.transition_window then return nil end
+
+	return string.format("%s %.2fs", state.transition_label, elapsed)
+end
+
+local function get_awake_color(snapshot)
+	if snapshot.awake then return 0.97, 0.84, 0.35 end
+
+	return 0.52, 0.72, 1.0
+end
+
+
+local function get_pair_manifold(body_a, body_b)
+	local solver = physics.solver
+
+	if not (solver and solver.PersistentManifolds) then return nil end
+
+	local row = solver.PersistentManifolds[body_a]
+
+	if row and row[body_b] then return row[body_b] end
+
+	row = solver.PersistentManifolds[body_b]
+	return row and row[body_a] or nil
+end
+
+local function build_pair_contact_markers(body_a, body_b, manifold_data, normal)
+	local markers = {}
+
+	for _, contact in ipairs(manifold_data and manifold_data.contacts or {}) do
+		local point_a = body_a:LocalToWorld(contact.local_point_a)
+		local point_b = body_b:LocalToWorld(contact.local_point_b)
+		markers[#markers + 1] = {
+			position = (point_a + point_b) * 0.5,
+			normal = normal,
+			normal_impulse = contact.normal_impulse or 0,
+		}
+	end
+
+	return markers
+end
+
+local function collect_body_contacts(body)
+	local contacts = {}
+	local collision_pairs = physics.collision_pairs
+
+	if not collision_pairs then return contacts end
+	local seen_pairs = setmetatable({}, {__mode = "k"})
+	local seen_world = setmetatable({}, {__mode = "k"})
+
+	local function append_pair_contacts(entries)
+		for _, pair in ipairs(entries or {}) do
+			if not seen_pairs[pair] and (pair.body_a == body or pair.body_b == body) then
+				seen_pairs[pair] = true
+				local other_body = pair.body_a == body and pair.body_b or pair.body_a
+				local normal = pair.normal and copy_vec(pair.normal, zero_vec) or Vec3(0, 1, 0)
+
+				if pair.body_b == body then normal = normal * -1 end
+
+				local manifold_data = get_pair_manifold(pair.body_a, pair.body_b)
+				local markers = build_pair_contact_markers(pair.body_a, pair.body_b, manifold_data, normal)
+				contacts[#contacts + 1] = {
+					kind = "body",
+					other_body = other_body,
+					other_name = other_body and other_body.Owner and other_body.Owner.Name or "body",
+					normal = normal,
+					overlap = pair.overlap or 0,
+					contact_count = #(manifold_data and manifold_data.contacts or {}),
+					markers = markers,
+				}
+			end
+		end
+	end
+
+	local function append_world_contacts(entries)
+		for _, entry in ipairs(entries or {}) do
+			if not seen_world[entry] and entry.body == body then
+				seen_world[entry] = true
+				contacts[#contacts + 1] = {
+					kind = "world",
+					other_name = entry.entity and entry.entity.Name or "world",
+					normal = entry.normal and copy_vec(entry.normal, zero_vec) or Vec3(0, 1, 0),
+					overlap = entry.overlap or 0,
+					contact_count = 1,
+					markers = entry.hit and
+						entry.hit.position and
+						{
+							{
+								position = entry.hit.position:Copy(),
+								normal = entry.normal and copy_vec(entry.normal, zero_vec) or Vec3(0, 1, 0),
+								normal_impulse = 0,
+							},
+						} or
+						{},
+				}
+			end
+		end
+	end
+
+	append_pair_contacts(collision_pairs.PreviousCollisionEntries)
+	append_pair_contacts(collision_pairs.CurrentCollisionEntries)
+	append_world_contacts(collision_pairs.PreviousWorldCollisionEntries)
+	append_world_contacts(collision_pairs.CurrentWorldCollisionEntries)
+
+	table.sort(contacts, function(a, b)
+		return (a.overlap or 0) > (b.overlap or 0)
+	end)
+
+	return contacts
+end
+
+local function get_contact_marker_total(contacts)
+	local total = 0
+
+	for _, entry in ipairs(contacts) do
+		total = total + math.max(entry.contact_count or 0, 1)
+	end
+
+	return total
+end
+
+local function get_partner_badge_lines(body, contact)
+	if not contact.other_body then return nil end
+
+	local snapshot = get_debug_snapshot(contact.other_body)
+	return {
+		tostring(contact.other_name or "body"),
+		string.format(
+			"%s | v %s",
+			snapshot.awake and "awake" or "sleep",
+			format_number(snapshot.linear_speed or 0)
+		),
+	}
 end
 
 local function get_debug_shape_summary(body)
@@ -100,12 +308,13 @@ local function get_debug_shape_summary(body)
 	return tostring(shape_type)
 end
 
-local function get_debug_snapshot(body)
+function get_debug_snapshot(body)
 	local owner = body:GetOwner()
 	local velocity = body:GetVelocity()
 	local angular_velocity = body:GetAngularVelocity()
 	local position = body:GetPosition()
 	local colliders = body.GetColliders and body:GetColliders() or {}
+	local overlay_state = get_body_overlay_state(body, body:GetAwake())
 	return {
 		owner = owner,
 		owner_name = owner and owner.Name or "unnamed",
@@ -120,6 +329,9 @@ local function get_debug_snapshot(body)
 		friction = body:GetFriction(),
 		restitution = body:GetRestitution(),
 		gravity_scale = body:GetGravityScale(),
+		sleep_timer = body.SleepTimer or 0,
+		wake_grace_timer = body.WakeGraceTimer or 0,
+		ground_normal = body.GetGroundNormal and body:GetGroundNormal() or Vec3(0, 1, 0),
 		linear_speed = velocity and velocity.GetLength and velocity:GetLength() or 0,
 		angular_speed = angular_velocity and
 			angular_velocity.GetLength and
@@ -131,6 +343,7 @@ local function get_debug_snapshot(body)
 			angular_velocity.Copy and
 			angular_velocity:Copy() or
 			angular_velocity,
+		transition = get_transition_text(overlay_state),
 	}
 end
 
@@ -155,217 +368,170 @@ local function get_look_body_hit()
 	return body, hit
 end
 
-local function build_overlay_lines(body, hit)
-	local snapshot = body and get_debug_snapshot(body) or nil
-
-	if not snapshot then return nil end
-
+local function build_focus_overlay_lines(body, snapshot, hit, contacts)
+	local top_contact = contacts[1]
 	local lines = {
-		"Rigid body",
-		"Entity: " .. tostring(snapshot.owner_name or "unnamed"),
+		tostring(snapshot.owner_name or "rigid body"),
+		string.format(
+			"%s | %s | grounded %s",
+			tostring(snapshot.motion_type or "unknown"),
+			snapshot.awake and "awake" or "sleep",
+			yes_no(snapshot.grounded)
+		),
+		string.format(
+			"v %s | %s",
+			format_number(snapshot.linear_speed or 0),
+			format_vec(snapshot.velocity)
+		),
+		string.format(
+			"w %s | %s",
+			format_number(snapshot.angular_speed or 0),
+			format_vec(snapshot.angular_velocity)
+		),
+		string.format(
+			"contacts %d | markers %d | sleep %s",
+			#contacts,
+			get_contact_marker_total(contacts),
+			format_number(snapshot.sleep_timer or 0)
+		),
 	}
 
 	if hit and hit.distance then
-		lines[#lines + 1] = "Distance: " .. format_number(hit.distance)
+		lines[#lines + 1] = "distance " .. format_number(hit.distance)
 	end
 
-	lines[#lines + 1] = string.format(
-		"Mode: %s | Awake: %s | Grounded: %s",
-		tostring(snapshot.motion_type or "unknown"),
-		yes_no(snapshot.awake),
-		yes_no(snapshot.grounded)
-	)
-	lines[#lines + 1] = "Shape: " .. tostring(snapshot.shape or "unknown")
-	lines[#lines + 1] = string.format(
-		"Mass: %s (%s)",
-		format_number(snapshot.mass or 0),
-		snapshot.automatic_mass and "auto" or "manual"
-	)
-
-	if snapshot.automatic_mass == false then
-		lines[#lines + 1] = "Computed mass: " .. format_number(snapshot.computed_mass or 0)
+	if top_contact then
 		lines[#lines + 1] = string.format(
-			"Friction: %s | Restitution: %s",
-			format_number(snapshot.friction or 0),
-			format_number(snapshot.restitution or 0)
-		)
-	else
-		lines[#lines + 1] = string.format(
-			"Friction: %s | Speed: %s",
-			format_number(snapshot.friction or 0),
-			format_number(snapshot.linear_speed or 0)
+			"top %s | overlap %s | points %d",
+			tostring(top_contact.other_name or top_contact.kind or "contact"),
+			format_number(top_contact.overlap or 0),
+			math.max(top_contact.contact_count or 0, 1)
 		)
 	end
 
-	lines[#lines + 1] = "Angular speed: " .. format_number(snapshot.angular_speed or 0)
-	lines[#lines + 1] = "Position: " .. format_vec(snapshot.position)
+	if (snapshot.wake_grace_timer or 0) > 0.001 then
+		lines[#lines + 1] = "wake grace " .. format_number(snapshot.wake_grace_timer)
+	end
+
+	if snapshot.transition then lines[#lines + 1] = snapshot.transition end
+
 	return lines
+end
+
+local function draw_contact_markers(contacts)
+	local drawn = 0
+	render2d.SetTexture(nil)
+
+	for _, contact in ipairs(contacts) do
+		for _, marker in ipairs(contact.markers or {}) do
+			if drawn >= overlay_config.contact_draw_limit then return end
+
+			local screen_pos = debug_draw.ProjectWorldPosition(marker.position)
+
+			if screen_pos then
+				local end_pos = debug_draw.ProjectWorldPosition(
+					marker.position + (
+							marker.normal or
+							get_world_up()
+						) * overlay_config.contact_normal_length
+				)
+				render2d.SetColor(1.0, 0.38, 0.24, 0.95)
+				gfx.DrawFilledCircle(screen_pos.x, screen_pos.y, overlay_config.contact_marker_radius)
+
+				if end_pos then
+					render2d.SetColor(1.0, 0.75, 0.28, 0.95)
+					gfx.DrawLine(screen_pos.x, screen_pos.y, end_pos.x, end_pos.y, 2, true)
+				end
+
+				if marker.normal_impulse and marker.normal_impulse > 0.01 then
+					debug_draw.DrawTextBlock(
+						{"imp " .. format_number(marker.normal_impulse)},
+						screen_pos.x + 8,
+						screen_pos.y - 8,
+						{padding = 4, line_gap = 0, background_alpha = 0.55}
+					)
+				end
+
+				drawn = drawn + 1
+			end
+		end
+	end
+end
+
+local function draw_partner_badges(body, contacts)
+	local drawn = 0
+
+	for _, contact in ipairs(contacts) do
+		if drawn >= overlay_config.partner_draw_limit then return end
+
+		local other_body = contact.other_body
+
+		if other_body and other_body ~= body then
+			local screen_pos = debug_draw.ProjectWorldPosition(get_body_label_anchor(other_body))
+
+			if screen_pos then
+				local lines = get_partner_badge_lines(body, contact)
+
+				if lines then
+					debug_draw.DrawTextBlock(
+						lines,
+						screen_pos.x + 12,
+						screen_pos.y - 10,
+						{
+							padding = 6,
+							line_gap = 1,
+							background_alpha = 0.55,
+							title_color = {0.86, 0.92, 1.0},
+						}
+					)
+					drawn = drawn + 1
+				end
+			end
+		end
+	end
 end
 
 local function draw_hovered_body_info()
 	if not debug_enabled then return end
 
 	local body, hit = get_look_body_hit()
+	focused_body = body
 
 	if not body then return end
 
-	local lines = build_overlay_lines(body, hit)
+	local snapshot = get_debug_snapshot(body)
 
-	if not (lines and lines[1]) then return end
-
-	fonts.SetFont(overlay_font)
-	render2d.SetTexture(nil)
-	local font = fonts.GetFont()
-	local x = 12
-	local y = 52
-	local line_gap = 4
-	local padding = 8
-	local width = 0
-	local height = padding * 2
-
-	for _, line in ipairs(lines) do
-		local line_width, line_height = font:GetTextSize(line)
-		width = math.max(width, line_width)
-		height = height + line_height + line_gap
+	if hit and hit.distance and hit.distance > overlay_config.max_distance then
+		return
 	end
 
-	render2d.SetColor(0, 0, 0, 0.72)
-	render2d.DrawRect(x - padding, y - padding, width + padding * 2, height)
+	local anchor = get_body_label_anchor(body)
+	local screen_pos = debug_draw.ProjectWorldPosition(anchor)
 
-	for i, line in ipairs(lines) do
-		local _, line_height = font:GetTextSize(line)
-		render2d.SetColor(i == 1 and 0.9 or 1, i == 1 and 0.95 or 1, i == 1 and 1 or 1, 1)
-		font:DrawText(line, x, y)
-		y = y + line_height + line_gap
-	end
-end
+	if not screen_pos then return end
 
-local function get_debug_material(shape_type)
-	local material = debug_materials[shape_type]
-
-	if material then return material end
-
-	material = Material.New{
-		AlbedoTexture = nil,
-		ColorMultiplier = get_shape_color(shape_type),
-		EmissiveMultiplier = Color(0.15, 0.15, 0.15, 1.0),
-		AlbedoAlphaIsEmissive = true,
-		IgnoreZ = true,
-		Translucent = true,
-		DoubleSided = true,
-		MetallicMultiplier = 0,
-		RoughnessMultiplier = 1,
-	}
-	debug_materials[shape_type] = material
-	return material
-end
-
-local function make_matrix(position, rotation, scale)
-	local m = Matrix44():Identity()
-	m:SetRotation(rotation or identity_rotation)
-
-	if scale then m:Scale(scale.x, scale.y, scale.z) end
-
-	m:SetTranslation(position.x, position.y, position.z)
-	return m
-end
-
-local function get_unit_box_poly()
-	if unit_box_poly then return unit_box_poly end
-
-	local poly = Polygon3D.New()
-	poly:CreateCube(0.5)
-	poly:Upload()
-	unit_box_poly = poly
-	return unit_box_poly
-end
-
-local function get_unit_sphere_poly()
-	if unit_sphere_poly then return unit_sphere_poly end
-
-	local poly = Polygon3D.New()
-	poly:CreateSphere(1, 18, 10)
-	poly:Upload()
-	unit_sphere_poly = poly
-	return unit_sphere_poly
-end
-
-local function build_convex_poly(hull)
-	if not (hull and hull.vertices and hull.indices and hull.indices[1]) then
-		return nil
-	end
-
-	local cached = convex_mesh_cache[hull]
-
-	if cached then return cached end
-
-	local poly = Polygon3D.New()
-
-	for i = 1, #hull.indices, 3 do
-		local a = hull.vertices[hull.indices[i]]
-		local b = hull.vertices[hull.indices[i + 1]]
-		local c = hull.vertices[hull.indices[i + 2]]
-
-		if a and b and c then
-			local normal = (b - a):GetCross(c - a):GetNormalized()
-			poly:AddVertex{pos = a, uv = Vec2(0, 0), normal = normal}
-			poly:AddVertex{pos = b, uv = Vec2(1, 0), normal = normal}
-			poly:AddVertex{pos = c, uv = Vec2(0.5, 1), normal = normal}
-		end
-	end
-
-	poly:Upload()
-	convex_mesh_cache[hull] = poly
-	return poly
-end
-
-local function build_polyhedron_poly(polyhedron_data)
-	if
-		not (
-			polyhedron_data and
-			polyhedron_data.vertices and
-			polyhedron_data.faces and
-			polyhedron_data.faces[1]
-		)
-	then
-		return nil
-	end
-
-	local cached = polyhedron_mesh_cache[polyhedron_data]
-
-	if cached then return cached end
-
-	local poly = Polygon3D.New()
-
-	for _, face in ipairs(polyhedron_data.faces or {}) do
-		local indices = face.indices or {}
-		local a = indices[1]
-
-		for i = 2, #indices - 1 do
-			local b = indices[i]
-			local c = indices[i + 1]
-			local va = polyhedron_data.vertices[a]
-			local vb = polyhedron_data.vertices[b]
-			local vc = polyhedron_data.vertices[c]
-
-			if va and vb and vc then
-				local normal = face.normal or (vb - va):GetCross(vc - va):GetNormalized()
-				poly:AddVertex{pos = va, uv = Vec2(0, 0), normal = normal}
-				poly:AddVertex{pos = vb, uv = Vec2(1, 0), normal = normal}
-				poly:AddVertex{pos = vc, uv = Vec2(0.5, 1), normal = normal}
-			end
-		end
-	end
-
-	poly:Upload()
-	polyhedron_mesh_cache[polyhedron_data] = poly
-	return poly
+	local contacts = collect_body_contacts(body)
+	local lines = build_focus_overlay_lines(body, snapshot, hit, contacts)
+	local title_r, title_g, title_b = get_awake_color(snapshot)
+	draw_contact_markers(contacts)
+	draw_partner_badges(body, contacts)
+	debug_draw.DrawTextBlock(
+		lines,
+		screen_pos.x + overlay_config.label_offset,
+		screen_pos.y - 14,
+		{
+			padding = 8,
+			line_gap = 3,
+			background_alpha = 0.74,
+			title_color = {title_r, title_g, title_b, 1},
+		}
+	)
 end
 
 local function add_primitive(model, polygon3d, shape_type, local_matrix)
 	if not polygon3d then return end
 
-	model:AddPrimitive(polygon3d, get_debug_material(shape_type))
+	model:AddPrimitive(polygon3d, debug_draw.GetMaterial({shape_type = shape_type}))
 	local primitive = model.Primitives[#model.Primitives]
 	primitive.local_matrix = local_matrix
 end
@@ -379,20 +545,20 @@ local function append_shape(model, body, shape, local_matrix)
 		local radius = shape:GetRadius()
 		add_primitive(
 			model,
-			get_unit_sphere_poly(),
+			debug_draw.GetUnitSpherePolygon(),
 			shape_type,
-			make_matrix(zero_vec, identity_rotation, Vec3(radius, radius, radius)):GetMultiplied(local_matrix)
+			debug_draw.MakeMatrix(zero_vec, identity_rotation, Vec3(radius, radius, radius)):GetMultiplied(local_matrix)
 		)
 		return
 	end
 
 	if shape_type == "box" then
-		add_primitive(model, build_polyhedron_poly(shape:GetPolyhedron()), shape_type, local_matrix)
+		add_primitive(model, debug_draw.BuildPolyhedronPolygon(shape:GetPolyhedron()), shape_type, local_matrix)
 		return
 	end
 
 	if shape_type == "convex" then
-		add_primitive(model, build_convex_poly(shape:GetResolvedHull(body)), shape_type, local_matrix)
+		add_primitive(model, debug_draw.BuildConvexPolygon(shape:GetResolvedHull(body)), shape_type, local_matrix)
 		return
 	end
 
@@ -406,7 +572,7 @@ local function append_shape(model, body, shape, local_matrix)
 
 	if shape_type == "compound" then
 		for _, child in ipairs(shape:GetChildren() or {}) do
-			local child_matrix = make_matrix(child.Position or zero_vec, child.Rotation or identity_rotation)
+			local child_matrix = debug_draw.MakeMatrix(child.Position or zero_vec, child.Rotation or identity_rotation)
 			append_shape(model, body, child.Shape, child_matrix:GetMultiplied(local_matrix))
 		end
 
@@ -415,7 +581,7 @@ local function append_shape(model, body, shape, local_matrix)
 
 	add_primitive(
 		model,
-		build_convex_poly(shape.GetResolvedHull and shape:GetResolvedHull(body) or nil),
+		debug_draw.BuildConvexPolygon(shape.GetResolvedHull and shape:GetResolvedHull(body) or nil),
 		shape_type,
 		local_matrix
 	)
@@ -432,16 +598,7 @@ end
 local function sync_debug_transform(body, debug_ent)
 	if not (debug_ent and debug_ent.transform) then return end
 
-	local position = body.GetPosition and body:GetPosition() or zero_vec
-	local rotation = body.GetRotation and body:GetRotation() or identity_rotation
-	local owner = body.Owner
-
-	if owner and owner.transform then
-		local render_position, render_rotation = owner.transform:GetRenderPositionRotation()
-		position = render_position or owner.transform:GetPosition() or position
-		rotation = render_rotation or owner.transform:GetRotation() or rotation
-	end
-
+	local position, rotation = get_body_render_position_rotation(body)
 	debug_ent.transform:SetPosition(position:Copy())
 	debug_ent.transform:SetRotation(rotation:Copy())
 	debug_ent.transform:SetScale(Vec3(1, 1, 1))
@@ -472,9 +629,17 @@ local function rebuild_debug_model(body, entry)
 	debug_ent.model:RemovePrimitives()
 	append_shape(debug_ent.model, body, body:GetPhysicsShape() or body.Shape, Matrix44():Identity())
 	debug_ent.model:BuildAABB()
-	debug_ent.model:SetVisible(debug_enabled)
+	debug_ent.model:SetVisible(debug_enabled and body == focused_body)
 	entry.shape, entry.shape_type, entry.hull, entry.child_count = get_shape_signature(body)
 	entry.owner = owner
+end
+
+local function update_debug_visibility()
+	for body, entry in pairs(debug_entries) do
+		if entry.entity and entry.entity.IsValid and entry.entity:IsValid() then
+			entry.entity.model:SetVisible(debug_enabled and body == focused_body)
+		end
+	end
 end
 
 local function ensure_debug_model(body)
@@ -500,8 +665,8 @@ local function ensure_debug_model(body)
 		entry.child_count ~= child_count
 	then
 		rebuild_debug_model(body, entry)
-	elseif debug_ent.model:GetVisible() ~= debug_enabled then
-		debug_ent.model:SetVisible(debug_enabled)
+	elseif debug_ent.model:GetVisible() ~= (debug_enabled and body == focused_body) then
+		debug_ent.model:SetVisible(debug_enabled and body == focused_body)
 	end
 
 	sync_debug_transform(body, entry.entity)
@@ -524,12 +689,9 @@ event.AddListener("KeyInput", "physics_debug_toggle", function(key, press)
 
 	if key == "n" then
 		debug_enabled = not debug_enabled
+		focused_body = nil
 
-		for _, entry in pairs(debug_entries) do
-			if entry.entity and entry.entity.IsValid and entry.entity:IsValid() then
-				entry.entity.model:SetVisible(debug_enabled)
-			end
-		end
+		update_debug_visibility()
 
 		if debug_enabled then
 			event.AddListener("Draw2D", "physics_debug_hover_info", draw_hovered_body_info)
@@ -544,22 +706,22 @@ event.AddListener("KeyInput", "physics_debug_toggle", function(key, press)
 
 			event.AddListener("Update", "physics_debug_sync", function()
 				cleanup_removed_bodies()
+				focused_body = get_look_body_hit()
 
-				for _, body in ipairs(RigidBodyComponent.Instances or {}) do
-					if not (body and body.Owner and body.Owner.IsValid and body.Owner:IsValid()) then
-						goto continue
-					end
-
-					if not body.CollisionEnabled then goto continue end
-
-					if body.Owner.PhysicsNoCollision or body.Owner.NoPhysicsCollision then
-						goto continue
-					end
-
-					ensure_debug_model(body)
-
-					::continue::
+				if
+					focused_body and
+					focused_body.Owner and
+					focused_body.Owner.IsValid and
+					focused_body.Owner:IsValid() and
+					focused_body.CollisionEnabled and
+					not focused_body.Owner.PhysicsNoCollision and
+					not focused_body.Owner.NoPhysicsCollision
+				then
+					ensure_debug_model(focused_body)
 				end
+
+				update_debug_visibility()
+
 			end)
 		else
 			event.RemoveListener("Update", "physics_debug_sync")

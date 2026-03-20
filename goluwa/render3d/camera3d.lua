@@ -5,6 +5,11 @@ local Matrix44 = import("goluwa/structs/matrix44.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local Rect = import("goluwa/structs/rect.lua")
 local META = prototype.CreateTemplate("render3d_camera3d")
+local world_to_screen_matrix = Matrix44()
+local world_to_screen_clip = Matrix44()
+local screen_to_world_inverse = Matrix44()
+local screen_to_world_near = Matrix44()
+local screen_to_world_far = Matrix44()
 
 do
 	META:GetSet("OrthoMode", false, {callback = "InvalidateProjectionMatrix"})
@@ -73,6 +78,86 @@ do
 	function META:SetAngles(ang)
 		self.Rotation:SetAngles(ang)
 		self:InvalidateViewMatrix()
+	end
+
+	function META:WorldPositionToScreen(position, screen_width, screen_height)
+		screen_width = screen_width or render.GetWidth()
+		screen_height = screen_height or render.GetHeight()
+		local viewport = self.GetViewport and self:GetViewport() or nil
+		local viewport_x = 0
+		local viewport_y = 0
+		local viewport_width = screen_width
+		local viewport_height = screen_height
+
+		if viewport then
+			viewport_x = viewport.x or 0
+			viewport_y = viewport.y or 0
+			viewport_width = viewport.w or screen_width
+			viewport_height = viewport.h or screen_height
+		end
+
+		self:BuildViewMatrix():GetMultiplied(self:BuildProjectionMatrix(), world_to_screen_matrix)
+		local clip = world_to_screen_matrix:MultiplyVector(
+			position.x,
+			position.y,
+			position.z,
+			1,
+			world_to_screen_clip
+		)
+		local w = clip.m03
+
+		if math.abs(w) < 1e-6 then return Vec2(0, 0), 1 end
+
+		if w < 0 then return Vec2(0, 0), 1 end
+
+		local ndc_x = clip.m00 / w
+		local ndc_y = clip.m01 / w
+		local ndc_z = clip.m02 / w
+		local vis
+
+		if
+			ndc_x < -1 or ndc_x > 1 or
+			ndc_y < -1 or ndc_y > 1 or
+			ndc_z < 0 or ndc_z > 1
+		then
+			vis = 0
+		else
+			vis = -1
+		end
+
+		return Vec2(
+			viewport_x + (ndc_x * 0.5 + 0.5) * viewport_width,
+			viewport_y + (ndc_y * 0.5 + 0.5) * viewport_height
+		), vis
+	end
+
+	function META:ScreenToWorldDirection(screen_pos, screen_width, screen_height)
+		screen_width = screen_width or render.GetWidth()
+		screen_height = screen_height or render.GetHeight()
+		local viewport = self.GetViewport and self:GetViewport() or nil
+		local viewport_x = 0
+		local viewport_y = 0
+		local viewport_width = screen_width
+		local viewport_height = screen_height
+
+		if viewport then
+			viewport_x = viewport.x or 0
+			viewport_y = viewport.y or 0
+			viewport_width = viewport.w or screen_width
+			viewport_height = viewport.h or screen_height
+		end
+
+		local ndc_x = ((screen_pos.x - viewport_x) / viewport_width) * 2 - 1
+		local ndc_y = ((screen_pos.y - viewport_y) / viewport_height) * 2 - 1
+		self:BuildViewMatrix():GetMultiplied(self:BuildProjectionMatrix(), world_to_screen_matrix)
+		world_to_screen_matrix:GetInverse(screen_to_world_inverse)
+		local near_pos = screen_to_world_inverse:MultiplyVector(ndc_x, ndc_y, 0, 1, screen_to_world_near)
+		local far_pos = screen_to_world_inverse:MultiplyVector(ndc_x, ndc_y, 1, 1, screen_to_world_far)
+		return Vec3(
+			far_pos.m00 - near_pos.m00,
+			far_pos.m01 - near_pos.m01,
+			far_pos.m02 - near_pos.m02
+		):GetNormalized()
 	end
 end
 
