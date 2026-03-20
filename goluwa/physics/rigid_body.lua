@@ -1191,7 +1191,7 @@ function physics.UpdateRigidBodies(dt)
 			end
 		end
 
-		local rigid_body_pairs = broadphase.BuildCandidatePairs(physics, bodies)
+		local rigid_body_pairs = physics.broadphase:BuildCandidatePairs(bodies)
 		local constraints = physics.GetConstraints()
 		local simulation_islands = islands.BuildSimulationIslands(bodies, rigid_body_pairs, constraints)
 		local newly_awoken_bodies = {}
@@ -1211,7 +1211,7 @@ function physics.UpdateRigidBodies(dt)
 					end
 				end
 
-				rigid_body_pairs = broadphase.BuildCandidatePairs(physics, bodies)
+				rigid_body_pairs = physics.broadphase:BuildCandidatePairs(bodies)
 				simulation_islands = islands.BuildSimulationIslands(bodies, rigid_body_pairs, constraints)
 
 				if simulation_islands and simulation_islands[1] then

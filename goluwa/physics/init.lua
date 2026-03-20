@@ -1,6 +1,7 @@
 local event = import("goluwa/event.lua")
 local physics = import("goluwa/physics.lua")
 import("goluwa/physics/shared.lua")
+local Broadphase = import("goluwa/physics/broadphase.lua")
 local CollisionPairs = import("goluwa/physics/collision_pairs.lua")
 import("goluwa/physics/convex_hull.lua")
 import("goluwa/physics/sweep.lua")
@@ -9,6 +10,7 @@ import("goluwa/physics/constraint.lua")
 local Solver = import("goluwa/physics/solver.lua")
 local mesh_contact_pipeline = import("goluwa/physics/mesh_contact_pipeline.lua")
 physics.collision_pairs = physics.collision_pairs or CollisionPairs.New({physics = physics})
+physics.broadphase = physics.broadphase or Broadphase.New({physics = physics})
 physics.solver = Solver.New({physics = physics})
 import("goluwa/physics/pair_solvers/polyhedron.lua")
 import("goluwa/physics/pair_solvers/sphere.lua")
@@ -19,12 +21,15 @@ import("goluwa/physics/rigid_body.lua")
 
 function physics.ResetState()
 	local collision_pairs = physics.collision_pairs or CollisionPairs.New({physics = physics})
+	local broadphase = physics.broadphase or Broadphase.New({physics = physics})
 	local solver = physics.solver or Solver.New({physics = physics})
 	local RigidBody = import("goluwa/physics/rigid_body.lua")
 	local constraints = physics.GetConstraints and physics.GetConstraints() or nil
 	physics.collision_pairs = collision_pairs
+	physics.broadphase = broadphase
 	physics.solver = solver
 	collision_pairs:ResetState()
+	broadphase:ResetState()
 	solver:ResetState()
 
 	if constraints then

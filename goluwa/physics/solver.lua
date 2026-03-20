@@ -371,7 +371,8 @@ function Solver:SolveRigidBodyPairs(bodies_or_pairs, dt)
 	local pairs = bodies_or_pairs
 
 	if not (pairs and pairs[1] and pairs[1].entry_a and pairs[1].entry_b) then
-		pairs = broadphase.BuildCandidatePairs(physics, bodies_or_pairs)
+		local physics = self:GetPhysics()
+		pairs = physics.broadphase:BuildCandidatePairs(bodies_or_pairs)
 	end
 
 	for i = 1, #pairs do

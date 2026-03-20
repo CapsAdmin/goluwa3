@@ -9,6 +9,7 @@ function profiler.Start(id)
 		path = "game/storage/logs/jit_profile_" .. id .. ".html",
 		file_url = "vscode://file/${path}:${line}:1",
 		get_time = system.GetTime,
+		sampling_rate = 30,
 	}
 end
 

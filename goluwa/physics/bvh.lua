@@ -212,7 +212,9 @@ end
 function bvh.TraverseAABB(bounds, node, visit_leaf, context, result)
 	if not (bounds and node and visit_leaf) then return result end
 
-	if not bvh.AABBIntersects(bounds, node.aabb) then return result end
+	local intersects = bvh.AABBIntersects
+
+	if not intersects(bounds, node.aabb) then return result end
 
 	local node_stack = context and context.node_stack or {}
 	node_stack[1] = node
@@ -223,22 +225,20 @@ function bvh.TraverseAABB(bounds, node, visit_leaf, context, result)
 		node_stack[stack_size] = nil
 		stack_size = stack_size - 1
 
-		if bvh.AABBIntersects(bounds, current.aabb) then
-			if current.first then
-				result = visit_leaf(current, context, result)
-			else
-				local left = current.left
-				local right = current.right
+		if current.first then
+			result = visit_leaf(current, context, result)
+		else
+			local left = current.left
+			local right = current.right
 
-				if right and bvh.AABBIntersects(bounds, right.aabb) then
-					stack_size = stack_size + 1
-					node_stack[stack_size] = right
-				end
+			if right and intersects(bounds, right.aabb) then
+				stack_size = stack_size + 1
+				node_stack[stack_size] = right
+			end
 
-				if left and bvh.AABBIntersects(bounds, left.aabb) then
-					stack_size = stack_size + 1
-					node_stack[stack_size] = left
-				end
+			if left and intersects(bounds, left.aabb) then
+				stack_size = stack_size + 1
+				node_stack[stack_size] = left
 			end
 		end
 	end
