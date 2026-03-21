@@ -8,6 +8,8 @@ local BaseShape = import("goluwa/physics/shapes/base.lua")
 local triangle_mesh = import("goluwa/physics/triangle_mesh.lua")
 local META = prototype.CreateTemplate("physics_shape_mesh")
 META.Base = BaseShape
+local MESH_POLYGON_BVH_THRESHOLD = 12
+local MESH_POLYGON_BVH_LEAF_COUNT = 6
 
 local MESH_BOUNDS_CORNERS = {
 	Vec3(),
@@ -22,6 +24,45 @@ local MESH_BOUNDS_CORNERS = {
 
 local function create_synthetic_primitive(polygon)
 	return {polygon3d = polygon}
+end
+
+local function bounds_from_points(points)
+	if not (points and points[1]) then return nil end
+
+	local bounds = AABB(math.huge, math.huge, math.huge, -math.huge, -math.huge, -math.huge)
+
+	for _, point in ipairs(points) do
+		if point then bounds:ExpandVec3(point) end
+	end
+
+	return bounds
+end
+
+local function get_polygon_local_bounds(poly)
+	if not (poly and poly.Vertices) then return nil end
+
+	local vertices = poly.Vertices
+	local vertex_count = #vertices
+
+	if
+		poly.mesh_shape_local_bounds and
+		poly.mesh_shape_local_bounds_source == vertices and
+		poly.mesh_shape_local_bounds_vertex_count == vertex_count
+	then
+		return poly.mesh_shape_local_bounds
+	end
+
+	local bounds = poly.GetAABB and poly:GetAABB() or poly.AABB
+
+	if not bounds then
+		local points = triangle_mesh.GetPolygonLocalVertices(poly)
+		bounds = bounds_from_points(points)
+	end
+
+	poly.mesh_shape_local_bounds = bounds
+	poly.mesh_shape_local_bounds_source = vertices
+	poly.mesh_shape_local_bounds_vertex_count = vertex_count
+	return bounds
 end
 
 local function build_brush_polygon(primitive)
@@ -71,12 +112,27 @@ local function append_polygon_entry(entries, seen, polygon, primitive, primitive
 	if seen[polygon] then return end
 
 	seen[polygon] = true
+	local bounds = get_polygon_local_bounds(polygon)
 	entries[#entries + 1] = {
 		polygon = polygon,
+		bounds = bounds,
+		centroid_x = bounds and (bounds.min_x + bounds.max_x) * 0.5 or 0,
+		centroid_y = bounds and (bounds.min_y + bounds.max_y) * 0.5 or 0,
+		centroid_z = bounds and (bounds.min_z + bounds.max_z) * 0.5 or 0,
 		primitive = primitive or create_synthetic_primitive(polygon),
 		primitive_index = primitive_index,
 		model = model,
 	}
+end
+
+local function get_polygon_entry_bounds(entry)
+	return entry and entry.bounds or nil
+end
+
+local function get_polygon_entry_centroid(entry)
+	if not entry then return 0, 0, 0 end
+
+	return entry.centroid_x or 0, entry.centroid_y or 0, entry.centroid_z or 0
 end
 
 local function collect_polygon_entries_from_source(entries, seen, source, model, primitive, primitive_index)
@@ -233,16 +289,84 @@ local function visit_triangle_leaf(node, context, best_hit, best_distance)
 	return best_hit, best_distance
 end
 
-local function bounds_from_points(points)
-	if not (points and points[1]) then return nil end
+local function trace_polygon_entry(context, entry, best_hit, best_distance)
+	local bounds = entry.bounds
 
-	local bounds = AABB(math.huge, math.huge, math.huge, -math.huge, -math.huge, -math.huge)
+	if bounds then
+		local hit_bounds, tmin = BVH.RayAABBIntersection(context.local_ray, bounds)
 
-	for _, point in ipairs(points) do
-		if point then bounds:ExpandVec3(point) end
+		if not hit_bounds or tmin > best_distance then return best_hit, best_distance end
 	end
 
-	return bounds
+	local acceleration, triangles, triangle_count = triangle_mesh.GetPolygonTriangleAcceleration(entry.polygon)
+
+	if acceleration then
+		local traversal_context = acceleration.traversal_context or {acceleration = acceleration, node_stack = {}, tmin_stack = {}}
+		acceleration.traversal_context = traversal_context
+		traversal_context.acceleration = acceleration
+		traversal_context.local_ray = context.local_ray
+		traversal_context.collider = context.collider
+		traversal_context.entry = entry
+		traversal_context.ray_origin = context.ray_origin
+		traversal_context.ray_direction = context.ray_direction
+		traversal_context.trace_radius = context.trace_radius
+		return BVH.TraverseRay(
+			context.local_ray,
+			acceleration.root,
+			visit_triangle_leaf,
+			traversal_context,
+			best_hit,
+			best_distance
+		)
+	end
+
+	if triangles and triangle_count > 0 then
+		local leaf_context = {
+			collider = context.collider,
+			entry = entry,
+			local_ray = context.local_ray,
+			ray_origin = context.ray_origin,
+			ray_direction = context.ray_direction,
+			trace_radius = context.trace_radius,
+			best_hit = best_hit,
+			best_distance = best_distance,
+		}
+
+		for i = 1, triangle_count do
+			test_triangle_hit(leaf_context, triangles[i])
+		end
+
+		return leaf_context.best_hit, leaf_context.best_distance
+	end
+
+	return best_hit, best_distance
+end
+
+local function visit_polygon_leaf(node, context, result)
+	local entries = context.acceleration.entries
+	local user_context = context.user_context
+	local previous_entry = user_context and user_context.entry or nil
+
+	for i = node.first, node.last do
+		local entry = entries[i]
+
+		if user_context then user_context.entry = entry end
+		triangle_mesh.ForEachOverlappingTriangle(entry.polygon, context.local_bounds, context.callback, context.user_context)
+	end
+
+	if user_context then user_context.entry = previous_entry end
+
+	return result
+end
+
+local function visit_ray_polygon_leaf(node, context, best_hit, best_distance)
+	local entries = context.acceleration.entries
+
+	for i = node.first, node.last do
+		best_hit, best_distance = trace_polygon_entry(context, entries[i], best_hit, best_distance)
+	end
+
+	return best_hit, best_distance
 end
 
 local function add_bounds(bounds, poly_bounds)
@@ -295,6 +419,9 @@ end
 function META:OnBodyGeometryChanged(body)
 	BaseShape.OnBodyGeometryChanged(self, body)
 	self.ResolvedPolygonEntries = nil
+	self.ResolvedPolygonAcceleration = nil
+	self.ResolvedPolygonAccelerationSource = nil
+	self.ResolvedPolygonAccelerationCount = nil
 	self.ResolvedPolygons = nil
 	self.LocalBounds = nil
 	self.CollisionLocalPoints = nil
@@ -317,6 +444,37 @@ function META:GetMeshPolygonEntries(body)
 	return entries
 end
 
+function META:GetMeshPolygonAcceleration(body)
+	local entries = self:GetMeshPolygonEntries(body)
+	local count = #entries
+
+	if count < MESH_POLYGON_BVH_THRESHOLD then return nil, entries, count end
+
+	if
+		self.ResolvedPolygonAcceleration and
+		self.ResolvedPolygonAccelerationSource == entries and
+		self.ResolvedPolygonAccelerationCount == count
+	then
+		return self.ResolvedPolygonAcceleration, entries, count
+	end
+
+	local tree = BVH.Build(entries, get_polygon_entry_bounds, get_polygon_entry_centroid, MESH_POLYGON_BVH_LEAF_COUNT)
+
+	if not tree then return nil, entries, count end
+
+	tree.entries = tree.items
+	tree.items = nil
+	tree.traversal_context = tree.traversal_context or {
+		acceleration = tree,
+		node_stack = {},
+		tmin_stack = {},
+	}
+	self.ResolvedPolygonAcceleration = tree
+	self.ResolvedPolygonAccelerationSource = entries
+	self.ResolvedPolygonAccelerationCount = count
+	return tree, entries, count
+end
+
 function META:GetMeshPolygons(body)
 	if self.ResolvedPolygons then return self.ResolvedPolygons end
 
@@ -335,15 +493,8 @@ function META:GetLocalBounds(body)
 
 	local bounds = nil
 
-	for _, poly in ipairs(self:GetMeshPolygons(body)) do
-		local poly_bounds = poly.GetAABB and poly:GetAABB() or poly.AABB
-
-		if not poly_bounds then
-			local points = triangle_mesh.GetPolygonLocalVertices(poly)
-			poly_bounds = bounds_from_points(points)
-		end
-
-		bounds = add_bounds(bounds, poly_bounds)
+	for _, entry in ipairs(self:GetMeshPolygonEntries(body)) do
+		bounds = add_bounds(bounds, entry.bounds or get_polygon_local_bounds(entry.polygon))
 	end
 
 	self.LocalBounds = bounds or AABB(-0.5, -0.5, -0.5, 0.5, 0.5, 0.5)
@@ -449,10 +600,33 @@ function META:GetBroadphaseAABB(body, position, rotation)
 end
 
 function META:ForEachOverlappingTriangle(body, local_bounds, callback, context)
-	local polygons = self:GetMeshPolygons(body)
+	local entries = self:GetMeshPolygonEntries(body)
+	local acceleration = nil
 
-	for i = 1, #polygons do
-		triangle_mesh.ForEachOverlappingTriangle(polygons[i], local_bounds, callback, context)
+	if local_bounds then acceleration = self:GetMeshPolygonAcceleration(body) end
+
+	if acceleration and local_bounds then
+		local traversal_context = acceleration.traversal_context
+		traversal_context.acceleration = acceleration
+		traversal_context.local_bounds = local_bounds
+		traversal_context.callback = callback
+		traversal_context.user_context = context
+		BVH.TraverseAABB(local_bounds, acceleration.root, visit_polygon_leaf, traversal_context, nil)
+		return
+	end
+
+	for i = 1, #entries do
+		local entry = entries[i]
+		local polygon_bounds = entry.bounds or get_polygon_local_bounds(entry.polygon)
+
+		if not local_bounds or not polygon_bounds or polygon_bounds:IsBoxIntersecting(local_bounds) then
+			local previous_entry = context and context.entry or nil
+
+			if context then context.entry = entry end
+			triangle_mesh.ForEachOverlappingTriangle(entry.polygon, local_bounds, callback, context)
+
+			if context then context.entry = previous_entry end
+		end
 	end
 end
 
@@ -472,47 +646,40 @@ function META:TraceAgainstBody(collider, origin, direction, max_distance, trace_
 	local local_ray = create_ray(local_origin, local_direction, distance_limit)
 	local best_hit = nil
 	local best_distance = distance_limit
+	local acceleration = self:GetMeshPolygonAcceleration(collider)
+
+	if acceleration then
+		local traversal_context = acceleration.traversal_context
+		traversal_context.acceleration = acceleration
+		traversal_context.local_ray = local_ray
+		traversal_context.collider = collider
+		traversal_context.ray_origin = origin
+		traversal_context.ray_direction = ray_direction
+		traversal_context.trace_radius = trace_radius
+		best_hit, best_distance = BVH.TraverseRay(
+			local_ray,
+			acceleration.root,
+			visit_ray_polygon_leaf,
+			traversal_context,
+			best_hit,
+			best_distance
+		)
+		return best_hit
+	end
 
 	for _, entry in ipairs(self:GetMeshPolygonEntries(collider)) do
-		local acceleration, triangles, triangle_count = triangle_mesh.GetPolygonTriangleAcceleration(entry.polygon)
-
-		if acceleration then
-			local traversal_context = acceleration.traversal_context or {acceleration = acceleration, node_stack = {}, tmin_stack = {}}
-			acceleration.traversal_context = traversal_context
-			traversal_context.acceleration = acceleration
-			traversal_context.local_ray = local_ray
-			traversal_context.collider = collider
-			traversal_context.entry = entry
-			traversal_context.ray_origin = origin
-			traversal_context.ray_direction = ray_direction
-			traversal_context.trace_radius = trace_radius
-			best_hit, best_distance = BVH.TraverseRay(
-				local_ray,
-				acceleration.root,
-				visit_triangle_leaf,
-				traversal_context,
-				best_hit,
-				best_distance
-			)
-		elseif triangles and triangle_count > 0 then
-			local context = {
-				collider = collider,
-				entry = entry,
+		best_hit, best_distance = trace_polygon_entry(
+			{
 				local_ray = local_ray,
+				collider = collider,
 				ray_origin = origin,
 				ray_direction = ray_direction,
 				trace_radius = trace_radius,
-				best_hit = best_hit,
-				best_distance = best_distance,
-			}
-
-			for i = 1, triangle_count do
-				test_triangle_hit(context, triangles[i])
-			end
-
-			best_hit = context.best_hit
-			best_distance = context.best_distance
-		end
+			},
+			entry,
+			best_hit,
+			best_distance
+		)
 	end
 
 	return best_hit

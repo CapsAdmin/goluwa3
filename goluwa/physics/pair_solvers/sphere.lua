@@ -4,11 +4,36 @@ local pair_solver_helpers = import("goluwa/physics/pair_solver_helpers.lua")
 local contact_resolution = import("goluwa/physics/contact_resolution.lua")
 local polyhedron_solver = import("goluwa/physics/pair_solvers/polyhedron.lua")
 local triangle_contact_queries = import("goluwa/physics/triangle_contact_queries.lua")
+local triangle_geometry = import("goluwa/physics/triangle_geometry.lua")
 local sphere = {}
 local SWEPT_SPHERE_BOX_POINT_CALLBACK_CONTEXT = {
 	box_body = nil,
 	descending_from_above = false,
 }
+
+local function get_convex_face_projection_point(vertices, face, point, normal, signed_distance)
+	if not (vertices and face and face.indices and face.indices[3] and normal) then return nil end
+
+	local projected = point - normal * signed_distance
+	local a = vertices[face.indices[1]]
+
+	if not a then return nil end
+
+	for i = 2, #face.indices - 1 do
+		local b = vertices[face.indices[i]]
+		local c = vertices[face.indices[i + 1]]
+
+		if
+			b and
+			c and
+			triangle_geometry.PointInTriangle(projected, a, b, c, normal, physics.EPSILON)
+		then
+			return projected
+		end
+	end
+
+	return nil
+end
 
 local function evaluate_swept_sphere_box_point(context, start_point_world, end_point_world)
 	if not (context and context.box_body) then
@@ -240,15 +265,17 @@ local function solve_sphere_convex_collision(sphere_body, convex_body, dt)
 	local center = sphere_body:GetPosition()
 	local sphere_radius = sphere_body:GetSphereRadius()
 	local vertices = polyhedron_solver.GetPolyhedronWorldVertices(convex_body, hull)
+	local rotation = convex_body:GetRotation()
 	local inside = true
 	local nearest_face_distance = -math.huge
 	local nearest_face_normal = nil
+	local nearest_face = nil
 	local best_point = nil
 	local best_distance = math.huge
 
 	for _, face in ipairs(hull.faces or {}) do
 		local plane_point = vertices[face.indices[1]]
-		local normal = convex_body:GetRotation():VecMul(face.normal):GetNormalized()
+		local normal = rotation:VecMul(face.normal):GetNormalized()
 		local distance = (center - plane_point):Dot(normal)
 
 		if distance > 0 then inside = false end
@@ -256,6 +283,37 @@ local function solve_sphere_convex_collision(sphere_body, convex_body, dt)
 		if distance > nearest_face_distance then
 			nearest_face_distance = distance
 			nearest_face_normal = normal
+			nearest_face = face
+		end
+	end
+
+	if not inside and nearest_face_distance > sphere_radius + physics.EPSILON then
+		return solve_swept_sphere_convex_collision(sphere_body, convex_body, dt)
+	end
+
+	if not inside then
+		local projected_face_point = get_convex_face_projection_point(
+			vertices,
+			nearest_face,
+			center,
+			nearest_face_normal,
+			nearest_face_distance
+		)
+
+		if projected_face_point then
+			local overlap = sphere_radius - nearest_face_distance
+
+			if overlap > -physics.EPSILON then
+				return contact_resolution.ResolvePairPenetration(
+					convex_body,
+					sphere_body,
+					nearest_face_normal,
+					math.max(overlap, physics.EPSILON),
+					dt,
+					projected_face_point,
+					center - nearest_face_normal * sphere_radius
+				)
+			end
 		end
 	end
 
