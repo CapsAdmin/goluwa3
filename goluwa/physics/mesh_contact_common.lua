@@ -1,4 +1,5 @@
 local physics = import("goluwa/physics.lua")
+local physics_constants = import("goluwa/physics/constants.lua")
 local AABB = import("goluwa/structs/aabb.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local capsule_geometry = import("goluwa/physics/capsule_geometry.lua")
@@ -8,6 +9,7 @@ local static_model_query = import("goluwa/physics/static_model_query.lua")
 local triangle_contact_queries = import("goluwa/physics/triangle_contact_queries.lua")
 local triangle_geometry = import("goluwa/physics/triangle_geometry.lua")
 local mesh_contact_common = {}
+local EPSILON = physics_constants.EPSILON
 local SPHERE_TRIANGLE_CONTACT_HANDLERS = {}
 local CAPSULE_TRIANGLE_CONTACT_HANDLERS = {}
 
@@ -56,7 +58,7 @@ local SOLVE_BEST_TRIANGLE_CONTACT_CONTEXT = {
 }
 
 local function query_mesh_sphere_contact(handlers, v0, v1, v2)
-	return triangle_contact_queries.QuerySphere(handlers.body, v0, v1, v2, {epsilon = physics.EPSILON})
+	return triangle_contact_queries.QuerySphere(handlers.body, v0, v1, v2, {epsilon = EPSILON})
 end
 
 local function get_mesh_sphere_delta(handlers, result)
@@ -83,7 +85,7 @@ local function query_mesh_capsule_contact(handlers, v0, v1, v2)
 		v1,
 		v2,
 		{
-			epsilon = physics.EPSILON,
+			epsilon = EPSILON,
 			fallback_normal = physics.Up,
 		}
 	)
@@ -184,7 +186,7 @@ function mesh_contact_common.SelectTriangleNormal(mesh_body, other_body, delta, 
 end
 
 function mesh_contact_common.UpdateBestContact(best, triangle_index, normal, overlap, point_a, point_b)
-	if not normal or overlap <= physics.EPSILON then return best end
+	if not normal or overlap <= EPSILON then return best end
 
 	if not best or overlap > best.overlap then
 		return {

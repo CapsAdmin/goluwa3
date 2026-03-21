@@ -1,4 +1,5 @@
 local physics = import("goluwa/physics.lua")
+local physics_constants = import("goluwa/physics/constants.lua")
 local capsule_geometry = import("goluwa/physics/capsule_geometry.lua")
 local triangle_geometry = import("goluwa/physics/triangle_geometry.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
@@ -6,7 +7,7 @@ local triangle_contact_queries = {}
 local polyhedron_triangle_contacts = nil
 
 function triangle_contact_queries.GetTriangleFaceNormal(v0, v1, v2, epsilon)
-	epsilon = epsilon or physics.EPSILON
+	epsilon = epsilon or physics_constants.EPSILON
 	local face_normal = triangle_geometry.GetTriangleNormal(v0, v1, v2)
 
 	if face_normal:GetLength() <= epsilon then return nil end
@@ -16,7 +17,7 @@ end
 
 function triangle_contact_queries.GetPointTriangleSeparation(point, v0, v1, v2, options)
 	options = options or {}
-	local epsilon = options.epsilon or physics.EPSILON
+	local epsilon = options.epsilon or physics_constants.EPSILON
 	local face_normal = triangle_contact_queries.GetTriangleFaceNormal(v0, v1, v2, epsilon)
 	local closest_point = triangle_geometry.ClosestPointOnTriangle(point, v0, v1, v2)
 	local delta = point - closest_point
@@ -62,7 +63,7 @@ end
 
 function triangle_contact_queries.GetSegmentTriangleSeparation(start_point, end_point, v0, v1, v2, options)
 	options = options or {}
-	local epsilon = options.epsilon or physics.EPSILON
+	local epsilon = options.epsilon or physics_constants.EPSILON
 	local segment_point, triangle_point, distance, triangle_normal = triangle_geometry.ClosestPointsOnSegmentTriangle(
 		start_point,
 		end_point,
@@ -87,7 +88,7 @@ end
 
 function triangle_contact_queries.GetCapsuleTriangleSeparation(start_point, end_point, center, v0, v1, v2, options)
 	options = options or {}
-	local epsilon = options.epsilon or physics.EPSILON
+	local epsilon = options.epsilon or physics_constants.EPSILON
 	local separation = triangle_contact_queries.GetSegmentTriangleSeparation(start_point, end_point, v0, v1, v2, options)
 
 	if not separation then return nil end
@@ -140,7 +141,7 @@ end
 
 function triangle_contact_queries.QueryPointSample(collider, world_point, v0, v1, v2, options)
 	options = options or {}
-	local epsilon = options.epsilon or physics.EPSILON
+	local epsilon = options.epsilon or physics_constants.EPSILON
 	local face_normal = triangle_contact_queries.GetTriangleFaceNormal(v0, v1, v2, epsilon)
 
 	if not face_normal then return nil end

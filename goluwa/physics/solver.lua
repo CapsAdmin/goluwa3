@@ -1,5 +1,6 @@
 local prototype = import("goluwa/prototype.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
+local physics_constants = import("goluwa/physics/constants.lua")
 local contact_resolution = import("goluwa/physics/contact_resolution.lua")
 local manifolds = import("goluwa/physics/manifold.lua")
 local islands = import("goluwa/physics/islands.lua")
@@ -57,7 +58,7 @@ local function get_collider_sweep_hit(dynamic_body, collider, physics)
 	local current_position = collider:GetPosition()
 	local movement = current_position - previous_position
 
-	if movement:GetLength() <= physics.EPSILON then return nil end
+	if movement:GetLength() <= physics_constants.EPSILON then return nil end
 
 	local hit = physics.SweepCollider(
 		collider,
@@ -101,15 +102,18 @@ local function rewind_body_to_sweep_hit(dynamic_body, sweep_result, physics)
 	local movement = sweep_result.movement
 	local movement_length = movement:GetLength()
 
-	if movement_length <= physics.EPSILON then return nil end
+	if movement_length <= physics_constants.EPSILON then return nil end
 
 	local fraction = math.max(0, math.min(hit.fraction or 0, 1))
-	local skin = math.max(collider:GetCollisionMargin() or 0, physics.DefaultCollisionMargin or 0)
+	local skin = math.max(
+		collider:GetCollisionMargin() or 0,
+		physics.DefaultCollisionMargin or physics_constants.DEFAULT_COLLISION_MARGIN
+	)
 	local post_fraction = math.min(1, fraction + skin / movement_length)
 	local target_position = sweep_result.previous_position + movement * post_fraction
 	local delta = target_position - sweep_result.current_position
 
-	if delta:GetLength() <= physics.EPSILON then return nil end
+	if delta:GetLength() <= physics_constants.EPSILON then return nil end
 
 	dynamic_body:SetPosition(dynamic_body:GetPosition() + delta)
 	return delta

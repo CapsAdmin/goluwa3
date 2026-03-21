@@ -1,5 +1,5 @@
 local Vec3 = import("goluwa/structs/vec3.lua")
-local physics = import("goluwa/physics.lua")
+local physics_constants = import("goluwa/physics/constants.lua")
 local convex_manifold = import("goluwa/physics/convex_manifold.lua")
 local convex_face_clipping = {}
 
@@ -28,7 +28,7 @@ local function get_plane_basis(normal)
 		tangent = normal:GetCross(Vec3(0, 1, 0))
 	end
 
-	if tangent:GetLength() <= physics.EPSILON then
+	if tangent:GetLength() <= physics_constants.EPSILON then
 		tangent = normal:GetCross(Vec3(0, 0, 1))
 	end
 
@@ -47,18 +47,18 @@ local function clip_polygon_to_edge(points, edge_a, edge_b, inside_sign, out)
 
 	local previous = points[#points]
 	local previous_distance = inside_sign * get_edge_side(edge_a, edge_b, previous)
-	local previous_inside = previous_distance >= -physics.EPSILON
+	local previous_inside = previous_distance >= -physics_constants.EPSILON
 	local count = 0
 
 	for _, point in ipairs(points) do
 		local distance = inside_sign * get_edge_side(edge_a, edge_b, point)
-		local inside = distance >= -physics.EPSILON
+		local inside = distance >= -physics_constants.EPSILON
 
 		if inside ~= previous_inside then
 			local delta = point - previous
 			local denominator = previous_distance - distance
 
-			if math.abs(denominator) > physics.EPSILON then
+			if math.abs(denominator) > physics_constants.EPSILON then
 				local t = previous_distance / denominator
 				count = count + 1
 				out[count] = previous + delta * t
@@ -96,7 +96,7 @@ local function clip_polygon_component(points, axis_index, limit, keep_less_equal
 			local delta = point - previous
 			local denominator = previous_distance - distance
 
-			if math.abs(denominator) > physics.EPSILON then
+			if math.abs(denominator) > physics_constants.EPSILON then
 				local t = previous_distance / denominator
 				count = count + 1
 				out[count] = previous + delta * t
@@ -199,7 +199,7 @@ function convex_face_clipping.BuildReferenceFace(points, normal, tangent_u, tang
 	if tangent_u then
 		tangent_u = (tangent_u - normal * tangent_u:Dot(normal))
 
-		if tangent_u:GetLength() > physics.EPSILON then
+		if tangent_u:GetLength() > physics_constants.EPSILON then
 			tangent_u = tangent_u:GetNormalized()
 		end
 	end
@@ -207,18 +207,18 @@ function convex_face_clipping.BuildReferenceFace(points, normal, tangent_u, tang
 	if tangent_v then
 		tangent_v = (tangent_v - normal * tangent_v:Dot(normal))
 
-		if tangent_v:GetLength() > physics.EPSILON then
+		if tangent_v:GetLength() > physics_constants.EPSILON then
 			tangent_v = tangent_v:GetNormalized()
 		end
 	end
 
-	if not tangent_u or tangent_u:GetLength() <= physics.EPSILON then
+	if not tangent_u or tangent_u:GetLength() <= physics_constants.EPSILON then
 		for i = 1, #points do
 			local next_point = points[i % #points + 1]
 			local edge = next_point - points[i]
 			edge = edge - normal * edge:Dot(normal)
 
-			if edge:GetLength() > physics.EPSILON then
+			if edge:GetLength() > physics_constants.EPSILON then
 				tangent_u = edge:GetNormalized()
 
 				break
@@ -226,19 +226,25 @@ function convex_face_clipping.BuildReferenceFace(points, normal, tangent_u, tang
 		end
 	end
 
-	if tangent_u and (not tangent_v or tangent_v:GetLength() <= physics.EPSILON) then
+	if
+		tangent_u and
+		(
+			not tangent_v or
+			tangent_v:GetLength() <= physics_constants.EPSILON
+		)
+	then
 		tangent_v = normal:GetCross(tangent_u)
 
-		if tangent_v:GetLength() > physics.EPSILON then
+		if tangent_v:GetLength() > physics_constants.EPSILON then
 			tangent_v = tangent_v:GetNormalized()
 		end
 	end
 
 	if
 		not tangent_u or
-		tangent_u:GetLength() <= physics.EPSILON or
+		tangent_u:GetLength() <= physics_constants.EPSILON or
 		not tangent_v or
-		tangent_v:GetLength() <= physics.EPSILON
+		tangent_v:GetLength() <= physics_constants.EPSILON
 	then
 		tangent_u, tangent_v = get_plane_basis(normal)
 	end

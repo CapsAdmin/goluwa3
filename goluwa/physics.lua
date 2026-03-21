@@ -12,8 +12,9 @@ local mesh_contact_common = import("goluwa/physics/mesh_contact_common.lua")
 local mesh_polyhedron_contacts = import("goluwa/physics/mesh_polyhedron_contacts.lua")
 local world_step = import("goluwa/physics/world_step.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
+local physics_constants = import("goluwa/physics/constants.lua")
 local Physics = prototype.CreateTemplate("physics_engine")
-Physics.EPSILON = 0.000001
+Physics.EPSILON = physics_constants.EPSILON
 
 function Physics.New(config)
 	config = config or {}
@@ -24,7 +25,7 @@ function Physics.New(config)
 	self.RigidBodySubsteps = config.RigidBodySubsteps or 1
 	self.Gravity = config.Gravity or Vec3(0, -28, 0)
 	self.Up = config.Up or Vec3(0, 1, 0)
-	self.DefaultCollisionMargin = config.DefaultCollisionMargin or 0.02
+	self.DefaultCollisionMargin = config.DefaultCollisionMargin or physics_constants.DEFAULT_COLLISION_MARGIN
 	self.MaxFrameTime = config.MaxFrameTime or 0.1
 	self.FrameAccumulator = config.FrameAccumulator or 0
 	self.InterpolationAlpha = config.InterpolationAlpha or 0

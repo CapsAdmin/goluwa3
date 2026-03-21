@@ -1,14 +1,16 @@
 local physics = import("goluwa/physics.lua")
+local physics_constants = import("goluwa/physics/constants.lua")
 local impulse_motion = import("goluwa/physics/impulse_motion.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local manifold = {}
+local EPSILON = physics_constants.EPSILON
 
 local function project_tangent(tangent, normal)
 	if not tangent then return nil end
 
 	tangent = tangent - normal * tangent:Dot(normal)
 
-	if tangent:GetLength() <= physics.EPSILON then return nil end
+	if tangent:GetLength() <= EPSILON then return nil end
 
 	return tangent:GetNormalized()
 end
@@ -30,7 +32,7 @@ local function build_tangent_basis(normal, preferred_tangent)
 
 	local bitangent = tangent:GetCross(normal)
 
-	if bitangent:GetLength() <= physics.EPSILON then
+	if bitangent:GetLength() <= EPSILON then
 		tangent = build_fallback_tangent(normal)
 
 		if not tangent then return nil, nil end
@@ -124,7 +126,7 @@ function manifold.WarmStart(body_a, body_b, normal, manifold_data, dt)
 		local tangent_impulse_2 = (contact.tangent_impulse_2 or 0) * solver.TANGENT_WARM_START_SCALE
 		local tangent, bitangent = build_tangent_basis(normal, get_cached_tangent(contact, normal))
 
-		if normal_impulse > physics.EPSILON then
+		if normal_impulse > EPSILON then
 			local impulse = normal * normal_impulse
 			impulse_motion.ApplyPairImpulse(state_a, state_b, impulse, point_a, point_b)
 			did_apply = true
@@ -134,21 +136,21 @@ function manifold.WarmStart(body_a, body_b, normal, manifold_data, dt)
 			allow_persistent_tangent and
 			tangent and
 			(
-				math.abs(tangent_impulse_1) > physics.EPSILON or
-				math.abs(tangent_impulse_2) > physics.EPSILON
+				math.abs(tangent_impulse_1) > EPSILON or
+				math.abs(tangent_impulse_2) > EPSILON
 			)
 		then
 			local relative_velocity = impulse_motion.GetRelativePointVelocity(state_a, point_a, state_b, point_b)
 			local tangent_velocity = relative_velocity - normal * relative_velocity:Dot(normal)
 
 			if tangent_velocity:GetLength() <= solver.MAX_TANGENT_WARM_SPEED then
-				if math.abs(tangent_impulse_1) > physics.EPSILON then
+				if math.abs(tangent_impulse_1) > EPSILON then
 					local impulse = tangent * tangent_impulse_1
 					impulse_motion.ApplyPairImpulse(state_a, state_b, impulse, point_a, point_b)
 					did_apply = true
 				end
 
-				if bitangent and math.abs(tangent_impulse_2) > physics.EPSILON then
+				if bitangent and math.abs(tangent_impulse_2) > EPSILON then
 					local impulse = bitangent * tangent_impulse_2
 					impulse_motion.ApplyPairImpulse(state_a, state_b, impulse, point_a, point_b)
 					did_apply = true
@@ -180,14 +182,14 @@ function manifold.SolveImpulses(body_a, body_b, normal, manifold_data, dt)
 			local normal_speed = relative_velocity:Dot(normal)
 			local inverse_mass = body_a:GetInverseMassAlong(normal, point_a) + body_b:GetInverseMassAlong(normal, point_b)
 
-			if inverse_mass > physics.EPSILON then
+			if inverse_mass > EPSILON then
 				local applied_restitution = pass == 1 and normal_speed < -0.33 and restitution or 0
 				local normal_impulse = -(1 + applied_restitution) * normal_speed / inverse_mass
 				local new_impulse = math.max((contact.normal_impulse or 0) + normal_impulse, 0)
 				local impulse_delta = new_impulse - (contact.normal_impulse or 0)
 				contact.normal_impulse = new_impulse
 
-				if math.abs(impulse_delta) > physics.EPSILON then
+				if math.abs(impulse_delta) > EPSILON then
 					local impulse = normal * impulse_delta
 					impulse_motion.ApplyPairImpulse(state_a, state_b, impulse, point_a, point_b)
 				end
@@ -197,7 +199,14 @@ function manifold.SolveImpulses(body_a, body_b, normal, manifold_data, dt)
 			local tangent_velocity = relative_velocity - normal * relative_velocity:Dot(normal)
 			local tangent_speed = tangent_velocity:GetLength()
 
-			if pass == passes and tangent_speed > physics.EPSILON and (dynamic_friction > 0 or static_friction > 0) then
+			if
+				pass == passes and
+				tangent_speed > EPSILON and
+				(
+					dynamic_friction > 0 or
+					static_friction > 0
+				)
+			then
 				local tangent = get_cached_tangent(contact, normal)
 
 				if not tangent or not allow_persistent_tangent then
@@ -211,10 +220,7 @@ function manifold.SolveImpulses(body_a, body_b, normal, manifold_data, dt)
 					local tangent_inverse_mass_1 = body_a:GetInverseMassAlong(tangent, point_a) + body_b:GetInverseMassAlong(tangent, point_b)
 					local tangent_inverse_mass_2 = body_a:GetInverseMassAlong(bitangent, point_a) + body_b:GetInverseMassAlong(bitangent, point_b)
 
-					if
-						tangent_inverse_mass_1 > physics.EPSILON and
-						tangent_inverse_mass_2 > physics.EPSILON
-					then
+					if tangent_inverse_mass_1 > EPSILON and tangent_inverse_mass_2 > EPSILON then
 						local tangent_impulse_1 = -relative_velocity:Dot(tangent) / tangent_inverse_mass_1
 						local tangent_impulse_2 = -relative_velocity:Dot(bitangent) / tangent_inverse_mass_2
 						local static_impulse_limit = (contact.normal_impulse or 0) * static_friction
@@ -239,7 +245,7 @@ function manifold.SolveImpulses(body_a, body_b, normal, manifold_data, dt)
 
 						if
 							tangent_impulse_length > max_tangent_impulse and
-							tangent_impulse_length > physics.EPSILON
+							tangent_impulse_length > EPSILON
 						then
 							local scale = max_tangent_impulse / tangent_impulse_length
 							new_tangent_impulse_1 = new_tangent_impulse_1 * scale
@@ -259,12 +265,12 @@ function manifold.SolveImpulses(body_a, body_b, normal, manifold_data, dt)
 							contact.static_friction_active = use_static_friction
 						end
 
-						if math.abs(impulse_delta_1) > physics.EPSILON then
+						if math.abs(impulse_delta_1) > EPSILON then
 							local impulse = tangent * impulse_delta_1
 							impulse_motion.ApplyPairImpulse(state_a, state_b, impulse, point_a, point_b)
 						end
 
-						if math.abs(impulse_delta_2) > physics.EPSILON then
+						if math.abs(impulse_delta_2) > EPSILON then
 							local impulse = bitangent * impulse_delta_2
 							impulse_motion.ApplyPairImpulse(state_a, state_b, impulse, point_a, point_b)
 						end

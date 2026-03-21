@@ -1,5 +1,5 @@
-local physics = import("goluwa/physics.lua")
 local raycast = import("goluwa/physics/raycast.lua")
+local physics_constants = import("goluwa/physics/constants.lua")
 local model_transform_utils = import("goluwa/physics/model_transform_utils.lua")
 local AABB = import("goluwa/structs/aabb.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
@@ -19,8 +19,8 @@ function static_model_query.BuildExpandedWorldContactAABB(bounds, body, extra_bo
 		0
 	local pad = math.max(
 		margin + probe_distance + extra_margin + extra_probe_distance,
-		physics.DefaultCollisionMargin or 0,
-		physics.EPSILON
+		physics_constants.DEFAULT_COLLISION_MARGIN,
+		physics_constants.EPSILON
 	)
 	return {
 		min_x = bounds.min_x - pad,

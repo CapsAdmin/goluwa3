@@ -1,18 +1,12 @@
-local physics = import("goluwa/physics.lua")
 local prototype = import("goluwa/prototype.lua")
 local bit = require("bit")
+local physics_constants = import("goluwa/physics/constants.lua")
 local AABB = import("goluwa/structs/aabb.lua")
 local Matrix33 = import("goluwa/structs/matrix33.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local Collider = import("goluwa/physics/collider.lua")
 local Entity = import("goluwa/ecs/entity.lua")
-local default_skin = (
-		import.loaded["goluwa/physics.lua"] and
-		import.loaded["goluwa/physics.lua"].DefaultCollisionMargin
-	)
-	or
-	0.02
 local RigidBody = prototype.CreateTemplate("rigid_body")
 
 do
@@ -31,7 +25,7 @@ do
 	RigidBody:GetSet("WorldGeometry", false)
 	RigidBody:GetSet("CollisionGroup", 1)
 	RigidBody:GetSet("CollisionMask", -1)
-	RigidBody:GetSet("CollisionMargin", default_skin)
+	RigidBody:GetSet("CollisionMargin", physics_constants.DEFAULT_COLLISION_MARGIN)
 	RigidBody:GetSet("CollisionProbeDistance", 0.125)
 	RigidBody:GetSet("Friction", 0)
 	RigidBody:GetSet("StaticFriction", nil)

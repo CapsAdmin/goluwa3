@@ -1,8 +1,10 @@
 local physics = import("goluwa/physics.lua")
+local physics_constants = import("goluwa/physics/constants.lua")
 local impulse_motion = import("goluwa/physics/impulse_motion.lua")
 local manifolds = import("goluwa/physics/manifold.lua")
 local motion = import("goluwa/physics/motion.lua")
 local contact_resolution = {}
+local EPSILON = physics_constants.EPSILON
 
 function contact_resolution.MarkPairGrounding(body_a, body_b, normal)
 	local rolling_friction = physics.solver:GetPairRollingFriction(body_a, body_b)
@@ -44,7 +46,7 @@ local function try_mark_body_grounded_from_contacts(self_body, other_body, conta
 			if self_offset.y <= -self_threshold and other_offset.y >= other_threshold then
 				local candidate = self_point - other_point
 
-				if candidate:GetLength() <= physics.EPSILON then
+				if candidate:GetLength() <= EPSILON then
 					candidate = self_body:GetPosition() - other_body:GetPosition()
 				end
 
@@ -57,7 +59,7 @@ local function try_mark_body_grounded_from_contacts(self_body, other_body, conta
 					return
 				end
 
-				if candidate:GetLength() > physics.EPSILON then
+				if candidate:GetLength() > EPSILON then
 					candidate = candidate:GetNormalized()
 
 					if candidate.y >= self_body:GetMinGroundNormalY() then
@@ -108,10 +110,15 @@ local function get_positional_correction_length(overlap, dt)
 
 	if dt and dt > 0 then
 		local max_depenetration_speed = math.max(solver.MAX_DEPENETRATION_SPEED or 0, 0)
-		if max_depenetration_speed > 0 then correction_length = math.min(correction_length, max_depenetration_speed * dt) end
+
+		if max_depenetration_speed > 0 then
+			correction_length = math.min(correction_length, max_depenetration_speed * dt)
+		end
 	end
 
-	if max_correction > 0 then correction_length = math.min(correction_length, max_correction) end
+	if max_correction > 0 then
+		correction_length = math.min(correction_length, max_correction)
+	end
 
 	return correction_length
 end
@@ -138,7 +145,7 @@ function contact_resolution.ApplyPairImpulse(body_a, body_b, normal, dt, point_a
 		normal_inverse_mass = body_a:GetInverseMassAlong(normal, point_a) + body_b:GetInverseMassAlong(normal, point_b)
 	end
 
-	if normal_inverse_mass <= physics.EPSILON then return end
+	if normal_inverse_mass <= EPSILON then return end
 
 	local normal_impulse = -(1 + restitution) * normal_speed / normal_inverse_mass
 	impulse_motion.ApplyPairImpulse(state_a, state_b, normal * normal_impulse, point_a, point_b)
@@ -146,7 +153,7 @@ function contact_resolution.ApplyPairImpulse(body_a, body_b, normal, dt, point_a
 	local tangent_velocity = relative_velocity - normal * relative_velocity:Dot(normal)
 	local tangent_speed = tangent_velocity:GetLength()
 
-	if tangent_speed > physics.EPSILON and not options.skip_friction then
+	if tangent_speed > EPSILON and not options.skip_friction then
 		local tangent = tangent_velocity / tangent_speed
 		local friction = physics.solver:GetPairFriction(body_a, body_b)
 		local tangent_inverse_mass = inverse_mass_sum
@@ -155,7 +162,7 @@ function contact_resolution.ApplyPairImpulse(body_a, body_b, normal, dt, point_a
 			tangent_inverse_mass = body_a:GetInverseMassAlong(tangent, point_a) + body_b:GetInverseMassAlong(tangent, point_b)
 		end
 
-		if tangent_inverse_mass <= physics.EPSILON then
+		if tangent_inverse_mass <= EPSILON then
 			tangent_inverse_mass = inverse_mass_sum
 		end
 
@@ -191,7 +198,7 @@ function contact_resolution.ResolvePairPenetration(body_a, body_b, normal, overl
 		manifolds.SolveImpulses(body_a, body_b, normal, manifold, dt)
 		local correction_length = get_positional_correction_length(overlap, dt)
 
-		if correction_length > physics.EPSILON then
+		if correction_length > EPSILON then
 			local correction = normal * (-(correction_length / #contacts))
 
 			for _, contact in ipairs(contacts) do

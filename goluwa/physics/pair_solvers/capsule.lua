@@ -1,10 +1,11 @@
-local physics = import("goluwa/physics.lua")
+local physics_constants = import("goluwa/physics/constants.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local capsule_geometry = import("goluwa/physics/capsule_geometry.lua")
 local segment_geometry = import("goluwa/physics/segment_geometry.lua")
 local pair_solver_helpers = import("goluwa/physics/pair_solver_helpers.lua")
 local contact_resolution = import("goluwa/physics/contact_resolution.lua")
 local capsule = {}
+local EPSILON = physics_constants.EPSILON
 local CAPSULE_SWEEP_POINT_SCRATCH = {
 	current = {},
 	previous = {},
@@ -59,7 +60,7 @@ end
 
 local function evaluate_capsule_segment_sweep_distance(context, t)
 	local point = context.start_world + context.movement * t
-	local closest = segment_geometry.ClosestPointOnSegment(context.segment_a, context.segment_b, point, physics.EPSILON)
+	local closest = segment_geometry.ClosestPointOnSegment(context.segment_a, context.segment_b, point, EPSILON)
 	local delta = point - closest
 	local distance = delta:GetLength()
 	return {
@@ -70,7 +71,7 @@ end
 
 local function evaluate_capsule_segment_point(context, t)
 	local point = context.start_world + context.movement * t
-	local closest = segment_geometry.ClosestPointOnSegment(context.segment_a, context.segment_b, point, physics.EPSILON)
+	local closest = segment_geometry.ClosestPointOnSegment(context.segment_a, context.segment_b, point, EPSILON)
 	local delta = point - closest
 	local distance = delta:GetLength()
 	return point, closest, delta, distance
@@ -110,7 +111,7 @@ end
 function sweep_point_against_capsule_segment(start_world, end_world, segment_a, segment_b, radius, relative_velocity)
 	local movement = end_world - start_world
 
-	if movement:GetLength() <= physics.EPSILON then return nil end
+	if movement:GetLength() <= EPSILON then return nil end
 
 	CAPSULE_SEGMENT_SWEEP_EVALUATION_CONTEXT.start_world = start_world
 	CAPSULE_SEGMENT_SWEEP_EVALUATION_CONTEXT.movement = movement
@@ -155,7 +156,7 @@ local function solve_swept_capsule_box_collision(capsule_body, box_body, dt)
 	local current_position = sweep.current_position
 	local movement = sweep.movement
 
-	if movement:GetLength() <= physics.EPSILON then return false end
+	if movement:GetLength() <= EPSILON then return false end
 
 	local current_points, radius = iterate_capsule_points(capsule_body, nil, nil, CAPSULE_SWEEP_POINT_SCRATCH.current)
 	local previous_points = iterate_capsule_points(
@@ -209,7 +210,7 @@ local function solve_swept_capsule_sphere_collision(capsule_body, sphere_body, d
 	local current_position = sweep.current_position
 	local movement = sweep.movement
 
-	if movement:GetLength() <= physics.EPSILON then return false end
+	if movement:GetLength() <= EPSILON then return false end
 
 	local sphere_center = sphere_body:GetPosition()
 	local sphere_radius = sphere_body:GetPhysicsShape():GetRadius()
@@ -249,7 +250,7 @@ local function solve_swept_capsule_sphere_collision(capsule_body, sphere_body, d
 	local function evaluate(t)
 		local segment_a = start_a + (end_a - start_a) * t
 		local segment_b = start_b + (end_b - start_b) * t
-		local closest = segment_geometry.ClosestPointOnSegment(segment_a, segment_b, sphere_center, physics.EPSILON)
+		local closest = segment_geometry.ClosestPointOnSegment(segment_a, segment_b, sphere_center, EPSILON)
 		local delta = sphere_center - closest
 		local distance = delta:GetLength()
 		return {
@@ -295,7 +296,7 @@ local function solve_swept_sphere_capsule_collision(sphere_body, capsule_body, d
 	local current_position = sweep.current_position
 	local movement = sweep.movement
 
-	if movement:GetLength() <= physics.EPSILON then return false end
+	if movement:GetLength() <= EPSILON then return false end
 
 	local segment_a, segment_b, capsule_radius = capsule_geometry.GetSegmentWorld(capsule_body)
 	SPHERE_CAPSULE_SWEEP_CALLBACK_CONTEXT.segment_a = segment_a
@@ -336,7 +337,7 @@ local function solve_swept_capsule_capsule_collision(dynamic_body, static_body, 
 	local current_position = sweep.current_position
 	local movement = sweep.movement
 
-	if movement:GetLength() <= physics.EPSILON then return false end
+	if movement:GetLength() <= EPSILON then return false end
 
 	local start_a, start_b, dynamic_radius = capsule_geometry.GetSegmentWorld(dynamic_body, previous_position, sweep.previous_rotation)
 	local end_a, end_b = capsule_geometry.GetSegmentWorld(dynamic_body)
@@ -347,7 +348,7 @@ local function solve_swept_capsule_capsule_collision(dynamic_body, static_body, 
 	local function evaluate(t)
 		local dynamic_a = start_a + (end_a - start_a) * t
 		local dynamic_b = start_b + (end_b - start_b) * t
-		local point_dynamic, point_static = segment_geometry.ClosestPointsBetweenSegments(dynamic_a, dynamic_b, static_a, static_b, physics.EPSILON)
+		local point_dynamic, point_static = segment_geometry.ClosestPointsBetweenSegments(dynamic_a, dynamic_b, static_a, static_b, EPSILON)
 		local delta = point_static - point_dynamic
 		local distance = delta:GetLength()
 		return {
@@ -385,7 +386,7 @@ end
 local function solve_capsule_sphere_collision(capsule_body, sphere_body, dt)
 	local a, b, capsule_radius = capsule_geometry.GetSegmentWorld(capsule_body)
 	local sphere_center = sphere_body:GetPosition()
-	local closest = segment_geometry.ClosestPointOnSegment(a, b, sphere_center, physics.EPSILON)
+	local closest = segment_geometry.ClosestPointOnSegment(a, b, sphere_center, EPSILON)
 	local delta = sphere_center - closest
 	local previous_sphere_center = sphere_body:GetPreviousPosition()
 	local previous_a, previous_b = capsule_geometry.GetSegmentWorld(
@@ -393,7 +394,7 @@ local function solve_capsule_sphere_collision(capsule_body, sphere_body, dt)
 		capsule_body:GetPreviousPosition(),
 		capsule_body:GetPreviousRotation()
 	)
-	local previous_closest = segment_geometry.ClosestPointOnSegment(previous_a, previous_b, previous_sphere_center, physics.EPSILON)
+	local previous_closest = segment_geometry.ClosestPointOnSegment(previous_a, previous_b, previous_sphere_center, EPSILON)
 	local sphere_radius = sphere_body:GetPhysicsShape():GetRadius()
 	local min_distance = capsule_radius + sphere_radius
 	local normal, distance = pair_solver_helpers.GetSafeCollisionNormal(
@@ -433,11 +434,11 @@ end
 local function solve_capsule_capsule_collision(body_a, body_b, dt)
 	local a0, a1, radius_a = capsule_geometry.GetSegmentWorld(body_a)
 	local b0, b1, radius_b = capsule_geometry.GetSegmentWorld(body_b)
-	local point_a, point_b = segment_geometry.ClosestPointsBetweenSegments(a0, a1, b0, b1, physics.EPSILON)
+	local point_a, point_b = segment_geometry.ClosestPointsBetweenSegments(a0, a1, b0, b1, EPSILON)
 	local delta = point_b - point_a
 	local previous_a0, previous_a1 = capsule_geometry.GetSegmentWorld(body_a, body_a:GetPreviousPosition(), body_a:GetPreviousRotation())
 	local previous_b0, previous_b1 = capsule_geometry.GetSegmentWorld(body_b, body_b:GetPreviousPosition(), body_b:GetPreviousRotation())
-	local previous_point_a, previous_point_b = segment_geometry.ClosestPointsBetweenSegments(previous_a0, previous_a1, previous_b0, previous_b1, physics.EPSILON)
+	local previous_point_a, previous_point_b = segment_geometry.ClosestPointsBetweenSegments(previous_a0, previous_a1, previous_b0, previous_b1, EPSILON)
 	local min_distance = radius_a + radius_b
 	local normal, distance = pair_solver_helpers.GetSafeCollisionNormal(
 		delta,
@@ -472,7 +473,7 @@ local function solve_capsule_capsule_collision(body_a, body_b, dt)
 	then
 		local previous_distance = (previous_point_b - previous_point_a):GetLength()
 
-		if previous_distance > min_distance + physics.EPSILON then
+		if previous_distance > min_distance + EPSILON then
 			local swept = solve_swept_capsule_capsule_collision(dynamic_body, static_body, dt)
 
 			if swept then return swept end

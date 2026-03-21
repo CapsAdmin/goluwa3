@@ -1,10 +1,11 @@
-local physics = import("goluwa/physics.lua")
+local physics_constants = import("goluwa/physics/constants.lua")
 local contact_resolution = import("goluwa/physics/contact_resolution.lua")
 local mesh_contact_common = import("goluwa/physics/mesh_contact_common.lua")
 local polyhedron_triangle_aggregator = import("goluwa/physics/polyhedron/triangle_aggregator.lua")
 local triangle_contact_queries = import("goluwa/physics/triangle_contact_queries.lua")
 local triangle_geometry = import("goluwa/physics/triangle_geometry.lua")
 local mesh_polyhedron_contacts = {}
+local EPSILON = physics_constants.EPSILON
 local SOLVE_MESH_POLYHEDRON_CONTEXT = {
 	mesh_body = nil,
 	poly_body = nil,
@@ -38,7 +39,7 @@ local function solve_mesh_polyhedron_triangle(v0, v1, v2, triangle_index, contex
 		v1,
 		v2,
 		{
-			epsilon = physics.EPSILON,
+			epsilon = EPSILON,
 			triangle_slop = (mesh_body:GetCollisionMargin() or 0) + (poly_body:GetCollisionMargin() or 0),
 			manifold_merge_distance = 0.08,
 			face_axis_relative_tolerance = 1.05,
@@ -91,7 +92,7 @@ function mesh_polyhedron_contacts.AccumulateSampleContacts(state, mesh_body, pol
 
 	for _, sample in ipairs(samples) do
 		local result = triangle_contact_queries.QueryPointSample(poly_body, sample.point, v0, v1, v2, {
-			epsilon = physics.EPSILON,
+			epsilon = EPSILON,
 		})
 
 		if result then
@@ -107,7 +108,7 @@ function mesh_polyhedron_contacts.AccumulateSampleContacts(state, mesh_body, pol
 			)
 			local overlap = combined_margin - result.surface_distance
 
-			if normal and overlap > physics.EPSILON then
+			if normal and overlap > EPSILON then
 				if overlap > (state.best_overlap or 0) then
 					state.best_overlap = overlap
 					state.best_normal = normal
@@ -163,7 +164,7 @@ function mesh_polyhedron_contacts.SolveMeshPolyhedronCollision(mesh_body, poly_b
 	SOLVE_MESH_POLYHEDRON_CONTEXT.state = nil
 	SOLVE_MESH_POLYHEDRON_CONTEXT.samples = nil
 
-	if not (state.best_normal and state.best_overlap > physics.EPSILON) then
+	if not (state.best_normal and state.best_overlap > EPSILON) then
 		return false
 	end
 

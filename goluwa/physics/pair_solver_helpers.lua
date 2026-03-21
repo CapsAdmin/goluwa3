@@ -1,8 +1,10 @@
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local physics = import("goluwa/physics.lua")
+local physics_constants = import("goluwa/physics/constants.lua")
 local contact_resolution = import("goluwa/physics/contact_resolution.lua")
 local pair_solver_helpers = {}
+local EPSILON = physics_constants.EPSILON
 local axis_data = {
 	{"x", Vec3(-1, 0, 0), Vec3(1, 0, 0)},
 	{"y", Vec3(0, -1, 0), Vec3(0, 1, 0)},
@@ -20,7 +22,7 @@ local function normalize_candidate(vec)
 
 	local length = vec:GetLength()
 
-	if length <= physics.EPSILON then return nil, 0 end
+	if length <= EPSILON then return nil, 0 end
 
 	return vec / length, length
 end
@@ -41,11 +43,11 @@ function pair_solver_helpers.IsSimpleBody(collider_list)
 	local collider = collider_list[1]
 	local local_position = collider:GetLocalPosition()
 	local local_rotation = collider:GetLocalRotation()
-	return local_position:GetLength() <= physics.EPSILON and
-		math.abs(local_rotation.x) <= physics.EPSILON and
-		math.abs(local_rotation.y) <= physics.EPSILON and
-		math.abs(local_rotation.z) <= physics.EPSILON and
-		math.abs(local_rotation.w - 1) <= physics.EPSILON
+	return local_position:GetLength() <= EPSILON and
+		math.abs(local_rotation.x) <= EPSILON and
+		math.abs(local_rotation.y) <= EPSILON and
+		math.abs(local_rotation.z) <= EPSILON and
+		math.abs(local_rotation.w - 1) <= EPSILON
 end
 
 function pair_solver_helpers.TryInvokePairHandler(solver, body_a, body_b, entry_a, entry_b, dt)
@@ -295,7 +297,7 @@ function pair_solver_helpers.FindDistanceTimeOfImpact(evaluate, hit_distance, re
 		local approach_speed = math.max(0, -(relative_velocity or Vec3(0, 0, 0)):Dot(normal))
 		local next_t
 
-		if approach_speed > physics.EPSILON then
+		if approach_speed > EPSILON then
 			next_t = math.min(
 				1,
 				t + math.max((current.distance - hit_distance) / approach_speed, 1 / sample_steps)
@@ -304,7 +306,7 @@ function pair_solver_helpers.FindDistanceTimeOfImpact(evaluate, hit_distance, re
 			next_t = math.min(1, t + (1 / sample_steps))
 		end
 
-		if next_t <= t + physics.EPSILON then break end
+		if next_t <= t + EPSILON then break end
 
 		local next_result = evaluate_context ~= nil and
 			evaluate(evaluate_context, next_t) or
@@ -326,7 +328,7 @@ function pair_solver_helpers.FindDistanceTimeOfImpact(evaluate, hit_distance, re
 		t = next_t
 		current = next_result
 
-		if t >= 1 - physics.EPSILON then break end
+		if t >= 1 - EPSILON then break end
 	end
 
 	local previous_t = 0
@@ -385,7 +387,7 @@ end
 function pair_solver_helpers.SweepPointAgainstBox(box_body, start_world, end_world, extra_radius)
 	local movement_world = end_world - start_world
 
-	if movement_world:GetLength() <= physics.EPSILON then return nil end
+	if movement_world:GetLength() <= EPSILON then return nil end
 
 	local start_local = box_body:WorldToLocal(start_world)
 	local end_local = box_body:WorldToLocal(end_world)
@@ -403,7 +405,7 @@ function pair_solver_helpers.SweepPointAgainstBox(box_body, start_world, end_wor
 		local min_value = -extents[name] - extra_radius
 		local max_value = extents[name] + extra_radius
 
-		if math.abs(d) <= physics.EPSILON then
+		if math.abs(d) <= EPSILON then
 			if s < min_value or s > max_value then return nil end
 		else
 			local enter_t
@@ -454,7 +456,7 @@ function pair_solver_helpers.GetBoxContactForPoint(box_body, point, radius, move
 	local overlap = radius - distance
 	local normal
 
-	if distance > physics.EPSILON then
+	if distance > EPSILON then
 		normal = delta / distance
 	elseif
 		math.abs(local_point.x) <= extents.x and
@@ -490,7 +492,7 @@ function pair_solver_helpers.GetBoxContactForPoint(box_body, point, radius, move
 			local sign = math.sign(candidate.center)
 
 			if sign == 0 then
-				if math.abs(candidate.movement) > physics.EPSILON then
+				if math.abs(candidate.movement) > EPSILON then
 					sign = math.sign(-candidate.movement)
 				else
 					sign = 1
@@ -502,10 +504,10 @@ function pair_solver_helpers.GetBoxContactForPoint(box_body, point, radius, move
 
 			if
 				not best or
-				candidate.overlap < best.overlap - physics.EPSILON or
+				candidate.overlap < best.overlap - EPSILON or
 				(
-					math.abs(candidate.overlap - best.overlap) <= physics.EPSILON and
-					candidate.motion_weight > best.motion_weight + physics.EPSILON
+					math.abs(candidate.overlap - best.overlap) <= EPSILON and
+					candidate.motion_weight > best.motion_weight + EPSILON
 				)
 			then
 				best = candidate
@@ -540,7 +542,7 @@ end
 function pair_solver_helpers.SweepPointAgainstPolyhedron(static_body, polyhedron, start_world, end_world, extra_radius, position, rotation)
 	local movement_world = end_world - start_world
 
-	if movement_world:GetLength() <= physics.EPSILON then return nil end
+	if movement_world:GetLength() <= EPSILON then return nil end
 
 	position = position or static_body:GetPosition()
 	rotation = rotation or static_body:GetRotation()
@@ -558,7 +560,7 @@ function pair_solver_helpers.SweepPointAgainstPolyhedron(static_body, polyhedron
 		local start_distance = face.normal:Dot(start_local) - plane_distance
 		local delta_distance = face.normal:Dot(movement_local)
 
-		if math.abs(delta_distance) <= physics.EPSILON then
+		if math.abs(delta_distance) <= EPSILON then
 			if start_distance > 0 then return nil end
 		else
 			local hit_t = -start_distance / delta_distance
@@ -595,7 +597,7 @@ function pair_solver_helpers.ResolveSweptHit(
 )
 	local hit_fraction = math.max(0, math.min(1, hit.t))
 	local normal = hit.normal
-	dynamic_body.Position = start_world + movement_world * math.max(0, hit_fraction - physics.EPSILON)
+	dynamic_body.Position = start_world + movement_world * math.max(0, hit_fraction - EPSILON)
 	contact_resolution.ApplyPairImpulse(static_body, dynamic_body, normal, dt)
 	contact_resolution.MarkPairGrounding(static_body, dynamic_body, normal)
 	physics.collision_pairs:RecordCollisionPair(static_body, dynamic_body, normal, 0)
@@ -603,7 +605,7 @@ function pair_solver_helpers.ResolveSweptHit(
 	if allow_remaining_motion then
 		local remaining_fraction = 1 - hit_fraction
 
-		if remaining_fraction > physics.EPSILON then
+		if remaining_fraction > EPSILON then
 			local post_velocity = dynamic_body:GetVelocity()
 			dynamic_body.Position = dynamic_body.Position + post_velocity * (dt * remaining_fraction)
 			dynamic_body.PreviousPosition = dynamic_body.Position - post_velocity * dt
@@ -627,7 +629,7 @@ function pair_solver_helpers.ResolveRelativeSweptPairHit(
 	point_b
 )
 	local hit_fraction = math.max(0, math.min(1, hit.t))
-	local safe_fraction = math.max(0, hit_fraction - physics.EPSILON)
+	local safe_fraction = math.max(0, hit_fraction - EPSILON)
 	local normal = hit.normal
 	body_a.Position = start_a + move_a * safe_fraction
 	body_b.Position = start_b + move_b * safe_fraction
@@ -638,7 +640,7 @@ function pair_solver_helpers.ResolveRelativeSweptPairHit(
 	if allow_remaining_motion then
 		local remaining_fraction = 1 - hit_fraction
 
-		if remaining_fraction > physics.EPSILON then
+		if remaining_fraction > EPSILON then
 			local velocity_a = body_a:GetVelocity()
 			local velocity_b = body_b:GetVelocity()
 			body_a.Position = body_a.Position + velocity_a * (dt * remaining_fraction)

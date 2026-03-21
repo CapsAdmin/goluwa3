@@ -1,6 +1,6 @@
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
-local physics = import("goluwa/physics.lua")
+local physics_constants = import("goluwa/physics/constants.lua")
 local motion = import("goluwa/physics/motion.lua")
 local prototype = import("goluwa/prototype.lua")
 local DistanceConstraint = prototype.CreateTemplate("physics_constraint")
@@ -136,12 +136,12 @@ function DistanceConstraint:GetSolveDirection(world_pos0, world_pos1)
 	local delta = world_pos1 - world_pos0
 	local length = delta:GetLength()
 
-	if length > physics.EPSILON then
+	if length > physics_constants.EPSILON then
 		self.LastDirection = delta / length
 		return self.LastDirection, length
 	end
 
-	if self.LastDirection and self.LastDirection:GetLength() > physics.EPSILON then
+	if self.LastDirection and self.LastDirection:GetLength() > physics_constants.EPSILON then
 		return self.LastDirection, 0
 	end
 
@@ -149,7 +149,7 @@ function DistanceConstraint:GetSolveDirection(world_pos0, world_pos1)
 		local body_delta = self.Body1.Position - self.Body0.Position
 		local body_length = body_delta:GetLength()
 
-		if body_length > physics.EPSILON then
+		if body_length > physics_constants.EPSILON then
 			self.LastDirection = body_delta / body_length
 			return self.LastDirection, 0
 		end
@@ -172,7 +172,7 @@ function DistanceConstraint:Solve(dt)
 
 	if not error then return 0 end
 
-	if math.abs(error) <= physics.EPSILON then
+	if math.abs(error) <= physics_constants.EPSILON then
 		if self.Unilateral then self.AccumulatedLambda = 0 end
 
 		return 0

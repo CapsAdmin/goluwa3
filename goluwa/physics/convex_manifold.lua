@@ -1,4 +1,4 @@
-local physics = import("goluwa/physics.lua")
+local physics_constants = import("goluwa/physics/constants.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local convex_manifold = {}
 
@@ -206,22 +206,24 @@ function convex_manifold.ClosestPointsOnSegments(start_a, end_a, start_b, end_b)
 	local s
 	local t
 
-	if a <= physics.EPSILON and e <= physics.EPSILON then return start_a, start_b end
+	if a <= physics_constants.EPSILON and e <= physics_constants.EPSILON then
+		return start_a, start_b
+	end
 
-	if a <= physics.EPSILON then
+	if a <= physics_constants.EPSILON then
 		s = 0
 		t = clamp01(f / e)
 	else
 		local c = direction_a:Dot(delta)
 
-		if e <= physics.EPSILON then
+		if e <= physics_constants.EPSILON then
 			t = 0
 			s = clamp01(-c / a)
 		else
 			local b = direction_a:Dot(direction_b)
 			local denominator = a * e - b * b
 
-			if math.abs(denominator) > physics.EPSILON then
+			if math.abs(denominator) > physics_constants.EPSILON then
 				s = clamp01((b * f - c * e) / denominator)
 			else
 				s = 0

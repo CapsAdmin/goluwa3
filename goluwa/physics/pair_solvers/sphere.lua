@@ -1,11 +1,12 @@
 local Vec3 = import("goluwa/structs/vec3.lua")
-local physics = import("goluwa/physics.lua")
+local physics_constants = import("goluwa/physics/constants.lua")
 local pair_solver_helpers = import("goluwa/physics/pair_solver_helpers.lua")
 local contact_resolution = import("goluwa/physics/contact_resolution.lua")
 local polyhedron_solver = import("goluwa/physics/pair_solvers/polyhedron.lua")
 local triangle_contact_queries = import("goluwa/physics/triangle_contact_queries.lua")
 local triangle_geometry = import("goluwa/physics/triangle_geometry.lua")
 local sphere = {}
+local EPSILON = physics_constants.EPSILON
 local SWEPT_SPHERE_BOX_POINT_CALLBACK_CONTEXT = {
 	box_body = nil,
 	descending_from_above = false,
@@ -28,7 +29,7 @@ local function get_convex_face_projection_point(vertices, face, point, normal, s
 		if
 			b and
 			c and
-			triangle_geometry.PointInTriangle(projected, a, b, c, normal, physics.EPSILON)
+			triangle_geometry.PointInTriangle(projected, a, b, c, normal, EPSILON)
 		then
 			return projected
 		end
@@ -50,7 +51,7 @@ local function evaluate_swept_sphere_box_point(context, start_point_world, end_p
 		hit and
 		not (
 			context.descending_from_above and
-			hit.normal_local.y <= physics.EPSILON
+			hit.normal_local.y <= EPSILON
 		)
 	then
 		return hit
@@ -79,18 +80,18 @@ function sphere.SolveSpherePairCollision(body_a, body_b, dt)
 		local relative_move = move_b - move_a
 		local sweep_a = relative_move:Dot(relative_move)
 
-		if sweep_a > physics.EPSILON then
+		if sweep_a > EPSILON then
 			local sweep_b = 2 * relative_start:Dot(relative_move)
 			local sweep_c = relative_start:Dot(relative_start) - min_distance * min_distance
 			local discriminant = sweep_b * sweep_b - 4 * sweep_a * sweep_c
 
-			if discriminant >= 0 and sweep_c > physics.EPSILON then
+			if discriminant >= 0 and sweep_c > EPSILON then
 				local sqrt_discriminant = math.sqrt(discriminant)
 				local hit_fraction = (-sweep_b - sqrt_discriminant) / (2 * sweep_a)
 
 				if hit_fraction >= 0 and hit_fraction <= 1 then
-					local hit_pos_a = start_a + move_a * math.max(0, hit_fraction - physics.EPSILON)
-					local hit_pos_b = start_b + move_b * math.max(0, hit_fraction - physics.EPSILON)
+					local hit_pos_a = start_a + move_a * math.max(0, hit_fraction - EPSILON)
+					local hit_pos_b = start_b + move_b * math.max(0, hit_fraction - EPSILON)
 					local hit_normal = pair_solver_helpers.GetSafeCollisionNormal(
 						hit_pos_b - hit_pos_a,
 						body_b:GetVelocity() - body_a:GetVelocity(),
@@ -156,10 +157,10 @@ local function solve_swept_sphere_box_collision(sphere_body, box_body, dt)
 	local start_local_center = box_body:WorldToLocal(start_world)
 	local end_local_center = box_body:WorldToLocal(end_world)
 	local center_movement_local = end_local_center - start_local_center
-	local descending_from_above = start_local_center.y > extents.y + physics.EPSILON and
-		center_movement_local.y < -physics.EPSILON
+	local descending_from_above = start_local_center.y > extents.y + EPSILON and
+		center_movement_local.y < -EPSILON
 
-	if movement_world:GetLength() <= physics.EPSILON then return false end
+	if movement_world:GetLength() <= EPSILON then return false end
 
 	SWEPT_SPHERE_BOX_POINT_CALLBACK_CONTEXT.box_body = box_body
 	SWEPT_SPHERE_BOX_POINT_CALLBACK_CONTEXT.descending_from_above = descending_from_above
@@ -190,10 +191,7 @@ function sphere.SolveSphereBoxCollision(sphere_body, box_body, dt)
 	local extents = box_body:GetPhysicsShape():GetExtents()
 	local sphere_radius = sphere_body:GetSphereRadius()
 
-	if
-		previous_local_center.y > extents.y + physics.EPSILON and
-		movement_local.y < -physics.EPSILON
-	then
+	if previous_local_center.y > extents.y + EPSILON and movement_local.y < -EPSILON then
 		local top_local = Vec3(
 			math.clamp(local_center.x, -extents.x, extents.x),
 			extents.y,
@@ -204,10 +202,10 @@ function sphere.SolveSphereBoxCollision(sphere_body, box_body, dt)
 		local top_distance = top_delta:GetLength()
 		local top_overlap = sphere_radius - top_distance
 
-		if top_overlap > -physics.EPSILON then
+		if top_overlap > -EPSILON then
 			local top_normal
 
-			if top_distance > physics.EPSILON then
+			if top_distance > EPSILON then
 				top_normal = top_delta / top_distance
 			else
 				top_normal = box_body:GetRotation():VecMul(Vec3(0, 1, 0)):GetNormalized()
@@ -217,7 +215,7 @@ function sphere.SolveSphereBoxCollision(sphere_body, box_body, dt)
 				box_body,
 				sphere_body,
 				top_normal,
-				math.max(top_overlap, physics.EPSILON),
+				math.max(top_overlap, EPSILON),
 				dt,
 				top_world,
 				center - top_normal * sphere_radius
@@ -295,7 +293,7 @@ function sphere.SolveSphereConvexCollision(sphere_body, convex_body, dt)
 		end
 	end
 
-	if not inside and nearest_face_distance > sphere_radius + physics.EPSILON then
+	if not inside and nearest_face_distance > sphere_radius + EPSILON then
 		return solve_swept_sphere_convex_collision(sphere_body, convex_body, dt)
 	end
 
@@ -311,12 +309,12 @@ function sphere.SolveSphereConvexCollision(sphere_body, convex_body, dt)
 		if projected_face_point then
 			local overlap = sphere_radius - nearest_face_distance
 
-			if overlap > -physics.EPSILON then
+			if overlap > -EPSILON then
 				return contact_resolution.ResolvePairPenetration(
 					convex_body,
 					sphere_body,
 					nearest_face_normal,
-					math.max(overlap, physics.EPSILON),
+					math.max(overlap, EPSILON),
 					dt,
 					projected_face_point,
 					center - nearest_face_normal * sphere_radius
@@ -335,7 +333,7 @@ function sphere.SolveSphereConvexCollision(sphere_body, convex_body, dt)
 			b,
 			c,
 			{
-				epsilon = physics.EPSILON,
+				epsilon = EPSILON,
 				fallback_normal = nearest_face_normal,
 			}
 		)
@@ -364,7 +362,7 @@ function sphere.SolveSphereConvexCollision(sphere_body, convex_body, dt)
 		point_a = center - normal * nearest_face_distance
 		point_b = center - normal * sphere_radius
 	elseif best_point and best_distance < sphere_radius then
-		if best_distance > physics.EPSILON then
+		if best_distance > EPSILON then
 			normal = (center - best_point) / best_distance
 		else
 			normal = nearest_face_normal or Vec3(0, 1, 0)

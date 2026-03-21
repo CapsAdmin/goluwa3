@@ -1,4 +1,4 @@
-local physics = import("goluwa/physics.lua")
+local physics_constants = import("goluwa/physics/constants.lua")
 local pair_solver_helpers = import("goluwa/physics/pair_solver_helpers.lua")
 local contact_resolution = import("goluwa/physics/contact_resolution.lua")
 local convex_manifold = import("goluwa/physics/convex_manifold.lua")
@@ -8,6 +8,7 @@ local polyhedron_sat = import("goluwa/physics/polyhedron/sat.lua")
 local polyhedron_cache = import("goluwa/physics/polyhedron/cache.lua")
 local polyhedron_geometry = import("goluwa/physics/polyhedron/geometry.lua")
 local polyhedron = {}
+local EPSILON = physics_constants.EPSILON
 local FACE_CONTACT_SEPARATION_TOLERANCE = 0.08
 local FACE_AXIS_RELATIVE_TOLERANCE = 1.05
 local FACE_AXIS_ABSOLUTE_TOLERANCE = 0.03
@@ -104,7 +105,7 @@ local function solve_swept_polyhedron_polyhedron_collision(dynamic_body, static_
 	local current_position = sweep.current_position
 	local movement = sweep.movement
 
-	if movement:GetLength() <= physics.EPSILON then return false end
+	if movement:GetLength() <= EPSILON then return false end
 
 	local earliest_hit = pair_solver_helpers.FindEarliestBodyPointSweepHit(
 		dynamic_body,
@@ -149,7 +150,7 @@ local function evaluate_polyhedron_pair_at_transforms(poly_a, position_a, rotati
 		rotation_a,
 		center_delta,
 		"a",
-		physics.EPSILON
+		EPSILON
 	)
 	polyhedron_sat.UpdateFaceAxisCandidates(
 		best,
@@ -159,7 +160,7 @@ local function evaluate_polyhedron_pair_at_transforms(poly_a, position_a, rotati
 		rotation_b,
 		center_delta,
 		"b",
-		physics.EPSILON
+		EPSILON
 	)
 	polyhedron_sat.UpdateEdgeAxisCandidates(
 		best,
@@ -170,7 +171,7 @@ local function evaluate_polyhedron_pair_at_transforms(poly_a, position_a, rotati
 		poly_b,
 		rotation_b,
 		center_delta,
-		physics.EPSILON
+		EPSILON
 	)
 	local chosen = convex_sat.ChoosePreferredAxis(best, FACE_AXIS_RELATIVE_TOLERANCE, FACE_AXIS_ABSOLUTE_TOLERANCE)
 	local best_overlap = chosen and chosen.overlap or math.huge
@@ -262,7 +263,7 @@ local function solve_relative_swept_polyhedron_pair_collision(body_a, body_b, po
 	local movement_b = sweep_b.movement
 	local relative_movement = movement_a - movement_b
 
-	if relative_movement:GetLength() <= physics.EPSILON then return false end
+	if relative_movement:GetLength() <= EPSILON then return false end
 
 	local earliest_hit = pair_solver_helpers.FindEarliestBodyPointSweepHit(
 		body_a,
@@ -395,7 +396,7 @@ function polyhedron.SolvePolyhedronPairCollision(body_a, body_b, dt)
 		body_a:GetRotation(),
 		center_delta,
 		"a",
-		physics.EPSILON
+		EPSILON
 	)
 	polyhedron_sat.UpdateFaceAxisCandidates(
 		best,
@@ -405,7 +406,7 @@ function polyhedron.SolvePolyhedronPairCollision(body_a, body_b, dt)
 		body_b:GetRotation(),
 		center_delta,
 		"b",
-		physics.EPSILON
+		EPSILON
 	)
 	polyhedron_sat.UpdateEdgeAxisCandidates(
 		best,
@@ -416,7 +417,7 @@ function polyhedron.SolvePolyhedronPairCollision(body_a, body_b, dt)
 		poly_b,
 		body_b:GetRotation(),
 		center_delta,
-		physics.EPSILON
+		EPSILON
 	)
 	local chosen = convex_sat.ChoosePreferredAxis(best, FACE_AXIS_RELATIVE_TOLERANCE, FACE_AXIS_ABSOLUTE_TOLERANCE)
 	local best_overlap = chosen and chosen.overlap or math.huge
