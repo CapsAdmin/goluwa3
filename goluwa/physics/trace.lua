@@ -8,8 +8,8 @@ local function should_query_body_as_world(body, options)
 end
 
 local function has_world_geometry_bodies()
-	for _, body in ipairs(RigidBodyComponent.Instances or {}) do
-		if physics.IsActiveRigidBody(body) and body.WorldGeometry == true then return true end
+	for _, body in ipairs(RigidBodyComponent.Instances) do
+		if body.WorldGeometry == true then return true end
 	end
 
 	return false
@@ -26,10 +26,7 @@ local function normalize_query_options(options)
 		options.IgnoreKinematicBodies = not options.IncludeKinematicBodies
 	end
 
-	if
-		options.IncludeWorld ~= nil and
-		options.UseRenderMeshes == nil
-	then
+	if options.IncludeWorld ~= nil and options.UseRenderMeshes == nil then
 		options.UseRenderMeshes = options.IncludeWorld
 	end
 
@@ -151,18 +148,14 @@ function physics.Trace(origin, direction, max_distance, ignore_entity, filter_fn
 	if allow_rigid or options.IgnoreWorld ~= true then
 		local trace_radius = options.TraceRadius or 0
 
-		for _, body in ipairs(RigidBodyComponent.Instances or {}) do
+		for _, body in ipairs(RigidBodyComponent.Instances) do
 			local query_as_world = should_query_body_as_world(body, options)
 
 			if not (allow_rigid or query_as_world) then goto continue end
 
-			if not (physics.IsActiveRigidBody(body) and body.Owner ~= ignore_entity) then
-				goto continue
-			end
+			if body.Owner == ignore_entity then goto continue end
 
-			if body.Owner and (body.Owner.PhysicsNoCollision or body.Owner.NoPhysicsCollision) then
-				goto continue
-			end
+			if not body.CollisionEnabled then goto continue end
 
 			if
 				not query_as_world and

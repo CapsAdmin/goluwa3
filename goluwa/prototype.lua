@@ -984,6 +984,29 @@ do -- base object
 		prototype.remove_these = prototype.remove_these or {}
 		local event_added = false
 
+		local function remove_from_instances(obj)
+			if obj.__removed_from_instances then return end
+
+			local instances = obj.Instances
+			local removed = false
+
+			if instances then
+				for i, v in ipairs(instances) do
+					if v == obj then
+						list.remove(instances, i)
+						removed = true
+						break
+					end
+				end
+			end
+
+			obj.__removed_from_instances = true
+
+			if removed and instances and not instances[1] and obj.OnLastRemoved then
+				obj:OnLastRemoved()
+			end
+		end
+
 		function META:Remove(...)
 			if self.__removed then return end
 
@@ -1008,6 +1031,7 @@ do -- base object
 			end
 
 			if self.OnRemove then self:OnRemove(...) end
+			remove_from_instances(self)
 
 			if not event_added and event then
 				event.AddListener("Update", "prototype_remove_objects", prototype.CheckRemovedObjects)
@@ -1021,19 +1045,7 @@ do -- base object
 		function prototype.CheckRemovedObjects()
 			if #prototype.remove_these > 0 then
 				for _, obj in ipairs(prototype.remove_these) do
-					if obj.Instances then
-						for i, v in ipairs(obj.Instances) do
-							if v == obj then
-								list.remove(obj.Instances, i)
-
-								break
-							end
-						end
-					end
-
-					if obj.Instances and not obj.Instances[1] and obj.OnLastRemoved then
-						obj:OnLastRemoved()
-					end
+					remove_from_instances(obj)
 
 					prototype.created_objects[obj] = nil
 					prototype.MakeNULL(obj)

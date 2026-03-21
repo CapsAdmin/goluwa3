@@ -1,5 +1,6 @@
 local T = import("test/environment.lua")
 local physics = import("goluwa/physics.lua")
+local RigidBodyComponent = import("goluwa/physics/rigid_body.lua")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
 local Entity = import("goluwa/ecs/entity.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
@@ -140,4 +141,21 @@ T.Test3D("Rigid spheres separate without exploding", function()
 	sphere_a:Remove()
 	sphere_b:Remove()
 	ground:Remove()
+end)
+
+T.Test("Rigid body removal prunes Instances immediately", function()
+	local entity = Entity.New({Name = "rigid_body_instance_cleanup"})
+	entity:AddComponent("transform")
+	local body = entity:AddComponent("rigid_body", {
+		Shape = sphere_shape(0.5),
+		Radius = 0.5,
+	})
+	local instances = RigidBodyComponent.Instances
+	local before = #instances
+	entity:Remove()
+	T(#instances)["=="](before - 1)
+
+	for i = 1, #instances do
+		T(instances[i])["~="](body)
+	end
 end)

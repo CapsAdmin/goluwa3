@@ -162,7 +162,6 @@ local function get_awake_color(snapshot)
 	return 0.52, 0.72, 1.0
 end
 
-
 local function get_pair_manifold(body_a, body_b)
 	local solver = physics.solver
 
@@ -197,6 +196,7 @@ local function collect_body_contacts(body)
 	local collision_pairs = physics.collision_pairs
 
 	if not collision_pairs then return contacts end
+
 	local seen_pairs = setmetatable({}, {__mode = "k"})
 	local seen_world = setmetatable({}, {__mode = "k"})
 
@@ -478,22 +478,22 @@ local function draw_trace_hit(body, hit)
 	local hit_id = "physics_debug_trace_hit_" .. get_body_debug_id(body)
 	local normal = hit.normal or hit.face_normal or get_world_up()
 	local end_pos = hit.position + normal * overlay_config.hit_normal_length
-	debug_draw.DrawSphere({
+	debug_draw.DrawSphere{
 		id = hit_id .. "_point",
 		position = hit.position,
 		radius = overlay_config.hit_marker_radius,
 		color = {0.95, 0.15, 0.95, 0.95},
 		ignore_z = true,
 		time = overlay_config.debug_draw_time,
-	})
-	debug_draw.DrawLine({
+	}
+	debug_draw.DrawLine{
 		id = hit_id .. "_normal",
 		from = hit.position,
 		to = end_pos,
 		color = {1.0, 0.45, 1.0, 0.95},
 		width = 2,
 		time = overlay_config.debug_draw_time,
-	})
+	}
 end
 
 local function draw_broadphase_bounds(body, snapshot)
@@ -501,13 +501,13 @@ local function draw_broadphase_bounds(body, snapshot)
 
 	if not bounds then return end
 
-	debug_draw.DrawWireAABB({
+	debug_draw.DrawWireAABB{
 		id = "physics_debug_broadphase_" .. get_body_debug_id(body),
 		aabb = bounds,
 		color = {0.4, 0.95, 1.0, 0.95},
 		width = 1,
 		time = overlay_config.debug_draw_time,
-	})
+	}
 end
 
 local function draw_contact_markers(body, contacts)
@@ -525,25 +525,25 @@ local function draw_contact_markers(body, contacts)
 			)
 			local normal = marker.normal or get_world_up()
 			local end_pos = marker.position + normal * overlay_config.contact_normal_length
-			debug_draw.DrawSphere({
+			debug_draw.DrawSphere{
 				id = marker_id .. "_point",
 				position = marker.position,
 				radius = 0.045,
 				color = {1.0, 0.38, 0.24, 0.95},
 				ignore_z = true,
 				time = overlay_config.debug_draw_time,
-			})
-			debug_draw.DrawLine({
+			}
+			debug_draw.DrawLine{
 				id = marker_id .. "_normal",
 				from = marker.position,
 				to = end_pos,
 				color = {1.0, 0.75, 0.28, 0.95},
 				width = 2,
 				time = overlay_config.debug_draw_time,
-			})
+			}
 
 			if marker.normal_impulse and marker.normal_impulse > 0.01 then
-				debug_draw.DrawText({
+				debug_draw.DrawText{
 					id = marker_id .. "_impulse",
 					position = marker.position,
 					lines = {"imp " .. format_number(marker.normal_impulse)},
@@ -552,7 +552,7 @@ local function draw_contact_markers(body, contacts)
 					line_gap = 0,
 					background_alpha = 0.55,
 					time = overlay_config.debug_draw_time,
-				})
+				}
 			end
 
 			drawn = drawn + 1
@@ -572,7 +572,7 @@ local function draw_partner_badges(body, contacts)
 			local lines = get_partner_badge_lines(body, contact)
 
 			if lines then
-				debug_draw.DrawText({
+				debug_draw.DrawText{
 					id = string.format("physics_debug_partner_%s_%d", get_body_debug_id(body), contact_index),
 					position = get_body_label_anchor(other_body),
 					lines = lines,
@@ -582,7 +582,7 @@ local function draw_partner_badges(body, contacts)
 					background_alpha = 0.55,
 					title_color = {0.86, 0.92, 1.0},
 					time = overlay_config.debug_draw_time,
-				})
+				}
 				drawn = drawn + 1
 			end
 		end
@@ -605,14 +605,14 @@ local function draw_contact_links(body, contacts)
 		end
 
 		if target then
-			debug_draw.DrawLine({
+			debug_draw.DrawLine{
 				id = string.format("physics_debug_link_%s_%d", get_body_debug_id(body), contact_index),
 				from = start,
 				to = target,
 				color = {0.6, 0.85, 1.0, 0.7},
 				width = 1,
 				time = overlay_config.debug_draw_time,
-			})
+			}
 			drawn = drawn + 1
 		end
 	end
@@ -687,12 +687,22 @@ local function append_shape(model, body, shape, local_matrix)
 	end
 
 	if shape_type == "box" then
-		add_primitive(model, debug_draw.BuildPolyhedronPolygon(shape:GetPolyhedron()), shape_type, local_matrix)
+		add_primitive(
+			model,
+			debug_draw.BuildPolyhedronPolygon(shape:GetPolyhedron()),
+			shape_type,
+			local_matrix
+		)
 		return
 	end
 
 	if shape_type == "convex" then
-		add_primitive(model, debug_draw.BuildConvexPolygon(shape:GetResolvedHull(body)), shape_type, local_matrix)
+		add_primitive(
+			model,
+			debug_draw.BuildConvexPolygon(shape:GetResolvedHull(body)),
+			shape_type,
+			local_matrix
+		)
 		return
 	end
 
@@ -824,7 +834,6 @@ event.AddListener("KeyInput", "physics_debug_toggle", function(key, press)
 	if key == "n" then
 		debug_enabled = not debug_enabled
 		focused_body = nil
-
 		update_debug_visibility()
 
 		if debug_enabled then
@@ -847,15 +856,12 @@ event.AddListener("KeyInput", "physics_debug_toggle", function(key, press)
 					focused_body.Owner and
 					focused_body.Owner.IsValid and
 					focused_body.Owner:IsValid() and
-					focused_body.CollisionEnabled and
-					not focused_body.Owner.PhysicsNoCollision and
-					not focused_body.Owner.NoPhysicsCollision
+					focused_body.CollisionEnabled
 				then
 					ensure_debug_model(focused_body)
 				end
 
 				update_debug_visibility()
-
 			end)
 		else
 			event.RemoveListener("Update", "physics_debug_sync")

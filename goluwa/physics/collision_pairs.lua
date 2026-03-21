@@ -59,11 +59,7 @@ function CollisionPairs:ResetState()
 end
 
 function physics.ShouldBodiesCollide(body_a, body_b)
-	if not (body_a and body_b) or body_a == body_b then return false end
-
-	if not (physics.IsActiveRigidBody(body_a) and physics.IsActiveRigidBody(body_b)) then
-		return false
-	end
+	if body_a == body_b then return false end
 
 	local group_a = body_a.GetCollisionGroup and
 		body_a:GetCollisionGroup() or
@@ -88,19 +84,12 @@ function CollisionPairs:BeginCollisionFrame()
 end
 
 function CollisionPairs:GetCachedPair(body_a, body_b)
-	if not (body_a and body_b) then return nil, false end
-
-	body_a = body_a.GetBody and body_a:GetBody() or body_a
-	body_b = body_b.GetBody and body_b:GetBody() or body_b
 	local pair = get_nested_entry(self.CurrentCollisionPairs, body_a, body_b) or
 		get_nested_entry(self.PreviousCollisionPairs, body_a, body_b)
 	return pair, pair and pair.body_a ~= body_a or false
 end
 
 function CollisionPairs:BodyHasCurrentCollision(body)
-	if not body then return false end
-
-	body = body.GetBody and body:GetBody() or body
 	local row = self.CurrentCollisionPairs[body]
 	return row ~= nil and next(row) ~= nil
 end
@@ -110,8 +99,6 @@ function CollisionPairs:RecordCollisionPair(body_a, body_b, normal, overlap)
 
 	if not physics.ShouldBodiesCollide(body_a, body_b) then return end
 
-	body_a = body_a.GetBody and body_a:GetBody() or body_a
-	body_b = body_b.GetBody and body_b:GetBody() or body_b
 	local existing = get_nested_entry(self.CurrentCollisionPairs, body_a, body_b)
 	local stored_overlap = overlap or 0
 
@@ -136,10 +123,6 @@ function CollisionPairs:RecordCollisionPair(body_a, body_b, normal, overlap)
 end
 
 function CollisionPairs:RecordWorldCollision(body, hit, normal, overlap)
-	local physics = self:GetPhysics()
-
-	if not physics.IsActiveRigidBody(body) then return end
-
 	if not (hit and hit.entity) then return end
 
 	if hit.entity == body.Owner then return end

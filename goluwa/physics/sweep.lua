@@ -16,6 +16,7 @@ local model_transform_utils = import("goluwa/physics/model_transform_utils.lua")
 local RigidBodyComponent = import("goluwa/physics/rigid_body.lua")
 local AABB = import("goluwa/structs/aabb.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
+local RigidBody = import("goluwa/physics/rigid_body.lua")
 local POLYHEDRON_SWEEP_MIN_SAMPLE_STEPS = 4
 local POLYHEDRON_SWEEP_MAX_SAMPLE_STEPS = 18
 local POLYHEDRON_SWEEP_REFINE_STEPS = 10
@@ -58,7 +59,6 @@ local MESH_BODY_POINT_SWEEP_CONTEXT = {
 	entry = nil,
 	best_hit = nil,
 }
-
 local MESH_BODY_COLLIDER_SWEEP_CONTEXT = {
 	collider = nil,
 	polyhedron = nil,
@@ -73,14 +73,12 @@ local MESH_BODY_COLLIDER_SWEEP_CONTEXT = {
 	entry = nil,
 	best_hit = nil,
 }
-
 local POINT_CAPSULE_SEGMENT_EVALUATION_CONTEXT = {
 	start_world = nil,
 	movement = nil,
 	segment_a = nil,
 	segment_b = nil,
 }
-
 local TARGET_MOTION_POINT_CONTACT_CONTEXT = {
 	start_world = nil,
 	movement = nil,
@@ -89,7 +87,6 @@ local TARGET_MOTION_POINT_CONTACT_CONTEXT = {
 	evaluate_contact = nil,
 	evaluate_contact_context = nil,
 }
-
 local POLYHEDRON_BODY_SWEEP_SAMPLE_CONTEXT = {
 	polyhedron = nil,
 	start_position = nil,
@@ -100,7 +97,6 @@ local POLYHEDRON_BODY_SWEEP_SAMPLE_CONTEXT = {
 	scratch = nil,
 	movement = nil,
 }
-
 local POLYHEDRON_BODY_CAPSULE_SAMPLE_CONTEXT = {
 	collider = nil,
 	polyhedron = nil,
@@ -110,7 +106,6 @@ local POLYHEDRON_BODY_CAPSULE_SAMPLE_CONTEXT = {
 	start_position = nil,
 	rotation = nil,
 }
-
 local CAPSULE_BODY_POLYHEDRON_SAMPLE_CONTEXT = {
 	radius = 0,
 	max_fraction = 0,
@@ -120,7 +115,6 @@ local CAPSULE_BODY_POLYHEDRON_SAMPLE_CONTEXT = {
 	start_sample = nil,
 	end_sample = nil,
 }
-
 local CAPSULE_CAPSULE_SWEEP_CONTEXT = {
 	start_a = nil,
 	start_b = nil,
@@ -133,14 +127,7 @@ local CAPSULE_CAPSULE_SWEEP_CONTEXT = {
 }
 
 local function collect_mesh_body_point_sweep_hit(v0, v1, v2, triangle_index, context)
-	local wv0, wv1, wv2 = get_mesh_triangle_world_vertices(
-		context.collider,
-		context.target_position,
-		context.target_rotation,
-		v0,
-		v1,
-		v2
-	)
+	local wv0, wv1, wv2 = get_mesh_triangle_world_vertices(context.collider, context.target_position, context.target_rotation, v0, v1, v2)
 	local hit = sweep_sphere_against_triangle(
 		context.origin,
 		context.movement,
@@ -322,12 +309,12 @@ local function ensure_convex_helpers()
 end
 
 local function has_world_geometry_bodies()
-	local instances = RigidBodyComponent.Instances or {}
+	local instances = RigidBodyComponent.Instances
 
 	for i = 1, #instances do
 		local body = instances[i]
 
-		if physics.IsActiveRigidBody(body) and body.WorldGeometry == true then return true end
+		if body.WorldGeometry == true then return true end
 	end
 
 	return false
@@ -1200,13 +1187,13 @@ local function should_skip_model(model, ignore_entity, filter_fn, options)
 end
 
 local function should_skip_rigid_body(body, ignore_entity, filter_fn, options)
-	if not physics.IsActiveRigidBody(body) then return true end
+	if not body then return true end
+
+	if not body.CollisionEnabled then return true end
 
 	local owner = body.Owner
 
 	if not owner or owner == ignore_entity then return true end
-
-	if owner.PhysicsNoCollision or owner.NoPhysicsCollision then return true end
 
 	if
 		(
@@ -1256,26 +1243,109 @@ local function get_cached_candidate_aabb(cache, bounds, previous_bounds)
 	return cached_bounds
 end
 
-local function matches_candidate_pose(cache, current_position, current_rotation, previous_position, previous_rotation, has_previous)
+local function matches_candidate_pose(
+	cache,
+	current_position,
+	current_rotation,
+	previous_position,
+	previous_rotation,
+	has_previous
+)
 	return cache and
 		cache.has_previous == has_previous and
-		cache.current_px == (current_position and current_position.x or nil) and
-		cache.current_py == (current_position and current_position.y or nil) and
-		cache.current_pz == (current_position and current_position.z or nil) and
-		cache.current_rx == (current_rotation and current_rotation.x or nil) and
-		cache.current_ry == (current_rotation and current_rotation.y or nil) and
-		cache.current_rz == (current_rotation and current_rotation.z or nil) and
-		cache.current_rw == (current_rotation and current_rotation.w or nil) and
-		cache.previous_px == (previous_position and previous_position.x or nil) and
-		cache.previous_py == (previous_position and previous_position.y or nil) and
-		cache.previous_pz == (previous_position and previous_position.z or nil) and
-		cache.previous_rx == (previous_rotation and previous_rotation.x or nil) and
-		cache.previous_ry == (previous_rotation and previous_rotation.y or nil) and
-		cache.previous_rz == (previous_rotation and previous_rotation.z or nil) and
-		cache.previous_rw == (previous_rotation and previous_rotation.w or nil)
+		cache.current_px == (
+			current_position and
+			current_position.x or
+			nil
+		)
+		and
+		cache.current_py == (
+			current_position and
+			current_position.y or
+			nil
+		)
+		and
+		cache.current_pz == (
+			current_position and
+			current_position.z or
+			nil
+		)
+		and
+		cache.current_rx == (
+			current_rotation and
+			current_rotation.x or
+			nil
+		)
+		and
+		cache.current_ry == (
+			current_rotation and
+			current_rotation.y or
+			nil
+		)
+		and
+		cache.current_rz == (
+			current_rotation and
+			current_rotation.z or
+			nil
+		)
+		and
+		cache.current_rw == (
+			current_rotation and
+			current_rotation.w or
+			nil
+		)
+		and
+		cache.previous_px == (
+			previous_position and
+			previous_position.x or
+			nil
+		)
+		and
+		cache.previous_py == (
+			previous_position and
+			previous_position.y or
+			nil
+		)
+		and
+		cache.previous_pz == (
+			previous_position and
+			previous_position.z or
+			nil
+		)
+		and
+		cache.previous_rx == (
+			previous_rotation and
+			previous_rotation.x or
+			nil
+		)
+		and
+		cache.previous_ry == (
+			previous_rotation and
+			previous_rotation.y or
+			nil
+		)
+		and
+		cache.previous_rz == (
+			previous_rotation and
+			previous_rotation.z or
+			nil
+		)
+		and
+		cache.previous_rw == (
+			previous_rotation and
+			previous_rotation.w or
+			nil
+		)
 end
 
-local function store_candidate_pose(cache, current_position, current_rotation, previous_position, previous_rotation, has_previous)
+local function store_candidate_pose(
+	cache,
+	current_position,
+	current_rotation,
+	previous_position,
+	previous_rotation,
+	has_previous
+)
 	cache.has_previous = has_previous
 	cache.current_px = current_position and current_position.x or nil
 	cache.current_py = current_position and current_position.y or nil
@@ -1300,37 +1370,68 @@ local function get_rigid_body_candidate_aabb(body)
 	local current_rotation = body.GetRotation and body:GetRotation() or nil
 	local previous_position = body.GetPreviousPosition and body:GetPreviousPosition() or nil
 	local previous_rotation = body.GetPreviousRotation and body:GetPreviousRotation() or nil
-	local has_previous = current_position and current_rotation and previous_position and previous_rotation and true or false
+	local has_previous = current_position and
+		current_rotation and
+		previous_position and
+		previous_rotation and
+		true or
+		false
 	local cache = body.sweep_candidate_aabb_cache
 
-	if matches_candidate_pose(cache, current_position, current_rotation, previous_position, previous_rotation, has_previous) then
+	if
+		matches_candidate_pose(
+			cache,
+			current_position,
+			current_rotation,
+			previous_position,
+			previous_rotation,
+			has_previous
+		)
+	then
 		return cache.bounds
 	end
 
 	local bounds = body:GetBroadphaseAABB(current_position, current_rotation)
 
-	if
-		not bounds or
-		not has_previous
-	then
+	if not bounds or not has_previous then
 		cache = cache or {}
 		body.sweep_candidate_aabb_cache = cache
-		store_candidate_pose(cache, current_position, current_rotation, previous_position, previous_rotation, false)
+		store_candidate_pose(
+			cache,
+			current_position,
+			current_rotation,
+			previous_position,
+			previous_rotation,
+			false
+		)
 		return get_cached_candidate_aabb(cache, bounds)
 	end
 
 	if previous_position == current_position and previous_rotation == current_rotation then
 		cache = cache or {}
 		body.sweep_candidate_aabb_cache = cache
-		store_candidate_pose(cache, current_position, current_rotation, previous_position, previous_rotation, true)
+		store_candidate_pose(
+			cache,
+			current_position,
+			current_rotation,
+			previous_position,
+			previous_rotation,
+			true
+		)
 		return get_cached_candidate_aabb(cache, bounds)
 	end
 
 	local previous_bounds = body:GetBroadphaseAABB(previous_position, previous_rotation)
-
 	cache = cache or {}
 	body.sweep_candidate_aabb_cache = cache
-	store_candidate_pose(cache, current_position, current_rotation, previous_position, previous_rotation, true)
+	store_candidate_pose(
+		cache,
+		current_position,
+		current_rotation,
+		previous_position,
+		previous_rotation,
+		true
+	)
 
 	if not previous_bounds then return get_cached_candidate_aabb(cache, bounds) end
 
@@ -1344,37 +1445,68 @@ local function get_collider_candidate_aabb(collider)
 	local current_rotation = collider.GetRotation and collider:GetRotation() or nil
 	local previous_position = collider.GetPreviousPosition and collider:GetPreviousPosition() or nil
 	local previous_rotation = collider.GetPreviousRotation and collider:GetPreviousRotation() or nil
-	local has_previous = current_position and current_rotation and previous_position and previous_rotation and true or false
+	local has_previous = current_position and
+		current_rotation and
+		previous_position and
+		previous_rotation and
+		true or
+		false
 	local cache = collider.sweep_candidate_aabb_cache
 
-	if matches_candidate_pose(cache, current_position, current_rotation, previous_position, previous_rotation, has_previous) then
+	if
+		matches_candidate_pose(
+			cache,
+			current_position,
+			current_rotation,
+			previous_position,
+			previous_rotation,
+			has_previous
+		)
+	then
 		return cache.bounds
 	end
 
 	local bounds = collider:GetBroadphaseAABB(current_position, current_rotation)
 
-	if
-		not bounds or
-		not has_previous
-	then
+	if not bounds or not has_previous then
 		cache = cache or {}
 		collider.sweep_candidate_aabb_cache = cache
-		store_candidate_pose(cache, current_position, current_rotation, previous_position, previous_rotation, false)
+		store_candidate_pose(
+			cache,
+			current_position,
+			current_rotation,
+			previous_position,
+			previous_rotation,
+			false
+		)
 		return get_cached_candidate_aabb(cache, bounds)
 	end
 
 	if previous_position == current_position and previous_rotation == current_rotation then
 		cache = cache or {}
 		collider.sweep_candidate_aabb_cache = cache
-		store_candidate_pose(cache, current_position, current_rotation, previous_position, previous_rotation, true)
+		store_candidate_pose(
+			cache,
+			current_position,
+			current_rotation,
+			previous_position,
+			previous_rotation,
+			true
+		)
 		return get_cached_candidate_aabb(cache, bounds)
 	end
 
 	local previous_bounds = collider:GetBroadphaseAABB(previous_position, previous_rotation)
-
 	cache = cache or {}
 	collider.sweep_candidate_aabb_cache = cache
-	store_candidate_pose(cache, current_position, current_rotation, previous_position, previous_rotation, true)
+	store_candidate_pose(
+		cache,
+		current_position,
+		current_rotation,
+		previous_position,
+		previous_rotation,
+		true
+	)
 
 	if not previous_bounds then return get_cached_candidate_aabb(cache, bounds) end
 
@@ -1383,14 +1515,22 @@ end
 
 local function collect_rigid_body_candidates(world_aabb, ignore_entity, filter_fn, options, out)
 	out = out or {}
-	local instances = RigidBodyComponent.Instances or {}
+	local instances = RigidBody.Instances
 	local effective_options = options or {}
 
 	for i = 1, #instances do
 		local body = instances[i]
-		local include_body = (options and options.IgnoreRigidBodies == false) or should_query_body_as_world(body, effective_options)
+		local include_body = (
+				options and
+				options.IgnoreRigidBodies == false
+			)
+			or
+			should_query_body_as_world(body, effective_options)
 
-		if include_body and not should_skip_rigid_body(body, ignore_entity, filter_fn, options) then
+		if
+			include_body and
+			not should_skip_rigid_body(body, ignore_entity, filter_fn, options)
+		then
 			local bounds = get_rigid_body_candidate_aabb(body)
 
 			if bounds and AABB.IsBoxIntersecting(world_aabb, bounds) then
@@ -1433,7 +1573,9 @@ end
 local function get_mesh_collider_shape(collider)
 	local shape = collider and collider.GetPhysicsShape and collider:GetPhysicsShape() or nil
 
-	if not (shape and shape.GetTypeName and shape:GetTypeName() == "mesh") then return nil end
+	if not (shape and shape.GetTypeName and shape:GetTypeName() == "mesh") then
+		return nil
+	end
 
 	return shape
 end
@@ -1454,17 +1596,19 @@ local function for_each_overlapping_mesh_body_triangle(target_collider, local_aa
 
 	for _, entry in ipairs(entries) do
 		if context then context.entry = entry end
+
 		triangle_mesh.ForEachOverlappingTriangle(entry.polygon, local_aabb, callback, context)
 	end
 
 	if context then context.entry = previous_entry end
+
 	return true
 end
 
 function get_mesh_triangle_world_vertices(collider, position, rotation, v0, v1, v2)
 	return collider:LocalToWorld(v0, position, rotation),
-		collider:LocalToWorld(v1, position, rotation),
-		collider:LocalToWorld(v2, position, rotation)
+	collider:LocalToWorld(v1, position, rotation),
+	collider:LocalToWorld(v2, position, rotation)
 end
 
 local SWEEP_LOCAL_AABB_TRANSFORM_PROXY = {
@@ -1491,7 +1635,17 @@ local function build_mesh_collider_local_swept_aabb(target_collider, target_posi
 end
 
 local function test_mesh_body_point_sweep(origin, movement, radius, body, collider, max_fraction)
-	if not ((body and (body.IsStatic and body:IsStatic() or body.IsKinematic and body:IsKinematic()))) then
+	if
+		not ((
+			body and
+			(
+				body.IsStatic and
+				body:IsStatic() or
+				body.IsKinematic and
+				body:IsKinematic()
+			)
+		))
+	then
 		return nil
 	end
 
@@ -1510,7 +1664,14 @@ local function test_mesh_body_point_sweep(origin, movement, radius, body, collid
 	MESH_BODY_POINT_SWEEP_CONTEXT.best_hit = nil
 	MESH_BODY_POINT_SWEEP_CONTEXT.entry = nil
 
-	if not for_each_overlapping_mesh_body_triangle(collider, local_aabb, collect_mesh_body_point_sweep_hit, MESH_BODY_POINT_SWEEP_CONTEXT) then
+	if
+		not for_each_overlapping_mesh_body_triangle(
+			collider,
+			local_aabb,
+			collect_mesh_body_point_sweep_hit,
+			MESH_BODY_POINT_SWEEP_CONTEXT
+		)
+	then
 		MESH_BODY_POINT_SWEEP_CONTEXT.origin = nil
 		MESH_BODY_POINT_SWEEP_CONTEXT.movement = nil
 		MESH_BODY_POINT_SWEEP_CONTEXT.radius = 0
@@ -1533,12 +1694,30 @@ local function test_mesh_body_point_sweep(origin, movement, radius, body, collid
 	MESH_BODY_POINT_SWEEP_CONTEXT.target_rotation = nil
 	MESH_BODY_POINT_SWEEP_CONTEXT.entry = nil
 	MESH_BODY_POINT_SWEEP_CONTEXT.best_hit = nil
-
 	return best_hit
 end
 
-local function test_mesh_body_collider_sweep(collider, polyhedron, start_position, rotation, movement, body, target_collider, max_fraction)
-	if not ((body and (body.IsStatic and body:IsStatic() or body.IsKinematic and body:IsKinematic()))) then
+local function test_mesh_body_collider_sweep(
+	collider,
+	polyhedron,
+	start_position,
+	rotation,
+	movement,
+	body,
+	target_collider,
+	max_fraction
+)
+	if
+		not ((
+			body and
+			(
+				body.IsStatic and
+				body:IsStatic() or
+				body.IsKinematic and
+				body:IsKinematic()
+			)
+		))
+	then
 		return nil
 	end
 
@@ -1561,12 +1740,14 @@ local function test_mesh_body_collider_sweep(collider, polyhedron, start_positio
 	MESH_BODY_COLLIDER_SWEEP_CONTEXT.best_hit = nil
 	MESH_BODY_COLLIDER_SWEEP_CONTEXT.entry = nil
 
-	if not for_each_overlapping_mesh_body_triangle(
-		target_collider,
-		local_aabb,
-		collect_mesh_body_collider_sweep_hit,
-		MESH_BODY_COLLIDER_SWEEP_CONTEXT
-	) then
+	if
+		not for_each_overlapping_mesh_body_triangle(
+			target_collider,
+			local_aabb,
+			collect_mesh_body_collider_sweep_hit,
+			MESH_BODY_COLLIDER_SWEEP_CONTEXT
+		)
+	then
 		MESH_BODY_COLLIDER_SWEEP_CONTEXT.collider = nil
 		MESH_BODY_COLLIDER_SWEEP_CONTEXT.polyhedron = nil
 		MESH_BODY_COLLIDER_SWEEP_CONTEXT.start_position = nil
@@ -1595,7 +1776,6 @@ local function test_mesh_body_collider_sweep(collider, polyhedron, start_positio
 	MESH_BODY_COLLIDER_SWEEP_CONTEXT.target_rotation = nil
 	MESH_BODY_COLLIDER_SWEEP_CONTEXT.entry = nil
 	MESH_BODY_COLLIDER_SWEEP_CONTEXT.best_hit = nil
-
 	return best_hit
 end
 
@@ -1604,11 +1784,11 @@ local function sweep_point_against_capsule_segment(start_world, end_world, segme
 	local movement_length = movement:GetLength()
 
 	if movement_length <= get_epsilon() then return nil end
+
 	POINT_CAPSULE_SEGMENT_EVALUATION_CONTEXT.start_world = start_world
 	POINT_CAPSULE_SEGMENT_EVALUATION_CONTEXT.movement = movement
 	POINT_CAPSULE_SEGMENT_EVALUATION_CONTEXT.segment_a = segment_a
 	POINT_CAPSULE_SEGMENT_EVALUATION_CONTEXT.segment_b = segment_b
-
 	local _, _, _, start_distance = evaluate_point_against_capsule_segment(POINT_CAPSULE_SEGMENT_EVALUATION_CONTEXT, 0)
 
 	if start_distance <= radius then
@@ -1657,7 +1837,6 @@ local function sweep_point_against_capsule_segment(start_world, end_world, segme
 			POINT_CAPSULE_SEGMENT_EVALUATION_CONTEXT.movement = nil
 			POINT_CAPSULE_SEGMENT_EVALUATION_CONTEXT.segment_a = nil
 			POINT_CAPSULE_SEGMENT_EVALUATION_CONTEXT.segment_b = nil
-
 			return {
 				t = high,
 				point = point - normal * radius,
@@ -1673,7 +1852,6 @@ local function sweep_point_against_capsule_segment(start_world, end_world, segme
 	POINT_CAPSULE_SEGMENT_EVALUATION_CONTEXT.movement = nil
 	POINT_CAPSULE_SEGMENT_EVALUATION_CONTEXT.segment_a = nil
 	POINT_CAPSULE_SEGMENT_EVALUATION_CONTEXT.segment_b = nil
-
 	return nil
 end
 
@@ -2094,7 +2272,9 @@ local function evaluate_capsule_polyhedron_target_contact(context, t)
 		context = CAPSULE_BODY_POLYHEDRON_SAMPLE_CONTEXT
 	end
 
-	local point = context.start_sample + (context.end_sample - context.start_sample) * get_sweep_alpha(t, context.max_fraction)
+	local point = context.start_sample + (
+			context.end_sample - context.start_sample
+		) * get_sweep_alpha(t, context.max_fraction)
 	local position, rotation_t = get_target_pose(context.target_state, t, context.max_fraction)
 	return get_polyhedron_contact_for_point_at_pose(
 		context.target_collider,
@@ -2221,12 +2401,12 @@ local function test_rigid_body_sweep(origin, movement, radius, body, ignore_enti
 							),
 						best_fraction
 					),
-						sweep_polyhedron_target_point_contact,
-						POLYHEDRON_TARGET_POINT_CONTACT_CONTEXT
+					sweep_polyhedron_target_point_contact,
+					POLYHEDRON_TARGET_POINT_CONTACT_CONTEXT
 				)
-					POLYHEDRON_TARGET_POINT_CONTACT_CONTEXT.collider = nil
-					POLYHEDRON_TARGET_POINT_CONTACT_CONTEXT.radius = 0
-					POLYHEDRON_TARGET_POINT_CONTACT_CONTEXT.relative_movement = nil
+				POLYHEDRON_TARGET_POINT_CONTACT_CONTEXT.collider = nil
+				POLYHEDRON_TARGET_POINT_CONTACT_CONTEXT.radius = 0
+				POLYHEDRON_TARGET_POINT_CONTACT_CONTEXT.relative_movement = nil
 			elseif shape_type == "sphere" then
 				local target_radius = collider:GetSphereRadius()
 				local target_position = target_state.previous_position
@@ -2405,7 +2585,9 @@ local function find_best_capsule_sample_hit(start_samples, end_samples, radius, 
 
 	for i, end_sample in ipairs(end_samples) do
 		local start_sample = start_samples[i] or (end_sample - fallback_delta)
-		local hit = context ~= nil and select_hit(context, start_sample, end_sample, radius, i) or select_hit(start_sample, end_sample, radius, i)
+		local hit = context ~= nil and
+			select_hit(context, start_sample, end_sample, radius, i) or
+			select_hit(start_sample, end_sample, radius, i)
 
 		if hit and (not best or hit.t < best.t) then best = hit end
 	end
@@ -2638,13 +2820,18 @@ local function sweep_capsule_against_capsule_body(
 	CAPSULE_CAPSULE_SWEEP_CONTEXT.target_state = target_state
 	CAPSULE_CAPSULE_SWEEP_CONTEXT.max_fraction = max_fraction
 	CAPSULE_CAPSULE_SWEEP_CONTEXT.combined_radius = combined_radius
-	local hit_t, hit_data = find_first_sampled_hit(max_fraction, math.max(
-		8,
-		math.min(
-			32,
-			math.ceil((movement:GetLength() * max_fraction) / math.max(combined_radius, 0.2)) * 2
-		)
-	), evaluate_capsule_capsule_sample, CAPSULE_CAPSULE_SWEEP_CONTEXT)
+	local hit_t, hit_data = find_first_sampled_hit(
+		max_fraction,
+		math.max(
+			8,
+			math.min(
+				32,
+				math.ceil((movement:GetLength() * max_fraction) / math.max(combined_radius, 0.2)) * 2
+			)
+		),
+		evaluate_capsule_capsule_sample,
+		CAPSULE_CAPSULE_SWEEP_CONTEXT
+	)
 	CAPSULE_CAPSULE_SWEEP_CONTEXT.start_a = nil
 	CAPSULE_CAPSULE_SWEEP_CONTEXT.start_b = nil
 	CAPSULE_CAPSULE_SWEEP_CONTEXT.end_a = nil

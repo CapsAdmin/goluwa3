@@ -20,16 +20,7 @@ local function merge_swept_bounds(bounds, previous_bounds)
 end
 
 local function is_candidate_body(physics, body)
-	return body and
-		physics.IsActiveRigidBody(body) and
-		body.CollisionEnabled and
-		not (
-			body.Owner and
-			(
-				body.Owner.PhysicsNoCollision or
-				body.Owner.NoPhysicsCollision
-			)
-		)
+	return body and body.CollisionEnabled
 end
 
 local function build_entry_bounds(body)
@@ -136,9 +127,7 @@ local function register_pair(self, entry_a, entry_b)
 		return pair
 	end
 
-	if entry_b.id < entry_a.id then
-		entry_a, entry_b = entry_b, entry_a
-	end
+	if entry_b.id < entry_a.id then entry_a, entry_b = entry_b, entry_a end
 
 	pair = {
 		entry_a = entry_a,
@@ -358,7 +347,9 @@ function Broadphase:TrackBodies(bodies, physics_override)
 				entry.center = body:GetPosition()
 				entry.last_seen_step = self.StepStamp
 
-				if not is_same_spatial_assignment(self, entry, bounds) then assign_entry_cells(self, entry, bounds) end
+				if not is_same_spatial_assignment(self, entry, bounds) then
+					assign_entry_cells(self, entry, bounds)
+				end
 			else
 				create_entry(self, body, bounds)
 			end
@@ -443,9 +434,7 @@ local function append_pair(pairs, pair_lookup, entry_a, entry_b)
 
 	pair_lookup[key] = true
 
-	if entry_b.id < entry_a.id then
-		entry_a, entry_b = entry_b, entry_a
-	end
+	if entry_b.id < entry_a.id then entry_a, entry_b = entry_b, entry_a end
 
 	pairs[#pairs + 1] = {
 		entry_a = entry_a,

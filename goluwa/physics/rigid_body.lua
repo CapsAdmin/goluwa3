@@ -23,6 +23,7 @@ local RigidBody = prototype.CreateTemplate("rigid_body")
 
 local function solve_shape_support_contacts(shape_body, shape, step_dt)
 	if not (shape and shape.SolveSupportContacts) then return end
+
 	local shape_type = shape.GetTypeName and shape:GetTypeName() or nil
 
 	if shape_type == "box" then
@@ -38,13 +39,7 @@ local function solve_shape_support_contacts(shape_body, shape, step_dt)
 
 		for i = 1, #support_points do
 			local point = shape_body:GeometryLocalToWorld(support_points[i])
-			local hit = physics.Sweep(
-				point + cast_origin_offset,
-				cast_delta,
-				0,
-				owner,
-				filter_function
-			)
+			local hit = physics.Sweep(point + cast_origin_offset, cast_delta, 0, owner, filter_function)
 
 			if hit and hit.normal and hit.position then
 				local depth = (hit.position + hit.normal * margin - point):Dot(hit.normal)
@@ -85,7 +80,10 @@ local function solve_shape_support_contacts(shape_body, shape, step_dt)
 end
 
 local function solve_body_support_contacts(body, step_dt)
-	if not (physics.IsActiveRigidBody(body) and body:IsDynamic() and body:GetAwake() and body.CollisionEnabled) then return end
+	if not (body:IsDynamic() and body:GetAwake() and body.CollisionEnabled) then
+		return
+	end
+
 	if body:GetGravityScale() == 0 then return end
 
 	local colliders = body:GetColliders()
@@ -101,7 +99,6 @@ local function solve_body_support_contacts(body, step_dt)
 end
 
 do
-	RigidBody:GetSet("Enabled", true)
 	RigidBody:GetSet("Shape", nil, {callback = "OnGeometryChanged"})
 	RigidBody:GetSet("Shapes", nil, {callback = "OnGeometryChanged"})
 	RigidBody:GetSet("MotionType", "dynamic", {callback = "OnMotionTypeChanged"})
@@ -421,6 +418,8 @@ do
 
 		if entity.transform then self:SynchronizeFromTransform() end
 	end
+
+	function RigidBody:OnRemove() end
 
 	function RigidBody:OnGeometryChanged()
 		self:RebuildColliders()
@@ -913,12 +912,19 @@ do
 			local collider_position = position + rotation:VecMul(collider:GetLocalPosition())
 			local collider_rotation = (rotation * collider:GetLocalRotation()):GetNormalized()
 			local bounds = collider:GetBroadphaseAABB(collider_position, collider_rotation)
+
 			if bounds.min_x < min_x then min_x = bounds.min_x end
+
 			if bounds.min_y < min_y then min_y = bounds.min_y end
+
 			if bounds.min_z < min_z then min_z = bounds.min_z end
+
 			if bounds.max_x > max_x then max_x = bounds.max_x end
+
 			if bounds.max_y > max_y then max_y = bounds.max_y end
+
 			if bounds.max_z > max_z then max_z = bounds.max_z end
+
 			has_bounds = true
 		end
 
@@ -934,14 +940,7 @@ do
 			)
 		end
 
-		return AABB(
-			min_x,
-			min_y,
-			min_z,
-			max_x,
-			max_y,
-			max_z
-		)
+		return AABB(min_x, min_y, min_z, max_x, max_y, max_z)
 	end
 
 	function RigidBody:Integrate(dt, gravity)
@@ -1170,24 +1169,22 @@ function physics.UpdateRigidBodies(dt)
 	collision_pairs:BeginCollisionFrame()
 
 	for _, body in ipairs(bodies) do
-		if physics.IsActiveRigidBody(body) then body:SynchronizeFromTransform() end
+		body:SynchronizeFromTransform()
 	end
 
 	for _ = 1, substeps do
 		if solver.BeginStep then solver:BeginStep() end
 
 		for _, body in ipairs(bodies) do
-			if physics.IsActiveRigidBody(body) then
-				if body:IsKinematic() or body:HasKinematicController() then
-					kinematic_controller.UpdateBody(body, sub_dt, physics.Gravity)
-				elseif body:GetAwake() then
-					body:SetGrounded(false)
-					body:SetGroundNormal(physics.Up)
-					body:Integrate(sub_dt, physics.Gravity)
-				else
-					body.PreviousPosition = body.Position:Copy()
-					body.PreviousRotation = body.Rotation:Copy()
-				end
+			if body:IsKinematic() or body:HasKinematicController() then
+				kinematic_controller.UpdateBody(body, sub_dt, physics.Gravity)
+			elseif body:GetAwake() then
+				body:SetGrounded(false)
+				body:SetGroundNormal(physics.Up)
+				body:Integrate(sub_dt, physics.Gravity)
+			else
+				body.PreviousPosition = body.Position:Copy()
+				body.PreviousRotation = body.Rotation:Copy()
 			end
 		end
 
@@ -1204,7 +1201,7 @@ function physics.UpdateRigidBodies(dt)
 				for body_index = 1, #newly_awoken_bodies do
 					local body = newly_awoken_bodies[body_index]
 
-					if physics.IsActiveRigidBody(body) and body:GetAwake() then
+					if body:GetAwake() then
 						body:SetGrounded(false)
 						body:SetGroundNormal(physics.Up)
 						body:Integrate(sub_dt, physics.Gravity)
@@ -1231,11 +1228,8 @@ function physics.UpdateRigidBodies(dt)
 
 						for body_index = 1, #dynamic_bodies do
 							local body = dynamic_bodies[body_index]
-
-							if physics.IsActiveRigidBody(body) then
-								solver:SolveBodyContacts(body, sub_dt)
-								solve_body_support_contacts(body, sub_dt)
-							end
+							solver:SolveBodyContacts(body, sub_dt)
+							solve_body_support_contacts(body, sub_dt)
 						end
 
 						solver:SolveDistanceConstraints(sub_dt, island.constraints)
@@ -1245,11 +1239,9 @@ function physics.UpdateRigidBodies(dt)
 				solver:SolveRigidBodyPairs(rigid_body_pairs, sub_dt)
 
 				for _, body in ipairs(bodies) do
-					if physics.IsActiveRigidBody(body) then
-						if body:IsDynamic() and body:GetAwake() then
-							solver:SolveBodyContacts(body, sub_dt)
-							solve_body_support_contacts(body, sub_dt)
-						end
+					if body:IsDynamic() and body:GetAwake() then
+						solver:SolveBodyContacts(body, sub_dt)
+						solve_body_support_contacts(body, sub_dt)
 					end
 				end
 
@@ -1258,10 +1250,8 @@ function physics.UpdateRigidBodies(dt)
 		end
 
 		for _, body in ipairs(bodies) do
-			if physics.IsActiveRigidBody(body) then
-				body:UpdateVelocities(sub_dt)
-				body:UpdateSleepState(sub_dt)
-			end
+			body:UpdateVelocities(sub_dt)
+			body:UpdateSleepState(sub_dt)
 		end
 
 		if simulation_islands and simulation_islands[1] then
@@ -1270,11 +1260,11 @@ function physics.UpdateRigidBodies(dt)
 	end
 
 	for _, body in ipairs(bodies) do
-		if physics.IsActiveRigidBody(body) then body:ClearAccumulators() end
+		body:ClearAccumulators()
 	end
 
 	for _, body in ipairs(bodies) do
-		if physics.IsActiveRigidBody(body) then body:WriteToTransform() end
+		body:WriteToTransform()
 	end
 
 	collision_pairs:DispatchCollisionEvents()

@@ -64,7 +64,10 @@ function pair_solver_helpers.DispatchColliderPairs(solver, colliders_a, collider
 
 	for _, collider_a in ipairs(colliders_a or {}) do
 		for _, collider_b in ipairs(colliders_b or {}) do
-			if physics.ShouldBodiesCollide(collider_a, collider_b) then
+			local body_a = collider_a:GetBody()
+			local body_b = collider_b:GetBody()
+
+			if physics.ShouldBodiesCollide(body_a, body_b) then
 				local result, found = pair_solver_helpers.TryInvokePairHandler(solver, collider_a, collider_b, entry_a, entry_b, dt)
 
 				if found and result then handled = true end

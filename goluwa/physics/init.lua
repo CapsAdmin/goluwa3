@@ -23,7 +23,6 @@ function physics.ResetState()
 	local collision_pairs = physics.collision_pairs or CollisionPairs.New({physics = physics})
 	local broadphase = physics.broadphase or Broadphase.New({physics = physics})
 	local solver = physics.solver or Solver.New({physics = physics})
-	local RigidBody = import("goluwa/physics/rigid_body.lua")
 	local constraints = physics.GetConstraints and physics.GetConstraints() or nil
 	physics.collision_pairs = collision_pairs
 	physics.broadphase = broadphase
@@ -42,15 +41,6 @@ function physics.ResetState()
 		end
 	end
 
-	if RigidBody and RigidBody.Instances then
-		for i = #RigidBody.Instances, 1, -1 do
-			local body = RigidBody.Instances[i]
-
-			if not physics.IsActiveRigidBody(body) then
-				table.remove(RigidBody.Instances, i)
-			end
-		end
-	end
 end
 
 local function get_fixed_step()

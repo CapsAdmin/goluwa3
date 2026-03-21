@@ -289,6 +289,16 @@ function module.CreateStubBody(data)
 		return self.ReadyToSleep or not self.Awake
 	end
 
+	function body:GetSleepDelay()
+		return self.SleepDelay or 0
+	end
+
+	function body:CanSleepNow()
+		if not self:IsReadyToSleep() then return false end
+		if not self:GetAwake() then return true end
+		return math.max(self.SleepTimer or 0, 0) >= math.max(self:GetSleepDelay(), 0)
+	end
+
 	function body:ApplyImpulse(impulse, point)
 		if self:IsSolverImmovable() then return self end
 

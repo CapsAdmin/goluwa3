@@ -2,33 +2,11 @@ local physics = import("goluwa/physics.lua")
 local islands = {}
 
 local function is_dynamic_body(body)
-	return body and
-		body.IsDynamic and
-		body:IsDynamic() and
-		body.HasSolverMass and
-		body:HasSolverMass()
-end
-
-local function is_awake_dynamic_body(body)
-	return is_dynamic_body(body) and body.GetAwake and body:GetAwake()
+	return body and body:IsDynamic() and body:HasSolverMass()
 end
 
 local function is_anchor_body(body)
-	return body and physics.IsActiveRigidBody(body) and not is_dynamic_body(body)
-end
-
-local function can_body_sleep_now(body)
-	if not body then return false end
-
-	if body.CanSleepNow then return body:CanSleepNow() end
-
-	if not (body.IsReadyToSleep and body:IsReadyToSleep()) then return false end
-
-	if body.GetAwake and not body:GetAwake() then return true end
-
-	local sleep_timer = math.max(body.SleepTimer or 0, 0)
-	local sleep_delay = math.max(body.GetSleepDelay and body:GetSleepDelay() or body.SleepDelay or 0, 0)
-	return sleep_timer >= sleep_delay
+	return body and not is_dynamic_body(body)
 end
 
 local function add_unique(list, lookup, value)
@@ -47,7 +25,7 @@ local function add_island_body(island, body_lookup, dynamic_lookup, body)
 end
 
 local function register_link(map, body, value)
-	if not (body and physics.IsActiveRigidBody(body)) then return end
+	if not body then return end
 
 	local list = map[body]
 
@@ -60,13 +38,9 @@ local function register_link(map, body, value)
 end
 
 local function get_pair_other_body(pair, body)
-	if pair.entry_a and pair.entry_a.body == body then
-		return pair.entry_b and pair.entry_b.body
-	end
+	if pair.entry_a.body == body then return pair.entry_b.body end
 
-	if pair.entry_b and pair.entry_b.body == body then
-		return pair.entry_a and pair.entry_a.body
-	end
+	if pair.entry_b.body == body then return pair.entry_a.body end
 
 	return nil
 end
@@ -88,8 +62,8 @@ function islands.BuildSimulationIslands(bodies, pairs, constraints)
 
 	for i = 1, #pairs do
 		local pair = pairs[i]
-		local body_a = pair and pair.entry_a and pair.entry_a.body
-		local body_b = pair and pair.entry_b and pair.entry_b.body
+		local body_a = pair.entry_a.body
+		local body_b = pair.entry_b.body
 		register_link(pair_links, body_a, pair)
 		register_link(pair_links, body_b, pair)
 	end
@@ -201,8 +175,8 @@ function islands.PrepareSimulationIslands(simulation_islands, newly_awoken_bodie
 
 	for island_index = 1, #(simulation_islands or {}) do
 		local island = simulation_islands[island_index]
-		local dynamic_bodies = island.dynamic_bodies or island.bodies or {}
-		local awake_dynamic_bodies = island.awake_dynamic_bodies or {}
+		local dynamic_bodies = island.dynamic_bodies
+		local awake_dynamic_bodies = island.awake_dynamic_bodies
 		local active_dynamic_count = 0
 		list.clear(awake_dynamic_bodies)
 		island.awake_dynamic_bodies = awake_dynamic_bodies
@@ -210,7 +184,7 @@ function islands.PrepareSimulationIslands(simulation_islands, newly_awoken_bodie
 		for body_index = 1, #dynamic_bodies do
 			local body = dynamic_bodies[body_index]
 
-			if is_awake_dynamic_body(body) then
+			if body:GetAwake() then
 				awake_dynamic_bodies[#awake_dynamic_bodies + 1] = body
 				active_dynamic_count = active_dynamic_count + 1
 			end
@@ -223,7 +197,7 @@ function islands.PrepareSimulationIslands(simulation_islands, newly_awoken_bodie
 			for body_index = 1, #(island.constraint_dynamic_bodies or {}) do
 				local body = island.constraint_dynamic_bodies[body_index]
 
-				if is_dynamic_body(body) and body.GetAwake and not body:GetAwake() then
+				if is_dynamic_body(body) and not body:GetAwake() then
 					body:Wake()
 					awake_dynamic_bodies[#awake_dynamic_bodies + 1] = body
 					active_dynamic_count = active_dynamic_count + 1
@@ -247,18 +221,16 @@ function islands.FinalizeSimulationIslands(simulation_islands)
 		local island = simulation_islands[island_index]
 
 		if island.has_constraints then
-			local dynamic_bodies = island.dynamic_bodies or island.bodies or {}
+			local dynamic_bodies = island.dynamic_bodies
 			local has_awake_dynamic_body = false
 			local can_sleep_island = #dynamic_bodies > 1
 
 			for body_index = 1, #dynamic_bodies do
 				local body = dynamic_bodies[body_index]
 
-				if body and body.GetAwake and body:GetAwake() then
-					has_awake_dynamic_body = true
-				end
+				if body:GetAwake() then has_awake_dynamic_body = true end
 
-				if not can_body_sleep_now(body) then
+				if not body:CanSleepNow() then
 					can_sleep_island = false
 
 					break
@@ -269,9 +241,7 @@ function islands.FinalizeSimulationIslands(simulation_islands)
 				for body_index = 1, #dynamic_bodies do
 					local body = dynamic_bodies[body_index]
 
-					if body and body.GetAwake and body:GetAwake() and body.Sleep then
-						body:Sleep()
-					end
+					if body:GetAwake() then body:Sleep() end
 				end
 
 				if island.awake_dynamic_bodies then list.clear(island.awake_dynamic_bodies) end
