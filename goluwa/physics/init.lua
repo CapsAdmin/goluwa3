@@ -54,7 +54,7 @@ function physics.ResetState()
 end
 
 local function get_fixed_step()
-	return math.max(physics.FixedTimeStep or physics.DefaultFixedTimeStep or (1 / 30), 0.000001)
+	return math.max(physics.FixedTimeStep, 0.000001)
 end
 
 function physics.Step(dt)
@@ -94,10 +94,9 @@ function physics.UpdateFixed(dt)
 
 	local fixed_dt = get_fixed_step()
 	local accumulator = (physics.FrameAccumulator or 0) + dt
-	local max_steps = math.max(1, physics.MaxCatchUpSteps or 1)
 	local steps = 0
 
-	while accumulator >= fixed_dt and steps < max_steps do
+	while accumulator >= fixed_dt do
 		physics.Step(fixed_dt)
 		accumulator = accumulator - fixed_dt
 		steps = steps + 1
