@@ -1,4 +1,3 @@
-local physics = import("goluwa/physics.lua")
 local islands = {}
 
 local function is_dynamic_body(body)

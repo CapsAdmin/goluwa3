@@ -209,7 +209,7 @@ end
 
 local function evaluate_point_against_capsule_segment(context, t)
 	local point = context.start_world + context.movement * t
-	local closest = segment_geometry.ClosestPointOnSegment(context.segment_a, context.segment_b, point, get_epsilon())
+	local closest = segment_geometry.ClosestPointOnSegment(context.segment_a, context.segment_b, point, physics.EPSILON)
 	local delta = point - closest
 	local distance = delta:GetLength()
 	return point, closest, delta, distance
@@ -299,10 +299,6 @@ do
 	end
 end
 
-function get_epsilon()
-	return physics.EPSILON or 0.000001
-end
-
 local function ensure_convex_helpers()
 	if convex_manifold and convex_sat then return end
 
@@ -353,7 +349,9 @@ local function clamp01(value)
 end
 
 function get_sweep_alpha(t, max_fraction)
-	if not max_fraction or math.abs(max_fraction) <= get_epsilon() then return 0 end
+	if not max_fraction or math.abs(max_fraction) <= physics.EPSILON then
+		return 0
+	end
 
 	return clamp01(t / max_fraction)
 end
@@ -450,7 +448,7 @@ end
 local function get_segment_fraction(start_position, movement, point)
 	local movement_length_sq = movement:Dot(movement)
 
-	if movement_length_sq <= get_epsilon() * get_epsilon() then return 0 end
+	if movement_length_sq <= physics.EPSILON * physics.EPSILON then return 0 end
 
 	return clamp01((point - start_position):Dot(movement) / movement_length_sq)
 end
@@ -580,7 +578,7 @@ local function evaluate_polyhedron_triangle_contact(collider, polyhedron, positi
 		v1,
 		v2,
 		{
-			epsilon = get_epsilon(),
+			epsilon = physics.EPSILON,
 			triangle_slop = 0,
 			manifold_merge_distance = 0.08,
 			face_axis_relative_tolerance = 1.05,
@@ -713,7 +711,7 @@ local function sweep_polyhedron_against_planes(
 		return nil
 	end
 
-	local epsilon = get_epsilon()
+	local epsilon = physics.EPSILON
 	local start_local_vertices = build_polyhedron_local_vertices(
 		polyhedron,
 		start_position,
@@ -848,15 +846,14 @@ local function get_capsule_triangle_separation(position, rotation, collider, v0,
 		v1,
 		v2,
 		{
-			epsilon = get_epsilon(),
+			epsilon = physics.EPSILON,
 			fallback_normal = movement and
-				movement:GetLength() > get_epsilon()
-				and
+				movement:GetLength() > physics.EPSILON and
 				(
 					movement * -1
 				):GetNormalized() or
 				physics.Up,
-			zero_distance_normal = ensure_normal_faces_motion(triangle_contact_queries.GetTriangleFaceNormal(v0, v1, v2, get_epsilon()), movement),
+			zero_distance_normal = ensure_normal_faces_motion(triangle_contact_queries.GetTriangleFaceNormal(v0, v1, v2, physics.EPSILON), movement),
 		}
 	)
 
@@ -889,7 +886,7 @@ local function build_capsule_triangle_sweep_hit(collider, position, rotation, v0
 end
 
 function sweep_capsule_against_triangle(collider, start_position, rotation, movement, v0, v1, v2, max_fraction)
-	local epsilon = get_epsilon()
+	local epsilon = physics.EPSILON
 	local shape = collider:GetPhysicsShape()
 	local radius = shape and shape.GetRadius and shape:GetRadius() or 0
 	local _, _, start_distance = get_capsule_triangle_separation(start_position, rotation, collider, v0, v1, v2, movement)
@@ -947,7 +944,7 @@ local function sweep_capsule_against_planes(
 )
 	if not (planes and planes[1]) then return nil end
 
-	local epsilon = get_epsilon()
+	local epsilon = physics.EPSILON
 	local start_a, start_b, radius = get_capsule_segment_world(collider, start_position, rotation)
 	local start_local_a = world_to_local and world_to_local:TransformVector(start_a) or start_a
 	local start_local_b = world_to_local and world_to_local:TransformVector(start_b) or start_b
@@ -1034,8 +1031,8 @@ local function get_point_triangle_separation(center, v0, v1, v2, movement)
 		v1,
 		v2,
 		{
-			epsilon = get_epsilon(),
-			fallback_normal = ensure_normal_faces_motion(triangle_contact_queries.GetTriangleFaceNormal(v0, v1, v2, get_epsilon()), movement),
+			epsilon = physics.EPSILON,
+			fallback_normal = ensure_normal_faces_motion(triangle_contact_queries.GetTriangleFaceNormal(v0, v1, v2, physics.EPSILON), movement),
 			fallback_direction = movement and movement * -1 or nil,
 		}
 	)
@@ -1043,7 +1040,7 @@ local function get_point_triangle_separation(center, v0, v1, v2, movement)
 end
 
 function sweep_sphere_against_triangle(start_position, movement, radius, v0, v1, v2, max_fraction)
-	local epsilon = get_epsilon()
+	local epsilon = physics.EPSILON
 	local end_position = start_position + movement * max_fraction
 	local start_closest, start_distance, start_normal = get_point_triangle_separation(start_position, v0, v1, v2, movement)
 
@@ -1115,7 +1112,7 @@ end
 local function sweep_sphere_against_planes(start_position, movement, radius, planes, max_fraction)
 	if not (planes and planes[1]) then return nil end
 
-	local epsilon = get_epsilon()
+	local epsilon = physics.EPSILON
 	local t_enter = 0
 	local t_exit = max_fraction
 	local enter_normal = nil
@@ -1729,7 +1726,7 @@ local function sweep_point_against_capsule_segment(start_world, end_world, segme
 	local movement = end_world - start_world
 	local movement_length = movement:GetLength()
 
-	if movement_length <= get_epsilon() then return nil end
+	if movement_length <= physics.EPSILON then return nil end
 
 	POINT_CAPSULE_SEGMENT_EVALUATION_CONTEXT.start_world = start_world
 	POINT_CAPSULE_SEGMENT_EVALUATION_CONTEXT.movement = movement
@@ -1764,14 +1761,14 @@ local function sweep_point_against_capsule_segment(start_world, end_world, segme
 			end
 
 			local point, closest, delta, final_distance = evaluate_point_against_capsule_segment(POINT_CAPSULE_SEGMENT_EVALUATION_CONTEXT, high)
-			local normal = final_distance > get_epsilon() and
+			local normal = final_distance > physics.EPSILON and
 				(
 					delta / final_distance
 				)
 				or
 				ensure_normal_faces_motion((point - ((segment_a + segment_b) * 0.5)):GetNormalized(), movement)
 
-			if not normal or normal:GetLength() <= get_epsilon() then
+			if not normal or normal:GetLength() <= physics.EPSILON then
 				POINT_CAPSULE_SEGMENT_EVALUATION_CONTEXT.start_world = nil
 				POINT_CAPSULE_SEGMENT_EVALUATION_CONTEXT.movement = nil
 				POINT_CAPSULE_SEGMENT_EVALUATION_CONTEXT.segment_a = nil
@@ -1804,7 +1801,7 @@ end
 local function sweep_point_against_box_body(box_collider, start_world, end_world, extra_radius, position, rotation)
 	local movement_world = end_world - start_world
 
-	if movement_world:GetLength() <= get_epsilon() then return nil end
+	if movement_world:GetLength() <= physics.EPSILON then return nil end
 
 	local start_local = box_collider:WorldToLocal(start_world, position, rotation)
 	local end_local = box_collider:WorldToLocal(end_world, position, rotation)
@@ -1827,7 +1824,7 @@ local function sweep_point_against_box_body(box_collider, start_world, end_world
 		local min_value = -extents[name] - extra_radius
 		local max_value = extents[name] + extra_radius
 
-		if math.abs(d) <= get_epsilon() then
+		if math.abs(d) <= physics.EPSILON then
 			if s < min_value or s > max_value then return nil end
 		else
 			local enter_t
@@ -1881,7 +1878,7 @@ local function get_box_contact_for_point_at_pose(box_collider, point, radius, po
 	local overlap = radius - distance
 	local normal
 
-	if distance > get_epsilon() then
+	if distance > physics.EPSILON then
 		normal = delta / distance
 	elseif
 		math.abs(local_point.x) <= extents.x and
@@ -1918,7 +1915,7 @@ local function get_box_contact_for_point_at_pose(box_collider, point, radius, po
 			local sign = math.sign(candidate.center)
 
 			if sign == 0 then
-				if math.abs(candidate.movement) > get_epsilon() then
+				if math.abs(candidate.movement) > physics.EPSILON then
 					sign = math.sign(-candidate.movement)
 				else
 					sign = 1
@@ -1930,11 +1927,10 @@ local function get_box_contact_for_point_at_pose(box_collider, point, radius, po
 
 			if
 				not best or
-				candidate.overlap < best.overlap - get_epsilon()
-				or
+				candidate.overlap < best.overlap - physics.EPSILON or
 				(
-					math.abs(candidate.overlap - best.overlap) <= get_epsilon() and
-					candidate.motion_weight > best.motion_weight + get_epsilon()
+					math.abs(candidate.overlap - best.overlap) <= physics.EPSILON and
+					candidate.motion_weight > best.motion_weight + physics.EPSILON
 				)
 			then
 				best = candidate
@@ -1973,7 +1969,7 @@ local function get_sphere_contact_for_point_at_pose(collider, point, radius, pos
 
 	if distance > combined_radius then return nil end
 
-	local normal = distance > get_epsilon() and
+	local normal = distance > physics.EPSILON and
 		(
 			delta / distance
 		)
@@ -1991,14 +1987,14 @@ end
 
 local function get_capsule_contact_for_point_at_pose(collider, point, radius, position, rotation, movement_world)
 	local segment_a, segment_b, capsule_radius = get_capsule_segment_world(collider, position, rotation)
-	local closest = segment_geometry.ClosestPointOnSegment(segment_a, segment_b, point, get_epsilon())
+	local closest = segment_geometry.ClosestPointOnSegment(segment_a, segment_b, point, physics.EPSILON)
 	local delta = point - closest
 	local distance = delta:GetLength()
 	local combined_radius = radius + capsule_radius
 
 	if distance > combined_radius then return nil end
 
-	local normal = distance > get_epsilon() and
+	local normal = distance > physics.EPSILON and
 		(
 			delta / distance
 		)
@@ -2027,7 +2023,7 @@ function get_polyhedron_contact_for_point_at_pose(collider, polyhedron, point, r
 		local normal = rotation:VecMul(face.normal):GetNormalized()
 		local distance = normal:Dot(point - plane_point)
 
-		if distance > radius + get_epsilon() then return nil end
+		if distance > radius + physics.EPSILON then return nil end
 
 		if distance > best_distance then
 			best_distance = distance
@@ -2037,7 +2033,7 @@ function get_polyhedron_contact_for_point_at_pose(collider, polyhedron, point, r
 
 	if not best_normal then return nil end
 
-	if best_normal:GetLength() <= get_epsilon() then
+	if best_normal:GetLength() <= physics.EPSILON then
 		best_normal = ensure_normal_faces_motion((point - position):GetNormalized(), movement_world)
 	end
 
@@ -2269,7 +2265,7 @@ local function evaluate_capsule_capsule_sample(context, t)
 	local query_b = context.start_b + (context.end_b - context.start_b) * t
 	local target_position_t, target_rotation_t = get_target_pose(context.target_state, t, context.max_fraction)
 	local target_a, target_b = get_capsule_segment_world(context.target_collider, target_position_t, target_rotation_t)
-	local point_a, point_b = segment_geometry.ClosestPointsBetweenSegments(query_a, query_b, target_a, target_b, get_epsilon())
+	local point_a, point_b = segment_geometry.ClosestPointsBetweenSegments(query_a, query_b, target_a, target_b, physics.EPSILON)
 	local delta = point_a - point_b
 	local distance = delta:GetLength()
 
@@ -2362,7 +2358,7 @@ local function test_rigid_body_sweep(origin, movement, radius, body, ignore_enti
 				local b = 2 * delta:Dot(relative_movement)
 				local c = delta:Dot(delta) - combined_radius * combined_radius
 
-				if a > get_epsilon() and c > get_epsilon() then
+				if a > physics.EPSILON and c > physics.EPSILON then
 					local discriminant = b * b - 4 * a * c
 
 					if discriminant >= 0 then
@@ -2446,7 +2442,7 @@ function evaluate_polyhedron_pair_contact(poly_a, position_a, rotation_a, poly_b
 		rotation_a,
 		center_delta,
 		"a",
-		get_epsilon()
+		physics.EPSILON
 	)
 	polyhedron_sat.UpdateFaceAxisCandidates(
 		best,
@@ -2456,7 +2452,7 @@ function evaluate_polyhedron_pair_contact(poly_a, position_a, rotation_a, poly_b
 		rotation_b,
 		center_delta,
 		"b",
-		get_epsilon()
+		physics.EPSILON
 	)
 	polyhedron_sat.UpdateEdgeAxisCandidates(
 		best,
@@ -2467,7 +2463,7 @@ function evaluate_polyhedron_pair_contact(poly_a, position_a, rotation_a, poly_b
 		poly_b,
 		rotation_b,
 		center_delta,
-		get_epsilon()
+		physics.EPSILON
 	)
 	local chosen = convex_sat.ChoosePreferredAxis(best, 1.05, 0.03)
 
@@ -2793,7 +2789,7 @@ local function sweep_capsule_against_capsule_body(
 	local point_b = hit_data.point_b
 	local delta = hit_data.delta
 	local distance = hit_data.distance
-	local normal = distance > get_epsilon() and
+	local normal = distance > physics.EPSILON and
 		(
 			delta / distance
 		)
@@ -3312,7 +3308,7 @@ local function sweep_world(origin, movement, radius, ignore_entity, filter_fn, o
 	movement = movement or Vec3(0, 0, 0)
 	local movement_length = movement:GetLength()
 
-	if movement_length <= get_epsilon() then return nil end
+	if movement_length <= physics.EPSILON then return nil end
 
 	local world_aabb = build_swept_aabb(origin, origin + movement, radius)
 	local model_candidates = {}
@@ -3369,7 +3365,7 @@ local function sweep_collider_world(collider, start_position, movement, ignore_e
 	then
 		local movement_length = movement:GetLength()
 
-		if movement_length <= get_epsilon() then return nil end
+		if movement_length <= physics.EPSILON then return nil end
 
 		local world_aabb = build_collider_swept_aabb(collider, start_position, rotation, movement)
 		local model_candidates = {}
@@ -3461,7 +3457,7 @@ local function sweep_collider_world(collider, start_position, movement, ignore_e
 
 	local movement_length = movement:GetLength()
 
-	if movement_length <= get_epsilon() then return nil end
+	if movement_length <= physics.EPSILON then return nil end
 
 	local world_aabb = build_collider_swept_aabb(collider, start_position, rotation, movement)
 	local model_candidates = {}
