@@ -210,7 +210,7 @@ end
 
 function triangle_contact_queries.QueryPolyhedron(collider, polyhedron, v0, v1, v2, options)
 	polyhedron_triangle_contacts = polyhedron_triangle_contacts or
-		import("goluwa/physics/polyhedron_triangle_contacts.lua")
+		import("goluwa/physics/polyhedron/triangle_contacts.lua")
 	return polyhedron_triangle_contacts.FindContact(collider, polyhedron, v0, v1, v2, options)
 end
 

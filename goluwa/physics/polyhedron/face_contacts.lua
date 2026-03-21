@@ -1,5 +1,5 @@
 local convex_face_clipping = import("goluwa/physics/convex_face_clipping.lua")
-local polyhedron_cache = import("goluwa/physics/polyhedron_cache.lua")
+local polyhedron_cache = import("goluwa/physics/polyhedron/cache.lua")
 local triangle_geometry = import("goluwa/physics/triangle_geometry.lua")
 local polyhedron_face_contacts = {}
 

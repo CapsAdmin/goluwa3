@@ -1,8 +1,8 @@
 local convex_manifold = import("goluwa/physics/convex_manifold.lua")
 local convex_sat = import("goluwa/physics/convex_sat.lua")
-local polyhedron_cache = import("goluwa/physics/polyhedron_cache.lua")
-local polyhedron_face_contacts = import("goluwa/physics/polyhedron_face_contacts.lua")
-local polyhedron_sat = import("goluwa/physics/polyhedron_sat.lua")
+local polyhedron_cache = import("goluwa/physics/polyhedron/cache.lua")
+local polyhedron_face_contacts = import("goluwa/physics/polyhedron/face_contacts.lua")
+local polyhedron_sat = import("goluwa/physics/polyhedron/sat.lua")
 local triangle_contact_queries = import("goluwa/physics/triangle_contact_queries.lua")
 local triangle_geometry = import("goluwa/physics/triangle_geometry.lua")
 local polyhedron_triangle_contacts = {}
@@ -152,11 +152,11 @@ function polyhedron_triangle_contacts.FindContact(collider, polyhedron, v0, v1, 
 	then
 		return nil
 	end
+
 	POLYHEDRON_FACE_CANDIDATE_CONTEXT.margin_overlap = 0
 	POLYHEDRON_FACE_CANDIDATE_CONTEXT.support_axis_y = 0
 	POLYHEDRON_EDGE_CANDIDATE_CONTEXT.margin_overlap = 0
 	POLYHEDRON_EDGE_CANDIDATE_CONTEXT.support_axis_y = 0
-
 	local chosen = convex_sat.ChoosePreferredAxis(best, face_axis_relative_tolerance, face_axis_absolute_tolerance)
 	local normal = chosen and chosen.normal or nil
 	local overlap = chosen and chosen.overlap or nil

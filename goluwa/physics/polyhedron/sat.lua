@@ -1,5 +1,5 @@
 local convex_sat = import("goluwa/physics/convex_sat.lua")
-local polyhedron_geometry = import("goluwa/physics/polyhedron_geometry.lua")
+local polyhedron_geometry = import("goluwa/physics/polyhedron/geometry.lua")
 local polyhedron_sat = {}
 
 local function default_face_candidate(face_index)
@@ -130,12 +130,7 @@ function polyhedron_sat.TryUpdatePolyhedronFaceAxisCandidates(best, vertices_a, 
 	for face_index, face in ipairs(poly_data.faces or {}) do
 		local axis = rotation:VecMul(face.normal)
 		local candidate = build_polyhedron_candidate(build_candidate, build_candidate_context, face_index, axis)
-		local margin_overlap = get_polyhedron_margin_overlap(
-			get_margin_overlap,
-			get_margin_overlap_context,
-			axis,
-			face_index
-		)
+		local margin_overlap = get_polyhedron_margin_overlap(get_margin_overlap, get_margin_overlap_context, axis, face_index)
 
 		if
 			not polyhedron_sat.TryUpdateAxisCandidate(

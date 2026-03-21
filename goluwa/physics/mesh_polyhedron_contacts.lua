@@ -1,11 +1,10 @@
 local physics = import("goluwa/physics.lua")
 local contact_resolution = import("goluwa/physics/contact_resolution.lua")
 local mesh_contact_common = import("goluwa/physics/mesh_contact_common.lua")
-local polyhedron_triangle_aggregator = import("goluwa/physics/polyhedron_triangle_aggregator.lua")
+local polyhedron_triangle_aggregator = import("goluwa/physics/polyhedron/triangle_aggregator.lua")
 local triangle_contact_queries = import("goluwa/physics/triangle_contact_queries.lua")
 local triangle_geometry = import("goluwa/physics/triangle_geometry.lua")
 local mesh_polyhedron_contacts = {}
-
 local SOLVE_MESH_POLYHEDRON_CONTEXT = {
 	mesh_body = nil,
 	poly_body = nil,
@@ -151,7 +150,6 @@ function mesh_polyhedron_contacts.SolveMeshPolyhedronCollision(mesh_body, poly_b
 	SOLVE_MESH_POLYHEDRON_CONTEXT.polyhedron = polyhedron
 	SOLVE_MESH_POLYHEDRON_CONTEXT.state = state
 	SOLVE_MESH_POLYHEDRON_CONTEXT.samples = samples
-
 	mesh_contact_common.ForEachOverlappingMeshTriangle(
 		mesh_body,
 		mesh_shape,
@@ -196,6 +194,5 @@ function mesh_polyhedron_contacts.SolveMeshPolyhedronCollision(mesh_body, poly_b
 
 	return false
 end
-
 
 return mesh_polyhedron_contacts
