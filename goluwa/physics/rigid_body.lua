@@ -1,5 +1,6 @@
 local physics = import("goluwa/physics.lua")
 local prototype = import("goluwa/prototype.lua")
+local bit = require("bit")
 local AABB = import("goluwa/structs/aabb.lua")
 local Matrix33 = import("goluwa/structs/matrix33.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
@@ -8,7 +9,7 @@ local Collider = import("goluwa/physics/collider.lua")
 local Entity = import("goluwa/ecs/entity.lua")
 local default_skin = (
 		import.loaded["goluwa/physics.lua"] and
-		import.loaded["goluwa/physics.lua"].DefaultSkin
+		import.loaded["goluwa/physics.lua"].DefaultCollisionMargin
 	)
 	or
 	0.02
@@ -610,6 +611,24 @@ do
 
 	function RigidBody:IsSolverImmovable()
 		return not self:HasSolverMass()
+	end
+
+	function RigidBody:ShouldCollide(body)
+		if self == body then return false end
+
+		local group_a = self.GetCollisionGroup and
+			self:GetCollisionGroup() or
+			self.CollisionGroup or
+			1
+		local group_b = body.GetCollisionGroup and
+			body:GetCollisionGroup() or
+			body.CollisionGroup or
+			1
+		local mask_a = self.GetCollisionMask and self:GetCollisionMask() or self.CollisionMask
+		local mask_b = body.GetCollisionMask and body:GetCollisionMask() or body.CollisionMask
+		mask_a = mask_a == nil and -1 or mask_a
+		mask_b = mask_b == nil and -1 or mask_b
+		return bit.band(mask_a, group_b) ~= 0 and bit.band(mask_b, group_a) ~= 0
 	end
 
 	function RigidBody:SynchronizeFromTransform()

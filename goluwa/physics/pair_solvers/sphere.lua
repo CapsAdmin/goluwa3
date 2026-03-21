@@ -12,7 +12,9 @@ local SWEPT_SPHERE_BOX_POINT_CALLBACK_CONTEXT = {
 }
 
 local function get_convex_face_projection_point(vertices, face, point, normal, signed_distance)
-	if not (vertices and face and face.indices and face.indices[3] and normal) then return nil end
+	if not (vertices and face and face.indices and face.indices[3] and normal) then
+		return nil
+	end
 
 	local projected = point - normal * signed_distance
 	local a = vertices[face.indices[1]]
@@ -44,14 +46,20 @@ local function evaluate_swept_sphere_box_point(context, start_point_world, end_p
 
 	local hit = pair_solver_helpers.SweepPointAgainstBox(context.box_body, start_point_world, end_point_world)
 
-	if hit and not (context.descending_from_above and hit.normal_local.y <= physics.EPSILON) then
+	if
+		hit and
+		not (
+			context.descending_from_above and
+			hit.normal_local.y <= physics.EPSILON
+		)
+	then
 		return hit
 	end
 
 	return nil
 end
 
-local function solve_sphere_pair_collision(body_a, body_b, dt)
+function sphere.SolveSpherePairCollision(body_a, body_b, dt)
 	if body_a == body_b then return end
 
 	local pos_a = body_a:GetPosition()
@@ -174,7 +182,7 @@ local function solve_swept_sphere_box_collision(sphere_body, box_body, dt)
 	return pair_solver_helpers.ResolveSweptHit(box_body, sphere_body, start_world, movement_world, earliest_hit, dt, true)
 end
 
-local function solve_sphere_box_collision(sphere_body, box_body, dt)
+function sphere.SolveSphereBoxCollision(sphere_body, box_body, dt)
 	local center = sphere_body:GetPosition()
 	local local_center = box_body:WorldToLocal(center)
 	local previous_local_center = box_body:WorldToLocal(sphere_body:GetPreviousPosition())
@@ -255,7 +263,7 @@ local function solve_swept_sphere_convex_collision(sphere_body, convex_body, dt)
 	return pair_solver_helpers.ResolveSweptHit(convex_body, sphere_body, start_world, movement_world, hit, dt)
 end
 
-local function solve_sphere_convex_collision(sphere_body, convex_body, dt)
+function sphere.SolveSphereConvexCollision(sphere_body, convex_body, dt)
 	local hull = convex_body:GetResolvedConvexHull()
 
 	if not (hull and hull.vertices and hull.indices and hull.indices[1]) then
@@ -373,25 +381,5 @@ local function solve_sphere_convex_collision(sphere_body, convex_body, dt)
 
 	return contact_resolution.ResolvePairPenetration(convex_body, sphere_body, normal, overlap, dt, point_a, point_b)
 end
-
-physics.solver:RegisterPairHandler("sphere", "sphere", function(body_a, body_b, _, _, dt)
-	return solve_sphere_pair_collision(body_a, body_b, dt)
-end)
-
-physics.solver:RegisterPairHandler("sphere", "box", function(body_a, body_b, _, _, dt)
-	return solve_sphere_box_collision(body_a, body_b, dt)
-end)
-
-physics.solver:RegisterPairHandler("box", "sphere", function(body_a, body_b, _, _, dt)
-	return solve_sphere_box_collision(body_b, body_a, dt)
-end)
-
-physics.solver:RegisterPairHandler("sphere", "convex", function(body_a, body_b, _, _, dt)
-	return solve_sphere_convex_collision(body_a, body_b, dt)
-end)
-
-physics.solver:RegisterPairHandler("convex", "sphere", function(body_a, body_b, _, _, dt)
-	return solve_sphere_convex_collision(body_b, body_a, dt)
-end)
 
 return sphere

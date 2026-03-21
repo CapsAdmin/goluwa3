@@ -275,11 +275,11 @@ function DistanceConstraint:OnRemove()
 	keep_alive[self] = nil
 end
 
-function physics.GetConstraints()
+function DistanceConstraint.GetConstraints()
 	return DistanceConstraint.Instances
 end
 
-function physics.RemoveAllConstraints()
+function DistanceConstraint.RemoveAllConstraints()
 	for _, constraint in ipairs(DistanceConstraint.Instances) do
 		constraint:Remove()
 	end

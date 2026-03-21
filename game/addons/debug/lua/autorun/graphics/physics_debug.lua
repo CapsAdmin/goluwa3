@@ -381,7 +381,7 @@ local function get_look_body_hit()
 
 	local origin = cam:GetPosition()
 	local ignore_entity = get_local_player_entity()
-	local hit = physics.Trace(
+	local hit = physics.RayCast(
 		origin,
 		cam:GetRotation():GetForward(),
 		4096,

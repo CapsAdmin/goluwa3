@@ -17,6 +17,7 @@ local RigidBodyComponent = import("goluwa/physics/rigid_body.lua")
 local AABB = import("goluwa/structs/aabb.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local RigidBody = import("goluwa/physics/rigid_body.lua")
+local sweep = {}
 local POLYHEDRON_SWEEP_MIN_SAMPLE_STEPS = 4
 local POLYHEDRON_SWEEP_MAX_SAMPLE_STEPS = 18
 local POLYHEDRON_SWEEP_REFINE_STEPS = 10
@@ -3546,13 +3547,12 @@ local function sweep_collider_world(collider, start_position, movement, ignore_e
 	return best_hit
 end
 
-function physics.SweepCollider(collider, start_position, movement, ignore_entity, filter_fn, options)
+function sweep.SweepCollider(collider, start_position, movement, ignore_entity, filter_fn, options)
 	return sweep_collider_world(collider, start_position, movement, ignore_entity, filter_fn, options)
 end
 
-function physics.Sweep(origin, movement, radius, ignore_entity, filter_fn, options)
+function sweep.Sweep(origin, movement, radius, ignore_entity, filter_fn, options)
 	return sweep_world(origin, movement, radius, ignore_entity, filter_fn, options)
 end
 
-physics.SphereCast = physics.Sweep
-physics.ShapeCast = physics.SweepCollider
+return sweep

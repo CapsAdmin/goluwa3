@@ -508,7 +508,7 @@ local function solve_swept_box_box_collision(dynamic_body, static_body, dt)
 	return pair_solver_helpers.ResolveSweptHit(static_body, dynamic_body, previous_position, movement, earliest_hit, dt)
 end
 
-local function solve_box_pair_collision(body_a, body_b, dt)
+function box.SolveBoxPairCollision(body_a, body_b, dt)
 	if body_a:BodyHasSignificantRotation() or body_b:BodyHasSignificantRotation() then
 		local temporal = polyhedron_solver.SolveTemporalPolyhedronPairCollision(
 			body_a,
@@ -678,9 +678,5 @@ local function solve_box_pair_collision(body_a, body_b, dt)
 
 	return contact_resolution.ResolvePairPenetration(body_a, body_b, best.normal, best.overlap, dt)
 end
-
-physics.solver:RegisterPairHandler("box", "box", function(body_a, body_b, _, _, dt)
-	return solve_box_pair_collision(body_a, body_b, dt)
-end)
 
 return box

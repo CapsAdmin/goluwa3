@@ -19,7 +19,7 @@ function static_model_query.BuildExpandedWorldContactAABB(bounds, body, extra_bo
 		0
 	local pad = math.max(
 		margin + probe_distance + extra_margin + extra_probe_distance,
-		physics.DefaultSkin or 0,
+		physics.DefaultCollisionMargin or 0,
 		physics.EPSILON
 	)
 	return {
@@ -129,11 +129,7 @@ function static_model_query.ForEachWorldPrimitiveCandidate(body, callback, world
 			goto continue_model
 		end
 
-		if
-			entity.PhysicsNoCollision or
-			entity.NoPhysicsCollision or
-			entity.rigid_body
-		then
+		if entity.PhysicsNoCollision or entity.NoPhysicsCollision or entity.rigid_body then
 			goto continue_model
 		end
 
@@ -160,9 +156,7 @@ function static_model_query.ForEachWorldPrimitiveCandidate(body, callback, world
 			local candidate = primitive_candidates[i]
 			local primitive = candidate and candidate.primitive or nil
 
-			if primitive then
-				callback(entity, primitive)
-			end
+			if primitive then callback(entity, primitive) end
 		end
 
 		::continue_model::

@@ -224,7 +224,7 @@ local function find_polyhedron_pair_time_of_impact(body_a, poly_a, body_b, poly_
 	)
 end
 
-local function solve_temporal_polyhedron_pair_collision(body_a, body_b, poly_a, poly_b, dt)
+function polyhedron.SolveTemporalPolyhedronPairCollision(body_a, body_b, poly_a, poly_b, dt)
 	local result = find_polyhedron_pair_time_of_impact(body_a, poly_a, body_b, poly_b)
 
 	if not result then return false end
@@ -332,7 +332,7 @@ local function solve_relative_swept_polyhedron_pair_collision(body_a, body_b, po
 	)
 end
 
-local function solve_polyhedron_pair_collision(body_a, body_b, dt)
+function polyhedron.SolvePolyhedronPairCollision(body_a, body_b, dt)
 	local poly_a = body_a:GetBodyPolyhedron()
 	local poly_b = body_b:GetBodyPolyhedron()
 
@@ -341,7 +341,7 @@ local function solve_polyhedron_pair_collision(body_a, body_b, dt)
 	end
 
 	if body_a:BodyHasSignificantRotation() or body_b:BodyHasSignificantRotation() then
-		local temporal = solve_temporal_polyhedron_pair_collision(body_a, body_b, poly_a, poly_b, dt)
+		local temporal = polyhedron.SolveTemporalPolyhedronPairCollision(body_a, body_b, poly_a, poly_b, dt)
 
 		if temporal then return true end
 	end
@@ -449,20 +449,5 @@ local function solve_polyhedron_pair_collision(body_a, body_b, dt)
 
 	return contact_resolution.ResolvePairPenetration(body_a, body_b, best_normal, best_overlap, dt, point_a, point_b)
 end
-
-polyhedron.SolveTemporalPolyhedronPairCollision = solve_temporal_polyhedron_pair_collision
-polyhedron.SolvePolyhedronPairCollision = solve_polyhedron_pair_collision
-
-physics.solver:RegisterPairHandler("convex", "box", function(body_a, body_b, _, _, dt)
-	return solve_polyhedron_pair_collision(body_a, body_b, dt)
-end)
-
-physics.solver:RegisterPairHandler("box", "convex", function(body_a, body_b, _, _, dt)
-	return solve_polyhedron_pair_collision(body_a, body_b, dt)
-end)
-
-physics.solver:RegisterPairHandler("convex", "convex", function(body_a, body_b, _, _, dt)
-	return solve_polyhedron_pair_collision(body_a, body_b, dt)
-end)
 
 return polyhedron

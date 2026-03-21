@@ -1,6 +1,4 @@
 local prototype = import("goluwa/prototype.lua")
-local physics = import("goluwa/physics.lua")
-local bit = require("bit")
 local CollisionPairs = prototype.CreateTemplate("physics_collision_pairs")
 import.loaded["goluwa/physics/collision_pairs.lua"] = CollisionPairs
 
@@ -31,7 +29,7 @@ end
 
 function CollisionPairs:Initialize(config)
 	config = config or {}
-	self.physics = config.physics or self.physics or physics
+	self.physics = config.physics or self.physics
 	self.PreviousCollisionPairs = config.PreviousCollisionPairs or new_weak_key_table()
 	self.CurrentCollisionPairs = config.CurrentCollisionPairs or new_weak_key_table()
 	self.PreviousCollisionEntries = config.PreviousCollisionEntries or {}
@@ -44,7 +42,7 @@ function CollisionPairs:Initialize(config)
 end
 
 function CollisionPairs:GetPhysics()
-	return self.physics or physics
+	return self.physics
 end
 
 function CollisionPairs:ResetState()
@@ -56,24 +54,6 @@ function CollisionPairs:ResetState()
 	self.CurrentWorldCollisionPairs = new_weak_key_table()
 	self.PreviousWorldCollisionEntries = {}
 	self.CurrentWorldCollisionEntries = {}
-end
-
-function physics.ShouldBodiesCollide(body_a, body_b)
-	if body_a == body_b then return false end
-
-	local group_a = body_a.GetCollisionGroup and
-		body_a:GetCollisionGroup() or
-		body_a.CollisionGroup or
-		1
-	local group_b = body_b.GetCollisionGroup and
-		body_b:GetCollisionGroup() or
-		body_b.CollisionGroup or
-		1
-	local mask_a = body_a.GetCollisionMask and body_a:GetCollisionMask() or body_a.CollisionMask
-	local mask_b = body_b.GetCollisionMask and body_b:GetCollisionMask() or body_b.CollisionMask
-	mask_a = mask_a == nil and -1 or mask_a
-	mask_b = mask_b == nil and -1 or mask_b
-	return bit.band(mask_a, group_b) ~= 0 and bit.band(mask_b, group_a) ~= 0
 end
 
 function CollisionPairs:BeginCollisionFrame()
@@ -95,9 +75,7 @@ function CollisionPairs:BodyHasCurrentCollision(body)
 end
 
 function CollisionPairs:RecordCollisionPair(body_a, body_b, normal, overlap)
-	local physics = self:GetPhysics()
-
-	if not physics.ShouldBodiesCollide(body_a, body_b) then return end
+	if not (body_a and body_a:ShouldCollide(body_b)) then return end
 
 	local existing = get_nested_entry(self.CurrentCollisionPairs, body_a, body_b)
 	local stored_overlap = overlap or 0

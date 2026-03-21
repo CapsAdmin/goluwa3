@@ -548,29 +548,24 @@ local function solve_capsule_box_collision(capsule_body, box_body, dt)
 	)
 end
 
-local function solve_capsule_sphere_pair_handler(body_a, body_b, _, _, dt)
+function capsule.SolveCapsuleSpherePair(body_a, body_b, _, _, dt)
 	return solve_capsule_sphere_collision(body_a, body_b, dt)
 end
 
-local function solve_sphere_capsule_pair_handler(body_a, body_b, _, _, dt)
+function capsule.SolveSphereCapsulePair(body_a, body_b, _, _, dt)
 	return solve_capsule_sphere_collision(body_b, body_a, dt)
 end
 
-local function solve_capsule_capsule_pair_handler(body_a, body_b, _, _, dt)
+function capsule.SolveCapsuleCapsulePair(body_a, body_b, _, _, dt)
 	return solve_capsule_capsule_collision(body_a, body_b, dt)
 end
 
-local function solve_capsule_box_pair_handler(body_a, body_b, _, _, dt)
+function capsule.SolveCapsuleBoxPair(body_a, body_b, _, _, dt)
 	return solve_capsule_box_collision(body_a, body_b, dt)
 end
 
-local function solve_box_capsule_pair_handler(body_a, body_b, _, _, dt)
+function capsule.SolveBoxCapsulePair(body_a, body_b, _, _, dt)
 	return solve_capsule_box_collision(body_b, body_a, dt)
 end
 
-physics.solver:RegisterPairHandler("capsule", "sphere", solve_capsule_sphere_pair_handler)
-physics.solver:RegisterPairHandler("sphere", "capsule", solve_sphere_capsule_pair_handler)
-physics.solver:RegisterPairHandler("capsule", "capsule", solve_capsule_capsule_pair_handler)
-physics.solver:RegisterPairHandler("capsule", "box", solve_capsule_box_pair_handler)
-physics.solver:RegisterPairHandler("box", "capsule", solve_box_capsule_pair_handler)
 return capsule

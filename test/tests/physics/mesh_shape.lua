@@ -129,7 +129,7 @@ T.Test("Mesh rigid bodies can be traced and preserve mesh hit metadata", functio
 		Shape = MeshShape.New{Model = owner.model},
 		Owner = owner,
 	}
-	local hit = physics.Trace(
+	local hit = physics.RayCast(
 		Vec3(0, 2, 0),
 		Vec3(0, -1, 0),
 		10,
@@ -222,7 +222,7 @@ T.Test("World geometry rigid bodies are traced by default world queries", functi
 		Owner = owner,
 	}
 	body.WorldGeometry = true
-	local hit = physics.Trace(
+	local hit = physics.RayCast(
 		Vec3(0, 2, 0),
 		Vec3(0, -1, 0),
 		10,

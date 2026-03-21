@@ -1,9 +1,9 @@
 local event = import("goluwa/event.lua")
-local physics = import("goluwa/physics.lua")
 local islands = import("goluwa/physics/islands.lua")
 local kinematic_controller = import("goluwa/physics/kinematic_controller.lua")
 local RigidBody = import("goluwa/physics/rigid_body.lua")
 local support_contacts = import("goluwa/physics/shapes/support_contacts.lua")
+local world_step = {}
 
 local function solve_body_support_contacts(body, step_dt)
 	if not (body:IsDynamic() and body:GetAwake() and body.CollisionEnabled) then
@@ -24,22 +24,22 @@ local function solve_body_support_contacts(body, step_dt)
 	end
 end
 
-local function get_fixed_step()
+local function get_fixed_step(physics)
 	return math.max(physics.FixedTimeStep, 0.000001)
 end
 
-function physics.Step(dt)
+function world_step.Step(physics, dt)
 	if not dt or dt <= 0 then return end
 
 	physics.UpdateRigidBodies(dt)
 end
 
-function physics.Update(dt)
+function world_step.Update(physics, dt)
 	if not dt or dt <= 0 then return 0 end
 
 	physics.FrameAccumulator = 0
 	physics.InterpolationAlpha = 0
-	local fixed_dt = get_fixed_step()
+	local fixed_dt = get_fixed_step(physics)
 	local steps = 0
 
 	while dt >= fixed_dt do
@@ -56,14 +56,14 @@ function physics.Update(dt)
 	return steps
 end
 
-function physics.UpdateFixed(dt)
+function world_step.UpdateFixed(physics, dt)
 	if not dt or dt <= 0 then return 0 end
 
 	local max_frame_time = math.max(physics.MaxFrameTime or 0.1, 0)
 
 	if max_frame_time > 0 then dt = math.min(dt, max_frame_time) end
 
-	local fixed_dt = get_fixed_step()
+	local fixed_dt = get_fixed_step(physics)
 	local accumulator = (physics.FrameAccumulator or 0) + dt
 	local steps = 0
 
@@ -80,7 +80,7 @@ function physics.UpdateFixed(dt)
 	return steps
 end
 
-function physics.UpdateRigidBodies(dt)
+function world_step.UpdateRigidBodies(physics, dt)
 	if not dt or dt <= 0 then return end
 
 	local bodies = RigidBody.Instances
@@ -196,12 +196,4 @@ function physics.UpdateRigidBodies(dt)
 	collision_pairs:DispatchCollisionEvents()
 end
 
-if not physics.UpdateListenerRegistered then
-	event.AddListener("Update", "physics", function(dt)
-		physics.UpdateFixed(dt)
-	end)
-
-	physics.UpdateListenerRegistered = true
-end
-
-return physics
+return world_step

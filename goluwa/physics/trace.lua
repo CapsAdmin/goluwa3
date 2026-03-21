@@ -1,7 +1,7 @@
-local physics = import("goluwa/physics.lua")
 local mesh_surface_contact = import("goluwa/physics/mesh_surface_contact.lua")
 local raycast = import("goluwa/physics/raycast.lua")
 local RigidBodyComponent = import("goluwa/physics/rigid_body.lua")
+local trace = {}
 
 local function should_query_body_as_world(body, options)
 	return options.IgnoreWorld ~= true and body and body.WorldGeometry == true
@@ -131,7 +131,7 @@ local function pick_best_world_hit(hits, direction)
 	return hits[1]
 end
 
-function physics.Trace(origin, direction, max_distance, ignore_entity, filter_fn, options)
+function trace.RayCast(origin, direction, max_distance, ignore_entity, filter_fn, options)
 	options = normalize_query_options(options)
 	local allow_rigid = options.IgnoreRigidBodies == false
 	local hits = cast_with_filter(
@@ -183,10 +183,8 @@ function physics.Trace(origin, direction, max_distance, ignore_entity, filter_fn
 	return best_hit
 end
 
-physics.RayCast = physics.Trace
-
-function physics.GetHitNormal(hit, reference_point)
-	local contact = physics.GetHitSurfaceContact(hit, reference_point)
+function trace.GetHitNormal(hit, reference_point)
+	local contact = trace.GetHitSurfaceContact(hit, reference_point)
 	local normal = contact and contact.normal or nil
 
 	if not normal then return nil end
@@ -200,8 +198,8 @@ function physics.GetHitNormal(hit, reference_point)
 	return normal
 end
 
-function physics.GetHitSurfaceContact(hit, reference_point)
+function trace.GetHitSurfaceContact(hit, reference_point)
 	return mesh_surface_contact.GetHitSurfaceContact(hit, reference_point)
 end
 
-return physics
+return trace

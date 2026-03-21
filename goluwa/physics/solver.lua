@@ -1,5 +1,4 @@
 local prototype = import("goluwa/prototype.lua")
-local physics = import("goluwa/physics.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local contact_resolution = import("goluwa/physics/contact_resolution.lua")
 local manifolds = import("goluwa/physics/manifold.lua")
@@ -51,7 +50,7 @@ local function combine_material_value(value_a, value_b, mode, legacy_mode)
 	return math.max(value_a, value_b)
 end
 
-local function get_collider_sweep_hit(dynamic_body, collider)
+local function get_collider_sweep_hit(dynamic_body, collider, physics)
 	if not (physics.SweepCollider and collider and dynamic_body) then return nil end
 
 	local previous_position = collider:GetPreviousPosition()
@@ -85,7 +84,7 @@ local function get_collider_sweep_hit(dynamic_body, collider)
 	}
 end
 
-local function rewind_body_to_sweep_hit(dynamic_body, sweep_result)
+local function rewind_body_to_sweep_hit(dynamic_body, sweep_result, physics)
 	if
 		not (
 			dynamic_body and
@@ -105,7 +104,7 @@ local function rewind_body_to_sweep_hit(dynamic_body, sweep_result)
 	if movement_length <= physics.EPSILON then return nil end
 
 	local fraction = math.max(0, math.min(hit.fraction or 0, 1))
-	local skin = math.max(collider:GetCollisionMargin() or 0, physics.DefaultSkin or 0)
+	local skin = math.max(collider:GetCollisionMargin() or 0, physics.DefaultCollisionMargin or 0)
 	local post_fraction = math.min(1, fraction + skin / movement_length)
 	local target_position = sweep_result.previous_position + movement * post_fraction
 	local delta = target_position - sweep_result.current_position
@@ -145,7 +144,7 @@ end
 function Solver.New(config)
 	local self = Solver:CreateObject()
 	config = config or {}
-	self.physics = config.physics or self.physics or physics
+	self.physics = config.physics or self.physics
 	self.MANIFOLD_PRUNE_STEPS = config.MANIFOLD_PRUNE_STEPS or self.MANIFOLD_PRUNE_STEPS or 12
 	self.MANIFOLD_SOLVER_PASSES = config.MANIFOLD_SOLVER_PASSES or self.MANIFOLD_SOLVER_PASSES or 1
 	self.RESTING_MANIFOLD_SOLVER_PASSES = config.RESTING_MANIFOLD_SOLVER_PASSES or self.RESTING_MANIFOLD_SOLVER_PASSES or 2
@@ -179,7 +178,7 @@ function Solver.New(config)
 end
 
 function Solver:GetPhysics()
-	return self.physics or physics
+	return self.physics
 end
 
 function Solver:ResetState()
@@ -318,7 +317,7 @@ function Solver:BeginStep()
 		self.StepStamp,
 		self.MANIFOLD_PRUNE_STEPS or Solver.MANIFOLD_PRUNE_STEPS
 	)
-	local constraints = physics.GetConstraints()
+	local constraints = physics.GetConstraints and physics.GetConstraints() or {}
 
 	for i = 1, #constraints do
 		local constraint = constraints[i]
@@ -366,7 +365,7 @@ end
 
 function Solver:SolveDistanceConstraints(dt, constraints_override)
 	local physics = self:GetPhysics()
-	local constraints = constraints_override or physics.GetConstraints()
+	local constraints = constraints_override or physics.GetConstraints and physics.GetConstraints() or {}
 
 	for i = #constraints, 1, -1 do
 		local constraint = constraints[i]
@@ -393,7 +392,7 @@ function Solver:SolveRigidBodyPairs(bodies_or_pairs, dt)
 		local body_b = entry_b.body
 		local physics = self:GetPhysics()
 
-		if physics.ShouldBodiesCollide(body_a, body_b) then
+		if body_a:ShouldCollide(body_b) then
 			local colliders_a = body_a:GetColliders()
 			local colliders_b = body_b:GetColliders()
 
@@ -416,10 +415,11 @@ end
 function Solver:SolveBodyContacts(body, dt)
 	if not (body and body.CollisionEnabled) then return false end
 
+	local physics = self:GetPhysics()
 	local best = nil
 
 	for _, collider in ipairs(body:GetColliders() or {}) do
-		local sweep_hit = get_collider_sweep_hit(body, collider)
+		local sweep_hit = get_collider_sweep_hit(body, collider, physics)
 
 		if
 			sweep_hit and
@@ -443,7 +443,7 @@ function Solver:SolveBodyContacts(body, dt)
 	if not best then return false end
 
 	local original_position = body:GetPosition():Copy()
-	local delta = rewind_body_to_sweep_hit(body, best)
+	local delta = rewind_body_to_sweep_hit(body, best, physics)
 
 	if not delta then return false end
 
@@ -454,7 +454,7 @@ function Solver:SolveBodyContacts(body, dt)
 		not (
 			target_body and
 			target_collider and
-			physics.ShouldBodiesCollide(body, target_body)
+			body:ShouldCollide(target_body)
 		)
 	then
 		body:SetPosition(original_position)
