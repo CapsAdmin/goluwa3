@@ -1,11 +1,7 @@
 local prototype = import("goluwa/prototype.lua")
-local Matrix33 = import("goluwa/structs/matrix33.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local BaseShape = import("goluwa/physics/shapes/base.lua")
-local mass_properties = import("goluwa/physics/shapes/mass_properties.lua")
-local physics = import("goluwa/physics.lua")
 local convex_hull = import("goluwa/physics/convex_hull.lua")
-local support_contacts = import("goluwa/physics/shapes/support_contacts.lua")
 local META = prototype.CreateTemplate("physics_shape_convex")
 META.Base = BaseShape
 META:GetSet("ConvexHull", nil)
@@ -28,7 +24,7 @@ local function collect_convex_support_contact(context, target_body, point, hit, 
 		not best or
 		depth > best.depth or
 		(
-			math.abs(depth - best.depth) <= physics.EPSILON and
+			math.abs(depth - best.depth) <= 0.000001 and
 			hit.normal.y > best.hit.normal.y
 		)
 	then
@@ -40,6 +36,24 @@ local function collect_convex_support_contact(context, target_body, point, hit, 
 			depth = depth,
 		}
 	end
+end
+
+local function get_resolved_bounds(body, shape)
+	local hull = shape:GetResolvedHull(body)
+
+	if hull and hull.bounds_min and hull.bounds_max then
+		return hull.bounds_min, hull.bounds_max, hull
+	end
+
+	return nil, nil, hull
+end
+
+local function get_resolved_bounds_size(body, shape)
+	local bounds_min, bounds_max = get_resolved_bounds(body, shape)
+
+	if bounds_min and bounds_max then return bounds_max - bounds_min end
+
+	return nil
 end
 
 function META.New(hull)
@@ -78,30 +92,29 @@ function META:GetPolyhedron(body)
 end
 
 function META:GetHalfExtents(body)
-	local hull = self:GetResolvedHull(body)
+	local bounds_size = get_resolved_bounds_size(body, self)
 
-	if hull and hull.bounds_min and hull.bounds_max then
-		return (hull.bounds_max - hull.bounds_min) * 0.5
-	end
+	if bounds_size then return bounds_size * 0.5 end
 
 	return Vec3(0.5, 0.5, 0.5)
 end
 
-function META:GetMassProperties(body)
-	local bounds_size = self:GetHalfExtents(body) * 2
-	local automatic_mass = bounds_size.x * bounds_size.y * bounds_size.z * body:GetDensity()
+function META:GetAutomaticMass(body)
+	local bounds_size = get_resolved_bounds_size(body, self)
+	local scale = 1
 
-	if body:GetAutomaticMass() then
-		local hull = self:GetResolvedHull(body)
-
-		if hull and hull.bounds_min and hull.bounds_max then
-			bounds_size = hull.bounds_max - hull.bounds_min
-			automatic_mass = math.max(bounds_size.x * bounds_size.y * bounds_size.z * body:GetDensity() * 0.75, 0)
-		end
+	if bounds_size then
+		scale = 0.75
+	else
+		bounds_size = self:GetHalfExtents(body) * 2
 	end
 
-	local mass = mass_properties.ResolveBodyMass(body, automatic_mass)
-	return mass_properties.BuildBoxInertia(mass, bounds_size.x, bounds_size.y, bounds_size.z)
+	return math.max(bounds_size.x * bounds_size.y * bounds_size.z * body:GetDensity() * scale, 0)
+end
+
+function META:BuildInertia(mass, body)
+	local bounds_size = get_resolved_bounds_size(body, self) or self:GetHalfExtents(body) * 2
+	return self:BuildBoxInertia(mass, bounds_size.x, bounds_size.y, bounds_size.z)
 end
 
 function META:BuildCollisionLocalPoints(body)
@@ -151,28 +164,9 @@ function META:BuildSupportLocalPoints(body)
 	return BaseShape.BuildSupportLocalPoints(self, body)
 end
 
-function META:GetSupportRadiusAlongNormal(body, normal)
-	normal = normal and normal:GetNormalized() or Vec3(0, 1, 0)
-	local max_projection = 0
-
-	for _, local_point in ipairs(body:GetSupportLocalPoints() or {}) do
-		local world_point = body:GeometryLocalToWorld(local_point)
-		max_projection = math.max(max_projection, (world_point - body:GetPosition()):Dot(normal))
-	end
-
-	return max_projection
-end
-
-function META:SolveSupportContacts(body, dt)
+function META:SolveSupportContacts(body, dt, support_contacts)
 	CONVEX_SUPPORT_CONTACT_CONTEXT.best = nil
-
-	BaseShape.SolveSupportContacts(
-		self,
-		body,
-		dt,
-		collect_convex_support_contact,
-		CONVEX_SUPPORT_CONTACT_CONTEXT
-	)
+	support_contacts.ForEachPointSweepContact(body, dt, collect_convex_support_contact, CONVEX_SUPPORT_CONTACT_CONTEXT)
 	local best = CONVEX_SUPPORT_CONTACT_CONTEXT.best
 	CONVEX_SUPPORT_CONTACT_CONTEXT.best = nil
 
@@ -186,6 +180,18 @@ function META:SolveSupportContacts(body, dt)
 		best.hit,
 		best.dt
 	)
+end
+
+function META:GetSupportRadiusAlongNormal(body, normal)
+	normal = normal and normal:GetNormalized() or Vec3(0, 1, 0)
+	local max_projection = 0
+
+	for _, local_point in ipairs(body:GetSupportLocalPoints() or {}) do
+		local world_point = body:GeometryLocalToWorld(local_point)
+		max_projection = math.max(max_projection, (world_point - body:GetPosition()):Dot(normal))
+	end
+
+	return max_projection
 end
 
 return META:Register()

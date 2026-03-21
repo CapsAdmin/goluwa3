@@ -32,7 +32,6 @@ local sweep_polyhedron_against_triangle
 local get_capsule_segment_world
 local sweep_capsule_against_triangle
 local sweep_sphere_against_triangle
-local get_mesh_triangle_world_vertices
 local get_polyhedron_contact_for_point_at_pose
 local get_point_sweep_sample_steps
 local evaluate_polyhedron_pair_contact
@@ -127,7 +126,8 @@ local CAPSULE_CAPSULE_SWEEP_CONTEXT = {
 }
 
 local function collect_mesh_body_point_sweep_hit(v0, v1, v2, triangle_index, context)
-	local wv0, wv1, wv2 = get_mesh_triangle_world_vertices(context.collider, context.target_position, context.target_rotation, v0, v1, v2)
+	local shape = context.collider:GetPhysicsShape()
+	local wv0, wv1, wv2 = shape:GetTriangleWorldVertices(context.collider, context.target_position, context.target_rotation, v0, v1, v2)
 	local hit = sweep_sphere_against_triangle(
 		context.origin,
 		context.movement,
@@ -154,7 +154,8 @@ local function collect_mesh_body_point_sweep_hit(v0, v1, v2, triangle_index, con
 end
 
 local function collect_mesh_body_collider_sweep_hit(v0, v1, v2, triangle_index, context)
-	local wv0, wv1, wv2 = get_mesh_triangle_world_vertices(
+	local shape = context.target_collider:GetPhysicsShape()
+	local wv0, wv1, wv2 = shape:GetTriangleWorldVertices(
 		context.target_collider,
 		context.target_position,
 		context.target_rotation,
@@ -1562,14 +1563,6 @@ local function build_rigid_body_hit(base_hit, movement, movement_length, body, c
 	}
 end
 
-local function get_mesh_collider_entries(collider)
-	local shape = collider and collider.GetPhysicsShape and collider:GetPhysicsShape() or nil
-
-	if not (shape and shape.GetMeshPolygonEntries) then return nil end
-
-	return shape:GetMeshPolygonEntries(collider)
-end
-
 local function get_mesh_collider_shape(collider)
 	local shape = collider and collider.GetPhysicsShape and collider:GetPhysicsShape() or nil
 
@@ -1578,60 +1571,6 @@ local function get_mesh_collider_shape(collider)
 	end
 
 	return shape
-end
-
-local function for_each_overlapping_mesh_body_triangle(target_collider, local_aabb, callback, context)
-	local shape = get_mesh_collider_shape(target_collider)
-
-	if shape and shape.ForEachOverlappingTriangle then
-		shape:ForEachOverlappingTriangle(target_collider, local_aabb, callback, context)
-		return true
-	end
-
-	local entries = get_mesh_collider_entries(target_collider)
-
-	if not (entries and entries[1]) then return false end
-
-	local previous_entry = context and context.entry or nil
-
-	for _, entry in ipairs(entries) do
-		if context then context.entry = entry end
-
-		triangle_mesh.ForEachOverlappingTriangle(entry.polygon, local_aabb, callback, context)
-	end
-
-	if context then context.entry = previous_entry end
-
-	return true
-end
-
-function get_mesh_triangle_world_vertices(collider, position, rotation, v0, v1, v2)
-	return collider:LocalToWorld(v0, position, rotation),
-	collider:LocalToWorld(v1, position, rotation),
-	collider:LocalToWorld(v2, position, rotation)
-end
-
-local SWEEP_LOCAL_AABB_TRANSFORM_PROXY = {
-	collider = nil,
-	position = nil,
-	rotation = nil,
-}
-
-function SWEEP_LOCAL_AABB_TRANSFORM_PROXY:TransformVector(point)
-	return self.collider:WorldToLocal(point, self.position, self.rotation)
-end
-
-local function build_mesh_collider_local_swept_aabb(target_collider, target_position, target_rotation, world_aabb)
-	if not (target_collider and world_aabb) then return nil end
-
-	SWEEP_LOCAL_AABB_TRANSFORM_PROXY.collider = target_collider
-	SWEEP_LOCAL_AABB_TRANSFORM_PROXY.position = target_position
-	SWEEP_LOCAL_AABB_TRANSFORM_PROXY.rotation = target_rotation
-	local local_aabb = AABB.BuildLocalAABBFromWorldAABB(world_aabb, SWEEP_LOCAL_AABB_TRANSFORM_PROXY)
-	SWEEP_LOCAL_AABB_TRANSFORM_PROXY.collider = nil
-	SWEEP_LOCAL_AABB_TRANSFORM_PROXY.position = nil
-	SWEEP_LOCAL_AABB_TRANSFORM_PROXY.rotation = nil
-	return local_aabb
 end
 
 local function test_mesh_body_point_sweep(origin, movement, radius, body, collider, max_fraction)
@@ -1652,8 +1591,12 @@ local function test_mesh_body_point_sweep(origin, movement, radius, body, collid
 	local best_hit = nil
 	local target_position = collider:GetPosition()
 	local target_rotation = collider:GetRotation()
+	local shape = get_mesh_collider_shape(collider)
+
+	if not shape then return nil end
+
 	local world_aabb = build_swept_aabb(origin, origin + movement * max_fraction, radius)
-	local local_aabb = build_mesh_collider_local_swept_aabb(collider, target_position, target_rotation, world_aabb)
+	local local_aabb = shape:BuildSweptLocalAABB(collider, target_position, target_rotation, world_aabb)
 	MESH_BODY_POINT_SWEEP_CONTEXT.origin = origin
 	MESH_BODY_POINT_SWEEP_CONTEXT.movement = movement
 	MESH_BODY_POINT_SWEEP_CONTEXT.radius = radius
@@ -1664,14 +1607,7 @@ local function test_mesh_body_point_sweep(origin, movement, radius, body, collid
 	MESH_BODY_POINT_SWEEP_CONTEXT.best_hit = nil
 	MESH_BODY_POINT_SWEEP_CONTEXT.entry = nil
 
-	if
-		not for_each_overlapping_mesh_body_triangle(
-			collider,
-			local_aabb,
-			collect_mesh_body_point_sweep_hit,
-			MESH_BODY_POINT_SWEEP_CONTEXT
-		)
-	then
+	if not local_aabb then
 		MESH_BODY_POINT_SWEEP_CONTEXT.origin = nil
 		MESH_BODY_POINT_SWEEP_CONTEXT.movement = nil
 		MESH_BODY_POINT_SWEEP_CONTEXT.radius = 0
@@ -1684,6 +1620,12 @@ local function test_mesh_body_point_sweep(origin, movement, radius, body, collid
 		return nil
 	end
 
+	shape:ForEachOverlappingTriangle(
+		collider,
+		local_aabb,
+		collect_mesh_body_point_sweep_hit,
+		MESH_BODY_POINT_SWEEP_CONTEXT
+	)
 	best_hit = MESH_BODY_POINT_SWEEP_CONTEXT.best_hit
 	MESH_BODY_POINT_SWEEP_CONTEXT.origin = nil
 	MESH_BODY_POINT_SWEEP_CONTEXT.movement = nil
@@ -1725,8 +1667,12 @@ local function test_mesh_body_collider_sweep(
 	local target_position = target_collider:GetPosition()
 	local target_rotation = target_collider:GetRotation()
 	local query_shape_type = collider:GetShapeType()
+	local shape = get_mesh_collider_shape(target_collider)
+
+	if not shape then return nil end
+
 	local world_aabb = build_collider_swept_aabb(collider, start_position, rotation, movement * max_fraction)
-	local local_aabb = build_mesh_collider_local_swept_aabb(target_collider, target_position, target_rotation, world_aabb)
+	local local_aabb = shape:BuildSweptLocalAABB(target_collider, target_position, target_rotation, world_aabb)
 	MESH_BODY_COLLIDER_SWEEP_CONTEXT.collider = collider
 	MESH_BODY_COLLIDER_SWEEP_CONTEXT.polyhedron = polyhedron
 	MESH_BODY_COLLIDER_SWEEP_CONTEXT.start_position = start_position
@@ -1740,14 +1686,7 @@ local function test_mesh_body_collider_sweep(
 	MESH_BODY_COLLIDER_SWEEP_CONTEXT.best_hit = nil
 	MESH_BODY_COLLIDER_SWEEP_CONTEXT.entry = nil
 
-	if
-		not for_each_overlapping_mesh_body_triangle(
-			target_collider,
-			local_aabb,
-			collect_mesh_body_collider_sweep_hit,
-			MESH_BODY_COLLIDER_SWEEP_CONTEXT
-		)
-	then
+	if not local_aabb then
 		MESH_BODY_COLLIDER_SWEEP_CONTEXT.collider = nil
 		MESH_BODY_COLLIDER_SWEEP_CONTEXT.polyhedron = nil
 		MESH_BODY_COLLIDER_SWEEP_CONTEXT.start_position = nil
@@ -1763,6 +1702,12 @@ local function test_mesh_body_collider_sweep(
 		return nil
 	end
 
+	shape:ForEachOverlappingTriangle(
+		target_collider,
+		local_aabb,
+		collect_mesh_body_collider_sweep_hit,
+		MESH_BODY_COLLIDER_SWEEP_CONTEXT
+	)
 	best_hit = MESH_BODY_COLLIDER_SWEEP_CONTEXT.best_hit
 	MESH_BODY_COLLIDER_SWEEP_CONTEXT.collider = nil
 	MESH_BODY_COLLIDER_SWEEP_CONTEXT.polyhedron = nil

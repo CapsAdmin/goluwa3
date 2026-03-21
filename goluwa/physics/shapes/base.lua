@@ -2,9 +2,8 @@ local prototype = import("goluwa/prototype.lua")
 local AABB = import("goluwa/structs/aabb.lua")
 local Matrix33 = import("goluwa/structs/matrix33.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
-local physics = import("goluwa/physics.lua")
+local mass_properties = import("goluwa/physics/shapes/mass_properties.lua")
 local sample_points = import("goluwa/physics/shapes/sample_points.lua")
-local support_contacts = import("goluwa/physics/shapes/support_contacts.lua")
 local META = prototype.CreateTemplate("physics_shape_base")
 
 function META.New(data)
@@ -31,8 +30,37 @@ function META:GetHalfExtents()
 	return Vec3(0.5, 0.5, 0.5)
 end
 
-function META:GetMassProperties()
-	return 0, Matrix33():SetZero()
+function META:GetAutomaticMass()
+	return 0
+end
+
+function META:ResolveBodyMass(body, automatic_mass)
+	return mass_properties.ResolveBodyMass(body, automatic_mass)
+end
+
+function META:ZeroMassInertia(mass)
+	return mass_properties.ZeroIfStatic(mass)
+end
+
+function META:BuildBoxInertia(mass, sx, sy, sz)
+	return mass_properties.BuildBoxInertia(mass, sx, sy, sz)
+end
+
+function META:BuildSphereInertia(mass, radius)
+	return mass_properties.BuildSphereInertia(mass, radius)
+end
+
+function META:BuildInertia(mass)
+	local zero_mass, zero_inertia = self:ZeroMassInertia(mass)
+
+	if zero_mass then return zero_mass, zero_inertia end
+
+	return mass, Matrix33():SetZero()
+end
+
+function META:GetMassProperties(body)
+	local mass = self:ResolveBodyMass(body, self:GetAutomaticMass(body))
+	return self:BuildInertia(mass, body)
 end
 
 function META:GeometryLocalToWorld(body, local_pos, position, rotation)
@@ -88,47 +116,28 @@ function META:GetBroadphaseAABB(body, position, rotation)
 		local z = world_point.z
 
 		if x < min_x then min_x = x end
+
 		if y < min_y then min_y = y end
+
 		if z < min_z then min_z = z end
+
 		if x > max_x then max_x = x end
+
 		if y > max_y then max_y = y end
+
 		if z > max_z then max_z = z end
 	end
 
 	return AABB(min_x, min_y, min_z, max_x, max_y, max_z)
 end
 
-function META:SolveSupportContacts(body, dt, solve_contact, solve_contact_context)
-	local cast_up, cast_distance = support_contacts.GetCastDistances(body, dt)
-	local support_points = body:GetSupportLocalPoints()
-	local owner = body:GetOwner()
-	local filter_function = body:GetFilterFunction()
-	local cast_origin_offset = physics.Up * cast_up
-	local cast_delta = physics.Up * -cast_distance
-
-	for i = 1, #support_points do
-		local point = body:GeometryLocalToWorld(support_points[i])
-		local hit = physics.Sweep(
-			point + cast_origin_offset,
-			cast_delta,
-			0,
-			owner,
-			filter_function
-		)
-
-		if hit then
-			if solve_contact_context ~= nil then
-				solve_contact(solve_contact_context, body, point, hit, dt)
-			else
-				solve_contact(body, point, hit, dt)
-			end
-		end
-	end
-end
-
 function META:OnGroundedVelocityUpdate() end
 
 function META:TraceAgainstBody()
+	return nil
+end
+
+function META:SolveSupportContacts()
 	return nil
 end
 

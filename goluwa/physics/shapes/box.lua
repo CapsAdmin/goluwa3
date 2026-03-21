@@ -1,13 +1,9 @@
 local prototype = import("goluwa/prototype.lua")
 local Ang3 = import("goluwa/structs/ang3.lua")
-local Matrix33 = import("goluwa/structs/matrix33.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
-local physics = import("goluwa/physics.lua")
-local mass_properties = import("goluwa/physics/shapes/mass_properties.lua")
 local BaseShape = import("goluwa/physics/shapes/base.lua")
 local sample_points = import("goluwa/physics/shapes/sample_points.lua")
-local support_contacts = import("goluwa/physics/shapes/support_contacts.lua")
 local META = prototype.CreateTemplate("physics_shape_box")
 META.Base = BaseShape
 META:GetSet("Size", Vec3(1, 1, 1))
@@ -41,6 +37,44 @@ local BOX_EDGE_PAIRS = {
 	{3, 7},
 	{4, 8},
 }
+local BOX_SUPPORT_CONTACT_CONTEXT = {
+	best_point = nil,
+}
+
+local function collect_box_support_contact(context, collider, point, fallback_hit, fallback_dt)
+	if not (fallback_hit and fallback_hit.normal and fallback_hit.position and point) then
+		return
+	end
+
+	if not (fallback_hit.rigid_body and fallback_hit.rigid_body.WorldGeometry == true) then
+		return
+	end
+
+	local margin = collider:GetCollisionMargin() or 0
+	local depth = (fallback_hit.position + fallback_hit.normal * margin - point):Dot(fallback_hit.normal)
+	local support_tolerance = (collider:GetCollisionProbeDistance() or 0) + margin
+
+	if depth < -support_tolerance then return end
+
+	local best_point = context.best_point
+
+	if
+		not best_point or
+		depth > best_point.depth or
+		(
+			math.abs(depth - best_point.depth) <= 0.000001 and
+			fallback_hit.normal.y > best_point.hit.normal.y
+		)
+	then
+		context.best_point = {
+			body = collider,
+			point = point,
+			hit = fallback_hit,
+			dt = fallback_dt,
+			depth = depth,
+		}
+	end
+end
 
 function META.New(size)
 	local shape = META:CreateObject()
@@ -65,10 +99,14 @@ function META:GetHalfExtents()
 	return self:GetExtents()
 end
 
-function META:GetMassProperties(body)
+function META:GetAutomaticMass(body)
 	local size = self:GetSize()
-	local mass = mass_properties.ResolveBodyMass(body, size.x * size.y * size.z * body:GetDensity())
-	return mass_properties.BuildBoxInertia(mass, size.x, size.y, size.z)
+	return size.x * size.y * size.z * body:GetDensity()
+end
+
+function META:BuildInertia(mass)
+	local size = self:GetSize()
+	return self:BuildBoxInertia(mass, size.x, size.y, size.z)
 end
 
 function META:GetAxes(body)
@@ -88,62 +126,9 @@ function META:BuildSupportLocalPoints()
 	return sample_points.BuildBoxSupportGridPoints(self:GetExtents())
 end
 
-function META:GetSupportRadiusAlongNormal(body, normal)
-	normal = normal and normal:GetNormalized() or Vec3(0, 1, 0)
-	local extents = self:GetExtents()
-	local axes = self:GetAxes(body)
-	return extents.x * math.abs(normal:Dot(axes[1])) + extents.y * math.abs(normal:Dot(axes[2])) + extents.z * math.abs(normal:Dot(axes[3]))
-end
-
-local function solve_box_support_contact(self, body, normal, contact_position, hit, dt)
-	local support_radius = self:GetSupportRadiusAlongNormal(body, normal)
-	support_contacts.ApplyWorldSupportContact(body, normal, contact_position, support_radius, hit, dt)
-end
-
-local BOX_SUPPORT_CONTACT_CONTEXT = {
-	best_point = nil,
-}
-
-local function collect_box_support_contact(context, collider, point, fallback_hit, fallback_dt)
-	if not (fallback_hit and fallback_hit.normal and fallback_hit.position and point) then return end
-	if not (fallback_hit.rigid_body and fallback_hit.rigid_body.WorldGeometry == true) then return end
-
-	local margin = collider:GetCollisionMargin() or 0
-	local depth = (fallback_hit.position + fallback_hit.normal * margin - point):Dot(fallback_hit.normal)
-	local support_tolerance = (collider:GetCollisionProbeDistance() or 0) + margin
-
-	if depth < -support_tolerance then return end
-
-	local best_point = context.best_point
-
-	if
-		not best_point or
-		depth > best_point.depth or
-		(
-			math.abs(depth - best_point.depth) <= physics.EPSILON and
-			fallback_hit.normal.y > best_point.hit.normal.y
-		)
-	then
-		context.best_point = {
-			body = collider,
-			point = point,
-			hit = fallback_hit,
-			dt = fallback_dt,
-			depth = depth,
-		}
-	end
-end
-
-function META:SolveSupportContacts(body, dt)
+function META:SolveSupportContacts(body, dt, support_contacts)
 	BOX_SUPPORT_CONTACT_CONTEXT.best_point = nil
-
-	BaseShape.SolveSupportContacts(
-		self,
-		body,
-		dt,
-		collect_box_support_contact,
-		BOX_SUPPORT_CONTACT_CONTEXT
-	)
+	support_contacts.ForEachPointSweepContact(body, dt, collect_box_support_contact, BOX_SUPPORT_CONTACT_CONTEXT)
 	local best_point = BOX_SUPPORT_CONTACT_CONTEXT.best_point
 	BOX_SUPPORT_CONTACT_CONTEXT.best_point = nil
 
@@ -159,24 +144,27 @@ function META:SolveSupportContacts(body, dt)
 		return
 	end
 
-	local cast_up, cast_distance = support_contacts.GetCastDistances(body, dt)
-	local center = body:GetPosition()
-	local hit = physics.SweepCollider(
-		body,
-		center + physics.Up * cast_up,
-		physics.Up * -cast_distance,
-		body:GetOwner(),
-		body:GetFilterFunction(),
-		{
-			Rotation = body:GetRotation(),
-		}
-	)
+	local hit = support_contacts.SweepCollider(body, dt)
 	local normal = hit and hit.normal or nil
 	local contact_position = hit and hit.position or nil
 
 	if hit and normal and contact_position then
-		solve_box_support_contact(self, body, normal, contact_position, hit, dt)
+		support_contacts.ApplyWorldSupportContact(
+			body,
+			normal,
+			contact_position,
+			self:GetSupportRadiusAlongNormal(body, normal),
+			hit,
+			dt
+		)
 	end
+end
+
+function META:GetSupportRadiusAlongNormal(body, normal)
+	normal = normal and normal:GetNormalized() or Vec3(0, 1, 0)
+	local extents = self:GetExtents()
+	local axes = self:GetAxes(body)
+	return extents.x * math.abs(normal:Dot(axes[1])) + extents.y * math.abs(normal:Dot(axes[2])) + extents.z * math.abs(normal:Dot(axes[3]))
 end
 
 function META:GetPolyhedron()

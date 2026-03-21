@@ -135,6 +135,7 @@ function CollisionPairs:RecordWorldCollision(body, hit, normal, overlap)
 			existing.normal = normal
 			existing.overlap = stored_overlap
 			existing.hit = hit
+			existing.other_body = hit.rigid_body
 		end
 
 		return
@@ -143,6 +144,7 @@ function CollisionPairs:RecordWorldCollision(body, hit, normal, overlap)
 	existing = {
 		body = body,
 		entity = hit.entity,
+		other_body = hit.rigid_body,
 		normal = normal,
 		overlap = stored_overlap,
 		hit = hit,
@@ -226,12 +228,13 @@ function CollisionPairs:DispatchCollisionEvents()
 	for _, pair in ipairs(self.CurrentWorldCollisionEntries or {}) do
 		local previous_pair = get_nested_entry(previous_world, pair.body, pair.entity)
 		local event_name = previous_pair and "OnCollisionStay" or "OnCollisionEnter"
+		local other_body = pair.other_body or pair.hit and pair.hit.rigid_body or nil
 		emit_collision_event(
 			event_name,
 			pair.body and pair.body.Owner or nil,
 			pair.body,
 			pair.entity,
-			nil,
+			other_body,
 			pair.normal,
 			pair.overlap,
 			pair.hit
@@ -250,12 +253,13 @@ function CollisionPairs:DispatchCollisionEvents()
 
 	for _, pair in ipairs(self.PreviousWorldCollisionEntries or {}) do
 		if not get_nested_entry(current_world, pair.body, pair.entity) then
+			local other_body = pair.other_body or pair.hit and pair.hit.rigid_body or nil
 			emit_collision_event(
 				"OnCollisionExit",
 				pair.body and pair.body.Owner or nil,
 				pair.body,
 				pair.entity,
-				nil,
+				other_body,
 				pair.normal,
 				pair.overlap,
 				pair.hit

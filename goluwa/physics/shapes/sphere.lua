@@ -1,12 +1,8 @@
 local prototype = import("goluwa/prototype.lua")
 local AABB = import("goluwa/structs/aabb.lua")
-local Matrix33 = import("goluwa/structs/matrix33.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local BaseShape = import("goluwa/physics/shapes/base.lua")
-local mass_properties = import("goluwa/physics/shapes/mass_properties.lua")
-local physics = import("goluwa/physics.lua")
 local sample_points = import("goluwa/physics/shapes/sample_points.lua")
-local support_contacts = import("goluwa/physics/shapes/support_contacts.lua")
 local META = prototype.CreateTemplate("physics_shape_sphere")
 META.Base = BaseShape
 META:GetSet("Radius", 0.5)
@@ -26,10 +22,13 @@ function META:GetHalfExtents()
 	return Vec3(radius, radius, radius)
 end
 
-function META:GetMassProperties(body)
+function META:GetAutomaticMass(body)
 	local radius = self:GetRadius()
-	local mass = mass_properties.ResolveBodyMass(body, (4 / 3) * math.pi * radius * radius * radius * body:GetDensity())
-	return mass_properties.BuildSphereInertia(mass, radius)
+	return (4 / 3) * math.pi * radius * radius * radius * body:GetDensity()
+end
+
+function META:BuildInertia(mass)
+	return self:BuildSphereInertia(mass, self:GetRadius())
 end
 
 function META:GeometryLocalToWorld(body, local_pos, position)
@@ -58,17 +57,9 @@ function META:BuildSupportLocalPoints()
 	return sample_points.BuildSphereSupportPoints(self:GetRadius())
 end
 
-function META:SolveSupportContacts(body, dt)
-	local cast_up, cast_distance = support_contacts.GetCastDistances(body, dt)
+function META:SolveSupportContacts(body, dt, support_contacts)
 	local radius = self:GetRadius()
-	local center = body:GetPosition()
-	local hit = physics.Sweep(
-		center + physics.Up * cast_up,
-		physics.Up * -(cast_distance + radius),
-		radius,
-		body:GetOwner(),
-		body:GetFilterFunction()
-	)
+	local hit = support_contacts.SweepSphere(body, dt, radius)
 	local normal = hit and hit.normal or nil
 	local contact_position = hit and hit.position or nil
 

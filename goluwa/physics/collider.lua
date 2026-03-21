@@ -1,7 +1,141 @@
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local prototype = import("goluwa/prototype.lua")
+local BoxShape = import("goluwa/physics/shapes/box.lua")
+local ConvexShape = import("goluwa/physics/shapes/convex.lua")
+local MeshShape = import("goluwa/physics/shapes/mesh.lua")
 local META = prototype.CreateTemplate("physics_collider")
+
+local function copy_position(position)
+	if position and position.Copy then return position:Copy() end
+
+	return Vec3()
+end
+
+local function copy_rotation(rotation)
+	if rotation and rotation.Copy then return rotation:Copy() end
+
+	return Quat():Identity()
+end
+
+local function is_shape_definition(value)
+	return type(value) == "table" and
+		(
+			value.Shape ~= nil or
+			value.shape ~= nil or
+			value.Position ~= nil or
+			value.position ~= nil or
+			value.Rotation ~= nil or
+			value.rotation ~= nil or
+			value.ConvexHull ~= nil or
+			value.TriangleMesh ~= nil or
+			value.Mesh ~= nil or
+			value.Polygon3D ~= nil or
+			value.Primitive ~= nil or
+			value.Model ~= nil or
+			value.Polygons ~= nil
+		)
+end
+
+local function get_shape_from_definition(data)
+	local shape = data.Shape or data.shape
+
+	if not shape and data.ConvexHull then
+		shape = ConvexShape.New(data.ConvexHull)
+	end
+
+	if
+		not shape and
+		(
+			data.TriangleMesh or
+			data.Mesh or
+			data.Polygon3D or
+			data.Primitive or
+			data.Model or
+			data.Polygons
+		)
+	then
+		shape = MeshShape.New{
+			Source = data.TriangleMesh or data.Mesh,
+			Polygon3D = data.Polygon3D,
+			Primitive = data.Primitive,
+			Model = data.Model,
+			Polygons = data.Polygons,
+		}
+	end
+
+	return shape
+end
+
+local function append_shape_entry(entries, entry, parent_position, parent_rotation)
+	parent_position = parent_position or Vec3()
+	parent_rotation = parent_rotation or Quat():Identity()
+	local data = is_shape_definition(entry) and entry or {Shape = entry}
+	local shape = get_shape_from_definition(data)
+	local local_position = copy_position(data.Position or data.position)
+	local local_rotation = copy_rotation(data.Rotation or data.rotation)
+	local combined_position = parent_position + parent_rotation:VecMul(local_position)
+	local combined_rotation = (parent_rotation * local_rotation):GetNormalized()
+
+	if
+		shape and
+		shape.GetTypeName and
+		shape:GetTypeName() == "compound" and
+		shape.GetChildren
+	then
+		for _, child in ipairs(shape:GetChildren()) do
+			append_shape_entry(entries, child, combined_position, combined_rotation)
+		end
+
+		return
+	end
+
+	entries[#entries + 1] = {
+		Shape = shape,
+		Position = combined_position,
+		Rotation = combined_rotation,
+		Density = data.Density,
+		Mass = data.Mass,
+		AutomaticMass = data.AutomaticMass,
+		CollisionGroup = data.CollisionGroup,
+		CollisionMask = data.CollisionMask,
+		CollisionMargin = data.CollisionMargin,
+		CollisionProbeDistance = data.CollisionProbeDistance,
+		Friction = data.Friction,
+		StaticFriction = data.StaticFriction,
+		RollingFriction = data.RollingFriction,
+		Restitution = data.Restitution,
+		FrictionCombineMode = data.FrictionCombineMode,
+		StaticFrictionCombineMode = data.StaticFrictionCombineMode,
+		RollingFrictionCombineMode = data.RollingFrictionCombineMode,
+		RestitutionCombineMode = data.RestitutionCombineMode,
+		FilterFunction = data.FilterFunction,
+		MinGroundNormalY = data.MinGroundNormalY,
+	}
+end
+
+function META.BuildEntries(body)
+	local entries = {}
+	local shapes = body.Shapes
+
+	if shapes and shapes[1] then
+		for _, entry in ipairs(shapes) do
+			append_shape_entry(entries, entry)
+		end
+	elseif body.Shape then
+		append_shape_entry(entries, body.Shape)
+	end
+
+	if not entries[1] then
+		entries[1] = {
+			Shape = BoxShape.New(Vec3(1, 1, 1)),
+			Position = Vec3(),
+			Rotation = Quat():Identity(),
+		}
+	end
+
+	return entries
+end
 
 function META.New(body, data, index)
 	local self = {}

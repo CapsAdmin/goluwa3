@@ -1,16 +1,9 @@
 local physics = import("goluwa/physics.lua")
-local broadphase = import("goluwa/physics/broadphase.lua")
-local islands = import("goluwa/physics/islands.lua")
-local kinematic_controller = import("goluwa/physics/kinematic_controller.lua")
 local prototype = import("goluwa/prototype.lua")
 local AABB = import("goluwa/structs/aabb.lua")
 local Matrix33 = import("goluwa/structs/matrix33.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
-local BoxShape = import("goluwa/physics/shapes/box.lua")
-local ConvexShape = import("goluwa/physics/shapes/convex.lua")
-local MeshShape = import("goluwa/physics/shapes/mesh.lua")
-local support_contacts = import("goluwa/physics/shapes/support_contacts.lua")
 local Collider = import("goluwa/physics/collider.lua")
 local Entity = import("goluwa/ecs/entity.lua")
 local default_skin = (
@@ -20,83 +13,6 @@ local default_skin = (
 	or
 	0.02
 local RigidBody = prototype.CreateTemplate("rigid_body")
-
-local function solve_shape_support_contacts(shape_body, shape, step_dt)
-	if not (shape and shape.SolveSupportContacts) then return end
-
-	local shape_type = shape.GetTypeName and shape:GetTypeName() or nil
-
-	if shape_type == "box" then
-		local cast_up, cast_distance = support_contacts.GetCastDistances(shape_body, step_dt)
-		local best = nil
-		local support_points = shape_body:GetSupportLocalPoints() or {}
-		local owner = shape_body:GetOwner()
-		local filter_function = shape_body:GetFilterFunction()
-		local cast_origin_offset = physics.Up * cast_up
-		local cast_delta = physics.Up * -cast_distance
-		local margin = shape_body:GetCollisionMargin() or 0
-		local support_tolerance = (shape_body:GetCollisionProbeDistance() or 0) + margin
-
-		for i = 1, #support_points do
-			local point = shape_body:GeometryLocalToWorld(support_points[i])
-			local hit = physics.Sweep(point + cast_origin_offset, cast_delta, 0, owner, filter_function)
-
-			if hit and hit.normal and hit.position then
-				local depth = (hit.position + hit.normal * margin - point):Dot(hit.normal)
-
-				if depth >= -support_tolerance then
-					if
-						not best or
-						depth > best.depth or
-						(
-							math.abs(depth - best.depth) <= physics.EPSILON and
-							hit.normal.y > best.hit.normal.y
-						)
-					then
-						best = {
-							depth = depth,
-							point = point,
-							hit = hit,
-						}
-					end
-				end
-			end
-		end
-
-		if best then
-			support_contacts.ApplyPointWorldSupportContact(
-				shape_body,
-				best.hit.normal,
-				best.hit.position,
-				best.point,
-				best.hit,
-				step_dt
-			)
-			return
-		end
-	end
-
-	shape:SolveSupportContacts(shape_body, step_dt)
-end
-
-local function solve_body_support_contacts(body, step_dt)
-	if not (body:IsDynamic() and body:GetAwake() and body.CollisionEnabled) then
-		return
-	end
-
-	if body:GetGravityScale() == 0 then return end
-
-	local colliders = body:GetColliders()
-
-	if #colliders == 1 then
-		solve_shape_support_contacts(body, body:GetPhysicsShape(), step_dt)
-		return
-	end
-
-	for _, collider in ipairs(colliders) do
-		solve_shape_support_contacts(collider, collider:GetPhysicsShape(), step_dt)
-	end
-end
 
 do
 	RigidBody:GetSet("Shape", nil, {callback = "OnGeometryChanged"})
@@ -137,18 +53,6 @@ do
 	RigidBody:GetSet("GroundRollingFriction", 0)
 	RigidBody:GetSet("GroundEntity", nil)
 	RigidBody:GetSet("GroundBody", nil)
-
-	local function copy_position(position)
-		if position and position.Copy then return position:Copy() end
-
-		return Vec3()
-	end
-
-	local function copy_rotation(rotation)
-		if rotation and rotation.Copy then return rotation:Copy() end
-
-		return Quat():Identity()
-	end
 
 	local function new_zero_matrix()
 		return Matrix33():SetZero()
@@ -197,125 +101,6 @@ do
 
 	local function get_inverse_tensor(tensor)
 		return tensor:GetInverse(Matrix33())
-	end
-
-	local function is_shape_definition(value)
-		return type(value) == "table" and
-			(
-				value.Shape ~= nil or
-				value.shape ~= nil or
-				value.Position ~= nil or
-				value.position ~= nil or
-				value.Rotation ~= nil or
-				value.rotation ~= nil or
-				value.ConvexHull ~= nil or
-				value.TriangleMesh ~= nil or
-				value.Mesh ~= nil or
-				value.Polygon3D ~= nil or
-				value.Primitive ~= nil or
-				value.Model ~= nil or
-				value.Polygons ~= nil
-			)
-	end
-
-	local function get_shape_from_definition(data)
-		local shape = data.Shape or data.shape
-
-		if not shape and data.ConvexHull then
-			shape = ConvexShape.New(data.ConvexHull)
-		end
-
-		if
-			not shape and
-			(
-				data.TriangleMesh or
-				data.Mesh or
-				data.Polygon3D or
-				data.Primitive or
-				data.Model or
-				data.Polygons
-			)
-		then
-			shape = MeshShape.New{
-				Source = data.TriangleMesh or data.Mesh,
-				Polygon3D = data.Polygon3D,
-				Primitive = data.Primitive,
-				Model = data.Model,
-				Polygons = data.Polygons,
-			}
-		end
-
-		return shape
-	end
-
-	local function append_shape_entry(entries, entry, parent_position, parent_rotation)
-		parent_position = parent_position or Vec3()
-		parent_rotation = parent_rotation or Quat():Identity()
-		local data = is_shape_definition(entry) and entry or {Shape = entry}
-		local shape = get_shape_from_definition(data)
-		local local_position = copy_position(data.Position or data.position)
-		local local_rotation = copy_rotation(data.Rotation or data.rotation)
-		local combined_position = parent_position + parent_rotation:VecMul(local_position)
-		local combined_rotation = (parent_rotation * local_rotation):GetNormalized()
-
-		if
-			shape and
-			shape.GetTypeName and
-			shape:GetTypeName() == "compound" and
-			shape.GetChildren
-		then
-			for _, child in ipairs(shape:GetChildren()) do
-				append_shape_entry(entries, child, combined_position, combined_rotation)
-			end
-
-			return
-		end
-
-		entries[#entries + 1] = {
-			Shape = shape,
-			Position = combined_position,
-			Rotation = combined_rotation,
-			Density = data.Density,
-			Mass = data.Mass,
-			AutomaticMass = data.AutomaticMass,
-			CollisionGroup = data.CollisionGroup,
-			CollisionMask = data.CollisionMask,
-			CollisionMargin = data.CollisionMargin,
-			CollisionProbeDistance = data.CollisionProbeDistance,
-			Friction = data.Friction,
-			StaticFriction = data.StaticFriction,
-			RollingFriction = data.RollingFriction,
-			Restitution = data.Restitution,
-			FrictionCombineMode = data.FrictionCombineMode,
-			StaticFrictionCombineMode = data.StaticFrictionCombineMode,
-			RollingFrictionCombineMode = data.RollingFrictionCombineMode,
-			RestitutionCombineMode = data.RestitutionCombineMode,
-			FilterFunction = data.FilterFunction,
-			MinGroundNormalY = data.MinGroundNormalY,
-		}
-	end
-
-	local function build_collider_entries(body)
-		local entries = {}
-		local shapes = body.Shapes
-
-		if shapes and shapes[1] then
-			for _, entry in ipairs(shapes) do
-				append_shape_entry(entries, entry)
-			end
-		elseif body.Shape then
-			append_shape_entry(entries, body.Shape)
-		end
-
-		if not entries[1] then
-			entries[1] = {
-				Shape = BoxShape.New(Vec3(1, 1, 1)),
-				Position = Vec3(),
-				Rotation = Quat():Identity(),
-			}
-		end
-
-		return entries
 	end
 
 	local function clamp_vec_length(vec, max_length)
@@ -373,7 +158,7 @@ do
 	function RigidBody:RebuildColliders()
 		local colliders = {}
 
-		for index, entry in ipairs(build_collider_entries(self)) do
+		for index, entry in ipairs(Collider.BuildEntries(self)) do
 			colliders[index] = Collider.New(self, entry, index):InvalidateGeometry()
 		end
 
@@ -1152,122 +937,6 @@ do
 
 	RigidBody:Register()
 	Entity.RegisterComponent("rigid_body", RigidBody)
-end
-
-function physics.UpdateRigidBodies(dt)
-	if not dt or dt <= 0 then return end
-
-	local bodies = RigidBody.Instances
-	local solver = physics.solver
-
-	if #bodies == 0 then return end
-
-	local substeps = math.max(1, physics.RigidBodySubsteps or 1)
-	local iterations = math.max(1, physics.RigidBodyIterations or 1)
-	local sub_dt = dt / substeps
-	local collision_pairs = physics.collision_pairs
-	collision_pairs:BeginCollisionFrame()
-
-	for _, body in ipairs(bodies) do
-		body:SynchronizeFromTransform()
-	end
-
-	for _ = 1, substeps do
-		if solver.BeginStep then solver:BeginStep() end
-
-		for _, body in ipairs(bodies) do
-			if body:IsKinematic() or body:HasKinematicController() then
-				kinematic_controller.UpdateBody(body, sub_dt, physics.Gravity)
-			elseif body:GetAwake() then
-				body:SetGrounded(false)
-				body:SetGroundNormal(physics.Up)
-				body:Integrate(sub_dt, physics.Gravity)
-			else
-				body.PreviousPosition = body.Position:Copy()
-				body.PreviousRotation = body.Rotation:Copy()
-			end
-		end
-
-		local rigid_body_pairs = physics.broadphase:BuildCandidatePairs(bodies)
-		local constraints = physics.GetConstraints()
-		local simulation_islands = islands.BuildSimulationIslands(bodies, rigid_body_pairs, constraints)
-		local newly_awoken_bodies = {}
-
-		if simulation_islands and simulation_islands[1] then
-			local woke_any
-			woke_any, newly_awoken_bodies = islands.PrepareSimulationIslands(simulation_islands, newly_awoken_bodies)
-
-			if woke_any then
-				for body_index = 1, #newly_awoken_bodies do
-					local body = newly_awoken_bodies[body_index]
-
-					if body:GetAwake() then
-						body:SetGrounded(false)
-						body:SetGroundNormal(physics.Up)
-						body:Integrate(sub_dt, physics.Gravity)
-					end
-				end
-
-				rigid_body_pairs = physics.broadphase:BuildCandidatePairs(bodies)
-				simulation_islands = islands.BuildSimulationIslands(bodies, rigid_body_pairs, constraints)
-
-				if simulation_islands and simulation_islands[1] then
-					islands.PrepareSimulationIslands(simulation_islands, newly_awoken_bodies)
-				end
-			end
-		end
-
-		for _ = 1, iterations do
-			if simulation_islands and simulation_islands[1] then
-				for island_index = 1, #simulation_islands do
-					local island = simulation_islands[island_index]
-
-					if not islands.IsSleepingIsland(island) then
-						solver:SolveRigidBodyPairs(island.pairs, sub_dt)
-						local dynamic_bodies = island.awake_dynamic_bodies or island.dynamic_bodies or island.bodies
-
-						for body_index = 1, #dynamic_bodies do
-							local body = dynamic_bodies[body_index]
-							solver:SolveBodyContacts(body, sub_dt)
-							solve_body_support_contacts(body, sub_dt)
-						end
-
-						solver:SolveDistanceConstraints(sub_dt, island.constraints)
-					end
-				end
-			else
-				solver:SolveRigidBodyPairs(rigid_body_pairs, sub_dt)
-
-				for _, body in ipairs(bodies) do
-					if body:IsDynamic() and body:GetAwake() then
-						solver:SolveBodyContacts(body, sub_dt)
-						solve_body_support_contacts(body, sub_dt)
-					end
-				end
-
-				solver:SolveDistanceConstraints(sub_dt, constraints)
-			end
-		end
-
-		for _, body in ipairs(bodies) do
-			body:UpdateVelocities(sub_dt)
-			body:UpdateSleepState(sub_dt)
-		end
-
-		if simulation_islands and simulation_islands[1] then
-			islands.FinalizeSimulationIslands(simulation_islands)
-		end
-	end
-
-	for _, body in ipairs(bodies) do
-		body:ClearAccumulators()
-	end
-
-	for _, body in ipairs(bodies) do
-		body:WriteToTransform()
-	end
-
-	collision_pairs:DispatchCollisionEvents()
 end
 
 return RigidBody

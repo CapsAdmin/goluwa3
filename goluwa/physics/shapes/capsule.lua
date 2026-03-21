@@ -3,10 +3,7 @@ local Matrix33 = import("goluwa/structs/matrix33.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local BaseShape = import("goluwa/physics/shapes/base.lua")
 local capsule_geometry = import("goluwa/physics/capsule_geometry.lua")
-local mass_properties = import("goluwa/physics/shapes/mass_properties.lua")
-local physics = import("goluwa/physics.lua")
 local sample_points = import("goluwa/physics/shapes/sample_points.lua")
-local support_contacts = import("goluwa/physics/shapes/support_contacts.lua")
 local META = prototype.CreateTemplate("physics_shape_capsule")
 META.Base = BaseShape
 META:GetSet("Radius", 0.5)
@@ -58,16 +55,23 @@ function META:GetSupportRadiusAlongNormal(body, normal)
 	return self:GetRadius() + self:GetCylinderHalfHeight() * math.abs(axis:Dot(normal))
 end
 
-function META:GetMassProperties(body)
+function META:GetAutomaticMass(body)
 	local radius = self:GetRadius()
 	local cylinder_height = self:GetCylinderHeight()
 	local cylinder_volume = math.pi * radius * radius * cylinder_height
 	local sphere_volume = (4 / 3) * math.pi * radius * radius * radius
-	local mass = mass_properties.ResolveBodyMass(body, (cylinder_volume + sphere_volume) * body:GetDensity())
-	local zero_mass, zero_inertia = mass_properties.ZeroIfStatic(mass)
+	return (cylinder_volume + sphere_volume) * body:GetDensity()
+end
+
+function META:BuildInertia(mass)
+	local zero_mass, zero_inertia = self:ZeroMassInertia(mass)
 
 	if zero_mass then return zero_mass, zero_inertia end
 
+	local radius = self:GetRadius()
+	local cylinder_height = self:GetCylinderHeight()
+	local cylinder_volume = math.pi * radius * radius * cylinder_height
+	local sphere_volume = (4 / 3) * math.pi * radius * radius * radius
 	local total_volume = cylinder_volume + sphere_volume
 	local cylinder_mass = total_volume > 0 and mass * (cylinder_volume / total_volume) or 0
 	local sphere_mass = mass - cylinder_mass
@@ -93,19 +97,8 @@ function META:BuildSupportLocalPoints()
 	return sample_points.BuildCapsuleSupportPoints(self:GetRadius(), self:GetCylinderHalfHeight())
 end
 
-function META:SolveSupportContacts(body, dt)
-	local cast_up, cast_distance = support_contacts.GetCastDistances(body, dt)
-	local center = body:GetPosition()
-	local hit = physics.SweepCollider(
-		body,
-		center + physics.Up * cast_up,
-		physics.Up * -cast_distance,
-		body:GetOwner(),
-		body:GetFilterFunction(),
-		{
-			Rotation = body:GetRotation(),
-		}
-	)
+function META:SolveSupportContacts(body, dt, support_contacts)
+	local hit = support_contacts.SweepCollider(body, dt)
 	local normal = hit and hit.normal or nil
 	local contact_position = hit and hit.position or nil
 

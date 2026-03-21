@@ -10,7 +10,6 @@ local META = prototype.CreateTemplate("physics_shape_mesh")
 META.Base = BaseShape
 local MESH_POLYGON_BVH_THRESHOLD = 12
 local MESH_POLYGON_BVH_LEAF_COUNT = 6
-
 local MESH_BOUNDS_CORNERS = {
 	Vec3(),
 	Vec3(),
@@ -21,54 +20,26 @@ local MESH_BOUNDS_CORNERS = {
 	Vec3(),
 	Vec3(),
 }
+local MESH_LOCAL_AABB_TRANSFORM_PROXY = {
+	collider = nil,
+	position = nil,
+	rotation = nil,
+}
+
+function MESH_LOCAL_AABB_TRANSFORM_PROXY:TransformVector(point)
+	return self.collider:WorldToLocal(point, self.position, self.rotation)
+end
 
 local function create_synthetic_primitive(polygon)
 	return {polygon3d = polygon}
 end
 
-local function bounds_from_points(points)
-	if not (points and points[1]) then return nil end
-
-	local bounds = AABB(math.huge, math.huge, math.huge, -math.huge, -math.huge, -math.huge)
-
-	for _, point in ipairs(points) do
-		if point then bounds:ExpandVec3(point) end
-	end
-
-	return bounds
-end
-
-local function get_polygon_local_bounds(poly)
-	if not (poly and poly.Vertices) then return nil end
-
-	local vertices = poly.Vertices
-	local vertex_count = #vertices
-
-	if
-		poly.mesh_shape_local_bounds and
-		poly.mesh_shape_local_bounds_source == vertices and
-		poly.mesh_shape_local_bounds_vertex_count == vertex_count
-	then
-		return poly.mesh_shape_local_bounds
-	end
-
-	local bounds = poly.GetAABB and poly:GetAABB() or poly.AABB
-
-	if not bounds then
-		local points = triangle_mesh.GetPolygonLocalVertices(poly)
-		bounds = bounds_from_points(points)
-	end
-
-	poly.mesh_shape_local_bounds = bounds
-	poly.mesh_shape_local_bounds_source = vertices
-	poly.mesh_shape_local_bounds_vertex_count = vertex_count
-	return bounds
-end
-
 local function build_brush_polygon(primitive)
 	if not (primitive and primitive.brush_planes) then return nil end
 
-	if primitive.mesh_shape_brush_polygon then return primitive.mesh_shape_brush_polygon end
+	if primitive.mesh_shape_brush_polygon then
+		return primitive.mesh_shape_brush_polygon
+	end
 
 	local hull = primitive.brush_hull or brush_hull.BuildHullFromPlanes(primitive.brush_planes)
 
@@ -112,7 +83,7 @@ local function append_polygon_entry(entries, seen, polygon, primitive, primitive
 	if seen[polygon] then return end
 
 	seen[polygon] = true
-	local bounds = get_polygon_local_bounds(polygon)
+	local bounds = triangle_mesh.GetPolygonLocalBounds(polygon)
 	entries[#entries + 1] = {
 		polygon = polygon,
 		bounds = bounds,
@@ -151,7 +122,9 @@ local function collect_polygon_entries_from_source(entries, seen, source, model,
 	if source.brush_planes then
 		local polygon = build_brush_polygon(source)
 
-		if polygon then append_polygon_entry(entries, seen, polygon, source, primitive_index, model) end
+		if polygon then
+			append_polygon_entry(entries, seen, polygon, source, primitive_index, model)
+		end
 
 		return
 	end
@@ -301,7 +274,8 @@ local function trace_polygon_entry(context, entry, best_hit, best_distance)
 	local acceleration, triangles, triangle_count = triangle_mesh.GetPolygonTriangleAcceleration(entry.polygon)
 
 	if acceleration then
-		local traversal_context = acceleration.traversal_context or {acceleration = acceleration, node_stack = {}, tmin_stack = {}}
+		local traversal_context = acceleration.traversal_context or
+			{acceleration = acceleration, node_stack = {}, tmin_stack = {}}
 		acceleration.traversal_context = traversal_context
 		traversal_context.acceleration = acceleration
 		traversal_context.local_ray = context.local_ray
@@ -351,6 +325,7 @@ local function visit_polygon_leaf(node, context, result)
 		local entry = entries[i]
 
 		if user_context then user_context.entry = entry end
+
 		triangle_mesh.ForEachOverlappingTriangle(entry.polygon, context.local_bounds, context.callback, context.user_context)
 	end
 
@@ -458,17 +433,23 @@ function META:GetMeshPolygonAcceleration(body)
 		return self.ResolvedPolygonAcceleration, entries, count
 	end
 
-	local tree = BVH.Build(entries, get_polygon_entry_bounds, get_polygon_entry_centroid, MESH_POLYGON_BVH_LEAF_COUNT)
+	local tree = BVH.Build(
+		entries,
+		get_polygon_entry_bounds,
+		get_polygon_entry_centroid,
+		MESH_POLYGON_BVH_LEAF_COUNT
+	)
 
 	if not tree then return nil, entries, count end
 
 	tree.entries = tree.items
 	tree.items = nil
-	tree.traversal_context = tree.traversal_context or {
-		acceleration = tree,
-		node_stack = {},
-		tmin_stack = {},
-	}
+	tree.traversal_context = tree.traversal_context or
+		{
+			acceleration = tree,
+			node_stack = {},
+			tmin_stack = {},
+		}
 	self.ResolvedPolygonAcceleration = tree
 	self.ResolvedPolygonAccelerationSource = entries
 	self.ResolvedPolygonAccelerationCount = count
@@ -494,7 +475,7 @@ function META:GetLocalBounds(body)
 	local bounds = nil
 
 	for _, entry in ipairs(self:GetMeshPolygonEntries(body)) do
-		bounds = add_bounds(bounds, entry.bounds or get_polygon_local_bounds(entry.polygon))
+		bounds = add_bounds(bounds, entry.bounds or triangle_mesh.GetPolygonLocalBounds(entry.polygon))
 	end
 
 	self.LocalBounds = bounds or AABB(-0.5, -0.5, -0.5, 0.5, 0.5, 0.5)
@@ -574,7 +555,6 @@ function META:GetBroadphaseAABB(body, position, rotation)
 	corners[6].x, corners[6].y, corners[6].z = max_x, min_y, max_z
 	corners[7].x, corners[7].y, corners[7].z = max_x, max_y, max_z
 	corners[8].x, corners[8].y, corners[8].z = min_x, max_y, max_z
-
 	local world_min_x = math.huge
 	local world_min_y = math.huge
 	local world_min_z = math.huge
@@ -589,14 +569,38 @@ function META:GetBroadphaseAABB(body, position, rotation)
 		local z = transformed.z
 
 		if x < world_min_x then world_min_x = x end
+
 		if y < world_min_y then world_min_y = y end
+
 		if z < world_min_z then world_min_z = z end
+
 		if x > world_max_x then world_max_x = x end
+
 		if y > world_max_y then world_max_y = y end
+
 		if z > world_max_z then world_max_z = z end
 	end
 
 	return AABB(world_min_x, world_min_y, world_min_z, world_max_x, world_max_y, world_max_z)
+end
+
+function META:GetTriangleWorldVertices(collider, position, rotation, v0, v1, v2)
+	return collider:LocalToWorld(v0, position, rotation),
+	collider:LocalToWorld(v1, position, rotation),
+	collider:LocalToWorld(v2, position, rotation)
+end
+
+function META:BuildSweptLocalAABB(collider, position, rotation, world_aabb)
+	if not (collider and world_aabb) then return nil end
+
+	MESH_LOCAL_AABB_TRANSFORM_PROXY.collider = collider
+	MESH_LOCAL_AABB_TRANSFORM_PROXY.position = position
+	MESH_LOCAL_AABB_TRANSFORM_PROXY.rotation = rotation
+	local local_aabb = AABB.BuildLocalAABBFromWorldAABB(world_aabb, MESH_LOCAL_AABB_TRANSFORM_PROXY)
+	MESH_LOCAL_AABB_TRANSFORM_PROXY.collider = nil
+	MESH_LOCAL_AABB_TRANSFORM_PROXY.position = nil
+	MESH_LOCAL_AABB_TRANSFORM_PROXY.rotation = nil
+	return local_aabb
 end
 
 function META:ForEachOverlappingTriangle(body, local_bounds, callback, context)
@@ -617,12 +621,17 @@ function META:ForEachOverlappingTriangle(body, local_bounds, callback, context)
 
 	for i = 1, #entries do
 		local entry = entries[i]
-		local polygon_bounds = entry.bounds or get_polygon_local_bounds(entry.polygon)
+		local polygon_bounds = entry.bounds or triangle_mesh.GetPolygonLocalBounds(entry.polygon)
 
-		if not local_bounds or not polygon_bounds or polygon_bounds:IsBoxIntersecting(local_bounds) then
+		if
+			not local_bounds or
+			not polygon_bounds or
+			polygon_bounds:IsBoxIntersecting(local_bounds)
+		then
 			local previous_entry = context and context.entry or nil
 
 			if context then context.entry = entry end
+
 			triangle_mesh.ForEachOverlappingTriangle(entry.polygon, local_bounds, callback, context)
 
 			if context then context.entry = previous_entry end

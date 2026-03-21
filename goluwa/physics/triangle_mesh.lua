@@ -1,8 +1,79 @@
+local AABB = import("goluwa/structs/aabb.lua")
 local BVH = import("goluwa/physics/bvh.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local triangle_mesh = {}
 local TRIANGLE_BVH_THRESHOLD = 24
 local TRIANGLE_BVH_LEAF_COUNT = 8
+
+local function get_polygon_cache(poly)
+	if not poly then return nil end
+
+	local cache = poly.triangle_mesh_cache
+
+	if cache then return cache end
+
+	cache = {}
+	poly.triangle_mesh_cache = cache
+	return cache
+end
+
+local function get_polygon_vertices(poly)
+	if not (poly and poly.Vertices) then return nil, 0 end
+
+	local vertices = poly.Vertices
+	return vertices, #vertices
+end
+
+local function get_polygon_triangle_sources(poly)
+	local vertices, vertex_count = get_polygon_vertices(poly)
+
+	if not vertices then return nil end
+
+	local local_vertices = triangle_mesh.GetPolygonLocalVertices(poly)
+	local indices, triangle_count = triangle_mesh.GetPolygonIndexBuffer(poly)
+	local index_count = indices and #indices or 0
+
+	if not (local_vertices and indices) then return nil end
+
+	return {
+		vertices = vertices,
+		vertex_count = vertex_count,
+		local_vertices = local_vertices,
+		indices = indices,
+		index_count = index_count,
+		triangle_count = triangle_count,
+	}
+end
+
+local function build_triangle_record(triangle_index, v0, v1, v2)
+	return {
+		triangle_index = triangle_index,
+		v0 = v0,
+		v1 = v1,
+		v2 = v2,
+		min_x = math.min(v0.x, v1.x, v2.x),
+		min_y = math.min(v0.y, v1.y, v2.y),
+		min_z = math.min(v0.z, v1.z, v2.z),
+		max_x = math.max(v0.x, v1.x, v2.x),
+		max_y = math.max(v0.y, v1.y, v2.y),
+		max_z = math.max(v0.z, v1.z, v2.z),
+		centroid_x = (v0.x + v1.x + v2.x) / 3,
+		centroid_y = (v0.y + v1.y + v2.y) / 3,
+		centroid_z = (v0.z + v1.z + v2.z) / 3,
+	}
+end
+
+local function bounds_from_points(points)
+	if not (points and points[1]) then return nil end
+
+	local bounds = AABB(math.huge, math.huge, math.huge, -math.huge, -math.huge, -math.huge)
+
+	for _, point in ipairs(points) do
+		if point then bounds:ExpandVec3(point) end
+	end
+
+	return bounds
+end
 
 function triangle_mesh.GetVertexPosition(vertex)
 	if not vertex then return nil end
@@ -21,17 +92,19 @@ function triangle_mesh.GetVertexPosition(vertex)
 end
 
 function triangle_mesh.GetPolygonLocalVertices(poly)
-	if not (poly and poly.Vertices) then return nil, 0 end
+	local vertices, vertex_count = get_polygon_vertices(poly)
 
-	local vertices = poly.Vertices
-	local vertex_count = #vertices
+	if not vertices then return nil, 0 end
+
+	local cache = get_polygon_cache(poly)
+	local local_vertices_cache = cache.local_vertices
 
 	if
-		poly.triangle_mesh_local_vertices and
-		poly.triangle_mesh_local_vertices_source == vertices and
-		poly.triangle_mesh_local_vertex_count == vertex_count
+		local_vertices_cache and
+		local_vertices_cache.source == vertices and
+		local_vertices_cache.count == vertex_count
 	then
-		return poly.triangle_mesh_local_vertices, vertex_count
+		return local_vertices_cache.value, vertex_count
 	end
 
 	local local_vertices = {}
@@ -40,25 +113,27 @@ function triangle_mesh.GetPolygonLocalVertices(poly)
 		local_vertices[i] = triangle_mesh.GetVertexPosition(vertices[i])
 	end
 
-	poly.triangle_mesh_local_vertices = local_vertices
-	poly.triangle_mesh_local_vertices_source = vertices
-	poly.triangle_mesh_local_vertex_count = vertex_count
+	cache.local_vertices = {
+		value = local_vertices,
+		source = vertices,
+		count = vertex_count,
+	}
 	return local_vertices, vertex_count
 end
 
 function triangle_mesh.GetPolygonIndexBuffer(poly)
-	if not (poly and poly.Vertices) then return nil, 0 end
+	local vertices, vertex_count = get_polygon_vertices(poly)
+
+	if not vertices then return nil, 0 end
 
 	if poly.indices then return poly.indices, math.floor(#poly.indices / 3) end
 
-	local vertex_count = #poly.Vertices
 	local triangle_count = math.floor(vertex_count / 3)
+	local cache = get_polygon_cache(poly)
+	local index_buffer_cache = cache.index_buffer
 
-	if
-		poly.triangle_mesh_sequential_indices and
-		poly.triangle_mesh_sequential_vertex_count == vertex_count
-	then
-		return poly.triangle_mesh_sequential_indices, triangle_count
+	if index_buffer_cache and index_buffer_cache.count == vertex_count then
+		return index_buffer_cache.value, triangle_count
 	end
 
 	local sequential = {}
@@ -67,9 +142,42 @@ function triangle_mesh.GetPolygonIndexBuffer(poly)
 		sequential[i] = i - 1
 	end
 
-	poly.triangle_mesh_sequential_indices = sequential
-	poly.triangle_mesh_sequential_vertex_count = vertex_count
+	cache.index_buffer = {
+		value = sequential,
+		count = vertex_count,
+	}
 	return sequential, triangle_count
+end
+
+function triangle_mesh.GetPolygonLocalBounds(poly)
+	local vertices, vertex_count = get_polygon_vertices(poly)
+
+	if not vertices then return nil end
+
+	local cache = get_polygon_cache(poly)
+	local bounds_cache = cache.local_bounds
+
+	if
+		bounds_cache and
+		bounds_cache.source == vertices and
+		bounds_cache.count == vertex_count
+	then
+		return bounds_cache.value
+	end
+
+	local bounds = poly.GetAABB and poly:GetAABB() or poly.AABB
+
+	if not bounds then
+		local points = triangle_mesh.GetPolygonLocalVertices(poly)
+		bounds = bounds_from_points(points)
+	end
+
+	cache.local_bounds = {
+		value = bounds,
+		source = vertices,
+		count = vertex_count,
+	}
+	return bounds
 end
 
 function triangle_mesh.GetPolygonTriangleIndices(poly, triangle_index)
@@ -120,29 +228,31 @@ local function append_unique_index(list, value)
 end
 
 function triangle_mesh.GetPolygonFeatureCache(poly, epsilon)
-	if not (poly and poly.Vertices) then return nil end
-
 	epsilon = epsilon or 0.0001
-	local local_vertices, vertex_count = triangle_mesh.GetPolygonLocalVertices(poly)
-	local indices, face_count = triangle_mesh.GetPolygonIndexBuffer(poly)
+	local sources = get_polygon_triangle_sources(poly)
 
-	if not (local_vertices and indices) then return nil end
+	if not sources then return nil end
 
-	local index_count = #indices
-	local cache = poly.triangle_mesh_feature_cache
+	local local_vertices = sources.local_vertices
+	local indices = sources.indices
+	local vertex_count = sources.vertex_count
+	local face_count = sources.triangle_count
+	local index_count = sources.index_count
+	local polygon_cache = get_polygon_cache(poly)
+	local feature_cache = polygon_cache.feature
 
 	if
-		cache and
-		cache.local_vertices == local_vertices and
-		cache.indices == indices and
-		cache.vertex_count == vertex_count and
-		cache.index_count == index_count and
-		cache.epsilon == epsilon
+		feature_cache and
+		feature_cache.source_a == local_vertices and
+		feature_cache.source_b == indices and
+		feature_cache.count_a == vertex_count and
+		feature_cache.count_b == index_count and
+		feature_cache.epsilon == epsilon
 	then
-		return cache
+		return feature_cache.value
 	end
 
-	cache = {
+	local cache = {
 		local_vertices = local_vertices,
 		indices = indices,
 		vertex_count = vertex_count,
@@ -183,7 +293,14 @@ function triangle_mesh.GetPolygonFeatureCache(poly, epsilon)
 		end
 	end
 
-	poly.triangle_mesh_feature_cache = cache
+	polygon_cache.feature = {
+		value = cache,
+		source_a = local_vertices,
+		source_b = indices,
+		count_a = vertex_count,
+		count_b = index_count,
+		epsilon = epsilon,
+	}
 	return cache
 end
 
@@ -201,21 +318,26 @@ local function triangle_bounds_overlap(bounds, triangle)
 end
 
 function triangle_mesh.GetPolygonTriangles(poly)
-	if not (poly and poly.Vertices) then return nil, 0 end
+	local sources = get_polygon_triangle_sources(poly)
 
-	local local_vertices = triangle_mesh.GetPolygonLocalVertices(poly)
-	local indices, triangle_count = triangle_mesh.GetPolygonIndexBuffer(poly)
-	local vertex_count = #poly.Vertices
-	local index_count = indices and #indices or 0
+	if not sources then return nil, 0 end
+
+	local local_vertices = sources.local_vertices
+	local indices = sources.indices
+	local triangle_count = sources.triangle_count
+	local vertex_count = sources.vertex_count
+	local index_count = sources.index_count
+	local cache = get_polygon_cache(poly)
+	local triangles_cache = cache.triangles
 
 	if
-		poly.triangle_mesh_triangles and
-		poly.triangle_mesh_triangle_vertices_source == local_vertices and
-		poly.triangle_mesh_triangle_indices_source == indices and
-		poly.triangle_mesh_triangle_vertex_count == vertex_count and
-		poly.triangle_mesh_triangle_index_count == index_count
+		triangles_cache and
+		triangles_cache.source_a == local_vertices and
+		triangles_cache.source_b == indices and
+		triangles_cache.count_a == vertex_count and
+		triangles_cache.count_b == index_count
 	then
-		return poly.triangle_mesh_triangles, triangle_count
+		return triangles_cache.value, triangle_count
 	end
 
 	local triangles = {}
@@ -224,29 +346,17 @@ function triangle_mesh.GetPolygonTriangles(poly)
 		local v0, v1, v2 = triangle_mesh.GetPolygonTriangleLocalVertices(poly, triangle_index)
 
 		if v0 and v1 and v2 then
-			triangles[#triangles + 1] = {
-				triangle_index = triangle_index,
-				v0 = v0,
-				v1 = v1,
-				v2 = v2,
-				min_x = math.min(v0.x, v1.x, v2.x),
-				min_y = math.min(v0.y, v1.y, v2.y),
-				min_z = math.min(v0.z, v1.z, v2.z),
-				max_x = math.max(v0.x, v1.x, v2.x),
-				max_y = math.max(v0.y, v1.y, v2.y),
-				max_z = math.max(v0.z, v1.z, v2.z),
-				centroid_x = (v0.x + v1.x + v2.x) / 3,
-				centroid_y = (v0.y + v1.y + v2.y) / 3,
-				centroid_z = (v0.z + v1.z + v2.z) / 3,
-			}
+			triangles[#triangles + 1] = build_triangle_record(triangle_index, v0, v1, v2)
 		end
 	end
 
-	poly.triangle_mesh_triangles = triangles
-	poly.triangle_mesh_triangle_vertices_source = local_vertices
-	poly.triangle_mesh_triangle_indices_source = indices
-	poly.triangle_mesh_triangle_vertex_count = vertex_count
-	poly.triangle_mesh_triangle_index_count = index_count
+	cache.triangles = {
+		value = triangles,
+		source_a = local_vertices,
+		source_b = indices,
+		count_a = vertex_count,
+		count_b = index_count,
+	}
 	return triangles, #triangles
 end
 
@@ -265,12 +375,15 @@ function triangle_mesh.GetPolygonTriangleAcceleration(poly)
 		return nil, triangles, triangle_count
 	end
 
+	local cache = get_polygon_cache(poly)
+	local acceleration_cache = cache.acceleration
+
 	if
-		poly.triangle_mesh_acceleration and
-		poly.triangle_mesh_acceleration_source == triangles and
-		poly.triangle_mesh_acceleration_count == triangle_count
+		acceleration_cache and
+		acceleration_cache.source == triangles and
+		acceleration_cache.count == triangle_count
 	then
-		return poly.triangle_mesh_acceleration, triangles, triangle_count
+		return acceleration_cache.value, triangles, triangle_count
 	end
 
 	local tree = BVH.Build(triangles, get_triangle_bounds, get_triangle_centroid, TRIANGLE_BVH_LEAF_COUNT)
@@ -283,9 +396,11 @@ function triangle_mesh.GetPolygonTriangleAcceleration(poly)
 		acceleration = tree,
 		node_stack = {},
 	}
-	poly.triangle_mesh_acceleration = tree
-	poly.triangle_mesh_acceleration_source = triangles
-	poly.triangle_mesh_acceleration_count = triangle_count
+	cache.acceleration = {
+		value = tree,
+		source = triangles,
+		count = triangle_count,
+	}
 	return tree, triangles, triangle_count
 end
 
