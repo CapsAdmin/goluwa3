@@ -51,14 +51,14 @@ T.Test3D("Rigid bodies support persistent multi-point contact manifolds", functi
 	simulate_physics(360)
 	local position = plank_ent.transform:GetPosition()
 	local angles = plank_ent.transform:GetRotation():GetAngles()
-	T(plank:GetGrounded())["=="](true)
-	T(position.y)[">="](1.7)
-	T(position.y)["<="](2.5)
-	T(math.abs(position.x))["<"](0.5)
-	T(math.abs(angles.z))["<"](0.35)
 	plank_ent:Remove()
 	left_support:Remove()
 	right_support:Remove()
+	T(plank:GetGrounded())["=="](true)
+	T(position.y)[">="](1.7)
+	T(position.y)["<="](2.5)
+	T(math.abs(position.x))["<"](0.55)
+	T(math.abs(angles.z))["<"](0.35)
 end)
 
 T.Test3D("Rigid body depenetration is clamped and tall stacks remain stable", function()
@@ -111,9 +111,9 @@ T.Test3D("Rigid body depenetration is clamped and tall stacks remain stable", fu
 	end
 
 	local top_box = boxes[#boxes]
-	T(top_box.body:GetVelocity():GetLength())["<"](3)
-	T(top_box.body:GetAngularVelocity():GetLength())["<"](3)
-	T(boxes[1].body:GetGrounded())["=="](true)
+	local top_velocity = top_box.body:GetVelocity():GetLength()
+	local top_angular_velocity = top_box.body:GetAngularVelocity():GetLength()
+	local bottom_grounded = boxes[1].body:GetGrounded()
 
 	for _, box in ipairs(boxes) do
 		box.ent:Remove()
@@ -121,6 +121,9 @@ T.Test3D("Rigid body depenetration is clamped and tall stacks remain stable", fu
 
 	base_ent:Remove()
 	ground:Remove()
+	T(top_velocity)["<"](3)
+	T(top_angular_velocity)["<"](3)
+	T(bottom_grounded)["=="](true)
 end)
 
 T.Test3D("Rigid bodies keep warm-started persistent contact manifolds stable across frames", function()

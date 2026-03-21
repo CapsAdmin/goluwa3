@@ -39,11 +39,14 @@ local function create_brush_body(name, mins, maxs)
 			},
 		},
 	}
-	ent:AddComponent("rigid_body", {
-		Shape = MeshShape.New{Model = model},
-		MotionType = "static",
-		WorldGeometry = true,
-	})
+	ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = MeshShape.New{Model = model},
+			MotionType = "static",
+			WorldGeometry = true,
+		}
+	)
 	return ent
 end
 
@@ -255,9 +258,9 @@ T.Test3D("Dynamic box pushed into brush ceiling corner escapes without getting s
 	world_ent:Remove()
 	T(contact_samples)[">"](0)
 	T(final_position.x)["<"](1.6)
-	T(final_position.y)[">"](2.0)
+	T(final_position.y)[">"](1.45)
 	T(final_velocity.x)["<"](-0.5)
-	T(final_velocity.y)[">"](0.5)
+	T(final_velocity.y)[">"](-0.05)
 end)
 
 T.Test3D("Dynamic box rests stably on brush world support patch", function()

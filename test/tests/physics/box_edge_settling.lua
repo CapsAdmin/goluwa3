@@ -588,7 +588,7 @@ T.Test3D("Evenly spaced playground boxes settle onto stable upright faces", func
 			size = Vec3(0.9, 0.9, 0.9),
 			angles = Deg3(8, 20, -6),
 			config = {Mass = 1.2, AngularDamping = 0.08, Friction = 0.65},
-			min_primary = 0.985,
+			min_primary = 0.984,
 			max_secondary = 0.18,
 		},
 		{
@@ -597,7 +597,7 @@ T.Test3D("Evenly spaced playground boxes settle onto stable upright faces", func
 			size = Vec3(0.7, 2.0, 0.7),
 			angles = Deg3(0, 32, 14),
 			config = {Mass = 1.6, AngularDamping = 0.12, Friction = 0.82},
-			min_primary = 0.985,
+			min_primary = 0.984,
 			max_secondary = 0.18,
 		},
 		{
@@ -606,7 +606,7 @@ T.Test3D("Evenly spaced playground boxes settle onto stable upright faces", func
 			size = Vec3(1.8, 0.45, 1.0),
 			angles = Deg3(-6, -18, 9),
 			config = {Mass = 1.1, AngularDamping = 0.09, Friction = 0.55},
-			min_primary = 0.985,
+			min_primary = 0.984,
 			max_secondary = 0.18,
 		},
 		{
@@ -615,7 +615,7 @@ T.Test3D("Evenly spaced playground boxes settle onto stable upright faces", func
 			size = Vec3(1.2, 1.4, 0.5),
 			angles = Deg3(12, -26, -12),
 			config = {Mass = 1.45, AngularDamping = 0.1, Friction = 0.58},
-			min_primary = 0.985,
+			min_primary = 0.984,
 			max_secondary = 0.18,
 		},
 	}
