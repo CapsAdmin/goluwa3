@@ -204,6 +204,7 @@ function islands.PrepareSimulationIslands(simulation_islands, newly_awoken_bodie
 		local island = simulation_islands[island_index]
 		local dynamic_bodies = island.dynamic_bodies
 		local awake_dynamic_bodies = island.awake_dynamic_bodies
+		local awake_dynamic_lookup = {}
 		local active_dynamic_count = 0
 		list.clear(awake_dynamic_bodies)
 		island.awake_dynamic_bodies = awake_dynamic_bodies
@@ -213,42 +214,90 @@ function islands.PrepareSimulationIslands(simulation_islands, newly_awoken_bodie
 
 			if body:GetAwake() then
 				awake_dynamic_bodies[#awake_dynamic_bodies + 1] = body
+				awake_dynamic_lookup[body] = true
 				active_dynamic_count = active_dynamic_count + 1
 			end
 		end
 
 		island.active_dynamic_count = active_dynamic_count
 		island.sleeping = active_dynamic_count == 0
-		local wake_sleeping_dynamics = active_dynamic_count > 0
+		local moved_anchor_lookup = {}
 
-		if not wake_sleeping_dynamics then
-			for body_index = 1, #(island.bodies or {}) do
-				local body = island.bodies[body_index]
+		for body_index = 1, #(island.bodies or {}) do
+			local body = island.bodies[body_index]
 
-				if is_anchor_body(body) and is_body_transform_moving(body) then
-					wake_sleeping_dynamics = true
+			if is_anchor_body(body) and is_body_transform_moving(body) then
+				moved_anchor_lookup[body] = true
+			end
+		end
 
-					break
+		local function wake_dynamic_body(body)
+			if not (is_dynamic_body(body) and not awake_dynamic_lookup[body]) then return end
+
+			body:Wake()
+			awake_dynamic_bodies[#awake_dynamic_bodies + 1] = body
+			awake_dynamic_lookup[body] = true
+			active_dynamic_count = active_dynamic_count + 1
+			newly_awoken_bodies[#newly_awoken_bodies + 1] = body
+			woke_any = true
+		end
+
+		for body_index = 1, #dynamic_bodies do
+			local body = dynamic_bodies[body_index]
+
+			if not body:GetAwake() and body.GetGrounded and body:GetGrounded() then
+				local ground_body = body.GetGroundBody and body:GetGroundBody() or body.GroundBody
+
+				if
+					ground_body and
+					ground_body ~= body and
+					(
+						is_body_transform_moving(ground_body) or
+						(
+							is_dynamic_body(ground_body) and
+							ground_body.GetAwake and
+							ground_body:GetAwake()
+						)
+					)
+				then
+					wake_dynamic_body(body)
 				end
 			end
 		end
 
-		if wake_sleeping_dynamics then
-			for body_index = 1, #dynamic_bodies do
-				local body = dynamic_bodies[body_index]
+		for pair_index = 1, #(island.pairs or {}) do
+			local pair = island.pairs[pair_index]
+			local body_a = pair.entry_a.body
+			local body_b = pair.entry_b.body
 
-				if is_dynamic_body(body) and not body:GetAwake() then
-					body:Wake()
-					awake_dynamic_bodies[#awake_dynamic_bodies + 1] = body
-					active_dynamic_count = active_dynamic_count + 1
-					newly_awoken_bodies[#newly_awoken_bodies + 1] = body
-					woke_any = true
-				end
+			if
+				is_dynamic_body(body_a) and
+				not body_a:GetAwake()
+				and
+				moved_anchor_lookup[body_b]
+			then
+				wake_dynamic_body(body_a)
 			end
 
-			island.active_dynamic_count = active_dynamic_count
-			island.sleeping = active_dynamic_count == 0
+			if
+				is_dynamic_body(body_b) and
+				not body_b:GetAwake()
+				and
+				moved_anchor_lookup[body_a]
+			then
+				wake_dynamic_body(body_b)
+			end
 		end
+
+		if active_dynamic_count > 0 and island.has_constraints then
+			for body_index = 1, #(island.constraint_dynamic_bodies or {}) do
+				local body = island.constraint_dynamic_bodies[body_index]
+				wake_dynamic_body(body)
+			end
+		end
+
+		island.active_dynamic_count = active_dynamic_count
+		island.sleeping = active_dynamic_count == 0
 	end
 
 	return woke_any, newly_awoken_bodies

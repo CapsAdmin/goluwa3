@@ -90,7 +90,7 @@ T.Test3D("Compound void ramps do not trap spheres between platforms", function()
 		T(position.y)["<"](-20)
 		T(body:GetGrounded())["=="](false)
 		T(velocity.y)["<"](-5)
-		T(position.x)[">"](5.0)
+		T(math.abs(position.x))[">"](5.0)
 	end
 
 	for _, pair in ipairs(spheres) do

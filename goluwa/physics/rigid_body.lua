@@ -701,10 +701,15 @@ do
 
 		local ready_to_sleep, force_grounded_sleep = self:IsReadyToSleep()
 
+		if force_grounded_sleep then
+			self:Sleep()
+			return
+		end
+
 		if ready_to_sleep then
 			self.SleepTimer = self.SleepTimer + dt
 
-			if self.SleepTimer >= get_effective_sleep_delay(self, force_grounded_sleep) then
+			if self.SleepTimer >= get_effective_sleep_delay(self) then
 				self:Sleep()
 			end
 		else
@@ -1017,6 +1022,11 @@ do
 		local self_previous_position = self.Position:Copy()
 		local self_previous_rotation = self.Rotation:Copy()
 		self:_ApplyCorrection(impulse, pos)
+
+		if not self.Awake and (self.Position - self_previous_position):GetLength() > 0.001 then
+			self:Wake()
+		end
+
 		self.PreviousPosition = self.PreviousPosition + (self.Position - self_previous_position)
 		self.PreviousRotation = (
 			(
@@ -1028,6 +1038,16 @@ do
 			local other_previous_position = other_body.Position:Copy()
 			local other_previous_rotation = other_body.Rotation:Copy()
 			other_body:_ApplyCorrection(impulse * -1, other_pos)
+
+			if
+				not other_body.Awake and
+				(
+					other_body.Position - other_previous_position
+				):GetLength() > 0.001
+			then
+				other_body:Wake()
+			end
+
 			other_body.PreviousPosition = other_body.PreviousPosition + (other_body.Position - other_previous_position)
 			other_body.PreviousRotation = (
 				(

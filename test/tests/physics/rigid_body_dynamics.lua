@@ -166,6 +166,11 @@ T.Test3D("Rigid boxes do not force grounded sleep on awake dynamic supports", fu
 	top:SetGrounded(true)
 	top:SetGroundNormal(Vec3(0, 1, 0))
 	top:SetGroundBody(support)
+	top:ResetGroundSupport()
+	top:AccumulateGroundSupportContact(Vec3(0, 1, 0), Vec3(-0.45, 1, -0.45))
+	top:AccumulateGroundSupportContact(Vec3(0, 1, 0), Vec3(0.45, 1, -0.45))
+	top:AccumulateGroundSupportContact(Vec3(0, 1, 0), Vec3(-0.45, 1, 0.45))
+	top:AccumulateGroundSupportContact(Vec3(0, 1, 0), Vec3(0.45, 1, 0.45))
 	top:SetVelocity(Vec3(0.01, 0, 0))
 	top:SetAngularVelocity(Vec3(0.02, 0, 0))
 	support:SetVelocity(Vec3(0.35, 0, 0))
@@ -176,6 +181,59 @@ T.Test3D("Rigid boxes do not force grounded sleep on awake dynamic supports", fu
 	ready, force_sleep = top:IsReadyToSleep()
 	T(ready)["=="](true)
 	T(force_sleep)["=="](true)
+	top_ent:Remove()
+	support_ent:Remove()
+end)
+
+T.Test3D("Sleeping bodies wake when their sleeping dynamic support drops", function()
+	local support_ent = Entity.New({Name = "rigid_drop_support_box"})
+	support_ent:AddComponent("transform")
+	support_ent.transform:SetPosition(Vec3(0, 0.5, 0))
+	local support = support_ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = box_shape(Vec3(2, 1, 2)),
+			Size = Vec3(2, 1, 2),
+			Mass = 6,
+			AutomaticMass = false,
+			GravityScale = 0,
+			LinearDamping = 0,
+			AngularDamping = 0,
+			AirLinearDamping = 0,
+			AirAngularDamping = 0,
+			Friction = 1,
+		}
+	)
+	local top_ent = Entity.New({Name = "rigid_drop_top_box"})
+	top_ent:AddComponent("transform")
+	top_ent.transform:SetPosition(Vec3(0, 1.5, 0))
+	local top = top_ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = box_shape(Vec3(1, 1, 1)),
+			Size = Vec3(1, 1, 1),
+			GravityScale = 0,
+			LinearDamping = 0,
+			AngularDamping = 0,
+			AirLinearDamping = 0,
+			AirAngularDamping = 0,
+			Friction = 1,
+		}
+	)
+	top:SetGrounded(true)
+	top:SetGroundNormal(Vec3(0, 1, 0))
+	top:SetGroundBody(support)
+	top:ResetGroundSupport()
+	top:AccumulateGroundSupportContact(Vec3(0, 1, 0), Vec3(-0.45, 1, -0.45))
+	top:AccumulateGroundSupportContact(Vec3(0, 1, 0), Vec3(0.45, 1, -0.45))
+	top:AccumulateGroundSupportContact(Vec3(0, 1, 0), Vec3(-0.45, 1, 0.45))
+	top:AccumulateGroundSupportContact(Vec3(0, 1, 0), Vec3(0.45, 1, 0.45))
+	top:Sleep()
+	support:Sleep()
+	support:SetVelocity(Vec3(0, -2, 0))
+	simulate_physics(1, 1 / 60)
+	T(support:GetAwake())["=="](true)
+	T(top:GetAwake())["=="](true)
 	top_ent:Remove()
 	support_ent:Remove()
 end)

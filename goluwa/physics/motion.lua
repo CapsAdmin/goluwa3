@@ -41,6 +41,23 @@ end
 function motion.SetBodyMotionFromCurrentState(body, linear_velocity, angular_velocity, dt)
 	if body.IsSolverImmovable and body:IsSolverImmovable() then return end
 
+	if
+		body.HasSolverMass and
+		body:HasSolverMass() and
+		body.GetAwake and
+		not body:GetAwake()
+	then
+		local linear_threshold = math.max(body.SleepLinearThreshold or 0, 0)
+		local angular_threshold = math.max(body.SleepAngularThreshold or 0, 0)
+
+		if
+			linear_velocity:GetLength() > linear_threshold or
+			angular_velocity:GetLength() > angular_threshold
+		then
+			body:Wake()
+		end
+	end
+
 	motion.SetBodyVelocityFromCurrentPosition(body, linear_velocity, dt)
 	motion.SetBodyAngularVelocityFromCurrentRotation(body, angular_velocity, dt)
 end

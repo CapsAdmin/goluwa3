@@ -329,14 +329,23 @@ end
 
 function META:ShouldForceGroundedSleep(body)
 	local metrics = self:GetSupportFootprintMetrics(body)
+	local ground_normal = body.GroundNormal or Vec3(0, 1, 0)
+	local axes = self:GetAxes(body)
+	local face_alignment = math.max(
+		math.abs(ground_normal:Dot(axes[1])),
+		math.abs(ground_normal:Dot(axes[2])),
+		math.abs(ground_normal:Dot(axes[3]))
+	)
 	return (
 			metrics.stable and
+			face_alignment >= 0.985 and
 			metrics.support_width_coverage >= 0.82 and
 			metrics.min_coverage >= 0.08
 		)
 		or
 		(
 			metrics.stable and
+			face_alignment >= 0.985 and
 			metrics.support_width_coverage >= 0.96
 		)
 end
