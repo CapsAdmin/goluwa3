@@ -29,6 +29,15 @@ local CAPSULE_BODY_POLYHEDRON_SAMPLE_CONTEXT = {
 	start_sample = nil,
 	end_sample = nil,
 }
+local MOVING_TARGET_POINT_SAMPLE_CONTEXT = {
+	start_world = nil,
+	movement = nil,
+	target_state = nil,
+	max_fraction = 0,
+	evaluate_contact = nil,
+	evaluate_contact_context = nil,
+	relative_movement = nil,
+}
 
 local function clamp01(value)
 	return math.max(0, math.min(1, value or 0))
@@ -266,6 +275,23 @@ local function sweep_point_against_rotating_target(start_world, movement, max_fr
 	return hit
 end
 
+local function evaluate_moving_target_point_contact(context, t)
+	if t == nil then
+		t = context
+		context = MOVING_TARGET_POINT_SAMPLE_CONTEXT
+	end
+
+	local point = context.start_world + context.movement * t
+	local position, rotation = helpers.GetTargetPose(context.target_state, t, context.max_fraction)
+	return context.evaluate_contact(
+		context.evaluate_contact_context,
+		point,
+		position,
+		rotation,
+		context.relative_movement
+	)
+end
+
 function helpers.SweepSampledPointAgainstMovingTarget(
 	start_world,
 	movement,
@@ -277,26 +303,29 @@ function helpers.SweepSampledPointAgainstMovingTarget(
 	evaluate_contact_context
 )
 	local relative_movement = movement - target_state.movement
-
-	local function evaluate(context, t)
-		if t == nil then
-			t = context
-			context = evaluate_contact_context
-		end
-
-		local point = start_world + movement * t
-		local position, rotation = helpers.GetTargetPose(target_state, t, max_fraction)
-		return evaluate_contact(context, point, position, rotation, relative_movement)
-	end
-
-	return sweep_point_against_rotating_target(
+	MOVING_TARGET_POINT_SAMPLE_CONTEXT.start_world = start_world
+	MOVING_TARGET_POINT_SAMPLE_CONTEXT.movement = movement
+	MOVING_TARGET_POINT_SAMPLE_CONTEXT.target_state = target_state
+	MOVING_TARGET_POINT_SAMPLE_CONTEXT.max_fraction = max_fraction
+	MOVING_TARGET_POINT_SAMPLE_CONTEXT.evaluate_contact = evaluate_contact
+	MOVING_TARGET_POINT_SAMPLE_CONTEXT.evaluate_contact_context = evaluate_contact_context
+	MOVING_TARGET_POINT_SAMPLE_CONTEXT.relative_movement = relative_movement
+	local hit = sweep_point_against_rotating_target(
 		start_world,
 		movement,
 		max_fraction,
 		steps,
-		evaluate,
-		evaluate_contact_context
+		evaluate_moving_target_point_contact,
+		MOVING_TARGET_POINT_SAMPLE_CONTEXT
 	)
+	MOVING_TARGET_POINT_SAMPLE_CONTEXT.start_world = nil
+	MOVING_TARGET_POINT_SAMPLE_CONTEXT.movement = nil
+	MOVING_TARGET_POINT_SAMPLE_CONTEXT.target_state = nil
+	MOVING_TARGET_POINT_SAMPLE_CONTEXT.max_fraction = 0
+	MOVING_TARGET_POINT_SAMPLE_CONTEXT.evaluate_contact = nil
+	MOVING_TARGET_POINT_SAMPLE_CONTEXT.evaluate_contact_context = nil
+	MOVING_TARGET_POINT_SAMPLE_CONTEXT.relative_movement = nil
+	return hit
 end
 
 local function evaluate_polyhedron_body_sweep_sample(context, t)

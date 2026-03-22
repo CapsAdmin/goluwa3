@@ -80,6 +80,18 @@ local function get_constraint_other_body(constraint, body)
 	return nil
 end
 
+local function wake_dynamic_body(body, awake_dynamic_lookup, awake_dynamic_bodies, newly_awoken_bodies)
+	if not (is_dynamic_body(body) and not awake_dynamic_lookup[body]) then
+		return false
+	end
+
+	body:Wake()
+	awake_dynamic_bodies[#awake_dynamic_bodies + 1] = body
+	awake_dynamic_lookup[body] = true
+	newly_awoken_bodies[#newly_awoken_bodies + 1] = body
+	return true
+end
+
 function islands.BuildSimulationIslands(bodies, pairs, constraints)
 	bodies = bodies or {}
 	pairs = pairs or {}
@@ -231,17 +243,6 @@ function islands.PrepareSimulationIslands(simulation_islands, newly_awoken_bodie
 			end
 		end
 
-		local function wake_dynamic_body(body)
-			if not (is_dynamic_body(body) and not awake_dynamic_lookup[body]) then return end
-
-			body:Wake()
-			awake_dynamic_bodies[#awake_dynamic_bodies + 1] = body
-			awake_dynamic_lookup[body] = true
-			active_dynamic_count = active_dynamic_count + 1
-			newly_awoken_bodies[#newly_awoken_bodies + 1] = body
-			woke_any = true
-		end
-
 		for body_index = 1, #dynamic_bodies do
 			local body = dynamic_bodies[body_index]
 
@@ -260,7 +261,12 @@ function islands.PrepareSimulationIslands(simulation_islands, newly_awoken_bodie
 						)
 					)
 				then
-					wake_dynamic_body(body)
+					if
+						wake_dynamic_body(body, awake_dynamic_lookup, awake_dynamic_bodies, newly_awoken_bodies)
+					then
+						active_dynamic_count = active_dynamic_count + 1
+						woke_any = true
+					end
 				end
 			end
 		end
@@ -276,7 +282,12 @@ function islands.PrepareSimulationIslands(simulation_islands, newly_awoken_bodie
 				and
 				moved_anchor_lookup[body_b]
 			then
-				wake_dynamic_body(body_a)
+				if
+					wake_dynamic_body(body_a, awake_dynamic_lookup, awake_dynamic_bodies, newly_awoken_bodies)
+				then
+					active_dynamic_count = active_dynamic_count + 1
+					woke_any = true
+				end
 			end
 
 			if
@@ -285,14 +296,25 @@ function islands.PrepareSimulationIslands(simulation_islands, newly_awoken_bodie
 				and
 				moved_anchor_lookup[body_a]
 			then
-				wake_dynamic_body(body_b)
+				if
+					wake_dynamic_body(body_b, awake_dynamic_lookup, awake_dynamic_bodies, newly_awoken_bodies)
+				then
+					active_dynamic_count = active_dynamic_count + 1
+					woke_any = true
+				end
 			end
 		end
 
 		if active_dynamic_count > 0 and island.has_constraints then
 			for body_index = 1, #(island.constraint_dynamic_bodies or {}) do
 				local body = island.constraint_dynamic_bodies[body_index]
-				wake_dynamic_body(body)
+
+				if
+					wake_dynamic_body(body, awake_dynamic_lookup, awake_dynamic_bodies, newly_awoken_bodies)
+				then
+					active_dynamic_count = active_dynamic_count + 1
+					woke_any = true
+				end
 			end
 		end
 
