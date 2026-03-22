@@ -2,6 +2,7 @@ local prototype = import("goluwa/prototype.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local BaseShape = import("goluwa/physics/shapes/base.lua")
 local convex_hull = import("goluwa/physics/convex_hull.lua")
+local sweep_helpers = import("goluwa/physics/shapes/sweep_helpers.lua")
 local META = prototype.CreateTemplate("physics_shape_convex")
 META.Base = BaseShape
 META:GetSet("ConvexHull", nil)
@@ -192,6 +193,70 @@ function META:GetSupportRadiusAlongNormal(body, normal)
 	end
 
 	return max_projection
+end
+
+function META:SweepPointAgainstBody(collider, origin, movement, radius, target_state, max_fraction)
+	return sweep_helpers.SweepPointAgainstPolyhedronBody(
+		collider,
+		self:GetPolyhedron(collider),
+		origin,
+		movement,
+		radius,
+		target_state,
+		max_fraction
+	)
+end
+
+function META:SweepColliderAgainstBody(
+	target_collider,
+	query_collider,
+	query_polyhedron,
+	start_position,
+	rotation,
+	movement,
+	target_state,
+	max_fraction
+)
+	local target_polyhedron = self:GetPolyhedron(target_collider)
+
+	if
+		not (
+			target_polyhedron and
+			target_polyhedron.vertices and
+			target_polyhedron.faces
+		)
+	then
+		return nil
+	end
+
+	if query_collider:GetShapeType() == "capsule" then
+		return sweep_helpers.SweepCapsuleAgainstTargetPolyhedron(
+			query_collider,
+			start_position,
+			rotation,
+			movement,
+			target_collider,
+			target_polyhedron,
+			target_state,
+			max_fraction
+		)
+	end
+
+	if query_polyhedron and query_polyhedron.vertices and query_polyhedron.faces then
+		return sweep_helpers.SweepPolyhedronAgainstTargetPolyhedron(
+			query_collider,
+			query_polyhedron,
+			start_position,
+			rotation,
+			movement,
+			target_collider,
+			target_polyhedron,
+			target_state,
+			max_fraction
+		)
+	end
+
+	return nil
 end
 
 return META:Register()

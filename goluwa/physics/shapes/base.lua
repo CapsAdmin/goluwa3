@@ -137,6 +137,14 @@ function META:TraceAgainstBody()
 	return nil
 end
 
+function META:SweepPointAgainstBody()
+	return nil
+end
+
+function META:SweepColliderAgainstBody()
+	return nil
+end
+
 function META:SolveSupportContacts()
 	return nil
 end

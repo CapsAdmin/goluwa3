@@ -32,10 +32,6 @@ function static_model_query.BuildExpandedWorldContactAABB(bounds, body, extra_bo
 	}
 end
 
-local function get_world_models()
-	return ModelComponent.Instances or {}
-end
-
 function static_model_query.BuildBodyWorldContactAABB(body)
 	if body.GetBroadphaseAABB then return body:GetBroadphaseAABB() end
 
@@ -111,7 +107,7 @@ function static_model_query.CollectWorldModelCandidates(world_aabb, out, include
 
 	if not world_aabb then return out end
 
-	for _, model in ipairs(get_world_models()) do
+	for _, model in ipairs(ModelComponent.Instances) do
 		append_model_candidate(out, model, world_aabb, include_unbounded)
 	end
 
@@ -122,7 +118,7 @@ function static_model_query.ForEachWorldPrimitiveCandidate(body, callback, world
 	local body_aabb = world_aabb or static_model_query.BuildBodyWorldContactAABB(body)
 	local primitive_candidates = {}
 
-	for _, model in ipairs(ModelComponent.Instances or {}) do
+	for _, model in ipairs(ModelComponent.Instances) do
 		local entity = model and model.Owner or nil
 
 		if not (model and entity and entity ~= body:GetOwner()) then

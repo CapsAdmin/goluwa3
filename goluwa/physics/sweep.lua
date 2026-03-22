@@ -30,15 +30,12 @@ local get_epsilon
 local get_sweep_alpha
 local get_target_pose
 local ensure_normal_faces_motion
-local get_polyhedron_pair_contact_positions
 local sweep_polyhedron_against_triangle
 local get_capsule_segment_world
 local sweep_capsule_against_triangle
 local sweep_sphere_against_triangle
 local get_polyhedron_contact_for_point_at_pose
-local get_point_sweep_sample_steps
 local evaluate_polyhedron_pair_contact
-local get_capsule_motion_samples
 
 local function build_triangle_hit(model, entity, primitive, primitive_index, triangle_index)
 	return {
@@ -80,52 +77,6 @@ local POINT_CAPSULE_SEGMENT_EVALUATION_CONTEXT = {
 	movement = nil,
 	segment_a = nil,
 	segment_b = nil,
-}
-local TARGET_MOTION_POINT_CONTACT_CONTEXT = {
-	start_world = nil,
-	movement = nil,
-	target_state = nil,
-	max_fraction = 0,
-	evaluate_contact = nil,
-	evaluate_contact_context = nil,
-}
-local POLYHEDRON_BODY_SWEEP_SAMPLE_CONTEXT = {
-	polyhedron = nil,
-	start_position = nil,
-	rotation = nil,
-	target_polyhedron = nil,
-	target_state = nil,
-	max_fraction = 0,
-	scratch = nil,
-	movement = nil,
-}
-local POLYHEDRON_BODY_CAPSULE_SAMPLE_CONTEXT = {
-	collider = nil,
-	polyhedron = nil,
-	movement = nil,
-	max_fraction = 0,
-	radius = 0,
-	start_position = nil,
-	rotation = nil,
-}
-local CAPSULE_BODY_POLYHEDRON_SAMPLE_CONTEXT = {
-	radius = 0,
-	max_fraction = 0,
-	target_state = nil,
-	target_collider = nil,
-	target_polyhedron = nil,
-	start_sample = nil,
-	end_sample = nil,
-}
-local CAPSULE_CAPSULE_SWEEP_CONTEXT = {
-	start_a = nil,
-	start_b = nil,
-	end_a = nil,
-	end_b = nil,
-	target_collider = nil,
-	target_state = nil,
-	max_fraction = 0,
-	combined_radius = 0,
 }
 
 local function collect_mesh_body_point_sweep_hit(v0, v1, v2, triangle_index, context)
@@ -215,22 +166,6 @@ local function evaluate_point_against_capsule_segment(context, t)
 	local delta = point - closest
 	local distance = delta:GetLength()
 	return point, closest, delta, distance
-end
-
-local function evaluate_point_contact_for_target_motion(context, t)
-	if t == nil then
-		t = context
-		context = TARGET_MOTION_POINT_CONTACT_CONTEXT
-	end
-
-	local point = context.start_world + context.movement * t
-	local position, rotation = get_target_pose(context.target_state, t, context.max_fraction)
-
-	if context.evaluate_contact_context ~= nil then
-		return context.evaluate_contact(context.evaluate_contact_context, point, position, rotation, t)
-	end
-
-	return context.evaluate_contact(point, position, rotation, t)
 end
 
 local function collect_overlapping_world_triangle(v0, v1, v2, triangle_index, context)
@@ -524,21 +459,6 @@ local function get_support_point(vertices, direction)
 	end
 
 	return best_point
-end
-
-function get_polyhedron_pair_contact_positions(result, scratch)
-	if not result then return nil, nil end
-
-	local point, position = get_average_contact_positions(result.contacts)
-
-	if point and position then return point, position end
-
-	local normal = result.normal
-	local vertices_a = scratch and scratch.vertices_a or nil
-	local vertices_b = scratch and scratch.vertices_b or nil
-	point = point or get_support_point(vertices_a, normal * -1)
-	position = position or get_support_point(vertices_b, normal)
-	return point, position
 end
 
 local function get_polyhedron_extent(polyhedron)
@@ -2046,248 +1966,6 @@ function get_polyhedron_contact_for_point_at_pose(collider, polyhedron, point, r
 	}
 end
 
-local function get_point_contact_for_target_at_pose(collider, point, radius, position, rotation, movement_world, polyhedron)
-	local shape_type = collider:GetShapeType()
-
-	if shape_type == "box" then
-		return get_box_contact_for_point_at_pose(collider, point, radius, position, rotation, movement_world)
-	end
-
-	if shape_type == "sphere" then
-		return get_sphere_contact_for_point_at_pose(collider, point, radius, position, rotation, movement_world)
-	end
-
-	if shape_type == "capsule" then
-		return get_capsule_contact_for_point_at_pose(collider, point, radius, position, rotation, movement_world)
-	end
-
-	polyhedron = polyhedron or collider:GetBodyPolyhedron()
-
-	if polyhedron and polyhedron.vertices and polyhedron.faces then
-		return get_polyhedron_contact_for_point_at_pose(collider, polyhedron, point, radius, position, rotation, movement_world)
-	end
-
-	return nil
-end
-
-local function find_first_sampled_hit(max_fraction, steps, evaluate_hit, context)
-	local start_hit = context ~= nil and evaluate_hit(context, 0) or evaluate_hit(0)
-
-	if start_hit then return 0, start_hit end
-
-	local low = 0
-	local high = nil
-	local best = nil
-	steps = math.max(1, steps or 1)
-
-	for i = 1, steps do
-		local t = max_fraction * (i / steps)
-		local hit = context ~= nil and evaluate_hit(context, t) or evaluate_hit(t)
-
-		if hit then
-			high = t
-			best = hit
-
-			break
-		end
-
-		low = t
-	end
-
-	if not best then return nil end
-
-	for _ = 1, 12 do
-		local mid = (low + high) * 0.5
-		local mid_hit = context ~= nil and evaluate_hit(context, mid) or evaluate_hit(mid)
-
-		if mid_hit then
-			best = mid_hit
-			high = mid
-		else
-			low = mid
-		end
-	end
-
-	return high, best
-end
-
-local function sweep_point_against_rotating_target(start_world, movement, radius, max_fraction, steps, evaluate_contact, context)
-	local t, hit = find_first_sampled_hit(max_fraction, math.max(6, steps or 12), evaluate_contact, context)
-
-	if not hit then return nil end
-
-	hit.t = t
-	return hit
-end
-
-local function sweep_point_against_target_motion(
-	start_world,
-	movement,
-	radius,
-	target_state,
-	max_fraction,
-	steps,
-	evaluate_contact,
-	evaluate_contact_context
-)
-	TARGET_MOTION_POINT_CONTACT_CONTEXT.start_world = start_world
-	TARGET_MOTION_POINT_CONTACT_CONTEXT.movement = movement
-	TARGET_MOTION_POINT_CONTACT_CONTEXT.target_state = target_state
-	TARGET_MOTION_POINT_CONTACT_CONTEXT.max_fraction = max_fraction
-	TARGET_MOTION_POINT_CONTACT_CONTEXT.evaluate_contact = evaluate_contact
-	TARGET_MOTION_POINT_CONTACT_CONTEXT.evaluate_contact_context = evaluate_contact_context
-	local hit = sweep_point_against_rotating_target(
-		start_world,
-		movement,
-		radius,
-		max_fraction,
-		steps,
-		evaluate_point_contact_for_target_motion,
-		TARGET_MOTION_POINT_CONTACT_CONTEXT
-	)
-	TARGET_MOTION_POINT_CONTACT_CONTEXT.start_world = nil
-	TARGET_MOTION_POINT_CONTACT_CONTEXT.movement = nil
-	TARGET_MOTION_POINT_CONTACT_CONTEXT.target_state = nil
-	TARGET_MOTION_POINT_CONTACT_CONTEXT.max_fraction = 0
-	TARGET_MOTION_POINT_CONTACT_CONTEXT.evaluate_contact = nil
-	TARGET_MOTION_POINT_CONTACT_CONTEXT.evaluate_contact_context = nil
-	return hit
-end
-
-local function sweep_polyhedron_target_point_contact(context, point, position, rotation)
-	return get_point_contact_for_target_at_pose(
-		context.collider,
-		point,
-		context.radius,
-		position,
-		rotation,
-		context.relative_movement,
-		context.polyhedron
-	)
-end
-
-local function evaluate_polyhedron_body_sweep_sample(context, t)
-	if t == nil then
-		t = context
-		context = POLYHEDRON_BODY_SWEEP_SAMPLE_CONTEXT
-	end
-
-	local target_position_t, target_rotation_t = get_target_pose(context.target_state, t, context.max_fraction)
-	return evaluate_polyhedron_pair_contact(
-		context.polyhedron,
-		context.start_position + context.movement * t,
-		context.rotation,
-		context.target_polyhedron,
-		target_position_t,
-		target_rotation_t,
-		context.scratch
-	)
-end
-
-local function select_polyhedron_capsule_body_hit(context, start_sample, end_sample)
-	local raw_hit = pair_solver_helpers.SweepPointAgainstPolyhedron(
-		context.collider,
-		context.polyhedron,
-		start_sample,
-		end_sample - context.movement * context.max_fraction,
-		context.radius,
-		context.start_position,
-		context.rotation
-	)
-
-	if not raw_hit then return nil end
-
-	local normal = raw_hit.normal * -1
-	local hit_fraction = raw_hit.t * context.max_fraction
-	local center = start_sample + (end_sample - start_sample) * raw_hit.t
-	return {
-		t = hit_fraction,
-		point = raw_hit.position or (center + normal * context.radius),
-		position = center + normal * context.radius,
-		normal = normal,
-	}
-end
-
-local function evaluate_capsule_polyhedron_target_contact(context, t)
-	if t == nil then
-		t = context
-		context = CAPSULE_BODY_POLYHEDRON_SAMPLE_CONTEXT
-	end
-
-	local point = context.start_sample + (
-			context.end_sample - context.start_sample
-		) * get_sweep_alpha(t, context.max_fraction)
-	local position, rotation_t = get_target_pose(context.target_state, t, context.max_fraction)
-	return get_polyhedron_contact_for_point_at_pose(
-		context.target_collider,
-		context.target_polyhedron,
-		point,
-		context.radius,
-		position,
-		rotation_t,
-		context.end_sample - context.start_sample
-	)
-end
-
-local function select_capsule_polyhedron_body_hit(context, start_sample, end_sample)
-	context.start_sample = start_sample
-	context.end_sample = end_sample
-	local delta = end_sample - start_sample
-	local raw_hit = sweep_point_against_rotating_target(
-		start_sample,
-		delta,
-		context.radius,
-		context.max_fraction,
-		get_point_sweep_sample_steps(delta:GetLength(), context.radius, context.max_fraction),
-		evaluate_capsule_polyhedron_target_contact,
-		context
-	)
-	context.start_sample = nil
-	context.end_sample = nil
-
-	if not raw_hit then return nil end
-
-	return {
-		t = raw_hit.t,
-		point = raw_hit.point,
-		position = raw_hit.position,
-		normal = raw_hit.normal,
-	}
-end
-
-local function evaluate_capsule_capsule_sample(context, t)
-	if t == nil then
-		t = context
-		context = CAPSULE_CAPSULE_SWEEP_CONTEXT
-	end
-
-	local query_a = context.start_a + (context.end_a - context.start_a) * t
-	local query_b = context.start_b + (context.end_b - context.start_b) * t
-	local target_position_t, target_rotation_t = get_target_pose(context.target_state, t, context.max_fraction)
-	local target_a, target_b = get_capsule_segment_world(context.target_collider, target_position_t, target_rotation_t)
-	local point_a, point_b = segment_geometry.ClosestPointsBetweenSegments(query_a, query_b, target_a, target_b, EPSILON)
-	local delta = point_a - point_b
-	local distance = delta:GetLength()
-
-	if distance <= context.combined_radius then
-		return {point_a = point_a, point_b = point_b, delta = delta, distance = distance}
-	end
-
-	return nil
-end
-
-local POLYHEDRON_TARGET_POINT_CONTACT_CONTEXT = {
-	collider = nil,
-	radius = 0,
-	relative_movement = nil,
-	polyhedron = nil,
-}
-
-function get_point_sweep_sample_steps(movement_length, radius, max_fraction)
-	local travel = math.max(0, movement_length * math.max(max_fraction or 0, 0))
-	return math.max(8, math.min(40, math.ceil(travel / math.max(radius, 0.125)) * 2))
-end
-
 local function test_rigid_body_sweep(origin, movement, radius, body, ignore_entity, filter_fn, options, best_fraction)
 	if should_skip_rigid_body(body, ignore_entity, filter_fn, options) then
 		return nil
@@ -2312,95 +1990,16 @@ local function test_rigid_body_sweep(origin, movement, radius, body, ignore_enti
 		local collider_bounds = get_collider_candidate_aabb(collider)
 
 		if not collider_bounds or AABB.IsBoxIntersecting(world_aabb, collider_bounds) then
+			local shape = collider:GetPhysicsShape()
 			local shape_type = collider:GetShapeType()
 			local hit = nil
 
-			if shape_type == "box" or shape_type == "capsule" then
-				POLYHEDRON_TARGET_POINT_CONTACT_CONTEXT.collider = collider
-				POLYHEDRON_TARGET_POINT_CONTACT_CONTEXT.radius = radius
-				POLYHEDRON_TARGET_POINT_CONTACT_CONTEXT.relative_movement = relative_movement
-				POLYHEDRON_TARGET_POINT_CONTACT_CONTEXT.polyhedron = nil
-				hit = sweep_point_against_target_motion(
-					origin,
-					movement,
-					radius,
-					target_state,
-					best_fraction,
-					get_point_sweep_sample_steps(
-						movement_length,
-						radius + (
-								shape_type == "capsule" and
-								(
-									(
-										collider:GetPhysicsShape() and
-										collider:GetPhysicsShape().GetRadius and
-										collider:GetPhysicsShape():GetRadius()
-									) or
-									0
-								)
-								or
-								0
-							),
-						best_fraction
-					),
-					sweep_polyhedron_target_point_contact,
-					POLYHEDRON_TARGET_POINT_CONTACT_CONTEXT
-				)
-				POLYHEDRON_TARGET_POINT_CONTACT_CONTEXT.collider = nil
-				POLYHEDRON_TARGET_POINT_CONTACT_CONTEXT.radius = 0
-				POLYHEDRON_TARGET_POINT_CONTACT_CONTEXT.relative_movement = nil
-			elseif shape_type == "sphere" then
-				local target_radius = collider:GetSphereRadius()
-				local target_position = target_state.previous_position
-				local delta = origin - target_position
-				local combined_radius = radius + target_radius
-				local a = relative_movement:Dot(relative_movement)
-				local b = 2 * delta:Dot(relative_movement)
-				local c = delta:Dot(delta) - combined_radius * combined_radius
+			if shape and shape.SweepPointAgainstBody then
+				hit = shape:SweepPointAgainstBody(collider, origin, movement, radius, target_state, best_fraction)
+			end
 
-				if a > EPSILON and c > EPSILON then
-					local discriminant = b * b - 4 * a * c
-
-					if discriminant >= 0 then
-						local t = (-b - math.sqrt(discriminant)) / (2 * a)
-
-						if t >= 0 and t <= best_fraction then
-							local center = origin + relative_movement * t
-							local normal = (center - target_position):GetNormalized()
-							hit = {
-								t = t,
-								position = target_position + normal * target_radius,
-								point = center - normal * radius,
-								normal = normal,
-							}
-						end
-					end
-				end
-			else
-				local polyhedron = collider:GetBodyPolyhedron()
-
-				if polyhedron and polyhedron.vertices and polyhedron.faces then
-					POLYHEDRON_TARGET_POINT_CONTACT_CONTEXT.collider = collider
-					POLYHEDRON_TARGET_POINT_CONTACT_CONTEXT.radius = radius
-					POLYHEDRON_TARGET_POINT_CONTACT_CONTEXT.relative_movement = relative_movement
-					POLYHEDRON_TARGET_POINT_CONTACT_CONTEXT.polyhedron = polyhedron
-					hit = sweep_point_against_target_motion(
-						origin,
-						movement,
-						radius,
-						target_state,
-						best_fraction,
-						get_point_sweep_sample_steps(movement_length, radius, best_fraction),
-						sweep_polyhedron_target_point_contact,
-						POLYHEDRON_TARGET_POINT_CONTACT_CONTEXT
-					)
-					POLYHEDRON_TARGET_POINT_CONTACT_CONTEXT.collider = nil
-					POLYHEDRON_TARGET_POINT_CONTACT_CONTEXT.radius = 0
-					POLYHEDRON_TARGET_POINT_CONTACT_CONTEXT.relative_movement = nil
-					POLYHEDRON_TARGET_POINT_CONTACT_CONTEXT.polyhedron = nil
-				elseif shape_type == "mesh" then
-					hit = test_mesh_body_point_sweep(origin, movement, radius, body, collider, best_fraction)
-				end
+			if not hit and shape_type == "mesh" then
+				hit = test_mesh_body_point_sweep(origin, movement, radius, body, collider, best_fraction)
 			end
 
 			local world_hit = build_rigid_body_hit(hit, movement, movement_length, body, collider)
@@ -2487,325 +2086,6 @@ function evaluate_polyhedron_pair_contact(poly_a, position_a, rotation_a, poly_b
 	}
 end
 
-local function collect_capsule_segment_samples(collider, position, rotation, out)
-	local a, b, radius = get_capsule_segment_world(collider, position, rotation)
-	local count = math.max(3, math.min(9, math.ceil((b - a):GetLength() / math.max(radius, 0.25)) + 1))
-	out = out or {}
-
-	for i = 0, count - 1 do
-		local t = count == 1 and 0 or i / (count - 1)
-		out[i + 1] = a + (b - a) * t
-	end
-
-	for i = count + 1, #out do
-		out[i] = nil
-	end
-
-	return out, radius
-end
-
-function get_capsule_motion_samples(
-	collider,
-	start_position,
-	start_rotation,
-	end_position,
-	end_rotation,
-	previous_cache_key,
-	current_cache_key
-)
-	local previous_samples = collider[previous_cache_key] or {}
-	local current_samples = collider[current_cache_key] or {}
-	collider[previous_cache_key] = previous_samples
-	collider[current_cache_key] = current_samples
-	local start_samples, radius = collect_capsule_segment_samples(collider, start_position, start_rotation, previous_samples)
-	local end_samples = collect_capsule_segment_samples(collider, end_position, end_rotation, current_samples)
-	return start_samples, end_samples, radius
-end
-
-local function find_best_capsule_sample_hit(start_samples, end_samples, radius, fallback_delta, select_hit, context)
-	local best = nil
-
-	for i, end_sample in ipairs(end_samples) do
-		local start_sample = start_samples[i] or (end_sample - fallback_delta)
-		local hit = context ~= nil and
-			select_hit(context, start_sample, end_sample, radius, i) or
-			select_hit(start_sample, end_sample, radius, i)
-
-		if hit and (not best or hit.t < best.t) then best = hit end
-	end
-
-	return best
-end
-
-local function sweep_polyhedron_against_body_polyhedron(
-	collider,
-	polyhedron,
-	start_position,
-	rotation,
-	movement,
-	target_collider,
-	target_polyhedron,
-	target_state,
-	max_fraction
-)
-	local scratch = collider.polyhedron_body_sweep_scratch or {}
-	collider.polyhedron_body_sweep_scratch = scratch
-	POLYHEDRON_BODY_SWEEP_SAMPLE_CONTEXT.polyhedron = polyhedron
-	POLYHEDRON_BODY_SWEEP_SAMPLE_CONTEXT.start_position = start_position
-	POLYHEDRON_BODY_SWEEP_SAMPLE_CONTEXT.rotation = rotation
-	POLYHEDRON_BODY_SWEEP_SAMPLE_CONTEXT.target_polyhedron = target_polyhedron
-	POLYHEDRON_BODY_SWEEP_SAMPLE_CONTEXT.target_state = target_state
-	POLYHEDRON_BODY_SWEEP_SAMPLE_CONTEXT.max_fraction = max_fraction
-	POLYHEDRON_BODY_SWEEP_SAMPLE_CONTEXT.scratch = scratch
-	POLYHEDRON_BODY_SWEEP_SAMPLE_CONTEXT.movement = movement
-	local hit_t, hit_result = find_first_sampled_hit(
-		max_fraction,
-		get_polyhedron_sweep_sample_steps(polyhedron, movement:GetLength(), max_fraction),
-		evaluate_polyhedron_body_sweep_sample,
-		POLYHEDRON_BODY_SWEEP_SAMPLE_CONTEXT
-	)
-	POLYHEDRON_BODY_SWEEP_SAMPLE_CONTEXT.polyhedron = nil
-	POLYHEDRON_BODY_SWEEP_SAMPLE_CONTEXT.start_position = nil
-	POLYHEDRON_BODY_SWEEP_SAMPLE_CONTEXT.rotation = nil
-	POLYHEDRON_BODY_SWEEP_SAMPLE_CONTEXT.target_polyhedron = nil
-	POLYHEDRON_BODY_SWEEP_SAMPLE_CONTEXT.target_state = nil
-	POLYHEDRON_BODY_SWEEP_SAMPLE_CONTEXT.max_fraction = 0
-	POLYHEDRON_BODY_SWEEP_SAMPLE_CONTEXT.scratch = nil
-	POLYHEDRON_BODY_SWEEP_SAMPLE_CONTEXT.movement = nil
-
-	if not hit_result then return nil end
-
-	local point, position = get_polyhedron_pair_contact_positions(hit_result, scratch)
-	return point and
-		position and
-		{
-			t = hit_t,
-			point = point,
-			position = position,
-			normal = hit_result.normal * -1,
-		} or
-		nil
-end
-
-local function sweep_polyhedron_against_sphere_body(
-	collider,
-	polyhedron,
-	start_position,
-	rotation,
-	movement,
-	target_collider,
-	target_state,
-	max_fraction
-)
-	local radius = target_collider:GetSphereRadius()
-	local center = target_state.previous_position
-	local relative_movement = movement - target_state.movement
-	local raw_hit = pair_solver_helpers.SweepPointAgainstPolyhedron(
-		collider,
-		polyhedron,
-		center,
-		center - relative_movement * max_fraction,
-		radius,
-		start_position,
-		rotation
-	)
-
-	if not raw_hit then return nil end
-
-	local normal = raw_hit.normal * -1
-	local hit_fraction = raw_hit.t * max_fraction
-	local hit_center = center + target_state.movement * hit_fraction
-	return {
-		t = hit_fraction,
-		point = raw_hit.position or (hit_center + normal * radius),
-		position = hit_center + normal * radius,
-		normal = normal,
-	}
-end
-
-local function sweep_polyhedron_against_capsule_body(
-	collider,
-	polyhedron,
-	start_position,
-	rotation,
-	movement,
-	target_collider,
-	target_state,
-	max_fraction
-)
-	local start_samples, end_samples, radius = get_capsule_motion_samples(
-		target_collider,
-		target_state.previous_position,
-		target_state.previous_rotation,
-		target_state.current_position,
-		target_state.current_rotation,
-		"polyhedron_body_capsule_previous_samples",
-		"polyhedron_body_capsule_current_samples"
-	)
-	POLYHEDRON_BODY_CAPSULE_SAMPLE_CONTEXT.collider = collider
-	POLYHEDRON_BODY_CAPSULE_SAMPLE_CONTEXT.polyhedron = polyhedron
-	POLYHEDRON_BODY_CAPSULE_SAMPLE_CONTEXT.movement = movement
-	POLYHEDRON_BODY_CAPSULE_SAMPLE_CONTEXT.max_fraction = max_fraction
-	POLYHEDRON_BODY_CAPSULE_SAMPLE_CONTEXT.radius = radius
-	POLYHEDRON_BODY_CAPSULE_SAMPLE_CONTEXT.start_position = start_position
-	POLYHEDRON_BODY_CAPSULE_SAMPLE_CONTEXT.rotation = rotation
-	local hit = find_best_capsule_sample_hit(
-		start_samples,
-		end_samples,
-		radius,
-		target_state.movement * max_fraction,
-		select_polyhedron_capsule_body_hit,
-		POLYHEDRON_BODY_CAPSULE_SAMPLE_CONTEXT
-	)
-	POLYHEDRON_BODY_CAPSULE_SAMPLE_CONTEXT.collider = nil
-	POLYHEDRON_BODY_CAPSULE_SAMPLE_CONTEXT.polyhedron = nil
-	POLYHEDRON_BODY_CAPSULE_SAMPLE_CONTEXT.movement = nil
-	POLYHEDRON_BODY_CAPSULE_SAMPLE_CONTEXT.max_fraction = 0
-	POLYHEDRON_BODY_CAPSULE_SAMPLE_CONTEXT.radius = 0
-	POLYHEDRON_BODY_CAPSULE_SAMPLE_CONTEXT.start_position = nil
-	POLYHEDRON_BODY_CAPSULE_SAMPLE_CONTEXT.rotation = nil
-	return hit
-end
-
-local function sweep_capsule_against_sphere_body(
-	collider,
-	start_position,
-	rotation,
-	movement,
-	target_collider,
-	target_state,
-	max_fraction
-)
-	local sphere_radius = target_collider:GetSphereRadius()
-	local segment_a, segment_b, capsule_radius = get_capsule_segment_world(collider, start_position, rotation)
-	local center = target_state.previous_position
-	local raw_hit = sweep_point_against_capsule_segment(
-		center,
-		center - (movement - target_state.movement) * max_fraction,
-		segment_a,
-		segment_b,
-		capsule_radius + sphere_radius
-	)
-
-	if not raw_hit then return nil end
-
-	local normal = raw_hit.normal * -1
-	local hit_fraction = raw_hit.t * max_fraction
-	return {
-		t = hit_fraction,
-		point = raw_hit.point,
-		position = center + target_state.movement * hit_fraction + normal * sphere_radius,
-		normal = normal,
-	}
-end
-
-local function sweep_capsule_against_polyhedron_body(
-	collider,
-	start_position,
-	rotation,
-	movement,
-	target_collider,
-	target_polyhedron,
-	target_state,
-	max_fraction
-)
-	local start_points, end_points, radius = get_capsule_motion_samples(
-		collider,
-		start_position,
-		rotation,
-		start_position + movement * max_fraction,
-		rotation,
-		"capsule_body_sweep_previous",
-		"capsule_body_sweep_current"
-	)
-	CAPSULE_BODY_POLYHEDRON_SAMPLE_CONTEXT.radius = radius
-	CAPSULE_BODY_POLYHEDRON_SAMPLE_CONTEXT.max_fraction = max_fraction
-	CAPSULE_BODY_POLYHEDRON_SAMPLE_CONTEXT.target_state = target_state
-	CAPSULE_BODY_POLYHEDRON_SAMPLE_CONTEXT.target_collider = target_collider
-	CAPSULE_BODY_POLYHEDRON_SAMPLE_CONTEXT.target_polyhedron = target_polyhedron
-	local hit = find_best_capsule_sample_hit(
-		start_points,
-		end_points,
-		radius,
-		movement * max_fraction,
-		select_capsule_polyhedron_body_hit,
-		CAPSULE_BODY_POLYHEDRON_SAMPLE_CONTEXT
-	)
-	CAPSULE_BODY_POLYHEDRON_SAMPLE_CONTEXT.radius = 0
-	CAPSULE_BODY_POLYHEDRON_SAMPLE_CONTEXT.max_fraction = 0
-	CAPSULE_BODY_POLYHEDRON_SAMPLE_CONTEXT.target_state = nil
-	CAPSULE_BODY_POLYHEDRON_SAMPLE_CONTEXT.target_collider = nil
-	CAPSULE_BODY_POLYHEDRON_SAMPLE_CONTEXT.target_polyhedron = nil
-	CAPSULE_BODY_POLYHEDRON_SAMPLE_CONTEXT.start_sample = nil
-	CAPSULE_BODY_POLYHEDRON_SAMPLE_CONTEXT.end_sample = nil
-	return hit
-end
-
-local function sweep_capsule_against_capsule_body(
-	collider,
-	start_position,
-	rotation,
-	movement,
-	target_collider,
-	target_state,
-	max_fraction
-)
-	local start_a, start_b, radius_a = get_capsule_segment_world(collider, start_position, rotation)
-	local end_a, end_b = get_capsule_segment_world(collider, start_position + movement * max_fraction, rotation)
-	local target_start_a, target_start_b, radius_b = get_capsule_segment_world(target_collider, target_state.previous_position, target_state.previous_rotation)
-	local combined_radius = radius_a + radius_b
-	CAPSULE_CAPSULE_SWEEP_CONTEXT.start_a = start_a
-	CAPSULE_CAPSULE_SWEEP_CONTEXT.start_b = start_b
-	CAPSULE_CAPSULE_SWEEP_CONTEXT.end_a = end_a
-	CAPSULE_CAPSULE_SWEEP_CONTEXT.end_b = end_b
-	CAPSULE_CAPSULE_SWEEP_CONTEXT.target_collider = target_collider
-	CAPSULE_CAPSULE_SWEEP_CONTEXT.target_state = target_state
-	CAPSULE_CAPSULE_SWEEP_CONTEXT.max_fraction = max_fraction
-	CAPSULE_CAPSULE_SWEEP_CONTEXT.combined_radius = combined_radius
-	local hit_t, hit_data = find_first_sampled_hit(
-		max_fraction,
-		math.max(
-			8,
-			math.min(
-				32,
-				math.ceil((movement:GetLength() * max_fraction) / math.max(combined_radius, 0.2)) * 2
-			)
-		),
-		evaluate_capsule_capsule_sample,
-		CAPSULE_CAPSULE_SWEEP_CONTEXT
-	)
-	CAPSULE_CAPSULE_SWEEP_CONTEXT.start_a = nil
-	CAPSULE_CAPSULE_SWEEP_CONTEXT.start_b = nil
-	CAPSULE_CAPSULE_SWEEP_CONTEXT.end_a = nil
-	CAPSULE_CAPSULE_SWEEP_CONTEXT.end_b = nil
-	CAPSULE_CAPSULE_SWEEP_CONTEXT.target_collider = nil
-	CAPSULE_CAPSULE_SWEEP_CONTEXT.target_state = nil
-	CAPSULE_CAPSULE_SWEEP_CONTEXT.max_fraction = 0
-	CAPSULE_CAPSULE_SWEEP_CONTEXT.combined_radius = 0
-
-	if not hit_data then return nil end
-
-	local point_a = hit_data.point_a
-	local point_b = hit_data.point_b
-	local delta = hit_data.delta
-	local distance = hit_data.distance
-	local normal = distance > EPSILON and
-		(
-			delta / distance
-		)
-		or
-		ensure_normal_faces_motion(
-			(start_position - target_state.previous_position):GetNormalized(),
-			movement - target_state.movement
-		)
-	return {
-		t = hit_t,
-		point = point_a - normal * radius_a,
-		position = point_b + normal * radius_b,
-		normal = normal,
-	}
-end
-
 local function test_rigid_body_collider_sweep(
 	collider,
 	polyhedron,
@@ -2838,108 +2118,33 @@ local function test_rigid_body_collider_sweep(
 		local target_bounds = get_collider_candidate_aabb(target_collider)
 
 		if not target_bounds or AABB.IsBoxIntersecting(world_aabb, target_bounds) then
-			local target_shape_type = target_collider:GetShapeType()
+			local target_shape = target_collider:GetPhysicsShape()
 			local hit = nil
 
-			if query_shape_type == "capsule" then
-				if target_shape_type == "sphere" then
-					hit = sweep_capsule_against_sphere_body(
-						collider,
-						start_position,
-						rotation,
-						movement,
-						target_collider,
-						target_state,
-						best_fraction
-					)
-				elseif target_shape_type == "capsule" then
-					hit = sweep_capsule_against_capsule_body(
-						collider,
-						start_position,
-						rotation,
-						movement,
-						target_collider,
-						target_state,
-						best_fraction
-					)
-				else
-					local target_polyhedron = target_collider:GetBodyPolyhedron()
+			if target_shape and target_shape.SweepColliderAgainstBody then
+				hit = target_shape:SweepColliderAgainstBody(
+					target_collider,
+					collider,
+					polyhedron,
+					start_position,
+					rotation,
+					movement,
+					target_state,
+					best_fraction
+				)
+			end
 
-					if target_polyhedron and target_polyhedron.vertices and target_polyhedron.faces then
-						hit = sweep_capsule_against_polyhedron_body(
-							collider,
-							start_position,
-							rotation,
-							movement,
-							target_collider,
-							target_polyhedron,
-							target_state,
-							best_fraction
-						)
-					elseif target_shape_type == "mesh" then
-						hit = test_mesh_body_collider_sweep(
-							collider,
-							nil,
-							start_position,
-							rotation,
-							movement,
-							body,
-							target_collider,
-							best_fraction
-						)
-					end
-				end
-			elseif polyhedron and polyhedron.vertices and polyhedron.faces then
-				if target_shape_type == "sphere" then
-					hit = sweep_polyhedron_against_sphere_body(
-						collider,
-						polyhedron,
-						start_position,
-						rotation,
-						movement,
-						target_collider,
-						target_state,
-						best_fraction
-					)
-				elseif target_shape_type == "capsule" then
-					hit = sweep_polyhedron_against_capsule_body(
-						collider,
-						polyhedron,
-						start_position,
-						rotation,
-						movement,
-						target_collider,
-						target_state,
-						best_fraction
-					)
-				else
-					local target_polyhedron = target_collider:GetBodyPolyhedron()
-
-					if target_polyhedron and target_polyhedron.vertices and target_polyhedron.faces then
-						hit = sweep_polyhedron_against_body_polyhedron(
-							collider,
-							polyhedron,
-							start_position,
-							rotation,
-							movement,
-							target_collider,
-							target_polyhedron,
-							target_state,
-							best_fraction
-						)
-					elseif target_shape_type == "mesh" then
-						hit = test_mesh_body_collider_sweep(
-							collider,
-							polyhedron,
-							start_position,
-							rotation,
-							movement,
-							body,
-							target_collider,
-							best_fraction
-						)
-					end
-				end
+			if not hit and target_collider:GetShapeType() == "mesh" then
+				hit = test_mesh_body_collider_sweep(
+					collider,
+					polyhedron,
+					start_position,
+					rotation,
+					movement,
+					body,
+					target_collider,
+					best_fraction
+				)
 			end
 
 			local world_hit = build_rigid_body_hit(hit, movement, movement_length, body, target_collider)

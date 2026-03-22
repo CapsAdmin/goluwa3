@@ -4,6 +4,7 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local BaseShape = import("goluwa/physics/shapes/base.lua")
 local sample_points = import("goluwa/physics/shapes/sample_points.lua")
+local sweep_helpers = import("goluwa/physics/shapes/sweep_helpers.lua")
 local META = prototype.CreateTemplate("physics_shape_box")
 META.Base = BaseShape
 META:GetSet("Size", Vec3(1, 1, 1))
@@ -400,6 +401,60 @@ function META:TraceAgainstBody(body, origin, direction, max_distance, trace_radi
 		normal = normal,
 		rigid_body = body.GetBody and body:GetBody() or body,
 	}
+end
+
+function META:SweepPointAgainstBody(collider, origin, movement, radius, target_state, max_fraction)
+	return sweep_helpers.SweepPointAgainstPolyhedronBody(
+		collider,
+		self:GetPolyhedron(collider),
+		origin,
+		movement,
+		radius,
+		target_state,
+		max_fraction
+	)
+end
+
+function META:SweepColliderAgainstBody(
+	target_collider,
+	query_collider,
+	query_polyhedron,
+	start_position,
+	rotation,
+	movement,
+	target_state,
+	max_fraction
+)
+	local target_polyhedron = self:GetPolyhedron(target_collider)
+
+	if query_collider:GetShapeType() == "capsule" then
+		return sweep_helpers.SweepCapsuleAgainstTargetPolyhedron(
+			query_collider,
+			start_position,
+			rotation,
+			movement,
+			target_collider,
+			target_polyhedron,
+			target_state,
+			max_fraction
+		)
+	end
+
+	if query_polyhedron and query_polyhedron.vertices and query_polyhedron.faces then
+		return sweep_helpers.SweepPolyhedronAgainstTargetPolyhedron(
+			query_collider,
+			query_polyhedron,
+			start_position,
+			rotation,
+			movement,
+			target_collider,
+			target_polyhedron,
+			target_state,
+			max_fraction
+		)
+	end
+
+	return nil
 end
 
 return META:Register()
