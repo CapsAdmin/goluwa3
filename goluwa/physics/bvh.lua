@@ -231,14 +231,18 @@ function bvh.TraverseAABB(bounds, node, visit_leaf, context, result)
 			local left = current.left
 			local right = current.right
 
-			if right and intersects(bounds, right.aabb) then
-				stack_size = stack_size + 1
-				node_stack[stack_size] = right
+			if right then
+				if intersects(bounds, right.aabb) then
+					stack_size = stack_size + 1
+					node_stack[stack_size] = right
+				end
 			end
 
-			if left and intersects(bounds, left.aabb) then
-				stack_size = stack_size + 1
-				node_stack[stack_size] = left
+			if left then
+				if intersects(bounds, left.aabb) then
+					stack_size = stack_size + 1
+					node_stack[stack_size] = left
+				end
 			end
 		end
 	end

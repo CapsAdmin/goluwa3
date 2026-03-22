@@ -19,6 +19,41 @@ function triangle_contact_queries.GetPointTriangleSeparation(point, v0, v1, v2, 
 	options = options or {}
 	local epsilon = options.epsilon or physics_constants.EPSILON
 	local face_normal = triangle_contact_queries.GetTriangleFaceNormal(v0, v1, v2, epsilon)
+
+	if face_normal then
+		local signed_distance = (point - v0):Dot(face_normal)
+		local projected_point = point - face_normal * signed_distance
+
+		if
+			triangle_geometry.PointInTriangle(projected_point, v0, v1, v2, face_normal, epsilon)
+		then
+			local distance = math.abs(signed_distance)
+			local normal = nil
+
+			if distance > epsilon then
+				normal = signed_distance >= 0 and face_normal or face_normal * -1
+			else
+				normal = face_normal or options.fallback_normal
+
+				if not normal or normal:GetLength() <= epsilon then
+					local fallback_direction = options.fallback_direction
+					normal = fallback_direction and
+						fallback_direction:GetLength() > epsilon and
+						fallback_direction:GetNormalized() or
+						Vec3(0, 1, 0)
+				end
+			end
+
+			return {
+				point = point,
+				position = projected_point,
+				normal = normal,
+				distance = distance,
+				face_normal = face_normal,
+			}
+		end
+	end
+
 	local closest_point = triangle_geometry.ClosestPointOnTriangle(point, v0, v1, v2)
 	local delta = point - closest_point
 	local distance = delta:GetLength()

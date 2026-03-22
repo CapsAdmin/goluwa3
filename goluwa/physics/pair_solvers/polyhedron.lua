@@ -333,6 +333,20 @@ local function solve_relative_swept_polyhedron_pair_collision(body_a, body_b, po
 	)
 end
 
+local function try_swept_polyhedron_pair_fallback(body_a, body_b, poly_a, poly_b, dt)
+	local static_body, dynamic_body = pair_solver_helpers.GetStaticDynamicPair(body_a, body_b)
+
+	if static_body == body_a then
+		return solve_swept_polyhedron_polyhedron_collision(dynamic_body, static_body, poly_a, dt)
+	end
+
+	if static_body == body_b then
+		return solve_swept_polyhedron_polyhedron_collision(dynamic_body, static_body, poly_b, dt)
+	end
+
+	return solve_relative_swept_polyhedron_pair_collision(body_a, body_b, poly_a, poly_b, dt)
+end
+
 function polyhedron.SolvePolyhedronPairCollision(body_a, body_b, dt)
 	local poly_a = body_a:GetBodyPolyhedron()
 	local poly_b = body_b:GetBodyPolyhedron()
@@ -370,22 +384,8 @@ function polyhedron.SolvePolyhedronPairCollision(body_a, body_b, dt)
 	local vertices_b = polyhedron.GetPolyhedronWorldVertices(body_b, poly_b)
 	local best = convex_sat.CreateBestAxisTracker()
 
-	local function try_swept_fallback()
-		local static_body, dynamic_body = pair_solver_helpers.GetStaticDynamicPair(body_a, body_b)
-
-		if static_body == body_a then
-			return solve_swept_polyhedron_polyhedron_collision(dynamic_body, static_body, poly_a, dt)
-		end
-
-		if static_body == body_b then
-			return solve_swept_polyhedron_polyhedron_collision(dynamic_body, static_body, poly_b, dt)
-		end
-
-		return solve_relative_swept_polyhedron_pair_collision(body_a, body_b, poly_a, poly_b, dt)
-	end
-
 	if polyhedron_sat.HasSeparatingAxis(vertices_a, vertices_b, axes) then
-		return try_swept_fallback()
+		return try_swept_polyhedron_pair_fallback(body_a, body_b, poly_a, poly_b, dt)
 	end
 
 	polyhedron_sat.UpdateFaceAxisCandidates(
