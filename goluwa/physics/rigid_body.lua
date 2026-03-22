@@ -701,15 +701,12 @@ do
 
 		local ready_to_sleep, force_grounded_sleep = self:IsReadyToSleep()
 
-		if force_grounded_sleep then
-			self:Sleep()
-			return
-		end
-
 		if ready_to_sleep then
 			self.SleepTimer = self.SleepTimer + dt
 
-			if self.SleepTimer >= get_effective_sleep_delay(self) then self:Sleep() end
+			if self.SleepTimer >= get_effective_sleep_delay(self, force_grounded_sleep) then
+				self:Sleep()
+			end
 		else
 			self.SleepTimer = 0
 		end

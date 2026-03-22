@@ -8,6 +8,34 @@ local function is_anchor_body(body)
 	return body and not is_dynamic_body(body)
 end
 
+local function is_body_transform_moving(body)
+	if not body then return false end
+
+	local previous_position = body.GetPreviousPosition and body:GetPreviousPosition() or body.PreviousPosition
+	local current_position = body.GetPosition and body:GetPosition() or body.Position
+
+	if
+		previous_position and
+		current_position and
+		(
+			current_position - previous_position
+		):GetLength() > 0.0001
+	then
+		return true
+	end
+
+	local previous_rotation = body.GetPreviousRotation and body:GetPreviousRotation() or body.PreviousRotation
+	local current_rotation = body.GetRotation and body:GetRotation() or body.Rotation
+
+	if previous_rotation and current_rotation then
+		local dot = math.min(1, math.max(-1, math.abs(previous_rotation:Dot(current_rotation))))
+
+		if 1 - dot > 0.0001 then return true end
+	end
+
+	return false
+end
+
 local function add_unique(list, lookup, value)
 	if not value or lookup[value] then return end
 
@@ -191,10 +219,23 @@ function islands.PrepareSimulationIslands(simulation_islands, newly_awoken_bodie
 
 		island.active_dynamic_count = active_dynamic_count
 		island.sleeping = active_dynamic_count == 0
+		local wake_sleeping_dynamics = active_dynamic_count > 0
 
-		if active_dynamic_count > 0 and island.has_constraints then
-			for body_index = 1, #(island.constraint_dynamic_bodies or {}) do
-				local body = island.constraint_dynamic_bodies[body_index]
+		if not wake_sleeping_dynamics then
+			for body_index = 1, #(island.bodies or {}) do
+				local body = island.bodies[body_index]
+
+				if is_anchor_body(body) and is_body_transform_moving(body) then
+					wake_sleeping_dynamics = true
+
+					break
+				end
+			end
+		end
+
+		if wake_sleeping_dynamics then
+			for body_index = 1, #dynamic_bodies do
+				local body = dynamic_bodies[body_index]
 
 				if is_dynamic_body(body) and not body:GetAwake() then
 					body:Wake()
