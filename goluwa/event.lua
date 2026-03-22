@@ -1,4 +1,5 @@
 local event = library()
+local callstack = import("goluwa/helpers/callstack.lua")
 event.active = event.active or {}
 event.destroy_tag = event.destroy_tag or {}
 
@@ -128,16 +129,16 @@ function event.Call(event_type, a_, b_, c_, d_, e_)
 					if data.self_arg then
 						if data.self_arg:IsValid() then
 							if data.self_arg_with_callback then
-								ok, a, b, c, d, e = pcall(data.callback, a_, b_, c_, d_, e_)
+								ok, a, b, c, d, e = xpcall(data.callback, callstack.traceback, a_, b_, c_, d_, e_)
 							else
-								ok, a, b, c, d, e = pcall(data.callback, data.self_arg, a_, b_, c_, d_, e_)
+								ok, a, b, c, d, e = xpcall(data.callback, callstack.traceback, data.self_arg, a_, b_, c_, d_, e_)
 							end
 						else
 							event.RemoveListener(event_type, data.id)
 							llog("[%q][%q] removed because self is invalid", event_type, data.unique)
 						end
 					else
-						ok, a, b, c, d, e = pcall(data.callback, a_, b_, c_, d_, e_)
+						ok, a, b, c, d, e = xpcall(data.callback, callstack.traceback, a_, b_, c_, d_, e_)
 					end
 
 					if not ok then
