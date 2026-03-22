@@ -2,6 +2,7 @@ local prototype = import("goluwa/prototype.lua")
 local Ang3 = import("goluwa/structs/ang3.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
+local physics = import("goluwa/physics.lua")
 local BaseShape = import("goluwa/physics/shapes/base.lua")
 local sample_points = import("goluwa/physics/shapes/sample_points.lua")
 local sweep_helpers = import("goluwa/physics/shapes/sweep_helpers.lua")
@@ -127,13 +128,25 @@ function META:BuildSupportLocalPoints()
 	return sample_points.BuildBoxSupportGridPoints(self:GetExtents())
 end
 
+function META:ShouldUseBroadSupportContact(body, ground_normal)
+	local best_alignment, support_area, max_face_area = self:GetGroundedSupportMetrics(body, ground_normal)
+	return best_alignment >= 0.94 and support_area >= max_face_area * 0.85
+end
+
+function META:ShouldUseGroundedVelocityConstraints(body, ground_normal)
+	return self:ShouldUseBroadSupportContact(body, ground_normal)
+end
+
 function META:SolveSupportContacts(body, dt, support_contacts)
 	BOX_SUPPORT_CONTACT_CONTEXT.best_point = nil
 	support_contacts.ForEachPointSweepContact(body, dt, collect_box_support_contact, BOX_SUPPORT_CONTACT_CONTEXT)
 	local best_point = BOX_SUPPORT_CONTACT_CONTEXT.best_point
 	BOX_SUPPORT_CONTACT_CONTEXT.best_point = nil
 
-	if best_point then
+	if
+		best_point and
+		self:ShouldUseBroadSupportContact(best_point.body, best_point.hit.normal)
+	then
 		support_contacts.ApplyPointWorldSupportContact(
 			best_point.body,
 			best_point.hit.normal,
@@ -149,7 +162,12 @@ function META:SolveSupportContacts(body, dt, support_contacts)
 	local normal = hit and hit.normal or nil
 	local contact_position = hit and hit.position or nil
 
-	if hit and normal and contact_position then
+	if
+		hit and
+		normal and
+		contact_position and
+		self:ShouldUseBroadSupportContact(body, normal)
+	then
 		support_contacts.ApplyWorldSupportContact(
 			body,
 			normal,
@@ -214,13 +232,63 @@ function META:GetGroundedSupportMetrics(body, ground_normal)
 	return best_alignment, support_area, max_face_area, support_axis
 end
 
+function META:ApplyNarrowSupportTipAssist(body, ground_normal, best_alignment)
+	if not (body and body:HasSolverMass() and ground_normal) then return end
+
+	local support_points = {}
+	local min_projection = math.huge
+	local tolerance = 0.02
+
+	for _, local_point in ipairs(self:GetLocalVertices()) do
+		local world_point = body:LocalToWorld(local_point)
+		local projection = world_point:Dot(ground_normal)
+
+		if projection < min_projection - tolerance then
+			min_projection = projection
+			support_points = {world_point}
+		elseif math.abs(projection - min_projection) <= tolerance then
+			support_points[#support_points + 1] = world_point
+		end
+	end
+
+	if not support_points[1] then return end
+
+	local support_center = Vec3(0, 0, 0)
+
+	for _, point in ipairs(support_points) do
+		support_center = support_center + point
+	end
+
+	support_center = support_center / #support_points
+	local lever = body:GetPosition() - support_center
+	local tangent_lever = lever - ground_normal * lever:Dot(ground_normal)
+	local tangent_length = tangent_lever:GetLength()
+
+	if tangent_length <= 0.025 then return end
+
+	local gravity_force = physics.Gravity * ((body:GetMass() or 0) * (body:GetGravityScale() or 1))
+	local torque = tangent_lever:GetCross(gravity_force)
+	local size = self:GetSize()
+	local slenderness = math.max(size.x, size.y, size.z) / math.max(0.0001, math.min(size.x, size.y, size.z))
+	local slenderness_scale = math.min(2.4, 1 + math.max(0, slenderness - 1) * 0.03)
+	local assist_scale = math.min(3.5, math.max(0, (0.94 - (best_alignment or 0)) / 0.18) * slenderness_scale)
+
+	if assist_scale <= 0 or torque:GetLength() <= 0.0001 then return end
+
+	body:Wake()
+	body.AngularVelocity = body.AngularVelocity + body:GetAngularVelocityDelta(torque * assist_scale * math.max(body.StepDt or 0, 1 / 60))
+end
+
 function META:OnGroundedVelocityUpdate(body, dt)
 	if not dt or dt <= 0 then return end
 
 	local ground_normal = body.GroundNormal or Vec3(0, 1, 0)
 	local best_alignment, support_area, max_face_area = self:GetGroundedSupportMetrics(body, ground_normal)
 
-	if best_alignment < 0.94 or support_area < max_face_area * 0.85 then return end
+	if best_alignment < 0.94 or support_area < max_face_area * 0.85 then
+		self:ApplyNarrowSupportTipAssist(body, ground_normal, best_alignment)
+		return
+	end
 
 	local friction = math.max(body:GetGroundRollingFriction() or 0, body:GetFriction() or 0)
 

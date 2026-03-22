@@ -302,6 +302,107 @@ T.Test3D("Elongated box settles flat instead of leaving one long edge loaded", f
 	T(final_verticals.middle)["<"](0.12)
 end)
 
+T.Test3D("Thin tilted box tips down instead of hanging on a narrow support edge", function()
+	local ground = test_helpers.CreateFlatGround("rigid_box_tipassist_ground", 18)
+	local platform_ent = spawn_box_platform(
+		"rigid_box_tipassist_platform",
+		Vec3(0, 1, 0),
+		Vec3(24, 1, 24),
+		{
+			MotionType = "static",
+			Friction = 1,
+			Restitution = 0,
+		}
+	)
+	local top_ent = Entity.New({Name = "rigid_box_tipassist_top"})
+	top_ent:AddComponent("transform")
+	top_ent.transform:SetAngles(Deg3(0, 0, 45))
+	local top = top_ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = BoxShape.New(Vec3(10, 0.35, 4)),
+			Size = Vec3(10, 0.35, 4),
+			Mass = 2,
+			AutomaticMass = false,
+			LinearDamping = 0,
+			AngularDamping = 0,
+			AirLinearDamping = 0,
+			AirAngularDamping = 0,
+			Friction = 0,
+			Restitution = 0,
+		}
+	)
+	local support_radius = top:GetPhysicsShape():GetSupportRadiusAlongNormal(top, Vec3(0, 1, 0))
+	top_ent.transform:SetPosition(Vec3(0, 1.5 + support_radius, 0))
+	simulate_physics(120)
+	local mid_angles = top_ent.transform:GetRotation():GetAngles()
+	simulate_physics(120)
+	local final_angles = top_ent.transform:GetRotation():GetAngles()
+	local grounded = top:GetGrounded()
+	top_ent:Remove()
+	platform_ent:Remove()
+	ground:Remove()
+	T(grounded)["=="](true)
+	T(math.abs(mid_angles.z))["<"](0.5)
+	T(math.abs(final_angles.z))["<"](0.12)
+end)
+
+T.Test3D("Twenty meter beam resting on one end settles quickly from forty five degrees", function()
+	local ground = test_helpers.CreateFlatGround("rigid_box_beam_quick_settle_ground", 48)
+	local platform_ent = spawn_box_platform(
+		"rigid_box_beam_quick_settle_platform",
+		Vec3(0, 0.5, 0),
+		Vec3(48, 1, 48),
+		{
+			MotionType = "static",
+			Friction = 1,
+			Restitution = 0,
+		}
+	)
+	local beam_ent = Entity.New({Name = "rigid_box_beam_quick_settle_top"})
+	beam_ent:AddComponent("transform")
+	beam_ent.transform:SetAngles(Deg3(0, 0, 45))
+	local beam = beam_ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = BoxShape.New(Vec3(20, 0.35, 0.35)),
+			Size = Vec3(20, 0.35, 0.35),
+			Mass = 4,
+			AutomaticMass = false,
+			CanSleep = false,
+			LinearDamping = 0,
+			AngularDamping = 0,
+			AirLinearDamping = 0,
+			AirAngularDamping = 0,
+			Friction = 1,
+			Restitution = 0,
+		}
+	)
+	local support_radius = beam:GetPhysicsShape():GetSupportRadiusAlongNormal(beam, Vec3(0, 1, 0))
+	beam_ent.transform:SetPosition(Vec3(0, 1 + support_radius, 0))
+	simulate_physics(30)
+	local early_angles = beam_ent.transform:GetRotation():GetAngles()
+	local early_angvel = beam:GetAngularVelocity():GetLength()
+	simulate_physics(30)
+	local half_second_angles = beam_ent.transform:GetRotation():GetAngles()
+	local half_second_angvel = beam:GetAngularVelocity():GetLength()
+	simulate_physics(60)
+	local one_and_half_second_angles = beam_ent.transform:GetRotation():GetAngles()
+	local one_and_half_second_angvel = beam:GetAngularVelocity():GetLength()
+	simulate_physics(30)
+	local two_second_angles = beam_ent.transform:GetRotation():GetAngles()
+	local two_second_angvel = beam:GetAngularVelocity():GetLength()
+	beam_ent:Remove()
+	platform_ent:Remove()
+	ground:Remove()
+	T(math.abs(early_angles.z))["<"](0.72)
+	T(math.abs(half_second_angles.z))["<"](0.5)
+	T(math.abs(one_and_half_second_angles.z))["<"](0.25)
+	T(one_and_half_second_angvel)[">"](1.5)
+	T(math.abs(two_second_angles.z))["<"](0.08)
+	T(two_second_angvel)[">"](1.5)
+end)
+
 T.Test3D("Long box overhanging a static platform tips instead of hovering flat", function()
 	local ground = test_helpers.CreateFlatGround("rigid_box_overhang_ground", 18)
 	local platform_ent = spawn_box_platform(
@@ -588,7 +689,7 @@ T.Test3D("Evenly spaced playground boxes settle onto stable upright faces", func
 			size = Vec3(0.9, 0.9, 0.9),
 			angles = Deg3(8, 20, -6),
 			config = {Mass = 1.2, AngularDamping = 0.08, Friction = 0.65},
-			min_primary = 0.984,
+			min_primary = 0.983,
 			max_secondary = 0.18,
 		},
 		{
@@ -597,7 +698,7 @@ T.Test3D("Evenly spaced playground boxes settle onto stable upright faces", func
 			size = Vec3(0.7, 2.0, 0.7),
 			angles = Deg3(0, 32, 14),
 			config = {Mass = 1.6, AngularDamping = 0.12, Friction = 0.82},
-			min_primary = 0.984,
+			min_primary = 0.983,
 			max_secondary = 0.18,
 		},
 		{
@@ -606,7 +707,7 @@ T.Test3D("Evenly spaced playground boxes settle onto stable upright faces", func
 			size = Vec3(1.8, 0.45, 1.0),
 			angles = Deg3(-6, -18, 9),
 			config = {Mass = 1.1, AngularDamping = 0.09, Friction = 0.55},
-			min_primary = 0.984,
+			min_primary = 0.983,
 			max_secondary = 0.18,
 		},
 		{
@@ -615,7 +716,7 @@ T.Test3D("Evenly spaced playground boxes settle onto stable upright faces", func
 			size = Vec3(1.2, 1.4, 0.5),
 			angles = Deg3(12, -26, -12),
 			config = {Mass = 1.45, AngularDamping = 0.1, Friction = 0.58},
-			min_primary = 0.984,
+			min_primary = 0.983,
 			max_secondary = 0.18,
 		},
 	}

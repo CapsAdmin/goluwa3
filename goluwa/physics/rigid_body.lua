@@ -794,19 +794,40 @@ do
 		end
 
 		if self.Grounded then
+			local use_grounded_velocity_constraints = false
+
+			for _, collider in ipairs(self:GetColliders()) do
+				local shape = collider:GetPhysicsShape()
+
+				if
+					not shape or
+					not shape.ShouldUseGroundedVelocityConstraints or
+					shape:ShouldUseGroundedVelocityConstraints(self, self.GroundNormal)
+				then
+					use_grounded_velocity_constraints = true
+
+					break
+				end
+			end
+
 			local normal_speed = self.Velocity:Dot(self.GroundNormal)
 
-			if normal_speed < 0 then
+			if use_grounded_velocity_constraints and normal_speed < 0 then
 				self.Velocity = self.Velocity - self.GroundNormal * normal_speed
 			end
 
 			for _, collider in ipairs(self:GetColliders()) do
 				collider:GetPhysicsShape():OnGroundedVelocityUpdate(self, dt)
 			end
+
+			self._use_grounded_velocity_constraints = use_grounded_velocity_constraints
+		else
+			self._use_grounded_velocity_constraints = false
 		end
 
-		local linear_damping_value = self.Grounded and self.LinearDamping or self.AirLinearDamping
-		local angular_damping_value = self.Grounded and self.AngularDamping or self.AirAngularDamping
+		local grounded_damping = self.Grounded and self._use_grounded_velocity_constraints
+		local linear_damping_value = grounded_damping and self.LinearDamping or self.AirLinearDamping
+		local angular_damping_value = grounded_damping and self.AngularDamping or self.AirAngularDamping
 		local linear_damping = math.max(1 - linear_damping_value * dt, 0)
 		local angular_damping = math.max(1 - angular_damping_value * dt, 0)
 		self.Velocity = clamp_vec_length(self.Velocity * linear_damping, self.MaxLinearSpeed)
