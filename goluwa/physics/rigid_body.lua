@@ -524,7 +524,11 @@ do
 
 		if not self.Awake then return true, false end
 
+		if self._evaluating_ready_to_sleep then return false, false end
+
+		self._evaluating_ready_to_sleep = true
 		local linear_speed, angular_speed, linear_threshold, angular_threshold, force_grounded_sleep = get_sleep_state_metrics(self)
+		self._evaluating_ready_to_sleep = nil
 
 		if force_grounded_sleep then return true, true end
 
