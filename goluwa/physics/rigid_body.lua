@@ -118,6 +118,25 @@ do
 		):GetNormalized()
 	end
 
+	local function build_ground_support_basis(normal)
+		local tangent
+
+		if math.abs(normal.x) < 0.8 then
+			tangent = normal:GetCross(Vec3(1, 0, 0))
+		else
+			tangent = normal:GetCross(Vec3(0, 1, 0))
+		end
+
+		if tangent:GetLength() <= physics_constants.EPSILON then
+			tangent = normal:GetCross(Vec3(0, 0, 1))
+		end
+
+		if tangent:GetLength() <= physics_constants.EPSILON then return nil, nil end
+
+		tangent = tangent:GetNormalized()
+		return tangent, normal:GetCross(tangent):GetNormalized()
+	end
+
 	function RigidBody:Initialize()
 		self.Velocity = self.Velocity or Vec3(0, 0, 0)
 		self.AngularVelocity = self.AngularVelocity or Vec3(0, 0, 0)
@@ -133,6 +152,7 @@ do
 		self.SleepTimer = self.SleepTimer or 0
 		self.AccumulatedForce = self.AccumulatedForce or Vec3()
 		self.AccumulatedTorque = self.AccumulatedTorque or Vec3()
+		self:ResetGroundSupport()
 		self.Colliders = nil
 		self:RebuildColliders()
 		self:RefreshMassProperties()
@@ -148,6 +168,125 @@ do
 
 	function RigidBody:GetOwner()
 		return self.Owner
+	end
+
+	function RigidBody:ResetGroundSupport()
+		self.GroundSupportCount = 0
+		self.GroundSupportNormal = nil
+		self.GroundSupportPoint = nil
+		self.GroundSupportTangent = nil
+		self.GroundSupportBitangent = nil
+		self.GroundSupportMinU = math.huge
+		self.GroundSupportMaxU = -math.huge
+		self.GroundSupportMinV = math.huge
+		self.GroundSupportMaxV = -math.huge
+	end
+
+	function RigidBody:AccumulateGroundSupportContact(normal, point)
+		if not (normal and point) then return end
+
+		if self.GroundSupportCount == 0 or not self.GroundSupportNormal then
+			local tangent, bitangent = build_ground_support_basis(normal)
+
+			if not tangent or not bitangent then return end
+
+			self.GroundSupportNormal = normal:Copy()
+			self.GroundSupportTangent = tangent
+			self.GroundSupportBitangent = bitangent
+			self.GroundSupportPoint = point:Copy()
+		end
+
+		local origin = self.GroundSupportPoint or point
+		local delta = point - origin
+		local u = delta:Dot(self.GroundSupportTangent)
+		local v = delta:Dot(self.GroundSupportBitangent)
+		self.GroundSupportMinU = math.min(self.GroundSupportMinU, u)
+		self.GroundSupportMaxU = math.max(self.GroundSupportMaxU, u)
+		self.GroundSupportMinV = math.min(self.GroundSupportMinV, v)
+		self.GroundSupportMaxV = math.max(self.GroundSupportMaxV, v)
+		self.GroundSupportCount = self.GroundSupportCount + 1
+	end
+
+	function RigidBody:GetGroundSupportMetrics()
+		local count = self.GroundSupportCount or 0
+
+		if count <= 0 then
+			return {
+				count = 0,
+				min_u = 0,
+				max_u = 0,
+				min_v = 0,
+				max_v = 0,
+				span_u = 0,
+				span_v = 0,
+				max_span = 0,
+				normal = nil,
+				point = nil,
+			}
+		end
+
+		local span_u = math.max(0, (self.GroundSupportMaxU or 0) - (self.GroundSupportMinU or 0))
+		local span_v = math.max(0, (self.GroundSupportMaxV or 0) - (self.GroundSupportMinV or 0))
+		return {
+			count = count,
+			min_u = self.GroundSupportMinU or 0,
+			max_u = self.GroundSupportMaxU or 0,
+			min_v = self.GroundSupportMinV or 0,
+			max_v = self.GroundSupportMaxV or 0,
+			span_u = span_u,
+			span_v = span_v,
+			max_span = math.max(span_u, span_v),
+			normal = self.GroundSupportNormal,
+			point = self.GroundSupportPoint,
+		}
+	end
+
+	function RigidBody:GetGroundSupportProjectionMetrics()
+		local support = self:GetGroundSupportMetrics()
+
+		if support.count <= 0 or not support.point then return support end
+
+		local tangent = self.GroundSupportTangent
+		local bitangent = self.GroundSupportBitangent
+
+		if not tangent or not bitangent then return support end
+
+		local delta = self.Position - support.point
+		local projected_u = delta:Dot(tangent)
+		local projected_v = delta:Dot(bitangent)
+		local clamped_u = math.max(support.min_u, math.min(support.max_u, projected_u))
+		local clamped_v = math.max(support.min_v, math.min(support.max_v, projected_v))
+		local overhang_u = projected_u - clamped_u
+		local overhang_v = projected_v - clamped_v
+		local overhang = tangent * overhang_u + bitangent * overhang_v
+		support.projected_u = projected_u
+		support.projected_v = projected_v
+		support.clamped_u = clamped_u
+		support.clamped_v = clamped_v
+		support.overhang_u = overhang_u
+		support.overhang_v = overhang_v
+		support.overhang = overhang
+		support.overhang_length = overhang:GetLength()
+		support.tangent = tangent
+		support.bitangent = bitangent
+		return support
+	end
+
+	function RigidBody:IsGroundSupportStable()
+		if not self:GetGrounded() then
+			return false, self:GetGroundSupportProjectionMetrics()
+		end
+
+		local support = self:GetGroundSupportProjectionMetrics()
+
+		if support.count <= 0 or not support.point then return false, support end
+
+		local tolerance = math.max(
+			(self:GetCollisionMargin() or 0) * 2,
+			(self:GetCollisionProbeDistance() or 0) * 0.5,
+			0.1
+		)
+		return (support.overhang_length or math.huge) <= tolerance, support
 	end
 
 	function RigidBody:RebuildColliders()
@@ -794,30 +933,17 @@ do
 		end
 
 		if self.Grounded then
-			local use_grounded_velocity_constraints = false
-
-			for _, collider in ipairs(self:GetColliders()) do
-				local shape = collider:GetPhysicsShape()
-
-				if
-					not shape or
-					not shape.ShouldUseGroundedVelocityConstraints or
-					shape:ShouldUseGroundedVelocityConstraints(self, self.GroundNormal)
-				then
-					use_grounded_velocity_constraints = true
-
-					break
-				end
-			end
-
+			local use_grounded_velocity_constraints = self:IsGroundSupportStable()
 			local normal_speed = self.Velocity:Dot(self.GroundNormal)
 
 			if use_grounded_velocity_constraints and normal_speed < 0 then
 				self.Velocity = self.Velocity - self.GroundNormal * normal_speed
 			end
 
-			for _, collider in ipairs(self:GetColliders()) do
-				collider:GetPhysicsShape():OnGroundedVelocityUpdate(self, dt)
+			if use_grounded_velocity_constraints then
+				for _, collider in ipairs(self:GetColliders()) do
+					collider:GetPhysicsShape():OnGroundedVelocityUpdate(self, dt)
+				end
 			end
 
 			self._use_grounded_velocity_constraints = use_grounded_velocity_constraints

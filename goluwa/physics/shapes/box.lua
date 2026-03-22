@@ -1,7 +1,5 @@
 local prototype = import("goluwa/prototype.lua")
-local Ang3 = import("goluwa/structs/ang3.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
-local Quat = import("goluwa/structs/quat.lua")
 local physics = import("goluwa/physics.lua")
 local BaseShape = import("goluwa/physics/shapes/base.lua")
 local sample_points = import("goluwa/physics/shapes/sample_points.lua")
@@ -42,6 +40,28 @@ local BOX_EDGE_PAIRS = {
 local BOX_SUPPORT_CONTACT_CONTEXT = {
 	best_point = nil,
 }
+
+local function build_support_plane_basis(normal)
+	normal = normal and normal:GetNormalized() or Vec3(0, 1, 0)
+	local reference = math.abs(normal.y) < 0.999 and Vec3(0, 1, 0) or Vec3(1, 0, 0)
+	local tangent = reference:GetCross(normal)
+
+	if tangent:GetLength() <= 0.000001 then
+		tangent = Vec3(0, 0, 1):GetCross(normal)
+	end
+
+	tangent = tangent:GetNormalized()
+	local bitangent = normal:GetCross(tangent):GetNormalized()
+	return tangent, bitangent
+end
+
+local function get_ground_support_tolerance(body)
+	return math.max(
+		(body:GetCollisionMargin() or 0) * 2,
+		(body:GetCollisionProbeDistance() or 0) * 0.5,
+		0.1
+	)
+end
 
 local function collect_box_support_contact(context, collider, point, fallback_hit, fallback_dt)
 	if not (fallback_hit and fallback_hit.normal and fallback_hit.position and point) then
@@ -128,13 +148,66 @@ function META:BuildSupportLocalPoints()
 	return sample_points.BuildBoxSupportGridPoints(self:GetExtents())
 end
 
-function META:ShouldUseBroadSupportContact(body, ground_normal)
-	local best_alignment, support_area, max_face_area = self:GetGroundedSupportMetrics(body, ground_normal)
-	return best_alignment >= 0.94 and support_area >= max_face_area * 0.85
+function META:GetSupportFootprintMetrics(body, ground_normal)
+	ground_normal = ground_normal or body.GroundNormal or Vec3(0, 1, 0)
+	local support = body.GetGroundSupportProjectionMetrics and
+		body:GetGroundSupportProjectionMetrics() or
+		{
+			count = 0,
+			span_u = 0,
+			span_v = 0,
+			overhang_length = math.huge,
+		}
+	local tangent = support.tangent
+	local bitangent = support.bitangent
+
+	if not tangent or not bitangent then
+		tangent, bitangent = build_support_plane_basis(ground_normal)
+	end
+
+	local axes = self:GetAxes(body)
+	local extents = self:GetExtents()
+	local footprint_half_u = extents.x * math.abs(tangent:Dot(axes[1])) + extents.y * math.abs(tangent:Dot(axes[2])) + extents.z * math.abs(tangent:Dot(axes[3]))
+	local footprint_half_v = extents.x * math.abs(bitangent:Dot(axes[1])) + extents.y * math.abs(bitangent:Dot(axes[2])) + extents.z * math.abs(bitangent:Dot(axes[3]))
+	local footprint_span_u = footprint_half_u * 2
+	local footprint_span_v = footprint_half_v * 2
+	local major_footprint_span = math.max(footprint_span_u, footprint_span_v)
+	local minor_footprint_span = math.min(footprint_span_u, footprint_span_v)
+	local support_span_u = support.span_u or 0
+	local support_span_v = support.span_v or 0
+	local coverage_u = footprint_span_u > 0.0001 and
+		math.min(1, support_span_u / footprint_span_u) or
+		0
+	local coverage_v = footprint_span_v > 0.0001 and
+		math.min(1, support_span_v / footprint_span_v) or
+		0
+	local footprint_area = footprint_span_u * footprint_span_v
+	local support_area = support_span_u * support_span_v
+	local area_coverage = footprint_area > 0.0001 and math.min(1, support_area / footprint_area) or 0
+	return {
+		support = support,
+		tangent = tangent,
+		bitangent = bitangent,
+		footprint_span_u = footprint_span_u,
+		footprint_span_v = footprint_span_v,
+		major_footprint_span = major_footprint_span,
+		minor_footprint_span = minor_footprint_span,
+		support_span_u = support_span_u,
+		support_span_v = support_span_v,
+		coverage_u = coverage_u,
+		coverage_v = coverage_v,
+		min_coverage = math.min(coverage_u, coverage_v),
+		area_coverage = area_coverage,
+		support_width_coverage = minor_footprint_span > 0.0001 and
+			math.min(1, (support.max_span or 0) / minor_footprint_span) or
+			0,
+		stable = (support.overhang_length or math.huge) <= get_ground_support_tolerance(body),
+	}
 end
 
-function META:ShouldUseGroundedVelocityConstraints(body, ground_normal)
-	return self:ShouldUseBroadSupportContact(body, ground_normal)
+function META:ShouldUseBroadSupportContact(body, ground_normal)
+	local metrics = self:GetSupportFootprintMetrics(body, ground_normal)
+	return metrics.stable and metrics.min_coverage >= 0.7 and metrics.area_coverage >= 0.5
 end
 
 function META:SolveSupportContacts(body, dt, support_contacts)
@@ -206,87 +279,13 @@ function META:GetPolyhedron()
 	return self.Polyhedron
 end
 
-function META:GetGroundedSupportMetrics(body, ground_normal)
-	ground_normal = ground_normal or body.GroundNormal or Vec3(0, 1, 0)
-	local axes = self:GetAxes(body)
-	local best_alignment = -1
-	local support_axis = 1
-
-	for i = 1, 3 do
-		local alignment = math.abs(axes[i]:Dot(ground_normal))
-
-		if alignment > best_alignment then
-			best_alignment = alignment
-			support_axis = i
-		end
-	end
-
-	local size = self:GetSize()
-	local face_areas = {
-		size.y * size.z,
-		size.x * size.z,
-		size.x * size.y,
-	}
-	local support_area = face_areas[support_axis]
-	local max_face_area = math.max(face_areas[1], face_areas[2], face_areas[3])
-	return best_alignment, support_area, max_face_area, support_axis
-end
-
-function META:ApplyNarrowSupportTipAssist(body, ground_normal, best_alignment)
-	if not (body and body:HasSolverMass() and ground_normal) then return end
-
-	local support_points = {}
-	local min_projection = math.huge
-	local tolerance = 0.02
-
-	for _, local_point in ipairs(self:GetLocalVertices()) do
-		local world_point = body:LocalToWorld(local_point)
-		local projection = world_point:Dot(ground_normal)
-
-		if projection < min_projection - tolerance then
-			min_projection = projection
-			support_points = {world_point}
-		elseif math.abs(projection - min_projection) <= tolerance then
-			support_points[#support_points + 1] = world_point
-		end
-	end
-
-	if not support_points[1] then return end
-
-	local support_center = Vec3(0, 0, 0)
-
-	for _, point in ipairs(support_points) do
-		support_center = support_center + point
-	end
-
-	support_center = support_center / #support_points
-	local lever = body:GetPosition() - support_center
-	local tangent_lever = lever - ground_normal * lever:Dot(ground_normal)
-	local tangent_length = tangent_lever:GetLength()
-
-	if tangent_length <= 0.025 then return end
-
-	local gravity_force = physics.Gravity * ((body:GetMass() or 0) * (body:GetGravityScale() or 1))
-	local torque = tangent_lever:GetCross(gravity_force)
-	local size = self:GetSize()
-	local slenderness = math.max(size.x, size.y, size.z) / math.max(0.0001, math.min(size.x, size.y, size.z))
-	local slenderness_scale = math.min(2.4, 1 + math.max(0, slenderness - 1) * 0.03)
-	local assist_scale = math.min(3.5, math.max(0, (0.94 - (best_alignment or 0)) / 0.18) * slenderness_scale)
-
-	if assist_scale <= 0 or torque:GetLength() <= 0.0001 then return end
-
-	body:Wake()
-	body.AngularVelocity = body.AngularVelocity + body:GetAngularVelocityDelta(torque * assist_scale * math.max(body.StepDt or 0, 1 / 60))
-end
-
 function META:OnGroundedVelocityUpdate(body, dt)
 	if not dt or dt <= 0 then return end
 
 	local ground_normal = body.GroundNormal or Vec3(0, 1, 0)
-	local best_alignment, support_area, max_face_area = self:GetGroundedSupportMetrics(body, ground_normal)
+	local support_metrics = self:GetSupportFootprintMetrics(body, ground_normal)
 
-	if best_alignment < 0.94 or support_area < max_face_area * 0.85 then
-		self:ApplyNarrowSupportTipAssist(body, ground_normal, best_alignment)
+	if not support_metrics.stable or support_metrics.support_width_coverage < 0.45 then
 		return
 	end
 
@@ -302,7 +301,12 @@ function META:OnGroundedVelocityUpdate(body, dt)
 
 	if tangent_speed > 0.08 or tangent_angular_speed > 0.22 then return end
 
-	local damping_strength = friction * (2.5 + best_alignment * 2.0)
+	local coverage = math.max(
+		support_metrics.min_coverage,
+		support_metrics.area_coverage,
+		support_metrics.support_width_coverage
+	)
+	local damping_strength = friction * (2.5 + coverage * 2.5)
 
 	if tangent_speed > 0.0001 then
 		local tangent_damping = math.exp(-damping_strength * dt)
@@ -324,82 +328,17 @@ function META:OnGroundedVelocityUpdate(body, dt)
 end
 
 function META:ShouldForceGroundedSleep(body)
-	local best_alignment, support_area, max_face_area = self:GetGroundedSupportMetrics(body)
+	local metrics = self:GetSupportFootprintMetrics(body)
 	return (
-			best_alignment >= 0.992 and
-			support_area >= max_face_area * 0.85
+			metrics.stable and
+			metrics.support_width_coverage >= 0.82 and
+			metrics.min_coverage >= 0.08
 		)
 		or
-		best_alignment >= 0.997
-end
-
-local function snap_angle_to_step(angle, step)
-	local scaled = angle / step
-
-	if scaled >= 0 then return math.floor(scaled + 0.5) * step end
-
-	return math.ceil(scaled - 0.5) * step
-end
-
-function META:SnapGroundedSleepPose(body)
-	local ground_normal = body.GroundNormal or Vec3(0, 1, 0)
-
-	if math.abs(ground_normal.y) < 0.98 then return false end
-
-	local linear_speed = body:GetVelocity():GetLength()
-	local angular_speed = body:GetAngularVelocity():GetLength()
-	local max_linear_snap_speed = math.max(0.025, (body:GetSleepLinearThreshold() or 0) * 0.2)
-	local max_angular_snap_speed = math.max(0.045, (body:GetSleepAngularThreshold() or 0) * 0.25)
-
-	if linear_speed > max_linear_snap_speed or angular_speed > max_angular_snap_speed then
-		return false
-	end
-
-	local best_alignment, support_area, max_face_area, support_axis = self:GetGroundedSupportMetrics(body, ground_normal)
-
-	if best_alignment < 0.985 or support_area < max_face_area * 0.85 then
-		return false
-	end
-
-	local size = self:GetSize()
-	local face_dims = support_axis == 1 and
-		{size.y, size.z} or
-		support_axis == 2 and
-		{size.x, size.z} or
-		{size.x, size.y}
-	local major = math.max(face_dims[1], face_dims[2])
-	local minor = math.min(face_dims[1], face_dims[2])
-
-	if minor <= 0 or major / minor < 1.3 then return false end
-
-	local angles = body:GetRotation():GetAngles()
-	local step = math.pi * 0.5
-	local snapped_pitch = snap_angle_to_step(angles.x, step)
-	local snapped_roll = snap_angle_to_step(angles.z, step)
-	local max_snap_angle_delta = 0.08
-
-	if
-		math.abs(snapped_pitch - angles.x) > max_snap_angle_delta or
-		math.abs(snapped_roll - angles.z) > max_snap_angle_delta
-	then
-		return false
-	end
-
-	local rotation = Quat():SetAngles(Ang3(snapped_pitch, angles.y, snapped_roll))
-	local extents = self:GetExtents()
-	local axes = self:GetAxes(body)
-	local current_support_radius = extents.x * math.abs(ground_normal:Dot(axes[1])) + extents.y * math.abs(ground_normal:Dot(axes[2])) + extents.z * math.abs(ground_normal:Dot(axes[3]))
-	local snapped_axes = {
-		rotation:VecMul(Vec3(1, 0, 0)):GetNormalized(),
-		rotation:VecMul(Vec3(0, 1, 0)):GetNormalized(),
-		rotation:VecMul(Vec3(0, 0, 1)):GetNormalized(),
-	}
-	local desired_support_radius = extents.x * math.abs(ground_normal:Dot(snapped_axes[1])) + extents.y * math.abs(ground_normal:Dot(snapped_axes[2])) + extents.z * math.abs(ground_normal:Dot(snapped_axes[3]))
-	body.Position = body.Position + ground_normal * (desired_support_radius - current_support_radius)
-	body.Rotation = rotation
-	body.PreviousPosition = body.Position:Copy()
-	body.PreviousRotation = rotation:Copy()
-	return true
+		(
+			metrics.stable and
+			metrics.support_width_coverage >= 0.96
+		)
 end
 
 function META:TraceAgainstBody(body, origin, direction, max_distance, trace_radius)

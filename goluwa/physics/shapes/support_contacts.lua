@@ -9,6 +9,25 @@ function support_contacts.GetCastDistances(body, dt)
 	return cast_up, cast_distance
 end
 
+function support_contacts.AccumulatePointSweepSupport(body, point, hit)
+	if not (body and point and hit and hit.normal and hit.position) then
+		return false
+	end
+
+	local margin = body:GetCollisionMargin() or 0
+	local support_tolerance = (body:GetCollisionProbeDistance() or 0) + margin
+	local depth = (hit.position + hit.normal * margin - point):Dot(hit.normal)
+
+	if depth < -support_tolerance then return false end
+
+	if hit.normal.y >= body:GetMinGroundNormalY() then
+		body:AccumulateGroundSupportContact(hit.normal, hit.position)
+		return true
+	end
+
+	return false
+end
+
 function support_contacts.ForEachPointSweepContact(body, dt, solve_contact, solve_contact_context)
 	local cast_up, cast_distance = support_contacts.GetCastDistances(body, dt)
 	local support_points = body:GetSupportLocalPoints()
@@ -22,6 +41,8 @@ function support_contacts.ForEachPointSweepContact(body, dt, solve_contact, solv
 		local hit = physics.Sweep(point + cast_origin_offset, cast_delta, 0, owner, filter_function)
 
 		if hit then
+			support_contacts.AccumulatePointSweepSupport(body, point, hit)
+
 			if solve_contact_context ~= nil then
 				solve_contact(solve_contact_context, body, point, hit, dt)
 			else
@@ -46,6 +67,7 @@ function support_contacts.ApplyWorldSupportContact(body, normal, contact_positio
 	if normal.y >= body:GetMinGroundNormalY() then
 		body:SetGrounded(true)
 		body:SetGroundNormal(normal)
+		body:AccumulateGroundSupportContact(normal, contact_position)
 	end
 
 	physics.collision_pairs:RecordWorldCollision(body, hit, normal, depth)
@@ -70,6 +92,7 @@ function support_contacts.ApplyPointWorldSupportContact(body, normal, contact_po
 	if normal.y >= body:GetMinGroundNormalY() then
 		body:SetGrounded(true)
 		body:SetGroundNormal(normal)
+		body:AccumulateGroundSupportContact(normal, support_point)
 	end
 
 	physics.collision_pairs:RecordWorldCollision(body, hit, normal, depth)

@@ -26,6 +26,24 @@ function contact_resolution.MarkPairGrounding(body_a, body_b, normal)
 	end
 end
 
+local function accumulate_pair_ground_support(body_a, body_b, normal, point_a, point_b)
+	if
+		body_a:GetGrounded() and
+		body_a.GroundNormal and
+		-normal.y >= body_a:GetMinGroundNormalY()
+	then
+		body_a:AccumulateGroundSupportContact(body_a.GroundNormal, point_a)
+	end
+
+	if
+		body_b:GetGrounded() and
+		body_b.GroundNormal and
+		normal.y >= body_b:GetMinGroundNormalY()
+	then
+		body_b:AccumulateGroundSupportContact(body_b.GroundNormal, point_b)
+	end
+end
+
 local function try_mark_body_grounded_from_contacts(self_body, other_body, contacts, self_key, other_key)
 	if self_body:GetGrounded() then return end
 
@@ -209,6 +227,10 @@ function contact_resolution.ResolvePairPenetration(body_a, body_b, normal, overl
 		if not options.skip_grounding then
 			contact_resolution.MarkPairGrounding(body_a, body_b, normal)
 			mark_pair_grounding_from_contacts(body_a, body_b, contacts)
+
+			for _, contact in ipairs(contacts) do
+				accumulate_pair_ground_support(body_a, body_b, normal, contact.point_a, contact.point_b)
+			end
 		end
 
 		physics.collision_pairs:RecordCollisionPair(body_a, body_b, normal, overlap)
@@ -228,6 +250,7 @@ function contact_resolution.ResolvePairPenetration(body_a, body_b, normal, overl
 
 	if not options.skip_grounding then
 		contact_resolution.MarkPairGrounding(body_a, body_b, normal)
+		accumulate_pair_ground_support(body_a, body_b, normal, point_a, point_b)
 	end
 
 	physics.collision_pairs:RecordCollisionPair(body_a, body_b, normal, overlap)

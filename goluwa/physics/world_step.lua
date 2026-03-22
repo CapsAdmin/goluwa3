@@ -105,6 +105,7 @@ function world_step.UpdateRigidBodies(physics, dt)
 			if body:IsKinematic() or body:HasKinematicController() then
 				kinematic_controller.UpdateBody(body, sub_dt, physics.Gravity)
 			elseif body:GetAwake() then
+				body:ResetGroundSupport()
 				body:SetGrounded(false)
 				body:SetGroundNormal(physics.Up)
 				body:Integrate(sub_dt, physics.Gravity)
@@ -128,6 +129,7 @@ function world_step.UpdateRigidBodies(physics, dt)
 					local body = newly_awoken_bodies[body_index]
 
 					if body:GetAwake() then
+						body:ResetGroundSupport()
 						body:SetGrounded(false)
 						body:SetGroundNormal(physics.Up)
 						body:Integrate(sub_dt, physics.Gravity)

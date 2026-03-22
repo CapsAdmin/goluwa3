@@ -133,10 +133,6 @@ end
 
 function META:OnGroundedVelocityUpdate() end
 
-function META:ShouldUseGroundedVelocityConstraints()
-	return true
-end
-
 function META:TraceAgainstBody()
 	return nil
 end
