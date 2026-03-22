@@ -42,6 +42,24 @@ local function sync_body_rotation_to_transform(body)
 	transform:SetRotation(body:GetRotation():Copy())
 end
 
+local function rotate_offset_relative_to_camera(offset, camera_rotation, mouse_delta)
+	local target_rotation = (camera_rotation * offset):GetNormalized()
+	local delta_rotation = Quat():Identity()
+
+	if mouse_delta.x ~= 0 then
+		local up = camera_rotation:GetUp()
+		delta_rotation:Rotate(mouse_delta.x, up.x, up.y, up.z)
+	end
+
+	if mouse_delta.y ~= 0 then
+		local right = camera_rotation:GetRight()
+		delta_rotation:Rotate(mouse_delta.y, right.x, right.y, right.z)
+	end
+
+	target_rotation = (delta_rotation * target_rotation):GetNormalized()
+	return (camera_rotation:GetConjugated() * target_rotation):GetNormalized()
+end
+
 local function get_angular_target(current, target, strength)
 	local delta = (target * current:GetConjugated()):GetNormalized()
 
@@ -62,6 +80,7 @@ function META:Initialize()
 	self.held_local_point = Vec3()
 	self.held_distance = self.MinHoldDistance
 	self.held_rotation_offset = Quat():Identity()
+	self.block_grab_until_primary_release = false
 end
 
 function META:Release()
@@ -91,6 +110,31 @@ function META:CanHoldBody(body)
 		body:IsDynamic()
 end
 
+function META:CanGrabBody(body)
+	return body and body.IsValid and body:IsValid() and body.WorldGeometry ~= true
+end
+
+function META:FreezeHeldBody()
+	local body = self.held_body
+
+	if not (body and body.IsValid and body:IsValid()) then
+		self:Release()
+		return
+	end
+
+	if body.SetVelocity then body:SetVelocity(Vec3()) end
+
+	if body.SetAngularVelocity then body:SetAngularVelocity(Vec3()) end
+
+	if body.SetMotionType then body:SetMotionType("static") end
+
+	if body.Sleep then body:Sleep() end
+
+	sync_body_rotation_to_transform(body)
+	self.block_grab_until_primary_release = true
+	self:Release()
+end
+
 function META:TryAcquireBody(look)
 	local origin = get_camera_origin(self.Owner)
 	local movement = look:GetRotation():GetForward() * self.MaxGrabDistance
@@ -101,7 +145,7 @@ function META:TryAcquireBody(look)
 		self.Owner,
 		function(entity)
 			local body = entity and entity.rigid_body
-			return body and body.IsDynamic and body:IsDynamic()
+			return self:CanGrabBody(body)
 		end,
 		{
 			IgnoreRigidBodies = false,
@@ -122,11 +166,16 @@ function META:TryAcquireBody(look)
 				hit.entity.rigid_body
 			)
 		)
+	local grab_point = hit and (hit.point or hit.position) or nil
 
-	if not self:CanHoldBody(body) or not (hit and hit.position) then return false end
+	if not self:CanGrabBody(body) or not grab_point then return false end
+
+	if body.SetMotionType and not (body.IsDynamic and body:IsDynamic()) then
+		body:SetMotionType("dynamic")
+	end
 
 	self.held_body = body
-	self.held_local_point = body:WorldToLocal(hit.position)
+	self.held_local_point = body:WorldToLocal(grab_point)
 	self.held_distance = math.clamp(hit.distance or self.MinHoldDistance, self.MinHoldDistance, self.MaxGrabDistance)
 	self.held_rotation_offset = (look:GetRotation():GetConjugated() * body:GetRotation()):GetNormalized()
 
@@ -186,25 +235,27 @@ function META:OnBeforeCameraInputUpdate(dt, state)
 	if not self:CanHoldBody(body) then return end
 
 	local mouse_delta = get_look_rotation_delta(state) * self.RotateSensitivity
-
-	if mouse_delta.x ~= 0 then
-		self.held_rotation_offset:RotateYaw(mouse_delta.x)
-	end
-
-	if mouse_delta.y ~= 0 then
-		self.held_rotation_offset:RotatePitch(mouse_delta.y)
-	end
-
-	self.held_rotation_offset = self.held_rotation_offset:GetNormalized()
+	self.held_rotation_offset = rotate_offset_relative_to_camera(self.held_rotation_offset, state:GetRotation(), mouse_delta)
 	state.look_delta = Vec2()
 	state.look_nudge = Vec2()
 end
 
 function META:OnCameraInputUpdate(dt, state)
 	if not state or not state.mouse_trapped or not input.IsMouseDown("button_1") then
+		if not input.IsMouseDown("button_1") then
+			self.block_grab_until_primary_release = false
+		end
+
 		self:Release()
 		return
 	end
+
+	if self.held_body and input.WasMousePressed and input.WasMousePressed("button_2") then
+		self:FreezeHeldBody()
+		return
+	end
+
+	if self.block_grab_until_primary_release then return end
 
 	if not self.held_body and not self:TryAcquireBody(state) then return end
 
