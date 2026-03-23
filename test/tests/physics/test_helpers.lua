@@ -52,12 +52,14 @@ end
 
 function module.AttachWorldGeometryBody(entity, source)
 	source = source or {Model = entity.model}
-
-	local body = entity:AddComponent("rigid_body", {
-		Shape = MeshShape.New(source),
-		MotionType = "static",
-		WorldGeometry = true,
-	})
+	local body = entity:AddComponent(
+		"rigid_body",
+		{
+			Shape = MeshShape.New(source),
+			MotionType = "static",
+			WorldGeometry = true,
+		}
+	)
 	body.WorldGeometry = true
 	return body
 end
@@ -179,6 +181,18 @@ function module.CreateStubBody(data)
 		return self.Owner
 	end
 
+	function body:GetCCD()
+		return data.CCD == true
+	end
+
+	function body:GetAutoCCD()
+		return data.AutoCCD == true
+	end
+
+	function body:GetAutoCCDThreshold()
+		return data.AutoCCDThreshold or 0.5
+	end
+
 	function body:GetCollisionMargin()
 		return data.Margin or data.CollisionMargin or 0
 	end
@@ -221,6 +235,14 @@ function module.CreateStubBody(data)
 		local position_value = position_override or self.Position
 		local rotation_value = rotation_override or self.Rotation
 		return position_value + rotation_value:VecMul(point)
+	end
+
+	function body:GetSphereRadius()
+		return data.Radius or 0
+	end
+
+	function body:GetHalfExtents()
+		return copy_position(data.HalfExtents or Vec3(data.Radius or 0, data.Radius or 0, data.Radius or 0))
 	end
 
 	function body:GeometryLocalToWorld(point, position_override, rotation_override)
@@ -295,7 +317,9 @@ function module.CreateStubBody(data)
 
 	function body:CanSleepNow()
 		if not self:IsReadyToSleep() then return false end
+
 		if not self:GetAwake() then return true end
+
 		return math.max(self.SleepTimer or 0, 0) >= math.max(self:GetSleepDelay(), 0)
 	end
 

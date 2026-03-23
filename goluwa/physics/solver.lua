@@ -419,6 +419,8 @@ end
 function Solver:SolveBodyContacts(body, dt)
 	if not (body and body.CollisionEnabled) then return false end
 
+	if not pair_solver_helpers.ShouldUseCCD(body) then return false end
+
 	local physics = self:GetPhysics()
 	local best = nil
 
@@ -446,40 +448,31 @@ function Solver:SolveBodyContacts(body, dt)
 
 	if not best then return false end
 
-	local original_position = body:GetPosition():Copy()
-	local delta = rewind_body_to_sweep_hit(body, best, physics)
-
-	if not delta then return false end
-
 	local target_body = best.hit and best.hit.rigid_body or nil
-	local target_collider = best.hit and best.hit.collider or nil
 
 	if
 		not (
 			target_body and
-			target_collider and
+			best.hit and
+			best.hit.normal and
 			body:ShouldCollide(target_body)
 		)
 	then
-		body:SetPosition(original_position)
 		return false
 	end
 
-	local solved = pair_solver_helpers.DispatchColliderPairs(
-		self,
-		body:GetShapeType() == "compound" and body:GetColliders() or {body},
-		{target_collider},
-		nil,
-		nil,
-		dt
+	return pair_solver_helpers.ResolveSweptHit(
+		target_body,
+		body,
+		best.previous_position,
+		best.movement,
+		{
+			t = best.hit.fraction or best.hit.t or 0,
+			normal = best.hit.normal,
+		},
+		dt,
+		true
 	)
-
-	if not solved then
-		body:SetPosition(original_position)
-		return false
-	end
-
-	return true
 end
 
 Solver:Register()

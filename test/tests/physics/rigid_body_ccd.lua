@@ -8,6 +8,7 @@ local MeshShape = import("goluwa/physics/shapes/mesh.lua")
 local SphereShape = import("goluwa/physics/shapes/sphere.lua")
 local BoxShape = import("goluwa/physics/shapes/box.lua")
 local CapsuleShape = import("goluwa/physics/shapes/capsule.lua")
+local pair_solver_helpers = import("goluwa/physics/pair_solver_helpers.lua")
 local test_helpers = import("test/tests/physics/test_helpers.lua")
 local sphere_shape = SphereShape.New
 local box_shape = BoxShape.New
@@ -17,12 +18,21 @@ local function simulate_physics(steps, dt)
 	return test_helpers.SimulatePhysics(physics, steps, dt)
 end
 
+local function with_ccd(config)
+	config.CCD = true
+	return config
+end
+
+local function with_auto_ccd(config)
+	config.AutoCCD = true
+	return config
+end
+
 local function create_world_geometry_ground(name, size)
 	local ground = Entity.New({Name = name})
 	ground:AddComponent("transform")
 	ground:AddComponent("model")
 	local half = (size or 8) * 0.5
-
 	local tri_a = Polygon3D.New()
 	tri_a:AddVertex{pos = Vec3(-half, 0, -half), uv = Vec2(0, 0), normal = Vec3(0, 1, 0)}
 	tri_a:AddVertex{pos = Vec3(half, 0, -half), uv = Vec2(1, 0), normal = Vec3(0, 1, 0)}
@@ -30,7 +40,6 @@ local function create_world_geometry_ground(name, size)
 	tri_a:BuildBoundingBox()
 	tri_a:Upload()
 	ground.model:AddPrimitive(tri_a)
-
 	local tri_b = Polygon3D.New()
 	tri_b:AddVertex{pos = Vec3(half, 0, -half), uv = Vec2(1, 0), normal = Vec3(0, 1, 0)}
 	tri_b:AddVertex{pos = Vec3(half, 0, half), uv = Vec2(1, 1), normal = Vec3(0, 1, 0)}
@@ -39,16 +48,110 @@ local function create_world_geometry_ground(name, size)
 	tri_b:Upload()
 	ground.model:AddPrimitive(tri_b)
 	ground.model:BuildAABB()
-	ground:AddComponent("rigid_body", {
-		Shape = MeshShape.New{Model = ground.model},
-		MotionType = "static",
-		GravityScale = 0,
-		WorldGeometry = true,
-	})
+	ground:AddComponent(
+		"rigid_body",
+		{
+			Shape = MeshShape.New{Model = ground.model},
+			MotionType = "static",
+			GravityScale = 0,
+			WorldGeometry = true,
+		}
+	)
 	return ground
 end
 
-T.Test3D("Fast rigid sphere does not tunnel through thin static box", function()
+T.Test3D("Fast rigid sphere tunnels through thin static box by default without CCD", function()
+	local blocker_ent = Entity.New({Name = "rigid_discrete_blocker"})
+	blocker_ent:AddComponent("transform")
+	blocker_ent.transform:SetPosition(Vec3(0, 1, 0))
+	blocker_ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = box_shape(Vec3(6, 0.2, 6)),
+			Size = Vec3(6, 0.2, 6),
+			MotionType = "static",
+		}
+	)
+	local sphere_ent = Entity.New({Name = "rigid_discrete_sphere"})
+	sphere_ent:AddComponent("transform")
+	sphere_ent.transform:SetPosition(Vec3(0, 8, 0))
+	local sphere = sphere_ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = sphere_shape(0.5),
+			Radius = 0.5,
+			LinearDamping = 0,
+			AngularDamping = 0,
+			MaxLinearSpeed = 1000,
+		}
+	)
+	sphere:SetVelocity(Vec3(0, -320, 0))
+	simulate_physics(1, 1 / 10)
+	local position = sphere_ent.transform:GetPosition()
+	T(position.y)["<"](0)
+	blocker_ent:Remove()
+	sphere_ent:Remove()
+end)
+
+T.Test("Auto CCD activates for fast linear motion", function()
+	local body = test_helpers.CreateStubBody{
+		MotionType = "dynamic",
+		AutoCCD = true,
+		AutoCCDThreshold = 0.5,
+		HalfExtents = Vec3(0.5, 0.5, 0.5),
+		PreviousPosition = Vec3(0, 0, 0),
+		Position = Vec3(1, 0, 0),
+	}
+	T(pair_solver_helpers.ShouldUseCCD(body))["=="](true)
+end)
+
+T.Test("Auto CCD stays disabled for short motion", function()
+	local body = test_helpers.CreateStubBody{
+		MotionType = "dynamic",
+		AutoCCD = true,
+		AutoCCDThreshold = 0.5,
+		HalfExtents = Vec3(0.5, 0.5, 0.5),
+		PreviousPosition = Vec3(0, 0, 0),
+		Position = Vec3(0.1, 0, 0),
+	}
+	T(pair_solver_helpers.ShouldUseCCD(body))["=="](false)
+end)
+
+T.Test3D("Fast rigid sphere does not tunnel through thin static box with auto CCD", function()
+	local blocker_ent = Entity.New({Name = "rigid_auto_ccd_blocker"})
+	blocker_ent:AddComponent("transform")
+	blocker_ent.transform:SetPosition(Vec3(0, 1, 0))
+	blocker_ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = box_shape(Vec3(6, 0.2, 6)),
+			Size = Vec3(6, 0.2, 6),
+			MotionType = "static",
+		}
+	)
+	local sphere_ent = Entity.New({Name = "rigid_auto_ccd_sphere"})
+	sphere_ent:AddComponent("transform")
+	sphere_ent.transform:SetPosition(Vec3(0, 8, 0))
+	local sphere = sphere_ent:AddComponent(
+		"rigid_body",
+		with_auto_ccd{
+			Shape = sphere_shape(0.5),
+			Radius = 0.5,
+			LinearDamping = 0,
+			AngularDamping = 0,
+			MaxLinearSpeed = 1000,
+		}
+	)
+	sphere:SetVelocity(Vec3(0, -320, 0))
+	simulate_physics(1, 1 / 10)
+	local position = sphere_ent.transform:GetPosition()
+	T(position.y)[">="](1.55)
+	T(math.abs(position.x))["<"](0.1)
+	blocker_ent:Remove()
+	sphere_ent:Remove()
+end)
+
+T.Test3D("Fast rigid sphere does not tunnel through thin static box when CCD is enabled", function()
 	local blocker_ent = Entity.New({Name = "rigid_ccd_blocker"})
 	blocker_ent:AddComponent("transform")
 	blocker_ent.transform:SetPosition(Vec3(0, 1, 0))
@@ -65,7 +168,7 @@ T.Test3D("Fast rigid sphere does not tunnel through thin static box", function()
 	sphere_ent.transform:SetPosition(Vec3(0, 8, 0))
 	local sphere = sphere_ent:AddComponent(
 		"rigid_body",
-		{
+		with_ccd{
 			Shape = sphere_shape(0.5),
 			Radius = 0.5,
 			LinearDamping = 0,
@@ -99,7 +202,7 @@ T.Test3D("Fast rigid boxes do not tunnel through thin static world geometry", fu
 	box_ent.transform:SetPosition(Vec3(0, 8, 0))
 	local box = box_ent:AddComponent(
 		"rigid_body",
-		{
+		with_ccd{
 			Shape = box_shape(Vec3(1, 1, 1)),
 			Size = Vec3(1, 1, 1),
 			LinearDamping = 0,
@@ -124,7 +227,7 @@ T.Test3D("Fast rigid box does not tunnel through triangle world floor", function
 	box_ent.transform:SetPosition(Vec3(0, 8, 0))
 	local box = box_ent:AddComponent(
 		"rigid_body",
-		{
+		with_ccd{
 			Shape = box_shape(Vec3(1, 1, 1)),
 			Size = Vec3(1, 1, 1),
 			LinearDamping = 0,
@@ -148,7 +251,7 @@ T.Test3D("Fast rigid capsule does not tunnel through triangle world floor", func
 	capsule_ent.transform:SetPosition(Vec3(0, 8, 0))
 	local capsule = capsule_ent:AddComponent(
 		"rigid_body",
-		{
+		with_ccd{
 			Shape = capsule_shape(0.5, 2.0),
 			LinearDamping = 0,
 			AngularDamping = 0,
@@ -170,7 +273,7 @@ T.Test3D("Fast rigid bodies do not tunnel through other moving rigid bodies", fu
 	left_ent.transform:SetPosition(Vec3(-4, 1, 0))
 	local left = left_ent:AddComponent(
 		"rigid_body",
-		{
+		with_ccd{
 			Shape = sphere_shape(0.5),
 			Radius = 0.5,
 			GravityScale = 0,
@@ -185,7 +288,7 @@ T.Test3D("Fast rigid bodies do not tunnel through other moving rigid bodies", fu
 	right_ent.transform:SetPosition(Vec3(4, 1, 0))
 	local right = right_ent:AddComponent(
 		"rigid_body",
-		{
+		with_ccd{
 			Shape = sphere_shape(0.5),
 			Radius = 0.5,
 			GravityScale = 0,
@@ -224,7 +327,7 @@ T.Test3D("Fast rotating rigid box does not miss a thin static box", function()
 	rod_ent.transform:SetPosition(Vec3(0, 1, 0))
 	local rod = rod_ent:AddComponent(
 		"rigid_body",
-		{
+		with_ccd{
 			Shape = box_shape(Vec3(0.15, 4, 0.15)),
 			Size = Vec3(0.15, 4, 0.15),
 			GravityScale = 0,

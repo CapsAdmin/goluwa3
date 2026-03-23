@@ -22,6 +22,11 @@ local function simulate_physics(steps, dt)
 	end
 end
 
+local function with_ccd(config)
+	config.CCD = true
+	return config
+end
+
 local function with_fixed_step(fixed_dt, callback)
 	local previous_fixed_dt = physics.FixedTimeStep
 	local previous_accumulator = physics.FrameAccumulator
@@ -312,7 +317,7 @@ T.Test3D("Fast rigid sphere does not tunnel through thin static convex hull", fu
 	sphere_ent.transform:SetPosition(Vec3(0, 8, 0))
 	local sphere = sphere_ent:AddComponent(
 		"rigid_body",
-		{
+		with_ccd{
 			Shape = sphere_shape(0.5),
 			Radius = 0.5,
 			LinearDamping = 0,
@@ -348,7 +353,7 @@ T.Test3D("Fast rigid convex body does not tunnel through thin static box", funct
 	convex_ent.transform:SetPosition(Vec3(0, 8, 0))
 	local convex = convex_ent:AddComponent(
 		"rigid_body",
-		{
+		with_ccd{
 			Shape = convex_shape(hull),
 			ConvexHull = hull,
 			LinearDamping = 0,
@@ -384,7 +389,7 @@ T.Test3D("Fast rigid box does not tunnel through thin static convex hull", funct
 	box_ent.transform:SetPosition(Vec3(0, 8, 0))
 	local box = box_ent:AddComponent(
 		"rigid_body",
-		{
+		with_ccd{
 			Shape = box_shape(Vec3(1, 1, 1)),
 			Size = Vec3(1, 1, 1),
 			LinearDamping = 0,
@@ -409,7 +414,7 @@ T.Test3D("Fast rigid convex bodies do not tunnel through each other", function()
 	left_ent.transform:SetPosition(Vec3(-4, 1, 0))
 	local left = left_ent:AddComponent(
 		"rigid_body",
-		{
+		with_ccd{
 			Shape = convex_shape(hull),
 			ConvexHull = hull,
 			GravityScale = 0,
@@ -424,7 +429,7 @@ T.Test3D("Fast rigid convex bodies do not tunnel through each other", function()
 	right_ent.transform:SetPosition(Vec3(4, 1, 0))
 	local right = right_ent:AddComponent(
 		"rigid_body",
-		{
+		with_ccd{
 			Shape = convex_shape(hull),
 			ConvexHull = hull,
 			GravityScale = 0,
@@ -453,7 +458,7 @@ T.Test3D("Fast rigid convex and box bodies do not tunnel through each other", fu
 	convex_ent.transform:SetPosition(Vec3(-4, 1, 0))
 	local convex = convex_ent:AddComponent(
 		"rigid_body",
-		{
+		with_ccd{
 			Shape = convex_shape(hull),
 			ConvexHull = hull,
 			GravityScale = 0,
@@ -468,7 +473,7 @@ T.Test3D("Fast rigid convex and box bodies do not tunnel through each other", fu
 	box_ent.transform:SetPosition(Vec3(4, 1, 0))
 	local box = box_ent:AddComponent(
 		"rigid_body",
-		{
+		with_ccd{
 			Shape = box_shape(Vec3(1, 1, 1)),
 			Size = Vec3(1, 1, 1),
 			GravityScale = 0,
@@ -508,7 +513,7 @@ T.Test3D("Fast rotating rigid convex body does not miss a thin static box", func
 	rod_ent.transform:SetPosition(Vec3(0, 1, 0))
 	local rod = rod_ent:AddComponent(
 		"rigid_body",
-		{
+		with_ccd{
 			Shape = convex_shape(hull),
 			ConvexHull = hull,
 			GravityScale = 0,
@@ -553,7 +558,7 @@ T.Test3D("Fast rigid convex body does not tunnel through thin static box at smal
 			convex_ent.transform:SetPosition(Vec3(0, 8, 0))
 			local convex = convex_ent:AddComponent(
 				"rigid_body",
-				{
+				with_ccd{
 					Shape = convex_shape(hull),
 					ConvexHull = hull,
 					LinearDamping = 0,
@@ -593,7 +598,7 @@ T.Test3D("Fast rotating rigid convex body remains detectable at smaller fixed st
 			rod_ent.transform:SetPosition(Vec3(0, 1, 0))
 			local rod = rod_ent:AddComponent(
 				"rigid_body",
-				{
+				with_ccd{
 					Shape = convex_shape(hull),
 					ConvexHull = hull,
 					GravityScale = 0,

@@ -93,6 +93,10 @@ local function build_edge_contacts_from_features(poly_a, vertices_a, poly_b, ver
 end
 
 local function solve_swept_polyhedron_polyhedron_collision(dynamic_body, static_body, static_polyhedron, dt)
+	if not pair_solver_helpers.ShouldUsePairCCD(dynamic_body, static_body) then
+		return false
+	end
+
 	if
 		not pair_solver_helpers.IsSolverImmovable(static_body) or
 		not pair_solver_helpers.HasSolverMass(dynamic_body)
@@ -226,6 +230,8 @@ local function find_polyhedron_pair_time_of_impact(body_a, poly_a, body_b, poly_
 end
 
 function polyhedron.SolveTemporalPolyhedronPairCollision(body_a, body_b, poly_a, poly_b, dt)
+	if not pair_solver_helpers.ShouldUsePairCCD(body_a, body_b) then return false end
+
 	local result = find_polyhedron_pair_time_of_impact(body_a, poly_a, body_b, poly_b)
 
 	if not result then return false end
@@ -248,6 +254,8 @@ function polyhedron.SolveTemporalPolyhedronPairCollision(body_a, body_b, poly_a,
 end
 
 local function solve_relative_swept_polyhedron_pair_collision(body_a, body_b, poly_a, poly_b, dt)
+	if not pair_solver_helpers.ShouldUsePairCCD(body_a, body_b) then return false end
+
 	if
 		pair_solver_helpers.IsSolverImmovable(body_a) or
 		pair_solver_helpers.IsSolverImmovable(body_b)

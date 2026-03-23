@@ -12,6 +12,11 @@ local function simulate_physics(steps, dt)
 	return test_helpers.SimulatePhysics(physics, steps, dt)
 end
 
+local function with_ccd(config)
+	config.CCD = true
+	return config
+end
+
 local function with_fixed_step(fixed_dt, callback)
 	local previous_fixed_dt = physics.FixedTimeStep
 	local previous_accumulator = physics.FrameAccumulator
@@ -139,7 +144,39 @@ T.Test3D("Capsule rigid body rolls off rotated static box instead of resting on 
 	ground:Remove()
 end)
 
-T.Test3D("Fast capsule does not tunnel through thin static box", function()
+T.Test3D("Fast capsule tunnels through thin static box by default without CCD", function()
+	local blocker_ent = Entity.New({Name = "capsule_discrete_blocker"})
+	blocker_ent:AddComponent("transform")
+	blocker_ent.transform:SetPosition(Vec3(0, 1, 0))
+	blocker_ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = BoxShape.New(Vec3(6, 0.2, 6)),
+			Size = Vec3(6, 0.2, 6),
+			MotionType = "static",
+		}
+	)
+	local capsule_ent = Entity.New({Name = "capsule_discrete_body"})
+	capsule_ent:AddComponent("transform")
+	capsule_ent.transform:SetPosition(Vec3(0, 8, 0))
+	local capsule = capsule_ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = CapsuleShape.New(0.5, 2.0),
+			LinearDamping = 0,
+			AngularDamping = 0,
+			MaxLinearSpeed = 1000,
+		}
+	)
+	capsule:SetVelocity(Vec3(0, -320, 0))
+	simulate_physics(1, 1 / 10)
+	local position = capsule_ent.transform:GetPosition()
+	blocker_ent:Remove()
+	capsule_ent:Remove()
+	T(position.y)["<"](0)
+end)
+
+T.Test3D("Fast capsule does not tunnel through thin static box when CCD is enabled", function()
 	local blocker_ent = Entity.New({Name = "capsule_ccd_blocker"})
 	blocker_ent:AddComponent("transform")
 	blocker_ent.transform:SetPosition(Vec3(0, 1, 0))
@@ -156,7 +193,7 @@ T.Test3D("Fast capsule does not tunnel through thin static box", function()
 	capsule_ent.transform:SetPosition(Vec3(0, 8, 0))
 	local capsule = capsule_ent:AddComponent(
 		"rigid_body",
-		{
+		with_ccd{
 			Shape = CapsuleShape.New(0.5, 2.0),
 			LinearDamping = 0,
 			AngularDamping = 0,
@@ -190,7 +227,7 @@ T.Test3D("Fast capsule does not tunnel through static sphere", function()
 	capsule_ent.transform:SetPosition(Vec3(-8, 1.5, 0))
 	local capsule = capsule_ent:AddComponent(
 		"rigid_body",
-		{
+		with_ccd{
 			Shape = CapsuleShape.New(0.5, 2.0),
 			GravityScale = 0,
 			LinearDamping = 0,
@@ -224,7 +261,7 @@ T.Test3D("Fast sphere does not tunnel through static capsule", function()
 	sphere_ent.transform:SetPosition(Vec3(-8, 1.5, 0))
 	local sphere = sphere_ent:AddComponent(
 		"rigid_body",
-		{
+		with_ccd{
 			Shape = SphereShape.New(0.6),
 			Radius = 0.6,
 			GravityScale = 0,
@@ -259,7 +296,7 @@ T.Test3D("Fast capsule does not tunnel through static capsule", function()
 	capsule_ent.transform:SetPosition(Vec3(-8, 1.5, 0))
 	local capsule = capsule_ent:AddComponent(
 		"rigid_body",
-		{
+		with_ccd{
 			Shape = CapsuleShape.New(0.5, 2.0),
 			GravityScale = 0,
 			LinearDamping = 0,
@@ -296,7 +333,7 @@ T.Test3D("Fast capsule CCD remains stable at smaller fixed steps against thin st
 			capsule_ent.transform:SetPosition(Vec3(0, 8, 0))
 			local capsule = capsule_ent:AddComponent(
 				"rigid_body",
-				{
+				with_ccd{
 					Shape = CapsuleShape.New(0.5, 2.0),
 					LinearDamping = 0,
 					AngularDamping = 0,
@@ -331,7 +368,7 @@ T.Test3D("Fast capsule CCD remains stable at smaller fixed steps against static 
 			capsule_ent.transform:SetPosition(Vec3(-8, 1.5, 0))
 			local capsule = capsule_ent:AddComponent(
 				"rigid_body",
-				{
+				with_ccd{
 					Shape = CapsuleShape.New(0.5, 2.0),
 					GravityScale = 0,
 					LinearDamping = 0,

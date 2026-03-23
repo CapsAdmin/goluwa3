@@ -149,6 +149,10 @@ function sweep_point_against_capsule_segment(start_world, end_world, segment_a, 
 end
 
 local function solve_swept_capsule_box_collision(capsule_body, box_body, dt)
+	if not pair_solver_helpers.ShouldUsePairCCD(capsule_body, box_body) then
+		return false
+	end
+
 	if not pair_solver_helpers.IsSolverImmovable(box_body) then return false end
 
 	local sweep = pair_solver_helpers.GetBodySweepMotion(capsule_body)
@@ -198,6 +202,10 @@ local function solve_swept_capsule_box_collision(capsule_body, box_body, dt)
 end
 
 local function solve_swept_capsule_sphere_collision(capsule_body, sphere_body, dt)
+	if not pair_solver_helpers.ShouldUsePairCCD(capsule_body, sphere_body) then
+		return false
+	end
+
 	if
 		not pair_solver_helpers.IsSolverImmovable(sphere_body) or
 		not pair_solver_helpers.HasSolverMass(capsule_body)
@@ -284,6 +292,10 @@ local function solve_swept_capsule_sphere_collision(capsule_body, sphere_body, d
 end
 
 local function solve_swept_sphere_capsule_collision(sphere_body, capsule_body, dt)
+	if not pair_solver_helpers.ShouldUsePairCCD(sphere_body, capsule_body) then
+		return false
+	end
+
 	if
 		not pair_solver_helpers.IsSolverImmovable(capsule_body) or
 		not pair_solver_helpers.HasSolverMass(sphere_body)
@@ -325,6 +337,10 @@ local function solve_swept_sphere_capsule_collision(sphere_body, capsule_body, d
 end
 
 local function solve_swept_capsule_capsule_collision(dynamic_body, static_body, dt)
+	if not pair_solver_helpers.ShouldUsePairCCD(dynamic_body, static_body) then
+		return false
+	end
+
 	if
 		not pair_solver_helpers.IsSolverImmovable(static_body) or
 		not pair_solver_helpers.HasSolverMass(dynamic_body)

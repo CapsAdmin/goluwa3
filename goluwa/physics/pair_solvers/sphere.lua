@@ -72,6 +72,8 @@ function sphere.SolveSpherePairCollision(body_a, body_b, dt)
 	local distance = delta:GetLength()
 
 	if distance >= min_distance then
+		if not pair_solver_helpers.ShouldUsePairCCD(body_a, body_b) then return end
+
 		local start_a = body_a:GetPreviousPosition()
 		local start_b = body_b:GetPreviousPosition()
 		local move_a = pos_a - start_a
@@ -147,6 +149,10 @@ function sphere.SolveSpherePairCollision(body_a, body_b, dt)
 end
 
 local function solve_swept_sphere_box_collision(sphere_body, box_body, dt)
+	if not pair_solver_helpers.ShouldUsePairCCD(sphere_body, box_body) then
+		return false
+	end
+
 	if not pair_solver_helpers.IsSolverImmovable(box_body) then return false end
 
 	local sweep = pair_solver_helpers.GetBodySweepMotion(sphere_body)
@@ -241,6 +247,10 @@ function sphere.SolveSphereBoxCollision(sphere_body, box_body, dt)
 end
 
 local function solve_swept_sphere_convex_collision(sphere_body, convex_body, dt)
+	if not pair_solver_helpers.ShouldUsePairCCD(sphere_body, convex_body) then
+		return false
+	end
+
 	if not pair_solver_helpers.IsSolverImmovable(convex_body) then return false end
 
 	local hull = convex_body:GetResolvedConvexHull()

@@ -476,6 +476,10 @@ local function reduce_contacts_for_support_polygon(body_a, body_b, normal, conta
 end
 
 local function solve_swept_box_box_collision(dynamic_body, static_body, dt)
+	if not pair_solver_helpers.ShouldUsePairCCD(dynamic_body, static_body) then
+		return false
+	end
+
 	if
 		not pair_solver_helpers.IsSolverImmovable(static_body) or
 		not pair_solver_helpers.HasSolverMass(dynamic_body)
@@ -510,7 +514,13 @@ local function solve_swept_box_box_collision(dynamic_body, static_body, dt)
 end
 
 function box.SolveBoxPairCollision(body_a, body_b, dt)
-	if body_a:BodyHasSignificantRotation() or body_b:BodyHasSignificantRotation() then
+	if
+		(
+			body_a:BodyHasSignificantRotation() or
+			body_b:BodyHasSignificantRotation()
+		) and
+		pair_solver_helpers.ShouldUsePairCCD(body_a, body_b)
+	then
 		local temporal = polyhedron_solver.SolveTemporalPolyhedronPairCollision(
 			body_a,
 			body_b,
