@@ -71,15 +71,15 @@ end
 
 function triangle_geometry.PointInTriangle(point, a, b, c, normal, epsilon)
 	epsilon = epsilon or 0.00001
-	local edge0 = b - a
-	local edge1 = c - b
-	local edge2 = a - c
-	local c0 = edge0:GetCross(point - a)
-	local c1 = edge1:GetCross(point - b)
-	local c2 = edge2:GetCross(point - c)
-	return c0:Dot(normal) >= -epsilon and
-		c1:Dot(normal) >= -epsilon and
-		c2:Dot(normal) >= -epsilon
+	return (
+			b - a
+		):GetCross(point - a):Dot(normal) >= -epsilon and
+		(
+			c - b
+		):GetCross(point - b):Dot(normal) >= -epsilon and
+		(
+			a - c
+		):GetCross(point - c):Dot(normal) >= -epsilon
 end
 
 local function consider_segment_triangle_closest_points(segment_point, triangle_point, best)

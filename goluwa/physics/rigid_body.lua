@@ -1057,12 +1057,7 @@ do
 			local other_previous_rotation = other_body.Rotation:Copy()
 			other_body:_ApplyCorrection(impulse * -1, other_pos)
 
-			if
-				not other_body.Awake and
-				(
-					other_body.Position - other_previous_position
-				):GetLength() > 0.001
-			then
+			if (other_body.Position - other_previous_position):GetLength() > 0.001 then
 				other_body:Wake()
 			end
 
