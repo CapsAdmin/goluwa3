@@ -63,10 +63,14 @@ function META:GetMassProperties(body)
 	return self:BuildInertia(mass, body)
 end
 
-function META:GeometryLocalToWorld(body, local_pos, position, rotation)
+function META:GeometryLocalToWorld(body, local_pos, position, rotation, out)
 	position = position or body:GetPosition()
 	rotation = rotation or body:GetRotation()
-	return position + rotation:VecMul(local_pos)
+	out = rotation:VecMul(local_pos, out)
+	out.x = out.x + position.x
+	out.y = out.y + position.y
+	out.z = out.z + position.z
+	return out
 end
 
 function META:BuildCollisionLocalPoints()
@@ -102,33 +106,25 @@ function META:GetBroadphaseAABB(body, position, rotation)
 		)
 	end
 
-	local min_x = math.huge
-	local min_y = math.huge
-	local min_z = math.huge
-	local max_x = -math.huge
-	local max_y = -math.huge
-	local max_z = -math.huge
+	local bounds = AABB(math.huge, math.huge, math.huge, -math.huge, -math.huge, -math.huge)
 
 	for i = 1, #points do
 		local world_point = self:GeometryLocalToWorld(body, points[i], position, rotation)
-		local x = world_point.x
-		local y = world_point.y
-		local z = world_point.z
 
-		if x < min_x then min_x = x end
+		if world_point.x < bounds.min_x then bounds.min_x = world_point.x end
 
-		if y < min_y then min_y = y end
+		if world_point.y < bounds.min_y then bounds.min_y = world_point.y end
 
-		if z < min_z then min_z = z end
+		if world_point.z < bounds.min_z then bounds.min_z = world_point.z end
 
-		if x > max_x then max_x = x end
+		if world_point.x > bounds.max_x then bounds.max_x = world_point.x end
 
-		if y > max_y then max_y = y end
+		if world_point.y > bounds.max_y then bounds.max_y = world_point.y end
 
-		if z > max_z then max_z = z end
+		if world_point.z > bounds.max_z then bounds.max_z = world_point.z end
 	end
 
-	return AABB(min_x, min_y, min_z, max_x, max_y, max_z)
+	return bounds
 end
 
 function META:OnGroundedVelocityUpdate() end

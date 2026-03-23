@@ -822,20 +822,38 @@ do
 		return previous:GetLerped(alpha, current):GetNormalized()
 	end
 
-	function RigidBody:LocalToWorld(local_pos, position, rotation)
+	function RigidBody:LocalToWorld(local_pos, position, rotation, out)
 		position = position or self.Position
 		rotation = rotation or self.Rotation
-		return position + rotation:VecMul(local_pos)
+		out = rotation:VecMul(local_pos, out)
+		out.x = out.x + position.x
+		out.y = out.y + position.y
+		out.z = out.z + position.z
+		return out
 	end
 
-	function RigidBody:GeometryLocalToWorld(local_pos, position, rotation)
-		return self:LocalToWorld(local_pos, position, rotation)
+	function RigidBody:GeometryLocalToWorld(local_pos, position, rotation, out)
+		return self:LocalToWorld(local_pos, position, rotation, out)
 	end
 
-	function RigidBody:WorldToLocal(world_pos, position, rotation)
+	function RigidBody:WorldToLocal(world_pos, position, rotation, out)
 		position = position or self.Position
 		rotation = rotation or self.Rotation
-		return rotation:GetConjugated():VecMul(world_pos - position)
+		local dx = world_pos.x - position.x
+		local dy = world_pos.y - position.y
+		local dz = world_pos.z - position.z
+		local qx = -rotation.x
+		local qy = -rotation.y
+		local qz = -rotation.z
+		local qw = rotation.w
+		local tx = 2 * (qy * dz - qz * dy)
+		local ty = 2 * (qz * dx - qx * dz)
+		local tz = 2 * (qx * dy - qy * dx)
+		out = out or Vec3()
+		out.x = dx + qw * tx + (qy * tz - qz * ty)
+		out.y = dy + qw * ty + (qz * tx - qx * tz)
+		out.z = dz + qw * tz + (qx * ty - qy * tx)
+		return out
 	end
 
 	function RigidBody:GetBroadphaseAABB(position, rotation)

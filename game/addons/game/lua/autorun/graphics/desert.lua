@@ -1,7 +1,7 @@
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
 local Texture = import("goluwa/render/texture.lua")
 local Material = import("goluwa/render3d/material.lua")
-local MeshShape = import("goluwa/physics/shapes/mesh.lua")
+local HeightmapShape = import("goluwa/physics/shapes/heightmap.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local timer = import("goluwa/timer.lua")
@@ -152,7 +152,6 @@ local function CreateDesertTerrain()
 	]],
 		{header = HEADER}
 	)
-
 	local height_tex = Texture.New{
 		width = 512,
 		height = 512,
@@ -178,15 +177,12 @@ local function CreateDesertTerrain()
     ]],
 		{header = HEADER}
 	)
+	local heightmap_data = height_tex:Download()
 	local poly = Polygon3D.New()
 	poly:LoadHeightmap(height_tex, Vec2(4096, 4096), Vec2(64, 64), Vec2() + 128, 512, 1)
-	local collision_poly = Polygon3D.New()
-	collision_poly:LoadHeightmap(height_tex, Vec2(4096, 4096), Vec2(64, 64), Vec2() + 32, 512, 1)
-	collision_poly:BuildBoundingBox()
 	poly:BuildNormals(true)
 	poly:SmoothNormals()
 	poly:BuildBoundingBox()
-
 	local mat = Material.New()
 	mat:SetAlbedoTexture(albedo_tex)
 	mat:SetNormalTexture(normal_tex)
@@ -202,21 +198,24 @@ local function CreateDesertTerrain()
 	ent:AddComponent(
 		"rigid_body",
 		{
-			Shape = MeshShape.New{Polygons = {collision_poly}},
+			Shape = HeightmapShape.New{
+				Heightmap = heightmap_data,
+				Size = Vec2(4096, 4096),
+				Resolution = Vec2() + 32,
+				Height = 512,
+				Pow = 1,
+			},
 			MotionType = "static",
 			WorldGeometry = true,
 			Friction = 0.9,
 			Restitution = 0,
 		}
 	)
-
 	return ent
 end
 
 -- Run it
-if _G.desert_ent then
-	_G.desert_ent:Remove()
-end
+if _G.desert_ent then _G.desert_ent:Remove() end
 
 timer.Delay(0.2, function()
 	_G.desert_ent = CreateDesertTerrain()

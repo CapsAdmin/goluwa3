@@ -1153,6 +1153,10 @@ do
 		return self.height
 	end
 
+	function TextureDownloaded:GetSize()
+		return Vec2(self.width, self.height)
+	end
+
 	function TextureDownloaded:GetPixel(x, y)
 		local width = self.width
 		local height = self.height

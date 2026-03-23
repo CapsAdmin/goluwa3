@@ -3,6 +3,7 @@ local Quat = import("goluwa/structs/quat.lua")
 local prototype = import("goluwa/prototype.lua")
 local BoxShape = import("goluwa/physics/shapes/box.lua")
 local ConvexShape = import("goluwa/physics/shapes/convex.lua")
+local HeightmapShape = import("goluwa/physics/shapes/heightmap.lua")
 local MeshShape = import("goluwa/physics/shapes/mesh.lua")
 local META = prototype.CreateTemplate("physics_collider")
 
@@ -23,6 +24,7 @@ local function is_shape_definition(value)
 		(
 			value.Shape ~= nil or
 			value.shape ~= nil or
+			value.Heightmap ~= nil or
 			value.Position ~= nil or
 			value.position ~= nil or
 			value.Rotation ~= nil or
@@ -42,6 +44,16 @@ local function get_shape_from_definition(data)
 
 	if not shape and data.ConvexHull then
 		shape = ConvexShape.New(data.ConvexHull)
+	end
+
+	if not shape and data.Heightmap then
+		shape = HeightmapShape.New{
+			Heightmap = data.Heightmap,
+			Size = data.Size,
+			Resolution = data.Resolution,
+			Height = data.Height,
+			Pow = data.Pow,
+		}
 	end
 
 	if
@@ -333,20 +345,38 @@ function META:GetPreviousRotation()
 	return (self.Body:GetPreviousRotation() * self.LocalRotation):GetNormalized()
 end
 
-function META:LocalToWorld(local_pos, position, rotation)
+function META:LocalToWorld(local_pos, position, rotation, out)
 	position = position or self:GetPosition()
 	rotation = rotation or self:GetRotation()
-	return position + rotation:VecMul(local_pos)
+	out = rotation:VecMul(local_pos, out)
+	out.x = out.x + position.x
+	out.y = out.y + position.y
+	out.z = out.z + position.z
+	return out
 end
 
-function META:GeometryLocalToWorld(local_pos, position, rotation)
-	return self.Shape:GeometryLocalToWorld(self, local_pos, position, rotation)
+function META:GeometryLocalToWorld(local_pos, position, rotation, out)
+	return self.Shape:GeometryLocalToWorld(self, local_pos, position, rotation, out)
 end
 
-function META:WorldToLocal(world_pos, position, rotation)
+function META:WorldToLocal(world_pos, position, rotation, out)
 	position = position or self:GetPosition()
 	rotation = rotation or self:GetRotation()
-	return rotation:GetConjugated():VecMul(world_pos - position)
+	local dx = world_pos.x - position.x
+	local dy = world_pos.y - position.y
+	local dz = world_pos.z - position.z
+	local qx = -rotation.x
+	local qy = -rotation.y
+	local qz = -rotation.z
+	local qw = rotation.w
+	local tx = 2 * (qy * dz - qz * dy)
+	local ty = 2 * (qz * dx - qx * dz)
+	local tz = 2 * (qx * dy - qy * dx)
+	out = out or Vec3()
+	out.x = dx + qw * tx + (qy * tz - qz * ty)
+	out.y = dy + qw * ty + (qz * tx - qx * tz)
+	out.z = dz + qw * tz + (qx * ty - qy * tx)
+	return out
 end
 
 function META:GetBroadphaseAABB(position, rotation)

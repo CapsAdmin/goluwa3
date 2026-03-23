@@ -4,6 +4,7 @@ local mesh_contact_common = import("goluwa/physics/mesh_contact_common.lua")
 local polyhedron_triangle_aggregator = import("goluwa/physics/polyhedron/triangle_aggregator.lua")
 local triangle_contact_queries = import("goluwa/physics/triangle_contact_queries.lua")
 local triangle_geometry = import("goluwa/physics/triangle_geometry.lua")
+local Vec3 = import("goluwa/structs/vec3.lua")
 local mesh_polyhedron_contacts = {}
 local EPSILON = physics_constants.EPSILON
 local SOLVE_MESH_POLYHEDRON_CONTEXT = {
@@ -14,17 +15,38 @@ local SOLVE_MESH_POLYHEDRON_CONTEXT = {
 	samples = nil,
 }
 
+local function quantize_sample_coord(value)
+	if value >= 0 then return math.floor(value * 100000 + 0.5) end
+
+	return math.ceil(value * 100000 - 0.5)
+end
+
 local function add_contact_sample(body, seen, samples, local_point)
 	if not local_point then return end
 
-	local key = string.format("%.5f:%.5f:%.5f", local_point.x, local_point.y, local_point.z)
+	local x = quantize_sample_coord(local_point.x)
+	local y = quantize_sample_coord(local_point.y)
+	local z = quantize_sample_coord(local_point.z)
+	local seen_x = seen[x]
 
-	if seen[key] then return end
+	if not seen_x then
+		seen_x = {}
+		seen[x] = seen_x
+	end
 
-	seen[key] = true
+	local seen_y = seen_x[y]
+
+	if not seen_y then
+		seen_y = {}
+		seen_x[y] = seen_y
+	end
+
+	if seen_y[z] then return end
+
+	seen_y[z] = true
 	samples[#samples + 1] = {
 		local_point = local_point,
-		point = body:GeometryLocalToWorld(local_point),
+		point = body:GeometryLocalToWorld(local_point, nil, nil, Vec3()),
 	}
 end
 

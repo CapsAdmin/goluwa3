@@ -7,6 +7,7 @@ local model_loader = import("goluwa/render3d/model_loader.lua")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
 local Ang3 = import("goluwa/structs/ang3.lua")
 local AABB = import("goluwa/structs/aabb.lua")
+local Matrix33 = import("goluwa/structs/matrix33.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local Material = import("goluwa/render3d/material.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
@@ -274,12 +275,11 @@ local function build_bsp_physics_body(header, render_meshes, displacement_meshes
 	end
 
 	local brush_model = build_bsp_brush_model(header, owner)
-	local displacement_model = build_source_model_from_meshes(displacement_meshes, owner)
 	local render_model = build_source_model_from_meshes(render_meshes, owner)
 	local shapes = {}
 	local mode = "empty"
 	local primitive_count = 0
-	local displacement_primitives = 0
+	local displacement_primitives = displacement_meshes and #displacement_meshes or 0
 
 	if brush_model then
 		shapes[#shapes + 1] = {Model = brush_model}
@@ -287,9 +287,11 @@ local function build_bsp_physics_body(header, render_meshes, displacement_meshes
 		mode = "brushes"
 	end
 
-	if displacement_model then
-		shapes[#shapes + 1] = {Model = displacement_model}
-		displacement_primitives = #displacement_model.Primitives
+	if displacement_meshes and displacement_meshes[1] then
+		for _, shape in ipairs(displacement_meshes) do
+			shapes[#shapes + 1] = shape
+		end
+
 		primitive_count = primitive_count + displacement_primitives
 		mode = mode == "brushes" and "brushes+displacements" or "displacements"
 	end
@@ -302,12 +304,12 @@ local function build_bsp_physics_body(header, render_meshes, displacement_meshes
 
 	if not shapes[1] then
 		return nil,
-			{
-				mode = mode,
-				collidable_brushes = collidable_brushes,
-				displacement_primitives = displacement_primitives,
-				primitives = primitive_count,
-			}
+		{
+			mode = mode,
+			collidable_brushes = collidable_brushes,
+			displacement_primitives = displacement_primitives,
+			primitives = primitive_count,
+		}
 	end
 
 	return {
@@ -317,16 +319,133 @@ local function build_bsp_physics_body(header, render_meshes, displacement_meshes
 		Restitution = 0,
 		WorldGeometry = true,
 	},
-		{
-			mode = mode,
-			collidable_brushes = collidable_brushes,
-			displacement_primitives = displacement_primitives,
-			primitives = primitive_count,
-		}
+	{
+		mode = mode,
+		collidable_brushes = collidable_brushes,
+		displacement_primitives = displacement_primitives,
+		primitives = primitive_count,
+	}
+end
+
+local function get_displacement_corners(header, info)
+	local base_face = header.faces[1 + info.MapFace]
+	local start_corner_dist = math.huge
+	local start_corner = 0
+	local corners = {}
+
+	for j = 1, 4 do
+		local surfedge = header.surfedges[1 + base_face.firstedge + (j - 1)]
+		local edge = header.edges[1 + math.abs(surfedge)]
+		local vertex = edge[1 + (surfedge < 0 and 1 or 0)]
+		local corner = header.vertices[1 + vertex]
+		local distance = corner:Distance(info.startPosition)
+
+		if distance < start_corner_dist then
+			start_corner_dist = distance
+			start_corner = j - 1
+		end
+
+		corners[j] = corner
+	end
+
+	return corners, start_corner
+end
+
+local function build_displacement_heightmap_shape(header, info, lerp_corners)
+	local corners, start_corner = get_displacement_corners(header, info)
+	local dims = 2 ^ info.power + 1
+	local resolution = dims - 1
+	local top_left = source_pos_to_engine(corners[1 + (start_corner + 0) % 4])
+	local top_right = source_pos_to_engine(corners[1 + (start_corner + 1) % 4])
+	local bottom_left = source_pos_to_engine(corners[1 + (start_corner + 3) % 4])
+	local bottom_right = source_pos_to_engine(corners[1 + (start_corner + 2) % 4])
+	local right_vector = ((top_right - top_left) + (bottom_right - bottom_left)) * 0.5
+	local forward_vector = ((bottom_left - top_left) + (bottom_right - top_right)) * 0.5
+	local width = right_vector:GetLength()
+	local depth = forward_vector:GetLength()
+
+	if width <= 0.0001 or depth <= 0.0001 then return nil end
+
+	local right = right_vector / width
+	local up = forward_vector:GetCross(right):GetNormalized()
+
+	if up:GetLength() <= 0.0001 then return nil end
+
+	local forward = right:GetCross(up):GetNormalized()
+	local center = (top_left + top_right + bottom_left + bottom_right) / 4
+	local heights = {}
+	local min_height = math.huge
+	local max_height = -math.huge
+
+	for y = 1, dims do
+		for x = 1, dims do
+			local source_pos = select(1, lerp_corners(dims, corners, start_corner, info, x, y))
+			local world_pos = source_pos_to_engine(source_pos)
+			local u = (x - 1) / resolution
+			local v = (y - 1) / resolution
+			local plane_pos = center + right * ((u - 0.5) * width) + forward * ((v - 0.5) * depth)
+			local height = (world_pos - plane_pos):Dot(up)
+			heights[(y - 1) * dims + x] = height
+			min_height = math.min(min_height, height)
+			max_height = math.max(max_height, height)
+		end
+	end
+
+	local height_range = max_height - min_height
+	local mid_height = (min_height + max_height) * 0.5
+	local pixels = {}
+
+	for i = 1, #heights do
+		local normalized = 0.5
+
+		if height_range > 0.0001 then
+			normalized = (heights[i] - min_height) / height_range
+		end
+
+		pixels[i] = normalized * 255
+	end
+
+	local heightmap = {
+		width = resolution,
+		height = resolution,
+		GetSize = function(self)
+			return Vec2(self.width, self.height)
+		end,
+		GetRawPixelColor = function(self, x, y)
+			x = math.clamp(math.floor(x), 0, resolution)
+			y = math.clamp(math.floor(y), 0, resolution)
+			local value = pixels[y * dims + x + 1] or 127.5
+			return value, value, value, value
+		end,
+	}
+	local rotation_matrix = Matrix33()
+	rotation_matrix.m00 = right.x
+	rotation_matrix.m01 = right.y
+	rotation_matrix.m02 = right.z
+	rotation_matrix.m10 = up.x
+	rotation_matrix.m11 = up.y
+	rotation_matrix.m12 = up.z
+	rotation_matrix.m20 = forward.x
+	rotation_matrix.m21 = forward.y
+	rotation_matrix.m22 = forward.z
+	return {
+		Heightmap = heightmap,
+		Size = Vec2(width, depth),
+		Resolution = Vec2(resolution, resolution),
+		Height = height_range > 0.0001 and height_range or 1,
+		Pow = 1,
+		Position = center + up * mid_height,
+		Rotation = rotation_matrix:GetRotation(Quat()):GetNormalized(),
+	}
 end
 
 function steam.SetMap(name)
-	if steam.bsp_world and steam.bsp_world.IsValid and steam.bsp_world:IsValid() and steam.bsp_world:HasComponent("rigid_body") then
+	if
+		steam.bsp_world and
+		steam.bsp_world.IsValid and
+		steam.bsp_world:IsValid() and
+		steam.bsp_world:HasComponent("rigid_body")
+	then
 		steam.bsp_world:RemoveComponent("rigid_body")
 	end
 
@@ -1070,27 +1189,7 @@ function steam.LoadMap(path)
 						end
 					else
 						local info = header.displacements[face.dispinfo + 1]
-						local start_corner_dist = math.huge
-						local start_corner = 0
-						local corners = {}
-						local collision_mesh = {}
-
-						for j = 1, 4 do
-							local face = header.faces[1 + info.MapFace]
-							local surfedge = header.surfedges[1 + face.firstedge + (j - 1)]
-							local edge = header.edges[1 + math.abs(surfedge)]
-							local vertex = edge[1 + (surfedge < 0 and 1 or 0)]
-							local corner = header.vertices[1 + vertex]
-							local cough = corner:Distance(info.startPosition)
-
-							if cough < start_corner_dist then
-								start_corner_dist = cough
-								start_corner = j - 1
-							end
-
-							corners[j] = corner
-						end
-
+						local corners, start_corner = get_displacement_corners(header, info)
 						local dims = 2 ^ info.power + 1
 
 						for x = 1, dims - 1 do
@@ -1103,24 +1202,22 @@ function steam.LoadMap(path)
 								do
 									-- CW winding (matches coordinate transform from Source)
 									add_vertex(mesh, texinfo, texdata, a, a_blend)
-									add_vertex(collision_mesh, texinfo, texdata, a, a_blend)
 									add_vertex(mesh, texinfo, texdata, c, c_blend)
-									add_vertex(collision_mesh, texinfo, texdata, c, c_blend)
 									add_vertex(mesh, texinfo, texdata, b, b_blend)
-									add_vertex(collision_mesh, texinfo, texdata, b, b_blend)
 									-- 
 									add_vertex(mesh, texinfo, texdata, c, c_blend)
-									add_vertex(collision_mesh, texinfo, texdata, c, c_blend)
 									add_vertex(mesh, texinfo, texdata, d, d_blend)
-									add_vertex(collision_mesh, texinfo, texdata, d, d_blend)
 									add_vertex(mesh, texinfo, texdata, b, b_blend)
-									add_vertex(collision_mesh, texinfo, texdata, b, b_blend)
 								end
 							end
 						end
 
-						if collision_mesh[1] then
-							list.insert(displacement_collision_meshes, {mesh = collision_mesh})
+						do
+							local collision_shape = build_displacement_heightmap_shape(header, info, lerp_corners)
+
+							if collision_shape then
+								list.insert(displacement_collision_meshes, collision_shape)
+							end
 						end
 
 						mesh.smooth_normals = true
@@ -1412,7 +1509,9 @@ model_loader.AddModelDecoder("bsp", function(path, full_path, mesh_callback)
 			steam.bsp_world:RemoveComponent("rigid_body")
 		end
 
-		if result.physics_body then steam.bsp_world:AddComponent("rigid_body", result.physics_body) end
+		if result.physics_body then
+			steam.bsp_world:AddComponent("rigid_body", result.physics_body)
+		end
 	end
 
 	for _, prim in ipairs(result.render_meshes) do

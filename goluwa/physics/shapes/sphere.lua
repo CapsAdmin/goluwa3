@@ -97,9 +97,13 @@ function META:BuildInertia(mass)
 	return self:BuildSphereInertia(mass, self:GetRadius())
 end
 
-function META:GeometryLocalToWorld(body, local_pos, position)
+function META:GeometryLocalToWorld(body, local_pos, position, _, out)
 	position = position or body:GetPosition()
-	return position + local_pos
+	out = out or Vec3()
+	out.x = position.x + local_pos.x
+	out.y = position.y + local_pos.y
+	out.z = position.z + local_pos.z
+	return out
 end
 
 function META:GetBroadphaseAABB(body, position)

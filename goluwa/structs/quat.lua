@@ -40,26 +40,15 @@ function META.__mul(a, b)
 	return CTOR(x, y, z, w)
 end
 
-function META.VecMul(a, b)
-	local vec, quat
-
-	if typex(a) == "vec3" then vec, quat = a, b else vec, quat = b, a end
-	local qx = quat.x
-	local qy = quat.y
-	local qz = quat.z
-	local qw = quat.w
-	local vx = vec.x
-	local vy = vec.y
-	local vz = vec.z
-	local tx = 2 * (qy * vz - qz * vy)
-	local ty = 2 * (qz * vx - qx * vz)
-	local tz = 2 * (qx * vy - qy * vx)
-
-	return Vec3(
-		vx + qw * tx + (qy * tz - qz * ty),
-		vy + qw * ty + (qz * tx - qx * tz),
-		vz + qw * tz + (qx * ty - qy * tx)
-	)
+function META.VecMul(a, b, out)
+	local tx = 2 * (a.y * b.z - a.z * b.y)
+	local ty = 2 * (a.z * b.x - a.x * b.z)
+	local tz = 2 * (a.x * b.y - a.y * b.x)
+	out = out or Vec3()
+	out.x = b.x + a.w * tx + (a.y * tz - a.z * ty)
+	out.y = b.y + a.w * ty + (a.z * tx - a.x * tz)
+	out.z = b.z + a.w * tz + (a.x * ty - a.y * tx)
+	return out
 end
 
 do -- ORIENTATION / TRANSFORMATION
