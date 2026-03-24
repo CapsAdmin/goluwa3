@@ -3,6 +3,8 @@ local Quat = import("goluwa/structs/quat.lua")
 local physics = import("goluwa/physics.lua")
 local physics_constants = import("goluwa/physics/constants.lua")
 local contact_resolution = import("goluwa/physics/contact_resolution.lua")
+local gjk_epa = import("goluwa/physics/gjk_epa.lua")
+local polyhedron_cache = import("goluwa/physics/polyhedron/cache.lua")
 local pair_solver_helpers = {}
 local EPSILON = physics_constants.EPSILON
 local axis_data = {
@@ -678,43 +680,118 @@ function pair_solver_helpers.SweepPointAgainstPolyhedron(static_body, polyhedron
 
 	position = position or static_body:GetPosition()
 	rotation = rotation or static_body:GetRotation()
-	local start_local = static_body:WorldToLocal(start_world, position, rotation)
-	local end_local = static_body:WorldToLocal(end_world, position, rotation)
-	local movement_local = end_local - start_local
-	local t_enter = 0
-	local t_exit = 1
-	local hit_normal_local = nil
-	extra_radius = extra_radius or 0
+	extra_radius = math.max(extra_radius or 0, 0)
+	local proxy_radius = math.max(extra_radius, 0.0005)
+	local world_vertices = polyhedron_cache.FillPolyhedronWorldVertices(polyhedron, position, rotation, static_body._PhysicsPointSweepPolyVertices)
+	static_body._PhysicsPointSweepPolyVertices = world_vertices
+	local scratch = static_body._PhysicsPointSweepGJK or {
+		point_vertices = {},
+	}
+	static_body._PhysicsPointSweepGJK = scratch
 
-	for _, face in ipairs(polyhedron.faces or {}) do
-		local plane_point = polyhedron.vertices[face.indices[1]]
-		local plane_distance = face.normal:Dot(plane_point) + extra_radius
-		local start_distance = face.normal:Dot(start_local) - plane_distance
-		local delta_distance = face.normal:Dot(movement_local)
-
-		if math.abs(delta_distance) <= EPSILON then
-			if start_distance > 0 then return nil end
-		else
-			local hit_t = -start_distance / delta_distance
-
-			if delta_distance < 0 then
-				if hit_t > t_enter then
-					t_enter = hit_t
-					hit_normal_local = face.normal
-				end
-			else
-				if hit_t < t_exit then t_exit = hit_t end
-			end
-
-			if t_enter > t_exit then return nil end
-		end
+	local function set_proxy_vertices(point)
+		scratch.point_vertices[1] = point + Vec3(proxy_radius, proxy_radius, proxy_radius)
+		scratch.point_vertices[2] = point + Vec3(-proxy_radius, -proxy_radius, proxy_radius)
+		scratch.point_vertices[3] = point + Vec3(-proxy_radius, proxy_radius, -proxy_radius)
+		scratch.point_vertices[4] = point + Vec3(proxy_radius, -proxy_radius, -proxy_radius)
 	end
 
-	if not hit_normal_local or t_enter < 0 or t_enter > 1 then return nil end
+	local function evaluate_intersection(t)
+		local point = start_world + movement_world * t
+		set_proxy_vertices(point)
+		local result = gjk_epa.Intersect(
+			scratch.point_vertices,
+			world_vertices,
+			{
+				initial_direction = scratch.last_normal or (position - point),
+			}
+		)
 
+		if result and result.intersect then return result end
+
+		local distance = gjk_epa.Distance(
+			scratch.point_vertices,
+			world_vertices,
+			{
+				initial_direction = scratch.last_normal or (position - point),
+			}
+		)
+
+		if distance and (distance.intersect or (distance.distance or math.huge) <= EPSILON) then
+			return {intersect = true}
+		end
+
+		return result
+	end
+
+	local sample_steps = math.max(
+		32,
+		pair_solver_helpers.GetCCDSampleSteps(movement_world:GetLength(), math.max(proxy_radius, 0.0625)) * 2
+	)
+	local hit_t = nil
+	local previous_t = 0
+
+	for i = 1, sample_steps do
+		local sample_t = i / sample_steps
+		local result = evaluate_intersection(sample_t)
+
+		if result and result.intersect then
+			local low = previous_t
+			local high = sample_t
+
+			for _ = 1, 12 do
+				local mid = (low + high) * 0.5
+				local mid_result = evaluate_intersection(mid)
+
+				if mid_result and mid_result.intersect then
+					high = mid
+				else
+					low = mid
+				end
+			end
+
+			hit_t = high
+
+			break
+		end
+
+		previous_t = sample_t
+	end
+
+	if not hit_t then return nil end
+
+	set_proxy_vertices(start_world + movement_world * hit_t)
+	local hit = gjk_epa.Penetration(
+		scratch.point_vertices,
+		world_vertices,
+		{
+			initial_direction = scratch.last_normal or (position - (start_world + movement_world * hit_t)),
+		}
+	)
+
+	if not (hit and hit.intersect) then return nil end
+
+	local normal = hit.normal and hit.normal * -1 or nil
+
+	if not normal then
+		normal = select(
+			1,
+			pair_solver_helpers.GetSafeCollisionNormal(
+				hit.point_a and hit.point_b and (hit.point_a - hit.point_b) or nil,
+				movement_world,
+				scratch.last_normal
+			)
+		)
+	end
+
+	if not normal then return nil end
+
+	scratch.last_normal = normal
 	return {
-		t = t_enter,
-		normal = rotation:VecMul(hit_normal_local):GetNormalized(),
+		t = hit_t,
+		normal = normal,
+		point = hit.point_a,
+		position = hit.point_b,
 	}
 end
 

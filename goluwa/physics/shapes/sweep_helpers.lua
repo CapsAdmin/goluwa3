@@ -1,25 +1,15 @@
 local physics_constants = import("goluwa/physics/constants.lua")
 local capsule_geometry = import("goluwa/physics/capsule_geometry.lua")
 local convex_manifold = import("goluwa/physics/convex_manifold.lua")
-local convex_sat = import("goluwa/physics/convex_sat.lua")
+local gjk_epa = import("goluwa/physics/gjk_epa.lua")
+local pair_solver_helpers = import("goluwa/physics/pair_solver_helpers.lua")
 local polyhedron_cache = import("goluwa/physics/polyhedron/cache.lua")
-local polyhedron_sat = import("goluwa/physics/polyhedron/sat.lua")
 local segment_geometry = import("goluwa/physics/segment_geometry.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local helpers = {}
 local EPSILON = physics_constants.EPSILON
 local POLYHEDRON_SWEEP_MIN_SAMPLE_STEPS = 4
 local POLYHEDRON_SWEEP_MAX_SAMPLE_STEPS = 18
-local POLYHEDRON_BODY_SWEEP_SAMPLE_CONTEXT = {
-	polyhedron = nil,
-	start_position = nil,
-	rotation = nil,
-	target_polyhedron = nil,
-	target_state = nil,
-	max_fraction = 0,
-	scratch = nil,
-	movement = nil,
-}
 local CAPSULE_BODY_POLYHEDRON_SAMPLE_CONTEXT = {
 	radius = 0,
 	max_fraction = 0,
@@ -165,57 +155,82 @@ local function get_polyhedron_sweep_sample_steps(polyhedron, movement_length, ma
 	)
 end
 
-function helpers.EvaluatePolyhedronPairContact(poly_a, position_a, rotation_a, poly_b, position_b, rotation_b, scratch)
+local function body_state_has_significant_rotation(state)
+	if not (state and state.previous_rotation and state.current_rotation) then
+		return false
+	end
+
+	return math.abs(state.previous_rotation:Dot(state.current_rotation)) < 0.9995
+end
+
+local function evaluate_polyhedron_pair_contact(poly_a, position_a, rotation_a, poly_b, position_b, rotation_b, scratch)
 	scratch = scratch or {}
-	local axes = polyhedron_sat.CollectAxes(poly_a, rotation_a, poly_b, rotation_b, scratch.axes)
-	scratch.axes = axes
-
-	if not axes[1] then return nil end
-
 	local vertices_a = polyhedron_cache.FillPolyhedronWorldVertices(poly_a, position_a, rotation_a, scratch.vertices_a)
 	local vertices_b = polyhedron_cache.FillPolyhedronWorldVertices(poly_b, position_b, rotation_b, scratch.vertices_b)
 	scratch.vertices_a = vertices_a
 	scratch.vertices_b = vertices_b
-
-	if polyhedron_sat.HasSeparatingAxis(vertices_a, vertices_b, axes) then
-		return nil
-	end
-
-	local best = convex_sat.CreateBestAxisTracker()
-	local center_delta = position_b - position_a
-	polyhedron_sat.UpdateFaceAxisCandidates(best, vertices_a, vertices_b, poly_a, rotation_a, center_delta, "a", EPSILON)
-	polyhedron_sat.UpdateFaceAxisCandidates(best, vertices_a, vertices_b, poly_b, rotation_b, center_delta, "b", EPSILON)
-	polyhedron_sat.UpdateEdgeAxisCandidates(
-		best,
+	local penetration = gjk_epa.Penetration(
 		vertices_a,
 		vertices_b,
-		poly_a,
-		rotation_a,
-		poly_b,
-		rotation_b,
-		center_delta,
-		EPSILON
+		{
+			initial_direction = scratch.last_normal or (position_b - position_a),
+			simplex = scratch.simplex,
+		}
 	)
-	local chosen = convex_sat.ChoosePreferredAxis(best, 1.05, 0.03)
+	scratch.simplex = penetration and penetration.gjk and penetration.gjk.simplex or scratch.simplex
 
-	if not (chosen and chosen.normal and chosen.overlap and chosen.overlap < math.huge) then
+	if
+		not (
+			penetration and
+			penetration.intersect and
+			penetration.normal and
+			penetration.depth and
+			penetration.depth > 0
+		)
+	then
 		return nil
 	end
 
+	scratch.last_normal = penetration.normal
 	return {
-		normal = chosen.normal,
-		overlap = chosen.overlap,
+		normal = penetration.normal,
+		overlap = penetration.depth,
 		contacts = convex_manifold.BuildAndMergeSupportPairContacts(
 			nil,
 			vertices_a,
 			vertices_b,
-			chosen.normal,
+			penetration.normal,
 			{
 				merge_distance = 0.1,
 				max_contacts = 4,
 			}
 		),
 	}
+end
+
+local function evaluate_polyhedron_pair_distance(poly_a, position_a, rotation_a, poly_b, position_b, rotation_b, scratch)
+	scratch = scratch or {}
+	local vertices_a = polyhedron_cache.FillPolyhedronWorldVertices(poly_a, position_a, rotation_a, scratch.vertices_a)
+	local vertices_b = polyhedron_cache.FillPolyhedronWorldVertices(poly_b, position_b, rotation_b, scratch.vertices_b)
+	scratch.vertices_a = vertices_a
+	scratch.vertices_b = vertices_b
+	local result = gjk_epa.Distance(
+		vertices_a,
+		vertices_b,
+		{
+			initial_direction = scratch.last_normal or (position_b - position_a),
+			simplex = scratch.distance_simplex,
+		}
+	)
+	scratch.distance_simplex = result and result.simplex or scratch.distance_simplex
+
+	if result and result.normal then
+		scratch.last_normal = result.normal
+	elseif result and result.delta and result.delta:GetLength() > EPSILON then
+		scratch.last_normal = result.delta:GetNormalized()
+	end
+
+	return result
 end
 
 function helpers.GetPointSweepSampleSteps(movement_length, radius, max_fraction)
@@ -328,24 +343,6 @@ function helpers.SweepSampledPointAgainstMovingTarget(
 	return hit
 end
 
-local function evaluate_polyhedron_body_sweep_sample(context, t)
-	if t == nil then
-		t = context
-		context = POLYHEDRON_BODY_SWEEP_SAMPLE_CONTEXT
-	end
-
-	local target_position_t, target_rotation_t = helpers.GetTargetPose(context.target_state, t, context.max_fraction)
-	return helpers.EvaluatePolyhedronPairContact(
-		context.polyhedron,
-		context.start_position + context.movement * t,
-		context.rotation,
-		context.target_polyhedron,
-		target_position_t,
-		target_rotation_t,
-		context.scratch
-	)
-end
-
 function helpers.SweepPolyhedronAgainstTargetPolyhedron(
 	query_collider,
 	query_polyhedron,
@@ -359,39 +356,103 @@ function helpers.SweepPolyhedronAgainstTargetPolyhedron(
 )
 	local scratch = query_collider.polyhedron_body_sweep_scratch or {}
 	query_collider.polyhedron_body_sweep_scratch = scratch
-	POLYHEDRON_BODY_SWEEP_SAMPLE_CONTEXT.polyhedron = query_polyhedron
-	POLYHEDRON_BODY_SWEEP_SAMPLE_CONTEXT.start_position = start_position
-	POLYHEDRON_BODY_SWEEP_SAMPLE_CONTEXT.rotation = rotation
-	POLYHEDRON_BODY_SWEEP_SAMPLE_CONTEXT.target_polyhedron = target_polyhedron
-	POLYHEDRON_BODY_SWEEP_SAMPLE_CONTEXT.target_state = target_state
-	POLYHEDRON_BODY_SWEEP_SAMPLE_CONTEXT.max_fraction = max_fraction
-	POLYHEDRON_BODY_SWEEP_SAMPLE_CONTEXT.scratch = scratch
-	POLYHEDRON_BODY_SWEEP_SAMPLE_CONTEXT.movement = movement
-	local hit_t, hit_result = find_first_sampled_hit(
-		max_fraction,
-		get_polyhedron_sweep_sample_steps(query_polyhedron, movement:GetLength(), max_fraction),
-		evaluate_polyhedron_body_sweep_sample,
-		POLYHEDRON_BODY_SWEEP_SAMPLE_CONTEXT
+	local sampled_hit_t = nil
+	local sampled_hit_result = nil
+	local relative_movement = (movement - target_state.movement) * math.max(0, max_fraction or 1)
+	local hit_distance = math.max(
+		query_collider.GetCollisionMargin and query_collider:GetCollisionMargin() or 0,
+		target_collider.GetCollisionMargin and target_collider:GetCollisionMargin() or 0,
+		physics_constants.DEFAULT_COLLISION_MARGIN or 0
 	)
-	POLYHEDRON_BODY_SWEEP_SAMPLE_CONTEXT.polyhedron = nil
-	POLYHEDRON_BODY_SWEEP_SAMPLE_CONTEXT.start_position = nil
-	POLYHEDRON_BODY_SWEEP_SAMPLE_CONTEXT.rotation = nil
-	POLYHEDRON_BODY_SWEEP_SAMPLE_CONTEXT.target_polyhedron = nil
-	POLYHEDRON_BODY_SWEEP_SAMPLE_CONTEXT.target_state = nil
-	POLYHEDRON_BODY_SWEEP_SAMPLE_CONTEXT.max_fraction = 0
-	POLYHEDRON_BODY_SWEEP_SAMPLE_CONTEXT.scratch = nil
-	POLYHEDRON_BODY_SWEEP_SAMPLE_CONTEXT.movement = nil
+	local hit_result = pair_solver_helpers.FindDistanceSweepHit(
+		function(alpha)
+			local t = alpha * math.max(0, max_fraction or 1)
+			local target_position_t, target_rotation_t = helpers.GetTargetPose(target_state, t, max_fraction)
+			return evaluate_polyhedron_pair_distance(
+				query_polyhedron,
+				start_position + movement * t,
+				rotation,
+				target_polyhedron,
+				target_position_t,
+				target_rotation_t,
+				scratch
+			)
+		end,
+		hit_distance,
+		relative_movement,
+		relative_movement:GetLength()
+	)
+
+	if body_state_has_significant_rotation(target_state) then
+		sampled_hit_t, sampled_hit_result = find_first_sampled_hit(max_fraction, get_polyhedron_sweep_sample_steps(query_polyhedron, movement:GetLength(), max_fraction), function(t)
+			local target_position_t, target_rotation_t = helpers.GetTargetPose(target_state, t, max_fraction)
+			return evaluate_polyhedron_pair_contact(
+				query_polyhedron,
+				start_position + movement * t,
+				rotation,
+				target_polyhedron,
+				target_position_t,
+				target_rotation_t,
+				scratch
+			)
+		end)
+	end
+
+	local distance_hit_t = hit_result and ((hit_result.t or 0) * math.max(0, max_fraction or 1)) or nil
+
+	if sampled_hit_result and (not hit_result or sampled_hit_t <= distance_hit_t) then
+		hit_result = sampled_hit_result
+		hit_result.t = sampled_hit_t
+	end
 
 	if not hit_result then return nil end
 
-	local point, position = helpers.GetPolyhedronPairContactPositions(hit_result, scratch)
+	local hit_t = hit_result.t or distance_hit_t or 0
+	local target_position_t, target_rotation_t = helpers.GetTargetPose(target_state, hit_t, max_fraction)
+	local contact_result = evaluate_polyhedron_pair_contact(
+			query_polyhedron,
+			start_position + movement * hit_t,
+			rotation,
+			target_polyhedron,
+			target_position_t,
+			target_rotation_t,
+			scratch
+		) or
+		hit_result
+	local point = hit_result.point_a
+	local position = hit_result.point_b
+
+	if not (point and position) then
+		point, position = helpers.GetPolyhedronPairContactPositions(contact_result, scratch)
+	end
+
+	local normal = select(
+		1,
+		pair_solver_helpers.GetSafeCollisionNormal(
+			point and position and (point - position) or nil,
+			relative_movement,
+			hit_result.delta,
+			contact_result.normal or scratch.last_normal
+		)
+	)
+	normal = helpers.EnsureNormalFacesMotion(normal and normal * -1 or nil, movement)
+
+	if
+		body_state_has_significant_rotation(target_state) and
+		movement:GetLength() > EPSILON
+	then
+		local opposing = (movement * -1):GetNormalized()
+
+		if not normal or normal:Dot(opposing) < 0.7 then normal = opposing end
+	end
+
 	return point and
 		position and
 		{
 			t = hit_t,
 			point = point,
 			position = position,
-			normal = hit_result.normal * -1,
+			normal = normal,
 		} or
 		nil
 end

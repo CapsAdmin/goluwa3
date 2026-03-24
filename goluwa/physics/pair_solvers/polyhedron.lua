@@ -2,29 +2,50 @@ local physics_constants = import("goluwa/physics/constants.lua")
 local pair_solver_helpers = import("goluwa/physics/pair_solver_helpers.lua")
 local contact_resolution = import("goluwa/physics/contact_resolution.lua")
 local convex_manifold = import("goluwa/physics/convex_manifold.lua")
-local convex_sat = import("goluwa/physics/convex_sat.lua")
+local gjk_epa = import("goluwa/physics/gjk_epa.lua")
+local Vec3 = import("goluwa/structs/vec3.lua")
 local polyhedron_face_contacts = import("goluwa/physics/polyhedron/face_contacts.lua")
-local polyhedron_sat = import("goluwa/physics/polyhedron/sat.lua")
 local polyhedron_cache = import("goluwa/physics/polyhedron/cache.lua")
-local polyhedron_geometry = import("goluwa/physics/polyhedron/geometry.lua")
 local polyhedron = {}
 local EPSILON = physics_constants.EPSILON
 local FACE_CONTACT_SEPARATION_TOLERANCE = 0.08
-local FACE_AXIS_RELATIVE_TOLERANCE = 1.05
-local FACE_AXIS_ABSOLUTE_TOLERANCE = 0.03
+local FACE_CONTACT_ALIGNMENT_THRESHOLD = 0.5
 local POLYHEDRON_FACE_CONTACT_SCRATCH = {}
 local POLYHEDRON_SUPPORT_CONTACT_SCRATCH = {}
 local POLYHEDRON_CONTACT_OUTPUT_SCRATCH = {
 	face_contacts = {},
-	edge_contacts = {
-		{},
-	},
 }
+local POLYHEDRON_PAIR_AXIS_CACHE = setmetatable({}, {__mode = "k"})
+local find_distance_swept_polyhedron_pair_hit
+local solve_distance_swept_polyhedron_pair_collision
 polyhedron.GetPolyhedronWorldVertices = polyhedron_cache.GetPolyhedronWorldVertices
 polyhedron.GetPolyhedronWorldFace = polyhedron_cache.GetPolyhedronWorldFace
 
-local function get_edge_indices(edge)
-	return polyhedron_geometry.GetEdgeIndices(edge)
+local function get_pair_axis_cache_row(body)
+	local row = POLYHEDRON_PAIR_AXIS_CACHE[body]
+
+	if row then return row end
+
+	row = setmetatable({}, {__mode = "k"})
+	POLYHEDRON_PAIR_AXIS_CACHE[body] = row
+	return row
+end
+
+local function get_cached_pair_axis(body_a, body_b)
+	local row = POLYHEDRON_PAIR_AXIS_CACHE[body_a]
+	local axis = row and row[body_b] or nil
+
+	if axis and axis:GetLength() > EPSILON then return axis end
+
+	return nil
+end
+
+local function set_cached_pair_axis(body_a, body_b, axis)
+	if not axis or axis:GetLength() <= EPSILON then return end
+
+	local normalized = axis:GetNormalized()
+	get_pair_axis_cache_row(body_a)[body_b] = normalized
+	get_pair_axis_cache_row(body_b)[body_a] = normalized * -1
 end
 
 local function build_polyhedron_contacts(vertices_a, vertices_b, normal)
@@ -42,11 +63,9 @@ end
 local function build_face_contacts_from_features(
 	body_a,
 	poly_a,
-	vertices_a,
 	rotation_a,
 	body_b,
 	poly_b,
-	vertices_b,
 	rotation_b,
 	candidate
 )
@@ -80,19 +99,79 @@ local function build_face_contacts_from_features(
 	)
 end
 
-local function build_edge_contacts_from_features(poly_a, vertices_a, poly_b, vertices_b, candidate)
-	local edge_a = poly_a.edges and poly_a.edges[candidate.edge_index_a]
-	local edge_b = poly_b.edges and poly_b.edges[candidate.edge_index_b]
+local function find_best_face_index_for_normal(polyhedron_data, rotation, normal)
+	local best_index = nil
+	local best_alignment = -math.huge
 
-	if not (edge_a and edge_b) then return {} end
+	for face_index, face in ipairs(polyhedron_data.faces or {}) do
+		local world_normal = rotation:VecMul(face.normal):GetNormalized()
+		local alignment = world_normal:Dot(normal)
 
-	local a1, a2 = get_edge_indices(edge_a)
-	local b1, b2 = get_edge_indices(edge_b)
-	local point_a, point_b = convex_manifold.ClosestPointsOnSegments(vertices_a[a1], vertices_a[a2], vertices_b[b1], vertices_b[b2])
-	return convex_manifold.BuildSingleContact(POLYHEDRON_CONTACT_OUTPUT_SCRATCH.edge_contacts, point_a, point_b)
+		if alignment > best_alignment then
+			best_alignment = alignment
+			best_index = face_index
+		end
+	end
+
+	return best_index, best_alignment
 end
 
-local function solve_swept_polyhedron_polyhedron_collision(dynamic_body, static_body, static_polyhedron, dt)
+local function build_contacts_from_penetration_result(
+	body_a,
+	poly_a,
+	vertices_a,
+	rotation_a,
+	body_b,
+	poly_b,
+	vertices_b,
+	rotation_b,
+	normal
+)
+	local face_index_a, alignment_a = find_best_face_index_for_normal(poly_a, rotation_a, normal)
+	local face_index_b, alignment_b = find_best_face_index_for_normal(poly_b, rotation_b, normal * -1)
+	local candidate = nil
+
+	if
+		face_index_a and
+		alignment_a >= FACE_CONTACT_ALIGNMENT_THRESHOLD and
+		alignment_a >= (
+			alignment_b or
+			-math.huge
+		)
+	then
+		candidate = {
+			kind = "face",
+			reference_body = "a",
+			face_index = face_index_a,
+			normal = normal,
+		}
+	elseif face_index_b and alignment_b >= FACE_CONTACT_ALIGNMENT_THRESHOLD then
+		candidate = {
+			kind = "face",
+			reference_body = "b",
+			face_index = face_index_b,
+			normal = normal,
+		}
+	end
+
+	if candidate then
+		local contacts = build_face_contacts_from_features(
+			body_a,
+			poly_a,
+			rotation_a,
+			body_b,
+			poly_b,
+			rotation_b,
+			candidate
+		)
+
+		if contacts[1] then return contacts end
+	end
+
+	return build_polyhedron_contacts(vertices_a, vertices_b, normal)
+end
+
+local function solve_swept_polyhedron_polyhedron_collision(dynamic_body, dynamic_polyhedron, static_body, static_polyhedron, dt)
 	if not pair_solver_helpers.ShouldUsePairCCD(dynamic_body, static_body) then
 		return false
 	end
@@ -111,6 +190,7 @@ local function solve_swept_polyhedron_polyhedron_collision(dynamic_body, static_
 
 	if movement:GetLength() <= EPSILON then return false end
 
+	local distance_hit = find_distance_swept_polyhedron_pair_hit(static_body, dynamic_body, static_polyhedron, dynamic_polyhedron)
 	local earliest_hit = pair_solver_helpers.FindEarliestBodyPointSweepHit(
 		dynamic_body,
 		previous_position,
@@ -123,80 +203,185 @@ local function solve_swept_polyhedron_polyhedron_collision(dynamic_body, static_
 		end
 	)
 
+	if distance_hit and (not earliest_hit or distance_hit.t <= earliest_hit.t) then
+		set_cached_pair_axis(static_body, dynamic_body, distance_hit.normal)
+		return pair_solver_helpers.ResolveRelativeSweptPairHit(
+			static_body,
+			dynamic_body,
+			static_body:GetPreviousPosition(),
+			Vec3(0, 0, 0),
+			previous_position,
+			movement,
+			distance_hit,
+			dt,
+			false,
+			distance_hit.point_a,
+			distance_hit.point_b
+		)
+	end
+
 	if not earliest_hit then return false end
 
 	return pair_solver_helpers.ResolveSweptHit(static_body, dynamic_body, previous_position, movement, earliest_hit, dt)
 end
 
-local function evaluate_polyhedron_pair_at_transforms(poly_a, position_a, rotation_a, poly_b, position_b, rotation_b, scratch)
+local function evaluate_polyhedron_pair_distance_at_transforms(poly_a, position_a, rotation_a, poly_b, position_b, rotation_b, scratch)
 	scratch = scratch or {}
-	local axes = polyhedron_sat.CollectAxes(poly_a, rotation_a, poly_b, rotation_b, scratch.axes)
-	scratch.axes = axes
-
-	if not axes[1] then return nil end
-
 	local vertices_a = polyhedron_cache.FillPolyhedronWorldVertices(poly_a, position_a, rotation_a, scratch.vertices_a)
 	local vertices_b = polyhedron_cache.FillPolyhedronWorldVertices(poly_b, position_b, rotation_b, scratch.vertices_b)
 	scratch.vertices_a = vertices_a
 	scratch.vertices_b = vertices_b
+	local distance = gjk_epa.Distance(
+		vertices_a,
+		vertices_b,
+		{
+			initial_direction = scratch.last_normal or (position_b - position_a),
+			simplex = scratch.distance_simplex,
+		}
+	)
+	scratch.distance_simplex = distance and distance.simplex or scratch.distance_simplex
 
-	if polyhedron_sat.HasSeparatingAxis(vertices_a, vertices_b, axes) then
-		return nil
+	if distance and distance.normal then
+		scratch.last_normal = distance.normal
+	elseif distance and distance.delta and distance.delta:GetLength() > EPSILON then
+		scratch.last_normal = distance.delta:GetNormalized()
 	end
 
-	local best = convex_sat.CreateBestAxisTracker()
-	local center_delta = position_b - position_a
-	polyhedron_sat.UpdateFaceAxisCandidates(
-		best,
-		vertices_a,
-		vertices_b,
-		poly_a,
-		rotation_a,
-		center_delta,
-		"a",
-		EPSILON
-	)
-	polyhedron_sat.UpdateFaceAxisCandidates(
-		best,
-		vertices_a,
-		vertices_b,
-		poly_b,
-		rotation_b,
-		center_delta,
-		"b",
-		EPSILON
-	)
-	polyhedron_sat.UpdateEdgeAxisCandidates(
-		best,
-		vertices_a,
-		vertices_b,
-		poly_a,
-		rotation_a,
-		poly_b,
-		rotation_b,
-		center_delta,
-		EPSILON
-	)
-	local chosen = convex_sat.ChoosePreferredAxis(best, FACE_AXIS_RELATIVE_TOLERANCE, FACE_AXIS_ABSOLUTE_TOLERANCE)
-	local best_overlap = chosen and chosen.overlap or math.huge
-	local best_normal = chosen and chosen.normal or nil
+	return distance
+end
 
-	if not best_normal or best_overlap == math.huge then return nil end
+find_distance_swept_polyhedron_pair_hit = function(body_a, body_b, poly_a, poly_b)
+	if not pair_solver_helpers.ShouldUsePairCCD(body_a, body_b) then return false end
 
-	local contacts = build_polyhedron_contacts(vertices_a, vertices_b, best_normal)
-	local point_a = convex_manifold.AverageSupportPoint(vertices_a, best_normal, true)
-	local point_b = convex_manifold.AverageSupportPoint(vertices_b, best_normal, false)
-	return {
-		overlap = best_overlap,
-		normal = best_normal,
-		contacts = contacts,
-		point_a = point_a,
-		point_b = point_b,
-		position_a = position_a,
-		position_b = position_b,
-		rotation_a = rotation_a,
-		rotation_b = rotation_b,
+	local sweep_a = pair_solver_helpers.GetBodySweepMotion(body_a)
+	local sweep_b = pair_solver_helpers.GetBodySweepMotion(body_b)
+	local previous_position_a = sweep_a.previous_position
+	local previous_position_b = sweep_b.previous_position
+	local relative_movement = sweep_a.movement - sweep_b.movement
+
+	if relative_movement:GetLength() <= EPSILON then return false end
+
+	local scratch = {
+		vertices_a = {},
+		vertices_b = {},
+		last_normal = get_cached_pair_axis(body_a, body_b),
 	}
+	local hit_distance = math.max(
+		body_a.GetCollisionMargin and body_a:GetCollisionMargin() or 0,
+		body_b.GetCollisionMargin and body_b:GetCollisionMargin() or 0,
+		physics_constants.DEFAULT_COLLISION_MARGIN or 0
+	)
+	local hit = pair_solver_helpers.FindDistanceSweepHit(
+		function(t)
+			return evaluate_polyhedron_pair_distance_at_transforms(
+				poly_a,
+				previous_position_a + sweep_a.movement * t,
+				sweep_a.previous_rotation,
+				poly_b,
+				previous_position_b + sweep_b.movement * t,
+				sweep_b.previous_rotation,
+				scratch
+			)
+		end,
+		hit_distance,
+		relative_movement,
+		relative_movement:GetLength()
+	)
+
+	if not hit or hit.distance > hit_distance + EPSILON then return nil end
+
+	hit.normal = hit.normal or
+		select(
+			1,
+			pair_solver_helpers.GetSafeCollisionNormal(hit.delta, relative_movement, scratch.last_normal)
+		)
+
+	if not hit.normal then return nil end
+
+	return hit
+end
+solve_distance_swept_polyhedron_pair_collision = function(body_a, body_b, poly_a, poly_b, dt)
+	local hit = find_distance_swept_polyhedron_pair_hit(body_a, body_b, poly_a, poly_b)
+
+	if not hit then return false end
+
+	local sweep_a = pair_solver_helpers.GetBodySweepMotion(body_a)
+	local sweep_b = pair_solver_helpers.GetBodySweepMotion(body_b)
+	set_cached_pair_axis(body_a, body_b, hit.normal)
+	return pair_solver_helpers.ResolveRelativeSweptPairHit(
+		body_a,
+		body_b,
+		sweep_a.previous_position,
+		sweep_a.movement,
+		sweep_b.previous_position,
+		sweep_b.movement,
+		hit,
+		dt,
+		false,
+		hit.point_a,
+		hit.point_b
+	)
+end
+
+local function evaluate_polyhedron_pair_at_transforms(poly_a, position_a, rotation_a, poly_b, position_b, rotation_b, scratch)
+	scratch = scratch or {}
+	local vertices_a = polyhedron_cache.FillPolyhedronWorldVertices(poly_a, position_a, rotation_a, scratch.vertices_a)
+	local vertices_b = polyhedron_cache.FillPolyhedronWorldVertices(poly_b, position_b, rotation_b, scratch.vertices_b)
+	scratch.vertices_a = vertices_a
+	scratch.vertices_b = vertices_b
+	local initial_direction = scratch.last_normal or (position_b - position_a)
+	local penetration = gjk_epa.Penetration(
+		vertices_a,
+		vertices_b,
+		{
+			initial_direction = initial_direction,
+			simplex = scratch.simplex,
+		}
+	)
+	scratch.simplex = penetration and penetration.gjk and penetration.gjk.simplex or scratch.simplex
+
+	if
+		penetration and
+		penetration.intersect and
+		penetration.normal and
+		penetration.depth and
+		penetration.depth > 0
+	then
+		scratch.last_normal = penetration.normal
+		return {
+			overlap = penetration.depth,
+			normal = penetration.normal,
+			contacts = nil,
+			point_a = penetration.point_a or
+				convex_manifold.AverageSupportPoint(vertices_a, penetration.normal, true),
+			point_b = penetration.point_b or
+				convex_manifold.AverageSupportPoint(vertices_b, penetration.normal, false),
+			position_a = position_a,
+			position_b = position_b,
+			rotation_a = rotation_a,
+			rotation_b = rotation_b,
+		}
+	end
+
+	return nil
+end
+
+local function intersects_polyhedron_pair_at_transforms(poly_a, position_a, rotation_a, poly_b, position_b, rotation_b, scratch)
+	scratch = scratch or {}
+	local vertices_a = polyhedron_cache.FillPolyhedronWorldVertices(poly_a, position_a, rotation_a, scratch.vertices_a)
+	local vertices_b = polyhedron_cache.FillPolyhedronWorldVertices(poly_b, position_b, rotation_b, scratch.vertices_b)
+	scratch.vertices_a = vertices_a
+	scratch.vertices_b = vertices_b
+	local result = gjk_epa.Intersect(
+		vertices_a,
+		vertices_b,
+		{
+			initial_direction = scratch.last_normal or (position_b - position_a),
+			simplex = scratch.simplex,
+		}
+	)
+	scratch.simplex = result and result.simplex or scratch.simplex
+	return result and result.intersect or false
 end
 
 local function find_polyhedron_pair_time_of_impact(body_a, poly_a, body_b, poly_b)
@@ -208,25 +393,59 @@ local function find_polyhedron_pair_time_of_impact(body_a, poly_a, body_b, poly_
 	local previous_rotation_b = body_b:GetPreviousRotation()
 	local current_position_b = body_b:GetPosition()
 	local current_rotation_b = body_b:GetRotation()
-	local sample_steps = pair_solver_helpers.GetTemporalTOISampleSteps(body_a, body_b)
+	local sample_steps = pair_solver_helpers.GetTemporalTOISampleSteps(body_a, body_b, 0.125, 14, 64)
 	local scratch = {
 		vertices_a = {},
 		vertices_b = {},
 	}
-	return pair_solver_helpers.FindSampledTemporalHit(
+	local hit = pair_solver_helpers.FindSampledTemporalHit(
 		function(t)
-			return evaluate_polyhedron_pair_at_transforms(
-				poly_a,
-				pair_solver_helpers.InterpolatePosition(previous_position_a, current_position_a, t),
-				pair_solver_helpers.InterpolateRotation(previous_rotation_a, current_rotation_a, t),
-				poly_b,
-				pair_solver_helpers.InterpolatePosition(previous_position_b, current_position_b, t),
-				pair_solver_helpers.InterpolateRotation(previous_rotation_b, current_rotation_b, t),
-				scratch
-			)
+			local position_a = pair_solver_helpers.InterpolatePosition(previous_position_a, current_position_a, t)
+			local rotation_a = pair_solver_helpers.InterpolateRotation(previous_rotation_a, current_rotation_a, t)
+			local position_b = pair_solver_helpers.InterpolatePosition(previous_position_b, current_position_b, t)
+			local rotation_b = pair_solver_helpers.InterpolateRotation(previous_rotation_b, current_rotation_b, t)
+
+			if
+				intersects_polyhedron_pair_at_transforms(poly_a, position_a, rotation_a, poly_b, position_b, rotation_b, scratch)
+			then
+				return {t = t}
+			end
+
+			return nil
 		end,
 		sample_steps
 	)
+
+	if not hit then return nil end
+
+	local hit_t = hit.t or 1
+	local result = evaluate_polyhedron_pair_at_transforms(
+		poly_a,
+		pair_solver_helpers.InterpolatePosition(previous_position_a, current_position_a, hit_t),
+		pair_solver_helpers.InterpolateRotation(previous_rotation_a, current_rotation_a, hit_t),
+		poly_b,
+		pair_solver_helpers.InterpolatePosition(previous_position_b, current_position_b, hit_t),
+		pair_solver_helpers.InterpolateRotation(previous_rotation_b, current_rotation_b, hit_t),
+		scratch
+	)
+
+	if not result then return nil end
+
+	result.t = hit_t
+	local vertices_a = polyhedron_cache.FillPolyhedronWorldVertices(poly_a, result.position_a, result.rotation_a, scratch.vertices_a)
+	local vertices_b = polyhedron_cache.FillPolyhedronWorldVertices(poly_b, result.position_b, result.rotation_b, scratch.vertices_b)
+	result.contacts = build_contacts_from_penetration_result(
+		body_a,
+		poly_a,
+		vertices_a,
+		result.rotation_a,
+		body_b,
+		poly_b,
+		vertices_b,
+		result.rotation_b,
+		result.normal
+	)
+	return result
 end
 
 function polyhedron.SolveTemporalPolyhedronPairCollision(body_a, body_b, poly_a, poly_b, dt)
@@ -272,6 +491,10 @@ local function solve_relative_swept_polyhedron_pair_collision(body_a, body_b, po
 	local relative_movement = movement_a - movement_b
 
 	if relative_movement:GetLength() <= EPSILON then return false end
+
+	local distance_hit = solve_distance_swept_polyhedron_pair_collision(body_a, body_b, poly_a, poly_b, dt)
+
+	if distance_hit then return true end
 
 	local earliest_hit = pair_solver_helpers.FindEarliestBodyPointSweepHit(
 		body_a,
@@ -345,11 +568,11 @@ local function try_swept_polyhedron_pair_fallback(body_a, body_b, poly_a, poly_b
 	local static_body, dynamic_body = pair_solver_helpers.GetStaticDynamicPair(body_a, body_b)
 
 	if static_body == body_a then
-		return solve_swept_polyhedron_polyhedron_collision(dynamic_body, static_body, poly_a, dt)
+		return solve_swept_polyhedron_polyhedron_collision(dynamic_body, poly_b, static_body, poly_a, dt)
 	end
 
 	if static_body == body_b then
-		return solve_swept_polyhedron_polyhedron_collision(dynamic_body, static_body, poly_b, dt)
+		return solve_swept_polyhedron_polyhedron_collision(dynamic_body, poly_a, static_body, poly_b, dt)
 	end
 
 	return solve_relative_swept_polyhedron_pair_collision(body_a, body_b, poly_a, poly_b, dt)
@@ -369,88 +592,55 @@ function polyhedron.SolvePolyhedronPairCollision(body_a, body_b, dt)
 		if temporal then return true end
 	end
 
-	if
-		pair_solver_helpers.HasSolverMass(body_a) and
-		pair_solver_helpers.HasSolverMass(body_b)
-	then
+	if pair_solver_helpers.ShouldUsePairCCD(body_a, body_b) then
 		local previous_bounds_a = body_a:GetBroadphaseAABB(body_a:GetPreviousPosition(), body_a:GetPreviousRotation())
 		local previous_bounds_b = body_b:GetBroadphaseAABB(body_b:GetPreviousPosition(), body_b:GetPreviousRotation())
 
 		if not previous_bounds_a:IsBoxIntersecting(previous_bounds_b) then
-			local swept = solve_relative_swept_polyhedron_pair_collision(body_a, body_b, poly_a, poly_b, dt)
+			local swept = try_swept_polyhedron_pair_fallback(body_a, body_b, poly_a, poly_b, dt)
 
 			if swept then return true end
 		end
 	end
 
 	local center_delta = body_b:GetPosition() - body_a:GetPosition()
-	local axes = polyhedron_sat.CollectAxes(poly_a, body_a:GetRotation(), poly_b, body_b:GetRotation())
-
-	if not axes[1] then return false end
-
 	local vertices_a = polyhedron.GetPolyhedronWorldVertices(body_a, poly_a)
 	local vertices_b = polyhedron.GetPolyhedronWorldVertices(body_b, poly_b)
-	local best = convex_sat.CreateBestAxisTracker()
+	local initial_direction = get_cached_pair_axis(body_a, body_b) or center_delta
+	local penetration = gjk_epa.Penetration(vertices_a, vertices_b, {
+		initial_direction = initial_direction,
+	})
 
-	if polyhedron_sat.HasSeparatingAxis(vertices_a, vertices_b, axes) then
+	if
+		not (
+			penetration and
+			penetration.intersect and
+			penetration.normal and
+			penetration.depth and
+			penetration.depth > 0
+		)
+	then
 		return try_swept_polyhedron_pair_fallback(body_a, body_b, poly_a, poly_b, dt)
 	end
 
-	polyhedron_sat.UpdateFaceAxisCandidates(
-		best,
-		vertices_a,
-		vertices_b,
+	local best_normal = penetration.normal
+	local best_overlap = penetration.depth
+	set_cached_pair_axis(body_a, body_b, best_normal)
+	local contacts = build_contacts_from_penetration_result(
+		body_a,
 		poly_a,
-		body_a:GetRotation(),
-		center_delta,
-		"a",
-		EPSILON
-	)
-	polyhedron_sat.UpdateFaceAxisCandidates(
-		best,
 		vertices_a,
-		vertices_b,
-		poly_b,
-		body_b:GetRotation(),
-		center_delta,
-		"b",
-		EPSILON
-	)
-	polyhedron_sat.UpdateEdgeAxisCandidates(
-		best,
-		vertices_a,
-		vertices_b,
-		poly_a,
 		body_a:GetRotation(),
+		body_b,
 		poly_b,
+		vertices_b,
 		body_b:GetRotation(),
-		center_delta,
-		EPSILON
+		best_normal
 	)
-	local chosen = convex_sat.ChoosePreferredAxis(best, FACE_AXIS_RELATIVE_TOLERANCE, FACE_AXIS_ABSOLUTE_TOLERANCE)
-	local best_overlap = chosen and chosen.overlap or math.huge
-	local best_normal = chosen and chosen.normal or nil
-
-	if not best_normal or best_overlap == math.huge then return false end
-
-	local contacts = chosen.kind == "face" and
-		build_face_contacts_from_features(
-			body_a,
-			poly_a,
-			vertices_a,
-			body_a:GetRotation(),
-			body_b,
-			poly_b,
-			vertices_b,
-			body_b:GetRotation(),
-			chosen
-		) or
-		chosen.kind == "edge" and
-		build_edge_contacts_from_features(poly_a, vertices_a, poly_b, vertices_b, chosen)
-		or
-		build_polyhedron_contacts(vertices_a, vertices_b, best_normal)
-	local point_a = convex_manifold.AverageSupportPoint(vertices_a, best_normal, true)
-	local point_b = convex_manifold.AverageSupportPoint(vertices_b, best_normal, false)
+	local point_a = penetration.point_a or
+		convex_manifold.AverageSupportPoint(vertices_a, best_normal, true)
+	local point_b = penetration.point_b or
+		convex_manifold.AverageSupportPoint(vertices_b, best_normal, false)
 
 	if contacts[1] then
 		return contact_resolution.ResolvePairPenetration(body_a, body_b, best_normal, best_overlap, dt, nil, nil, contacts)

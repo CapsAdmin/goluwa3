@@ -326,7 +326,10 @@ local function visit_polygon_leaf(node, context, result)
 
 		if user_context then user_context.entry = entry end
 
-		triangle_mesh.ForEachOverlappingTriangle(entry.polygon, context.local_bounds, context.callback, context.user_context)
+		if triangle_mesh.ForEachOverlappingTriangle(entry.polygon, context.local_bounds, context.callback, context.user_context) then
+			if user_context then user_context.entry = previous_entry end
+			return true
+		end
 	end
 
 	if user_context then user_context.entry = previous_entry end
@@ -615,8 +618,7 @@ function META:ForEachOverlappingTriangle(body, local_bounds, callback, context)
 		traversal_context.local_bounds = local_bounds
 		traversal_context.callback = callback
 		traversal_context.user_context = context
-		BVH.TraverseAABB(local_bounds, acceleration.root, visit_polygon_leaf, traversal_context, nil)
-		return
+		return BVH.TraverseAABB(local_bounds, acceleration.root, visit_polygon_leaf, traversal_context, nil)
 	end
 
 	for i = 1, #entries do
@@ -632,7 +634,10 @@ function META:ForEachOverlappingTriangle(body, local_bounds, callback, context)
 
 			if context then context.entry = entry end
 
-			triangle_mesh.ForEachOverlappingTriangle(entry.polygon, local_bounds, callback, context)
+			if triangle_mesh.ForEachOverlappingTriangle(entry.polygon, local_bounds, callback, context) then
+				if context then context.entry = previous_entry end
+				return true
+			end
 
 			if context then context.entry = previous_entry end
 		end

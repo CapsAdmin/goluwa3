@@ -7,6 +7,7 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local SphereShape = import("goluwa/physics/shapes/sphere.lua")
 local BoxShape = import("goluwa/physics/shapes/box.lua")
+local CapsuleShape = import("goluwa/physics/shapes/capsule.lua")
 local ConvexShape = import("goluwa/physics/shapes/convex.lua")
 local test_helpers = import("test/tests/physics/test_helpers.lua")
 local sphere_shape = SphereShape.New
@@ -262,6 +263,39 @@ T.Test3D("Rigid sphere collides with static convex hull", function()
 	T(velocity.x)["<"](0.5)
 	sphere_ent:Remove()
 	convex_ent:Remove()
+end)
+
+T.Test3D("Capsule rigid body collides with static convex hull", function()
+	local hull = convex_hull.BuildFromTriangles(create_box_source_mesh(Vec3(3, 1, 3)))
+	local convex_ent = Entity.New({Name = "convex_static_capsule_support"})
+	convex_ent:AddComponent("transform")
+	convex_ent.transform:SetPosition(Vec3(0, 1, 0))
+	convex_ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = convex_shape(hull),
+			ConvexHull = hull,
+			MotionType = "static",
+		}
+	)
+	local capsule_ent = Entity.New({Name = "capsule_vs_convex_body"})
+	capsule_ent:AddComponent("transform")
+	capsule_ent.transform:SetPosition(Vec3(0, 4, 0))
+	local capsule = capsule_ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = CapsuleShape.New(0.5, 2.0),
+			LinearDamping = 0,
+			AngularDamping = 0,
+		}
+	)
+	simulate_physics(240)
+	local position = capsule_ent.transform:GetPosition()
+	T(capsule:GetGrounded())["=="](true)
+	T(position.y)[">="](2.0)
+	T(position.y)["<="](2.6)
+	convex_ent:Remove()
+	capsule_ent:Remove()
 end)
 
 T.Test3D("Convex rigid body collides with static box", function()

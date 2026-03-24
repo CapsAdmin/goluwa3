@@ -94,14 +94,6 @@ local SOLVE_BEST_TRIANGLE_CONTACT_CONTEXT = {
 	best = nil,
 }
 
-local function get_cached_pair(mesh_body, other_body)
-	local collision_pairs = physics.collision_pairs
-
-	if not collision_pairs then return nil end
-
-	return collision_pairs:GetCachedPair(mesh_body, other_body)
-end
-
 local function get_narrow_phase_pair_cache(mesh_body, other_body)
 	if not (mesh_body and other_body) then return nil end
 
@@ -491,20 +483,22 @@ local function invoke_overlapping_mesh_triangle(v0, v1, v2, triangle_index, cont
 	local previous_entry = user_context and user_context.entry or nil
 
 	if user_context then user_context.entry = context.entry end
+	local stop = false
 
 	if user_context and user_context.use_local_space then
-		context.callback(v0, v1, v2, triangle_index, user_context)
+		stop = context.callback(v0, v1, v2, triangle_index, user_context) == true
 	else
-		context.callback(
+		stop = context.callback(
 			mesh_body:LocalToWorld(v0),
 			mesh_body:LocalToWorld(v1),
 			mesh_body:LocalToWorld(v2),
 			triangle_index,
 			user_context
-		)
+		) == true
 	end
 
 	if user_context then user_context.entry = previous_entry end
+	return stop
 end
 
 local function solve_best_triangle_contact_callback(v0, v1, v2, triangle_index, context)
@@ -541,7 +535,7 @@ function mesh_contact_common.ForEachOverlappingMeshTriangle(mesh_body, mesh_shap
 	OVERLAPPING_TRIANGLE_CALLBACK_CONTEXT.mesh_body = mesh_body
 	OVERLAPPING_TRIANGLE_CALLBACK_CONTEXT.callback = callback
 	OVERLAPPING_TRIANGLE_CALLBACK_CONTEXT.user_context = context
-	mesh_shape:ForEachOverlappingTriangle(
+	local result = mesh_shape:ForEachOverlappingTriangle(
 		mesh_body,
 		local_bounds,
 		invoke_overlapping_mesh_triangle,
@@ -550,6 +544,60 @@ function mesh_contact_common.ForEachOverlappingMeshTriangle(mesh_body, mesh_shap
 	OVERLAPPING_TRIANGLE_CALLBACK_CONTEXT.mesh_body = nil
 	OVERLAPPING_TRIANGLE_CALLBACK_CONTEXT.callback = nil
 	OVERLAPPING_TRIANGLE_CALLBACK_CONTEXT.user_context = nil
+	return result
+end
+
+function mesh_contact_common.ForEachCachedMeshTriangle(mesh_body, other_body, callback, context)
+	if not NARROW_PHASE_CACHE_ENABLED then return 0 end
+
+	local pair = get_narrow_phase_pair_cache(mesh_body, other_body)
+
+	if not pair then return 0 end
+
+	local candidates = collect_cached_triangle_candidates(pair)
+	local use_local_space = context and context.use_local_space
+	local previous_entry = context and context.entry or nil
+	local count = 0
+
+	for _, candidate in ipairs(candidates) do
+		local polygon = candidate.polygon
+		local triangle_index = candidate.triangle_index
+		local local_v0, local_v1, local_v2 = triangle_mesh.GetPolygonTriangleLocalVertices(polygon, triangle_index)
+
+		if local_v0 and local_v1 and local_v2 then
+			if context then context.entry = {polygon = polygon} end
+
+			if use_local_space then
+				callback(local_v0, local_v1, local_v2, triangle_index, context)
+			else
+				callback(
+					mesh_body:LocalToWorld(local_v0),
+					mesh_body:LocalToWorld(local_v1),
+					mesh_body:LocalToWorld(local_v2),
+					triangle_index,
+					context
+				)
+			end
+
+			count = count + 1
+		end
+	end
+
+	if context then context.entry = previous_entry end
+	return count
+end
+
+function mesh_contact_common.CacheTriangle(mesh_body, other_body, polygon, triangle_index, normal, overlap)
+	if not NARROW_PHASE_CACHE_ENABLED then return false end
+
+	if not (polygon and triangle_index ~= nil) then return false end
+
+	local pair = get_narrow_phase_pair_cache(mesh_body, other_body)
+
+	if not pair then return false end
+
+	push_cached_triangle(pair, polygon, triangle_index, normal, overlap)
+	return true
 end
 
 function mesh_contact_common.SelectTriangleNormal(mesh_body, other_body, delta, fallback_delta, fallback_normal)

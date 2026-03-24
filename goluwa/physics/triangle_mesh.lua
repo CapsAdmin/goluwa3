@@ -411,7 +411,10 @@ local function visit_triangle_leaf(node, context, result)
 
 	for i = node.first, node.last do
 		local triangle = triangles[i]
-		callback(triangle.v0, triangle.v1, triangle.v2, triangle.triangle_index, user_context)
+
+		if callback(triangle.v0, triangle.v1, triangle.v2, triangle.triangle_index, user_context) then
+			return true
+		end
 	end
 
 	return result
@@ -427,15 +430,14 @@ function triangle_mesh.ForEachOverlappingTriangle(poly, local_bounds, callback, 
 		traversal_context.acceleration = acceleration
 		traversal_context.callback = callback
 		traversal_context.user_context = context
-		BVH.TraverseAABB(local_bounds, acceleration.root, visit_triangle_leaf, traversal_context, nil)
-		return
+		return BVH.TraverseAABB(local_bounds, acceleration.root, visit_triangle_leaf, traversal_context, nil)
 	end
 
 	for i = 1, triangle_count do
 		local triangle = triangles[i]
 
 		if triangle_bounds_overlap(local_bounds, triangle) then
-			callback(triangle.v0, triangle.v1, triangle.v2, triangle.triangle_index, context)
+			if callback(triangle.v0, triangle.v1, triangle.v2, triangle.triangle_index, context) then return true end
 		end
 	end
 end

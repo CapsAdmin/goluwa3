@@ -45,7 +45,11 @@ function polyhedron_face_contacts.BuildPolyhedronTriangleFaceContacts(collider, 
 	if
 		not (
 			chosen and
-			chosen.face_index and
+			(
+				chosen.reference ~= "polyhedron" or
+				chosen.face_index
+			)
+			and
 			normal and
 			triangle_vertices and
 			triangle_vertices[1]

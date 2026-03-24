@@ -28,6 +28,11 @@ local function with_auto_ccd(config)
 	return config
 end
 
+local function without_auto_ccd(config)
+	config.AutoCCD = false
+	return config
+end
+
 local function create_world_geometry_ground(name, size)
 	local ground = Entity.New({Name = name})
 	ground:AddComponent("transform")
@@ -60,7 +65,7 @@ local function create_world_geometry_ground(name, size)
 	return ground
 end
 
-T.Test3D("Fast rigid sphere tunnels through thin static box by default without CCD", function()
+T.Test3D("Fast rigid sphere tunnels through thin static box with auto CCD disabled", function()
 	local blocker_ent = Entity.New({Name = "rigid_discrete_blocker"})
 	blocker_ent:AddComponent("transform")
 	blocker_ent.transform:SetPosition(Vec3(0, 1, 0))
@@ -77,7 +82,7 @@ T.Test3D("Fast rigid sphere tunnels through thin static box by default without C
 	sphere_ent.transform:SetPosition(Vec3(0, 8, 0))
 	local sphere = sphere_ent:AddComponent(
 		"rigid_body",
-		{
+		without_auto_ccd{
 			Shape = sphere_shape(0.5),
 			Radius = 0.5,
 			LinearDamping = 0,
@@ -88,9 +93,9 @@ T.Test3D("Fast rigid sphere tunnels through thin static box by default without C
 	sphere:SetVelocity(Vec3(0, -320, 0))
 	simulate_physics(1, 1 / 10)
 	local position = sphere_ent.transform:GetPosition()
-	T(position.y)["<"](0)
 	blocker_ent:Remove()
 	sphere_ent:Remove()
+	T(position.y)["<"](0)
 end)
 
 T.Test("Auto CCD activates for fast linear motion", function()

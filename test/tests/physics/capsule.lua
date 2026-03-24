@@ -17,6 +17,11 @@ local function with_ccd(config)
 	return config
 end
 
+local function without_auto_ccd(config)
+	config.AutoCCD = false
+	return config
+end
+
 local function with_fixed_step(fixed_dt, callback)
 	local previous_fixed_dt = physics.FixedTimeStep
 	local previous_accumulator = physics.FrameAccumulator
@@ -144,7 +149,7 @@ T.Test3D("Capsule rigid body rolls off rotated static box instead of resting on 
 	ground:Remove()
 end)
 
-T.Test3D("Fast capsule tunnels through thin static box by default without CCD", function()
+T.Test3D("Fast capsule tunnels through thin static box with auto CCD disabled", function()
 	local blocker_ent = Entity.New({Name = "capsule_discrete_blocker"})
 	blocker_ent:AddComponent("transform")
 	blocker_ent.transform:SetPosition(Vec3(0, 1, 0))
@@ -161,7 +166,7 @@ T.Test3D("Fast capsule tunnels through thin static box by default without CCD", 
 	capsule_ent.transform:SetPosition(Vec3(0, 8, 0))
 	local capsule = capsule_ent:AddComponent(
 		"rigid_body",
-		{
+		without_auto_ccd{
 			Shape = CapsuleShape.New(0.5, 2.0),
 			LinearDamping = 0,
 			AngularDamping = 0,

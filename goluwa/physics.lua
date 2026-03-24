@@ -149,6 +149,8 @@ function Physics:RegisterPairHandlers(solver)
 	solver:RegisterPairHandler("capsule", "capsule", capsule_pair_solver.SolveCapsuleCapsulePair)
 	solver:RegisterPairHandler("capsule", "box", capsule_pair_solver.SolveCapsuleBoxPair)
 	solver:RegisterPairHandler("box", "capsule", capsule_pair_solver.SolveBoxCapsulePair)
+	solver:RegisterPairHandler("capsule", "convex", capsule_pair_solver.SolveCapsuleConvexPair)
+	solver:RegisterPairHandler("convex", "capsule", capsule_pair_solver.SolveConvexCapsulePair)
 
 	solver:RegisterPairHandler("box", "box", function(body_a, body_b, _, _, dt)
 		return box_pair_solver.SolveBoxPairCollision(body_a, body_b, dt)

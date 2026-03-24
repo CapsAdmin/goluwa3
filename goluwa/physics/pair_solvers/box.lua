@@ -138,14 +138,14 @@ local function get_box_face(body, desired_normal)
 	local extents = shape:GetExtents()
 	local axes = shape:GetAxes(body)
 	local axis_index = 1
-	local alignment = -math.huge
+	local best_alignment = -math.huge
 
 	for i = 1, 3 do
 		local dot = axes[i]:Dot(desired_normal)
 		local abs_dot = math.abs(dot)
 
-		if abs_dot > alignment then
-			alignment = abs_dot
+		if abs_dot > best_alignment then
+			best_alignment = abs_dot
 			axis_index = i
 		end
 	end
@@ -185,24 +185,14 @@ local function get_box_face(body, desired_normal)
 	end
 
 	return {
-		face_index = face_index,
 		axis_index = axis_index,
 		sign = sign,
-		alignment = alignment,
 		normal = axis * sign,
-		tangent_u = axes[tangent_u_index],
-		tangent_v = axes[tangent_v_index],
 		plane = sign * get_component(extents, axis_index),
 		tangent_u_index = tangent_u_index,
 		tangent_v_index = tangent_v_index,
 		tangent_u_extent = get_component(extents, tangent_u_index),
 		tangent_v_extent = get_component(extents, tangent_v_index),
-		center = world_points[1] and
-			world_points[3] and
-			(
-				world_points[1] + world_points[3]
-			) * 0.5 or
-			body:GetPosition(),
 		points = world_points,
 	}
 end
@@ -253,7 +243,6 @@ local function test_obb_axis(axis, delta, extents_a, axes_a, extents_b, axes_b, 
 		normal = convex_sat.OrientAxisNormal(normal, distance),
 		kind = candidate.kind,
 		reference_body = candidate.reference_body,
-		axis_index = candidate.axis_index,
 		edge_axis_a = candidate.edge_axis_a,
 		edge_axis_b = candidate.edge_axis_b,
 	}
@@ -273,11 +262,42 @@ local function is_outside_static_support_face(body_a, body_b, normal)
 	local support_normal = static_body == body_a and normal or -normal
 	local support_face = get_box_face(static_body, support_normal)
 	local local_center = static_body:WorldToLocal(dynamic_body:GetPosition())
-	local margin = 0.02
+	local margin = 0.01
 	local center_u = get_component(local_center, support_face.tangent_u_index)
 	local center_v = get_component(local_center, support_face.tangent_v_index)
 	return math.abs(center_u) > support_face.tangent_u_extent + margin or
 		math.abs(center_v) > support_face.tangent_v_extent + margin
+end
+
+local function is_support_contact_near_static_face_edge(body_a, body_b, normal, contacts)
+	local static_body = pair_solver_helpers.GetStaticDynamicPair(body_a, body_b)
+
+	if not (static_body and contacts and contacts[1]) then return false end
+
+	local support_normal = static_body == body_a and normal or -normal
+	local support_face = get_box_face(static_body, support_normal)
+	local sum_u = 0
+	local sum_v = 0
+	local count = 0
+
+	for _, pair in ipairs(contacts) do
+		local support_point = static_body == body_a and pair.point_a or pair.point_b
+
+		if support_point then
+			local local_point = static_body:WorldToLocal(support_point)
+			sum_u = sum_u + get_component(local_point, support_face.tangent_u_index)
+			sum_v = sum_v + get_component(local_point, support_face.tangent_v_index)
+			count = count + 1
+		end
+	end
+
+	if count == 0 then return false end
+
+	local edge_margin = 0.08
+	local avg_u = math.abs(sum_u / count)
+	local avg_v = math.abs(sum_v / count)
+	return avg_u >= support_face.tangent_u_extent - edge_margin or
+		avg_v >= support_face.tangent_v_extent - edge_margin
 end
 
 local function get_support_edge(body, edge_axis_index, support_direction)
@@ -344,39 +364,55 @@ local function build_face_contacts(body_a, body_b, candidate)
 	end
 
 	ranked_contacts = convex_face_clipping.SelectFaceContactEntries(ranked_contacts, reference_face, 4, BOX_FACE_CONTACT_SCRATCH)
+
 	local contacts = BOX_CONTACT_OUTPUT_SCRATCH.face_contacts
-	local contact_count = 0
 
-	for _, entry in ipairs(ranked_contacts) do
-		if reference_is_a then
-			contact_count = convex_manifold.AddContactPointReused(
-				contacts,
-				contact_count,
-				entry.point_reference,
-				entry.point_incident,
-				0.12
-			)
-		else
-			contact_count = convex_manifold.AddContactPointReused(
-				contacts,
-				contact_count,
-				entry.point_incident,
-				entry.point_reference,
-				0.12
-			)
-		end
-
-		if contact_count >= 4 then break end
+	for i = 1, #contacts do
+		contacts[i] = nil
 	end
 
-	return convex_manifold.TrimContacts(contacts, contact_count)
+	for i = 1, math.min(ranked_count, 4) do
+		local entry = ranked_contacts[i]
+
+		if reference_is_a then
+			add_box_contact_point(contacts, entry.point_reference, entry.point_incident)
+		else
+			add_box_contact_point(contacts, entry.point_incident, entry.point_reference)
+		end
+	end
+
+	return contacts
 end
 
 local function build_edge_contacts(body_a, body_b, candidate)
-	local edge_start_a, edge_end_a = get_support_edge(body_a, candidate.edge_axis_a, candidate.normal)
-	local edge_start_b, edge_end_b = get_support_edge(body_b, candidate.edge_axis_b, -candidate.normal)
-	local point_a, point_b = convex_manifold.ClosestPointsOnSegments(edge_start_a, edge_end_a, edge_start_b, edge_end_b)
+	local normal = candidate.normal
+	local edge_a_start, edge_a_end = get_support_edge(body_a, candidate.edge_axis_a, normal)
+	local edge_b_start, edge_b_end = get_support_edge(body_b, candidate.edge_axis_b, -normal)
+	local point_a, point_b = convex_manifold.ClosestPointsOnSegments(edge_a_start, edge_a_end, edge_b_start, edge_b_end)
 	return convex_manifold.BuildSingleContact(BOX_CONTACT_OUTPUT_SCRATCH.edge_contacts, point_a, point_b)
+end
+
+local function average_localized_support_points(points, out)
+	out = out or Vec3(0, 0, 0)
+
+	if not points[1] then
+		out.x = 0
+		out.y = 0
+		out.z = 0
+		return out
+	end
+
+	local sum = Vec3(0, 0, 0)
+
+	for _, point in ipairs(points) do
+		sum = sum + point
+	end
+
+	sum = sum / #points
+	out.x = sum.x
+	out.y = sum.y
+	out.z = sum.z
+	return out
 end
 
 local function reduce_contacts_for_support_polygon(body_a, body_b, normal, contacts)
@@ -387,7 +423,7 @@ local function reduce_contacts_for_support_polygon(body_a, body_b, normal, conta
 	local support_is_a = static_body == body_a
 	local support_face = get_box_face(static_body, support_is_a and normal or -normal)
 	local dynamic_center_local = static_body:WorldToLocal(dynamic_body:GetPosition())
-	local tolerance = 0.04
+	local tolerance = 0.02
 	local min_u = math.huge
 	local max_u = -math.huge
 	local min_v = math.huge
@@ -480,10 +516,7 @@ local function solve_swept_box_box_collision(dynamic_body, static_body, dt)
 		return false
 	end
 
-	if
-		not pair_solver_helpers.IsSolverImmovable(static_body) or
-		not pair_solver_helpers.HasSolverMass(dynamic_body)
-	then
+	if not pair_solver_helpers.IsSolverImmovable(static_body) then
 		return false
 	end
 
@@ -551,7 +584,7 @@ function box.SolveBoxPairCollision(body_a, body_b, dt)
 				extents_b,
 				axes_b,
 				best,
-				{kind = "face", reference_body = "a", axis_index = i}
+				{kind = "face", reference_body = "a"}
 			)
 		then
 			local static_body, dynamic_body = pair_solver_helpers.GetStaticDynamicPair(body_a, body_b)
@@ -572,7 +605,7 @@ function box.SolveBoxPairCollision(body_a, body_b, dt)
 				extents_b,
 				axes_b,
 				best,
-				{kind = "face", reference_body = "b", axis_index = i}
+				{kind = "face", reference_body = "b"}
 			)
 		then
 			local static_body, dynamic_body = pair_solver_helpers.GetStaticDynamicPair(body_a, body_b)
@@ -627,29 +660,35 @@ function box.SolveBoxPairCollision(body_a, body_b, dt)
 
 	local contacts
 	local resolve_options
-	local is_overhang_edge = best.kind == "edge" and
-		is_outside_static_support_face(body_a, body_b, best.normal)
 
 	if best.kind == "face" then
 		contacts = build_face_contacts(body_a, body_b, best)
 		local reduced_for_support
 		contacts, reduced_for_support = reduce_contacts_for_support_polygon(body_a, body_b, best.normal, contacts)
 
-		if reduced_for_support and raw_best and raw_best.kind == "edge" then
+		if
+			reduced_for_support and
+			raw_best and
+			raw_best.kind == "edge" and
+			is_support_contact_near_static_face_edge(body_a, body_b, best.normal, contacts)
+		then
 			local edge_contacts = build_edge_contacts(body_a, body_b, raw_best)
 
 			if edge_contacts and edge_contacts[1] then
 				best = raw_best
 				contacts = edge_contacts
-				resolve_options = {skip_grounding = true}
+				resolve_options = {skip_friction = true}
 			end
 		end
 	else
 		contacts = build_edge_contacts(body_a, body_b, best)
 
-		if is_overhang_edge then
+		if
+			is_outside_static_support_face(body_a, body_b, best.normal) and
+			is_support_contact_near_static_face_edge(body_a, body_b, best.normal, contacts)
+			and math.abs(best.normal.y) < 0.35
+		then
 			resolve_options = {
-				skip_grounding = true,
 				skip_friction = true,
 			}
 		end

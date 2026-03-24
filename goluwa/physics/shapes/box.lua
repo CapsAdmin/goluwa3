@@ -338,15 +338,22 @@ function META:ShouldForceGroundedSleep(body)
 	)
 	return (
 			metrics.stable and
-			face_alignment >= 0.985 and
+			face_alignment >= 0.983 and
 			metrics.support_width_coverage >= 0.82 and
 			metrics.min_coverage >= 0.08
 		)
 		or
 		(
 			metrics.stable and
-			face_alignment >= 0.985 and
+			face_alignment >= 0.983 and
 			metrics.support_width_coverage >= 0.96
+		)
+		or
+		(
+			metrics.stable and
+			face_alignment < 0.97 and
+			metrics.support_width_coverage >= 0.7 and
+			metrics.min_coverage >= 0.35
 		)
 end
 

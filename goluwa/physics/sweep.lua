@@ -2,10 +2,11 @@ local physics = import("goluwa/physics.lua")
 local physics_constants = import("goluwa/physics/constants.lua")
 local BVH = import("goluwa/physics/bvh.lua")
 local capsule_geometry = import("goluwa/physics/capsule_geometry.lua")
+local convex_manifold = import("goluwa/physics/convex_manifold.lua")
+local gjk_epa = import("goluwa/physics/gjk_epa.lua")
 local pair_solver_helpers = import("goluwa/physics/pair_solver_helpers.lua")
 local polyhedron_cache = import("goluwa/physics/polyhedron/cache.lua")
 local polyhedron_geometry = import("goluwa/physics/polyhedron/geometry.lua")
-local polyhedron_sat = import("goluwa/physics/polyhedron/sat.lua")
 local polyhedron_triangle_contacts = import("goluwa/physics/polyhedron/triangle_contacts.lua")
 local raycast = import("goluwa/physics/raycast.lua")
 local segment_geometry = import("goluwa/physics/segment_geometry.lua")
@@ -21,10 +22,8 @@ local RigidBody = import("goluwa/physics/rigid_body.lua")
 local sweep = {}
 local EPSILON = physics_constants.EPSILON
 local POLYHEDRON_SWEEP_MIN_SAMPLE_STEPS = 4
-local POLYHEDRON_SWEEP_MAX_SAMPLE_STEPS = 18
+local POLYHEDRON_SWEEP_MAX_SAMPLE_STEPS = 64
 local POLYHEDRON_SWEEP_REFINE_STEPS = 10
-local convex_manifold = nil
-local convex_sat = nil
 local get_polyhedron_sweep_proxy
 local get_epsilon
 local get_sweep_alpha
@@ -78,6 +77,24 @@ local POINT_CAPSULE_SEGMENT_EVALUATION_CONTEXT = {
 	segment_a = nil,
 	segment_b = nil,
 }
+local TRIANGLE_SWEEP_PRISM_VERTICES = {}
+
+local function fill_triangle_prism_vertices(out, v0, v1, v2, normal, half_thickness)
+	out = out or {}
+	local offset = normal * half_thickness
+	out[1] = v0 + offset
+	out[2] = v1 + offset
+	out[3] = v2 + offset
+	out[4] = v0 - offset
+	out[5] = v1 - offset
+	out[6] = v2 - offset
+
+	for i = 7, #out do
+		out[i] = nil
+	end
+
+	return out
+end
 
 local function collect_mesh_body_point_sweep_hit(v0, v1, v2, triangle_index, context)
 	local shape = context.collider:GetPhysicsShape()
@@ -234,13 +251,6 @@ do
 		proxy.sweep_rotation = rotation
 		return proxy
 	end
-end
-
-local function ensure_convex_helpers()
-	if convex_manifold and convex_sat then return end
-
-	convex_manifold = import("goluwa/physics/convex_manifold.lua")
-	convex_sat = import("goluwa/physics/convex_sat.lua")
 end
 
 local function has_world_geometry_bodies()
@@ -501,8 +511,6 @@ local function evaluate_polyhedron_triangle_contact(collider, polyhedron, positi
 			epsilon = EPSILON,
 			triangle_slop = 0,
 			manifold_merge_distance = 0.08,
-			face_axis_relative_tolerance = 1.05,
-			face_axis_absolute_tolerance = 0.03,
 		}
 	)
 end
@@ -538,6 +546,83 @@ function sweep_polyhedron_against_triangle(
 	v2,
 	max_fraction
 )
+	local triangle_normal = triangle_contact_queries.GetTriangleFaceNormal(v0, v1, v2, EPSILON)
+
+	if triangle_normal then
+		local sweep_fraction = math.max(0, max_fraction or 1)
+		local hit_distance = math.max(
+			(collider.GetCollisionMargin and collider:GetCollisionMargin() or 0),
+			(physics_constants.DEFAULT_COLLISION_MARGIN or 0) * 0.5,
+			0.0005
+		)
+		local prism_vertices = fill_triangle_prism_vertices(
+			TRIANGLE_SWEEP_PRISM_VERTICES,
+			v0,
+			v1,
+			v2,
+			triangle_normal,
+			math.max(
+				(collider.GetCollisionMargin and collider:GetCollisionMargin() or 0) * 0.5,
+				(physics_constants.DEFAULT_COLLISION_MARGIN or 0) * 0.5,
+				0.0005
+			)
+		)
+		local triangle_center = (v0 + v1 + v2) / 3
+		local scratch = {}
+		local hit = pair_solver_helpers.FindDistanceSweepHit(
+			function(alpha)
+				local t = alpha * sweep_fraction
+				local position = start_position + movement * t
+				local proxy = get_polyhedron_sweep_proxy(collider, position, rotation)
+				local poly_vertices = polyhedron_cache.GetPolyhedronWorldVertices(proxy, polyhedron)
+				local result = gjk_epa.Distance(
+					poly_vertices,
+					prism_vertices,
+					{
+						initial_direction = scratch.last_normal or (position - triangle_center),
+						simplex = scratch.simplex,
+					}
+				)
+				scratch.simplex = result and result.simplex or scratch.simplex
+
+				if result and result.normal then scratch.last_normal = result.normal end
+
+				return result
+			end,
+			hit_distance,
+			movement,
+			movement:GetLength() * sweep_fraction,
+			nil
+		)
+
+		if hit and (hit.distance or math.huge) <= hit_distance + EPSILON then
+			local hit_t = hit.t * sweep_fraction
+			local result = evaluate_polyhedron_triangle_contact(
+				collider,
+				polyhedron,
+				start_position + movement * hit_t,
+				rotation,
+				v0,
+				v1,
+				v2
+			)
+
+			if result then
+				return build_polyhedron_triangle_sweep_hit(
+					collider,
+					polyhedron,
+					start_position + movement * hit.t,
+					rotation,
+					v0,
+					v1,
+					v2,
+					result,
+					hit_t
+				)
+			end
+		end
+	end
+
 	local start_result = evaluate_polyhedron_triangle_contact(collider, polyhedron, start_position, rotation, v0, v1, v2)
 
 	if start_result then
@@ -787,7 +872,7 @@ local function get_capsule_sweep_sample_steps(collider, movement_length, max_fra
 	local segment_length = segment_a and segment_b and (segment_b - segment_a):GetLength() or 0
 	local distance_scale = math.max(radius * 0.5 + segment_length * 0.25, 0.2)
 	local scaled_length = math.max(0, movement_length * math.max(max_fraction or 1, 0))
-	return math.max(4, math.min(20, math.ceil(scaled_length / distance_scale) * 2))
+	return math.max(4, math.min(64, math.ceil(scaled_length / distance_scale) * 2))
 end
 
 local function build_capsule_triangle_sweep_hit(collider, position, rotation, v0, v1, v2, movement, t)
@@ -2015,69 +2100,42 @@ local function test_rigid_body_sweep(origin, movement, radius, body, ignore_enti
 end
 
 function evaluate_polyhedron_pair_contact(poly_a, position_a, rotation_a, poly_b, position_b, rotation_b, scratch)
-	ensure_convex_helpers()
 	scratch = scratch or {}
-	local axes = polyhedron_sat.CollectAxes(poly_a, rotation_a, poly_b, rotation_b, scratch.axes)
-	scratch.axes = axes
-
-	if not axes[1] then return nil end
-
 	local vertices_a = polyhedron_cache.FillPolyhedronWorldVertices(poly_a, position_a, rotation_a, scratch.vertices_a)
 	local vertices_b = polyhedron_cache.FillPolyhedronWorldVertices(poly_b, position_b, rotation_b, scratch.vertices_b)
 	scratch.vertices_a = vertices_a
 	scratch.vertices_b = vertices_b
+	local penetration = gjk_epa.Penetration(
+		vertices_a,
+		vertices_b,
+		{
+			initial_direction = scratch.last_normal or (position_b - position_a),
+			simplex = scratch.simplex,
+		}
+	)
+	scratch.simplex = penetration and penetration.gjk and penetration.gjk.simplex or scratch.simplex
 
-	if polyhedron_sat.HasSeparatingAxis(vertices_a, vertices_b, axes) then
+	if
+		not (
+			penetration and
+			penetration.intersect and
+			penetration.normal and
+			penetration.depth and
+			penetration.depth > 0
+		)
+	then
 		return nil
 	end
 
-	local best = convex_sat.CreateBestAxisTracker()
-	local center_delta = position_b - position_a
-	polyhedron_sat.UpdateFaceAxisCandidates(
-		best,
-		vertices_a,
-		vertices_b,
-		poly_a,
-		rotation_a,
-		center_delta,
-		"a",
-		EPSILON
-	)
-	polyhedron_sat.UpdateFaceAxisCandidates(
-		best,
-		vertices_a,
-		vertices_b,
-		poly_b,
-		rotation_b,
-		center_delta,
-		"b",
-		EPSILON
-	)
-	polyhedron_sat.UpdateEdgeAxisCandidates(
-		best,
-		vertices_a,
-		vertices_b,
-		poly_a,
-		rotation_a,
-		poly_b,
-		rotation_b,
-		center_delta,
-		EPSILON
-	)
-	local chosen = convex_sat.ChoosePreferredAxis(best, 1.05, 0.03)
-
-	if not (chosen and chosen.normal and chosen.overlap and chosen.overlap < math.huge) then
-		return nil
-	end
-
+	scratch.last_normal = penetration.normal
 	return {
-		normal = chosen.normal,
-		overlap = chosen.overlap,
+		normal = penetration.normal,
+		overlap = penetration.depth,
 		contacts = convex_manifold.BuildAndMergeSupportPairContacts(
 			nil,
 			vertices_a,
 			vertices_b,
-			chosen.normal,
+			penetration.normal,
 			{
 				merge_distance = 0.1,
 				max_contacts = 4,

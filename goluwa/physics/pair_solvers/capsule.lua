@@ -4,6 +4,8 @@ local capsule_geometry = import("goluwa/physics/capsule_geometry.lua")
 local segment_geometry = import("goluwa/physics/segment_geometry.lua")
 local pair_solver_helpers = import("goluwa/physics/pair_solver_helpers.lua")
 local contact_resolution = import("goluwa/physics/contact_resolution.lua")
+local polyhedron_cache = import("goluwa/physics/polyhedron/cache.lua")
+local sweep_helpers = import("goluwa/physics/shapes/sweep_helpers.lua")
 local capsule = {}
 local EPSILON = physics_constants.EPSILON
 local CAPSULE_SWEEP_POINT_SCRATCH = {
@@ -12,6 +14,10 @@ local CAPSULE_SWEEP_POINT_SCRATCH = {
 }
 local sweep_point_against_capsule_segment
 local CAPSULE_BOX_POINT_SCRATCH = {
+	current = {},
+	previous = {},
+}
+local CAPSULE_POLYHEDRON_CONTACT_SCRATCH = {
 	current = {},
 	previous = {},
 }
@@ -84,6 +90,25 @@ end
 
 local function get_oriented_normal(delta, fallback_direction)
 	return pair_solver_helpers.GetSafeCollisionNormal(delta, fallback_direction)
+end
+
+local function get_support_point(vertices, direction)
+	if not (vertices and vertices[1] and direction) then return nil end
+
+	local best_point = vertices[1]
+	local best_dot = best_point:Dot(direction)
+
+	for i = 2, #vertices do
+		local point = vertices[i]
+		local dot = point:Dot(direction)
+
+		if dot > best_dot then
+			best_dot = dot
+			best_point = point
+		end
+	end
+
+	return best_point
 end
 
 local function should_prefer_swept_recovery(travel_distance, feature_radius)
@@ -528,6 +553,139 @@ local function get_capsule_box_best_contact(box_body, samples, previous_samples,
 	return best_contact
 end
 
+local function get_capsule_polyhedron_contact(polyhedron_body, polyhedron, point, radius, position, rotation, movement_world)
+	if not (polyhedron and polyhedron.vertices and polyhedron.faces) then return nil end
+
+	local scratch = polyhedron_body._PhysicsCapsulePolyhedronContactScratch or {}
+	polyhedron_body._PhysicsCapsulePolyhedronContactScratch = scratch
+	local vertices = polyhedron_cache.FillPolyhedronWorldVertices(polyhedron, position, rotation, scratch.vertices)
+	scratch.vertices = vertices
+	local best_distance = -math.huge
+	local best_normal = nil
+
+	for _, face in ipairs(polyhedron.faces or {}) do
+		local plane_point = vertices[face.indices[1]]
+		local normal = rotation:VecMul(face.normal):GetNormalized()
+		local distance = normal:Dot(point - plane_point)
+
+		if distance > radius + EPSILON then return nil end
+
+		if distance > best_distance then
+			best_distance = distance
+			best_normal = normal
+		end
+	end
+
+	if not best_normal then return nil end
+
+	if best_normal:GetLength() <= EPSILON then
+		best_normal = select(
+			1,
+			pair_solver_helpers.GetSafeCollisionNormal(
+				point - position,
+				movement_world,
+				scratch.last_normal
+			)
+		)
+	end
+
+	if not best_normal then return nil end
+
+	scratch.last_normal = best_normal
+	local overlap = radius - best_distance
+
+	if overlap <= 0 then return nil end
+
+	return {
+		normal = best_normal,
+		overlap = overlap,
+		point_a = get_support_point(vertices, best_normal),
+		point_b = point - best_normal * radius,
+	}
+end
+
+local function get_capsule_polyhedron_best_contact(polyhedron_body, polyhedron, samples, previous_samples, radius, position, rotation)
+	local best_contact = nil
+
+	for i, sample in ipairs(samples) do
+		local previous_sample = previous_samples and previous_samples[i] or sample
+		local movement_world = previous_sample and (sample - previous_sample) or nil
+		local contact = get_capsule_polyhedron_contact(
+			polyhedron_body,
+			polyhedron,
+			sample,
+			radius,
+			position,
+			rotation,
+			movement_world
+		)
+
+		if contact and (not best_contact or contact.overlap > best_contact.overlap) then
+			best_contact = contact
+		end
+	end
+
+	return best_contact
+end
+
+local function solve_swept_capsule_polyhedron_collision(dynamic_body, static_body, static_polyhedron, dt)
+	if not pair_solver_helpers.ShouldUsePairCCD(dynamic_body, static_body) then
+		return false
+	end
+
+	if
+		not pair_solver_helpers.IsSolverImmovable(static_body) or
+		not pair_solver_helpers.HasSolverMass(dynamic_body)
+	then
+		return false
+	end
+
+	local dynamic_collider = dynamic_body:GetColliders()[1]
+	local static_collider = static_body:GetColliders()[1]
+
+	if not (dynamic_collider and static_collider) then return false end
+
+	local dynamic_sweep = pair_solver_helpers.GetBodySweepMotion(dynamic_body)
+	local static_sweep = pair_solver_helpers.GetBodySweepMotion(static_body)
+
+	if dynamic_sweep.movement:GetLength() <= EPSILON and static_sweep.movement:GetLength() <= EPSILON then
+		return false
+	end
+
+	local hit = sweep_helpers.SweepCapsuleAgainstTargetPolyhedron(
+		dynamic_collider,
+		dynamic_sweep.previous_position,
+		dynamic_sweep.previous_rotation,
+		dynamic_sweep.movement,
+		static_collider,
+		static_polyhedron,
+		{
+			previous_position = static_sweep.previous_position,
+			current_position = static_sweep.current_position,
+			movement = static_sweep.movement,
+			previous_rotation = static_sweep.previous_rotation,
+			current_rotation = static_sweep.current_rotation,
+		},
+		1
+	)
+
+	if not hit then return false end
+
+	return pair_solver_helpers.ResolveRelativeSweptPairHit(
+		static_body,
+		dynamic_body,
+		static_sweep.previous_position,
+		static_sweep.movement,
+		dynamic_sweep.previous_position,
+		dynamic_sweep.movement,
+		hit,
+		dt,
+		false,
+		hit.position,
+		hit.point
+	)
+end
+
 local function solve_capsule_box_collision(capsule_body, box_body, dt)
 	local points, radius = iterate_capsule_points(capsule_body, nil, nil, CAPSULE_BOX_POINT_SCRATCH.current)
 	local previous_points = iterate_capsule_points(
@@ -565,6 +723,63 @@ local function solve_capsule_box_collision(capsule_body, box_body, dt)
 	)
 end
 
+local function solve_capsule_polyhedron_collision(capsule_body, polyhedron_body, dt)
+	local polyhedron_shape = polyhedron_body:GetPhysicsShape()
+	local polyhedron = polyhedron_shape and polyhedron_shape.GetPolyhedron and polyhedron_shape:GetPolyhedron(polyhedron_body) or nil
+
+	if not (polyhedron and polyhedron.vertices and polyhedron.faces) then return false end
+
+	local points, radius = iterate_capsule_points(capsule_body, nil, nil, CAPSULE_POLYHEDRON_CONTACT_SCRATCH.current)
+	local previous_points = iterate_capsule_points(
+		capsule_body,
+		capsule_body:GetPreviousPosition(),
+		capsule_body:GetPreviousRotation(),
+		CAPSULE_POLYHEDRON_CONTACT_SCRATCH.previous
+	)
+	local movement = capsule_body:GetPosition() - capsule_body:GetPreviousPosition()
+	local best_contact = get_capsule_polyhedron_best_contact(
+		polyhedron_body,
+		polyhedron,
+		points,
+		previous_points,
+		radius,
+		polyhedron_body:GetPosition(),
+		polyhedron_body:GetRotation()
+	)
+
+	if should_prefer_swept_recovery(movement:GetLength(), radius) then
+		local previous_contact = get_capsule_polyhedron_best_contact(
+			polyhedron_body,
+			polyhedron,
+			previous_points,
+			nil,
+			radius,
+			polyhedron_body:GetPreviousPosition(),
+			polyhedron_body:GetPreviousRotation()
+		)
+
+		if not previous_contact then
+			local swept = solve_swept_capsule_polyhedron_collision(capsule_body, polyhedron_body, dt)
+
+			if swept then return swept end
+		end
+	end
+
+	if not best_contact then
+		return solve_swept_capsule_polyhedron_collision(capsule_body, polyhedron_body, dt)
+	end
+
+	return contact_resolution.ResolvePairPenetration(
+		polyhedron_body,
+		capsule_body,
+		best_contact.normal,
+		best_contact.overlap,
+		dt,
+		best_contact.point_a,
+		best_contact.point_b
+	)
+end
+
 function capsule.SolveCapsuleSpherePair(body_a, body_b, _, _, dt)
 	return solve_capsule_sphere_collision(body_a, body_b, dt)
 end
@@ -583,6 +798,14 @@ end
 
 function capsule.SolveBoxCapsulePair(body_a, body_b, _, _, dt)
 	return solve_capsule_box_collision(body_b, body_a, dt)
+end
+
+function capsule.SolveCapsuleConvexPair(body_a, body_b, _, _, dt)
+	return solve_capsule_polyhedron_collision(body_a, body_b, dt)
+end
+
+function capsule.SolveConvexCapsulePair(body_a, body_b, _, _, dt)
+	return solve_capsule_polyhedron_collision(body_b, body_a, dt)
 end
 
 return capsule
