@@ -1,109 +1,39 @@
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local Color = import("goluwa/structs/color.lua")
-local Material = import("goluwa/render3d/material.lua")
-local Texture = import("goluwa/render/texture.lua")
-local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
-local Entity = import("goluwa/ecs/entity.lua")
 local physics = import("goluwa/physics.lua")
 local DistanceConstraint = import("goluwa/physics/constraint.lua")
-local SphereShape = import("goluwa/physics/shapes/sphere.lua")
-local BoxShape = import("goluwa/physics/shapes/box.lua")
-local CapsuleShape = import("goluwa/physics/shapes/capsule.lua")
-local sphere_shape = SphereShape.New
-local box_shape = BoxShape.New
-local capsule_shape = CapsuleShape.New
+local shapes = import("lua/shapes.lua")
 local ORIGIN = Vec3(34, -1.5, -8)
-
-local function solid_texture(r, g, b, a)
-	local tex = Texture.New{
-		width = 4,
-		height = 4,
-		format = "r8g8b8a8_unorm",
-		mip_map_levels = "auto",
-		image = {
-			usage = {"storage", "sampled", "transfer_dst", "transfer_src", "color_attachment"},
-		},
-		sampler = {
-			min_filter = "linear",
-			mag_filter = "linear",
-			wrap_s = "repeat",
-			wrap_t = "repeat",
-		},
-	}
-	tex:Shade(string.format("return vec4(%f, %f, %f, %f);", r, g, b, a or 1))
-	return tex
-end
-
-local function make_material(color, roughness, metallic)
-	local mat = Material.New()
-	mat:SetAlbedoTexture(solid_texture(color.r, color.g, color.b, color.a or 1))
-	mat:SetRoughnessTexture(solid_texture(roughness or 0.65, roughness or 0.65, roughness or 0.65, 1))
-	mat:SetMetallicTexture(solid_texture(metallic or 0, metallic or 0, metallic or 0, 1))
-	return mat
-end
 
 local function make_rotation(pitch, yaw, roll)
 	return Quat():SetAngles(Deg3(pitch or 0, yaw or 0, roll or 0))
 end
 
-local function add_cube_model(ent, size, material)
-	ent.transform:SetScale(size)
-	ent:AddComponent("model")
-	local poly = Polygon3D.New()
-	poly:CreateCube(0.5)
-	poly:Upload()
-	ent.model:AddPrimitive(poly, material)
-	ent.model:BuildAABB()
-	return ent
-end
-
-local function add_sphere_model(ent, radius, material)
-	ent:AddComponent("model")
-	local poly = Polygon3D.New()
-	poly:CreateSphere(radius)
-	poly:Upload()
-	ent.model:AddPrimitive(poly, material)
-	ent.model:BuildAABB()
-	return ent
-end
-
-local function add_capsule_model(ent, radius, height, material)
-	ent.transform:SetScale(Vec3(radius * 2, math.max(height, radius * 2), radius * 2))
-	ent:AddComponent("model")
-	local poly = Polygon3D.New()
-	poly:CreateSphere(0.5)
-	poly:Upload()
-	ent.model:AddPrimitive(poly, material)
-	ent.model:BuildAABB()
-	return ent
-end
-
 local function spawn_visual_anchor(position, radius, material)
-	local ent = Entity.New({Name = "constraint_anchor_visual"})
-	ent.PhysicsNoCollision = true
-	ent:AddComponent("transform")
-	ent.transform:SetPosition(position)
-	add_sphere_model(ent, radius or 0.18, material)
-	return ent
+	return shapes.Sphere{
+		Name = "constraint_anchor_visual",
+		PhysicsNoCollision = true,
+		Collision = false,
+		Position = position,
+		Radius = radius or 0.18,
+		Material = material,
+	}
 end
 
 local function spawn_static_box(position, size, material, rotation)
-	local ent = Entity.New({Name = "constraint_static_box"})
-	ent:AddComponent("transform")
-	ent.transform:SetPosition(position)
-	ent.transform:SetRotation(rotation or make_rotation())
-	add_cube_model(ent, size, material)
-	ent:AddComponent(
-		"rigid_body",
-		{
-			Shape = box_shape(size),
+	return shapes.Box{
+		Name = "constraint_static_box",
+		Position = position,
+		Rotation = rotation or make_rotation(),
+		Size = size,
+		Material = material,
+		RigidBody = {
 			MotionType = "static",
 			Friction = 0.85,
 			Restitution = 0,
-		}
-	)
-	return ent
+		},
+	}
 end
 
 local function spawn_stairs(base_center, step_count, step_size, material, direction)
@@ -120,14 +50,12 @@ end
 
 local function spawn_dynamic_sphere(position, radius, material, options)
 	options = options or {}
-	local ent = Entity.New{Name = options.Name or "constraint_dynamic_sphere"}
-	ent:AddComponent("transform")
-	ent.transform:SetPosition(position)
-	add_sphere_model(ent, radius, material)
-	local body = ent:AddComponent(
-		"rigid_body",
-		{
-			Shape = sphere_shape(radius),
+	return shapes.Sphere{
+		Name = options.Name or "constraint_dynamic_sphere",
+		Position = position,
+		Radius = radius,
+		Material = material,
+		RigidBody = {
 			Radius = radius,
 			Mass = options.Mass,
 			AutomaticMass = options.AutomaticMass,
@@ -140,22 +68,19 @@ local function spawn_dynamic_sphere(position, radius, material, options)
 			GravityScale = options.GravityScale,
 			MaxLinearSpeed = options.MaxLinearSpeed or 1000,
 			MaxAngularSpeed = options.MaxAngularSpeed or 1000,
-		}
-	)
-	return ent, body
+		},
+	}
 end
 
 local function spawn_dynamic_box(position, size, material, rotation, options)
 	options = options or {}
-	local ent = Entity.New{Name = options.Name or "constraint_dynamic_box"}
-	ent:AddComponent("transform")
-	ent.transform:SetPosition(position)
-	ent.transform:SetRotation(rotation or make_rotation())
-	add_cube_model(ent, size, material)
-	local body = ent:AddComponent(
-		"rigid_body",
-		{
-			Shape = box_shape(size),
+	return shapes.Box{
+		Name = options.Name or "constraint_dynamic_box",
+		Position = position,
+		Rotation = rotation or make_rotation(),
+		Size = size,
+		Material = material,
+		RigidBody = {
 			Mass = options.Mass,
 			AutomaticMass = options.AutomaticMass,
 			LinearDamping = options.LinearDamping or 0.05,
@@ -167,22 +92,20 @@ local function spawn_dynamic_box(position, size, material, rotation, options)
 			GravityScale = options.GravityScale,
 			MaxLinearSpeed = options.MaxLinearSpeed or 1000,
 			MaxAngularSpeed = options.MaxAngularSpeed or 1000,
-		}
-	)
-	return ent, body
+		},
+	}
 end
 
 local function spawn_dynamic_capsule(position, radius, height, material, rotation, options)
 	options = options or {}
-	local ent = Entity.New{Name = options.Name or "constraint_dynamic_capsule"}
-	ent:AddComponent("transform")
-	ent.transform:SetPosition(position)
-	ent.transform:SetRotation(rotation or make_rotation())
-	add_capsule_model(ent, radius, height, material)
-	local body = ent:AddComponent(
-		"rigid_body",
-		{
-			Shape = capsule_shape(radius, height),
+	return shapes.Capsule{
+		Name = options.Name or "constraint_dynamic_capsule",
+		Position = position,
+		Rotation = rotation or make_rotation(),
+		Radius = radius,
+		Height = height,
+		Material = material,
+		RigidBody = {
 			Radius = radius,
 			Height = height,
 			Mass = options.Mass,
@@ -196,21 +119,20 @@ local function spawn_dynamic_capsule(position, radius, height, material, rotatio
 			GravityScale = options.GravityScale,
 			MaxLinearSpeed = options.MaxLinearSpeed or 1000,
 			MaxAngularSpeed = options.MaxAngularSpeed or 1000,
-		}
-	)
-	return ent, body
+		},
+	}
 end
 
 local function add_distance_constraint(body0, body1, pos0, pos1, distance, compliance, unilateral)
 	return DistanceConstraint.New(body0, body1, pos0, pos1, distance, compliance or 0, unilateral)
 end
 
-local ground_material = make_material(Color(0.20, 0.18, 0.16, 1), 0.92, 0)
-local steel_material = make_material(Color(0.72, 0.77, 0.84, 1), 0.22, 1)
-local rope_material = make_material(Color(0.70, 0.56, 0.30, 1), 0.95, 0)
-local payload_material = make_material(Color(0.94, 0.44, 0.20, 1), 0.38, 0)
-local accent_material = make_material(Color(0.20, 0.72, 1.00, 1), 0.18, 0.1)
-local wood_material = make_material(Color(0.49, 0.31, 0.16, 1), 0.88, 0)
+local ground_material = shapes.Material{Color = Color(0.20, 0.18, 0.16, 1), Roughness = 0.92, Metallic = 0}
+local steel_material = shapes.Material{Color = Color(0.72, 0.77, 0.84, 1), Roughness = 0.22, Metallic = 1}
+local rope_material = shapes.Material{Color = Color(0.70, 0.56, 0.30, 1), Roughness = 0.95, Metallic = 0}
+local payload_material = shapes.Material{Color = Color(0.94, 0.44, 0.20, 1), Roughness = 0.38, Metallic = 0}
+local accent_material = shapes.Material{Color = Color(0.20, 0.72, 1.00, 1), Roughness = 0.18, Metallic = 0.1}
+local wood_material = shapes.Material{Color = Color(0.49, 0.31, 0.16, 1), Roughness = 0.88, Metallic = 0}
 spawn_static_box(ORIGIN + Vec3(0, -1.0, 0), Vec3(30, 1.5, 16), ground_material)
 spawn_static_box(ORIGIN + Vec3(-10, 1.4, 0), Vec3(4, 3, 6), ground_material)
 spawn_static_box(ORIGIN + Vec3(10, 1.4, 0), Vec3(4, 3, 6), ground_material)
@@ -218,7 +140,6 @@ spawn_static_box(ORIGIN + Vec3(0, 7.0, -5), Vec3(12, 0.75, 2.5), ground_material
 spawn_stairs(ORIGIN + Vec3(-15.0, -1.75, 0), 5, Vec3(1.0, 0.63, 4.0), ground_material, 1)
 spawn_stairs(ORIGIN + Vec3(15.0, -1.75, 0), 5, Vec3(1.0, 0.63, 4.0), ground_material, -1)
 
--- Pendulum with a world anchor.
 do
 	local anchor = ORIGIN + Vec3(-11, 7.5, -3)
 	spawn_visual_anchor(anchor, 0.22, steel_material)
@@ -238,7 +159,6 @@ do
 	bob:SetVelocity(Vec3(0, 0, 7))
 end
 
--- Plank bridge suspended between the two support boxes.
 do
 	local bridge_y = ORIGIN.y + 3.15
 	local left_post_top = Vec3(ORIGIN.x - 8.15, bridge_y, ORIGIN.z)
@@ -328,7 +248,6 @@ do
 	end
 end
 
--- A simple house with a floor-aligned hinged door.
 do
 	local house_center = ORIGIN + Vec3(0, 0.25, -10.5)
 	spawn_static_box(house_center + Vec3(0, -0.75, 0), Vec3(8.0, 1.5, 7.0), ground_material)
@@ -362,7 +281,6 @@ do
 	door:SetAngularVelocity(Vec3(0, 0.2, 0))
 end
 
--- Linked movers so impulses propagate through the constraint.
 do
 	local _, left = spawn_dynamic_sphere(
 		ORIGIN + Vec3(-5, 2.2, 5),
@@ -392,7 +310,6 @@ do
 	left:SetVelocity(Vec3(12, 0, 0))
 end
 
--- Unconstrained clutter of different boxes and capsules to knock around.
 do
 	local clutter_origin = ORIGIN + Vec3(11.5, 0.2, 6.0)
 	local loose_boxes = {

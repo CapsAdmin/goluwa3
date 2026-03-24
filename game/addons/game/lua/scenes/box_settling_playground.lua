@@ -2,58 +2,11 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local Color = import("goluwa/structs/color.lua")
-local Material = import("goluwa/render3d/material.lua")
-local Texture = import("goluwa/render/texture.lua")
-local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
-local Entity = import("goluwa/ecs/entity.lua")
-local BoxShape = import("goluwa/physics/shapes/box.lua")
-local ConvexShape = import("goluwa/physics/shapes/convex.lua")
-local MeshShape = import("goluwa/physics/shapes/mesh.lua")
-local box_shape = BoxShape.New
-local convex_shape = ConvexShape.New
+local shapes = import("lua/shapes.lua")
 local ORIGIN = Vec3(70, 0, -8)
-
-local function solid_texture(r, g, b, a)
-	local tex = Texture.New{
-		width = 4,
-		height = 4,
-		format = "r8g8b8a8_unorm",
-		mip_map_levels = "auto",
-		image = {
-			usage = {"storage", "sampled", "transfer_dst", "transfer_src", "color_attachment"},
-		},
-		sampler = {
-			min_filter = "linear",
-			mag_filter = "linear",
-			wrap_s = "repeat",
-			wrap_t = "repeat",
-		},
-	}
-	tex:Shade(string.format("return vec4(%f, %f, %f, %f);", r, g, b, a or 1))
-	return tex
-end
-
-local function make_material(color, roughness, metallic)
-	local mat = Material.New()
-	mat:SetAlbedoTexture(solid_texture(color.r, color.g, color.b, color.a or 1))
-	mat:SetRoughnessTexture(solid_texture(roughness or 0.65, roughness or 0.65, roughness or 0.65, 1))
-	mat:SetMetallicTexture(solid_texture(metallic or 0, metallic or 0, metallic or 0, 1))
-	return mat
-end
 
 local function make_rotation(pitch, yaw, roll)
 	return Quat():SetAngles(Deg3(pitch or 0, yaw or 0, roll or 0))
-end
-
-local function add_cube_model(ent, size, material)
-	ent.transform:SetScale(size)
-	ent:AddComponent("model")
-	local poly = Polygon3D.New()
-	poly:CreateCube(0.5)
-	poly:Upload()
-	ent.model:AddPrimitive(poly, material)
-	ent.model:BuildAABB()
-	return ent
 end
 
 local function add_triangle(poly, a, b, c)
@@ -64,53 +17,46 @@ local function add_triangle(poly, a, b, c)
 end
 
 local function spawn_triangle_platform(position, material)
-	local ent = Entity.New({Name = "box_settling_triangle_platform"})
-	ent:AddComponent("transform")
-	ent.transform:SetPosition(position)
-	ent.transform:SetRotation(make_rotation())
-	ent:AddComponent("model")
-	local poly = Polygon3D.New()
-	add_triangle(poly, Vec3(-4, 0, -3), Vec3(4, 0, -3), Vec3(-4, 0, 3))
-	add_triangle(poly, Vec3(4, 0, -3), Vec3(4, 0, 3), Vec3(-4, 0, 3))
-	poly:BuildBoundingBox()
-	poly:Upload()
-	ent.model:AddPrimitive(poly, material)
-	ent.model:BuildAABB()
-	ent:AddComponent(
-		"rigid_body",
-		{
-			Shape = MeshShape.New(poly),
+	return shapes.Polygon{
+		Name = "box_settling_triangle_platform",
+		Position = position,
+		Rotation = make_rotation(),
+		Material = material,
+		BuildPolygon = function(poly)
+			add_triangle(poly, Vec3(-4, 0, -3), Vec3(4, 0, -3), Vec3(-4, 0, 3))
+			add_triangle(poly, Vec3(4, 0, -3), Vec3(4, 0, 3), Vec3(-4, 0, 3))
+			return poly
+		end,
+		BuildBoundingBox = true,
+		RigidBody = {
 			MotionType = "static",
 			Friction = 0.85,
 			Restitution = 0,
-		}
-	)
-	return ent
+		},
+	}
 end
 
 local function spawn_static_box(position, size, material, rotation)
-	local ent = Entity.New({Name = "box_settling_static_box"})
-	ent:AddComponent("transform")
-	ent.transform:SetPosition(position)
-	ent.transform:SetRotation(rotation or make_rotation())
-	add_cube_model(ent, size, material)
-	ent:AddComponent(
-		"rigid_body",
-		{
-			Shape = box_shape(size),
+	return shapes.Box{
+		Name = "box_settling_static_box",
+		Position = position,
+		Rotation = rotation or make_rotation(),
+		Size = size,
+		Material = material,
+		RigidBody = {
 			MotionType = "static",
 			Friction = 0.85,
 			Restitution = 0,
-		}
-	)
-	return ent
+		},
+	}
 end
 
 local function spawn_dynamic_box(def)
 	def = def or {}
 	local position = def.position or ORIGIN
 	local size = def.size or Vec3(1, 1, 1)
-	local material = def.material or make_material(Color(0.8, 0.8, 0.8, 1), 0.65, 0)
+	local material = def.material or
+		shapes.Material{Color = Color(0.8, 0.8, 0.8, 1), Roughness = 0.65, Metallic = 0}
 	local rotation = def.rotation or make_rotation()
 	local options = def.options or {}
 	options = options or {}
@@ -118,15 +64,13 @@ local function spawn_dynamic_box(def)
 	options.AngularDamping = 0
 	options.AirLinearDamping = 0
 	options.AirAngularDamping = 0
-	local ent = Entity.New{Name = options.Name or "box_settling_dynamic_box"}
-	ent:AddComponent("transform")
-	ent.transform:SetPosition(position)
-	ent.transform:SetRotation(rotation or make_rotation())
-	add_cube_model(ent, size, material)
-	ent:AddComponent(
-		"rigid_body",
-		{
-			Shape = box_shape(size),
+	return shapes.Box{
+		Name = options.Name or "box_settling_dynamic_box",
+		Position = position,
+		Rotation = rotation,
+		Size = size,
+		Material = material,
+		RigidBody = {
 			Mass = options.Mass,
 			AutomaticMass = options.AutomaticMass,
 			LinearDamping = options.LinearDamping or 0.05,
@@ -135,9 +79,8 @@ local function spawn_dynamic_box(def)
 			AirAngularDamping = options.AirAngularDamping or 0.05,
 			Friction = options.Friction or 0.7,
 			Restitution = options.Restitution or 0,
-		}
-	)
-	return ent
+		},
+	}
 end
 
 local function spawn_dynamic_convex_cube(position, size, material, rotation, options)
@@ -146,15 +89,14 @@ local function spawn_dynamic_convex_cube(position, size, material, rotation, opt
 	options.AngularDamping = 0
 	options.AirLinearDamping = 0
 	options.AirAngularDamping = 0
-	local ent = Entity.New{Name = options.Name or "box_settling_dynamic_convex_cube"}
-	ent:AddComponent("transform")
-	ent.transform:SetPosition(position)
-	ent.transform:SetRotation(rotation or make_rotation())
-	add_cube_model(ent, size, material)
-	ent:AddComponent(
-		"rigid_body",
-		{
-			Shape = convex_shape(),
+	return shapes.Box{
+		Name = options.Name or "box_settling_dynamic_convex_cube",
+		Position = position,
+		Rotation = rotation or make_rotation(),
+		Size = size,
+		Material = material,
+		CollisionShape = "convex",
+		RigidBody = {
 			Mass = options.Mass,
 			AutomaticMass = options.AutomaticMass,
 			LinearDamping = options.LinearDamping or 0.05,
@@ -163,17 +105,16 @@ local function spawn_dynamic_convex_cube(position, size, material, rotation, opt
 			AirAngularDamping = options.AirAngularDamping or 0.05,
 			Friction = options.Friction or 0.7,
 			Restitution = options.Restitution or 0,
-		}
-	)
-	return ent
+		},
+	}
 end
 
-local ground_material = make_material(Color(0.20, 0.18, 0.16, 1), 0.92, 0)
-local steel_material = make_material(Color(0.72, 0.77, 0.84, 1), 0.22, 1)
-local payload_material = make_material(Color(0.94, 0.44, 0.20, 1), 0.38, 0)
-local accent_material = make_material(Color(0.20, 0.72, 1.00, 1), 0.18, 0.1)
-local wood_material = make_material(Color(0.49, 0.31, 0.16, 1), 0.88, 0)
-local triangle_material = make_material(Color(0.92, 0.18, 0.16, 1), 0.8, 0)
+local ground_material = shapes.Material{Color = Color(0.20, 0.18, 0.16, 1), Roughness = 0.92, Metallic = 0}
+local steel_material = shapes.Material{Color = Color(0.72, 0.77, 0.84, 1), Roughness = 0.22, Metallic = 1}
+local payload_material = shapes.Material{Color = Color(0.94, 0.44, 0.20, 1), Roughness = 0.38, Metallic = 0}
+local accent_material = shapes.Material{Color = Color(0.20, 0.72, 1.00, 1), Roughness = 0.18, Metallic = 0.1}
+local wood_material = shapes.Material{Color = Color(0.49, 0.31, 0.16, 1), Roughness = 0.88, Metallic = 0}
+local triangle_material = shapes.Material{Color = Color(0.92, 0.18, 0.16, 1), Roughness = 0.8, Metallic = 0}
 spawn_static_box(ORIGIN + Vec3(0, -0.75, 0), Vec3(20, 1.5, 12), ground_material)
 spawn_triangle_platform(ORIGIN + Vec3(0, 0.02, -10), triangle_material)
 spawn_dynamic_box{

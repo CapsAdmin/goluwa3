@@ -98,19 +98,12 @@ local function CreateDesertTerrain()
 	albedo_tex:Shade(
 		[[
         vec2 p = uv * 20.0;
-        
-        // Base colors
         vec3 col = mix(vec3(1.0, 0.95, 0.7), vec3(0.9, 0.6, 0.4), fBm(p * 16.0));
         col = mix(col * 1.4, col * 0.6, fBm(p * 32.0 - 0.5));
-        
-        // Sand ripples
         float s = sand(p);
         col *= s * 0.75 + 0.5;
-        
-        // Grit
         float grit = (fract(sin(dot(floor(p * 192.0), vec2(12.9898, 78.233))) * 43758.5453));
         col = mix(col * 0.8, col, grit * 0.3 + 0.7);
-        
         return vec4(col, 1.0);
     ]],
 		{header = HEADER}
@@ -127,28 +120,19 @@ local function CreateDesertTerrain()
 	normal_tex:Shade(
 		[[
         vec2 p = uv * 20.0;
-        
-        // Sand ripples
         float s = sand(p);
-    
-        // Calculate normal from height differences
         float eps = 1.0 / 1024.0;
         float hL = sand(p - vec2(eps, 0.0));
         float hR = sand(p + vec2(eps, 0.0));
         float hD = sand(p - vec2(0.0, eps));
         float hU = sand(p + vec2(0.0, eps));
-        
-        float strength = 0.03;  // Adjust this value: 0.0 = flat, 1.0 = full strength
-        
+        float strength = 0.03;
         vec3 normal;
         normal.x = (hL - hR) * strength;
         normal.z = 2.0 * eps;
         normal.y = (hD - hU) * strength;
         normal = normalize(normal);
-        
-        // Convert from [-1,1] to [0,1] range for storage
         normal = normal * 0.5 + 0.5;
-        
         return vec4(normal, 1.0);
 	]],
 		{header = HEADER}
@@ -215,7 +199,6 @@ local function CreateDesertTerrain()
 	return ent
 end
 
--- Run it
 if _G.desert_ent then _G.desert_ent:Remove() end
 
 timer.Delay(0.2, function()
