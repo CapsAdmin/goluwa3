@@ -1,6 +1,23 @@
 local support_contacts = {}
 local physics = import("goluwa/physics.lua")
 
+local function apply_support_grounding_metadata(body, hit, normal)
+	if not (body and hit and normal and normal.y >= body:GetMinGroundNormalY()) then return end
+
+	local ground_body = hit.rigid_body
+	local rolling_friction = 0
+
+	if ground_body and physics and physics.solver and physics.solver.GetPairRollingFriction then
+		rolling_friction = physics.solver:GetPairRollingFriction(body, ground_body) or 0
+	end
+
+	body:SetGrounded(true)
+	body:SetGroundNormal(normal)
+	body:SetGroundRollingFriction(rolling_friction)
+	body:SetGroundBody(ground_body)
+	body:SetGroundEntity(ground_body and ground_body.GetOwner and ground_body:GetOwner() or nil)
+end
+
 function support_contacts.GetCastDistances(body, dt)
 	local velocity = body:GetVelocity()
 	local downward = math.max(0, -velocity.y * dt)
@@ -65,8 +82,7 @@ function support_contacts.ApplyWorldSupportContact(body, normal, contact_positio
 	body:ApplyCorrection(0, normal * depth, center - normal * support_radius, nil, nil, dt)
 
 	if normal.y >= body:GetMinGroundNormalY() then
-		body:SetGrounded(true)
-		body:SetGroundNormal(normal)
+		apply_support_grounding_metadata(body, hit, normal)
 		body:AccumulateGroundSupportContact(normal, contact_position)
 	end
 
@@ -90,8 +106,7 @@ function support_contacts.ApplyPointWorldSupportContact(body, normal, contact_po
 	if depth < -support_tolerance then return false end
 
 	if normal.y >= body:GetMinGroundNormalY() then
-		body:SetGrounded(true)
-		body:SetGroundNormal(normal)
+		apply_support_grounding_metadata(body, hit, normal)
 		body:AccumulateGroundSupportContact(normal, support_point)
 	end
 

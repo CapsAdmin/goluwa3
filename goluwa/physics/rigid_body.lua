@@ -957,6 +957,15 @@ do
 
 		if self.Grounded then
 			local use_grounded_velocity_constraints = self:IsGroundSupportStable()
+			local shape = self.GetPhysicsShape and self:GetPhysicsShape() or nil
+
+			if shape and shape.ShouldUseGroundedVelocityConstraints then
+				use_grounded_velocity_constraints = shape:ShouldUseGroundedVelocityConstraints(
+					self,
+					use_grounded_velocity_constraints
+				) == true
+			end
+
 			local normal_speed = self.Velocity:Dot(self.GroundNormal)
 
 			if use_grounded_velocity_constraints and normal_speed < 0 then

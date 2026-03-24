@@ -6,6 +6,7 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local timer = import("goluwa/timer.lua")
 local Entity = import("goluwa/ecs/entity.lua")
+local TERRAIN_RESOLUTION = Vec2() + 64
 local HEADER = [[
 float n2D(vec2 p) {
 	vec2 i = floor(p); p -= i; 
@@ -179,7 +180,7 @@ local function CreateDesertTerrain()
 	)
 	local heightmap_data = height_tex:Download()
 	local poly = Polygon3D.New()
-	poly:LoadHeightmap(height_tex, Vec2(4096, 4096), Vec2(64, 64), Vec2() + 128, 512, 1)
+	poly:LoadHeightmap(height_tex, Vec2(4096, 4096), TERRAIN_RESOLUTION, Vec2() + 128, 512, 1)
 	poly:BuildNormals(true)
 	poly:SmoothNormals()
 	poly:BuildBoundingBox()
@@ -201,7 +202,7 @@ local function CreateDesertTerrain()
 			Shape = HeightmapShape.New{
 				Heightmap = heightmap_data,
 				Size = Vec2(4096, 4096),
-				Resolution = Vec2() + 32,
+				Resolution = TERRAIN_RESOLUTION,
 				Height = 512,
 				Pow = 1,
 			},

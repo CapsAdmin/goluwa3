@@ -1,10 +1,12 @@
 local T = import("test/environment.lua")
 local physics = import("goluwa/physics.lua")
 local Entity = import("goluwa/ecs/entity.lua")
+local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local CapsuleShape = import("goluwa/physics/shapes/capsule.lua")
 local SphereShape = import("goluwa/physics/shapes/sphere.lua")
 local BoxShape = import("goluwa/physics/shapes/box.lua")
+local HeightmapShape = import("goluwa/physics/shapes/heightmap.lua")
 local test_helpers = import("test/tests/physics/test_helpers.lua")
 local CCD_FIXED_STEPS = {1 / 60}
 
@@ -39,6 +41,80 @@ local function with_fixed_step(fixed_dt, callback)
 	end
 end
 
+local function create_mock_heightmap(size, fn)
+	return {
+		GetSize = function()
+			return Vec2(size, size)
+		end,
+		GetRawPixelColor = function(_, x, y)
+			local ix = math.max(0, math.min(size - 1, math.floor(x)))
+			local iy = math.max(0, math.min(size - 1, math.floor(y)))
+			return fn(ix, iy)
+		end,
+	}
+end
+
+local function create_concave_heightmap_ground(name)
+	local resolution = 40
+	local tex = create_mock_heightmap(resolution + 1, function(x, y)
+		local nx = x / resolution * 2 - 1
+		local ny = y / resolution * 2 - 1
+		local r2 = nx * nx + ny * ny
+		local bowl = math.min(1, r2 ^ 0.72)
+		local ripples = (math.cos(nx * 10) + math.sin(ny * 12)) * 0.015
+		local h = math.max(0, math.min(1, 0.16 + bowl * 0.56 + ripples))
+		local value = math.floor(h * 255 + 0.5)
+		return value, value, value, 255
+	end)
+	local ground = Entity.New({Name = name})
+	ground:AddComponent("transform")
+	ground.transform:SetPosition(Vec3(0, -1.5, 0))
+	ground:AddComponent(
+		"rigid_body",
+		{
+			Shape = HeightmapShape.New{
+				Heightmap = tex,
+				Size = Vec2(18, 18),
+				Resolution = Vec2(resolution, resolution),
+				Height = 4,
+				Pow = 1,
+			},
+			MotionType = "static",
+			WorldGeometry = true,
+			Friction = 0.9,
+			Restitution = 0,
+		}
+	)
+	return ground
+end
+
+local function create_flat_heightmap_ground(name)
+	local resolution = 24
+	local tex = create_mock_heightmap(resolution + 1, function()
+		return 128, 128, 128, 255
+	end)
+	local ground = Entity.New({Name = name})
+	ground:AddComponent("transform")
+	ground.transform:SetPosition(Vec3(0, 0, 0))
+	ground:AddComponent(
+		"rigid_body",
+		{
+			Shape = HeightmapShape.New{
+				Heightmap = tex,
+				Size = Vec2(18, 18),
+				Resolution = Vec2(resolution, resolution),
+				Height = 4,
+				Pow = 1,
+			},
+			MotionType = "static",
+			WorldGeometry = true,
+			Friction = 0.9,
+			Restitution = 0,
+		}
+	)
+	return ground
+end
+
 T.Test3D("Capsule rigid body lands on ground mesh", function()
 	local ground = test_helpers.CreateFlatGround("capsule_ground", 16)
 	local body_ent = Entity.New({Name = "capsule_body"})
@@ -58,6 +134,170 @@ T.Test3D("Capsule rigid body lands on ground mesh", function()
 	T(position.y)[">="](0.95)
 	T(position.y)["<="](1.05)
 	T(body:GetGroundNormal().y)[">"](0.9)
+	body_ent:Remove()
+	ground:Remove()
+end)
+
+T.Test3D("Capsule rigid body settles and sleeps on ground mesh after spinning", function()
+	local ground = test_helpers.CreateFlatGround("capsule_sleep_ground", 16)
+	local body_ent = Entity.New({Name = "capsule_sleep_body"})
+	body_ent:AddComponent("transform")
+	body_ent.transform:SetPosition(Vec3(0, 4, 0))
+	body_ent.transform:SetAngles(Deg3(8, 0, 12))
+	local body = body_ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = CapsuleShape.New(0.5, 2.0),
+			LinearDamping = 0,
+			AngularDamping = 0,
+			Friction = 0.9,
+		}
+	)
+	body:SetAngularVelocity(Vec3(0.6, 3.2, 0.8))
+	simulate_physics(420)
+	local position = body_ent.transform:GetPosition()
+	T(body:GetGrounded())["=="](true)
+	T(body:GetAwake())["=="](false)
+	T(position.y)[">="](0.9)
+	T(position.y)["<="](1.1)
+	T(body:GetVelocity():GetLength())["<"](0.05)
+	T(body:GetAngularVelocity():GetLength())["<"](0.08)
+	body_ent:Remove()
+	ground:Remove()
+end)
+
+T.Test3D("Capsule rigid body settles in a concave heightmap pit", function()
+	local ground = create_concave_heightmap_ground("capsule_heightmap_pit")
+	local body_ent = Entity.New({Name = "capsule_heightmap_body"})
+	body_ent:AddComponent("transform")
+	body_ent.transform:SetPosition(Vec3(0.65, 3.2, -0.45))
+	body_ent.transform:SetAngles(Deg3(8, 0, -10))
+	local body = body_ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = CapsuleShape.New(0.5, 2.0),
+			LinearDamping = 0,
+			AngularDamping = 0,
+		}
+	)
+	with_fixed_step(1 / 60, function()
+		simulate_physics(720, 1 / 60)
+	end)
+	local position = body_ent.transform:GetPosition()
+	T(body:GetGrounded())["=="](true)
+	T(body:GetAwake())["=="](false)
+	T(math.abs(position.x))["<"](0.85)
+	T(math.abs(position.z))["<"](0.85)
+	T(body:GetVelocity():GetLength())["<"](0.06)
+	T(body:GetAngularVelocity():GetLength())["<"](0.08)
+	body_ent:Remove()
+	ground:Remove()
+end)
+
+T.Test3D("Tilted capsule on terrain can rotate out of its initial lean", function()
+	local ground = create_flat_heightmap_ground("capsule_tilt_ground")
+	local body_ent = Entity.New({Name = "capsule_tilt_body"})
+	body_ent:AddComponent("transform")
+	body_ent.transform:SetPosition(Vec3(0, 2.0, 0))
+	body_ent.transform:SetAngles(Deg3(0, 0, 45))
+	local body = body_ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = CapsuleShape.New(0.5, 3.2),
+			LinearDamping = 0,
+			AngularDamping = 0,
+			Friction = 0.9,
+		}
+	)
+	with_fixed_step(1 / 60, function()
+		simulate_physics(240, 1 / 60)
+	end)
+	local axis = body:GetRotation():VecMul(Vec3(0, 1, 0)):GetNormalized()
+	T(math.abs(math.abs(axis.y) - 0.70710678118655))[">"](0.12)
+	body_ent:Remove()
+	ground:Remove()
+end)
+
+T.Test3D("Rolling capsule on terrain does not keep spinning in place", function()
+	local ground = create_flat_heightmap_ground("capsule_roll_ground")
+	local body_ent = Entity.New({Name = "capsule_roll_body"})
+	body_ent:AddComponent("transform")
+	body_ent.transform:SetPosition(Vec3(0, 3.2, 0))
+	body_ent.transform:SetAngles(Deg3(0, 0, 55))
+	local body = body_ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = CapsuleShape.New(0.5, 3.2),
+			LinearDamping = 0,
+			AngularDamping = 0,
+			Friction = 0.9,
+		}
+	)
+	body:SetAngularVelocity(Vec3(0, 0, 5.5))
+	with_fixed_step(1 / 60, function()
+		simulate_physics(420, 1 / 60)
+	end)
+	T(body:GetGrounded())["=="](true)
+	T(body:GetAwake())["=="](false)
+	T(body:GetVelocity():GetLength())["<"](0.08)
+	T(body:GetAngularVelocity():GetLength())["<"](0.1)
+	body_ent:Remove()
+	ground:Remove()
+end)
+
+T.Test3D("Rolling capsule on shallow terrain retains angular motion while translating", function()
+	local resolution = 32
+	local tex = create_mock_heightmap(resolution + 1, function(x, y)
+		local nx = x / resolution * math.pi * 2
+		local ny = y / resolution * math.pi * 2
+		local h = 0.5 + math.sin(nx * 1.25) * 0.03 + math.cos(ny * 0.8) * 0.01
+		local value = math.floor(math.max(0, math.min(1, h)) * 255 + 0.5)
+		return value, value, value, 255
+	end)
+	local ground = Entity.New({Name = "capsule_debug_roll_ground"})
+	ground:AddComponent("transform")
+	ground.transform:SetPosition(Vec3(0, 0, 0))
+	ground:AddComponent(
+		"rigid_body",
+		{
+			Shape = HeightmapShape.New{
+				Heightmap = tex,
+				Size = Vec2(24, 24),
+				Resolution = Vec2(resolution, resolution),
+				Height = 2,
+				Pow = 1,
+			},
+			MotionType = "static",
+			WorldGeometry = true,
+			Friction = 0.9,
+			Restitution = 0,
+		}
+	)
+	local body_ent = Entity.New({Name = "capsule_debug_roll_body"})
+	body_ent:AddComponent("transform")
+	body_ent.transform:SetPosition(Vec3(-6, 2.2, 0))
+	body_ent.transform:SetAngles(Deg3(0, 0, 82))
+	local body = body_ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = CapsuleShape.New(0.5, 3.2),
+			LinearDamping = 0,
+			AngularDamping = 0,
+			Friction = 0.9,
+		}
+	)
+	body:SetVelocity(Vec3(3.4, 0, 0))
+	body:SetAngularVelocity(Vec3(0, 0, -5.6))
+	with_fixed_step(1 / 60, function()
+		simulate_physics(120, 1 / 60)
+	end)
+	local velocity = body:GetVelocity()
+	local angular_speed = body:GetAngularVelocity():GetLength()
+	local horizontal_speed = Vec3(velocity.x, 0, velocity.z):GetLength()
+	T(body:GetGrounded())["=="](true)
+	T(horizontal_speed)[">"](1.0)
+	T(angular_speed)[">"](2.2)
+	T(angular_speed * 0.5)[">"](horizontal_speed * 0.45)
 	body_ent:Remove()
 	ground:Remove()
 end)

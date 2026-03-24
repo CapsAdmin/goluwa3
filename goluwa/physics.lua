@@ -20,7 +20,7 @@ function Physics.New(config)
 	config = config or {}
 	local self = Physics:CreateObject(config.instance)
 	-- todo
-	self.FixedTimeStep = config.FixedTimeStep or (1 / 30)
+	self.FixedTimeStep = config.FixedTimeStep or (1 / 60)
 	self.RigidBodyIterations = config.RigidBodyIterations or 1
 	self.RigidBodySubsteps = config.RigidBodySubsteps or 1
 	self.Gravity = config.Gravity or Vec3(0, -28, 0)

@@ -637,6 +637,22 @@ end
 function mesh_contact_common.ResolveBestContact(mesh_body, other_body, best, dt)
 	if not best then return false end
 
+	local options = nil
+	local mesh_shape = mesh_contact_common.GetMeshShape(mesh_body)
+
+	if
+		mesh_shape and
+		mesh_shape.Heightmap ~= nil and
+		other_body.GetShapeType and
+		other_body:GetShapeType() == "capsule" and
+		best.normal and
+		best.normal.y >= math.max(other_body:GetMinGroundNormalY() or 0, 0.45)
+	then
+		options = {
+			friction_scale = 0.25,
+		}
+	end
+
 	return contact_resolution.ResolvePairPenetration(
 		mesh_body,
 		other_body,
@@ -644,7 +660,9 @@ function mesh_contact_common.ResolveBestContact(mesh_body, other_body, best, dt)
 		best.overlap,
 		dt,
 		best.point_a,
-		best.point_b
+		best.point_b,
+		nil,
+		options
 	)
 end
 
