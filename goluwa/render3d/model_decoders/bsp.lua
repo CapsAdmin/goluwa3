@@ -16,12 +16,12 @@ local Color = import("goluwa/structs/color.lua")
 local event = import("goluwa/event.lua")
 local transform = import("goluwa/ecs/components/3d/transform.lua")
 local math3d = import("goluwa/render3d/math3d.lua")
+local brush_hull = import("goluwa/physics/brush_hull.lua")
 local R = vfs.GetAbsolutePath
 local ffi = require("ffi")
 local bit = require("bit")
 local Entity = import("goluwa/ecs/entity.lua")
 local utility = import("goluwa/utility.lua")
-local physics
 local CUBEMAPS = true
 steam.loaded_bsp = steam.loaded_bsp or {}
 local scale = 1 / 0.0254
@@ -50,14 +50,6 @@ local BSP_COLLISION_CONTENTS_MASK = bit.bor(
 	BSP_CONTENTS_MONSTERCLIP
 )
 local BRUSH_POINT_EPSILON = 0.01
-
-local function get_physics_modules()
-	if not physics and (PHYSICS or import.loaded["goluwa/physics.lua"]) then
-		physics = import("goluwa/physics.lua")
-	end
-
-	return physics
-end
 
 local function build_bounds_from_vertices(vertices)
 	if not (vertices and vertices[1]) then return nil end
@@ -94,30 +86,6 @@ local function is_collidable_brush(brush)
 		bit.band(brush.contents or 0, BSP_COLLISION_CONTENTS_MASK) ~= 0
 end
 
-local function intersect_brush_planes(plane_a, plane_b, plane_c)
-	local n1 = plane_a.normal
-	local n2 = plane_b.normal
-	local n3 = plane_c.normal
-	local n2_cross_n3 = n2:GetCross(n3)
-	local determinant = n1:Dot(n2_cross_n3)
-
-	if math.abs(determinant) <= 0.000001 then return nil end
-
-	return (
-			n2_cross_n3 * plane_a.dist + n3:GetCross(n1) * plane_b.dist + n1:GetCross(n2) * plane_c.dist
-		) / determinant
-end
-
-local function is_point_inside_brush(point, planes)
-	for _, plane in ipairs(planes) do
-		if point:Dot(plane.normal) - plane.dist > BRUSH_POINT_EPSILON then
-			return false
-		end
-	end
-
-	return true
-end
-
 local function get_brush_planes(header, brush)
 	local planes = {}
 
@@ -134,39 +102,10 @@ local function get_brush_planes(header, brush)
 	return planes
 end
 
-local function build_brush_hull(header, brush, planes)
-	local physics = get_physics_modules()
+local function build_brush_hull(planes)
+	if not (planes and planes[1] and planes[4]) then return nil end
 
-	if not (physics and physics.Normalize and header.planes) then return nil end
-
-	planes = planes or get_brush_planes(header, brush)
-
-	if #planes < 4 then return nil end
-
-	local points = {}
-	local seen = {}
-
-	for i = 1, #planes - 2 do
-		for j = i + 1, #planes - 1 do
-			for k = j + 1, #planes do
-				local point = intersect_brush_planes(planes[i], planes[j], planes[k])
-
-				if point and is_point_inside_brush(point, planes) then
-					local engine_point = source_pos_to_engine(point)
-					local key = string.format("%.3f:%.3f:%.3f", engine_point.x, engine_point.y, engine_point.z)
-
-					if not seen[key] then
-						seen[key] = true
-						points[#points + 1] = engine_point
-					end
-				end
-			end
-		end
-	end
-
-	if #points < 4 then return nil end
-
-	return physics.Normalize(points, BRUSH_POINT_EPSILON)
+	return brush_hull.BuildHullFromPlanes(planes, BRUSH_POINT_EPSILON)
 end
 
 local function build_primitive_from_hull(hull, brush_planes)
@@ -251,7 +190,7 @@ local function build_bsp_brush_model(header, owner)
 				brush_planes[i] = source_plane_to_engine(plane)
 			end
 
-			local primitive = build_primitive_from_hull(build_brush_hull(header, brush, source_planes), brush_planes)
+			local primitive = build_primitive_from_hull(build_brush_hull(brush_planes), brush_planes)
 
 			if primitive and primitive.aabb then
 				model.Primitives[#model.Primitives + 1] = primitive
