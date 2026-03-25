@@ -11,6 +11,7 @@ config.commands["build"] = {
 						working_directory = "./",
 						emit_environment = false,
 						cache_imports_like_require = true,
+						import_validation_only = true,
 					},
 				}
 			)
