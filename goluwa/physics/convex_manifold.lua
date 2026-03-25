@@ -211,14 +211,14 @@ function convex_manifold.ClosestPointsOnSegments(start_a, end_a, start_b, end_b)
 	end
 
 	if a <= physics_constants.EPSILON then
-		s = 0
 		t = clamp01(f / e)
+		return start_a, start_b + direction_b * t
 	else
 		local c = direction_a:Dot(delta)
 
 		if e <= physics_constants.EPSILON then
-			t = 0
 			s = clamp01(-c / a)
+			return start_a + direction_a * s, start_b
 		else
 			local b = direction_a:Dot(direction_b)
 			local denominator = a * e - b * b
@@ -232,11 +232,11 @@ function convex_manifold.ClosestPointsOnSegments(start_a, end_a, start_b, end_b)
 			t = (b * s + f) / e
 
 			if t < 0 then
-				t = 0
 				s = clamp01(-c / a)
+				return start_a + direction_a * s, start_b
 			elseif t > 1 then
-				t = 1
 				s = clamp01((b - c) / a)
+				return start_a + direction_a * s, end_b
 			end
 		end
 	end

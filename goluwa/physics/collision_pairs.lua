@@ -8,7 +8,10 @@ end
 
 local function get_nested_entry(store, key_a, key_b)
 	local row = store[key_a]
-	return row and row[key_b] or nil
+
+	if not row then return nil end
+
+	return row[key_b]
 end
 
 local function set_nested_entry(store, key_a, key_b, entry)
