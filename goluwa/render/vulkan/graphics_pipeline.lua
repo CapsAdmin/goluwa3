@@ -123,6 +123,142 @@ local function get_color_blend_state(self, index, key, default)
 	return default
 end
 
+local function build_zero_offsets(count)
+	if count <= 0 then return nil end
+
+	local offsets = {}
+
+	for i = 1, count do
+		offsets[i] = 0
+	end
+
+	return offsets
+end
+
+local function build_bind_state_cache(self)
+	local cache = {
+		zero_dynamic_offsets = build_zero_offsets(self.dynamic_descriptor_count or 0),
+	}
+
+	if self.dynamic_states.color_blend_enable_ext then
+		local attachment_count = get_color_attachment_count(self)
+
+		if attachment_count > 0 then
+			local enables = {}
+
+			for i = 1, attachment_count do
+				enables[i] = get_color_blend_enable(self, i)
+			end
+
+			cache.color_blend_enable = enables
+		end
+	end
+
+	if self.dynamic_states.color_blend_equation_ext then
+		local attachment_count = get_color_attachment_count(self)
+
+		if attachment_count > 0 then
+			local equations = {}
+
+			for i = 1, attachment_count do
+				equations[i] = {
+					src_color_blend_factor = get_color_blend_state(self, i, "src_color_blend_factor", "src_alpha"),
+					dst_color_blend_factor = get_color_blend_state(self, i, "dst_color_blend_factor", "one_minus_src_alpha"),
+					color_blend_op = get_color_blend_state(self, i, "color_blend_op", "add"),
+					src_alpha_blend_factor = get_color_blend_state(self, i, "src_alpha_blend_factor", "one"),
+					dst_alpha_blend_factor = get_color_blend_state(self, i, "dst_alpha_blend_factor", "one_minus_src_alpha"),
+					alpha_blend_op = get_color_blend_state(self, i, "alpha_blend_op", "add"),
+				}
+			end
+
+			cache.color_blend_equations = equations
+		end
+	end
+
+	if self.dynamic_states.polygon_mode_ext then
+		cache.polygon_mode = get_state(self, "rasterizer", "polygon_mode") or "fill"
+	end
+
+	if self.dynamic_states.cull_mode then
+		cache.cull_mode = get_state(self, "rasterizer", "cull_mode") or "none"
+	end
+
+	if self.dynamic_states.stencil_test_enable then
+		cache.stencil_test_enable = get_state(self, "depth_stencil", "stencil_test") == true
+	end
+
+	if self.dynamic_states.stencil_op then
+		cache.stencil_fail_op = get_state(self, "depth_stencil", "front", "fail_op") or "keep"
+		cache.stencil_pass_op = get_state(self, "depth_stencil", "front", "pass_op") or "keep"
+		cache.stencil_depth_fail_op = get_state(self, "depth_stencil", "front", "depth_fail_op") or "keep"
+		cache.stencil_compare_op = get_state(self, "depth_stencil", "front", "compare_op") or "always"
+	end
+
+	if self.dynamic_states.stencil_reference then
+		cache.stencil_reference = get_state(self, "depth_stencil", "front", "reference") or 0
+	end
+
+	if self.dynamic_states.stencil_compare_mask then
+		cache.stencil_compare_mask = get_state(self, "depth_stencil", "front", "compare_mask") or 0xFF
+	end
+
+	if self.dynamic_states.stencil_write_mask then
+		cache.stencil_write_mask = get_state(self, "depth_stencil", "front", "write_mask") or 0xFF
+	end
+
+	if self.dynamic_states.viewport then
+		cache.viewport_width = (
+				self.config.extent and
+				self.config.extent.width
+			)
+			or
+			(
+				self.config.viewport and
+				self.config.viewport.w
+			)
+			or
+			0
+		cache.viewport_height = (
+				self.config.extent and
+				self.config.extent.height
+			)
+			or
+			(
+				self.config.viewport and
+				self.config.viewport.h
+			)
+			or
+			0
+	end
+
+	if self.dynamic_states.scissor then
+		cache.scissor_width = (
+				self.config.extent and
+				self.config.extent.width
+			)
+			or
+			(
+				self.config.scissor and
+				self.config.scissor.w
+			)
+			or
+			0
+		cache.scissor_height = (
+				self.config.extent and
+				self.config.extent.height
+			)
+			or
+			(
+				self.config.scissor and
+				self.config.scissor.h
+			)
+			or
+			0
+	end
+
+	self.bind_state_cache = cache
+end
+
 function GraphicsPipeline.New(vulkan_instance, config)
 	local self = GraphicsPipeline:CreateObject({})
 	local uniform_buffers = {}
@@ -370,6 +506,8 @@ function GraphicsPipeline.New(vulkan_instance, config)
 			self.dynamic_states[s] = true
 		end
 	end
+
+	build_bind_state_cache(self)
 
 	do
 		self.texture_registry = setmetatable({}, {__mode = "k"}) -- texture_object -> index mapping
@@ -647,134 +785,69 @@ end
 
 function GraphicsPipeline:Bind(cmd, frame_index, dynamic_offsets)
 	frame_index = frame_index or 1
+	local cache = self.bind_state_cache
 	cmd:BindPipeline(self.pipeline, "graphics")
 
 	-- Always apply dynamic states if they are enabled in this pipeline
 	if self.dynamic_states.color_blend_enable_ext then
-		local attachment_count = get_color_attachment_count(self)
-
-		if attachment_count > 0 then
-			local enables = {}
-
-			for i = 1, attachment_count do
-				enables[i] = get_color_blend_enable(self, i)
-			end
-
-			cmd:SetColorBlendEnable(0, enables)
-		end
+		if cache.color_blend_enable then cmd:SetColorBlendEnable(0, cache.color_blend_enable) end
 	end
 
 	if self.dynamic_states.color_blend_equation_ext then
-		local attachment_count = get_color_attachment_count(self)
-
-		if attachment_count > 0 then
-			for i = 1, attachment_count do
+		if cache.color_blend_equations then
+			for i, equation in ipairs(cache.color_blend_equations) do
 				cmd:SetColorBlendEquation(
 					i - 1,
-					{
-						src_color_blend_factor = get_color_blend_state(self, i, "src_color_blend_factor", "src_alpha"),
-						dst_color_blend_factor = get_color_blend_state(self, i, "dst_color_blend_factor", "one_minus_src_alpha"),
-						color_blend_op = get_color_blend_state(self, i, "color_blend_op", "add"),
-						src_alpha_blend_factor = get_color_blend_state(self, i, "src_alpha_blend_factor", "one"),
-						dst_alpha_blend_factor = get_color_blend_state(self, i, "dst_alpha_blend_factor", "one_minus_src_alpha"),
-						alpha_blend_op = get_color_blend_state(self, i, "alpha_blend_op", "add"),
-					}
+					equation
 				)
 			end
 		end
 	end
 
 	if self.dynamic_states.polygon_mode_ext then
-		cmd:SetPolygonMode(get_state(self, "rasterizer", "polygon_mode") or "fill")
+		cmd:SetPolygonMode(cache.polygon_mode)
 	end
 
 	if self.dynamic_states.cull_mode then
-		cmd:SetCullMode(get_state(self, "rasterizer", "cull_mode") or "none")
+		cmd:SetCullMode(cache.cull_mode)
 	end
 
 	if self.dynamic_states.stencil_test_enable then
-		cmd:SetStencilTestEnable(get_state(self, "depth_stencil", "stencil_test") == true)
+		cmd:SetStencilTestEnable(cache.stencil_test_enable)
 	end
 
 	if self.dynamic_states.stencil_op then
 		cmd:SetStencilOp(
 			"front_and_back",
-			get_state(self, "depth_stencil", "front", "fail_op") or "keep",
-			get_state(self, "depth_stencil", "front", "pass_op") or "keep",
-			get_state(self, "depth_stencil", "front", "depth_fail_op") or "keep",
-			get_state(self, "depth_stencil", "front", "compare_op") or "always"
+			cache.stencil_fail_op,
+			cache.stencil_pass_op,
+			cache.stencil_depth_fail_op,
+			cache.stencil_compare_op
 		)
 	end
 
 	if self.dynamic_states.stencil_reference then
-		cmd:SetStencilReference("front_and_back", get_state(self, "depth_stencil", "front", "reference") or 0)
+		cmd:SetStencilReference("front_and_back", cache.stencil_reference)
 	end
 
 	if self.dynamic_states.stencil_compare_mask then
-		cmd:SetStencilCompareMask(
-			"front_and_back",
-			get_state(self, "depth_stencil", "front", "compare_mask") or 0xFF
-		)
+		cmd:SetStencilCompareMask("front_and_back", cache.stencil_compare_mask)
 	end
 
 	if self.dynamic_states.stencil_write_mask then
-		cmd:SetStencilWriteMask("front_and_back", get_state(self, "depth_stencil", "front", "write_mask") or 0xFF)
+		cmd:SetStencilWriteMask("front_and_back", cache.stencil_write_mask)
 	end
 
 	if self.dynamic_states.viewport then
-		local width = (
-				self.config.extent and
-				self.config.extent.width
-			)
-			or
-			(
-				self.config.viewport and
-				self.config.viewport.w
-			)
-			or
-			0
-		local height = (
-				self.config.extent and
-				self.config.extent.height
-			)
-			or
-			(
-				self.config.viewport and
-				self.config.viewport.h
-			)
-			or
-			0
-
-		if width > 0 and height > 0 then
-			cmd:SetViewport(0, 0, width, height, 0, 1)
+		if cache.viewport_width > 0 and cache.viewport_height > 0 then
+			cmd:SetViewport(0, 0, cache.viewport_width, cache.viewport_height, 0, 1)
 		end
 	end
 
 	if self.dynamic_states.scissor then
-		local width = (
-				self.config.extent and
-				self.config.extent.width
-			)
-			or
-			(
-				self.config.scissor and
-				self.config.scissor.w
-			)
-			or
-			0
-		local height = (
-				self.config.extent and
-				self.config.extent.height
-			)
-			or
-			(
-				self.config.scissor and
-				self.config.scissor.h
-			)
-			or
-			0
-
-		if width > 0 and height > 0 then cmd:SetScissor(0, 0, width, height) end
+		if cache.scissor_width > 0 and cache.scissor_height > 0 then
+			cmd:SetScissor(0, 0, cache.scissor_width, cache.scissor_height)
+		end
 	end
 
 	-- Bind descriptor sets
@@ -784,13 +857,7 @@ function GraphicsPipeline:Bind(cmd, frame_index, dynamic_offsets)
 		if sets then
 			local offsets = dynamic_offsets
 
-			if not offsets and self.dynamic_descriptor_count > 0 then
-				offsets = {}
-
-				for i = 1, self.dynamic_descriptor_count do
-					offsets[i] = 0
-				end
-			end
+			if not offsets then offsets = cache.zero_dynamic_offsets or 0 end
 
 			cmd:BindDescriptorSets("graphics", self.pipeline_layout, sets, offsets or 0)
 		end
@@ -887,6 +954,7 @@ function GraphicsPipeline:RebuildPipeline(overrides)
 	if variant_key == "" or variant_key == "{\n}" then
 		self.pipeline = self.base_pipeline
 		self.current_variant_key = nil
+		build_bind_state_cache(self)
 		return
 	end
 
@@ -894,6 +962,7 @@ function GraphicsPipeline:RebuildPipeline(overrides)
 	if self.pipeline_variants[variant_key] then
 		self.current_variant_key = variant_key
 		self.pipeline = self.pipeline_variants[variant_key]
+		build_bind_state_cache(self)
 		return
 	end
 
@@ -974,6 +1043,7 @@ function GraphicsPipeline:RebuildPipeline(overrides)
 	self.pipeline_variants[variant_key] = new_pipeline
 	self.current_variant_key = variant_key
 	self.pipeline = new_pipeline
+	build_bind_state_cache(self)
 end
 
 -- High level state override. 
@@ -1014,7 +1084,11 @@ function GraphicsPipeline:SetState(section, changes)
 
 	self.overridden_state[section] = section_overrides
 
-	if changed_static then self:RebuildPipeline(self.overridden_state) end
+	if changed_static then
+		self:RebuildPipeline(self.overridden_state)
+	else
+		build_bind_state_cache(self)
+	end
 end
 
 -- Reset to base pipeline
@@ -1022,6 +1096,7 @@ function GraphicsPipeline:ResetToBase()
 	self.pipeline = self.base_pipeline
 	self.current_variant_key = nil
 	self.overridden_state = {}
+	build_bind_state_cache(self)
 end
 
 -- Get information about cached variants (for debugging)

@@ -247,12 +247,11 @@ function CommandBuffer:BindDescriptorSets(pipeline_bind_point, pipelineLayout, d
 		pDynamicOffsets = UInt32Array1(dynamicOffsets)
 	end
 
-	local firstSetInt = firstSet or 0
 	vulkan.lib.vkCmdBindDescriptorSets(
 		self.ptr[0],
 		vulkan.vk.e.VkPipelineBindPoint(pipeline_bind_point),
 		pipelineLayout.ptr[0],
-		firstSetInt,
+		firstSet or 0,
 		setCount,
 		setArray,
 		dynamicOffsetCount,
