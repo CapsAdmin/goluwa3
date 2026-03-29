@@ -1,5 +1,6 @@
 local prototype = import("goluwa/prototype.lua")
 local vfs = import("goluwa/filesystem/vfs.lua")
+local system = import("goluwa/system.lua")
 local CONTEXT = prototype.CreateTemplate("file_system_base")
 CONTEXT.Name = "base"
 CONTEXT:GetSet("Mode", "read")
@@ -17,7 +18,7 @@ do
 	end
 
 	function CONTEXT:CacheCall(func_name, path_info)
-		if system then
+		do
 			local frame_number = system.GetFrameNumber()
 
 			if frame_number ~= last_framenumber then
@@ -30,13 +31,13 @@ do
 		cache[func_name][self.Name] = cache[func_name][self.Name] or {}
 
 		if cache[func_name][self.Name][path_info.full_path] == nil then
-			cache[func_name][self.Name][path_info.full_path] = self[func_name](self, path_info)
+			cache[func_name][self.Name][path_info.full_path] = table.pack(self[func_name](self, path_info))
 		end
 
 		-- might have been cleared inbetween
 		cache[func_name] = cache[func_name] or {}
 		cache[func_name][self.Name] = cache[func_name][self.Name] or {}
-		return cache[func_name][self.Name][path_info.full_path]
+		return table.unpack(cache[func_name][self.Name][path_info.full_path])
 	end
 
 	vfs.call_cache = cache

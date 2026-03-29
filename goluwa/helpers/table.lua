@@ -264,6 +264,20 @@ do
 	end
 end
 
+do
+	local select = _G.select
+
+	function table.pack(...)
+		return {n = select("#", ...), ...}
+	end
+
+	local unpack = _G.unpack
+
+	function table.unpack(tbl, i, j)
+		return unpack(tbl, i, j or tbl.n)
+	end
+end
+
 table.sort = import("goluwa/helpers/table_sort.lua")
 table.new = require("table.new")
 table.print = import("goluwa/helpers/tostring_object.lua").dump_object

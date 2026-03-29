@@ -8,7 +8,7 @@ local prototype = import("goluwa/prototype.lua")
 local CONTEXT = prototype.CreateTemplate("file_system_zip")
 CONTEXT.Base = import("goluwa/filesystem/files/generic_archive.lua")
 CONTEXT.Name = "zip archive"
-CONTEXT.Extension = "zip"
+CONTEXT.Extension = {"zip", "love"}
 
 function CONTEXT:OnParseArchive(file, archive_path)
 	if VERBOSE then print("ZIP: Parsing archive:", archive_path) end

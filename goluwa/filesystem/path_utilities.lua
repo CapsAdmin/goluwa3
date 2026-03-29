@@ -145,12 +145,21 @@ function vfs.GetAbsolutePath(path, is_folder)
 		end
 	end
 
+	local err = {}
+
 	for _, data in ipairs(vfs.TranslatePath(path, is_folder)) do
-		if
-			data.context:CacheCall("IsFile", data.path_info) or
-			data.context:CacheCall("IsFolder", data.path_info)
-		then
-			return data.path_info.full_path
-		end
+		local ok1, err1 = data.context:CacheCall("IsFile", data.path_info)
+
+		if ok1 then return data.path_info.full_path end
+
+		local ok2, err2 = data.context:CacheCall("IsFolder", data.path_info)
+
+		if ok2 then return data.path_info.full_path end
+
+		table.insert(err, data.path_info.full_path .. " does not exist")
+		table.insert(err, "  " .. (err1 or "unknown error"))
+		table.insert(err, "  " .. (err2 or "unknown error"))
 	end
+
+	return nil, path .. " does not exist\n" .. table.concat(err, "\n")
 end
