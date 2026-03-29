@@ -1,17 +1,5 @@
 local system = import("goluwa/system.lua")
 local vfs = import("goluwa/vfs.lua")
-vfs.Mount("os:" .. vfs.GetStorageDirectory("working_directory"))
-vfs.MountStorageDirectories()
-import.loadfile = vfs.LoadFile
-_G.runfile = function(...)
-	local ret = list.pack(vfs.RunFile(...))
-
-	-- not very ideal
-	if ret[1] == false and type(ret[2]) == "string" then error(ret[2], 2) end
-
-	return list.unpack(ret)
-end
-_G.R = vfs.GetAbsolutePath
 import("goluwa/pvars.lua").Initialize()
 import("goluwa/repl.lua").Initialize()
 import("goluwa/filewatcher.lua").Start()

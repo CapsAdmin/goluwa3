@@ -8,6 +8,11 @@ local fs = import("goluwa/fs.lua")
 local vfs = import("goluwa/vfs.lua")
 local tasks = import("goluwa/tasks.lua")
 local commands = import("goluwa/commands.lua")
+
+vfs.MountStorageDirectories()
+import.loadfile = vfs.LoadFile
+_G.R = vfs.GetAbsolutePath
+
 import("goluwa/helpers/test.lua") -- add test command
 local function normalize_path(path)
 	local wdir = vfs.GetStorageDirectory("working_directory")

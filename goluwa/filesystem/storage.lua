@@ -69,6 +69,8 @@ function vfs.GetStorageDirectory(what)
 end
 
 function vfs.MountStorageDirectories()
+	vfs.Mount("os:" .. vfs.GetStorageDirectory("working_directory"))
+
 	do
 		local dir = vfs.GetStorageDirectory("storage")
 		fs.create_directory_recursive(dir)
