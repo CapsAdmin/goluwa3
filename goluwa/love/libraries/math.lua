@@ -1,3 +1,4 @@
+local line = import("goluwa/love/line.lua")
 local love = ... or _G.love
 local ENV = love._line_env
 love.math = love.math or {}
@@ -38,7 +39,7 @@ do
 	end
 
 	do
-		local noise = require("noise")
+		local noise = import("goluwa/noise.lua")
 
 		function love.math.noise(x, y, w, h)
 			if x and y and z and w then

@@ -1,3 +1,6 @@
+local line = import("goluwa/love/line.lua")
+local window = import("goluwa/window.lua")
+local Vec2 = import("goluwa/structs/vec2.lua")
 local love = ... or _G.love
 local ENV = love._line_env
 love.window = love.window or {}

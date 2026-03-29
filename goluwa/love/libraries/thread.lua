@@ -1,3 +1,4 @@
+local line = import("goluwa/love/line.lua")
 local love = ... or _G.love
 local ENV = love._line_env
 love.thread = love.thread or {}

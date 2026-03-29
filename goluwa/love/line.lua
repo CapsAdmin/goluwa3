@@ -3,6 +3,8 @@ local require = import("goluwa/require.lua")
 local event = import("goluwa/event.lua")
 local vfs = import("goluwa/vfs.lua")
 local commands = import("goluwa/commands.lua")
+local resource = import("goluwa/resource.lua")
+local R = vfs.GetAbsolutePath
 local line = library()
 line.speed = 1
 line.love_envs = line.love_envs or table.weak()
@@ -79,26 +81,24 @@ function line.CreateLoveEnv(version)
 	love._version_revision = tonumber(version[3])
 	love._line_env = {}
 	love.package_loaders = {}
-
-	assert(loadfile("goluwa/love/libraries/arg.lua"))(love)        
-	assert(loadfile("goluwa/love/libraries/event.lua"))(love)      
-	assert(loadfile("goluwa/love/libraries/graphics.lua"))(love)   
-	assert(loadfile("goluwa/love/libraries/joystick.lua"))(love)  
-	assert(loadfile("goluwa/love/libraries/love.lua"))(love)       
-	assert(loadfile("goluwa/love/libraries/mouse.lua"))(love) 
-	assert(loadfile("goluwa/love/libraries/physics.lua"))(love)    
-	assert(loadfile("goluwa/love/libraries/system.lua"))(love)     
+	assert(loadfile("goluwa/love/libraries/arg.lua"))(love)
+	assert(loadfile("goluwa/love/libraries/event.lua"))(love)
+	assert(loadfile("goluwa/love/libraries/graphics.lua"))(love)
+	assert(loadfile("goluwa/love/libraries/joystick.lua"))(love)
+	assert(loadfile("goluwa/love/libraries/love.lua"))(love)
+	assert(loadfile("goluwa/love/libraries/mouse.lua"))(love)
+	assert(loadfile("goluwa/love/libraries/physics.lua"))(love)
+	assert(loadfile("goluwa/love/libraries/system.lua"))(love)
 	assert(loadfile("goluwa/love/libraries/timer.lua"))(love)
-	assert(loadfile("goluwa/love/libraries/audio.lua"))(love)  
-	assert(loadfile("goluwa/love/libraries/filesystem.lua"))(love) 
-	assert(loadfile("goluwa/love/libraries/image.lua"))(love) 
-	assert(loadfile("goluwa/love/libraries/keyboard.lua"))(love) 
-	assert(loadfile("goluwa/love/libraries/math.lua"))(love) 
-	assert(loadfile("goluwa/love/libraries/particles.lua"))(love) 
+	assert(loadfile("goluwa/love/libraries/audio.lua"))(love)
+	assert(loadfile("goluwa/love/libraries/filesystem.lua"))(love)
+	assert(loadfile("goluwa/love/libraries/image.lua"))(love)
+	assert(loadfile("goluwa/love/libraries/keyboard.lua"))(love)
+	assert(loadfile("goluwa/love/libraries/math.lua"))(love)
+	assert(loadfile("goluwa/love/libraries/particles.lua"))(love)
 	assert(loadfile("goluwa/love/libraries/sound.lua"))(love)
 	assert(loadfile("goluwa/love/libraries/thread.lua"))(love)
 	assert(loadfile("goluwa/love/libraries/window.lua"))(love)
-
 	list.insert(line.love_envs, love)
 	setmetatable(
 		love,
@@ -152,7 +152,7 @@ end
 function line.RunGame(folder, ...)
 	local love = line.CreateLoveEnv()
 	llog("mounting love game folder: ", R(folder .. "/"))
-	vfs.CreateDirectory("data/love/")
+	assert(vfs.CreateDirectory("os:data/love/", true))
 	vfs.AddModuleDirectory("lua/modules/", love.package_loaders)
 	vfs.AddModuleDirectory("data/love/", love.package_loaders)
 	vfs.Mount(assert(R(folder .. "/")))
@@ -199,8 +199,8 @@ function line.RunGame(folder, ...)
 				end
 
 				local func, err, path = require.load(name, love.package_loaders)
+				llog("require: ", name, " (", path, ")")
 
-				--llog("require: ", name, " (", path , ")")
 				if type(func) == "function" then
 					if debug.getinfo(func).what ~= "C" then setfenv(func, env) end
 

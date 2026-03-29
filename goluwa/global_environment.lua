@@ -27,7 +27,6 @@ end
 do
 	_G.import = require("goluwa.import")
 	_G.import.loaded["goluwa/import.lua"] = package.loaded["goluwa.import"]
-	package.path = package.path .. ";" .. "goluwa/?.lua"
 	package.path = package.path .. ";" .. "bin/LuaJIT/src/?.lua"
 end
 

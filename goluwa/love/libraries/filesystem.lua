@@ -2,6 +2,7 @@ local love = ... or _G.love
 local ENV = love._line_env
 local line = import("goluwa/love/line.lua")
 local vfs = import("goluwa/filesystem/vfs.lua")
+local R = vfs.GetAbsolutePath
 local event = import("goluwa/event.lua")
 love.filesystem = love.filesystem or {}
 ENV.filesystem_identity = ENV.filesystem_identity or "none"

@@ -1,4 +1,7 @@
 require("goluwa.global_environment")
+local vfs = import("goluwa/vfs.lua")
+vfs.Mount("os:" .. vfs.GetStorageDirectory("working_directory"))
+vfs.MountStorageDirectories()
 local vk = import("goluwa/bindings/vk.lua")
 local has_rendering = false
 
