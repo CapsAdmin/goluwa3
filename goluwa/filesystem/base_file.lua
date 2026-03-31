@@ -29,15 +29,18 @@ do
 
 		cache[func_name] = cache[func_name] or {}
 		cache[func_name][self.Name] = cache[func_name][self.Name] or {}
+		local packed = cache[func_name][self.Name][path_info.full_path]
 
-		if cache[func_name][self.Name][path_info.full_path] == nil then
-			cache[func_name][self.Name][path_info.full_path] = table.pack(self[func_name](self, path_info))
+		if packed == nil then
+			packed = table.pack(self[func_name](self, path_info))
+			cache[func_name][self.Name][path_info.full_path] = packed
 		end
 
 		-- might have been cleared inbetween
 		cache[func_name] = cache[func_name] or {}
 		cache[func_name][self.Name] = cache[func_name][self.Name] or {}
-		return table.unpack(cache[func_name][self.Name][path_info.full_path])
+		packed = cache[func_name][self.Name][path_info.full_path] or packed
+		return table.unpack(packed)
 	end
 
 	vfs.call_cache = cache
