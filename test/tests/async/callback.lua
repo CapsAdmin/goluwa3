@@ -1,6 +1,53 @@
 local T = import("test/environment.lua")
 local callback = import("goluwa/callback.lua")
 local timer = import("goluwa/timer.lua")
+local process = import("goluwa/bindings/process.lua")
+local fs = import("goluwa/fs.lua")
+
+local function wait_for_process(proc, timeout)
+	local stdout = ""
+	local stderr = ""
+	local exit_code
+	local finished = T.RunUntil2(
+		function()
+			local out = proc:read(4096)
+
+			if out and out ~= "" then stdout = stdout .. out end
+
+			local err = proc:read_err(4096)
+
+			if err and err ~= "" then stderr = stderr .. err end
+
+			local done, code = proc:try_wait()
+
+			if done == nil then error(code, 0) end
+
+			if done then
+				exit_code = code
+				local final_out = proc:read(4096)
+				local final_err = proc:read_err(4096)
+
+				if final_out and final_out ~= "" then stdout = stdout .. final_out end
+
+				if final_err and final_err ~= "" then stderr = stderr .. final_err end
+
+				return true
+			end
+
+			return false
+		end,
+		timeout or 3
+	)
+
+	if not finished then
+		proc:kill()
+		proc:wait()
+		error(("process timed out\nstdout: %s\nstderr: %s"):format(stdout, stderr), 0)
+	end
+
+	proc:close()
+	return exit_code, stdout, stderr
+end
 
 T.Test("callback.Create basic resolve", function()
 	local resolved = false
@@ -179,6 +226,26 @@ T.Test("callback.Create cannot reject resolved callback", function()
 	cb:Resolve("value")
 	cb:Reject("error")
 	T(rejected)["=="](false)
+end)
+
+T.Test("callback.Get pumps updates in glw lua subprocess", function()
+	local proc = assert(
+		process.spawn{
+			command = "luajit",
+			args = {
+				"glw",
+				"lua",
+				[[local callback = import("goluwa/callback.lua"); print(callback.Resolve("ok"):Get())]],
+			},
+			cwd = fs.get_current_directory(),
+			stdout = "pipe",
+			stderr = "pipe",
+		}
+	)
+	local exit_code, stdout, stderr = wait_for_process(proc, 5)
+	T(exit_code)["=="](0)
+	T(stdout)["contains"]("ok")
+	T(stderr)["=="]("")
 end)
 
 T.Test("callback.Create subscribe custom events", function()

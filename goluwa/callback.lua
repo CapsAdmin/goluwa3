@@ -1,7 +1,16 @@
 local timer = import("goluwa/timer.lua")
 local callstack = import("goluwa/helpers/callstack.lua")
 local tasks = import("goluwa/tasks.lua")
+local event = import("goluwa/event.lua")
+local system = import("goluwa/system.lua")
 local callback = library()
+
+local function pump_blocking_get()
+	local dt = 0.001
+	system.SetElapsedTime(system.GetElapsedTime() + dt)
+	event.Call("Update", dt)
+	system.Sleep(dt)
+end
 
 do
 	local meta = {}
@@ -158,7 +167,11 @@ do
 				error(callstack.get_line(level) .. ": " .. tostring(msg), level)
 			end
 
-			tasks.Wait()
+			if tasks.GetActiveTask() then
+				tasks.Wait()
+			else
+				pump_blocking_get()
+			end
 		end
 
 		return unpack(self.resolved_values or {})
