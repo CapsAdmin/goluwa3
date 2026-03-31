@@ -26,7 +26,9 @@ end
 
 do
 	_G.import = require("goluwa.import")
+	_G.require = require("goluwa.require")
 	_G.import.loaded["goluwa/import.lua"] = package.loaded["goluwa.import"]
+	_G.import.loaded["goluwa/require.lua"] = package.loaded["goluwa.require"]
 	package.path = package.path .. ";" .. "bin/LuaJIT/src/?.lua"
 end
 

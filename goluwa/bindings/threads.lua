@@ -279,10 +279,17 @@ do
 			[[
             local run = assert(load(...))
             local ffi = require("ffi")
-			require("goluwa.global_environment")
-			local threads = import("goluwa/bindings/threads.lua")
+
+			local function get_threads()
+				if rawget(_G, "import") == nil or rawget(_G, "require") == nil then
+					require("goluwa.global_environment")
+				end
+
+				return import("goluwa/bindings/threads.lua")
+			end
 
             local function main(udata)
+				local threads = get_threads()
                 local data = ffi.cast(threads.thread_data_ptr_t, udata)
 
                 if data.shared_pointer ~= nil then

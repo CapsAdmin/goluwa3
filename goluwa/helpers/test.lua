@@ -1036,6 +1036,25 @@ commands.Add({
 		},
 	},
 }, function(filter, flags)
+	local sensitive_test_cache = {}
+
+	local function is_thread_sensitive_test(test_item)
+		local path = fs.get_current_directory() .. "/" .. test_item.path
+
+		if sensitive_test_cache[path] ~= nil then return sensitive_test_cache[path] end
+
+		local content = fs.read_file(path)
+		local sensitive = false
+
+		if content then
+			sensitive = content:find("import(\"test/environment.lua\")", nil, true) ~= nil or
+				content:find("import('test/environment.lua')", nil, true) ~= nil
+		end
+
+		sensitive_test_cache[path] = sensitive
+		return sensitive
+	end
+
 	local logging = true
 	local verbose = flags.verbose == true
 	local profiling = false
@@ -1052,6 +1071,10 @@ commands.Add({
 
 	if separate then
 		local tests = test.FindTests(filter)
+
+		for _, test_item in ipairs(tests) do
+			test_item.thread_sensitive = is_thread_sensitive_test(test_item)
+		end
 
 		if not tests[1] then
 			error("no tests found" .. (filter and (" with filter '" .. filter .. "'") or ""), 0)
@@ -1154,18 +1177,44 @@ commands.Add({
 		local failed_files = 0
 		local failed_file_names = {}
 		local running = {}
-		local next_test_idx = 1
-		local max_running = parallel and 8 or 1
+		local pending = {}
+		local max_running = parallel and threads.get_thread_count() or 1
+
+		for i, test_item in ipairs(tests) do
+			pending[i] = test_item
+		end
+
 		print(
 			max_running == 1 and
 				"Running tests in threads..." or
 				"Running " .. max_running .. " tests in parallel threads..."
 		)
 
-		while next_test_idx <= #tests or #running > 0 do
-			while #running < max_running and next_test_idx <= #tests do
-				local test_item = tests[next_test_idx]
-				next_test_idx = next_test_idx + 1
+		while #pending > 0 or #running > 0 do
+			while #running < max_running and #pending > 0 do
+				local sensitive_running = false
+
+				for _, running_thread in ipairs(running) do
+					if running_thread.thread_sensitive then
+						sensitive_running = true
+
+						break
+					end
+				end
+
+				local next_pending_idx
+
+				for i, test_item in ipairs(pending) do
+					if not test_item.thread_sensitive or not sensitive_running then
+						next_pending_idx = i
+
+						break
+					end
+				end
+
+				if not next_pending_idx then break end
+
+				local test_item = table.remove(pending, next_pending_idx)
 				local ok, thread_or_err = pcall(function()
 					local t = threads.new(thread_worker)
 					t:run{
@@ -1180,6 +1229,7 @@ commands.Add({
 
 				if ok then
 					thread_or_err.test_name = test_item.name
+					thread_or_err.thread_sensitive = test_item.thread_sensitive
 					thread_or_err.start_time = system.GetTime()
 					thread_or_err.next_warn_time = system.GetTime() + 5
 					table.insert(running, thread_or_err)

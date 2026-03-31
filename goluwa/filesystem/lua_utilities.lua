@@ -304,102 +304,16 @@ do -- runfile
 	end
 end
 
-vfs.module_directories = {}
+local module_require = require("goluwa.require")
 
 function vfs.Require(name, ...)
 	if import.loaded[name] then return import.loaded[name] end
 
-	if package.searchpath(name, package.path) then
-		--		print("requiring normally:", name)
-		return _OLD_G.require(name)
-	end
-
-	for i, v in ipairs(vfs.loaded_addons) do
-		local lua_dir = v.path .. "lua/"
-
-		if fs.is_directory(lua_dir) then
-			local wdir = fs.get_current_directory()
-
-			if lua_dir:starts_with(wdir) then lua_dir = lua_dir:sub(#wdir + 1) end
-
-			if lua_dir:starts_with("./") then lua_dir = lua_dir:sub(3) end
-
-			if lua_dir:starts_with("/") then lua_dir = lua_dir:sub(2) end
-
-			local path = lua_dir:replace("/", ".") .. name
-
-			if package.searchpath(path, package.path) then
-				--	print("requiring from addon:", v.name, path)
-				return _OLD_G.require(path)
-			end
-		end
-	end
-
-	local done = {}
-	local errors = {}
-	local error_directories = {}
-
-	for _, dir in ipairs(vfs.module_directories) do
-		for _, data in ipairs(vfs.TranslatePath(dir, true)) do
-			fs.PushWorkingDirectory(data.path_info.full_path)
-
-			if package.searchpath(name, package.path) then
-				local ok, ret = pcall(_OLD_G.require, name)
-				fs.PopWorkingDirectory()
-
-				if not ok then error(err, 2) end
-
-				return ret
-			else
-				fs.PopWorkingDirectory()
-				list.insert(errors, "no file in: " .. data.path_info.full_path)
-			end
-		end
-	end
-
-	local stack = vfs.GetFileRunStack()
-	local last = stack[#stack]
-
-	if last then
-		local dir = R(vfs.GetFolderFromPath(last))
-
-		if dir then
-			fs.PushWorkingDirectory(dir)
-
-			if package.searchpath(name, package.path) then
-				local ok, ret = pcall(_OLD_G.require, name)
-				fs.PopWorkingDirectory()
-
-				if not ok then error(err, 2) end
-			else
-				fs.PopWorkingDirectory()
-				list.insert(errors, "no file in: " .. dir)
-			end
-
-			fs.PopWorkingDirectory()
-		end
-	end
-
-	for _, err in ipairs(errors) do
-		if not err:find("module '" .. name .. "' not found:\n", nil, true) then
-			for i = 1, #errors - 1 do
-				if
-					errors[i]:find("module '" .. name .. "' not found:\n", nil, true) or
-					errors[i]:find("loop or previous", nil, true)
-				then
-					list.remove(errors, i)
-				end
-			end
-
-			break
-		end
-	end
-
-	error(list.concat(errors, "\n") .. "\n", 2)
+	return module_require(name, ...)
 end
 
-function vfs.AddModuleDirectory(dir)
-	list.insert(vfs.module_directories, dir)
+function vfs.AddModuleDirectory(dir, loaders)
+	return vfs.addon_library.AddModuleDirectory(dir, loaders)
 end
 
 local ffi = desire("ffi")

@@ -115,6 +115,8 @@ local function check_dependencies(info, what)
 end
 
 function vfs.InitAddons(callback)
+	callback = callback or function() end
+
 	for _, info in pairs(vfs.GetMountedAddons()) do
 		if info.pre_load and not info.loaded then
 			info.load_callback = function()
@@ -127,8 +129,9 @@ function vfs.InitAddons(callback)
 	end
 
 	for _, info in pairs(vfs.GetMountedAddons()) do
-		if info.startup and check_dependencies(info, "init") then
+		if info.startup and not info.initialized and check_dependencies(info, "init") then
 			vfs.RunFile(info.startup)
+			info.initialized = true
 		end
 	end
 
@@ -208,6 +211,7 @@ function vfs.MountAddon(path, force)
 	info.name = info.name or folder
 	info.folder = folder
 	info.priority = info.priority or -1
+	info.initialized = info.initialized or false
 
 	if not info.startup and vfs.IsFile(path .. "lua/init.lua") then
 		info.startup = path .. "lua/init.lua"

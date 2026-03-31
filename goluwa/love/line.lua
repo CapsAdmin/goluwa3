@@ -1,5 +1,5 @@
 local pvars = import("goluwa/pvars.lua")
-local require = import("goluwa/require.lua")
+local module_require = import("goluwa/require.lua")
 local event = import("goluwa/event.lua")
 local vfs = import("goluwa/vfs.lua")
 local commands = import("goluwa/commands.lua")
@@ -153,10 +153,14 @@ function line.RunGame(folder, ...)
 	local love = line.CreateLoveEnv()
 	llog("mounting love game folder: ", R(folder .. "/"))
 	assert(vfs.CreateDirectory("os:data/love/", true))
+	module_require.AddSearcher(
+		module_require.MakeLuaSearcher("?.lua;?/init.lua", module_require.LoadPath),
+		love.package_loaders,
+		1
+	)
 	vfs.AddModuleDirectory("lua/modules/", love.package_loaders)
 	vfs.AddModuleDirectory("data/love/", love.package_loaders)
 	vfs.Mount(assert(R(folder .. "/")))
-	vfs.AddModuleDirectory(folder .. "/", love.package_loaders)
 	local os = {}
 
 	for k, v in pairs(_G.os) do
@@ -179,42 +183,60 @@ function line.RunGame(folder, ...)
 
 	local package_loaded = {}
 	local env
-	local require = require
+
+	local function prepare_module_function(func)
+		if type(func) == "function" and debug.getinfo(func).what ~= "C" then
+			setfenv(func, env)
+		end
+
+		return func
+	end
+
+	local function line_require(name)
+		if name == "strict" then return true end
+
+		if name == "socket.core" then
+			env.socket = sockets.core.luasocket
+			package_loaded[name] = env.socket
+			return env.socket
+		end
+
+		if package_loaded[name] ~= nil then return package_loaded[name] end
+
+		if name:starts_with("love.") and love[name:match(".+%.(.+)")] then
+			local lib = love[name:match(".+%.(.+)")]
+			package_loaded[name] = lib
+			return lib
+		end
+
+		local res, err, path = module_require.require_with_loaders(
+			name,
+			love.package_loaders,
+			package_loaded,
+			name,
+			prepare_module_function
+		)
+
+		if res ~= nil then
+			llog("require: ", name, " (", path, ")")
+			return res
+		end
+
+		local ok, fallback = pcall(module_require, name)
+
+		if ok then
+			package_loaded[name] = fallback
+			return fallback
+		end
+
+		error(err, 2)
+	end
+
 	env = setmetatable(
 		{
 			os = os,
 			love = love,
-			require = function(name, ...)
-				if name == "strict" then return true end
-
-				if name == "socket.core" then
-					env.socket = sockets.core.luasocket
-					return env.socket
-				end
-
-				if package_loaded[name] then return package_loaded[name] end
-
-				if name:starts_with("love.") and love[name:match(".+%.(.+)")] then
-					return love[name:match(".+%.(.+)")]
-				end
-
-				local func, err, path = require.load(name, love.package_loaders)
-				llog("require: ", name, " (", path, ")")
-
-				if type(func) == "function" then
-					if debug.getinfo(func).what ~= "C" then setfenv(func, env) end
-
-					local res = assert(require.require_function(name, func, path, name, love.package_loaders))
-					package_loaded[name] = res
-					return res
-				end
-
-				if pcall(require, name) then return require(name) end
-
-				if not func then error(err, 2) end
-
-				return func
-			end,
+			require = line_require,
 			type = function(v)
 				local t = _G.type(v)
 

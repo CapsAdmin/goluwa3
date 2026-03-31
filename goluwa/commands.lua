@@ -891,22 +891,33 @@ do -- commands
 			commands.run_lua_environment[key] = var
 		end
 
+		local function safe_import(path)
+			if import.loaded[path] ~= nil then return import.loaded[path] end
+
+			local ok, res = pcall(import, path)
+
+			if ok then return res end
+
+			return nil
+		end
+
 		function commands.RunLuaString(line, env_name)
-			commands.SetLuaEnvironmentVariable("steam", desire("steam"))
-			commands.SetLuaEnvironmentVariable("vfs", desire("vfs"))
-			commands.SetLuaEnvironmentVariable("render3d", desire("render3d.render3d"))
+			commands.SetLuaEnvironmentVariable("commands", commands)
+			commands.SetLuaEnvironmentVariable("steam", safe_import("goluwa/steam.lua"))
+			commands.SetLuaEnvironmentVariable("vfs", safe_import("goluwa/vfs.lua"))
+			commands.SetLuaEnvironmentVariable("render3d", safe_import("goluwa/render3d/render3d.lua"))
 			commands.SetLuaEnvironmentVariable("ffi", desire("ffi"))
-			commands.SetLuaEnvironmentVariable("prototype", desire("prototype"))
+			commands.SetLuaEnvironmentVariable("prototype", prototype)
 			commands.SetLuaEnvironmentVariable("findo", prototype.FindObject)
 
 			if WINDOW then
 				commands.SetLuaEnvironmentVariable("copy", window.SetClipboard)
 			end
 
-			local lua = "local commands = require('commands');"
+			local lua = "local __env = ...;"
 
 			for k in pairs(commands.run_lua_environment) do
-				lua = lua .. ("local %s = commands.run_lua_environment.%s;"):format(k, k)
+				lua = lua .. ("local %s = __env.%s;"):format(k, k)
 			end
 
 			lua = lua .. line
@@ -914,7 +925,7 @@ do -- commands
 
 			if err then err = err:match("^.-:%d+:%s+(.+)") end
 
-			return assert(ok, err)()
+			return assert(ok, err)(commands.run_lua_environment)
 		end
 
 		function commands.ExecuteLuaString(line, log_error, env_name)

@@ -35,4 +35,5 @@ do
 	resource.AddProvider("https://raw.githubusercontent.com/CapsAdmin/goluwa-assets/master/extras/", true)
 	resource.AddProvider("https://raw.githubusercontent.com/CapsAdmin/goluwa-assets/master/base/", true)
 	vfs.MountAddons("os:downloads/")
+	vfs.InitAddons()
 end

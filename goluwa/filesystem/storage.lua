@@ -96,4 +96,5 @@ function vfs.MountStorageDirectories()
 	end
 
 	vfs.MountAddons(vfs.GetStorageDirectory("root") .. "addons/")
+	vfs.InitAddons()
 end
