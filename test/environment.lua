@@ -30,6 +30,15 @@ T.Test2D = function(name, cb)
 		test_render.Draw2D(cb)
 	end)
 end
+T.Test2DFrames = function(name, frame_count, cb, after_frame)
+	if not has_rendering then
+		return T.Unavailable("Vulkan library not available, skipping render2d tests.")
+	end
+
+	return T.Test(name, function()
+		test_render.Draw2DFrames(frame_count, cb, after_frame)
+	end)
+end
 T.Test3D = function(name, cb)
 	if not has_rendering then
 		return T.Unavailable("Vulkan library not available, skipping render3d tests.")

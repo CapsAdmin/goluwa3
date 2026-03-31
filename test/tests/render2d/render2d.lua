@@ -350,6 +350,27 @@ T.Test2D("Graphics render2d CreateMesh", function()
 	T(mesh)["~="](nil)
 end)
 
+T.Test2D("Graphics render2d CreateMesh attribute API", function()
+	local mesh = render2d.CreateMesh(3, {0, 1, 2})
+	mesh:SetVertex(1, "pos", 10, 20)
+	mesh:SetVertex(1, "uv", 0.25, 0.75)
+	mesh:SetVertex(1, "color", 1, 0.5, 0.25, 0.75)
+	local x, y, z = mesh:GetVertex(1, "pos")
+	local u, v = mesh:GetVertex(1, "uv")
+	local r, g, b, a = mesh:GetVertex(1, "color")
+	T(x)["=="](10)
+	T(y)["=="](20)
+	T(z)["=="](0)
+	T(u)["=="](0.25)
+	T(v)["=="](0.75)
+	T(r)["=="](1)
+	T(g)["=="](0.5)
+	T(b)["=="](0.25)
+	T(a)["=="](0.75)
+	mesh:UpdateBuffer()
+	T(mesh:GetVertexCount())["=="](3)
+end)
+
 T.Test2D("Graphics render2d custom mesh rendering", function()
 	local vertices = {
 		{pos = Vec3(0, 0, 0), uv = Vec2(0, 0), color = Color(1, 1, 1, 1)},
@@ -370,6 +391,205 @@ T.Test2D("Graphics render2d custom mesh rendering", function()
 		T.AssertScreenPixel{pos = {105, 105}, color = {0.5, 0, 0.5, 1}, tolerance = 0.1}
 	end
 end)
+
+T.Test2D("Graphics render2d dynamic mesh vertex and index updates", function()
+	local mesh = render2d.CreateMesh(4, {0, 1, 2, 0, 2, 3})
+	local function draw_mesh(x, y, index_count)
+		mesh:Bind(render2d.cmd, 0)
+		render2d.PushMatrix()
+		render2d.Translate(x, y)
+		render2d.UploadConstants(render2d.cmd)
+		mesh:DrawIndexed(render2d.cmd, index_count)
+		render2d.PopMatrix()
+	end
+
+	render2d.SetColor(1, 1, 1, 1)
+	render2d.SetTexture()
+
+	mesh:SetVertex(1, "pos", 0, 0, 0)
+	mesh:SetVertex(2, "pos", 80, 0, 0)
+	mesh:SetVertex(3, "pos", 80, 80, 0)
+	mesh:SetVertex(4, "pos", 0, 80, 0)
+
+	for i = 1, 4 do
+		mesh:SetVertex(i, "uv", 0, 0)
+		mesh:SetVertex(i, "color", 1, 0, 0, 1)
+	end
+
+	mesh:UpdateBuffer()
+
+	for i = 1, 4 do
+		mesh:SetVertex(i, "color", 1, 1, 0, 1)
+	end
+
+	mesh:UpdateBuffer()
+
+	mesh:UploadIndices({0, 2, 3})
+	draw_mesh(24, 24, 3)
+
+	return function()
+		T.AssertScreenPixel{pos = {44, 84}, color = {1, 1, 0, 1}, tolerance = 0.1}
+		T.AssertScreenPixel{pos = {84, 44}, color = {0, 0, 0, 1}, tolerance = 0.1}
+	end
+end)
+
+T.Test2DFrames(
+	"Graphics render2d dynamic mesh updates across frames",
+	2,
+	(function()
+		local mesh
+
+		return function(width, height, frame)
+			if not mesh then
+				mesh = render2d.CreateMesh(4, {0, 1, 2, 0, 2, 3})
+				mesh:SetVertex(1, "pos", 0, 0, 0)
+				mesh:SetVertex(2, "pos", 80, 0, 0)
+				mesh:SetVertex(3, "pos", 80, 80, 0)
+				mesh:SetVertex(4, "pos", 0, 80, 0)
+
+				for i = 1, 4 do
+					mesh:SetVertex(i, "uv", 0, 0)
+				end
+			end
+
+			render2d.SetTexture()
+			render2d.SetColor(0, 0, 0, 1)
+			render2d.DrawRect(0, 0, width, height)
+
+			if frame == 1 then
+				for i = 1, 4 do
+					mesh:SetVertex(i, "color", 1, 0, 0, 1)
+				end
+
+				mesh:UpdateBuffer()
+			else
+				for i = 1, 4 do
+					mesh:SetVertex(i, "color", 1, 1, 0, 1)
+				end
+
+				mesh:UpdateBuffer()
+				mesh:UploadIndices({0, 2, 3})
+			end
+
+			render2d.SetColor(1, 1, 1, 1)
+			mesh:Bind(render2d.cmd, 0)
+			render2d.PushMatrix()
+			render2d.Translate(24, 24)
+			render2d.UploadConstants(render2d.cmd)
+			mesh:DrawIndexed(render2d.cmd, frame == 1 and 6 or 3)
+			render2d.PopMatrix()
+		end
+	end)(),
+	function(width, height, frame)
+		if frame == 1 then
+			T.AssertScreenPixel{pos = {64, 64}, color = {1, 0, 0, 1}, tolerance = 0.1}
+			T.AssertScreenPixel{pos = {84, 44}, color = {1, 0, 0, 1}, tolerance = 0.1}
+		else
+			T.AssertScreenPixel{pos = {44, 84}, color = {1, 1, 0, 1}, tolerance = 0.1}
+			T.AssertScreenPixel{pos = {84, 44}, color = {0, 0, 0, 1}, tolerance = 0.1}
+		end
+	end
+)
+
+T.Test2DFrames(
+	"Graphics render2d vertex updates across frames",
+	2,
+	(function()
+		local mesh
+
+		return function(width, height, frame)
+			if not mesh then
+				mesh = render2d.CreateMesh(4, {0, 1, 2, 0, 2, 3})
+				mesh:SetVertex(1, "pos", 0, 0, 0)
+				mesh:SetVertex(2, "pos", 80, 0, 0)
+				mesh:SetVertex(3, "pos", 80, 80, 0)
+				mesh:SetVertex(4, "pos", 0, 80, 0)
+
+				for i = 1, 4 do
+					mesh:SetVertex(i, "uv", 0, 0)
+				end
+			end
+
+			render2d.SetTexture()
+			render2d.SetColor(0, 0, 0, 1)
+			render2d.DrawRect(0, 0, width, height)
+
+			for i = 1, 4 do
+				if frame == 1 then
+					mesh:SetVertex(i, "color", 1, 0, 0, 1)
+				else
+					mesh:SetVertex(i, "color", 0, 1, 0, 1)
+				end
+			end
+
+			mesh:UpdateBuffer()
+			render2d.SetColor(1, 1, 1, 1)
+			mesh:Bind(render2d.cmd, 0)
+			render2d.PushMatrix()
+			render2d.Translate(24, 24)
+			render2d.UploadConstants(render2d.cmd)
+			mesh:DrawIndexed(render2d.cmd, 6)
+			render2d.PopMatrix()
+		end
+	end)(),
+	function(width, height, frame)
+		if frame == 1 then
+			T.AssertScreenPixel{pos = {64, 64}, color = {1, 0, 0, 1}, tolerance = 0.1}
+		else
+			T.AssertScreenPixel{pos = {64, 64}, color = {0, 1, 0, 1}, tolerance = 0.1}
+		end
+	end
+)
+
+T.Test2DFrames(
+	"Graphics render2d index updates across frames",
+	2,
+	(function()
+		local mesh
+
+		return function(width, height, frame)
+			if not mesh then
+				mesh = render2d.CreateMesh(4, {0, 1, 2, 0, 2, 3})
+				mesh:SetVertex(1, "pos", 0, 0, 0)
+				mesh:SetVertex(2, "pos", 80, 0, 0)
+				mesh:SetVertex(3, "pos", 80, 80, 0)
+				mesh:SetVertex(4, "pos", 0, 80, 0)
+
+				for i = 1, 4 do
+					mesh:SetVertex(i, "uv", 0, 0)
+					mesh:SetVertex(i, "color", 1, 1, 0, 1)
+				end
+				mesh:UpdateBuffer()
+			end
+
+			render2d.SetTexture()
+			render2d.SetColor(0, 0, 0, 1)
+			render2d.DrawRect(0, 0, width, height)
+
+			if frame == 1 then
+				mesh:UploadIndices({0, 1, 2, 0, 2, 3})
+			else
+				mesh:UploadIndices({0, 2, 3})
+			end
+
+			render2d.SetColor(1, 1, 1, 1)
+			mesh:Bind(render2d.cmd, 0)
+			render2d.PushMatrix()
+			render2d.Translate(24, 24)
+			render2d.UploadConstants(render2d.cmd)
+			mesh:DrawIndexed(render2d.cmd, frame == 1 and 6 or 3)
+			render2d.PopMatrix()
+		end
+	end)(),
+	function(width, height, frame)
+		if frame == 1 then
+			T.AssertScreenPixel{pos = {84, 44}, color = {1, 1, 0, 1}, tolerance = 0.1}
+		else
+			T.AssertScreenPixel{pos = {44, 84}, color = {1, 1, 0, 1}, tolerance = 0.1}
+			T.AssertScreenPixel{pos = {84, 44}, color = {0, 0, 0, 1}, tolerance = 0.1}
+		end
+	end
+)
 
 T.Test2D("Graphics render2d SetTexture and GetTexture", function()
 	-- Initially no texture

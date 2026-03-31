@@ -32,6 +32,28 @@ function test_render.Draw2D(cb)
 	end
 end
 
+function test_render.Draw2DFrames(frame_count, cb, after_frame)
+	if not test_render.init then
+		render.Initialize{headless = true, width = width, height = height}
+	end
+
+	if not test_render.render2d_init then
+		render2d.Initialize()
+		test_render.render2d_init = true
+	end
+
+	for frame = 1, frame_count do
+		if render.BeginFrame() then
+			render2d.BindPipeline()
+			render2d.ResetState()
+			cb(width, height, frame)
+			render.EndFrame()
+
+			if after_frame then after_frame(width, height, frame) end
+		end
+	end
+end
+
 local function draw_3d_func()
 	render.Draw(1)
 end

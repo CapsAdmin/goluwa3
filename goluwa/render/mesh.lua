@@ -5,9 +5,79 @@ local render = import("goluwa/render/render.lua")
 local prototype = import("goluwa/prototype.lua")
 local Mesh = prototype.CreateTemplate("render_mesh")
 
+local function get_attribute_component_count(attribute)
+	if attribute.lua_type then
+		return math.max(1, ffi.sizeof(attribute.lua_type) / ffi.sizeof("float"))
+	end
+
+	if attribute.format then
+		if attribute.format:find("r32g32b32a32", 1, true) then return 4 end
+
+		if attribute.format:find("r32g32b32", 1, true) then return 3 end
+
+		if attribute.format:find("r32g32", 1, true) then return 2 end
+	end
+
+	return 1
+end
+
+local function normalize_vertex_index(index)
+	if index == 0 then return 0 end
+
+	return index - 1
+end
+
+local function is_command_buffer(obj)
+	return type(obj) == "table" and obj.BindVertexBuffer and obj.Draw
+end
+
+local function is_index_buffer(obj)
+	return type(obj) == "table" and obj.GetBuffer and obj.GetIndexType and obj.GetIndexCount
+end
+
+local function normalize_primitive_topology(mode)
+	local tr = {
+		triangles = "triangle_list",
+		triangle = "triangle_list",
+		triangle_list = "triangle_list",
+		strip = "triangle_strip",
+		triangle_strip = "triangle_strip",
+		fan = "triangle_fan",
+		triangle_fan = "triangle_fan",
+		lines = "line_list",
+		line = "line_list",
+		line_list = "line_list",
+		line_strip = "line_strip",
+		points = "point_list",
+		point = "point_list",
+		point_list = "point_list",
+	}
+
+	return tr[mode] or mode or "triangle_list"
+end
+
+function Mesh:GetVertexAttributeInfo(name)
+	if not self.vertex_attribute_lookup then
+		self.vertex_attribute_lookup = {}
+
+		for _, attribute in ipairs(self.vertex_buffer.vertex_attributes) do
+			self.vertex_attribute_lookup[attribute.lua_name] = attribute
+		end
+	end
+
+	local attribute = self.vertex_attribute_lookup[name]
+
+	if not attribute then
+		error("unknown vertex attribute: " .. tostring(name), 2)
+	end
+
+	return attribute
+end
+
 function Mesh.New(vertex_attributes, vertices, indices, index_type, index_count)
 	local self = Mesh:CreateObject()
 	self.vertex_buffer = VertexBuffer.New(vertices, vertex_attributes)
+	self.mode = "triangle_list"
 
 	if indices then
 		-- Check if indices is FFI cdata and we have a count
@@ -41,6 +111,31 @@ function Mesh:DrawIndexed(cmd, index_count, instance_count, first_index, vertex_
 end
 
 function Mesh:Draw(cmd, vertex_count, instance_count, first_vertex, first_instance)
+	if not is_command_buffer(cmd) then
+		local render2d = import("goluwa/render2d/render2d.lua")
+		local index_buffer = is_index_buffer(cmd) and cmd or self.index_buffer
+		local count = is_index_buffer(cmd) and vertex_count or cmd
+		local active_cmd = render2d.cmd
+
+		if not active_cmd then
+			error(
+				"Cannot draw without active command buffer. Must be called during Draw2D event.",
+				2
+			)
+		end
+
+		self:Bind(active_cmd, 0)
+
+		if index_buffer then
+			active_cmd:BindIndexBuffer(index_buffer:GetBuffer(), 0, index_buffer:GetIndexType())
+			active_cmd:DrawIndexed(count or index_buffer:GetIndexCount(), 1, 0, 0, 0)
+		else
+			active_cmd:Draw(count or self.vertex_buffer:GetVertexCount(), 1, 0, 0)
+		end
+
+		return
+	end
+
 	cmd:Draw(
 		vertex_count or self.vertex_buffer:GetVertexCount(),
 		instance_count or 1,
@@ -52,6 +147,53 @@ end
 function Mesh:GetVertices()
 	return self.vertex_buffer:GetVertices()
 end
+
+function Mesh:GetVertexCount()
+	return self.vertex_buffer:GetVertexCount()
+end
+
+function Mesh:SetVertex(index, name, ...)
+	local attribute = self:GetVertexAttributeInfo(name)
+	local vertex = self.vertex_buffer:GetVertices()[normalize_vertex_index(index)]
+	local field = vertex[attribute.lua_name]
+	local argc = select("#", ...)
+
+	if argc == 1 then
+		local value = select(1, ...)
+
+		if type(value) == "table" then
+			for i = 0, get_attribute_component_count(attribute) - 1 do
+				field[i] = value[i + 1] or 0
+			end
+		else
+			field[0] = value
+
+			for i = 1, get_attribute_component_count(attribute) - 1 do
+				field[i] = 0
+			end
+		end
+
+		return
+	end
+
+	for i = 0, get_attribute_component_count(attribute) - 1 do
+		field[i] = select(i + 1, ...) or 0
+	end
+end
+
+function Mesh:GetVertex(index, name)
+	local attribute = self:GetVertexAttributeInfo(name)
+	local vertex = self.vertex_buffer:GetVertices()[normalize_vertex_index(index)]
+	local field = vertex[attribute.lua_name]
+	local component_count = get_attribute_component_count(attribute)
+	local out = {}
+
+	for i = 0, component_count - 1 do
+		out[i + 1] = field[i]
+	end
+
+	return unpack(out, 1, component_count)
+	end
 
 function Mesh:GetVertexBufferAddress()
 	return self.vertex_buffer:GetBuffer():GetDeviceAddress()
@@ -65,6 +207,26 @@ end
 
 function Mesh:Upload()
 	self.vertex_buffer:Upload()
+end
+
+function Mesh:UpdateBuffer()
+	return self:Upload()
+end
+
+function Mesh:SetMode(mode)
+	self.mode = normalize_primitive_topology(mode)
+end
+
+function Mesh:GetMode()
+	return normalize_primitive_topology(self.mode)
+end
+
+function Mesh:SetDrawHint(usage)
+	self.draw_hint = usage
+end
+
+function Mesh:GetDrawHint()
+	return self.draw_hint
 end
 
 -- Compute AABB from vertex positions

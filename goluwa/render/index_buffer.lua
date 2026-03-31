@@ -87,10 +87,35 @@ function IndexBuffer:GetData()
 	return self.indices
 end
 
+function IndexBuffer:SetIndex(index, value)
+	self.indices[index] = value
+
+	if index > self.index_count then
+		self.index_count = index
+		self.byte_size = ffi.sizeof(self:GetIndexTypeFFI()) * self.index_count
+	end
+end
+
 function IndexBuffer:Upload()
 	-- Reflatten the indices and upload
-	local index_data = indices_to_array(self.indices, self.index_type)
-	self.buffer:CopyData(index_data, self.byte_size)
+	local index_data, byte_size = indices_to_array(self.indices, self.index_type)
+	self.byte_size = byte_size
+
+	if not self.buffer or self.buffer_size ~= byte_size then
+		self.buffer = render.CreateBuffer{
+			buffer_usage = {"index_buffer", "storage_buffer", "shader_device_address"},
+			data_type = self.index_type,
+			data = index_data,
+			byte_size = byte_size,
+		}
+		self.buffer_size = byte_size
+	else
+		self.buffer:CopyData(index_data, byte_size)
+	end
+end
+
+function IndexBuffer:UpdateBuffer()
+	return self:Upload()
 end
 
 function IndexBuffer:GetBuffer()

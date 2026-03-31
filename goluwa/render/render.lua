@@ -128,6 +128,33 @@ function render.CreateBuffer(config)
 	return vulkan_instance:CreateBuffer(config)
 end
 
+function render.CreateTextureFromPath(path, config)
+	local Texture = import("goluwa/render/texture.lua")
+	config = config or {}
+	config.path = path
+	return Texture.New(config)
+end
+
+function render.CreateFrameBuffer(size, config)
+	local Framebuffer = import("goluwa/render/framebuffer.lua")
+	config = config or {}
+
+	if size then
+		config.width = config.width or size.x or size.w
+		config.height = config.height or size.y or size.h
+	end
+
+	if config.min_filter == nil and config.mag_filter ~= nil then
+		config.min_filter = config.mag_filter
+	end
+
+	if config.mag_filter == nil and config.min_filter ~= nil then
+		config.mag_filter = config.min_filter
+	end
+
+	return Framebuffer.New(config)
+end
+
 function render.CreateOcclusionQuery()
 	return vulkan_instance:CreateOcclusionQuery()
 end
