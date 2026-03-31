@@ -1,9 +1,61 @@
-if not SOUND then return end
-
+local audio = import("goluwa/audio.lua")
+local line = import("goluwa/love/line.lua")
+local resource = import("goluwa/resource.lua")
+local vfs = import("goluwa/vfs.lua")
 local love = ... or _G.love
 local ENV = love._line_env
 local ffi = require("ffi")
 love.sound = love.sound or {}
+
+local function create_buffer_stub(data, size, bits, channels, sample_rate, sample_count)
+	local buffer = {
+		_data = data,
+		_size = size,
+		_bits = bits,
+		_channels = channels,
+		_sample_rate = sample_rate,
+		_sample_count = sample_count,
+	}
+
+	function buffer:GetData()
+		return self._data
+	end
+
+	function buffer:GetSize()
+		return self._size
+	end
+
+	function buffer:GetBits()
+		return self._bits
+	end
+
+	function buffer:GetChannels()
+		return self._channels
+	end
+
+	function buffer:GetDuration()
+		if self._sample_rate <= 0 or self._channels <= 0 then return 0 end
+
+		return self._sample_count / self._sample_rate
+	end
+
+	function buffer:GetLength()
+		return self._sample_count
+	end
+
+	function buffer:GetSampleRate()
+		return self._sample_rate
+	end
+
+	function buffer:SetData(new_data, new_size)
+		self._data = new_data
+		self._size = new_size or self._size
+		return self
+	end
+
+	return buffer
+end
+
 local SoundData = line.TypeTemplate("SoundData")
 
 function SoundData:getPointer()
@@ -73,34 +125,42 @@ end
 
 function love.sound.newSoundData(samples, rate, bits, channels)
 	local self = line.CreateObject("SoundData")
-	local buffer = audio.CreateBuffer()
-	self.buffer = buffer
+	rate = rate or 44100
+	bits = bits or 16
+	channels = channels or 1
+	self.buffer = create_buffer_stub(nil, 0, bits, channels, rate, 0)
 
 	if type(samples) == "string" then
-		resource.Download(samples):Then(function(path)
-			local file = vfs.Open(path)
-			local data, length, info = audio.Decode(file)
-			file:Close()
+		self.path = samples
 
-			if data then
-				local buffer = audio.CreateBuffer()
+		if resource.Download and audio.Decode then
+			resource.Download(samples):Then(function(path)
+				local file = vfs.Open(path)
+				local data, length, info = audio.Decode(file)
+				file:Close()
 
-				if al then
-					buffer:SetFormat(info.channels == 1 and al.e.FORMAT_MONO16 or al.e.FORMAT_STEREO16)
+				if data then
+					self.buffer = create_buffer_stub(
+						data,
+						length,
+						bits,
+						info.channels or channels,
+						info.samplerate or rate,
+						length
+					)
+					self.samples = data
 				end
-
-				buffer:SetSampleRate(info.samplerate)
-				buffer:SetData(data, length)
-				self.buffer = buffer
-			end
-		end)
+			end)
+		end
 
 		return self
 	end
 
-	buffer:SetFormat(get_format(channels, bits))
-	buffer:SetData(ffi.new("int8_t[?]", samples * channels), samples * channels)
-	self.samples = buffer:GetData()
+	local bytes_per_sample = math.max(1, math.floor(bits / 8))
+	local size = math.max(1, samples * channels * bytes_per_sample)
+	local data = ffi.new("int8_t[?]", size)
+	self.buffer = create_buffer_stub(data, size, bits, channels, rate, samples)
+	self.samples = ffi.cast("int8_t*", data)
 	return self
 end
 
@@ -129,18 +189,23 @@ end
 
 function love.sound.newDecoder(file, buffer_size)
 	local self = line.CreateObject("Decoder")
-	local file
+	self.info = {channels = 2, samplerate = 44100}
+	self.length = 0
+	local source = file
 
-	if line.Type(file) == "File" then
-		file = file.file
-	elseif line.Type(file) == "string" then
-		error("vfs.OPENMEMORY HERE")
+	if line.Type(source) == "File" then
+		source = source.file
+	elseif line.Type(source) == "string" then
+		self.path = source
 	end
 
-	local decoded_data, length, info = audio.Decode(file)
-	self.decoded_data = decoded_data
-	self.length = length
-	self.info = info
+	if audio.Decode and source and type(source) ~= "string" then
+		local decoded_data, length, info = audio.Decode(source)
+		self.decoded_data = decoded_data
+		self.length = length or 0
+		self.info = info or self.info
+	end
+
 	return self
 end
 

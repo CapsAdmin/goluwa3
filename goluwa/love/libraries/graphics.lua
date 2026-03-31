@@ -1,5 +1,13 @@
-if not GRAPHICS then return end
-
+local render = import("goluwa/render/render.lua")
+local Framebuffer = import("goluwa/render/framebuffer.lua")
+local render2d = import("goluwa/render2d/render2d.lua")
+local math2d = import("goluwa/render2d/math2d.lua")
+local gfx = import("goluwa/render2d/gfx.lua")
+local fonts = import("goluwa/render2d/fonts.lua")
+local window = import("goluwa/window.lua")
+local Vec2 = import("goluwa/structs/vec2.lua")
+local IndexBuffer = import("goluwa/render/index_buffer.lua")
+local line = import("goluwa/love/line.lua")
 local love = ... or _G.love
 local ENV = love._line_env
 ENV.textures = ENV.textures or table.weak()
@@ -10,13 +18,11 @@ love.graphics = love.graphics or {}
 
 local function ADD_FILTER(obj)
 	obj.setFilter = function(s, min, mag, anistropy)
-		ENV.textures[s]:SetMinFilter(min)
-		ENV.textures[s]:SetMagFilter(mag)
-		s.filter_min = min
-		s.filter_mag = mag
-		s.filter_anistropy = anistropy
+		s.filter_min = min or s.filter_min or ENV.graphics_filter_min
+		s.filter_mag = mag or min or s.filter_mag or ENV.graphics_filter_mag
+		s.filter_anistropy = anistropy or s.filter_anistropy or ENV.graphics_filter_anisotropy
 	end
-	obj.getFilter = function()
+	obj.getFilter = function(s)
 		return s.filter_min, s.filter_mag, s.filter_anistropy
 	end
 end
@@ -371,11 +377,11 @@ do -- font
 
 	function Font:getWrap(str, width)
 		str = tostring(str)
-		local old = gfx.GetFont()
-		gfx.SetFont(self.font)
-		local res = gfx.WrapString(str, width)
+		local old = fonts.GetFont()
+		fonts.SetFont(self.font)
+		local res = self.font:WrapString(str, width)
 		local w = self.font:GetTextSize(str) + 2
-		gfx.SetFont(old)
+		fonts.SetFont(old)
 
 		if love._version_minor < 10 and love._version_revision == 0 then
 			return w, res:split("\n")
@@ -400,15 +406,10 @@ do -- font
 		local self = line.CreateObject("Font")
 		self:setLineHeight(1)
 		path = line.FixPath(path)
-		self.font = fonts.CreateFont(
-			{
-				size = size and (size * 1.25),
-				path = path,
-				filtering = ENV.graphics_filter_min,
-				glyphs = glyphs,
-				texture = texture,
-			}
-		)
+		self.font = fonts.New{
+			Size = size and (size * 1.25),
+			Path = path ~= "memory" and path or nil,
+		}
 		self.Name = self.font:GetName()
 		local w, h = self.font:GetTextSize("W")
 		self.Size = size or w
@@ -447,7 +448,7 @@ do -- font
 	function love.graphics.setFont(font)
 		font = font or love.graphics.getFont()
 		ENV.current_font = font
-		gfx.SetFont(font.font)
+		fonts.SetFont(font.font)
 	end
 
 	function love.graphics.getFont()
@@ -481,16 +482,16 @@ do -- font
 
 		if align then
 			local max_width = 0
-			local t = gfx.WrapString(text, limit):split("\n")
+			local t = font.font:WrapString(text, limit):split("\n")
 
 			for i, line in ipairs(t) do
-				local w, h = gfx.GetTextSize(line)
+				local w, h = font.font:GetTextSize(line)
 
 				if w > max_width then max_width = w end
 			end
 
 			for i, line in ipairs(t) do
-				local w, h = gfx.GetTextSize(line)
+				local w, h = font.font:GetTextSize(line)
 				local align_x = 0
 
 				if align == "right" then
@@ -561,6 +562,15 @@ do -- canvas
 	local Canvas = line.TypeTemplate("Canvas")
 	ADD_FILTER(Canvas)
 
+	local function update_render_size_for_canvas(canvas)
+		if canvas then
+			render2d.UpdateScreenSize{w = canvas.w, h = canvas.h}
+		else
+			local size = render.GetRenderImageSize()
+			render2d.UpdateScreenSize{w = size.x, h = size.y}
+		end
+	end
+
 	function Canvas:renderTo(cb)
 		local old = love.graphics.getCanvas()
 		love.graphics.setCanvas(self)
@@ -586,7 +596,16 @@ do -- canvas
 	function Canvas:getImageData() end
 
 	function Canvas:clear(...)
-		self.fb:ClearAll()
+		if self._canvas_cmd and render2d.cmd == self._canvas_cmd then
+			local old_r, old_g, old_b, old_a = love.graphics.getColor()
+			render2d.SetTexture()
+			render2d.SetColor(0, 0, 0, 0)
+			render2d.DrawRect(0, 0, self.w, self.h)
+			love.graphics.setColor(old_r, old_g, old_b, old_a)
+		else
+			self.fb:Begin(nil, "clear")
+			self.fb:End()
+		end
 	end
 
 	function Canvas:setWrap() end
@@ -597,26 +616,45 @@ do -- canvas
 		w = w or render.GetWidth()
 		h = h or render.GetHeight()
 		local self = line.CreateObject("Canvas")
-		self.fb = render.CreateFrameBuffer(
-			Vec2(w, h),
-			{
-				mag_filter = ENV.graphics_filter_mag,
-				min_filter = ENV.graphics_filter_min,
-			}
-		)
-		ENV.textures[self] = self.fb:GetTexture()
+		self.w = w
+		self.h = h
+		self.fb = Framebuffer.New{
+			width = w,
+			height = h,
+			clear_color = {0, 0, 0, 0},
+			min_filter = ENV.graphics_filter_min,
+			mag_filter = ENV.graphics_filter_mag,
+		}
+		self.filter_min = ENV.graphics_filter_min
+		self.filter_mag = ENV.graphics_filter_mag
+		self.filter_anistropy = ENV.graphics_filter_anisotropy
+		ENV.textures[self] = self.fb:GetColorTexture()
 		return self
 	end
 
 	function love.graphics.setCanvas(canvas)
+		if ENV.graphics_current_canvas == canvas then return end
+
+		local current = ENV.graphics_current_canvas
+
+		if current and current._canvas_cmd then
+			current.fb:End(current._canvas_cmd)
+			current._canvas_cmd = nil
+			render2d.cmd = ENV.graphics_previous_canvas_cmd
+			ENV.graphics_previous_canvas_cmd = nil
+		end
+
 		ENV.graphics_current_canvas = canvas
 
 		if canvas then
-			canvas.fb:Bind()
-			render.SetViewport(0, 0, canvas.fb:GetTexture():GetSize().x, canvas.fb:GetTexture():GetSize().y)
+			ENV.graphics_previous_canvas_cmd = render2d.cmd
+			canvas._canvas_cmd = canvas.fb:Begin()
+			render2d.BindPipeline(canvas._canvas_cmd)
+			update_render_size_for_canvas(canvas)
 		else
-			render.GetScreenFrameBuffer():Bind()
-			render.SetViewport(0, 0, window.GetSize():Unpack())
+			if render2d.cmd then render2d.BindPipeline(render2d.cmd) end
+
+			update_render_size_for_canvas()
 		end
 	end
 
@@ -668,8 +706,9 @@ do -- image
 			local self = line.CreateObject("Image")
 			path = line.FixPath(path)
 			local tex = render.CreateTextureFromPath(path)
-			tex:SetMinFilter(ENV.graphics_filter_min)
-			tex:SetMagFilter(ENV.graphics_filter_mag)
+			self.filter_min = ENV.graphics_filter_min
+			self.filter_mag = ENV.graphics_filter_mag
+			self.filter_anistropy = ENV.graphics_filter_anisotropy
 			ENV.textures[self] = tex
 			return self
 		end
@@ -679,8 +718,9 @@ do -- image
 		local self = line.CreateObject("Image")
 		path = line.FixPath(path)
 		local tex = render.CreateTextureFromPath(path)
-		tex:SetMinFilter(ENV.graphics_filter_min)
-		tex:SetMagFilter(ENV.graphics_filter_mag)
+		self.filter_min = ENV.graphics_filter_min
+		self.filter_mag = ENV.graphics_filter_mag
+		self.filter_anistropy = ENV.graphics_filter_anisotropy
 		ENV.textures[self] = tex
 		return self
 	end
@@ -888,35 +928,34 @@ do
 			end
 
 			local obj = line.CreateObject("Shader")
-			local shader = render.CreateShader(
-				{
-					fragment = {
-						mesh_layout = {
-							{uv = "vec2"},
+			local shader = render.CreateShader{
+				fragment = {
+					mesh_layout = {
+						{uv = "vec2"},
+					},
+					variables = {
+						love_ScreenSize = {
+							vec2 = function()
+								return ENV.graphics_current_canvas and
+									ENV.graphics_current_canvas.fb:GetTexture():GetSize() or
+									window.GetSize()
+							end,
 						},
-						variables = {
-							love_ScreenSize = {
-								vec2 = function()
-									return ENV.graphics_current_canvas and
-										ENV.graphics_current_canvas.fb:GetTexture():GetSize() or
-										window.GetSize()
-								end,
-							},
-							current_texture = {
-								texture = function()
-									return render2d.shader.tex
-								end,
-							},
-							current_color = {
-								color = function()
-									return render2d.shader.global_color
-								end,
-							},
+						current_texture = {
+							texture = function()
+								return render2d.shader.tex
+							end,
 						},
-						include_directories = {
-							"shaders/include/",
+						current_color = {
+							color = function()
+								return render2d.shader.global_color
+							end,
 						},
-						source = [[
+					},
+					include_directories = {
+						"shaders/include/",
+					},
+					source = [[
 						#version 430 core
 
 						#define number float
@@ -934,9 +973,8 @@ do
 							out_color = effect(current_color, current_texture, uv, gl_FragCoord.xy);
 						}
 					]],
-					},
-				}
-			)
+				},
+			}
 			obj.shader = shader
 			return obj
 		end
@@ -1012,11 +1050,21 @@ end
 
 do
 	function love.graphics.setScissor(x, y, w, h)
-		render.SetScissor(x, y, w, h)
+		if x == nil then
+			ENV.scissor = nil
+			local sw, sh = render2d.GetSize()
+			render2d.SetScissor(0, 0, sw or 0, sh or 0)
+			return
+		end
+
+		ENV.scissor = {x = x or 0, y = y or 0, w = w or 0, h = h or 0}
+		render2d.SetScissor(ENV.scissor.x, ENV.scissor.y, ENV.scissor.w, ENV.scissor.h)
 	end
 
 	function love.graphics.getScissor()
-		return render.GetScissor()
+		if not ENV.scissor then return end
+
+		return ENV.scissor.x, ENV.scissor.y, ENV.scissor.w, ENV.scissor.h
 	end
 end
 
@@ -1027,8 +1075,45 @@ do -- shapes
 		mesh:SetVertex(i, "color", 1, 1, 1, 1)
 	end
 
-	local mesh_idx = render.CreateIndexBuffer()
+	local mesh_idx = IndexBuffer.New()
 	mesh_idx:LoadIndices(2048)
+
+	local function triangle_list_indices(mode, source_indices)
+		mode = mode or "triangles"
+
+		if mode == "triangles" or mode == "triangle_list" then
+			return source_indices
+		elseif mode == "triangle_strip" or mode == "strip" then
+			local out = {}
+
+			for i = 1, #source_indices - 2 do
+				local a = source_indices[i]
+				local b = source_indices[i + 1]
+				local c = source_indices[i + 2]
+
+				if i % 2 == 0 then a, b = b, a end
+
+				list.insert(out, a)
+				list.insert(out, b)
+				list.insert(out, c)
+			end
+
+			return out
+		elseif mode == "triangle_fan" or mode == "fan" then
+			local out = {}
+			local first = source_indices[1]
+
+			for i = 2, #source_indices - 1 do
+				list.insert(out, first)
+				list.insert(out, source_indices[i])
+				list.insert(out, source_indices[i + 1])
+			end
+
+			return out
+		end
+
+		return source_indices
+	end
 
 	local function polygon(mode, points, join)
 		render2d.PushTexture(render.GetWhiteTexture())
@@ -1036,38 +1121,47 @@ do -- shapes
 
 		if mode == "line" then
 			local draw_mode, vertices, indices = math2d.CoordinatesToLines(points, love.graphics.getLineWidth(), join, love.graphics.getLineJoin(), 1, false) --love.graphics.getLineStyle() == "smooth", true)
-			mesh:SetMode(draw_mode)
+			local draw_indices
 
 			if indices then
-				for i, v in ipairs(indices) do
-					mesh_idx:SetIndex(i, v)
-				end
-
-				idx = #indices
+				draw_indices = indices
 			else
-				for i = 1, #vertices do
-					mesh_idx:SetIndex(i, i - 1)
-				end
+				draw_indices = {}
 
-				idx = #vertices
+				for i = 1, #vertices do
+					draw_indices[i] = i - 1
+				end
 			end
+
+			draw_indices = triangle_list_indices(draw_mode, draw_indices)
+
+			for i, v in ipairs(draw_indices) do
+				mesh_idx:SetIndex(i, v)
+			end
+
+			idx = #draw_indices
 
 			for i, v in ipairs(vertices) do
 				mesh:SetVertex(i, "pos", v.x, v.y)
 			end
 		else
+			local draw_indices = {}
+			local vertex_count = 0
+
 			for i = 1, #points, 2 do
 				mesh:SetVertex(idx, "pos", points[i + 0], points[i + 1])
+				draw_indices[#draw_indices + 1] = vertex_count
+				vertex_count = vertex_count + 1
 				idx = idx + 1
 			end
 
-			for i = 1, #points do
-				mesh_idx:SetIndex(i, i - 1)
+			draw_indices = triangle_list_indices("triangle_fan", draw_indices)
+
+			for i, v in ipairs(draw_indices) do
+				mesh_idx:SetIndex(i, v)
 			end
 
-			-- connect the end
-			mesh_idx:SetIndex(idx, 0)
-			mesh:SetMode("triangle_fan")
+			idx = #draw_indices
 		end
 
 		mesh:UpdateBuffer()
@@ -1153,6 +1247,51 @@ end
 do
 	local Mesh = line.TypeTemplate("Mesh")
 
+	local function triangle_list_indices(mode, source_indices)
+		mode = mode or "triangles"
+
+		if mode == "triangles" or mode == "triangle_list" then
+			return source_indices
+		elseif mode == "triangle_strip" or mode == "strip" then
+			local out = {}
+
+			for i = 1, #source_indices - 2 do
+				local a = source_indices[i]
+				local b = source_indices[i + 1]
+				local c = source_indices[i + 2]
+
+				if i % 2 == 0 then a, b = b, a end
+
+				list.insert(out, a)
+				list.insert(out, b)
+				list.insert(out, c)
+			end
+
+			return out
+		elseif mode == "triangle_fan" or mode == "fan" then
+			local out = {}
+			local first = source_indices[1]
+
+			for i = 2, #source_indices - 1 do
+				list.insert(out, first)
+				list.insert(out, source_indices[i])
+				list.insert(out, source_indices[i + 1])
+			end
+
+			return out
+		end
+
+		return source_indices
+	end
+
+	local function rebuild_index_buffer(self)
+		local source_indices = self.vertex_map or {}
+		local draw_indices = triangle_list_indices(self.draw_mode, source_indices)
+		self.index_buffer.indices = draw_indices
+		self.index_buffer.index_count = #draw_indices
+		self.index_buffer:UpdateBuffer()
+	end
+
 	function love.graphics.newMesh(...)
 		local vertices
 		local vertex_count
@@ -1182,18 +1321,22 @@ do
 
 		local self = line.CreateObject("Mesh")
 		self.vertex_buffer = render2d.CreateMesh(vertex_count)
-		local mesh_idx = render.CreateIndexBuffer()
+		local mesh_idx = IndexBuffer.New()
 		mesh_idx:LoadIndices(vertex_count)
 		self.index_buffer = mesh_idx
+		self.draw_mode = "triangles"
+		self.vertex_map = {}
 
-		if vertex_format then
-			self.vertex_buffer:ClearAttributes()
-
-			for i, v in ipairs(vertex_format) do
-				self.vertex_buffer:SetAttribute(i, v[1], v[2], v[3])
-			end
+		for i = 1, vertex_count do
+			self.vertex_map[i] = i - 1
 		end
 
+		self.vertex_format = vertex_format or
+			{
+				{"VertexPosition", "float", 2},
+				{"VertexTexCoord", "float", 2},
+				{"VertexColor", "float", 4},
+			}
 		self.vertex_buffer:SetDrawHint(usage)
 		self:setDrawMode(mode)
 
@@ -1226,8 +1369,8 @@ do
 	function Mesh:getVertices()
 		local out = {}
 
-		for i = 1, self.vertex_buffer.Vertices:GetLength() do
-			out[i] = {self:getVertex()}
+		for i = 1, self.vertex_buffer:GetVertexCount() do
+			out[i] = {self:getVertex(i)}
 		end
 
 		return out
@@ -1262,7 +1405,7 @@ do
 
 	function Mesh:setDrawRange(min, max)
 		self.draw_range_min = min
-		self.draw_range_man = max
+		self.draw_range_max = max
 	end
 
 	function Mesh:getDrawRange()
@@ -1270,7 +1413,8 @@ do
 	end
 
 	function Mesh:Draw()
-		self.vertex_buffer:Draw(self.index_buffer, self.draw_range)
+		local count = self.draw_range_max or self.index_buffer:GetIndexCount()
+		self.vertex_buffer:Draw(self.index_buffer, count)
 	end
 
 	function Mesh:setVertexColors() end
@@ -1281,32 +1425,54 @@ do
 
 	function Mesh:setVertexMap(...)
 		local indices = type(...) == "table" and ... or {...}
+		self.vertex_map = {}
 
 		for i, i2 in ipairs(indices) do
-			self.index_buffer:SetIndex(i, i2 - 1)
+			self.vertex_map[i] = i2 - 1
 		end
+
+		rebuild_index_buffer(self)
 	end
 
 	function Mesh:getVertexMap()
 		local out = {}
+		local data = self.vertex_map
 
-		for i = 1, self.index_buffer.Indices:GetLength() do
-			out[i] = self.index_buffer.Indices.Pointer[i - 1] + 1
+		for i = 1, #data do
+			out[i] = data[i] + 1
 		end
 
 		return out
 	end
 
 	function Mesh:getVertexCount()
-		return self.vertex_buffer.Vertices:GetLength()
+		return self.vertex_buffer:GetVertexCount()
 	end
 
-	function Mesh:setVertexAttribute(index, pos, ...)
-		self:setVertex(index, self.vertex_buffer.mesh_layout.attributes[pos].name, ...)
-	end
+	do
+		local attribute_translation = {
+			VertexPosition = "pos",
+			VertexTexCoord = "uv",
+			VertexColor = "color",
+		}
 
-	function Mesh:getVertexAttribute(index, pos)
-		return self:getVertex(index, self.vertex_buffer.mesh_layout.attributes[pos].name)
+		local function get_attribute_name(self, pos)
+			local info = self.vertex_format[pos]
+
+			if not info then
+				error("unknown vertex attribute index: " .. tostring(pos), 2)
+			end
+
+			return attribute_translation[info[1]] or info[1]
+		end
+
+		function Mesh:setVertexAttribute(index, pos, ...)
+			self.vertex_buffer:SetVertex(index, get_attribute_name(self, pos), ...)
+		end
+
+		function Mesh:getVertexAttribute(index, pos)
+			return self.vertex_buffer:GetVertex(index, get_attribute_name(self, pos))
+		end
 	end
 
 	function Mesh:setAttributeEnabled(name, enable) end
@@ -1325,12 +1491,17 @@ do
 		function Mesh:getVertexFormat()
 			local out = {}
 
-			for i, info in ipairs(self.vertex_buffer.mesh_layout.attributes) do
-				list.insert(out, {tr[info.name] or info.name, info.type_info.type, info.type_info.arg_count})
+			for i, info in ipairs(self.vertex_format) do
+				list.insert(out, {tr[info[1]] or info[1], info[2], info[3]})
 			end
 
 			return out
 		end
+	end
+
+	function Mesh:UpdateBuffers()
+		self.vertex_buffer:UpdateBuffer()
+		rebuild_index_buffer(self)
 	end
 
 	function Mesh:flush()
@@ -1339,23 +1510,27 @@ do
 
 	do
 		local tr = {
+			triangles = "triangle_list",
 			fan = "triangle_fan",
 			strip = "triangle_strip",
+			points = "point_list",
+			lines = "line_list",
 		}
 
 		function Mesh:setDrawMode(mode)
-			mode = tr[mode] or mode
-			self.vertex_buffer:SetMode(mode)
+			self.draw_mode = tr[mode] or mode or "triangles"
+			self.vertex_buffer:SetMode(self.draw_mode)
+			rebuild_index_buffer(self)
 		end
 
 		local tr2 = {}
 
 		for k, v in pairs(tr) do
-			tr[v] = k
+			tr2[v] = k
 		end
 
 		function Mesh:getDrawMode()
-			local mode = self.vertex_buffer:GetMode()
+			local mode = self.draw_mode or self.vertex_buffer:GetMode()
 			return tr2[mode] or mode
 		end
 	end

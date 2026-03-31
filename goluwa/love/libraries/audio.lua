@@ -1,5 +1,5 @@
-if not SOUND then return end
-
+local audio = import("goluwa/audio.lua")
+local line = import("goluwa/love/line.lua")
 local love = ... or _G.love
 local ENV = love._line_env
 love.audio = love.audio or {}
@@ -268,7 +268,7 @@ do -- Source
 		if line.Type(var) == "string" then
 			self.path = var
 
-			if vfs.Exists(var) then
+			if audio.CreateSource and vfs.Exists(var) then
 				local ext = var:match(".+%.(.+)")
 
 				if ext == "flac" or ext == "wav" or ext == "ogg" then
@@ -277,12 +277,17 @@ do -- Source
 				end
 			end
 		elseif line.Type(var) == "File" then
-			self.source = audio.CreateSource(var.decoded_data)
+			if audio.CreateSource then self.source = audio.CreateSource(var.decoded_data) end
 		elseif line.Type(var) == "Decoder" then
-			self.source = audio.CreateSource(var.decoded_data)
+			if audio.CreateSource and var.decoded_data then
+				self.source = audio.CreateSource(var.decoded_data)
+			end
 		elseif line.Type(var) == "SoundData" then
-			self.source = audio.CreateSource(var)
-			self.source:SetBuffer(var.buffer)
+			if audio.CreateSource then
+				self.source = audio.CreateSource(var)
+
+				if self.source.SetBuffer then self.source:SetBuffer(var.buffer) end
+			end
 		else
 			wlog("tried to create unknown source type: %s %s", line.Type(var), type, 2)
 		end
