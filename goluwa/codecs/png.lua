@@ -1,6 +1,7 @@
 -- initially based on https://github.com/DelusionalLogic/pngLua
 local ffi = require("ffi")
 local bit_band = require("bit").band
+local bit_rshift = require("bit").rshift
 local Buffer = import("goluwa/structs/buffer.lua")
 local deflate = import("goluwa/codecs/deflate.lua")
 local png = library()
@@ -100,6 +101,15 @@ local COLOR_TYPE_GRAYSCALE_ALPHA = 4
 local COLOR_TYPE_PALETTE_ALPHA = 5
 local COLOR_TYPE_RGBA = 6
 
+local function get_packed_sample(row, x, bitDepth)
+	local bitOffset = x * bitDepth
+	local byteIndex = math.floor(bitOffset / 8)
+	local bitIndex = bitOffset % 8
+	local shift = 8 - bitDepth - bitIndex
+	local mask = 2^bitDepth - 1
+	return bit_band(bit_rshift(row[byteIndex], shift), mask)
+end
+
 -- Helper function to read value based on bytes per sample
 local function readValue(buffer, bps)
 	if bps == 1 then
@@ -153,7 +163,7 @@ local function getPixels(buffer, data)
 	local width = data.IHDR.width
 	local height = data.IHDR.height
 	local bitDepth = data.IHDR.bitDepth
-	local bps = math.floor(bitDepth / 8) -- bytes per sample
+	local bps = math.max(1, math.floor(bitDepth / 8)) -- bytes per sample
 	local hasAlpha = (colorType == COLOR_TYPE_GRAYSCALE_ALPHA or colorType == COLOR_TYPE_RGBA)
 	-- Determine output format: 8-bit or 16-bit RGBA
 	local is16bit = (bitDepth == 16)
@@ -180,7 +190,8 @@ local function getPixels(buffer, data)
 		)
 		or
 		1
-	local bytesPerInputPixel = samplesPerPixel * bps
+	local bitsPerInputPixel = samplesPerPixel * bitDepth
+	local bytesPerInputPixel = math.max(1, math.ceil(bitsPerInputPixel / 8))
 	-- Create output buffer for RGBA pixels
 	local outputSize = width * height * bytesPerPixel
 	local outputData = is16bit and
@@ -189,11 +200,13 @@ local function getPixels(buffer, data)
 	local out = outputData
 	-- Previous and current row buffers store RAW BYTES (not reconstructed values)
 	-- For PNG filtering, we work with bytes regardless of bit depth
-	local rowBytes = width * bytesPerInputPixel
+	local rowBytes = math.ceil(width * bitsPerInputPixel / 8)
 	local prevRow = ffi.new("uint8_t[?]", rowBytes)
 	local currRow = ffi.new("uint8_t[?]", rowBytes)
 	-- Maximum value for alpha channel (255 for 8-bit, 65535 for 16-bit)
 	local maxAlpha = is16bit and 65535 or 255
+	local packedSamples = bitDepth < 8
+	local packedScale = packedSamples and math.floor(255 / (2^bitDepth - 1)) or 1
 
 	for y = 1, height do
 		local filterType = buffer:ReadByte()
@@ -263,7 +276,19 @@ local function getPixels(buffer, data)
 				-- 8-bit: bytes are already the right values
 				local R, G, B, A
 
-				if colorType == COLOR_TYPE_RGB then
+				if packedSamples and colorType == COLOR_TYPE_GRAYSCALE then
+					local grey = get_packed_sample(currRow, x, bitDepth) * packedScale
+					R, G, B, A = grey, grey, grey, 255
+				elseif packedSamples and colorType == COLOR_TYPE_INDEXED then
+					local index = get_packed_sample(currRow, x, bitDepth) + 1
+					local color = data.PLTE and data.PLTE.colors[index]
+
+					if color then
+						R, G, B, A = color.R, color.G, color.B, 255
+					else
+						R, G, B, A = 255, 0, 255, 255
+					end
+				elseif colorType == COLOR_TYPE_RGB then
 					R, G, B, A = currRow[inIdx], currRow[inIdx + 1], currRow[inIdx + 2], 255
 				elseif colorType == COLOR_TYPE_RGBA then
 					R, G, B, A = currRow[inIdx], currRow[inIdx + 1], currRow[inIdx + 2], currRow[inIdx + 3]
@@ -275,8 +300,13 @@ local function getPixels(buffer, data)
 					R, G, B, A = grey, grey, grey, currRow[inIdx + 1]
 				elseif colorType == COLOR_TYPE_INDEXED then
 					local index = currRow[inIdx] + 1
-					local color = data.PLTE.colors[index]
-					R, G, B, A = color.R, color.G, color.B, 255
+					local color = data.PLTE and data.PLTE.colors[index]
+
+					if color then
+						R, G, B, A = color.R, color.G, color.B, 255
+					else
+						R, G, B, A = 255, 0, 255, 255
+					end
 				else
 					R, G, B, A = 255, 0, 255, 255 -- Pink for unknown
 				end
