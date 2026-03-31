@@ -1,5 +1,8 @@
 local audio = import("goluwa/audio.lua")
 local line = import("goluwa/love/line.lua")
+local pvars = import("goluwa/pvars.lua")
+local vfs = import("goluwa/vfs.lua")
+local Vec3 = import("goluwa/structs/vec3.lua")
 local love = ... or _G.love
 local ENV = love._line_env
 love.audio = love.audio or {}
@@ -92,11 +95,15 @@ do -- Source
 	local Source = line.TypeTemplate("Source")
 
 	function Source:getChannels()
+		if self.source and self.source.GetChannels then
+			return self.source:GetChannels()
+		end
+
 		return 2 --stereo
 	end
 
 	function Source:getDirection()
-		if self.source then return self.source:GetDirection() end
+		if self.source then return self.source:GetDirection():Unpack() end
 
 		return 0, 0, 0
 	end
@@ -116,7 +123,7 @@ do -- Source
 	end
 
 	function Source:getPosition()
-		if self.source then return self.source:GetPosition() end
+		if self.source then return self.source:GetPosition():Unpack() end
 
 		return 0, 0, 0
 	end
@@ -128,7 +135,7 @@ do -- Source
 	end
 
 	function Source:getVelocity()
-		if self.source then return self.source:GetVelocity() end
+		if self.source then return self.source:GetVelocity():Unpack() end
 
 		return 0, 0, 0
 	end
@@ -150,6 +157,8 @@ do -- Source
 	end
 
 	function Source:isPaused()
+		if self.source and self.source.IsPaused then return self.source:IsPaused() end
+
 		if self.source then return not self.playing end
 
 		return false
@@ -160,17 +169,24 @@ do -- Source
 	end
 
 	function Source:isStopped()
+		if self.source and self.source.IsStopped then return self.source:IsStopped() end
+
 		if self.source then return not self.playing end
 
 		return false
 	end
 
 	function Source:isPlaying()
+		if self.source and self.source.IsPlaying then return self.source:IsPlaying() end
+
 		return not self:isStopped()
 	end
 
 	function Source:pause()
-		if self.source then self.source:Pause() end
+		if self.source then
+			self.source:Pause()
+			self.playing = false
+		end
 	end
 
 	function Source:play()
@@ -182,7 +198,10 @@ do -- Source
 	end
 
 	function Source:resume()
-		if self.source then self.source:Play() end
+		if self.source then
+			self.source:Resume()
+			self.playing = true
+		end
 	end
 
 	function Source:rewind()
@@ -201,7 +220,7 @@ do -- Source
 	end
 
 	function Source:setDirection(x, y, z)
-		if self.source then self.source:SetDirection(x, y, z) end
+		if self.source then self.source:SetDirection(Vec3(x, y, z)) end
 	end
 
 	function Source:setDistance(ref, max)
@@ -227,7 +246,7 @@ do -- Source
 	end
 
 	function Source:setPosition(x, y, z)
-		if self.source then self.source:SetPosition(x, y, z) end
+		if self.source then self.source:SetPosition(Vec3(x, y, z)) end
 	end
 
 	function Source:setRolloff(x)
@@ -235,7 +254,7 @@ do -- Source
 	end
 
 	function Source:setVelocity(x, y, z)
-		if self.source then self.source:SetVelocity(x, y, z) end
+		if self.source then self.source:SetVelocity(Vec3(x, y, z)) end
 	end
 
 	function Source:setVolume(vol)
@@ -245,7 +264,7 @@ do -- Source
 	function Source:setVolumeLimits() end
 
 	function Source:tell(type)
-		if self.source then return self.source:Tell(self, type) end
+		if self.source then return self.source:Tell(type) end
 
 		return 1
 	end
@@ -277,11 +296,9 @@ do -- Source
 				end
 			end
 		elseif line.Type(var) == "File" then
-			if audio.CreateSource then self.source = audio.CreateSource(var.decoded_data) end
+			if audio.CreateSource then self.source = audio.CreateSource(var) end
 		elseif line.Type(var) == "Decoder" then
-			if audio.CreateSource and var.decoded_data then
-				self.source = audio.CreateSource(var.decoded_data)
-			end
+			if audio.CreateSource then self.source = audio.CreateSource(var) end
 		elseif line.Type(var) == "SoundData" then
 			if audio.CreateSource then
 				self.source = audio.CreateSource(var)
