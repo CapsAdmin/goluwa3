@@ -315,6 +315,7 @@ do
 			local function main_protected(udata)
 				local ok, err_or_ptr = pcall(main, udata)
 				if not ok then
+					local threads = get_threads()
 					local data = ffi.cast(threads.thread_data_ptr_t, udata)
 
 					data.status = threads.STATUS_ERROR
