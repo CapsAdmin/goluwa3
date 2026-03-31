@@ -1,5 +1,4 @@
-if not GRAPHICS then return end
-
+local line = import("goluwa/love/line.lua")
 local love = ... or _G.love
 local ENV = love._line_env
 local ParticleSystem = line.TypeTemplate("ParticleSystem")

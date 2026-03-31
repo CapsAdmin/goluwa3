@@ -2,6 +2,7 @@ local love = ... or _G.love
 local ENV = love._line_env
 local event = import("goluwa/event.lua")
 local line = import("goluwa/love/line.lua")
+local input = import("goluwa/input.lua")
 love.keyboard = love.keyboard or {}
 
 function love.keyboard.getKeyRepeat()

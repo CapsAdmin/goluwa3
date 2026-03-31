@@ -2,6 +2,7 @@ local render = import("goluwa/render/render.lua")
 local Framebuffer = import("goluwa/render/framebuffer.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local math2d = import("goluwa/render2d/math2d.lua")
+local vfs = import("goluwa/vfs.lua")
 local gfx = import("goluwa/render2d/gfx.lua")
 local fonts = import("goluwa/render2d/fonts.lua")
 local window = import("goluwa/window.lua")
@@ -272,7 +273,7 @@ do
 			srcRGB = "src_alpha"
 		end
 
-		render.SetBlendMode(srcRGB, dstRGB, func, srcA, dstA, func)
+		render2d.SetBlendMode(srcRGB, dstRGB, func, srcA, dstA, func)
 		COLOR_MODE = color_mode
 		ALPHA_MODE = alpha_mode
 	end
@@ -285,11 +286,11 @@ end
 do
 	function love.graphics.setColorMode(mode)
 		if mode == "replace" then mode = "none" end
-	--render.SetColorMode(mode)
+	--render2d.SetColorMode(mode)
 	end
 
 	function love.graphics.getColorMode()
-		--return render.GetBlendMode()
+		--return render2d.GetBlendMode()
 		return "modulate"
 	end
 end
@@ -406,9 +407,12 @@ do -- font
 		local self = line.CreateObject("Font")
 		self:setLineHeight(1)
 		path = line.FixPath(path)
+		if not vfs.IsFile(path) then
+			path = fonts.GetDefaultSystemFontPath()
+		end
 		self.font = fonts.New{
 			Size = size and (size * 1.25),
-			Path = path ~= "memory" and path or nil,
+			Path = path ~= "memory" and path or fonts.GetDefaultSystemFontPath(),
 		}
 		self.Name = self.font:GetName()
 		local w, h = self.font:GetTextSize("W")
@@ -500,12 +504,10 @@ do -- font
 					align_x = (max_width - w) / 2
 				end
 
-				gfx.SetTextPosition(align_x, (i - 1) * h * font.line_height)
-				gfx.DrawText(line)
+				font.font:DrawText(line, align_x, (i - 1) * h * font.line_height)
 			end
 		else
-			gfx.SetTextPosition(0, 0)
-			gfx.DrawText(text)
+			font.font:DrawText(text, 0, 0)
 		end
 
 		render2d.PopMatrix()
@@ -686,11 +688,7 @@ do -- image
 
 	function Image:getData()
 		local tex = ENV.textures[self]
-		local data = tex:Download()
-		local img_data = love.image.newImageData(self:getDimensions())
-		img_data.buffer = data.buffer
-		img_data.tex = tex
-		return img_data
+		return love.image._newImageDataFromTexture(tex)
 	end
 
 	ADD_FILTER(Image)
@@ -700,29 +698,34 @@ do -- image
 	function Image:getWrap() end
 
 	function love.graphics.newImage(path)
-		if line.Type(path) == "ImageData" then
-			return path
-		else
-			local self = line.CreateObject("Image")
-			path = line.FixPath(path)
-			local tex = render.CreateTextureFromPath(path)
-			self.filter_min = ENV.graphics_filter_min
-			self.filter_mag = ENV.graphics_filter_mag
-			self.filter_anistropy = ENV.graphics_filter_anisotropy
-			ENV.textures[self] = tex
-			return self
-		end
-	end
+		if line.Type(path) == "Image" then return path end
 
-	function love.graphics.newImageData(path)
 		local self = line.CreateObject("Image")
-		path = line.FixPath(path)
-		local tex = render.CreateTextureFromPath(path)
+		local tex
 		self.filter_min = ENV.graphics_filter_min
 		self.filter_mag = ENV.graphics_filter_mag
 		self.filter_anistropy = ENV.graphics_filter_anisotropy
+
+		if line.Type(path) == "ImageData" then
+			tex = love.image._createTextureFromImageData(
+				path,
+				{
+					min_filter = self.filter_min,
+					mag_filter = self.filter_mag,
+					anisotropy = self.filter_anistropy,
+				}
+			)
+		else
+			path = line.FixPath(path)
+			tex = render.CreateTextureFromPath(path)
+		end
+
 		ENV.textures[self] = tex
 		return self
+	end
+
+	function love.graphics.newImageData(...)
+		return love.image.newImageData(...)
 	end
 
 	line.RegisterType(Image)
@@ -795,9 +798,9 @@ function love.graphics.drawq(drawable, quad, x, y, r, sx, sy, ox, oy, kx, ky)
 	ca = ca or 255
 	render2d.SetColor(cr / 255, cg / 255, cb / 255, ca / 255)
 	render2d.PushTexture(ENV.textures[drawable])
-	render2d.SetRectUV(quad.x, quad.y, quad.w, quad.h, quad.sw, quad.sh)
+	render2d.SetUV(quad.x, quad.y, quad.w, quad.h, quad.sw, quad.sh)
 	render2d.DrawRect(x, y, quad.w * sx, quad.h * sy, r, ox * sx, oy * sy)
-	render2d.SetRectUV()
+	render2d.SetUV()
 	render2d.PopTexture()
 end
 

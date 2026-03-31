@@ -1697,7 +1697,7 @@ function vorbis.DecodePacket(packet, info, setup, state)
 	return pcm, output_n
 end
 
-if HOTRELOAD then
+if HOTRELOAD and false then
 	import.loaded["goluwa/codecs/internal/vorbis.lua"] = vorbis
 	import.loaded["goluwa/codecs/ogg.lua"] = nil
 	local profiler = import("goluwa/profiler.lua")

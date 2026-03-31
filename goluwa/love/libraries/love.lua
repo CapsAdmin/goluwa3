@@ -1,6 +1,8 @@
 local event = import("goluwa/event.lua")
+local system = import("goluwa/system.lua")
+local render2d = import("goluwa/render2d/render2d.lua")
 local love = ... or _G.love
-local line = line -- line_update and line_draw
+local line = import("goluwa/love/line.lua") -- line_update and line_draw
 function love.load() end
 
 function love.conf(t) end
@@ -74,7 +76,7 @@ event.AddListener("LoveNewIndex", "line_love", function(love, key, val)
 		end
 	elseif key == "draw" then
 		if val then
-			event.AddListener("PreDrawGUI", "line", function(dt)
+			event.AddListener("Draw2D", "line", function(dt)
 				if menu and menu.IsVisible() then render2d.PushHSV(1, 0, 1) end
 
 				line.CallEvent("line_draw", dt)
@@ -82,7 +84,7 @@ event.AddListener("LoveNewIndex", "line_love", function(love, key, val)
 				if menu and menu.IsVisible() then render2d.PopHSV() end
 			end)
 		else
-			event.RemoveListener("PreDrawGUI", "line")
+			event.RemoveListener("Draw2D", "line")
 		end
 	elseif key == "resize" then
 		if val then
