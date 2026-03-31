@@ -21,6 +21,8 @@ end
 
 function codec.GuessFormatFromPath(path)
 	for _, name in ipairs(fs.get_files("goluwa/codecs")) do
+		if not name:ends_with(".lua") then goto continue end
+
 		local mod = import("goluwa/codecs/" .. name:sub(1, -5) .. ".lua")
 
 		if mod.file_extensions then
@@ -28,6 +30,8 @@ function codec.GuessFormatFromPath(path)
 				if path:ends_with("." .. ext) then return mod end
 			end
 		end
+
+		::continue::
 	end
 end
 
