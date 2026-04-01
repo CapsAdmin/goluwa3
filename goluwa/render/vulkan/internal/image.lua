@@ -49,6 +49,7 @@ function Image.New(config)
 		width = config.width,
 		height = config.height,
 		format = config.format,
+		samples = config.samples or "1",
 		usage = config.usage,
 		mip_levels = mip_levels,
 		array_layers = config.array_layers or 1,

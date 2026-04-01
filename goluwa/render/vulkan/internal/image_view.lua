@@ -39,6 +39,9 @@ function ImageView.New(config)
 	return ImageView:CreateObject{
 		ptr = ptr,
 		device = config.device,
+		image = config.image,
+		format = config.format,
+		aspect = config.aspect or "color",
 	}
 end
 

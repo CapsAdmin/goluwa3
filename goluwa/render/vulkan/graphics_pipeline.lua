@@ -13,15 +13,23 @@ local function hash_table(tbl)
 	return luadata.Encode(tbl)
 end
 
+local function get_active_config(self)
+	return self.active_config or self.config
+end
+
 local function get_color_attachment_count(self)
-	if type(self.config.color_format) == "table" then
-		return math.max(#self.config.color_format, 1)
+	local config = get_active_config(self)
+
+	if type(config.color_format) == "table" then
+		return math.max(#config.color_format, 1)
 	end
 
 	return 1
 end
 
 local function get_state(self, section, key, subkey)
+	local config = get_active_config(self)
+
 	if self.overridden_state[section] and self.overridden_state[section][key] ~= nil then
 		local val = self.overridden_state[section][key]
 
@@ -31,7 +39,7 @@ local function get_state(self, section, key, subkey)
 	end
 
 	if section == "color_blend" then
-		local cb = self.config.color_blend
+		local cb = config.color_blend
 
 		if cb and cb.attachments and cb.attachments[1] then
 			if key == "blend" then return cb.attachments[1].blend end
@@ -40,8 +48,8 @@ local function get_state(self, section, key, subkey)
 		end
 	end
 
-	if self.config[section] and self.config[section][key] ~= nil then
-		local val = self.config[section][key]
+	if config[section] and config[section][key] ~= nil then
+		local val = config[section][key]
 
 		if subkey and type(val) == "table" then return val[subkey] end
 
@@ -62,7 +70,7 @@ local function get_color_blend_enable(self, index)
 		end
 	end
 
-	local color_blend = self.config.color_blend
+	local color_blend = get_active_config(self).color_blend
 
 	if color_blend and color_blend.attachments then
 		local attachment = color_blend.attachments[index]
@@ -102,7 +110,7 @@ local function get_color_blend_state(self, index, key, default)
 
 	if val ~= nil then return val end
 
-	local color_blend = self.config.color_blend
+	local color_blend = get_active_config(self).color_blend
 
 	if color_blend and color_blend.attachments then
 		local attachment = color_blend.attachments[index]
@@ -136,6 +144,7 @@ local function build_zero_offsets(count)
 end
 
 local function build_bind_state_cache(self)
+	local config = get_active_config(self)
 	local cache = {
 		zero_dynamic_offsets = build_zero_offsets(self.dynamic_descriptor_count or 0),
 	}
@@ -208,24 +217,24 @@ local function build_bind_state_cache(self)
 
 	if self.dynamic_states.viewport then
 		cache.viewport_width = (
-				self.config.extent and
-				self.config.extent.width
+				config.extent and
+				config.extent.width
 			)
 			or
 			(
-				self.config.viewport and
-				self.config.viewport.w
+				config.viewport and
+				config.viewport.w
 			)
 			or
 			0
 		cache.viewport_height = (
-				self.config.extent and
-				self.config.extent.height
+				config.extent and
+				config.extent.height
 			)
 			or
 			(
-				self.config.viewport and
-				self.config.viewport.h
+				config.viewport and
+				config.viewport.h
 			)
 			or
 			0
@@ -233,30 +242,106 @@ local function build_bind_state_cache(self)
 
 	if self.dynamic_states.scissor then
 		cache.scissor_width = (
-				self.config.extent and
-				self.config.extent.width
+				config.extent and
+				config.extent.width
 			)
 			or
 			(
-				self.config.scissor and
-				self.config.scissor.w
+				config.scissor and
+				config.scissor.w
 			)
 			or
 			0
 		cache.scissor_height = (
-				self.config.extent and
-				self.config.extent.height
+				config.extent and
+				config.extent.height
 			)
 			or
 			(
-				self.config.scissor and
-				self.config.scissor.h
+				config.scissor and
+				config.scissor.h
 			)
 			or
 			0
 	end
 
 	self.bind_state_cache = cache
+end
+
+local function get_pipeline_signature(self, cmd)
+	local rendering_state = cmd and cmd.rendering_state or nil
+	local base = self.base_pipeline_signature or
+		{
+			color_format = self.config.color_format,
+			depth_format = self.config.depth_format,
+			samples = self.config.samples or "1",
+		}
+	local color_format = base.color_format
+
+	if rendering_state then
+		if rendering_state.color_formats and #rendering_state.color_formats > 0 then
+			color_format = rendering_state.color_formats
+		else
+			color_format = rendering_state.color_format
+		end
+	end
+
+	return {
+		color_format = color_format,
+		depth_format = rendering_state and rendering_state.depth_format or base.depth_format,
+		samples = rendering_state and rendering_state.samples or base.samples,
+	}
+end
+
+local function get_pipeline_variant_key(signature, static_overrides)
+	return hash_table{signature = signature, static = static_overrides}
+end
+
+local function build_internal_pipeline(vulkan_instance, pipeline_layout, config)
+	local shader_modules = {}
+
+	for i, stage in ipairs(config.shader_stages) do
+		shader_modules[i] = {
+			type = stage.type,
+			module = ShaderModule.New(vulkan_instance.device, stage.code, stage.type),
+		}
+	end
+
+	local vertex_bindings
+	local vertex_attributes
+
+	for i, stage in ipairs(config.shader_stages) do
+		if stage.type == "vertex" then
+			vertex_bindings = stage.bindings
+			vertex_attributes = stage.attributes
+
+			break
+		end
+	end
+
+	local multisampling_config = config.multisampling or {}
+	multisampling_config.rasterization_samples = config.samples or "1"
+	local pipeline = InternalGraphicsPipeline.New(
+		vulkan_instance.device,
+		{
+			shaderModules = shader_modules,
+			extent = config.extent,
+			vertexBindings = vertex_bindings,
+			vertexAttributes = vertex_attributes,
+			input_assembly = config.input_assembly,
+			rasterizer = config.rasterizer,
+			viewport = config.viewport,
+			scissor = config.scissor,
+			multisampling = multisampling_config,
+			color_blend = config.color_blend,
+			dynamic_states = config.dynamic_states,
+			depth_stencil = config.depth_stencil,
+		},
+		{{format = config.color_format, depth_format = config.depth_format}},
+		pipeline_layout
+	)
+	pipeline._shader_modules = shader_modules
+	return pipeline, shader_modules
 end
 
 function GraphicsPipeline.New(vulkan_instance, config)
@@ -466,38 +551,24 @@ function GraphicsPipeline.New(vulkan_instance, config)
 		end
 	end
 
-	pipeline = InternalGraphicsPipeline.New(
-		vulkan_instance.device,
-		{
-			shaderModules = shader_modules,
-			extent = config.extent,
-			vertexBindings = vertex_bindings,
-			vertexAttributes = vertex_attributes,
-			input_assembly = config.input_assembly,
-			rasterizer = config.rasterizer,
-			viewport = config.viewport,
-			scissor = config.scissor,
-			multisampling = multisampling_config,
-			color_blend = config.color_blend,
-			dynamic_states = config.dynamic_states,
-			depth_stencil = config.depth_stencil,
-		},
-		{{format = config.color_format, depth_format = config.depth_format}},
-		pipelineLayout
-	)
+	pipeline, shader_modules = build_internal_pipeline(vulkan_instance, pipelineLayout, config)
 	self.pipeline = pipeline
 	self.descriptor_sets = descriptorSets
 	self.pipeline_layout = pipelineLayout
 	self.vulkan_instance = vulkan_instance
 	self.config = config
+	self.active_config = config
 	self.uniform_buffers = uniform_buffers
 	self.descriptor_set_layouts = descriptorSetLayouts
 	self.descriptorPools = descriptorPools -- Array of pools, one per frame
 	self.shader_modules = shader_modules -- Keep shader modules alive to prevent GC
-	-- GraphicsPipeline variant caching for dynamic state emulation
-	self.pipeline_variants = {}
-	self.current_variant_key = nil
+	-- GraphicsPipeline variant caching for compatibility and static state emulation
 	self.base_pipeline = pipeline
+	self.base_pipeline_signature = {
+		color_format = config.color_format,
+		depth_format = config.depth_format,
+		samples = config.samples or "1",
+	}
 	self.overridden_state = {}
 	self.dynamic_states = {}
 
@@ -507,6 +578,14 @@ function GraphicsPipeline.New(vulkan_instance, config)
 		end
 	end
 
+	self.pipeline_variants = {}
+	self.base_variant_key = get_pipeline_variant_key(self.base_pipeline_signature, {})
+	self.pipeline_variants[self.base_variant_key] = {
+		pipeline = pipeline,
+		config = config,
+		shader_modules = shader_modules,
+	}
+	self.current_variant_key = self.base_variant_key
 	build_bind_state_cache(self)
 
 	do
@@ -785,21 +864,21 @@ end
 
 function GraphicsPipeline:Bind(cmd, frame_index, dynamic_offsets)
 	frame_index = frame_index or 1
+	self:RebuildPipeline(self.overridden_state, get_pipeline_signature(self, cmd))
 	local cache = self.bind_state_cache
 	cmd:BindPipeline(self.pipeline, "graphics")
 
 	-- Always apply dynamic states if they are enabled in this pipeline
 	if self.dynamic_states.color_blend_enable_ext then
-		if cache.color_blend_enable then cmd:SetColorBlendEnable(0, cache.color_blend_enable) end
+		if cache.color_blend_enable then
+			cmd:SetColorBlendEnable(0, cache.color_blend_enable)
+		end
 	end
 
 	if self.dynamic_states.color_blend_equation_ext then
 		if cache.color_blend_equations then
 			for i, equation in ipairs(cache.color_blend_equations) do
-				cmd:SetColorBlendEquation(
-					i - 1,
-					equation
-				)
+				cmd:SetColorBlendEquation(i - 1, equation)
 			end
 		end
 	end
@@ -808,9 +887,7 @@ function GraphicsPipeline:Bind(cmd, frame_index, dynamic_offsets)
 		cmd:SetPolygonMode(cache.polygon_mode)
 	end
 
-	if self.dynamic_states.cull_mode then
-		cmd:SetCullMode(cache.cull_mode)
-	end
+	if self.dynamic_states.cull_mode then cmd:SetCullMode(cache.cull_mode) end
 
 	if self.dynamic_states.stencil_test_enable then
 		cmd:SetStencilTestEnable(cache.stencil_test_enable)
@@ -866,7 +943,7 @@ end
 
 function GraphicsPipeline:GetVertexAttributes()
 	-- Find the vertex shader stage in config
-	for _, stage in ipairs(self.config.shader_stages) do
+	for _, stage in ipairs(get_active_config(self).shader_stages) do
 		if stage.type == "vertex" then return stage.attributes end
 	end
 
@@ -900,7 +977,20 @@ function GraphicsPipeline:OnRemove()
 		end
 	end
 
-	if self.pipeline then self.pipeline:Remove() end
+	if self.pipeline_variants then
+		local removed = {}
+
+		for _, entry in pairs(self.pipeline_variants) do
+			local pipeline = entry.pipeline
+
+			if pipeline and not removed[pipeline] then
+				pipeline:Remove()
+				removed[pipeline] = true
+			end
+		end
+	elseif self.pipeline then
+		self.pipeline:Remove()
+	end
 
 	if self.descriptor_set_layouts then
 		for _, layout in pairs(self.descriptor_set_layouts) do
@@ -913,7 +1003,8 @@ end
 
 -- Rebuild pipeline with modified state
 -- overrides: table where keys are sections (e.g., "color_blend") and values are change tables
-function GraphicsPipeline:RebuildPipeline(overrides)
+function GraphicsPipeline:RebuildPipeline(overrides, signature)
+	signature = signature or self.base_pipeline_signature
 	-- Generate a cache key for this variant using only STATIC overrides
 	local static_overrides = {}
 
@@ -949,25 +1040,26 @@ function GraphicsPipeline:RebuildPipeline(overrides)
 		if has_static then static_overrides[section] = static_changes end
 	end
 
-	local variant_key = hash_table(static_overrides)
+	local variant_key = get_pipeline_variant_key(signature, static_overrides)
 
-	if variant_key == "" or variant_key == "{\n}" then
-		self.pipeline = self.base_pipeline
-		self.current_variant_key = nil
-		build_bind_state_cache(self)
-		return
-	end
+	if self.current_variant_key == variant_key and self.pipeline then return end
 
 	-- Return cached variant if it exists
-	if self.pipeline_variants[variant_key] then
+	local cached = self.pipeline_variants[variant_key]
+
+	if cached then
 		self.current_variant_key = variant_key
-		self.pipeline = self.pipeline_variants[variant_key]
+		self.pipeline = cached.pipeline
+		self.active_config = cached.config
 		build_bind_state_cache(self)
 		return
 	end
 
 	-- Create a modified config
 	local modified_config = deep_copy(self.config)
+	modified_config.color_format = signature.color_format
+	modified_config.depth_format = signature.depth_format
+	modified_config.samples = signature.samples
 
 	-- Apply ALL overrides (both static and dynamic ones, though dynamic ones don't STRICTLY need to be in the baked pipeline, it's safer)
 	for section, changes in pairs(overrides) do
@@ -988,61 +1080,15 @@ function GraphicsPipeline:RebuildPipeline(overrides)
 		end
 	end
 
-	-- Build the new pipeline variant
-	local shader_modules = {}
-
-	for i, stage in ipairs(modified_config.shader_stages) do
-		shader_modules[i] = {
-			type = stage.type,
-			module = ShaderModule.New(self.vulkan_instance.device, stage.code, stage.type),
-		}
-	end
-
-	local vertex_bindings
-	local vertex_attributes
-
-	for i, stage in ipairs(modified_config.shader_stages) do
-		if stage.type == "vertex" then
-			vertex_bindings = stage.bindings
-			vertex_attributes = stage.attributes
-
-			break
-		end
-	end
-
-	-- Use format and samples if not explicitly specified
-	local multisampling_config = modified_config.multisampling or {}
-	multisampling_config.rasterization_samples = modified_config.samples or "1"
-	local new_pipeline = InternalGraphicsPipeline.New(
-		self.vulkan_instance.device,
-		{
-			shaderModules = shader_modules,
-			extent = modified_config.extent,
-			vertexBindings = vertex_bindings,
-			vertexAttributes = vertex_attributes,
-			input_assembly = modified_config.input_assembly,
-			rasterizer = modified_config.rasterizer,
-			viewport = modified_config.viewport,
-			scissor = modified_config.scissor,
-			multisampling = multisampling_config,
-			color_blend = modified_config.color_blend,
-			dynamic_states = modified_config.dynamic_states,
-			depth_stencil = modified_config.depth_stencil,
-		},
-		{
-			{
-				format = modified_config.color_format,
-				depth_format = modified_config.depth_format,
-			},
-		},
-		self.pipeline_layout
-	)
-	-- Store shader modules with the pipeline variant to prevent GC
-	new_pipeline._shader_modules = shader_modules
-	-- Cache the variant
-	self.pipeline_variants[variant_key] = new_pipeline
+	local new_pipeline, shader_modules = build_internal_pipeline(self.vulkan_instance, self.pipeline_layout, modified_config)
+	self.pipeline_variants[variant_key] = {
+		pipeline = new_pipeline,
+		config = modified_config,
+		shader_modules = shader_modules,
+	}
 	self.current_variant_key = variant_key
 	self.pipeline = new_pipeline
+	self.active_config = modified_config
 	build_bind_state_cache(self)
 end
 
@@ -1094,7 +1140,8 @@ end
 -- Reset to base pipeline
 function GraphicsPipeline:ResetToBase()
 	self.pipeline = self.base_pipeline
-	self.current_variant_key = nil
+	self.active_config = self.config
+	self.current_variant_key = self.base_variant_key
 	self.overridden_state = {}
 	build_bind_state_cache(self)
 end

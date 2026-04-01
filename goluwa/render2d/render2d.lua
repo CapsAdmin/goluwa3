@@ -38,12 +38,106 @@ local fragment_constants = FragmentConstants()
 local render2d = library()
 local current_w, current_h = 0, 0
 local current_lw, current_lh = 0, 0
+local DEFAULT_BLEND_MODE = "alpha"
+local DEFAULT_COLOR_WRITE_MASK = {"r", "g", "b", "a"}
+
+local function copy_array(tbl)
+	if not tbl then return nil end
+
+	local out = {}
+
+	for i, v in ipairs(tbl) do
+		out[i] = v
+	end
+
+	return out
+end
+
+local function get_valid_blend_mode_error(mode_name)
+	local valid_modes = {}
+
+	for k in pairs(render2d.blend_modes) do
+		table.insert(valid_modes, k)
+	end
+
+	table.sort(valid_modes)
+	return "Invalid blend mode: " .. tostring(mode_name) .. ". Valid modes: " .. table.concat(valid_modes, ", ")
+end
+
+local function normalize_blend_mode_state(state)
+	local blend = state.blend
+
+	if blend == nil then
+		blend = state.src_color_blend_factor ~= nil or
+			state.dst_color_blend_factor ~= nil or
+			state.color_blend_op ~= nil or
+			state.src_alpha_blend_factor ~= nil or
+			state.dst_alpha_blend_factor ~= nil or
+			state.alpha_blend_op ~= nil
+	end
+
+	return {
+		blend = blend == true,
+		src_color_blend_factor = state.src_color_blend_factor or "one",
+		dst_color_blend_factor = state.dst_color_blend_factor or "zero",
+		color_blend_op = state.color_blend_op or "add",
+		src_alpha_blend_factor = state.src_alpha_blend_factor or "one",
+		dst_alpha_blend_factor = state.dst_alpha_blend_factor or "zero",
+		alpha_blend_op = state.alpha_blend_op or "add",
+		color_write_mask = copy_array(state.color_write_mask or DEFAULT_COLOR_WRITE_MASK),
+	}
+end
+
+local function get_blend_mode_state(mode)
+	mode = mode or DEFAULT_BLEND_MODE
+
+	if type(mode) == "table" then return normalize_blend_mode_state(mode) end
+
+	local preset = render2d.blend_modes[mode]
+
+	if not preset then error(get_valid_blend_mode_error(mode), 3) end
+
+	return normalize_blend_mode_state(preset)
+end
+
+local function clone_blend_mode(mode)
+	if type(mode) == "table" then return normalize_blend_mode_state(mode) end
+
+	return mode
+end
+
+local function blend_modes_equal(a, b)
+	if a == b then return true end
+
+	local lhs = get_blend_mode_state(a)
+	local rhs = get_blend_mode_state(b)
+
+	if lhs.blend ~= rhs.blend then return false end
+
+	if lhs.src_color_blend_factor ~= rhs.src_color_blend_factor then return false end
+
+	if lhs.dst_color_blend_factor ~= rhs.dst_color_blend_factor then return false end
+
+	if lhs.color_blend_op ~= rhs.color_blend_op then return false end
+
+	if lhs.src_alpha_blend_factor ~= rhs.src_alpha_blend_factor then return false end
+
+	if lhs.dst_alpha_blend_factor ~= rhs.dst_alpha_blend_factor then return false end
+
+	if lhs.alpha_blend_op ~= rhs.alpha_blend_op then return false end
+
+	for i = 1, math.max(#lhs.color_write_mask, #rhs.color_write_mask) do
+		if lhs.color_write_mask[i] ~= rhs.color_write_mask[i] then return false end
+	end
+
+	return true
+end
 
 local function apply_states()
 	if not render2d.pipeline then return end
 
-	local blend_mode_name = render2d.current_blend_mode or "alpha"
-	local blend_mode = render2d.blend_modes[blend_mode_name]
+	local blend_mode = render2d.current_blend_mode_state or
+		get_blend_mode_state(render2d.current_blend_mode)
 	local stencil_mode_name, stencil_ref = render2d.GetStencilMode()
 	stencil_mode_name = stencil_mode_name or "none"
 	stencil_ref = stencil_ref or 1
@@ -887,30 +981,70 @@ do
 		utility.MakePushPopFunction(render2d, "Texture")
 	end
 
-	function render2d.SetBlendMode(mode_name, force)
-		if render2d.current_blend_mode == mode_name and not force then return end
+	function render2d.SetBlendMode(mode_name, force, ...)
+		local mode = mode_name
+		local next_mode
+		local next_state
 
-		if not render2d.blend_modes[mode_name] then
-			local valid_modes = {}
+		if type(mode_name) == "table" then
+			force = force == true
+			next_mode = normalize_blend_mode_state(mode_name)
+			next_state = next_mode
+		elseif select("#", ...) == 0 and (force == nil or type(force) == "boolean") then
+			mode = mode_name or DEFAULT_BLEND_MODE
 
-			for k in pairs(render2d.blend_modes) do
-				table.insert(valid_modes, k)
+			if not render2d.blend_modes[mode] then
+				error(get_valid_blend_mode_error(mode), 2)
 			end
 
-			error(
-				"Invalid blend mode: " .. tostring(mode_name) .. ". Valid modes: " .. table.concat(valid_modes, ", ")
-			)
+			next_mode = mode
+			next_state = get_blend_mode_state(mode)
+		else
+			local dst_rgb, color_op, src_alpha, dst_alpha, alpha_op, raw_force = force, ...
+			force = raw_force == true
+			next_mode = normalize_blend_mode_state{
+				blend = true,
+				src_color_blend_factor = mode_name,
+				dst_color_blend_factor = dst_rgb,
+				color_blend_op = color_op,
+				src_alpha_blend_factor = src_alpha or mode_name,
+				dst_alpha_blend_factor = dst_alpha or dst_rgb,
+				alpha_blend_op = alpha_op or color_op,
+			}
+			next_state = next_mode
 		end
 
-		render2d.current_blend_mode = mode_name
+		if not force and blend_modes_equal(render2d.current_blend_mode, next_mode) then
+			return
+		end
+
+		render2d.current_blend_mode = next_mode
+		render2d.current_blend_mode_state = next_state
 		apply_states()
 	end
 
 	function render2d.GetBlendMode()
-		return render2d.current_blend_mode
+		return clone_blend_mode(render2d.current_blend_mode)
 	end
 
-	utility.MakePushPopFunction(render2d, "BlendMode")
+	do
+		local stack = {}
+		local i = 1
+
+		function render2d.PushBlendMode(...)
+			stack[i] = render2d.GetBlendMode()
+			render2d.SetBlendMode(...)
+			i = i + 1
+		end
+
+		function render2d.PopBlendMode()
+			i = i - 1
+
+			if i < 1 then error("stack underflow", 2) end
+
+			render2d.SetBlendMode(stack[i], true)
+		end
+	end
 
 	function render2d.CreateGradient(config)
 		local width = config.width or 256
@@ -1117,8 +1251,8 @@ do
 	local function apply_states()
 		if not render2d.pipeline then return end
 
-		local blend_mode_name = render2d.current_blend_mode or "alpha"
-		local blend_mode = render2d.blend_modes[blend_mode_name]
+		local blend_mode = render2d.current_blend_mode_state or
+			get_blend_mode_state(render2d.current_blend_mode)
 		local stencil_mode_name, stencil_ref = render2d.GetStencilMode()
 		stencil_mode_name = stencil_mode_name or "none"
 		stencil_ref = stencil_ref or 1
@@ -1546,6 +1680,7 @@ render2d.SetColor(1, 1, 1, 1)
 render2d.SetAlphaMultiplier(1)
 render2d.SetSwizzleMode(0)
 render2d.current_blend_mode = "alpha"
+render2d.current_blend_mode_state = get_blend_mode_state("alpha")
 
 event.AddListener("PostDraw", "draw_2d", function(cmd, dt)
 	if not render2d.pipeline then return end -- not 2d initialized

@@ -11,6 +11,12 @@ local VkDeviceSizeArray1 = vulkan.T.Array(vulkan.vk.VkDeviceSize, 1)
 local UInt32Array = ffi.typeof("uint32_t[?]")
 local UInt32Array1 = ffi.typeof("uint32_t[1]")
 
+local function get_view_samples(view)
+	if view and view.image and view.image.samples then return view.image.samples end
+
+	return "1"
+end
+
 function CommandBuffer.New(command_pool)
 	local ptr = vulkan.T.Box(vulkan.vk.VkCommandBuffer)()
 	vulkan.assert(
@@ -61,10 +67,14 @@ local RECT = vulkan.vk.VkRect2D()
 function CommandBuffer:BeginRendering(config)
 	local colorAttachmentInfo = nil
 	local colorAttachmentCount = 0
+	local rendering_color_formats = nil
+	local rendering_color_format = nil
+	local rendering_samples = "1"
 
 	if config.color_attachments then
 		colorAttachmentCount = #config.color_attachments
 		colorAttachmentInfo = vulkan.T.Array(vulkan.vk.VkRenderingAttachmentInfo)(colorAttachmentCount)
+		rendering_color_formats = {}
 
 		for i = 1, colorAttachmentCount do
 			local attachment = config.color_attachments[i]
@@ -78,6 +88,13 @@ function CommandBuffer:BeginRendering(config)
 				resolveImageView = attachment.color_image_view.ptr[0]
 				resolveMode = "average"
 				resolveImageLayout = "color_attachment_optimal"
+			end
+
+			rendering_color_formats[i] = attachment.color_image_view and attachment.color_image_view.format or nil
+
+			if i == 1 then
+				rendering_color_format = rendering_color_formats[i]
+				rendering_samples = get_view_samples(attachment.msaa_image_view or attachment.color_image_view)
 			end
 
 			local clearValue = vulkan.vk.VkClearValue()
@@ -103,6 +120,9 @@ function CommandBuffer:BeginRendering(config)
 		local resolveImageView = nil
 		local resolveMode = "none"
 		local resolveImageLayout = "undefined"
+		rendering_color_format = config.color_image_view.format
+		rendering_color_formats = {rendering_color_format}
+		rendering_samples = get_view_samples(config.msaa_image_view or config.color_image_view)
 
 		if config.msaa_image_view then
 			imageView = config.msaa_image_view.ptr[0]
@@ -172,6 +192,13 @@ function CommandBuffer:BeginRendering(config)
 	RECT.offset.y = config.y or 0
 	RECT.extent.width = config.w
 	RECT.extent.height = config.h
+	self.rendering_state = {
+		color_attachment_count = colorAttachmentCount,
+		color_formats = rendering_color_formats,
+		color_format = rendering_color_format,
+		depth_format = config.depth_image_view and config.depth_image_view.format or nil,
+		samples = rendering_samples,
+	}
 	vulkan.lib.vkCmdBeginRendering(
 		self.ptr[0],
 		vulkan.vk.s.RenderingInfo{
@@ -192,6 +219,7 @@ function CommandBuffer:EndRendering()
 
 	vulkan.lib.vkCmdEndRendering(self.ptr[0])
 	self.is_rendering = false
+	self.rendering_state = nil
 end
 
 function CommandBuffer:BindPipeline(pipeline, bind_point)
