@@ -1,3 +1,4 @@
+local system = import("goluwa/system.lua")
 local love = ... or _G.love
 local ENV = love._line_env
 love.timer = love.timer or {}

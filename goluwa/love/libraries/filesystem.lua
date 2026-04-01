@@ -7,25 +7,81 @@ local event = import("goluwa/event.lua")
 love.filesystem = love.filesystem or {}
 ENV.filesystem_identity = ENV.filesystem_identity or "none"
 
+local function get_identity_path(path)
+	return "data/love/" .. ENV.filesystem_identity .. "/" .. path
+end
+
+local function get_identity_storage_path(path)
+	local base = vfs.GetStorageDirectory("storage") .. "love/" .. ENV.filesystem_identity .. "/"
+
+	if not path or path == "" then return base end
+
+	return base .. path
+end
+
+local function each_candidate_path(path)
+	local candidates = {get_identity_storage_path(path), get_identity_path(path)}
+
+	if path ~= candidates[1] and path ~= candidates[2] then
+		candidates[#candidates + 1] = path
+	end
+
+	return ipairs(candidates)
+end
+
+local function find_existing_path(path, kind)
+	for _, candidate in each_candidate_path(path) do
+		if kind == "directory" then
+			if vfs.IsDirectory(candidate) then return candidate, "directory" end
+		elseif kind == "file" then
+			if vfs.IsFile(candidate) then return candidate, "file" end
+		elseif vfs.IsDirectory(candidate) then
+			return candidate, "directory"
+		elseif vfs.IsFile(candidate) then
+			return candidate, "file"
+		end
+	end
+
+	return nil
+end
+
 function love.filesystem.getAppdataDirectory()
-	return R("data/love/" .. ENV.filesystem_identity .. "/")
+	return get_identity_storage_path()
 end
 
 function love.filesystem.getSaveDirectory()
-	return R("data/love/" .. ENV.filesystem_identity .. "/")
+	return get_identity_storage_path()
 end
 
 function love.filesystem.getUserDirectory()
-	return R("data/love/" .. ENV.filesystem_identity .. "/")
+	return get_identity_storage_path()
 end
 
 function love.filesystem.getWorkingDirectory()
-	return R("data/love/" .. ENV.filesystem_identity .. "/")
+	return get_identity_storage_path()
 end
 
 function love.filesystem.getLastModified(path)
-	return vfs.GetLastModified("data/love/" .. ENV.filesystem_identity .. "/" .. path) or
-		vfs.GetLastModified(path)
+	local resolved = find_existing_path(path)
+
+	if resolved then return vfs.GetLastModified(resolved) end
+end
+
+function love.filesystem.getInfo(path, filtertype)
+	local resolved, info_type = find_existing_path(path)
+
+	if not resolved then return nil end
+
+	if filtertype and filtertype ~= info_type then return nil end
+
+	local info = {
+		type = info_type,
+		modtime = vfs.GetLastModified(resolved),
+	}
+
+	if info_type == "file" then info.size = vfs.GetSize(resolved) end
+
+	return info
 end
 
 function love.filesystem.enumerate(path)
