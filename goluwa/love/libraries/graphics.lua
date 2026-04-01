@@ -29,17 +29,25 @@ end
 
 local function draw_clear_rect(r, g, b, a, w, h)
 	local old_r, old_g, old_b, old_a = love.graphics.getColor()
-	local old_shader = love.graphics.getShader and love.graphics.getShader() or nil
 	render2d.PushMatrix(nil, nil, nil, nil, nil, true)
+	render2d.PushTexture(render2d.GetTexture())
+	render2d.PushUV(render2d.GetUV())
+	render2d.PushAlphaMultiplier(render2d.GetAlphaMultiplier())
+	render2d.PushSwizzleMode(render2d.GetSwizzleMode())
 	render2d.LoadIdentity()
 	render2d.PushBlendMode("one", "zero", "add", "one", "zero", "add")
 	render2d.SetTexture()
-	love.graphics.setShader()
+	render2d.SetUV()
+	render2d.SetAlphaMultiplier(1)
+	render2d.SetSwizzleMode(0)
 	render2d.SetColor(r / 255, g / 255, b / 255, a / 255)
 	render2d.DrawRectf(0, 0, w, h)
 	render2d.PopBlendMode()
+	render2d.PopSwizzleMode()
+	render2d.PopAlphaMultiplier()
+	render2d.PopUV()
+	render2d.PopTexture()
 	render2d.PopMatrix()
-	love.graphics.setShader(old_shader)
 	love.graphics.setColor(old_r, old_g, old_b, old_a)
 end
 
@@ -302,9 +310,9 @@ do
 			srcA = "one"
 			dstRGB = "one_minus_src_alpha"
 			dstA = "one_minus_src_alpha"
-		elseif color_mode == "multiply" or "multiplicative" then
+		elseif color_mode == "multiply" or color_mode == "multiplicative" then
 			srcRGB = "dst_color"
-			srcA = "dst_color"
+			srcA = "dst_alpha"
 			dstRGB = "zero"
 			dstA = "zero"
 		elseif color_mode == "subtract" or color_mode == "subtractive" then
@@ -674,7 +682,8 @@ do -- canvas
 		local r, g, b, a
 
 		if select("#", ...) > 0 then
-			r, g, b, a = parse_color_bytes(..., 255)
+			local cr, cg, cb, ca = ...
+			r, g, b, a = parse_color_bytes(cr, cg, cb, ca, 255)
 		else
 			r, g, b, a = 0, 0, 0, 0
 		end
@@ -890,11 +899,14 @@ function love.graphics.drawq(drawable, quad, x, y, r, sx, sy, ox, oy, kx, ky)
 	local cr, cg, cb, ca = love.graphics.getColor()
 	ca = ca or 255
 	render2d.SetColor(cr / 255, cg / 255, cb / 255, ca / 255)
+	render2d.PushSwizzleMode(render2d.GetSwizzleMode())
+	render2d.SetSwizzleMode(0)
 	render2d.PushTexture(ENV.textures[drawable])
 	render2d.SetUV(quad.x, -quad.y, quad.w, -quad.h, quad.sw, quad.sh)
 	render2d.DrawRectf(x, y, quad.w * sx, quad.h * sy, r, ox * sx, oy * sy)
 	render2d.SetUV()
 	render2d.PopTexture()
+	render2d.PopSwizzleMode()
 end
 
 function love.graphics.draw(drawable, x, y, r, sx, sy, ox, oy, kx, ky, quad_arg)
@@ -931,12 +943,15 @@ function love.graphics.draw(drawable, x, y, r, sx, sy, ox, oy, kx, ky, quad_arg)
 			local cr, cg, cb, ca = love.graphics.getColor()
 			ca = ca or 255
 			render2d.SetColor(cr / 255, cg / 255, cb / 255, ca / 255)
+			render2d.PushSwizzleMode(render2d.GetSwizzleMode())
+			render2d.SetSwizzleMode(0)
 			render2d.PushTexture(tex)
 			render2d.PushUV()
 			render2d.SetUV(0, 0, tex_w, -tex_h, tex_w, tex_h)
 			render2d.DrawRectf(x, y, tex_w * sx, tex_h * sy, r, ox * sx, oy * sy)
 			render2d.PopUV()
 			render2d.PopTexture()
+			render2d.PopSwizzleMode()
 		end
 	else
 		x = x or 0
@@ -1369,8 +1384,11 @@ do -- shapes
 		ry = ry or rx
 
 		if mode == "fill" then
+			render2d.PushSwizzleMode(render2d.GetSwizzleMode())
+			render2d.SetSwizzleMode(0)
 			render2d.SetTexture()
 			render2d.DrawRect(x, y, w, h)
+			render2d.PopSwizzleMode()
 		else
 			local coords = math2d.RoundedRectangleToCoordinates(x, y, w, h, rx, ry, points)
 			polygon("line", coords, true)
@@ -1791,7 +1809,7 @@ do -- sprite batch
 		local cr, cg, cb, ca = love.graphics.getColor()
 		local restore = {cr, cg, cb, ca}
 		love.graphics.setColor(cr * (self.r or 1), cg * (self.g or 1), cb * (self.b or 1), ca * (self.a or 1))
-		render2d.PushMatrix(nil, nil, nil, nil, nil, true)
+		render2d.PushMatrix()
 		render2d.Translatef(x, y)
 		render2d.Rotate(r)
 

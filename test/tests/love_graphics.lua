@@ -1,5 +1,7 @@
 local T = import("test/environment.lua")
 local line = import("goluwa/love/line.lua")
+local render = import("goluwa/render/render.lua")
+local render2d = import("goluwa/render2d/render2d.lua")
 
 local function new_love_graphics_env()
 	local love = {_line_env = {}}
@@ -38,9 +40,14 @@ T.Test2D("love graphics canvas clear path executes", function()
 	local love = new_love_graphics_env()
 	local canvas = love.graphics.newCanvas(16, 16)
 	canvas:clear(255, 32, 0, 255)
+	love.graphics.clear(0, 0, 0, 255)
 	love.graphics.setColor(255, 255, 255, 255)
-	love.graphics.draw(canvas, 8, 8, 0, 4, 4)
-	T(canvas.__line_type)["=="]("Canvas")
+	love.graphics.draw(canvas, 32, 32, 0, 4, 4)
+	return function()
+		T(canvas.__line_type)["=="]("Canvas")
+		T.TexturePixel(canvas.fb:GetColorTexture(), 4, 4, 1, 32 / 255, 0, 1, 0.08)
+		T.AssertScreenPixel{pos = {40, 40}, color = {1, 32 / 255, 0, 1}, tolerance = 0.08}
+	end
 end)
 
 T.Test2D("love graphics draw image placement", function()
@@ -143,6 +150,134 @@ T.Test2D("love graphics spritebatch image placement", function()
 		T.AssertScreenPixel{pos = {480, 40}, color = {1, 0, 0, 1}, tolerance = 0.1}
 		T.AssertScreenPixel{pos = {440, 80}, color = {0, 1, 0, 1}, tolerance = 0.1}
 		T.AssertScreenPixel{pos = {480, 80}, color = {0, 128 / 255, 1, 1}, tolerance = 0.1}
+	end
+end)
+
+T.Test2D("love graphics spritebatch inherits outer transforms", function()
+	local love = new_love_graphics_env()
+	local image = make_quadrant_image(love)
+	local batch = love.graphics.newSpriteBatch(image, 1)
+	batch:add(0, 0, 0, 16, 16)
+	love.graphics.clear(0, 0, 0, 255)
+	love.graphics.setColor(255, 255, 255, 255)
+	love.graphics.push()
+	love.graphics.translate(96, 64)
+	love.graphics.scale(2, 2)
+	love.graphics.draw(batch)
+	love.graphics.pop()
+	return function()
+		T.AssertScreenPixel{pos = {104, 72}, color = {1, 1, 0, 1}, tolerance = 0.1}
+		T.AssertScreenPixel{pos = {152, 72}, color = {1, 0, 0, 1}, tolerance = 0.1}
+		T.AssertScreenPixel{pos = {104, 120}, color = {0, 1, 0, 1}, tolerance = 0.1}
+		T.AssertScreenPixel{pos = {152, 120}, color = {0, 128 / 255, 1, 1}, tolerance = 0.1}
+	end
+end)
+
+T.Test2D("love graphics setBlendMode maps add and multiply correctly", function()
+	local love = new_love_graphics_env()
+	love.graphics.setBlendMode("add")
+	local add_state = render2d.current_blend_mode_state
+	T(add_state.src_color_blend_factor)["=="]("src_alpha")
+	T(add_state.dst_color_blend_factor)["=="]("one")
+	T(add_state.src_alpha_blend_factor)["=="]("zero")
+	T(add_state.dst_alpha_blend_factor)["=="]("one")
+	love.graphics.setBlendMode("multiply")
+	local multiply_state = render2d.current_blend_mode_state
+	T(multiply_state.src_color_blend_factor)["=="]("dst_color")
+	T(multiply_state.dst_color_blend_factor)["=="]("zero")
+	T(multiply_state.src_alpha_blend_factor)["=="]("dst_alpha")
+	T(multiply_state.dst_alpha_blend_factor)["=="]("zero")
+end)
+
+T.Test2D("love graphics draw ignores leaked swizzle mode", function()
+	local love = new_love_graphics_env()
+	local image = make_quadrant_image(love)
+	love.graphics.clear(0, 0, 0, 255)
+	render2d.SetSwizzleMode(2)
+	love.graphics.setColor(255, 255, 255, 255)
+	love.graphics.draw(image, 32, 128, 0, 32, 32)
+	return function()
+		T.AssertScreenPixel{pos = {40, 136}, color = {1, 1, 0, 1}, tolerance = 0.1}
+		T.AssertScreenPixel{pos = {88, 136}, color = {1, 0, 0, 1}, tolerance = 0.1}
+		T.AssertScreenPixel{pos = {40, 184}, color = {0, 1, 0, 1}, tolerance = 0.1}
+		T.AssertScreenPixel{pos = {88, 184}, color = {0, 128 / 255, 1, 1}, tolerance = 0.1}
+	end
+end)
+
+T.Test2D("love graphics mrrescue lightmap multiply composite stays neutral", function()
+	local love = new_love_graphics_env()
+	local canvas = love.graphics.newCanvas(256, 256)
+	local light = love.graphics.newImage("love_games/mrrescue/data/light_player.png")
+	light:setFilter("nearest", "nearest", 1)
+	local light_w, light_h = light:getDimensions()
+	local center_x = math.floor(light_w / 2)
+	local center_y = math.floor(light_h / 2)
+	love.graphics.setCanvas(canvas)
+	love.graphics.clear(0, 0, 0, 255)
+	love.graphics.setBlendMode("add")
+	love.graphics.setColor(255, 255, 255, 255)
+	love.graphics.draw(light, 32, 32)
+	love.graphics.setBlendMode("alpha")
+	love.graphics.setCanvas()
+	love.graphics.clear(128, 128, 128, 255)
+	love.graphics.setBlendMode("multiply")
+	love.graphics.draw(canvas, 0, 0)
+	love.graphics.setBlendMode("alpha")
+	return function()
+		T.TexturePixel(canvas.fb:GetColorTexture(), 4, 4, 0, 0, 0, 1, 0.08)
+
+		T.TexturePixel(
+			canvas.fb:GetColorTexture(),
+			center_x + 32,
+			center_y + 32,
+			function(r, g, b)
+				return math.abs(r - g) < 0.08 and math.abs(g - b) < 0.08 and r > 0.4
+			end
+		)
+
+		T.AssertScreenPixel{pos = {4, 4}, color = {0, 0, 0, 1}, tolerance = 0.08}
+
+		T.TexturePixel(
+			render.target:GetTexture(),
+			center_x + 32,
+			center_y + 32,
+			function(r, g, b)
+				return math.abs(r - g) < 0.08 and math.abs(g - b) < 0.08 and r > 0.2 and r < 0.8
+			end
+		)
+	end
+end)
+
+T.Test2D("love graphics canvas vertex colors stay correct", function()
+	local love = new_love_graphics_env()
+	local canvas = love.graphics.newCanvas(32, 32)
+	local mesh = love.graphics.newMesh(
+		{
+			{0, 0, 0, 0, 255, 32, 0, 255},
+			{16, 0, 0, 0, 255, 32, 0, 255},
+			{16, 16, 0, 0, 255, 32, 0, 255},
+			{0, 16, 0, 0, 255, 32, 0, 255},
+		},
+		nil,
+		"fan"
+	)
+	love.graphics.setCanvas(canvas)
+	love.graphics.clear(0, 0, 0, 255)
+	love.graphics.setColor(255, 255, 255, 255)
+	love.graphics.draw(mesh, 0, 0)
+	love.graphics.setCanvas()
+	return function()
+		T.TexturePixel(canvas.fb:GetColorTexture(), 8, 8, 1, 32 / 255, 0, 1, 0.08)
+	end
+end)
+
+T.Test2D("love graphics screen global color channels stay correct", function()
+	local love = new_love_graphics_env()
+	love.graphics.clear(0, 0, 0, 255)
+	love.graphics.setColor(255, 32, 0, 255)
+	love.graphics.rectangle("fill", 32, 32, 32, 32)
+	return function()
+		T.AssertScreenPixel{pos = {40, 40}, color = {1, 32 / 255, 0, 1}, tolerance = 0.08}
 	end
 end)
 
