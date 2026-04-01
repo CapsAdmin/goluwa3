@@ -47,6 +47,34 @@ local function getDataPLTE(buffer, length)
 	return data
 end
 
+local function getDataTRNS(buffer, length, ihdr)
+	if not ihdr then
+		buffer:ReadBytes(length)
+		return nil
+	end
+
+	if ihdr.colorType == 3 then
+		local data = {palette_alpha = {}}
+
+		for i = 1, length do
+			data.palette_alpha[i] = buffer:ReadByte()
+		end
+
+		return data
+	elseif ihdr.colorType == 0 then
+		return {gray = buffer:ReadU16BE()}
+	elseif ihdr.colorType == 2 then
+		return {
+			r = buffer:ReadU16BE(),
+			g = buffer:ReadU16BE(),
+			b = buffer:ReadU16BE(),
+		}
+	end
+
+	buffer:ReadBytes(length)
+	return nil
+end
+
 local function extractChunkData(buffer)
 	local chunkData = {}
 	local length
@@ -63,6 +91,8 @@ local function extractChunkData(buffer)
 			chunkData[type] = getDataIDAT(buffer, length, chunkData[type])
 		elseif (type == "PLTE") then
 			chunkData[type] = getDataPLTE(buffer, length)
+		elseif (type == "tRNS") then
+			chunkData[type] = getDataTRNS(buffer, length, chunkData.IHDR)
 		else
 			buffer:ReadBytes(length)
 		end
@@ -106,7 +136,7 @@ local function get_packed_sample(row, x, bitDepth)
 	local byteIndex = math.floor(bitOffset / 8)
 	local bitIndex = bitOffset % 8
 	local shift = 8 - bitDepth - bitIndex
-	local mask = 2^bitDepth - 1
+	local mask = 2 ^ bitDepth - 1
 	return bit_band(bit_rshift(row[byteIndex], shift), mask)
 end
 
@@ -206,7 +236,8 @@ local function getPixels(buffer, data)
 	-- Maximum value for alpha channel (255 for 8-bit, 65535 for 16-bit)
 	local maxAlpha = is16bit and 65535 or 255
 	local packedSamples = bitDepth < 8
-	local packedScale = packedSamples and math.floor(255 / (2^bitDepth - 1)) or 1
+	local packedScale = packedSamples and math.floor(255 / (2 ^ bitDepth - 1)) or 1
+	local transparency = data.tRNS
 
 	for y = 1, height do
 		local filterType = buffer:ReadByte()
@@ -262,10 +293,22 @@ local function getPixels(buffer, data)
 				elseif colorType == COLOR_TYPE_GRAYSCALE then
 					local grey = currRow[inIdx] * 256 + currRow[inIdx + 1]
 					R, G, B, A = grey, grey, grey, maxAlpha
+
+					if transparency and transparency.gray == grey then A = 0 end
 				elseif colorType == COLOR_TYPE_GRAYSCALE_ALPHA then
 					local grey = currRow[inIdx] * 256 + currRow[inIdx + 1]
 					R, G, B = grey, grey, grey
 					A = currRow[inIdx + 2] * 256 + currRow[inIdx + 3]
+				end
+
+				if
+					transparency and
+					transparency.r and
+					R == transparency.r and
+					G == transparency.g and
+					B == transparency.b
+				then
+					A = 0
 				end
 
 				out[outIdx * 4 + 0] = R
@@ -277,33 +320,56 @@ local function getPixels(buffer, data)
 				local R, G, B, A
 
 				if packedSamples and colorType == COLOR_TYPE_GRAYSCALE then
-					local grey = get_packed_sample(currRow, x, bitDepth) * packedScale
+					local sample = get_packed_sample(currRow, x, bitDepth)
+					local grey = sample * packedScale
 					R, G, B, A = grey, grey, grey, 255
+
+					if transparency and transparency.gray == sample then A = 0 end
 				elseif packedSamples and colorType == COLOR_TYPE_INDEXED then
 					local index = get_packed_sample(currRow, x, bitDepth) + 1
 					local color = data.PLTE and data.PLTE.colors[index]
+					local alpha = transparency and
+						transparency.palette_alpha and
+						transparency.palette_alpha[index] or
+						255
 
 					if color then
-						R, G, B, A = color.R, color.G, color.B, 255
+						R, G, B, A = color.R, color.G, color.B, alpha
 					else
 						R, G, B, A = 255, 0, 255, 255
 					end
 				elseif colorType == COLOR_TYPE_RGB then
 					R, G, B, A = currRow[inIdx], currRow[inIdx + 1], currRow[inIdx + 2], 255
+
+					if
+						transparency and
+						transparency.r and
+						R == transparency.r and
+						G == transparency.g and
+						B == transparency.b
+					then
+						A = 0
+					end
 				elseif colorType == COLOR_TYPE_RGBA then
 					R, G, B, A = currRow[inIdx], currRow[inIdx + 1], currRow[inIdx + 2], currRow[inIdx + 3]
 				elseif colorType == COLOR_TYPE_GRAYSCALE then
 					local grey = currRow[inIdx]
 					R, G, B, A = grey, grey, grey, 255
+
+					if transparency and transparency.gray == grey then A = 0 end
 				elseif colorType == COLOR_TYPE_GRAYSCALE_ALPHA then
 					local grey = currRow[inIdx]
 					R, G, B, A = grey, grey, grey, currRow[inIdx + 1]
 				elseif colorType == COLOR_TYPE_INDEXED then
 					local index = currRow[inIdx] + 1
 					local color = data.PLTE and data.PLTE.colors[index]
+					local alpha = transparency and
+						transparency.palette_alpha and
+						transparency.palette_alpha[index] or
+						255
 
 					if color then
-						R, G, B, A = color.R, color.G, color.B, 255
+						R, G, B, A = color.R, color.G, color.B, alpha
 					else
 						R, G, B, A = 255, 0, 255, 255
 					end
