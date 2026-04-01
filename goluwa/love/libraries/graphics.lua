@@ -11,17 +11,91 @@ local IndexBuffer = import("goluwa/render/index_buffer.lua")
 local line = import("goluwa/love/line.lua")
 local love = ... or _G.love
 local ENV = love._line_env
-ENV.textures = ENV.textures or table.weak()
+ENV.textures = ENV.textures or table.weak(true)
 ENV.graphics_filter_min = ENV.graphics_filter_min or "linear"
 ENV.graphics_filter_mag = ENV.graphics_filter_mag or "linear"
 ENV.graphics_filter_anisotropy = ENV.graphics_filter_anisotropy or 1
 love.graphics = love.graphics or {}
+
+local function parse_color_bytes(r, g, b, a, default_a)
+	if type(r) == "table" then
+		return r[1] or 0, r[2] or 0, r[3] or 0, r[4] or default_a or 255
+	end
+
+	if a == nil then a = default_a or 255 end
+
+	return r or 0, g or 0, b or 0, a
+end
+
+local function draw_clear_rect(r, g, b, a, w, h)
+	local old_r, old_g, old_b, old_a = love.graphics.getColor()
+	local old_shader = love.graphics.getShader and love.graphics.getShader() or nil
+	render2d.PushMatrix(nil, nil, nil, nil, nil, true)
+	render2d.LoadIdentity()
+	render2d.PushBlendMode("one", "zero", "add", "one", "zero", "add")
+	render2d.SetTexture()
+	love.graphics.setShader()
+	render2d.SetColor(r / 255, g / 255, b / 255, a / 255)
+	render2d.DrawRectf(0, 0, w, h)
+	render2d.PopBlendMode()
+	render2d.PopMatrix()
+	love.graphics.setShader(old_shader)
+	love.graphics.setColor(old_r, old_g, old_b, old_a)
+end
+
+local function get_texture_dimensions(tex)
+	if not tex then return 0, 0 end
+
+	if tex.GetSize then
+		local size = tex:GetSize()
+
+		if size then return size.x or 0, size.y or 0 end
+	end
+
+	if tex.GetWidth and tex.GetHeight then return tex:GetWidth(), tex:GetHeight() end
+
+	return tex.width or 0, tex.height or 0
+end
+
+local function apply_filter_to_texture(tex, min, mag, anisotropy)
+	if not tex then return end
+
+	tex.config = tex.config or {}
+	tex.config.sampler = tex.config.sampler or {}
+	local sampler_config = tex.config.sampler
+	sampler_config.min_filter = min or sampler_config.min_filter or "linear"
+	sampler_config.mag_filter = mag or sampler_config.mag_filter or sampler_config.min_filter or "linear"
+	sampler_config.anisotropy = anisotropy or sampler_config.anisotropy
+
+	if sampler_config.anisotropy and sampler_config.anisotropy < 1 then
+		sampler_config.anisotropy = nil
+	end
+
+	tex.sampler = render.CreateSampler{
+		min_filter = sampler_config.min_filter,
+		mag_filter = sampler_config.mag_filter,
+		mipmap_mode = sampler_config.mipmap_mode or "linear",
+		wrap_s = sampler_config.wrap_s or "repeat",
+		wrap_t = sampler_config.wrap_t or "repeat",
+		wrap_r = sampler_config.wrap_r or "repeat",
+		max_lod = sampler_config.max_lod or (tex.GetMipMapLevels and tex:GetMipMapLevels()) or 1,
+		min_lod = sampler_config.min_lod,
+		mip_lod_bias = sampler_config.mip_lod_bias,
+		anisotropy = sampler_config.anisotropy,
+		border_color = sampler_config.border_color,
+		unnormalized_coordinates = sampler_config.unnormalized_coordinates,
+		compare_enable = sampler_config.compare_enable,
+		compare_op = sampler_config.compare_op,
+		flags = sampler_config.flags,
+	}
+end
 
 local function ADD_FILTER(obj)
 	obj.setFilter = function(s, min, mag, anistropy)
 		s.filter_min = min or s.filter_min or ENV.graphics_filter_min
 		s.filter_mag = mag or min or s.filter_mag or ENV.graphics_filter_mag
 		s.filter_anistropy = anistropy or s.filter_anistropy or ENV.graphics_filter_anisotropy
+		apply_filter_to_texture(ENV.textures[s], s.filter_min, s.filter_mag, s.filter_anistropy)
 	end
 	obj.getFilter = function(s)
 		return s.filter_min, s.filter_mag, s.filter_anistropy
@@ -32,7 +106,7 @@ do -- filter
 	function love.graphics.setDefaultImageFilter(min, mag, anisotropy)
 		ENV.graphics_filter_min = min or "linear"
 		ENV.graphics_filter_mag = mag or min or "linear"
-		ENV.graphics_filter_anisotropy = anisotropy or -1
+		ENV.graphics_filter_anisotropy = anisotropy or 1
 	end
 
 	love.graphics.setDefaultFilter = love.graphics.setDefaultImageFilter
@@ -97,7 +171,7 @@ do -- quad
 end
 
 love.graphics.origin = render2d.LoadIdentity
-love.graphics.translate = render2d.Translate
+love.graphics.translate = render2d.Translatef
 love.graphics.shear = render2d.Shear
 love.graphics.rotate = render2d.Rotate
 love.graphics.push = render2d.PushMatrix
@@ -105,7 +179,7 @@ love.graphics.pop = render2d.PopMatrix
 
 function love.graphics.scale(x, y)
 	y = y or x
-	render2d.Scale(x, y)
+	render2d.Scalef(x, y)
 end
 
 function love.graphics.setCaption(title)
@@ -182,17 +256,7 @@ do -- background
 	ENV.graphics_bg_color_a = 255
 
 	function love.graphics.setBackgroundColor(r, g, b, a)
-		if type(r) == "number" then
-			ENV.graphics_bg_color_r = r or 0
-			ENV.graphics_bg_color_g = g or 0
-			ENV.graphics_bg_color_b = b or 0
-			ENV.graphics_bg_color_a = a or 255
-		else
-			ENV.graphics_bg_color_r = r[1] or 0
-			ENV.graphics_bg_color_g = r[2] or 0
-			ENV.graphics_bg_color_b = r[3] or 0
-			ENV.graphics_bg_color_a = r[4] or 255
-		end
+		ENV.graphics_bg_color_r, ENV.graphics_bg_color_g, ENV.graphics_bg_color_b, ENV.graphics_bg_color_a = parse_color_bytes(r, g, b, a, 255)
 	end
 
 	function love.graphics.getBackgroundColor()
@@ -202,24 +266,21 @@ do -- background
 		ENV.graphics_bg_color_a
 	end
 
-	function love.graphics.clear(r, g, b)
+	function love.graphics.clear(r, g, b, a)
 		local canvas = love.graphics.getCanvas()
 
 		if canvas then
-			canvas:clear()
+			canvas:clear(r, g, b, a)
 		else
-			if r and g and b then
-				render2d.SetTexture()
-				render2d.SetColor(r / 255, g / 255, b / 255, 1)
-				render2d.DrawRect(0, 0, render.GetWidth(), render.GetHeight())
-				love.graphics.setColor(love.graphics.getColor())
+			local cr, cg, cb, ca
+
+			if r ~= nil then
+				cr, cg, cb, ca = parse_color_bytes(r, g, b, a, 255)
 			else
-				local br, bg, bb, ba = love.graphics.getBackgroundColor()
-				render2d.SetTexture()
-				render2d.SetColor(br / 255, bg / 255, bb / 255, ba / 255)
-				render2d.DrawRect(0, 0, render.GetWidth(), render.GetHeight())
-				love.graphics.setColor(love.graphics.getColor())
+				cr, cg, cb, ca = love.graphics.getBackgroundColor()
 			end
+
+			draw_clear_rect(cr, cg, cb, ca, render.GetWidth(), render.GetHeight())
 		end
 	end
 end
@@ -322,7 +383,7 @@ do -- points
 
 	function love.graphics.point(x, y)
 		if STYLE == "rough" then
-			render2d.PushTexture(render.GetWhiteTexture())
+			render2d.PushTexture()
 			render2d.DrawRect(x, y, SIZE, SIZE, nil, SIZE / 2, SIZE / 2)
 			render2d.PopTexture()
 		else
@@ -342,7 +403,12 @@ do -- points
 		else
 			for i, point in ipairs(points) do
 				if point[3] then
-					render2d.SetColor(point[3], point[4], point[5], point[6])
+					render2d.SetColor(
+						(point[3] or 255) / 255,
+						(point[4] or 255) / 255,
+						(point[5] or 255) / 255,
+						(point[6] or 255) / 255
+					)
 				end
 
 				love.graphics.point(point[1], point[2])
@@ -407,9 +473,9 @@ do -- font
 		local self = line.CreateObject("Font")
 		self:setLineHeight(1)
 		path = line.FixPath(path)
-		if not vfs.IsFile(path) then
-			path = fonts.GetDefaultSystemFontPath()
-		end
+
+		if not vfs.IsFile(path) then path = fonts.GetDefaultSystemFontPath() end
+
 		self.font = fonts.New{
 			Size = size and (size * 1.25),
 			Path = path ~= "memory" and path or fonts.GetDefaultSystemFontPath(),
@@ -568,8 +634,15 @@ do -- canvas
 		if canvas then
 			render2d.UpdateScreenSize{w = canvas.w, h = canvas.h}
 		else
-			local size = render.GetRenderImageSize()
-			render2d.UpdateScreenSize{w = size.x, h = size.y}
+			local width = render.GetWidth and render.GetWidth() or nil
+			local height = render.GetHeight and render.GetHeight() or nil
+
+			if width and height and width > 0 and height > 0 then
+				render2d.UpdateScreenSize{w = width, h = height}
+			else
+				local size = render.GetRenderImageSize()
+				render2d.UpdateScreenSize{w = size.x, h = size.y}
+			end
 		end
 	end
 
@@ -598,15 +671,24 @@ do -- canvas
 	function Canvas:getImageData() end
 
 	function Canvas:clear(...)
-		if self._canvas_cmd and render2d.cmd == self._canvas_cmd then
-			local old_r, old_g, old_b, old_a = love.graphics.getColor()
-			render2d.SetTexture()
-			render2d.SetColor(0, 0, 0, 0)
-			render2d.DrawRect(0, 0, self.w, self.h)
-			love.graphics.setColor(old_r, old_g, old_b, old_a)
+		local r, g, b, a
+
+		if select("#", ...) > 0 then
+			r, g, b, a = parse_color_bytes(..., 255)
 		else
+			r, g, b, a = 0, 0, 0, 0
+		end
+
+		if self._canvas_cmd and render2d.cmd == self._canvas_cmd then
+			draw_clear_rect(r, g, b, a, self.w, self.h)
+		else
+			local old_clear_color = self.fb.clear_colors[1]
+			self.fb.clear_colors[1] = {r / 255, g / 255, b / 255, a / 255}
+			self.fb.clear_color = self.fb.clear_colors[1]
 			self.fb:Begin(nil, "clear")
 			self.fb:End()
+			self.fb.clear_colors[1] = old_clear_color
+			self.fb.clear_color = old_clear_color
 		end
 	end
 
@@ -617,12 +699,14 @@ do -- canvas
 	function love.graphics.newCanvas(w, h)
 		w = w or render.GetWidth()
 		h = h or render.GetHeight()
+		local screen_texture = render.GetScreenTexture and render.GetScreenTexture()
 		local self = line.CreateObject("Canvas")
 		self.w = w
 		self.h = h
 		self.fb = Framebuffer.New{
 			width = w,
 			height = h,
+			format = screen_texture and screen_texture.format or "r8g8b8a8_unorm",
 			clear_color = {0, 0, 0, 0},
 			min_filter = ENV.graphics_filter_min,
 			mag_filter = ENV.graphics_filter_mag,
@@ -671,19 +755,22 @@ do -- image
 	local Image = line.TypeTemplate("Image")
 
 	function Image:getWidth()
-		return ENV.textures[self]:GetSize().x
+		local w = get_texture_dimensions(ENV.textures[self])
+		return w
 	end
 
 	function Image:getHeight()
-		return ENV.textures[self]:GetSize().y
+		local _, h = get_texture_dimensions(ENV.textures[self])
+		return h
 	end
 
 	function Image:getDimensions()
-		return ENV.textures[self]:GetSize().x, ENV.textures[self]:GetSize().y
+		return get_texture_dimensions(ENV.textures[self])
 	end
 
 	function Image:getHeight()
-		return ENV.textures[self]:GetSize().y
+		local _, h = get_texture_dimensions(ENV.textures[self])
+		return h
 	end
 
 	function Image:getData()
@@ -716,8 +803,14 @@ do -- image
 				}
 			)
 		else
-			path = line.FixPath(path)
-			tex = render.CreateTextureFromPath(path)
+			tex = love.image._createTextureFromImageData(
+				love.image.newImageData(path),
+				{
+					min_filter = self.filter_min,
+					mag_filter = self.filter_mag,
+					anisotropy = self.filter_anistropy,
+				}
+			)
 		end
 
 		ENV.textures[self] = tex
@@ -798,14 +891,29 @@ function love.graphics.drawq(drawable, quad, x, y, r, sx, sy, ox, oy, kx, ky)
 	ca = ca or 255
 	render2d.SetColor(cr / 255, cg / 255, cb / 255, ca / 255)
 	render2d.PushTexture(ENV.textures[drawable])
-	render2d.SetUV(quad.x, quad.y, quad.w, quad.h, quad.sw, quad.sh)
-	render2d.DrawRect(x, y, quad.w * sx, quad.h * sy, r, ox * sx, oy * sy)
+	render2d.SetUV(quad.x, -quad.y, quad.w, -quad.h, quad.sw, quad.sh)
+	render2d.DrawRectf(x, y, quad.w * sx, quad.h * sy, r, ox * sx, oy * sy)
 	render2d.SetUV()
 	render2d.PopTexture()
 end
 
 function love.graphics.draw(drawable, x, y, r, sx, sy, ox, oy, kx, ky, quad_arg)
-	if ENV.textures[drawable] then
+	local drawable_texture = ENV.textures[drawable]
+
+	if
+		not drawable_texture and
+		(
+			line.Type(drawable) == "Image" or
+			line.Type(drawable) == "Canvas"
+		)
+	then
+		if drawable.fb and drawable.fb.GetColorTexture then
+			drawable_texture = drawable.fb:GetColorTexture()
+			ENV.textures[drawable] = drawable_texture
+		end
+	end
+
+	if drawable_texture then
 		if line.Type(x) == "Quad" then
 			love.graphics.drawq(drawable, x, y, r, sx, sy, ox, oy, kx, ky, quad_arg)
 		else
@@ -818,9 +926,16 @@ function love.graphics.draw(drawable, x, y, r, sx, sy, ox, oy, kx, ky, quad_arg)
 			r = r or 0
 			kx = kx or 0
 			ky = ky or 0
-			local tex = ENV.textures[drawable]
+			local tex = drawable_texture
+			local tex_w, tex_h = get_texture_dimensions(tex)
+			local cr, cg, cb, ca = love.graphics.getColor()
+			ca = ca or 255
+			render2d.SetColor(cr / 255, cg / 255, cb / 255, ca / 255)
 			render2d.PushTexture(tex)
-			render2d.DrawRect(x, y, tex:GetSize().x * sx, tex:GetSize().y * sy, r, ox * sx, oy * sy)
+			render2d.PushUV()
+			render2d.SetUV(0, 0, tex_w, -tex_h, tex_w, tex_h)
+			render2d.DrawRectf(x, y, tex_w * sx, tex_h * sy, r, ox * sx, oy * sy)
+			render2d.PopUV()
 			render2d.PopTexture()
 		end
 	else
@@ -834,13 +949,21 @@ function love.graphics.draw(drawable, x, y, r, sx, sy, ox, oy, kx, ky, quad_arg)
 		kx = kx or 0
 		ky = ky or 0
 
-		if line.Type(drawable) == "SpriteBatch" or line.Type(drawable) == "Mesh" then
+		if line.Type(drawable) == "SpriteBatch" then
+			drawable:Draw(x, y, r, sx, sy, ox, oy, kx, ky)
+		elseif line.Type(drawable) == "Mesh" then
 			render2d.PushColor(1, 1, 1, 1)
 			render2d.PushTexture(ENV.textures[drawable.img])
-			render2d.PushMatrix(x, y)
-			render2d.Translate(ox, oy)
+			render2d.PushMatrix(nil, nil, nil, nil, nil, true)
+			render2d.Translatef(x, y)
 			render2d.Rotate(r)
-			render2d.Scale(sx, sy)
+
+			if ox ~= 0 or oy ~= 0 then render2d.Translatef(-ox * sx, -oy * sy) end
+
+			if kx ~= 0 or ky ~= 0 then render2d.Shear(kx, ky) end
+
+			render2d.Scalef(sx, sy)
+			render2d.UploadConstants(render2d.cmd)
 			drawable:Draw()
 			render2d.PopMatrix()
 			render2d.PopTexture()
@@ -925,9 +1048,12 @@ do
 		end
 
 		function love.graphics.newShader(frag, vert)
-			if frag:ends_with(".glsl") then
+			if type(frag) == "string" and frag:ends_with(".glsl") then
 				frag = love.filesystem.read(frag)
-				vert = love.filesystem.read(frag)
+			end
+
+			if type(vert) == "string" and vert:ends_with(".glsl") then
+				vert = love.filesystem.read(vert)
 			end
 
 			local obj = line.CreateObject("Shader")
@@ -939,9 +1065,12 @@ do
 					variables = {
 						love_ScreenSize = {
 							vec2 = function()
-								return ENV.graphics_current_canvas and
-									ENV.graphics_current_canvas.fb:GetTexture():GetSize() or
-									window.GetSize()
+								if ENV.graphics_current_canvas then
+									local tex_w, tex_h = get_texture_dimensions(ENV.graphics_current_canvas.fb:GetColorTexture())
+									return Vec2(tex_w, tex_h)
+								end
+
+								return window.GetSize()
 							end,
 						},
 						current_texture = {
@@ -1047,8 +1176,9 @@ function love.graphics.getStats()
 end
 
 function love.graphics.getRendererInfo()
-	local tbl = render.GetInfo()
-	return "OpenGL", tbl.version, tbl.vendor, tbl.renderer
+	local screen_texture = render.GetScreenTexture and render.GetScreenTexture()
+	local version = screen_texture and screen_texture.format or "unknown"
+	return "Vulkan", version, "Goluwa", "Goluwa Vulkan Renderer"
 end
 
 do
@@ -1119,7 +1249,7 @@ do -- shapes
 	end
 
 	local function polygon(mode, points, join)
-		render2d.PushTexture(render.GetWhiteTexture())
+		render2d.PushTexture()
 		local idx = 1
 
 		if mode == "line" then
@@ -1169,7 +1299,8 @@ do -- shapes
 
 		mesh:UpdateBuffer()
 		mesh_idx:UpdateBuffer()
-		render2d.BindShader()
+		render2d.BindMesh(mesh)
+		render2d.UploadConstants(render2d.cmd)
 		mesh:Draw(mesh_idx, idx)
 		render2d.PopTexture()
 	end
@@ -1387,7 +1518,7 @@ do
 		end
 
 		if vertex[3] then
-			self.vertex_buffer:SetVertex(index, "uv", vertex[3], -vertex[4] + 1)
+			self.vertex_buffer:SetVertex(index, "uv", vertex[3], vertex[4])
 		end
 
 		if vertex[5] then
@@ -1544,33 +1675,65 @@ end
 do -- sprite batch
 	local SpriteBatch = line.TypeTemplate("SpriteBatch")
 
-	local function set_rect(self, i, x, y, r, sx, sy, ox, oy, kx, ky)
-		sx = sx or self.w
-		sy = sy or self.h
-
-		if ox then ox = -ox end
-
-		if oy then oy = -oy end
-
-		self.poly:SetRect(i, x, y, sx, sy, r, ox, oy)
+	local function store_entry(self, id, entry)
+		self.entries[id] = entry
 	end
 
 	function SpriteBatch:set(id, q, ...)
 		id = id or 1
+		local is_quad = line.Type(q) == "Quad" or
+			(
+				type(q) == "table" and
+				type(q.x) == "number" and
+				type(q.y) == "number" and
+				type(q.w) == "number" and
+				type(q.h) == "number" and
+				type(q.sw) == "number" and
+				type(q.sh) == "number"
+			)
 
-		if line.Type(q) == "Quad" then
-			self.poly:SetUV(q.x, q.y, q.w, q.h, q.sw, q.sh)
+		if is_quad then
 			local x, y, r, sx, sy, ox, oy, kx, ky = ...
-			set_rect(self, id, x, y, r, q.w, q.h, ox, oy, kx, ky)
+			store_entry(
+				self,
+				id,
+				{
+					quad = q,
+					x = x or 0,
+					y = y or 0,
+					r = r or 0,
+					sx = sx or 1,
+					sy = sy or sx or 1,
+					ox = ox or 0,
+					oy = oy or 0,
+					kx = kx or 0,
+					ky = ky or 0,
+				}
+			)
 		else
-			set_rect(self, id, q, ...)
+			local x, y, r, sx, sy, ox, oy, kx, ky = q, ...
+			store_entry(
+				self,
+				id,
+				{
+					x = x or 0,
+					y = y or 0,
+					r = r or 0,
+					sx = sx or 1,
+					sy = sy or sx or 1,
+					ox = ox or 0,
+					oy = oy or 0,
+					kx = kx or 0,
+					ky = ky or 0,
+				}
+			)
 		end
 	end
 
 	SpriteBatch.setq = SpriteBatch.set
 
 	function SpriteBatch:add(...)
-		if self.i < self.size then self:set(self.i, ...) end
+		if self.i <= self.size then self:set(self.i, ...) end
 
 		self.i = self.i + 1
 		return self.i
@@ -1585,11 +1748,15 @@ do -- sprite batch
 		g = g or 255
 		b = b or 255
 		a = a or 255
-		self.poly:SetColor(r / 255, g / 255, b / 255, a / 255)
+		self.r = r / 255
+		self.g = g / 255
+		self.b = b / 255
+		self.a = a / 255
 	end
 
 	function SpriteBatch:clear()
 		self.i = 1
+		self.entries = {}
 	end
 
 	function SpriteBatch:getImage()
@@ -1610,8 +1777,67 @@ do -- sprite batch
 		return self.img
 	end
 
-	function SpriteBatch:Draw()
-		self.poly:Draw()
+	function SpriteBatch:Draw(...)
+		local x, y, r, sx, sy, ox, oy, kx, ky = ...
+		x = x or 0
+		y = y or 0
+		r = r or 0
+		sx = sx or 1
+		sy = sy or sx
+		ox = ox or 0
+		oy = oy or 0
+		kx = kx or 0
+		ky = ky or 0
+		local cr, cg, cb, ca = love.graphics.getColor()
+		local restore = {cr, cg, cb, ca}
+		love.graphics.setColor(cr * (self.r or 1), cg * (self.g or 1), cb * (self.b or 1), ca * (self.a or 1))
+		render2d.PushMatrix(nil, nil, nil, nil, nil, true)
+		render2d.Translatef(x, y)
+		render2d.Rotate(r)
+
+		if ox ~= 0 or oy ~= 0 then render2d.Translatef(-ox * sx, -oy * sy) end
+
+		if kx ~= 0 or ky ~= 0 then render2d.Shear(kx, ky) end
+
+		render2d.Scalef(sx, sy)
+
+		for i = 1, self.i - 1 do
+			local entry = self.entries[i]
+
+			if entry then
+				if entry.quad then
+					love.graphics.drawq(
+						self.img,
+						entry.quad,
+						entry.x,
+						entry.y,
+						entry.r,
+						entry.sx,
+						entry.sy,
+						entry.ox,
+						entry.oy,
+						entry.kx,
+						entry.ky
+					)
+				else
+					love.graphics.draw(
+						self.img,
+						entry.x,
+						entry.y,
+						entry.r,
+						entry.sx,
+						entry.sy,
+						entry.ox,
+						entry.oy,
+						entry.kx,
+						entry.ky
+					)
+				end
+			end
+		end
+
+		render2d.PopMatrix()
+		love.graphics.setColor(unpack(restore))
 	end
 
 	function love.graphics.newSpriteBatch(image, size, usagehint)
@@ -1622,6 +1848,11 @@ do -- sprite batch
 		self.img = image
 		self.w = image:getWidth()
 		self.h = image:getHeight()
+		self.entries = {}
+		self.r = 1
+		self.g = 1
+		self.b = 1
+		self.a = 1
 		self.i = 1
 		return self
 	end

@@ -1,4 +1,5 @@
 local structs = import("goluwa/structs/structs.lua")
+local Vec2 = nil
 local META = structs.Template("Vec2")
 META.Args = {{"x", "y"}, {"w", "h"}, {"p", "r"}, {"u", "v"}, {"g", "b"}}
 structs.AddAllOperators(META)
@@ -22,6 +23,7 @@ function META.GetDot(a, b)
 end
 
 function META:GetNormal(scale)
+	Vec2 = Vec2 or import("goluwa/structs/vec2.lua")
 	return Vec2(-self.y * scale, self.x * scale)
 end
 
@@ -30,6 +32,7 @@ function META.GetCrossed(a, b)
 end
 
 function META:GetReflected(normal)
+	Vec2 = Vec2 or import("goluwa/structs/vec2.lua")
 	local proj = self:GetNormalized()
 	local dot = proj:GetDot(normal)
 	return Vec2(2 * (-dot) * normal.x + proj.x, 2 * (-dot) * normal.y + proj.y) * self:GetLength()

@@ -6,7 +6,6 @@ local love = ... or _G.love
 local ENV = love._line_env
 local ffi = require("ffi")
 love.image = love.image or {}
-
 local DEFAULT_FORMAT = "r8g8b8a8_unorm"
 
 local function clamp_byte(value)
@@ -52,7 +51,9 @@ local function get_source_pointer(source)
 
 	if source.data then return source.data end
 
-	if source.buffer and source.buffer.GetBuffer then return source.buffer:GetBuffer() end
+	if source.buffer and source.buffer.GetBuffer then
+		return source.buffer:GetBuffer()
+	end
 end
 
 local function convert_to_rgba8(source)
@@ -147,15 +148,33 @@ local function convert_to_rgba8(source)
 			out[dst + 3] = clamp_byte((values[src + 3] / 65535) * 255)
 		end
 	else
-		ffi.copy(out, pixels, math.min(pixel_count * 4, tonumber(source.size) or (pixel_count * 4)))
+		ffi.copy(
+			out,
+			pixels,
+			math.min(pixel_count * 4, tonumber(source.size) or (pixel_count * 4))
+		)
 	end
 
 	return create_image_data(width, height, out)
 end
 
+local function flip_image_data_vertical(image_data)
+	local row_size = image_data.width * 4
+	local flipped = create_pixel_buffer(image_data.size)
+	local src = ffi.cast("uint8_t*", image_data.buffer)
+	local dst = ffi.cast("uint8_t*", flipped)
+
+	for y = 0, image_data.height - 1 do
+		ffi.copy(dst + y * row_size, src + (image_data.height - 1 - y) * row_size, row_size)
+	end
+
+	image_data.buffer = flipped
+	return image_data
+end
+
 local function load_image_data(path)
 	local decoded = codec.DecodeFile(line.FixPath(path))
-	return convert_to_rgba8(decoded)
+	return flip_image_data_vertical(convert_to_rgba8(decoded))
 end
 
 function love.image._newImageDataFromTexture(texture)
@@ -172,7 +191,6 @@ end
 
 function love.image._createTextureFromImageData(image_data, sampler)
 	sampler = sampler or {}
-
 	return Texture.New{
 		buffer = image_data.buffer,
 		width = image_data.width,
@@ -277,7 +295,10 @@ do -- image data
 
 		if not offset then return 0, 0, 0, 0 end
 
-		return self.buffer[offset + 0], self.buffer[offset + 1], self.buffer[offset + 2], self.buffer[offset + 3]
+		return self.buffer[offset + 0],
+		self.buffer[offset + 1],
+		self.buffer[offset + 2],
+		self.buffer[offset + 3]
 	end
 
 	function ImageData:setPixel(x, y, r, g, b, a)

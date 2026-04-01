@@ -47,17 +47,18 @@ local function set_uv(self, i, x, y, w, h, sx, sy)
 	local vtx = self.vertex_buffer:GetVertices()
 
 	if not x then
-		vtx[i + 1].uv[0] = 0
-		vtx[i + 1].uv[1] = 1
 		vtx[i + 0].uv[0] = 0
-		vtx[i + 0].uv[1] = 0
+		vtx[i + 0].uv[1] = 1
+		vtx[i + 1].uv[0] = 0
+		vtx[i + 1].uv[1] = 0
 		vtx[i + 2].uv[0] = 1
-		vtx[i + 2].uv[1] = 0
-		--
-		vtx[i + 4].uv = vtx[i + 2].uv
+		vtx[i + 2].uv[1] = 1
+		vtx[i + 4].uv[0] = 1
+		vtx[i + 4].uv[1] = 1
 		vtx[i + 3].uv[0] = 1
-		vtx[i + 3].uv[1] = 1
-		vtx[i + 5].uv = vtx[i + 0].uv
+		vtx[i + 3].uv[1] = 0
+		vtx[i + 5].uv[0] = 0
+		vtx[i + 5].uv[1] = 0
 	else
 		sx = sx or 1
 		sy = sy or 1
@@ -68,11 +69,12 @@ local function set_uv(self, i, x, y, w, h, sx, sy)
 		vtx[i + 0].uv[1] = y / sy
 		vtx[i + 2].uv[0] = (x + w) / sx
 		vtx[i + 2].uv[1] = y / sy
-		--
-		vtx[i + 4].uv = vtx[i + 2].uv
+		vtx[i + 4].uv[0] = (x + w) / sx
+		vtx[i + 4].uv[1] = y / sy
 		vtx[i + 3].uv[0] = (x + w) / sx
 		vtx[i + 3].uv[1] = (y + h) / sy
-		vtx[i + 5].uv = vtx[i + 1].uv
+		vtx[i + 5].uv[0] = x / sx
+		vtx[i + 5].uv[1] = (y + h) / sy
 	end
 end
 
@@ -131,13 +133,13 @@ function Polygon2D:SetRect(i, x, y, w, h, r, ox, oy, rx, ry)
 	self.RY = ry or 0
 	i = i - 1
 	i = i * 6
-	set_uv(self, i, self.U1, self.V1, self.U2, self.V2, self.UVSW, self.UVSH)
 	self:SetVertex(i + 0, self.X + self.OX, self.Y + h + self.OY)
 	self:SetVertex(i + 1, self.X + self.OX, self.Y + self.OY)
 	self:SetVertex(i + 2, self.X + w + self.OX, self.Y + h + self.OY)
 	self:SetVertex(i + 3, self.X + w + self.OX, self.Y + self.OY)
 	self:SetVertex(i + 4, self.X + w + self.OX, self.Y + h + self.OY)
 	self:SetVertex(i + 5, self.X + self.OX, self.Y + self.OY)
+	set_uv(self, i, self.U1, self.V1, self.U2, self.V2, self.UVSW, self.UVSH)
 end
 
 function Polygon2D:DrawLine(i, x1, y1, x2, y2, w)
