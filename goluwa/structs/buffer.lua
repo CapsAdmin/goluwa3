@@ -789,6 +789,20 @@ do -- push pop position
 end
 
 do -- read bits
+	local math_floor = math.floor
+	local math_min = math.min
+	local math_max = math.max
+	local bit_band = bit.band
+	local bit_rshift = bit.rshift
+
+	local function get_bit_pos(self)
+		local bit_pos = self.Position * 8 - self.buf_nbit
+
+		if bit_pos < 0 then return 0 end
+
+		return bit_pos
+	end
+
 	local function set_bit_pos(self, bit_pos)
 		if bit_pos <= 0 then
 			self.Position = 0
@@ -797,7 +811,7 @@ do -- read bits
 			return
 		end
 
-		local byte_pos = math.floor(bit_pos / 8)
+		local byte_pos = math_floor(bit_pos / 8)
 		local bit_offset = bit_pos % 8
 
 		if bit_offset == 0 then
@@ -812,18 +826,19 @@ do -- read bits
 	end
 
 	local function read_bits_at(self, bit_pos, nbits)
+		local buffer = self.Buffer
 		local out = 0
 		local out_shift = 0
 		local remaining = nbits
 		local current_bit_pos = bit_pos
 
 		while remaining > 0 do
-			local byte_pos = math.floor(current_bit_pos / 8)
+			local byte_pos = math_floor(current_bit_pos / 8)
 			local bit_offset = current_bit_pos % 8
-			local chunk = math.min(remaining, 8 - bit_offset)
-			local byte = self:GetByte(byte_pos)
-			local mask = bit.rshift(0xff, 8 - chunk)
-			local chunk_bits = bit.band(bit.rshift(byte, bit_offset), mask)
+			local chunk = math_min(remaining, 8 - bit_offset)
+			local byte = buffer[byte_pos]
+			local mask = bit_rshift(0xff, 8 - chunk)
+			local chunk_bits = bit_band(bit_rshift(byte, bit_offset), mask)
 			out = out + chunk_bits * (2 ^ out_shift)
 			current_bit_pos = current_bit_pos + chunk
 			out_shift = out_shift + chunk
@@ -839,7 +854,7 @@ do -- read bits
 		self.buf_nbit = 0
 
 		-- Reset to the position where bit reading started
-		if self.buf_start_pos > 0 or self:GetPosition() > 0 then
+		if self.buf_start_pos > 0 or self.Position > 0 then
 			self:SetPosition(self.buf_start_pos)
 		end
 	end
@@ -849,25 +864,22 @@ do -- read bits
 	end
 
 	function META:BitPos()
-		local bit_pos = self:GetPosition() * 8 - (self.buf_nbit or 0)
-
-		if bit_pos < 0 then return 0 end
-
-		return bit_pos
+		return get_bit_pos(self)
 	end
 
 	function META:RemainingBits()
-		return math.max(0, self:GetSize() * 8 - self:BitPos())
+		return math_max(0, self.ByteSize * 8 - get_bit_pos(self))
 	end
 
 	function META:ReadBits(nbits)
 		if nbits == 0 then return 0 end
 
-		local bit_pos = self:BitPos()
+		local bit_pos = get_bit_pos(self)
+		local total_bits = self.ByteSize * 8
 
-		if self:GetSize() * 8 - bit_pos < nbits then return nil end
+		if total_bits - bit_pos < nbits then return nil end
 
-		if self.buf_nbit == 0 then self.buf_start_pos = self:GetPosition() end
+		if self.buf_nbit == 0 then self.buf_start_pos = self.Position end
 
 		local out = read_bits_at(self, bit_pos, nbits)
 		set_bit_pos(self, bit_pos + nbits)
@@ -877,9 +889,9 @@ do -- read bits
 	function META:PeekBits(nbits)
 		if nbits == 0 then return 0 end
 
-		local bit_pos = self:BitPos()
+		local bit_pos = get_bit_pos(self)
 
-		if self:GetSize() * 8 - bit_pos < nbits then return nil end
+		if self.ByteSize * 8 - bit_pos < nbits then return nil end
 
 		return read_bits_at(self, bit_pos, nbits)
 	end
@@ -887,11 +899,11 @@ do -- read bits
 	function META:SkipBits(nbits)
 		if nbits == 0 then return end
 
-		local bit_pos = self:BitPos()
+		local bit_pos = get_bit_pos(self)
 
-		if self:GetSize() * 8 - bit_pos < nbits then return nil end
+		if self.ByteSize * 8 - bit_pos < nbits then return nil end
 
-		if self.buf_nbit == 0 then self.buf_start_pos = self:GetPosition() end
+		if self.buf_nbit == 0 then self.buf_start_pos = self.Position end
 
 		set_bit_pos(self, bit_pos + nbits)
 		return true
@@ -900,21 +912,29 @@ do -- read bits
 	function META:Read(nbits)
 		if nbits == 0 then return 0 end
 
-		local remaining = self:RemainingBits()
+		local bit_pos = get_bit_pos(self)
+		local remaining = self.ByteSize * 8 - bit_pos
 
 		if remaining <= 0 then return 0 end
 
-		return self:ReadBits(math.min(nbits, remaining)) or 0
+		nbits = math_min(nbits, remaining)
+
+		if self.buf_nbit == 0 then self.buf_start_pos = self.Position end
+
+		local out = read_bits_at(self, bit_pos, nbits)
+		set_bit_pos(self, bit_pos + nbits)
+		return out or 0
 	end
 
 	function META:Peek(nbits)
 		if nbits == 0 then return 0 end
 
-		local remaining = self:RemainingBits()
+		local bit_pos = get_bit_pos(self)
+		local remaining = self.ByteSize * 8 - bit_pos
 
 		if remaining <= 0 then return 0 end
 
-		return self:PeekBits(math.min(nbits, remaining)) or 0
+		return read_bits_at(self, bit_pos, math_min(nbits, remaining)) or 0
 	end
 end
 
@@ -937,11 +957,10 @@ function META.New(data, len)
 		return self
 	else
 		-- Use existing data
-		local self = META.CType{
-			Buffer = ffi.cast("uint8_t *", data),
-			ByteSize = len or #data,
-			OwnsMemory = false,
-		}
+		local self = META.CType()
+		self.Buffer = ffi.cast("uint8_t *", data)
+		self.ByteSize = len or #data
+		self.OwnsMemory = false
 		refs[self] = {data}
 		return self
 	end

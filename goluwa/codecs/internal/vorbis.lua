@@ -2,8 +2,17 @@ local bit = require("bit")
 local ffi = require("ffi")
 local Buffer = import("goluwa/structs/buffer.lua")
 local vorbis = {}
+local ffi_cast = ffi.cast
+local ffi_fill = ffi.fill
+local bit_band = bit.band
+local bit_lshift = bit.lshift
+local bit_rshift = bit.rshift
 local math_pi = math.pi
 local math_cos = math.cos
+local math_sin = math.sin
+local math_min = math.min
+local math_floor = math.floor
+local FAST_DECODE_TABLE_MAX_BITS = 10
 
 local function assertf(cond, fmt, ...)
 	if cond then return cond end
@@ -55,39 +64,111 @@ local function trunc_div(a, b)
 	return math.floor(a / b)
 end
 
+local function reader_bit_pos(reader)
+	local bit_pos = reader.Position * 8 - reader.buf_nbit
+
+	if bit_pos < 0 then return 0 end
+
+	return bit_pos
+end
+
+local function reader_set_bit_pos(reader, bit_pos)
+	if bit_pos <= 0 then
+		reader.Position = 0
+		reader.buf_nbit = 0
+		reader.buf_byte = 0
+		return
+	end
+
+	local byte_pos = math_floor(bit_pos / 8)
+	local bit_offset = bit_pos % 8
+
+	if bit_offset == 0 then
+		reader.Position = byte_pos
+		reader.buf_nbit = 0
+	else
+		reader.Position = byte_pos + 1
+		reader.buf_nbit = 8 - bit_offset
+	end
+
+	reader.buf_byte = 0
+end
+
+local function reader_peek_bits_at(reader, bit_pos, nbits)
+	local buffer = reader.Buffer
+	local byte_pos = math_floor(bit_pos / 8)
+	local bit_offset = bit_pos % 8
+
+	if nbits > 0 and bit_offset + nbits <= 32 and byte_pos + 3 < reader.ByteSize then
+		local word = buffer[byte_pos] + bit_lshift(buffer[byte_pos + 1], 8) + bit_lshift(buffer[byte_pos + 2], 16) + bit_lshift(buffer[byte_pos + 3], 24)
+		local shifted = bit_rshift(word, bit_offset)
+
+		if nbits == 32 then return shifted end
+
+		return bit_band(shifted, bit_lshift(1, nbits) - 1)
+	end
+
+	local out = 0
+	local out_shift = 0
+	local remaining = nbits
+	local current_bit_pos = bit_pos
+
+	while remaining > 0 do
+		byte_pos = math_floor(current_bit_pos / 8)
+		bit_offset = current_bit_pos % 8
+		local chunk = math_min(remaining, 8 - bit_offset)
+		local byte = buffer[byte_pos]
+		local mask = bit_rshift(0xff, 8 - chunk)
+		local chunk_bits = bit_band(bit_rshift(byte, bit_offset), mask)
+		out = out + chunk_bits * (2 ^ out_shift)
+		current_bit_pos = current_bit_pos + chunk
+		out_shift = out_shift + chunk
+		remaining = remaining - chunk
+	end
+
+	return out
+end
+
 local function decode_codebook_table_entry(book, reader)
-	if not book or (not book.decode_tables and not book.dec_table) then
+	if not book or (not book.decode_tables_dense and not book.dec_table) then
 		return nil
 	end
 
-	local remaining = reader:RemainingBits()
+	local bit_pos = reader_bit_pos(reader)
+	local remaining = reader.ByteSize * 8 - bit_pos
 
 	if remaining <= 0 then return nil end
 
-	local peek_len = math.min(book.max_code_len, remaining)
-	local val = reader:Peek(peek_len)
+	local peek_len = math_min(book.max_code_len, remaining)
+	local val = reader_peek_bits_at(reader, bit_pos, peek_len)
 
 	if book.dec_table then
 		local entry = book.dec_table[val]
 
 		if entry and entry.len <= peek_len then
-			reader:SkipBits(entry.len)
+			if reader.buf_nbit == 0 then reader.buf_start_pos = reader.Position end
+
+			reader_set_bit_pos(reader, bit_pos + entry.len)
 			return entry
 		end
 	end
 
 	local decode_lengths = book.decode_lengths
+	local decode_tables_dense = book.decode_tables_dense
+	local decode_masks_dense = book.decode_masks_dense
 
 	for i = 1, #decode_lengths do
 		local len = decode_lengths[i]
 
 		if len > peek_len then break end
 
-		local decode_table = book.decode_tables[len]
-		local entry = decode_table and decode_table[bit.band(val, book.decode_masks[len])]
+		local decode_table = decode_tables_dense[i]
+		local entry = decode_table and decode_table[bit_band(val, decode_masks_dense[i])]
 
 		if entry then
-			reader:SkipBits(len)
+			if reader.buf_nbit == 0 then reader.buf_start_pos = reader.Position end
+
+			reader_set_bit_pos(reader, bit_pos + len)
 			return entry
 		end
 	end
@@ -119,6 +200,10 @@ function vorbis.DecodeCodebookVector(book, reader)
 	local lookup_entry = entry_idx
 
 	if not entry_idx then return nil end
+
+	if book.lookup_vectors_flat then
+		return book.lookup_vectors_flat, lookup_entry * book.dimensions, book.dimensions
+	end
 
 	if book.lookup_vectors then return book.lookup_vectors[lookup_entry + 1] end
 
@@ -398,21 +483,44 @@ function vorbis.DecodeSetup(packet, info)
 				decode_table[code_entry.reversed] = code_entry
 			end
 
+			if max_code_len <= FAST_DECODE_TABLE_MAX_BITS then
+				local table_size = 2 ^ max_code_len
+				local dec_table = {}
+
+				for i = 1, #code_entries do
+					local code_entry = code_entries[i]
+					local span = 2 ^ code_entry.len
+					local fill_count = 2 ^ (max_code_len - code_entry.len)
+					local idx = code_entry.reversed
+
+					for _ = 1, fill_count do
+						dec_table[idx] = code_entry
+						idx = idx + span
+					end
+				end
+
+				cb.dec_table = dec_table
+			end
+
 			table.sort(cb.decode_lengths)
+			cb.decode_tables_dense = {}
+			cb.decode_masks_dense = {}
+
+			for i = 1, #cb.decode_lengths do
+				local len = cb.decode_lengths[i]
+				cb.decode_tables_dense[i] = cb.decode_tables[len]
+				cb.decode_masks_dense[i] = cb.decode_masks[len]
+			end
 
 			if cb.lookup_type == 0 then
-				cb.zero_vector = {}
-
-				for j = 1, cb.dimensions do
-					cb.zero_vector[j] = 0
-				end
+				cb.zero_vector = ffi.new("float[?]", cb.dimensions)
 			else
-				cb.lookup_vectors = {}
+				cb.lookup_vectors_flat = ffi.new("float[?]", cb.entries * cb.dimensions)
 
 				for i = 1, #code_entries do
 					local code_entry = code_entries[i]
 					local lookup_entry = code_entry.value - 1
-					local res = {}
+					local base = lookup_entry * cb.dimensions
 
 					if cb.lookup_type == 1 then
 						local last = 0
@@ -422,7 +530,7 @@ function vorbis.DecodeSetup(packet, info)
 							local mult_idx = lookup_offset % cb.lookup_values
 							local mult = cb.multiplicands[mult_idx + 1]
 							local val = mult * cb.delta_value + cb.minimum_value + last
-							res[j] = val
+							cb.lookup_vectors_flat[base + j - 1] = val
 
 							if cb.sequence_p then last = val end
 
@@ -434,13 +542,11 @@ function vorbis.DecodeSetup(packet, info)
 						for j = 1, cb.dimensions do
 							local mult = cb.multiplicands[lookup_entry * cb.dimensions + j]
 							local val = mult * cb.delta_value + cb.minimum_value + last
-							res[j] = val
+							cb.lookup_vectors_flat[base + j - 1] = val
 
 							if cb.sequence_p then last = val end
 						end
 					end
-
-					cb.lookup_vectors[lookup_entry + 1] = res
 				end
 			end
 		end
@@ -667,6 +773,18 @@ function vorbis.DecodeSetup(packet, info)
 				)
 			end
 
+			map.submap_channels = {}
+
+			for j = 1, submaps do
+				map.submap_channels[j] = {}
+			end
+
+			for j = 1, info.channels do
+				local submap_idx = (submaps > 1) and ((map.mux[j] or 0) + 1) or 1
+				local channels_for_submap = map.submap_channels[submap_idx]
+				channels_for_submap[#channels_for_submap + 1] = j
+			end
+
 			setup.mappings[i] = map
 		else
 			print("Warning: Unsupported mapping type:", map.type)
@@ -707,6 +825,267 @@ end
 
 -- Vorbis I spec section 7.2.1: range depends on multiplier, NOT rangebits
 local floor1_range_list = {256, 128, 86, 64}
+local floor1_inverse_db_table = ffi.new(
+	"float[256]",
+	{
+		1.0649863e-07,
+		1.1341951e-07,
+		1.2079015e-07,
+		1.2863978e-07,
+		1.3699951e-07,
+		1.4590251e-07,
+		1.5538408e-07,
+		1.6548181e-07,
+		1.7623575e-07,
+		1.8768855e-07,
+		1.9988561e-07,
+		2.128753e-07,
+		2.2670913e-07,
+		2.4144197e-07,
+		2.5713223e-07,
+		2.7384213e-07,
+		2.9163793e-07,
+		3.1059021e-07,
+		3.3077411e-07,
+		3.5226968e-07,
+		3.7516214e-07,
+		3.9954229e-07,
+		4.2550680e-07,
+		4.5315863e-07,
+		4.8260743e-07,
+		5.1396998e-07,
+		5.4737065e-07,
+		5.8294187e-07,
+		6.2082472e-07,
+		6.6116941e-07,
+		7.0413592e-07,
+		7.4989464e-07,
+		7.9862701e-07,
+		8.5052630e-07,
+		9.0579828e-07,
+		9.6466216e-07,
+		1.0273513e-06,
+		1.0941144e-06,
+		1.1652161e-06,
+		1.2409384e-06,
+		1.3215816e-06,
+		1.4074654e-06,
+		1.4989305e-06,
+		1.5963394e-06,
+		1.7000785e-06,
+		1.8105592e-06,
+		1.9282195e-06,
+		2.0535261e-06,
+		2.1869758e-06,
+		2.3290978e-06,
+		2.4804557e-06,
+		2.6416497e-06,
+		2.8133190e-06,
+		2.9961443e-06,
+		3.1908506e-06,
+		3.3982101e-06,
+		3.6190449e-06,
+		3.8542308e-06,
+		4.1047004e-06,
+		4.3714470e-06,
+		4.6555282e-06,
+		4.9580707e-06,
+		5.2802740e-06,
+		5.6234160e-06,
+		5.9888572e-06,
+		6.3780469e-06,
+		6.7925283e-06,
+		7.2339451e-06,
+		7.7040476e-06,
+		8.2047000e-06,
+		8.7378876e-06,
+		9.3057248e-06,
+		9.9104632e-06,
+		1.0554501e-05,
+		1.1240392e-05,
+		1.1970856e-05,
+		1.2748789e-05,
+		1.3577278e-05,
+		1.4459606e-05,
+		1.5399272e-05,
+		1.6400004e-05,
+		1.7465768e-05,
+		1.8600792e-05,
+		1.9809576e-05,
+		2.1096914e-05,
+		2.2467911e-05,
+		2.3928002e-05,
+		2.5482978e-05,
+		2.7139006e-05,
+		2.8902651e-05,
+		3.0780908e-05,
+		3.2781225e-05,
+		3.4911534e-05,
+		3.7180282e-05,
+		3.9596466e-05,
+		4.2169667e-05,
+		4.4910090e-05,
+		4.7828601e-05,
+		5.0936773e-05,
+		5.4246931e-05,
+		5.7772202e-05,
+		6.1526565e-05,
+		6.5524908e-05,
+		6.9783085e-05,
+		7.4317983e-05,
+		7.9147585e-05,
+		8.4291040e-05,
+		8.9768747e-05,
+		9.5602426e-05,
+		0.00010181521,
+		0.00010843174,
+		0.00011547824,
+		0.00012298267,
+		0.00013097477,
+		0.00013948625,
+		0.00014855085,
+		0.00015820453,
+		0.00016848555,
+		0.00017943469,
+		0.00019109536,
+		0.00020351382,
+		0.00021673929,
+		0.00023082423,
+		0.00024582449,
+		0.00026179955,
+		0.00027881276,
+		0.00029693158,
+		0.00031622787,
+		0.00033677814,
+		0.00035866388,
+		0.00038197188,
+		0.00040679456,
+		0.00043323036,
+		0.00046138411,
+		0.00049136745,
+		0.00052329927,
+		0.00055730621,
+		0.00059352311,
+		0.00063209358,
+		0.00067317058,
+		0.00071691700,
+		0.00076350630,
+		0.00081312324,
+		0.00086596457,
+		0.00092223983,
+		0.00098217216,
+		0.0010459992,
+		0.0011139742,
+		0.0011863665,
+		0.0012634633,
+		0.0013455702,
+		0.0014330129,
+		0.0015261382,
+		0.0016253153,
+		0.0017309374,
+		0.0018434235,
+		0.0019632195,
+		0.0020908006,
+		0.0022266726,
+		0.0023713743,
+		0.0025254795,
+		0.0026895994,
+		0.0028643847,
+		0.0030505286,
+		0.0032487691,
+		0.0034598925,
+		0.0036847358,
+		0.0039241906,
+		0.0041792066,
+		0.0044507950,
+		0.0047400328,
+		0.0050480668,
+		0.0053761186,
+		0.0057254891,
+		0.0060975636,
+		0.0064938176,
+		0.0069158225,
+		0.0073652516,
+		0.0078438871,
+		0.0083536271,
+		0.0088964928,
+		0.009474637,
+		0.010090352,
+		0.010746080,
+		0.011444421,
+		0.012188144,
+		0.012980198,
+		0.013823725,
+		0.014722068,
+		0.015678791,
+		0.016697687,
+		0.017782797,
+		0.018938423,
+		0.020169149,
+		0.021479854,
+		0.022875735,
+		0.024362330,
+		0.025945531,
+		0.027631618,
+		0.029427276,
+		0.031339626,
+		0.033376252,
+		0.035545228,
+		0.037855157,
+		0.040315199,
+		0.042935108,
+		0.045725273,
+		0.048696758,
+		0.051861348,
+		0.055231591,
+		0.058820850,
+		0.062643361,
+		0.066714279,
+		0.071049749,
+		0.075666962,
+		0.080584227,
+		0.085821044,
+		0.091398179,
+		0.097337747,
+		0.10366330,
+		0.11039993,
+		0.11757434,
+		0.12521498,
+		0.13335215,
+		0.14201813,
+		0.15124727,
+		0.16107617,
+		0.17154380,
+		0.18269168,
+		0.19456402,
+		0.20720788,
+		0.22067342,
+		0.23501402,
+		0.25028656,
+		0.26655159,
+		0.28387361,
+		0.30232132,
+		0.32196786,
+		0.34289114,
+		0.36517414,
+		0.38890521,
+		0.41417847,
+		0.44109412,
+		0.46975890,
+		0.50028648,
+		0.53279791,
+		0.56742212,
+		0.60429640,
+		0.64356699,
+		0.68538959,
+		0.72993007,
+		0.77736504,
+		0.82788260,
+		0.88168307,
+		0.9389798,
+		1.0,
+	}
+)
 
 function vorbis.DecodeFloorType1(reader, setup, floor, n)
 	local partitions = #floor.partition_class
@@ -796,268 +1175,6 @@ function vorbis.DecodeFloorType1(reader, setup, floor, n)
 		end
 	end
 
-	-- Precompute floor curve (Vorbis I spec section 9.2.2)
-	local floor1_inverse_db_table = ffi.new(
-		"float[256]",
-		{
-			1.0649863e-07,
-			1.1341951e-07,
-			1.2079015e-07,
-			1.2863978e-07,
-			1.3699951e-07,
-			1.4590251e-07,
-			1.5538408e-07,
-			1.6548181e-07,
-			1.7623575e-07,
-			1.8768855e-07,
-			1.9988561e-07,
-			2.128753e-07,
-			2.2670913e-07,
-			2.4144197e-07,
-			2.5713223e-07,
-			2.7384213e-07,
-			2.9163793e-07,
-			3.1059021e-07,
-			3.3077411e-07,
-			3.5226968e-07,
-			3.7516214e-07,
-			3.9954229e-07,
-			4.2550680e-07,
-			4.5315863e-07,
-			4.8260743e-07,
-			5.1396998e-07,
-			5.4737065e-07,
-			5.8294187e-07,
-			6.2082472e-07,
-			6.6116941e-07,
-			7.0413592e-07,
-			7.4989464e-07,
-			7.9862701e-07,
-			8.5052630e-07,
-			9.0579828e-07,
-			9.6466216e-07,
-			1.0273513e-06,
-			1.0941144e-06,
-			1.1652161e-06,
-			1.2409384e-06,
-			1.3215816e-06,
-			1.4074654e-06,
-			1.4989305e-06,
-			1.5963394e-06,
-			1.7000785e-06,
-			1.8105592e-06,
-			1.9282195e-06,
-			2.0535261e-06,
-			2.1869758e-06,
-			2.3290978e-06,
-			2.4804557e-06,
-			2.6416497e-06,
-			2.8133190e-06,
-			2.9961443e-06,
-			3.1908506e-06,
-			3.3982101e-06,
-			3.6190449e-06,
-			3.8542308e-06,
-			4.1047004e-06,
-			4.3714470e-06,
-			4.6555282e-06,
-			4.9580707e-06,
-			5.2802740e-06,
-			5.6234160e-06,
-			5.9888572e-06,
-			6.3780469e-06,
-			6.7925283e-06,
-			7.2339451e-06,
-			7.7040476e-06,
-			8.2047000e-06,
-			8.7378876e-06,
-			9.3057248e-06,
-			9.9104632e-06,
-			1.0554501e-05,
-			1.1240392e-05,
-			1.1970856e-05,
-			1.2748789e-05,
-			1.3577278e-05,
-			1.4459606e-05,
-			1.5399272e-05,
-			1.6400004e-05,
-			1.7465768e-05,
-			1.8600792e-05,
-			1.9809576e-05,
-			2.1096914e-05,
-			2.2467911e-05,
-			2.3928002e-05,
-			2.5482978e-05,
-			2.7139006e-05,
-			2.8902651e-05,
-			3.0780908e-05,
-			3.2781225e-05,
-			3.4911534e-05,
-			3.7180282e-05,
-			3.9596466e-05,
-			4.2169667e-05,
-			4.4910090e-05,
-			4.7828601e-05,
-			5.0936773e-05,
-			5.4246931e-05,
-			5.7772202e-05,
-			6.1526565e-05,
-			6.5524908e-05,
-			6.9783085e-05,
-			7.4317983e-05,
-			7.9147585e-05,
-			8.4291040e-05,
-			8.9768747e-05,
-			9.5602426e-05,
-			0.00010181521,
-			0.00010843174,
-			0.00011547824,
-			0.00012298267,
-			0.00013097477,
-			0.00013948625,
-			0.00014855085,
-			0.00015820453,
-			0.00016848555,
-			0.00017943469,
-			0.00019109536,
-			0.00020351382,
-			0.00021673929,
-			0.00023082423,
-			0.00024582449,
-			0.00026179955,
-			0.00027881276,
-			0.00029693158,
-			0.00031622787,
-			0.00033677814,
-			0.00035866388,
-			0.00038197188,
-			0.00040679456,
-			0.00043323036,
-			0.00046138411,
-			0.00049136745,
-			0.00052329927,
-			0.00055730621,
-			0.00059352311,
-			0.00063209358,
-			0.00067317058,
-			0.00071691700,
-			0.00076350630,
-			0.00081312324,
-			0.00086596457,
-			0.00092223983,
-			0.00098217216,
-			0.0010459992,
-			0.0011139742,
-			0.0011863665,
-			0.0012634633,
-			0.0013455702,
-			0.0014330129,
-			0.0015261382,
-			0.0016253153,
-			0.0017309374,
-			0.0018434235,
-			0.0019632195,
-			0.0020908006,
-			0.0022266726,
-			0.0023713743,
-			0.0025254795,
-			0.0026895994,
-			0.0028643847,
-			0.0030505286,
-			0.0032487691,
-			0.0034598925,
-			0.0036847358,
-			0.0039241906,
-			0.0041792066,
-			0.0044507950,
-			0.0047400328,
-			0.0050480668,
-			0.0053761186,
-			0.0057254891,
-			0.0060975636,
-			0.0064938176,
-			0.0069158225,
-			0.0073652516,
-			0.0078438871,
-			0.0083536271,
-			0.0088964928,
-			0.009474637,
-			0.010090352,
-			0.010746080,
-			0.011444421,
-			0.012188144,
-			0.012980198,
-			0.013823725,
-			0.014722068,
-			0.015678791,
-			0.016697687,
-			0.017782797,
-			0.018938423,
-			0.020169149,
-			0.021479854,
-			0.022875735,
-			0.024362330,
-			0.025945531,
-			0.027631618,
-			0.029427276,
-			0.031339626,
-			0.033376252,
-			0.035545228,
-			0.037855157,
-			0.040315199,
-			0.042935108,
-			0.045725273,
-			0.048696758,
-			0.051861348,
-			0.055231591,
-			0.058820850,
-			0.062643361,
-			0.066714279,
-			0.071049749,
-			0.075666962,
-			0.080584227,
-			0.085821044,
-			0.091398179,
-			0.097337747,
-			0.10366330,
-			0.11039993,
-			0.11757434,
-			0.12521498,
-			0.13335215,
-			0.14201813,
-			0.15124727,
-			0.16107617,
-			0.17154380,
-			0.18269168,
-			0.19456402,
-			0.20720788,
-			0.22067342,
-			0.23501402,
-			0.25028656,
-			0.26655159,
-			0.28387361,
-			0.30232132,
-			0.32196786,
-			0.34289114,
-			0.36517414,
-			0.38890521,
-			0.41417847,
-			0.44109412,
-			0.46975890,
-			0.50028648,
-			0.53279791,
-			0.56742212,
-			0.60429640,
-			0.64356699,
-			0.68538959,
-			0.72993007,
-			0.77736504,
-			0.82788260,
-			0.88168307,
-			0.9389798,
-			1.0,
-		}
-	)
 	-- Floor curve synthesis with step2_flag (Vorbis I spec section 7.2.3)
 	-- Iterate through sorted posts, drawing lines only between active (step2_flag) posts
 	local sorted_indices = floor.sorted_indices
@@ -1267,20 +1384,34 @@ function vorbis.DecodeResidue(reader, setup, res, n, ch_count, no_residue)
 							if vq_book then
 								local offset = limit_begin + partition_count * res.partition_size
 								local partition_end = math.min(offset + res.partition_size, decode_n)
+								local vec_dim = vq_book.dimensions
+								local lookup_vectors_flat = vq_book.lookup_vectors_flat
+								local target = vectors[j]
 
 								if res.type == 0 then
 									-- Format 0: de-interleaved VQ
 									local step = math.floor(res.partition_size / vq_book.dimensions)
 
 									for s = 0, step - 1 do
-										local vec = vorbis.DecodeCodebookVector(vq_book, reader)
+										local table_entry = decode_codebook_table_entry(vq_book, reader)
+										local entry_idx = table_entry and table_entry.value - 1
 
-										if vec then
-											for m = 1, #vec do
-												local idx = offset + s + (m - 1) * step
+										if entry_idx then
+											local vec_base = entry_idx * vec_dim
+											local last_idx = offset + s + (vec_dim - 1) * step
 
-												if idx >= 0 and idx < partition_end then
-													vectors[j][idx] = vectors[j][idx] + vec[m]
+											if last_idx < partition_end then
+												for m = 0, vec_dim - 1 do
+													local idx = offset + s + m * step
+													target[idx] = target[idx] + lookup_vectors_flat[vec_base + m]
+												end
+											else
+												for m = 0, vec_dim - 1 do
+													local idx = offset + s + m * step
+
+													if idx < partition_end then
+														target[idx] = target[idx] + lookup_vectors_flat[vec_base + m]
+													end
 												end
 											end
 										end
@@ -1290,19 +1421,28 @@ function vorbis.DecodeResidue(reader, setup, res, n, ch_count, no_residue)
 									local k = 0
 
 									while offset + k < partition_end do
-										local vec = vorbis.DecodeCodebookVector(vq_book, reader)
+										local table_entry = decode_codebook_table_entry(vq_book, reader)
+										local entry_idx = table_entry and table_entry.value - 1
 
-										if vec then
-											for m = 1, #vec do
-												if offset + k >= partition_end then break end
+										if entry_idx then
+											local vec_base = entry_idx * vec_dim
+											local idx = offset + k
 
-												local idx = offset + k
-
-												if idx >= 0 and idx < partition_end then
-													vectors[j][idx] = vectors[j][idx] + vec[m]
+											if idx + vec_dim <= partition_end then
+												for m = 0, vec_dim - 1 do
+													target[idx] = target[idx] + lookup_vectors_flat[vec_base + m]
+													idx = idx + 1
 												end
 
-												k = k + 1
+												k = k + vec_dim
+											else
+												for m = 0, vec_dim - 1 do
+													if idx >= partition_end then break end
+
+													target[idx] = target[idx] + lookup_vectors_flat[vec_base + m]
+													idx = idx + 1
+													k = k + 1
+												end
 											end
 										else
 											break
@@ -1357,31 +1497,171 @@ local function get_window(state, win_n)
 	return window
 end
 
-local function get_imdct_table(state, n)
-	state.imdct_table = state.imdct_table or {}
-	local table_ = state.imdct_table[n]
+local function get_imdct_plan(state, n)
+	state.imdct_plan = state.imdct_plan or {}
+	local plan = state.imdct_plan[n]
 
-	if not table_ then
+	if not plan then
 		local n2 = n / 2
-		local factor = math_pi / n2
-		table_ = ffi.new("float[?]", n * n2)
+		local fft_size = n
+		local twiddle_cos = ffi.new("float[?]", fft_size / 2)
+		local twiddle_sin = ffi.new("float[?]", fft_size / 2)
+		local phase_cos = ffi.new("float[?]", n2)
+		local phase_sin = ffi.new("float[?]", n2)
+		local input_cos = ffi.new("float[?]", fft_size)
+		local input_sin = ffi.new("float[?]", fft_size)
+		local bitrev = ffi.new("uint32_t[?]", fft_size)
 
-		for i = 0, n - 1 do
-			local row_offset = i * n2
-			local angle_scale = factor * (i + 0.5 + n2 / 2)
+		for i = 0, fft_size - 1 do
+			bitrev[i] = bit.rshift(bit_reverse32(i), 32 - ilog(fft_size - 1))
+		end
 
-			for j = 0, n2 - 1 do
-				table_[row_offset + j] = math_cos(angle_scale * (j + 0.5))
+		for i = 0, fft_size / 2 - 1 do
+			local angle = 2 * math_pi * i / fft_size
+			twiddle_cos[i] = math_cos(angle)
+			twiddle_sin[i] = -math_sin(angle)
+		end
+
+		for i = 0, fft_size - 1 do
+			local angle = math_pi * i / fft_size
+			input_cos[i] = 2 * math_cos(angle)
+			input_sin[i] = -2 * math_sin(angle)
+		end
+
+		for i = 0, n2 - 1 do
+			local angle = math_pi * (2 * i + 1) / (4 * n2)
+			phase_cos[i] = math_cos(angle)
+			phase_sin[i] = math_sin(angle)
+		end
+
+		plan = {
+			fft_size = fft_size,
+			bitrev = bitrev,
+			twiddle_cos = twiddle_cos,
+			twiddle_sin = twiddle_sin,
+			input_cos = input_cos,
+			input_sin = input_sin,
+			phase_cos = phase_cos,
+			phase_sin = phase_sin,
+			real_buffer = ffi.new("float[?]", fft_size),
+			imag_buffer = ffi.new("float[?]", fft_size),
+			dct_buffer = ffi.new("float[?]", n2),
+		}
+		state.imdct_plan[n] = plan
+	end
+
+	return plan
+end
+
+local function get_imdct_output_buffer(state, n)
+	state.imdct_output_buffer = state.imdct_output_buffer or {}
+	local buffer = state.imdct_output_buffer[n]
+
+	if not buffer then
+		buffer = ffi.new("float[?]", n)
+		state.imdct_output_buffer[n] = buffer
+	end
+
+	return buffer
+end
+
+local function run_fft(plan, real, imag)
+	local fft_size = plan.fft_size
+	local bitrev = plan.bitrev
+	local twiddle_cos = plan.twiddle_cos
+	local twiddle_sin = plan.twiddle_sin
+
+	for i = 0, fft_size - 1 do
+		local j = bitrev[i]
+
+		if j > i then
+			local real_i = real[i]
+			local imag_i = imag[i]
+			real[i] = real[j]
+			imag[i] = imag[j]
+			real[j] = real_i
+			imag[j] = imag_i
+		end
+	end
+
+	local len = 2
+
+	while len <= fft_size do
+		local half = len / 2
+		local twiddle_step = fft_size / len
+
+		for offset = 0, fft_size - 1, len do
+			local twiddle_idx = 0
+
+			for j = 0, half - 1 do
+				local left = offset + j
+				local right = left + half
+				local wr = twiddle_cos[twiddle_idx]
+				local wi = twiddle_sin[twiddle_idx]
+				local right_real = real[right]
+				local right_imag = imag[right]
+				local temp_real = right_real * wr - right_imag * wi
+				local temp_imag = right_real * wi + right_imag * wr
+				local left_real = real[left]
+				local left_imag = imag[left]
+				real[left] = left_real + temp_real
+				imag[left] = left_imag + temp_imag
+				real[right] = left_real - temp_real
+				imag[right] = left_imag - temp_imag
+				twiddle_idx = twiddle_idx + twiddle_step
 			end
 		end
 
-		state.imdct_table[n] = table_
+		len = len * 2
 	end
-
-	return table_
 end
 
-local function apply_packet_window(samples, n, bs0, blockflag, prev_window_flag, next_window_flag)
+local function run_fast_imdct(spectrum, imdct_plan, imdct_out, n, n2)
+	local real = imdct_plan.real_buffer
+	local imag = imdct_plan.imag_buffer
+	local dct = imdct_plan.dct_buffer
+	local phase_cos = imdct_plan.phase_cos
+	local phase_sin = imdct_plan.phase_sin
+	local input_cos = imdct_plan.input_cos
+	local input_sin = imdct_plan.input_sin
+	local fft_size = imdct_plan.fft_size
+	local half_n2 = n2 / 2
+
+	for i = 0, n2 - 1 do
+		local value = spectrum[i]
+		local left = i
+		local right = fft_size - 1 - i
+		local left_scale_real = value * input_cos[left]
+		local left_scale_imag = value * input_sin[left]
+		local right_scale_real = -value * input_cos[right]
+		local right_scale_imag = -value * input_sin[right]
+		real[left] = left_scale_real
+		imag[left] = left_scale_imag
+		real[right] = right_scale_real
+		imag[right] = right_scale_imag
+	end
+
+	run_fft(imdct_plan, real, imag)
+
+	for i = 0, n2 - 1 do
+		dct[i] = 0.25 * (real[i] * phase_cos[i] + imag[i] * phase_sin[i])
+	end
+
+	for i = 0, half_n2 - 1 do
+		imdct_out[i] = dct[half_n2 + i]
+		imdct_out[half_n2 + i] = -dct[n2 - 1 - i]
+		imdct_out[n2 + i] = -dct[half_n2 - 1 - i]
+		imdct_out[n2 + half_n2 + i] = -dct[i]
+	end
+end
+
+local function get_packet_window(state, n, bs0, blockflag, prev_window_flag, next_window_flag)
+	state.packet_window = state.packet_window or {}
+	local key = table.concat({n, bs0, blockflag and 1 or 0, prev_window_flag or 0, next_window_flag or 0}, ":")
+	local cached = state.packet_window[key]
+
+	if cached then return cached end
+
 	local left_start
 	local left_end
 	local right_start
@@ -1403,25 +1683,58 @@ local function apply_packet_window(samples, n, bs0, blockflag, prev_window_flag,
 		right_end = n
 	end
 
+	local left_len = left_end - left_start
+	local right_len = right_end - right_start
+	local left_weights = ffi.new("float[?]", math.max(left_len, 1))
+	local right_weights = ffi.new("float[?]", math.max(right_len, 1))
+
+	if left_len > 0 then
+		local scale = math_pi / (2 * left_len)
+
+		for i = 0, left_len - 1 do
+			local s = math.sin((i + 0.5) * scale)
+			left_weights[i] = math.sin(0.5 * math_pi * s * s)
+		end
+	end
+
+	if right_len > 0 then
+		local scale = math_pi / (2 * right_len)
+
+		for i = 0, right_len - 1 do
+			local s = math.sin((right_len - i - 0.5) * scale)
+			right_weights[i] = math.sin(0.5 * math_pi * s * s)
+		end
+	end
+
+	cached = {
+		left_start = left_start,
+		left_end = left_end,
+		right_start = right_start,
+		right_end = right_end,
+		left_weights = left_weights,
+		right_weights = right_weights,
+	}
+	state.packet_window[key] = cached
+	return cached
+end
+
+local function apply_packet_window(state, samples, n, bs0, blockflag, prev_window_flag, next_window_flag)
+	local window = get_packet_window(state, n, bs0, blockflag, prev_window_flag, next_window_flag)
+	local left_start = window.left_start
+	local left_end = window.left_end
+	local right_start = window.right_start
+	local right_end = window.right_end
+
 	for i = 0, left_start - 1 do
 		samples[i] = 0
 	end
 
 	for i = left_start, left_end - 1 do
-		local x = (((i - left_start) + 0.5) / math.max(left_end - left_start, 1)) * (math_pi / 2)
-		local s = math.sin(x)
-		samples[i] = samples[i] * math.sin(0.5 * math_pi * s * s)
-	end
-
-	for i = left_end, right_start - 1 do
-
-	-- Flat section, window multiplier is 1.
+		samples[i] = samples[i] * window.left_weights[i - left_start]
 	end
 
 	for i = right_start, right_end - 1 do
-		local x = (((right_end - i) - 0.5) / math.max(right_end - right_start, 1)) * (math_pi / 2)
-		local s = math.sin(x)
-		samples[i] = samples[i] * math.sin(0.5 * math_pi * s * s)
+		samples[i] = samples[i] * window.right_weights[i - right_start]
 	end
 
 	for i = right_end, n - 1 do
@@ -1464,7 +1777,6 @@ function vorbis.DecodePacket(packet, info, setup, state)
 	local mapping = setup.mappings[mode.mapping + 1]
 	local channels = info.channels
 	assertf(mapping, "Missing mapping %d", mode.mapping + 1)
-	-- 1. Floor decode
 	local no_residue = {}
 	local floors = {}
 
@@ -1490,8 +1802,6 @@ function vorbis.DecodePacket(packet, info, setup, state)
 		end
 	end
 
-	-- 2. Nonzero vector propagate (Vorbis I spec section 4.3.3)
-	-- For each coupling step, if either channel has a floor, ensure both participate in residue decode
 	if mapping.coupling then
 		for j = 1, #mapping.coupling do
 			local mag_ch = mapping.coupling[j].magnitude + 1
@@ -1504,30 +1814,27 @@ function vorbis.DecodePacket(packet, info, setup, state)
 		end
 	end
 
-	-- 3. Residue decode setup
 	local residue_results = {}
 
 	for ch = 1, channels do
 		residue_results[ch] = ffi.new("float[?]", n2)
 	end
 
-	-- 3. Residue decode
+	local submap_no_residue_scratch = state.submap_no_residue_scratch or {}
+	state.submap_no_residue_scratch = submap_no_residue_scratch
+
 	for i = 1, mapping.submaps do
 		local res_idx = mapping.submap_residue[i] + 1
 		local res = setup.residues[res_idx]
 		assertf(res, "Missing residue %d for submap %d", res_idx, i)
 
 		if res then
-			local submap_channels = {}
-			local submap_no_residue = {}
+			local submap_channels = mapping.submap_channels[i]
+			local submap_no_residue = submap_no_residue_scratch[i] or {}
+			submap_no_residue_scratch[i] = submap_no_residue
 
-			for ch = 1, channels do
-				local mux = (mapping.submaps > 1) and ((mapping.mux[ch] or 0) + 1) or 1
-
-				if mux == i then
-					table.insert(submap_channels, ch)
-					table.insert(submap_no_residue, no_residue[ch])
-				end
+			for j = 1, #submap_channels do
+				submap_no_residue[j] = no_residue[submap_channels[j]]
 			end
 
 			if #submap_channels > 0 then
@@ -1547,7 +1854,6 @@ function vorbis.DecodePacket(packet, info, setup, state)
 		end
 	end
 
-	-- Apply Coupling
 	if mapping.coupling then
 		for j = #mapping.coupling, 1, -1 do
 			local mag_ch = mapping.coupling[j].magnitude + 1
@@ -1580,78 +1886,44 @@ function vorbis.DecodePacket(packet, info, setup, state)
 		end
 	end
 
-	-- 4. IMDCT & Overlap-Add
 	local bs0 = info.blocksize_0
 	local output_n = 0
 	local pcm = ffi.new("float[?]", channels * output_n)
 	state.previous_window = state.previous_window or {}
 	state.window = state.window or {}
-	local imdct_table = get_imdct_table(state, n)
+	local imdct_plan = get_imdct_plan(state, n)
 	local next_overlap_len = 0
 
 	for ch = 1, channels do
-		local spectrum = ffi.new("float[?]", n2)
+		local spectrum = residue_results[ch]
 		local floor_data = floors[ch]
-		local residue = residue_results[ch]
 		local has_signal = false
 
-		for i = 0, n2 - 1 do
-			local floor_val = (floor_data and floor_data[i]) or 0
-			local value = residue[i] * floor_val
-			spectrum[i] = value
+		if floor_data then
+			for i = 0, n2 - 1 do
+				local value = spectrum[i] * floor_data[i]
+				spectrum[i] = value
 
-			if value ~= 0 then has_signal = true end
+				if value ~= 0 then has_signal = true end
+			end
+		else
+			for i = 0, n2 - 1 do
+				spectrum[i] = 0
+			end
 		end
 
-		-- Naive O(N^2) IMDCT.
-		local imdct_out = ffi.new("float[?]", n)
-		local scale = 1
+		local imdct_out = get_imdct_output_buffer(state, n)
 
 		if has_signal then
-			local i = 0
-
-			while i < n do
-				local row0 = i * n2
-				local acc0 = 0
-
-				if i + 1 < n then
-					local row1 = row0 + n2
-					local acc1 = 0
-					local j = 0
-					local stop = n2 - 4
-
-					while j <= stop do
-						local s0 = spectrum[j]
-						local s1 = spectrum[j + 1]
-						local s2 = spectrum[j + 2]
-						local s3 = spectrum[j + 3]
-						acc0 = acc0 + s0 * imdct_table[row0 + j] + s1 * imdct_table[row0 + j + 1] + s2 * imdct_table[row0 + j + 2] + s3 * imdct_table[row0 + j + 3]
-						acc1 = acc1 + s0 * imdct_table[row1 + j] + s1 * imdct_table[row1 + j + 1] + s2 * imdct_table[row1 + j + 2] + s3 * imdct_table[row1 + j + 3]
-						j = j + 4
-					end
-
-					while j < n2 do
-						local s = spectrum[j]
-						acc0 = acc0 + s * imdct_table[row0 + j]
-						acc1 = acc1 + s * imdct_table[row1 + j]
-						j = j + 1
-					end
-
-					imdct_out[i] = acc0 * scale
-					imdct_out[i + 1] = acc1 * scale
-					i = i + 2
-				else
-					for j = 0, n2 - 1 do
-						acc0 = acc0 + spectrum[j] * imdct_table[row0 + j]
-					end
-
-					imdct_out[i] = acc0 * scale
-					i = i + 1
-				end
+			run_fast_imdct(spectrum, imdct_plan, imdct_out, n, n2)
+		else
+			for i = 0, n - 1 do
+				imdct_out[i] = 0
 			end
 		end
 
 		local left_start, left_end, right_start, right_end = apply_packet_window(
+			state,
 			imdct_out,
 			n,
 			bs0,
