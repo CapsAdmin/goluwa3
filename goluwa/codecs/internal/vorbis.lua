@@ -3,7 +3,9 @@ local ffi = require("ffi")
 local Buffer = import("goluwa/structs/buffer.lua")
 local vorbis = {}
 local ffi_cast = ffi.cast
+local ffi_copy = ffi.copy
 local ffi_fill = ffi.fill
+local float_size = ffi.sizeof("float")
 local bit_band = bit.band
 local bit_lshift = bit.lshift
 local bit_rshift = bit.rshift
@@ -130,29 +132,34 @@ local function reader_peek_bits_at(reader, bit_pos, nbits)
 end
 
 local function decode_codebook_table_entry(book, reader)
-	if not book or (not book.decode_tables_dense and not book.dec_table) then
-		return nil
-	end
+	if not book then return nil end
 
 	local bit_pos = reader_bit_pos(reader)
 	local remaining = reader.ByteSize * 8 - bit_pos
 
 	if remaining <= 0 then return nil end
 
-	local peek_len = math_min(book.max_code_len, remaining)
-	local val = reader_peek_bits_at(reader, bit_pos, peek_len)
+	if not book.fast_len then
+		book.fast_len = math_min(10, book.max_code_len)
+		book.fast_mask = (2 ^ book.fast_len) - 1
+	end
 
-	if book.dec_table then
-		local entry = book.dec_table[val]
+	local peek_fast = math_min(book.fast_len, remaining)
+	local val_fast = reader_peek_bits_at(reader, bit_pos, peek_fast)
 
-		if entry and entry.len <= peek_len then
-			if reader.buf_nbit == 0 then reader.buf_start_pos = reader.Position end
+	if book.dec_table_len then
+		local mask = book.fast_mask
+		local idx = bit_band(val_fast, mask)
+		local entry_len = book.dec_table_len[idx]
 
-			reader_set_bit_pos(reader, bit_pos + entry.len)
-			return entry
+		if entry_len > 0 and entry_len <= peek_fast then
+			reader_set_bit_pos(reader, bit_pos + entry_len)
+			return book.dec_table_val[idx] - 1
 		end
 	end
 
+	local peek_len = math_min(book.max_code_len, remaining)
+	local val = reader_peek_bits_at(reader, bit_pos, peek_len)
 	local decode_lengths = book.decode_lengths
 	local decode_tables_dense = book.decode_tables_dense
 	local decode_masks_dense = book.decode_masks_dense
@@ -162,14 +169,13 @@ local function decode_codebook_table_entry(book, reader)
 
 		if len > peek_len then break end
 
-		local decode_table = decode_tables_dense[i]
-		local entry = decode_table and decode_table[bit_band(val, decode_masks_dense[i])]
+		if len > 10 then
+			local entry = decode_tables_dense[i][bit_band(val, decode_masks_dense[i])]
 
-		if entry then
-			if reader.buf_nbit == 0 then reader.buf_start_pos = reader.Position end
-
-			reader_set_bit_pos(reader, bit_pos + len)
-			return entry
+			if entry then
+				reader_set_bit_pos(reader, bit_pos + len)
+				return entry.value - 1
+			end
 		end
 	end
 
@@ -181,14 +187,7 @@ function vorbis.DecodeCodebookEntry(book, reader)
 
 	if not entry then return nil end
 
-	assertf(entry.len > 0, "Invalid codebook entry length 0")
-	assertf(
-		entry.len <= book.max_code_len,
-		"Codebook entry length %d exceeds max %d",
-		entry.len,
-		book.max_code_len
-	)
-	return entry.value - 1
+	return entry
 end
 
 function vorbis.DecodeCodebookVector(book, reader)
@@ -196,7 +195,7 @@ function vorbis.DecodeCodebookVector(book, reader)
 
 	if not table_entry then return nil end
 
-	local entry_idx = table_entry.value - 1
+	local entry_idx = table_entry
 	local lookup_entry = entry_idx
 
 	if not entry_idx then return nil end
@@ -483,25 +482,28 @@ function vorbis.DecodeSetup(packet, info)
 				decode_table[code_entry.reversed] = code_entry
 			end
 
-			if max_code_len <= FAST_DECODE_TABLE_MAX_BITS then
-				local table_size = 2 ^ max_code_len
-				local dec_table = {}
+			local fast_len = math.min(max_code_len, FAST_DECODE_TABLE_MAX_BITS)
+			local dec_table_len = ffi.new("uint8_t[?]", 2 ^ fast_len)
+			local dec_table_val = ffi.new("uint32_t[?]", 2 ^ fast_len)
 
-				for i = 1, #code_entries do
-					local code_entry = code_entries[i]
-					local span = 2 ^ code_entry.len
-					local fill_count = 2 ^ (max_code_len - code_entry.len)
+			for i = 1, #code_entries do
+				local code_entry = code_entries[i]
+
+				if code_entry.len <= fast_len then
+					local span = bit_lshift(1, code_entry.len)
+					local fill_count = bit_lshift(1, fast_len - code_entry.len)
 					local idx = code_entry.reversed
 
 					for _ = 1, fill_count do
-						dec_table[idx] = code_entry
+						dec_table_len[idx] = code_entry.len
+						dec_table_val[idx] = code_entry.value
 						idx = idx + span
 					end
 				end
-
-				cb.dec_table = dec_table
 			end
 
+			cb.dec_table_len = dec_table_len
+			cb.dec_table_val = dec_table_val
 			table.sort(cb.decode_lengths)
 			cb.decode_tables_dense = {}
 			cb.decode_masks_dense = {}
@@ -1261,7 +1263,20 @@ end
 -- Decode residue types 0, 1, and 2
 -- Type 2 interleaves all channels into one vector, decodes as one, then deinterleaves
 -- Returns a table of per-channel FFI float arrays (1-indexed by channel)
-function vorbis.DecodeResidue(reader, setup, res, n, ch_count, no_residue)
+local function get_scratch_float(state, id, size)
+	state.scratch_floats = state.scratch_floats or {}
+	state.scratch_floats[id] = state.scratch_floats[id] or {}
+
+	if not state.scratch_floats[id].ptr or state.scratch_floats[id].size < size then
+		state.scratch_floats[id].ptr = ffi.new("float[?]", size)
+		state.scratch_floats[id].size = size
+	end
+
+	ffi.fill(state.scratch_floats[id].ptr, size * 4)
+	return state.scratch_floats[id].ptr
+end
+
+function vorbis.DecodeResidue(reader, setup, res, n, ch_count, no_residue, state)
 	local actual_size = n / 2
 	-- For type 2, check if ALL channels have no_residue (skip entirely)
 	local all_no_residue = true
@@ -1278,7 +1293,7 @@ function vorbis.DecodeResidue(reader, setup, res, n, ch_count, no_residue)
 		local result = {}
 
 		for i = 1, ch_count do
-			result[i] = ffi.new("float[?]", actual_size)
+			result[i] = get_scratch_float(state, "res_ch_" .. i, actual_size)
 		end
 
 		return result
@@ -1304,7 +1319,7 @@ function vorbis.DecodeResidue(reader, setup, res, n, ch_count, no_residue)
 		local result = {}
 
 		for i = 1, ch_count do
-			result[i] = ffi.new("float[?]", actual_size)
+			result[i] = get_scratch_float(state, "res_ch_" .. i, actual_size)
 		end
 
 		return result
@@ -1317,7 +1332,7 @@ function vorbis.DecodeResidue(reader, setup, res, n, ch_count, no_residue)
 		local result = {}
 
 		for i = 1, ch_count do
-			result[i] = ffi.new("float[?]", actual_size)
+			result[i] = get_scratch_float(state, "res_ch_" .. i, actual_size)
 		end
 
 		return result
@@ -1328,7 +1343,7 @@ function vorbis.DecodeResidue(reader, setup, res, n, ch_count, no_residue)
 	local vectors = {}
 
 	for i = 1, decode_ch do
-		vectors[i] = ffi.new("float[?]", decode_n)
+		vectors[i] = get_scratch_float(state, "res_dec_" .. i, decode_n)
 	end
 
 	-- do_not_decode per decode-channel
@@ -1394,7 +1409,7 @@ function vorbis.DecodeResidue(reader, setup, res, n, ch_count, no_residue)
 
 									for s = 0, step - 1 do
 										local table_entry = decode_codebook_table_entry(vq_book, reader)
-										local entry_idx = table_entry and table_entry.value - 1
+										local entry_idx = table_entry
 
 										if entry_idx then
 											local vec_base = entry_idx * vec_dim
@@ -1422,7 +1437,7 @@ function vorbis.DecodeResidue(reader, setup, res, n, ch_count, no_residue)
 
 									while offset + k < partition_end do
 										local table_entry = decode_codebook_table_entry(vq_book, reader)
-										local entry_idx = table_entry and table_entry.value - 1
+										local entry_idx = table_entry
 
 										if entry_idx then
 											local vec_base = entry_idx * vec_dim
@@ -1465,7 +1480,7 @@ function vorbis.DecodeResidue(reader, setup, res, n, ch_count, no_residue)
 		local result = {}
 
 		for i = 1, ch_count do
-			result[i] = ffi.new("float[?]", actual_size)
+			result[i] = get_scratch_float(state, "res_ch_" .. i, actual_size)
 		end
 
 		for i = 0, actual_size - 1 do
@@ -1503,49 +1518,59 @@ local function get_imdct_plan(state, n)
 
 	if not plan then
 		local n2 = n / 2
-		local fft_size = n
-		local twiddle_cos = ffi.new("float[?]", fft_size / 2)
-		local twiddle_sin = ffi.new("float[?]", fft_size / 2)
-		local phase_cos = ffi.new("float[?]", n2)
-		local phase_sin = ffi.new("float[?]", n2)
-		local input_cos = ffi.new("float[?]", fft_size)
-		local input_sin = ffi.new("float[?]", fft_size)
-		local bitrev = ffi.new("uint32_t[?]", fft_size)
+		local n4 = n / 4
+		-- Pre-twiddle factors: angle = pi*(4r+1)/(2N)
+		local pre_cos = ffi.new("float[?]", n4)
+		local pre_sin = ffi.new("float[?]", n4)
 
-		for i = 0, fft_size - 1 do
-			bitrev[i] = bit.rshift(bit_reverse32(i), 32 - ilog(fft_size - 1))
+		for r = 0, n4 - 1 do
+			local angle = math_pi * (4 * r + 1) / (2 * n)
+			pre_cos[r] = math_cos(angle)
+			pre_sin[r] = math_sin(angle)
 		end
 
-		for i = 0, fft_size / 2 - 1 do
-			local angle = 2 * math_pi * i / fft_size
+		-- Post-twiddle factors: angle = pi*k/(2*H) where H=N/4
+		local post_cos = ffi.new("float[?]", n4)
+		local post_sin = ffi.new("float[?]", n4)
+
+		for k = 0, n4 - 1 do
+			local angle = math_pi * k / (2 * n4)
+			post_cos[k] = math_cos(angle)
+			post_sin[k] = math_sin(angle)
+		end
+
+		-- FFT twiddle factors for N/4-size FFT
+		local twiddle_cos = ffi.new("float[?]", n4 / 2)
+		local twiddle_sin = ffi.new("float[?]", n4 / 2)
+
+		for i = 0, n4 / 2 - 1 do
+			local angle = 2 * math_pi * i / n4
 			twiddle_cos[i] = math_cos(angle)
 			twiddle_sin[i] = -math_sin(angle)
 		end
 
-		for i = 0, fft_size - 1 do
-			local angle = math_pi * i / fft_size
-			input_cos[i] = 2 * math_cos(angle)
-			input_sin[i] = -2 * math_sin(angle)
-		end
+		-- Bit-reversal table for N/4-size FFT
+		local log2n4 = ilog(n4 - 1)
+		local bitrev = ffi.new("uint32_t[?]", n4)
 
-		for i = 0, n2 - 1 do
-			local angle = math_pi * (2 * i + 1) / (4 * n2)
-			phase_cos[i] = math_cos(angle)
-			phase_sin[i] = math_sin(angle)
+		for i = 0, n4 - 1 do
+			bitrev[i] = bit.rshift(bit_reverse32(i), 32 - log2n4)
 		end
 
 		plan = {
-			fft_size = fft_size,
+			n = n,
+			n2 = n2,
+			n4 = n4,
+			fft_size = n4,
 			bitrev = bitrev,
 			twiddle_cos = twiddle_cos,
 			twiddle_sin = twiddle_sin,
-			input_cos = input_cos,
-			input_sin = input_sin,
-			phase_cos = phase_cos,
-			phase_sin = phase_sin,
-			real_buffer = ffi.new("float[?]", fft_size),
-			imag_buffer = ffi.new("float[?]", fft_size),
-			dct_buffer = ffi.new("float[?]", n2),
+			pre_cos = pre_cos,
+			pre_sin = pre_sin,
+			post_cos = post_cos,
+			post_sin = post_sin,
+			real_buffer = ffi.new("float[?]", n4),
+			imag_buffer = ffi.new("float[?]", n4),
 		}
 		state.imdct_plan[n] = plan
 	end
@@ -1565,12 +1590,7 @@ local function get_imdct_output_buffer(state, n)
 	return buffer
 end
 
-local function run_fft(plan, real, imag)
-	local fft_size = plan.fft_size
-	local bitrev = plan.bitrev
-	local twiddle_cos = plan.twiddle_cos
-	local twiddle_sin = plan.twiddle_sin
-
+local function run_fft(fft_size, real, imag, bitrev, twiddle_cos, twiddle_sin)
 	for i = 0, fft_size - 1 do
 		local j = bitrev[i]
 
@@ -1616,42 +1636,80 @@ local function run_fft(plan, real, imag)
 	end
 end
 
+-- IMDCT via N/4 complex FFT
+-- Folds N/2 spectral coefficients into N/4 complex numbers via pre-twiddle,
+-- runs N/4-size FFT, then post-twiddles and reorders to produce the N-point output.
 local function run_fast_imdct(spectrum, imdct_plan, imdct_out, n, n2)
+	local n4 = imdct_plan.n4
 	local real = imdct_plan.real_buffer
 	local imag = imdct_plan.imag_buffer
-	local dct = imdct_plan.dct_buffer
-	local phase_cos = imdct_plan.phase_cos
-	local phase_sin = imdct_plan.phase_sin
-	local input_cos = imdct_plan.input_cos
-	local input_sin = imdct_plan.input_sin
-	local fft_size = imdct_plan.fft_size
-	local half_n2 = n2 / 2
+	local pre_cos = imdct_plan.pre_cos
+	local pre_sin = imdct_plan.pre_sin
+	local post_cos = imdct_plan.post_cos
+	local post_sin = imdct_plan.post_sin
 
-	for i = 0, n2 - 1 do
-		local value = spectrum[i]
-		local left = i
-		local right = fft_size - 1 - i
-		local left_scale_real = value * input_cos[left]
-		local left_scale_imag = value * input_sin[left]
-		local right_scale_real = -value * input_cos[right]
-		local right_scale_imag = -value * input_sin[right]
-		real[left] = left_scale_real
-		imag[left] = left_scale_imag
-		real[right] = right_scale_real
-		imag[right] = right_scale_imag
+	-- Pre-twiddle: fold N/2 spectrum into N/4 complex values
+	-- w_re = spectrum[N/2-1-2r], w_im = spectrum[2r]
+	-- v = (w_re*cos - w_im*sin) + j*(w_re*sin + w_im*cos)
+	for r = 0, n4 - 1 do
+		local wr = spectrum[n2 - 1 - 2 * r]
+		local wi = spectrum[2 * r]
+		local pc = pre_cos[r]
+		local ps = pre_sin[r]
+		real[r] = wr * pc - wi * ps
+		imag[r] = wr * ps + wi * pc
 	end
 
-	run_fft(imdct_plan, real, imag)
+	-- N/4-size FFT
+	run_fft(n4, real, imag, imdct_plan.bitrev, imdct_plan.twiddle_cos, imdct_plan.twiddle_sin)
 
-	for i = 0, n2 - 1 do
-		dct[i] = 0.25 * (real[i] * phase_cos[i] + imag[i] * phase_sin[i])
+	-- Post-twiddle: multiply by exp(-j * pi*k/(2*H))
+	-- zt_re = Zr*cos + Zi*sin, zt_im = -Zr*sin + Zi*cos
+	for k = 0, n4 - 1 do
+		local re = real[k]
+		local im = imag[k]
+		local pc = post_cos[k]
+		local ps = post_sin[k]
+		real[k] = re * pc + im * ps
+		imag[k] = -re * ps + im * pc
 	end
 
-	for i = 0, half_n2 - 1 do
-		imdct_out[i] = dct[half_n2 + i]
-		imdct_out[half_n2 + i] = -dct[n2 - 1 - i]
-		imdct_out[n2 + i] = -dct[half_n2 - 1 - i]
-		imdct_out[n2 + half_n2 + i] = -dct[i]
+	-- Output mapping: fill Q2 and Q3 directly, then derive Q1 and Q4 by symmetry
+	local Q = n4 -- N/4
+	local H = n4
+	local H2 = H / 2
+	-- Q2: imdct_out[Q .. 2Q-1]
+	imdct_out[Q] = real[0]
+
+	for m = 1, Q - 1 do
+		if m % 2 == 1 then
+			imdct_out[Q + m] = -real[(m + 1) / 2]
+		else
+			imdct_out[Q + m] = -imag[H - m / 2]
+		end
+	end
+
+	-- Q3: imdct_out[2Q .. 3Q-1]
+	imdct_out[2 * Q] = -imag[H2]
+
+	for m = 1, Q - 2 do
+		if m % 2 == 1 then
+			imdct_out[2 * Q + m] = -real[H2 + (m + 1) / 2]
+		else
+			imdct_out[2 * Q + m] = -imag[H2 - m / 2]
+		end
+	end
+
+	imdct_out[3 * Q - 1] = -imag[0]
+
+	-- Q1: antisymmetric from Q2: out[Q-1-j] = -out[Q+j]
+	for j = 0, Q - 1 do
+		imdct_out[Q - 1 - j] = -imdct_out[Q + j]
+	end
+
+	-- Q4: symmetric from Q3: out[3Q+j] = out[3Q-1-j]
+	for j = 0, Q - 1 do
+		imdct_out[3 * Q + j] = imdct_out[3 * Q - 1 - j]
 	end
 end
 
@@ -1725,9 +1783,7 @@ local function apply_packet_window(state, samples, n, bs0, blockflag, prev_windo
 	local right_start = window.right_start
 	local right_end = window.right_end
 
-	for i = 0, left_start - 1 do
-		samples[i] = 0
-	end
+	if left_start > 0 then ffi_fill(samples, left_start * float_size) end
 
 	for i = left_start, left_end - 1 do
 		samples[i] = samples[i] * window.left_weights[i - left_start]
@@ -1737,8 +1793,8 @@ local function apply_packet_window(state, samples, n, bs0, blockflag, prev_windo
 		samples[i] = samples[i] * window.right_weights[i - right_start]
 	end
 
-	for i = right_end, n - 1 do
-		samples[i] = 0
+	if right_end < n then
+		ffi_fill(samples + right_end, (n - right_end) * float_size)
 	end
 
 	return left_start, left_end, right_start, right_end
@@ -1814,10 +1870,12 @@ function vorbis.DecodePacket(packet, info, setup, state)
 		end
 	end
 
-	local residue_results = {}
+	-- Reuse per-packet scratch tables from state
+	state.residue_results = state.residue_results or {}
+	local residue_results = state.residue_results
 
 	for ch = 1, channels do
-		residue_results[ch] = ffi.new("float[?]", n2)
+		residue_results[ch] = get_scratch_float(state, "pkt_res_" .. ch, n2)
 	end
 
 	local submap_no_residue_scratch = state.submap_no_residue_scratch or {}
@@ -1844,7 +1902,8 @@ function vorbis.DecodePacket(packet, info, setup, state)
 					res,
 					n,
 					#submap_channels,
-					submap_no_residue
+					submap_no_residue,
+					state
 				)
 
 				for j = 1, #submap_channels do
@@ -1888,8 +1947,9 @@ function vorbis.DecodePacket(packet, info, setup, state)
 
 	local bs0 = info.blocksize_0
 	local output_n = 0
-	local pcm = ffi.new("float[?]", channels * output_n)
+	local pcm
 	state.previous_window = state.previous_window or {}
+	state.previous_window_capacity = state.previous_window_capacity or info.blocksize_1
 	state.window = state.window or {}
 	local imdct_plan = get_imdct_plan(state, n)
 	local next_overlap_len = 0
@@ -1907,9 +1967,7 @@ function vorbis.DecodePacket(packet, info, setup, state)
 				if value ~= 0 then has_signal = true end
 			end
 		else
-			for i = 0, n2 - 1 do
-				spectrum[i] = 0
-			end
+			ffi_fill(spectrum, n2 * float_size)
 		end
 
 		local imdct_out = get_imdct_output_buffer(state, n)
@@ -1917,9 +1975,7 @@ function vorbis.DecodePacket(packet, info, setup, state)
 		if has_signal then
 			run_fast_imdct(spectrum, imdct_plan, imdct_out, n, n2)
 		else
-			for i = 0, n - 1 do
-				imdct_out[i] = 0
-			end
+			ffi_fill(imdct_out, n * float_size)
 		end
 
 		local left_start, left_end, right_start, right_end = apply_packet_window(
@@ -1935,7 +1991,7 @@ function vorbis.DecodePacket(packet, info, setup, state)
 
 		if ch == 1 then
 			output_n = state.previous_length and block_output_n or 0
-			pcm = ffi.new("float[?]", channels * output_n)
+			pcm = get_scratch_float(state, "pkt_pcm", channels * math.max(output_n, 1))
 		end
 
 		local prev_window = state.previous_window[ch]
@@ -1956,13 +2012,14 @@ function vorbis.DecodePacket(packet, info, setup, state)
 
 		if ch == 1 then next_overlap_len = next_len end
 
-		local next_window = ffi.new("float[?]", next_len)
+		local next_window = state.previous_window[ch]
 
-		for i = 0, next_len - 1 do
-			next_window[i] = imdct_out[right_start + i]
+		if not next_window then
+			next_window = ffi.new("float[?]", state.previous_window_capacity)
+			state.previous_window[ch] = next_window
 		end
 
-		state.previous_window[ch] = next_window
+		ffi_copy(next_window, imdct_out + right_start, next_len * float_size)
 	end
 
 	state.previous_length = next_overlap_len

@@ -3,6 +3,8 @@ local bit = require("bit")
 local ffi = require("ffi")
 local vorbis_codec = import("goluwa/codecs/internal/vorbis.lua")
 local ogg = library()
+local ffi_copy = ffi.copy
+local float_size = ffi.sizeof("float")
 ogg.file_extensions = {"ogg"}
 
 --[[
@@ -172,10 +174,14 @@ function ogg.Decode(data)
 			-- Map decoded PCM to the output buffer
 			-- Vorbis overlap-add would go here
 			-- For now, we copy the decoded segment directly (placeholders in DecodePacket are zeroed)
-			for j = 0, (n * channels) - 1 do
-				if pcm_offset + j < buffer_size then
-					pcm[pcm_offset + j] = decoded_pcm[j]
-				end
+			local copy_count = n * channels
+
+			if pcm_offset + copy_count > buffer_size then
+				copy_count = buffer_size - pcm_offset
+			end
+
+			if copy_count > 0 then
+				ffi_copy(pcm + pcm_offset, decoded_pcm, copy_count * float_size)
 			end
 
 			pcm_offset = pcm_offset + n * channels
