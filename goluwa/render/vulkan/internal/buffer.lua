@@ -60,8 +60,16 @@ end
 
 function Buffer:OnRemove()
 	if self.device:IsValid() then
+		local device_ptr = self.device.ptr[0]
+		local buffer_ptr = self.ptr[0]
+		self.ptr[0] = nil
 		self.device:WaitIdle()
-		vulkan.lib.vkDestroyBuffer(self.device.ptr[0], self.ptr[0], nil)
+		vulkan.lib.vkDestroyBuffer(device_ptr, buffer_ptr, nil)
+	end
+
+	if self.memory and self.memory:IsValid() then
+		self.memory:Remove()
+		self.memory = nil
 	end
 end
 

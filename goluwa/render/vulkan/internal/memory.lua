@@ -29,8 +29,11 @@ end
 
 function Memory:OnRemove()
 	if self.device:IsValid() then
+		local device_ptr = self.device.ptr[0]
+		local memory_ptr = self.ptr[0]
+		self.ptr[0] = nil
 		self.device:WaitIdle()
-		vulkan.lib.vkFreeMemory(self.device.ptr[0], self.ptr[0], nil)
+		vulkan.lib.vkFreeMemory(device_ptr, memory_ptr, nil)
 	end
 end
 

@@ -79,8 +79,16 @@ function Image:OnRemove()
 	if self.dont_destroy then return end
 
 	if self.device:IsValid() then
+		local device_ptr = self.device.ptr[0]
+		local image_ptr = self.ptr[0]
+		self.ptr[0] = nil
 		self.device:WaitIdle()
-		vulkan.lib.vkDestroyImage(self.device.ptr[0], self.ptr[0], nil)
+		vulkan.lib.vkDestroyImage(device_ptr, image_ptr, nil)
+	end
+
+	if self.memory and self.memory:IsValid() then
+		self.memory:Remove()
+		self.memory = nil
 	end
 end
 
