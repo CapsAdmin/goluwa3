@@ -809,46 +809,65 @@ function EasyPipeline.New(config)
 	self.uniform_buffers = uniform_buffers
 	-- Build vertex attributes
 	local attributes = {}
-	local vertex_attributes_size = 0
+	local bindings = {}
+	local shader_inputs = {}
+	local shader_outputs = {}
 
-	if config.vertex and config.vertex.attributes then
-		for _, attribute in ipairs(config.vertex.attributes) do
-			local offset = 0
+	if config.vertex then
+		shader_outputs = config.vertex.outputs or config.vertex.attributes or {}
 
-			do
-				local prev = attributes[#attributes]
+		local vertex_bindings = config.vertex.bindings
 
-				if prev then
-					local size = render.GetVulkanFormatSize(prev.format)
-					offset = prev.offset + size
-				end
-			end
-
-			table.insert(
-				attributes,
+		if not vertex_bindings and config.vertex.attributes then
+			vertex_bindings = {
 				{
 					binding = config.vertex.binding_index or 0,
-					location = #attributes,
-					format = attribute[3],
-					offset = offset,
-					lua_name = attribute[1],
-					lua_type = glsl_to_lua_type[attribute[2]],
-				}
-			)
-			vertex_attributes_size = vertex_attributes_size + render.GetVulkanFormatSize(attribute[3])
+					input_rate = config.vertex.input_rate or "vertex",
+					attributes = config.vertex.attributes,
+				},
+			}
 		end
-	end
 
-	local bindings = {}
+		if vertex_bindings then
+			local location = 0
 
-	if #attributes > 0 then
-		bindings = {
-			{
-				binding = config.vertex.binding_index or 0,
-				stride = vertex_attributes_size,
-				input_rate = "vertex",
-			},
-		}
+			for binding_index, binding in ipairs(vertex_bindings) do
+				local binding_attributes = binding.attributes or {}
+				local stride = 0
+				local resolved_binding = binding.binding
+
+				if resolved_binding == nil then resolved_binding = binding.binding_index end
+				if resolved_binding == nil then resolved_binding = binding_index - 1 end
+
+				for _, attribute in ipairs(binding_attributes) do
+					table.insert(
+						attributes,
+						{
+							binding = resolved_binding,
+							location = location,
+							format = attribute[3],
+							offset = stride,
+							lua_name = attribute[1],
+							lua_type = glsl_to_lua_type[attribute[2]],
+						}
+					)
+					table.insert(shader_inputs, attribute)
+					stride = stride + render.GetVulkanFormatSize(attribute[3])
+					location = location + 1
+				end
+
+				if #binding_attributes > 0 then
+					table.insert(
+						bindings,
+						{
+							binding = resolved_binding,
+							stride = stride,
+							input_rate = binding.input_rate or "vertex",
+						}
+					)
+				end
+			end
+		end
 	end
 
 	-- Build shader header and I/O
@@ -871,12 +890,15 @@ function EasyPipeline.New(config)
 
 	local vertex_input = ""
 	local vertex_output = ""
+	local fragment_input = ""
 
-	if config.vertex and config.vertex.attributes then
-		for i, attr in ipairs(config.vertex.attributes) do
-			vertex_input = vertex_input .. string.format("layout(location = %d) in %s in_%s;\n", i - 1, attr[2], attr[1])
-			vertex_output = vertex_output .. string.format("layout(location = %d) out %s out_%s;\n", i - 1, attr[2], attr[1])
-		end
+	for i, attr in ipairs(shader_inputs) do
+		vertex_input = vertex_input .. string.format("layout(location = %d) in %s in_%s;\n", i - 1, attr[2], attr[1])
+	end
+
+	for i, attr in ipairs(shader_outputs) do
+		vertex_output = vertex_output .. string.format("layout(location = %d) out %s out_%s;\n", i - 1, attr[2], attr[1])
+		fragment_input = fragment_input .. string.format("layout(location = %d) in %s in_%s;\n", i - 1, attr[2], attr[1])
 	end
 
 	-- Build descriptor sets
@@ -1011,7 +1033,7 @@ function EasyPipeline.New(config)
 
 	-- Fragment stage
 	if config.fragment then
-		local fragment_code = shader_header .. vertex_input .. fragment_outputs .. (
+		local fragment_code = shader_header .. fragment_input .. fragment_outputs .. (
 				config.fragment.custom_declarations or
 				""
 			) .. get_glsl_push_constants("fragment") .. get_glsl_uniform_buffers("fragment") .. (

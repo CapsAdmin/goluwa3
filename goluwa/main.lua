@@ -66,7 +66,8 @@ return function(...)
 				assert(loadfile("game/run.lua"))()
 				event.Call("Initialize")
 				commands.RunArguments(args)
-				return
+				event.Call("ShutDown")
+				os.realexit(os.exitcode or 0)
 			end
 
 			commands.RunArguments(args)
