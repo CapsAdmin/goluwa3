@@ -1,5 +1,7 @@
 require("goluwa.global_environment")
 --
+local crash_trace = import("goluwa/crash_trace.lua")
+crash_trace.Install()
 local system = import("goluwa/system.lua")
 local profiler = import("goluwa/profiler.lua") -- init started in global_environment.lua
 local event = import("goluwa/event.lua")
@@ -41,64 +43,67 @@ commands.Add("cli", function(path, ...)
 end)
 
 return function(...)
-	if ... then
-		local args = {...}
-		local cmd = args[1]
+	local argv = {...}
+	return crash_trace.Run(function()
+		if argv[1] then
+			local args = argv
+			local cmd = args[1]
 
-		if cmd == "-e" then
-			cmd = "lua"
-		elseif cmd == "--reload" then
-			cmd = "reload"
-		elseif cmd:ends_with(".lua") then
-			cmd = "run"
-			args = {"run", cmd, unpack(args, 2)}
-		end
+			if cmd == "-e" then
+				cmd = "lua"
+			elseif cmd == "--reload" then
+				cmd = "reload"
+			elseif cmd:ends_with(".lua") then
+				cmd = "run"
+				args = {"run", cmd, unpack(args, 2)}
+			end
 
-		args[1] = cmd
+			args[1] = cmd
 
-		if cmd == "lua" then
+			if cmd == "lua" then
+				_G.GRAPHICS = true
+				_G.AUDIO = true
+				assert(loadfile("game/run.lua"))()
+				event.Call("Initialize")
+				commands.RunArguments(args)
+				return
+			end
+
+			commands.RunArguments(args)
+		else
 			_G.GRAPHICS = true
 			_G.AUDIO = true
 			assert(loadfile("game/run.lua"))()
-			event.Call("Initialize")
-			commands.RunArguments(args)
-			return
 		end
 
-		commands.RunArguments(args)
-	else
-		_G.GRAPHICS = true
-		_G.AUDIO = true
-		assert(loadfile("game/run.lua"))()
-	end
+		fs.write_file(".running_pid", tostring(process.current:get_id()))
+		local last_time = system.GetTime()
+		local i = 0
+		event.Call("Initialize")
 
-	fs.write_file(".running_pid", tostring(process.current:get_id()))
-	local last_time = system.GetTime()
-	local i = 0
-	event.Call("Initialize")
+		if _G.PROFILE then
+			profiler.Stop("init")
+			profiler.Start("update")
+		end
 
-	if _G.PROFILE then
-		profiler.Stop("init")
-		profiler.Start("update")
-	end
+		while system.IsRunning() and not os.exitcode do
+			local time = system.GetTime()
+			local dt = time - (last_time or 0)
+			--if dt > 0.1 then print("LONG FRAME", dt) end
+			system.SetFrameTime(dt)
+			system.SetFrameNumber(i)
+			system.SetElapsedTime(system.GetElapsedTime() + dt)
+			event.Call("Update", dt)
+			system.SetInternalFrameTime(system.GetTime() - time)
+			i = i + 1
+			last_time = time
+			event.Call("FrameEnd")
+		end
 
-	while system.IsRunning() and not os.exitcode do
-		local time = system.GetTime()
-		local dt = time - (last_time or 0)
-		--if dt > 0.1 then print("LONG FRAME", dt) end
-		system.SetFrameTime(dt)
-		system.SetFrameNumber(i)
-		system.SetElapsedTime(system.GetElapsedTime() + dt)
-		event.Call("Update", dt)
-		system.SetInternalFrameTime(system.GetTime() - time)
-		i = i + 1
-		last_time = time
-		event.Call("FrameEnd")
-	end
+		if _G.PROFILE then profiler.Stop("update") end
 
-	if _G.PROFILE then profiler.Stop("update") end
-
-	event.Call("ShutDown")
-	fs.remove_file(".running_pid")
-	os.realexit(os.exitcode) -- no need to wait for gc!!1
+		event.Call("ShutDown")
+		fs.remove_file(".running_pid")
+		os.realexit(os.exitcode) -- no need to wait for gc!!1
+	end)
 end
