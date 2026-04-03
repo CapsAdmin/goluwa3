@@ -597,7 +597,7 @@ function GraphicsPipeline.New(vulkan_instance, config)
 		self.cubemap_array = {}
 		self.next_cubemap_index = 0
 		self.cubemap_free_list = {}
-		self.max_textures = 1024
+		self.max_textures = 1024*4
 	end
 
 	local event = import("goluwa/event.lua")
