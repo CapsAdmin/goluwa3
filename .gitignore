@@ -4,3 +4,4 @@ lsp_session_*
 local_stuff
 game/storage/*
 bin/
+love_games/*
