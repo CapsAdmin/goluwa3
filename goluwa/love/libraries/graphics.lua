@@ -17,6 +17,15 @@ ENV.graphics_filter_mag = ENV.graphics_filter_mag or "linear"
 ENV.graphics_filter_anisotropy = ENV.graphics_filter_anisotropy or 1
 love.graphics = love.graphics or {}
 
+function love.graphics.getTextureTypes()
+	return {
+		["2d"] = true,
+		array = false,
+		cube = false,
+		volume = false,
+	}
+end
+
 local function love_uses_normalized_color_range()
 	return (love._version_major or 0) >= 11
 end

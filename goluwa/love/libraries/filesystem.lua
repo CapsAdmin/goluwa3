@@ -61,6 +61,34 @@ function love.filesystem.getWorkingDirectory()
 	return get_identity_storage_path()
 end
 
+function love.filesystem.getSource()
+	return ENV.filesystem_source or ""
+end
+
+function love.filesystem.getRealDirectory(path)
+	local storage_path = get_identity_storage_path(path)
+
+	if vfs.IsDirectory(storage_path) or vfs.IsFile(storage_path) then
+		return get_identity_storage_path()
+	end
+
+	local source = ENV.filesystem_source
+
+	if source and source ~= "" then
+		local source_path = source
+
+		if path and path ~= "" then source_path = source_path .. path end
+
+		if vfs.IsDirectory(source_path) or vfs.IsFile(source_path) then return source end
+	end
+
+	local resolved = find_existing_path(path)
+
+	if not resolved then return nil end
+
+	return resolved:match("^(.*[/\\])") or resolved
+end
+
 function love.filesystem.getLastModified(path)
 	local resolved = find_existing_path(path)
 
@@ -330,15 +358,23 @@ do -- FileData object
 	end
 
 	function love.filesystem.newFileData(contents, name, decoder)
-		if name then
+		if name == nil and type(contents) == "string" then
+			name = contents
+			contents = assert(love.filesystem.read(name))
+		elseif name then
 			love.filesystem.write(name, contents)
-		else
-			contents = love.filesystem.read(name)
 		end
 
 		local self = line.CreateObject("FileData")
 		self.contents = contents
-		self.filename, self.ext = name:match("(.+)%.(.+)")
+		self.filename = name or "data"
+		self.filename, self.ext = self.filename:match("(.+)%.(.+)")
+
+		if not self.filename then
+			self.filename = name or "data"
+			self.ext = "bin"
+		end
+
 		return self
 	end
 

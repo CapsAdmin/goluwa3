@@ -87,25 +87,45 @@ function line.CreateLoveEnv(version)
 	local love = {}
 	apply_love_version(love, version)
 	love._line_env = {}
+	love._modules = {}
 	love.package_loaders = {}
 	assert(loadfile("goluwa/love/libraries/arg.lua"))(love)
+	love._modules.arg = true
 	assert(loadfile("goluwa/love/libraries/event.lua"))(love)
+	love._modules.event = true
 	assert(loadfile("goluwa/love/libraries/graphics.lua"))(love)
+	love._modules.graphics = true
 	assert(loadfile("goluwa/love/libraries/joystick.lua"))(love)
+	love._modules.joystick = true
 	assert(loadfile("goluwa/love/libraries/love.lua"))(love)
 	assert(loadfile("goluwa/love/libraries/mouse.lua"))(love)
+	love._modules.mouse = true
 	assert(loadfile("goluwa/love/libraries/physics.lua"))(love)
+	love._modules.physics = true
 	assert(loadfile("goluwa/love/libraries/system.lua"))(love)
+	love._modules.system = true
 	assert(loadfile("goluwa/love/libraries/timer.lua"))(love)
+	love._modules.timer = true
 	assert(loadfile("goluwa/love/libraries/audio.lua"))(love)
+	love._modules.audio = true
 	assert(loadfile("goluwa/love/libraries/filesystem.lua"))(love)
+	love._modules.filesystem = true
+	assert(loadfile("goluwa/love/libraries/data.lua"))(love)
+	love._modules.data = true
 	assert(loadfile("goluwa/love/libraries/image.lua"))(love)
+	love._modules.image = true
 	assert(loadfile("goluwa/love/libraries/keyboard.lua"))(love)
+	love._modules.keyboard = true
 	assert(loadfile("goluwa/love/libraries/math.lua"))(love)
+	love._modules.math = true
 	assert(loadfile("goluwa/love/libraries/particles.lua"))(love)
+	love._modules.particles = true
 	assert(loadfile("goluwa/love/libraries/sound.lua"))(love)
+	love._modules.sound = true
 	assert(loadfile("goluwa/love/libraries/thread.lua"))(love)
+	love._modules.thread = true
 	assert(loadfile("goluwa/love/libraries/window.lua"))(love)
+	love._modules.window = true
 	list.insert(line.love_envs, love)
 	setmetatable(
 		love,
@@ -200,6 +220,19 @@ function line.RunGame(folder, ...)
 	local env
 	local game_globals = love._line_env.globals or {}
 	love._line_env.globals = game_globals
+	local vendored_luasocket_modules = {
+		["ltn12"] = "goluwa/sockets/luasocket/ltn12.lua",
+		["socket"] = "goluwa/sockets/luasocket/socket.lua",
+		["socket.core"] = "goluwa/love/libraries/socket_core.lua",
+		["socket.ftp"] = "goluwa/sockets/luasocket/ftp.lua",
+		["socket.headers"] = "goluwa/sockets/luasocket/headers.lua",
+		["socket.http"] = "goluwa/sockets/luasocket/http.lua",
+		["socket.smtp"] = "goluwa/sockets/luasocket/smtp.lua",
+		["socket.tp"] = "goluwa/sockets/luasocket/tp.lua",
+		["socket.url"] = "goluwa/sockets/luasocket/url.lua",
+		["utf8"] = "goluwa/utf8.lua",
+	}
+	love._line_env.filesystem_source = R(folder .. "/")
 
 	local function prepare_module_function(func)
 		if type(func) == "function" and debug.getinfo(func).what ~= "C" then
@@ -212,13 +245,22 @@ function line.RunGame(folder, ...)
 	local function line_require(name)
 		if name == "strict" then return true end
 
-		if name == "socket.core" then
-			env.socket = sockets.core.luasocket
-			package_loaded[name] = env.socket
-			return env.socket
-		end
+		if name == "love" then return love end
 
 		if package_loaded[name] ~= nil then return package_loaded[name] end
+
+		if vendored_luasocket_modules[name] then
+			local func = assert(loadfile(vendored_luasocket_modules[name]))
+			local result = prepare_module_function(func)()
+
+			if result == nil then result = true end
+
+			package_loaded[name] = result
+
+			if name == "socket" or name == "socket.core" then env.socket = result end
+
+			return result
+		end
 
 		if name:starts_with("love.") and love[name:match(".+%.(.+)")] then
 			local lib = love[name:match(".+%.(.+)")]
@@ -235,7 +277,7 @@ function line.RunGame(folder, ...)
 		)
 
 		if res ~= nil then
-			llog("require: ", name, " (", path, ")")
+			--llog("require: ", name, " (", path, ")")
 			return res
 		end
 
@@ -415,6 +457,10 @@ event.AddListener("WindowDrop", "line", function(wnd, path)
 
 		if menu then menu.Close() end
 	end
+end)
+
+commands.Add("love=string", function(game)
+	line.RunGame("/home/caps/projects/goluwa3/love_games/" .. game)
 end)
 
 return line

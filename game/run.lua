@@ -3,6 +3,7 @@ local vfs = import("goluwa/vfs.lua")
 import("goluwa/pvars.lua").Initialize()
 import("goluwa/repl.lua").Initialize()
 import("goluwa/filewatcher.lua").Start()
+import("goluwa/love/line.lua")
 
 if _G.GRAPHICS then
 	local render = import("goluwa/render/render.lua")
