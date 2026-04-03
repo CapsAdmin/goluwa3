@@ -2,14 +2,21 @@ local ffi = require("ffi")
 local threads = import("goluwa/bindings/threads.lua")
 local event = import("goluwa/event.lua")
 local mix = import("goluwa/audio/mix.lua")
+local system = import("goluwa/system.lua")
 local module = {}
 
 function module.Attach(audio)
+	local MAIN_BACKEND_PREBUFFER_PERIODS = 4
+	local MAIN_BACKEND_MAX_UPDATES_PER_FRAME = 8
+
 	local function stop_main_backend()
 		if audio.main_audio_buffer then
 			audio.main_audio_buffer.stop()
 			audio.main_audio_buffer = nil
 			audio.main_config = nil
+			audio.main_update_period = nil
+			audio.main_pending_time = nil
+			audio.main_last_update_time = nil
 		end
 
 		event.RemoveListener("Update", "audio_main_thread_driver")
@@ -36,13 +43,44 @@ function module.Attach(audio)
 		audio.state.debug_worker_stage = 102
 		audio.main_audio_buffer = audio_buffer
 		audio.main_config = config
+		audio.main_update_period = config.buffer_size / config.sample_rate
+		audio.main_pending_time = 0
+
+		for _ = 1, MAIN_BACKEND_PREBUFFER_PERIODS do
+			audio.main_audio_buffer.update()
+		end
+
+		audio.main_last_update_time = system.GetTime()
 		audio.backend_mode = "main"
 
 		event.AddListener("Update", "audio_main_thread_driver", function()
 			if audio.backend_mode ~= "main" or not audio.main_audio_buffer then return end
 
+			local now = system.GetTime()
+			local elapsed = now - (audio.main_last_update_time or now)
+
+			if elapsed < 0 then elapsed = 0 end
+
+			audio.main_last_update_time = now
+			audio.main_pending_time = math.min(
+				(audio.main_pending_time or 0) + elapsed,
+				(audio.main_update_period or 0) * MAIN_BACKEND_MAX_UPDATES_PER_FRAME
+			)
 			audio.state.debug_worker_stage = 103
-			audio.main_audio_buffer.update()
+
+			while
+				audio.main_pending_time >= (
+					audio.main_update_period or
+					math.huge
+				)
+				and
+				audio.backend_mode == "main" and
+				audio.main_audio_buffer
+			do
+				audio.main_audio_buffer.update()
+				audio.main_pending_time = audio.main_pending_time - audio.main_update_period
+			end
+
 			audio.state.debug_worker_stage = 104
 		end)
 

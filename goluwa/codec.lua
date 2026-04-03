@@ -39,6 +39,9 @@ function codec.DecodeFile(path, lib)
 	local mod = lib and
 		import("goluwa/codecs/" .. lib .. ".lua") or
 		codec.GuessFormatFromPath(path)
+
+	if not mod then return nil, "no decoder found for " .. tostring(path) end
+
 	local file = assert(vfs.Open(path))
 	local file_content = file:ReadAll()
 
@@ -53,6 +56,11 @@ function codec.DecodeFile(path, lib)
 	if decode then return decode(Buffer.New(file_content, #file_content)) end
 
 	decode = mod.decode or mod.Decode
+
+	if not decode then
+		return nil, "decoder has no Decode or DecodeBuffer for " .. tostring(path)
+	end
+
 	return decode(file_content)
 end
 

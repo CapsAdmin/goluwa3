@@ -7,8 +7,24 @@ local love = ... or _G.love
 local ENV = love._line_env
 love.audio = love.audio or {}
 
+if audio.Initialize and not audio.initialized then audio.Initialize() end
+
+local function get_source_count()
+	local count = 0
+
+	for _ in pairs(line.GetCreatedObjects("Source")) do
+		count = count + 1
+	end
+
+	return count
+end
+
+local function resolve_source_path(path)
+	return vfs.GetAbsolutePath(path, false) or vfs.GetAbsolutePath(path) or path
+end
+
 function love.audio.getNumSources()
-	return #line.GetCreatedObjects("Source")
+	return get_source_count()
 end
 
 love.audio.getSourceCount = love.audio.getNumSources
@@ -173,13 +189,13 @@ do -- Source
 
 		if self.source then return not self.playing end
 
-		return false
+		return true
 	end
 
 	function Source:isPlaying()
 		if self.source and self.source.IsPlaying then return self.source:IsPlaying() end
 
-		return not self:isStopped()
+		return self.source ~= nil and not self:isStopped()
 	end
 
 	function Source:pause()
@@ -191,16 +207,23 @@ do -- Source
 
 	function Source:play()
 		if self.source then
-			if pvars.Get("line_enable_audio") then self.source:Play() end
-
-			self.playing = true
+			if pvars.Get("line_enable_audio") then
+				self.source:Play()
+				self.playing = self.source.IsPlaying and self.source:IsPlaying() or true
+			else
+				self.playing = false
+			end
 		end
 	end
 
 	function Source:resume()
 		if self.source then
-			self.source:Resume()
-			self.playing = true
+			if pvars.Get("line_enable_audio") then
+				self.source:Resume()
+				self.playing = self.source.IsPlaying and self.source:IsPlaying() or true
+			else
+				self.playing = false
+			end
 		end
 	end
 
@@ -284,14 +307,16 @@ do -- Source
 	function love.audio.newSource(var, type)
 		local self = line.CreateObject("Source")
 
-		if line.Type(var) == "string" then
-			self.path = var
+		if audio.Initialize and not audio.initialized then audio.Initialize() end
 
-			if audio.CreateSource and vfs.Exists(var) then
-				local ext = var:match(".+%.(.+)")
+		if line.Type(var) == "string" then
+			self.path = resolve_source_path(var)
+
+			if audio.CreateSource then
+				local ext = self.path:match(".+%.(.+)")
 
 				if ext == "flac" or ext == "wav" or ext == "ogg" then
-					self.source = audio.CreateSource(var)
+					self.source = audio.CreateSource(self.path)
 					self.source:SetChannel(1)
 				end
 			end
@@ -301,9 +326,18 @@ do -- Source
 			if audio.CreateSource then self.source = audio.CreateSource(var) end
 		elseif line.Type(var) == "SoundData" then
 			if audio.CreateSource then
-				self.source = audio.CreateSource(var)
+				if var.getPointer and var:getPointer() then
+					self.source = audio.CreateSource(var)
 
-				if self.source.SetBuffer then self.source:SetBuffer(var.buffer) end
+					if self.source.SetBuffer then self.source:SetBuffer(var.buffer) end
+				elseif var.path then
+					self.path = var.path
+					self.source = audio.CreateSource(var.path)
+				else
+					self.source = audio.CreateSource(var)
+
+					if self.source.SetBuffer then self.source:SetBuffer(var.buffer) end
+				end
 			end
 		else
 			wlog("tried to create unknown source type: %s %s", line.Type(var), type, 2)
