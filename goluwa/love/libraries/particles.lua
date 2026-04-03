@@ -1,6 +1,7 @@
 local line = import("goluwa/love/line.lua")
 local love = ... or _G.love
 local ENV = love._line_env
+love.particles = love.particles or {}
 local ParticleSystem = line.TypeTemplate("ParticleSystem")
 
 function ParticleSystem:clone() end
@@ -151,3 +152,5 @@ function love.graphics.newParticleSystem()
 end
 
 line.RegisterType(ParticleSystem)
+
+return love.particles

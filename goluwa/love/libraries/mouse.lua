@@ -1,8 +1,43 @@
 local line = import("goluwa/love/line.lua")
 local event = import("goluwa/event.lua")
+local window = import("goluwa/window.lua")
+local input = import("goluwa/input.lua")
 local love = ... or _G.love
 local ENV = love._line_env
 love.mouse = love.mouse or {}
+
+local function get_active_window()
+	return window.current
+end
+
+local function apply_mouse_state()
+	local wnd = get_active_window()
+
+	if not wnd then return end
+
+	if ENV.mouse_relative_mode then
+		wnd:SetMouseTrapped(true)
+		wnd:SetCursor("hidden")
+		return
+	end
+
+	wnd:SetMouseTrapped(false)
+
+	if ENV.mouse_visible == false then
+		wnd:SetCursor("hidden")
+		return
+	end
+
+	local cursor = ENV.mouse_cursor
+
+	if type(cursor) == "table" and cursor.__line_type == "Cursor" and cursor.getType then
+		cursor = cursor:getType()
+	end
+
+	if type(cursor) ~= "string" then cursor = "arrow" end
+
+	wnd:SetCursor(cursor)
+end
 
 function love.mouse.setPosition(x, y) --window.SetMousePosition(Vec2(x, y))
 end
@@ -19,7 +54,10 @@ function love.mouse.getY()
 	return window.GetMousePosition().y
 end
 
-function love.mouse.setRelativeMode(b) end
+function love.mouse.setRelativeMode(b)
+	ENV.mouse_relative_mode = not not b
+	apply_mouse_state()
+end
 
 love.mouse.setGrabbed = love.mouse.setRelativeMode
 local Cursor = line.TypeTemplate("Cursor")
@@ -38,28 +76,35 @@ function love.mouse.getCursor()
 	return obj
 end
 
-function love.mouse.setCursor() --window.GetCursor()
+function love.mouse.setCursor(cursor)
+	ENV.mouse_cursor = cursor
+	apply_mouse_state()
 end
 
-function love.mouse.getSystemCursor()
+function love.mouse.getSystemCursor(name)
 	local obj = line.CreateObject("Cursor")
 	obj.getType = function()
-		return window.GetCursor()
+		return name or "arrow"
 	end
 	return obj
 end
 
 do
-	ENV.mouse_visible = false
+	ENV.mouse_visible = true
+	ENV.mouse_relative_mode = false
+	ENV.mouse_cursor = "arrow"
 
 	function love.mouse.setVisible(bool)
 		ENV.mouse_visible = bool
+		apply_mouse_state()
 	end
 
 	function love.mouse.getVisible(bool)
 		return ENV.mouse_visible
 	end
 end
+
+apply_mouse_state()
 
 local mouse_keymap = {
 	button_1 = "l",
@@ -89,6 +134,10 @@ for k, v in pairs(mouse_keymap_10) do
 	mouse_keymap_10_reverse[v] = k
 end
 
+local function mouse_uses_numeric_buttons()
+	return (love._version_major or 0) >= 11
+end
+
 function love.mouse.isDown(key)
 	return input.IsMouseDown(mouse_keymap_10_reverse[key]) or
 		input.IsMouseDown(mouse_keymap_reverse[key])
@@ -99,27 +148,18 @@ event.AddListener("LoveNewIndex", "line_mouse", function(love, key, val)
 		if val then
 			event.AddListener("MouseInput", "line", function(key, press)
 				local x, y = window.GetMousePosition():Unpack()
+				local mapped_button = mouse_uses_numeric_buttons() and mouse_keymap_10[key] or mouse_keymap[key]
 
 				if key == "mwheel_up" or key == "mwheel_down" then
 					line.CallEvent("wheelmoved", 0, key == "mwheel_up" and 1 or -1)
 				end
 
+				if mapped_button == nil then return end
+
 				if press then
-					if mouse_keymap[key] then
-						line.CallEvent("mousepressed", x, y, mouse_keymap[key])
-					end
-
-					if mouse_keymap_10[key] then
-						line.CallEvent("mousepressed", x, y, mouse_keymap_10[key])
-					end
+					line.CallEvent("mousepressed", x, y, mapped_button)
 				else
-					if mouse_keymap[key] then
-						line.CallEvent("mousereleased", x, y, mouse_keymap[key])
-					end
-
-					if mouse_keymap_10[key] then
-						line.CallEvent("mousereleased", x, y, mouse_keymap_10[key])
-					end
+					line.CallEvent("mousereleased", x, y, mapped_button)
 				end
 			end)
 		else

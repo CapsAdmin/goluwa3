@@ -1,9 +1,14 @@
 local line = import("goluwa/love/line.lua")
 local window = import("goluwa/window.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
+local event = import("goluwa/event.lua")
 local love = ... or _G.love
 local ENV = love._line_env
 love.window = love.window or {}
+
+local function sync_window_globals(width, height)
+	line.SyncWindowGlobals(love, width, height)
+end
 
 function love.window.setTitle(title)
 	window.SetTitle(title)
@@ -33,10 +38,15 @@ function love.window.getPixelScale()
 	return 2
 end
 
+function love.window.getDPIScale()
+	return love.window.getPixelScale()
+end
+
 function love.window.setFullscreen() end
 
 function love.window.setMode(x, y, flags)
 	window.SetSize(Vec2(x, y))
+	sync_window_globals(x, y)
 end
 
 function love.window.getMode()
@@ -63,6 +73,16 @@ end
 
 function love.window.getDesktopDimensions()
 	return window.GetSize():Unpack()
+end
+
+function love.window.getDisplayCount()
+	return 1
+end
+
+function love.window.getDisplayName(index)
+	if index ~= nil and index ~= 1 then return nil end
+
+	return "Primary Display"
 end
 
 function love.window.setIcon() end
@@ -99,3 +119,7 @@ function love.window.getFullscreenModes()
 		{width = 2560, height = 2048},
 	}
 end
+
+event.AddListener("WindowFramebufferResized", "line_window_sync_" .. tostring(love), function(_, size)
+	sync_window_globals(size.x, size.y)
+end)

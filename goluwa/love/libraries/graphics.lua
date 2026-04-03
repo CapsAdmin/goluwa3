@@ -6,6 +6,8 @@ local vfs = import("goluwa/vfs.lua")
 local gfx = import("goluwa/render2d/gfx.lua")
 local fonts = import("goluwa/render2d/fonts.lua")
 local window = import("goluwa/window.lua")
+local EasyPipeline = import("goluwa/render/easy_pipeline.lua")
+local RenderMesh = import("goluwa/render/mesh.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local IndexBuffer = import("goluwa/render/index_buffer.lua")
 local line = import("goluwa/love/line.lua")
@@ -81,6 +83,22 @@ local function get_internal_background_color()
 	ENV.graphics_bg_color_a or 255
 end
 
+local function begin_temporary_frame()
+	if ENV.graphics_manual_frame_active then return render.GetCommandBuffer() ~= nil end
+
+	if render.in_frame or not render.target then return render.GetCommandBuffer() ~= nil end
+
+	render.target:WaitForPreviousFrame()
+
+	if not render.BeginFrame() then return false end
+
+	ENV.graphics_manual_frame_active = true
+	render2d.cmd = render.GetCommandBuffer()
+	return true
+end
+
+render2d.on_missing_command = begin_temporary_frame
+
 local function draw_clear_rect(r, g, b, a, w, h)
 	local old_r, old_g, old_b, old_a = love.graphics.getColor()
 	render2d.PushMatrix(nil, nil, nil, nil, nil, true)
@@ -117,6 +135,28 @@ local function get_texture_dimensions(tex)
 	if tex.GetWidth and tex.GetHeight then return tex:GetWidth(), tex:GetHeight() end
 
 	return tex.width or 0, tex.height or 0
+end
+
+local function get_main_surface_dimensions()
+	if ENV.graphics_current_canvas then
+		return get_texture_dimensions(ENV.graphics_current_canvas.fb:GetColorTexture())
+	end
+
+	local size = window.GetSize and window.GetSize() or nil
+
+	if size and size.x and size.y and size.x > 0 and size.y > 0 then
+		return size.x, size.y
+	end
+
+	if render.GetRenderImageSize then
+		local render_size = render.GetRenderImageSize()
+
+		if render_size and render_size.x and render_size.y then return render_size.x, render_size.y end
+	end
+
+	local width = render.GetWidth and render.GetWidth() or 0
+	local height = render.GetHeight and render.GetHeight() or 0
+	return width, height
 end
 
 local function apply_filter_to_texture(tex, min, mag, anisotropy)
@@ -214,6 +254,10 @@ do -- quad
 		local self = line.CreateObject("Quad")
 		local vertices = {}
 
+		if type(sw) == "table" and sh == nil then
+			sw, sh = get_texture_dimensions(sw)
+		end
+
 		for i = 0, 3 do
 			vertices[i] = {x = 0, y = 0, s = 0, t = 0}
 		end
@@ -225,7 +269,7 @@ do -- quad
 		self.sw = sw or 1
 		self.sh = sh or 1
 		self.vertices = vertices
-		refresh(self.vertices, x, y, w, h, sw, sh)
+		refresh(self.vertices, x, y, w, h, self.sw, self.sh)
 		return self
 	end
 
@@ -249,11 +293,13 @@ function love.graphics.setCaption(title)
 end
 
 function love.graphics.getWidth()
-	return render.GetWidth()
+	local width = get_main_surface_dimensions()
+	return width
 end
 
 function love.graphics.getHeight()
-	return render.GetHeight()
+	local _, height = get_main_surface_dimensions()
+	return height
 end
 
 function love.graphics.setMode(width, height, fullscreen, vsync, fsaa)
@@ -266,7 +312,19 @@ function love.graphics.getMode()
 end
 
 function love.graphics.getDimensions()
-	return render.GetWidth(), render.GetHeight()
+	return get_main_surface_dimensions()
+end
+
+function love.graphics.getDPIScale()
+	if love.window and love.window.getDPIScale then
+		return love.window.getDPIScale()
+	end
+
+	if love.window and love.window.getPixelScale then
+		return love.window.getPixelScale()
+	end
+
+	return 1
 end
 
 function love.graphics.reset() end
@@ -631,12 +689,131 @@ do -- font
 		render2d.PopColor()
 	end
 
-	function love.graphics.print(text, x, y, r, sx, sy, ox, oy, kx, ky)
-		return draw_text(text, x, y, r, sx, sy, ox, oy, kx, ky)
+	function love.graphics.print(text, ...)
+		local args = {...}
+		local font_override
+
+		if type(args[1]) == "table" and line.Type(args[1]) == "Font" then
+			font_override = table.remove(args, 1)
+		end
+
+		local old_font
+
+		if font_override then
+			old_font = love.graphics.getFont()
+			love.graphics.setFont(font_override)
+		end
+
+		local result = {draw_text(text, unpack(args, 1, 9))}
+
+		if old_font then love.graphics.setFont(old_font) end
+
+		return unpack(result)
 	end
 
-	function love.graphics.printf(text, x, y, limit, align, r, sx, sy, ox, oy, kx, ky)
-		return draw_text(text, x, y, r, sx, sy, ox, oy, kx, ky, align or "left", limit or 0)
+	function love.graphics.printf(text, ...)
+		local args = {...}
+		local font_override
+
+		if type(args[1]) == "table" and line.Type(args[1]) == "Font" then
+			font_override = table.remove(args, 1)
+		end
+
+		local x = args[1]
+		local y = args[2]
+		local limit = args[3]
+		local align = args[4]
+		local r = args[5]
+		local sx = args[6]
+		local sy = args[7]
+		local ox = args[8]
+		local oy = args[9]
+		local kx = args[10]
+		local ky = args[11]
+		local old_font
+
+		if font_override then
+			old_font = love.graphics.getFont()
+			love.graphics.setFont(font_override)
+		end
+
+		local result = {draw_text(text, x, y, r, sx, sy, ox, oy, kx, ky, align or "left", limit or 0)}
+
+		if old_font then love.graphics.setFont(old_font) end
+
+		return unpack(result)
+	end
+
+	do
+		local Text = line.TypeTemplate("Text")
+
+		local function text_get_font(self)
+			return self.font or love.graphics.getFont()
+		end
+
+		local function text_get_string(self)
+			return tostring(self.text or "")
+		end
+
+		local function update_text_metrics(self)
+			local font = text_get_font(self)
+			local text = text_get_string(self)
+			self.width = font:getWidth(text)
+			self.height = font:getHeight(text)
+		end
+
+		function Text:set(text)
+			self.text = tostring(text or "")
+			update_text_metrics(self)
+			return self
+		end
+
+		function Text:add(text)
+			self.text = text_get_string(self) .. tostring(text or "")
+			update_text_metrics(self)
+			return self
+		end
+
+		function Text:getString()
+			return text_get_string(self)
+		end
+
+		function Text:getFont()
+			return text_get_font(self)
+		end
+
+		function Text:getWidth()
+			return self.width or 0
+		end
+
+		function Text:getHeight()
+			return self.height or 0
+		end
+
+		function Text:getDimensions()
+			return self:getWidth(), self:getHeight()
+		end
+
+		function Text:Draw(x, y, r, sx, sy, ox, oy, kx, ky)
+			local old_font = love.graphics.getFont()
+			love.graphics.setFont(text_get_font(self))
+			love.graphics.print(text_get_string(self), x, y, r, sx, sy, ox, oy, kx, ky)
+			love.graphics.setFont(old_font)
+		end
+
+		function love.graphics.newText(font, text)
+			if type(font) ~= "table" or line.Type(font) ~= "Font" then
+				text = font
+				font = love.graphics.getFont()
+			end
+
+			local self = line.CreateObject("Text")
+			self.font = font
+			self:set(text or "")
+			return self
+		end
+
+		line.RegisterType(Text)
 	end
 
 	line.RegisterType(Font)
@@ -685,15 +862,8 @@ do -- canvas
 		if canvas then
 			render2d.UpdateScreenSize{w = canvas.w, h = canvas.h}
 		else
-			local width = render.GetWidth and render.GetWidth() or nil
-			local height = render.GetHeight and render.GetHeight() or nil
-
-			if width and height and width > 0 and height > 0 then
-				render2d.UpdateScreenSize{w = width, h = height}
-			else
-				local size = render.GetRenderImageSize()
-				render2d.UpdateScreenSize{w = size.x, h = size.y}
-			end
+			local width, height = get_main_surface_dimensions()
+			render2d.UpdateScreenSize{w = width, h = height}
 		end
 	end
 
@@ -749,8 +919,11 @@ do -- canvas
 	function Canvas:getWrap() end
 
 	function love.graphics.newCanvas(w, h)
-		w = w or render.GetWidth()
-		h = h or render.GetHeight()
+		if not w or not h then
+			local default_w, default_h = get_main_surface_dimensions()
+			w = w or default_w
+			h = h or default_h
+		end
 		local screen_texture = render.GetScreenTexture and render.GetScreenTexture()
 		local self = line.CreateObject("Canvas")
 		self.w = w
@@ -854,15 +1027,37 @@ do -- image
 					anisotropy = self.filter_anistropy,
 				}
 			)
-		else
-			tex = love.image._createTextureFromImageData(
-				love.image.newImageData(path),
+		elseif line.Type(path) == "CompressedData" then
+			tex = love.image._createTextureFromCompressedData(
+				path,
 				{
 					min_filter = self.filter_min,
 					mag_filter = self.filter_mag,
 					anisotropy = self.filter_anistropy,
 				}
 			)
+		else
+			local ok, compressed = pcall(love.image.newCompressedData, path)
+
+			if ok then
+				tex = love.image._createTextureFromCompressedData(
+					compressed,
+					{
+						min_filter = self.filter_min,
+						mag_filter = self.filter_mag,
+						anisotropy = self.filter_anistropy,
+					}
+				)
+			else
+				tex = love.image._createTextureFromImageData(
+					love.image.newImageData(path),
+					{
+						min_filter = self.filter_min,
+						mag_filter = self.filter_mag,
+						anisotropy = self.filter_anistropy,
+					}
+				)
+			end
 		end
 
 		ENV.textures[self] = tex
@@ -1009,6 +1204,8 @@ function love.graphics.draw(drawable, x, y, r, sx, sy, ox, oy, kx, ky, quad_arg)
 
 		if line.Type(drawable) == "SpriteBatch" then
 			drawable:Draw(x, y, r, sx, sy, ox, oy, kx, ky)
+		elseif line.Type(drawable) == "Text" then
+			drawable:Draw(x, y, r, sx, sy, ox, oy, kx, ky)
 		elseif line.Type(drawable) == "Mesh" then
 			render2d.PushColor(1, 1, 1, 1)
 			render2d.PushTexture(ENV.textures[drawable.img])
@@ -1035,20 +1232,829 @@ function love.graphics.draw(drawable, x, y, r, sx, sy, ox, oy, kx, ky, quad_arg)
 	end
 end
 
-function love.graphics.present() end
+local function get_attached_mesh_attribute(drawable, attribute_name, index, default_a, default_b)
+	local attachment = drawable.attached_attributes and drawable.attached_attributes[attribute_name]
+
+	if not attachment or not attachment.mesh then return default_a, default_b end
+
+	local a, b = attachment.mesh:getVertexAttributeByName(index, attribute_name)
+
+	if a == nil then a = default_a end
+	if b == nil then b = default_b end
+	return a, b
+end
+
+local function get_shared_instance_mesh(drawable)
+	local shared_mesh
+
+	for _, attachment in pairs(drawable.attached_attributes or {}) do
+		if attachment and attachment.mesh then
+			if shared_mesh and shared_mesh ~= attachment.mesh then return nil end
+			shared_mesh = attachment.mesh
+		end
+	end
+
+	return shared_mesh
+end
+
+local function draw_instanced_mesh_gpu(drawable, instance_count, x, y, r, sx, sy, ox, oy, kx, ky)
+	local shader = ENV.current_shader
+
+	if not shader or not shader.pipeline or not shader.instance_binding then return false end
+
+	local instance_mesh = get_shared_instance_mesh(drawable)
+
+	if not instance_mesh or not instance_mesh.vertex_buffer then return false end
+
+	local texture = drawable:getTexture()
+
+	if not texture then return false end
+
+	if drawable._line_dirty_buffers then drawable:UpdateBuffers() end
+	if instance_mesh._line_dirty_buffers then instance_mesh:UpdateBuffers() end
+
+	instance_count = math.min(instance_count or instance_mesh.vertex_buffer:GetVertexCount(), instance_mesh.vertex_buffer:GetVertexCount())
+	x = x or 0
+	y = y or 0
+	r = r or 0
+	sx = sx or 1
+	sy = sy or sx
+	ox = ox or 0
+	oy = oy or 0
+	kx = kx or 0
+	ky = ky or 0
+	render2d.PushColor(1, 1, 1, 1)
+	render2d.PushTexture(ENV.textures[texture] or texture)
+	render2d.PushMatrix(nil, nil, nil, nil, nil, true)
+	render2d.Translatef(x, y)
+	render2d.Rotate(r)
+
+	if ox ~= 0 or oy ~= 0 then render2d.Translatef(-ox * sx, -oy * sy) end
+
+	if kx ~= 0 or ky ~= 0 then render2d.Shear(kx, ky) end
+
+	render2d.Scalef(sx, sy)
+	render2d.UploadConstants(render2d.cmd)
+	drawable:DrawInstanced(instance_count, {instance_mesh.vertex_buffer})
+	render2d.PopMatrix()
+	render2d.PopTexture()
+	render2d.PopColor()
+	return true
+end
+
+local function draw_instanced_mesh(drawable, instance_count, x, y, r, sx, sy, ox, oy, kx, ky)
+	if draw_instanced_mesh_gpu(drawable, instance_count, x, y, r, sx, sy, ox, oy, kx, ky) then return true end
+
+	if not drawable.attached_attributes then return false end
+
+	local texture = drawable:getTexture()
+
+	if not texture then return false end
+
+	local position_attachment = drawable.attached_attributes.InstancePosition
+
+	if not position_attachment or not position_attachment.mesh then return false end
+
+	instance_count = math.min(instance_count or position_attachment.mesh:getVertexCount(), position_attachment.mesh:getVertexCount())
+	x = x or 0
+	y = y or 0
+	r = r or 0
+	sx = sx or 1
+	sy = sy or sx
+	ox = ox or 0
+	oy = oy or 0
+	kx = kx or 0
+	ky = ky or 0
+	ENV.graphics_instanced_quad = ENV.graphics_instanced_quad or love.graphics.newQuad(0, 0, 1, 1, texture)
+	local quad = ENV.graphics_instanced_quad
+	local base_r, base_g, base_b, base_a = get_internal_color()
+
+	render2d.PushMatrix()
+	render2d.Translatef(x, y)
+	render2d.Rotate(r)
+
+	if ox ~= 0 or oy ~= 0 then render2d.Translatef(-ox * sx, -oy * sy) end
+
+	if kx ~= 0 or ky ~= 0 then render2d.Shear(kx, ky) end
+
+	render2d.Scalef(sx, sy)
+
+	for index = 1, instance_count do
+		local inst_x, inst_y = get_attached_mesh_attribute(drawable, "InstancePosition", index, 0, 0)
+		local uv_x, uv_y = get_attached_mesh_attribute(drawable, "UVOffset", index, 0, 0)
+		local img_w, img_h = get_attached_mesh_attribute(drawable, "ImageDim", index, 0, 0)
+		local shade = select(1, get_attached_mesh_attribute(drawable, "ImageShade", index, 1)) or 1
+		local scale_x, scale_y = get_attached_mesh_attribute(drawable, "Scale", index, 1, 1)
+
+		if img_w ~= 0 and img_h ~= 0 then
+			quad:setViewport(uv_x, uv_y, img_w, img_h)
+			ENV.graphics_color_r = base_r * shade
+			ENV.graphics_color_g = base_g * shade
+			ENV.graphics_color_b = base_b * shade
+			ENV.graphics_color_a = base_a
+			render2d.SetColor(
+				ENV.graphics_color_r / 255,
+				ENV.graphics_color_g / 255,
+				ENV.graphics_color_b / 255,
+				ENV.graphics_color_a / 255
+			)
+			love.graphics.drawq(texture, quad, inst_x, inst_y, 0, scale_x, scale_y)
+		end
+	end
+
+	render2d.PopMatrix()
+	ENV.graphics_color_r = base_r
+	ENV.graphics_color_g = base_g
+	ENV.graphics_color_b = base_b
+	ENV.graphics_color_a = base_a
+	render2d.SetColor(base_r / 255, base_g / 255, base_b / 255, base_a / 255)
+	return true
+end
+
+function love.graphics.drawInstanced(drawable, instancecount, x, y, r, sx, sy, ox, oy, kx, ky)
+	if line.Type(drawable) == "Mesh" and draw_instanced_mesh(drawable, instancecount, x, y, r, sx, sy, ox, oy, kx, ky) then
+		return
+	end
+
+	if drawable.drawInstanced then
+		return drawable:drawInstanced(instancecount, x, y, r, sx, sy, ox, oy, kx, ky)
+	end
+
+	if drawable.DrawInstanced then
+		return drawable:DrawInstanced(instancecount, x, y, r, sx, sy, ox, oy, kx, ky)
+	end
+
+	return love.graphics.draw(drawable, x, y, r, sx, sy, ox, oy, kx, ky)
+end
+
+function love.graphics.present()
+	if not ENV.graphics_manual_frame_active then return end
+
+	render.EndFrame()
+	render2d.cmd = nil
+	ENV.graphics_manual_frame_active = false
+end
 
 function love.graphics.setIcon() end
 
 do
 	do
 		local Shader = line.TypeTemplate("Shader")
+		local warned_missing_custom_shader_backend = false
+		local warned_unsupported_love_vertex_shader = false
+		local shader_pipeline_cache = setmetatable({}, {__mode = "k"})
+
+		local function warn_unsupported_love_vertex_shader()
+			if warned_unsupported_love_vertex_shader then return end
+
+			warned_unsupported_love_vertex_shader = true
+			wlog("love.graphics.newShader: vertex/pixel shader pairs are not supported by the minimal Love shader backend yet")
+		end
+
+		local function warn_missing_custom_shader_backend()
+			if warned_missing_custom_shader_backend then return end
+
+			warned_missing_custom_shader_backend = true
+			wlog("love.graphics.newShader: custom shader backend unavailable, using compatibility fallback")
+		end
+
+		local function store_shader_uniform(self, name, value)
+			self.uniforms = self.uniforms or {}
+			self.uniforms[name] = value
+		end
+
+		local function register_shader_uniform(self, name)
+			self.uniform_names = self.uniform_names or {}
+			self.uniform_names[name] = true
+		end
+
+		local function clone_uniform_value(value)
+			if type(value) ~= "table" then return value end
+
+			local out = {}
+
+			for i = 1, #value do
+				out[i] = value[i]
+			end
+
+			return out
+		end
+
+		local function parse_default_uniform_value(kind, source)
+			if not source or source == "" then return nil end
+
+			source = source:match("^%s*(.-)%s*$")
+
+			if kind == "number" or kind == "float" then return tonumber(source) end
+
+			if kind == "boolean" or kind == "bool" then
+				if source == "true" then return true end
+				if source == "false" then return false end
+				return nil
+			end
+
+			if kind == "vec2" or kind == "vec3" or kind == "vec4" then
+				local out = {}
+
+				for num in source:gmatch("[-+]?%d*%.?%d+[fF]?") do
+					out[#out + 1] = tonumber(num)
+				end
+
+				return #out > 0 and out or nil
+			end
+
+			return nil
+		end
+
+		local function extract_fragment_source(source)
+			if not source then return nil, false end
+
+			local pixel = source:match("#ifdef%s+PIXEL(.-)#endif")
+			local has_vertex = source:find("#ifdef%s+VERTEX") ~= nil
+
+			if pixel then return pixel, has_vertex end
+
+			return source, has_vertex
+		end
+
+		local function extract_vertex_source(source)
+			if not source then return nil, false end
+
+			local vertex = source:match("#ifdef%s+VERTEX(.-)#endif")
+			local has_pixel = source:find("#ifdef%s+PIXEL") ~= nil
+
+			if vertex then return vertex, has_pixel end
+
+			return nil, has_pixel
+		end
+
+		local function parse_love_shader_uniforms(source)
+			local uniforms = {}
+			local stripped = source:gsub(
+				"extern%s+([%a_][%w_]*)%s+([%a_][%w_]*)%s*([^;]*);",
+				function(kind, name, suffix)
+					local default_expr = suffix:match("=%s*(.+)$")
+					uniforms[#uniforms + 1] = {
+						kind = kind,
+						name = name,
+						default = parse_default_uniform_value(kind, default_expr),
+					}
+					return ""
+				end
+			)
+
+			return stripped, uniforms
+		end
+
+		local function parse_love_shader_varyings(source)
+			local varyings = {}
+			local stripped = source:gsub(
+				"varying%s+([%a_][%w_]*)%s+([%a_][%w_]*)%s*;",
+				function(kind, name)
+					varyings[#varyings + 1] = {kind = kind, name = name}
+					return ""
+				end
+			)
+
+			return stripped, varyings
+		end
+
+		local function parse_love_shader_attributes(source)
+			local attributes = {}
+			local stripped = source:gsub(
+				"attribute%s+([%a_][%w_]*)%s+([%a_][%w_]*)%s*;",
+				function(kind, name)
+					attributes[#attributes + 1] = {kind = kind, name = name}
+					return ""
+				end
+			)
+
+			return stripped, attributes
+		end
+
+		local function rewrite_shader_identifier(source, name, replacement)
+			return source:gsub("(%f[%a_])" .. name .. "(%f[^%w_])", "%1" .. replacement .. "%2")
+		end
+
+		local function rewrite_shader_identifiers(source, items, prefix)
+			for _, item in ipairs(items) do
+				source = rewrite_shader_identifier(source, item.name, prefix .. item.name)
+			end
+
+			return source
+		end
+
+		local function glsl_type_to_vertex_format(glsl_type)
+			if glsl_type == "vec4" then return "r32g32b32a32_sfloat" end
+			if glsl_type == "vec3" then return "r32g32b32_sfloat" end
+			if glsl_type == "vec2" then return "r32g32_sfloat" end
+			return "r32_sfloat"
+		end
+
+		local function build_shader_vertex_bindings(attributes)
+			local bindings = {
+				{
+					binding = 0,
+					input_rate = "vertex",
+					attributes = {
+						{"pos", "vec3", "r32g32b32_sfloat"},
+						{"uv", "vec2", "r32g32_sfloat"},
+						{"color", "vec4", "r32g32b32a32_sfloat"},
+					},
+				},
+			}
+
+			if #attributes > 0 then
+				local instance_attributes = {}
+
+				for _, attribute in ipairs(attributes) do
+					instance_attributes[#instance_attributes + 1] = {
+						attribute.name,
+						attribute.kind,
+						glsl_type_to_vertex_format(attribute.kind),
+					}
+				end
+
+				bindings[#bindings + 1] = {
+					binding = 1,
+					input_rate = "instance",
+					attributes = instance_attributes,
+				}
+			end
+
+			return bindings
+		end
+
+		local function rewrite_love_shader_identifiers(source, uniforms)
+			source = source:gsub("(%f[%a_]love_ScreenSize%f[^%w_])", "love_user.love_ScreenSize")
+
+			for _, uniform in ipairs(uniforms) do
+				source = source:gsub(
+					"(%f[%a_])" .. uniform.name .. "(%f[^%w_])",
+					"%1love_user." .. uniform.name .. "%2"
+				)
+			end
+
+			return source
+		end
+
+		local function get_shader_screen_size()
+			if ENV.graphics_current_canvas then
+				local tex_w, tex_h = get_texture_dimensions(ENV.graphics_current_canvas.fb:GetColorTexture())
+				return tex_w, tex_h
+			end
+
+			local size = window.GetSize()
+			return size.x or 0, size.y or 0
+		end
+
+		local function build_shader_uniform_block(obj, uniforms)
+			local block = {
+				{
+					"love_ScreenSize",
+					"vec2",
+					function(_, data, key)
+						local w, h = get_shader_screen_size()
+						data[key][0] = w
+						data[key][1] = h
+					end,
+				},
+			}
+
+			for _, uniform in ipairs(uniforms) do
+				local glsl_type = uniform.kind
+
+				if glsl_type == "number" then glsl_type = "float" end
+				if glsl_type == "Image" then glsl_type = "int" end
+				if glsl_type == "boolean" then glsl_type = "int" end
+
+				block[#block + 1] = {
+					uniform.name,
+					glsl_type,
+					function(self, data, key)
+						local value = obj.uniforms and obj.uniforms[key]
+
+						if value == nil then
+							for _, info in ipairs(uniforms) do
+								if info.name == key then
+									value = clone_uniform_value(info.default)
+									break
+								end
+							end
+						end
+
+						if uniform.kind == "Image" then
+							local texture = value and (ENV.textures[value] or value)
+							data[key] = texture and self:GetTextureIndex(texture) or -1
+							return
+						end
+
+						if uniform.kind == "boolean" or uniform.kind == "bool" then
+							data[key] = value and 1 or 0
+							return
+						end
+
+						if type(value) == "table" then
+							for i = 1, #value do
+								data[key][i - 1] = value[i] or 0
+							end
+							return
+						end
+
+						data[key] = value or 0
+					end,
+				}
+			end
+
+			return block
+		end
+
+		local function build_fragment_pipeline(obj, source)
+			local pixel_source, has_vertex_stage = extract_fragment_source(source)
+
+			if has_vertex_stage then
+				obj.warning_message = "minimal Love shader backend does not support #ifdef VERTEX shaders yet"
+				warn_unsupported_love_vertex_shader()
+				return nil
+			end
+
+			local stripped_source, uniforms = parse_love_shader_uniforms(pixel_source)
+			stripped_source = rewrite_love_shader_identifiers(stripped_source, uniforms)
+
+			register_shader_uniform(obj, "love_ScreenSize")
+
+			local block = build_shader_uniform_block(obj, uniforms)
+			local defines = {
+				"#define number float",
+				"#define Image int",
+				"#define extern",
+				"#define Texel(tex, coords) love_texel((tex), (coords))",
+			}
+
+			for _, uniform in ipairs(uniforms) do
+				register_shader_uniform(obj, uniform.name)
+
+				if uniform.default ~= nil then
+					obj.uniforms[uniform.name] = clone_uniform_value(uniform.default)
+				end
+			end
+
+			local config = {
+				name = "love_shader_fragment",
+				dont_create_framebuffers = true,
+				samples = function()
+					return render.target:GetSamples()
+				end,
+				color_format = render.target:GetColorFormat(),
+				vertex = {
+					uniform_buffers = {
+						{
+							block = {
+								{
+									"projection_view_world",
+									"mat4",
+									function(self, data, key)
+										render2d.GetMatrix():CopyToFloatPointer(data[key])
+									end,
+								},
+							},
+						},
+					},
+					attributes = {
+						{"pos", "vec3", "r32g32b32_sfloat"},
+						{"uv", "vec2", "r32g32_sfloat"},
+						{"color", "vec4", "r32g32b32a32_sfloat"},
+					},
+					shader = [[
+						void main() {
+							gl_Position = U.projection_view_world * vec4(in_pos, 1.0);
+							out_uv = in_uv;
+							out_color = in_color;
+						}
+					]],
+				},
+				fragment = {
+					uniform_buffers = {
+						{
+							block = {
+								{
+									"global_color",
+									"vec4",
+									function(_, data, key)
+										local r, g, b, a = render2d.GetColor()
+										data[key][0] = r or 1
+										data[key][1] = g or 1
+										data[key][2] = b or 1
+										data[key][3] = a or 1
+									end,
+								},
+								{
+									"alpha_multiplier",
+									"float",
+									function(_, data, key)
+										data[key] = render2d.GetAlphaMultiplier()
+									end,
+								},
+								{
+									"texture_index",
+									"int",
+									function(self, data, key)
+										local texture = render2d.GetTexture()
+										data[key] = texture and self:GetTextureIndex(texture) or -1
+									end,
+								},
+								{
+									"uv_offset",
+									"vec2",
+									function(_, data, key)
+										local x, y = render2d.GetUV()
+										data[key][0] = x or 0
+										data[key][1] = y or 0
+									end,
+								},
+								{
+									"uv_scale",
+									"vec2",
+									function(_, data, key)
+										local _, _, w, h = render2d.GetUV()
+										data[key][0] = w or 1
+										data[key][1] = h or 1
+									end,
+								},
+							},
+						},
+						{
+							name = "love_user",
+							block = block,
+						},
+					},
+					custom_declarations = table.concat(defines, "\n") .. [[
+
+						vec4 love_texel(int tex, vec2 coords) {
+							if (tex < 0) return vec4(0.0);
+							return texture(TEXTURE(tex), coords);
+						}
+					]],
+					shader = stripped_source .. [[
+						void main() {
+							vec4 love_color = in_color * U.global_color;
+							vec2 love_texture_coords = in_uv * U.uv_scale + U.uv_offset;
+							out_color = effect(love_color, U.texture_index, love_texture_coords, gl_FragCoord.xy);
+							out_color.a *= U.alpha_multiplier;
+						}
+					]],
+				},
+				rasterizer = {
+					cull_mode = "none",
+				},
+				color_blend = {
+					attachments = {
+						{
+							blend = true,
+							src_color_blend_factor = "src_alpha",
+							dst_color_blend_factor = "one_minus_src_alpha",
+							color_blend_op = "add",
+							src_alpha_blend_factor = "one",
+							dst_alpha_blend_factor = "zero",
+							alpha_blend_op = "add",
+							color_write_mask = {"r", "g", "b", "a"},
+						},
+					},
+				},
+				depth_stencil = {
+					depth_test = false,
+					depth_write = true,
+					stencil_test = false,
+					front = {
+						fail_op = "keep",
+						pass_op = "keep",
+						depth_fail_op = "keep",
+						compare_op = "always",
+					},
+					back = {
+						fail_op = "keep",
+						pass_op = "keep",
+						depth_fail_op = "keep",
+						compare_op = "always",
+					},
+				},
+			}
+
+			return EasyPipeline.New(config)
+		end
+
+		local function build_vertex_fragment_pipeline(obj, source)
+			local stripped_source, varyings = parse_love_shader_varyings(source)
+			local vertex_section = extract_vertex_source(stripped_source)
+			local fragment_section = extract_fragment_source(stripped_source)
+
+			if not vertex_section or not fragment_section then
+				obj.warning_message = "Love shader is missing a #ifdef VERTEX or #ifdef PIXEL section"
+				warn_unsupported_love_vertex_shader()
+				return nil
+			end
+
+			local cleaned_vertex, attributes = parse_love_shader_attributes(vertex_section)
+			local cleaned_fragment, uniforms = parse_love_shader_uniforms(fragment_section)
+			cleaned_vertex = rewrite_shader_identifiers(cleaned_vertex, varyings, "out_")
+			cleaned_fragment = rewrite_shader_identifiers(cleaned_fragment, varyings, "in_")
+			cleaned_vertex = rewrite_shader_identifiers(cleaned_vertex, attributes, "in_")
+			cleaned_vertex = rewrite_love_shader_identifiers(cleaned_vertex, uniforms)
+			cleaned_fragment = rewrite_love_shader_identifiers(cleaned_fragment, uniforms)
+			register_shader_uniform(obj, "love_ScreenSize")
+			local user_block = build_shader_uniform_block(obj, uniforms)
+			local outputs = {
+				{"uv", "vec2"},
+				{"color", "vec4"},
+			}
+
+			for _, varying in ipairs(varyings) do
+				outputs[#outputs + 1] = {varying.name, varying.kind}
+			end
+
+			for _, uniform in ipairs(uniforms) do
+				register_shader_uniform(obj, uniform.name)
+
+				if uniform.default ~= nil then
+					obj.uniforms[uniform.name] = clone_uniform_value(uniform.default)
+				end
+			end
+
+			obj.instance_attributes = attributes
+			obj.instance_binding = #attributes > 0 and 1 or nil
+
+			return EasyPipeline.New{
+				name = "love_shader_vertex_fragment",
+				dont_create_framebuffers = true,
+				samples = function()
+					return render.target:GetSamples()
+				end,
+				color_format = render.target:GetColorFormat(),
+				vertex = {
+					uniform_buffers = {
+						{
+							block = {
+								{
+									"projection_view_world",
+									"mat4",
+									function(self, data, key)
+										render2d.GetMatrix():CopyToFloatPointer(data[key])
+									end,
+								},
+							},
+						},
+						{
+							name = "love_user",
+							block = user_block,
+						},
+					},
+					bindings = build_shader_vertex_bindings(attributes),
+					outputs = outputs,
+					shader = cleaned_vertex .. [[
+						void main() {
+							out_uv = in_uv;
+							out_color = in_color;
+							gl_Position = position(U.projection_view_world, vec4(in_pos, 1.0));
+						}
+					]],
+				},
+				fragment = {
+					uniform_buffers = {
+						{
+							block = {
+								{
+									"global_color",
+									"vec4",
+									function(_, data, key)
+										local r, g, b, a = render2d.GetColor()
+										data[key][0] = r or 1
+										data[key][1] = g or 1
+										data[key][2] = b or 1
+										data[key][3] = a or 1
+									end,
+								},
+								{
+									"alpha_multiplier",
+									"float",
+									function(_, data, key)
+										data[key] = render2d.GetAlphaMultiplier()
+									end,
+								},
+								{
+									"texture_index",
+									"int",
+									function(self, data, key)
+										local texture = render2d.GetTexture()
+										data[key] = texture and self:GetTextureIndex(texture) or -1
+									end,
+								},
+								{
+									"uv_offset",
+									"vec2",
+									function(_, data, key)
+										local x, y = render2d.GetUV()
+										data[key][0] = x or 0
+										data[key][1] = y or 0
+									end,
+								},
+								{
+									"uv_scale",
+									"vec2",
+									function(_, data, key)
+										local _, _, w, h = render2d.GetUV()
+										data[key][0] = w or 1
+										data[key][1] = h or 1
+									end,
+								},
+							},
+						},
+						{
+							name = "love_user",
+							block = user_block,
+						},
+					},
+					custom_declarations = [[
+						#define number float
+						#define Image int
+						#define extern
+
+						vec4 love_texel(int tex, vec2 coords) {
+							if (tex < 0) return vec4(0.0);
+							return texture(TEXTURE(tex), coords);
+						}
+
+						#define Texel(tex, coords) love_texel((tex), (coords))
+					]],
+					shader = cleaned_fragment .. [[
+						void main() {
+							vec4 love_color = in_color * U.global_color;
+							vec2 love_texture_coords = in_uv * U.uv_scale + U.uv_offset;
+							out_color = effect(love_color, U.texture_index, love_texture_coords, gl_FragCoord.xy);
+							out_color.a *= U.alpha_multiplier;
+						}
+					]],
+				},
+				rasterizer = {
+					cull_mode = "none",
+				},
+				color_blend = {
+					attachments = {
+						{
+							blend = true,
+							src_color_blend_factor = "src_alpha",
+							dst_color_blend_factor = "one_minus_src_alpha",
+							color_blend_op = "add",
+							src_alpha_blend_factor = "one",
+							dst_alpha_blend_factor = "zero",
+							alpha_blend_op = "add",
+							color_write_mask = {"r", "g", "b", "a"},
+						},
+					},
+				},
+				depth_stencil = {
+					depth_test = false,
+					depth_write = true,
+					stencil_test = false,
+					front = {
+						fail_op = "keep",
+						pass_op = "keep",
+						depth_fail_op = "keep",
+						compare_op = "always",
+					},
+					back = {
+						fail_op = "keep",
+						pass_op = "keep",
+						depth_fail_op = "keep",
+						compare_op = "always",
+					},
+				},
+			}
+		end
 
 		function Shader:getWarnings()
-			return ""
+			return self.warning_message or ""
+		end
+
+		function Shader:hasUniform(name)
+			if self.uniform_names and self.uniform_names[name] ~= nil then
+				return self.uniform_names[name]
+			end
+
+			if self.shader and self.shader.program and self.shader.program.GetUniformLocation then
+				local ok, loc = pcall(self.shader.program.GetUniformLocation, self.shader.program, name)
+
+				if ok then return loc ~= nil and loc ~= -1 end
+			end
+
+			return false
 		end
 
 		function Shader:sendColor(name, tbl, ...)
 			if ... then warning("uh oh") end
+
+			store_shader_uniform(self, name, {tbl[1], tbl[2], tbl[3], tbl[4]})
+
+			if not (self.shader and self.shader.program) then return end
 
 			local loc = self.shader.program:GetUniformLocation(name)
 			self.shader.program:UploadColor(loc, ColorBytes(unpack(tbl)))
@@ -1056,6 +2062,10 @@ do
 
 		function Shader:send(name, var, ...)
 			if ... then warning("uh oh") end
+
+			store_shader_uniform(self, name, var)
+
+			if not (self.shader and self.shader.program) then return end
 
 			local loc = self.shader.program:GetUniformLocation(name)
 			local t = type(var)
@@ -1115,57 +2125,74 @@ do
 			end
 
 			local obj = line.CreateObject("Shader")
-			local shader = render.CreateShader{
-				fragment = {
-					mesh_layout = {
-						{uv = "vec2"},
-					},
-					variables = {
-						love_ScreenSize = {
-							vec2 = function()
-								if ENV.graphics_current_canvas then
-									local tex_w, tex_h = get_texture_dimensions(ENV.graphics_current_canvas.fb:GetColorTexture())
-									return Vec2(tex_w, tex_h)
-								end
+			obj.uniforms = {}
+			obj.uniform_names = {}
+			obj.source = {fragment = frag, vertex = vert}
+			obj.warning_message = nil
 
-								return window.GetSize()
-							end,
+			if render.CreateShader then
+				obj.shader = render.CreateShader{
+					fragment = {
+						mesh_layout = {
+							{uv = "vec2"},
 						},
-						current_texture = {
-							texture = function()
-								return render2d.shader.tex
-							end,
+						variables = {
+							love_ScreenSize = {
+								vec2 = function()
+									if ENV.graphics_current_canvas then
+										local tex_w, tex_h = get_texture_dimensions(ENV.graphics_current_canvas.fb:GetColorTexture())
+										return Vec2(tex_w, tex_h)
+									end
+
+									return window.GetSize()
+								end,
+							},
+							current_texture = {
+								texture = function()
+									return render2d.shader and render2d.shader.tex or nil
+								end,
+							},
+							current_color = {
+								color = function()
+									return render2d.shader and render2d.shader.global_color or nil
+								end,
+							},
 						},
-						current_color = {
-							color = function()
-								return render2d.shader.global_color
-							end,
+						include_directories = {
+							"shaders/include/",
 						},
+						source = [[
+							#version 430 core
+
+							#define number float
+							#define Image sampler2D
+							#define Texel texture2D
+							#define extern uniform
+							#define PIXEL 1
+
+							]] .. frag .. [[
+
+							out vec4 out_color;
+
+							void main()
+							{
+								out_color = effect(current_color, current_texture, uv, gl_FragCoord.xy);
+							}
+						]],
 					},
-					include_directories = {
-						"shaders/include/",
-					},
-					source = [[
-						#version 430 core
+				}
+			else
+				if frag and frag:find("#ifdef%s+VERTEX") then
+					obj.shader = build_vertex_fragment_pipeline(obj, frag)
+				else
+					obj.shader = build_fragment_pipeline(obj, frag)
+				end
 
-						#define number float
-						#define Image sampler2D
-						#define Texel texture2D
-						#define extern uniform
-						#define PIXEL 1
+				if not obj.shader then warn_missing_custom_shader_backend() end
+			end
 
-						]] .. frag .. [[
+			obj.pipeline = obj.shader
 
-						out vec4 out_color;
-
-						void main()
-						{
-							out_color = effect(current_color, current_texture, uv, gl_FragCoord.xy);
-						}
-					]],
-				},
-			}
-			obj.shader = shader
 			return obj
 		end
 
@@ -1176,7 +2203,9 @@ do
 
 	function love.graphics.setShader(obj)
 		ENV.current_shader = obj
-		render2d.shader_override = obj and obj.shader or nil
+		render2d.shader_override = obj and obj.pipeline or nil
+
+		if render2d.cmd then render2d.BindPipeline(render2d.cmd) end
 	end
 
 	function love.graphics.getShader()
@@ -1441,6 +2470,48 @@ end
 
 do
 	local Mesh = line.TypeTemplate("Mesh")
+	local attribute_translation = {
+		VertexPosition = "pos",
+		VertexTexCoord = "uv",
+		VertexColor = "color",
+	}
+	local reverse_attribute_translation = {
+		pos = "VertexPosition",
+		uv = "VertexTexCoord",
+		color = "VertexColor",
+	}
+
+	local function get_attribute_name_from_info(info)
+		return attribute_translation[info[1]] or info[1]
+	end
+
+	local function get_vertex_format_component_count(info)
+		return info[3] or 1
+	end
+
+	local function get_vertex_attribute_format(component_count)
+		if component_count == 4 then return "r32g32b32a32_sfloat" end
+		if component_count == 3 then return "r32g32b32_sfloat" end
+		if component_count == 2 then return "r32g32_sfloat" end
+		return "r32_sfloat"
+	end
+
+	local function build_render_vertex_attributes(vertex_format)
+		local out = {}
+		local offset = 0
+
+		for i, info in ipairs(vertex_format) do
+			local component_count = get_vertex_format_component_count(info)
+			out[i] = {
+				lua_name = get_attribute_name_from_info(info),
+				offset = offset,
+				format = get_vertex_attribute_format(component_count),
+			}
+			offset = offset + component_count * 4
+		end
+
+		return out
+	end
 
 	local function triangle_list_indices(mode, source_indices)
 		mode = mode or "triangles"
@@ -1487,6 +2558,15 @@ do
 		self.index_buffer:UpdateBuffer()
 	end
 
+	local function is_vertex_format_table(tbl)
+		if type(tbl) ~= "table" then return false end
+
+		local first = tbl[1]
+
+		return type(first) == "table" and type(first[1]) == "string" and type(first[2]) == "string" and
+			type(first[3]) == "number"
+	end
+
 	function love.graphics.newMesh(...)
 		local vertices
 		local vertex_count
@@ -1504,18 +2584,32 @@ do
 		then --(mesh_vertices, texture, 'triangles')
 			vertices, texture, mode = ...
 			vertex_count = #vertices
-		elseif type(select(1, ...)) == "table" and type(select(2, ...)) == "table" then
+		elseif is_vertex_format_table(select(1, ...)) and type(select(2, ...)) == "table" then
 			vertex_format, vertices, mode, usage = ...
 			vertex_count = #vertices
-		elseif type(...) == "number" then
+		elseif is_vertex_format_table(select(1, ...)) and type(select(2, ...)) == "number" then
+			vertex_format, vertex_count, mode, usage = ...
+		elseif type(select(1, ...)) == "number" then
 			vertex_count, mode, usage = ...
-		elseif type(...) == "table" then
+		elseif type(select(1, ...)) == "table" then
 			vertices, mode, usage = ...
 			vertex_count = #vertices
 		end
 
 		local self = line.CreateObject("Mesh")
-		self.vertex_buffer = render2d.CreateMesh(vertex_count)
+		local resolved_vertex_format = vertex_format or
+			{
+				{"VertexPosition", "float", 2},
+				{"VertexTexCoord", "float", 2},
+				{"VertexColor", "float", 4},
+			}
+
+		if vertex_format then
+			self.vertex_buffer = RenderMesh.New(build_render_vertex_attributes(resolved_vertex_format), vertex_count)
+		else
+			self.vertex_buffer = render2d.CreateMesh(vertex_count)
+		end
+
 		local mesh_idx = IndexBuffer.New()
 		mesh_idx:LoadIndices(vertex_count)
 		self.index_buffer = mesh_idx
@@ -1526,12 +2620,7 @@ do
 			self.vertex_map[i] = i - 1
 		end
 
-		self.vertex_format = vertex_format or
-			{
-				{"VertexPosition", "float", 2},
-				{"VertexTexCoord", "float", 2},
-				{"VertexColor", "float", 4},
-			}
+		self.vertex_format = resolved_vertex_format
 		self.vertex_buffer:SetDrawHint(usage)
 		self:setDrawMode(mode)
 
@@ -1573,29 +2662,63 @@ do
 
 	function Mesh:setVertex(index, vertex, ...)
 		if type(vertex) == "number" then vertex = {vertex, ...} end
+		local source_index = 1
 
-		if vertex[1] then
-			self.vertex_buffer:SetVertex(index, "pos", vertex[1], vertex[2])
+		for _, info in ipairs(self.vertex_format) do
+			local component_count = get_vertex_format_component_count(info)
+			local values = {}
+
+			for component_index = 1, component_count do
+				values[component_index] = vertex and vertex[source_index] or nil
+				source_index = source_index + 1
+			end
+
+			if not vertex then
+				for component_index = 1, component_count do
+					values[component_index] = 0
+				end
+			elseif component_count == 2 and values[1] ~= nil and values[2] == nil then
+				values[2] = values[1]
+			end
+
+			if info[1] == "VertexColor" then
+				for component_index = 1, 4 do
+					local value = values[component_index]
+
+					if value == nil then
+						value = component_index == 4 and get_api_default_alpha() or get_api_default_alpha()
+					end
+
+					if value > 1 then
+						values[component_index] = value / 255
+					else
+						values[component_index] = value
+					end
+				end
+			else
+				for component_index = 1, component_count do
+					values[component_index] = values[component_index] or 0
+				end
+			end
+
+			self.vertex_buffer:SetVertex(index, get_attribute_name_from_info(info), unpack(values, 1, component_count))
 		end
 
-		if vertex[3] then
-			self.vertex_buffer:SetVertex(index, "uv", vertex[3], vertex[4])
-		end
-
-		if vertex[5] then
-			local r = (vertex[5] or 255) / 255
-			local g = (vertex[6] or 255) / 255
-			local b = (vertex[7] or 255) / 255
-			local a = (vertex[8] or 255) / 255
-			self.vertex_buffer:SetVertex(index, "color", r, g, b, a)
-		end
+		self._line_dirty_buffers = true
 	end
 
 	function Mesh:getVertex(index)
-		local x, y = self.vertex_buffer:GetVertex(index, "pos")
-		local u, v = self.vertex_buffer:GetVertex(index, "uv")
-		local r, g, b, a = self.vertex_buffer:GetVertex(index, "color")
-		return x, y, u, v, r, g, b, a
+		local out = {}
+
+		for _, info in ipairs(self.vertex_format) do
+			local values = {self.vertex_buffer:GetVertex(index, get_attribute_name_from_info(info))}
+
+			for component_index = 1, get_vertex_format_component_count(info) do
+				out[#out + 1] = values[component_index]
+			end
+		end
+
+		return unpack(out)
 	end
 
 	function Mesh:setDrawRange(min, max)
@@ -1610,6 +2733,26 @@ do
 	function Mesh:Draw()
 		local count = self.draw_range_max or self.index_buffer:GetIndexCount()
 		self.vertex_buffer:Draw(self.index_buffer, count)
+	end
+
+	function Mesh:DrawInstanced(instance_count, extra_vertex_buffers)
+		instance_count = instance_count or 1
+		local count = self.draw_range_max or (self.index_buffer and self.index_buffer:GetIndexCount()) or self.vertex_buffer:GetVertexCount()
+
+		if self.index_buffer then
+			if not render2d.cmd then
+				error(
+					"Cannot draw without active command buffer. Must be called during Draw2D event.",
+					2
+				)
+			end
+
+			self.vertex_buffer:BindInstanced(render2d.cmd, extra_vertex_buffers, 0)
+			render2d.cmd:DrawIndexed(count, instance_count, 0, 0, 0)
+			return
+		end
+
+		self.vertex_buffer:DrawInstanced(instance_count, extra_vertex_buffers, count)
 	end
 
 	function Mesh:setVertexColors() end
@@ -1645,12 +2788,6 @@ do
 	end
 
 	do
-		local attribute_translation = {
-			VertexPosition = "pos",
-			VertexTexCoord = "uv",
-			VertexColor = "color",
-		}
-
 		local function get_attribute_name(self, pos)
 			local info = self.vertex_format[pos]
 
@@ -1658,11 +2795,12 @@ do
 				error("unknown vertex attribute index: " .. tostring(pos), 2)
 			end
 
-			return attribute_translation[info[1]] or info[1]
+			return get_attribute_name_from_info(info)
 		end
 
 		function Mesh:setVertexAttribute(index, pos, ...)
 			self.vertex_buffer:SetVertex(index, get_attribute_name(self, pos), ...)
+			self._line_dirty_buffers = true
 		end
 
 		function Mesh:getVertexAttribute(index, pos)
@@ -1674,20 +2812,24 @@ do
 
 	function Mesh:isAttributeEnabled() end
 
-	function Mesh:attachAttribute() end
+	function Mesh:attachAttribute(name, mesh, step)
+		self.attached_attributes = self.attached_attributes or {}
+		self.attached_attributes[name] = {
+			mesh = mesh,
+			step = step,
+		}
+	end
+
+	function Mesh:getVertexAttributeByName(index, name)
+		return self.vertex_buffer:GetVertex(index, name)
+	end
 
 	do
-		local tr = {
-			pos = "VertexPosition",
-			uv = "VertexTexCoord",
-			color = "VertexColor",
-		}
-
 		function Mesh:getVertexFormat()
 			local out = {}
 
 			for i, info in ipairs(self.vertex_format) do
-				list.insert(out, {tr[info[1]] or info[1], info[2], info[3]})
+				list.insert(out, {reverse_attribute_translation[info[1]] or info[1], info[2], info[3]})
 			end
 
 			return out
@@ -1697,6 +2839,7 @@ do
 	function Mesh:UpdateBuffers()
 		self.vertex_buffer:UpdateBuffer()
 		rebuild_index_buffer(self)
+		self._line_dirty_buffers = false
 	end
 
 	function Mesh:flush()
@@ -1815,6 +2958,10 @@ do -- sprite batch
 		self.entries = {}
 	end
 
+	function SpriteBatch:flush()
+		return self
+	end
+
 	function SpriteBatch:getImage()
 		return self.image
 	end
@@ -1897,6 +3044,7 @@ do -- sprite batch
 	end
 
 	function love.graphics.newSpriteBatch(image, size, usagehint)
+		size = size or 1000
 		local self = line.CreateObject("SpriteBatch")
 		local poly = gfx.CreatePolygon2D(size * 6)
 		self.size = size

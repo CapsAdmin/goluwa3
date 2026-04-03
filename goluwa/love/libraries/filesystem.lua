@@ -174,7 +174,15 @@ end
 
 love.filesystem.createDirectory = love.filesystem.mkdir
 
-function love.filesystem.read(path, size)
+function love.filesystem.read(path, size, bytes)
+	local container = "string"
+
+	if type(path) == "string" and (path == "string" or path == "data" or path == "file") then
+		container = path
+		path = size
+		size = bytes
+	end
+
 	local file = vfs.Open("data/love/" .. ENV.filesystem_identity .. "/" .. path)
 
 	if not file then file = vfs.Open(path) end
@@ -182,7 +190,15 @@ function love.filesystem.read(path, size)
 	if file then
 		local str = file:ReadBytes(size or math.huge)
 
-		if str then return str, #str else return "", 0 end
+		if not str then return "", 0 end
+
+		if container == "string" then return str, #str end
+
+		if container == "data" or container == "file" then
+			return love.filesystem.newFileData(str, path), #str
+		end
+
+		error("unsupported love.filesystem.read container: " .. tostring(container), 2)
 	end
 end
 

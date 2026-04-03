@@ -41,14 +41,48 @@ local keyboard_map = {
 	num_lock = "numlock",
 	enter = "return",
 }
+local scancode_aliases = {
+	grave = "`",
+	backquote = "`",
+}
 local reverse_keyboard_map = {}
 
 for k, v in pairs(keyboard_map) do
 	reverse_keyboard_map[v] = k
 end
 
-function love.keyboard.isDown(key)
-	return input.IsKeyDown(reverse_keyboard_map[key] or key)
+local function normalize_key_name(key)
+	if type(key) ~= "string" then return key end
+	return scancode_aliases[key] or key
+end
+
+local function to_input_key(key)
+	key = normalize_key_name(key)
+	return reverse_keyboard_map[key] or key
+end
+
+local function is_any_key_down(...)
+	for index = 1, select("#", ...) do
+		if input.IsKeyDown(to_input_key(select(index, ...))) then return true end
+	end
+
+	return false
+end
+
+function love.keyboard.isDown(...)
+	return is_any_key_down(...)
+end
+
+function love.keyboard.isScancodeDown(...)
+	return is_any_key_down(...)
+end
+
+function love.keyboard.getScancodeFromKey(key)
+	return normalize_key_name(key)
+end
+
+function love.keyboard.getKeyFromScancode(scancode)
+	return normalize_key_name(scancode)
 end
 
 function love.keyboard.setTextInput(b) end

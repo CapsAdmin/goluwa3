@@ -319,6 +319,8 @@ function Texture.New(config)
 			print("Warning: Failed to download texture:", config.path, err)
 			self:MakeReady()
 		end)
+	elseif config.decoded then
+		load(config.decoded)
 	else
 		load()
 	end

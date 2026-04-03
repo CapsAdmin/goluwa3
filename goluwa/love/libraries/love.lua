@@ -22,6 +22,12 @@ function love.line_update(dt)
 	end
 
 	line.pcall(love, love.update, dt)
+
+	local lily = love._line_env.lily
+
+	if lily and lily.update then
+		line.pcall(love, lily.update, 0.001)
+	end
 end
 
 function love.line_draw(dt)

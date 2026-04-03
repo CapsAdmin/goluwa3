@@ -268,6 +268,10 @@ do -- Source
 		if self.source then self.source:SetPitch(pitch) end
 	end
 
+	function Source:setRelative(relative)
+		self.relative = not not relative
+	end
+
 	function Source:setPosition(x, y, z)
 		if self.source then self.source:SetPosition(Vec3(x, y, z)) end
 	end
@@ -343,6 +347,7 @@ do -- Source
 			wlog("tried to create unknown source type: %s %s", line.Type(var), type, 2)
 		end
 
+		self.relative = false
 		return self
 	end
 

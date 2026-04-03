@@ -41,6 +41,10 @@ local current_lw, current_lh = 0, 0
 local DEFAULT_BLEND_MODE = "alpha"
 local DEFAULT_COLOR_WRITE_MASK = {"r", "g", "b", "a"}
 
+local function get_active_pipeline()
+	return render2d.shader_override or render2d.pipeline
+end
+
 local function copy_array(tbl)
 	if not tbl then return nil end
 
@@ -134,7 +138,9 @@ local function blend_modes_equal(a, b)
 end
 
 local function apply_states()
-	if not render2d.pipeline then return end
+	local pipeline = get_active_pipeline()
+
+	if not pipeline then return end
 
 	local blend_mode = render2d.current_blend_mode_state or
 		get_blend_mode_state(render2d.current_blend_mode)
@@ -142,7 +148,7 @@ local function apply_states()
 	stencil_mode_name = stencil_mode_name or "none"
 	stencil_ref = stencil_ref or 1
 	local stencil_mode = render2d.stencil_modes[stencil_mode_name]
-	render2d.pipeline:SetState(
+	pipeline:SetState(
 		"color_blend",
 		{
 			blend = blend_mode.blend,
@@ -164,7 +170,7 @@ local function apply_states()
 		compare_mask = 0xFF,
 		write_mask = 0xFF,
 	}
-	render2d.pipeline:SetState(
+	pipeline:SetState(
 		"depth_stencil",
 		{
 			stencil_test = stencil_mode.stencil_test,
@@ -174,7 +180,7 @@ local function apply_states()
 	)
 
 	if render2d.cmd then
-		render2d.pipeline:Bind(render2d.cmd, render.GetCurrentFrame())
+		pipeline:Bind(render2d.cmd, render.GetCurrentFrame())
 	end
 end
 
@@ -1249,7 +1255,9 @@ do
 	end
 
 	local function apply_states()
-		if not render2d.pipeline then return end
+		local pipeline = get_active_pipeline()
+
+		if not pipeline then return end
 
 		local blend_mode = render2d.current_blend_mode_state or
 			get_blend_mode_state(render2d.current_blend_mode)
@@ -1257,7 +1265,7 @@ do
 		stencil_mode_name = stencil_mode_name or "none"
 		stencil_ref = stencil_ref or 1
 		local stencil_mode = render2d.stencil_modes[stencil_mode_name]
-		render2d.pipeline:SetState(
+		pipeline:SetState(
 			"color_blend",
 			{
 				blend = blend_mode.blend,
@@ -1279,7 +1287,7 @@ do
 			compare_mask = 0xFF,
 			write_mask = 0xFF,
 		}
-		render2d.pipeline:SetState(
+		pipeline:SetState(
 			"depth_stencil",
 			{
 				stencil_test = stencil_mode.stencil_test,
@@ -1289,7 +1297,7 @@ do
 		)
 
 		if render2d.cmd then
-			render2d.pipeline:Bind(render2d.cmd, render.GetCurrentFrame())
+			pipeline:Bind(render2d.cmd, render.GetCurrentFrame())
 		end
 	end
 
@@ -1349,7 +1357,9 @@ do
 	function render2d.UploadConstants(cmd, w, h, lw, lh)
 		current_w, current_h = w or 0, h or 0
 		current_lw, current_lh = lw or w or 0, lh or h or 0
-		render2d.pipeline:UploadConstants(cmd)
+		local pipeline = get_active_pipeline()
+
+		if pipeline then pipeline:UploadConstants(cmd) end
 	end
 end
 
@@ -1361,16 +1371,31 @@ do -- mesh
 	render2d.last_bound_mesh = nil
 	local last_cmd = nil
 
+	local function ensure_draw_command()
+		if not render2d.cmd then render2d.BindPipeline() end
+		return render2d.cmd
+	end
+
 	function render2d.BindMesh(mesh)
+		local cmd = ensure_draw_command()
+
+		if not cmd then return false end
+
 		if last_cmd ~= render2d.cmd or render2d.last_bound_mesh ~= mesh then
-			mesh:Bind(render2d.cmd, 0)
+			mesh:Bind(cmd, 0)
 			render2d.last_bound_mesh = mesh
-			last_cmd = render2d.cmd
+			last_cmd = cmd
 		end
+
+		return true
 	end
 
 	function render2d.DrawIndexedMesh(index_count, instance_count, first_index, vertex_offset, first_instance)
-		render2d.cmd:DrawIndexed(
+		local cmd = ensure_draw_command()
+
+		if not cmd then return end
+
+		cmd:DrawIndexed(
 			index_count or index_buffer:GetIndexCount(),
 			instance_count or 1,
 			first_index or 0,
@@ -1380,7 +1405,11 @@ do -- mesh
 	end
 
 	function render2d.DrawMesh(vertex_count, instance_count, first_vertex, first_instance)
-		render2d.cmd:Draw(
+		local cmd = ensure_draw_command()
+
+		if not cmd then return end
+
+		cmd:Draw(
 			vertex_count or vertex_buffer:GetVertexCount(),
 			instance_count or 1,
 			first_vertex or 0,
@@ -1670,10 +1699,19 @@ function render2d.BindPipeline(cmd)
 
 	render2d.cmd = render2d.cmd or render.GetCommandBuffer()
 
+	if not render2d.cmd and render2d.on_missing_command then
+		render2d.on_missing_command()
+		render2d.cmd = render2d.cmd or render.GetCommandBuffer()
+	end
+
 	if render2d.cmd then apply_states() end
 
 	-- Reset mesh binding cache since command buffer state was reset
 	render2d.last_bound_mesh = nil
+end
+
+function render2d.GetActivePipeline()
+	return get_active_pipeline()
 end
 
 render2d.SetColor(1, 1, 1, 1)

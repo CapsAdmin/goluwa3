@@ -2,6 +2,8 @@ local T = import("test/environment.lua")
 local line = import("goluwa/love/line.lua")
 local render = import("goluwa/render/render.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
+local window = import("goluwa/window.lua")
+local Vec2 = import("goluwa/structs/vec2.lua")
 
 local function apply_love_version(love, version)
 	version = tostring(version or "0.10.1")
@@ -45,6 +47,40 @@ T.Test2D("love graphics renderer info reports Vulkan", function()
 	T(type(version))["=="]("string")
 	T(vendor)["=="]("Goluwa")
 	T(type(renderer))["=="]("string")
+end)
+
+T.Test2D("love graphics dimensions follow window size on main surface", function()
+	local love = new_love_graphics_env("11.0.0")
+	local old_window_get_size = window.GetSize
+	local old_render_get_width = render.GetWidth
+	local old_render_get_height = render.GetHeight
+	local old_render_get_render_image_size = render.GetRenderImageSize
+	window.GetSize = function()
+		return Vec2(1280, 720)
+	end
+	render.GetWidth = function()
+		return 800
+	end
+	render.GetHeight = function()
+		return 600
+	end
+	render.GetRenderImageSize = function()
+		return Vec2(800, 600)
+	end
+	local ok, err = pcall(function()
+		T(({love.graphics.getDimensions()})[1])["=="](1280)
+		T(({love.graphics.getDimensions()})[2])["=="](720)
+		T(love.graphics.getWidth())["=="](1280)
+		T(love.graphics.getHeight())["=="](720)
+		local canvas = love.graphics.newCanvas()
+		T(canvas:getWidth())["=="](1280)
+		T(canvas:getHeight())["=="](720)
+	end)
+	window.GetSize = old_window_get_size
+	render.GetWidth = old_render_get_width
+	render.GetHeight = old_render_get_height
+	render.GetRenderImageSize = old_render_get_render_image_size
+	if not ok then error(err, 0) end
 end)
 
 T.Test2D("love graphics canvas clear path executes", function()
@@ -162,6 +198,33 @@ T.Test2D("love graphics spritebatch image placement", function()
 		T.AssertScreenPixel{pos = {440, 80}, color = {0, 1, 0, 1}, tolerance = 0.1}
 		T.AssertScreenPixel{pos = {480, 80}, color = {0, 128 / 255, 1, 1}, tolerance = 0.1}
 	end
+end)
+
+T.Test2D("love graphics spritebatch defaults size", function()
+	local love = new_love_graphics_env()
+	local image = make_quadrant_image(love)
+	local batch = love.graphics.newSpriteBatch(image)
+	batch:add(432, 32, 0, 32, 32)
+	love.graphics.clear(0, 0, 0, 255)
+	love.graphics.setColor(255, 255, 255, 255)
+	love.graphics.draw(batch)
+	return function()
+		T.AssertScreenPixel{pos = {440, 40}, color = {1, 1, 0, 1}, tolerance = 0.1}
+		T.AssertScreenPixel{pos = {480, 40}, color = {1, 0, 0, 1}, tolerance = 0.1}
+		T.AssertScreenPixel{pos = {440, 80}, color = {0, 1, 0, 1}, tolerance = 0.1}
+		T.AssertScreenPixel{pos = {480, 80}, color = {0, 128 / 255, 1, 1}, tolerance = 0.1}
+	end
+end)
+
+T.Test("love graphics spritebatch flush compatibility", function()
+	local love = new_love_graphics_env("11.0.0")
+	local image = make_quadrant_image(love)
+	local batch = love.graphics.newSpriteBatch(image, 4)
+	batch:clear()
+	batch:add(16, 24)
+	T(batch:flush())["=="](batch)
+	T(batch.entries[1].x)["=="](16)
+	T(batch.entries[1].y)["=="](24)
 end)
 
 T.Test2D("love graphics spritebatch inherits outer transforms", function()
@@ -352,4 +415,105 @@ T.Test2D("love graphics mesh placement", function()
 		T.AssertScreenPixel{pos = {272, 80}, color = {0, 1, 0, 1}, tolerance = 0.1}
 		T.AssertScreenPixel{pos = {304, 80}, color = {0, 128 / 255, 1, 1}, tolerance = 0.1}
 	end
+end)
+
+T.Test2D("love graphics drawInstanced supports Love vertex shader instance attributes", function()
+	local love = new_love_graphics_env("11.0.0")
+	local image = make_quadrant_image(love)
+	local mesh = love.graphics.newMesh(
+		{
+			{0, 0, 0, 0, 1, 1, 1, 1},
+			{1, 0, 1, 0, 1, 1, 1, 1},
+			{0, 1, 0, 1, 1, 1, 1, 1},
+			{1, 1, 1, 1, 1, 1, 1, 1},
+		},
+		image,
+		"strip"
+	)
+	local instances = love.graphics.newMesh(
+		{
+			{"InstancePosition", "float", 2},
+			{"UVOffset", "float", 2},
+			{"ImageDim", "float", 2},
+			{"ImageShade", "float", 1},
+			{"Scale", "float", 2},
+		},
+		2,
+		nil,
+		"dynamic"
+	)
+	mesh:attachAttribute("InstancePosition", instances, "perinstance")
+	mesh:attachAttribute("UVOffset", instances, "perinstance")
+	mesh:attachAttribute("ImageDim", instances, "perinstance")
+	mesh:attachAttribute("ImageShade", instances, "perinstance")
+	mesh:attachAttribute("Scale", instances, "perinstance")
+	instances:setVertex(1, 32, 32, 0, 0, 0.5, 0.5, 1, 32, 32)
+	instances:setVertex(2, 96, 32, 0.5, 0.5, 0.5, 0.5, 1, 32, 32)
+	local shader = love.graphics.newShader([[
+		varying vec2 uvoff;
+		varying vec2 imgdim;
+		varying float imgshd;
+		#ifdef VERTEX
+		attribute vec2 InstancePosition;
+		attribute vec2 UVOffset;
+		attribute vec2 ImageDim;
+		attribute float ImageShade;
+		attribute vec2 Scale;
+		vec4 position(mat4 transform_projection, vec4 vertex_position)
+		{
+			uvoff = UVOffset;
+			imgdim = ImageDim;
+			imgshd = ImageShade;
+			vertex_position.xy *= Scale;
+			vertex_position.xy += InstancePosition;
+			return transform_projection * vertex_position;
+		}
+		#endif
+		#ifdef PIXEL
+		vec4 effect(vec4 color, Image tex, vec2 texture_coords, vec2 screen_coords)
+		{
+			texture_coords = uvoff + imgdim * texture_coords;
+			return Texel(tex, texture_coords) * vec4(vec3(imgshd), 1.0) * color;
+		}
+		#endif
+	]])
+	love.graphics.clear(0, 0, 0, 255)
+	love.graphics.setColor(1, 1, 1, 1)
+	love.graphics.setShader(shader)
+	love.graphics.drawInstanced(mesh, 2)
+	love.graphics.setShader()
+	return function()
+		T.AssertScreenPixel{pos = {40, 40}, color = {1, 1, 0, 1}, tolerance = 0.1}
+		T.AssertScreenPixel{pos = {56, 56}, color = {1, 1, 0, 1}, tolerance = 0.1}
+		T.AssertScreenPixel{pos = {104, 40}, color = {0, 128 / 255, 1, 1}, tolerance = 0.1}
+		T.AssertScreenPixel{pos = {120, 56}, color = {0, 128 / 255, 1, 1}, tolerance = 0.1}
+	end
+end)
+
+T.Test("love graphics custom mesh setVertex handles nil clears", function()
+	local love = new_love_graphics_env("11.0.0")
+	local mesh = love.graphics.newMesh(
+		{
+			{"InstancePosition", "float", 2},
+			{"UVOffset", "float", 2},
+			{"ImageDim", "float", 2},
+			{"ImageShade", "float", 1},
+			{"Scale", "float", 2},
+		},
+		4,
+		nil,
+		"dynamic"
+	)
+	mesh:setVertex(1, 10, 20, 30, 40, 50, 60, 0.75, 1.25)
+	T(({mesh:getVertexAttribute(1, 1)})[1])['=='](10)
+	T(({mesh:getVertexAttribute(1, 1)})[2])['=='](20)
+	T(({mesh:getVertexAttribute(1, 4)})[1])['=='](0.75)
+	T(({mesh:getVertexAttribute(1, 5)})[1])['=='](1.25)
+	T(({mesh:getVertexAttribute(1, 5)})[2])['=='](1.25)
+	mesh:setVertex(1)
+	T(({mesh:getVertexAttribute(1, 1)})[1])['=='](0)
+	T(({mesh:getVertexAttribute(1, 1)})[2])['=='](0)
+	T(({mesh:getVertexAttribute(1, 4)})[1])['=='](0)
+	T(({mesh:getVertexAttribute(1, 5)})[1])['=='](0)
+	T(({mesh:getVertexAttribute(1, 5)})[2])['=='](0)
 end)

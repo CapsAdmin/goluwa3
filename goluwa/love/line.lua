@@ -26,11 +26,11 @@ end
 
 do
 	local function base_typeOf(self, str)
-		return str == self.name
+		return str == (self.__line_type or self.name)
 	end
 
 	local function base_type(self)
-		return self.name
+		return self.__line_type or self.name
 	end
 
 	local created = table.weak()
@@ -176,6 +176,32 @@ function line.FixPath(path)
 	return path
 end
 
+function line.SyncWindowGlobals(love, width, height)
+	if not love or not love._line_env then return end
+
+	local globals = love._line_env.globals
+
+	if not globals then return end
+
+	width = tonumber(width)
+	height = tonumber(height)
+
+	if not width or not height then return end
+
+	globals.ScreenWidth = width
+	globals.ScreenHeight = height
+	globals.windowWidth = width
+	globals.windowHeight = height
+	globals.WINDOW_WIDTH = width
+	globals.WINDOW_HEIGHT = height
+end
+
+function line.SyncAllWindowGlobals(width, height)
+	for _, love in ipairs(line.love_envs) do
+		line.SyncWindowGlobals(love, width, height)
+	end
+	end
+
 local function get_game_identity(folder)
 	local identity = folder:gsub("[/\\]+$", ""):match("([^/\\]+)$") or "lovegame"
 	identity = identity:gsub("^([%.]+)", "")
@@ -249,6 +275,18 @@ function line.RunGame(folder, ...)
 
 		if package_loaded[name] ~= nil then return package_loaded[name] end
 
+		local function finalize_required_module(module_name, value)
+			if module_name == "libraries.lily" and type(value) == "table" then
+				love._line_env.lily = value
+
+				if value.setUpdateMode then
+					value.setUpdateMode("manual")
+				end
+			end
+
+			return value
+		end
+
 		if vendored_luasocket_modules[name] then
 			local func = assert(loadfile(vendored_luasocket_modules[name]))
 			local result = prepare_module_function(func)()
@@ -259,13 +297,13 @@ function line.RunGame(folder, ...)
 
 			if name == "socket" or name == "socket.core" then env.socket = result end
 
-			return result
+			return finalize_required_module(name, result)
 		end
 
 		if name:starts_with("love.") and love[name:match(".+%.(.+)")] then
 			local lib = love[name:match(".+%.(.+)")]
 			package_loaded[name] = lib
-			return lib
+			return finalize_required_module(name, lib)
 		end
 
 		local res, err, path = module_require.require_with_loaders(
@@ -278,14 +316,14 @@ function line.RunGame(folder, ...)
 
 		if res ~= nil then
 			--llog("require: ", name, " (", path, ")")
-			return res
+			return finalize_required_module(name, res)
 		end
 
 		local ok, fallback = pcall(module_require, name)
 
 		if ok then
 			package_loaded[name] = fallback
-			return fallback
+			return finalize_required_module(name, fallback)
 		end
 
 		error(err, 2)
@@ -344,6 +382,7 @@ function line.RunGame(folder, ...)
 	)
 	env._G = env
 	env.arg = {...}
+	env.utf8 = line_require("utf8")
 	setmetatable(
 		love,
 		{

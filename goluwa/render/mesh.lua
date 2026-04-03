@@ -27,6 +27,18 @@ local function normalize_vertex_index(index)
 	return index - 1
 end
 
+local function get_vertex_field(vertex_buffer, attribute, index)
+	local normalized_index = normalize_vertex_index(index)
+	local vertex = vertex_buffer:GetVertices()[normalized_index]
+
+	if type(vertex) == "number" then
+		local base_offset = normalized_index * vertex_buffer.stride + attribute.offset
+		return ffi.cast("float*", vertex_buffer.data + base_offset)
+	end
+
+	return vertex[attribute.lua_name]
+end
+
 local function is_command_buffer(obj)
 	return type(obj) == "table" and obj.BindVertexBuffer and obj.Draw
 end
@@ -100,6 +112,28 @@ function Mesh:Bind(cmd, binding_position)
 	end
 end
 
+function Mesh:BindInstanced(cmd, extra_vertex_buffers, binding_position)
+	binding_position = binding_position or 0
+
+	if not extra_vertex_buffers or #extra_vertex_buffers == 0 then
+		return self:Bind(cmd, binding_position)
+	end
+
+	local buffers = {self.vertex_buffer:GetBuffer()}
+
+	for _, extra in ipairs(extra_vertex_buffers) do
+		if extra and extra.vertex_buffer then extra = extra.vertex_buffer end
+		if extra and extra.GetBuffer then extra = extra:GetBuffer() end
+		buffers[#buffers + 1] = extra
+	end
+
+	cmd:BindVertexBuffers(binding_position, buffers)
+
+	if self.index_buffer then
+		cmd:BindIndexBuffer(self.index_buffer:GetBuffer(), 0, self.index_buffer:GetIndexType())
+	end
+end
+
 function Mesh:DrawIndexed(cmd, index_count, instance_count, first_index, vertex_offset, first_instance)
 	cmd:DrawIndexed(
 		index_count or self.index_buffer:GetIndexCount(),
@@ -144,6 +178,46 @@ function Mesh:Draw(cmd, vertex_count, instance_count, first_vertex, first_instan
 	)
 end
 
+function Mesh:DrawInstanced(cmd, instance_count, extra_vertex_buffers, index_count, first_index, vertex_offset, first_instance)
+	if not is_command_buffer(cmd) then
+		first_instance = vertex_offset
+		vertex_offset = first_index
+		first_index = index_count
+		index_count = extra_vertex_buffers
+		extra_vertex_buffers = instance_count
+		instance_count = cmd
+		local render2d = import("goluwa/render2d/render2d.lua")
+		cmd = render2d.cmd
+
+		if not cmd then
+			error(
+				"Cannot draw without active command buffer. Must be called during Draw2D event.",
+				2
+			)
+		end
+	end
+
+	self:BindInstanced(cmd, extra_vertex_buffers, 0)
+
+	if self.index_buffer then
+		cmd:DrawIndexed(
+			index_count or self.index_buffer:GetIndexCount(),
+			instance_count or 1,
+			first_index or 0,
+			vertex_offset or 0,
+			first_instance or 0
+		)
+		return
+	end
+
+	cmd:Draw(
+		self.vertex_buffer:GetVertexCount(),
+		instance_count or 1,
+		0,
+		first_instance or 0
+	)
+end
+
 function Mesh:GetVertices()
 	return self.vertex_buffer:GetVertices()
 end
@@ -154,8 +228,7 @@ end
 
 function Mesh:SetVertex(index, name, ...)
 	local attribute = self:GetVertexAttributeInfo(name)
-	local vertex = self.vertex_buffer:GetVertices()[normalize_vertex_index(index)]
-	local field = vertex[attribute.lua_name]
+	local field = get_vertex_field(self.vertex_buffer, attribute, index)
 	local argc = select("#", ...)
 
 	if argc == 1 then
@@ -183,8 +256,7 @@ end
 
 function Mesh:GetVertex(index, name)
 	local attribute = self:GetVertexAttributeInfo(name)
-	local vertex = self.vertex_buffer:GetVertices()[normalize_vertex_index(index)]
-	local field = vertex[attribute.lua_name]
+	local field = get_vertex_field(self.vertex_buffer, attribute, index)
 	local component_count = get_attribute_component_count(attribute)
 	local out = {}
 

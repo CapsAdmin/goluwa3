@@ -240,6 +240,108 @@ function utf8.to_list(str)
 	return tbl
 end
 
+utf8.charpattern = "[\0-\127\194-\244][\128-\191]*"
+
+function utf8.len(str, i, j)
+	if i ~= nil or j ~= nil then str = utf8.sub(str, i or 1, j or -1) end
+
+	return utf8.length(str)
+end
+
+function utf8.char(...)
+	local out = {}
+
+	for i = 1, select("#", ...) do
+		out[i] = utf8.from_uint32(select(i, ...))
+	end
+
+	return table.concat(out)
+end
+
+function utf8.codepoint(str, i, j)
+	i = i or 1
+	j = j or i
+
+	if i < 0 then i = #str + i + 1 end
+	if j < 0 then j = #str + j + 1 end
+
+	local out = {}
+	local pos = i
+
+	while pos <= j and pos <= #str do
+		out[#out + 1] = utf8.uint32(str, pos)
+		pos = pos + utf8.byte_length(str, pos)
+	end
+
+	return unpack(out)
+end
+
+function utf8.codes(str)
+	local pos = 1
+
+	return function()
+		if pos > #str then return nil end
+
+		local start = pos
+		local codepoint = utf8.uint32(str, pos)
+		pos = pos + utf8.byte_length(str, pos)
+		return start, codepoint
+	end
+end
+
+function utf8.offset(str, n, i)
+	if n == 0 then
+		i = math.clamp(i or 1, 1, #str + 1)
+
+		while i > 1 do
+			local byte = str:byte(i)
+
+			if not byte or byte < 128 or byte > 191 then break end
+
+			i = i - 1
+		end
+
+		return i
+	end
+
+	if n > 0 then
+		i = i or 1
+
+		while i <= #str do
+			local byte = str:byte(i)
+
+			if byte < 128 or byte > 191 then break end
+
+			i = i + 1
+		end
+
+		for _ = 1, n - 1 do
+			i = i + utf8.byte_length(str, i)
+
+			if i > #str then return nil end
+		end
+
+		return i <= #str and i or nil
+	end
+
+	i = i or (#str + 1)
+	for _ = n, -1 do
+		i = i - 1
+
+		while i > 1 do
+			local byte = str:byte(i)
+
+			if byte < 128 or byte > 191 then break end
+
+			i = i - 1
+		end
+
+		if i < 1 then return nil end
+	end
+
+	return i
+end
+
 for name, func in pairs(utf8) do
 	string["utf8_" .. name] = func
 end
