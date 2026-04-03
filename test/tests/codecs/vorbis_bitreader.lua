@@ -1,5 +1,7 @@
 local T = import("test/environment.lua")
 local ffi = require("ffi")
+local bit = require("bit")
+local debug = require("debug")
 local vorbis = import("goluwa/codecs/internal/vorbis.lua")
 local Buffer = import("goluwa/structs/buffer.lua")
 
@@ -7,6 +9,52 @@ local function NewReader(packet)
 	local reader = Buffer.New(packet)
 	reader:RestartReadBits()
 	return reader
+end
+
+local function BuildBitstream(write)
+	local bits = {}
+
+	local function PushBits(value, width)
+		for shift = 0, width - 1 do
+			bits[#bits + 1] = bit.band(bit.rshift(value, shift), 1)
+		end
+	end
+
+	write(PushBits)
+	local bytes = {}
+	local byte_count = math.ceil(#bits / 8)
+
+	for byte_idx = 0, byte_count - 1 do
+		local value = 0
+
+		for bit_idx = 0, 7 do
+			local idx = byte_idx * 8 + bit_idx + 1
+
+			if bits[idx] then value = value + bit.lshift(bits[idx], bit_idx) end
+		end
+
+		bytes[#bytes + 1] = string.char(value)
+	end
+
+	return table.concat(bytes)
+end
+
+local function WithInstructionLimit(limit, fn)
+	local hook, mask, count = debug.gethook()
+
+	local function RestoreHook()
+		debug.sethook(hook, mask, count)
+	end
+
+	debug.sethook(function()
+		error("instruction limit exceeded", 2)
+	end, "", limit)
+
+	local ok, a, b = xpcall(fn, function(err)
+		return err
+	end)
+	RestoreHook()
+	return ok, a, b
 end
 
 T.Test("Vorbis BitReader: basic single-byte reads", function()
@@ -174,15 +222,13 @@ end)
 
 T.Test("Vorbis BitReader: DecodeCodebookEntry with simple table", function()
 	-- Test the Huffman table lookup directly via vorbis.DecodeCodebookEntry
-	-- Create a minimal codebook with a known decode table
+	-- Create a minimal codebook with a known fast decode table.
 	local book = {
 		max_code_len = 2,
-		dec_table = {
-			[0] = {value = 1, len = 1}, -- code 0 (1 bit) → entry 0 (value=1, 1-indexed)
-			[2] = {value = 1, len = 1}, -- code 0 extended: 10 → still entry 0
-			[1] = {value = 2, len = 2}, -- code 01 (2 bits) → entry 1
-			[3] = {value = 3, len = 2}, -- code 11 (2 bits) → entry 2
-		},
+		fast_len = 2,
+		fast_mask = 3,
+		dec_table_len = ffi.new("uint8_t[4]", {0, 2, 0, 0}),
+		dec_table_val = ffi.new("uint32_t[4]", {0, 2, 0, 0}),
 	}
 	-- Data: 0b11_01_0_0 = 0b11010000 reversed = ...
 	-- Actually LSB-first: first bits read from byte are low bits
@@ -234,4 +280,69 @@ T.Test("Vorbis BitReader: consistency with reference values", function()
 	local reader3 = NewReader(bytes)
 	T(reader3:Read(16))["=="](0x5678)
 	T(reader3:Read(16))["=="](0x1234)
+end)
+
+T.Test("Vorbis BitReader: ordered codebook last-entry run completes", function()
+	local packet = BuildBitstream(function(PushBits)
+		PushBits(5, 8)
+
+		for i = 1, #"vorbis" do
+			PushBits(("vorbis"):byte(i), 8)
+		end
+
+		PushBits(0, 8) -- codebook count - 1
+		PushBits(0x564342, 24)
+		PushBits(1, 16) -- dimensions
+		PushBits(2, 24) -- entries
+		PushBits(1, 1) -- ordered
+		PushBits(0, 5) -- initial length = 1
+		PushBits(1, 2) -- first run count with 2 entries remaining
+		PushBits(1, 1) -- final run count with 1 entry remaining
+		PushBits(0, 4) -- lookup type 0
+		PushBits(0, 6) -- time count - 1
+		PushBits(0, 16)
+		PushBits(0, 6) -- floor count - 1
+		PushBits(0, 16) -- floor type 0
+		PushBits(0, 8)
+		PushBits(0, 16)
+		PushBits(0, 16)
+		PushBits(0, 6)
+		PushBits(0, 8)
+		PushBits(0, 4)
+		PushBits(0, 8)
+		PushBits(0, 6) -- residue count - 1
+		PushBits(0, 16)
+		PushBits(0, 24)
+		PushBits(0, 24)
+		PushBits(0, 24)
+		PushBits(0, 6)
+		PushBits(0, 8)
+		PushBits(0, 3)
+		PushBits(0, 1)
+		PushBits(0, 6) -- mapping count - 1
+		PushBits(0, 16)
+		PushBits(0, 1)
+		PushBits(0, 1)
+		PushBits(0, 2)
+		PushBits(0, 8)
+		PushBits(0, 8)
+		PushBits(0, 8)
+		PushBits(0, 6) -- mode count - 1
+		PushBits(0, 1)
+		PushBits(0, 16)
+		PushBits(0, 16)
+		PushBits(0, 8)
+		PushBits(1, 1) -- framing flag
+	end)
+	local ok, setup_or_err = WithInstructionLimit(100000, function()
+		local setup, err = vorbis.DecodeSetup(packet, {channels = 1})
+		assert(setup, err)
+		return setup
+	end)
+
+	if not ok then error(setup_or_err, 0) end
+
+	local setup = setup_or_err
+	T(setup.codebooks[1].lengths[1])["=="](1)
+	T(setup.codebooks[1].lengths[2])["=="](2)
 end)

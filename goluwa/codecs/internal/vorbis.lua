@@ -368,8 +368,18 @@ function vorbis.DecodeSetup(packet, info)
 			local j = 1
 
 			while j <= cb.entries do
-				local bits = ilog(cb.entries - j)
-				local count = reader:Read(bits)
+				local remaining_entries = cb.entries - j + 1
+				local bits = ilog(remaining_entries)
+				local count = reader:ReadBits(bits)
+				assertf(count, "Truncated ordered codebook length run at entry %d/%d", j, cb.entries)
+				assertf(
+					count > 0 and count <= remaining_entries,
+					"Invalid ordered codebook length run: count=%d remaining=%d at entry %d/%d",
+					count,
+					remaining_entries,
+					j,
+					cb.entries
+				)
 
 				for k = 1, count do
 					if j <= cb.entries then
