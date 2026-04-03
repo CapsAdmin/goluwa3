@@ -6,7 +6,9 @@ local jit = _G.jit
 local table_concat = _G.table.concat
 local table_insert = _G.table.insert
 local table_remove = _G.table.remove
+local table_sort = _G.table.sort
 local string_format = _G.string.format
+local string_rep = _G.string.rep
 local time_function--[[#: function=()>(number) | nil]] = nil
 
 local function get_time_function()
@@ -159,6 +161,34 @@ local function json_string(s--[[#: string]])
 	s = s:gsub("\r", "\\r")
 	s = s:gsub("\t", "\\t")
 	return "\"" .. s .. "\""
+end
+
+local function builtin_replace(n)
+	local num = tonumber(n)
+	return vmdef.ffnames[num] or ("[builtin#" .. n .. "]")
+end
+
+local function normalize_sample_stack(stack_str--[[#: string | nil]])--[[#: string]]
+	if not stack_str or type(stack_str) ~= "string" then return "" end
+
+	stack_str = stack_str:gsub("%[builtin#(%d+)%]", builtin_replace)
+	stack_str = stack_str:gsub("@0x%x+\n?", "")
+	stack_str = stack_str:gsub("%(command line%)[^\n]*\n?", "")
+	stack_str = stack_str:gsub("%s+$", "")
+	return stack_str
+end
+
+local function collect_sample_frames(stack_str--[[#: string | nil]])--[[#: List<|string|>]]
+	local frames = {}
+	stack_str = normalize_sample_stack(stack_str)
+
+	if stack_str ~= "" then
+		for line in stack_str:gmatch("[^\n]+") do
+			frames[#frames + 1] = line
+		end
+	end
+
+	return frames
 end
 
 -- --- Profiler ---
@@ -568,27 +598,14 @@ do
 		return new
 	end
 
-	local function builtin_replace(n)
-		local num = tonumber(n)
-		return vmdef.ffnames[num] or ("[builtin#" .. n .. "]")
-	end
-
 	local function encode_event(self--[[#: TProfile]], ev--[[#: TEvent]])--[[#: string]]
 		local ti = intern(self, ev.type)
 
 		if ev.type == "sample" then
-			local stack_str = ev.stack
-
-			if stack_str and type(stack_str) == "string" then
-				stack_str = stack_str:gsub("%[builtin#(%d+)%]", builtin_replace)
-				stack_str = stack_str:gsub("@0x%x+\n?", "")
-				stack_str = stack_str:gsub("%(command line%)[^\n]*\n?", "")
-				stack_str = stack_str:gsub("%s+$", "")
-			end
-
+			local stack_str = normalize_sample_stack(ev.stack)
 			local frames = {}
 
-			if stack_str and stack_str ~= "" then
+			if stack_str ~= "" then
 				for line in stack_str:gmatch("[^\n]+") do
 					frames[#frames + 1] = intern(self, line)
 				end
@@ -687,6 +704,269 @@ do
 				self._last_flushed_idx = count
 			end
 		end
+	end
+end
+
+do
+	--[[#local type TSummaryEntry = {name = string, count = number, self_count = number}]]
+	--[[#local type TSummaryNode = {
+		name = string,
+		count = number,
+		self_count = number,
+		children = Map<|string, TSummaryNode|>,
+	}]]
+	--[[#local type TSummaryCountEntry = {name = string, count = number}]]
+
+	local function get_sorted_summary_entries(map--[[#: Map<|string, TSummaryEntry|>]])--[[#: List<|TSummaryEntry|>]]
+		local list = {}
+
+		for _, entry in pairs(map) do
+			list[#list + 1] = entry
+		end
+
+		table_sort(list, function(a, b)
+			if a.count ~= b.count then return a.count > b.count end
+
+			local a_self = a.self_count or 0
+			local b_self = b.self_count or 0
+
+			if a_self ~= b_self then return a_self > b_self end
+
+			return a.name < b.name
+		end)
+
+		return list
+	end
+
+	local function format_summary_distribution(map--[[#: Map<|string, number|>]], total--[[#: number]])--[[#: string]]
+		local entries = {}
+
+		for name, count in pairs(map) do
+			entries[#entries + 1] = {name = name, count = count}--[[# as TSummaryCountEntry]]
+		end
+
+		table_sort(entries, function(a, b)
+			if a.count ~= b.count then return a.count > b.count end
+
+			return a.name < b.name
+		end)
+
+		local out = {}
+
+		for i = 1, #entries do
+			local entry = entries[i]--[[# as TSummaryCountEntry]]
+			out[#out + 1] = string_format(
+				"%s=%d (%.1f%%%%)",
+				entry.name,
+				entry.count,
+				total > 0 and (entry.count / total) * 100 or 0
+			)
+		end
+
+		return table_concat(out, ", ")
+	end
+
+	local function append_summary_tree(
+		lines--[[#: List<|string|>]],
+		node--[[#: TSummaryNode]],
+		total_samples--[[#: number]],
+		depth--[[#: number]],
+		max_depth--[[#: number]],
+		max_children--[[#: number]]
+	)
+		local indent = string_rep("  ", depth)
+		local self_count = node.self_count or 0
+		local line = string_format(
+			"%s- %s - %d samples (%.1f%%%%)",
+			indent,
+			node.name,
+			node.count or 0,
+			total_samples > 0 and ((node.count or 0) / total_samples) * 100 or 0
+		)
+
+		if self_count > 0 then
+			line = line .. string_format(
+					", self %d (%.1f%%%%)",
+					self_count,
+					total_samples > 0 and (self_count / total_samples) * 100 or 0
+				)
+		end
+
+		lines[#lines + 1] = line
+
+		if depth >= max_depth then return end
+
+		local children = {}
+
+		for _, child in pairs(node.children) do
+			children[#children + 1] = child
+		end
+
+		table_sort(children, function(a, b)
+			if a.count ~= b.count then return a.count > b.count end
+
+			return a.name < b.name
+		end)
+
+		local limit = math.min(#children, max_children)
+
+		for i = 1, limit do
+			append_summary_tree(lines, children[i], total_samples, depth + 1, max_depth, max_children)
+		end
+
+		local hidden = #children - limit
+
+		if hidden > 0 then
+			lines[#lines + 1] = string_rep("  ", depth + 1) .. "- ... " .. hidden .. " more children"
+		end
+	end
+
+	function Profiler:GetFlamegraphSummary(
+		config--[[#: {
+			vm_state = string | nil,
+			section_path = string | nil,
+			include_sections = boolean | nil,
+			max_frames = number | nil,
+			max_depth = number | nil,
+			max_children = number | nil,
+		} | nil]]
+	)
+		config = config or {}
+		local max_frames = math.max(1, config.max_frames or 12)
+		local max_depth = math.max(0, config.max_depth or 4)
+		local max_children = math.max(1, config.max_children or 5)
+		local include_sections = config.include_sections ~= false
+		local frame_totals--[[#: Map<|string, TSummaryEntry|>]] = {}
+		local state_totals--[[#: Map<|string, number|>]] = {}
+		local section_totals--[[#: Map<|string, number|>]] = {}
+		local root--[[#: TSummaryNode]] = {name = "all", count = 0, self_count = 0, children = {}}
+		local total_samples = 0
+		local has_state_totals = false
+		local has_section_totals = false
+
+		for i = 1, self._event_count do
+			local ev = self._events[i]
+
+			if ev and ev.type == "sample" then
+				if config.vm_state and ev.vm_state ~= config.vm_state then goto continue end
+
+				if config.section_path and ev.section_path ~= config.section_path then
+					goto continue
+				end
+
+				local frames = collect_sample_frames(ev.stack)
+				local stack--[[#: List<|string|>]] = {}
+
+				if include_sections and ev.section_path ~= "" then stack[1] = ev.section_path end
+
+				for frame_i = #frames, 1, -1 do
+					stack[#stack + 1] = frames[frame_i]
+				end
+
+				if #stack == 0 then goto continue end
+
+				total_samples = total_samples + 1
+				root.count = total_samples
+				local vm_state = ev.vm_state or "?"
+				state_totals[vm_state] = (state_totals[vm_state] or 0) + 1
+				has_state_totals = true
+				local section_path = ev.section_path or ""
+
+				if section_path ~= "" then
+					section_totals[section_path] = (section_totals[section_path] or 0) + 1
+					has_section_totals = true
+				end
+
+				local node--[[#: TSummaryNode]] = root
+
+				for stack_i = 1, #stack do
+					local frame = stack[stack_i]
+					local entry--[[#: TSummaryEntry | nil]] = frame_totals[frame]
+
+					if not entry then
+						entry = {name = frame, count = 0, self_count = 0}
+						frame_totals[frame] = entry
+					end
+
+					entry.count = entry.count + 1
+					local children = node.children--[[# as any]]
+					local child--[[#: TSummaryNode | nil]] = children[frame]
+
+					if not child then
+						child = {name = frame, count = 0, self_count = 0, children = {}}
+						children[frame] = child
+					end
+
+					child.count = child.count + 1
+					node = child
+				end
+
+				node.self_count = (node.self_count or 0) + 1
+				local leaf_frame = stack[#stack]
+				local leaf_entry = frame_totals[leaf_frame]
+
+				if leaf_entry then leaf_entry.self_count = leaf_entry.self_count + 1 end
+			end
+
+			::continue::
+		end
+
+		local lines = {
+			"Flamegraph summary",
+			"samples: " .. total_samples,
+		}
+
+		if config.vm_state then
+			lines[#lines + 1] = "vm state filter: " .. config.vm_state
+		end
+
+		if config.section_path then
+			lines[#lines + 1] = "section filter: " .. config.section_path
+		end
+
+		if has_state_totals then
+			lines[#lines + 1] = "vm states: " .. format_summary_distribution(state_totals, total_samples)
+		end
+
+		if has_section_totals then
+			lines[#lines + 1] = "sections: " .. format_summary_distribution(section_totals, total_samples)
+		end
+
+		if total_samples == 0 then return table_concat(lines, "\n") end
+
+		local hottest_frames = get_sorted_summary_entries(frame_totals)
+		lines[#lines + 1] = ""
+		lines[#lines + 1] = "Top frames:"
+
+		for i = 1, math.min(#hottest_frames, max_frames) do
+			local entry = hottest_frames[i]--[[# as TSummaryEntry]]
+			local line = string_format(
+				"%d. %s - %d samples (%.1f%%%%)",
+				i,
+				entry.name,
+				entry.count,
+				(entry.count / total_samples) * 100
+			)
+
+			if (entry.self_count or 0) > 0 then
+				line = line .. string_format(
+						", self %d (%.1f%%%%)",
+						entry.self_count,
+						(entry.self_count / total_samples) * 100
+					)
+			end
+
+			lines[#lines + 1] = line
+		end
+
+		if #hottest_frames > max_frames then
+			lines[#lines + 1] = "... " .. (#hottest_frames - max_frames) .. " more frames"
+		end
+
+		lines[#lines + 1] = ""
+		lines[#lines + 1] = "Top call tree:"
+		append_summary_tree(lines, root, total_samples, 0, max_depth, max_children)
+		return table_concat(lines, "\n")
 	end
 end
 
