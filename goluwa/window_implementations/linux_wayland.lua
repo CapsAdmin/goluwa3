@@ -132,6 +132,26 @@ return function(META)
 		[0x112] = "button_3", -- BTN_MIDDLE
 	}
 
+	local function normalize_requested_size(size)
+		return math.max(1, math.floor(tonumber(size.x) or 0)), math.max(1, math.floor(tonumber(size.y) or 0))
+	end
+
+	local function request_window_size(self, width, height)
+		if self.xdg_surface then
+			self.xdg_surface:set_window_geometry(0, 0, width, height)
+		end
+
+		if self.xdg_toplevel then
+			self.xdg_toplevel:set_min_size(width, height)
+			self.xdg_toplevel:set_max_size(width, height)
+		end
+
+		self.pending_size_request = Vec2(width, height)
+
+		if self.surface_proxy then self.surface_proxy:commit() end
+		if self.display then wayland.wl_client.wl_display_flush(self.display) end
+	end
+
 	function META:Initialize()
 		-- Connect to display
 		self.display = wayland.wl_client.wl_display_connect(nil)
@@ -305,6 +325,15 @@ return function(META)
 					if width > 0 and height > 0 then
 						wnd.width = width
 						wnd.height = height
+
+						if wnd.pending_size_request and wnd.pending_size_request.x == width and wnd.pending_size_request.y == height then
+							xdg_toplevel:set_min_size(0, 0)
+							xdg_toplevel:set_max_size(0, 0)
+							wnd.pending_size_request = nil
+
+							if wnd.surface_proxy then wnd.surface_proxy:commit() end
+						end
+
 						table.insert(wnd.events, {type = "window_resize", width = width, height = height})
 					end
 				end,
@@ -598,7 +627,6 @@ return function(META)
 				local size = Vec2(event.width, event.height)
 
 				if self.last_size ~= size then
-					print(size)
 					self.cached_size = nil
 					self.cached_fb_size = nil
 					self:CallEvent("SizeChanged", size:Copy())
@@ -761,12 +789,10 @@ return function(META)
 	function META:SetSize(size)
 		self.cached_size = nil
 		self.cached_fb_size = nil
-		-- Update internal size
-		self.width = size.x
-		self.height = size.y
-	-- Note: In Wayland, size is typically controlled by the compositor
-	-- We can request a size, but the compositor may override it
-	-- This would be done through xdg_toplevel configure events
+		local width, height = normalize_requested_size(size)
+		self.width = width
+		self.height = height
+		request_window_size(self, width, height)
 	end
 
 	function META:GetFramebufferSize()
