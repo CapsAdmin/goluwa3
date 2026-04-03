@@ -90,7 +90,8 @@ function module.Attach(audio)
 	local function mixer_worker(shared_state_ptr)
 		local ffi = require("ffi")
 		local mix_mod = import("goluwa/audio/mix.lua")
-		local state = ffi.cast("MixerState*", shared_state_ptr)
+		local audio = import("goluwa/audio/state.lua")
+		local state = ffi.cast(audio.mixer_state_ptr_t, shared_state_ptr)
 		state.debug_worker_stage = 1
 		local audio_buffer = import("goluwa/bindings/audio_buffer.lua")
 		state.debug_worker_stage = 2
