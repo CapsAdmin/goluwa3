@@ -346,3 +346,73 @@ T.Test("Vorbis BitReader: ordered codebook last-entry run completes", function()
 	T(setup.codebooks[1].lengths[1])["=="](1)
 	T(setup.codebooks[1].lengths[2])["=="](2)
 end)
+
+T.Test("Vorbis BitReader: ordered codebook zero-length runs are skipped", function()
+	local packet = BuildBitstream(function(PushBits)
+		PushBits(5, 8)
+
+		for i = 1, #"vorbis" do
+			PushBits(("vorbis"):byte(i), 8)
+		end
+
+		PushBits(0, 8) -- codebook count - 1
+		PushBits(0x564342, 24)
+		PushBits(1, 16) -- dimensions
+		PushBits(25, 24) -- entries
+		PushBits(1, 1) -- ordered
+		PushBits(1, 5) -- initial length = 2
+		PushBits(1, 5) -- assign one entry length 2
+		PushBits(0, 5) -- skip length 3
+		PushBits(0, 5) -- skip length 4
+		PushBits(24, 5) -- assign remaining 24 entries length 5
+		PushBits(0, 4) -- lookup type 0
+		PushBits(0, 6) -- time count - 1
+		PushBits(0, 16)
+		PushBits(0, 6) -- floor count - 1
+		PushBits(0, 16) -- floor type 0
+		PushBits(0, 8)
+		PushBits(0, 16)
+		PushBits(0, 16)
+		PushBits(0, 6)
+		PushBits(0, 8)
+		PushBits(0, 4)
+		PushBits(0, 8)
+		PushBits(0, 6) -- residue count - 1
+		PushBits(0, 16)
+		PushBits(0, 24)
+		PushBits(0, 24)
+		PushBits(0, 24)
+		PushBits(0, 6)
+		PushBits(0, 8)
+		PushBits(0, 3)
+		PushBits(0, 1)
+		PushBits(0, 6) -- mapping count - 1
+		PushBits(0, 16)
+		PushBits(0, 1)
+		PushBits(0, 1)
+		PushBits(0, 2)
+		PushBits(0, 8)
+		PushBits(0, 8)
+		PushBits(0, 8)
+		PushBits(0, 6) -- mode count - 1
+		PushBits(0, 1)
+		PushBits(0, 16)
+		PushBits(0, 16)
+		PushBits(0, 8)
+		PushBits(1, 1) -- framing flag
+	end)
+	local ok, setup_or_err = WithInstructionLimit(100000, function()
+		local setup, err = vorbis.DecodeSetup(packet, {channels = 1})
+		assert(setup, err)
+		return setup
+	end)
+
+	if not ok then error(setup_or_err, 0) end
+
+	local lengths = setup_or_err.codebooks[1].lengths
+	T(lengths[1])["=="](2)
+
+	for i = 2, 25 do
+		T(lengths[i])["=="](5)
+	end
+end)

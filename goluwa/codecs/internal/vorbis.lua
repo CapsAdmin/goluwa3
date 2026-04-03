@@ -373,7 +373,7 @@ function vorbis.DecodeSetup(packet, info)
 				local count = reader:ReadBits(bits)
 				assertf(count, "Truncated ordered codebook length run at entry %d/%d", j, cb.entries)
 				assertf(
-					count > 0 and count <= remaining_entries,
+					count <= remaining_entries,
 					"Invalid ordered codebook length run: count=%d remaining=%d at entry %d/%d",
 					count,
 					remaining_entries,
