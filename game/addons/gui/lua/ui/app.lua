@@ -15,10 +15,21 @@ local ContextMenu = import("./elements/context_menu.lua")
 local Frame = import("./elements/frame.lua")
 local Row = import("./elements/row.lua")
 local Gallery = import("./widgets/gallery.lua")
+local line = import("goluwa/love/line.lua")
 local world_panel = Panel.World
 local menu = NULL
 local visible = false
 world_panel:RemoveChildren()
+
+local function love_game_active()
+	for _, love in ipairs(line.love_envs or {}) do
+		if love and love._line_env and not love._line_env.error_message then
+			return true
+		end
+	end
+
+	return false
+end
 
 local function toggle()
 	visible = not visible
@@ -27,7 +38,7 @@ local function toggle()
 		menu:Remove()
 
 		if not visible then
-			if window.current then window.current:SetMouseTrapped(true) end
+			if window.current and not love_game_active() then window.current:SetMouseTrapped(true) end
 
 			return
 		end
@@ -127,6 +138,7 @@ if HOTRELOAD then toggle() end
 
 event.AddListener("KeyInput", "menu_toggle", function(key, press)
 	if not press then return end
+	if love_game_active() then return end
 
 	if key == "escape" then return toggle() end
 end)
@@ -138,5 +150,5 @@ event.AddListener("Update", "window_title", function(dt)
 end)
 
 event.AddListener("WindowGainedFocus", "mouse_trap", function()
-	if not visible and window.current then window.current:SetMouseTrapped(true) end
+	if not visible and window.current and not love_game_active() then window.current:SetMouseTrapped(true) end
 end) --toggle()
