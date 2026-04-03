@@ -3,8 +3,19 @@ local line = import("goluwa/love/line.lua")
 local render = import("goluwa/render/render.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 
-local function new_love_graphics_env()
+local function apply_love_version(love, version)
+	version = tostring(version or "0.10.1")
+	local major, minor, revision = version:match("^(%d+)%.(%d+)%.?(%d*)$")
+	revision = revision ~= "" and revision or "0"
+	love._version_major = tonumber(major) or 0
+	love._version_minor = tonumber(minor) or 0
+	love._version_revision = tonumber(revision) or 0
+	love._version = string.format("%d.%d.%d", love._version_major, love._version_minor, love._version_revision)
+end
+
+local function new_love_graphics_env(version)
 	local love = {_line_env = {}}
+	apply_love_version(love, version)
 	assert(loadfile("goluwa/love/libraries/image.lua"))(love)
 	assert(loadfile("goluwa/love/libraries/graphics.lua"))(love)
 	return love
@@ -279,6 +290,44 @@ T.Test2D("love graphics screen global color channels stay correct", function()
 	return function()
 		T.AssertScreenPixel{pos = {40, 40}, color = {1, 32 / 255, 0, 1}, tolerance = 0.08}
 	end
+end)
+
+T.Test2D("love graphics Love11 normalized color API stays normalized", function()
+	local love = new_love_graphics_env("11.0.0")
+	love.graphics.setBackgroundColor(0.2, 0.1, 0.05, 1)
+	local br, bg, bb, ba = love.graphics.getBackgroundColor()
+	T(br)["=="](0.2)
+	T(bg)["=="](0.1)
+	T(bb)["=="](0.05)
+	T(ba)["=="](1)
+	love.graphics.clear()
+	love.graphics.setColor(1, 1, 1, 1)
+	local r, g, b, a = love.graphics.getColor()
+	T(r)["=="](1)
+	T(g)["=="](1)
+	T(b)["=="](1)
+	T(a)["=="](1)
+	love.graphics.rectangle("fill", 32, 32, 32, 32)
+	return function()
+		T.AssertScreenPixel{pos = {8, 8}, color = {0.2, 0.1, 0.05, 1}, tolerance = 0.08}
+		T.AssertScreenPixel{pos = {40, 40}, color = {1, 1, 1, 1}, tolerance = 0.08}
+	end
+end)
+
+T.Test("love graphics legacy byte color API stays byte-based", function()
+	local love = new_love_graphics_env("0.10.1")
+	love.graphics.setBackgroundColor(32, 16, 8, 255)
+	love.graphics.setColor(255, 64, 32, 255)
+	local br, bg, bb, ba = love.graphics.getBackgroundColor()
+	local r, g, b, a = love.graphics.getColor()
+	T(br)["=="](32)
+	T(bg)["=="](16)
+	T(bb)["=="](8)
+	T(ba)["=="](255)
+	T(r)["=="](255)
+	T(g)["=="](64)
+	T(b)["=="](32)
+	T(a)["=="](255)
 end)
 
 T.Test2D("love graphics mesh placement", function()

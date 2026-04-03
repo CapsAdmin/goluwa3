@@ -11,6 +11,19 @@ line.love_envs = line.love_envs or table.weak()
 pvars.Setup("line_enable_audio", true)
 pvars.Setup("line_version", "0.10.1")
 
+local function apply_love_version(love, version)
+	version = tostring(version or pvars.Get("line_version") or "0.10.1")
+	local major, minor, revision = version:match("^(%d+)%.(%d+)%.?(%d*)$")
+
+	if not major then major, minor, revision = "0", "10", "1" end
+
+	revision = revision ~= "" and revision or "0"
+	love._version_major = tonumber(major) or 0
+	love._version_minor = tonumber(minor) or 0
+	love._version_revision = tonumber(revision) or 0
+	love._version = string.format("%d.%d.%d", love._version_major, love._version_minor, love._version_revision)
+end
+
 do
 	local function base_typeOf(self, str)
 		return str == self.name
@@ -72,11 +85,7 @@ end
 function line.CreateLoveEnv(version)
 	version = version or pvars.Get("line_version")
 	local love = {}
-	love._version = version
-	local version = version:split(".")
-	love._version_major = tonumber(version[1])
-	love._version_minor = tonumber(version[2])
-	love._version_revision = tonumber(version[3])
+	apply_love_version(love, version)
 	love._line_env = {}
 	love.package_loaders = {}
 	assert(loadfile("goluwa/love/libraries/arg.lua"))(love)
@@ -152,7 +161,6 @@ local function get_game_identity(folder)
 	identity = identity:gsub("^([%.]+)", "")
 	identity = identity:gsub("%.([^%.]+)$", "")
 	identity = identity:gsub("%.", "_")
-
 	return #identity > 0 and identity or "lovegame"
 end
 
@@ -329,6 +337,7 @@ function line.RunGame(folder, ...)
 		end
 
 		love.conf(line.config)
+		apply_love_version(love, line.config.version)
 	end
 
 	love.filesystem.setIdentity(line.config.identity or love.filesystem.getIdentity())

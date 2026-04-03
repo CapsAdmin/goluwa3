@@ -8,7 +8,10 @@ function love.load() end
 function love.conf(t) end
 
 function love.getVersion()
-	return 0, 9, 1, "goluwa"
+	return love._version_major or 0,
+	love._version_minor or 0,
+	love._version_revision or 0,
+	"goluwa"
 end
 
 function love.line_update(dt)

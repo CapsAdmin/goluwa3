@@ -17,14 +17,59 @@ ENV.graphics_filter_mag = ENV.graphics_filter_mag or "linear"
 ENV.graphics_filter_anisotropy = ENV.graphics_filter_anisotropy or 1
 love.graphics = love.graphics or {}
 
-local function parse_color_bytes(r, g, b, a, default_a)
-	if type(r) == "table" then
-		return r[1] or 0, r[2] or 0, r[3] or 0, r[4] or default_a or 255
+local function love_uses_normalized_color_range()
+	return (love._version_major or 0) >= 11
+end
+
+local function get_api_default_alpha()
+	if love_uses_normalized_color_range() then return 1 end
+
+	return 255
+end
+
+local function color_component_to_internal(value)
+	value = value or 0
+
+	if love_uses_normalized_color_range() and value >= 0 and value <= 1 then
+		return value * 255
 	end
 
-	if a == nil then a = default_a or 255 end
+	return value
+end
 
-	return r or 0, g or 0, b or 0, a
+local function color_component_from_internal(value)
+	value = value or 0
+
+	if love_uses_normalized_color_range() then return value / 255 end
+
+	return value
+end
+
+local function parse_color_bytes(r, g, b, a, default_a)
+	if type(r) == "table" then
+		return parse_color_bytes(r[1], r[2], r[3], r[4], default_a)
+	end
+
+	if a == nil then a = default_a or get_api_default_alpha() end
+
+	return color_component_to_internal(r or 0),
+	color_component_to_internal(g or 0),
+	color_component_to_internal(b or 0),
+	color_component_to_internal(a)
+end
+
+local function get_internal_color()
+	return ENV.graphics_color_r or 255,
+	ENV.graphics_color_g or 255,
+	ENV.graphics_color_b or 255,
+	ENV.graphics_color_a or 255
+end
+
+local function get_internal_background_color()
+	return ENV.graphics_bg_color_r or 0,
+	ENV.graphics_bg_color_g or 0,
+	ENV.graphics_bg_color_b or 0,
+	ENV.graphics_bg_color_a or 255
 end
 
 local function draw_clear_rect(r, g, b, a, w, h)
@@ -229,18 +274,7 @@ do
 	ENV.graphics_color_a = 255
 
 	function love.graphics.setColor(r, g, b, a)
-		if type(r) == "number" then
-			ENV.graphics_color_r = r or 0
-			ENV.graphics_color_g = g or 0
-			ENV.graphics_color_b = b or 0
-			ENV.graphics_color_a = a or 255
-		else
-			ENV.graphics_color_r = r[1] or 0
-			ENV.graphics_color_g = r[2] or 0
-			ENV.graphics_color_b = r[3] or 0
-			ENV.graphics_color_a = r[4] or 255
-		end
-
+		ENV.graphics_color_r, ENV.graphics_color_g, ENV.graphics_color_b, ENV.graphics_color_a = parse_color_bytes(r, g, b, a, get_api_default_alpha())
 		render2d.SetColor(
 			ENV.graphics_color_r / 255,
 			ENV.graphics_color_g / 255,
@@ -250,10 +284,10 @@ do
 	end
 
 	function love.graphics.getColor()
-		return ENV.graphics_color_r,
-		ENV.graphics_color_g,
-		ENV.graphics_color_b,
-		ENV.graphics_color_a
+		return color_component_from_internal(ENV.graphics_color_r),
+		color_component_from_internal(ENV.graphics_color_g),
+		color_component_from_internal(ENV.graphics_color_b),
+		color_component_from_internal(ENV.graphics_color_a)
 	end
 end
 
@@ -268,10 +302,10 @@ do -- background
 	end
 
 	function love.graphics.getBackgroundColor()
-		return ENV.graphics_bg_color_r,
-		ENV.graphics_bg_color_g,
-		ENV.graphics_bg_color_b,
-		ENV.graphics_bg_color_a
+		return color_component_from_internal(ENV.graphics_bg_color_r),
+		color_component_from_internal(ENV.graphics_bg_color_g),
+		color_component_from_internal(ENV.graphics_bg_color_b),
+		color_component_from_internal(ENV.graphics_bg_color_a)
 	end
 
 	function love.graphics.clear(r, g, b, a)
@@ -285,7 +319,7 @@ do -- background
 			if r ~= nil then
 				cr, cg, cb, ca = parse_color_bytes(r, g, b, a, 255)
 			else
-				cr, cg, cb, ca = love.graphics.getBackgroundColor()
+				cr, cg, cb, ca = get_internal_background_color()
 			end
 
 			draw_clear_rect(cr, cg, cb, ca, render.GetWidth(), render.GetHeight())
@@ -552,7 +586,7 @@ do -- font
 		oy = oy or 0
 		kx = kx or 0
 		ky = ky or 0
-		local cr, cg, cb, ca = love.graphics.getColor()
+		local cr, cg, cb, ca = get_internal_color()
 		ca = ca or 255
 		render2d.PushColor(cr / 255, cg / 255, cb / 255, ca / 255)
 		render2d.PushMatrix(x, y, sx, sy, r)
@@ -896,7 +930,7 @@ function love.graphics.drawq(drawable, quad, x, y, r, sx, sy, ox, oy, kx, ky)
 	r = r or 0
 	kx = kx or 0
 	ky = ky or 0
-	local cr, cg, cb, ca = love.graphics.getColor()
+	local cr, cg, cb, ca = get_internal_color()
 	ca = ca or 255
 	render2d.SetColor(cr / 255, cg / 255, cb / 255, ca / 255)
 	render2d.PushSwizzleMode(render2d.GetSwizzleMode())
@@ -940,7 +974,7 @@ function love.graphics.draw(drawable, x, y, r, sx, sy, ox, oy, kx, ky, quad_arg)
 			ky = ky or 0
 			local tex = drawable_texture
 			local tex_w, tex_h = get_texture_dimensions(tex)
-			local cr, cg, cb, ca = love.graphics.getColor()
+			local cr, cg, cb, ca = get_internal_color()
 			ca = ca or 255
 			render2d.SetColor(cr / 255, cg / 255, cb / 255, ca / 255)
 			render2d.PushSwizzleMode(render2d.GetSwizzleMode())
@@ -1760,12 +1794,7 @@ do -- sprite batch
 	SpriteBatch.addq = SpriteBatch.add
 
 	function SpriteBatch:setColor(r, g, b, a)
-		if type(r) == "table" then r, g, b, a = unpack(r) end
-
-		r = r or 255
-		g = g or 255
-		b = b or 255
-		a = a or 255
+		r, g, b, a = parse_color_bytes(r, g, b, a, get_api_default_alpha())
 		self.r = r / 255
 		self.g = g / 255
 		self.b = b / 255
@@ -1806,7 +1835,7 @@ do -- sprite batch
 		oy = oy or 0
 		kx = kx or 0
 		ky = ky or 0
-		local cr, cg, cb, ca = love.graphics.getColor()
+		local cr, cg, cb, ca = get_internal_color()
 		local restore = {cr, cg, cb, ca}
 		love.graphics.setColor(cr * (self.r or 1), cg * (self.g or 1), cb * (self.b or 1), ca * (self.a or 1))
 		render2d.PushMatrix()
