@@ -147,6 +147,15 @@ function line.FixPath(path)
 	return path
 end
 
+local function get_game_identity(folder)
+	local identity = folder:gsub("[/\\]+$", ""):match("([^/\\]+)$") or "lovegame"
+	identity = identity:gsub("^([%.]+)", "")
+	identity = identity:gsub("%.([^%.]+)$", "")
+	identity = identity:gsub("%.", "_")
+
+	return #identity > 0 and identity or "lovegame"
+end
+
 function line.RunGame(folder, ...)
 	local love = line.CreateLoveEnv()
 	llog("mounting love game folder: ", R(folder .. "/"))
@@ -181,6 +190,8 @@ function line.RunGame(folder, ...)
 
 	local package_loaded = {}
 	local env
+	local game_globals = love._line_env.globals or {}
+	love._line_env.globals = game_globals
 
 	local function prepare_module_function(func)
 		if type(func) == "function" and debug.getinfo(func).what ~= "C" then
@@ -269,7 +280,16 @@ function line.RunGame(folder, ...)
 			end,
 		},
 		{
-			__index = _G,
+			__index = function(_, k)
+				local value = rawget(game_globals, k)
+
+				if value ~= nil then return value end
+
+				return _G[k]
+			end,
+			__newindex = function(_, k, v)
+				rawset(game_globals, k, v)
+			end,
 		}
 	)
 	env._G = env
@@ -288,12 +308,14 @@ function line.RunGame(folder, ...)
 			end,
 		}
 	)
+	love.filesystem.setIdentity(get_game_identity(folder))
 
 	do -- config
 		line.config = {
 			screen = {},
 			window = {},
 			modules = {},
+			identity = false,
 			height = 600,
 			width = 800,
 			title = "LINE no title",
@@ -308,6 +330,8 @@ function line.RunGame(folder, ...)
 
 		love.conf(line.config)
 	end
+
+	love.filesystem.setIdentity(line.config.identity or love.filesystem.getIdentity())
 
 	--check if line.config.screen exists
 	if not line.config.screen then line.config.screen = {} end
@@ -327,8 +351,6 @@ function line.RunGame(folder, ...)
 		love.load,
 		{[-2] = "__LOVE_BINARY__", [-1] = "embedded boot.lua", [1] = folder .. "/"}
 	)
-	love.filesystem.setIdentity(love.filesystem.getIdentity())
-	vfs.Mount(love.filesystem.getUserDirectory())
 	line.current_game = love
 	love._line_env.love_game_update_draw_hack = false
 	return love
