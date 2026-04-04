@@ -196,6 +196,17 @@ function window.Open(...)
 		event.Call("MouseInput", key, press)
 	end
 
+	event.AddListener("WindowLostFocus", "window_release_inputs", function(focused_wnd)
+		if focused_wnd ~= wnd then return end
+
+		input.ReleaseAll("Mouse", function(key, press)
+			event.Call("MouseInput", key, press)
+		end)
+		input.ReleaseAll("Key", function(key, press)
+			event.Call("KeyInput", key, press)
+		end)
+	end)
+
 	ADD_EVENT("WindowMouseScroll", function(dir)
 		local x, y = dir:Unpack()
 

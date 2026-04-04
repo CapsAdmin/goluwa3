@@ -85,4 +85,23 @@ function input.SetupInputEvent(name)
 	end
 end
 
+function input.GetDownKeys(name)
+	local down = input[name .. "_down_time"] or {}
+	local keys = {}
+
+	for key in pairs(down) do
+		keys[#keys + 1] = key
+	end
+
+	return keys
+end
+
+function input.ReleaseAll(name, callback)
+	for _, key in ipairs(input.GetDownKeys(name)) do
+		input.CallOnTable(input, name, key, false)
+
+		if callback then callback(key, false) end
+	end
+end
+
 return input
