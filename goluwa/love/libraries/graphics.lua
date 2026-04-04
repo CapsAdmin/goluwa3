@@ -251,39 +251,6 @@ function get_main_surface_dimensions()
 	return width, height
 end
 
-local function apply_filter_to_texture(tex, min, mag, anisotropy)
-	if not tex then return end
-
-	tex.config = tex.config or {}
-	tex.config.sampler = tex.config.sampler or {}
-	local sampler_config = tex.config.sampler
-	sampler_config.min_filter = min or sampler_config.min_filter or "linear"
-	sampler_config.mag_filter = mag or sampler_config.mag_filter or sampler_config.min_filter or "linear"
-	sampler_config.anisotropy = anisotropy or sampler_config.anisotropy
-
-	if sampler_config.anisotropy and sampler_config.anisotropy < 1 then
-		sampler_config.anisotropy = nil
-	end
-
-	tex.sampler = render.CreateSampler{
-		min_filter = sampler_config.min_filter,
-		mag_filter = sampler_config.mag_filter,
-		mipmap_mode = sampler_config.mipmap_mode or "linear",
-		wrap_s = sampler_config.wrap_s or "repeat",
-		wrap_t = sampler_config.wrap_t or "repeat",
-		wrap_r = sampler_config.wrap_r or "repeat",
-		max_lod = sampler_config.max_lod or (tex.GetMipMapLevels and tex:GetMipMapLevels()) or 1,
-		min_lod = sampler_config.min_lod,
-		mip_lod_bias = sampler_config.mip_lod_bias,
-		anisotropy = sampler_config.anisotropy,
-		border_color = sampler_config.border_color,
-		unnormalized_coordinates = sampler_config.unnormalized_coordinates,
-		compare_enable = sampler_config.compare_enable,
-		compare_op = sampler_config.compare_op,
-		flags = sampler_config.flags,
-	}
-end
-
 local function translate_wrap_mode(mode)
 	if mode == "clamp" then return "clamp_to_edge" end
 
@@ -292,21 +259,6 @@ local function translate_wrap_mode(mode)
 	end
 
 	return mode
-end
-
-local function apply_wrap_to_texture(tex, wrap_s, wrap_t, wrap_r)
-	if not tex then return end
-
-	local translated_wrap_s, border_color_s = translate_wrap_mode(wrap_s)
-	local translated_wrap_t, border_color_t = translate_wrap_mode(wrap_t or wrap_s)
-	local translated_wrap_r, border_color_r = translate_wrap_mode(wrap_r or wrap_t or wrap_s)
-	tex.config = tex.config or {}
-	tex.config.sampler = tex.config.sampler or {}
-	tex.config.sampler.wrap_s = translated_wrap_s or tex.config.sampler.wrap_s
-	tex.config.sampler.wrap_t = translated_wrap_t or tex.config.sampler.wrap_t
-	tex.config.sampler.wrap_r = translated_wrap_r or tex.config.sampler.wrap_r
-	tex.config.sampler.border_color = border_color_s or border_color_t or border_color_r
-	apply_filter_to_texture(tex)
 end
 
 local function drawable_uses_linear_filter(drawable)
@@ -366,7 +318,13 @@ local function ADD_FILTER(obj)
 		s.filter_min = min or s.filter_min or ENV.graphics_filter_min
 		s.filter_mag = mag or min or s.filter_mag or ENV.graphics_filter_mag
 		s.filter_anistropy = anistropy or s.filter_anistropy or ENV.graphics_filter_anisotropy
-		apply_filter_to_texture(ENV.textures[s], s.filter_min, s.filter_mag, s.filter_anistropy)
+		local tex = ENV.textures[s]
+
+		if not tex then return end
+
+		tex:SetMinFilter(s.filter_min)
+		tex:SetMagFilter(s.filter_mag)
+		tex:SetAnisotropy(s.filter_anistropy)
 	end
 	obj.getFilter = function(s)
 		return s.filter_min, s.filter_mag, s.filter_anistropy
@@ -1357,7 +1315,19 @@ do -- image
 	function Image:setWrap(wrap_s, wrap_t)
 		self.wrap_s = wrap_s or self.wrap_s
 		self.wrap_t = wrap_t or wrap_s or self.wrap_t
-		apply_wrap_to_texture(ENV.textures[self], self.wrap_s, self.wrap_t)
+		local tex = ENV.textures[self]
+
+		if not tex then return end
+
+		local translated_wrap_s, border_color_s = translate_wrap_mode(self.wrap_s)
+		local translated_wrap_t, border_color_t = translate_wrap_mode(self.wrap_t)
+		local translated_wrap_r, border_color_r = translate_wrap_mode(self.wrap_t)
+		local border_color = border_color_s or border_color_t or border_color_r
+		tex:SetWrapS(translated_wrap_s)
+		tex:SetWrapT(translated_wrap_t)
+		tex:SetWrapR(translated_wrap_r)
+
+		if border_color ~= nil then tex:SetBorderColor(border_color) end
 	end
 
 	function Image:getWrap()
@@ -1462,7 +1432,19 @@ do -- volume image
 	function VolumeImage:setWrap(wrap_s, wrap_t)
 		self.wrap_s = wrap_s or self.wrap_s
 		self.wrap_t = wrap_t or wrap_s or self.wrap_t
-		apply_wrap_to_texture(ENV.textures[self], self.wrap_s, self.wrap_t)
+		local tex = ENV.textures[self]
+		local translated_wrap_s, border_color_s = translate_wrap_mode(self.wrap_s)
+		local translated_wrap_t, border_color_t = translate_wrap_mode(self.wrap_t)
+		local translated_wrap_r, border_color_r = translate_wrap_mode(self.wrap_t)
+		local border_color = border_color_s or border_color_t or border_color_r
+
+		if not tex then return end
+
+		tex:SetWrapS(translated_wrap_s)
+		tex:SetWrapT(translated_wrap_t)
+		tex:SetWrapR(translated_wrap_r)
+
+		if border_color ~= nil then tex:SetBorderColor(border_color) end
 	end
 
 	function VolumeImage:getWrap()

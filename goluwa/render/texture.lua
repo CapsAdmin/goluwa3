@@ -13,6 +13,122 @@ local prototype = import("goluwa/prototype.lua")
 local Texture = prototype.CreateTemplate("render_texture")
 -- Texture cache for path-based textures
 local texture_cache = {}
+local DEFAULT_SAMPLER_ANISOTROPY = 16
+Texture:GetSet("SamplerEnabled", true, {callback = "RefreshSampler"})
+Texture:GetSet("MinFilter", "linear", {callback = "RefreshSampler"})
+Texture:GetSet("MagFilter", "linear", {callback = "RefreshSampler"})
+Texture:GetSet("MipmapMode", "linear", {callback = "RefreshSampler"})
+Texture:GetSet("WrapS", "repeat", {callback = "RefreshSampler"})
+Texture:GetSet("WrapT", "repeat", {callback = "RefreshSampler"})
+Texture:GetSet("WrapR", "repeat", {callback = "RefreshSampler"})
+Texture:GetSet("MaxLod", 1, {callback = "RefreshSampler"})
+Texture:GetSet("MinLod", 0, {callback = "RefreshSampler"})
+Texture:GetSet("MipLodBias", 0, {callback = "RefreshSampler"})
+Texture:GetSet("Anisotropy", DEFAULT_SAMPLER_ANISOTROPY, {callback = "RefreshSampler"})
+Texture:GetSet("BorderColor", "int_opaque_black", {callback = "RefreshSampler"})
+Texture:GetSet("UnnormalizedCoordinates", false, {callback = "RefreshSampler"})
+Texture:GetSet("CompareEnable", false, {callback = "RefreshSampler"})
+Texture:GetSet("CompareOp", "always", {callback = "RefreshSampler"})
+Texture:GetSet("SamplerFlags", nil, {callback = "RefreshSampler"})
+
+local function copy_sampler_config(self)
+	return {
+		min_filter = self:GetMinFilter(),
+		mag_filter = self:GetMagFilter(),
+		mipmap_mode = self:GetMipmapMode(),
+		wrap_s = self:GetWrapS(),
+		wrap_t = self:GetWrapT(),
+		wrap_r = self:GetWrapR(),
+		max_lod = self:GetMaxLod(),
+		min_lod = self:GetMinLod(),
+		mip_lod_bias = self:GetMipLodBias(),
+		anisotropy = self:GetAnisotropy(),
+		border_color = self:GetBorderColor(),
+		unnormalized_coordinates = self:GetUnnormalizedCoordinates(),
+		compare_enable = self:GetCompareEnable(),
+		compare_op = self:GetCompareOp(),
+		flags = self:GetSamplerFlags(),
+	}
+end
+
+local function sync_sampler_config(self)
+	self.config = self.config or {}
+	self.config.sampler = copy_sampler_config(self)
+	return self.config.sampler
+end
+
+local function validate_anisotropy(value)
+	if value == nil then return end
+
+	assert(type(value) == "number", "anisotropy must be a number or nil")
+	assert(value >= 1 and value <= 16, "anisotropy must be between 1 and 16")
+end
+
+function Texture:SetAnisotropy(value)
+	validate_anisotropy(value)
+
+	if self.Anisotropy == value then return self.sampler end
+
+	self.Anisotropy = value
+	return self:RefreshSampler()
+end
+
+local function apply_sampler_state(self, sampler_config, mip_levels)
+	sampler_config = sampler_config or {}
+
+	if sampler_config.min_filter ~= nil then
+		self.MinFilter = sampler_config.min_filter
+	end
+
+	if sampler_config.mag_filter ~= nil then
+		self.MagFilter = sampler_config.mag_filter
+	end
+
+	if sampler_config.mipmap_mode ~= nil then
+		self.MipmapMode = sampler_config.mipmap_mode
+	end
+
+	if sampler_config.wrap_s ~= nil then self.WrapS = sampler_config.wrap_s end
+
+	if sampler_config.wrap_t ~= nil then self.WrapT = sampler_config.wrap_t end
+
+	if sampler_config.wrap_r ~= nil then self.WrapR = sampler_config.wrap_r end
+
+	if sampler_config.max_lod ~= nil then
+		self.MaxLod = sampler_config.max_lod
+	else
+		self.MaxLod = mip_levels
+	end
+
+	if sampler_config.min_lod ~= nil then self.MinLod = sampler_config.min_lod end
+
+	if sampler_config.mip_lod_bias ~= nil then
+		self.MipLodBias = sampler_config.mip_lod_bias
+	end
+
+	if sampler_config.anisotropy ~= nil then
+		validate_anisotropy(sampler_config.anisotropy)
+		self.Anisotropy = sampler_config.anisotropy
+	end
+
+	if sampler_config.border_color ~= nil then
+		self.BorderColor = sampler_config.border_color
+	end
+
+	if sampler_config.unnormalized_coordinates ~= nil then
+		self.UnnormalizedCoordinates = sampler_config.unnormalized_coordinates
+	end
+
+	if sampler_config.compare_enable ~= nil then
+		self.CompareEnable = sampler_config.compare_enable
+	end
+
+	if sampler_config.compare_op ~= nil then
+		self.CompareOp = sampler_config.compare_op
+	end
+
+	if sampler_config.flags ~= nil then self.SamplerFlags = sampler_config.flags end
+end
 
 local function get_bytes_per_pixel(format)
 	if
@@ -221,40 +337,35 @@ function Texture.New(config)
 			}
 		end
 
+		self.mip_map_levels = mip_levels
 		-- Create or use sampler
 		local sampler
+		local sampler_config = config.sampler
 
 		if config.sampler == false then
+			self.SamplerEnabled = false
+			config.sampler = false
 			sampler = nil
 		elseif config.sampler and config.sampler.ptr then
 			-- Already a Sampler object
+			self.SamplerEnabled = true
+
+			if config.sampler.config then
+				apply_sampler_state(self, config.sampler.config, mip_levels)
+			end
+
+			sync_sampler_config(self)
 			sampler = config.sampler
 		else
-			-- Create sampler from config
-			local sampler_config = config.sampler or {}
-			sampler = render.CreateSampler{
-				min_filter = sampler_config.min_filter or "linear",
-				mag_filter = sampler_config.mag_filter or "linear",
-				mipmap_mode = sampler_config.mipmap_mode or "linear",
-				wrap_s = sampler_config.wrap_s or "repeat",
-				wrap_t = sampler_config.wrap_t or "repeat",
-				wrap_r = sampler_config.wrap_r or "repeat",
-				max_lod = sampler_config.max_lod or mip_levels,
-				min_lod = sampler_config.min_lod,
-				mip_lod_bias = sampler_config.mip_lod_bias,
-				anisotropy = sampler_config.anisotropy or 16,
-				border_color = sampler_config.border_color,
-				unnormalized_coordinates = sampler_config.unnormalized_coordinates,
-				compare_enable = sampler_config.compare_enable,
-				compare_op = sampler_config.compare_op,
-				flags = sampler_config.flags,
-			}
+			self.SamplerEnabled = true
+			apply_sampler_state(self, sampler_config, mip_levels)
+			sync_sampler_config(self)
+			sampler = render.CreateSampler(self.config.sampler)
 		end
 
 		self.image = image
 		self.view = view
 		self.sampler = sampler
-		self.mip_map_levels = mip_levels
 		self.format = format
 		self.is_compressed = is_compressed
 		self.vulkan_info = vulkan_info
@@ -666,6 +777,18 @@ function Texture:GetView()
 end
 
 function Texture:GetSampler()
+	return self.sampler
+end
+
+function Texture:RefreshSampler()
+	if not self:GetSamplerEnabled() then
+		self.config = self.config or {}
+		self.config.sampler = false
+		self.sampler = nil
+		return nil
+	end
+
+	self.sampler = render.CreateSampler(sync_sampler_config(self))
 	return self.sampler
 end
 
