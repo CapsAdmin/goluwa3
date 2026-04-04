@@ -159,18 +159,22 @@ end
 
 do
 	local callstack = import("goluwa/helpers/callstack.lua")
+	local import_global = import
+	local select_global = select
+	local tostring_global = tostring
+	local table_concat = table.concat
+	local string_format = string.format
 	local logging
-	local old = print
 	print = function(...)
-		logging = logging or import("goluwa/logging.lua")
+		logging = logging or import_global("goluwa/logging.lua")
 		local str = {}
 
-		for i = 1, select("#", ...) do
-			local v = select(i, ...)
-			str[i] = tostring(v)
+		for i = 1, select_global("#", ...) do
+			local v = select_global(i, ...)
+			str[i] = tostring_global(v)
 		end
 
-		str = table.concat(str, "\t") .. "\n"
+		str = table_concat(str, "\t") .. "\n"
 		local path = callstack.get_line(2)
 
 		if path then
@@ -181,7 +185,7 @@ do
 				return
 			end
 
-			if path then str = string.format("%s %s", path, str) end
+			if path then str = string_format("%s %s", path, str) end
 		end
 
 		logging.RawLog(str)
