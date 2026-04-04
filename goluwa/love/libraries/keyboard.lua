@@ -53,28 +53,34 @@ end
 
 local function normalize_key_name(key)
 	if type(key) ~= "string" then return key end
+
 	return scancode_aliases[key] or key
 end
 
-local function to_input_key(key)
+local function to_input_key_constant(key)
 	key = normalize_key_name(key)
 	return reverse_keyboard_map[key] or key
 end
 
-local function is_any_key_down(...)
+local function to_input_scancode(scancode)
+	scancode = normalize_key_name(scancode)
+	return keyboard_map[scancode] or scancode
+end
+
+local function is_any_key_down(map_key, ...)
 	for index = 1, select("#", ...) do
-		if input.IsKeyDown(to_input_key(select(index, ...))) then return true end
+		if input.IsKeyDown(map_key(select(index, ...))) then return true end
 	end
 
 	return false
 end
 
 function love.keyboard.isDown(...)
-	return is_any_key_down(...)
+	return is_any_key_down(to_input_key_constant, ...)
 end
 
 function love.keyboard.isScancodeDown(...)
-	return is_any_key_down(...)
+	return is_any_key_down(to_input_scancode, ...)
 end
 
 function love.keyboard.getScancodeFromKey(key)
