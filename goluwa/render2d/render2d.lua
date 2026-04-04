@@ -40,6 +40,16 @@ local current_w, current_h = 0, 0
 local current_lw, current_lh = 0, 0
 local DEFAULT_BLEND_MODE = "alpha"
 local DEFAULT_COLOR_WRITE_MASK = {"r", "g", "b", "a"}
+local DEFAULT_DEPTH_MODE = "none"
+local depth_mode_to_compare_op = {
+	less = "less",
+	lequal = "less_or_equal",
+	equal = "equal",
+	gequal = "greater_or_equal",
+	greater = "greater",
+	notequal = "not_equal",
+	always = "always",
+}
 
 local function get_active_pipeline()
 	return render2d.shader_override or render2d.pipeline
@@ -179,9 +189,7 @@ local function apply_states()
 		}
 	)
 
-	if render2d.cmd then
-		pipeline:Bind(render2d.cmd, render.GetCurrentFrame())
-	end
+	if render2d.cmd then pipeline:Bind(render2d.cmd, render.GetCurrentFrame()) end
 end
 
 -- Blend mode presets
@@ -744,6 +752,10 @@ function render2d.ResetState()
 	render2d.UpdateScreenSize(render.GetRenderImageSize():Unpack())
 	render2d.SetBlendMode("alpha", true)
 
+	if render2d.SetDepthMode then
+		render2d.SetDepthMode(DEFAULT_DEPTH_MODE, false)
+	end
+
 	if render2d.SetStencilMode then render2d.SetStencilMode("none") end
 end
 
@@ -1200,6 +1212,28 @@ do
 	}
 
 	do
+		local current_mode = DEFAULT_DEPTH_MODE
+		local current_write = false
+
+		function render2d.SetDepthMode(mode_name, write)
+			mode_name = mode_name or DEFAULT_DEPTH_MODE
+			write = not not write
+
+			if mode_name ~= DEFAULT_DEPTH_MODE and not depth_mode_to_compare_op[mode_name] then
+				error("Invalid depth mode: " .. tostring(mode_name))
+			end
+
+			current_mode = mode_name
+			current_write = write
+			apply_states()
+		end
+
+		function render2d.GetDepthMode()
+			return current_mode, current_write
+		end
+	end
+
+	do
 		local current_mode = "none"
 		local current_ref = 1
 		render2d.stencil_level = 0
@@ -1254,17 +1288,21 @@ do
 		utility.MakePushPopFunction(render2d, "StencilMode")
 	end
 
-	local function apply_states()
+	apply_states = function()
 		local pipeline = get_active_pipeline()
 
 		if not pipeline then return end
 
 		local blend_mode = render2d.current_blend_mode_state or
 			get_blend_mode_state(render2d.current_blend_mode)
+		local depth_mode_name, depth_write = render2d.GetDepthMode()
+		depth_mode_name = depth_mode_name or DEFAULT_DEPTH_MODE
+		depth_write = not not depth_write
 		local stencil_mode_name, stencil_ref = render2d.GetStencilMode()
 		stencil_mode_name = stencil_mode_name or "none"
 		stencil_ref = stencil_ref or 1
 		local stencil_mode = render2d.stencil_modes[stencil_mode_name]
+		local depth_compare_op = depth_mode_to_compare_op[depth_mode_name] or "always"
 		pipeline:SetState(
 			"color_blend",
 			{
@@ -1290,6 +1328,9 @@ do
 		pipeline:SetState(
 			"depth_stencil",
 			{
+				depth_test = depth_mode_name ~= DEFAULT_DEPTH_MODE,
+				depth_write = depth_write,
+				depth_compare_op = depth_compare_op,
 				stencil_test = stencil_mode.stencil_test,
 				front = front,
 				back = front,
@@ -1373,6 +1414,7 @@ do -- mesh
 
 	local function ensure_draw_command()
 		if not render2d.cmd then render2d.BindPipeline() end
+
 		return render2d.cmd
 	end
 
