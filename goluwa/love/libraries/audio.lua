@@ -172,6 +172,10 @@ do -- Source
 		return false
 	end
 
+	function Source:isRelative()
+		return not not self.relative
+	end
+
 	function Source:isPaused()
 		if self.source and self.source.IsPaused then return self.source:IsPaused() end
 

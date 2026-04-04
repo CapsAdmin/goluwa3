@@ -2,6 +2,7 @@ local line = import("goluwa/love/line.lua")
 local event = import("goluwa/event.lua")
 local window = import("goluwa/window.lua")
 local input = import("goluwa/input.lua")
+local package = _G.package
 local love = ... or _G.love
 local ENV = love._line_env
 love.mouse = love.mouse or {}
@@ -105,7 +106,6 @@ do
 end
 
 apply_mouse_state()
-
 local mouse_keymap = {
 	button_1 = "l",
 	button_2 = "r",
@@ -138,6 +138,36 @@ local function mouse_uses_numeric_buttons()
 	return (love._version_major or 0) >= 11
 end
 
+local function refresh_loveframes_hover_state()
+	local loaded = package and package.loaded
+
+	if not loaded then return end
+
+	local loveframes = loaded.loveframes
+
+	if type(loveframes) ~= "table" or type(loveframes.GetCollisions) ~= "function" then
+		return
+	end
+
+	local ok, collisions = pcall(loveframes.GetCollisions)
+
+	if not ok or type(collisions) ~= "table" then return end
+
+	loveframes.collisions = collisions
+	loveframes.hoverobject = false
+	loveframes.hover = false
+
+	if #collisions > 0 then
+		local top = collisions[#collisions]
+		local downobject = loveframes.downobject
+
+		if not downobject or downobject == top then
+			loveframes.hoverobject = top
+			loveframes.hover = true
+		end
+	end
+end
+
 function love.mouse.isDown(key)
 	return input.IsMouseDown(mouse_keymap_10_reverse[key]) or
 		input.IsMouseDown(mouse_keymap_reverse[key])
@@ -151,10 +181,13 @@ event.AddListener("LoveNewIndex", "line_mouse", function(love, key, val)
 				local mapped_button = mouse_uses_numeric_buttons() and mouse_keymap_10[key] or mouse_keymap[key]
 
 				if key == "mwheel_up" or key == "mwheel_down" then
+					refresh_loveframes_hover_state()
 					line.CallEvent("wheelmoved", 0, key == "mwheel_up" and 1 or -1)
 				end
 
 				if mapped_button == nil then return end
+
+				refresh_loveframes_hover_state()
 
 				if press then
 					line.CallEvent("mousepressed", x, y, mapped_button)

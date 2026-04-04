@@ -200,7 +200,7 @@ function line.SyncAllWindowGlobals(width, height)
 	for _, love in ipairs(line.love_envs) do
 		line.SyncWindowGlobals(love, width, height)
 	end
-	end
+end
 
 local function get_game_identity(folder)
 	local identity = folder:gsub("[/\\]+$", ""):match("([^/\\]+)$") or "lovegame"
@@ -279,9 +279,7 @@ function line.RunGame(folder, ...)
 			if module_name == "libraries.lily" and type(value) == "table" then
 				love._line_env.lily = value
 
-				if value.setUpdateMode then
-					value.setUpdateMode("manual")
-				end
+				if value.setUpdateMode then value.setUpdateMode("manual") end
 			end
 
 			return value
@@ -428,6 +426,25 @@ function line.RunGame(folder, ...)
 
 	local w = line.config.screen.width or line.config.window.width or 800
 	local h = line.config.screen.height or line.config.window.height or 600
+
+	if
+		(
+			w == nil or
+			w <= 1 or
+			h == nil or
+			h <= 1
+		)
+		and
+		line.config.window and
+		line.config.window.fullscreen and
+		line.config.window.fullscreentype == "desktop"
+	then
+		local modes = love.window.getFullscreenModes(line.config.window.display)
+		local preferred = modes and modes[1] or nil
+		w = preferred and preferred.width or 1280
+		h = preferred and preferred.height or 720
+	end
+
 	local title = line.config.title or "Line"
 	love.window.setMode(w, h)
 	love.window.setTitle(title)

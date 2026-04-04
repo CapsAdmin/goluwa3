@@ -1,6 +1,7 @@
 local render = import("goluwa/render/render.lua")
 local Framebuffer = import("goluwa/render/framebuffer.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
+local ffi = require("ffi")
 local math2d = import("goluwa/render2d/math2d.lua")
 local vfs = import("goluwa/vfs.lua")
 local gfx = import("goluwa/render2d/gfx.lua")
@@ -24,7 +25,7 @@ function love.graphics.getTextureTypes()
 		["2d"] = true,
 		array = false,
 		cube = false,
-		volume = false,
+		volume = true,
 	}
 end
 
@@ -83,10 +84,16 @@ local function get_internal_background_color()
 	ENV.graphics_bg_color_a or 255
 end
 
-local function begin_temporary_frame()
-	if ENV.graphics_manual_frame_active then return render.GetCommandBuffer() ~= nil end
+local get_main_surface_dimensions
 
-	if render.in_frame or not render.target then return render.GetCommandBuffer() ~= nil end
+local function begin_temporary_frame()
+	if ENV.graphics_manual_frame_active then
+		return render.GetCommandBuffer() ~= nil
+	end
+
+	if render.in_frame or not render.target then
+		return render.GetCommandBuffer() ~= nil
+	end
 
 	render.target:WaitForPreviousFrame()
 
@@ -123,6 +130,89 @@ local function draw_clear_rect(r, g, b, a, w, h)
 	love.graphics.setColor(old_r, old_g, old_b, old_a)
 end
 
+local function clear_active_target(r, g, b, a, depth, stencil)
+	local cmd = render2d.cmd
+
+	if not (cmd and cmd.ClearAttachments) then return false end
+
+	local w, h
+
+	if ENV.graphics_current_canvas then
+		w, h = ENV.graphics_current_canvas:getDimensions()
+	else
+		w, h = get_main_surface_dimensions()
+	end
+
+	cmd:ClearAttachments{
+		color = {r / 255, g / 255, b / 255, a / 255},
+		depth = depth,
+		stencil = stencil,
+		w = w,
+		h = h,
+	}
+	return true
+end
+
+local function get_current_depth_target_size()
+	if ENV.graphics_current_canvas then
+		return ENV.graphics_current_canvas:getDimensions()
+	end
+
+	return get_main_surface_dimensions()
+end
+
+local function get_depth_target_frame_marker()
+	local canvas = ENV.graphics_current_canvas
+
+	if canvas then return canvas, "_love_depth_initialized_frame" end
+
+	return ENV, "graphics_screen_depth_initialized_frame"
+end
+
+local function mark_depth_target_initialized(frame)
+	local holder, key = get_depth_target_frame_marker()
+	holder[key] = frame
+end
+
+local function get_love_depth_clear_value(compare_mode)
+	if compare_mode == "greater" or compare_mode == "gequal" then return 0 end
+
+	return 1
+end
+
+local function ensure_love_depth_target_initialized(compare_mode)
+	local cmd = render2d.cmd
+
+	if not (cmd and cmd.ClearAttachments) then return end
+
+	local frame = render.GetCurrentFrame and render.GetCurrentFrame() or nil
+	local holder, key = get_depth_target_frame_marker()
+
+	if frame ~= nil and holder[key] == frame then return end
+
+	local w, h = get_current_depth_target_size()
+	cmd:ClearAttachments{
+		depth = get_love_depth_clear_value(compare_mode),
+		w = w,
+		h = h,
+	}
+
+	if frame ~= nil then mark_depth_target_initialized(frame) end
+end
+
+local function clear_love_stencil_target(value)
+	local cmd = render2d.cmd
+
+	if not (cmd and cmd.ClearAttachments) then return end
+
+	local w, h = get_current_depth_target_size()
+	cmd:ClearAttachments{
+		stencil = value or 0,
+		w = w,
+		h = h,
+	}
+end
+
 local function get_texture_dimensions(tex)
 	if not tex then return 0, 0 end
 
@@ -137,7 +227,7 @@ local function get_texture_dimensions(tex)
 	return tex.width or 0, tex.height or 0
 end
 
-local function get_main_surface_dimensions()
+function get_main_surface_dimensions()
 	if ENV.graphics_current_canvas then
 		return get_texture_dimensions(ENV.graphics_current_canvas.fb:GetColorTexture())
 	end
@@ -151,7 +241,9 @@ local function get_main_surface_dimensions()
 	if render.GetRenderImageSize then
 		local render_size = render.GetRenderImageSize()
 
-		if render_size and render_size.x and render_size.y then return render_size.x, render_size.y end
+		if render_size and render_size.x and render_size.y then
+			return render_size.x, render_size.y
+		end
 	end
 
 	local width = render.GetWidth and render.GetWidth() or 0
@@ -190,6 +282,83 @@ local function apply_filter_to_texture(tex, min, mag, anisotropy)
 		compare_op = sampler_config.compare_op,
 		flags = sampler_config.flags,
 	}
+end
+
+local function translate_wrap_mode(mode)
+	if mode == "clamp" then return "clamp_to_edge" end
+
+	if mode == "clampzero" then
+		return "clamp_to_border", "float_transparent_black"
+	end
+
+	return mode
+end
+
+local function apply_wrap_to_texture(tex, wrap_s, wrap_t, wrap_r)
+	if not tex then return end
+
+	local translated_wrap_s, border_color_s = translate_wrap_mode(wrap_s)
+	local translated_wrap_t, border_color_t = translate_wrap_mode(wrap_t or wrap_s)
+	local translated_wrap_r, border_color_r = translate_wrap_mode(wrap_r or wrap_t or wrap_s)
+	tex.config = tex.config or {}
+	tex.config.sampler = tex.config.sampler or {}
+	tex.config.sampler.wrap_s = translated_wrap_s or tex.config.sampler.wrap_s
+	tex.config.sampler.wrap_t = translated_wrap_t or tex.config.sampler.wrap_t
+	tex.config.sampler.wrap_r = translated_wrap_r or tex.config.sampler.wrap_r
+	tex.config.sampler.border_color = border_color_s or border_color_t or border_color_r
+	apply_filter_to_texture(tex)
+end
+
+local function drawable_uses_linear_filter(drawable)
+	local min = drawable and drawable.filter_min or ENV.graphics_filter_min
+	local mag = drawable and drawable.filter_mag or min or ENV.graphics_filter_mag
+	return min == "linear" or mag == "linear"
+end
+
+local function get_quad_uv_rect(drawable, quad)
+	local sample_x = quad.x
+	local sample_y = quad.y
+	local sample_w = quad.w
+	local sample_h = quad.h
+
+	if drawable_uses_linear_filter(drawable) then
+		local inset_x = math.min(0.5, quad.w / 2)
+		local inset_y = math.min(0.5, quad.h / 2)
+		sample_x = sample_x + inset_x
+		sample_y = sample_y + inset_y
+		sample_w = math.max(quad.w - (inset_x * 2), 0)
+		sample_h = math.max(quad.h - (inset_y * 2), 0)
+	end
+
+	return sample_x, sample_y, sample_w, sample_h
+end
+
+local function get_quad_draw_rect(drawable, quad, x, y, sx, sy, ox, oy, r, kx, ky)
+	local draw_x = x
+	local draw_y = y
+	local draw_w = quad.w * sx
+	local draw_h = quad.h * sy
+
+	if
+		drawable_uses_linear_filter(drawable) and
+		r == 0 and
+		kx == 0 and
+		ky == 0 and
+		ox == 0 and
+		oy == 0 and
+		sx >= 0 and
+		sy >= 0
+	then
+		-- Separate axis-aligned quad draws can leave a 1px crack at shared edges.
+		-- Expanding the destination rect by half a pixel on each side matches Love's
+		-- visually continuous nine-slice output more closely for linear-filtered atlases.
+		draw_x = draw_x - 0.5
+		draw_y = draw_y - 0.5
+		draw_w = draw_w + 1
+		draw_h = draw_h + 1
+	end
+
+	return draw_x, draw_y, draw_w, draw_h
 end
 
 local function ADD_FILTER(obj)
@@ -329,6 +498,24 @@ end
 
 function love.graphics.reset() end
 
+function love.graphics.setDepthMode(compare_mode, write)
+	if not compare_mode then
+		render2d.SetDepthMode("none", false)
+		return
+	end
+
+	render2d.SetDepthMode(compare_mode, write)
+	ensure_love_depth_target_initialized(compare_mode)
+end
+
+function love.graphics.getDepthMode()
+	local compare_mode, write = render2d.GetDepthMode()
+
+	if compare_mode == "none" then return nil, false end
+
+	return compare_mode, write
+end
+
 function love.graphics.isSupported(what)
 	llog("is supported: %s", what)
 	return true
@@ -375,11 +562,17 @@ do -- background
 		color_component_from_internal(ENV.graphics_bg_color_a)
 	end
 
-	function love.graphics.clear(r, g, b, a)
+	function love.graphics.clear(r, g, b, a, ...)
 		local canvas = love.graphics.getCanvas()
+		local stencil
+		local depth
+
+		if select("#", ...) >= 1 then stencil = select(1, ...) end
+
+		if select("#", ...) >= 2 then depth = select(2, ...) end
 
 		if canvas then
-			canvas:clear(r, g, b, a)
+			canvas:clear(r, g, b, a, stencil, depth)
 		else
 			local cr, cg, cb, ca
 
@@ -389,7 +582,15 @@ do -- background
 				cr, cg, cb, ca = get_internal_background_color()
 			end
 
-			draw_clear_rect(cr, cg, cb, ca, render.GetWidth(), render.GetHeight())
+			if not clear_active_target(cr, cg, cb, ca, depth, stencil) then
+				draw_clear_rect(cr, cg, cb, ca, render.GetWidth(), render.GetHeight())
+			end
+
+			if depth ~= nil then
+				local frame = render.GetCurrentFrame and render.GetCurrentFrame() or nil
+
+				if frame ~= nil then mark_depth_target_initialized(frame) end
+			end
 		end
 	end
 end
@@ -528,44 +729,103 @@ end
 
 do -- font
 	local Font = line.TypeTemplate("Font")
+	local LOVE_TTF_FONT_COMPAT_SCALE = 0.78
 
-	function Font:getWidth(str)
-		str = str or "W"
-		return (self.font:GetTextSize(str)) + 2
+	local function get_font_text_size(font, str)
+		return font:GetTextSize(tostring(str or ""))
 	end
 
-	function Font:getHeight(str)
-		str = str or "W"
-		return select(2, self.font:GetTextSize(str)) + 2
+	local function get_font_line_height(font)
+		local height = 0
+
+		if font.GetLineHeight then
+			local line_height = font:GetLineHeight()
+
+			if line_height and line_height > 0 then height = line_height end
+		end
+
+		if height <= 0 then
+			local ascent = font.GetAscent and font:GetAscent() or 0
+			local descent = font.GetDescent and font:GetDescent() or 0
+			height = ascent + descent
+		end
+
+		if height <= 0 then
+			local _, text_height = get_font_text_size(font, "W")
+			height = text_height or 0
+		end
+
+		return math.ceil(height)
+	end
+
+	local function split_wrapped_lines(text)
+		local lines = {}
+		text = tostring(text or "")
+
+		if text == "" then
+			lines[1] = ""
+			return lines
+		end
+
+		for line in (text .. "\n"):gmatch("(.-)\n") do
+			lines[#lines + 1] = line
+		end
+
+		if #lines == 0 then lines[1] = text end
+
+		return lines
+	end
+
+	local function get_wrapped_lines(font, str, width)
+		str = tostring(str or "")
+		local wrapped = font:WrapString(str, width or 0)
+		return wrapped, split_wrapped_lines(wrapped)
+	end
+
+	function Font:getWidth(str)
+		local width = get_font_text_size(self.font, str or "")
+		return math.ceil(width or 0)
+	end
+
+	function Font:getHeight()
+		return get_font_line_height(self.font)
 	end
 
 	function Font:setLineHeight(num)
 		self.line_height = num
 	end
 
-	function Font:getLineHeight(num)
-		self.line_height = num
+	function Font:getLineHeight()
+		return self.line_height or 1
 	end
 
 	function Font:getBaseline()
-		return 0
+		if self.font.GetAscent then return math.ceil(self.font:GetAscent()) end
+
+		return self:getHeight()
 	end
 
 	function Font:getWrap(str, width)
-		str = tostring(str)
 		local old = fonts.GetFont()
 		fonts.SetFont(self.font)
-		local res = self.font:WrapString(str, width)
-		local w = self.font:GetTextSize(str) + 2
+		local res, lines = get_wrapped_lines(self.font, str, width)
+		local wrapped_width = 0
+
+		for _, line in ipairs(lines) do
+			local line_width = self:getWidth(line)
+
+			if line_width > wrapped_width then wrapped_width = line_width end
+		end
+
 		fonts.SetFont(old)
 
 		if love._version_minor < 10 and love._version_revision == 0 then
-			return w, res:split("\n")
+			return wrapped_width, lines
 		end
 
-		if love._version_minor >= 10 then return w, res end
+		if love._version_minor >= 10 then return wrapped_width, res end
 
-		return w, math.max(res:count("\n"), 1)
+		return wrapped_width, math.max(#lines, 1)
 	end
 
 	function Font:setFilter(filter)
@@ -585,10 +845,22 @@ do -- font
 
 		if not vfs.IsFile(path) then path = fonts.GetDefaultSystemFontPath() end
 
+		local resolved_path = path ~= "memory" and path or fonts.GetDefaultSystemFontPath()
 		self.font = fonts.New{
-			Size = size and (size * 1.25),
-			Path = path ~= "memory" and path or fonts.GetDefaultSystemFontPath(),
+			Size = size,
+			Path = resolved_path,
 		}
+		local ext = resolved_path:match("%.([^%.]+)$")
+
+		if not texture and ext then
+			ext = ext:lower()
+
+			if (ext == "ttf" or ext == "otf") and self.font.SetScale then
+				self.compat_scale = LOVE_TTF_FONT_COMPAT_SCALE
+				self.font:SetScale(Vec2(self.compat_scale, self.compat_scale))
+			end
+		end
+
 		self.Name = self.font:GetName()
 		local w, h = self.font:GetTextSize("W")
 		self.Size = size or w
@@ -661,16 +933,17 @@ do -- font
 
 		if align then
 			local max_width = 0
-			local t = font.font:WrapString(text, limit):split("\n")
+			local _, t = get_wrapped_lines(font.font, text, limit)
+			local line_height = font:getHeight() * font:getLineHeight()
 
 			for i, line in ipairs(t) do
-				local w, h = font.font:GetTextSize(line)
+				local w = font:getWidth(line)
 
 				if w > max_width then max_width = w end
 			end
 
 			for i, line in ipairs(t) do
-				local w, h = font.font:GetTextSize(line)
+				local w = font:getWidth(line)
 				local align_x = 0
 
 				if align == "right" then
@@ -679,7 +952,7 @@ do -- font
 					align_x = (max_width - w) / 2
 				end
 
-				font.font:DrawText(line, align_x, (i - 1) * h * font.line_height)
+				font.font:DrawText(line, align_x, (i - 1) * line_height)
 			end
 		else
 			font.font:DrawText(text, 0, 0)
@@ -858,12 +1131,30 @@ do -- canvas
 	local Canvas = line.TypeTemplate("Canvas")
 	ADD_FILTER(Canvas)
 
+	local function get_canvas_depth_format()
+		return "d32_sfloat"
+	end
+
+	local function create_canvas_framebuffer(canvas, with_depth)
+		canvas.fb = Framebuffer.New{
+			width = canvas.w,
+			height = canvas.h,
+			format = canvas.format,
+			clear_color = {0, 0, 0, 0},
+			min_filter = canvas.filter_min,
+			mag_filter = canvas.filter_mag,
+			depth = with_depth,
+			depth_format = with_depth and get_canvas_depth_format() or nil,
+		}
+		ENV.textures[canvas] = canvas.fb:GetColorTexture()
+	end
+
 	local function update_render_size_for_canvas(canvas)
 		if canvas then
-			render2d.UpdateScreenSize{w = canvas.w, h = canvas.h}
+			render2d.UpdateScreenSize(canvas.w, canvas.h)
 		else
 			local width, height = get_main_surface_dimensions()
-			render2d.UpdateScreenSize{w = width, h = height}
+			render2d.UpdateScreenSize(width, height)
 		end
 	end
 
@@ -889,25 +1180,75 @@ do -- canvas
 		return self.w, self.h
 	end
 
-	function Canvas:getImageData() end
+	function Canvas:getImageData(x, y, w, h)
+		local was_current = ENV.graphics_current_canvas == self
+
+		if was_current then love.graphics.setCanvas() end
+
+		local image_data = love.image._newImageDataFromTexture(self.fb:GetColorTexture())
+
+		if was_current then love.graphics.setCanvas(self) end
+
+		x = math.floor(tonumber(x) or 0)
+		y = math.floor(tonumber(y) or 0)
+		w = math.floor(tonumber(w) or image_data:getWidth())
+		h = math.floor(tonumber(h) or image_data:getHeight())
+
+		if x == 0 and y == 0 and w == image_data:getWidth() and h == image_data:getHeight() then
+			return image_data
+		end
+
+		local cropped = love.image.newImageData(w, h)
+		cropped:paste(image_data, 0, 0, x, y, w, h)
+		return cropped
+	end
+
+	function Canvas:newImageData(...)
+		return self:getImageData(...)
+	end
 
 	function Canvas:clear(...)
 		local r, g, b, a
+		local stencil
+		local depth
 
 		if select("#", ...) > 0 then
 			local cr, cg, cb, ca = ...
 			r, g, b, a = parse_color_bytes(cr, cg, cb, ca, 255)
+
+			if select("#", ...) >= 5 then stencil = select(5, ...) end
+
+			if select("#", ...) >= 6 then depth = select(6, ...) end
 		else
 			r, g, b, a = 0, 0, 0, 0
 		end
 
 		if self._canvas_cmd and render2d.cmd == self._canvas_cmd then
-			draw_clear_rect(r, g, b, a, self.w, self.h)
+			if not clear_active_target(r, g, b, a, depth, stencil) then
+				draw_clear_rect(r, g, b, a, self.w, self.h)
+			end
+
+			if depth ~= nil then
+				local frame = render.GetCurrentFrame and render.GetCurrentFrame() or nil
+
+				if frame ~= nil then mark_depth_target_initialized(frame) end
+			end
 		else
 			local old_clear_color = self.fb.clear_colors[1]
 			self.fb.clear_colors[1] = {r / 255, g / 255, b / 255, a / 255}
 			self.fb.clear_color = self.fb.clear_colors[1]
 			self.fb:Begin(nil, "clear")
+
+			if depth ~= nil or stencil ~= nil then
+				clear_active_target(r, g, b, a, depth, stencil)
+			end
+
+			if depth ~= nil then
+				local frame = render.GetCurrentFrame and render.GetCurrentFrame() or nil
+
+				if frame ~= nil then self._love_depth_initialized_frame = frame end
+			end
+
 			self.fb:End()
 			self.fb.clear_colors[1] = old_clear_color
 			self.fb.clear_color = old_clear_color
@@ -924,27 +1265,31 @@ do -- canvas
 			w = w or default_w
 			h = h or default_h
 		end
+
 		local screen_texture = render.GetScreenTexture and render.GetScreenTexture()
 		local self = line.CreateObject("Canvas")
 		self.w = w
 		self.h = h
-		self.fb = Framebuffer.New{
-			width = w,
-			height = h,
-			format = screen_texture and screen_texture.format or "r8g8b8a8_unorm",
-			clear_color = {0, 0, 0, 0},
-			min_filter = ENV.graphics_filter_min,
-			mag_filter = ENV.graphics_filter_mag,
-		}
+		self.format = screen_texture and screen_texture.format or "r8g8b8a8_unorm"
 		self.filter_min = ENV.graphics_filter_min
 		self.filter_mag = ENV.graphics_filter_mag
 		self.filter_anistropy = ENV.graphics_filter_anisotropy
-		ENV.textures[self] = self.fb:GetColorTexture()
+		create_canvas_framebuffer(self, false)
 		return self
 	end
 
+	local function resolve_canvas_target(canvas)
+		if type(canvas) == "table" and not canvas.fb then
+			return canvas[1], canvas.depth == true
+		end
+
+		return canvas, false
+	end
+
 	function love.graphics.setCanvas(canvas)
-		if ENV.graphics_current_canvas == canvas then return end
+		local resolved_canvas, require_depth = resolve_canvas_target(canvas)
+
+		if ENV.graphics_current_canvas == resolved_canvas then return end
 
 		local current = ENV.graphics_current_canvas
 
@@ -955,17 +1300,21 @@ do -- canvas
 			ENV.graphics_previous_canvas_cmd = nil
 		end
 
-		ENV.graphics_current_canvas = canvas
+		ENV.graphics_current_canvas = resolved_canvas
 
-		if canvas then
+		if resolved_canvas then
+			if require_depth and not resolved_canvas.fb:GetDepthTexture() then
+				create_canvas_framebuffer(resolved_canvas, true)
+			end
+
 			ENV.graphics_previous_canvas_cmd = render2d.cmd
-			canvas._canvas_cmd = canvas.fb:Begin()
-			render2d.BindPipeline(canvas._canvas_cmd)
-			update_render_size_for_canvas(canvas)
+			resolved_canvas._canvas_cmd = resolved_canvas.fb:Begin()
+			update_render_size_for_canvas(resolved_canvas)
+			render2d.BindPipeline(resolved_canvas._canvas_cmd)
 		else
-			if render2d.cmd then render2d.BindPipeline(render2d.cmd) end
-
 			update_render_size_for_canvas()
+
+			if render2d.cmd then render2d.BindPipeline(render2d.cmd) end
 		end
 	end
 
@@ -1005,20 +1354,34 @@ do -- image
 
 	ADD_FILTER(Image)
 
-	function Image:setWrap() end
+	function Image:setWrap(wrap_s, wrap_t)
+		self.wrap_s = wrap_s or self.wrap_s
+		self.wrap_t = wrap_t or wrap_s or self.wrap_t
+		apply_wrap_to_texture(ENV.textures[self], self.wrap_s, self.wrap_t)
+	end
 
-	function Image:getWrap() end
+	function Image:getWrap()
+		return self.wrap_s, self.wrap_t
+	end
 
 	function love.graphics.newImage(path)
 		if line.Type(path) == "Image" then return path end
 
 		local self = line.CreateObject("Image")
 		local tex
+		local path_type = line.Type(path)
 		self.filter_min = ENV.graphics_filter_min
 		self.filter_mag = ENV.graphics_filter_mag
 		self.filter_anistropy = ENV.graphics_filter_anisotropy
+		self.wrap_s = "clamp"
+		self.wrap_t = "clamp"
 
-		if line.Type(path) == "ImageData" then
+		if path_type == "ImageData" then
+			self.wrap_s = path.wrap_s or self.wrap_s
+			self.wrap_t = path.wrap_t or self.wrap_t
+		end
+
+		if path_type == "ImageData" then
 			tex = love.image._createTextureFromImageData(
 				path,
 				{
@@ -1027,7 +1390,7 @@ do -- image
 					anisotropy = self.filter_anistropy,
 				}
 			)
-		elseif line.Type(path) == "CompressedData" then
+		elseif path_type == "CompressedData" then
 			tex = love.image._createTextureFromCompressedData(
 				path,
 				{
@@ -1061,6 +1424,7 @@ do -- image
 		end
 
 		ENV.textures[self] = tex
+		self:setWrap(self.wrap_s, self.wrap_t)
 		return self
 	end
 
@@ -1071,6 +1435,104 @@ do -- image
 	line.RegisterType(Image)
 end
 
+do -- volume image
+	local VolumeImage = line.TypeTemplate("VolumeImage")
+	ADD_FILTER(VolumeImage)
+
+	function VolumeImage:getWidth()
+		return self.layer_width or 0
+	end
+
+	function VolumeImage:getHeight()
+		return self.layer_height or 0
+	end
+
+	function VolumeImage:getDepth()
+		return self.depth or 0
+	end
+
+	function VolumeImage:getDimensions()
+		return self:getWidth(), self:getHeight(), self:getDepth()
+	end
+
+	function VolumeImage:getData()
+		return self.atlas_image_data
+	end
+
+	function VolumeImage:setWrap(wrap_s, wrap_t)
+		self.wrap_s = wrap_s or self.wrap_s
+		self.wrap_t = wrap_t or wrap_s or self.wrap_t
+		apply_wrap_to_texture(ENV.textures[self], self.wrap_s, self.wrap_t)
+	end
+
+	function VolumeImage:getWrap()
+		return self.wrap_s, self.wrap_t
+	end
+
+	local function normalize_volume_layer(layer, index)
+		local layer_type = line.Type(layer)
+
+		if layer_type == "ImageData" then return layer end
+
+		if layer_type == "Image" then return layer:getData() end
+
+		if type(layer) == "string" then return love.image.newImageData(layer) end
+
+		error("newVolumeImage layer #" .. index .. " must be ImageData, Image, or a path", 3)
+	end
+
+	function love.graphics.newVolumeImage(layers)
+		assert(type(layers) == "table", "newVolumeImage requires a table of layers")
+		assert(#layers > 0, "newVolumeImage requires at least one layer")
+		local normalized_layers = {}
+		local layer_width
+		local layer_height
+
+		for i = 1, #layers do
+			local layer = normalize_volume_layer(layers[i], i)
+			local width, height = layer:getDimensions()
+
+			if not layer_width then
+				layer_width = width
+				layer_height = height
+			elseif layer_width ~= width or layer_height ~= height then
+				error("newVolumeImage requires all layers to have matching dimensions", 2)
+			end
+
+			normalized_layers[i] = layer
+		end
+
+		local atlas_image_data = love.image.newImageData(layer_width, layer_height * #normalized_layers)
+
+		for i, layer in ipairs(normalized_layers) do
+			atlas_image_data:paste(layer, 0, (i - 1) * layer_height)
+		end
+
+		local self = line.CreateObject("VolumeImage")
+		self.layer_width = layer_width
+		self.layer_height = layer_height
+		self.depth = #normalized_layers
+		self.atlas_image_data = atlas_image_data
+		self.filter_min = "nearest"
+		self.filter_mag = "nearest"
+		self.filter_anistropy = 1
+		self.wrap_s = "clamp"
+		self.wrap_t = "clamp"
+		ENV.textures[self] = love.image._createTextureFromImageData(
+			atlas_image_data,
+			{
+				min_filter = self.filter_min,
+				mag_filter = self.filter_mag,
+				anisotropy = self.filter_anistropy,
+			}
+		)
+		self:setWrap(self.wrap_s, self.wrap_t)
+		return self
+	end
+
+	line.RegisterType(VolumeImage)
+end
+
 do -- stencil
 	function love.graphics.newStencil(func) end
 
@@ -1078,14 +1540,22 @@ do -- stencil
 
 	function love.graphics.setStencilTest(mode, val)
 		if mode then
-			render.SetStencil(true)
 			ENV.graphics_stencil_mode = mode
 			ENV.graphics_stencil_val = val
-			render.StencilFunction(mode, val)
+
+			if mode == "always" then
+				render2d.SetStencilMode("none", 0)
+			elseif mode == "equal" then
+				render2d.SetStencilMode("test", val)
+			elseif mode == "greater" and val == 0 then
+				render2d.SetStencilMode("test_inverse", val)
+			else
+				error("unsupported stencil test mode: " .. tostring(mode), 2)
+			end
 		else
-			render.SetStencil(false)
 			ENV.graphics_stencil_mode = "always"
 			ENV.graphics_stencil_val = 0
+			render2d.SetStencilMode("none", 0)
 		end
 	end
 
@@ -1094,17 +1564,24 @@ do -- stencil
 	end
 
 	function love.graphics.stencil(func, action, num, keep)
-		render.SetStencil(true)
+		action = action or "replace"
+		num = num or 1
 
-		if not keep then render.GetFrameBuffer():ClearStencil(0) end
+		if action ~= "replace" then
+			error("unsupported stencil action: " .. tostring(action), 2)
+		end
+
+		if not keep then clear_love_stencil_target(0) end
 
 		local old_mode, old_val = love.graphics.getStencilTest()
-		render.StencilFunction("always", num, 0xFFFFFFFF)
-		render.StencilOperation("keep", "keep", action)
-		render.SetColorMask(0, 0, 0, 0)
+		local old_r, old_g, old_b, old_a = love.graphics.getColor()
+		render2d.SetStencilMode("write", num)
+		love.graphics.setColor(old_r, old_g, old_b, 0)
+		render2d.PushBlendMode("zero", "one", "add", "zero", "one", "add")
 		func()
-		render.SetColorMask(1, 1, 1, 1)
-		render.StencilFunction(old_mode, old_val)
+		render2d.PopBlendMode()
+		love.graphics.setColor(old_r, old_g, old_b, old_a)
+		love.graphics.setStencilTest(old_mode, old_val)
 	end
 end
 
@@ -1136,12 +1613,14 @@ function love.graphics.drawq(drawable, quad, x, y, r, sx, sy, ox, oy, kx, ky)
 	ky = ky or 0
 	local cr, cg, cb, ca = get_internal_color()
 	ca = ca or 255
+	local uv_x, uv_y, uv_w, uv_h = get_quad_uv_rect(drawable, quad)
+	local draw_x, draw_y, draw_w, draw_h = get_quad_draw_rect(drawable, quad, x, y, sx, sy, ox, oy, r, kx, ky)
 	render2d.SetColor(cr / 255, cg / 255, cb / 255, ca / 255)
 	render2d.PushSwizzleMode(render2d.GetSwizzleMode())
 	render2d.SetSwizzleMode(0)
 	render2d.PushTexture(ENV.textures[drawable])
-	render2d.SetUV(quad.x, -quad.y, quad.w, -quad.h, quad.sw, quad.sh)
-	render2d.DrawRectf(x, y, quad.w * sx, quad.h * sy, r, ox * sx, oy * sy)
+	render2d.SetUV(uv_x, -uv_y, uv_w, -uv_h, quad.sw, quad.sh)
+	render2d.DrawRectf(draw_x, draw_y, draw_w, draw_h, r, ox * sx, oy * sy)
 	render2d.SetUV()
 	render2d.PopTexture()
 	render2d.PopSwizzleMode()
@@ -1240,7 +1719,9 @@ local function get_attached_mesh_attribute(drawable, attribute_name, index, defa
 	local a, b = attachment.mesh:getVertexAttributeByName(index, attribute_name)
 
 	if a == nil then a = default_a end
+
 	if b == nil then b = default_b end
+
 	return a, b
 end
 
@@ -1250,6 +1731,7 @@ local function get_shared_instance_mesh(drawable)
 	for _, attachment in pairs(drawable.attached_attributes or {}) do
 		if attachment and attachment.mesh then
 			if shared_mesh and shared_mesh ~= attachment.mesh then return nil end
+
 			shared_mesh = attachment.mesh
 		end
 	end
@@ -1260,7 +1742,9 @@ end
 local function draw_instanced_mesh_gpu(drawable, instance_count, x, y, r, sx, sy, ox, oy, kx, ky)
 	local shader = ENV.current_shader
 
-	if not shader or not shader.pipeline or not shader.instance_binding then return false end
+	if not shader or not shader.pipeline or not shader.instance_binding then
+		return false
+	end
 
 	local instance_mesh = get_shared_instance_mesh(drawable)
 
@@ -1271,9 +1755,13 @@ local function draw_instanced_mesh_gpu(drawable, instance_count, x, y, r, sx, sy
 	if not texture then return false end
 
 	if drawable._line_dirty_buffers then drawable:UpdateBuffers() end
+
 	if instance_mesh._line_dirty_buffers then instance_mesh:UpdateBuffers() end
 
-	instance_count = math.min(instance_count or instance_mesh.vertex_buffer:GetVertexCount(), instance_mesh.vertex_buffer:GetVertexCount())
+	instance_count = math.min(
+		instance_count or instance_mesh.vertex_buffer:GetVertexCount(),
+		instance_mesh.vertex_buffer:GetVertexCount()
+	)
 	x = x or 0
 	y = y or 0
 	r = r or 0
@@ -1285,7 +1773,7 @@ local function draw_instanced_mesh_gpu(drawable, instance_count, x, y, r, sx, sy
 	ky = ky or 0
 	render2d.PushColor(1, 1, 1, 1)
 	render2d.PushTexture(ENV.textures[texture] or texture)
-	render2d.PushMatrix(nil, nil, nil, nil, nil, true)
+	render2d.PushMatrix()
 	render2d.Translatef(x, y)
 	render2d.Rotate(r)
 
@@ -1303,7 +1791,11 @@ local function draw_instanced_mesh_gpu(drawable, instance_count, x, y, r, sx, sy
 end
 
 local function draw_instanced_mesh(drawable, instance_count, x, y, r, sx, sy, ox, oy, kx, ky)
-	if draw_instanced_mesh_gpu(drawable, instance_count, x, y, r, sx, sy, ox, oy, kx, ky) then return true end
+	if
+		draw_instanced_mesh_gpu(drawable, instance_count, x, y, r, sx, sy, ox, oy, kx, ky)
+	then
+		return true
+	end
 
 	if not drawable.attached_attributes then return false end
 
@@ -1315,7 +1807,10 @@ local function draw_instanced_mesh(drawable, instance_count, x, y, r, sx, sy, ox
 
 	if not position_attachment or not position_attachment.mesh then return false end
 
-	instance_count = math.min(instance_count or position_attachment.mesh:getVertexCount(), position_attachment.mesh:getVertexCount())
+	instance_count = math.min(
+		instance_count or position_attachment.mesh:getVertexCount(),
+		position_attachment.mesh:getVertexCount()
+	)
 	x = x or 0
 	y = y or 0
 	r = r or 0
@@ -1328,7 +1823,6 @@ local function draw_instanced_mesh(drawable, instance_count, x, y, r, sx, sy, ox
 	ENV.graphics_instanced_quad = ENV.graphics_instanced_quad or love.graphics.newQuad(0, 0, 1, 1, texture)
 	local quad = ENV.graphics_instanced_quad
 	local base_r, base_g, base_b, base_a = get_internal_color()
-
 	render2d.PushMatrix()
 	render2d.Translatef(x, y)
 	render2d.Rotate(r)
@@ -1372,7 +1866,10 @@ local function draw_instanced_mesh(drawable, instance_count, x, y, r, sx, sy, ox
 end
 
 function love.graphics.drawInstanced(drawable, instancecount, x, y, r, sx, sy, ox, oy, kx, ky)
-	if line.Type(drawable) == "Mesh" and draw_instanced_mesh(drawable, instancecount, x, y, r, sx, sy, ox, oy, kx, ky) then
+	if
+		line.Type(drawable) == "Mesh" and
+		draw_instanced_mesh(drawable, instancecount, x, y, r, sx, sy, ox, oy, kx, ky)
+	then
 		return
 	end
 
@@ -1398,807 +1895,982 @@ end
 function love.graphics.setIcon() end
 
 do
-	do
-		local Shader = line.TypeTemplate("Shader")
-		local warned_missing_custom_shader_backend = false
-		local warned_unsupported_love_vertex_shader = false
-		local shader_pipeline_cache = setmetatable({}, {__mode = "k"})
+	local Shader = line.TypeTemplate("Shader")
+	local warned_missing_custom_shader_backend = false
+	local warned_unsupported_love_vertex_shader = false
+	local shader_pipeline_cache = setmetatable({}, {__mode = "k"})
 
-		local function warn_unsupported_love_vertex_shader()
-			if warned_unsupported_love_vertex_shader then return end
+	local function warn_unsupported_love_vertex_shader()
+		if warned_unsupported_love_vertex_shader then return end
 
-			warned_unsupported_love_vertex_shader = true
-			wlog("love.graphics.newShader: vertex/pixel shader pairs are not supported by the minimal Love shader backend yet")
+		warned_unsupported_love_vertex_shader = true
+		wlog(
+			"love.graphics.newShader: vertex/pixel shader pairs are not supported by the minimal Love shader backend yet"
+		)
+	end
+
+	local function warn_missing_custom_shader_backend()
+		if warned_missing_custom_shader_backend then return end
+
+		warned_missing_custom_shader_backend = true
+		wlog(
+			"love.graphics.newShader: custom shader backend unavailable, using compatibility fallback"
+		)
+	end
+
+	local function store_shader_uniform(self, name, value)
+		self.uniforms = self.uniforms or {}
+		self.uniforms[name] = value
+	end
+
+	local function register_shader_uniform(self, name)
+		self.uniform_names = self.uniform_names or {}
+		self.uniform_names[name] = true
+	end
+
+	local function clone_uniform_value(value)
+		if type(value) ~= "table" then return value end
+
+		local out = {}
+
+		for i = 1, #value do
+			out[i] = value[i]
 		end
 
-		local function warn_missing_custom_shader_backend()
-			if warned_missing_custom_shader_backend then return end
+		return out
+	end
 
-			warned_missing_custom_shader_backend = true
-			wlog("love.graphics.newShader: custom shader backend unavailable, using compatibility fallback")
-		end
+	local function parse_default_uniform_value(kind, source)
+		if not source or source == "" then return nil end
 
-		local function store_shader_uniform(self, name, value)
-			self.uniforms = self.uniforms or {}
-			self.uniforms[name] = value
-		end
+		source = source:match("^%s*(.-)%s*$")
 
-		local function register_shader_uniform(self, name)
-			self.uniform_names = self.uniform_names or {}
-			self.uniform_names[name] = true
-		end
+		if kind == "number" or kind == "float" then return tonumber(source) end
 
-		local function clone_uniform_value(value)
-			if type(value) ~= "table" then return value end
+		if kind == "boolean" or kind == "bool" then
+			if source == "true" then return true end
 
-			local out = {}
-
-			for i = 1, #value do
-				out[i] = value[i]
-			end
-
-			return out
-		end
-
-		local function parse_default_uniform_value(kind, source)
-			if not source or source == "" then return nil end
-
-			source = source:match("^%s*(.-)%s*$")
-
-			if kind == "number" or kind == "float" then return tonumber(source) end
-
-			if kind == "boolean" or kind == "bool" then
-				if source == "true" then return true end
-				if source == "false" then return false end
-				return nil
-			end
-
-			if kind == "vec2" or kind == "vec3" or kind == "vec4" then
-				local out = {}
-
-				for num in source:gmatch("[-+]?%d*%.?%d+[fF]?") do
-					out[#out + 1] = tonumber(num)
-				end
-
-				return #out > 0 and out or nil
-			end
+			if source == "false" then return false end
 
 			return nil
 		end
 
-		local function extract_fragment_source(source)
-			if not source then return nil, false end
+		if kind == "vec2" or kind == "vec3" or kind == "vec4" then
+			local out = {}
 
-			local pixel = source:match("#ifdef%s+PIXEL(.-)#endif")
-			local has_vertex = source:find("#ifdef%s+VERTEX") ~= nil
-
-			if pixel then return pixel, has_vertex end
-
-			return source, has_vertex
-		end
-
-		local function extract_vertex_source(source)
-			if not source then return nil, false end
-
-			local vertex = source:match("#ifdef%s+VERTEX(.-)#endif")
-			local has_pixel = source:find("#ifdef%s+PIXEL") ~= nil
-
-			if vertex then return vertex, has_pixel end
-
-			return nil, has_pixel
-		end
-
-		local function parse_love_shader_uniforms(source)
-			local uniforms = {}
-			local stripped = source:gsub(
-				"extern%s+([%a_][%w_]*)%s+([%a_][%w_]*)%s*([^;]*);",
-				function(kind, name, suffix)
-					local default_expr = suffix:match("=%s*(.+)$")
-					uniforms[#uniforms + 1] = {
-						kind = kind,
-						name = name,
-						default = parse_default_uniform_value(kind, default_expr),
-					}
-					return ""
-				end
-			)
-
-			return stripped, uniforms
-		end
-
-		local function parse_love_shader_varyings(source)
-			local varyings = {}
-			local stripped = source:gsub(
-				"varying%s+([%a_][%w_]*)%s+([%a_][%w_]*)%s*;",
-				function(kind, name)
-					varyings[#varyings + 1] = {kind = kind, name = name}
-					return ""
-				end
-			)
-
-			return stripped, varyings
-		end
-
-		local function parse_love_shader_attributes(source)
-			local attributes = {}
-			local stripped = source:gsub(
-				"attribute%s+([%a_][%w_]*)%s+([%a_][%w_]*)%s*;",
-				function(kind, name)
-					attributes[#attributes + 1] = {kind = kind, name = name}
-					return ""
-				end
-			)
-
-			return stripped, attributes
-		end
-
-		local function rewrite_shader_identifier(source, name, replacement)
-			return source:gsub("(%f[%a_])" .. name .. "(%f[^%w_])", "%1" .. replacement .. "%2")
-		end
-
-		local function rewrite_shader_identifiers(source, items, prefix)
-			for _, item in ipairs(items) do
-				source = rewrite_shader_identifier(source, item.name, prefix .. item.name)
+			for num in source:gmatch("[-+]?%d*%.?%d+[fF]?") do
+				out[#out + 1] = tonumber(num)
 			end
 
-			return source
+			return #out > 0 and out or nil
 		end
 
-		local function glsl_type_to_vertex_format(glsl_type)
-			if glsl_type == "vec4" then return "r32g32b32a32_sfloat" end
-			if glsl_type == "vec3" then return "r32g32b32_sfloat" end
-			if glsl_type == "vec2" then return "r32g32_sfloat" end
-			return "r32_sfloat"
-		end
-
-		local function build_shader_vertex_bindings(attributes)
-			local bindings = {
-				{
-					binding = 0,
-					input_rate = "vertex",
-					attributes = {
-						{"pos", "vec3", "r32g32b32_sfloat"},
-						{"uv", "vec2", "r32g32_sfloat"},
-						{"color", "vec4", "r32g32b32a32_sfloat"},
-					},
-				},
-			}
-
-			if #attributes > 0 then
-				local instance_attributes = {}
-
-				for _, attribute in ipairs(attributes) do
-					instance_attributes[#instance_attributes + 1] = {
-						attribute.name,
-						attribute.kind,
-						glsl_type_to_vertex_format(attribute.kind),
-					}
-				end
-
-				bindings[#bindings + 1] = {
-					binding = 1,
-					input_rate = "instance",
-					attributes = instance_attributes,
-				}
-			end
-
-			return bindings
-		end
-
-		local function rewrite_love_shader_identifiers(source, uniforms)
-			source = source:gsub("(%f[%a_]love_ScreenSize%f[^%w_])", "love_user.love_ScreenSize")
-
-			for _, uniform in ipairs(uniforms) do
-				source = source:gsub(
-					"(%f[%a_])" .. uniform.name .. "(%f[^%w_])",
-					"%1love_user." .. uniform.name .. "%2"
-				)
-			end
-
-			return source
-		end
-
-		local function get_shader_screen_size()
-			if ENV.graphics_current_canvas then
-				local tex_w, tex_h = get_texture_dimensions(ENV.graphics_current_canvas.fb:GetColorTexture())
-				return tex_w, tex_h
-			end
-
-			local size = window.GetSize()
-			return size.x or 0, size.y or 0
-		end
-
-		local function build_shader_uniform_block(obj, uniforms)
-			local block = {
-				{
-					"love_ScreenSize",
-					"vec2",
-					function(_, data, key)
-						local w, h = get_shader_screen_size()
-						data[key][0] = w
-						data[key][1] = h
-					end,
-				},
-			}
-
-			for _, uniform in ipairs(uniforms) do
-				local glsl_type = uniform.kind
-
-				if glsl_type == "number" then glsl_type = "float" end
-				if glsl_type == "Image" then glsl_type = "int" end
-				if glsl_type == "boolean" then glsl_type = "int" end
-
-				block[#block + 1] = {
-					uniform.name,
-					glsl_type,
-					function(self, data, key)
-						local value = obj.uniforms and obj.uniforms[key]
-
-						if value == nil then
-							for _, info in ipairs(uniforms) do
-								if info.name == key then
-									value = clone_uniform_value(info.default)
-									break
-								end
-							end
-						end
-
-						if uniform.kind == "Image" then
-							local texture = value and (ENV.textures[value] or value)
-							data[key] = texture and self:GetTextureIndex(texture) or -1
-							return
-						end
-
-						if uniform.kind == "boolean" or uniform.kind == "bool" then
-							data[key] = value and 1 or 0
-							return
-						end
-
-						if type(value) == "table" then
-							for i = 1, #value do
-								data[key][i - 1] = value[i] or 0
-							end
-							return
-						end
-
-						data[key] = value or 0
-					end,
-				}
-			end
-
-			return block
-		end
-
-		local function build_fragment_pipeline(obj, source)
-			local pixel_source, has_vertex_stage = extract_fragment_source(source)
-
-			if has_vertex_stage then
-				obj.warning_message = "minimal Love shader backend does not support #ifdef VERTEX shaders yet"
-				warn_unsupported_love_vertex_shader()
-				return nil
-			end
-
-			local stripped_source, uniforms = parse_love_shader_uniforms(pixel_source)
-			stripped_source = rewrite_love_shader_identifiers(stripped_source, uniforms)
-
-			register_shader_uniform(obj, "love_ScreenSize")
-
-			local block = build_shader_uniform_block(obj, uniforms)
-			local defines = {
-				"#define number float",
-				"#define Image int",
-				"#define extern",
-				"#define Texel(tex, coords) love_texel((tex), (coords))",
-			}
-
-			for _, uniform in ipairs(uniforms) do
-				register_shader_uniform(obj, uniform.name)
-
-				if uniform.default ~= nil then
-					obj.uniforms[uniform.name] = clone_uniform_value(uniform.default)
-				end
-			end
-
-			local config = {
-				name = "love_shader_fragment",
-				dont_create_framebuffers = true,
-				samples = function()
-					return render.target:GetSamples()
-				end,
-				color_format = render.target:GetColorFormat(),
-				vertex = {
-					uniform_buffers = {
-						{
-							block = {
-								{
-									"projection_view_world",
-									"mat4",
-									function(self, data, key)
-										render2d.GetMatrix():CopyToFloatPointer(data[key])
-									end,
-								},
-							},
-						},
-					},
-					attributes = {
-						{"pos", "vec3", "r32g32b32_sfloat"},
-						{"uv", "vec2", "r32g32_sfloat"},
-						{"color", "vec4", "r32g32b32a32_sfloat"},
-					},
-					shader = [[
-						void main() {
-							gl_Position = U.projection_view_world * vec4(in_pos, 1.0);
-							out_uv = in_uv;
-							out_color = in_color;
-						}
-					]],
-				},
-				fragment = {
-					uniform_buffers = {
-						{
-							block = {
-								{
-									"global_color",
-									"vec4",
-									function(_, data, key)
-										local r, g, b, a = render2d.GetColor()
-										data[key][0] = r or 1
-										data[key][1] = g or 1
-										data[key][2] = b or 1
-										data[key][3] = a or 1
-									end,
-								},
-								{
-									"alpha_multiplier",
-									"float",
-									function(_, data, key)
-										data[key] = render2d.GetAlphaMultiplier()
-									end,
-								},
-								{
-									"texture_index",
-									"int",
-									function(self, data, key)
-										local texture = render2d.GetTexture()
-										data[key] = texture and self:GetTextureIndex(texture) or -1
-									end,
-								},
-								{
-									"uv_offset",
-									"vec2",
-									function(_, data, key)
-										local x, y = render2d.GetUV()
-										data[key][0] = x or 0
-										data[key][1] = y or 0
-									end,
-								},
-								{
-									"uv_scale",
-									"vec2",
-									function(_, data, key)
-										local _, _, w, h = render2d.GetUV()
-										data[key][0] = w or 1
-										data[key][1] = h or 1
-									end,
-								},
-							},
-						},
-						{
-							name = "love_user",
-							block = block,
-						},
-					},
-					custom_declarations = table.concat(defines, "\n") .. [[
-
-						vec4 love_texel(int tex, vec2 coords) {
-							if (tex < 0) return vec4(0.0);
-							return texture(TEXTURE(tex), coords);
-						}
-					]],
-					shader = stripped_source .. [[
-						void main() {
-							vec4 love_color = in_color * U.global_color;
-							vec2 love_texture_coords = in_uv * U.uv_scale + U.uv_offset;
-							out_color = effect(love_color, U.texture_index, love_texture_coords, gl_FragCoord.xy);
-							out_color.a *= U.alpha_multiplier;
-						}
-					]],
-				},
-				rasterizer = {
-					cull_mode = "none",
-				},
-				color_blend = {
-					attachments = {
-						{
-							blend = true,
-							src_color_blend_factor = "src_alpha",
-							dst_color_blend_factor = "one_minus_src_alpha",
-							color_blend_op = "add",
-							src_alpha_blend_factor = "one",
-							dst_alpha_blend_factor = "zero",
-							alpha_blend_op = "add",
-							color_write_mask = {"r", "g", "b", "a"},
-						},
-					},
-				},
-				depth_stencil = {
-					depth_test = false,
-					depth_write = true,
-					stencil_test = false,
-					front = {
-						fail_op = "keep",
-						pass_op = "keep",
-						depth_fail_op = "keep",
-						compare_op = "always",
-					},
-					back = {
-						fail_op = "keep",
-						pass_op = "keep",
-						depth_fail_op = "keep",
-						compare_op = "always",
-					},
-				},
-			}
-
-			return EasyPipeline.New(config)
-		end
-
-		local function build_vertex_fragment_pipeline(obj, source)
-			local stripped_source, varyings = parse_love_shader_varyings(source)
-			local vertex_section = extract_vertex_source(stripped_source)
-			local fragment_section = extract_fragment_source(stripped_source)
-
-			if not vertex_section or not fragment_section then
-				obj.warning_message = "Love shader is missing a #ifdef VERTEX or #ifdef PIXEL section"
-				warn_unsupported_love_vertex_shader()
-				return nil
-			end
-
-			local cleaned_vertex, attributes = parse_love_shader_attributes(vertex_section)
-			local cleaned_fragment, uniforms = parse_love_shader_uniforms(fragment_section)
-			cleaned_vertex = rewrite_shader_identifiers(cleaned_vertex, varyings, "out_")
-			cleaned_fragment = rewrite_shader_identifiers(cleaned_fragment, varyings, "in_")
-			cleaned_vertex = rewrite_shader_identifiers(cleaned_vertex, attributes, "in_")
-			cleaned_vertex = rewrite_love_shader_identifiers(cleaned_vertex, uniforms)
-			cleaned_fragment = rewrite_love_shader_identifiers(cleaned_fragment, uniforms)
-			register_shader_uniform(obj, "love_ScreenSize")
-			local user_block = build_shader_uniform_block(obj, uniforms)
-			local outputs = {
-				{"uv", "vec2"},
-				{"color", "vec4"},
-			}
-
-			for _, varying in ipairs(varyings) do
-				outputs[#outputs + 1] = {varying.name, varying.kind}
-			end
-
-			for _, uniform in ipairs(uniforms) do
-				register_shader_uniform(obj, uniform.name)
-
-				if uniform.default ~= nil then
-					obj.uniforms[uniform.name] = clone_uniform_value(uniform.default)
-				end
-			end
-
-			obj.instance_attributes = attributes
-			obj.instance_binding = #attributes > 0 and 1 or nil
-
-			return EasyPipeline.New{
-				name = "love_shader_vertex_fragment",
-				dont_create_framebuffers = true,
-				samples = function()
-					return render.target:GetSamples()
-				end,
-				color_format = render.target:GetColorFormat(),
-				vertex = {
-					uniform_buffers = {
-						{
-							block = {
-								{
-									"projection_view_world",
-									"mat4",
-									function(self, data, key)
-										render2d.GetMatrix():CopyToFloatPointer(data[key])
-									end,
-								},
-							},
-						},
-						{
-							name = "love_user",
-							block = user_block,
-						},
-					},
-					bindings = build_shader_vertex_bindings(attributes),
-					outputs = outputs,
-					shader = cleaned_vertex .. [[
-						void main() {
-							out_uv = in_uv;
-							out_color = in_color;
-							gl_Position = position(U.projection_view_world, vec4(in_pos, 1.0));
-						}
-					]],
-				},
-				fragment = {
-					uniform_buffers = {
-						{
-							block = {
-								{
-									"global_color",
-									"vec4",
-									function(_, data, key)
-										local r, g, b, a = render2d.GetColor()
-										data[key][0] = r or 1
-										data[key][1] = g or 1
-										data[key][2] = b or 1
-										data[key][3] = a or 1
-									end,
-								},
-								{
-									"alpha_multiplier",
-									"float",
-									function(_, data, key)
-										data[key] = render2d.GetAlphaMultiplier()
-									end,
-								},
-								{
-									"texture_index",
-									"int",
-									function(self, data, key)
-										local texture = render2d.GetTexture()
-										data[key] = texture and self:GetTextureIndex(texture) or -1
-									end,
-								},
-								{
-									"uv_offset",
-									"vec2",
-									function(_, data, key)
-										local x, y = render2d.GetUV()
-										data[key][0] = x or 0
-										data[key][1] = y or 0
-									end,
-								},
-								{
-									"uv_scale",
-									"vec2",
-									function(_, data, key)
-										local _, _, w, h = render2d.GetUV()
-										data[key][0] = w or 1
-										data[key][1] = h or 1
-									end,
-								},
-							},
-						},
-						{
-							name = "love_user",
-							block = user_block,
-						},
-					},
-					custom_declarations = [[
-						#define number float
-						#define Image int
-						#define extern
-
-						vec4 love_texel(int tex, vec2 coords) {
-							if (tex < 0) return vec4(0.0);
-							return texture(TEXTURE(tex), coords);
-						}
-
-						#define Texel(tex, coords) love_texel((tex), (coords))
-					]],
-					shader = cleaned_fragment .. [[
-						void main() {
-							vec4 love_color = in_color * U.global_color;
-							vec2 love_texture_coords = in_uv * U.uv_scale + U.uv_offset;
-							out_color = effect(love_color, U.texture_index, love_texture_coords, gl_FragCoord.xy);
-							out_color.a *= U.alpha_multiplier;
-						}
-					]],
-				},
-				rasterizer = {
-					cull_mode = "none",
-				},
-				color_blend = {
-					attachments = {
-						{
-							blend = true,
-							src_color_blend_factor = "src_alpha",
-							dst_color_blend_factor = "one_minus_src_alpha",
-							color_blend_op = "add",
-							src_alpha_blend_factor = "one",
-							dst_alpha_blend_factor = "zero",
-							alpha_blend_op = "add",
-							color_write_mask = {"r", "g", "b", "a"},
-						},
-					},
-				},
-				depth_stencil = {
-					depth_test = false,
-					depth_write = true,
-					stencil_test = false,
-					front = {
-						fail_op = "keep",
-						pass_op = "keep",
-						depth_fail_op = "keep",
-						compare_op = "always",
-					},
-					back = {
-						fail_op = "keep",
-						pass_op = "keep",
-						depth_fail_op = "keep",
-						compare_op = "always",
-					},
-				},
-			}
-		end
-
-		function Shader:getWarnings()
-			return self.warning_message or ""
-		end
-
-		function Shader:hasUniform(name)
-			if self.uniform_names and self.uniform_names[name] ~= nil then
-				return self.uniform_names[name]
-			end
-
-			if self.shader and self.shader.program and self.shader.program.GetUniformLocation then
-				local ok, loc = pcall(self.shader.program.GetUniformLocation, self.shader.program, name)
-
-				if ok then return loc ~= nil and loc ~= -1 end
-			end
-
-			return false
-		end
-
-		function Shader:sendColor(name, tbl, ...)
-			if ... then warning("uh oh") end
-
-			store_shader_uniform(self, name, {tbl[1], tbl[2], tbl[3], tbl[4]})
-
-			if not (self.shader and self.shader.program) then return end
-
-			local loc = self.shader.program:GetUniformLocation(name)
-			self.shader.program:UploadColor(loc, ColorBytes(unpack(tbl)))
-		end
-
-		function Shader:send(name, var, ...)
-			if ... then warning("uh oh") end
-
-			store_shader_uniform(self, name, var)
-
-			if not (self.shader and self.shader.program) then return end
-
-			local loc = self.shader.program:GetUniformLocation(name)
-			local t = type(var)
-
-			if t == "number" then
-				self.shader.program:UploadNumber(loc, var)
-			elseif t == "boolean" then
-				self.shader.program:UploadBoolean(loc, var)
-			elseif ENV.textures[var] then
-				self.shader.program:UploadTexture(loc, ENV.textures[var], 0, 0)
-			elseif t == "table" then
-				if type(var[1]) == "number" then
-					if #var == 2 then
-						self.shader.program:UploadVec2(loc, Vec2(unpack(var)))
-					elseif #var == 3 then
-						self.shader.program:UploadVec3(loc, Vec3(unpack(var)))
-					elseif #var == 16 then
-						self.shader.program:UploadMatrix44(loc, Vec2(unpack(var)))
-					end
-				else
-					if #var == 4 then
-						self.shader.program:UploadMatrix44(
-							loc,
-							Matrix44(
-								var[1][1],
-								var[1][2],
-								var[1][3],
-								var[1][4],
-								var[2][1],
-								var[2][2],
-								var[2][3],
-								var[2][4],
-								var[3][1],
-								var[3][2],
-								var[3][3],
-								var[3][4],
-								var[4][1],
-								var[4][2],
-								var[4][3],
-								var[4][4]
-							)
-						)
-					elseif #var == 3 then
-						warning("uh oh")
-					end
-				end
-			end
-		end
-
-		function love.graphics.newShader(frag, vert)
-			if type(frag) == "string" and frag:ends_with(".glsl") then
-				frag = love.filesystem.read(frag)
-			end
-
-			if type(vert) == "string" and vert:ends_with(".glsl") then
-				vert = love.filesystem.read(vert)
-			end
-
-			local obj = line.CreateObject("Shader")
-			obj.uniforms = {}
-			obj.uniform_names = {}
-			obj.source = {fragment = frag, vertex = vert}
-			obj.warning_message = nil
-
-			if render.CreateShader then
-				obj.shader = render.CreateShader{
-					fragment = {
-						mesh_layout = {
-							{uv = "vec2"},
-						},
-						variables = {
-							love_ScreenSize = {
-								vec2 = function()
-									if ENV.graphics_current_canvas then
-										local tex_w, tex_h = get_texture_dimensions(ENV.graphics_current_canvas.fb:GetColorTexture())
-										return Vec2(tex_w, tex_h)
-									end
-
-									return window.GetSize()
-								end,
-							},
-							current_texture = {
-								texture = function()
-									return render2d.shader and render2d.shader.tex or nil
-								end,
-							},
-							current_color = {
-								color = function()
-									return render2d.shader and render2d.shader.global_color or nil
-								end,
-							},
-						},
-						include_directories = {
-							"shaders/include/",
-						},
-						source = [[
-							#version 430 core
-
-							#define number float
-							#define Image sampler2D
-							#define Texel texture2D
-							#define extern uniform
-							#define PIXEL 1
-
-							]] .. frag .. [[
-
-							out vec4 out_color;
-
-							void main()
-							{
-								out_color = effect(current_color, current_texture, uv, gl_FragCoord.xy);
-							}
-						]],
-					},
-				}
-			else
-				if frag and frag:find("#ifdef%s+VERTEX") then
-					obj.shader = build_vertex_fragment_pipeline(obj, frag)
-				else
-					obj.shader = build_fragment_pipeline(obj, frag)
-				end
-
-				if not obj.shader then warn_missing_custom_shader_backend() end
-			end
-
-			obj.pipeline = obj.shader
-
-			return obj
-		end
-
-		line.RegisterType(Shader)
+		return nil
 	end
 
+	local function extract_fragment_source(source)
+		if not source then return nil, false end
+
+		local pixel = source:match("#ifdef%s+PIXEL(.-)#endif")
+		local has_vertex = source:find("#ifdef%s+VERTEX") ~= nil
+
+		if pixel then return pixel, has_vertex end
+
+		return source, has_vertex
+	end
+
+	local function extract_vertex_source(source)
+		if not source then return nil, false end
+
+		local vertex = source:match("#ifdef%s+VERTEX(.-)#endif")
+		local has_pixel = source:find("#ifdef%s+PIXEL") ~= nil
+
+		if vertex then return vertex, has_pixel end
+
+		return nil, has_pixel
+	end
+
+	local function parse_love_shader_uniforms(source)
+		local uniforms = {}
+		local stripped = source:gsub("extern%s+([%a_][%w_]*)%s+([%a_][%w_]*)%s*([^;]*);", function(kind, name, suffix)
+			local default_expr = suffix:match("=%s*(.+)$")
+			uniforms[#uniforms + 1] = {
+				kind = kind,
+				name = name,
+				default = parse_default_uniform_value(kind, default_expr),
+			}
+			return ""
+		end)
+		return stripped, uniforms
+	end
+
+	local function parse_love_shader_varyings(source)
+		local varyings = {}
+		local stripped = source:gsub("varying%s+([%a_][%w_]*)%s+([%a_][%w_]*)%s*;", function(kind, name)
+			varyings[#varyings + 1] = {kind = kind, name = name}
+			return ""
+		end)
+		return stripped, varyings
+	end
+
+	local function parse_love_shader_attributes(source)
+		local attributes = {}
+		local stripped = source:gsub("attribute%s+([%a_][%w_]*)%s+([%a_][%w_]*)%s*;", function(kind, name)
+			attributes[#attributes + 1] = {kind = kind, name = name}
+			return ""
+		end)
+		return stripped, attributes
+	end
+
+	local function rewrite_shader_identifier(source, name, replacement)
+		return source:gsub("(%f[%a_])" .. name .. "(%f[^%w_])", "%1" .. replacement .. "%2")
+	end
+
+	local function rewrite_shader_identifiers(source, items, prefix)
+		for _, item in ipairs(items) do
+			source = rewrite_shader_identifier(source, item.name, prefix .. item.name)
+		end
+
+		return source
+	end
+
+	local function glsl_type_to_vertex_format(glsl_type)
+		if glsl_type == "vec4" then return "r32g32b32a32_sfloat" end
+
+		if glsl_type == "vec3" then return "r32g32b32_sfloat" end
+
+		if glsl_type == "vec2" then return "r32g32_sfloat" end
+
+		return "r32_sfloat"
+	end
+
+	local function build_shader_vertex_bindings(attributes)
+		local bindings = {
+			{
+				binding = 0,
+				input_rate = "vertex",
+				attributes = {
+					{"pos", "vec3", "r32g32b32_sfloat"},
+					{"uv", "vec2", "r32g32_sfloat"},
+					{"color", "vec4", "r32g32b32a32_sfloat"},
+				},
+			},
+		}
+
+		if #attributes > 0 then
+			local instance_attributes = {}
+
+			for _, attribute in ipairs(attributes) do
+				instance_attributes[#instance_attributes + 1] = {
+					attribute.name,
+					attribute.kind,
+					glsl_type_to_vertex_format(attribute.kind),
+				}
+			end
+
+			bindings[#bindings + 1] = {
+				binding = 1,
+				input_rate = "instance",
+				attributes = instance_attributes,
+			}
+		end
+
+		return bindings
+	end
+
+	local function rewrite_love_shader_identifiers(source, uniforms)
+		source = source:gsub("(%f[%a_]love_ScreenSize%f[^%w_])", "love_user.love_ScreenSize")
+
+		for _, uniform in ipairs(uniforms) do
+			source = source:gsub(
+				"(%f[%a_])" .. uniform.name .. "(%f[^%w_])",
+				"%1love_user." .. uniform.name .. "%2"
+			)
+		end
+
+		return source
+	end
+
+	local function rewrite_volume_texture_fetches(source, uniforms)
+		for _, uniform in ipairs(uniforms) do
+			if uniform.kind == "VolumeImage" then
+				source = source:gsub(
+					"texelFetch%s*%(%s*" .. uniform.name .. "%s*,",
+					"love_volume_texelFetch_" .. uniform.name .. "("
+				)
+			end
+		end
+
+		return source
+	end
+
+	local function collect_image_identifiers(source, uniforms)
+		local names = {}
+		local seen = {}
+
+		for _, uniform in ipairs(uniforms) do
+			if uniform.kind == "Image" then
+				seen[uniform.name] = true
+				names[#names + 1] = uniform.name
+			end
+		end
+
+		for name in source:gmatch("Image%s+([%a_][%w_]*)") do
+			if not seen[name] then
+				seen[name] = true
+				names[#names + 1] = name
+			end
+		end
+
+		return names
+	end
+
+	local function rewrite_image_texture_fetches(source, image_names)
+		for _, name in ipairs(image_names) do
+			source = source:gsub(
+				"texelFetch%s*%(%s*" .. name .. "%s*,",
+				"love_image_texelFetch(" .. name .. ","
+			)
+		end
+
+		return source
+	end
+
+	local function build_volume_uniform_declarations(uniforms)
+		local lines = {}
+
+		for _, uniform in ipairs(uniforms) do
+			if uniform.kind == "VolumeImage" then
+				if #lines == 0 then
+					lines[#lines + 1] = [[
+						vec4 love_volume_texel_fetch(int tex, ivec3 coords, int lod, ivec4 info) {
+							if (tex < 0) return vec4(0.0);
+							if (coords.z < 0 || coords.z >= info.z) return vec4(0.0);
+							return texelFetch(TEXTURE(tex), ivec2(coords.x, coords.y + coords.z * info.y), lod);
+						}
+					]]
+				end
+
+				lines[#lines + 1] = string.format(
+					"#define love_volume_texelFetch_%s(coords, lod) love_volume_texel_fetch(love_user.%s, (coords), (lod), love_user.%s_volume_info)",
+					uniform.name,
+					uniform.name,
+					uniform.name
+				)
+			end
+		end
+
+		if #lines == 0 then return "" end
+
+		return table.concat(lines, "\n") .. "\n"
+	end
+
+	local function get_volume_uniform_info(value)
+		if type(value) ~= "table" then return 0, 0, 0 end
+
+		local width = value.layer_width or value.width or 0
+		local height = value.layer_height or value.height or 0
+		local depth = value.depth or value.layers or 0
+		return tonumber(width) or 0, tonumber(height) or 0, tonumber(depth) or 0
+	end
+
+	local function get_shader_screen_size()
+		if ENV.graphics_current_canvas then
+			local tex_w, tex_h = get_texture_dimensions(ENV.graphics_current_canvas.fb:GetColorTexture())
+			return tex_w, tex_h
+		end
+
+		local size = window.GetSize()
+		return size.x or 0, size.y or 0
+	end
+
+	local function build_shader_uniform_block(obj, uniforms)
+		local block = {
+			{
+				"love_ScreenSize",
+				"vec2",
+				function(_, data, key)
+					local w, h = get_shader_screen_size()
+					data[key][0] = w
+					data[key][1] = h
+				end,
+			},
+		}
+
+		for _, uniform in ipairs(uniforms) do
+			local uniform_info = uniform
+			local glsl_type = uniform_info.kind
+
+			if glsl_type == "number" then glsl_type = "float" end
+
+			if glsl_type == "Image" then glsl_type = "int" end
+
+			if glsl_type == "VolumeImage" then glsl_type = "int" end
+
+			if glsl_type == "boolean" then glsl_type = "int" end
+
+			block[#block + 1] = {
+				uniform_info.name,
+				glsl_type,
+				function(self, data, key)
+					local value = obj.uniforms and obj.uniforms[key]
+
+					if value == nil then
+						for _, info in ipairs(uniforms) do
+							if info.name == key then
+								value = clone_uniform_value(info.default)
+
+								break
+							end
+						end
+					end
+
+					if uniform_info.kind == "Image" or uniform_info.kind == "VolumeImage" then
+						local texture = value and (ENV.textures[value] or value)
+						data[key] = texture and self:GetTextureIndex(texture) or -1
+						return
+					end
+
+					if uniform_info.kind == "boolean" or uniform_info.kind == "bool" then
+						data[key] = value and 1 or 0
+						return
+					end
+
+					if type(value) == "table" then
+						for i = 1, #value do
+							data[key][i - 1] = value[i] or 0
+						end
+
+						return
+					end
+
+					data[key] = value or 0
+				end,
+			}
+
+			if uniform_info.kind == "VolumeImage" then
+				block[#block + 1] = {
+					uniform_info.name .. "_volume_info",
+					"ivec4",
+					function(_, data, key)
+						local value = obj.uniforms and obj.uniforms[uniform_info.name]
+						local width, height, depth = get_volume_uniform_info(value)
+						data[key][0] = width
+						data[key][1] = height
+						data[key][2] = depth
+						data[key][3] = 0
+					end,
+				}
+			end
+		end
+
+		return block
+	end
+
+	local function copy_love_shader_projection_matrix(ptr)
+		render2d.GetMatrix():CopyToFloatPointer(ptr)
+	end
+
+	local function build_fragment_pipeline(obj, source)
+		local pixel_source, has_vertex_stage = extract_fragment_source(source)
+
+		if has_vertex_stage then
+			obj.warning_message = "minimal Love shader backend does not support #ifdef VERTEX shaders yet"
+			warn_unsupported_love_vertex_shader()
+			return nil
+		end
+
+		local stripped_source, uniforms = parse_love_shader_uniforms(pixel_source)
+		local image_names = collect_image_identifiers(stripped_source, uniforms)
+		stripped_source = rewrite_volume_texture_fetches(stripped_source, uniforms)
+		stripped_source = rewrite_image_texture_fetches(stripped_source, image_names)
+		stripped_source = rewrite_love_shader_identifiers(stripped_source, uniforms)
+		local volume_uniform_declarations = build_volume_uniform_declarations(uniforms)
+		register_shader_uniform(obj, "love_ScreenSize")
+		local block = build_shader_uniform_block(obj, uniforms)
+		local defines = {
+			"#define number float",
+			"#define Image int",
+			"#define extern",
+			"#define Texel(tex, coords) love_texel((tex), (coords))",
+		}
+
+		for _, uniform in ipairs(uniforms) do
+			register_shader_uniform(obj, uniform.name)
+
+			if uniform.default ~= nil then
+				obj.uniforms[uniform.name] = clone_uniform_value(uniform.default)
+			end
+		end
+
+		local config = {
+			name = "love_shader_fragment",
+			dont_create_framebuffers = true,
+			samples = function()
+				return render.target:GetSamples()
+			end,
+			color_format = render.target:GetColorFormat(),
+			vertex = {
+				uniform_buffers = {
+					{
+						block = {
+							{
+								"projection_view_world",
+								"mat4",
+								function(self, data, key)
+									copy_love_shader_projection_matrix(data[key])
+								end,
+							},
+							{
+								"apply_love_depth",
+								"int",
+								function(_, data, key)
+									local compare_mode = render2d.GetDepthMode()
+									data[key] = compare_mode ~= "none" and 1 or 0
+								end,
+							},
+						},
+					},
+				},
+				attributes = {
+					{"pos", "vec3", "r32g32b32_sfloat"},
+					{"uv", "vec2", "r32g32_sfloat"},
+					{"color", "vec4", "r32g32b32a32_sfloat"},
+				},
+				shader = [[
+					void main() {
+						gl_Position = U.projection_view_world * vec4(in_pos, 1.0);
+						if (U.apply_love_depth != 0) {
+							gl_Position.z = clamp(1.0 - in_pos.z, 0.0, 1.0) * gl_Position.w;
+						}
+						out_uv = in_uv;
+						out_color = in_color;
+					}
+				]],
+			},
+			fragment = {
+				uniform_buffers = {
+					{
+						block = {
+							{
+								"global_color",
+								"vec4",
+								function(_, data, key)
+									local r, g, b, a = render2d.GetColor()
+									data[key][0] = r or 1
+									data[key][1] = g or 1
+									data[key][2] = b or 1
+									data[key][3] = a or 1
+								end,
+							},
+							{
+								"alpha_multiplier",
+								"float",
+								function(_, data, key)
+									data[key] = render2d.GetAlphaMultiplier()
+								end,
+							},
+							{
+								"texture_index",
+								"int",
+								function(self, data, key)
+									local texture = render2d.GetTexture()
+									data[key] = texture and self:GetTextureIndex(texture) or -1
+								end,
+							},
+							{
+								"discard_zero_alpha",
+								"int",
+								function(_, data, key)
+									local compare_mode = render2d.GetDepthMode()
+									data[key] = compare_mode ~= "none" and 1 or 0
+								end,
+							},
+							{
+								"uv_offset",
+								"vec2",
+								function(_, data, key)
+									local x, y = render2d.GetUV()
+									data[key][0] = x or 0
+									data[key][1] = y or 0
+								end,
+							},
+							{
+								"uv_scale",
+								"vec2",
+								function(_, data, key)
+									local _, _, w, h = render2d.GetUV()
+									data[key][0] = w or 1
+									data[key][1] = h or 1
+								end,
+							},
+						},
+					},
+					{
+						name = "love_user",
+						block = block,
+					},
+				},
+				custom_declarations = table.concat(defines, "\n") .. [[
+
+					vec4 love_texel(int tex, vec2 coords) {
+						if (tex < 0) return vec4(0.0);
+						return texture(TEXTURE(tex), coords);
+					}
+
+					vec4 love_image_texelFetch(int tex, ivec2 coords, int lod) {
+						if (tex < 0) return vec4(0.0);
+						return texelFetch(TEXTURE(tex), coords, lod);
+					}
+				]] .. (
+						#volume_uniform_declarations > 0 and
+						(
+							"\n" .. volume_uniform_declarations
+						)
+						or
+						""
+					),
+				shader = stripped_source .. [[
+					void main() {
+						vec4 love_color = in_color * U.global_color;
+						vec2 love_texture_coords = in_uv * U.uv_scale + U.uv_offset;
+						out_color = effect(love_color, U.texture_index, love_texture_coords, gl_FragCoord.xy);
+						out_color.a *= U.alpha_multiplier;
+						if (U.discard_zero_alpha != 0 && out_color.a <= 0.0) discard;
+					}
+				]],
+			},
+			rasterizer = {
+				cull_mode = "none",
+			},
+			color_blend = {
+				attachments = {
+					{
+						blend = true,
+						src_color_blend_factor = "src_alpha",
+						dst_color_blend_factor = "one_minus_src_alpha",
+						color_blend_op = "add",
+						src_alpha_blend_factor = "one",
+						dst_alpha_blend_factor = "zero",
+						alpha_blend_op = "add",
+						color_write_mask = {"r", "g", "b", "a"},
+					},
+				},
+			},
+			depth_stencil = {
+				depth_test = false,
+				depth_write = true,
+				stencil_test = false,
+				front = {
+					fail_op = "keep",
+					pass_op = "keep",
+					depth_fail_op = "keep",
+					compare_op = "always",
+				},
+				back = {
+					fail_op = "keep",
+					pass_op = "keep",
+					depth_fail_op = "keep",
+					compare_op = "always",
+				},
+			},
+		}
+		return EasyPipeline.New(config)
+	end
+
+	local function build_vertex_fragment_pipeline(obj, source)
+		local stripped_source, varyings = parse_love_shader_varyings(source)
+		stripped_source, uniforms = parse_love_shader_uniforms(stripped_source)
+		local vertex_section = extract_vertex_source(stripped_source)
+		local fragment_section = extract_fragment_source(stripped_source)
+
+		if not vertex_section or not fragment_section then
+			obj.warning_message = "Love shader is missing a #ifdef VERTEX or #ifdef PIXEL section"
+			warn_unsupported_love_vertex_shader()
+			return nil
+		end
+
+		local cleaned_vertex, attributes = parse_love_shader_attributes(vertex_section)
+		local cleaned_fragment = fragment_section
+		local image_names = collect_image_identifiers(stripped_source, uniforms)
+		cleaned_vertex = rewrite_volume_texture_fetches(cleaned_vertex, uniforms)
+		cleaned_fragment = rewrite_volume_texture_fetches(cleaned_fragment, uniforms)
+		cleaned_vertex = rewrite_image_texture_fetches(cleaned_vertex, image_names)
+		cleaned_fragment = rewrite_image_texture_fetches(cleaned_fragment, image_names)
+		cleaned_vertex = rewrite_shader_identifiers(cleaned_vertex, varyings, "out_")
+		cleaned_fragment = rewrite_shader_identifiers(cleaned_fragment, varyings, "in_")
+		cleaned_vertex = rewrite_shader_identifiers(cleaned_vertex, attributes, "in_")
+		cleaned_vertex = rewrite_love_shader_identifiers(cleaned_vertex, uniforms)
+		cleaned_fragment = rewrite_love_shader_identifiers(cleaned_fragment, uniforms)
+		local volume_uniform_declarations = build_volume_uniform_declarations(uniforms)
+		register_shader_uniform(obj, "love_ScreenSize")
+		local user_block = build_shader_uniform_block(obj, uniforms)
+		local outputs = {
+			{"uv", "vec2"},
+			{"color", "vec4"},
+		}
+
+		for _, varying in ipairs(varyings) do
+			outputs[#outputs + 1] = {varying.name, varying.kind}
+		end
+
+		for _, uniform in ipairs(uniforms) do
+			register_shader_uniform(obj, uniform.name)
+
+			if uniform.default ~= nil then
+				obj.uniforms[uniform.name] = clone_uniform_value(uniform.default)
+			end
+		end
+
+		obj.instance_attributes = attributes
+		obj.instance_binding = #attributes > 0 and 1 or nil
+		return EasyPipeline.New{
+			name = "love_shader_vertex_fragment",
+			dont_create_framebuffers = true,
+			samples = function()
+				return render.target:GetSamples()
+			end,
+			color_format = render.target:GetColorFormat(),
+			vertex = {
+				uniform_buffers = {
+					{
+						block = {
+							{
+								"projection_view_world",
+								"mat4",
+								function(self, data, key)
+									copy_love_shader_projection_matrix(data[key])
+								end,
+							},
+							{
+								"apply_love_depth",
+								"int",
+								function(_, data, key)
+									local compare_mode = render2d.GetDepthMode()
+									data[key] = compare_mode ~= "none" and 1 or 0
+								end,
+							},
+						},
+					},
+					{
+						name = "love_user",
+						block = user_block,
+					},
+				},
+				bindings = build_shader_vertex_bindings(attributes),
+				outputs = outputs,
+				shader = cleaned_vertex .. [[
+					void main() {
+						out_uv = in_uv;
+						out_color = in_color;
+						vec4 love_vertex_position = vec4(in_pos, 1.0);
+						vec4 love_depth_position = position(mat4(1.0), love_vertex_position);
+						gl_Position = position(U.projection_view_world, love_vertex_position);
+						if (U.apply_love_depth != 0) {
+							gl_Position.z = clamp(1.0 - love_depth_position.z, 0.0, 1.0) * gl_Position.w;
+						}
+					}
+				]],
+			},
+			fragment = {
+				uniform_buffers = {
+					{
+						block = {
+							{
+								"global_color",
+								"vec4",
+								function(_, data, key)
+									local r, g, b, a = render2d.GetColor()
+									data[key][0] = r or 1
+									data[key][1] = g or 1
+									data[key][2] = b or 1
+									data[key][3] = a or 1
+								end,
+							},
+							{
+								"alpha_multiplier",
+								"float",
+								function(_, data, key)
+									data[key] = render2d.GetAlphaMultiplier()
+								end,
+							},
+							{
+								"texture_index",
+								"int",
+								function(self, data, key)
+									local texture = render2d.GetTexture()
+									data[key] = texture and self:GetTextureIndex(texture) or -1
+								end,
+							},
+							{
+								"discard_zero_alpha",
+								"int",
+								function(_, data, key)
+									local compare_mode = render2d.GetDepthMode()
+									data[key] = compare_mode ~= "none" and 1 or 0
+								end,
+							},
+							{
+								"uv_offset",
+								"vec2",
+								function(_, data, key)
+									local x, y = render2d.GetUV()
+									data[key][0] = x or 0
+									data[key][1] = y or 0
+								end,
+							},
+							{
+								"uv_scale",
+								"vec2",
+								function(_, data, key)
+									local _, _, w, h = render2d.GetUV()
+									data[key][0] = w or 1
+									data[key][1] = h or 1
+								end,
+							},
+						},
+					},
+					{
+						name = "love_user",
+						block = user_block,
+					},
+				},
+				custom_declarations = [[
+					#define number float
+					#define Image int
+					#define extern
+
+					vec4 love_texel(int tex, vec2 coords) {
+						if (tex < 0) return vec4(0.0);
+						return texture(TEXTURE(tex), coords);
+					}
+
+					vec4 love_image_texelFetch(int tex, ivec2 coords, int lod) {
+						if (tex < 0) return vec4(0.0);
+						return texelFetch(TEXTURE(tex), coords, lod);
+					}
+
+					#define Texel(tex, coords) love_texel((tex), (coords))
+				]] .. (
+						#volume_uniform_declarations > 0 and
+						(
+							"\n" .. volume_uniform_declarations
+						)
+						or
+						""
+					),
+				shader = cleaned_fragment .. [[
+					void main() {
+						vec4 love_color = in_color * U.global_color;
+						vec2 love_texture_coords = in_uv * U.uv_scale + U.uv_offset;
+						out_color = effect(love_color, U.texture_index, love_texture_coords, gl_FragCoord.xy);
+						out_color.a *= U.alpha_multiplier;
+						if (U.discard_zero_alpha != 0 && out_color.a <= 0.0) discard;
+					}
+				]],
+			},
+			rasterizer = {
+				cull_mode = "none",
+			},
+			color_blend = {
+				attachments = {
+					{
+						blend = true,
+						src_color_blend_factor = "src_alpha",
+						dst_color_blend_factor = "one_minus_src_alpha",
+						color_blend_op = "add",
+						src_alpha_blend_factor = "one",
+						dst_alpha_blend_factor = "zero",
+						alpha_blend_op = "add",
+						color_write_mask = {"r", "g", "b", "a"},
+					},
+				},
+			},
+			depth_stencil = {
+				depth_test = false,
+				depth_write = true,
+				stencil_test = false,
+				front = {
+					fail_op = "keep",
+					pass_op = "keep",
+					depth_fail_op = "keep",
+					compare_op = "always",
+				},
+				back = {
+					fail_op = "keep",
+					pass_op = "keep",
+					depth_fail_op = "keep",
+					compare_op = "always",
+				},
+			},
+		}
+	end
+
+	function Shader:getWarnings()
+		return self.warning_message or ""
+	end
+
+	function Shader:hasUniform(name)
+		if self.uniform_names and self.uniform_names[name] ~= nil then
+			return self.uniform_names[name]
+		end
+
+		if self.shader and self.shader.program and self.shader.program.GetUniformLocation then
+			local ok, loc = pcall(self.shader.program.GetUniformLocation, self.shader.program, name)
+
+			if ok then return loc ~= nil and loc ~= -1 end
+		end
+
+		return false
+	end
+
+	function Shader:sendColor(name, tbl, ...)
+		if ... then warning("uh oh") end
+
+		store_shader_uniform(self, name, {tbl[1], tbl[2], tbl[3], tbl[4]})
+
+		if not (self.shader and self.shader.program) then return end
+
+		local loc = self.shader.program:GetUniformLocation(name)
+		self.shader.program:UploadColor(loc, ColorBytes(unpack(tbl)))
+	end
+
+	function Shader:send(name, var, ...)
+		if ... then warning("uh oh") end
+
+		store_shader_uniform(self, name, var)
+
+		if not (self.shader and self.shader.program) then return end
+
+		local loc = self.shader.program:GetUniformLocation(name)
+		local t = type(var)
+
+		if t == "number" then
+			self.shader.program:UploadNumber(loc, var)
+		elseif t == "boolean" then
+			self.shader.program:UploadBoolean(loc, var)
+		elseif ENV.textures[var] then
+			self.shader.program:UploadTexture(loc, ENV.textures[var], 0, 0)
+		elseif t == "table" then
+			if type(var[1]) == "number" then
+				if #var == 2 then
+					self.shader.program:UploadVec2(loc, Vec2(unpack(var)))
+				elseif #var == 3 then
+					self.shader.program:UploadVec3(loc, Vec3(unpack(var)))
+				elseif #var == 16 then
+					self.shader.program:UploadMatrix44(loc, Vec2(unpack(var)))
+				end
+			else
+				if #var == 4 then
+					self.shader.program:UploadMatrix44(
+						loc,
+						Matrix44(
+							var[1][1],
+							var[1][2],
+							var[1][3],
+							var[1][4],
+							var[2][1],
+							var[2][2],
+							var[2][3],
+							var[2][4],
+							var[3][1],
+							var[3][2],
+							var[3][3],
+							var[3][4],
+							var[4][1],
+							var[4][2],
+							var[4][3],
+							var[4][4]
+						)
+					)
+				elseif #var == 3 then
+					warning("uh oh")
+				end
+			end
+		end
+	end
+
+	function love.graphics.newShader(frag, vert)
+		if type(frag) == "string" and frag:ends_with(".glsl") then
+			frag = love.filesystem.read(frag)
+		end
+
+		if type(vert) == "string" and vert:ends_with(".glsl") then
+			vert = love.filesystem.read(vert)
+		end
+
+		local obj = line.CreateObject("Shader")
+		obj.uniforms = {}
+		obj.uniform_names = {}
+		obj.source = {fragment = frag, vertex = vert}
+		obj.warning_message = nil
+
+		if render.CreateShader then
+			obj.shader = render.CreateShader{
+				fragment = {
+					mesh_layout = {
+						{uv = "vec2"},
+					},
+					variables = {
+						love_ScreenSize = {
+							vec2 = function()
+								if ENV.graphics_current_canvas then
+									local tex_w, tex_h = get_texture_dimensions(ENV.graphics_current_canvas.fb:GetColorTexture())
+									return Vec2(tex_w, tex_h)
+								end
+
+								return window.GetSize()
+							end,
+						},
+						current_texture = {
+							texture = function()
+								return render2d.shader and render2d.shader.tex or nil
+							end,
+						},
+						current_color = {
+							color = function()
+								return render2d.shader and render2d.shader.global_color or nil
+							end,
+						},
+					},
+					include_directories = {
+						"shaders/include/",
+					},
+					source = [[
+						#version 430 core
+
+						#define number float
+						#define Image sampler2D
+						#define Texel texture2D
+						#define extern uniform
+						#define PIXEL 1
+
+						]] .. frag .. [[
+
+						out vec4 out_color;
+
+						void main()
+						{
+							out_color = effect(current_color, current_texture, uv, gl_FragCoord.xy);
+						}
+					]],
+				},
+			}
+		else
+			if frag and frag:find("#ifdef%s+VERTEX") then
+				obj.shader = build_vertex_fragment_pipeline(obj, frag)
+			else
+				obj.shader = build_fragment_pipeline(obj, frag)
+			end
+
+			if not obj.shader then warn_missing_custom_shader_backend() end
+		end
+
+		obj.pipeline = obj.shader
+		return obj
+	end
+
+	line.RegisterType(Shader)
 	love.graphics.newPixelEffect = love.graphics.newShader
 
 	function love.graphics.setShader(obj)
@@ -2285,6 +2957,28 @@ do
 		if not ENV.scissor then return end
 
 		return ENV.scissor.x, ENV.scissor.y, ENV.scissor.w, ENV.scissor.h
+	end
+
+	function love.graphics.intersectScissor(x, y, w, h)
+		if x == nil then
+			love.graphics.setScissor()
+			return
+		end
+
+		local scx, scy, scw, sch = love.graphics.getScissor()
+
+		if scx == nil then
+			love.graphics.setScissor(x, y, w, h)
+			return
+		end
+
+		local left = math.max(scx, x)
+		local top = math.max(scy, y)
+		local right = math.min(scx + scw, x + w)
+		local bottom = math.min(scy + sch, y + h)
+		local width = math.max(0, right - left)
+		local height = math.max(0, bottom - top)
+		love.graphics.setScissor(left, top, width, height)
 	end
 end
 
@@ -2491,8 +3185,11 @@ do
 
 	local function get_vertex_attribute_format(component_count)
 		if component_count == 4 then return "r32g32b32a32_sfloat" end
+
 		if component_count == 3 then return "r32g32b32_sfloat" end
+
 		if component_count == 2 then return "r32g32_sfloat" end
+
 		return "r32_sfloat"
 	end
 
@@ -2562,8 +3259,9 @@ do
 		if type(tbl) ~= "table" then return false end
 
 		local first = tbl[1]
-
-		return type(first) == "table" and type(first[1]) == "string" and type(first[2]) == "string" and
+		return type(first) == "table" and
+			type(first[1]) == "string" and
+			type(first[2]) == "string" and
 			type(first[3]) == "number"
 	end
 
@@ -2662,6 +3360,7 @@ do
 
 	function Mesh:setVertex(index, vertex, ...)
 		if type(vertex) == "number" then vertex = {vertex, ...} end
+
 		local source_index = 1
 
 		for _, info in ipairs(self.vertex_format) do
@@ -2737,7 +3436,13 @@ do
 
 	function Mesh:DrawInstanced(instance_count, extra_vertex_buffers)
 		instance_count = instance_count or 1
-		local count = self.draw_range_max or (self.index_buffer and self.index_buffer:GetIndexCount()) or self.vertex_buffer:GetVertexCount()
+		local count = self.draw_range_max or
+			(
+				self.index_buffer and
+				self.index_buffer:GetIndexCount()
+			)
+			or
+			self.vertex_buffer:GetVertexCount()
 
 		if self.index_buffer then
 			if not render2d.cmd then
@@ -2748,6 +3453,7 @@ do
 			end
 
 			self.vertex_buffer:BindInstanced(render2d.cmd, extra_vertex_buffers, 0)
+			render2d.cmd:BindIndexBuffer(self.index_buffer:GetBuffer(), 0, self.index_buffer:GetIndexType())
 			render2d.cmd:DrawIndexed(count, instance_count, 0, 0, 0)
 			return
 		end
@@ -2937,10 +3643,12 @@ do -- sprite batch
 	SpriteBatch.setq = SpriteBatch.set
 
 	function SpriteBatch:add(...)
-		if self.i <= self.size then self:set(self.i, ...) end
+		local id = self.i
 
-		self.i = self.i + 1
-		return self.i
+		if id <= self.size then self:set(id, ...) end
+
+		self.i = id + 1
+		return id
 	end
 
 	SpriteBatch.addq = SpriteBatch.add

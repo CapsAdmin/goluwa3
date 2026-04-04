@@ -22,12 +22,9 @@ function love.line_update(dt)
 	end
 
 	line.pcall(love, love.update, dt)
-
 	local lily = love._line_env.lily
 
-	if lily and lily.update then
-		line.pcall(love, lily.update, 0.001)
-	end
+	if lily and lily.update then line.pcall(love, lily.update, 0.001) end
 end
 
 function love.line_draw(dt)
@@ -38,6 +35,8 @@ function love.line_draw(dt)
 	render2d.PushMatrix()
 	render2d.SetTexture()
 	love.graphics.setShader()
+	love.graphics.setScissor()
+	love.graphics.setStencilTest()
 	love.graphics.clear()
 	love.graphics.setColor(love.graphics.getColor())
 	love.graphics.setFont(love.graphics.getFont())

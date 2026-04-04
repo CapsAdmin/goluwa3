@@ -3,6 +3,7 @@ local line = import("goluwa/love/line.lua")
 local render = import("goluwa/render/render.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local window = import("goluwa/window.lua")
+local event = import("goluwa/event.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 
 local function apply_love_version(love, version)
@@ -20,6 +21,23 @@ local function new_love_graphics_env(version)
 	apply_love_version(love, version)
 	assert(loadfile("goluwa/love/libraries/image.lua"))(love)
 	assert(loadfile("goluwa/love/libraries/graphics.lua"))(love)
+	return love
+end
+
+local function new_love_mouse_env(version)
+	local love = {_line_env = {}}
+	apply_love_version(love, version)
+	assert(loadfile("goluwa/love/libraries/event.lua"))(love)
+	assert(loadfile("goluwa/love/libraries/mouse.lua"))(love)
+	return love
+end
+
+local function new_love_draw_env(version)
+	local love = {_line_env = {}}
+	apply_love_version(love, version)
+	assert(loadfile("goluwa/love/libraries/image.lua"))(love)
+	assert(loadfile("goluwa/love/libraries/graphics.lua"))(love)
+	assert(loadfile("goluwa/love/libraries/love.lua"))(love)
 	return love
 end
 
@@ -80,8 +98,158 @@ T.Test2D("love graphics dimensions follow window size on main surface", function
 	render.GetWidth = old_render_get_width
 	render.GetHeight = old_render_get_height
 	render.GetRenderImageSize = old_render_get_render_image_size
+
 	if not ok then error(err, 0) end
 end)
+
+T.Test2D("love graphics newFont preserves requested point size", function()
+	local love = new_love_graphics_env("11.0.0")
+	local font = love.graphics.newFont(12)
+	local named_font = love.graphics.newFont("fonts/vera.ttf", 18)
+	T(font.Size)["=="](12)
+	T(named_font.Size)["=="](18)
+	T(font.font:GetSize())["=="](12)
+	T(named_font.font:GetSize())["=="](18)
+end)
+
+T.Test2D("love graphics ttf fonts apply wrapper compatibility scale", function()
+	local love = new_love_graphics_env("11.0.0")
+	local font = love.graphics.newFont("love_games/stonekingdoms/assets/fonts/Geologica-Regular.ttf", 12)
+	local scale = font.font:GetScale()
+	T(scale.x)["=="](0.78)
+	T(scale.y)["=="](0.78)
+end)
+
+T.Test2D("love graphics font height uses line metrics not text bounds", function()
+	local love = new_love_graphics_env("11.0.0")
+	local font = love.graphics.newFont("love_games/stonekingdoms/assets/fonts/Geologica-Regular.ttf", 12)
+	local expected = math.ceil(
+		(
+				font.font.GetLineHeight and
+				font.font:GetLineHeight()
+			) or
+			(
+				font.font:GetAscent() + font.font:GetDescent()
+			)
+	)
+	T(font:getHeight())["=="](expected)
+	T(font:getHeight("a"))["=="](expected)
+	T(font:getHeight("Timber and Stone"))["=="](expected)
+	T(font:getLineHeight())["=="](1)
+	font:setLineHeight(1.5)
+	T(font:getLineHeight())["=="](1.5)
+end)
+
+T.Test2D("love graphics intersectScissor clips against current scissor", function()
+	local love = new_love_graphics_env("11.0.0")
+	love.graphics.setScissor(10, 20, 100, 50)
+	love.graphics.intersectScissor(50, 0, 80, 30)
+	local x, y, w, h = love.graphics.getScissor()
+	T(x)["=="](50)
+	T(y)["=="](20)
+	T(w)["=="](60)
+	T(h)["=="](10)
+	love.graphics.setScissor()
+	love.graphics.intersectScissor(5, 6, 7, 8)
+	local rx, ry, rw, rh = love.graphics.getScissor()
+	T(rx)["=="](5)
+	T(ry)["=="](6)
+	T(rw)["=="](7)
+	T(rh)["=="](8)
+end)
+
+T.Test2D("love graphics stencil write and greater-zero test clip drawing", function()
+	local love = new_love_graphics_env("11.0.0")
+	love.graphics.clear(0, 1, 0, 1)
+	love.graphics.setBlendMode("replace")
+
+	love.graphics.stencil(function()
+		love.graphics.rectangle("fill", 0, 0, 32, 64)
+	end)
+
+	love.graphics.setStencilTest("greater", 0)
+	love.graphics.setColor(1, 0, 0, 1)
+	love.graphics.rectangle("fill", 0, 0, 64, 64)
+	love.graphics.setStencilTest()
+	love.graphics.setBlendMode("alpha")
+	love.graphics.setColor(0, 0, 1, 1)
+	love.graphics.rectangle("fill", 48, 0, 16, 64)
+	return function()
+		T.AssertScreenPixel{pos = {16, 32}, color = {1, 0, 0, 1}, tolerance = 0.08}
+		T.AssertScreenPixel{pos = {40, 32}, color = {0, 1, 0, 1}, tolerance = 0.08}
+		T.AssertScreenPixel{pos = {56, 32}, color = {0, 0, 1, 1}, tolerance = 0.08}
+	end
+end)
+
+T.Test2D("love mouse wheel refreshes LoveFrames hover state before dispatch", function()
+	local love = new_love_mouse_env("11.0.0")
+	local hover_object = {type = "list"}
+	local old_loveframes = package.loaded.loveframes
+	local old_mouse_position = window.GetMousePosition
+	local ok, err = pcall(function()
+		package.loaded.loveframes = {
+			GetCollisions = function()
+				return {hover_object}
+			end,
+			downobject = false,
+		}
+		window.GetMousePosition = function()
+			return Vec2(42, 24)
+		end
+		love.mousepressed = function() end
+		event.Call("LoveNewIndex", love, "mousepressed", love.mousepressed)
+		event.Call("MouseInput", "mwheel_down", true)
+		T(#package.loaded.loveframes.collisions)["=="](1)
+		T(package.loaded.loveframes.collisions[1])["=="](hover_object)
+		T(package.loaded.loveframes.hoverobject)["=="](hover_object)
+	end)
+	window.GetMousePosition = old_mouse_position
+	package.loaded.loveframes = old_loveframes
+
+	if not ok then error(err, 0) end
+end)
+
+T.Test2DFrames(
+	"love line draw resets leaked scissor and stencil state each frame",
+	2,
+	function(_, _, frame)
+		local love = _G.__love_line_draw_reset_env
+
+		if not love then
+			love = new_love_draw_env("11.0.0")
+			_G.__love_line_draw_reset_env = love
+			love.draw = function()
+				local current_frame = _G.__love_line_draw_reset_frame
+
+				if current_frame == 1 then
+					love.graphics.setScissor(0, 0, 32, 64)
+
+					love.graphics.stencil(function()
+						love.graphics.rectangle("fill", 0, 0, 32, 64)
+					end)
+
+					love.graphics.setStencilTest("greater", 0)
+					love.graphics.setColor(1, 0, 0, 1)
+					love.graphics.rectangle("fill", 0, 0, 32, 64)
+				else
+					love.graphics.setColor(0, 0, 1, 1)
+					love.graphics.rectangle("fill", 0, 0, 64, 64)
+				end
+			end
+		end
+
+		_G.__love_line_draw_reset_frame = frame
+		love.line_draw(0)
+	end,
+	function(_, _, frame)
+		if frame == 2 then
+			T.AssertScreenPixel{pos = {16, 32}, color = {0, 0, 1, 1}, tolerance = 0.08}
+			T.AssertScreenPixel{pos = {48, 32}, color = {0, 0, 1, 1}, tolerance = 0.08}
+			_G.__love_line_draw_reset_env = nil
+			_G.__love_line_draw_reset_frame = nil
+		end
+	end
+)
 
 T.Test2D("love graphics canvas clear path executes", function()
 	local love = new_love_graphics_env()
@@ -94,6 +262,157 @@ T.Test2D("love graphics canvas clear path executes", function()
 		T(canvas.__line_type)["=="]("Canvas")
 		T.TexturePixel(canvas.fb:GetColorTexture(), 4, 4, 1, 32 / 255, 0, 1, 0.08)
 		T.AssertScreenPixel{pos = {40, 40}, color = {1, 32 / 255, 0, 1}, tolerance = 0.08}
+	end
+end)
+
+T.Test2D("love graphics canvas newImageData reads back canvas pixels", function()
+	local love = new_love_graphics_env("11.0.0")
+	local canvas = love.graphics.newCanvas(16, 16)
+	local source = love.image.newImageData(1, 1)
+	source:setPixel(0, 0, 1, 0, 0, 1)
+	local image = love.graphics.newImage(source)
+	image:setFilter("nearest", "nearest", 1)
+	love.graphics.setCanvas(canvas)
+	love.graphics.clear(0, 0, 0, 0)
+	love.graphics.setColor(1, 1, 1, 1)
+	love.graphics.draw(image, 0, 0, 0, 4, 4)
+	love.graphics.setCanvas()
+	local data = canvas:newImageData()
+	local crop = canvas:newImageData(0, 0, 4, 4)
+	local r, g, b, a = data:getPixel(1, 1)
+	local cr, cg, cb, ca = crop:getPixel(1, 1)
+	T(data.__line_type)["=="]("ImageData")
+	T(crop:getWidth())["=="](4)
+	T(crop:getHeight())["=="](4)
+	T(r)["=="](1)
+	T(g)["=="](0)
+	T(b)["=="](0)
+	T(a)["=="](1)
+	T(cr)["=="](1)
+	T(cg)["=="](0)
+	T(cb)["=="](0)
+	T(ca)["=="](1)
+	return function()
+		T.TexturePixel(canvas.fb:GetColorTexture(), 1, 1, 1, 0, 0, 1, 0.08)
+	end
+end)
+
+T.Test2D("love graphics clear forwards stencil and depth extras", function()
+	local love = new_love_graphics_env("11.0.0")
+	local cmd = render2d.cmd
+	local old_clear_attachments = cmd.ClearAttachments
+	local captured
+	local ok, err = pcall(function()
+		cmd.ClearAttachments = function(_, config)
+			captured = config
+		end
+		love.graphics.clear(0, 0, 0, 255, false, 0)
+	end)
+	cmd.ClearAttachments = old_clear_attachments
+
+	if not ok then error(err, 0) end
+
+	T(captured ~= nil)["=="](true)
+	T(captured.stencil)["=="](false)
+	T(captured.depth)["=="](0)
+end)
+
+T.Test2D("love graphics setCanvas accepts table targets", function()
+	local love = new_love_graphics_env("11.0.0")
+	local canvas = love.graphics.newCanvas(16, 16)
+	love.graphics.setCanvas({canvas, depth = true})
+	love.graphics.clear(255, 32, 0, 255)
+	love.graphics.setCanvas()
+	love.graphics.setColor(255, 255, 255, 255)
+	love.graphics.draw(canvas, 32, 32, 0, 4, 4)
+	return function()
+		T(love.graphics.getCanvas())["=="](nil)
+		T(canvas.fb:GetDepthTexture() ~= nil)["=="](true)
+		T.TexturePixel(canvas.fb:GetColorTexture(), 4, 4, 1, 32 / 255, 0, 1, 0.08)
+		T.AssertScreenPixel{pos = {40, 40}, color = {1, 32 / 255, 0, 1}, tolerance = 0.08}
+	end
+end)
+
+T.Test2D("love graphics custom shader draws to canvas", function()
+	local love = new_love_graphics_env("11.0.0")
+	local canvas = love.graphics.newCanvas(64, 64)
+	local data = love.image.newImageData(1, 1)
+	data:setPixel(0, 0, 1, 1, 1, 1)
+	local image = love.graphics.newImage(data)
+	image:setFilter("nearest", "nearest", 1)
+	local shader = love.graphics.newShader([[
+		#pragma language glsl3
+		#ifdef VERTEX
+		vec4 position(mat4 transform_projection, vec4 vertex_position)
+		{
+			return transform_projection * vertex_position;
+		}
+		#endif
+		#ifdef PIXEL
+		vec4 effect(vec4 color, Image tex, vec2 texture_coords, vec2 screen_coords)
+		{
+			return vec4(1.0, 0.0, 0.0, 1.0);
+		}
+		#endif
+	]])
+	love.graphics.setCanvas(canvas)
+	love.graphics.clear(0, 0, 0, 0)
+	love.graphics.setColor(1, 1, 1, 1)
+	love.graphics.setShader(shader)
+	love.graphics.draw(image, 8, 8, 0, 32, 32)
+	love.graphics.setShader()
+	love.graphics.setCanvas()
+	love.graphics.clear(0, 0, 0, 255)
+	love.graphics.setColor(255, 255, 255, 255)
+	love.graphics.draw(canvas, 0, 0)
+	return function()
+		T.TexturePixel(canvas.fb:GetColorTexture(), 16, 16, 1, 0, 0, 1, 0.08)
+		T.AssertScreenPixel{pos = {16, 16}, color = {1, 0, 0, 1}, tolerance = 0.08}
+	end
+end)
+
+T.Test2D("love graphics shader rewrites texelFetch for Image and VolumeImage on canvas", function()
+	local love = new_love_graphics_env("11.0.0")
+	local canvas = love.graphics.newCanvas(64, 64)
+	local base_data = love.image.newImageData(1, 1)
+	local layer = love.image.newImageData(1, 1)
+	base_data:setPixel(0, 0, 1, 1, 1, 1)
+	layer:setPixel(0, 0, 1, 0, 0, 1)
+	local image = love.graphics.newImage(base_data)
+	image:setFilter("nearest", "nearest", 1)
+	local volume = love.graphics.newVolumeImage({layer})
+	local shader = love.graphics.newShader([[
+		#pragma language glsl3
+		extern VolumeImage colortables;
+		#ifdef VERTEX
+		vec4 position(mat4 transform_projection, vec4 vertex_position)
+		{
+			return transform_projection * vertex_position;
+		}
+		#endif
+		#ifdef PIXEL
+		vec4 effect(vec4 color, Image tex, vec2 texture_coords, vec2 screen_coords)
+		{
+			vec4 base = texelFetch(tex, ivec2(0, 0), 0);
+			vec4 tint = texelFetch(colortables, ivec3(0, 0, 0), 0);
+			return base * tint * color;
+		}
+		#endif
+	]])
+	shader:send("colortables", volume)
+	love.graphics.setCanvas(canvas)
+	love.graphics.clear(0, 0, 0, 0)
+	love.graphics.setColor(1, 1, 1, 1)
+	love.graphics.setShader(shader)
+	love.graphics.draw(image, 8, 8, 0, 32, 32)
+	love.graphics.setShader()
+	love.graphics.setCanvas()
+	love.graphics.clear(0, 0, 0, 255)
+	love.graphics.setColor(255, 255, 255, 255)
+	love.graphics.draw(canvas, 0, 0)
+	return function()
+		T.TexturePixel(canvas.fb:GetColorTexture(), 16, 16, 1, 0, 0, 1, 0.08)
+		T.AssertScreenPixel{pos = {16, 16}, color = {1, 0, 0, 1}, tolerance = 0.08}
 	end
 end)
 
@@ -157,6 +476,63 @@ T.Test2D("love graphics drawq placement", function()
 	end
 end)
 
+T.Test2D("love graphics image wrap defaults to clamp and supports clampzero", function()
+	local love = new_love_graphics_env("11.0.0")
+	local data = love.image.newImageData(1, 1)
+	local image = love.graphics.newImage(data)
+	local tex = love._line_env.textures[image]
+	local wrap_s, wrap_t = image:getWrap()
+	T(wrap_s)["=="]("clamp")
+	T(wrap_t)["=="]("clamp")
+	T(tex.config.sampler.wrap_s)["=="]("clamp_to_edge")
+	T(tex.config.sampler.wrap_t)["=="]("clamp_to_edge")
+	image:setWrap("clampzero")
+	wrap_s, wrap_t = image:getWrap()
+	T(wrap_s)["=="]("clampzero")
+	T(wrap_t)["=="]("clampzero")
+	T(tex.config.sampler.wrap_s)["=="]("clamp_to_border")
+	T(tex.config.sampler.wrap_t)["=="]("clamp_to_border")
+	T(tex.config.sampler.border_color)["=="]("float_transparent_black")
+end)
+
+T.Test2D("love graphics linear drawq samples the requested texel", function()
+	local love = new_love_graphics_env("11.0.0")
+	local image = make_quadrant_image(love)
+	local quad = love.graphics.newQuad(0, 0, 1, 1, 2, 2)
+	image:setFilter("linear", "linear", 1)
+	love.graphics.clear(0, 0, 0, 255)
+	love.graphics.setColor(1, 1, 1, 1)
+	love.graphics.draw(image, quad, 32, 32, 0, 64, 64)
+	return function()
+		T.AssertScreenPixel{pos = {64, 64}, color = {1, 1, 0, 1}, tolerance = 0.12}
+	end
+end)
+
+T.Test2D("love graphics adjacent linear quads do not leave a seam", function()
+	local love = new_love_graphics_env("11.0.0")
+	local data = love.image.newImageData(4, 2)
+
+	for y = 0, 1 do
+		for x = 0, 3 do
+			data:setPixel(x, y, 1, 0, 0, 1)
+		end
+	end
+
+	local image = love.graphics.newImage(data)
+	local left = love.graphics.newQuad(0, 0, 2, 2, image)
+	local right = love.graphics.newQuad(2, 0, 2, 2, image)
+	image:setFilter("linear", "linear", 1)
+	love.graphics.clear(0, 0, 0, 255)
+	love.graphics.setColor(1, 1, 1, 1)
+	love.graphics.draw(image, left, 32, 32, 0, 15.75, 16)
+	love.graphics.draw(image, right, 63.5, 32, 0, 15.75, 16)
+	return function()
+		T.AssertScreenPixel{pos = {63, 48}, color = {1, 0, 0, 1}, tolerance = 0.15}
+		T.AssertScreenPixel{pos = {64, 48}, color = {1, 0, 0, 1}, tolerance = 0.15}
+		T.AssertScreenPixel{pos = {65, 48}, color = {1, 0, 0, 1}, tolerance = 0.15}
+	end
+end)
+
 T.Test2D("love graphics drawq nonzero source Y", function()
 	local love = new_love_graphics_env()
 	local image = make_quadrant_image(love)
@@ -200,6 +576,27 @@ T.Test2D("love graphics spritebatch image placement", function()
 	end
 end)
 
+T.Test2D("love graphics spritebatch add returns inserted quad id", function()
+	local love = new_love_graphics_env("11.0.0")
+	local image = make_quadrant_image(love)
+	local quad = love.graphics.newQuad(0, 0, 1, 1, image)
+	local batch = love.graphics.newSpriteBatch(image, 2)
+	local id1 = batch:add(quad)
+	local id2 = batch:add(quad)
+	batch:set(id1, quad, 32, 32, 0, 32, 32)
+	batch:set(id2, quad, 80, 32, 0, 32, 32)
+	love.graphics.clear(0, 0, 0, 255)
+	love.graphics.setColor(255, 255, 255, 255)
+	love.graphics.draw(batch, 0, 0)
+	return function()
+		T(id1)["=="](1)
+		T(id2)["=="](2)
+		T.AssertScreenPixel{pos = {40, 40}, color = {1, 1, 0, 1}, tolerance = 0.1}
+		T.AssertScreenPixel{pos = {88, 40}, color = {1, 1, 0, 1}, tolerance = 0.1}
+		T.AssertScreenPixel{pos = {4, 4}, color = {0, 0, 0, 1}, tolerance = 0.1}
+	end
+end)
+
 T.Test2D("love graphics spritebatch defaults size", function()
 	local love = new_love_graphics_env()
 	local image = make_quadrant_image(love)
@@ -225,6 +622,72 @@ T.Test("love graphics spritebatch flush compatibility", function()
 	T(batch:flush())["=="](batch)
 	T(batch.entries[1].x)["=="](16)
 	T(batch.entries[1].y)["=="](24)
+end)
+
+T.Test("love graphics newVolumeImage packs layers into an atlas", function()
+	local love = new_love_graphics_env("11.0.0")
+	local layer_a = love.image.newImageData(1, 1)
+	local layer_b = love.image.newImageData(1, 1)
+	layer_a:setPixel(0, 0, 1, 0, 0, 1)
+	layer_b:setPixel(0, 0, 0, 1, 0, 1)
+	local volume = love.graphics.newVolumeImage({layer_a, layer_b})
+	local atlas = volume:getData()
+	local texture_types = love.graphics.getTextureTypes()
+	local r1, g1, b1, a1 = atlas:getPixel(0, 0)
+	local r2, g2, b2, a2 = atlas:getPixel(0, 1)
+	T(texture_types.volume)["=="](true)
+	T(volume:typeOf("VolumeImage"))["=="](true)
+	T(({volume:getDimensions()})[1])["=="](1)
+	T(({volume:getDimensions()})[2])["=="](1)
+	T(({volume:getDimensions()})[3])["=="](2)
+	T(atlas:getWidth())["=="](1)
+	T(atlas:getHeight())["=="](2)
+	T(r1)["=="](1)
+	T(g1)["=="](0)
+	T(b1)["=="](0)
+	T(a1)["=="](1)
+	T(r2)["=="](0)
+	T(g2)["=="](1)
+	T(b2)["=="](0)
+	T(a2)["=="](1)
+end)
+
+T.Test2D("love graphics shader rewrites texelFetch for Image and VolumeImage", function()
+	local love = new_love_graphics_env("11.0.0")
+	local base_data = love.image.newImageData(1, 1)
+	local layer = love.image.newImageData(1, 1)
+	base_data:setPixel(0, 0, 1, 1, 1, 1)
+	layer:setPixel(0, 0, 1, 0, 0, 1)
+	local image = love.graphics.newImage(base_data)
+	image:setFilter("nearest", "nearest", 1)
+	local volume = love.graphics.newVolumeImage({layer})
+	local shader = love.graphics.newShader([[
+		#pragma language glsl3
+		extern VolumeImage colortables;
+		#ifdef VERTEX
+		vec4 position(mat4 transform_projection, vec4 vertex_position)
+		{
+			return transform_projection * vertex_position;
+		}
+		#endif
+		#ifdef PIXEL
+		vec4 effect(vec4 color, Image tex, vec2 texture_coords, vec2 screen_coords)
+		{
+			vec4 base = texelFetch(tex, ivec2(0, 0), 0);
+			vec4 tint = texelFetch(colortables, ivec3(0, 0, 0), 0);
+			return base * tint * color;
+		}
+		#endif
+	]])
+	shader:send("colortables", volume)
+	love.graphics.clear(0, 0, 0, 255)
+	love.graphics.setColor(1, 1, 1, 1)
+	love.graphics.setShader(shader)
+	love.graphics.draw(image, 32, 32, 0, 32, 32)
+	love.graphics.setShader()
+	return function()
+		T.AssertScreenPixel{pos = {40, 40}, color = {1, 0, 0, 1}, tolerance = 0.1}
+	end
 end)
 
 T.Test2D("love graphics spritebatch inherits outer transforms", function()
@@ -261,6 +724,1159 @@ T.Test2D("love graphics setBlendMode maps add and multiply correctly", function(
 	T(multiply_state.dst_color_blend_factor)["=="]("zero")
 	T(multiply_state.src_alpha_blend_factor)["=="]("dst_alpha")
 	T(multiply_state.dst_alpha_blend_factor)["=="]("zero")
+end)
+
+T.Test2D("love graphics depth mode round-trips and resets", function()
+	local love = new_love_graphics_env("11.0.0")
+	love.graphics.setDepthMode("greater", true)
+	local mode, write = love.graphics.getDepthMode()
+	T(mode)["=="]("greater")
+	T(write)["=="](true)
+	love.graphics.setDepthMode()
+	local reset_mode, reset_write = love.graphics.getDepthMode()
+	T(reset_mode)["=="](nil)
+	T(reset_write)["=="](false)
+end)
+
+T.Test2D("love graphics greater depth mode honors higher instance z in Love shaders", function()
+	local love = new_love_graphics_env("11.0.0")
+	local data = love.image.newImageData(2, 1)
+	data:setPixel(0, 0, 1, 0, 0, 1)
+	data:setPixel(1, 0, 0, 1, 0, 1)
+	local image = love.graphics.newImage(data)
+	image:setFilter("nearest", "nearest", 1)
+	local mesh = love.graphics.newMesh(
+		{
+			{0, 0, 0, 0, 1, 1, 1, 1},
+			{1, 0, 1, 0, 1, 1, 1, 1},
+			{0, 1, 0, 1, 1, 1, 1, 1},
+			{1, 1, 1, 1, 1, 1, 1, 1},
+		},
+		image,
+		"strip"
+	)
+	local instances = love.graphics.newMesh(
+		{
+			{"InstancePosition", "float", 3},
+			{"UVOffset", "float", 2},
+			{"ImageDim", "float", 2},
+			{"ImageShade", "float", 1},
+			{"Scale", "float", 2},
+			{"Pallete", "float", 1},
+		},
+		2,
+		nil,
+		"dynamic"
+	)
+	mesh:attachAttribute("InstancePosition", instances, "perinstance")
+	mesh:attachAttribute("UVOffset", instances, "perinstance")
+	mesh:attachAttribute("ImageDim", instances, "perinstance")
+	mesh:attachAttribute("ImageShade", instances, "perinstance")
+	mesh:attachAttribute("Scale", instances, "perinstance")
+	mesh:attachAttribute("Pallete", instances, "perinstance")
+	instances:setVertex(1, 32, 32, 0.100000, 0.0, 0.0, 1.0, 1.0, 1.0, 32, 32, 0)
+	instances:setVertex(2, 32, 32, 0.100004, 1.0, 0.0, 1.0, 1.0, 1.0, 32, 32, 0)
+	local shader = love.graphics.newShader([[
+		#pragma language glsl3
+		varying vec2 uvoff;
+		varying vec2 imgdim;
+		varying float imgshd;
+		#ifdef VERTEX
+		attribute vec3 InstancePosition;
+		attribute vec2 UVOffset;
+		attribute vec2 ImageDim;
+		attribute float ImageShade;
+		attribute vec2 Scale;
+		attribute float Pallete;
+		vec4 position(mat4 transform_projection, vec4 vertex_position)
+		{
+			uvoff = UVOffset;
+			imgdim = ImageDim;
+			imgshd = ImageShade;
+			vertex_position.xy *= Scale;
+			vertex_position.xy += InstancePosition.xy;
+			vertex_position.z = 1.0 - InstancePosition.z;
+			return transform_projection * vertex_position;
+		}
+		#endif
+		#ifdef PIXEL
+		vec4 effect(vec4 color, Image tex, vec2 texture_coords, vec2 screen_coords)
+		{
+			ivec2 textr = ivec2(int(uvoff.x), int(uvoff.y));
+			return texelFetch(tex, textr, 0) * color * vec4(vec3(imgshd), 1.0);
+		}
+		#endif
+	]])
+	love.graphics.clear(0, 0, 0, 255, false, 0)
+	love.graphics.setDepthMode("greater", true)
+	love.graphics.setColor(1, 1, 1, 1)
+	love.graphics.setShader(shader)
+	love.graphics.drawInstanced(mesh, 2)
+	love.graphics.setShader()
+	love.graphics.setDepthMode()
+	return function()
+		T.AssertScreenPixel{pos = {40, 40}, color = {0, 1, 0, 1}, tolerance = 0.1}
+	end
+end)
+
+T.Test2D("love graphics greater depth mode initializes screen depth without explicit clear", function()
+	local love = new_love_graphics_env("11.0.0")
+	local data = love.image.newImageData(2, 1)
+	data:setPixel(0, 0, 1, 0, 0, 1)
+	data:setPixel(1, 0, 0, 1, 0, 1)
+	local image = love.graphics.newImage(data)
+	image:setFilter("nearest", "nearest", 1)
+	local mesh = love.graphics.newMesh(
+		{
+			{0, 0, 0, 0, 1, 1, 1, 1},
+			{1, 0, 1, 0, 1, 1, 1, 1},
+			{0, 1, 0, 1, 1, 1, 1, 1},
+			{1, 1, 1, 1, 1, 1, 1, 1},
+		},
+		image,
+		"strip"
+	)
+	local instances = love.graphics.newMesh(
+		{
+			{"InstancePosition", "float", 3},
+			{"UVOffset", "float", 2},
+			{"ImageDim", "float", 2},
+			{"ImageShade", "float", 1},
+			{"Scale", "float", 2},
+			{"Pallete", "float", 1},
+		},
+		2,
+		nil,
+		"dynamic"
+	)
+	mesh:attachAttribute("InstancePosition", instances, "perinstance")
+	mesh:attachAttribute("UVOffset", instances, "perinstance")
+	mesh:attachAttribute("ImageDim", instances, "perinstance")
+	mesh:attachAttribute("ImageShade", instances, "perinstance")
+	mesh:attachAttribute("Scale", instances, "perinstance")
+	mesh:attachAttribute("Pallete", instances, "perinstance")
+	instances:setVertex(1, 32, 32, 0.100000, 0.0, 0.0, 1.0, 1.0, 1.0, 32, 32, 0)
+	instances:setVertex(2, 32, 32, 0.100004, 1.0, 0.0, 1.0, 1.0, 1.0, 32, 32, 0)
+	local shader = love.graphics.newShader([[
+		#pragma language glsl3
+		varying vec2 uvoff;
+		varying vec2 imgdim;
+		varying float imgshd;
+		#ifdef VERTEX
+		attribute vec3 InstancePosition;
+		attribute vec2 UVOffset;
+		attribute vec2 ImageDim;
+		attribute float ImageShade;
+		attribute vec2 Scale;
+		attribute float Pallete;
+		vec4 position(mat4 transform_projection, vec4 vertex_position)
+		{
+			uvoff = UVOffset;
+			imgdim = ImageDim;
+			imgshd = ImageShade;
+			vertex_position.xy *= Scale;
+			vertex_position.xy += InstancePosition.xy;
+			vertex_position.z = 1.0 - InstancePosition.z;
+			return transform_projection * vertex_position;
+		}
+		#endif
+		#ifdef PIXEL
+		vec4 effect(vec4 color, Image tex, vec2 texture_coords, vec2 screen_coords)
+		{
+			ivec2 textr = ivec2(int(uvoff.x), int(uvoff.y));
+			return texelFetch(tex, textr, 0) * color * vec4(vec3(imgshd), 1.0);
+		}
+		#endif
+	]])
+	love.graphics.clear(0, 0, 0, 255)
+	love.graphics.setDepthMode("greater", true)
+	love.graphics.setColor(1, 1, 1, 1)
+	love.graphics.setShader(shader)
+	love.graphics.drawInstanced(mesh, 2, 48, 24, 0, 1.5, 1.5)
+	love.graphics.setShader()
+	love.graphics.setDepthMode()
+	return function()
+		T.AssertScreenPixel{pos = {108, 84}, color = {0, 1, 0, 1}, tolerance = 0.1}
+	end
+end)
+
+T.Test2D("love graphics depth persists across separate instanced draws", function()
+	local love = new_love_graphics_env("11.0.0")
+	local data = love.image.newImageData(2, 1)
+	data:setPixel(0, 0, 1, 0, 0, 1)
+	data:setPixel(1, 0, 0, 1, 0, 1)
+	local image = love.graphics.newImage(data)
+	image:setFilter("nearest", "nearest", 1)
+	local mesh = love.graphics.newMesh(
+		{
+			{0, 0, 0, 0, 1, 1, 1, 1},
+			{1, 0, 1, 0, 1, 1, 1, 1},
+			{0, 1, 0, 1, 1, 1, 1, 1},
+			{1, 1, 1, 1, 1, 1, 1, 1},
+		},
+		image,
+		"strip"
+	)
+	local instances_a = love.graphics.newMesh(
+		{
+			{"InstancePosition", "float", 3},
+			{"UVOffset", "float", 2},
+			{"ImageDim", "float", 2},
+			{"ImageShade", "float", 1},
+			{"Scale", "float", 2},
+			{"Pallete", "float", 1},
+		},
+		1,
+		nil,
+		"dynamic"
+	)
+	local instances_b = love.graphics.newMesh(
+		{
+			{"InstancePosition", "float", 3},
+			{"UVOffset", "float", 2},
+			{"ImageDim", "float", 2},
+			{"ImageShade", "float", 1},
+			{"Scale", "float", 2},
+			{"Pallete", "float", 1},
+		},
+		1,
+		nil,
+		"dynamic"
+	)
+	instances_a:setVertex(1, 32, 32, 0.100000, 0.0, 0.0, 1.0, 1.0, 1.0, 32, 32, 0)
+	instances_b:setVertex(1, 32, 32, 0.100004, 1.0, 0.0, 1.0, 1.0, 1.0, 32, 32, 0)
+	local shader = love.graphics.newShader([[
+		#pragma language glsl3
+		varying vec2 uvoff;
+		varying float imgshd;
+		#ifdef VERTEX
+		attribute vec3 InstancePosition;
+		attribute vec2 UVOffset;
+		attribute vec2 ImageDim;
+		attribute float ImageShade;
+		attribute vec2 Scale;
+		attribute float Pallete;
+		vec4 position(mat4 transform_projection, vec4 vertex_position)
+		{
+			uvoff = UVOffset;
+			imgshd = ImageShade;
+			vertex_position.xy *= Scale;
+			vertex_position.xy += InstancePosition.xy;
+			vertex_position.z = 1.0 - InstancePosition.z;
+			return transform_projection * vertex_position;
+		}
+		#endif
+		#ifdef PIXEL
+		vec4 effect(vec4 color, Image tex, vec2 texture_coords, vec2 screen_coords)
+		{
+			return texelFetch(tex, ivec2(int(uvoff.x), 0), 0) * color * vec4(vec3(imgshd), 1.0);
+		}
+		#endif
+	]])
+	love.graphics.clear(0, 0, 0, 255, false, 0)
+	love.graphics.setDepthMode("greater", true)
+	love.graphics.setColor(1, 1, 1, 1)
+	love.graphics.setShader(shader)
+	mesh:attachAttribute("InstancePosition", instances_a, "perinstance")
+	mesh:attachAttribute("UVOffset", instances_a, "perinstance")
+	mesh:attachAttribute("ImageDim", instances_a, "perinstance")
+	mesh:attachAttribute("ImageShade", instances_a, "perinstance")
+	mesh:attachAttribute("Scale", instances_a, "perinstance")
+	mesh:attachAttribute("Pallete", instances_a, "perinstance")
+	love.graphics.drawInstanced(mesh, 1)
+	mesh:attachAttribute("InstancePosition", instances_b, "perinstance")
+	mesh:attachAttribute("UVOffset", instances_b, "perinstance")
+	mesh:attachAttribute("ImageDim", instances_b, "perinstance")
+	mesh:attachAttribute("ImageShade", instances_b, "perinstance")
+	mesh:attachAttribute("Scale", instances_b, "perinstance")
+	mesh:attachAttribute("Pallete", instances_b, "perinstance")
+	love.graphics.drawInstanced(mesh, 1)
+	love.graphics.setShader()
+	love.graphics.setDepthMode()
+	return function()
+		T.AssertScreenPixel{pos = {40, 40}, color = {0, 1, 0, 1}, tolerance = 0.1}
+	end
+end)
+
+T.Test2D("love graphics depth mode survives instanced parent transforms", function()
+	local love = new_love_graphics_env("11.0.0")
+	local data = love.image.newImageData(2, 1)
+	data:setPixel(0, 0, 1, 0, 0, 1)
+	data:setPixel(1, 0, 0, 1, 0, 1)
+	local image = love.graphics.newImage(data)
+	image:setFilter("nearest", "nearest", 1)
+	local mesh = love.graphics.newMesh(
+		{
+			{0, 0, 0, 0, 1, 1, 1, 1},
+			{1, 0, 1, 0, 1, 1, 1, 1},
+			{0, 1, 0, 1, 1, 1, 1, 1},
+			{1, 1, 1, 1, 1, 1, 1, 1},
+		},
+		image,
+		"strip"
+	)
+	local instances = love.graphics.newMesh(
+		{
+			{"InstancePosition", "float", 3},
+			{"UVOffset", "float", 2},
+			{"ImageDim", "float", 2},
+			{"ImageShade", "float", 1},
+			{"Scale", "float", 2},
+			{"Pallete", "float", 1},
+		},
+		2,
+		nil,
+		"dynamic"
+	)
+	mesh:attachAttribute("InstancePosition", instances, "perinstance")
+	mesh:attachAttribute("UVOffset", instances, "perinstance")
+	mesh:attachAttribute("ImageDim", instances, "perinstance")
+	mesh:attachAttribute("ImageShade", instances, "perinstance")
+	mesh:attachAttribute("Scale", instances, "perinstance")
+	mesh:attachAttribute("Pallete", instances, "perinstance")
+	instances:setVertex(1, 32, 32, 0.100000, 0.0, 0.0, 1.0, 1.0, 1.0, 32, 32, 0)
+	instances:setVertex(2, 32, 32, 0.100004, 1.0, 0.0, 1.0, 1.0, 1.0, 32, 32, 0)
+	local shader = love.graphics.newShader([[
+		#pragma language glsl3
+		varying vec2 uvoff;
+		varying vec2 imgdim;
+		varying float imgshd;
+		#ifdef VERTEX
+		attribute vec3 InstancePosition;
+		attribute vec2 UVOffset;
+		attribute vec2 ImageDim;
+		attribute float ImageShade;
+		attribute vec2 Scale;
+		attribute float Pallete;
+		vec4 position(mat4 transform_projection, vec4 vertex_position)
+		{
+			uvoff = UVOffset;
+			imgdim = ImageDim;
+			imgshd = ImageShade;
+			vertex_position.xy *= Scale;
+			vertex_position.xy += InstancePosition.xy;
+			vertex_position.z = 1.0 - InstancePosition.z;
+			return transform_projection * vertex_position;
+		}
+		#endif
+		#ifdef PIXEL
+		vec4 effect(vec4 color, Image tex, vec2 texture_coords, vec2 screen_coords)
+		{
+			ivec2 textr = ivec2(int(uvoff.x), int(uvoff.y));
+			return texelFetch(tex, textr, 0) * color * vec4(vec3(imgshd), 1.0);
+		}
+		#endif
+	]])
+	love.graphics.clear(0, 0, 0, 255, false, 0)
+	love.graphics.setDepthMode("greater", true)
+	love.graphics.setColor(1, 1, 1, 1)
+	love.graphics.setShader(shader)
+	love.graphics.drawInstanced(mesh, 2, 48, 24, 0, 1.5, 1.5)
+	love.graphics.setShader()
+	love.graphics.setDepthMode()
+	return function()
+		T.AssertScreenPixel{pos = {140, 104}, color = {0, 1, 0, 1}, tolerance = 0.1}
+	end
+end)
+
+T.Test2D("love graphics depth mode survives nested camera transforms", function()
+	local love = new_love_graphics_env("11.0.0")
+	local data = love.image.newImageData(2, 1)
+	data:setPixel(0, 0, 1, 0, 0, 1)
+	data:setPixel(1, 0, 0, 1, 0, 1)
+	local image = love.graphics.newImage(data)
+	image:setFilter("nearest", "nearest", 1)
+	local mesh = love.graphics.newMesh(
+		{
+			{0, 0, 0, 0, 1, 1, 1, 1},
+			{1, 0, 1, 0, 1, 1, 1, 1},
+			{0, 1, 0, 1, 1, 1, 1, 1},
+			{1, 1, 1, 1, 1, 1, 1, 1},
+		},
+		image,
+		"strip"
+	)
+	local instances = love.graphics.newMesh(
+		{
+			{"InstancePosition", "float", 3},
+			{"UVOffset", "float", 2},
+			{"ImageDim", "float", 2},
+			{"ImageShade", "float", 1},
+			{"Scale", "float", 2},
+			{"Pallete", "float", 1},
+		},
+		2,
+		nil,
+		"dynamic"
+	)
+	mesh:attachAttribute("InstancePosition", instances, "perinstance")
+	mesh:attachAttribute("UVOffset", instances, "perinstance")
+	mesh:attachAttribute("ImageDim", instances, "perinstance")
+	mesh:attachAttribute("ImageShade", instances, "perinstance")
+	mesh:attachAttribute("Scale", instances, "perinstance")
+	mesh:attachAttribute("Pallete", instances, "perinstance")
+	instances:setVertex(1, 32, 32, 0.100000, 0.0, 0.0, 1.0, 1.0, 1.0, 32, 32, 0)
+	instances:setVertex(2, 32, 32, 0.100004, 1.0, 0.0, 1.0, 1.0, 1.0, 32, 32, 0)
+	local shader = love.graphics.newShader([[
+		#pragma language glsl3
+		varying vec2 uvoff;
+		varying vec2 imgdim;
+		varying float imgshd;
+		#ifdef VERTEX
+		attribute vec3 InstancePosition;
+		attribute vec2 UVOffset;
+		attribute vec2 ImageDim;
+		attribute float ImageShade;
+		attribute vec2 Scale;
+		attribute float Pallete;
+		vec4 position(mat4 transform_projection, vec4 vertex_position)
+		{
+			uvoff = UVOffset;
+			imgdim = ImageDim;
+			imgshd = ImageShade;
+			vertex_position.xy *= Scale;
+			vertex_position.xy += InstancePosition.xy;
+			vertex_position.z = 1.0 - InstancePosition.z;
+			return transform_projection * vertex_position;
+		}
+		#endif
+		#ifdef PIXEL
+		vec4 effect(vec4 color, Image tex, vec2 texture_coords, vec2 screen_coords)
+		{
+			ivec2 textr = ivec2(int(uvoff.x), int(uvoff.y));
+			return texelFetch(tex, textr, 0) * color * vec4(vec3(imgshd), 1.0);
+		}
+		#endif
+	]])
+	love.graphics.clear(0, 0, 0, 255, false, 0)
+	love.graphics.setDepthMode("greater", true)
+	love.graphics.setColor(1, 1, 1, 1)
+	love.graphics.setShader(shader)
+	love.graphics.push()
+	love.graphics.translate(32, 20)
+	love.graphics.drawInstanced(mesh, 2, 48, 24, 0, 1.5, 1.5)
+	love.graphics.pop()
+	love.graphics.setShader()
+	love.graphics.setDepthMode()
+	return function()
+		T.AssertScreenPixel{pos = {140, 104}, color = {0, 1, 0, 1}, tolerance = 0.1}
+	end
+end)
+
+T.Test2D("love graphics nested camera transforms keep vec3 instance positioning without depth", function()
+	local love = new_love_graphics_env("11.0.0")
+	local data = love.image.newImageData(2, 1)
+	data:setPixel(0, 0, 1, 0, 0, 1)
+	data:setPixel(1, 0, 0, 1, 0, 1)
+	local image = love.graphics.newImage(data)
+	image:setFilter("nearest", "nearest", 1)
+	local mesh = love.graphics.newMesh(
+		{
+			{0, 0, 0, 0, 1, 1, 1, 1},
+			{1, 0, 1, 0, 1, 1, 1, 1},
+			{0, 1, 0, 1, 1, 1, 1, 1},
+			{1, 1, 1, 1, 1, 1, 1, 1},
+		},
+		image,
+		"strip"
+	)
+	local instances = love.graphics.newMesh(
+		{
+			{"InstancePosition", "float", 3},
+			{"UVOffset", "float", 2},
+			{"ImageDim", "float", 2},
+			{"ImageShade", "float", 1},
+			{"Scale", "float", 2},
+			{"Pallete", "float", 1},
+		},
+		2,
+		nil,
+		"dynamic"
+	)
+	mesh:attachAttribute("InstancePosition", instances, "perinstance")
+	mesh:attachAttribute("UVOffset", instances, "perinstance")
+	mesh:attachAttribute("ImageDim", instances, "perinstance")
+	mesh:attachAttribute("ImageShade", instances, "perinstance")
+	mesh:attachAttribute("Scale", instances, "perinstance")
+	mesh:attachAttribute("Pallete", instances, "perinstance")
+	instances:setVertex(1, 32, 32, 0.100000, 0.0, 0.0, 1.0, 1.0, 1.0, 32, 32, 0)
+	instances:setVertex(2, 32, 32, 0.100004, 1.0, 0.0, 1.0, 1.0, 1.0, 32, 32, 0)
+	local shader = love.graphics.newShader([[
+		#pragma language glsl3
+		varying vec2 uvoff;
+		varying vec2 imgdim;
+		varying float imgshd;
+		#ifdef VERTEX
+		attribute vec3 InstancePosition;
+		attribute vec2 UVOffset;
+		attribute vec2 ImageDim;
+		attribute float ImageShade;
+		attribute vec2 Scale;
+		attribute float Pallete;
+		vec4 position(mat4 transform_projection, vec4 vertex_position)
+		{
+			uvoff = UVOffset;
+			imgdim = ImageDim;
+			imgshd = ImageShade;
+			vertex_position.xy *= Scale;
+			vertex_position.xy += InstancePosition.xy;
+			vertex_position.z = 1.0 - InstancePosition.z;
+			return transform_projection * vertex_position;
+		}
+		#endif
+		#ifdef PIXEL
+		vec4 effect(vec4 color, Image tex, vec2 texture_coords, vec2 screen_coords)
+		{
+			ivec2 textr = ivec2(int(uvoff.x), int(uvoff.y));
+			return texelFetch(tex, textr, 0) * color * vec4(vec3(imgshd), 1.0);
+		}
+		#endif
+	]])
+	love.graphics.clear(0, 0, 0, 255)
+	love.graphics.setColor(1, 1, 1, 1)
+	love.graphics.setShader(shader)
+	love.graphics.push()
+	love.graphics.translate(32, 20)
+	love.graphics.drawInstanced(mesh, 2, 48, 24, 0, 1.5, 1.5)
+	love.graphics.pop()
+	love.graphics.setShader()
+	return function()
+		T.AssertScreenPixel{pos = {140, 104}, color = {0, 1, 0, 1}, tolerance = 0.1}
+	end
+end)
+
+T.Test2D("love graphics stone kingdoms main shader draws unpaletted instanced tiles", function()
+	local love = new_love_graphics_env("11.0.0")
+	local data = love.image.newImageData(64, 32)
+
+	for x = 0, 31 do
+		for y = 0, 31 do
+			data:setPixel(x, y, 0, 1, 0, 1)
+		end
+	end
+
+	for x = 32, 63 do
+		for y = 0, 31 do
+			data:setPixel(x, y, 8 / 255, 8 / 255, 0, 1)
+		end
+	end
+
+	local image = love.graphics.newImage(data)
+	image:setFilter("nearest", "nearest", 1)
+	local layer = love.image.newImageData(20, 20)
+	layer:setPixel(10, 10, 1, 1, 0, 1)
+	local colortables = love.graphics.newVolumeImage({layer})
+	local mesh = love.graphics.newMesh(
+		{
+			{0, 0, 0, 0, 1, 1, 1, 1},
+			{1, 0, 1, 0, 1, 1, 1, 1},
+			{0, 1, 0, 1, 1, 1, 1, 1},
+			{1, 1, 1, 1, 1, 1, 1, 1},
+		},
+		image,
+		"strip"
+	)
+	local instances = love.graphics.newMesh(
+		{
+			{"InstancePosition", "float", 3},
+			{"UVOffset", "float", 2},
+			{"ImageDim", "float", 2},
+			{"ImageShade", "float", 1},
+			{"Scale", "float", 2},
+			{"Pallete", "float", 1},
+		},
+		1,
+		nil,
+		"dynamic"
+	)
+	mesh:attachAttribute("InstancePosition", instances, "perinstance")
+	mesh:attachAttribute("UVOffset", instances, "perinstance")
+	mesh:attachAttribute("ImageDim", instances, "perinstance")
+	mesh:attachAttribute("ImageShade", instances, "perinstance")
+	mesh:attachAttribute("Scale", instances, "perinstance")
+	mesh:attachAttribute("Pallete", instances, "perinstance")
+	instances:setVertex(1, 32, 32, 0.1, 0, 0, 32, 32, 1, 1, 1, 0)
+	local shader = love.graphics.newShader([[
+		#pragma language glsl3
+		varying vec2 uvoff;
+		varying vec2 imgdim;
+		varying float imgshd;
+		varying float pallete;
+		extern VolumeImage colortables;
+		#ifdef VERTEX
+		attribute vec3 InstancePosition;
+		attribute vec2 UVOffset;
+		attribute vec2 ImageDim;
+		attribute float ImageShade;
+		attribute vec2 Scale;
+		attribute float Pallete;
+		varying vec2 imgscale;
+		vec4 position(mat4 transform_projection, vec4 vertex_position)
+		{
+			uvoff = UVOffset;
+			imgdim = ImageDim;
+			imgshd = ImageShade;
+			pallete = Pallete;
+			imgscale = Scale;
+			if (abs(imgscale.x) < 0.0001) imgscale.x = 1.0;
+			if (abs(imgscale.y) < 0.0001) imgscale.y = 1.0;
+			vertex_position.xy *= ImageDim;
+			vertex_position.xy *= imgscale;
+			vertex_position.xy += InstancePosition.xy;
+			vertex_position.z = 1.0 - InstancePosition.z;
+			return transform_projection * vertex_position;
+		}
+		#endif
+		#ifdef PIXEL
+		ivec2 redGreenToPosition(float redValue, float greenValue) {
+			int redIndex = int(floor(redValue * 255.0));
+			int x = (redIndex / 8) * 10;
+			int greenIndex = int(floor(greenValue * 255.0));
+			int y = (greenIndex / 8) * 10;
+			return ivec2(x, y);
+		}
+		vec4 effect(vec4 color, Image tex, vec2 texture_coords, vec2 screen_coords)
+		{
+			color.xyz *= imgshd;
+			ivec2 textr = ivec2(int(ceil(uvoff.x + imgdim.x * texture_coords.x)), int(ceil(uvoff.y + imgdim.y * texture_coords.y)));
+			vec4 texcolor = texelFetch(tex, textr, 0);
+			if (texcolor.a < 1.0) discard;
+			if (pallete > 0.0) {
+				vec2 ct = redGreenToPosition(texcolor.x, texcolor.y);
+				if (ct.x == 0 && ct.y == 0) return vec4(0, 0, 0, 0);
+				return texelFetch(colortables, ivec3(int(ct.x), int(ct.y), int(floor(pallete - 1.0))), 0) * color;
+			}
+			return texcolor * color;
+		}
+		#endif
+	]])
+	shader:send("colortables", colortables)
+	love.graphics.clear(0, 0, 0, 255)
+	love.graphics.setColor(1, 1, 1, 1)
+	love.graphics.setShader(shader)
+	love.graphics.push()
+	love.graphics.translate(32, 20)
+	love.graphics.drawInstanced(mesh, 1, 48, 24, 0, 1, 1)
+	love.graphics.pop()
+	love.graphics.setShader()
+	return function()
+		T.AssertScreenPixel{pos = {128, 92}, color = {0, 1, 0, 1}, tolerance = 0.1}
+	end
+end)
+
+T.Test2D("love graphics stone kingdoms main shader draws paletted instanced tiles", function()
+	local love = new_love_graphics_env("11.0.0")
+	local data = love.image.newImageData(64, 32)
+
+	for x = 0, 31 do
+		for y = 0, 31 do
+			data:setPixel(x, y, 0, 1, 0, 1)
+		end
+	end
+
+	for x = 32, 63 do
+		for y = 0, 31 do
+			data:setPixel(x, y, 8 / 255, 8 / 255, 0, 1)
+		end
+	end
+
+	local image = love.graphics.newImage(data)
+	image:setFilter("nearest", "nearest", 1)
+	local layer = love.image.newImageData(20, 20)
+	layer:setPixel(10, 10, 1, 1, 0, 1)
+	local colortables = love.graphics.newVolumeImage({layer})
+	local mesh = love.graphics.newMesh(
+		{
+			{0, 0, 0, 0, 1, 1, 1, 1},
+			{1, 0, 1, 0, 1, 1, 1, 1},
+			{0, 1, 0, 1, 1, 1, 1, 1},
+			{1, 1, 1, 1, 1, 1, 1, 1},
+		},
+		image,
+		"strip"
+	)
+	local instances = love.graphics.newMesh(
+		{
+			{"InstancePosition", "float", 3},
+			{"UVOffset", "float", 2},
+			{"ImageDim", "float", 2},
+			{"ImageShade", "float", 1},
+			{"Scale", "float", 2},
+			{"Pallete", "float", 1},
+		},
+		1,
+		nil,
+		"dynamic"
+	)
+	mesh:attachAttribute("InstancePosition", instances, "perinstance")
+	mesh:attachAttribute("UVOffset", instances, "perinstance")
+	mesh:attachAttribute("ImageDim", instances, "perinstance")
+	mesh:attachAttribute("ImageShade", instances, "perinstance")
+	mesh:attachAttribute("Scale", instances, "perinstance")
+	mesh:attachAttribute("Pallete", instances, "perinstance")
+	instances:setVertex(1, 32, 32, 0.1, 32, 0, 32, 32, 1, 1, 1, 1)
+	local shader = love.graphics.newShader([[
+		#pragma language glsl3
+		varying vec2 uvoff;
+		varying vec2 imgdim;
+		varying float imgshd;
+		varying float pallete;
+		extern VolumeImage colortables;
+		#ifdef VERTEX
+		attribute vec3 InstancePosition;
+		attribute vec2 UVOffset;
+		attribute vec2 ImageDim;
+		attribute float ImageShade;
+		attribute vec2 Scale;
+		attribute float Pallete;
+		varying vec2 imgscale;
+		vec4 position(mat4 transform_projection, vec4 vertex_position)
+		{
+			uvoff = UVOffset;
+			imgdim = ImageDim;
+			imgshd = ImageShade;
+			pallete = Pallete;
+			imgscale = Scale;
+			if (abs(imgscale.x) < 0.0001) imgscale.x = 1.0;
+			if (abs(imgscale.y) < 0.0001) imgscale.y = 1.0;
+			vertex_position.xy *= ImageDim;
+			vertex_position.xy *= imgscale;
+			vertex_position.xy += InstancePosition.xy;
+			vertex_position.z = 1.0 - InstancePosition.z;
+			return transform_projection * vertex_position;
+		}
+		#endif
+		#ifdef PIXEL
+		ivec2 redGreenToPosition(float redValue, float greenValue) {
+			int redIndex = int(floor(redValue * 255.0));
+			int x = (redIndex / 8) * 10;
+			int greenIndex = int(floor(greenValue * 255.0));
+			int y = (greenIndex / 8) * 10;
+			return ivec2(x, y);
+		}
+		vec4 effect(vec4 color, Image tex, vec2 texture_coords, vec2 screen_coords)
+		{
+			color.xyz *= imgshd;
+			ivec2 textr = ivec2(int(ceil(uvoff.x + imgdim.x * texture_coords.x)), int(ceil(uvoff.y + imgdim.y * texture_coords.y)));
+			vec4 texcolor = texelFetch(tex, textr, 0);
+			if (texcolor.a < 1.0) discard;
+			if (pallete > 0.0) {
+				vec2 ct = redGreenToPosition(texcolor.x, texcolor.y);
+				if (ct.x == 0 && ct.y == 0) return vec4(0, 0, 0, 0);
+				return texelFetch(colortables, ivec3(int(ct.x), int(ct.y), int(floor(pallete - 1.0))), 0) * color;
+			}
+			return texcolor * color;
+		}
+		#endif
+	]])
+	shader:send("colortables", colortables)
+	love.graphics.clear(0, 0, 0, 255)
+	love.graphics.setColor(1, 1, 1, 1)
+	love.graphics.setShader(shader)
+	love.graphics.push()
+	love.graphics.translate(32, 20)
+	love.graphics.drawInstanced(mesh, 1, 48, 24, 0, 1, 1)
+	love.graphics.pop()
+	love.graphics.setShader()
+	return function()
+		T.AssertScreenPixel{pos = {128, 92}, color = {1, 1, 0, 1}, tolerance = 0.1}
+	end
+end)
+
+T.Test2D("love graphics canvas keeps instanced parent transforms", function()
+	local love = new_love_graphics_env("11.0.0")
+	local canvas = love.graphics.newCanvas(160, 160)
+	local data = love.image.newImageData(2, 1)
+	data:setPixel(0, 0, 1, 0, 0, 1)
+	data:setPixel(1, 0, 0, 1, 0, 1)
+	local image = love.graphics.newImage(data)
+	image:setFilter("nearest", "nearest", 1)
+	local mesh = love.graphics.newMesh(
+		{
+			{0, 0, 0, 0, 1, 1, 1, 1},
+			{1, 0, 1, 0, 1, 1, 1, 1},
+			{0, 1, 0, 1, 1, 1, 1, 1},
+			{1, 1, 1, 1, 1, 1, 1, 1},
+		},
+		image,
+		"strip"
+	)
+	local instances = love.graphics.newMesh(
+		{
+			{"InstancePosition", "float", 2},
+			{"UVOffset", "float", 2},
+			{"ImageDim", "float", 2},
+			{"ImageShade", "float", 1},
+			{"Scale", "float", 2},
+		},
+		2,
+		nil,
+		"dynamic"
+	)
+	mesh:attachAttribute("InstancePosition", instances, "perinstance")
+	mesh:attachAttribute("UVOffset", instances, "perinstance")
+	mesh:attachAttribute("ImageDim", instances, "perinstance")
+	mesh:attachAttribute("ImageShade", instances, "perinstance")
+	mesh:attachAttribute("Scale", instances, "perinstance")
+	instances:setVertex(1, 32, 32, 0.0, 0.0, 1.0, 1.0, 1.0, 32, 32)
+	instances:setVertex(2, 32, 32, 1.0, 0.0, 1.0, 1.0, 1.0, 32, 32)
+	local shader = love.graphics.newShader([[
+		#pragma language glsl3
+		varying vec2 uvoff;
+		varying vec2 imgdim;
+		varying float imgshd;
+		#ifdef VERTEX
+		attribute vec2 InstancePosition;
+		attribute vec2 UVOffset;
+		attribute vec2 ImageDim;
+		attribute float ImageShade;
+		attribute vec2 Scale;
+		vec4 position(mat4 transform_projection, vec4 vertex_position)
+		{
+			uvoff = UVOffset;
+			imgdim = ImageDim;
+			imgshd = ImageShade;
+			vertex_position.xy *= Scale;
+			vertex_position.xy += InstancePosition;
+			return transform_projection * vertex_position;
+		}
+		#endif
+		#ifdef PIXEL
+		vec4 effect(vec4 color, Image tex, vec2 texture_coords, vec2 screen_coords)
+		{
+			ivec2 textr = ivec2(int(uvoff.x), int(uvoff.y));
+			return texelFetch(tex, textr, 0) * color * vec4(vec3(imgshd), 1.0);
+		}
+		#endif
+	]])
+	love.graphics.setCanvas(canvas)
+	love.graphics.clear(0, 0, 0, 0)
+	love.graphics.setColor(1, 1, 1, 1)
+	love.graphics.setShader(shader)
+	love.graphics.drawInstanced(mesh, 2, 48, 24, 0, 1.5, 1.5)
+	love.graphics.setShader()
+	love.graphics.setCanvas()
+	love.graphics.clear(0, 0, 0, 255)
+	love.graphics.setColor(255, 255, 255, 255)
+	love.graphics.draw(canvas, 0, 0)
+	return function()
+		T.TexturePixel(canvas.fb:GetColorTexture(), 108, 84, 0, 1, 0, 1, 0.1)
+		T.AssertScreenPixel{pos = {108, 84}, color = {0, 1, 0, 1}, tolerance = 0.1}
+	end
+end)
+
+T.Test2D("love graphics canvas keeps instanced depth with parent transforms", function()
+	local love = new_love_graphics_env("11.0.0")
+	local canvas = love.graphics.newCanvas(160, 160)
+	local data = love.image.newImageData(2, 1)
+	data:setPixel(0, 0, 1, 0, 0, 1)
+	data:setPixel(1, 0, 0, 1, 0, 1)
+	local image = love.graphics.newImage(data)
+	image:setFilter("nearest", "nearest", 1)
+	local mesh = love.graphics.newMesh(
+		{
+			{0, 0, 0, 0, 1, 1, 1, 1},
+			{1, 0, 1, 0, 1, 1, 1, 1},
+			{0, 1, 0, 1, 1, 1, 1, 1},
+			{1, 1, 1, 1, 1, 1, 1, 1},
+		},
+		image,
+		"strip"
+	)
+	local instances = love.graphics.newMesh(
+		{
+			{"InstancePosition", "float", 3},
+			{"UVOffset", "float", 2},
+			{"ImageDim", "float", 2},
+			{"ImageShade", "float", 1},
+			{"Scale", "float", 2},
+			{"Pallete", "float", 1},
+		},
+		2,
+		nil,
+		"dynamic"
+	)
+	mesh:attachAttribute("InstancePosition", instances, "perinstance")
+	mesh:attachAttribute("UVOffset", instances, "perinstance")
+	mesh:attachAttribute("ImageDim", instances, "perinstance")
+	mesh:attachAttribute("ImageShade", instances, "perinstance")
+	mesh:attachAttribute("Scale", instances, "perinstance")
+	mesh:attachAttribute("Pallete", instances, "perinstance")
+	instances:setVertex(1, 32, 32, 0.100000, 0.0, 0.0, 1.0, 1.0, 1.0, 32, 32, 0)
+	instances:setVertex(2, 32, 32, 0.100004, 1.0, 0.0, 1.0, 1.0, 1.0, 32, 32, 0)
+	local shader = love.graphics.newShader([[
+		#pragma language glsl3
+		varying vec2 uvoff;
+		varying vec2 imgdim;
+		varying float imgshd;
+		#ifdef VERTEX
+		attribute vec3 InstancePosition;
+		attribute vec2 UVOffset;
+		attribute vec2 ImageDim;
+		attribute float ImageShade;
+		attribute vec2 Scale;
+		attribute float Pallete;
+		vec4 position(mat4 transform_projection, vec4 vertex_position)
+		{
+			uvoff = UVOffset;
+			imgdim = ImageDim;
+			imgshd = ImageShade;
+			vertex_position.xy *= Scale;
+			vertex_position.xy += InstancePosition.xy;
+			vertex_position.z = 1.0 - InstancePosition.z;
+			return transform_projection * vertex_position;
+		}
+		#endif
+		#ifdef PIXEL
+		vec4 effect(vec4 color, Image tex, vec2 texture_coords, vec2 screen_coords)
+		{
+			ivec2 textr = ivec2(int(uvoff.x), int(uvoff.y));
+			return texelFetch(tex, textr, 0) * color * vec4(vec3(imgshd), 1.0);
+		}
+		#endif
+	]])
+	love.graphics.setCanvas({canvas, depth = true})
+	love.graphics.clear(0, 0, 0, 0, false, 0)
+	love.graphics.setDepthMode("greater", true)
+	love.graphics.setColor(1, 1, 1, 1)
+	love.graphics.setShader(shader)
+	love.graphics.push()
+	love.graphics.translate(32, 20)
+	love.graphics.drawInstanced(mesh, 2, 48, 24, 0, 1.5, 1.5)
+	love.graphics.pop()
+	love.graphics.setShader()
+	love.graphics.setDepthMode()
+	love.graphics.setCanvas()
+	love.graphics.clear(0, 0, 0, 255)
+	love.graphics.setColor(255, 255, 255, 255)
+	love.graphics.draw(canvas, 0, 0)
+	return function()
+		T(canvas.fb:GetDepthTexture() ~= nil)["=="](true)
+		T.TexturePixel(canvas.fb:GetColorTexture(), 140, 104, 0, 1, 0, 1, 0.1)
+		T.AssertScreenPixel{pos = {140, 104}, color = {0, 1, 0, 1}, tolerance = 0.1}
+	end
+end)
+
+T.Test2D("love graphics fully transparent shader output does not block later depth-tested draws", function()
+	local love = new_love_graphics_env("11.0.0")
+	local data = love.image.newImageData(1, 1)
+	data:setPixel(0, 0, 1, 1, 1, 1)
+	local image = love.graphics.newImage(data)
+	image:setFilter("nearest", "nearest", 1)
+	local mesh = love.graphics.newMesh(
+		{
+			{0, 0, 0, 0, 1, 1, 1, 1},
+			{1, 0, 1, 0, 1, 1, 1, 1},
+			{0, 1, 0, 1, 1, 1, 1, 1},
+			{1, 1, 1, 1, 1, 1, 1, 1},
+		},
+		image,
+		"strip"
+	)
+	local front_instances = love.graphics.newMesh(
+		{
+			{"InstancePosition", "float", 3},
+			{"UVOffset", "float", 2},
+			{"ImageDim", "float", 2},
+			{"ImageShade", "float", 1},
+			{"Scale", "float", 2},
+			{"Pallete", "float", 1},
+		},
+		1,
+		nil,
+		"dynamic"
+	)
+	local back_instances = love.graphics.newMesh(
+		{
+			{"InstancePosition", "float", 3},
+			{"UVOffset", "float", 2},
+			{"ImageDim", "float", 2},
+			{"ImageShade", "float", 1},
+			{"Scale", "float", 2},
+			{"Pallete", "float", 1},
+		},
+		1,
+		nil,
+		"dynamic"
+	)
+	front_instances:setVertex(1, 32, 32, 0.100004, 0, 0, 1, 1, 1, 64, 64, 0)
+	back_instances:setVertex(1, 32, 32, 0.100000, 0, 0, 1, 1, 1, 64, 64, 0)
+	local front_shader = love.graphics.newShader([[
+		#pragma language glsl3
+		#ifdef VERTEX
+		attribute vec3 InstancePosition;
+		attribute vec2 UVOffset;
+		attribute vec2 ImageDim;
+		attribute float ImageShade;
+		attribute vec2 Scale;
+		attribute float Pallete;
+		vec4 position(mat4 transform_projection, vec4 vertex_position)
+		{
+			vertex_position.xy *= Scale;
+			vertex_position.xy += InstancePosition.xy;
+			vertex_position.z = 1.0 - InstancePosition.z;
+			return transform_projection * vertex_position;
+		}
+		#endif
+		#ifdef PIXEL
+		vec4 effect(vec4 color, Image tex, vec2 texture_coords, vec2 screen_coords)
+		{
+			if (screen_coords.y < 64.0) {
+				return vec4(0.0, 0.0, 0.0, 0.0);
+			}
+			return vec4(1.0, 0.0, 0.0, 1.0);
+		}
+		#endif
+	]])
+	local back_shader = love.graphics.newShader([[
+		#pragma language glsl3
+		#ifdef VERTEX
+		attribute vec3 InstancePosition;
+		attribute vec2 UVOffset;
+		attribute vec2 ImageDim;
+		attribute float ImageShade;
+		attribute vec2 Scale;
+		attribute float Pallete;
+		vec4 position(mat4 transform_projection, vec4 vertex_position)
+		{
+			vertex_position.xy *= Scale;
+			vertex_position.xy += InstancePosition.xy;
+			vertex_position.z = 1.0 - InstancePosition.z;
+			return transform_projection * vertex_position;
+		}
+		#endif
+		#ifdef PIXEL
+		vec4 effect(vec4 color, Image tex, vec2 texture_coords, vec2 screen_coords)
+		{
+			return vec4(0.0, 1.0, 0.0, 1.0);
+		}
+		#endif
+	]])
+	love.graphics.clear(0, 0, 0, 255, false, 0)
+	love.graphics.setDepthMode("greater", true)
+	love.graphics.setColor(1, 1, 1, 1)
+	mesh:attachAttribute("InstancePosition", front_instances, "perinstance")
+	mesh:attachAttribute("UVOffset", front_instances, "perinstance")
+	mesh:attachAttribute("ImageDim", front_instances, "perinstance")
+	mesh:attachAttribute("ImageShade", front_instances, "perinstance")
+	mesh:attachAttribute("Scale", front_instances, "perinstance")
+	mesh:attachAttribute("Pallete", front_instances, "perinstance")
+	love.graphics.setShader(front_shader)
+	love.graphics.drawInstanced(mesh, 1)
+	mesh:attachAttribute("InstancePosition", back_instances, "perinstance")
+	mesh:attachAttribute("UVOffset", back_instances, "perinstance")
+	mesh:attachAttribute("ImageDim", back_instances, "perinstance")
+	mesh:attachAttribute("ImageShade", back_instances, "perinstance")
+	mesh:attachAttribute("Scale", back_instances, "perinstance")
+	mesh:attachAttribute("Pallete", back_instances, "perinstance")
+	love.graphics.setShader(back_shader)
+	love.graphics.drawInstanced(mesh, 1)
+	love.graphics.setShader()
+	love.graphics.setDepthMode()
+	return function()
+		T.AssertScreenPixel{pos = {40, 40}, color = {0, 1, 0, 1}, tolerance = 0.1}
+		T.AssertScreenPixel{pos = {40, 72}, color = {1, 0, 0, 1}, tolerance = 0.1}
+	end
+end)
+
+T.Test2D("love graphics terrain and tall sprite depth order matches pixel overlap", function()
+	local love = new_love_graphics_env("11.0.0")
+	local data = love.image.newImageData(2, 1)
+	data:setPixel(0, 0, 0.75, 0.7, 0.45, 1)
+	data:setPixel(1, 0, 0.55, 0.8, 0.5, 1)
+	local image = love.graphics.newImage(data)
+	image:setFilter("nearest", "nearest", 1)
+	local mesh = love.graphics.newMesh(
+		{
+			{0, 0, 0, 0, 1, 1, 1, 1},
+			{1, 0, 1, 0, 1, 1, 1, 1},
+			{0, 1, 0, 1, 1, 1, 1, 1},
+			{1, 1, 1, 1, 1, 1, 1, 1},
+		},
+		image,
+		"strip"
+	)
+	local terrain_instances = love.graphics.newMesh(
+		{
+			{"InstancePosition", "float", 3},
+			{"UVOffset", "float", 2},
+			{"ImageDim", "float", 2},
+			{"ImageShade", "float", 1},
+			{"Scale", "float", 2},
+			{"Pallete", "float", 1},
+		},
+		1,
+		nil,
+		"dynamic"
+	)
+	local tree_instances = love.graphics.newMesh(
+		{
+			{"InstancePosition", "float", 3},
+			{"UVOffset", "float", 2},
+			{"ImageDim", "float", 2},
+			{"ImageShade", "float", 1},
+			{"Scale", "float", 2},
+			{"Pallete", "float", 1},
+		},
+		1,
+		nil,
+		"dynamic"
+	)
+	terrain_instances:setVertex(1, 32, 88, 0.100000, 0, 0, 1, 1, 1, 96, 40, 0)
+	tree_instances:setVertex(1, 32, 24, 0.100004, 1, 0, 1, 1, 1, 96, 120, 0)
+	local shader = love.graphics.newShader([[
+		#pragma language glsl3
+		varying vec2 uvoff;
+		varying float imgshd;
+		#ifdef VERTEX
+		attribute vec3 InstancePosition;
+		attribute vec2 UVOffset;
+		attribute vec2 ImageDim;
+		attribute float ImageShade;
+		attribute vec2 Scale;
+		attribute float Pallete;
+		vec4 position(mat4 transform_projection, vec4 vertex_position)
+		{
+			uvoff = UVOffset;
+			imgshd = ImageShade;
+			vertex_position.xy *= Scale;
+			vertex_position.xy += InstancePosition.xy;
+			vertex_position.z = 1.0 - InstancePosition.z;
+			return transform_projection * vertex_position;
+		}
+		#endif
+		#ifdef PIXEL
+		vec4 effect(vec4 color, Image tex, vec2 texture_coords, vec2 screen_coords)
+		{
+			return texelFetch(tex, ivec2(int(uvoff.x), 0), 0) * color * vec4(vec3(imgshd), 1.0);
+		}
+		#endif
+	]])
+	love.graphics.clear(0, 0, 0, 255, false, 0)
+	love.graphics.setDepthMode("greater", true)
+	love.graphics.setColor(1, 1, 1, 1)
+	love.graphics.setShader(shader)
+	mesh:attachAttribute("InstancePosition", terrain_instances, "perinstance")
+	mesh:attachAttribute("UVOffset", terrain_instances, "perinstance")
+	mesh:attachAttribute("ImageDim", terrain_instances, "perinstance")
+	mesh:attachAttribute("ImageShade", terrain_instances, "perinstance")
+	mesh:attachAttribute("Scale", terrain_instances, "perinstance")
+	mesh:attachAttribute("Pallete", terrain_instances, "perinstance")
+	love.graphics.drawInstanced(mesh, 1)
+	mesh:attachAttribute("InstancePosition", tree_instances, "perinstance")
+	mesh:attachAttribute("UVOffset", tree_instances, "perinstance")
+	mesh:attachAttribute("ImageDim", tree_instances, "perinstance")
+	mesh:attachAttribute("ImageShade", tree_instances, "perinstance")
+	mesh:attachAttribute("Scale", tree_instances, "perinstance")
+	mesh:attachAttribute("Pallete", tree_instances, "perinstance")
+	love.graphics.drawInstanced(mesh, 1)
+	love.graphics.setShader()
+	love.graphics.setDepthMode()
+	return function()
+		T.AssertScreenPixel{pos = {48, 104}, color = {0.55, 0.8, 0.5, 1}, tolerance = 0.12}
+		T.AssertScreenPixel{pos = {48, 72}, color = {0.55, 0.8, 0.5, 1}, tolerance = 0.12}
+		T.AssertScreenPixel{pos = {140, 120}, color = {0, 0, 0, 1}, tolerance = 0.12}
+	end
 end)
 
 T.Test2D("love graphics draw ignores leaked swizzle mode", function()
@@ -505,15 +2121,15 @@ T.Test("love graphics custom mesh setVertex handles nil clears", function()
 		"dynamic"
 	)
 	mesh:setVertex(1, 10, 20, 30, 40, 50, 60, 0.75, 1.25)
-	T(({mesh:getVertexAttribute(1, 1)})[1])['=='](10)
-	T(({mesh:getVertexAttribute(1, 1)})[2])['=='](20)
-	T(({mesh:getVertexAttribute(1, 4)})[1])['=='](0.75)
-	T(({mesh:getVertexAttribute(1, 5)})[1])['=='](1.25)
-	T(({mesh:getVertexAttribute(1, 5)})[2])['=='](1.25)
+	T(({mesh:getVertexAttribute(1, 1)})[1])["=="](10)
+	T(({mesh:getVertexAttribute(1, 1)})[2])["=="](20)
+	T(({mesh:getVertexAttribute(1, 4)})[1])["=="](0.75)
+	T(({mesh:getVertexAttribute(1, 5)})[1])["=="](1.25)
+	T(({mesh:getVertexAttribute(1, 5)})[2])["=="](1.25)
 	mesh:setVertex(1)
-	T(({mesh:getVertexAttribute(1, 1)})[1])['=='](0)
-	T(({mesh:getVertexAttribute(1, 1)})[2])['=='](0)
-	T(({mesh:getVertexAttribute(1, 4)})[1])['=='](0)
-	T(({mesh:getVertexAttribute(1, 5)})[1])['=='](0)
-	T(({mesh:getVertexAttribute(1, 5)})[2])['=='](0)
+	T(({mesh:getVertexAttribute(1, 1)})[1])["=="](0)
+	T(({mesh:getVertexAttribute(1, 1)})[2])["=="](0)
+	T(({mesh:getVertexAttribute(1, 4)})[1])["=="](0)
+	T(({mesh:getVertexAttribute(1, 5)})[1])["=="](0)
+	T(({mesh:getVertexAttribute(1, 5)})[2])["=="](0)
 end)
