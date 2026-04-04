@@ -741,7 +741,7 @@ function render2d.ResetState()
 	render2d.SetSDFThreshold(0.5)
 	render2d.SetSubpixelMode("none")
 	render2d.SetSubpixelAmount(1 / 3)
-	render2d.UpdateScreenSize(render.GetRenderImageSize())
+	render2d.UpdateScreenSize(render.GetRenderImageSize():Unpack())
 	render2d.SetBlendMode("alpha", true)
 
 	if render2d.SetStencilMode then render2d.SetStencilMode("none") end
@@ -1497,9 +1497,9 @@ do -- camera
 		update_proj_view()
 	end
 
-	function render2d.UpdateScreenSize(size)
-		viewport.w = size.w
-		viewport.h = size.h
+	function render2d.UpdateScreenSize(w, h)
+		viewport.w = w
+		viewport.h = h
 		update_projection()
 		update_view()
 	end
@@ -1731,7 +1731,7 @@ end)
 event.AddListener("WindowFramebufferResized", "render2d", function(wnd, size)
 	if render.target and render.target.config.offscreen then return end
 
-	render2d.UpdateScreenSize(size)
+	render2d.UpdateScreenSize(size.x, size.y)
 end)
 
 if HOTRELOAD then

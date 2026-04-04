@@ -526,7 +526,7 @@ function META:LoadGlyph(code, parent_cmd, temp_fbs)
 			render2d.PushSwizzleMode(render2d.GetSwizzleMode())
 			scratch_size.w = sw
 			scratch_size.h = sh
-			render2d.UpdateScreenSize(scratch_size)
+			render2d.UpdateScreenSize(scratch_size.w, scratch_size.h)
 			render2d.BindPipeline(cmd)
 			render2d.SetSwizzleMode(0)
 			render2d.PushMatrix()
@@ -545,7 +545,7 @@ function META:LoadGlyph(code, parent_cmd, temp_fbs)
 			render2d.cmd = old_cmd
 			scratch_size.w = old_w
 			scratch_size.h = old_h
-			render2d.UpdateScreenSize(scratch_size)
+			render2d.UpdateScreenSize(scratch_size.w, scratch_size.h)
 		end
 
 		glyph.texture = self:GenerateSDF(
