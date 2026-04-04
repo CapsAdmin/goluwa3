@@ -519,6 +519,75 @@ function CommandBuffer:ClearColorImage(config)
 	)
 end
 
+function CommandBuffer:ClearAttachments(config)
+	local attachments = {}
+	local stencil_value = config.stencil
+
+	if stencil_value == false then stencil_value = nil end
+
+	if config.color then
+		local clear_value = vulkan.vk.VkClearValue()
+		clear_value.color.float32[0] = config.color[1] or 0.0
+		clear_value.color.float32[1] = config.color[2] or 0.0
+		clear_value.color.float32[2] = config.color[3] or 0.0
+		clear_value.color.float32[3] = config.color[4] or 1.0
+		attachments[#attachments + 1] = {
+			aspectMask = vulkan.vk.e.VkImageAspectFlagBits("color"),
+			colorAttachment = config.color_attachment or 0,
+			clearValue = clear_value,
+		}
+	end
+
+	if config.depth ~= nil then
+		local clear_value = vulkan.vk.VkClearValue()
+		clear_value.depthStencil.depth = config.depth
+		clear_value.depthStencil.stencil = stencil_value or 0
+		attachments[#attachments + 1] = {
+			aspectMask = vulkan.vk.e.VkImageAspectFlagBits("depth"),
+			colorAttachment = 0,
+			clearValue = clear_value,
+		}
+	end
+
+	if stencil_value ~= nil then
+		local clear_value = vulkan.vk.VkClearValue()
+		clear_value.depthStencil.depth = config.depth or 1.0
+		clear_value.depthStencil.stencil = stencil_value
+		attachments[#attachments + 1] = {
+			aspectMask = vulkan.vk.e.VkImageAspectFlagBits("stencil"),
+			colorAttachment = 0,
+			clearValue = clear_value,
+		}
+		end
+
+	if #attachments == 0 then return end
+
+	local clear_rect = {
+		rect = {
+			offset = {x = config.x or 0, y = config.y or 0},
+			extent = {width = config.w or 0, height = config.h or 0},
+		},
+		baseArrayLayer = 0,
+		layerCount = 1,
+	}
+	local attachment_array = vulkan.T.Array(vulkan.vk.VkClearAttachment, #attachments)()
+
+	for i, attachment in ipairs(attachments) do
+		attachment_array[i - 1] = vulkan.vk.VkClearAttachment(attachment)
+	end
+
+	local clear_rect_array = vulkan.T.Array(vulkan.vk.VkClearRect, 1)()
+	clear_rect_array[0] = vulkan.vk.VkClearRect(clear_rect)
+
+	vulkan.lib.vkCmdClearAttachments(
+		self.ptr[0],
+		#attachments,
+		attachment_array,
+		1,
+		clear_rect_array
+	)
+end
+
 function CommandBuffer:CopyImageToBuffer(config)
 	vulkan.lib.vkCmdCopyImageToBuffer(
 		self.ptr[0],
