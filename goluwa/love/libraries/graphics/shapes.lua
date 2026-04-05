@@ -1,8 +1,8 @@
+local render2d = import("goluwa/render2d/render2d.lua")
+local math2d = import("goluwa/render2d/math2d.lua")
+local IndexBuffer = import("goluwa/render/index_buffer.lua")
 return function(ctx)
 	local love = ctx.love
-	local render2d = ctx.render2d
-	local math2d = ctx.math2d
-	local IndexBuffer = ctx.IndexBuffer
 	local mesh = render2d.CreateMesh(2048)
 
 	for i = 1, 2048 do

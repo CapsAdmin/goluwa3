@@ -1,11 +1,11 @@
+local line = import("goluwa/love/line.lua")
+local render = import("goluwa/render/render.lua")
+local render2d = import("goluwa/render2d/render2d.lua")
+local window = import("goluwa/window.lua")
+local EasyPipeline = import("goluwa/render/easy_pipeline.lua")
 return function(ctx)
 	local love = ctx.love
 	local ENV = ctx.ENV
-	local line = ctx.line
-	local render = ctx.render
-	local render2d = ctx.render2d
-	local window = ctx.window
-	local EasyPipeline = ctx.EasyPipeline
 	local Shader = line.TypeTemplate("Shader")
 	local warned_missing_custom_shader_backend = false
 	local warned_unsupported_love_vertex_shader = false

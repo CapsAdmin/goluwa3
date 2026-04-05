@@ -1,8 +1,8 @@
+local render = import("goluwa/render/render.lua")
+local render2d = import("goluwa/render2d/render2d.lua")
 return function(ctx)
 	local love = ctx.love
 	local ENV = ctx.ENV
-	local render = ctx.render
-	local render2d = ctx.render2d
 	local parse_color_bytes = ctx.parse_color_bytes
 	local get_api_default_alpha = ctx.get_api_default_alpha
 	local color_component_from_internal = ctx.color_component_from_internal

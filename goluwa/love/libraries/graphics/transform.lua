@@ -1,8 +1,8 @@
+local render2d = import("goluwa/render2d/render2d.lua")
+local window = import("goluwa/window.lua")
+local Vec2 = import("goluwa/structs/vec2.lua")
 return function(ctx)
 	local love = ctx.love
-	local render2d = ctx.render2d
-	local window = ctx.window
-	local Vec2 = ctx.Vec2
 	local get_main_surface_dimensions = ctx.get_main_surface_dimensions
 	love.graphics.origin = render2d.LoadIdentity
 	love.graphics.translate = render2d.Translatef

@@ -1,16 +1,3 @@
-local render = import("goluwa/render/render.lua")
-local Framebuffer = import("goluwa/render/framebuffer.lua")
-local render2d = import("goluwa/render2d/render2d.lua")
-local math2d = import("goluwa/render2d/math2d.lua")
-local vfs = import("goluwa/vfs.lua")
-local gfx = import("goluwa/render2d/gfx.lua")
-local fonts = import("goluwa/render2d/fonts.lua")
-local window = import("goluwa/window.lua")
-local EasyPipeline = import("goluwa/render/easy_pipeline.lua")
-local RenderMesh = import("goluwa/render/mesh.lua")
-local Vec2 = import("goluwa/structs/vec2.lua")
-local IndexBuffer = import("goluwa/render/index_buffer.lua")
-local line = import("goluwa/love/line.lua")
 local love = ... or _G.love
 local ENV = love._line_env
 ENV.textures = ENV.textures or table.weak(true)
@@ -105,19 +92,6 @@ end
 return {
 	love = love,
 	ENV = ENV,
-	render = render,
-	Framebuffer = Framebuffer,
-	render2d = render2d,
-	math2d = math2d,
-	vfs = vfs,
-	gfx = gfx,
-	fonts = fonts,
-	window = window,
-	EasyPipeline = EasyPipeline,
-	RenderMesh = RenderMesh,
-	Vec2 = Vec2,
-	IndexBuffer = IndexBuffer,
-	line = line,
 	love_uses_normalized_color_range = love_uses_normalized_color_range,
 	get_api_default_alpha = get_api_default_alpha,
 	color_component_to_internal = color_component_to_internal,

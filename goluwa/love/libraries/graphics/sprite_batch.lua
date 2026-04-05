@@ -1,11 +1,11 @@
+local line = import("goluwa/love/line.lua")
+local gfx = import("goluwa/render2d/gfx.lua")
+local render2d = import("goluwa/render2d/render2d.lua")
 return function(ctx)
 	local love = ctx.love
-	local line = ctx.line
-	local gfx = ctx.gfx
 	local parse_color_bytes = ctx.parse_color_bytes
 	local get_api_default_alpha = ctx.get_api_default_alpha
 	local get_internal_color = ctx.get_internal_color
-	local render2d = ctx.render2d
 	local SpriteBatch = line.TypeTemplate("SpriteBatch")
 
 	local function store_entry(self, id, entry)

@@ -1,10 +1,10 @@
+local line = import("goluwa/love/line.lua")
+local render = import("goluwa/render/render.lua")
+local render2d = import("goluwa/render2d/render2d.lua")
+local RenderMesh = import("goluwa/render/mesh.lua")
+local IndexBuffer = import("goluwa/render/index_buffer.lua")
 return function(ctx)
 	local love = ctx.love
-	local line = ctx.line
-	local render = ctx.render
-	local render2d = ctx.render2d
-	local RenderMesh = ctx.RenderMesh
-	local IndexBuffer = ctx.IndexBuffer
 	local get_api_default_alpha = ctx.get_api_default_alpha
 	local Mesh = line.TypeTemplate("Mesh")
 	local attribute_translation = {

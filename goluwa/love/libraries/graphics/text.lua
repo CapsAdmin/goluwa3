@@ -1,11 +1,11 @@
+local line = import("goluwa/love/line.lua")
+local fonts = import("goluwa/render2d/fonts.lua")
+local vfs = import("goluwa/vfs.lua")
+local Vec2 = import("goluwa/structs/vec2.lua")
+local render2d = import("goluwa/render2d/render2d.lua")
 return function(ctx)
 	local love = ctx.love
 	local ENV = ctx.ENV
-	local line = ctx.line
-	local fonts = ctx.fonts
-	local vfs = ctx.vfs
-	local Vec2 = ctx.Vec2
-	local render2d = ctx.render2d
 	local get_internal_color = ctx.get_internal_color
 	local Font = line.TypeTemplate("Font")
 	local LOVE_TTF_FONT_COMPAT_SCALE = 0.78

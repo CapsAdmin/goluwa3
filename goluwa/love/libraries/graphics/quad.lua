@@ -1,7 +1,7 @@
+local line = import("goluwa/love/line.lua")
 return function(ctx)
 	local love = ctx.love
 	local ENV = ctx.ENV
-	local line = ctx.line
 
 	local function drawable_uses_linear_filter(drawable)
 		local min = drawable and drawable.filter_min or ENV.graphics_filter_min

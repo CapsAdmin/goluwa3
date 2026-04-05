@@ -1,15 +1,16 @@
+local render = import("goluwa/render/render.lua")
+local render2d = import("goluwa/render2d/render2d.lua")
+local window = import("goluwa/window.lua")
 return function(ctx)
 	local love = ctx.love
 	local ENV = ctx.ENV
-	local render = ctx.render
-	local render2d = ctx.render2d
 
 	local function get_main_surface_dimensions()
 		if ENV.graphics_current_canvas then
 			return ENV.graphics_current_canvas.fb:GetColorTexture():GetSize():Unpack()
 		end
 
-		local size = ctx.window.GetSize and ctx.window.GetSize() or nil
+		local size = window.GetSize and window.GetSize() or nil
 
 		if size and size.x and size.y and size.x > 0 and size.y > 0 then
 			return size.x, size.y

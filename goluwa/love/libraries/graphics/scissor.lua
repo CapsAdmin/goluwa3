@@ -1,7 +1,7 @@
+local render2d = import("goluwa/render2d/render2d.lua")
 return function(ctx)
 	local love = ctx.love
 	local ENV = ctx.ENV
-	local render2d = ctx.render2d
 
 	function love.graphics.setScissor(x, y, w, h)
 		if x == nil then

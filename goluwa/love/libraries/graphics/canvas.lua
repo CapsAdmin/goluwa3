@@ -1,10 +1,10 @@
+local line = import("goluwa/love/line.lua")
+local render = import("goluwa/render/render.lua")
+local render2d = import("goluwa/render2d/render2d.lua")
+local Framebuffer = import("goluwa/render/framebuffer.lua")
 return function(ctx)
 	local love = ctx.love
 	local ENV = ctx.ENV
-	local line = ctx.line
-	local render = ctx.render
-	local render2d = ctx.render2d
-	local Framebuffer = ctx.Framebuffer
 	local ADD_FILTER = ctx.ADD_FILTER
 	local get_main_surface_dimensions = ctx.get_main_surface_dimensions
 	local parse_color_bytes = ctx.parse_color_bytes

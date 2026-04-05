@@ -1,6 +1,6 @@
+local render = import("goluwa/render/render.lua")
 return function(ctx)
 	local love = ctx.love
-	local render = ctx.render
 
 	function love.graphics.getTextureTypes()
 		return {

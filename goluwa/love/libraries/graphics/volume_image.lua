@@ -1,10 +1,9 @@
+local line = import("goluwa/love/line.lua")
 return function(ctx)
 	local love = ctx.love
 	local ENV = ctx.ENV
-	local line = ctx.line
 	local ADD_FILTER = ctx.ADD_FILTER
 	local translate_wrap_mode = ctx.translate_wrap_mode
-	local Vec2 = ctx.Vec2
 	local VolumeImage = line.TypeTemplate("VolumeImage")
 	ADD_FILTER(VolumeImage)
 

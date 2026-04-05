@@ -1,7 +1,7 @@
+local render2d = import("goluwa/render2d/render2d.lua")
+local gfx = import("goluwa/render2d/gfx.lua")
 return function(ctx)
 	local love = ctx.love
-	local render2d = ctx.render2d
-	local gfx = ctx.gfx
 	local SIZE = 1
 	local STYLE = "rough"
 

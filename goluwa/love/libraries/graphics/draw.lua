@@ -1,9 +1,9 @@
+local line = import("goluwa/love/line.lua")
+local gfx = import("goluwa/render2d/gfx.lua")
+local render2d = import("goluwa/render2d/render2d.lua")
 return function(ctx)
 	local love = ctx.love
 	local ENV = ctx.ENV
-	local line = ctx.line
-	local gfx = ctx.gfx
-	local render2d = ctx.render2d
 	local get_internal_color = ctx.get_internal_color
 	local get_quad_uv_rect = ctx.get_quad_uv_rect
 	local get_quad_draw_rect = ctx.get_quad_draw_rect

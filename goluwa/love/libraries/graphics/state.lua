@@ -1,6 +1,6 @@
+local render2d = import("goluwa/render2d/render2d.lua")
 return function(ctx)
 	local love = ctx.love
-	local render2d = ctx.render2d
 	local ensure_love_depth_target_initialized = ctx.ensure_love_depth_target_initialized
 
 	function love.graphics.setDepthMode(compare_mode, write)
