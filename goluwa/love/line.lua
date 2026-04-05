@@ -112,7 +112,7 @@ function line.CreateLoveEnv(version)
 	love._modules.filesystem = true
 	assert(loadfile("goluwa/love/libraries/data.lua"))(love)
 	love._modules.data = true
-	assert(loadfile("goluwa/love/libraries/image.lua"))(love)
+	assert(loadfile("goluwa/love/libraries/image_data.lua"))(love)
 	love._modules.image = true
 	assert(loadfile("goluwa/love/libraries/keyboard.lua"))(love)
 	love._modules.keyboard = true

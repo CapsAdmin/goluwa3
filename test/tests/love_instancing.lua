@@ -13,7 +13,7 @@ end
 local function new_love_graphics_env(version)
 	local love = {_line_env = {}}
 	apply_love_version(love, version)
-	assert(loadfile("goluwa/love/libraries/image.lua"))(love)
+	assert(loadfile("goluwa/love/libraries/image_data.lua"))(love)
 	assert(loadfile("goluwa/love/libraries/graphics.lua"))(love)
 	return love
 end

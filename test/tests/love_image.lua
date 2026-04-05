@@ -3,9 +3,11 @@ local vfs = import("goluwa/vfs.lua")
 
 local function new_love_image_env(with_graphics)
 	local love = {_line_env = {}}
-	assert(loadfile("goluwa/love/libraries/image.lua"))(love)
+	assert(loadfile("goluwa/love/libraries/image_data.lua"))(love)
 
-	if with_graphics then assert(loadfile("goluwa/love/libraries/graphics.lua"))(love) end
+	if with_graphics then
+		assert(loadfile("goluwa/love/libraries/graphics.lua"))(love)
+	end
 
 	return love
 end
@@ -28,9 +30,11 @@ T.Test("love image data compatibility", function()
 	T(data:getSize())["=="](16)
 	data:setPixel(0, 0, 10, 20, 30, 40)
 	data:setPixel(1, 0, 50, 60, 70, 80)
+
 	data:mapPixel(function(_, _, r, g, b, a)
 		return r + 1, g + 2, b + 3, a + 4
 	end)
+
 	local r, g, b, a = data:getPixel(0, 0)
 	T(r)["=="](11)
 	T(g)["=="](22)
