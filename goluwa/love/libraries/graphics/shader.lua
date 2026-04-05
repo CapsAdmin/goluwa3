@@ -6,7 +6,6 @@ return function(ctx)
 	local render2d = ctx.render2d
 	local window = ctx.window
 	local EasyPipeline = ctx.EasyPipeline
-	local get_texture_dimensions = ctx.get_texture_dimensions
 	local Shader = line.TypeTemplate("Shader")
 	local warned_missing_custom_shader_backend = false
 	local warned_unsupported_love_vertex_shader = false
@@ -285,7 +284,7 @@ return function(ctx)
 
 	local function get_shader_screen_size()
 		if ENV.graphics_current_canvas then
-			local tex_w, tex_h = get_texture_dimensions(ENV.graphics_current_canvas.fb:GetColorTexture())
+			local tex_w, tex_h = ENV.graphics_current_canvas.fb:GetColorTexture():GetSize():Unpack()
 			return tex_w, tex_h
 		end
 
@@ -924,7 +923,7 @@ return function(ctx)
 						love_ScreenSize = {
 							vec2 = function()
 								if ENV.graphics_current_canvas then
-									local tex_w, tex_h = get_texture_dimensions(ENV.graphics_current_canvas.fb:GetColorTexture())
+									local tex_w, tex_h = ENV.graphics_current_canvas.fb:GetColorTexture():GetSize():Unpack()
 									return Vec2(tex_w, tex_h)
 								end
 

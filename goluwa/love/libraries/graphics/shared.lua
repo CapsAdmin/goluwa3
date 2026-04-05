@@ -74,20 +74,6 @@ local function get_internal_background_color()
 	ENV.graphics_bg_color_a or 255
 end
 
-local function get_texture_dimensions(tex)
-	if not tex then return 0, 0 end
-
-	if tex.GetSize then
-		local size = tex:GetSize()
-
-		if size then return size.x or 0, size.y or 0 end
-	end
-
-	if tex.GetWidth and tex.GetHeight then return tex:GetWidth(), tex:GetHeight() end
-
-	return tex.width or 0, tex.height or 0
-end
-
 local function translate_wrap_mode(mode)
 	if mode == "clamp" then return "clamp_to_edge" end
 
@@ -139,7 +125,6 @@ return {
 	parse_color_bytes = parse_color_bytes,
 	get_internal_color = get_internal_color,
 	get_internal_background_color = get_internal_background_color,
-	get_texture_dimensions = get_texture_dimensions,
 	translate_wrap_mode = translate_wrap_mode,
 	ADD_FILTER = ADD_FILTER,
 }

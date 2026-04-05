@@ -3,27 +3,23 @@ return function(ctx)
 	local ENV = ctx.ENV
 	local line = ctx.line
 	local ADD_FILTER = ctx.ADD_FILTER
-	local get_texture_dimensions = ctx.get_texture_dimensions
 	local translate_wrap_mode = ctx.translate_wrap_mode
 	local Image = line.TypeTemplate("Image")
 
 	function Image:getWidth()
-		local w = get_texture_dimensions(ENV.textures[self])
-		return w
+		return ENV.textures[self]:GetSize().x
 	end
 
 	function Image:getHeight()
-		local _, h = get_texture_dimensions(ENV.textures[self])
-		return h
+		return ENV.textures[self]:GetSize().y
 	end
 
 	function Image:getDimensions()
-		return get_texture_dimensions(ENV.textures[self])
+		return ENV.textures[self]:GetSize():Unpack()
 	end
 
 	function Image:getHeight()
-		local _, h = get_texture_dimensions(ENV.textures[self])
-		return h
+		return ENV.textures[self]:GetSize().y
 	end
 
 	function Image:getData()

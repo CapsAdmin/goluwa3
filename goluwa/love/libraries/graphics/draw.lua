@@ -5,7 +5,6 @@ return function(ctx)
 	local gfx = ctx.gfx
 	local render2d = ctx.render2d
 	local get_internal_color = ctx.get_internal_color
-	local get_texture_dimensions = ctx.get_texture_dimensions
 	local get_quad_uv_rect = ctx.get_quad_uv_rect
 	local get_quad_draw_rect = ctx.get_quad_draw_rect
 
@@ -80,7 +79,7 @@ return function(ctx)
 				kx = kx or 0
 				ky = ky or 0
 				local tex = drawable_texture
-				local tex_w, tex_h = get_texture_dimensions(tex)
+				local tex_w, tex_h = tex:GetSize():Unpack()
 				local cr, cg, cb, ca = get_internal_color()
 				ca = ca or 255
 				render2d.SetColor(cr / 255, cg / 255, cb / 255, ca / 255)

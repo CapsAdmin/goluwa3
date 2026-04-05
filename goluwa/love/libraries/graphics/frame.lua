@@ -3,11 +3,10 @@ return function(ctx)
 	local ENV = ctx.ENV
 	local render = ctx.render
 	local render2d = ctx.render2d
-	local get_texture_dimensions = ctx.get_texture_dimensions
 
 	local function get_main_surface_dimensions()
 		if ENV.graphics_current_canvas then
-			return get_texture_dimensions(ENV.graphics_current_canvas.fb:GetColorTexture())
+			return ENV.graphics_current_canvas.fb:GetColorTexture():GetSize():Unpack()
 		end
 
 		local size = ctx.window.GetSize and ctx.window.GetSize() or nil

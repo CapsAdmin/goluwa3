@@ -4,6 +4,7 @@ return function(ctx)
 	local line = ctx.line
 	local ADD_FILTER = ctx.ADD_FILTER
 	local translate_wrap_mode = ctx.translate_wrap_mode
+	local Vec2 = ctx.Vec2
 	local VolumeImage = line.TypeTemplate("VolumeImage")
 	ADD_FILTER(VolumeImage)
 

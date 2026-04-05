@@ -2,7 +2,6 @@ return function(ctx)
 	local love = ctx.love
 	local ENV = ctx.ENV
 	local line = ctx.line
-	local get_texture_dimensions = ctx.get_texture_dimensions
 
 	local function drawable_uses_linear_filter(drawable)
 		local min = drawable and drawable.filter_min or ENV.graphics_filter_min
@@ -94,7 +93,13 @@ return function(ctx)
 			local vertices = {}
 
 			if type(sw) == "table" and sh == nil then
-				sw, sh = get_texture_dimensions(sw)
+				local tex = ENV.textures[sw] or sw
+
+				if tex.GetSize then
+					sw, sh = tex:GetSize():Unpack()
+				elseif sw.getDimensions then
+					sw, sh = sw:getDimensions()
+				end
 			end
 
 			for i = 0, 3 do
