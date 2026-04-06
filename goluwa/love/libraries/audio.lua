@@ -246,6 +246,19 @@ do -- Source
 		end
 	end
 
+	function Source:release()
+		if self.source then
+			if self.source.Stop then self.source:Stop() end
+
+			if self.source.Remove then self.source:Remove() end
+
+			if self.source.Release then self.source:Release() end
+		end
+
+		self.source = nil
+		self.playing = false
+	end
+
 	function Source:setDirection(x, y, z)
 		if self.source then self.source:SetDirection(Vec3(x, y, z)) end
 	end

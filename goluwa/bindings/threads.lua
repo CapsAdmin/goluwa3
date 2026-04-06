@@ -363,7 +363,10 @@ do
 	end
 
 	function meta:join()
+		if not self.id then return nil end
+
 		threads.join_thread(self.id)
+		self.id = nil
 
 		if self.shared_mode then
 			local result, err
@@ -395,7 +398,11 @@ do
 	end
 
 	function meta:close()
+		if not self.lua_state then return end
+
 		close_state(self.lua_state)
+		self.lua_state = nil
+		self.func_ptr = nil
 	end
 end
 

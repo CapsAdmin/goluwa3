@@ -15,16 +15,23 @@ function love.getVersion()
 end
 
 function love.line_update(dt)
-	if not love.update then return end
-
 	if love._line_env.love_game_update_draw_hack == false then
 		love._line_env.love_game_update_draw_hack = true -- this is stupid but it's because some games rely on update being called before draw
 	end
 
-	line.pcall(love, love.update, dt)
-	local lily = love._line_env.lily
+	if love.update then line.pcall(love, love.update, dt) end
 
-	if lily and lily.update then line.pcall(love, lily.update, 0.001) end
+	for _, module in ipairs(love._line_env.update_modules or {}) do
+		local update = type(module) == "table" and rawget(module, "update") or nil
+
+		if type(update) == "function" then
+			local request = rawget(module, "request")
+
+			if type(request) == "table" and next(request) ~= nil then system.Sleep(0.001) end
+
+			line.pcall(love, update, 0.001)
+		end
+	end
 end
 
 function love.line_draw(dt)

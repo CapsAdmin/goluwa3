@@ -82,17 +82,16 @@ local function polygon(mode, points, join)
 			mesh:SetVertex(i, "pos", v.x, v.y)
 		end
 	else
+		local triangulated = math2d.TriangulateCoordinates(points)
 		local draw_indices = {}
 		local vertex_count = 0
 
-		for i = 1, #points, 2 do
-			mesh:SetVertex(idx, "pos", points[i + 0], points[i + 1])
+		for i = 1, #triangulated, 2 do
+			mesh:SetVertex(idx, "pos", triangulated[i + 0], triangulated[i + 1])
 			draw_indices[#draw_indices + 1] = vertex_count
 			vertex_count = vertex_count + 1
 			idx = idx + 1
 		end
-
-		draw_indices = triangle_list_indices("triangle_fan", draw_indices)
 
 		for i, v in ipairs(draw_indices) do
 			mesh_idx:SetIndex(i, v)

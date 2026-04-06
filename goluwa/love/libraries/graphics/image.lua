@@ -12,15 +12,15 @@ local translate_wrap_mode = ctx.translate_wrap_mode
 local Image = line.TypeTemplate("Image", love)
 
 function Image:getWidth()
-	return ENV.textures[self]:GetSize().x
+	return (ENV.textures[self]:GetSize().x) / (self.dpi_scale or 1)
 end
 
 function Image:getHeight()
-	return ENV.textures[self]:GetSize().y
+	return (ENV.textures[self]:GetSize().y) / (self.dpi_scale or 1)
 end
 
 function Image:getDimensions()
-	return ENV.textures[self]:GetSize():Unpack()
+	return self:getWidth(), self:getHeight()
 end
 
 function Image:getData()
@@ -52,17 +52,21 @@ function Image:getWrap()
 	return self.wrap_s, self.wrap_t
 end
 
-function love.graphics.newImage(path)
+function love.graphics.newImage(path, settings)
 	if line.Type(path) == "Image" then return path end
 
 	local self = line.CreateObject("Image", love)
 	local tex
 	local path_type = line.Type(path)
+	settings = type(settings) == "table" and settings or {}
 	self.filter_min = ENV.graphics_filter_min
 	self.filter_mag = ENV.graphics_filter_mag
 	self.filter_anistropy = ENV.graphics_filter_anisotropy
 	self.wrap_s = "clamp"
 	self.wrap_t = "clamp"
+	self.dpi_scale = tonumber(settings.dpiscale) or 1
+
+	if self.dpi_scale <= 0 then self.dpi_scale = 1 end
 
 	if path_type == "ImageData" then
 		self.wrap_s = path.wrap_s or self.wrap_s

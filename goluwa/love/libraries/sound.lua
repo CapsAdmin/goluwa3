@@ -6,6 +6,7 @@ local love = ... or _G.love
 local ENV = love._line_env
 local ffi = require("ffi")
 love.sound = love.sound or {}
+ENV.transport_deserializers = ENV.transport_deserializers or {}
 
 local function create_buffer_stub(data, size, bits, channels, sample_rate, sample_count)
 	local buffer = {
@@ -97,6 +98,36 @@ end
 function SoundData:getSampleRate()
 	return self.buffer:GetSampleRate()
 end
+
+function SoundData:Serialize()
+	return {
+		bits = self:getBits(),
+		channels = self:getChannels(),
+		data = self:getString(),
+		rate = self:getSampleRate(),
+		sample_count = self:getSampleCount(),
+	}
+end
+
+function SoundData.Deserialize(payload, current_love)
+	local sample_count = tonumber(payload.sample_count) or 0
+	local sound = current_love.sound.newSoundData(
+		sample_count,
+		tonumber(payload.rate) or 44100,
+		tonumber(payload.bits) or 16,
+		tonumber(payload.channels) or 1
+	)
+	local raw = payload.data or ""
+	local target = sound.buffer and sound.buffer.GetData and sound.buffer:GetData() or sound.samples
+
+	if target and #raw > 0 then
+		ffi.copy(target, raw, math.min(#raw, sound:getSize()))
+	end
+
+	return sound
+end
+
+ENV.transport_deserializers.SoundData = SoundData.Deserialize
 
 function SoundData:setSample(i, sample)
 	if not self.samples then return end

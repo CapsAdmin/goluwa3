@@ -5,6 +5,108 @@ local event = import("goluwa/event.lua")
 local love = ... or _G.love
 local ENV = love._line_env
 love.window = love.window or {}
+local window_state = {
+	title = "",
+	width = 0,
+	height = 0,
+	fullscreen = false,
+	fullscreentype = "desktop",
+	vsync = 1,
+	msaa = 0,
+	fsaa = 0,
+	stencil = true,
+	depth = 0,
+	resizable = false,
+	borderless = false,
+	centered = true,
+	display = 1,
+	highdpi = false,
+	usedpiscale = true,
+	minwidth = 1,
+	minheight = 1,
+	maxwidth = 100000,
+	maxheight = 100000,
+	refreshrate = 0,
+	x = nil,
+	y = nil,
+}
+
+local function copy_table(tbl)
+	local out = {}
+
+	for key, value in pairs(tbl or {}) do
+		out[key] = value
+	end
+
+	return out
+end
+
+local function normalize_window_flags(flags, keep_existing)
+	local normalized = keep_existing and copy_table(window_state) or copy_table(window_state)
+
+	if not keep_existing then
+		normalized.fullscreen = false
+		normalized.fullscreentype = "desktop"
+		normalized.vsync = 1
+		normalized.resizable = false
+		normalized.borderless = false
+		normalized.centered = true
+		normalized.display = 1
+		normalized.highdpi = false
+		normalized.usedpiscale = true
+		normalized.refreshrate = 0
+		normalized.x = nil
+		normalized.y = nil
+	end
+
+	for key, value in pairs(flags or {}) do
+		normalized[key] = value
+	end
+
+	if normalized.fullscreen == nil then normalized.fullscreen = false end
+
+	if normalized.fullscreentype == nil then
+		normalized.fullscreentype = "desktop"
+	end
+
+	if normalized.vsync == nil then normalized.vsync = 1 end
+
+	if normalized.resizable == nil then normalized.resizable = false end
+
+	if normalized.borderless == nil then normalized.borderless = false end
+
+	if normalized.centered == nil then normalized.centered = true end
+
+	if normalized.display == nil or normalized.display < 1 then
+		normalized.display = 1
+	end
+
+	if normalized.highdpi == nil then normalized.highdpi = false end
+
+	if normalized.usedpiscale == nil then normalized.usedpiscale = true end
+
+	if normalized.refreshrate == nil then normalized.refreshrate = 0 end
+
+	if normalized.fullscreentype == "desktop" then
+		normalized.borderless = true
+	end
+
+	return normalized
+end
+
+local function get_window_size()
+	if window_state.width > 0 and window_state.height > 0 then
+		return window_state.width, window_state.height
+	end
+
+	local size = window.GetSize and window.GetSize() or nil
+
+	if size and size.x and size.y and size.x > 0 and size.y > 0 then
+		return size.x, size.y
+	end
+
+	return 0, 0
+end
 
 local function sync_window_globals(width, height)
 	line.SyncWindowGlobals(love, width, height)
@@ -40,8 +142,40 @@ local function get_default_fullscreen_mode()
 	return DEFAULT_FULLSCREEN_MODE.width, DEFAULT_FULLSCREEN_MODE.height
 end
 
+local function apply_window_mode(width, height, flags, keep_existing)
+	local mode_flags = normalize_window_flags(flags, keep_existing)
+
+	if
+		(
+			not width or
+			width <= 1 or
+			not height or
+			height <= 1
+		)
+		and
+		mode_flags.fullscreen and
+		mode_flags.fullscreentype == "desktop"
+	then
+		width, height = get_default_fullscreen_mode()
+	end
+
+	width = math.max(1, math.floor((width or window.GetSize().x or 1) + 0.5))
+	height = math.max(1, math.floor((height or window.GetSize().y or 1) + 0.5))
+	window_state = mode_flags
+	window_state.width = width
+	window_state.height = height
+	window.SetSize(Vec2(width, height))
+	sync_window_globals(width, height)
+	return true
+end
+
 function love.window.setTitle(title)
+	window_state.title = title or ""
 	window.SetTitle(title)
+end
+
+function love.window.getTitle()
+	return window.GetTitle() or window_state.title or ""
 end
 
 function love.window.setCaption(title)
@@ -49,33 +183,40 @@ function love.window.setCaption(title)
 end
 
 function love.window.getWidth()
-	return window.GetSize().x
+	local width = get_window_size()
+	return width
 end
 
 function love.window.getHeight()
-	return window.GetSize().y
+	local _, height = get_window_size()
+	return height
 end
 
 function love.window.getDimensions()
-	return window.GetSize():Unpack()
+	return get_window_size()
 end
 
 function love.window.isCreated()
 	return true
 end
 
+function love.window.isOpen()
+	local width, height = get_window_size()
+	return width > 0 and height > 0
+end
+
 local function get_window_pixel_scale()
-	local size = window.GetSize and window.GetSize() or nil
+	local width, height = get_window_size()
 	local framebuffer_size = window.GetFramebufferSize and window.GetFramebufferSize() or nil
 
-	if not size or not framebuffer_size then return 1 end
+	if not framebuffer_size then return 1 end
 
-	if not size.x or not size.y or size.x <= 0 or size.y <= 0 then return 1 end
+	if width <= 0 or height <= 0 then return 1 end
 
 	if not framebuffer_size.x or not framebuffer_size.y then return 1 end
 
-	local width_scale = framebuffer_size.x / size.x
-	local height_scale = framebuffer_size.y / size.y
+	local width_scale = framebuffer_size.x / width
+	local height_scale = framebuffer_size.y / height
 	local scale = math.max(width_scale, height_scale)
 
 	if scale <= 0 then return 1 end
@@ -94,49 +235,35 @@ end
 function love.window.setFullscreen() end
 
 function love.window.setMode(x, y, flags)
-	if
-		(
-			not x or
-			x <= 1 or
-			not y or
-			y <= 1
-		)
-		and
-		flags and
-		flags.fullscreen and
-		flags.fullscreentype == "desktop"
-	then
-		x, y = get_default_fullscreen_mode()
-	end
+	return apply_window_mode(x, y, flags, false)
+end
 
-	window.SetSize(Vec2(x, y))
-	sync_window_globals(x, y)
+function love.window.updateMode(x, y, flags)
+	return apply_window_mode(x, y, flags, true)
 end
 
 function love.window.getMode()
-	local w, h = window.GetSize():Unpack()
+	local w, h = get_window_size()
+	local position = window.GetPosition and window.GetPosition() or nil
+	local pos_x = position and position.x or window_state.x or 0
+	local pos_y = position and position.y or window_state.y or 0
 	return w,
 	h,
-	{
-		fullscreen = false,
-		vsync = false,
-		fsaa = false,
-		resizable = true,
-		borderless = true,
-		centered = false,
-		display = 0,
-		minwidth = 800,
-		maxwidth = 600,
-		highdpi = false,
-		srgb = SRGB,
-		refreshrate = 60,
-		x = window.GetPosition().x,
-		y = window.GetPosition().y,
-	}
+	setmetatable(
+		{
+			x = pos_x,
+			y = pos_y,
+		},
+		{
+			__index = function(_, key)
+				return window_state[key]
+			end,
+		}
+	)
 end
 
 function love.window.getDesktopDimensions()
-	local width, height = window.GetSize():Unpack()
+	local width, height = get_window_size()
 
 	if width <= 1 or height <= 1 then return get_default_fullscreen_mode() end
 
@@ -153,6 +280,20 @@ function love.window.getDisplayName(index)
 	return "Primary Display"
 end
 
+function love.window.toPixels(value)
+	return value * love.window.getPixelScale()
+end
+
+function love.window.fromPixels(value)
+	return value / love.window.getPixelScale()
+end
+
+function love.window.showMessageBox(_, _, buttons)
+	if type(buttons) == "table" and #buttons > 0 then return 1 end
+
+	return true
+end
+
 function love.window.setIcon() end
 
 function love.window.getIcon() end
@@ -162,5 +303,7 @@ function love.window.getFullscreenModes()
 end
 
 event.AddListener("WindowFramebufferResized", "line_window_sync_" .. tostring(love), function(_, size)
+	if line.current_game and line.current_game ~= love then return end
+
 	sync_window_globals(size.x, size.y)
 end)

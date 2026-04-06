@@ -295,6 +295,7 @@ end
 
 do -- compressed data
 	local CompressedData = line.TypeTemplate("CompressedData", love)
+	ENV.transport_deserializers = ENV.transport_deserializers or {}
 
 	function CompressedData:getWidth()
 		return self.width
@@ -312,6 +313,47 @@ do -- compressed data
 		return self.size
 	end
 
+	function CompressedData:Serialize()
+		local size = tonumber(self.data_size or self.size) or 0
+		local bytes = size > 0 and ffi.string(self.data, size) or ""
+		return {
+			data = bytes,
+			depth = self.depth,
+			format = self.format,
+			height = self.height,
+			mip_count = self.mip_count,
+			mip_info = self.mip_info,
+			reflectivity = self.reflectivity,
+			size = size,
+			vulkan_format = self.vulkan_format,
+			width = self.width,
+		}
+	end
+
+	function CompressedData.Deserialize(payload, current_love)
+		local bytes = payload.data or ""
+		local size = #bytes
+		local data = ffi.new("uint8_t[?]", math.max(size, 1))
+
+		if size > 0 then ffi.copy(data, bytes, size) end
+
+		return current_love.image.newCompressedData{
+			data = data,
+			data_size = tonumber(payload.size) or size,
+			depth = tonumber(payload.depth) or 1,
+			format = payload.format,
+			is_compressed = true,
+			height = tonumber(payload.height) or 0,
+			mip_count = tonumber(payload.mip_count) or 1,
+			mip_info = payload.mip_info,
+			reflectivity = payload.reflectivity,
+			size = tonumber(payload.size) or size,
+			vulkan_format = payload.vulkan_format,
+			width = tonumber(payload.width) or 0,
+		}
+	end
+
+	ENV.transport_deserializers.CompressedData = CompressedData.Deserialize
 	line.RegisterType(CompressedData, love)
 end
 
@@ -400,6 +442,39 @@ do -- image data
 	function ImageData:getWrap()
 		return self.wrap_s, self.wrap_t
 	end
+
+	function ImageData:Serialize()
+		local wrap_s, wrap_t = self:getWrap()
+		return {
+			height = self:getHeight(),
+			pixels = self:getString(),
+			width = self:getWidth(),
+			wrap_s = wrap_s,
+			wrap_t = wrap_t,
+		}
+	end
+
+	function ImageData.Deserialize(payload, current_love)
+		local raw_pixels = payload.pixels or ""
+		local size = #raw_pixels
+		local pixels = ffi.new("uint8_t[?]", math.max(size, 1))
+
+		if size > 0 then ffi.copy(pixels, raw_pixels, size) end
+
+		local image = current_love.image.newImageData{
+			data = pixels,
+			height = tonumber(payload.height) or 0,
+			width = tonumber(payload.width) or 0,
+		}
+
+		if payload.wrap_s and image.setWrap then
+			image:setWrap(payload.wrap_s, payload.wrap_t)
+		end
+
+		return image
+	end
+
+	ENV.transport_deserializers.ImageData = ImageData.Deserialize
 
 	function ImageData:getPixel(x, y)
 		local offset = get_offset(self, x, y)

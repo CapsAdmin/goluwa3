@@ -430,6 +430,41 @@ T.Test2D("love graphics draw image placement", function()
 	end
 end)
 
+T.Test2D("love graphics filled polygon renders solid color", function()
+	local love = new_love_graphics_env("11.0.0")
+	love.graphics.clear(0, 0, 0, 1)
+	love.graphics.setColor(1, 0, 0, 1)
+	love.graphics.polygon("fill", 32, 32, 96, 32, 96, 96, 32, 96)
+	return function()
+		T.AssertScreenPixel{pos = {64, 64}, color = {1, 0, 0, 1}, tolerance = 0.08}
+		T.AssertScreenPixel{pos = {16, 16}, color = {0, 0, 0, 1}, tolerance = 0.08}
+	end
+end)
+
+T.Test2D("love graphics filled concave polygon renders solid color", function()
+	local love = new_love_graphics_env("11.0.0")
+	love.graphics.clear(0, 0, 0, 1)
+	love.graphics.setColor(0, 0, 1, 1)
+	love.graphics.polygon("fill", 32, 32, 96, 32, 96, 48, 64, 48, 64, 96, 32, 96)
+	return function()
+		T.AssertScreenPixel{pos = {48, 80}, color = {0, 0, 1, 1}, tolerance = 0.08}
+		T.AssertScreenPixel{pos = {80, 80}, color = {0, 0, 0, 1}, tolerance = 0.08}
+	end
+end)
+
+T.Test2D("love graphics filled polygon ignores prior image texture state", function()
+	local love = new_love_graphics_env("11.0.0")
+	local image = make_quadrant_image(love)
+	love.graphics.clear(0, 0, 0, 1)
+	love.graphics.setColor(1, 1, 1, 1)
+	love.graphics.draw(image, 0, 0, 0, 16, 16)
+	love.graphics.setColor(0, 1, 0, 1)
+	love.graphics.polygon("fill", 112, 32, 176, 32, 176, 96, 112, 96)
+	return function()
+		T.AssertScreenPixel{pos = {144, 64}, color = {0, 1, 0, 1}, tolerance = 0.08}
+	end
+end)
+
 T.Test2D("love graphics mrrescue splash quad placement", function()
 	local love = new_love_graphics_env()
 	local path = "love_games/mrrescue/data/splash.png"

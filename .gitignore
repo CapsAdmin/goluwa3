@@ -5,3 +5,4 @@ local_stuff
 game/storage/*
 bin/
 love_games/*
+test/tmp/*

@@ -1,5 +1,6 @@
 local system = import("goluwa/system.lua")
 local tasks = import("goluwa/tasks.lua")
+local native_threads = import("goluwa/bindings/threads.lua")
 local love = ... or _G.love
 local ENV = love._line_env
 love.timer = love.timer or {}
@@ -31,9 +32,18 @@ function love.timer.getAverageDelta()
 end
 
 function love.timer.sleep(ms)
+	ms = tonumber(ms) or 0
+
+	if ms <= 0 then return end
+
 	local thread = love.thread.getThread()
 
 	if thread then
-		if tasks.coroutine_lookup[thread.thread] then thread.thread:Wait(ms) end
+		if thread.thread and tasks.coroutine_lookup[thread.thread] then
+			thread.thread:Wait(ms)
+			return
+		end
 	end
+
+	native_threads.sleep(ms * 1000)
 end

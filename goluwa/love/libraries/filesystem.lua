@@ -350,6 +350,16 @@ end
 do -- FileData object
 	local FileData = line.TypeTemplate("FileData", love)
 	local ffi = require("ffi")
+	ENV.transport_deserializers = ENV.transport_deserializers or {}
+
+	local function get_filedata_name(data)
+		local name = data.filename or "data"
+		local ext = data.ext
+
+		if ext and ext ~= "" then return name .. "." .. ext end
+
+		return name
+	end
 
 	function FileData:getPointer()
 		local ptr = ffi.new("uint8_t[?]", #self.contents)
@@ -372,6 +382,19 @@ do -- FileData object
 	function FileData:getFilename()
 		return self.filename
 	end
+
+	function FileData:Serialize()
+		return {
+			contents = self:getString(),
+			name = get_filedata_name(self),
+		}
+	end
+
+	function FileData.Deserialize(payload, current_love)
+		return current_love.filesystem.newFileData(payload.contents or "", payload.name or "data.bin")
+	end
+
+	ENV.transport_deserializers.FileData = FileData.Deserialize
 
 	function love.filesystem.newFileData(contents, name, decoder)
 		if name == nil and type(contents) == "string" then

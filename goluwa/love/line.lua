@@ -2,6 +2,7 @@ local pvars = import("goluwa/pvars.lua")
 local module_require = import("goluwa/require.lua")
 local event = import("goluwa/event.lua")
 local vfs = import("goluwa/vfs.lua")
+local compat = import("goluwa/love/compat.lua")
 local commands = import("goluwa/commands.lua")
 local resource = import("goluwa/resource.lua")
 local R = vfs.GetAbsolutePath
@@ -278,8 +279,19 @@ end
 
 function line.RunGame(folder, ...)
 	local love = line.CreateLoveEnv()
-	llog("mounting love game folder: ", R(folder .. "/"))
+	local game_source = assert(R(folder .. "/"))
+	llog("mounting love game folder: ", game_source)
 	assert(vfs.CreateDirectory("os:data/love/", true))
+
+	if
+		line.current_game and
+		line.current_game._line_env and
+		line.current_game._line_env.filesystem_source and
+		line.current_game._line_env.filesystem_source ~= ""
+	then
+		vfs.Unmount(line.current_game._line_env.filesystem_source)
+	end
+
 	module_require.AddSearcher(
 		module_require.MakeLuaSearcher("?.lua;?/init.lua", module_require.LoadPath),
 		love.package_loaders,
@@ -287,7 +299,7 @@ function line.RunGame(folder, ...)
 	)
 	vfs.AddModuleDirectory("lua/modules/", love.package_loaders)
 	vfs.AddModuleDirectory("data/love/", love.package_loaders)
-	vfs.Mount(assert(R(folder .. "/")))
+	vfs.Mount(game_source)
 	local os = {}
 
 	for k, v in pairs(_G.os) do
@@ -324,7 +336,7 @@ function line.RunGame(folder, ...)
 		["socket.url"] = "goluwa/sockets/luasocket/url.lua",
 		["utf8"] = "goluwa/utf8.lua",
 	}
-	love._line_env.filesystem_source = R(folder .. "/")
+	love._line_env.filesystem_source = game_source
 
 	local function prepare_module_function(func)
 		if type(func) == "function" and debug.getinfo(func).what ~= "C" then
@@ -334,21 +346,58 @@ function line.RunGame(folder, ...)
 		return func
 	end
 
+	local function register_async_update_module(value)
+		if type(value) ~= "table" then return false end
+
+		local update = rawget(value, "update")
+		local request = rawget(value, "request")
+		local threads = rawget(value, "threads")
+		local task_channel = rawget(value, "taskChannel")
+		local data_pull_channel = rawget(value, "dataPullChannel")
+
+		if
+			type(update) == "function" and
+			(
+				type(request) == "table" or
+				type(threads) == "table" or
+				(type(task_channel) == "table" and type(data_pull_channel) == "table")
+			)
+		then
+			love._line_env.update_modules = love._line_env.update_modules or {}
+
+			for _, existing in ipairs(love._line_env.update_modules) do
+				if existing == value then return true end
+			end
+
+			list.insert(love._line_env.update_modules, value)
+
+			local set_update_mode = rawget(value, "setUpdateMode")
+
+			if type(set_update_mode) == "function" and rawget(value, "updateModeChannel") ~= nil then
+				local ok = pcall(set_update_mode, "manual")
+
+				if not ok then pcall(set_update_mode, value, "manual") end
+			end
+
+			return true
+		end
+
+		return false
+	end
+
 	local function line_require(name)
+		local function finalize_required_module(module_name, value)
+			register_async_update_module(value)
+
+			return value
+		end
+
 		if name == "strict" then return true end
 
 		if name == "love" then return love end
 
-		if package_loaded[name] ~= nil then return package_loaded[name] end
-
-		local function finalize_required_module(module_name, value)
-			if module_name == "libraries.lily" and type(value) == "table" then
-				love._line_env.lily = value
-
-				if value.setUpdateMode then value.setUpdateMode("manual") end
-			end
-
-			return value
+		if package_loaded[name] ~= nil then
+			return finalize_required_module(name, package_loaded[name])
 		end
 
 		if vendored_luasocket_modules[name] then
@@ -464,7 +513,7 @@ function line.RunGame(folder, ...)
 	love.filesystem.setIdentity(get_game_identity(folder))
 
 	do -- config
-		line.config = {
+		local config = {
 			screen = {},
 			window = {},
 			modules = {},
@@ -474,24 +523,27 @@ function line.RunGame(folder, ...)
 			title = "LINE no title",
 			author = "who knows",
 		}
+		local conf_path = game_source .. "conf.lua"
 
-		if vfs.IsFile("conf.lua") then
-			local func = assert(vfs.LoadFile("conf.lua"))
+		if vfs.IsFile(conf_path) then
+			local func = assert(vfs.LoadFile(conf_path))
 			setfenv(func, env)
 			func()
 		end
 
-		love.conf(line.config)
-		apply_love_version(love, line.config.version)
+		love.conf(config)
+		love._line_env.config = config
+		apply_love_version(love, config.version)
 	end
 
-	love.filesystem.setIdentity(line.config.identity or love.filesystem.getIdentity())
+	local config = love._line_env.config
+	love.filesystem.setIdentity(config.identity or love.filesystem.getIdentity())
 
-	--check if line.config.screen exists
-	if not line.config.screen then line.config.screen = {} end
+	--check if config.screen exists
+	if not config.screen then config.screen = {} end
 
-	local w = line.config.screen.width or line.config.window.width or 800
-	local h = line.config.screen.height or line.config.window.height or 600
+	local w = config.screen.width or config.window.width or 800
+	local h = config.screen.height or config.window.height or 600
 
 	if
 		(
@@ -501,24 +553,41 @@ function line.RunGame(folder, ...)
 			h <= 1
 		)
 		and
-		line.config.window and
-		line.config.window.fullscreen and
-		line.config.window.fullscreentype == "desktop"
+		config.window and
+		config.window.fullscreen and
+		config.window.fullscreentype == "desktop"
 	then
-		local modes = love.window.getFullscreenModes(line.config.window.display)
+		local modes = love.window.getFullscreenModes(config.window.display)
 		local preferred = modes and modes[1] or nil
 		w = preferred and preferred.width or 1280
 		h = preferred and preferred.height or 720
+	elseif w == nil or w <= 1 or h == nil or h <= 1 then
+		w = config.width or 800
+		h = config.height or 600
 	end
 
-	local title = line.config.title or "Line"
+	local title = config.title or "Line"
 	love.window.setMode(w, h)
 	love.window.setTitle(title)
-	local main = assert(vfs.LoadFile("main.lua"))
+	local main = assert(vfs.LoadFile(game_source .. "main.lua"))
 	setfenv(main, env)
 	setfenv(love.line_update, env)
 	setfenv(love.line_draw, env)
 	line.pcall(love, main)
+
+	if not love._line_env.update_modules or not love._line_env.update_modules[1] then
+		for _, value in pairs(package_loaded) do
+			register_async_update_module(value)
+		end
+	end
+
+	if not love._line_env.update_modules or not love._line_env.update_modules[1] then
+		for _, value in pairs(package.loaded) do
+			register_async_update_module(value)
+		end
+	end
+
+	compat.Apply(love, env, folder)
 	line.pcall(
 		love,
 		love.load,

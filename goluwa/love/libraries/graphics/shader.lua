@@ -83,6 +83,44 @@ local function parse_default_uniform_value(kind, source)
 	return nil
 end
 
+local shader_precision_qualifiers = {
+	highp = true,
+	mediump = true,
+	lowp = true,
+	MY_HIGHP_OR_MEDIUMP = true,
+}
+
+local function parse_love_shader_uniform_declaration(declaration)
+	if not declaration then return nil end
+
+	local default_expr = declaration:match("=%s*(.+)$")
+	local head = declaration:match("^(.-)%s*=") or declaration
+	local tokens = {}
+
+	for token in head:gmatch("[%a_][%w_]*") do
+		tokens[#tokens + 1] = token
+	end
+
+	if #tokens < 2 then return nil end
+
+	local name = tokens[#tokens]
+	local kind_index = #tokens - 1
+	local kind = tokens[kind_index]
+
+	while kind_index > 1 and shader_precision_qualifiers[kind] do
+		kind_index = kind_index - 1
+		kind = tokens[kind_index]
+	end
+
+	if not kind or kind == "extern" then return nil end
+
+	return {
+		kind = kind,
+		name = name,
+		default = parse_default_uniform_value(kind, default_expr),
+	}
+end
+
 local function extract_fragment_source(source)
 	if not source then return nil, false end
 
@@ -90,6 +128,8 @@ local function extract_fragment_source(source)
 	local has_vertex = source:find("#ifdef%s+VERTEX") ~= nil
 
 	if pixel then return pixel, has_vertex end
+
+	if has_vertex then source = source:gsub("#ifdef%s+VERTEX.-#endif%s*", "") end
 
 	return source, has_vertex
 end
@@ -107,13 +147,12 @@ end
 
 local function parse_love_shader_uniforms(source)
 	local uniforms = {}
-	local stripped = source:gsub("extern%s+([%a_][%w_]*)%s+([%a_][%w_]*)%s*([^;]*);", function(kind, name, suffix)
-		local default_expr = suffix:match("=%s*(.+)$")
-		uniforms[#uniforms + 1] = {
-			kind = kind,
-			name = name,
-			default = parse_default_uniform_value(kind, default_expr),
-		}
+	local stripped = source:gsub("extern%s+([^;]+);", function(declaration)
+		local uniform = parse_love_shader_uniform_declaration(declaration)
+
+		if not uniform then return "extern " .. declaration .. ";" end
+
+		uniforms[#uniforms + 1] = uniform
 		return ""
 	end)
 	return stripped, uniforms
@@ -379,8 +418,89 @@ local function build_shader_uniform_block(obj, uniforms)
 	return block
 end
 
+local function copy_love_shader_matrix(ptr, matrix)
+	matrix:CopyToFloatPointer(ptr)
+end
+
 local function copy_love_shader_projection_matrix(ptr)
-	render2d.GetMatrix():CopyToFloatPointer(ptr)
+	copy_love_shader_matrix(ptr, render2d.GetMatrix())
+end
+
+local function copy_love_shader_projection_view_matrix(ptr)
+	copy_love_shader_matrix(ptr, render2d.GetProjectionViewMatrix())
+end
+
+local function copy_love_shader_world_matrix(ptr)
+	copy_love_shader_matrix(ptr, render2d.GetWorldMatrix())
+end
+
+local function load_shader_source_if_path(source)
+	if type(source) ~= "string" then return source end
+
+	if source:find("\n", 1, true) then return source end
+
+	if love.filesystem.getInfo(source, "file") then
+		local content = love.filesystem.read(source)
+
+		if content and content ~= "" then return content end
+	end
+
+	return source
+end
+
+local function is_balatro_shader_source(source, path_hint)
+	local identity = love and
+		love.filesystem and
+		love.filesystem.getIdentity and
+		love.filesystem.getIdentity() or
+		nil
+
+	if tostring(identity or ""):lower() == "balatro" then return true end
+
+	path_hint = tostring(path_hint or "")
+	path_hint = path_hint:gsub("\\", "/"):lower()
+	return path_hint:find("balatro/resources/shaders/", 1, true) ~= nil
+end
+
+local function patch_balatro_hover_shader_source(source, path_hint)
+	if type(source) ~= "string" or source == "" then return source end
+
+	if not is_balatro_shader_source(source, path_hint) then return source end
+
+	if not source:find("mouse_screen_pos", 1, true) then return source end
+
+	if not source:find("screen_scale", 1, true) then return source end
+
+	if not source:find("love_ScreenSize", 1, true) then return source end
+
+	if not source:find("vec4 position", 1, true) then return source end
+
+	local patched = source
+	patched = patched:gsub(
+		"vertex_position%.xy%s*%-%s*0%.5%s*%*%s*love_ScreenSize%.xy",
+		"((U.world_matrix * vertex_position).xy - 0.5*love_ScreenSize.xy)"
+	)
+	patched = patched:gsub(
+		"vertex_position%.xy%s*%-%s*mouse_screen_pos%.xy",
+		"((U.world_matrix * vertex_position).xy - mouse_screen_pos.xy)"
+	)
+	return patched
+end
+
+local function append_generated_stage(user_source, generated_source)
+	user_source = user_source or ""
+
+	if user_source ~= "" and not user_source:match("\n%s*$") then
+		user_source = user_source .. "\n"
+	end
+
+	return user_source .. generated_source
+end
+
+local function has_love_effect_function(source)
+	if not source or source == "" then return false end
+
+	return source:find("[%a_][%w_]*%s+effect%s*%(") ~= nil
 end
 
 local function build_fragment_pipeline(obj, source)
@@ -434,6 +554,13 @@ local function build_fragment_pipeline(obj, source)
 							end,
 						},
 						{
+							"world_matrix",
+							"mat4",
+							function(self, data, key)
+								copy_love_shader_world_matrix(data[key])
+							end,
+						},
+						{
 							"apply_love_depth",
 							"int",
 							function(_, data, key)
@@ -451,9 +578,10 @@ local function build_fragment_pipeline(obj, source)
 			},
 			shader = [[
 					void main() {
+						vec4 love_vertex_position = U.world_matrix * vec4(in_pos, 1.0);
 						gl_Position = U.projection_view_world * vec4(in_pos, 1.0);
 						if (U.apply_love_depth != 0) {
-							gl_Position.z = clamp(1.0 - in_pos.z, 0.0, 1.0) * gl_Position.w;
+							gl_Position.z = clamp(1.0 - love_vertex_position.z, 0.0, 1.0) * gl_Position.w;
 						}
 						out_uv = in_uv;
 						out_color = in_color;
@@ -502,7 +630,7 @@ local function build_fragment_pipeline(obj, source)
 							"uv_offset",
 							"vec2",
 							function(_, data, key)
-								local x, y = render2d.GetUV()
+								local x, y = render2d.GetUVTransform()
 								data[key][0] = x or 0
 								data[key][1] = y or 0
 							end,
@@ -511,7 +639,7 @@ local function build_fragment_pipeline(obj, source)
 							"uv_scale",
 							"vec2",
 							function(_, data, key)
-								local _, _, w, h = render2d.GetUV()
+								local _, _, w, h = render2d.GetUVTransform()
 								data[key][0] = w or 1
 								data[key][1] = h or 1
 							end,
@@ -542,7 +670,9 @@ local function build_fragment_pipeline(obj, source)
 					or
 					""
 				),
-			shader = stripped_source .. [[
+			shader = append_generated_stage(
+				stripped_source,
+				[[
 					void main() {
 						vec4 love_color = in_color * U.global_color;
 						vec2 love_texture_coords = in_uv * U.uv_scale + U.uv_offset;
@@ -550,7 +680,8 @@ local function build_fragment_pipeline(obj, source)
 						out_color.a *= U.alpha_multiplier;
 						if (U.discard_zero_alpha != 0 && out_color.a <= 0.0) discard;
 					}
-				]],
+				]]
+			),
 		},
 		rasterizer = {
 			cull_mode = "none",
@@ -604,6 +735,7 @@ local function build_vertex_fragment_pipeline(obj, source)
 
 	local cleaned_vertex, attributes = parse_love_shader_attributes(vertex_section)
 	local cleaned_fragment = fragment_section
+	local has_fragment_effect = has_love_effect_function(cleaned_fragment)
 	local image_names = collect_image_identifiers(stripped_source, uniforms)
 	cleaned_vertex = rewrite_volume_texture_fetches(cleaned_vertex, uniforms)
 	cleaned_fragment = rewrite_volume_texture_fetches(cleaned_fragment, uniforms)
@@ -655,6 +787,13 @@ local function build_vertex_fragment_pipeline(obj, source)
 							end,
 						},
 						{
+							"world_matrix",
+							"mat4",
+							function(self, data, key)
+								copy_love_shader_world_matrix(data[key])
+							end,
+						},
+						{
 							"apply_love_depth",
 							"int",
 							function(_, data, key)
@@ -671,18 +810,21 @@ local function build_vertex_fragment_pipeline(obj, source)
 			},
 			bindings = build_shader_vertex_bindings(attributes),
 			outputs = outputs,
-			shader = cleaned_vertex .. [[
+			shader = append_generated_stage(
+				cleaned_vertex,
+				[[
 					void main() {
 						out_uv = in_uv;
 						out_color = in_color;
-						vec4 love_vertex_position = vec4(in_pos, 1.0);
-						vec4 love_depth_position = position(mat4(1.0), love_vertex_position);
-						gl_Position = position(U.projection_view_world, love_vertex_position);
+						vec4 love_local_vertex_position = vec4(in_pos, 1.0);
+						vec4 love_depth_position = position(U.world_matrix, love_local_vertex_position);
+						gl_Position = position(U.projection_view_world, love_local_vertex_position);
 						if (U.apply_love_depth != 0) {
 							gl_Position.z = clamp(1.0 - love_depth_position.z, 0.0, 1.0) * gl_Position.w;
 						}
 					}
-				]],
+				]]
+			),
 		},
 		fragment = {
 			uniform_buffers = {
@@ -726,7 +868,7 @@ local function build_vertex_fragment_pipeline(obj, source)
 							"uv_offset",
 							"vec2",
 							function(_, data, key)
-								local x, y = render2d.GetUV()
+								local x, y = render2d.GetUVTransform()
 								data[key][0] = x or 0
 								data[key][1] = y or 0
 							end,
@@ -735,7 +877,7 @@ local function build_vertex_fragment_pipeline(obj, source)
 							"uv_scale",
 							"vec2",
 							function(_, data, key)
-								local _, _, w, h = render2d.GetUV()
+								local _, _, w, h = render2d.GetUVTransform()
 								data[key][0] = w or 1
 								data[key][1] = h or 1
 							end,
@@ -771,15 +913,22 @@ local function build_vertex_fragment_pipeline(obj, source)
 					or
 					""
 				),
-			shader = cleaned_fragment .. [[
+			shader = append_generated_stage(
+				cleaned_fragment,
+				[[
 					void main() {
 						vec4 love_color = in_color * U.global_color;
 						vec2 love_texture_coords = in_uv * U.uv_scale + U.uv_offset;
-						out_color = effect(love_color, U.texture_index, love_texture_coords, gl_FragCoord.xy);
+						]] .. (
+						has_fragment_effect and
+						"out_color = effect(love_color, U.texture_index, love_texture_coords, gl_FragCoord.xy);" or
+						"out_color = love_texel(U.texture_index, love_texture_coords) * love_color;"
+					) .. [[
 						out_color.a *= U.alpha_multiplier;
 						if (U.discard_zero_alpha != 0 && out_color.a <= 0.0) discard;
 					}
-				]],
+				]]
+			),
 		},
 		rasterizer = {
 			cull_mode = "none",
@@ -903,14 +1052,12 @@ function Shader:send(name, var, ...)
 end
 
 function love.graphics.newShader(frag, vert)
-	if type(frag) == "string" and frag:ends_with(".glsl") then
-		frag = love.filesystem.read(frag)
-	end
-
-	if type(vert) == "string" and vert:ends_with(".glsl") then
-		vert = love.filesystem.read(vert)
-	end
-
+	local frag_path = type(frag) == "string" and frag or nil
+	local vert_path = type(vert) == "string" and vert or nil
+	frag = load_shader_source_if_path(frag)
+	vert = load_shader_source_if_path(vert)
+	frag = patch_balatro_hover_shader_source(frag, frag_path)
+	vert = patch_balatro_hover_shader_source(vert, vert_path)
 	local obj = line.CreateObject("Shader", love)
 	obj.uniforms = {}
 	obj.uniform_names = {}

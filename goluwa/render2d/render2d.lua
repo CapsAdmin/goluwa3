@@ -1493,6 +1493,13 @@ do -- uv
 		return X, Y, W, H, SX, SY
 	end
 
+	function render2d.GetUVTransform()
+		return fragment_constants.uv_offset[0],
+		fragment_constants.uv_offset[1],
+		fragment_constants.uv_scale[0],
+		fragment_constants.uv_scale[1]
+	end
+
 	function render2d.SetUV2(u1, v1, u2, v2)
 		-- Calculate offset and scale from UV coordinates
 		fragment_constants.uv_offset[0] = u1
@@ -1548,6 +1555,10 @@ do -- camera
 
 	function render2d.GetMatrix()
 		return world_matrix_stack[world_matrix_stack_pos] * proj_view
+	end
+
+	function render2d.GetProjectionViewMatrix()
+		return proj_view
 	end
 
 	function render2d.GetSize()

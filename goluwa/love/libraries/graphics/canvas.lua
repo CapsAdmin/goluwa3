@@ -69,6 +69,18 @@ function Canvas:getDimensions()
 	return self.w, self.h
 end
 
+function Canvas:getPixelWidth()
+	return self.w
+end
+
+function Canvas:getPixelHeight()
+	return self.h
+end
+
+function Canvas:getPixelDimensions()
+	return self:getPixelWidth(), self:getPixelHeight()
+end
+
 function Canvas:getImageData(x, y, w, h)
 	local was_current = ENV.graphics_current_canvas == self
 

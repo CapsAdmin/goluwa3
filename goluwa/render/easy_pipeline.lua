@@ -77,6 +77,8 @@ function EasyPipeline.New(config)
 		vec3 = "float",
 		vec2 = "float",
 		float = "float",
+		bool = "int",
+		boolean = "int",
 		int = "int",
 		ivec4 = "int",
 		ivec3 = "int",
@@ -238,7 +240,12 @@ function EasyPipeline.New(config)
 			struct_size = math.ceil(struct_size / max_alignment) * max_alignment
 			base_alignment = max_alignment
 			size = struct_size
-		elseif glsl_type == "float" or glsl_type == "int" then
+		elseif
+			glsl_type == "float" or
+			glsl_type == "int" or
+			glsl_type == "bool" or
+			glsl_type == "boolean"
+		then
 			base_alignment = 4
 			size = 4
 		elseif glsl_type == "vec2" then
@@ -815,7 +822,6 @@ function EasyPipeline.New(config)
 
 	if config.vertex then
 		shader_outputs = config.vertex.outputs or config.vertex.attributes or {}
-
 		local vertex_bindings = config.vertex.bindings
 
 		if not vertex_bindings and config.vertex.attributes then
@@ -837,6 +843,7 @@ function EasyPipeline.New(config)
 				local resolved_binding = binding.binding
 
 				if resolved_binding == nil then resolved_binding = binding.binding_index end
+
 				if resolved_binding == nil then resolved_binding = binding_index - 1 end
 
 				for _, attribute in ipairs(binding_attributes) do

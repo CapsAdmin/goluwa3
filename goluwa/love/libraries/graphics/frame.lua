@@ -35,18 +35,24 @@ function M.Get(love)
 			return ENV.graphics_current_canvas.fb:GetColorTexture():GetSize():Unpack()
 		end
 
+		if render.GetRenderImageSize then
+			local render_size = render.GetRenderImageSize()
+
+			if
+				render_size and
+				render_size.x and
+				render_size.y and
+				render_size.x > 0 and
+				render_size.y > 0
+			then
+				return render_size.x, render_size.y
+			end
+		end
+
 		local size = window.GetSize and window.GetSize() or nil
 
 		if size and size.x and size.y and size.x > 0 and size.y > 0 then
 			return size.x, size.y
-		end
-
-		if render.GetRenderImageSize then
-			local render_size = render.GetRenderImageSize()
-
-			if render_size and render_size.x and render_size.y then
-				return render_size.x, render_size.y
-			end
 		end
 
 		local width = render.GetWidth and render.GetWidth() or 0
