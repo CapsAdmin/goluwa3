@@ -58,7 +58,7 @@ do
 end
 
 do
-	local RandomGenerator = line.TypeTemplate("RandomGenerator")
+	local RandomGenerator = line.TypeTemplate("RandomGenerator", love)
 
 	function RandomGenerator:setSeed(seed)
 		self.seed = seed
@@ -95,19 +95,19 @@ do
 	function RandomGenerator:randomNormal() end
 
 	function love.math.newRandomGenerator()
-		local self = line.CreateObject("RandomGenerator")
+		local self = line.CreateObject("RandomGenerator", love)
 		self.seed = 0
 		return self
 	end
 
-	line.RegisterType(RandomGenerator)
+	line.RegisterType(RandomGenerator, love)
 end
 
 do
-	local BezierCurve = line.TypeTemplate("BezierCurve")
+	local BezierCurve = line.TypeTemplate("BezierCurve", love)
 
 	function love.math.newBezierCurve(...)
-		local self = line.CreateObject("BezierCurve")
+		local self = line.CreateObject("BezierCurve", love)
 		local points
 
 		if ... and type(...) == "number" then
@@ -190,7 +190,7 @@ do
 		return self.obj:CreateCoordinates(accuracy, start, stop)
 	end
 
-	line.RegisterType(BezierCurve)
+	line.RegisterType(BezierCurve, love)
 end
 
 function love.math.isConvex(...)

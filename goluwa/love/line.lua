@@ -35,33 +35,64 @@ do
 
 	local created = table.weak()
 	local registered = {}
+	local created_by_love = setmetatable({}, {__mode = "k"})
+	local registered_by_love = setmetatable({}, {__mode = "k"})
 
-	function line.TypeTemplate(name)
+	local function resolve_type_love(love)
+		if type(love) == "table" and love._line_env then return love end
+
+		love = rawget(_G, "love")
+
+		if type(love) == "table" and love._line_env then return love end
+	end
+
+	local function get_created_table(love)
+		if not love then return created end
+
+		created_by_love[love] = created_by_love[love] or table.weak()
+		return created_by_love[love]
+	end
+
+	local function get_registered_table(love)
+		if not love then return registered end
+
+		registered_by_love[love] = registered_by_love[love] or {}
+		return registered_by_love[love]
+	end
+
+	function line.TypeTemplate(name, love)
 		local META = {}
 		META.__line_type = name
+		META.__line_love = resolve_type_love(love)
 		return META
 	end
 
-	function line.RegisterType(META)
+	function line.RegisterType(META, love)
+		love = resolve_type_love(love) or META.__line_love
+		META.__line_love = love
 		META.__index = META
 		META.typeOf = base_typeOf
 		META.type = base_type
-		registered[META.__line_type] = META
+		get_registered_table(love)[META.__line_type] = META
 		-- some löve scripts get it from here
 		debug.getregistry()[META.__line_type] = META
+		local created_table = get_created_table(love)
 
-		if created[META.__line_type] then
-			for i, v in ipairs(created[META.__line_type]) do
+		if created_table[META.__line_type] then
+			for i, v in ipairs(created_table[META.__line_type]) do
 				setmetatable(v, META)
 			end
 		end
 	end
 
-	function line.CreateObject(name)
-		local META = registered[name]
+	function line.CreateObject(name, love)
+		love = resolve_type_love(love)
+		local META = get_registered_table(love)[name] or registered[name]
 		local self = setmetatable({}, META)
-		created[META.__line_type] = created[META.__line_type] or {}
-		list.insert(created[META.__line_type], self)
+		self.__line_love = love or META.__line_love
+		local created_table = get_created_table(self.__line_love)
+		created_table[META.__line_type] = created_table[META.__line_type] or {}
+		list.insert(created_table[META.__line_type], self)
 		return self
 	end
 
@@ -73,13 +104,48 @@ do
 		return t
 	end
 
-	function line.GetCreatedObjects(name)
-		return created[name] or {}
+	function line.GetCreatedObjects(name, love)
+		love = resolve_type_love(love)
+		return get_created_table(love)[name] or {}
 	end
 end
 
 function line.ErrorNotSupported(str, level)
 	wlog("[line] " .. str)
+end
+
+function line.LoadLoveLibrary(love, path, ...)
+	path = line.FixPath(path)
+	love._line_env.loaded_libraries = love._line_env.loaded_libraries or {}
+	local chunk, err = loadfile(path)
+	local args = {...}
+
+	if not chunk then error(err, 2) end
+
+	local previous_love = rawget(_G, "love")
+	_G.love = love
+	local ok, result = xpcall(function()
+		return chunk(love, unpack(args))
+	end, debug.traceback)
+	_G.love = previous_love
+
+	if not ok then error(result, 0) end
+
+	love._line_env.loaded_libraries[path] = true
+	return result
+end
+
+function line.ReloadLoveLibrary(path)
+	path = line.FixPath(path)
+	local result
+
+	for _, love in ipairs(line.love_envs) do
+		if love._line_env.loaded_libraries and love._line_env.loaded_libraries[path] then
+			result = line.LoadLoveLibrary(love, path)
+		end
+	end
+
+	return result
 end
 
 function line.CreateLoveEnv(version)
@@ -89,42 +155,42 @@ function line.CreateLoveEnv(version)
 	love._line_env = {}
 	love._modules = {}
 	love.package_loaders = {}
-	assert(loadfile("goluwa/love/libraries/arg.lua"))(love)
+	line.LoadLoveLibrary(love, "goluwa/love/libraries/arg.lua")
 	love._modules.arg = true
-	assert(loadfile("goluwa/love/libraries/event.lua"))(love)
+	line.LoadLoveLibrary(love, "goluwa/love/libraries/event.lua")
 	love._modules.event = true
-	assert(loadfile("goluwa/love/libraries/graphics.lua"))(love)
+	line.LoadLoveLibrary(love, "goluwa/love/libraries/graphics.lua")
 	love._modules.graphics = true
-	assert(loadfile("goluwa/love/libraries/joystick.lua"))(love)
+	line.LoadLoveLibrary(love, "goluwa/love/libraries/joystick.lua")
 	love._modules.joystick = true
-	assert(loadfile("goluwa/love/libraries/love.lua"))(love)
-	assert(loadfile("goluwa/love/libraries/mouse.lua"))(love)
+	line.LoadLoveLibrary(love, "goluwa/love/libraries/love.lua")
+	line.LoadLoveLibrary(love, "goluwa/love/libraries/mouse.lua")
 	love._modules.mouse = true
-	assert(loadfile("goluwa/love/libraries/physics.lua"))(love)
+	line.LoadLoveLibrary(love, "goluwa/love/libraries/physics.lua")
 	love._modules.physics = true
-	assert(loadfile("goluwa/love/libraries/system.lua"))(love)
+	line.LoadLoveLibrary(love, "goluwa/love/libraries/system.lua")
 	love._modules.system = true
-	assert(loadfile("goluwa/love/libraries/timer.lua"))(love)
+	line.LoadLoveLibrary(love, "goluwa/love/libraries/timer.lua")
 	love._modules.timer = true
-	assert(loadfile("goluwa/love/libraries/audio.lua"))(love)
+	line.LoadLoveLibrary(love, "goluwa/love/libraries/audio.lua")
 	love._modules.audio = true
-	assert(loadfile("goluwa/love/libraries/filesystem.lua"))(love)
+	line.LoadLoveLibrary(love, "goluwa/love/libraries/filesystem.lua")
 	love._modules.filesystem = true
-	assert(loadfile("goluwa/love/libraries/data.lua"))(love)
+	line.LoadLoveLibrary(love, "goluwa/love/libraries/data.lua")
 	love._modules.data = true
-	assert(loadfile("goluwa/love/libraries/image_data.lua"))(love)
+	line.LoadLoveLibrary(love, "goluwa/love/libraries/image_data.lua")
 	love._modules.image = true
-	assert(loadfile("goluwa/love/libraries/keyboard.lua"))(love)
+	line.LoadLoveLibrary(love, "goluwa/love/libraries/keyboard.lua")
 	love._modules.keyboard = true
-	assert(loadfile("goluwa/love/libraries/math.lua"))(love)
+	line.LoadLoveLibrary(love, "goluwa/love/libraries/math.lua")
 	love._modules.math = true
-	assert(loadfile("goluwa/love/libraries/particles.lua"))(love)
+	line.LoadLoveLibrary(love, "goluwa/love/libraries/particles.lua")
 	love._modules.particles = true
-	assert(loadfile("goluwa/love/libraries/sound.lua"))(love)
+	line.LoadLoveLibrary(love, "goluwa/love/libraries/sound.lua")
 	love._modules.sound = true
-	assert(loadfile("goluwa/love/libraries/thread.lua"))(love)
+	line.LoadLoveLibrary(love, "goluwa/love/libraries/thread.lua")
 	love._modules.thread = true
-	assert(loadfile("goluwa/love/libraries/window.lua"))(love)
+	line.LoadLoveLibrary(love, "goluwa/love/libraries/window.lua")
 	love._modules.window = true
 	list.insert(line.love_envs, love)
 	setmetatable(

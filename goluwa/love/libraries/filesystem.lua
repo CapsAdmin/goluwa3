@@ -247,7 +247,7 @@ function love.filesystem.append(name, data, size) end
 function love.filesystem.setSymlinksEnabled() end
 
 do -- File object
-	local File = line.TypeTemplate("File")
+	local File = line.TypeTemplate("File", love)
 
 	function File:close()
 		if not self.file then return end
@@ -336,7 +336,7 @@ do -- File object
 	end
 
 	function love.filesystem.newFile(path, mode)
-		local self = line.CreateObject("File")
+		local self = line.CreateObject("File", love)
 		self.path = path
 
 		if mode then self:open(mode) end
@@ -344,11 +344,11 @@ do -- File object
 		return self
 	end
 
-	line.RegisterType(File)
+	line.RegisterType(File, love)
 end
 
 do -- FileData object
-	local FileData = line.TypeTemplate("FileData")
+	local FileData = line.TypeTemplate("FileData", love)
 	local ffi = require("ffi")
 
 	function FileData:getPointer()
@@ -381,7 +381,7 @@ do -- FileData object
 			love.filesystem.write(name, contents)
 		end
 
-		local self = line.CreateObject("FileData")
+		local self = line.CreateObject("FileData", love)
 		self.contents = contents
 		self.filename = name or "data"
 		self.filename, self.ext = self.filename:match("(.+)%.(.+)")
@@ -394,7 +394,7 @@ do -- FileData object
 		return self
 	end
 
-	line.RegisterType(FileData)
+	line.RegisterType(FileData, love)
 end
 
 event.AddListener("LoveNewIndex", "line_filesystem", function(love, key, val)

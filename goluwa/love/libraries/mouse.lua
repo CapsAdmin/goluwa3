@@ -61,16 +61,16 @@ function love.mouse.setRelativeMode(b)
 end
 
 love.mouse.setGrabbed = love.mouse.setRelativeMode
-local Cursor = line.TypeTemplate("Cursor")
-line.RegisterType(Cursor)
+local Cursor = line.TypeTemplate("Cursor", love)
+line.RegisterType(Cursor, love)
 
 function love.mouse.newCursor()
-	local obj = line.CreateObject("Cursor")
+	local obj = line.CreateObject("Cursor", love)
 	return obj
 end
 
 function love.mouse.getCursor()
-	local obj = line.CreateObject("Cursor")
+	local obj = line.CreateObject("Cursor", love)
 	obj.getType = function()
 		return window.GetCursor()
 	end
@@ -83,7 +83,7 @@ function love.mouse.setCursor(cursor)
 end
 
 function love.mouse.getSystemCursor(name)
-	local obj = line.CreateObject("Cursor")
+	local obj = line.CreateObject("Cursor", love)
 	obj.getType = function()
 		return name or "arrow"
 	end

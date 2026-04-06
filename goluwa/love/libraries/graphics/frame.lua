@@ -1,8 +1,33 @@
 local render = import("goluwa/render/render.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local window = import("goluwa/window.lua")
-return function(ctx)
-	local love = ctx.love
+local shared = import("goluwa/love/libraries/graphics/shared.lua")
+-- frame.lua is loaded both through line.LoadLoveLibrary and import(), so the
+-- helper/cache state must stay shared across both paths.
+local state = rawget(_G, "__goluwa_love_graphics_frame_module")
+
+if not state then
+	state = {
+		M = {},
+		cache = setmetatable({}, {__mode = "k"}),
+	}
+	rawset(_G, "__goluwa_love_graphics_frame_module", state)
+end
+
+local M = state.M
+local cache = state.cache
+local love = ...
+
+if type(love) == "string" then love = nil end
+
+love = love or _G.love
+
+function M.Get(love)
+	local helpers = cache[love]
+
+	if helpers then return helpers end
+
+	local ctx = shared.Get(love)
 	local ENV = ctx.ENV
 
 	local function get_main_surface_dimensions()
@@ -154,14 +179,24 @@ return function(ctx)
 		}
 	end
 
-	render2d.on_missing_command = begin_temporary_frame
-	ctx.get_main_surface_dimensions = get_main_surface_dimensions
-	ctx.begin_temporary_frame = begin_temporary_frame
-	ctx.draw_clear_rect = draw_clear_rect
-	ctx.clear_active_target = clear_active_target
-	ctx.mark_depth_target_initialized = mark_depth_target_initialized
-	ctx.ensure_love_depth_target_initialized = ensure_love_depth_target_initialized
-	ctx.clear_love_stencil_target = clear_love_stencil_target
+	helpers = {
+		get_main_surface_dimensions = get_main_surface_dimensions,
+		begin_temporary_frame = begin_temporary_frame,
+		draw_clear_rect = draw_clear_rect,
+		clear_active_target = clear_active_target,
+		mark_depth_target_initialized = mark_depth_target_initialized,
+		ensure_love_depth_target_initialized = ensure_love_depth_target_initialized,
+		clear_love_stencil_target = clear_love_stencil_target,
+	}
+	cache[love] = helpers
+	return helpers
+end
+
+function M.Install(love)
+	local ctx = shared.Get(love)
+	local ENV = ctx.ENV
+	local helpers = M.Get(love)
+	render2d.on_missing_command = helpers.begin_temporary_frame
 
 	function love.graphics.present()
 		if not ENV.graphics_manual_frame_active then return end
@@ -173,3 +208,7 @@ return function(ctx)
 
 	function love.graphics.setIcon() end
 end
+
+if type(love) == "table" and love._line_env then M.Install(love) end
+
+return M

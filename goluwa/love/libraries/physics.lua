@@ -43,7 +43,7 @@ function Shape:getRadius()
 end
 
 local function shape_template(name)
-	local meta = line.TypeTemplate(name .. "Shape")
+	local meta = line.TypeTemplate(name .. "Shape", love)
 	meta.ShapeType = name:lower()
 
 	for k, v in pairs(Shape) do
@@ -64,7 +64,7 @@ do
 		return self.radius
 	end
 
-	line.RegisterType(CircleShape)
+	line.RegisterType(CircleShape, love)
 
 	function love.physics.newCircleShape(a, b, c)
 		local x, y
@@ -80,7 +80,7 @@ do
 			radius = c
 		end
 
-		local self = line.CreateObject("CircleShape")
+		local self = line.CreateObject("CircleShape", love)
 		self.radius = radius
 		self.x = x
 		self.y = y
@@ -95,10 +95,10 @@ do
 		return unpack(self.points)
 	end
 
-	line.RegisterType(EdgeShape)
+	line.RegisterType(EdgeShape, love)
 
 	function love.physics.newEdgeShape(x1, y1, x2, y2)
-		local self = line.CreateObject("EdgeShape")
+		local self = line.CreateObject("EdgeShape", love)
 		self.points = {x1, y1, x2, y2}
 		return self
 	end
@@ -111,16 +111,16 @@ do
 		return unpack(self.points)
 	end
 
-	line.RegisterType(PolygonShape)
+	line.RegisterType(PolygonShape, love)
 
 	function love.physics.newPolygonShape(...)
-		local self = line.CreateObject("PolygonShape")
+		local self = line.CreateObject("PolygonShape", love)
 		self.points = {...}
 		return self
 	end
 
 	function love.physics.newRectangleShape(...)
-		local self = line.CreateObject("PolygonShape")
+		local self = line.CreateObject("PolygonShape", love)
 		self.points = {...}
 		return self
 	end

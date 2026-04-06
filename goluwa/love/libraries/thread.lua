@@ -6,12 +6,11 @@ local ENV = love._line_env
 love.thread = love.thread or {}
 ENV.threads = ENV.threads or {}
 ENV.threads2 = ENV.threads2 or {}
-local Thread = line.TypeTemplate("Thread")
+local Thread = line.TypeTemplate("Thread", love)
 
 local function make_thread_ffi_proxy()
 	local ffi = require("ffi")
 	local seen_cdefs = {}
-
 	return setmetatable(
 		{
 			cdef = function(def)
@@ -39,20 +38,22 @@ local function make_thread_env(base_env)
 	local thread_ffi = make_thread_ffi_proxy()
 	local thread_env = {}
 	local loaded_modules = {}
-
 	thread_env.require = function(name)
 		if name == "ffi" then return thread_ffi end
+
 		if name == "love" then return base_env.love end
 
 		local love_library = name:match("^love%.(.+)$")
 
-		if love_library and base_env.love[love_library] then return base_env.love[love_library] end
+		if love_library and base_env.love[love_library] then
+			return base_env.love[love_library]
+		end
 
 		if loaded_modules[name] ~= nil then return loaded_modules[name] end
 
 		local base_path = name:gsub("%.", "/")
 
-		for _, candidate in ipairs({base_path .. ".lua", base_path .. "/init.lua"}) do
+		for _, candidate in ipairs{base_path .. ".lua", base_path .. "/init.lua"} do
 			if base_env.love.filesystem.getInfo(candidate, "file") then
 				local func, err = base_env.love.filesystem.load(candidate)
 
@@ -71,14 +72,9 @@ local function make_thread_env(base_env)
 		return base_env.require(name)
 	end
 	setfenv(thread_env.require, thread_env)
-
-	setmetatable(
-		thread_env,
-		{
-			__index = base_env,
-		}
-	)
-
+	setmetatable(thread_env, {
+		__index = base_env,
+	})
 	thread_env._G = thread_env
 	return thread_env
 end
@@ -132,7 +128,7 @@ end
 function Thread:getError(name) end
 
 function love.thread.newThread(name, script_path)
-	local self = line.CreateObject("Thread")
+	local self = line.CreateObject("Thread", love)
 	self.vars = {}
 	local env = make_thread_env(getfenv(2))
 	local func = love.filesystem.load(script_path or name)
@@ -169,9 +165,9 @@ function love.thread.getThreads()
 	return ENV.threads
 end
 
-line.RegisterType(Thread)
+line.RegisterType(Thread, love)
 ENV.channels = {}
-local Channel = line.TypeTemplate("Channel")
+local Channel = line.TypeTemplate("Channel", love)
 
 function Channel:clear()
 	list.clear(self.queue)
@@ -209,7 +205,7 @@ function Channel:supply(value)
 	return self:push(value)
 end -- supposedly blocking
 function love.thread.newChannel()
-	local self = line.CreateObject("Channel")
+	local self = line.CreateObject("Channel", love)
 	self.queue = {}
 	return self
 end
@@ -222,4 +218,4 @@ function love.thread.getChannel(name)
 	return ENV.channels[name]
 end
 
-line.RegisterType(Channel)
+line.RegisterType(Channel, love)

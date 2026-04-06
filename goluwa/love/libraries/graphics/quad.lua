@@ -1,59 +1,16 @@
 local line = import("goluwa/love/line.lua")
-return function(ctx)
-	local love = ctx.love
-	local ENV = ctx.ENV
+local shared = import("goluwa/love/libraries/graphics/shared.lua")
+local love = ...
 
-	local function drawable_uses_linear_filter(drawable)
-		local min = drawable and drawable.filter_min or ENV.graphics_filter_min
-		local mag = drawable and drawable.filter_mag or min or ENV.graphics_filter_mag
-		return min == "linear" or mag == "linear"
-	end
+if type(love) == "string" then love = nil end
 
-	local function get_quad_uv_rect(drawable, quad)
-		local sample_x = quad.x
-		local sample_y = quad.y
-		local sample_w = quad.w
-		local sample_h = quad.h
+love = love or _G.love
 
-		if drawable_uses_linear_filter(drawable) then
-			local inset_x = math.min(0.5, quad.w / 2)
-			local inset_y = math.min(0.5, quad.h / 2)
-			sample_x = sample_x + inset_x
-			sample_y = sample_y + inset_y
-			sample_w = math.max(quad.w - (inset_x * 2), 0)
-			sample_h = math.max(quad.h - (inset_y * 2), 0)
-		end
-
-		return sample_x, sample_y, sample_w, sample_h
-	end
-
-	local function get_quad_draw_rect(drawable, quad, x, y, sx, sy, ox, oy, r, kx, ky)
-		local draw_x = x
-		local draw_y = y
-		local draw_w = quad.w * sx
-		local draw_h = quad.h * sy
-
-		if
-			drawable_uses_linear_filter(drawable) and
-			r == 0 and
-			kx == 0 and
-			ky == 0 and
-			ox == 0 and
-			oy == 0 and
-			sx >= 0 and
-			sy >= 0
-		then
-			draw_x = draw_x - 0.5
-			draw_y = draw_y - 0.5
-			draw_w = draw_w + 1
-			draw_h = draw_h + 1
-		end
-
-		return draw_x, draw_y, draw_w, draw_h
-	end
+local ctx = shared.Get(love)
+local ENV = ctx.ENV
 
 	do
-		local Quad = line.TypeTemplate("Quad")
+		local Quad = line.TypeTemplate("Quad", love)
 
 		local function refresh(vertices, x, y, w, h, sw, sh)
 			vertices[0].x = 0
@@ -89,7 +46,7 @@ return function(ctx)
 		end
 
 		function love.graphics.newQuad(x, y, w, h, sw, sh)
-			local self = line.CreateObject("Quad")
+			local self = line.CreateObject("Quad", love)
 			local vertices = {}
 
 			if type(sw) == "table" and sh == nil then
@@ -117,9 +74,7 @@ return function(ctx)
 			return self
 		end
 
-		line.RegisterType(Quad)
+		line.RegisterType(Quad, love)
 	end
 
-	ctx.get_quad_uv_rect = get_quad_uv_rect
-	ctx.get_quad_draw_rect = get_quad_draw_rect
-end
+return love.graphics

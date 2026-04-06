@@ -55,7 +55,7 @@ local function copy_pixels(source, size)
 end
 
 local function create_image_data(width, height, pixels)
-	local self = line.CreateObject("ImageData")
+	local self = line.CreateObject("ImageData", love)
 	self.width = width
 	self.height = height
 	self.size = width * height * 4
@@ -91,7 +91,7 @@ local function get_source_size(source)
 end
 
 local function create_compressed_data(decoded)
-	local self = line.CreateObject("CompressedData")
+	local self = line.CreateObject("CompressedData", love)
 	self.width = decoded.width
 	self.height = decoded.height
 	self.depth = decoded.depth or 1
@@ -294,7 +294,7 @@ function love.image.newCompressedData(source)
 end
 
 do -- compressed data
-	local CompressedData = line.TypeTemplate("CompressedData")
+	local CompressedData = line.TypeTemplate("CompressedData", love)
 
 	function CompressedData:getWidth()
 		return self.width
@@ -312,11 +312,11 @@ do -- compressed data
 		return self.size
 	end
 
-	line.RegisterType(CompressedData)
+	line.RegisterType(CompressedData, love)
 end
 
 do -- image data
-	local ImageData = line.TypeTemplate("ImageData")
+	local ImageData = line.TypeTemplate("ImageData", love)
 
 	local function get_offset(self, x, y)
 		x = math.floor(tonumber(x) or 0)
@@ -457,5 +457,5 @@ do -- image data
 		error("unsupported ImageData source: " .. tostring(a), 2)
 	end
 
-	line.RegisterType(ImageData)
+	line.RegisterType(ImageData, love)
 end

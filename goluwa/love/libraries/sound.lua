@@ -56,7 +56,7 @@ local function create_buffer_stub(data, size, bits, channels, sample_rate, sampl
 	return buffer
 end
 
-local SoundData = line.TypeTemplate("SoundData")
+local SoundData = line.TypeTemplate("SoundData", love)
 
 function SoundData:getPointer()
 	return self.samples
@@ -124,7 +124,7 @@ local function get_format(channels, bits)
 end
 
 function love.sound.newSoundData(samples, rate, bits, channels)
-	local self = line.CreateObject("SoundData")
+	local self = line.CreateObject("SoundData", love)
 	rate = rate or 44100
 	bits = bits or 16
 	channels = channels or 1
@@ -164,8 +164,8 @@ function love.sound.newSoundData(samples, rate, bits, channels)
 	return self
 end
 
-line.RegisterType(SoundData)
-local Decoder = line.TypeTemplate("Decoder")
+line.RegisterType(SoundData, love)
+local Decoder = line.TypeTemplate("Decoder", love)
 
 function Decoder:getDepth()
 	return 8
@@ -188,7 +188,7 @@ function Decoder:getSampleRate()
 end
 
 function love.sound.newDecoder(file, buffer_size)
-	local self = line.CreateObject("Decoder")
+	local self = line.CreateObject("Decoder", love)
 	self.info = {channels = 2, samplerate = 44100}
 	self.length = 0
 	local source = file
@@ -209,4 +209,4 @@ function love.sound.newDecoder(file, buffer_size)
 	return self
 end
 
-line.RegisterType(Decoder)
+line.RegisterType(Decoder, love)

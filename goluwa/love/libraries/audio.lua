@@ -12,7 +12,7 @@ if audio.Initialize and not audio.initialized then audio.Initialize() end
 local function get_source_count()
 	local count = 0
 
-	for _ in pairs(line.GetCreatedObjects("Source")) do
+	for _ in pairs(line.GetCreatedObjects("Source", love)) do
 		count = count + 1
 	end
 
@@ -46,25 +46,25 @@ function love.audio.getVolume()
 end
 
 function love.audio.pause()
-	for k, v in pairs(line.GetCreatedObjects("Source")) do
+	for k, v in pairs(line.GetCreatedObjects("Source", love)) do
 		v:pause()
 	end
 end
 
 function love.audio.play()
-	for k, v in pairs(line.GetCreatedObjects("Source")) do
+	for k, v in pairs(line.GetCreatedObjects("Source", love)) do
 		v:play()
 	end
 end
 
 function love.audio.resume()
-	for k, v in pairs(line.GetCreatedObjects("Source")) do
+	for k, v in pairs(line.GetCreatedObjects("Source", love)) do
 		v:resume()
 	end
 end
 
 function love.audio.rewind()
-	for k, v in pairs(line.GetCreatedObjects("Source")) do
+	for k, v in pairs(line.GetCreatedObjects("Source", love)) do
 		v:rewind()
 	end
 end
@@ -102,13 +102,13 @@ function love.audio.newFilter(...) --line only
 end
 
 function love.audio.stop()
-	for k, v in pairs(line.GetCreatedObjects("Source")) do
+	for k, v in pairs(line.GetCreatedObjects("Source", love)) do
 		v:stop()
 	end
 end
 
 do -- Source
-	local Source = line.TypeTemplate("Source")
+	local Source = line.TypeTemplate("Source", love)
 
 	function Source:getChannels()
 		if self.source and self.source.GetChannels then
@@ -313,7 +313,7 @@ do -- Source
 	end
 
 	function love.audio.newSource(var, type)
-		local self = line.CreateObject("Source")
+		local self = line.CreateObject("Source", love)
 
 		if audio.Initialize and not audio.initialized then audio.Initialize() end
 
@@ -355,5 +355,5 @@ do -- Source
 		return self
 	end
 
-	line.RegisterType(Source)
+	line.RegisterType(Source, love)
 end
