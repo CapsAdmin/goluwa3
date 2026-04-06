@@ -11,6 +11,51 @@ local VkDeviceSizeArray1 = vulkan.T.Array(vulkan.vk.VkDeviceSize, 1)
 local UInt32Array = ffi.typeof("uint32_t[?]")
 local UInt32Array1 = ffi.typeof("uint32_t[1]")
 
+local function normalize_bool(value)
+	return value ~= nil and value ~= false and value ~= 0
+end
+
+local function clone_state_value(value)
+	if type(value) ~= "table" then return value end
+
+	local copy = {}
+
+	for key, entry in pairs(value) do
+		copy[key] = clone_state_value(entry)
+	end
+
+	return copy
+end
+
+local function state_value_equals(a, b)
+	local ta = type(a)
+	local tb = type(b)
+
+	if ta ~= tb then return false end
+
+	if ta ~= "table" then return a == b end
+
+	for key, value in pairs(a) do
+		if not state_value_equals(value, b[key]) then return false end
+	end
+
+	for key in pairs(b) do
+		if a[key] == nil then return false end
+	end
+
+	return true
+end
+
+local function should_apply_dynamic_state(self, key, value)
+	self.dynamic_state_cache = self.dynamic_state_cache or {}
+	local cached = self.dynamic_state_cache[key]
+
+	if cached ~= nil and state_value_equals(cached, value) then return false end
+
+	self.dynamic_state_cache[key] = clone_state_value(value)
+	return true
+end
+
 local function get_view_samples(view)
 	if view and view.image and view.image.samples then return view.image.samples end
 
@@ -42,6 +87,8 @@ function CommandBuffer:OnRemove()
 end
 
 function CommandBuffer:Begin()
+	self.bound_pipelines = {}
+	self.dynamic_state_cache = {}
 	vulkan.assert(
 		vulkan.lib.vkBeginCommandBuffer(self.ptr[0], vulkan.vk.s.CommandBufferBeginInfo{
 			flags = "one_time_submit",
@@ -51,6 +98,8 @@ function CommandBuffer:Begin()
 end
 
 function CommandBuffer:Reset()
+	self.bound_pipelines = {}
+	self.dynamic_state_cache = {}
 	vulkan.lib.vkResetCommandBuffer(self.ptr[0], 0)
 end
 
@@ -223,7 +272,12 @@ function CommandBuffer:EndRendering()
 end
 
 function CommandBuffer:BindPipeline(pipeline, bind_point)
+	self.bound_pipelines = self.bound_pipelines or {}
+
+	if self.bound_pipelines[bind_point] == pipeline then return end
+
 	vulkan.lib.vkCmdBindPipeline(self.ptr[0], vulkan.vk.e.VkPipelineBindPoint(bind_point), pipeline.ptr[0])
+	self.bound_pipelines[bind_point] = pipeline
 end
 
 function CommandBuffer:BindVertexBuffers(firstBinding, buffers, offsets)
@@ -317,6 +371,10 @@ function CommandBuffer:DrawMeshTasks(groupCountX, groupCountY, groupCountZ)
 end
 
 function CommandBuffer:SetCullMode(cull_mode)
+	if not should_apply_dynamic_state(self, "cull_mode", cull_mode or "back") then
+		return
+	end
+
 	local mode = vulkan.vk.e.VkCullModeFlagBits(cull_mode or "back")
 
 	if vulkan.ext.vkCmdSetCullModeEXT then
@@ -326,13 +384,173 @@ function CommandBuffer:SetCullMode(cull_mode)
 	end
 end
 
+local function normalize_color_write_mask(mask)
+	if type(mask) ~= "table" then return mask or 0 end
+
+	local bits = 0
+
+	for i = 1, #mask do
+		local channel = mask[i]
+
+		if type(channel) == "string" then
+			channel = channel:lower()
+
+			if channel == "r" then
+				bits = bit.bor(bits, 1)
+			elseif channel == "g" then
+				bits = bit.bor(bits, 2)
+			elseif channel == "b" then
+				bits = bit.bor(bits, 4)
+			elseif channel == "a" then
+				bits = bit.bor(bits, 8)
+			end
+		elseif type(channel) == "number" then
+			bits = bit.bor(bits, channel)
+		end
+	end
+
+	return bits
+end
+
+function CommandBuffer:SetFrontFace(front_face)
+	if not should_apply_dynamic_state(self, "front_face", front_face or "clockwise") then
+		return
+	end
+
+	local face = vulkan.vk.e.VkFrontFace(front_face or "clockwise")
+
+	if vulkan.ext.vkCmdSetFrontFaceEXT then
+		vulkan.ext.vkCmdSetFrontFaceEXT(self.ptr[0], face)
+	elseif vulkan.lib.vkCmdSetFrontFace then
+		vulkan.lib.vkCmdSetFrontFace(self.ptr[0], face)
+	end
+end
+
+function CommandBuffer:SetDepthTestEnable(enabled)
+	if
+		not should_apply_dynamic_state(self, "depth_test_enable", normalize_bool(enabled))
+	then
+		return
+	end
+
+	if vulkan.ext.vkCmdSetDepthTestEnableEXT then
+		vulkan.ext.vkCmdSetDepthTestEnableEXT(self.ptr[0], normalize_bool(enabled) and 1 or 0)
+	elseif vulkan.lib.vkCmdSetDepthTestEnable then
+		vulkan.lib.vkCmdSetDepthTestEnable(self.ptr[0], normalize_bool(enabled) and 1 or 0)
+	end
+end
+
+function CommandBuffer:SetDepthWriteEnable(enabled)
+	if
+		not should_apply_dynamic_state(self, "depth_write_enable", normalize_bool(enabled))
+	then
+		return
+	end
+
+	if vulkan.ext.vkCmdSetDepthWriteEnableEXT then
+		vulkan.ext.vkCmdSetDepthWriteEnableEXT(self.ptr[0], normalize_bool(enabled) and 1 or 0)
+	elseif vulkan.lib.vkCmdSetDepthWriteEnable then
+		vulkan.lib.vkCmdSetDepthWriteEnable(self.ptr[0], normalize_bool(enabled) and 1 or 0)
+	end
+end
+
+function CommandBuffer:SetDepthCompareOp(compare_op)
+	if not should_apply_dynamic_state(self, "depth_compare_op", compare_op or "less") then
+		return
+	end
+
+	local op = vulkan.vk.e.VkCompareOp(compare_op or "less")
+
+	if vulkan.ext.vkCmdSetDepthCompareOpEXT then
+		vulkan.ext.vkCmdSetDepthCompareOpEXT(self.ptr[0], op)
+	elseif vulkan.lib.vkCmdSetDepthCompareOp then
+		vulkan.lib.vkCmdSetDepthCompareOp(self.ptr[0], op)
+	end
+end
+
+function CommandBuffer:SetDepthBiasEnable(enabled)
+	if
+		not should_apply_dynamic_state(self, "depth_bias_enable", normalize_bool(enabled))
+	then
+		return
+	end
+
+	if vulkan.ext.vkCmdSetDepthBiasEnableEXT then
+		vulkan.ext.vkCmdSetDepthBiasEnableEXT(self.ptr[0], normalize_bool(enabled) and 1 or 0)
+	elseif vulkan.lib.vkCmdSetDepthBiasEnable then
+		vulkan.lib.vkCmdSetDepthBiasEnable(self.ptr[0], normalize_bool(enabled) and 1 or 0)
+	end
+end
+
+function CommandBuffer:SetDepthBias(constant_factor, clamp, slope_factor)
+	if
+		not should_apply_dynamic_state(self, "depth_bias", {constant_factor or 0, clamp or 0, slope_factor or 0})
+	then
+		return
+	end
+
+	vulkan.lib.vkCmdSetDepthBias(self.ptr[0], constant_factor or 0, clamp or 0, slope_factor or 0)
+end
+
+function CommandBuffer:SetPrimitiveRestartEnable(enabled)
+	if
+		not should_apply_dynamic_state(self, "primitive_restart_enable", normalize_bool(enabled))
+	then
+		return
+	end
+
+	if vulkan.ext.vkCmdSetPrimitiveRestartEnableEXT then
+		vulkan.ext.vkCmdSetPrimitiveRestartEnableEXT(self.ptr[0], normalize_bool(enabled) and 1 or 0)
+	elseif vulkan.lib.vkCmdSetPrimitiveRestartEnable then
+		vulkan.lib.vkCmdSetPrimitiveRestartEnable(self.ptr[0], normalize_bool(enabled) and 1 or 0)
+	end
+end
+
+function CommandBuffer:SetRasterizerDiscardEnable(enabled)
+	if
+		not should_apply_dynamic_state(self, "rasterizer_discard_enable", normalize_bool(enabled))
+	then
+		return
+	end
+
+	if vulkan.ext.vkCmdSetRasterizerDiscardEnableEXT then
+		vulkan.ext.vkCmdSetRasterizerDiscardEnableEXT(self.ptr[0], normalize_bool(enabled) and 1 or 0)
+	elseif vulkan.lib.vkCmdSetRasterizerDiscardEnable then
+		vulkan.lib.vkCmdSetRasterizerDiscardEnable(self.ptr[0], normalize_bool(enabled) and 1 or 0)
+	end
+end
+
+function CommandBuffer:SetDepthClampEnable(enabled)
+	if
+		not should_apply_dynamic_state(self, "depth_clamp_enable", normalize_bool(enabled))
+	then
+		return
+	end
+
+	if vulkan.ext.vkCmdSetDepthClampEnableEXT then
+		vulkan.ext.vkCmdSetDepthClampEnableEXT(self.ptr[0], normalize_bool(enabled) and 1 or 0)
+	elseif vulkan.lib.vkCmdSetDepthClampEnable then
+		vulkan.lib.vkCmdSetDepthClampEnable(self.ptr[0], normalize_bool(enabled) and 1 or 0)
+	end
+end
+
 function CommandBuffer:SetPolygonMode(polygon_mode)
+	if not should_apply_dynamic_state(self, "polygon_mode", polygon_mode or "fill") then
+		return
+	end
+
 	if vulkan.ext.vkCmdSetPolygonModeEXT then
 		vulkan.ext.vkCmdSetPolygonModeEXT(self.ptr[0], vulkan.vk.e.VkPolygonMode(polygon_mode or "fill"))
 	end
 end
 
 function CommandBuffer:SetPrimitiveTopology(topology)
+	if
+		not should_apply_dynamic_state(self, "primitive_topology", topology or "triangle_list")
+	then
+		return
+	end
+
 	local topo = vulkan.vk.e.VkPrimitiveTopology(topology or "triangle_list")
 
 	if vulkan.ext.vkCmdSetPrimitiveTopologyEXT then
@@ -345,6 +563,17 @@ end
 function CommandBuffer:SetViewport(x, y, width, height, minDepth, maxDepth)
 	assert(width > 0)
 	assert(height > 0)
+
+	if
+		not should_apply_dynamic_state(
+			self,
+			"viewport0",
+			{x or 0.0, y or 0.0, width, height, minDepth or 0.0, maxDepth or 1.0}
+		)
+	then
+		return
+	end
+
 	vulkan.lib.vkCmdSetViewport(
 		self.ptr[0],
 		0,
@@ -363,6 +592,11 @@ end
 function CommandBuffer:SetScissor(x, y, width, height)
 	assert(width > 0)
 	assert(height > 0)
+
+	if not should_apply_dynamic_state(self, "scissor0", {x or 0, y or 0, width, height}) then
+		return
+	end
+
 	vulkan.lib.vkCmdSetScissor(
 		self.ptr[0],
 		0,
@@ -375,26 +609,60 @@ function CommandBuffer:SetScissor(x, y, width, height)
 end
 
 function CommandBuffer:SetStencilReference(face_mask, reference)
+	if
+		not should_apply_dynamic_state(self, "stencil_reference:" .. tostring(face_mask), reference)
+	then
+		return
+	end
+
 	vulkan.lib.vkCmdSetStencilReference(self.ptr[0], vulkan.vk.e.VkStencilFaceFlagBits(face_mask), reference)
 end
 
 function CommandBuffer:SetStencilCompareMask(face_mask, compare_mask)
+	if
+		not should_apply_dynamic_state(self, "stencil_compare_mask:" .. tostring(face_mask), compare_mask)
+	then
+		return
+	end
+
 	vulkan.lib.vkCmdSetStencilCompareMask(self.ptr[0], vulkan.vk.e.VkStencilFaceFlagBits(face_mask), compare_mask)
 end
 
 function CommandBuffer:SetStencilWriteMask(face_mask, write_mask)
+	if
+		not should_apply_dynamic_state(self, "stencil_write_mask:" .. tostring(face_mask), write_mask)
+	then
+		return
+	end
+
 	vulkan.lib.vkCmdSetStencilWriteMask(self.ptr[0], vulkan.vk.e.VkStencilFaceFlagBits(face_mask), write_mask)
 end
 
 function CommandBuffer:SetStencilTestEnable(enabled)
+	if
+		not should_apply_dynamic_state(self, "stencil_test_enable", normalize_bool(enabled))
+	then
+		return
+	end
+
 	if vulkan.ext.vkCmdSetStencilTestEnableEXT then
-		vulkan.ext.vkCmdSetStencilTestEnableEXT(self.ptr[0], enabled and 1 or 0)
+		vulkan.ext.vkCmdSetStencilTestEnableEXT(self.ptr[0], normalize_bool(enabled) and 1 or 0)
 	elseif vulkan.lib.vkCmdSetStencilTestEnable then
-		vulkan.lib.vkCmdSetStencilTestEnable(self.ptr[0], enabled and 1 or 0)
+		vulkan.lib.vkCmdSetStencilTestEnable(self.ptr[0], normalize_bool(enabled) and 1 or 0)
 	end
 end
 
 function CommandBuffer:SetStencilOp(face_mask, fail_op, pass_op, depth_fail_op, compare_op)
+	if
+		not should_apply_dynamic_state(
+			self,
+			"stencil_op:" .. tostring(face_mask),
+			{fail_op, pass_op, depth_fail_op, compare_op}
+		)
+	then
+		return
+	end
+
 	local face = vulkan.vk.e.VkStencilFaceFlagBits(face_mask)
 	local fail = vulkan.vk.e.VkStencilOp(fail_op)
 	local pass = vulkan.vk.e.VkStencilOp(pass_op)
@@ -409,11 +677,27 @@ function CommandBuffer:SetStencilOp(face_mask, fail_op, pass_op, depth_fail_op, 
 end
 
 function CommandBuffer:SetBlendConstants(r, g, b, a)
+	if
+		not should_apply_dynamic_state(self, "blend_constants", {r or 0.0, g or 0.0, b or 0.0, a or 0.0})
+	then
+		return
+	end
+
 	local constants = ffi.new("float[4]", r or 0.0, g or 0.0, b or 0.0, a or 0.0)
 	vulkan.lib.vkCmdSetBlendConstants(self.ptr[0], constants)
 end
 
 function CommandBuffer:SetColorBlendEnable(first_attachment, blend_enable)
+	if
+		not should_apply_dynamic_state(
+			self,
+			"color_blend_enable:" .. tostring(first_attachment or 0),
+			blend_enable
+		)
+	then
+		return
+	end
+
 	local enable_array
 	local count
 
@@ -433,6 +717,68 @@ function CommandBuffer:SetColorBlendEnable(first_attachment, blend_enable)
 
 	if vulkan.ext.vkCmdSetColorBlendEnableEXT then
 		vulkan.ext.vkCmdSetColorBlendEnableEXT(self.ptr[0], first_attachment or 0, count, enable_array)
+	end
+end
+
+function CommandBuffer:SetColorWriteMask(first_attachment, color_write_mask)
+	if not vulkan.ext.vkCmdSetColorWriteMaskEXT then return end
+
+	if
+		not should_apply_dynamic_state(
+			self,
+			"color_write_mask:" .. tostring(first_attachment or 0),
+			color_write_mask
+		)
+	then
+		return
+	end
+
+	local mask_array
+	local count
+
+	if
+		type(color_write_mask) == "table" and
+		(
+			type(color_write_mask[1]) == "table" or
+			(
+				type(color_write_mask[1]) == "number" and
+				#color_write_mask > 1
+			)
+		)
+	then
+		count = #color_write_mask
+		mask_array = UInt32Array(count)
+
+		for i = 1, count do
+			mask_array[i - 1] = normalize_color_write_mask(color_write_mask[i])
+		end
+	else
+		count = 1
+		mask_array = UInt32Array1(normalize_color_write_mask(color_write_mask))
+	end
+
+	vulkan.ext.vkCmdSetColorWriteMaskEXT(self.ptr[0], first_attachment or 0, count, mask_array)
+end
+
+function CommandBuffer:SetLogicOpEnable(enabled)
+	if not should_apply_dynamic_state(self, "logic_op_enable", normalize_bool(enabled)) then
+		return
+	end
+
+	if vulkan.ext.vkCmdSetLogicOpEnableEXT then
+		vulkan.ext.vkCmdSetLogicOpEnableEXT(self.ptr[0], normalize_bool(enabled) and 1 or 0)
+	end
+end
+
+function CommandBuffer:SetLogicOp(logic_op)
+	if not should_apply_dynamic_state(self, "logic_op", logic_op or "copy") then
+		return
+	end
+
+	local op = vulkan.vk.e.VkLogicOp(logic_op or "copy")
+
+	if vulkan.ext.vkCmdSetLogicOpEXT then
+		vulkan.ext.vkCmdSetLogicOpEXT(self.ptr[0], op)
 	end
 end
 
@@ -473,6 +819,16 @@ end
 
 function CommandBuffer:SetColorBlendEquation(first_attachment, blend_equation)
 	if not vulkan.ext.vkCmdSetColorBlendEquationEXT then return end
+
+	if
+		not should_apply_dynamic_state(
+			self,
+			"color_blend_equation:" .. tostring(first_attachment or 0),
+			blend_equation
+		)
+	then
+		return
+	end
 
 	vulkan.ext.vkCmdSetColorBlendEquationEXT(
 		self.ptr[0],
@@ -558,7 +914,7 @@ function CommandBuffer:ClearAttachments(config)
 			colorAttachment = 0,
 			clearValue = clear_value,
 		}
-		end
+	end
 
 	if #attachments == 0 then return end
 
@@ -578,14 +934,7 @@ function CommandBuffer:ClearAttachments(config)
 
 	local clear_rect_array = vulkan.T.Array(vulkan.vk.VkClearRect, 1)()
 	clear_rect_array[0] = vulkan.vk.VkClearRect(clear_rect)
-
-	vulkan.lib.vkCmdClearAttachments(
-		self.ptr[0],
-		#attachments,
-		attachment_array,
-		1,
-		clear_rect_array
-	)
+	vulkan.lib.vkCmdClearAttachments(self.ptr[0], #attachments, attachment_array, 1, clear_rect_array)
 end
 
 function CommandBuffer:CopyImageToBuffer(config)

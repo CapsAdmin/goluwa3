@@ -108,4 +108,22 @@ function ComputePipeline:Dispatch(cmd)
 	self.current_texture_index = (self.current_texture_index % #self.storage_textures) + 1
 end
 
+function ComputePipeline:OnRemove()
+	if self.pipeline then self.pipeline:Remove() end
+
+	if self.shader then self.shader:Remove() end
+
+	if self.descriptor_pool then self.descriptor_pool:Remove() end
+
+	if self.descriptor_set_layout then self.descriptor_set_layout:Remove() end
+
+	if self.pipeline_layout then self.pipeline_layout:Remove() end
+
+	if self.storage_textures then
+		for _, texture in ipairs(self.storage_textures) do
+			if texture and texture.IsValid and texture:IsValid() then texture:Remove() end
+		end
+	end
+end
+
 return ComputePipeline:Register()

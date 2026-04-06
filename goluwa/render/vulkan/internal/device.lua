@@ -103,6 +103,15 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 	local has_mesh_shader = table.has_value(available_extensions, "VK_EXT_mesh_shader")
 	local has_polygon_mode_dynamic_state = has_extended_dynamic_state3 and
 		dynamicStateFeatures.extendedDynamicState3PolygonMode -- Set to true to enable wireframe support (requires VK_EXT_extended_dynamic_state3)
+	local has_depth_clamp_dynamic_state = has_extended_dynamic_state3 and
+		dynamicStateFeatures.extendedDynamicState3DepthClampEnable
+	local has_logic_op_dynamic_state = has_extended_dynamic_state2 and
+		dynamicStateFeatures.extendedDynamicState2LogicOp
+	local has_color_write_mask_dynamic_state = has_extended_dynamic_state3 and
+		dynamicStateFeatures.extendedDynamicState3ColorWriteMask
+	local has_logic_op_enable_dynamic_state = has_extended_dynamic_state3 and
+		dynamicStateFeatures.extendedDynamicState3LogicOpEnable
+
 	if has_mesh_shader then
 		local meshShaderFeatures = vulkan.T.Box(vulkan.vk.VkPhysicalDeviceMeshShaderFeaturesEXT)(
 			vulkan.vk.s.PhysicalDeviceMeshShaderFeaturesEXT{
@@ -135,7 +144,7 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 				sType = "physical_device_extended_dynamic_state_2_features_ext",
 				pNext = pNextChain,
 				extendedDynamicState2 = 1,
-				extendedDynamicState2LogicOp = 0,
+				extendedDynamicState2LogicOp = has_logic_op_dynamic_state and 1 or 0,
 				extendedDynamicState2PatchControlPoints = 0,
 			}
 		)
@@ -148,16 +157,16 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 				sType = "physical_device_extended_dynamic_state_3_features_ext",
 				pNext = pNextChain,
 				extendedDynamicState3TessellationDomainOrigin = 0,
-				extendedDynamicState3DepthClampEnable = 0,
+				extendedDynamicState3DepthClampEnable = has_depth_clamp_dynamic_state and 1 or 0,
 				extendedDynamicState3PolygonMode = has_polygon_mode_dynamic_state and 1 or 0,
 				extendedDynamicState3RasterizationSamples = 0,
 				extendedDynamicState3SampleMask = 0,
 				extendedDynamicState3AlphaToCoverageEnable = 0,
 				extendedDynamicState3AlphaToOneEnable = 0,
-				extendedDynamicState3LogicOpEnable = 0,
+				extendedDynamicState3LogicOpEnable = has_logic_op_enable_dynamic_state and 1 or 0,
 				extendedDynamicState3ColorBlendEnable = dynamicStateFeatures.extendedDynamicState3ColorBlendEnable and 1 or 0,
 				extendedDynamicState3ColorBlendEquation = dynamicStateFeatures.extendedDynamicState3ColorBlendEquation and 1 or 0,
-				extendedDynamicState3ColorWriteMask = 0,
+				extendedDynamicState3ColorWriteMask = has_color_write_mask_dynamic_state and 1 or 0,
 				extendedDynamicState3RasterizationStream = 0,
 				extendedDynamicState3ConservativeRasterizationMode = 0,
 				extendedDynamicState3ExtraPrimitiveOverestimationSize = 0,
@@ -349,8 +358,13 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 	local device = Device:CreateObject{
 		ptr = ptr,
 		has_extended_dynamic_state = has_extended_dynamic_state,
+		has_extended_dynamic_state2 = has_extended_dynamic_state2,
 		has_extended_dynamic_state3 = has_extended_dynamic_state3,
+		has_depth_clamp_dynamic_state = has_depth_clamp_dynamic_state,
 		has_polygon_mode_dynamic_state = has_polygon_mode_dynamic_state,
+		has_logic_op_dynamic_state = has_logic_op_dynamic_state,
+		has_color_write_mask_dynamic_state = has_color_write_mask_dynamic_state,
+		has_logic_op_enable_dynamic_state = has_logic_op_enable_dynamic_state,
 		nullDescriptorEnabled = has_null_descriptor,
 		physical_device = physical_device,
 		extensions = finalExtensions,
@@ -367,10 +381,32 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 		vulkan.ext.vkCmdSetStencilOpEXT = device:TryGetExtension("vkCmdSetStencilOpEXT")
 	end
 
+	if has_extended_dynamic_state2 then
+		vulkan.ext.vkCmdSetDepthBiasEnableEXT = device:TryGetExtension("vkCmdSetDepthBiasEnableEXT")
+		vulkan.ext.vkCmdSetPrimitiveRestartEnableEXT = device:TryGetExtension("vkCmdSetPrimitiveRestartEnableEXT")
+		vulkan.ext.vkCmdSetRasterizerDiscardEnableEXT = device:TryGetExtension("vkCmdSetRasterizerDiscardEnableEXT")
+
+		if has_logic_op_dynamic_state then
+			vulkan.ext.vkCmdSetLogicOpEXT = device:TryGetExtension("vkCmdSetLogicOpEXT")
+		end
+	end
+
 	-- Load extension functions if dynamic blend features are supported
 	if has_extended_dynamic_state3 then
 		vulkan.ext.vkCmdSetColorBlendEnableEXT = device:TryGetExtension("vkCmdSetColorBlendEnableEXT")
 		vulkan.ext.vkCmdSetColorBlendEquationEXT = device:TryGetExtension("vkCmdSetColorBlendEquationEXT")
+
+		if has_depth_clamp_dynamic_state then
+			vulkan.ext.vkCmdSetDepthClampEnableEXT = device:TryGetExtension("vkCmdSetDepthClampEnableEXT")
+		end
+
+		if has_logic_op_enable_dynamic_state then
+			vulkan.ext.vkCmdSetLogicOpEnableEXT = device:TryGetExtension("vkCmdSetLogicOpEnableEXT")
+		end
+
+		if has_color_write_mask_dynamic_state then
+			vulkan.ext.vkCmdSetColorWriteMaskEXT = device:TryGetExtension("vkCmdSetColorWriteMaskEXT")
+		end
 
 		if has_polygon_mode_dynamic_state then
 			vulkan.ext.vkCmdSetPolygonModeEXT = device:TryGetExtension("vkCmdSetPolygonModeEXT")
