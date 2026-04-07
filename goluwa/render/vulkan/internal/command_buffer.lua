@@ -56,6 +56,51 @@ local function should_apply_dynamic_state(self, key, value)
 	return true
 end
 
+local function descriptor_sets_equal(a, b)
+	if a == b then return true end
+
+	if type(a) ~= "table" or type(b) ~= "table" then return false end
+
+	if a.layout ~= b.layout or a.first_set ~= b.first_set then return false end
+
+	if #a.sets ~= #b.sets or #a.dynamic_offsets ~= #b.dynamic_offsets then
+		return false
+	end
+
+	for i = 1, #a.sets do
+		if a.sets[i] ~= b.sets[i] then return false end
+	end
+
+	for i = 1, #a.dynamic_offsets do
+		if a.dynamic_offsets[i] ~= b.dynamic_offsets[i] then return false end
+	end
+
+	return true
+end
+
+local function capture_descriptor_set_binding(pipelineLayout, descriptorSets, dynamicOffsets, firstSet)
+	local state = {
+		layout = pipelineLayout,
+		first_set = firstSet or 0,
+		sets = {},
+		dynamic_offsets = {},
+	}
+
+	for i = 1, #descriptorSets do
+		state.sets[i] = descriptorSets[i]
+	end
+
+	if type(dynamicOffsets) == "table" then
+		for i = 1, #dynamicOffsets do
+			state.dynamic_offsets[i] = dynamicOffsets[i]
+		end
+	elseif type(dynamicOffsets) == "number" and dynamicOffsets > 0 then
+		state.dynamic_offsets[1] = dynamicOffsets
+	end
+
+	return state
+end
+
 local function get_view_samples(view)
 	if view and view.image and view.image.samples then return view.image.samples end
 
@@ -88,6 +133,7 @@ end
 
 function CommandBuffer:Begin()
 	self.bound_pipelines = {}
+	self.bound_descriptor_sets = {}
 	self.dynamic_state_cache = {}
 	vulkan.assert(
 		vulkan.lib.vkBeginCommandBuffer(self.ptr[0], vulkan.vk.s.CommandBufferBeginInfo{
@@ -99,6 +145,7 @@ end
 
 function CommandBuffer:Reset()
 	self.bound_pipelines = {}
+	self.bound_descriptor_sets = {}
 	self.dynamic_state_cache = {}
 	vulkan.lib.vkResetCommandBuffer(self.ptr[0], 0)
 end
@@ -304,6 +351,14 @@ function CommandBuffer:BindVertexBuffer(buffer, binding, offset)
 end
 
 function CommandBuffer:BindDescriptorSets(pipeline_bind_point, pipelineLayout, descriptorSets, dynamicOffsets, firstSet)
+	self.bound_descriptor_sets = self.bound_descriptor_sets or {}
+	local bind_key = tostring(pipeline_bind_point)
+	local binding = capture_descriptor_set_binding(pipelineLayout, descriptorSets, dynamicOffsets, firstSet)
+
+	if descriptor_sets_equal(self.bound_descriptor_sets[bind_key], binding) then
+		return
+	end
+
 	local setCount = #descriptorSets
 	local setArray = VkDescriptorSetArray(setCount)
 
@@ -339,6 +394,7 @@ function CommandBuffer:BindDescriptorSets(pipeline_bind_point, pipelineLayout, d
 		dynamicOffsetCount,
 		pDynamicOffsets
 	)
+	self.bound_descriptor_sets[bind_key] = binding
 end
 
 function CommandBuffer:Draw(vertexCount, instanceCount, firstVertex, firstInstance)
