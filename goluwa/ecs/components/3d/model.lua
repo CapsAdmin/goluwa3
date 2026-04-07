@@ -40,7 +40,7 @@ local function has_primitives_for_pass(self, ignore_z)
 	return false
 end
 
-local function draw_primitives_for_pass(self, cmd, ignore_z)
+local function draw_primitives_for_pass(self, ignore_z)
 	local world_matrix = self:GetWorldMatrix()
 
 	if not world_matrix then return false end
@@ -59,8 +59,8 @@ local function draw_primitives_for_pass(self, cmd, ignore_z)
 
 			render3d.SetWorldMatrix(final_matrix)
 			render3d.SetMaterial(material)
-			render3d.UploadGBufferConstants(cmd)
-			prim.polygon3d:Draw(cmd)
+			render3d.UploadGBufferConstants()
+			prim.polygon3d:Draw()
 			drew_any = true
 		end
 	end
@@ -433,10 +433,12 @@ do
 end
 
 -- Draw event handler
-function META:OnDraw3DGeometry(cmd, dt)
+function META:OnDraw3DGeometry(dt)
 	if not self.Visible then return end
 
 	if #self.Primitives == 0 then return end
+
+	local cmd = render.GetCommandBuffer()
 
 	if not has_primitives_for_pass(self, false) then return end
 
@@ -461,13 +463,13 @@ function META:OnDraw3DGeometry(cmd, dt)
 		self.using_conditional_rendering = false
 	end
 
-	draw_primitives_for_pass(self, cmd, false)
+	draw_primitives_for_pass(self, false)
 
 	-- End occlusion culling
 	if using_occlusion then self.occlusion_query:EndConditional(cmd) end
 end
 
-function META:OnDraw3DGeometryOverlay(cmd, dt)
+function META:OnDraw3DGeometryOverlay(dt)
 	if not self.Visible then return end
 
 	if #self.Primitives == 0 then return end
@@ -476,13 +478,15 @@ function META:OnDraw3DGeometryOverlay(cmd, dt)
 
 	if not self:IsAABBVisibleLocal() then return end
 
-	draw_primitives_for_pass(self, cmd, true)
+	draw_primitives_for_pass(self, true)
 end
 
 -- Draw bounding box for occlusion query (simplified geometry)
 -- This should be called in a separate pass before the main draw
-function META:DrawOcclusionQuery(cmd)
+function META:DrawOcclusionQuery()
 	if self.frustum_culled then return end
+
+	local cmd = render.GetCommandBuffer()
 
 	-- Skip updating queries if culling is frozen
 	if model.freeze_culling then return end
@@ -513,8 +517,8 @@ function META:DrawOcclusionQuery(cmd)
 
 			render3d.SetWorldMatrix(final_matrix)
 			render3d.SetMaterial(self.MaterialOverride or prim.material or render3d.GetDefaultMaterial())
-			render3d.UploadGBufferConstants(cmd)
-			prim.polygon3d:Draw(cmd)
+			render3d.UploadGBufferConstants()
+			prim.polygon3d:Draw()
 		end
 	end
 
@@ -523,7 +527,7 @@ function META:DrawOcclusionQuery(cmd)
 end
 
 -- Draw shadows (called externally, not via event)
-function META:DrawShadow(shadow_cmd, shadow_map, cascade_idx)
+function META:DrawShadow(shadow_map, cascade_idx)
 	if not self.CastShadows then return end
 
 	if #self.Primitives == 0 then return end
@@ -542,12 +546,12 @@ function META:DrawShadow(shadow_cmd, shadow_map, cascade_idx)
 
 		local material = self.MaterialOverride or prim.material or render3d.GetDefaultMaterial()
 		shadow_map:UploadConstants(final_matrix, material, cascade_idx)
-		prim.polygon3d:Draw(shadow_cmd)
+		prim.polygon3d:Draw()
 	end
 end
 
 -- Draw into reflection probe cubemap
-function META:DrawProbeGeometry(cmd, lightprobes)
+function META:DrawProbeGeometry(lightprobes)
 	if not self.Visible then return end
 
 	if #self.Primitives == 0 then return end
@@ -565,8 +569,8 @@ function META:DrawProbeGeometry(cmd, lightprobes)
 
 		render3d.SetWorldMatrix(final_matrix)
 		render3d.SetMaterial(self.MaterialOverride or prim.material or render3d.GetDefaultMaterial())
-		lightprobes.UploadConstants(cmd)
-		prim.polygon3d:Draw(cmd)
+		lightprobes.UploadConstants()
+		prim.polygon3d:Draw()
 	end
 end
 
@@ -651,16 +655,17 @@ do
 	end
 
 	function META:OnFirstCreated()
-		event.AddListener("DrawAllShadows", "model_shadow_draw", function(shadow_cmd, shadow_map, cascade_idx)
+		event.AddListener("DrawAllShadows", "model_shadow_draw", function(shadow_map, cascade_idx)
 			for _, model in ipairs(META.Instances) do
-				model:DrawShadow(shadow_cmd, shadow_map, cascade_idx)
+				model:DrawShadow(shadow_map, cascade_idx)
 			end
 		end)
 
 		-- Update timing and reset queries at the start of the frame
-		event.AddListener("PreRenderPass", "occlusion_culling_maintenance", function(cmd)
+		event.AddListener("PreRenderPass", "occlusion_culling_maintenance", function()
 			if not model.IsOcclusionCullingEnabled() then return end
 
+			local cmd = render.GetCommandBuffer()
 			model.UpdateOcclusionQueryTiming()
 
 			if model.should_run_queries_this_frame and not model.freeze_culling then
@@ -672,7 +677,7 @@ do
 			end
 		end)
 
-		event.AddListener("PreDraw3D", "draw_occlusion_queries", function(cmd, dt)
+		event.AddListener("PreDraw3D", "draw_occlusion_queries", function(dt)
 			if model.IsOcclusionCullingEnabled() and model.should_run_queries_this_frame then
 				if model.freeze_culling then return end
 
@@ -680,7 +685,7 @@ do
 				-- This fills the depth buffer with occluders
 				for _, model in ipairs(META.Instances) do
 					if model.Visible and not (model.UseOcclusionCulling and model.occlusion_query) then
-						model:DrawOcclusionQuery(cmd)
+						model:DrawOcclusionQuery()
 					end
 				end
 
@@ -688,7 +693,7 @@ do
 				-- They will be tested against the occluders drawn in the first pass
 				for _, model in ipairs(META.Instances) do
 					if model.Visible and (model.UseOcclusionCulling and model.occlusion_query) then
-						model:DrawOcclusionQuery(cmd)
+						model:DrawOcclusionQuery()
 					end
 				end
 			end
@@ -709,7 +714,7 @@ do
 		-- Draw all models into reflection probe when requested
 		event.AddListener("DrawProbeGeometry", "model_probe_draw", function(cmd, lightprobes)
 			for _, model in ipairs(META.Instances) do
-				model:DrawProbeGeometry(cmd, lightprobes)
+				model:DrawProbeGeometry(lightprobes)
 			end
 		end)
 	end

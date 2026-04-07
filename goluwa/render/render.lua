@@ -144,6 +144,24 @@ function render.GetCommandBuffer()
 	return stack[#stack] or render.cmd
 end
 
+function render.GetCommandBufferOutsideRendering()
+	local cmd = render.GetCommandBuffer()
+
+	if cmd and cmd.is_rendering then return nil end
+
+	return cmd
+end
+
+function render.KeepCommandBufferResource(resource, cmd)
+	cmd = cmd or render.GetCommandBuffer()
+
+	if not cmd then return resource end
+
+	cmd.keepalive_resources = cmd.keepalive_resources or {}
+	table.insert(cmd.keepalive_resources, resource)
+	return resource
+end
+
 function render.EndFrame()
 	if not render.in_frame then return end
 
@@ -297,6 +315,7 @@ end
 
 function render.SubmitAndWait(cmd)
 	render.GetQueue():SubmitAndWait(render.GetDevice(), cmd, render.GetSyncFence())
+	cmd.keepalive_resources = nil
 end
 
 function render.GetCommandPool()

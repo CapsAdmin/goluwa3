@@ -1317,15 +1317,12 @@ do
 		end
 	end
 
-	function render2d.UploadConstants(cmd, w, h, lw, lh)
+	function render2d.UploadConstants(w, h, lw, lh)
 		current_w, current_h = w or 0, h or 0
 		current_lw, current_lh = lw or w or 0, lh or h or 0
 		local pipeline = get_active_pipeline()
 
-		if cmd ~= nil then render.SetCommandBuffer(cmd) end
-		cmd = render.GetCommandBuffer()
-
-		if pipeline then pipeline:UploadConstants(cmd) end
+		if pipeline then pipeline:UploadConstants() end
 	end
 end
 
@@ -1613,7 +1610,7 @@ do
 		end
 
 		local cmd = render.GetCommandBuffer()
-		render2d.UploadConstants(cmd, qw, qh, w, h)
+		render2d.UploadConstants(qw, qh, w, h)
 		render2d.rect_mesh:DrawIndexed(cmd, 6)
 		fragment_constants.uv_offset[0], fragment_constants.uv_offset[1] = old_off_x, old_off_y
 		fragment_constants.uv_scale[0], fragment_constants.uv_scale[1] = old_scale_x, old_scale_y
@@ -1649,7 +1646,7 @@ do
 		end
 
 		local cmd = render.GetCommandBuffer()
-		render2d.UploadConstants(cmd, qw, qh, w, h)
+		render2d.UploadConstants(qw, qh, w, h)
 		render2d.rect_mesh:DrawIndexed(cmd, 6)
 		fragment_constants.uv_offset[0], fragment_constants.uv_offset[1] = old_off_x, old_off_y
 		fragment_constants.uv_scale[0], fragment_constants.uv_scale[1] = old_scale_x, old_scale_y
@@ -1669,14 +1666,13 @@ do
 		if w and h then render2d.Scale(w, h) end
 
 		local cmd = render.GetCommandBuffer()
-		render2d.UploadConstants(cmd, w, h)
+		render2d.UploadConstants(w, h)
 		render2d.triangle_mesh:Draw(cmd, 3)
 		render2d.PopMatrix()
 	end
 end
 
-function render2d.BindPipeline(cmd)
-	if cmd ~= nil then render.SetCommandBuffer(cmd) end
+function render2d.BindPipeline()
 	sync_pipeline_state(true)
 	-- Reset mesh binding cache since command buffer state was reset
 	render2d.last_bound_mesh = nil

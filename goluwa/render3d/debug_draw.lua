@@ -8,6 +8,7 @@ local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
 local gfx = import("goluwa/render2d/gfx.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
+local render = import("goluwa/render/render.lua")
 local fonts = import("goluwa/render2d/fonts.lua")
 local Matrix44 = import("goluwa/structs/matrix44.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
@@ -45,7 +46,11 @@ local function clone_color(color, fallback)
 	color = color or fallback or Color(1, 1, 1, 1)
 
 	if color.r then return Color(color.r, color.g, color.b, color.a or 1) end
-	if color[1] then return Color(color[1] or 1, color[2] or 1, color[3] or 1, color[4] or 1) end
+
+	if color[1] then
+		return Color(color[1] or 1, color[2] or 1, color[3] or 1, color[4] or 1)
+	end
+
 	return Color(1, 1, 1, 1)
 end
 
@@ -56,14 +61,20 @@ end
 
 local function get_vec2_xy(vec, fallback_x, fallback_y)
 	if vec == nil then return fallback_x or 0, fallback_y or 0 end
+
 	if vec.x ~= nil then return vec.x, vec.y end
+
 	return vec[1] or fallback_x or 0, vec[2] or fallback_y or 0
 end
 
 local function get_vec3_xyz(vec, fallback_x, fallback_y, fallback_z)
 	if vec == nil then return fallback_x or 0, fallback_y or 0, fallback_z or 0 end
+
 	if vec.x ~= nil then return vec.x, vec.y, vec.z end
-	return vec[1] or fallback_x or 0, vec[2] or fallback_y or 0, vec[3] or fallback_z or 0
+
+	return vec[1] or fallback_x or 0,
+	vec[2] or fallback_y or 0,
+	vec[3] or fallback_z or 0
 end
 
 local function get_default_id(level)
@@ -98,8 +109,11 @@ end
 
 local function get_drawable(entry)
 	if entry.kind == "sphere" then return debug_draw.GetUnitSpherePolygon() end
+
 	if entry.kind == "box" then return debug_draw.GetUnitBoxPolygon() end
+
 	if entry.kind == "mesh" then return entry.drawable end
+
 	return nil
 end
 
@@ -135,7 +149,8 @@ local function get_entry_matrix(entry)
 	return debug_draw.MakeMatrix(entry.position or zero_vec, entry.rotation or identity_rotation, scale)
 end
 
-local function draw_shape_entries(cmd, ignore_z)
+local function draw_shape_entries(ignore_z)
+	local cmd = render.GetCommandBuffer()
 	prune_entries()
 
 	for _, entry in pairs(entries) do
@@ -143,17 +158,17 @@ local function draw_shape_entries(cmd, ignore_z)
 			local drawable = get_drawable(entry)
 
 			if drawable then
-				local material = debug_draw.GetMaterial({
+				local material = debug_draw.GetMaterial{
 					shape_type = entry.shape_type or entry.kind,
 					color = entry.color,
 					ignore_z = entry.ignore_z,
 					translucent = entry.translucent,
 					double_sided = entry.double_sided,
 					emissive = entry.emissive,
-				})
+				}
 				render3d.SetWorldMatrix(get_entry_matrix(entry))
 				render3d.SetMaterial(material)
-				render3d.UploadGBufferConstants(cmd)
+				render3d.UploadGBufferConstants()
 				draw_drawable(cmd, drawable)
 			end
 		end
@@ -216,7 +231,6 @@ local function upsert_entry(kind, options, call_depth)
 		kind = kind,
 		expires_at = now + math.max(lifetime, 0.0001),
 	}
-
 	entries[id] = entry
 	return entry
 end
@@ -281,20 +295,29 @@ function debug_draw.GetMaterial(options)
 
 	if translucent == nil then translucent = true end
 
-	local key = table.concat({
-		shape_type,
-		string.format("%.4f", color.r),
-		string.format("%.4f", color.g),
-		string.format("%.4f", color.b),
-		string.format("%.4f", color.a or 1),
-		string.format("%.4f", emissive.r),
-		string.format("%.4f", emissive.g),
-		string.format("%.4f", emissive.b),
-		string.format("%.4f", emissive.a or 1),
-		ignore_z and "1" or "0",
-		double_sided and "1" or "0",
-		translucent and "1" or "0",
-	}, "|")
+	local key = table.concat(
+		{
+			shape_type,
+			string.format("%.4f", color.r),
+			string.format("%.4f", color.g),
+			string.format("%.4f", color.b),
+			string.format("%.4f", color.a or 1),
+			string.format("%.4f", emissive.r),
+			string.format("%.4f", emissive.g),
+			string.format("%.4f", emissive.b),
+			string.format("%.4f", emissive.a or 1),
+			ignore_z and
+			"1" or
+			"0",
+			double_sided and
+			"1" or
+			"0",
+			translucent and
+			"1" or
+			"0",
+		},
+		"|"
+	)
 	local material = material_cache[key]
 
 	if material then return material end
@@ -516,7 +539,7 @@ function debug_draw.DrawWireBox(options)
 	local id = options.id or get_default_id(3)
 
 	for i, edge in ipairs(wire_box_edges) do
-		debug_draw.DrawLine({
+		debug_draw.DrawLine{
 			id = string.format("%s_edge_%d", tostring(id), i),
 			from = corners[edge[1]],
 			to = corners[edge[2]],
@@ -524,7 +547,7 @@ function debug_draw.DrawWireBox(options)
 			width = options.width or options.line_width,
 			smooth = options.smooth,
 			time = options.time,
-		})
+		}
 	end
 
 	return id
@@ -592,15 +615,16 @@ event.AddListener("Update", "debug_draw_expire", function()
 	prune_entries()
 end)
 
-event.AddListener("Draw3DGeometry", "debug_draw_draw_3d", function(cmd)
-	draw_shape_entries(cmd, false)
+event.AddListener("Draw3DGeometry", "debug_draw_draw_3d", function()
+	draw_shape_entries(false)
 end)
 
-event.AddListener("Draw3DGeometryOverlay", "debug_draw_draw_3d_overlay", function(cmd)
-	draw_shape_entries(cmd, true)
+event.AddListener("Draw3DGeometryOverlay", "debug_draw_draw_3d_overlay", function()
+	draw_shape_entries(true)
 end)
 
 event.AddListener("Draw2D", "debug_draw_draw_2d", function()
 	draw_2d_entries()
 end)
+
 return debug_draw

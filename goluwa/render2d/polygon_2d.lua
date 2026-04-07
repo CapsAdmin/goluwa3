@@ -164,7 +164,7 @@ function Polygon2D:Draw(count)
 	end
 
 	local cmd = render.GetCommandBuffer()
-	render2d.UploadConstants(cmd)
+	render2d.UploadConstants()
 	self.vertex_buffer:Bind(cmd, 0)
 	cmd:BindIndexBuffer(self.index_buffer:GetBuffer(), 0, self.index_buffer:GetIndexType())
 	cmd:DrawIndexed(count or self.vertex_count, 1, 0, 0, 0)

@@ -174,17 +174,10 @@ function Polygon3D:Upload(indices)
 	self.mesh = Mesh.New(vertex_attributes, vertices, indices, index_type)
 end
 
-function Polygon3D:Draw(cmd)
+function Polygon3D:Draw()
 	if not self.mesh then return end
 
-	self.mesh:Bind(cmd)
-
-	-- Draw entire mesh
-	if self.mesh.index_buffer then
-		self.mesh:DrawIndexed(cmd)
-	else
-		self.mesh:Draw(cmd)
-	end
+	self.mesh:Draw()
 end
 
 do -- helpers

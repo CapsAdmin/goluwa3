@@ -47,6 +47,19 @@ local function is_index_buffer(obj)
 	return type(obj) == "table" and obj.GetBuffer and obj.GetIndexType and obj.GetIndexCount
 end
 
+local function get_active_command_buffer(level)
+	local cmd = render.GetCommandBuffer()
+
+	if not cmd then
+		error(
+			"Cannot draw without active command buffer. Must be called during Draw2D event.",
+			level or 2
+		)
+	end
+
+	return cmd
+end
+
 local function normalize_primitive_topology(mode)
 	local tr = {
 		triangles = "triangle_list",
@@ -103,6 +116,11 @@ function Mesh.New(vertex_attributes, vertices, indices, index_type, index_count)
 end
 
 function Mesh:Bind(cmd, binding_position)
+	if not is_command_buffer(cmd) then
+		binding_position = cmd
+		cmd = get_active_command_buffer(2)
+	end
+
 	binding_position = binding_position or 0
 	cmd:BindVertexBuffer(self.vertex_buffer:GetBuffer(), binding_position)
 
@@ -112,6 +130,12 @@ function Mesh:Bind(cmd, binding_position)
 end
 
 function Mesh:BindInstanced(cmd, extra_vertex_buffers, binding_position)
+	if not is_command_buffer(cmd) then
+		binding_position = extra_vertex_buffers
+		extra_vertex_buffers = cmd
+		cmd = get_active_command_buffer(2)
+	end
+
 	binding_position = binding_position or 0
 
 	if not extra_vertex_buffers or #extra_vertex_buffers == 0 then
@@ -136,6 +160,15 @@ function Mesh:BindInstanced(cmd, extra_vertex_buffers, binding_position)
 end
 
 function Mesh:DrawIndexed(cmd, index_count, instance_count, first_index, vertex_offset, first_instance)
+	if not is_command_buffer(cmd) then
+		first_instance = vertex_offset
+		vertex_offset = first_index
+		first_index = instance_count
+		instance_count = index_count
+		index_count = cmd
+		cmd = get_active_command_buffer(2)
+	end
+
 	cmd:DrawIndexed(
 		index_count or self.index_buffer:GetIndexCount(),
 		instance_count or 1,
@@ -149,15 +182,7 @@ function Mesh:Draw(cmd, vertex_count, instance_count, first_vertex, first_instan
 	if not is_command_buffer(cmd) then
 		local index_buffer = is_index_buffer(cmd) and cmd or self.index_buffer
 		local count = is_index_buffer(cmd) and vertex_count or cmd
-		local active_cmd = render.GetCommandBuffer()
-
-		if not active_cmd then
-			error(
-				"Cannot draw without active command buffer. Must be called during Draw2D event.",
-				2
-			)
-		end
-
+		local active_cmd = get_active_command_buffer(2)
 		self:Bind(active_cmd, 0)
 
 		if index_buffer then
@@ -194,14 +219,7 @@ function Mesh:DrawInstanced(
 		index_count = extra_vertex_buffers
 		extra_vertex_buffers = instance_count
 		instance_count = cmd
-		cmd = render.GetCommandBuffer()
-
-		if not cmd then
-			error(
-				"Cannot draw without active command buffer. Must be called during Draw2D event.",
-				2
-			)
-		end
+		cmd = get_active_command_buffer(2)
 	end
 
 	self:BindInstanced(cmd, extra_vertex_buffers, 0)

@@ -84,7 +84,7 @@ local function sort(a, b)
 	return (a.w + a.h) > (b.w + b.h)
 end
 
-function META:Build(cmd)
+function META:Build()
 	list.sort(self.dirty_textures, sort)
 
 	for _, data in ipairs(self.dirty_textures) do
@@ -123,6 +123,8 @@ function META:Build(cmd)
 		page.dirty = true
 	end
 
+	local cmd = render.GetCommandBufferOutsideRendering()
+
 	if #self.dirty_textures == 0 and not cmd then
 		local dirty = false
 
@@ -147,6 +149,7 @@ function META:Build(cmd)
 		own_cmd = true
 	end
 
+	render.PushCommandBuffer(cmd)
 	local transitioned_textures = {}
 
 	for _, page in ipairs(self.pages) do
@@ -220,7 +223,7 @@ function META:Build(cmd)
 
 			-- Transition page texture back to shader_read
 			if page.texture:GetMipMapLevels() > 1 then
-				page.texture:GenerateMipmaps("transfer_dst_optimal", cmd)
+				page.texture:GenerateMipmaps("transfer_dst_optimal")
 			else
 				cmd:PipelineBarrier{
 					srcStage = "transfer",
@@ -240,6 +243,8 @@ function META:Build(cmd)
 			page.dirty = false
 		end
 	end
+
+	render.PopCommandBuffer()
 
 	if own_cmd then
 		cmd:End()

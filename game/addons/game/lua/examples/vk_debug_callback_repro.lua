@@ -13,7 +13,7 @@ local function issue_draw(cmd, pipeline, r, g, b)
 	render2d.BindMesh(render2d.rect_mesh)
 	render2d.SetTexture(nil)
 	render2d.SetColor(r, g, b, 1)
-	render2d.UploadConstants(cmd, 64, 64, 64, 64)
+	render2d.UploadConstants(64, 64, 64, 64)
 	render2d.rect_mesh:DrawIndexed(cmd, 6)
 end
 

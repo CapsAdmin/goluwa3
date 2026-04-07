@@ -12,15 +12,20 @@ local test_render = {}
 local width = 512
 local height = 512
 
-function test_render.Draw2D(cb)
+function test_render.Init2D()
 	if not test_render.init then
 		render.Initialize{headless = true, width = width, height = height}
+		test_render.init = true
 	end
 
 	if not test_render.render2d_init then
 		render2d.Initialize()
 		test_render.render2d_init = true
 	end
+end
+
+function test_render.Draw2D(cb)
+	test_render.Init2D()
 
 	if render.BeginFrame() then
 		render2d.BindPipeline()
@@ -33,14 +38,7 @@ function test_render.Draw2D(cb)
 end
 
 function test_render.Draw2DFrames(frame_count, cb, after_frame)
-	if not test_render.init then
-		render.Initialize{headless = true, width = width, height = height}
-	end
-
-	if not test_render.render2d_init then
-		render2d.Initialize()
-		test_render.render2d_init = true
-	end
+	test_render.Init2D()
 
 	for frame = 1, frame_count do
 		if render.BeginFrame() then
@@ -61,6 +59,7 @@ end
 function test_render.Draw3D(cb)
 	if not test_render.init then
 		render.Initialize{headless = true, width = width, height = height}
+		test_render.init = true
 	end
 
 	if not test_render.render3d_init then

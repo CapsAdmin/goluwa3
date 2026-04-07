@@ -10,6 +10,7 @@ local RenderPass = import("goluwa/render/vulkan/internal/render_pass.lua")
 local Framebuffer = import("goluwa/render/vulkan/internal/framebuffer.lua")
 local Texture = import("goluwa/render/texture.lua")
 local event = import("goluwa/event.lua")
+local render = import("goluwa/render/render.lua")
 local ImageRenderTarget = prototype.CreateTemplate("render_image_rendertarget")
 local default_config = {
 	-- Mode selection
@@ -466,7 +467,9 @@ function ImageRenderTarget:BeginFrame()
 		imageBarriers = imageBarriers,
 	}
 	local extent = self:GetExtent()
-	event.Call("PreRenderPass", cmd)
+	render.PushCommandBuffer(cmd)
+	event.Call("PreRenderPass")
+	render.PopCommandBuffer()
 	local render_config = {
 		color_image_view = self:GetImageView(),
 		w = extent.width,

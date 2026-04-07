@@ -749,10 +749,11 @@ function lightprobes.GetProjectionViewWorldMatrix()
 	return pvm_cached
 end
 
-function lightprobes.UploadConstants(cmd)
+function lightprobes.UploadConstants()
 	if lightprobes.scene_pipeline then
+		local cmd = render.GetCommandBuffer()
 		cmd:SetCullMode(render3d.GetMaterial():GetDoubleSided() and "none" or "front")
-		lightprobes.scene_pipeline:UploadConstants(cmd)
+		lightprobes.scene_pipeline:UploadConstants()
 	end
 end
 
@@ -808,6 +809,7 @@ function lightprobes.RenderProbeFaces(cmd, probe, num_faces, render_geometry)
 	if not lightprobes.sky_pipeline then return end
 
 	num_faces = num_faces or 1
+	render.PushCommandBuffer(cmd)
 	local SIZE = probe.size
 	lightprobes.camera:SetPosition(probe.position)
 	lightprobes.camera:SetViewport(Rect(0, 0, SIZE, SIZE))
@@ -882,7 +884,7 @@ function lightprobes.RenderProbeFaces(cmd, probe, num_faces, render_geometry)
 		cmd:SetScissor(0, 0, SIZE, SIZE)
 		cmd:SetCullMode("none")
 		lightprobes.sky_pipeline:Bind(cmd, 1)
-		lightprobes.sky_pipeline:UploadConstants(cmd)
+		lightprobes.sky_pipeline:UploadConstants()
 		cmd:Draw(3, 1, 0, 0)
 		cmd:EndRendering()
 
@@ -925,7 +927,7 @@ function lightprobes.RenderProbeFaces(cmd, probe, num_faces, render_geometry)
 			cmd:SetViewport(0, 0, SIZE, SIZE)
 			cmd:SetScissor(0, 0, SIZE, SIZE)
 			lightprobes.scene_pipeline:Bind(cmd, 1)
-			event.Call("DrawProbeGeometry", cmd, lightprobes)
+			event.Call("DrawProbeGeometry", lightprobes)
 			cmd:EndRendering()
 		end
 
@@ -967,18 +969,21 @@ function lightprobes.RenderProbeFaces(cmd, probe, num_faces, render_geometry)
 		}
 		lightprobes.current_face = (lightprobes.current_face + 1) % 6
 	end
+
+	render.PopCommandBuffer()
 end
 
 -- Prefilter the source cubemap into the output cubemap with roughness mips
 function lightprobes.PrefilterProbe(cmd, probe)
 	if not lightprobes.prefilter_pipeline then return end
 
+	render.PushCommandBuffer(cmd)
 	local SIZE = probe.size
 	local num_mips = probe.cubemap.mip_map_levels
 	-- Set current probe for prefiltering
 	lightprobes.current_prefilter_probe = probe
 	-- Generate mipmaps for source cubemap
-	probe.source_cubemap:GenerateMipmaps("shader_read_only_optimal", cmd)
+	probe.source_cubemap:GenerateMipmaps("shader_read_only_optimal")
 
 	-- For each mip level, render prefiltered version
 	for m = 0, num_mips - 1 do
@@ -1021,7 +1026,7 @@ function lightprobes.PrefilterProbe(cmd, probe)
 			cmd:SetScissor(0, 0, mip_size, mip_size)
 			cmd:SetCullMode("none")
 			lightprobes.prefilter_pipeline:Bind(cmd, 1)
-			lightprobes.prefilter_pipeline:UploadConstants(cmd)
+			lightprobes.prefilter_pipeline:UploadConstants()
 			cmd:Draw(3, 1, 0, 0)
 			cmd:EndRendering()
 			-- Transition to shader read
@@ -1044,12 +1049,15 @@ function lightprobes.PrefilterProbe(cmd, probe)
 			}
 		end
 	end
+
+	render.PopCommandBuffer()
 end
 
 -- Update the environment probe (called every frame if sun changed)
-function lightprobes.UpdateEnvironmentProbe(cmd)
+function lightprobes.UpdateEnvironmentProbe()
 	if not lightprobes.environment_probe then return end
 
+	local cmd = render.GetCommandBuffer()
 	local env_probe = lightprobes.environment_probe
 
 	if not lightprobes.HasSunDirectionChanged() and not env_probe.needs_update then
@@ -1092,12 +1100,12 @@ event.AddListener("Render3DInitialized", "lightprobes", function()
 	lightprobes.Initialize()
 end)
 
-event.AddListener("PreRenderPass", "lightprobes_update", function(cmd)
+event.AddListener("PreRenderPass", "lightprobes_update", function()
 	if not lightprobes.enabled then return end
 
 	if not lightprobes.sky_pipeline then return end
 
-	lightprobes.UpdateEnvironmentProbe(cmd)
+	lightprobes.UpdateEnvironmentProbe()
 	local scene_probe_index = lightprobes.current_scene_probe_index
 	local scene_probe = lightprobes.probes[scene_probe_index]
 

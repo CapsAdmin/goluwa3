@@ -218,16 +218,16 @@ function render3d.Initialize()
 	local size = render.GetRenderImageSize()
 	render3d.camera:SetViewport(Rect(0, 0, size.x, size.y))
 
-	event.AddListener("PreRenderPass", "render3d", function(cmd)
+	event.AddListener("PreRenderPass", "render3d", function()
 		if not render3d.pipelines.gbuffer then return end
 
 		for _, pipeline in ipairs(render3d.pipelines_i) do
-			if pipeline.name ~= "blit" then pipeline:Draw(cmd) end
+			if pipeline.name ~= "blit" then pipeline:Draw() end
 		end
 	end)
 
 	event.AddListener("Draw", "render3d", function(dt)
-		render3d.Draw(nil, dt)
+		render3d.Draw(dt)
 	end)
 
 	event.Call("Render3DInitialized")
@@ -244,10 +244,10 @@ function render3d.ResetState()
 	render3d.debug_mode = 1
 end
 
-function render3d.Draw(cmd, dt)
+function render3d.Draw(dt)
 	if not render3d.pipelines.blit then return end
 
-	cmd = cmd or render.GetCommandBuffer()
+	local cmd = render.GetCommandBuffer()
 	-- render to the screen
 	render3d.pipelines.blit:Draw(cmd)
 
@@ -259,15 +259,16 @@ function render3d.Draw(cmd, dt)
 	render3d.prev_projection_matrix = render3d.camera:BuildProjectionMatrix():Copy()
 end
 
-function render3d.UploadGBufferConstants(cmd)
+function render3d.UploadGBufferConstants()
 	if not render3d.pipelines.gbuffer then return end
 
+	local cmd = render.GetCommandBuffer()
 	local double_sided = render3d.GetMaterial():GetDoubleSided()
 	local cull_mode = double_sided and "none" or orientation.CULL_MODE
 	-- GBuffer is already bound during geometry submission, so apply cull mode
 	-- directly for the current draw.
 	cmd:SetCullMode(cull_mode)
-	render3d.pipelines.gbuffer:UploadConstants(cmd)
+	render3d.pipelines.gbuffer:UploadConstants()
 end
 
 do

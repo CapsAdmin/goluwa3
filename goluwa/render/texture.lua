@@ -527,8 +527,15 @@ end
 
 function Texture:CopyFrom(other, width, height, srcX, srcY, dstX, dstY)
 	local cmd_pool = render.GetCommandPool()
-	local cmd = cmd_pool:AllocateCommandBuffer()
-	cmd:Begin()
+	local cmd = render.GetCommandBufferOutsideRendering()
+	local internal_cmd = false
+
+	if not cmd then
+		cmd = cmd_pool:AllocateCommandBuffer()
+		cmd:Begin()
+		internal_cmd = true
+	end
+
 	-- Transition src to transfer_src
 	cmd:PipelineBarrier{
 		srcStage = "all_commands",
@@ -579,8 +586,11 @@ function Texture:CopyFrom(other, width, height, srcX, srcY, dstX, dstY)
 			},
 		},
 	}
-	cmd:End()
-	render.SubmitAndWait(cmd)
+
+	if internal_cmd then
+		cmd:End()
+		render.SubmitAndWait(cmd)
+	end
 end
 
 function Texture:Crop(x, y, w, h)
@@ -633,8 +643,16 @@ function Texture:Upload(data, keep_in_transfer_dst)
 	staging_buffer:CopyData(buffer, pixel_count * bytes_per_pixel)
 	-- Copy to image using command buffer
 	local cmd_pool = render.GetCommandPool()
-	local cmd = cmd_pool:AllocateCommandBuffer()
-	cmd:Begin()
+	local cmd = render.GetCommandBufferOutsideRendering()
+	local internal_cmd = false
+
+	if not cmd then
+		cmd = cmd_pool:AllocateCommandBuffer()
+		cmd:Begin()
+		internal_cmd = true
+	end
+
+	render.KeepCommandBufferResource(staging_buffer, cmd)
 	-- Transition image to transfer dst (only mip level 0)
 	cmd:PipelineBarrier{
 		srcStage = "compute",
@@ -689,9 +707,11 @@ function Texture:Upload(data, keep_in_transfer_dst)
 		}
 	end
 
-	cmd:End()
-	-- Submit and wait
-	render.SubmitAndWait(cmd)
+	if internal_cmd then
+		cmd:End()
+		-- Submit and wait
+		render.SubmitAndWait(cmd)
+	end
 end
 
 function Texture:UploadCompressed(data, vulkan_info)
@@ -711,8 +731,16 @@ function Texture:UploadCompressed(data, vulkan_info)
 	staging_buffer:CopyData(data, total_size)
 	-- Copy to image using command buffer
 	local cmd_pool = render.GetCommandPool()
-	local cmd = cmd_pool:AllocateCommandBuffer()
-	cmd:Begin()
+	local cmd = render.GetCommandBufferOutsideRendering()
+	local internal_cmd = false
+
+	if not cmd then
+		cmd = cmd_pool:AllocateCommandBuffer()
+		cmd:Begin()
+		internal_cmd = true
+	end
+
+	render.KeepCommandBufferResource(staging_buffer, cmd)
 	-- Transition all mip levels to transfer dst
 	cmd:PipelineBarrier{
 		srcStage = "top_of_pipe",
@@ -763,9 +791,12 @@ function Texture:UploadCompressed(data, vulkan_info)
 			},
 		},
 	}
-	cmd:End()
-	-- Submit and wait
-	render.SubmitAndWait(cmd)
+
+	if internal_cmd then
+		cmd:End()
+		-- Submit and wait
+		render.SubmitAndWait(cmd)
+	end
 end
 
 function Texture:GetImage()
@@ -830,13 +861,12 @@ function Texture:OnRemove()
 	end
 end
 
-function Texture:GenerateMipmaps(initial_layout, cmd)
+function Texture:GenerateMipmaps(initial_layout)
 	if not self.image or self.mip_map_levels <= 1 then return end
 
-	local device = render.GetDevice()
-	local queue = render.GetQueue()
 	local command_pool = render.GetCommandPool()
 	local internal_cmd = false
+	local cmd = render.GetCommandBufferOutsideRendering()
 
 	if not cmd then
 		cmd = command_pool:AllocateCommandBuffer()
@@ -1221,7 +1251,9 @@ function Texture:Shade(glsl, extra_config)
 	end
 
 	if self.mip_map_levels > 1 then
-		self:GenerateMipmaps("color_attachment_optimal", cmd)
+		render.PushCommandBuffer(cmd)
+		self:GenerateMipmaps("color_attachment_optimal")
+		render.PopCommandBuffer()
 	else
 		-- Transition to shader_read_only_optimal
 		cmd:PipelineBarrier{

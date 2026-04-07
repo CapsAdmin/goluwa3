@@ -2,9 +2,27 @@ local T = import("test/environment.lua")
 local line = import("goluwa/love/line.lua")
 local render = import("goluwa/render/render.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
+local test_render = import("test/test_render.lua")
 local window = import("goluwa/window.lua")
 local event = import("goluwa/event.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
+
+local function TestLoveGraphics(name, cb)
+	return T.Test(name, function()
+		test_render.Init2D()
+		local draw = cb()
+
+		if type(draw) == "function" then test_render.Draw2D(draw) end
+	end)
+end
+
+local function assert_pixel_close(data, x, y, expected, tolerance)
+	local r, g, b, a = data:getPixel(x, y)
+	T(math.abs(r - expected[1]) <= tolerance)["=="](true)
+	T(math.abs(g - expected[2]) <= tolerance)["=="](true)
+	T(math.abs(b - expected[3]) <= tolerance)["=="](true)
+	T(math.abs(a - expected[4]) <= tolerance)["=="](true)
+end
 
 local function apply_love_version(love, version)
 	version = tostring(version or "0.10.1")
@@ -67,7 +85,7 @@ T.Test2D("love graphics renderer info reports Vulkan", function()
 	T(type(renderer))["=="]("string")
 end)
 
-T.Test2D("love graphics dimensions follow window size on main surface", function()
+TestLoveGraphics("love graphics dimensions follow render target size on main surface", function()
 	local love = new_love_graphics_env("11.0.0")
 	local old_window_get_size = window.GetSize
 	local old_render_get_width = render.GetWidth
@@ -86,13 +104,13 @@ T.Test2D("love graphics dimensions follow window size on main surface", function
 		return Vec2(800, 600)
 	end
 	local ok, err = pcall(function()
-		T(({love.graphics.getDimensions()})[1])["=="](1280)
-		T(({love.graphics.getDimensions()})[2])["=="](720)
-		T(love.graphics.getWidth())["=="](1280)
-		T(love.graphics.getHeight())["=="](720)
+		T(({love.graphics.getDimensions()})[1])["=="](800)
+		T(({love.graphics.getDimensions()})[2])["=="](600)
+		T(love.graphics.getWidth())["=="](800)
+		T(love.graphics.getHeight())["=="](600)
 		local canvas = love.graphics.newCanvas()
-		T(canvas:getWidth())["=="](1280)
-		T(canvas:getHeight())["=="](720)
+		T(canvas:getWidth())["=="](800)
+		T(canvas:getHeight())["=="](600)
 	end)
 	window.GetSize = old_window_get_size
 	render.GetWidth = old_render_get_width
@@ -251,21 +269,15 @@ T.Test2DFrames(
 	end
 )
 
-T.Test2D("love graphics canvas clear path executes", function()
+TestLoveGraphics("love graphics canvas clear path executes", function()
 	local love = new_love_graphics_env()
 	local canvas = love.graphics.newCanvas(16, 16)
 	canvas:clear(255, 32, 0, 255)
-	love.graphics.clear(0, 0, 0, 255)
-	love.graphics.setColor(255, 255, 255, 255)
-	love.graphics.draw(canvas, 32, 32, 0, 4, 4)
-	return function()
-		T(canvas.__line_type)["=="]("Canvas")
-		T.TexturePixel(canvas.fb:GetColorTexture(), 4, 4, 1, 32 / 255, 0, 1, 0.08)
-		T.AssertScreenPixel{pos = {40, 40}, color = {1, 32 / 255, 0, 1}, tolerance = 0.08}
-	end
+	T(canvas.__line_type)["=="]("Canvas")
+	T.TexturePixel(canvas.fb:GetColorTexture(), 4, 4, 1, 32 / 255, 0, 1, 0.08)
 end)
 
-T.Test2D("love graphics canvas newImageData reads back canvas pixels", function()
+TestLoveGraphics("love graphics canvas newImageData reads back canvas pixels", function()
 	local love = new_love_graphics_env("11.0.0")
 	local canvas = love.graphics.newCanvas(16, 16)
 	local source = love.image.newImageData(1, 1)
@@ -292,9 +304,7 @@ T.Test2D("love graphics canvas newImageData reads back canvas pixels", function(
 	T(cg)["=="](0)
 	T(cb)["=="](0)
 	T(ca)["=="](1)
-	return function()
-		T.TexturePixel(canvas.fb:GetColorTexture(), 1, 1, 1, 0, 0, 1, 0.08)
-	end
+	T.TexturePixel(canvas.fb:GetColorTexture(), 1, 1, 1, 0, 0, 1, 0.08)
 end)
 
 T.Test2D("love graphics clear forwards stencil and depth extras", function()
@@ -317,23 +327,20 @@ T.Test2D("love graphics clear forwards stencil and depth extras", function()
 	T(captured.depth)["=="](0)
 end)
 
-T.Test2D("love graphics setCanvas accepts table targets", function()
+TestLoveGraphics("love graphics setCanvas accepts table targets", function()
 	local love = new_love_graphics_env("11.0.0")
 	local canvas = love.graphics.newCanvas(16, 16)
 	love.graphics.setCanvas({canvas, depth = true})
 	love.graphics.clear(255, 32, 0, 255)
 	love.graphics.setCanvas()
-	love.graphics.setColor(255, 255, 255, 255)
-	love.graphics.draw(canvas, 32, 32, 0, 4, 4)
-	return function()
-		T(love.graphics.getCanvas())["=="](nil)
-		T(canvas.fb:GetDepthTexture() ~= nil)["=="](true)
-		T.TexturePixel(canvas.fb:GetColorTexture(), 4, 4, 1, 32 / 255, 0, 1, 0.08)
-		T.AssertScreenPixel{pos = {40, 40}, color = {1, 32 / 255, 0, 1}, tolerance = 0.08}
-	end
+	local data = canvas:newImageData()
+	T(love.graphics.getCanvas())["=="](nil)
+	T(canvas.fb:GetDepthTexture() ~= nil)["=="](true)
+	T.TexturePixel(canvas.fb:GetColorTexture(), 4, 4, 1, 32 / 255, 0, 1, 0.08)
+	assert_pixel_close(data, 4, 4, {1, 32 / 255, 0, 1}, 0.08)
 end)
 
-T.Test2D("love graphics custom shader draws to canvas", function()
+TestLoveGraphics("love graphics custom shader draws to canvas", function()
 	local love = new_love_graphics_env("11.0.0")
 	local canvas = love.graphics.newCanvas(64, 64)
 	local data = love.image.newImageData(1, 1)
@@ -362,16 +369,12 @@ T.Test2D("love graphics custom shader draws to canvas", function()
 	love.graphics.draw(image, 8, 8, 0, 32, 32)
 	love.graphics.setShader()
 	love.graphics.setCanvas()
-	love.graphics.clear(0, 0, 0, 255)
-	love.graphics.setColor(255, 255, 255, 255)
-	love.graphics.draw(canvas, 0, 0)
-	return function()
-		T.TexturePixel(canvas.fb:GetColorTexture(), 16, 16, 1, 0, 0, 1, 0.08)
-		T.AssertScreenPixel{pos = {16, 16}, color = {1, 0, 0, 1}, tolerance = 0.08}
-	end
+	local output = canvas:newImageData()
+	T.TexturePixel(canvas.fb:GetColorTexture(), 16, 16, 1, 0, 0, 1, 0.08)
+	assert_pixel_close(output, 16, 16, {1, 0, 0, 1}, 0.08)
 end)
 
-T.Test2D("love graphics shader rewrites texelFetch for Image and VolumeImage on canvas", function()
+TestLoveGraphics("love graphics shader rewrites texelFetch for Image and VolumeImage on canvas", function()
 	local love = new_love_graphics_env("11.0.0")
 	local canvas = love.graphics.newCanvas(64, 64)
 	local base_data = love.image.newImageData(1, 1)
@@ -407,13 +410,9 @@ T.Test2D("love graphics shader rewrites texelFetch for Image and VolumeImage on 
 	love.graphics.draw(image, 8, 8, 0, 32, 32)
 	love.graphics.setShader()
 	love.graphics.setCanvas()
-	love.graphics.clear(0, 0, 0, 255)
-	love.graphics.setColor(255, 255, 255, 255)
-	love.graphics.draw(canvas, 0, 0)
-	return function()
-		T.TexturePixel(canvas.fb:GetColorTexture(), 16, 16, 1, 0, 0, 1, 0.08)
-		T.AssertScreenPixel{pos = {16, 16}, color = {1, 0, 0, 1}, tolerance = 0.08}
-	end
+	local output = canvas:newImageData()
+	T.TexturePixel(canvas.fb:GetColorTexture(), 16, 16, 1, 0, 0, 1, 0.08)
+	assert_pixel_close(output, 16, 16, {1, 0, 0, 1}, 0.08)
 end)
 
 T.Test2D("love graphics draw image placement", function()
@@ -1518,7 +1517,7 @@ T.Test2D("love graphics stone kingdoms main shader draws paletted instanced tile
 	end
 end)
 
-T.Test2D("love graphics canvas keeps instanced parent transforms", function()
+TestLoveGraphics("love graphics canvas keeps instanced parent transforms", function()
 	local love = new_love_graphics_env("11.0.0")
 	local canvas = love.graphics.newCanvas(160, 160)
 	local data = love.image.newImageData(2, 1)
@@ -1591,16 +1590,12 @@ T.Test2D("love graphics canvas keeps instanced parent transforms", function()
 	love.graphics.drawInstanced(mesh, 2, 48, 24, 0, 1.5, 1.5)
 	love.graphics.setShader()
 	love.graphics.setCanvas()
-	love.graphics.clear(0, 0, 0, 255)
-	love.graphics.setColor(255, 255, 255, 255)
-	love.graphics.draw(canvas, 0, 0)
-	return function()
-		T.TexturePixel(canvas.fb:GetColorTexture(), 108, 84, 0, 1, 0, 1, 0.1)
-		T.AssertScreenPixel{pos = {108, 84}, color = {0, 1, 0, 1}, tolerance = 0.1}
-	end
+	local output = canvas:newImageData()
+	T.TexturePixel(canvas.fb:GetColorTexture(), 108, 84, 0, 1, 0, 1, 0.1)
+	assert_pixel_close(output, 108, 84, {0, 1, 0, 1}, 0.1)
 end)
 
-T.Test2D("love graphics canvas keeps instanced depth with parent transforms", function()
+TestLoveGraphics("love graphics canvas keeps instanced depth with parent transforms", function()
 	local love = new_love_graphics_env("11.0.0")
 	local canvas = love.graphics.newCanvas(160, 160)
 	local data = love.image.newImageData(2, 1)
@@ -1682,14 +1677,10 @@ T.Test2D("love graphics canvas keeps instanced depth with parent transforms", fu
 	love.graphics.setShader()
 	love.graphics.setDepthMode()
 	love.graphics.setCanvas()
-	love.graphics.clear(0, 0, 0, 255)
-	love.graphics.setColor(255, 255, 255, 255)
-	love.graphics.draw(canvas, 0, 0)
-	return function()
-		T(canvas.fb:GetDepthTexture() ~= nil)["=="](true)
-		T.TexturePixel(canvas.fb:GetColorTexture(), 140, 104, 0, 1, 0, 1, 0.1)
-		T.AssertScreenPixel{pos = {140, 104}, color = {0, 1, 0, 1}, tolerance = 0.1}
-	end
+	local output = canvas:newImageData()
+	T(canvas.fb:GetDepthTexture() ~= nil)["=="](true)
+	T.TexturePixel(canvas.fb:GetColorTexture(), 140, 104, 0, 1, 0, 1, 0.1)
+	assert_pixel_close(output, 140, 104, {0, 1, 0, 1}, 0.1)
 end)
 
 T.Test2D("love graphics fully transparent shader output does not block later depth-tested draws", function()
@@ -1929,9 +1920,10 @@ T.Test2D("love graphics draw ignores leaked swizzle mode", function()
 	end
 end)
 
-T.Test2D("love graphics mrrescue lightmap multiply composite stays neutral", function()
+TestLoveGraphics("love graphics mrrescue lightmap multiply composite stays neutral", function()
 	local love = new_love_graphics_env()
 	local canvas = love.graphics.newCanvas(256, 256)
+	local output = love.graphics.newCanvas(256, 256)
 	local light = love.graphics.newImage("love_games/mrrescue/data/light_player.png")
 	light:setFilter("nearest", "nearest", 1)
 	local light_w, light_h = light:getDimensions()
@@ -1943,37 +1935,40 @@ T.Test2D("love graphics mrrescue lightmap multiply composite stays neutral", fun
 	love.graphics.setColor(255, 255, 255, 255)
 	love.graphics.draw(light, 32, 32)
 	love.graphics.setBlendMode("alpha")
-	love.graphics.setCanvas()
+	love.graphics.setCanvas(output)
 	love.graphics.clear(128, 128, 128, 255)
 	love.graphics.setBlendMode("multiply")
 	love.graphics.draw(canvas, 0, 0)
 	love.graphics.setBlendMode("alpha")
-	return function()
-		T.TexturePixel(canvas.fb:GetColorTexture(), 4, 4, 0, 0, 0, 1, 0.08)
+	love.graphics.setCanvas()
+	T.TexturePixel(canvas.fb:GetColorTexture(), 4, 4, 0, 0, 0, 1, 0.08)
 
-		T.TexturePixel(
-			canvas.fb:GetColorTexture(),
-			center_x + 32,
-			center_y + 32,
-			function(r, g, b)
-				return math.abs(r - g) < 0.08 and math.abs(g - b) < 0.08 and r > 0.4
-			end
-		)
+	T.TexturePixel(
+		canvas.fb:GetColorTexture(),
+		center_x + 32,
+		center_y + 32,
+		function(r, g, b)
+			return math.abs(r - g) < 0.08 and math.abs(g - b) < 0.08 and r > 0.4
+		end
+	)
 
-		T.AssertScreenPixel{pos = {4, 4}, color = {0, 0, 0, 1}, tolerance = 0.08}
+	T.TexturePixel(output.fb:GetColorTexture(), 4, 4, 0, 0, 0, 1, 0.08)
 
-		T.TexturePixel(
-			render.target:GetTexture(),
-			center_x + 32,
-			center_y + 32,
-			function(r, g, b)
-				return math.abs(r - g) < 0.08 and math.abs(g - b) < 0.08 and r > 0.2 and r < 0.8
-			end
-		)
-	end
+	T.TexturePixel(
+		output.fb:GetColorTexture(),
+		center_x + 32,
+		center_y + 32,
+		function(r, g, b, a)
+			return math.abs(r - g) < 0.08 and
+				math.abs(g - b) < 0.08 and
+				r > 0.2 and
+				r < 0.8 and
+				a > 0.9
+		end
+	)
 end)
 
-T.Test2D("love graphics canvas vertex colors stay correct", function()
+TestLoveGraphics("love graphics canvas vertex colors stay correct", function()
 	local love = new_love_graphics_env()
 	local canvas = love.graphics.newCanvas(32, 32)
 	local mesh = love.graphics.newMesh(
@@ -1991,9 +1986,7 @@ T.Test2D("love graphics canvas vertex colors stay correct", function()
 	love.graphics.setColor(255, 255, 255, 255)
 	love.graphics.draw(mesh, 0, 0)
 	love.graphics.setCanvas()
-	return function()
-		T.TexturePixel(canvas.fb:GetColorTexture(), 8, 8, 1, 32 / 255, 0, 1, 0.08)
-	end
+	T.TexturePixel(canvas.fb:GetColorTexture(), 8, 8, 1, 32 / 255, 0, 1, 0.08)
 end)
 
 T.Test2D("love graphics screen global color channels stay correct", function()

@@ -135,6 +135,7 @@ function CommandBuffer:Begin()
 	self.bound_pipelines = {}
 	self.bound_descriptor_sets = {}
 	self.dynamic_state_cache = {}
+	self.keepalive_resources = nil
 	vulkan.assert(
 		vulkan.lib.vkBeginCommandBuffer(self.ptr[0], vulkan.vk.s.CommandBufferBeginInfo{
 			flags = "one_time_submit",
@@ -147,6 +148,7 @@ function CommandBuffer:Reset()
 	self.bound_pipelines = {}
 	self.bound_descriptor_sets = {}
 	self.dynamic_state_cache = {}
+	self.keepalive_resources = nil
 	vulkan.lib.vkResetCommandBuffer(self.ptr[0], 0)
 end
 

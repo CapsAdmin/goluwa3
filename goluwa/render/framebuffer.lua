@@ -68,7 +68,7 @@ function Framebuffer.New(config)
 end
 
 function Framebuffer:Begin(cmd, load_op)
-	cmd = cmd or self.cmd
+	cmd = cmd or render.GetCommandBuffer() or self.cmd
 	load_op = load_op or "clear"
 
 	if cmd == self.cmd then
@@ -145,7 +145,7 @@ function Framebuffer:Begin(cmd, load_op)
 end
 
 function Framebuffer:End(cmd)
-	cmd = cmd or self.cmd
+	cmd = cmd or render.GetCommandBuffer() or self.cmd
 	cmd:EndRendering()
 	-- Transition color attachments to shader read layout
 	local imageBarriers = {}

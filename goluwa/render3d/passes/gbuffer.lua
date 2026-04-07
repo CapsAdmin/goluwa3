@@ -1,4 +1,5 @@
 local event = import("goluwa/event.lua")
+local render = import("goluwa/render/render.lua")
 local orientation = import("goluwa/render3d/orientation.lua")
 local Material = import("goluwa/render3d/material.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
@@ -6,12 +7,12 @@ return {
 	{
 		name = "gbuffer",
 		on_draw = function(self, cmd)
-			event.Call("PreDraw3D", cmd, dt)
-			event.Call("Draw3DGeometry", cmd, dt)
+			event.Call("PreDraw3D", dt)
+			event.Call("Draw3DGeometry", dt)
 			self:SetDepthTest(false)
 			self:SetDepthWrite(false)
 			self:Bind(cmd)
-			event.Call("Draw3DGeometryOverlay", cmd, dt)
+			event.Call("Draw3DGeometryOverlay", dt)
 			self:ResetToBase()
 			self:Bind(cmd)
 		end,

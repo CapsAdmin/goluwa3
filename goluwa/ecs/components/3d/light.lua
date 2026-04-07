@@ -82,7 +82,9 @@ function Light:RenderShadows()
 
 	for cascade_idx = 1, self.ShadowMap:GetCascadeCount() do
 		local shadow_cmd = self.ShadowMap:Begin(cascade_idx)
-		event.Call("DrawAllShadows", shadow_cmd, self.ShadowMap, cascade_idx)
+		render.PushCommandBuffer(shadow_cmd)
+		event.Call("DrawAllShadows", self.ShadowMap, cascade_idx)
+		render.PopCommandBuffer()
 		self.ShadowMap:End(cascade_idx)
 	end
 end

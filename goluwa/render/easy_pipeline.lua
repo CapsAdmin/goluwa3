@@ -906,10 +906,10 @@ function EasyPipeline.New(config)
 		local upload_constants_chunk = assert(loadstring(upload_constants_source, "UploadConstants_unrolled"))
 		local upload_constants_impl = upload_constants_chunk()
 
-		function self:UploadConstants(cmd)
+		function self:UploadConstants()
 			return upload_constants_impl(
 				self,
-				cmd,
+				render.GetCommandBuffer(),
 				render,
 				active_stages,
 				push_constant_blocks,
@@ -1504,24 +1504,28 @@ end
 function EasyPipeline:Draw(cmd, framebuffer, frame_index, vertex_count)
 	cmd = cmd or render.GetCommandBuffer()
 	vertex_count = vertex_count or 3
+	render.PushCommandBuffer(cmd)
 	local fb = self:BeginDraw(cmd, framebuffer, frame_index)
 
 	if self.on_draw then
 		self.on_draw(self, cmd)
 	else
-		self:UploadConstants(cmd)
+		self:UploadConstants()
 		cmd:Draw(vertex_count, 1, 0, 0)
 	end
 
 	self:EndDraw(cmd, fb)
+	render.PopCommandBuffer()
 end
 
 function EasyPipeline:DrawMeshTasks(gx, gy, gz, cmd, framebuffer, frame_index)
 	cmd = cmd or render.GetCommandBuffer()
+	render.PushCommandBuffer(cmd)
 	local fb = self:BeginDraw(cmd, framebuffer, frame_index)
-	self:UploadConstants(cmd)
+	self:UploadConstants()
 	cmd:DrawMeshTasks(gx, gy, gz)
 	self:EndDraw(cmd, fb)
+	render.PopCommandBuffer()
 end
 
 function EasyPipeline.FragmentOnly(config)

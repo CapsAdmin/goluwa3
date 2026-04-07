@@ -316,13 +316,23 @@ function META:GetDescent()
 	return d
 end
 
-function META:Rebuild(cmd)
-	self.texture_atlas:Build(cmd)
+function META:Rebuild()
+	self.texture_atlas:Build()
 end
 
-function META:RebuildFromScratch(cmd)
+function META:RebuildFromScratch()
 	if not self.texture_atlas then return end
 
+	local own_cmd = false
+	local cmd = render.GetCommandBuffer()
+
+	if not cmd then
+		cmd = render.GetCommandPool():AllocateCommandBuffer()
+		cmd:Begin()
+		own_cmd = true
+	end
+
+	render.PushCommandBuffer(cmd)
 	-- Clear all cached glyphs
 	local codes_to_reload = {}
 
@@ -333,11 +343,17 @@ function META:RebuildFromScratch(cmd)
 
 	-- Reload all glyphs
 	for _, code in ipairs(codes_to_reload) do
-		self:LoadGlyph(code, cmd)
+		self:LoadGlyph(code)
 	end
 
 	-- Rebuild the atlas
-	self:Rebuild(cmd)
+	self:Rebuild()
+	render.PopCommandBuffer()
+
+	if own_cmd then
+		cmd:End()
+		render.SubmitAndWait(cmd)
+	end
 end
 
 local scratch_size = {w = 0, h = 0}
@@ -391,7 +407,7 @@ local function release_temp_fb(fb)
 	table.insert(pool, fb)
 end
 
-function META:GenerateSDF(cmd, mask_tex, sw, sh, target_w, target_h, temp_fbs)
+function META:GenerateSDF(mask_tex, sw, sh, target_w, target_h, temp_fbs)
 	local p = self:GetJFAPipelines()
 	local size = Vec2(sw, sh)
 	local max_dim = math.max(sw, sh)
@@ -428,7 +444,7 @@ function META:GenerateSDF(cmd, mask_tex, sw, sh, target_w, target_h, temp_fbs)
 	local function run_jfa(mode, out_fb)
 		p.init.current_jfa_tex = mask_tex
 		p.init.current_jfa_mode = mode
-		p.init:Draw(cmd, fb_a)
+		p.init:Draw(nil, fb_a)
 		local current_fb = fb_a
 		local next_fb = fb_b
 		local step = p2 / 2
@@ -436,7 +452,7 @@ function META:GenerateSDF(cmd, mask_tex, sw, sh, target_w, target_h, temp_fbs)
 		while step >= 1 do
 			p.step.current_jfa_tex = current_fb.color_texture
 			p.step.current_jfa_step = step
-			p.step:Draw(cmd, next_fb)
+			p.step:Draw(nil, next_fb)
 			current_fb, next_fb = next_fb, current_fb
 			step = math.floor(step / 2)
 		end
@@ -445,12 +461,12 @@ function META:GenerateSDF(cmd, mask_tex, sw, sh, target_w, target_h, temp_fbs)
 		for i = 1, 2 do
 			p.step.current_jfa_tex = current_fb.color_texture
 			p.step.current_jfa_step = 1
-			p.step:Draw(cmd, next_fb)
+			p.step:Draw(nil, next_fb)
 			current_fb, next_fb = next_fb, current_fb
 		end
 
 		p.final.current_jfa_tex = current_fb.color_texture
-		p.final:Draw(cmd, out_fb)
+		p.final:Draw(nil, out_fb)
 	end
 
 	run_jfa(0, fb_dist_on) -- Distance to ON pixels
@@ -460,11 +476,11 @@ function META:GenerateSDF(cmd, mask_tex, sw, sh, target_w, target_h, temp_fbs)
 	p.combine.current_jfa_dist_on = fb_dist_on.color_texture
 	p.combine.current_jfa_dist_off = fb_dist_off.color_texture
 	p.combine.current_jfa_mask_tex = mask_tex
-	p.combine:Draw(cmd, fb_final)
+	p.combine:Draw(nil, fb_final)
 	return fb_final.color_texture
 end
 
-function META:LoadGlyph(code, parent_cmd, temp_fbs)
+function META:LoadGlyph(code, temp_fbs)
 	-- Convert string to character code if needed
 	if type(code) == "string" then code = utf8.uint32(code) end
 
@@ -505,7 +521,7 @@ function META:LoadGlyph(code, parent_cmd, temp_fbs)
 		local fb_ss = get_temp_fb(sw, sh, format, true)
 		table.insert(used_temp_fbs, fb_ss)
 		local own_cmd = false
-		local cmd = parent_cmd
+		local cmd = render.GetCommandBuffer()
 
 		if not cmd then
 			cmd = render.GetCommandPool():AllocateCommandBuffer()
@@ -516,8 +532,8 @@ function META:LoadGlyph(code, parent_cmd, temp_fbs)
 		do
 			render2d.ResetState()
 			local old_w, old_h = render2d.GetSize()
-			fb_ss:Begin(cmd)
 			render.PushCommandBuffer(cmd)
+			fb_ss:Begin()
 			local old_color = {render2d.GetColor()}
 			render2d.SetColor(1, 1, 1, 1)
 			local old_blend_mode = render2d.GetBlendMode()
@@ -540,7 +556,7 @@ function META:LoadGlyph(code, parent_cmd, temp_fbs)
 			render2d.PopSwizzleMode()
 			render2d.SetBlendMode(old_blend_mode, true)
 			render2d.SetColor(unpack(old_color))
-			fb_ss:End(cmd)
+			fb_ss:End()
 			render.PopCommandBuffer()
 			scratch_size.w = old_w
 			scratch_size.h = old_h
@@ -548,7 +564,6 @@ function META:LoadGlyph(code, parent_cmd, temp_fbs)
 		end
 
 		glyph.texture = self:GenerateSDF(
-			cmd,
 			fb_ss.color_texture,
 			sw,
 			sh,
@@ -568,7 +583,7 @@ function META:LoadGlyph(code, parent_cmd, temp_fbs)
 				}
 			)
 			self.chars[code] = glyph
-			self:Rebuild(cmd)
+			self:Rebuild()
 			cmd:End()
 			render.SubmitAndWait(cmd)
 
@@ -650,15 +665,17 @@ local function batch_load_glyphs(self, str)
 	local cmd = render.GetCommandPool():AllocateCommandBuffer()
 	cmd:Begin()
 	local temp_fbs = {}
-
 	-- Load from current position (first new glyph) onwards
+	render.PushCommandBuffer(cmd)
+
 	while i <= len do
 		local cc = utf8.uint32(str, i)
-		self:LoadGlyph(cc, cmd, temp_fbs)
+		self:LoadGlyph(cc, temp_fbs)
 		i = i + utf8.byte_length(str, i)
 	end
 
-	self:Rebuild(cmd)
+	self:Rebuild()
+	render.PopCommandBuffer()
 	cmd:End()
 	render.SubmitAndWait(cmd)
 	self.rebuild = false

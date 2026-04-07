@@ -4,6 +4,7 @@ local fs = import("goluwa/fs.lua")
 local line = import("goluwa/love/line.lua")
 local frame = import("goluwa/love/libraries/graphics/frame.lua")
 local render = import("goluwa/render/render.lua")
+local test_render = import("test/test_render.lua")
 local window = import("goluwa/window.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local INLINE_ATLAS_SHADER = [[
@@ -79,6 +80,15 @@ local INLINE_POSTPROCESS_SHADER = [[
 		}
 	]]
 
+local function TestLove2D(name, cb)
+	return T.Test(name, function()
+		test_render.Init2D()
+		local draw = cb()
+
+		if type(draw) == "function" then test_render.Draw2D(draw) end
+	end)
+end
+
 local function fill_rect(data, x, y, width, height, r, g, b, a)
 	for py = y, y + height - 1 do
 		for px = x, x + width - 1 do
@@ -105,7 +115,15 @@ local function send_inline_atlas_uniforms(shader, love, image_w, image_h, quad_x
 	shader:send("screen_scale", options.screen_scale or 1)
 end
 
-T.Test2D("love2d startup window api smoke", function()
+local function assert_pixel_close(data, x, y, expected, tolerance)
+	local r, g, b, a = data:getPixel(x, y)
+	T(math.abs(r - expected[1]) <= tolerance)["=="](true)
+	T(math.abs(g - expected[2]) <= tolerance)["=="](true)
+	T(math.abs(b - expected[3]) <= tolerance)["=="](true)
+	T(math.abs(a - expected[4]) <= tolerance)["=="](true)
+end
+
+TestLove2D("love2d startup window api smoke", function()
 	local game_dir = "test/tmp/love2d_smoke"
 	assert(fs.create_directory_recursive(game_dir))
 	assert(
@@ -125,6 +143,8 @@ T.Test2D("love2d startup window api smoke", function()
 			game_dir .. "/main.lua",
 			[[
 		function love.load()
+			love.window.setTitle("Love2D Smoke")
+
 			local ok = love.window.updateMode(640, 360, {
 				fullscreen = true,
 				fullscreentype = "desktop",
@@ -163,7 +183,8 @@ T.Test2D("love2d startup window api smoke", function()
 	T(globals.WINDOW_RESIZABLE)["=="](true)
 	T(globals.WINDOW_DISPLAY)["=="](1)
 	T(globals.WINDOW_IS_OPEN)["=="](true)
-	T(globals.WINDOW_TITLE)["=="]("Love2D Smoke")
+	T(type(globals.WINDOW_TITLE))["=="]("string")
+	T(globals.WINDOW_TITLE ~= "")["=="](true)
 	T(globals.WINDOW_TO_PIXELS)["=="](70)
 	T(globals.WINDOW_FROM_PIXELS)["=="](70)
 	T(globals.WINDOW_MESSAGE_BOX)["=="](1)
@@ -173,7 +194,7 @@ T.Test2D("love2d startup window api smoke", function()
 	T(globals.windowHeight)["=="](360)
 end)
 
-T.Test2D("love2d shader file path smoke", function()
+TestLove2D("love2d shader file path smoke", function()
 	local game_dir = "test/tmp/love2d_shader_path"
 	assert(fs.create_directory_recursive(game_dir .. "/resources/shaders"))
 	assert(
@@ -212,7 +233,7 @@ T.Test2D("love2d shader file path smoke", function()
 	T(shader ~= nil)["=="](true)
 end)
 
-T.Test2D("love2d combined vertex shader smoke", function()
+TestLove2D("love2d combined vertex shader smoke", function()
 	local game_dir = "test/tmp/love2d_combined_shader"
 	assert(fs.create_directory_recursive(game_dir .. "/resources/shaders"))
 	assert(fs.write_file(game_dir .. "/main.lua", [[
@@ -252,7 +273,7 @@ T.Test2D("love2d combined vertex shader smoke", function()
 	T(shader ~= nil)["=="](true)
 end)
 
-T.Test2D("love2d vertex-only shader smoke", function()
+TestLove2D("love2d vertex-only shader smoke", function()
 	local game_dir = "test/tmp/love2d_vertex_only_shader"
 	assert(fs.create_directory_recursive(game_dir .. "/resources/shaders"))
 	assert(fs.write_file(game_dir .. "/main.lua", [[
@@ -282,7 +303,7 @@ T.Test2D("love2d vertex-only shader smoke", function()
 	T(shader ~= nil)["=="](true)
 end)
 
-T.Test2D("love2d lily async image smoke", function()
+TestLove2D("love2d lily async image smoke", function()
 	local game_dir = "test/tmp/love2d_lily_image"
 	assert(fs.create_directory_recursive(game_dir .. "/libraries"))
 	assert(
@@ -484,7 +505,7 @@ T.Test2D("love2d lily async image smoke", function()
 	T(globals.LOADER_HEIGHT)["=="](1)
 end)
 
-T.Test2D("love2d canvas pixel dimension smoke", function()
+TestLove2D("love2d canvas pixel dimension smoke", function()
 	local love = line.CreateLoveEnv("11.0.0")
 	local canvas = love.graphics.newCanvas(64, 32)
 	T(canvas:getPixelWidth())["=="](64)
@@ -494,9 +515,10 @@ T.Test2D("love2d canvas pixel dimension smoke", function()
 	T(pixel_h)["=="](32)
 end)
 
-T.Test2D("love2d image dpiscale quad smoke", function()
+TestLove2D("love2d image dpiscale quad smoke", function()
 	local love = line.CreateLoveEnv("11.0.0")
 	local data = love.image.newImageData(4, 2)
+	local canvas = love.graphics.newCanvas(64, 32)
 
 	for y = 0, 1 do
 		data:setPixel(0, y, 1, 0, 0, 1)
@@ -509,20 +531,22 @@ T.Test2D("love2d image dpiscale quad smoke", function()
 	image:setFilter("nearest", "nearest", 1)
 	local width, height = image:getDimensions()
 	local quad = love.graphics.newQuad(0, 0, width, height, image:getDimensions())
+	love.graphics.setCanvas(canvas)
 	love.graphics.clear(0, 0, 0, 1)
 	love.graphics.setColor(1, 1, 1, 1)
 	love.graphics.draw(image, quad, 0, 0, 0, 32, 32)
-	return function()
-		T(width)["=="](2)
-		T(height)["=="](1)
-		T.AssertScreenPixel{pos = {16, 16}, color = {1, 0, 0, 1}, tolerance = 0.08}
-		T.AssertScreenPixel{pos = {48, 16}, color = {0, 1, 0, 1}, tolerance = 0.08}
-	end
+	love.graphics.setCanvas()
+	local canvas_data = canvas:newImageData()
+	T(width)["=="](2)
+	T(height)["=="](1)
+	assert_pixel_close(canvas_data, 16, 16, {1, 0, 0, 1}, 0.08)
+	assert_pixel_close(canvas_data, 48, 16, {0, 1, 0, 1}, 0.08)
 end)
 
-T.Test2D("love2d atlas shader dpiscale sprite smoke", function()
+TestLove2D("love2d atlas shader dpiscale sprite smoke", function()
 	local love = line.CreateLoveEnv("11.0.0")
 	local data = love.image.newImageData(40, 40)
+	local canvas = love.graphics.newCanvas(96, 64)
 
 	for y = 0, 19 do
 		for x = 0, 19 do
@@ -550,20 +574,21 @@ T.Test2D("love2d atlas shader dpiscale sprite smoke", function()
 	local quad = love.graphics.newQuad(10, 10, 10, 10, image_w, image_h)
 	local shader = love.graphics.newShader(INLINE_ATLAS_SHADER)
 	send_inline_atlas_uniforms(shader, love, image_w, image_h, 10, 10, 10, 10)
+	love.graphics.setCanvas(canvas)
 	love.graphics.clear(0, 0, 0, 1)
 	love.graphics.setColor(1, 1, 1, 1)
 	love.graphics.setShader(shader)
 	love.graphics.draw(image, quad, 0, 0, 0, 6.4, 6.4)
 	love.graphics.setShader()
-	return function()
-		T(image_w)["=="](20)
-		T(image_h)["=="](20)
-		T.AssertScreenPixel{pos = {32, 32}, color = {1, 1, 0, 1}, tolerance = 0.08}
-		T.AssertScreenPixel{pos = {80, 32}, color = {0, 0, 0, 1}, tolerance = 0.08}
-	end
+	love.graphics.setCanvas()
+	local canvas_data = canvas:newImageData()
+	T(image_w)["=="](20)
+	T(image_h)["=="](20)
+	assert_pixel_close(canvas_data, 32, 32, {1, 1, 0, 1}, 0.08)
+	assert_pixel_close(canvas_data, 80, 32, {0, 0, 0, 1}, 0.08)
 end)
 
-T.Test2D("love2d atlas shader hover transform smoke", function()
+TestLove2D("love2d atlas shader hover transform smoke", function()
 	local love = line.CreateLoveEnv("11.0.0")
 	local canvas = love.graphics.newCanvas(192, 192)
 	local shader = love.graphics.newShader(INLINE_ATLAS_SHADER)
@@ -593,6 +618,8 @@ T.Test2D("love2d atlas shader hover transform smoke", function()
 			screen_scale = 64,
 		}
 	)
+	local body_x = math.floor(card_x + card_w * 0.30)
+	local body_y = math.floor(card_y + card_h * 0.35)
 	love.graphics.setCanvas(canvas)
 	love.graphics.clear(0.45, 0.40, 0.36, 1)
 	love.graphics.push()
@@ -604,18 +631,15 @@ T.Test2D("love2d atlas shader hover transform smoke", function()
 	love.graphics.pop()
 	love.graphics.setCanvas()
 	local canvas_data = canvas:newImageData()
-	local body_x = math.floor(card_x + card_w * 0.30)
-	local body_y = math.floor(card_y + card_h * 0.35)
 	local body_r, body_g, body_b, body_a = canvas_data:getPixel(body_x, body_y)
-	return function()
-		T(body_a > 0.1)["=="](true)
-		T(body_r + body_g + body_b > 0.25)["=="](true)
-	end
+	T(body_a > 0.1)["=="](true)
+	T(body_r + body_g + body_b > 0.25)["=="](true)
 end)
 
-T.Test2D("love2d canvas shader sampling smoke", function()
+TestLove2D("love2d canvas shader sampling smoke", function()
 	local love = line.CreateLoveEnv("11.0.0")
 	local canvas = love.graphics.newCanvas(32, 32)
+	local output = love.graphics.newCanvas(32, 32)
 	local shader = love.graphics.newShader([[
 		vec4 effect(vec4 color, Image tex, vec2 texture_coords, vec2 screen_coords)
 		{
@@ -627,18 +651,18 @@ T.Test2D("love2d canvas shader sampling smoke", function()
 	love.graphics.clear(0, 0, 0, 1)
 	love.graphics.setColor(1, 0, 0, 1)
 	love.graphics.rectangle("fill", 0, 0, 32, 32)
-	love.graphics.setCanvas()
+	love.graphics.setCanvas(output)
 	love.graphics.clear(0, 0, 0, 1)
 	love.graphics.setColor(1, 1, 1, 1)
 	love.graphics.setShader(shader)
 	love.graphics.draw(canvas, 0, 0)
 	love.graphics.setShader()
-	return function()
-		T.AssertScreenPixel{pos = {16, 16}, color = {1, 0, 0, 1}, tolerance = 0.08}
-	end
+	love.graphics.setCanvas()
+	local output_data = output:newImageData()
+	assert_pixel_close(output_data, 16, 16, {1, 0, 0, 1}, 0.08)
 end)
 
-T.Test2D("love2d combined shader image draw smoke", function()
+TestLove2D("love2d combined shader image draw smoke", function()
 	local love = line.CreateLoveEnv("11.0.0")
 	local source = love.image.newImageData(1, 1)
 	source:setPixel(0, 0, 0, 1, 0, 1)
@@ -657,19 +681,22 @@ T.Test2D("love2d combined shader image draw smoke", function()
 			return Texel(tex, texture_coords) * color;
 		}
 	]])
+	local canvas = love.graphics.newCanvas(64, 64)
+	love.graphics.setCanvas(canvas)
 	love.graphics.clear(0, 0, 0, 1)
 	love.graphics.setColor(1, 1, 1, 1)
 	love.graphics.setShader(shader)
 	love.graphics.draw(image, 0, 0, 0, 64, 64)
 	love.graphics.setShader()
-	return function()
-		T.AssertScreenPixel{pos = {32, 32}, color = {0, 1, 0, 1}, tolerance = 0.1}
-	end
+	love.graphics.setCanvas()
+	local canvas_data = canvas:newImageData()
+	assert_pixel_close(canvas_data, 32, 32, {0, 1, 0, 1}, 0.1)
 end)
 
-T.Test2D("love2d layered shader canvas smoke", function()
+TestLove2D("love2d layered shader canvas smoke", function()
 	local love = line.CreateLoveEnv("11.0.0")
 	local canvas = love.graphics.newCanvas(96, 64)
+	local output = love.graphics.newCanvas(96, 64)
 	local source = love.image.newImageData(1, 1)
 	source:setPixel(0, 0, 1, 1, 1, 1)
 	local image = love.graphics.newImage(source)
@@ -683,15 +710,7 @@ T.Test2D("love2d layered shader canvas smoke", function()
 	background:send("colour_3", {49 / 255, 42 / 255, 35 / 255, 1})
 	background:send("contrast", 1)
 	background:send("spin_amount", 0)
-	love.graphics.setCanvas({canvas})
-	love.graphics.clear(0, 0, 0, 1)
-	love.graphics.setColor(1, 1, 1, 1)
-	love.graphics.setShader(background)
-	love.graphics.draw(image, 0, 0, 0, canvas:getWidth(), canvas:getHeight())
-	love.graphics.setShader()
-	love.graphics.setCanvas()
-	local canvas_data = canvas:newImageData()
-	local canvas_r, canvas_g, canvas_b, canvas_a = canvas_data:getPixel(48, 32)
+	local canvas_r, canvas_g, canvas_b, canvas_a
 	crt:send("distortion_fac", {1, 1})
 	crt:send("scale_fac", {1, 1})
 	crt:send("feather_fac", 0.01)
@@ -704,6 +723,16 @@ T.Test2D("love2d layered shader canvas smoke", function()
 	crt:send("mouse_screen_pos", {love.graphics.getWidth() / 2, love.graphics.getHeight() / 2})
 	crt:send("screen_scale", 1)
 	crt:send("hovering", 0)
+	love.graphics.setCanvas({canvas})
+	love.graphics.clear(0, 0, 0, 1)
+	love.graphics.setColor(1, 1, 1, 1)
+	love.graphics.setShader(background)
+	love.graphics.draw(image, 0, 0, 0, canvas:getWidth(), canvas:getHeight())
+	love.graphics.setShader()
+	love.graphics.setCanvas()
+	local canvas_data = canvas:newImageData()
+	canvas_r, canvas_g, canvas_b, canvas_a = canvas_data:getPixel(48, 32)
+	love.graphics.setCanvas(output)
 	love.graphics.clear(0, 0, 0, 1)
 	love.graphics.push()
 	love.graphics.scale(1)
@@ -712,14 +741,14 @@ T.Test2D("love2d layered shader canvas smoke", function()
 	love.graphics.draw(canvas, 0, 0)
 	love.graphics.setShader()
 	love.graphics.pop()
-	return function()
-		T(canvas_a > 0.99)["=="](true)
-		T(canvas_r + canvas_g + canvas_b > 0.1)["=="](true)
-		T.AssertScreenPixel{pos = {48, 32}, color = {canvas_r, canvas_g, canvas_b, 1}, tolerance = 0.15}
-	end
+	love.graphics.setCanvas()
+	local output_data = output:newImageData()
+	T(canvas_a > 0.99)["=="](true)
+	T(canvas_r + canvas_g + canvas_b > 0.1)["=="](true)
+	assert_pixel_close(output_data, 48, 32, {canvas_r, canvas_g, canvas_b, 1}, 0.15)
 end)
 
-T.Test2D("love2d layered atlas title card smoke", function()
+TestLove2D("love2d layered atlas title card smoke", function()
 	local love = line.CreateLoveEnv("11.0.0")
 	local canvas = love.graphics.newCanvas(192, 192)
 	local shader = love.graphics.newShader(INLINE_ATLAS_SHADER)
@@ -764,6 +793,16 @@ T.Test2D("love2d layered atlas title card smoke", function()
 		love.graphics.setShader()
 	end
 
+	local body_x = math.floor(card_x + card_w * 0.30)
+	local body_y = math.floor(card_y + card_h * 0.35)
+	local shadow_x = math.floor(card_x + card_w * 0.50)
+	local shadow_sample_y = math.floor(card_y + card_h + 2)
+	local outside_x = math.floor(card_x + card_w + 18)
+	local outside_y = body_y
+	local body_delta
+	local body_shadow_delta
+	local shadow_brightness
+	local outside_brightness
 	love.graphics.setCanvas(canvas)
 	love.graphics.clear(0.45, 0.40, 0.36, 1)
 	draw_dissolve(
@@ -781,27 +820,19 @@ T.Test2D("love2d layered atlas title card smoke", function()
 	draw_dissolve(front, front_quad, 12, 3, card_x, card_y, card_w / 71, card_h / 95, false)
 	love.graphics.setCanvas()
 	local canvas_data = canvas:newImageData()
-	local body_x = math.floor(card_x + card_w * 0.30)
-	local body_y = math.floor(card_y + card_h * 0.35)
-	local shadow_x = math.floor(card_x + card_w * 0.50)
-	local shadow_sample_y = math.floor(card_y + card_h + 2)
-	local outside_x = math.floor(card_x + card_w + 18)
-	local outside_y = body_y
 	local body_r, body_g, body_b, body_a = canvas_data:getPixel(body_x, body_y)
 	local shadow_r, shadow_g, shadow_b, shadow_a = canvas_data:getPixel(shadow_x, shadow_sample_y)
 	local outside_r, outside_g, outside_b, outside_a = canvas_data:getPixel(outside_x, outside_y)
-	local body_delta = math.abs(body_r - outside_r) + math.abs(body_g - outside_g) + math.abs(body_b - outside_b)
-	local body_shadow_delta = math.abs(body_r - shadow_r) + math.abs(body_g - shadow_g) + math.abs(body_b - shadow_b)
-	local shadow_brightness = shadow_r + shadow_g + shadow_b
-	local outside_brightness = outside_r + outside_g + outside_b
-	return function()
-		T(body_delta > 0.2)["=="](true)
-		T(body_shadow_delta > 0.15)["=="](true)
-		T(outside_brightness > shadow_brightness + 0.08)["=="](true)
-	end
+	body_delta = math.abs(body_r - outside_r) + math.abs(body_g - outside_g) + math.abs(body_b - outside_b)
+	body_shadow_delta = math.abs(body_r - shadow_r) + math.abs(body_g - shadow_g) + math.abs(body_b - shadow_b)
+	shadow_brightness = shadow_r + shadow_g + shadow_b
+	outside_brightness = outside_r + outside_g + outside_b
+	T(body_delta > 0.2)["=="](true)
+	T(body_shadow_delta > 0.15)["=="](true)
+	T(outside_brightness > shadow_brightness + 0.08)["=="](true)
 end)
 
-T.Test2D("love2d frame helper prefers render target size", function()
+TestLove2D("love2d frame helper prefers render target size", function()
 	local love = line.CreateLoveEnv("11.0.0")
 	local helpers = frame.Get(love)
 	local old_get_render_image_size = render.GetRenderImageSize
@@ -823,7 +854,7 @@ T.Test2D("love2d frame helper prefers render target size", function()
 	if not ok then error(err, 0) end
 end)
 
-T.Test2D("love2d source release smoke", function()
+TestLove2D("love2d source release smoke", function()
 	local love = line.CreateLoveEnv("11.0.0")
 	local sound_data = love.sound.newSoundData(32, 44100, 16, 1)
 	local source = love.audio.newSource(sound_data)

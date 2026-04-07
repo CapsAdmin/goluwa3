@@ -89,7 +89,7 @@ T.Pending("Graphics Polygon3D environment map reflection colors", function(draw)
 			local sun = render3d.GetLights()[1]
 			sun:SetRotation(Quat():SetAngles(Deg3(lp, ly, 0)))
 			render3d.SetMaterial(mat)
-			render3d.UploadGBufferConstants(cmd)
+			render3d.UploadGBufferConstants()
 			poly:Draw(cmd)
 		end)
 		draw()
