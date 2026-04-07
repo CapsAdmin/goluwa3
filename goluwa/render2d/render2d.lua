@@ -153,26 +153,6 @@ local function mark_pipeline_state_dirty()
 	render2d.pipeline_state_dirty = true
 end
 
-local function require_command_buffer(cmd, level)
-	if cmd ~= nil then render.SetCommandBuffer(cmd) end
-
-	local active_cmd = render.GetCommandBuffer()
-
-	if not active_cmd and render2d.on_missing_command then
-		render2d.on_missing_command()
-		active_cmd = render.GetCommandBuffer()
-	end
-
-	if not active_cmd then
-		error(
-			"render2d requires an active command buffer. Call during Draw2D/PreDraw2D, use render.SetCommandBuffer/render.PushCommandBuffer for overrides, or install render2d.on_missing_command.",
-			level or 2
-		)
-	end
-
-	return active_cmd
-end
-
 local function sync_pipeline_state(force)
 	local pipeline = get_active_pipeline()
 
@@ -196,12 +176,13 @@ local function sync_pipeline_state(force)
 	stencil_ref = stencil_ref or 1
 	local stencil_mode = render2d.stencil_modes[stencil_mode_name]
 	local depth_compare_op = depth_mode_to_compare_op[depth_mode_name] or "always"
+	local cmd = render.GetCommandBuffer()
 	apply_blend_mode_state(pipeline, blend_mode, stencil_mode)
 	pipeline:SetDepthTest(depth_mode_name ~= DEFAULT_DEPTH_MODE)
 	pipeline:SetDepthWrite(depth_write)
 	pipeline:SetDepthCompareOp(depth_compare_op)
 	apply_stencil_state(pipeline, stencil_mode, stencil_ref)
-	pipeline:Bind(require_command_buffer(nil, 3), render.GetCurrentFrame())
+	pipeline:Bind(cmd, render.GetCurrentFrame())
 	render2d.pipeline_state_dirty = false
 	render2d.synced_pipeline = pipeline
 end
@@ -1285,7 +1266,7 @@ do
 	end
 
 	function render2d.SetBlendConstants(r, g, b, a)
-		require_command_buffer(nil, 2):SetBlendConstants(r, g, b, a)
+		render.GetCommandBuffer():SetBlendConstants(r, g, b, a)
 	end
 
 	function render2d.SetScissor(x, y, w, h)
@@ -1301,7 +1282,7 @@ do
 
 		w = math.max(w, 0)
 		h = math.max(h, 0)
-		require_command_buffer(nil, 2):SetScissor(x, y, w, h)
+		render.GetCommandBuffer():SetScissor(x, y, w, h)
 	end
 
 	do
@@ -1340,7 +1321,9 @@ do
 		current_w, current_h = w or 0, h or 0
 		current_lw, current_lh = lw or w or 0, lh or h or 0
 		local pipeline = get_active_pipeline()
-		cmd = require_command_buffer(cmd, 2)
+
+		if cmd ~= nil then render.SetCommandBuffer(cmd) end
+		cmd = render.GetCommandBuffer()
 
 		if pipeline then pipeline:UploadConstants(cmd) end
 	end
@@ -1355,7 +1338,7 @@ do -- mesh
 	local last_cmd = nil
 
 	local function ensure_draw_command()
-		local cmd = require_command_buffer(nil, 3)
+		local cmd = render.GetCommandBuffer()
 		sync_pipeline_state()
 		return cmd
 	end
@@ -1629,7 +1612,7 @@ do
 			fragment_constants.uv_offset[1] = old_off_y - (m / h) * old_scale_y
 		end
 
-		local cmd = require_command_buffer(nil, 2)
+		local cmd = render.GetCommandBuffer()
 		render2d.UploadConstants(cmd, qw, qh, w, h)
 		render2d.rect_mesh:DrawIndexed(cmd, 6)
 		fragment_constants.uv_offset[0], fragment_constants.uv_offset[1] = old_off_x, old_off_y
@@ -1665,7 +1648,7 @@ do
 			fragment_constants.uv_offset[1] = old_off_y - (m / h) * old_scale_y
 		end
 
-		local cmd = require_command_buffer(nil, 2)
+		local cmd = render.GetCommandBuffer()
 		render2d.UploadConstants(cmd, qw, qh, w, h)
 		render2d.rect_mesh:DrawIndexed(cmd, 6)
 		fragment_constants.uv_offset[0], fragment_constants.uv_offset[1] = old_off_x, old_off_y
@@ -1685,7 +1668,7 @@ do
 
 		if w and h then render2d.Scale(w, h) end
 
-		local cmd = require_command_buffer(nil, 2)
+		local cmd = render.GetCommandBuffer()
 		render2d.UploadConstants(cmd, w, h)
 		render2d.triangle_mesh:Draw(cmd, 3)
 		render2d.PopMatrix()
@@ -1693,7 +1676,7 @@ do
 end
 
 function render2d.BindPipeline(cmd)
-	require_command_buffer(cmd, 2)
+	if cmd ~= nil then render.SetCommandBuffer(cmd) end
 	sync_pipeline_state(true)
 	-- Reset mesh binding cache since command buffer state was reset
 	render2d.last_bound_mesh = nil

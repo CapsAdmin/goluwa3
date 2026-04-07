@@ -60,23 +60,6 @@ function M.Get(love)
 		return width, height
 	end
 
-	local function begin_temporary_frame()
-		if ENV.graphics_manual_frame_active then
-			return render.GetCommandBuffer() ~= nil
-		end
-
-		if render.in_frame or not render.target then
-			return render.GetCommandBuffer() ~= nil
-		end
-
-		render.target:WaitForPreviousFrame()
-
-		if not render.BeginFrame() then return false end
-
-		ENV.graphics_manual_frame_active = true
-		return true
-	end
-
 	local function draw_clear_rect(r, g, b, a, w, h)
 		local old_r, old_g, old_b, old_a = love.graphics.getColor()
 		render2d.PushMatrix(nil, nil, nil, nil, nil, true)
@@ -186,7 +169,6 @@ function M.Get(love)
 
 	helpers = {
 		get_main_surface_dimensions = get_main_surface_dimensions,
-		begin_temporary_frame = begin_temporary_frame,
 		draw_clear_rect = draw_clear_rect,
 		clear_active_target = clear_active_target,
 		mark_depth_target_initialized = mark_depth_target_initialized,
@@ -198,17 +180,9 @@ function M.Get(love)
 end
 
 function M.Install(love)
-	local ctx = shared.Get(love)
-	local ENV = ctx.ENV
-	local helpers = M.Get(love)
-	render2d.on_missing_command = helpers.begin_temporary_frame
+	M.Get(love)
 
-	function love.graphics.present()
-		if not ENV.graphics_manual_frame_active then return end
-
-		render.EndFrame()
-		ENV.graphics_manual_frame_active = false
-	end
+	function love.graphics.present() end
 
 	function love.graphics.setIcon() end
 end
