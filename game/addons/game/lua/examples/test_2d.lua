@@ -166,8 +166,9 @@ if false then
 
 		do
 			render2d.PushMatrix(50, 50, 500, 500)
-			render2d.UploadConstants(render2d.cmd)
-			mesh:DrawIndexed(render2d.cmd, index_count)
+			local cmd = render.GetCommandBuffer()
+			render2d.UploadConstants(cmd)
+			mesh:DrawIndexed(cmd, index_count)
 			render2d.PopMatrix()
 		end
 

@@ -226,8 +226,8 @@ function render3d.Initialize()
 		end
 	end)
 
-	event.AddListener("Draw", "render3d", function(cmd, dt)
-		render3d.Draw(cmd, dt)
+	event.AddListener("Draw", "render3d", function(dt)
+		render3d.Draw(nil, dt)
 	end)
 
 	event.Call("Render3DInitialized")
@@ -247,6 +247,7 @@ end
 function render3d.Draw(cmd, dt)
 	if not render3d.pipelines.blit then return end
 
+	cmd = cmd or render.GetCommandBuffer()
 	-- render to the screen
 	render3d.pipelines.blit:Draw(cmd)
 

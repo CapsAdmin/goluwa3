@@ -515,10 +515,9 @@ function META:LoadGlyph(code, parent_cmd, temp_fbs)
 
 		do
 			render2d.ResetState()
-			local old_cmd = render2d.cmd
 			local old_w, old_h = render2d.GetSize()
 			fb_ss:Begin(cmd)
-			render2d.cmd = cmd
+			render.PushCommandBuffer(cmd)
 			local old_color = {render2d.GetColor()}
 			render2d.SetColor(1, 1, 1, 1)
 			local old_blend_mode = render2d.GetBlendMode()
@@ -527,7 +526,7 @@ function META:LoadGlyph(code, parent_cmd, temp_fbs)
 			scratch_size.w = sw
 			scratch_size.h = sh
 			render2d.UpdateScreenSize(scratch_size.w, scratch_size.h)
-			render2d.BindPipeline(cmd)
+			render2d.BindPipeline()
 			render2d.SetSwizzleMode(0)
 			render2d.PushMatrix()
 			render2d.LoadIdentity()
@@ -542,7 +541,7 @@ function META:LoadGlyph(code, parent_cmd, temp_fbs)
 			render2d.SetBlendMode(old_blend_mode, true)
 			render2d.SetColor(unpack(old_color))
 			fb_ss:End(cmd)
-			render2d.cmd = old_cmd
+			render.PopCommandBuffer()
 			scratch_size.w = old_w
 			scratch_size.h = old_h
 			render2d.UpdateScreenSize(scratch_size.w, scratch_size.h)

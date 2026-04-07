@@ -1,4 +1,5 @@
 local render2d = import("goluwa/render2d/render2d.lua")
+local render = import("goluwa/render/render.lua")
 local VertexBuffer = import("goluwa/render/vertex_buffer.lua")
 local IndexBuffer = import("goluwa/render/index_buffer.lua")
 local prototype = import("goluwa/prototype.lua")
@@ -162,10 +163,11 @@ function Polygon2D:Draw(count)
 		render2d.LoadIdentity()
 	end
 
-	render2d.UploadConstants(render2d.cmd)
-	self.vertex_buffer:Bind(render2d.cmd, 0)
-	render2d.cmd:BindIndexBuffer(self.index_buffer:GetBuffer(), 0, self.index_buffer:GetIndexType())
-	render2d.cmd:DrawIndexed(count or self.vertex_count, 1, 0, 0, 0)
+	local cmd = render.GetCommandBuffer()
+	render2d.UploadConstants(cmd)
+	self.vertex_buffer:Bind(cmd, 0)
+	cmd:BindIndexBuffer(self.index_buffer:GetBuffer(), 0, self.index_buffer:GetIndexType())
+	cmd:DrawIndexed(count or self.vertex_count, 1, 0, 0, 0)
 
 	if self.WorldMatrixMultiply then render2d.PopMatrix() end
 end

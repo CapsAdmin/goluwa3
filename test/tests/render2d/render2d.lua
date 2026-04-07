@@ -404,8 +404,9 @@ T.Test2D("Graphics render2d custom mesh rendering", function()
 	render2d.BindMesh(mesh)
 	render2d.PushMatrix()
 	render2d.Translate(100, 100)
-	render2d.UploadConstants(render2d.cmd)
-	mesh:DrawIndexed(render2d.cmd, 6)
+	local cmd = render.GetCommandBuffer()
+	render2d.UploadConstants(cmd)
+	mesh:DrawIndexed(cmd, 6)
 	render2d.PopMatrix()
 	return function()
 		T.AssertScreenPixel{pos = {105, 105}, color = {0.5, 0, 0.5, 1}, tolerance = 0.1}
@@ -416,11 +417,12 @@ T.Test2D("Graphics render2d dynamic mesh vertex and index updates", function()
 	local mesh = render2d.CreateMesh(4, {0, 1, 2, 0, 2, 3})
 
 	local function draw_mesh(x, y, index_count)
-		mesh:Bind(render2d.cmd, 0)
+		local cmd = render.GetCommandBuffer()
+		mesh:Bind(cmd, 0)
 		render2d.PushMatrix()
 		render2d.Translate(x, y)
-		render2d.UploadConstants(render2d.cmd)
-		mesh:DrawIndexed(render2d.cmd, index_count)
+		render2d.UploadConstants(cmd)
+		mesh:DrawIndexed(cmd, index_count)
 		render2d.PopMatrix()
 	end
 
@@ -490,11 +492,12 @@ T.Test2DFrames(
 				end
 
 				render2d.SetColor(1, 1, 1, 1)
-				mesh:Bind(render2d.cmd, 0)
+				local cmd = render.GetCommandBuffer()
+				mesh:Bind(cmd, 0)
 				render2d.PushMatrix()
 				render2d.Translate(24, 24)
-				render2d.UploadConstants(render2d.cmd)
-				mesh:DrawIndexed(render2d.cmd, frame == 1 and 6 or 3)
+				render2d.UploadConstants(cmd)
+				mesh:DrawIndexed(cmd, frame == 1 and 6 or 3)
 				render2d.PopMatrix()
 			end
 		end
@@ -543,11 +546,12 @@ T.Test2DFrames(
 
 				mesh:UpdateBuffer()
 				render2d.SetColor(1, 1, 1, 1)
-				mesh:Bind(render2d.cmd, 0)
+				local cmd = render.GetCommandBuffer()
+				mesh:Bind(cmd, 0)
 				render2d.PushMatrix()
 				render2d.Translate(24, 24)
-				render2d.UploadConstants(render2d.cmd)
-				mesh:DrawIndexed(render2d.cmd, 6)
+				render2d.UploadConstants(cmd)
+				mesh:DrawIndexed(cmd, 6)
 				render2d.PopMatrix()
 			end
 		end
@@ -594,11 +598,12 @@ T.Test2DFrames(
 				end
 
 				render2d.SetColor(1, 1, 1, 1)
-				mesh:Bind(render2d.cmd, 0)
+				local cmd = render.GetCommandBuffer()
+				mesh:Bind(cmd, 0)
 				render2d.PushMatrix()
 				render2d.Translate(24, 24)
-				render2d.UploadConstants(render2d.cmd)
-				mesh:DrawIndexed(render2d.cmd, frame == 1 and 6 or 3)
+				render2d.UploadConstants(cmd)
+				mesh:DrawIndexed(cmd, frame == 1 and 6 or 3)
 				render2d.PopMatrix()
 			end
 		end

@@ -293,16 +293,18 @@ function Mesh:DrawInstanced(instance_count, extra_vertex_buffers)
 		)
 
 	if self.index_buffer then
-		if not render2d.cmd then
+		local cmd = render.GetCommandBuffer()
+
+		if not cmd then
 			error(
 				"Cannot draw without active command buffer. Must be called during Draw2D event.",
 				2
 			)
 		end
 
-		self.vertex_buffer:BindInstanced(render2d.cmd, extra_vertex_buffers, 0)
-		render2d.cmd:BindIndexBuffer(self.index_buffer:GetBuffer(), 0, self.index_buffer:GetIndexType())
-		render2d.cmd:DrawIndexed(count, instance_count, 0, 0, 0)
+		self.vertex_buffer:BindInstanced(cmd, extra_vertex_buffers, 0)
+		cmd:BindIndexBuffer(self.index_buffer:GetBuffer(), 0, self.index_buffer:GetIndexType())
+		cmd:DrawIndexed(count, instance_count, 0, 0, 0)
 		return
 	end
 

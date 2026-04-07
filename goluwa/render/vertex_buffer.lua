@@ -168,23 +168,23 @@ function VertexBuffer:SetVertex(index, val)
 end
 
 function VertexBuffer:Draw(index_buffer, count)
-	local render2d = import("goluwa/render2d/render2d.lua")
 	count = count or self.vertex_count
+	local cmd = render.GetCommandBuffer()
 
-	if not render2d.cmd then
+	if not cmd then
 		error(
 			"Cannot draw without active command buffer. Must be called during Draw2D event.",
 			2
 		)
 	end
 
-	render2d.cmd:BindVertexBuffer(self.buffer, 0)
+	cmd:BindVertexBuffer(self.buffer, 0)
 
 	if index_buffer then
-		render2d.cmd:BindIndexBuffer(index_buffer:GetBuffer(), 0, index_buffer:GetIndexType())
-		render2d.cmd:DrawIndexed(count, 1, 0, 0, 0)
+		cmd:BindIndexBuffer(index_buffer:GetBuffer(), 0, index_buffer:GetIndexType())
+		cmd:DrawIndexed(count, 1, 0, 0, 0)
 	else
-		render2d.cmd:Draw(count, 1, 0, 0)
+		cmd:Draw(count, 1, 0, 0)
 	end
 end
 

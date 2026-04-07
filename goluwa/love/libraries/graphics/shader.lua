@@ -1108,7 +1108,7 @@ function love.graphics.setShader(obj)
 	ENV.current_shader = obj
 	render2d.shader_override = obj and obj.pipeline or nil
 
-	if render2d.cmd then render2d.BindPipeline(render2d.cmd) end
+	if render.GetCommandBuffer() then render2d.BindPipeline() end
 end
 
 function love.graphics.getShader()

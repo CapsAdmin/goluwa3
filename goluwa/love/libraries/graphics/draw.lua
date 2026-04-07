@@ -182,7 +182,7 @@ function love.graphics.draw(drawable, x, y, r, sx, sy, ox, oy, kx, ky, quad_arg)
 			if kx ~= 0 or ky ~= 0 then render2d.Shear(kx, ky) end
 
 			render2d.Scalef(sx, sy)
-			render2d.UploadConstants(render2d.cmd)
+			render2d.UploadConstants()
 			drawable:Draw()
 			render2d.PopMatrix()
 			render2d.PopTexture()
@@ -267,7 +267,7 @@ local function draw_instanced_mesh_gpu(drawable, instance_count, x, y, r, sx, sy
 	if kx ~= 0 or ky ~= 0 then render2d.Shear(kx, ky) end
 
 	render2d.Scalef(sx, sy)
-	render2d.UploadConstants(render2d.cmd)
+	render2d.UploadConstants()
 	drawable:DrawInstanced(instance_count, {instance_mesh.vertex_buffer})
 	render2d.PopMatrix()
 	render2d.PopTexture()

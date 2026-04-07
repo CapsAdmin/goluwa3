@@ -103,7 +103,7 @@ local function polygon(mode, points, join)
 	mesh:UpdateBuffer()
 	mesh_idx:UpdateBuffer()
 	render2d.BindMesh(mesh)
-	render2d.UploadConstants(render2d.cmd)
+	render2d.UploadConstants()
 	mesh:Draw(mesh_idx, idx)
 	render2d.PopTexture()
 end

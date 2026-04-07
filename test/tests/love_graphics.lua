@@ -299,7 +299,7 @@ end)
 
 T.Test2D("love graphics clear forwards stencil and depth extras", function()
 	local love = new_love_graphics_env("11.0.0")
-	local cmd = render2d.cmd
+	local cmd = render.GetCommandBuffer()
 	local old_clear_attachments = cmd.ClearAttachments
 	local captured
 	local ok, err = pcall(function()

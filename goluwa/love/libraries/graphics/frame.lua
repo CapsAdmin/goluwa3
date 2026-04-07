@@ -74,7 +74,6 @@ function M.Get(love)
 		if not render.BeginFrame() then return false end
 
 		ENV.graphics_manual_frame_active = true
-		render2d.cmd = render.GetCommandBuffer()
 		return true
 	end
 
@@ -103,7 +102,7 @@ function M.Get(love)
 	end
 
 	local function clear_active_target(r, g, b, a, depth, stencil)
-		local cmd = render2d.cmd
+		local cmd = render.GetCommandBuffer()
 
 		if not (cmd and cmd.ClearAttachments) then return false end
 
@@ -153,7 +152,7 @@ function M.Get(love)
 	end
 
 	local function ensure_love_depth_target_initialized(compare_mode)
-		local cmd = render2d.cmd
+		local cmd = render.GetCommandBuffer()
 
 		if not (cmd and cmd.ClearAttachments) then return end
 
@@ -173,7 +172,7 @@ function M.Get(love)
 	end
 
 	local function clear_love_stencil_target(value)
-		local cmd = render2d.cmd
+		local cmd = render.GetCommandBuffer()
 
 		if not (cmd and cmd.ClearAttachments) then return end
 
@@ -208,7 +207,6 @@ function M.Install(love)
 		if not ENV.graphics_manual_frame_active then return end
 
 		render.EndFrame()
-		render2d.cmd = nil
 		ENV.graphics_manual_frame_active = false
 	end
 

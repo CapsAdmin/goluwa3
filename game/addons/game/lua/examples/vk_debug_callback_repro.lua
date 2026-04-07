@@ -30,13 +30,12 @@ local function ensure_resources()
 	}
 
 	do
-		local previous_cmd = render2d.cmd
 		local cmd = repro_fb:Begin()
-		render2d.cmd = cmd
-		render2d.BindPipeline(cmd)
+		render.PushCommandBuffer(cmd)
+		render2d.BindPipeline()
 		safe_pipeline = render2d.pipeline
 		repro_fb:End(cmd)
-		render2d.cmd = previous_cmd
+		render.PopCommandBuffer()
 	end
 end
 
@@ -45,12 +44,11 @@ event.AddListener("Draw2D", "vk_debug_callback_repro", function()
 
 	ensure_resources()
 	triggered = true
-	local previous_cmd = render2d.cmd
 	jit.flush(issue_draw)
 
 	do
 		local warm_cmd = repro_fb:Begin()
-		render2d.cmd = warm_cmd
+		render.PushCommandBuffer(warm_cmd)
 		render2d.ResetState()
 
 		for i = 1, 128 do
@@ -58,18 +56,19 @@ event.AddListener("Draw2D", "vk_debug_callback_repro", function()
 		end
 
 		repro_fb:End(warm_cmd)
+		render.PopCommandBuffer()
 	end
 
 	do
 		local bad_cmd = repro_fb:Begin()
-		render2d.cmd = bad_cmd
+		render.PushCommandBuffer(bad_cmd)
 		render2d.ResetState()
 		-- Intentionally reuse the swapchain pipeline after the helper above has
 		-- already gone hot under LuaJIT on the matching UNORM pipeline.
 		issue_draw(bad_cmd, wrong_pipeline, 1, 0, 0)
 		repro_fb:End(bad_cmd)
+		render.PopCommandBuffer()
 	end
 
-	render2d.cmd = previous_cmd
 	triggered = true
 end)

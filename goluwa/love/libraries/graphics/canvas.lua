@@ -124,7 +124,7 @@ function Canvas:clear(...)
 		r, g, b, a = 0, 0, 0, 0
 	end
 
-	if self._canvas_cmd and render2d.cmd == self._canvas_cmd then
+	if self._canvas_cmd and render.GetCommandBuffer() == self._canvas_cmd then
 		if not clear_active_target(r, g, b, a, depth, stencil) then
 			draw_clear_rect(r, g, b, a, self.w, self.h)
 		end
@@ -197,8 +197,7 @@ function love.graphics.setCanvas(canvas)
 	if current and current._canvas_cmd then
 		current.fb:End(current._canvas_cmd)
 		current._canvas_cmd = nil
-		render2d.cmd = ENV.graphics_previous_canvas_cmd
-		ENV.graphics_previous_canvas_cmd = nil
+		render.PopCommandBuffer()
 	end
 
 	ENV.graphics_current_canvas = resolved_canvas
@@ -208,14 +207,14 @@ function love.graphics.setCanvas(canvas)
 			create_canvas_framebuffer(resolved_canvas, true)
 		end
 
-		ENV.graphics_previous_canvas_cmd = render2d.cmd
 		resolved_canvas._canvas_cmd = resolved_canvas.fb:Begin()
+		render.PushCommandBuffer(resolved_canvas._canvas_cmd)
 		update_render_size_for_canvas(resolved_canvas)
-		render2d.BindPipeline(resolved_canvas._canvas_cmd)
+		render2d.BindPipeline()
 	else
 		update_render_size_for_canvas()
 
-		if render2d.cmd then render2d.BindPipeline(render2d.cmd) end
+		if render.GetCommandBuffer() then render2d.BindPipeline() end
 	end
 end
 

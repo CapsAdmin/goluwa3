@@ -64,7 +64,6 @@ local function normalize_primitive_topology(mode)
 		point = "point_list",
 		point_list = "point_list",
 	}
-
 	return tr[mode] or mode or "triangle_list"
 end
 
@@ -123,7 +122,9 @@ function Mesh:BindInstanced(cmd, extra_vertex_buffers, binding_position)
 
 	for _, extra in ipairs(extra_vertex_buffers) do
 		if extra and extra.vertex_buffer then extra = extra.vertex_buffer end
+
 		if extra and extra.GetBuffer then extra = extra:GetBuffer() end
+
 		buffers[#buffers + 1] = extra
 	end
 
@@ -146,10 +147,9 @@ end
 
 function Mesh:Draw(cmd, vertex_count, instance_count, first_vertex, first_instance)
 	if not is_command_buffer(cmd) then
-		local render2d = import("goluwa/render2d/render2d.lua")
 		local index_buffer = is_index_buffer(cmd) and cmd or self.index_buffer
 		local count = is_index_buffer(cmd) and vertex_count or cmd
-		local active_cmd = render2d.cmd
+		local active_cmd = render.GetCommandBuffer()
 
 		if not active_cmd then
 			error(
@@ -178,7 +178,15 @@ function Mesh:Draw(cmd, vertex_count, instance_count, first_vertex, first_instan
 	)
 end
 
-function Mesh:DrawInstanced(cmd, instance_count, extra_vertex_buffers, index_count, first_index, vertex_offset, first_instance)
+function Mesh:DrawInstanced(
+	cmd,
+	instance_count,
+	extra_vertex_buffers,
+	index_count,
+	first_index,
+	vertex_offset,
+	first_instance
+)
 	if not is_command_buffer(cmd) then
 		first_instance = vertex_offset
 		vertex_offset = first_index
@@ -186,8 +194,7 @@ function Mesh:DrawInstanced(cmd, instance_count, extra_vertex_buffers, index_cou
 		index_count = extra_vertex_buffers
 		extra_vertex_buffers = instance_count
 		instance_count = cmd
-		local render2d = import("goluwa/render2d/render2d.lua")
-		cmd = render2d.cmd
+		cmd = render.GetCommandBuffer()
 
 		if not cmd then
 			error(
@@ -265,7 +272,7 @@ function Mesh:GetVertex(index, name)
 	end
 
 	return unpack(out, 1, component_count)
-	end
+end
 
 function Mesh:GetVertexBufferAddress()
 	return self.vertex_buffer:GetBuffer():GetDeviceAddress()

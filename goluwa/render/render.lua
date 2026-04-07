@@ -1,5 +1,6 @@
 local ffi = require("ffi")
 local render = {}
+import.loaded["goluwa/render/render.lua"] = render
 --local renderdoc = import("goluwa/bindings/renderdoc.lua")
 --if pcall(renderdoc.init) then render.renderdoc = renderdoc end
 -- Check if shaderc is available before loading Vulkan
@@ -23,7 +24,13 @@ local system = import("goluwa/system.lua")
 local Image = import("goluwa/render/vulkan/internal/image.lua")
 local Sampler = import("goluwa/render/vulkan/internal/sampler.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
+local Window = import("goluwa/render/window.lua")
+local Texture = import("goluwa/render/texture.lua")
+local Framebuffer = import("goluwa/render/framebuffer.lua")
+local Fence = import("goluwa/render/vulkan/internal/fence.lua")
+local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 local vulkan_instance
+render.command_buffer_stack = render.command_buffer_stack or {}
 
 function render.Initialize(config)
 	if render.target then
@@ -36,10 +43,9 @@ function render.Initialize(config)
 
 	if not is_headless then
 		-- Windowed mode: create window and surface
-		local window = import("goluwa/render/window.lua")
-		local surface_handle, display_handle = assert(window:GetSurfaceHandle())
+		local surface_handle, display_handle = assert(Window:GetSurfaceHandle())
 		vulkan_instance = VulkanInstance.New(surface_handle, display_handle)
-		local size = window:GetSize()
+		local size = Window:GetSize()
 		local target = vulkan_instance:CreateWindowRenderTarget{
 			present_mode = "immediate_khr", --"fifo_khr",
 			image_count = nil, -- Use default (minImageCount + 1)
@@ -85,8 +91,8 @@ function render.Initialize(config)
 		event.Call("PreFrame", dt)
 
 		if render.BeginFrame() then
-			event.Call("Draw", render.GetCommandBuffer(), dt)
-			event.Call("PostDraw", render.GetCommandBuffer(), dt)
+			event.Call("Draw", dt)
+			event.Call("PostDraw", dt)
 			render.EndFrame()
 		end
 	end
@@ -103,17 +109,46 @@ function render.BeginFrame()
 
 	if render.cmd then render.in_frame = true end
 
-	return render.cmd
+	return render.GetCommandBuffer()
+end
+
+function render.SetCommandBuffer(cmd)
+	local stack = render.command_buffer_stack
+
+	if #stack > 0 then
+		local previous = stack[#stack]
+		stack[#stack] = cmd
+		return previous
+	end
+
+	local previous = render.cmd
+	render.cmd = cmd
+	return previous
+end
+
+function render.PushCommandBuffer(cmd)
+	render.command_buffer_stack[#render.command_buffer_stack + 1] = cmd
+	return cmd
+end
+
+function render.PopCommandBuffer()
+	local stack = render.command_buffer_stack
+
+	if #stack == 0 then error("render command buffer stack underflow", 2) end
+
+	return table.remove(stack)
 end
 
 function render.GetCommandBuffer()
-	return render.cmd
+	local stack = render.command_buffer_stack
+	return stack[#stack] or render.cmd
 end
 
 function render.EndFrame()
 	if not render.in_frame then return end
 
 	render.target:EndFrame()
+	render.command_buffer_stack = {}
 	render.cmd = nil
 	render.in_frame = false
 end
@@ -129,14 +164,12 @@ function render.CreateBuffer(config)
 end
 
 function render.CreateTextureFromPath(path, config)
-	local Texture = import("goluwa/render/texture.lua")
 	config = config or {}
 	config.path = path
 	return Texture.New(config)
 end
 
 function render.CreateFrameBuffer(size, config)
-	local Framebuffer = import("goluwa/render/framebuffer.lua")
 	config = config or {}
 
 	if size then
@@ -257,10 +290,7 @@ end
 local sync_fence
 
 function render.GetSyncFence()
-	if not sync_fence then
-		local Fence = import("goluwa/render/vulkan/internal/fence.lua")
-		sync_fence = Fence.New(render.GetDevice())
-	end
+	if not sync_fence then sync_fence = Fence.New(render.GetDevice()) end
 
 	return sync_fence
 end
@@ -310,7 +340,6 @@ function render.GetVulkanFormatSize(format)
 end
 
 function render.CreateBlankTexture(size, format, filtering)
-	local Texture = import("goluwa/render/texture.lua")
 	return Texture.New{
 		width = size.x,
 		height = size.y,
@@ -335,7 +364,6 @@ function render.GetAspectRatio()
 end
 
 function render.TriggerValidationError()
-	local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 	local create_info = vulkan.vk.VkBufferCreateInfo{
 		sType = vulkan.vk.VkStructureType.VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO + 10, -- INVALID STYPE,
 		pNext = nil,
