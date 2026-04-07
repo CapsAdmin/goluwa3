@@ -147,6 +147,35 @@ local function blend_modes_equal(a, b)
 	return true
 end
 
+local function apply_blend_mode_state(pipeline, blend_mode, stencil_mode)
+	pipeline:SetBlend(blend_mode.blend)
+	pipeline:SetSrcColorBlendFactor(blend_mode.src_color_blend_factor)
+	pipeline:SetDstColorBlendFactor(blend_mode.dst_color_blend_factor)
+	pipeline:SetColorBlendOp(blend_mode.color_blend_op)
+	pipeline:SetSrcAlphaBlendFactor(blend_mode.src_alpha_blend_factor)
+	pipeline:SetDstAlphaBlendFactor(blend_mode.dst_alpha_blend_factor)
+	pipeline:SetAlphaBlendOp(blend_mode.alpha_blend_op)
+	pipeline:SetColorWriteMask(stencil_mode.color_write_mask or blend_mode.color_write_mask)
+end
+
+local function apply_stencil_state(pipeline, stencil_mode, stencil_ref)
+	pipeline:SetStencilTest(stencil_mode.stencil_test)
+	pipeline:SetFrontStencilFailOp(stencil_mode.front.fail_op)
+	pipeline:SetFrontStencilPassOp(stencil_mode.front.pass_op)
+	pipeline:SetFrontStencilDepthFailOp(stencil_mode.front.depth_fail_op)
+	pipeline:SetFrontStencilCompareOp(stencil_mode.front.compare_op)
+	pipeline:SetFrontStencilReference(stencil_ref)
+	pipeline:SetFrontStencilCompareMask(0xFF)
+	pipeline:SetFrontStencilWriteMask(0xFF)
+	pipeline:SetBackStencilFailOp(stencil_mode.front.fail_op)
+	pipeline:SetBackStencilPassOp(stencil_mode.front.pass_op)
+	pipeline:SetBackStencilDepthFailOp(stencil_mode.front.depth_fail_op)
+	pipeline:SetBackStencilCompareOp(stencil_mode.front.compare_op)
+	pipeline:SetBackStencilReference(stencil_ref)
+	pipeline:SetBackStencilCompareMask(0xFF)
+	pipeline:SetBackStencilWriteMask(0xFF)
+end
+
 local function apply_states()
 	local pipeline = get_active_pipeline()
 
@@ -158,36 +187,8 @@ local function apply_states()
 	stencil_mode_name = stencil_mode_name or "none"
 	stencil_ref = stencil_ref or 1
 	local stencil_mode = render2d.stencil_modes[stencil_mode_name]
-	pipeline:SetState(
-		"color_blend",
-		{
-			blend = blend_mode.blend,
-			src_color_blend_factor = blend_mode.src_color_blend_factor,
-			dst_color_blend_factor = blend_mode.dst_color_blend_factor,
-			color_blend_op = blend_mode.color_blend_op,
-			src_alpha_blend_factor = blend_mode.src_alpha_blend_factor,
-			dst_alpha_blend_factor = blend_mode.dst_alpha_blend_factor,
-			alpha_blend_op = blend_mode.alpha_blend_op,
-			color_write_mask = stencil_mode.color_write_mask or blend_mode.color_write_mask,
-		}
-	)
-	local front = {
-		fail_op = stencil_mode.front.fail_op,
-		pass_op = stencil_mode.front.pass_op,
-		depth_fail_op = stencil_mode.front.depth_fail_op,
-		compare_op = stencil_mode.front.compare_op,
-		reference = stencil_ref,
-		compare_mask = 0xFF,
-		write_mask = 0xFF,
-	}
-	pipeline:SetState(
-		"depth_stencil",
-		{
-			stencil_test = stencil_mode.stencil_test,
-			front = front,
-			back = front,
-		}
-	)
+	apply_blend_mode_state(pipeline, blend_mode, stencil_mode)
+	apply_stencil_state(pipeline, stencil_mode, stencil_ref)
 
 	if render2d.cmd then pipeline:Bind(render2d.cmd, render.GetCurrentFrame()) end
 end
@@ -272,8 +273,8 @@ function render2d.Initialize()
 	local config = {
 		name = "render2d",
 		dont_create_framebuffers = true,
-		samples = render.target:GetSamples(),
-		color_format = render.target:GetColorFormat(),
+		RasterizationSamples = render.target:GetSamples(),
+		ColorFormat = render.target:GetColorFormat(),
 		vertex = {
 			uniform_buffers = {
 				{
@@ -674,40 +675,26 @@ function render2d.Initialize()
 				}
 			]],
 		},
-		rasterizer = {
-			cull_mode = "none",
-		},
-		color_blend = {
-			attachments = {
-				{
-					blend = true,
-					src_color_blend_factor = "src_alpha",
-					dst_color_blend_factor = "one_minus_src_alpha",
-					color_blend_op = "add",
-					src_alpha_blend_factor = "one",
-					dst_alpha_blend_factor = "zero",
-					alpha_blend_op = "add",
-					color_write_mask = {"r", "g", "b", "a"},
-				},
-			},
-		},
-		depth_stencil = {
-			depth_test = false,
-			depth_write = true,
-			stencil_test = false,
-			front = {
-				fail_op = "keep",
-				pass_op = "keep",
-				depth_fail_op = "keep",
-				compare_op = "always",
-			},
-			back = {
-				fail_op = "keep",
-				pass_op = "keep",
-				depth_fail_op = "keep",
-				compare_op = "always",
-			},
-		},
+		CullMode = "none",
+		Blend = true,
+		SrcColorBlendFactor = "src_alpha",
+		DstColorBlendFactor = "one_minus_src_alpha",
+		ColorBlendOp = "add",
+		SrcAlphaBlendFactor = "one",
+		DstAlphaBlendFactor = "zero",
+		AlphaBlendOp = "add",
+		ColorWriteMask = {"r", "g", "b", "a"},
+		DepthTest = false,
+		DepthWrite = true,
+		StencilTest = false,
+		FrontStencilFailOp = "keep",
+		FrontStencilPassOp = "keep",
+		FrontStencilDepthFailOp = "keep",
+		FrontStencilCompareOp = "always",
+		BackStencilFailOp = "keep",
+		BackStencilPassOp = "keep",
+		BackStencilDepthFailOp = "keep",
+		BackStencilCompareOp = "always",
 	}
 	render2d.pipeline = EasyPipeline.New(config)
 	render2d.ResetState()
@@ -1303,39 +1290,11 @@ do
 		stencil_ref = stencil_ref or 1
 		local stencil_mode = render2d.stencil_modes[stencil_mode_name]
 		local depth_compare_op = depth_mode_to_compare_op[depth_mode_name] or "always"
-		pipeline:SetState(
-			"color_blend",
-			{
-				blend = blend_mode.blend,
-				src_color_blend_factor = blend_mode.src_color_blend_factor,
-				dst_color_blend_factor = blend_mode.dst_color_blend_factor,
-				color_blend_op = blend_mode.color_blend_op,
-				src_alpha_blend_factor = blend_mode.src_alpha_blend_factor,
-				dst_alpha_blend_factor = blend_mode.dst_alpha_blend_factor,
-				alpha_blend_op = blend_mode.alpha_blend_op,
-				color_write_mask = stencil_mode.color_write_mask or blend_mode.color_write_mask,
-			}
-		)
-		local front = {
-			fail_op = stencil_mode.front.fail_op,
-			pass_op = stencil_mode.front.pass_op,
-			depth_fail_op = stencil_mode.front.depth_fail_op,
-			compare_op = stencil_mode.front.compare_op,
-			reference = stencil_ref,
-			compare_mask = 0xFF,
-			write_mask = 0xFF,
-		}
-		pipeline:SetState(
-			"depth_stencil",
-			{
-				depth_test = depth_mode_name ~= DEFAULT_DEPTH_MODE,
-				depth_write = depth_write,
-				depth_compare_op = depth_compare_op,
-				stencil_test = stencil_mode.stencil_test,
-				front = front,
-				back = front,
-			}
-		)
+		apply_blend_mode_state(pipeline, blend_mode, stencil_mode)
+		pipeline:SetDepthTest(depth_mode_name ~= DEFAULT_DEPTH_MODE)
+		pipeline:SetDepthWrite(depth_write)
+		pipeline:SetDepthCompareOp(depth_compare_op)
+		apply_stencil_state(pipeline, stencil_mode, stencil_ref)
 
 		if render2d.cmd then
 			pipeline:Bind(render2d.cmd, render.GetCurrentFrame())

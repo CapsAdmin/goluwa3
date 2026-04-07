@@ -538,10 +538,10 @@ local function build_fragment_pipeline(obj, source)
 	local config = {
 		name = "love_shader_fragment",
 		dont_create_framebuffers = true,
-		samples = function()
+		RasterizationSamples = function()
 			return render.target:GetSamples()
 		end,
-		color_format = render.target:GetColorFormat(),
+		ColorFormat = render.target:GetColorFormat(),
 		vertex = {
 			uniform_buffers = {
 				{
@@ -683,40 +683,26 @@ local function build_fragment_pipeline(obj, source)
 				]]
 			),
 		},
-		rasterizer = {
-			cull_mode = "none",
-		},
-		color_blend = {
-			attachments = {
-				{
-					blend = true,
-					src_color_blend_factor = "src_alpha",
-					dst_color_blend_factor = "one_minus_src_alpha",
-					color_blend_op = "add",
-					src_alpha_blend_factor = "one",
-					dst_alpha_blend_factor = "zero",
-					alpha_blend_op = "add",
-					color_write_mask = {"r", "g", "b", "a"},
-				},
-			},
-		},
-		depth_stencil = {
-			depth_test = false,
-			depth_write = true,
-			stencil_test = false,
-			front = {
-				fail_op = "keep",
-				pass_op = "keep",
-				depth_fail_op = "keep",
-				compare_op = "always",
-			},
-			back = {
-				fail_op = "keep",
-				pass_op = "keep",
-				depth_fail_op = "keep",
-				compare_op = "always",
-			},
-		},
+		CullMode = "none",
+		Blend = true,
+		SrcColorBlendFactor = "src_alpha",
+		DstColorBlendFactor = "one_minus_src_alpha",
+		ColorBlendOp = "add",
+		SrcAlphaBlendFactor = "one",
+		DstAlphaBlendFactor = "zero",
+		AlphaBlendOp = "add",
+		ColorWriteMask = {"r", "g", "b", "a"},
+		DepthTest = false,
+		DepthWrite = true,
+		StencilTest = false,
+		FrontStencilFailOp = "keep",
+		FrontStencilPassOp = "keep",
+		FrontStencilDepthFailOp = "keep",
+		FrontStencilCompareOp = "always",
+		BackStencilFailOp = "keep",
+		BackStencilPassOp = "keep",
+		BackStencilDepthFailOp = "keep",
+		BackStencilCompareOp = "always",
 	}
 	return EasyPipeline.New(config)
 end
@@ -771,10 +757,10 @@ local function build_vertex_fragment_pipeline(obj, source)
 	return EasyPipeline.New{
 		name = "love_shader_vertex_fragment",
 		dont_create_framebuffers = true,
-		samples = function()
+		RasterizationSamples = function()
 			return render.target:GetSamples()
 		end,
-		color_format = render.target:GetColorFormat(),
+		ColorFormat = render.target:GetColorFormat(),
 		vertex = {
 			uniform_buffers = {
 				{
@@ -930,40 +916,26 @@ local function build_vertex_fragment_pipeline(obj, source)
 				]]
 			),
 		},
-		rasterizer = {
-			cull_mode = "none",
-		},
-		color_blend = {
-			attachments = {
-				{
-					blend = true,
-					src_color_blend_factor = "src_alpha",
-					dst_color_blend_factor = "one_minus_src_alpha",
-					color_blend_op = "add",
-					src_alpha_blend_factor = "one",
-					dst_alpha_blend_factor = "zero",
-					alpha_blend_op = "add",
-					color_write_mask = {"r", "g", "b", "a"},
-				},
-			},
-		},
-		depth_stencil = {
-			depth_test = false,
-			depth_write = true,
-			stencil_test = false,
-			front = {
-				fail_op = "keep",
-				pass_op = "keep",
-				depth_fail_op = "keep",
-				compare_op = "always",
-			},
-			back = {
-				fail_op = "keep",
-				pass_op = "keep",
-				depth_fail_op = "keep",
-				compare_op = "always",
-			},
-		},
+		CullMode = "none",
+		Blend = true,
+		SrcColorBlendFactor = "src_alpha",
+		DstColorBlendFactor = "one_minus_src_alpha",
+		ColorBlendOp = "add",
+		SrcAlphaBlendFactor = "one",
+		DstAlphaBlendFactor = "zero",
+		AlphaBlendOp = "add",
+		ColorWriteMask = {"r", "g", "b", "a"},
+		DepthTest = false,
+		DepthWrite = true,
+		StencilTest = false,
+		FrontStencilFailOp = "keep",
+		FrontStencilPassOp = "keep",
+		FrontStencilDepthFailOp = "keep",
+		FrontStencilCompareOp = "always",
+		BackStencilFailOp = "keep",
+		BackStencilPassOp = "keep",
+		BackStencilDepthFailOp = "keep",
+		BackStencilCompareOp = "always",
 	}
 end
 

@@ -7,7 +7,7 @@ local lightprobes = import("goluwa/render3d/lightprobes.lua")
 return {
 	{
 		name = "lighting",
-		color_format = {{"r16g16b16a16_sfloat", {"color", "rgba"}}},
+		ColorFormat = {{"r16g16b16a16_sfloat", {"color", "rgba"}}},
 		framebuffer_count = 2,
 		fragment = {
 			uniform_buffers = {
@@ -776,12 +776,8 @@ return {
 			}
 		]],
 		},
-		rasterizer = {
-			cull_mode = "none",
-		},
-		depth_stencil = {
-			depth_test = false,
-			depth_write = false,
-		},
+		CullMode = "none",
+		DepthTest = false,
+		DepthWrite = false,
 	},
 }

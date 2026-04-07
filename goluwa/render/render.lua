@@ -179,21 +179,66 @@ do
 	end
 end
 
+local function assert_no_legacy_graphics_pipeline_fields(config)
+	for _, field_name in ipairs{
+		"color_format",
+		"depth_format",
+		"samples",
+		"rasterization_samples",
+		"descriptor_set_count",
+		"static",
+	} do
+		if config[field_name] ~= nil then
+			error(
+				string.format(
+					"render.CreateGraphicsPipeline: use PascalCase %s instead of snake_case %s",
+					(
+						{
+							color_format = "ColorFormat",
+							depth_format = "DepthFormat",
+							samples = "RasterizationSamples",
+							rasterization_samples = "RasterizationSamples",
+							descriptor_set_count = "DescriptorSetCount",
+							static = "Static",
+						}
+					)[field_name],
+					field_name
+				),
+				2
+			)
+		end
+	end
+
+	if config.Samples ~= nil then
+		error("render.CreateGraphicsPipeline: use RasterizationSamples instead of Samples", 2)
+	end
+
+	if
+		config.dynamic_state ~= nil or
+		config.dynamic_states ~= nil or
+		config.DynamicStates ~= nil
+	then
+		error("render.CreateGraphicsPipeline: dynamic state is handled internally", 2)
+	end
+end
+
 function render.CreateGraphicsPipeline(config)
-	if config.color_format == nil and config.color_format ~= false then
-		config.color_format = render.target:GetColorFormat()
-	elseif config.color_format == false then
-		config.color_format = nil
+	assert_no_legacy_graphics_pipeline_fields(config)
+
+	if config.ColorFormat == nil and config.ColorFormat ~= false then
+		config.ColorFormat = render.target:GetColorFormat()
+	elseif config.ColorFormat == false then
+		config.ColorFormat = nil
 	end
 
-	if config.depth_format == nil and config.depth_format ~= false then
-		config.depth_format = render.target:GetDepthFormat()
-	elseif config.depth_format == false then
-		config.depth_format = nil
+	if config.DepthFormat == nil and config.DepthFormat ~= false then
+		config.DepthFormat = render.target:GetDepthFormat()
+	elseif config.DepthFormat == false then
+		config.DepthFormat = nil
 	end
 
-	config.samples = config.samples or render.target:GetSamples()
-	config.descriptor_set_count = config.descriptor_set_count or render.target:GetSwapchainImageCount()
+	config.RasterizationSamples = config.RasterizationSamples or render.target:GetSamples()
+	config.DescriptorSetCount = config.DescriptorSetCount or render.target:GetSwapchainImageCount()
 	return vulkan_instance:CreateGraphicsPipeline(config)
 end
 

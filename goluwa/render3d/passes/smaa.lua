@@ -4,7 +4,7 @@ local render3d = import("goluwa/render3d/render3d.lua")
 return {
 	{
 		name = "smaa_edge",
-		color_format = {{"r8g8_unorm", {"color", "rg"}}},
+		ColorFormat = {{"r8g8_unorm", {"color", "rg"}}},
 		fragment = {
 			push_constants = {
 				{
@@ -72,7 +72,7 @@ return {
 	},
 	{
 		name = "smaa_weight",
-		color_format = {{"r8g8b8a8_unorm", {"color", "rgba"}}},
+		ColorFormat = {{"r8g8b8a8_unorm", {"color", "rgba"}}},
 		fragment = {
 			push_constants = {
 				{
@@ -281,7 +281,7 @@ return {
 	},
 	{
 		name = "smaa_blend",
-		color_format = {{"r16g16b16a16_sfloat", {"color", "rgba"}}},
+		ColorFormat = {{"r16g16b16a16_sfloat", {"color", "rgba"}}},
 		fragment = {
 			push_constants = {
 				{
@@ -352,7 +352,7 @@ return {
 	},
 	{
 		name = "smaa_resolve",
-		color_format = {{"r16g16b16a16_sfloat", {"color", "rgba"}}},
+		ColorFormat = {{"r16g16b16a16_sfloat", {"color", "rgba"}}},
 		framebuffer_count = 2,
 		post_draw = function()
 			local cam = render3d.GetCamera()

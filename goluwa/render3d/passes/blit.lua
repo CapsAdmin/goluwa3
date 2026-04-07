@@ -28,7 +28,7 @@ local r = {
 	-- Pass 1: Extract bright areas for bloom
 	{
 		name = "bloom_extract",
-		color_format = {{"r16g16b16a16_sfloat", {"bloom", "rgba"}}},
+		ColorFormat = {{"r16g16b16a16_sfloat", {"bloom", "rgba"}}},
 		scale = 0.5,
 		fragment = {
 			push_constants = {
@@ -62,8 +62,9 @@ local r = {
 				}
 			]],
 		},
-		rasterizer = {cull_mode = "none"},
-		depth_stencil = {depth_test = false, depth_write = false},
+		CullMode = "none",
+		DepthTest = false,
+		DepthWrite = false,
 	},
 }
 -- Generate downsample passes
@@ -98,7 +99,7 @@ for i = 1, 3 do
 		r,
 		{
 			name = "bloom_down" .. i,
-			color_format = {{"r16g16b16a16_sfloat", {"bloom", "rgba"}}},
+			ColorFormat = {{"r16g16b16a16_sfloat", {"bloom", "rgba"}}},
 			scale = 0.5 / (2 ^ i),
 			fragment = {
 				push_constants = {
@@ -122,8 +123,9 @@ for i = 1, 3 do
 				},
 				shader = downsample_shader,
 			},
-			rasterizer = {cull_mode = "none"},
-			depth_stencil = {depth_test = false, depth_write = false},
+			CullMode = "none",
+			DepthTest = false,
+			DepthWrite = false,
 		}
 	)
 end
@@ -169,7 +171,7 @@ for i = 3, 1, -1 do
 		r,
 		{
 			name = "bloom_up" .. idx,
-			color_format = {{"r16g16b16a16_sfloat", {"bloom", "rgba"}}},
+			ColorFormat = {{"r16g16b16a16_sfloat", {"bloom", "rgba"}}},
 			scale = 0.5 / (2 ^ i),
 			fragment = {
 				push_constants = {
@@ -205,8 +207,9 @@ for i = 3, 1, -1 do
 				},
 				shader = upsample_shader,
 			},
-			rasterizer = {cull_mode = "none"},
-			depth_stencil = {depth_test = false, depth_write = false},
+			CullMode = "none",
+			DepthTest = false,
+			DepthWrite = false,
 		}
 	)
 end
@@ -216,7 +219,7 @@ table.insert(
 	r,
 	{
 		name = "luminance",
-		color_format = {{"r16_sfloat", {"luma", "r"}}},
+		ColorFormat = {{"r16_sfloat", {"luma", "r"}}},
 		scale = 0.0625, -- 1/16th resolution for fast averaging
 		framebuffer_count = 2,
 		fragment = {
@@ -268,8 +271,9 @@ table.insert(
 			}
 		]],
 		},
-		rasterizer = {cull_mode = "none"},
-		depth_stencil = {depth_test = false, depth_write = false},
+		CullMode = "none",
+		DepthTest = false,
+		DepthWrite = false,
 	}
 )
 -- Final blit pass
@@ -277,7 +281,7 @@ table.insert(
 	r,
 	{
 		name = "blit",
-		samples = function()
+		RasterizationSamples = function()
 			return render.target.samples
 		end,
 		fragment = {
@@ -441,13 +445,9 @@ table.insert(
 				}
 			]],
 		},
-		rasterizer = {
-			cull_mode = "none",
-		},
-		depth_stencil = {
-			depth_test = false,
-			depth_write = false,
-		},
+		CullMode = "none",
+		DepthTest = false,
+		DepthWrite = false,
 	}
 )
 

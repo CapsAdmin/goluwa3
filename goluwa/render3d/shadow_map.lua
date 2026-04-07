@@ -70,14 +70,23 @@ function ShadowMap.New(config)
 
 	-- Create depth-only pipeline for shadow pass
 	self.pipeline = render.CreateGraphicsPipeline{
-		dynamic_states = {"viewport", "scissor"},
 		-- Even with dynamic states, must provide initial viewport/scissor matching what we'll use
-		viewport = {x = 0, y = 0, w = self.size.w, h = self.size.h, min_depth = 0, max_depth = 1},
-		scissor = {x = 0, y = 0, w = self.size.w, h = self.size.h},
-		color_format = false, -- No color attachment for shadow pass
-		depth_format = self.format,
-		samples = "1", -- Shadow map uses single sample
-		descriptor_set_count = 1, -- Just bindless textures for alpha testing
+		ViewportX = 0,
+		ViewportY = 0,
+		ViewportWidth = self.size.w,
+		ViewportHeight = self.size.h,
+		ViewportMinDepth = 0,
+		ViewportMaxDepth = 1,
+		ScissorX = 0,
+		ScissorY = 0,
+		ScissorWidth = self.size.w,
+		ScissorHeight = self.size.h,
+		ColorFormat = false, -- No color attachment for shadow pass
+		DepthFormat = self.format,
+		RasterizationSamples = "1", -- Shadow map uses single sample
+		DescriptorSetCount = 1, -- Just bindless textures for alpha testing
+		Topology = "triangle_list",
+		PrimitiveRestart = false,
 		shader_stages = {
 			{
 				type = "vertex",
@@ -144,10 +153,6 @@ function ShadowMap.New(config)
 						format = "r32_sfloat",
 						offset = ffi.sizeof("float") * 12,
 					},
-				},
-				input_assembly = {
-					topology = "triangle_list",
-					primitive_restart = false,
 				},
 				push_constants = {
 					size = ffi.sizeof(ShadowVertexConstants),
@@ -220,34 +225,23 @@ function ShadowMap.New(config)
 				},
 			},
 		},
-		rasterizer = {
-			depth_clamp = true,
-			discard = false,
-			polygon_mode = "fill",
-			line_width = 1.0,
-			cull_mode = "none", -- Disabled - was causing device lost
-			front_face = "clockwise",
-			depth_bias = 0.1, -- Disabled - was causing device lost with some primitives
-			depth_bias_constant_factor = 0.0,
-			depth_bias_slope_factor = 0.0,
-		},
-		color_blend = {
-			logic_op_enabled = false,
-			logic_op = "copy",
-			constants = {0.0, 0.0, 0.0, 0.0},
-			attachments = {}, -- No color attachments
-		},
-		multisampling = {
-			sample_shading = false,
-			rasterization_samples = "1",
-		},
-		depth_stencil = {
-			depth_test = true,
-			depth_write = true,
-			depth_compare_op = "less",
-			depth_bounds_test = false,
-			stencil_test = false,
-		},
+		DepthClamp = true,
+		Discard = false,
+		PolygonMode = "fill",
+		LineWidth = 1.0,
+		CullMode = "none", -- Disabled - was causing device lost
+		FrontFace = "clockwise",
+		DepthBias = true, -- Disabled - was causing device lost with some primitives
+		DepthBiasConstantFactor = 0.0,
+		DepthBiasSlopeFactor = 0.0,
+		LogicOpEnabled = false,
+		LogicOp = "copy",
+		BlendConstants = {0.0, 0.0, 0.0, 0.0},
+		DepthTest = true,
+		DepthWrite = true,
+		DepthCompareOp = "less",
+		DepthBoundsTest = false,
+		StencilTest = false,
 	}
 	-- Command buffer for shadow pass
 	self.command_pool = render.GetCommandPool()

@@ -121,7 +121,7 @@ function GraphicsPipeline.New(device, config, render_passes, pipelineLayout)
 		rasterizationSamples = config.multisampling.rasterization_samples or "1",
 		--
 		flags = 0,
-		minSampleShading = 0,
+		minSampleShading = config.multisampling.min_sample_shading or 0,
 		pSampleMask = nil,
 		alphaToCoverageEnable = 0,
 		alphaToOneEnable = 0,
@@ -132,7 +132,7 @@ function GraphicsPipeline.New(device, config, render_passes, pipelineLayout)
 
 	for i, color_blend_attachment in ipairs(config.color_blend.attachments) do
 		colorBlendAttachments[i] = vulkan.vk.s.PipelineColorBlendAttachmentState{
-			colorWriteMask = color_blend_attachment.color_write_mask or {"R", "G", "B", "A"},
+			colorWriteMask = color_blend_attachment.color_write_mask or {"r", "g", "b", "a"},
 			blendEnable = color_blend_attachment.blend or 0,
 			srcColorBlendFactor = color_blend_attachment.src_color_blend_factor and
 				color_blend_attachment.src_color_blend_factor or

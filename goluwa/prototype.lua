@@ -623,6 +623,122 @@ do -- get is set
 		if meta.prototype_variables then return meta.prototype_variables[name] end
 	end
 
+	local function is_list_property(info)
+		return info.compare == "list" or info.list_type or info.list_enums or info.list_length
+	end
+
+	local function list_equals(a, b)
+		if a == b then return true end
+
+		if type(a) ~= "table" or type(b) ~= "table" then return false end
+
+		for i = 1, math.max(#a, #b) do
+			if a[i] ~= b[i] then return false end
+		end
+
+		return true
+	end
+
+	local function get_expected_description(info)
+		if info.validate == "boolean" then return "boolean" end
+
+		if info.validate == "number" then return "number" end
+
+		if info.validate == "integer" then return "integer" end
+
+		if info.validate == "string" then return "string" end
+
+		if info.enums then return "one of: " .. table.concat(info.enums, ", ") end
+
+		if is_list_property(info) then
+			local parts = {"list"}
+
+			if info.list_length then list.insert(parts, "length " .. info.list_length) end
+
+			if info.list_type then
+				list.insert(parts, "values of type " .. info.list_type)
+			end
+
+			if info.list_enums then
+				list.insert(parts, "values in: " .. table.concat(info.list_enums, ", "))
+			end
+
+			return list.concat(parts, ", ")
+		end
+
+		return info.type or "valid value"
+	end
+
+	local function validation_error(info, value, level)
+		error(
+			string.format(
+				"property %q: expected %s, got %s",
+				info.var_name,
+				get_expected_description(info),
+				type(value) == "string" and string.format("%q", value) or tostring(value)
+			),
+			level or 2
+		)
+	end
+
+	local function validate_scalar(info, value, level)
+		if info.validate == "boolean" then
+			if type(value) ~= "boolean" then validation_error(info, value, level) end
+		elseif info.validate == "number" then
+			if type(value) ~= "number" then validation_error(info, value, level) end
+		elseif info.validate == "integer" then
+			if type(value) ~= "number" or value % 1 ~= 0 then
+				validation_error(info, value, level)
+			end
+		elseif info.validate == "string" then
+			if type(value) ~= "string" then validation_error(info, value, level) end
+		elseif type(info.validate) == "function" then
+			local new_value = info.validate(value, info)
+
+			if new_value ~= nil then value = new_value end
+		end
+
+		if info.enums and not info.enum_lookup[value] then
+			validation_error(info, value, level)
+		end
+
+		return value
+	end
+
+	function prototype.ValidatePropertyValue(info, value, level)
+		if value == nil then return nil end
+
+		if is_list_property(info) then
+			if type(value) ~= "table" then validation_error(info, value, level) end
+
+			if info.list_length and #value ~= info.list_length then
+				validation_error(info, value, level)
+			end
+
+			for i = 1, #value do
+				local item = value[i]
+
+				if info.list_type and type(item) ~= info.list_type then
+					validation_error(info, item, level)
+				end
+
+				if info.list_enums and not info.list_enum_lookup[item] then
+					validation_error(info, item, level)
+				end
+			end
+
+			return value
+		end
+
+		return validate_scalar(info, value, level)
+	end
+
+	function prototype.ComparePropertyValues(info, a, b)
+		if info and info.compare == "list" then return list_equals(a, b) end
+
+		return a == b
+	end
+
 	local function get_type(val)
 		local t = type(val)
 
@@ -637,6 +753,16 @@ do -- get is set
 		local info = prototype.GetPropertyInfo(getmetatable(obj), key)
 
 		if info then
+			if
+				info.validate or
+				info.enums or
+				info.list_type or
+				info.list_enums or
+				info.list_length
+			then
+				value = prototype.ValidatePropertyValue(info, value, 2)
+			end
+
 			if info.type ~= "nil" and value ~= nil then
 				local actual_type = get_type(value)
 
@@ -741,9 +867,31 @@ do -- get is set
 		local set_name = info.set_name
 		local get_name = info.get_name
 		local callback = info.callback
+		local has_validation = info.validate or
+			info.enums or
+			info.list_type or
+			info.list_enums or
+			info.list_length
 
 		if type(default) == "number" then
-			if callback then
+			if has_validation then
+				meta[set_name] = meta[set_name] or
+					function(self, var)
+						if var == nil then
+							var = default
+						else
+							var = prototype.ValidatePropertyValue(info, var, 2)
+						end
+
+						if callback and prototype.ComparePropertyValues(info, self[name], var) then
+							return
+						end
+
+						self[name] = var
+
+						if callback then self[callback](self) end
+					end
+			elseif callback then
 				meta[set_name] = meta[set_name] or
 					function(self, var)
 						var = tonumber(var) or default
@@ -764,7 +912,24 @@ do -- get is set
 				return self[name] or default
 			end
 		elseif type(default) == "string" then
-			if callback then
+			if has_validation then
+				meta[set_name] = meta[set_name] or
+					function(self, var)
+						if var == nil then
+							var = default
+						else
+							var = prototype.ValidatePropertyValue(info, var, 2)
+						end
+
+						if callback and prototype.ComparePropertyValues(info, self[name], var) then
+							return
+						end
+
+						self[name] = var
+
+						if callback then self[callback](self) end
+					end
+			elseif callback then
 				meta[set_name] = meta[set_name] or
 					function(self, var)
 						var = tostring(var)
@@ -787,7 +952,24 @@ do -- get is set
 					return default
 				end
 		else
-			if callback then
+			if has_validation then
+				meta[set_name] = meta[set_name] or
+					function(self, var)
+						if var == nil then
+							var = default
+						else
+							var = prototype.ValidatePropertyValue(info, var, 2)
+						end
+
+						if callback and prototype.ComparePropertyValues(info, self[name], var) then
+							return
+						end
+
+						self[name] = var
+
+						if callback then self[callback](self) end
+					end
+			elseif callback then
 				meta[set_name] = meta[set_name] or
 					function(self, var)
 						if var == nil then var = default end
@@ -816,6 +998,22 @@ do -- get is set
 
 		meta[name] = default
 		info.type = info.type or get_type(default)
+
+		if info.enums then
+			info.enum_lookup = {}
+
+			for _, v in ipairs(info.enums) do
+				info.enum_lookup[v] = true
+			end
+		end
+
+		if info.list_enums then
+			info.list_enum_lookup = {}
+
+			for _, v in ipairs(info.list_enums) do
+				info.list_enum_lookup[v] = true
+			end
+		end
 
 		if __store then
 			meta.storable_variables = meta.storable_variables or {}
@@ -995,6 +1193,7 @@ do -- base object
 					if v == obj then
 						list.remove(instances, i)
 						removed = true
+
 						break
 					end
 				end
@@ -1031,6 +1230,7 @@ do -- base object
 			end
 
 			if self.OnRemove then self:OnRemove(...) end
+
 			remove_from_instances(self)
 
 			if not event_added and event then
@@ -1046,7 +1246,6 @@ do -- base object
 			if #prototype.remove_these > 0 then
 				for _, obj in ipairs(prototype.remove_these) do
 					remove_from_instances(obj)
-
 					prototype.created_objects[obj] = nil
 					prototype.MakeNULL(obj)
 				end

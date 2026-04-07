@@ -259,18 +259,14 @@ function lightprobes.CreatePipelines()
 	local Light = import("goluwa/ecs/components/3d/light.lua")
 	-- Pipeline to render the scene into a cubemap face
 	lightprobes.scene_pipeline = EasyPipeline.New{
-		color_format = {
+		ColorFormat = {
 			{"b10g11r11_ufloat_pack32", {"color", "rgba"}},
 			{"r32_sfloat", {"linear_depth", "r"}},
 		},
-		depth_format = "d32_sfloat",
-		samples = "1",
-		color_blend = {
-			attachments = {
-				{blend = false, color_write_mask = {"r", "g", "b", "a"}},
-				{blend = false, color_write_mask = {"r", "g", "b", "a"}},
-			},
-		},
+		DepthFormat = "d32_sfloat",
+		RasterizationSamples = "1",
+		Blend = false,
+		ColorWriteMask = {"r", "g", "b", "a"},
 		vertex = {
 			binding_index = 0,
 			attributes = {
@@ -461,37 +457,26 @@ function lightprobes.CreatePipelines()
                 }
             ]],
 		},
-		rasterizer = {
-			depth_clamp = false,
-			discard = false,
-			polygon_mode = "fill",
-			line_width = 1.0,
-			cull_mode = "front",
-			front_face = orientation.FRONT_FACE,
-			depth_bias = 0,
-		},
-		dynamic_state = {
-			"cull_mode",
-		},
-		depth_stencil = {
-			depth_test = true,
-			depth_write = true,
-			depth_compare_op = "less",
-		},
+		DepthClamp = false,
+		Discard = false,
+		PolygonMode = "fill",
+		LineWidth = 1.0,
+		CullMode = "front",
+		FrontFace = orientation.FRONT_FACE,
+		DepthBias = false,
+		DepthTest = true,
+		DepthWrite = true,
+		DepthCompareOp = "less",
 	}
 	-- Sky-only pipeline (for environment probe and scene probe backgrounds)
 	lightprobes.sky_pipeline = EasyPipeline.New{
-		color_format = {
+		ColorFormat = {
 			{"b10g11r11_ufloat_pack32", {"color", "rgba"}},
 			{"r32_sfloat", {"linear_depth", "r"}},
 		},
-		samples = "1",
-		color_blend = {
-			attachments = {
-				{blend = false, color_write_mask = {"r", "g", "b", "a"}},
-				{blend = false, color_write_mask = {"r", "g", "b", "a"}},
-			},
-		},
+		RasterizationSamples = "1",
+		Blend = false,
+		ColorWriteMask = {"r", "g", "b", "a"},
 		vertex = {
 			push_constants = {
 				{
@@ -578,18 +563,17 @@ function lightprobes.CreatePipelines()
                 }
             ]],
 		},
-		rasterizer = {
-			cull_mode = "none",
-		},
-		depth_stencil = {
-			depth_test = false,
-			depth_write = false,
-		},
+		CullMode = "none",
+		DepthTest = false,
+		DepthWrite = false,
 	}
 	-- Prefilter pipeline for IBL
 	lightprobes.prefilter_pipeline = EasyPipeline.New{
-		color_format = {{"b10g11r11_ufloat_pack32", {"color", "rgba"}}},
-		samples = "1",
+		ColorFormat = {{"b10g11r11_ufloat_pack32", {"color", "rgba"}}},
+		RasterizationSamples = "1",
+		CullMode = "none",
+		DepthTest = false,
+		DepthWrite = false,
 		vertex = {
 			push_constants = {
 				{
@@ -752,13 +736,6 @@ function lightprobes.CreatePipelines()
                     set_color(vec4(prefilteredColor, 1.0));
                 }
             ]],
-		},
-		rasterizer = {
-			cull_mode = "none",
-		},
-		depth_stencil = {
-			depth_test = false,
-			depth_write = false,
 		},
 	}
 end

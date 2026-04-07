@@ -1,17 +1,124 @@
 local ffi = require("ffi")
 local prototype = import("goluwa/prototype.lua")
 local render = import("goluwa/render/render.lua")
+local GraphicsPipeline = import("goluwa/render/vulkan/graphics_pipeline.lua")
 local UniformBuffer = import("goluwa/render/uniform_buffer.lua")
 local Framebuffer = import("goluwa/render/framebuffer.lua")
 local system = import("goluwa/system.lua")
 local timer = import("goluwa/timer.lua")
 local EasyPipeline = prototype.CreateTemplate("render_easy_pipeline")
+local LEGACY_TOP_LEVEL_FIELD_NAMES = {
+	color_format = "ColorFormat",
+	depth_format = "DepthFormat",
+	samples = "RasterizationSamples",
+	rasterization_samples = "RasterizationSamples",
+	descriptor_set_count = "DescriptorSetCount",
+}
+
+local function assert_no_legacy_top_level_fields(config, level)
+	for field_name, public_name in pairs(LEGACY_TOP_LEVEL_FIELD_NAMES) do
+		if config[field_name] ~= nil then
+			error(
+				string.format(
+					"EasyPipeline.New: use PascalCase %s instead of snake_case %s",
+					public_name,
+					field_name
+				),
+				level or 3
+			)
+		end
+	end
+
+	if config.Samples ~= nil then
+		error("EasyPipeline.New: use RasterizationSamples instead of Samples", level or 3)
+	end
+end
+
+local function assert_no_dynamic_state_config(config)
+	if
+		config.dynamic_state ~= nil or
+		config.dynamic_states ~= nil or
+		config.DynamicStates ~= nil
+	then
+		error("EasyPipeline.New: dynamic state is handled internally", 3)
+	end
+end
+
+local function get_nested_property_path(info)
+	local path = info.path:split(".")
+
+	if
+		path[1] == "color_blend" and
+		path[3] == nil and
+		path[2] ~= "logic_op_enabled" and
+		path[2] ~= "logic_op" and
+		path[2] ~= "constants"
+	then
+		return {"color_blend", "attachments", 1, path[2]},
+		"color_blend.attachments[1]." .. path[2]
+	end
+
+	return path, info.path
+end
+
+local function has_nested_value(tbl, path)
+	local value = tbl
+
+	for i = 1, #path do
+		if type(value) ~= "table" then return false end
+
+		value = value[path[i]]
+
+		if value == nil then return false end
+	end
+
+	return true
+end
+
+local function assert_no_nested_property_config(config)
+	for _, info in ipairs(prototype.GetStorableVariables(GraphicsPipeline)) do
+		local path, path_string = get_nested_property_path(info)
+
+		if has_nested_value(config, path) then
+			error(
+				string.format(
+					"EasyPipeline.New: use top-level PascalCase property %s instead of nested %s",
+					info.var_name,
+					path_string
+				),
+				3
+			)
+		end
+	end
+
+	if
+		type(config.multisampling) == "table" and
+		config.multisampling.rasterization_samples ~= nil
+	then
+		error(
+			"EasyPipeline.New: use top-level PascalCase property Samples instead of nested multisampling.rasterization_samples",
+			3
+		)
+	end
+end
+
+for _, info in ipairs(prototype.GetStorableVariables(GraphicsPipeline)) do
+	EasyPipeline[info.set_name] = function(self, ...)
+		return self.pipeline[info.set_name](self.pipeline, ...)
+	end
+	EasyPipeline[info.get_name] = function(self, ...)
+		return self.pipeline[info.get_name](self.pipeline, ...)
+	end
+end
 
 function EasyPipeline.GetColorFormats(config)
 	local formats = {}
+	local color_format = config.ColorFormat
 
-	if type(config.color_format) == "table" then
-		for i, format in ipairs(config.color_format) do
+	if type(color_format) == "function" then color_format = color_format() end
+
+	if type(color_format) == "table" then
+		for i, format in ipairs(color_format) do
 			if type(format) == "table" then
 				local actual_format = format[1]
 
@@ -34,15 +141,29 @@ function EasyPipeline.GetColorFormats(config)
 end
 
 function EasyPipeline.New(config)
+	assert_no_legacy_top_level_fields(config)
+	assert_no_dynamic_state_config(config)
+	assert_no_nested_property_config(config)
 	local self = EasyPipeline:CreateObject()
 	self.on_draw = config.on_draw or nil
+	local color_format = config.ColorFormat
+	local depth_format = config.DepthFormat
+	local rasterization_samples = config.RasterizationSamples
+	local descriptor_set_count = config.DescriptorSetCount
 
 	-- Resolve format functions if they exist
-	if type(config.depth_format) == "function" then
-		config.depth_format = config.depth_format()
+	if type(color_format) == "function" then color_format = color_format() end
+
+	if type(depth_format) == "function" then depth_format = depth_format() end
+
+	if type(rasterization_samples) == "function" then
+		rasterization_samples = rasterization_samples()
 	end
 
-	if type(config.samples) == "function" then config.samples = config.samples() end
+	config.ColorFormat = color_format
+	config.DepthFormat = depth_format
+	config.RasterizationSamples = rasterization_samples
+	config.DescriptorSetCount = descriptor_set_count
 
 	if not config.vertex then
 		config.vertex = {
@@ -62,8 +183,8 @@ function EasyPipeline.New(config)
 	end
 
 	-- Resolve color format functions
-	if type(config.color_format) == "table" then
-		for i, format in ipairs(config.color_format) do
+	if type(color_format) == "table" then
+		for i, format in ipairs(color_format) do
 			if type(format) == "table" then
 				-- Resolve first element if it's a function
 				if type(format[1]) == "function" then format[1] = format[1]() end
@@ -105,7 +226,7 @@ function EasyPipeline.New(config)
 	local actual_color_formats = {}
 	local fragment_outputs = ""
 	local debug_views = {}
-	local color_formats = config.color_format
+	local color_formats = color_format
 
 	if type(color_formats) == "string" then color_formats = {color_formats} end
 
@@ -1029,10 +1150,6 @@ function EasyPipeline.New(config)
 				descriptor_sets = descriptor_sets,
 				bindings = bindings,
 				attributes = attributes,
-				input_assembly = {
-					topology = "triangle_list",
-					primitive_restart = false,
-				},
 				push_constants = config.vertex.push_constants and push_constant_info or nil,
 			}
 		)
@@ -1059,55 +1176,114 @@ function EasyPipeline.New(config)
 	end
 
 	-- Create pipeline
+	local color_blend = config.color_blend or {}
+	local attachments = color_blend.attachments
+	local sanitized_color_blend
+
+	if attachments and attachments[2] then
+		sanitized_color_blend = {attachments = {}}
+
+		for i, info in ipairs(attachments) do
+			local attachment_info = type(info) == "table" and table.copy(info) or info
+
+			if i == 1 and type(attachment_info) == "table" then
+				attachment_info.blend = nil
+				attachment_info.src_color_blend_factor = nil
+				attachment_info.dst_color_blend_factor = nil
+				attachment_info.color_blend_op = nil
+				attachment_info.src_alpha_blend_factor = nil
+				attachment_info.dst_alpha_blend_factor = nil
+				attachment_info.alpha_blend_op = nil
+				attachment_info.color_write_mask = nil
+			end
+
+			sanitized_color_blend.attachments[i] = attachment_info
+		end
+	elseif
+		color_blend.attachments and
+		color_blend.attachments[1] and
+		color_blend.attachments[2] == nil
+	then
+		sanitized_color_blend = {attachments = {table.copy(color_blend.attachments[1])}}
+		sanitized_color_blend.attachments[1].blend = nil
+		sanitized_color_blend.attachments[1].src_color_blend_factor = nil
+		sanitized_color_blend.attachments[1].dst_color_blend_factor = nil
+		sanitized_color_blend.attachments[1].color_blend_op = nil
+		sanitized_color_blend.attachments[1].src_alpha_blend_factor = nil
+		sanitized_color_blend.attachments[1].dst_alpha_blend_factor = nil
+		sanitized_color_blend.attachments[1].alpha_blend_op = nil
+		sanitized_color_blend.attachments[1].color_write_mask = nil
+	end
+
 	local pipeline_config = {
-		color_format = #actual_color_formats > 0 and actual_color_formats or config.color_format,
-		depth_format = config.depth_format,
-		samples = config.samples or "1",
-		descriptor_set_count = config.descriptor_set_count or (render.target and render.target.image_count) or 1,
-		dynamic_states = config.dynamic_states or {"viewport", "scissor", "cull_mode"},
+		ColorFormat = #actual_color_formats > 0 and actual_color_formats or color_format,
+		DepthFormat = depth_format,
+		RasterizationSamples = rasterization_samples or "1",
+		DescriptorSetCount = descriptor_set_count or (render.target and render.target.image_count) or 1,
 		shader_stages = shader_stages,
-		rasterizer = config.rasterizer or
-			{
-				depth_clamp = false,
-				discard = false,
-				polygon_mode = "fill",
-				line_width = 1.0,
-				cull_mode = "back",
-				front_face = "counter_clockwise",
-				depth_bias = 0,
-			},
-		color_blend = config.color_blend or
-			{
-				logic_op_enabled = false,
-				logic_op = "copy",
-				constants = {0.0, 0.0, 0.0, 0.0},
-				attachments = {
-					{
-						blend = false,
-						src_color_blend_factor = "src_alpha",
-						dst_color_blend_factor = "one_minus_src_alpha",
-						color_blend_op = "add",
-						src_alpha_blend_factor = "one",
-						dst_alpha_blend_factor = "zero",
-						alpha_blend_op = "add",
-						color_write_mask = {"r", "g", "b", "a"},
-					},
-				},
-			},
-		multisampling = config.multisampling or
-			{
-				sample_shading = false,
-				rasterization_samples = "1",
-			},
-		depth_stencil = config.depth_stencil or
-			{
-				depth_test = true,
-				depth_write = true,
-				depth_compare_op = "less",
-				depth_bounds_test = false,
-				stencil_test = false,
-			},
+		Topology = config.Topology or "triangle_list",
+		PolygonMode = config.PolygonMode or "fill",
+		CullMode = config.CullMode or "back",
+		FrontFace = config.FrontFace or "counter_clockwise",
+		DepthBias = config.DepthBias or false,
+		DepthBiasConstantFactor = config.DepthBiasConstantFactor or 0,
+		DepthBiasClamp = config.DepthBiasClamp or 0,
+		DepthBiasSlopeFactor = config.DepthBiasSlopeFactor or 0,
+		LineWidth = config.LineWidth or 1.0,
+		DepthClamp = config.DepthClamp or false,
+		Discard = config.Discard or false,
+		PrimitiveRestart = config.PrimitiveRestart or false,
+		Blend = config.Blend or false,
+		SrcColorBlendFactor = config.SrcColorBlendFactor or "src_alpha",
+		DstColorBlendFactor = config.DstColorBlendFactor or "one_minus_src_alpha",
+		ColorBlendOp = config.ColorBlendOp or "add",
+		SrcAlphaBlendFactor = config.SrcAlphaBlendFactor or "one",
+		DstAlphaBlendFactor = config.DstAlphaBlendFactor or "zero",
+		AlphaBlendOp = config.AlphaBlendOp or "add",
+		ColorWriteMask = config.ColorWriteMask or {"r", "g", "b", "a"},
+		LogicOpEnabled = config.LogicOpEnabled or false,
+		LogicOp = config.LogicOp or "copy",
+		BlendConstants = config.BlendConstants or {0.0, 0.0, 0.0, 0.0},
+		SampleShading = config.SampleShading or false,
+		MinSampleShading = config.MinSampleShading or 0,
+		color_blend = sanitized_color_blend,
+		DepthTest = config.DepthTest,
+		DepthWrite = config.DepthWrite,
+		DepthCompareOp = config.DepthCompareOp,
+		DepthBoundsTest = config.DepthBoundsTest,
+		StencilTest = config.StencilTest,
+		FrontStencilFailOp = config.FrontStencilFailOp,
+		FrontStencilPassOp = config.FrontStencilPassOp,
+		FrontStencilDepthFailOp = config.FrontStencilDepthFailOp,
+		FrontStencilCompareOp = config.FrontStencilCompareOp,
+		FrontStencilReference = config.FrontStencilReference,
+		FrontStencilCompareMask = config.FrontStencilCompareMask,
+		FrontStencilWriteMask = config.FrontStencilWriteMask,
+		BackStencilFailOp = config.BackStencilFailOp,
+		BackStencilPassOp = config.BackStencilPassOp,
+		BackStencilDepthFailOp = config.BackStencilDepthFailOp,
+		BackStencilCompareOp = config.BackStencilCompareOp,
+		BackStencilReference = config.BackStencilReference,
+		BackStencilCompareMask = config.BackStencilCompareMask,
+		BackStencilWriteMask = config.BackStencilWriteMask,
 	}
+
+	if pipeline_config.DepthCompareOp == nil then
+		pipeline_config.DepthCompareOp = "less"
+	end
+
+	if pipeline_config.DepthBoundsTest == nil then
+		pipeline_config.DepthBoundsTest = false
+	end
+
+	if pipeline_config.StencilTest == nil then
+		pipeline_config.StencilTest = false
+	end
+
+	if pipeline_config.DepthTest == nil then pipeline_config.DepthTest = true end
+
+	if pipeline_config.DepthWrite == nil then pipeline_config.DepthWrite = true end
+
 	self.pipeline = render.CreateGraphicsPipeline(pipeline_config)
 	self.vertex_attributes = attributes
 	self.debug_views = debug_views
@@ -1119,7 +1295,7 @@ function EasyPipeline.New(config)
 		not config.dont_create_framebuffers and
 		(
 			#self.actual_color_formats > 0 or
-			config.depth_format
+			config.DepthFormat
 		)
 	then
 		self:RecreateFramebuffers()
@@ -1150,8 +1326,8 @@ function EasyPipeline:RecreateFramebuffers()
 			width = size.x,
 			height = size.y,
 			formats = #self.actual_color_formats > 0 and self.actual_color_formats or nil,
-			depth = self.config.depth_format ~= nil,
-			depth_format = self.config.depth_format,
+			depth = self.config.DepthFormat ~= nil,
+			depth_format = self.config.DepthFormat,
 		}
 	else
 		-- Multiple framebuffers (ping-pong)
@@ -1162,8 +1338,8 @@ function EasyPipeline:RecreateFramebuffers()
 				width = size.x,
 				height = size.y,
 				formats = #self.actual_color_formats > 0 and self.actual_color_formats or nil,
-				depth = self.config.depth_format ~= nil,
-				depth_format = self.config.depth_format,
+				depth = self.config.DepthFormat ~= nil,
+				depth_format = self.config.DepthFormat,
 			}
 		end
 
@@ -1207,8 +1383,8 @@ function EasyPipeline:Bind(cmd, frame_index, dynamic_offsets)
 	self.pipeline:Bind(cmd, frame_index, dynamic_offsets or self.dynamic_offsets)
 end
 
-function EasyPipeline:SetState(...)
-	return self.pipeline:SetState(...)
+function EasyPipeline:ApplyProperties(...)
+	return self.pipeline:ApplyProperties(...)
 end
 
 function EasyPipeline:UpdateDescriptorSetArray(...)
@@ -1225,6 +1401,26 @@ end
 
 function EasyPipeline:GetUniformBuffer(...)
 	return self.pipeline:GetUniformBuffer(...)
+end
+
+function EasyPipeline:GetColorFormat(...)
+	return self.pipeline:GetColorFormat(...)
+end
+
+function EasyPipeline:GetDepthFormat(...)
+	return self.pipeline:GetDepthFormat(...)
+end
+
+function EasyPipeline:GetRasterizationSamples(...)
+	return self.pipeline:GetRasterizationSamples(...)
+end
+
+function EasyPipeline:GetSamples(...)
+	return self.pipeline:GetRasterizationSamples(...)
+end
+
+function EasyPipeline:GetDescriptorSetCount(...)
+	return self.pipeline:GetDescriptorSetCount(...)
 end
 
 function EasyPipeline:GetFallbackView(...)
@@ -1329,12 +1525,11 @@ function EasyPipeline:DrawMeshTasks(gx, gy, gz, cmd, framebuffer, frame_index)
 end
 
 function EasyPipeline.FragmentOnly(config)
+	assert_no_legacy_top_level_fields(config, 2)
 	return EasyPipeline.New{
-		color_format = config.color_format,
-		samples = "1",
-		rasterizer = {
-			cull_mode = "none",
-		},
+		ColorFormat = config.ColorFormat,
+		RasterizationSamples = "1",
+		CullMode = "none",
 		vertex = {
 			shader = [[
 				vec2 positions[3] = vec2[](vec2(-1.0, -1.0), vec2( 3.0, -1.0), vec2(-1.0,  3.0));

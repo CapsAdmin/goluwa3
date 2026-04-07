@@ -81,7 +81,7 @@ function META:GetJFAPipelines()
 
 	self.jfa_pipelines = {
 		init = EasyPipeline.FragmentOnly{
-			color_format = {{"r32g32_sfloat", {"rg", "rg"}}},
+			ColorFormat = {{"r32g32_sfloat", {"rg", "rg"}}},
 			block = {
 				{
 					"tex_idx",
@@ -123,7 +123,7 @@ function META:GetJFAPipelines()
 				]],
 		},
 		step = EasyPipeline.FragmentOnly{
-			color_format = {{"r32g32_sfloat", {"rg", "rg"}}},
+			ColorFormat = {{"r32g32_sfloat", {"rg", "rg"}}},
 			block = {
 				{
 					"tex_idx",
@@ -173,7 +173,7 @@ function META:GetJFAPipelines()
 				]],
 		},
 		final = EasyPipeline.FragmentOnly{
-			color_format = {{"r32_sfloat", {"r", "r"}}},
+			ColorFormat = {{"r32_sfloat", {"r", "r"}}},
 			block = {
 				{
 					"tex_idx",
@@ -208,7 +208,7 @@ function META:GetJFAPipelines()
 				]],
 		},
 		combine = EasyPipeline.FragmentOnly{
-			color_format = {{self:GetAtlasFormat(), {"rgba", "rgba"}}},
+			ColorFormat = {{self:GetAtlasFormat(), {"rgba", "rgba"}}},
 			block = {
 				{
 					"dist_on_idx",

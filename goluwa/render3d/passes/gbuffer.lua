@@ -8,19 +8,20 @@ return {
 		on_draw = function(self, cmd)
 			event.Call("PreDraw3D", cmd, dt)
 			event.Call("Draw3DGeometry", cmd, dt)
-			self:SetState("depth_stencil", {depth_test = false, depth_write = false})
+			self:SetDepthTest(false)
+			self:SetDepthWrite(false)
 			self:Bind(cmd)
 			event.Call("Draw3DGeometryOverlay", cmd, dt)
 			self:ResetToBase()
 			self:Bind(cmd)
 		end,
-		color_format = {
+		ColorFormat = {
 			{"r8g8b8a8_srgb", {"albedo", "rgb"}, {"alpha", "a"}},
 			{"r16g16b16a16_sfloat", {"normal", "rgb"}},
 			{"r8g8b8a8_unorm", {"metallic", "r"}, {"roughness", "g"}, {"ao", "b"}},
 			{"r16g16b16a16_sfloat", {"emissive", "rgb"}}, -- HDR emissive can exceed 1.0
 		},
-		depth_format = "d32_sfloat",
+		DepthFormat = "d32_sfloat",
 		vertex = {
 			binding_index = 0,
 			attributes = {
@@ -394,35 +395,22 @@ return {
 			}
 		]],
 		},
-		rasterizer = {
-			depth_clamp = false,
-			discard = false,
-			polygon_mode = "fill",
-			line_width = 1.0,
-			cull_mode = orientation.CULL_MODE,
-			front_face = orientation.FRONT_FACE,
-			depth_bias = 0,
-		},
-		dynamic_state = {
-			"cull_mode",
-		},
-		color_blend = {
-			logic_op_enabled = false,
-			logic_op = "copy",
-			constants = {0.0, 0.0, 0.0, 0.0},
-			attachments = {
-				{blend = false, color_write_mask = {"r", "g", "b", "a"}},
-				{blend = false, color_write_mask = {"r", "g", "b", "a"}},
-				{blend = false, color_write_mask = {"r", "g", "b", "a"}},
-				{blend = false, color_write_mask = {"r", "g", "b", "a"}},
-			},
-		},
-		depth_stencil = {
-			depth_test = true,
-			depth_write = true,
-			depth_compare_op = "less_or_equal",
-			depth_bounds_test_enabled = false,
-			stencil_test_enabled = false,
-		},
+		DepthClamp = false,
+		Discard = false,
+		PolygonMode = "fill",
+		LineWidth = 1.0,
+		CullMode = orientation.CULL_MODE,
+		FrontFace = orientation.FRONT_FACE,
+		DepthBias = false,
+		LogicOpEnabled = false,
+		LogicOp = "copy",
+		BlendConstants = {0.0, 0.0, 0.0, 0.0},
+		Blend = false,
+		ColorWriteMask = {"r", "g", "b", "a"},
+		DepthTest = true,
+		DepthWrite = true,
+		DepthCompareOp = "less_or_equal",
+		DepthBoundsTest = false,
+		StencilTest = false,
 	},
 }

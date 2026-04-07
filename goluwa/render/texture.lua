@@ -1096,17 +1096,14 @@ function Texture:Shade(glsl, extra_config)
 	]]
 	-- Create graphics pipeline
 	local pipeline = render.CreateGraphicsPipeline{
-		dynamic_states = {"viewport", "scissor"},
-		color_format = self.format,
-		samples = "1",
+		ColorFormat = self.format,
+		RasterizationSamples = "1",
+		Topology = "triangle_list",
+		PrimitiveRestart = false,
 		shader_stages = {
 			{
 				type = "vertex",
 				code = vertex_code,
-				input_assembly = {
-					topology = "triangle_list",
-					primitive_restart = false,
-				},
 				push_constants = {
 					size = 4,
 					offset = 0,
@@ -1151,43 +1148,29 @@ function Texture:Shade(glsl, extra_config)
 				},
 			},
 		},
-		rasterizer = {
-			depth_clamp = false,
-			discard = false,
-			polygon_mode = "fill",
-			line_width = 1.0,
-			cull_mode = "front",
-			front_face = "counter_clockwise",
-			depth_bias = 0,
-		},
-		color_blend = {
-			logic_op_enabled = false,
-			logic_op = "copy",
-			constants = {0.0, 0.0, 0.0, 0.0},
-			attachments = {
-				{
-					blend = extra_config.blend or false,
-					src_color_blend_factor = "src_alpha",
-					dst_color_blend_factor = "one_minus_src_alpha",
-					color_blend_op = "add",
-					src_alpha_blend_factor = "one",
-					dst_alpha_blend_factor = "zero",
-					alpha_blend_op = "add",
-					color_write_mask = {"r", "g", "b", "a"},
-				},
-			},
-		},
-		multisampling = {
-			sample_shading = false,
-			rasterization_samples = "1",
-		},
-		depth_stencil = {
-			depth_test = false,
-			depth_write = false,
-			depth_compare_op = "less",
-			depth_bounds_test = false,
-			stencil_test = false,
-		},
+		DepthClamp = false,
+		Discard = false,
+		PolygonMode = "fill",
+		LineWidth = 1.0,
+		CullMode = "front",
+		FrontFace = "counter_clockwise",
+		DepthBias = false,
+		LogicOpEnabled = false,
+		LogicOp = "copy",
+		BlendConstants = {0.0, 0.0, 0.0, 0.0},
+		Blend = extra_config.blend or false,
+		SrcColorBlendFactor = "src_alpha",
+		DstColorBlendFactor = "one_minus_src_alpha",
+		ColorBlendOp = "add",
+		SrcAlphaBlendFactor = "one",
+		DstAlphaBlendFactor = "zero",
+		AlphaBlendOp = "add",
+		ColorWriteMask = {"r", "g", "b", "a"},
+		DepthTest = false,
+		DepthWrite = false,
+		DepthCompareOp = "less",
+		DepthBoundsTest = false,
+		StencilTest = false,
 	}
 
 	if extra_config.textures then

@@ -25,7 +25,7 @@ T.Test3D("Graphics render multiple outputs", function()
 	}
 	-- Create pipeline with 3 outputs
 	local pipeline = render.CreateGraphicsPipeline{
-		color_format = {"r8g8b8a8_unorm", "r8g8b8a8_unorm", "r8g8b8a8_unorm"},
+		ColorFormat = {"r8g8b8a8_unorm", "r8g8b8a8_unorm", "r8g8b8a8_unorm"},
 		shader_stages = {
 			{
 				type = "vertex",
@@ -52,10 +52,12 @@ T.Test3D("Graphics render multiple outputs", function()
 				]],
 			},
 		},
-		rasterizer = {cull_mode = "none"},
+		CullMode = "none",
+		Blend = false,
+		ColorWriteMask = {"r", "g", "b", "a"},
 		color_blend = {
 			attachments = {
-				{blend = false, color_write_mask = {"r", "g", "b", "a"}},
+				{},
 				{blend = false, color_write_mask = {"r", "g", "b", "a"}},
 				{blend = false, color_write_mask = {"r", "g", "b", "a"}},
 			},

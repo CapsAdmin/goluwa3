@@ -4,7 +4,7 @@ local system = import("goluwa/system.lua")
 return {
 	{
 		name = "ssr",
-		color_format = {{"r16g16b16a16_sfloat", {"ssr", "rgba"}}},
+		ColorFormat = {{"r16g16b16a16_sfloat", {"ssr", "rgba"}}},
 		fragment = {
 			uniform_buffers = {
 				{
@@ -245,17 +245,13 @@ return {
             }
         ]],
 		},
-		rasterizer = {
-			cull_mode = "none",
-		},
-		depth_stencil = {
-			depth_test = false,
-			depth_write = false,
-		},
+		CullMode = "none",
+		DepthTest = false,
+		DepthWrite = false,
 	},
 	{
 		name = "ssr_resolve",
-		color_format = {{"r16g16b16a16_sfloat", {"ssr", "rgba"}}},
+		ColorFormat = {{"r16g16b16a16_sfloat", {"ssr", "rgba"}}},
 		framebuffer_count = 2,
 		fragment = {
 			uniform_buffers = {
@@ -426,12 +422,8 @@ return {
 			}
 		]],
 		},
-		rasterizer = {
-			cull_mode = "none",
-		},
-		depth_stencil = {
-			depth_test = false,
-			depth_write = false,
-		},
+		CullMode = "none",
+		DepthTest = false,
+		DepthWrite = false,
 	},
 }

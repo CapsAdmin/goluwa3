@@ -40,6 +40,25 @@ local DEPTH_STENCIL_STATE_KEYS = {
 	front = true,
 	back = true,
 }
+local VIEWPORT_STATE_KEYS = {
+	x = true,
+	y = true,
+	w = true,
+	h = true,
+	min_depth = true,
+	max_depth = true,
+}
+local SCISSOR_STATE_KEYS = {
+	x = true,
+	y = true,
+	w = true,
+	h = true,
+}
+local MULTISAMPLING_STATE_KEYS = {
+	rasterization_samples = true,
+	sample_shading = true,
+	min_sample_shading = true,
+}
 local COLOR_BLEND_ATTACHMENT_KEYS = {
 	blend = true,
 	src_color_blend_factor = true,
@@ -64,9 +83,625 @@ local COLOR_BLEND_STATE_KEYS = {
 	constants = true,
 	attachments = true,
 }
+local TOPOLOGIES = {
+	"point_list",
+	"line_list",
+	"line_strip",
+	"triangle_list",
+	"triangle_strip",
+	"triangle_fan",
+	"line_list_with_adjacency",
+	"line_strip_with_adjacency",
+	"triangle_list_with_adjacency",
+	"triangle_strip_with_adjacency",
+	"patch_list",
+}
 local INPUT_ASSEMBLY_STATE_KEYS = {
+	topology = true,
 	primitive_restart = true,
 }
+local STENCIL_FACE_DEFAULTS = {
+	fail_op = "keep",
+	pass_op = "keep",
+	depth_fail_op = "keep",
+	compare_op = "always",
+	reference = 0,
+	compare_mask = 0xFF,
+	write_mask = 0xFF,
+}
+local POLYGON_MODES = {"fill", "line", "point"}
+local CULL_MODES = {"none", "front", "back", "front_and_back"}
+local FRONT_FACES = {"clockwise", "counter_clockwise"}
+local COMPARE_OPS = {
+	"never",
+	"less",
+	"equal",
+	"less_or_equal",
+	"greater",
+	"not_equal",
+	"greater_or_equal",
+	"always",
+}
+local STENCIL_OPS = {
+	"keep",
+	"zero",
+	"replace",
+	"increment_and_clamp",
+	"decrement_and_clamp",
+	"invert",
+	"increment_and_wrap",
+	"decrement_and_wrap",
+}
+local BLEND_FACTORS = {
+	"zero",
+	"one",
+	"src_color",
+	"one_minus_src_color",
+	"dst_color",
+	"one_minus_dst_color",
+	"src_alpha",
+	"one_minus_src_alpha",
+	"dst_alpha",
+	"one_minus_dst_alpha",
+	"constant_color",
+	"one_minus_constant_color",
+	"constant_alpha",
+	"one_minus_constant_alpha",
+	"src_alpha_saturate",
+	"src1_color",
+	"one_minus_src1_color",
+	"src1_alpha",
+	"one_minus_src1_alpha",
+}
+local BLEND_OPS = {"add", "subtract", "reverse_subtract", "min", "max"}
+local LOGIC_OPS = {
+	"clear",
+	"and",
+	"and_reverse",
+	"copy",
+	"and_inverted",
+	"noop",
+	"xor",
+	"or",
+	"nor",
+	"equivalent",
+	"invert",
+	"or_reverse",
+	"copy_inverted",
+	"or_inverted",
+	"nand",
+	"set",
+}
+local COLOR_MASK_CHANNELS = {"r", "g", "b", "a", "R", "G", "B", "A"}
+local PROPERTY_DYNAMIC_STATE_KEYS = {
+	input_assembly = {
+		primitive_restart = "primitive_restart_enable",
+	},
+	rasterizer = {
+		polygon_mode = "polygon_mode_ext",
+		cull_mode = "cull_mode",
+		front_face = "front_face",
+		depth_bias = "depth_bias_enable",
+		depth_bias_constant_factor = "depth_bias",
+		depth_bias_clamp = "depth_bias",
+		depth_bias_slope_factor = "depth_bias",
+		depth_clamp = "depth_clamp_enable_ext",
+		discard = "rasterizer_discard_enable",
+	},
+	depth_stencil = {
+		depth_test = "depth_test_enable",
+		depth_write = "depth_write_enable",
+		depth_compare_op = "depth_compare_op",
+		stencil_test = "stencil_test_enable",
+	},
+	viewport = {
+		x = "viewport",
+		y = "viewport",
+		w = "viewport",
+		h = "viewport",
+		min_depth = "viewport",
+		max_depth = "viewport",
+	},
+	scissor = {
+		x = "scissor",
+		y = "scissor",
+		w = "scissor",
+		h = "scissor",
+	},
+	color_blend = {
+		blend = "color_blend_enable_ext",
+		src_color_blend_factor = "color_blend_equation_ext",
+		dst_color_blend_factor = "color_blend_equation_ext",
+		color_blend_op = "color_blend_equation_ext",
+		src_alpha_blend_factor = "color_blend_equation_ext",
+		dst_alpha_blend_factor = "color_blend_equation_ext",
+		alpha_blend_op = "color_blend_equation_ext",
+		color_write_mask = "color_write_mask_ext",
+		logic_op_enabled = "logic_op_enable_ext",
+		logic_op = "logic_op_ext",
+	},
+}
+local STENCIL_FACE_DYNAMIC_STATE_KEYS = {
+	fail_op = "stencil_op",
+	pass_op = "stencil_op",
+	depth_fail_op = "stencil_op",
+	compare_op = "stencil_op",
+	reference = "stencil_reference",
+	compare_mask = "stencil_compare_mask",
+	write_mask = "stencil_write_mask",
+}
+
+local function copy_list(values)
+	if type(values) ~= "table" then return values end
+
+	local out = {}
+
+	for i = 1, #values do
+		out[i] = values[i]
+	end
+
+	return out
+end
+
+do
+	GraphicsPipeline:StartStorable()
+	GraphicsPipeline:GetSet(
+		"Topology",
+		"triangle_list",
+		{path = "input_assembly.topology", enums = TOPOLOGIES}
+	)
+	GraphicsPipeline:GetSet("ViewportX", 0, {path = "viewport.x", validate = "number"})
+	GraphicsPipeline:GetSet("ViewportY", 0, {path = "viewport.y", validate = "number"})
+	GraphicsPipeline:GetSet("ViewportWidth", 800, {path = "viewport.w", validate = "number"})
+	GraphicsPipeline:GetSet("ViewportHeight", 600, {path = "viewport.h", validate = "number"})
+	GraphicsPipeline:GetSet("ViewportMinDepth", 0, {path = "viewport.min_depth", validate = "number"})
+	GraphicsPipeline:GetSet("ViewportMaxDepth", 1, {path = "viewport.max_depth", validate = "number"})
+	GraphicsPipeline:GetSet("ScissorX", 0, {path = "scissor.x", validate = "number"})
+	GraphicsPipeline:GetSet("ScissorY", 0, {path = "scissor.y", validate = "number"})
+	GraphicsPipeline:GetSet("ScissorWidth", 800, {path = "scissor.w", validate = "number"})
+	GraphicsPipeline:GetSet("ScissorHeight", 600, {path = "scissor.h", validate = "number"})
+	GraphicsPipeline:GetSet(
+		"RasterizationSamples",
+		"1",
+		{path = "multisampling.rasterization_samples", validate = "string"}
+	)
+	GraphicsPipeline:GetSet(
+		"SampleShading",
+		false,
+		{path = "multisampling.sample_shading", validate = "boolean"}
+	)
+	GraphicsPipeline:GetSet(
+		"MinSampleShading",
+		0,
+		{path = "multisampling.min_sample_shading", validate = "number"}
+	)
+	GraphicsPipeline:GetSet(
+		"PrimitiveRestart",
+		false,
+		{path = "input_assembly.primitive_restart", validate = "boolean"}
+	)
+	GraphicsPipeline:GetSet(
+		"PolygonMode",
+		"fill",
+		{path = "rasterizer.polygon_mode", enums = POLYGON_MODES}
+	)
+	GraphicsPipeline:GetSet("CullMode", "back", {path = "rasterizer.cull_mode", enums = CULL_MODES})
+	GraphicsPipeline:GetSet(
+		"FrontFace",
+		"clockwise",
+		{path = "rasterizer.front_face", enums = FRONT_FACES}
+	)
+	GraphicsPipeline:GetSet("DepthBias", false, {path = "rasterizer.depth_bias", validate = "boolean"})
+	GraphicsPipeline:GetSet(
+		"DepthBiasConstantFactor",
+		0,
+		{path = "rasterizer.depth_bias_constant_factor", validate = "number"}
+	)
+	GraphicsPipeline:GetSet(
+		"DepthBiasClamp",
+		0,
+		{path = "rasterizer.depth_bias_clamp", validate = "number"}
+	)
+	GraphicsPipeline:GetSet(
+		"DepthBiasSlopeFactor",
+		0,
+		{path = "rasterizer.depth_bias_slope_factor", validate = "number"}
+	)
+	GraphicsPipeline:GetSet("LineWidth", 1, {path = "rasterizer.line_width", validate = "number"})
+	GraphicsPipeline:GetSet("DepthClamp", false, {path = "rasterizer.depth_clamp", validate = "boolean"})
+	GraphicsPipeline:GetSet("Discard", false, {path = "rasterizer.discard", validate = "boolean"})
+	GraphicsPipeline:GetSet("DepthTest", false, {path = "depth_stencil.depth_test", validate = "boolean"})
+	GraphicsPipeline:GetSet(
+		"DepthWrite",
+		false,
+		{path = "depth_stencil.depth_write", validate = "boolean"}
+	)
+	GraphicsPipeline:GetSet(
+		"DepthCompareOp",
+		"less",
+		{path = "depth_stencil.depth_compare_op", enums = COMPARE_OPS}
+	)
+	GraphicsPipeline:GetSet(
+		"DepthBoundsTest",
+		false,
+		{path = "depth_stencil.depth_bounds_test", validate = "boolean"}
+	)
+	GraphicsPipeline:GetSet(
+		"StencilTest",
+		false,
+		{path = "depth_stencil.stencil_test", validate = "boolean"}
+	)
+	GraphicsPipeline:GetSet(
+		"FrontStencilFailOp",
+		STENCIL_FACE_DEFAULTS.fail_op,
+		{
+			path = "depth_stencil.front.fail_op",
+			enums = STENCIL_OPS,
+		}
+	)
+	GraphicsPipeline:GetSet(
+		"FrontStencilPassOp",
+		STENCIL_FACE_DEFAULTS.pass_op,
+		{
+			path = "depth_stencil.front.pass_op",
+			enums = STENCIL_OPS,
+		}
+	)
+	GraphicsPipeline:GetSet(
+		"FrontStencilDepthFailOp",
+		STENCIL_FACE_DEFAULTS.depth_fail_op,
+		{
+			path = "depth_stencil.front.depth_fail_op",
+			enums = STENCIL_OPS,
+		}
+	)
+	GraphicsPipeline:GetSet(
+		"FrontStencilCompareOp",
+		STENCIL_FACE_DEFAULTS.compare_op,
+		{
+			path = "depth_stencil.front.compare_op",
+			enums = COMPARE_OPS,
+		}
+	)
+	GraphicsPipeline:GetSet(
+		"FrontStencilReference",
+		STENCIL_FACE_DEFAULTS.reference,
+		{
+			path = "depth_stencil.front.reference",
+			validate = "integer",
+		}
+	)
+	GraphicsPipeline:GetSet(
+		"FrontStencilCompareMask",
+		STENCIL_FACE_DEFAULTS.compare_mask,
+		{
+			path = "depth_stencil.front.compare_mask",
+			validate = "integer",
+		}
+	)
+	GraphicsPipeline:GetSet(
+		"FrontStencilWriteMask",
+		STENCIL_FACE_DEFAULTS.write_mask,
+		{
+			path = "depth_stencil.front.write_mask",
+			validate = "integer",
+		}
+	)
+	GraphicsPipeline:GetSet(
+		"BackStencilFailOp",
+		STENCIL_FACE_DEFAULTS.fail_op,
+		{
+			path = "depth_stencil.back.fail_op",
+			enums = STENCIL_OPS,
+		}
+	)
+	GraphicsPipeline:GetSet(
+		"BackStencilPassOp",
+		STENCIL_FACE_DEFAULTS.pass_op,
+		{
+			path = "depth_stencil.back.pass_op",
+			enums = STENCIL_OPS,
+		}
+	)
+	GraphicsPipeline:GetSet(
+		"BackStencilDepthFailOp",
+		STENCIL_FACE_DEFAULTS.depth_fail_op,
+		{
+			path = "depth_stencil.back.depth_fail_op",
+			enums = STENCIL_OPS,
+		}
+	)
+	GraphicsPipeline:GetSet(
+		"BackStencilCompareOp",
+		STENCIL_FACE_DEFAULTS.compare_op,
+		{
+			path = "depth_stencil.back.compare_op",
+			enums = COMPARE_OPS,
+		}
+	)
+	GraphicsPipeline:GetSet(
+		"BackStencilReference",
+		STENCIL_FACE_DEFAULTS.reference,
+		{
+			path = "depth_stencil.back.reference",
+			validate = "integer",
+		}
+	)
+	GraphicsPipeline:GetSet(
+		"BackStencilCompareMask",
+		STENCIL_FACE_DEFAULTS.compare_mask,
+		{
+			path = "depth_stencil.back.compare_mask",
+			validate = "integer",
+		}
+	)
+	GraphicsPipeline:GetSet(
+		"BackStencilWriteMask",
+		STENCIL_FACE_DEFAULTS.write_mask,
+		{
+			path = "depth_stencil.back.write_mask",
+			validate = "integer",
+		}
+	)
+	GraphicsPipeline:GetSet("Blend", false, {path = "color_blend.blend", validate = "boolean"})
+	GraphicsPipeline:GetSet(
+		"SrcColorBlendFactor",
+		"one",
+		{path = "color_blend.src_color_blend_factor", enums = BLEND_FACTORS}
+	)
+	GraphicsPipeline:GetSet(
+		"DstColorBlendFactor",
+		"zero",
+		{path = "color_blend.dst_color_blend_factor", enums = BLEND_FACTORS}
+	)
+	GraphicsPipeline:GetSet(
+		"ColorBlendOp",
+		"add",
+		{path = "color_blend.color_blend_op", enums = BLEND_OPS}
+	)
+	GraphicsPipeline:GetSet(
+		"SrcAlphaBlendFactor",
+		"one",
+		{path = "color_blend.src_alpha_blend_factor", enums = BLEND_FACTORS}
+	)
+	GraphicsPipeline:GetSet(
+		"DstAlphaBlendFactor",
+		"zero",
+		{path = "color_blend.dst_alpha_blend_factor", enums = BLEND_FACTORS}
+	)
+	GraphicsPipeline:GetSet(
+		"AlphaBlendOp",
+		"add",
+		{path = "color_blend.alpha_blend_op", enums = BLEND_OPS}
+	)
+	GraphicsPipeline:GetSet(
+		"ColorWriteMask",
+		{"r", "g", "b", "a"},
+		{
+			path = "color_blend.color_write_mask",
+			list_type = "string",
+			list_enums = COLOR_MASK_CHANNELS,
+			compare = "list",
+		}
+	)
+	GraphicsPipeline:GetSet(
+		"LogicOpEnabled",
+		false,
+		{path = "color_blend.logic_op_enabled", validate = "boolean"}
+	)
+	GraphicsPipeline:GetSet("LogicOp", "copy", {path = "color_blend.logic_op", enums = LOGIC_OPS})
+	GraphicsPipeline:GetSet(
+		"BlendConstants",
+		{0, 0, 0, 0},
+		{
+			path = "color_blend.constants",
+			list_type = "number",
+			list_length = 4,
+			compare = "list",
+		}
+	)
+	GraphicsPipeline:EndStorable()
+end
+
+local GRAPHICS_PIPELINE_PROPERTY_INFO = {}
+local GRAPHICS_PIPELINE_STATE_PROPERTY_INFO = {}
+local LEGACY_CONSTRUCTOR_FIELD_NAMES = {
+	color_format = "ColorFormat",
+	depth_format = "DepthFormat",
+	samples = "RasterizationSamples",
+	rasterization_samples = "RasterizationSamples",
+	descriptor_set_count = "DescriptorSetCount",
+	static = "Static",
+}
+
+local function assert_no_legacy_constructor_fields(config, level)
+	for _, field_name in ipairs{
+		"color_format",
+		"depth_format",
+		"samples",
+		"rasterization_samples",
+		"descriptor_set_count",
+		"static",
+	} do
+		if config[field_name] ~= nil then
+			error(
+				string.format(
+					"GraphicsPipeline.New: use PascalCase %s instead of snake_case %s",
+					LEGACY_CONSTRUCTOR_FIELD_NAMES[field_name],
+					field_name
+				),
+				level or 3
+			)
+		end
+	end
+
+	if config.Samples ~= nil then
+		error("GraphicsPipeline.New: use RasterizationSamples instead of Samples", level or 3)
+	end
+
+	if
+		config.dynamic_state ~= nil or
+		config.dynamic_states ~= nil or
+		config.DynamicStates ~= nil
+	then
+		error("GraphicsPipeline.New: dynamic state is handled internally", level or 3)
+	end
+end
+
+local function get_property_dynamic_state_name(info)
+	if info.state_section == "depth_stencil" and info.state_subkey then
+		return STENCIL_FACE_DYNAMIC_STATE_KEYS[info.state_subkey]
+	end
+
+	local section = PROPERTY_DYNAMIC_STATE_KEYS[info.state_section]
+	return section and section[info.state_key] or nil
+end
+
+local function get_state_property_entry(section, key)
+	local section_info = GRAPHICS_PIPELINE_STATE_PROPERTY_INFO[section]
+	return section_info and section_info[key] or nil
+end
+
+local function get_state_property_info(section, key, subkey)
+	local entry = get_state_property_entry(section, key)
+
+	if subkey ~= nil then
+		return type(entry) == "table" and entry[subkey] or nil
+	end
+
+	return type(entry) == "table" and entry.var_name and entry or nil
+end
+
+local function get_path_value(tbl, path)
+	local value = tbl
+
+	for i = 1, #path do
+		if type(value) ~= "table" then return nil, false end
+
+		value = value[path[i]]
+
+		if value == nil then return nil, false end
+	end
+
+	return value, true
+end
+
+local function set_path_value(tbl, path, value)
+	local node = tbl
+
+	for i = 1, #path - 1 do
+		local key = path[i]
+		node[key] = node[key] or {}
+		node = node[key]
+	end
+
+	node[path[#path]] = value
+end
+
+for _, info in ipairs(prototype.GetStorableVariables(GraphicsPipeline)) do
+	info.path_string = info.path or
+		error("GraphicsPipeline property is missing a path: " .. tostring(info.var_name))
+	info.path_keys = info.path_string:split(".")
+	info.state_section = info.path_keys[1]
+	info.state_key = info.path_keys[2]
+	info.state_subkey = info.path_keys[3]
+	info.dynamic_state_name = get_property_dynamic_state_name(info)
+	info.state_value_path = {info.state_key}
+
+	if info.state_subkey then info.state_value_path[2] = info.state_subkey end
+
+	if
+		info.state_section == "color_blend" and
+		not info.state_subkey and
+		info.state_key ~= "logic_op_enabled" and
+		info.state_key ~= "logic_op" and
+		info.state_key ~= "constants"
+	then
+		info.constructor_path_string = info.state_section .. ".attachments[1]." .. info.state_key
+		info.constructor_value_path = {"attachments", 1, info.state_key}
+		info.is_color_blend_attachment_property = true
+	else
+		info.constructor_path_string = info.path_string
+		info.constructor_value_path = {}
+
+		for i = 2, #info.path_keys do
+			info.constructor_value_path[i - 1] = info.path_keys[i]
+		end
+	end
+
+	GRAPHICS_PIPELINE_PROPERTY_INFO[info.var_name] = info
+	GRAPHICS_PIPELINE_STATE_PROPERTY_INFO[info.state_section] = GRAPHICS_PIPELINE_STATE_PROPERTY_INFO[info.state_section] or {}
+
+	if info.state_subkey then
+		GRAPHICS_PIPELINE_STATE_PROPERTY_INFO[info.state_section][info.state_key] = GRAPHICS_PIPELINE_STATE_PROPERTY_INFO[info.state_section][info.state_key] or {}
+		GRAPHICS_PIPELINE_STATE_PROPERTY_INFO[info.state_section][info.state_key][info.state_subkey] = info
+	else
+		GRAPHICS_PIPELINE_STATE_PROPERTY_INFO[info.state_section][info.state_key] = info
+	end
+end
+
+local function get_constructor_property_path(info)
+	return info.constructor_path_string
+end
+
+local function get_constructor_nested_property_value(config, info)
+	local section = config[info.state_section]
+
+	if type(section) ~= "table" then return nil, false end
+
+	return get_path_value(section, info.constructor_value_path)
+end
+
+local function set_constructor_property_value(config, info, value)
+	value = prototype.ValidatePropertyValue(info, value, 3)
+	config[info.var_name] = nil
+	local section = config[info.state_section]
+
+	if type(section) ~= "table" then
+		section = {}
+		config[info.state_section] = section
+	end
+
+	set_path_value(
+		section,
+		info.constructor_value_path,
+		info.compare == "list" and copy_list(value) or value
+	)
+end
+
+local function normalize_constructor_properties(config)
+	for _, info in ipairs(prototype.GetStorableVariables(GraphicsPipeline)) do
+		local top_level = config[info.var_name]
+		local _, has_nested = get_constructor_nested_property_value(config, info)
+
+		if top_level ~= nil and has_nested then
+			error(
+				string.format(
+					"GraphicsPipeline.New: property %s was provided both as top-level %s and nested %s",
+					info.var_name,
+					info.var_name,
+					get_constructor_property_path(info)
+				),
+				3
+			)
+		end
+
+		if has_nested then
+			error(
+				string.format(
+					"GraphicsPipeline.New: use top-level PascalCase property %s instead of nested %s",
+					info.var_name,
+					get_constructor_property_path(info)
+				),
+				3
+			)
+		end
+
+		if top_level ~= nil then
+			set_constructor_property_value(config, info, top_level)
+		end
+	end
+end
 
 local function descend_id_node(node, value)
 	if value == nil then value = NIL_VALUE end
@@ -261,19 +896,68 @@ local function get_color_blend_state_id(self, color_blend)
 	return finalize_id(self, node, "next_color_blend_state_id")
 end
 
+local function get_viewport_state_id(self, viewport)
+	local node = self.viewport_state_id_root
+
+	if type(viewport) == "table" then
+		assert_known_keys("viewport", viewport, VIEWPORT_STATE_KEYS)
+		node = descend_id_node(node, viewport.x)
+		node = descend_id_node(node, viewport.y)
+		node = descend_id_node(node, viewport.w)
+		node = descend_id_node(node, viewport.h)
+		node = descend_id_node(node, viewport.min_depth)
+		node = descend_id_node(node, viewport.max_depth)
+	end
+
+	return finalize_id(self, node, "next_viewport_state_id")
+end
+
+local function get_scissor_state_id(self, scissor)
+	local node = self.scissor_state_id_root
+
+	if type(scissor) == "table" then
+		assert_known_keys("scissor", scissor, SCISSOR_STATE_KEYS)
+		node = descend_id_node(node, scissor.x)
+		node = descend_id_node(node, scissor.y)
+		node = descend_id_node(node, scissor.w)
+		node = descend_id_node(node, scissor.h)
+	end
+
+	return finalize_id(self, node, "next_scissor_state_id")
+end
+
+local function get_multisampling_state_id(self, multisampling)
+	local node = self.multisampling_state_id_root
+
+	if type(multisampling) == "table" then
+		assert_known_keys("multisampling", multisampling, MULTISAMPLING_STATE_KEYS)
+		node = descend_id_node(node, multisampling.rasterization_samples)
+		node = descend_id_node(node, multisampling.sample_shading)
+		node = descend_id_node(node, multisampling.min_sample_shading)
+	end
+
+	return finalize_id(self, node, "next_multisampling_state_id")
+end
+
 local function get_pipeline_variant_id(
 	self,
 	signature_id,
 	input_assembly_state_id,
+	multisampling_state_id,
 	rasterizer_state_id,
 	depth_stencil_state_id,
+	viewport_state_id,
+	scissor_state_id,
 	color_blend_state_id
 )
 	local node = self.pipeline_variant_id_root
 	node = descend_id_node(node, signature_id)
 	node = descend_id_node(node, input_assembly_state_id)
+	node = descend_id_node(node, multisampling_state_id)
 	node = descend_id_node(node, rasterizer_state_id)
 	node = descend_id_node(node, depth_stencil_state_id)
+	node = descend_id_node(node, viewport_state_id)
+	node = descend_id_node(node, scissor_state_id)
 	node = descend_id_node(node, color_blend_state_id)
 	return finalize_id(self, node, "next_pipeline_variant_id")
 end
@@ -283,66 +967,34 @@ local function get_input_assembly_state_id(self, input_assembly)
 
 	if type(input_assembly) == "table" then
 		assert_known_keys("input_assembly", input_assembly, INPUT_ASSEMBLY_STATE_KEYS)
+		node = descend_id_node(node, input_assembly.topology)
 		node = descend_id_node(node, input_assembly.primitive_restart)
 	end
 
 	return finalize_id(self, node, "next_input_assembly_state_id")
 end
 
-local function get_state_key_name(section, key)
-	local state_key = key
-
-	if section == "color_blend" then
-		if key == "blend" then
-			state_key = "color_blend_enable_ext"
-		elseif key == "logic_op_enabled" then
-			state_key = "logic_op_enable_ext"
-		elseif key == "logic_op" then
-			state_key = "logic_op_ext"
-		elseif key == "color_write_mask" then
-			state_key = "color_write_mask_ext"
-		elseif key ~= "attachments" and key ~= "color_write_mask" then
-			state_key = "color_blend_equation_ext"
-		end
-	elseif section == "rasterizer" then
-		if key == "polygon_mode" then
-			state_key = "polygon_mode_ext"
-		elseif key == "front_face" then
-			state_key = "front_face"
-		elseif key == "depth_bias" then
-			state_key = "depth_bias_enable"
-		elseif
-			key == "depth_bias_constant_factor" or
-			key == "depth_bias_clamp" or
-			key == "depth_bias_slope_factor"
-		then
-			state_key = "depth_bias"
-		elseif key == "depth_clamp" then
-			state_key = "depth_clamp_enable_ext"
-		elseif key == "discard" then
-			state_key = "rasterizer_discard_enable"
-		end
-	elseif section == "input_assembly" then
-		if key == "primitive_restart" then state_key = "primitive_restart_enable" end
-	elseif section == "depth_stencil" then
-		if key == "depth_test" then
-			state_key = "depth_test_enable"
-		elseif key == "depth_write" then
-			state_key = "depth_write_enable"
-		elseif key == "depth_compare_op" then
-			state_key = "depth_compare_op"
-		elseif key == "stencil_test" then
-			state_key = "stencil_test_enable"
-		elseif key == "front" or key == "back" then
-			state_key = "stencil_op"
-		end
-	end
-
-	return state_key
+local function has_static_state_change(self, info)
+	return info.dynamic_state_name == nil or
+		not self.dynamic_states[info.dynamic_state_name]
 end
 
-local function has_static_state_change(self, section, key)
-	return not self.dynamic_states[get_state_key_name(section, key)]
+local function has_static_override_change(self, section, key, value)
+	local info = get_state_property_info(section, key)
+
+	if info then return has_static_state_change(self, info) end
+
+	local entry = get_state_property_entry(section, key)
+
+	if type(value) ~= "table" or type(entry) ~= "table" then return true end
+
+	for subkey in pairs(value) do
+		info = entry[subkey]
+
+		if info == nil or has_static_state_change(self, info) then return true end
+	end
+
+	return false
 end
 
 local function get_active_config(self)
@@ -352,31 +1004,21 @@ end
 local function get_color_attachment_count(self)
 	local config = get_active_config(self)
 
-	if type(config.color_format) == "table" then
-		return math.max(#config.color_format, 1)
+	if type(config.ColorFormat) == "table" then
+		return math.max(#config.ColorFormat, 1)
 	end
 
 	return 1
 end
 
-local function get_state(self, section, key, subkey)
-	local config = get_active_config(self)
-
-	if self.overridden_state[section] and self.overridden_state[section][key] ~= nil then
-		local val = self.overridden_state[section][key]
-
-		if subkey and type(val) == "table" then return val[subkey] end
-
-		return val
-	end
-
+local function get_config_state(config, section, key, subkey)
 	if section == "color_blend" then
 		local cb = config.color_blend
 
 		if cb and cb.attachments and cb.attachments[1] then
 			if key == "blend" then return cb.attachments[1].blend end
 
-			return cb.attachments[1][key]
+			if cb.attachments[1][key] ~= nil then return cb.attachments[1][key] end
 		end
 	end
 
@@ -389,6 +1031,68 @@ local function get_state(self, section, key, subkey)
 	end
 
 	return nil
+end
+
+local function get_state(self, section, key, subkey)
+	local config = get_active_config(self)
+
+	if self.overridden_state[section] and self.overridden_state[section][key] ~= nil then
+		local val = self.overridden_state[section][key]
+
+		if subkey and type(val) == "table" and val[subkey] ~= nil then
+			return val[subkey]
+		end
+
+		return val
+	end
+
+	return get_config_state(config, section, key, subkey)
+end
+
+local function get_default_state_value(info)
+	if info.compare == "list" then return copy_list(info.default) end
+
+	return info.default
+end
+
+local function get_property_effective_value(self, info)
+	local value = get_state(self, info.state_section, info.state_key, info.state_subkey)
+
+	if value == nil then return get_default_state_value(info) end
+
+	if info.compare == "list" then return copy_list(value) end
+
+	return value
+end
+
+local function get_effective_stencil_face(self, face)
+	local out = {}
+
+	for key, default in pairs(STENCIL_FACE_DEFAULTS) do
+		local value = get_state(self, "depth_stencil", face, key)
+		out[key] = value == nil and default or value
+	end
+
+	return out
+end
+
+local function store_property_override(self, info, value)
+	local section_name = info.state_section
+	local key = info.state_key
+	local subkey = info.state_subkey
+	local section_overrides = self.overridden_state[section_name] or {}
+	local changed_static = has_static_state_change(self, info)
+	local stored_value = info.compare == "list" and copy_list(value) or value
+
+	if subkey then
+		section_overrides[key] = get_effective_stencil_face(self, key)
+	end
+
+	set_path_value(section_overrides, info.state_value_path, stored_value)
+	self.overridden_state[section_name] = section_overrides
+	self.bind_state_dirty = true
+
+	if changed_static then self.static_variant_dirty = true end
 end
 
 local function get_color_blend_enable(self, index)
@@ -464,7 +1168,7 @@ local function get_color_blend_state(self, index, key, default)
 end
 
 local function get_color_write_mask(self, index)
-	return normalize_color_write_mask(get_color_blend_state(self, index, "color_write_mask", {"R", "G", "B", "A"}))
+	return normalize_color_write_mask(get_color_blend_state(self, index, "color_write_mask", {"r", "g", "b", "a"}))
 end
 
 local function build_zero_offsets(count)
@@ -621,7 +1325,28 @@ local function build_bind_state_cache(self)
 	end
 
 	if self.dynamic_states.viewport then
+		cache.viewport_x = (
+				get_state(self, "viewport", "x")
+			) or
+			(
+				config.viewport and
+				config.viewport.x
+			)
+			or
+			0
+		cache.viewport_y = (
+				get_state(self, "viewport", "y")
+			) or
+			(
+				config.viewport and
+				config.viewport.y
+			)
+			or
+			0
 		cache.viewport_width = (
+				get_state(self, "viewport", "w")
+			) or
+			(
 				config.extent and
 				config.extent.width
 			)
@@ -633,6 +1358,9 @@ local function build_bind_state_cache(self)
 			or
 			0
 		cache.viewport_height = (
+				get_state(self, "viewport", "h")
+			) or
+			(
 				config.extent and
 				config.extent.height
 			)
@@ -643,10 +1371,49 @@ local function build_bind_state_cache(self)
 			)
 			or
 			0
+		cache.viewport_min_depth = (
+				get_state(self, "viewport", "min_depth")
+			) or
+			(
+				config.viewport and
+				config.viewport.min_depth
+			)
+			or
+			0
+		cache.viewport_max_depth = (
+				get_state(self, "viewport", "max_depth")
+			) or
+			(
+				config.viewport and
+				config.viewport.max_depth
+			)
+			or
+			1
 	end
 
 	if self.dynamic_states.scissor then
+		cache.scissor_x = (
+				get_state(self, "scissor", "x")
+			) or
+			(
+				config.scissor and
+				config.scissor.x
+			)
+			or
+			0
+		cache.scissor_y = (
+				get_state(self, "scissor", "y")
+			) or
+			(
+				config.scissor and
+				config.scissor.y
+			)
+			or
+			0
 		cache.scissor_width = (
+				get_state(self, "scissor", "w")
+			) or
+			(
 				config.extent and
 				config.extent.width
 			)
@@ -658,6 +1425,9 @@ local function build_bind_state_cache(self)
 			or
 			0
 		cache.scissor_height = (
+				get_state(self, "scissor", "h")
+			) or
+			(
 				config.extent and
 				config.extent.height
 			)
@@ -677,9 +1447,9 @@ local function get_pipeline_signature(self, cmd)
 	local rendering_state = cmd and cmd.rendering_state or nil
 	local base = self.base_pipeline_signature or
 		{
-			color_format = self.config.color_format,
-			depth_format = self.config.depth_format,
-			samples = self.config.samples or "1",
+			color_format = self.config.ColorFormat,
+			depth_format = self.config.DepthFormat,
+			samples = self.config.RasterizationSamples or "1",
 		}
 	local color_format = base.color_format
 
@@ -698,7 +1468,7 @@ local function get_pipeline_signature(self, cmd)
 	}
 end
 
-local function build_internal_pipeline(vulkan_instance, pipeline_layout, config)
+local function build_internal_pipeline(vulkan_instance, pipeline_layout, config, dynamic_states)
 	local shader_modules = {}
 
 	for i, stage in ipairs(config.shader_stages) do
@@ -720,8 +1490,33 @@ local function build_internal_pipeline(vulkan_instance, pipeline_layout, config)
 		end
 	end
 
+	local color_blend_config = config.color_blend and table.copy(config.color_blend) or {}
+	local color_attachment_count = 0
+
+	if config.ColorFormat ~= nil and config.ColorFormat ~= false then
+		if type(config.ColorFormat) == "table" then
+			color_attachment_count = #config.ColorFormat
+		else
+			color_attachment_count = 1
+		end
+	end
+
+	color_blend_config.attachments = color_blend_config.attachments and
+		table.copy(color_blend_config.attachments) or
+		{}
+
+	for i = 1, #color_blend_config.attachments do
+		if type(color_blend_config.attachments[i]) == "table" then
+			color_blend_config.attachments[i] = table.copy(color_blend_config.attachments[i])
+		end
+	end
+
+	for i = 1, color_attachment_count do
+		color_blend_config.attachments[i] = color_blend_config.attachments[i] or {}
+	end
+
 	local multisampling_config = config.multisampling or {}
-	multisampling_config.rasterization_samples = config.samples or "1"
+	multisampling_config.rasterization_samples = config.RasterizationSamples or "1"
 	local pipeline = InternalGraphicsPipeline.New(
 		vulkan_instance.device,
 		{
@@ -734,18 +1529,104 @@ local function build_internal_pipeline(vulkan_instance, pipeline_layout, config)
 			viewport = config.viewport,
 			scissor = config.scissor,
 			multisampling = multisampling_config,
-			color_blend = config.color_blend,
-			dynamic_states = config.dynamic_states,
+			color_blend = color_blend_config,
+			dynamic_states = dynamic_states,
 			depth_stencil = config.depth_stencil,
 		},
-		{{format = config.color_format, depth_format = config.depth_format}},
+		{{format = config.ColorFormat, depth_format = config.DepthFormat}},
 		pipeline_layout
 	)
 	pipeline._shader_modules = shader_modules
 	return pipeline, shader_modules
 end
 
+local function build_dynamic_state_list(device, is_static)
+	if is_static then return nil end
+
+	local dynamic_states = {"viewport", "scissor"}
+
+	if device.has_extended_dynamic_state then
+		table.insert(dynamic_states, "cull_mode")
+		table.insert(dynamic_states, "front_face")
+		table.insert(dynamic_states, "depth_test_enable")
+		table.insert(dynamic_states, "depth_write_enable")
+		table.insert(dynamic_states, "depth_compare_op")
+		table.insert(dynamic_states, "stencil_test_enable")
+		table.insert(dynamic_states, "stencil_op")
+		table.insert(dynamic_states, "stencil_compare_mask")
+		table.insert(dynamic_states, "stencil_write_mask")
+		table.insert(dynamic_states, "stencil_reference")
+	end
+
+	if device.has_extended_dynamic_state2 then
+		table.insert(dynamic_states, "depth_bias_enable")
+		table.insert(dynamic_states, "depth_bias")
+		table.insert(dynamic_states, "primitive_restart_enable")
+		table.insert(dynamic_states, "rasterizer_discard_enable")
+
+		if device.has_logic_op_dynamic_state then
+			table.insert(dynamic_states, "logic_op_ext")
+		end
+	end
+
+	if device.has_extended_dynamic_state3 then
+		local dyn3 = device.physical_device:GetExtendedDynamicStateFeatures()
+
+		if dyn3.extendedDynamicState3ColorBlendEnable then
+			table.insert(dynamic_states, "color_blend_enable_ext")
+		end
+
+		if dyn3.extendedDynamicState3ColorBlendEquation then
+			table.insert(dynamic_states, "color_blend_equation_ext")
+		end
+
+		if dyn3.extendedDynamicState3PolygonMode then
+			table.insert(dynamic_states, "polygon_mode_ext")
+		end
+
+		if dyn3.extendedDynamicState3DepthClampEnable then
+			table.insert(dynamic_states, "depth_clamp_enable_ext")
+		end
+
+		if dyn3.extendedDynamicState3ColorWriteMask then
+			table.insert(dynamic_states, "color_write_mask_ext")
+		end
+
+		if device.has_logic_op_enable_dynamic_state then
+			table.insert(dynamic_states, "logic_op_enable_ext")
+		end
+	end
+
+	local unique = {}
+
+	for i = #dynamic_states, 1, -1 do
+		local state_name = dynamic_states[i]
+
+		if unique[state_name] then
+			table.remove(dynamic_states, i)
+		else
+			unique[state_name] = true
+		end
+	end
+
+	return dynamic_states
+end
+
 function GraphicsPipeline.New(vulkan_instance, config)
+	assert_no_legacy_constructor_fields(config, 3)
+	normalize_constructor_properties(config)
+
+	if
+		config.multisampling and
+		config.multisampling.sample_shading and
+		vulkan_instance.device.physical_device:GetFeatures().sampleRateShading == 0
+	then
+		error(
+			"GraphicsPipeline.New: SampleShading requires the Vulkan sampleRateShading feature",
+			3
+		)
+	end
+
 	local self = GraphicsPipeline:CreateObject({})
 	local uniform_buffers = {}
 	local shader_modules = {}
@@ -864,7 +1745,7 @@ function GraphicsPipeline.New(vulkan_instance, config)
 	-- For bindless rendering, we create one descriptor set per frame containing
 	-- an array of all textures. The descriptor sets are updated when new textures
 	-- are registered, not per-draw. Each draw just pushes a texture index.
-	local descriptor_set_count = config.descriptor_set_count or 1
+	local descriptor_set_count = config.DescriptorSetCount or 1
 	local descriptorPools = {}
 	local descriptorSets = {}
 
@@ -902,80 +1783,9 @@ function GraphicsPipeline.New(vulkan_instance, config)
 
 	-- Always use format and samples to ensure they match
 	local multisampling_config = config.multisampling or {}
-	multisampling_config.rasterization_samples = config.samples or "1"
-
-	-- Automatic dynamic state registration if not explicitly static
-	if not config.static then
-		config.dynamic_states = config.dynamic_states or {"viewport", "scissor"}
-		local device = vulkan_instance.device
-
-		if device.has_extended_dynamic_state then
-			table.insert(config.dynamic_states, "cull_mode")
-			table.insert(config.dynamic_states, "front_face")
-			table.insert(config.dynamic_states, "depth_test_enable")
-			table.insert(config.dynamic_states, "depth_write_enable")
-			table.insert(config.dynamic_states, "depth_compare_op")
-			table.insert(config.dynamic_states, "stencil_test_enable")
-			table.insert(config.dynamic_states, "stencil_op")
-			table.insert(config.dynamic_states, "stencil_compare_mask")
-			table.insert(config.dynamic_states, "stencil_write_mask")
-			table.insert(config.dynamic_states, "stencil_reference")
-		end
-
-		if device.has_extended_dynamic_state2 then
-			table.insert(config.dynamic_states, "depth_bias_enable")
-			table.insert(config.dynamic_states, "depth_bias")
-			table.insert(config.dynamic_states, "primitive_restart_enable")
-			table.insert(config.dynamic_states, "rasterizer_discard_enable")
-
-			if device.has_logic_op_dynamic_state then
-				table.insert(config.dynamic_states, "logic_op_ext")
-			end
-		end
-
-		if device.has_extended_dynamic_state3 then
-			local dyn3 = device.physical_device:GetExtendedDynamicStateFeatures()
-
-			if dyn3.extendedDynamicState3ColorBlendEnable then
-				table.insert(config.dynamic_states, "color_blend_enable_ext")
-			end
-
-			if dyn3.extendedDynamicState3ColorBlendEquation then
-				table.insert(config.dynamic_states, "color_blend_equation_ext")
-			end
-
-			if dyn3.extendedDynamicState3PolygonMode then
-				table.insert(config.dynamic_states, "polygon_mode_ext")
-			end
-
-			if dyn3.extendedDynamicState3DepthClampEnable then
-				table.insert(config.dynamic_states, "depth_clamp_enable_ext")
-			end
-
-			if dyn3.extendedDynamicState3ColorWriteMask then
-				table.insert(config.dynamic_states, "color_write_mask_ext")
-			end
-
-			if device.has_logic_op_enable_dynamic_state then
-				table.insert(config.dynamic_states, "logic_op_enable_ext")
-			end
-		end
-
-		-- De-duplicate dynamic_states
-		local unique = {}
-
-		for i = #config.dynamic_states, 1, -1 do
-			local s = config.dynamic_states[i]
-
-			if unique[s] then
-				table.remove(config.dynamic_states, i)
-			else
-				unique[s] = true
-			end
-		end
-	end
-
-	pipeline, shader_modules = build_internal_pipeline(vulkan_instance, pipelineLayout, config)
+	multisampling_config.rasterization_samples = config.RasterizationSamples or "1"
+	local dynamic_state_list = build_dynamic_state_list(vulkan_instance.device, config.Static)
+	pipeline, shader_modules = build_internal_pipeline(vulkan_instance, pipelineLayout, config, dynamic_state_list)
 	self.pipeline = pipeline
 	self.descriptor_sets = descriptorSets
 	self.pipeline_layout = pipelineLayout
@@ -989,15 +1799,16 @@ function GraphicsPipeline.New(vulkan_instance, config)
 	-- GraphicsPipeline variant caching for compatibility and static state emulation
 	self.base_pipeline = pipeline
 	self.base_pipeline_signature = {
-		color_format = config.color_format,
-		depth_format = config.depth_format,
-		samples = config.samples or "1",
+		color_format = config.ColorFormat,
+		depth_format = config.DepthFormat,
+		samples = config.RasterizationSamples or "1",
 	}
+	self.dynamic_state_list = dynamic_state_list and copy_list(dynamic_state_list) or nil
 	self.overridden_state = {}
 	self.dynamic_states = {}
 
-	if config.dynamic_states then
-		for _, s in ipairs(config.dynamic_states) do
+	if dynamic_state_list then
+		for _, s in ipairs(dynamic_state_list) do
 			self.dynamic_states[s] = true
 		end
 	end
@@ -1005,21 +1816,30 @@ function GraphicsPipeline.New(vulkan_instance, config)
 	self.pipeline_variants = {}
 	self.signature_id_root = {}
 	self.input_assembly_state_id_root = {}
+	self.multisampling_state_id_root = {}
 	self.rasterizer_state_id_root = {}
 	self.depth_stencil_state_id_root = {}
+	self.viewport_state_id_root = {}
+	self.scissor_state_id_root = {}
 	self.color_blend_state_id_root = {}
 	self.pipeline_variant_id_root = {}
 	self.base_signature_id = get_signature_id(self, self.base_pipeline_signature)
 	self.base_input_assembly_state_id = get_input_assembly_state_id(self)
+	self.base_multisampling_state_id = get_multisampling_state_id(self)
 	self.base_rasterizer_state_id = get_rasterizer_state_id(self)
 	self.base_depth_stencil_state_id = get_depth_stencil_state_id(self)
+	self.base_viewport_state_id = get_viewport_state_id(self)
+	self.base_scissor_state_id = get_scissor_state_id(self)
 	self.base_color_blend_state_id = get_color_blend_state_id(self)
 	self.base_variant_id = get_pipeline_variant_id(
 		self,
 		self.base_signature_id,
 		self.base_input_assembly_state_id,
+		self.base_multisampling_state_id,
 		self.base_rasterizer_state_id,
 		self.base_depth_stencil_state_id,
+		self.base_viewport_state_id,
+		self.base_scissor_state_id,
 		self.base_color_blend_state_id
 	)
 	self.pipeline_variants[self.base_variant_id] = {
@@ -1070,6 +1890,26 @@ function GraphicsPipeline.New(vulkan_instance, config)
 	end
 
 	return self
+end
+
+function GraphicsPipeline:GetColorFormat()
+	return self.base_pipeline_signature.color_format
+end
+
+function GraphicsPipeline:GetDepthFormat()
+	return self.base_pipeline_signature.depth_format
+end
+
+function GraphicsPipeline:GetRasterizationSamples()
+	return self.base_pipeline_signature.samples
+end
+
+function GraphicsPipeline:GetSamples()
+	return self:GetRasterizationSamples()
+end
+
+function GraphicsPipeline:GetDescriptorSetCount()
+	return self.descriptor_sets and #self.descriptor_sets or 0
 end
 
 function GraphicsPipeline:GetFallbackView()
@@ -1344,7 +2184,7 @@ function GraphicsPipeline:Bind(cmd, frame_index, dynamic_offsets)
 				graphics_pipeline_switch_count,
 				" in frame ",
 				frame_number,
-				". Consider sorting draws by pipeline/material, reducing static SetState changes, or moving more state to dynamic state."
+				". Consider sorting draws by pipeline/material, reducing static graphics pipeline property changes, or moving more state to dynamic state."
 			)
 		end
 	end
@@ -1447,13 +2287,20 @@ function GraphicsPipeline:Bind(cmd, frame_index, dynamic_offsets)
 
 	if self.dynamic_states.viewport then
 		if cache.viewport_width > 0 and cache.viewport_height > 0 then
-			cmd:SetViewport(0, 0, cache.viewport_width, cache.viewport_height, 0, 1)
+			cmd:SetViewport(
+				cache.viewport_x,
+				cache.viewport_y,
+				cache.viewport_width,
+				cache.viewport_height,
+				cache.viewport_min_depth,
+				cache.viewport_max_depth
+			)
 		end
 	end
 
 	if self.dynamic_states.scissor then
 		if cache.scissor_width > 0 and cache.scissor_height > 0 then
-			cmd:SetScissor(0, 0, cache.scissor_width, cache.scissor_height)
+			cmd:SetScissor(cache.scissor_x, cache.scissor_y, cache.scissor_width, cache.scissor_height)
 		end
 	end
 
@@ -1495,6 +2342,39 @@ local function deep_copy(obj, seen)
 	end
 
 	return setmetatable(res, getmetatable(obj))
+end
+
+for _, info in ipairs(prototype.GetStorableVariables(GraphicsPipeline)) do
+	GraphicsPipeline[info.set_name] = function(self, value)
+		if value == nil then
+			value = get_default_state_value(info)
+		else
+			value = prototype.ValidatePropertyValue(info, value, 2)
+
+			if info.compare == "list" then value = copy_list(value) end
+		end
+
+		local current = get_property_effective_value(self, info)
+
+		if prototype.ComparePropertyValues(info, current, value) then return end
+
+		store_property_override(self, info, value)
+	end
+	GraphicsPipeline[info.get_name] = function(self)
+		return get_property_effective_value(self, info)
+	end
+end
+
+function GraphicsPipeline:ApplyProperties(properties)
+	local property_info = {}
+
+	for _, info in ipairs(prototype.GetStorableVariables(GraphicsPipeline)) do
+		property_info[info.var_name] = info
+	end
+
+	for key, value in pairs(properties) do
+		if property_info[key] then self["Set" .. key](self, value) end
+	end
 end
 
 function GraphicsPipeline:OnRemove()
@@ -1550,8 +2430,11 @@ function GraphicsPipeline:RebuildPipeline(overrides, signature)
 	for section, changes in pairs(overrides) do
 		if
 			section ~= "input_assembly" and
+			section ~= "multisampling" and
 			section ~= "rasterizer" and
 			section ~= "depth_stencil" and
+			section ~= "viewport" and
+			section ~= "scissor" and
 			section ~= "color_blend"
 		then
 			error("unknown static pipeline state section for variant cache: " .. tostring(section))
@@ -1561,7 +2444,7 @@ function GraphicsPipeline:RebuildPipeline(overrides, signature)
 		local has_static = false
 
 		for k, v in pairs(changes or {}) do
-			if has_static_state_change(self, section, k) then
+			if has_static_override_change(self, section, k, v) then
 				static_changes[k] = v
 				has_static = true
 			end
@@ -1571,15 +2454,21 @@ function GraphicsPipeline:RebuildPipeline(overrides, signature)
 	end
 
 	local input_assembly_state_id = get_input_assembly_state_id(self, static_overrides.input_assembly)
+	local multisampling_state_id = get_multisampling_state_id(self, static_overrides.multisampling)
 	local rasterizer_state_id = get_rasterizer_state_id(self, static_overrides.rasterizer)
 	local depth_stencil_state_id = get_depth_stencil_state_id(self, static_overrides.depth_stencil)
+	local viewport_state_id = get_viewport_state_id(self, static_overrides.viewport)
+	local scissor_state_id = get_scissor_state_id(self, static_overrides.scissor)
 	local color_blend_state_id = get_color_blend_state_id(self, static_overrides.color_blend)
 	local variant_id = get_pipeline_variant_id(
 		self,
 		signature_id,
 		input_assembly_state_id,
+		multisampling_state_id,
 		rasterizer_state_id,
 		depth_stencil_state_id,
+		viewport_state_id,
+		scissor_state_id,
 		color_blend_state_id
 	)
 
@@ -1611,9 +2500,9 @@ function GraphicsPipeline:RebuildPipeline(overrides, signature)
 
 	-- Create a modified config
 	local modified_config = deep_copy(self.config)
-	modified_config.color_format = signature.color_format
-	modified_config.depth_format = signature.depth_format
-	modified_config.samples = signature.samples
+	modified_config.ColorFormat = signature.color_format
+	modified_config.DepthFormat = signature.depth_format
+	modified_config.RasterizationSamples = signature.samples
 
 	-- Apply ALL overrides (both static and dynamic ones, though dynamic ones don't STRICTLY need to be in the baked pipeline, it's safer)
 	for section, changes in pairs(overrides) do
@@ -1634,12 +2523,25 @@ function GraphicsPipeline:RebuildPipeline(overrides, signature)
 			modified_config[section] = modified_config[section] or {}
 
 			for k, v in pairs(changes) do
-				modified_config[section][k] = v
+				if type(v) == "table" and type(modified_config[section][k]) == "table" then
+					modified_config[section][k] = deep_copy(modified_config[section][k])
+
+					for subkey, subvalue in pairs(v) do
+						modified_config[section][k][subkey] = subvalue
+					end
+				else
+					modified_config[section][k] = v
+				end
 			end
 		end
 	end
 
-	local new_pipeline, shader_modules = build_internal_pipeline(self.vulkan_instance, self.pipeline_layout, modified_config)
+	local new_pipeline, shader_modules = build_internal_pipeline(
+		self.vulkan_instance,
+		self.pipeline_layout,
+		modified_config,
+		self.dynamic_state_list
+	)
 	self.pipeline_variants[variant_id] = {
 		pipeline = new_pipeline,
 		config = modified_config,
@@ -1652,35 +2554,6 @@ function GraphicsPipeline:RebuildPipeline(overrides, signature)
 	build_bind_state_cache(self)
 	self.static_variant_dirty = false
 	self.bind_state_dirty = false
-end
-
--- High level state override. 
--- Will use dynamic state if available, or rebuild the pipeline if not.
-function GraphicsPipeline:SetState(section, changes)
-	if not changes then return end
-
-	-- Normalize section names
-	if section == "blend" then section = "color_blend" end
-
-	local section_overrides = self.overridden_state[section] or {}
-	local changed = false
-	local changed_static = false
-
-	for k, v in pairs(changes) do
-		if section_overrides[k] ~= v then
-			changed = true
-			section_overrides[k] = v
-
-			if has_static_state_change(self, section, k) then changed_static = true end
-		end
-	end
-
-	if not changed then return end
-
-	self.overridden_state[section] = section_overrides
-	self.bind_state_dirty = true
-
-	if changed_static then self.static_variant_dirty = true end
 end
 
 -- Reset to base pipeline
