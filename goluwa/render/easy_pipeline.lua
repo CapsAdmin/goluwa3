@@ -1219,7 +1219,7 @@ function EasyPipeline.New(config)
 		ColorFormat = #actual_color_formats > 0 and actual_color_formats or color_format,
 		DepthFormat = depth_format,
 		RasterizationSamples = rasterization_samples or "1",
-		DescriptorSetCount = descriptor_set_count or (render.target and render.target.image_count) or 1,
+		DescriptorSetCount = descriptor_set_count or (render.target:IsValid() and render.target.image_count) or 1,
 		shader_stages = shader_stages,
 		Topology = config.Topology or "triangle_list",
 		PolygonMode = config.PolygonMode or "fill",
@@ -1349,7 +1349,7 @@ function EasyPipeline:RecreateFramebuffers()
 end
 
 function EasyPipeline:OnWindowFramebufferResized()
-	if render.target and render.target.config.offscreen then return end
+	if render.target:IsValid() and render.target.config.offscreen then return end
 
 	timer.Delay(
 		0.01,

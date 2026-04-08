@@ -42,6 +42,14 @@ commands.Add("cli", function(path, ...)
 	assert(loadfile("game/run.lua"))()
 end)
 
+local function shutdown_and_exit(code, remove_pid)
+	event.Call("ShutDown")
+
+	if remove_pid then fs.remove_file(".running_pid") end
+
+	os.realexit(code or os.exitcode or 0)
+end
+
 return function(...)
 	local argv = {...}
 	return crash_trace.Run(function()
@@ -66,8 +74,7 @@ return function(...)
 				assert(loadfile("game/run.lua"))()
 				event.Call("Initialize")
 				commands.RunArguments(args)
-				event.Call("ShutDown")
-				os.realexit(os.exitcode or 0)
+				shutdown_and_exit(os.exitcode or 0)
 			end
 
 			commands.RunArguments(args)
@@ -103,8 +110,6 @@ return function(...)
 
 		if _G.PROFILE then profiler.Stop("update") end
 
-		event.Call("ShutDown")
-		fs.remove_file(".running_pid")
-		os.realexit(os.exitcode) -- no need to wait for gc!!1
+		shutdown_and_exit(os.exitcode, true)
 	end)
 end

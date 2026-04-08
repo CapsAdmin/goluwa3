@@ -682,6 +682,8 @@ return function(META)
 
 	function META:OnRemove()
 		if self.display then
+			system.UnregisterWindow(self)
+
 			-- Release mouse if captured
 			if self:IsMouseCaptured() then self:ReleaseMouse() end
 

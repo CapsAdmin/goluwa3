@@ -316,7 +316,7 @@ function render3d.GetDebugCascadeColors()
 end
 
 event.AddListener("WindowFramebufferResized", "render3d", function(wnd, size)
-	if render.target and render.target.config.offscreen then return end
+	if render.target:IsValid() and render.target.config.offscreen then return end
 
 	render3d.camera:SetViewport(Rect(0, 0, size.x, size.y))
 end)

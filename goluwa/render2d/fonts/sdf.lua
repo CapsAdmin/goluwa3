@@ -293,7 +293,7 @@ do
 		self.chars = {}
 		self.rebuild = false
 
-		if render.target then
+		if render.target:IsValid() then
 			create_atlas(self)
 		else
 			event.AddListener("RendererReady", self, function()

@@ -1697,7 +1697,7 @@ event.AddListener("PostDraw", "draw_2d", function(dt)
 end)
 
 event.AddListener("WindowFramebufferResized", "render2d", function(wnd, size)
-	if render.target and render.target.config.offscreen then return end
+	if render.target:IsValid() and render.target.config.offscreen then return end
 
 	render2d.UpdateScreenSize(size.x, size.y)
 end)

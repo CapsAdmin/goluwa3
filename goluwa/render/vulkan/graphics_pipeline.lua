@@ -5,6 +5,7 @@ local PipelineLayout = import("goluwa/render/vulkan/internal/pipeline_layout.lua
 local InternalGraphicsPipeline = import("goluwa/render/vulkan/internal/graphics_pipeline.lua")
 local DescriptorPool = import("goluwa/render/vulkan/internal/descriptor_pool.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
+local render = import("goluwa/render/render.lua")
 local system = import("goluwa/system.lua")
 local ffi = require("ffi")
 local GraphicsPipeline = prototype.CreateTemplate("render_graphics_pipeline")
@@ -1868,12 +1869,10 @@ function GraphicsPipeline.New(vulkan_instance, config)
 	local event = import("goluwa/event.lua")
 
 	event.AddListener("TextureRemoved", self, function(removed_tex)
-		if self:IsValid() then
-			-- Most pipelines now use set 1 for bindless textures.
-			-- If set 1 exists, use it.
-			local set_index = #self.descriptor_set_layouts > 1 and 1 or 0
-			self:ReleaseTextureIndex(removed_tex, set_index)
-		end
+		if not render.GetDevice():IsValid() then return end
+		if render.shutting_down then return end
+		local set_index = #self.descriptor_set_layouts > 1 and 1 or 0
+		self:ReleaseTextureIndex(removed_tex, set_index)
 	end)
 
 	-- Initialize all descriptor sets with the same initial bindings

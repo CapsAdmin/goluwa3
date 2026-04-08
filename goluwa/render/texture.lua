@@ -156,10 +156,11 @@ local function get_bytes_per_pixel(format)
 end
 
 -- Fallback checkerboard texture (pink and black)
-local fallback_texture = nil
+local fallback_texture = NULL
 
 local function create_fallback_texture()
-	if fallback_texture then return fallback_texture end
+	if fallback_texture:IsValid() then return fallback_texture end
+	fallback_texture = NULL
 
 	-- Create 8x8 pink/black checkerboard pattern
 	local size = 8
@@ -859,6 +860,15 @@ function Texture:OnRemove()
 	if cache_key and texture_cache[cache_key] == self then
 		texture_cache[cache_key] = nil
 	end
+
+	if fallback_texture == self then fallback_texture = nil end
+
+	self.view = nil
+	self.image = nil
+	self.sampler = nil
+	self.vulkan_info = nil
+	self.reflectivity = nil
+	self.image_data_cache = nil
 end
 
 function Texture:GenerateMipmaps(initial_layout)

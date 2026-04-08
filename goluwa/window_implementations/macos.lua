@@ -126,6 +126,8 @@ return function(META)
 	end
 
 	function META:OnRemove()
+		system.UnregisterWindow(self)
+
 		if self.cocoa_window then
 			-- Release mouse if captured
 			if self.cocoa_window:IsMouseCaptured() then

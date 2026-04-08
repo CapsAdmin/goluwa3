@@ -29,14 +29,33 @@ local Framebuffer = import("goluwa/render/framebuffer.lua")
 local Fence = import("goluwa/render/vulkan/internal/fence.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 local vulkan_instance
+local sync_fence = NULL
 render.command_buffer_stack = render.command_buffer_stack or {}
+render.target = render.target or NULL
+
+function render.Shutdown()
+	if render.shutting_down then return end
+
+	render.shutting_down = true
+	event.RemoveListener("WindowFramebufferResized", "window_resized")
+	event.RemoveListener("Update", "window_update")
+	if render.target:IsValid() then
+		render.target:Remove()
+	end
+	if vulkan_instance:IsValid() then vulkan_instance:Remove() end
+
+	render.command_buffer_stack = {}
+	render.cmd = NULL
+	render.in_frame = false
+	render.target = NULL
+	vulkan_instance = NULL
+	render.cached_samplers = {}
+	sync_fence = NULL
+
+	render.shutting_down = false
+end
 
 function render.Initialize(config)
-	if render.target then
-		render.GetDevice():WaitIdle()
-		return
-	end
-
 	config = config or {}
 	local is_headless = config.headless
 
@@ -49,7 +68,7 @@ function render.Initialize(config)
 		local surface_handle, display_handle = assert(wnd:GetSurfaceHandle())
 		vulkan_instance = VulkanInstance.New(surface_handle, display_handle)
 		local size = wnd:GetSize()
-		local target = vulkan_instance:CreateWindowRenderTarget{
+		render.target = vulkan_instance:CreateWindowRenderTarget{
 			present_mode = "immediate_khr", --"fifo_khr",
 			image_count = nil, -- Use default (minImageCount + 1)
 			--surface_format_index = 1,
@@ -58,12 +77,11 @@ function render.Initialize(config)
 			height = size.y,
 			samples = config.samples,
 		}
-		render.target = target
 	else
 		vulkan_instance = VulkanInstance.New(nil, nil)
 		local width = config.width or 512
 		local height = config.height or 512
-		local target = vulkan_instance:CreateWindowRenderTarget{
+		render.target = vulkan_instance:CreateWindowRenderTarget{
 			offscreen = true,
 			width = width,
 			height = height,
@@ -72,7 +90,6 @@ function render.Initialize(config)
 			samples = "1",
 			final_layout = "transfer_src_optimal",
 		}
-		render.target = target
 	end
 
 	event.Call("RendererReady")
@@ -83,6 +100,10 @@ function render.Initialize(config)
 		render.target.config.width = size.x
 		render.target.config.height = size.y
 		render.target:RebuildFramebuffers()
+	end)
+
+	event.AddListener("Shutdown", "render_shutdown", function()
+		render.Shutdown()
 	end)
 
 	function render.Draw(dt)
@@ -101,10 +122,6 @@ function render.Initialize(config)
 	end
 
 	event.AddListener("Update", "window_update", render.Draw)
-
-	event.AddListener("ShutDown", "window_shutdown", function()
-		vulkan_instance.device:WaitIdle()
-	end)
 end
 
 function render.BeginFrame()
@@ -175,7 +192,7 @@ function render.EndFrame()
 end
 
 function render.GetRenderImageSize()
-	if not render.target then return Vec2(800, 600) end
+	if not render.target:IsValid() then return Vec2(800, 600) end
 
 	return Vec2(render.target.config.width, render.target.config.height)
 end
@@ -308,10 +325,8 @@ function render.GetQueue()
 	return vulkan_instance.queue
 end
 
-local sync_fence
-
 function render.GetSyncFence()
-	if not sync_fence then sync_fence = Fence.New(render.GetDevice()) end
+	if not sync_fence:IsValid() then sync_fence = Fence.New(render.GetDevice()) end
 
 	return sync_fence
 end

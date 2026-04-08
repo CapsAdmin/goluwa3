@@ -580,9 +580,9 @@ function Device:UpdateDescriptorSetArray(
 			end
 		end
 
-		if view_handle == nil then
-			view_handle = fallback_view_handle
-			sampler_handle = fallback_sampler_handle or sampler_handle
+		if (view_handle == nil or sampler_handle == nil) and not self.nullDescriptorEnabled then
+			view_handle = view_handle or fallback_view_handle
+			sampler_handle = sampler_handle or fallback_sampler_handle
 		end
 
 		imageInfoArray[i - 1] = vulkan.vk.s.DescriptorImageInfo{

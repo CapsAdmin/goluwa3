@@ -1,6 +1,12 @@
+local ffi = require("ffi")
 local get_time = import("goluwa/bindings/time.lua")
 local event = import("goluwa/event.lua")
 local system = library()
+
+ffi.cdef([[
+	int fflush(void *stream);
+	int _exit(int status);
+]])
 
 function system.GetTime()
 	return get_time()
@@ -30,11 +36,16 @@ do
 
 	function os.realexit(code)
 		-- Flush stdout pipe before exiting so any pending output is captured
-		local ok, output = pcall(require, "output")
+		local output = import("goluwa/output.lua")
 
-		if ok and output.Flush then pcall(output.Flush) end
+		output.Flush()
+		output.Shutdown()
 
 		io.flush()
+		ffi.C.fflush(nil)
+
+		if jit.os ~= "Windows" then ffi.C._exit(code or 0) end
+
 		old(code)
 	end
 end
@@ -242,9 +253,27 @@ do
 		return wnd
 	end
 
+	function system.CloseWindows()
+		for i = #state.active, 1, -1 do
+			local wnd = state.active[i]
+
+			if wnd and wnd.IsValid and wnd:IsValid() then
+				pcall(wnd.Remove, wnd)
+			else
+				list.remove(state.active, i)
+			end
+		end
+
+		if not state.active[1] then state.current = nil end
+	end
+
 	function system.OpenWindow(...)
 		return get_window_module().Open(...)
 	end
+
+	event.AddListener("Shutdown", "system_window_cleanup", function()
+		system.CloseWindows()
+	end)
 end
 
 return system

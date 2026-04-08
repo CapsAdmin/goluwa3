@@ -1105,6 +1105,7 @@ commands.Add({
 			local has_tests = false
 			local system = import("goluwa/system.lua")
 			local vfs = import("goluwa/vfs.lua")
+			local event = import("goluwa/event.lua")
 			import.loadfile = vfs.LoadFile
 			vfs.MountStorageDirectories()
 			system.ShutDown = function(code) shutdown_code = code or 0 os.exitcode = code end
@@ -1120,7 +1121,6 @@ commands.Add({
 					return
 				end
 
-			local event = import("goluwa/event.lua")
 			local task = import("goluwa/tasks.lua")
 
 			-- IsBusy normally counts ALL tasks, including raw tasks created inside tests.
@@ -1154,7 +1154,8 @@ commands.Add({
 				event.Call("Update", dt)
 				system.Sleep(0.001)
 			end
-			
+
+			event.Call("ShutDown")
 			t.EndTests(true)
 			end)
 
@@ -1264,6 +1265,11 @@ commands.Add({
 
 				if status and status ~= 0 then
 					local result, join_err = t:join()
+					-- Graphics/audio workers can still hold FFI callback state that is not
+					-- safe to lua_close() here even after worker-local shutdown. Drop the
+					-- state reference so GC won't attempt a late close either.
+					t.lua_state = nil
+					t.func_ptr = nil
 
 					if join_err then
 						io.write("thread error for " .. t.test_name .. ": " .. tostring(join_err) .. "\n")
