@@ -33,25 +33,8 @@ return function(META)
 		self.cached_fb_size = nil
 		self.last_mouse_pos = Vec2(0, 0)
 
-		-- Add event handlers
-		if not system.disable_window then
-			self:AddGlobalEvent("Update")
-			self:AddGlobalEvent("FrameEnd")
-		end
-
 		return true
 	end
-
-	function META:PreWindowSetup() -- Called before window setup - can be overridden
-	end
-
-	function META:PostWindowSetup() -- Called after window setup - can be overridden
-	end
-
-	function META:OnFrameEnd() -- Process events and update
-	end
-
-	function META:OnPostUpdate(dt) end
 
 	function META:OnUpdate(dt)
 		self:SetMouseDelta(Vec2(0, 0))
@@ -61,36 +44,34 @@ return function(META)
 		for _, event in ipairs(events) do
 			if event.type == "key_press" then
 				-- Fire key down event
-				self:CallEvent("KeyInput", event.key, true)
+				self:OnKeyInput(event.key, true)
 
 				-- Fire character input if available
 				if event.char and event.char ~= "" then
-					self:CallEvent("CharInput", event.char)
+					self:OnCharInput(event.char)
 				end
 			elseif event.type == "key_release" then
-				self:CallEvent("KeyInput", event.key, false)
+				self:OnKeyInput(event.key, false)
 			elseif event.type == "mouse_button" then
 				local button = button_translate[event.button] or event.button
 				local pressed = event.action == "pressed"
-				self:CallEvent("MouseInput", button, pressed)
+				self:OnMouseInput(button, pressed)
 			elseif event.type == "mouse_move" then
 				self.last_mouse_pos.x = event.x
 				self.last_mouse_pos.y = event.y
 				self:SetMouseDelta(Vec2(event.delta_x, event.delta_y))
-				self:CallEvent("CursorPosition", Vec2(event.x, event.y))
+				self:OnCursorPosition(Vec2(event.x, event.y))
 			elseif event.type == "mouse_scroll" then
-				self:CallEvent("MouseScroll", Vec2(event.delta_x, event.delta_y))
+				self:OnMouseScroll(Vec2(event.delta_x, event.delta_y))
 			elseif event.type == "window_close" then
-				self:CallEvent("Close")
+				self:OnClose()
 			elseif event.type == "window_resize" then
 				self.cached_size = nil
 				self.cached_fb_size = nil
-				self:CallEvent("SizeChanged", Vec2(event.width, event.height))
-				self:CallEvent("FramebufferResized", Vec2(event.width, event.height))
+				self:OnSizeChanged(Vec2(event.width, event.height))
+				self:OnFramebufferResized(Vec2(event.width, event.height))
 			end
 		end
-
-		self:OnPostUpdate(dt)
 
 		-- Handle trapped cursor
 		if self.Cursor == "trapped" and self:IsFocused() then
@@ -126,14 +107,13 @@ return function(META)
 	end
 
 	function META:OnRemove()
-		system.UnregisterWindow(self)
-
 		if self.cocoa_window then
 			-- Release mouse if captured
 			if self.cocoa_window:IsMouseCaptured() then
 				self.cocoa_window:ReleaseMouse()
 			end
-		-- Window cleanup would go here if cocoa exposed it
+			-- Window cleanup would go here if cocoa exposed it
+			self:OnRemoved()
 		end
 	end
 

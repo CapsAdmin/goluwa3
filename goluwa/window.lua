@@ -60,15 +60,7 @@ function Window:Initialize()
 	nyi()
 end
 
-function Window:PreWindowSetup()
-	nyi()
-end
-
-function Window:PostWindowSetup()
-	nyi()
-end
-
-function Window:OnRemove()
+function Window:OnRemoved()
 	system.UnregisterWindow(self)
 end
 
@@ -90,59 +82,153 @@ end
 
 function Window:OnUpdate(dt) end
 
-function Window:OnMinimize() end
-
-function Window:OnMaximize() end
-
-function Window:OnGainedFocus() end
-
-function Window:OnLostFocus() end
-
-function Window:OnPositionChanged(pos) end
-
-function Window:OnSizeChanged(size) end
-
-function Window:OnFramebufferResized(size) end
-
-function Window:OnCursorEnter() end
-
-function Window:OnCursorLeave() end
-
-function Window:OnClose() end
-
-function Window:SwapInterval() end
-
-function Window:OnCursorPosition(x, y) end
-
-function Window:OnDrop(paths) end
-
-function Window:OnCharInput(str) end
-
-function Window:OnKeyInput(key, press) end
-
-function Window:OnKeyInputRepeat(key, press) end
-
-function Window:OnMouseInput(key, press) end
-
-function Window:OnMouseScroll(x, y) end
-
-function Window:UpdateMousePosition(pos)
-	if self:OnCursorPosition(self, pos) ~= false then
-		event.Call("WindowCursorPosition", self, pos)
-	end
+function Window:OnMinimize()
+	return event.Call("WindowMinimize", self)
 end
 
-function Window:CallEvent(name, ...)
-	local b = self["On" .. name](self, ...)
+function Window:OnMaximize()
+	return event.Call("WindowMaximize", self)
+end
 
-	if b ~= false then b = event.Call("Window" .. name, self, ...) end
+function Window:OnGainedFocus()
+	return event.Call("WindowGainedFocus", self)
+end
 
+function Window:OnLostFocus()
+	local b = event.Call("WindowLostFocus", self)
+
+	if b ~= nil then return b end
+
+	input.ReleaseAll("Mouse", function(key, press)
+		event.Call("MouseInput", key, press)
+	end)
+
+	input.ReleaseAll("Key", function(key, press)
+		event.Call("KeyInput", key, press)
+	end)
 	return b
+end
+
+function Window:OnPositionChanged(pos)
+	return event.Call("WindowPositionChanged", self, pos)
+end
+
+function Window:OnSizeChanged(size)
+	return event.Call("WindowSizeChanged", self, size)
+end
+
+function Window:OnFramebufferResized(size)
+	return event.Call("WindowFramebufferResized", self, size)
+end
+
+function Window:OnCursorEnter()
+	return event.Call("WindowCursorEnter", self)
+end
+
+function Window:OnCursorLeave()
+	return event.Call("WindowCursorLeave", self)
 end
 
 function Window:OnClose()
 	self:Remove()
 	system.ShutDown()
+	return event.Call("WindowClose", self)
+end
+
+function Window:SwapInterval() end
+
+function Window:OnCursorPosition(pos)
+	return event.Call("WindowCursorPosition", self, pos)
+end
+
+function Window:OnDrop(paths)
+	return event.Call("WindowDrop", self, paths)
+end
+
+function Window:OnCharInput(str)
+	local b = event.Call("WindowCharInput", self, str)
+
+	if b ~= nil then return b end
+
+	return event.Call("CharInput", str)
+end
+
+function Window:OnKeyInput(key, press)
+	local b = event.Call("WindowKeyInput", self, key, press)
+
+	if b ~= nil then return b end
+
+	if self.key_trigger then self.key_trigger(key, press) end
+
+	return event.Call("KeyInput", key, press)
+end
+
+function Window:OnKeyInputRepeat(key, press)
+	local b = event.Call("WindowKeyInputRepeat", self, key, press)
+
+	if b ~= nil then return b end
+
+	return event.Call("KeyInputRepeat", key, press)
+end
+
+function Window:OnMouseInput(key, press)
+	local b = event.Call("WindowMouseInput", self, key, press)
+
+	if b ~= nil then return b end
+
+	if self.mouse_trigger then self.mouse_trigger(key, press) end
+
+	return event.Call("MouseInput", key, press)
+end
+
+function Window:OnMouseScroll(dir)
+	local b = event.Call("WindowMouseScroll", self, dir)
+
+	if b ~= nil then return b end
+
+	local x, y = dir:Unpack()
+
+	if y ~= 0 then
+		for _ = 1, math.abs(y) do
+			if y > 0 then
+				self:OnMouseInput("mwheel_up", true)
+			else
+				self:OnMouseInput("mwheel_down", true)
+			end
+		end
+
+		timer.Delay(function()
+			if y > 0 then
+				self:OnMouseInput("mwheel_up", false)
+			else
+				self:OnMouseInput("mwheel_down", false)
+			end
+		end)
+	end
+
+	if x ~= 0 then
+		for _ = 1, math.abs(x) do
+			if x > 0 then
+				self:OnMouseInput("mwheel_left", true)
+			else
+				self:OnMouseInput("mwheel_right", true)
+			end
+		end
+
+		timer.Delay(function()
+			if x > 0 then
+				self:OnMouseInput("mwheel_left", false)
+			else
+				self:OnMouseInput("mwheel_right", false)
+			end
+		end)
+	end
+
+	return event.Call("MouseScroll", dir)
+end
+
+function Window:UpdateMousePosition(pos)
+	return self:OnCursorPosition(pos)
 end
 
 if jit.os == "OSX" then
@@ -161,85 +247,13 @@ function Window.New(width, height, title, flags)
 	self:SetFlags(flags)
 	system.RegisterWindow(self)
 
-	local key_trigger = input.SetupInputEvent("Key")
-	local mouse_trigger = input.SetupInputEvent("Mouse")
-	local event_id = "window_events_" .. tostring(self)
+	self.key_trigger = input.SetupInputEvent("Key")
+	self.mouse_trigger = input.SetupInputEvent("Mouse")
 	local release_inputs_id = "window_release_inputs_" .. tostring(self)
 
-	local function ADD_EVENT(name, callback)
-		local nice = name:sub(7)
-
-		event.AddListener(name, event_id .. "_" .. name, function(_wnd, ...)
-			if _wnd ~= self then return end
-
-			if not callback or callback(...) ~= false then
-				return event.Call(nice, ...)
-			end
-		end)
-	end
-
-	ADD_EVENT("WindowCharInput")
-	ADD_EVENT("WindowKeyInput", key_trigger)
-	ADD_EVENT("WindowMouseInput", mouse_trigger)
-	ADD_EVENT("WindowKeyInputRepeat")
-	local mouse_trigger = function(key, press)
-		mouse_trigger(key, press)
-		event.Call("MouseInput", key, press)
-	end
-
-	event.AddListener("WindowLostFocus", release_inputs_id, function(focused_wnd)
-		if focused_wnd ~= self then return end
-
-		input.ReleaseAll("Mouse", function(key, press)
-			event.Call("MouseInput", key, press)
-		end)
-
-		input.ReleaseAll("Key", function(key, press)
-			event.Call("KeyInput", key, press)
-		end)
-	end)
-
-	ADD_EVENT("WindowMouseScroll", function(dir)
-		local x, y = dir:Unpack()
-
-		if y ~= 0 then
-			for _ = 1, math.abs(y) do
-				if y > 0 then
-					mouse_trigger("mwheel_up", true)
-				else
-					mouse_trigger("mwheel_down", true)
-				end
-			end
-
-			timer.Delay(function()
-				if y > 0 then
-					mouse_trigger("mwheel_up", false)
-				else
-					mouse_trigger("mwheel_down", false)
-				end
-			end)
-		end
-
-		if x ~= 0 then
-			for _ = 1, math.abs(x) do
-				if x > 0 then
-					mouse_trigger("mwheel_left", true)
-				else
-					mouse_trigger("mwheel_right", true)
-				end
-			end
-
-			timer.Delay(function()
-				if x > 0 then
-					mouse_trigger("mwheel_left", false)
-				else
-					mouse_trigger("mwheel_right", false)
-				end
-			end)
-		end
-	end)
-
 	event.Call("WindowOpened", self)
+
+	self:AddGlobalEvent("Update") -- calls :OnUpdate
 
 	return self
 end

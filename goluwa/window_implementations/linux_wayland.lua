@@ -247,12 +247,6 @@ return function(META)
 		self.cached_fb_size = nil
 		self.last_mouse_pos = Vec2(0, 0)
 
-		-- Add event handlers
-		if not system.disable_window then
-			self:AddGlobalEvent("Update")
-			self:AddGlobalEvent("FrameEnd")
-		end
-
 		return true
 	end
 
@@ -556,17 +550,6 @@ return function(META)
 		)
 	end
 
-	function META:PreWindowSetup() -- Called before window setup - can be overridden
-	end
-
-	function META:PostWindowSetup() -- Called after window setup - can be overridden
-	end
-
-	function META:OnFrameEnd() -- Process events and update
-	end
-
-	function META:OnPostUpdate(dt) end
-
 	function META:OnUpdate(dt)
 		self:SetMouseDelta(Vec2(0, 0))
 		-- Read all events from wayland
@@ -593,22 +576,22 @@ return function(META)
 		for _, event in ipairs(events) do
 			if event.type == "key_press" then
 				-- Fire key down event
-				self:CallEvent("KeyInput", event.key, true)
+				self:OnKeyInput(event.key, true)
 
 				-- Fire character input if available
 				if event.char and event.char ~= "" then
-					self:CallEvent("CharInput", event.char)
+					self:OnCharInput(event.char)
 				end
 			elseif event.type == "key_release" then
-				self:CallEvent("KeyInput", event.key, false)
+				self:OnKeyInput(event.key, false)
 			elseif event.type == "mouse_button" then
 				local button = button_translate[event.button] or "button_" .. tostring(event.button)
 				local pressed = event.action == "pressed"
-				self:CallEvent("MouseInput", button, pressed)
+				self:OnMouseInput(button, pressed)
 			elseif event.type == "mouse_move" then
 				-- Update mouse position
 				self.last_mouse_pos = Vec2(event.x, event.y)
-				self:CallEvent("CursorPosition", self.last_mouse_pos)
+				self:OnCursorPosition(self.last_mouse_pos)
 
 				-- Always set delta from motion events
 				if event.delta_x and event.delta_y then
@@ -620,30 +603,29 @@ return function(META)
 					self:SetMouseDelta(Vec2(event.delta_x, event.delta_y))
 				end
 			elseif event.type == "mouse_scroll" then
-				self:CallEvent("MouseScroll", Vec2(event.delta_x, event.delta_y))
+				self:OnMouseScroll(Vec2(event.delta_x, event.delta_y))
 			elseif event.type == "window_close" then
-				self:CallEvent("Close")
+				self:OnClose()
 			elseif event.type == "window_resize" then
 				local size = Vec2(event.width, event.height)
 
 				if self.last_size ~= size then
 					self.cached_size = nil
 					self.cached_fb_size = nil
-					self:CallEvent("SizeChanged", size:Copy())
-					self:CallEvent("FramebufferResized", size:Copy())
+					self:OnSizeChanged(size:Copy())
+					self:OnFramebufferResized(size:Copy())
 					self.last_size = size
 				end
 			elseif event.type == "window_focus" then
 				self.focused = event.focused
-				self:CallEvent(event.focused and "GainedFocus" or "LostFocus")
+				self[event.focused and "OnGainedFocus" or "OnLostFocus"](self)
 			elseif event.type == "cursor_enter" then
-				self:CallEvent("CursorEnter")
+				self:OnCursorEnter()
 			elseif event.type == "cursor_leave" then
-				self:CallEvent("CursorLeave")
+				self:OnCursorLeave()
 			end
 		end
 
-		self:OnPostUpdate(dt)
 	-- Note: Wayland doesn't support cursor warping, so trapped cursor
 	-- relies on the compositor's pointer constraints protocol.
 	-- For now, mouse capture works via delta tracking and cursor hiding.
@@ -682,8 +664,6 @@ return function(META)
 
 	function META:OnRemove()
 		if self.display then
-			system.UnregisterWindow(self)
-
 			-- Release mouse if captured
 			if self:IsMouseCaptured() then self:ReleaseMouse() end
 
@@ -708,6 +688,8 @@ return function(META)
 
 			-- Remove from active windows
 			if self._ptr then wayland._active_windows[self._ptr] = nil end
+
+			self:OnRemoved()
 		end
 	end
 
