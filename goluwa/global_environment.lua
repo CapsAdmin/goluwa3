@@ -62,12 +62,12 @@ _G.UNIX = _G.LINUX or _G.OSX
 if _G.PROFILE then import("goluwa/profiler.lua").Start("init") end
 
 _G.setmetatable = import("goluwa/helpers/setmetatable_gc.lua")
-import("goluwa/helpers/globals.lua")
 import("goluwa/helpers/debug.lua")
 import("goluwa/helpers/table.lua")
 import("goluwa/helpers/string.lua")
 import("goluwa/helpers/string_format.lua")
 import("goluwa/helpers/math.lua")
+import("goluwa/helpers/globals.lua")
 
 do
 	local logging = import("goluwa/logging.lua")

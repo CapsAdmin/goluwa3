@@ -2,6 +2,9 @@ local ffi = require("ffi")
 local get_time = import("goluwa/bindings/time.lua")
 local event = import("goluwa/event.lua")
 local system = library()
+import.loaded["goluwa/system.lua"] = system
+
+local Window = import("goluwa/window.lua")
 
 ffi.cdef([[
 	int fflush(void *stream);
@@ -201,10 +204,6 @@ do
 		current = nil,
 	}
 
-	local function get_window_module()
-		return import("goluwa/window.lua")
-	end
-
 	function system.RegisterWindow(wnd)
 		for _, active_wnd in ipairs(state.active) do
 			if active_wnd == wnd then
@@ -268,7 +267,7 @@ do
 	end
 
 	function system.OpenWindow(...)
-		return get_window_module().Open(...)
+		return Window.New(...)
 	end
 
 	event.AddListener("Shutdown", "system_window_cleanup", function()
