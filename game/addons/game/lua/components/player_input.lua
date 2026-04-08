@@ -1,6 +1,6 @@
 local prototype = import("goluwa/prototype.lua")
 local input = import("goluwa/input.lua")
-local window = import("goluwa/window.lua")
+local system = import("goluwa/system.lua")
 local event = import("goluwa/event.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
@@ -140,10 +140,10 @@ function META:OnUpdate(dt)
 	if not self:IsReceivingInput() then return end
 
 	self.crouching = input.IsKeyDown("left_control") or input.IsKeyDown("right_control")
-	self.look_delta = window.GetMouseDelta() / self.MouseDivisor
+	self.look_delta = system.GetWindow():GetMouseDelta() / self.MouseDivisor
 	self.look_nudge = Vec2()
 	self.move_local = Vec3()
-	self.mouse_trapped = window.GetMouseTrapped()
+	self.mouse_trapped = system.GetWindow():GetMouseTrapped()
 	self.roll_mode = input.IsMouseDown("button_2")
 	self.speed_multiplier = self:GetSpeedMultiplier(self.crouching)
 

@@ -1,6 +1,6 @@
 local render = import("goluwa/render/render.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
-local window = import("goluwa/window.lua")
+local system = import("goluwa/system.lua")
 local shared = import("goluwa/love/libraries/graphics/shared.lua")
 -- frame.lua is loaded both through line.LoadLoveLibrary and import(), so the
 -- helper/cache state must stay shared across both paths.
@@ -49,7 +49,7 @@ function M.Get(love)
 			end
 		end
 
-		local size = window.GetSize and window.GetSize() or nil
+		local size = system.GetWindow():GetSize()
 
 		if size and size.x and size.y and size.x > 0 and size.y > 0 then
 			return size.x, size.y

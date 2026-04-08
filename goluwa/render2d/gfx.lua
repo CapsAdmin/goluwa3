@@ -252,15 +252,17 @@ function gfx.DrawCircle(x, y, radius, width, resolution)
 end
 
 do
-	local window = import("goluwa/window.lua")
+	local system = import("goluwa/system.lua")
 	local render = import("goluwa/render/render.lua")
 
 	function gfx.GetMousePosition()
-		if window.GetMouseTrapped() then
+		local window = system.GetWindow()
+
+		if window:GetMouseTrapped() then
 			return render.GetWidth() / 2, render.GetHeight() / 2
 		end
 
-		return window.GetMousePosition():Unpack()
+		return window:GetMousePosition():Unpack()
 	end
 
 	local last_x = 0
@@ -268,7 +270,8 @@ do
 	local last_diff = 0
 
 	function gfx.GetMouseVel()
-		local x, y = window.GetMousePosition():Unpack()
+		local window = system.GetWindow()
+		local x, y = window:GetMousePosition():Unpack()
 		local vx = x - last_x
 		local vy = y - last_y
 		local time = system.GetElapsedTime()

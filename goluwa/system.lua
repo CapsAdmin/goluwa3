@@ -184,4 +184,67 @@ function system.OpenURL(url)
 	end
 end
 
+do
+	local state = {
+		active = {},
+		current = nil,
+	}
+
+	local function get_window_module()
+		return import("goluwa/window.lua")
+	end
+
+	function system.RegisterWindow(wnd)
+		for _, active_wnd in ipairs(state.active) do
+			if active_wnd == wnd then
+				state.current = wnd
+				return wnd
+			end
+		end
+
+		list.insert(state.active, wnd)
+		state.current = wnd
+		return wnd
+	end
+
+	function system.UnregisterWindow(wnd)
+		for i, active_wnd in ipairs(state.active) do
+			if active_wnd == wnd then
+				list.remove(state.active, i)
+
+				if state.current == wnd then
+					state.current = state.active[i] or state.active[i - 1]
+				end
+
+				break
+			end
+		end
+
+		if not state.active[1] then state.current = nil end
+	end
+
+	function system.GetWindows()
+		return state.active
+	end
+
+	function system.GetWindow(index)
+		local wnd = state.active[index or 1]
+		assert(wnd, "no window opened")
+		return wnd
+	end
+
+	function system.GetCurrentWindow()
+		return state.current or system.GetWindow()
+	end
+
+	function system.SetCurrentWindow(wnd)
+		state.current = wnd
+		return wnd
+	end
+
+	function system.OpenWindow(...)
+		return get_window_module().Open(...)
+	end
+end
+
 return system

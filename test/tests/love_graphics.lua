@@ -3,7 +3,7 @@ local line = import("goluwa/love/line.lua")
 local render = import("goluwa/render/render.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local test_render = import("test/test_render.lua")
-local window = import("goluwa/window.lua")
+local system = import("goluwa/system.lua")
 local event = import("goluwa/event.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 
@@ -87,6 +87,7 @@ end)
 
 TestLoveGraphics("love graphics dimensions follow render target size on main surface", function()
 	local love = new_love_graphics_env("11.0.0")
+	local window = system.GetWindow()
 	local old_window_get_size = window.GetSize
 	local old_render_get_width = render.GetWidth
 	local old_render_get_height = render.GetHeight
@@ -203,6 +204,7 @@ T.Test2D("love mouse wheel refreshes LoveFrames hover state before dispatch", fu
 	local love = new_love_mouse_env("11.0.0")
 	local hover_object = {type = "list"}
 	local old_loveframes = package.loaded.loveframes
+	local window = system.GetWindow()
 	local old_mouse_position = window.GetMousePosition
 	local ok, err = pcall(function()
 		package.loaded.loveframes = {

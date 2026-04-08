@@ -1056,10 +1056,10 @@ elseif jit.os == "Linux" then
 				action = function() end,
 			}
 			local serial = 0
-			local window = import.loaded["goluwa/window/lua"]
+			local windows = import("goluwa/system.lua").GetWindows()
 
-			if window and window.active then
-				for _, wnd in pairs(window.active) do
+			if windows then
+				for _, wnd in pairs(windows) do
 					if wnd.pointer_serial then
 						serial = wnd.pointer_serial
 

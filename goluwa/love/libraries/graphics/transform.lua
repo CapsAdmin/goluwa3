@@ -1,5 +1,5 @@
 local render2d = import("goluwa/render2d/render2d.lua")
-local window = import("goluwa/window.lua")
+local system = import("goluwa/system.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local frame = import("goluwa/love/libraries/graphics/frame.lua")
 local shared = import("goluwa/love/libraries/graphics/shared.lua")
@@ -38,7 +38,7 @@ function love.graphics.scale(x, y)
 end
 
 function love.graphics.setCaption(title)
-	window.SetTitle(title)
+	system.GetWindow():SetTitle(title)
 end
 
 function love.graphics.getWidth()
@@ -52,12 +52,13 @@ function love.graphics.getHeight()
 end
 
 function love.graphics.setMode(width, height, fullscreen, vsync, fsaa)
-	window.SetSize(Vec2(width, height))
+	system.GetWindow():SetSize(Vec2(width, height))
 	return true
 end
 
 function love.graphics.getMode()
-	return window.GetSize().x, window.GetSize().y, false, false, false
+	local size = system.GetWindow():GetSize()
+	return size.x, size.y, false, false, false
 end
 
 function love.graphics.getDimensions()

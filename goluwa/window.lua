@@ -5,8 +5,6 @@ local event = import("goluwa/event.lua")
 local window = library()
 local input = import("goluwa/input.lua")
 local timer = import("goluwa/timer.lua")
-window.active = window.active or {}
-window.current = nil
 
 do
 	local META = prototype.CreateTemplate("window")
@@ -71,7 +69,9 @@ do
 		nyi()
 	end
 
-	function META:OnRemove() end
+	function META:OnRemove()
+		system.UnregisterWindow(self)
+	end
 
 	function META:Maximize()
 		nyi()
@@ -160,8 +160,7 @@ do
 		if width and height then self:SetSize(Vec2(width, height)) end
 
 		self:SetFlags(flags)
-		list.insert(window.active, self)
-		window.current = self
+		system.RegisterWindow(self)
 		return self
 	end
 
@@ -169,18 +168,30 @@ do
 end
 
 function window.GetWindows()
-	return window.active
+	return system.GetWindows()
+end
+
+function window.GetWindow(index)
+	return system.GetWindow(index)
+end
+
+function window.GetCurrentWindow()
+	return system.GetCurrentWindow()
 end
 
 function window.Open(...)
 	local wnd = window.CreateWindow(...)
 	local key_trigger = input.SetupInputEvent("Key")
 	local mouse_trigger = input.SetupInputEvent("Mouse")
+	local event_id = "window_events_" .. tostring(wnd)
+	local release_inputs_id = "window_release_inputs_" .. tostring(wnd)
 
 	local function ADD_EVENT(name, callback)
 		local nice = name:sub(7)
 
-		event.AddListener(name, "window_events", function(_wnd, ...)
+		event.AddListener(name, event_id .. "_" .. name, function(_wnd, ...)
+			if _wnd ~= wnd then return end
+
 			if not callback or callback(...) ~= false then
 				return event.Call(nice, ...)
 			end
@@ -196,12 +207,13 @@ function window.Open(...)
 		event.Call("MouseInput", key, press)
 	end
 
-	event.AddListener("WindowLostFocus", "window_release_inputs", function(focused_wnd)
+	event.AddListener("WindowLostFocus", release_inputs_id, function(focused_wnd)
 		if focused_wnd ~= wnd then return end
 
 		input.ReleaseAll("Mouse", function(key, press)
 			event.Call("MouseInput", key, press)
 		end)
+
 		input.ReleaseAll("Key", function(key, press)
 			event.Call("KeyInput", key, press)
 		end)
@@ -249,26 +261,6 @@ function window.Open(...)
 
 	event.Call("WindowOpened", wnd)
 	return wnd
-end
-
-for key, val in pairs(prototype.GetRegistered("window")) do
-	if type(val) == "function" then
-		window[key] = function(...)
-			if not window.current then
-				if key == "GetMousePosition" then return Vec2(0, 0) end
-
-				if key == "GetSize" then return Vec2(0, 0) end
-
-				if key == "GetMouseDelta" then return Vec2(0, 0) end
-
-				if key == "IsFocused" then return false end
-
-				return
-			end
-
-			return val(window.current, ...)
-		end
-	end
 end
 
 return window

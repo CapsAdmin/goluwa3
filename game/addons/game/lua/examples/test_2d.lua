@@ -283,7 +283,6 @@ if false then
 		}
 	]])
 	local cmd = render.GetCommandPool():AllocateCommandBuffer()
-	local window = import("goluwa/window.lua")
 	local input = import("goluwa/input.lua")
 
 	local function compute()
@@ -296,7 +295,7 @@ if false then
 			ffi.sizeof(PushConstants),
 			PushConstants{
 				iFrame = system.GetFrameNumber(),
-				iMouse = {window.GetMousePosition():Unpack()},
+				iMouse = {system.GetWindow():GetMousePosition():Unpack()},
 				mousePressed = input.IsMouseDown("button_1") and 1 or 0,
 			}
 		)

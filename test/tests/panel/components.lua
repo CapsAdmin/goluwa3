@@ -121,7 +121,7 @@ T.Test("panel animations basic", function()
 end)
 
 T.Pending("panel mouse simulation and hover", function()
-	local window = import("goluwa/window.lua")
+	local system = import("goluwa/system.lua")
 	local event = import("goluwa/event.lua")
 	local world = import("goluwa/ecs/panel.lua").World
 	world:RemoveChildren()
@@ -149,6 +149,7 @@ T.Pending("panel mouse simulation and hover", function()
 		left = true
 	end
 
+	local window = system.GetWindow()
 	local old_GetMousePosition = window.GetMousePosition
 	-- 1. Enter
 	window.GetMousePosition = function()

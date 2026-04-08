@@ -2,7 +2,6 @@ local render2d = import("goluwa/render2d/render2d.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Rect = import("goluwa/structs/rect.lua")
 local Color = import("goluwa/structs/color.lua")
-local window = import("goluwa/window.lua")
 local event = import("goluwa/event.lua")
 local Panel = import("goluwa/ecs/panel.lua")
 local system = import("goluwa/system.lua")
@@ -38,14 +37,13 @@ local function toggle()
 		menu:Remove()
 
 		if not visible then
-			if window.current and not love_game_active() then window.current:SetMouseTrapped(true) end
+			if not love_game_active() then system.GetWindow():SetMouseTrapped(true) end
 
 			return
 		end
 	end
 
-	if window.current then window.current:SetMouseTrapped(false) end
-
+	system.GetWindow():SetMouseTrapped(false)
 	local top_bar = Frame{
 		layout = {
 			GrowWidth = 1,
@@ -138,6 +136,7 @@ if HOTRELOAD then toggle() end
 
 event.AddListener("KeyInput", "menu_toggle", function(key, press)
 	if not press then return end
+
 	if love_game_active() then return end
 
 	if key == "escape" then return toggle() end
@@ -145,10 +144,12 @@ end)
 
 event.AddListener("Update", "window_title", function(dt)
 	if wait(1) then
-		window.current:SetTitle("FPS: " .. math.round(1 / system.GetFrameTime()))
+		system.GetWindow():SetTitle("FPS: " .. math.round(1 / system.GetFrameTime()))
 	end
 end)
 
 event.AddListener("WindowGainedFocus", "mouse_trap", function()
-	if not visible and window.current and not love_game_active() then window.current:SetMouseTrapped(true) end
+	if not visible and not love_game_active() then
+		system.GetWindow():SetMouseTrapped(true)
+	end
 end) --toggle()

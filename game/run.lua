@@ -12,6 +12,8 @@ if _G.GRAPHICS then
 		logf("[game] Graphics not available - running in headless mode\n")
 		_G.GRAPHICS = false
 	else
+		if not system.GetWindows()[1] then system.OpenWindow() end
+
 		render.Initialize({samples = "1"})
 		import("goluwa/render2d/render2d.lua").Initialize()
 		import("goluwa/render3d/render3d.lua").Initialize()

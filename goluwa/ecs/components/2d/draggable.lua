@@ -1,6 +1,5 @@
 local prototype = import("goluwa/prototype.lua")
 local event = import("goluwa/event.lua")
-local window = import("goluwa/window.lua")
 local input = import("goluwa/input.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local META = prototype.CreateTemplate("draggable")

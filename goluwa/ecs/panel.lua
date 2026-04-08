@@ -25,10 +25,11 @@ Panel.World = Panel.New{
 }
 
 do
-	local window = import("goluwa/window.lua")
+	local system = import("goluwa/system.lua")
 	local Vec2 = import("goluwa/structs/vec2.lua")
 	Panel.World:SetName("WorldPanel")
-	Panel.World.transform:SetSize(Vec2(window.GetSize()))
+	local window = system.GetWindow()
+	Panel.World.transform:SetSize(Vec2(window and window:GetSize() or Vec2()))
 	Panel.World:AddGlobalEvent("WindowFramebufferResized")
 
 	function Panel.World:OnWindowFramebufferResized(window, size)

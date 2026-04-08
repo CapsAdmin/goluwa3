@@ -1,5 +1,5 @@
 local prototype = import("goluwa/prototype.lua")
-local window = import("goluwa/window.lua")
+local system = import("goluwa/system.lua")
 local event = import("goluwa/event.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local META = prototype.CreateTemplate("mouse_input")
@@ -20,12 +20,12 @@ function META:SetHovered(b)
 end
 
 function META:GetMousePosition()
-	local mouse_pos = window.GetMousePosition()
+	local mouse_pos = system.GetWindow():GetMousePosition()
 	return self.Owner.transform:GlobalToLocal(mouse_pos)
 end
 
 function META:GetGlobalMousePosition()
-	return window.GetMousePosition()
+	return system.GetWindow():GetMousePosition()
 end
 
 function META:IsMouseButtonDown(button)
@@ -97,7 +97,7 @@ function META:OnFirstCreated()
 
 		if not Panel.World then return end
 
-		local pos = window.GetMousePosition()
+		local pos = system.GetWindow():GetMousePosition()
 
 		do
 			local res, cmp = call_global_event(Panel.World, "OnGlobalMouseInput", button, press, pos)
@@ -176,7 +176,7 @@ function META:OnFirstCreated()
 	function mouse_input.Update()
 		if not Panel.World then return end
 
-		local pos = window.GetMousePosition()
+		local pos = system.GetWindow():GetMousePosition()
 		local hovered = get_hovered_entity(Panel.World, pos) or NULL
 
 		if hovered ~= mouse_input.last_hovered then
@@ -222,7 +222,9 @@ function META:OnFirstCreated()
 			end
 		end
 
-		if window.GetCursor() ~= cursor then window.SetCursor(cursor) end
+		local window = system.GetWindow()
+
+		if window:GetCursor() ~= cursor then window:SetCursor(cursor) end
 	end
 
 	event.AddListener("MouseInput", "ecs_gui_system", mouse_input.MouseInput, {priority = 100})

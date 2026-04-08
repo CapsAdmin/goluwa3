@@ -24,7 +24,6 @@ local system = import("goluwa/system.lua")
 local Image = import("goluwa/render/vulkan/internal/image.lua")
 local Sampler = import("goluwa/render/vulkan/internal/sampler.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
-local Window = import("goluwa/render/window.lua")
 local Texture = import("goluwa/render/texture.lua")
 local Framebuffer = import("goluwa/render/framebuffer.lua")
 local Fence = import("goluwa/render/vulkan/internal/fence.lua")
@@ -43,9 +42,13 @@ function render.Initialize(config)
 
 	if not is_headless then
 		-- Windowed mode: create window and surface
-		local surface_handle, display_handle = assert(Window:GetSurfaceHandle())
+		local wnd = assert(
+			system.GetWindow(),
+			"render.Initialize() requires a window; call system.OpenWindow() first"
+		)
+		local surface_handle, display_handle = assert(wnd:GetSurfaceHandle())
 		vulkan_instance = VulkanInstance.New(surface_handle, display_handle)
-		local size = Window:GetSize()
+		local size = wnd:GetSize()
 		local target = vulkan_instance:CreateWindowRenderTarget{
 			present_mode = "immediate_khr", --"fifo_khr",
 			image_count = nil, -- Use default (minImageCount + 1)

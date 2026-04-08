@@ -7,7 +7,6 @@ local fonts = import("goluwa/render2d/fonts.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local system = import("goluwa/system.lua")
-local window = import("goluwa/window.lua")
 local shapes = import("lua/shapes.lua")
 local UPDATE_ID = "scene_audio_spatial_bee_update"
 local DRAW2D_ID = "scene_audio_spatial_bee_hud"
@@ -235,7 +234,7 @@ event.AddListener("Draw2D", DRAW2D_ID, function()
 		state.bee_body:GetVelocity():GetLength() or
 		0
 	local mixer_peak = math.max(debug_state.output_peak_left or 0, debug_state.output_peak_right or 0)
-	local win_w, _ = window.GetSize():Unpack()
+	local win_w, _ = system.GetWindow():GetSize():Unpack()
 	local panel_x = 16
 	local panel_y = 16
 	local panel_w = math.min(420, win_w - 32)

@@ -6,7 +6,6 @@ local vfs = import("goluwa/vfs.lua")
 local Color = import("goluwa/structs/color.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local event = import("goluwa/event.lua")
-local window = import("goluwa/window.lua")
 local m
 local markup = Markup.New()
 markup:SetEditable(true)

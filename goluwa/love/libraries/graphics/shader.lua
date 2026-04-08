@@ -1,7 +1,8 @@
 local line = import("goluwa/love/line.lua")
 local render = import("goluwa/render/render.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
-local window = import("goluwa/window.lua")
+local system = import("goluwa/system.lua")
+local Vec2 = import("goluwa/structs/vec2.lua")
 local EasyPipeline = import("goluwa/render/easy_pipeline.lua")
 local shared = import("goluwa/love/libraries/graphics/shared.lua")
 local love = ...
@@ -14,6 +15,10 @@ local Shader = line.TypeTemplate("Shader", love)
 local warned_missing_custom_shader_backend = false
 local warned_unsupported_love_vertex_shader = false
 local shader_pipeline_cache = setmetatable({}, {__mode = "k"})
+
+local function get_window_size()
+	return system.GetWindow():GetSize()
+end
 
 local function warn_unsupported_love_vertex_shader()
 	if warned_unsupported_love_vertex_shader then return end
@@ -331,7 +336,7 @@ local function get_shader_screen_size()
 		return tex_w, tex_h
 	end
 
-	local size = window.GetSize()
+	local size = get_window_size()
 	return size.x or 0, size.y or 0
 end
 
@@ -1050,7 +1055,7 @@ function love.graphics.newShader(frag, vert)
 								return Vec2(tex_w, tex_h)
 							end
 
-							return window.GetSize()
+							return get_window_size()
 						end,
 					},
 					current_texture = {

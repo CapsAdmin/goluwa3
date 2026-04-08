@@ -1,7 +1,6 @@
 local prototype = import("goluwa/prototype.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local event = import("goluwa/event.lua")
-local window = import("goluwa/window.lua")
 local input = import("goluwa/input.lua")
 local Rect = import("goluwa/structs/rect.lua")
 local META = prototype.CreateTemplate("resizable")

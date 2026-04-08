@@ -1,7 +1,7 @@
 local T = import("test/environment.lua")
 local Panel = import("goluwa/ecs/panel.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
-local window = import("goluwa/window.lua")
+local system = import("goluwa/system.lua")
 local event = import("goluwa/event.lua")
 local prototype = import("goluwa/prototype.lua")
 
@@ -46,6 +46,7 @@ T.Test("mouse input event order (local and global)", function()
 	-- p2 is created second (top)
 	local p2 = create_panel("p2")
 	-- Mock window for mouse position
+	local window = system.GetWindow()
 	local old_get_mouse_pos = window.GetMousePosition
 	window.GetMousePosition = function()
 		return Vec2(50, 50)

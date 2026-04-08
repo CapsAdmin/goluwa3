@@ -5,7 +5,7 @@ local line = import("goluwa/love/line.lua")
 local frame = import("goluwa/love/libraries/graphics/frame.lua")
 local render = import("goluwa/render/render.lua")
 local test_render = import("test/test_render.lua")
-local window = import("goluwa/window.lua")
+local system = import("goluwa/system.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local INLINE_ATLAS_SHADER = [[
 		#if defined(VERTEX) || __VERSION__ > 100 || defined(GL_FRAGMENT_PRECISION_HIGH)
@@ -836,6 +836,7 @@ TestLove2D("love2d frame helper prefers render target size", function()
 	local love = line.CreateLoveEnv("11.0.0")
 	local helpers = frame.Get(love)
 	local old_get_render_image_size = render.GetRenderImageSize
+	local window = system.GetWindow()
 	local old_get_size = window.GetSize
 	render.GetRenderImageSize = function()
 		return Vec2(800, 600)

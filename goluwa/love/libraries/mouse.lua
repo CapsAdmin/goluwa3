@@ -1,20 +1,14 @@
 local line = import("goluwa/love/line.lua")
 local event = import("goluwa/event.lua")
-local window = import("goluwa/window.lua")
+local system = import("goluwa/system.lua")
 local input = import("goluwa/input.lua")
 local package = _G.package
 local love = ... or _G.love
 local ENV = love._line_env
 love.mouse = love.mouse or {}
 
-local function get_active_window()
-	return window.current
-end
-
 local function apply_mouse_state()
-	local wnd = get_active_window()
-
-	if not wnd then return end
+	local wnd = system.GetWindow()
 
 	if ENV.mouse_relative_mode then
 		wnd:SetMouseTrapped(true)
@@ -44,15 +38,15 @@ function love.mouse.setPosition(x, y) --window.SetMousePosition(Vec2(x, y))
 end
 
 function love.mouse.getPosition()
-	return window.GetMousePosition():Unpack()
+	return system.GetWindow():GetMousePosition():Unpack()
 end
 
 function love.mouse.getX()
-	return window.GetMousePosition().x
+	return system.GetWindow():GetMousePosition().x
 end
 
 function love.mouse.getY()
-	return window.GetMousePosition().y
+	return system.GetWindow():GetMousePosition().y
 end
 
 function love.mouse.setRelativeMode(b)
@@ -72,7 +66,7 @@ end
 function love.mouse.getCursor()
 	local obj = line.CreateObject("Cursor", love)
 	obj.getType = function()
-		return window.GetCursor()
+		return system.GetWindow():GetCursor()
 	end
 	return obj
 end
@@ -177,7 +171,7 @@ event.AddListener("LoveNewIndex", "line_mouse", function(love, key, val)
 	if key == "mousepressed" or key == "mousereleased" then
 		if val then
 			event.AddListener("MouseInput", "line", function(key, press)
-				local x, y = window.GetMousePosition():Unpack()
+				local x, y = system.GetWindow():GetMousePosition():Unpack()
 				local mapped_button = mouse_uses_numeric_buttons() and mouse_keymap_10[key] or mouse_keymap[key]
 
 				if key == "mwheel_up" or key == "mwheel_down" then

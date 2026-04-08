@@ -5,7 +5,6 @@ local Color = import("goluwa/structs/color.lua")
 local gfx = import("goluwa/render2d/gfx.lua")
 local fonts = import("goluwa/render2d/fonts.lua")
 local system = import("goluwa/system.lua")
-local window = import("goluwa/window.lua")
 local font_small = fonts.New{Path = fonts.GetDefaultSystemFontPath(), Size = 14}
 local font_medium = fonts.New{Path = fonts.GetDefaultSystemFontPath(), Size = 24}
 local font_large = fonts.New{Path = fonts.GetDefaultSystemFontPath(), Size = 48}
@@ -52,7 +51,7 @@ end
 
 event.AddListener("Draw2D", "text_demo", function()
 	local time = system.GetTime()
-	local win_w, win_h = window.GetSize():Unpack()
+	local win_w, win_h = system.GetWindow():GetSize():Unpack()
 	-- Background
 	render2d.SetColor(0.1, 0.1, 0.1, 1)
 	render2d.SetTexture(nil)
@@ -140,7 +139,7 @@ local dynamic_gradient = render2d.CreateGradient{
 
 event.AddListener("Draw2D", "text_sdf_demo", function()
 	local time = system.GetTime()
-	local win_w, win_h = window.GetSize():Unpack()
+	local win_w, win_h = system.GetWindow():GetSize():Unpack()
 	local y_pos = win_h - 400
 	font_medium:DrawText("Dynamic SDF Rendering (New):", 50, y_pos)
 	y_pos = y_pos + 60

@@ -2,7 +2,7 @@ local Vec2 = import("goluwa/structs/vec2.lua")
 local Color = import("goluwa/structs/color.lua")
 local Rect = import("goluwa/structs/rect.lua")
 local Ang3 = import("goluwa/structs/ang3.lua")
-local window = import("goluwa/window.lua")
+local system = import("goluwa/system.lua")
 local event = import("goluwa/event.lua")
 local Panel = import("goluwa/ecs/panel.lua")
 local theme = import("lua/ui/theme.lua")
@@ -112,7 +112,7 @@ return function(props)
 		gui_element = {
 			OnDraw = function(self)
 				if state.is_dragging then
-					local mpos = window.GetMousePosition()
+					local mpos = system.GetWindow():GetMousePosition()
 					local lpos = self.Owner.transform:GlobalToLocal(mpos)
 					SetValueFromPosition(self.Owner, lpos)
 				end

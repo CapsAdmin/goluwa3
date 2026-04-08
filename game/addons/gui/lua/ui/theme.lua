@@ -4,7 +4,6 @@ local Rect = import("goluwa/structs/rect.lua")
 local fonts = import("goluwa/render2d/fonts.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local Ang3 = import("goluwa/structs/ang3.lua")
-local window = import("goluwa/window.lua")
 local event = import("goluwa/event.lua")
 local Texture = import("goluwa/render/texture.lua")
 local gfx = import("goluwa/render2d/gfx.lua")
@@ -722,7 +721,7 @@ do -- animations
 					Vec2(0.5, 0.5) or
 					{
 						__lsx_value = function(pnl)
-							local mpos = window.GetMousePosition()
+							local mpos = system.GetWindow():GetMousePosition()
 							local local_pos = pnl.transform:GlobalToLocal(mpos)
 							local size = pnl.transform:GetSize()
 							local pivot = local_pos / size
@@ -754,7 +753,7 @@ do -- animations
 					Ang3(0, 0, 0) or
 					{
 						__lsx_value = function(pnl)
-							local mpos = window.GetMousePosition()
+							local mpos = system.GetWindow():GetMousePosition()
 							local local_pos = pnl.transform:GlobalToLocal(mpos)
 							local size = pnl.transform:GetSize()
 							local nx = (local_pos.x / size.x) * 2 - 1
@@ -874,7 +873,7 @@ do
 			render2d.PopUV()
 		end
 
-		local mpos = window.GetMousePosition()
+		local mpos = system.GetWindow():GetMousePosition()
 
 		if not s.is_disabled and pnl.Owner.mouse_input:IsHoveredExclusively(mpos) then
 			local lpos = pnl.Owner.transform:GlobalToLocal(mpos)

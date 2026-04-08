@@ -3,7 +3,7 @@ local render = import("goluwa/render/render.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local gfx = import("goluwa/render2d/gfx.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
-local window = import("goluwa/render/window.lua")
+local system = import("goluwa/system.lua")
 local Texture = import("goluwa/render/texture.lua")
 local ffi = require("ffi")
 local fonts = import("goluwa/render2d/fonts.lua")
@@ -48,6 +48,10 @@ event.AddListener("Draw2D", "debug_gbuffer", function(cmd, dt)
 	if not render3d.pipelines.gbuffer or not render3d.pipelines.gbuffer:GetFramebuffer() then
 		return
 	end
+
+	local window = system.GetWindow()
+
+	if not window then return end
 
 	local wnd_size = window:GetSize()
 

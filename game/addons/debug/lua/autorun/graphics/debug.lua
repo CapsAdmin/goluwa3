@@ -6,7 +6,6 @@ local render2d = import("goluwa/render2d/render2d.lua")
 local gfx = import("goluwa/render2d/gfx.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local Model = import("goluwa/ecs/components/3d/model.lua").Library
-local window = import("goluwa/window.lua")
 local fonts = import("goluwa/render2d/fonts.lua")
 -- Debug: Show debug info
 local show_debug_info = false

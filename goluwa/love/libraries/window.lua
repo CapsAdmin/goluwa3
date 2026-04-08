@@ -1,5 +1,5 @@
 local line = import("goluwa/love/line.lua")
-local window = import("goluwa/window.lua")
+local system = import("goluwa/system.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local event = import("goluwa/event.lua")
 local love = ... or _G.love
@@ -99,7 +99,7 @@ local function get_window_size()
 		return window_state.width, window_state.height
 	end
 
-	local size = window.GetSize and window.GetSize() or nil
+	local size = system.GetWindow():GetSize()
 
 	if size and size.x and size.y and size.x > 0 and size.y > 0 then
 		return size.x, size.y
@@ -159,27 +159,29 @@ local function apply_window_mode(width, height, flags, keep_existing)
 		width, height = get_default_fullscreen_mode()
 	end
 
-	width = math.max(1, math.floor((width or window.GetSize().x or 1) + 0.5))
-	height = math.max(1, math.floor((height or window.GetSize().y or 1) + 0.5))
+	local window = system.GetWindow()
+	local current_size = window:GetSize()
+	width = math.max(1, math.floor((width or current_size.x or 1) + 0.5))
+	height = math.max(1, math.floor((height or current_size.y or 1) + 0.5))
 	window_state = mode_flags
 	window_state.width = width
 	window_state.height = height
-	window.SetSize(Vec2(width, height))
+	window:SetSize(Vec2(width, height))
 	sync_window_globals(width, height)
 	return true
 end
 
 function love.window.setTitle(title)
 	window_state.title = title or ""
-	window.SetTitle(title)
+	system.GetWindow():SetTitle(title)
 end
 
 function love.window.getTitle()
-	return window.GetTitle() or window_state.title or ""
+	return system.GetWindow():GetTitle() or window_state.title or ""
 end
 
 function love.window.setCaption(title)
-	window.SetTitle(title)
+	system.GetWindow():SetTitle(title)
 end
 
 function love.window.getWidth()
@@ -207,7 +209,7 @@ end
 
 local function get_window_pixel_scale()
 	local width, height = get_window_size()
-	local framebuffer_size = window.GetFramebufferSize and window.GetFramebufferSize() or nil
+	local framebuffer_size = system.GetWindow():GetFramebufferSize()
 
 	if not framebuffer_size then return 1 end
 
@@ -244,7 +246,7 @@ end
 
 function love.window.getMode()
 	local w, h = get_window_size()
-	local position = window.GetPosition and window.GetPosition() or nil
+	local position = system.GetWindow():GetPosition()
 	local pos_x = position and position.x or window_state.x or 0
 	local pos_y = position and position.y or window_state.y or 0
 	return w,

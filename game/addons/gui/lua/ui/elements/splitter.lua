@@ -2,7 +2,6 @@ local Vec2 = import("goluwa/structs/vec2.lua")
 local Color = import("goluwa/structs/color.lua")
 local Panel = import("goluwa/ecs/panel.lua")
 local theme = import("lua/ui/theme.lua")
-local window = import("goluwa/window.lua")
 local timer = import("goluwa/timer.lua")
 return function(props)
 	local divider_width = props.DividerWidth or 6
