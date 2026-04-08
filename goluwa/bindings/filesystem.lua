@@ -1009,6 +1009,7 @@ do
 			
 			// For non-blocking pipe reads
 			void* _get_osfhandle(int fd);
+			unsigned int GetFileType(void* hFile);
 			int PeekNamedPipe(
 				void* hNamedPipe,
 				void* lpBuffer,
@@ -1032,6 +1033,10 @@ do
 		-- File modes
 		fs.O_IREAD = 0x0100
 		fs.O_IWRITE = 0x0080
+		fs.FILE_TYPE_UNKNOWN = 0x0000
+		fs.FILE_TYPE_DISK = 0x0001
+		fs.FILE_TYPE_CHAR = 0x0002
+		fs.FILE_TYPE_PIPE = 0x0003
 		-- Standard file descriptors
 		fs.STDIN_FILENO = 0
 		fs.STDOUT_FILENO = 1
@@ -1048,21 +1053,20 @@ do
 
 		function fs.fd_read(fd, size)
 			if jit.os == "Windows" then
-				-- Check if data is available first (non-blocking behavior)
 				local handle = ffi.C._get_osfhandle(fd)
-				local avail = ffi.new("uint32_t[1]")
-				-- PeekNamedPipe to check available bytes
-				local peek_result = ffi.C.PeekNamedPipe(handle, nil, 0, nil, avail, nil)
+				local file_type = handle ~= ffi.cast("void *", -1) and ffi.C.GetFileType(handle) or fs.FILE_TYPE_UNKNOWN
 
-				if peek_result == 0 or avail[0] == 0 then
-					-- No data available or error
-					return "", 0
+				if file_type == fs.FILE_TYPE_PIPE then
+					local avail = ffi.new("uint32_t[1]")
+					local peek_result = ffi.C.PeekNamedPipe(handle, nil, 0, nil, avail, nil)
+
+					if peek_result == 0 or avail[0] == 0 then return "", 0 end
+
+					size = math.min(size, avail[0])
 				end
 
-				-- Read available data (up to size)
-				local to_read = math.min(size, avail[0])
-				local buffer = ffi.new("uint8_t[?]", to_read)
-				local bytes_read = ffi.C._read(fd, buffer, to_read)
+				local buffer = ffi.new("uint8_t[?]", size)
+				local bytes_read = ffi.C._read(fd, buffer, size)
 
 				if bytes_read == -1 then return nil, last_error() end
 
