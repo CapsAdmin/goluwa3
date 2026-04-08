@@ -8,13 +8,9 @@ local window = library()
 local input = import("goluwa/input.lua")
 local timer = import("goluwa/timer.lua")
 Window:GetSet("Title", "no title")
-Window:GetSet("Position", Vec2())
 Window:GetSet("Size", Vec2())
-Window:GetSet("MousePosition", Vec2())
 Window:GetSet("MouseDelta", Vec2())
 Window:GetSet("MouseTrapped", false)
-Window:GetSet("Clipboard")
-Window:GetSet("Flags")
 Window:GetSet("Cursor", "arrow")
 Window:IsSet("Focused", false)
 Window.Cursors = {
@@ -60,9 +56,11 @@ function Window:Initialize()
 	nyi()
 end
 
-function Window:OnRemoved()
+function Window:OnRemove()
 	system.UnregisterWindow(self)
 end
+
+Window.OnRemoved = Window.OnRemove
 
 function Window:Maximize()
 	nyi()
@@ -76,7 +74,19 @@ function Window:Restore()
 	nyi()
 end
 
+function Window:GetPosition()
+	nyi()
+end
+
 function Window:GetFramebufferSize()
+	nyi()
+end
+
+function Window:GetMousePosition()
+	nyi()
+end
+
+function Window:SetMousePosition(pos)
 	nyi()
 end
 
@@ -130,12 +140,9 @@ function Window:OnCursorLeave()
 end
 
 function Window:OnClose()
-	self:Remove()
 	system.ShutDown()
 	return event.Call("WindowClose", self)
 end
-
-function Window:SwapInterval() end
 
 function Window:OnCursorPosition(pos)
 	return event.Call("WindowCursorPosition", self, pos)
@@ -168,7 +175,11 @@ function Window:OnKeyInputRepeat(key, press)
 
 	if b ~= nil then return b end
 
-	return event.Call("KeyInputRepeat", key, press)
+	b = event.Call("KeyInputRepeat", key, press)
+
+	if b ~= nil then return b end
+
+	return self:OnKeyInput(key, press)
 end
 
 function Window:OnMouseInput(key, press)
@@ -226,11 +237,6 @@ function Window:OnMouseScroll(dir)
 
 	return event.Call("MouseScroll", dir)
 end
-
-function Window:UpdateMousePosition(pos)
-	return self:OnCursorPosition(pos)
-end
-
 if jit.os == "OSX" then
 	import("goluwa/window_implementations/macos.lua")(Window)
 elseif jit.os == "Linux" then
@@ -243,13 +249,10 @@ function Window.New(width, height, title, flags)
 	self:SetTitle(title)
 
 	if width and height then self:SetSize(Vec2(width, height)) end
-
-	self:SetFlags(flags)
 	system.RegisterWindow(self)
 
 	self.key_trigger = input.SetupInputEvent("Key")
 	self.mouse_trigger = input.SetupInputEvent("Mouse")
-	local release_inputs_id = "window_release_inputs_" .. tostring(self)
 
 	event.Call("WindowOpened", self)
 

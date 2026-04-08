@@ -1,12 +1,79 @@
 local ffi = require("ffi")
 local objc = import("goluwa/bindings/objc.lua")
+local Vec2 = import("goluwa/structs/vec2.lua")
 local cocoa = {}
 -- Load required frameworks
 objc.loadFramework("Cocoa")
 objc.loadFramework("QuartzCore")
 -- Create a custom window delegate class to handle close events
 local WindowDelegate = nil
+local DropView = nil
 local close_flags = {} -- Store close state per window
+local drop_queues = {}
+
+local function pointer_key(obj)
+	return tonumber(ffi.cast("intptr_t", obj))
+end
+
+local function decode_uri_component(str)
+	return (str:gsub("%%(%x%x)", function(hex)
+		return string.char(tonumber(hex, 16))
+	end))
+end
+
+local function parse_file_uri(uri)
+	if uri:sub(1, 7) ~= "file://" then return nil end
+
+	local host, path = uri:match("^file://([^/]*)(/.*)$")
+
+	if not path then return nil end
+	if host ~= "" and host ~= "localhost" then return nil end
+
+	return decode_uri_component(path)
+end
+
+local function extract_dropped_paths(dragging_info)
+	if dragging_info == nil or dragging_info == objc.ptr(nil) then return nil end
+
+	local pasteboard = dragging_info:Call("draggingPasteboard")
+
+	if pasteboard == nil or pasteboard == objc.ptr(nil) then return nil end
+
+	local filenames_type = objc.Class("NSString"):Call("stringWithUTF8String:", "NSFilenamesPboardType")
+	local filenames = pasteboard:Call("propertyListForType:", filenames_type)
+	local paths = {}
+
+	if filenames ~= nil and filenames ~= objc.ptr(nil) then
+		local count = tonumber(filenames:Call("count")) or 0
+
+		for index = 0, count - 1 do
+			local entry = filenames:Call("objectAtIndex:", index)
+
+			if entry ~= nil and entry ~= objc.ptr(nil) then
+				local cstr = entry:Call("UTF8String")
+
+				if cstr ~= nil then table.insert(paths, ffi.string(cstr)) end
+			end
+		end
+	end
+
+	if #paths > 0 then return paths end
+
+	local file_url_type = objc.Class("NSString"):Call("stringWithUTF8String:", "public.file-url")
+	local file_url = pasteboard:Call("stringForType:", file_url_type)
+
+	if file_url ~= nil and file_url ~= objc.ptr(nil) then
+		local cstr = file_url:Call("UTF8String")
+
+		if cstr ~= nil then
+			local path = parse_file_uri(ffi.string(cstr))
+
+			if path then return {path} end
+		end
+	end
+
+	return nil
+end
 local function setup_window_delegate()
 	if WindowDelegate then return WindowDelegate end
 
@@ -20,13 +87,72 @@ local function setup_window_delegate()
 		"c@:@",
 		function(self, sel, sender)
 			-- Mark this window as should close
-			local window_ptr = tostring(sender)
+			local window_ptr = pointer_key(sender)
 			close_flags[window_ptr] = true
 			return 1 -- YES, allow close
 		end
 	)
 
 	return WindowDelegate
+end
+
+local function setup_drop_view()
+	if DropView then return DropView end
+
+	DropView = objc.newClass("LuaDropView", "NSView")
+
+	objc.addMethod(
+		DropView,
+		"draggingEntered:",
+		"Q@:@",
+		function(self, sel, sender)
+			local paths = extract_dropped_paths(sender)
+
+			if paths and #paths > 0 then return 1 end
+
+			return 0
+		end
+	)
+
+	objc.addMethod(
+		DropView,
+		"draggingUpdated:",
+		"Q@:@",
+		function(self, sel, sender)
+			local paths = extract_dropped_paths(sender)
+
+			if paths and #paths > 0 then return 1 end
+
+			return 0
+		end
+	)
+
+	objc.addMethod(
+		DropView,
+		"prepareForDragOperation:",
+		"B@:@",
+		function(self, sel, sender)
+			return 1
+		end
+	)
+
+	objc.addMethod(
+		DropView,
+		"performDragOperation:",
+		"B@:@",
+		function(self, sel, sender)
+			local paths = extract_dropped_paths(sender)
+
+			if not paths or #paths == 0 then return 0 end
+
+			local key = pointer_key(self)
+			drop_queues[key] = drop_queues[key] or {}
+			table.insert(drop_queues[key], paths)
+			return 1
+		end
+	)
+
+	return DropView
 end
 
 local function CGRectMake(x, y, width, height)
@@ -42,14 +168,23 @@ local function init_cocoa()
 	local frame = CGRectMake(100, 100, 800, 600)
 	local styleMask = bit.bor(1, 2, 4, 8)
 	local window = objc.Class("NSWindow"):Call("alloc"):Call("initWithContentRect:styleMask:backing:defer:", frame, styleMask, 2, false)
+	setup_drop_view()
 	window:Call("makeKeyAndOrderFront:", ffi.cast("id", 0))
 	local contentView = window:GetProperty("contentView")
-	local metal_layer = objc.Class("CAMetalLayer"):Call("layer")
 	local bounds = contentView:GetProperty("bounds")
+	local dropView = DropView:Call("alloc"):Call("initWithFrame:", bounds)
+	local dragged_types = objc.Class("NSMutableArray"):Call("array")
+	dragged_types:Call("addObject:", objc.Class("NSString"):Call("stringWithUTF8String:", "NSFilenamesPboardType"))
+	dragged_types:Call("addObject:", objc.Class("NSString"):Call("stringWithUTF8String:", "public.file-url"))
+	dropView:Call("registerForDraggedTypes:", dragged_types)
+	window:Call("setContentView:", dropView)
+	contentView = window:GetProperty("contentView")
+	local metal_layer = objc.Class("CAMetalLayer"):Call("layer")
+	bounds = contentView:GetProperty("bounds")
 	metal_layer:Call("setDrawableSize:", bounds.size)
 	contentView:Call("setWantsLayer:", true)
 	contentView:Call("setLayer:", metal_layer)
-	return window, metal_layer
+	return window, metal_layer, contentView
 end
 
 -- NSEvent type constants
@@ -216,6 +351,7 @@ local function convert_nsevent(nsevent, window)
 		local key = keycodes[keycode] or "unknown"
 		local chars = nsevent:Call("characters")
 		local char = nil
+		local is_repeat = nsevent:Call("isARepeat") ~= 0
 
 		if chars ~= nil and chars ~= objc.ptr(nil) then
 			local cstr = chars:Call("UTF8String")
@@ -227,6 +363,7 @@ local function convert_nsevent(nsevent, window)
 			type = "key_press",
 			key = key,
 			char = char,
+			is_repeat = is_repeat,
 			modifiers = modifiers,
 		}
 	elseif event_type == NSEventType.KeyUp then
@@ -399,16 +536,45 @@ ffi.cdef[[
 	void CGWarpMouseCursorPosition(CGPoint newCursorPosition);
 ]]
 local CG = ffi.load("/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics")
+local cursor_selector_map = {
+	arrow = {"arrowCursor"},
+	hand = {"pointingHandCursor", "openHandCursor"},
+	text_input = {"IBeamCursor"},
+	crosshair = {"crosshairCursor"},
+	vertical_resize = {"resizeUpDownCursor"},
+	horizontal_resize = {"resizeLeftRightCursor"},
+	all_resize = {"openHandCursor", "closedHandCursor", "arrowCursor"},
+	top_right_resize = {"resizeLeftRightCursor", "resizeUpDownCursor", "arrowCursor"},
+	bottom_left_resize = {"resizeLeftRightCursor", "resizeUpDownCursor", "arrowCursor"},
+	top_left_resize = {"resizeLeftRightCursor", "resizeUpDownCursor", "arrowCursor"},
+	bottom_right_resize = {"resizeLeftRightCursor", "resizeUpDownCursor", "arrowCursor"},
+}
+
+local function get_ns_cursor(mode)
+	local selectors = cursor_selector_map[mode] or cursor_selector_map.arrow
+
+	for _, selector in ipairs(selectors) do
+		local ok, cursor = pcall(function()
+			return objc.Class("NSCursor"):Call(selector)
+		end)
+
+		if ok and cursor ~= nil then return cursor end
+	end
+
+	return objc.Class("NSCursor"):Call(cursor_selector_map.arrow[1])
+end
+
 local meta = {}
 meta.__index = meta
 
 function cocoa.window()
 	local self = setmetatable({}, meta)
-	self.window, self.metal_layer = init_cocoa()
+	self.window, self.metal_layer, self.content_view = init_cocoa()
 	self.last_width = nil
 	self.last_height = nil
 	self.cursor_hidden = false
 	self.mouse_captured = false
+	self.cursor_mode = "arrow"
 	self.last_mouse_x = nil
 	self.last_mouse_y = nil
 	return self
@@ -420,8 +586,10 @@ function meta:Initialize()
 	setup_window_delegate()
 	local delegate = WindowDelegate:Call("alloc"):Call("init")
 	self.window:Call("setDelegate:", delegate)
-	self.window_ptr = tostring(self.window)
+	self.window_ptr = pointer_key(self.window)
+	self.content_view_ptr = pointer_key(self.content_view)
 	close_flags[self.window_ptr] = false
+	drop_queues[self.content_view_ptr] = drop_queues[self.content_view_ptr] or {}
 end
 
 function meta:SetTitle(str)
@@ -433,13 +601,98 @@ function meta:OpenWindow()
 	self.app:Call("activateIgnoringOtherApps:", true)
 end
 
+function meta:Minimize()
+	self.window:Call("miniaturize:", ffi.cast("id", 0))
+end
+
+function meta:Maximize()
+	local is_zoomed = self.window:Call("isZoomed")
+
+	if is_zoomed == nil or is_zoomed == 0 then
+		self.window:Call("zoom:", ffi.cast("id", 0))
+	end
+end
+
+function meta:Restore()
+	local is_miniaturized = self.window:Call("isMiniaturized")
+
+	if is_miniaturized ~= nil and is_miniaturized ~= 0 then
+		self.window:Call("deminiaturize:", ffi.cast("id", 0))
+	end
+
+	local is_zoomed = self.window:Call("isZoomed")
+
+	if is_zoomed ~= nil and is_zoomed ~= 0 then
+		self.window:Call("zoom:", ffi.cast("id", 0))
+	end
+end
+
+function meta:HideCursor()
+	if not self.cursor_hidden then
+		CG.CGDisplayHideCursor(0)
+		self.cursor_hidden = true
+	end
+end
+
+function meta:ShowCursor()
+	if self.cursor_hidden then
+		CG.CGDisplayShowCursor(0)
+		self.cursor_hidden = false
+	end
+end
+
+function meta:SetCursor(mode)
+	self.cursor_mode = mode or "arrow"
+
+	if self.cursor_mode == "hidden" then
+		self:HideCursor()
+		return
+	end
+
+	if not self.mouse_captured then self:ShowCursor() end
+
+	get_ns_cursor(self.cursor_mode):Call("set")
+end
+
 function meta:GetSurfaceHandle()
 	return self.metal_layer
 end
 
+function meta:GetPosition()
+	local frame = self.window:Call("frame")
+	return Vec2(tonumber(frame.origin.x), tonumber(frame.origin.y))
+end
+
+function meta:GetMousePosition()
+	local pos = self.window:Call("mouseLocationOutsideOfEventStream")
+	return Vec2(tonumber(pos.x), tonumber(pos.y))
+end
+
+function meta:SetMousePosition(pos)
+	local local_pos = ffi.new("CGPoint")
+	local_pos.x = math.floor(tonumber(pos.x) or 0)
+	local_pos.y = math.floor(tonumber(pos.y) or 0)
+	CG.CGWarpMouseCursorPosition(self.window:Call("convertPointToScreen:", local_pos))
+end
+
+function meta:IsFocused()
+	local focused = self.window:Call("isKeyWindow")
+	return focused ~= nil and focused ~= 0
+end
+
+function meta:IsMinimized()
+	local minimized = self.window:Call("isMiniaturized")
+	return minimized ~= nil and minimized ~= 0
+end
+
+function meta:IsMaximized()
+	local maximized = self.window:Call("isZoomed")
+	return maximized ~= nil and maximized ~= 0
+end
+
 function meta:IsVisible()
 	local isVisible = self.window:Call("isVisible")
-	return not isVisible or isVisible == 0
+	return isVisible ~= nil and isVisible ~= 0
 end
 
 function meta:GetSize()
@@ -485,7 +738,24 @@ function meta:ReadEvents()
 		self.metal_layer:Call("setDrawableSize:", bounds.size)
 	end
 
+	local drop_queue = drop_queues[self.content_view_ptr]
+
+	if drop_queue and #drop_queue > 0 then
+		for _, paths in ipairs(drop_queue) do
+			table.insert(events, {type = "drop", paths = paths})
+		end
+
+		drop_queues[self.content_view_ptr] = {}
+	end
+
 	return events
+end
+
+function meta:Destroy()
+	close_flags[self.window_ptr] = nil
+	drop_queues[self.content_view_ptr] = nil
+	self.window:Call("setDelegate:", ffi.cast("id", 0))
+	self.content_view:Call("unregisterDraggedTypes")
 end
 
 function meta:GetWindowSize()
@@ -495,9 +765,8 @@ end
 
 function meta:CaptureMouse()
 	if not self.mouse_captured then
-		CG.CGDisplayHideCursor(0)
+		self:HideCursor()
 		CG.CGAssociateMouseAndMouseCursorPosition(false)
-		self.cursor_hidden = true
 		self.mouse_captured = true
 		-- Reset delta tracking
 		self.last_mouse_x = nil
@@ -508,11 +777,10 @@ end
 function meta:ReleaseMouse()
 	if self.mouse_captured then
 		CG.CGAssociateMouseAndMouseCursorPosition(true)
-		CG.CGDisplayShowCursor(0)
-		self.cursor_hidden = false
 		self.mouse_captured = false
 		self.last_mouse_x = nil
 		self.last_mouse_y = nil
+		self:SetCursor(self.cursor_mode)
 	end
 end
 

@@ -1,11 +1,21 @@
 local ffi = require("ffi")
 local wayland = import("goluwa/bindings/wayland/core.lua")
+import("goluwa/bindings/wayland/xdg_shell.lua")
 local xdg_decoration = import("goluwa/bindings/wayland/xdg_decoration.lua")
 local pointer_constraints = import("goluwa/bindings/wayland/pointer_constraints.lua")
 local relative_pointer = import("goluwa/bindings/wayland/relative_pointer.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local system = import("goluwa/system.lua")
 local event = import("goluwa/event.lua")
+ffi.cdef[[
+	struct wl_array {
+		size_t size;
+		size_t alloc;
+		void *data;
+	};
+	int pipe(int pipefd[2]);
+	long read(int fd, void *buf, size_t count);
+]]
 -- Expose libraries
 -- Constants
 wayland.PROT_READ = 1
@@ -112,19 +122,21 @@ local keycodes = {
 	[109] = "pagedown",
 }
 local cursor_map = {
-	arrow = "left_ptr",
-	hand = "hand2",
-	text_input = "xterm",
-	crosshair = "crosshair",
-	vertical_resize = "v_double_arrow",
-	horizontal_resize = "h_double_arrow",
-	top_right_resize = "top_right_corner",
-	bottom_left_resize = "bottom_left_corner",
-	top_left_resize = "top_left_corner",
-	bottom_right_resize = "bottom_right_corner",
-	all_resize = "fleur",
+	arrow = {"left_ptr", "default"},
+	hand = {"hand2", "hand1", "pointer"},
+	text_input = {"xterm", "text", "ibeam"},
+	crosshair = {"crosshair", "tcross"},
+	vertical_resize = {"v_double_arrow", "sb_v_double_arrow"},
+	horizontal_resize = {"h_double_arrow", "sb_h_double_arrow"},
+	top_right_resize = {"bd_double_arrow", "size_bdiag", "nesw-resize", "top_right_corner"},
+	bottom_left_resize = {"bd_double_arrow", "size_bdiag", "nesw-resize", "bottom_left_corner"},
+	top_left_resize = {"fd_double_arrow", "size_fdiag", "nwse-resize", "top_left_corner"},
+	bottom_right_resize = {"fd_double_arrow", "size_fdiag", "nwse-resize", "bottom_right_corner"},
+	all_resize = {"fleur", "move"},
 }
 return function(META)
+	local base_on_remove = META.OnRemove or META.OnRemoved
+
 	-- Button translation from wayland to window system
 	local button_translate = {
 		[0x110] = "button_1", -- BTN_LEFT
@@ -152,6 +164,142 @@ return function(META)
 		if self.display then wayland.wl_client.wl_display_flush(self.display) end
 	end
 
+	local function normalize_cursor_mode(mode)
+		if mode == "trapped" then return "hidden" end
+
+		return mode
+	end
+
+	local function get_wayland_cursor(self, mode)
+		local names = cursor_map[mode] or cursor_map.arrow
+
+		for _, name in ipairs(names) do
+			local cursor = wayland.wl_cursor.wl_cursor_theme_get_cursor(self.cursor_theme, name)
+
+			if cursor ~= nil then return cursor end
+		end
+
+		return nil
+	end
+
+	local function commit_surface(self)
+		if self.surface_proxy then self.surface_proxy:commit() end
+		if self.display then wayland.wl_client.wl_display_flush(self.display) end
+	end
+
+	local function has_toplevel_state(states, target_state)
+		if not states or states.data == nil then return false end
+
+		local count = math.floor(tonumber(states.size or 0) / ffi.sizeof("uint32_t"))
+
+		if count <= 0 then return false end
+
+		local values = ffi.cast("uint32_t*", states.data)
+
+		for i = 0, count - 1 do
+			if tonumber(values[i]) == target_state then return true end
+		end
+
+		return false
+	end
+
+	local function decode_uri_component(str)
+		return (str:gsub("%%(%x%x)", function(hex)
+			return string.char(tonumber(hex, 16))
+		end))
+	end
+
+	local function parse_file_uri(uri)
+		if uri:sub(1, 7) ~= "file://" then return nil end
+
+		local host, path = uri:match("^file://([^/]*)(/.*)$")
+
+		if not path then return nil end
+		if host ~= "" and host ~= "localhost" then return nil end
+
+		path = decode_uri_component(path)
+
+		if path:sub(1, 1) ~= "/" then return nil end
+
+		return path
+	end
+
+	local function parse_drop_paths(payload)
+		local paths = {}
+		local seen = {}
+
+		for line in payload:gmatch("[^\n]+") do
+			line = line:gsub("\r", "")
+
+			if line ~= "" and line:sub(1, 1) ~= "#" then
+				local path
+
+				if line:sub(1, 7) == "file://" then
+					path = parse_file_uri(line)
+				elseif line:sub(1, 1) == "/" then
+					path = decode_uri_component(line)
+				end
+
+				if path and not seen[path] then
+					seen[path] = true
+					table.insert(paths, path)
+				end
+			end
+		end
+
+		return paths
+	end
+
+	local function clear_data_offer(self, offer)
+		if not offer then return end
+
+		local key = tonumber(ffi.cast("intptr_t", offer))
+
+		self.current_drag_offer = nil
+		self.current_drag_serial = nil
+		self.drag_offer_mime_types[key] = nil
+		self.drag_offers[key] = nil
+	end
+
+	local function get_drop_offer_mime_type(self, offer)
+		if not offer then return nil end
+
+		local key = tonumber(ffi.cast("intptr_t", offer))
+		local mime_types = self.drag_offer_mime_types[key]
+
+		if mime_types and mime_types["text/uri-list"] then return "text/uri-list" end
+
+		return nil
+	end
+
+	local function receive_drop_payload(self, offer, mime_type)
+		local fds = ffi.new("int[2]")
+
+		if ffi.C.pipe(fds) ~= 0 then return nil, "failed to create pipe" end
+
+		offer:receive(mime_type, fds[1])
+		ffi.C.close(fds[1])
+		wayland.wl_client.wl_display_flush(self.display)
+		wayland.wl_client.wl_display_roundtrip(self.display)
+
+		local pollfd = ffi.new("struct pollfd[1]")
+		pollfd[0].fd = fds[0]
+		pollfd[0].events = 1
+		local chunks = {}
+		local buf = ffi.new("char[4096]")
+
+		while ffi.C.poll(pollfd, 1, 200) > 0 do
+			local read = tonumber(ffi.C.read(fds[0], buf, 4096))
+
+			if read <= 0 then break end
+
+			table.insert(chunks, ffi.string(buf, read))
+		end
+
+		ffi.C.close(fds[0])
+		return table.concat(chunks)
+	end
+
 	function META:Initialize()
 		-- Connect to display
 		self.display = wayland.wl_client.wl_display_connect(nil)
@@ -172,14 +320,22 @@ return function(META)
 		self.xdg_toplevel = nil
 		self.pointer_constraints_manager = nil
 		self.relative_pointer_manager = nil
+		self.data_device_manager = nil
+		self.data_device = nil
 		self.locked_pointer = nil
 		self.relative_pointer_obj = nil
+		self.current_drag_offer = nil
+		self.current_drag_serial = nil
+		self.drag_offer_mime_types = {}
+		self.drag_offers = {}
 		self.xkb_context = wayland.xkb.xkb_context_new(wayland.XKB_CONTEXT_NO_FLAGS)
 		self.events = {}
 		self.width = (self.Size and self.Size.x > 0) and self.Size.x or 800
 		self.height = (self.Size and self.Size.y > 0) and self.Size.y or 600
 		self.configured = false
 		self.focused = false
+		self.is_maximized = false
+		self.is_minimized = false
 		self.mouse_captured = false
 		self.mouse_delta = Vec2(0, 0)
 		self.repeat_rate = 33
@@ -212,6 +368,10 @@ return function(META)
 					elseif iface == "wl_shm" then
 						wnd.shm = registry:bind(name, wayland.get_interface("wl_shm"), 1)
 						wnd.shm = ffi.cast("struct wl_shm*", wnd.shm)
+					elseif iface == "wl_data_device_manager" then
+						wnd.data_device_manager = registry:bind(name, wayland.get_interface("wl_data_device_manager"), math.min(version, 3))
+						wnd.data_device_manager = ffi.cast("struct wl_data_device_manager*", wnd.data_device_manager)
+						wnd:ensure_data_device()
 					elseif iface == "xdg_wm_base" then
 						wnd.xdg_wm_base = registry:bind(name, wayland.get_xdg_interface("xdg_wm_base"), 1)
 						wnd.xdg_wm_base = ffi.cast("struct xdg_wm_base*", wnd.xdg_wm_base)
@@ -248,6 +408,14 @@ return function(META)
 		self.last_mouse_pos = Vec2(0, 0)
 
 		return true
+	end
+
+	function META:ensure_data_device()
+		if self.data_device or not self.data_device_manager or not self.seat then return end
+
+		self.data_device = self.data_device_manager:get_data_device(self.seat)
+		self.data_device = ffi.cast("struct wl_data_device*", self.data_device)
+		self:setup_data_device_listener()
 	end
 
 	function META:OpenWindow()
@@ -316,6 +484,16 @@ return function(META)
 
 					if not wnd then return end
 
+					local maximized = has_toplevel_state(states, ffi.C.XDG_TOPLEVEL_STATE_MAXIMIZED)
+
+					if maximized ~= wnd.is_maximized then
+						wnd.is_maximized = maximized
+
+						if maximized then
+							table.insert(wnd.events, {type = "window_maximize"})
+						end
+					end
+
 					if width > 0 and height > 0 then
 						wnd.width = width
 						wnd.height = height
@@ -374,8 +552,87 @@ return function(META)
 						wnd.keyboard = ffi.cast("struct wl_keyboard*", wnd.keyboard)
 						wnd:setup_keyboard_listener()
 					end
+
+					wnd:ensure_data_device()
 				end,
 				name = function(data, seat, name) end,
+			},
+			ffi.cast("void*", self._ptr)
+		)
+	end
+
+	function META:setup_data_device_listener()
+		self.data_device:add_listener(
+			{
+				data_offer = function(data, data_device, offer)
+					local wnd = wayland._active_windows[tonumber(ffi.cast("intptr_t", data))]
+
+					if not wnd or offer == nil then return end
+
+					local data_offer = ffi.cast("struct wl_data_offer*", offer)
+					local key = tonumber(ffi.cast("intptr_t", data_offer))
+					wnd.drag_offers[key] = data_offer
+					wnd.drag_offer_mime_types[key] = {}
+					data_offer:add_listener(
+						{
+							offer = function(listener_data, listener_offer, mime_type)
+								if mime_type == nil then return end
+
+								local listener_key = tonumber(ffi.cast("intptr_t", listener_offer))
+
+								if wnd.drag_offer_mime_types[listener_key] then
+									wnd.drag_offer_mime_types[listener_key][ffi.string(mime_type)] = true
+								end
+							end,
+							source_actions = function() end,
+							action = function() end,
+						},
+						ffi.cast("void*", wnd._ptr)
+					)
+				end,
+				enter = function(data, data_device, serial, surface, x, y, offer)
+					local wnd = wayland._active_windows[tonumber(ffi.cast("intptr_t", data))]
+
+					if not wnd then return end
+
+					wnd.current_drag_serial = serial
+					wnd.current_drag_offer = offer ~= nil and ffi.cast("struct wl_data_offer*", offer) or nil
+
+					local mime_type = get_drop_offer_mime_type(wnd, wnd.current_drag_offer)
+
+					if mime_type and wnd.current_drag_offer then
+						wnd.current_drag_offer:accept(serial, mime_type)
+					end
+				end,
+				leave = function(data, data_device)
+					local wnd = wayland._active_windows[tonumber(ffi.cast("intptr_t", data))]
+
+					if not wnd then return end
+
+					clear_data_offer(wnd, wnd.current_drag_offer)
+				end,
+				motion = function(data, data_device, time, x, y) end,
+				drop = function(data, data_device)
+					local wnd = wayland._active_windows[tonumber(ffi.cast("intptr_t", data))]
+
+					if not wnd or not wnd.current_drag_offer then return end
+
+					local offer = wnd.current_drag_offer
+					local mime_type = get_drop_offer_mime_type(wnd, offer)
+
+					if mime_type then
+						local payload = receive_drop_payload(wnd, offer, mime_type)
+
+						if payload and payload ~= "" then
+							local paths = parse_drop_paths(payload)
+
+							if #paths > 0 then
+								table.insert(wnd.events, {type = "drop", paths = paths})
+							end
+						end
+					end
+				end,
+				selection = function(data, data_device, offer) end,
 			},
 			ffi.cast("void*", self._ptr)
 		)
@@ -575,8 +832,11 @@ return function(META)
 
 		for _, event in ipairs(events) do
 			if event.type == "key_press" then
-				-- Fire key down event
-				self:OnKeyInput(event.key, true)
+				if event.is_repeat then
+					self:OnKeyInputRepeat(event.key, true)
+				else
+					self:OnKeyInput(event.key, true)
+				end
 
 				-- Fire character input if available
 				if event.char and event.char ~= "" then
@@ -604,6 +864,8 @@ return function(META)
 				end
 			elseif event.type == "mouse_scroll" then
 				self:OnMouseScroll(Vec2(event.delta_x, event.delta_y))
+			elseif event.type == "drop" then
+				self:OnDrop(event.paths)
 			elseif event.type == "window_close" then
 				self:OnClose()
 			elseif event.type == "window_resize" then
@@ -616,6 +878,8 @@ return function(META)
 					self:OnFramebufferResized(size:Copy())
 					self.last_size = size
 				end
+			elseif event.type == "window_maximize" then
+				self:OnMaximize()
 			elseif event.type == "window_focus" then
 				self.focused = event.focused
 				self[event.focused and "OnGainedFocus" or "OnLostFocus"](self)
@@ -672,6 +936,16 @@ return function(META)
 
 			if self.relative_pointer_obj then self.relative_pointer_obj:destroy() end
 
+			if self.data_device then
+				local proxy = ffi.cast("struct wl_proxy*", self.data_device)
+
+				if ffi.C.wl_proxy_get_version(proxy) >= 2 then
+					self.data_device:release()
+				else
+					ffi.C.wl_proxy_destroy(proxy)
+				end
+			end
+
 			if self.xdg_toplevel then self.xdg_toplevel:destroy() end
 
 			if self.xdg_surface then self.xdg_surface:destroy() end
@@ -689,29 +963,44 @@ return function(META)
 			-- Remove from active windows
 			if self._ptr then wayland._active_windows[self._ptr] = nil end
 
-			self:OnRemoved()
+			if base_on_remove then base_on_remove(self) end
 		end
 	end
 
 	function META:Maximize()
-		-- XDG toplevel maximize
-		-- Would need to implement xdg_toplevel.set_maximized
-		error("nyi: Maximize not implemented in wayland bindings", 2)
+		if not self.xdg_toplevel then return end
+
+		self.xdg_toplevel:set_maximized()
+		commit_surface(self)
 	end
 
 	function META:Minimize()
-		-- XDG toplevel minimize
-		-- Would need to implement xdg_toplevel.set_minimized
-		error("nyi: Minimize not implemented in wayland bindings", 2)
+		if not self.xdg_toplevel then return end
+
+		self.xdg_toplevel:set_minimized()
+		self.is_minimized = true
+		commit_surface(self)
+		self:OnMinimize()
 	end
 
 	function META:Restore()
-		-- XDG toplevel unset maximize/fullscreen
-		error("nyi: Restore not implemented in wayland bindings", 2)
+		if not self.xdg_toplevel then return end
+
+		if self.is_maximized then
+			self.xdg_toplevel:unset_maximized()
+			self.is_maximized = false
+			commit_surface(self)
+			return
+		end
+
+		if self.is_minimized then
+			error("restore is not supported for minimized Wayland windows", 2)
+		end
 	end
 
 	function META:SetCursor(mode)
 		if not self.Cursors[mode] then mode = "arrow" end
+		mode = normalize_cursor_mode(mode)
 
 		self.Cursor = mode
 
@@ -725,8 +1014,7 @@ return function(META)
 					self.cursor_theme = wayland.wl_cursor.wl_cursor_theme_load(nil, 32, self.shm)
 				end
 
-				local name = cursor_map[mode] or "left_ptr"
-				local cursor = wayland.wl_cursor.wl_cursor_theme_get_cursor(self.cursor_theme, name)
+				local cursor = get_wayland_cursor(self, mode)
 
 				if cursor ~= nil then
 					local image = cursor.images[0]
@@ -753,13 +1041,6 @@ return function(META)
 		end
 
 		return self.cached_pos
-	end
-
-	function META:SetPosition(pos)
-		self.cached_pos = nil
-		-- Wayland doesn't allow clients to position their own windows
-		-- This is controlled by the compositor
-		error("nyi: SetPosition not supported in Wayland (compositor controlled)", 2)
 	end
 
 	function META:GetSize()
@@ -799,9 +1080,7 @@ return function(META)
 	end
 
 	function META:SetMousePosition(pos)
-		-- Wayland doesn't allow clients to warp the pointer
-		-- This is a security feature
-		error("nyi: SetMousePosition not supported in Wayland (security restriction)", 2)
+		error("SetMousePosition is not supported on Wayland", 2)
 	end
 
 	function META:GetSurfaceHandle()
@@ -810,21 +1089,6 @@ return function(META)
 
 	function META:IsFocused()
 		return self.focused
-	end
-
-	function META:SetClipboard(text)
-		-- Would need to implement wl_data_device protocol
-		error("nyi: SetClipboard not implemented in wayland bindings", 2)
-	end
-
-	function META:GetClipboard()
-		-- Would need to implement wl_data_device protocol
-		error("nyi: GetClipboard not implemented in wayland bindings", 2)
-	end
-
-	function META:SwapInterval(interval) -- Wayland doesn't have explicit vsync control
-	-- The compositor handles presentation timing
-	-- This is a no-op on Wayland
 	end
 
 	function META:CaptureMouse()
@@ -887,9 +1151,8 @@ return function(META)
 			self.relative_pointer_obj:destroy()
 			self.relative_pointer_obj = nil
 		end
-	-- Show cursor again by not setting it (compositor will use default)
-	-- We'd need a proper cursor surface to set a visible cursor
-	-- For now, cursor will show automatically when not captured
+
+		self:SetCursor(self.Cursor)
 	end
 
 	function META:IsMouseCaptured()

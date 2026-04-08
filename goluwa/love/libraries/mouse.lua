@@ -2,6 +2,7 @@ local line = import("goluwa/love/line.lua")
 local event = import("goluwa/event.lua")
 local system = import("goluwa/system.lua")
 local input = import("goluwa/input.lua")
+local Vec2 = import("goluwa/structs/vec2.lua")
 local package = _G.package
 local love = ... or _G.love
 local ENV = love._line_env
@@ -34,7 +35,8 @@ local function apply_mouse_state()
 	wnd:SetCursor(cursor)
 end
 
-function love.mouse.setPosition(x, y) --window.SetMousePosition(Vec2(x, y))
+function love.mouse.setPosition(x, y)
+	system.GetWindow():SetMousePosition(Vec2(x, y))
 end
 
 function love.mouse.getPosition()

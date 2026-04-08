@@ -4,6 +4,14 @@ local Vec2 = import("goluwa/structs/vec2.lua")
 local system = import("goluwa/system.lua")
 local event = import("goluwa/event.lua")
 return function(META)
+	local base_on_remove = META.OnRemove or META.OnRemoved
+
+	local function normalize_cursor_mode(mode)
+		if mode == "trapped" then return "hidden" end
+
+		return mode
+	end
+
 	-- Button translation from cocoa to window system
 	local button_translate = {
 		left = "button_1",
@@ -32,6 +40,10 @@ return function(META)
 		self.cached_size = nil
 		self.cached_fb_size = nil
 		self.last_mouse_pos = Vec2(0, 0)
+		self.focused = self.cocoa_window:IsFocused()
+		self.mouse_inside = false
+		self.is_minimized = self.cocoa_window:IsMinimized()
+		self.is_maximized = self.cocoa_window:IsMaximized()
 
 		return true
 	end
@@ -43,8 +55,11 @@ return function(META)
 
 		for _, event in ipairs(events) do
 			if event.type == "key_press" then
-				-- Fire key down event
-				self:OnKeyInput(event.key, true)
+				if event.is_repeat then
+					self:OnKeyInputRepeat(event.key, true)
+				else
+					self:OnKeyInput(event.key, true)
+				end
 
 				-- Fire character input if available
 				if event.char and event.char ~= "" then
@@ -63,6 +78,8 @@ return function(META)
 				self:OnCursorPosition(Vec2(event.x, event.y))
 			elseif event.type == "mouse_scroll" then
 				self:OnMouseScroll(Vec2(event.delta_x, event.delta_y))
+			elseif event.type == "drop" then
+				self:OnDrop(event.paths)
 			elseif event.type == "window_close" then
 				self:OnClose()
 			elseif event.type == "window_resize" then
@@ -73,37 +90,59 @@ return function(META)
 			end
 		end
 
-		-- Handle trapped cursor
-		if self.Cursor == "trapped" and self:IsFocused() then
-			local pos = self:GetMousePosition()
-			local size = self:GetSize()
-			local changed = false
+		local focused = self.cocoa_window:IsFocused()
 
-			if pos.x <= 1 then
-				pos.x = size.x - 2
-				changed = true
-			end
+		if focused ~= self.focused then
+			self.focused = focused
 
-			if pos.y <= 1 then
-				pos.y = size.y - 2
-				changed = true
-			end
-
-			if pos.x >= size.x - 1 then
-				pos.x = 2
-				changed = true
-			end
-
-			if pos.y >= size.y - 1 then
-				pos.y = 2
-				changed = true
-			end
-
-			if changed then
-				self.last_mpos = pos
-				self:SetMousePosition(pos)
+			if focused then
+				self:OnGainedFocus()
+			else
+				self:OnLostFocus()
 			end
 		end
+
+		local pos = self.cocoa_window:GetPosition()
+
+		if not self.cached_pos or self.cached_pos.x ~= pos.x or self.cached_pos.y ~= pos.y then
+			self.cached_pos = pos
+			self:OnPositionChanged(pos:Copy())
+		end
+
+		local minimized = self.cocoa_window:IsMinimized()
+
+		if minimized ~= self.is_minimized then
+			self.is_minimized = minimized
+
+			if minimized then self:OnMinimize() end
+		end
+
+		local maximized = self.cocoa_window:IsMaximized()
+
+		if maximized ~= self.is_maximized then
+			self.is_maximized = maximized
+
+			if maximized then self:OnMaximize() end
+		end
+
+		local mouse_pos = self.cocoa_window:GetMousePosition()
+		local size = self:GetSize()
+		local mouse_inside =
+			mouse_pos.x >= 0 and
+			mouse_pos.y >= 0 and
+			mouse_pos.x <= size.x and
+			mouse_pos.y <= size.y
+
+		if mouse_inside ~= self.mouse_inside then
+			self.mouse_inside = mouse_inside
+
+			if mouse_inside then
+				self:OnCursorEnter()
+			else
+				self:OnCursorLeave()
+			end
+		end
+
 	end
 
 	function META:OnRemove()
@@ -112,21 +151,23 @@ return function(META)
 			if self.cocoa_window:IsMouseCaptured() then
 				self.cocoa_window:ReleaseMouse()
 			end
+
+			self.cocoa_window:Destroy()
 			-- Window cleanup would go here if cocoa exposed it
-			self:OnRemoved()
+			if base_on_remove then base_on_remove(self) end
 		end
 	end
 
 	function META:Maximize()
-		error("nyi: Maximize not implemented in cocoa bindings", 2)
+		self.cocoa_window:Maximize()
 	end
 
 	function META:Minimize()
-		error("nyi: Minimize not implemented in cocoa bindings", 2)
+		self.cocoa_window:Minimize()
 	end
 
 	function META:Restore()
-		error("nyi: Restore not implemented in cocoa bindings", 2)
+		self.cocoa_window:Restore()
 	end
 
 	function META:CaptureMouse()
@@ -143,35 +184,18 @@ return function(META)
 
 	function META:SetCursor(mode)
 		if not self.Cursors[mode] then mode = "arrow" end
+		mode = normalize_cursor_mode(mode)
 
 		self.Cursor = mode
-
-		if mode == "hidden" then
-			-- Note: cocoa doesn't expose separate hidden cursor
-			-- CaptureMouse also hides the cursor
-			error("nyi: hidden cursor not implemented separately in cocoa bindings", 2)
-		else
-			-- Note: cocoa doesn't expose setting different cursor types
-			-- Would need NSCursor API
-			if mode ~= "arrow" then
-				error("nyi: cursor type '" .. mode .. "' not implemented in cocoa bindings", 2)
-			end
-		end
+		self.cocoa_window:SetCursor(mode)
 	end
 
 	function META:GetPosition()
 		if not self.cached_pos then
-			-- Note: cocoa doesn't expose GetPosition
-			error("nyi: GetPosition not implemented in cocoa bindings", 2)
+			self.cached_pos = self.cocoa_window:GetPosition()
 		end
 
 		return self.cached_pos
-	end
-
-	function META:SetPosition(pos)
-		self.cached_pos = nil
-		-- Note: cocoa doesn't expose SetPosition
-		error("nyi: SetPosition not implemented in cocoa bindings", 2)
 	end
 
 	function META:GetSize()
@@ -211,9 +235,10 @@ return function(META)
 	end
 
 	function META:SetMousePosition(pos)
-		-- Note: cocoa doesn't expose SetMousePosition directly
-		-- Would need CGWarpMouseCursorPosition with proper coordinate conversion
-		error("nyi: SetMousePosition not implemented in cocoa bindings", 2)
+		local x = math.floor(tonumber(pos.x) or 0)
+		local y = math.floor(tonumber(pos.y) or 0)
+		self.last_mouse_pos = Vec2(x, y)
+		self.cocoa_window:SetMousePosition(self.last_mouse_pos)
 	end
 
 	function META:GetSurfaceHandle()
@@ -221,20 +246,6 @@ return function(META)
 	end
 
 	function META:IsFocused()
-		-- Assume focused if window is visible
-		-- More sophisticated focus tracking would need NSWindow key window status
-		return self.cocoa_window:IsVisible()
-	end
-
-	function META:SetClipboard(text)
-		error("nyi: SetClipboard not implemented in cocoa bindings", 2)
-	end
-
-	function META:GetClipboard()
-		error("nyi: GetClipboard not implemented in cocoa bindings", 2)
-	end
-
-	function META:SwapInterval(interval)
-		error("nyi: SwapInterval not implemented in cocoa bindings", 2)
+		return self.focused
 	end
 end
