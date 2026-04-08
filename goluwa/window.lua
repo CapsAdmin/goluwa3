@@ -239,6 +239,8 @@ function Window:OnMouseScroll(dir)
 end
 if jit.os == "OSX" then
 	import("goluwa/window_implementations/macos.lua")(Window)
+elseif jit.os == "Windows" then
+	import("goluwa/window_implementations/windows.lua")(Window)
 elseif jit.os == "Linux" then
 	import("goluwa/window_implementations/linux_wayland.lua")(Window)
 end
