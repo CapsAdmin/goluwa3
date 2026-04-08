@@ -1104,6 +1104,9 @@ commands.Add({
 			local shutdown_code = nil
 			local has_tests = false
 			local system = import("goluwa/system.lua")
+			local vfs = import("goluwa/vfs.lua")
+			import.loadfile = vfs.LoadFile
+			vfs.MountStorageDirectories()
 			system.ShutDown = function(code) shutdown_code = code or 0 os.exitcode = code end
 
 			local ok, run_err = pcall(function()
