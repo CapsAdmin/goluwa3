@@ -1,5 +1,6 @@
 local ffi = require("ffi")
 local prototype = import("goluwa/prototype.lua")
+local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 local Image = import("goluwa/render/vulkan/internal/image.lua")
 local ImageView = import("goluwa/render/vulkan/internal/image_view.lua")
 local CommandBuffer = import("goluwa/render/vulkan/internal/command_buffer.lua")
@@ -188,6 +189,27 @@ local function create_swapchain(self)
 		return
 	end
 
+	local supported_present_modes = {}
+
+	for _, mode in ipairs(self.vulkan_instance.physical_device:GetPresentModes(self.vulkan_instance.surface)) do
+		supported_present_modes[vulkan.vk.str.VkPresentModeKHR(mode)] = true
+	end
+
+	local present_mode = self.config.present_mode or "fifo_khr"
+
+	if not supported_present_modes[present_mode] then
+		for _, fallback in ipairs({"mailbox_khr", "immediate_khr", "fifo_relaxed_khr", "fifo_khr"}) do
+			if supported_present_modes[fallback] then
+				if fallback ~= present_mode then
+					logn("Present mode " .. present_mode .. " not supported; using " .. fallback)
+				end
+
+				present_mode = fallback
+				break
+			end
+		end
+	end
+
 	-- Windowed mode: recreate swapchain
 	self.swapchain = SwapChain.New{
 		device = self.vulkan_instance.device,
@@ -198,7 +220,7 @@ local function create_swapchain(self)
 			(
 				self.surface_capabilities.minImageCount + 1
 			),
-		present_mode = self.config.present_mode,
+		present_mode = present_mode,
 		composite_alpha = self.config.composite_alpha,
 		clipped = self.config.clipped,
 		image_usage = self.config.image_usage,

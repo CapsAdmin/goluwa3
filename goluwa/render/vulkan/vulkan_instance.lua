@@ -26,17 +26,38 @@ function VulkanInstance.New(surface_handle, display_handle)
 	local is_headless = not surface_handle and not display_handle
 	-- Setup extensions based on headless or windowed mode
 	local extensions = {}
+	local required_extensions = {}
+	local surface_ext
 
 	if not is_headless then
 		-- Platform-specific surface extension
-		local surface_ext = jit.os == "OSX" and "VK_EXT_metal_surface" or jit.os == "Windows" and "VK_KHR_win32_surface" or "VK_KHR_wayland_surface"
+		surface_ext = jit.os == "OSX" and "VK_EXT_metal_surface" or jit.os == "Windows" and "VK_KHR_win32_surface" or "VK_KHR_wayland_surface"
 		table.insert(extensions, "VK_KHR_surface")
 		table.insert(extensions, surface_ext)
 		table.insert(extensions, "VK_EXT_swapchain_colorspace")
+		required_extensions["VK_KHR_surface"] = true
+		required_extensions[surface_ext] = true
 	end
 
 	if jit.os == "OSX" then
 		table.insert(extensions, "VK_KHR_portability_enumeration")
+	end
+
+	do
+		local available_instance_extensions = vulkan.GetAvailableExtensions()
+		local filtered_extensions = {}
+
+		for _, ext in ipairs(extensions) do
+			if table.has_value(available_instance_extensions, ext) then
+				table.insert(filtered_extensions, ext)
+			elseif required_extensions[ext] then
+				error("Required Vulkan instance extension not supported: " .. ext)
+			else
+				logn("Instance extension " .. ext .. " not supported by loader")
+			end
+		end
+
+		extensions = filtered_extensions
 	end
 
 	local validation_layers = nil

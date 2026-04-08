@@ -155,6 +155,12 @@ function GraphicsPipeline.New(device, config, render_passes, pipelineLayout)
 		}
 	end
 
+	if not device.independent_blend and colorBlendAttachments[1] then
+		for i = 2, #colorBlendAttachments do
+			colorBlendAttachments[i] = colorBlendAttachments[1]
+		end
+	end
+
 	local colorBlendAttachment = vulkan.T.Array(vulkan.vk.VkPipelineColorBlendAttachmentState)(#colorBlendAttachments)
 
 	-- Copy attachments to array

@@ -610,9 +610,8 @@ return function(META)
 		assert(self.hwnd ~= nil, "CreateWindowExW failed")
 		active_windows[hwnd_key(self.hwnd)] = self
 		shell32.DragAcceptFiles(self.hwnd, 1)
-		user32.ShowWindow(self.hwnd, constants.SW_SHOW)
-		user32.UpdateWindow(self.hwnd)
-		self.focused = user32.GetFocus() == self.hwnd
+		self.pending_show = true
+		self.focused = false
 		self.is_minimized = user32.IsIconic(self.hwnd) ~= 0
 		self.is_maximized = user32.IsZoomed(self.hwnd) ~= 0
 		return true
@@ -620,6 +619,16 @@ return function(META)
 
 	function META:OnUpdate(dt)
 		self:SetMouseDelta(Vec2(0, 0))
+
+		if self.pending_show then
+			user32.ShowWindow(self.hwnd, constants.SW_SHOW)
+			user32.UpdateWindow(self.hwnd)
+			self.pending_show = false
+			self.focused = user32.GetFocus() == self.hwnd
+			self.is_minimized = user32.IsIconic(self.hwnd) ~= 0
+			self.is_maximized = user32.IsZoomed(self.hwnd) ~= 0
+		end
+
 		pump_messages()
 		local events = self.events
 		self.events = {}

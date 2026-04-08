@@ -138,7 +138,7 @@ function PhysicalDevice:GetPresentModes(surface)
 	local presentModeCount = ffi.new("uint32_t[1]", 0)
 	vulkan.lib.vkGetPhysicalDeviceSurfacePresentModesKHR(self.ptr[0], surface.ptr[0], presentModeCount, nil)
 	local count = presentModeCount[0]
-	local presentModes = vulkan.T.Array(vulkan.vk.VkPresentModeKHR)(count)
+	local presentModes = ffi.new("int[?]", count)
 	vulkan.lib.vkGetPhysicalDeviceSurfacePresentModesKHR(self.ptr[0], surface.ptr[0], presentModeCount, presentModes)
 	-- Convert to Lua table
 	local result = {}

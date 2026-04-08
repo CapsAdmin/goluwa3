@@ -234,6 +234,10 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 		enabled_features[0].depthClamp = 1
 	end
 
+	if physical_features.independentBlend == 1 then
+		enabled_features[0].independentBlend = 1
+	end
+
 	-- Enable scalar block layout feature for push constants
 	-- and descriptor indexing features for bindless textures
 	local availableVulkan12Features = physical_device:GetVulkan12Features()
@@ -361,6 +365,7 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 	)
 	local device = Device:CreateObject{
 		ptr = ptr,
+		independent_blend = physical_features.independentBlend == 1,
 		has_extended_dynamic_state = has_extended_dynamic_state,
 		has_extended_dynamic_state2 = has_extended_dynamic_state2,
 		has_extended_dynamic_state3 = has_extended_dynamic_state3,

@@ -59,7 +59,6 @@ _G.LINUX = jit.os == "Linux"
 _G.OSX = jit.os == "OSX"
 _G.UNIX = _G.LINUX or _G.OSX
 
-if _G.PROFILE then import("goluwa/profiler.lua").Start("init") end
 
 _G.setmetatable = import("goluwa/helpers/setmetatable_gc.lua")
 import("goluwa/helpers/debug.lua")

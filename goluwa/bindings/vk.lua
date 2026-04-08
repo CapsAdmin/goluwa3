@@ -1,6 +1,7 @@
 local ffi = require("ffi")
 local N = ffi.new
 local mod = {}
+local process = ffi.os == "Windows" and import("goluwa/bindings/process.lua") or nil
 ffi.cdef[=[
 		struct ANativeWindow;
 		struct AHardwareBuffer;
@@ -41,6 +42,16 @@ function mod.find_library()
 	end
 
 	if ffi.os == "Windows" then
+		if not os.getenv("VK_ICD_FILENAMES") and not os.getenv("VK_DRIVER_FILES") then
+			local file = io.open("vk_swiftshader_icd.json", "rb")
+
+			if file then
+				file:close()
+				process.setenv("VK_ICD_FILENAMES", "vk_swiftshader_icd.json")
+				process.setenv("VK_DRIVER_FILES", "vk_swiftshader_icd.json")
+			end
+		end
+
 		return assert(try_load({"vulkan-1.dll"}))
 	elseif ffi.os == "OSX" then
 		local home = os.getenv("HOME")

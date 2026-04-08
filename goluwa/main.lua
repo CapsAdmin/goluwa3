@@ -3,7 +3,6 @@ require("goluwa.global_environment")
 local crash_trace = import("goluwa/crash_trace.lua")
 crash_trace.Install()
 local system = import("goluwa/system.lua")
-local profiler = import("goluwa/profiler.lua") -- init started in global_environment.lua
 local event = import("goluwa/event.lua")
 local process = import("goluwa/bindings/process.lua")
 local fs = import("goluwa/fs.lua")
@@ -89,11 +88,6 @@ return function(...)
 		local i = 0
 		event.Call("Initialize")
 
-		if _G.PROFILE then
-			profiler.Stop("init")
-			profiler.Start("update")
-		end
-
 		while system.IsRunning() and not os.exitcode do
 			local time = system.GetTime()
 			local dt = time - (last_time or 0)
@@ -107,8 +101,6 @@ return function(...)
 			last_time = time
 			event.Call("FrameEnd")
 		end
-
-		if _G.PROFILE then profiler.Stop("update") end
 
 		shutdown_and_exit(os.exitcode, true)
 	end)
