@@ -1,5 +1,6 @@
 local io = require("io")
 local io_write = io.write
+local io_stderr = io.stderr
 local diff = import("goluwa/helpers/diff.lua")
 local fs = import("goluwa/fs.lua")
 local debug = require("debug")
@@ -40,6 +41,36 @@ local FAILURES_ONLY = false
 local completed_test_count = 0
 local shown_running_line = false
 local has_failed_tests = false
+local collecting_test_definitions = nil
+
+local function flush_output_stream(handle)
+	if handle and handle.flush then pcall(handle.flush, handle) end
+	io.flush()
+end
+
+local function write_crash_marker(kind, file_name, test_name)
+	local label = file_name ~= "" and file_name or "<unknown>"
+	local suffix = test_name and (" :: " .. test_name) or ""
+	local line = string.format("[running %s] %s%s\n", kind, label, suffix)
+
+	if shown_running_line and IS_TERMINAL and not NO_SUMMARY and not FAILURES_ONLY then
+		io_write("\r" .. string.rep(" ", 80) .. "\r")
+		shown_running_line = false
+		io.flush()
+	end
+
+	if io_stderr and io_stderr.write then
+		local ok = pcall(io_stderr.write, io_stderr, line)
+
+		if ok then
+			flush_output_stream(io_stderr)
+			return
+		end
+	end
+
+	io_write(line)
+	flush_output_stream(nil)
+	end
 
 local function traceback(msg, co_lines)
 	local sep = "\n  "
@@ -152,6 +183,18 @@ local function matches_subfilter(name)
 		name:find(SUBFILTER, nil, true)
 end
 
+local function enqueue_test_definition(kind, name, cb, start, stop)
+	local definition = {
+		kind = kind,
+		name = name,
+		cb = cb,
+		start = start,
+		stop = stop,
+	}
+	table.insert(collecting_test_definitions, definition)
+	return definition
+end
+
 function test.Test(name, cb, start, stop)
 	if not matches_subfilter(name) then return nil end
 
@@ -170,11 +213,17 @@ function test.Test(name, cb, start, stop)
 		return inner_task
 	end
 
+	if collecting_test_definitions then
+		return enqueue_test_definition("test", name, cb, start, stop)
+	end
+
 	return test._CreateTestTask(name, cb, start, stop)
 end
 
 function test._CreateTestTask(name, cb, start, stop)
 	local unref = system.KeepAlive("test: " .. name)
+	local test_file_name = current_test_name
+	local test_file_start_time = current_test_start_time
 	total_test_count = total_test_count + 1
 	-- Track that this test belongs to the current file
 	tests_by_file[current_test_name] = (tests_by_file[current_test_name] or 0) + 1
@@ -195,6 +244,7 @@ function test._CreateTestTask(name, cb, start, stop)
 	local task = tasks.CreateTask(
 		function(task_self)
 			task_self.is_test_task = true
+			write_crash_marker("test", test_file_name, name)
 
 			-- Check for timeout at start
 			if system.GetTime() > test_timeout_time then
@@ -227,7 +277,7 @@ function test._CreateTestTask(name, cb, start, stop)
 			-- OnFinish
 			local test_time = system.GetTime() - test_start_time
 			local test_gc = memory.get_usage_kb() - test_start_gc
-			local file = current_test_name
+			local file = test_file_name
 
 			if file and tests_by_file[file] then
 				tests_by_file[file] = tests_by_file[file] - 1
@@ -240,7 +290,7 @@ function test._CreateTestTask(name, cb, start, stop)
 						test_time,
 						test_gc,
 						tests_by_file[file] == 0,
-						current_test_start_time,
+						test_file_start_time,
 						not self.failed and not self.unavailable,
 						self.error,
 						false,
@@ -312,7 +362,7 @@ function test._CreateTestTask(name, cb, start, stop)
 			-- Record test completion even on failure
 			local test_time = system.GetTime() - test_start_time
 			local test_gc = memory.get_usage_kb() - test_start_gc
-			local file = current_test_name
+			local file = test_file_name
 
 			if file and tests_by_file[file] then
 				tests_by_file[file] = tests_by_file[file] - 1
@@ -325,7 +375,7 @@ function test._CreateTestTask(name, cb, start, stop)
 						test_time,
 						test_gc,
 						tests_by_file[file] == 0,
-						current_test_start_time,
+						test_file_start_time,
 						false, -- success = false
 						self.error,
 						false,
@@ -377,9 +427,9 @@ function test._CreateTestTask(name, cb, start, stop)
 	return task
 end
 
-function test.Pending(name)
-	if not matches_subfilter(name) then return nil end
-
+function test._CreatePendingTask(name)
+	local test_file_name = current_test_name
+	local test_file_start_time = current_test_start_time
 	total_test_count = total_test_count + 1
 	-- Track that this test belongs to the current file
 	tests_by_file[current_test_name] = (tests_by_file[current_test_name] or 0) + 1
@@ -393,12 +443,11 @@ function test.Pending(name)
 	local task = tasks.CreateTask(
 		function() end,
 		function()
-			local file = current_test_name
+			local file = test_file_name
 
 			if file and tests_by_file[file] then
 				tests_by_file[file] = tests_by_file[file] - 1
 
-				-- Record individual test result
 				if on_test_file_complete then
 					on_test_file_complete(
 						file,
@@ -406,7 +455,7 @@ function test.Pending(name)
 						0,
 						0,
 						tests_by_file[file] == 0,
-						current_test_start_time,
+						test_file_start_time,
 						true,
 						nil,
 						true,
@@ -415,11 +464,9 @@ function test.Pending(name)
 				end
 			end
 
-			-- Show progress indication
 			completed_test_count = completed_test_count + 1
 
 			if LOGGING and IS_TERMINAL and not NO_SUMMARY and not FAILURES_ONLY then
-				-- Clear the RUNNING line if it's still there
 				if shown_running_line then
 					io_write("\r" .. string.rep(" ", 80) .. "\r")
 					shown_running_line = false
@@ -428,14 +475,12 @@ function test.Pending(name)
 				io_write(colors.yellow("?"))
 				io.flush()
 
-				-- Line break every 50 tests, or show progress counter
 				if completed_test_count % 50 == 0 then
 					io_write(string.format(" %d/%d\n", completed_test_count, total_test_count))
 					io.flush()
 				end
 			end
 
-			-- Check if all tests are done
 			if not tasks.IsBusy() then
 				system.ShutDown(has_failed_tests and 1 or 0)
 			end
@@ -447,6 +492,18 @@ function test.Pending(name)
 	if not event.IsListenerActive("Update", "test_runner") then
 		event.AddListener("Update", "test_runner", test.UpdateTestCoroutines)
 	end
+
+	return task
+end
+
+function test.Pending(name)
+	if not matches_subfilter(name) then return nil end
+
+	if collecting_test_definitions then
+		return enqueue_test_definition("pending", name)
+	end
+
+	return test._CreatePendingTask(name)
 end
 
 function test.Unavailable(reason)
@@ -465,6 +522,15 @@ do
 	function test.Sleep(duration)
 		local start_time = system.GetElapsedTime()
 		local end_time = start_time + duration
+		local active_task = tasks.GetActiveTask()
+
+		if active_task then
+			while system.GetElapsedTime() < end_time do
+				tasks.Wait(math.min(0.016, end_time - system.GetElapsedTime()))
+			end
+
+			return
+		end
 
 		while system.GetElapsedTime() < end_time do
 			local dt = 0.016 -- ~60fps simulation
@@ -678,6 +744,7 @@ do
 		if VERBOSE then logn("loading test: " .. test_item.path) end
 
 		current_test_name = test_item.name
+		write_crash_marker("file", test_item.name, nil)
 		local file_test_count_before = tests_by_file[current_test_name] or 0
 
 		-- You'll need to pass the expected test count somehow, or estimate it
@@ -692,7 +759,22 @@ do
 			error("failed to load " .. test_item.name .. ":\n" .. err, 2)
 		end
 
+		local current_test_definitions = {}
+		collecting_test_definitions = current_test_definitions
 		local ok, err = run_func(func)
+		collecting_test_definitions = nil
+
+		if ok then
+			for _, definition in ipairs(current_test_definitions) do
+				if definition.kind == "pending" then
+					test._CreatePendingTask(definition.name)
+				else
+					test._CreateTestTask(definition.name, definition.cb, definition.start, definition.stop)
+				end
+			end
+
+			tasks.Update()
+		end
 
 		if not ok then error("failed to run " .. test_item.name .. ":\n" .. err, 2) end
 
@@ -864,6 +946,15 @@ end
 function test.RunFor(duration)
 	local start_time = system.GetElapsedTime()
 	local end_time = start_time + duration
+	local active_task = tasks.GetActiveTask()
+
+	if active_task then
+		while system.GetElapsedTime() < end_time do
+			tasks.Wait(math.min(0.016, end_time - system.GetElapsedTime()))
+		end
+
+		return
+	end
 
 	while system.GetElapsedTime() < end_time do
 		local current_time = system.GetTime()
@@ -880,6 +971,16 @@ function test.RunUntil(condition, timeout)
 	timeout = timeout or 5.0
 	local start_time = system.GetElapsedTime()
 	local end_time = start_time + timeout
+	local active_task = tasks.GetActiveTask()
+
+	if active_task then
+		while system.GetElapsedTime() < end_time do
+			if condition() then return true end
+			tasks.Wait(0.016)
+		end
+
+		return false
+	end
 
 	while system.GetElapsedTime() < end_time do
 		if condition() then return true end
@@ -1106,6 +1207,7 @@ commands.Add({
 			local system = import("goluwa/system.lua")
 			local vfs = import("goluwa/vfs.lua")
 			local event = import("goluwa/event.lua")
+
 			import.loadfile = vfs.LoadFile
 			vfs.MountStorageDirectories()
 			system.ShutDown = function(code) shutdown_code = code or 0 os.exitcode = code end
@@ -1219,6 +1321,7 @@ commands.Add({
 				if not next_pending_idx then break end
 
 				local test_item = table.remove(pending, next_pending_idx)
+				write_crash_marker("file", test_item.name, nil)
 				local ok, thread_or_err = pcall(function()
 					local t = threads.new(thread_worker)
 					t:run{
