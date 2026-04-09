@@ -287,19 +287,21 @@ else
 	function threads.sleep(ms)
 		ffi.C.usleep(ms * 1000)
 	end
-
-	ffi.cdef[[
-		struct pollfd {
+	local pollfd_t = ffi.typeof[[
+		struct {
 			int fd;
 			short events;
 			short revents;
-		};
-		int poll(struct pollfd *fds, unsigned long nfds, int timeout);
+		}
+	]]
+
+	ffi.cdef([[
+		int poll_thread($ *fds, unsigned long nfds, int timeout) asm("poll");
 		int pipe(int pipefd[2]);
 		long read(int fd, void *buf, size_t count);
 		long write(int fd, const void *buf, size_t count);
 		int close(int fd);
-	]]
+	]], pollfd_t)
 	local POLLIN = 0x0001
 	local signal_byte = ffi.new("uint8_t[1]", 1)
 	local drain_byte = ffi.new("uint8_t[1]")
@@ -309,12 +311,13 @@ else
 			int done_read_fd;
 			int done_write_fd;
 	]]
-
+	local pollfd_array_t = ffi.typeof("$[?]", pollfd_t)
+	local pollfd_ptr_t = ffi.typeof("$*", pollfd_t)
 	local function poll_fd(fd, timeout)
-		local pfd = ffi.new("struct pollfd[1]")
+		local pfd = ffi.new(pollfd_array_t, 1)
 		pfd[0].fd = fd
 		pfd[0].events = POLLIN
-		local ret = ffi.C.poll(pfd, 1, timeout)
+		local ret = ffi.C.poll_thread(pfd, 1, timeout)
 		if ret < 0 then error("poll failed while synchronizing thread state", 2) end
 		return ret > 0 and bit.band(pfd[0].revents, POLLIN) ~= 0
 	end
