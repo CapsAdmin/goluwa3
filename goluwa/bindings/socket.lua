@@ -11,9 +11,11 @@ local sockaddr_ptr
 local addrinfo_hints
 local addrinfo_out
 local SOCKET
+local is_invalid_socket
 
 do
 	local SocketLib = ffi.os == "Windows" and assert(ffi.load("ws2_32")) or ffi.C
+	socket._lib_handle = SocketLib
 	local id = 0
 
 	local function load_c_function(lib, symbol_name, ...)
@@ -148,6 +150,9 @@ do
 			sockaddr
 		)
 		socket.INVALID_SOCKET = -1
+		is_invalid_socket = function(fd)
+			return fd == socket.INVALID_SOCKET
+		end
 	elseif ffi.os == "Windows" then
 		sockaddr = ffi.typeof([[
 			struct {
@@ -194,7 +199,10 @@ do
 		]],
 			sockaddr
 		)
-		socket.INVALID_SOCKET = ffi.new(SOCKET, -1)
+		socket.INVALID_SOCKET = ffi.cast(SOCKET, -1)
+		is_invalid_socket = function(fd)
+			return ffi.cast("intptr_t", fd) == -1
+		end
 	else -- posix
 		sockaddr = ffi.typeof([[
 			struct {
@@ -242,6 +250,9 @@ do
 			sockaddr
 		)
 		socket.INVALID_SOCKET = -1
+		is_invalid_socket = function(fd)
+			return fd == socket.INVALID_SOCKET
+		end
 	end
 
 	addrinfo_hints = addrinfo_out
@@ -271,14 +282,14 @@ do
 					)
 				]]
 			)
-			local GetLastError = load_c_function(ffi.C, "GetLastError", "int NAME()")
+			local WSAGetLastError = load_c_function(SocketLib, "WSAGetLastError", "int NAME()")
 			local FORMAT_MESSAGE_FROM_SYSTEM = 0x00001000
 			local FORMAT_MESSAGE_IGNORE_INSERTS = 0x00000200
 			local flags = bit.bor(FORMAT_MESSAGE_IGNORE_INSERTS, FORMAT_MESSAGE_FROM_SYSTEM)
 			local cache = {}
 
 			function socket.lasterror(num)
-				num = num or GetLastError()
+				num = num or WSAGetLastError()
 
 				if not cache[num] then
 					local buffer = ffi.new("char[512]")
@@ -548,7 +559,7 @@ do
 	socket.accept = load_socket_function(
 		"accept",
 		function(ret)
-			if ret == socket.INVALID_SOCKET then return nil, socket.lasterror() end
+			if is_invalid_socket(ret) then return nil, socket.lasterror() end
 
 			return ret
 		end,
@@ -824,6 +835,7 @@ do
 		EAGAIN = 11,
 		EWOULDBLOCK = 11, -- is errno.EAGAIN
 		EINVAL = 22,
+		ENOTCONN = 107,
 		ENOTSOCK = 88,
 		ECONNRESET = 104,
 		EINPROGRESS = 115,
@@ -864,6 +876,7 @@ do
 		errno.EAGAIN = 10035 -- Note: Does not exist on Windows
 		errno.EWOULDBLOCK = 10035
 		errno.EINPROGRESS = 10036
+		errno.ENOTCONN = 10057
 		errno.ENOTSOCK = 10038
 		errno.ECONNRESET = 10054
 		errno.ETIMEDOUT = 10060
@@ -906,6 +919,7 @@ do
 		errno.EAGAIN = 35
 		errno.EWOULDBLOCK = errno.EAGAIN
 		errno.EINPROGRESS = 36
+		errno.ENOTCONN = 57
 		errno.ENOTSOCK = 38
 		errno.ECONNRESET = 54
 		errno.ETIMEDOUT = 60
@@ -1440,7 +1454,7 @@ do
 
 		if timeout_messages[num] then return nil, "timeout", num end
 
-		if fd ~= socket.INVALID_SOCKET then
+		if not is_invalid_socket(fd) then
 			local client = setmetatable(
 				{
 					fd = fd,

@@ -9,12 +9,18 @@ local function load_windows_tls()
 	local secur32 = ffi.load("Secur32.dll")
 	local ws2 = ffi.load("ws2_32")
 	local kernel32 = ffi.load("kernel32")
+	local UNISP_NAME = "Microsoft Unified Security Protocol Provider"
 	local SECPKG_CRED_OUTBOUND = 2
-	local SECURITY_NATIVE_DREP = 0x00000010
+	local SECURITY_NETWORK_DREP = 0
+	local SCHANNEL_CRED_VERSION = 4
+	local SCH_CRED_AUTO_CRED_VALIDATION = 0x00000020
+	local SCH_CRED_NO_DEFAULT_CREDS = 0x00000010
+	local SCH_USE_STRONG_CRYPTO = 0x00400000
 	local SECBUFFER_VERSION = 0
 	local SECBUFFER_EMPTY = 0
 	local SECBUFFER_DATA = 1
 	local SECBUFFER_TOKEN = 2
+	local SECBUFFER_ALERT = 17
 	local SECBUFFER_EXTRA = 5
 	local SECBUFFER_STREAM_HEADER = 7
 	local SECBUFFER_STREAM_TRAILER = 6
@@ -24,17 +30,36 @@ local function load_windows_tls()
 	local ISC_REQ_CONFIDENTIALITY = 0x00000010
 	local ISC_REQ_ALLOCATE_MEMORY = 0x00000100
 	local ISC_REQ_STREAM = 0x00008000
-	local ISC_REQ_MANUAL_CRED_VALIDATION = 0x00080000
 	local SEC_E_OK = 0x00000000
 	local SEC_I_CONTINUE_NEEDED = 0x00090312
+	local SEC_I_COMPLETE_NEEDED = 0x00090313
+	local SEC_I_COMPLETE_AND_CONTINUE = 0x00090314
 	local SEC_E_INCOMPLETE_MESSAGE = 0x80090318
 	local SEC_I_CONTEXT_EXPIRED = 0x00090317
+	local WSAEWOULDBLOCK = 10035
+	local WSAEINPROGRESS = 10036
 	local FORMAT_MESSAGE_FROM_SYSTEM = 0x00001000
 	local FORMAT_MESSAGE_IGNORE_INSERTS = 0x00000200
 	local SECURITY_INTEGER = ffi.typeof("struct { uint32_t LowPart; int32_t HighPart; }")
 	local SecHandle = ffi.typeof("struct { uintptr_t dwLower; uintptr_t dwUpper; }")
 	local SecBuffer = ffi.typeof("struct { uint32_t cbBuffer; uint32_t BufferType; void* pvBuffer; }")
 	local SecBufferDesc = ffi.typeof("struct { uint32_t ulVersion; uint32_t cBuffers; $* pBuffers; }", SecBuffer)
+	local SCHANNEL_CRED = ffi.typeof([[struct {
+		uint32_t dwVersion;
+		uint32_t cCreds;
+		void* paCred;
+		void* hRootStore;
+		uint32_t cMappers;
+		void* aphMappers;
+		uint32_t cSupportedAlgs;
+		void* palgSupportedAlgs;
+		uint32_t grbitEnabledProtocols;
+		uint32_t dwMinimumCipherStrength;
+		uint32_t dwMaximumCipherStrength;
+		uint32_t dwSessionLifespan;
+		uint32_t dwFlags;
+		uint32_t dwCredFormat;
+	}]] )
 	local SecBuffer1 = ffi.typeof("$[1]", SecBuffer)
 	local SecBuffer2 = ffi.typeof("$[2]", SecBuffer)
 	local SecBuffer4 = ffi.typeof("$[4]", SecBuffer)
@@ -53,6 +78,7 @@ local function load_windows_tls()
 		int WSAGetLastError(void);
 		uint32_t AcquireCredentialsHandleA(const char*, const char*, uint32_t, void*, void*, void*, void*, void*, void*);
 		uint32_t InitializeSecurityContextA(void*, void*, const char*, uint32_t, uint32_t, uint32_t, void*, uint32_t, void*, void*, uint32_t*, void*);
+		uint32_t CompleteAuthToken(void*, void*);
 		uint32_t EncryptMessage(void*, uint32_t, void*, uint32_t);
 		uint32_t DecryptMessage(void*, void*, uint32_t, uint32_t*);
 		uint32_t DeleteSecurityContext(void*);
@@ -72,6 +98,8 @@ local function load_windows_tls()
 	local security_status_names = {
 		[0x00000000] = "SEC_E_OK",
 		[0x00090312] = "SEC_I_CONTINUE_NEEDED",
+		[0x00090313] = "SEC_I_COMPLETE_NEEDED",
+		[0x00090314] = "SEC_I_COMPLETE_AND_CONTINUE",
 		[0x80090318] = "SEC_E_INCOMPLETE_MESSAGE",
 		[0x00090317] = "SEC_I_CONTEXT_EXPIRED",
 		[0x80090301] = "SEC_E_INVALID_HANDLE",
@@ -138,12 +166,20 @@ local function load_windows_tls()
 		local recv_len = 0
 		local stored_fd = nil
 		local stream_sizes = nil
+		local context_initialized = false
+		local credentials = ffi.new(SCHANNEL_CRED)
+		credentials.dwVersion = SCHANNEL_CRED_VERSION
+		credentials.dwFlags = bit.bor(
+			SCH_CRED_AUTO_CRED_VALIDATION,
+			SCH_CRED_NO_DEFAULT_CREDS,
+			SCH_USE_STRONG_CRYPTO
+		)
 		local status = secur32.AcquireCredentialsHandleA(
 			nil,
-			"Microsoft Unified Security Protocol Provider",
+			UNISP_NAME,
 			SECPKG_CRED_OUTBOUND,
 			nil,
-			ffi.cast("void*", nil),
+			credentials,
 			nil,
 			nil,
 			hCreds,
@@ -165,18 +201,19 @@ local function load_windows_tls()
 				ISC_REQ_REPLAY_DETECT,
 				ISC_REQ_CONFIDENTIALITY,
 				ISC_REQ_ALLOCATE_MEMORY,
-				ISC_REQ_STREAM,
-				ISC_REQ_MANUAL_CRED_VALIDATION
+				ISC_REQ_STREAM
 			)
 			local host_cstr = host and ffi.cast("const char*", host) or nil
-			local context_initialized = false
 
 			while true do
-				local outBuffers = ffi.new(SecBuffer1)
+				local outBuffers = ffi.new(SecBuffer2)
 				outBuffers[0].BufferType = SECBUFFER_TOKEN
 				outBuffers[0].cbBuffer = 0
 				outBuffers[0].pvBuffer = nil
-				local outBufferDesc = ffi.new(SecBufferDesc, SECBUFFER_VERSION, 1, outBuffers)
+				outBuffers[1].BufferType = SECBUFFER_ALERT
+				outBuffers[1].cbBuffer = 0
+				outBuffers[1].pvBuffer = nil
+				local outBufferDesc = ffi.new(SecBufferDesc, SECBUFFER_VERSION, 2, outBuffers)
 				local inBuffers = nil
 				local inBufferDesc = nil
 				local contextAttribs = ffi.new("uint32_t[1]")
@@ -199,7 +236,7 @@ local function load_windows_tls()
 					host_cstr,
 					dwSSPIFlags,
 					0,
-					SECURITY_NATIVE_DREP,
+					SECURITY_NETWORK_DREP,
 					inBufferDesc,
 					0,
 					hContext,
@@ -209,12 +246,33 @@ local function load_windows_tls()
 				)
 				context_initialized = true
 
-				if status == SEC_E_OK or status == SEC_I_CONTINUE_NEEDED then
+				if status == SEC_I_COMPLETE_NEEDED or status == SEC_I_COMPLETE_AND_CONTINUE then
+					local complete_status = secur32.CompleteAuthToken(hContext, outBufferDesc)
+
+					if complete_status ~= SEC_E_OK then
+						return nil, "CompleteAuthToken failed: " .. get_security_error_string(complete_status)
+					end
+				end
+
+				if
+					status == SEC_E_OK or
+					status == SEC_I_CONTINUE_NEEDED or
+					status == SEC_I_COMPLETE_NEEDED or
+					status == SEC_I_COMPLETE_AND_CONTINUE
+				then
 					if outBuffers[0].cbBuffer > 0 and outBuffers[0].pvBuffer ~= nil then
 						local sent = ws2.send(fd, outBuffers[0].pvBuffer, outBuffers[0].cbBuffer, 0)
 						secur32.FreeContextBuffer(outBuffers[0].pvBuffer)
 
-						if sent <= 0 then return nil, "Failed to send handshake data" end
+						if sent <= 0 then
+							local err = ws2.WSAGetLastError()
+
+							if err == WSAEWOULDBLOCK or err == WSAEINPROGRESS then
+								return nil, "tryagain"
+							end
+
+							return nil, "Failed to send handshake data"
+						end
 					end
 
 					if
@@ -249,7 +307,12 @@ local function load_windows_tls()
 					elseif bytes == 0 then
 						return nil, "Connection closed during handshake"
 					else
-						local err = ffi.C.WSAGetLastError()
+						local err = ws2.WSAGetLastError()
+
+						if err == WSAEWOULDBLOCK or err == WSAEINPROGRESS then
+							return nil, "tryagain"
+						end
+
 						return nil, "recv failed: " .. get_wsa_error_string(err)
 					end
 				elseif status == SEC_E_INCOMPLETE_MESSAGE then
@@ -260,7 +323,12 @@ local function load_windows_tls()
 					elseif bytes == 0 then
 						return nil, "Connection closed during handshake"
 					else
-						local err = ffi.C.WSAGetLastError()
+						local err = ws2.WSAGetLastError()
+
+						if err == WSAEWOULDBLOCK or err == WSAEINPROGRESS then
+							return nil, "tryagain"
+						end
+
 						return nil, "recv failed: " .. get_wsa_error_string(err)
 					end
 				else
@@ -375,7 +443,13 @@ local function load_windows_tls()
 					elseif bytes == 0 then
 						return nil, "Connection closed while waiting for complete message"
 					else
-						return nil, "recv failed while waiting for complete message"
+						local err = ws2.WSAGetLastError()
+
+						if err == WSAEWOULDBLOCK or err == WSAEINPROGRESS then
+							return nil, "tryagain"
+						end
+
+						return nil, "recv failed while waiting for complete message: " .. get_wsa_error_string(err)
 					end
 				else
 					return nil, "DecryptMessage failed: " .. get_security_error_string(status)

@@ -84,14 +84,22 @@ function http.MixinHTTP(META)
 
 	do
 		local function decode_chunk(str)
-			local hex_num, rest = str:match("^([abcdefABCDEF0123456789]-)\r\n(.+)")
+			local hex_num, rest = str:match("^([abcdefABCDEF0123456789]+)\r\n(.*)")
 
-			if hex_num then
-				local num = tonumber("0x" .. hex_num)
-				return rest:sub(1, num),
-				rest:sub(num + 3),
-				rest:sub(num + 3):starts_with("0\r\n\r\n")
-			end
+			if not hex_num then return nil end
+
+			local num = tonumber(hex_num, 16)
+
+			if not num then return nil end
+
+			if #rest < num + 2 then return nil end
+
+			local chunk = rest:sub(1, num)
+			local suffix = rest:sub(num + 1, num + 2)
+
+			if suffix ~= "\r\n" then return nil end
+
+			return chunk, rest:sub(num + 3), num == 0
 		end
 
 		function META:WriteHTTP(chunk, is_response)
@@ -344,4 +352,5 @@ import("goluwa/sockets/http/request.lua")
 import("goluwa/sockets/http/api.lua")
 import("goluwa/sockets/http/uri.lua")
 import("goluwa/sockets/http/download.lua")
+
 return http

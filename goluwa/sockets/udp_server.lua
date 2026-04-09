@@ -85,6 +85,11 @@ function UDPServer:Error(message, ...)
 	return false
 end
 
+function UDPServer:OnError(str, tr)
+	self:Remove()
+	error(str)
+end
+
 function UDPServer:OnReceiveChunk(chunk, address) end
 
 function UDPServer.New(socket)

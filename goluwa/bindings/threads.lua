@@ -2,19 +2,26 @@ local ffi = require("ffi")
 local buffer = require("string.buffer")
 local setmetatable = import("goluwa/helpers/setmetatable_gc.lua")
 local threads = {}
+local alloc_lib = ffi.C
+
+ffi.cdef[[
+	void* malloc(size_t size);
+	void free(void* ptr);
+]]
 
 if ffi.os == "Windows" then
 	ffi.cdef[[
-		typedef uint32_t (*thread_callback)(void*);
+		typedef uint32_t (__stdcall *thread_callback)(void*);
+		typedef uintptr_t uintptr_t;
 
-        void* CreateThread(
-            void* lpThreadAttributes,
-            size_t dwStackSize,
-            thread_callback lpStartAddress,
-            void* lpParameter,
-            uint32_t dwCreationFlags,
-            uint32_t* lpThreadId
-        );
+		uintptr_t _beginthreadex(
+			void* security,
+			uint32_t stack_size,
+			thread_callback start_address,
+			void* arglist,
+			uint32_t initflag,
+			uint32_t* thrdaddr
+		);
         uint32_t WaitForSingleObject(void* hHandle, uint32_t dwMilliseconds);
         int CloseHandle(void* hObject);
         uint32_t GetLastError(void);
@@ -44,6 +51,16 @@ if ffi.os == "Windows" then
 		void Sleep(uint32_t dwMilliseconds);
     ]]
 	local kernel32 = ffi.load("kernel32")
+	local crt = (function()
+		for _, name in ipairs({"msvcrt", "ucrtbase"}) do
+			local ok, lib = pcall(ffi.load, name)
+
+			if ok then return lib end
+		end
+
+		error("failed to load C runtime for _beginthreadex")
+	end)()
+	alloc_lib = crt
 
 	local function check_win_error(success)
 		if success ~= 0 then return end
@@ -60,25 +77,22 @@ if ffi.os == "Windows" then
 		error(string.format("Thread operation failed: %s (Error code: %d)", err_msg, error_code), 2)
 	end
 
-	-- Constants
 	local INFINITE = 0xFFFFFFFF
-	local THREAD_ALL_ACCESS = 0x1F03FF
 
 	function threads.run_thread(func_ptr, udata)
 		local thread_id = ffi.new("uint32_t[1]")
-		local thread_handle = kernel32.CreateThread(
-			nil, -- Security attributes (default)
-			0, -- Stack size (default)
+		local thread_handle = crt._beginthreadex(
+			nil,
+			0,
 			ffi.cast("thread_callback", func_ptr),
-			udata, -- Thread parameter
-			0, -- Creation flags (run immediately)
-			thread_id -- Thread identifier
+			udata,
+			0,
+			thread_id
 		)
 
-		if thread_handle == nil then check_win_error(0) end
+		if thread_handle == 0 then check_win_error(0) end
 
-		-- Return both handle and ID for Windows
-		return {handle = thread_handle, id = thread_id[0]}
+		return {handle = ffi.cast("void*", thread_handle), id = thread_id[0]}
 	end
 
 	function threads.join_thread(thread_data)
@@ -179,16 +193,38 @@ function threads.pointer_encode(obj)
 	return buf, ptr, len
 end
 
-function threads.pointer_decode(ptr, len)
+function threads.pointer_encode_owned(obj)
+	local buf = buffer.new()
+	buf:encode(obj)
+	local ptr, len = buf:ref()
+	local size = tonumber(len) or 0
+	local mem = alloc_lib.malloc(math.max(size, 1))
+
+	if mem == nil then error("failed to allocate thread transport buffer", 2) end
+
+	if size > 0 then ffi.copy(mem, ptr, size) end
+
+	return ffi.cast("char*", mem), size
+end
+
+function threads.pointer_decode(ptr, len, free_after)
 	local buf = buffer.new()
 	buf:set(ptr, len)
-	return buf:decode()
+	local ok, result = pcall(function()
+		return buf:decode()
+	end)
+
+	if free_after and ptr ~= nil then alloc_lib.free(ptr) end
+
+	if not ok then error(result, 2) end
+
+	return result
 end
 
 threads.STATUS_UNDEFINED = 0
 threads.STATUS_COMPLETED = 1
 threads.STATUS_ERROR = 2
-local thread_func_signature = "void *(*)(void *)"
+local thread_func_signature = ffi.os == "Windows" and "uint32_t (__stdcall *)(void *)" or "void *(*)(void *)"
 local thread_data_t = ffi.typeof([[
 	struct {
 		char *input_buffer;
@@ -302,7 +338,7 @@ do
 				end
 
 				local input = threads.pointer_decode(data.input_buffer, tonumber(data.input_buffer_len))
-				local buf, ptr, len = threads.pointer_encode(run(input))
+				local ptr, len = threads.pointer_encode_owned(run(input))
 
 				data.output_buffer = ptr
 				data.output_buffer_len = len
@@ -321,7 +357,7 @@ do
 					data.status = threads.STATUS_ERROR
 
 					local data = ffi.cast(threads.thread_data_ptr_t, udata)
-					local buf, ptr, len = threads.pointer_encode({ok, err_or_ptr})
+					local ptr, len = threads.pointer_encode_owned({ok, err_or_ptr})
 					data.output_buffer = ptr
 					data.output_buffer_len = len
 
@@ -373,7 +409,11 @@ do
 			local status = self.input_data.status
 
 			if status == threads.STATUS_ERROR then
-				local res = threads.pointer_decode(self.input_data.output_buffer, self.input_data.output_buffer_len)
+				local res = threads.pointer_decode(
+					self.input_data.output_buffer,
+					self.input_data.output_buffer_len,
+					true
+				)
 				result, err = res[1], res[2]
 			end
 
@@ -386,7 +426,11 @@ do
 
 			return nil
 		else
-			local result = threads.pointer_decode(self.input_data.output_buffer, self.input_data.output_buffer_len)
+			local result = threads.pointer_decode(
+				self.input_data.output_buffer,
+				self.input_data.output_buffer_len,
+				true
+			)
 			local status = self.input_data.status
 			self.buffer = nil
 			self.input_data = nil
@@ -480,7 +524,7 @@ do
 					local work = threads.pointer_decode(control.work_data, control.work_data_len)
 					-- Process it with the worker function
 					local result = worker_func(work)
-					local buf, result_ptr, result_len = threads.pointer_encode(result)
+					local result_ptr, result_len = threads.pointer_encode_owned(result)
 					-- Store result pointer in control structure
 					control.result_data = result_ptr
 					control.result_data_len = result_len
@@ -530,7 +574,7 @@ do
 			threads.sleep(1)
 		end
 
-		return threads.pointer_decode(self.control[idx].result_data, self.control[idx].result_data_len)
+		return threads.pointer_decode(self.control[idx].result_data, self.control[idx].result_data_len, true)
 	end
 
 	-- Submit work to all threads

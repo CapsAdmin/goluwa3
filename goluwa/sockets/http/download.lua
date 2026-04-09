@@ -1,8 +1,11 @@
 local http = import("goluwa/sockets/http.lua")
-local HTTPClient = import("goluwa/sockets/http/http11_client.lua")
 local callback = import("goluwa/callback.lua")
 local event = import("goluwa/event.lua")
 local vfs = import("goluwa/vfs.lua")
+
+local function get_http_client()
+	return import("goluwa/sockets/http/http11_client.lua")
+end
 
 local function posixtime2http(posix_time)
 	return import("goluwa/date.lua")(posix_time):fmt("${http}")
@@ -77,7 +80,7 @@ end
 http.active_downloads = http.active_downloads or {}
 
 function http.DownloadSocket(url, on_finish, on_error, on_chunks, on_header, on_code)
-	local client = HTTPClient.New()
+	local client = get_http_client().New()
 	local lookup = {url = url, client = client}
 	list.insert(http.active_downloads, lookup)
 	local buffer = {}
@@ -198,7 +201,7 @@ function http.DownloadToPath(url, path, on_finish, on_error, on_progress, on_hea
 
 	if current_size > 0 then header["range"] = "bytes=" .. current_size .. "-" end
 
-	local client = HTTPClient.New()
+	local client = get_http_client().New()
 	client.url = url
 	local lookup = {url = url, client = client}
 	list.insert(http.active_downloads, lookup)
