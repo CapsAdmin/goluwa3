@@ -530,7 +530,7 @@ do
 	socket.create = load_socket_function(
 		"socket",
 		function(ret)
-			if ret <= 0 then return nil, socket.lasterror() end
+			if ret == nil or is_invalid_socket(ret) then return nil, socket.lasterror() end
 
 			return ret
 		end,
@@ -1257,9 +1257,15 @@ do
 	end
 
 	function meta:close()
+		if self._closed or self.fd == nil or is_invalid_socket(self.fd) then return true end
+
+		local fd = self.fd
+		self._closed = true
+		self.fd = nil
+
 		if self.on_close then self:on_close() end
 
-		return socket.close(self.fd)
+		return socket.close(fd)
 	end
 
 	function meta:set_blocking(b)
@@ -1585,13 +1591,21 @@ do
 			)
 
 			if len and len > 0 then
+				local addr_len = math.max(tonumber(ai_addrlen_res[0]) or 0, 0)
+				local addr_storage = ffi.new("uint8_t[?]", math.max(addr_len, 1))
+
+				if addr_len > 0 then
+					ffi.copy(addr_storage, src_address, addr_len)
+				end
+
 				addrinfo = M.addressinfo(
 					addrinfo_out{
-						ai_addr = ffi.cast(sockaddr_ptr, src_address),
-						ai_addrlen = ai_addrlen_res[0],
+						ai_addr = ffi.cast(sockaddr_ptr, addr_storage),
+						ai_addrlen = addr_len,
 						ai_family = AF.strict_lookup(self.family),
 					}
 				)
+				addrinfo._ai_addr_storage = addr_storage
 			end
 		else
 			len, err, num = socket.recv(self.fd, buff, size, flags or 0)
