@@ -155,6 +155,8 @@ do
 	end
 
 	function meta:Get()
+		self.warn_unhandled = false
+
 		if self.start_on_callback then
 			self.start_on_callback = nil
 			self:Start()
