@@ -111,8 +111,8 @@ if ffi.os == "Windows" then
 	end
 
 	-- Constants
-	local INFINITE = 0xFFFFFFFF
-	local WAIT_FAILED = 0xFFFFFFFF
+	local INFINITE = ffi.new("uint32_t", 0xFFFFFFFF)
+	local WAIT_FAILED = ffi.new("uint32_t", 0xFFFFFFFF)
 	local THREAD_ALL_ACCESS = 0x1F03FF
 	pool_signal_fields = [[
 			void *work_ready_event;
@@ -195,11 +195,11 @@ if ffi.os == "Windows" then
 		if thread_handle == 0 then error("failed to start CRT thread", 2) end
 
 		-- Return both handle and ID for Windows
-		return {handle = ffi.new("void *[1]", ffi.cast("void *", tonumber(thread_handle)))[0], id = thread_id[0]}
+		return {handle = ffi.cast("void *", thread_handle), id = thread_id[0]}
 	end
 
 	function threads.join_thread(thread_data)
-		local wait_result = tonumber(kernel32.WaitForSingleObject(thread_data.handle, INFINITE))
+		local wait_result = kernel32.WaitForSingleObject(thread_data.handle, INFINITE)
 
 		if wait_result == WAIT_FAILED then check_win_error(0) end
 
@@ -557,13 +557,17 @@ do
 		end
 	end
 
-	function threads.new(func)
+	function threads.new(worker_source)
 		release_dead_threads()
-		assert(type(func) == "string" or type(func) == "function", "thread worker must be a source string or function")
 		local self = setmetatable({}, meta)
-		local worker_source = type(func) == "string" and func or string.dump(func)
 		self.thread_state = LuaState.New()
-		self.func_ptr = ffi.cast(ffi.os == "Windows" and "thread_callback" or "void *(*)(void *)", self.thread_state:Run(worker_bootstrap, worker_source))
+		local ptr = self.thread_state:Run(worker_bootstrap, worker_source)
+		
+		if ffi.os == "Windows" then
+			self.func_ptr = ffi.cast("thread_callback", ptr)
+		else
+			self.func_ptr = ffi.cast("void *(*)(void *)", ptr)	
+		end
 	
 		return self
 	end
