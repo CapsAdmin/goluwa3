@@ -1044,6 +1044,11 @@ do
 
 		function fs.fd_open(path, flags, mode)
 			mode = mode or bit.bor(fs.O_IREAD, fs.O_IWRITE)
+
+			if bit.band(flags, bit.bor(fs.O_BINARY, fs.O_TEXT)) == 0 then
+				flags = bit.bor(flags, fs.O_BINARY)
+			end
+
 			local fd = ffi.C._open(path, flags, ffi.cast("int", mode))
 
 			if fd == -1 then return nil, last_error() end
