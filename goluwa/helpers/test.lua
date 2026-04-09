@@ -1363,8 +1363,7 @@ commands.Add({
 					t.next_warn_time = system.GetTime() + 5
 				end
 
-				-- Check for both completed and error status (status ~= STATUS_UNDEFINED)
-				local status = t.input_data and t.input_data.status
+				local status = threads.get_status(t)
 
 				if status and status ~= 0 then
 					local result, join_err = t:join()

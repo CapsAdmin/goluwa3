@@ -119,10 +119,7 @@ function module.Attach(audio)
 	end
 
 	function audio.GetDebugState()
-		local thread_status = audio.thread and
-			audio.thread.input_data and
-			audio.thread.input_data.status or
-			nil
+		local thread_status = audio.thread and threads.get_status(audio.thread) or nil
 		local thread_error
 
 		if
@@ -171,8 +168,7 @@ function module.Attach(audio)
 		import("goluwa/timer.lua").Delay(0.1, function()
 			if
 				audio.thread and
-				audio.thread.input_data and
-				audio.thread.input_data.status == threads.STATUS_ERROR
+				threads.get_status(audio.thread) == threads.STATUS_ERROR
 			then
 				local ok2, err = audio.thread:join()
 
