@@ -17,12 +17,22 @@ local function build_tree2(items, is_lexer, lowercase)
 
 	-- Use FFI if available, otherwise use tables
 	if has_ffi and jit then
+		local child_type
+
+		if max_nodes <= 0xFF then
+			child_type = "uint8_t"
+		elseif max_nodes <= 0xFFFF then
+			child_type = "uint16_t"
+		else
+			child_type = "uint32_t"
+		end
+
 		local node_type = ffi.typeof([[
 			struct {
-				uint8_t children[256];
+				$ children[256];
 				uint8_t end_marker;
 			}
-		]])
+		]], ffi.typeof(child_type))
 		local node_array_type = ffi.typeof("$[?]", node_type)
 		local nodes = ffi.new(node_array_type, max_nodes)
 		local string_storage = {}
