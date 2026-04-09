@@ -759,6 +759,26 @@ local function build_vertex_fragment_pipeline(obj, source)
 
 	obj.instance_attributes = attributes
 	obj.instance_binding = #attributes > 0 and 1 or nil
+	local love_texel_helper
+
+	if #attributes > 0 then
+		love_texel_helper = [[
+					vec4 love_texel(int tex, vec2 coords) {
+						if (tex < 0) return vec4(0.0);
+						vec2 tex_size = vec2(textureSize(TEXTURE(tex), 0));
+						vec2 pixel = floor(clamp(coords, vec2(0.0), vec2(0.999999)) * tex_size);
+						return texture(TEXTURE(tex), (pixel + 0.5) / max(tex_size, vec2(1.0)));
+					}
+		]]
+	else
+		love_texel_helper = [[
+					vec4 love_texel(int tex, vec2 coords) {
+						if (tex < 0) return vec4(0.0);
+						return texture(TEXTURE(tex), coords);
+					}
+		]]
+	end
+
 	return EasyPipeline.New{
 		name = "love_shader_vertex_fragment",
 		dont_create_framebuffers = true,
@@ -885,11 +905,7 @@ local function build_vertex_fragment_pipeline(obj, source)
 					#define Image int
 					#define extern
 
-					vec4 love_texel(int tex, vec2 coords) {
-						if (tex < 0) return vec4(0.0);
-						return texture(TEXTURE(tex), coords);
-					}
-
+			]] .. love_texel_helper .. [[
 					vec4 love_image_texelFetch(int tex, ivec2 coords, int lod) {
 						if (tex < 0) return vec4(0.0);
 						return texelFetch(TEXTURE(tex), coords, lod);

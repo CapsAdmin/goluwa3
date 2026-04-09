@@ -23,15 +23,12 @@ local function get_quad_uv_rect(drawable, quad)
 	local sample_y = quad.y * dpi_scale
 	local sample_w = quad.w * dpi_scale
 	local sample_h = quad.h * dpi_scale
-
-	if drawable_uses_linear_filter(drawable) then
-		local inset_x = math.min(0.5, sample_w / 2)
-		local inset_y = math.min(0.5, sample_h / 2)
-		sample_x = sample_x + inset_x
-		sample_y = sample_y + inset_y
-		sample_w = math.max(sample_w - (inset_x * 2), 0)
-		sample_h = math.max(sample_h - (inset_y * 2), 0)
-	end
+	local inset_x = math.min(0.5, sample_w / 2)
+	local inset_y = math.min(0.5, sample_h / 2)
+	sample_x = sample_x + inset_x
+	sample_y = sample_y + inset_y
+	sample_w = math.max(sample_w - (inset_x * 2), 0)
+	sample_h = math.max(sample_h - (inset_y * 2), 0)
 
 	return sample_x, sample_y, sample_w, sample_h
 end
