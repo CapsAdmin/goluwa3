@@ -8,7 +8,7 @@ local pairs = _G.pairs
 local jit = _G.jit--[[# as jit | nil]]
 local jit_options = {}
 
-if not jit then
+if not jit or rawget(_G, "_WORKER_THREAD") then
 	function jit_options.Set() end
 
 	function jit_options.SetOptimized() end

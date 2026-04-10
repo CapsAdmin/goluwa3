@@ -24,12 +24,24 @@ local function check_error(L, ret)
 	error(msg, 2)
 end
 
+function LuaState:Load(source)
+	assert(type(source) == "string", "source must be a string")
+	check_error(self.lua_state, ffi.C.luaL_loadstring(self.lua_state, source))
+	return true
+end
+
+function LuaState:GetTopString()
+	local out = ffi.C.lua_tolstring(self.lua_state, -1, nil)
+	if out == nil then return nil end
+	return ffi.string(out)
+end
+
 function LuaState:__gc()
 	self:Close()
 end
 
 function LuaState.New()
-    local L = ffi.C.luaL_newstate()
+	local L = ffi.C.luaL_newstate()
 
 	if L == nil then error("Failed to create new Lua state: Out of memory", 2) end
 
@@ -41,8 +53,7 @@ function LuaState.New()
 end
 
 function LuaState:Run(source, args)
-    assert(type(source) == "string", "source must be a string")
-	check_error(self.lua_state, ffi.C.luaL_loadstring(self.lua_state, source))
+	self:Load(source)
 
 	local nargs = 0
 
@@ -54,11 +65,15 @@ function LuaState:Run(source, args)
 
 	check_error(self.lua_state, ffi.C.lua_pcall(self.lua_state, nargs, 1, 0))
 	local out = ffi.C.lua_tolstring(self.lua_state, -1, nil)
+
+	if out == nil then
+		ffi.C.lua_settop(self.lua_state, -2)
+		error("Lua state did not return a pointer string", 2)
+	end
+
+	local result = ffi.C.strtoull(out, nil, 10)
 	ffi.C.lua_settop(self.lua_state, -2)
-
-	if out == nil then error("Lua state did not return a pointer string", 2) end
-
-	return ffi.C.strtoull(out, nil, 10)
+	return result
 end
 function LuaState:Close()
 	if not self.lua_state then return true end

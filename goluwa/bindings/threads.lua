@@ -46,10 +46,13 @@ local reset_pool_done
 local signal_pool_done
 local wait_pool_done
 local close_pool_signals
+local acquire_worker_mutex
+local release_worker_mutex
 
 if ffi.os == "Windows" then
 	ffi.cdef[[
 		typedef uint32_t (__stdcall *thread_callback)(void*);
+		typedef unsigned long (__stdcall *LPTHREAD_START_ROUTINE)(void*);
 		uintptr_t _beginthreadex(
 			void* security,
 			uint32_t stack_size,
@@ -57,6 +60,14 @@ if ffi.os == "Windows" then
 			void* arglist,
 			uint32_t initflag,
 			uint32_t* thrdaddr
+		);
+		void* CreateThread(
+			void* lpThreadAttributes,
+			size_t dwStackSize,
+			LPTHREAD_START_ROUTINE lpStartAddress,
+			void* lpParameter,
+			uint32_t dwCreationFlags,
+			uint32_t* lpThreadId
 		);
 
         uint32_t WaitForSingleObject(void* hHandle, uint32_t dwMilliseconds);
@@ -89,6 +100,9 @@ if ffi.os == "Windows" then
         void GetSystemInfo(SYSTEM_INFO* lpSystemInfo);
 
 		void Sleep(uint32_t dwMilliseconds);
+
+		void* CreateMutexA(void* lpMutexAttributes, int bInitialOwner, const char* lpName);
+		int ReleaseMutex(void* hMutex);
     ]]
 	local kernel32 = ffi.load("kernel32")
 	local crt = ffi.load("ucrtbase")
@@ -112,8 +126,22 @@ if ffi.os == "Windows" then
 
 	-- Constants
 	local INFINITE = ffi.new("uint32_t", 0xFFFFFFFF)
-	local WAIT_FAILED = ffi.new("uint32_t", 0xFFFFFFFF)
+	local WAIT_FAILED = 0xFFFFFFFF -- as Lua number, for comparison with tonumber() result
 	local THREAD_ALL_ACCESS = 0x1F03FF
+
+	-- Main-thread handle to the worker mutex. This serializes state creation
+	-- and destruction in the main thread with worker execution, preventing
+	-- concurrent access to LuaJIT's non-thread-safe x64 allocator.
+	local main_worker_mutex = kernel32.CreateMutexA(nil, 0, "goluwa_luajit_worker_mutex")
+
+	function acquire_worker_mutex()
+		kernel32.WaitForSingleObject(main_worker_mutex, INFINITE)
+	end
+
+	function release_worker_mutex()
+		kernel32.ReleaseMutex(main_worker_mutex)
+	end
+
 	pool_signal_fields = [[
 			void *work_ready_event;
 			void *work_done_event;
@@ -130,7 +158,7 @@ if ffi.os == "Windows" then
 
 	function is_thread_signal_done(data)
 		if data == nil or data.completed_event == nil then return false end
-		local result = kernel32.WaitForSingleObject(data.completed_event, 0)
+		local result = tonumber(kernel32.WaitForSingleObject(data.completed_event, 0))
 		if result == WAIT_OBJECT_0 then return true end
 		if result == WAIT_TIMEOUT then return false end
 		check_win_error(0)
@@ -159,7 +187,7 @@ if ffi.os == "Windows" then
 	end
 
 	function wait_pool_work(control)
-		local result = kernel32.WaitForSingleObject(control.work_ready_event, INFINITE)
+		local result = tonumber(kernel32.WaitForSingleObject(control.work_ready_event, INFINITE))
 		if result ~= WAIT_OBJECT_0 then check_win_error(0) end
 	end
 
@@ -172,7 +200,7 @@ if ffi.os == "Windows" then
 	end
 
 	function wait_pool_done(control)
-		local result = kernel32.WaitForSingleObject(control.work_done_event, INFINITE)
+		local result = tonumber(kernel32.WaitForSingleObject(control.work_done_event, INFINITE))
 		if result ~= WAIT_OBJECT_0 then check_win_error(0) end
 	end
 
@@ -190,28 +218,32 @@ if ffi.os == "Windows" then
 
 	function threads.run_thread(func_ptr, udata)
 		local thread_id = ffi.new("uint32_t[1]")
-		local thread_handle = crt._beginthreadex(nil, 0, ffi.cast("thread_callback", func_ptr), udata, 0, thread_id)
+		local start_routine = ffi.cast("LPTHREAD_START_ROUTINE", func_ptr)
+		local handle = kernel32.CreateThread(nil, 0, start_routine, udata, 0, thread_id)
 
-		if thread_handle == 0 then error("failed to start CRT thread", 2) end
+		if handle == nil then
+			check_win_error(0)
+		end
 
-		-- Return both handle and ID for Windows
-		return {handle = ffi.cast("void *", thread_handle), id = thread_id[0]}
+		return {handle = handle, id = thread_id[0]}
 	end
 
 	function threads.join_thread(thread_data)
-		local wait_result = kernel32.WaitForSingleObject(thread_data.handle, INFINITE)
+		local handle = thread_data.handle
+		if handle == nil then error("join_thread: handle is nil", 2) end
+		local wait_result = tonumber(kernel32.WaitForSingleObject(handle, INFINITE))
 
 		if wait_result == WAIT_FAILED then check_win_error(0) end
 
 		local exit_code = ffi.new("uint32_t[1]")
 
-		if kernel32.GetExitCodeThread(thread_data.handle, exit_code) == 0 then
+		if kernel32.GetExitCodeThread(handle, exit_code) == 0 then
 			check_win_error(0)
 		end
 
-		if kernel32.CloseHandle(thread_data.handle) == 0 then check_win_error(0) end
+		if kernel32.CloseHandle(handle) == 0 then check_win_error(0) end
 
-		return exit_code[0]
+		return tonumber(exit_code[0])
 	end
 
 	function threads.get_thread_count()
@@ -462,18 +494,49 @@ threads.signal_pool_done = signal_pool_done
 local worker_bootstrap = [=[
     local run = assert(load(...))
 	local ffi = require("ffi")
+	jit.off()
 	local callback_result = ffi.os == "Windows" and 0 or nil
+	local _init_kernel32
+	local _INFINITE
 
 	if ffi.os == "Windows" then
-		ffi.cdef[[typedef uint32_t (__stdcall *thread_callback)(void*);]]
+		ffi.cdef[[
+			typedef uint32_t (__stdcall *thread_callback)(void*);
+			void* CreateMutexA(void* lpMutexAttributes, int bInitialOwner, const char* lpName);
+			uint32_t WaitForSingleObject(void* hHandle, uint32_t dwMilliseconds);
+			int ReleaseMutex(void* hMutex);
+			int CloseHandle(void* hObject);
+		]]
+		_init_kernel32 = ffi.load("kernel32")
+		_INFINITE = ffi.new("uint32_t", 0xFFFFFFFF)
 	end
 
 	local function get_threads()
 		if rawget(_G, "import") == nil or rawget(_G, "require") == nil then
-			require("goluwa.global_environment")
+			_G._WORKER_THREAD = true
+
+			-- On Windows, serialize Lua state initialization to avoid
+			-- concurrent FFI/JIT internal state corruption in LuaJIT.
+			if ffi.os == "Windows" then
+				local mutex = _init_kernel32.CreateMutexA(nil, 0, "goluwa_luajit_init_mutex")
+				_init_kernel32.WaitForSingleObject(mutex, _INFINITE)
+				require("goluwa.global_environment")
+				_init_kernel32.ReleaseMutex(mutex)
+				_init_kernel32.CloseHandle(mutex)
+			else
+				require("goluwa.global_environment")
+			end
 		end
 
 		return import("goluwa/bindings/threads.lua")
+	end
+
+	-- On Windows, LuaJIT's default memory allocator is not thread-safe
+	-- across separate states on x64. Wrap all Lua-level worker execution
+	-- in a process-wide mutex to prevent concurrent allocator access.
+	local _worker_mutex
+	if ffi.os == "Windows" then
+		_worker_mutex = _init_kernel32.CreateMutexA(nil, 0, "goluwa_luajit_worker_mutex")
 	end
 
 	local function main(udata)
@@ -502,6 +565,13 @@ local worker_bootstrap = [=[
     end
 
 	local function main_protected(udata)
+		-- On Windows, acquire the worker mutex to serialize all Lua execution
+		-- across worker threads. LuaJIT's default allocator on x64 is not
+		-- thread-safe across separate lua_State instances.
+		if _worker_mutex then
+			_init_kernel32.WaitForSingleObject(_worker_mutex, _INFINITE)
+		end
+
 		local ok, err_or_ptr = pcall(main, udata)
 
 		if not ok then
@@ -515,7 +585,15 @@ local worker_bootstrap = [=[
 			data.output_buffer_len = len
 			threads.signal_thread_done(data)
 
+			if _worker_mutex then
+				_init_kernel32.ReleaseMutex(_worker_mutex)
+			end
+
 			return callback_result
+		end
+
+		if _worker_mutex then
+			_init_kernel32.ReleaseMutex(_worker_mutex)
 		end
 
 		return callback_result
@@ -552,7 +630,9 @@ do
 		end
 
 		if self.thread_state then
+			if acquire_worker_mutex then acquire_worker_mutex() end
 			self.thread_state:Close()
+			if release_worker_mutex then release_worker_mutex() end
 			self.thread_state = nil
 		end
 	end
@@ -560,9 +640,12 @@ do
 	function threads.new(worker_source)
 		release_dead_threads()
 		local self = setmetatable({}, meta)
+
+		if acquire_worker_mutex then acquire_worker_mutex() end
 		self.thread_state = LuaState.New()
 		local ptr = self.thread_state:Run(worker_bootstrap, worker_source)
-		
+		if release_worker_mutex then release_worker_mutex() end
+
 		if ffi.os == "Windows" then
 			self.func_ptr = ffi.cast("thread_callback", ptr)
 		else
@@ -615,20 +698,30 @@ do
 	function meta:join()
 		if not self.id then return nil end
 
-		threads.join_thread(self.id)
+		local exit_code = threads.join_thread(self.id)
 		self.id = nil
 		release_thread(self)
+		local status = tonumber(self.input_data.status)
+		local thread_error
+
+		if status == threads.STATUS_UNDEFINED and tonumber(exit_code) ~= 0 and self.thread_state then
+			thread_error = self.thread_state:GetTopString() or ("worker thread failed with lua_pcall status " .. tonumber(exit_code))
+			status = threads.STATUS_ERROR
+		end
 
 		if self.shared_mode then
 			local result, err
-			local status = self.input_data.status
 
 			if status == threads.STATUS_ERROR then
-				local res = threads.pointer_decode(self.input_data.output_buffer, self.input_data.output_buffer_len)
-				threads.pointer_free(self.input_data.output_buffer)
-				self.input_data.output_buffer = nil
-				self.input_data.output_buffer_len = 0
-				result, err = res[1], res[2]
+				if self.input_data.output_buffer ~= nil then
+					local res = threads.pointer_decode(self.input_data.output_buffer, self.input_data.output_buffer_len)
+					threads.pointer_free(self.input_data.output_buffer)
+					self.input_data.output_buffer = nil
+					self.input_data.output_buffer_len = 0
+					result, err = res[1], res[2]
+				else
+					err = thread_error or "worker thread terminated without reporting status"
+				end
 			end
 
 			-- Shared memory mode: no result to deserialize if successful
@@ -641,16 +734,23 @@ do
 
 			return nil
 		else
-			local result = threads.pointer_decode(self.input_data.output_buffer, self.input_data.output_buffer_len)
-			threads.pointer_free(self.input_data.output_buffer)
-			self.input_data.output_buffer = nil
-			self.input_data.output_buffer_len = 0
-			local status = self.input_data.status
+			local result
+
+			if self.input_data.output_buffer ~= nil then
+				result = threads.pointer_decode(self.input_data.output_buffer, self.input_data.output_buffer_len)
+				threads.pointer_free(self.input_data.output_buffer)
+				self.input_data.output_buffer = nil
+				self.input_data.output_buffer_len = 0
+			end
+
 			self.buffer = nil
 			close_thread_signal(self.input_data)
 			self.input_data = nil
 
-			if status == threads.STATUS_ERROR then return result[1], result[2] end
+			if status == threads.STATUS_ERROR then
+				if result ~= nil then return result[1], result[2] end
+				return nil, thread_error or "worker thread terminated without reporting status"
+			end
 
 			return result
 		end
@@ -662,7 +762,9 @@ do
 		release_thread(self)
 
 		if self.thread_state then
+			if acquire_worker_mutex then acquire_worker_mutex() end
 			self.thread_state:Close()
+			if release_worker_mutex then release_worker_mutex() end
 			self.thread_state = nil
 		end
 
