@@ -5,7 +5,7 @@ local io = require("io")
 
 local args = {...}
 local rounds = tonumber(args[1]) or 200
-local batch_size = tonumber(args[2]) or (ffi.os == "Windows" and 1 or math.max(threads.get_thread_count() * 4, 8))
+local batch_size = tonumber(args[2]) or math.min(math.max(threads.get_thread_count() * 4, 8), 32)
 local payload_size = tonumber(args[3]) or 256
 local log_path = args[4] or "game/storage/logs/thread_stress.log"
 
@@ -91,7 +91,7 @@ local shared_worker = [=[
 	job.done = 1
 ]=]
 
-local run_shared_phase = ffi.os ~= "Windows"
+local run_shared_phase = true
 
 local function start_serialized_batch(round)
 	local workers = {}
@@ -268,15 +268,15 @@ preflight_single_shared()
 for round = 1, rounds do
 	log_line("round", round, "phase", "serialized", "start")
 	local serialized_workers = start_serialized_batch(round)
-	churn_gc()
 	local serialized_checksum = join_serialized_batch(round, serialized_workers)
+	churn_gc()
 	log_line("round", round, "phase", "serialized", "checksum", serialized_checksum)
 
 	if run_shared_phase then
 		log_line("round", round, "phase", "shared", "start")
 		local jobs, shared_workers = start_shared_batch(round)
-		churn_gc()
 		local shared_checksum = join_shared_batch(round, jobs, shared_workers)
+		churn_gc()
 		log_line("round", round, "phase", "shared", "checksum", shared_checksum)
 	else
 		log_line("round", round, "phase", "shared", "skipped", ffi.os)
