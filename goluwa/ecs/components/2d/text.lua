@@ -6,6 +6,7 @@ local Vec2 = import("goluwa/structs/vec2.lua")
 local system = import("goluwa/system.lua")
 local event = import("goluwa/event.lua")
 local sequence_editor = import("goluwa/sequence_editor.lua")
+local pretext = import("goluwa/pretext/init.lua")
 local utf8 = import("goluwa/utf8.lua")
 local META = prototype.CreateTemplate("text")
 META:StartStorable()
@@ -24,6 +25,68 @@ META:GetSet("Color", Color(1, 1, 1, 1))
 META:GetSet("Editable", false, {callback = "OnEditableChanged"})
 META:EndStorable()
 
+local function get_wrap_width(self, available_width)
+	local width = self.Owner.transform.Size.x
+
+	if available_width and available_width > 1 then
+		width = available_width
+	elseif
+		self:GetWrapToParent() and
+		self.Owner:GetParent() and
+		self.Owner:GetParent().transform
+	then
+		width = self.Owner:GetParent().transform.Size.x
+	end
+
+	if self.Owner.layout then
+		local p = self.Owner.layout:GetPadding()
+		width = width - p.x - p.w
+	end
+
+	return width
+end
+
+local function build_wrap_layout(self, font, text, width)
+	local prepared = pretext.prepare(text, font)
+	local line_height = font:GetLineHeight()
+	local layout = pretext.layout_with_lines(prepared, width, line_height)
+	local raw_length = utf8.length(text)
+	local lines = {}
+	local ranges = {}
+
+	if #layout.lines == 0 then
+		lines[1] = ""
+		ranges[1] = {text = "", start = 1, stop = raw_length + 1, width = 0}
+	else
+		for i, line in ipairs(layout.lines) do
+			lines[i] = line.text
+			local start_index = pretext.cursor_to_text_index(prepared, line.start)
+			local stop_index = raw_length + 1
+
+			if layout.lines[i + 1] then
+				stop_index = pretext.cursor_to_text_index(prepared, layout.lines[i + 1].start)
+			end
+
+			ranges[i] = {
+				text = line.text,
+				start = start_index,
+				stop = stop_index,
+				width = line.width,
+			}
+		end
+	end
+
+	return {
+		prepared = prepared,
+		layout = layout,
+		lines = lines,
+		ranges = ranges,
+		text = table.concat(lines, "\n"),
+		raw_length = raw_length,
+		line_height = line_height,
+	}
+end
+
 function META:OnEditableChanged()
 	if self:GetEditable() then
 		if not self.Owner:HasComponent("key_input") then
@@ -38,6 +101,40 @@ function META:OnEditableChanged()
 				self._is_updating_from_editor = true
 				self:SetText(text)
 				self._is_updating_from_editor = false
+			end
+			self.editor.OnMoveUp = function(editor)
+				if not self:MoveCaretVertical(-1) then
+					local line, col = editor:GetVisualLineCol()
+					editor.PreferredVCol = editor.PreferredVCol or col
+
+					if line > 1 then editor:SetVisualLineCol(line - 1, editor.PreferredVCol) end
+				end
+			end
+			self.editor.OnMoveDown = function(editor)
+				if not self:MoveCaretVertical(1) then
+					local line, col = editor:GetVisualLineCol()
+					editor.PreferredVCol = editor.PreferredVCol or col
+					local line_count = editor:GetVisualLineCount()
+
+					if line < line_count then
+						editor:SetVisualLineCol(line + 1, editor.PreferredVCol)
+					end
+				end
+			end
+			self.editor.OnPageUp = function(editor)
+				if not self:MoveCaretVertical(-10) then
+					local line, col = editor:GetVisualLineCol()
+					editor.PreferredVCol = editor.PreferredVCol or col
+					editor:SetVisualLineCol(math.max(1, line - 10), editor.PreferredVCol)
+				end
+			end
+			self.editor.OnPageDown = function(editor)
+				if not self:MoveCaretVertical(10) then
+					local line, col = editor:GetVisualLineCol()
+					editor.PreferredVCol = editor.PreferredVCol or col
+					local line_count = editor:GetVisualLineCount()
+					editor:SetVisualLineCol(math.min(line_count, line + 10), editor.PreferredVCol)
+				end
 			end
 		end
 	end
@@ -68,6 +165,10 @@ function META:Initialize()
 				end
 
 				if press then
+					if key ~= "up" and key ~= "down" and key ~= "pageup" and key ~= "pagedown" then
+						self.preferred_caret_x = nil
+					end
+
 					self.editor:OnKeyInput(key)
 					self:ResetCaretBlink()
 				end
@@ -84,6 +185,7 @@ function META:Initialize()
 			if char:byte() == 127 then return end
 
 			if self:GetEditable() and self.editor and prototype.GetFocusedObject() == self.Owner then
+				self.preferred_caret_x = nil
 				self.editor:OnCharInput(char)
 				self:ResetCaretBlink()
 			end
@@ -97,6 +199,7 @@ function META:Initialize()
 			if self.dragging and self.editor then
 				local local_pos = self.Owner.transform:GlobalToLocal(pos)
 				local index = self:GetIndexAtPosition(local_pos.x, local_pos.y)
+				self.preferred_caret_x = nil
 				self.editor:SetCursor(index)
 				self:ResetCaretBlink()
 			end
@@ -152,23 +255,7 @@ function META:Measure(available_width, available_height)
 	local text = self:GetText()
 
 	if self:GetWrap() then
-		local width = self.Owner.transform.Size.x
-
-		if available_width and available_width > 1 then
-			width = available_width
-		elseif
-			self:GetWrapToParent() and
-			self.Owner:GetParent() and
-			self.Owner:GetParent().transform
-		then
-			width = self.Owner:GetParent().transform.Size.x
-		end
-
-		if self.Owner.layout then
-			local p = self.Owner.layout:GetPadding()
-			width = width - p.x - p.w
-		end
-
+		local width = get_wrap_width(self, available_width)
 		local wrapped = font:WrapString(text, width)
 		local w, h = font:GetTextSize(wrapped)
 
@@ -201,24 +288,14 @@ function META:OnTextChanged()
 		if self.editor:GetText() ~= text then self.editor:SetText(text) end
 	end
 
+	self.preferred_caret_x = nil
+
 	if self:GetWrap() then
-		local width = self.Owner.transform.Size.x
-
-		if
-			self:GetWrapToParent() and
-			self.Owner:GetParent() and
-			self.Owner:GetParent().transform
-		then
-			width = self.Owner:GetParent().transform.Size.x
-		end
-
-		if self.Owner.layout then
-			local p = self.Owner.layout:GetPadding()
-			width = width - p.x - p.w
-		end
-
-		self.wrapped_text = font:WrapString(text, width)
+		local width = get_wrap_width(self)
+		self.wrap_layout_info = build_wrap_layout(self, font, text, width)
+		self.wrapped_text = self.wrap_layout_info.text
 	else
+		self.wrap_layout_info = nil
 		self.wrapped_text = text
 	end
 
@@ -270,7 +347,10 @@ function META:IsCaretVisible()
 end
 
 function META:GetVisibleTextLines(text, font, lx, ly, clip_y1, clip_y2)
-	local lines = text:split("\n", true)
+	local lines = text
+
+	if type(lines) == "string" then lines = lines:split("\n", true) end
+
 	local line_height = font:GetLineHeight()
 	local vertical_step = line_height + font:GetSpacing()
 	local first = 1
@@ -294,7 +374,8 @@ function META:OnDraw()
 
 	if masked == nil then return end
 
-	local lines, line_height, vertical_step, visible_start, visible_stop = self:GetVisibleTextLines(text, font, lx, ly, clip_y1, clip_y2)
+	local source_lines = self.wrap_layout_info and self.wrap_layout_info.lines or text
+	local lines, line_height, vertical_step, visible_start, visible_stop = self:GetVisibleTextLines(source_lines, font, lx, ly, clip_y1, clip_y2)
 
 	if self:GetEditable() and self.editor and prototype.GetFocusedObject() == self.Owner then
 		local start, stop = self.editor:GetSelection()
@@ -406,7 +487,69 @@ function META:GetTextOffset()
 	return lx, ly
 end
 
+function META:MoveCaretVertical(delta)
+	if not (self:GetWrap() and self.wrap_layout_info and self.editor) then
+		return false
+	end
+
+	local font = self:GetFont() or fonts.GetDefaultFont()
+	local line, col = self:GetLineColFromIndex(self.editor.Cursor)
+	local lx, ly = self:GetTextOffset()
+	local line_height = font:GetLineHeight()
+	local vertical_step = line_height + font:GetSpacing()
+	local line_text = self.wrap_layout_info.lines[line] or ""
+	local prefix = utf8.sub(line_text, 1, col - 1)
+	local preferred_x = self.preferred_caret_x or (lx + font:GetTextSize(prefix))
+	local target_line = math.max(1, math.min(#self.wrap_layout_info.lines, line + delta))
+	local target_y = ly + (target_line - 1) * vertical_step + line_height * 0.5
+	local index = self:GetIndexAtPosition(preferred_x, target_y)
+	self.editor:SetCursor(index)
+	self.preferred_caret_x = preferred_x
+	return true
+end
+
 function META:GetIndexAtPosition(mx, my)
+	if self:GetWrap() and self.wrap_layout_info then
+		local font = self:GetFont() or fonts.GetDefaultFont()
+		local lx, ly = self:GetTextOffset()
+		local rx, ry = mx - lx, my - ly
+		local line_height = font:GetLineHeight()
+		local vertical_step = line_height + font:GetSpacing()
+		local ranges = self.wrap_layout_info.ranges
+		local line_idx = math.floor(ry / vertical_step) + 1
+
+		if line_idx < 1 then
+			line_idx = 1
+			rx = -1e9
+		end
+
+		if line_idx > #ranges then
+			line_idx = #ranges
+			rx = 1e9
+		end
+
+		local line_text = ranges[line_idx] and ranges[line_idx].text or ""
+		local char_idx_in_line = 1
+		local cumulative_w = 0
+
+		for i, char in ipairs(utf8.to_list(line_text)) do
+			local cw = font:GetTextSize(char)
+
+			if rx < cumulative_w + cw / 2 then
+				char_idx_in_line = i
+
+				break
+			end
+
+			cumulative_w = cumulative_w + cw
+			char_idx_in_line = i + 1
+		end
+
+		local line_range = ranges[line_idx]
+		local max_index = line_range.start + utf8.length(line_text)
+		return math.min(line_range.start + char_idx_in_line - 1, max_index)
+	end
+
 	local font = self:GetFont() or fonts.GetDefaultFont()
 	local text = self.wrapped_text or self:GetText()
 	local lx, ly = self:GetTextOffset()
@@ -484,6 +627,34 @@ function META:GetIndexAtPosition(mx, my)
 end
 
 function META:GetLineColFromIndex(cursor)
+	if self:GetWrap() and self.wrap_layout_info then
+		local ranges = self.wrap_layout_info.ranges
+
+		for i, range in ipairs(ranges) do
+			if cursor < range.start then return i, 1 end
+
+			local is_last = i == #ranges
+			local visible_len = utf8.length(range.text)
+
+			if
+				(
+					cursor >= range.start and
+					cursor < range.stop
+				)
+				or
+				(
+					is_last and
+					cursor <= range.stop
+				)
+			then
+				return i, math.min(math.max(cursor - range.start + 1, 1), visible_len + 1)
+			end
+		end
+
+		local last = ranges[#ranges]
+		return #ranges, utf8.length(last.text) + 1
+	end
+
 	local text = self.wrapped_text or self:GetText()
 	local raw_text = self:GetText()
 	local text_idx = 1
@@ -527,6 +698,7 @@ function META:OnMouseInput(button, press, local_pos)
 	if self:GetEditable() and button == "button_1" then
 		if press then
 			if self.editor then
+				self.preferred_caret_x = nil
 				local now = system.GetElapsedTime()
 				local index = self:GetIndexAtPosition(local_pos.x, local_pos.y)
 

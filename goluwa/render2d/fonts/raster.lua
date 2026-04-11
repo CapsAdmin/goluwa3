@@ -9,6 +9,7 @@ local prototype = import("goluwa/prototype.lua")
 local utf8 = import("goluwa/utf8.lua")
 local event = import("goluwa/event.lua")
 local TextureAtlas = import("goluwa/render/texture_atlas.lua")
+local pretext = import("goluwa/pretext/init.lua")
 local META = prototype.CreateTemplate("raster_font")
 META.IsFont = true
 META:GetSet("Fonts", {}, {callback = "OnFontsChanged"})
@@ -566,78 +567,26 @@ function META:GetTextSize(str)
 	return self:GetTextSizeNotCached(str)
 end
 
-do
-	local function wrap(self, str, max_width)
-		local tbl = str:utf8_to_list()
-		local lines = {}
-		local chars = {}
-		local i = 1
-		local width = 0
-		local width_before_last_space = 0
-		local last_space_index = -1
-		local prev_char
+function META:WrapString(str, max_width)
+	str = tostring(str or "")
+	max_width = max_width or 0
+	self.wrap_string_cache = self.wrap_string_cache or {}
+	local cache_key = tostring(max_width) .. "\0" .. str
 
-		while i < #tbl do
-			local c = tbl[i]
-			local char_width = self:GetTextSize(c)
-			local new_width = width + char_width
-
-			if c == "\n" then
-				list.insert(lines, list.concat(chars))
-				list.clear(chars)
-				width = 0
-				width_before_last_space = 0
-				prev_char = nil
-				last_space_index = -1
-				i = i + 1
-			elseif c ~= " " and width >= max_width then
-				if #chars == 0 then
-					i = i + 1
-				elseif last_space_index ~= -1 then
-					for j = #chars, 1, -1 do
-						if chars[j] == " " then break end
-
-						list.remove(chars, j)
-					end
-
-					width = width_before_last_space
-					i = last_space_index + 1
-				end
-
-				list.insert(lines, list.concat(chars))
-				list.clear(chars)
-				prev_char = nil
-				width = char_width
-				width_before_last_space = 0
-				last_space_index = -1
-			else
-				if prev_char ~= " " and c == " " then
-					width_before_last_space = width
-				end
-
-				width = new_width
-				prev_char = c
-				list.insert(chars, c)
-
-				if c == " " then last_space_index = i end
-
-				i = i + 1
-			end
-		end
-
-		if #chars ~= 0 then list.insert(lines, list.concat(chars)) end
-
-		return list.concat(lines, "\n")
+	if self.wrap_string_cache[cache_key] ~= nil then
+		return self.wrap_string_cache[cache_key]
 	end
 
-	function META:WrapString(str, max_width)
-		str = tostring(str or "")
-		local size = self:GetTextSize(str)
+	local size = self:GetTextSize(str)
 
-		if max_width > size then return str end
-
-		return wrap(self, str, max_width)
+	if max_width > size then
+		self.wrap_string_cache[cache_key] = str
+		return str
 	end
+
+	local wrapped = pretext.wrap_font_text(self, str, max_width)
+	self.wrap_string_cache[cache_key] = wrapped
+	return wrapped
 end
 
 return META:Register()

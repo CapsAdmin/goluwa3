@@ -15,6 +15,7 @@ local Texture = import("goluwa/render/texture.lua")
 local clipboard = import("goluwa/bindings/clipboard.lua")
 local sequence_editor = import("goluwa/sequence_editor.lua")
 local MarkupBuffer = import("goluwa/render2d/markup_buffer.lua")
+local pretext = import("goluwa/pretext/init.lua")
 local Markup = prototype.CreateTemplate("markup")
 Markup.tags = {}
 Markup:GetSet("Table", {})
@@ -36,6 +37,24 @@ Markup:GetSet("CopyTags", true)
 Markup:GetSet("PreserveTabsOnEnter", true)
 Markup:GetSet("FixedSize", 0)
 
+local function move_editor_vertically(markup, delta)
+	local caret = markup.caret_pos or markup:CaretFromSubPos(markup.editor.Cursor)
+
+	if not caret or not caret.char or not caret.char.data then return end
+
+	local data = caret.char.data
+	local target_x = (markup.real_x or data.x) + data.w / 2
+	local target_y = data.y + data.h * delta + 1
+	local next_caret = markup:CaretFromPixels(target_x, target_y)
+
+	if next_caret then
+		markup.editor.Cursor = next_caret.i
+		markup.caret_pos = next_caret
+	end
+
+	markup:ResetCaretBlink()
+end
+
 function Markup.New(str, skip_invalidate)
 	local self = Markup:CreateObject{
 		w = 0,
@@ -50,6 +69,18 @@ function Markup.New(str, skip_invalidate)
 		started_tags = {},
 	}
 	self.editor = sequence_editor.New(MarkupBuffer.New(nil, self))
+	self.editor.OnMoveUp = function()
+		move_editor_vertically(self, -1)
+	end
+	self.editor.OnMoveDown = function()
+		move_editor_vertically(self, 1)
+	end
+	self.editor.OnPageUp = function()
+		move_editor_vertically(self, -10)
+	end
+	self.editor.OnPageDown = function()
+		move_editor_vertically(self, 10)
+	end
 
 	if str then self:SetText(str) end
 
@@ -1348,39 +1379,48 @@ do -- invalidate
 
 	local function additional_split(self, word, max_width, out)
 		out = out or {}
-		local left_word, right_word = utf8.mid_split(word)
-		local left_width, left_height = get_text_size(self, left_word)
+		local _, line_height = get_text_size(self, "|")
+		local prepared = pretext.prepare(
+			word,
+			{
+				MeasureText = function(_, text)
+					return get_text_size(self, text)
+				end,
+				GetLineHeight = function()
+					return line_height
+				end,
+				GetSpaceAdvance = function(_)
+					return select(1, get_text_size(self, " "))
+				end,
+				GetTabAdvance = function(_, space_width, tab_size)
+					return (space_width or 0) * (tab_size or 4)
+				end,
+				GetGlyphAdvance = function(_, text)
+					return select(1, get_text_size(self, text))
+				end,
+			}
+		)
+		local result = pretext.layout_with_lines(prepared, max_width, line_height)
 
-		if left_width >= max_width and left_word:utf8_length() > 1 then
-			additional_split(self, left_word, max_width, out)
-		else
-			list.insert(
-				out,
-				1,
-				{
-					type = "string",
-					w = left_width,
-					h = left_height,
-					val = left_word,
-				}
-			)
+		if #result.lines == 0 then
+			local width, height = get_text_size(self, word)
+			out[#out + 1] = {
+				type = "string",
+				w = width,
+				h = height,
+				val = word,
+			}
+			return out
 		end
 
-		local right_width, right_height = get_text_size(self, right_word)
-
-		if right_width >= max_width and right_word:utf8_length() > 1 then
-			additional_split(self, right_word, max_width, out)
-		else
-			list.insert(
-				out,
-				1,
-				{
-					type = "string",
-					w = right_width,
-					h = right_height,
-					val = right_word,
-				}
-			)
+		for _, line in ipairs(result.lines) do
+			local width, height = get_text_size(self, line.text)
+			out[#out + 1] = {
+				type = "string",
+				w = width,
+				h = height,
+				val = line.text,
+			}
 		end
 
 		return out
@@ -1395,10 +1435,10 @@ do -- invalidate
 					if not chunk.nolinebreak and chunk.w >= self.MaxWidth then
 						list.remove(chunks, i)
 
-						for _, new_chunk in ipairs(additional_split(self, chunk.val, self.MaxWidth)) do
+						for offset, new_chunk in ipairs(additional_split(self, chunk.val, self.MaxWidth)) do
 							new_chunk.old_chunk = chunk
 							new_chunk.h = chunk.h
-							list.insert(chunks, i, new_chunk)
+							list.insert(chunks, i + offset - 1, new_chunk)
 						end
 					end
 				end

@@ -10,6 +10,7 @@ local utf8 = import("goluwa/utf8.lua")
 local event = import("goluwa/event.lua")
 local TextureAtlas = import("goluwa/render/texture_atlas.lua")
 local EasyPipeline = import("goluwa/render/easy_pipeline.lua")
+local pretext = import("goluwa/pretext/init.lua")
 local META = prototype.CreateTemplate("sdf_font")
 META.IsFont = true
 META:GetSet("Fonts", {}, {callback = "OnFontsChanged"})
@@ -111,8 +112,6 @@ function META:GetJFAPipelines()
 					void main() {
 						vec4 tex = texture(TEXTURE(fragment.tex_idx), in_uv);
 						float mask = max(tex.r, tex.a);
-						// Use coverage-aware seeding: pixels with any partial
-						// coverage are seeds, which captures the anti-aliased edge
 						bool is_seed = (fragment.mode == 0) ? (mask > 0.02) : (mask < 0.98);
 						if (is_seed) {
 							set_rg(in_uv);
@@ -153,7 +152,7 @@ function META:GetJFAPipelines()
 					void main() {
 						vec2 best_seed = texture(TEXTURE(fragment.tex_idx), in_uv).rg;
 						float best_dist = (best_seed.x < 0.0) ? 1e10 : length((best_seed - in_uv) * fragment.size);
-						
+
 						for (int y = -1; y <= 1; y++) {
 							for (int x = -1; x <= 1; x++) {
 								if (x == 0 && y == 0) continue;
@@ -244,21 +243,12 @@ function META:GetJFAPipelines()
 					void main() {
 						float d_on = texture(TEXTURE(fragment.dist_on_idx), in_uv).r;
 						float d_off = texture(TEXTURE(fragment.dist_off_idx), in_uv).r;
-
-						// Use the original anti-aliased mask to refine the distance
-						// at glyph boundaries for sub-pixel accuracy
 						vec4 mask_sample = texture(TEXTURE(fragment.mask_idx), in_uv);
 						float coverage = max(mask_sample.r, mask_sample.a);
-
 						float dist = d_off - d_on;
-
-						// Near the edge (within ~1.5 supersampled pixels), blend in
-						// a sub-pixel correction derived from the AA coverage.
-						// coverage 0.5 = exactly on the edge = dist should be 0.
 						float aa_offset = (coverage - 0.5);
 						float edge_weight = smoothstep(2.0, 0.0, abs(dist));
 						dist = mix(dist, -aa_offset, edge_weight);
-
 						float norm_dist = clamp(dist / (fragment.max_dist * 2.0) + 0.5, 0.0, 1.0);
 						set_rgba(vec4(norm_dist, norm_dist, norm_dist, 1.0));
 					}
@@ -872,89 +862,52 @@ do
 		return self:GetTextSizeNotCached(str)
 	end
 
-	do -- text wrap
-		local function wrap(self, str, max_width)
-			local tbl = str:utf8_to_list()
-			local lines = {}
-			local chars = {}
-			local i = 1
-			local width = 0
-			local width_before_last_space = 0
-			local width_of_trailing_space = 0
-			local last_space_index = -1
-			local prev_char
+	function META:MeasureText(str)
+		return self:GetTextSize(str)
+	end
 
-			while i < #tbl do
-				local c = tbl[i]
-				local char_width = self:GetTextSize(c)
-				local new_width = width + char_width
+	function META:GetSpaceAdvance()
+		local width = select(1, self:GetTextSize(" "))
 
-				if c == "\n" then
-					list.insert(lines, list.concat(chars))
-					list.clear(chars)
-					width = 0
-					width_before_last_space = 0
-					width_of_trailing_space = 0
-					prev_char = nil
-					last_space_index = -1
-					i = i + 1
-				elseif char ~= " " and width >= max_width then
-					if #chars == 0 then
-						i = i + 1
-					elseif last_space_index ~= -1 then
-						for i = #chars, 1, -1 do
-							if chars[i] == " " then break end
-
-							list.remove(chars, i)
-						end
-
-						width = width_before_last_space
-						i = last_space_index
-						i = i + 1
-					end
-
-					list.insert(lines, list.concat(chars))
-					list.clear(chars)
-					prev_char = nil
-					width = char_width
-					width_before_last_space = 0
-					width_of_trailing_space = 0
-					last_space_index = -1
-				else
-					if prev_char ~= " " and c == " " then
-						width_before_last_space = width
-					end
-
-					width = new_width
-					prev_char = c
-					list.insert(chars, c)
-
-					if c == " " then
-						last_space_index = i
-					elseif c ~= "\n" then
-						width_of_trailing_space = 0
-					end
-
-					i = i + 1
-				end
-			end
-
-			if #chars ~= 0 then list.insert(lines, list.concat(chars)) end
-
-			return list.concat(lines, "\n")
+		if width == 0 then
+			width = select(1, self:GetTextSize("| |")) - select(1, self:GetTextSize("||"))
 		end
 
-		function META:WrapString(str, max_width)
-			str = tostring(str or "")
-			local size = self:GetTextSize(str)
+		return width
+	end
 
-			--print(size, max_width)
-			--if max_width < size then return list.concat(str:split(""), "\n") end
-			if max_width > size then return str end
-
-			local res = wrap(self, str, max_width)
-			return res
+	function META:GetTabAdvance(space_width, tab_size, current_width)
+		if self.GetTabWidth then
+			return self:GetTabWidth(space_width, tab_size, current_width)
 		end
+
+		return (space_width or self:GetSpaceAdvance()) * (tab_size or 4)
+	end
+
+	function META:GetGlyphAdvance(char)
+		return select(1, self:GetTextSize(char))
+	end
+
+	function META:WrapString(str, max_width)
+		str = tostring(str or "")
+		max_width = max_width or 0
+		self.wrap_string_cache = self.wrap_string_cache or {}
+		local cache_key = tostring(max_width) .. "\0" .. str
+
+		if self.wrap_string_cache[cache_key] ~= nil then
+			return self.wrap_string_cache[cache_key]
+		end
+
+		local size = self:GetTextSize(str)
+
+		if max_width > size then
+			self.wrap_string_cache[cache_key] = str
+			return str
+		end
+
+		local wrapped = pretext.wrap_font_text(self, str, max_width)
+		self.wrap_string_cache[cache_key] = wrapped
+		return wrapped
 	end
 end
 

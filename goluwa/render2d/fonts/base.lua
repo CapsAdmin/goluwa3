@@ -4,6 +4,8 @@ local Texture = import("goluwa/render/texture.lua")
 local Buffer = import("goluwa/structs/buffer.lua")
 local system = import("goluwa/system.lua")
 local prototype = import("goluwa/prototype.lua")
+local utf8 = import("goluwa/utf8.lua")
+local pretext = import("goluwa/pretext/init.lua")
 local META = prototype.CreateTemplate("font_base")
 META.IsFont = true
 META:GetSet("Path", "default")
@@ -252,12 +254,48 @@ function META:GetTextSize(str)
 	return X, Y
 end
 
+function META:MeasureText(str)
+	return self:GetTextSize(str)
+end
+
+function META:GetLineHeight()
+	return 8
+end
+
+function META:GetSpaceAdvance()
+	local width = select(1, self:GetTextSize(" "))
+
+	if width == 0 then
+		width = select(1, self:GetTextSize("| |")) - select(1, self:GetTextSize("||"))
+	end
+
+	return width
+end
+
+function META:GetTabAdvance(space_width, tab_size, current_width)
+	return (space_width or self:GetSpaceAdvance()) * (tab_size or 4)
+end
+
+function META:GetGlyphAdvance(char)
+	return select(1, self:GetTextSize(char))
+end
+
 function META:GetAscent()
 	return 8
 end
 
 function META:GetDescent()
 	return 0
+end
+
+function META:WrapString(str, max_width)
+	str = tostring(str or "")
+	max_width = max_width or 0
+	local size = self:GetTextSize(str)
+
+	if max_width > size then return str end
+
+	return pretext.wrap_font_text(self, str, max_width)
 end
 
 function META:DrawString(str, x, y, spacing)

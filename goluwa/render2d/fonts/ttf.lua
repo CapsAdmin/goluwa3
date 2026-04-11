@@ -9,6 +9,7 @@ local codec = import("goluwa/codec.lua")
 local gfx = import("goluwa/render2d/gfx.lua")
 local math2d = import("goluwa/render2d/math2d.lua")
 local prototype = import("goluwa/prototype.lua")
+local pretext = import("goluwa/pretext/init.lua")
 local META = prototype.CreateTemplate("font_ttf")
 META.IsFont = true
 META:GetSet("Path", nil)
@@ -723,6 +724,10 @@ function META:GetDescent()
 	return self.descent
 end
 
+function META:GetLineHeight()
+	return self.Size
+end
+
 function META:GetGlyph(char_code)
 	if type(char_code) == "string" then char_code = utf8.uint32(char_code) end
 
@@ -801,6 +806,47 @@ function META:GetTextSize(str)
 	if max_x ~= 0 then X = max_x end
 
 	return X, Y
+end
+
+function META:MeasureText(str)
+	return self:GetTextSize(str)
+end
+
+function META:GetSpaceAdvance()
+	local width = select(1, self:GetTextSize(" "))
+
+	if width == 0 then
+		width = select(1, self:GetTextSize("| |")) - select(1, self:GetTextSize("||"))
+	end
+
+	return width
+end
+
+function META:GetTabAdvance(space_width, tab_size, current_width)
+	if self.GetTabWidth then
+		return self:GetTabWidth(space_width, tab_size, current_width)
+	end
+
+	return (space_width or self:GetSpaceAdvance()) * (tab_size or 4)
+end
+
+function META:GetGlyphAdvance(char)
+	local codepoint = type(char) == "number" and char or utf8.uint32(char)
+	local glyph = self:GetGlyph(codepoint)
+
+	if glyph and glyph.x_advance then return glyph.x_advance end
+
+	return select(1, self:GetTextSize(char))
+end
+
+function META:WrapString(str, max_width)
+	str = tostring(str or "")
+	max_width = max_width or 0
+	local size = self:GetTextSize(str)
+
+	if max_width > size then return str end
+
+	return pretext.wrap_font_text(self, str, max_width)
 end
 
 function META:DrawText(str, x, y, spacing, align_x, align_y)

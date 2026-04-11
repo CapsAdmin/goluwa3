@@ -1,6 +1,7 @@
 local T = import("test/environment.lua")
 local MarkupBuffer = import("goluwa/render2d/markup_buffer.lua")
 local Markup = import("goluwa/render2d/markup.lua")
+local base_font = import("goluwa/render2d/fonts/base.lua")
 local Color = import("goluwa/structs/color.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 
@@ -165,4 +166,59 @@ T.Test2D("Markup mouse release updates selection stop", function()
 	m:SetMousePosition(Vec2(stop.x + math.max(stop.w * 0.5, 1), stop.y + 1))
 	m:OnMouseInput("button_1", false)
 	T(m.editor.Cursor)["=="](stop_caret.i)
+end)
+
+T.Test2D("Markup wraps oversized tokens with pretext", function()
+	local m = Markup.New(nil, true)
+	m:AddFont(base_font.New())
+	m:AddString("abcdefgh")
+	m:SetMaxWidth(16)
+	m:Invalidate()
+	local parts = {}
+	local lines = {}
+
+	for _, chunk in ipairs(m.chunks) do
+		if chunk.type == "string" and chunk.val ~= "" and not chunk.internal then
+			parts[#parts + 1] = chunk.val
+			lines[#lines + 1] = chunk.line
+		end
+	end
+
+	T(table.concat(parts, ","))["=="]("ab,cd,ef,gh")
+	T(table.concat(lines, ","))["=="]("1,2,3,4")
+end)
+
+T.Test2D("Markup preserves word wrapping with fixed metrics", function()
+	local m = Markup.New(nil, true)
+	m:AddFont(base_font.New())
+	m:AddString("hello world again")
+	m:SetMaxWidth(40)
+	m:Invalidate()
+	local words = {}
+	local lines = {}
+
+	for _, chunk in ipairs(m.chunks) do
+		if chunk.type == "string" and chunk.val:find("^%S+$") and not chunk.internal then
+			words[#words + 1] = chunk.val
+			lines[#lines + 1] = chunk.line
+		end
+	end
+
+	T(table.concat(words, ","))["=="]("hello,world,again")
+	T(table.concat(lines, ","))["=="]("1,2,3")
+end)
+
+T.Test2D("Markup visual down movement follows wrapped layout", function()
+	local m = Markup.New(nil, true)
+	m:AddFont(base_font.New())
+	m:AddString("abcdefgh")
+	m:SetEditable(true)
+	m:SetMaxWidth(16)
+	m:Invalidate()
+	m:SetCaretSubPosition(1)
+
+	local caret = m.caret_pos
+	local expected = m:CaretFromPixels(caret.char.data.x + caret.char.data.w / 2, caret.char.data.y + caret.char.data.h + 1)
+	m:OnKeyInput("down")
+	T(m.editor.Cursor)["=="](expected.i)
 end)
